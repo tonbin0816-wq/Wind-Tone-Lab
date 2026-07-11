@@ -769,7 +769,14 @@ export default function WindToneLabPhaseMode() {
       };
       tick();
     } catch (err) {
-      setErrorMsg("マイクにアクセスできませんでした。ブラウザの権限設定を確認してください。");
+      console.error("getUserMedia failed:", err.name, err.message, err);
+      const hints = {
+        NotAllowedError: "マイクへのアクセスが拒否されています。ブラウザのアドレスバー付近のマイクアイコン、またはサイト設定から許可してください。",
+        NotFoundError: "マイクデバイスが見つかりません。PCにマイクが接続されているか確認してください。",
+        NotReadableError: "マイクが他のアプリで使用中の可能性があります。他のアプリ（Zoom等）を閉じて再試行してください。",
+        SecurityError: "この接続はマイクアクセスに必要なセキュア(HTTPS/localhost)条件を満たしていません。",
+      };
+      setErrorMsg(`マイクにアクセスできませんでした [${err.name}]: ${hints[err.name] || err.message}`);
       setIsRunning(false);
     }
   }, [mode, selectedIdeal, fingeringTable, preset, temperature]);
