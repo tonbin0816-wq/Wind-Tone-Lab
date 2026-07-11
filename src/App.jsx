@@ -452,6 +452,48 @@ const REED_STRENGTHS = ["2.0", "2.5", "3.0", "3.5", "4.0"];
 const REED_BOX_SIZE = 10; // リード1箱あたりの枚数
 
 // ============================================================
+// リードのグルーピング・表示名ヘルパー
+// 銘柄・番手・使用開始日が同じリードは「同じ箱」とみなし、
+// 登録順(createdAt)で1からの通し番号を振る。一覧表示・データ分析での
+// 個体識別(#N)に共通して使う。
+// ============================================================
+function reedGroupKey(r) {
+  return `${r.brand}|${r.strength}|${r.startDate}`;
+}
+
+function groupReeds(reeds) {
+  const groups = {};
+  for (const r of reeds) {
+    const key = reedGroupKey(r);
+    if (!groups[key]) groups[key] = { key, brand: r.brand, strength: r.strength, startDate: r.startDate, members: [] };
+    groups[key].members.push(r);
+  }
+  for (const g of Object.values(groups)) {
+    g.members.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+  return Object.values(groups).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+}
+
+function reedPosition(reed, reeds) {
+  const key = reedGroupKey(reed);
+  const group = reeds.filter((r) => reedGroupKey(r) === key).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const idx = group.findIndex((r) => r.id === reed.id);
+  return idx >= 0 ? idx + 1 : null;
+}
+
+function shortDate(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function reedLabel(reed, reeds) {
+  if (!reed) return "";
+  const pos = reedPosition(reed, reeds);
+  return `${reed.brand} ${reed.strength} #${pos}(${shortDate(reed.startDate)})`;
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
@@ -545,9 +587,9 @@ export default function WindToneLabPhaseMode() {
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") audioCtxRef.current.close();
 
-    // フレーズモードで録音していた場合、セッションとして保存する(企画書v5 10.3節)
+    // 単音・フレーズどちらのモードでも、録音中に蓄積したフレームがあればセッションとして保存する(企画書v5 10.3節)
     // reedIdは選択されていればそのまま紐付け、未選択ならnull(後で事後紐付け可能)
-    if (mode === "phrase" && phraseFramesRef.current.length > 0) {
+    if (phraseFramesRef.current.length > 0) {
       const session = {
         id: generateId(),
         recordedAt: new Date().toISOString(),
@@ -562,7 +604,7 @@ export default function WindToneLabPhaseMode() {
 
     setIsRunning(false);
     setIsPhraseRecording(false);
-  }, [mode, saxType, selectedReedId]);
+  }, [saxType, selectedReedId]);
 
   const start = useCallback(async () => {
     setErrorMsg("");
@@ -584,15 +626,15 @@ export default function WindToneLabPhaseMode() {
       analyserRef.current = analyser;
 
       setIsRunning(true);
-      if (mode === "phrase") {
-        phraseStartTimeRef.current = performance.now();
-        lastSampleTimeRef.current = 0;
-        setPhraseFrames([]);
-        phraseFramesRef.current = [];
-        noteDetectorRef.current = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
-        setPhraseNoteEvents([]);
-        setIsPhraseRecording(true);
-      }
+      // フレーム蓄積(100ms周期のサンプリング)は単音・フレーズ両モードで共通して行う。
+      // タイムラインUI・「録音中」表示はフレーズモード限定のまま(isPhraseRecording)。
+      phraseStartTimeRef.current = performance.now();
+      lastSampleTimeRef.current = 0;
+      setPhraseFrames([]);
+      phraseFramesRef.current = [];
+      noteDetectorRef.current = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
+      setPhraseNoteEvents([]);
+      if (mode === "phrase") setIsPhraseRecording(true);
 
       const tick = () => {
         const analyserNode = analyserRef.current;
@@ -657,8 +699,8 @@ export default function WindToneLabPhaseMode() {
 
         latestReadingRef.current = { pitchHz: f0, volumeDb: vDb, centroidHz: centroid, hnrDb: hnr, harmonics: levels };
 
-        // --- フレーズモード: 100ms周期でフレームを蓄積 ---
-        if (mode === "phrase" && phraseStartTimeRef.current !== null) {
+        // --- 100ms周期でフレームを蓄積(単音・フレーズ共通) ---
+        if (phraseStartTimeRef.current !== null) {
           const elapsedMs = performance.now() - phraseStartTimeRef.current;
 
           // --- ノート区間分割・アタック時間検出(rAFレート、100msゲートの外で毎tick実行) ---
@@ -856,12 +898,12 @@ export default function WindToneLabPhaseMode() {
         ))}
       </div>
 
-      {/* 音色計測タブ内の子タブ: 一音 / 録音分析 */}
+      {/* 音色計測タブ内の子タブ: 単音 / フレーズ */}
       {topTab === "measure" && (
         <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
           {[
-            { key: "realtime", label: "一音" },
-            { key: "phrase", label: "録音分析" },
+            { key: "realtime", label: "単音" },
+            { key: "phrase", label: "フレーズ" },
           ].map((m) => (
             <button
               key={m.key}
@@ -934,6 +976,7 @@ export default function WindToneLabPhaseMode() {
           selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           deleteIdealProfile={deleteIdealProfile} preset={preset}
           NUM_HARMONICS={NUM_HARMONICS}
+          reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
         />
       )}
       {topTab === "measure" && mode === "phrase" && (
@@ -958,6 +1001,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} setSessions={setSessions}
           pendingLinkSessionId={pendingLinkSessionId} setPendingLinkSessionId={setPendingLinkSessionId}
+          setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "data" && (
@@ -981,10 +1025,24 @@ function RealtimeView(props) {
     tuningHz, setTuningHz, matchedFingering, derivedTubeLengthCm,
     settingsExpanded, setSettingsExpanded, newProfileName, setNewProfileName, saveIdealProfile,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, preset, NUM_HARMONICS,
+    reeds, selectedReedId, setSelectedReedId,
   } = props;
+
+  const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* 使用リード選択(企画書v5 10.3節: 事前選択。単音モードでも紐付け可能) */}
+      <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ color: "#64748B" }}>使用リード:</span>
+        <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRunning}>
+          <option value="">未選択(後で紐付け可能)</option>
+          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+        </select>
+        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
+        {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
+      </div>
+
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
         <button onClick={isRunning ? stop : start} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRunning ? "#DC2626" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           {isRunning ? <Square size={14} /> : <Mic size={14} />}
@@ -1195,10 +1253,10 @@ function PhraseView(props) {
         <span style={{ color: "#64748B" }}>使用リード:</span>
         <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRunning}>
           <option value="">未選択(後で紐付け可能)</option>
-          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{r.brand} {r.strength}</option>))}
+          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
         </select>
-        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {selectedReed.brand} {selectedReed.strength}</span>}
-        {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード分析」タブでリードを登録できます</span>}
+        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
+        {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
       </div>
 
       {/* 録音コントロール */}
@@ -1359,6 +1417,29 @@ function PhraseView(props) {
   );
 }
 
+// 主観評価の5段階星レーティング。クリックで1〜5をセット、同じ星を再クリックで解除(null)。
+function StarRating({ value, onChange, size = 13, readOnly = false }) {
+  return (
+    <div style={{ display: "flex", gap: 1 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          onClick={readOnly ? undefined : () => onChange(n === value ? null : n)}
+          style={{
+            cursor: readOnly ? "default" : "pointer",
+            color: value && n <= value ? "#D97706" : "#CBD5E1",
+            fontSize: size,
+            lineHeight: 1,
+            userSelect: "none",
+          }}
+        >
+          ★
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function MetricCard({ label, value, sub, accentColor }) {
   return (
     <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E2E8F0"}`, borderRadius: 8, padding: "8px 10px" }}>
@@ -1370,13 +1451,13 @@ function MetricCard({ label, value, sub, accentColor }) {
 }
 
 // ============================================================
-// Reeds view — 企画書v5 10節: リード管理・横比較・縦比較・ランキング
+// Reeds view — 企画書v5 10節: リード管理・リード別比較・リード毎比較・ランキング
 // ============================================================
 // ============================================================
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, setSessions, pendingLinkSessionId, setPendingLinkSessionId } = props;
+  const { reeds, setReeds, sessions, setSessions, pendingLinkSessionId, setPendingLinkSessionId, setTopTab, setSelectedReedId } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -1406,7 +1487,8 @@ function ReedRegisterView(props) {
       brand,
       strength: newStrength,
       startDate: newStartDate,
-      boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号
+      boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報。表示上の番号はグループ内の登録順で振り直す)
+      rating: null, // 主観の5段階評価(1〜5)。未評価はnull
       createdAt: new Date().toISOString(),
     }));
     setReeds((prev) => [...prev, ...newReeds]);
@@ -1418,12 +1500,22 @@ function ReedRegisterView(props) {
     setSessions((prev) => prev.map((s) => (s.reedId === id ? { ...s, reedId: null, linkedAt: null } : s)));
   };
 
+  const rateReed = (id, rating) => {
+    setReeds((prev) => prev.map((r) => (r.id === id ? { ...r, rating } : r)));
+  };
+
+  const goToMeasure = (id) => {
+    setSelectedReedId(id);
+    setTopTab("measure");
+  };
+
   const linkSession = (sessionId, reedId) => {
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, reedId, linkedAt: "retroactive" } : s)));
     setPendingLinkSessionId(null);
   };
 
   const unlinkedSessions = sessions.filter((s) => !s.reedId);
+  const reedGroups = groupReeds(reeds);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -1485,16 +1577,32 @@ function ReedRegisterView(props) {
         {reeds.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>まだリードが登録されていません</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {reeds.map((r) => (
-              <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, border: "1px solid #E2E8F0" }}>
-                <div className="sans" style={{ fontSize: 11 }}>
-                  <span style={{ color: "#0F172A" }}>{r.brand}</span>{" "}
-                  <span style={{ color: "#2563EB" }}>{r.strength}</span>{" "}
-                  {r.boxLabel && <span style={{ color: "#94A3B8", fontSize: 9 }}>{r.boxLabel}</span>}{" "}
-                  <span style={{ color: "#64748B", fontSize: 10 }}>使用開始: {r.startDate}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {reedGroups.map((g) => (
+              <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                <div className="sans" style={{ fontSize: 11, marginBottom: 8 }}>
+                  <span style={{ color: "#0F172A", fontWeight: 600 }}>{g.brand}</span>{" "}
+                  <span style={{ color: "#2563EB", fontWeight: 600 }}>{g.strength}</span>{" "}
+                  <span style={{ color: "#64748B", fontSize: 10 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
                 </div>
-                <button onClick={() => deleteReed(r.id)} style={{ background: "none", border: "none", color: "#64748B", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {g.members.map((r, idx) => (
+                    <div key={r.id} style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5, minWidth: 96, background: "#F8FAFC" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A" }}>#{idx + 1}</span>
+                        <button onClick={() => deleteReed(r.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2 }}><Trash2 size={11} /></button>
+                      </div>
+                      <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                      <button
+                        onClick={() => goToMeasure(r.id)}
+                        className="sans"
+                        style={{ fontSize: 9, padding: "4px 6px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600 }}
+                      >
+                        測定へ
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -1514,7 +1622,7 @@ function ReedRegisterView(props) {
                 </span>
                 <select onChange={(e) => { if (e.target.value) linkSession(s.id, e.target.value); }} defaultValue="">
                   <option value="" disabled>リードを選択して紐付け</option>
-                  {reeds.map((r) => (<option key={r.id} value={r.id}>{r.brand} {r.strength}{r.boxLabel ? ` ${r.boxLabel}` : ""}</option>))}
+                  {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
                 </select>
               </div>
             ))}
@@ -1526,8 +1634,30 @@ function ReedRegisterView(props) {
 }
 
 // ============================================================
-// データ分析タブ (企画書10.4節) — 横比較・縦比較・ランキング
+// データ分析タブ (企画書10.4節) — リード別比較・リード毎比較・ランキング
 // ============================================================
+// フレーム配列から比較用の平均値を算出(リード別比較・リード毎比較で共通利用)
+function computeFrameMetrics(frames) {
+  const avg = (key, abs) => {
+    const vals = frames.map((f) => (abs ? Math.abs(f[key]) : f[key])).filter((v) => v !== null && v !== undefined && !isNaN(v));
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  return {
+    hnrDb: avg("hnrDb"),
+    spectralCentroidHz: avg("spectralCentroidHz"),
+    volumeDb: avg("volumeDb"),
+    pitchCents: avg("pitchCents", true),
+  };
+}
+
+// リード別比較・リード毎比較で共通する比較項目の定義
+const REED_COMPARE_METRICS = [
+  { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "spectralCentroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
+  { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
+];
+
 function DataAnalysisView(props) {
   const { reeds, sessions, selectedIdeal } = props;
 
@@ -1552,15 +1682,15 @@ function DataAnalysisView(props) {
       { hnrValues: m.hnrValues, volumeDbValues: m.volumeDbValues, pitchCentsErrorValues: m.pitchCentsErrorValues, centroidValues: m.centroidValues },
       selectedIdeal?.centroidHz ?? null
     );
-    return { reed, sessionCount: m.reedSessions.length, frameCount: m.allFrames.length, ...scoreResult };
+    return { reed, rating: reed.rating ?? null, sessionCount: m.reedSessions.length, frameCount: m.allFrames.length, ...scoreResult };
   }).sort((a, b) => b.composite - a.composite);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <div style={{ display: "flex", gap: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: 4, marginBottom: 10 }}>
         {[
-          { key: "compare", label: "横比較" },
-          { key: "history", label: "縦比較" },
+          { key: "compare", label: "リード別比較" },
+          { key: "history", label: "リード毎比較" },
           { key: "ranking", label: "ランキング" },
         ].map((t) => (
           <button
@@ -1586,40 +1716,34 @@ function DataAnalysisView(props) {
         <ReedHistoryTab reeds={reeds} sessions={sessions} historyReedId={historyReedId} setHistoryReedId={setHistoryReedId} />
       )}
       {subTab === "ranking" && (
-        <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} />
+        <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} reeds={reeds} />
       )}
     </div>
   );
 }
 
 
-// --- 10.4(a): 横比較 ---
+// --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
 function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) {
   const toggleReed = (id) => {
     setCompareReedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const metricDefs = [
-    { key: "hnrDb", label: "HNR (dB)", higherBetter: true },
-    { key: "spectralCentroidHz", label: "スペクトル重心 (Hz)", higherBetter: null },
-    { key: "volumeDb", label: "音量 (dB)", higherBetter: null },
-    { key: "pitchCents", label: "ピッチ誤差 (¢, abs)", higherBetter: false, abs: true },
-  ];
+  const frameCountFor = (reedId) => sessions.filter((s) => s.reedId === reedId).reduce((n, s) => n + (s.frames?.length ?? 0), 0);
 
   const summaryFor = (reedId) => {
     const frames = sessions.filter((s) => s.reedId === reedId).flatMap((s) => s.frames || []);
-    const result = {};
-    for (const m of metricDefs) {
-      const vals = frames.map((f) => (m.abs ? Math.abs(f[m.key]) : f[m.key])).filter((v) => v !== null && v !== undefined && !isNaN(v));
-      result[m.key] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    }
-    result.frameCount = frames.length;
-    return result;
+    return computeFrameMetrics(frames);
   };
 
   if (reeds.length === 0) {
-    return <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録・紐付け」タブでリードを登録してください</div>;
+    return <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
   }
+
+  const items = compareReedIds
+    .map((id) => reeds.find((r) => r.id === id))
+    .filter(Boolean)
+    .map((r) => ({ reed: r, label: reedLabel(r, reeds), summary: summaryFor(r.id), frameCount: frameCountFor(r.id) }));
 
   return (
     <div>
@@ -1633,69 +1757,88 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
               background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
               color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
             }}>
-              {r.brand} {r.strength}
+              {reedLabel(r, reeds)}
             </button>
           ))}
         </div>
       </div>
 
-      {compareReedIds.length === 0 ? (
-        <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 20 }}>リードを選択すると比較表が表示されます</div>
+      {items.length === 0 ? (
+        <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", overflowX: "auto" }}>
-          <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", borderBottom: "1px solid #E2E8F0" }}>項目</th>
-                {compareReedIds.map((id) => {
-                  const r = reeds.find((x) => x.id === id);
-                  return <th key={id} style={{ textAlign: "right", padding: "6px 8px", color: "#2563EB", borderBottom: "1px solid #E2E8F0" }}>{r?.brand} {r?.strength}</th>;
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {metricDefs.map((m) => (
-                <tr key={m.key}>
-                  <td style={{ padding: "6px 8px", color: "#0F172A" }}>{m.label}</td>
-                  {compareReedIds.map((id) => {
-                    const s = summaryFor(id);
-                    const v = s[m.key];
-                    return <td key={id} style={{ textAlign: "right", padding: "6px 8px", color: "#0F172A" }}>{v !== null ? v.toFixed(1) : "—"}</td>;
-                  })}
-                </tr>
+        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px" }}>
+          {REED_COMPARE_METRICS.map((m) => (
+            <ReedMetricBarRow
+              key={m.key}
+              label={m.label}
+              unit={m.unit}
+              items={items.map((it) => ({ id: it.reed.id, label: it.label, value: it.summary[m.key] }))}
+              fmt={m.fmt}
+            />
+          ))}
+          <div style={{ marginBottom: 4 }}>
+            <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 6 }}>主観評価</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.map((it) => (
+                <div key={it.reed.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="sans" style={{ fontSize: 9, color: "#0F172A", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
+                  <StarRating value={it.reed.rating} onChange={() => {}} readOnly size={12} />
+                </div>
               ))}
-              <tr>
-                <td style={{ padding: "6px 8px", color: "#64748B" }}>フレーム数</td>
-                {compareReedIds.map((id) => {
-                  const s = summaryFor(id);
-                  return <td key={id} style={{ textAlign: "right", padding: "6px 8px", color: "#64748B" }}>{s.frameCount}</td>;
-                })}
-              </tr>
-            </tbody>
-          </table>
+            </div>
+          </div>
+          <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 10 }}>
+            {items.map((it) => `${it.label}: ${it.frameCount}フレーム`).join(" ・ ")}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// --- 10.4(b): 縦比較(経時変化) ---
+// 1項目分の横棒グラフ行(複数リードを同じスケールで比較)
+function ReedMetricBarRow({ label, unit, items, fmt }) {
+  const values = items.map((i) => i.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  const maxAbs = Math.max(...values.map((v) => Math.abs(v)), 1e-6);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 6 }}>{label}{unit ? ` (${unit})` : ""}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {items.map((it) => (
+          <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="sans" style={{ fontSize: 9, color: "#0F172A", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
+            <div style={{ flex: 1, background: "#F1F5F9", borderRadius: 4, height: 14, position: "relative", overflow: "hidden" }}>
+              <div style={{ width: it.value !== null && it.value !== undefined ? `${Math.max(2, (Math.abs(it.value) / maxAbs) * 100)}%` : 0, height: "100%", background: "#2563EB", borderRadius: 4 }} />
+            </div>
+            <span className="sans" style={{ fontSize: 9, color: "#64748B", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- 10.4(b): リード毎比較(1本のリードの経時変化。HNR以外の項目も切替可能) ---
 function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
+  const [historyMetric, setHistoryMetric] = useState("hnrDb");
+
   const reedSessions = sessions
     .filter((s) => s.reedId === historyReedId)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
   const points = reedSessions.map((s) => {
     const frames = s.frames || [];
-    const hnrVals = frames.map((f) => f.hnrDb).filter((v) => v !== null && v !== undefined);
-    const avgHnr = hnrVals.length ? hnrVals.reduce((a, b) => a + b, 0) / hnrVals.length : null;
-    return { date: s.recordedAt, avgHnr, frameCount: frames.length };
+    return { date: s.recordedAt, frameCount: frames.length, ...computeFrameMetrics(frames) };
   });
 
-  const validPoints = points.filter((p) => p.avgHnr !== null);
-  const minHnr = validPoints.length ? Math.min(...validPoints.map((p) => p.avgHnr)) : 0;
-  const maxHnr = validPoints.length ? Math.max(...validPoints.map((p) => p.avgHnr)) : 1;
-  const range = maxHnr - minHnr || 1;
+  const metricDef = REED_COMPARE_METRICS.find((m) => m.key === historyMetric);
+  const validPoints = points.filter((p) => p[historyMetric] !== null && p[historyMetric] !== undefined);
+  const vals = validPoints.map((p) => p[historyMetric]);
+  const minV = vals.length ? Math.min(...vals) : 0;
+  const maxV = vals.length ? Math.max(...vals) : 1;
+  const range = maxV - minV || 1;
+
+  const historyReed = reeds.find((r) => r.id === historyReedId) || null;
 
   if (reeds.length === 0) {
     return <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 30 }}>リードが登録されていません</div>;
@@ -1707,14 +1850,24 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
         <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>経時変化を見るリードを選択</div>
         <select value={historyReedId || ""} onChange={(e) => setHistoryReedId(e.target.value || null)}>
           <option value="">選択してください</option>
-          {reeds.map((r) => (<option key={r.id} value={r.id}>{r.brand} {r.strength}</option>))}
+          {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
         </select>
       </div>
 
       {historyReedId && (
         <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>
-            HNRの推移（セッション毎の平均値、{validPoints.length}セッション）
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>
+              {metricDef.label}の推移（セッション毎の平均値、{validPoints.length}セッション）
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>主観評価:</span>
+              <StarRating value={historyReed?.rating} onChange={() => {}} readOnly size={12} />
+              <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>項目:</span>
+              <select value={historyMetric} onChange={(e) => setHistoryMetric(e.target.value)}>
+                {REED_COMPARE_METRICS.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
+              </select>
+            </div>
           </div>
           {validPoints.length === 0 ? (
             <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>このリードに紐づく測定データがまだありません</div>
@@ -1725,19 +1878,19 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
                   fill="none" stroke="#2563EB" strokeWidth="2"
                   points={validPoints.map((p, i) => {
                     const x = i * 60 + 30;
-                    const y = 110 - ((p.avgHnr - minHnr) / range) * 90;
+                    const y = 110 - ((p[historyMetric] - minV) / range) * 90;
                     return `${x},${y}`;
                   }).join(" ")}
                 />
                 {validPoints.map((p, i) => {
                   const x = i * 60 + 30;
-                  const y = 110 - ((p.avgHnr - minHnr) / range) * 90;
+                  const y = 110 - ((p[historyMetric] - minV) / range) * 90;
                   return <circle key={i} cx={x} cy={y} r={4} fill="#2563EB" />;
                 })}
               </svg>
               <div className="sans" style={{ fontSize: 9, color: "#64748B", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
                 {validPoints.map((p, i) => (
-                  <span key={i}>{new Date(p.date).toLocaleDateString("ja-JP")}: {p.avgHnr.toFixed(1)}dB</span>
+                  <span key={i}>{new Date(p.date).toLocaleDateString("ja-JP")}: {metricDef.fmt(p[historyMetric])}{metricDef.unit}</span>
                 ))}
               </div>
             </>
@@ -1748,33 +1901,74 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
   );
 }
 
-// --- 10.4(c): ランキング(総合スコア) ---
-function ReedRankingTab({ reedRankings, hasIdeal }) {
+// --- 10.4(c): ランキング(総合スコア。各項目で昇順/降順ソート可能) ---
+const RANKING_SORT_OPTIONS = [
+  { key: "composite", label: "総合スコア" },
+  { key: "rating", label: "主観評価" },
+  { key: "hnr", label: "HNR" },
+  { key: "volumeStability", label: "音量安定" },
+  { key: "pitchStability", label: "ピッチ安定" },
+  { key: "centroidCloseness", label: "重心近似" },
+];
+
+function getRankingSortValue(item, key) {
+  if (key === "composite") return item.composite;
+  if (key === "rating") return item.rating;
+  return item.breakdown[key];
+}
+
+function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
+  const [sortKey, setSortKey] = useState("composite");
+  const [sortDir, setSortDir] = useState("desc"); // "desc" | "asc"
+
   if (reedRankings.length === 0) {
     return <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 30 }}>リードが登録されていません</div>;
   }
 
+  const sorted = [...reedRankings].sort((a, b) => {
+    const va = getRankingSortValue(a, sortKey);
+    const vb = getRankingSortValue(b, sortKey);
+    if (va === null || va === undefined) return 1;
+    if (vb === null || vb === undefined) return -1;
+    return sortDir === "desc" ? vb - va : va - vb;
+  });
+
   return (
     <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>並び替え:</span>
+        <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
+          {RANKING_SORT_OPTIONS.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
+        </select>
+        <button
+          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+          className="sans"
+          style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#0F172A", fontSize: 11, cursor: "pointer" }}
+        >
+          {sortDir === "desc" ? "降順 ▼" : "昇順 ▲"}
+        </button>
+      </div>
+
       {!hasIdeal && (
         <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10, padding: "8px 12px", background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 8 }}>
           理想値プロファイル未選択のため、スペクトル重心近似度は評価に含まれていません（HNR・音量安定性・ピッチ安定性の3要素で算出）
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {reedRankings.map((item, idx) => (
+        {sorted.map((item, idx) => (
           <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ color: "#64748B", fontWeight: 700, width: 18 }}>{idx + 1}</span>
-                <span style={{ color: "#0F172A", fontWeight: 600 }}>{item.reed.brand} {item.reed.strength}</span>
+                <span style={{ color: "#0F172A", fontWeight: 600 }}>{reedLabel(item.reed, reeds)}</span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: scoreToColor(item.composite) }}>
                 {Math.round(item.composite * 100)}
               </div>
             </div>
-            <div className="sans" style={{ fontSize: 9, color: "#64748B", marginBottom: 6 }}>
-              {item.sessionCount}セッション ・ {item.frameCount}フレーム
+            <div className="sans" style={{ fontSize: 9, color: "#64748B", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
+              <StarRating value={item.rating} onChange={() => {}} readOnly size={11} />
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {item.breakdown.hnr !== null && <ScoreChip label="HNR" value={item.breakdown.hnr} />}
@@ -1955,7 +2149,7 @@ function AnalysisLabView({ sessions, reeds, selectedIdeal }) {
           </div>
         ) : framesWithContext.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>
-            測定データがまだありません。「音計測」→「録音分析」で録音してください
+            測定データがまだありません。「音計測」→「フレーズ」で録音してください
           </div>
         ) : (
           <>
