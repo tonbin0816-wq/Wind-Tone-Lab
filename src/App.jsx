@@ -281,8 +281,10 @@ function closenessToIdealScore(measuredAvg, idealValue, tolerance) {
 }
 
 // sessions: このリードに紐づく複数セッションのフレームを平坦化した配列を想定
-// { hnrValues: number[], volumeDbValues: number[], pitchCentsErrorValues: number[], centroidValues: number[] }
-function reedCompositeScore(input, idealCentroidHz = null) {
+// { hnrValues: number[], volumeDbValues: number[], pitchCentsErrorValues: number[], centroidClosenessValues: number[] }
+// centroidClosenessValuesは呼び出し側で「フレームごとに、その音に対応する理想値との近さ」を
+// 算出済みの配列(理想値は音ごとに異なるため、平均重心を単一の理想値と比較する方式は使えない)。
+function reedCompositeScore(input) {
   const weights = { hnr: 0.3, volumeStability: 0.25, pitchStability: 0.25, centroidCloseness: 0.2 };
 
   const hnrScore = normalizeHnr(input.hnrValues.filter((v) => v !== null && v !== undefined));
@@ -290,9 +292,8 @@ function reedCompositeScore(input, idealCentroidHz = null) {
   const pitchStability = stabilityScore(input.pitchCentsErrorValues, 20.0);
 
   let centroidScore = null;
-  if (input.centroidValues?.length && idealCentroidHz) {
-    const avgCentroid = mean(input.centroidValues);
-    centroidScore = closenessToIdealScore(avgCentroid, idealCentroidHz, 0.25);
+  if (input.centroidClosenessValues?.length) {
+    centroidScore = mean(input.centroidClosenessValues);
   }
 
   let composite, breakdown;
@@ -664,13 +665,15 @@ function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCe
         lastSampleMs = elapsedMs;
         const theoFreq = matchedFinger?.soundingFreqHz ?? null;
         const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
-        const pitchCentsVsIdeal = f0 && selectedIdeal?.pitchHz ? centsBetween(f0, selectedIdeal.pitchHz) : null;
+        // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く
+        const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
+        const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
         const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
-        const idealHarmNorm = selectedIdeal?.harmonicsProfile ? selectedIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
+        const idealHarmNorm = noteIdeal?.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
         const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
         const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
-        const timbreScoreIdeal = selectedIdeal
-          ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, selectedIdeal.centroidHz, hnr, selectedIdeal.hnrDb)
+        const timbreScoreIdeal = noteIdeal
+          ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
           : 0;
 
         frames.push({
@@ -976,11 +979,14 @@ export default function WindToneLabPhaseMode() {
             // 理想値の両方を基準として持つ(企画書v3方針: ピッチのみ絶対的な正解があるため理論値も残す)
             const theoFreq = matchedFinger?.soundingFreqHz ?? null;
             const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
-            const pitchCentsVsIdeal = f0 && selectedIdeal?.pitchHz ? centsBetween(f0, selectedIdeal.pitchHz) : null;
+            // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く。
+            // これにより演奏中の音が変わるたびに比較対象の理想値も自動で切り替わる。
+            const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
+            const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
 
             const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
-            const idealHarmNorm = selectedIdeal?.harmonicsProfile
-              ? selectedIdeal.harmonicsProfile.map((h) => h.norm)
+            const idealHarmNorm = noteIdeal?.harmonicsProfile
+              ? noteIdeal.harmonicsProfile.map((h) => h.norm)
               : new Array(NUM_HARMONICS).fill(0);
 
             const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
@@ -988,8 +994,8 @@ export default function WindToneLabPhaseMode() {
 
             // 音色一致度: 理論モデルは倍音の相対強度情報を持たないため、理想値のみを基準とする
             // (企画書v3 2.8節の方針: ピッチ以外は理想値との比較に絞る)
-            const timbreScoreIdeal = selectedIdeal
-              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, selectedIdeal.centroidHz, hnr, selectedIdeal.hnrDb)
+            const timbreScoreIdeal = noteIdeal
+              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
               : 0;
 
             const frame = {
@@ -1098,10 +1104,23 @@ export default function WindToneLabPhaseMode() {
 
   // セッション(またはライブ録音直後のフレーム列)全体を平均して理想値プロファイルとして保存する。
   // 計測タブの録音停止後・アップロード解析完了後・セッション詳細画面のいずれからも共通で呼ばれる。
+  // 数十音を1つずつ手動設定するのは非現実的なため、同じ名前のプロファイルが既にあれば
+  // そのnotesに今回のデータの音だけをマージ(上書き)する。ない場合は新規作成する。
+  // これにより、複数回に分けて録音した音をまとめて1つの理想値プロファイルに積み上げていける。
   const promoteSessionToIdeal = useCallback((sessionLike, name) => {
-    const profile = buildIdealProfileFromSession(sessionLike, name, NUM_HARMONICS);
-    setIdealProfiles((prev) => [...prev, profile]);
-    setSelectedIdealId(profile.id);
+    const trimmedName = name.trim();
+    const newProfile = buildIdealProfileFromSession(sessionLike, trimmedName, NUM_HARMONICS);
+    setIdealProfiles((prev) => {
+      const existingIdx = prev.findIndex((p) => p.name === trimmedName);
+      if (existingIdx === -1) {
+        setSelectedIdealId(newProfile.id);
+        return [...prev, newProfile];
+      }
+      const existing = prev[existingIdx];
+      const merged = { ...existing, notes: { ...existing.notes, ...newProfile.notes } };
+      setSelectedIdealId(merged.id);
+      return prev.map((p, i) => (i === existingIdx ? merged : p));
+    });
   }, [NUM_HARMONICS]);
 
   // アップロードされた音声ファイルを、ライブ録音と同じ解析パイプラインで処理し、通常の録音と同じ
@@ -1246,6 +1265,7 @@ export default function WindToneLabPhaseMode() {
           saxType={saxType} setSaxType={setSaxType}
           temperature={temperature} setTemperature={setTemperature}
           tuningHz={tuningHz} setTuningHz={setTuningHz}
+          matchedFingering={matchedFingering}
           idealProfiles={idealProfiles}
           selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           deleteIdealProfile={deleteIdealProfile}
@@ -1302,7 +1322,7 @@ function MeasureView(props) {
     isRecording, toggleRecording, note, pitch, needleRotation, centsOffset, spectrumBars,
     harmonicLevels, theoreticalHarmonics, showTheory, setShowTheory, showIdeal, setShowIdeal,
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
-    tuningHz, setTuningHz,
+    tuningHz, setTuningHz, matchedFingering,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
@@ -1312,6 +1332,8 @@ function MeasureView(props) {
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
   // 2音以上のノートが検出されていればフレーズとして扱い、タイムラインを表示する
   const isPhraseResult = phraseNoteEvents.length > 1 && phraseFrames.length > 0;
+  // 理想値は音(運指)ごとに持つため、今演奏している音に対応する理想値を都度引く
+  const currentNoteIdeal = getNoteIdeal(selectedIdeal, matchedFingering?.semitoneIndex);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -1411,14 +1433,14 @@ function MeasureView(props) {
             const measured = harmonicLevels.find((h) => h.n === n);
             const measuredHeight = measured ? measured.norm * 100 : 0;
             const theoHarmonic = theoreticalHarmonics[idx];
-            const idealHarmonic = selectedIdeal?.harmonicsProfile?.find((h) => h.n === n);
+            const idealHarmonic = currentNoteIdeal?.harmonicsProfile?.find((h) => h.n === n);
             const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
             return (
               <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                 <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
                   {showTheory && (<div style={{ position: "absolute", bottom: 0, width: "90%", height: "100%", border: "1.5px dashed #D97706", borderBottom: "none", borderRadius: "3px 3px 0 0", opacity: 0.45 }} />)}
                   <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#2563EB" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
-                  {showIdeal && selectedIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
+                  {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
                 </div>
                 <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
                 <div className="sans" style={{ fontSize: 8, color: "#94A3B8" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
@@ -1431,13 +1453,22 @@ function MeasureView(props) {
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #D97706", borderRadius: 2, display: "inline-block" }} />理論(絶対周波数)</span>
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#2563EB", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
         </div>
+        {selectedIdeal && (
+          <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 6 }}>
+            {matchedFingering
+              ? currentNoteIdeal
+                ? `記音${matchedFingering.writtenLabel}の理想値と比較中`
+                : `記音${matchedFingering.writtenLabel}はこのプロファイルに未登録です`
+              : "音を検出すると、その音に対応する理想値と比較します"}
+          </div>
+        )}
       </div>
 
       {/* 補助指標 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-        <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={selectedIdeal ? `理想: ${selectedIdeal.volumeDb?.toFixed(1)} dB` : null} />
-        <MetricCard label="スペクトル重心" value={`${Math.round(centroidHz)} Hz`} sub={selectedIdeal ? `理想: ${Math.round(selectedIdeal.centroidHz)} Hz` : null} />
-        <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={selectedIdeal?.hnrDb != null ? `理想: ${selectedIdeal.hnrDb.toFixed(1)} dB` : null} />
+        <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
+        <MetricCard label="スペクトル重心" value={`${Math.round(centroidHz)} Hz`} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
+        <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
       </div>
 
       {/* サックスプリセット + 設定 */}
@@ -1512,13 +1543,24 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
     }
   };
 
+  // 理想値は音(運指の半音インデックス)ごとに持つため、フレームに保存済みのmatchScore(理想値基準)を
+  // そのまま使わず、そのフレームの音に対応する理想値を都度引いてスコアを再計算する。
+  // これにより、あとから理想値プロファイルを追加・更新した場合や、フレーズ中に音が
+  // 変わった場合でも、各瞬間ごとに正しい理想値と比較できる。理論値基準は録音時の値のまま使う。
   const getMatchScore = (frame, kind) => {
-    // kind: "pitch" | "timbre"
-    // ピッチは理論値・理想値どちらも選択可(matchBasisに従う)。
-    // 音色は理論値基準を持たない(企画書v3方針)ため、常に理想値を使う。
-    if (!frame.matchScore) return 0;
-    if (kind === "timbre") return frame.matchScore.timbre?.ideal ?? 0;
-    return frame.matchScore[kind]?.[matchBasis] ?? 0;
+    if (kind === "pitch" && matchBasis === "theoretical") {
+      return frame.matchScore?.pitch?.theoretical ?? 0;
+    }
+    const noteIdeal = getNoteIdeal(selectedIdeal, frame.semitoneIndex);
+    if (!noteIdeal) return 0;
+    if (kind === "timbre") {
+      const harmNorm = frame.harmonics?.length === NUM_HARMONICS ? frame.harmonics.map((h) => h.levelNorm) : new Array(NUM_HARMONICS).fill(0);
+      const idealHarmNorm = noteIdeal.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
+      return timbreMatchScore(harmNorm, idealHarmNorm, frame.spectralCentroidHz, noteIdeal.centroidHz, frame.hnrDb, noteIdeal.hnrDb);
+    }
+    // kind === "pitch" && matchBasis === "ideal"
+    if (!frame.pitchHz || !noteIdeal.pitchHz) return 0;
+    return pitchMatchScore(centsBetween(frame.pitchHz, noteIdeal.pitchHz));
   };
 
   const values = frames.map(getMetricValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
@@ -1621,30 +1663,37 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
             t = {selectedFrame.t.toFixed(2)}s の詳細
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-            <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
-            <MetricCard label="音色一致度(理想値基準)" value={selectedIdeal ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={selectedIdeal ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : "理想値未選択"} accentColor={selectedIdeal ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
-          </div>
-
-          {/* 倍音構成バー(ドリルダウン表示) */}
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, paddingTop: 10 }}>
-            {Array.from({ length: NUM_HARMONICS }).map((_, idx) => {
-              const n = idx + 1;
-              const measured = selectedFrame.harmonics?.find((h) => h.n === n);
-              const measuredHeight = measured ? measured.levelNorm * 100 : 0;
-              const idealHarmonic = selectedIdeal?.harmonicsProfile?.find((h) => h.n === n);
-              const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
-              return (
-                <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                  <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
-                    <div style={{ width: "38%", height: `${measuredHeight}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0 }} />
-                    {selectedIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
-                  </div>
-                  <div className="sans" style={{ fontSize: 8, color: "#64748B", marginTop: 3 }}>{n}倍</div>
+          {(() => {
+            const noteIdeal = getNoteIdeal(selectedIdeal, selectedFrame.semitoneIndex);
+            return (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
+                  <MetricCard label="音色一致度(理想値基準)" value={noteIdeal ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={noteIdeal ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : "この音の理想値が未登録"} accentColor={noteIdeal ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
                 </div>
-              );
-            })}
-          </div>
+
+                {/* 倍音構成バー(ドリルダウン表示) */}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, paddingTop: 10 }}>
+                  {Array.from({ length: NUM_HARMONICS }).map((_, idx) => {
+                    const n = idx + 1;
+                    const measured = selectedFrame.harmonics?.find((h) => h.n === n);
+                    const measuredHeight = measured ? measured.levelNorm * 100 : 0;
+                    const idealHarmonic = noteIdeal?.harmonicsProfile?.find((h) => h.n === n);
+                    const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
+                    return (
+                      <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+                        <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
+                          <div style={{ width: "38%", height: `${measuredHeight}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0 }} />
+                          {noteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
+                        </div>
+                        <div className="sans" style={{ fontSize: 8, color: "#64748B", marginTop: 3 }}>{n}倍</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
 
           <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span>音量: {selectedFrame.volumeDb?.toFixed(1)} dB</span>
@@ -1989,29 +2038,62 @@ function computeFrameMetrics(frames) {
   };
 }
 
-// セッション全体のフレームを平均して理想値プロファイルを組み立てる。
-// ライブ計測中の「直近1秒平均」保存よりもさらに多くのフレーム(1回の録音/アップロード全体)を
-// 平均するため、より安定した基準になる。計測タブの録音後・アップロード解析後・
+// フレーム配列をsemitoneIndex(判定運指の半音インデックス)ごとにグループ化し、
+// それぞれの音の平均値(音高・音量・重心・HNR・倍音構成)を算出する。
+// 「1つのデータには様々な音が含まれる」ため、理想値・セッション詳細画面の両方で
+// 音階ごとの内訳を出すのに使う共通ロジック。semitoneIndexが取れないフレーム(無音等)は除外する。
+function groupFramesByNote(frames, NUM_HARMONICS = 8) {
+  const groups = {};
+  for (const f of frames) {
+    if (f.semitoneIndex === null || f.semitoneIndex === undefined) continue;
+    if (!groups[f.semitoneIndex]) groups[f.semitoneIndex] = [];
+    groups[f.semitoneIndex].push(f);
+  }
+  return Object.entries(groups)
+    .map(([key, groupFrames]) => {
+      const semitoneIndex = Number(key);
+      const m = computeFrameMetrics(groupFrames);
+      const pitchVals = groupFrames.map((f) => f.pitchHz).filter((v) => v !== null && v !== undefined && !isNaN(v));
+      const harmonicsProfile = Array.from({ length: NUM_HARMONICS }, (_, i) => {
+        const n = i + 1;
+        const vals = groupFrames.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
+        return { n, norm: vals.length ? mean(vals) : 0 };
+      });
+      return {
+        semitoneIndex,
+        writtenLabel: groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote ?? null,
+        frameCount: groupFrames.length,
+        pitchHz: pitchVals.length ? mean(pitchVals) : null,
+        volumeDb: m.volumeDb,
+        centroidHz: m.spectralCentroidHz,
+        hnrDb: m.hnrDb,
+        harmonicsProfile,
+      };
+    })
+    .sort((a, b) => a.semitoneIndex - b.semitoneIndex);
+}
+
+// 理想値プロファイルのnotesマップから、指定した音(semitoneIndex)の理想値を取り出す。
+// 該当する音がまだ理想値に登録されていない場合はnull(比較の対象外として扱う)。
+function getNoteIdeal(profile, semitoneIndex) {
+  if (!profile || semitoneIndex === null || semitoneIndex === undefined) return null;
+  return profile.notes?.[semitoneIndex] ?? null;
+}
+
+// セッション全体のフレームを音階(運指)ごとに分解し、理想値プロファイルを組み立てる。
+// 1回の録音/アップロードに複数の音(スケール等)が含まれていても、それぞれの音ごとに
+// 平均値を算出して理想値として持つ。計測タブの録音後・アップロード解析後・
 // セッション詳細画面の「理想値に設定」ボタンから共通で使う。
 function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8) {
-  const frames = session.frames || [];
-  const m = computeFrameMetrics(frames);
-  const harmonicsProfile = Array.from({ length: NUM_HARMONICS }, (_, i) => {
-    const n = i + 1;
-    const vals = frames.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
-    return { n, norm: vals.length ? mean(vals) : 0 };
-  });
-  const pitchVals = frames.map((f) => f.pitchHz).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  const noteGroups = groupFramesByNote(session.frames || [], NUM_HARMONICS);
+  const notes = {};
+  for (const g of noteGroups) notes[g.semitoneIndex] = g;
   return {
     id: generateId(),
     name,
     saxType: session.saxType,
     recordedAt: new Date().toISOString(),
-    pitchHz: pitchVals.length ? mean(pitchVals) : null,
-    volumeDb: m.volumeDb,
-    centroidHz: m.spectralCentroidHz,
-    hnrDb: m.hnrDb,
-    harmonicsProfile,
+    notes,
   };
 }
 
@@ -2037,15 +2119,21 @@ function DataAnalysisView(props) {
     const hnrValues = allFrames.map((f) => f.hnrDb).filter((v) => v !== null && v !== undefined);
     const volumeDbValues = allFrames.map((f) => f.volumeDb).filter((v) => v !== null && v !== undefined);
     const pitchCentsErrorValues = allFrames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined);
-    const centroidValues = allFrames.map((f) => f.spectralCentroidHz).filter((v) => v !== null && v !== undefined);
-    return { reedSessions, allFrames, hnrValues, volumeDbValues, pitchCentsErrorValues, centroidValues };
+    // 重心の理想値は音ごとに異なるため、フレーム毎にそのフレームの音に対応する理想値と比較してから平均する
+    const centroidClosenessValues = allFrames
+      .map((f) => {
+        const noteIdeal = getNoteIdeal(selectedIdeal, f.semitoneIndex);
+        if (!noteIdeal?.centroidHz || f.spectralCentroidHz === null || f.spectralCentroidHz === undefined) return null;
+        return closenessToIdealScore(f.spectralCentroidHz, noteIdeal.centroidHz, 0.25);
+      })
+      .filter((v) => v !== null && v !== undefined);
+    return { reedSessions, allFrames, hnrValues, volumeDbValues, pitchCentsErrorValues, centroidClosenessValues };
   };
 
   const reedRankings = reeds.map((reed) => {
     const m = buildReedMetrics(reed.id);
     const scoreResult = reedCompositeScore(
-      { hnrValues: m.hnrValues, volumeDbValues: m.volumeDbValues, pitchCentsErrorValues: m.pitchCentsErrorValues, centroidValues: m.centroidValues },
-      selectedIdeal?.centroidHz ?? null
+      { hnrValues: m.hnrValues, volumeDbValues: m.volumeDbValues, pitchCentsErrorValues: m.pitchCentsErrorValues, centroidClosenessValues: m.centroidClosenessValues }
     );
     return { reed, rating: reed.rating ?? null, sessionCount: m.reedSessions.length, frameCount: m.allFrames.length, ...scoreResult };
   }).sort((a, b) => b.composite - a.composite);
@@ -2743,6 +2831,8 @@ function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selec
     const vals = frames.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
     return { n, norm: vals.length ? mean(vals) : 0 };
   });
+  // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
+  const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
   const isPhraseResult = (session.noteEvents?.length ?? 0) > 1 && frames.length > 0;
 
@@ -2772,37 +2862,67 @@ function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selec
         </div>
       </div>
 
-      {/* 音高・補助指標(セッション全体の平均) */}
+      {/* 音高・補助指標(セッション全体の平均。参考値。理想値との比較は下の音階ごとの内訳を参照) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
         <MetricCard label="平均音高" value={avgPitch ? `${avgPitch.toFixed(1)} Hz` : "—"} />
-        <MetricCard label="平均音量" value={m.volumeDb !== null ? `${m.volumeDb.toFixed(1)} dB` : "—"} sub={selectedIdeal ? `理想: ${selectedIdeal.volumeDb?.toFixed(1)} dB` : null} />
-        <MetricCard label="平均重心" value={m.spectralCentroidHz !== null ? `${Math.round(m.spectralCentroidHz)} Hz` : "—"} sub={selectedIdeal ? `理想: ${Math.round(selectedIdeal.centroidHz)} Hz` : null} />
-        <MetricCard label="平均HNR" value={m.hnrDb !== null ? `${m.hnrDb.toFixed(1)} dB` : "—"} sub={selectedIdeal?.hnrDb != null ? `理想: ${selectedIdeal.hnrDb.toFixed(1)} dB` : null} />
+        <MetricCard label="平均音量" value={m.volumeDb !== null ? `${m.volumeDb.toFixed(1)} dB` : "—"} />
+        <MetricCard label="平均重心" value={m.spectralCentroidHz !== null ? `${Math.round(m.spectralCentroidHz)} Hz` : "—"} />
+        <MetricCard label="平均HNR" value={m.hnrDb !== null ? `${m.hnrDb.toFixed(1)} dB` : "—"} />
       </div>
 
-      {/* 倍音構成(セッション全体平均 実測 / 理想) */}
+      {/* 倍音構成(セッション全体平均。複数の音を含みうるため理想値との重ね合わせはしない) */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>倍音構成（セッション平均：実測 / 理想）</div>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>倍音構成（セッション全体平均）</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 130, paddingTop: 14 }}>
-          {avgHarmonics.map(({ n, norm }) => {
-            const idealHarmonic = selectedIdeal?.harmonicsProfile?.find((h) => h.n === n);
-            const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
-            return (
-              <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2 }}>
-                  <div style={{ width: "38%", height: `${norm * 100}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: norm > 0 ? 3 : 0 }} />
-                  {selectedIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
-                </div>
-                <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
+          {avgHarmonics.map(({ n, norm }) => (
+            <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+              <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                <div style={{ width: "50%", height: `${norm * 100}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: norm > 0 ? 3 : 0 }} />
               </div>
-            );
-          })}
-        </div>
-        <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#2563EB", borderRadius: 2, display: "inline-block" }} />実測</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#94A3B8", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
+              <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
+            </div>
+          ))}
         </div>
       </div>
+
+      {/* 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
+      {noteGroups.length > 0 && (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10, overflowX: "auto" }}>
+          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>
+            音階ごとの平均（{noteGroups.length}音）
+          </div>
+          <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 480 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>記音</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>音高</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>音量</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>重心</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>HNR</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>理想値との差</th>
+              </tr>
+            </thead>
+            <tbody>
+              {noteGroups.map((g) => {
+                const noteIdeal = getNoteIdeal(selectedIdeal, g.semitoneIndex);
+                const cents = noteIdeal?.pitchHz && g.pitchHz ? centsBetween(g.pitchHz, noteIdeal.pitchHz) : null;
+                return (
+                  <tr key={g.semitoneIndex}>
+                    <td style={{ padding: "5px 8px", color: "#0F172A", fontWeight: 600, borderBottom: "1px solid #F1F5F9" }}>{g.writtenLabel ?? "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#0F172A", borderBottom: "1px solid #F1F5F9" }}>{g.pitchHz ? `${g.pitchHz.toFixed(1)}Hz` : "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#0F172A", borderBottom: "1px solid #F1F5F9" }}>{g.volumeDb !== null ? `${g.volumeDb.toFixed(1)}dB` : "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#0F172A", borderBottom: "1px solid #F1F5F9" }}>{g.centroidHz !== null ? `${Math.round(g.centroidHz)}Hz` : "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#0F172A", borderBottom: "1px solid #F1F5F9" }}>{g.hnrDb !== null ? `${g.hnrDb.toFixed(1)}dB` : "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 8px", fontWeight: 600, borderBottom: "1px solid #F1F5F9", color: cents !== null ? pitchCellColor(cents) : "#94A3B8" }}>
+                      {cents !== null ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)}¢` : noteIdeal ? "—" : "未登録"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* 複数ノートが検出されたセッション(フレーズ)はタイムラインも表示 */}
       {isPhraseResult && (
