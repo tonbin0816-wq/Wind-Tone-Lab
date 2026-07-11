@@ -494,6 +494,84 @@ function reedLabel(reed, reeds) {
 }
 
 // ============================================================
+// データ永続化(IndexedDB)
+//
+// 「データを撮りためることで検証の質が上がる」という方針のため、
+// リード・セッション・理想値プロファイルはページのリロードや再訪問を
+// またいで残す必要がある。localStorage(5〜10MB程度)はフレーズ録音の
+// フレーム列(100ms間隔)が積み重なるとすぐ枯渇するため、より大きな
+// クォータを持つIndexedDBを使う。単一のkvストアにキー毎の値を丸ごと
+// 保存する単純な方式(このアプリの規模ではクエリ機能は不要なため)。
+// ============================================================
+const IDB_NAME = "windToneLabDB";
+const IDB_STORE = "kv";
+const IDB_VERSION = 1;
+
+function openIdb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("indexedDB unavailable")); return; }
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(key) {
+  try {
+    const db = await openIdb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return undefined; // プライベートブラウジング等でIndexedDBが使えない場合は諦めて初期値を使う
+  }
+}
+
+async function idbSet(key, value) {
+  try {
+    const db = await openIdb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // 書き込み失敗時も画面操作自体は継続させる(永続化できないだけに留める)
+  }
+}
+
+// key別にIndexedDBへ自動保存するstateフック。マウント時に非同期で読み込み、
+// 以後の変更は逐次書き込む(読み込み完了前の書き込みで初期値により上書きしないようloadedRefで防ぐ)。
+function usePersistedState(key, initialValue) {
+  const [state, setState] = useState(initialValue);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    idbGet(key).then((saved) => {
+      if (cancelled) return;
+      if (saved !== undefined) setState(saved);
+      loadedRef.current = true;
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (loadedRef.current) idbSet(key, state);
+  }, [key, state]);
+
+  return [state, setState];
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
@@ -510,16 +588,17 @@ export default function WindToneLabPhaseMode() {
   const [hnrDb, setHnrDb] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [saxType, setSaxType] = useState("alto");
+  const [saxType, setSaxType] = usePersistedState("saxType", "alto");
   const [temperature, setTemperature] = useState(20);
-  const [tuningHz, setTuningHz] = useState(442); // 基準ピッチ: 440/442/443Hz
-  const [instrumentOffsetCents, setInstrumentOffsetCents] = useState(0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
+  const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440/442/443Hz
+  const [instrumentOffsetCents, setInstrumentOffsetCents] = usePersistedState("instrumentOffsetCents", 0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
   const [showTheory, setShowTheory] = useState(true);
   const [showIdeal, setShowIdeal] = useState(true);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
 
-  const [idealProfiles, setIdealProfiles] = useState([]);
-  const [selectedIdealId, setSelectedIdealId] = useState(null);
+  // 理想値プロファイルは「撮りためたデータ」の中核のひとつのため永続化する
+  const [idealProfiles, setIdealProfiles] = usePersistedState("idealProfiles", []);
+  const [selectedIdealId, setSelectedIdealId] = usePersistedState("selectedIdealId", null);
   const [newProfileName, setNewProfileName] = useState("");
 
   // --- 運指ベース管長自動キャリブレーション state ---
@@ -535,10 +614,12 @@ export default function WindToneLabPhaseMode() {
   const [matchBasis, setMatchBasis] = useState("theoretical"); // "theoretical" | "ideal"
 
   // --- リード管理 state (企画書v5 10節) ---
-  const [reeds, setReeds] = useState([]); // リードマスタ一覧
-  const [sessions, setSessions] = useState([]); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠)
-  const [selectedReedId, setSelectedReedId] = useState(null); // 録音前に選択する「今回使うリード」
+  // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
+  const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
+  const [sessions, setSessions] = usePersistedState("sessions", []); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠)
+  const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
   const [pendingLinkSessionId, setPendingLinkSessionId] = useState(null); // 事後紐付け対象のセッション
+  const [sessionMemo, setSessionMemo] = useState(""); // 録音前に入力する「何を試したか」の自由記述メモ
 
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -589,6 +670,7 @@ export default function WindToneLabPhaseMode() {
 
     // 単音・フレーズどちらのモードでも、録音中に蓄積したフレームがあればセッションとして保存する(企画書v5 10.3節)
     // reedIdは選択されていればそのまま紐付け、未選択ならnull(後で事後紐付け可能)
+    // memoは「何を変えて試したか」を残す自由記述(例: マウスピース変更・アンブシュア調整など)。次回録音に向けてリセットする
     if (phraseFramesRef.current.length > 0) {
       const session = {
         id: generateId(),
@@ -596,15 +678,17 @@ export default function WindToneLabPhaseMode() {
         saxType,
         reedId: selectedReedId,
         linkedAt: selectedReedId ? "eager" : null,
+        memo: sessionMemo.trim() || null,
         frames: phraseFramesRef.current,
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
       setSessions((prev) => [...prev, session]);
+      setSessionMemo("");
     }
 
     setIsRunning(false);
     setIsPhraseRecording(false);
-  }, [saxType, selectedReedId]);
+  }, [saxType, selectedReedId, sessionMemo]);
 
   const start = useCallback(async () => {
     setErrorMsg("");
@@ -825,19 +909,41 @@ export default function WindToneLabPhaseMode() {
 
   useEffect(() => () => stop(), [stop]);
 
+  // 理想値は単一フレーム(1/60秒)のスナップショットだとノイズの影響を強く受けるため、
+  // 直近1秒分(100ms間隔サンプリング×10フレーム)の平均を保存する。定量比較の基準としての安定性を上げる。
   const saveIdealProfile = () => {
+    const recent = phraseFramesRef.current.slice(-10);
     const reading = latestReadingRef.current;
-    if (!reading || !newProfileName.trim()) return;
+    if ((recent.length === 0 && !reading) || !newProfileName.trim()) return;
+
+    const avgOf = (arr, key) => mean(arr.map((f) => f[key]).filter((v) => v !== null && v !== undefined && !isNaN(v)));
+
+    let pitchHz, volumeDb, centroidHz, hnrDb, harmonicsProfile;
+    if (recent.length > 0) {
+      pitchHz = avgOf(recent, "pitchHz");
+      volumeDb = avgOf(recent, "volumeDb");
+      centroidHz = avgOf(recent, "spectralCentroidHz");
+      hnrDb = avgOf(recent, "hnrDb");
+      harmonicsProfile = Array.from({ length: NUM_HARMONICS }, (_, i) => {
+        const n = i + 1;
+        const vals = recent.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
+        return { n, norm: vals.length ? mean(vals) : 0 };
+      });
+    } else {
+      // フレーム蓄積が間に合っていない場合(録音直後など)は直近の瞬間値にフォールバック
+      pitchHz = reading.pitchHz;
+      volumeDb = reading.volumeDb;
+      centroidHz = reading.centroidHz;
+      hnrDb = reading.hnrDb;
+      harmonicsProfile = reading.harmonics.map((h) => ({ n: h.n, norm: h.norm }));
+    }
+
     const profile = {
-      id: `${Date.now()}`,
+      id: generateId(),
       name: newProfileName.trim(),
       saxType,
       recordedAt: new Date().toISOString(),
-      pitchHz: reading.pitchHz,
-      volumeDb: reading.volumeDb,
-      centroidHz: reading.centroidHz,
-      hnrDb: reading.hnrDb,
-      harmonicsProfile: reading.harmonics.map((h) => ({ n: h.n, norm: h.norm })),
+      pitchHz, volumeDb, centroidHz, hnrDb, harmonicsProfile,
     };
     setIdealProfiles((prev) => [...prev, profile]);
     setSelectedIdealId(profile.id);
@@ -876,7 +982,7 @@ export default function WindToneLabPhaseMode() {
       {/* Top-level tabs: 音計測 / リード / 分析 */}
       <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: 4 }}>
         {[
-          { key: "measure", label: "音計測" },
+          { key: "measure", label: "計測" },
           { key: "reeds", label: "リード" },
           { key: "analysis", label: "分析" },
         ].map((t) => (
@@ -930,7 +1036,7 @@ export default function WindToneLabPhaseMode() {
         <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
           {[
             { key: "register", label: "登録" },
-            { key: "data", label: "データ分析" },
+            { key: "data", label: "評価" },
           ].map((t) => (
             <button
               key={t.key}
@@ -977,6 +1083,7 @@ export default function WindToneLabPhaseMode() {
           deleteIdealProfile={deleteIdealProfile} preset={preset}
           NUM_HARMONICS={NUM_HARMONICS}
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
+          sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
         />
       )}
       {topTab === "measure" && mode === "phrase" && (
@@ -994,6 +1101,7 @@ export default function WindToneLabPhaseMode() {
           NUM_HARMONICS={NUM_HARMONICS}
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           phraseNoteEvents={phraseNoteEvents}
+          sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
@@ -1025,7 +1133,7 @@ function RealtimeView(props) {
     tuningHz, setTuningHz, matchedFingering, derivedTubeLengthCm,
     settingsExpanded, setSettingsExpanded, newProfileName, setNewProfileName, saveIdealProfile,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, preset, NUM_HARMONICS,
-    reeds, selectedReedId, setSelectedReedId,
+    reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
@@ -1041,6 +1149,17 @@ function RealtimeView(props) {
         </select>
         {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
         {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
+      </div>
+
+      {/* 何を変えて試したかのメモ(自由記述)。何を変えたら何が変わったかを後から追いやすくする */}
+      <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
+        <input
+          type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
+          value={sessionMemo} onChange={(e) => setSessionMemo(e.target.value)} disabled={isRunning}
+          className="sans"
+          style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
+        />
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
@@ -1176,6 +1295,9 @@ function RealtimeView(props) {
               理論基音(現在の運指): <span style={{ color: "#D97706" }}>{theoreticalHarmonics[0]?.freq.toFixed(1)} Hz</span>
             </div>
             <div className="sans" style={{ fontSize: 11, color: "#0F172A", marginBottom: 6, fontWeight: 600 }}>理想値プロファイル</div>
+            <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginBottom: 6 }}>
+              保存ボタンを押す直前の約1秒間を平均して保存します。安定した音を1秒ほど伸ばしてから押してください
+            </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               <input type="text" placeholder="名前を付けて現在の音を保存" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)} className="sans" style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "7px 10px", color: "#0F172A", fontSize: 11 }} />
               <button onClick={saveIdealProfile} disabled={!isRunning || !pitch || !newProfileName.trim()} className="sans" style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 12px", borderRadius: 6, border: "none", background: (!isRunning || !pitch || !newProfileName.trim()) ? "#E2E8F0" : "#2563EB", color: (!isRunning || !pitch || !newProfileName.trim()) ? "#64748B" : "#F8FAFC", fontSize: 11, cursor: (!isRunning || !pitch || !newProfileName.trim()) ? "default" : "pointer" }}>
@@ -1210,7 +1332,7 @@ function PhraseView(props) {
     timelineFormat, setTimelineFormat, timelineMetric, setTimelineMetric,
     matchBasis, setMatchBasis, selectedFrameIdx, setSelectedFrameIdx, selectedFrame,
     theoreticalHarmonics, selectedIdeal, idealProfiles, setSelectedIdealId, selectedIdealId, NUM_HARMONICS,
-    reeds, selectedReedId, setSelectedReedId, phraseNoteEvents,
+    reeds, selectedReedId, setSelectedReedId, phraseNoteEvents, sessionMemo, setSessionMemo,
   } = props;
 
   const metricOptions = [
@@ -1257,6 +1379,17 @@ function PhraseView(props) {
         </select>
         {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
         {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
+      </div>
+
+      {/* 何を変えて試したかのメモ(自由記述)。何を変えたら何が変わったかを後から追いやすくする */}
+      <div className="sans" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
+        <input
+          type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
+          value={sessionMemo} onChange={(e) => setSessionMemo(e.target.value)} disabled={isRunning}
+          className="sans"
+          style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
+        />
       </div>
 
       {/* 録音コントロール */}
@@ -1619,6 +1752,7 @@ function ReedRegisterView(props) {
               <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>
                   {new Date(s.recordedAt).toLocaleString("ja-JP")} ・ {s.frames?.length ?? 0}フレーム
+                  {s.memo && <span style={{ color: "#2563EB", marginLeft: 6 }}>「{s.memo}」</span>}
                 </span>
                 <select onChange={(e) => { if (e.target.value) linkSession(s.id, e.target.value); }} defaultValue="">
                   <option value="" disabled>リードを選択して紐付け</option>
@@ -1828,7 +1962,7 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
 
   const points = reedSessions.map((s) => {
     const frames = s.frames || [];
-    return { date: s.recordedAt, frameCount: frames.length, ...computeFrameMetrics(frames) };
+    return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
   });
 
   const metricDef = REED_COMPARE_METRICS.find((m) => m.key === historyMetric);
@@ -1890,7 +2024,10 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
               </svg>
               <div className="sans" style={{ fontSize: 9, color: "#64748B", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8 }}>
                 {validPoints.map((p, i) => (
-                  <span key={i}>{new Date(p.date).toLocaleDateString("ja-JP")}: {metricDef.fmt(p[historyMetric])}{metricDef.unit}</span>
+                  <span key={i} title={p.memo || undefined}>
+                    {new Date(p.date).toLocaleDateString("ja-JP")}: {metricDef.fmt(p[historyMetric])}{metricDef.unit}
+                    {p.memo && <span style={{ color: "#2563EB" }}> 「{p.memo}」</span>}
+                  </span>
                 ))}
               </div>
             </>
@@ -2145,11 +2282,11 @@ function AnalysisLabView({ sessions, reeds, selectedIdeal }) {
 
         {!canDiagnose ? (
           <div className="sans" style={{ fontSize: 11, color: "#D97706", padding: "10px 12px", background: "#FFFBEB", borderRadius: 6 }}>
-            理想値プロファイルが選択されていません。「音計測」タブでお手本の音を保存・選択すると、ここに診断結果が表示されます
+            理想値プロファイルが選択されていません。「計測」タブでお手本の音を保存・選択すると、ここに診断結果が表示されます
           </div>
         ) : framesWithContext.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>
-            測定データがまだありません。「音計測」→「フレーズ」で録音してください
+            測定データがまだありません。「計測」→「フレーズ」で録音してください
           </div>
         ) : (
           <>
