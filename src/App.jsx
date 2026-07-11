@@ -505,14 +505,17 @@ function reedLabel(reed, reeds) {
 // ============================================================
 const IDB_NAME = "windToneLabDB";
 const IDB_STORE = "kv";
-const IDB_VERSION = 1;
+const SESSIONS_STORE = "sessions"; // セッションはレコード単位のストア(理由は下記usePersistedState/useSessionsStoreのコメント参照)
+const IDB_VERSION = 2;
 
 function openIdb() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexedDB unavailable")); return; }
     const req = indexedDB.open(IDB_NAME, IDB_VERSION);
     req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE);
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      if (!db.objectStoreNames.contains(SESSIONS_STORE)) db.createObjectStore(SESSIONS_STORE, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -571,13 +574,84 @@ function usePersistedState(key, initialValue) {
   return [state, setState];
 }
 
+// --- セッション専用のレコード単位ストア -------------------------------
+// 【重要】録音停止のたびに10秒以上のラグが発生していた原因はこれだった。
+// usePersistedStateはstateが変わるたび配列全体をIndexedDBに書き込むため、
+// セッション履歴(フレーム列を含む)が蓄積するほど1回の書き込みが重くなり、
+// 「データを撮りためる」というアプリの目的そのものと衝突していた。
+// セッションだけはkeyPath:"id"の専用ストアにして、変更のあった1件だけを
+// put/deleteする方式にし、書き込みコストをセッション総数と切り離す。
+async function idbGetAllSessions() {
+  try {
+    const db = await openIdb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(SESSIONS_STORE, "readonly");
+      const req = tx.objectStore(SESSIONS_STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function idbPutSessions(sessionsToWrite) {
+  if (sessionsToWrite.length === 0) return;
+  try {
+    const db = await openIdb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(SESSIONS_STORE, "readwrite");
+      const store = tx.objectStore(SESSIONS_STORE);
+      for (const s of sessionsToWrite) store.put(s);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // 書き込み失敗時も画面操作自体は継続させる
+  }
+}
+
+// sessions配列をReact state上では今まで通り扱いつつ、書き込みだけは変更のあった
+// レコードに限定する。addSession: 新規1件追加。updateSessions: 関数更新の結果、
+// 中身が変わったレコードだけを差分検出してIndexedDBに書き込む。
+function useSessionsStore() {
+  const [sessions, setSessionsState] = useState([]);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    idbGetAllSessions().then((all) => {
+      if (cancelled) return;
+      setSessionsState(all);
+      loadedRef.current = true;
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const addSession = useCallback((session) => {
+    setSessionsState((prev) => [...prev, session]);
+    idbPutSessions([session]);
+  }, []);
+
+  const updateSessions = useCallback((updater) => {
+    setSessionsState((prev) => {
+      const next = updater(prev);
+      const prevById = new Map(prev.map((s) => [s.id, s]));
+      const changed = next.filter((s) => prevById.get(s.id) !== s);
+      if (changed.length > 0) idbPutSessions(changed);
+      return next;
+    });
+  }, []);
+
+  return [sessions, addSession, updateSessions];
+}
+
 // ============================================================
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
   const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
   const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | data
-  const [mode, setMode] = useState("realtime"); // "realtime" | "phrase" — 「音色計測」内の子タブ
   const [isRunning, setIsRunning] = useState(false);
   const [pitch, setPitch] = useState(null);
   const [note, setNote] = useState(null);
@@ -605,8 +679,7 @@ export default function WindToneLabPhaseMode() {
   const [matchedFingering, setMatchedFingering] = useState(null); // 直近フレームで判定された運指
   const [derivedTubeLengthCm, setDerivedTubeLengthCm] = useState(null); // 逆算された理論管長(表示用)
 
-  // --- フレーズモード state ---
-  const [isPhraseRecording, setIsPhraseRecording] = useState(false);
+  // --- 録音結果の時系列データ(単音/フレーズの区別はnoteEvents数から事後判定する) ---
   const [phraseFrames, setPhraseFrames] = useState([]); // データ構造は企画書3節のframesに準拠
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
   const [timelineFormat, setTimelineFormat] = useState("line"); // "line" | "heatmap"
@@ -616,7 +689,7 @@ export default function WindToneLabPhaseMode() {
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
   const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
-  const [sessions, setSessions] = usePersistedState("sessions", []); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠)
+  const [sessions, addSession, updateSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
   const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
   const [pendingLinkSessionId, setPendingLinkSessionId] = useState(null); // 事後紐付け対象のセッション
   const [sessionMemo, setSessionMemo] = useState(""); // 録音前に入力する「何を試したか」の自由記述メモ
@@ -682,13 +755,12 @@ export default function WindToneLabPhaseMode() {
         frames: phraseFramesRef.current,
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
-      setSessions((prev) => [...prev, session]);
+      addSession(session);
       setSessionMemo("");
     }
 
     setIsRunning(false);
-    setIsPhraseRecording(false);
-  }, [saxType, selectedReedId, sessionMemo]);
+  }, [saxType, selectedReedId, sessionMemo, addSession]);
 
   const start = useCallback(async () => {
     setErrorMsg("");
@@ -710,15 +782,14 @@ export default function WindToneLabPhaseMode() {
       analyserRef.current = analyser;
 
       setIsRunning(true);
-      // フレーム蓄積(100ms周期のサンプリング)は単音・フレーズ両モードで共通して行う。
-      // タイムラインUI・「録音中」表示はフレーズモード限定のまま(isPhraseRecording)。
+      // フレーム蓄積(100ms周期のサンプリング)は常に行う。単音かフレーズかはモードで分けず、
+      // 録音停止後にnoteEvents(検出されたノート数)から事後判定する(2音以上ならフレーズ扱い)。
       phraseStartTimeRef.current = performance.now();
       lastSampleTimeRef.current = 0;
       setPhraseFrames([]);
       phraseFramesRef.current = [];
       noteDetectorRef.current = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
       setPhraseNoteEvents([]);
-      if (mode === "phrase") setIsPhraseRecording(true);
 
       const tick = () => {
         const analyserNode = analyserRef.current;
@@ -905,9 +976,16 @@ export default function WindToneLabPhaseMode() {
       setErrorMsg(`マイクにアクセスできませんでした [${err.name}]: ${hints[err.name] || err.message}`);
       setIsRunning(false);
     }
-  }, [mode, selectedIdeal, fingeringTable, preset, temperature]);
+  }, [selectedIdeal, fingeringTable, preset, temperature]);
 
-  useEffect(() => () => stop(), [stop]);
+  // 【重要】stopは(sessionMemo等の変化で)頻繁に再生成されるため、
+  // 依存配列に直接stopを入れると「stopが変わるたびに前回のeffectのクリーンアップとして
+  // 古いstop()が呼ばれる」→録音終了ボタン1回のクリックでstop()が実質2回走り、
+  // セッションが重複保存される不具合があった(停止時の体感ラグの一因でもあった)。
+  // refで最新のstopを保持し、このeffect自体はマウント/アンマウント時のみ発火させる。
+  const stopRef = useRef(stop);
+  useEffect(() => { stopRef.current = stop; }, [stop]);
+  useEffect(() => () => stopRef.current(), []);
 
   // 理想値は単一フレーム(1/60秒)のスナップショットだとノイズの影響を強く受けるため、
   // 直近1秒分(100ms間隔サンプリング×10フレーム)の平均を保存する。定量比較の基準としての安定性を上げる。
@@ -1004,33 +1082,6 @@ export default function WindToneLabPhaseMode() {
         ))}
       </div>
 
-      {/* 音色計測タブ内の子タブ: 単音 / フレーズ */}
-      {topTab === "measure" && (
-        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
-          {[
-            { key: "realtime", label: "単音" },
-            { key: "phrase", label: "フレーズ" },
-          ].map((m) => (
-            <button
-              key={m.key}
-              onClick={() => { if (!isRunning) setMode(m.key); }}
-              disabled={isRunning}
-              className="sans"
-              style={{
-                flex: 1, padding: "7px 4px", borderRadius: 7,
-                border: mode === m.key ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
-                background: mode === m.key ? "#EFF6FF" : "transparent",
-                color: mode === m.key ? "#2563EB" : "#64748B",
-                fontWeight: mode === m.key ? 600 : 400, fontSize: 11,
-                cursor: isRunning ? "default" : "pointer", opacity: isRunning && mode !== m.key ? 0.4 : 1,
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* リードタブ内の子タブ: 登録 / データ分析 */}
       {topTab === "reeds" && (
         <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
@@ -1062,8 +1113,8 @@ export default function WindToneLabPhaseMode() {
         </div>
       )}
 
-      {topTab === "measure" && mode === "realtime" && (
-        <RealtimeView
+      {topTab === "measure" && (
+        <MeasureView
           isRunning={isRunning} start={start} stop={stop}
           note={note} pitch={pitch} needleRotation={needleRotation} centsOffset={centsOffset}
           spectrumBars={spectrumBars}
@@ -1084,30 +1135,18 @@ export default function WindToneLabPhaseMode() {
           NUM_HARMONICS={NUM_HARMONICS}
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
-        />
-      )}
-      {topTab === "measure" && mode === "phrase" && (
-        <PhraseView
-          isRunning={isRunning} isPhraseRecording={isPhraseRecording} start={start} stop={stop}
-          phraseFrames={phraseFrames}
+          phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents}
           timelineFormat={timelineFormat} setTimelineFormat={setTimelineFormat}
           timelineMetric={timelineMetric} setTimelineMetric={setTimelineMetric}
           matchBasis={matchBasis} setMatchBasis={setMatchBasis}
           selectedFrameIdx={selectedFrameIdx} setSelectedFrameIdx={setSelectedFrameIdx}
           selectedFrame={selectedFrame}
-          theoreticalHarmonics={theoreticalHarmonics}
-          selectedIdeal={selectedIdeal}
-          idealProfiles={idealProfiles} setSelectedIdealId={setSelectedIdealId} selectedIdealId={selectedIdealId}
-          NUM_HARMONICS={NUM_HARMONICS}
-          reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
-          phraseNoteEvents={phraseNoteEvents}
-          sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
         <ReedRegisterView
           reeds={reeds} setReeds={setReeds}
-          sessions={sessions} setSessions={setSessions}
+          sessions={sessions} updateSessions={updateSessions}
           pendingLinkSessionId={pendingLinkSessionId} setPendingLinkSessionId={setPendingLinkSessionId}
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
         />
@@ -1123,9 +1162,15 @@ export default function WindToneLabPhaseMode() {
 }
 
 // ============================================================
-// Realtime mode view
+// 計測ビュー(単音・フレーズ統合)
+//
+// 単音/フレーズはモードとして分けず、1つの録音フローで扱う。
+// リアルタイム表示(音高・スペクトル・倍音構成等)は録音中/停止後を問わず常時表示し、
+// 「単音」の結果はこの常時表示がそのまま最終評価になる(停止後も最後の値が残る)。
+// 「フレーズ」かどうかは録音停止後(または録音中)にnoteEvents(検出ノート数)から
+// 事後判定し、2音以上検出された場合のみ下部にタイムライン(旧フレーズモード相当)を追加表示する。
 // ============================================================
-function RealtimeView(props) {
+function MeasureView(props) {
   const {
     isRunning, start, stop, note, pitch, needleRotation, centsOffset, spectrumBars,
     harmonicLevels, theoreticalHarmonics, showTheory, setShowTheory, showIdeal, setShowIdeal,
@@ -1134,13 +1179,49 @@ function RealtimeView(props) {
     settingsExpanded, setSettingsExpanded, newProfileName, setNewProfileName, saveIdealProfile,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, preset, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
+    phraseFrames, phraseNoteEvents,
+    timelineFormat, setTimelineFormat, timelineMetric, setTimelineMetric,
+    matchBasis, setMatchBasis, selectedFrameIdx, setSelectedFrameIdx, selectedFrame,
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
+  // 2音以上のノートが検出されていればフレーズとして扱い、タイムラインを表示する
+  const isPhraseResult = phraseNoteEvents.length > 1 && phraseFrames.length > 0;
+
+  const metricOptions = [
+    { key: "pitch", label: "音高" },
+    { key: "volume", label: "音量" },
+    { key: "centroid", label: "重心" },
+    { key: "hnr", label: "HNR" },
+  ];
+
+  const getMetricValue = (frame) => {
+    switch (timelineMetric) {
+      case "pitch": return frame.pitchHz;
+      case "volume": return frame.volumeDb;
+      case "centroid": return frame.spectralCentroidHz;
+      case "hnr": return frame.hnrDb;
+      default: return null;
+    }
+  };
+
+  const getMatchScore = (frame, kind) => {
+    // kind: "pitch" | "timbre"
+    // ピッチは理論値・理想値どちらも選択可(matchBasisに従う)。
+    // 音色は理論値基準を持たない(企画書v3方針)ため、常に理想値を使う。
+    if (!frame.matchScore) return 0;
+    if (kind === "timbre") return frame.matchScore.timbre?.ideal ?? 0;
+    return frame.matchScore[kind]?.[matchBasis] ?? 0;
+  };
+
+  const values = isPhraseResult ? phraseFrames.map(getMetricValue).filter((v) => v !== null && v !== undefined && !isNaN(v)) : [];
+  const minV = values.length ? Math.min(...values) : 0;
+  const maxV = values.length ? Math.max(...values) : 1;
+  const range = maxV - minV || 1;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 使用リード選択(企画書v5 10.3節: 事前選択。単音モードでも紐付け可能) */}
+      {/* 使用リード選択(企画書v5 10.3節: 事前選択) */}
       <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ color: "#64748B" }}>使用リード:</span>
         <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRunning}>
@@ -1162,7 +1243,14 @@ function RealtimeView(props) {
         />
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+        {isRunning ? (
+          <div className="sans" style={{ fontSize: 11, color: "#2563EB", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
+            録音中 · {phraseFrames.length}フレーム
+            {phraseNoteEvents.length > 0 && <span style={{ color: "#64748B", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
+          </div>
+        ) : <span />}
         <button onClick={isRunning ? stop : start} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRunning ? "#DC2626" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           {isRunning ? <Square size={14} /> : <Mic size={14} />}
           {isRunning ? "停止" : "録音"}
@@ -1319,115 +1407,19 @@ function RealtimeView(props) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
 
-// ============================================================
-// Phrase mode view
-// ============================================================
-function PhraseView(props) {
-  const {
-    isRunning, isPhraseRecording, start, stop, phraseFrames,
-    timelineFormat, setTimelineFormat, timelineMetric, setTimelineMetric,
-    matchBasis, setMatchBasis, selectedFrameIdx, setSelectedFrameIdx, selectedFrame,
-    theoreticalHarmonics, selectedIdeal, idealProfiles, setSelectedIdealId, selectedIdealId, NUM_HARMONICS,
-    reeds, selectedReedId, setSelectedReedId, phraseNoteEvents, sessionMemo, setSessionMemo,
-  } = props;
-
-  const metricOptions = [
-    { key: "pitch", label: "音高" },
-    { key: "volume", label: "音量" },
-    { key: "centroid", label: "重心" },
-    { key: "hnr", label: "HNR" },
-  ];
-
-  const getMetricValue = (frame) => {
-    switch (timelineMetric) {
-      case "pitch": return frame.pitchHz;
-      case "volume": return frame.volumeDb;
-      case "centroid": return frame.spectralCentroidHz;
-      case "hnr": return frame.hnrDb;
-      default: return null;
-    }
-  };
-
-  const getMatchScore = (frame, kind) => {
-    // kind: "pitch" | "timbre"
-    // ピッチは理論値・理想値どちらも選択可(matchBasisに従う)。
-    // 音色は理論値基準を持たない(企画書v3方針)ため、常に理想値を使う。
-    if (!frame.matchScore) return 0;
-    if (kind === "timbre") return frame.matchScore.timbre?.ideal ?? 0;
-    return frame.matchScore[kind]?.[matchBasis] ?? 0;
-  };
-
-  const values = phraseFrames.map(getMetricValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const minV = values.length ? Math.min(...values) : 0;
-  const maxV = values.length ? Math.max(...values) : 1;
-  const range = maxV - minV || 1;
-
-  const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
-
-  return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 使用リード選択(企画書v5 10.3節: 事前選択) */}
-      <div className="sans" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: "#64748B" }}>使用リード:</span>
-        <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRunning}>
-          <option value="">未選択(後で紐付け可能)</option>
-          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-        </select>
-        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
-        {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
-      </div>
-
-      {/* 何を変えて試したかのメモ(自由記述)。何を変えたら何が変わったかを後から追いやすくする */}
-      <div className="sans" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
-        <input
-          type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
-          value={sessionMemo} onChange={(e) => setSessionMemo(e.target.value)} disabled={isRunning}
-          className="sans"
-          style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
-        />
-      </div>
-
-      {/* 録音コントロール */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
-        <button onClick={isRunning ? stop : start} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRunning ? "#DC2626" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {isRunning ? <Square size={14} /> : <Mic size={14} />}
-          {isRunning ? "録音終了(分析ストップ)" : "録音開始(分析スタート)"}
-        </button>
-        {isPhraseRecording && (
-          <div className="sans" style={{ fontSize: 11, color: "#2563EB", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
-            録音中 · {phraseFrames.length}フレーム
-            {phraseNoteEvents.length > 0 && (() => {
-              const attacks = phraseNoteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
-              const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
-              return <span style={{ color: "#64748B", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート{avg !== null ? ` · 平均アタック ${avg}ms` : ""}</span>;
-            })()}
-          </div>
-        )}
-      </div>
-
-      {/* 理想値選択(フレーズモードでも使う) */}
-      {idealProfiles.length > 0 && (
-        <div className="sans" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "#64748B" }}>理想値プロファイル:</span>
-          <select value={selectedIdealId || ""} onChange={(e) => setSelectedIdealId(e.target.value || null)}>
-            <option value="">未選択</option>
-            {idealProfiles.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-          </select>
-        </div>
-      )}
-
-      {phraseFrames.length === 0 ? (
-        <div className="sans" style={{ background: "#FFFFFF", border: "1px dashed #E2E8F0", borderRadius: 10, padding: "40px 20px", textAlign: "center", color: "#64748B", fontSize: 12 }}>
-          「録音開始」を押して演奏すると、ここにタイムラインが表示されます
-        </div>
-      ) : (
+      {/* フレーズ判定時のみ表示(2音以上検出): タイムライン(旧フレーズモード相当) */}
+      {isPhraseResult && (
         <>
+          {idealProfiles.length > 0 && (
+            <div className="sans" style={{ fontSize: 11, margin: "10px 0", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "#64748B" }}>理想値プロファイル:</span>
+              <select value={selectedIdealId || ""} onChange={(e) => setSelectedIdealId(e.target.value || null)}>
+                <option value="">未選択</option>
+                {idealProfiles.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+          )}
           {/* 表示切り替え */}
           <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -1590,7 +1582,7 @@ function MetricCard({ label, value, sub, accentColor }) {
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, setSessions, pendingLinkSessionId, setPendingLinkSessionId, setTopTab, setSelectedReedId } = props;
+  const { reeds, setReeds, sessions, updateSessions, pendingLinkSessionId, setPendingLinkSessionId, setTopTab, setSelectedReedId } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -1630,7 +1622,7 @@ function ReedRegisterView(props) {
 
   const deleteReed = (id) => {
     setReeds((prev) => prev.filter((r) => r.id !== id));
-    setSessions((prev) => prev.map((s) => (s.reedId === id ? { ...s, reedId: null, linkedAt: null } : s)));
+    updateSessions((prev) => prev.map((s) => (s.reedId === id ? { ...s, reedId: null, linkedAt: null } : s)));
   };
 
   const rateReed = (id, rating) => {
@@ -1643,12 +1635,13 @@ function ReedRegisterView(props) {
   };
 
   const linkSession = (sessionId, reedId) => {
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, reedId, linkedAt: "retroactive" } : s)));
+    updateSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, reedId, linkedAt: "retroactive" } : s)));
     setPendingLinkSessionId(null);
   };
 
   const unlinkedSessions = sessions.filter((s) => !s.reedId);
   const reedGroups = groupReeds(reeds);
+  const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -1710,34 +1703,44 @@ function ReedRegisterView(props) {
         {reeds.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>まだリードが登録されていません</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {reedGroups.map((g) => (
-              <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
-                <div className="sans" style={{ fontSize: 11, marginBottom: 8 }}>
-                  <span style={{ color: "#0F172A", fontWeight: 600 }}>{g.brand}</span>{" "}
-                  <span style={{ color: "#2563EB", fontWeight: 600 }}>{g.strength}</span>{" "}
-                  <span style={{ color: "#64748B", fontSize: 10 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {g.members.map((r, idx) => (
-                    <div key={r.id} style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 8px", display: "flex", flexDirection: "column", gap: 5, minWidth: 96, background: "#F8FAFC" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A" }}>#{idx + 1}</span>
-                        <button onClick={() => deleteReed(r.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2 }}><Trash2 size={11} /></button>
-                      </div>
-                      <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
-                      <button
-                        onClick={() => goToMeasure(r.id)}
-                        className="sans"
-                        style={{ fontSize: 9, padding: "4px 6px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600 }}
-                      >
-                        測定へ
-                      </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reedGroups.map((g) => {
+              const isExpanded = expandedGroupKey === g.key;
+              return (
+                <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, overflow: "hidden" }}>
+                  <button
+                    onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
+                    className="sans"
+                    style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: isExpanded ? "#EFF6FF" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
+                  >
+                    <span style={{ fontSize: 11 }}>
+                      <span style={{ color: "#0F172A", fontWeight: 600 }}>{g.brand}</span>{" "}
+                      <span style={{ color: "#2563EB", fontWeight: 600 }}>{g.strength}</span>{" "}
+                      <span style={{ color: "#64748B", fontSize: 10 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                    </span>
+                    {isExpanded ? <ChevronUp size={14} color="#64748B" /> : <ChevronDown size={14} color="#64748B" />}
+                  </button>
+                  {isExpanded && (
+                    <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
+                      {g.members.map((r, idx) => (
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                          <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{idx + 1}</span>
+                          <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                          <button
+                            onClick={() => goToMeasure(r.id)}
+                            className="sans"
+                            style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
+                          >
+                            測定へ
+                          </button>
+                          <button onClick={() => deleteReed(r.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Trash2 size={12} /></button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1882,17 +1885,26 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
   return (
     <div>
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>比較するリードを選択(複数可)</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {reeds.map((r) => (
-            <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
-              padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-              border: compareReedIds.includes(r.id) ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
-              background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
-              color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
-            }}>
-              {reedLabel(r, reeds)}
-            </button>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>比較するリードを選択(複数可)。箱ごとにグループ化しています</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {groupReeds(reeds).map((g) => (
+            <div key={g.key}>
+              <div className="sans" style={{ fontSize: 9, color: "#64748B", marginBottom: 4 }}>
+                {g.brand} {g.strength}（{g.startDate}）
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {g.members.map((r, idx) => (
+                  <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
+                    padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                    border: compareReedIds.includes(r.id) ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                    background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
+                    color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
+                  }}>
+                    #{idx + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>
@@ -1955,6 +1967,11 @@ function ReedMetricBarRow({ label, unit, items, fmt }) {
 // --- 10.4(b): リード毎比較(1本のリードの経時変化。HNR以外の項目も切替可能) ---
 function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
   const [historyMetric, setHistoryMetric] = useState("hnrDb");
+  // リードが100枚規模になっても選びやすいよう、箱→箱内の個別リードの2段階選択にする
+  const reedGroups = groupReeds(reeds);
+  const currentReedForGroup = reeds.find((r) => r.id === historyReedId) || null;
+  const [historyGroupKey, setHistoryGroupKey] = useState(() => (currentReedForGroup ? reedGroupKey(currentReedForGroup) : null));
+  const selectedGroup = reedGroups.find((g) => g.key === historyGroupKey) || null;
 
   const reedSessions = sessions
     .filter((s) => s.reedId === historyReedId)
@@ -1982,10 +1999,23 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
     <div>
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>経時変化を見るリードを選択</div>
-        <select value={historyReedId || ""} onChange={(e) => setHistoryReedId(e.target.value || null)}>
-          <option value="">選択してください</option>
-          {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-        </select>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select
+            value={historyGroupKey || ""}
+            onChange={(e) => { setHistoryGroupKey(e.target.value || null); setHistoryReedId(null); }}
+          >
+            <option value="">箱を選択</option>
+            {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}（{g.startDate}・{g.members.length}枚）</option>))}
+          </select>
+          <select
+            value={historyReedId || ""}
+            onChange={(e) => setHistoryReedId(e.target.value || null)}
+            disabled={!selectedGroup}
+          >
+            <option value="">{selectedGroup ? "番号を選択" : "先に箱を選択してください"}</option>
+            {selectedGroup?.members.map((r, idx) => (<option key={r.id} value={r.id}>#{idx + 1}</option>))}
+          </select>
+        </div>
       </div>
 
       {historyReedId && (
@@ -2125,6 +2155,21 @@ function ScoreChip({ label, value }) {
     <span className="sans" style={{ fontSize: 9, padding: "3px 8px", borderRadius: 10, background: "#F8FAFC", border: `1px solid ${scoreToColor(value)}`, color: scoreToColor(value) }}>
       {label} {Math.round(value * 100)}
     </span>
+  );
+}
+
+// 原因推定スコア(0.0〜1.0)を横棒グラフで表示する行。分析タブの息不足/噛みすぎ/複合スコアに使用
+function DiagnosisBarRow({ label, value }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const color = scoreToColor(value);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span className="sans" style={{ fontSize: 9, color: "#64748B", width: 40, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, background: "#F1F5F9", borderRadius: 4, height: 10, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 4 }} />
+      </div>
+      <span className="sans" style={{ fontSize: 9, color, width: 24, textAlign: "right", flexShrink: 0 }}>{pct}</span>
+    </div>
   );
 }
 
@@ -2327,10 +2372,10 @@ function AnalysisLabView({ sessions, reeds, selectedIdeal }) {
                         {title}
                         <span style={{ fontSize: 9, color: "#64748B", fontWeight: 400, marginLeft: 8 }}>{row.frameCount}フレーム</span>
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: suggestions.length ? 8 : 0 }}>
-                        <ScoreChip label="息不足" value={row.avgBreathShortage} />
-                        <ScoreChip label="噛みすぎ" value={row.avgOverBiting} />
-                        <ScoreChip label="複合" value={row.avgCompensating} />
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: suggestions.length ? 8 : 4 }}>
+                        <DiagnosisBarRow label="息不足" value={row.avgBreathShortage} />
+                        <DiagnosisBarRow label="噛みすぎ" value={row.avgOverBiting} />
+                        <DiagnosisBarRow label="複合" value={row.avgCompensating} />
                       </div>
                       {suggestions.length > 0 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
