@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 
 // ============================================================
 // Music theory helpers
@@ -1274,6 +1274,8 @@ export default function WindToneLabPhaseMode() {
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents}
           promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
+          handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
+          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
@@ -1292,12 +1294,7 @@ export default function WindToneLabPhaseMode() {
       {topTab === "analysis" && (
         <AnalysisLabView
           sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
-          handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload} uploadProgress={uploadProgress}
-          lastUploadedSession={lastUploadedSession} promoteSessionToIdeal={promoteSessionToIdeal}
-          selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
-          performers={performers} selectedPerformer={selectedPerformer}
-          setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-          sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
+          promoteSessionToIdeal={promoteSessionToIdeal}
           idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           NUM_HARMONICS={NUM_HARMONICS}
         />
@@ -1325,11 +1322,13 @@ function MeasureView(props) {
     reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     phraseFrames, phraseNoteEvents, promoteSessionToIdeal, sessions,
+    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
   // 理想値は音(運指)ごとに持つため、今演奏している音に対応する理想値を都度引く
   const currentNoteIdeal = getNoteIdeal(selectedIdeal, matchedFingering?.semitoneIndex);
+  const fileInputRef = useRef(null);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -1369,11 +1368,42 @@ function MeasureView(props) {
             {phraseNoteEvents.length > 0 && <span style={{ color: "#64748B", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
           </div>
         ) : <span />}
-        <button onClick={toggleRecording} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRecording ? "#DC2626" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {isRecording ? <Square size={14} /> : <Mic size={14} />}
-          {isRecording ? "停止" : "録音"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            ref={fileInputRef} type="file" accept="audio/*" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isRecording || isAnalyzingUpload}
+            className="sans"
+            style={{ display: "flex", alignItems: "center", gap: 6, background: "#FFFFFF", color: "#2563EB", border: "1.5px solid #2563EB", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+          >
+            <Upload size={14} />
+            {isAnalyzingUpload ? "解析中…" : "アップロード"}
+          </button>
+          <button onClick={toggleRecording} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRecording ? "#DC2626" : "#2563EB", color: "#F8FAFC", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {isRecording ? <Square size={14} /> : <Mic size={14} />}
+            {isRecording ? "停止" : "録音"}
+          </button>
+        </div>
       </div>
+
+      {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
+      {isAnalyzingUpload && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ background: "#F1F5F9", borderRadius: 4, height: 8, overflow: "hidden" }}>
+            <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "#2563EB", borderRadius: 4, transition: "width 0.2s linear" }} />
+          </div>
+          <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
+        </div>
+      )}
+      {!isAnalyzingUpload && lastUploadedSession && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span className="sans" style={{ fontSize: 10, color: "#16A34A" }}>アップロードの解析が完了しました</span>
+          <SetAsIdealButton frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
+        </div>
+      )}
 
       {/* 録音停止直後、その結果をそのまま理想値プロファイルに設定できるようにする */}
       {!isRecording && phraseFrames.length > 0 && (
@@ -2651,10 +2681,8 @@ function MyDataSection({ sessions }) {
 
 function AnalysisLabView(props) {
   const {
-    sessions, reeds, selectedIdeal,
-    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, promoteSessionToIdeal,
-    selectedReedId, setSelectedReedId, performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    sessionMemo, setSessionMemo, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS,
+    sessions, reeds, selectedIdeal, promoteSessionToIdeal,
+    idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS,
   } = props;
 
   const [pivotRow, setPivotRow] = useState("note");
@@ -2693,17 +2721,7 @@ function AnalysisLabView(props) {
       {/* --- My Data: 「自分」のセッションの推移 --- */}
       <MyDataSection sessions={sessions} />
 
-      {/* --- 録音データのアップロード解析 --- */}
-      <UploadPanel
-        handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload} uploadProgress={uploadProgress}
-        lastUploadedSession={lastUploadedSession} promoteSessionToIdeal={promoteSessionToIdeal}
-        reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
-        performers={performers} selectedPerformer={selectedPerformer}
-        setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-        sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
-      />
-
-      {/* --- セッション一覧(録音+アップロード) --- */}
+      {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 10 }}>
           セッション一覧（{sessions.length}）
@@ -2815,82 +2833,6 @@ function AnalysisLabView(props) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// 音声ファイルのアップロード解析パネル(分析タブ)。解析はライブ録音と同じパイプラインを
-// 実時間再生で通すため、ファイルの再生時間と同じだけ時間がかかる(進捗バーで表示)。
-function UploadPanel(props) {
-  const {
-    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, promoteSessionToIdeal,
-    reeds, selectedReedId, setSelectedReedId, performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    sessionMemo, setSessionMemo,
-  } = props;
-  const fileInputRef = useRef(null);
-  const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
-
-  return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>録音データをアップロード</div>
-      <div className="sans" style={{ fontSize: 10, color: "#64748B", lineHeight: 1.6, marginBottom: 10 }}>
-        音声ファイル(録音済みの演奏)をアップロードすると、マイク録音と同じ解析を行いセッションとして保存します。
-        ファイルの長さと同じだけ解析に時間がかかります。
-      </div>
-
-      <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: "#64748B" }}>使用リード:</span>
-        <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isAnalyzingUpload}>
-          <option value="">未選択(後で紐付け可能)</option>
-          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-        </select>
-        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
-        <span style={{ color: "#64748B", marginLeft: 8 }}>奏者:</span>
-        <PerformerSelector
-          performers={performers} selectedPerformer={selectedPerformer}
-          setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-          disabled={isAnalyzingUpload}
-        />
-      </div>
-
-      <div className="sans" style={{ fontSize: 11, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
-        <input
-          type="text" placeholder="何を試したか(例: 先生のお手本 等)"
-          value={sessionMemo} onChange={(e) => setSessionMemo(e.target.value)} disabled={isAnalyzingUpload}
-          className="sans"
-          style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
-        />
-      </div>
-
-      <input
-        ref={fileInputRef} type="file" accept="audio/*" style={{ display: "none" }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
-      />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isAnalyzingUpload}
-        className="sans"
-        style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: isAnalyzingUpload ? "#E2E8F0" : "#2563EB", color: isAnalyzingUpload ? "#64748B" : "#F8FAFC", fontSize: 13, fontWeight: 600, cursor: isAnalyzingUpload ? "default" : "pointer" }}
-      >
-        {isAnalyzingUpload ? "解析中…" : "音声ファイルを選択"}
-      </button>
-
-      {isAnalyzingUpload && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ background: "#F1F5F9", borderRadius: 4, height: 8, overflow: "hidden" }}>
-            <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "#2563EB", borderRadius: 4, transition: "width 0.2s linear" }} />
-          </div>
-          <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
-        </div>
-      )}
-
-      {!isAnalyzingUpload && lastUploadedSession && (
-        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="sans" style={{ fontSize: 10, color: "#16A34A" }}>解析が完了しました</span>
-          <SetAsIdealButton frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
-        </div>
-      )}
     </div>
   );
 }
