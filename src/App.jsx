@@ -1275,7 +1275,7 @@ export default function WindToneLabPhaseMode() {
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents}
-          promoteSessionToIdeal={promoteSessionToIdeal}
+          promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
@@ -1326,12 +1326,10 @@ function MeasureView(props) {
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    phraseFrames, phraseNoteEvents, promoteSessionToIdeal,
+    phraseFrames, phraseNoteEvents, promoteSessionToIdeal, sessions,
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
-  // 2音以上のノートが検出されていればフレーズとして扱い、タイムラインを表示する
-  const isPhraseResult = phraseNoteEvents.length > 1 && phraseFrames.length > 0;
   // 理想値は音(運指)ごとに持つため、今演奏している音に対応する理想値を都度引く
   const currentNoteIdeal = getNoteIdeal(selectedIdeal, matchedFingering?.semitoneIndex);
 
@@ -1507,12 +1505,12 @@ function MeasureView(props) {
         )}
       </div>
 
-      {/* フレーズ判定時のみ表示(2音以上検出): タイムライン(旧フレーズモード相当) */}
-      {isPhraseResult && (
+      {/* 録音データグラフ(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示する */}
+      {phraseFrames.length > 0 && (
         <PhraseTimeline
           frames={phraseFrames} noteEvents={phraseNoteEvents} selectedIdeal={selectedIdeal}
           idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
-          NUM_HARMONICS={NUM_HARMONICS}
+          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
         />
       )}
     </div>
@@ -1520,11 +1518,52 @@ function MeasureView(props) {
 }
 
 // フレーズのタイムライン+ドリルダウン表示。計測タブ(ライブ直後)とセッション詳細(履歴)の両方から使う共通コンポーネント。
-function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS }) {
+function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, sessions, ownSessionId }) {
   const [timelineFormat, setTimelineFormat] = useState("line");
   const [timelineMetric, setTimelineMetric] = useState("pitch");
   const [matchBasis, setMatchBasis] = useState("theoretical");
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
+  // 比較対象: 音ごとの理想値プロファイル、または「お手本セッション」を選んで演奏全体を時間軸で重ねて比較する
+  const [compareMode, setCompareMode] = useState("ideal"); // "ideal" | "session"
+  const [referenceSessionId, setReferenceSessionId] = useState(null);
+
+  const referenceCandidates = (sessions || []).filter((s) => s.id !== ownSessionId && (s.frames?.length ?? 0) > 0);
+  const referenceSession = referenceCandidates.find((s) => s.id === referenceSessionId) || null;
+
+  // 自分とお手本、それぞれの最初の発音タイミング(noteEvents[0].startT)を基準に位置を揃え、
+  // 「発音開始からの経過時間」が近いフレーム同士を対応づける(吹き始めのタイミングのズレを吸収する簡易アライメント)。
+  const referenceLookup = useMemo(() => {
+    if (!referenceSession) return null;
+    const ownOnset = noteEvents?.[0]?.startT ?? 0;
+    const refOnset = referenceSession.noteEvents?.[0]?.startT ?? 0;
+    const refFrames = referenceSession.frames || [];
+    return (frameT) => {
+      const ownRel = frameT - ownOnset;
+      let best = null;
+      let bestDiff = Infinity;
+      for (const rf of refFrames) {
+        const diff = Math.abs((rf.t - refOnset) - ownRel);
+        if (diff < bestDiff) { bestDiff = diff; best = rf; }
+      }
+      return bestDiff <= 0.2 ? best : null; // 200ms以上離れていたら対応フレームなしとみなす
+    };
+  }, [referenceSession, noteEvents]);
+
+  // 比較対象(理想値 or お手本セッションの対応フレーム)を、noteIdealと同じ形({pitchHz, centroidHz, hnrDb, harmonicsProfile})に揃えて返す
+  const getComparisonTarget = (frame) => {
+    if (compareMode === "session") {
+      if (!referenceLookup) return null;
+      const refFrame = referenceLookup(frame.t);
+      if (!refFrame) return null;
+      return {
+        pitchHz: refFrame.pitchHz,
+        centroidHz: refFrame.spectralCentroidHz,
+        hnrDb: refFrame.hnrDb,
+        harmonicsProfile: refFrame.harmonics?.map((h) => ({ n: h.n, norm: h.levelNorm })),
+      };
+    }
+    return getNoteIdeal(selectedIdeal, frame.semitoneIndex);
+  };
 
   const metricOptions = [
     { key: "pitch", label: "音高" },
@@ -1543,24 +1582,23 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
     }
   };
 
-  // 理想値は音(運指の半音インデックス)ごとに持つため、フレームに保存済みのmatchScore(理想値基準)を
-  // そのまま使わず、そのフレームの音に対応する理想値を都度引いてスコアを再計算する。
-  // これにより、あとから理想値プロファイルを追加・更新した場合や、フレーズ中に音が
-  // 変わった場合でも、各瞬間ごとに正しい理想値と比較できる。理論値基準は録音時の値のまま使う。
+  // 比較対象(音ごとの理想値、またはお手本セッションの対応フレーム)は都度引き直してスコアを再計算する。
+  // これにより、あとから理想値やお手本の選択を変えても、各瞬間ごとに正しい基準と比較できる。
+  // 理論値基準は録音時の値のまま使う。
   const getMatchScore = (frame, kind) => {
     if (kind === "pitch" && matchBasis === "theoretical") {
       return frame.matchScore?.pitch?.theoretical ?? 0;
     }
-    const noteIdeal = getNoteIdeal(selectedIdeal, frame.semitoneIndex);
-    if (!noteIdeal) return 0;
+    const target = getComparisonTarget(frame);
+    if (!target) return 0;
     if (kind === "timbre") {
       const harmNorm = frame.harmonics?.length === NUM_HARMONICS ? frame.harmonics.map((h) => h.levelNorm) : new Array(NUM_HARMONICS).fill(0);
-      const idealHarmNorm = noteIdeal.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
-      return timbreMatchScore(harmNorm, idealHarmNorm, frame.spectralCentroidHz, noteIdeal.centroidHz, frame.hnrDb, noteIdeal.hnrDb);
+      const idealHarmNorm = target.harmonicsProfile ? target.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
+      return timbreMatchScore(harmNorm, idealHarmNorm, frame.spectralCentroidHz, target.centroidHz, frame.hnrDb, target.hnrDb);
     }
     // kind === "pitch" && matchBasis === "ideal"
-    if (!frame.pitchHz || !noteIdeal.pitchHz) return 0;
-    return pitchMatchScore(centsBetween(frame.pitchHz, noteIdeal.pitchHz));
+    if (!frame.pitchHz || !target.pitchHz) return 0;
+    return pitchMatchScore(centsBetween(frame.pitchHz, target.pitchHz));
   };
 
   const values = frames.map(getMetricValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
@@ -1571,15 +1609,31 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
 
   return (
     <>
-      {idealProfiles && idealProfiles.length > 0 && (
-        <div className="sans" style={{ fontSize: 11, margin: "10px 0", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "#64748B" }}>理想値プロファイル:</span>
+      {/* 比較対象の選択: 音ごとの理想値プロファイル、またはお手本セッション(自動アライメント比較) */}
+      <div className="sans" style={{ fontSize: 11, margin: "10px 0", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ color: "#64748B" }}>比較対象:</span>
+        <select value={compareMode} onChange={(e) => setCompareMode(e.target.value)}>
+          <option value="ideal">理想値プロファイル</option>
+          <option value="session">お手本セッション</option>
+        </select>
+        {compareMode === "ideal" && idealProfiles && idealProfiles.length > 0 && (
           <select value={selectedIdealId || ""} onChange={(e) => setSelectedIdealId(e.target.value || null)}>
             <option value="">未選択</option>
             {idealProfiles.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
           </select>
-        </div>
-      )}
+        )}
+        {compareMode === "session" && (
+          <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
+            <option value="">お手本セッションを選択</option>
+            {referenceCandidates.map((s) => (
+              <option key={s.id} value={s.id}>{new Date(s.recordedAt).toLocaleString("ja-JP")}{s.memo ? ` 「${s.memo}」` : ""}</option>
+            ))}
+          </select>
+        )}
+        {compareMode === "session" && referenceSession && (
+          <span style={{ color: "#94A3B8", fontSize: 9 }}>最初の発音タイミングを基準に自動で位置合わせして比較します</span>
+        )}
+      </div>
       {/* 表示切り替え */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -1596,7 +1650,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
           <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>音高の基準:</span>
           <select value={matchBasis} onChange={(e) => setMatchBasis(e.target.value)}>
             <option value="theoretical">理論値(運指テーブル)</option>
-            <option value="ideal">理想値{selectedIdeal ? `(${selectedIdeal.name})` : ""}</option>
+            <option value="ideal">{compareMode === "session" ? "お手本セッション" : `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}`}</option>
           </select>
         </div>
       </div>
@@ -1664,12 +1718,13 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
           </div>
 
           {(() => {
-            const noteIdeal = getNoteIdeal(selectedIdeal, selectedFrame.semitoneIndex);
+            const target = getComparisonTarget(selectedFrame);
+            const noTargetLabel = compareMode === "session" ? "対応するお手本の瞬間がありません" : "この音の理想値が未登録";
             return (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                   <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
-                  <MetricCard label="音色一致度(理想値基準)" value={noteIdeal ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={noteIdeal ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : "この音の理想値が未登録"} accentColor={noteIdeal ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
+                  <MetricCard label="音色一致度(比較対象基準)" value={target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel} accentColor={target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
                 </div>
 
                 {/* 倍音構成バー(ドリルダウン表示) */}
@@ -1678,13 +1733,13 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
                     const n = idx + 1;
                     const measured = selectedFrame.harmonics?.find((h) => h.n === n);
                     const measuredHeight = measured ? measured.levelNorm * 100 : 0;
-                    const idealHarmonic = noteIdeal?.harmonicsProfile?.find((h) => h.n === n);
-                    const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
+                    const targetHarmonic = target?.harmonicsProfile?.find((h) => h.n === n);
+                    const targetHeight = targetHarmonic ? targetHarmonic.norm * 100 : 0;
                     return (
                       <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                         <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
                           <div style={{ width: "38%", height: `${measuredHeight}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0 }} />
-                          {noteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
+                          {target && (<div style={{ width: "28%", height: `${targetHeight}%`, background: targetHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: targetHarmonic ? 3 : 0, opacity: 0.85 }} />)}
                         </div>
                         <div className="sans" style={{ fontSize: 8, color: "#64748B", marginTop: 3 }}>{n}倍</div>
                       </div>
@@ -2605,7 +2660,7 @@ function AnalysisLabView(props) {
   if (selectedSession) {
     return (
       <SessionDetailView
-        session={selectedSession} reeds={reeds} selectedIdeal={selectedIdeal}
+        session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
         onBack={() => setSelectedSessionId(null)}
@@ -2821,20 +2876,11 @@ function UploadPanel(props) {
 }
 
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
-function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, promoteSessionToIdeal, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, promoteSessionToIdeal, onBack }) {
   const frames = session.frames || [];
-  const m = computeFrameMetrics(frames);
-  const pitchVals = frames.map((f) => f.pitchHz).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const avgPitch = pitchVals.length ? mean(pitchVals) : null;
-  const avgHarmonics = Array.from({ length: NUM_HARMONICS }, (_, i) => {
-    const n = i + 1;
-    const vals = frames.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
-    return { n, norm: vals.length ? mean(vals) : 0 };
-  });
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
-  const isPhraseResult = (session.noteEvents?.length ?? 0) > 1 && frames.length > 0;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -2846,6 +2892,7 @@ function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selec
         <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
       </button>
 
+      {/* 1. セッション情報 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 600, marginBottom: 6 }}>
           {new Date(session.recordedAt).toLocaleString("ja-JP")}
@@ -2862,32 +2909,18 @@ function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selec
         </div>
       </div>
 
-      {/* 音高・補助指標(セッション全体の平均。参考値。理想値との比較は下の音階ごとの内訳を参照) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-        <MetricCard label="平均音高" value={avgPitch ? `${avgPitch.toFixed(1)} Hz` : "—"} />
-        <MetricCard label="平均音量" value={m.volumeDb !== null ? `${m.volumeDb.toFixed(1)} dB` : "—"} />
-        <MetricCard label="平均重心" value={m.spectralCentroidHz !== null ? `${Math.round(m.spectralCentroidHz)} Hz` : "—"} />
-        <MetricCard label="平均HNR" value={m.hnrDb !== null ? `${m.hnrDb.toFixed(1)} dB` : "—"} />
-      </div>
+      {/* 2. 録音データグラフ(時間変化のタイムライン。単音でも音の立ち上がり等の変化があるため常に表示) */}
+      {frames.length > 0 && (
+        <PhraseTimeline
+          frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
+          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
+          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
+        />
+      )}
 
-      {/* 倍音構成(セッション全体平均。複数の音を含みうるため理想値との重ね合わせはしない) */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>倍音構成（セッション全体平均）</div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 130, paddingTop: 14 }}>
-          {avgHarmonics.map(({ n, norm }) => (
-            <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-              <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-                <div style={{ width: "50%", height: `${norm * 100}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: norm > 0 ? 3 : 0 }} />
-              </div>
-              <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
+      {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
       {noteGroups.length > 0 && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10, overflowX: "auto" }}>
+        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginTop: 10, overflowX: "auto" }}>
           <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
@@ -2922,15 +2955,6 @@ function SessionDetailView({ session, reeds, selectedIdeal, idealProfiles, selec
             </tbody>
           </table>
         </div>
-      )}
-
-      {/* 複数ノートが検出されたセッション(フレーズ)はタイムラインも表示 */}
-      {isPhraseResult && (
-        <PhraseTimeline
-          frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
-          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
-          NUM_HARMONICS={NUM_HARMONICS}
-        />
       )}
     </div>
   );
