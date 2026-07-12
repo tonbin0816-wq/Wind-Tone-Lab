@@ -2815,29 +2815,171 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
-function MyDataSection({ sessions }) {
+// My Dataで扱う4指標。idealKeyは理想値プロファイルのnote側フィールド名(ピッチ誤差は理想=0が定義)
+const MY_DATA_METRICS = [
+  { key: "volumeDb", idealKey: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "spectralCentroidHz", idealKey: "centroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
+  { key: "hnrDb", idealKey: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "pitchCents", idealKey: null, label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
+];
+
+// フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
+// 理想値をフレーム数で加重平均する(音の構成が違うセッション同士でも公平に比較できる)
+function idealAvgForFrames(frames, profile, idealKey) {
+  if (!profile || !idealKey) return null;
+  const vals = frames
+    .map((f) => getNoteIdeal(profile, f.semitoneIndex)?.[idealKey])
+    .filter((v) => v !== null && v !== undefined && !isNaN(v));
+  return vals.length ? mean(vals) : null;
+}
+
+// My Data: 奏者が「自分」のセッションの集計。平均値(デフォルト)/推移をタブで切替。
+// 平均値は数値同士の比較が目的なのでグラフにせずスタットカード(実測+理想+差分)で表し、
+// 推移は時間変化を見るものなので折れ線(実測=青実線、理想=灰破線)で表す。
+// 全体がスクロールなしで収まるよう、カードは2x2グリッド・チャートは2列のコンパクト表示にする。
+function MyDataSection({ sessions, selectedIdeal }) {
+  const [view, setView] = useState("avg"); // "avg" | "trend"
+
   const mySessions = sessions
     .filter((s) => s.performer === "自分")
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
+  const allFrames = mySessions.flatMap((s) => s.frames || []);
+  const overall = computeFrameMetrics(allFrames);
+
   const points = mySessions.map((s) => {
     const frames = s.frames || [];
-    return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
+    const ideals = {};
+    for (const m of MY_DATA_METRICS) {
+      ideals[m.key] = m.key === "pitchCents" ? (selectedIdeal ? 0 : null) : idealAvgForFrames(frames, selectedIdeal, m.idealKey);
+    }
+    return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ideals, ...computeFrameMetrics(frames) };
   });
 
   return (
     <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>My Data</div>
-      <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>
-        奏者が「自分」のセッション（{points.length}件）の推移
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600 }}>My Data</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="sans"
+              style={{
+                fontSize: 10, padding: "4px 12px", borderRadius: 6, cursor: "pointer",
+                border: view === t.key ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                background: view === t.key ? "#EFF6FF" : "transparent",
+                color: view === t.key ? "#2563EB" : "#64748B",
+                fontWeight: view === t.key ? 600 : 400,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>
+        奏者が「自分」のセッション（{points.length}件）{!selectedIdeal && " ・ 理想値プロファイル未選択のため理想値は表示されません"}
+      </div>
+
       {points.length === 0 ? (
         <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>「自分」のセッションがまだありません</div>
+      ) : view === "avg" ? (
+        // 平均値: 全セッション・全フレームの平均。実測と理想(音ごとの理想値のフレーム加重平均)を差分つきで並べる
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {MY_DATA_METRICS.map((m) => {
+            const measured = overall[m.key];
+            const ideal = m.key === "pitchCents" ? (selectedIdeal ? 0 : null) : idealAvgForFrames(allFrames, selectedIdeal, m.idealKey);
+            const diff = measured !== null && ideal !== null ? measured - ideal : null;
+            const valueColor = m.key === "pitchCents" && measured !== null ? pitchCellColor(measured) : "#0F172A";
+            return (
+              <div key={m.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                <div className="sans" style={{ fontSize: 9, color: "#64748B" }}>{m.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: valueColor }}>
+                  {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
+                </div>
+                {ideal !== null && (
+                  <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span>理想: {m.fmt(ideal)} {m.unit}</span>
+                    {diff !== null && m.key !== "pitchCents" && (
+                      <span style={{ color: "#2563EB" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>
+                    )}
+                    {m.key === "pitchCents" && <span style={{ color: "#94A3B8" }}>0に近いほど良い</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
-        REED_COMPARE_METRICS.map((m) => (
-          <MetricLineChart key={m.key} metricDef={m} points={points} />
-        ))
+        // 推移: セッション毎の平均値の時系列。実測=青実線、理想=灰破線
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {MY_DATA_METRICS.map((m) => (
+              <MyTrendChart key={m.key} metric={m} points={points} />
+            ))}
+          </div>
+          <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 8, display: "flex", gap: 12 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 2, background: "#2563EB", display: "inline-block" }} />実測</span>
+            {selectedIdeal && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 0, borderTop: "2px dashed #94A3B8", display: "inline-block" }} />理想</span>}
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+// My Data推移用のコンパクトな折れ線。点にホバーすると日付・値・メモを表示する
+function MyTrendChart({ metric, points }) {
+  const measuredVals = points.map((p) => p[metric.key]).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  const idealVals = points.map((p) => p.ideals?.[metric.key]).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  const all = [...measuredVals, ...idealVals];
+  if (all.length === 0) {
+    return (
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 10px" }}>
+        <div className="sans" style={{ fontSize: 9, color: "#64748B" }}>{metric.label}（{metric.unit}）</div>
+        <div className="sans" style={{ fontSize: 10, color: "#94A3B8", marginTop: 8 }}>データなし</div>
+      </div>
+    );
+  }
+  const minV = Math.min(...all);
+  const maxV = Math.max(...all);
+  const range = maxV - minV || 1;
+  const W = Math.max(160, points.length * 36);
+  const H = 64;
+  const x = (i) => (points.length > 1 ? (i / (points.length - 1)) * (W - 20) + 10 : W / 2);
+  const y = (v) => H - 8 - ((v - minV) / range) * (H - 18);
+
+  const linePoints = (getVal) =>
+    points
+      .map((p, i) => ({ v: getVal(p), i }))
+      .filter(({ v }) => v !== null && v !== undefined && !isNaN(v))
+      .map(({ v, i }) => `${x(i)},${y(v)}`)
+      .join(" ");
+
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "8px 10px" }}>
+      <div className="sans" style={{ fontSize: 9, color: "#64748B", marginBottom: 4 }}>{metric.label}（{metric.unit}）</div>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+        {idealVals.length > 0 && (
+          <polyline fill="none" stroke="#94A3B8" strokeWidth="1.5" strokeDasharray="4,3" points={linePoints((p) => p.ideals?.[metric.key])} />
+        )}
+        <polyline fill="none" stroke="#2563EB" strokeWidth="2" points={linePoints((p) => p[metric.key])} />
+        {points.map((p, i) => {
+          const v = p[metric.key];
+          if (v === null || v === undefined || isNaN(v)) return null;
+          return (
+            <circle key={i} cx={x(i)} cy={y(v)} r={3} fill="#2563EB">
+              <title>{new Date(p.date).toLocaleDateString("ja-JP")}: {metric.fmt(v)}{metric.unit}{p.memo ? ` 「${p.memo}」` : ""}</title>
+            </circle>
+          );
+        })}
+      </svg>
+      <div className="sans" style={{ fontSize: 8, color: "#94A3B8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+        <span>{new Date(points[0].date).toLocaleDateString("ja-JP")}</span>
+        {points.length > 1 && <span>{new Date(points[points.length - 1].date).toLocaleDateString("ja-JP")}</span>}
+      </div>
     </div>
   );
 }
@@ -2853,7 +2995,7 @@ function AnalysisLabView(props) {
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
   const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
   const [selectedSessionId, setSelectedSessionId] = useState(null);
-  const [visibleCount, setVisibleCount] = useState(10);
+  const [visibleCount, setVisibleCount] = useState(3); // 一覧は直近3件のみ。「もっと見る」で全件展開
 
   // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
@@ -2888,7 +3030,7 @@ function AnalysisLabView(props) {
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* --- My Data: 「自分」のセッションの推移 --- */}
-      <MyDataSection sessions={sessions} />
+      <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} />
 
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
@@ -2919,7 +3061,7 @@ function AnalysisLabView(props) {
             </div>
             {visibleCount < sortedSessions.length && (
               <button
-                onClick={() => setVisibleCount((v) => v + 10)}
+                onClick={() => setVisibleCount(sortedSessions.length)}
                 className="sans"
                 style={{ width: "100%", marginTop: 10, padding: "8px 4px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#2563EB", fontSize: 11, cursor: "pointer" }}
               >
