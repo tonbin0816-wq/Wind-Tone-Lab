@@ -5,11 +5,12 @@ import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload } from "lucid
 // Music theory helpers
 // ============================================================
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const A4 = 440;
 
-function freqToNote(freq) {
+// a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
+// (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
+function freqToNote(freq, a4 = 440) {
   if (!freq || freq <= 0) return null;
-  const midi = 69 + 12 * Math.log2(freq / A4);
+  const midi = 69 + 12 * Math.log2(freq / a4);
   const rounded = Math.round(midi);
   const cents = Math.round((midi - rounded) * 100);
   const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
@@ -882,7 +883,6 @@ export default function WindToneLabPhaseMode() {
   const [isListening, setIsListening] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [pitch, setPitch] = useState(null);
-  const [note, setNote] = useState(null);
   const [harmonicLevels, setHarmonicLevels] = useState([]);
   const [spectrumBars, setSpectrumBars] = useState(new Array(64).fill(0));
   const [volumeDb, setVolumeDb] = useState(-100);
@@ -892,7 +892,7 @@ export default function WindToneLabPhaseMode() {
 
   const [saxType, setSaxType] = usePersistedState("saxType", "alto");
   const [temperature, setTemperature] = useState(20);
-  const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 435〜445Hzのスライダー、デフォルト442Hz
+  const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440〜444Hzのボタン、デフォルト442Hz
   const [instrumentOffsetCents, setInstrumentOffsetCents] = usePersistedState("instrumentOffsetCents", 0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
   const [showIdeal, setShowIdeal] = useState(true);
 
@@ -1067,7 +1067,6 @@ export default function WindToneLabPhaseMode() {
         let matchedFinger = null;
         if (f0 && f0 > 40) {
           setPitch(f0);
-          setNote(freqToNote(f0));
 
           // --- 運指ベース管長自動キャリブレーション ---
           // 実測基音に最も近い運指をテーブルから検索し、正しい実音Hzを求める。
@@ -1347,6 +1346,9 @@ export default function WindToneLabPhaseMode() {
     if (selectedIdealId === id) setSelectedIdealId(null);
   };
 
+  // 音名・セント誤差はレンダー時に最新の基準ピッチ(tuningHz)で導出する。
+  // tick()内で計算するとクロージャに古い基準ピッチが残るため、基準変更が即座に表示へ反映されない。
+  const note = pitch ? freqToNote(pitch, tuningHz) : null;
   const centsOffset = note ? note.cents : 0;
   const needleRotation = Math.max(-50, Math.min(50, centsOffset)) * 0.9;
 
@@ -1682,19 +1684,15 @@ function MeasureView(props) {
           ))}
         </div>
 
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-          <span>基準ピッチ</span>
-          <span style={{ color: "#2563EB", fontWeight: 600 }}>{tuningHz} Hz</span>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>基準ピッチ</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[440, 441, 442, 443, 444].map((hz) => (
+            <button key={hz} onClick={() => setTuningHz(hz)} className="sans" style={{ flex: 1, padding: "7px 4px", borderRadius: 8, border: tuningHz === hz ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: tuningHz === hz ? "#EFF6FF" : "transparent", color: tuningHz === hz ? "#2563EB" : "#64748B", cursor: "pointer", fontSize: 11, fontWeight: tuningHz === hz ? 600 : 400 }}>
+              {hz}
+            </button>
+          ))}
         </div>
-        <input
-          type="range" min={435} max={445} step={1} value={tuningHz}
-          onChange={(e) => setTuningHz(Number(e.target.value))}
-          style={{ width: "100%" }}
-        />
-        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-          <span>435 Hz</span>
-          <span>445 Hz</span>
-        </div>
+        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 4 }}>Hz（音名・セント誤差・理論値の基準になります）</div>
 
         {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う) */}
         {idealProfiles.length > 0 && (
