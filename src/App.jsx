@@ -541,11 +541,12 @@ function useSessionsStore() {
 // ============================================================
 // アップロード音声の解析
 //
-// マイク入力(ライブ)と同じ解析パイプラインを、アップロードされた音声ファイルの
-// 実時間再生を通して走らせる。AnalyserNodeはグラフがdestinationまで繋がっていないと
-// データを生成しないため、gainを0にしたGainNode経由でdestinationに接続し
-// 無音のまま解析だけを行う。解析にはファイルの再生時間と同じだけ実時間がかかる。
-// ライブ側のtick()と処理は同じだが、Reactのstate更新を経由せず結果をまとめて返す。
+// マイク入力(ライブ)と同じ解析パイプラインを、アップロードされた音声ファイルにかける。
+// OfflineAudioContextでレンダリングすることで、実時間再生を待たずCPUが処理できる
+// 速さでそのまま解析を完了できる(体感、ファイル長に関わらず数秒程度)。
+// AnalyserNodeの読み出しはScriptProcessorNodeのonaudioprocessで駆動し、
+// 経過時間はperformance.now()の代わりにoffline側コンテキストのcurrentTimeを使う。
+// ライブ側のtick()と処理内容は同じだが、Reactのstate更新を経由せず結果をまとめて返す。
 // ============================================================
 function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, onProgress }) {
   const preset = SAX_PRESETS[saxType];
@@ -556,150 +557,132 @@ function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCe
   const NOTE_ONSET_DB = -45;
   const NOTE_RELEASE_DB = -55;
   const ATTACK_WINDOW_MS = 400;
+  const PROCESSOR_BUFFER_SIZE = 1024; // 約23ms(44.1kHz時)ごとにonaudioprocessが発火
 
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioCtx.createBufferSource();
+  const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+  const source = offlineCtx.createBufferSource();
   source.buffer = audioBuffer;
-  const analyser = audioCtx.createAnalyser();
+  const analyser = offlineCtx.createAnalyser();
   analyser.fftSize = FFT_SIZE;
   analyser.smoothingTimeConstant = 0.6;
-  const silentGain = audioCtx.createGain();
-  silentGain.gain.value = 0;
+  const processor = offlineCtx.createScriptProcessor(PROCESSOR_BUFFER_SIZE, audioBuffer.numberOfChannels, 1);
   source.connect(analyser);
-  analyser.connect(silentGain);
-  silentGain.connect(audioCtx.destination);
+  analyser.connect(processor);
+  processor.connect(offlineCtx.destination);
 
   const frames = [];
   const noteDetector = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
   let lastSampleMs = -Infinity;
-  const startTime = performance.now();
 
-  return new Promise((resolve) => {
-    let rafId;
-    let finished = false;
+  processor.onaudioprocess = () => {
+    const elapsedMs = offlineCtx.currentTime * 1000; // レンダリング位置=音声内の経過時間
+    const freqData = new Float32Array(analyser.frequencyBinCount);
+    analyser.getFloatFrequencyData(freqData);
+    const linear = new Float32Array(freqData.length);
+    for (let i = 0; i < freqData.length; i++) {
+      const db = freqData[i];
+      linear[i] = db < -100 ? 0 : Math.pow(10, db / 20);
+    }
+    const sampleRate = offlineCtx.sampleRate;
+    const freqs = new Float32Array(linear.length);
+    for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
 
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      try { audioCtx.close(); } catch { /* noop */ }
-      resolve({ frames, noteEvents: noteDetector.events });
-    };
+    let sumSquares = 0;
+    for (let i = 0; i < linear.length; i++) sumSquares += linear[i] * linear[i];
+    const rms = Math.sqrt(sumSquares / linear.length);
+    const vDb = 20 * Math.log10(rms + 1e-10);
 
-    source.onended = finish;
-    // onendedが発火しない環境向けの保険(再生時間+1秒でタイムアウト終了)
-    setTimeout(finish, (audioBuffer.duration + 1) * 1000);
+    const centroid = spectralCentroid(linear, freqs);
+    const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
 
-    const tick = () => {
-      if (finished) return;
-      const freqData = new Float32Array(analyser.frequencyBinCount);
-      analyser.getFloatFrequencyData(freqData);
-      const linear = new Float32Array(freqData.length);
-      for (let i = 0; i < freqData.length; i++) {
-        const db = freqData[i];
-        linear[i] = db < -100 ? 0 : Math.pow(10, db / 20);
-      }
-      const sampleRate = audioCtx.sampleRate;
-      const freqs = new Float32Array(linear.length);
-      for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
-
-      let sumSquares = 0;
-      for (let i = 0; i < linear.length; i++) sumSquares += linear[i] * linear[i];
-      const rms = Math.sqrt(sumSquares / linear.length);
-      const vDb = 20 * Math.log10(rms + 1e-10);
-
-      const centroid = spectralCentroid(linear, freqs);
-      const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
-
-      let levels = [];
-      let hnr = null;
-      let matchedFinger = null;
-      if (f0 && f0 > 40) {
-        matchedFinger = findClosestFingering(f0, fingeringTable);
-        for (let n = 1; n <= NUM_HARMONICS; n++) {
-          const targetFreq = f0 * n;
-          const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
-          let peak = 0;
-          for (let b = Math.max(0, bin - 2); b <= bin + 2; b++) {
-            if (linear[b] !== undefined) peak = Math.max(peak, linear[b]);
-          }
-          levels.push({ n, freq: targetFreq, mag: peak });
+    let levels = [];
+    let hnr = null;
+    let matchedFinger = null;
+    if (f0 && f0 > 40) {
+      matchedFinger = findClosestFingering(f0, fingeringTable);
+      for (let n = 1; n <= NUM_HARMONICS; n++) {
+        const targetFreq = f0 * n;
+        const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
+        let peak = 0;
+        for (let b = Math.max(0, bin - 2); b <= bin + 2; b++) {
+          if (linear[b] !== undefined) peak = Math.max(peak, linear[b]);
         }
-        const maxMag = Math.max(...levels.map((l) => l.mag), 1e-6);
-        levels = levels.map((l) => ({ ...l, norm: l.mag / maxMag }));
-        hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
+        levels.push({ n, freq: targetFreq, mag: peak });
       }
+      const maxMag = Math.max(...levels.map((l) => l.mag), 1e-6);
+      levels = levels.map((l) => ({ ...l, norm: l.mag / maxMag }));
+      hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
+    }
 
-      const elapsedMs = performance.now() - startTime; // 実時間再生のため経過時間=音声内の時刻とみなせる
-
-      // --- ノート区間分割・アタック時間検出(企画書2.4節相当) ---
-      {
-        const det = noteDetector;
-        if (det.phase === "silence") {
-          if (vDb > NOTE_ONSET_DB) {
-            det.phase = "attack"; det.onsetMs = elapsedMs; det.peakDb = vDb; det.samples = [{ t: elapsedMs, vDb }];
-          }
-        } else if (det.phase === "attack") {
-          det.samples.push({ t: elapsedMs, vDb });
-          if (vDb > det.peakDb) det.peakDb = vDb;
-          if (vDb < NOTE_RELEASE_DB) {
-            det.phase = "silence";
-          } else if (elapsedMs - det.onsetMs >= ATTACK_WINDOW_MS) {
-            const target = det.peakDb - 3;
-            const hit = det.samples.find((s) => s.vDb >= target);
-            const attackTimeMs = hit ? Math.round(hit.t - det.onsetMs) : null;
-            det.events.push({ startT: det.onsetMs / 1000, endT: null, attackTimeMs, peakVolumeDb: det.peakDb });
-            det.phase = "sustain"; det.samples = [];
-          }
-        } else if (det.phase === "sustain") {
-          if (vDb > det.peakDb) det.peakDb = vDb;
-          if (vDb < NOTE_RELEASE_DB) {
-            const last = det.events[det.events.length - 1];
-            if (last && last.endT === null) { last.endT = elapsedMs / 1000; last.peakVolumeDb = det.peakDb; }
-            det.phase = "silence";
-          }
+    // --- ノート区間分割・アタック時間検出(企画書2.4節相当) ---
+    {
+      const det = noteDetector;
+      if (det.phase === "silence") {
+        if (vDb > NOTE_ONSET_DB) {
+          det.phase = "attack"; det.onsetMs = elapsedMs; det.peakDb = vDb; det.samples = [{ t: elapsedMs, vDb }];
+        }
+      } else if (det.phase === "attack") {
+        det.samples.push({ t: elapsedMs, vDb });
+        if (vDb > det.peakDb) det.peakDb = vDb;
+        if (vDb < NOTE_RELEASE_DB) {
+          det.phase = "silence";
+        } else if (elapsedMs - det.onsetMs >= ATTACK_WINDOW_MS) {
+          const target = det.peakDb - 3;
+          const hit = det.samples.find((s) => s.vDb >= target);
+          const attackTimeMs = hit ? Math.round(hit.t - det.onsetMs) : null;
+          det.events.push({ startT: det.onsetMs / 1000, endT: null, attackTimeMs, peakVolumeDb: det.peakDb });
+          det.phase = "sustain"; det.samples = [];
+        }
+      } else if (det.phase === "sustain") {
+        if (vDb > det.peakDb) det.peakDb = vDb;
+        if (vDb < NOTE_RELEASE_DB) {
+          const last = det.events[det.events.length - 1];
+          if (last && last.endT === null) { last.endT = elapsedMs / 1000; last.peakVolumeDb = det.peakDb; }
+          det.phase = "silence";
         }
       }
+    }
 
-      if (elapsedMs - lastSampleMs >= SAMPLE_INTERVAL_MS) {
-        lastSampleMs = elapsedMs;
-        const theoFreq = matchedFinger?.soundingFreqHz ?? null;
-        const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
-        // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く
-        const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
-        const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
-        const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
-        const idealHarmNorm = noteIdeal?.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
-        const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
-        const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
-        const timbreScoreIdeal = noteIdeal
-          ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
-          : 0;
+    if (elapsedMs - lastSampleMs >= SAMPLE_INTERVAL_MS) {
+      lastSampleMs = elapsedMs;
+      const theoFreq = matchedFinger?.soundingFreqHz ?? null;
+      const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
+      // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く
+      const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
+      const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
+      const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
+      const idealHarmNorm = noteIdeal?.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
+      const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
+      const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
+      const timbreScoreIdeal = noteIdeal
+        ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
+        : 0;
 
-        frames.push({
-          t: elapsedMs / 1000,
-          pitchHz: f0,
-          pitchCents: pitchCentsVsTheory,
-          matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
-          semitoneIndex: matchedFinger?.semitoneIndex ?? null,
-          derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
-          volumeDb: vDb,
-          spectralCentroidHz: centroid,
-          hnrDb: hnr,
-          harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
-          matchScore: {
-            pitch: { theoretical: pitchScoreTheory, ideal: pitchScoreIdeal },
-            timbre: { ideal: timbreScoreIdeal },
-          },
-        });
-      }
+      frames.push({
+        t: elapsedMs / 1000,
+        pitchHz: f0,
+        pitchCents: pitchCentsVsTheory,
+        matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
+        semitoneIndex: matchedFinger?.semitoneIndex ?? null,
+        derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
+        volumeDb: vDb,
+        spectralCentroidHz: centroid,
+        hnrDb: hnr,
+        harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
+        matchScore: {
+          pitch: { theoretical: pitchScoreTheory, ideal: pitchScoreIdeal },
+          timbre: { ideal: timbreScoreIdeal },
+        },
+      });
+    }
 
-      if (onProgress) onProgress(Math.min(1, elapsedMs / 1000 / audioBuffer.duration));
-      rafId = requestAnimationFrame(tick);
-    };
+    if (onProgress) onProgress(Math.min(1, elapsedMs / 1000 / audioBuffer.duration));
+  };
 
-    source.start();
-    rafId = requestAnimationFrame(tick);
+  source.start();
+  return offlineCtx.startRendering().then(() => {
+    processor.onaudioprocess = null;
+    return { frames, noteEvents: noteDetector.events };
   });
 }
 
