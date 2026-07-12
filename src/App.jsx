@@ -541,14 +541,17 @@ function useSessionsStore() {
 // ============================================================
 // アップロード音声の解析
 //
-// マイク入力(ライブ)と同じ解析パイプラインを、アップロードされた音声ファイルにかける。
-// OfflineAudioContextでレンダリングすることで、実時間再生を待たずCPUが処理できる
-// 速さでそのまま解析を完了できる(体感、ファイル長に関わらず数秒程度)。
-// AnalyserNodeの読み出しはScriptProcessorNodeのonaudioprocessで駆動し、
-// 経過時間はperformance.now()の代わりにoffline側コンテキストのcurrentTimeを使う。
-// ライブ側のtick()と処理内容は同じだが、Reactのstate更新を経由せず結果をまとめて返す。
+// マイク入力(ライブ)と同じ解析パイプラインを、アップロードされた音声/動画ファイルにかける。
+// 1フレーム分の解析ロジックはcreateFrameAnalyzer()に切り出し、
+// 「AudioBufferを取れた場合(高速なオフライン処理)」「取れなかった場合
+// (動画コンテナ等、<video>要素での再生を通す実時間フォールバック)」の
+// 両方から共通で使う。
 // ============================================================
-function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, onProgress }) {
+
+// 1フレーム分の解析(ピッチ・倍音・ノート区間検出)を行う共通ロジック。
+// analyser/sampleRate/経過時間(ms)を渡すたびに呼び、必要ならframesに1件追加する。
+// オフライン解析(analyzeAudioBuffer)・リアルタイム解析(analyzeMediaFile)の両方から呼ばれる。
+function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal }) {
   const preset = SAX_PRESETS[saxType];
   const fingeringTable = buildFingeringTable(saxType, tuningHz * Math.pow(2, instrumentOffsetCents / 1200), 30);
   const FFT_SIZE = 8192;
@@ -557,25 +560,12 @@ function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCe
   const NOTE_ONSET_DB = -45;
   const NOTE_RELEASE_DB = -55;
   const ATTACK_WINDOW_MS = 400;
-  const PROCESSOR_BUFFER_SIZE = 1024; // 約23ms(44.1kHz時)ごとにonaudioprocessが発火
-
-  const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  const analyser = offlineCtx.createAnalyser();
-  analyser.fftSize = FFT_SIZE;
-  analyser.smoothingTimeConstant = 0.6;
-  const processor = offlineCtx.createScriptProcessor(PROCESSOR_BUFFER_SIZE, audioBuffer.numberOfChannels, 1);
-  source.connect(analyser);
-  analyser.connect(processor);
-  processor.connect(offlineCtx.destination);
 
   const frames = [];
   const noteDetector = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
   let lastSampleMs = -Infinity;
 
-  processor.onaudioprocess = () => {
-    const elapsedMs = offlineCtx.currentTime * 1000; // レンダリング位置=音声内の経過時間
+  const tick = (analyser, sampleRate, elapsedMs) => {
     const freqData = new Float32Array(analyser.frequencyBinCount);
     analyser.getFloatFrequencyData(freqData);
     const linear = new Float32Array(freqData.length);
@@ -583,7 +573,6 @@ function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCe
       const db = freqData[i];
       linear[i] = db < -100 ? 0 : Math.pow(10, db / 20);
     }
-    const sampleRate = offlineCtx.sampleRate;
     const freqs = new Float32Array(linear.length);
     for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
 
@@ -675,14 +664,121 @@ function analyzeAudioBuffer(audioBuffer, { saxType, tuningHz, instrumentOffsetCe
         },
       });
     }
+  };
 
+  return { tick, frames, noteEvents: noteDetector.events };
+}
+
+// AudioBufferを直接デコードできた場合の高速パス。OfflineAudioContextでレンダリングすることで、
+// 実時間再生を待たずCPUが処理できる速さでそのまま解析を完了できる
+// (体感、ファイル長に関わらず数秒程度)。AnalyserNodeの読み出しは
+// ScriptProcessorNodeのonaudioprocessで駆動し、経過時間はoffline側コンテキストのcurrentTimeを使う。
+function analyzeAudioBuffer(audioBuffer, opts) {
+  const { onProgress } = opts;
+  const FFT_SIZE = 8192;
+  const PROCESSOR_BUFFER_SIZE = 1024; // 約23ms(44.1kHz時)ごとにonaudioprocessが発火
+  const fa = createFrameAnalyzer(opts);
+
+  const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  const analyser = offlineCtx.createAnalyser();
+  analyser.fftSize = FFT_SIZE;
+  analyser.smoothingTimeConstant = 0.6;
+  const processor = offlineCtx.createScriptProcessor(PROCESSOR_BUFFER_SIZE, audioBuffer.numberOfChannels, 1);
+  source.connect(analyser);
+  analyser.connect(processor);
+  processor.connect(offlineCtx.destination);
+
+  processor.onaudioprocess = () => {
+    const elapsedMs = offlineCtx.currentTime * 1000; // レンダリング位置=音声内の経過時間
+    fa.tick(analyser, offlineCtx.sampleRate, elapsedMs);
     if (onProgress) onProgress(Math.min(1, elapsedMs / 1000 / audioBuffer.duration));
   };
 
   source.start();
   return offlineCtx.startRendering().then(() => {
     processor.onaudioprocess = null;
-    return { frames, noteEvents: noteDetector.events };
+    return { frames: fa.frames, noteEvents: fa.noteEvents };
+  });
+}
+
+// decodeAudioDataでデコードできなかったファイル(動画コンテナ等、ブラウザによっては
+// 音声トラックの取り出しに対応しないことがある)向けのフォールバック。
+// 実際に<video>要素で再生し、MediaElementAudioSourceNode経由でtickにかける。
+// オフライン処理ができないため、解析にはファイルの再生時間と同じだけ実時間がかかる。
+function analyzeMediaFile(file, opts) {
+  const { onProgress } = opts;
+  const FFT_SIZE = 8192;
+  const fa = createFrameAnalyzer(opts);
+
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const mediaEl = document.createElement("video"); // 音声のみのファイルも<video>要素で再生可能
+    mediaEl.src = url;
+    mediaEl.muted = true; // 実際の音は出さず解析だけ行う(AnalyserNodeへの経路は別途destinationに無音接続)
+    mediaEl.preload = "auto";
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.6;
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+
+    let rafId;
+    let finished = false;
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      try { audioCtx.close(); } catch { /* noop */ }
+      URL.revokeObjectURL(url);
+    };
+
+    mediaEl.onerror = () => {
+      cleanup();
+      reject(new Error("この形式のファイルは読み込めませんでした"));
+    };
+
+    mediaEl.onloadedmetadata = () => {
+      let sourceNode;
+      try {
+        sourceNode = audioCtx.createMediaElementSource(mediaEl);
+      } catch (err) {
+        cleanup();
+        reject(err);
+        return;
+      }
+      sourceNode.connect(analyser);
+      analyser.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+
+      const startTime = performance.now();
+      const duration = mediaEl.duration || 0;
+
+      const finish = () => {
+        cleanup();
+        resolve({ frames: fa.frames, noteEvents: fa.noteEvents });
+      };
+
+      const tick = () => {
+        if (finished) return;
+        const elapsedMs = performance.now() - startTime;
+        fa.tick(analyser, audioCtx.sampleRate, elapsedMs);
+        if (onProgress && duration) onProgress(Math.min(1, elapsedMs / 1000 / duration));
+        if (mediaEl.ended) { finish(); return; }
+        rafId = requestAnimationFrame(tick);
+      };
+
+      mediaEl.onended = finish;
+      mediaEl.play().then(() => {
+        rafId = requestAnimationFrame(tick);
+      }).catch((err) => {
+        cleanup();
+        reject(err);
+      });
+    };
   });
 }
 
@@ -1105,23 +1201,29 @@ export default function WindToneLabPhaseMode() {
     });
   }, [NUM_HARMONICS]);
 
-  // アップロードされた音声ファイルを、ライブ録音と同じ解析パイプラインで処理し、通常の録音と同じ
+  // アップロードされた音声/動画ファイルを、ライブ録音と同じ解析パイプラインで処理し、通常の録音と同じ
   // セッション構造で保存する(企画書のフレームデータ構造に準拠。source:"upload"で区別)。
+  // 音声ファイル(wav/mp3/m4a等)はdecodeAudioDataで直接デコードして高速なオフライン解析にかける。
+  // 動画ファイル(スマホの録画データ等)はブラウザによってはdecodeAudioDataが音声トラックを
+  // 取り出せないことがあるため、その場合は<video>要素で実際に再生する経路にフォールバックする
+  // (この場合のみ解析に再生時間と同じだけ時間がかかる)。
   const handleUploadFile = useCallback(async (file) => {
     if (!file || isAnalyzingUpload) return;
     setErrorMsg("");
     setIsAnalyzingUpload(true);
     setUploadProgress(0);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
-      decodeCtx.close();
-
-      const { frames, noteEvents } = await analyzeAudioBuffer(audioBuffer, {
-        saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal,
-        onProgress: setUploadProgress,
-      });
+      const analysisOpts = { saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, onProgress: setUploadProgress };
+      let frames, noteEvents;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
+        decodeCtx.close();
+        ({ frames, noteEvents } = await analyzeAudioBuffer(audioBuffer, analysisOpts));
+      } catch {
+        ({ frames, noteEvents } = await analyzeMediaFile(file, analysisOpts));
+      }
 
       if (frames.length > 0) {
         const session = {
@@ -1353,7 +1455,7 @@ function MeasureView(props) {
         ) : <span />}
         <div style={{ display: "flex", gap: 8 }}>
           <input
-            ref={fileInputRef} type="file" accept="audio/*" style={{ display: "none" }}
+            ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
           />
           <button
@@ -1370,6 +1472,9 @@ function MeasureView(props) {
             {isRecording ? "停止" : "録音"}
           </button>
         </div>
+      </div>
+      <div className="sans" style={{ fontSize: 9, color: "#94A3B8", textAlign: "right", marginBottom: 8 }}>
+        wav/mp3/m4a等の音声ファイルに加え、スマホのボイスメモや動画(mp4/mov等)もアップロードできます
       </div>
 
       {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
