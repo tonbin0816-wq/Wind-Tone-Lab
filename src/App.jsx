@@ -669,44 +669,115 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
   return { tick, frames, noteEvents: noteDetector.events };
 }
 
-// AudioBufferを直接デコードできた場合の高速パス。OfflineAudioContextでレンダリングすることで、
-// 実時間再生を待たずCPUが処理できる速さでそのまま解析を完了できる
-// (体感、ファイル長に関わらず数秒程度)。AnalyserNodeの読み出しは
-// ScriptProcessorNodeのonaudioprocessで駆動し、経過時間はoffline側コンテキストのcurrentTimeを使う。
+// radix-2の反復型FFT(in-place)。アップロード解析でAnalyserNode相当のスペクトルを
+// 自前計算するために使う。ブラウザのOfflineAudioContext+ScriptProcessorNodeは
+// Safari(iPhone含む)でレンダリングが永遠に完了しない既知の不具合があるため、
+// オーディオグラフに頼らずデコード済みPCMを直接処理する。
+function fftRadix2(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      const tr = re[i]; re[i] = re[j]; re[j] = tr;
+      const ti = im[i]; im[i] = im[j]; im[j] = ti;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const half = len >> 1;
+    const ang = (-2 * Math.PI) / len;
+    const wRe = Math.cos(ang), wIm = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let curRe = 1, curIm = 0;
+      for (let j = 0; j < half; j++) {
+        const a = i + j, b = a + half;
+        const vRe = re[b] * curRe - im[b] * curIm;
+        const vIm = re[b] * curIm + im[b] * curRe;
+        re[b] = re[a] - vRe; im[b] = im[a] - vIm;
+        re[a] += vRe; im[a] += vIm;
+        const nRe = curRe * wRe - curIm * wIm;
+        curIm = curRe * wIm + curIm * wRe;
+        curRe = nRe;
+      }
+    }
+  }
+}
+
+// AudioBufferを直接デコードできた場合の高速パス。デコード済みPCMを25ms刻みで
+// 自前FFTにかけ、ライブ計測と同じtick()パイプラインに流す。再生を伴わないため
+// ファイル長に関係なく数秒で完了し、ブラウザの自動再生ポリシーやオーディオグラフの
+// 実装差の影響も受けない。UIをブロックしないよう30msごとにイベントループへ譲る。
 function analyzeAudioBuffer(audioBuffer, opts) {
   const { onProgress } = opts;
   const FFT_SIZE = 8192;
-  const PROCESSOR_BUFFER_SIZE = 1024; // 約23ms(44.1kHz時)ごとにonaudioprocessが発火
+  const HOP_MS = 25; // ノート検出の音量エンベロープ追跡に十分な分解能(ライブ時のrAF≒16msに近い)
   const fa = createFrameAnalyzer(opts);
+  const sampleRate = audioBuffer.sampleRate;
+  const n = audioBuffer.length;
 
-  const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  const analyser = offlineCtx.createAnalyser();
-  analyser.fftSize = FFT_SIZE;
-  analyser.smoothingTimeConstant = 0.6;
-  const processor = offlineCtx.createScriptProcessor(PROCESSOR_BUFFER_SIZE, audioBuffer.numberOfChannels, 1);
-  source.connect(analyser);
-  analyser.connect(processor);
-  processor.connect(offlineCtx.destination);
+  // モノラルにミックスダウン
+  const mono = new Float32Array(n);
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < n; i++) mono[i] += data[i] / audioBuffer.numberOfChannels;
+  }
 
-  processor.onaudioprocess = () => {
-    const elapsedMs = offlineCtx.currentTime * 1000; // レンダリング位置=音声内の経過時間
-    fa.tick(analyser, offlineCtx.sampleRate, elapsedMs);
-    if (onProgress) onProgress(Math.min(1, elapsedMs / 1000 / audioBuffer.duration));
+  // AnalyserNodeと同じBlackman窓・1/Nスケール・時間平滑(0.6)を再現し、
+  // ライブ計測と同じdBスケール(音量閾値など)で解析できるようにする
+  const win = new Float32Array(FFT_SIZE);
+  for (let i = 0; i < FFT_SIZE; i++) {
+    win[i] = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / FFT_SIZE) + 0.08 * Math.cos((4 * Math.PI * i) / FFT_SIZE);
+  }
+  const bins = FFT_SIZE / 2;
+  const smoothed = new Float32Array(bins);
+  const dbOut = new Float32Array(bins).fill(-200);
+  const re = new Float32Array(FFT_SIZE);
+  const im = new Float32Array(FFT_SIZE);
+  // fa.tick()はAnalyserNode互換のインターフェースだけを使うため、互換オブジェクトを渡す
+  const analyserLike = {
+    frequencyBinCount: bins,
+    getFloatFrequencyData: (out) => out.set(dbOut),
   };
 
-  source.start();
-  return offlineCtx.startRendering().then(() => {
-    processor.onaudioprocess = null;
-    return { frames: fa.frames, noteEvents: fa.noteEvents };
+  const hop = Math.max(1, Math.round((sampleRate * HOP_MS) / 1000));
+  return new Promise((resolve) => {
+    let pos = 0;
+    // チャンク間のyieldにはsetTimeoutではなくMessageChannelを使う。
+    // setTimeoutはタブが非アクティブだと1回/秒以下に絞られ、解析が何十秒もかかったり
+    // 止まったように見える。MessageChannelのpostMessageはこの絞りを受けない。
+    const channel = new MessageChannel();
+    const processChunk = () => {
+      const deadline = performance.now() + 30;
+      while (pos + FFT_SIZE <= n && performance.now() < deadline) {
+        for (let i = 0; i < FFT_SIZE; i++) { re[i] = mono[pos + i] * win[i]; im[i] = 0; }
+        fftRadix2(re, im);
+        for (let k = 0; k < bins; k++) {
+          const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / FFT_SIZE;
+          smoothed[k] = 0.6 * smoothed[k] + 0.4 * mag;
+          dbOut[k] = smoothed[k] > 1e-10 ? 20 * Math.log10(smoothed[k]) : -200;
+        }
+        fa.tick(analyserLike, sampleRate, ((pos + FFT_SIZE) / sampleRate) * 1000);
+        pos += hop;
+      }
+      if (onProgress) onProgress(Math.min(1, pos / n));
+      if (pos + FFT_SIZE <= n) {
+        channel.port2.postMessage(null);
+      } else {
+        channel.port1.onmessage = null;
+        resolve({ frames: fa.frames, noteEvents: fa.noteEvents });
+      }
+    };
+    channel.port1.onmessage = processChunk;
+    processChunk();
   });
 }
 
 // decodeAudioDataでデコードできなかったファイル(動画コンテナ等、ブラウザによっては
 // 音声トラックの取り出しに対応しないことがある)向けのフォールバック。
-// 実際に<video>要素で再生し、MediaElementAudioSourceNode経由でtickにかける。
+// 実際に<video>要素で再生し、AnalyserNode経由でtickにかける。
 // オフライン処理ができないため、解析にはファイルの再生時間と同じだけ実時間がかかる。
+// ハング防止のため、メタデータ読み込み・再生停滞・全体時間のそれぞれに見張りを置く。
 function analyzeMediaFile(file, opts) {
   const { onProgress } = opts;
   const FFT_SIZE = 8192;
@@ -716,8 +787,11 @@ function analyzeMediaFile(file, opts) {
     const url = URL.createObjectURL(file);
     const mediaEl = document.createElement("video"); // 音声のみのファイルも<video>要素で再生可能
     mediaEl.src = url;
-    mediaEl.muted = true; // 実際の音は出さず解析だけ行う(AnalyserNodeへの経路は別途destinationに無音接続)
     mediaEl.preload = "auto";
+    mediaEl.playsInline = true; // iOSで全画面再生に切り替わるのを防ぐ
+    // 【注記】muted=trueにするとブラウザによってはMediaElementAudioSourceNodeが受け取る
+    // 信号自体が無音になり解析が空振りするため、ミュートはしない。要素の音声出力は
+    // オーディオグラフに引き込まれるので、下のsilentGain(=0)経由でスピーカーには出ない。
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioCtx.createAnalyser();
@@ -728,55 +802,70 @@ function analyzeMediaFile(file, opts) {
 
     let rafId;
     let finished = false;
+    const timers = [];
     const cleanup = () => {
       if (finished) return;
       finished = true;
       if (rafId) cancelAnimationFrame(rafId);
+      timers.forEach(clearTimeout);
+      try { mediaEl.pause(); } catch { /* noop */ }
+      mediaEl.removeAttribute("src");
       try { audioCtx.close(); } catch { /* noop */ }
       URL.revokeObjectURL(url);
     };
+    const fail = (message) => { cleanup(); reject(new Error(message)); };
 
-    mediaEl.onerror = () => {
-      cleanup();
-      reject(new Error("この形式のファイルは読み込めませんでした"));
-    };
+    mediaEl.onerror = () => fail("この形式のファイルは読み込めませんでした（動画の場合、コーデック非対応の可能性があります）");
+
+    // メタデータがいつまでも来ない(コンテナを解釈できない等)場合の見張り
+    timers.push(setTimeout(() => { if (!finished && mediaEl.readyState === 0) fail("ファイルの読み込みがタイムアウトしました"); }, 20000));
 
     mediaEl.onloadedmetadata = () => {
+      if (finished) return;
       let sourceNode;
       try {
         sourceNode = audioCtx.createMediaElementSource(mediaEl);
       } catch (err) {
-        cleanup();
-        reject(err);
+        fail(err?.message ?? String(err));
         return;
       }
       sourceNode.connect(analyser);
       analyser.connect(silentGain);
       silentGain.connect(audioCtx.destination);
 
-      const startTime = performance.now();
-      const duration = mediaEl.duration || 0;
+      const duration = Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0;
 
       const finish = () => {
+        if (finished) return;
         cleanup();
         resolve({ frames: fa.frames, noteEvents: fa.noteEvents });
       };
 
+      // 再生時間+15秒経っても終わらなければ打ち切る(デコード停止などでendedが来ないケースの保険)
+      if (duration > 0) timers.push(setTimeout(() => { if (!finished) fail("解析がタイムアウトしました"); }, (duration + 15) * 1000));
+
+      // 再生位置が10秒間進まなければ停滞とみなす
+      let lastTime = -1;
+      let lastAdvance = performance.now();
+
       const tick = () => {
         if (finished) return;
-        const elapsedMs = performance.now() - startTime;
+        // 経過時間は壁時計ではなく再生位置を使う(バッファリング等で再生が波打っても音声内の時刻と一致する)
+        const elapsedMs = mediaEl.currentTime * 1000;
         fa.tick(analyser, audioCtx.sampleRate, elapsedMs);
-        if (onProgress && duration) onProgress(Math.min(1, elapsedMs / 1000 / duration));
+        if (onProgress && duration) onProgress(Math.min(1, mediaEl.currentTime / duration));
+        if (mediaEl.currentTime !== lastTime) { lastTime = mediaEl.currentTime; lastAdvance = performance.now(); }
+        else if (performance.now() - lastAdvance > 10000) { fail("再生が進まないため解析を中断しました"); return; }
         if (mediaEl.ended) { finish(); return; }
         rafId = requestAnimationFrame(tick);
       };
 
       mediaEl.onended = finish;
+      audioCtx.resume().catch(() => { /* noop */ });
       mediaEl.play().then(() => {
         rafId = requestAnimationFrame(tick);
-      }).catch((err) => {
-        cleanup();
-        reject(err);
+      }).catch(() => {
+        fail("ブラウザが再生をブロックしました。もう一度お試しください");
       });
     };
   });
