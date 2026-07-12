@@ -724,9 +724,8 @@ export default function WindToneLabPhaseMode() {
 
   const [saxType, setSaxType] = usePersistedState("saxType", "alto");
   const [temperature, setTemperature] = useState(20);
-  const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440/442/443Hz
+  const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 435〜445Hzのスライダー、デフォルト442Hz
   const [instrumentOffsetCents, setInstrumentOffsetCents] = usePersistedState("instrumentOffsetCents", 0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
-  const [showTheory, setShowTheory] = useState(true);
   const [showIdeal, setShowIdeal] = useState(true);
 
   // 理想値プロファイルは「撮りためたデータ」の中核のひとつのため永続化する
@@ -1258,7 +1257,6 @@ export default function WindToneLabPhaseMode() {
           note={note} pitch={pitch} needleRotation={needleRotation} centsOffset={centsOffset}
           spectrumBars={spectrumBars}
           harmonicLevels={harmonicLevels} theoreticalHarmonics={theoreticalHarmonics}
-          showTheory={showTheory} setShowTheory={setShowTheory}
           showIdeal={showIdeal} setShowIdeal={setShowIdeal}
           selectedIdeal={selectedIdeal}
           volumeDb={volumeDb} centroidHz={centroidHz} hnrDb={hnrDb}
@@ -1320,7 +1318,7 @@ export default function WindToneLabPhaseMode() {
 function MeasureView(props) {
   const {
     isRecording, toggleRecording, note, pitch, needleRotation, centsOffset, spectrumBars,
-    harmonicLevels, theoreticalHarmonics, showTheory, setShowTheory, showIdeal, setShowIdeal,
+    harmonicLevels, theoreticalHarmonics, showIdeal, setShowIdeal,
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
@@ -1419,9 +1417,8 @@ function MeasureView(props) {
       {/* 倍音構成 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-          <span>倍音構成（実測 / 理論 / 理想）</span>
+          <span>倍音構成（実測 / 理想）</span>
           <div style={{ display: "flex", gap: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showTheory} onChange={(e) => setShowTheory(e.target.checked)} /> 理論</label>
             <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 理想</label>
           </div>
         </div>
@@ -1436,9 +1433,8 @@ function MeasureView(props) {
             return (
               <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                 <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
-                  {showTheory && (<div style={{ position: "absolute", bottom: 0, width: "90%", height: "100%", border: "1.5px dashed #D97706", borderBottom: "none", borderRadius: "3px 3px 0 0", opacity: 0.45 }} />)}
                   <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#2563EB" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
-                  {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, background: idealHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85 }} />)}
+                  {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #94A3B8" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
                 </div>
                 <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
                 <div className="sans" style={{ fontSize: 8, color: "#94A3B8" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
@@ -1448,8 +1444,7 @@ function MeasureView(props) {
         </div>
         <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#2563EB", borderRadius: 2, display: "inline-block" }} />実測</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #D97706", borderRadius: 2, display: "inline-block" }} />理論(絶対周波数)</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#2563EB", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #94A3B8", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
         </div>
         {selectedIdeal && (
           <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 6 }}>
@@ -1480,13 +1475,18 @@ function MeasureView(props) {
           ))}
         </div>
 
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>基準ピッチ</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {[440, 442, 443].map((hz) => (
-            <button key={hz} onClick={() => setTuningHz(hz)} className="sans" style={{ flex: 1, padding: "7px 4px", borderRadius: 8, border: tuningHz === hz ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: tuningHz === hz ? "#EFF6FF" : "transparent", color: tuningHz === hz ? "#2563EB" : "#64748B", cursor: "pointer", fontSize: 11, fontWeight: tuningHz === hz ? 600 : 400 }}>
-              {hz} Hz
-            </button>
-          ))}
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+          <span>基準ピッチ</span>
+          <span style={{ color: "#2563EB", fontWeight: 600 }}>{tuningHz} Hz</span>
+        </div>
+        <input
+          type="range" min={435} max={445} step={1} value={tuningHz}
+          onChange={(e) => setTuningHz(Number(e.target.value))}
+          style={{ width: "100%" }}
+        />
+        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+          <span>435 Hz</span>
+          <span>445 Hz</span>
         </div>
 
         {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う) */}
@@ -1945,6 +1945,17 @@ function ReedRegisterView(props) {
   const unlinkedSessions = sessions.filter((s) => !s.reedId);
   const reedGroups = groupReeds(reeds);
   const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
+  const [evaluatingReedId, setEvaluatingReedId] = useState(null); // タップした登録済みリードの評価詳細を表示
+
+  const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
+  if (evaluatingReed) {
+    return (
+      <ReedEvaluationDetail
+        reed={evaluatingReed} reeds={reeds} sessions={sessions}
+        onBack={() => setEvaluatingReedId(null)}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -2029,17 +2040,23 @@ function ReedRegisterView(props) {
                   {isExpanded && (
                     <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
                       {g.members.map((r, idx) => (
-                        <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                        <div
+                          key={r.id}
+                          onClick={() => setEvaluatingReedId(r.id)}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
+                        >
                           <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{idx + 1}</span>
-                          <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                          </span>
                           <button
-                            onClick={() => goToMeasure(r.id)}
+                            onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
                             className="sans"
                             style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
                           >
                             測定へ
                           </button>
-                          <button onClick={() => deleteReed(r.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Trash2 size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Trash2 size={12} /></button>
                         </div>
                       ))}
                     </div>
@@ -2163,9 +2180,8 @@ const REED_COMPARE_METRICS = [
 function DataAnalysisView(props) {
   const { reeds, sessions, selectedIdeal } = props;
 
-  const [subTab, setSubTab] = useState("compare"); // compare | history | ranking
+  const [subTab, setSubTab] = useState("compare"); // compare | ranking
   const [compareReedIds, setCompareReedIds] = useState([]);
-  const [historyReedId, setHistoryReedId] = useState(null);
 
   // リードごとにセッションのフレームを集約し、スコアリング用の配列を作る
   const buildReedMetrics = (reedId) => {
@@ -2198,7 +2214,6 @@ function DataAnalysisView(props) {
       <div style={{ display: "flex", gap: 6, background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: 4, marginBottom: 10 }}>
         {[
           { key: "compare", label: "リード別比較" },
-          { key: "history", label: "リード毎比較" },
           { key: "ranking", label: "ランキング" },
         ].map((t) => (
           <button
@@ -2219,9 +2234,6 @@ function DataAnalysisView(props) {
 
       {subTab === "compare" && (
         <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} />
-      )}
-      {subTab === "history" && (
-        <ReedHistoryTab reeds={reeds} sessions={sessions} historyReedId={historyReedId} setHistoryReedId={setHistoryReedId} />
       )}
       {subTab === "ranking" && (
         <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} reeds={reeds} />
@@ -2382,15 +2394,11 @@ function MetricLineChart({ metricDef, points }) {
   );
 }
 
-function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
-  // リードが100枚規模になっても選びやすいよう、箱→箱内の個別リードの2段階選択にする
-  const reedGroups = groupReeds(reeds);
-  const currentReedForGroup = reeds.find((r) => r.id === historyReedId) || null;
-  const [historyGroupKey, setHistoryGroupKey] = useState(() => (currentReedForGroup ? reedGroupKey(currentReedForGroup) : null));
-  const selectedGroup = reedGroups.find((g) => g.key === historyGroupKey) || null;
-
+// 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
+// リード登録一覧からのタップ遷移として統合したもの。
+function ReedEvaluationDetail({ reed, reeds, sessions, onBack }) {
   const reedSessions = sessions
-    .filter((s) => s.reedId === historyReedId)
+    .filter((s) => s.reedId === reed.id)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
   const points = reedSessions.map((s) => {
@@ -2398,53 +2406,33 @@ function ReedHistoryTab({ reeds, sessions, historyReedId, setHistoryReedId }) {
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
   });
 
-  const historyReed = reeds.find((r) => r.id === historyReedId) || null;
-
-  if (reeds.length === 0) {
-    return <div className="sans" style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", padding: 30 }}>リードが登録されていません</div>;
-  }
-
   return (
-    <div>
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>経時変化を見るリードを選択</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select
-            value={historyGroupKey || ""}
-            onChange={(e) => { setHistoryGroupKey(e.target.value || null); setHistoryReedId(null); }}
-          >
-            <option value="">箱を選択</option>
-            {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}（{g.startDate}・{g.members.length}枚）</option>))}
-          </select>
-          <select
-            value={historyReedId || ""}
-            onChange={(e) => setHistoryReedId(e.target.value || null)}
-            disabled={!selectedGroup}
-          >
-            <option value="">{selectedGroup ? "番号を選択" : "先に箱を選択してください"}</option>
-            {selectedGroup?.members.map((r, idx) => (<option key={r.id} value={r.id}>#{idx + 1}</option>))}
-          </select>
-        </div>
-      </div>
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <button
+        onClick={onBack}
+        className="sans"
+        style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#2563EB", fontSize: 11, marginBottom: 10, cursor: "pointer", padding: 0 }}
+      >
+        <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
+      </button>
 
-      {historyReedId && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-            <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>{points.length}セッション</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>主観評価:</span>
-              <StarRating value={historyReed?.rating} onChange={() => {}} readOnly size={12} />
-            </div>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <span className="sans" style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{reedLabel(reed, reeds)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>主観評価:</span>
+            <StarRating value={reed.rating} onChange={() => {}} readOnly size={12} />
           </div>
-          {points.length === 0 ? (
-            <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>このリードに紐づく測定データがまだありません</div>
-          ) : (
-            REED_COMPARE_METRICS.map((m) => (
-              <MetricLineChart key={m.key} metricDef={m} points={points} />
-            ))
-          )}
         </div>
-      )}
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>{points.length}セッション</div>
+        {points.length === 0 ? (
+          <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>このリードに紐づく測定データがまだありません</div>
+        ) : (
+          REED_COMPARE_METRICS.map((m) => (
+            <MetricLineChart key={m.key} metricDef={m} points={points} />
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -2632,6 +2620,35 @@ function buildPivot(framesWithContext, reeds, rowAxis, colAxis, metricKey) {
   return { cells, rowKeys, colKeys };
 }
 
+// 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
+// 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
+function MyDataSection({ sessions }) {
+  const mySessions = sessions
+    .filter((s) => s.performer === "自分")
+    .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
+
+  const points = mySessions.map((s) => {
+    const frames = s.frames || [];
+    return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
+  });
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>My Data</div>
+      <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>
+        奏者が「自分」のセッション（{points.length}件）の推移
+      </div>
+      {points.length === 0 ? (
+        <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>「自分」のセッションがまだありません</div>
+      ) : (
+        REED_COMPARE_METRICS.map((m) => (
+          <MetricLineChart key={m.key} metricDef={m} points={points} />
+        ))
+      )}
+    </div>
+  );
+}
+
 function AnalysisLabView(props) {
   const {
     sessions, reeds, selectedIdeal,
@@ -2673,6 +2690,9 @@ function AnalysisLabView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* --- My Data: 「自分」のセッションの推移 --- */}
+      <MyDataSection sessions={sessions} />
+
       {/* --- 録音データのアップロード解析 --- */}
       <UploadPanel
         handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload} uploadProgress={uploadProgress}
