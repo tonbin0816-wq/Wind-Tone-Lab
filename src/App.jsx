@@ -2654,22 +2654,6 @@ function ScoreChip({ label, value }) {
 // 縦軸(音名/音域帯) × 横軸(リード/リード×使用日数/録音日) の交点に
 // 選択した指標(平均ピッチ偏差・高次倍音強度・HNR・重心)を数値表示する。
 // ============================================================
-const PIVOT_ROW_AXES = [
-  { key: "note", label: "音名" },
-  { key: "band", label: "音域帯" },
-];
-const PIVOT_COL_AXES = [
-  { key: "reed", label: "リード" },
-  { key: "reedDay", label: "リード×日数" },
-  { key: "date", label: "録音日" },
-];
-const PIVOT_METRICS = [
-  { key: "pitchCents", label: "平均ピッチ偏差(¢)", fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1) },
-  { key: "highHarm", label: "高次倍音強度(5-8)", fmt: (v) => (v * 100).toFixed(0) },
-  { key: "hnr", label: "HNR(dB)", fmt: (v) => v.toFixed(1) },
-  { key: "centroid", label: "重心(Hz)", fmt: (v) => Math.round(v).toString() },
-];
-
 // ピッチ偏差セルの色分け(絶対値: <10¢緑 / <25¢アンバー / それ以上赤)
 function pitchCellColor(cents) {
   const a = Math.abs(cents);
@@ -2684,58 +2668,149 @@ function usageDays(recordedAt, startDate) {
   return Math.max(1, days);
 }
 
-function buildPivot(framesWithContext, reeds, rowAxis, colAxis, metricKey) {
-  const rowKeyFn = (f) => {
-    if (rowAxis === "note") return f.matchedWrittenNote ?? null;
-    const band = registerBand(f.semitoneIndex);
-    return band === "unknown" ? null : band;
-  };
-  const colKeyFn = (f) => {
-    const reed = reeds.find((r) => r.id === f.reedId);
-    if (colAxis === "reed") return reed ? `${reed.brand} ${reed.strength}` : null;
-    if (colAxis === "reedDay") {
-      if (!reed) return null;
-      const d = usageDays(f.recordedAt, reed.startDate);
-      return d ? `${reed.brand} ${reed.strength} ${d}日目` : `${reed.brand} ${reed.strength}`;
-    }
-    return new Date(f.recordedAt).toLocaleDateString("ja-JP");
-  };
-  const metricFn = (f) => {
-    switch (metricKey) {
-      case "pitchCents": return f.pitchCents;
-      case "highHarm": {
-        const hs = f.harmonics?.slice(4, 8).map((h) => h.levelNorm) ?? [];
-        return hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : null;
-      }
-      case "hnr": return f.hnrDb;
-      case "centroid": return f.spectralCentroidHz;
-      default: return null;
-    }
-  };
+// ============================================================
+// クロス集計(ピボット) — Excelのピボットテーブル風の自由軸集計
+//
+// 「次元」(カテゴリ値)はフィルター(集計対象抽出)・縦軸・横軸のどこにでも配置でき、
+// 「指標」(数値)はセルの集計値として選ぶ。フレームは呼び出し側でセッション情報
+// (録音日時・奏者・サックス種別・録音/アップロード・メモ・リードオブジェクト)を
+// 付与した形(enriched frame)で渡す。getValue(f, ctx)のctxは{reeds}。
+// ============================================================
+const PIVOT_BAND_ORDER = { low: 0, mid: 1, high: 2 };
+
+const PIVOT_DIMENSIONS = [
+  {
+    key: "note", label: "音名",
+    getValue: (f) => f.matchedWrittenNote ?? null,
+    getSort: (f) => f.semitoneIndex ?? 999,
+  },
+  {
+    key: "band", label: "音域帯",
+    getValue: (f) => {
+      const band = registerBand(f.semitoneIndex);
+      return band === "unknown" ? null : REGISTER_BAND_LABELS[band];
+    },
+    getSort: (f) => PIVOT_BAND_ORDER[registerBand(f.semitoneIndex)] ?? 9,
+  },
+  {
+    key: "reed", label: "リード(個体)",
+    getValue: (f, ctx) => (f.reed ? reedLabel(f.reed, ctx.reeds) : "未紐付け"),
+  },
+  {
+    key: "brand", label: "リード銘柄",
+    getValue: (f) => f.reed?.brand ?? "未紐付け",
+  },
+  {
+    key: "strength", label: "リード番手",
+    getValue: (f) => (f.reed ? String(f.reed.strength) : "未紐付け"),
+    getSort: (f) => (f.reed ? parseFloat(f.reed.strength) : 999),
+  },
+  {
+    key: "rating", label: "リード主観評価",
+    getValue: (f) => (f.reed ? (f.reed.rating ? `★${f.reed.rating}` : "未評価") : "未紐付け"),
+    getSort: (f) => (f.reed ? (f.reed.rating ?? 0) : -1),
+  },
+  {
+    key: "reedDays", label: "リード使用日数",
+    getValue: (f) => {
+      if (!f.reed) return null;
+      const d = usageDays(f.recordedAt, f.reed.startDate);
+      return d ? `${d}日目` : null;
+    },
+    getSort: (f) => (f.reed ? usageDays(f.recordedAt, f.reed.startDate) ?? 999 : 999),
+  },
+  {
+    key: "date", label: "録音日",
+    getValue: (f) => new Date(f.recordedAt).toLocaleDateString("ja-JP"),
+    getSort: (f) => new Date(f.recordedAt).setHours(0, 0, 0, 0),
+  },
+  {
+    key: "performer", label: "奏者",
+    getValue: (f) => f.performer || "—",
+  },
+  {
+    key: "saxType", label: "サックス種別",
+    getValue: (f) => SAX_PRESETS[f.saxType]?.label ?? f.saxType ?? null,
+  },
+  {
+    key: "source", label: "データ種別",
+    getValue: (f) => (f.source === "upload" ? "アップロード" : "録音"),
+  },
+  {
+    key: "memo", label: "メモ",
+    getValue: (f) => f.memo || "（メモなし）",
+  },
+];
+
+function harmonicSliceMean(f, lo, hi) {
+  const hs = f.harmonics?.slice(lo, hi).map((h) => h.levelNorm) ?? [];
+  return hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : null;
+}
+
+const PIVOT_MEASURES = [
+  { key: "pitchCents", label: "平均ピッチ偏差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
+  { key: "pitchHz", label: "音高(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
+  { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
+  { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => harmonicSliceMean(f, 0, 4), fmt: (v) => (v * 100).toFixed(0) },
+  { key: "highHarm", label: "倍音強度(高次5-8)", getValue: (f) => harmonicSliceMean(f, 4, 8), fmt: (v) => (v * 100).toFixed(0) },
+  { key: "hnr", label: "HNR(dB)", getValue: (f) => f.hnrDb, fmt: (v) => v.toFixed(1) },
+  { key: "centroid", label: "重心(Hz)", getValue: (f) => f.spectralCentroidHz, fmt: (v) => Math.round(v).toString() },
+  { key: "count", label: "フレーム数", getValue: () => 1, agg: "sum", fmt: (v) => String(v) },
+];
+
+// 指定した次元がとりうる値の一覧(フィルターUIの選択肢用)。次元のソート順で返す
+function pivotDimensionValues(frames, ctx, dimKey) {
+  const dim = PIVOT_DIMENSIONS.find((d) => d.key === dimKey);
+  if (!dim) return [];
+  const sortByValue = new Map();
+  for (const f of frames) {
+    const v = dim.getValue(f, ctx);
+    if (v === null || v === undefined) continue;
+    if (!sortByValue.has(v)) sortByValue.set(v, dim.getSort ? dim.getSort(f, ctx) : v);
+  }
+  return [...sortByValue.entries()]
+    .sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
+    .map(([v]) => v);
+}
+
+// filters: [{dimKey, values: string[]}] — 値が1つ以上選ばれているフィルターだけが有効。
+// colKey === "none" の場合は横軸なし(「全体」1列)として集計する。
+function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
+  const rowDim = PIVOT_DIMENSIONS.find((d) => d.key === rowKey);
+  const colDim = colKey === "none" ? null : PIVOT_DIMENSIONS.find((d) => d.key === colKey);
+  const measure = PIVOT_MEASURES.find((m) => m.key === measureKey);
+  if (!rowDim || !measure) return { cells: {}, rowKeys: [], colKeys: [], measure: null };
+
+  const activeFilters = (filters || [])
+    .map((flt) => ({ dim: PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey), values: flt.values }))
+    .filter((flt) => flt.dim && flt.values.length > 0);
 
   const cells = {}; // rowKey -> colKey -> {sum, count}
-  const rowMeta = {}; // rowKey -> semitoneIndex(ソート用)
-  const colSet = new Set();
-  for (const f of framesWithContext) {
-    const rk = rowKeyFn(f);
-    const ck = colKeyFn(f);
-    const v = metricFn(f);
-    if (rk === null || ck === null || v === null || v === undefined || isNaN(v)) continue;
+  const rowSort = {};
+  const colSort = {};
+  for (const f of frames) {
+    if (activeFilters.some((flt) => !flt.values.includes(flt.dim.getValue(f, ctx)))) continue;
+    const rk = rowDim.getValue(f, ctx);
+    const ck = colDim ? colDim.getValue(f, ctx) : "全体";
+    const v = measure.getValue(f);
+    if (rk === null || rk === undefined || ck === null || ck === undefined || v === null || v === undefined || isNaN(v)) continue;
     if (!cells[rk]) cells[rk] = {};
     if (!cells[rk][ck]) cells[rk][ck] = { sum: 0, count: 0 };
     cells[rk][ck].sum += v;
     cells[rk][ck].count += 1;
-    colSet.add(ck);
-    if (rowMeta[rk] === undefined && f.semitoneIndex !== null && f.semitoneIndex !== undefined) rowMeta[rk] = f.semitoneIndex;
+    if (rowSort[rk] === undefined) rowSort[rk] = rowDim.getSort ? rowDim.getSort(f, ctx) : rk;
+    if (colDim && colSort[ck] === undefined) colSort[ck] = colDim.getSort ? colDim.getSort(f, ctx) : ck;
   }
 
-  const bandOrder = { low: 0, mid: 1, high: 2 };
-  const rowKeys = Object.keys(cells).sort((a, b) => {
-    if (rowAxis === "band") return (bandOrder[a] ?? 9) - (bandOrder[b] ?? 9);
-    return (rowMeta[a] ?? 999) - (rowMeta[b] ?? 999); // 音名は半音インデックス順(低→高)
-  });
-  const colKeys = [...colSet].sort();
-  return { cells, rowKeys, colKeys };
+  const bySort = (sortMap) => (a, b) => {
+    const sa = sortMap[a], sb = sortMap[b];
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  };
+  const rowKeys = Object.keys(cells).sort(bySort(rowSort));
+  const colKeys = colDim
+    ? [...new Set(Object.values(cells).flatMap((row) => Object.keys(row)))].sort(bySort(colSort))
+    : ["全体"];
+  return { cells, rowKeys, colKeys, measure };
 }
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
@@ -2776,18 +2851,24 @@ function AnalysisLabView(props) {
   const [pivotRow, setPivotRow] = useState("note");
   const [pivotCol, setPivotCol] = useState("reed");
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
+  const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(10);
 
-  // 全セッションのフレームを、リードID・録音日時つきで平坦化する
+  // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
-  const framesWithContext = sessions.flatMap((s) =>
-    (s.frames || []).map((f) => ({ ...f, reedId: s.reedId, recordedAt: s.recordedAt }))
-  );
+  const framesWithContext = sessions.flatMap((s) => {
+    const reed = reeds.find((r) => r.id === s.reedId) || null;
+    return (s.frames || []).map((f) => ({
+      ...f, reedId: s.reedId, reed, recordedAt: s.recordedAt,
+      performer: s.performer, saxType: s.saxType, source: s.source, memo: s.memo,
+    }));
+  });
 
   // --- ピボット集計 ---
-  const pivot = buildPivot(framesWithContext, reeds, pivotRow, pivotCol, pivotMetric);
-  const metricDef = PIVOT_METRICS.find((m) => m.key === pivotMetric);
+  const pivotCtx = { reeds };
+  const pivot = buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters);
+  const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
 
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
@@ -2855,21 +2936,86 @@ function AnalysisLabView(props) {
           クロス集計（ピボット）
         </div>
         <div className="sans" style={{ fontSize: 10, color: "#64748B", lineHeight: 1.6, marginBottom: 12 }}>
-          縦軸・横軸・指標を組み合わせて、蓄積データをマトリクスで俯瞰します。各セルはその組み合わせに該当するフレームの平均値です。
+          集計対象抽出(フィルター)・縦軸・横軸・指標を組み合わせて、蓄積データをマトリクスで俯瞰します。各セルはその組み合わせに該当するフレームの平均値です。
+        </div>
+
+        {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
+        <div style={{ marginBottom: 12, padding: "10px 12px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>集計対象抽出（フィルター）</span>
+            <button
+              onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [] }])}
+              className="sans"
+              style={{ fontSize: 10, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer" }}
+            >
+              ＋ フィルターを追加
+            </button>
+          </div>
+          {pivotFilters.length === 0 ? (
+            <div className="sans" style={{ fontSize: 10, color: "#94A3B8" }}>フィルターなし（全データを集計）</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {pivotFilters.map((flt, i) => {
+                const options = pivotDimensionValues(framesWithContext, pivotCtx, flt.dimKey);
+                return (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <select
+                      value={flt.dimKey}
+                      onChange={(e) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: e.target.value, values: [] } : p)))}
+                      style={{ flexShrink: 0 }}
+                    >
+                      {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
+                    </select>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1 }}>
+                      {options.length === 0 ? (
+                        <span className="sans" style={{ fontSize: 10, color: "#94A3B8", padding: "4px 0" }}>該当する値がありません</span>
+                      ) : options.map((v) => {
+                        const selected = flt.values.includes(v);
+                        return (
+                          <button
+                            key={v}
+                            onClick={() => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { ...p, values: selected ? p.values.filter((x) => x !== v) : [...p.values, v] } : p)))}
+                            className="sans"
+                            style={{
+                              fontSize: 10, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
+                              border: selected ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                              background: selected ? "#EFF6FF" : "#FFFFFF",
+                              color: selected ? "#2563EB" : "#64748B",
+                              fontWeight: selected ? 600 : 400,
+                            }}
+                          >
+                            {v}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
+                      style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 4px" }}
+                      title="このフィルターを削除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="sans" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12, fontSize: 10 }}>
           <span style={{ color: "#64748B" }}>縦軸:</span>
           <select value={pivotRow} onChange={(e) => setPivotRow(e.target.value)}>
-            {PIVOT_ROW_AXES.map((a) => (<option key={a.key} value={a.key}>{a.label}</option>))}
+            {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
           </select>
           <span style={{ color: "#64748B" }}>横軸:</span>
           <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)}>
-            {PIVOT_COL_AXES.map((a) => (<option key={a.key} value={a.key}>{a.label}</option>))}
+            <option value="none">なし（全体）</option>
+            {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
           </select>
           <span style={{ color: "#64748B" }}>指標:</span>
           <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)}>
-            {PIVOT_METRICS.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
+            {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
           </select>
         </div>
 
@@ -2883,7 +3029,7 @@ function AnalysisLabView(props) {
               <thead>
                 <tr>
                   <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "6px 10px", color: "#64748B", fontSize: 10, fontWeight: 600, borderBottom: "1px solid #E2E8F0" }}>
-                    {PIVOT_ROW_AXES.find((a) => a.key === pivotRow)?.label} ＼ {PIVOT_COL_AXES.find((a) => a.key === pivotCol)?.label}
+                    {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
                   </th>
                   {pivot.colKeys.map((ck) => (
                     <th key={ck} className="sans" style={{ textAlign: "right", padding: "6px 10px", color: "#2563EB", fontSize: 10, fontWeight: 600, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>
@@ -2896,18 +3042,18 @@ function AnalysisLabView(props) {
                 {pivot.rowKeys.map((rk) => (
                   <tr key={rk}>
                     <td className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "5px 10px", color: "#0F172A", fontSize: 11, fontWeight: 600, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>
-                      {pivotRow === "band" ? REGISTER_BAND_LABELS[rk] : rk}
+                      {rk}
                     </td>
                     {pivot.colKeys.map((ck) => {
                       const cell = pivot.cells[rk]?.[ck];
                       if (!cell) {
                         return <td key={ck} style={{ textAlign: "right", padding: "5px 10px", color: "#94A3B8", borderBottom: "1px solid #E2E8F0" }}>—</td>;
                       }
-                      const avg = cell.sum / cell.count;
-                      const color = pivotMetric === "pitchCents" ? pitchCellColor(avg) : "#0F172A";
+                      const value = metricDef.agg === "sum" ? cell.sum : cell.sum / cell.count;
+                      const color = metricDef.color ? metricDef.color(value) : "#0F172A";
                       return (
                         <td key={ck} title={`${cell.count}フレーム`} style={{ textAlign: "right", padding: "5px 10px", color, fontWeight: 600, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>
-                          {metricDef.fmt(avg)}
+                          {metricDef.fmt(value)}
                         </td>
                       );
                     })}
