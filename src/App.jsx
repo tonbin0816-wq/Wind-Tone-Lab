@@ -369,10 +369,11 @@ function groupReeds(reeds) {
     groups[key].members.push(r);
   }
   for (const g of Object.values(groups)) {
-    // 手動で並び替えられた(boxNumberを持つ)リードを優先し、未設定のものは登録順で後ろに続ける
+    // 表示順(sortOrder)は長押し並び替えで変わるが、管理番号(boxNumber)とは独立させている。
+    // sortOrder未設定のものは登録順で後ろに続ける。
     g.members.sort((a, b) => {
-      const an = a.boxNumber ?? Infinity;
-      const bn = b.boxNumber ?? Infinity;
+      const an = a.sortOrder ?? Infinity;
+      const bn = b.sortOrder ?? Infinity;
       if (an !== bn) return an - bn;
       return new Date(a.createdAt) - new Date(b.createdAt);
     });
@@ -1467,7 +1468,7 @@ function MeasureView(props) {
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 使用リード選択(企画書v5 10.3節: 事前選択) + 奏者選択 */}
       <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: "#64748B" }}>使用リード:</span>
+        <span style={{ color: "#64748B" }}>リード:</span>
         <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRecording}>
           <option value="">未選択(後で紐付け可能)</option>
           {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
@@ -2248,13 +2249,38 @@ function ReedRegisterView(props) {
     if (newBrand === "__custom__") setCustomBrand("");
   };
 
-  const deleteReed = (id) => {
-    setReeds((prev) => prev.filter((r) => r.id !== id));
-    updateSessions((prev) => prev.map((s) => (s.reedId === id ? { ...s, reedId: null, linkedAt: null } : s)));
+  const deleteReeds = (ids) => {
+    const idSet = new Set(ids);
+    setReeds((prev) => prev.filter((r) => !idSet.has(r.id)));
+    updateSessions((prev) => prev.map((s) => (idSet.has(s.reedId) ? { ...s, reedId: null, linkedAt: null } : s)));
   };
 
   const rateReed = (id, rating) => {
     setReeds((prev) => prev.map((r) => (r.id === id ? { ...r, rating } : r)));
+  };
+
+  // 削除は誤タップが多かったため、行ごとの削除ボタンをやめてチェックボックスによる複数選択削除にする。
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
+
+  const toggleReedSelected = (id) => {
+    setSelectedForDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedForDelete(new Set());
+  };
+
+  const confirmBatchDelete = () => {
+    if (selectedForDelete.size === 0) return;
+    if (!window.confirm(`選択した${selectedForDelete.size}枚のリードを削除しますか？(元に戻せません)`)) return;
+    deleteReeds([...selectedForDelete]);
+    exitSelectionMode();
   };
 
   // 登録済みリードの銘柄・番手・番号(箱内の通し番号)をその場で修正できるようにする。
@@ -2283,10 +2309,11 @@ function ReedRegisterView(props) {
     setTopTab("measure");
   };
 
-  // 長押し+スライドでの並び替え確定時、新しい順序をboxNumber(1始まり)として全メンバーに振り直す
+  // 長押し+スライドでの並び替え確定時、表示順(sortOrder)だけを更新する。
+  // 管理番号(boxNumber)は並び替えても変えない(リードそのものの識別に使うため)。
   const reorderGroupMembers = (newOrderIds) => {
-    const numberById = new Map(newOrderIds.map((id, i) => [id, i + 1]));
-    setReeds((prev) => prev.map((r) => (numberById.has(r.id) ? { ...r, boxNumber: numberById.get(r.id) } : r)));
+    const orderById = new Map(newOrderIds.map((id, i) => [id, i + 1]));
+    setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
   const linkSession = (sessionId, reedId) => {
@@ -2368,7 +2395,38 @@ function ReedRegisterView(props) {
       </div>
 
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 10 }}>登録済みリード（{reeds.length}）</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600 }}>登録済みリード（{reeds.length}）</div>
+          {reeds.length > 0 && (
+            selectionMode ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={exitSelectionMode}
+                  className="sans"
+                  style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={confirmBatchDelete}
+                  disabled={selectedForDelete.size === 0}
+                  className="sans"
+                  style={{ padding: "7px 12px", borderRadius: 6, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E2E8F0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                >
+                  {selectedForDelete.size > 0 ? `${selectedForDelete.size}枚を削除` : "削除"}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSelectionMode(true)}
+                className="sans"
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
+              >
+                <Trash2 size={13} /> 削除
+              </button>
+            )
+          )}
+        </div>
         {reeds.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>まだリードが登録されていません</div>
         ) : (
@@ -2440,44 +2498,55 @@ function ReedRegisterView(props) {
                             </div>
                           );
                         })
+                      ) : selectionMode ? (
+                        // 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する
+                        g.members.map((r, idx) => (
+                          <div
+                            key={r.id}
+                            onClick={() => toggleReedSelected(r.id)}
+                            style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
+                          >
+                            <input
+                              type="checkbox" checked={selectedForDelete.has(r.id)}
+                              onChange={() => toggleReedSelected(r.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                            />
+                            <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                            <StarRating value={r.rating} onChange={() => {}} readOnly size={11} />
+                          </div>
+                        ))
                       ) : (
                         <ReorderableReedRows
                           members={g.members}
                           onReorder={reorderGroupMembers}
                           onRowClick={(id) => setEvaluatingReedId(id)}
                           renderRow={(r, idx) => (
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
-                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{idx + 1}</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <span onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={13} />
                               </span>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
                                 className="sans"
-                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
+                                style={{ fontSize: 10, padding: "8px 14px", borderRadius: 6, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: "auto" }}
                               >
                                 測定へ
                               </button>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); startEditReed(r); }}
-                                style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}
+                                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", cursor: "pointer", padding: 9, flexShrink: 0 }}
                               >
-                                <Pencil size={12} />
-                              </button>
-                              <button
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }}
-                                style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}
-                              >
-                                <Trash2 size={12} />
+                                <Pencil size={15} />
                               </button>
                             </div>
                           )}
                         />
                       )}
-                      {g.members.length > 1 && !editingReedId && (
+                      {g.members.length > 1 && !editingReedId && !selectionMode && (
                         <div className="sans" style={{ fontSize: 9, color: "#94A3B8", padding: "6px 0 2px" }}>
                           長押ししてスライドすると並び替えられます
                         </div>
