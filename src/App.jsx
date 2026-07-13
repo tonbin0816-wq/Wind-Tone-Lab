@@ -1568,34 +1568,38 @@ function MeasureView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 使用リード選択(企画書v5 10.3節: 事前選択、箱→個体の二段階) + 奏者選択 */}
-      <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: "#64748B" }}>リード:</span>
+      {/* 使用リード選択(企画書v5 10.3節: 事前選択、箱→個体の二段階) + 奏者選択。
+          いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
+      <div className="sans" style={{ fontSize: 11, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
+        <span style={{ color: "#64748B", flexShrink: 0 }}>リード:</span>
         <select
           value={selectedBoxKey || ""}
           onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
           disabled={isRecording}
+          style={{ minWidth: 0, maxWidth: 120 }}
         >
           <option value="">箱を選択</option>
-          {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}（{g.startDate}・{g.members.length}枚）</option>))}
+          {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}</option>))}
         </select>
         <select
           value={selectedReedId || ""}
           onChange={(e) => setSelectedReedId(e.target.value || null)}
           disabled={isRecording || !selectedBoxGroup}
+          style={{ minWidth: 0, maxWidth: 68, color: selectedBoxGroup ? undefined : "#CBD5E1", background: selectedBoxGroup ? undefined : "#F1F5F9" }}
         >
-          <option value="">{selectedBoxGroup ? "個体を選択" : "先に箱を選択"}</option>
+          <option value="">{selectedBoxGroup ? "個体" : "—"}</option>
           {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
         </select>
-        {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
-        {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
-        <span style={{ color: "#64748B", marginLeft: 8 }}>奏者:</span>
+        <span style={{ color: "#64748B", marginLeft: 4, flexShrink: 0 }}>奏者:</span>
         <PerformerSelector
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           disabled={isRecording}
         />
       </div>
+      {(!reeds || reeds.length === 0) && (
+        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
         {isRecording ? (
@@ -1652,24 +1656,55 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音高(アナログメーター形式) */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      {/* ピッチメーター: デジタルチューナー機の見た目(基準Hzの小表示・大きな音名・弧状の目盛りと針)を
+          参考にしつつ、色はアンバー液晶ではなくアプリの配色(白背景・スレート/ブルー)に置き換えている。 */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px 10px", marginBottom: 10, position: "relative" }}>
+        <div className="sans" style={{ position: "absolute", top: 14, left: 16, fontSize: 9, color: "#94A3B8" }}>
+          基準 <span style={{ color: "#64748B", fontWeight: 600 }}>{tuningHz}Hz</span>
+        </div>
+        {/* 音名とセント誤差は演奏中に最も見る情報のため、この画面のヒーローとして最大サイズで表示する */}
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 44, fontWeight: 700, lineHeight: 1, color: note ? "#0F172A" : "#64748B" }}>
+            {note ? note.name : "—"}<span style={{ fontSize: 20, color: "#64748B" }}>{note ? note.octave : ""}</span>
+          </div>
+          <div className="sans" style={{ fontSize: 18, fontWeight: 700, color: note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#64748B", marginTop: 2 }}>
+            {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
+          </div>
+        </div>
         {(() => {
-          const cx = 110, cy = 105, rOuter = 90, rInner = 76, rNeedle = 74;
+          const cx = 110, cy = 94, rOuter = 76, rInner = 64, rNeedle = 62;
           const meterColor = note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#94A3B8";
-          const arcStart = polarPoint(cx, cy, rOuter, -45);
-          const arcEnd = polarPoint(cx, cy, rOuter, 45);
+          const leftLabel = polarPoint(cx, cy, rOuter + 15, -45);
+          const rightLabel = polarPoint(cx, cy, rOuter + 15, 45);
+          // 目盛りは実線の弧ではなく、参考画像のような点描(ドット)で表現する
+          const dots = [];
+          for (let deg = -45; deg <= 45; deg += 3) {
+            const p = polarPoint(cx, cy, rOuter, deg);
+            dots.push(<circle key={deg} cx={p.x} cy={p.y} r={1.2} fill="#CBD5E1" />);
+          }
+          // 中心付近の±10¢を「良好ゾーン」の目印として弧の外側に小さな三角マーカーで示す(参考画像の矢印に相当)
+          const zoneAngle = 10 * 0.9;
+          const zoneMarker = (angle) => {
+            const apex = polarPoint(cx, cy, rOuter + 3, angle);
+            const b1 = polarPoint(cx, cy, rOuter + 12, angle - 3);
+            const b2 = polarPoint(cx, cy, rOuter + 12, angle + 3);
+            return `${b1.x},${b1.y} ${b2.x},${b2.y} ${apex.x},${apex.y}`;
+          };
           // 横方向に引き伸ばして表示し、同じ角度の振れでも針のブレを大きく見せる
           // (preserveAspectRatio="none"でviewBoxの内容を非等倍にストレッチする)
           return (
-            <svg width="100%" height="128" viewBox="0 0 220 128" preserveAspectRatio="none" style={{ overflow: "visible", display: "block" }}>
-              <path d={`M ${arcStart.x} ${arcStart.y} A ${rOuter} ${rOuter} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="#E2E8F0" strokeWidth="3" strokeLinecap="round" />
+            <svg width="100%" height="104" viewBox="0 0 220 104" preserveAspectRatio="none" style={{ overflow: "visible", display: "block", marginTop: 4 }}>
+              {dots}
               {PITCH_METER_TICKS.map((c) => {
                 const angle = c * 0.9;
                 const p1 = polarPoint(cx, cy, rInner, angle);
                 const p2 = polarPoint(cx, cy, rOuter, angle);
-                return <line key={c} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={c === 0 ? "#2563EB" : "#CBD5E1"} strokeWidth={c === 0 ? 3 : 2} />;
+                return <line key={c} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={c === 0 ? "#2563EB" : "#94A3B8"} strokeWidth={c === 0 ? 2.5 : 1.5} />;
               })}
+              <polygon points={zoneMarker(-zoneAngle)} fill="#93B8F5" />
+              <polygon points={zoneMarker(zoneAngle)} fill="#93B8F5" />
+              <text x={leftLabel.x} y={leftLabel.y} textAnchor="middle" fontSize="9" fill="#94A3B8">-50</text>
+              <text x={rightLabel.x} y={rightLabel.y} textAnchor="middle" fontSize="9" fill="#94A3B8">+50</text>
               {/* 針は固定長の縦線を回転させる方式(x2/y2の直接アニメーションはSVG要素間の互換性が低いため、
                   全ブラウザで確実にアニメーションするtransform:rotateを使う) */}
               <g style={{ transform: `rotate(${needleRotation}deg)`, transformOrigin: `${cx}px ${cy}px`, transition: "transform 0.1s ease-out" }}>
@@ -1679,25 +1714,21 @@ function MeasureView(props) {
             </svg>
           );
         })()}
-        {/* 音名とセント誤差は演奏中に最も見る情報のため、この画面のヒーローとして最大サイズで表示する */}
-        <div style={{ textAlign: "center", marginTop: -8 }}>
-          <div style={{ fontSize: 44, fontWeight: 700, lineHeight: 1, color: note ? "#0F172A" : "#64748B" }}>
-            {note ? note.name : "—"}<span style={{ fontSize: 20, color: "#64748B" }}>{note ? note.octave : ""}</span>
-          </div>
-          <div className="sans" style={{ fontSize: 18, fontWeight: 700, color: note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#64748B", marginTop: 4 }}>
-            {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
-          </div>
-          <div className="sans" style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
-        </div>
+        <div className="sans" style={{ fontSize: 10, color: "#94A3B8", textAlign: "center", marginTop: -4 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
       {/* 録音データグラフ(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示する。
-          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
-      {phraseFrames.length > 0 && (
+          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。データが無い間も枠だけ表示し、
+          この位置に来ること自体は録音状態に関わらず変わらないようにする。 */}
+      {phraseFrames.length > 0 ? (
         <PhraseTimeline
           frames={phraseFrames} noteEvents={phraseNoteEvents} selectedIdeal={selectedIdeal}
           NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
         />
+      ) : (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px", marginBottom: 10, textAlign: "center" }}>
+          <div className="sans" style={{ fontSize: 10, color: "#94A3B8" }}>録音を開始すると、ここに演奏の推移が表示されます</div>
+        </div>
       )}
 
       {/* スペクトル: 音が出ているかの視覚フィードバック用。分析の主役ではないため控えめな高さにする */}
