@@ -82,6 +82,15 @@ function writtenNoteLabel(semitoneFromLowBb) {
   return `${name}${octave}`;
 }
 
+// 音名表記統一(D#→E♭, A#→B♭)より前に保存されたセッション/理想値プロファイルには
+// 旧表記の音名文字列がそのまま残っているため、読み込み時に一度だけ変換する。
+function migrateNoteSpelling(label) {
+  if (typeof label !== "string") return label;
+  if (label.startsWith("D#")) return "E♭" + label.slice(2);
+  if (label.startsWith("A#")) return "B♭" + label.slice(2);
+  return label;
+}
+
 // 楽器種別ごとの移調(記音→実音): アルト/バリトン=E♭管、ソプラノ/テナー=B♭管
 // オクターブ差込みの合計半音移調量
 const TRANSPOSITION_SEMITONES = {
@@ -551,7 +560,15 @@ function useSessionsStore() {
     let cancelled = false;
     idbGetAllSessions().then((all) => {
       if (cancelled) return;
-      setSessionsState(all);
+      // 音名表記統一(D#→E♭, A#→B♭)より前に保存されたフレームの音名表記を一度だけ変換して書き戻す
+      const migrated = all.map((s) => {
+        const frames = s.frames;
+        if (!frames?.some((f) => f.matchedWrittenNote?.startsWith("D#") || f.matchedWrittenNote?.startsWith("A#"))) return s;
+        return { ...s, frames: frames.map((f) => (f.matchedWrittenNote ? { ...f, matchedWrittenNote: migrateNoteSpelling(f.matchedWrittenNote) } : f)) };
+      });
+      const changed = migrated.filter((s, i) => s !== all[i]);
+      if (changed.length > 0) idbPutSessions(changed);
+      setSessionsState(migrated);
       loadedRef.current = true;
     });
     return () => { cancelled = true; };
@@ -942,6 +959,19 @@ export default function WindToneLabPhaseMode() {
   const [idealProfiles, setIdealProfiles] = usePersistedState("idealProfiles", []);
   const [selectedIdealId, setSelectedIdealId] = usePersistedState("selectedIdealId", null);
 
+  // 音名表記統一(D#→E♭, A#→B♭)より前に保存された理想値プロファイルのwrittenLabelを
+  // 読み込み後に一度だけ変換する(セッション側はuseSessionsStoreの読み込み時に対応済み)。
+  useEffect(() => {
+    const needsMigration = idealProfiles.some((p) =>
+      Object.values(p.notes || {}).some((n) => n.writtenLabel?.startsWith("D#") || n.writtenLabel?.startsWith("A#"))
+    );
+    if (!needsMigration) return;
+    setIdealProfiles((prev) => prev.map((p) => ({
+      ...p,
+      notes: Object.fromEntries(Object.entries(p.notes || {}).map(([k, n]) => [k, { ...n, writtenLabel: migrateNoteSpelling(n.writtenLabel) }])),
+    })));
+  }, [idealProfiles, setIdealProfiles]);
+
   // --- 運指ベース管長自動キャリブレーション state ---
   const [matchedFingering, setMatchedFingering] = useState(null); // 直近フレームで判定された運指(理論値計算の基準に使う)
 
@@ -974,13 +1004,13 @@ export default function WindToneLabPhaseMode() {
   const phraseFramesRef = useRef([]); // stop()のクロージャから最新フレーム配列を参照するためのref
 
   // --- 常時ライブのタイムライン用ローリングバッファ ---
-  // 録音(isRecording)開始前でも、マイク接続中(tick稼働中)は直近30秒分のフレームを
+  // 録音(isRecording)開始前でも、マイク接続中(tick稼働中)は直近10秒分のフレームを
   // 保持し続け、タイムラインを録音の有無によらず常時動かす。セッション保存には使わない
   // 使い捨てのバッファなので、録音中のphraseFramesとは別に持つ(録音ロジックには触れない)。
   const [liveFrames, setLiveFrames] = useState([]);
   const liveStartTimeRef = useRef(null);
   const lastLiveSampleTimeRef = useRef(0);
-  const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分
+  const LIVE_WINDOW_MAX_FRAMES = 100; // 100ms間隔で約10秒分。それより古いものは記録も表示もしない
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1240,7 +1270,7 @@ export default function WindToneLabPhaseMode() {
             });
           }
         } else {
-          // --- 録音していない間も、タイムラインを常時動かすための直近30秒ローリングバッファ ---
+          // --- 録音していない間も、タイムラインを常時動かすための直近10秒ローリングバッファ ---
           // (セッションには保存しない使い捨てのバッファ。録音中はここには積まず、
           // phraseFramesの方をそのままタイムラインに渡す)
           if (liveStartTimeRef.current === null) liveStartTimeRef.current = performance.now();
@@ -1788,20 +1818,20 @@ function MeasureView(props) {
 
       {/* ピッチメーター: デジタルチューナー機の見た目(基準Hzの小表示・大きな音名・弧状の目盛りと針)を
           参考にしつつ、色はアンバー液晶ではなくアプリの配色(白背景・スレート/ブルー)に置き換えている。 */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px 10px", marginBottom: 10, position: "relative" }}>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 6px 10px", marginBottom: 10, position: "relative" }}>
         <button
           onClick={() => setOpenPicker("tuning")}
           className="sans"
-          style={{ position: "absolute", top: 10, left: 10, fontSize: 9, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 6 }}
+          style={{ position: "absolute", top: 8, left: 8, fontSize: 11, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 6 }}
         >
-          基準 <span style={{ color: "#64748B", fontWeight: 600 }}>{tuningHz}Hz</span>
+          基準 <span style={{ fontSize: 13, color: "#64748B", fontWeight: 700 }}>{tuningHz}Hz</span>
         </button>
         <button
           onClick={() => setOpenPicker("sax")}
           className="sans"
-          style={{ position: "absolute", top: 10, right: 10, fontSize: 9, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 6 }}
+          style={{ position: "absolute", top: 8, right: 8, fontSize: 13, color: "#64748B", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 6 }}
         >
-          <span style={{ color: "#64748B", fontWeight: 600 }}>{SAX_PRESETS[saxType]?.label}</span>
+          {SAX_PRESETS[saxType]?.label}
         </button>
         {openPicker === "tuning" && (
           <ScrollPicker
@@ -1874,7 +1904,7 @@ function MeasureView(props) {
 
       {/* 録音データグラフ(時間変化のタイムライン)。メーターと同様、録音開始有無に関わらず常時動かす。
           録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
-          常に更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。
+          常に更新され続ける直近10秒のローリングバッファ(liveFrames)を表示に使う。
           メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
       {(() => {
         const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
@@ -1915,13 +1945,15 @@ function MeasureView(props) {
             const idealHarmonic = currentNoteIdeal?.harmonicsProfile?.find((h) => h.n === n);
             const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
             return (
-              <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+              // minWidth:0 が無いとflexアイテムは中身(倍音Hz表示の桁数)より縮められず、
+              // 音が変わって桁数が変わるたびに行全体の幅がガタつく(flexboxの既定挙動への対策)
+              <div key={n} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                 <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
                   <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#2563EB" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
                   {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #94A3B8" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
                 </div>
                 <div className="sans" style={{ fontSize: 9, color: "#64748B", marginTop: 4 }}>{n}倍</div>
-                <div className="sans" style={{ fontSize: 8, color: "#94A3B8" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
+                <div className="sans" style={{ fontSize: 8, color: "#94A3B8", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
               </div>
             );
           })}
@@ -1931,7 +1963,9 @@ function MeasureView(props) {
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #94A3B8", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
         </div>
         {selectedIdeal && (
-          <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 6 }}>
+          // 文言は音によって長さが変わるため、高さを固定して音が切り替わるたびに
+          // 下のカード群がガタつかないようにする(2行分を確保)
+          <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 6, minHeight: 24, lineHeight: 1.4 }}>
             {matchedFingering
               ? currentNoteIdeal
                 ? `記音${matchedFingering.writtenLabel}の理想値と比較中`
@@ -1948,34 +1982,21 @@ function MeasureView(props) {
         <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
       </div>
 
-      {/* サックスプリセット + 設定 */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>サックス種別</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {Object.entries(SAX_PRESETS).map(([key, p]) => (
-            <button key={key} onClick={() => setSaxType(key)} className="sans" style={{ flex: 1, padding: "9px 4px", borderRadius: 8, border: saxType === key ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: saxType === key ? "#EFF6FF" : "transparent", color: saxType === key ? "#2563EB" : "#64748B", cursor: "pointer", fontSize: 12, fontWeight: saxType === key ? 600 : 400 }}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* 基準ピッチはメーター上部のタップ→スクロール選択に統合したため、ここには置かない */}
-
-        {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う) */}
-        {idealProfiles.length > 0 && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
-            <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 6 }}>理想値プロファイル</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {idealProfiles.map((p) => (
-                <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: selectedIdealId === p.id ? "#EFF6FF" : "transparent" }}>
-                  <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#2563EB" : "#0F172A" }}>{p.name}<span style={{ fontSize: 9, color: "#64748B", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
-                  <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#64748B", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
-                </div>
-              ))}
-            </div>
+      {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う)。
+          サックス種別・基準ピッチはメーターのタップ→スクロール選択に統合済みのため、ここには置かない。 */}
+      {idealProfiles.length > 0 && (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px" }}>
+          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 6 }}>理想値プロファイル</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {idealProfiles.map((p) => (
+              <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: selectedIdealId === p.id ? "#EFF6FF" : "transparent" }}>
+                <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#2563EB" : "#0F172A" }}>{p.name}<span style={{ fontSize: 9, color: "#64748B", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
+                <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#64748B", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2526,35 +2547,61 @@ function ReedRegisterView(props) {
   };
 
   // 削除は誤タップが多かったため、行ごとの削除ボタンをやめてチェックボックスによる複数選択削除にする。
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
+  // 2種類の削除操作を分けている: 「登録済みリード」列の削除ボタンは箱ごとまとめて選んで削除、
+  // 各箱の銘柄列の削除ボタンはその箱の中から個体を選んで削除。同時には片方しか使えない。
+  const [boxSelectionMode, setBoxSelectionMode] = useState(false);
+  const [selectedBoxesForDelete, setSelectedBoxesForDelete] = useState(() => new Set());
+  const [memberSelectGroupKey, setMemberSelectGroupKey] = useState(null); // 個体選択削除中の箱のkey(nullなら非選択中)
+  const [selectedMembersForDelete, setSelectedMembersForDelete] = useState(() => new Set());
 
-  const toggleReedSelected = (id) => {
-    setSelectedForDelete((prev) => {
+  const startBoxSelectionMode = () => {
+    setMemberSelectGroupKey(null);
+    setSelectedMembersForDelete(new Set());
+    setBoxSelectionMode(true);
+  };
+  const toggleBoxSelected = (key) => {
+    setSelectedBoxesForDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const exitBoxSelectionMode = () => {
+    setBoxSelectionMode(false);
+    setSelectedBoxesForDelete(new Set());
+  };
+  const confirmBoxBatchDelete = () => {
+    if (selectedBoxesForDelete.size === 0) return;
+    const targetGroups = reedGroups.filter((g) => selectedBoxesForDelete.has(g.key));
+    const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
+    if (!window.confirm(`選択した${targetGroups.length}箱（${ids.length}枚）を削除しますか？(元に戻せません)`)) return;
+    deleteReeds(ids);
+    exitBoxSelectionMode();
+  };
+
+  const startMemberSelect = (g) => {
+    setBoxSelectionMode(false);
+    setSelectedBoxesForDelete(new Set());
+    setMemberSelectGroupKey(g.key);
+    setSelectedMembersForDelete(new Set());
+    setExpandedGroupKey(g.key); // 選べるよう箱を開く
+  };
+  const toggleMemberSelected = (id) => {
+    setSelectedMembersForDelete((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
-
-  const exitSelectionMode = () => {
-    setSelectionMode(false);
-    setSelectedForDelete(new Set());
+  const exitMemberSelect = () => {
+    setMemberSelectGroupKey(null);
+    setSelectedMembersForDelete(new Set());
   };
-
-  const confirmBatchDelete = () => {
-    if (selectedForDelete.size === 0) return;
-    if (!window.confirm(`選択した${selectedForDelete.size}枚のリードを削除しますか？(元に戻せません)`)) return;
-    deleteReeds([...selectedForDelete]);
-    exitSelectionMode();
-  };
-
-  // 箱ごと丸ごと削除(個体の編集・評価・メモはタップ後の詳細画面に移したため、
-  // 一覧側の操作は「箱を開く/閉じる」と「箱ごと削除」のみに絞っている)
-  const deleteReedGroup = (g) => {
-    if (!window.confirm(`${g.brand} ${g.strength}（${g.members.length}枚）を箱ごと削除しますか？(元に戻せません)`)) return;
-    deleteReeds(g.members.map((m) => m.id));
-    if (expandedGroupKey === g.key) setExpandedGroupKey(null);
+  const confirmMemberBatchDelete = () => {
+    if (selectedMembersForDelete.size === 0) return;
+    if (!window.confirm(`選択した${selectedMembersForDelete.size}枚を削除しますか？(元に戻せません)`)) return;
+    deleteReeds([...selectedMembersForDelete]);
+    exitMemberSelect();
   };
 
   const goToMeasure = (id) => {
@@ -2645,27 +2692,27 @@ function ReedRegisterView(props) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 700 }}>登録済みリード（{reeds.length}）</div>
           {reeds.length > 0 && (
-            selectionMode ? (
+            boxSelectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
                 <button
-                  onClick={exitSelectionMode}
+                  onClick={exitBoxSelectionMode}
                   className="sans"
                   style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
                 >
                   キャンセル
                 </button>
                 <button
-                  onClick={confirmBatchDelete}
-                  disabled={selectedForDelete.size === 0}
+                  onClick={confirmBoxBatchDelete}
+                  disabled={selectedBoxesForDelete.size === 0}
                   className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 6, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E2E8F0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                  style={{ padding: "7px 12px", borderRadius: 6, border: "none", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E2E8F0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
                 >
-                  {selectedForDelete.size > 0 ? `${selectedForDelete.size}枚を削除` : "削除"}
+                  {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
                 </button>
               </div>
             ) : (
               <button
-                onClick={() => setSelectionMode(true)}
+                onClick={startBoxSelectionMode}
                 className="sans"
                 style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
               >
@@ -2680,51 +2727,91 @@ function ReedRegisterView(props) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {reedGroups.map((g) => {
               const isExpanded = expandedGroupKey === g.key;
+              const boxChecked = selectedBoxesForDelete.has(g.key);
+              const isMemberSelecting = memberSelectGroupKey === g.key;
               return (
                 <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EFF6FF" : "#FFFFFF" }}>
-                    <button
-                      onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
-                      className="sans"
-                      style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-                    >
-                      <span style={{ fontSize: 12 }}>
-                        <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
-                        <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
-                        <span style={{ color: "#94A3B8", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
-                      </span>
-                      {isExpanded ? <ChevronUp size={14} color="#64748B" /> : <ChevronDown size={14} color="#64748B" />}
-                    </button>
-                    {!selectionMode && (
+                    {boxSelectionMode ? (
                       <button
-                        onClick={() => deleteReedGroup(g)}
-                        title="この箱を丸ごと削除"
-                        style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E2E8F0", color: "#94A3B8", cursor: "pointer" }}
+                        onClick={() => toggleBoxSelected(g.key)}
+                        className="sans"
+                        style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                       >
-                        <Trash2 size={14} />
+                        <input
+                          type="checkbox" checked={boxChecked} onChange={() => toggleBoxSelected(g.key)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ width: 18, height: 18, flexShrink: 0, cursor: "pointer" }}
+                        />
+                        <span style={{ fontSize: 12 }}>
+                          <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
+                          <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
+                          <span style={{ color: "#94A3B8", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                        </span>
                       </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
+                          className="sans"
+                          style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                        >
+                          <span style={{ fontSize: 12 }}>
+                            <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
+                            <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
+                            <span style={{ color: "#94A3B8", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                          </span>
+                          {isExpanded ? <ChevronUp size={14} color="#64748B" /> : <ChevronDown size={14} color="#64748B" />}
+                        </button>
+                        <button
+                          onClick={() => startMemberSelect(g)}
+                          title="この箱の中から選んで削除"
+                          style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E2E8F0", color: "#94A3B8", cursor: "pointer" }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
                     )}
                   </div>
-                  {isExpanded && (
+                  {isExpanded && !boxSelectionMode && (
                     <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
-                      {selectionMode ? (
-                        // 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する
-                        g.members.map((r, idx) => (
-                          <div
-                            key={r.id}
-                            onClick={() => toggleReedSelected(r.id)}
-                            style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
-                          >
-                            <input
-                              type="checkbox" checked={selectedForDelete.has(r.id)}
-                              onChange={() => toggleReedSelected(r.id)}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
-                            />
-                            <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
-                            <StarRating value={r.rating} onChange={() => {}} readOnly size={11} />
+                      {isMemberSelecting ? (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "8px 0" }}>
+                            <button
+                              onClick={exitMemberSelect}
+                              className="sans"
+                              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
+                            >
+                              キャンセル
+                            </button>
+                            <button
+                              onClick={confirmMemberBatchDelete}
+                              disabled={selectedMembersForDelete.size === 0}
+                              className="sans"
+                              style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: selectedMembersForDelete.size > 0 ? "#DC2626" : "#E2E8F0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedMembersForDelete.size > 0 ? "pointer" : "default" }}
+                            >
+                              {selectedMembersForDelete.size > 0 ? `${selectedMembersForDelete.size}枚を削除` : "削除"}
+                            </button>
                           </div>
-                        ))
+                          {/* 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する */}
+                          {g.members.map((r, idx) => (
+                            <div
+                              key={r.id}
+                              onClick={() => toggleMemberSelected(r.id)}
+                              style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
+                            >
+                              <input
+                                type="checkbox" checked={selectedMembersForDelete.has(r.id)}
+                                onChange={() => toggleMemberSelected(r.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                              />
+                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <StarRating value={r.rating} onChange={() => {}} readOnly size={11} />
+                            </div>
+                          ))}
+                        </>
                       ) : (
                         <ReorderableReedRows
                           members={g.members}
@@ -2748,7 +2835,7 @@ function ReedRegisterView(props) {
                           )}
                         />
                       )}
-                      {g.members.length > 1 && !selectionMode && (
+                      {g.members.length > 1 && !isMemberSelecting && (
                         <div className="sans" style={{ fontSize: 9, color: "#94A3B8", padding: "6px 0 2px" }}>
                           長押ししてスライドすると並び替えられます・タップで詳細
                         </div>
@@ -2922,6 +3009,10 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
     setCompareReedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
+  // 他の画面(計測タブのリード選択・リード登録一覧)と同じく、箱をタップしてから個体一覧が
+  // 出るようにする(登録リードが増えるとボタンが一画面に収まらなくなるため)
+  const [expandedBoxKey, setExpandedBoxKey] = useState(null);
+
   const frameCountFor = (reedId) => sessions.filter((s) => s.reedId === reedId).reduce((n, s) => n + (s.frames?.length ?? 0), 0);
 
   const summaryFor = (reedId) => {
@@ -2941,27 +3032,42 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
   return (
     <div>
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>比較するリードを選択(複数可)。箱ごとにグループ化しています</div>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>比較するリードを選択(複数可)。箱をタップすると中の個体が選べます</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {groupReeds(reeds).map((g) => (
-            <div key={g.key}>
-              <div className="sans" style={{ fontSize: 9, color: "#64748B", marginBottom: 4 }}>
-                {g.brand} {g.strength}（{g.startDate}）
+          {groupReeds(reeds).map((g) => {
+            const isExpanded = expandedBoxKey === g.key;
+            const selectedInBox = g.members.filter((r) => compareReedIds.includes(r.id)).length;
+            return (
+              <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, overflow: "hidden" }}>
+                <button
+                  onClick={() => setExpandedBoxKey(isExpanded ? null : g.key)}
+                  className="sans"
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: isExpanded ? "#EFF6FF" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
+                >
+                  <span style={{ fontSize: 11 }}>
+                    <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
+                    <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
+                    <span style={{ color: "#94A3B8", fontSize: 9 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
+                  </span>
+                  {isExpanded ? <ChevronUp size={13} color="#64748B" /> : <ChevronDown size={13} color="#64748B" />}
+                </button>
+                {isExpanded && (
+                  <div style={{ padding: "8px 10px", borderTop: "1px solid #E2E8F0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {g.members.map((r, idx) => (
+                      <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
+                        padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                        border: compareReedIds.includes(r.id) ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                        background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
+                        color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
+                      }}>
+                        #{r.boxNumber ?? idx + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {g.members.map((r, idx) => (
-                  <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
-                    padding: "6px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-                    border: compareReedIds.includes(r.id) ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
-                    background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
-                    color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
-                  }}>
-                    #{r.boxNumber ?? idx + 1}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
