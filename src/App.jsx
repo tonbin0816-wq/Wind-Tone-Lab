@@ -22,6 +22,14 @@ function centsBetween(freqA, freqB) {
   return 1200 * Math.log2(freqA / freqB);
 }
 
+// 角度(0=真上、時計回りが正)をSVG円弧上の座標に変換する(音高メーターの目盛り・弧の描画に使用)
+function polarPoint(cx, cy, r, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
+}
+
+const PITCH_METER_TICKS = [-50, -25, 0, 25, 50];
+
 function speedOfSound(tempC) {
   return 331.3 + 0.606 * tempC;
 }
@@ -361,7 +369,13 @@ function groupReeds(reeds) {
     groups[key].members.push(r);
   }
   for (const g of Object.values(groups)) {
-    g.members.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    // 手動で並び替えられた(boxNumberを持つ)リードを優先し、未設定のものは登録順で後ろに続ける
+    g.members.sort((a, b) => {
+      const an = a.boxNumber ?? Infinity;
+      const bn = b.boxNumber ?? Infinity;
+      if (an !== bn) return an - bn;
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    });
   }
   return Object.values(groups).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
 }
@@ -579,8 +593,8 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
   const FFT_SIZE = 8192;
   const NUM_HARMONICS = 8;
   const SAMPLE_INTERVAL_MS = 100;
-  const NOTE_ONSET_DB = -45;
-  const NOTE_RELEASE_DB = -55;
+  const NOTE_ONSET_DB = -58; // 管楽器のピアニッシモ程度の弱い入力でも発音開始として拾えるよう低めに設定
+  const NOTE_RELEASE_DB = -68;
   const ATTACK_WINDOW_MS = 400;
 
   const frames = [];
@@ -846,7 +860,6 @@ export default function WindToneLabPhaseMode() {
   const [sessions, addSession, updateSessions, deleteSession] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
   const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
   const [pendingLinkSessionId, setPendingLinkSessionId] = useState(null); // 事後紐付け対象のセッション
-  const [sessionMemo, setSessionMemo] = useState(""); // 録音前に入力する「何を試したか」の自由記述メモ
 
   // --- 奏者(演奏者)管理 ---
   // 「自分」は常に選べる固定選択肢。ユーザーが「名前を入力」で追加した名前をperformersに積み上げていく
@@ -871,8 +884,8 @@ export default function WindToneLabPhaseMode() {
   // 状態機械: silence → attack(立ち上がり計測中) → sustain → (音量低下で) silence
   const noteDetectorRef = useRef({ phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] });
   const [phraseNoteEvents, setPhraseNoteEvents] = useState([]);
-  const NOTE_ONSET_DB = -45;   // 無音→発音の閾値
-  const NOTE_RELEASE_DB = -55; // 発音→無音の閾値(ヒステリシスでバタつきを防ぐ)
+  const NOTE_ONSET_DB = -58;   // 無音→発音の閾値(管楽器のピアニッシモ程度から拾えるよう低めに設定)
+  const NOTE_RELEASE_DB = -68; // 発音→無音の閾値(ヒステリシスでバタつきを防ぐ)
   const ATTACK_WINDOW_MS = 400; // アタック確定までの観測窓
   const SAMPLE_INTERVAL_MS = 100;
 
@@ -915,7 +928,7 @@ export default function WindToneLabPhaseMode() {
 
   // 録音中に蓄積したフレームがあればセッションとして保存する(企画書v5 10.3節)。
   // reedIdは選択されていればそのまま紐付け、未選択ならnull(後で事後紐付け可能)。
-  // memoは「何を変えて試したか」を残す自由記述(例: マウスピース変更・アンブシュア調整など)。次回録音に向けてリセットする。
+  // memo(「何を変えて試したか」の自由記述)は計測タブでは入力せず、分析タブのセッション詳細から後付けで編集する。
   const finalizeRecording = useCallback(() => {
     if (phraseFramesRef.current.length > 0) {
       const session = {
@@ -924,16 +937,15 @@ export default function WindToneLabPhaseMode() {
         saxType,
         reedId: selectedReedId,
         linkedAt: selectedReedId ? "eager" : null,
-        memo: sessionMemo.trim() || null,
+        memo: null,
         performer: selectedPerformer,
         source: "live",
         frames: phraseFramesRef.current,
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
       addSession(session);
-      setSessionMemo("");
     }
-  }, [saxType, selectedReedId, sessionMemo, selectedPerformer, addSession]);
+  }, [saxType, selectedReedId, selectedPerformer, addSession]);
 
   // マイクを止める(計測タブを離れたときに呼ぶ)。録音中に離脱した場合の保険としてここでも保存する。
   const stopListening = useCallback(() => {
@@ -1192,12 +1204,26 @@ export default function WindToneLabPhaseMode() {
 
   // 計測タブに滞在中は自動でマイクを起動し、離れたら自動で止める(常時ライブ表示)。
   useEffect(() => {
-    if (topTab === "measure") {
+    if (topTab === "measure" && !document.hidden) {
       startListeningRef.current();
     } else {
       stopListeningRef.current();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topTab]);
+
+  // 画面が非表示(タブ切替・バックグラウンド化・画面ロック等)になった間はマイクを止め、
+  // 表示に戻った時点で計測タブに滞在していれば再開する(裏で聞き続けないようにする)。
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopListeningRef.current();
+      } else if (topTab === "measure") {
+        startListeningRef.current();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [topTab]);
 
   useEffect(() => () => stopListeningRef.current(), []);
@@ -1254,7 +1280,7 @@ export default function WindToneLabPhaseMode() {
           saxType,
           reedId: selectedReedId,
           linkedAt: selectedReedId ? "eager" : null,
-          memo: sessionMemo.trim() || null,
+          memo: null,
           performer: selectedPerformer,
           source: "upload",
           sourceFileName: file.name,
@@ -1262,7 +1288,6 @@ export default function WindToneLabPhaseMode() {
           noteEvents,
         };
         addSession(session);
-        setSessionMemo("");
         setLastUploadedSession(session);
       } else {
         setErrorMsg("アップロードした音声から有効な音が検出できませんでした");
@@ -1273,7 +1298,7 @@ export default function WindToneLabPhaseMode() {
       setIsAnalyzingUpload(false);
       setUploadProgress(0);
     }
-  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, sessionMemo, selectedPerformer, addSession, isAnalyzingUpload]);
+  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload]);
 
   const deleteIdealProfile = (id) => {
     setIdealProfiles((prev) => prev.filter((p) => p.id !== id));
@@ -1298,7 +1323,7 @@ export default function WindToneLabPhaseMode() {
       <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
           <Wind size={17} color="#2563EB" strokeWidth={2} />
-          Wind Tone Lab
+          Ficus
         </h1>
       </div>
 
@@ -1376,7 +1401,6 @@ export default function WindToneLabPhaseMode() {
           deleteIdealProfile={deleteIdealProfile}
           NUM_HARMONICS={NUM_HARMONICS}
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
-          sessionMemo={sessionMemo} setSessionMemo={setSessionMemo}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents}
@@ -1428,7 +1452,7 @@ function MeasureView(props) {
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
-    reeds, selectedReedId, setSelectedReedId, sessionMemo, setSessionMemo,
+    reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     phraseFrames, phraseNoteEvents, promoteSessionToIdeal, sessions,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
@@ -1455,17 +1479,6 @@ function MeasureView(props) {
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           disabled={isRecording}
-        />
-      </div>
-
-      {/* 何を変えて試したかのメモ(自由記述)。何を変えたら何が変わったかを後から追いやすくする */}
-      <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
-        <input
-          type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
-          value={sessionMemo} onChange={(e) => setSessionMemo(e.target.value)} disabled={isRecording}
-          className="sans"
-          style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
         />
       </div>
 
@@ -1524,25 +1537,37 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音高 */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10, display: "flex", alignItems: "center", gap: 20 }}>
-        <div style={{ textAlign: "center", minWidth: 90 }}>
-          <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1, color: note ? "#0F172A" : "#64748B" }}>
+      {/* 音高(アナログメーター形式) */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "12px 16px", marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        {(() => {
+          const cx = 110, cy = 105, rOuter = 90, rInner = 76, rNeedle = 74;
+          const meterColor = note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#94A3B8";
+          const arcStart = polarPoint(cx, cy, rOuter, -45);
+          const arcEnd = polarPoint(cx, cy, rOuter, 45);
+          return (
+            <svg width="220" height="128" viewBox="0 0 220 128" style={{ overflow: "visible" }}>
+              <path d={`M ${arcStart.x} ${arcStart.y} A ${rOuter} ${rOuter} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="#E2E8F0" strokeWidth="3" strokeLinecap="round" />
+              {PITCH_METER_TICKS.map((c) => {
+                const angle = c * 0.9;
+                const p1 = polarPoint(cx, cy, rInner, angle);
+                const p2 = polarPoint(cx, cy, rOuter, angle);
+                return <line key={c} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={c === 0 ? "#2563EB" : "#CBD5E1"} strokeWidth={c === 0 ? 3 : 2} />;
+              })}
+              {/* 針は固定長の縦線を回転させる方式(x2/y2の直接アニメーションはSVG要素間の互換性が低いため、
+                  全ブラウザで確実にアニメーションするtransform:rotateを使う) */}
+              <g style={{ transform: `rotate(${needleRotation}deg)`, transformOrigin: `${cx}px ${cy}px`, transition: "transform 0.1s ease-out" }}>
+                <line x1={cx} y1={cy} x2={cx} y2={cy - rNeedle} stroke={meterColor} strokeWidth="3" strokeLinecap="round" />
+              </g>
+              <circle cx={cx} cy={cy} r="6" fill={meterColor} />
+            </svg>
+          );
+        })()}
+        <div style={{ textAlign: "center", marginTop: -8 }}>
+          <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1, color: note ? "#0F172A" : "#64748B" }}>
             {note ? note.name : "—"}<span style={{ fontSize: 16, color: "#64748B" }}>{note ? note.octave : ""}</span>
           </div>
-          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginTop: 2 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ position: "relative", height: 30 }}>
-            <svg width="100%" height="30" style={{ overflow: "visible" }}>
-              <line x1="0" y1="15" x2="100%" y2="15" stroke="#E2E8F0" strokeWidth="2" />
-              {[-50, -25, 0, 25, 50].map((c) => (
-                <line key={c} x1={`${50 + c}%`} y1="9" x2={`${50 + c}%`} y2="21" stroke={c === 0 ? "#2563EB" : "#CBD5E1"} strokeWidth="2" />
-              ))}
-            </svg>
-            <div style={{ position: "absolute", left: `calc(50% + ${needleRotation}%)`, top: 0, transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: `10px solid ${Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB"}`, transition: "left 0.1s ease-out" }} />
-          </div>
-          <div className="sans" style={{ fontSize: 10, color: note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#64748B", textAlign: "center" }}>
+          <div className="sans" style={{ fontSize: 10, color: "#64748B", marginTop: 4 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
+          <div className="sans" style={{ fontSize: 12, fontWeight: 600, color: note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#64748B", marginTop: 2 }}>
             {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
           </div>
         </div>
@@ -2020,6 +2045,153 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
   );
 }
 
+// 登録済みリードの並び替え(長押し+スライド)。
+// pointerdownから400ms・移動量8px以内を維持できたら長押し成立とみなしてドラッグを開始する
+// (成立前の移動は通常のスクロール等とみなしてキャンセルする)。
+// 長押し成立後のpointermove/up/cancelはwindowに直接addEventListenerして拾う。
+// ドラッグ中の並び替えで対象行自身がDOM上で移動するため、setPointerCaptureで対象要素に
+// 紐付ける方式だと(要素の移動を「切断」とみなされて)途中でcaptureが暗黙的に外れてしまう。
+// windowへの登録なら要素の位置が変わっても影響を受けない。
+// 長押しが成立しなかった場合(＝ただのタップ)はonRowClickを呼び、成立した場合は
+// 最終順序をonReorderで返す(呼び出し側がboxNumberとして1から振り直す)。
+function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
+  const [order, setOrder] = useState(() => members.map((m) => m.id));
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const longPressTimerRef = useRef(null);
+  const dragInfoRef = useRef(null);
+  const orderRef = useRef(order);
+
+  useEffect(() => { orderRef.current = order; }, [order]);
+  useEffect(() => { setOrder(members.map((m) => m.id)); }, [members]);
+
+  const membersById = new Map(members.map((m) => [m.id, m]));
+  const orderedMembers = order.map((id) => membersById.get(id)).filter(Boolean);
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  };
+
+  // ドラッグ中に(箱の折りたたみ等で)アンマウントされた場合にwindowリスナーが残らないようにする
+  useEffect(() => () => {
+    cancelLongPress();
+    const info = dragInfoRef.current;
+    if (info?.onMove) {
+      window.removeEventListener("pointermove", info.onMove);
+      window.removeEventListener("pointerup", info.onUp);
+      window.removeEventListener("pointercancel", info.onUp);
+    }
+  }, []);
+
+  const detachNativeListeners = () => {
+    const info = dragInfoRef.current;
+    if (info?.onMove) {
+      window.removeEventListener("pointermove", info.onMove);
+      window.removeEventListener("pointerup", info.onUp);
+      window.removeEventListener("pointercancel", info.onUp);
+    }
+  };
+
+  const finishDrag = (committed) => {
+    detachNativeListeners();
+    cancelLongPress();
+    dragInfoRef.current = null;
+    setDraggingId(null);
+    setDragOffsetY(0);
+    if (committed) onReorder(orderRef.current);
+  };
+
+  const handlePointerDown = (id, index) => (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const startY = e.clientY;
+    const target = e.currentTarget;
+    cancelLongPress();
+    dragInfoRef.current = { armed: false, startY, id, index };
+    longPressTimerRef.current = setTimeout(() => {
+      if (!dragInfoRef.current) return;
+      const rect = target.getBoundingClientRect();
+      // anchorY/anchorIndexは押下時点に固定し、以後は動かさない(移動量は常に押下位置からの
+      // 累積距離として計算する。moveのたびに基準点を更新すると1歩ごとの差分に矮小化されてしまう)。
+      const info = { armed: true, anchorY: startY, anchorIndex: index, rowHeight: rect.height, id };
+
+      const onMove = (ev) => {
+        ev.preventDefault();
+        const deltaY = ev.clientY - info.anchorY;
+        setDragOffsetY(deltaY);
+        const rowsMoved = Math.round(deltaY / info.rowHeight);
+        const targetIndex = Math.max(0, Math.min(orderRef.current.length - 1, info.anchorIndex + rowsMoved));
+        setOrder((prev) => {
+          const currentIndex = prev.indexOf(info.id);
+          if (currentIndex === -1 || currentIndex === targetIndex) return prev;
+          const next = [...prev];
+          const [moved] = next.splice(currentIndex, 1);
+          next.splice(targetIndex, 0, moved);
+          return next;
+        });
+      };
+      const onUp = () => finishDrag(true);
+
+      info.onMove = onMove;
+      info.onUp = onUp;
+      dragInfoRef.current = info;
+      setDraggingId(id);
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }, 400);
+  };
+
+  // 長押し成立前(まだネイティブリスナーを付けていない間)だけ使う。大きく動いたら
+  // スクロール等の通常操作とみなしてキャンセルする。
+  const handlePointerMove = (e) => {
+    const info = dragInfoRef.current;
+    if (!info || info.armed) return;
+    if (Math.abs(e.clientY - info.startY) > 8) { cancelLongPress(); dragInfoRef.current = null; }
+  };
+
+  // 長押しが成立せずに指が離れた場合(＝ただのタップ)のみここで処理する。
+  // 成立した場合はネイティブのonUpがfinishDrag(true)を呼ぶのでここでは何もしない。
+  const handlePointerUp = (id) => () => {
+    const info = dragInfoRef.current;
+    if (info?.armed) return;
+    cancelLongPress();
+    dragInfoRef.current = null;
+    onRowClick(id);
+  };
+
+  const handlePointerCancel = () => {
+    const info = dragInfoRef.current;
+    if (info?.armed) return;
+    cancelLongPress();
+    dragInfoRef.current = null;
+  };
+
+  return orderedMembers.map((r, idx) => {
+    const isDragging = draggingId === r.id;
+    return (
+      <div
+        key={r.id}
+        onPointerDown={handlePointerDown(r.id, idx)}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp(r.id)}
+        onPointerCancel={handlePointerCancel}
+        style={{
+          position: "relative",
+          zIndex: isDragging ? 2 : 1,
+          transform: isDragging ? `translateY(${dragOffsetY}px)` : "none",
+          boxShadow: isDragging ? "0 6px 14px rgba(15,23,42,0.18)" : "none",
+          background: isDragging ? "#EFF6FF" : "transparent",
+          borderRadius: isDragging ? 6 : 0,
+          touchAction: "pan-y",
+          cursor: "pointer",
+        }}
+      >
+        {renderRow(r, idx)}
+      </div>
+    );
+  });
+}
+
 function MetricCard({ label, value, sub, accentColor }) {
   return (
     <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E2E8F0"}`, borderRadius: 8, padding: "8px 10px" }}>
@@ -2109,6 +2281,12 @@ function ReedRegisterView(props) {
   const goToMeasure = (id) => {
     setSelectedReedId(id);
     setTopTab("measure");
+  };
+
+  // 長押し+スライドでの並び替え確定時、新しい順序をboxNumber(1始まり)として全メンバーに振り直す
+  const reorderGroupMembers = (newOrderIds) => {
+    const numberById = new Map(newOrderIds.map((id, i) => [id, i + 1]));
+    setReeds((prev) => prev.map((r) => (numberById.has(r.id) ? { ...r, boxNumber: numberById.get(r.id) } : r)));
   };
 
   const linkSession = (sessionId, reedId) => {
@@ -2213,8 +2391,17 @@ function ReedRegisterView(props) {
                   </button>
                   {isExpanded && (
                     <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
-                      {g.members.map((r, idx) => {
-                        if (editingReedId === r.id) {
+                      {editingReedId && g.members.some((m) => m.id === editingReedId) ? (
+                        // 編集中は並び替え操作と競合しないよう、ドラッグなしの通常表示にする
+                        g.members.map((r, idx) => {
+                          if (editingReedId !== r.id) {
+                            return (
+                              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                                <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                              </div>
+                            );
+                          }
                           return (
                             <div
                               key={r.id}
@@ -2252,29 +2439,49 @@ function ReedRegisterView(props) {
                               </button>
                             </div>
                           );
-                        }
-                        return (
-                          <div
-                            key={r.id}
-                            onClick={() => setEvaluatingReedId(r.id)}
-                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
-                          >
-                            <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
-                            <span onClick={(e) => e.stopPropagation()}>
-                              <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
-                            </span>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
-                              className="sans"
-                              style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
-                            >
-                              測定へ
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); startEditReed(r); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Pencil size={12} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}><Trash2 size={12} /></button>
-                          </div>
-                        );
-                      })}
+                        })
+                      ) : (
+                        <ReorderableReedRows
+                          members={g.members}
+                          onReorder={reorderGroupMembers}
+                          onRowClick={(id) => setEvaluatingReedId(id)}
+                          renderRow={(r, idx) => (
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{idx + 1}</span>
+                              <span onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                              </span>
+                              <button
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
+                                className="sans"
+                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
+                              >
+                                測定へ
+                              </button>
+                              <button
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); startEditReed(r); }}
+                                style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }}
+                                style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          )}
+                        />
+                      )}
+                      {g.members.length > 1 && !editingReedId && (
+                        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", padding: "6px 0 2px" }}>
+                          長押ししてスライドすると並び替えられます
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2836,9 +3043,48 @@ function buildPivot(framesWithContext, reeds, rowAxis, colAxis, metricKey) {
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
+// 3ヶ月/6ヶ月/1年は「直近Nヶ月」のローリング期間。1年より前のデータは1年単位の
+// 期間(2年目=1〜2年前、3年目=2〜3年前…)で追加抽出できるようにする。
+const MY_DATA_BASE_RANGES = [
+  { key: "3m", label: "3ヶ月" },
+  { key: "6m", label: "6ヶ月" },
+  { key: "1y", label: "1年" },
+];
+
+function getMyDataRangeBounds(rangeKey, now) {
+  if (rangeKey === "3m") { const d = new Date(now); d.setMonth(d.getMonth() - 3); return { start: d, end: null }; }
+  if (rangeKey === "6m") { const d = new Date(now); d.setMonth(d.getMonth() - 6); return { start: d, end: null }; }
+  if (rangeKey === "1y") { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return { start: d, end: null }; }
+  const m = /^year(\d+)$/.exec(rangeKey);
+  if (m) {
+    const n = Number(m[1]);
+    const start = new Date(now); start.setFullYear(start.getFullYear() - n);
+    const end = new Date(now); end.setFullYear(end.getFullYear() - (n - 1));
+    return { start, end };
+  }
+  return { start: null, end: null };
+}
+
 function MyDataSection({ sessions }) {
-  const mySessions = sessions
-    .filter((s) => s.performer === "自分")
+  const allMySessions = sessions.filter((s) => s.performer === "自分");
+  const [range, setRange] = useState("1y");
+
+  const now = new Date();
+  const oldestMs = allMySessions.length ? Math.min(...allMySessions.map((s) => new Date(s.recordedAt).getTime())) : null;
+  const yearsOfData = oldestMs ? Math.max(1, Math.ceil((now - oldestMs) / (365.25 * 24 * 3600 * 1000))) : 1;
+  const rangeOptions = [
+    ...MY_DATA_BASE_RANGES,
+    ...Array.from({ length: Math.max(0, yearsOfData - 1) }, (_, i) => ({ key: `year${i + 2}`, label: `${i + 2}年目` })),
+  ];
+
+  const { start, end } = getMyDataRangeBounds(range, now);
+  const mySessions = allMySessions
+    .filter((s) => {
+      const t = new Date(s.recordedAt);
+      if (start && t < start) return false;
+      if (end && t >= end) return false;
+      return true;
+    })
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
   const points = mySessions.map((s) => {
@@ -2848,12 +3094,17 @@ function MyDataSection({ sessions }) {
 
   return (
     <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>My Data</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600 }}>My Data</div>
+        <select value={range} onChange={(e) => setRange(e.target.value)}>
+          {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
+        </select>
+      </div>
       <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>
         奏者が「自分」のセッション（{points.length}件）の推移
       </div>
       {points.length === 0 ? (
-        <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>「自分」のセッションがまだありません</div>
+        <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>この期間の「自分」のセッションはありません</div>
       ) : (
         REED_COMPARE_METRICS.map((m) => (
           <MetricLineChart key={m.key} metricDef={m} points={points} />
@@ -3075,6 +3326,16 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfi
     updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, reedId: reedId || null, linkedAt: reedId ? "retroactive" : null } : s)));
   };
 
+  // メモは計測タブでは入力せず、ここで後から追記・修正する。打鍵毎の書き込みを避けるため
+  // ローカルstateで編集し、フォーカスが外れた時にまとめてセッションへ反映する。
+  const [memoDraft, setMemoDraft] = useState(session.memo || "");
+  useEffect(() => { setMemoDraft(session.memo || ""); }, [session.id, session.memo]);
+  const commitMemo = () => {
+    const trimmed = memoDraft.trim();
+    if (trimmed === (session.memo || "")) return;
+    updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, memo: trimmed || null } : s)));
+  };
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <button
@@ -3104,7 +3365,15 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfi
           </span>
           <span>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
           {session.source === "upload" && <span>アップロード: {session.sourceFileName}</span>}
-          {session.memo && <span style={{ color: "#2563EB" }}>「{session.memo}」</span>}
+        </div>
+        <div className="sans" style={{ fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "#64748B", flexShrink: 0 }}>メモ:</span>
+          <input
+            type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
+            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+            className="sans"
+            style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
+          />
         </div>
         <div style={{ marginTop: 10 }}>
           <SetAsIdealButton frames={frames} saxType={session.saxType} onSave={promoteSessionToIdeal} />
