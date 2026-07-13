@@ -567,12 +567,13 @@ function useSessionsStore() {
     });
   }, []);
 
-  const deleteSession = useCallback((id) => {
-    setSessionsState((prev) => prev.filter((s) => s.id !== id));
-    idbDeleteSessions([id]);
+  const deleteSessions = useCallback((ids) => {
+    const idSet = new Set(ids);
+    setSessionsState((prev) => prev.filter((s) => !idSet.has(s.id)));
+    idbDeleteSessions(ids);
   }, []);
 
-  return [sessions, addSession, updateSessions, deleteSession];
+  return [sessions, addSession, updateSessions, deleteSessions];
 }
 
 // ============================================================
@@ -858,9 +859,8 @@ export default function WindToneLabPhaseMode() {
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
   const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
-  const [sessions, addSession, updateSessions, deleteSession] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
+  const [sessions, addSession, updateSessions, deleteSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
   const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
-  const [pendingLinkSessionId, setPendingLinkSessionId] = useState(null); // 事後紐付け対象のセッション
 
   // --- 奏者(演奏者)管理 ---
   // 「自分」は常に選べる固定選択肢。ユーザーが「名前を入力」で追加した名前をperformersに積み上げていく
@@ -1414,7 +1414,6 @@ export default function WindToneLabPhaseMode() {
         <ReedRegisterView
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} updateSessions={updateSessions}
-          pendingLinkSessionId={pendingLinkSessionId} setPendingLinkSessionId={setPendingLinkSessionId}
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
         />
       )}
@@ -1427,9 +1426,8 @@ export default function WindToneLabPhaseMode() {
         <AnalysisLabView
           sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
           promoteSessionToIdeal={promoteSessionToIdeal}
-          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           NUM_HARMONICS={NUM_HARMONICS}
-          updateSessions={updateSessions} deleteSession={deleteSession}
+          updateSessions={updateSessions} deleteSessions={deleteSessions}
           performers={performers} setPerformers={setPerformers}
         />
       )}
@@ -1464,14 +1462,39 @@ function MeasureView(props) {
   const currentNoteIdeal = getNoteIdeal(selectedIdeal, matchedFingering?.semitoneIndex);
   const fileInputRef = useRef(null);
 
+  // リード選択は箱→個体の二段階にする(枚数が増えるとフラットな一覧では選びにくいため)。
+  const reedGroups = groupReeds(reeds || []);
+  const [selectedBoxKey, setSelectedBoxKey] = useState(() => (selectedReed ? reedGroupKey(selectedReed) : null));
+  // リードタブの「測定へ」等、外部からselectedReedIdが変わった場合は箱の選択も追従させる。
+  // ただし本画面で箱を選び直してreedIdをnullにクリアした場合は上書きしない。
+  useEffect(() => {
+    if (!selectedReedId) return;
+    const r = (reeds || []).find((x) => x.id === selectedReedId) || null;
+    const key = r ? reedGroupKey(r) : null;
+    if (key) setSelectedBoxKey((prev) => (prev === key ? prev : key));
+  }, [selectedReedId, reeds]);
+  const selectedBoxGroup = reedGroups.find((g) => g.key === selectedBoxKey) || null;
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 使用リード選択(企画書v5 10.3節: 事前選択) + 奏者選択 */}
+      {/* 使用リード選択(企画書v5 10.3節: 事前選択、箱→個体の二段階) + 奏者選択 */}
       <div className="sans" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ color: "#64748B" }}>リード:</span>
-        <select value={selectedReedId || ""} onChange={(e) => setSelectedReedId(e.target.value || null)} disabled={isRecording}>
-          <option value="">未選択(後で紐付け可能)</option>
-          {(reeds || []).map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+        <select
+          value={selectedBoxKey || ""}
+          onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
+          disabled={isRecording}
+        >
+          <option value="">箱を選択</option>
+          {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}（{g.startDate}・{g.members.length}枚）</option>))}
+        </select>
+        <select
+          value={selectedReedId || ""}
+          onChange={(e) => setSelectedReedId(e.target.value || null)}
+          disabled={isRecording || !selectedBoxGroup}
+        >
+          <option value="">{selectedBoxGroup ? "個体を選択" : "先に箱を選択"}</option>
+          {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
         </select>
         {selectedReed && <span style={{ color: "#2563EB", fontSize: 10 }}>選択中: {reedLabel(selectedReed, reeds)}</span>}
         {(!reeds || reeds.length === 0) && <span style={{ color: "#94A3B8", fontSize: 10 }}>「リード」タブでリードを登録できます</span>}
@@ -1545,8 +1568,10 @@ function MeasureView(props) {
           const meterColor = note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#2563EB") : "#94A3B8";
           const arcStart = polarPoint(cx, cy, rOuter, -45);
           const arcEnd = polarPoint(cx, cy, rOuter, 45);
+          // 横方向に引き伸ばして表示し、同じ角度の振れでも針のブレを大きく見せる
+          // (preserveAspectRatio="none"でviewBoxの内容を非等倍にストレッチする)
           return (
-            <svg width="220" height="128" viewBox="0 0 220 128" style={{ overflow: "visible" }}>
+            <svg width="100%" height="128" viewBox="0 0 220 128" preserveAspectRatio="none" style={{ overflow: "visible", display: "block" }}>
               <path d={`M ${arcStart.x} ${arcStart.y} A ${rOuter} ${rOuter} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="#E2E8F0" strokeWidth="3" strokeLinecap="round" />
               {PITCH_METER_TICKS.map((c) => {
                 const angle = c * 0.9;
@@ -1573,6 +1598,15 @@ function MeasureView(props) {
           </div>
         </div>
       </div>
+
+      {/* 録音データグラフ(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示する。
+          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
+      {phraseFrames.length > 0 && (
+        <PhraseTimeline
+          frames={phraseFrames} noteEvents={phraseNoteEvents} selectedIdeal={selectedIdeal}
+          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
+        />
+      )}
 
       {/* スペクトル */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10 }}>
@@ -1672,29 +1706,26 @@ function MeasureView(props) {
           </div>
         )}
       </div>
-
-      {/* 録音データグラフ(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示する */}
-      {phraseFrames.length > 0 && (
-        <PhraseTimeline
-          frames={phraseFrames} noteEvents={phraseNoteEvents} selectedIdeal={selectedIdeal}
-          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
-          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
-        />
-      )}
     </div>
   );
 }
 
 // フレーズのタイムライン+ドリルダウン表示。計測タブ(ライブ直後)とセッション詳細(履歴)の両方から使う共通コンポーネント。
-function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, sessions, ownSessionId }) {
-  const [timelineFormat, setTimelineFormat] = useState("line");
+// 理想値プロファイル自体の選択は計測タブの設定欄で行う前提のため、ここでは「基準」として
+// 理想値/お手本セッション/(音高のみ)理論値のどれと比較するかだけを選ぶ。
+function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sessions, ownSessionId }) {
   const [timelineMetric, setTimelineMetric] = useState("pitch");
-  const [matchBasis, setMatchBasis] = useState("theoretical");
+  const [referenceBasis, setReferenceBasis] = useState("theoretical"); // "theoretical"(音高のみ) | "ideal" | "session"
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
-  // 比較対象: 音ごとの理想値プロファイル、または「お手本セッション」を選んで演奏全体を時間軸で重ねて比較する
-  const [compareMode, setCompareMode] = useState("ideal"); // "ideal" | "session"
   const [referenceSessionId, setReferenceSessionId] = useState(null);
   const timelineScrollRef = useRef(null);
+
+  // 音高以外の指標では理論値基準を選べないため、指標切替時に無効な組み合わせを補正する
+  useEffect(() => {
+    if (timelineMetric !== "pitch" && referenceBasis === "theoretical") {
+      setReferenceBasis("ideal");
+    }
+  }, [timelineMetric, referenceBasis]);
 
   // スライダーでフレームを選ぶたびに、選択位置が常に見えるようグラフを横スクロールさせる
   // (グラフ幅はframes.length*6pxでコンテナ幅を超えることが多いため)。
@@ -1730,7 +1761,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
 
   // 比較対象(理想値 or お手本セッションの対応フレーム)を、noteIdealと同じ形({pitchHz, centroidHz, hnrDb, harmonicsProfile})に揃えて返す
   const getComparisonTarget = (frame) => {
-    if (compareMode === "session") {
+    if (referenceBasis === "session") {
       if (!referenceLookup) return null;
       const refFrame = referenceLookup(frame.t);
       if (!refFrame) return null;
@@ -1751,6 +1782,18 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
     { key: "hnr", label: "HNR" },
   ];
 
+  // 音高だけ理論値(運指テーブル)との比較も選べる。それ以外の指標は理想値/お手本セッションのみ。
+  const referenceOptions = timelineMetric === "pitch"
+    ? [
+        { key: "theoretical", label: "理論値(運指テーブル)" },
+        { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
+        { key: "session", label: "お手本セッション" },
+      ]
+    : [
+        { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
+        { key: "session", label: "お手本セッション" },
+      ];
+
   const getMetricValue = (frame) => {
     switch (timelineMetric) {
       case "pitch": return frame.pitchHz;
@@ -1765,7 +1808,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
   // これにより、あとから理想値やお手本の選択を変えても、各瞬間ごとに正しい基準と比較できる。
   // 理論値基準は録音時の値のまま使う。
   const getMatchScore = (frame, kind) => {
-    if (kind === "pitch" && matchBasis === "theoretical") {
+    if (kind === "pitch" && referenceBasis === "theoretical") {
       return frame.matchScore?.pitch?.theoretical ?? 0;
     }
     const target = getComparisonTarget(frame);
@@ -1775,7 +1818,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
       const idealHarmNorm = target.harmonicsProfile ? target.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
       return timbreMatchScore(harmNorm, idealHarmNorm, frame.spectralCentroidHz, target.centroidHz, frame.hnrDb, target.hnrDb);
     }
-    // kind === "pitch" && matchBasis === "ideal"
+    // kind === "pitch" && referenceBasis !== "theoretical"
     if (!frame.pitchHz || !target.pitchHz) return 0;
     return pitchMatchScore(centsBetween(frame.pitchHz, target.pitchHz));
   };
@@ -1788,59 +1831,39 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
 
   return (
     <>
-      {/* 比較対象の選択: 音ごとの理想値プロファイル、またはお手本セッション(自動アライメント比較) */}
-      <div className="sans" style={{ fontSize: 11, margin: "10px 0", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ color: "#64748B" }}>比較対象:</span>
-        <select value={compareMode} onChange={(e) => setCompareMode(e.target.value)}>
-          <option value="ideal">理想値プロファイル</option>
-          <option value="session">お手本セッション</option>
-        </select>
-        {compareMode === "ideal" && idealProfiles && idealProfiles.length > 0 && (
-          <select value={selectedIdealId || ""} onChange={(e) => setSelectedIdealId(e.target.value || null)}>
-            <option value="">未選択</option>
-            {idealProfiles.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-          </select>
-        )}
-        {compareMode === "session" && (
-          <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
-            <option value="">お手本セッションを選択</option>
-            {referenceCandidates.map((s) => (
-              <option key={s.id} value={s.id}>{new Date(s.recordedAt).toLocaleString("ja-JP")}{s.memo ? ` 「${s.memo}」` : ""}</option>
-            ))}
-          </select>
-        )}
-        {compareMode === "session" && referenceSession && (
-          <span style={{ color: "#94A3B8", fontSize: 9 }}>最初の発音タイミングを基準に自動で位置合わせして比較します</span>
-        )}
-      </div>
-      {/* 表示切り替え */}
+      {/* 表示切り替え・比較基準 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 14px", marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>表示:</span>
           <select value={timelineMetric} onChange={(e) => setTimelineMetric(e.target.value)}>
             {metricOptions.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
           </select>
-          <select value={timelineFormat} onChange={(e) => setTimelineFormat(e.target.value)}>
-            <option value="line">折れ線</option>
-            <option value="heatmap">ヒートマップ</option>
-          </select>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>音高の基準:</span>
-          <select value={matchBasis} onChange={(e) => setMatchBasis(e.target.value)}>
-            <option value="theoretical">理論値(運指テーブル)</option>
-            <option value="ideal">{compareMode === "session" ? "お手本セッション" : `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}`}</option>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>基準:</span>
+          <select value={referenceBasis} onChange={(e) => setReferenceBasis(e.target.value)}>
+            {referenceOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
+          {referenceBasis === "session" && (
+            <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
+              <option value="">お手本セッションを選択</option>
+              {referenceCandidates.map((s) => (
+                <option key={s.id} value={s.id}>{new Date(s.recordedAt).toLocaleString("ja-JP")}{s.memo ? ` 「${s.memo}」` : ""}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
-      <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginBottom: 10 }}>
-        音高はピッチに絶対的な正解があるため理論値/理想値を選べます。音量・音色・重心・HNRは理想値(お手本)との比較のみです。
-      </div>
+      {referenceBasis === "session" && referenceSession && (
+        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginBottom: 10 }}>
+          最初の発音タイミングを基準に自動で位置合わせして比較します
+        </div>
+      )}
 
       {/* タイムライン */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>
-          タイムライン — ピッチ一致度で色分け（{matchBasis === "theoretical" ? "理論値基準" : "理想値基準"}）
+          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "理論値基準" : referenceBasis === "session" ? "お手本基準" : "理想値基準"}）
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
@@ -1849,22 +1872,17 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
         </div>
         <div ref={timelineScrollRef} style={{ overflowX: "auto" }}>
           <svg width={Math.max(600, frames.length * 6)} height="120" style={{ display: "block" }}>
-            {timelineFormat === "line" ? (
-              <polyline
-                fill="none" stroke="#2563EB" strokeWidth="1.5"
-                points={frames.map((f, i) => {
-                  const v = getMetricValue(f);
-                  const y = v !== null && v !== undefined && !isNaN(v) ? 100 - ((v - minV) / range) * 90 : 100;
-                  return `${i * 6},${y}`;
-                }).join(" ")}
-              />
-            ) : null}
+            <polyline
+              fill="none" stroke="#2563EB" strokeWidth="1.5"
+              points={frames.map((f, i) => {
+                const v = getMetricValue(f);
+                const y = v !== null && v !== undefined && !isNaN(v) ? 100 - ((v - minV) / range) * 90 : 100;
+                return `${i * 6},${y}`;
+              }).join(" ")}
+            />
             {frames.map((f, i) => {
               const score = getMatchScore(f, "pitch");
               const color = scoreToColor(score);
-              if (timelineFormat === "heatmap") {
-                return <rect key={i} x={i * 6} y={0} width={6} height={110} fill={color} opacity={0.8} />;
-              }
               return (
                 <rect key={i} x={i * 6} y={110} width={5} height={8} fill={color}
                   onClick={() => setSelectedFrameIdx(i)}
@@ -1898,34 +1916,12 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
 
           {(() => {
             const target = getComparisonTarget(selectedFrame);
-            const noTargetLabel = compareMode === "session" ? "対応するお手本の瞬間がありません" : "この音の理想値が未登録";
+            const noTargetLabel = referenceBasis === "session" ? "対応するお手本の瞬間がありません" : "この音の理想値が未登録";
             return (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                  <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
-                  <MetricCard label="音色一致度(比較対象基準)" value={target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel} accentColor={target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
-                </div>
-
-                {/* 倍音構成バー(ドリルダウン表示) */}
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, paddingTop: 10 }}>
-                  {Array.from({ length: NUM_HARMONICS }).map((_, idx) => {
-                    const n = idx + 1;
-                    const measured = selectedFrame.harmonics?.find((h) => h.n === n);
-                    const measuredHeight = measured ? measured.levelNorm * 100 : 0;
-                    const targetHarmonic = target?.harmonicsProfile?.find((h) => h.n === n);
-                    const targetHeight = targetHarmonic ? targetHarmonic.norm * 100 : 0;
-                    return (
-                      <div key={n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                        <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
-                          <div style={{ width: "38%", height: `${measuredHeight}%`, background: "#2563EB", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0 }} />
-                          {target && (<div style={{ width: "28%", height: `${targetHeight}%`, background: targetHarmonic ? "#94A3B8" : "transparent", borderRadius: "3px 3px 0 0", minHeight: targetHarmonic ? 3 : 0, opacity: 0.85 }} />)}
-                        </div>
-                        <div className="sans" style={{ fontSize: 8, color: "#64748B", marginTop: 3 }}>{n}倍</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
+                <MetricCard label="音色一致度(比較対象基準)" value={target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel} accentColor={target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
+              </div>
             );
           })()}
 
@@ -2210,7 +2206,7 @@ function MetricCard({ label, value, sub, accentColor }) {
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, updateSessions, pendingLinkSessionId, setPendingLinkSessionId, setTopTab, setSelectedReedId } = props;
+  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -2316,12 +2312,6 @@ function ReedRegisterView(props) {
     setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
-  const linkSession = (sessionId, reedId) => {
-    updateSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, reedId, linkedAt: "retroactive" } : s)));
-    setPendingLinkSessionId(null);
-  };
-
-  const unlinkedSessions = sessions.filter((s) => !s.reedId);
   const reedGroups = groupReeds(reeds);
   const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
   const [evaluatingReedId, setEvaluatingReedId] = useState(null); // タップした登録済みリードの評価詳細を表示
@@ -2560,27 +2550,6 @@ function ReedRegisterView(props) {
         )}
       </div>
 
-      {unlinkedSessions.length > 0 && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #D97706", borderRadius: 10, padding: "14px 16px" }}>
-          <div className="sans" style={{ fontSize: 11, color: "#D97706", fontWeight: 600, marginBottom: 10 }}>
-            未紐付けのセッション（{unlinkedSessions.length}）— 事後紐付け
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {unlinkedSessions.map((s) => (
-              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>
-                  {new Date(s.recordedAt).toLocaleString("ja-JP")} ・ {s.frames?.length ?? 0}フレーム
-                  {s.memo && <span style={{ color: "#2563EB", marginLeft: 6 }}>「{s.memo}」</span>}
-                </span>
-                <select onChange={(e) => { if (e.target.value) linkSession(s.id, e.target.value); }} defaultValue="">
-                  <option value="" disabled>リードを選択して紐付け</option>
-                  {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-                </select>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -3213,8 +3182,8 @@ function LatestSessionCard({ session, reeds }) {
 function AnalysisLabView(props) {
   const {
     sessions, reeds, selectedIdeal, promoteSessionToIdeal,
-    idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS,
-    updateSessions, deleteSession, performers, setPerformers,
+    NUM_HARMONICS,
+    updateSessions, deleteSessions, performers, setPerformers,
   } = props;
 
   const [pivotRow, setPivotRow] = useState("note");
@@ -3222,6 +3191,10 @@ function AnalysisLabView(props) {
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(10);
+  // 削除はリードタブと同様、行ごとのボタンではなくチェックボックスによる複数選択削除にする。
+  // (selectedSessionがある時の早期returnより前で呼ぶ必要があるため、ここでまとめて宣言する)
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
 
   // 全セッションのフレームを、リードID・録音日時つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
@@ -3238,7 +3211,6 @@ function AnalysisLabView(props) {
     return (
       <SessionDetailView
         session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
-        idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
         updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
         onBack={() => setSelectedSessionId(null)}
@@ -3250,9 +3222,24 @@ function AnalysisLabView(props) {
   const visibleSessions = sortedSessions.slice(0, visibleCount);
   const latestSession = sortedSessions[0] || null;
 
-  const handleDeleteSession = (e, id) => {
-    e.stopPropagation();
-    if (window.confirm("このセッションを削除しますか？(元に戻せません)")) deleteSession(id);
+  const toggleSessionSelected = (id) => {
+    setSelectedForDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedForDelete(new Set());
+  };
+
+  const confirmBatchDeleteSessions = () => {
+    if (selectedForDelete.size === 0) return;
+    if (!window.confirm(`選択した${selectedForDelete.size}件のセッションを削除しますか？(元に戻せません)`)) return;
+    deleteSessions([...selectedForDelete]);
+    exitSelectionMode();
   };
 
   return (
@@ -3265,8 +3252,37 @@ function AnalysisLabView(props) {
 
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
-        <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 10 }}>
-          セッション一覧（{sessions.length}）
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600 }}>セッション一覧（{sessions.length}）</div>
+          {sortedSessions.length > 0 && (
+            selectionMode ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={exitSelectionMode}
+                  className="sans"
+                  style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={confirmBatchDeleteSessions}
+                  disabled={selectedForDelete.size === 0}
+                  className="sans"
+                  style={{ padding: "7px 12px", borderRadius: 6, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E2E8F0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                >
+                  {selectedForDelete.size > 0 ? `${selectedForDelete.size}件を削除` : "削除"}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSelectionMode(true)}
+                className="sans"
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 6, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", fontSize: 11, cursor: "pointer" }}
+              >
+                <Trash2 size={13} /> 削除
+              </button>
+            )
+          )}
         </div>
         {sortedSessions.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>まだ記録がありません</div>
@@ -3278,15 +3294,22 @@ function AnalysisLabView(props) {
                 return (
                   <div
                     key={s.id}
-                    onClick={() => setSelectedSessionId(s.id)}
+                    onClick={() => (selectionMode ? toggleSessionSelected(s.id) : setSelectedSessionId(s.id))}
                     className="sans"
                     style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", borderBottom: "1px solid #F1F5F9", cursor: "pointer", fontSize: 11 }}
                   >
+                    {selectionMode && (
+                      <input
+                        type="checkbox" checked={selectedForDelete.has(s.id)}
+                        onChange={() => toggleSessionSelected(s.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                      />
+                    )}
                     <span style={{ color: "#0F172A", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
                     <span style={{ color: "#2563EB", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
                     <span style={{ color: "#64748B", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
                     {s.source === "upload" && <span style={{ color: "#94A3B8", fontSize: 9, flexShrink: 0 }}>📁</span>}
-                    <button onClick={(e) => handleDeleteSession(e, s.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}><Trash2 size={12} /></button>
                   </div>
                 );
               })}
@@ -3381,7 +3404,7 @@ function AnalysisLabView(props) {
 }
 
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, onBack }) {
   const frames = session.frames || [];
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
@@ -3453,7 +3476,6 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfi
       {frames.length > 0 && (
         <PhraseTimeline
           frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
-          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
         />
       )}
