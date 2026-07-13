@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload, Pencil } from "lucide-react";
+import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 
 // ============================================================
 // Music theory helpers
 // ============================================================
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -70,7 +70,7 @@ function conicalTubeHarmonics(effectiveLengthCm, bellRadiusCm, tempC, count) {
 // 移調量・基準ピッチでスケーリングした「正しい実音Hz」を求める。
 // 実測基音に最も近い運指をテーブルから検索し、そのHzを理論値の基準にする。
 // ============================================================
-const NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES_SHARP = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
 // 記音: Low B♭(サックス共通の最低音、MIDI 58相当)からの半音距離でテーブルを構築
 const LOW_BB_WRITTEN_MIDI = 58;
@@ -329,8 +329,12 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// 運指の半音インデックスから音域帯(low/mid/high)を判定する簡易分類(分析タブのクロス集計で使用)
-function registerBand(semitoneIndex, lowMax = 12, midMax = 24) {
+// 運指の半音インデックスから音域帯(low/mid/high)を判定する分類(分析タブのクロス集計で使用)。
+// 運指(記音)は全楽器共通のため閾値も楽器によらず1つで済む。境界は各楽器の実音での
+// 指定(例: アルト低音域=A4以下、中音域=A5〜B♭4、高音域=B♭5以上)を記音の半音
+// インデックスに変換したもので、移調量が異なっていても4楽器すべてで同じ値になる
+// (低音域<=20=記音F♯5、中音域21〜32=記音G5〜F♯6、高音域>=33=記音G6以上)。
+function registerBand(semitoneIndex, lowMax = 20, midMax = 32) {
   if (semitoneIndex === null || semitoneIndex === undefined) return "unknown";
   if (semitoneIndex <= lowMax) return "low";
   if (semitoneIndex <= midMax) return "mid";
@@ -969,6 +973,15 @@ export default function WindToneLabPhaseMode() {
   const lastSampleTimeRef = useRef(0);
   const phraseFramesRef = useRef([]); // stop()のクロージャから最新フレーム配列を参照するためのref
 
+  // --- 常時ライブのタイムライン用ローリングバッファ ---
+  // 録音(isRecording)開始前でも、マイク接続中(tick稼働中)は直近30秒分のフレームを
+  // 保持し続け、タイムラインを録音の有無によらず常時動かす。セッション保存には使わない
+  // 使い捨てのバッファなので、録音中のphraseFramesとは別に持つ(録音ロジックには触れない)。
+  const [liveFrames, setLiveFrames] = useState([]);
+  const liveStartTimeRef = useRef(null);
+  const lastLiveSampleTimeRef = useRef(0);
+  const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分
+
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
   // 状態機械: silence → attack(立ち上がり計測中) → sustain → (音量低下で) silence
@@ -1051,6 +1064,9 @@ export default function WindToneLabPhaseMode() {
   // マイクを繋ぎ直す必要はない。tick()は設定値をrefから読むため常に最新の値を反映できる)。
   const startListening = useCallback(async () => {
     setErrorMsg("");
+    liveStartTimeRef.current = null;
+    lastLiveSampleTimeRef.current = 0;
+    setLiveFrames([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -1223,6 +1239,45 @@ export default function WindToneLabPhaseMode() {
               return next;
             });
           }
+        } else {
+          // --- 録音していない間も、タイムラインを常時動かすための直近30秒ローリングバッファ ---
+          // (セッションには保存しない使い捨てのバッファ。録音中はここには積まず、
+          // phraseFramesの方をそのままタイムラインに渡す)
+          if (liveStartTimeRef.current === null) liveStartTimeRef.current = performance.now();
+          const liveElapsedMs = performance.now() - liveStartTimeRef.current;
+          if (liveElapsedMs - lastLiveSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
+            lastLiveSampleTimeRef.current = liveElapsedMs;
+            const selectedIdeal = selectedIdealRef.current;
+            const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
+            const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
+            const idealHarmNorm = noteIdeal?.harmonicsProfile
+              ? noteIdeal.harmonicsProfile.map((h) => h.norm)
+              : new Array(NUM_HARMONICS).fill(0);
+            const theoFreq = matchedFinger?.soundingFreqHz ?? null;
+            const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
+            const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
+            const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
+            const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
+            const timbreScoreIdeal = noteIdeal
+              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
+              : 0;
+            const liveFrame = {
+              t: liveElapsedMs / 1000,
+              pitchHz: f0,
+              pitchCents: pitchCentsVsTheory,
+              matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
+              semitoneIndex: matchedFinger?.semitoneIndex ?? null,
+              volumeDb: vDb,
+              spectralCentroidHz: centroid,
+              hnrDb: hnr,
+              harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
+              matchScore: {
+                pitch: { theoretical: pitchScoreTheory, ideal: pitchScoreIdeal },
+                timbre: { ideal: timbreScoreIdeal },
+              },
+            };
+            setLiveFrames((prev) => [...prev, liveFrame].slice(-LIVE_WINDOW_MAX_FRAMES));
+          }
         }
 
         // スペクトル表示バー
@@ -1246,14 +1301,10 @@ export default function WindToneLabPhaseMode() {
       tick();
       return true;
     } catch (err) {
+      // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
+      // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       console.error("getUserMedia failed:", err.name, err.message, err);
-      const hints = {
-        NotAllowedError: "マイクへのアクセスが拒否されています。ブラウザのアドレスバー付近のマイクアイコン、またはサイト設定から許可してください。",
-        NotFoundError: "マイクデバイスが見つかりません。PCにマイクが接続されているか確認してください。",
-        NotReadableError: "マイクが他のアプリで使用中の可能性があります。他のアプリ（Zoom等）を閉じて再試行してください。",
-        SecurityError: "この接続はマイクアクセスに必要なセキュア(HTTPS/localhost)条件を満たしていません。",
-      };
-      setErrorMsg(`マイクにアクセスできませんでした [${err.name}]: ${hints[err.name] || err.message}`);
+      setErrorMsg("マイクにアクセスできませんでした");
       setIsListening(false);
       return false;
     }
@@ -1469,8 +1520,14 @@ export default function WindToneLabPhaseMode() {
         </div>
       )}
 
-      {errorMsg && (
-        <div className="sans" style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+      {/* 計測タブでのみ発生しうるエラー(マイク接続・アップロード解析)のため、他タブでは表示しない。
+          タップで消せるほか、再度マイク接続を試みる操作(タブ再訪問等)でも自動的にクリアされる。 */}
+      {errorMsg && topTab === "measure" && (
+        <div
+          onClick={() => setErrorMsg("")}
+          className="sans"
+          style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 8, padding: "10px 14px", fontSize: 12, cursor: "pointer" }}
+        >
           {errorMsg}
         </div>
       )}
@@ -1495,7 +1552,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-          phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents}
+          phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
           uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
@@ -1526,6 +1583,73 @@ export default function WindToneLabPhaseMode() {
   );
 }
 
+// iOS風のスクロールスナップピッカー。中央行が現在値で、スクロールが止まった位置の
+// 値を確定してonChangeを呼ぶ(確定ボタンは持たず、選ぶ動作=決定とする)。
+// 背景タップ or Escで閉じる。optionsは表示順の配列、labelFnで見た目のラベルに変換する。
+function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
+  const ROW_H = 38;
+  const VISIBLE_ROWS = 3;
+  const containerRef = useRef(null);
+  const scrollTimerRef = useRef(null);
+
+  useEffect(() => {
+    const idx = Math.max(0, options.indexOf(value));
+    const el = containerRef.current;
+    if (el) el.scrollTop = idx * ROW_H;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handleScroll = () => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      const idx = Math.max(0, Math.min(options.length - 1, Math.round(el.scrollTop / ROW_H)));
+      el.scrollTo({ top: idx * ROW_H, behavior: "smooth" });
+      if (options[idx] !== value) onChange(options[idx]);
+    }, 130);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ position: "relative", width: 140, background: "#FFFFFF", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.18)", overflow: "hidden" }}
+      >
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="sans"
+          style={{ height: ROW_H * VISIBLE_ROWS, overflowY: "auto", scrollSnapType: "y mandatory", WebkitOverflowScrolling: "touch" }}
+        >
+          <div style={{ height: ROW_H }} />
+          {options.map((o) => (
+            <div
+              key={o}
+              style={{
+                height: ROW_H, display: "flex", alignItems: "center", justifyContent: "center",
+                scrollSnapAlign: "center", fontSize: 16,
+                fontWeight: o === value ? 700 : 400,
+                color: o === value ? "#2563EB" : "#0F172A",
+              }}
+            >
+              {labelFn ? labelFn(o) : o}
+            </div>
+          ))}
+          <div style={{ height: ROW_H }} />
+        </div>
+        {/* 中央行のハイライト帯(選択中の値がここに来る) */}
+        <div style={{ position: "absolute", top: ROW_H, left: 0, right: 0, height: ROW_H, borderTop: "1px solid #E2E8F0", borderBottom: "1px solid #E2E8F0", background: "rgba(37,99,235,0.05)", pointerEvents: "none" }} />
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // 計測ビュー(単音・フレーズ統合)
 //
@@ -1544,7 +1668,7 @@ function MeasureView(props) {
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    phraseFrames, phraseNoteEvents, promoteSessionToIdeal, sessions,
+    phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal, sessions,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
   } = props;
 
@@ -1565,6 +1689,12 @@ function MeasureView(props) {
     if (key) setSelectedBoxKey((prev) => (prev === key ? prev : key));
   }, [selectedReedId, reeds]);
   const selectedBoxGroup = reedGroups.find((g) => g.key === selectedBoxKey) || null;
+
+  // メーター内の基準ピッチ・楽器種別は、タップでスクロールピッカーを開いて選ぶ(下段の設定より
+  // 優先的に触る値のため、演奏姿勢のまま指の届く位置に置く)。どちらか一方だけ開く。
+  const [openPicker, setOpenPicker] = useState(null); // null | "tuning" | "sax"
+  const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
+  const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -1659,9 +1789,34 @@ function MeasureView(props) {
       {/* ピッチメーター: デジタルチューナー機の見た目(基準Hzの小表示・大きな音名・弧状の目盛りと針)を
           参考にしつつ、色はアンバー液晶ではなくアプリの配色(白背景・スレート/ブルー)に置き換えている。 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px 10px", marginBottom: 10, position: "relative" }}>
-        <div className="sans" style={{ position: "absolute", top: 14, left: 16, fontSize: 9, color: "#94A3B8" }}>
+        <button
+          onClick={() => setOpenPicker("tuning")}
+          className="sans"
+          style={{ position: "absolute", top: 10, left: 10, fontSize: 9, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 6 }}
+        >
           基準 <span style={{ color: "#64748B", fontWeight: 600 }}>{tuningHz}Hz</span>
-        </div>
+        </button>
+        <button
+          onClick={() => setOpenPicker("sax")}
+          className="sans"
+          style={{ position: "absolute", top: 10, right: 10, fontSize: 9, color: "#94A3B8", background: "none", border: "none", cursor: "pointer", padding: 6 }}
+        >
+          <span style={{ color: "#64748B", fontWeight: 600 }}>{SAX_PRESETS[saxType]?.label}</span>
+        </button>
+        {openPicker === "tuning" && (
+          <ScrollPicker
+            options={TUNING_HZ_OPTIONS} value={tuningHz}
+            onChange={setTuningHz} onClose={() => setOpenPicker(null)}
+            labelFn={(hz) => `${hz} Hz`}
+          />
+        )}
+        {openPicker === "sax" && (
+          <ScrollPicker
+            options={SAX_TYPE_OPTIONS} value={saxType}
+            onChange={setSaxType} onClose={() => setOpenPicker(null)}
+            labelFn={(key) => SAX_PRESETS[key]?.label}
+          />
+        )}
         {/* 音名とセント誤差は演奏中に最も見る情報のため、この画面のヒーローとして最大サイズで表示する */}
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 44, fontWeight: 700, lineHeight: 1, color: note ? "#0F172A" : "#64748B" }}>
@@ -1717,19 +1872,23 @@ function MeasureView(props) {
         <div className="sans" style={{ fontSize: 10, color: "#94A3B8", textAlign: "center", marginTop: -4 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
-      {/* 録音データグラフ(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示する。
-          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。データが無い間も枠だけ表示し、
-          この位置に来ること自体は録音状態に関わらず変わらないようにする。 */}
-      {phraseFrames.length > 0 ? (
-        <PhraseTimeline
-          frames={phraseFrames} noteEvents={phraseNoteEvents} selectedIdeal={selectedIdeal}
-          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
-        />
-      ) : (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px", marginBottom: 10, textAlign: "center" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#94A3B8" }}>録音を開始すると、ここに演奏の推移が表示されます</div>
-        </div>
-      )}
+      {/* 録音データグラフ(時間変化のタイムライン)。メーターと同様、録音開始有無に関わらず常時動かす。
+          録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
+          常に更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。
+          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
+      {(() => {
+        const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
+        return timelineFrames.length > 0 ? (
+          <PhraseTimeline
+            frames={timelineFrames} noteEvents={phraseFrames.length > 0 ? phraseNoteEvents : []} selectedIdeal={selectedIdeal}
+            NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
+          />
+        ) : (
+          <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px", marginBottom: 10, textAlign: "center" }}>
+            <div className="sans" style={{ fontSize: 10, color: "#94A3B8" }}>音を出すと、ここに演奏の推移が表示されます</div>
+          </div>
+        );
+      })()}
 
       {/* スペクトル: 音が出ているかの視覚フィードバック用。分析の主役ではないため控えめな高さにする */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "10px 16px", marginBottom: 10 }}>
@@ -1800,15 +1959,7 @@ function MeasureView(props) {
           ))}
         </div>
 
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>基準ピッチ</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {[440, 441, 442, 443, 444].map((hz) => (
-            <button key={hz} onClick={() => setTuningHz(hz)} className="sans" style={{ flex: 1, padding: "7px 4px", borderRadius: 8, border: tuningHz === hz ? "1.5px solid #2563EB" : "1px solid #E2E8F0", background: tuningHz === hz ? "#EFF6FF" : "transparent", color: tuningHz === hz ? "#2563EB" : "#64748B", cursor: "pointer", fontSize: 11, fontWeight: tuningHz === hz ? 600 : 400 }}>
-              {hz}
-            </button>
-          ))}
-        </div>
-        <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginTop: 4 }}>Hz（音名・セント誤差・理論値の基準になります）</div>
+        {/* 基準ピッチはメーター上部のタップ→スクロール選択に統合したため、ここには置かない */}
 
         {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う) */}
         {idealProfiles.length > 0 && (
@@ -2398,25 +2549,12 @@ function ReedRegisterView(props) {
     exitSelectionMode();
   };
 
-  // 登録済みリードの銘柄・番手・番号(箱内の通し番号)をその場で修正できるようにする。
-  // 番号は自動採番(登録順)を手動で上書きするためのフィールド(reedPositionが優先的に参照する)。
-  const [editingReedId, setEditingReedId] = useState(null);
-  const [editForm, setEditForm] = useState({ brand: "", strength: "", boxNumber: 1 });
-
-  const startEditReed = (r) => {
-    setEditingReedId(r.id);
-    setEditForm({ brand: r.brand, strength: r.strength, boxNumber: reedPosition(r, reeds) ?? 1 });
-  };
-
-  const saveEditReed = () => {
-    const brand = editForm.brand.trim();
-    if (!brand) return;
-    setReeds((prev) => prev.map((r) => (
-      r.id === editingReedId
-        ? { ...r, brand, strength: editForm.strength, boxNumber: Number(editForm.boxNumber) || null }
-        : r
-    )));
-    setEditingReedId(null);
+  // 箱ごと丸ごと削除(個体の編集・評価・メモはタップ後の詳細画面に移したため、
+  // 一覧側の操作は「箱を開く/閉じる」と「箱ごと削除」のみに絞っている)
+  const deleteReedGroup = (g) => {
+    if (!window.confirm(`${g.brand} ${g.strength}（${g.members.length}枚）を箱ごと削除しますか？(元に戻せません)`)) return;
+    deleteReeds(g.members.map((m) => m.id));
+    if (expandedGroupKey === g.key) setExpandedGroupKey(null);
   };
 
   const goToMeasure = (id) => {
@@ -2439,7 +2577,7 @@ function ReedRegisterView(props) {
   if (evaluatingReed) {
     return (
       <ReedEvaluationDetail
-        reed={evaluatingReed} reeds={reeds} sessions={sessions}
+        reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
         onBack={() => setEvaluatingReedId(null)}
       />
     );
@@ -2544,70 +2682,32 @@ function ReedRegisterView(props) {
               const isExpanded = expandedGroupKey === g.key;
               return (
                 <div key={g.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, overflow: "hidden" }}>
-                  <button
-                    onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
-                    className="sans"
-                    style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: isExpanded ? "#EFF6FF" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
-                  >
-                    <span style={{ fontSize: 12 }}>
-                      <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
-                      <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
-                      <span style={{ color: "#94A3B8", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
-                    </span>
-                    {isExpanded ? <ChevronUp size={14} color="#64748B" /> : <ChevronDown size={14} color="#64748B" />}
-                  </button>
+                  <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EFF6FF" : "#FFFFFF" }}>
+                    <button
+                      onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
+                      className="sans"
+                      style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                    >
+                      <span style={{ fontSize: 12 }}>
+                        <span style={{ color: "#0F172A", fontWeight: 700 }}>{g.brand}</span>{" "}
+                        <span style={{ color: "#2563EB", fontWeight: 700 }}>{g.strength}</span>{" "}
+                        <span style={{ color: "#94A3B8", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                      </span>
+                      {isExpanded ? <ChevronUp size={14} color="#64748B" /> : <ChevronDown size={14} color="#64748B" />}
+                    </button>
+                    {!selectionMode && (
+                      <button
+                        onClick={() => deleteReedGroup(g)}
+                        title="この箱を丸ごと削除"
+                        style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E2E8F0", color: "#94A3B8", cursor: "pointer" }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                   {isExpanded && (
                     <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
-                      {editingReedId && g.members.some((m) => m.id === editingReedId) ? (
-                        // 編集中は並び替え操作と競合しないよう、ドラッグなしの通常表示にする
-                        g.members.map((r, idx) => {
-                          if (editingReedId !== r.id) {
-                            return (
-                              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none" }}>
-                                <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
-                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
-                              </div>
-                            );
-                          }
-                          return (
-                            <div
-                              key={r.id}
-                              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", flexWrap: "wrap" }}
-                            >
-                              <input
-                                type="text" value={editForm.brand}
-                                onChange={(e) => setEditForm((f) => ({ ...f, brand: e.target.value }))}
-                                className="sans"
-                                style={{ width: 110, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 8px", color: "#0F172A", fontSize: 11 }}
-                              />
-                              <select value={editForm.strength} onChange={(e) => setEditForm((f) => ({ ...f, strength: e.target.value }))}>
-                                {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
-                              </select>
-                              <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>番号:</span>
-                              <input
-                                type="number" min={1} value={editForm.boxNumber}
-                                onChange={(e) => setEditForm((f) => ({ ...f, boxNumber: e.target.value }))}
-                                className="sans"
-                                style={{ width: 48, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 8px", color: "#0F172A", fontSize: 11 }}
-                              />
-                              <button
-                                onClick={saveEditReed}
-                                className="sans"
-                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "none", background: "#2563EB", color: "#F8FAFC", cursor: "pointer", fontWeight: 600 }}
-                              >
-                                保存
-                              </button>
-                              <button
-                                onClick={() => setEditingReedId(null)}
-                                className="sans"
-                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", cursor: "pointer" }}
-                              >
-                                キャンセル
-                              </button>
-                            </div>
-                          );
-                        })
-                      ) : selectionMode ? (
+                      {selectionMode ? (
                         // 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する
                         g.members.map((r, idx) => (
                           <div
@@ -2644,20 +2744,13 @@ function ReedRegisterView(props) {
                               >
                                 測定へ
                               </button>
-                              <button
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); startEditReed(r); }}
-                                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid #E2E8F0", borderRadius: 6, color: "#64748B", cursor: "pointer", padding: 9, flexShrink: 0 }}
-                              >
-                                <Pencil size={15} />
-                              </button>
                             </div>
                           )}
                         />
                       )}
-                      {g.members.length > 1 && !editingReedId && !selectionMode && (
+                      {g.members.length > 1 && !selectionMode && (
                         <div className="sans" style={{ fontSize: 9, color: "#94A3B8", padding: "6px 0 2px" }}>
-                          長押ししてスライドすると並び替えられます
+                          長押ししてスライドすると並び替えられます・タップで詳細
                         </div>
                       )}
                     </div>
@@ -2976,7 +3069,7 @@ function MetricLineChart({ metricDef, points }) {
 
 // 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
 // リード登録一覧からのタップ遷移として統合したもの。
-function ReedEvaluationDetail({ reed, reeds, sessions, onBack }) {
+function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
   const reedSessions = sessions
     .filter((s) => s.reedId === reed.id)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
@@ -2985,6 +3078,29 @@ function ReedEvaluationDetail({ reed, reeds, sessions, onBack }) {
     const frames = s.frames || [];
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
   });
+
+  const allFrames = reedSessions.flatMap((s) => s.frames || []);
+  const overall = computeFrameMetrics(allFrames);
+
+  const [view, setView] = useState("avg"); // "avg" | "trend"(My Dataと同じ形式)
+
+  // 名前(個体を識別するための自由記述のニックネーム)とメモは打鍵毎の書き込みを避けるため
+  // ローカルstateで編集し、フォーカスが外れた時にまとめてリードへ反映する(セッション詳細と同じパターン)。
+  const [nicknameDraft, setNicknameDraft] = useState(reed.nickname || "");
+  const [memoDraft, setMemoDraft] = useState(reed.memo || "");
+  useEffect(() => { setNicknameDraft(reed.nickname || ""); setMemoDraft(reed.memo || ""); }, [reed.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchReed = (patch) => setReeds((prev) => prev.map((r) => (r.id === reed.id ? { ...r, ...patch } : r)));
+  const commitNickname = () => {
+    const trimmed = nicknameDraft.trim();
+    if (trimmed === (reed.nickname || "")) return;
+    patchReed({ nickname: trimmed || null });
+  };
+  const commitMemo = () => {
+    const trimmed = memoDraft.trim();
+    if (trimmed === (reed.memo || "")) return;
+    patchReed({ memo: trimmed || null });
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -2996,15 +3112,76 @@ function ReedEvaluationDetail({ reed, reeds, sessions, onBack }) {
         <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
       </button>
 
-      {/* My Data(分析タブ)と同じ形式: 太字タイトル+グレーの説明文+指標ごとの推移グラフ */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px" }}>
-        <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 700, marginBottom: 4 }}>{reedLabel(reed, reeds)}</div>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <span>{points.length}セッションの推移 ・ 主観評価:</span>
-          <StarRating value={reed.rating} onChange={() => {}} readOnly size={12} />
+      {/* 個体の識別情報・主観評価・メモ。名前とメモはここでのみ編集する(一覧側の鉛筆編集は廃止) */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
+        <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#64748B", flexShrink: 0, width: 44 }}>名前:</span>
+            <input
+              type="text" placeholder="このリードの呼び名(任意)"
+              value={nicknameDraft} onChange={(e) => setNicknameDraft(e.target.value)} onBlur={commitNickname}
+              className="sans"
+              style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11 }}
+            />
+          </div>
+          <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#64748B", flexShrink: 0, width: 44 }}>評価:</span>
+            <StarRating value={reed.rating} onChange={(v) => patchReed({ rating: v })} size={16} />
+          </div>
+          <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <span style={{ color: "#64748B", flexShrink: 0, width: 44, marginTop: 6 }}>メモ:</span>
+            <textarea
+              placeholder="このリードの印象・特徴など(任意)"
+              value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+              rows={2}
+              className="sans"
+              style={{ flex: 1, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "6px 10px", color: "#0F172A", fontSize: 11, resize: "vertical", fontFamily: "inherit" }}
+            />
+          </div>
         </div>
+      </div>
+
+      {/* My Data(分析タブ)と同じ形式: 平均値(デフォルト)/推移をタブで切替 */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+          <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 700 }}>測定データ</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setView(t.key)}
+                className="sans"
+                style={{
+                  fontSize: 10, padding: "4px 12px", borderRadius: 6, cursor: "pointer",
+                  border: view === t.key ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                  background: view === t.key ? "#EFF6FF" : "transparent",
+                  color: view === t.key ? "#2563EB" : "#64748B",
+                  fontWeight: view === t.key ? 600 : 400,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>{points.length}セッション</div>
         {points.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>このリードに紐づく測定データがまだありません</div>
+        ) : view === "avg" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {REED_COMPARE_METRICS.map((m) => {
+              const v = overall[m.key];
+              return (
+                <div key={m.key} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px" }}>
+                  <div className="sans" style={{ fontSize: 9, color: "#64748B" }}>{m.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: "#0F172A" }}>
+                    {v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           REED_COMPARE_METRICS.map((m) => (
             <MetricLineChart key={m.key} metricDef={m} points={points} />
@@ -3171,18 +3348,23 @@ const PIVOT_DIMENSIONS = [
     getSort: (f) => (f.reed ? (f.reed.rating ?? 0) : -1),
   },
   {
-    key: "reedDays", label: "リード使用日数",
+    key: "reedDays", label: "開封後日数",
+    // フィルターでは範囲選択(numberRange)にするため、値そのものの取得はgetRangeValueで行う
     getValue: (f) => {
       if (!f.reed) return null;
       const d = usageDays(f.recordedAt, f.reed.startDate);
       return d ? `${d}日目` : null;
     },
     getSort: (f) => (f.reed ? usageDays(f.recordedAt, f.reed.startDate) ?? 999 : 999),
+    filterKind: "numberRange",
+    getRangeValue: (f) => (f.reed ? usageDays(f.recordedAt, f.reed.startDate) : null),
   },
   {
     key: "date", label: "録音日",
     getValue: (f) => new Date(f.recordedAt).toLocaleDateString("ja-JP"),
     getSort: (f) => new Date(f.recordedAt).setHours(0, 0, 0, 0),
+    filterKind: "dateRange",
+    getRangeValue: (f) => new Date(f.recordedAt).setHours(0, 0, 0, 0),
   },
   {
     key: "performer", label: "奏者",
@@ -3218,8 +3400,9 @@ const PIVOT_MEASURES = [
   { key: "count", label: "フレーム数", getValue: () => 1, agg: "sum", fmt: (v) => String(v) },
 ];
 
-// 指定した次元がとりうる値の一覧(フィルターUIの選択肢用)。次元のソート順で返す
-function pivotDimensionValues(frames, ctx, dimKey) {
+// 指定した次元がとりうる値の一覧を、ソートキーつきで返す(音域帯まとめ選択など値→ソートキーの
+// 対応が必要な場面用)。次元のソート順で並ぶ。
+function pivotDimensionValueEntries(frames, ctx, dimKey) {
   const dim = PIVOT_DIMENSIONS.find((d) => d.key === dimKey);
   if (!dim) return [];
   const sortByValue = new Map();
@@ -3230,10 +3413,17 @@ function pivotDimensionValues(frames, ctx, dimKey) {
   }
   return [...sortByValue.entries()]
     .sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
-    .map(([v]) => v);
+    .map(([value, sortKey]) => ({ value, sortKey }));
 }
 
-// filters: [{dimKey, values: string[]}] — 値が1つ以上選ばれているフィルターだけが有効。
+// 指定した次元がとりうる値の一覧(フィルターUIの選択肢用)。次元のソート順で返す
+function pivotDimensionValues(frames, ctx, dimKey) {
+  return pivotDimensionValueEntries(frames, ctx, dimKey).map((e) => e.value);
+}
+
+// filters: 通常は{dimKey, values: string[]}(値が1つ以上選ばれているフィルターだけ有効)。
+// dimKindが"dateRange"/"numberRange"の次元は{dimKey, rangeMin, rangeMax}を使い、
+// どちらか一方でも指定されていれば有効(未指定側は無制限)。
 // colKey === "none" の場合は横軸なし(「全体」1列)として集計する。
 function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   const rowDim = PIVOT_DIMENSIONS.find((d) => d.key === rowKey);
@@ -3242,14 +3432,28 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   if (!rowDim || !measure) return { cells: {}, rowKeys: [], colKeys: [], measure: null };
 
   const activeFilters = (filters || [])
-    .map((flt) => ({ dim: PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey), values: flt.values }))
-    .filter((flt) => flt.dim && flt.values.length > 0);
+    .map((flt) => ({ ...flt, dim: PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey) }))
+    .filter((flt) => {
+      if (!flt.dim) return false;
+      if (flt.dim.filterKind) return flt.rangeMin != null || flt.rangeMax != null;
+      return (flt.values || []).length > 0;
+    });
 
   const cells = {}; // rowKey -> colKey -> {sum, count}
   const rowSort = {};
   const colSort = {};
   for (const f of frames) {
-    if (activeFilters.some((flt) => !flt.values.includes(flt.dim.getValue(f, ctx)))) continue;
+    const rejected = activeFilters.some((flt) => {
+      if (flt.dim.filterKind) {
+        const rv = flt.dim.getRangeValue(f, ctx);
+        if (rv === null || rv === undefined) return true;
+        if (flt.rangeMin != null && rv < flt.rangeMin) return true;
+        if (flt.rangeMax != null && rv > flt.rangeMax) return true;
+        return false;
+      }
+      return !flt.values.includes(flt.dim.getValue(f, ctx));
+    });
+    if (rejected) continue;
     const rk = rowDim.getValue(f, ctx);
     const ck = colDim ? colDim.getValue(f, ctx) : "全体";
     const v = measure.getValue(f);
@@ -3682,7 +3886,7 @@ function AnalysisLabView(props) {
           <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>集計対象抽出（フィルター）</span>
             <button
-              onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [] }])}
+              onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
               className="sans"
               style={{ fontSize: 10, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer" }}
             >
@@ -3694,38 +3898,108 @@ function AnalysisLabView(props) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {pivotFilters.map((flt, i) => {
-                const options = pivotDimensionValues(framesWithContext, pivotCtx, flt.dimKey);
+                const dim = PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey);
+                const updateFilter = (patch) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { ...p, ...patch } : p)));
                 return (
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                     <select
                       value={flt.dimKey}
-                      onChange={(e) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: e.target.value, values: [] } : p)))}
+                      onChange={(e) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: e.target.value, values: [], rangeMin: null, rangeMax: null } : p)))}
                       style={{ flexShrink: 0 }}
                     >
                       {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
                     </select>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", flex: 1 }}>
-                      {options.length === 0 ? (
-                        <span className="sans" style={{ fontSize: 10, color: "#94A3B8", padding: "4px 0" }}>該当する値がありません</span>
-                      ) : options.map((v) => {
-                        const selected = flt.values.includes(v);
-                        return (
-                          <button
-                            key={v}
-                            onClick={() => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { ...p, values: selected ? p.values.filter((x) => x !== v) : [...p.values, v] } : p)))}
-                            className="sans"
-                            style={{
-                              fontSize: 10, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
-                              border: selected ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
-                              background: selected ? "#EFF6FF" : "#FFFFFF",
-                              color: selected ? "#2563EB" : "#64748B",
-                              fontWeight: selected ? 600 : 400,
-                            }}
-                          >
-                            {v}
-                          </button>
-                        );
-                      })}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
+                      {dim?.filterKind === "dateRange" ? (
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#64748B" }}>
+                          <input
+                            type="date"
+                            value={flt.rangeMin ? new Date(flt.rangeMin).toISOString().slice(0, 10) : ""}
+                            onChange={(e) => updateFilter({ rangeMin: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
+                          />
+                          <span>〜</span>
+                          <input
+                            type="date"
+                            value={flt.rangeMax ? new Date(flt.rangeMax).toISOString().slice(0, 10) : ""}
+                            onChange={(e) => updateFilter({ rangeMax: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
+                          />
+                        </div>
+                      ) : dim?.filterKind === "numberRange" ? (
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#64748B" }}>
+                          <input
+                            type="number" min={1} placeholder="最小" value={flt.rangeMin ?? ""}
+                            onChange={(e) => updateFilter({ rangeMin: e.target.value === "" ? null : Number(e.target.value) })}
+                            style={{ width: 64 }}
+                          />
+                          <span>日目 〜</span>
+                          <input
+                            type="number" min={1} placeholder="最大" value={flt.rangeMax ?? ""}
+                            onChange={(e) => updateFilter({ rangeMax: e.target.value === "" ? null : Number(e.target.value) })}
+                            style={{ width: 64 }}
+                          />
+                          <span>日目</span>
+                        </div>
+                      ) : (
+                        <>
+                          {flt.dimKey === "note" && (() => {
+                            const entries = pivotDimensionValueEntries(framesWithContext, pivotCtx, "note");
+                            return (
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                {["high", "mid", "low"].map((band) => {
+                                  const bandValues = entries.filter((e) => registerBand(e.sortKey) === band).map((e) => e.value);
+                                  if (bandValues.length === 0) return null;
+                                  const allSelected = bandValues.every((v) => flt.values.includes(v));
+                                  return (
+                                    <button
+                                      key={band}
+                                      onClick={() => updateFilter({
+                                        values: allSelected
+                                          ? flt.values.filter((v) => !bandValues.includes(v))
+                                          : [...new Set([...flt.values, ...bandValues])],
+                                      })}
+                                      className="sans"
+                                      style={{
+                                        fontSize: 10, padding: "3px 10px", borderRadius: 10, cursor: "pointer",
+                                        border: allSelected ? "1.5px solid #2563EB" : "1px dashed #94A3B8",
+                                        background: allSelected ? "#EFF6FF" : "#FFFFFF",
+                                        color: allSelected ? "#2563EB" : "#64748B", fontWeight: 600,
+                                      }}
+                                    >
+                                      {REGISTER_BAND_LABELS[band]}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {(() => {
+                              const options = pivotDimensionValues(framesWithContext, pivotCtx, flt.dimKey);
+                              return options.length === 0 ? (
+                                <span className="sans" style={{ fontSize: 10, color: "#94A3B8", padding: "4px 0" }}>該当する値がありません</span>
+                              ) : options.map((v) => {
+                                const selected = flt.values.includes(v);
+                                return (
+                                  <button
+                                    key={v}
+                                    onClick={() => updateFilter({ values: selected ? flt.values.filter((x) => x !== v) : [...flt.values, v] })}
+                                    className="sans"
+                                    style={{
+                                      fontSize: 10, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
+                                      border: selected ? "1.5px solid #2563EB" : "1px solid #E2E8F0",
+                                      background: selected ? "#EFF6FF" : "#FFFFFF",
+                                      color: selected ? "#2563EB" : "#64748B",
+                                      fontWeight: selected ? 600 : 400,
+                                    }}
+                                  >
+                                    {v}
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </>
+                      )}
                     </div>
                     <button
                       onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
