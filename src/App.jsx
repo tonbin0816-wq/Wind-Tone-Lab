@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload, Pencil } from "lucide-react";
 
 // ============================================================
 // Music theory helpers
@@ -367,6 +367,7 @@ function groupReeds(reeds) {
 }
 
 function reedPosition(reed, reeds) {
+  if (reed.boxNumber) return reed.boxNumber; // 手動で編集された番号があれば自動採番より優先する
   const key = reedGroupKey(reed);
   const group = reeds.filter((r) => reedGroupKey(r) === key).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   const idx = group.findIndex((r) => r.id === reed.id);
@@ -503,6 +504,22 @@ async function idbPutSessions(sessionsToWrite) {
   }
 }
 
+async function idbDeleteSessions(ids) {
+  if (ids.length === 0) return;
+  try {
+    const db = await openIdb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(SESSIONS_STORE, "readwrite");
+      const store = tx.objectStore(SESSIONS_STORE);
+      for (const id of ids) store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // 削除失敗時も画面操作自体は継続させる
+  }
+}
+
 // sessions配列をReact state上では今まで通り扱いつつ、書き込みだけは変更のあった
 // レコードに限定する。addSession: 新規1件追加。updateSessions: 関数更新の結果、
 // 中身が変わったレコードだけを差分検出してIndexedDBに書き込む。
@@ -535,7 +552,12 @@ function useSessionsStore() {
     });
   }, []);
 
-  return [sessions, addSession, updateSessions];
+  const deleteSession = useCallback((id) => {
+    setSessionsState((prev) => prev.filter((s) => s.id !== id));
+    idbDeleteSessions([id]);
+  }, []);
+
+  return [sessions, addSession, updateSessions, deleteSession];
 }
 
 // ============================================================
@@ -821,7 +843,7 @@ export default function WindToneLabPhaseMode() {
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
   const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
-  const [sessions, addSession, updateSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
+  const [sessions, addSession, updateSessions, deleteSession] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
   const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
   const [pendingLinkSessionId, setPendingLinkSessionId] = useState(null); // 事後紐付け対象のセッション
   const [sessionMemo, setSessionMemo] = useState(""); // 録音前に入力する「何を試したか」の自由記述メモ
@@ -1382,6 +1404,8 @@ export default function WindToneLabPhaseMode() {
           promoteSessionToIdeal={promoteSessionToIdeal}
           idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           NUM_HARMONICS={NUM_HARMONICS}
+          updateSessions={updateSessions} deleteSession={deleteSession}
+          performers={performers} setPerformers={setPerformers}
         />
       )}
     </div>
@@ -1644,6 +1668,17 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
   // 比較対象: 音ごとの理想値プロファイル、または「お手本セッション」を選んで演奏全体を時間軸で重ねて比較する
   const [compareMode, setCompareMode] = useState("ideal"); // "ideal" | "session"
   const [referenceSessionId, setReferenceSessionId] = useState(null);
+  const timelineScrollRef = useRef(null);
+
+  // スライダーでフレームを選ぶたびに、選択位置が常に見えるようグラフを横スクロールさせる
+  // (グラフ幅はframes.length*6pxでコンテナ幅を超えることが多いため)。
+  useEffect(() => {
+    if (selectedFrameIdx === null) return;
+    const container = timelineScrollRef.current;
+    if (!container) return;
+    const x = selectedFrameIdx * 6;
+    container.scrollLeft = Math.max(0, x - container.clientWidth / 2);
+  }, [selectedFrameIdx]);
 
   const referenceCandidates = (sessions || []).filter((s) => s.id !== ownSessionId && (s.frames?.length ?? 0) > 0);
   const referenceSession = referenceCandidates.find((s) => s.id === referenceSessionId) || null;
@@ -1786,7 +1821,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
             return <span style={{ marginLeft: 8 }}>｜ 検出ノート {noteEvents.length}{avg !== null ? ` ・ 平均アタック ${avg}ms` : ""}</span>;
           })()}
         </div>
-        <div style={{ overflowX: "auto" }}>
+        <div ref={timelineScrollRef} style={{ overflowX: "auto" }}>
           <svg width={Math.max(600, frames.length * 6)} height="120" style={{ display: "block" }}>
             {timelineFormat === "line" ? (
               <polyline
@@ -2050,6 +2085,27 @@ function ReedRegisterView(props) {
     setReeds((prev) => prev.map((r) => (r.id === id ? { ...r, rating } : r)));
   };
 
+  // 登録済みリードの銘柄・番手・番号(箱内の通し番号)をその場で修正できるようにする。
+  // 番号は自動採番(登録順)を手動で上書きするためのフィールド(reedPositionが優先的に参照する)。
+  const [editingReedId, setEditingReedId] = useState(null);
+  const [editForm, setEditForm] = useState({ brand: "", strength: "", boxNumber: 1 });
+
+  const startEditReed = (r) => {
+    setEditingReedId(r.id);
+    setEditForm({ brand: r.brand, strength: r.strength, boxNumber: reedPosition(r, reeds) ?? 1 });
+  };
+
+  const saveEditReed = () => {
+    const brand = editForm.brand.trim();
+    if (!brand) return;
+    setReeds((prev) => prev.map((r) => (
+      r.id === editingReedId
+        ? { ...r, brand, strength: editForm.strength, boxNumber: Number(editForm.boxNumber) || null }
+        : r
+    )));
+    setEditingReedId(null);
+  };
+
   const goToMeasure = (id) => {
     setSelectedReedId(id);
     setTopTab("measure");
@@ -2157,26 +2213,68 @@ function ReedRegisterView(props) {
                   </button>
                   {isExpanded && (
                     <div style={{ borderTop: "1px solid #E2E8F0", padding: "4px 12px" }}>
-                      {g.members.map((r, idx) => (
-                        <div
-                          key={r.id}
-                          onClick={() => setEvaluatingReedId(r.id)}
-                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
-                        >
-                          <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{idx + 1}</span>
-                          <span onClick={(e) => e.stopPropagation()}>
-                            <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
-                          </span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
-                            className="sans"
-                            style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
+                      {g.members.map((r, idx) => {
+                        if (editingReedId === r.id) {
+                          return (
+                            <div
+                              key={r.id}
+                              style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", flexWrap: "wrap" }}
+                            >
+                              <input
+                                type="text" value={editForm.brand}
+                                onChange={(e) => setEditForm((f) => ({ ...f, brand: e.target.value }))}
+                                className="sans"
+                                style={{ width: 110, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 8px", color: "#0F172A", fontSize: 11 }}
+                              />
+                              <select value={editForm.strength} onChange={(e) => setEditForm((f) => ({ ...f, strength: e.target.value }))}>
+                                {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
+                              </select>
+                              <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>番号:</span>
+                              <input
+                                type="number" min={1} value={editForm.boxNumber}
+                                onChange={(e) => setEditForm((f) => ({ ...f, boxNumber: e.target.value }))}
+                                className="sans"
+                                style={{ width: 48, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 6, padding: "5px 8px", color: "#0F172A", fontSize: 11 }}
+                              />
+                              <button
+                                onClick={saveEditReed}
+                                className="sans"
+                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "none", background: "#2563EB", color: "#F8FAFC", cursor: "pointer", fontWeight: 600 }}
+                              >
+                                保存
+                              </button>
+                              <button
+                                onClick={() => setEditingReedId(null)}
+                                className="sans"
+                                style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #E2E8F0", background: "transparent", color: "#64748B", cursor: "pointer" }}
+                              >
+                                キャンセル
+                              </button>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div
+                            key={r.id}
+                            onClick={() => setEvaluatingReedId(r.id)}
+                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #F1F5F9" : "none", cursor: "pointer" }}
                           >
-                            測定へ
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Trash2 size={12} /></button>
-                        </div>
-                      ))}
+                            <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#0F172A", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                            <span onClick={(e) => e.stopPropagation()}>
+                              <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={11} />
+                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
+                              className="sans"
+                              style={{ fontSize: 9, padding: "4px 10px", borderRadius: 5, border: "1px solid #2563EB", background: "#EFF6FF", color: "#2563EB", cursor: "pointer", fontWeight: 600, flexShrink: 0 }}
+                            >
+                              測定へ
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); startEditReed(r); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, marginLeft: "auto", flexShrink: 0 }}><Pencil size={12} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteReed(r.id); }} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}><Trash2 size={12} /></button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2260,7 +2358,7 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         harmonicsProfile,
       };
     })
-    .sort((a, b) => a.semitoneIndex - b.semitoneIndex);
+    .sort((a, b) => b.semitoneIndex - a.semitoneIndex); // 音が高い順(半音インデックスが大きいほど高音)
 }
 
 // 理想値プロファイルのnotesマップから、指定した音(semitoneIndex)の理想値を取り出す。
@@ -2401,7 +2499,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
                     background: compareReedIds.includes(r.id) ? "#EFF6FF" : "transparent",
                     color: compareReedIds.includes(r.id) ? "#2563EB" : "#64748B",
                   }}>
-                    #{idx + 1}
+                    #{r.boxNumber ?? idx + 1}
                   </button>
                 ))}
               </div>
@@ -2534,15 +2632,13 @@ function ReedEvaluationDetail({ reed, reeds, sessions, onBack }) {
         <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
       </button>
 
-      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "14px 16px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-          <span className="sans" style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{reedLabel(reed, reeds)}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="sans" style={{ fontSize: 9, color: "#64748B" }}>主観評価:</span>
-            <StarRating value={reed.rating} onChange={() => {}} readOnly size={12} />
-          </div>
+      {/* My Data(分析タブ)と同じ形式: 太字タイトル+グレーの説明文+指標ごとの推移グラフ */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px" }}>
+        <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>{reedLabel(reed, reeds)}</div>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <span>{points.length}セッションの推移 ・ 主観評価:</span>
+          <StarRating value={reed.rating} onChange={() => {}} readOnly size={12} />
         </div>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>{points.length}セッション</div>
         {points.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#94A3B8" }}>このリードに紐づく測定データがまだありません</div>
         ) : (
@@ -2767,10 +2863,38 @@ function MyDataSection({ sessions }) {
   );
 }
 
+// 直近追加された最新セッション単体の内訳。My Dataの推移グラフ(複数セッションの平均的な変化)とは別に、
+// 「今撮ったばかりの1回分」を単独で確認できるようにする。
+function LatestSessionCard({ session, reeds }) {
+  const reed = reeds.find((r) => r.id === session.reedId) || null;
+  const m = computeFrameMetrics(session.frames || []);
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#0F172A", fontWeight: 600, marginBottom: 4 }}>最新セッション</div>
+      <div className="sans" style={{ fontSize: 10, color: "#64748B", marginBottom: 12 }}>
+        {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+        {REED_COMPARE_METRICS.map((mt) => {
+          const v = m[mt.key];
+          return (
+            <MetricCard
+              key={mt.key} label={mt.label}
+              value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AnalysisLabView(props) {
   const {
     sessions, reeds, selectedIdeal, promoteSessionToIdeal,
     idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS,
+    updateSessions, deleteSession, performers, setPerformers,
   } = props;
 
   const [pivotRow, setPivotRow] = useState("note");
@@ -2796,6 +2920,7 @@ function AnalysisLabView(props) {
         session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
+        updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
         onBack={() => setSelectedSessionId(null)}
       />
     );
@@ -2803,11 +2928,20 @@ function AnalysisLabView(props) {
 
   const sortedSessions = [...sessions].sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
   const visibleSessions = sortedSessions.slice(0, visibleCount);
+  const latestSession = sortedSessions[0] || null;
+
+  const handleDeleteSession = (e, id) => {
+    e.stopPropagation();
+    if (window.confirm("このセッションを削除しますか？(元に戻せません)")) deleteSession(id);
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* --- My Data: 「自分」のセッションの推移 --- */}
       <MyDataSection sessions={sessions} />
+
+      {/* --- 最新セッション: 直近1回分の内訳を単独表示 --- */}
+      {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} />}
 
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 10, padding: "16px 18px", marginBottom: 12 }}>
@@ -2832,6 +2966,7 @@ function AnalysisLabView(props) {
                     <span style={{ color: "#2563EB", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
                     <span style={{ color: "#64748B", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
                     {s.source === "upload" && <span style={{ color: "#94A3B8", fontSize: 9, flexShrink: 0 }}>📁</span>}
+                    <button onClick={(e) => handleDeleteSession(e, s.id)} style={{ background: "none", border: "none", color: "#94A3B8", cursor: "pointer", padding: 2, flexShrink: 0 }}><Trash2 size={12} /></button>
                   </div>
                 );
               })}
@@ -2926,11 +3061,19 @@ function AnalysisLabView(props) {
 }
 
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, promoteSessionToIdeal, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfiles, selectedIdealId, setSelectedIdealId, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, onBack }) {
   const frames = session.frames || [];
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
+
+  // 記録後に気づいた誤り(奏者・リードの紐付け間違い等)をその場で修正できるようにする
+  const setSessionPerformer = (name) => {
+    updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, performer: name } : s)));
+  };
+  const setSessionReedId = (reedId) => {
+    updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, reedId: reedId || null, linkedAt: reedId ? "retroactive" : null } : s)));
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -2947,9 +3090,18 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfi
         <div className="sans" style={{ fontSize: 12, color: "#0F172A", fontWeight: 600, marginBottom: 6 }}>
           {new Date(session.recordedAt).toLocaleString("ja-JP")}
         </div>
-        <div className="sans" style={{ fontSize: 10, color: "#64748B", display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <span>奏者: {session.performer || "—"}</span>
-          <span>リード: {reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
+        <div className="sans" style={{ fontSize: 10, color: "#64748B", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            奏者:
+            <PerformerSelector performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            リード:
+            <select value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}>
+              <option value="">未紐付け</option>
+              {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+            </select>
+          </span>
           <span>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
           {session.source === "upload" && <span>アップロード: {session.sourceFileName}</span>}
           {session.memo && <span style={{ color: "#2563EB" }}>「{session.memo}」</span>}
