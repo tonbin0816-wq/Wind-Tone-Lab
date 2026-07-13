@@ -1833,7 +1833,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
   };
 
   const metricOptions = [
-    { key: "pitch", label: "音高" },
+    { key: "pitch", label: "ピッチ" },
     { key: "volume", label: "音量" },
     { key: "centroid", label: "重心" },
     { key: "hnr", label: "HNR" },
@@ -1914,7 +1914,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
           </select>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>音高の基準:</span>
+          <span className="sans" style={{ fontSize: 10, color: "#64748B" }}>ピッチの基準:</span>
           <select value={matchBasis} onChange={(e) => setMatchBasis(e.target.value)}>
             <option value="theoretical">理論値(運指テーブル)</option>
             <option value="ideal">{compareMode === "session" ? "お手本セッション" : `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}`}</option>
@@ -1922,7 +1922,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
         </div>
       </div>
       <div className="sans" style={{ fontSize: 9, color: "#94A3B8", marginBottom: 10 }}>
-        音高はピッチに絶対的な正解があるため理論値/理想値を選べます。音量・音色・重心・HNRは理想値(お手本)との比較のみです。
+        ピッチは絶対的な正解(平均律)があるため理論値/理想値を選べます。音量・音色・重心・HNRは理想値(お手本)との比較のみです。
       </div>
 
       {/* タイムライン */}
@@ -1990,7 +1990,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, idealProfiles, sele
             return (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                  <MetricCard label="音高一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
+                  <MetricCard label="ピッチ一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
                   <MetricCard label="音色一致度(比較対象基準)" value={target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel} accentColor={target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
                 </div>
 
@@ -3209,7 +3209,7 @@ function harmonicSliceMean(f, lo, hi) {
 
 const PIVOT_MEASURES = [
   { key: "pitchCents", label: "平均ピッチ偏差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
-  { key: "pitchHz", label: "音高(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
+  { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
   { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => harmonicSliceMean(f, 0, 4), fmt: (v) => (v * 100).toFixed(0) },
   { key: "highHarm", label: "倍音強度(高次5-8)", getValue: (f) => harmonicSliceMean(f, 4, 8), fmt: (v) => (v * 100).toFixed(0) },
@@ -3843,7 +3843,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, idealProfi
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>記音</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>音高</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>ピッチ</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>音量</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>重心</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", color: "#64748B", fontSize: 10, borderBottom: "1px solid #E2E8F0" }}>HNR</th>
