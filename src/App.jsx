@@ -1487,6 +1487,8 @@ export default function WindToneLabPhaseMode() {
         button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
         input[type=range] { accent-color: #174585; }
         select { background:#F6F7F9; color:#121F32; border:1px solid #E9ECF0; border-radius:4px; padding:6px 8px; font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:12px; }
+        /* ピボットの軸セレクタは丸角カード内に置くため、枠なし・ネイビー太字で見せる */
+        select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:12px; cursor:pointer; }
       `}</style>
 
       {/* Header */}
@@ -4121,15 +4123,15 @@ function AnalysisLabView(props) {
         </div>
 
         {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
-        <div style={{ marginBottom: 12, padding: "10px 12px", background: "#F6F7F9", borderRadius: 5, border: "1px solid #E9ECF0" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ marginBottom: 12, padding: "12px 14px", background: "#F6F7F9", borderRadius: 14, border: "1px solid #E9ECF0" }}>
+          <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>集計対象抽出（フィルター）</span>
             <button
               onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
               className="sans"
-              style={{ fontSize: 10, padding: "4px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer" }}
+              style={{ fontSize: 11, padding: "6px 13px", borderRadius: 999, border: "1px dashed #A6AEBA", background: "#FFFFFF", color: "#435266", cursor: "pointer" }}
             >
-              ＋ フィルターを追加
+              ＋ 条件を追加
             </button>
           </div>
           {pivotFilters.length === 0 ? (
@@ -4254,20 +4256,31 @@ function AnalysisLabView(props) {
           )}
         </div>
 
-        <div className="sans" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12, fontSize: 10 }}>
-          <span style={{ color: "#435266" }}>縦軸:</span>
-          <select value={pivotRow} onChange={(e) => setPivotRow(e.target.value)}>
-            {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
-          </select>
-          <span style={{ color: "#435266" }}>横軸:</span>
-          <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)}>
-            <option value="none">なし（全体）</option>
-            {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
-          </select>
-          <span style={{ color: "#435266" }}>指標:</span>
-          <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)}>
-            {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
-          </select>
+        {/* 縦軸・横軸・指標のセレクタ(Claude Design: 3枚の丸角カード) */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {[
+            { label: "縦軸", node: (
+              <select value={pivotRow} onChange={(e) => setPivotRow(e.target.value)} className="pivot-axis-select">
+                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
+              </select>
+            ) },
+            { label: "横軸", node: (
+              <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)} className="pivot-axis-select">
+                <option value="none">なし（全体）</option>
+                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
+              </select>
+            ) },
+            { label: "指標", node: (
+              <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)} className="pivot-axis-select">
+                {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
+              </select>
+            ) },
+          ].map((z) => (
+            <div key={z.label} style={{ flex: 1, minWidth: 0, background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 11, padding: "10px 11px" }}>
+              <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 4 }}>{z.label}</div>
+              {z.node}
+            </div>
+          ))}
         </div>
 
         {pivot.rowKeys.length === 0 ? (
@@ -4276,14 +4289,14 @@ function AnalysisLabView(props) {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 320 }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 6, fontSize: 12, minWidth: 300 }}>
               <thead>
                 <tr>
-                  <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "6px 10px", color: "#435266", fontSize: 10, fontWeight: 600, borderBottom: "1px solid #E9ECF0" }}>
+                  <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 9, fontWeight: 600, verticalAlign: "bottom" }}>
                     {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
                   </th>
                   {pivot.colKeys.map((ck) => (
-                    <th key={ck} className="sans" style={{ textAlign: "right", padding: "6px 10px", color: "#174585", fontSize: 10, fontWeight: 600, borderBottom: "1px solid #E9ECF0", whiteSpace: "nowrap" }}>
+                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 10, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>
                       {ck}
                     </th>
                   ))}
@@ -4292,18 +4305,22 @@ function AnalysisLabView(props) {
               <tbody>
                 {pivot.rowKeys.map((rk) => (
                   <tr key={rk}>
-                    <td className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "5px 10px", color: "#121F32", fontSize: 11, fontWeight: 600, borderBottom: "1px solid #E9ECF0", whiteSpace: "nowrap" }}>
+                    <td style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "0 6px", color: "#121F32", fontWeight: 700, whiteSpace: "nowrap", fontFamily: pivotRow === "note" ? "'Instrument Serif', serif" : "'Noto Sans JP', sans-serif", fontSize: pivotRow === "note" ? 15 : 11 }}>
                       {rk}
                     </td>
                     {pivot.colKeys.map((ck) => {
                       const cell = pivot.cells[rk]?.[ck];
                       if (!cell) {
-                        return <td key={ck} style={{ textAlign: "right", padding: "5px 10px", color: "#8D95A1", borderBottom: "1px solid #E9ECF0" }}>—</td>;
+                        return <td key={ck} style={{ textAlign: "center", color: "#C3CAD3", background: "#F6F7F9", borderRadius: 8, padding: "9px 8px" }}>—</td>;
                       }
                       const value = metricDef.agg === "sum" ? cell.sum : cell.sum / cell.count;
                       const color = metricDef.color ? metricDef.color(value) : "#121F32";
+                      // ピッチ偏差は良否が明確なのでセルを淡色で塗る(緑/橙/赤)。他の指標は中立の淡色。
+                      const bg = pivotMetric === "pitchCents"
+                        ? (Math.abs(value) < 10 ? "#E8F6ED" : Math.abs(value) < 25 ? "#FDF0E1" : "#FBE9E9")
+                        : "#F6F7F9";
                       return (
-                        <td key={ck} title={`${cell.count}フレーム`} style={{ textAlign: "right", padding: "5px 10px", color, fontWeight: 600, borderBottom: "1px solid #E9ECF0", whiteSpace: "nowrap" }}>
+                        <td key={ck} title={`${cell.count}フレーム`} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
                           {metricDef.fmt(value)}
                         </td>
                       );
@@ -4312,8 +4329,8 @@ function AnalysisLabView(props) {
                 ))}
               </tbody>
             </table>
-            <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 8 }}>
-              セルにカーソルを合わせると集計フレーム数を表示します。ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤 で色分けしています
+            <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
+              セルをタップ長押しで集計フレーム数を表示。ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤 で色分けしています。
             </div>
           </div>
         )}
