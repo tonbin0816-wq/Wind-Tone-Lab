@@ -29,8 +29,6 @@ function polarPoint(cx, cy, r, angleDeg) {
   return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
 }
 
-const PITCH_METER_TICKS = [-50, -25, 0, 25, 50];
-
 function speedOfSound(tempC) {
   return 331.3 + 0.606 * tempC;
 }
@@ -1005,13 +1003,13 @@ export default function WindToneLabPhaseMode() {
   const phraseFramesRef = useRef([]); // stop()のクロージャから最新フレーム配列を参照するためのref
 
   // --- 常時ライブのタイムライン用ローリングバッファ ---
-  // 録音(isRecording)開始前でも、マイク接続中(tick稼働中)は直近10秒分のフレームを
+  // 録音(isRecording)開始前でも、マイク接続中(tick稼働中)は直近30秒分のフレームを
   // 保持し続け、タイムラインを録音の有無によらず常時動かす。セッション保存には使わない
   // 使い捨てのバッファなので、録音中のphraseFramesとは別に持つ(録音ロジックには触れない)。
   const [liveFrames, setLiveFrames] = useState([]);
   const liveStartTimeRef = useRef(null);
   const lastLiveSampleTimeRef = useRef(0);
-  const LIVE_WINDOW_MAX_FRAMES = 100; // 100ms間隔で約10秒分。それより古いものは記録も表示もしない
+  const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1271,7 +1269,7 @@ export default function WindToneLabPhaseMode() {
             });
           }
         } else {
-          // --- 録音していない間も、タイムラインを常時動かすための直近10秒ローリングバッファ ---
+          // --- 録音していない間も、タイムラインを常時動かすための直近30秒ローリングバッファ ---
           // (セッションには保存しない使い捨てのバッファ。録音中はここには積まず、
           // phraseFramesの方をそのままタイムラインに渡す)
           if (liveStartTimeRef.current === null) liveStartTimeRef.current = performance.now();
@@ -1487,6 +1485,9 @@ export default function WindToneLabPhaseMode() {
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+        /* 計測タブのみで使うフォント(Claude Designの提案を反映): 音名の大表示にInstrument Serif、
+           数値表示にSpace Grotesk。他タブの基本フォント(Noto Sans JP)は変更しない。 */
+        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600;700&display=swap');
         * { box-sizing: border-box; }
         .sans { font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
         button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
@@ -1686,63 +1687,45 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
   );
 }
 
-// 計測タブのライブタイムライン(心電図モニター風)。SessionDetailView等で使う履歴振り返り用の
-// PhraseTimeline(スクラブ・ドリルダウンつき)とは別物として実装する: こちらは「今どう吹いているか」を
-// 一瞥するためのものなので、横軸を直近10秒に固定し、新しいフレームが右端に追加され、
-// 10秒より古い部分は自動的に流れて消える(スクロール操作は不要・提供しない)。
-const LIVE_TIMELINE_METRICS = [
-  { key: "pitch", label: "ピッチ", getValue: (f) => f.pitchHz },
-  { key: "volume", label: "音量", getValue: (f) => f.volumeDb },
-  { key: "centroid", label: "重心", getValue: (f) => f.spectralCentroidHz },
-  { key: "hnr", label: "HNR", getValue: (f) => f.hnrDb },
-];
-const LIVE_TIMELINE_WINDOW_SEC = 10;
+// 計測タブの「これまでの音」ミニタイムライン(Claude Designの計測タブ提案を反映)。
+// SessionDetailView等で使う履歴振り返り用のPhraseTimeline(スクラブ・ドリルダウンつき)とは
+// 別物として実装する: こちらは折れ線ではなく、直近30秒を12分割したバケットごとの
+// 平均ピッチ偏差を上下の棒で表す(高さ=ズレの大きさ、上下=♯/♭の向き、色=良好かどうか)。
+const RECENT_NOTES_WINDOW_SEC = 30;
+const RECENT_NOTES_BUCKETS = 12;
 
-function LiveEcgTimeline({ frames }) {
-  const [metricKey, setMetricKey] = useState("pitch");
-  const metric = LIVE_TIMELINE_METRICS.find((m) => m.key === metricKey);
-
-  const W = 600, H = 100;
+function RecentNotesBar({ frames }) {
   const latestT = frames.length ? frames[frames.length - 1].t : 0;
-  // 直近10秒だけを描画対象にする(録音中はframes自体がもっと長く育つため、末尾だけ切り出す)
-  const windowFrames = frames.filter((f) => f.t >= latestT - LIVE_TIMELINE_WINDOW_SEC);
-  const vals = windowFrames.map(metric.getValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const minV = vals.length ? Math.min(...vals) : 0;
-  const maxV = vals.length ? Math.max(...vals) : 1;
-  const range = maxV - minV || 1;
-
-  // x: 「今から何秒前か」を右端=現在・左端=10秒前に固定でマッピングする。
-  // これにより新しいフレームは常に右端に現れ、古いフレームは左へ押し出されて画面外に消えていく。
-  const x = (t) => W - ((latestT - t) / LIVE_TIMELINE_WINDOW_SEC) * W;
-  const y = (v) => H - 10 - ((v - minV) / range) * (H - 20);
-
-  const points = windowFrames
-    .map((f) => {
-      const v = metric.getValue(f);
-      return v === null || v === undefined || isNaN(v) ? null : `${x(f.t)},${y(v)}`;
-    })
-    .filter(Boolean)
-    .join(" ");
+  const bucketSec = RECENT_NOTES_WINDOW_SEC / RECENT_NOTES_BUCKETS;
+  const buckets = Array.from({ length: RECENT_NOTES_BUCKETS }, (_, i) => {
+    const bucketStart = latestT - RECENT_NOTES_WINDOW_SEC + i * bucketSec;
+    const bucketEnd = bucketStart + bucketSec;
+    const vals = frames
+      .filter((f) => f.t >= bucketStart && f.t < bucketEnd && f.pitchCents !== null && f.pitchCents !== undefined && !isNaN(f.pitchCents))
+      .map((f) => f.pitchCents);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  });
 
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 4px 8px", marginBottom: 10 }}>
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0 10px" }}>
-        <span style={{ fontSize: 10, color: "#435266" }}>表示:</span>
-        <select value={metricKey} onChange={(e) => setMetricKey(e.target.value)}>
-          {LIVE_TIMELINE_METRICS.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
-        </select>
-      </div>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
-        {/* 1秒ごとの目盛り線(心電図の方眼のような視覚的な時間ガイド) */}
-        {Array.from({ length: LIVE_TIMELINE_WINDOW_SEC + 1 }, (_, i) => {
-          const gx = (i / LIVE_TIMELINE_WINDOW_SEC) * W;
-          return <line key={i} x1={gx} y1={0} x2={gx} y2={H} stroke="#EEF1F4" strokeWidth="1" />;
+    <div style={{ padding: "18px 0 0" }}>
+      <div className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#2A3547", marginBottom: 12 }}>これまでの音</div>
+      <div style={{ position: "relative", height: 62, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2px" }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "#DDE2E8" }} />
+        {buckets.map((cents, i) => {
+          if (cents === null) return <div key={i} style={{ width: 8, height: 1 }} />;
+          const clamped = Math.max(-25, Math.min(25, cents));
+          const height = Math.min(28, 6 + Math.abs(cents) * 0.7);
+          const good = Math.abs(cents) <= 10;
+          return (
+            <div
+              key={i}
+              style={{ width: 8, height, borderRadius: 3, background: good ? "#174585" : "#DC2626", transform: `translateY(${-clamped * 0.5}px)`, position: "relative", zIndex: 1 }}
+            />
+          );
         })}
-        {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
-      </svg>
-      <div className="sans" style={{ fontSize: 9, color: "#8D95A1", display: "flex", justifyContent: "space-between", padding: "2px 10px 0" }}>
-        <span>-10s</span>
-        <span>現在</span>
+      </div>
+      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4 }}>
+        <span>♭ 低い</span><span>30秒前 → 今</span><span>♯ 高い</span>
       </div>
     </div>
   );
@@ -1791,37 +1774,63 @@ function MeasureView(props) {
   // メーター内の基準ピッチ・楽器種別は、タップでスクロールピッカーを開いて選ぶ(下段の設定より
   // 優先的に触る値のため、演奏姿勢のまま指の届く位置に置く)。どちらか一方だけ開く。
   const [openPicker, setOpenPicker] = useState(null); // null | "tuning" | "sax"
+  const [detailOpen, setDetailOpen] = useState(true); // 倍音構成・スペクトル・補助指標をまとめた詳細カードの開閉
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 使用リード選択(企画書v5 10.3節: 事前選択、箱→個体の二段階) + 奏者選択。
+      {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
+          右に楽器種別・基準ピッチ(タップでスクロール選択、値はテキストリンク風)。
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
-      <div className="sans" style={{ fontSize: 11, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
-        <select
-          value={selectedBoxKey || ""}
-          onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
-          disabled={isRecording}
-          style={{ minWidth: 0, maxWidth: 120 }}
-        >
-          <option value="">リードを選択</option>
-          {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}</option>))}
-        </select>
-        <select
-          value={selectedReedId || ""}
-          onChange={(e) => setSelectedReedId(e.target.value || null)}
-          disabled={isRecording || !selectedBoxGroup}
-          style={{ minWidth: 0, maxWidth: 68, color: selectedBoxGroup ? undefined : "#C3CAD3", background: selectedBoxGroup ? undefined : "#EEF1F4" }}
-        >
-          <option value="">{selectedBoxGroup ? "個体" : "—"}</option>
-          {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
-        </select>
-        <PerformerSelector
-          performers={performers} selectedPerformer={selectedPerformer}
-          setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-          disabled={isRecording}
-        />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+        <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 2, background: selectedReedId ? "#EAEFF5" : "#F6F7F9", borderRadius: 999, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
+            <select
+              value={selectedBoxKey || ""}
+              onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
+              disabled={isRecording}
+              style={{ minWidth: 0, maxWidth: 110, background: "none", border: "none", color: selectedReedId ? "#174585" : "#435266", fontWeight: selectedReedId ? 600 : 400 }}
+            >
+              <option value="">リードを選択</option>
+              {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}</option>))}
+            </select>
+            <select
+              value={selectedReedId || ""}
+              onChange={(e) => setSelectedReedId(e.target.value || null)}
+              disabled={isRecording || !selectedBoxGroup}
+              style={{ minWidth: 0, maxWidth: 60, background: "none", border: "none", color: selectedReedId ? "#174585" : "#C3CAD3", fontWeight: selectedReedId ? 600 : 400 }}
+            >
+              <option value="">{selectedBoxGroup ? "個体" : "—"}</option>
+              {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
+            </select>
+          </div>
+          <PerformerSelector
+            performers={performers} selectedPerformer={selectedPerformer}
+            setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
+            disabled={isRecording}
+          />
+        </div>
+        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#8D95A1", flexShrink: 0 }}>
+          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}</button>
+          <span>·</span>
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz</button>
+        </div>
+        {openPicker === "tuning" && (
+          <ScrollPicker
+            options={TUNING_HZ_OPTIONS} value={tuningHz}
+            onChange={setTuningHz} onClose={() => setOpenPicker(null)}
+            labelFn={(hz) => `${hz} Hz`}
+          />
+        )}
+        {openPicker === "sax" && (
+          <ScrollPicker
+            options={SAX_TYPE_OPTIONS} value={saxType}
+            onChange={setSaxType} onClose={() => setOpenPicker(null)}
+            labelFn={(key) => SAX_PRESETS[key]?.label}
+          />
+        )}
       </div>
       {(!reeds || reeds.length === 0) && (
         <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
@@ -1834,25 +1843,10 @@ function MeasureView(props) {
           {phraseNoteEvents.length > 0 && <span style={{ color: "#435266", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <input
-          ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isRecording || isAnalyzingUpload}
-          className="sans"
-          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 5, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
-        >
-          <Upload size={14} />
-          {isAnalyzingUpload ? "解析中…" : "アップロード"}
-        </button>
-        <button onClick={toggleRecording} className="sans" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: isRecording ? "#DC2626" : "#174585", color: "#F6F7F9", border: "none", borderRadius: 5, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {isRecording ? <Square size={14} /> : <Mic size={14} />}
-          {isRecording ? "停止" : "録音"}
-        </button>
-      </div>
+      <input
+        ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
+      />
 
       {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
       {isAnalyzingUpload && (
@@ -1877,170 +1871,169 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* ピッチメーター: デジタルチューナー機の見た目(基準Hzの小表示・大きな音名・弧状の目盛りと針)を
-          参考にしつつ、色はアンバー液晶ではなくアプリの配色(白背景・スレート/ブルー)に置き換えている。 */}
-      {/* 左右の余白は、ページ全体のpadding(14px)を打ち消す負のmarginで画面幅いっぱいまで広げる。
-          メーター(SVG)はwidth:100%で追従するため、これだけでメーター自体も画面幅いっぱいになる。 */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 4px 10px", margin: "0 -14px 10px", position: "relative" }}>
-        <button
-          onClick={() => setOpenPicker("tuning")}
-          className="sans"
-          style={{ position: "absolute", top: 8, left: 8, fontSize: 11, color: "#8D95A1", background: "none", border: "none", cursor: "pointer", padding: 6 }}
-        >
-          基準 <span style={{ fontSize: 13, color: "#435266", fontWeight: 700 }}>{tuningHz}Hz</span>
-        </button>
-        <button
-          onClick={() => setOpenPicker("sax")}
-          className="sans"
-          style={{ position: "absolute", top: 8, right: 8, fontSize: 13, color: "#435266", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 6 }}
-        >
-          {SAX_PRESETS[saxType]?.label}
-        </button>
-        {openPicker === "tuning" && (
-          <ScrollPicker
-            options={TUNING_HZ_OPTIONS} value={tuningHz}
-            onChange={setTuningHz} onClose={() => setOpenPicker(null)}
-            labelFn={(hz) => `${hz} Hz`}
-          />
-        )}
-        {openPicker === "sax" && (
-          <ScrollPicker
-            options={SAX_TYPE_OPTIONS} value={saxType}
-            onChange={setSaxType} onClose={() => setOpenPicker(null)}
-            labelFn={(key) => SAX_PRESETS[key]?.label}
-          />
-        )}
-        {/* 音名とセント誤差は演奏中に最も見る情報のため、この画面のヒーローとして最大サイズで表示する */}
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 44, fontWeight: 700, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-            {note ? note.name : "—"}<span style={{ fontSize: 20, color: "#435266" }}>{note ? note.octave : ""}</span>
-          </div>
-          <div className="sans" style={{ fontSize: 18, fontWeight: 700, color: note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#174585") : "#435266", marginTop: 2 }}>
-            {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
-          </div>
-        </div>
+      {/* ピッチメーター(Claude Design計測タブ提案): 太い半円トラック+良好ゾーンの三角マーカー+
+          セント値に応じて中心から動く進捗アークとサム(つまみ)。針ではなく「つまみが弧の上を動く」表現。
+          カードの枠は持たず、ページの背景に直接置く(提案デザインのフラットな雰囲気に合わせる)。 */}
+      <div style={{ position: "relative", padding: "8px 0 0" }}>
         {(() => {
-          const cx = 110, cy = 94, rOuter = 76, rInner = 64, rNeedle = 62;
-          const meterColor = note ? (Math.abs(centsOffset) > 15 ? "#DC2626" : "#174585") : "#8D95A1";
-          const leftLabel = polarPoint(cx, cy, rOuter + 15, -45);
-          const rightLabel = polarPoint(cx, cy, rOuter + 15, 45);
-          // 目盛りは実線の弧ではなく、参考画像のような点描(ドット)で表現する
-          const dots = [];
-          for (let deg = -45; deg <= 45; deg += 3) {
-            const p = polarPoint(cx, cy, rOuter, deg);
-            dots.push(<circle key={deg} cx={p.x} cy={p.y} r={1.2} fill="#C3CAD3" />);
-          }
-          // 中心付近の±10¢を「良好ゾーン」の目印として弧の外側に小さな三角マーカーで示す(参考画像の矢印に相当)
+          const cx = 110, cy = 105, rOuter = 90;
+          const ac = note ? Math.abs(centsOffset) : null;
+          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+          const arcStart = polarPoint(cx, cy, rOuter, -90);
+          const arcEnd = polarPoint(cx, cy, rOuter, 90);
+          // 中心付近の±10¢を「良好ゾーン」の目印として弧の外側に小さな三角マーカーで示す
           const zoneAngle = 10 * 0.9;
           const zoneMarker = (angle) => {
-            const apex = polarPoint(cx, cy, rOuter + 3, angle);
-            const b1 = polarPoint(cx, cy, rOuter + 12, angle - 3);
-            const b2 = polarPoint(cx, cy, rOuter + 12, angle + 3);
+            const apex = polarPoint(cx, cy, rOuter + 4, angle);
+            const b1 = polarPoint(cx, cy, rOuter + 16, angle - 4);
+            const b2 = polarPoint(cx, cy, rOuter + 16, angle + 4);
             return `${b1.x},${b1.y} ${b2.x},${b2.y} ${apex.x},${apex.y}`;
           };
-          // 横方向に引き伸ばして表示し、同じ角度の振れでも針のブレを大きく見せる
-          // (preserveAspectRatio="none"でviewBoxの内容を非等倍にストレッチする)
+          // 進捗アーク: 中心(0¢)から現在のセント値の位置まで塗る(針ではなくつまみが動く表現)
+          const progressStart = polarPoint(cx, cy, rOuter, 0);
+          const thumb = polarPoint(cx, cy, rOuter, needleRotation);
+          const sweep = needleRotation >= 0 ? 1 : 0;
+          const progressPath = `M ${progressStart.x} ${progressStart.y} A ${rOuter} ${rOuter} 0 0 ${sweep} ${thumb.x} ${thumb.y}`;
           return (
-            <svg width="100%" height="104" viewBox="0 0 220 104" preserveAspectRatio="none" style={{ overflow: "visible", display: "block", marginTop: 4 }}>
-              {dots}
-              {PITCH_METER_TICKS.map((c) => {
-                const angle = c * 0.9;
-                const p1 = polarPoint(cx, cy, rInner, angle);
-                const p2 = polarPoint(cx, cy, rOuter, angle);
-                return <line key={c} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={c === 0 ? "#174585" : "#8D95A1"} strokeWidth={c === 0 ? 2.5 : 1.5} />;
-              })}
+            <svg width="100%" height="120" viewBox="0 0 220 120" preserveAspectRatio="none" style={{ overflow: "visible", display: "block" }}>
+              <path d={`M ${arcStart.x} ${arcStart.y} A ${rOuter} ${rOuter} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="#E9ECF0" strokeWidth="8" strokeLinecap="round" />
               <polygon points={zoneMarker(-zoneAngle)} fill="#9DB3CC" />
               <polygon points={zoneMarker(zoneAngle)} fill="#9DB3CC" />
-              <text x={leftLabel.x} y={leftLabel.y} textAnchor="middle" fontSize="9" fill="#8D95A1">-50</text>
-              <text x={rightLabel.x} y={rightLabel.y} textAnchor="middle" fontSize="9" fill="#8D95A1">+50</text>
-              {/* 針は固定長の縦線を回転させる方式(x2/y2の直接アニメーションはSVG要素間の互換性が低いため、
-                  全ブラウザで確実にアニメーションするtransform:rotateを使う) */}
-              <g style={{ transform: `rotate(${needleRotation}deg)`, transformOrigin: `${cx}px ${cy}px`, transition: "transform 0.1s ease-out" }}>
-                <line x1={cx} y1={cy} x2={cx} y2={cy - rNeedle} stroke={meterColor} strokeWidth="3" strokeLinecap="round" />
-              </g>
-              <circle cx={cx} cy={cy} r="6" fill={meterColor} />
+              {note && <path d={progressPath} fill="none" stroke={meterColor} strokeWidth="8" strokeLinecap="round" />}
+              <circle cx={thumb.x} cy={thumb.y} r="9" fill={meterColor} stroke="#FFFFFF" strokeWidth="3" />
             </svg>
           );
         })()}
-        <div className="sans" style={{ fontSize: 10, color: "#8D95A1", textAlign: "center", marginTop: -4 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
+        <div style={{ textAlign: "center", marginTop: -8 }}>
+          <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+            {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+          </span>
+        </div>
+      </div>
+      <div style={{ textAlign: "center", marginTop: 10, marginBottom: 4 }}>
+        {(() => {
+          const ac = note ? Math.abs(centsOffset) : null;
+          const centsColor = ac === null ? "#435266" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+          const centsBg = ac === null ? "#F6F7F9" : ac <= 3 ? "#E8F6ED" : ac <= 10 ? "#FDF0E1" : "#FBE9E9";
+          return (
+            <span className="sans" style={{ display: "inline-block", fontSize: 15, fontWeight: 700, color: centsColor, background: centsBg, padding: "6px 18px", borderRadius: 999 }}>
+              {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
+            </span>
+          );
+        })()}
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#8D95A1", marginTop: 8 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
-      {/* 心電図風のライブタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
+      {/* 「これまでの音」ミニタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
           録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
-          常に更新され続ける直近10秒のローリングバッファ(liveFrames)を表示に使う。いずれの場合も
-          表示自体は直近10秒だけの固定ウィンドウで、スクロールはしない(LiveEcgTimeline側で絞り込む)。
+          常に更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。
           メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
       {(() => {
         const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
         return timelineFrames.length > 0 ? (
-          <LiveEcgTimeline frames={timelineFrames} />
+          <RecentNotesBar frames={timelineFrames} />
         ) : (
-          <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px", marginBottom: 10, textAlign: "center" }}>
+          <div style={{ padding: "18px 0 0", textAlign: "center" }}>
             <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>音を出すと、ここに演奏の推移が表示されます</div>
           </div>
         );
       })()}
 
-      {/* スペクトル: 音が出ているかの視覚フィードバック用。分析の主役ではないため控えめな高さにする */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 6 }}>スペクトル (0–4000 Hz)</div>
-        <div style={{ display: "flex", alignItems: "flex-end", height: 48, gap: 2 }}>
-          {spectrumBars.map((v, i) => (<div key={i} style={{ flex: 1, height: `${Math.max(2, v * 100)}%`, background: "#9DB3CC", borderRadius: "2px 2px 0 0" }} />))}
-        </div>
+      {/* 詳細トグル(Claude Design提案): 倍音構成・スペクトル・補助指標(音量/重心/HNR)を1枚の
+          折りたたみカードにまとめる。デフォルトは展開(常に情報が見える今までの挙動を維持)で、
+          コンパクトにしたい時だけ閉じられるようにする。 */}
+      <div style={{ textAlign: "center", marginTop: 4 }}>
+        <span
+          onClick={() => setDetailOpen((v) => !v)}
+          className="sans"
+          style={{ fontSize: 13, color: "#174585", borderBottom: "1px solid #B9C9E4", paddingBottom: 3, cursor: "pointer" }}
+        >
+          {detailOpen ? "詳細を閉じる ︿" : "詳細（音量・重心・HNR・倍音）を見る ﹀"}
+        </span>
       </div>
-
-      {/* 倍音構成: 理想値との比較=このアプリの中核のため、音高に次ぐ第2の主役として大きく表示する */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 16px", marginBottom: 10 }}>
-        <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-          <span className="sans" style={{ fontSize: 12, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 理想）</span>
-          <div className="sans" style={{ display: "flex", gap: 10, fontSize: 10, color: "#435266" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 理想</label>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 160, paddingTop: 14 }}>
-          {Array.from({ length: NUM_HARMONICS }).map((_, idx) => {
-            const n = idx + 1;
-            const measured = harmonicLevels.find((h) => h.n === n);
-            const measuredHeight = measured ? measured.norm * 100 : 0;
-            const theoHarmonic = theoreticalHarmonics[idx];
-            const idealHarmonic = currentNoteIdeal?.harmonicsProfile?.find((h) => h.n === n);
-            const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
-            return (
-              // minWidth:0 が無いとflexアイテムは中身(倍音Hz表示の桁数)より縮められず、
-              // 音が変わって桁数が変わるたびに行全体の幅がガタつく(flexboxの既定挙動への対策)
-              <div key={n} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
-                <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
-                  <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#174585" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
-                  {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
-                </div>
-                <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 4 }}>{n}倍</div>
-                <div className="sans" style={{ fontSize: 8, color: "#8D95A1", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
+      {detailOpen && (
+        <div style={{ padding: "16px 0 10px" }}>
+          <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
+            {selectedIdeal && (
+              // 文言は音によって長さが変わるため、高さを固定して音が切り替わるたびに
+              // カード内の他要素がガタつかないようにする(2行分を確保)
+              <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 14, minHeight: 24, lineHeight: 1.4 }}>
+                {matchedFingering
+                  ? currentNoteIdeal
+                    ? `記音${matchedFingering.writtenLabel}の理想値と比較中: ${selectedIdeal.name}`
+                    : `記音${matchedFingering.writtenLabel}はこのプロファイルに未登録です`
+                  : "音を検出すると、その音に対応する理想値と比較します"}
               </div>
-            );
-          })}
-        </div>
-        <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
-        </div>
-        {selectedIdeal && (
-          // 文言は音によって長さが変わるため、高さを固定して音が切り替わるたびに
-          // 下のカード群がガタつかないようにする(2行分を確保)
-          <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 6, minHeight: 24, lineHeight: 1.4 }}>
-            {matchedFingering
-              ? currentNoteIdeal
-                ? `記音${matchedFingering.writtenLabel}の理想値と比較中`
-                : `記音${matchedFingering.writtenLabel}はこのプロファイルに未登録です`
-              : "音を検出すると、その音に対応する理想値と比較します"}
-          </div>
-        )}
-      </div>
+            )}
+            <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 理想）</span>
+              <div className="sans" style={{ display: "flex", gap: 10, fontSize: 10, color: "#435266" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 理想</label>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140, paddingTop: 14 }}>
+              {Array.from({ length: NUM_HARMONICS }).map((_, idx) => {
+                const n = idx + 1;
+                const measured = harmonicLevels.find((h) => h.n === n);
+                const measuredHeight = measured ? measured.norm * 100 : 0;
+                const theoHarmonic = theoreticalHarmonics[idx];
+                const idealHarmonic = currentNoteIdeal?.harmonicsProfile?.find((h) => h.n === n);
+                const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
+                return (
+                  // minWidth:0 が無いとflexアイテムは中身(倍音Hz表示の桁数)より縮められず、
+                  // 音が変わって桁数が変わるたびに行全体の幅がガタつく(flexboxの既定挙動への対策)
+                  <div key={n} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+                    <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
+                      <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#174585" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
+                      {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
+                    </div>
+                    <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 4 }}>{n}倍</div>
+                    <div className="sans" style={{ fontSize: 8, color: "#8D95A1", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
+            </div>
 
-      {/* 補助指標 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-        <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
-        <MetricCard label="スペクトル重心" value={`${Math.round(centroidHz)} Hz`} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
-        <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
+            <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
+
+            <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 8 }}>スペクトル (0–4000 Hz)</div>
+            <div style={{ display: "flex", alignItems: "flex-end", height: 44, gap: 2, marginBottom: 4 }}>
+              {spectrumBars.map((v, i) => (<div key={i} style={{ flex: 1, height: `${Math.max(2, v * 100)}%`, background: "#9DB3CC", borderRadius: "2px 2px 0 0" }} />))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
+              <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
+              <MetricCard label="スペクトル重心" value={`${Math.round(centroidHz)} Hz`} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
+              <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 録音/アップロードボタン(Claude Design提案): アイコンをラベルの上に積んだpill型。
+          均等幅で並べ、録音は塗り、アップロードは輪郭のみで区別する。 */}
+      <div style={{ display: "flex", gap: 11, padding: "22px 0 4px" }}>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isRecording || isAnalyzingUpload}
+          className="sans"
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 14, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+        >
+          <Upload size={16} />
+          {isAnalyzingUpload ? "解析中…" : "ファイルから解析"}
+        </button>
+        <button
+          onClick={toggleRecording}
+          className="sans"
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: isRecording ? "none" : "0 12px 28px rgba(23,69,133,.32)" }}
+        >
+          {isRecording ? <Square size={16} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />}
+          {isRecording ? "停止" : "録音する"}
+        </button>
       </div>
 
       {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う)。
