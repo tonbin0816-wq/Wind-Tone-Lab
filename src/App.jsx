@@ -936,7 +936,8 @@ function analyzeMediaFile(file, opts) {
 // ============================================================
 export default function WindToneLabPhaseMode() {
   const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
-  const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | data
+  const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | compare | ranking
+  const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
   // isListening: マイク+ライブ表示が有効か(計測タブ滞在中は自動でON/OFF)。
   // isRecording: 録音ボタンで蓄積中かどうか(セッションとして保存されるのはこの間のフレームのみ)。
   const [isListening, setIsListening] = useState(false);
@@ -1526,12 +1527,13 @@ export default function WindToneLabPhaseMode() {
         ))}
       </div>
 
-      {/* リードタブ内の子タブ: 登録 / データ分析 */}
+      {/* リードタブ内の子タブ: 登録 / 比較 / ランキング */}
       {topTab === "reeds" && (
         <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
           {[
             { key: "register", label: "登録" },
-            { key: "data", label: "評価" },
+            { key: "compare", label: "比較" },
+            { key: "ranking", label: "ランキング" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1584,7 +1586,7 @@ export default function WindToneLabPhaseMode() {
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
-          promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
+          promoteSessionToIdeal={promoteSessionToIdeal}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
           uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
         />
@@ -1596,10 +1598,13 @@ export default function WindToneLabPhaseMode() {
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
         />
       )}
-      {topTab === "reeds" && reedsSubTab === "data" && (
-        <DataAnalysisView
-          reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
-        />
+      {topTab === "reeds" && reedsSubTab === "compare" && (
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} />
+        </div>
+      )}
+      {topTab === "reeds" && reedsSubTab === "ranking" && (
+        <ReedRankingSection reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal} />
       )}
       {topTab === "analysis" && (
         <AnalysisLabView
@@ -1681,6 +1686,68 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
   );
 }
 
+// 計測タブのライブタイムライン(心電図モニター風)。SessionDetailView等で使う履歴振り返り用の
+// PhraseTimeline(スクラブ・ドリルダウンつき)とは別物として実装する: こちらは「今どう吹いているか」を
+// 一瞥するためのものなので、横軸を直近10秒に固定し、新しいフレームが右端に追加され、
+// 10秒より古い部分は自動的に流れて消える(スクロール操作は不要・提供しない)。
+const LIVE_TIMELINE_METRICS = [
+  { key: "pitch", label: "ピッチ", getValue: (f) => f.pitchHz },
+  { key: "volume", label: "音量", getValue: (f) => f.volumeDb },
+  { key: "centroid", label: "重心", getValue: (f) => f.spectralCentroidHz },
+  { key: "hnr", label: "HNR", getValue: (f) => f.hnrDb },
+];
+const LIVE_TIMELINE_WINDOW_SEC = 10;
+
+function LiveEcgTimeline({ frames }) {
+  const [metricKey, setMetricKey] = useState("pitch");
+  const metric = LIVE_TIMELINE_METRICS.find((m) => m.key === metricKey);
+
+  const W = 600, H = 100;
+  const latestT = frames.length ? frames[frames.length - 1].t : 0;
+  // 直近10秒だけを描画対象にする(録音中はframes自体がもっと長く育つため、末尾だけ切り出す)
+  const windowFrames = frames.filter((f) => f.t >= latestT - LIVE_TIMELINE_WINDOW_SEC);
+  const vals = windowFrames.map(metric.getValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  const minV = vals.length ? Math.min(...vals) : 0;
+  const maxV = vals.length ? Math.max(...vals) : 1;
+  const range = maxV - minV || 1;
+
+  // x: 「今から何秒前か」を右端=現在・左端=10秒前に固定でマッピングする。
+  // これにより新しいフレームは常に右端に現れ、古いフレームは左へ押し出されて画面外に消えていく。
+  const x = (t) => W - ((latestT - t) / LIVE_TIMELINE_WINDOW_SEC) * W;
+  const y = (v) => H - 10 - ((v - minV) / range) * (H - 20);
+
+  const points = windowFrames
+    .map((f) => {
+      const v = metric.getValue(f);
+      return v === null || v === undefined || isNaN(v) ? null : `${x(f.t)},${y(v)}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 4px 8px", marginBottom: 10 }}>
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0 10px" }}>
+        <span style={{ fontSize: 10, color: "#435266" }}>表示:</span>
+        <select value={metricKey} onChange={(e) => setMetricKey(e.target.value)}>
+          {LIVE_TIMELINE_METRICS.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
+        </select>
+      </div>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+        {/* 1秒ごとの目盛り線(心電図の方眼のような視覚的な時間ガイド) */}
+        {Array.from({ length: LIVE_TIMELINE_WINDOW_SEC + 1 }, (_, i) => {
+          const gx = (i / LIVE_TIMELINE_WINDOW_SEC) * W;
+          return <line key={i} x1={gx} y1={0} x2={gx} y2={H} stroke="#EEF1F4" strokeWidth="1" />;
+        })}
+        {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
+      </svg>
+      <div className="sans" style={{ fontSize: 9, color: "#8D95A1", display: "flex", justifyContent: "space-between", padding: "2px 10px 0" }}>
+        <span>-10s</span>
+        <span>現在</span>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // 計測ビュー(単音・フレーズ統合)
 //
@@ -1699,7 +1766,7 @@ function MeasureView(props) {
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal, sessions,
+    phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
   } = props;
 
@@ -1732,14 +1799,13 @@ function MeasureView(props) {
       {/* 使用リード選択(企画書v5 10.3節: 事前選択、箱→個体の二段階) + 奏者選択。
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
       <div className="sans" style={{ fontSize: 11, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
-        <span style={{ color: "#435266", flexShrink: 0 }}>リード:</span>
         <select
           value={selectedBoxKey || ""}
           onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
           disabled={isRecording}
           style={{ minWidth: 0, maxWidth: 120 }}
         >
-          <option value="">箱を選択</option>
+          <option value="">リードを選択</option>
           {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}</option>))}
         </select>
         <select
@@ -1751,7 +1817,6 @@ function MeasureView(props) {
           <option value="">{selectedBoxGroup ? "個体" : "—"}</option>
           {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
         </select>
-        <span style={{ color: "#435266", marginLeft: 4, flexShrink: 0 }}>奏者:</span>
         <PerformerSelector
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
@@ -1762,36 +1827,31 @@ function MeasureView(props) {
         <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-        {isRecording ? (
-          <div className="sans" style={{ fontSize: 11, color: "#174585", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
-            録音中 · {phraseFrames.length}フレーム
-            {phraseNoteEvents.length > 0 && <span style={{ color: "#435266", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
-          </div>
-        ) : <span />}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isRecording || isAnalyzingUpload}
-            className="sans"
-            style={{ display: "flex", alignItems: "center", gap: 6, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 5, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
-          >
-            <Upload size={14} />
-            {isAnalyzingUpload ? "解析中…" : "アップロード"}
-          </button>
-          <button onClick={toggleRecording} className="sans" style={{ display: "flex", alignItems: "center", gap: 6, background: isRecording ? "#DC2626" : "#174585", color: "#F6F7F9", border: "none", borderRadius: 5, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            {isRecording ? <Square size={14} /> : <Mic size={14} />}
-            {isRecording ? "停止" : "録音"}
-          </button>
+      {isRecording && (
+        <div className="sans" style={{ fontSize: 11, color: "#174585", display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
+          録音中 · {phraseFrames.length}フレーム
+          {phraseNoteEvents.length > 0 && <span style={{ color: "#435266", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
         </div>
-      </div>
-      <div className="sans" style={{ fontSize: 9, color: "#8D95A1", textAlign: "right", marginBottom: 8 }}>
-        wav/mp3/m4a等の音声ファイルに加え、スマホのボイスメモや動画(mp4/mov等)もアップロードできます
+      )}
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input
+          ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isRecording || isAnalyzingUpload}
+          className="sans"
+          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 5, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+        >
+          <Upload size={14} />
+          {isAnalyzingUpload ? "解析中…" : "アップロード"}
+        </button>
+        <button onClick={toggleRecording} className="sans" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: isRecording ? "#DC2626" : "#174585", color: "#F6F7F9", border: "none", borderRadius: 5, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          {isRecording ? <Square size={14} /> : <Mic size={14} />}
+          {isRecording ? "停止" : "録音"}
+        </button>
       </div>
 
       {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
@@ -1819,7 +1879,9 @@ function MeasureView(props) {
 
       {/* ピッチメーター: デジタルチューナー機の見た目(基準Hzの小表示・大きな音名・弧状の目盛りと針)を
           参考にしつつ、色はアンバー液晶ではなくアプリの配色(白背景・スレート/ブルー)に置き換えている。 */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 6px 10px", marginBottom: 10, position: "relative" }}>
+      {/* 左右の余白は、ページ全体のpadding(14px)を打ち消す負のmarginで画面幅いっぱいまで広げる。
+          メーター(SVG)はwidth:100%で追従するため、これだけでメーター自体も画面幅いっぱいになる。 */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 4px 10px", margin: "0 -14px 10px", position: "relative" }}>
         <button
           onClick={() => setOpenPicker("tuning")}
           className="sans"
@@ -1903,17 +1965,15 @@ function MeasureView(props) {
         <div className="sans" style={{ fontSize: 10, color: "#8D95A1", textAlign: "center", marginTop: -4 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
-      {/* 録音データグラフ(時間変化のタイムライン)。メーターと同様、録音開始有無に関わらず常時動かす。
+      {/* 心電図風のライブタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
           録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
-          常に更新され続ける直近10秒のローリングバッファ(liveFrames)を表示に使う。
+          常に更新され続ける直近10秒のローリングバッファ(liveFrames)を表示に使う。いずれの場合も
+          表示自体は直近10秒だけの固定ウィンドウで、スクロールはしない(LiveEcgTimeline側で絞り込む)。
           メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
       {(() => {
         const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
         return timelineFrames.length > 0 ? (
-          <PhraseTimeline
-            frames={timelineFrames} noteEvents={phraseFrames.length > 0 ? phraseNoteEvents : []} selectedIdeal={selectedIdeal}
-            NUM_HARMONICS={NUM_HARMONICS} sessions={sessions}
-          />
+          <LiveEcgTimeline frames={timelineFrames} />
         ) : (
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px", marginBottom: 10, textAlign: "center" }}>
             <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>音を出すと、ここに演奏の推移が表示されます</div>
@@ -2229,8 +2289,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 
 // 主観評価の5段階星レーティング。クリックで1〜5をセット、同じ星を再クリックで解除(null)。
 function StarRating({ value, onChange, size = 13, readOnly = false }) {
+  // タップ操作の場合、見た目のフォントサイズだけだと当たり判定が小さすぎて押しにくいため、
+  // 星そのものは変えずにpaddingで実際のタップ領域だけ広げる。
   return (
-    <div style={{ display: "flex", gap: 1 }}>
+    <div style={{ display: "flex", gap: readOnly ? 1 : 2 }}>
       {[1, 2, 3, 4, 5].map((n) => (
         <span
           key={n}
@@ -2241,6 +2303,8 @@ function StarRating({ value, onChange, size = 13, readOnly = false }) {
             fontSize: size,
             lineHeight: 1,
             userSelect: "none",
+            padding: readOnly ? 0 : 6,
+            margin: readOnly ? 0 : -6,
           }}
         >
           ★
@@ -2822,7 +2886,7 @@ function ReedRegisterView(props) {
                             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #EEF1F4" : "none" }}>
                               <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#121F32", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <span onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={13} />
+                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={19} />
                               </span>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
@@ -2938,12 +3002,9 @@ const REED_COMPARE_METRICS = [
   { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
 ];
 
-function DataAnalysisView(props) {
-  const { reeds, sessions, selectedIdeal } = props;
-
-  const [subTab, setSubTab] = useState("compare"); // compare | ranking
-  const [compareReedIds, setCompareReedIds] = useState([]);
-
+// ランキングタブ: リードごとのフレームを集約してスコアリングし、ReedRankingTabで並び替え表示する。
+// (「登録」「比較」と並列の独立タブ。以前はDataAnalysisView内の「評価」子タブに比較と同居していた)
+function ReedRankingSection({ reeds, sessions, selectedIdeal }) {
   // リードごとにセッションのフレームを集約し、スコアリング用の配列を作る
   const buildReedMetrics = (reedId) => {
     const reedSessions = sessions.filter((s) => s.reedId === reedId);
@@ -2972,33 +3033,7 @@ function DataAnalysisView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ display: "flex", gap: 6, background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: 4, marginBottom: 10 }}>
-        {[
-          { key: "compare", label: "リード別比較" },
-          { key: "ranking", label: "ランキング" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setSubTab(t.key)}
-            className="sans"
-            style={{
-              flex: 1, padding: "8px 4px", borderRadius: 7, border: "none",
-              background: subTab === t.key ? "#EAEFF5" : "transparent",
-              color: subTab === t.key ? "#174585" : "#435266",
-              fontWeight: subTab === t.key ? 600 : 400, fontSize: 11, cursor: "pointer",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {subTab === "compare" && (
-        <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} />
-      )}
-      {subTab === "ranking" && (
-        <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} reeds={reeds} />
-      )}
+      <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} reeds={reeds} />
     </div>
   );
 }
@@ -3191,13 +3226,26 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
 
   const [view, setView] = useState("avg"); // "avg" | "trend"(My Dataと同じ形式)
 
-  // 名前(個体を識別するための自由記述のニックネーム)とメモは打鍵毎の書き込みを避けるため
+  // #番号・名前(個体を識別するための自由記述のニックネーム)・メモは打鍵毎の書き込みを避けるため
   // ローカルstateで編集し、フォーカスが外れた時にまとめてリードへ反映する(セッション詳細と同じパターン)。
+  // #番号は数字管理の人もいればアルファベットや記号で管理する人もいるため自由記述にする
+  // (デフォルトは登録順の連番のまま。空にすればまた自動採番に戻る)。
+  const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
   const [nicknameDraft, setNicknameDraft] = useState(reed.nickname || "");
   const [memoDraft, setMemoDraft] = useState(reed.memo || "");
-  useEffect(() => { setNicknameDraft(reed.nickname || ""); setMemoDraft(reed.memo || ""); }, [reed.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
+    setNicknameDraft(reed.nickname || "");
+    setMemoDraft(reed.memo || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reed.id]);
 
   const patchReed = (patch) => setReeds((prev) => prev.map((r) => (r.id === reed.id ? { ...r, ...patch } : r)));
+  const commitPosition = () => {
+    const trimmed = positionDraft.trim();
+    if (trimmed === String(reed.boxNumber ?? "")) return;
+    patchReed({ boxNumber: trimmed || null });
+  };
   const commitNickname = () => {
     const trimmed = nicknameDraft.trim();
     if (trimmed === (reed.nickname || "")) return;
@@ -3224,6 +3272,15 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
         <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>#番号:</span>
+            <input
+              type="text" placeholder="数字・アルファベット・記号など自由に(空欄で自動採番に戻る)"
+              value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
+              className="sans"
+              style={{ width: 80, flexShrink: 0, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "6px 10px", color: "#121F32", fontSize: 11 }}
+            />
+          </div>
+          <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>名前:</span>
             <input
               type="text" placeholder="このリードの呼び名(任意)"
@@ -3234,7 +3291,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
           </div>
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>評価:</span>
-            <StarRating value={reed.rating} onChange={(v) => patchReed({ rating: v })} size={16} />
+            <StarRating value={reed.rating} onChange={(v) => patchReed({ rating: v })} size={22} />
           </div>
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44, marginTop: 6 }}>メモ:</span>
@@ -3426,7 +3483,10 @@ const PIVOT_DIMENSIONS = [
   {
     key: "note", label: "音名",
     getValue: (f) => f.matchedWrittenNote ?? null,
-    getSort: (f) => f.semitoneIndex ?? 999,
+    // 縦軸では上から、横軸では左から高い音が来るように、半音インデックスの降順(符号反転)で
+    // ソートする(未判定は999で従来通り末尾に置く)。行・列とも同じ昇順ソートを共通で使う
+    // buildPivotの仕組み上、ここでソートキーを反転させるのが一番シンプルな実装になる。
+    getSort: (f) => (f.semitoneIndex === null || f.semitoneIndex === undefined ? 999 : -f.semitoneIndex),
   },
   {
     key: "band", label: "音域帯",
@@ -3966,13 +4026,21 @@ function AnalysisLabView(props) {
                 );
               })}
             </div>
-            {visibleCount < sortedSessions.length && (
+            {visibleCount < sortedSessions.length ? (
               <button
                 onClick={() => setVisibleCount(sortedSessions.length)}
                 className="sans"
                 style={{ width: "100%", marginTop: 10, padding: "8px 4px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#174585", fontSize: 11, cursor: "pointer" }}
               >
                 もっと見る（残り{sortedSessions.length - visibleCount}件）
+              </button>
+            ) : visibleCount > 3 && (
+              <button
+                onClick={() => setVisibleCount(3)}
+                className="sans"
+                style={{ width: "100%", marginTop: 10, padding: "8px 4px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
+              >
+                閉じる
               </button>
             )}
           </>
