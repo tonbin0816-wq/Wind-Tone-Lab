@@ -23,12 +23,6 @@ function centsBetween(freqA, freqB) {
   return 1200 * Math.log2(freqA / freqB);
 }
 
-// 角度(0=真上、時計回りが正)をSVG円弧上の座標に変換する(音高メーターの目盛り・弧の描画に使用)
-function polarPoint(cx, cy, r, angleDeg) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
-}
-
 function speedOfSound(tempC) {
   return 331.3 + 0.606 * tempC;
 }
@@ -1478,7 +1472,6 @@ export default function WindToneLabPhaseMode() {
   // tick()内で計算するとクロージャに古い基準ピッチが残るため、基準変更が即座に表示へ反映されない。
   const note = pitch ? freqToNote(pitch, tuningHz) : null;
   const centsOffset = note ? note.cents : 0;
-  const needleRotation = Math.max(-50, Math.min(50, centsOffset)) * 0.9;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 40px", boxSizing: "border-box" }}>
@@ -1569,7 +1562,7 @@ export default function WindToneLabPhaseMode() {
       {topTab === "measure" && (
         <MeasureView
           isRecording={isRecording} toggleRecording={toggleRecording}
-          note={note} pitch={pitch} needleRotation={needleRotation} centsOffset={centsOffset}
+          note={note} pitch={pitch} centsOffset={centsOffset}
           spectrumBars={spectrumBars}
           harmonicLevels={harmonicLevels} theoreticalHarmonics={theoreticalHarmonics}
           showIdeal={showIdeal} setShowIdeal={setShowIdeal}
@@ -1687,45 +1680,42 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
   );
 }
 
-// 計測タブの「これまでの音」ミニタイムライン(Claude Designの計測タブ提案を反映)。
-// SessionDetailView等で使う履歴振り返り用のPhraseTimeline(スクラブ・ドリルダウンつき)とは
-// 別物として実装する: こちらは折れ線ではなく、直近30秒を12分割したバケットごとの
-// 平均ピッチ偏差を上下の棒で表す(高さ=ズレの大きさ、上下=♯/♭の向き、色=良好かどうか)。
+// 計測タブの「これまでの音」ミニタイムライン。SessionDetailView等で使う履歴振り返り用の
+// PhraseTimeline(スクラブ・ドリルダウンつき)とは別物として実装する: こちらは直近30秒の
+// 理論値(運指テーブル)からのピッチ偏差(セント)をそのまま折れ線で表す。縦軸はメーターと
+// 揃えて-50¢〜+50¢に固定し、±10¢の良好ゾーンを帯で示す。
 const RECENT_NOTES_WINDOW_SEC = 30;
-const RECENT_NOTES_BUCKETS = 12;
+const RECENT_NOTES_RANGE_CENTS = 50;
 
-function RecentNotesBar({ frames }) {
+function PitchDeviationLine({ frames }) {
+  const W = 600, H = 110;
   const latestT = frames.length ? frames[frames.length - 1].t : 0;
-  const bucketSec = RECENT_NOTES_WINDOW_SEC / RECENT_NOTES_BUCKETS;
-  const buckets = Array.from({ length: RECENT_NOTES_BUCKETS }, (_, i) => {
-    const bucketStart = latestT - RECENT_NOTES_WINDOW_SEC + i * bucketSec;
-    const bucketEnd = bucketStart + bucketSec;
-    const vals = frames
-      .filter((f) => f.t >= bucketStart && f.t < bucketEnd && f.pitchCents !== null && f.pitchCents !== undefined && !isNaN(f.pitchCents))
-      .map((f) => f.pitchCents);
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-  });
+  const windowFrames = frames.filter((f) => f.t >= latestT - RECENT_NOTES_WINDOW_SEC);
+
+  // x: 「今から何秒前か」を右端=現在・左端=30秒前に固定でマッピングする。
+  const x = (t) => W - ((latestT - t) / RECENT_NOTES_WINDOW_SEC) * W;
+  // y: -50¢〜+50¢を上下の帯全体にマッピングする(0¢が中央)。範囲外の値は見切れさせず端に寄せる。
+  const y = (cents) => {
+    const clamped = Math.max(-RECENT_NOTES_RANGE_CENTS, Math.min(RECENT_NOTES_RANGE_CENTS, cents));
+    return H / 2 - (clamped / RECENT_NOTES_RANGE_CENTS) * (H / 2 - 6);
+  };
+  const goodTop = y(10), goodBottom = y(-10);
+
+  const points = windowFrames
+    .map((f) => (f.pitchCents === null || f.pitchCents === undefined || isNaN(f.pitchCents) ? null : `${x(f.t)},${y(f.pitchCents)}`))
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div style={{ padding: "18px 0 0" }}>
       <div className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#2A3547", marginBottom: 12 }}>これまでの音</div>
-      <div style={{ position: "relative", height: 62, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 2px" }}>
-        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "#DDE2E8" }} />
-        {buckets.map((cents, i) => {
-          if (cents === null) return <div key={i} style={{ width: 8, height: 1 }} />;
-          const clamped = Math.max(-25, Math.min(25, cents));
-          const height = Math.min(28, 6 + Math.abs(cents) * 0.7);
-          const good = Math.abs(cents) <= 10;
-          return (
-            <div
-              key={i}
-              style={{ width: 8, height, borderRadius: 3, background: good ? "#174585" : "#DC2626", transform: `translateY(${-clamped * 0.5}px)`, position: "relative", zIndex: 1 }}
-            />
-          );
-        })}
-      </div>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+        <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
+        <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
+        {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
+      </svg>
       <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4 }}>
-        <span>♭ 低い</span><span>30秒前 → 今</span><span>♯ 高い</span>
+        <span>-50¢</span><span>30秒前 → 今</span><span>+50¢</span>
       </div>
     </div>
   );
@@ -1742,7 +1732,7 @@ function RecentNotesBar({ frames }) {
 // ============================================================
 function MeasureView(props) {
   const {
-    isRecording, toggleRecording, note, pitch, needleRotation, centsOffset, spectrumBars,
+    isRecording, toggleRecording, note, pitch, centsOffset, spectrumBars,
     harmonicLevels, theoreticalHarmonics, showIdeal, setShowIdeal,
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering,
@@ -1871,46 +1861,13 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* ピッチメーター(Claude Design計測タブ提案): 太い半円トラック+良好ゾーンの三角マーカー+
-          セント値に応じて中心から動く進捗アークとサム(つまみ)。針ではなく「つまみが弧の上を動く」表現。
-          カードの枠は持たず、ページの背景に直接置く(提案デザインのフラットな雰囲気に合わせる)。 */}
-      <div style={{ position: "relative", padding: "8px 0 0" }}>
-        {(() => {
-          const cx = 110, cy = 105, rOuter = 90;
-          const ac = note ? Math.abs(centsOffset) : null;
-          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-          const arcStart = polarPoint(cx, cy, rOuter, -90);
-          const arcEnd = polarPoint(cx, cy, rOuter, 90);
-          // 中心付近の±10¢を「良好ゾーン」の目印として弧の外側に小さな三角マーカーで示す
-          const zoneAngle = 10 * 0.9;
-          const zoneMarker = (angle) => {
-            const apex = polarPoint(cx, cy, rOuter + 4, angle);
-            const b1 = polarPoint(cx, cy, rOuter + 16, angle - 4);
-            const b2 = polarPoint(cx, cy, rOuter + 16, angle + 4);
-            return `${b1.x},${b1.y} ${b2.x},${b2.y} ${apex.x},${apex.y}`;
-          };
-          // 進捗アーク: 中心(0¢)から現在のセント値の位置まで塗る(針ではなくつまみが動く表現)
-          const progressStart = polarPoint(cx, cy, rOuter, 0);
-          const thumb = polarPoint(cx, cy, rOuter, needleRotation);
-          const sweep = needleRotation >= 0 ? 1 : 0;
-          const progressPath = `M ${progressStart.x} ${progressStart.y} A ${rOuter} ${rOuter} 0 0 ${sweep} ${thumb.x} ${thumb.y}`;
-          return (
-            <svg width="100%" height="120" viewBox="0 0 220 120" preserveAspectRatio="none" style={{ overflow: "visible", display: "block" }}>
-              <path d={`M ${arcStart.x} ${arcStart.y} A ${rOuter} ${rOuter} 0 0 1 ${arcEnd.x} ${arcEnd.y}`} fill="none" stroke="#E9ECF0" strokeWidth="8" strokeLinecap="round" />
-              <polygon points={zoneMarker(-zoneAngle)} fill="#9DB3CC" />
-              <polygon points={zoneMarker(zoneAngle)} fill="#9DB3CC" />
-              {note && <path d={progressPath} fill="none" stroke={meterColor} strokeWidth="8" strokeLinecap="round" />}
-              <circle cx={thumb.x} cy={thumb.y} r="9" fill={meterColor} stroke="#FFFFFF" strokeWidth="3" />
-            </svg>
-          );
-        })()}
-        <div style={{ textAlign: "center", marginTop: -8 }}>
-          <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-            {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
-          </span>
-        </div>
+      {/* 音名(大表示)。半円のアーク式メーターは実機で見づらかったため、横一直線のメーターに変更した。 */}
+      <div style={{ textAlign: "center", padding: "12px 0 0" }}>
+        <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+          {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+        </span>
       </div>
-      <div style={{ textAlign: "center", marginTop: 10, marginBottom: 4 }}>
+      <div style={{ textAlign: "center", marginTop: 6, marginBottom: 4 }}>
         {(() => {
           const ac = note ? Math.abs(centsOffset) : null;
           const centsColor = ac === null ? "#435266" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
@@ -1924,6 +1881,35 @@ function MeasureView(props) {
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#8D95A1", marginTop: 8 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
+      {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
+          つまみが現在のセント値の位置まで中心から帯状に伸びる。 */}
+      <div style={{ padding: "18px 4px 0" }}>
+        {(() => {
+          const ac = note ? Math.abs(centsOffset) : null;
+          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+          const clamped = note ? Math.max(-50, Math.min(50, centsOffset)) : 0;
+          const thumbPct = 50 + clamped; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
+          return (
+            <div style={{ position: "relative", height: 18 }}>
+              <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
+              <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
+              <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
+              {note && (
+                <div style={{
+                  position: "absolute", top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
+                  left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`,
+                }} />
+              )}
+              <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)" }} />
+            </div>
+          );
+        })()}
+        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, color: "#8D95A1" }}>
+          <span>-50</span>
+          <span>+50</span>
+        </div>
+      </div>
+
       {/* 「これまでの音」ミニタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
           録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
           常に更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。
@@ -1931,7 +1917,7 @@ function MeasureView(props) {
       {(() => {
         const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
         return timelineFrames.length > 0 ? (
-          <RecentNotesBar frames={timelineFrames} />
+          <PitchDeviationLine frames={timelineFrames} />
         ) : (
           <div style={{ padding: "18px 0 0", textAlign: "center" }}>
             <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>音を出すと、ここに演奏の推移が表示されます</div>
