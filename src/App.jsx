@@ -1478,8 +1478,9 @@ export default function WindToneLabPhaseMode() {
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
-        /* 計測タブのみで使うフォント(Claude Designの提案を反映): 音名の大表示にInstrument Serif、
-           数値表示にSpace Grotesk。他タブの基本フォント(Noto Sans JP)は変更しない。 */
+        /* Claude Designの提案を反映したフォント: 音名/リード番号の表示にInstrument Serif、
+           数値表示にSpace Grotesk。基本フォント(Noto Sans JP)は変更せず、inlineのfontFamilyで
+           必要箇所にのみ適用する(計測・リード・分析タブで使用)。 */
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600;700&display=swap');
         * { box-sizing: border-box; }
         .sans { font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
@@ -1497,7 +1498,7 @@ export default function WindToneLabPhaseMode() {
       </div>
 
       {/* Top-level tabs: 音計測 / リード / 分析 */}
-      <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: 4 }}>
+      <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4 }}>
         {[
           { key: "measure", label: "計測" },
           { key: "reeds", label: "リード" },
@@ -1509,10 +1510,11 @@ export default function WindToneLabPhaseMode() {
             disabled={isRecording}
             className="sans"
             style={{
-              flex: 1, padding: "9px 4px", borderRadius: 7, border: "none",
-              background: topTab === t.key ? "#EAEFF5" : "transparent",
-              color: topTab === t.key ? "#174585" : "#435266",
-              fontWeight: topTab === t.key ? 600 : 400, fontSize: 12,
+              flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
+              background: topTab === t.key ? "#FFFFFF" : "transparent",
+              color: topTab === t.key ? "#174585" : "#8D95A1",
+              fontWeight: topTab === t.key ? 700 : 400, fontSize: 13,
+              boxShadow: topTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
               cursor: isRecording ? "default" : "pointer", opacity: isRecording && topTab !== t.key ? 0.4 : 1,
             }}
           >
@@ -1523,7 +1525,7 @@ export default function WindToneLabPhaseMode() {
 
       {/* リードタブ内の子タブ: 登録 / 比較 / ランキング */}
       {topTab === "reeds" && (
-        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6 }}>
+        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4 }}>
           {[
             { key: "register", label: "登録" },
             { key: "compare", label: "比較" },
@@ -1534,11 +1536,12 @@ export default function WindToneLabPhaseMode() {
               onClick={() => setReedsSubTab(t.key)}
               className="sans"
               style={{
-                flex: 1, padding: "7px 4px", borderRadius: 7,
-                border: reedsSubTab === t.key ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                background: reedsSubTab === t.key ? "#EAEFF5" : "transparent",
-                color: reedsSubTab === t.key ? "#174585" : "#435266",
-                fontWeight: reedsSubTab === t.key ? 600 : 400, fontSize: 11, cursor: "pointer",
+                flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
+                background: reedsSubTab === t.key ? "#FFFFFF" : "transparent",
+                color: reedsSubTab === t.key ? "#174585" : "#8D95A1",
+                fontWeight: reedsSubTab === t.key ? 700 : 400, fontSize: 13,
+                boxShadow: reedsSubTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
+                cursor: "pointer",
               }}
             >
               {t.label}
@@ -2526,9 +2529,9 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
 
 function MetricCard({ label, value, sub, accentColor }) {
   return (
-    <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E9ECF0"}`, borderRadius: 5, padding: "8px 10px" }}>
-      <div className="sans" style={{ fontSize: 9, color: "#435266" }}>{label}</div>
-      <div style={{ fontSize: 17, fontWeight: 700, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
+    <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E9ECF0"}`, borderRadius: 14, padding: "12px 14px" }}>
+      <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>{label}</div>
+      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
       {sub && <div className="sans" style={{ fontSize: 9, color: "#174585", marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -2676,8 +2679,8 @@ function ReedRegisterView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 11, color: "#121F32", fontWeight: 600, marginBottom: 10 }}>新しいリードを登録</div>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <div>
@@ -2714,7 +2717,7 @@ function ReedRegisterView(props) {
             onClick={() => registerReeds(1)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "9px 4px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#121F32", fontSize: 11, cursor: "pointer" }}
+            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 12, cursor: "pointer" }}
           >
             1枚ずつ追加
           </button>
@@ -2725,23 +2728,23 @@ function ReedRegisterView(props) {
             onClick={() => registerReeds(bulkCount)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "9px 4px", borderRadius: 4, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
           >
             まとめて追加
           </button>
         </div>
       </div>
 
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700 }}>登録済みリード（{reeds.length}）</div>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>登録済みリード <span style={{ color: "#8D95A1", fontWeight: 400 }}>{reeds.length}</span></div>
           {reeds.length > 0 && (
             boxSelectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   onClick={exitBoxSelectionMode}
                   className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
+                  style={{ padding: "7px 14px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
                 >
                   キャンセル
                 </button>
@@ -2749,7 +2752,7 @@ function ReedRegisterView(props) {
                   onClick={confirmBoxBatchDelete}
                   disabled={selectedBoxesForDelete.size === 0}
                   className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 4, border: "none", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
+                  style={{ padding: "7px 14px", borderRadius: 999, border: "none", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
                 >
                   {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
                 </button>
@@ -2758,7 +2761,7 @@ function ReedRegisterView(props) {
               <button
                 onClick={startBoxSelectionMode}
                 className="sans"
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
               >
                 <Trash2 size={13} /> 削除
               </button>
@@ -2774,7 +2777,7 @@ function ReedRegisterView(props) {
               const boxChecked = selectedBoxesForDelete.has(g.key);
               const isMemberSelecting = memberSelectGroupKey === g.key;
               return (
-                <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 5, overflow: "hidden" }}>
+                <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EAEFF5" : "#FFFFFF" }}>
                     {boxSelectionMode ? (
                       <button
@@ -2851,7 +2854,7 @@ function ReedRegisterView(props) {
                                 onClick={(e) => e.stopPropagation()}
                                 style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
                               />
-                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#121F32", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <StarRating value={r.rating} onChange={() => {}} readOnly size={11} />
                             </div>
                           ))}
@@ -2862,8 +2865,8 @@ function ReedRegisterView(props) {
                           onReorder={reorderGroupMembers}
                           onRowClick={(id) => setEvaluatingReedId(id)}
                           renderRow={(r, idx) => (
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #EEF1F4" : "none" }}>
-                              <span className="sans" style={{ fontSize: 10, fontWeight: 700, color: "#121F32", width: 22, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
+                              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <span onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                                 <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={19} />
                               </span>
@@ -2871,7 +2874,7 @@ function ReedRegisterView(props) {
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
                                 className="sans"
-                                style={{ fontSize: 10, padding: "8px 14px", borderRadius: 4, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: "auto" }}
+                                style={{ fontSize: 11, padding: "8px 16px", borderRadius: 999, border: "1px solid #174585", background: "transparent", color: "#174585", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: "auto" }}
                               >
                                 測定へ
                               </button>
@@ -2981,6 +2984,9 @@ const REED_COMPARE_METRICS = [
   { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
 ];
 
+// リード比較で複数リードを色分けするためのパレット(選択順に割り当て)
+const REED_COMPARE_COLORS = ["#174585", "#7FA0CE", "#B9C9E4", "#D97706", "#16A34A", "#8D95A1"];
+
 // ランキングタブ: リードごとのフレームを集約してスコアリングし、ReedRankingTabで並び替え表示する。
 // (「登録」「比較」と並列の独立タブ。以前はDataAnalysisView内の「評価」子タブに比較と同居していた)
 function ReedRankingSection({ reeds, sessions, selectedIdeal }) {
@@ -3044,40 +3050,64 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
     .filter(Boolean)
     .map((r) => ({ reed: r, label: reedLabel(r, reeds), summary: summaryFor(r.id), frameCount: frameCountFor(r.id) }));
 
+  // 複数リードを色で識別するためのパレット(Claude Designのネイビー系グラデーション)。
+  // 選択順にitemsへ割り当て、チップの色ドットと各項目の棒グラフ色を揃える。
+  const colorForIndex = (i) => REED_COMPARE_COLORS[i % REED_COMPARE_COLORS.length];
+  const colorById = new Map(items.map((it, i) => [it.reed.id, colorForIndex(i)]));
+
   return (
     <div>
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "12px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 8 }}>比較するリードを選択(複数可)。箱をタップすると中の個体が選べます</div>
+      {/* 選択中リードの色チップ(比較グラフの凡例を兼ねる) */}
+      {items.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {items.map((it) => (
+            <span key={it.reed.id} onClick={() => toggleReed(it.reed.id)} className="sans" style={{
+              display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, cursor: "pointer",
+              background: "#FFFFFF", border: "1px solid #E1E7EF", color: "#121F32", padding: "8px 13px", borderRadius: 999,
+            }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: colorById.get(it.reed.id) }} />
+              {it.label}
+              <span style={{ color: "#8D95A1" }}>×</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "14px 16px", marginBottom: 12 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 10 }}>比較するリードを選択（複数可）。箱をタップすると中の個体が選べます</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {groupReeds(reeds).map((g) => {
             const isExpanded = expandedBoxKey === g.key;
             const selectedInBox = g.members.filter((r) => compareReedIds.includes(r.id)).length;
             return (
-              <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 5, overflow: "hidden" }}>
+              <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, overflow: "hidden" }}>
                 <button
                   onClick={() => setExpandedBoxKey(isExpanded ? null : g.key)}
                   className="sans"
-                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: isExpanded ? "#EAEFF5" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
+                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", background: isExpanded ? "#EAEFF5" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
                 >
-                  <span style={{ fontSize: 11 }}>
+                  <span style={{ fontSize: 12 }}>
                     <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
                     <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                    <span style={{ color: "#8D95A1", fontSize: 9 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
+                    <span style={{ color: "#8D95A1", fontSize: 10 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
                   </span>
-                  {isExpanded ? <ChevronUp size={13} color="#435266" /> : <ChevronDown size={13} color="#435266" />}
+                  {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
                 </button>
                 {isExpanded && (
-                  <div style={{ padding: "8px 10px", borderTop: "1px solid #E9ECF0", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {g.members.map((r, idx) => (
-                      <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
-                        padding: "6px 10px", borderRadius: 4, fontSize: 11, cursor: "pointer",
-                        border: compareReedIds.includes(r.id) ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                        background: compareReedIds.includes(r.id) ? "#EAEFF5" : "transparent",
-                        color: compareReedIds.includes(r.id) ? "#174585" : "#435266",
-                      }}>
-                        #{r.boxNumber ?? idx + 1}
-                      </button>
-                    ))}
+                  <div style={{ padding: "10px 14px", borderTop: "1px solid #E9ECF0", display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    {g.members.map((r, idx) => {
+                      const sel = compareReedIds.includes(r.id);
+                      return (
+                        <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
+                          display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+                          border: sel ? "none" : "1px solid #E9ECF0",
+                          background: sel ? "#174585" : "transparent",
+                          color: sel ? "#FFFFFF" : "#435266",
+                        }}>
+                          {sel && <span style={{ width: 8, height: 8, borderRadius: 2, background: colorById.get(r.id) || "#FFFFFF" }} />}
+                          #{r.boxNumber ?? idx + 1}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -3089,13 +3119,13 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
       {items.length === 0 ? (
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px" }}>
+        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "17px" }}>
           {REED_COMPARE_METRICS.map((m) => (
             <ReedMetricBarRow
               key={m.key}
               label={m.label}
               unit={m.unit}
-              items={items.map((it) => ({ id: it.reed.id, label: it.label, value: it.summary[m.key] }))}
+              items={items.map((it) => ({ id: it.reed.id, label: it.label, value: it.summary[m.key], color: colorById.get(it.reed.id) }))}
               fmt={m.fmt}
             />
           ))}
@@ -3119,21 +3149,21 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
   );
 }
 
-// 1項目分の横棒グラフ行(複数リードを同じスケールで比較)
+// 1項目分の横棒グラフ行(複数リードを同じスケールで比較)。棒の色は呼び出し側で
+// リードごとに割り当てた色(color)を使い、凡例チップと対応させる。
 function ReedMetricBarRow({ label, unit, items, fmt }) {
   const values = items.map((i) => i.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
   const maxAbs = Math.max(...values.map((v) => Math.abs(v)), 1e-6);
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 6 }}>{label}{unit ? ` (${unit})` : ""}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <div style={{ marginBottom: 17 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 9 }}>{label}{unit ? ` (${unit})` : ""}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {items.map((it) => (
           <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="sans" style={{ fontSize: 9, color: "#121F32", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
-            <div style={{ flex: 1, background: "#EEF1F4", borderRadius: 4, height: 14, position: "relative", overflow: "hidden" }}>
-              <div style={{ width: it.value !== null && it.value !== undefined ? `${Math.max(2, (Math.abs(it.value) / maxAbs) * 100)}%` : 0, height: "100%", background: "#174585", borderRadius: 4 }} />
+            <div style={{ flex: 1, background: "#EEF1F4", borderRadius: 5, height: 17, position: "relative", overflow: "hidden" }}>
+              <div style={{ width: it.value !== null && it.value !== undefined ? `${Math.max(2, (Math.abs(it.value) / maxAbs) * 100)}%` : 0, height: "100%", background: it.color || "#174585", borderRadius: 5 }} />
             </div>
-            <span className="sans" style={{ fontSize: 9, color: "#435266", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#435266", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
           </div>
         ))}
       </div>
@@ -3367,44 +3397,50 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
     return sortDir === "desc" ? vb - va : va - vb;
   });
 
+  // スコアバッジの背景色(3段階の淡色)と順位番号の色
+  const scoreBg = (score) => (score >= 0.75 ? "#E8F6ED" : score >= 0.5 ? "#FDF0E1" : "#FBE9E9");
+  const rankColor = (idx) => (idx === 0 ? "#174585" : idx === 1 ? "#8D95A1" : "#C3CAD3");
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-        <span className="sans" style={{ fontSize: 10, color: "#435266" }}>並び替え:</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>並び替え</span>
         <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
           {RANKING_SORT_OPTIONS.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
         </select>
         <button
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
           className="sans"
-          style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#121F32", fontSize: 11, cursor: "pointer" }}
+          style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#174585", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
         >
           {sortDir === "desc" ? "降順 ▼" : "昇順 ▲"}
         </button>
       </div>
 
       {!hasIdeal && (
-        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 10, padding: "8px 12px", background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 5 }}>
+        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12, padding: "10px 14px", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 12 }}>
           理想値プロファイル未選択のため、スペクトル重心近似度は評価に含まれていません（HNR・音量安定性・ピッチ安定性の3要素で算出）
         </div>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sorted.map((item, idx) => (
-          <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "12px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#435266", fontWeight: 700, width: 18 }}>{idx + 1}</span>
-                <span style={{ color: "#121F32", fontWeight: 600 }}>{reedLabel(item.reed, reeds)}</span>
+          <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="sans" style={{ fontSize: 14, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
+                <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
+                  <StarRating value={item.rating} onChange={() => {}} readOnly size={11} />
+                </div>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: scoreToColor(item.composite) }}>
-                {Math.round(item.composite * 100)}
+              <div style={{ textAlign: "center", background: scoreBg(item.composite), borderRadius: 12, padding: "7px 13px", flexShrink: 0 }}>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 25, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
+                  {Math.round(item.composite * 100)}
+                </div>
               </div>
             </div>
-            <div className="sans" style={{ fontSize: 9, color: "#435266", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
-              <StarRating value={item.rating} onChange={() => {}} readOnly size={11} />
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 13 }}>
               {item.breakdown.hnr !== null && <ScoreChip label="HNR" value={item.breakdown.hnr} />}
               <ScoreChip label="音量安定" value={item.breakdown.volumeStability} />
               <ScoreChip label="ピッチ安定" value={item.breakdown.pitchStability} />
@@ -3704,35 +3740,83 @@ function MyDataSection({ sessions, selectedIdeal }) {
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ideals, ...computeFrameMetrics(frames) };
   });
 
+  // ヒーローカード用: 平均ピッチ偏差(符号つき)と、期間内前半→後半の改善幅、スパークライン用の系列
+  const heroVal = overall.pitchCents;
+  const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
+  const sparkVals = points.map((p) => p.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  let improve = null; // { delta } deltaが負なら改善(絶対値が小さくなった)
+  if (sparkVals.length >= 4) {
+    const mid = Math.floor(sparkVals.length / 2);
+    const avgAbs = (a) => a.reduce((s, v) => s + Math.abs(v), 0) / a.length;
+    improve = { delta: avgAbs(sparkVals.slice(mid)) - avgAbs(sparkVals.slice(0, mid)) };
+  }
+
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px", marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700 }}>My Data</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={range} onChange={(e) => setRange(e.target.value)}>
+    <>
+      {/* 今期の平均ピッチ偏差ヒーローカード(Claude Design) */}
+      <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontSize: 12, color: "#B9C9E4" }}>平均ピッチ偏差</div>
+          <select value={range} onChange={(e) => setRange(e.target.value)} style={{ fontSize: 11 }}>
             {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
-          <div style={{ display: "flex", gap: 4 }}>
-            {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setView(t.key)}
-                className="sans"
-                style={{
-                  fontSize: 10, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
-                  border: view === t.key ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                  background: view === t.key ? "#EAEFF5" : "transparent",
-                  color: view === t.key ? "#174585" : "#435266",
-                  fontWeight: view === t.key ? 600 : 400,
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 48, fontWeight: 600, lineHeight: 0.9 }}>
+            {heroVal !== null && heroVal !== undefined ? `${heroVal > 0 ? "+" : ""}${heroVal.toFixed(1)}` : "—"}
+            <span style={{ fontSize: 22, color: "#9DB3D6" }}>¢</span>
+          </span>
+          {improve && (
+            <span className="sans" style={{
+              display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, marginBottom: 8,
+              background: improve.delta <= 0 ? "#2FB673" : "#EBC66B", color: "#04130D",
+            }}>
+              {improve.delta <= 0 ? "▲" : "▼"} 期間内 {improve.delta > 0 ? "+" : ""}{improve.delta.toFixed(1)}¢ {improve.delta <= 0 ? "改善" : "悪化"}
+            </span>
+          )}
+        </div>
+        {sparkVals.length >= 2 && (() => {
+          const W = 320, H = 48;
+          const minV = Math.min(...sparkVals), maxV = Math.max(...sparkVals);
+          const rng = maxV - minV || 1;
+          const xy = sparkVals.map((v, i) => {
+            const x = sparkVals.length > 1 ? (i / (sparkVals.length - 1)) * W : W / 2;
+            const y = H - 6 - ((v - minV) / rng) * (H - 14);
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+          });
+          return (
+            <svg width="100%" height="48" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ marginTop: 12, display: "block" }}>
+              <polyline points={`${xy.join(" ")} ${W},${H} 0,${H}`} fill="rgba(143,180,255,.15)" stroke="none" />
+              <polyline points={xy.join(" ")} fill="none" stroke="#8FB4FF" strokeWidth="2.5" />
+            </svg>
+          );
+        })()}
+        <div style={{ fontSize: 11, color: "#9DB3D6", marginTop: 2 }}>0に近いほど良い ・ {rangeLabel} ・ {points.length}セッション</div>
+      </div>
+
+    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>My Data</div>
+        <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 10, padding: 3 }}>
+          {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className="sans"
+              style={{
+                fontSize: 12, padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer",
+                background: view === t.key ? "#FFFFFF" : "transparent",
+                color: view === t.key ? "#174585" : "#8D95A1",
+                fontWeight: view === t.key ? 700 : 400,
+                boxShadow: view === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
-      <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 12 }}>
         奏者が「自分」のセッション（{points.length}件）{!selectedIdeal && " ・ 理想値プロファイル未選択のため理想値は表示されません"}
       </div>
 
@@ -3747,13 +3831,13 @@ function MyDataSection({ sessions, selectedIdeal }) {
             const diff = measured !== null && ideal !== null ? measured - ideal : null;
             const valueColor = m.key === "pitchCents" && measured !== null ? pitchCellColor(measured) : "#121F32";
             return (
-              <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "10px 12px" }}>
-                <div className="sans" style={{ fontSize: 9, color: "#435266" }}>{m.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2, color: valueColor }}>
+              <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px" }}>
+                <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{m.label}</div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, fontWeight: 600, margin: "2px 0", color: valueColor }}>
                   {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
                 </div>
                 {ideal !== null && (
-                  <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <span>理想: {m.fmt(ideal)} {m.unit}</span>
                     {diff !== null && m.key !== "pitchCents" && (
                       <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>
@@ -3780,6 +3864,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
         </>
       )}
     </div>
+    </>
   );
 }
 
@@ -3844,8 +3929,8 @@ function LatestSessionCard({ session, reeds }) {
   const m = computeFrameMetrics(session.frames || []);
 
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px", marginBottom: 12 }}>
-      <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>最新セッション</div>
+    <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>最新セッション</div>
       <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12 }}>
         {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
@@ -3942,9 +4027,9 @@ function AnalysisLabView(props) {
       {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} />}
 
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px", marginBottom: 12 }}>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700 }}>セッション一覧（{sessions.length}）</div>
+          <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessions.length}</span></div>
           {sortedSessions.length > 0 && (
             selectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -4027,8 +4112,8 @@ function AnalysisLabView(props) {
       </div>
 
       {/* --- 11.6節: クロス集計(ピボット型マトリクス) --- */}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px" }}>
-        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px" }}>
+        <div className="sans" style={{ fontSize: 14, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
           クロス集計（ピボット）
         </div>
         <div className="sans" style={{ fontSize: 10, color: "#8D95A1", lineHeight: 1.6, marginBottom: 12 }}>
