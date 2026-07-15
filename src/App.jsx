@@ -6,10 +6,11 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 // ============================================================
 const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
-// 無音判定に使う音量(dB)の共通しきい値。メーターと「これまでの音」グラフで同じ値を使い、
-// 挙動をそろえる(NOTE_RELEASE_DBと同じ-68)。これを下回ると「無音」とみなし、メーターは
-// 中央・音名なし、グラフは中央ラインに落とす。実機で反応が渋い/敏感すぎる場合はここを調整する。
-const SILENCE_VOLUME_DB = -68;
+// 発音判定は絶対dBの固定しきい値ではなく、無音フロア(その環境の静かな時の音量)からの
+// 相対的な余裕(マージン)で行う。端末やマイク感度で絶対値が大きく変わっても、静かな時より
+// この分だけ大きい音を「発音中」とみなせる。大きいほど鈍く(小さい音を拾わない)、
+// 小さいほど敏感(環境ノイズも拾いやすい)になる。日常会話くらいの音を拾いたいので控えめに。
+const SOUND_MARGIN_DB = 6;
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -1010,6 +1011,7 @@ export default function WindToneLabPhaseMode() {
   const liveStartTimeRef = useRef(null);
   const lastLiveSampleTimeRef = useRef(0);
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
+  const noiseFloorRef = useRef(null);  // 無音フロア(静かな時の音量dB)の自動追従推定。マイク開始時にnullで初期化
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1095,6 +1097,7 @@ export default function WindToneLabPhaseMode() {
     setErrorMsg("");
     liveStartTimeRef.current = null;
     lastLiveSampleTimeRef.current = 0;
+    noiseFloorRef.current = null; // 無音フロアを再キャリブレーション
     setLiveFrames([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1145,9 +1148,12 @@ export default function WindToneLabPhaseMode() {
         let levels = [];
         let hnr = null;
         let matchedFinger = null;
-        // 発音中の判定はメーターとグラフで共通: ピッチが取れていて、かつ音量が無音しきい値以上。
-        // 音量ゲートを入れることで、無音時に背景ノイズを拾って音名が出続けるのを防ぐ。
-        const sounding = f0 && f0 > 40 && vDb >= SILENCE_VOLUME_DB;
+        // 無音フロアの自動追従: 静かな時の音量に張り付き(下方向は即座に追従)、うるさい方向へは
+        // ごくゆっくり(約0.6dB/秒)だけ上げる。これで端末やマイク感度に関係なく、その環境の
+        // 「静かな時」を基準にできる。演奏を止めればフロアはすぐ下がる。
+        noiseFloorRef.current = noiseFloorRef.current === null ? vDb : Math.min(vDb, noiseFloorRef.current + 0.01);
+        // 発音中の判定(メーターとグラフ共通): ピッチが取れていて、かつ音量が無音フロア+マージン以上。
+        const sounding = f0 && f0 > 40 && vDb > noiseFloorRef.current + SOUND_MARGIN_DB;
         if (sounding) {
           setPitch(f0);
 
@@ -1755,13 +1761,11 @@ function PitchDeviationLine({ frames }) {
   };
   const goodTop = y(10), goodBottom = y(-10);
 
-  // 無音判定: ピッチ未検出、または音量が閾値未満のフレーム。無音は背景ノイズ由来の
-  // 誤検出ピッチを描かず、中央(0¢)に落とす(線は途切れず中央ライン上に留まる)。
+  // 無音判定: pitchCentsがnull(=発音判定がfalseだったフレーム。メーターと同じ音量フロア判定で
+  // 決まる)。無音は中央(0¢)に落とし、線は途切れず中央ライン上に留まる。
   const isSilent = (f) => {
     const c = f.pitchCents;
-    if (c === null || c === undefined || isNaN(c)) return true;
-    if (typeof f.volumeDb === "number" && f.volumeDb < SILENCE_VOLUME_DB) return true;
-    return false;
+    return c === null || c === undefined || isNaN(c);
   };
 
   const points = windowFrames
