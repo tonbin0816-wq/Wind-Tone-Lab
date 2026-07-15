@@ -12,8 +12,13 @@ const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A"
 // 発音/無音がパタパタ切り替わって画面が揺れるのを防ぐ。
 // ・ONSET: この分より大きくなったら「発音開始」。大きいほど鈍く(小さい音・環境音を拾わない)。
 // ・RELEASE: 発音中はこの分を下回るまで継続。ONSETより小さくしてブレを抑える。
-const SOUND_ONSET_MARGIN_DB = 12;
-const SOUND_RELEASE_MARGIN_DB = 7;
+// 実測(無音≒-112 / pp≒-78 / ロングトーン≒-60)より、無音フロアから+20dBを発音開始とする。
+// pp(フロア比+34程度)は拾い、環境ノイズ(フロア近傍)は拾わない。RELEASEはやや低め。
+const SOUND_ONSET_MARGIN_DB = 20;
+const SOUND_RELEASE_MARGIN_DB = 13;
+// スペクトル重心・HNR・倍音構成など音色系の指標は、発音より少し余裕を持った音量でだけ測定する
+// (弱すぎる音では倍音が埋もれ数値が暴れるため)。発音フロア+この余裕を測定開始の目安にする。
+const TIMBRE_MEASURE_MARGIN_DB = 24;
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -1058,15 +1063,21 @@ export default function WindToneLabPhaseMode() {
   const temperatureRef = useRef(temperature);
   const selectedIdealRef = useRef(selectedIdeal);
   const isRecordingRef = useRef(false);
+  // メーターと折れ線グラフ・フレームで0¢の基準を完全に一致させるため、実効基準ピッチ
+  // (基準Hz×個体差オフセット)をtickからも読めるようrefで保持する。
+  const effectiveTuningHz = tuningHz * Math.pow(2, instrumentOffsetCents / 1200);
+  const effectiveTuningRef = useRef(effectiveTuningHz);
   useEffect(() => { fingeringTableRef.current = fingeringTable; }, [fingeringTable]);
   useEffect(() => { presetRef.current = preset; }, [preset]);
   useEffect(() => { temperatureRef.current = temperature; }, [temperature]);
   useEffect(() => { selectedIdealRef.current = selectedIdeal; }, [selectedIdeal]);
   useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { effectiveTuningRef.current = effectiveTuningHz; }, [effectiveTuningHz]);
 
-  // 録音中に蓄積したフレームがあればセッションとして保存する(企画書v5 10.3節)。
-  // reedIdは選択されていればそのまま紐付け、未選択ならnull(後で事後紐付け可能)。
-  // memo(「何を変えて試したか」の自由記述)は計測タブでは入力せず、分析タブのセッション詳細から後付けで編集する。
+  // 録音停止時、蓄積フレームがあればセッション候補(pendingSession)として保持する。
+  // 以前は停止と同時に自動保存していたが、「登録 or 取り直し」を選べるように、ここでは
+  // 保存せず候補として持ち、ユーザーが「登録」を押したときにだけ実際に保存する。
+  const [pendingSession, setPendingSession] = useState(null);
   const finalizeRecording = useCallback(() => {
     if (phraseFramesRef.current.length > 0) {
       const session = {
@@ -1081,9 +1092,36 @@ export default function WindToneLabPhaseMode() {
         frames: phraseFramesRef.current,
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
-      addSession(session);
+      setPendingSession(session);
     }
-  }, [saxType, selectedReedId, selectedPerformer, addSession]);
+  }, [saxType, selectedReedId, selectedPerformer]);
+  // 画面スリープ抑止(Wake Lock)。録音中に取得し、停止時に解放する。ブラウザが未対応でも黙って無視。
+  // 画面が一度隠れるとWake Lockは自動解放されるため、復帰時に録音中なら再取得する。
+  const wakeLockRef = useRef(null);
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if ("wakeLock" in navigator && !wakeLockRef.current) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+        wakeLockRef.current.addEventListener?.("release", () => { wakeLockRef.current = null; });
+      }
+    } catch { /* 未対応・失敗時は何もしない */ }
+  }, []);
+  const releaseWakeLock = useCallback(() => {
+    try { wakeLockRef.current?.release(); } catch { /* noop */ }
+    wakeLockRef.current = null;
+  }, []);
+
+  const registerPendingSession = useCallback(() => {
+    if (pendingSession) addSession(pendingSession);
+    setPendingSession(null);
+    setPhraseFrames([]);
+    phraseFramesRef.current = [];
+  }, [pendingSession, addSession]);
+  const discardPendingSession = useCallback(() => {
+    setPendingSession(null);
+    setPhraseFrames([]);
+    phraseFramesRef.current = [];
+  }, []);
 
   // マイクを止める(計測タブを離れたときに呼ぶ)。録音中に離脱した場合の保険としてここでも保存する。
   const stopListening = useCallback(() => {
@@ -1146,7 +1184,6 @@ export default function WindToneLabPhaseMode() {
         setVolumeDb(vDb);
 
         const centroid = spectralCentroid(linear, freqs);
-        setCentroidHz(centroid);
 
         const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
 
@@ -1169,15 +1206,27 @@ export default function WindToneLabPhaseMode() {
           ? hasPitch && vDb > floor + SOUND_RELEASE_MARGIN_DB
           : hasPitch && vDb > floor + SOUND_ONSET_MARGIN_DB;
         const sounding = soundingRef.current;
+        // 音色系(重心・HNR・倍音・スペクトル)は発音よりやや高い音量でだけ測定する。
+        const timbreMeasurable = hasPitch && vDb > floor + TIMBRE_MEASURE_MARGIN_DB;
+
+        // ピッチのセント誤差は、メーターと同じ実効基準ピッチで1回だけ算出し、表示・グラフ・フレームで
+        // 共有する(これで0¢の基準が全音でメーターと一致する)。
+        const noteNow = sounding ? freqToNote(f0, effectiveTuningRef.current) : null;
+        const pitchCentsUnified = noteNow ? noteNow.centsExact : null;
+
         if (sounding) {
           setPitch(f0);
-
-          // --- 運指ベース管長自動キャリブレーション ---
-          // 実測基音に最も近い運指をテーブルから検索し、正しい実音Hzを求める。
-          // この正しい実音Hzが、以後の理論値グラフ(倍音構成)の基準になる。
+          // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)
           matchedFinger = findClosestFingering(f0, fingeringTableRef.current);
           if (matchedFinger) setMatchedFingering(matchedFinger);
+        } else {
+          // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
+          setPitch(null);
+          setMatchedFingering(null);
+        }
 
+        if (timbreMeasurable) {
+          setCentroidHz(centroid);
           for (let n = 1; n <= NUM_HARMONICS; n++) {
             const targetFreq = f0 * n;
             const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
@@ -1190,14 +1239,13 @@ export default function WindToneLabPhaseMode() {
           const maxMag = Math.max(...levels.map((l) => l.mag), 1e-6);
           levels = levels.map((l) => ({ ...l, norm: l.mag / maxMag }));
           setHarmonicLevels(levels);
-
           hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
           setHnrDb(hnr);
         } else {
-          // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
-          // (以前は最後に検出した音が残り続けていた)
-          setPitch(null);
-          setMatchedFingering(null);
+          // 音量が低いと倍音が埋もれ数値が暴れるため、測定せず表示を「—」にする。
+          setCentroidHz(null);
+          setHarmonicLevels([]);
+          setHnrDb(null);
         }
 
 
@@ -1250,10 +1298,9 @@ export default function WindToneLabPhaseMode() {
           if (elapsedMs - lastSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
             lastSampleTimeRef.current = elapsedMs;
 
-            // ピッチ: 理論値(運指テーブルの正しいHz、このtickで判定したmatchedFinger)と
-            // 理想値の両方を基準として持つ(企画書v3方針: ピッチのみ絶対的な正解があるため理論値も残す)
-            const theoFreq = matchedFinger?.soundingFreqHz ?? null;
-            const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
+            // ピッチのセント誤差はメーターと同じ実効基準で算出済み(pitchCentsUnified)を使い、
+            // 表示メーターと折れ線グラフの0¢基準を完全に一致させる。
+            const pitchCentsVsTheory = pitchCentsUnified;
             // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く。
             // これにより演奏中の音が変わるたびに比較対象の理想値も自動で切り替わる。
             const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
@@ -1281,7 +1328,7 @@ export default function WindToneLabPhaseMode() {
               semitoneIndex: matchedFinger?.semitoneIndex ?? null, // 音域軸集計用(企画書11.7節の対応: 運指の半音インデックス)
               derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
               volumeDb: vDb,
-              spectralCentroidHz: centroid,
+              spectralCentroidHz: timbreMeasurable ? centroid : null,
               hnrDb: hnr,
               harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
               matchScore: {
@@ -1311,8 +1358,7 @@ export default function WindToneLabPhaseMode() {
             const idealHarmNorm = noteIdeal?.harmonicsProfile
               ? noteIdeal.harmonicsProfile.map((h) => h.norm)
               : new Array(NUM_HARMONICS).fill(0);
-            const theoFreq = matchedFinger?.soundingFreqHz ?? null;
-            const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
+            const pitchCentsVsTheory = pitchCentsUnified;
             const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
             const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
             const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
@@ -1326,7 +1372,7 @@ export default function WindToneLabPhaseMode() {
               matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
               semitoneIndex: matchedFinger?.semitoneIndex ?? null,
               volumeDb: vDb,
-              spectralCentroidHz: centroid,
+              spectralCentroidHz: timbreMeasurable ? centroid : null,
               hnrDb: hnr,
               harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
               matchScore: {
@@ -1338,21 +1384,25 @@ export default function WindToneLabPhaseMode() {
           }
         }
 
-        // スペクトル表示バー
+        // スペクトル表示バー(音量が低い時は測定せず空にする)
         const displayBars = 64;
-        const maxDisplayFreq = 4000;
-        const maxBin = Math.min(linear.length - 1, freqToBin(maxDisplayFreq, sampleRate, FFT_SIZE));
-        const bars = new Array(displayBars).fill(0);
-        for (let i = 0; i < displayBars; i++) {
-          const t0 = i / displayBars, t1 = (i + 1) / displayBars;
-          const startBin = Math.floor(Math.pow(t0, 2) * maxBin);
-          const endBin = Math.max(startBin + 1, Math.floor(Math.pow(t1, 2) * maxBin));
-          let peak = 0;
-          for (let b = startBin; b <= Math.min(endBin, maxBin); b++) peak = Math.max(peak, linear[b] || 0);
-          bars[i] = peak;
+        if (timbreMeasurable) {
+          const maxDisplayFreq = 4000;
+          const maxBin = Math.min(linear.length - 1, freqToBin(maxDisplayFreq, sampleRate, FFT_SIZE));
+          const bars = new Array(displayBars).fill(0);
+          for (let i = 0; i < displayBars; i++) {
+            const t0 = i / displayBars, t1 = (i + 1) / displayBars;
+            const startBin = Math.floor(Math.pow(t0, 2) * maxBin);
+            const endBin = Math.max(startBin + 1, Math.floor(Math.pow(t1, 2) * maxBin));
+            let peak = 0;
+            for (let b = startBin; b <= Math.min(endBin, maxBin); b++) peak = Math.max(peak, linear[b] || 0);
+            bars[i] = peak;
+          }
+          const maxBar = Math.max(...bars, 1e-6);
+          setSpectrumBars(bars.map((b) => b / maxBar));
+        } else {
+          setSpectrumBars(new Array(displayBars).fill(0));
         }
-        const maxBar = Math.max(...bars, 1e-6);
-        setSpectrumBars(bars.map((b) => b / maxBar));
 
         rafRef.current = requestAnimationFrame(tick);
       };
@@ -1376,12 +1426,14 @@ export default function WindToneLabPhaseMode() {
       phraseStartTimeRef.current = null;
       finalizeRecording();
       setIsRecording(false);
+      releaseWakeLock();
       return;
     }
     if (!streamRef.current) {
       const ok = await startListening();
       if (!ok) return;
     }
+    setPendingSession(null); // 新規録音を始めるので前回の候補は破棄
     phraseStartTimeRef.current = performance.now();
     lastSampleTimeRef.current = 0;
     setPhraseFrames([]);
@@ -1389,7 +1441,8 @@ export default function WindToneLabPhaseMode() {
     noteDetectorRef.current = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
     setPhraseNoteEvents([]);
     setIsRecording(true);
-  }, [isRecording, startListening, finalizeRecording]);
+    requestWakeLock(); // 録音中は画面スリープを抑止(スリープで録音が止まるのを防ぐ)
+  }, [isRecording, startListening, finalizeRecording, requestWakeLock, releaseWakeLock]);
 
   // 【重要】startListening/stopListeningは(finalizeRecordingの依存経由で)頻繁に再生成され得るため、
   // 依存配列に直接入れると「関数が変わるたびに前回のeffectのクリーンアップとして古い関数が
@@ -1418,6 +1471,7 @@ export default function WindToneLabPhaseMode() {
         stopListeningRef.current();
       } else if (topTab === "measure") {
         startListeningRef.current();
+        if (isRecordingRef.current) requestWakeLock(); // Wake Lockは非表示で自動解放されるため復帰時に再取得
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -1503,9 +1557,9 @@ export default function WindToneLabPhaseMode() {
     if (selectedIdealId === id) setSelectedIdealId(null);
   };
 
-  // 音名・セント誤差はレンダー時に最新の基準ピッチ(tuningHz)で導出する。
-  // tick()内で計算するとクロージャに古い基準ピッチが残るため、基準変更が即座に表示へ反映されない。
-  const note = pitch ? freqToNote(pitch, tuningHz) : null;
+  // 音名・セント誤差はレンダー時に実効基準ピッチ(基準Hz×個体差オフセット)で導出する。
+  // フレーム(折れ線グラフ)側もtick内で同じ実効基準で算出しており、これで0¢の基準が全音で一致する。
+  const note = pitch ? freqToNote(pitch, effectiveTuningHz) : null;
   const centsOffset = note ? note.cents : 0;
 
   return (
@@ -1589,6 +1643,7 @@ export default function WindToneLabPhaseMode() {
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal}
+          pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
           uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
         />
@@ -1874,6 +1929,7 @@ function MeasureView(props) {
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
+    pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
   } = props;
 
@@ -1963,8 +2019,7 @@ function MeasureView(props) {
       {isRecording && (
         <div className="sans" style={{ fontSize: 11, color: "#174585", display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
           <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
-          録音中 · {phraseFrames.length}フレーム
-          {phraseNoteEvents.length > 0 && <span style={{ color: "#435266", marginLeft: 6 }}>· {phraseNoteEvents.length}ノート</span>}
+          録音中
         </div>
       )}
       <input
@@ -1988,10 +2043,25 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 録音停止直後、その結果をそのまま理想値プロファイルに設定できるようにする */}
-      {!isRecording && phraseFrames.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-          <SetAsIdealButton frames={phraseFrames} saxType={saxType} onSave={promoteSessionToIdeal} />
+      {/* 録音停止後: この録音を「登録」(セッションとして保存)するか「取り直し」(破棄)するか選ぶ。
+          登録したセッションは分析タブから理想値に設定することもできる。 */}
+      {!isRecording && pendingSession && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 10, padding: "12px 14px", background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 14, alignItems: "center" }}>
+          <span className="sans" style={{ fontSize: 12, color: "#174585", fontWeight: 600, flex: 1 }}>この録音を保存しますか？</span>
+          <button
+            onClick={discardPendingSession}
+            className="sans"
+            style={{ padding: "8px 16px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            取り直し
+          </button>
+          <button
+            onClick={registerPendingSession}
+            className="sans"
+            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+          >
+            登録
+          </button>
         </div>
       )}
 
@@ -2124,7 +2194,7 @@ function MeasureView(props) {
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
               <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
-              <MetricCard label="スペクトル重心" value={`${Math.round(centroidHz)} Hz`} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? `${Math.round(centroidHz)} Hz` : "—"} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
               <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
             </div>
           </div>
@@ -2614,9 +2684,12 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
 
   // 長押しが成立せずに指が離れた場合(＝ただのタップ)のみここで処理する。
   // 成立した場合はネイティブのonUpがfinishDrag(true)を呼ぶのでここでは何もしない。
+  // 子要素(「測定へ」ボタンや★など)がpointerdownを止めた場合はdragInfoが無く、その時は
+  // 行タップとして扱わない(＝onRowClickで詳細を開かない)。これがないと、モバイルでボタンを
+  // 押しても行のonRowClickが発火して詳細が開いてしまい「測定へ」に飛べなかった。
   const handlePointerUp = (id) => () => {
     const info = dragInfoRef.current;
-    if (info?.armed) return;
+    if (!info || info.armed) return;
     cancelLongPress();
     dragInfoRef.current = null;
     onRowClick(id);
