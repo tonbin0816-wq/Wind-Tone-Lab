@@ -1603,15 +1603,18 @@ function BottomNav({ topTab, setTopTab, isRecording }) {
       ),
     },
     {
+      // 実際のリード1枚を正面から見たピクトグラム: 上に向かって細くなる先端(チップ)、
+      // 中央のヴァンプ(削り部)の曲線、下は平らな尻(ヒール)。
       key: "reeds", label: "リード",
       icon: (c) => (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
-          <rect x="5" y="5" width="14" height="4" rx="1.5" /><rect x="5" y="11" width="14" height="4" rx="1.5" /><rect x="5" y="17" width="9" height="2.5" rx="1.2" />
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 22 L9 8 C9 4 10.5 2.5 12 2.5 C13.5 2.5 15 4 15 8 L15 22 Z" />
+          <path d="M9 9.5 Q12 12 15 9.5" />
         </svg>
       ),
     },
     {
-      key: "analysis", label: "分析",
+      key: "analysis", label: "データ",
       icon: (c) => (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
           <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
@@ -4039,6 +4042,8 @@ function AnalysisLabView(props) {
     updateSessions, deleteSessions, performers, setPerformers,
   } = props;
 
+  // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
+  const [dataSubTab, setDataSubTab] = useState("mydata");
   const [pivotRow, setPivotRow] = useState("note");
   const [pivotCol, setPivotCol] = useState("reed");
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
@@ -4103,6 +4108,31 @@ function AnalysisLabView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* データタブ内の子タブ: My Data / 分析(クロス集計) */}
+      <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginBottom: 12 }}>
+        {[
+          { key: "mydata", label: "My Data" },
+          { key: "analysis", label: "分析" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setDataSubTab(t.key)}
+            className="sans"
+            style={{
+              flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
+              background: dataSubTab === t.key ? "#FFFFFF" : "transparent",
+              color: dataSubTab === t.key ? "#174585" : "#8D95A1",
+              fontWeight: dataSubTab === t.key ? 700 : 400, fontSize: 13,
+              boxShadow: dataSubTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
+              cursor: "pointer",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {dataSubTab === "mydata" && (<>
       {/* --- My Data: 「自分」のセッションの推移 --- */}
       <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} />
 
@@ -4193,8 +4223,10 @@ function AnalysisLabView(props) {
           </>
         )}
       </div>
+      </>)}
 
-      {/* --- 11.6節: クロス集計(ピボット型マトリクス) --- */}
+      {dataSubTab === "analysis" && (
+      /* --- 11.6節: クロス集計(ピボット型マトリクス) --- */
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px" }}>
         <div className="sans" style={{ fontSize: 14, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
           クロス集計（ピボット）
@@ -4416,6 +4448,7 @@ function AnalysisLabView(props) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
