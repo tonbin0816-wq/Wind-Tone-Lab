@@ -1582,13 +1582,12 @@ export default function WindToneLabPhaseMode() {
 
       {/* アプリ名ヘッダーは削除(Claude Designに準拠。タブ切替は画面下部の固定ナビ=BottomNavに集約)。 */}
 
-      {/* リードタブ内の子タブ: 登録 / 比較 / ランキング */}
+      {/* リードタブ内の子タブ: 登録 / 比較 */}
       {topTab === "reeds" && (
         <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4 }}>
           {[
             { key: "register", label: "登録" },
             { key: "compare", label: "比較" },
-            { key: "ranking", label: "ランキング" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1659,9 +1658,6 @@ export default function WindToneLabPhaseMode() {
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} />
         </div>
-      )}
-      {topTab === "reeds" && reedsSubTab === "ranking" && (
-        <ReedRankingSection reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal} />
       )}
       {topTab === "analysis" && (
         <AnalysisLabView
@@ -2467,29 +2463,37 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
   );
 }
 
-// 主観評価の5段階星レーティング。クリックで1〜5をセット、同じ星を再クリックで解除(null)。
-function StarRating({ value, onChange, size = 13, readOnly = false }) {
-  // タップ操作の場合、見た目のフォントサイズだけだと当たり判定が小さすぎて押しにくいため、
-  // 星そのものは変えずにpaddingで実際のタップ領域だけ広げる。
+// 主観評価の表示(0.1刻み)。星を部分的に塗って小数の評価を表す。編集はRatingSliderで行う。
+function StarRating({ value, size = 13 }) {
+  const v = value || 0;
   return (
-    <div style={{ display: "flex", gap: readOnly ? 1 : 2 }}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <span
-          key={n}
-          onClick={readOnly ? undefined : () => onChange(n === value ? null : n)}
-          style={{
-            cursor: readOnly ? "default" : "pointer",
-            color: value && n <= value ? "#D97706" : "#C3CAD3",
-            fontSize: size,
-            lineHeight: 1,
-            userSelect: "none",
-            padding: readOnly ? 0 : 6,
-            margin: readOnly ? 0 : -6,
-          }}
-        >
-          ★
-        </span>
-      ))}
+    <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
+      {[1, 2, 3, 4, 5].map((n) => {
+        const fill = Math.max(0, Math.min(1, v - (n - 1)));
+        return (
+          <span key={n} style={{ position: "relative", fontSize: size, lineHeight: 1, userSelect: "none", display: "inline-block" }}>
+            <span style={{ color: "#C3CAD3" }}>★</span>
+            <span style={{ position: "absolute", left: 0, top: 0, width: `${fill * 100}%`, overflow: "hidden", color: "#D97706", whiteSpace: "nowrap" }}>★</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// 主観評価の入力(0〜5・0.1刻みスライダー)。数値を右に表示する。onCommitは指を離した時に呼ぶ
+// (評価履歴への追記など、確定タイミングで実行したい処理に使う)。
+function RatingSlider({ value, onChange, onCommit }) {
+  const v = value ?? 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+      <input
+        type="range" min="0" max="5" step="0.1" value={v}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        onPointerUp={() => onCommit?.()} onKeyUp={() => onCommit?.()}
+        style={{ flex: 1, accentColor: "#174585" }}
+      />
+      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, fontWeight: 700, color: "#174585", width: 30, textAlign: "right" }}>{v.toFixed(1)}</span>
     </div>
   );
 }
@@ -3056,7 +3060,7 @@ function ReedRegisterView(props) {
                                 style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
                               />
                               <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <StarRating value={r.rating} onChange={() => {}} readOnly size={11} />
+                              <StarRating value={r.rating} size={11} />
                             </div>
                           ))}
                         </>
@@ -3068,9 +3072,7 @@ function ReedRegisterView(props) {
                           renderRow={(r, idx) => (
                             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
                               <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <span onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                                <StarRating value={r.rating} onChange={(v) => rateReed(r.id, v)} size={19} />
-                              </span>
+                              <StarRating value={r.rating} size={19} />
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
@@ -3336,7 +3338,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
               {items.map((it) => (
                 <div key={it.reed.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span className="sans" style={{ fontSize: 9, color: "#121F32", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
-                  <StarRating value={it.reed.rating} onChange={() => {}} readOnly size={12} />
+                  <StarRating value={it.reed.rating} size={12} />
                 </div>
               ))}
             </div>
@@ -3441,12 +3443,12 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
   // #番号は数字管理の人もいればアルファベットや記号で管理する人もいるため自由記述にする
   // (デフォルトは登録順の連番のまま。空にすればまた自動採番に戻る)。
   const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
-  const [nicknameDraft, setNicknameDraft] = useState(reed.nickname || "");
   const [memoDraft, setMemoDraft] = useState(reed.memo || "");
+  const [ratingDraft, setRatingDraft] = useState(reed.rating ?? 0);
   useEffect(() => {
     setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
-    setNicknameDraft(reed.nickname || "");
     setMemoDraft(reed.memo || "");
+    setRatingDraft(reed.rating ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reed.id]);
 
@@ -3456,16 +3458,19 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
     if (trimmed === String(reed.boxNumber ?? "")) return;
     patchReed({ boxNumber: trimmed || null });
   };
-  const commitNickname = () => {
-    const trimmed = nicknameDraft.trim();
-    if (trimmed === (reed.nickname || "")) return;
-    patchReed({ nickname: trimmed || null });
-  };
   const commitMemo = () => {
     const trimmed = memoDraft.trim();
     if (trimmed === (reed.memo || "")) return;
     patchReed({ memo: trimmed || null });
   };
+  // 評価は確定時(スライダーを離した時)に現在値を反映しつつ、過去の評価も履歴として残す。
+  const commitRating = () => {
+    patchReed({
+      rating: ratingDraft,
+      ratings: [...(reed.ratings || []), { value: ratingDraft, at: new Date().toISOString() }],
+    });
+  };
+  const ratingHistory = [...(reed.ratings || [])].reverse();
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -3491,18 +3496,18 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
             />
           </div>
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>名前:</span>
-            <input
-              type="text" placeholder="このリードの呼び名(任意)"
-              value={nicknameDraft} onChange={(e) => setNicknameDraft(e.target.value)} onBlur={commitNickname}
-              className="sans"
-              style={{ flex: 1, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "6px 10px", color: "#121F32", fontSize: 11 }}
-            />
-          </div>
-          <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>評価:</span>
-            <StarRating value={reed.rating} onChange={(v) => patchReed({ rating: v })} size={22} />
+            <RatingSlider value={ratingDraft} onChange={setRatingDraft} onCommit={commitRating} />
+            <StarRating value={ratingDraft} size={16} />
           </div>
+          {ratingHistory.length > 0 && (
+            <div className="sans" style={{ fontSize: 10, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 52 }}>
+              <span style={{ color: "#435266" }}>履歴:</span>
+              {ratingHistory.slice(0, 8).map((h, i) => (
+                <span key={i}>{(h.value ?? 0).toFixed(1)} <span style={{ color: "#C3CAD3" }}>({new Date(h.at).toLocaleDateString("ja-JP")})</span></span>
+              ))}
+            </div>
+          )}
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44, marginTop: 6 }}>メモ:</span>
             <textarea
@@ -3632,7 +3637,7 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
                 <div className="sans" style={{ fontSize: 14, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
                 <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
                   <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
-                  <StarRating value={item.rating} onChange={() => {}} readOnly size={11} />
+                  <StarRating value={item.rating} size={11} />
                 </div>
               </div>
               <div style={{ textAlign: "center", background: scoreBg(item.composite), borderRadius: 12, padding: "7px 13px", flexShrink: 0 }}>
@@ -3780,7 +3785,6 @@ const PIVOT_MEASURES = [
   { key: "highHarm", label: "倍音強度(高次5-8)", getValue: (f) => harmonicSliceMean(f, 4, 8), fmt: (v) => (v * 100).toFixed(0) },
   { key: "hnr", label: "HNR(dB)", getValue: (f) => f.hnrDb, fmt: (v) => v.toFixed(1) },
   { key: "centroid", label: "重心(Hz)", getValue: (f) => f.spectralCentroidHz, fmt: (v) => Math.round(v).toString() },
-  { key: "count", label: "フレーム数", getValue: () => 1, agg: "sum", fmt: (v) => String(v) },
 ];
 
 // 指定した次元がとりうる値の一覧を、ソートキーつきで返す(音域帯まとめ選択など値→ソートキーの
@@ -4160,7 +4164,7 @@ function AnalysisLabView(props) {
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
   const [dataSubTab, setDataSubTab] = useState("mydata");
   const [pivotRow, setPivotRow] = useState("note");
-  const [pivotCol, setPivotCol] = useState("reed");
+  const [pivotCol, setPivotCol] = useState("brand");
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
   const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
   const [selectedSessionId, setSelectedSessionId] = useState(null);
@@ -4184,6 +4188,30 @@ function AnalysisLabView(props) {
   const pivotCtx = { reeds };
   const pivot = buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters);
   const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
+  // 全セルの値を集めておき、ピッチ以外の指標も相対ヒートマップで色付けする(表内で相対的に
+  // 良い=緑 / 中間=橙 / 低い=赤)。HNRなど大きいほど良い指標に合わせ、高い値を緑側にする。
+  const pivotCellValues = [];
+  pivot.rowKeys.forEach((rk) => pivot.colKeys.forEach((ck) => {
+    const c = pivot.cells[rk]?.[ck];
+    if (c) pivotCellValues.push(metricDef.agg === "sum" ? c.sum : c.sum / c.count);
+  }));
+  const pivotVMin = pivotCellValues.length ? Math.min(...pivotCellValues) : 0;
+  const pivotVMax = pivotCellValues.length ? Math.max(...pivotCellValues) : 1;
+  const PIVOT_TIERS = [
+    { c: "#DC2626", bg: "#FBE9E9" }, // 低い
+    { c: "#D97706", bg: "#FDF0E1" }, // 中間
+    { c: "#16A34A", bg: "#E8F6ED" }, // 高い
+  ];
+  const pivotCellStyle = (value) => {
+    if (pivotMetric === "pitchCents") {
+      const a = Math.abs(value);
+      const t = PIVOT_TIERS[a < 10 ? 2 : a < 25 ? 1 : 0];
+      return { color: t.c, bg: t.bg };
+    }
+    const norm = pivotVMax > pivotVMin ? (value - pivotVMin) / (pivotVMax - pivotVMin) : 0.5;
+    const t = PIVOT_TIERS[norm < 1 / 3 ? 0 : norm < 2 / 3 ? 1 : 2];
+    return { color: t.c, bg: t.bg };
+  };
 
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
@@ -4542,13 +4570,9 @@ function AnalysisLabView(props) {
                         return <td key={ck} style={{ textAlign: "center", color: "#C3CAD3", background: "#F6F7F9", borderRadius: 8, padding: "9px 8px" }}>—</td>;
                       }
                       const value = metricDef.agg === "sum" ? cell.sum : cell.sum / cell.count;
-                      const color = metricDef.color ? metricDef.color(value) : "#121F32";
-                      // ピッチ偏差は良否が明確なのでセルを淡色で塗る(緑/橙/赤)。他の指標は中立の淡色。
-                      const bg = pivotMetric === "pitchCents"
-                        ? (Math.abs(value) < 10 ? "#E8F6ED" : Math.abs(value) < 25 ? "#FDF0E1" : "#FBE9E9")
-                        : "#F6F7F9";
+                      const { color, bg } = pivotCellStyle(value);
                       return (
-                        <td key={ck} title={`${cell.count}フレーム`} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
+                        <td key={ck} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
                           {metricDef.fmt(value)}
                         </td>
                       );
@@ -4558,7 +4582,7 @@ function AnalysisLabView(props) {
               </tbody>
             </table>
             <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
-              セルをタップ長押しで集計フレーム数を表示。ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤 で色分けしています。
+              ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤。他の指標は表内の相対値で 高い=緑 / 中間=橙 / 低い=赤 に色分けしています。
             </div>
           </div>
         )}
