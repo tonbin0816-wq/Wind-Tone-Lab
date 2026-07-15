@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Mic, Square, Wind, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 
 // ============================================================
 // Music theory helpers
@@ -12,10 +12,11 @@ function freqToNote(freq, a4 = 440) {
   if (!freq || freq <= 0) return null;
   const midi = 69 + 12 * Math.log2(freq / a4);
   const rounded = Math.round(midi);
-  const cents = Math.round((midi - rounded) * 100);
+  const centsExact = (midi - rounded) * 100; // メーターを滑らかに動かすための丸めていないセント差
+  const cents = Math.round(centsExact);       // 表示用(±0.5¢刻みだと数字が落ち着かないため整数)
   const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
   const octave = Math.floor(rounded / 12) - 1;
-  return { name, octave, cents, midi };
+  return { name, octave, cents, centsExact, midi };
 }
 
 function centsBetween(freqA, freqB) {
@@ -1491,15 +1492,7 @@ export default function WindToneLabPhaseMode() {
         select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:12px; cursor:pointer; }
       `}</style>
 
-      {/* Header */}
-      <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
-          <Wind size={17} color="#174585" strokeWidth={2} />
-          Ficus
-        </h1>
-      </div>
-
-      {/* メインのタブ切替は画面下部の固定ナビ(BottomNav)に移動した(Claude Designに準拠)。 */}
+      {/* アプリ名ヘッダーは削除(Claude Designに準拠。タブ切替は画面下部の固定ナビ=BottomNavに集約)。 */}
 
       {/* リードタブ内の子タブ: 登録 / 比較 / ランキング */}
       {topTab === "reeds" && (
@@ -1746,19 +1739,64 @@ function PitchDeviationLine({ frames }) {
   };
   const goodTop = y(10), goodBottom = y(-10);
 
+  // 無音(ピッチ未検出)のフレームは0¢(中央)として描く。これにより線が途切れず、
+  // 音を出していない間はちょうど中央のライン上に留まる。
   const points = windowFrames
-    .map((f) => (f.pitchCents === null || f.pitchCents === undefined || isNaN(f.pitchCents) ? null : `${x(f.t)},${y(f.pitchCents)}`))
-    .filter(Boolean)
+    .map((f) => {
+      const c = f.pitchCents === null || f.pitchCents === undefined || isNaN(f.pitchCents) ? 0 : f.pitchCents;
+      return `${x(f.t)},${y(c)}`;
+    })
     .join(" ");
+
+  // 感知した音名(運指の記音)を時系列に沿ってラベル表示する。連続する同じ音をひとまとまりにし、
+  // 各まとまりの先頭位置に音名を出す。SVGはpreserveAspectRatio=noneで横に引き伸ばされ文字が
+  // 歪むため、ラベルはSVGの上にHTMLで重ねて配置する。
+  const noteRuns = [];
+  let cur = null;
+  const MIN_RUN = 2;
+  for (const f of windowFrames) {
+    const nm = f.matchedWrittenNote || null;
+    if (nm) {
+      if (!cur || cur.name !== nm) {
+        if (cur && cur.count >= MIN_RUN) noteRuns.push(cur);
+        cur = { name: nm, startT: f.t, count: 1 };
+      } else cur.count += 1;
+    } else {
+      if (cur && cur.count >= MIN_RUN) noteRuns.push(cur);
+      cur = null;
+    }
+  }
+  if (cur && cur.count >= MIN_RUN) noteRuns.push(cur);
+  // ラベルが重なりすぎないよう、直前に置いた位置から一定以上離れているものだけ表示する。
+  const labels = [];
+  let lastPct = -100;
+  for (const r of noteRuns) {
+    const pct = (x(r.startT) / W) * 100;
+    if (pct - lastPct >= 9) { labels.push({ name: r.name, pct }); lastPct = pct; }
+  }
 
   return (
     <div style={{ padding: "18px 0 0" }}>
-      <div className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#2A3547", marginBottom: 12 }}>これまでの音</div>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
-        <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
-        <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
-        {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
-      </svg>
+      <div style={{ position: "relative" }}>
+        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+          <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
+          <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
+          {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
+        </svg>
+        {labels.map((l, i) => (
+          <span
+            key={i}
+            className="sans"
+            style={{
+              position: "absolute", top: 0, left: `${Math.max(2, Math.min(94, l.pct))}%`, transform: "translateX(-50%)",
+              fontSize: 10, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
+              padding: "1px 5px", borderRadius: 6, whiteSpace: "nowrap", pointerEvents: "none",
+            }}
+          >
+            {l.name}
+          </span>
+        ))}
+      </div>
       <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4 }}>
         <span>-50¢</span><span>30秒前 → 今</span><span>+50¢</span>
       </div>
@@ -1932,8 +1970,11 @@ function MeasureView(props) {
         {(() => {
           const ac = note ? Math.abs(centsOffset) : null;
           const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-          const clamped = note ? Math.max(-50, Math.min(50, centsOffset)) : 0;
-          const thumbPct = 50 + clamped; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
+          // 位置は丸めていないセント差(centsExact)を使い、1¢刻みのカクつきをなくす。
+          // さらにleft/widthにCSSトランジションをかけ、100ms間隔の更新の間を滑らかに補間する。
+          const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+          const thumbPct = 50 + exact; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
+          const ease = "left 0.11s linear, width 0.11s linear, background 0.15s linear";
           return (
             <div style={{ position: "relative", height: 18 }}>
               <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
@@ -1942,10 +1983,10 @@ function MeasureView(props) {
               {note && (
                 <div style={{
                   position: "absolute", top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
-                  left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`,
+                  left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`, transition: ease,
                 }} />
               )}
-              <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)" }} />
+              <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)", transition: ease }} />
             </div>
           );
         })()}
@@ -1979,7 +2020,7 @@ function MeasureView(props) {
           className="sans"
           style={{ fontSize: 13, color: "#174585", borderBottom: "1px solid #B9C9E4", paddingBottom: 3, cursor: "pointer" }}
         >
-          {detailOpen ? "詳細を閉じる ︿" : "詳細（音量・重心・HNR・倍音）を見る ﹀"}
+          {detailOpen ? "詳細を閉じる ︿" : "詳細を見る ﹀"}
         </span>
       </div>
       {detailOpen && (
@@ -2055,7 +2096,7 @@ function MeasureView(props) {
           style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 14, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
         >
           <Upload size={16} />
-          {isAnalyzingUpload ? "解析中…" : "ファイルから解析"}
+          {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
         </button>
         <button
           onClick={toggleRecording}
