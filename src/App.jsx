@@ -7,10 +7,13 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
 // 発音判定は絶対dBの固定しきい値ではなく、無音フロア(その環境の静かな時の音量)からの
-// 相対的な余裕(マージン)で行う。端末やマイク感度で絶対値が大きく変わっても、静かな時より
-// この分だけ大きい音を「発音中」とみなせる。大きいほど鈍く(小さい音を拾わない)、
-// 小さいほど敏感(環境ノイズも拾いやすい)になる。日常会話くらいの音を拾いたいので控えめに。
-const SOUND_MARGIN_DB = 6;
+// 相対的な余裕(マージン)で行う。端末やマイク感度で絶対値が変わっても、静かな時よりこの分だけ
+// 大きい音を「発音中」とみなせる。さらにヒステリシス(開始は高め・終了は低め)で、しきい値付近で
+// 発音/無音がパタパタ切り替わって画面が揺れるのを防ぐ。
+// ・ONSET: この分より大きくなったら「発音開始」。大きいほど鈍く(小さい音・環境音を拾わない)。
+// ・RELEASE: 発音中はこの分を下回るまで継続。ONSETより小さくしてブレを抑える。
+const SOUND_ONSET_MARGIN_DB = 12;
+const SOUND_RELEASE_MARGIN_DB = 7;
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -1012,6 +1015,7 @@ export default function WindToneLabPhaseMode() {
   const lastLiveSampleTimeRef = useRef(0);
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
   const noiseFloorRef = useRef(null);  // 無音フロア(静かな時の音量dB)の自動追従推定。マイク開始時にnullで初期化
+  const soundingRef = useRef(false);   // 発音中フラグ(ヒステリシス判定に使う)
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1098,6 +1102,7 @@ export default function WindToneLabPhaseMode() {
     liveStartTimeRef.current = null;
     lastLiveSampleTimeRef.current = 0;
     noiseFloorRef.current = null; // 無音フロアを再キャリブレーション
+    soundingRef.current = false;
     setLiveFrames([]);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1148,12 +1153,22 @@ export default function WindToneLabPhaseMode() {
         let levels = [];
         let hnr = null;
         let matchedFinger = null;
-        // 無音フロアの自動追従: 静かな時の音量に張り付き(下方向は即座に追従)、うるさい方向へは
-        // ごくゆっくり(約0.6dB/秒)だけ上げる。これで端末やマイク感度に関係なく、その環境の
-        // 「静かな時」を基準にできる。演奏を止めればフロアはすぐ下がる。
-        noiseFloorRef.current = noiseFloorRef.current === null ? vDb : Math.min(vDb, noiseFloorRef.current + 0.01);
-        // 発音中の判定(メーターとグラフ共通): ピッチが取れていて、かつ音量が無音フロア+マージン以上。
-        const sounding = f0 && f0 > 40 && vDb > noiseFloorRef.current + SOUND_MARGIN_DB;
+        // 無音フロアの自動追従: 下方向へは即座に張り付き、上方向へはゆっくり(約1.2dB/秒)。
+        // ただし発音中はフロアを上げない(下げるのみ)ことで、長い音を出し続けてもしきい値が
+        // 上がってしまい途中で無音扱いになるのを防ぐ。
+        const wasSounding = soundingRef.current;
+        const floorPrev = noiseFloorRef.current;
+        if (floorPrev === null) noiseFloorRef.current = vDb;
+        else if (!wasSounding) noiseFloorRef.current = Math.min(vDb, floorPrev + 0.02);
+        else noiseFloorRef.current = Math.min(vDb, floorPrev);
+        const floor = noiseFloorRef.current;
+        // 発音判定(メーターとグラフ共通)をヒステリシスで安定させる: 無音→発音はONSET、
+        // 発音→無音はRELEASEのしきい値を使い、境界付近のパタつき(画面の揺れ)を防ぐ。
+        const hasPitch = f0 && f0 > 40;
+        soundingRef.current = wasSounding
+          ? hasPitch && vDb > floor + SOUND_RELEASE_MARGIN_DB
+          : hasPitch && vDb > floor + SOUND_ONSET_MARGIN_DB;
+        const sounding = soundingRef.current;
         if (sounding) {
           setPitch(f0);
 
@@ -2037,16 +2052,9 @@ function MeasureView(props) {
           更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。以前は録音を一度
           行うとphraseFramesが残り続け、録音停止後もグラフが過去の録音で固まったままになっていた
           ため、録音していない間はliveFramesを優先してライブ追従させる。 */}
-      {(() => {
-        const timelineFrames = isRecording ? phraseFrames : liveFrames;
-        return timelineFrames.length > 0 ? (
-          <PitchDeviationLine frames={timelineFrames} />
-        ) : (
-          <div style={{ padding: "18px 0 0", textAlign: "center" }}>
-            <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>音を出すと、ここに演奏の推移が表示されます</div>
-          </div>
-        );
-      })()}
+      {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
+          フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
+      <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
 
       {/* 詳細トグル(Claude Design提案): 倍音構成・スペクトル・補助指標(音量/重心/HNR)を1枚の
           折りたたみカードにまとめる。デフォルトは展開(常に情報が見える今までの挙動を維持)で、
