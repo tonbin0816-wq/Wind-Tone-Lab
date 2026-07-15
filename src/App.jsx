@@ -1474,7 +1474,7 @@ export default function WindToneLabPhaseMode() {
   const centsOffset = note ? note.cents : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 40px", boxSizing: "border-box" }}>
+    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 96px", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
@@ -1499,31 +1499,7 @@ export default function WindToneLabPhaseMode() {
         </h1>
       </div>
 
-      {/* Top-level tabs: 音計測 / リード / 分析 */}
-      <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4 }}>
-        {[
-          { key: "measure", label: "計測" },
-          { key: "reeds", label: "リード" },
-          { key: "analysis", label: "分析" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => { if (!isRecording) setTopTab(t.key); }}
-            disabled={isRecording}
-            className="sans"
-            style={{
-              flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
-              background: topTab === t.key ? "#FFFFFF" : "transparent",
-              color: topTab === t.key ? "#174585" : "#8D95A1",
-              fontWeight: topTab === t.key ? 700 : 400, fontSize: 13,
-              boxShadow: topTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
-              cursor: isRecording ? "default" : "pointer", opacity: isRecording && topTab !== t.key ? 0.4 : 1,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* メインのタブ切替は画面下部の固定ナビ(BottomNav)に移動した(Claude Designに準拠)。 */}
 
       {/* リードタブ内の子タブ: 登録 / 比較 / ランキング */}
       {topTab === "reeds" && (
@@ -1614,6 +1590,70 @@ export default function WindToneLabPhaseMode() {
           performers={performers} setPerformers={setPerformers}
         />
       )}
+
+      {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
+      <BottomNav topTab={topTab} setTopTab={setTopTab} isRecording={isRecording} />
+    </div>
+  );
+}
+
+// 画面下部の固定ナビ。計測/リード/分析をアイコン+ラベルで切り替える(モバイルアプリ風)。
+function BottomNav({ topTab, setTopTab, isRecording }) {
+  const items = [
+    {
+      key: "measure", label: "計測",
+      icon: (c) => (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+          <path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" />
+          <circle cx="12" cy="15" r="1.4" fill={c} stroke="none" />
+        </svg>
+      ),
+    },
+    {
+      key: "reeds", label: "リード",
+      icon: (c) => (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+          <rect x="5" y="5" width="14" height="4" rx="1.5" /><rect x="5" y="11" width="14" height="4" rx="1.5" /><rect x="5" y="17" width="9" height="2.5" rx="1.2" />
+        </svg>
+      ),
+    },
+    {
+      key: "analysis", label: "分析",
+      icon: (c) => (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+          <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
+        </svg>
+      ),
+    },
+  ];
+  return (
+    <div style={{
+      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
+      background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
+    }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", height: 68, display: "flex", padding: "8px 20px 14px" }}>
+        {items.map((t) => {
+          const active = topTab === t.key;
+          const color = active ? "#174585" : "#8D95A1";
+          return (
+            <button
+              key={t.key}
+              onClick={() => { if (!isRecording) setTopTab(t.key); }}
+              disabled={isRecording}
+              className="sans"
+              style={{
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
+                color, opacity: isRecording && !active ? 0.4 : 1,
+              }}
+            >
+              {t.icon(color)}
+              <span style={{ fontSize: 10, fontWeight: active ? 700 : 400 }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1769,7 +1809,7 @@ function MeasureView(props) {
   // メーター内の基準ピッチ・楽器種別は、タップでスクロールピッカーを開いて選ぶ(下段の設定より
   // 優先的に触る値のため、演奏姿勢のまま指の届く位置に置く)。どちらか一方だけ開く。
   const [openPicker, setOpenPicker] = useState(null); // null | "tuning" | "sax"
-  const [detailOpen, setDetailOpen] = useState(true); // 倍音構成・スペクトル・補助指標をまとめた詳細カードの開閉
+  const [detailOpen, setDetailOpen] = useState(false); // 倍音構成・スペクトル・補助指標をまとめた詳細カードの開閉。デフォルトは閉じておく
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
 
