@@ -6,19 +6,33 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 // ============================================================
 const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
-// 発音判定は絶対dBの固定しきい値ではなく、無音フロア(その環境の静かな時の音量)からの
-// 相対的な余裕(マージン)で行う。端末やマイク感度で絶対値が変わっても、静かな時よりこの分だけ
-// 大きい音を「発音中」とみなせる。さらにヒステリシス(開始は高め・終了は低め)で、しきい値付近で
-// 発音/無音がパタパタ切り替わって画面が揺れるのを防ぐ。
-// ・ONSET: この分より大きくなったら「発音開始」。大きいほど鈍く(小さい音・環境音を拾わない)。
-// ・RELEASE: 発音中はこの分を下回るまで継続。ONSETより小さくしてブレを抑える。
-// 実測(無音≒-112 / pp≒-78 / ロングトーン≒-60)より、無音フロアから+20dBを発音開始とする。
-// pp(フロア比+34程度)は拾い、環境ノイズ(フロア近傍)は拾わない。RELEASEはやや低め。
-const SOUND_ONSET_MARGIN_DB = 20;
-const SOUND_RELEASE_MARGIN_DB = 13;
-// スペクトル重心・HNR・倍音構成など音色系の指標は、発音より少し余裕を持った音量でだけ測定する
-// (弱すぎる音では倍音が埋もれ数値が暴れるため)。発音フロア+この余裕を測定開始の目安にする。
-const TIMBRE_MEASURE_MARGIN_DB = 24;
+// 楽器音だけを拾うための判定パラメータ。
+// ・ノイズゲート: バンドパス後の音量(dBFS)がこの値以下なら無音とみなす(設定で変更可能)。
+// ・ヒステリシス: 発音中はゲート-この分まで継続し、境界付近のパタつきを防ぐ。
+// ・スペクトル平坦度(0=純音〜1=白色雑音)がこの値以上なら「音程のない雑音(ブレス/空調)」として
+//   排除する。楽器の音は倍音がそろい平坦度が低いので、これでブレス等をはじける。
+const NOISE_GATE_DEFAULT_DB = -50; // 既定のノイズゲート(dBFS)
+const GATE_HYSTERESIS_DB = 4;
+const TONALITY_FLATNESS_MAX = 0.45;
+const TIMBRE_EXTRA_DB = 8;          // 音色系(重心/HNR/倍音)はゲート+この余裕の音量でだけ測定
+// バンドパス(BiquadFilterNode)の中心周波数とQ。楽器の基音帯(約130〜1900Hz)を通し、
+// 空調のうなり(低域)と高域ヒスを抑える。Qを低くして広い帯域を通す。
+const BANDPASS_FREQ_HZ = 500;
+const BANDPASS_Q = 0.3;
+
+// スペクトル平坦度(Wienerエントロピー): 指定ビン範囲の 幾何平均/算術平均。
+// 純音・楽音では小さく、ブレスや空調のような広帯域ノイズでは1に近づく。
+function spectralFlatness(linear, loBin, hiBin) {
+  let logSum = 0, sum = 0, n = 0;
+  for (let i = loBin; i <= hiBin; i++) {
+    const m = (linear[i] || 0) + 1e-10;
+    logSum += Math.log(m); sum += m; n++;
+  }
+  if (n === 0) return 1;
+  const geo = Math.exp(logSum / n);
+  const arith = sum / n;
+  return arith > 0 ? Math.min(1, geo / arith) : 1;
+}
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -958,6 +972,7 @@ export default function WindToneLabPhaseMode() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const [saxType, setSaxType] = usePersistedState("saxType", "alto");
+  const [noiseGateDb, setNoiseGateDb] = usePersistedState("noiseGateDb", NOISE_GATE_DEFAULT_DB); // 楽器音だけ拾うためのノイズゲート(dBFS)
   const [temperature, setTemperature] = useState(20);
   const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440〜444Hzのボタン、デフォルト442Hz
   const [instrumentOffsetCents, setInstrumentOffsetCents] = usePersistedState("instrumentOffsetCents", 0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
@@ -1005,6 +1020,7 @@ export default function WindToneLabPhaseMode() {
 
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
+  const gateAnalyserRef = useRef(null); // バンドパス後の音量(ノイズゲート判定)用のアナライザ
   const rafRef = useRef(null);
   const streamRef = useRef(null);
   const phraseStartTimeRef = useRef(null);
@@ -1019,8 +1035,9 @@ export default function WindToneLabPhaseMode() {
   const liveStartTimeRef = useRef(null);
   const lastLiveSampleTimeRef = useRef(0);
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
-  const noiseFloorRef = useRef(null);  // 無音フロア(静かな時の音量dB)の自動追従推定。マイク開始時にnullで初期化
   const soundingRef = useRef(false);   // 発音中フラグ(ヒステリシス判定に使う)
+  const noiseGateDbRef = useRef(noiseGateDb);
+  useEffect(() => { noiseGateDbRef.current = noiseGateDb; }, [noiseGateDb]);
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1139,7 +1156,6 @@ export default function WindToneLabPhaseMode() {
     setErrorMsg("");
     liveStartTimeRef.current = null;
     lastLiveSampleTimeRef.current = 0;
-    noiseFloorRef.current = null; // 無音フロアを再キャリブレーション
     soundingRef.current = false;
     setLiveFrames([]);
     try {
@@ -1153,11 +1169,25 @@ export default function WindToneLabPhaseMode() {
       audioCtxRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
+      // 生の解析用アナライザ(スペクトル・倍音・重心・ピッチ検出はフルバンドで行う)
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = 0.6;
       source.connect(analyser);
       analyserRef.current = analyser;
+
+      // 楽器の基音帯だけを通すバンドパス(BiquadFilterNode)→ ゲート判定用アナライザ。
+      // 空調のうなり(低域)や高域ヒスを抑えた音量でノイズゲートを判定する。
+      const bandpass = audioCtx.createBiquadFilter();
+      bandpass.type = "bandpass";
+      bandpass.frequency.value = BANDPASS_FREQ_HZ;
+      bandpass.Q.value = BANDPASS_Q;
+      const gateAnalyser = audioCtx.createAnalyser();
+      gateAnalyser.fftSize = FFT_SIZE;
+      gateAnalyser.smoothingTimeConstant = 0.2;
+      source.connect(bandpass);
+      bandpass.connect(gateAnalyser);
+      gateAnalyserRef.current = gateAnalyser;
 
       setIsListening(true);
 
@@ -1177,37 +1207,50 @@ export default function WindToneLabPhaseMode() {
         const freqs = new Float32Array(linear.length);
         for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
 
-        let sumSquares = 0;
-        for (let i = 0; i < linear.length; i++) sumSquares += linear[i] * linear[i];
-        const rms = Math.sqrt(sumSquares / linear.length);
+        // 音量(RMS/dBFS)は時間領域波形から算出する(標準的なdB。無音≒-70〜-90、通常音≒-15〜-35)。
+        const timeBuf = new Float32Array(analyserNode.fftSize);
+        analyserNode.getFloatTimeDomainData(timeBuf);
+        let ss = 0;
+        for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
+        const rms = Math.sqrt(ss / timeBuf.length);
         const vDb = 20 * Math.log10(rms + 1e-10);
         setVolumeDb(vDb);
 
-        const centroid = spectralCentroid(linear, freqs);
+        // バンドパス後の音量(dBFS)。空調のうなり・高域ヒスを除いた楽器帯の音量でゲート判定する。
+        let bandDb = -Infinity;
+        const gateNode = gateAnalyserRef.current;
+        if (gateNode) {
+          const gb = new Float32Array(gateNode.fftSize);
+          gateNode.getFloatTimeDomainData(gb);
+          let s2 = 0;
+          for (let i = 0; i < gb.length; i++) s2 += gb[i] * gb[i];
+          bandDb = 20 * Math.log10(Math.sqrt(s2 / gb.length) + 1e-10);
+        }
 
+        const centroid = spectralCentroid(linear, freqs);
         const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
 
         let levels = [];
         let hnr = null;
         let matchedFinger = null;
-        // 無音フロアの自動追従: 下方向へは即座に張り付き、上方向へはゆっくり(約1.2dB/秒)。
-        // ただし発音中はフロアを上げない(下げるのみ)ことで、長い音を出し続けてもしきい値が
-        // 上がってしまい途中で無音扱いになるのを防ぐ。
+
+        // --- 楽器音の判定(楽器以外=空調・ブレス等を拾わない) ---
+        // (1) ノイズゲート: バンドパス後の音量が設定しきい値(dBFS)を超えること。ヒステリシスつき。
+        // (2) 音程がある: HPSで基音が検出できること。
+        // (3) 音程のある楽音であること: 基音帯のスペクトル平坦度が低い(＝倍音がそろっている)こと。
+        //     ブレスや空調は広帯域の雑音で平坦度が高いため、これで排除できる。
+        const gateDb = noiseGateDbRef.current;
+        const bandLo = freqToBin(120, sampleRate, FFT_SIZE);
+        const bandHi = freqToBin(2000, sampleRate, FFT_SIZE);
+        const flatness = spectralFlatness(linear, bandLo, bandHi);
         const wasSounding = soundingRef.current;
-        const floorPrev = noiseFloorRef.current;
-        if (floorPrev === null) noiseFloorRef.current = vDb;
-        else if (!wasSounding) noiseFloorRef.current = Math.min(vDb, floorPrev + 0.02);
-        else noiseFloorRef.current = Math.min(vDb, floorPrev);
-        const floor = noiseFloorRef.current;
-        // 発音判定(メーターとグラフ共通)をヒステリシスで安定させる: 無音→発音はONSET、
-        // 発音→無音はRELEASEのしきい値を使い、境界付近のパタつき(画面の揺れ)を防ぐ。
         const hasPitch = f0 && f0 > 40;
-        soundingRef.current = wasSounding
-          ? hasPitch && vDb > floor + SOUND_RELEASE_MARGIN_DB
-          : hasPitch && vDb > floor + SOUND_ONSET_MARGIN_DB;
+        const aboveGate = bandDb > (wasSounding ? gateDb - GATE_HYSTERESIS_DB : gateDb);
+        const tonal = flatness < TONALITY_FLATNESS_MAX;
+        soundingRef.current = hasPitch && aboveGate && tonal;
         const sounding = soundingRef.current;
-        // 音色系(重心・HNR・倍音・スペクトル)は発音よりやや高い音量でだけ測定する。
-        const timbreMeasurable = hasPitch && vDb > floor + TIMBRE_MEASURE_MARGIN_DB;
+        // 音色系(重心・HNR・倍音・スペクトル)は、ゲート+余裕を持った音量でだけ測定する。
+        const timbreMeasurable = sounding && bandDb > gateDb + TIMBRE_EXTRA_DB;
 
         // ピッチのセント誤差は、メーターと同じ実効基準ピッチで1回だけ算出し、表示・グラフ・フレームで
         // 共有する(これで0¢の基準が全音でメーターと一致する)。
@@ -1259,8 +1302,9 @@ export default function WindToneLabPhaseMode() {
           // --- ノート区間分割・アタック時間検出(rAFレート、100msゲートの外で毎tick実行) ---
           {
             const det = noteDetectorRef.current;
+            // ノート境界は「楽器音と判定されているか(sounding)」で決める。ブレスや空調では発音開始にしない。
             if (det.phase === "silence") {
-              if (vDb > NOTE_ONSET_DB) {
+              if (sounding) {
                 det.phase = "attack";
                 det.onsetMs = elapsedMs;
                 det.peakDb = vDb;
@@ -1269,7 +1313,7 @@ export default function WindToneLabPhaseMode() {
             } else if (det.phase === "attack") {
               det.samples.push({ t: elapsedMs, vDb });
               if (vDb > det.peakDb) det.peakDb = vDb;
-              if (vDb < NOTE_RELEASE_DB) {
+              if (!sounding) {
                 det.phase = "silence"; // 観測窓の途中で消えた短すぎる音はノートとして扱わない
               } else if (elapsedMs - det.onsetMs >= ATTACK_WINDOW_MS) {
                 // アタック確定: 観測窓内のピーク-3dBに初到達した時刻までをアタック時間とする
@@ -1283,7 +1327,7 @@ export default function WindToneLabPhaseMode() {
               }
             } else if (det.phase === "sustain") {
               if (vDb > det.peakDb) det.peakDb = vDb;
-              if (vDb < NOTE_RELEASE_DB) {
+              if (!sounding) {
                 const last = det.events[det.events.length - 1];
                 if (last && last.endT === null) {
                   last.endT = elapsedMs / 1000;
@@ -1640,6 +1684,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
+          noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
@@ -1924,6 +1969,7 @@ function MeasureView(props) {
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
+    noiseGateDb, setNoiseGateDb,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
@@ -2192,6 +2238,23 @@ function MeasureView(props) {
               <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
               <MetricCard label="スペクトル重心" value={centroidHz != null ? `${Math.round(centroidHz)} Hz` : "—"} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
               <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
+            </div>
+
+            <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
+
+            {/* ノイズゲート設定。バンドパス後の音量がこの値以下なら無音とみなす。現在の音量を見ながら、
+                楽器を吹いていない時の値より少し上に設定すると、楽器以外の音を拾わなくなる。 */}
+            <div className="sans" style={{ fontSize: 11, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>ノイズゲート（楽器以外の音を拾わない）</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="range" min="-80" max="-20" step="1" value={noiseGateDb}
+                onChange={(e) => setNoiseGateDb(Number(e.target.value))}
+                style={{ flex: 1, accentColor: "#174585" }}
+              />
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
+            </div>
+            <div className="sans" style={{ fontSize: 9.5, color: "#8D95A1", marginTop: 6, lineHeight: 1.6 }}>
+              現在の音量 {volumeDb.toFixed(1)} dB。この値以下は無音として扱います。空調やブレスを拾ってしまう時は数値を上げてください（右ほど厳しい）。低音域の楽器帯だけを通すバンドパスと、音程のない雑音を除く判定も併用しています。
             </div>
           </div>
         </div>
