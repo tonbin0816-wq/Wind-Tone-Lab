@@ -1727,6 +1727,9 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 // 揃えて-50¢〜+50¢に固定し、±10¢の良好ゾーンを帯で示す。
 const RECENT_NOTES_WINDOW_SEC = 30;
 const RECENT_NOTES_RANGE_CENTS = 50;
+// この音量(dB)を下回るフレームは無音とみなす。NOTE_RELEASE_DB(-68)と揃える。
+// 無音時は背景ノイズで誤検出したピッチを描かず、中央(0¢)に落とすために使う。
+const RECENT_NOTES_SILENCE_DB = -68;
 
 function PitchDeviationLine({ frames }) {
   const W = 600, H = 110;
@@ -1742,23 +1745,27 @@ function PitchDeviationLine({ frames }) {
   };
   const goodTop = y(10), goodBottom = y(-10);
 
-  // 無音(ピッチ未検出)のフレームは0¢(中央)として描く。これにより線が途切れず、
-  // 音を出していない間はちょうど中央のライン上に留まる。
+  // 無音判定: ピッチ未検出、または音量が閾値未満のフレーム。無音は背景ノイズ由来の
+  // 誤検出ピッチを描かず、中央(0¢)に落とす(線は途切れず中央ライン上に留まる)。
+  const isSilent = (f) => {
+    const c = f.pitchCents;
+    if (c === null || c === undefined || isNaN(c)) return true;
+    if (typeof f.volumeDb === "number" && f.volumeDb < RECENT_NOTES_SILENCE_DB) return true;
+    return false;
+  };
+
   const points = windowFrames
-    .map((f) => {
-      const c = f.pitchCents === null || f.pitchCents === undefined || isNaN(f.pitchCents) ? 0 : f.pitchCents;
-      return `${x(f.t)},${y(c)}`;
-    })
+    .map((f) => `${x(f.t)},${y(isSilent(f) ? 0 : f.pitchCents)}`)
     .join(" ");
 
   // 感知した音名(運指の記音)を時系列に沿ってラベル表示する。連続する同じ音をひとまとまりにし、
-  // 各まとまりの先頭位置に音名を出す。SVGはpreserveAspectRatio=noneで横に引き伸ばされ文字が
-  // 歪むため、ラベルはSVGの上にHTMLで重ねて配置する。
+  // 各まとまりの先頭位置に音名を出す。無音フレームはまとまりを区切る。SVGはpreserveAspectRatio=none
+  // で横に引き伸ばされ文字が歪むため、ラベルはSVGの上にHTMLで重ねて配置する。
   const noteRuns = [];
   let cur = null;
   const MIN_RUN = 2;
   for (const f of windowFrames) {
-    const nm = f.matchedWrittenNote || null;
+    const nm = isSilent(f) ? null : (f.matchedWrittenNote || null);
     if (nm) {
       if (!cur || cur.name !== nm) {
         if (cur && cur.count >= MIN_RUN) noteRuns.push(cur);
@@ -1778,30 +1785,42 @@ function PitchDeviationLine({ frames }) {
     if (pct - lastPct >= 9) { labels.push({ name: r.name, pct }); lastPct = pct; }
   }
 
+  const axisLabel = { position: "absolute", right: 4, fontSize: 9, color: "#A6AEBA", whiteSpace: "nowrap" };
+
   return (
     <div style={{ padding: "18px 0 0" }}>
-      <div style={{ position: "relative" }}>
-        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
-          <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
-          <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
-          {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
-        </svg>
-        {labels.map((l, i) => (
-          <span
-            key={i}
-            className="sans"
-            style={{
-              position: "absolute", top: 0, left: `${Math.max(2, Math.min(94, l.pct))}%`, transform: "translateX(-50%)",
-              fontSize: 10, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
-              padding: "1px 5px", borderRadius: 6, whiteSpace: "nowrap", pointerEvents: "none",
-            }}
-          >
-            {l.name}
-          </span>
-        ))}
+      <div style={{ display: "flex" }}>
+        {/* 縦軸の目盛ラベル: 上=+50¢ / 中央=0 / 下=-50¢ */}
+        <div style={{ position: "relative", width: 34, height: H, flexShrink: 0 }}>
+          <span className="sans" style={{ ...axisLabel, top: 0 }}>+50¢</span>
+          <span className="sans" style={{ ...axisLabel, top: "50%", transform: "translateY(-50%)" }}>0</span>
+          <span className="sans" style={{ ...axisLabel, bottom: 0 }}>-50¢</span>
+        </div>
+        {/* グラフ本体 */}
+        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+            <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
+            <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
+            {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
+          </svg>
+          {labels.map((l, i) => (
+            <span
+              key={i}
+              className="sans"
+              style={{
+                position: "absolute", top: 0, left: `${Math.max(2, Math.min(94, l.pct))}%`, transform: "translateX(-50%)",
+                fontSize: 10, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
+                padding: "1px 5px", borderRadius: 6, whiteSpace: "nowrap", pointerEvents: "none",
+              }}
+            >
+              {l.name}
+            </span>
+          ))}
+        </div>
       </div>
-      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4 }}>
-        <span>-50¢</span><span>30秒前 → 今</span><span>+50¢</span>
+      {/* 横軸: 左=30秒前 / 右=今 */}
+      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4, paddingLeft: 34 }}>
+        <span>30秒前</span><span>今</span>
       </div>
     </div>
   );
