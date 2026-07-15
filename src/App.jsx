@@ -6,6 +6,11 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
 // ============================================================
 const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"];
 
+// 無音判定に使う音量(dB)の共通しきい値。メーターと「これまでの音」グラフで同じ値を使い、
+// 挙動をそろえる(NOTE_RELEASE_DBと同じ-68)。これを下回ると「無音」とみなし、メーターは
+// 中央・音名なし、グラフは中央ラインに落とす。実機で反応が渋い/敏感すぎる場合はここを調整する。
+const SILENCE_VOLUME_DB = -68;
+
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
 function freqToNote(freq, a4 = 440) {
@@ -1140,7 +1145,10 @@ export default function WindToneLabPhaseMode() {
         let levels = [];
         let hnr = null;
         let matchedFinger = null;
-        if (f0 && f0 > 40) {
+        // 発音中の判定はメーターとグラフで共通: ピッチが取れていて、かつ音量が無音しきい値以上。
+        // 音量ゲートを入れることで、無音時に背景ノイズを拾って音名が出続けるのを防ぐ。
+        const sounding = f0 && f0 > 40 && vDb >= SILENCE_VOLUME_DB;
+        if (sounding) {
           setPitch(f0);
 
           // --- 運指ベース管長自動キャリブレーション ---
@@ -1164,6 +1172,11 @@ export default function WindToneLabPhaseMode() {
 
           hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
           setHnrDb(hnr);
+        } else {
+          // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
+          // (以前は最後に検出した音が残り続けていた)
+          setPitch(null);
+          setMatchedFingering(null);
         }
 
 
@@ -1727,9 +1740,6 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 // 揃えて-50¢〜+50¢に固定し、±10¢の良好ゾーンを帯で示す。
 const RECENT_NOTES_WINDOW_SEC = 30;
 const RECENT_NOTES_RANGE_CENTS = 50;
-// この音量(dB)を下回るフレームは無音とみなす。NOTE_RELEASE_DB(-68)と揃える。
-// 無音時は背景ノイズで誤検出したピッチを描かず、中央(0¢)に落とすために使う。
-const RECENT_NOTES_SILENCE_DB = -68;
 
 function PitchDeviationLine({ frames }) {
   const W = 600, H = 110;
@@ -1750,7 +1760,7 @@ function PitchDeviationLine({ frames }) {
   const isSilent = (f) => {
     const c = f.pitchCents;
     if (c === null || c === undefined || isNaN(c)) return true;
-    if (typeof f.volumeDb === "number" && f.volumeDb < RECENT_NOTES_SILENCE_DB) return true;
+    if (typeof f.volumeDb === "number" && f.volumeDb < SILENCE_VOLUME_DB) return true;
     return false;
   };
 
@@ -2019,11 +2029,12 @@ function MeasureView(props) {
       </div>
 
       {/* 「これまでの音」ミニタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
-          録音中/録音直後はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中
-          常に更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。
-          メーターのすぐ下に置き、演奏しながら推移を確認しやすくする。 */}
+          録音中はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中に常に
+          更新され続ける直近30秒のローリングバッファ(liveFrames)を表示に使う。以前は録音を一度
+          行うとphraseFramesが残り続け、録音停止後もグラフが過去の録音で固まったままになっていた
+          ため、録音していない間はliveFramesを優先してライブ追従させる。 */}
       {(() => {
-        const timelineFrames = phraseFrames.length > 0 ? phraseFrames : liveFrames;
+        const timelineFrames = isRecording ? phraseFrames : liveFrames;
         return timelineFrames.length > 0 ? (
           <PitchDeviationLine frames={timelineFrames} />
         ) : (
