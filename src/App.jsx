@@ -3886,24 +3886,30 @@ function idealAvgForFrames(frames, profile, idealKey) {
 
 // 3ヶ月/6ヶ月/1年は「直近Nヶ月」のローリング期間。1年より前のデータは1年単位の
 // 期間(2年目=1〜2年前、3年目=2〜3年前…)で追加抽出できるようにする。
-const MY_DATA_BASE_RANGES = [
+const MY_DATA_RANGES = [
+  { key: "yesterday", label: "昨日" },
+  { key: "1w", label: "1週間" },
+  { key: "1m", label: "1ヶ月" },
   { key: "3m", label: "3ヶ月" },
   { key: "6m", label: "6ヶ月" },
   { key: "1y", label: "1年" },
+  { key: "3y", label: "3年" },
+  { key: "5y", label: "5年" },
+  { key: "all", label: "全期間" },
 ];
 
 function getMyDataRangeBounds(rangeKey, now) {
-  if (rangeKey === "3m") { const d = new Date(now); d.setMonth(d.getMonth() - 3); return { start: d, end: null }; }
-  if (rangeKey === "6m") { const d = new Date(now); d.setMonth(d.getMonth() - 6); return { start: d, end: null }; }
-  if (rangeKey === "1y") { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return { start: d, end: null }; }
-  const m = /^year(\d+)$/.exec(rangeKey);
-  if (m) {
-    const n = Number(m[1]);
-    const start = new Date(now); start.setFullYear(start.getFullYear() - n);
-    const end = new Date(now); end.setFullYear(end.getFullYear() - (n - 1));
-    return { start, end };
-  }
-  return { start: null, end: null };
+  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
+  const back = (fn) => { const d = new Date(now); fn(d); return { start: d, end: null }; };
+  if (rangeKey === "yesterday") { const s = new Date(startOfToday); s.setDate(s.getDate() - 1); return { start: s, end: startOfToday }; }
+  if (rangeKey === "1w") return back((d) => d.setDate(d.getDate() - 7));
+  if (rangeKey === "1m") return back((d) => d.setMonth(d.getMonth() - 1));
+  if (rangeKey === "3m") return back((d) => d.setMonth(d.getMonth() - 3));
+  if (rangeKey === "6m") return back((d) => d.setMonth(d.getMonth() - 6));
+  if (rangeKey === "1y") return back((d) => d.setFullYear(d.getFullYear() - 1));
+  if (rangeKey === "3y") return back((d) => d.setFullYear(d.getFullYear() - 3));
+  if (rangeKey === "5y") return back((d) => d.setFullYear(d.getFullYear() - 5));
+  return { start: null, end: null }; // all
 }
 
 // My Data: 奏者が「自分」のセッションの集計。期間セレクタで対象期間を絞り、
@@ -3913,15 +3919,10 @@ function getMyDataRangeBounds(rangeKey, now) {
 function MyDataSection({ sessions, selectedIdeal }) {
   const [view, setView] = useState("avg"); // "avg" | "trend"
   const allMySessions = sessions.filter((s) => s.performer === "自分");
-  const [range, setRange] = useState("1y");
+  const [range, setRange] = useState("1m");
 
   const now = new Date();
-  const oldestMs = allMySessions.length ? Math.min(...allMySessions.map((s) => new Date(s.recordedAt).getTime())) : null;
-  const yearsOfData = oldestMs ? Math.max(1, Math.ceil((now - oldestMs) / (365.25 * 24 * 3600 * 1000))) : 1;
-  const rangeOptions = [
-    ...MY_DATA_BASE_RANGES,
-    ...Array.from({ length: Math.max(0, yearsOfData - 1) }, (_, i) => ({ key: `year${i + 2}`, label: `${i + 2}年目` })),
-  ];
+  const rangeOptions = MY_DATA_RANGES;
 
   const { start, end } = getMyDataRangeBounds(range, now);
   const mySessions = allMySessions
@@ -3945,41 +3946,59 @@ function MyDataSection({ sessions, selectedIdeal }) {
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ideals, ...computeFrameMetrics(frames) };
   });
 
-  // ヒーローカード用: 平均ピッチ偏差(符号つき)と、期間内前半→後半の改善幅、スパークライン用の系列
-  const heroVal = overall.pitchCents;
+  // ヒーローカード: 今日のピッチ誤差を、対象期間の平均と比較して色分けする。
+  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
+  const todayFrames = allMySessions
+    .filter((s) => new Date(s.recordedAt) >= startOfToday)
+    .flatMap((s) => s.frames || []);
+  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCents : null; // 今日の平均ピッチ偏差(符号つき)
+  const periodVal = overall.pitchCents;                                                    // 対象期間の平均
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
   const sparkVals = points.map((p) => p.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  let improve = null; // { delta } deltaが負なら改善(絶対値が小さくなった)
-  if (sparkVals.length >= 4) {
-    const mid = Math.floor(sparkVals.length / 2);
-    const avgAbs = (a) => a.reduce((s, v) => s + Math.abs(v), 0) / a.length;
-    improve = { delta: avgAbs(sparkVals.slice(mid)) - avgAbs(sparkVals.slice(0, mid)) };
+
+  // 色分け: 完全一致(≒0)=ミント / 平均より大きく改善=緑 / 平均並み=オレンジ / 平均より悪化=赤。
+  // 誤差は0からの距離(絶対値)で評価する。ネイビー背景で映えるよう明るめの色を使う。
+  const todayErr = todayVal != null ? Math.abs(todayVal) : null;
+  const periodErr = periodVal != null ? Math.abs(periodVal) : null;
+  const MARGIN = 3;
+  let heroColor = "#FFFFFF", heroStatus = null;
+  if (todayErr != null) {
+    if (todayErr < 2) { heroColor = "#6EE7B7"; heroStatus = "ほぼ完璧"; }
+    else if (periodErr != null && todayErr < periodErr - MARGIN) { heroColor = "#4ADE80"; heroStatus = "平均より改善"; }
+    else if (periodErr != null && todayErr > periodErr + MARGIN) { heroColor = "#F87171"; heroStatus = "平均より悪化"; }
+    else { heroColor = "#FBBF24"; heroStatus = "平均並み"; }
   }
+  const displayVal = todayVal != null ? todayVal : periodVal;
 
   return (
     <>
-      {/* 今期の平均ピッチ偏差ヒーローカード(Claude Design) */}
+      {/* 今日のピッチ誤差ヒーローカード。対象期間平均と比較して色分けする */}
       <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 12, color: "#B9C9E4" }}>平均ピッチ偏差</div>
+          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "平均ピッチ誤差"}</div>
           <select value={range} onChange={(e) => setRange(e.target.value)} style={{ fontSize: 11 }}>
             {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 48, fontWeight: 600, lineHeight: 0.9 }}>
-            {heroVal !== null && heroVal !== undefined ? `${heroVal > 0 ? "+" : ""}${heroVal.toFixed(1)}` : "—"}
+          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 48, fontWeight: 600, lineHeight: 0.9, color: heroColor }}>
+            {displayVal !== null && displayVal !== undefined ? `${displayVal > 0 ? "+" : ""}${displayVal.toFixed(1)}` : "—"}
             <span style={{ fontSize: 22, color: "#9DB3D6" }}>¢</span>
           </span>
-          {improve && (
+          {heroStatus && (
             <span className="sans" style={{
               display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, marginBottom: 8,
-              background: improve.delta <= 0 ? "#2FB673" : "#EBC66B", color: "#04130D",
+              background: heroColor, color: "#04130D",
             }}>
-              {improve.delta <= 0 ? "▲" : "▼"} 期間内 {improve.delta > 0 ? "+" : ""}{improve.delta.toFixed(1)}¢ {improve.delta <= 0 ? "改善" : "悪化"}
+              {heroStatus}
             </span>
           )}
         </div>
+        {todayVal != null && periodVal != null && (
+          <div style={{ fontSize: 11, color: "#9DB3D6", marginTop: 6 }}>
+            対象期間平均 {periodVal > 0 ? "+" : ""}{periodVal.toFixed(1)}¢（{rangeLabel}）と比較
+          </div>
+        )}
         {sparkVals.length >= 2 && (() => {
           const W = 320, H = 48;
           const minV = Math.min(...sparkVals), maxV = Math.max(...sparkVals);
@@ -4168,11 +4187,13 @@ function AnalysisLabView(props) {
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
   const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
   const [selectedSessionId, setSelectedSessionId] = useState(null);
-  const [visibleCount, setVisibleCount] = useState(3); // 一覧は直近3件のみ。「もっと見る」で全件展開
+  const [sessionSortKey, setSessionSortKey] = useState("date"); // date | performer | reed
+  const [sessionSortDir, setSessionSortDir] = useState("desc");
   // 削除はリードタブと同様、行ごとのボタンではなくチェックボックスによる複数選択削除にする。
   // (selectedSessionがある時の早期returnより前で呼ぶ必要があるため、ここでまとめて宣言する)
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
+  const [bulkReedId, setBulkReedId] = useState(""); // 選択セッションにまとめて紐付けるリード
 
   // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
@@ -4225,9 +4246,19 @@ function AnalysisLabView(props) {
     );
   }
 
-  const sortedSessions = [...sessions].sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
-  const visibleSessions = sortedSessions.slice(0, visibleCount);
-  const latestSession = sortedSessions[0] || null;
+  const latestSession = [...sessions].sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt))[0] || null;
+  // 期間(録音日時)・奏者・リードでソートできる。
+  const sortedSessions = [...sessions].sort((a, b) => {
+    let cmp = 0;
+    if (sessionSortKey === "date") cmp = new Date(a.recordedAt) - new Date(b.recordedAt);
+    else if (sessionSortKey === "performer") cmp = (a.performer || "").localeCompare(b.performer || "", "ja");
+    else if (sessionSortKey === "reed") {
+      const la = a.reedId ? reedLabel(reeds.find((r) => r.id === a.reedId), reeds) : "";
+      const lb = b.reedId ? reedLabel(reeds.find((r) => r.id === b.reedId), reeds) : "";
+      cmp = la.localeCompare(lb, "ja");
+    }
+    return sessionSortDir === "desc" ? -cmp : cmp;
+  });
 
   const toggleSessionSelected = (id) => {
     setSelectedForDelete((prev) => {
@@ -4240,12 +4271,22 @@ function AnalysisLabView(props) {
   const exitSelectionMode = () => {
     setSelectionMode(false);
     setSelectedForDelete(new Set());
+    setBulkReedId("");
   };
 
   const confirmBatchDeleteSessions = () => {
     if (selectedForDelete.size === 0) return;
     if (!window.confirm(`選択した${selectedForDelete.size}件のセッションを削除しますか？(元に戻せません)`)) return;
     deleteSessions([...selectedForDelete]);
+    exitSelectionMode();
+  };
+
+  // 選択したセッションのリードをまとめて変更する。
+  const applyBulkReed = () => {
+    if (selectedForDelete.size === 0 || !bulkReedId) return;
+    const ids = new Set(selectedForDelete);
+    const reedId = bulkReedId === "__none__" ? null : bulkReedId;
+    updateSessions((prev) => prev.map((s) => (ids.has(s.id) ? { ...s, reedId, linkedAt: reedId ? "eager" : null } : s)));
     exitSelectionMode();
   };
 
@@ -4292,7 +4333,7 @@ function AnalysisLabView(props) {
                 <button
                   onClick={exitSelectionMode}
                   className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
+                  style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
                 >
                   キャンセル
                 </button>
@@ -4300,7 +4341,7 @@ function AnalysisLabView(props) {
                   onClick={confirmBatchDeleteSessions}
                   disabled={selectedForDelete.size === 0}
                   className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 4, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                  style={{ padding: "7px 12px", borderRadius: 999, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
                 >
                   {selectedForDelete.size > 0 ? `${selectedForDelete.size}件を削除` : "削除"}
                 </button>
@@ -4309,61 +4350,83 @@ function AnalysisLabView(props) {
               <button
                 onClick={() => setSelectionMode(true)}
                 className="sans"
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
               >
-                <Trash2 size={13} /> 削除
+                選択
               </button>
             )
           )}
         </div>
+
+        {/* ソート: 期間(録音日時)・奏者・リード */}
+        {sortedSessions.length > 0 && !selectionMode && (
+          <div className="sans" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: "#8D95A1" }}>並び替え</span>
+            <select value={sessionSortKey} onChange={(e) => setSessionSortKey(e.target.value)} style={{ fontSize: 11 }}>
+              <option value="date">期間</option>
+              <option value="performer">奏者</option>
+              <option value="reed">リード</option>
+            </select>
+            <button
+              onClick={() => setSessionSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+              className="sans"
+              style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#174585", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+            >
+              {sessionSortDir === "desc" ? "降順 ▼" : "昇順 ▲"}
+            </button>
+          </div>
+        )}
+
+        {/* 選択中: 選んだセッションのリードをまとめて変更 */}
+        {selectionMode && (
+          <div className="sans" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap", padding: "10px 12px", background: "#F6F7F9", borderRadius: 12 }}>
+            <span style={{ fontSize: 11, color: "#435266" }}>選択した{selectedForDelete.size}件のリードを</span>
+            <select value={bulkReedId} onChange={(e) => setBulkReedId(e.target.value)} style={{ fontSize: 11 }}>
+              <option value="">選択…</option>
+              <option value="__none__">未紐付けにする</option>
+              {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+            </select>
+            <button
+              onClick={applyBulkReed}
+              disabled={selectedForDelete.size === 0 || !bulkReedId}
+              className="sans"
+              style={{ padding: "6px 14px", borderRadius: 999, border: "none", background: selectedForDelete.size > 0 && bulkReedId ? "#174585" : "#E9ECF0", color: "#FFFFFF", fontSize: 11, fontWeight: 600, cursor: selectedForDelete.size > 0 && bulkReedId ? "pointer" : "default" }}
+            >
+              変更
+            </button>
+          </div>
+        )}
+
         {sortedSessions.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>まだ記録がありません</div>
         ) : (
-          <>
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {visibleSessions.map((s) => {
-                const reed = reeds.find((r) => r.id === s.reedId) || null;
-                return (
-                  <div
-                    key={s.id}
-                    onClick={() => (selectionMode ? toggleSessionSelected(s.id) : setSelectedSessionId(s.id))}
-                    className="sans"
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", borderBottom: "1px solid #EEF1F4", cursor: "pointer", fontSize: 11 }}
-                  >
-                    {selectionMode && (
-                      <input
-                        type="checkbox" checked={selectedForDelete.has(s.id)}
-                        onChange={() => toggleSessionSelected(s.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
-                      />
-                    )}
-                    <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
-                    <span style={{ color: "#174585", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
-                    <span style={{ color: "#435266", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
-                    {s.source === "upload" && <span style={{ color: "#8D95A1", fontSize: 9, flexShrink: 0 }}>📁</span>}
-                  </div>
-                );
-              })}
-            </div>
-            {visibleCount < sortedSessions.length ? (
-              <button
-                onClick={() => setVisibleCount(sortedSessions.length)}
-                className="sans"
-                style={{ width: "100%", marginTop: 10, padding: "8px 4px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#174585", fontSize: 11, cursor: "pointer" }}
-              >
-                もっと見る（残り{sortedSessions.length - visibleCount}件）
-              </button>
-            ) : visibleCount > 3 && (
-              <button
-                onClick={() => setVisibleCount(3)}
-                className="sans"
-                style={{ width: "100%", marginTop: 10, padding: "8px 4px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 11, cursor: "pointer" }}
-              >
-                閉じる
-              </button>
-            )}
-          </>
+          // 最大10件程度の高さの枠に収め、それ以上はスクロールで過去分も見られるようにする(約38px/行)。
+          <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
+            {sortedSessions.map((s) => {
+              const reed = reeds.find((r) => r.id === s.reedId) || null;
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => (selectionMode ? toggleSessionSelected(s.id) : setSelectedSessionId(s.id))}
+                  className="sans"
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 6px", borderBottom: "1px solid #EEF1F4", cursor: "pointer", fontSize: 11 }}
+                >
+                  {selectionMode && (
+                    <input
+                      type="checkbox" checked={selectedForDelete.has(s.id)}
+                      onChange={() => toggleSessionSelected(s.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                    />
+                  )}
+                  <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
+                  <span style={{ color: "#174585", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
+                  <span style={{ color: "#435266", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
+                  {s.source === "upload" && <span style={{ color: "#8D95A1", fontSize: 9, flexShrink: 0 }}>📁</span>}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
       </>)}
