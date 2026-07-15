@@ -2408,6 +2408,22 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
                 return `${i * 6},${y}`;
               }).join(" ")}
             />
+            {/* 検出した音名(記音)を時系列に沿って表示する(計測タブの折れ線と同様) */}
+            {(() => {
+              const labels = [];
+              let curName = null, lastX = -100;
+              frames.forEach((f, i) => {
+                const nm = f.matchedWrittenNote || null;
+                if (nm && nm !== curName) {
+                  const x = i * 6;
+                  if (x - lastX >= 22) { labels.push({ name: nm, x }); lastX = x; }
+                  curName = nm;
+                } else if (!nm) curName = null;
+              });
+              return labels.map((l, k) => (
+                <text key={k} x={l.x} y={9} fontSize="9" fontWeight="700" fill="#174585" fontFamily="'Space Grotesk', sans-serif">{l.name}</text>
+              ));
+            })()}
             {frames.map((f, i) => {
               const score = getMatchScore(f, "pitch");
               const color = scoreToColor(score);
@@ -4123,22 +4139,29 @@ function MyTrendChart({ metric, points }) {
   return (
     <div style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "8px 10px" }}>
       <div className="sans" style={{ fontSize: 9, color: "#435266", marginBottom: 4 }}>{metric.label}（{metric.unit}）</div>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
-        {idealVals.length > 0 && (
-          <polyline fill="none" stroke="#8D95A1" strokeWidth="1.5" strokeDasharray="4,3" points={linePoints((p) => p.ideals?.[metric.key])} />
-        )}
-        <polyline fill="none" stroke="#174585" strokeWidth="2" points={linePoints((p) => p[metric.key])} />
-        {points.map((p, i) => {
-          const v = p[metric.key];
-          if (v === null || v === undefined || isNaN(v)) return null;
-          return (
-            <circle key={i} cx={x(i)} cy={y(v)} r={3} fill="#174585">
-              <title>{new Date(p.date).toLocaleDateString("ja-JP")}: {metric.fmt(v)}{metric.unit}{p.memo ? ` 「${p.memo}」` : ""}</title>
-            </circle>
-          );
-        })}
-      </svg>
-      <div className="sans" style={{ fontSize: 8, color: "#8D95A1", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+      <div style={{ display: "flex" }}>
+        {/* 縦軸の目盛(上=最大 / 下=最小)。SVGは横に引き伸ばすため文字はHTMLで左に添える。 */}
+        <div style={{ position: "relative", width: 30, height: H, flexShrink: 0 }}>
+          <span className="sans" style={{ position: "absolute", right: 3, top: 0, fontSize: 8, color: "#A6AEBA" }}>{metric.fmt(maxV)}</span>
+          <span className="sans" style={{ position: "absolute", right: 3, bottom: 0, fontSize: 8, color: "#A6AEBA" }}>{metric.fmt(minV)}</span>
+        </div>
+        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block", flex: 1, minWidth: 0 }}>
+          {idealVals.length > 0 && (
+            <polyline fill="none" stroke="#8D95A1" strokeWidth="1.5" strokeDasharray="4,3" points={linePoints((p) => p.ideals?.[metric.key])} />
+          )}
+          <polyline fill="none" stroke="#174585" strokeWidth="2" points={linePoints((p) => p[metric.key])} />
+          {points.map((p, i) => {
+            const v = p[metric.key];
+            if (v === null || v === undefined || isNaN(v)) return null;
+            return (
+              <circle key={i} cx={x(i)} cy={y(v)} r={3} fill="#174585">
+                <title>{new Date(p.date).toLocaleDateString("ja-JP")}: {metric.fmt(v)}{metric.unit}{p.memo ? ` 「${p.memo}」` : ""}</title>
+              </circle>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="sans" style={{ fontSize: 8, color: "#8D95A1", display: "flex", justifyContent: "space-between", marginTop: 2, paddingLeft: 30 }}>
         <span>{new Date(points[0].date).toLocaleDateString("ja-JP")}</span>
         {points.length > 1 && <span>{new Date(points[points.length - 1].date).toLocaleDateString("ja-JP")}</span>}
       </div>
