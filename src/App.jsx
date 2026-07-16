@@ -2192,8 +2192,9 @@ function MeasureView(props) {
           );
         })()}
         {/* Hz行は固定の高さ・行高にする。「未検出」(日本語フォールバック)と数字(Space Grotesk)で
-            行の高さが変わり、音名の切替時に下の要素が上下にブレるのを防ぐ。 */}
-        <div style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1", marginTop: 8, height: 16, lineHeight: "16px" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
+            行の高さが変わり、音名の切替時に下の要素が上下にブレるのを防ぐ。行間を広げ字間をわずかに
+            開けることで、実音表示が上の音名に詰まって見えないようにする(タイポグラフィ指示書5節⑤)。 */}
+        <div style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1", marginTop: 10, height: 18, lineHeight: "18px", letterSpacing: "0.02em" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
       {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
@@ -3260,11 +3261,16 @@ function computeFrameMetrics(frames) {
     const vals = frames.map((f) => (abs ? Math.abs(f[key]) : f[key])).filter((v) => v !== null && v !== undefined && !isNaN(v));
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   };
+  // ピッチのブレ(安定度): 符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
+  // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す
+  // 別の指標(My Dataのヒーローと同じ数字の重複表示を避けるために使う)。
+  const pitchVals = frames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
   return {
     hnrDb: avg("hnrDb"),
     spectralCentroidHz: avg("spectralCentroidHz"),
     volumeDb: avg("volumeDb"),
     pitchCents: avg("pitchCents", true),
+    pitchStabilityCents: stddev(pitchVals),
   };
 }
 
@@ -4019,7 +4025,9 @@ const MY_DATA_METRICS = [
   { key: "volumeDb", idealKey: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "spectralCentroidHz", idealKey: "centroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "hnrDb", idealKey: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
-  { key: "pitchCents", idealKey: null, label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
+  // ヒーローカードが「今日のピッチ誤差」を主役として表示するため、ここでは同じ数字を
+  // 繰り返さず、ピッチの安定度(値のブレ幅=標準偏差)という別の切り口を見せる。
+  { key: "pitchStabilityCents", idealKey: null, label: "ピッチの安定度", unit: "¢", fmt: (v) => `±${v.toFixed(1)}` },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -4089,7 +4097,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
     const frames = s.frames || [];
     const ideals = {};
     for (const m of MY_DATA_METRICS) {
-      ideals[m.key] = m.key === "pitchCents" ? (selectedIdeal ? 0 : null) : idealAvgForFrames(frames, selectedIdeal, m.idealKey);
+      ideals[m.key] = idealAvgForFrames(frames, selectedIdeal, m.idealKey);
     }
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ideals, ...computeFrameMetrics(frames) };
   });
@@ -4199,22 +4207,20 @@ function MyDataSection({ sessions, selectedIdeal }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {MY_DATA_METRICS.map((m) => {
             const measured = overall[m.key];
-            const ideal = m.key === "pitchCents" ? (selectedIdeal ? 0 : null) : idealAvgForFrames(allFrames, selectedIdeal, m.idealKey);
+            const ideal = idealAvgForFrames(allFrames, selectedIdeal, m.idealKey);
             const diff = measured !== null && ideal !== null ? measured - ideal : null;
-            const valueColor = m.key === "pitchCents" && measured !== null ? pitchCellColor(measured) : "#121F32";
             return (
               <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px" }}>
                 <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{m.label}</div>
-                <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: valueColor }}>
+                <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
                   {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
                 </div>
                 {ideal !== null && (
                   <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <span>理想: {m.fmt(ideal)} {m.unit}</span>
-                    {diff !== null && m.key !== "pitchCents" && (
+                    {diff !== null && (
                       <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>
                     )}
-                    {m.key === "pitchCents" && <span style={{ color: "#8D95A1" }}>0に近いほど良い</span>}
                   </div>
                 )}
               </div>
