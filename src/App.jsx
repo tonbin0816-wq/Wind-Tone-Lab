@@ -926,7 +926,7 @@ function analyzeAudioBuffer(audioBuffer, opts) {
 // オフライン処理ができないため、解析にはファイルの再生時間と同じだけ実時間がかかる。
 // ハング防止のため、メタデータ読み込み・再生停滞・全体時間のそれぞれに見張りを置く。
 function analyzeMediaFile(file, opts) {
-  const { onProgress } = opts;
+  const { onProgress, onNeedTap } = opts;
   const FFT_SIZE = 8192;
   const fa = createFrameAnalyzer(opts);
 
@@ -988,9 +988,6 @@ function analyzeMediaFile(file, opts) {
         resolve({ frames: fa.frames, noteEvents: fa.noteEvents });
       };
 
-      // 再生時間+15秒経っても終わらなければ打ち切る(デコード停止などでendedが来ないケースの保険)
-      if (duration > 0) timers.push(setTimeout(() => { if (!finished) fail("解析がタイムアウトしました"); }, (duration + 15) * 1000));
-
       // 再生位置が10秒間進まなければ停滞とみなす
       let lastTime = -1;
       let lastAdvance = performance.now();
@@ -1008,11 +1005,27 @@ function analyzeMediaFile(file, opts) {
       };
 
       mediaEl.onended = finish;
-      audioCtx.resume().catch(() => { /* noop */ });
-      mediaEl.play().then(() => {
+
+      // 再生開始に成功してから各種見張りタイマーを起動する(ユーザーのタップ待ちの間に
+      // タイムアウトしてしまわないよう、開始前には仕掛けない)。
+      const begin = () => {
+        if (finished) return;
+        lastAdvance = performance.now();
+        // 再生時間+15秒経っても終わらなければ打ち切る(デコード停止などでendedが来ないケースの保険)
+        if (duration > 0) timers.push(setTimeout(() => { if (!finished) fail("解析がタイムアウトしました"); }, (duration + 15) * 1000));
         rafId = requestAnimationFrame(tick);
-      }).catch(() => {
-        fail("ブラウザが再生をブロックしました。もう一度お試しください");
+      };
+      const tryStart = () => Promise.all([audioCtx.resume(), mediaEl.play()]).then(begin);
+
+      tryStart().catch(() => {
+        // 自動再生の制限でブロックされた場合(ファイル選択のタップから時間が経っていると
+        // iOS/Chromeはジェスチャ外の再生を拒否する)、失敗にはせず「タップして開始」を
+        // 呼び出し側に依頼する。渡した関数は新しいタップのイベント内で呼んでもらう。
+        if (onNeedTap) {
+          onNeedTap(() => tryStart().catch(() => fail("ブラウザが再生をブロックしました。もう一度お試しください")));
+        } else {
+          fail("ブラウザが再生をブロックしました。もう一度お試しください");
+        }
       });
     };
   });
@@ -1082,6 +1095,7 @@ export default function WindToneLabPhaseMode() {
   // --- 音声ファイルアップロード解析(分析タブ) ---
   const [isAnalyzingUpload, setIsAnalyzingUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadNeedsTap, setUploadNeedsTap] = useState(null); // 自動再生ブロック時の再開関数(タップで呼ぶ)
   const [lastUploadedSession, setLastUploadedSession] = useState(null); // 解析完了直後に「理想値に設定」を出すため
 
   const audioCtxRef = useRef(null);
@@ -1616,22 +1630,37 @@ export default function WindToneLabPhaseMode() {
   // 動画ファイル(スマホの録画データ等)はブラウザによってはdecodeAudioDataが音声トラックを
   // 取り出せないことがあるため、その場合は<video>要素で実際に再生する経路にフォールバックする
   // (この場合のみ解析に再生時間と同じだけ時間がかかる)。
+  // 【大きい動画の扱い】スマホで直接撮った動画は数百MBになり、decodeAudioDataは動画トラックごと
+  // 全体をメモリに読むため、長時間固まった末に失敗しがち。動画とみなせる大きいファイルは
+  // 最初からデコードを試さず、すぐ<video>再生経路に入る(体感がずっと軽くなる)。
   const handleUploadFile = useCallback(async (file) => {
     if (!file || isAnalyzingUpload) return;
     setErrorMsg("");
     setIsAnalyzingUpload(true);
     setUploadProgress(0);
+    setUploadNeedsTap(null);
     try {
-      const analysisOpts = { saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, onProgress: setUploadProgress };
+      const analysisOpts = {
+        saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal,
+        onProgress: setUploadProgress,
+        // 自動再生がブロックされた時は「タップして開始」ボタンを出し、新しいタップ内で再開する
+        onNeedTap: (startFn) => setUploadNeedsTap(() => startFn),
+      };
+      const looksLikeVideo = (file.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp)$/i.test(file.name || "");
+      const LARGE_FILE_BYTES = 50 * 1024 * 1024;
       let frames, noteEvents;
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
-        decodeCtx.close();
-        ({ frames, noteEvents } = await analyzeAudioBuffer(audioBuffer, analysisOpts));
-      } catch {
+      if (looksLikeVideo && file.size > LARGE_FILE_BYTES) {
         ({ frames, noteEvents } = await analyzeMediaFile(file, analysisOpts));
+      } else {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
+          decodeCtx.close();
+          ({ frames, noteEvents } = await analyzeAudioBuffer(audioBuffer, analysisOpts));
+        } catch {
+          ({ frames, noteEvents } = await analyzeMediaFile(file, analysisOpts));
+        }
       }
 
       if (frames.length > 0) {
@@ -1658,6 +1687,7 @@ export default function WindToneLabPhaseMode() {
     } finally {
       setIsAnalyzingUpload(false);
       setUploadProgress(0);
+      setUploadNeedsTap(null);
     }
   }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload]);
 
@@ -1755,6 +1785,7 @@ export default function WindToneLabPhaseMode() {
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
           uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
+          uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
@@ -2039,6 +2070,7 @@ function MeasureView(props) {
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
+    uploadNeedsTap, setUploadNeedsTap,
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
@@ -2136,7 +2168,21 @@ function MeasureView(props) {
       />
 
       {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
-      {isAnalyzingUpload && (
+      {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
+          (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
+      {isAnalyzingUpload && uploadNeedsTap && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 10, padding: "12px 14px", background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 14, alignItems: "center" }}>
+          <span className="sans" style={{ fontSize: 13, color: "#174585", fontWeight: 600, flex: 1 }}>タップして動画の解析を開始してください</span>
+          <button
+            onClick={() => { const start = uploadNeedsTap; setUploadNeedsTap(null); start(); }}
+            className="sans"
+            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+          >
+            解析を開始
+          </button>
+        </div>
+      )}
+      {isAnalyzingUpload && !uploadNeedsTap && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ background: "#EEF1F4", borderRadius: 4, height: 8, overflow: "hidden" }}>
             <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "#174585", borderRadius: 4, transition: "width 0.2s linear" }} />
