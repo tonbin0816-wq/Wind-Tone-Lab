@@ -165,6 +165,31 @@ console.log("=== 検証3: 音名判定(全種別×全音×基準Hz) ===");
 }
 
 // ============================================================
+// 検証3b: 実音(コンサートピッチ)表示 — メーター/グラフに出す音名は
+// freqToNote(実測周波数, 基準)で得られる実音であり、記音(運指)とは
+// 移調分ずれること。アルトのwritten C→concert E♭、written G→concert B♭を確認。
+// (メーター・グラフは共に frame.concertNote = freqToNote(f0).name+octave を使う)
+// ============================================================
+console.log("=== 検証3b: 実音表示(記音ではなく実音) ===");
+{
+  const before = fail;
+  const table = api.buildFingeringTable("alto", 442, 30);
+  const wC = table.find((e) => e.writtenLabel === "C5");   // 記音C
+  const wG = table.find((e) => e.writtenLabel === "G4");   // 記音G
+  for (const [entry, expectPc] of [[wC, "E♭"], [wG, "B♭"]]) {
+    if (!entry) { check(`実音 ${expectPc}`, false, "テーブルに音がない"); continue; }
+    const r = api.detectPitchMPM(synthTone(entry.soundingFreqHz), SR);
+    const meter = r ? api.freqToNote(r.freq, 442) : null;               // メーター実音
+    const written = api.findClosestFingering(r.freq, table)?.writtenLabel; // 記音
+    // 実音の音名クラスが期待どおり(E♭/B♭)で、記音(C/G)とは異なること
+    check(`実音表示 記音${entry.writtenLabel}→実音${expectPc}`,
+      meter && meter.name === expectPc && written && written[0] !== expectPc[0],
+      meter ? `meter=${meter.name}${meter.octave} written=${written}` : "検出失敗");
+  }
+  console.log(`  -> ${fail === before ? "all pass" : `${fail - before} fail`}`);
+}
+
+// ============================================================
 // 検証4: メーターとグラフのリンク — 同じf0に対し
 // メーター(freqToNote(f, 実効基準).centsExact)とグラフ(同じ値を保存)が一致し、
 // かつ運指テーブルのcentsErrorとも一致する(0¢基準の同一性)

@@ -788,11 +788,13 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
         ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
         : 0;
 
+      const concertNn = f0 ? freqToNote(f0, tuningHz * Math.pow(2, instrumentOffsetCents / 1200)) : null;
       frames.push({
         t: elapsedMs / 1000,
         pitchHz: f0,
         pitchCents: pitchCentsVsTheory,
         matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
+        concertNote: concertNn ? `${concertNn.name}${concertNn.octave}` : null,
         semitoneIndex: matchedFinger?.semitoneIndex ?? null,
         derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
         volumeDb: vDb,
@@ -1430,6 +1432,7 @@ export default function WindToneLabPhaseMode() {
               pitchHz: f0,
               pitchCents: pitchCentsVsTheory,
               matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
+              concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null, // 実音(コンサートピッチ)の音名。メーター・グラフ表示用
               semitoneIndex: matchedFinger?.semitoneIndex ?? null, // 音域軸集計用(企画書11.7節の対応: 運指の半音インデックス)
               derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
               volumeDb: vDb,
@@ -1475,6 +1478,7 @@ export default function WindToneLabPhaseMode() {
               pitchHz: f0,
               pitchCents: pitchCentsVsTheory,
               matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
+              concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null, // 実音の音名(グラフ表示用)
               semitoneIndex: matchedFinger?.semitoneIndex ?? null,
               volumeDb: vDb,
               spectralCentroidHz: timbreMeasurable ? centroid : null,
@@ -1951,7 +1955,8 @@ function PitchDeviationLine({ frames }) {
   let cur = null;
   const MIN_RUN = 2;
   for (const f of windowFrames) {
-    const nm = isSilent(f) ? null : (f.matchedWrittenNote || null);
+    // 実音(コンサートピッチ)の音名で表示する。旧データにconcertNoteが無い場合のみ記音にフォールバック。
+    const nm = isSilent(f) ? null : (f.concertNote || f.matchedWrittenNote || null);
     if (nm) {
       if (!cur || cur.name !== nm) {
         if (cur && cur.count >= MIN_RUN) noteRuns.push(cur);
@@ -2168,18 +2173,13 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音名(大表示)。「これまでの音」グラフや分析タブと同じ記音(運指ベースの音名)で表示し、
-          メーターとグラフの音名が一致するようにする。運指が未判定の時のみ実音のフォールバック。 */}
-      {(() => {
-        const displayNote = (matchedFingering && parseNoteLabel(matchedFingering.writtenLabel)) || note;
-        return (
-          <div style={{ textAlign: "center", padding: "12px 0 0" }}>
-            <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: displayNote ? "#121F32" : "#435266" }}>
-              {displayNote ? displayNote.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{displayNote ? displayNote.octave : ""}</span>
-            </span>
-          </div>
-        );
-      })()}
+      {/* 音名(大表示)。実音(マイクが実際に拾ったコンサートピッチ)で表示する。移調楽器でも
+          記音ではなく実音で表す。「これまでの音」グラフも同じ実音を使い、両者を一致させる。 */}
+      <div style={{ textAlign: "center", padding: "12px 0 0" }}>
+        <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+          {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+        </span>
+      </div>
       <div style={{ textAlign: "center", marginTop: 6, marginBottom: 4 }}>
         {(() => {
           const ac = note ? Math.abs(centsOffset) : null;
@@ -2543,7 +2543,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
               const labels = [];
               let curName = null, lastX = -100;
               frames.forEach((f, i) => {
-                const nm = f.matchedWrittenNote || null;
+                const nm = f.concertNote || f.matchedWrittenNote || null;
                 if (nm && nm !== curName) {
                   const x = i * 6;
                   if (x - lastX >= 22) { labels.push({ name: nm, x }); lastX = x; }
