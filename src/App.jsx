@@ -847,6 +847,141 @@ function fftRadix2(re, im) {
   }
 }
 
+// ============================================================
+// 動画から音声トラックだけをWebCodecsで高速デコードする(スマホ直撮り動画向け)。
+// mp4box.jsでMP4/MOVコンテナをデマクスし、音声サンプルだけをAudioDecoderに流す。
+// 動画トラックは一切デコードしないため、実時間再生に頼る旧フォールバックより桁違いに速い。
+// 非対応環境(古いiOS等)・非対応コーデック・デマクス失敗時は例外を投げ、呼び出し側で
+// 従来の<video>再生経路にフォールバックする。返り値は {pcm: Float32Array(モノラル), sampleRate}。
+// ============================================================
+async function extractAudioViaWebCodecs(file, { onProgress } = {}) {
+  if (typeof AudioDecoder === "undefined" || typeof EncodedAudioChunk === "undefined") {
+    throw new Error("WebCodecs非対応");
+  }
+  // 使う時だけ読み込む(メインバンドルを重くしない)。CJS/ESMどちらの形でも拾えるようにする。
+  const mod = await import("mp4box");
+  const MP4Box = mod.default ?? mod;
+
+  // mp4boxのstsdエントリからAAC等のAudioSpecificConfig(AudioDecoderのdescription)を取り出す
+  const getDescription = (mp4file, trackId) => {
+    const trak = mp4file.getTrackById(trackId);
+    for (const entry of trak.mdia.minf.stbl.stsd.entries) {
+      const box = entry.esds || entry.mha1 || entry.mhaC;
+      if (entry.esds && entry.esds.esd) {
+        try {
+          // esd.descs[0](DecoderConfigDescriptor).descs[0](DecoderSpecificInfo).data
+          const dsi = entry.esds.esd.descs[0].descs[0];
+          if (dsi && dsi.data) return dsi.data;
+        } catch { /* 構造が違えばdescriptionなしで試す */ }
+      }
+      if (box) { /* AAC以外は基本descriptionなしで通す */ }
+    }
+    return undefined;
+  };
+
+  return await new Promise((resolve, reject) => {
+    const mp4 = MP4Box.createFile();
+    let decoder = null;
+    let track = null;
+    let sampleRate = 0;
+    let totalSec = 0, decodedFrames = 0;
+    const pcmChunks = [];
+    let settled = false;
+    const done = (err, val) => {
+      if (settled) return;
+      settled = true;
+      try { if (decoder && decoder.state !== "closed") decoder.close(); } catch { /* noop */ }
+      if (err) reject(err); else resolve(val);
+    };
+
+    mp4.onError = (e) => done(new Error("動画コンテナの解析に失敗: " + e));
+
+    mp4.onReady = (info) => {
+      track = info.audioTracks && info.audioTracks[0];
+      if (!track) { done(new Error("この動画に音声トラックがありません")); return; }
+      sampleRate = track.audio.sample_rate;
+      totalSec = (info.duration && info.timescale) ? info.duration / info.timescale : 0;
+      const numberOfChannels = track.audio.channel_count || 1;
+
+      decoder = new AudioDecoder({
+        output: (audioData) => {
+          try {
+            const nFrames = audioData.numberOfFrames;
+            const nCh = audioData.numberOfChannels;
+            const mono = new Float32Array(nFrames);
+            const plane = new Float32Array(nFrames);
+            for (let ch = 0; ch < nCh; ch++) {
+              audioData.copyTo(plane, { planeIndex: ch, format: "f32-planar" });
+              for (let i = 0; i < nFrames; i++) mono[i] += plane[i];
+            }
+            if (nCh > 1) for (let i = 0; i < nFrames; i++) mono[i] /= nCh;
+            pcmChunks.push(mono);
+            decodedFrames += nFrames;
+            if (onProgress && totalSec) onProgress(Math.min(0.98, (decodedFrames / sampleRate) / totalSec));
+          } finally {
+            audioData.close();
+          }
+        },
+        error: (e) => done(new Error("音声デコードに失敗: " + (e?.message ?? e))),
+      });
+
+      let description;
+      try { description = getDescription(mp4, track.id); } catch { /* noop */ }
+      try {
+        decoder.configure({ codec: track.codec, sampleRate, numberOfChannels, ...(description ? { description } : {}) });
+      } catch (e) {
+        done(new Error("このコーデックはWebCodecsで扱えません: " + (e?.message ?? e)));
+        return;
+      }
+
+      mp4.setExtractionOptions(track.id, null, { nbSamples: 2000 });
+      mp4.start();
+    };
+
+    mp4.onSamples = (trackId, ref, samples) => {
+      if (settled || !decoder) return;
+      for (const s of samples) {
+        decoder.decode(new EncodedAudioChunk({
+          type: s.is_sync ? "key" : "delta",
+          timestamp: (s.cts * 1e6) / s.timescale,
+          duration: (s.duration * 1e6) / s.timescale,
+          data: s.data,
+        }));
+      }
+    };
+
+    // ファイルをチャンクで読み、mp4boxへ順次追記する。スマホ動画はmoovが末尾にあることが多く、
+    // onReadyは全チャンク追記後に発火する(=全体を読み終えてから音声デコードを開始する)。
+    (async () => {
+      try {
+        const reader = file.stream().getReader();
+        let offset = 0;
+        for (;;) {
+          const { done: rdone, value } = await reader.read();
+          if (rdone) break;
+          const ab = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+          ab.fileStart = offset;
+          offset += ab.byteLength;
+          mp4.appendBuffer(ab);
+        }
+        mp4.flush();
+        // 全サンプル投入後、デコーダをflushしてから連結する
+        if (!decoder) { done(new Error("音声トラックを取得できませんでした")); return; }
+        await decoder.flush();
+        const total = pcmChunks.reduce((a, c) => a + c.length, 0);
+        if (total === 0) { done(new Error("音声を取り出せませんでした")); return; }
+        const merged = new Float32Array(total);
+        let o = 0;
+        for (const c of pcmChunks) { merged.set(c, o); o += c.length; }
+        if (onProgress) onProgress(0.99);
+        done(null, { pcm: merged, sampleRate });
+      } catch (e) {
+        done(e instanceof Error ? e : new Error(String(e)));
+      }
+    })();
+  });
+}
+
 // AudioBufferを直接デコードできた場合の高速パス。デコード済みPCMを25ms刻みで
 // 自前FFTにかけ、ライブ計測と同じtick()パイプラインに流す。再生を伴わないため
 // ファイル長に関係なく数秒で完了し、ブラウザの自動再生ポリシーやオーディオグラフの
@@ -1630,9 +1765,10 @@ export default function WindToneLabPhaseMode() {
   // 動画ファイル(スマホの録画データ等)はブラウザによってはdecodeAudioDataが音声トラックを
   // 取り出せないことがあるため、その場合は<video>要素で実際に再生する経路にフォールバックする
   // (この場合のみ解析に再生時間と同じだけ時間がかかる)。
-  // 【大きい動画の扱い】スマホで直接撮った動画は数百MBになり、decodeAudioDataは動画トラックごと
-  // 全体をメモリに読むため、長時間固まった末に失敗しがち。動画とみなせる大きいファイルは
-  // 最初からデコードを試さず、すぐ<video>再生経路に入る(体感がずっと軽くなる)。
+  // 【動画の扱い】スマホ直撮り動画はまずWebCodecsで音声トラックだけを高速デコードする
+  // (extractAudioViaWebCodecs)。動画本体をデコードしないため実時間再生よりずっと速い。
+  // 非対応環境・失敗時のみ、従来の<video>を実際に再生して解析する経路にフォールバックする
+  // (この場合のみ解析に再生時間と同じだけ時間がかかる)。
   const handleUploadFile = useCallback(async (file) => {
     if (!file || isAnalyzingUpload) return;
     setErrorMsg("");
@@ -1647,11 +1783,22 @@ export default function WindToneLabPhaseMode() {
         onNeedTap: (startFn) => setUploadNeedsTap(() => startFn),
       };
       const looksLikeVideo = (file.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|3gp)$/i.test(file.name || "");
-      const LARGE_FILE_BYTES = 50 * 1024 * 1024;
       let frames, noteEvents;
-      if (looksLikeVideo && file.size > LARGE_FILE_BYTES) {
-        ({ frames, noteEvents } = await analyzeMediaFile(file, analysisOpts));
+      if (looksLikeVideo) {
+        // 動画: まずWebCodecsで音声だけ高速抽出→オフライン解析。失敗したら実時間再生にフォールバック。
+        try {
+          const { pcm, sampleRate } = await extractAudioViaWebCodecs(file, { onProgress: setUploadProgress });
+          const octx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, pcm.length, sampleRate);
+          const audioBuffer = octx.createBuffer(1, pcm.length, sampleRate);
+          audioBuffer.copyToChannel(pcm, 0);
+          ({ frames, noteEvents } = await analyzeAudioBuffer(audioBuffer, analysisOpts));
+        } catch (webCodecErr) {
+          console.warn("WebCodecs抽出に失敗、実時間再生にフォールバック:", webCodecErr);
+          setUploadProgress(0);
+          ({ frames, noteEvents } = await analyzeMediaFile(file, analysisOpts));
+        }
       } else {
+        // 音声ファイル: decodeAudioDataで直接デコード。失敗したら実時間再生。
         try {
           const arrayBuffer = await file.arrayBuffer();
           const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
