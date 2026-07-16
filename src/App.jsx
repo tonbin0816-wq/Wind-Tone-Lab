@@ -2937,6 +2937,18 @@ function ReedRegisterView(props) {
     if (newBrand === "__custom__") setCustomBrand("");
   };
 
+  // 「まとめて追加」タップ時に枚数を尋ねる(以前は事前選択のプルダウンだったが、
+  // タップ後にその場で聞く方式に変更)。前回入力した枚数を次回のデフォルト値として覚えておく。
+  const promptBulkCount = () => {
+    const input = window.prompt(`まとめて追加する枚数を入力してください（1〜${REED_BOX_SIZE}）`, String(bulkCount));
+    if (input === null) return; // キャンセル
+    const n = parseInt(input, 10);
+    if (!Number.isFinite(n) || n < 1) return;
+    const clamped = Math.min(n, REED_BOX_SIZE);
+    setBulkCount(clamped);
+    registerReeds(clamped);
+  };
+
   const deleteReeds = (ids) => {
     const idSet = new Set(ids);
     setReeds((prev) => prev.filter((r) => !idSet.has(r.id)));
@@ -3036,7 +3048,7 @@ function ReedRegisterView(props) {
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
           <div>
             <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>銘柄</label>
             <select value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={{ width: "100%" }}>
@@ -3050,6 +3062,13 @@ function ReedRegisterView(props) {
               {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
           </div>
+          <div>
+            <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
+            <input
+              type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
+              style={{ width: "100%", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "7px 6px", color: "#121F32", fontSize: 11, boxSizing: "border-box" }}
+            />
+          </div>
         </div>
 
         {newBrand === "__custom__" && (
@@ -3061,12 +3080,7 @@ function ReedRegisterView(props) {
           />
         )}
 
-        <div style={{ marginBottom: 10 }}>
-          <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
-          <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans" style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "7px 10px", color: "#121F32", fontSize: 11 }} />
-        </div>
-
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <button
             onClick={() => registerReeds(1)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
@@ -3075,11 +3089,8 @@ function ReedRegisterView(props) {
           >
             1枚ずつ追加
           </button>
-          <select value={bulkCount} onChange={(e) => setBulkCount(Number(e.target.value))} style={{ flexShrink: 0 }}>
-            {Array.from({ length: REED_BOX_SIZE }, (_, i) => i + 1).map((n) => (<option key={n} value={n}>{n}枚</option>))}
-          </select>
           <button
-            onClick={() => registerReeds(bulkCount)}
+            onClick={promptBulkCount}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
             style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
@@ -3175,13 +3186,16 @@ function ReedRegisterView(props) {
                             {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
                           </span>
                         </button>
-                        <button
-                          onClick={() => startMemberSelect(g)}
-                          title="この箱の中から選んで削除"
-                          style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E9ECF0", color: "#8D95A1", cursor: "pointer" }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {/* 一覧(個体)が見えている間だけ削除の入り口を出す。閉じている箱では隠す */}
+                        {isExpanded && (
+                          <button
+                            onClick={() => startMemberSelect(g)}
+                            title="この箱の中から選んで削除"
+                            style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E9ECF0", color: "#8D95A1", cursor: "pointer" }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
