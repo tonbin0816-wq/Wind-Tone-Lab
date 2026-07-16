@@ -9,30 +9,16 @@ const NOTE_NAMES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A"
 // 楽器音だけを拾うための判定パラメータ。
 // ・ノイズゲート: バンドパス後の音量(dBFS)がこの値以下なら無音とみなす(設定で変更可能)。
 // ・ヒステリシス: 発音中はゲート-この分まで継続し、境界付近のパタつきを防ぐ。
-// ・スペクトル平坦度(0=純音〜1=白色雑音)がこの値以上なら「音程のない雑音(ブレス/空調)」として
-//   排除する。楽器の音は倍音がそろい平坦度が低いので、これでブレス等をはじける。
+// ・clarity(MPMの周期明瞭度0..1)がこの値未満なら「音程のない雑音(ブレス/空調)」として排除。
+//   楽器音はほぼ完全な周期波形でclarityが0.9以上になる。ブレスや空調は非周期で低い。
 const NOISE_GATE_DEFAULT_DB = -50; // 既定のノイズゲート(dBFS)
 const GATE_HYSTERESIS_DB = 4;
-const TONALITY_FLATNESS_MAX = 0.45;
+const PITCH_CLARITY_MIN = 0.8;
 const TIMBRE_EXTRA_DB = 8;          // 音色系(重心/HNR/倍音)はゲート+この余裕の音量でだけ測定
 // バンドパス(BiquadFilterNode)の中心周波数とQ。楽器の基音帯(約130〜1900Hz)を通し、
 // 空調のうなり(低域)と高域ヒスを抑える。Qを低くして広い帯域を通す。
 const BANDPASS_FREQ_HZ = 500;
 const BANDPASS_Q = 0.3;
-
-// スペクトル平坦度(Wienerエントロピー): 指定ビン範囲の 幾何平均/算術平均。
-// 純音・楽音では小さく、ブレスや空調のような広帯域ノイズでは1に近づく。
-function spectralFlatness(linear, loBin, hiBin) {
-  let logSum = 0, sum = 0, n = 0;
-  for (let i = loBin; i <= hiBin; i++) {
-    const m = (linear[i] || 0) + 1e-10;
-    logSum += Math.log(m); sum += m; n++;
-  }
-  if (n === 0) return 1;
-  const geo = Math.exp(logSum / n);
-  const arith = sum / n;
-  return arith > 0 ? Math.min(1, geo / arith) : 1;
-}
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -180,24 +166,84 @@ function theoreticalHarmonicsFromTarget(targetHz, count) {
 
 
 // ============================================================
-// Pitch detection: HPS
+// Pitch detection: MPM (McLeod Pitch Method)
+//
+// 旧実装(HPS=スペクトル積)は2つの致命的問題があった:
+//  1. FFTのビン分解能(8192点/48kHz=5.86Hz)そのままでは低音で±30〜70¢の階段状にしか
+//     動けず、1¢単位のチューナーとして成立しない。
+//  2. AnalyserNodeの床(-100dB)で0になったビンが積に混ざると全域の積が0になり、
+//     探索範囲の最初のビン(≒50Hz)を「検出」してしまう→常に最低音(B♭)に判定される。
+// MPMは時間領域の正規化自己相関(NSDF)のピークを放物線補間で読むため、
+// サブサンプル精度(実測<0.5¢)で基音周期を求められる。fftRadix2による
+// FFT自己相関でO(N logN)に抑える。clarity(0..1)は音の周期性の明瞭度で、
+// ブレスや空調のような非周期ノイズの排除(楽器音判定)にも使う。
 // ============================================================
-function detectPitchHPS(spectrum, sampleRate, fftSize, minFreq = 50, maxFreq = 1200) {
-  const numHarmonics = 5;
-  const n = spectrum.length;
-  const hps = new Float32Array(n);
-  for (let i = 0; i < n; i++) hps[i] = spectrum[i];
-  for (let h = 2; h <= numHarmonics; h++) {
-    for (let i = 0; i < Math.floor(n / h); i++) hps[i] *= spectrum[i * h];
+function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
+  const W = 4096;  // 解析窓(約85ms@48kHz。バリトン最低音73Hzでも6周期以上入る)
+  const N = 8192;  // ゼロ埋めFFTサイズ(円状自己相関→線形自己相関化)
+  if (!timeBuf || timeBuf.length < W) return null;
+  const offset = timeBuf.length - W;
+
+  // DC除去(マイクのオフセットで自己相関が歪むのを防ぐ)
+  let mean = 0;
+  for (let i = 0; i < W; i++) mean += timeBuf[offset + i];
+  mean /= W;
+
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  for (let i = 0; i < W; i++) re[i] = timeBuf[offset + i] - mean;
+  fftRadix2(re, im);
+  // パワースペクトル(実偶関数)を再度FFTすると実数の自己相関×Nが得られる
+  for (let i = 0; i < N; i++) { const p = re[i] * re[i] + im[i] * im[i]; re[i] = p; im[i] = 0; }
+  fftRadix2(re, im);
+
+  const r0 = re[0] / N;
+  if (r0 <= 1e-12) return null; // 完全な無音
+
+  // m(τ) = Σ(x[j]² + x[j+τ]²) を累積和で O(1) 参照できるようにする
+  const sq = new Float64Array(W + 1);
+  for (let i = 0; i < W; i++) { const v = timeBuf[offset + i] - mean; sq[i + 1] = sq[i] + v * v; }
+
+  const maxLag = Math.min(W - 1, Math.ceil(sampleRate / minFreq));
+  // NSDFはτ=2から計算する。探索をminLag(最高周波数の周期)から始めると、高音では
+  // 最初の真のピークがτ=0の自明な正区間と地続きになって「正区間スキップ」に飲み込まれ、
+  // 2倍周期(1オクターブ下)を拾ってしまう。τ=2起点ならτ=0のローブを正しく通過できる。
+  const nsdf = new Float64Array(maxLag + 2);
+  for (let t = 2; t <= maxLag; t++) {
+    const rt = re[t] / N;
+    const mt = (sq[W - t] - sq[0]) + (sq[W] - sq[t]);
+    nsdf[t] = mt > 0 ? (2 * rt) / mt : 0;
   }
-  const minBin = Math.floor((minFreq * fftSize) / sampleRate);
-  const maxBin = Math.min(n - 1, Math.floor((maxFreq * fftSize) / sampleRate));
-  let maxVal = -Infinity, maxBinIdx = -1;
-  for (let i = minBin; i <= maxBin; i++) {
-    if (hps[i] > maxVal) { maxVal = hps[i]; maxBinIdx = i; }
+
+  // ピーク選択(McLeod): 正区間ごとの局所最大を列挙し、最大ピーク×K以上の最初(最小τ)を採る
+  const peaks = [];
+  let nmax = 0;
+  let t = 2;
+  while (t <= maxLag && nsdf[t] > 0) t++; // τ=0近傍の自明な正区間を飛ばす
+  while (t <= maxLag) {
+    while (t <= maxLag && nsdf[t] <= 0) t++;
+    let peakT = -1, peakV = 0;
+    while (t <= maxLag && nsdf[t] > 0) {
+      if (nsdf[t] > peakV) { peakV = nsdf[t]; peakT = t; }
+      t++;
+    }
+    if (peakT > 0) { peaks.push([peakT, peakV]); if (peakV > nmax) nmax = peakV; }
   }
-  if (maxBinIdx < 0) return null;
-  return (maxBinIdx * sampleRate) / fftSize;
+  if (peaks.length === 0 || nmax < 0.5) return null;
+  const K = 0.9;
+  let chosen = peaks[0];
+  for (const p of peaks) { if (p[1] >= K * nmax) { chosen = p; break; } }
+
+  // 放物線補間でサブサンプルの周期を求める(これが1¢精度の要)
+  const T = chosen[0];
+  const a = nsdf[T - 1], b = nsdf[T], c = nsdf[T + 1];
+  const denom = a - 2 * b + c;
+  const shift = denom !== 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / denom)) : 0;
+  const tau = T + shift;
+  const clarity = Math.max(0, Math.min(1, b - 0.25 * (a - c) * shift));
+  const freq = sampleRate / tau;
+  if (freq < minFreq || freq > maxFreq) return null;
+  return { freq, clarity };
 }
 
 function freqToBin(freq, sampleRate, fftSize) {
@@ -670,7 +716,14 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
     const vDb = 20 * Math.log10(rms + 1e-10);
 
     const centroid = spectralCentroid(linear, freqs);
-    const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
+    // ピッチ検出はライブと同じMPM(時間領域)。アナライザが時間波形を提供できる場合のみ。
+    let f0 = null;
+    if (analyser.getFloatTimeDomainData) {
+      const tb = new Float32Array(FFT_SIZE);
+      analyser.getFloatTimeDomainData(tb);
+      const mpm = detectPitchMPM(tb, sampleRate);
+      if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) f0 = mpm.freq;
+    }
 
     let levels = [];
     let hnr = null;
@@ -822,11 +875,14 @@ function analyzeAudioBuffer(audioBuffer, opts) {
   const dbOut = new Float32Array(bins).fill(-200);
   const re = new Float32Array(FFT_SIZE);
   const im = new Float32Array(FFT_SIZE);
-  // fa.tick()はAnalyserNode互換のインターフェースだけを使うため、互換オブジェクトを渡す
+  // fa.tick()はAnalyserNode互換のインターフェースだけを使うため、互換オブジェクトを渡す。
+  // getFloatTimeDomainDataは現在解析中の窓の生波形を返す(MPMピッチ検出用)。
   const analyserLike = {
     frequencyBinCount: bins,
     getFloatFrequencyData: (out) => out.set(dbOut),
+    getFloatTimeDomainData: (out) => out.set(mono.subarray(curPos.pos, curPos.pos + FFT_SIZE)),
   };
+  const curPos = { pos: 0 };
 
   const hop = Math.max(1, Math.round((sampleRate * HOP_MS) / 1000));
   return new Promise((resolve) => {
@@ -845,6 +901,7 @@ function analyzeAudioBuffer(audioBuffer, opts) {
           smoothed[k] = 0.6 * smoothed[k] + 0.4 * mag;
           dbOut[k] = smoothed[k] > 1e-10 ? 20 * Math.log10(smoothed[k]) : -200;
         }
+        curPos.pos = pos; // MPM用の時間波形窓を現在位置に同期
         fa.tick(analyserLike, sampleRate, ((pos + FFT_SIZE) / sampleRate) * 1000);
         pos += hop;
       }
@@ -1235,7 +1292,10 @@ export default function WindToneLabPhaseMode() {
         }
 
         const centroid = spectralCentroid(linear, freqs);
-        const f0 = detectPitchHPS(linear, sampleRate, FFT_SIZE);
+        // ピッチ検出: 時間領域MPM(サブサンプル精度。1¢単位のメーター動作の要)。
+        // clarity(周期の明瞭度)が低いもの=ブレスや空調などの非周期ノイズはここで排除する。
+        const mpm = detectPitchMPM(timeBuf, sampleRate);
+        const f0 = mpm && mpm.clarity >= PITCH_CLARITY_MIN ? mpm.freq : null;
 
         let levels = [];
         let hnr = null;
@@ -1243,18 +1303,12 @@ export default function WindToneLabPhaseMode() {
 
         // --- 楽器音の判定(楽器以外=空調・ブレス等を拾わない) ---
         // (1) ノイズゲート: バンドパス後の音量が設定しきい値(dBFS)を超えること。ヒステリシスつき。
-        // (2) 音程がある: HPSで基音が検出できること。
-        // (3) 音程のある楽音であること: 基音帯のスペクトル平坦度が低い(＝倍音がそろっている)こと。
-        //     ブレスや空調は広帯域の雑音で平坦度が高いため、これで排除できる。
+        // (2) 音程のある楽音であること: MPMが十分なclarityで基音を検出できること。
         const gateDb = noiseGateDbRef.current;
-        const bandLo = freqToBin(120, sampleRate, FFT_SIZE);
-        const bandHi = freqToBin(2000, sampleRate, FFT_SIZE);
-        const flatness = spectralFlatness(linear, bandLo, bandHi);
         const wasSounding = soundingRef.current;
-        const hasPitch = f0 && f0 > 40;
+        const hasPitch = !!(f0 && f0 > 40);
         const aboveGate = bandDb > (wasSounding ? gateDb - GATE_HYSTERESIS_DB : gateDb);
-        const tonal = flatness < TONALITY_FLATNESS_MAX;
-        soundingRef.current = hasPitch && aboveGate && tonal;
+        soundingRef.current = hasPitch && aboveGate;
         const sounding = soundingRef.current;
         // 音色系(重心・HNR・倍音・スペクトル)は、ゲート+余裕を持った音量でだけ測定する。
         const timbreMeasurable = sounding && bandDb > gateDb + TIMBRE_EXTRA_DB;
