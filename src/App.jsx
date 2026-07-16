@@ -2191,7 +2191,9 @@ function MeasureView(props) {
             </span>
           );
         })()}
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#8D95A1", marginTop: 8 }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
+        {/* Hz行は固定の高さ・行高にする。「未検出」(日本語フォールバック)と数字(Space Grotesk)で
+            行の高さが変わり、音名の切替時に下の要素が上下にブレるのを防ぐ。 */}
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#8D95A1", marginTop: 8, height: 16, lineHeight: "16px" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
       {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
