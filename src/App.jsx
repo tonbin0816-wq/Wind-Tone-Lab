@@ -1686,7 +1686,7 @@ export default function WindToneLabPhaseMode() {
         input[type=range] { accent-color: #174585; }
         select { background:#F6F7F9; color:#121F32; border:1px solid #E9ECF0; border-radius:4px; padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
         /* ピボットの軸セレクタは丸角カード内に置くため、枠なし・ネイビー太字で見せる */
-        select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:12px; cursor:pointer; }
+        select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:var(--fs-sm); cursor:pointer; }
       `}</style>
 
       {/* アプリ名ヘッダーは削除(Claude Designに準拠。タブ切替は画面下部の固定ナビ=BottomNavに集約)。 */}
@@ -1723,7 +1723,7 @@ export default function WindToneLabPhaseMode() {
         <div
           onClick={() => setErrorMsg("")}
           className="sans"
-          style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 5, padding: "10px 14px", fontSize: 12, cursor: "pointer" }}
+          style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 5, padding: "10px 14px", fontSize: 11, cursor: "pointer" }}
         >
           {errorMsg}
         </div>
@@ -1840,7 +1840,7 @@ function BottomNav({ topTab, setTopTab, isRecording }) {
               }}
             >
               {t.icon(color)}
-              <span style={{ fontSize: 10, fontWeight: active ? 700 : 400 }}>{t.label}</span>
+              <span style={{ fontSize: 11, fontWeight: active ? 700 : 400 }}>{t.label}</span>
             </button>
           );
         })}
@@ -1899,7 +1899,7 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
               key={o}
               style={{
                 height: ROW_H, display: "flex", alignItems: "center", justifyContent: "center",
-                scrollSnapAlign: "center", fontSize: 16,
+                scrollSnapAlign: "center", fontSize: 15,
                 fontWeight: o === value ? 700 : 400,
                 color: o === value ? "#174585" : "#121F32",
               }}
@@ -1976,7 +1976,7 @@ function PitchDeviationLine({ frames }) {
     if (pct - lastPct >= 9) { labels.push({ name: r.name, pct }); lastPct = pct; }
   }
 
-  const axisLabel = { position: "absolute", right: 4, fontSize: 9, color: "#A6AEBA", whiteSpace: "nowrap" };
+  const axisLabel = { position: "absolute", right: 4, fontSize: 11, color: "#A6AEBA", whiteSpace: "nowrap" };
 
   return (
     <div style={{ padding: "18px 0 0" }}>
@@ -2000,7 +2000,7 @@ function PitchDeviationLine({ frames }) {
               className="sans"
               style={{
                 position: "absolute", top: 0, left: `${Math.max(2, Math.min(94, l.pct))}%`, transform: "translateX(-50%)",
-                fontSize: 10, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
+                fontSize: 11, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
                 padding: "1px 5px", borderRadius: 6, whiteSpace: "nowrap", pointerEvents: "none",
               }}
             >
@@ -2010,7 +2010,7 @@ function PitchDeviationLine({ frames }) {
         </div>
       </div>
       {/* 横軸: 左=30秒前 / 右=今 */}
-      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "#A6AEBA", marginTop: 4, paddingLeft: 34 }}>
+      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#A6AEBA", marginTop: 4, paddingLeft: 34 }}>
         <span>30秒前</span><span>今</span>
       </div>
     </div>
@@ -2100,10 +2100,10 @@ function MeasureView(props) {
             disabled={isRecording}
           />
         </div>
-        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#8D95A1", flexShrink: 0 }}>
-          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}</button>
+        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>
+          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 11 }}>{SAX_PRESETS[saxType]?.label}</button>
           <span>·</span>
-          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz</button>
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 11 }}>{tuningHz}Hz</button>
         </div>
         {openPicker === "tuning" && (
           <ScrollPicker
@@ -2121,7 +2121,7 @@ function MeasureView(props) {
         )}
       </div>
       {(!reeds || reeds.length === 0) && (
-        <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
       )}
 
       {isRecording && (
@@ -2141,12 +2141,12 @@ function MeasureView(props) {
           <div style={{ background: "#EEF1F4", borderRadius: 4, height: 8, overflow: "hidden" }}>
             <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "#174585", borderRadius: 4, transition: "width 0.2s linear" }} />
           </div>
-          <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
         </div>
       )}
       {!isAnalyzingUpload && lastUploadedSession && (
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <span className="sans" style={{ fontSize: 10, color: "#16A34A" }}>アップロードの解析が完了しました</span>
+          <span className="sans" style={{ fontSize: 11, color: "#16A34A" }}>アップロードの解析が完了しました</span>
           <SetAsIdealButton frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
         </div>
       )}
@@ -2155,18 +2155,18 @@ function MeasureView(props) {
           登録したセッションは分析タブから理想値に設定することもできる。 */}
       {!isRecording && pendingSession && (
         <div style={{ display: "flex", gap: 10, marginBottom: 10, padding: "12px 14px", background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 14, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 12, color: "#174585", fontWeight: 600, flex: 1 }}>この録音を保存しますか？</span>
+          <span className="sans" style={{ fontSize: 13, color: "#174585", fontWeight: 600, flex: 1 }}>この録音を保存しますか？</span>
           <button
             onClick={discardPendingSession}
             className="sans"
-            style={{ padding: "8px 16px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            style={{ padding: "8px 16px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             取り直し
           </button>
           <button
             onClick={registerPendingSession}
             className="sans"
-            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
           >
             登録
           </button>
@@ -2222,7 +2222,7 @@ function MeasureView(props) {
             </div>
           );
         })()}
-        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 10, color: "#8D95A1" }}>
+        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1" }}>
           <span>-50</span>
           <span>+50</span>
         </div>
@@ -2255,7 +2255,7 @@ function MeasureView(props) {
             {selectedIdeal && (
               // 文言は音によって長さが変わるため、高さを固定して音が切り替わるたびに
               // カード内の他要素がガタつかないようにする(2行分を確保)
-              <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 14, minHeight: 24, lineHeight: 1.4 }}>
+              <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 14, minHeight: 24, lineHeight: 1.4 }}>
                 {matchedFingering
                   ? currentNoteIdeal
                     ? `記音${matchedFingering.writtenLabel}の理想値と比較中: ${selectedIdeal.name}`
@@ -2265,7 +2265,7 @@ function MeasureView(props) {
             )}
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
               <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 理想）</span>
-              <div className="sans" style={{ display: "flex", gap: 10, fontSize: 10, color: "#435266" }}>
+              <div className="sans" style={{ display: "flex", gap: 10, fontSize: 11, color: "#435266" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 理想</label>
               </div>
             </div>
@@ -2285,20 +2285,20 @@ function MeasureView(props) {
                       <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#174585" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
                       {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
                     </div>
-                    <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 4 }}>{n}倍</div>
-                    <div className="sans" style={{ fontSize: 8, color: "#8D95A1", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
+                    <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 4 }}>{n}倍</div>
+                    <div className="sans" style={{ fontSize: 11, color: "#8D95A1", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
                   </div>
                 );
               })}
             </div>
-            <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
               <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
 
-            <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 8 }}>スペクトル (0–4000 Hz)</div>
+            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 8 }}>スペクトル (0–4000 Hz)</div>
             <div style={{ display: "flex", alignItems: "flex-end", height: 44, gap: 2, marginBottom: 4 }}>
               {spectrumBars.map((v, i) => (<div key={i} style={{ flex: 1, height: `${Math.max(2, v * 100)}%`, background: "#9DB3CC", borderRadius: "2px 2px 0 0" }} />))}
             </div>
@@ -2322,7 +2322,7 @@ function MeasureView(props) {
               />
               <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
             </div>
-            <div className="sans" style={{ fontSize: 9.5, color: "#8D95A1", marginTop: 6, lineHeight: 1.6 }}>
+            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 6, lineHeight: 1.6 }}>
               現在の音量 {volumeDb.toFixed(1)} dB。この値以下は無音として扱います。空調やブレスを拾ってしまう時は数値を上げてください（右ほど厳しい）。低音域の楽器帯だけを通すバンドパスと、音程のない雑音を除く判定も併用しています。
             </div>
           </div>
@@ -2336,7 +2336,7 @@ function MeasureView(props) {
           onClick={() => fileInputRef.current?.click()}
           disabled={isRecording || isAnalyzingUpload}
           className="sans"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 14, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
         >
           <Upload size={16} />
           {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
@@ -2344,7 +2344,7 @@ function MeasureView(props) {
         <button
           onClick={toggleRecording}
           className="sans"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: isRecording ? "none" : "0 12px 28px rgba(23,69,133,.32)" }}
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: isRecording ? "none" : "0 12px 28px rgba(23,69,133,.32)" }}
         >
           {isRecording ? <Square size={16} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />}
           {isRecording ? "停止" : "録音する"}
@@ -2355,11 +2355,11 @@ function MeasureView(props) {
           サックス種別・基準ピッチはメーターのタップ→スクロール選択に統合済みのため、ここには置かない。 */}
       {idealProfiles.length > 0 && (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "12px 16px" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 6 }}>理想値プロファイル</div>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>理想値プロファイル</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {idealProfiles.map((p) => (
               <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 4, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #174585" : "1px solid #E9ECF0", background: selectedIdealId === p.id ? "#EAEFF5" : "transparent" }}>
-                <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 9, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
+                <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 11, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
                 <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#435266", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
               </div>
             ))}
@@ -2494,13 +2494,13 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* 表示切り替え・比較基準 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 14px", marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 10, color: "#435266" }}>表示:</span>
+          <span className="sans" style={{ fontSize: 11, color: "#435266" }}>表示:</span>
           <select value={timelineMetric} onChange={(e) => setTimelineMetric(e.target.value)}>
             {metricOptions.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
           </select>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span className="sans" style={{ fontSize: 10, color: "#435266" }}>基準:</span>
+          <span className="sans" style={{ fontSize: 11, color: "#435266" }}>基準:</span>
           <select value={referenceBasis} onChange={(e) => setReferenceBasis(e.target.value)}>
             {referenceOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
@@ -2515,14 +2515,14 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
         </div>
       </div>
       {referenceBasis === "session" && referenceSession && (
-        <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 10 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 10 }}>
           最初の発音タイミングを基準に自動で位置合わせして比較します
         </div>
       )}
 
       {/* タイムライン */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 8 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 8 }}>
           タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "理論値基準" : referenceBasis === "session" ? "お手本基準" : "理想値基準"}）
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
@@ -2553,7 +2553,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
                 } else if (!nm) curName = null;
               });
               return labels.map((l, k) => (
-                <text key={k} x={l.x} y={9} fontSize="9" fontWeight="700" fill="#174585" fontFamily="var(--font-num)">{l.name}</text>
+                <text key={k} x={l.x} y={9} fontSize="11" fontWeight="700" fill="#174585" fontFamily="var(--font-num)">{l.name}</text>
               ));
             })()}
             {frames.map((f, i) => {
@@ -2577,7 +2577,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           onChange={(e) => setSelectedFrameIdx(Number(e.target.value))}
           style={{ width: "100%", marginTop: 8 }}
         />
-        <div className="sans" style={{ fontSize: 9, color: "#8D95A1", display: "flex", justifyContent: "space-between" }}>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", justifyContent: "space-between" }}>
           <span>0s</span>
           <span>{frames[frames.length - 1]?.t.toFixed(1)}s</span>
         </div>
@@ -2586,7 +2586,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* ドリルダウン: 選択フレームの詳細 */}
       {selectedFrame && (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 10 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 10 }}>
             t = {selectedFrame.t.toFixed(2)}s の詳細
           </div>
 
@@ -2601,7 +2601,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             );
           })()}
 
-          <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span>音量: {selectedFrame.volumeDb?.toFixed(1)} dB</span>
             <span>HNR: {selectedFrame.hnrDb?.toFixed(1) ?? "—"} dB</span>
           </div>
@@ -2674,14 +2674,14 @@ function SetAsIdealButton({ frames, saxType, onSave }) {
           className="sans"
           style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "5px 8px", color: "#121F32", fontSize: 11, width: 130 }}
         />
-        <button onClick={confirm} className="sans" style={{ fontSize: 10, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "#F6F7F9", cursor: "pointer" }}>保存</button>
-        <button onClick={() => { setIsNaming(false); setName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 12 }}>×</button>
+        <button onClick={confirm} className="sans" style={{ fontSize: 11, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "#F6F7F9", cursor: "pointer" }}>保存</button>
+        <button onClick={() => { setIsNaming(false); setName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 11 }}>×</button>
       </div>
     );
   }
 
   return (
-    <button onClick={() => setIsNaming(true)} className="sans" style={{ fontSize: 10, padding: "5px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600 }}>
+    <button onClick={() => setIsNaming(true)} className="sans" style={{ fontSize: 11, padding: "5px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600 }}>
       ★ 理想値に設定
     </button>
   );
@@ -2712,8 +2712,8 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
           className="sans"
           style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "5px 8px", color: "#121F32", fontSize: 11, width: 110 }}
         />
-        <button onClick={confirmAdd} className="sans" style={{ fontSize: 10, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "#F6F7F9", cursor: "pointer" }}>追加</button>
-        <button onClick={() => { setIsAdding(false); setAddingName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 12 }}>×</button>
+        <button onClick={confirmAdd} className="sans" style={{ fontSize: 11, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "#F6F7F9", cursor: "pointer" }}>追加</button>
+        <button onClick={() => { setIsAdding(false); setAddingName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 11 }}>×</button>
       </div>
     );
   }
@@ -2883,9 +2883,9 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
 function MetricCard({ label, value, sub, accentColor }) {
   return (
     <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E9ECF0"}`, borderRadius: 14, padding: "12px 14px" }}>
-      <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-num)", fontSize: 20, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
-      {sub && <div className="sans" style={{ fontSize: 9, color: "#174585", marginTop: 2 }}>{sub}</div>}
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
+      {sub && <div className="sans" style={{ fontSize: 11, color: "#174585", marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -3033,18 +3033,18 @@ function ReedRegisterView(props) {
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
+        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <div>
-            <label className="sans" style={{ fontSize: 9, color: "#435266", display: "block", marginBottom: 3 }}>銘柄</label>
+            <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>銘柄</label>
             <select value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={{ width: "100%" }}>
               {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
               <option value="__custom__">＋ 新しい銘柄を入力...</option>
             </select>
           </div>
           <div>
-            <label className="sans" style={{ fontSize: 9, color: "#435266", display: "block", marginBottom: 3 }}>番手（硬さ）</label>
+            <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>番手（硬さ）</label>
             <select value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={{ width: "100%" }}>
               {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
@@ -3061,7 +3061,7 @@ function ReedRegisterView(props) {
         )}
 
         <div style={{ marginBottom: 10 }}>
-          <label className="sans" style={{ fontSize: 9, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
+          <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
           <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans" style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "7px 10px", color: "#121F32", fontSize: 11 }} />
         </div>
 
@@ -3070,7 +3070,7 @@ function ReedRegisterView(props) {
             onClick={() => registerReeds(1)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 12, cursor: "pointer" }}
+            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 11, cursor: "pointer" }}
           >
             1枚ずつ追加
           </button>
@@ -3081,7 +3081,7 @@ function ReedRegisterView(props) {
             onClick={() => registerReeds(bulkCount)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             まとめて追加
           </button>
@@ -3090,7 +3090,7 @@ function ReedRegisterView(props) {
 
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>登録済みリード <span style={{ color: "#8D95A1", fontWeight: 400 }}>{reeds.length}</span></div>
+          <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>登録済みリード <span style={{ color: "#8D95A1", fontWeight: 400 }}>{reeds.length}</span></div>
           {reeds.length > 0 && (
             boxSelectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -3143,10 +3143,10 @@ function ReedRegisterView(props) {
                           onClick={(e) => e.stopPropagation()}
                           style={{ width: 18, height: 18, flexShrink: 0, cursor: "pointer" }}
                         />
-                        <span style={{ fontSize: 12 }}>
+                        <span style={{ fontSize: 13 }}>
                           <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
                           <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                          <span style={{ color: "#8D95A1", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                          <span style={{ color: "#8D95A1", fontSize: 11, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
                         </span>
                       </button>
                     ) : (
@@ -3156,10 +3156,10 @@ function ReedRegisterView(props) {
                           className="sans"
                           style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                         >
-                          <span style={{ fontSize: 12 }}>
+                          <span style={{ fontSize: 13 }}>
                             <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
                             <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                            <span style={{ color: "#8D95A1", fontSize: 10, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
+                            <span style={{ color: "#8D95A1", fontSize: 11, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
                           </span>
                           {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
                         </button>
@@ -3234,7 +3234,7 @@ function ReedRegisterView(props) {
                         />
                       )}
                       {g.members.length > 1 && !isMemberSelecting && (
-                        <div className="sans" style={{ fontSize: 9, color: "#8D95A1", padding: "6px 0 2px" }}>
+                        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", padding: "6px 0 2px" }}>
                           長押ししてスライドすると並び替えられます・タップで詳細
                         </div>
                       )}
@@ -3413,7 +3413,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
           {items.map((it) => (
             <span key={it.reed.id} onClick={() => toggleReed(it.reed.id)} className="sans" style={{
-              display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, cursor: "pointer",
               background: "#FFFFFF", border: "1px solid #E1E7EF", color: "#121F32", padding: "8px 13px", borderRadius: 999,
             }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: colorById.get(it.reed.id) }} />
@@ -3436,10 +3436,10 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
                   className="sans"
                   style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", background: isExpanded ? "#EAEFF5" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
                 >
-                  <span style={{ fontSize: 12 }}>
+                  <span style={{ fontSize: 13 }}>
                     <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
                     <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                    <span style={{ color: "#8D95A1", fontSize: 10 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
+                    <span style={{ color: "#8D95A1", fontSize: 11 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
                   </span>
                   {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
                 </button>
@@ -3449,7 +3449,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
                       const sel = compareReedIds.includes(r.id);
                       return (
                         <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
-                          display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+                          display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 999, fontSize: 11, cursor: "pointer",
                           border: sel ? "none" : "1px solid #E9ECF0",
                           background: sel ? "#174585" : "transparent",
                           color: sel ? "#FFFFFF" : "#435266",
@@ -3481,17 +3481,17 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
             />
           ))}
           <div style={{ marginBottom: 4 }}>
-            <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 6 }}>主観評価</div>
+            <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>主観評価</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {items.map((it) => (
                 <div key={it.reed.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className="sans" style={{ fontSize: 9, color: "#121F32", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
+                  <span className="sans" style={{ fontSize: 11, color: "#121F32", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
                   <StarRating value={it.reed.rating} size={12} />
                 </div>
               ))}
             </div>
           </div>
-          <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 10 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 10 }}>
             {items.map((it) => `${it.label}: ${it.frameCount}フレーム`).join(" ・ ")}
           </div>
         </div>
@@ -3533,11 +3533,11 @@ function MetricLineChart({ metricDef, points }) {
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 6 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>
         {metricDef.label}の推移{metricDef.unit ? `（${metricDef.unit}）` : ""}
       </div>
       {validPoints.length === 0 ? (
-        <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>データがありません</div>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>データがありません</div>
       ) : (
         <>
           <svg width="100%" height="90" viewBox={`0 0 ${Math.max(300, validPoints.length * 60)} 90`} style={{ display: "block" }}>
@@ -3555,7 +3555,7 @@ function MetricLineChart({ metricDef, points }) {
               return <circle key={i} cx={x} cy={y} r={3.5} fill="#174585" />;
             })}
           </svg>
-          <div className="sans" style={{ fontSize: 9, color: "#435266", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
             {validPoints.map((p, i) => (
               <span key={i} title={p.memo || undefined}>
                 {new Date(p.date).toLocaleDateString("ja-JP")}: {metricDef.fmt(p[metricDef.key])}
@@ -3632,7 +3632,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
 
       {/* 個体の識別情報・主観評価・メモ。名前とメモはここでのみ編集する(一覧側の鉛筆編集は廃止) */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
+        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>#番号:</span>
@@ -3649,7 +3649,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
             <StarRating value={ratingDraft} size={16} />
           </div>
           {ratingHistory.length > 0 && (
-            <div className="sans" style={{ fontSize: 10, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 52 }}>
+            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 52 }}>
               <span style={{ color: "#435266" }}>履歴:</span>
               {ratingHistory.slice(0, 8).map((h, i) => (
                 <span key={i}>{(h.value ?? 0).toFixed(1)} <span style={{ color: "#C3CAD3" }}>({new Date(h.at).toLocaleDateString("ja-JP")})</span></span>
@@ -3672,7 +3672,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
       {/* My Data(分析タブ)と同じ形式: 平均値(デフォルト)/推移をタブで切替 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-          <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700 }}>測定データ</div>
+          <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700 }}>測定データ</div>
           <div style={{ display: "flex", gap: 4 }}>
             {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
               <button
@@ -3680,7 +3680,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
                 onClick={() => setView(t.key)}
                 className="sans"
                 style={{
-                  fontSize: 10, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
+                  fontSize: 11, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
                   border: view === t.key ? "1.5px solid #174585" : "1px solid #E9ECF0",
                   background: view === t.key ? "#EAEFF5" : "transparent",
                   color: view === t.key ? "#174585" : "#435266",
@@ -3692,7 +3692,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
             ))}
           </div>
         </div>
-        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12 }}>{points.length}セッション</div>
+        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12 }}>{points.length}セッション</div>
         {points.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>このリードに紐づく測定データがまだありません</div>
         ) : view === "avg" ? (
@@ -3701,7 +3701,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
               const v = overall[m.key];
               return (
                 <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "10px 12px" }}>
-                  <div className="sans" style={{ fontSize: 9, color: "#435266" }}>{m.label}</div>
+                  <div className="sans" style={{ fontSize: 11, color: "#435266" }}>{m.label}</div>
                   <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: "#121F32" }}>
                     {v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
                   </div>
@@ -3772,7 +3772,7 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
       </div>
 
       {!hasIdeal && (
-        <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12, padding: "10px 14px", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 12 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12, padding: "10px 14px", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 12 }}>
           理想値プロファイル未選択のため、スペクトル重心近似度は評価に含まれていません（HNR・音量安定性・ピッチ安定性の3要素で算出）
         </div>
       )}
@@ -3780,16 +3780,16 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
         {sorted.map((item, idx) => (
           <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
+              <span style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sans" style={{ fontSize: 14, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
-                <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                <div className="sans" style={{ fontSize: 15, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
+                <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
                   <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
                   <StarRating value={item.rating} size={11} />
                 </div>
               </div>
               <div style={{ textAlign: "center", background: scoreBg(item.composite), borderRadius: 12, padding: "7px 13px", flexShrink: 0 }}>
-                <div style={{ fontFamily: "var(--font-num)", fontSize: 25, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
+                <div style={{ fontFamily: "var(--font-num)", fontSize: 28, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
                   {Math.round(item.composite * 100)}
                 </div>
               </div>
@@ -3809,7 +3809,7 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
 
 function ScoreChip({ label, value }) {
   return (
-    <span className="sans" style={{ fontSize: 9, padding: "3px 8px", borderRadius: 10, background: "#F6F7F9", border: `1px solid ${scoreToColor(value)}`, color: scoreToColor(value) }}>
+    <span className="sans" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 10, background: "#F6F7F9", border: `1px solid ${scoreToColor(value)}`, color: scoreToColor(value) }}>
       {label} {Math.round(value * 100)}
     </span>
   );
@@ -4123,19 +4123,19 @@ function MyDataSection({ sessions, selectedIdeal }) {
       {/* 今日のピッチ誤差ヒーローカード。対象期間平均と比較して色分けする */}
       <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "平均ピッチ誤差"}</div>
+          <div style={{ fontSize: 11, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "平均ピッチ誤差"}</div>
           <select value={range} onChange={(e) => setRange(e.target.value)} style={{ fontSize: 11 }}>
             {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--font-num)", fontSize: 48, fontWeight: 600, lineHeight: 0.9, color: heroColor }}>
+          <span style={{ fontFamily: "var(--font-num)", fontSize: 46, fontWeight: 600, lineHeight: 0.9, color: heroColor }}>
             {displayVal !== null && displayVal !== undefined ? `${displayVal > 0 ? "+" : ""}${displayVal.toFixed(1)}` : "—"}
             <span style={{ fontSize: 22, color: "#9DB3D6" }}>¢</span>
           </span>
           {heroStatus && (
             <span className="sans" style={{
-              display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, marginBottom: 8,
+              display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 700, padding: "4px 10px", borderRadius: 999, marginBottom: 8,
               background: heroColor, color: "#04130D",
             }}>
               {heroStatus}
@@ -4168,7 +4168,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
 
     <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>My Data</div>
+        <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>My Data</div>
         <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 10, padding: 3 }}>
           {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
             <button
@@ -4176,7 +4176,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
               onClick={() => setView(t.key)}
               className="sans"
               style={{
-                fontSize: 12, padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer",
+                fontSize: 13, padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer",
                 background: view === t.key ? "#FFFFFF" : "transparent",
                 color: view === t.key ? "#174585" : "#8D95A1",
                 fontWeight: view === t.key ? 700 : 400,
@@ -4188,7 +4188,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
           ))}
         </div>
       </div>
-      <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 12 }}>
         奏者が「自分」のセッション（{points.length}件）{!selectedIdeal && " ・ 理想値プロファイル未選択のため理想値は表示されません"}
       </div>
 
@@ -4205,11 +4205,11 @@ function MyDataSection({ sessions, selectedIdeal }) {
             return (
               <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px" }}>
                 <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{m.label}</div>
-                <div style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 600, margin: "2px 0", color: valueColor }}>
+                <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: valueColor }}>
                   {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
                 </div>
                 {ideal !== null && (
-                  <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <span>理想: {m.fmt(ideal)} {m.unit}</span>
                     {diff !== null && m.key !== "pitchCents" && (
                       <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>
@@ -4229,7 +4229,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
               <MyTrendChart key={m.key} metric={m} points={points} />
             ))}
           </div>
-          <div className="sans" style={{ fontSize: 9, color: "#435266", marginTop: 8, display: "flex", gap: 12 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 8, display: "flex", gap: 12 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 2, background: "#174585", display: "inline-block" }} />実測</span>
             {selectedIdeal && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 0, borderTop: "2px dashed #8D95A1", display: "inline-block" }} />理想</span>}
           </div>
@@ -4248,8 +4248,8 @@ function MyTrendChart({ metric, points }) {
   if (all.length === 0) {
     return (
       <div style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "8px 10px" }}>
-        <div className="sans" style={{ fontSize: 9, color: "#435266" }}>{metric.label}（{metric.unit}）</div>
-        <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginTop: 8 }}>データなし</div>
+        <div className="sans" style={{ fontSize: 11, color: "#435266" }}>{metric.label}（{metric.unit}）</div>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 8 }}>データなし</div>
       </div>
     );
   }
@@ -4270,12 +4270,12 @@ function MyTrendChart({ metric, points }) {
 
   return (
     <div style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "8px 10px" }}>
-      <div className="sans" style={{ fontSize: 9, color: "#435266", marginBottom: 4 }}>{metric.label}（{metric.unit}）</div>
+      <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 4 }}>{metric.label}（{metric.unit}）</div>
       <div style={{ display: "flex" }}>
         {/* 縦軸の目盛(上=最大 / 下=最小)。SVGは横に引き伸ばすため文字はHTMLで左に添える。 */}
         <div style={{ position: "relative", width: 30, height: H, flexShrink: 0 }}>
-          <span className="sans" style={{ position: "absolute", right: 3, top: 0, fontSize: 8, color: "#A6AEBA" }}>{metric.fmt(maxV)}</span>
-          <span className="sans" style={{ position: "absolute", right: 3, bottom: 0, fontSize: 8, color: "#A6AEBA" }}>{metric.fmt(minV)}</span>
+          <span className="sans" style={{ position: "absolute", right: 3, top: 0, fontSize: 11, color: "#A6AEBA" }}>{metric.fmt(maxV)}</span>
+          <span className="sans" style={{ position: "absolute", right: 3, bottom: 0, fontSize: 11, color: "#A6AEBA" }}>{metric.fmt(minV)}</span>
         </div>
         <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block", flex: 1, minWidth: 0 }}>
           {idealVals.length > 0 && (
@@ -4293,7 +4293,7 @@ function MyTrendChart({ metric, points }) {
           })}
         </svg>
       </div>
-      <div className="sans" style={{ fontSize: 8, color: "#8D95A1", display: "flex", justifyContent: "space-between", marginTop: 2, paddingLeft: 30 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", justifyContent: "space-between", marginTop: 2, paddingLeft: 30 }}>
         <span>{new Date(points[0].date).toLocaleDateString("ja-JP")}</span>
         {points.length > 1 && <span>{new Date(points[points.length - 1].date).toLocaleDateString("ja-JP")}</span>}
       </div>
@@ -4309,8 +4309,8 @@ function LatestSessionCard({ session, reeds }) {
 
   return (
     <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
-      <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>最新セッション</div>
-      <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 12 }}>
+      <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>最新セッション</div>
+      <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12 }}>
         {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
@@ -4481,7 +4481,7 @@ function AnalysisLabView(props) {
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div className="sans" style={{ fontSize: 14, color: "#121F32", fontWeight: 700 }}>セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessions.length}</span></div>
+          <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessions.length}</span></div>
           {sortedSessions.length > 0 && (
             selectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -4577,7 +4577,7 @@ function AnalysisLabView(props) {
                   <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
                   <span style={{ color: "#174585", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
                   <span style={{ color: "#435266", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
-                  {s.source === "upload" && <span style={{ color: "#8D95A1", fontSize: 9, flexShrink: 0 }}>📁</span>}
+                  {s.source === "upload" && <span style={{ color: "#8D95A1", fontSize: 11, flexShrink: 0 }}>📁</span>}
                 </div>
               );
             })}
@@ -4589,10 +4589,10 @@ function AnalysisLabView(props) {
       {dataSubTab === "analysis" && (
       /* --- 11.6節: クロス集計(ピボット型マトリクス) --- */
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px" }}>
-        <div className="sans" style={{ fontSize: 14, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
+        <div className="sans" style={{ fontSize: 15, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
           クロス集計（ピボット）
         </div>
-        <div className="sans" style={{ fontSize: 10, color: "#8D95A1", lineHeight: 1.6, marginBottom: 12 }}>
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", lineHeight: 1.6, marginBottom: 12 }}>
           集計対象抽出(フィルター)・縦軸・横軸・指標を組み合わせて、蓄積データをマトリクスで俯瞰します。各セルはその組み合わせに該当するフレームの平均値です。
         </div>
 
@@ -4609,7 +4609,7 @@ function AnalysisLabView(props) {
             </button>
           </div>
           {pivotFilters.length === 0 ? (
-            <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>フィルターなし（全データを集計）</div>
+            <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>フィルターなし（全データを集計）</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {pivotFilters.map((flt, i) => {
@@ -4626,7 +4626,7 @@ function AnalysisLabView(props) {
                     </select>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
                       {dim?.filterKind === "dateRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#435266" }}>
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266" }}>
                           <input
                             type="date"
                             value={flt.rangeMin ? new Date(flt.rangeMin).toISOString().slice(0, 10) : ""}
@@ -4640,7 +4640,7 @@ function AnalysisLabView(props) {
                           />
                         </div>
                       ) : dim?.filterKind === "numberRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "#435266" }}>
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266" }}>
                           <input
                             type="number" min={1} placeholder="最小" value={flt.rangeMin ?? ""}
                             onChange={(e) => updateFilter({ rangeMin: e.target.value === "" ? null : Number(e.target.value) })}
@@ -4674,7 +4674,7 @@ function AnalysisLabView(props) {
                                       })}
                                       className="sans"
                                       style={{
-                                        fontSize: 10, padding: "3px 10px", borderRadius: 10, cursor: "pointer",
+                                        fontSize: 11, padding: "3px 10px", borderRadius: 10, cursor: "pointer",
                                         border: allSelected ? "1.5px solid #174585" : "1px dashed #8D95A1",
                                         background: allSelected ? "#EAEFF5" : "#FFFFFF",
                                         color: allSelected ? "#174585" : "#435266", fontWeight: 600,
@@ -4691,7 +4691,7 @@ function AnalysisLabView(props) {
                             {(() => {
                               const options = pivotDimensionValues(framesWithContext, pivotCtx, flt.dimKey);
                               return options.length === 0 ? (
-                                <span className="sans" style={{ fontSize: 10, color: "#8D95A1", padding: "4px 0" }}>該当する値がありません</span>
+                                <span className="sans" style={{ fontSize: 11, color: "#8D95A1", padding: "4px 0" }}>該当する値がありません</span>
                               ) : options.map((v) => {
                                 const selected = flt.values.includes(v);
                                 return (
@@ -4700,7 +4700,7 @@ function AnalysisLabView(props) {
                                     onClick={() => updateFilter({ values: selected ? flt.values.filter((x) => x !== v) : [...flt.values, v] })}
                                     className="sans"
                                     style={{
-                                      fontSize: 10, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
+                                      fontSize: 11, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
                                       border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
                                       background: selected ? "#EAEFF5" : "#FFFFFF",
                                       color: selected ? "#174585" : "#435266",
@@ -4751,7 +4751,7 @@ function AnalysisLabView(props) {
             ) },
           ].map((z) => (
             <div key={z.label} style={{ flex: 1, minWidth: 0, background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 11, padding: "10px 11px" }}>
-              <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginBottom: 4 }}>{z.label}</div>
+              <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 4 }}>{z.label}</div>
               {z.node}
             </div>
           ))}
@@ -4763,14 +4763,14 @@ function AnalysisLabView(props) {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "separate", borderSpacing: 6, fontSize: 12, minWidth: 300 }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 6, fontSize: 11, minWidth: 300 }}>
               <thead>
                 <tr>
-                  <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 9, fontWeight: 600, verticalAlign: "bottom" }}>
+                  <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 11, fontWeight: 600, verticalAlign: "bottom" }}>
                     {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
                   </th>
                   {pivot.colKeys.map((ck) => (
-                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 10, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
+                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 11, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
                       {ck}
                     </th>
                   ))}
@@ -4799,7 +4799,7 @@ function AnalysisLabView(props) {
                 ))}
               </tbody>
             </table>
-            <div className="sans" style={{ fontSize: 9, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
+            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
               ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤。他の指標は表内の相対値で 高い=緑 / 中間=橙 / 低い=赤 に色分けしています。
             </div>
           </div>
@@ -4847,10 +4847,10 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
 
       {/* 1. セッション情報 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 6 }}>
+        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 6 }}>
           {new Date(session.recordedAt).toLocaleString("ja-JP")}
         </div>
-        <div className="sans" style={{ fontSize: 10, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             奏者:
             <PerformerSelector performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
@@ -4890,18 +4890,18 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
       {noteGroups.length > 0 && (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 16px", marginTop: 10, overflowX: "auto" }}>
-          <div className="sans" style={{ fontSize: 10, color: "#435266", marginBottom: 10 }}>
+          <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 480 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>記音</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>ピッチ</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>音量</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>重心</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>HNR</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 10, borderBottom: "1px solid #E9ECF0" }}>理想値との差</th>
+                <th style={{ textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>記音</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>ピッチ</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>音量</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>重心</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>HNR</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>理想値との差</th>
               </tr>
             </thead>
             <tbody>
