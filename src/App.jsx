@@ -685,19 +685,22 @@ function useSessionsStore() {
 // 1フレーム分の解析(ピッチ・倍音・ノート区間検出)を行う共通ロジック。
 // analyser/sampleRate/経過時間(ms)を渡すたびに呼び、必要ならframesに1件追加する。
 // オフライン解析(analyzeAudioBuffer)・リアルタイム解析(analyzeMediaFile)の両方から呼ばれる。
-function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal }) {
+// 楽器音の判定はライブ計測と同一: 計測下限dB(ノイズゲート)+ヒステリシス、MPMのclarity、
+// 音色系(重心/HNR/倍音)はさらに余裕(TIMBRE_EXTRA_DB)のある音量でだけ測定する。
+// これにより、ほぼ無音の区間やノイズ区間から誤ったピッチ・音色データが記録されるのを防ぐ。
+function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, noiseGateDb = NOISE_GATE_DEFAULT_DB }) {
   const preset = SAX_PRESETS[saxType];
-  const fingeringTable = buildFingeringTable(saxType, tuningHz * Math.pow(2, instrumentOffsetCents / 1200), 30);
+  const effectiveTuningHz = tuningHz * Math.pow(2, instrumentOffsetCents / 1200);
+  const fingeringTable = buildFingeringTable(saxType, effectiveTuningHz, 30);
   const FFT_SIZE = 8192;
   const NUM_HARMONICS = 8;
   const SAMPLE_INTERVAL_MS = 100;
-  const NOTE_ONSET_DB = -58; // 管楽器のピアニッシモ程度の弱い入力でも発音開始として拾えるよう低めに設定
-  const NOTE_RELEASE_DB = -68;
   const ATTACK_WINDOW_MS = 400;
 
   const frames = [];
   const noteDetector = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
   let lastSampleMs = -Infinity;
+  let sounding = false; // 発音中フラグ(ヒステリシス判定に使う。ライブのsoundingRefに相当)
 
   const tick = (analyser, sampleRate, elapsedMs) => {
     const freqData = new Float32Array(analyser.frequencyBinCount);
@@ -710,26 +713,44 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
     const freqs = new Float32Array(linear.length);
     for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
 
-    let sumSquares = 0;
-    for (let i = 0; i < linear.length; i++) sumSquares += linear[i] * linear[i];
-    const rms = Math.sqrt(sumSquares / linear.length);
-    const vDb = 20 * Math.log10(rms + 1e-10);
+    // 時間領域波形(RMS音量とMPMピッチ検出の両方に使う)
+    let timeBuf = null;
+    if (analyser.getFloatTimeDomainData) {
+      timeBuf = new Float32Array(FFT_SIZE);
+      analyser.getFloatTimeDomainData(timeBuf);
+    }
+
+    // 音量はライブと同じ時間領域RMS(dBFS)。旧来のFFT振幅由来のdBはスケールが独自で、
+    // ライブで設定した計測下限dBと比較できないため使わない。
+    let vDb = -100;
+    if (timeBuf) {
+      let ss = 0;
+      for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
+      vDb = 20 * Math.log10(Math.sqrt(ss / timeBuf.length) + 1e-10);
+    }
 
     const centroid = spectralCentroid(linear, freqs);
-    // ピッチ検出はライブと同じMPM(時間領域)。アナライザが時間波形を提供できる場合のみ。
+
+    // ピッチ検出はライブと同じMPM(時間領域)+clarityゲート
     let f0 = null;
-    if (analyser.getFloatTimeDomainData) {
-      const tb = new Float32Array(FFT_SIZE);
-      analyser.getFloatTimeDomainData(tb);
-      const mpm = detectPitchMPM(tb, sampleRate);
+    if (timeBuf) {
+      const mpm = detectPitchMPM(timeBuf, sampleRate);
       if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) f0 = mpm.freq;
     }
+
+    // --- 楽器音の判定(ライブ計測と同一) ---
+    const hasPitch = !!(f0 && f0 > 40);
+    const aboveGate = vDb > (sounding ? noiseGateDb - GATE_HYSTERESIS_DB : noiseGateDb);
+    sounding = hasPitch && aboveGate;
+    const timbreMeasurable = sounding && vDb > noiseGateDb + TIMBRE_EXTRA_DB;
 
     let levels = [];
     let hnr = null;
     let matchedFinger = null;
-    if (f0 && f0 > 40) {
+    if (sounding) {
       matchedFinger = findClosestFingering(f0, fingeringTable);
+    }
+    if (timbreMeasurable) {
       for (let n = 1; n <= NUM_HARMONICS; n++) {
         const targetFreq = f0 * n;
         const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
@@ -745,16 +766,17 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
     }
 
     // --- ノート区間分割・アタック時間検出(企画書2.4節相当) ---
+    // ノート境界は「楽器音と判定されているか(sounding)」で決める(ライブと同じ)。
     {
       const det = noteDetector;
       if (det.phase === "silence") {
-        if (vDb > NOTE_ONSET_DB) {
+        if (sounding) {
           det.phase = "attack"; det.onsetMs = elapsedMs; det.peakDb = vDb; det.samples = [{ t: elapsedMs, vDb }];
         }
       } else if (det.phase === "attack") {
         det.samples.push({ t: elapsedMs, vDb });
         if (vDb > det.peakDb) det.peakDb = vDb;
-        if (vDb < NOTE_RELEASE_DB) {
+        if (!sounding) {
           det.phase = "silence";
         } else if (elapsedMs - det.onsetMs >= ATTACK_WINDOW_MS) {
           const target = det.peakDb - 3;
@@ -765,7 +787,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
         }
       } else if (det.phase === "sustain") {
         if (vDb > det.peakDb) det.peakDb = vDb;
-        if (vDb < NOTE_RELEASE_DB) {
+        if (!sounding) {
           const last = det.events[det.events.length - 1];
           if (last && last.endT === null) { last.endT = elapsedMs / 1000; last.peakVolumeDb = det.peakDb; }
           det.phase = "silence";
@@ -775,30 +797,30 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
 
     if (elapsedMs - lastSampleMs >= SAMPLE_INTERVAL_MS) {
       lastSampleMs = elapsedMs;
-      const theoFreq = matchedFinger?.soundingFreqHz ?? null;
-      const pitchCentsVsTheory = f0 && theoFreq ? centsBetween(f0, theoFreq) : null;
+      // ピッチのセント誤差はライブと同じ「実効基準ピッチのfreqToNote」で統一する
+      const noteNow = sounding ? freqToNote(f0, effectiveTuningHz) : null;
+      const pitchCentsVsTheory = noteNow ? noteNow.centsExact : null;
       // 理想値は音(運指の半音インデックス)ごとに持つため、今判定されている音に対応する理想値を都度引く
       const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
-      const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
+      const pitchCentsVsIdeal = sounding && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
       const harmNorm = levels.length === NUM_HARMONICS ? levels.map((l) => l.norm) : new Array(NUM_HARMONICS).fill(0);
       const idealHarmNorm = noteIdeal?.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
       const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
       const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
-      const timbreScoreIdeal = noteIdeal
+      const timbreScoreIdeal = noteIdeal && timbreMeasurable
         ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
         : 0;
 
-      const concertNn = f0 ? freqToNote(f0, tuningHz * Math.pow(2, instrumentOffsetCents / 1200)) : null;
       frames.push({
         t: elapsedMs / 1000,
-        pitchHz: f0,
+        pitchHz: sounding ? f0 : null,
         pitchCents: pitchCentsVsTheory,
         matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
-        concertNote: concertNn ? `${concertNn.name}${concertNn.octave}` : null,
+        concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null,
         semitoneIndex: matchedFinger?.semitoneIndex ?? null,
         derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
         volumeDb: vDb,
-        spectralCentroidHz: centroid,
+        spectralCentroidHz: timbreMeasurable ? centroid : null,
         hnrDb: hnr,
         harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
         matchScore: {
@@ -1778,6 +1800,7 @@ export default function WindToneLabPhaseMode() {
     try {
       const analysisOpts = {
         saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal,
+        noiseGateDb, // 計測下限dB: ライブと同じ値でアップロード解析からもノイズ・無音区間を除外する
         onProgress: setUploadProgress,
         // 自動再生がブロックされた時は「タップして開始」ボタンを出し、新しいタップ内で再開する
         onNeedTap: (startFn) => setUploadNeedsTap(() => startFn),
@@ -1810,7 +1833,10 @@ export default function WindToneLabPhaseMode() {
         }
       }
 
-      if (frames.length > 0) {
+      // フレームは無音区間でも(null値で)積まれるため、「楽器音として判定されたフレームが
+      // 1つでもあるか」で有効性を判断する(無音・ノイズだけのファイルは保存しない)。
+      const hasSound = frames.some((f) => f.pitchCents !== null && f.pitchCents !== undefined);
+      if (hasSound) {
         const session = {
           id: generateId(),
           recordedAt: new Date().toISOString(),
@@ -1836,7 +1862,7 @@ export default function WindToneLabPhaseMode() {
       setUploadProgress(0);
       setUploadNeedsTap(null);
     }
-  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload]);
+  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb]);
 
   const deleteIdealProfile = (id) => {
     setIdealProfiles((prev) => prev.filter((p) => p.id !== id));
