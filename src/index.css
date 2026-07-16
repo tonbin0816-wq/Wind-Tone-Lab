@@ -1,3 +1,23 @@
+:root {
+  /* 和文本文: OS標準を最優先。iPhoneではヒラギノが当たる */
+  --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+             "Hiragino Kaku Gothic ProN", "BIZ UDPGothic",
+             "Noto Sans JP", sans-serif;
+  /* 数値・英字: Space Grotesk */
+  --font-num: "Space Grotesk", var(--font-jp);
+  /* 音名・リード番号: Instrument Serif */
+  --font-serif: "Instrument Serif", serif;
+
+  /* サイズスケール(px): 9〜10.5pxの細かい刻みを廃止し、この7段に統一する */
+  --fs-xs: 11px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-hero: 46px;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -10,7 +30,12 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-jp);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* 和文ラベル・小さめの本文(〜13px)用: 既定字間だと詰まって見えるため少し広げる */
+.jp-label { letter-spacing: 0.02em; }
+/* 大きな数値(24px以上、ヒーロー・音名セント)用: 数字は既定だと間延びするため詰める */
+.num-tight { letter-spacing: -0.02em; }
