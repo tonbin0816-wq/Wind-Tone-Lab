@@ -103,6 +103,13 @@ function writtenNoteLabel(semitoneFromLowBb) {
   return `${name}${octave}`;
 }
 
+// "A4" / "C♯5" / "B♭3" のような音名ラベルを {name, octave} に分解する(大表示用)。
+function parseNoteLabel(label) {
+  if (typeof label !== "string") return null;
+  const m = /^([A-G][♯♭#b]?)(-?\d+)$/.exec(label);
+  return m ? { name: m[1], octave: m[2] } : null;
+}
+
 // 音名表記統一(D#→E♭, A#→B♭)より前に保存されたセッション/理想値プロファイルには
 // 旧表記の音名文字列がそのまま残っているため、読み込み時に一度だけ変換する。
 function migrateNoteSpelling(label) {
@@ -2107,12 +2114,18 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音名(大表示)。半円のアーク式メーターは実機で見づらかったため、横一直線のメーターに変更した。 */}
-      <div style={{ textAlign: "center", padding: "12px 0 0" }}>
-        <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-          {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
-        </span>
-      </div>
+      {/* 音名(大表示)。「これまでの音」グラフや分析タブと同じ記音(運指ベースの音名)で表示し、
+          メーターとグラフの音名が一致するようにする。運指が未判定の時のみ実音のフォールバック。 */}
+      {(() => {
+        const displayNote = (matchedFingering && parseNoteLabel(matchedFingering.writtenLabel)) || note;
+        return (
+          <div style={{ textAlign: "center", padding: "12px 0 0" }}>
+            <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: displayNote ? "#121F32" : "#435266" }}>
+              {displayNote ? displayNote.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{displayNote ? displayNote.octave : ""}</span>
+            </span>
+          </div>
+        );
+      })()}
       <div style={{ textAlign: "center", marginTop: 6, marginBottom: 4 }}>
         {(() => {
           const ac = note ? Math.abs(centsOffset) : null;
