@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Square, Trash2, ChevronDown, ChevronUp, Upload } from "lucide-react";
+import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
 // ============================================================
 // Music theory helpers
@@ -2658,10 +2658,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
     { key: "hnr", label: "HNR" },
   ];
 
-  // 音高だけ理論値(運指テーブル)との比較も選べる。それ以外の指標は理想値/お手本セッションのみ。
+  // 音高だけ絶対値(平均律の正しいピッチ)との比較も選べる。それ以外の指標は理想値/お手本セッションのみ。
   const referenceOptions = timelineMetric === "pitch"
     ? [
-        { key: "theoretical", label: "理論値(運指テーブル)" },
+        { key: "theoretical", label: "絶対値" },
         { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
         { key: "session", label: "お手本セッション" },
       ]
@@ -2739,7 +2739,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* タイムライン */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 8 }}>
-          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "理論値基準" : referenceBasis === "session" ? "お手本基準" : "理想値基準"}）
+          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "お手本基準" : "理想値基準"}）
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
@@ -3278,7 +3278,7 @@ function ReedRegisterView(props) {
             </select>
           </div>
           <div>
-            <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>番手（硬さ）</label>
+            <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>番手</label>
             <select value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={{ width: "100%" }}>
               {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
@@ -3287,7 +3287,7 @@ function ReedRegisterView(props) {
             <label className="sans" style={{ fontSize: 11, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
             <input
               type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-              style={{ width: "100%", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "7px 6px", color: "#121F32", fontSize: 11, boxSizing: "border-box" }}
+              style={{ width: "100%", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "0 6px", height: 27, color: "#121F32", fontSize: 11, boxSizing: "border-box" }}
             />
           </div>
         </div>
@@ -4829,7 +4829,7 @@ function AnalysisLabView(props) {
                   <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
                   <span style={{ color: "#174585", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
                   <span style={{ color: "#435266", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
-                  {s.source === "upload" && <span style={{ color: "#8D95A1", fontSize: 11, flexShrink: 0 }}>📁</span>}
+                  {s.source === "upload" && <FileAudio size={12} strokeWidth={1.8} style={{ color: "#8D95A1", flexShrink: 0 }} />}
                 </div>
               );
             })}
@@ -4842,7 +4842,7 @@ function AnalysisLabView(props) {
       /* --- 11.6節: クロス集計(ピボット型マトリクス) --- */
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px" }}>
         <div className="sans" style={{ fontSize: 15, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
-          クロス集計（ピボット）
+          PIVOT
         </div>
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1", lineHeight: 1.6, marginBottom: 12 }}>
           集計対象抽出(フィルター)・縦軸・横軸・指標を組み合わせて、蓄積データをマトリクスで俯瞰します。各セルはその組み合わせに該当するフレームの平均値です。
@@ -5014,15 +5014,17 @@ function AnalysisLabView(props) {
             この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに表が育ちます
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div>
+            {/* 縦軸は10行分の高さまで表示し、それ以上はスクロールで閲覧する(見出し行は上に固定) */}
+            <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
             <table style={{ borderCollapse: "separate", borderSpacing: 6, fontSize: 11, minWidth: 300 }}>
               <thead>
                 <tr>
-                  <th className="sans" style={{ position: "sticky", left: 0, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 11, fontWeight: 600, verticalAlign: "bottom" }}>
+                  <th className="sans" style={{ position: "sticky", left: 0, top: 0, zIndex: 2, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 11, fontWeight: 600, verticalAlign: "bottom" }}>
                     {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
                   </th>
                   {pivot.colKeys.map((ck) => (
-                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 11, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
+                    <th key={ck} style={{ position: "sticky", top: 0, zIndex: 1, background: "#FFFFFF", textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 11, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
                       {ck}
                     </th>
                   ))}
@@ -5051,6 +5053,7 @@ function AnalysisLabView(props) {
                 ))}
               </tbody>
             </table>
+            </div>
             <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
               ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤。他の指標は表内の相対値で 高い=緑 / 中間=橙 / 低い=赤 に色分けしています。
             </div>
@@ -5076,6 +5079,19 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
   const setSessionReedId = (reedId) => {
     updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, reedId: reedId || null, linkedAt: reedId ? "retroactive" : null } : s)));
   };
+  // 日付も後から修正できる(録音日を間違えた場合等)。開封後日数などの集計はこの日付に追従する。
+  const setSessionRecordedAt = (value) => {
+    const d = value ? new Date(value) : null;
+    if (!d || isNaN(d.getTime())) return;
+    updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, recordedAt: d.toISOString() } : s)));
+  };
+  // datetime-local入力はローカル時刻の "YYYY-MM-DDTHH:mm" 形式を要求するため変換する
+  const recordedAtLocal = (() => {
+    const d = new Date(session.recordedAt);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
 
   // メモは計測タブでは入力せず、ここで後から追記・修正する。打鍵毎の書き込みを避けるため
   // ローカルstateで編集し、フォーカスが外れた時にまとめてセッションへ反映する。
@@ -5099,8 +5115,14 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
 
       {/* 1. セッション情報 */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 6 }}>
-          {new Date(session.recordedAt).toLocaleString("ja-JP")}
+        <div style={{ marginBottom: 6 }}>
+          <input
+            type="datetime-local"
+            value={recordedAtLocal}
+            onChange={(e) => setSessionRecordedAt(e.target.value)}
+            className="sans"
+            style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "4px 8px", color: "#121F32", fontSize: 13, fontWeight: 700, boxSizing: "border-box" }}
+          />
         </div>
         <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -5141,19 +5163,21 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
 
       {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
       {noteGroups.length > 0 && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 16px", marginTop: 10, overflowX: "auto" }}>
+        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "10px 16px", marginTop: 10 }}>
           <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
+          {/* 表示枠は5行分にとどめ、それ以上はスクロールで閲覧する(見出し行は上に固定) */}
+          <div style={{ overflowX: "auto", maxHeight: 133, overflowY: "auto" }}>
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 480 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>記音</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>ピッチ</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>音量</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>重心</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>HNR</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>理想値との差</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>記音</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>ピッチ</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>音量</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>重心</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>HNR</th>
+                <th style={{ position: "sticky", top: 0, background: "#FFFFFF", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 11, borderBottom: "1px solid #E9ECF0" }}>理想値との差</th>
               </tr>
             </thead>
             <tbody>
@@ -5175,6 +5199,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
