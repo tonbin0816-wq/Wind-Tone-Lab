@@ -1675,16 +1675,16 @@ export default function WindToneLabPhaseMode() {
     <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 96px", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
-        /* Claude Designの提案を反映したフォント: 音名/リード番号の表示にInstrument Serif、
-           数値表示にSpace Grotesk。基本フォント(Noto Sans JP)は変更せず、inlineのfontFamilyで
-           必要箇所にのみ適用する(計測・リード・分析タブで使用)。 */
-        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
+        /* 音名/リード番号の表示にInstrument Serif、数値表示にSpace Grotesk、和文本文は
+           OS標準のヒラギノ優先スタック(--font-jp)。Noto Sans JPはヒラギノの無い端末向けの
+           フォールバックとしてのみ読み込む(index.cssの:root変数を参照)。 */
+        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@600;700&display=swap');
         * { box-sizing: border-box; }
-        .sans { font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .sans { font-family: var(--font-jp); }
         button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
         input[type=range] { accent-color: #174585; }
-        select { background:#F6F7F9; color:#121F32; border:1px solid #E9ECF0; border-radius:4px; padding:6px 8px; font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:12px; }
+        select { background:#F6F7F9; color:#121F32; border:1px solid #E9ECF0; border-radius:4px; padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
         /* ピボットの軸セレクタは丸角カード内に置くため、枠なし・ネイビー太字で見せる */
         select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:12px; cursor:pointer; }
       `}</style>
@@ -2176,7 +2176,7 @@ function MeasureView(props) {
       {/* 音名(大表示)。実音(マイクが実際に拾ったコンサートピッチ)で表示する。移調楽器でも
           記音ではなく実音で表す。「これまでの音」グラフも同じ実音を使い、両者を一致させる。 */}
       <div style={{ textAlign: "center", padding: "12px 0 0" }}>
-        <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+        <span style={{ fontFamily: "var(--font-serif)", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
           {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
         </span>
       </div>
@@ -2193,7 +2193,7 @@ function MeasureView(props) {
         })()}
         {/* Hz行は固定の高さ・行高にする。「未検出」(日本語フォールバック)と数字(Space Grotesk)で
             行の高さが変わり、音名の切替時に下の要素が上下にブレるのを防ぐ。 */}
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#8D95A1", marginTop: 8, height: 16, lineHeight: "16px" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
+        <div style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1", marginTop: 8, height: 16, lineHeight: "16px" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
       </div>
 
       {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
@@ -2222,7 +2222,7 @@ function MeasureView(props) {
             </div>
           );
         })()}
-        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, color: "#8D95A1" }}>
+        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 10, color: "#8D95A1" }}>
           <span>-50</span>
           <span>+50</span>
         </div>
@@ -2320,7 +2320,7 @@ function MeasureView(props) {
                 onChange={(e) => setNoiseGateDb(Number(e.target.value))}
                 style={{ flex: 1, accentColor: "#174585" }}
               />
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
+              <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
             </div>
             <div className="sans" style={{ fontSize: 9.5, color: "#8D95A1", marginTop: 6, lineHeight: 1.6 }}>
               現在の音量 {volumeDb.toFixed(1)} dB。この値以下は無音として扱います。空調やブレスを拾ってしまう時は数値を上げてください（右ほど厳しい）。低音域の楽器帯だけを通すバンドパスと、音程のない雑音を除く判定も併用しています。
@@ -2553,7 +2553,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
                 } else if (!nm) curName = null;
               });
               return labels.map((l, k) => (
-                <text key={k} x={l.x} y={9} fontSize="9" fontWeight="700" fill="#174585" fontFamily="'Space Grotesk', sans-serif">{l.name}</text>
+                <text key={k} x={l.x} y={9} fontSize="9" fontWeight="700" fill="#174585" fontFamily="var(--font-num)">{l.name}</text>
               ));
             })()}
             {frames.map((f, i) => {
@@ -2641,7 +2641,7 @@ function RatingSlider({ value, onChange, onCommit }) {
         onPointerUp={() => onCommit?.()} onKeyUp={() => onCommit?.()}
         style={{ flex: 1, accentColor: "#174585" }}
       />
-      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 15, fontWeight: 700, color: "#174585", width: 30, textAlign: "right" }}>{v.toFixed(1)}</span>
+      <span style={{ fontFamily: "var(--font-num)", fontSize: 15, fontWeight: 700, color: "#174585", width: 30, textAlign: "right" }}>{v.toFixed(1)}</span>
     </div>
   );
 }
@@ -2884,7 +2884,7 @@ function MetricCard({ label, value, sub, accentColor }) {
   return (
     <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E9ECF0"}`, borderRadius: 14, padding: "12px 14px" }}>
       <div className="sans" style={{ fontSize: 10, color: "#8D95A1" }}>{label}</div>
-      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
+      <div style={{ fontFamily: "var(--font-num)", fontSize: 20, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
       {sub && <div className="sans" style={{ fontSize: 9, color: "#174585", marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -3207,7 +3207,7 @@ function ReedRegisterView(props) {
                                 onClick={(e) => e.stopPropagation()}
                                 style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
                               />
-                              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <StarRating value={r.rating} size={11} />
                             </div>
                           ))}
@@ -3219,7 +3219,7 @@ function ReedRegisterView(props) {
                           onRowClick={(id) => setEvaluatingReedId(id)}
                           renderRow={(r, idx) => (
                             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
-                              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
                               <StarRating value={r.rating} size={19} />
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
@@ -3514,7 +3514,7 @@ function ReedMetricBarRow({ label, unit, items, fmt }) {
             <div style={{ flex: 1, background: "#EEF1F4", borderRadius: 5, height: 17, position: "relative", overflow: "hidden" }}>
               <div style={{ width: it.value !== null && it.value !== undefined ? `${Math.max(2, (Math.abs(it.value) / maxAbs) * 100)}%` : 0, height: "100%", background: it.color || "#174585", borderRadius: 5 }} />
             </div>
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 11, color: "#435266", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
+            <span style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#435266", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
           </div>
         ))}
       </div>
@@ -3780,7 +3780,7 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
         {sorted.map((item, idx) => (
           <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
+              <span style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="sans" style={{ fontSize: 14, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
                 <div className="sans" style={{ fontSize: 10, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
@@ -3789,7 +3789,7 @@ function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
                 </div>
               </div>
               <div style={{ textAlign: "center", background: scoreBg(item.composite), borderRadius: 12, padding: "7px 13px", flexShrink: 0 }}>
-                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 25, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
+                <div style={{ fontFamily: "var(--font-num)", fontSize: 25, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
                   {Math.round(item.composite * 100)}
                 </div>
               </div>
@@ -4129,7 +4129,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
           </select>
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 4, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 48, fontWeight: 600, lineHeight: 0.9, color: heroColor }}>
+          <span style={{ fontFamily: "var(--font-num)", fontSize: 48, fontWeight: 600, lineHeight: 0.9, color: heroColor }}>
             {displayVal !== null && displayVal !== undefined ? `${displayVal > 0 ? "+" : ""}${displayVal.toFixed(1)}` : "—"}
             <span style={{ fontSize: 22, color: "#9DB3D6" }}>¢</span>
           </span>
@@ -4205,7 +4205,7 @@ function MyDataSection({ sessions, selectedIdeal }) {
             return (
               <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px" }}>
                 <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{m.label}</div>
-                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, fontWeight: 600, margin: "2px 0", color: valueColor }}>
+                <div style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 600, margin: "2px 0", color: valueColor }}>
                   {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
                 </div>
                 {ideal !== null && (
@@ -4770,7 +4770,7 @@ function AnalysisLabView(props) {
                     {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
                   </th>
                   {pivot.colKeys.map((ck) => (
-                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 10, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>
+                    <th key={ck} style={{ textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 10, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
                       {ck}
                     </th>
                   ))}
@@ -4779,7 +4779,7 @@ function AnalysisLabView(props) {
               <tbody>
                 {pivot.rowKeys.map((rk) => (
                   <tr key={rk}>
-                    <td style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "0 6px", color: "#121F32", fontWeight: 700, whiteSpace: "nowrap", fontFamily: pivotRow === "note" ? "'Instrument Serif', serif" : "'Noto Sans JP', sans-serif", fontSize: pivotRow === "note" ? 15 : 11 }}>
+                    <td style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "0 6px", color: "#121F32", fontWeight: 700, whiteSpace: "nowrap", fontFamily: pivotRow === "note" ? "var(--font-serif)" : "var(--font-jp)", fontSize: pivotRow === "note" ? 15 : 11 }}>
                       {rk}
                     </td>
                     {pivot.colKeys.map((ck) => {
@@ -4790,7 +4790,7 @@ function AnalysisLabView(props) {
                       const value = metricDef.agg === "sum" ? cell.sum : cell.sum / cell.count;
                       const { color, bg } = pivotCellStyle(value);
                       return (
-                        <td key={ck} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
+                        <td key={ck} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "var(--font-num)", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
                           {metricDef.fmt(value)}
                         </td>
                       );
