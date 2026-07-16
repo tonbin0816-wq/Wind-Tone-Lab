@@ -2305,16 +2305,15 @@ function MeasureView(props) {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
-              <MetricCard label="音量" value={`${volumeDb.toFixed(1)} dB`} sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
-              <MetricCard label="スペクトル重心" value={centroidHz != null ? `${Math.round(centroidHz)} Hz` : "—"} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
-              <MetricCard label="HNR" value={hnrDb !== null ? `${hnrDb.toFixed(1)} dB` : "—"} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
+              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit={centroidHz != null ? "Hz" : null} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
+              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit={hnrDb !== null ? "dB" : null} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
 
-            {/* ノイズゲート設定。バンドパス後の音量がこの値以下なら無音とみなす。現在の音量を見ながら、
-                楽器を吹いていない時の値より少し上に設定すると、楽器以外の音を拾わなくなる。 */}
-            <div className="sans" style={{ fontSize: 11, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>ノイズゲート（楽器以外の音を拾わない）</div>
+            {/* 計測下限dB: バンドパス後の音量がこの値以下なら無音とみなす(旧称ノイズゲート)。 */}
+            <div className="sans" style={{ fontSize: 11, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>計測下限dB</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input
                 type="range" min="-80" max="-20" step="1" value={noiseGateDb}
@@ -2322,9 +2321,6 @@ function MeasureView(props) {
                 style={{ flex: 1, accentColor: "#174585" }}
               />
               <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
-            </div>
-            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 6, lineHeight: 1.6 }}>
-              現在の音量 {volumeDb.toFixed(1)} dB。この値以下は無音として扱います。空調やブレスを拾ってしまう時は数値を上げてください（右ほど厳しい）。低音域の楽器帯だけを通すバンドパスと、音程のない雑音を除く判定も併用しています。
             </div>
           </div>
         </div>
@@ -2881,12 +2877,18 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
   });
 }
 
-function MetricCard({ label, value, sub, accentColor }) {
+// 値の行は折り返し禁止+高さ固定にする。桁数が変わるたびに「-18.2 dB」が1行に収まったり
+// 単位だけ折り返したりしてカードの高さが変わり、画面全体が上下にブレるのを防ぐ。
+// unitを渡すと数値より小さい字で添える(狭いカードでも1行に収まりやすくする)。
+function MetricCard({ label, value, unit, sub, accentColor }) {
   return (
     <div style={{ background: "#FFFFFF", border: `1px solid ${accentColor || "#E9ECF0"}`, borderRadius: 14, padding: "12px 14px" }}>
       <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32" }}>{value}</div>
-      {sub && <div className="sans" style={{ fontSize: 11, color: "#174585", marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32", whiteSpace: "nowrap", height: 28, lineHeight: "28px", overflow: "hidden" }}>
+        {value}
+        {unit && <span className="sans" style={{ fontSize: 11, color: "#8D95A1", marginLeft: 3, fontWeight: 400 }}>{unit}</span>}
+      </div>
+      {sub && <div className="sans" style={{ fontSize: 11, color: "#174585", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
     </div>
   );
 }
