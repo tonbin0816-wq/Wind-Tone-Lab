@@ -3130,6 +3130,10 @@ function ReedRegisterView(props) {
               const isExpanded = expandedGroupKey === g.key;
               const boxChecked = selectedBoxesForDelete.has(g.key);
               const isMemberSelecting = memberSelectGroupKey === g.key;
+              // 箱の平均評価。個体行のメイン評価★と見た目で差をつけるため、薄い色・小さいサイズで表示する
+              // (タイポグラフィ指示書5節③)。誰も評価していない箱では表示しない。
+              const ratedValues = g.members.map((m) => m.rating).filter((v) => v !== null && v !== undefined);
+              const avgRating = ratedValues.length ? ratedValues.reduce((a, b) => a + b, 0) / ratedValues.length : null;
               return (
                 <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EAEFF5" : "#FFFFFF" }}>
@@ -3162,7 +3166,14 @@ function ReedRegisterView(props) {
                             <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
                             <span style={{ color: "#8D95A1", fontSize: 11, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
                           </span>
-                          {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
+                          <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            {avgRating !== null && (
+                              <span style={{ opacity: 0.55 }} title={`箱の平均評価 ${avgRating.toFixed(1)}`}>
+                                <StarRating value={avgRating} size={11} />
+                              </span>
+                            )}
+                            {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
+                          </span>
                         </button>
                         <button
                           onClick={() => startMemberSelect(g)}
