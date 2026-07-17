@@ -504,60 +504,6 @@ function stddev(arr) {
   return Math.sqrt(variance);
 }
 
-function normalizeHnr(hnrValues, refMin = 0, refMax = 30) {
-  if (!hnrValues.length) return 0.5;
-  const avg = mean(hnrValues);
-  return Math.min(1, Math.max(0, (avg - refMin) / (refMax - refMin)));
-}
-
-function stabilityScore(values, tolerance) {
-  const sd = stddev(values);
-  if (sd === null) return 0.5;
-  return Math.exp(-sd / tolerance);
-}
-
-function closenessToIdealScore(measuredAvg, idealValue, tolerance) {
-  if (idealValue === null || idealValue === undefined || idealValue === 0) return null;
-  const relErr = Math.abs(measuredAvg - idealValue) / Math.abs(idealValue);
-  return Math.exp(-relErr / tolerance);
-}
-
-// sessions: このリードに紐づく複数セッションのフレームを平坦化した配列を想定
-// { hnrValues: number[], volumeDbValues: number[], pitchCentsErrorValues: number[], centroidClosenessValues: number[] }
-// centroidClosenessValuesは呼び出し側で「フレームごとに、その音に対応する理想値との近さ」を
-// 算出済みの配列(理想値は音ごとに異なるため、平均重心を単一の理想値と比較する方式は使えない)。
-function reedCompositeScore(input) {
-  const weights = { hnr: 0.3, volumeStability: 0.25, pitchStability: 0.25, centroidCloseness: 0.2 };
-
-  const hnrScore = normalizeHnr(input.hnrValues.filter((v) => v !== null && v !== undefined));
-  const volumeStability = stabilityScore(input.volumeDbValues, 3.0);
-  const pitchStability = stabilityScore(input.pitchCentsErrorValues, 20.0);
-
-  let centroidScore = null;
-  if (input.centroidClosenessValues?.length) {
-    centroidScore = mean(input.centroidClosenessValues);
-  }
-
-  let composite, breakdown;
-  if (centroidScore === null) {
-    const remaining = weights.hnr + weights.volumeStability + weights.pitchStability;
-    const wHnr = weights.hnr / remaining;
-    const wVol = weights.volumeStability / remaining;
-    const wPitch = weights.pitchStability / remaining;
-    composite = wHnr * hnrScore + wVol * volumeStability + wPitch * pitchStability;
-    breakdown = { hnr: hnrScore, volumeStability, pitchStability, centroidCloseness: null };
-  } else {
-    composite =
-      weights.hnr * hnrScore +
-      weights.volumeStability * volumeStability +
-      weights.pitchStability * pitchStability +
-      weights.centroidCloseness * centroidScore;
-    breakdown = { hnr: hnrScore, volumeStability, pitchStability, centroidCloseness: centroidScore };
-  }
-
-  return { composite: Math.min(1, Math.max(0, composite)), breakdown };
-}
-
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1415,8 +1361,6 @@ export default function WindToneLabPhaseMode() {
   // 状態機械: silence → attack(立ち上がり計測中) → sustain → (音量低下で) silence
   const noteDetectorRef = useRef({ phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] });
   const [phraseNoteEvents, setPhraseNoteEvents] = useState([]);
-  const NOTE_ONSET_DB = -58;   // 無音→発音の閾値(管楽器のピアニッシモ程度から拾えるよう低めに設定)
-  const NOTE_RELEASE_DB = -68; // 発音→無音の閾値(ヒステリシスでバタつきを防ぐ)
   const ATTACK_WINDOW_MS = 400; // アタック確定までの観測窓
   const SAMPLE_INTERVAL_MS = 100;
 
@@ -3755,43 +3699,6 @@ const REED_COMPARE_METRICS = [
 // リード比較で複数リードを色分けするためのパレット(選択順に割り当て)
 const REED_COMPARE_COLORS = ["#174585", "#7FA0CE", "#B9C9E4", "#D97706", "#16A34A", "#8D95A1"];
 
-// ランキングタブ: リードごとのフレームを集約してスコアリングし、ReedRankingTabで並び替え表示する。
-// (「登録」「比較」と並列の独立タブ。以前はDataAnalysisView内の「評価」子タブに比較と同居していた)
-function ReedRankingSection({ reeds, sessions, selectedIdeal }) {
-  // リードごとにセッションのフレームを集約し、スコアリング用の配列を作る
-  const buildReedMetrics = (reedId) => {
-    const reedSessions = sessions.filter((s) => s.reedId === reedId);
-    const allFrames = reedSessions.flatMap((s) => s.frames || []);
-    const hnrValues = allFrames.map((f) => f.hnrDb).filter((v) => v !== null && v !== undefined);
-    const volumeDbValues = allFrames.map((f) => f.volumeDb).filter((v) => v !== null && v !== undefined);
-    const pitchCentsErrorValues = allFrames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined);
-    // 重心の理想値は音ごとに異なるため、フレーム毎にそのフレームの音に対応する理想値と比較してから平均する
-    const centroidClosenessValues = allFrames
-      .map((f) => {
-        const noteIdeal = getNoteIdeal(selectedIdeal, f.semitoneIndex);
-        if (!noteIdeal?.centroidHz || f.spectralCentroidHz === null || f.spectralCentroidHz === undefined) return null;
-        return closenessToIdealScore(f.spectralCentroidHz, noteIdeal.centroidHz, 0.25);
-      })
-      .filter((v) => v !== null && v !== undefined);
-    return { reedSessions, allFrames, hnrValues, volumeDbValues, pitchCentsErrorValues, centroidClosenessValues };
-  };
-
-  const reedRankings = reeds.map((reed) => {
-    const m = buildReedMetrics(reed.id);
-    const scoreResult = reedCompositeScore(
-      { hnrValues: m.hnrValues, volumeDbValues: m.volumeDbValues, pitchCentsErrorValues: m.pitchCentsErrorValues, centroidClosenessValues: m.centroidClosenessValues }
-    );
-    return { reed, rating: reed.rating ?? null, sessionCount: m.reedSessions.length, frameCount: m.allFrames.length, ...scoreResult };
-  }).sort((a, b) => b.composite - a.composite);
-
-  return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <ReedRankingTab reedRankings={reedRankings} hasIdeal={!!selectedIdeal} reeds={reeds} />
-    </div>
-  );
-}
-
-
 // --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
 function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) {
   const toggleReed = (id) => {
@@ -4133,102 +4040,6 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
         )}
       </div>
     </div>
-  );
-}
-
-// --- 10.4(c): ランキング(総合スコア。各項目で昇順/降順ソート可能) ---
-const RANKING_SORT_OPTIONS = [
-  { key: "composite", label: "総合スコア" },
-  { key: "rating", label: "主観評価" },
-  { key: "hnr", label: "HNR" },
-  { key: "volumeStability", label: "音量安定" },
-  { key: "pitchStability", label: "ピッチ安定" },
-  { key: "centroidCloseness", label: "重心近似" },
-];
-
-function getRankingSortValue(item, key) {
-  if (key === "composite") return item.composite;
-  if (key === "rating") return item.rating;
-  return item.breakdown[key];
-}
-
-function ReedRankingTab({ reedRankings, hasIdeal, reeds }) {
-  const [sortKey, setSortKey] = useState("composite");
-  const [sortDir, setSortDir] = useState("desc"); // "desc" | "asc"
-
-  if (reedRankings.length === 0) {
-    return <div className="sans" style={{ fontSize: 11, color: "#8D95A1", textAlign: "center", padding: 30 }}>リードが登録されていません</div>;
-  }
-
-  const sorted = [...reedRankings].sort((a, b) => {
-    const va = getRankingSortValue(a, sortKey);
-    const vb = getRankingSortValue(b, sortKey);
-    if (va === null || va === undefined) return 1;
-    if (vb === null || vb === undefined) return -1;
-    return sortDir === "desc" ? vb - va : va - vb;
-  });
-
-  // スコアバッジの背景色(3段階の淡色)と順位番号の色
-  const scoreBg = (score) => (score >= 0.75 ? "#E8F6ED" : score >= 0.5 ? "#FDF0E1" : "#FBE9E9");
-  const rankColor = (idx) => (idx === 0 ? "#174585" : idx === 1 ? "#8D95A1" : "#C3CAD3");
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>並び替え</span>
-        <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
-          {RANKING_SORT_OPTIONS.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
-        </select>
-        <button
-          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          className="sans"
-          style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#174585", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
-        >
-          {sortDir === "desc" ? "降順 ▼" : "昇順 ▲"}
-        </button>
-      </div>
-
-      {!hasIdeal && (
-        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12, padding: "10px 14px", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 12 }}>
-          理想値プロファイル未選択のため、スペクトル重心近似度は評価に含まれていません（HNR・音量安定性・ピッチ安定性の3要素で算出）
-        </div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {sorted.map((item, idx) => (
-          <div key={item.reed.id} style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 700, color: rankColor(idx), width: 26, flexShrink: 0, textAlign: "center" }}>{idx + 1}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sans" style={{ fontSize: 15, fontWeight: 700, color: "#121F32", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedLabel(item.reed, reeds)}</div>
-                <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>{item.sessionCount}セッション ・ {item.frameCount}フレーム</span>
-                  <StarRating value={item.rating} size={11} />
-                </div>
-              </div>
-              <div style={{ textAlign: "center", background: scoreBg(item.composite), borderRadius: 12, padding: "7px 13px", flexShrink: 0 }}>
-                <div style={{ fontFamily: "var(--font-num)", fontSize: 28, fontWeight: 700, color: scoreToColor(item.composite), lineHeight: 1 }}>
-                  {Math.round(item.composite * 100)}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 13 }}>
-              {item.breakdown.hnr !== null && <ScoreChip label="HNR" value={item.breakdown.hnr} />}
-              <ScoreChip label="音量安定" value={item.breakdown.volumeStability} />
-              <ScoreChip label="ピッチ安定" value={item.breakdown.pitchStability} />
-              {item.breakdown.centroidCloseness !== null && <ScoreChip label="重心近似" value={item.breakdown.centroidCloseness} />}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ScoreChip({ label, value }) {
-  return (
-    <span className="sans" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 10, background: "#F6F7F9", border: `1px solid ${scoreToColor(value)}`, color: scoreToColor(value) }}>
-      {label} {Math.round(value * 100)}
-    </span>
   );
 }
 
