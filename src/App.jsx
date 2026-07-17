@@ -30,6 +30,9 @@ const BANDPASS_Q = 0.3;
 const TIMBRE_SUSTAIN_MS = 120;
 const NOTE_SWITCH_CENTS = 60;
 const PITCH_OUTLIER_CENTS = 700;
+// 運指テーブルの範囲から大きく外れた音(アルティッシモ・他楽器・誤検出)は運指に紐付けない。
+// テーブル範囲内なら最近傍運指との差は必ず±50¢以内のため、これを超えるのは範囲外のみ。
+const FINGERING_MATCH_MAX_CENTS = 150;
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -497,6 +500,39 @@ function holdFingering(prevEntry, f0, candidate, holdCents = NOTE_SWITCH_CENTS) 
   return candidate;
 }
 
+// 実測f0に対する運指判定の共通処理: 最近傍検索 → 音名ヒステリシス → 範囲外リジェクト。
+// 運指テーブルの範囲から±FINGERING_MATCH_MAX_CENTS超外れた音(アルティッシモや
+// 他楽器の音等)は「最も近い端の運指」に無理に紐付けず、運指なし(null)として扱う
+// (ピッチ・実音名の記録には影響しない。音階グルーピングだけが対象外になる)。
+// ライブ計測とオフライン解析の両方からこれを使い、判定を完全に一致させる。
+function matchFingering(prevEntry, f0, fingeringTable) {
+  const m = holdFingering(prevEntry, f0, findClosestFingering(f0, fingeringTable));
+  if (m && Math.abs(m.centsError) > FINGERING_MATCH_MAX_CENTS) return null;
+  return m;
+}
+
+// RBJ Audio-EQ-Cookbook のバンドパス(ピーク0dB)を1回通すIIRフィルタ。
+// Web AudioのBiquadFilterNode(type:"bandpass")と同じ伝達関数で、アップロード解析の
+// ノイズゲート判定にライブ計測(バンドパス→gateAnalyser)と同一の帯域限定音量を使うためのもの。
+function applyBandpassRBJ(input, sampleRate, centerHz, q) {
+  const w0 = (2 * Math.PI * centerHz) / sampleRate;
+  const alpha = Math.sin(w0) / (2 * q);
+  const cosW0 = Math.cos(w0);
+  const a0 = 1 + alpha;
+  const b0 = alpha / a0, b2 = -alpha / a0;
+  const a1 = (-2 * cosW0) / a0, a2 = (1 - alpha) / a0;
+  const out = new Float32Array(input.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < input.length; i++) {
+    const x0 = input[i];
+    const y0 = b0 * x0 + b2 * x2 - a1 * y1 - a2 * y2;
+    out[i] = y0;
+    x2 = x1; x1 = x0;
+    y2 = y1; y1 = y0;
+  }
+  return out;
+}
+
 function stddev(arr) {
   if (arr.length < 2) return null;
   const m = mean(arr);
@@ -818,6 +854,18 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
       vDb = 20 * Math.log10(Math.sqrt(ss / timeBuf.length) + 1e-10);
     }
 
+    // ゲート判定用の帯域限定音量。ライブ計測はバンドパス後の音量で判定するため、
+    // 解析元がバンドパス済み波形(getGateTimeDomainData)を提供できる場合はそれを使う。
+    // 提供がない場合はフルバンドRMSにフォールバック(従来動作)。
+    let gateDbLevel = vDb;
+    if (analyser.getGateTimeDomainData) {
+      const gb = new Float32Array(FFT_SIZE);
+      analyser.getGateTimeDomainData(gb);
+      let s2 = 0;
+      for (let i = 0; i < gb.length; i++) s2 += gb[i] * gb[i];
+      gateDbLevel = 20 * Math.log10(Math.sqrt(s2 / gb.length) + 1e-10);
+    }
+
     // ピッチ検出はライブと同じMPM(時間領域)+clarityゲート
     let f0 = null;
     let mpmClarity = null; // フレームに信頼度として記録(集計の重み付けに使う)
@@ -826,19 +874,19 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
       if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) { f0 = mpm.freq; mpmClarity = mpm.clarity; }
     }
 
-    // --- 楽器音の判定(ライブ計測と同一) ---
+    // --- 楽器音の判定(ライブ計測と同一: バンドパス後音量のゲート+ヒステリシス) ---
     const hasPitch = !!(f0 && f0 > 40);
-    const aboveGate = vDb > (sounding ? noiseGateDb - GATE_HYSTERESIS_DB : noiseGateDb);
+    const aboveGate = gateDbLevel > (sounding ? noiseGateDb - GATE_HYSTERESIS_DB : noiseGateDb);
     sounding = hasPitch && aboveGate;
-    const timbreMeasurable = sounding && vDb > noiseGateDb + TIMBRE_EXTRA_DB;
+    const timbreMeasurable = sounding && gateDbLevel > noiseGateDb + TIMBRE_EXTRA_DB;
 
     let levels = [];
     let hnr = null;
     let centroid = null;
     let matchedFinger = null;
     if (sounding) {
-      // 半音境界のチャタリング防止(ライブと同一のヒステリシス)
-      matchedFinger = holdFingering(lastFinger, f0, findClosestFingering(f0, fingeringTable));
+      // 最近傍検索+ヒステリシス+範囲外リジェクト(ライブと同一のmatchFingering)
+      matchedFinger = matchFingering(lastFinger, f0, fingeringTable);
       lastFinger = matchedFinger;
     } else {
       lastFinger = null;
@@ -1116,10 +1164,17 @@ function analyzeAudioBuffer(audioBuffer, opts) {
     for (let i = 0; i < n; i++) mono[i] += data[i] / audioBuffer.numberOfChannels;
   }
 
+  // ノイズゲート判定用に、ライブ計測と同じバンドパス(楽器種別ごとの中心周波数)を
+  // かけた波形も用意する。ライブはBiquadFilterNode→gateAnalyserの帯域限定音量で
+  // ゲート判定するため、オフラインも同じ帯域限定音量で判定しないと結果が一致しない。
+  const gateMono = applyBandpassRBJ(mono, sampleRate, SAX_PRESETS[opts.saxType]?.gateBandpassHz ?? BANDPASS_FREQ_HZ, BANDPASS_Q);
+
   // fa.tick()はAnalyserNode互換のインターフェースだけを使うため、互換オブジェクトを渡す。
-  // getFloatTimeDomainDataは現在解析中の窓の生波形を返す(MPMピッチ検出・音色測定用)。
+  // getFloatTimeDomainDataは現在解析中の窓の生波形(MPMピッチ検出・音色測定用)、
+  // getGateTimeDomainDataはバンドパス済み波形(ノイズゲート判定用)を返す。
   const analyserLike = {
     getFloatTimeDomainData: (out) => out.set(mono.subarray(curPos.pos, curPos.pos + FFT_SIZE)),
+    getGateTimeDomainData: (out) => out.set(gateMono.subarray(curPos.pos, curPos.pos + FFT_SIZE)),
   };
   const curPos = { pos: 0 };
 
@@ -1174,6 +1229,18 @@ function analyzeMediaFile(file, opts) {
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = FFT_SIZE;
     analyser.smoothingTimeConstant = 0.6;
+    // ライブ計測と同じバンドパス→ゲート用アナライザ(ノイズゲート判定を帯域限定音量で行う)
+    const bandpass = audioCtx.createBiquadFilter();
+    bandpass.type = "bandpass";
+    bandpass.frequency.value = SAX_PRESETS[opts.saxType]?.gateBandpassHz ?? BANDPASS_FREQ_HZ;
+    bandpass.Q.value = BANDPASS_Q;
+    const gateAnalyser = audioCtx.createAnalyser();
+    gateAnalyser.fftSize = FFT_SIZE;
+    // fa.tick()にはAnalyserNode互換+ゲート波形取得を足したラッパーを渡す
+    const analyserLike = {
+      getFloatTimeDomainData: (out) => analyser.getFloatTimeDomainData(out),
+      getGateTimeDomainData: (out) => gateAnalyser.getFloatTimeDomainData(out),
+    };
     const silentGain = audioCtx.createGain();
     silentGain.gain.value = 0;
 
@@ -1207,6 +1274,8 @@ function analyzeMediaFile(file, opts) {
         return;
       }
       sourceNode.connect(analyser);
+      sourceNode.connect(bandpass);
+      bandpass.connect(gateAnalyser);
       analyser.connect(silentGain);
       silentGain.connect(audioCtx.destination);
 
@@ -1226,7 +1295,7 @@ function analyzeMediaFile(file, opts) {
         if (finished) return;
         // 経過時間は壁時計ではなく再生位置を使う(バッファリング等で再生が波打っても音声内の時刻と一致する)
         const elapsedMs = mediaEl.currentTime * 1000;
-        fa.tick(analyser, audioCtx.sampleRate, elapsedMs);
+        fa.tick(analyserLike, audioCtx.sampleRate, elapsedMs);
         if (onProgress && duration) onProgress(Math.min(1, mediaEl.currentTime / duration));
         if (mediaEl.currentTime !== lastTime) { lastTime = mediaEl.currentTime; lastAdvance = performance.now(); }
         else if (performance.now() - lastAdvance > 10000) { fail("再生が進まないため解析を中断しました"); return; }
@@ -1588,10 +1657,10 @@ export default function WindToneLabPhaseMode() {
         if (sounding) {
           setPitch(f0);
           // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)。
-          // 半音境界(±50¢)ちょうどの音でフレーム毎に隣の運指と行き来しないようヒステリシスをかける
-          matchedFinger = holdFingering(lastFingerRef.current, f0, findClosestFingering(f0, fingeringTableRef.current));
+          // 半音境界のヒステリシスと範囲外リジェクトを含む共通判定(オフライン解析と同一)
+          matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current);
           lastFingerRef.current = matchedFinger;
-          if (matchedFinger) setMatchedFingering(matchedFinger);
+          setMatchedFingering(matchedFinger);
         } else {
           // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
           setPitch(null);

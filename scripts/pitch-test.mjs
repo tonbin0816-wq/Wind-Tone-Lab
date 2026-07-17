@@ -69,14 +69,18 @@ const code = [
   extractFunction("weightedMean"),
   extractFunction("sanitizePitchOutliers"),
   extractFunction("holdFingering"),
+  extractConst("FINGERING_MATCH_MAX_CENTS"),
+  extractFunction("matchFingering"),
+  extractFunction("applyBandpassRBJ"),
 ].join("\n\n");
 
 const api = new Function(`${code}
   return { freqToNote, centsBetween, writtenNoteLabel, parseNoteLabel, writtenMidiToSoundingFreq,
            buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
+           matchFingering, applyBandpassRBJ,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
-           TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS };`)();
+           TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -566,6 +570,53 @@ console.log("=== 検証14: clarity重み付き平均とアタック除外 ===");
   // 全フレームclarity=1なら従来の単純平均と一致(後方互換)
   const legacy = [{ v: 10 }, { v: 20 }, { v: 30 }];
   check("旧データは単純平均と一致", api.weightedMean(legacy, (f) => f.v) === 20);
+}
+
+// ============================================================
+// 検証15: ゲート用バンドパス(RBJ)の特性と運指範囲外リジェクト
+// ============================================================
+console.log("=== 検証15: バンドパス特性(RBJ)・運指の範囲外リジェクト ===");
+{
+  // バンドパス: 中心周波数はほぼ0dB通過、離れた帯域は減衰する(Web AudioのBiquadFilterNode相当)
+  const gainAt = (freq, centerHz) => {
+    const len = SR; // 1秒
+    const input = new Float32Array(len);
+    const w = (2 * Math.PI * freq) / SR;
+    for (let i = 0; i < len; i++) input[i] = Math.sin(w * i);
+    const out = api.applyBandpassRBJ(input, SR, centerHz, 0.3);
+    // フィルタ過渡を避けて後半だけでRMS比較
+    let si = 0, so = 0;
+    for (let i = len >> 1; i < len; i++) { si += input[i] ** 2; so += out[i] ** 2; }
+    return 10 * Math.log10(so / si);
+  };
+  const g500 = gainAt(500, 500);
+  check("中心周波数はほぼ0dB", Math.abs(g500) < 1, `${g500.toFixed(2)}dB`);
+  const g50 = gainAt(50, 500);
+  check("低域(50Hz)は減衰", g50 < -6, `${g50.toFixed(1)}dB`);
+  const g8k = gainAt(8000, 500);
+  check("高域(8kHz)は減衰", g8k < -6, `${g8k.toFixed(1)}dB`);
+  // バリトン用(中心300Hz)は300Hz付近を通す
+  const g300 = gainAt(300, 300);
+  check("バリトン用中心300Hzは0dB", Math.abs(g300) < 1, `${g300.toFixed(2)}dB`);
+
+  // 運指の範囲外リジェクト(matchFingering)
+  const table = api.buildFingeringTable("alto", 442, 30);
+  const lowest = table[0], highest = table[table.length - 1];
+  // 範囲内: 正しくその運指にマッチ
+  const inRange = api.matchFingering(null, table[10].soundingFreqHz, table);
+  check("範囲内は正しくマッチ", inRange?.semitoneIndex === 10);
+  // テーブル最低音より300¢低い音 → リジェクト(null)
+  const tooLow = api.matchFingering(null, lowest.soundingFreqHz * Math.pow(2, -300 / 1200), table);
+  check("範囲外(下に300¢)はリジェクト", tooLow === null);
+  // テーブル最高音より300¢高い音(アルティッシモ相当) → リジェクト
+  const tooHigh = api.matchFingering(null, highest.soundingFreqHz * Math.pow(2, 300 / 1200), table);
+  check("範囲外(上に300¢=アルティッシモ)はリジェクト", tooHigh === null);
+  // 端から100¢(範囲外だが150¢以内)は最寄りにマッチ(境界の少し外は許容)
+  const nearEdge = api.matchFingering(null, lowest.soundingFreqHz * Math.pow(2, -100 / 1200), table);
+  check("端から100¢はマッチ許容", nearEdge?.semitoneIndex === 0);
+  // ヒステリシスは共通処理経由でも機能する
+  const held = api.matchFingering(table[14], table[14].soundingFreqHz * Math.pow(2, 52 / 1200), table);
+  check("matchFingering経由でもヒステリシス有効", held?.semitoneIndex === 14);
 }
 
 // ============================================================
