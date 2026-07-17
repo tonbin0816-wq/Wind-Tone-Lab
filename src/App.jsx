@@ -292,6 +292,10 @@ function freqToBin(freq, sampleRate, fftSize) {
 //    限定し、帯域外のヒス・ランブルを評価から除外する
 //  - 重心: 10kHz以下かつ「ピーク-60dB」と「ビン中央値(≒ノイズ床)の6倍」の
 //    大きい方を超えるビンだけで加重平均し、弱音時にノイズ床が重心を引っ張るのを防ぐ
+//
+// 窓長は8192固定(倍音の分離には周波数分解能が要るため短縮しない)。音の遷移で前の音が
+// 窓に混ざる問題は、表示側の中央値スムージング(遷移フレームを弾く)と、音替わり直後の
+// 測定除外(呼び出し側)で扱う。
 // ============================================================
 function computeTimbreMetrics(timeBuf, sampleRate, f0, numHarmonics = 8) {
   const W = 8192;
@@ -531,6 +535,13 @@ function applyBandpassRBJ(input, sampleRate, centerHz, q) {
     y2 = y1; y1 = y0;
   }
   return out;
+}
+
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
 function stddev(arr) {
@@ -1403,6 +1414,7 @@ export default function WindToneLabPhaseMode() {
   const bandpassRef = useRef(null);     // ゲート用バンドパス(楽器種別変更時に中心周波数を追従させる)
   const [micProcessingWarning, setMicProcessingWarning] = useState(""); // 端末がAGC等を無効化できなかった時の警告
   const rafRef = useRef(null);
+  const tickRef = useRef(null); // 描画ループ本体(tick)。タブ切替でマイクを繋ぎ直さずループだけ再開するために保持する
   const streamRef = useRef(null);
   const phraseStartTimeRef = useRef(null);
   const lastSampleTimeRef = useRef(0);
@@ -1418,6 +1430,11 @@ export default function WindToneLabPhaseMode() {
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
   const soundingRef = useRef(false);   // 発音中フラグ(ヒステリシス判定に使う)
   const lastFingerRef = useRef(null);  // 音名グルーピングのヒステリシス用(前フレームの判定運指)
+  // 音色(倍音・重心・HNR)の"表示"を安定させるためのローリングバッファ。
+  // 測定はフレーム毎に正確に行い記録するが、画面表示は直近の有効値の中央値にすることで、
+  // ・音の遷移(レガート)で一瞬混ざった外れ値を弾き、
+  // ・一瞬測れないフレームでも直近値を保持して行が「—」に落ちてガタつくのを防ぐ。
+  const timbreDisplayRef = useRef({ centroid: [], hnr: [], harmonics: [], validMs: 0, lastNote: null, changedMs: 0, stale: false });
   const noiseGateDbRef = useRef(noiseGateDb);
   useEffect(() => { noiseGateDbRef.current = noiseGateDb; }, [noiseGateDb]);
   // マイク接続中に楽器種別を変えたら、ゲート用バンドパスの中心周波数も追従させる
@@ -1525,11 +1542,27 @@ export default function WindToneLabPhaseMode() {
     phraseFramesRef.current = [];
   }, []);
 
-  // マイクを止める(計測タブを離れたときに呼ぶ)。録音中に離脱した場合の保険としてここでも保存する。
+  // マイクを完全に止める(画面を隠した時・アンマウント時に呼ぶ)。マイクデバイスを解放し、
+  // 端末のマイク使用インジケータも消える。録音中に離脱した場合の保険としてここでも保存する。
   const stopListening = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    tickRef.current = null;
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") audioCtxRef.current.close();
+    audioCtxRef.current = null;
+    if (isRecordingRef.current) finalizeRecording();
+    setIsRecording(false);
+    setIsListening(false);
+  }, [finalizeRecording]);
+
+  // マイクは繋いだまま一時停止する(計測タブから他タブへ移ったときに呼ぶ)。
+  // トラックをミュート(enabled=false)して描画ループを止めるだけで、getUserMediaで
+  // 取得した接続自体は保持する。これにより計測タブへ戻ってもマイク許可のポップアップが
+  // 再び出ない(繋ぎ直さずstartListeningの再利用パスでループを再開する)。
+  const pauseListening = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => { t.enabled = false; });
     if (isRecordingRef.current) finalizeRecording();
     setIsRecording(false);
     setIsListening(false);
@@ -1543,6 +1576,22 @@ export default function WindToneLabPhaseMode() {
     lastLiveSampleTimeRef.current = 0;
     soundingRef.current = false;
     setLiveFrames([]);
+
+    // 【マイク権限ポップアップ対策】タブを行き来するたびにgetUserMediaを呼ぶと、
+    // 端末によっては毎回マイク許可のポップアップが出る。既にマイク接続が生きていれば
+    // 繋ぎ直さず、ミュートを解除して描画ループだけ再開する(pauseListeningと対で使う)。
+    const existingTracks = streamRef.current?.getTracks?.() || [];
+    const streamAlive = existingTracks.some((t) => t.readyState === "live");
+    const ctxAlive = audioCtxRef.current && audioCtxRef.current.state !== "closed";
+    if (streamAlive && ctxAlive && tickRef.current) {
+      existingTracks.forEach((t) => { t.enabled = true; });
+      try { audioCtxRef.current.resume(); } catch { /* noop */ }
+      setIsListening(true);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(tickRef.current);
+      return true;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -1668,22 +1717,55 @@ export default function WindToneLabPhaseMode() {
           lastFingerRef.current = null;
         }
 
+        // 音色(倍音・重心・HNR)は平滑済みAnalyserNodeスペクトルではなく、時間波形から
+        // 毎回自前計算する(computeTimbreMetrics)。アップロード解析と完全に同一の計算になり、
+        // 立ち上がりで前の音が混ざる系統誤差もない。記録用(centroid/levels/hnr)は生値のまま。
+        //
+        // 【表示の安定化(倍音が直前の音に汚染される/理想値がガタつく問題への対策)】
+        // 解析窓(約170ms)は音の遷移直後に前の音の成分を含む。そこで:
+        //  1) 音名(semitoneIndex)が変わってからTIMBRE_SETTLE_MSの間は、遷移で汚れた測定を
+        //     表示バッファに積まない(前の音の倍音が混ざるのを防ぐ)。
+        //  2) 表示はバッファの中央値。単発の外れ値を弾き、一瞬測れなくても直近値を保持して
+        //     行が「—」に落ちてガタつくのを防ぐ。
+        //  3) 音が変わったら古い音の値はバッファから捨て、新しい音の定常フレームで入れ替える。
+        const disp = timbreDisplayRef.current;
+        const DISPLAY_WINDOW = 5;      // 中央値をとる直近フレーム数
+        const DISPLAY_HOLD_MS = 600;   // 最後の有効測定からこの間は直近値を保持して行をキープ
+        const TIMBRE_SETTLE_MS = 140;  // 音替わり直後この間は遷移フレームを表示に取り込まない
+        const noteKey = matchedFinger?.semitoneIndex ?? (sounding ? "unknown" : null);
+        if (noteKey !== disp.lastNote) {
+          disp.lastNote = noteKey;
+          disp.changedMs = performance.now();
+          disp.stale = true; // 次に定常フレームが来たら古い音の値を捨てて入れ替える
+        }
         if (timbreMeasurable) {
-          // 音色(倍音・重心・HNR)は平滑済みAnalyserNodeスペクトルではなく、
-          // 時間波形から毎回自前計算する(computeTimbreMetrics)。アップロード解析と
-          // 完全に同一の計算になり、立ち上がりで前の音が混ざる系統誤差もない。
-          const tm = computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS);
+          const settled = performance.now() - disp.changedMs >= TIMBRE_SETTLE_MS;
+          const tm = settled ? computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS) : null;
           if (tm) {
             centroid = tm.centroidHz;
-            setCentroidHz(centroid);
             const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-6);
             levels = tm.harmonics.map((l) => ({ ...l, norm: l.mag / maxMag }));
-            setHarmonicLevels(levels);
             hnr = tm.hnrDb;
-            setHnrDb(hnr);
+            if (disp.stale) { disp.centroid = []; disp.hnr = []; disp.harmonics = []; disp.stale = false; }
+            // 表示用ローリングバッファに積む(直近DISPLAY_WINDOW件を保持)
+            disp.centroid.push(centroid); if (disp.centroid.length > DISPLAY_WINDOW) disp.centroid.shift();
+            disp.hnr.push(hnr); if (disp.hnr.length > DISPLAY_WINDOW) disp.hnr.shift();
+            disp.harmonics.push(levels.map((l) => l.norm)); if (disp.harmonics.length > DISPLAY_WINDOW) disp.harmonics.shift();
+            disp.validMs = performance.now();
           }
+        }
+        const holdActive = disp.centroid.length > 0 && performance.now() - disp.validMs <= DISPLAY_HOLD_MS;
+        if (holdActive) {
+          setCentroidHz(median(disp.centroid));
+          setHnrDb(median(disp.hnr));
+          // 倍音は次数ごとに中央値をとる
+          const dispHarm = Array.from({ length: NUM_HARMONICS }, (_, i) => ({
+            n: i + 1, norm: median(disp.harmonics.map((h) => h[i] ?? 0)) ?? 0,
+          }));
+          setHarmonicLevels(dispHarm);
         } else {
-          // 音量が低いと倍音が埋もれ数値が暴れるため、測定せず表示を「—」にする。
+          // しばらく測れていない(無音・弱音が続いた)ならバッファを空にして「—」に戻す
+          disp.centroid = []; disp.hnr = []; disp.harmonics = [];
           setCentroidHz(null);
           setHarmonicLevels([]);
           setHnrDb(null);
@@ -1854,6 +1936,7 @@ export default function WindToneLabPhaseMode() {
 
         rafRef.current = requestAnimationFrame(tick);
       };
+      tickRef.current = tick; // タブ切替後の再開(startListeningのマイク再利用パス)で使う
       tick();
       return true;
     } catch (err) {
@@ -1882,6 +1965,7 @@ export default function WindToneLabPhaseMode() {
       if (!ok) return;
     }
     setPendingSession(null); // 新規録音を始めるので前回の候補は破棄
+    setLastUploadedSession(null); // 前回の「解析が完了しました」表示も消す
     phraseStartTimeRef.current = performance.now();
     lastSampleTimeRef.current = 0;
     setPhraseFrames([]);
@@ -1898,21 +1982,26 @@ export default function WindToneLabPhaseMode() {
   // このeffect自体はtopTabが変わったときだけ発火させる。
   const startListeningRef = useRef(startListening);
   const stopListeningRef = useRef(stopListening);
+  const pauseListeningRef = useRef(pauseListening);
   useEffect(() => { startListeningRef.current = startListening; }, [startListening]);
   useEffect(() => { stopListeningRef.current = stopListening; }, [stopListening]);
+  useEffect(() => { pauseListeningRef.current = pauseListening; }, [pauseListening]);
 
-  // 計測タブに滞在中は自動でマイクを起動し、離れたら自動で止める(常時ライブ表示)。
+  // 計測タブに滞在中は自動でマイクを起動し、他タブへ移ったら一時停止する(マイク接続は保持)。
+  // 繋ぎ直さないことで、タブを行き来してもマイク許可のポップアップが繰り返し出ないようにする。
   useEffect(() => {
     if (topTab === "measure" && !document.hidden) {
       startListeningRef.current();
     } else {
-      stopListeningRef.current();
+      pauseListeningRef.current();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topTab]);
 
-  // 画面が非表示(タブ切替・バックグラウンド化・画面ロック等)になった間はマイクを止め、
-  // 表示に戻った時点で計測タブに滞在していれば再開する(裏で聞き続けないようにする)。
+  // 画面が非表示(バックグラウンド化・画面ロック等)になった間はマイクを完全に解放し(裏で
+  // 聞き続けず、端末のマイク使用インジケータも消す)、表示に戻った時点で計測タブに滞在して
+  // いれば繋ぎ直す。※アプリ内のタブ切替は上のeffectのpauseで扱うため、ここは実際に画面が
+  // 隠れた場合のみ。
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -1962,6 +2051,7 @@ export default function WindToneLabPhaseMode() {
   const handleUploadFile = useCallback(async (file) => {
     if (!file || isAnalyzingUpload) return;
     setErrorMsg("");
+    setLastUploadedSession(null); // 前回の「解析が完了しました」表示を消してから始める
     setIsAnalyzingUpload(true);
     setUploadProgress(0);
     setUploadNeedsTap(null);
@@ -2128,7 +2218,7 @@ export default function WindToneLabPhaseMode() {
           promoteSessionToIdeal={promoteSessionToIdeal}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
-          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession}
+          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession} setLastUploadedSession={setLastUploadedSession}
           uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
       )}
@@ -2413,7 +2503,7 @@ function MeasureView(props) {
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
-    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
+    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
     uploadNeedsTap, setUploadNeedsTap,
   } = props;
 
@@ -2538,6 +2628,15 @@ function MeasureView(props) {
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <span className="sans" style={{ fontSize: 11, color: "#16A34A" }}>アップロードの解析が完了しました</span>
           <SetAsIdealButton frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
+          {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える) */}
+          <button
+            onClick={() => setLastUploadedSession(null)}
+            className="sans"
+            aria-label="閉じる"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#8D95A1", fontSize: 13, lineHeight: 1, cursor: "pointer", flexShrink: 0 }}
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -2695,9 +2794,10 @@ function MeasureView(props) {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
-              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={currentNoteIdeal ? `理想: ${currentNoteIdeal.volumeDb?.toFixed(1)} dB` : null} />
-              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit={centroidHz != null ? "Hz" : null} sub={currentNoteIdeal ? `理想: ${Math.round(currentNoteIdeal.centroidHz)} Hz` : null} />
-              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit={hnrDb !== null ? "dB" : null} sub={currentNoteIdeal?.hnrDb != null ? `理想: ${currentNoteIdeal.hnrDb.toFixed(1)} dB` : null} />
+              {/* 値・単位・理想行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
+              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`理想: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`理想: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
+              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`理想: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
@@ -2841,11 +2941,11 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
     ? [
         { key: "theoretical", label: "絶対値" },
         { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
-        { key: "session", label: "お手本セッション" },
+        { key: "session", label: "別セッション" },
       ]
     : [
         { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
-        { key: "session", label: "お手本セッション" },
+        { key: "session", label: "別セッション" },
       ];
 
   const getMetricValue = (frame) => {
@@ -2900,7 +3000,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           </select>
           {referenceBasis === "session" && (
             <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
-              <option value="">お手本セッションを選択</option>
+              <option value="">別セッションを選択</option>
               {referenceCandidates.map((s) => (
                 <option key={s.id} value={s.id}>{new Date(s.recordedAt).toLocaleString("ja-JP")}{s.memo ? ` 「${s.memo}」` : ""}</option>
               ))}
@@ -2917,7 +3017,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* タイムライン */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 8 }}>
-          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "お手本基準" : "理想値基準"}）
+          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "別セッション基準" : "理想値基準"}）
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
@@ -2986,7 +3086,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 
           {(() => {
             const target = getComparisonTarget(selectedFrame);
-            const noTargetLabel = referenceBasis === "session" ? "対応するお手本の瞬間がありません" : "この音の理想値が未登録";
+            const noTargetLabel = referenceBasis === "session" ? "対応する別セッションの瞬間がありません" : "この音の理想値が未登録";
             return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 <MetricCard label="ピッチ一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
@@ -3285,7 +3385,9 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
         {value}
         {unit && <span className="sans" style={{ fontSize: 11, color: "#8D95A1", marginLeft: 3, fontWeight: 400 }}>{unit}</span>}
       </div>
-      {sub && <div className="sans" style={{ fontSize: 11, color: "#174585", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
+      {/* subは常に高さを確保して描画する(値が出たり消えたりで行がガタつかないように)。
+          内容が無い時も空行として場所だけ残す。 */}
+      <div className="sans" style={{ fontSize: 11, color: "#174585", marginTop: 2, height: 15, lineHeight: "15px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub ?? " "}</div>
     </div>
   );
 }
@@ -3801,21 +3903,6 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
 
   return (
     <div>
-      {/* 選択中リードの色チップ(比較グラフの凡例を兼ねる) */}
-      {items.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          {items.map((it) => (
-            <span key={it.reed.id} onClick={() => toggleReed(it.reed.id)} className="sans" style={{
-              display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, cursor: "pointer",
-              background: "#FFFFFF", border: "1px solid #E1E7EF", color: "#121F32", padding: "8px 13px", borderRadius: 999,
-            }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: colorById.get(it.reed.id) }} />
-              {it.label}
-              <span style={{ color: "#8D95A1" }}>×</span>
-            </span>
-          ))}
-        </div>
-      )}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "14px 16px", marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 10 }}>比較するリードを選択（複数可）。箱をタップすると中の個体が選べます</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -3848,7 +3935,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
                           color: sel ? "#FFFFFF" : "#435266",
                         }}>
                           {sel && <span style={{ width: 8, height: 8, borderRadius: 2, background: colorById.get(r.id) || "#FFFFFF" }} />}
-                          #{r.boxNumber ?? idx + 1}
+                          #{reedPosition(r, reeds) ?? idx + 1}
                         </button>
                       );
                     })}
