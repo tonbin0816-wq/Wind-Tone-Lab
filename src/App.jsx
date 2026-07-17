@@ -15,10 +15,21 @@ const NOISE_GATE_DEFAULT_DB = -50; // 既定のノイズゲート(dBFS)
 const GATE_HYSTERESIS_DB = 4;
 const PITCH_CLARITY_MIN = 0.8;
 const TIMBRE_EXTRA_DB = 8;          // 音色系(重心/HNR/倍音)はゲート+この余裕の音量でだけ測定
-// バンドパス(BiquadFilterNode)の中心周波数とQ。楽器の基音帯(約130〜1900Hz)を通し、
+// バンドパス(BiquadFilterNode)の中心周波数とQ。楽器の基音帯を通し、
 // 空調のうなり(低域)と高域ヒスを抑える。Qを低くして広い帯域を通す。
+// 中心周波数は楽器種別ごと(SAX_PRESETSのgateBandpassHz)。500はフォールバック。
 const BANDPASS_FREQ_HZ = 500;
 const BANDPASS_Q = 0.3;
+// 記録データの頑健化パラメータ。
+// ・TIMBRE_SUSTAIN_MS: ノート冒頭のアタック過渡は音色(倍音/重心/HNR)の集計から除外する
+//   (典型的なアタックは20〜100ms。表示はリアルタイムのまま、平均値の質だけを上げる)。
+// ・NOTE_SWITCH_CENTS: 音名グルーピングのヒステリシス。半音境界(±50¢)ちょうどの音で
+//   フレームごとに隣の音名と行き来するチャタリングを防ぐ(前の音名から±60¢までは保持)。
+// ・PITCH_OUTLIER_CENTS: 前後フレームの中央値からこれ以上外れた単発検出(オクターブ
+//   誤検出等)を保存時に無効化する。速いパッセージの実音(隣接音±数百¢)は誤検出しない値。
+const TIMBRE_SUSTAIN_MS = 120;
+const NOTE_SWITCH_CENTS = 60;
+const PITCH_OUTLIER_CENTS = 700;
 
 // a4: 基準ピッチ(Hz)。音名判定・セント誤差はこの基準に対する平均律で計算する
 // (基準を442Hzにすれば、442Hzちょうどの音がA4・誤差0¢と表示される)
@@ -48,11 +59,13 @@ function speedOfSound(tempC) {
 // 運指が変わる(音域が変わる)たびに理論値がズレる問題がある。
 // 下記の「運指ベース管長自動キャリブレーション」で置き換える。
 // ============================================================
+// gateBandpassHz: ノイズゲート判定用バンドパスの中心周波数。楽器の基音域の中心付近に
+// 合わせる(バリトンの最低音域65〜100Hzは500Hz中心だと減衰し、ppの低音を拾い損ねるため)。
 const SAX_PRESETS = {
-  soprano: { label: "ソプラノ", effectiveLengthCm: 73.3, bellRadiusCm: 0.6 },
-  alto: { label: "アルト", effectiveLengthCm: 123.4, bellRadiusCm: 0.8 },
-  tenor: { label: "テナー", effectiveLengthCm: 164.8, bellRadiusCm: 1.0 },
-  baritone: { label: "バリトン", effectiveLengthCm: 261.7, bellRadiusCm: 1.3 },
+  soprano: { label: "ソプラノ", effectiveLengthCm: 73.3, bellRadiusCm: 0.6, gateBandpassHz: 650 },
+  alto: { label: "アルト", effectiveLengthCm: 123.4, bellRadiusCm: 0.8, gateBandpassHz: 500 },
+  tenor: { label: "テナー", effectiveLengthCm: 164.8, bellRadiusCm: 1.0, gateBandpassHz: 400 },
+  baritone: { label: "バリトン", effectiveLengthCm: 261.7, bellRadiusCm: 1.3, gateBandpassHz: 300 },
 };
 
 function conicalTubeHarmonics(effectiveLengthCm, bellRadiusCm, tempC, count) {
@@ -418,6 +431,72 @@ function mean(arr) {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
+// フレームの信頼度重み(=MPMのclarity 0..1)。ゲート通過後のclarityは0.8〜1.0の範囲で、
+// 際どい検出(0.8近辺)ほど平均値への寄与を下げる。clarity記録前の旧データは1として扱う。
+function frameWeight(f) {
+  const c = f?.clarity;
+  return c === null || c === undefined ? 1 : c;
+}
+
+// 音色(倍音・重心・HNR)の集計対象フレームか。ノート冒頭のアタック過渡(noteAgeMs <
+// TIMBRE_SUSTAIN_MS)はスペクトルが定常でないため平均から除外する。
+// noteAgeMs未記録の旧データは従来どおり集計に含める(後方互換)。
+function timbreSustained(f) {
+  const age = f?.noteAgeMs;
+  return age === null || age === undefined || age >= TIMBRE_SUSTAIN_MS;
+}
+
+// clarity重み付き平均。全フレームの平均をとる集計はすべてこれを通す
+// (計測タブ・データタブ・ピボットで同じ重み付けになり、値が食い違わない)。
+function weightedMean(frames, getValue) {
+  let ws = 0, vs = 0;
+  for (const f of frames) {
+    const v = getValue(f);
+    if (v === null || v === undefined || isNaN(v)) continue;
+    const w = frameWeight(f);
+    ws += w;
+    vs += w * v;
+  }
+  return ws > 0 ? vs / ws : null;
+}
+
+// 保存前のフレーム列から単発のピッチ誤検出を除去する。
+// 連続する有音3フレームの中央値からPITCH_OUTLIER_CENTS以上外れた真ん中のフレーム
+// (オクターブ誤検出=±1200¢が典型)を無音扱いに置き換える。速いパッセージの実音は
+// 隣接音でも±数百¢のため閾値未満で残る。2フレーム以上続く誤検出は対象外(実音とみなす)。
+function sanitizePitchOutliers(frames, outlierCents = PITCH_OUTLIER_CENTS) {
+  if (!frames || frames.length < 3) return frames;
+  const cents = frames.map((f) => (f.pitchHz ? 1200 * Math.log2(f.pitchHz / 440) : null));
+  const out = frames.slice();
+  for (let i = 1; i < frames.length - 1; i++) {
+    const a = cents[i - 1], b = cents[i], c = cents[i + 1];
+    if (a === null || b === null || c === null) continue;
+    const med = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+    if (Math.abs(b - med) > outlierCents) {
+      // ピッチもそこから導いた音名・音色(誤ったf0で測定されている)もすべて無効化する
+      out[i] = {
+        ...frames[i],
+        pitchHz: null, pitchCents: null, matchedWrittenNote: null, concertNote: null,
+        semitoneIndex: null, derivedTubeLengthCm: null, spectralCentroidHz: null,
+        hnrDb: null, harmonics: [], clarity: null,
+        matchScore: { pitch: { theoretical: 0, ideal: 0 }, timbre: { ideal: 0 } },
+      };
+    }
+  }
+  return out;
+}
+
+// 音名グルーピングのヒステリシス。実測f0が前フレームの判定音から±holdCents以内なら
+// 音名を切り替えない(半音境界±50¢ちょうどの音でフレーム毎に隣の音名と行き来する
+// チャタリングを防ぐ)。メーター表示(freqToNote)は正確さ優先で従来どおり生のまま。
+function holdFingering(prevEntry, f0, candidate, holdCents = NOTE_SWITCH_CENTS) {
+  if (!prevEntry || !candidate || !f0) return candidate;
+  if (candidate.semitoneIndex === prevEntry.semitoneIndex) return candidate;
+  const centsVsPrev = 1200 * Math.log2(f0 / prevEntry.soundingFreqHz);
+  if (Math.abs(centsVsPrev) <= holdCents) return { ...prevEntry, centsError: centsVsPrev };
+  return candidate;
+}
+
 function stddev(arr) {
   if (arr.length < 2) return null;
   const m = mean(arr);
@@ -772,6 +851,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
   const noteDetector = { phase: "silence", onsetMs: 0, peakDb: -100, samples: [], events: [] };
   let lastSampleMs = -Infinity;
   let sounding = false; // 発音中フラグ(ヒステリシス判定に使う。ライブのsoundingRefに相当)
+  let lastFinger = null; // 音名グルーピングのヒステリシス用(前フレームの判定運指)
 
   const tick = (analyser, sampleRate, elapsedMs) => {
     // 時間領域波形(RMS音量・MPMピッチ検出・音色測定のすべてに使う)。
@@ -794,9 +874,10 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
 
     // ピッチ検出はライブと同じMPM(時間領域)+clarityゲート
     let f0 = null;
+    let mpmClarity = null; // フレームに信頼度として記録(集計の重み付けに使う)
     if (timeBuf) {
       const mpm = detectPitchMPM(timeBuf, sampleRate);
-      if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) f0 = mpm.freq;
+      if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) { f0 = mpm.freq; mpmClarity = mpm.clarity; }
     }
 
     // --- 楽器音の判定(ライブ計測と同一) ---
@@ -810,7 +891,11 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
     let centroid = null;
     let matchedFinger = null;
     if (sounding) {
-      matchedFinger = findClosestFingering(f0, fingeringTable);
+      // 半音境界のチャタリング防止(ライブと同一のヒステリシス)
+      matchedFinger = holdFingering(lastFinger, f0, findClosestFingering(f0, fingeringTable));
+      lastFinger = matchedFinger;
+    } else {
+      lastFinger = null;
     }
     if (timbreMeasurable && timeBuf) {
       // 音色(倍音・重心・HNR)はライブと完全に同一の計算(computeTimbreMetrics)
@@ -877,6 +962,8 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
         concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null,
         semitoneIndex: matchedFinger?.semitoneIndex ?? null,
         derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
+        clarity: sounding ? mpmClarity : null, // 検出信頼度(集計の重み)
+        noteAgeMs: noteDetector.phase !== "silence" ? Math.round(elapsedMs - noteDetector.onsetMs) : null, // ノート開始からの経過(アタック除外判定用)
         volumeDb: vDb,
         spectralCentroidHz: centroid,
         hnrDb: hnr,
@@ -1298,6 +1385,8 @@ export default function WindToneLabPhaseMode() {
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
   const gateAnalyserRef = useRef(null); // バンドパス後の音量(ノイズゲート判定)用のアナライザ
+  const bandpassRef = useRef(null);     // ゲート用バンドパス(楽器種別変更時に中心周波数を追従させる)
+  const [micProcessingWarning, setMicProcessingWarning] = useState(""); // 端末がAGC等を無効化できなかった時の警告
   const rafRef = useRef(null);
   const streamRef = useRef(null);
   const phraseStartTimeRef = useRef(null);
@@ -1313,8 +1402,13 @@ export default function WindToneLabPhaseMode() {
   const lastLiveSampleTimeRef = useRef(0);
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
   const soundingRef = useRef(false);   // 発音中フラグ(ヒステリシス判定に使う)
+  const lastFingerRef = useRef(null);  // 音名グルーピングのヒステリシス用(前フレームの判定運指)
   const noiseGateDbRef = useRef(noiseGateDb);
   useEffect(() => { noiseGateDbRef.current = noiseGateDb; }, [noiseGateDb]);
+  // マイク接続中に楽器種別を変えたら、ゲート用バンドパスの中心周波数も追従させる
+  useEffect(() => {
+    if (bandpassRef.current) bandpassRef.current.frequency.value = SAX_PRESETS[saxType]?.gateBandpassHz ?? BANDPASS_FREQ_HZ;
+  }, [saxType]);
 
   // --- ノート区間分割・アタック時間検出(企画書2.4節のnoteEvents、rAFレートで検出) ---
   // 100msフレームではアタック(典型20〜100ms)を測れないため、tick毎(約60fps)に音量エンベロープを監視する。
@@ -1383,7 +1477,8 @@ export default function WindToneLabPhaseMode() {
         memo: null,
         performer: selectedPerformer,
         source: "live",
-        frames: phraseFramesRef.current,
+        frames: sanitizePitchOutliers(phraseFramesRef.current), // 単発のオクターブ誤検出等を除去してから保存
+
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
       setPendingSession(session);
@@ -1441,6 +1536,19 @@ export default function WindToneLabPhaseMode() {
       });
       streamRef.current = stream;
 
+      // 端末が実際にAGC/ノイズ抑制/エコー除去を無効化できたか確認する(iOS Safariは
+      // 制約を無視することがある)。有効なままだと音量・音色の測定値に端末側の加工が
+      // 入るため、詳細パネルに警告を出してユーザーが気づけるようにする。
+      try {
+        const st = stream.getAudioTracks()[0]?.getSettings?.() || {};
+        const active = [
+          st.autoGainControl === true && "自動音量調整(AGC)",
+          st.noiseSuppression === true && "ノイズ抑制",
+          st.echoCancellation === true && "エコー除去",
+        ].filter(Boolean);
+        setMicProcessingWarning(active.length ? `端末の${active.join("・")}を無効化できませんでした。音量・音色の測定値に端末側の加工が入っている可能性があります。` : "");
+      } catch { setMicProcessingWarning(""); }
+
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
@@ -1455,10 +1563,12 @@ export default function WindToneLabPhaseMode() {
 
       // 楽器の基音帯だけを通すバンドパス(BiquadFilterNode)→ ゲート判定用アナライザ。
       // 空調のうなり(低域)や高域ヒスを抑えた音量でノイズゲートを判定する。
+      // 中心周波数は楽器種別ごと(バリトンの低音域が減衰しないよう低めに)。種別変更に追従する。
       const bandpass = audioCtx.createBiquadFilter();
       bandpass.type = "bandpass";
-      bandpass.frequency.value = BANDPASS_FREQ_HZ;
+      bandpass.frequency.value = SAX_PRESETS[saxType]?.gateBandpassHz ?? BANDPASS_FREQ_HZ;
       bandpass.Q.value = BANDPASS_Q;
+      bandpassRef.current = bandpass;
       const gateAnalyser = audioCtx.createAnalyser();
       gateAnalyser.fftSize = FFT_SIZE;
       gateAnalyser.smoothingTimeConstant = 0.2;
@@ -1533,13 +1643,16 @@ export default function WindToneLabPhaseMode() {
 
         if (sounding) {
           setPitch(f0);
-          // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)
-          matchedFinger = findClosestFingering(f0, fingeringTableRef.current);
+          // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)。
+          // 半音境界(±50¢)ちょうどの音でフレーム毎に隣の運指と行き来しないようヒステリシスをかける
+          matchedFinger = holdFingering(lastFingerRef.current, f0, findClosestFingering(f0, fingeringTableRef.current));
+          lastFingerRef.current = matchedFinger;
           if (matchedFinger) setMatchedFingering(matchedFinger);
         } else {
           // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
           setPitch(null);
           setMatchedFingering(null);
+          lastFingerRef.current = null;
         }
 
         if (timbreMeasurable) {
@@ -1644,6 +1757,8 @@ export default function WindToneLabPhaseMode() {
               concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null, // 実音(コンサートピッチ)の音名。メーター・グラフ表示用
               semitoneIndex: matchedFinger?.semitoneIndex ?? null, // 音域軸集計用(企画書11.7節の対応: 運指の半音インデックス)
               derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
+              clarity: sounding && mpm ? mpm.clarity : null, // 検出信頼度(集計の重み)
+              noteAgeMs: noteDetectorRef.current.phase !== "silence" ? Math.round(elapsedMs - noteDetectorRef.current.onsetMs) : null, // ノート開始からの経過(アタック除外判定用)
               volumeDb: vDb,
               spectralCentroidHz: timbreMeasurable ? centroid : null,
               hnrDb: hnr,
@@ -1689,6 +1804,8 @@ export default function WindToneLabPhaseMode() {
               matchedWrittenNote: matchedFinger?.writtenLabel ?? null,
               concertNote: noteNow ? `${noteNow.name}${noteNow.octave}` : null, // 実音の音名(グラフ表示用)
               semitoneIndex: matchedFinger?.semitoneIndex ?? null,
+              clarity: sounding && mpm ? mpm.clarity : null,
+              noteAgeMs: null, // ノート検出器は録音中のみ稼働(このバッファは保存されない使い捨て)
               volumeDb: vDb,
               spectralCentroidHz: timbreMeasurable ? centroid : null,
               hnrDb: hnr,
@@ -1871,6 +1988,9 @@ export default function WindToneLabPhaseMode() {
         }
       }
 
+      // 単発のオクターブ誤検出等を除去してから保存する(ライブ録音の保存時と同じ処理)
+      frames = sanitizePitchOutliers(frames);
+
       // フレームは無音区間でも(null値で)積まれるため、「楽器音として判定されたフレームが
       // 1つでもあるか」で有効性を判断する(無音・ノイズだけのファイルは保存しない)。
       const hasSound = frames.some((f) => f.pitchCents !== null && f.pitchCents !== undefined);
@@ -1990,7 +2110,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-          noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb}
+          noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb} micProcessingWarning={micProcessingWarning}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
@@ -2277,7 +2397,7 @@ function MeasureView(props) {
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
-    noiseGateDb, setNoiseGateDb,
+    noiseGateDb, setNoiseGateDb, micProcessingWarning,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession,
@@ -2579,6 +2699,13 @@ function MeasureView(props) {
               />
               <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
             </div>
+
+            {/* 端末がAGC等を無効化できなかった場合の警告(iOS Safari等で発生しうる) */}
+            {micProcessingWarning && (
+              <div className="sans" style={{ marginTop: 10, padding: "8px 10px", background: "#FDF0E1", border: "1px solid #F0D9B8", borderRadius: 8, fontSize: 11, color: "#8A5A00", lineHeight: 1.6 }}>
+                {micProcessingWarning}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3541,19 +3668,18 @@ function ReedRegisterView(props) {
 // ============================================================
 // フレーム配列から比較用の平均値を算出(リード別比較・リード毎比較で共通利用)
 function computeFrameMetrics(frames) {
-  const avg = (key, abs) => {
-    const vals = frames.map((f) => (abs ? Math.abs(f[key]) : f[key])).filter((v) => v !== null && v !== undefined && !isNaN(v));
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-  };
+  // 平均はすべてclarity重み付き(weightedMean)。音色系(HNR・重心)はさらに
+  // アタック過渡フレームを除外(timbreSustained)して定常状態だけを平均する。
+  const sustained = frames.filter(timbreSustained);
   // ピッチのブレ(安定度): 符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
   // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す
   // 別の指標(My Dataのヒーローと同じ数字の重複表示を避けるために使う)。
   const pitchVals = frames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
   return {
-    hnrDb: avg("hnrDb"),
-    spectralCentroidHz: avg("spectralCentroidHz"),
-    volumeDb: avg("volumeDb"),
-    pitchCents: avg("pitchCents", true),
+    hnrDb: weightedMean(sustained, (f) => f.hnrDb),
+    spectralCentroidHz: weightedMean(sustained, (f) => f.spectralCentroidHz),
+    volumeDb: weightedMean(frames, (f) => f.volumeDb),
+    pitchCents: weightedMean(frames, (f) => (f.pitchCents === null || f.pitchCents === undefined ? null : Math.abs(f.pitchCents))),
     pitchStabilityCents: stddev(pitchVals),
   };
 }
@@ -3573,17 +3699,18 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
     .map(([key, groupFrames]) => {
       const semitoneIndex = Number(key);
       const m = computeFrameMetrics(groupFrames);
-      const pitchVals = groupFrames.map((f) => f.pitchHz).filter((v) => v !== null && v !== undefined && !isNaN(v));
+      // 倍音構成もアタック過渡を除外し、clarity重み付きで平均する(音色系の共通方針)
+      const sustained = groupFrames.filter(timbreSustained);
       const harmonicsProfile = Array.from({ length: NUM_HARMONICS }, (_, i) => {
         const n = i + 1;
-        const vals = groupFrames.map((f) => f.harmonics?.find((h) => h.n === n)?.levelNorm).filter((v) => v !== null && v !== undefined);
-        return { n, norm: vals.length ? mean(vals) : 0 };
+        const wm = weightedMean(sustained, (f) => f.harmonics?.find((h) => h.n === n)?.levelNorm ?? null);
+        return { n, norm: wm ?? 0 };
       });
       return {
         semitoneIndex,
         writtenLabel: groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote ?? null,
         frameCount: groupFrames.length,
-        pitchHz: pitchVals.length ? mean(pitchVals) : null,
+        pitchHz: weightedMean(groupFrames, (f) => f.pitchHz),
         volumeDb: m.volumeDb,
         centroidHz: m.spectralCentroidHz,
         hnrDb: m.hnrDb,
@@ -4215,14 +4342,16 @@ function harmonicSliceMean(f, lo, hi) {
   return hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : null;
 }
 
+// 音色系(倍音・HNR・重心)はアタック過渡フレームを集計から除外する(timbreSustained。
+// セッション詳細・My Dataの平均と同じ方針で、ビューによって値が食い違わないようにする)
 const PIVOT_MEASURES = [
   { key: "pitchCents", label: "平均ピッチ偏差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
   { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
-  { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => harmonicSliceMean(f, 0, 4), fmt: (v) => (v * 100).toFixed(0) },
-  { key: "highHarm", label: "倍音強度(高次5-8)", getValue: (f) => harmonicSliceMean(f, 4, 8), fmt: (v) => (v * 100).toFixed(0) },
-  { key: "hnr", label: "HNR(dB)", getValue: (f) => f.hnrDb, fmt: (v) => v.toFixed(1) },
-  { key: "centroid", label: "重心(Hz)", getValue: (f) => f.spectralCentroidHz, fmt: (v) => Math.round(v).toString() },
+  { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 0, 4) : null), fmt: (v) => (v * 100).toFixed(0) },
+  { key: "highHarm", label: "倍音強度(高次5-8)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 4, 8) : null), fmt: (v) => (v * 100).toFixed(0) },
+  { key: "hnr", label: "HNR(dB)", getValue: (f) => (timbreSustained(f) ? f.hnrDb : null), fmt: (v) => v.toFixed(1) },
+  { key: "centroid", label: "重心(Hz)", getValue: (f) => (timbreSustained(f) ? f.spectralCentroidHz : null), fmt: (v) => Math.round(v).toString() },
 ];
 
 // 指定した次元がとりうる値の一覧を、ソートキーつきで返す(音域帯まとめ選択など値→ソートキーの
@@ -4284,9 +4413,12 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
     const v = measure.getValue(f);
     if (rk === null || rk === undefined || ck === null || ck === undefined || v === null || v === undefined || isNaN(v)) continue;
     if (!cells[rk]) cells[rk] = {};
-    if (!cells[rk][ck]) cells[rk][ck] = { sum: 0, count: 0 };
+    if (!cells[rk][ck]) cells[rk][ck] = { sum: 0, count: 0, wsum: 0, wtotal: 0 };
+    const w = frameWeight(f); // 平均はclarity重み付き(他ビューの平均と同じ方針)
     cells[rk][ck].sum += v;
     cells[rk][ck].count += 1;
+    cells[rk][ck].wsum += w * v;
+    cells[rk][ck].wtotal += w;
     if (rowSort[rk] === undefined) rowSort[rk] = rowDim.getSort ? rowDim.getSort(f, ctx) : rk;
     if (colDim && colSort[ck] === undefined) colSort[ck] = colDim.getSort ? colDim.getSort(f, ctx) : ck;
   }
@@ -4659,7 +4791,7 @@ function AnalysisLabView(props) {
   const pivotCellValues = [];
   pivot.rowKeys.forEach((rk) => pivot.colKeys.forEach((ck) => {
     const c = pivot.cells[rk]?.[ck];
-    if (c) pivotCellValues.push(metricDef.agg === "sum" ? c.sum : c.sum / c.count);
+    if (c) pivotCellValues.push(metricDef.agg === "sum" ? c.sum : c.wsum / c.wtotal);
   }));
   const pivotVMin = pivotCellValues.length ? Math.min(...pivotCellValues) : 0;
   const pivotVMax = pivotCellValues.length ? Math.max(...pivotCellValues) : 1;
@@ -5079,7 +5211,7 @@ function AnalysisLabView(props) {
                       if (!cell) {
                         return <td key={ck} style={{ textAlign: "center", color: "#C3CAD3", background: "#F6F7F9", borderRadius: 8, padding: "9px 8px" }}>—</td>;
                       }
-                      const value = metricDef.agg === "sum" ? cell.sum : cell.sum / cell.count;
+                      const value = metricDef.agg === "sum" ? cell.sum : cell.wsum / cell.wtotal;
                       const { color, bg } = pivotCellStyle(value);
                       return (
                         <td key={ck} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "var(--font-num)", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
