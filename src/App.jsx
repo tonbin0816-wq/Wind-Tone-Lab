@@ -251,39 +251,110 @@ function freqToBin(freq, sampleRate, fftSize) {
 }
 
 // ============================================================
-// Timbre metrics
+// Timbre metrics (倍音・スペクトル重心・HNR)
+//
+// 旧実装はAnalyserNodeの周波数データ(smoothingTimeConstant=0.6の時間平滑つき)から
+// 計算していたため、次の系統誤差があった:
+//  1. 立ち上がりや音替わりの直後は、直前の音(や無音)のスペクトルが混ざった値になる
+//  2. ライブ(rAF毎≒60回/秒で平滑)とアップロード解析(100msホップ毎で平滑)では
+//     平滑の効きが約6倍違い、同じ演奏でも数値が一致しない
+//  3. 倍音レベルはFFTビン格子(5.86Hz刻み)の±2ビン最大値で、ピークがビン間に
+//     落ちると過小評価、ビブラートでビンをまたぐと値が揺れる
+//  4. HNRの倍音帯域が固定±15Hzで、ビブラート時に上位倍音(第8倍音は±20¢で±40Hz
+//     動く)が帯域から外れ「ノイズ」側に計上され、HNRが不当に下がる
+//  5. HNR・重心とも全帯域(〜24kHz)を対象にしており、マイクのヒスや低域ランブルが
+//     値を左右する(奏者ではなく機材・部屋を測ってしまう)
+//
+// 本実装は時間波形の直近W=8192サンプルからHann窓つきFFTで毎回独立に計算する。
+// 平滑ゼロ・ライブとアップロード解析で完全に同一の計算になる。
+//  - 倍音: n×f0を中心とする帯域(±(15Hz + n×f0の1.5%))のエネルギー和の平方根。
+//    15Hzの固定分はHann窓のメインローブ+スカート、比例分はビブラートによる
+//    周波数の振れ(±25¢で第n倍音はn×f0の約1.5%動く)をカバーする。
+//    帯域全体を積分するためビン格子への丸め誤差がほぼ消え、
+//    ビブラートで広がったエネルギーも取りこぼさない(MPMのサブセント精度のf0前提)
+//  - HNR: 倍音帯域は上と同じ次数比例幅。評価帯域を楽器帯(0.5×f0〜(倍音数+0.5)×f0)に
+//    限定し、帯域外のヒス・ランブルを評価から除外する
+//  - 重心: 10kHz以下かつ「ピーク-60dB」と「ビン中央値(≒ノイズ床)の6倍」の
+//    大きい方を超えるビンだけで加重平均し、弱音時にノイズ床が重心を引っ張るのを防ぐ
 // ============================================================
-function spectralCentroid(magnitudeSpectrum, freqs) {
-  let magSum = 0, weightedSum = 0;
-  for (let i = 0; i < magnitudeSpectrum.length; i++) {
-    magSum += magnitudeSpectrum[i];
-    weightedSum += freqs[i] * magnitudeSpectrum[i];
+function computeTimbreMetrics(timeBuf, sampleRate, f0, numHarmonics = 8) {
+  const W = 8192;
+  if (!timeBuf || timeBuf.length < W || !f0 || f0 <= 0) return null;
+  // Hann窓は毎tick使うため関数プロパティにキャッシュする(モジュール変数だと
+  // scripts/pitch-test.mjsの関数単位抽出で切り離されるため、関数内に閉じる)
+  if (!computeTimbreMetrics._hann) {
+    const h = new Float64Array(W);
+    for (let i = 0; i < W; i++) h[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / W);
+    computeTimbreMetrics._hann = h;
   }
-  if (magSum < 1e-10) return 0;
-  return weightedSum / magSum;
-}
+  const hann = computeTimbreMetrics._hann;
+  const offset = timeBuf.length - W;
 
-function harmonicToNoiseRatio(magnitudeSpectrum, freqs, f0, sampleRate, fftSize, numHarmonics = 8, bandwidthHz = 15) {
-  if (!f0) return null;
-  let harmonicEnergy = 0, totalEnergy = 0;
-  const harmonicBins = new Set();
+  // DC除去 + Hann窓
+  let mean = 0;
+  for (let i = 0; i < W; i++) mean += timeBuf[offset + i];
+  mean /= W;
+  const re = new Float64Array(W);
+  const im = new Float64Array(W);
+  for (let i = 0; i < W; i++) re[i] = (timeBuf[offset + i] - mean) * hann[i];
+  fftRadix2(re, im);
+
+  const bins = W / 2;
+  const binHz = sampleRate / W;
+  const mags = new Float64Array(bins);
+  for (let k = 0; k < bins; k++) mags[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+
+  // --- 倍音レベル: n×f0周辺帯域のエネルギー和の平方根 ---
+  const nyquist = sampleRate / 2;
+  const harmonics = [];
   for (let n = 1; n <= numHarmonics; n++) {
     const target = f0 * n;
-    const centerBin = freqToBin(target, sampleRate, fftSize);
-    const bwBins = Math.ceil((bandwidthHz * fftSize) / sampleRate);
-    for (let b = centerBin - bwBins; b <= centerBin + bwBins; b++) {
-      if (b >= 0 && b < magnitudeSpectrum.length) harmonicBins.add(b);
+    if (target >= nyquist) { harmonics.push({ n, freq: target, mag: 0 }); continue; }
+    const bw = 15 + 0.015 * target; // 窓の広がり(15Hz) + ビブラートの振れ(次数比例)
+    const lo = Math.max(1, Math.ceil((target - bw) / binHz));
+    const hi = Math.min(bins - 1, Math.floor((target + bw) / binHz));
+    let energy = 0;
+    for (let k = lo; k <= hi; k++) energy += mags[k] * mags[k];
+    harmonics.push({ n, freq: target, mag: Math.sqrt(energy) });
+  }
+
+  // --- スペクトル重心: 10kHz以下・ノイズ床より十分上のビンのみで加重平均 ---
+  const centroidMaxBin = Math.min(bins - 1, Math.floor(10000 / binHz));
+  let peakMag = 0;
+  for (let k = 1; k <= centroidMaxBin; k++) if (mags[k] > peakMag) peakMag = mags[k];
+  // 除外閾値はノイズ床適応: ビンの中央値はほぼノイズ床の高さになるため、その6倍を
+  // 下回るビンはノイズとして捨てる。クリーンな信号では中央値≒0となり、
+  // ピーク-60dBの固定閾値だけが効く(弱い倍音を誤って捨てない)。
+  const sortedMags = mags.slice(1, centroidMaxBin + 1).sort();
+  const medianMag = sortedMags[sortedMags.length >> 1];
+  const floorMag = Math.max(peakMag * 1e-3, medianMag * 6);
+  let magSum = 0, weighted = 0;
+  for (let k = 1; k <= centroidMaxBin; k++) {
+    if (mags[k] >= floorMag) { magSum += mags[k]; weighted += k * binHz * mags[k]; }
+  }
+  const centroidHz = magSum > 1e-12 ? weighted / magSum : 0;
+
+  // --- HNR: 評価帯域(0.5×f0〜(倍音数+0.5)×f0)内で倍音帯域とそれ以外を分ける ---
+  const evalLo = Math.max(1, Math.round((0.5 * f0) / binHz));
+  const evalHi = Math.min(bins - 1, Math.round(((numHarmonics + 0.5) * f0) / binHz));
+  let harmonicEnergy = 0, totalEnergy = 0;
+  for (let k = evalLo; k <= evalHi; k++) {
+    const p = mags[k] * mags[k];
+    totalEnergy += p;
+    const fk = k * binHz;
+    const n = Math.round(fk / f0);
+    if (n >= 1 && n <= numHarmonics) {
+      const bw = 15 + 0.015 * f0 * n; // 倍音レベルと同じ帯域定義
+      if (Math.abs(fk - n * f0) <= bw) harmonicEnergy += p;
     }
   }
-  for (let i = 0; i < magnitudeSpectrum.length; i++) {
-    const power = magnitudeSpectrum[i] * magnitudeSpectrum[i];
-    totalEnergy += power;
-    if (harmonicBins.has(i)) harmonicEnergy += power;
-  }
   const noiseEnergy = totalEnergy - harmonicEnergy;
-  if (noiseEnergy < 1e-12) return 60;
-  if (harmonicEnergy < 1e-12) return -20;
-  return 10 * Math.log10(harmonicEnergy / noiseEnergy);
+  let hnrDb;
+  if (harmonicEnergy <= 0) hnrDb = -20;
+  else if (noiseEnergy <= 0) hnrDb = 60;
+  else hnrDb = Math.max(-20, Math.min(60, 10 * Math.log10(harmonicEnergy / noiseEnergy)));
+
+  return { harmonics, centroidHz, hnrDb };
 }
 
 // ============================================================
@@ -703,17 +774,9 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
   let sounding = false; // 発音中フラグ(ヒステリシス判定に使う。ライブのsoundingRefに相当)
 
   const tick = (analyser, sampleRate, elapsedMs) => {
-    const freqData = new Float32Array(analyser.frequencyBinCount);
-    analyser.getFloatFrequencyData(freqData);
-    const linear = new Float32Array(freqData.length);
-    for (let i = 0; i < freqData.length; i++) {
-      const db = freqData[i];
-      linear[i] = db < -100 ? 0 : Math.pow(10, db / 20);
-    }
-    const freqs = new Float32Array(linear.length);
-    for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
-
-    // 時間領域波形(RMS音量とMPMピッチ検出の両方に使う)
+    // 時間領域波形(RMS音量・MPMピッチ検出・音色測定のすべてに使う)。
+    // 旧実装はここでanalyser.getFloatFrequencyData(平滑済みスペクトル)も読んで
+    // 音色を計算していたが、computeTimbreMetricsが時間波形から自前計算するため不要。
     let timeBuf = null;
     if (analyser.getFloatTimeDomainData) {
       timeBuf = new Float32Array(FFT_SIZE);
@@ -728,8 +791,6 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
       for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
       vDb = 20 * Math.log10(Math.sqrt(ss / timeBuf.length) + 1e-10);
     }
-
-    const centroid = spectralCentroid(linear, freqs);
 
     // ピッチ検出はライブと同じMPM(時間領域)+clarityゲート
     let f0 = null;
@@ -746,23 +807,20 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
 
     let levels = [];
     let hnr = null;
+    let centroid = null;
     let matchedFinger = null;
     if (sounding) {
       matchedFinger = findClosestFingering(f0, fingeringTable);
     }
-    if (timbreMeasurable) {
-      for (let n = 1; n <= NUM_HARMONICS; n++) {
-        const targetFreq = f0 * n;
-        const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
-        let peak = 0;
-        for (let b = Math.max(0, bin - 2); b <= bin + 2; b++) {
-          if (linear[b] !== undefined) peak = Math.max(peak, linear[b]);
-        }
-        levels.push({ n, freq: targetFreq, mag: peak });
+    if (timbreMeasurable && timeBuf) {
+      // 音色(倍音・重心・HNR)はライブと完全に同一の計算(computeTimbreMetrics)
+      const tm = computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS);
+      if (tm) {
+        const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-6);
+        levels = tm.harmonics.map((l) => ({ ...l, norm: l.mag / maxMag }));
+        hnr = tm.hnrDb;
+        centroid = tm.centroidHz;
       }
-      const maxMag = Math.max(...levels.map((l) => l.mag), 1e-6);
-      levels = levels.map((l) => ({ ...l, norm: l.mag / maxMag }));
-      hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
     }
 
     // --- ノート区間分割・アタック時間検出(企画書2.4節相当) ---
@@ -807,7 +865,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
       const idealHarmNorm = noteIdeal?.harmonicsProfile ? noteIdeal.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
       const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
       const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
-      const timbreScoreIdeal = noteIdeal && timbreMeasurable
+      const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
         ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
         : 0;
 
@@ -820,7 +878,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
         semitoneIndex: matchedFinger?.semitoneIndex ?? null,
         derivedTubeLengthCm: matchedFinger ? deriveTubeLengthCm(matchedFinger.soundingFreqHz, preset.bellRadiusCm, temperature) : null,
         volumeDb: vDb,
-        spectralCentroidHz: timbreMeasurable ? centroid : null,
+        spectralCentroidHz: centroid,
         hnrDb: hnr,
         harmonics: levels.map((l) => ({ n: l.n, freqHz: l.freq, levelNorm: l.norm })),
         matchScore: {
@@ -834,10 +892,10 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
   return { tick, frames, noteEvents: noteDetector.events };
 }
 
-// radix-2の反復型FFT(in-place)。アップロード解析でAnalyserNode相当のスペクトルを
-// 自前計算するために使う。ブラウザのOfflineAudioContext+ScriptProcessorNodeは
-// Safari(iPhone含む)でレンダリングが永遠に完了しない既知の不具合があるため、
-// オーディオグラフに頼らずデコード済みPCMを直接処理する。
+// radix-2の反復型FFT(in-place)。MPMピッチ検出の自己相関と、音色測定
+// (computeTimbreMetrics)のスペクトル計算に使う。ブラウザのOfflineAudioContext+
+// ScriptProcessorNodeはSafari(iPhone含む)でレンダリングが永遠に完了しない既知の
+// 不具合があるため、オーディオグラフに頼らずデコード済みPCMを直接処理する。
 function fftRadix2(re, im) {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
@@ -1005,9 +1063,11 @@ async function extractAudioViaWebCodecs(file, { onProgress } = {}) {
 }
 
 // AudioBufferを直接デコードできた場合の高速パス。デコード済みPCMを25ms刻みで
-// 自前FFTにかけ、ライブ計測と同じtick()パイプラインに流す。再生を伴わないため
-// ファイル長に関係なく数秒で完了し、ブラウザの自動再生ポリシーやオーディオグラフの
-// 実装差の影響も受けない。UIをブロックしないよう30msごとにイベントループへ譲る。
+// ライブ計測と同じtick()パイプラインに流す。再生を伴わないためファイル長に関係なく
+// 数秒で完了し、ブラウザの自動再生ポリシーやオーディオグラフの実装差の影響も受けない。
+// UIをブロックしないよう30msごとにイベントループへ譲る。
+// スペクトルの事前計算はしない: 音色測定はtick内のcomputeTimbreMetricsが時間波形から
+// 自前で行うため、ここでは生波形の窓を渡すだけでライブ計測と完全に同一の値になる。
 function analyzeAudioBuffer(audioBuffer, opts) {
   const { onProgress } = opts;
   const FFT_SIZE = 8192;
@@ -1023,22 +1083,9 @@ function analyzeAudioBuffer(audioBuffer, opts) {
     for (let i = 0; i < n; i++) mono[i] += data[i] / audioBuffer.numberOfChannels;
   }
 
-  // AnalyserNodeと同じBlackman窓・1/Nスケール・時間平滑(0.6)を再現し、
-  // ライブ計測と同じdBスケール(音量閾値など)で解析できるようにする
-  const win = new Float32Array(FFT_SIZE);
-  for (let i = 0; i < FFT_SIZE; i++) {
-    win[i] = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / FFT_SIZE) + 0.08 * Math.cos((4 * Math.PI * i) / FFT_SIZE);
-  }
-  const bins = FFT_SIZE / 2;
-  const smoothed = new Float32Array(bins);
-  const dbOut = new Float32Array(bins).fill(-200);
-  const re = new Float32Array(FFT_SIZE);
-  const im = new Float32Array(FFT_SIZE);
   // fa.tick()はAnalyserNode互換のインターフェースだけを使うため、互換オブジェクトを渡す。
-  // getFloatTimeDomainDataは現在解析中の窓の生波形を返す(MPMピッチ検出用)。
+  // getFloatTimeDomainDataは現在解析中の窓の生波形を返す(MPMピッチ検出・音色測定用)。
   const analyserLike = {
-    frequencyBinCount: bins,
-    getFloatFrequencyData: (out) => out.set(dbOut),
     getFloatTimeDomainData: (out) => out.set(mono.subarray(curPos.pos, curPos.pos + FFT_SIZE)),
   };
   const curPos = { pos: 0 };
@@ -1053,14 +1100,7 @@ function analyzeAudioBuffer(audioBuffer, opts) {
     const processChunk = () => {
       const deadline = performance.now() + 30;
       while (pos + FFT_SIZE <= n && performance.now() < deadline) {
-        for (let i = 0; i < FFT_SIZE; i++) { re[i] = mono[pos + i] * win[i]; im[i] = 0; }
-        fftRadix2(re, im);
-        for (let k = 0; k < bins; k++) {
-          const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / FFT_SIZE;
-          smoothed[k] = 0.6 * smoothed[k] + 0.4 * mag;
-          dbOut[k] = smoothed[k] > 1e-10 ? 20 * Math.log10(smoothed[k]) : -200;
-        }
-        curPos.pos = pos; // MPM用の時間波形窓を現在位置に同期
+        curPos.pos = pos; // 時間波形窓を現在位置に同期
         fa.tick(analyserLike, sampleRate, ((pos + FFT_SIZE) / sampleRate) * 1000);
         pos += hop;
       }
@@ -1431,6 +1471,8 @@ export default function WindToneLabPhaseMode() {
       const tick = () => {
         const analyserNode = analyserRef.current;
         if (!analyserNode) return;
+        // 平滑済み(smoothingTimeConstant=0.6)のAnalyserNodeスペクトルは「スペクトル表示バー」
+        // の描画専用。測定(倍音・重心・HNR)には使わない(computeTimbreMetricsが時間波形から計算)。
         const freqData = new Float32Array(analyserNode.frequencyBinCount);
         analyserNode.getFloatFrequencyData(freqData);
 
@@ -1441,8 +1483,6 @@ export default function WindToneLabPhaseMode() {
         }
 
         const sampleRate = audioCtx.sampleRate;
-        const freqs = new Float32Array(linear.length);
-        for (let i = 0; i < linear.length; i++) freqs[i] = (i * sampleRate) / FFT_SIZE;
 
         // 音量(RMS/dBFS)は時間領域波形から算出する(標準的なdB。無音≒-70〜-90、通常音≒-15〜-35)。
         const timeBuf = new Float32Array(analyserNode.fftSize);
@@ -1464,7 +1504,6 @@ export default function WindToneLabPhaseMode() {
           bandDb = 20 * Math.log10(Math.sqrt(s2 / gb.length) + 1e-10);
         }
 
-        const centroid = spectralCentroid(linear, freqs);
         // ピッチ検出: 時間領域MPM(サブサンプル精度。1¢単位のメーター動作の要)。
         // clarity(周期の明瞭度)が低いもの=ブレスや空調などの非周期ノイズはここで排除する。
         const mpm = detectPitchMPM(timeBuf, sampleRate);
@@ -1472,6 +1511,7 @@ export default function WindToneLabPhaseMode() {
 
         let levels = [];
         let hnr = null;
+        let centroid = null;
         let matchedFinger = null;
 
         // --- 楽器音の判定(楽器以外=空調・ブレス等を拾わない) ---
@@ -1503,21 +1543,19 @@ export default function WindToneLabPhaseMode() {
         }
 
         if (timbreMeasurable) {
-          setCentroidHz(centroid);
-          for (let n = 1; n <= NUM_HARMONICS; n++) {
-            const targetFreq = f0 * n;
-            const bin = freqToBin(targetFreq, sampleRate, FFT_SIZE);
-            let peak = 0;
-            for (let b = Math.max(0, bin - 2); b <= bin + 2; b++) {
-              if (linear[b] !== undefined) peak = Math.max(peak, linear[b]);
-            }
-            levels.push({ n, freq: targetFreq, mag: peak });
+          // 音色(倍音・重心・HNR)は平滑済みAnalyserNodeスペクトルではなく、
+          // 時間波形から毎回自前計算する(computeTimbreMetrics)。アップロード解析と
+          // 完全に同一の計算になり、立ち上がりで前の音が混ざる系統誤差もない。
+          const tm = computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS);
+          if (tm) {
+            centroid = tm.centroidHz;
+            setCentroidHz(centroid);
+            const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-6);
+            levels = tm.harmonics.map((l) => ({ ...l, norm: l.mag / maxMag }));
+            setHarmonicLevels(levels);
+            hnr = tm.hnrDb;
+            setHnrDb(hnr);
           }
-          const maxMag = Math.max(...levels.map((l) => l.mag), 1e-6);
-          levels = levels.map((l) => ({ ...l, norm: l.mag / maxMag }));
-          setHarmonicLevels(levels);
-          hnr = harmonicToNoiseRatio(linear, freqs, f0, sampleRate, FFT_SIZE, NUM_HARMONICS);
-          setHnrDb(hnr);
         } else {
           // 音量が低いと倍音が埋もれ数値が暴れるため、測定せず表示を「—」にする。
           setCentroidHz(null);
@@ -1594,7 +1632,7 @@ export default function WindToneLabPhaseMode() {
 
             // 音色一致度: 理論モデルは倍音の相対強度情報を持たないため、理想値のみを基準とする
             // (企画書v3 2.8節の方針: ピッチ以外は理想値との比較に絞る)
-            const timbreScoreIdeal = noteIdeal
+            const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
               ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
               : 0;
 
@@ -1641,7 +1679,7 @@ export default function WindToneLabPhaseMode() {
             const pitchCentsVsIdeal = f0 && noteIdeal?.pitchHz ? centsBetween(f0, noteIdeal.pitchHz) : null;
             const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
             const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
-            const timbreScoreIdeal = noteIdeal
+            const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
               ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
               : 0;
             const liveFrame = {

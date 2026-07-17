@@ -60,11 +60,12 @@ const code = [
   extractFunction("findClosestFingering"),
   extractFunction("fftRadix2"),
   extractFunction("detectPitchMPM"),
+  extractFunction("computeTimbreMetrics"),
 ].join("\n\n");
 
 const api = new Function(`${code}
   return { freqToNote, centsBetween, writtenNoteLabel, parseNoteLabel, writtenMidiToSoundingFreq,
-           buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM,
+           buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN };`)();
 
 let pass = 0, fail = 0;
@@ -287,6 +288,169 @@ console.log("=== 検証7: 実行速度(1回あたり<8ms) ===");
   const per = (performance.now() - t0) / N;
   console.log(`  detectPitchMPM: ${per.toFixed(2)} ms/回`);
   check("速度(60fps耐性)", per < 8, `${per.toFixed(2)}ms`);
+}
+
+// ============================================================
+// 検証8〜11: 音色測定(computeTimbreMetrics) — 倍音・重心・HNR
+// ============================================================
+
+// 倍音振幅を正規化せず正確に指定できる合成器(HNRの理論値計算に使うため振幅を保存する)
+function synthKnown(f0, amps, { noiseStd = 0, sampleRate = SR, len = BUF } = {}) {
+  const buf = new Float32Array(len);
+  for (let h = 1; h <= amps.length; h++) {
+    const a = amps[h - 1];
+    const w = (2 * Math.PI * f0 * h) / sampleRate;
+    const ph = (h * 1.2345) % (2 * Math.PI);
+    for (let i = 0; i < len; i++) buf[i] += a * Math.sin(w * i + ph);
+  }
+  if (noiseStd > 0) {
+    // mulberry32: 旧LCG(seed*1103515245が2^53超で浮動小数精度が壊れる)はスペクトルに
+    // 構造が出て白色にならない(最大/中央値≒12倍。理想は≒3.5倍)ため使わない
+    let a = 987654321;
+    const rand = () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 - 0.5; };
+    // 一様乱数12個の和 ≒ 標準正規(分散1) → noiseStd倍で白色雑音(既知パワー)にする
+    for (let i = 0; i < len; i++) { let g = 0; for (let k = 0; k < 12; k++) g += rand(); buf[i] += noiseStd * g; }
+  }
+  return buf;
+}
+
+// ビブラートつき合成(周波数変調。位相を毎サンプル積分して倍音間の整合を保つ)
+function synthVibrato(f0, { cents = 20, rate = 5.5, amps = [1, 0.5, 0.33, 0.25, 0.2, 0.17, 0.14, 0.125], sampleRate = SR, len = BUF } = {}) {
+  const buf = new Float32Array(len);
+  let phase = 0;
+  for (let i = 0; i < len; i++) {
+    const t = i / sampleRate;
+    const f = f0 * Math.pow(2, (cents * Math.sin(2 * Math.PI * rate * t)) / 1200);
+    phase += (2 * Math.PI * f) / sampleRate;
+    for (let h = 1; h <= amps.length; h++) buf[i] += amps[h - 1] * Math.sin(h * phase + ((h * 1.2345) % (2 * Math.PI)));
+  }
+  let max = 0;
+  for (const v of buf) max = Math.max(max, Math.abs(v));
+  for (let i = 0; i < len; i++) buf[i] = (buf[i] / max) * 0.4;
+  return buf;
+}
+
+console.log("=== 検証8: 倍音プロファイル精度(既知振幅の再現) ===");
+{
+  const trueAmps = [1.0, 0.6, 0.35, 0.2, 0.12, 0.08, 0.05, 0.03];
+  // 代表音域(バリトン低音〜ソプラノ高音相当)
+  for (const f0 of [116.54, 220, 349.23, 440, 587.33, 880]) {
+    const buf = synthKnown(f0, trueAmps.map((a) => a * 0.3));
+    const tm = api.computeTimbreMetrics(buf, SR, f0, 8);
+    check(`倍音測定が返る f0=${f0}`, !!tm && tm.harmonics.length === 8);
+    if (!tm) continue;
+    const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-9);
+    tm.harmonics.forEach((l, i) => {
+      const norm = l.mag / maxMag;
+      check(`倍音norm f0=${f0} n=${l.n}`, Math.abs(norm - trueAmps[i]) < 0.05,
+        `期待${trueAmps[i]} 実測${norm.toFixed(3)}`);
+    });
+  }
+
+  // ビン格子非依存: f0をビン幅(5.86Hz)以下で微妙にずらしても値が揺れないこと
+  // (旧実装の±2ビン最大値はピークがビン間に落ちると過小評価していた)
+  const profiles = [];
+  for (const f0 of [440, 441.3, 442.9, 444.7]) {
+    const buf = synthKnown(f0, trueAmps.map((a) => a * 0.3));
+    const tm = api.computeTimbreMetrics(buf, SR, f0, 8);
+    const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-9);
+    profiles.push(tm.harmonics.map((l) => l.mag / maxMag));
+  }
+  for (let n = 0; n < 8; n++) {
+    const vals = profiles.map((p) => p[n]);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    check(`ビン格子非依存 n=${n + 1}`, spread < 0.02, `振れ幅${spread.toFixed(4)}`);
+  }
+}
+
+console.log("=== 検証9: ビブラート耐性(HNR・倍音プロファイル) ===");
+{
+  const amps = [1, 0.5, 0.33, 0.25, 0.2, 0.17, 0.14, 0.125];
+  for (const f0 of [220, 440, 660]) {
+    const buf = synthVibrato(f0, { cents: 20, rate: 5.5, amps });
+    const tm = api.computeTimbreMetrics(buf, SR, f0, 8);
+    check(`ビブラート時HNR f0=${f0}`, tm && tm.hnrDb >= 25,
+      `HNR=${tm ? tm.hnrDb.toFixed(1) : "null"}dB(きれいな音のビブラートでHNRが下がってはいけない)`);
+    if (!tm) continue;
+    const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-9);
+    tm.harmonics.forEach((l, i) => {
+      const norm = l.mag / maxMag;
+      check(`ビブラート時倍音norm f0=${f0} n=${l.n}`, Math.abs(norm - amps[i]) < 0.1,
+        `期待${amps[i]} 実測${norm.toFixed(3)}`);
+    });
+  }
+}
+
+console.log("=== 検証10: HNRの定量精度(既知ノイズ量との一致) ===");
+{
+  const amps = [0.3, 0.18, 0.1, 0.06, 0.04, 0.02, 0.012, 0.008];
+  const f0 = 440;
+  const nyquist = SR / 2;
+  // 期待HNRの理論値: 白色雑音は帯域に一様に分布するため、評価帯域(0.5f0〜8.5f0)内の
+  // ノイズパワーと、倍音帯域(次数比例幅)に紛れ込むノイズパワーを面積比で見積もる
+  const Ph = amps.reduce((s, a) => s + (a * a) / 2, 0);
+  const evalWidth = 8 * f0;
+  let harmWidth = 0;
+  for (let n = 1; n <= 8; n++) harmWidth += 2 * (15 + 0.015 * f0 * n);
+  const results = [];
+  for (const noiseStd of [0.02, 0.05, 0.1]) {
+    const buf = synthKnown(f0, amps, { noiseStd });
+    const tm = api.computeTimbreMetrics(buf, SR, f0, 8);
+    const PnPerHz = (noiseStd * noiseStd) / nyquist;
+    const PnEval = PnPerHz * evalWidth;
+    const PnHarm = PnPerHz * harmWidth;
+    const expected = 10 * Math.log10((Ph + PnHarm) / (PnEval - PnHarm));
+    results.push(tm.hnrDb);
+    check(`HNR定量 noiseStd=${noiseStd}`, Math.abs(tm.hnrDb - expected) < 3,
+      `期待${expected.toFixed(1)}dB 実測${tm.hnrDb.toFixed(1)}dB`);
+  }
+  check("HNR単調性(ノイズ増→HNR減)", results[0] > results[1] && results[1] > results[2],
+    results.map((r) => r.toFixed(1)).join(" > "));
+  // クリーンな音は十分高いHNR
+  const clean = api.computeTimbreMetrics(synthKnown(f0, amps), SR, f0, 8);
+  check("クリーン音のHNR≥40dB", clean.hnrDb >= 40, `${clean.hnrDb.toFixed(1)}dB`);
+}
+
+console.log("=== 検証11: スペクトル重心(ノイズ床・帯域外の除外) ===");
+{
+  // 純音: 重心はその周波数に一致するはず
+  const pure = api.computeTimbreMetrics(synthKnown(440, [0.3]), SR, 440, 8);
+  check("純音440Hzの重心", Math.abs(pure.centroidHz - 440) < 12, `${pure.centroidHz.toFixed(1)}Hz`);
+
+  // 倍音つき: 振幅加重平均に一致するはず
+  const amps = [0.3, 0.18, 0.1, 0.06];
+  const expected = amps.reduce((s, a, i) => s + a * 440 * (i + 1), 0) / amps.reduce((s, a) => s + a, 0);
+  const harm = api.computeTimbreMetrics(synthKnown(440, amps), SR, 440, 8);
+  check("倍音音の重心=振幅加重平均", Math.abs(harm.centroidHz - expected) / expected < 0.05,
+    `期待${expected.toFixed(0)}Hz 実測${harm.centroidHz.toFixed(0)}Hz`);
+
+  // 弱音+ノイズ床: -60dB閾値でノイズビンが除外され、重心がほぼ動かないこと
+  const weakClean = api.computeTimbreMetrics(synthKnown(440, amps.map((a) => a * 0.15)), SR, 440, 8);
+  const weakNoisy = api.computeTimbreMetrics(synthKnown(440, amps.map((a) => a * 0.15), { noiseStd: 0.003 }), SR, 440, 8);
+  check("弱音でもノイズ床に重心が引っ張られない",
+    Math.abs(weakNoisy.centroidHz - weakClean.centroidHz) / weakClean.centroidHz < 0.1,
+    `クリーン${weakClean.centroidHz.toFixed(0)}Hz ノイズあり${weakNoisy.centroidHz.toFixed(0)}Hz`);
+
+  // 10kHz超の高域ヒス(帯域外)は重心に影響しないこと
+  const hissBuf = synthKnown(440, amps);
+  const w15k = (2 * Math.PI * 15000) / SR;
+  for (let i = 0; i < hissBuf.length; i++) hissBuf[i] += 0.1 * Math.sin(w15k * i);
+  const withHiss = api.computeTimbreMetrics(hissBuf, SR, 440, 8);
+  check("10kHz超の成分は重心から除外",
+    Math.abs(withHiss.centroidHz - harm.centroidHz) / harm.centroidHz < 0.02,
+    `ヒスなし${harm.centroidHz.toFixed(0)}Hz ヒスあり${withHiss.centroidHz.toFixed(0)}Hz`);
+
+  // 異常系: 無音・f0なし・短バッファはnull
+  check("無音はnull", api.computeTimbreMetrics(new Float32Array(BUF), SR, null, 8) === null);
+  check("短バッファはnull", api.computeTimbreMetrics(new Float32Array(1024), SR, 440, 8) === null);
+
+  // 実行速度(rAFループ内で毎フレーム呼ぶため)
+  const buf = synthKnown(440, amps);
+  const t0 = performance.now();
+  for (let i = 0; i < 100; i++) api.computeTimbreMetrics(buf, SR, 440, 8);
+  const per = (performance.now() - t0) / 100;
+  console.log(`  computeTimbreMetrics: ${per.toFixed(2)} ms/回`);
+  check("音色測定の速度(60fps耐性)", per < 8, `${per.toFixed(2)}ms`);
 }
 
 // ============================================================
