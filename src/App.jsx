@@ -4458,13 +4458,15 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
-// ピボットの折れ線グラフ用の色パレット(縦軸=各行を色で識別する)
+// ピボットの折れ線グラフ用の色パレット(指標=系列を色で識別する)
 const PIVOT_LINE_COLORS = ["#174585", "#D97706", "#16A34A", "#DC2626", "#7C3AED", "#0891B2", "#DB2777", "#65A30D", "#EA580C", "#4F46E5", "#0D9488", "#9333EA"];
 
-// ピボット集計を折れ線グラフで表示する。横軸=横軸(colKeys)、縦軸=指標値、
-// 各行(rowKeys)を色分けした折れ線として重ね、行同士を比較できるようにする。
-// 値の無いセルは線を途切れさせる。横軸なし(全体1列)の場合は各行1点で描く。
-function PivotLineChart({ rowKeys, colKeys, cells, metricDef, colLabel }) {
+// ピボット集計を縦向きの折れ線グラフで表示する。
+//   縦軸 = 縦軸で選んだ項目の値(rowKeys。音名なら上から高い音の順)
+//   横軸 = 指標の値(metricDef。平均ピッチ偏差など)
+//   系列 = 「指標」セレクタで選んだ次元の値ごと(colKeys)に色分けした折れ線を同じ場所に重ねる
+// 値の無いセルは線を途切れさせる。ピッチ偏差では0(ジャスト)の縦基準線を破線で示す。
+function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
   const cellValue = (rk, ck) => {
     const c = cells[rk]?.[ck];
     if (!c) return null;
@@ -4482,65 +4484,72 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, colLabel }) {
   const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
   const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
 
-  const COL = Math.max(52, Math.min(84, Math.floor(560 / Math.max(1, colKeys.length))));
-  const H = 240, padTop = 12, padBottom = 44, plotH = H - padTop - padBottom;
-  const W = Math.max(colKeys.length * COL, 220);
-  const xAt = (i) => i * COL + COL / 2;
-  const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
+  const ROW = 26;                 // 1項目(行)あたりの高さ
+  const LABELW = 78;              // 左の項目ラベル欄
+  const PLOTW = 300;              // 値のプロット幅
+  const padTop = 6, padBottom = 30;
+  const H = padTop + rowKeys.length * ROW + padBottom;
+  const W = LABELW + PLOTW + 10;
+  const xAt = (v) => LABELW + ((v - lo) / rng) * PLOTW;
+  const yAt = (ri) => padTop + ri * ROW + ROW / 2;
   const colorAt = (i) => PIVOT_LINE_COLORS[i % PIVOT_LINE_COLORS.length];
 
-  const segmentsFor = (rk) => {
+  // 系列(指標の値)ごとに、縦(行)方向へ連続する行をつないだ折れ線を作る(欠けはギャップ)
+  const segmentsFor = (ck) => {
     const segs = []; let cur = [];
-    colKeys.forEach((ck, i) => {
+    rowKeys.forEach((rk, ri) => {
       const v = cellValue(rk, ck);
-      if (v !== null) cur.push(`${xAt(i)},${yAt(v)}`);
+      if (v !== null) cur.push(`${xAt(v)},${yAt(ri)}`);
       else { if (cur.length) segs.push(cur); cur = []; }
     });
     if (cur.length) segs.push(cur);
     return segs;
   };
-  const zeroY = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? yAt(0) : null;
+  const zeroX = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? xAt(0) : null;
+  const truncate = (s, n = 7) => (String(s).length > n ? String(s).slice(0, n) + "…" : String(s));
 
   return (
     <div>
-      <div style={{ display: "flex" }}>
-        {/* 縦軸(指標値)の目盛: 上=最大 / 下=最小、および0基準(ピッチ) */}
-        <div style={{ position: "relative", width: 48, height: H, flexShrink: 0 }}>
-          <span className="sans" style={{ position: "absolute", right: 4, top: padTop - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{metricDef.fmt(hi)}</span>
-          <span className="sans" style={{ position: "absolute", right: 4, top: padTop + plotH - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{metricDef.fmt(lo)}</span>
-          {zeroY !== null && <span className="sans" style={{ position: "absolute", right: 4, top: zeroY - 6, fontSize: 11, color: "#8D95A1", fontFamily: "var(--font-num)" }}>0</span>}
-        </div>
-        <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
-          <svg width={W} height={H} style={{ display: "block" }}>
-            <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
-            {zeroY !== null && <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
-            {rowKeys.map((rk, ri) => {
-              const color = colorAt(ri);
-              return (
-                <g key={rk}>
-                  {segmentsFor(rk).map((seg, k) => (
-                    <polyline key={k} fill="none" stroke={color} strokeWidth="2" points={seg.join(" ")} />
-                  ))}
-                  {colKeys.map((ck, ci) => {
-                    const v = cellValue(rk, ck);
-                    if (v === null) return null;
-                    return <circle key={ci} cx={xAt(ci)} cy={yAt(v)} r={3} fill={color} />;
-                  })}
-                </g>
-              );
-            })}
-            {colKeys.map((ck, i) => (
-              <text key={i} x={xAt(i)} y={H - 12} fontSize="9.5" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">{ck}</text>
-            ))}
-            <text x={W - 2} y={H - 1} fontSize="9" fill="#C3CAD3" textAnchor="end">{colLabel}</text>
-          </svg>
-        </div>
+      <div style={{ overflowX: "auto" }}>
+        <svg width={W} height={H} style={{ display: "block" }}>
+          {/* 行ごとの薄いガイド線と項目ラベル(縦軸) */}
+          {rowKeys.map((rk, ri) => (
+            <g key={rk}>
+              <line x1={LABELW} y1={yAt(ri)} x2={LABELW + PLOTW} y2={yAt(ri)} stroke="#F3F5F7" strokeWidth="1" />
+              <text x={LABELW - 8} y={yAt(ri) + 3.5} fontSize="11" fill="#435266" textAnchor="end" fontFamily="var(--font-num)">{truncate(rk)}</text>
+            </g>
+          ))}
+          {/* 横軸(指標値)の枠と目盛 */}
+          <line x1={LABELW} y1={padTop} x2={LABELW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
+          <line x1={LABELW} y1={H - padBottom} x2={LABELW + PLOTW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
+          {zeroX !== null && <line x1={zeroX} y1={padTop} x2={zeroX} y2={H - padBottom} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
+          <text x={LABELW} y={H - padBottom + 14} fontSize="9.5" fill="#A6AEBA" textAnchor="start" fontFamily="var(--font-num)">{metricDef.fmt(lo)}</text>
+          <text x={LABELW + PLOTW} y={H - padBottom + 14} fontSize="9.5" fill="#A6AEBA" textAnchor="end" fontFamily="var(--font-num)">{metricDef.fmt(hi)}</text>
+          {zeroX !== null && <text x={zeroX} y={H - padBottom + 14} fontSize="9.5" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">0</text>}
+          <text x={LABELW + PLOTW / 2} y={H - 4} fontSize="9.5" fill="#8D95A1" textAnchor="middle" className="sans">{metricDef.label}</text>
+          {/* 系列(指標の値ごと)の折れ線を同じ場所に色分けで重ねる */}
+          {colKeys.map((ck, ci) => {
+            const color = colorAt(ci);
+            return (
+              <g key={ck}>
+                {segmentsFor(ck).map((seg, k) => (
+                  <polyline key={k} fill="none" stroke={color} strokeWidth="2" points={seg.join(" ")} />
+                ))}
+                {rowKeys.map((rk, ri) => {
+                  const v = cellValue(rk, ck);
+                  if (v === null) return null;
+                  return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={3} fill={color} />;
+                })}
+              </g>
+            );
+          })}
+        </svg>
       </div>
-      {/* 凡例: 各行(縦軸の値)を色で識別 */}
-      <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 11, color: "#435266", paddingLeft: 48, maxHeight: 96, overflowY: "auto" }}>
-        {rowKeys.map((rk, ri) => (
-          <span key={rk} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 12, height: 2, background: colorAt(ri), display: "inline-block", flexShrink: 0 }} />{rk}
+      {/* 凡例: 系列(指標の値)を色で識別 */}
+      <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 11, color: "#435266", maxHeight: 96, overflowY: "auto" }}>
+        {colKeys.map((ck, ci) => (
+          <span key={ck} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 12, height: 2, background: colorAt(ci), display: "inline-block", flexShrink: 0 }} />{ck}
           </span>
         ))}
       </div>
@@ -5157,7 +5166,8 @@ function AnalysisLabView(props) {
           )}
         </div>
 
-        {/* 縦軸・横軸・指標のセレクタ(Claude Design: 3枚の丸角カード) */}
+        {/* 縦軸・横軸・指標のセレクタ(Claude Design: 3枚の丸角カード)。
+            縦軸=グラフの縦に並ぶ項目 / 横軸=値そのもの(指標値) / 指標=色分けして重ねる系列。 */}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {[
             { label: "縦軸", node: (
@@ -5166,14 +5176,14 @@ function AnalysisLabView(props) {
               </select>
             ) },
             { label: "横軸", node: (
-              <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)} className="pivot-axis-select">
-                <option value="none">なし（全体）</option>
-                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
+              <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)} className="pivot-axis-select">
+                {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
               </select>
             ) },
             { label: "指標", node: (
-              <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)} className="pivot-axis-select">
-                {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
+              <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)} className="pivot-axis-select">
+                <option value="none">なし（全体）</option>
+                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
               </select>
             ) },
           ].map((z) => (
@@ -5190,14 +5200,13 @@ function AnalysisLabView(props) {
           </div>
         ) : (
           <div>
-            {/* 折れ線グラフ: 横軸=横軸の値、縦軸=指標値、各行(縦軸)を色分けした線で比較する */}
+            {/* 折れ線グラフ: 縦=縦軸の項目、横=指標値、指標で選んだ次元の値ごとに色分けした線を重ねる */}
             <PivotLineChart
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
               metricDef={metricDef}
-              colLabel={pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
             />
             <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
-              縦軸「{PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label}」の各値を色分けした折れ線で、横軸「{pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}」に沿って比較します。
+              縦に「{PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label}」、横に「{metricDef.label}」。{pivotCol === "none" ? "全体を1本の折れ線で表示します。" : `「${PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}」ごとに色分けした折れ線を重ねて比較します。`}
             </div>
           </div>
         )}
