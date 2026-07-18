@@ -2245,6 +2245,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} updateSessions={updateSessions}
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
+          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
         />
       )}
       {topTab === "reeds" && reedsSubTab === "compare" && (
@@ -3386,7 +3387,7 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId } = props;
+  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -3526,6 +3527,7 @@ function ReedRegisterView(props) {
     return (
       <ReedEvaluationDetail
         reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
+        selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
         onBack={() => setEvaluatingReedId(null)}
       />
     );
@@ -3816,6 +3818,8 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         volumeDb: m.volumeDb,
         centroidHz: m.spectralCentroidHz,
         hnrDb: m.hnrDb,
+        pitchCents: m.pitchCents,                     // 平均ピッチ誤差(絶対値)。音名軸グラフ用
+        pitchStabilityCents: m.pitchStabilityCents,   // ピッチの安定度(±stddev)。音名軸グラフ用
         harmonicsProfile,
       };
     })
@@ -3869,11 +3873,6 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 
   const frameCountFor = (reedId) => sessions.filter((s) => s.reedId === reedId).reduce((n, s) => n + (s.frames?.length ?? 0), 0);
 
-  const summaryFor = (reedId) => {
-    const frames = sessions.filter((s) => s.reedId === reedId).flatMap((s) => s.frames || []);
-    return computeFrameMetrics(frames);
-  };
-
   if (reeds.length === 0) {
     return <div className="sans" style={{ fontSize: 11, color: "#8D95A1", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
   }
@@ -3881,7 +3880,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
   const items = compareReedIds
     .map((id) => reeds.find((r) => r.id === id))
     .filter(Boolean)
-    .map((r) => ({ reed: r, label: reedLabel(r, reeds), summary: summaryFor(r.id), frameCount: frameCountFor(r.id) }));
+    .map((r) => ({ reed: r, label: reedLabel(r, reeds), frameCount: frameCountFor(r.id) }));
 
   // 複数リードを色で識別するためのパレット(Claude Designのネイビー系グラデーション)。
   // 選択順にitemsへ割り当て、チップの色ドットと各項目の棒グラフ色を揃える。
@@ -3938,18 +3937,8 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "17px" }}>
-          {/* 音量・ピッチ誤差は平均値の横棒で比較 */}
-          {REED_COMPARE_METRICS.filter((m) => m.key !== "hnrDb" && m.key !== "spectralCentroidHz").map((m) => (
-            <ReedMetricBarRow
-              key={m.key}
-              label={m.label}
-              unit={m.unit}
-              items={items.map((it) => ({ id: it.reed.id, label: it.label, value: it.summary[m.key], color: colorById.get(it.reed.id) }))}
-              fmt={m.fmt}
-            />
-          ))}
-          {/* HNR・スペクトル重心は音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
-          {["hnrDb", "spectralCentroidHz"].map((key) => {
+          {/* 全指標(音量・ピッチ誤差・HNR・重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
+          {["volumeDb", "pitchCents", "hnrDb", "spectralCentroidHz"].map((key) => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === key);
             return (
               <NoteAxisLineChart
@@ -3987,80 +3976,12 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
   );
 }
 
-// 1項目分の横棒グラフ行(複数リードを同じスケールで比較)。棒の色は呼び出し側で
-// リードごとに割り当てた色(color)を使い、凡例チップと対応させる。
-function ReedMetricBarRow({ label, unit, items, fmt }) {
-  const values = items.map((i) => i.value).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const maxAbs = Math.max(...values.map((v) => Math.abs(v)), 1e-6);
-  return (
-    <div style={{ marginBottom: 17 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 9 }}>{label}{unit ? ` (${unit})` : ""}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {items.map((it) => (
-          <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ flex: 1, background: "#EEF1F4", borderRadius: 5, height: 17, position: "relative", overflow: "hidden" }}>
-              <div style={{ width: it.value !== null && it.value !== undefined ? `${Math.max(2, (Math.abs(it.value) / maxAbs) * 100)}%` : 0, height: "100%", background: it.color || "#174585", borderRadius: 5 }} />
-            </div>
-            <span style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#435266", width: 54, textAlign: "right", flexShrink: 0 }}>{it.value !== null && it.value !== undefined ? fmt(it.value) : "—"}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// --- 10.4(b): リード毎比較(1本のリードの経時変化。HNR以外の項目も切替可能) ---
-// 1項目分の折れ線グラフ(セッション毎の推移)
-function MetricLineChart({ metricDef, points }) {
-  const validPoints = points.filter((p) => p[metricDef.key] !== null && p[metricDef.key] !== undefined);
-  const vals = validPoints.map((p) => p[metricDef.key]);
-  const minV = vals.length ? Math.min(...vals) : 0;
-  const maxV = vals.length ? Math.max(...vals) : 1;
-  const range = maxV - minV || 1;
-
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>
-        {metricDef.label}の推移{metricDef.unit ? `（${metricDef.unit}）` : ""}
-      </div>
-      {validPoints.length === 0 ? (
-        <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>データがありません</div>
-      ) : (
-        <>
-          <svg width="100%" height="90" viewBox={`0 0 ${Math.max(300, validPoints.length * 60)} 90`} style={{ display: "block" }}>
-            <polyline
-              fill="none" stroke="#174585" strokeWidth="2"
-              points={validPoints.map((p, i) => {
-                const x = i * 60 + 30;
-                const y = 70 - ((p[metricDef.key] - minV) / range) * 55;
-                return `${x},${y}`;
-              }).join(" ")}
-            />
-            {validPoints.map((p, i) => {
-              const x = i * 60 + 30;
-              const y = 70 - ((p[metricDef.key] - minV) / range) * 55;
-              return <circle key={i} cx={x} cy={y} r={3.5} fill="#174585" />;
-            })}
-          </svg>
-          <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
-            {validPoints.map((p, i) => (
-              <span key={i} title={p.memo || undefined}>
-                {new Date(p.date).toLocaleDateString("ja-JP")}: {metricDef.fmt(p[metricDef.key])}
-                {p.memo && <span style={{ color: "#174585" }}> 「{p.memo}」</span>}
-              </span>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// 横軸=音名(選択楽器の音域)、縦軸=指標値(HNR / スペクトル重心)の折れ線グラフ。
+// 横軸=音名(選択楽器の音域)、縦軸=指標値の折れ線グラフ。
 // 各系列(比較リード or 自分)のフレームを運指(semitoneIndex=音)ごとに平均し、音域の
 // 低音→高音の順に線で結ぶ。データのある音だけ点を打ち、連続する音の間を線でつなぐ
 // (欠けている音はギャップにする)。横軸の音名は選択中の楽器種別ごとに変わる。
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt }) {
+// selectedIdeal+idealKeyを渡すと、音ごとの理想値も破線の折れ線で重ねる。
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey }) {
   const table = buildFingeringTable(saxType, tuningHz);
   const N = table.length;
   const noteLabels = table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz) || "");
@@ -4077,10 +3998,21 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     return { ...s, byIdx };
   });
 
-  const allVals = seriesData.flatMap((s) => Object.values(s.byIdx));
-  const hasData = allVals.length > 0;
-  const minV = hasData ? Math.min(...allVals) : 0;
-  const maxV = hasData ? Math.max(...allVals) : 1;
+  // 理想値プロファイルの音ごとの値(存在する音だけ)。実測と同じ音名軸に破線で重ねる
+  let idealByIdx = null;
+  if (selectedIdeal && idealKey) {
+    const m = {};
+    for (let i = 0; i < N; i++) {
+      const v = getNoteIdeal(selectedIdeal, i)?.[idealKey];
+      if (v !== null && v !== undefined && !isNaN(v)) m[i] = v;
+    }
+    if (Object.keys(m).length) idealByIdx = m;
+  }
+
+  const allVals = [...seriesData.flatMap((s) => Object.values(s.byIdx)), ...(idealByIdx ? Object.values(idealByIdx) : [])];
+  const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
+  const minV = allVals.length ? Math.min(...allVals) : 0;
+  const maxV = allVals.length ? Math.max(...allVals) : 1;
   const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
   const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
 
@@ -4115,6 +4047,17 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
           <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
             <svg width={W} height={H} style={{ display: "block" }}>
               <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
+              {/* 理想値(破線)は実測より先に描き、実測の線が上に乗るようにする */}
+              {idealByIdx && (
+                <g>
+                  {segmentsFor(idealByIdx).map((seg, k) => (
+                    <polyline key={k} fill="none" stroke="#8D95A1" strokeWidth="1.5" strokeDasharray="5 4" points={seg.join(" ")} />
+                  ))}
+                  {Object.entries(idealByIdx).map(([idx, v]) => (
+                    <circle key={idx} cx={xAt(+idx)} cy={yAt(v)} r={2.5} fill="#FFFFFF" stroke="#8D95A1" strokeWidth="1.5" />
+                  ))}
+                </g>
+              )}
               {seriesData.map((s, si) => (
                 <g key={s.id ?? si}>
                   {segmentsFor(s.byIdx).map((seg, k) => (
@@ -4132,6 +4075,12 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
           </div>
         </div>
       )}
+      {idealByIdx && hasData && (
+        <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 11, color: "#435266", paddingLeft: 42 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 2, background: "#174585", display: "inline-block" }} />実測</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 0, borderTop: "2px dashed #8D95A1", display: "inline-block" }} />理想</span>
+        </div>
+      )}
       {series.length > 1 && (
         <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 11, color: "#435266", paddingLeft: 42 }}>
           {series.map((s) => (
@@ -4145,22 +4094,50 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   );
 }
 
+// タップで「数値表示 ⇄ 音名軸の折れ線グラフ」を切り替えるメトリクスカード。
+// My Data・登録済みリードの測定データ・最新セッション・セッション詳細で共通して使う。
+// グラフ表示中はグリッドの全幅に広がり(gridColumn: 1/-1)、理想値があれば破線で重ねる。
+function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      onClick={() => setOpen((v) => !v)}
+      style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px", cursor: "pointer", gridColumn: open ? "1 / -1" : "auto" }}
+    >
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", justifyContent: "space-between", gap: 6 }}>
+        <span>{label}</span>
+        <span style={{ color: "#B9C9E4", flexShrink: 0 }}>{open ? "タップで数値" : "タップで音名グラフ"}</span>
+      </div>
+      {open ? (
+        <div style={{ marginTop: 10 }}>
+          <NoteAxisLineChart
+            label={label} unit={unit} metricKey={metricKey}
+            series={[{ id: "self", label, color: "#174585", frames }]}
+            saxType={saxType} tuningHz={tuningHz} fmt={fmt}
+            selectedIdeal={selectedIdeal} idealKey={idealKey}
+          />
+        </div>
+      ) : (
+        <>
+          <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
+            {value}
+          </div>
+          {sub && <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>{sub}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 // 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
 // リード登録一覧からのタップ遷移として統合したもの。
-function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
+function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack }) {
   const reedSessions = sessions
     .filter((s) => s.reedId === reed.id)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
-  const points = reedSessions.map((s) => {
-    const frames = s.frames || [];
-    return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ...computeFrameMetrics(frames) };
-  });
-
   const allFrames = reedSessions.flatMap((s) => s.frames || []);
   const overall = computeFrameMetrics(allFrames);
-
-  const [view, setView] = useState("avg"); // "avg" | "trend"(My Dataと同じ形式)
 
   // #番号・名前(個体を識別するための自由記述のニックネーム)・メモは打鍵毎の書き込みを避けるため
   // ローカルstateで編集し、フォーカスが外れた時にまとめてリードへ反映する(セッション詳細と同じパターン)。
@@ -4245,50 +4222,27 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, onBack }) {
         </div>
       </div>
 
-      {/* My Data(分析タブ)と同じ形式: 平均値(デフォルト)/推移をタブで切替 */}
+      {/* 測定データ: 各カードをタップすると横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る) */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "16px 18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-          <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700 }}>測定データ</div>
-          <div style={{ display: "flex", gap: 4 }}>
-            {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setView(t.key)}
-                className="sans"
-                style={{
-                  fontSize: 11, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
-                  border: view === t.key ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                  background: view === t.key ? "#EAEFF5" : "transparent",
-                  color: view === t.key ? "#174585" : "#435266",
-                  fontWeight: view === t.key ? 600 : 400,
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12 }}>{points.length}セッション</div>
-        {points.length === 0 ? (
+        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>測定データ</div>
+        <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12 }}>{reedSessions.length}セッション</div>
+        {reedSessions.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>このリードに紐づく測定データがまだありません</div>
-        ) : view === "avg" ? (
+        ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {REED_COMPARE_METRICS.map((m) => {
               const v = overall[m.key];
               return (
-                <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "10px 12px" }}>
-                  <div className="sans" style={{ fontSize: 11, color: "#435266" }}>{m.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: "#121F32" }}>
-                    {v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
-                  </div>
-                </div>
+                <TappableMetricCard
+                  key={m.key}
+                  label={m.label} unit={m.unit} fmt={m.fmt}
+                  metricKey={m.key} idealKey={METRIC_IDEAL_KEYS[m.key]}
+                  frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
+                  value={v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
+                />
               );
             })}
           </div>
-        ) : (
-          REED_COMPARE_METRICS.map((m) => (
-            <MetricLineChart key={m.key} metricDef={m} points={points} />
-          ))
         )}
       </div>
     </div>
@@ -4552,7 +4506,6 @@ function getMyDataRangeBounds(rangeKey, now) {
 // グラフにせずスタットカード(実測+理想+差分)で表し、推移は時間変化を見るものなので
 // 折れ線(実測=青実線、理想=灰破線)で表す。
 function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
-  const [view, setView] = useState("avg"); // "avg" | "trend"
   const allMySessions = sessions.filter((s) => s.performer === "自分");
   const [range, setRange] = useState("1m");
 
@@ -4654,159 +4607,51 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
       </div>
 
     <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>My Data</div>
-        <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 10, padding: 3 }}>
-          {[{ key: "avg", label: "平均値" }, { key: "trend", label: "推移" }].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className="sans"
-              style={{
-                fontSize: 13, padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer",
-                background: view === t.key ? "#FFFFFF" : "transparent",
-                color: view === t.key ? "#174585" : "#8D95A1",
-                fontWeight: view === t.key ? 700 : 400,
-                boxShadow: view === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>My Data</div>
       <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 12 }}>
         奏者が「自分」のセッション（{points.length}件）{!selectedIdeal && " ・ 理想値プロファイル未選択のため理想値は表示されません"}
       </div>
 
       {points.length === 0 ? (
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>この期間の「自分」のセッションはありません</div>
-      ) : view === "avg" ? (
-        // 平均値: 全セッション・全フレームの平均。実測と理想(音ごとの理想値のフレーム加重平均)を差分つきで並べる
+      ) : (
+        // 全セッション・全フレームの平均。各カードをタップすると横軸=音名の折れ線グラフに
+        // 切り替わり、再タップで数値表示に戻る(理想値があれば破線で重ねる)。
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {MY_DATA_METRICS.map((m) => {
             const measured = overall[m.key];
             const ideal = idealAvgForFrames(allFrames, selectedIdeal, m.idealKey);
             const diff = measured !== null && ideal !== null ? measured - ideal : null;
             return (
-              <div key={m.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px" }}>
-                <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{m.label}</div>
-                <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
-                  {measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
-                </div>
-                {ideal !== null && (
-                  <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <TappableMetricCard
+                key={m.key}
+                label={m.label} unit={m.unit} fmt={m.fmt}
+                metricKey={m.key} idealKey={m.idealKey}
+                frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
+                value={measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
+                sub={ideal !== null ? (
+                  <>
                     <span>理想: {m.fmt(ideal)} {m.unit}</span>
-                    {diff !== null && (
-                      <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>
-                    )}
-                  </div>
-                )}
-              </div>
+                    {diff !== null && <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>}
+                  </>
+                ) : null}
+              />
             );
           })}
         </div>
-      ) : (
-        // 推移: セッション毎の平均値の時系列。実測=青実線、理想=灰破線
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {MY_DATA_METRICS.map((m) => (
-              <MyTrendChart key={m.key} metric={m} points={points} />
-            ))}
-          </div>
-          <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 8, display: "flex", gap: 12 }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 2, background: "#174585", display: "inline-block" }} />実測</span>
-            {selectedIdeal && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 12, height: 0, borderTop: "2px dashed #8D95A1", display: "inline-block" }} />理想</span>}
-          </div>
-        </>
       )}
     </div>
-
-    {/* 音ごとのHNR・スペクトル重心(横軸=音名, 縦軸=値の折れ線)。楽器の音域に沿って
-        どの音で音色が崩れるかを見る。 */}
-    {points.length > 0 && (
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
-        <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>音ごとの音色</div>
-        <NoteAxisLineChart
-          label="HNR" unit="dB" metricKey="hnrDb"
-          series={[{ id: "self", label: "自分", color: "#174585", frames: allFrames }]}
-          saxType={saxType} tuningHz={tuningHz} fmt={(v) => v.toFixed(1)}
-        />
-        <NoteAxisLineChart
-          label="スペクトル重心" unit="Hz" metricKey="spectralCentroidHz"
-          series={[{ id: "self", label: "自分", color: "#174585", frames: allFrames }]}
-          saxType={saxType} tuningHz={tuningHz} fmt={(v) => Math.round(v).toString()}
-        />
-      </div>
-    )}
     </>
   );
 }
 
-// My Data推移用のコンパクトな折れ線。点にホバーすると日付・値・メモを表示する
-function MyTrendChart({ metric, points }) {
-  const measuredVals = points.map((p) => p[metric.key]).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const idealVals = points.map((p) => p.ideals?.[metric.key]).filter((v) => v !== null && v !== undefined && !isNaN(v));
-  const all = [...measuredVals, ...idealVals];
-  if (all.length === 0) {
-    return (
-      <div style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "8px 10px" }}>
-        <div className="sans" style={{ fontSize: 11, color: "#435266" }}>{metric.label}（{metric.unit}）</div>
-        <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 8 }}>データなし</div>
-      </div>
-    );
-  }
-  const minV = Math.min(...all);
-  const maxV = Math.max(...all);
-  const range = maxV - minV || 1;
-  const W = Math.max(160, points.length * 36);
-  const H = 64;
-  const x = (i) => (points.length > 1 ? (i / (points.length - 1)) * (W - 20) + 10 : W / 2);
-  const y = (v) => H - 8 - ((v - minV) / range) * (H - 18);
+// REED_COMPARE_METRICSの各指標に対応する理想値プロファイル側のフィールド名
+// (音名軸グラフに理想の破線を重ねるための対応表。ピッチ誤差は理想=0のため対象外)
+const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCents: null };
 
-  const linePoints = (getVal) =>
-    points
-      .map((p, i) => ({ v: getVal(p), i }))
-      .filter(({ v }) => v !== null && v !== undefined && !isNaN(v))
-      .map(({ v, i }) => `${x(i)},${y(v)}`)
-      .join(" ");
-
-  return (
-    <div style={{ border: "1px solid #E9ECF0", borderRadius: 5, padding: "8px 10px" }}>
-      <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 4 }}>{metric.label}（{metric.unit}）</div>
-      <div style={{ display: "flex" }}>
-        {/* 縦軸の目盛(上=最大 / 下=最小)。SVGは横に引き伸ばすため文字はHTMLで左に添える。 */}
-        <div style={{ position: "relative", width: 30, height: H, flexShrink: 0 }}>
-          <span className="sans" style={{ position: "absolute", right: 3, top: 0, fontSize: 11, color: "#A6AEBA" }}>{metric.fmt(maxV)}</span>
-          <span className="sans" style={{ position: "absolute", right: 3, bottom: 0, fontSize: 11, color: "#A6AEBA" }}>{metric.fmt(minV)}</span>
-        </div>
-        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block", flex: 1, minWidth: 0 }}>
-          {idealVals.length > 0 && (
-            <polyline fill="none" stroke="#8D95A1" strokeWidth="1.5" strokeDasharray="4,3" points={linePoints((p) => p.ideals?.[metric.key])} />
-          )}
-          <polyline fill="none" stroke="#174585" strokeWidth="2" points={linePoints((p) => p[metric.key])} />
-          {points.map((p, i) => {
-            const v = p[metric.key];
-            if (v === null || v === undefined || isNaN(v)) return null;
-            return (
-              <circle key={i} cx={x(i)} cy={y(v)} r={3} fill="#174585">
-                <title>{new Date(p.date).toLocaleDateString("ja-JP")}: {metric.fmt(v)}{metric.unit}{p.memo ? ` 「${p.memo}」` : ""}</title>
-              </circle>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", justifyContent: "space-between", marginTop: 2, paddingLeft: 30 }}>
-        <span>{new Date(points[0].date).toLocaleDateString("ja-JP")}</span>
-        {points.length > 1 && <span>{new Date(points[points.length - 1].date).toLocaleDateString("ja-JP")}</span>}
-      </div>
-    </div>
-  );
-}
-
-// 直近追加された最新セッション単体の内訳。My Dataの推移グラフ(複数セッションの平均的な変化)とは別に、
-// 「今撮ったばかりの1回分」を単独で確認できるようにする。
-function LatestSessionCard({ session, reeds }) {
+// 直近追加された最新セッション単体の内訳。My Dataの平均(複数セッション)とは別に、
+// 「今撮ったばかりの1回分」を単独で確認できるようにする。カードはタップで音名軸グラフに切替。
+function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
   const reed = reeds.find((r) => r.id === session.reedId) || null;
   const m = computeFrameMetrics(session.frames || []);
 
@@ -4816,12 +4661,16 @@ function LatestSessionCard({ session, reeds }) {
       <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 12 }}>
         {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {REED_COMPARE_METRICS.map((mt) => {
           const v = m[mt.key];
           return (
-            <MetricCard
-              key={mt.key} label={mt.label}
+            <TappableMetricCard
+              key={mt.key}
+              label={mt.label} unit={mt.unit} fmt={mt.fmt}
+              metricKey={mt.key} idealKey={METRIC_IDEAL_KEYS[mt.key]}
+              frames={session.frames || []}
+              saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
               value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
             />
           );
@@ -4900,6 +4749,7 @@ function AnalysisLabView(props) {
         session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
         NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
         updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
+        tuningHz={tuningHz}
         onBack={() => setSelectedSessionId(null)}
       />
     );
@@ -4980,7 +4830,7 @@ function AnalysisLabView(props) {
       <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz} />
 
       {/* --- 最新セッション: 直近1回分の内訳を単独表示 --- */}
-      {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} />}
+      {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} selectedIdeal={selectedIdeal} tuningHz={tuningHz} />}
 
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
@@ -5318,11 +5168,12 @@ function AnalysisLabView(props) {
 }
 
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
+  const sessionMetrics = computeFrameMetrics(frames);
 
   // 記録後に気づいた誤り(奏者・リードの紐付け間違い等)をその場で修正できるようにする
   const setSessionPerformer = (name) => {
@@ -5411,6 +5262,26 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
           NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
         />
+      )}
+
+      {/* 2.5. セッション平均の指標カード。タップで横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る) */}
+      {frames.length > 0 && (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginTop: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {REED_COMPARE_METRICS.map((mt) => {
+              const v = sessionMetrics[mt.key];
+              return (
+                <TappableMetricCard
+                  key={mt.key}
+                  label={mt.label} unit={mt.unit} fmt={mt.fmt}
+                  metricKey={mt.key} idealKey={METRIC_IDEAL_KEYS[mt.key]}
+                  frames={frames} saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
+                  value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+                />
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
