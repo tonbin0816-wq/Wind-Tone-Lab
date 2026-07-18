@@ -2547,6 +2547,33 @@ function clampMetroTempo(v) {
   return Math.max(METRO_TEMPO_MIN, Math.min(METRO_TEMPO_MAX, n));
 }
 
+// "6/8"のような拍子文字列を{num, den}に分解する
+function parseMetroSig(sig) {
+  const parts = String(sig).split("/");
+  const num = parseInt(parts[0], 10);
+  const den = parseInt(parts[1], 10);
+  return { num: Number.isFinite(num) && num > 0 ? num : 4, den: Number.isFinite(den) && den > 0 ? den : 4 };
+}
+
+// 通算tick番号(0始まり)における、そのtickで鳴らすクリックの強さ("accent"/"beat"/"sub")を返す。
+// X/8拍子で分子が3の倍数(3/8・6/8・9/8・12/8)は複合拍子として扱い、8分音符3つ1組の
+// 頭を"beat"(中強)、残り2つを"sub"(弱)にする(=1拍に3つ、強-弱-弱で鳴る)。
+// それ以外(X/4拍子や5/8・7/8等の非複合X/8)は、小節先頭以外の拍はすべて均等な"beat"。
+// subdivによる細分(拍の内部をさらに分ける分)は常に"sub"。
+function metroTickKind(tickIndex, sig, subdiv, accentEnabled) {
+  const { num, den } = parseMetroSig(sig);
+  const sd = subdiv || 1;
+  const compound = den === 8 && num % 3 === 0;
+  const perMeasure = num * sd;
+  const idx = ((tickIndex % perMeasure) + perMeasure) % perMeasure;
+  const isEighthPulse = idx % sd === 0; // 元の拍(分母の音符)の頭のtickか
+  const eighthIdx = Math.floor(idx / sd); // 0..num-1: 小節内で何番目の拍位置か
+  if (!isEighthPulse) return "sub";
+  if (eighthIdx === 0) return accentEnabled ? "accent" : "beat";
+  if (compound) return eighthIdx % 3 === 0 ? "beat" : "sub";
+  return "beat";
+}
+
 // メトロノームのクリック音がマイクに入り得る時間帯か(クリック開始の少し前〜減衰+伝搬遅れ)。
 // timesはperformance.now()基準の予定時刻(昇順)。ライブ計測のフレーム記録スキップ判定に使う。
 function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
@@ -2558,19 +2585,42 @@ function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
   return false;
 }
 
-// クリック音を1回分スケジュールする。アクセント/拍/分割で音高と音量を変える
+// クリック音の元になる白色雑音バッファをAudioContextごとに1回だけ生成しキャッシュする
+// (毎tick生成すると無駄なため)。急速減衰エンベロープを焼き込み、短いパーカッシブな
+// 「チッ」という質感の種にする(正弦波の柔らかいビープ音ではなく、輪郭のはっきりした
+// 抜ける音にするため、倍音の詰まったノイズ+バンドパスで音高感を出す設計にした)。
+function getMetroClickBuffer(ctx) {
+  if (ctx.__metroClickBuffer) return ctx.__metroClickBuffer;
+  const dur = 0.035;
+  const n = Math.ceil(ctx.sampleRate * dur);
+  const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    const decay = Math.exp(-i / (n * 0.15));
+    data[i] = (Math.random() * 2 - 1) * decay;
+  }
+  ctx.__metroClickBuffer = buffer;
+  return buffer;
+}
+
+// クリック音を1回分スケジュールする。白色雑音をバンドパスで整形した短いパーカッシブな
+// 「チッ」音(実物のメトロノームや電子ドラムのクリックに近い、はっきり抜ける音)。
+// アクセント/拍/分割で中心周波数と音量を変え、聴き分けやすくする。
 function scheduleMetroClick(ctx, t, kind) {
-  const osc = ctx.createOscillator();
+  const src = ctx.createBufferSource();
+  src.buffer = getMetroClickBuffer(ctx);
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = kind === "accent" ? 2900 : kind === "beat" ? 2000 : 1300;
+  bp.Q.value = 3.5;
   const gain = ctx.createGain();
-  osc.frequency.value = kind === "accent" ? 1568 : kind === "beat" ? 1046 : 784;
-  const vol = kind === "accent" ? 0.5 : kind === "beat" ? 0.32 : 0.16;
-  gain.gain.setValueAtTime(0.0001, t);
-  gain.gain.exponentialRampToValueAtTime(vol, t + 0.003);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
-  osc.connect(gain);
+  const vol = kind === "accent" ? 1.0 : kind === "beat" ? 0.65 : 0.34;
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + src.buffer.duration);
+  src.connect(bp);
+  bp.connect(gain);
   gain.connect(ctx.destination);
-  osc.start(t);
-  osc.stop(t + 0.08);
+  src.start(t);
 }
 
 // メトロノームアイコン(本体の台形+振り子アーム)
@@ -2727,6 +2777,18 @@ function MeasureView(props) {
     if (tempoEditing) { tempoInputRef.current?.focus(); tempoInputRef.current?.select(); }
   }, [tempoEditing]);
 
+  // 拍子情報(分子・分母)を都度パースして使う。X/8拍子(分母8)かつ分子が3の倍数
+  // (3/8・6/8・9/8・12/8)は複合拍子として扱い、「1拍=8分音符3つ」でグルーピングする。
+  const { num: metroSigNum, den: metroSigDen } = parseMetroSig(metroSig);
+  const metroCompoundX8 = metroSigDen === 8 && metroSigNum % 3 === 0;
+  // X/8拍子では「1拍の分割」から3連を除外する(拍そのものが8分音符3つの複合拍になるため、
+  // その上にさらに3連をかけると9連符のような紛らわしい細分になり不要なため)。
+  const metroSubdivOptions = metroSigDen === 8 ? METRO_SUBDIVS.filter((s) => s.value !== 3) : METRO_SUBDIVS;
+  // 上記フィルタで選択中の値が選べなくなった場合は自動的に1(分割なし)に戻す
+  useEffect(() => {
+    if (metroSigDen === 8 && metroSubdiv === 3) setMetroSubdiv(1);
+  }, [metroSigDen, metroSubdiv, setMetroSubdiv]);
+
   // スケジューラは長寿命クロージャのため、最新の設定値はrefから読む
   const metroCtxRef = useRef(null);
   const metroTimerRef = useRef(null);
@@ -2739,31 +2801,46 @@ function MeasureView(props) {
   const metroSigRef = useRef(metroSig);
   const metroSubdivRef = useRef(metroSubdiv);
   const metroAccentRef = useRef(metroAccent);
+  // START呼び出しごとに増える世代番号。古いSTART呼び出し(resume()待ち中)がその間に
+  // 発生したSTOPや別のSTARTより後から状態を書き換えてしまう競合を防ぐ(詳細は下記)。
+  const metroGenRef = useRef(0);
   useEffect(() => { metroTempoRef.current = clampMetroTempo(metroTempo); }, [metroTempo]);
   useEffect(() => { metroSigRef.current = metroSig; }, [metroSig]);
   useEffect(() => { metroSubdivRef.current = metroSubdiv; }, [metroSubdiv]);
   useEffect(() => { metroAccentRef.current = metroAccent; }, [metroAccent]);
 
-  // 先読みスケジューラ本体。25ms毎に呼ばれ、120ms先までのクリックを音声時計に予約する
+  // 先読みスケジューラ本体。25ms毎に呼ばれ、120ms先までのクリックを音声時計に予約する。
+  //
+  // 拍の強弱(kind)の決め方:
+  //   ・小節の先頭(eighthIdx===0)は"accent"(アクセント有効時。最強)
+  //   ・複合拍子(6/8等)では、8分音符3つごとの先頭(eighthIdx%3===0)を"beat"(中強)、
+  //     その中の2・3番目を"sub"(弱)にする → 1拍(付点四分相当)の中に3つの音が
+  //     強・弱・弱で鳴る、実際の複合拍子の感じ方に合わせた並びになる
+  //   ・単純拍子(4/4等)では、先頭以外の拍はすべて"beat"(均等)、"1拍の分割"による
+  //     細分だけが"sub"になる(従来通り)
   const metroSchedulerTick = useCallback(() => {
     const ctx = metroCtxRef.current;
     if (!ctx || !metroOnRef.current) return;
     const LOOKAHEAD = 0.12;
+    let guard = 0; // 万一ステップ幅が異常値になっても無限ループでタブが固まらないようにする安全弁
     while (metroNextTimeRef.current < ctx.currentTime + LOOKAHEAD) {
+      if (++guard > 512) { metroNextTimeRef.current = ctx.currentTime + LOOKAHEAD; break; }
       const t = metroNextTimeRef.current;
-      const num = parseInt(metroSigRef.current) || 4;
-      const subdiv = metroSubdivRef.current;
+      const { num } = parseMetroSig(metroSigRef.current);
+      const subdiv = metroSubdivRef.current || 1;
       const perMeasure = num * subdiv;
       const idx = metroTickIndexRef.current % perMeasure;
-      const isBeat = idx % subdiv === 0;
-      const beatNum = Math.floor(idx / subdiv);
-      const kind = isBeat ? (metroAccentRef.current && beatNum === 0 ? "accent" : "beat") : "sub";
+      const isEighthPulse = idx % subdiv === 0; // 元の拍(分母の音符)の頭のtickか
+      const eighthIdx = Math.floor(idx / subdiv); // 0..num-1: 小節内で何番目の拍位置か
+      const kind = metroTickKind(metroTickIndexRef.current, metroSigRef.current, subdiv, metroAccentRef.current);
+
       scheduleMetroClick(ctx, t, kind);
       // ライブ計測の除外判定用にクリック時刻をperformance.now()基準で記録する
       scheduledClicksRef.current.push(performance.now() + (t - ctx.currentTime) * 1000);
       if (scheduledClicksRef.current.length > 128) scheduledClicksRef.current.splice(0, 64);
-      if (isBeat) {
-        metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, mBeat: beatNum };
+      if (isEighthPulse) {
+        // 振り子は元の拍(8分音符)の速さで振れる(複合拍子でも変えない。変わるのはクリック音の強弱のみ)
+        metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, mBeat: eighthIdx };
         metroGBeatRef.current += 1;
       }
       metroNextTimeRef.current = t + 60 / metroTempoRef.current / subdiv;
@@ -2772,14 +2849,33 @@ function MeasureView(props) {
   }, [scheduledClicksRef]);
 
   const startMetronome = useCallback(async () => {
+    // このSTART呼び出し固有の世代番号。resume()待ちの間に別のSTART/STOPが発生したら、
+    // この呼び出しは古い世代とみなして状態を書き換えずに終わる(取り違え防止)。
+    const myGen = ++metroGenRef.current;
     // 出力用AudioContextはマイクの解析用とは分けて持つ(ライフサイクルを絡めないため)。
-    // 停止時はsuspendして使い回し、タブ離脱(アンマウント)時にcloseする。
     let ctx = metroCtxRef.current;
     if (!ctx || ctx.state === "closed") {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       metroCtxRef.current = ctx;
     }
-    try { await ctx.resume(); } catch { /* noop */ }
+    if (ctx.state !== "running") {
+      // 一部ブラウザ(特にiOS Safari)ではsuspend/resumeを繰り返すとresume()が
+      // 二度と解決しなくなる既知の不安定挙動がある。タイムアウトで見切りをつけ、
+      // 応答しないコンテキストは破棄して新しく作り直すことで、テンポ・拍子を
+      // 何度も変えたりSTART/STOPを繰り返しても必ず再生を再開できるようにする。
+      const resumed = await Promise.race([
+        ctx.resume().then(() => true).catch(() => false),
+        new Promise((res) => setTimeout(() => res(false), 800)),
+      ]);
+      if (myGen !== metroGenRef.current) return; // 待っている間に別の呼び出しが上書きした
+      if (!resumed || ctx.state !== "running") {
+        try { ctx.close(); } catch { /* noop */ }
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        metroCtxRef.current = ctx;
+        try { await ctx.resume(); } catch { /* noop */ }
+        if (myGen !== metroGenRef.current) return;
+      }
+    }
     metroTickIndexRef.current = 0;
     metroGBeatRef.current = 0;
     metroNextTimeRef.current = ctx.currentTime + 0.1;
@@ -2793,13 +2889,15 @@ function MeasureView(props) {
   }, [metroSchedulerTick, metroActiveRef, requestWakeLock]);
 
   const stopMetronome = useCallback(() => {
+    metroGenRef.current++; // resume()待ち中の古いSTART呼び出しがあれば無効化する
     if (metroTimerRef.current) { clearInterval(metroTimerRef.current); metroTimerRef.current = null; }
     metroOnRef.current = false;
     metroActiveRef.current = false;
     scheduledClicksRef.current = [];
     setMetronomeOn(false);
     setMetroSettingsOpen(false);
-    try { metroCtxRef.current?.suspend(); } catch { /* noop */ }
+    // AudioContextはsuspendしない(スケジューラを止めれば無音になるだけで十分軽量なため、
+    // suspend/resumeの繰り返しによる不安定化を避ける。タブ離脱時のみアンマウント処理でcloseする)。
     if (!isRecording) releaseWakeLock(); // 録音中はWake Lockを維持
   }, [isRecording, metroActiveRef, scheduledClicksRef, releaseWakeLock]);
 
@@ -2808,6 +2906,7 @@ function MeasureView(props) {
     const clicksRef = scheduledClicksRef;
     const activeRef = metroActiveRef;
     return () => {
+      metroGenRef.current++;
       if (metroTimerRef.current) clearInterval(metroTimerRef.current);
       metroOnRef.current = false;
       activeRef.current = false;
@@ -3003,10 +3102,11 @@ function MeasureView(props) {
                   }}>{sig}</button>
                 ))}
               </div>
-              {/* 1拍の分割(1=拍のみ / 2=8分相当 / 3連 / 4=16分相当) */}
+              {/* 1拍の分割(1=拍のみ / 2=8分相当 / 3連 / 4=16分相当)。
+                  X/8拍子は拍自体が8分音符3つの複合拍になるため3連は選択肢から除く */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
                 <span className="sans" style={{ fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>1拍の分割</span>
-                {METRO_SUBDIVS.map((s) => (
+                {metroSubdivOptions.map((s) => (
                   <button key={s.value} onClick={() => setMetroSubdiv(s.value)} className="sans" style={{
                     flex: 1, padding: "7px 0", borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: "pointer",
                     border: metroSubdiv === s.value ? "1.5px solid #174585" : "1px solid #E9ECF0",
