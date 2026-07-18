@@ -1394,6 +1394,16 @@ function analyzeMediaFile(file, opts) {
 export default function WindToneLabPhaseMode() {
   const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
   const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | compare | ranking
+  // 下部ナビのタップ毎にインクリメントする通し番号。リード/データタブの中身のkeyに使い、
+  // タブをタップすると(既にそのタブにいても)子ビューが再マウントされ、開いていた
+  // 個別リード/個別セッションの詳細が閉じてトップページに戻るようにする。
+  const [navNonce, setNavNonce] = useState(0);
+  const handleNavTap = useCallback((key) => {
+    if (isRecordingRef.current) return;
+    if (key === "reeds") setReedsSubTab("register"); // リードタブのトップは「登録」子タブ
+    setTopTab(key);
+    setNavNonce((n) => n + 1);
+  }, []);
   const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
   // isListening: マイク+ライブ表示が有効か(計測タブ滞在中は自動でON/OFF)。
   // isRecording: 録音ボタンで蓄積中かどうか(セッションとして保存されるのはこの間のフレームのみ)。
@@ -2242,6 +2252,7 @@ export default function WindToneLabPhaseMode() {
       )}
       {topTab === "reeds" && reedsSubTab === "register" && (
         <ReedRegisterView
+          key={`reeds-${navNonce}`}
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} updateSessions={updateSessions}
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
@@ -2255,6 +2266,7 @@ export default function WindToneLabPhaseMode() {
       )}
       {topTab === "analysis" && (
         <AnalysisLabView
+          key={`data-${navNonce}`}
           sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
           promoteSessionToIdeal={promoteSessionToIdeal}
           NUM_HARMONICS={NUM_HARMONICS}
@@ -2265,13 +2277,13 @@ export default function WindToneLabPhaseMode() {
       )}
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
-      <BottomNav topTab={topTab} setTopTab={setTopTab} isRecording={isRecording} />
+      <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
     </div>
   );
 }
 
 // 画面下部の固定ナビ。計測/リード/分析をアイコン+ラベルで切り替える(モバイルアプリ風)。
-function BottomNav({ topTab, setTopTab, isRecording }) {
+function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
       key: "measure", label: "計測",
@@ -2315,7 +2327,7 @@ function BottomNav({ topTab, setTopTab, isRecording }) {
           return (
             <button
               key={t.key}
-              onClick={() => { if (!isRecording) setTopTab(t.key); }}
+              onClick={() => onNavTap(t.key)}
               disabled={isRecording}
               className="sans"
               style={{
@@ -4446,6 +4458,96 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
+// ピボットの折れ線グラフ用の色パレット(縦軸=各行を色で識別する)
+const PIVOT_LINE_COLORS = ["#174585", "#D97706", "#16A34A", "#DC2626", "#7C3AED", "#0891B2", "#DB2777", "#65A30D", "#EA580C", "#4F46E5", "#0D9488", "#9333EA"];
+
+// ピボット集計を折れ線グラフで表示する。横軸=横軸(colKeys)、縦軸=指標値、
+// 各行(rowKeys)を色分けした折れ線として重ね、行同士を比較できるようにする。
+// 値の無いセルは線を途切れさせる。横軸なし(全体1列)の場合は各行1点で描く。
+function PivotLineChart({ rowKeys, colKeys, cells, metricDef, colLabel }) {
+  const cellValue = (rk, ck) => {
+    const c = cells[rk]?.[ck];
+    if (!c) return null;
+    const v = metricDef.agg === "sum" ? c.sum : c.wsum / c.wtotal;
+    return v === null || v === undefined || isNaN(v) ? null : v;
+  };
+
+  const allVals = [];
+  rowKeys.forEach((rk) => colKeys.forEach((ck) => { const v = cellValue(rk, ck); if (v !== null) allVals.push(v); }));
+  if (allVals.length === 0) return null;
+
+  let minV = Math.min(...allVals), maxV = Math.max(...allVals);
+  // ピッチ偏差は0(ジャスト)を基準線として必ず範囲に含める
+  if (metricDef.key === "pitchCents") { minV = Math.min(minV, 0); maxV = Math.max(maxV, 0); }
+  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+
+  const COL = Math.max(52, Math.min(84, Math.floor(560 / Math.max(1, colKeys.length))));
+  const H = 240, padTop = 12, padBottom = 44, plotH = H - padTop - padBottom;
+  const W = Math.max(colKeys.length * COL, 220);
+  const xAt = (i) => i * COL + COL / 2;
+  const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
+  const colorAt = (i) => PIVOT_LINE_COLORS[i % PIVOT_LINE_COLORS.length];
+
+  const segmentsFor = (rk) => {
+    const segs = []; let cur = [];
+    colKeys.forEach((ck, i) => {
+      const v = cellValue(rk, ck);
+      if (v !== null) cur.push(`${xAt(i)},${yAt(v)}`);
+      else { if (cur.length) segs.push(cur); cur = []; }
+    });
+    if (cur.length) segs.push(cur);
+    return segs;
+  };
+  const zeroY = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? yAt(0) : null;
+
+  return (
+    <div>
+      <div style={{ display: "flex" }}>
+        {/* 縦軸(指標値)の目盛: 上=最大 / 下=最小、および0基準(ピッチ) */}
+        <div style={{ position: "relative", width: 48, height: H, flexShrink: 0 }}>
+          <span className="sans" style={{ position: "absolute", right: 4, top: padTop - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{metricDef.fmt(hi)}</span>
+          <span className="sans" style={{ position: "absolute", right: 4, top: padTop + plotH - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{metricDef.fmt(lo)}</span>
+          {zeroY !== null && <span className="sans" style={{ position: "absolute", right: 4, top: zeroY - 6, fontSize: 11, color: "#8D95A1", fontFamily: "var(--font-num)" }}>0</span>}
+        </div>
+        <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
+          <svg width={W} height={H} style={{ display: "block" }}>
+            <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
+            {zeroY !== null && <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
+            {rowKeys.map((rk, ri) => {
+              const color = colorAt(ri);
+              return (
+                <g key={rk}>
+                  {segmentsFor(rk).map((seg, k) => (
+                    <polyline key={k} fill="none" stroke={color} strokeWidth="2" points={seg.join(" ")} />
+                  ))}
+                  {colKeys.map((ck, ci) => {
+                    const v = cellValue(rk, ck);
+                    if (v === null) return null;
+                    return <circle key={ci} cx={xAt(ci)} cy={yAt(v)} r={3} fill={color} />;
+                  })}
+                </g>
+              );
+            })}
+            {colKeys.map((ck, i) => (
+              <text key={i} x={xAt(i)} y={H - 12} fontSize="9.5" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">{ck}</text>
+            ))}
+            <text x={W - 2} y={H - 1} fontSize="9" fill="#C3CAD3" textAnchor="end">{colLabel}</text>
+          </svg>
+        </div>
+      </div>
+      {/* 凡例: 各行(縦軸の値)を色で識別 */}
+      <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 11, color: "#435266", paddingLeft: 48, maxHeight: 96, overflowY: "auto" }}>
+        {rowKeys.map((rk, ri) => (
+          <span key={rk} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 12, height: 2, background: colorAt(ri), display: "inline-block", flexShrink: 0 }} />{rk}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
 // My Dataで扱う4指標。idealKeyは理想値プロファイルのnote側フィールド名(ピッチ誤差は理想=0が定義)
@@ -4712,30 +4814,6 @@ function AnalysisLabView(props) {
   const pivotCtx = { reeds };
   const pivot = buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters);
   const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
-  // 全セルの値を集めておき、ピッチ以外の指標も相対ヒートマップで色付けする(表内で相対的に
-  // 良い=緑 / 中間=橙 / 低い=赤)。HNRなど大きいほど良い指標に合わせ、高い値を緑側にする。
-  const pivotCellValues = [];
-  pivot.rowKeys.forEach((rk) => pivot.colKeys.forEach((ck) => {
-    const c = pivot.cells[rk]?.[ck];
-    if (c) pivotCellValues.push(metricDef.agg === "sum" ? c.sum : c.wsum / c.wtotal);
-  }));
-  const pivotVMin = pivotCellValues.length ? Math.min(...pivotCellValues) : 0;
-  const pivotVMax = pivotCellValues.length ? Math.max(...pivotCellValues) : 1;
-  const PIVOT_TIERS = [
-    { c: "#DC2626", bg: "#FBE9E9" }, // 低い
-    { c: "#D97706", bg: "#FDF0E1" }, // 中間
-    { c: "#16A34A", bg: "#E8F6ED" }, // 高い
-  ];
-  const pivotCellStyle = (value) => {
-    if (pivotMetric === "pitchCents") {
-      const a = Math.abs(value);
-      const t = PIVOT_TIERS[a < 10 ? 2 : a < 25 ? 1 : 0];
-      return { color: t.c, bg: t.bg };
-    }
-    const norm = pivotVMax > pivotVMin ? (value - pivotVMin) / (pivotVMax - pivotVMin) : 0.5;
-    const t = PIVOT_TIERS[norm < 1 / 3 ? 0 : norm < 2 / 3 ? 1 : 2];
-    return { color: t.c, bg: t.bg };
-  };
 
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
@@ -5108,51 +5186,18 @@ function AnalysisLabView(props) {
 
         {pivot.rowKeys.length === 0 ? (
           <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>
-            この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに表が育ちます
+            この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに折れ線が育ちます
           </div>
         ) : (
           <div>
-            {/* 縦軸は10行分の高さまで表示し、それ以上はスクロールで閲覧する(見出し行は上に固定) */}
-            <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
-            <table style={{ borderCollapse: "separate", borderSpacing: 6, fontSize: 11, minWidth: 300 }}>
-              <thead>
-                <tr>
-                  <th className="sans" style={{ position: "sticky", left: 0, top: 0, zIndex: 2, background: "#FFFFFF", textAlign: "left", padding: "2px 6px", color: "#8D95A1", fontSize: 11, fontWeight: 600, verticalAlign: "bottom" }}>
-                    {PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label} ＼ {pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
-                  </th>
-                  {pivot.colKeys.map((ck) => (
-                    <th key={ck} style={{ position: "sticky", top: 0, zIndex: 1, background: "#FFFFFF", textAlign: "center", padding: "2px 6px", color: "#174585", fontSize: 11, fontWeight: 600, fontFamily: "var(--font-num)", whiteSpace: "nowrap" }}>
-                      {ck}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pivot.rowKeys.map((rk) => (
-                  <tr key={rk}>
-                    <td style={{ position: "sticky", left: 0, background: "#FFFFFF", padding: "0 6px", color: "#121F32", fontWeight: 700, whiteSpace: "nowrap", fontFamily: pivotRow === "note" ? "var(--font-serif)" : "var(--font-jp)", fontSize: pivotRow === "note" ? 15 : 11 }}>
-                      {rk}
-                    </td>
-                    {pivot.colKeys.map((ck) => {
-                      const cell = pivot.cells[rk]?.[ck];
-                      if (!cell) {
-                        return <td key={ck} style={{ textAlign: "center", color: "#C3CAD3", background: "#F6F7F9", borderRadius: 8, padding: "9px 8px" }}>—</td>;
-                      }
-                      const value = metricDef.agg === "sum" ? cell.sum : cell.wsum / cell.wtotal;
-                      const { color, bg } = pivotCellStyle(value);
-                      return (
-                        <td key={ck} style={{ textAlign: "center", color, fontWeight: 600, fontFamily: "var(--font-num)", background: bg, borderRadius: 8, padding: "9px 10px", whiteSpace: "nowrap" }}>
-                          {metricDef.fmt(value)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            {/* 折れ線グラフ: 横軸=横軸の値、縦軸=指標値、各行(縦軸)を色分けした線で比較する */}
+            <PivotLineChart
+              rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
+              metricDef={metricDef}
+              colLabel={pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}
+            />
             <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
-              ピッチ偏差は ±10¢未満=緑 / ±25¢未満=橙 / それ以上=赤。他の指標は表内の相対値で 高い=緑 / 中間=橙 / 低い=赤 に色分けしています。
+              縦軸「{PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label}」の各値を色分けした折れ線で、横軸「{pivotCol === "none" ? "全体" : PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}」に沿って比較します。
             </div>
           </div>
         )}
