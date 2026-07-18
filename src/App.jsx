@@ -2584,9 +2584,21 @@ function MetronomeIcon({ color, size = 20 }) {
   );
 }
 
+// 錘(白丸)のアーム上の位置(top、px)をテンポから算出する。実物のメトロノームと同じく、
+// 錘を支点から遠ざける(小さいtop=アーム上部寄り)ほど振り子の実効的な周期が長くなる=遅いテンポ、
+// 支点に近づける(大きいtop=アーム下部・支点寄り)ほど速いテンポに対応させる。
+// 遅い(20)→top 40(上寄り) / 速い(300)→top 208(下寄り)を両端としてテンポに線形に対応させる。
+const METRO_WEIGHT_TOP_MIN = 40;
+const METRO_WEIGHT_TOP_MAX = 208;
+function metroWeightTop(tempo) {
+  const t = (clampMetroTempo(tempo) - METRO_TEMPO_MIN) / (METRO_TEMPO_MAX - METRO_TEMPO_MIN);
+  return METRO_WEIGHT_TOP_MIN + t * (METRO_WEIGHT_TOP_MAX - METRO_WEIGHT_TOP_MIN);
+}
+
 // 振り子。クリックのスケジュールと同じ時計(getPhase=拍単位の連続位相)から角度を決め、
 // 拍の瞬間にちょうど両端へ達する。60fpsのDOM直接書き換えでReactの再レンダーを避ける。
-function MetronomePendulum({ getPhase }) {
+// 錘の位置(アーム上でのtop)はテンポに応じて変わる(実物のメトロノームの錘移動を模す)。
+function MetronomePendulum({ getPhase, tempo }) {
   const armRef = useRef(null);
   useEffect(() => {
     let raf;
@@ -2599,13 +2611,14 @@ function MetronomePendulum({ getPhase }) {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [getPhase]);
+  const weightTop = metroWeightTop(tempo);
   return (
-    <div style={{ position: "relative", height: 180, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: 248, overflow: "hidden" }}>
       {/* 台座 */}
       <div style={{ position: "absolute", left: "50%", bottom: 10, width: 56, height: 5, marginLeft: -28, borderRadius: 3, background: "#E9ECF0" }} />
-      {/* アーム(支点=下端を中心に回転)。先端に錘の白丸 */}
-      <div ref={armRef} style={{ position: "absolute", left: "50%", bottom: 12, width: 4, height: 152, marginLeft: -2, borderRadius: 2, background: "#174585", transformOrigin: "50% 100%" }}>
-        <div style={{ position: "absolute", top: 6, left: "50%", width: 30, height: 30, marginLeft: -15, borderRadius: "50%", background: "#FFFFFF", boxShadow: "0 2px 8px rgba(15,23,42,.22)" }} />
+      {/* アーム(支点=下端を中心に回転)。錘(白丸)はテンポに応じてアーム上を上下する */}
+      <div ref={armRef} style={{ position: "absolute", left: "50%", bottom: 12, width: 4, height: 220, marginLeft: -2, borderRadius: 2, background: "#174585", transformOrigin: "50% 100%" }}>
+        <div style={{ position: "absolute", top: weightTop, left: "50%", width: 30, height: 30, marginLeft: -15, borderRadius: "50%", background: "#FFFFFF", boxShadow: "0 2px 8px rgba(15,23,42,.22)", transition: "top 0.15s ease-out" }} />
       </div>
       {/* 支点 */}
       <div style={{ position: "absolute", left: "50%", bottom: 9, width: 10, height: 10, marginLeft: -5, borderRadius: "50%", background: "#174585" }} />
@@ -2703,11 +2716,16 @@ function MeasureView(props) {
   const [metroSig, setMetroSig] = usePersistedState("metroSig", "4/4");
   const [metroSubdiv, setMetroSubdiv] = usePersistedState("metroSubdiv", 1);
   const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
-  const [metronomeOn, setMetronomeOn] = useState(false);
+  const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
+  const [showMetroPanel, setShowMetroPanel] = useState(false); // アイコンタップで開閉するパネル表示(開いただけでは音は鳴らない)
   const [metroSettingsOpen, setMetroSettingsOpen] = useState(false); // 拍子タップで振り子と入れ替えて表示する設定パネル
-  const [metroBeat, setMetroBeat] = useState(0); // 現在再生中の拍(ドット表示用)
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
-  const metroNumBeats = parseInt(metroSig) || 4;
+  const tempoInputRef = useRef(null);
+  // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
+  // マウント時に明示的にfocus+全選択する(数値をすぐ上書き入力できるように)。
+  useEffect(() => {
+    if (tempoEditing) { tempoInputRef.current?.focus(); tempoInputRef.current?.select(); }
+  }, [tempoEditing]);
 
   // スケジューラは長寿命クロージャのため、最新の設定値はrefから読む
   const metroCtxRef = useRef(null);
@@ -2809,21 +2827,6 @@ function MeasureView(props) {
     metroAnchorRef.current = { time: metroNextTimeRef.current, gBeat: 0, mBeat: 0 };
   }, [metroSig, metroSubdiv]);
 
-  // 現在拍(ドット表示)の更新。スケジュールは先行しているため、音声時計から「今鳴っている拍」を逆算する
-  useEffect(() => {
-    if (!metronomeOn) { setMetroBeat(0); return undefined; }
-    const id = setInterval(() => {
-      const ctx = metroCtxRef.current;
-      const a = metroAnchorRef.current;
-      if (!ctx || !a) return;
-      const num = parseInt(metroSigRef.current) || 4;
-      const off = Math.floor((ctx.currentTime - a.time) / (60 / metroTempoRef.current));
-      const b = (((a.mBeat + off) % num) + num) % num;
-      setMetroBeat((prev) => (prev === b ? prev : b));
-    }, 50);
-    return () => clearInterval(id);
-  }, [metronomeOn]);
-
   // 振り子の位相(拍単位の連続値)。クリックと同じAudioContextの時計から算出する
   const getMetroPhase = useCallback(() => {
     const ctx = metroCtxRef.current;
@@ -2839,17 +2842,25 @@ function MeasureView(props) {
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
         <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
-          {/* メトロノーム(タップでON/OFF)。楽器種別・基準Hzの反対側=左端に置く */}
+          {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
+              楽器種別・基準Hzの反対側=左端に置く */}
           <button
-            onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+            onClick={() => {
+              if (showMetroPanel) {
+                if (metronomeOn) stopMetronome(); // パネルを閉じる時、鳴っていれば止める
+                setShowMetroPanel(false);
+              } else {
+                setShowMetroPanel(true);
+              }
+            }}
             aria-label="メトロノーム"
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10,
-              border: metronomeOn ? "1.5px solid #174585" : "1px solid #E9ECF0",
-              background: metronomeOn ? "#EAEFF5" : "#FFFFFF", cursor: "pointer", flexShrink: 0, padding: 0,
+              border: showMetroPanel ? "1.5px solid #174585" : "1px solid #E9ECF0",
+              background: showMetroPanel ? "#EAEFF5" : "#FFFFFF", cursor: "pointer", flexShrink: 0, padding: 0,
             }}
           >
-            <MetronomeIcon color={metronomeOn ? "#174585" : "#8D95A1"} />
+            <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} />
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 2, background: selectedReedId ? "#EAEFF5" : "#F6F7F9", borderRadius: 999, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
@@ -2974,10 +2985,10 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* メトロノーム(ON時): 振り子(拍子タップ時は設定パネルに入れ替え)+拍子・拍ドット・テンポの行。
+      {/* メトロノーム(パネル表示中): 振り子(拍子タップ時は設定パネルに入れ替え)+拍子・START/STOP・テンポの行。
           振り子+メーター+これまでの音グラフが一画面に収まるよう、音名+メーターは下の
           コンパクト1行表示に切り替える(メトロノームメインの画面にする)。 */}
-      {metronomeOn && (
+      {showMetroPanel && (
         <div style={{ marginTop: 6 }}>
           {metroSettingsOpen ? (
             <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: "12px 14px", minHeight: 180, boxSizing: "border-box" }}>
@@ -3014,30 +3025,45 @@ function MeasureView(props) {
               </div>
             </div>
           ) : (
-            <MetronomePendulum getPhase={getMetroPhase} />
+            <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} />
           )}
-          {/* 拍子(タップで設定) | 現在拍ドット | テンポ(−/数値タップで直接入力/+) */}
+          {/* 拍子(タップで設定) | START/STOP(実際の再生をここで切り替える) | テンポ(−/数値タップで直接入力/+) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, padding: "0 2px" }}>
             <button onClick={() => setMetroSettingsOpen((v) => !v)} style={{
               padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
               border: metroSettingsOpen ? "1.5px solid #174585" : "1px solid #E9ECF0",
               background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585", flexShrink: 0,
             }}>{metroSig}</button>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "center", flex: 1, minWidth: 0 }}>
-              {Array.from({ length: metroNumBeats }).map((_, i) => (
-                <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: i === metroBeat ? "#174585" : "transparent", border: `1.5px solid ${i === metroBeat ? "#174585" : "#C3CAD3"}`, flexShrink: 0 }} />
-              ))}
-            </div>
+            <button
+              onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+              className="sans"
+              style={{
+                flex: 1, minWidth: 0, maxWidth: 130, padding: "9px 0", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.02em",
+                border: metronomeOn ? "1.5px solid #DC2626" : "none",
+                background: metronomeOn ? "#FFFFFF" : "#174585",
+                color: metronomeOn ? "#DC2626" : "#FFFFFF",
+              }}
+            >
+              {metronomeOn ? "STOP" : "START"}
+            </button>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>−</button>
               {tempoEditing ? (
-                <input
-                  type="number" inputMode="numeric" autoFocus
-                  defaultValue={metroTempo}
-                  onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
-                />
+                // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
+                // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
+                // フィールド外タップでの確定はonBlurで引き続き対応する。
+                <form
+                  onSubmit={(e) => { e.preventDefault(); setMetroTempo(clampMetroTempo(tempoInputRef.current?.value)); setTempoEditing(false); }}
+                  style={{ display: "inline-block" }}
+                >
+                  <input
+                    ref={tempoInputRef}
+                    type="number" inputMode="numeric"
+                    defaultValue={metroTempo}
+                    onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
+                    style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
+                  />
+                </form>
               ) : (
                 <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 64, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 26, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
               )}
@@ -3047,9 +3073,9 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音名+ピッチメーター。メトロノームON時はコンパクトな1行(音名/メーター/セント)、
-          OFF時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
-      {metronomeOn ? (
+      {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
+          非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
+      {showMetroPanel ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 4px 0" }}>
           <span style={{ fontFamily: "var(--font-serif)", fontSize: 26, lineHeight: 1, color: note ? "#121F32" : "#435266", width: 52, flexShrink: 0, textAlign: "center" }}>
             {note ? note.name : "—"}<span style={{ fontSize: 14, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
