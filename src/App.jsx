@@ -1462,10 +1462,6 @@ export default function WindToneLabPhaseMode() {
     [saxType, tuningHz, instrumentOffsetCents]
   );
 
-  // 理論値の基音は「実測に最も近い運指の正しいHz」を基準にする(未検出時はプリセットのフォールバック)
-  const theoreticalBaseFreq = matchedFingering?.soundingFreqHz ?? conicalTubeHarmonics(preset.effectiveLengthCm, preset.bellRadiusCm, temperature, 1)[0].freq;
-  const theoreticalHarmonics = theoreticalHarmonicsFromTarget(theoreticalBaseFreq, NUM_HARMONICS);
-
   // 【注記】音色一致度は理論値基準を持たない方針とした(企画書v3 2.8節参照)。
   // 理論モデルは絶対周波数のみを持ち、倍音の相対強度情報を持たないため、
   // 倍音パターン比較の基準として使うと精度が低くなるのが理由。
@@ -2196,9 +2192,9 @@ export default function WindToneLabPhaseMode() {
       {topTab === "measure" && (
         <MeasureView
           isRecording={isRecording} toggleRecording={toggleRecording}
-          note={note} pitch={pitch} centsOffset={centsOffset}
+          note={note} centsOffset={centsOffset}
           spectrumBars={spectrumBars}
-          harmonicLevels={harmonicLevels} theoreticalHarmonics={theoreticalHarmonics}
+          harmonicLevels={harmonicLevels}
           showIdeal={showIdeal} setShowIdeal={setShowIdeal}
           selectedIdeal={selectedIdeal}
           volumeDb={volumeDb} centroidHz={centroidHz} hnrDb={hnrDb}
@@ -2386,7 +2382,7 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 // 理論値(運指テーブル)からのピッチ偏差(セント)をそのまま折れ線で表す。縦軸はメーターと
 // 揃えて-50¢〜+50¢に固定し、±10¢の良好ゾーンを帯で示す。
 const RECENT_NOTES_WINDOW_SEC = 30;
-const RECENT_NOTES_RANGE_CENTS = 50;
+const RECENT_NOTES_RANGE_CENTS = 25;
 
 function PitchDeviationLine({ frames }) {
   const W = 600, H = 110;
@@ -2446,11 +2442,11 @@ function PitchDeviationLine({ frames }) {
   return (
     <div style={{ padding: "18px 0 0" }}>
       <div style={{ display: "flex" }}>
-        {/* 縦軸の目盛ラベル: 上=+50¢ / 中央=0 / 下=-50¢ */}
+        {/* 縦軸の目盛ラベル: 上=+25¢ / 中央=0 / 下=-25¢ */}
         <div style={{ position: "relative", width: 34, height: H, flexShrink: 0 }}>
-          <span className="sans" style={{ ...axisLabel, top: 0 }}>+50¢</span>
+          <span className="sans" style={{ ...axisLabel, top: 0 }}>+{RECENT_NOTES_RANGE_CENTS}¢</span>
           <span className="sans" style={{ ...axisLabel, top: "50%", transform: "translateY(-50%)" }}>0</span>
-          <span className="sans" style={{ ...axisLabel, bottom: 0 }}>-50¢</span>
+          <span className="sans" style={{ ...axisLabel, bottom: 0 }}>-{RECENT_NOTES_RANGE_CENTS}¢</span>
         </div>
         {/* グラフ本体 */}
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
@@ -2474,10 +2470,6 @@ function PitchDeviationLine({ frames }) {
           ))}
         </div>
       </div>
-      {/* 横軸: 左=30秒前 / 右=今 */}
-      <div className="sans" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#A6AEBA", marginTop: 4, paddingLeft: 34 }}>
-        <span>30秒前</span><span>今</span>
-      </div>
     </div>
   );
 }
@@ -2493,8 +2485,8 @@ function PitchDeviationLine({ frames }) {
 // ============================================================
 function MeasureView(props) {
   const {
-    isRecording, toggleRecording, note, pitch, centsOffset, spectrumBars,
-    harmonicLevels, theoreticalHarmonics, showIdeal, setShowIdeal,
+    isRecording, toggleRecording, note, centsOffset, spectrumBars,
+    harmonicLevels, showIdeal, setShowIdeal,
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
@@ -2669,34 +2661,23 @@ function MeasureView(props) {
           {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
         </span>
       </div>
-      <div style={{ textAlign: "center", marginTop: 6, marginBottom: 4 }}>
-        {(() => {
-          const ac = note ? Math.abs(centsOffset) : null;
-          const centsColor = ac === null ? "#435266" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-          const centsBg = ac === null ? "#F6F7F9" : ac <= 3 ? "#E8F6ED" : ac <= 10 ? "#FDF0E1" : "#FBE9E9";
-          return (
-            <span className="sans" style={{ display: "inline-block", fontSize: 15, fontWeight: 700, color: centsColor, background: centsBg, padding: "6px 18px", borderRadius: 999 }}>
-              {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "0¢"}
-            </span>
-          );
-        })()}
-        {/* Hz行は固定の高さ・行高にする。「未検出」(日本語フォールバック)と数字(Space Grotesk)で
-            行の高さが変わり、音名の切替時に下の要素が上下にブレるのを防ぐ。行間を広げ字間をわずかに
-            開けることで、実音表示が上の音名に詰まって見えないようにする(タイポグラフィ指示書5節⑤)。 */}
-        <div style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1", marginTop: 10, height: 18, lineHeight: "18px", letterSpacing: "0.02em" }}>{pitch ? `${pitch.toFixed(1)} Hz` : "未検出"}</div>
-      </div>
 
       {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
-          つまみが現在のセント値の位置まで中心から帯状に伸びる。 */}
+          つまみが現在のセント値の位置まで中心から帯状に伸びる。音名の下のセント数値・Hz表示は
+          廃止し、このメーターだけで音程のズレを見る。 */}
       <div style={{ padding: "18px 4px 0" }}>
         {(() => {
-          const ac = note ? Math.abs(centsOffset) : null;
-          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-          // 位置は丸めていないセント差(centsExact)を使い、1¢刻みのカクつきをなくす。
-          // さらにleft/widthにCSSトランジションをかけ、100ms間隔の更新の間を滑らかに補間する。
+          // 位置は丸めていないセント差(centsExact)をそのまま使う。色も同じexactで判定して、
+          // つまみの位置と色が必ず一致するようにする(以前は色だけ丸めたcentsOffsetで判定していた)。
           const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+          const ac = note ? Math.abs(exact) : null;
+          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
           const thumbPct = 50 + exact; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
-          const ease = "left 0.11s linear, width 0.11s linear, background 0.15s linear";
+          // ピッチ(pitch)はrAF毎(約60fps)に更新されるため、つまみ位置もその頻度で更新される。
+          // 以前は「100ms間隔の更新を補間する」前提で0.11sの長いトランジションをかけていたが、
+          // 実際は60fps更新のため過剰な減衰(ラグ)になり、実際の音程にメーターが追従していなかった。
+          // 生の値のわずかなブレだけを均す短いトランジションにして、正確に追従させる。
+          const ease = "left 0.05s linear, width 0.05s linear, background 0.15s linear";
           return (
             <div style={{ position: "relative", height: 18 }}>
               <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
@@ -2742,17 +2723,6 @@ function MeasureView(props) {
       {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
-            {selectedIdeal && (
-              // 文言は音によって長さが変わるため、高さを固定して音が切り替わるたびに
-              // カード内の他要素がガタつかないようにする(2行分を確保)
-              <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 14, minHeight: 24, lineHeight: 1.4 }}>
-                {matchedFingering
-                  ? currentNoteIdeal
-                    ? `記音${matchedFingering.writtenLabel}の理想値と比較中: ${selectedIdeal.name}`
-                    : `記音${matchedFingering.writtenLabel}はこのプロファイルに未登録です`
-                  : "音を検出すると、その音に対応する理想値と比較します"}
-              </div>
-            )}
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
               <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 理想）</span>
               <div className="sans" style={{ display: "flex", gap: 10, fontSize: 11, color: "#435266" }}>
@@ -2764,19 +2734,18 @@ function MeasureView(props) {
                 const n = idx + 1;
                 const measured = harmonicLevels.find((h) => h.n === n);
                 const measuredHeight = measured ? measured.norm * 100 : 0;
-                const theoHarmonic = theoreticalHarmonics[idx];
                 const idealHarmonic = currentNoteIdeal?.harmonicsProfile?.find((h) => h.n === n);
                 const idealHeight = idealHarmonic ? idealHarmonic.norm * 100 : 0;
+                const showIdealBar = showIdeal && currentNoteIdeal && !!idealHarmonic;
                 return (
-                  // minWidth:0 が無いとflexアイテムは中身(倍音Hz表示の桁数)より縮められず、
-                  // 音が変わって桁数が変わるたびに行全体の幅がガタつく(flexboxの既定挙動への対策)
                   <div key={n} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                     <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
                       <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#174585" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
-                      {showIdeal && currentNoteIdeal && (<div style={{ width: "28%", height: `${idealHeight}%`, border: idealHarmonic ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: idealHarmonic ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />)}
+                      {/* 理想バーの枠(28%)は常に確保する。理想が出ている時と出ていない時で
+                          実測バーの横位置が動かないようにするため、非表示時も同じ幅の空スロットを残す。 */}
+                      <div style={{ width: "28%", height: showIdealBar ? `${idealHeight}%` : 0, border: showIdealBar ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: showIdealBar ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />
                     </div>
                     <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 4 }}>{n}倍</div>
-                    <div className="sans" style={{ fontSize: 11, color: "#8D95A1", whiteSpace: "nowrap" }}>{theoHarmonic ? `${Math.round(theoHarmonic.freq)}Hz` : "—"}</div>
                   </div>
                 );
               })}
