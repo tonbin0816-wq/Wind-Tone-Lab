@@ -76,6 +76,10 @@ const code = [
   extractConst("FINGERING_MATCH_MAX_CENTS"),
   extractFunction("matchFingering"),
   extractFunction("applyBandpassRBJ"),
+  extractConst("METRO_TEMPO_MIN"),
+  extractConst("METRO_TEMPO_MAX"),
+  extractFunction("clampMetroTempo"),
+  extractFunction("isNearScheduledClick"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -83,6 +87,7 @@ const api = new Function(`${code}
            buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
            matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
+           clampMetroTempo, isNearScheduledClick,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE };`)();
 
@@ -672,6 +677,32 @@ console.log("=== 検証16: 音域制限・オクターブ誤検出の棄却 ==="
   // saxPitchBounds: 未知の種別はワイドなデフォルト
   const def = api.saxPitchBounds("unknown", 442);
   check("未知種別はデフォルト範囲", def.minFreq === 55 && def.maxFreq === 1200);
+}
+
+// ============================================================
+// 検証17: メトロノーム — クリック近傍判定(計測からの除外窓)とテンポ範囲
+// ============================================================
+console.log("=== 検証17: メトロノームのクリック近傍判定・テンポ範囲 ===");
+{
+  const times = [1000, 1500, 2000]; // 昇順の予定時刻(ms)
+  check("クリック直後(+50ms)は近傍", api.isNearScheduledClick(times, 2050) === true);
+  check("クリック直前(-20ms)も近傍(先読み分)", api.isNearScheduledClick(times, 1980) === true);
+  check("クリック後100msは範囲外", api.isNearScheduledClick(times, 2100) === false);
+  check("クリック間の中間は範囲外", api.isNearScheduledClick(times, 1250) === false);
+  check("境界: +90msちょうどは近傍", api.isNearScheduledClick(times, 2090) === true);
+  check("境界: -30msちょうどは近傍", api.isNearScheduledClick(times, 1970) === true);
+  check("未来すぎる予定は範囲外", api.isNearScheduledClick(times, 900) === false);
+  check("空配列はfalse", api.isNearScheduledClick([], 1000) === false);
+  check("古い予定しか無ければfalse", api.isNearScheduledClick([100, 200], 5000) === false);
+  // 16分連打相当の密な予定でも判定が正しい(120BPM・4分割=125ms間隔)
+  const dense = Array.from({ length: 32 }, (_, i) => 1000 + i * 125);
+  check("密な予定: クリック直後は近傍", api.isNearScheduledClick(dense, 1000 + 8 * 125 + 40) === true);
+  // +92ms: 直前クリックの+90ms窓も、次クリック(+125ms)の-30ms窓も外れる僅かな隙間
+  check("密な予定: 窓間の隙間は範囲外", api.isNearScheduledClick(dense, 1000 + 8 * 125 + 92) === false);
+
+  check("テンポは20〜300にクランプ", api.clampMetroTempo(10) === 20 && api.clampMetroTempo(999) === 300 && api.clampMetroTempo(120) === 120);
+  check("テンポ不正値は120", api.clampMetroTempo("abc") === 120);
+  check("テンポ小数は丸め", api.clampMetroTempo(120.6) === 121);
 }
 
 // ============================================================

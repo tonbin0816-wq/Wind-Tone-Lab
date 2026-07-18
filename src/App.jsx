@@ -1486,6 +1486,9 @@ export default function WindToneLabPhaseMode() {
   const LIVE_WINDOW_MAX_FRAMES = 300; // 100ms間隔で約30秒分(「これまでの音」ミニタイムラインが必要とする幅)
   const soundingRef = useRef(false);   // 発音中フラグ(ヒステリシス判定に使う)
   const lastFingerRef = useRef(null);  // 音名グルーピングのヒステリシス用(前フレームの判定運指)
+  // --- メトロノーム連携(エンジン本体はMeasureView内。ここは計測との干渉対策用) ---
+  const scheduledClicksRef = useRef([]); // クリック予定時刻(performance.now()基準・昇順)。tickが近傍判定に読む
+  const metroActiveRef = useRef(false);  // メトロノーム動作中フラグ(録音停止時のWake Lock解放判定に使う)
   // 音色(倍音・重心・HNR)の"表示"を安定させるためのローリングバッファ。
   // 測定はフレーム毎に正確に行い記録するが、画面表示は直近の有効値の中央値にすることで、
   // ・音の遷移(レガート)で一瞬混ざった外れ値を弾き、
@@ -1747,6 +1750,11 @@ export default function WindToneLabPhaseMode() {
         // 音色系(重心・HNR・倍音・スペクトル)は、ゲート+余裕を持った音量でだけ測定する。
         const timbreMeasurable = sounding && bandDb > gateDb + TIMBRE_EXTRA_DB;
 
+        // メトロノームのクリック近傍(前30ms〜後90ms)で楽器音が無い場合は、スピーカーから
+        // マイクに回り込んだクリック音をフレームとして記録しない(音量等の誤データ防止)。
+        // 楽器音が鳴っている間は楽器がクリックより支配的でclarityゲートもあるため記録を続ける。
+        const skipFrameForMetroClick = !sounding && isNearScheduledClick(scheduledClicksRef.current, performance.now());
+
         // ピッチのセント誤差は、メーターと同じ実効基準ピッチで1回だけ算出し、表示・グラフ・フレームで
         // 共有する(これで0¢の基準が全音でメーターと一致する)。
         const noteNow = sounding ? freqToNote(f0, effectiveTuningRef.current) : null;
@@ -1868,7 +1876,7 @@ export default function WindToneLabPhaseMode() {
             }
           }
 
-          if (elapsedMs - lastSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
+          if (!skipFrameForMetroClick && elapsedMs - lastSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
             lastSampleTimeRef.current = elapsedMs;
 
             // ピッチのセント誤差はメーターと同じ実効基準で算出済み(pitchCentsUnified)を使い、
@@ -1926,7 +1934,7 @@ export default function WindToneLabPhaseMode() {
           // phraseFramesの方をそのままタイムラインに渡す)
           if (liveStartTimeRef.current === null) liveStartTimeRef.current = performance.now();
           const liveElapsedMs = performance.now() - liveStartTimeRef.current;
-          if (liveElapsedMs - lastLiveSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
+          if (!skipFrameForMetroClick && liveElapsedMs - lastLiveSampleTimeRef.current >= SAMPLE_INTERVAL_MS) {
             lastLiveSampleTimeRef.current = liveElapsedMs;
             const selectedIdeal = selectedIdealRef.current;
             const noteIdeal = getNoteIdeal(selectedIdeal, matchedFinger?.semitoneIndex);
@@ -1986,7 +1994,7 @@ export default function WindToneLabPhaseMode() {
       phraseStartTimeRef.current = null;
       finalizeRecording();
       setIsRecording(false);
-      releaseWakeLock();
+      if (!metroActiveRef.current) releaseWakeLock(); // メトロノーム動作中はスリープ抑止を維持
       return;
     }
     if (!streamRef.current) {
@@ -2242,6 +2250,8 @@ export default function WindToneLabPhaseMode() {
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb} micProcessingWarning={micProcessingWarning}
+          scheduledClicksRef={scheduledClicksRef} metroActiveRef={metroActiveRef}
+          requestWakeLock={requestWakeLock} releaseWakeLock={releaseWakeLock}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
@@ -2511,6 +2521,133 @@ function PitchDeviationLine({ frames }) {
 }
 
 // ============================================================
+// メトロノーム
+//
+// ・クリック音はWeb Audioの発振器で合成し、「先読みスケジューリング」で正確な拍を刻む
+//   (25ms毎のタイマーで120ms先までAudioContextの時計に予約する。タイマー直接発音のブレがない)
+// ・拍の解釈: 分母の音符=1拍(6/8なら8分音符が1拍で1小節6クリック。テンポ数値は分母音符の速さ)
+// ・振り子はクリックと同じ時計(AudioContext.currentTime)に位相同期し、拍の瞬間に両端へ達する
+// ・マイク計測との干渉対策: クリック予定時刻をperformance.now()基準で記録しておき、
+//   ライブ計測側が「クリック近傍かつ楽器音なし」のフレーム記録をスキップする
+//   (楽器音が鳴っている間は楽器がクリックより支配的で、clarityゲートもあるため記録を続ける)
+// ============================================================
+const METRO_SIGS = ["1/4", "2/4", "3/4", "4/4", "5/4", "6/4", "3/8", "5/8", "6/8", "7/8", "9/8", "12/8"];
+const METRO_SUBDIVS = [
+  { value: 1, label: "1" },
+  { value: 2, label: "2" },
+  { value: 3, label: "3連" },
+  { value: 4, label: "4" },
+];
+const METRO_TEMPO_MIN = 20;
+const METRO_TEMPO_MAX = 300;
+
+function clampMetroTempo(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 120;
+  return Math.max(METRO_TEMPO_MIN, Math.min(METRO_TEMPO_MAX, n));
+}
+
+// メトロノームのクリック音がマイクに入り得る時間帯か(クリック開始の少し前〜減衰+伝搬遅れ)。
+// timesはperformance.now()基準の予定時刻(昇順)。ライブ計測のフレーム記録スキップ判定に使う。
+function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
+  for (let i = times.length - 1; i >= 0; i--) {
+    const d = nowMs - times[i];
+    if (d > postMs) break; // これより古い予定はさらに範囲外なので打ち切り
+    if (d >= -preMs) return true;
+  }
+  return false;
+}
+
+// クリック音を1回分スケジュールする。アクセント/拍/分割で音高と音量を変える
+function scheduleMetroClick(ctx, t, kind) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = kind === "accent" ? 1568 : kind === "beat" ? 1046 : 784;
+  const vol = kind === "accent" ? 0.5 : kind === "beat" ? 0.32 : 0.16;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + 0.003);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.08);
+}
+
+// メトロノームアイコン(本体の台形+振り子アーム)
+function MetronomeIcon({ color, size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.5 3 L14.5 3 L19 21 L5 21 Z" />
+      <line x1="12" y1="17.5" x2="16.2" y2="7.5" />
+      <circle cx="16.6" cy="6.5" r="1.4" fill={color} stroke="none" />
+    </svg>
+  );
+}
+
+// 振り子。クリックのスケジュールと同じ時計(getPhase=拍単位の連続位相)から角度を決め、
+// 拍の瞬間にちょうど両端へ達する。60fpsのDOM直接書き換えでReactの再レンダーを避ける。
+function MetronomePendulum({ getPhase }) {
+  const armRef = useRef(null);
+  useEffect(() => {
+    let raf;
+    const loop = () => {
+      const phase = getPhase();
+      const angle = phase === null ? 0 : 26 * Math.cos(Math.PI * phase);
+      if (armRef.current) armRef.current.style.transform = `rotate(${angle}deg)`;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [getPhase]);
+  return (
+    <div style={{ position: "relative", height: 180, overflow: "hidden" }}>
+      {/* 台座 */}
+      <div style={{ position: "absolute", left: "50%", bottom: 10, width: 56, height: 5, marginLeft: -28, borderRadius: 3, background: "#E9ECF0" }} />
+      {/* アーム(支点=下端を中心に回転)。先端に錘の白丸 */}
+      <div ref={armRef} style={{ position: "absolute", left: "50%", bottom: 12, width: 4, height: 152, marginLeft: -2, borderRadius: 2, background: "#174585", transformOrigin: "50% 100%" }}>
+        <div style={{ position: "absolute", top: 6, left: "50%", width: 30, height: 30, marginLeft: -15, borderRadius: "50%", background: "#FFFFFF", boxShadow: "0 2px 8px rgba(15,23,42,.22)" }} />
+      </div>
+      {/* 支点 */}
+      <div style={{ position: "absolute", left: "50%", bottom: 9, width: 10, height: 10, marginLeft: -5, borderRadius: "50%", background: "#174585" }} />
+    </div>
+  );
+}
+
+// ピッチメーター(横一直線)。通常表示とメトロノーム時のコンパクト表示で共通利用する。
+// 位置は丸めていないセント差(centsExact)をそのまま使い、色も同じexactで判定して
+// つまみの位置と色が必ず一致するようにする。pitchはrAF毎(約60fps)に更新されるため、
+// 生の値のわずかなブレだけを均す短いトランジションで正確に追従させる。
+function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
+  const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+  const ac = note ? Math.abs(exact) : null;
+  const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+  const thumbPct = 50 + exact; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
+  const ease = "left 0.05s linear, width 0.05s linear, background 0.15s linear";
+  return (
+    <>
+      <div style={{ position: "relative", height: 18 }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
+        <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
+        <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
+        {note && (
+          <div style={{
+            position: "absolute", top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
+            left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`, transition: ease,
+          }} />
+        )}
+        <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)", transition: ease }} />
+      </div>
+      {showScaleLabels && (
+        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1" }}>
+          <span>-50</span>
+          <span>+50</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================================================
 // 計測ビュー(単音・フレーズ統合)
 //
 // 単音/フレーズはモードとして分けず、1つの録音フローで扱う。
@@ -2529,6 +2666,7 @@ function MeasureView(props) {
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
+    scheduledClicksRef, metroActiveRef, requestWakeLock, releaseWakeLock,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
@@ -2560,6 +2698,140 @@ function MeasureView(props) {
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
 
+  // --- メトロノーム(設定は永続化。ON/OFFはタブ滞在中のみ=タブを離れるとアンマウントで停止) ---
+  const [metroTempo, setMetroTempo] = usePersistedState("metroTempo", 120);
+  const [metroSig, setMetroSig] = usePersistedState("metroSig", "4/4");
+  const [metroSubdiv, setMetroSubdiv] = usePersistedState("metroSubdiv", 1);
+  const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
+  const [metronomeOn, setMetronomeOn] = useState(false);
+  const [metroSettingsOpen, setMetroSettingsOpen] = useState(false); // 拍子タップで振り子と入れ替えて表示する設定パネル
+  const [metroBeat, setMetroBeat] = useState(0); // 現在再生中の拍(ドット表示用)
+  const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
+  const metroNumBeats = parseInt(metroSig) || 4;
+
+  // スケジューラは長寿命クロージャのため、最新の設定値はrefから読む
+  const metroCtxRef = useRef(null);
+  const metroTimerRef = useRef(null);
+  const metroNextTimeRef = useRef(0);
+  const metroTickIndexRef = useRef(0);
+  const metroGBeatRef = useRef(0); // 通算拍数。振り子の位相が小節をまたいでも連続するように増え続ける
+  const metroAnchorRef = useRef({ time: 0, gBeat: 0, mBeat: 0 }); // 直近の拍(音声時刻・通算拍・小節内拍)
+  const metroOnRef = useRef(false);
+  const metroTempoRef = useRef(clampMetroTempo(metroTempo));
+  const metroSigRef = useRef(metroSig);
+  const metroSubdivRef = useRef(metroSubdiv);
+  const metroAccentRef = useRef(metroAccent);
+  useEffect(() => { metroTempoRef.current = clampMetroTempo(metroTempo); }, [metroTempo]);
+  useEffect(() => { metroSigRef.current = metroSig; }, [metroSig]);
+  useEffect(() => { metroSubdivRef.current = metroSubdiv; }, [metroSubdiv]);
+  useEffect(() => { metroAccentRef.current = metroAccent; }, [metroAccent]);
+
+  // 先読みスケジューラ本体。25ms毎に呼ばれ、120ms先までのクリックを音声時計に予約する
+  const metroSchedulerTick = useCallback(() => {
+    const ctx = metroCtxRef.current;
+    if (!ctx || !metroOnRef.current) return;
+    const LOOKAHEAD = 0.12;
+    while (metroNextTimeRef.current < ctx.currentTime + LOOKAHEAD) {
+      const t = metroNextTimeRef.current;
+      const num = parseInt(metroSigRef.current) || 4;
+      const subdiv = metroSubdivRef.current;
+      const perMeasure = num * subdiv;
+      const idx = metroTickIndexRef.current % perMeasure;
+      const isBeat = idx % subdiv === 0;
+      const beatNum = Math.floor(idx / subdiv);
+      const kind = isBeat ? (metroAccentRef.current && beatNum === 0 ? "accent" : "beat") : "sub";
+      scheduleMetroClick(ctx, t, kind);
+      // ライブ計測の除外判定用にクリック時刻をperformance.now()基準で記録する
+      scheduledClicksRef.current.push(performance.now() + (t - ctx.currentTime) * 1000);
+      if (scheduledClicksRef.current.length > 128) scheduledClicksRef.current.splice(0, 64);
+      if (isBeat) {
+        metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, mBeat: beatNum };
+        metroGBeatRef.current += 1;
+      }
+      metroNextTimeRef.current = t + 60 / metroTempoRef.current / subdiv;
+      metroTickIndexRef.current = (idx + 1) % perMeasure;
+    }
+  }, [scheduledClicksRef]);
+
+  const startMetronome = useCallback(async () => {
+    // 出力用AudioContextはマイクの解析用とは分けて持つ(ライフサイクルを絡めないため)。
+    // 停止時はsuspendして使い回し、タブ離脱(アンマウント)時にcloseする。
+    let ctx = metroCtxRef.current;
+    if (!ctx || ctx.state === "closed") {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      metroCtxRef.current = ctx;
+    }
+    try { await ctx.resume(); } catch { /* noop */ }
+    metroTickIndexRef.current = 0;
+    metroGBeatRef.current = 0;
+    metroNextTimeRef.current = ctx.currentTime + 0.1;
+    metroAnchorRef.current = { time: metroNextTimeRef.current, gBeat: 0, mBeat: 0 };
+    metroOnRef.current = true;
+    metroActiveRef.current = true;
+    setMetronomeOn(true);
+    requestWakeLock(); // 練習中に画面が消えないように(録音時と同じ)
+    if (metroTimerRef.current) clearInterval(metroTimerRef.current);
+    metroTimerRef.current = setInterval(metroSchedulerTick, 25);
+  }, [metroSchedulerTick, metroActiveRef, requestWakeLock]);
+
+  const stopMetronome = useCallback(() => {
+    if (metroTimerRef.current) { clearInterval(metroTimerRef.current); metroTimerRef.current = null; }
+    metroOnRef.current = false;
+    metroActiveRef.current = false;
+    scheduledClicksRef.current = [];
+    setMetronomeOn(false);
+    setMetroSettingsOpen(false);
+    try { metroCtxRef.current?.suspend(); } catch { /* noop */ }
+    if (!isRecording) releaseWakeLock(); // 録音中はWake Lockを維持
+  }, [isRecording, metroActiveRef, scheduledClicksRef, releaseWakeLock]);
+
+  // アンマウント(=計測タブを離れた)時は完全に停止して音を止める
+  useEffect(() => {
+    const clicksRef = scheduledClicksRef;
+    const activeRef = metroActiveRef;
+    return () => {
+      if (metroTimerRef.current) clearInterval(metroTimerRef.current);
+      metroOnRef.current = false;
+      activeRef.current = false;
+      clicksRef.current = [];
+      try { metroCtxRef.current?.close(); } catch { /* noop */ }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 拍子・分割の変更時は小節の頭から仕切り直す(実行中のみ。テンポ変更は次の拍から自然に反映)
+  useEffect(() => {
+    const ctx = metroCtxRef.current;
+    if (!metroOnRef.current || !ctx) return;
+    metroTickIndexRef.current = 0;
+    metroGBeatRef.current = 0;
+    metroNextTimeRef.current = ctx.currentTime + 0.08;
+    metroAnchorRef.current = { time: metroNextTimeRef.current, gBeat: 0, mBeat: 0 };
+  }, [metroSig, metroSubdiv]);
+
+  // 現在拍(ドット表示)の更新。スケジュールは先行しているため、音声時計から「今鳴っている拍」を逆算する
+  useEffect(() => {
+    if (!metronomeOn) { setMetroBeat(0); return undefined; }
+    const id = setInterval(() => {
+      const ctx = metroCtxRef.current;
+      const a = metroAnchorRef.current;
+      if (!ctx || !a) return;
+      const num = parseInt(metroSigRef.current) || 4;
+      const off = Math.floor((ctx.currentTime - a.time) / (60 / metroTempoRef.current));
+      const b = (((a.mBeat + off) % num) + num) % num;
+      setMetroBeat((prev) => (prev === b ? prev : b));
+    }, 50);
+    return () => clearInterval(id);
+  }, [metronomeOn]);
+
+  // 振り子の位相(拍単位の連続値)。クリックと同じAudioContextの時計から算出する
+  const getMetroPhase = useCallback(() => {
+    const ctx = metroCtxRef.current;
+    if (!ctx || !metroOnRef.current) return null;
+    const a = metroAnchorRef.current;
+    return a.gBeat + (ctx.currentTime - a.time) / (60 / metroTempoRef.current);
+  }, []);
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
@@ -2567,6 +2839,18 @@ function MeasureView(props) {
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
         <div className="sans" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
+          {/* メトロノーム(タップでON/OFF)。楽器種別・基準Hzの反対側=左端に置く */}
+          <button
+            onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+            aria-label="メトロノーム"
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10,
+              border: metronomeOn ? "1.5px solid #174585" : "1px solid #E9ECF0",
+              background: metronomeOn ? "#EAEFF5" : "#FFFFFF", cursor: "pointer", flexShrink: 0, padding: 0,
+            }}
+          >
+            <MetronomeIcon color={metronomeOn ? "#174585" : "#8D95A1"} />
+          </button>
           <div style={{ display: "flex", alignItems: "center", gap: 2, background: selectedReedId ? "#EAEFF5" : "#F6F7F9", borderRadius: 999, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
             <select
@@ -2690,50 +2974,112 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* 音名(大表示)。実音(マイクが実際に拾ったコンサートピッチ)で表示する。移調楽器でも
-          記音ではなく実音で表す。「これまでの音」グラフも同じ実音を使い、両者を一致させる。 */}
-      <div style={{ textAlign: "center", padding: "12px 0 0" }}>
-        <span style={{ fontFamily: "var(--font-serif)", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-          {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
-        </span>
-      </div>
-
-      {/* ピッチメーター(横一直線): 両端が-50¢/+50¢固定。中央付近(±10¢)を良好ゾーンとして薄く塗り、
-          つまみが現在のセント値の位置まで中心から帯状に伸びる。音名の下のセント数値・Hz表示は
-          廃止し、このメーターだけで音程のズレを見る。 */}
-      <div style={{ padding: "18px 4px 0" }}>
-        {(() => {
-          // 位置は丸めていないセント差(centsExact)をそのまま使う。色も同じexactで判定して、
-          // つまみの位置と色が必ず一致するようにする(以前は色だけ丸めたcentsOffsetで判定していた)。
-          const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
-          const ac = note ? Math.abs(exact) : null;
-          const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-          const thumbPct = 50 + exact; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
-          // ピッチ(pitch)はrAF毎(約60fps)に更新されるため、つまみ位置もその頻度で更新される。
-          // 以前は「100ms間隔の更新を補間する」前提で0.11sの長いトランジションをかけていたが、
-          // 実際は60fps更新のため過剰な減衰(ラグ)になり、実際の音程にメーターが追従していなかった。
-          // 生の値のわずかなブレだけを均す短いトランジションにして、正確に追従させる。
-          const ease = "left 0.05s linear, width 0.05s linear, background 0.15s linear";
-          return (
-            <div style={{ position: "relative", height: 18 }}>
-              <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
-              <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
-              <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
-              {note && (
-                <div style={{
-                  position: "absolute", top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
-                  left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`, transition: ease,
-                }} />
-              )}
-              <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)", transition: ease }} />
+      {/* メトロノーム(ON時): 振り子(拍子タップ時は設定パネルに入れ替え)+拍子・拍ドット・テンポの行。
+          振り子+メーター+これまでの音グラフが一画面に収まるよう、音名+メーターは下の
+          コンパクト1行表示に切り替える(メトロノームメインの画面にする)。 */}
+      {metronomeOn && (
+        <div style={{ marginTop: 6 }}>
+          {metroSettingsOpen ? (
+            <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: "12px 14px", minHeight: 180, boxSizing: "border-box" }}>
+              {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック) */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
+                {METRO_SIGS.map((sig) => (
+                  <button key={sig} onClick={() => setMetroSig(sig)} style={{
+                    padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
+                    border: metroSig === sig ? "1.5px solid #174585" : "1px solid #E9ECF0",
+                    background: metroSig === sig ? "#EAEFF5" : "#FFFFFF",
+                    color: metroSig === sig ? "#174585" : "#435266",
+                  }}>{sig}</button>
+                ))}
+              </div>
+              {/* 1拍の分割(1=拍のみ / 2=8分相当 / 3連 / 4=16分相当) */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+                <span className="sans" style={{ fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>1拍の分割</span>
+                {METRO_SUBDIVS.map((s) => (
+                  <button key={s.value} onClick={() => setMetroSubdiv(s.value)} className="sans" style={{
+                    flex: 1, padding: "7px 0", borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    border: metroSubdiv === s.value ? "1.5px solid #174585" : "1px solid #E9ECF0",
+                    background: metroSubdiv === s.value ? "#EAEFF5" : "#FFFFFF",
+                    color: metroSubdiv === s.value ? "#174585" : "#435266",
+                  }}>{s.label}</button>
+                ))}
+              </div>
+              {/* アクセント(デフォルトON) + 完了 */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
+                <label className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266", cursor: "pointer" }}>
+                  <input type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)} />
+                  一拍目にアクセントをつける
+                </label>
+                <button onClick={() => setMetroSettingsOpen(false)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
+              </div>
             </div>
-          );
-        })()}
-        <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1" }}>
-          <span>-50</span>
-          <span>+50</span>
+          ) : (
+            <MetronomePendulum getPhase={getMetroPhase} />
+          )}
+          {/* 拍子(タップで設定) | 現在拍ドット | テンポ(−/数値タップで直接入力/+) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, padding: "0 2px" }}>
+            <button onClick={() => setMetroSettingsOpen((v) => !v)} style={{
+              padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
+              border: metroSettingsOpen ? "1.5px solid #174585" : "1px solid #E9ECF0",
+              background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585", flexShrink: 0,
+            }}>{metroSig}</button>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "center", flex: 1, minWidth: 0 }}>
+              {Array.from({ length: metroNumBeats }).map((_, i) => (
+                <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: i === metroBeat ? "#174585" : "transparent", border: `1.5px solid ${i === metroBeat ? "#174585" : "#C3CAD3"}`, flexShrink: 0 }} />
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>−</button>
+              {tempoEditing ? (
+                <input
+                  type="number" inputMode="numeric" autoFocus
+                  defaultValue={metroTempo}
+                  onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
+                />
+              ) : (
+                <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 64, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 26, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
+              )}
+              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>＋</button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 音名+ピッチメーター。メトロノームON時はコンパクトな1行(音名/メーター/セント)、
+          OFF時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
+      {metronomeOn ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 4px 0" }}>
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: 26, lineHeight: 1, color: note ? "#121F32" : "#435266", width: 52, flexShrink: 0, textAlign: "center" }}>
+            {note ? note.name : "—"}<span style={{ fontSize: 14, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <PitchMeter note={note} centsOffset={centsOffset} showScaleLabels={false} />
+          </div>
+          {(() => {
+            const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+            const ac = note ? Math.abs(exact) : null;
+            const c = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+            return (
+              <span className="sans" style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: c, width: 44, textAlign: "right", flexShrink: 0 }}>
+                {note ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "—"}
+              </span>
+            );
+          })()}
+        </div>
+      ) : (
+        <>
+          <div style={{ textAlign: "center", padding: "12px 0 0" }}>
+            <span style={{ fontFamily: "var(--font-serif)", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+              {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+            </span>
+          </div>
+          <div style={{ padding: "18px 4px 0" }}>
+            <PitchMeter note={note} centsOffset={centsOffset} />
+          </div>
+        </>
+      )}
 
       {/* 「これまでの音」ミニタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
           録音中はphraseFrames(セッションになる確定データ)を、それ以外はマイク接続中に常に
