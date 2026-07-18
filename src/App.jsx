@@ -2313,27 +2313,27 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
     {
       key: "measure", label: "計測",
       icon: (c) => (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
           <path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" />
           <circle cx="12" cy="15" r="1.4" fill={c} stroke="none" />
         </svg>
       ),
     },
     {
-      // 実際のリード1枚を正面から見たピクトグラム: 上に向かって細くなる先端(チップ)、
-      // 中央より少し下のヴァンプ(削り部)を表す直線、下は平らな尻(ヒール)。
+      // 実際のリード1枚を正面から見たピクトグラム: 先端(チップ)はとがらせず、なだらかな
+      // ドーム状のアーチにする。中央より少し下のヴァンプ(削り部)を表す直線、下は平らな尻(ヒール)。
       key: "reeds", label: "リード",
       icon: (c) => (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 22 L9 8 C9 4 10.5 2.5 12 2.5 C13.5 2.5 15 4 15 8 L15 22 Z" />
-          <line x1="9" y1="13.5" x2="15" y2="13.5" />
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z" />
+          <line x1="9" y1="14" x2="15" y2="14" />
         </svg>
       ),
     },
     {
       key: "analysis", label: "データ",
       icon: (c) => (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
           <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
         </svg>
       ),
@@ -3172,33 +3172,32 @@ function MeasureView(props) {
           ) : (
             <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} />
           )}
-          {/* 左に拍子(タップで設定・2段分の高さ)、右は上段START/STOP・下段テンポの2段構成。
-              START/STOPとテンポは中央寄せ。拍子ボタンはalign-items:stretchで右列2段の合計高さに揃う。 */}
-          <div style={{ display: "flex", alignItems: "stretch", gap: 10, marginTop: 8, padding: "0 2px" }}>
+          {/* START/STOP+テンポの2段スタックを画面幅の中央に置き(メイン操作なので拍子ボタンの
+              有無に関係なく中央に来る)、拍子ボタンは左端に絶対配置で重ねる。拍子ボタンは
+              top:0/bottom:0でスタック2段の合計高さに自動で揃う。 */}
+          <div style={{ position: "relative", marginTop: 8 }}>
             <button onClick={() => setMetroSettingsOpen((v) => !v)} style={{
-              padding: "0 18px", borderRadius: 14, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
+              position: "absolute", left: 2, top: 0, bottom: 0, padding: "0 18px", borderRadius: 14, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
               border: metroSettingsOpen ? "1.5px solid #174585" : "1px solid #E9ECF0",
-              background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585", flexShrink: 0,
+              background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585",
             }}>{metroSig}</button>
-            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-              {/* 上段: START/STOP(中央) */}
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <button
-                  onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
-                  className="sans"
-                  style={{
-                    width: 150, maxWidth: "100%", padding: "9px 0", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.02em",
-                    border: metronomeOn ? "1.5px solid #DC2626" : "none",
-                    background: metronomeOn ? "#FFFFFF" : "#174585",
-                    color: metronomeOn ? "#DC2626" : "#FFFFFF",
-                  }}
-                >
-                  {metronomeOn ? "STOP" : "START"}
-                </button>
-              </div>
-              {/* 下段: テンポ(−/数値タップで直接入力/+)。中央寄せ */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+              {/* 上段: START/STOP(画面中央・大きめ) */}
+              <button
+                onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+                className="sans"
+                style={{
+                  width: 210, maxWidth: "82%", padding: "15px 0", borderRadius: 999, fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
+                  border: metronomeOn ? "2px solid #DC2626" : "none",
+                  background: metronomeOn ? "#FFFFFF" : "#174585",
+                  color: metronomeOn ? "#DC2626" : "#FFFFFF",
+                }}
+              >
+                {metronomeOn ? "STOP" : "START"}
+              </button>
+              {/* 下段: テンポ(−/数値タップで直接入力/+)。STARTと同じく画面中央 */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
                 {tempoEditing ? (
                   // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
                   // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
@@ -3212,13 +3211,13 @@ function MeasureView(props) {
                       type="number" inputMode="numeric"
                       defaultValue={metroTempo}
                       onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                      style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
+                      style={{ width: 72, textAlign: "center", fontSize: 22, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
                     />
                   </form>
                 ) : (
-                  <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 64, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 24, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
+                  <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 72, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 26, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
                 )}
-                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
               </div>
             </div>
           </div>
