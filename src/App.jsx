@@ -139,10 +139,47 @@ function writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz) {
   return freq440 * (tuningHz / 440);
 }
 
-// 運指テーブルを生成(Low B♭から約2.5オクターブ分)
-function buildFingeringTable(saxType, tuningHz, numNotes = 30) {
+// 楽器種別ごとの実音(コンサートピッチ)の音域(MIDIノート番号, 両端含む)。
+//   ソプラノ: A♭3(56)〜E5(76) / アルト: D♭3(49)〜A♭5(80)
+//   テナー:   A♭2(44)〜E4(64) / バリトン: D♭2(37)〜A♭4(68)
+// この範囲外の検出(倍音を基音と誤る1オクターブ上のピーク等)は測定・記録しない。
+// 音域の左端は運指テーブルの最低音(記音B♭)の実音と一致する。
+const SAX_CONCERT_RANGE = {
+  soprano: { lowMidi: 56, highMidi: 76 },
+  alto: { lowMidi: 49, highMidi: 80 },
+  tenor: { lowMidi: 44, highMidi: 64 },
+  baritone: { lowMidi: 37, highMidi: 68 },
+};
+
+// 実音MIDI → 周波数(基準ピッチa4基準)
+function concertMidiToFreq(midi, a4 = 440) {
+  return a4 * Math.pow(2, (midi - 69) / 12);
+}
+
+// 実音周波数 → 実音の音名ラベル(グラフの横軸などに使う。例: 442基準で139Hz→"D♭3")
+function concertFreqLabel(freq, a4 = 440) {
+  const n = freqToNote(freq, a4);
+  return n ? `${n.name}${n.octave}` : null;
+}
+
+// 楽器音域からピッチ検出の下限・上限周波数を出す(±1半音の余裕をつけて、音域端の音を
+// ±50¢曲げても外れないようにする)。範囲外の検出はdetectPitchMPMが棄却する。
+function saxPitchBounds(saxType, a4 = 440) {
+  const r = SAX_CONCERT_RANGE[saxType];
+  if (!r) return { minFreq: 55, maxFreq: 1200 };
+  return {
+    minFreq: concertMidiToFreq(r.lowMidi - 1, a4),
+    maxFreq: concertMidiToFreq(r.highMidi + 1, a4),
+  };
+}
+
+// 運指テーブルを生成。音数は楽器種別ごとの音域(SAX_CONCERT_RANGE)に一致させる
+// (記音B♭=音域の左端から、実音の最高音までを1半音刻みで並べる)。
+function buildFingeringTable(saxType, tuningHz, numNotes) {
+  const r = SAX_CONCERT_RANGE[saxType];
+  const n = numNotes ?? (r ? r.highMidi - r.lowMidi + 1 : 30);
   const table = [];
-  for (let i = 0; i < numNotes; i++) {
+  for (let i = 0; i < n; i++) {
     const writtenMidi = LOW_BB_WRITTEN_MIDI + i;
     const freq = writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz);
     table.push({ semitoneIndex: i, writtenLabel: writtenNoteLabel(i), soundingFreqHz: freq });
@@ -231,9 +268,8 @@ function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
     nsdf[t] = mt > 0 ? (2 * rt) / mt : 0;
   }
 
-  // ピーク選択(McLeod): 正区間ごとの局所最大を列挙し、最大ピーク×K以上の最初(最小τ)を採る
+  // ピーク選択(McLeod): 正区間ごとの局所最大を列挙し、音域内で最大ピーク×K以上の最初(最小τ)を採る
   const peaks = [];
-  let nmax = 0;
   let t = 2;
   while (t <= maxLag && nsdf[t] > 0) t++; // τ=0近傍の自明な正区間を飛ばす
   while (t <= maxLag) {
@@ -243,12 +279,22 @@ function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
       if (nsdf[t] > peakV) { peakV = nsdf[t]; peakT = t; }
       t++;
     }
-    if (peakT > 0) { peaks.push([peakT, peakV]); if (peakV > nmax) nmax = peakV; }
+    if (peakT > 0) { peaks.push([peakT, peakV]); }
   }
-  if (peaks.length === 0 || nmax < 0.5) return null;
+  if (peaks.length === 0) return null;
+  // 楽器音域の上限(maxFreq)より高いピーク=倍音を基音と誤る「1オクターブ上」のピークは
+  // 候補から除外する。McLeodの選択は「最大ピーク×K以上で最もτが小さい(=最も高い)ピーク」
+  // を採るため、音域を絞らないと強い倍音を持つ音で幻の高音(オクターブ上)を拾いやすい。
+  // 音域内(τ≥minLag)に絞ることで、正しい基音を選ぶ。
+  const minLag = Math.max(2, Math.floor(sampleRate / maxFreq));
+  const cand = peaks.filter((p) => p[0] >= minLag);
+  if (cand.length === 0) return null;
+  let candMax = 0;
+  for (const p of cand) if (p[1] > candMax) candMax = p[1];
+  if (candMax < 0.5) return null;
   const K = 0.9;
-  let chosen = peaks[0];
-  for (const p of peaks) { if (p[1] >= K * nmax) { chosen = p; break; } }
+  let chosen = cand[0];
+  for (const p of cand) { if (p[1] >= K * candMax) { chosen = p; break; } }
 
   // 放物線補間でサブサンプルの周期を求める(これが1¢精度の要)
   const T = chosen[0];
@@ -834,7 +880,8 @@ function useSessionsStore() {
 function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, noiseGateDb = NOISE_GATE_DEFAULT_DB }) {
   const preset = SAX_PRESETS[saxType];
   const effectiveTuningHz = tuningHz * Math.pow(2, instrumentOffsetCents / 1200);
-  const fingeringTable = buildFingeringTable(saxType, effectiveTuningHz, 30);
+  const fingeringTable = buildFingeringTable(saxType, effectiveTuningHz);
+  const { minFreq: pitchMinFreq, maxFreq: pitchMaxFreq } = saxPitchBounds(saxType, effectiveTuningHz);
   const FFT_SIZE = 8192;
   const NUM_HARMONICS = 8;
   const SAMPLE_INTERVAL_MS = 100;
@@ -881,7 +928,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
     let f0 = null;
     let mpmClarity = null; // フレームに信頼度として記録(集計の重み付けに使う)
     if (timeBuf) {
-      const mpm = detectPitchMPM(timeBuf, sampleRate);
+      const mpm = detectPitchMPM(timeBuf, sampleRate, pitchMinFreq, pitchMaxFreq);
       if (mpm && mpm.clarity >= PITCH_CLARITY_MIN) { f0 = mpm.freq; mpmClarity = mpm.clarity; }
     }
 
@@ -1354,7 +1401,6 @@ export default function WindToneLabPhaseMode() {
   const [isRecording, setIsRecording] = useState(false);
   const [pitch, setPitch] = useState(null);
   const [harmonicLevels, setHarmonicLevels] = useState([]);
-  const [spectrumBars, setSpectrumBars] = useState(new Array(64).fill(0));
   const [volumeDb, setVolumeDb] = useState(-100);
   const [centroidHz, setCentroidHz] = useState(0);
   const [hnrDb, setHnrDb] = useState(null);
@@ -1458,7 +1504,7 @@ export default function WindToneLabPhaseMode() {
   // 個体差オフセット(セント)は基準ピッチに乗算する形でテーブル全体をシフトする:
   //   実効基準Hz = tuningHz × 2^(offsetCents/1200)
   const fingeringTable = useMemo(
-    () => buildFingeringTable(saxType, tuningHz * Math.pow(2, instrumentOffsetCents / 1200), 30),
+    () => buildFingeringTable(saxType, tuningHz * Math.pow(2, instrumentOffsetCents / 1200)),
     [saxType, tuningHz, instrumentOffsetCents]
   );
 
@@ -1481,6 +1527,10 @@ export default function WindToneLabPhaseMode() {
   // (基準Hz×個体差オフセット)をtickからも読めるようrefで保持する。
   const effectiveTuningHz = tuningHz * Math.pow(2, instrumentOffsetCents / 1200);
   const effectiveTuningRef = useRef(effectiveTuningHz);
+  // ピッチ検出の音域(楽器種別+基準ピッチから算出)。音域外の幻の高音を拾わないよう
+  // detectPitchMPMに渡す。tickから毎回参照するためref化し、種別・基準変更で更新する。
+  const pitchBoundsRef = useRef(saxPitchBounds(saxType, effectiveTuningHz));
+  useEffect(() => { pitchBoundsRef.current = saxPitchBounds(saxType, effectiveTuningHz); }, [saxType, effectiveTuningHz]);
   useEffect(() => { fingeringTableRef.current = fingeringTable; }, [fingeringTable]);
   useEffect(() => { presetRef.current = preset; }, [preset]);
   useEffect(() => { temperatureRef.current = temperature; }, [temperature]);
@@ -1639,17 +1689,8 @@ export default function WindToneLabPhaseMode() {
       const tick = () => {
         const analyserNode = analyserRef.current;
         if (!analyserNode) return;
-        // 平滑済み(smoothingTimeConstant=0.6)のAnalyserNodeスペクトルは「スペクトル表示バー」
-        // の描画専用。測定(倍音・重心・HNR)には使わない(computeTimbreMetricsが時間波形から計算)。
-        const freqData = new Float32Array(analyserNode.frequencyBinCount);
-        analyserNode.getFloatFrequencyData(freqData);
-
-        const linear = new Float32Array(freqData.length);
-        for (let i = 0; i < freqData.length; i++) {
-          const db = freqData[i];
-          linear[i] = db < -100 ? 0 : Math.pow(10, db / 20);
-        }
-
+        // 測定(ピッチ・倍音・重心・HNR)はすべて時間波形から自前計算する。AnalyserNodeの
+        // 平滑済みスペクトルは使わない(スペクトル表示バーを廃止したため周波数データも読まない)。
         const sampleRate = audioCtx.sampleRate;
 
         // 音量(RMS/dBFS)は時間領域波形から算出する(標準的なdB。無音≒-70〜-90、通常音≒-15〜-35)。
@@ -1674,7 +1715,9 @@ export default function WindToneLabPhaseMode() {
 
         // ピッチ検出: 時間領域MPM(サブサンプル精度。1¢単位のメーター動作の要)。
         // clarity(周期の明瞭度)が低いもの=ブレスや空調などの非周期ノイズはここで排除する。
-        const mpm = detectPitchMPM(timeBuf, sampleRate);
+        // 楽器音域(minFreq/maxFreq)を渡し、音域外の幻の高音(倍音の誤検出)を拾わないようにする。
+        const { minFreq: pmn, maxFreq: pmx } = pitchBoundsRef.current;
+        const mpm = detectPitchMPM(timeBuf, sampleRate, pmn, pmx);
         const f0 = mpm && mpm.clarity >= PITCH_CLARITY_MIN ? mpm.freq : null;
 
         let levels = [];
@@ -1908,26 +1951,6 @@ export default function WindToneLabPhaseMode() {
             };
             setLiveFrames((prev) => [...prev, liveFrame].slice(-LIVE_WINDOW_MAX_FRAMES));
           }
-        }
-
-        // スペクトル表示バー(音量が低い時は測定せず空にする)
-        const displayBars = 64;
-        if (timbreMeasurable) {
-          const maxDisplayFreq = 4000;
-          const maxBin = Math.min(linear.length - 1, freqToBin(maxDisplayFreq, sampleRate, FFT_SIZE));
-          const bars = new Array(displayBars).fill(0);
-          for (let i = 0; i < displayBars; i++) {
-            const t0 = i / displayBars, t1 = (i + 1) / displayBars;
-            const startBin = Math.floor(Math.pow(t0, 2) * maxBin);
-            const endBin = Math.max(startBin + 1, Math.floor(Math.pow(t1, 2) * maxBin));
-            let peak = 0;
-            for (let b = startBin; b <= Math.min(endBin, maxBin); b++) peak = Math.max(peak, linear[b] || 0);
-            bars[i] = peak;
-          }
-          const maxBar = Math.max(...bars, 1e-6);
-          setSpectrumBars(bars.map((b) => b / maxBar));
-        } else {
-          setSpectrumBars(new Array(displayBars).fill(0));
         }
 
         rafRef.current = requestAnimationFrame(tick);
@@ -2193,7 +2216,6 @@ export default function WindToneLabPhaseMode() {
         <MeasureView
           isRecording={isRecording} toggleRecording={toggleRecording}
           note={note} centsOffset={centsOffset}
-          spectrumBars={spectrumBars}
           harmonicLevels={harmonicLevels}
           showIdeal={showIdeal} setShowIdeal={setShowIdeal}
           selectedIdeal={selectedIdeal}
@@ -2227,7 +2249,7 @@ export default function WindToneLabPhaseMode() {
       )}
       {topTab === "reeds" && reedsSubTab === "compare" && (
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
-          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} />
+          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={effectiveTuningHz} />
         </div>
       )}
       {topTab === "analysis" && (
@@ -2237,6 +2259,7 @@ export default function WindToneLabPhaseMode() {
           NUM_HARMONICS={NUM_HARMONICS}
           updateSessions={updateSessions} deleteSessions={deleteSessions}
           performers={performers} setPerformers={setPerformers}
+          saxType={saxType} tuningHz={effectiveTuningHz}
         />
       )}
 
@@ -2485,7 +2508,7 @@ function PitchDeviationLine({ frames }) {
 // ============================================================
 function MeasureView(props) {
   const {
-    isRecording, toggleRecording, note, centsOffset, spectrumBars,
+    isRecording, toggleRecording, note, centsOffset,
     harmonicLevels, showIdeal, setShowIdeal,
     selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering,
@@ -2756,11 +2779,6 @@ function MeasureView(props) {
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
-
-            <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 8 }}>スペクトル (0–4000 Hz)</div>
-            <div style={{ display: "flex", alignItems: "flex-end", height: 44, gap: 2, marginBottom: 4 }}>
-              {spectrumBars.map((v, i) => (<div key={i} style={{ flex: 1, height: `${Math.max(2, v * 100)}%`, background: "#9DB3CC", borderRadius: "2px 2px 0 0" }} />))}
-            </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
               {/* 値・単位・理想行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
@@ -3840,7 +3858,7 @@ const REED_COMPARE_METRICS = [
 const REED_COMPARE_COLORS = ["#174585", "#7FA0CE", "#B9C9E4", "#D97706", "#16A34A", "#8D95A1"];
 
 // --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
-function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) {
+function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, saxType, tuningHz }) {
   const toggleReed = (id) => {
     setCompareReedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -3920,7 +3938,8 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "17px" }}>
-          {REED_COMPARE_METRICS.map((m) => (
+          {/* 音量・ピッチ誤差は平均値の横棒で比較 */}
+          {REED_COMPARE_METRICS.filter((m) => m.key !== "hnrDb" && m.key !== "spectralCentroidHz").map((m) => (
             <ReedMetricBarRow
               key={m.key}
               label={m.label}
@@ -3929,6 +3948,25 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds }) 
               fmt={m.fmt}
             />
           ))}
+          {/* HNR・スペクトル重心は音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
+          {["hnrDb", "spectralCentroidHz"].map((key) => {
+            const m = REED_COMPARE_METRICS.find((x) => x.key === key);
+            return (
+              <NoteAxisLineChart
+                key={key}
+                label={m.label}
+                unit={m.unit}
+                metricKey={key}
+                series={items.map((it) => ({
+                  id: it.reed.id, label: it.label, color: colorById.get(it.reed.id),
+                  frames: sessions.filter((s) => s.reedId === it.reed.id).flatMap((s) => s.frames || []),
+                }))}
+                saxType={saxType}
+                tuningHz={tuningHz}
+                fmt={m.fmt}
+              />
+            );
+          })}
           <div style={{ marginBottom: 4 }}>
             <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>主観評価</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -4013,6 +4051,95 @@ function MetricLineChart({ metricDef, points }) {
             ))}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// 横軸=音名(選択楽器の音域)、縦軸=指標値(HNR / スペクトル重心)の折れ線グラフ。
+// 各系列(比較リード or 自分)のフレームを運指(semitoneIndex=音)ごとに平均し、音域の
+// 低音→高音の順に線で結ぶ。データのある音だけ点を打ち、連続する音の間を線でつなぐ
+// (欠けている音はギャップにする)。横軸の音名は選択中の楽器種別ごとに変わる。
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt }) {
+  const table = buildFingeringTable(saxType, tuningHz);
+  const N = table.length;
+  const noteLabels = table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz) || "");
+
+  // 系列ごとに音(semitoneIndex)別の平均値を出す(groupFramesByNoteでclarity重み・
+  // アタック除外は共通ロジックに従う)。groupFramesByNoteは重心を"centroidHz"で返すため対応づける。
+  const groupKey = metricKey === "spectralCentroidHz" ? "centroidHz" : metricKey;
+  const seriesData = series.map((s) => {
+    const byIdx = {};
+    for (const g of groupFramesByNote(s.frames || [])) {
+      const v = g[groupKey];
+      if (v !== null && v !== undefined && !isNaN(v)) byIdx[g.semitoneIndex] = v;
+    }
+    return { ...s, byIdx };
+  });
+
+  const allVals = seriesData.flatMap((s) => Object.values(s.byIdx));
+  const hasData = allVals.length > 0;
+  const minV = hasData ? Math.min(...allVals) : 0;
+  const maxV = hasData ? Math.max(...allVals) : 1;
+  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+
+  const COL = 26, H = 132, padTop = 8, padBottom = 30, plotH = H - padTop - padBottom;
+  const W = Math.max(N * COL, 220);
+  const xAt = (i) => i * COL + COL / 2;
+  const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
+
+  // データのある音を連続区間(欠けで分割)ごとにpolylineにする
+  const segmentsFor = (byIdx) => {
+    const segs = []; let cur = [];
+    for (let i = 0; i < N; i++) {
+      if (byIdx[i] !== undefined) cur.push(`${xAt(i)},${yAt(byIdx[i])}`);
+      else { if (cur.length) segs.push(cur); cur = []; }
+    }
+    if (cur.length) segs.push(cur);
+    return segs;
+  };
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""} — 横軸: 音名</div>
+      {!hasData ? (
+        <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>この音域のデータがまだありません</div>
+      ) : (
+        <div style={{ display: "flex" }}>
+          {/* 縦軸(値)の目盛: 上=最大 / 下=最小 */}
+          <div style={{ position: "relative", width: 42, height: H, flexShrink: 0 }}>
+            <span className="sans" style={{ position: "absolute", right: 4, top: padTop - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{fmt(hi)}</span>
+            <span className="sans" style={{ position: "absolute", right: 4, top: padTop + plotH - 6, fontSize: 11, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{fmt(lo)}</span>
+          </div>
+          <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
+            <svg width={W} height={H} style={{ display: "block" }}>
+              <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
+              {seriesData.map((s, si) => (
+                <g key={s.id ?? si}>
+                  {segmentsFor(s.byIdx).map((seg, k) => (
+                    <polyline key={k} fill="none" stroke={s.color || "#174585"} strokeWidth="2" points={seg.join(" ")} />
+                  ))}
+                  {Object.entries(s.byIdx).map(([idx, v]) => (
+                    <circle key={idx} cx={xAt(+idx)} cy={yAt(v)} r={3} fill={s.color || "#174585"} />
+                  ))}
+                </g>
+              ))}
+              {noteLabels.map((nm, i) => (
+                <text key={i} x={xAt(i)} y={H - 10} fontSize="9" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">{nm}</text>
+              ))}
+            </svg>
+          </div>
+        </div>
+      )}
+      {series.length > 1 && (
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 11, color: "#435266", paddingLeft: 42 }}>
+          {series.map((s) => (
+            <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 11, height: 2, background: s.color || "#174585", display: "inline-block" }} />{s.label}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -4424,7 +4551,7 @@ function getMyDataRangeBounds(rangeKey, now) {
 // 平均値(デフォルト)/推移をタブで切替。平均値は数値同士の比較が目的なので
 // グラフにせずスタットカード(実測+理想+差分)で表し、推移は時間変化を見るものなので
 // 折れ線(実測=青実線、理想=灰破線)で表す。
-function MyDataSection({ sessions, selectedIdeal }) {
+function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   const [view, setView] = useState("avg"); // "avg" | "trend"
   const allMySessions = sessions.filter((s) => s.performer === "自分");
   const [range, setRange] = useState("1m");
@@ -4594,6 +4721,24 @@ function MyDataSection({ sessions, selectedIdeal }) {
         </>
       )}
     </div>
+
+    {/* 音ごとのHNR・スペクトル重心(横軸=音名, 縦軸=値の折れ線)。楽器の音域に沿って
+        どの音で音色が崩れるかを見る。 */}
+    {points.length > 0 && (
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+        <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>音ごとの音色</div>
+        <NoteAxisLineChart
+          label="HNR" unit="dB" metricKey="hnrDb"
+          series={[{ id: "self", label: "自分", color: "#174585", frames: allFrames }]}
+          saxType={saxType} tuningHz={tuningHz} fmt={(v) => v.toFixed(1)}
+        />
+        <NoteAxisLineChart
+          label="スペクトル重心" unit="Hz" metricKey="spectralCentroidHz"
+          series={[{ id: "self", label: "自分", color: "#174585", frames: allFrames }]}
+          saxType={saxType} tuningHz={tuningHz} fmt={(v) => Math.round(v).toString()}
+        />
+      </div>
+    )}
     </>
   );
 }
@@ -4691,6 +4836,7 @@ function AnalysisLabView(props) {
     sessions, reeds, selectedIdeal, promoteSessionToIdeal,
     NUM_HARMONICS,
     updateSessions, deleteSessions, performers, setPerformers,
+    saxType, tuningHz,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
@@ -4831,7 +4977,7 @@ function AnalysisLabView(props) {
 
       {dataSubTab === "mydata" && (<>
       {/* --- My Data: 「自分」のセッションの推移 --- */}
-      <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} />
+      <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz} />
 
       {/* --- 最新セッション: 直近1回分の内訳を単独表示 --- */}
       {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} />}

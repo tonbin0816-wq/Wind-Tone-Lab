@@ -56,6 +56,10 @@ const code = [
   extractFunction("writtenNoteLabel"),
   extractFunction("parseNoteLabel"),
   extractFunction("writtenMidiToSoundingFreq"),
+  extractConst("SAX_CONCERT_RANGE"),
+  extractFunction("concertMidiToFreq"),
+  extractFunction("concertFreqLabel"),
+  extractFunction("saxPitchBounds"),
   extractFunction("buildFingeringTable"),
   extractFunction("findClosestFingering"),
   extractConst("TIMBRE_SUSTAIN_MS"),
@@ -78,9 +82,9 @@ const api = new Function(`${code}
   return { freqToNote, centsBetween, writtenNoteLabel, parseNoteLabel, writtenMidiToSoundingFreq,
            buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
-           matchFingering, applyBandpassRBJ,
+           matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
-           TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS };`)();
+           TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -617,6 +621,57 @@ console.log("=== 検証15: バンドパス特性(RBJ)・運指の範囲外リジ
   // ヒステリシスは共通処理経由でも機能する
   const held = api.matchFingering(table[14], table[14].soundingFreqHz * Math.pow(2, 52 / 1200), table);
   check("matchFingering経由でもヒステリシス有効", held?.semitoneIndex === 14);
+}
+
+// ============================================================
+// 検証16: 楽器音域による検出範囲の制限とオクターブ上の誤検出の棄却
+//   (ユーザー報告: 吹いていないA5以上が計測される/吹いている低音が計測されない)
+// ============================================================
+console.log("=== 検証16: 音域制限・オクターブ誤検出の棄却 ===");
+{
+  // 各楽器の音域(SAX_CONCERT_RANGE)と、buildFingeringTableの実音が一致すること
+  const expect = {
+    soprano: ["A♭3", "E5"], alto: ["D♭3", "A♭5"], tenor: ["A♭2", "E4"], baritone: ["D♭2", "A♭4"],
+  };
+  // NOTE_NAMESはC♯/D♭表記が"C♯","E♭","G♯","B♭"。A♭=G♯, D♭=C♯として突き合わせる
+  const norm = (s) => s.replace("A♭", "G♯").replace("D♭", "C♯").replace("G♭", "F♯").replace("B♭", "A♯");
+  for (const sax of ["soprano", "alto", "tenor", "baritone"]) {
+    const t = api.buildFingeringTable(sax, 442);
+    const lo = api.concertFreqLabel(t[0].soundingFreqHz, 442);
+    const hi = api.concertFreqLabel(t[t.length - 1].soundingFreqHz, 442);
+    const r = api.SAX_CONCERT_RANGE[sax];
+    check(`${sax} テーブル音数=音域`, t.length === r.highMidi - r.lowMidi + 1, `${t.length} vs ${r.highMidi - r.lowMidi + 1}`);
+    check(`${sax} 最低音=${expect[sax][0]}`, norm(lo) === norm(expect[sax][0]), `${lo}`);
+    check(`${sax} 最高音=${expect[sax][1]}`, norm(hi) === norm(expect[sax][1]), `${hi}`);
+  }
+
+  // オクターブ上の誤検出棄却: 音域上限より上の音を鳴らしても、音域内に収まらなければnull。
+  // かつ、低音を「倍音が非常に強い」波形で鳴らしても、音域を絞れば基音を正しく採る。
+  for (const sax of ["alto", "tenor"]) {
+    const b = api.saxPitchBounds(sax, 442);
+    const r = api.SAX_CONCERT_RANGE[sax];
+    // 音域内の代表音(中央付近)は正しく検出される
+    const midFreq = api.concertMidiToFreq((r.lowMidi + r.highMidi) >> 1, 442);
+    const rMid = api.detectPitchMPM(synthTone(midFreq), SR, b.minFreq, b.maxFreq);
+    check(`${sax} 音域内は検出`, rMid && Math.abs(1200 * Math.log2(rMid.freq / midFreq)) < 5, rMid ? rMid.freq.toFixed(1) : "null");
+
+    // 倍音が基音より強い低音(基音の実効振幅が小さい)= オクターブ上を拾いやすい波形。
+    // 音域を絞らない(デフォルト)と2倍音を拾うことがあるが、音域制限つきなら基音を採る。
+    const lowFreq = api.concertMidiToFreq(r.lowMidi + 2, 442); // 低音側
+    const weakFundamental = synthTone(lowFreq, { ampFn: (h) => (h === 1 ? 0.15 : 1 / h) });
+    const rLow = api.detectPitchMPM(weakFundamental, SR, b.minFreq, b.maxFreq);
+    check(`${sax} 倍音の強い低音でも基音(音域制限あり)`, rLow && Math.abs(1200 * Math.log2(rLow.freq / lowFreq)) < 10,
+      rLow ? `${rLow.freq.toFixed(1)}Hz (真値${lowFreq.toFixed(1)})` : "null");
+
+    // 音域上限の1オクターブ上の純音は棄却される(幻の高音を拾わない)
+    const tooHigh = api.concertMidiToFreq(r.highMidi + 12, 442);
+    const rHigh = api.detectPitchMPM(synthTone(tooHigh), SR, b.minFreq, b.maxFreq);
+    check(`${sax} 音域外(1oct上)は棄却`, rHigh === null || rHigh.freq <= b.maxFreq * 1.01, rHigh ? rHigh.freq.toFixed(1) : "null");
+  }
+
+  // saxPitchBounds: 未知の種別はワイドなデフォルト
+  const def = api.saxPitchBounds("unknown", 442);
+  check("未知種別はデフォルト範囲", def.minFreq === 55 && def.maxFreq === 1200);
 }
 
 // ============================================================
