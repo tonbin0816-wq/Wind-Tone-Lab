@@ -4034,7 +4034,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 
   return (
     <div style={{ marginBottom: 18 }}>
-      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""} — 横軸: 音名</div>
+      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>
       {!hasData ? (
         <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>この音域のデータがまだありません</div>
       ) : (
@@ -4104,21 +4104,16 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
       onClick={() => setOpen((v) => !v)}
       style={{ border: "1px solid #E9ECF0", borderRadius: 14, padding: "14px", cursor: "pointer", gridColumn: open ? "1 / -1" : "auto" }}
     >
-      <div className="sans" style={{ fontSize: 11, color: "#8D95A1", display: "flex", justifyContent: "space-between", gap: 6 }}>
-        <span>{label}</span>
-        <span style={{ color: "#B9C9E4", flexShrink: 0 }}>{open ? "タップで数値" : "タップで音名グラフ"}</span>
-      </div>
       {open ? (
-        <div style={{ marginTop: 10 }}>
-          <NoteAxisLineChart
-            label={label} unit={unit} metricKey={metricKey}
-            series={[{ id: "self", label, color: "#174585", frames }]}
-            saxType={saxType} tuningHz={tuningHz} fmt={fmt}
-            selectedIdeal={selectedIdeal} idealKey={idealKey}
-          />
-        </div>
+        <NoteAxisLineChart
+          label={label} unit={unit} metricKey={metricKey}
+          series={[{ id: "self", label, color: "#174585", frames }]}
+          saxType={saxType} tuningHz={tuningHz} fmt={fmt}
+          selectedIdeal={selectedIdeal} idealKey={idealKey}
+        />
       ) : (
         <>
+          <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{label}</div>
           <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
             {value}
           </div>
