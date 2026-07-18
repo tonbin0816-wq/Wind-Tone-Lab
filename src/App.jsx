@@ -1489,6 +1489,8 @@ export default function WindToneLabPhaseMode() {
   // --- メトロノーム連携(エンジン本体はMeasureView内。ここは計測との干渉対策用) ---
   const scheduledClicksRef = useRef([]); // クリック予定時刻(performance.now()基準・昇順)。tickが近傍判定に読む
   const metroActiveRef = useRef(false);  // メトロノーム動作中フラグ(録音停止時のWake Lock解放判定に使う)
+  const metroBarPerfTimesRef = useRef([]); // メトロノームのアクセント(=小節頭)の予定時刻(performance.now基準)。録音中に貯め、小節線として保存する
+  const recStartPerfRef = useRef(null);   // 録音開始時のperformance.now()。小節線を録音相対秒に変換するのに使う(phraseStartTimeRefは停止時にnull化されるため別に持つ)
   // 音色(倍音・重心・HNR)の"表示"を安定させるためのローリングバッファ。
   // 測定はフレーム毎に正確に行い記録するが、画面表示は直近の有効値の中央値にすることで、
   // ・音の遷移(レガート)で一瞬混ざった外れ値を弾き、
@@ -1557,6 +1559,17 @@ export default function WindToneLabPhaseMode() {
   const [pendingSession, setPendingSession] = useState(null);
   const finalizeRecording = useCallback(() => {
     if (phraseFramesRef.current.length > 0) {
+      // メトロノームのアクセント(小節頭)が録音中に鳴っていれば、その時刻を録音開始からの
+      // 相対秒(フレームのtと同じ座標)に変換して小節線として保存する。
+      const startPerf = recStartPerfRef.current;
+      const endPerf = performance.now();
+      let barlines = [];
+      if (startPerf !== null) {
+        barlines = metroBarPerfTimesRef.current
+          .filter((p) => p >= startPerf - 20 && p <= endPerf + 20)
+          .map((p) => (p - startPerf) / 1000)
+          .filter((t) => t >= 0);
+      }
       const session = {
         id: generateId(),
         recordedAt: new Date().toISOString(),
@@ -1567,7 +1580,7 @@ export default function WindToneLabPhaseMode() {
         performer: selectedPerformer,
         source: "live",
         frames: sanitizePitchOutliers(phraseFramesRef.current), // 単発のオクターブ誤検出等を除去してから保存
-
+        barlines, // メトロノームのアクセント由来の小節頭の時刻(秒)。タイムラインに縦線として描く
         noteEvents: noteDetectorRef.current.events, // ノート区間分割・アタック時間(企画書2.4節・4節のnoteEvents)
       };
       setPendingSession(session);
@@ -2004,6 +2017,8 @@ export default function WindToneLabPhaseMode() {
     setPendingSession(null); // 新規録音を始めるので前回の候補は破棄
     setLastUploadedSession(null); // 前回の「解析が完了しました」表示も消す
     phraseStartTimeRef.current = performance.now();
+    recStartPerfRef.current = phraseStartTimeRef.current; // 小節線を録音相対秒に変換する基準
+    metroBarPerfTimesRef.current = []; // 今回の録音ぶんの小節頭を貯め直す
     lastSampleTimeRef.current = 0;
     setPhraseFrames([]);
     phraseFramesRef.current = [];
@@ -2173,7 +2188,7 @@ export default function WindToneLabPhaseMode() {
   const centsOffset = note ? note.cents : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 96px", boxSizing: "border-box" }}>
+    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 72px", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
@@ -2250,7 +2265,7 @@ export default function WindToneLabPhaseMode() {
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb} micProcessingWarning={micProcessingWarning}
-          scheduledClicksRef={scheduledClicksRef} metroActiveRef={metroActiveRef}
+          scheduledClicksRef={scheduledClicksRef} metroActiveRef={metroActiveRef} metroBarPerfTimesRef={metroBarPerfTimesRef}
           requestWakeLock={requestWakeLock} releaseWakeLock={releaseWakeLock}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           promoteSessionToIdeal={promoteSessionToIdeal}
@@ -2306,12 +2321,12 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
     },
     {
       // 実際のリード1枚を正面から見たピクトグラム: 上に向かって細くなる先端(チップ)、
-      // 中央のヴァンプ(削り部)の曲線、下は平らな尻(ヒール)。
+      // 中央より少し下のヴァンプ(削り部)を表す直線、下は平らな尻(ヒール)。
       key: "reeds", label: "リード",
       icon: (c) => (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 22 L9 8 C9 4 10.5 2.5 12 2.5 C13.5 2.5 15 4 15 8 L15 22 Z" />
-          <path d="M9 9.5 Q12 12 15 9.5" />
+          <line x1="9" y1="13.5" x2="15" y2="13.5" />
         </svg>
       ),
     },
@@ -2330,7 +2345,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
     }}>
-      <div style={{ maxWidth: 480, margin: "0 auto", height: 68, display: "flex", padding: "8px 20px 14px" }}>
+      {/* アイコンのみの1行。ラベルを廃してタブ帯の縦幅を小さくする(演奏中の画面領域を広く取るため) */}
+      <div style={{ maxWidth: 480, margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
         {items.map((t) => {
           const active = topTab === t.key;
           const color = active ? "#174585" : "#8D95A1";
@@ -2339,15 +2355,15 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               key={t.key}
               onClick={() => onNavTap(t.key)}
               disabled={isRecording}
+              aria-label={t.label}
               className="sans"
               style={{
-                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                 background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
                 color, opacity: isRecording && !active ? 0.4 : 1,
               }}
             >
               {t.icon(color)}
-              <span style={{ fontSize: 11, fontWeight: active ? 700 : 400 }}>{t.label}</span>
             </button>
           );
         })}
@@ -2603,9 +2619,31 @@ function getMetroClickBuffer(ctx) {
   return buffer;
 }
 
+// メトロノーム出力の共通マスターチェーン(AudioContextごとに1回作りキャッシュ)。
+// iOSではマイク(getUserMedia)が有効な間、音声出力が受話口寄り/小音量のルートに切り替わり、
+// 端末音量を最大にしてもクリック音が小さくなる問題がある(Web側からルート自体は変えられない)。
+// そこで、デジタル段で目一杯持ち上げつつリミッター(DynamicsCompressor)で歪みを抑え、
+// 許可の有無によらずできる限り大きく・一定の音量に近づける。
+//   [各クリック] → limiter(閾値-3dB・高レシオ) → masterGain(2.6倍) → destination
+function getMetroMasterInput(ctx) {
+  if (ctx.__metroMasterInput) return ctx.__metroMasterInput;
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.05;
+  const master = ctx.createGain();
+  master.gain.value = 2.6; // マイク有効時の小音量を補うブースト。リミッターが歪みを抑える
+  limiter.connect(master);
+  master.connect(ctx.destination);
+  ctx.__metroMasterInput = limiter;
+  return limiter;
+}
+
 // クリック音を1回分スケジュールする。白色雑音をバンドパスで整形した短いパーカッシブな
 // 「チッ」音(実物のメトロノームや電子ドラムのクリックに近い、はっきり抜ける音)。
-// アクセント/拍/分割で中心周波数と音量を変え、聴き分けやすくする。
+// アクセント/拍/分割で中心周波数と音量を変え、聴き分けやすくする。出力はマスターチェーン経由。
 function scheduleMetroClick(ctx, t, kind) {
   const src = ctx.createBufferSource();
   src.buffer = getMetroClickBuffer(ctx);
@@ -2619,7 +2657,7 @@ function scheduleMetroClick(ctx, t, kind) {
   gain.gain.exponentialRampToValueAtTime(0.0001, t + src.buffer.duration);
   src.connect(bp);
   bp.connect(gain);
-  gain.connect(ctx.destination);
+  gain.connect(getMetroMasterInput(ctx));
   src.start(t);
 }
 
@@ -2654,7 +2692,8 @@ function MetronomePendulum({ getPhase, tempo }) {
     let raf;
     const loop = () => {
       const phase = getPhase();
-      const angle = phase === null ? 0 : 26 * Math.cos(Math.PI * phase);
+      // 振れ幅は画面いっぱいに大きく振る(実物のメトロノームに近い±44°)
+      const angle = phase === null ? 0 : 44 * Math.cos(Math.PI * phase);
       if (armRef.current) armRef.current.style.transform = `rotate(${angle}deg)`;
       raf = requestAnimationFrame(loop);
     };
@@ -2729,7 +2768,7 @@ function MeasureView(props) {
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
-    scheduledClicksRef, metroActiveRef, requestWakeLock, releaseWakeLock,
+    scheduledClicksRef, metroActiveRef, metroBarPerfTimesRef, requestWakeLock, releaseWakeLock,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
@@ -2836,8 +2875,14 @@ function MeasureView(props) {
 
       scheduleMetroClick(ctx, t, kind);
       // ライブ計測の除外判定用にクリック時刻をperformance.now()基準で記録する
-      scheduledClicksRef.current.push(performance.now() + (t - ctx.currentTime) * 1000);
+      const perfT = performance.now() + (t - ctx.currentTime) * 1000;
+      scheduledClicksRef.current.push(perfT);
       if (scheduledClicksRef.current.length > 128) scheduledClicksRef.current.splice(0, 64);
+      // アクセント(=小節頭)の時刻は、録音のタイムラインに小節線を引くために別途貯める
+      if (kind === "accent" && metroBarPerfTimesRef) {
+        metroBarPerfTimesRef.current.push(perfT);
+        if (metroBarPerfTimesRef.current.length > 2048) metroBarPerfTimesRef.current.splice(0, 1024);
+      }
       if (isEighthPulse) {
         // 振り子は元の拍(8分音符)の速さで振れる(複合拍子でも変えない。変わるのはクリック音の強弱のみ)
         metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, mBeat: eighthIdx };
@@ -2846,7 +2891,7 @@ function MeasureView(props) {
       metroNextTimeRef.current = t + 60 / metroTempoRef.current / subdiv;
       metroTickIndexRef.current = (idx + 1) % perMeasure;
     }
-  }, [scheduledClicksRef]);
+  }, [scheduledClicksRef, metroBarPerfTimesRef]);
 
   const startMetronome = useCallback(async () => {
     // このSTART呼び出し固有の世代番号。resume()待ちの間に別のSTART/STOPが発生したら、
@@ -3127,47 +3172,54 @@ function MeasureView(props) {
           ) : (
             <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} />
           )}
-          {/* 拍子(タップで設定) | START/STOP(実際の再生をここで切り替える) | テンポ(−/数値タップで直接入力/+) */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, padding: "0 2px" }}>
+          {/* 左に拍子(タップで設定・2段分の高さ)、右は上段START/STOP・下段テンポの2段構成。
+              START/STOPとテンポは中央寄せ。拍子ボタンはalign-items:stretchで右列2段の合計高さに揃う。 */}
+          <div style={{ display: "flex", alignItems: "stretch", gap: 10, marginTop: 8, padding: "0 2px" }}>
             <button onClick={() => setMetroSettingsOpen((v) => !v)} style={{
-              padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
+              padding: "0 18px", borderRadius: 14, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
               border: metroSettingsOpen ? "1.5px solid #174585" : "1px solid #E9ECF0",
               background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585", flexShrink: 0,
             }}>{metroSig}</button>
-            <button
-              onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
-              className="sans"
-              style={{
-                flex: 1, minWidth: 0, maxWidth: 130, padding: "9px 0", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.02em",
-                border: metronomeOn ? "1.5px solid #DC2626" : "none",
-                background: metronomeOn ? "#FFFFFF" : "#174585",
-                color: metronomeOn ? "#DC2626" : "#FFFFFF",
-              }}
-            >
-              {metronomeOn ? "STOP" : "START"}
-            </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>−</button>
-              {tempoEditing ? (
-                // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
-                // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
-                // フィールド外タップでの確定はonBlurで引き続き対応する。
-                <form
-                  onSubmit={(e) => { e.preventDefault(); setMetroTempo(clampMetroTempo(tempoInputRef.current?.value)); setTempoEditing(false); }}
-                  style={{ display: "inline-block" }}
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* 上段: START/STOP(中央) */}
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <button
+                  onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+                  className="sans"
+                  style={{
+                    width: 150, maxWidth: "100%", padding: "9px 0", borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.02em",
+                    border: metronomeOn ? "1.5px solid #DC2626" : "none",
+                    background: metronomeOn ? "#FFFFFF" : "#174585",
+                    color: metronomeOn ? "#DC2626" : "#FFFFFF",
+                  }}
                 >
-                  <input
-                    ref={tempoInputRef}
-                    type="number" inputMode="numeric"
-                    defaultValue={metroTempo}
-                    onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                    style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
-                  />
-                </form>
-              ) : (
-                <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 64, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 26, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
-              )}
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>＋</button>
+                  {metronomeOn ? "STOP" : "START"}
+                </button>
+              </div>
+              {/* 下段: テンポ(−/数値タップで直接入力/+)。中央寄せ */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
+                {tempoEditing ? (
+                  // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
+                  // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
+                  // フィールド外タップでの確定はonBlurで引き続き対応する。
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); setMetroTempo(clampMetroTempo(tempoInputRef.current?.value)); setTempoEditing(false); }}
+                    style={{ display: "inline-block" }}
+                  >
+                    <input
+                      ref={tempoInputRef}
+                      type="number" inputMode="numeric"
+                      defaultValue={metroTempo}
+                      onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
+                      style={{ width: 64, textAlign: "center", fontSize: 20, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
+                    />
+                  </form>
+                ) : (
+                  <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 64, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 24, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
+                )}
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 30, height: 30, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
+              </div>
             </div>
           </div>
         </div>
@@ -3339,7 +3391,7 @@ function MeasureView(props) {
 // フレーズのタイムライン+ドリルダウン表示。計測タブ(ライブ直後)とセッション詳細(履歴)の両方から使う共通コンポーネント。
 // 理想値プロファイル自体の選択は計測タブの設定欄で行う前提のため、ここでは「基準」として
 // 理想値/お手本セッション/(音高のみ)理論値のどれと比較するかだけを選ぶ。
-function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sessions, ownSessionId }) {
+function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sessions, ownSessionId, barlines }) {
   const [timelineMetric, setTimelineMetric] = useState("pitch");
   const [referenceBasis, setReferenceBasis] = useState("theoretical"); // "theoretical"(音高のみ) | "ideal" | "session"
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
@@ -3455,6 +3507,23 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
   const range = maxV - minV || 1;
   const selectedFrame = selectedFrameIdx !== null ? frames[selectedFrameIdx] : null;
 
+  // 小節線(メトロノームのアクセント由来)の秒→x座標変換。フレームは約100ms間隔で
+  // インデックスi→x=i*6に並ぶため、時刻tに最も近い前後フレームを見つけてxを線形補間する。
+  const barlineXs = (() => {
+    if (!barlines || barlines.length === 0 || frames.length < 2) return [];
+    const xs = [];
+    for (const bt of barlines) {
+      // frames[i].t <= bt <= frames[i+1].t となるiを探す(単純な線形探索。小節数は多くない)
+      if (bt < frames[0].t || bt > frames[frames.length - 1].t) continue;
+      let i = 0;
+      while (i < frames.length - 1 && frames[i + 1].t < bt) i++;
+      const t0 = frames[i].t, t1 = frames[i + 1]?.t ?? t0;
+      const frac = t1 > t0 ? (bt - t0) / (t1 - t0) : 0;
+      xs.push((i + frac) * 6);
+    }
+    return xs;
+  })();
+
   return (
     <>
       {/* 表示切り替え・比較基準 */}
@@ -3498,6 +3567,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
         </div>
         <div ref={timelineScrollRef} style={{ overflowX: "auto" }}>
           <svg width={Math.max(600, frames.length * 6)} height="120" style={{ display: "block" }}>
+            {/* 小節線(メトロノームのアクセント=小節頭。折れ線より先に描いて背面に置く) */}
+            {barlineXs.map((x, k) => (
+              <line key={`bar-${k}`} x1={x} y1={0} x2={x} y2={108} stroke="#C3CAD3" strokeWidth="1" />
+            ))}
             <polyline
               fill="none" stroke="#174585" strokeWidth="1.5"
               points={frames.map((f, i) => {
@@ -5085,7 +5158,8 @@ function getMyDataRangeBounds(rangeKey, now) {
 // 折れ線(実測=青実線、理想=灰破線)で表す。
 function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   const allMySessions = sessions.filter((s) => s.performer === "自分");
-  const [range, setRange] = useState("1m");
+  // 期間はデフォルト1か月。選択後は永続化し、タブを切り替えて再マウントされても残す。
+  const [range, setRange] = usePersistedState("myDataRange", "1m");
 
   const now = new Date();
   const rangeOptions = MY_DATA_RANGES;
@@ -5273,8 +5347,11 @@ function AnalysisLabView(props) {
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
   const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
   const [selectedSessionId, setSelectedSessionId] = useState(null);
-  const [sessionSortKey, setSessionSortKey] = useState("date"); // date | performer | reed
-  const [sessionSortDir, setSessionSortDir] = useState("desc");
+  // セッション一覧の絞り込み(並び替えではなく絞り込み)。期間・奏者・リードで絞る。
+  const [sessionFilterPerformer, setSessionFilterPerformer] = useState(""); // "" = すべて
+  const [sessionFilterReed, setSessionFilterReed] = useState(""); // "" = すべて / "__none__" = 未紐付け
+  const [sessionFilterDateFrom, setSessionFilterDateFrom] = useState(""); // "YYYY-MM-DD" or ""
+  const [sessionFilterDateTo, setSessionFilterDateTo] = useState("");
   // 削除はリードタブと同様、行ごとのボタンではなくチェックボックスによる複数選択削除にする。
   // (selectedSessionがある時の早期returnより前で呼ぶ必要があるため、ここでまとめて宣言する)
   const [selectionMode, setSelectionMode] = useState(false);
@@ -5310,18 +5387,25 @@ function AnalysisLabView(props) {
   }
 
   const latestSession = [...sessions].sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt))[0] || null;
-  // 期間(録音日時)・奏者・リードでソートできる。
-  const sortedSessions = [...sessions].sort((a, b) => {
-    let cmp = 0;
-    if (sessionSortKey === "date") cmp = new Date(a.recordedAt) - new Date(b.recordedAt);
-    else if (sessionSortKey === "performer") cmp = (a.performer || "").localeCompare(b.performer || "", "ja");
-    else if (sessionSortKey === "reed") {
-      const la = a.reedId ? reedLabel(reeds.find((r) => r.id === a.reedId), reeds) : "";
-      const lb = b.reedId ? reedLabel(reeds.find((r) => r.id === b.reedId), reeds) : "";
-      cmp = la.localeCompare(lb, "ja");
-    }
-    return sessionSortDir === "desc" ? -cmp : cmp;
-  });
+  // 一覧は常に新しい順。期間(録音日)・奏者・リードで絞り込む(並び替えではなく絞り込み)。
+  const sessionPerformerOptions = [...new Set(sessions.map((s) => s.performer).filter(Boolean))];
+  const fromMs = sessionFilterDateFrom ? new Date(sessionFilterDateFrom).setHours(0, 0, 0, 0) : null;
+  const toMs = sessionFilterDateTo ? new Date(sessionFilterDateTo).setHours(23, 59, 59, 999) : null;
+  const sessionFilterActive = !!(sessionFilterPerformer || sessionFilterReed || sessionFilterDateFrom || sessionFilterDateTo);
+  const filteredSessions = [...sessions]
+    .sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt))
+    .filter((s) => {
+      if (sessionFilterPerformer && (s.performer || "") !== sessionFilterPerformer) return false;
+      if (sessionFilterReed === "__none__" && s.reedId) return false;      // 未紐付けのみ
+      if (sessionFilterReed && sessionFilterReed !== "__none__" && s.reedId !== sessionFilterReed) return false; // 特定リードのみ
+      const t = new Date(s.recordedAt).getTime();
+      if (fromMs !== null && t < fromMs) return false;
+      if (toMs !== null && t > toMs) return false;
+      return true;
+    });
+  const clearSessionFilters = () => {
+    setSessionFilterPerformer(""); setSessionFilterReed(""); setSessionFilterDateFrom(""); setSessionFilterDateTo("");
+  };
 
   const toggleSessionSelected = (id) => {
     setSelectedForDelete((prev) => {
@@ -5389,8 +5473,10 @@ function AnalysisLabView(props) {
       {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessions.length}</span></div>
-          {sortedSessions.length > 0 && (
+          <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>
+            セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessionFilterActive ? `${filteredSessions.length}/${sessions.length}` : sessions.length}</span>
+          </div>
+          {sessions.length > 0 && (
             selectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
                 <button
@@ -5421,22 +5507,30 @@ function AnalysisLabView(props) {
           )}
         </div>
 
-        {/* ソート: 期間(録音日時)・奏者・リード */}
-        {sortedSessions.length > 0 && !selectionMode && (
-          <div className="sans" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: "#8D95A1" }}>並び替え</span>
-            <select value={sessionSortKey} onChange={(e) => setSessionSortKey(e.target.value)} style={{ fontSize: 11 }}>
-              <option value="date">期間</option>
-              <option value="performer">奏者</option>
-              <option value="reed">リード</option>
-            </select>
-            <button
-              onClick={() => setSessionSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-              className="sans"
-              style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#174585", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
-            >
-              {sessionSortDir === "desc" ? "降順 ▼" : "昇順 ▲"}
-            </button>
+        {/* 絞り込み: 奏者・リード・期間(いつからいつまで)。すべて空=絞り込みなし。新しい順で表示。 */}
+        {sessions.length > 0 && !selectionMode && (
+          <div className="sans" style={{ marginBottom: 10, padding: "10px 12px", background: "#F6F7F9", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>絞り込み</span>
+              <select value={sessionFilterPerformer} onChange={(e) => setSessionFilterPerformer(e.target.value)} style={{ fontSize: 11 }}>
+                <option value="">奏者: すべて</option>
+                {sessionPerformerOptions.map((p) => (<option key={p} value={p}>{p}</option>))}
+              </select>
+              <select value={sessionFilterReed} onChange={(e) => setSessionFilterReed(e.target.value)} style={{ fontSize: 11 }}>
+                <option value="">リード: すべて</option>
+                <option value="__none__">未紐付け</option>
+                {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+              </select>
+              {sessionFilterActive && (
+                <button onClick={clearSessionFilters} className="sans" style={{ padding: "5px 10px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 11, cursor: "pointer" }}>クリア</button>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>期間</span>
+              <input type="date" value={sessionFilterDateFrom} onChange={(e) => setSessionFilterDateFrom(e.target.value)} style={{ fontSize: 11 }} />
+              <span style={{ fontSize: 11, color: "#8D95A1" }}>〜</span>
+              <input type="date" value={sessionFilterDateTo} onChange={(e) => setSessionFilterDateTo(e.target.value)} style={{ fontSize: 11 }} />
+            </div>
           </div>
         )}
 
@@ -5460,12 +5554,12 @@ function AnalysisLabView(props) {
           </div>
         )}
 
-        {sortedSessions.length === 0 ? (
-          <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>まだ記録がありません</div>
+        {filteredSessions.length === 0 ? (
+          <div className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>{sessions.length === 0 ? "まだ記録がありません" : "条件に合うセッションがありません"}</div>
         ) : (
-          // 最大10件程度の高さの枠に収め、それ以上はスクロールで過去分も見られるようにする(約38px/行)。
-          <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
-            {sortedSessions.map((s) => {
+          // 表示枠は5件分の高さに収め、それ以上はスクロールで過去分も見られるようにする(約38px/行)。
+          <div style={{ maxHeight: 190, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
+            {filteredSessions.map((s) => {
               const reed = reeds.find((r) => r.id === s.reedId) || null;
               return (
                 <div
@@ -5748,21 +5842,24 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
             style={{ background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "4px 8px", color: "#121F32", fontSize: 13, fontWeight: 700, boxSizing: "border-box" }}
           />
         </div>
-        <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {/* 日付の下段に奏者・リード・楽器種別を横一列で並べる(1行に収める。はみ出す分は横スクロール) */}
+        <div className="sans" style={{ fontSize: 11, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", overflowX: "auto" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             奏者:
             <PerformerSelector performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             リード:
             <select value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}>
               <option value="">未紐付け</option>
               {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
             </select>
           </span>
-          <span>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
-          {session.source === "upload" && <span>アップロード: {session.sourceFileName}</span>}
+          <span style={{ flexShrink: 0 }}>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
         </div>
+        {session.source === "upload" && (
+          <div className="sans" style={{ fontSize: 11, color: "#8D95A1", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>アップロード: {session.sourceFileName}</div>
+        )}
         <div className="sans" style={{ fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "#435266", flexShrink: 0 }}>メモ:</span>
           <input
@@ -5782,6 +5879,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         <PhraseTimeline
           frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
           NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
+          barlines={session.barlines}
         />
       )}
 
