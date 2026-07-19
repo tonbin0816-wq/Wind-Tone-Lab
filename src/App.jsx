@@ -1686,6 +1686,10 @@ export default function WindToneLabPhaseMode() {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
+      // 生成直後は"suspended"のことがあり、そのままだとAnalyserNodeに音が流れず検出が
+      // まったく動かない/途中で止まる。明示的にresumeし、以降もtick内でsuspendを検知したら
+      // 自動復帰させる(iOSは音声セッションの中断でAudioContextが勝手にsuspendすることがある)。
+      try { audioCtx.resume(); } catch { /* noop */ }
 
       const source = audioCtx.createMediaStreamSource(stream);
       // 生の解析用アナライザ(スペクトル・倍音・重心・ピッチ検出はフルバンドで行う)
@@ -1713,8 +1717,15 @@ export default function WindToneLabPhaseMode() {
       setIsListening(true);
 
       const tick = () => {
+        // tick本体はtry/finallyで包み、1フレームで例外が出ても必ず次フレームを予約して
+        // ループが永久停止しない(＝メーターやグラフが固まらない)ようにする。以前は末尾の
+        // requestAnimationFrameに到達しないと二度と更新されず、途中で止まる不具合につながっていた。
+        try {
         const analyserNode = analyserRef.current;
         if (!analyserNode) return;
+        // AudioContextがsuspend(iOSの音声セッション中断等)していると解析用データが更新されず
+        // 検出が止まる。検知したら復帰させる(resumeはユーザー操作外でも中断復帰なら通ることが多い)。
+        if (audioCtx.state === "suspended") { audioCtx.resume().catch(() => {}); }
         // 測定(ピッチ・倍音・重心・HNR)はすべて時間波形から自前計算する。AnalyserNodeの
         // 平滑済みスペクトルは使わない(スペクトル表示バーを廃止したため周波数データも読まない)。
         const sampleRate = audioCtx.sampleRate;
@@ -1983,8 +1994,10 @@ export default function WindToneLabPhaseMode() {
             setLiveFrames((prev) => [...prev, liveFrame].slice(-LIVE_WINDOW_MAX_FRAMES));
           }
         }
-
-        rafRef.current = requestAnimationFrame(tick);
+        } catch { /* 1フレームの失敗ではループを止めない(次フレームで回復) */ }
+        finally {
+          rafRef.current = requestAnimationFrame(tick);
+        }
       };
       tickRef.current = tick; // タブ切替後の再開(startListeningのマイク再利用パス)で使う
       tick();
