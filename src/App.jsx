@@ -2699,6 +2699,41 @@ function MetronomeIcon({ color, size = 20 }) {
   );
 }
 
+// 「1拍の分割」を音符アイコンで表す。1=四分音符 / 2=八分音符2つ / 3=三連符 / 4=十六分音符4つ。
+// 分割ボタン(現在の選択表示)と分割選択パネルの両方で共通利用する。
+function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
+  const cfg = {
+    1: { n: 1, beams: 0, triplet: false },
+    2: { n: 2, beams: 1, triplet: false },
+    3: { n: 3, beams: 1, triplet: true },
+    4: { n: 4, beams: 2, triplet: false },
+  }[value] || { n: 1, beams: 0, triplet: false };
+  const { n, beams, triplet } = cfg;
+  const W = 32, H = 24;
+  const yHead = 17, yBeam = 5, headRx = 3.6, headRy = 2.7;
+  const xs = n === 1 ? [13] : Array.from({ length: n }, (_, i) => 6 + (20 * i) / (n - 1));
+  const stemX = (x) => x + 3.0;
+  return (
+    <svg width={size} height={(size * H) / W} viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }} aria-hidden="true">
+      {xs.map((x, i) => (
+        <ellipse key={`h${i}`} cx={x} cy={yHead} rx={headRx} ry={headRy} fill={color} transform={`rotate(-20 ${x} ${yHead})`} />
+      ))}
+      {xs.map((x, i) => (
+        <line key={`s${i}`} x1={stemX(x)} y1={yHead - 1.5} x2={stemX(x)} y2={n === 1 ? yBeam + 1 : yBeam} stroke={color} strokeWidth={1.3} strokeLinecap="round" />
+      ))}
+      {beams >= 1 && n >= 2 && (
+        <line x1={stemX(xs[0])} y1={yBeam} x2={stemX(xs[n - 1])} y2={yBeam} stroke={color} strokeWidth={2.6} />
+      )}
+      {beams >= 2 && n >= 2 && (
+        <line x1={stemX(xs[0])} y1={yBeam + 4} x2={stemX(xs[n - 1])} y2={yBeam + 4} stroke={color} strokeWidth={2.6} />
+      )}
+      {triplet && (
+        <text x={(stemX(xs[0]) + stemX(xs[n - 1])) / 2} y={3.4} textAnchor="middle" fontSize="8" fontWeight="700" fill={color} fontFamily="var(--font-num)">3</text>
+      )}
+    </svg>
+  );
+}
+
 // 錘(白丸)のアーム上の位置(top、px)をテンポから算出する。実物のメトロノームと同じく、
 // 錘を支点から遠ざける(小さいtop=アーム上部寄り)ほど振り子の実効的な周期が長くなる=遅いテンポ、
 // 支点に近づける(大きいtop=アーム下部・支点寄り)ほど速いテンポに対応させる。
@@ -2853,7 +2888,7 @@ function MeasureView(props) {
   const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
   const [showMetroPanel, setShowMetroPanel] = useState(false); // アイコンタップで開閉するパネル表示(開いただけでは音は鳴らない)
-  const [metroSettingsOpen, setMetroSettingsOpen] = useState(false); // 拍子タップで振り子と入れ替えて表示する設定パネル
+  const [metroPanel, setMetroPanel] = useState(null); // 振り子と入れ替えて表示する設定パネル: null | "sig"(拍子) | "subdiv"(1拍の分割)
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
   // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
@@ -3180,7 +3215,7 @@ function MeasureView(props) {
           コンパクト1行表示に切り替える(メトロノームメインの画面にする)。 */}
       {showMetroPanel && (
         <div style={{ marginTop: 6 }}>
-          {metroSettingsOpen ? (
+          {metroPanel === "sig" ? (
             <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: "12px 14px", minHeight: 180, boxSizing: "border-box" }}>
               {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック) */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
@@ -3193,40 +3228,55 @@ function MeasureView(props) {
                   }}>{sig}</button>
                 ))}
               </div>
-              {/* 1拍の分割(1=拍のみ / 2=8分相当 / 3連 / 4=16分相当)。
-                  X/8拍子は拍自体が8分音符3つの複合拍になるため3連は選択肢から除く */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
-                <span className="sans" style={{ fontSize: 11, color: "#8D95A1", flexShrink: 0 }}>1拍の分割</span>
-                {metroSubdivOptions.map((s) => (
-                  <button key={s.value} onClick={() => setMetroSubdiv(s.value)} className="sans" style={{
-                    flex: 1, padding: "7px 0", borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                    border: metroSubdiv === s.value ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                    background: metroSubdiv === s.value ? "#EAEFF5" : "#FFFFFF",
-                    color: metroSubdiv === s.value ? "#174585" : "#435266",
-                  }}>{s.label}</button>
-                ))}
-              </div>
               {/* アクセント(デフォルトON) + 完了 */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
                 <label className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266", cursor: "pointer" }}>
                   <input type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)} />
                   一拍目にアクセントをつける
                 </label>
-                <button onClick={() => setMetroSettingsOpen(false)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
+                <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
+              </div>
+            </div>
+          ) : metroPanel === "subdiv" ? (
+            <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: "12px 14px", minHeight: 180, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+              {/* 1拍の分割(1=拍のみ / 2=8分相当 / 3連 / 4=16分相当)を音符アイコンで選択。
+                  X/8拍子は拍自体が8分音符3つの複合拍になるため3連は選択肢から除く */}
+              <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>1拍の分割</span>
+              <div style={{ display: "flex", alignItems: "stretch", gap: 6, marginTop: 10 }}>
+                {metroSubdivOptions.map((s) => {
+                  const selected = metroSubdiv === s.value;
+                  return (
+                    <button key={s.value} onClick={() => setMetroSubdiv(s.value)} aria-label={`分割 ${s.label}`} style={{
+                      flex: 1, padding: "12px 0", borderRadius: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
+                      background: selected ? "#EAEFF5" : "#FFFFFF",
+                    }}>
+                      <SubdivNoteIcon value={s.value} size={30} color={selected ? "#174585" : "#435266"} />
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto", paddingTop: 10 }}>
+                <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
               </div>
             </div>
           ) : (
             <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} />
           )}
-          {/* START/STOP+テンポの2段スタックを画面幅の中央に置き(メイン操作なので拍子ボタンの
-              有無に関係なく中央に来る)、拍子ボタンは左端に絶対配置で重ねる。拍子ボタンは
-              top:0/bottom:0でスタック2段の合計高さに自動で揃う。 */}
+          {/* START/STOP+テンポの2段スタックを画面幅の中央に置き(メイン操作なので左右のボタンの
+              有無に関係なく中央に来る)、拍子ボタンは左端・分割ボタンは右端に絶対配置で重ねる。
+              いずれもtop:0/bottom:0でスタック2段の合計高さに自動で揃う。 */}
           <div style={{ position: "relative", marginTop: 8 }}>
-            <button onClick={() => setMetroSettingsOpen((v) => !v)} style={{
+            <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子" style={{
               position: "absolute", left: 2, top: 0, bottom: 0, padding: "0 18px", borderRadius: 14, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
-              border: metroSettingsOpen ? "1.5px solid #174585" : "1px solid #E9ECF0",
-              background: metroSettingsOpen ? "#EAEFF5" : "#FFFFFF", color: "#174585",
+              border: metroPanel === "sig" ? "1.5px solid #174585" : "1px solid #E9ECF0",
+              background: metroPanel === "sig" ? "#EAEFF5" : "#FFFFFF", color: "#174585",
             }}>{metroSig}</button>
+            <button onClick={() => setMetroPanel((p) => (p === "subdiv" ? null : "subdiv"))} aria-label="1拍の分割" style={{
+              position: "absolute", right: 2, top: 0, bottom: 0, padding: "0 14px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              border: metroPanel === "subdiv" ? "1.5px solid #174585" : "1px solid #E9ECF0",
+              background: metroPanel === "subdiv" ? "#EAEFF5" : "#FFFFFF",
+            }}><SubdivNoteIcon value={metroSubdiv} size={26} color="#174585" /></button>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               {/* 上段: START/STOP(画面中央・大きめ) */}
               <button
