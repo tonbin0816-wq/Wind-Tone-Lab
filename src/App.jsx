@@ -2746,6 +2746,8 @@ function MetronomePendulum({ getPhase, tempo }) {
 // 位置は丸めていないセント差(centsExact)をそのまま使い、色も同じexactで判定して
 // つまみの位置と色が必ず一致するようにする。pitchはrAF毎(約60fps)に更新されるため、
 // 生の値のわずかなブレだけを均す短いトランジションで正確に追従させる。
+// 表示は「つまみ(ポインター)のみ」を動かす方式。中央からつまみまで伸びる追従バーは
+// つまみと同期がずれて見えるため廃止した。
 function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
   const ac = note ? Math.abs(exact) : null;
@@ -2769,10 +2771,7 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
     return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", update); };
   }, []);
   const thumbX = trackW * frac;         // つまみ中心のpx位置
-  const centerX = trackW * 0.5;         // 0¢のpx位置
-  const barLeftX = Math.min(centerX, thumbX);
-  const barW = Math.abs(thumbX - centerX);
-  const tEase = "transform 0.05s linear, width 0.05s linear, background 0.15s linear";
+  const tEase = "transform 0.05s linear, background 0.15s linear";
 
   return (
     <>
@@ -2780,12 +2779,6 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
         <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
         <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
         <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
-        {note && trackW > 0 && (
-          <div style={{
-            position: "absolute", left: 0, top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
-            width: barW, transform: `translateX(${barLeftX}px)`, transition: tEase,
-          }} />
-        )}
         <div style={{
           position: "absolute", left: 0, top: "50%", width: 18, height: 18, marginTop: -9, borderRadius: "50%",
           background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)",
