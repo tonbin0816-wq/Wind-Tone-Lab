@@ -2781,17 +2781,26 @@ function MetronomePendulum({ getPhase, tempo }) {
 // 位置は丸めていないセント差(centsExact)をそのまま使い、色も同じexactで判定して
 // つまみの位置と色が必ず一致するようにする。pitchはrAF毎(約60fps)に更新されるため、
 // 生の値のわずかなブレだけを均す短いトランジションで正確に追従させる。
-// 表示は「つまみ(ポインター)のみ」を動かす方式。中央からつまみまで伸びる追従バーは
-// つまみと同期がずれて見えるため廃止した。
+// 表示は「感知しているピッチの位置を中心にしたグラデーションの光」。中央からつまみまで
+// 伸びる追従バーはつまみと同期がずれて見えるため廃止し、光の芯(細い濃色ライン)で位置を示す。
+const PITCH_METER_COLORS = {
+  idle: [141, 149, 161],   // #8D95A1 無音
+  green: [22, 163, 74],    // #16A34A ±3¢以内
+  orange: [217, 119, 6],   // #D97706 ±10¢以内
+  red: [220, 38, 38],      // #DC2626 それ以上
+};
+
 function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
   const ac = note ? Math.abs(exact) : null;
-  const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
+  const colorKey = ac === null ? "idle" : ac <= 3 ? "green" : ac <= 10 ? "orange" : "red";
+  const [r, g, b] = PITCH_METER_COLORS[colorKey];
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
+  const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
 
   // 【重要】位置は left:% + transition ではなく transform:translateX(px) で動かす。
   // iOS Safariには「left(%)にtransitionが掛かっていると left の変更がアニメーション扱いに
-  // なって反映されず、要素が固定されてしまう」既知の不具合があり、つまみが動かなく見えた。
+  // なって反映されず、要素が固定されてしまう」既知の不具合があり、以前つまみが動かなく見えた。
   // transformはiOSでも確実に更新・アニメーションされる。トラック実幅をpxで測って配置する。
   const trackRef = useRef(null);
   const [trackW, setTrackW] = useState(0);
@@ -2805,19 +2814,40 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
     window.addEventListener("resize", update);
     return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", update); };
   }, []);
-  const thumbX = trackW * frac;         // つまみ中心のpx位置
+
+  // 感知しているピッチの位置(px)を中心に、中央が濃く両側へ溶けていくグラデーションの光を出す。
+  // 光の芯の位置=検出ピッチなので、中央線(0¢)からのズレがそのまま左右のズレとして読める。
+  const glowX = trackW * frac;                       // 光の中心px(=検出ピッチ位置)
+  const trackH = dense ? 26 : 18;                    // トラック領域の高さ
+  const glowH = dense ? 48 : 30;                     // 光の高さ(トラックより大きくして柔らかく滲ませる)
+  const glowW = trackW * (dense ? 0.46 : 0.4);       // 光の幅(トラック幅に比例)
+  const glowBg = `radial-gradient(ellipse 50% 55% at 50% 50%, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.6) 26%, rgba(${r},${g},${b},0.22) 50%, rgba(${r},${g},${b},0) 74%)`;
   const tEase = "transform 0.05s linear, background 0.15s linear";
 
   return (
     <>
-      <div ref={trackRef} style={{ position: "relative", height: 18 }}>
-        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
-        <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
-        <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
+      {/* overflow:visible で光がトラック上下に柔らかく滲み出せるようにする */}
+      <div ref={trackRef} style={{ position: "relative", height: trackH, overflow: "visible" }}>
+        {/* 基準となる細いトラック(±50¢の物差し) */}
+        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 6, marginTop: -3, background: "#EDF0F3", borderRadius: 3 }} />
+        {/* ジャスト付近(±10¢)の目標ゾーン */}
+        <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 6, marginTop: -3, background: "#E4EEF7", borderRadius: 3 }} />
+        {/* 中央=0¢(ジャスト)の基準線 */}
+        <div style={{ position: "absolute", left: "50%", top: -3, bottom: -3, width: 2, marginLeft: -1, background: "#B7C0CB", borderRadius: 1 }} />
+        {/* 検出ピッチを中心にした光(中央が濃く両側グラデーション)。色は精度で緑/橙/赤。 */}
         <div style={{
-          position: "absolute", left: 0, top: "50%", width: 18, height: 18, marginTop: -9, borderRadius: "50%",
-          background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)",
-          transform: `translateX(${thumbX - 9}px)`, transition: tEase, opacity: trackW > 0 ? 1 : 0,
+          position: "absolute", left: 0, top: "50%", width: glowW, height: glowH, marginTop: -glowH / 2,
+          background: glowBg, borderRadius: "50%", pointerEvents: "none",
+          transform: `translateX(${glowX - glowW / 2}px)`, transition: tEase,
+          opacity: note && trackW > 0 ? 1 : 0,
+        }} />
+        {/* 光の芯(検出位置を正確に読めるよう、中央に細い濃色ライン) */}
+        <div style={{
+          position: "absolute", left: 0, top: "50%", width: 3, height: trackH + 4, marginTop: -(trackH + 4) / 2, marginLeft: -1.5,
+          background: `rgb(${r},${g},${b})`, borderRadius: 2, pointerEvents: "none",
+          boxShadow: `0 0 6px rgba(${r},${g},${b},0.7)`,
+          transform: `translateX(${glowX}px)`, transition: tEase,
+          opacity: note && trackW > 0 ? 1 : 0,
         }} />
       </div>
       {showScaleLabels && (
