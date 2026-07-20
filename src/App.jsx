@@ -1495,7 +1495,7 @@ export default function WindToneLabPhaseMode() {
   // 測定はフレーム毎に正確に行い記録するが、画面表示は直近の有効値の中央値にすることで、
   // ・音の遷移(レガート)で一瞬混ざった外れ値を弾き、
   // ・一瞬測れないフレームでも直近値を保持して行が「—」に落ちてガタつくのを防ぐ。
-  const timbreDisplayRef = useRef({ centroid: [], hnr: [], harmonics: [], validMs: 0, lastNote: null, changedMs: 0, stale: false });
+  const timbreDisplayRef = useRef({ centroid: [], hnr: [], harmonics: [], validMs: 0, lastNote: null, changedMs: 0, stale: false, lastComputeMs: 0, lastCentroid: null, lastHnr: null, lastLevels: [] });
   const noiseGateDbRef = useRef(noiseGateDb);
   useEffect(() => { noiseGateDbRef.current = noiseGateDb; }, [noiseGateDb]);
   // マイク接続中に楽器種別を変えたら、ゲート用バンドパスの中心周波数も追従させる
@@ -1723,9 +1723,10 @@ export default function WindToneLabPhaseMode() {
         try {
         const analyserNode = analyserRef.current;
         if (!analyserNode) return;
-        // AudioContextがsuspend(iOSの音声セッション中断等)していると解析用データが更新されず
-        // 検出が止まる。検知したら復帰させる(resumeはユーザー操作外でも中断復帰なら通ることが多い)。
-        if (audioCtx.state === "suspended") { audioCtx.resume().catch(() => {}); }
+        // AudioContextがrunning以外(suspend/iOS固有のinterrupted等)だと解析用データが更新
+        // されず検出が止まる。検知したら毎フレームresumeを試みて復帰させる(中断からの復帰は
+        // ユーザー操作外でも通ることが多い)。
+        if (audioCtx.state !== "running") { audioCtx.resume().catch(() => {}); }
         // 測定(ピッチ・倍音・重心・HNR)はすべて時間波形から自前計算する。AnalyserNodeの
         // 平滑済みスペクトルは使わない(スペクトル表示バーを廃止したため周波数データも読まない)。
         const sampleRate = audioCtx.sampleRate;
@@ -1813,29 +1814,41 @@ export default function WindToneLabPhaseMode() {
         const DISPLAY_WINDOW = 5;      // 中央値をとる直近フレーム数
         const DISPLAY_HOLD_MS = 600;   // 最後の有効測定からこの間は直近値を保持して行をキープ
         const TIMBRE_SETTLE_MS = 140;  // 音替わり直後この間は遷移フレームを表示に取り込まない
+        const TIMBRE_COMPUTE_MS = 66;  // 音色FFT(重い)は毎フレームではなくこの間隔で間引く(メーターの追従はピッチのみで足り、CPU負荷を大きく下げる)
+        const nowPerfMs = performance.now();
         const noteKey = matchedFinger?.semitoneIndex ?? (sounding ? "unknown" : null);
         if (noteKey !== disp.lastNote) {
           disp.lastNote = noteKey;
-          disp.changedMs = performance.now();
+          disp.changedMs = nowPerfMs;
           disp.stale = true; // 次に定常フレームが来たら古い音の値を捨てて入れ替える
+          disp.lastCentroid = null; disp.lastHnr = null; disp.lastLevels = []; // 前の音の音色値を持ち越さない
         }
-        if (timbreMeasurable) {
-          const settled = performance.now() - disp.changedMs >= TIMBRE_SETTLE_MS;
+        // 音色(重心・HNR・倍音)は8192点FFTを含み重いため、TIMBRE_COMPUTE_MS間隔に間引く。
+        // ピッチ検出(メーターの要)は毎フレーム走らせたまま、音色だけ負荷を落とす。
+        if (timbreMeasurable && nowPerfMs - disp.lastComputeMs >= TIMBRE_COMPUTE_MS) {
+          disp.lastComputeMs = nowPerfMs;
+          const settled = nowPerfMs - disp.changedMs >= TIMBRE_SETTLE_MS;
           const tm = settled ? computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS) : null;
           if (tm) {
-            centroid = tm.centroidHz;
             const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-6);
-            levels = tm.harmonics.map((l) => ({ ...l, norm: l.mag / maxMag }));
-            hnr = tm.hnrDb;
+            disp.lastCentroid = tm.centroidHz;
+            disp.lastHnr = tm.hnrDb;
+            disp.lastLevels = tm.harmonics.map((l) => ({ ...l, norm: l.mag / maxMag }));
             if (disp.stale) { disp.centroid = []; disp.hnr = []; disp.harmonics = []; disp.stale = false; }
             // 表示用ローリングバッファに積む(直近DISPLAY_WINDOW件を保持)
-            disp.centroid.push(centroid); if (disp.centroid.length > DISPLAY_WINDOW) disp.centroid.shift();
-            disp.hnr.push(hnr); if (disp.hnr.length > DISPLAY_WINDOW) disp.hnr.shift();
-            disp.harmonics.push(levels.map((l) => l.norm)); if (disp.harmonics.length > DISPLAY_WINDOW) disp.harmonics.shift();
-            disp.validMs = performance.now();
+            disp.centroid.push(disp.lastCentroid); if (disp.centroid.length > DISPLAY_WINDOW) disp.centroid.shift();
+            disp.hnr.push(disp.lastHnr); if (disp.hnr.length > DISPLAY_WINDOW) disp.hnr.shift();
+            disp.harmonics.push(disp.lastLevels.map((l) => l.norm)); if (disp.harmonics.length > DISPLAY_WINDOW) disp.harmonics.shift();
+            disp.validMs = nowPerfMs;
           }
         }
-        const holdActive = disp.centroid.length > 0 && performance.now() - disp.validMs <= DISPLAY_HOLD_MS;
+        // フレーム記録用の音色値は、間引きの合間でも直近の計算結果を使う(値が抜けないように)
+        if (timbreMeasurable) {
+          centroid = disp.lastCentroid;
+          hnr = disp.lastHnr;
+          levels = disp.lastLevels;
+        }
+        const holdActive = disp.centroid.length > 0 && nowPerfMs - disp.validMs <= DISPLAY_HOLD_MS;
         if (holdActive) {
           setCentroidHz(median(disp.centroid));
           setHnrDb(median(disp.hnr));
@@ -1847,6 +1860,7 @@ export default function WindToneLabPhaseMode() {
         } else {
           // しばらく測れていない(無音・弱音が続いた)ならバッファを空にして「—」に戻す
           disp.centroid = []; disp.hnr = []; disp.harmonics = [];
+          disp.lastCentroid = null; disp.lastHnr = null; disp.lastLevels = [];
           setCentroidHz(null);
           setHarmonicLevels([]);
           setHnrDb(null);
