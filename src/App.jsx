@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
 // ============================================================
@@ -2750,21 +2750,47 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
   const ac = note ? Math.abs(exact) : null;
   const meterColor = ac === null ? "#8D95A1" : ac <= 3 ? "#16A34A" : ac <= 10 ? "#D97706" : "#DC2626";
-  const thumbPct = 50 + exact; // -50¢→0% ・ 0¢→50% ・ +50¢→100%
-  const ease = "left 0.05s linear, width 0.05s linear, background 0.15s linear";
+  const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
+
+  // 【重要】位置は left:% + transition ではなく transform:translateX(px) で動かす。
+  // iOS Safariには「left(%)にtransitionが掛かっていると left の変更がアニメーション扱いに
+  // なって反映されず、要素が固定されてしまう」既知の不具合があり、つまみが動かなく見えた。
+  // transformはiOSでも確実に更新・アニメーションされる。トラック実幅をpxで測って配置する。
+  const trackRef = useRef(null);
+  const [trackW, setTrackW] = useState(0);
+  useLayoutEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const update = () => setTrackW(el.clientWidth);
+    update();
+    let ro;
+    if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(update); ro.observe(el); }
+    window.addEventListener("resize", update);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", update); };
+  }, []);
+  const thumbX = trackW * frac;         // つまみ中心のpx位置
+  const centerX = trackW * 0.5;         // 0¢のpx位置
+  const barLeftX = Math.min(centerX, thumbX);
+  const barW = Math.abs(thumbX - centerX);
+  const tEase = "transform 0.05s linear, width 0.05s linear, background 0.15s linear";
+
   return (
     <>
-      <div style={{ position: "relative", height: 18 }}>
+      <div ref={trackRef} style={{ position: "relative", height: 18 }}>
         <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 8, marginTop: -4, background: "#E9ECF0", borderRadius: 4 }} />
         <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 8, marginTop: -4, background: "#E8F6ED", borderRadius: 4 }} />
         <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 2, background: "#C3CAD3" }} />
-        {note && (
+        {note && trackW > 0 && (
           <div style={{
-            position: "absolute", top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
-            left: `${Math.min(50, thumbPct)}%`, width: `${Math.abs(thumbPct - 50)}%`, transition: ease,
+            position: "absolute", left: 0, top: "50%", height: 8, marginTop: -4, borderRadius: 4, background: meterColor,
+            width: barW, transform: `translateX(${barLeftX}px)`, transition: tEase,
           }} />
         )}
-        <div style={{ position: "absolute", left: `${thumbPct}%`, top: "50%", width: 18, height: 18, marginLeft: -9, marginTop: -9, borderRadius: "50%", background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)", transition: ease }} />
+        <div style={{
+          position: "absolute", left: 0, top: "50%", width: 18, height: 18, marginTop: -9, borderRadius: "50%",
+          background: meterColor, border: "3px solid #FFFFFF", boxShadow: "0 1px 4px rgba(15,23,42,.18)",
+          transform: `translateX(${thumbX - 9}px)`, transition: tEase, opacity: trackW > 0 ? 1 : 0,
+        }} />
       </div>
       {showScaleLabels && (
         <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1" }}>
