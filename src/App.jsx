@@ -1,6 +1,51 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
+// 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
+// あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
+function hasHorizontalScrollAncestor(el, stopEl) {
+  let node = el;
+  while (node && node !== stopEl && node.nodeType === 1) {
+    if (node.scrollWidth > node.clientWidth + 2) {
+      const ov = getComputedStyle(node).overflowX;
+      if (ov === "auto" || ov === "scroll") return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+// 横スワイプでタブ切替/前画面への戻りを行うための共通フック(モバイルのタッチ操作専用)。
+// 縦スクロール・横スクロール要素・スライダー等と競合しないよう、指を離した時点で
+// 「横移動が縦移動より十分大きく、しきい値を超え、素早い」場合のみ発火する。
+// stopPropagation=true のときは発火時にイベント伝播を止め、親のスワイプ領域(例: サブタブ
+// 切替)が二重に反応しないようにする(詳細画面からの戻りスワイプで使う)。
+function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPropagation = false }) {
+  const start = useRef(null);
+  const onTouchStart = (e) => {
+    // スライダー・プルダウン・入力欄・明示的に除外した要素の上では発火させない
+    if (e.touches.length !== 1 || e.target.closest?.("input, select, textarea, [data-noswipe]") ||
+        hasHorizontalScrollAncestor(e.target, e.currentTarget)) {
+      start.current = null;
+      return;
+    }
+    const t = e.touches[0];
+    start.current = { x: t.clientX, y: t.clientY, at: Date.now() };
+  };
+  const onTouchEnd = (e) => {
+    const s = start.current;
+    start.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - s.at > 700) return;
+    if (stopPropagation) e.stopPropagation();
+    if (dx < 0) onSwipeLeft?.(); else onSwipeRight?.();
+  };
+  return { onTouchStart, onTouchEnd };
+}
+
 // ============================================================
 // Music theory helpers
 // ============================================================
@@ -1460,6 +1505,7 @@ export default function WindToneLabPhaseMode() {
 
   // --- 音声ファイルアップロード解析(分析タブ) ---
   const [isAnalyzingUpload, setIsAnalyzingUpload] = useState(false);
+  const isAnalyzingUploadRef = useRef(false); // 可視状態復帰時のWake Lock再取得判定に使う
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadNeedsTap, setUploadNeedsTap] = useState(null); // 自動再生ブロック時の再開関数(タップで呼ぶ)
   const [lastUploadedSession, setLastUploadedSession] = useState(null); // 解析完了直後に「理想値に設定」を出すため
@@ -2085,9 +2131,10 @@ export default function WindToneLabPhaseMode() {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stopListeningRef.current();
-      } else if (topTab === "measure") {
-        startListeningRef.current();
-        if (isRecordingRef.current) requestWakeLock(); // Wake Lockは非表示で自動解放されるため復帰時に再取得
+      } else {
+        if (topTab === "measure") startListeningRef.current();
+        // Wake Lockは非表示で自動解放されるため、録音中またはアップロード解析中なら復帰時に再取得
+        if (isRecordingRef.current || isAnalyzingUploadRef.current) requestWakeLock();
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -2132,8 +2179,13 @@ export default function WindToneLabPhaseMode() {
     setErrorMsg("");
     setLastUploadedSession(null); // 前回の「解析が完了しました」表示を消してから始める
     setIsAnalyzingUpload(true);
+    isAnalyzingUploadRef.current = true;
     setUploadProgress(0);
     setUploadNeedsTap(null);
+    // 解析中は画面スリープを抑止する(スリープで解析が止まって見えるのを防ぐ)。
+    // オフライン解析はMessageChannelで進めるためアプリ内のタブ切替では止まらないが、
+    // 画面が消えるとiOSはJS実行自体を凍結するため、少なくともスリープは防ぐ。
+    requestWakeLock();
     try {
       const analysisOpts = {
         saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal,
@@ -2199,10 +2251,12 @@ export default function WindToneLabPhaseMode() {
       setErrorMsg(`音声ファイルの解析に失敗しました: ${err?.message ?? String(err)}`);
     } finally {
       setIsAnalyzingUpload(false);
+      isAnalyzingUploadRef.current = false;
       setUploadProgress(0);
       setUploadNeedsTap(null);
+      if (!isRecordingRef.current) releaseWakeLock(); // 録音中でなければスリープ抑止を解除
     }
-  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb]);
+  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb, requestWakeLock, releaseWakeLock]);
 
   const deleteIdealProfile = (id) => {
     setIdealProfiles((prev) => prev.filter((p) => p.id !== id));
@@ -2213,6 +2267,12 @@ export default function WindToneLabPhaseMode() {
   // フレーム(折れ線グラフ)側もtick内で同じ実効基準で算出しており、これで0¢の基準が全音で一致する。
   const note = pitch ? freqToNote(pitch, effectiveTuningHz) : null;
   const centsOffset = note ? note.cents : 0;
+
+  // リードタブの子タブ(登録⇄比較)を左右スワイプで行き来する。
+  const reedsSwipe = useHorizontalSwipe({
+    onSwipeLeft: () => setReedsSubTab("compare"),   // 左スワイプ: 登録→比較
+    onSwipeRight: () => setReedsSubTab("register"), // 右スワイプ: 比較→登録
+  });
 
   return (
     <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 72px", boxSizing: "border-box" }}>
@@ -2302,18 +2362,22 @@ export default function WindToneLabPhaseMode() {
           uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
       )}
-      {topTab === "reeds" && reedsSubTab === "register" && (
-        <ReedRegisterView
-          key={`reeds-${navNonce}`}
-          reeds={reeds} setReeds={setReeds}
-          sessions={sessions} updateSessions={updateSessions}
-          setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
-          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
-        />
-      )}
-      {topTab === "reeds" && reedsSubTab === "compare" && (
-        <div style={{ maxWidth: 900, margin: "0 auto" }}>
-          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={effectiveTuningHz} />
+      {topTab === "reeds" && (
+        <div {...reedsSwipe}>
+          {reedsSubTab === "register" && (
+            <ReedRegisterView
+              key={`reeds-${navNonce}`}
+              reeds={reeds} setReeds={setReeds}
+              sessions={sessions} updateSessions={updateSessions}
+              setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
+              selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
+            />
+          )}
+          {reedsSubTab === "compare" && (
+            <div style={{ maxWidth: 900, margin: "0 auto" }}>
+              <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={effectiveTuningHz} />
+            </div>
+          )}
         </div>
       )}
       {topTab === "analysis" && (
@@ -2701,6 +2765,17 @@ function MetronomeIcon({ color, size = 20 }) {
 
 // 「1拍の分割」を音符アイコンで表す。1=四分音符 / 2=八分音符2つ / 3=三連符 / 4=十六分音符4つ。
 // 分割ボタン(現在の選択表示)と分割選択パネルの両方で共通利用する。
+// 拍子を楽譜のように分子/分母を縦に積んで表示する(例: 4/4 → 4 の下に 4)。
+function TimeSigStacked({ sig, fontSize = 18, color = "#174585" }) {
+  const { num, den } = parseMetroSig(sig);
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 0.9, fontFamily: "var(--font-num)", fontWeight: 700, fontSize, color }}>
+      <span>{num}</span>
+      <span>{den}</span>
+    </span>
+  );
+}
+
 function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
   const cfg = {
     1: { n: 1, beams: 0, triplet: false },
@@ -3298,15 +3373,15 @@ function MeasureView(props) {
               いずれもtop:0/bottom:0でスタック2段の合計高さに自動で揃う。 */}
           <div style={{ position: "relative", marginTop: 8 }}>
             <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子" style={{
-              position: "absolute", left: 2, top: 0, bottom: 0, padding: "0 18px", borderRadius: 14, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-num)", cursor: "pointer",
+              position: "absolute", left: 2, top: 0, bottom: 0, padding: "0 20px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
               border: metroPanel === "sig" ? "1.5px solid #174585" : "1px solid #E9ECF0",
-              background: metroPanel === "sig" ? "#EAEFF5" : "#FFFFFF", color: "#174585",
-            }}>{metroSig}</button>
+              background: metroPanel === "sig" ? "#EAEFF5" : "#FFFFFF",
+            }}><TimeSigStacked sig={metroSig} fontSize={20} /></button>
             <button onClick={() => setMetroPanel((p) => (p === "subdiv" ? null : "subdiv"))} aria-label="1拍の分割" style={{
-              position: "absolute", right: 2, top: 0, bottom: 0, padding: "0 14px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              position: "absolute", right: 2, top: 0, bottom: 0, padding: "0 16px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
               border: metroPanel === "subdiv" ? "1.5px solid #174585" : "1px solid #E9ECF0",
               background: metroPanel === "subdiv" ? "#EAEFF5" : "#FFFFFF",
-            }}><SubdivNoteIcon value={metroSubdiv} size={26} color="#174585" /></button>
+            }}><SubdivNoteIcon value={metroSubdiv} size={32} color="#174585" /></button>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
               {/* 上段: START/STOP(画面中央・大きめ) */}
               <button
@@ -3322,8 +3397,8 @@ function MeasureView(props) {
                 {metronomeOn ? "STOP" : "START"}
               </button>
               {/* 下段: テンポ(−/数値タップで直接入力/+)。STARTと同じく画面中央 */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 46, height: 46, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
                 {tempoEditing ? (
                   // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
                   // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
@@ -3337,13 +3412,13 @@ function MeasureView(props) {
                       type="number" inputMode="numeric"
                       defaultValue={metroTempo}
                       onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                      style={{ width: 72, textAlign: "center", fontSize: 22, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
+                      style={{ width: 104, textAlign: "center", fontSize: 36, fontWeight: 600, fontFamily: "var(--font-num)", border: "1px solid #B9C9E4", borderRadius: 8, padding: "3px 0", color: "#121F32", background: "#FFFFFF" }}
                     />
                   </form>
                 ) : (
-                  <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 72, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 26, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
+                  <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 104, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 42, fontWeight: 600, color: "#121F32", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
                 )}
-                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
+                <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 46, height: 46, borderRadius: "50%", border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
               </div>
             </div>
           </div>
@@ -4204,14 +4279,23 @@ function ReedRegisterView(props) {
   const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
   const [evaluatingReedId, setEvaluatingReedId] = useState(null); // タップした登録済みリードの評価詳細を表示
 
+  // 個別リード詳細では右スワイプで一覧に戻る。stopPropagationで親(登録⇄比較の
+  // サブタブスワイプ)が二重に反応しないようにする。
+  const reedDetailSwipe = useHorizontalSwipe({
+    onSwipeRight: () => setEvaluatingReedId(null),
+    stopPropagation: true,
+  });
+
   const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
   if (evaluatingReed) {
     return (
-      <ReedEvaluationDetail
-        reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
-        selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-        onBack={() => setEvaluatingReedId(null)}
-      />
+      <div {...reedDetailSwipe}>
+        <ReedEvaluationDetail
+          reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
+          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
+          onBack={() => setEvaluatingReedId(null)}
+        />
+      </div>
     );
   }
 
@@ -5483,6 +5567,16 @@ function AnalysisLabView(props) {
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkReedId, setBulkReedId] = useState(""); // 選択セッションにまとめて紐付けるリード
 
+  // 子タブ(My Data⇄分析)を左右スワイプで行き来する。
+  const dataSwipe = useHorizontalSwipe({
+    onSwipeLeft: () => setDataSubTab("analysis"),  // 左スワイプ: My Data→分析
+    onSwipeRight: () => setDataSubTab("mydata"),   // 右スワイプ: 分析→My Data
+  });
+  // 個別セッション詳細では右スワイプで一覧に戻る。
+  const sessionDetailSwipe = useHorizontalSwipe({
+    onSwipeRight: () => setSelectedSessionId(null),
+  });
+
   // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
   const framesWithContext = sessions.flatMap((s) => {
@@ -5501,13 +5595,15 @@ function AnalysisLabView(props) {
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
     return (
-      <SessionDetailView
-        session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
-        NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
-        updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
-        tuningHz={tuningHz}
-        onBack={() => setSelectedSessionId(null)}
-      />
+      <div {...sessionDetailSwipe}>
+        <SessionDetailView
+          session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
+          NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
+          updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
+          tuningHz={tuningHz}
+          onBack={() => setSelectedSessionId(null)}
+        />
+      </div>
     );
   }
 
@@ -5563,7 +5659,7 @@ function AnalysisLabView(props) {
   };
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ maxWidth: 900, margin: "0 auto" }} {...dataSwipe}>
       {/* データタブ内の子タブ: My Data / 分析(クロス集計) */}
       <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginBottom: 12 }}>
         {[
