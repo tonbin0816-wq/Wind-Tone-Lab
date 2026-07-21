@@ -2848,10 +2848,13 @@ function metroBeatGroups(num) {
   return g;
 }
 // X/8拍子で、8分音符インデックス→そこが主拍(グループ)の頭かどうかの集合を作る。
-function metroX8BeatStarts(num) {
+// groups(例:[3,2])を渡せばそのグループ分けを使う(5/8・7/8のユーザー選択用)。合計がnumと
+// 合わない/未指定なら自動(metroBeatGroups)にフォールバックする。
+function metroX8BeatStarts(num, groups) {
+  const g = (Array.isArray(groups) && groups.reduce((a, b) => a + b, 0) === num) ? groups : metroBeatGroups(num);
   const starts = new Set();
   let acc = 0;
-  for (const gsize of metroBeatGroups(num)) { starts.add(acc); acc += gsize; }
+  for (const gsize of g) { starts.add(acc); acc += gsize; }
   return starts;
 }
 
@@ -2861,13 +2864,13 @@ function metroX8BeatStarts(num) {
 //   ・subdiv=1: 主拍(グループ頭)だけを鳴らし、拍間の8分音符は"silent"(=主拍のみのクリック)。
 //   ・subdiv>=2: 拍を8分音符で埋める。複合拍子なら1拍に8分音符3つ(強-弱-弱)=実質3連符。
 // 【X/4等】従来通り。拍頭以外(subdivによる細分)は"sub"、拍頭は先頭accent・他beat。
-function metroTickKind(tickIndex, sig, subdiv, accentEnabled) {
+function metroTickKind(tickIndex, sig, subdiv, accentEnabled, groups) {
   const { num, den } = parseMetroSig(sig);
   const sd = subdiv || 1;
   if (den === 8) {
     const perMeasure = num;
     const idx = ((tickIndex % perMeasure) + perMeasure) % perMeasure;
-    const beatStarts = metroX8BeatStarts(num);
+    const beatStarts = metroX8BeatStarts(num, groups);
     const fill = sd >= 2; // 8分音符で拍を埋めるか
     if (beatStarts.has(idx)) return idx === 0 ? (accentEnabled ? "accent" : "beat") : "beat";
     return fill ? "sub" : "silent";
@@ -3220,6 +3223,8 @@ function MeasureView(props) {
   const [metroSig, setMetroSig] = usePersistedState("metroSig", "4/4");
   const [metroSubdiv, setMetroSubdiv] = usePersistedState("metroSubdiv", 1);
   const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
+  // 5/8・7/8のグループ分け(例:[3,2]/[2,2,3])。ユーザーが選べる。他の拍子はnull(自動)。
+  const [metroGrouping, setMetroGrouping] = usePersistedState("metroGrouping", null);
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
   const [showMetroPanel, setShowMetroPanel] = useState(false); // アイコンタップで開閉するパネル表示(開いただけでは音は鳴らない)
   const [metroPanel, setMetroPanel] = useState(null); // 振り子と入れ替えて表示する設定パネル: null | "sig"(拍子) | "subdiv"(1拍の分割)
@@ -3257,6 +3262,7 @@ function MeasureView(props) {
   const metroSigRef = useRef(metroSig);
   const metroSubdivRef = useRef(metroSubdiv);
   const metroAccentRef = useRef(metroAccent);
+  const metroGroupingRef = useRef(metroGrouping);
   // START呼び出しごとに増える世代番号。古いSTART呼び出し(resume()待ち中)がその間に
   // 発生したSTOPや別のSTARTより後から状態を書き換えてしまう競合を防ぐ(詳細は下記)。
   const metroGenRef = useRef(0);
@@ -3264,6 +3270,16 @@ function MeasureView(props) {
   useEffect(() => { metroSigRef.current = metroSig; }, [metroSig]);
   useEffect(() => { metroSubdivRef.current = metroSubdiv; }, [metroSubdiv]);
   useEffect(() => { metroAccentRef.current = metroAccent; }, [metroAccent]);
+  useEffect(() => { metroGroupingRef.current = metroGrouping; }, [metroGrouping]);
+  // 拍子に応じてグループ分けを整える。5/8・7/8以外はnull(自動)、5/8・7/8は現在の選択が
+  // 合計と合わなければ既定(5/8→[3,2] / 7/8→[3,2,2])に戻す(有効な選択は保持)。
+  useEffect(() => {
+    const { num, den } = parseMetroSig(metroSig);
+    const needs = den === 8 && (num === 5 || num === 7);
+    if (!needs) { if (metroGrouping !== null) setMetroGrouping(null); return; }
+    const sum = Array.isArray(metroGrouping) ? metroGrouping.reduce((a, b) => a + b, 0) : 0;
+    if (sum !== num) setMetroGrouping(num === 5 ? [3, 2] : [3, 2, 2]);
+  }, [metroSig, metroGrouping, setMetroGrouping]);
 
   // 先読みスケジューラ本体。25ms毎に呼ばれ、120ms先までのクリックを音声時計に予約する。
   //
@@ -3284,15 +3300,31 @@ function MeasureView(props) {
       const t = metroNextTimeRef.current;
       const { num, den } = parseMetroSig(metroSigRef.current);
       const subdiv = metroSubdivRef.current || 1;
+      const eighthDur = 60 / metroTempoRef.current; // 分母音符1つ分の実時間
       // X/8はグリッドを常に8分音符に固定(perMeasure=num・subdivで割らない)。subdivは
-      // 「主拍のみ(1)か、8分で拍を埋めるか(>=2)」の切替として使う。X/4等は従来通りsubdiv倍。
+      // 「主拍のみ(1)か、8分で拍を埋めるか(>=2)」の切替。振り子は1拍(グループ)で1振りにする。
       const isX8 = den === 8;
-      const perMeasure = isX8 ? num : num * subdiv;
-      const stepDiv = isX8 ? 1 : subdiv;
-      const idx = metroTickIndexRef.current % perMeasure;
-      const isEighthPulse = isX8 ? true : (idx % subdiv === 0); // 振り子を進める8分音符の頭か
-      const eighthIdx = isX8 ? idx : Math.floor(idx / subdiv);
-      const kind = metroTickKind(metroTickIndexRef.current, metroSigRef.current, subdiv, metroAccentRef.current);
+      let perMeasure, stepDiv, idx, kind, isBeatAnchor, beatDur;
+      if (isX8) {
+        perMeasure = num;
+        stepDiv = 1;
+        idx = metroTickIndexRef.current % perMeasure;
+        const gr = metroGroupingRef.current;
+        const groups = (Array.isArray(gr) && gr.reduce((a, b) => a + b, 0) === num) ? gr : metroBeatGroups(num);
+        // idxが拍(グループ)頭か、そのグループの8分音符数(=1拍の長さ)を求める
+        let acc = 0, gsize = 0;
+        for (const g of groups) { if (acc === idx) { gsize = g; break; } acc += g; }
+        isBeatAnchor = gsize > 0;                 // グループ頭のときだけ振り子を進める
+        beatDur = (gsize || num) * eighthDur;     // 1拍=8分音符×グループサイズ(振り子1振り分)
+        kind = metroTickKind(metroTickIndexRef.current, metroSigRef.current, subdiv, metroAccentRef.current, groups);
+      } else {
+        perMeasure = num * subdiv;
+        stepDiv = subdiv;
+        idx = metroTickIndexRef.current % perMeasure;
+        isBeatAnchor = idx % subdiv === 0;        // 拍頭
+        beatDur = eighthDur;                       // 1拍=分母音符1つ
+        kind = metroTickKind(metroTickIndexRef.current, metroSigRef.current, subdiv, metroAccentRef.current);
+      }
 
       if (kind !== "silent") {
         scheduleMetroClick(ctx, t, kind);
@@ -3306,12 +3338,12 @@ function MeasureView(props) {
           if (metroBarPerfTimesRef.current.length > 2048) metroBarPerfTimesRef.current.splice(0, 1024);
         }
       }
-      if (isEighthPulse) {
-        // 振り子は8分音符の速さで振れる(X/8では主拍のみでも8分で振る=下地のパルスを見せる)
-        metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, mBeat: eighthIdx };
+      if (isBeatAnchor) {
+        // 振り子は「1拍(端から端)」で1振り。X/8複合なら1拍=8分3つぶんの時間をかけて振れる。
+        metroAnchorRef.current = { time: t, gBeat: metroGBeatRef.current, dur: beatDur };
         metroGBeatRef.current += 1;
       }
-      metroNextTimeRef.current = t + 60 / metroTempoRef.current / stepDiv;
+      metroNextTimeRef.current = t + eighthDur / stepDiv;
       metroTickIndexRef.current = (idx + 1) % perMeasure;
     }
   }, [scheduledClicksRef, metroBarPerfTimesRef]);
@@ -3395,7 +3427,10 @@ function MeasureView(props) {
     const ctx = metroCtxRef.current;
     if (!ctx || !metroOnRef.current) return null;
     const a = metroAnchorRef.current;
-    return a.gBeat + (ctx.currentTime - a.time) / (60 / metroTempoRef.current);
+    // a.dur = この拍(gBeat 1単位)の実時間。X/8複合は1拍=8分3つ=3×(60/tempo)なので、
+    // 振り子は「端から端」=1拍(8分3つ)で1振りになる。未設定時は8分1つ分にフォールバック。
+    const dur = a.dur || (60 / metroTempoRef.current);
+    return a.gBeat + (ctx.currentTime - a.time) / dur;
   }, []);
 
   return (
@@ -3566,6 +3601,29 @@ function MeasureView(props) {
                   }}>{sig}</button>
                 ))}
               </div>
+              {/* 5/8・7/8はグループ分け(拍の区切り)を選べる。8分音符をどう束ねて主拍にするか。 */}
+              {(metroSig === "5/8" || metroSig === "7/8") && (() => {
+                const choices = metroSig === "5/8" ? [[3, 2], [2, 3]] : [[3, 2, 2], [2, 3, 2], [2, 2, 3]];
+                const cur = Array.isArray(metroGrouping) ? metroGrouping.join("+") : "";
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>拍のグループ</span>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      {choices.map((g) => {
+                        const label = g.join("+");
+                        const selected = cur === label;
+                        return (
+                          <button key={label} onClick={() => setMetroGrouping(g)} className="sans" style={{
+                            flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
+                            border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
+                            background: selected ? "#EAEFF5" : "#FFFFFF", color: selected ? "#174585" : "#435266",
+                          }}>{label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
               {/* アクセント(デフォルトON) + 完了 */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
                 <label className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266", cursor: "pointer" }}>
