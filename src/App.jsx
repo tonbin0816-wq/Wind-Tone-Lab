@@ -3010,74 +3010,85 @@ function MetronomePendulum({ getPhase, tempo }) {
 // 位置は丸めていないセント差(centsExact)をそのまま使い、色も同じexactで判定して
 // つまみの位置と色が必ず一致するようにする。pitchはrAF毎(約60fps)に更新されるため、
 // 生の値のわずかなブレだけを均す短いトランジションで正確に追従させる。
-// 表示は「感知しているピッチの位置を中心にしたグラデーションの光」。中央からつまみまで
-// 伸びる追従バーはつまみと同期がずれて見えるため廃止し、光の芯(細い濃色ライン)で位置を示す。
-const PITCH_METER_COLORS = {
-  idle: [141, 149, 161],   // #8D95A1 無音
-  green: [22, 163, 74],    // #16A34A ±3¢以内
-  orange: [217, 119, 6],   // #D97706 ±10¢以内
-  red: [220, 38, 38],      // #DC2626 それ以上
-};
+// 表示は「感知しているピッチの位置を示す1本の縦棒」。動いている間だけ、通ってきた軌跡が
+// 残像として少し残り(前の位置の色をそのまま帯びる)、止まると残像は消えて単一の棒に戻る。
+// セント差(絶対値)を緑→橙→赤へ滑らかに補間した色を返す(棒と残像の色に使う)。
+function pitchBarColorRGB(cents) {
+  const a = Math.abs(cents);
+  const stops = [
+    [0, [22, 163, 74]],    // ジャスト=緑 #16A34A
+    [13, [217, 119, 6]],   // やや外れ=橙 #D97706
+    [30, [220, 38, 38]],   // 大きく外れ=赤 #DC2626
+  ];
+  if (a <= stops[0][0]) return stops[0][1];
+  if (a >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [c0, col0] = stops[i];
+    const [c1, col1] = stops[i + 1];
+    if (a >= c0 && a <= c1) {
+      const t = (a - c0) / (c1 - c0);
+      return [0, 1, 2].map((k) => Math.round(col0[k] + (col1[k] - col0[k]) * t));
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+const PITCH_TRAIL_MS = 190; // 残像を残す時間窓(これを過ぎた軌跡は消える)
 
 function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
+  const sounding = !!note;
   const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
-  const ac = note ? Math.abs(exact) : null;
-  const colorKey = ac === null ? "idle" : ac <= 3 ? "green" : ac <= 10 ? "orange" : "red";
-  const [r, g, b] = PITCH_METER_COLORS[colorKey];
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
   const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
+  const trackH = dense ? 46 : 26;
+  const barH = dense ? 34 : 20;    // 縦棒の高さ
+  const headW = dense ? 4 : 3;     // 現在位置の棒の幅
+  const trailW = dense ? 3 : 2;    // 残像の棒の幅
+  const tickH = dense ? 22 : 14;   // 中央0¢マーカーの高さ
 
-  // 【重要】位置は left:% + transition ではなく transform:translateX(px) で動かす。
-  // iOS Safariには「left(%)にtransitionが掛かっていると left の変更がアニメーション扱いに
-  // なって反映されず、要素が固定されてしまう」既知の不具合があり、以前つまみが動かなく見えた。
-  // transformはiOSでも確実に更新・アニメーションされる。トラック実幅をpxで測って配置する。
-  const trackRef = useRef(null);
-  const [trackW, setTrackW] = useState(0);
-  useLayoutEffect(() => {
-    const el = trackRef.current;
-    if (!el) return;
-    const update = () => setTrackW(el.clientWidth);
-    update();
-    let ro;
-    if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(update); ro.observe(el); }
-    window.addEventListener("resize", update);
-    return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", update); };
-  }, []);
+  // 残像バッファ: {frac(位置), cents(その時の色用), t(時刻)} を時系列で保持する。
+  // pitchはrAF毎(約60fps)に更新されPitchMeterが再レンダーされるため、その度に現在位置を積み、
+  // 時間窓(PITCH_TRAIL_MS)を過ぎた古い軌跡を捨てる。位置が止まっていれば軌跡は同じ場所に
+  // 重なって単一の棒に見え、動くと軌跡が広がって残像になる。無音になったらクリアする。
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const trailRef = useRef([]);
+  const buf = trailRef.current;
+  while (buf.length && now - buf[0].t > PITCH_TRAIL_MS) buf.shift();
+  if (sounding) {
+    const last = buf[buf.length - 1];
+    if (!last || now - last.t >= 12) buf.push({ frac, cents: exact, t: now }); // 1フレームに1点まで
+    else { last.frac = frac; last.cents = exact; }
+  } else {
+    buf.length = 0;
+  }
+  const samples = buf.slice();
 
-  // 感知しているピッチの位置(px)を中心に、中央が濃く両側へ溶けていくグラデーションの光を出す。
-  // 光の芯の位置=検出ピッチなので、中央線(0¢)からのズレがそのまま左右のズレとして読める。
-  const glowX = trackW * frac;                       // 光の中心px(=検出ピッチ位置)
-  const trackH = dense ? 26 : 18;                    // トラック領域の高さ
-  const glowH = dense ? 48 : 30;                     // 光の高さ(トラックより大きくして柔らかく滲ませる)
-  const glowW = trackW * (dense ? 0.46 : 0.4);       // 光の幅(トラック幅に比例)
-  const glowBg = `radial-gradient(ellipse 50% 55% at 50% 50%, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.6) 26%, rgba(${r},${g},${b},0.22) 50%, rgba(${r},${g},${b},0) 74%)`;
-  const tEase = "transform 0.05s linear, background 0.15s linear";
-
+  // 位置は left:% で置く。CSS transitionは掛けない(掛けるとiOSでleft変更が固定される不具合が
+  // あるうえ、動きは毎フレームの再描画＋残像で見せるためトランジションは不要)。
   return (
     <>
-      {/* overflow:visible で光がトラック上下に柔らかく滲み出せるようにする */}
-      <div ref={trackRef} style={{ position: "relative", height: trackH, overflow: "visible" }}>
-        {/* 基準となる細いトラック(±50¢の物差し) */}
-        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 6, marginTop: -3, background: "#EDF0F3", borderRadius: 3 }} />
-        {/* ジャスト付近(±10¢)の目標ゾーン */}
-        <div style={{ position: "absolute", left: "40%", width: "20%", top: "50%", height: 6, marginTop: -3, background: "#E4EEF7", borderRadius: 3 }} />
-        {/* 中央=0¢(ジャスト)の基準線 */}
-        <div style={{ position: "absolute", left: "50%", top: -3, bottom: -3, width: 2, marginLeft: -1, background: "#B7C0CB", borderRadius: 1 }} />
-        {/* 検出ピッチを中心にした光(中央が濃く両側グラデーション)。色は精度で緑/橙/赤。 */}
-        <div style={{
-          position: "absolute", left: 0, top: "50%", width: glowW, height: glowH, marginTop: -glowH / 2,
-          background: glowBg, borderRadius: "50%", pointerEvents: "none",
-          transform: `translateX(${glowX - glowW / 2}px)`, transition: tEase,
-          opacity: note && trackW > 0 ? 1 : 0,
-        }} />
-        {/* 光の芯(検出位置を正確に読めるよう、中央に細い濃色ライン) */}
-        <div style={{
-          position: "absolute", left: 0, top: "50%", width: 3, height: trackH + 4, marginTop: -(trackH + 4) / 2, marginLeft: -1.5,
-          background: `rgb(${r},${g},${b})`, borderRadius: 2, pointerEvents: "none",
-          boxShadow: `0 0 6px rgba(${r},${g},${b},0.7)`,
-          transform: `translateX(${glowX}px)`, transition: tEase,
-          opacity: note && trackW > 0 ? 1 : 0,
-        }} />
+      <div style={{ position: "relative", height: trackH, overflow: "hidden" }}>
+        {/* 横軸(±50¢の物差し) */}
+        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, marginTop: -1, background: "#D5DAE0" }} />
+        {/* 中央=0¢(ジャスト)の基準マーカー(青) */}
+        <div style={{ position: "absolute", left: "50%", top: "50%", width: 2, height: tickH, marginTop: -tickH / 2, marginLeft: -1, background: "#5A8CC8", borderRadius: 1 }} />
+        {/* 残像トレイル+現在位置の棒(古い→新しい順に描画し、新しいものを手前に重ねる)。
+            現在位置(末尾)は最も高く不透明。古い残像ほど低く薄い。色は各時点のセント差から補間。 */}
+        {sounding && samples.map((s, i) => {
+          const isHead = i === samples.length - 1;
+          const age = Math.min(1, (now - s.t) / PITCH_TRAIL_MS);
+          const [r, g, b] = pitchBarColorRGB(s.cents);
+          const h = isHead ? barH : barH * (1 - age * 0.55);
+          const op = isHead ? 1 : Math.max(0, 1 - age) * 0.55;
+          const w = isHead ? headW : trailW;
+          return (
+            <div key={i} style={{
+              position: "absolute", left: `calc(${s.frac * 100}% - ${w / 2}px)`, top: "50%",
+              width: w, height: h, marginTop: -h / 2, background: `rgb(${r},${g},${b})`,
+              opacity: op, borderRadius: w / 2, pointerEvents: "none",
+            }} />
+          );
+        })}
       </div>
       {showScaleLabels && (
         <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontFamily: "var(--font-num)", fontSize: 11, color: "#8D95A1" }}>
