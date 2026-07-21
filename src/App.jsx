@@ -3300,10 +3300,15 @@ function MeasureView(props) {
       const t = metroNextTimeRef.current;
       const { num, den } = parseMetroSig(metroSigRef.current);
       const subdiv = metroSubdivRef.current || 1;
-      const eighthDur = 60 / metroTempoRef.current; // 分母音符1つ分の実時間
+      const isX8 = den === 8;
+      // 【テンポの基準】複合拍子(3/8,6/8,9/8,12/8)はテンポ数値を「主拍=付点四分(=8分3つ)」の
+      // 速さとして扱う。よって8分音符1つ=主拍の1/3の長さ。これで120指定時に主拍・振り子が120で
+      // 動き(端から端=8分3つ)、8分音符はその3等分の速さで鳴る(テンポ通り)。
+      // それ以外(X/4=四分/1拍、非複合の5/8・7/8=8分/1拍)は分母音符1つがテンポの1拍。
+      const compoundX8 = isX8 && num % 3 === 0;
+      const eighthDur = compoundX8 ? (60 / metroTempoRef.current) / 3 : (60 / metroTempoRef.current);
       // X/8はグリッドを常に8分音符に固定(perMeasure=num・subdivで割らない)。subdivは
       // 「主拍のみ(1)か、8分で拍を埋めるか(>=2)」の切替。振り子は1拍(グループ)で1振りにする。
-      const isX8 = den === 8;
       let perMeasure, stepDiv, idx, kind, isBeatAnchor, beatDur;
       if (isX8) {
         perMeasure = num;
