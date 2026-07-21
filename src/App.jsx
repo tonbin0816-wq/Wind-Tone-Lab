@@ -176,6 +176,43 @@ function SwipeBackArea({ onBack, children }) {
   );
 }
 
+// 縦横どちらにもスクロールできる領域を「1回の操作では縦か横の片方だけ」に制限する
+// (斜めスクロール防止)。最初の数pxで優勢な軸を決め、その軸がスクロール可能なら
+// preventDefaultして手動でその軸だけ動かす。スクロールできない軸ならページ側の
+// スクロールを妨げない。返り値のrefを対象のスクロール要素に付ける。
+function useAxisLockScroll() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let sx = 0, sy = 0, sl = 0, stp = 0, axis = null, active = false;
+    const onStart = (e) => {
+      if (e.touches.length !== 1) { active = false; return; }
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; sl = el.scrollLeft; stp = el.scrollTop;
+      axis = null; active = true;
+    };
+    const onMove = (e) => {
+      if (!active || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (axis === null) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+      const canX = el.scrollWidth > el.clientWidth + 1;
+      const canY = el.scrollHeight > el.clientHeight + 1;
+      if (axis === "x" && canX) { e.preventDefault(); el.scrollLeft = sl - dx; }
+      else if (axis === "y" && canY) { e.preventDefault(); el.scrollTop = stp - dy; }
+      // 優勢軸がスクロール不可の場合は何もしない(ページ側の縦スクロール等を妨げない)
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => { el.removeEventListener("touchstart", onStart); el.removeEventListener("touchmove", onMove); };
+  }, []);
+  return ref;
+}
+
 // ============================================================
 // Music theory helpers
 // ============================================================
@@ -3913,8 +3950,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
               ));
             })()}
             {frames.map((f, i) => {
-              const score = getMatchScore(f, "pitch");
-              const color = scoreToColor(score);
+              // 無音・測定外(ピッチ未検出)のフレームは一致度が定義できないためグレーにする
+              // (以前はスコア0扱いで赤く表示され、測定できていない区間が「大きく外れている」ように見えていた)。
+              const sounding = f.pitchHz != null && !isNaN(f.pitchHz);
+              const color = sounding ? scoreToColor(getMatchScore(f, "pitch")) : "#C3CAD3";
               return (
                 <rect key={i} x={i * 6} y={110} width={5} height={8} fill={color}
                   onClick={() => setSelectedFrameIdx(i)}
@@ -6134,6 +6173,8 @@ function AnalysisLabView(props) {
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
 function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
+  // 「音階ごとの平均」表は縦横スクロールするが、1操作では縦か横の片方だけ動くようにする(斜め防止)
+  const noteAvgScrollRef = useAxisLockScroll();
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
@@ -6259,7 +6300,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
             音階ごとの平均（{noteGroups.length}音）
           </div>
           {/* 表示枠は5行分にとどめ、それ以上はスクロールで閲覧する(見出し行は上に固定) */}
-          <div style={{ overflowX: "auto", maxHeight: 133, overflowY: "auto" }}>
+          <div ref={noteAvgScrollRef} style={{ overflowX: "auto", maxHeight: 133, overflowY: "auto" }}>
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 480 }}>
             <thead>
               <tr>
