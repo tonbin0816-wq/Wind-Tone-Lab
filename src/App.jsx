@@ -46,6 +46,31 @@ function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPro
   return { onTouchStart, onTouchEnd };
 }
 
+// 対象要素の上端から画面下端(下部固定ナビの手前)までの高さを返すフック。スワイプ領域を
+// この高さ以上に広げることで、コンテンツが短くても画面下側の空白部分までスワイプが効くようにする。
+function useFillViewportHeight(ref, bottomGap = 72) {
+  const [minH, setMinH] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = ref.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const h = window.innerHeight - top - bottomGap;
+      setMinH(h > 0 ? h : 0);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    const t = setTimeout(measure, 300); // フォント読込等で上の要素高さが変わった後にも測り直す
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+      clearTimeout(t);
+    };
+  }, [ref, bottomGap]);
+  return minH;
+}
+
 // 指に追従してページが横からスライドインする、カルーセル型のスワイプpager。
 // children(各ページ)を横一列に並べ、ドラッグ量ぶんだけtranslateXで動かす。指を離した時に
 // しきい値(幅の20%)を超えていれば隣のページへスナップ、足りなければ元に戻る。
@@ -54,6 +79,7 @@ function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPro
 // ・縦スクロールとの両立: 最初の数pxで縦横どちらのジェスチャーかを判定し、横と決まってから
 //   のみ preventDefault(非パッシブ登録)して横へ動かす。縦と判定したら何もせず縦スクロールさせる。
 // ・スライダー/プルダウン/横スクロール要素の上では発火しない。
+// ・viewportは画面下端まで高さを確保し、コンテンツが短くても画面のどこでもスワイプできる。
 function SwipePager({ index, onIndexChange, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
@@ -62,6 +88,7 @@ function SwipePager({ index, onIndexChange, children }) {
   const st = useRef(null);
   const idxRef = useRef(index);
   useEffect(() => { idxRef.current = index; }, [index]);
+  const minH = useFillViewportHeight(viewportRef);
   const EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
 
   const onTouchStart = (e) => {
@@ -123,7 +150,7 @@ function SwipePager({ index, onIndexChange, children }) {
 
   return (
     <div ref={viewportRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
-      style={{ overflow: "hidden", width: "100%" }}>
+      style={{ overflow: "hidden", width: "100%", minHeight: minH || undefined }}>
       <div ref={trackRef} style={{
         display: "flex", flexWrap: "nowrap", alignItems: "flex-start",
         transform: `translateX(${-index * 100}%)`, transition: EASE, willChange: "transform",
@@ -132,6 +159,19 @@ function SwipePager({ index, onIndexChange, children }) {
           <div key={i} style={{ flex: "0 0 100%", minWidth: 0, boxSizing: "border-box" }}>{c}</div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// 詳細画面の「右スワイプで一覧へ戻る」領域。コンテンツが短くても画面下側の空白まで
+// スワイプが効くよう、画面下端まで高さを確保する。
+function SwipeBackArea({ onBack, children }) {
+  const ref = useRef(null);
+  const minH = useFillViewportHeight(ref);
+  const swipe = useHorizontalSwipe({ onSwipeRight: onBack });
+  return (
+    <div ref={ref} {...swipe} style={{ minHeight: minH || undefined }}>
+      {children}
     </div>
   );
 }
@@ -4226,18 +4266,17 @@ function ReedsTab(props) {
     reedsSubTab, setReedsSubTab,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
-  const reedDetailSwipe = useHorizontalSwipe({ onSwipeRight: () => setEvaluatingReedId(null) });
 
   const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
   if (evaluatingReed) {
     return (
-      <div {...reedDetailSwipe}>
+      <SwipeBackArea onBack={() => setEvaluatingReedId(null)}>
         <ReedEvaluationDetail
           reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
           selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
           onBack={() => setEvaluatingReedId(null)}
         />
-      </div>
+      </SwipeBackArea>
     );
   }
 
@@ -5667,11 +5706,6 @@ function AnalysisLabView(props) {
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkReedId, setBulkReedId] = useState(""); // 選択セッションにまとめて紐付けるリード
 
-  // 個別セッション詳細では右スワイプで一覧に戻る。
-  const sessionDetailSwipe = useHorizontalSwipe({
-    onSwipeRight: () => setSelectedSessionId(null),
-  });
-
   // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
   // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
   const framesWithContext = sessions.flatMap((s) => {
@@ -5690,7 +5724,7 @@ function AnalysisLabView(props) {
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
     return (
-      <div {...sessionDetailSwipe}>
+      <SwipeBackArea onBack={() => setSelectedSessionId(null)}>
         <SessionDetailView
           session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
           NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
@@ -5698,7 +5732,7 @@ function AnalysisLabView(props) {
           tuningHz={tuningHz}
           onBack={() => setSelectedSessionId(null)}
         />
-      </div>
+      </SwipeBackArea>
     );
   }
 
