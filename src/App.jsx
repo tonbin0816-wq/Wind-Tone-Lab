@@ -3613,12 +3613,12 @@ function MeasureView(props) {
         </div>
       ) : (
         <>
-          <div style={{ textAlign: "center", padding: "12px 0 0" }}>
-            <span style={{ fontFamily: "var(--font-serif)", fontSize: 72, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-              {note ? note.name : "—"}<span style={{ fontSize: 32, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
+          <div style={{ textAlign: "center", padding: "34px 0 6px" }}>
+            <span style={{ fontFamily: "var(--font-serif)", fontSize: 84, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
+              {note ? note.name : "—"}<span style={{ fontSize: 36, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
             </span>
           </div>
-          <div style={{ padding: "18px 4px 0" }}>
+          <div style={{ padding: "26px 6px 0" }}>
             <PitchMeter note={note} centsOffset={centsOffset} />
           </div>
         </>
@@ -3631,27 +3631,30 @@ function MeasureView(props) {
           ため、録音していない間はliveFramesを優先してライブ追従させる。 */}
       {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
           フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
-      <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
+      <div style={{ marginTop: 22 }}>
+        <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
+      </div>
 
-      {/* 詳細トグル(Claude Design提案): 倍音構成・スペクトル・補助指標(音量/重心/HNR)を1枚の
-          折りたたみカードにまとめる。デフォルトは展開(常に情報が見える今までの挙動を維持)で、
-          コンパクトにしたい時だけ閉じられるようにする。 */}
-      <div style={{ textAlign: "center", marginTop: 4 }}>
-        <span
+      {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめる。
+          デフォルトは閉じておき、テキストを廃してワイドな下矢印ボタンだけで開閉する。 */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
+        <button
           onClick={() => setDetailOpen((v) => !v)}
-          className="sans"
-          style={{ fontSize: 13, color: "#174585", borderBottom: "1px solid #B9C9E4", paddingBottom: 3, cursor: "pointer" }}
+          aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
+          style={{ width: 200, maxWidth: "72%", padding: "9px 0", borderRadius: 999, border: "1px solid #D9E1EC", background: "#F3F6FA", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
-          {detailOpen ? "詳細を閉じる ︿" : "詳細を見る ﹀"}
-        </span>
+          {detailOpen
+            ? <ChevronUp size={24} color="#174585" strokeWidth={2.5} />
+            : <ChevronDown size={24} color="#174585" strokeWidth={2.5} />}
+        </button>
       </div>
       {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 理想）</span>
+              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 基準）</span>
               <div className="sans" style={{ display: "flex", gap: 10, fontSize: 11, color: "#435266" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 理想</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 基準</label>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140, paddingTop: 14 }}>
@@ -3677,16 +3680,16 @@ function MeasureView(props) {
             </div>
             <div className="sans" style={{ fontSize: 11, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />理想{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />基準{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
               {/* 値・単位・理想行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
-              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`理想: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
-              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`理想: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
-              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`理想: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
+              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`基準: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`基準: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
+              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`基準: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
@@ -3708,13 +3711,30 @@ function MeasureView(props) {
                 {micProcessingWarning}
               </div>
             )}
+
+            {/* 基準(旧・理想値プロファイル)。作成は録音後の「基準に設定」ボタンから行う。
+                計測下限dBの下に置き、詳細を閉じると一緒に隠れる。 */}
+            {idealProfiles.length > 0 && (
+              <>
+                <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
+                <div className="sans" style={{ fontSize: 11, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>基準</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {idealProfiles.map((p) => (
+                    <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 4, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #174585" : "1px solid #E9ECF0", background: selectedIdealId === p.id ? "#EAEFF5" : "transparent" }}>
+                      <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 11, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
+                      <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#435266", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* 録音/アップロードボタン(Claude Design提案): アイコンをラベルの上に積んだpill型。
           均等幅で並べ、録音は塗り、アップロードは輪郭のみで区別する。 */}
-      <div style={{ display: "flex", gap: 11, padding: "22px 0 4px" }}>
+      <div style={{ display: "flex", gap: 11, padding: "30px 0 4px" }}>
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isRecording || isAnalyzingUpload}
@@ -3734,21 +3754,6 @@ function MeasureView(props) {
         </button>
       </div>
 
-      {/* 理想値プロファイル選択(作成は録音後の「理想値に設定」ボタンから行う)。
-          サックス種別・基準ピッチはメーターのタップ→スクロール選択に統合済みのため、ここには置かない。 */}
-      {idealProfiles.length > 0 && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "12px 16px" }}>
-          <div className="sans" style={{ fontSize: 11, color: "#435266", marginBottom: 6 }}>理想値プロファイル</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {idealProfiles.map((p) => (
-              <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 4, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #174585" : "1px solid #E9ECF0", background: selectedIdealId === p.id ? "#EAEFF5" : "transparent" }}>
-                <div className="sans" style={{ fontSize: 11, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 11, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
-                <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#435266", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
