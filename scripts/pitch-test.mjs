@@ -80,6 +80,8 @@ const code = [
   extractConst("METRO_TEMPO_MAX"),
   extractFunction("clampMetroTempo"),
   extractFunction("parseMetroSig"),
+  extractFunction("metroBeatGroups"),
+  extractFunction("metroX8BeatStarts"),
   extractFunction("metroTickKind"),
   extractFunction("isNearScheduledClick"),
   extractConst("METRO_WEIGHT_TOP_MIN"),
@@ -92,7 +94,7 @@ const api = new Function(`${code}
            buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
            matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
-           clampMetroTempo, parseMetroSig, metroTickKind, isNearScheduledClick, metroWeightTop,
+           clampMetroTempo, parseMetroSig, metroBeatGroups, metroX8BeatStarts, metroTickKind, isNearScheduledClick, metroWeightTop,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
            METRO_TEMPO_MIN, METRO_TEMPO_MAX, METRO_WEIGHT_TOP_MIN, METRO_WEIGHT_TOP_MAX };`)();
@@ -739,45 +741,56 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
     check("4/4 アクセント無効時は全てbeat", kinds.every((k) => k === "beat"), kinds.join(","));
   }
 
-  // 複合拍子6/8: 8分音符3つ1組(強-弱-弱) × 2組 = accent,sub,sub,beat,sub,sub
+  // 8分音符のグループ分け(3の倍数は全て3、それ以外は3と2で埋める)
+  {
+    check("metroBeatGroups: 6→[3,3]", JSON.stringify(api.metroBeatGroups(6)) === JSON.stringify([3, 3]));
+    check("metroBeatGroups: 9→[3,3,3]", JSON.stringify(api.metroBeatGroups(9)) === JSON.stringify([3, 3, 3]));
+    check("metroBeatGroups: 12→[3,3,3,3]", JSON.stringify(api.metroBeatGroups(12)) === JSON.stringify([3, 3, 3, 3]));
+    check("metroBeatGroups: 3→[3]", JSON.stringify(api.metroBeatGroups(3)) === JSON.stringify([3]));
+    check("metroBeatGroups: 5→[3,2]", JSON.stringify(api.metroBeatGroups(5)) === JSON.stringify([3, 2]));
+    check("metroBeatGroups: 7→[3,2,2]", JSON.stringify(api.metroBeatGroups(7)) === JSON.stringify([3, 2, 2]));
+  }
+  // 複合拍子6/8 subdiv=1(主拍のみ): 主拍(0,3)だけaccent/beat、拍間の8分音符はsilent
   {
     const kinds = Array.from({ length: 6 }, (_, i) => api.metroTickKind(i, "6/8", 1, true));
-    check("6/8 複合拍の強弱(accent,sub,sub,beat,sub,sub)",
-      JSON.stringify(kinds) === JSON.stringify(["accent", "sub", "sub", "beat", "sub", "sub"]), kinds.join(","));
+    check("6/8 主拍のみ(accent,silent,silent,beat,silent,silent)",
+      JSON.stringify(kinds) === JSON.stringify(["accent", "silent", "silent", "beat", "silent", "silent"]), kinds.join(","));
   }
-  // 9/8: 3組(強-弱-弱 ×3)
+  // 9/8 主拍のみ: 3拍(0,3,6)
   {
     const kinds = Array.from({ length: 9 }, (_, i) => api.metroTickKind(i, "9/8", 1, true));
-    check("9/8 複合拍の強弱(3組)",
-      JSON.stringify(kinds) === JSON.stringify(["accent", "sub", "sub", "beat", "sub", "sub", "beat", "sub", "sub"]), kinds.join(","));
+    check("9/8 主拍のみ(3拍)",
+      JSON.stringify(kinds) === JSON.stringify(["accent", "silent", "silent", "beat", "silent", "silent", "beat", "silent", "silent"]), kinds.join(","));
   }
-  // 12/8: 4組
+  // 12/8 主拍のみ: 4拍(0,3,6,9)
   {
     const kinds = Array.from({ length: 12 }, (_, i) => api.metroTickKind(i, "12/8", 1, true));
-    const expected = ["accent", "sub", "sub", "beat", "sub", "sub", "beat", "sub", "sub", "beat", "sub", "sub"];
-    check("12/8 複合拍の強弱(4組)", JSON.stringify(kinds) === JSON.stringify(expected), kinds.join(","));
+    const expected = ["accent", "silent", "silent", "beat", "silent", "silent", "beat", "silent", "silent", "beat", "silent", "silent"];
+    check("12/8 主拍のみ(4拍)", JSON.stringify(kinds) === JSON.stringify(expected), kinds.join(","));
   }
-  // 3/8: 1組のみ(複合拍そのものが1小節)
+  // 3/8 主拍のみ: 1拍(先頭のみaccent、他silent)
   {
     const kinds = Array.from({ length: 3 }, (_, i) => api.metroTickKind(i, "3/8", 1, true));
-    check("3/8 複合拍の強弱(accent,sub,sub)", JSON.stringify(kinds) === JSON.stringify(["accent", "sub", "sub"]), kinds.join(","));
+    check("3/8 主拍のみ(accent,silent,silent)", JSON.stringify(kinds) === JSON.stringify(["accent", "silent", "silent"]), kinds.join(","));
   }
-  // 非複合のX/8(5/8, 7/8: 分子が3の倍数でない)は単純拍子と同じ扱い(先頭のみaccent、他は均等beat)
+  // 非複合X/8 主拍のみ: 5/8=3+2(拍0,3) / 7/8=3+2+2(拍0,3,5)
   {
     const kinds5 = Array.from({ length: 5 }, (_, i) => api.metroTickKind(i, "5/8", 1, true));
-    check("5/8(非複合)は先頭accent・他beat均等", JSON.stringify(kinds5) === JSON.stringify(["accent", "beat", "beat", "beat", "beat"]), kinds5.join(","));
+    check("5/8 主拍のみ(3+2: 0,3が拍)", JSON.stringify(kinds5) === JSON.stringify(["accent", "silent", "silent", "beat", "silent"]), kinds5.join(","));
     const kinds7 = Array.from({ length: 7 }, (_, i) => api.metroTickKind(i, "7/8", 1, true));
-    check("7/8(非複合)は先頭accent・他beat均等", kinds7[0] === "accent" && kinds7.slice(1).every((k) => k === "beat"), kinds7.join(","));
+    check("7/8 主拍のみ(3+2+2: 0,3,5が拍)", JSON.stringify(kinds7) === JSON.stringify(["accent", "silent", "silent", "beat", "silent", "beat", "silent"]), kinds7.join(","));
   }
-  // subdivによる細分は常にsub(複合拍・単純拍子どちらでも)
+  // 8分音符で埋める(subdiv>=2): 複合6/8は1拍に8分3つ(強-弱-弱)=実質3連。グリッドは8分のまま(perMeasure=6)
   {
-    // 6/8 subdiv=2: 各8分音符位置が2つのtickに分かれ、後半(オフビート側)は常にsub
-    const kinds = Array.from({ length: 12 }, (_, i) => api.metroTickKind(i, "6/8", 2, true));
-    // 偶数index(0,2,4,...)が8分音符の頭、奇数indexは細分(常にsub)
-    const oddAreSub = kinds.filter((_, i) => i % 2 === 1).every((k) => k === "sub");
-    check("6/8 subdiv=2で細分(奇数tick)は常にsub", oddAreSub, kinds.join(","));
-    check("6/8 subdiv=2でも8分音符の頭のパターンは変わらない",
-      kinds[0] === "accent" && kinds[6] === "beat" && kinds[2] === "sub" && kinds[4] === "sub", kinds.join(","));
+    const kinds = Array.from({ length: 6 }, (_, i) => api.metroTickKind(i, "6/8", 2, true));
+    check("6/8 8分で埋める(accent,sub,sub,beat,sub,sub)",
+      JSON.stringify(kinds) === JSON.stringify(["accent", "sub", "sub", "beat", "sub", "sub"]), kinds.join(","));
+  }
+  // 5/8 8分で埋める: 拍頭(0,3)以外は sub
+  {
+    const kinds = Array.from({ length: 5 }, (_, i) => api.metroTickKind(i, "5/8", 2, true));
+    check("5/8 8分で埋める(accent,sub,sub,beat,sub)",
+      JSON.stringify(kinds) === JSON.stringify(["accent", "sub", "sub", "beat", "sub"]), kinds.join(","));
   }
   // 4/4 subdiv=4(16分相当): 各拍の最初のtickだけが本来のkind、残り3つはsub
   {
@@ -796,7 +809,7 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
   // 負のtickIndexでも例外を投げず妥当な値を返す(モジュロの符号対策)
   {
     const kNeg = api.metroTickKind(-1, "6/8", 1, true);
-    check("負のtickIndexでもクラッシュせず妥当な値を返す", ["accent", "beat", "sub"].includes(kNeg), kNeg);
+    check("負のtickIndexでもクラッシュせず妥当な値を返す", ["accent", "beat", "sub", "silent"].includes(kNeg), kNeg);
   }
 }
 
