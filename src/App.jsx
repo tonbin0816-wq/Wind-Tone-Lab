@@ -3040,11 +3040,11 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
   const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
-  const trackH = dense ? 46 : 26;
-  const barH = dense ? 34 : 20;    // 縦棒の高さ
-  const headW = dense ? 4 : 3;     // 現在位置の棒の幅
+  const trackH = dense ? 92 : 26;  // 大表示の縦幅は2倍(メーターを主役にする)
+  const barH = dense ? 68 : 20;    // 縦棒の高さ
+  const headW = dense ? 5 : 3;     // 現在位置の棒の幅
   const trailW = dense ? 3 : 2;    // 残像の棒の幅
-  const tickH = dense ? 22 : 14;   // 中央0¢マーカーの高さ
+  const tickH = dense ? 44 : 14;   // 中央0¢マーカーの高さ
 
   // 残像バッファ: {frac(位置), cents(その時の色用), t(時刻)} を時系列で保持する。
   // pitchはrAF毎(約60fps)に更新されPitchMeterが再レンダーされるため、その度に現在位置を積み、
@@ -3642,11 +3642,10 @@ function MeasureView(props) {
       <div style={{ marginTop: 22 }}>
         <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
       </div>
-      </div>{/* /メイン領域 */}
 
       {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめる。
-          デフォルトは閉じておき、テキストを廃してワイドな下矢印ボタンだけで開閉する。 */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
+          「これまでの音」グラフの直下に寄せ、両者の余白は従来の1/3(18→6)にする。 */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
         <button
           onClick={() => setDetailOpen((v) => !v)}
           aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
@@ -3657,6 +3656,7 @@ function MeasureView(props) {
             : <ChevronDown size={24} color="#174585" strokeWidth={2.5} />}
         </button>
       </div>
+      </div>{/* /メイン領域 */}
       {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
