@@ -2308,6 +2308,22 @@ export default function WindToneLabPhaseMode() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [topTab]);
 
+  // 【iOS対策】アプリを一度閉じて戻るとマイクのAudioContextが中断されたまま、ユーザー操作なしの
+  // resume()では復帰しないことがある(チューナーが無音になる原因)。画面のどこかを最初にタップ
+  // した時に、runningでなければresumeし直す保険。復帰時の再接続(上のstartListening)と併用する。
+  useEffect(() => {
+    const resumeOnGesture = () => {
+      const c = audioCtxRef.current;
+      if (c && c.state !== "running" && c.state !== "closed") c.resume().catch(() => {});
+    };
+    document.addEventListener("touchend", resumeOnGesture, { passive: true });
+    document.addEventListener("pointerdown", resumeOnGesture, { passive: true });
+    return () => {
+      document.removeEventListener("touchend", resumeOnGesture);
+      document.removeEventListener("pointerdown", resumeOnGesture);
+    };
+  }, []);
+
   useEffect(() => () => stopListeningRef.current(), []);
 
   // セッション(またはライブ録音直後のフレーム列)全体を平均して理想値プロファイルとして保存する。
@@ -2712,9 +2728,29 @@ function PitchDeviationLine({ frames }) {
     return c === null || c === undefined || isNaN(c);
   };
 
-  const points = windowFrames
-    .map((f) => `${x(f.t)},${y(isSilent(f) ? 0 : f.pitchCents)}`)
-    .join(" ");
+  // 折れ線をピッチの乖離幅で色分けする(緑=ほぼ合っている / 橙=やや外れ / 赤=大きく外れ、
+  // 無音・測定外はグレー)。色が変わる区間ごとにpolylineを分けて描く(連続する同色は1本にまとめ、
+  // 要素数を抑える)。隣接区間は境界点を共有させて線が途切れないようにする。
+  const RECENT_COLORS = { g: "#16A34A", o: "#D97706", r: "#DC2626", s: "#C3CAD3" };
+  const recentBucket = (c) => {
+    const a = Math.abs(c);
+    if (a <= 6) return "g";
+    if (a <= 15) return "o";
+    return "r";
+  };
+  const framePts = windowFrames.map((f) => ({
+    x: x(f.t),
+    y: y(isSilent(f) ? 0 : f.pitchCents),
+    key: isSilent(f) ? "s" : recentBucket(f.pitchCents),
+  }));
+  const lineRuns = [];
+  for (let i = 1; i < framePts.length; i++) {
+    const a = framePts[i - 1], b = framePts[i];
+    const key = (a.key === "s" || b.key === "s") ? "s" : b.key; // 直近点の色。無音を含む区間はグレー
+    const last = lineRuns[lineRuns.length - 1];
+    if (last && last.key === key) last.pts.push([b.x, b.y]);
+    else lineRuns.push({ key, pts: [[a.x, a.y], [b.x, b.y]] });
+  }
 
   // 感知した音名(運指の記音)を時系列に沿ってラベル表示する。連続する同じ音をひとまとまりにし、
   // 各まとまりの先頭位置に音名を出す。無音フレームはまとまりを区切る。SVGはpreserveAspectRatio=none
@@ -2760,7 +2796,11 @@ function PitchDeviationLine({ frames }) {
           <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
             <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
             <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
-            {points && <polyline fill="none" stroke="#174585" strokeWidth="2" points={points} />}
+            {lineRuns.map((run, i) => (
+              <polyline key={i} fill="none" stroke={RECENT_COLORS[run.key]} strokeWidth="2.5"
+                strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
+                points={run.pts.map((p) => `${p[0]},${p[1]}`).join(" ")} />
+            ))}
           </svg>
           {labels.map((l, i) => (
             <span
@@ -3037,7 +3077,22 @@ const PITCH_TRAIL_MS = 190; // 残像を残す時間窓(これを過ぎた軌跡
 
 function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   const sounding = !!note;
-  const exact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+  const rawExact = note ? Math.max(-50, Math.min(50, note.centsExact ?? centsOffset)) : 0;
+
+  // 生のピッチはフレーム毎に細かく揺れて棒の動きが「せわしなく」見える。指数移動平均(EMA)で
+  // 位置をなめらかにし、落ち着いた追従にする。ただし音名(半音)が変わった瞬間はcentsExactが
+  // 大きく飛ぶため、そこはスナップして平滑をやり直す(隣の音へ不自然にスウィープしない)。
+  const smoothRef = useRef({ semi: null, val: 0 });
+  let exact = rawExact;
+  if (sounding) {
+    const semi = Math.round(note.midi);
+    if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact };
+    else smoothRef.current.val += (rawExact - smoothRef.current.val) * 0.25; // 小さいほど滑らか
+    exact = smoothRef.current.val;
+  } else {
+    smoothRef.current = { semi: null, val: 0 };
+  }
+
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
   const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
   const trackH = dense ? 92 : 26;  // 大表示の縦幅は2倍(メーターを主役にする)
@@ -3247,37 +3302,23 @@ function MeasureView(props) {
     }
   }, [scheduledClicksRef, metroBarPerfTimesRef]);
 
-  const startMetronome = useCallback(async () => {
-    // このSTART呼び出し固有の世代番号。resume()待ちの間に別のSTART/STOPが発生したら、
-    // この呼び出しは古い世代とみなして状態を書き換えずに終わる(取り違え防止)。
-    const myGen = ++metroGenRef.current;
+  const startMetronome = useCallback(() => {
+    metroGenRef.current++; // 進行中の古い状態を無効化する
     // 出力用AudioContextはマイクの解析用とは分けて持つ(ライフサイクルを絡めないため)。
+    // 【iOS対策・重要】アプリを一度バックグラウンドにするとAudioContextはinterrupted/suspendに
+    // なり、awaitを挟んでからresume()してもユーザー操作(このタップ)の権限が切れて再開できない。
+    // そこで「runningでなければ、このタップの中で同期的にコンテキストを作り直し、resume()も
+    // awaitせず同期でキックする」。これで一度閉じてから戻ってもSTARTで必ず鳴らせる。
     let ctx = metroCtxRef.current;
-    if (!ctx || ctx.state === "closed") {
+    if (!ctx || ctx.state !== "running") {
+      try { ctx?.close(); } catch { /* noop */ }
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       metroCtxRef.current = ctx;
     }
-    if (ctx.state !== "running") {
-      // 一部ブラウザ(特にiOS Safari)ではsuspend/resumeを繰り返すとresume()が
-      // 二度と解決しなくなる既知の不安定挙動がある。タイムアウトで見切りをつけ、
-      // 応答しないコンテキストは破棄して新しく作り直すことで、テンポ・拍子を
-      // 何度も変えたりSTART/STOPを繰り返しても必ず再生を再開できるようにする。
-      const resumed = await Promise.race([
-        ctx.resume().then(() => true).catch(() => false),
-        new Promise((res) => setTimeout(() => res(false), 800)),
-      ]);
-      if (myGen !== metroGenRef.current) return; // 待っている間に別の呼び出しが上書きした
-      if (!resumed || ctx.state !== "running") {
-        try { ctx.close(); } catch { /* noop */ }
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
-        metroCtxRef.current = ctx;
-        try { await ctx.resume(); } catch { /* noop */ }
-        if (myGen !== metroGenRef.current) return;
-      }
-    }
+    ctx.resume().catch(() => {}); // ジェスチャー中に同期的に発火(awaitしない)
     metroTickIndexRef.current = 0;
     metroGBeatRef.current = 0;
-    metroNextTimeRef.current = ctx.currentTime + 0.1;
+    metroNextTimeRef.current = ctx.currentTime + 0.12;
     metroAnchorRef.current = { time: metroNextTimeRef.current, gBeat: 0, mBeat: 0 };
     metroOnRef.current = true;
     metroActiveRef.current = true;
@@ -3294,7 +3335,8 @@ function MeasureView(props) {
     metroActiveRef.current = false;
     scheduledClicksRef.current = [];
     setMetronomeOn(false);
-    setMetroSettingsOpen(false);
+    // (旧UIの名残 setMetroSettingsOpen(false) は未定義でstopのたびに例外を投げていたため削除。
+    //  設定サブパネルの開閉は metroPanel 側で独立管理しているのでここでは触らない)
     // AudioContextはsuspendしない(スケジューラを止めれば無音になるだけで十分軽量なため、
     // suspend/resumeの繰り返しによる不安定化を避ける。タブ離脱時のみアンマウント処理でcloseする)。
     if (!isRecording) releaseWakeLock(); // 録音中はWake Lockを維持
@@ -3314,6 +3356,15 @@ function MeasureView(props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // アプリを閉じる(バックグラウンド化・画面ロック)とiOSはAudioContextを中断し、鳴っていた
+  // メトロノームは無音のまま状態だけ残る。復帰後にSTOP表示なのに鳴らない混乱を避けるため、
+  // 非表示になった時点でクリーンに止めておく(復帰後はSTARTで確実に鳴らせる=上のstartMetronome)。
+  useEffect(() => {
+    const onVis = () => { if (document.hidden && metroOnRef.current) stopMetronome(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [stopMetronome]);
 
   // 拍子・分割の変更時は小節の頭から仕切り直す(実行中のみ。テンポ変更は次の拍から自然に反映)
   useEffect(() => {
