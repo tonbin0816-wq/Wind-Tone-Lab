@@ -3104,11 +3104,11 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
 
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
   const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
-  const trackH = dense ? 92 : 26;  // 大表示の縦幅は2倍(メーターを主役にする)
-  const barH = dense ? 68 : 20;    // 縦棒の高さ
-  const headW = dense ? 5 : 3;     // 現在位置の棒の幅
-  const trailW = dense ? 3 : 2;    // 残像の棒の幅
-  const tickH = dense ? 44 : 14;   // 中央0¢マーカーの高さ
+  const trackH = dense ? 112 : 26; // 大表示はこの画面の主役。大きめに取る
+  const barH = dense ? 84 : 20;    // 縦棒の高さ
+  const headW = dense ? 6 : 3;     // 現在位置の棒の幅
+  const trailW = dense ? 4 : 2;    // 残像の棒の幅
+  const tickH = dense ? 54 : 14;   // 中央0¢マーカーの高さ
 
   // 残像バッファ: {frac(位置), cents(その時の色用), t(時刻)} を時系列で保持する。
   // pitchはrAF毎(約60fps)に更新されPitchMeterが再レンダーされるため、その度に現在位置を積み、
@@ -3606,29 +3606,6 @@ function MeasureView(props) {
                   }}>{sig}</button>
                 ))}
               </div>
-              {/* 5/8・7/8はグループ分け(拍の区切り)を選べる。8分音符をどう束ねて主拍にするか。 */}
-              {(metroSig === "5/8" || metroSig === "7/8") && (() => {
-                const choices = metroSig === "5/8" ? [[3, 2], [2, 3]] : [[3, 2, 2], [2, 3, 2], [2, 2, 3]];
-                const cur = Array.isArray(metroGrouping) ? metroGrouping.join("+") : "";
-                return (
-                  <div style={{ marginTop: 10 }}>
-                    <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>拍のグループ</span>
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      {choices.map((g) => {
-                        const label = g.join("+");
-                        const selected = cur === label;
-                        return (
-                          <button key={label} onClick={() => setMetroGrouping(g)} className="sans" style={{
-                            flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
-                            border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                            background: selected ? "#EAEFF5" : "#FFFFFF", color: selected ? "#174585" : "#435266",
-                          }}>{label}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
               {/* アクセント(デフォルトON) + 完了 */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
                 <label className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#435266", cursor: "pointer" }}>
@@ -3657,6 +3634,29 @@ function MeasureView(props) {
                   );
                 })}
               </div>
+              {/* 5/8・7/8は拍のグループ(8分音符の束ね方=主拍の区切り)をここで選ぶ。 */}
+              {(metroSig === "5/8" || metroSig === "7/8") && (() => {
+                const choices = metroSig === "5/8" ? [[3, 2], [2, 3]] : [[3, 2, 2], [2, 3, 2], [2, 2, 3]];
+                const cur = Array.isArray(metroGrouping) ? metroGrouping.join("+") : "";
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    <span className="sans" style={{ fontSize: 11, color: "#8D95A1" }}>拍のグループ</span>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      {choices.map((g) => {
+                        const label = g.join("+");
+                        const selected = cur === label;
+                        return (
+                          <button key={label} onClick={() => setMetroGrouping(g)} className="sans" style={{
+                            flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
+                            border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
+                            background: selected ? "#EAEFF5" : "#FFFFFF", color: selected ? "#174585" : "#435266",
+                          }}>{label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto", paddingTop: 10 }}>
                 <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
               </div>
@@ -3721,11 +3721,11 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* メイン領域: チューナーのメーターを主役に画面中央へ据える。詳細を閉じた素のチューナー
-          表示のときだけflex:1で上下の余白を均等に取り(中央寄せ)、録音ボタン群を画面下部
-          (ナビ手前)へ押し出す。詳細やメトロノームを開いた時は自然な高さに戻し、必要なら
-          スクロールさせる(中身がつぶれて重ならないように)。 */}
-      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      {/* メイン領域: チューナーのメーターを主役にする。詳細を閉じた素のチューナー表示では
+          flex:1で余った縦スペースを上側に集め、音名+メーター+グラフ+下矢印は下寄せ(flex-end)で
+          録音ボタンのすぐ上にまとめる(下矢印と録音ボタンの余白を狭く/メーターとグラフを下へ)。
+          詳細やメトロノームを開いた時は自然な高さに戻し、必要ならスクロールさせる。 */}
+      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "flex-end" }}>
       {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
           非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
       {showMetroPanel ? (
@@ -3871,7 +3871,7 @@ function MeasureView(props) {
 
       {/* 録音/アップロードボタン(Claude Design提案): アイコンをラベルの上に積んだpill型。
           均等幅で並べ、録音は塗り、アップロードは輪郭のみで区別する。 */}
-      <div style={{ display: "flex", gap: 11, padding: "30px 0 4px" }}>
+      <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isRecording || isAnalyzingUpload}
