@@ -3148,6 +3148,9 @@ function MeasureView(props) {
   // 優先的に触る値のため、演奏姿勢のまま指の届く位置に置く)。どちらか一方だけ開く。
   const [openPicker, setOpenPicker] = useState(null); // null | "tuning" | "sax"
   const [detailOpen, setDetailOpen] = useState(false); // 倍音構成・スペクトル・補助指標をまとめた詳細カードの開閉。デフォルトは閉じておく
+  // 計測タブを画面いっぱいの縦フレックスにして「上=設定 / 中央=メーター / 下=録音ボタン」に配置する。
+  const measureRootRef = useRef(null);
+  const measureMinH = useFillViewportHeight(measureRootRef);
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
 
@@ -3331,7 +3334,7 @@ function MeasureView(props) {
   }, []);
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
       {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
           右に楽器種別・基準ピッチ(タップでスクロール選択、値はテキストリンク風)。
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
@@ -3590,6 +3593,11 @@ function MeasureView(props) {
         </div>
       )}
 
+      {/* メイン領域: チューナーのメーターを主役に画面中央へ据える。詳細を閉じた素のチューナー
+          表示のときだけflex:1で上下の余白を均等に取り(中央寄せ)、録音ボタン群を画面下部
+          (ナビ手前)へ押し出す。詳細やメトロノームを開いた時は自然な高さに戻し、必要なら
+          スクロールさせる(中身がつぶれて重ならないように)。 */}
+      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
           非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
       {showMetroPanel ? (
@@ -3613,7 +3621,7 @@ function MeasureView(props) {
         </div>
       ) : (
         <>
-          <div style={{ textAlign: "center", padding: "34px 0 6px" }}>
+          <div style={{ textAlign: "center", padding: "0 0 8px" }}>
             <span style={{ fontFamily: "var(--font-serif)", fontSize: 84, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
               {note ? note.name : "—"}<span style={{ fontSize: 36, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
             </span>
@@ -3634,6 +3642,7 @@ function MeasureView(props) {
       <div style={{ marginTop: 22 }}>
         <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
       </div>
+      </div>{/* /メイン領域 */}
 
       {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめる。
           デフォルトは閉じておき、テキストを廃してワイドな下矢印ボタンだけで開閉する。 */}
