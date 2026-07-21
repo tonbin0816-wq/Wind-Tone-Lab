@@ -2436,7 +2436,7 @@ export default function WindToneLabPhaseMode() {
   const centsOffset = note ? note.cents : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 72px", boxSizing: "border-box" }}>
+    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 72px calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
