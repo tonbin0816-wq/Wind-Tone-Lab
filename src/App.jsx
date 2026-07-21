@@ -46,6 +46,96 @@ function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPro
   return { onTouchStart, onTouchEnd };
 }
 
+// 指に追従してページが横からスライドインする、カルーセル型のスワイプpager。
+// children(各ページ)を横一列に並べ、ドラッグ量ぶんだけtranslateXで動かす。指を離した時に
+// しきい値(幅の20%)を超えていれば隣のページへスナップ、足りなければ元に戻る。
+// ・パフォーマンス: ドラッグ中はReactのstateを更新せず、trackのstyleを直接書き換える
+//   (重い子ページを毎フレーム再レンダーしないため)。indexはpropで制御(サブタブと同期)。
+// ・縦スクロールとの両立: 最初の数pxで縦横どちらのジェスチャーかを判定し、横と決まってから
+//   のみ preventDefault(非パッシブ登録)して横へ動かす。縦と判定したら何もせず縦スクロールさせる。
+// ・スライダー/プルダウン/横スクロール要素の上では発火しない。
+function SwipePager({ index, onIndexChange, children }) {
+  const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
+  const count = pages.length;
+  const viewportRef = useRef(null);
+  const trackRef = useRef(null);
+  const st = useRef(null);
+  const idxRef = useRef(index);
+  useEffect(() => { idxRef.current = index; }, [index]);
+  const EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+
+  const onTouchStart = (e) => {
+    if (e.touches.length !== 1 || e.target.closest?.("input, select, textarea, [data-noswipe]") ||
+        hasHorizontalScrollAncestor(e.target, e.currentTarget)) { st.current = null; return; }
+    const t = e.touches[0];
+    st.current = { x: t.clientX, y: t.clientY, dx: 0, decided: false, horizontal: false };
+  };
+
+  // touchmoveは非パッシブで登録し、横ドラッグ確定後に縦スクロールを止める。
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onMove = (e) => {
+      const s = st.current;
+      if (!s || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dxRaw = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (!s.decided) {
+        if (Math.abs(dxRaw) < 6 && Math.abs(dy) < 6) return;
+        s.decided = true;
+        s.horizontal = Math.abs(dxRaw) > Math.abs(dy);
+      }
+      if (!s.horizontal) return;
+      e.preventDefault();
+      let dx = dxRaw;
+      const i = idxRef.current;
+      if ((i === 0 && dx > 0) || (i === count - 1 && dx < 0)) dx *= 0.35; // 端は抵抗をつける
+      s.dx = dx;
+      const track = trackRef.current;
+      if (track) {
+        track.style.transition = "none";
+        track.style.transform = `translateX(calc(${-i * 100}% + ${dx}px))`;
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, [count]);
+
+  const onTouchEnd = () => {
+    const s = st.current;
+    st.current = null;
+    if (!s || !s.horizontal) return;
+    const track = trackRef.current;
+    const w = viewportRef.current?.clientWidth || 0;
+    const threshold = w ? w * 0.2 : 60;
+    const i = index;
+    let next = i;
+    if (s.dx <= -threshold && i < count - 1) next = i + 1;
+    else if (s.dx >= threshold && i > 0) next = i - 1;
+    if (track) track.style.transition = EASE;
+    if (next !== i) {
+      onIndexChange(next);                                            // 再レンダーで次ページへスライド
+    } else if (track) {
+      track.style.transform = `translateX(${-i * 100}%)`;             // しきい値未満は元に戻す
+    }
+  };
+
+  return (
+    <div ref={viewportRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
+      style={{ overflow: "hidden", width: "100%" }}>
+      <div ref={trackRef} style={{
+        display: "flex", flexWrap: "nowrap", alignItems: "flex-start",
+        transform: `translateX(${-index * 100}%)`, transition: EASE, willChange: "transform",
+      }}>
+        {pages.map((c, i) => (
+          <div key={i} style={{ flex: "0 0 100%", minWidth: 0, boxSizing: "border-box" }}>{c}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // Music theory helpers
 // ============================================================
@@ -2268,12 +2358,6 @@ export default function WindToneLabPhaseMode() {
   const note = pitch ? freqToNote(pitch, effectiveTuningHz) : null;
   const centsOffset = note ? note.cents : 0;
 
-  // リードタブの子タブ(登録⇄比較)を左右スワイプで行き来する。
-  const reedsSwipe = useHorizontalSwipe({
-    onSwipeLeft: () => setReedsSubTab("compare"),   // 左スワイプ: 登録→比較
-    onSwipeRight: () => setReedsSubTab("register"), // 右スワイプ: 比較→登録
-  });
-
   return (
     <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 14px 72px", boxSizing: "border-box" }}>
       <style>{`
@@ -2363,22 +2447,15 @@ export default function WindToneLabPhaseMode() {
         />
       )}
       {topTab === "reeds" && (
-        <div {...reedsSwipe}>
-          {reedsSubTab === "register" && (
-            <ReedRegisterView
-              key={`reeds-${navNonce}`}
-              reeds={reeds} setReeds={setReeds}
-              sessions={sessions} updateSessions={updateSessions}
-              setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
-              selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
-            />
-          )}
-          {reedsSubTab === "compare" && (
-            <div style={{ maxWidth: 900, margin: "0 auto" }}>
-              <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={effectiveTuningHz} />
-            </div>
-          )}
-        </div>
+        <ReedsTab
+          key={`reeds-${navNonce}`}
+          reeds={reeds} setReeds={setReeds}
+          sessions={sessions} updateSessions={updateSessions}
+          setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
+          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
+          compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
+          reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
+        />
       )}
       {topTab === "analysis" && (
         <AnalysisLabView
@@ -4140,11 +4217,54 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
 // ============================================================
 // Reeds view — 企画書v5 10節: リード管理・リード別比較・リード毎比較・ランキング
 // ============================================================
+// リードタブの親。登録⇄比較をスワイプpagerで行き来し、個別リード詳細の開閉も担う。
+// 詳細を開いている間はpagerを出さず(早期return)、右スワイプで一覧へ戻す。
+function ReedsTab(props) {
+  const {
+    reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
+    selectedIdeal, saxType, tuningHz, compareReedIds, setCompareReedIds,
+    reedsSubTab, setReedsSubTab,
+  } = props;
+  const [evaluatingReedId, setEvaluatingReedId] = useState(null);
+  const reedDetailSwipe = useHorizontalSwipe({ onSwipeRight: () => setEvaluatingReedId(null) });
+
+  const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
+  if (evaluatingReed) {
+    return (
+      <div {...reedDetailSwipe}>
+        <ReedEvaluationDetail
+          reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
+          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
+          onBack={() => setEvaluatingReedId(null)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <SwipePager
+      index={reedsSubTab === "compare" ? 1 : 0}
+      onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
+    >
+      <ReedRegisterView
+        reeds={reeds} setReeds={setReeds}
+        sessions={sessions} updateSessions={updateSessions}
+        setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
+        selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
+        onOpenReed={setEvaluatingReedId}
+      />
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
+      </div>
+    </SwipePager>
+  );
+}
+
 // ============================================================
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz } = props;
+  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz, onOpenReed } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -4277,27 +4397,7 @@ function ReedRegisterView(props) {
 
   const reedGroups = groupReeds(reeds);
   const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
-  const [evaluatingReedId, setEvaluatingReedId] = useState(null); // タップした登録済みリードの評価詳細を表示
-
-  // 個別リード詳細では右スワイプで一覧に戻る。stopPropagationで親(登録⇄比較の
-  // サブタブスワイプ)が二重に反応しないようにする。
-  const reedDetailSwipe = useHorizontalSwipe({
-    onSwipeRight: () => setEvaluatingReedId(null),
-    stopPropagation: true,
-  });
-
-  const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
-  if (evaluatingReed) {
-    return (
-      <div {...reedDetailSwipe}>
-        <ReedEvaluationDetail
-          reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
-          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-          onBack={() => setEvaluatingReedId(null)}
-        />
-      </div>
-    );
-  }
+  // 個別リード評価詳細の開閉は親(ReedsTab)が持つ。ここでは行タップでonOpenReed(id)を呼ぶだけ。
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -4498,7 +4598,7 @@ function ReedRegisterView(props) {
                         <ReorderableReedRows
                           members={g.members}
                           onReorder={reorderGroupMembers}
-                          onRowClick={(id) => setEvaluatingReedId(id)}
+                          onRowClick={(id) => onOpenReed?.(id)}
                           renderRow={(r, idx) => (
                             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
                               <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
@@ -5567,11 +5667,6 @@ function AnalysisLabView(props) {
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkReedId, setBulkReedId] = useState(""); // 選択セッションにまとめて紐付けるリード
 
-  // 子タブ(My Data⇄分析)を左右スワイプで行き来する。
-  const dataSwipe = useHorizontalSwipe({
-    onSwipeLeft: () => setDataSubTab("analysis"),  // 左スワイプ: My Data→分析
-    onSwipeRight: () => setDataSubTab("mydata"),   // 右スワイプ: 分析→My Data
-  });
   // 個別セッション詳細では右スワイプで一覧に戻る。
   const sessionDetailSwipe = useHorizontalSwipe({
     onSwipeRight: () => setSelectedSessionId(null),
@@ -5659,7 +5754,7 @@ function AnalysisLabView(props) {
   };
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }} {...dataSwipe}>
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* データタブ内の子タブ: My Data / 分析(クロス集計) */}
       <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginBottom: 12 }}>
         {[
@@ -5684,7 +5779,8 @@ function AnalysisLabView(props) {
         ))}
       </div>
 
-      {dataSubTab === "mydata" && (<>
+      <SwipePager index={dataSubTab === "analysis" ? 1 : 0} onIndexChange={(i) => setDataSubTab(i === 1 ? "analysis" : "mydata")}>
+      <>
       {/* --- My Data: 「自分」のセッションの推移 --- */}
       <MyDataSection sessions={sessions} selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz} />
 
@@ -5807,10 +5903,8 @@ function AnalysisLabView(props) {
           </div>
         )}
       </div>
-      </>)}
-
-      {dataSubTab === "analysis" && (
-      /* --- 11.6節: クロス集計(ピボット型マトリクス) --- */
+      </>
+      {/* --- 分析(11.6節): クロス集計(ピボット型マトリクス) --- */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px" }}>
         <div className="sans" style={{ fontSize: 15, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
           PIVOT
@@ -5998,7 +6092,7 @@ function AnalysisLabView(props) {
           </div>
         )}
       </div>
-      )}
+      </SwipePager>
     </div>
   );
 }
