@@ -2728,29 +2728,10 @@ function PitchDeviationLine({ frames }) {
     return c === null || c === undefined || isNaN(c);
   };
 
-  // 折れ線をピッチの乖離幅で色分けする(緑=ほぼ合っている / 橙=やや外れ / 赤=大きく外れ、
-  // 無音・測定外はグレー)。色が変わる区間ごとにpolylineを分けて描く(連続する同色は1本にまとめ、
-  // 要素数を抑える)。隣接区間は境界点を共有させて線が途切れないようにする。
-  const RECENT_COLORS = { g: "#16A34A", o: "#D97706", r: "#DC2626", s: "#C3CAD3" };
-  const recentBucket = (c) => {
-    const a = Math.abs(c);
-    if (a <= 6) return "g";
-    if (a <= 15) return "o";
-    return "r";
-  };
-  const framePts = windowFrames.map((f) => ({
-    x: x(f.t),
-    y: y(isSilent(f) ? 0 : f.pitchCents),
-    key: isSilent(f) ? "s" : recentBucket(f.pitchCents),
-  }));
-  const lineRuns = [];
-  for (let i = 1; i < framePts.length; i++) {
-    const a = framePts[i - 1], b = framePts[i];
-    const key = (a.key === "s" || b.key === "s") ? "s" : b.key; // 直近点の色。無音を含む区間はグレー
-    const last = lineRuns[lineRuns.length - 1];
-    if (last && last.key === key) last.pts.push([b.x, b.y]);
-    else lineRuns.push({ key, pts: [[a.x, a.y], [b.x, b.y]] });
-  }
+  // 折れ線は単色グレーで統一する(無音は中央0¢に落として線を途切れさせない)。
+  const points = windowFrames
+    .map((f) => `${x(f.t)},${y(isSilent(f) ? 0 : f.pitchCents)}`)
+    .join(" ");
 
   // 感知した音名(運指の記音)を時系列に沿ってラベル表示する。連続する同じ音をひとまとまりにし、
   // 各まとまりの先頭位置に音名を出す。無音フレームはまとまりを区切る。SVGはpreserveAspectRatio=none
@@ -2796,11 +2777,9 @@ function PitchDeviationLine({ frames }) {
           <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
             <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
             <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
-            {lineRuns.map((run, i) => (
-              <polyline key={i} fill="none" stroke={RECENT_COLORS[run.key]} strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
-                points={run.pts.map((p) => `${p[0]},${p[1]}`).join(" ")} />
-            ))}
+            {points && <polyline fill="none" stroke="#8D95A1" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
+              points={points} />}
           </svg>
           {labels.map((l, i) => (
             <span
@@ -3087,7 +3066,7 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
   if (sounding) {
     const semi = Math.round(note.midi);
     if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact };
-    else smoothRef.current.val += (rawExact - smoothRef.current.val) * 0.25; // 小さいほど滑らか
+    else smoothRef.current.val += (rawExact - smoothRef.current.val) * 0.15; // 小さいほど滑らか(もう一段落ち着かせる)
     exact = smoothRef.current.val;
   } else {
     smoothRef.current = { semi: null, val: 0 };
