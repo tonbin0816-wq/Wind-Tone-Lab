@@ -3608,7 +3608,7 @@ function MeasureView(props) {
           振り子+メーター+これまでの音グラフが一画面に収まるよう、音名+メーターは下の
           コンパクト1行表示に切り替える(メトロノームメインの画面にする)。 */}
       {showMetroPanel && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 4 }}>
           {metroPanel === "sig" ? (
             <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: "12px 14px", minHeight: 180, boxSizing: "border-box" }}>
               {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック) */}
@@ -3700,7 +3700,7 @@ function MeasureView(props) {
                 onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
                 className="sans"
                 style={{
-                  width: 210, maxWidth: "82%", padding: "15px 0", borderRadius: 999, fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
+                  width: 210, maxWidth: "82%", padding: "12px 0", borderRadius: 999, fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
                   border: metronomeOn ? "2px solid #DC2626" : "2px solid transparent",
                   background: metronomeOn ? "#FFFFFF" : "#174585",
                   color: metronomeOn ? "#DC2626" : "#FFFFFF",
@@ -3746,7 +3746,7 @@ function MeasureView(props) {
       {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
           非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
       {showMetroPanel ? (metroPanel !== null ? null : (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 4px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 4px 0" }}>
           <span style={{ fontFamily: "var(--font-serif)", fontSize: 26, lineHeight: 1, color: note ? "#121F32" : "#435266", width: 52, flexShrink: 0, textAlign: "center" }}>
             {note ? note.name : "—"}<span style={{ fontSize: 14, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
           </span>
@@ -3785,7 +3785,7 @@ function MeasureView(props) {
       {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
           フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
       {!(showMetroPanel && metroPanel !== null) && (
-      <div style={{ marginTop: 22 }}>
+      <div style={{ marginTop: showMetroPanel ? 10 : 22 }}>
         <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
       </div>
       )}
