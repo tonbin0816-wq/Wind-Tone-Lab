@@ -1929,19 +1929,6 @@ export default function WindToneLabPhaseMode() {
 
       setIsListening(true);
 
-      // 【音声セッションの死活監視】iOSには、AudioContext.state="running"のまま実際の音声
-      // セッションだけが完全に沈黙する既知の不具合がある(電話・Siri・他アプリのマイク使用・
-      // スリープ復帰等の後)。この場合ctx.resume()では復帰しない(state自体は既にrunningのため
-      // 上のresume分岐が発火しない)。時間波形が真のデジタル無音(rms=0、実測ノイズフロアの
-      // -70〜-90dBよりさらに大幅に低い-150dB以下)で一定時間続いたら、resumeではなく
-      // getUserMediaからの完全な再接続(stopListening→startListening)で復旧させる。
-      let silenceStreakStart = null;
-      let lastRestartAt = 0;
-      let restarting = false;
-      const STALL_FLOOR_DB = -150;
-      const STALL_MS = 2500;
-      const RESTART_COOLDOWN_MS = 6000;
-
       const tick = () => {
         // tick本体はtry/finallyで包み、1フレームで例外が出ても必ず次フレームを予約して
         // ループが永久停止しない(＝メーターやグラフが固まらない)ようにする。以前は末尾の
@@ -1964,21 +1951,6 @@ export default function WindToneLabPhaseMode() {
         for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
         const rms = Math.sqrt(ss / timeBuf.length);
         const vDb = 20 * Math.log10(rms + 1e-10);
-
-        const nowPerf = performance.now();
-        if (vDb < STALL_FLOOR_DB) {
-          if (silenceStreakStart === null) silenceStreakStart = nowPerf;
-          else if (!restarting && nowPerf - silenceStreakStart > STALL_MS && nowPerf - lastRestartAt > RESTART_COOLDOWN_MS) {
-            restarting = true;
-            lastRestartAt = nowPerf;
-            silenceStreakStart = null;
-            stopListeningRef.current();
-            startListeningRef.current();
-            return; // 新しい接続(新しいtickループ)に完全に引き継ぐ。このフレームの残り処理はしない
-          }
-        } else {
-          silenceStreakStart = null;
-        }
         setVolumeDb(vDb);
 
         // バンドパス後の音量(dBFS)。空調のうなり・高域ヒスを除いた楽器帯の音量でゲート判定する。
