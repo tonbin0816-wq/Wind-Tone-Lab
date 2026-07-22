@@ -3040,7 +3040,7 @@ function metroWeightTop(tempo) {
 // 振り子。クリックのスケジュールと同じ時計(getPhase=拍単位の連続位相)から角度を決め、
 // 拍の瞬間にちょうど両端へ達する。60fpsのDOM直接書き換えでReactの再レンダーを避ける。
 // 錘の位置(アーム上でのtop)はテンポに応じて変わる(実物のメトロノームの錘移動を模す)。
-function MetronomePendulum({ getPhase, tempo }) {
+function MetronomePendulum({ getPhase, tempo, scale = 1 }) {
   const armRef = useRef(null);
   useEffect(() => {
     let raf;
@@ -3054,17 +3054,20 @@ function MetronomePendulum({ getPhase, tempo }) {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [getPhase]);
-  const weightTop = metroWeightTop(tempo);
+  // scaleで全体を拡大する(メトロノーム表示中は大きく見せる)。錘位置・アーム長も比例で伸ばす。
+  const s = scale;
+  const weightTop = metroWeightTop(tempo) * s;
+  const wSize = 30 * s;
   return (
-    <div style={{ position: "relative", height: 248, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: 248 * s, overflow: "hidden" }}>
       {/* 台座 */}
-      <div style={{ position: "absolute", left: "50%", bottom: 10, width: 56, height: 5, marginLeft: -28, borderRadius: 3, background: "#E9ECF0" }} />
+      <div style={{ position: "absolute", left: "50%", bottom: 10 * s, width: 56 * s, height: 5 * s, marginLeft: -28 * s, borderRadius: 3, background: "#E9ECF0" }} />
       {/* アーム(支点=下端を中心に回転)。錘(白丸)はテンポに応じてアーム上を上下する */}
-      <div ref={armRef} style={{ position: "absolute", left: "50%", bottom: 12, width: 4, height: 220, marginLeft: -2, borderRadius: 2, background: "#174585", transformOrigin: "50% 100%" }}>
-        <div style={{ position: "absolute", top: weightTop, left: "50%", width: 30, height: 30, marginLeft: -15, borderRadius: "50%", background: "#FFFFFF", boxShadow: "0 2px 8px rgba(15,23,42,.22)", transition: "top 0.15s ease-out" }} />
+      <div ref={armRef} style={{ position: "absolute", left: "50%", bottom: 12 * s, width: 4, height: 220 * s, marginLeft: -2, borderRadius: 2, background: "#174585", transformOrigin: "50% 100%" }}>
+        <div style={{ position: "absolute", top: weightTop, left: "50%", width: wSize, height: wSize, marginLeft: -wSize / 2, borderRadius: "50%", background: "#FFFFFF", boxShadow: "0 2px 8px rgba(15,23,42,.22)", transition: "top 0.15s ease-out" }} />
       </div>
       {/* 支点 */}
-      <div style={{ position: "absolute", left: "50%", bottom: 9, width: 10, height: 10, marginLeft: -5, borderRadius: "50%", background: "#174585" }} />
+      <div style={{ position: "absolute", left: "50%", bottom: 9 * s, width: 10, height: 10, marginLeft: -5, borderRadius: "50%", background: "#174585" }} />
     </div>
   );
 }
@@ -3675,11 +3678,11 @@ function MeasureView(props) {
               </div>
             </div>
           ) : (
-            <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} />
+            <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} scale={1.35} />
           )}
-          {/* START/STOP+テンポの2段スタックを画面幅の中央に置き(メイン操作なので左右のボタンの
-              有無に関係なく中央に来る)、拍子ボタンは左端・分割ボタンは右端に絶対配置で重ねる。
-              いずれもtop:0/bottom:0でスタック2段の合計高さに自動で揃う。 */}
+          {/* 設定パネル(拍子/リズム)を開いている間は、その枠だけを見せるため下のSTART/テンポ行も隠す。
+              START/STOP+テンポを画面中央に、拍子/分割ボタンを左右に絶対配置で重ねる。 */}
+          {metroPanel === null && (
           <div style={{ position: "relative", marginTop: 8 }}>
             <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子" style={{
               position: "absolute", left: 2, top: 0, bottom: 0, padding: "0 20px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
@@ -3731,6 +3734,7 @@ function MeasureView(props) {
               </div>
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -3741,7 +3745,7 @@ function MeasureView(props) {
       <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "flex-end" }}>
       {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
           非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
-      {showMetroPanel ? (
+      {showMetroPanel ? (metroPanel !== null ? null : (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 4px 0" }}>
           <span style={{ fontFamily: "var(--font-serif)", fontSize: 26, lineHeight: 1, color: note ? "#121F32" : "#435266", width: 52, flexShrink: 0, textAlign: "center" }}>
             {note ? note.name : "—"}<span style={{ fontSize: 14, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
@@ -3760,7 +3764,7 @@ function MeasureView(props) {
             );
           })()}
         </div>
-      ) : (
+      )) : (
         <>
           <div style={{ textAlign: "center", padding: "0 0 8px" }}>
             <span style={{ fontFamily: "var(--font-serif)", fontSize: 84, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
@@ -3780,9 +3784,11 @@ function MeasureView(props) {
           ため、録音していない間はliveFramesを優先してライブ追従させる。 */}
       {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
           フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
+      {!(showMetroPanel && metroPanel !== null) && (
       <div style={{ marginTop: 22 }}>
         <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
       </div>
+      )}
 
       {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめる。
           「これまでの音」グラフの直下に寄せ、両者の余白は従来の1/3(18→6)にする。 */}
