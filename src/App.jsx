@@ -3494,6 +3494,30 @@ function MeasureView(props) {
 
   return (
     <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+      {/* 計測タブ内の子タブ: チューナー / メトロノーム(他タブと同じく左右スワイプで切替)。
+          リード・データタブと揃えて画面の一番上に置く。 */}
+      <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginBottom: 12 }}>
+        {[
+          { key: "tuner", label: "チューナー" },
+          { key: "metro", label: "メトロノーム" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => selectMeasureSubTab(t.key)}
+            className="sans"
+            style={{
+              flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
+              background: measureSubTab === t.key ? "#FFFFFF" : "transparent",
+              color: measureSubTab === t.key ? "#174585" : "#8D95A1",
+              fontWeight: measureSubTab === t.key ? 700 : 400, fontSize: 13,
+              boxShadow: measureSubTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
+              cursor: "pointer",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
       {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
           右に楽器種別・基準ピッチ(タップでスクロール選択、値はテキストリンク風)。
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
@@ -3621,30 +3645,6 @@ function MeasureView(props) {
           </button>
         </div>
       )}
-
-      {/* 計測タブ内の子タブ: チューナー / メトロノーム(他タブと同じく左右スワイプで切替) */}
-      <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginTop: 4, marginBottom: 12 }}>
-        {[
-          { key: "tuner", label: "チューナー" },
-          { key: "metro", label: "メトロノーム" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => selectMeasureSubTab(t.key)}
-            className="sans"
-            style={{
-              flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
-              background: measureSubTab === t.key ? "#FFFFFF" : "transparent",
-              color: measureSubTab === t.key ? "#174585" : "#8D95A1",
-              fontWeight: measureSubTab === t.key ? 700 : 400, fontSize: 13,
-              boxShadow: measureSubTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
-              cursor: "pointer",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       <SwipePager index={showMetroPanel ? 1 : 0} onIndexChange={(i) => selectMeasureSubTab(i === 1 ? "metro" : "tuner")}>
       {/* ===== チューナー子タブ ===== */}
