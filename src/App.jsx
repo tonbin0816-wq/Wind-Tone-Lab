@@ -1878,6 +1878,15 @@ export default function WindToneLabPhaseMode() {
     }
 
     try {
+      // 【iOS対策・重要】AudioContextの生成とresume()は、getUserMediaのawaitより「前」に、
+      // つまりstartListeningがユーザー操作(タップ)の中から呼ばれたならその操作の権限内で同期的に
+      // 行う。awaitを先に挟むとジェスチャー権限が切れ、suspendedのまま作られたcontext上のsourceが
+      // 二度と音を流さなくなる(=起動直後からずっと-200dB、リロードでしか治らない)不具合になる。
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      audioCtx.resume().catch(() => {}); // ジェスチャー中に同期発火(awaitしない)。以降tick内でも監視・再resumeする
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
@@ -1895,14 +1904,6 @@ export default function WindToneLabPhaseMode() {
         ].filter(Boolean);
         setMicProcessingWarning(active.length ? `端末の${active.join("・")}を無効化できませんでした。音量・音色の測定値に端末側の加工が入っている可能性があります。` : "");
       } catch { setMicProcessingWarning(""); }
-
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioContext();
-      audioCtxRef.current = audioCtx;
-      // 生成直後は"suspended"のことがあり、そのままだとAnalyserNodeに音が流れず検出が
-      // まったく動かない/途中で止まる。明示的にresumeし、以降もtick内でsuspendを検知したら
-      // 自動復帰させる(iOSは音声セッションの中断でAudioContextが勝手にsuspendすることがある)。
-      try { audioCtx.resume(); } catch { /* noop */ }
 
       const source = audioCtx.createMediaStreamSource(stream);
       // 生の解析用アナライザ(スペクトル・倍音・重心・ピッチ検出はフルバンドで行う)
@@ -2308,21 +2309,34 @@ export default function WindToneLabPhaseMode() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [topTab]);
 
-  // 【iOS対策】アプリを一度閉じて戻るとマイクのAudioContextが中断されたまま、ユーザー操作なしの
-  // resume()では復帰しないことがある(チューナーが無音になる原因)。画面のどこかを最初にタップ
-  // した時に、runningでなければresumeし直す保険。復帰時の再接続(上のstartListening)と併用する。
+  // 【iOS対策】ユーザー操作なしに作られたAudioContextはsuspendedのまま起動し、その上で作られた
+  // sourceが音を流さない(=起動直後からずっと-200dB、リロードでしか治らない)。画面をタップした
+  // 時に、runningでなければまずresumeを試み、計測タブなら「このタップ(ジェスチャー)の中で」
+  // マイクを取り直してrunningなcontext上でsourceを作り直す。これでリロードせず1タップで復旧する。
+  // 連打での再取得ループ・マイク点滅を防ぐため、①runningでない時だけ ②3秒クールダウン ③録音中は
+  // 除外、とする(runningに復帰すればこの分岐に入らなくなり、以後は何もしない)。
   useEffect(() => {
-    const resumeOnGesture = () => {
+    let lastReacquire = 0;
+    const onGesture = () => {
       const c = audioCtxRef.current;
-      if (c && c.state !== "running" && c.state !== "closed") c.resume().catch(() => {});
+      if (!c || c.state === "closed") return;
+      if (c.state !== "running") {
+        c.resume().catch(() => {});
+        const now = performance.now();
+        if (topTab === "measure" && !document.hidden && !isRecordingRef.current && now - lastReacquire > 3000) {
+          lastReacquire = now;
+          stopListeningRef.current();
+          startListeningRef.current();
+        }
+      }
     };
-    document.addEventListener("touchend", resumeOnGesture, { passive: true });
-    document.addEventListener("pointerdown", resumeOnGesture, { passive: true });
+    document.addEventListener("touchend", onGesture, { passive: true });
+    document.addEventListener("pointerdown", onGesture, { passive: true });
     return () => {
-      document.removeEventListener("touchend", resumeOnGesture);
-      document.removeEventListener("pointerdown", resumeOnGesture);
+      document.removeEventListener("touchend", onGesture);
+      document.removeEventListener("pointerdown", onGesture);
     };
-  }, []);
+  }, [topTab]);
 
   useEffect(() => () => stopListeningRef.current(), []);
 
