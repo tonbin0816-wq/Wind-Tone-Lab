@@ -4222,6 +4222,66 @@ function RatingSlider({ value, onChange, onCommit }) {
   );
 }
 
+// 主観評価(総評)の入力: 縦スクロールのダイヤル。0.0〜5.0を0.1刻みで縦に並べ、中央枠に来た値を選ぶ。
+// スライダーより指の移動量あたりの分解能が高く、片手で微調整しやすい(ユーザー要望)。
+// スクロールが止まってからonCommitするため、履歴が1操作につき1件だけ積まれる。
+function RatingDial({ value, onChange, onCommit, height = 96 }) {
+  const ref = useRef(null);
+  const ITEM = 24;
+  const steps = useMemo(() => Array.from({ length: 51 }, (_, i) => i / 10), []);
+  const v = Math.max(0, Math.min(5, value ?? 0));
+  const settleRef = useRef(null);
+  const selfScrollRef = useRef(false);
+  // 確定(onCommit)はスクロール停止後に遅れて走るため、scrollハンドラのクロージャに載せると
+  // 1レンダー古いonCommit/値を呼んでしまう(保存値が1段ずれる)。最新のハンドラをrefで保持し、
+  // 値は引数で明示的に渡す。
+  const onCommitRef = useRef(onCommit);
+  useEffect(() => { onCommitRef.current = onCommit; });
+  // 外から値が変わった時だけスクロール位置を合わせる(自分のスクロール由来なら何もしない)
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || selfScrollRef.current) return;
+    const target = Math.round(v * 10) * ITEM;
+    if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+  }, [v]);
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    const next = Math.max(0, Math.min(5, Math.round(el.scrollTop / ITEM) / 10));
+    selfScrollRef.current = true;
+    if (Math.abs(next - v) > 0.001) onChange(next);
+    clearTimeout(settleRef.current);
+    settleRef.current = setTimeout(() => {
+      selfScrollRef.current = false;
+      onCommitRef.current?.(next);
+    }, 400); // 指が止まってから確定
+  };
+  useEffect(() => () => clearTimeout(settleRef.current), []);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+      {/* data-noswipe: 子タブのスワイプpagerに横取りされないようにする */}
+      <div style={{ position: "relative", height, width: 62, flexShrink: 0 }} data-noswipe>
+        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: ITEM, marginTop: -ITEM / 2, background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 5, pointerEvents: "none" }} />
+        <div
+          ref={ref}
+          onScroll={onScroll}
+          style={{ position: "absolute", inset: 0, overflowY: "auto", scrollSnapType: "y mandatory", padding: `${(height - ITEM) / 2}px 0`, boxSizing: "border-box", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+        >
+          {steps.map((s) => {
+            const on = Math.abs(s - v) < 0.05;
+            return (
+              <div key={s} style={{ height: ITEM, scrollSnapAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-num)", fontSize: 15, fontWeight: on ? 700 : 400, color: on ? "#174585" : "#A6AEBA", position: "relative" }}>
+                {s.toFixed(1)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <StarRating value={v} size={16} />
+    </div>
+  );
+}
+
 // 奏者選択。「自分」固定 + 登録済みの名前 + 「名前を入力」で新規追加できる可変プルダウン。
 // 一度追加した名前はperformersに積み上がり、以後の選択肢として残り続ける。
 // セッション(またはライブ録音直後のフレーム列)を理想値プロファイルに設定するボタン。
@@ -4378,9 +4438,12 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
       const onMove = (ev) => {
         ev.preventDefault();
         const deltaY = ev.clientY - info.anchorY;
-        setDragOffsetY(deltaY);
         const rowsMoved = Math.round(deltaY / info.rowHeight);
         const targetIndex = Math.max(0, Math.min(orderRef.current.length - 1, info.anchorIndex + rowsMoved));
+        // 並び替えによって行そのものが (targetIndex - anchorIndex) 行ぶん移動するため、
+        // 指の総移動量をそのままtranslateYに使うと二重にずれる(特に上方向へ動かすと
+        // 掴んでいる行が指より上に表示される)。動いた行数ぶんを差し引いて指に追従させる。
+        setDragOffsetY(deltaY - (targetIndex - info.anchorIndex) * info.rowHeight);
         setOrder((prev) => {
           const currentIndex = prev.indexOf(info.id);
           if (currentIndex === -1 || currentIndex === targetIndex) return prev;
@@ -4486,15 +4549,28 @@ function ReedsTab(props) {
     reedsSubTab, setReedsSubTab,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
+  // 展開中の箱は詳細を開いている間もここで保持する。ReedRegisterView側のstateにすると
+  // 詳細表示中にアンマウントされ、戻ったとき一覧が畳まれてトップに戻ってしまう(ユーザー報告)。
+  const [expandedGroupKey, setExpandedGroupKey] = useState(null);
+  // 一覧のスクロール位置。詳細を開く直前に控え、戻ったら同じ位置へ復帰させる。
+  const listScrollYRef = useRef(0);
+  const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
+  const closeReed = () => setEvaluatingReedId(null);
 
   const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
+  useEffect(() => {
+    if (evaluatingReedId) return; // 一覧へ戻った時だけ復元する
+    const y = listScrollYRef.current;
+    if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+  }, [evaluatingReedId]);
+
   if (evaluatingReed) {
     return (
-      <SwipeBackArea onBack={() => setEvaluatingReedId(null)}>
+      <SwipeBackArea onBack={closeReed}>
         <ReedEvaluationDetail
           reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
           selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-          onBack={() => setEvaluatingReedId(null)}
+          onBack={closeReed}
         />
       </SwipeBackArea>
     );
@@ -4510,7 +4586,8 @@ function ReedsTab(props) {
         sessions={sessions} updateSessions={updateSessions}
         setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
         selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-        onOpenReed={setEvaluatingReedId}
+        onOpenReed={openReed}
+        expandedGroupKey={expandedGroupKey} setExpandedGroupKey={setExpandedGroupKey}
       />
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
@@ -4523,7 +4600,7 @@ function ReedsTab(props) {
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz, onOpenReed } = props;
+  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz, onOpenReed, expandedGroupKey, setExpandedGroupKey } = props;
 
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
@@ -4556,6 +4633,8 @@ function ReedRegisterView(props) {
       startDate: newStartDate,
       boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報。表示上の番号はグループ内の登録順で振り直す)
       rating: null, // 主観の5段階評価(1〜5)。未評価はnull
+      thickness: null, // 主観の厚さ(抵抗感/密度)。未評価はnull
+      balance: null,   // 主観のバランス(低音〜高音の鳴りの揃い)。未評価はnull
       createdAt: new Date().toISOString(),
     }));
     setReeds((prev) => [...prev, ...newReeds]);
@@ -4655,7 +4734,8 @@ function ReedRegisterView(props) {
   };
 
   const reedGroups = groupReeds(reeds);
-  const [expandedGroupKey, setExpandedGroupKey] = useState(null); // タップした箱だけ中身を展開する
+  // 展開中の箱(expandedGroupKey)は親のReedsTabが保持する。個別リード詳細を開いている間も
+  // 状態が消えず、戻ったときに同じ箱が開いたままの一覧へ復帰できるようにするため。
   // 個別リード評価詳細の開閉は親(ReedsTab)が持つ。ここでは行タップでonOpenReed(id)を呼ぶだけ。
 
   return (
@@ -5146,6 +5226,13 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const xAt = (i) => i * COL + COL / 2;
   const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
 
+  // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)
+  const ebIndexes = noteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  const axisCenter = (N - 1) / 2;
+  const midEbIdx = ebIndexes.length
+    ? ebIndexes.reduce((best, i) => (Math.abs(i - axisCenter) < Math.abs(best - axisCenter) ? i : best), ebIndexes[0])
+    : null;
+
   // データのある音を連続区間(欠けで分割)ごとにpolylineにする
   const segmentsFor = (byIdx) => {
     const segs = []; let cur = [];
@@ -5172,6 +5259,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
           <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
             <svg width={W} height={H} style={{ display: "block" }}>
               <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
+              {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする) */}
+              {midEbIdx !== null && (
+                <line x1={xAt(midEbIdx)} y1={padTop} x2={xAt(midEbIdx)} y2={padTop + plotH} stroke="#B9C9E4" strokeWidth="1" strokeDasharray="3 3" />
+              )}
               {/* 理想値(破線)は実測より先に描き、実測の線が上に乗るようにする */}
               {idealByIdx && (
                 <g>
@@ -5194,7 +5285,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                 </g>
               ))}
               {noteLabels.map((nm, i) => (
-                <text key={i} x={xAt(i)} y={H - 10} fontSize="9" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">{nm}</text>
+                <text key={i} x={xAt(i)} y={H - 10} fontSize={i === midEbIdx ? "10" : "9"} fill={i === midEbIdx ? "#174585" : "#8D95A1"} fontWeight={i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)">{nm}</text>
               ))}
             </svg>
           </div>
@@ -5266,10 +5357,15 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
   const [memoDraft, setMemoDraft] = useState(reed.memo || "");
   const [ratingDraft, setRatingDraft] = useState(reed.rating ?? 0);
+  // 総評とは別軸の主観評価。厚さ=抵抗感/密度、バランス=低音〜高音の鳴りの揃い方。
+  const [thicknessDraft, setThicknessDraft] = useState(reed.thickness ?? 0);
+  const [balanceDraft, setBalanceDraft] = useState(reed.balance ?? 0);
   useEffect(() => {
     setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
     setMemoDraft(reed.memo || "");
     setRatingDraft(reed.rating ?? 0);
+    setThicknessDraft(reed.thickness ?? 0);
+    setBalanceDraft(reed.balance ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reed.id]);
 
@@ -5285,10 +5381,13 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
     patchReed({ memo: trimmed || null });
   };
   // 評価は確定時(スライダーを離した時)に現在値を反映しつつ、過去の評価も履歴として残す。
-  const commitRating = () => {
+  // ダイヤルは確定値を引数で渡してくる(遅延確定でstateが1段古くなるのを避けるため)。
+  // スライダー等、引数なしで呼ばれた場合は現在のドラフト値を使う。
+  const commitRating = (v) => {
+    const value = typeof v === "number" ? v : ratingDraft;
     patchReed({
-      rating: ratingDraft,
-      ratings: [...(reed.ratings || []), { value: ratingDraft, at: new Date().toISOString() }],
+      rating: value,
+      ratings: [...(reed.ratings || []), { value, at: new Date().toISOString() }],
     });
   };
   const ratingHistory = [...(reed.ratings || [])].reverse();
@@ -5308,7 +5407,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
         <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>#番号:</span>
+            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>#番号:</span>
             <input
               type="text" placeholder="数字・アルファベット・記号など自由に(空欄で自動採番に戻る)"
               value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
@@ -5317,12 +5416,22 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
             />
           </div>
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 44 }}>評価:</span>
-            <RatingSlider value={ratingDraft} onChange={setRatingDraft} onCommit={commitRating} />
-            <StarRating value={ratingDraft} size={16} />
+            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>総評:</span>
+            <RatingDial value={ratingDraft} onChange={setRatingDraft} onCommit={commitRating} />
+          </div>
+          {/* 総評とは別軸の主観評価。履歴は残さず現在値のみ持つ。 */}
+          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>厚さ:</span>
+            <RatingSlider value={thicknessDraft} onChange={setThicknessDraft} onCommit={() => patchReed({ thickness: thicknessDraft })} />
+            <StarRating value={thicknessDraft} size={16} />
+          </div>
+          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>バランス:</span>
+            <RatingSlider value={balanceDraft} onChange={setBalanceDraft} onCommit={() => patchReed({ balance: balanceDraft })} />
+            <StarRating value={balanceDraft} size={16} />
           </div>
           {ratingHistory.length > 0 && (
-            <div className="sans" style={{ fontSize: 12, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 52 }}>
+            <div className="sans" style={{ fontSize: 12, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 66 }}>
               <span style={{ color: "#435266" }}>履歴:</span>
               {ratingHistory.slice(0, 8).map((h, i) => (
                 <span key={i}>{(h.value ?? 0).toFixed(1)} <span style={{ color: "#C3CAD3" }}>({new Date(h.at).toLocaleDateString("ja-JP")})</span></span>
@@ -5330,7 +5439,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
             </div>
           )}
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 44, marginTop: 6 }}>メモ:</span>
+            <span style={{ color: "#435266", flexShrink: 0, width: 58, marginTop: 6 }}>メモ:</span>
             <textarea
               placeholder="このリードの印象・特徴など(任意)"
               value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
