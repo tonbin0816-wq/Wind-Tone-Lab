@@ -643,8 +643,11 @@ console.log("=== 検証15: バンドパス特性(RBJ)・運指の範囲外リジ
 console.log("=== 検証16: 音域制限・オクターブ誤検出の棄却 ===");
 {
   // 各楽器の音域(SAX_CONCERT_RANGE)と、buildFingeringTableの実音が一致すること
+  // 運指範囲は全機種共通で記音B♭3〜F♯6(High F♯キーまで)の33音。
+  // 以前はソプラノ/テナーが記音F♯5止まりで11半音短く、アルトも最高音がA♭5どまりで
+  // High F♯(実音A5)が鳴らせなかったため、実楽器に合わせて上限を引き上げた。
   const expect = {
-    soprano: ["A♭3", "E5"], alto: ["D♭3", "A♭5"], tenor: ["A♭2", "E4"], baritone: ["D♭2", "A♭4"],
+    soprano: ["A♭3", "E6"], alto: ["D♭3", "A5"], tenor: ["A♭2", "E5"], baritone: ["D♭2", "A4"],
   };
   // NOTE_NAMESはC♯/D♭表記が"C♯","E♭","G♯","B♭"。A♭=G♯, D♭=C♯として突き合わせる
   const norm = (s) => s.replace("A♭", "G♯").replace("D♭", "C♯").replace("G♭", "F♯").replace("B♭", "A♯");

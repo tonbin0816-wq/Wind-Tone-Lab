@@ -352,15 +352,18 @@ function writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz) {
 }
 
 // 楽器種別ごとの実音(コンサートピッチ)の音域(MIDIノート番号, 両端含む)。
-//   ソプラノ: A♭3(56)〜E5(76) / アルト: D♭3(49)〜A♭5(80)
-//   テナー:   A♭2(44)〜E4(64) / バリトン: D♭2(37)〜A♭4(68)
+// 運指範囲は全機種共通で記音B♭3(58)〜F♯6(90)の33音(High F♯キーまで)とし、
+// 各機種の移調量を足した実音がこの範囲になる(以前はソプラノ/テナーだけ
+// 記音F♯5止まりで11半音短く、アルトもHigh F♯ぶんが欠けていた)。
+//   ソプラノ: A♭3(56)〜E6(88) / アルト: D♭3(49)〜A5(81)
+//   テナー:   A♭2(44)〜E5(76) / バリトン: D♭2(37)〜A4(69)
 // この範囲外の検出(倍音を基音と誤る1オクターブ上のピーク等)は測定・記録しない。
 // 音域の左端は運指テーブルの最低音(記音B♭)の実音と一致する。
 const SAX_CONCERT_RANGE = {
-  soprano: { lowMidi: 56, highMidi: 76 },
-  alto: { lowMidi: 49, highMidi: 80 },
-  tenor: { lowMidi: 44, highMidi: 64 },
-  baritone: { lowMidi: 37, highMidi: 68 },
+  soprano: { lowMidi: 56, highMidi: 88 },
+  alto: { lowMidi: 49, highMidi: 81 },
+  tenor: { lowMidi: 44, highMidi: 76 },
+  baritone: { lowMidi: 37, highMidi: 69 },
 };
 
 // 実音MIDI → 周波数(基準ピッチa4基準)
@@ -1882,6 +1885,10 @@ export default function WindToneLabPhaseMode() {
       // つまりstartListeningがユーザー操作(タップ)の中から呼ばれたならその操作の権限内で同期的に
       // 行う。awaitを先に挟むとジェスチャー権限が切れ、suspendedのまま作られたcontext上のsourceが
       // 二度と音を流さなくなる(=起動直後からずっと-200dB、リロードでしか治らない)不具合になる。
+      // iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)に回すため、メトロノームが
+      // 極端に小さく聞こえる。audioSessionに用途を明示しておくと対応ブラウザではスピーカー側に
+      // 寄せられる(未対応環境ではプロパティ自体が無いので何も起きない)。
+      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch { /* noop */ }
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
@@ -2915,7 +2922,7 @@ function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
 // 抜ける音にするため、倍音の詰まったノイズ+バンドパスで音高感を出す設計にした)。
 function getMetroClickBuffer(ctx) {
   if (ctx.__metroClickBuffer) return ctx.__metroClickBuffer;
-  const dur = 0.035;
+  const dur = 0.06;
   const n = Math.ceil(ctx.sampleRate * dur);
   const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
   const data = buffer.getChannelData(0);
@@ -2958,9 +2965,9 @@ function scheduleMetroClick(ctx, t, kind) {
   const bp = ctx.createBiquadFilter();
   bp.type = "bandpass";
   bp.frequency.value = kind === "accent" ? 2900 : kind === "beat" ? 2000 : 1300;
-  bp.Q.value = 3.5;
+  bp.Q.value = 1.6;
   const gain = ctx.createGain();
-  const vol = kind === "accent" ? 1.0 : kind === "beat" ? 0.65 : 0.34;
+  const vol = kind === "accent" ? 1.0 : kind === "beat" ? 0.85 : 0.6;
   gain.gain.setValueAtTime(vol, t);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + src.buffer.duration);
   src.connect(bp);
@@ -3121,11 +3128,11 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
 
   const frac = (50 + exact) / 100; // 0(左端-50¢)〜0.5(中央0¢)〜1(右端+50¢)
   const dense = showScaleLabels;   // 大表示(true)/メトロノーム時のコンパクト表示(false)
-  const trackH = dense ? 112 : 26; // 大表示はこの画面の主役。大きめに取る
-  const barH = dense ? 84 : 20;    // 縦棒の高さ
-  const headW = dense ? 6 : 3;     // 現在位置の棒の幅
-  const trailW = dense ? 4 : 2;    // 残像の棒の幅
-  const tickH = dense ? 54 : 14;   // 中央0¢マーカーの高さ
+  const trackH = dense ? 112 : 52; // 大表示はこの画面の主役。メトロノーム時も見やすい高さを確保する
+  const barH = dense ? 84 : 40;    // 縦棒の高さ
+  const headW = dense ? 6 : 4;     // 現在位置の棒の幅
+  const trailW = dense ? 4 : 3;    // 残像の棒の幅
+  const tickH = dense ? 54 : 28;   // 中央0¢マーカーの高さ
 
   // 残像バッファ: {frac(位置), cents(その時の色用), t(時刻)} を時系列で保持する。
   // pitchはrAF毎(約60fps)に更新されPitchMeterが再レンダーされるため、その度に現在位置を積み、
@@ -3243,7 +3250,9 @@ function MeasureView(props) {
   // 5/8・7/8のグループ分け(例:[3,2]/[2,2,3])。ユーザーが選べる。他の拍子はnull(自動)。
   const [metroGrouping, setMetroGrouping] = usePersistedState("metroGrouping", null);
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
-  const [showMetroPanel, setShowMetroPanel] = useState(false); // アイコンタップで開閉するパネル表示(開いただけでは音は鳴らない)
+  // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
+  // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
+  const [showMetroPanel, setShowMetroPanel] = usePersistedState("showMetroPanel", false); // 開いただけでは音は鳴らない
   const [metroPanel, setMetroPanel] = useState(null); // 振り子と入れ替えて表示する設定パネル: null | "sig"(拍子) | "subdiv"(1拍の分割)
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
@@ -3498,7 +3507,7 @@ function MeasureView(props) {
               disabled={isRecording || !selectedBoxGroup}
               style={{ minWidth: 0, maxWidth: 60, background: "none", border: "none", color: selectedReedId ? "#174585" : "#C3CAD3", fontWeight: selectedReedId ? 600 : 400 }}
             >
-              <option value="">{selectedBoxGroup ? "個体" : "—"}</option>
+              <option value="">{selectedBoxGroup ? "#" : "—"}</option>
               {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
             </select>
           </div>
@@ -3790,9 +3799,32 @@ function MeasureView(props) {
       </div>
       )}
 
-      {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめる。
-          「これまでの音」グラフの直下に寄せ、両者の余白は従来の1/3(18→6)にする。 */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
+      </div>{/* /メイン領域 */}
+      {/* 録音/アップロード: 「これまでの音」の直下に置き、スクロールなしで押せるようにする。
+          アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは輪郭のみ。 */}
+      <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isRecording || isAnalyzingUpload}
+          className="sans"
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+        >
+          <Upload size={16} />
+          {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
+        </button>
+        <button
+          onClick={toggleRecording}
+          className="sans"
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: isRecording ? "none" : "0 12px 28px rgba(23,69,133,.32)" }}
+        >
+          {isRecording ? <Square size={16} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />}
+          {isRecording ? "停止" : "録音する"}
+        </button>
+      </div>
+
+      {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめ、
+          画面の一番下(録音ボタンより下)に置く。 */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
         <button
           onClick={() => setDetailOpen((v) => !v)}
           aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
@@ -3803,7 +3835,6 @@ function MeasureView(props) {
             : <ChevronDown size={24} color="#174585" strokeWidth={2.5} />}
         </button>
       </div>
-      </div>{/* /メイン領域 */}
       {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
@@ -3887,28 +3918,6 @@ function MeasureView(props) {
           </div>
         </div>
       )}
-
-      {/* 録音/アップロードボタン(Claude Design提案): アイコンをラベルの上に積んだpill型。
-          均等幅で並べ、録音は塗り、アップロードは輪郭のみで区別する。 */}
-      <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isRecording || isAnalyzingUpload}
-          className="sans"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
-        >
-          <Upload size={16} />
-          {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
-        </button>
-        <button
-          onClick={toggleRecording}
-          className="sans"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: isRecording ? "none" : "0 12px 28px rgba(23,69,133,.32)" }}
-        >
-          {isRecording ? <Square size={16} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />}
-          {isRecording ? "停止" : "録音する"}
-        </button>
-      </div>
 
     </div>
   );
@@ -4839,7 +4848,7 @@ function ReedRegisterView(props) {
                                 onClick={(e) => e.stopPropagation()}
                                 style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
                               />
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
                               <StarRating value={r.rating} size={11} />
                             </div>
                           ))}
@@ -4851,7 +4860,7 @@ function ReedRegisterView(props) {
                           onRowClick={(id) => onOpenReed?.(id)}
                           renderRow={(r, idx) => (
                             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>#{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
                               <StarRating value={r.rating} size={19} />
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
@@ -5037,7 +5046,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
                           color: sel ? "#FFFFFF" : "#435266",
                         }}>
                           {sel && <span style={{ width: 8, height: 8, borderRadius: 2, background: colorById.get(r.id) || "#FFFFFF" }} />}
-                          #{reedPosition(r, reeds) ?? idx + 1}
+                          {reedPosition(r, reeds) ?? idx + 1}
                         </button>
                       );
                     })}
@@ -5904,7 +5913,12 @@ function AnalysisLabView(props) {
   const [pivotRow, setPivotRow] = useState("note");
   const [pivotCol, setPivotCol] = useState("brand");
   const [pivotMetric, setPivotMetric] = useState("pitchCents");
-  const [pivotFilters, setPivotFilters] = useState([]); // 集計対象抽出: [{dimKey, values: string[]}]
+  // 集計対象抽出: [{dimKey, values: string[]}]。他機種のデータが混ざると平均が意味を失うため、
+  // 初期状態で「サックス種別=今の楽器」を入れておく(不要なら×で消せる)。
+  const [pivotFilters, setPivotFilters] = useState(() => {
+    const label = SAX_PRESETS[saxType]?.label;
+    return label ? [{ dimKey: "saxType", values: [label], rangeMin: null, rangeMax: null }] : [];
+  });
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   // セッション一覧の絞り込み(並び替えではなく絞り込み)。期間・奏者・リードで絞る。
   const [sessionFilterPerformer, setSessionFilterPerformer] = useState(""); // "" = すべて
