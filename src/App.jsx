@@ -3623,7 +3623,7 @@ function MeasureView(props) {
               {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック) */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
                 {METRO_SIGS.map((sig) => (
-                  <button key={sig} onClick={() => setMetroSig(sig)} style={{
+                  <button key={sig} onClick={() => { setMetroSig(sig); setMetroPanel(null); }} style={{
                     padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
                     border: metroSig === sig ? "1.5px solid #174585" : "1px solid #E9ECF0",
                     background: metroSig === sig ? "#EAEFF5" : "#FFFFFF",
@@ -3631,13 +3631,12 @@ function MeasureView(props) {
                   }}>{sig}</button>
                 ))}
               </div>
-              {/* アクセント(デフォルトON) + 完了 */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
+              {/* アクセント(デフォルトON)。拍子を選ぶとパネルは自動で閉じるため完了ボタンは置かない */}
+              <div style={{ display: "flex", alignItems: "center", marginTop: 10 }}>
                 <label className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266", cursor: "pointer" }}>
                   <input type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)} />
                   一拍目にアクセントをつける
                 </label>
-                <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
               </div>
             </div>
           ) : metroPanel === "subdiv" ? (
@@ -3649,7 +3648,7 @@ function MeasureView(props) {
                 {metroSubdivOptions.map((s) => {
                   const selected = metroSubdiv === s.value;
                   return (
-                    <button key={s.value} onClick={() => setMetroSubdiv(s.value)} aria-label={`分割 ${s.value}`} style={{
+                    <button key={s.value} onClick={() => { setMetroSubdiv(s.value); if (metroSig !== "5/8" && metroSig !== "7/8") setMetroPanel(null); }} aria-label={`分割 ${s.value}`} style={{
                       flex: 1, padding: "12px 0", borderRadius: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                       border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
                       background: selected ? "#EAEFF5" : "#FFFFFF",
@@ -3671,7 +3670,7 @@ function MeasureView(props) {
                         const label = g.join("+");
                         const selected = cur === label;
                         return (
-                          <button key={label} onClick={() => setMetroGrouping(g)} className="sans" style={{
+                          <button key={label} onClick={() => { setMetroGrouping(g); setMetroPanel(null); }} className="sans" style={{
                             flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
                             border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
                             background: selected ? "#EAEFF5" : "#FFFFFF", color: selected ? "#174585" : "#435266",
@@ -3682,9 +3681,13 @@ function MeasureView(props) {
                   </div>
                 );
               })()}
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto", paddingTop: 10 }}>
-                <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
-              </div>
+              {/* 5/8・7/8は分割と拍グループの2つを選ぶため完了ボタンを残す(片方だけ変えたい時の閉じ手段)。
+                  他の拍子は分割を選んだ時点で自動で閉じるので完了ボタンは出さない。 */}
+              {(metroSig === "5/8" || metroSig === "7/8") && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto", paddingTop: 10 }}>
+                  <button onClick={() => setMetroPanel(null)} className="sans" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
+                </div>
+              )}
             </div>
           ) : (
             <MetronomePendulum getPhase={getMetroPhase} tempo={metroTempo} scale={1.35} />
@@ -3800,6 +3803,9 @@ function MeasureView(props) {
       )}
 
       </div>{/* /メイン領域 */}
+      {/* 拍子/リズムの選択パネルを開いている間は、その枠だけを見せるため録音・アップロード・詳細も隠す */}
+      {!(showMetroPanel && metroPanel !== null) && (
+      <>
       {/* 録音/アップロード: 「これまでの音」の直下に置き、スクロールなしで押せるようにする。
           アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは輪郭のみ。 */}
       <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
@@ -3917,6 +3923,8 @@ function MeasureView(props) {
             )}
           </div>
         </div>
+      )}
+      </>
       )}
 
     </div>
@@ -4948,7 +4956,7 @@ function ReedRegisterView(props) {
                                 className="sans"
                                 style={{ fontSize: 12, padding: "8px 16px", borderRadius: 999, border: "1px solid #174585", background: "transparent", color: "#174585", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: "auto" }}
                               >
-                                測定へ
+                                測定
                               </button>
                             </div>
                           )}
@@ -5095,7 +5103,6 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
   return (
     <div>
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "14px 16px", marginBottom: 12 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10 }}>比較するリードを選択（複数可）。箱をタップすると中の個体が選べます</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {groupReeds(reeds).map((g) => {
             const isExpanded = expandedBoxKey === g.key;
@@ -5932,14 +5939,14 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
             </svg>
           );
         })()}
-        <div style={{ fontSize: 12, color: "#9DB3D6", marginTop: 2 }}>0に近いほど良い ・ {rangeLabel} ・ {points.length}セッション</div>
+        <div style={{ fontSize: 12, color: "#9DB3D6", marginTop: 2 }}>{rangeLabel} ・ {points.length}セッション</div>
       </div>
 
     <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
       <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>My Data</div>
-      <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 12 }}>
-        奏者が「自分」のセッション（{points.length}件）{!selectedIdeal && " ・ 理想値プロファイル未選択のため理想値は表示されません"}
-      </div>
+      {!selectedIdeal && (
+        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 12 }}>目安未設定</div>
+      )}
 
       {points.length === 0 ? (
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この期間の「自分」のセッションはありません</div>
@@ -6283,8 +6290,7 @@ function AnalysisLabView(props) {
 
         {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
         <div style={{ marginBottom: 12, padding: "12px 14px", background: "#F6F7F9", borderRadius: 14, border: "1px solid #E9ECF0" }}>
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>集計対象抽出（フィルター）</span>
+          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
             <button
               onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
               className="sans"
