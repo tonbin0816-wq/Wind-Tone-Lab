@@ -5892,8 +5892,84 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
-// ピボットの折れ線グラフ用の色パレット(指標=系列を色で識別する)
-const PIVOT_LINE_COLORS = ["#174585", "#D97706", "#16A34A", "#DC2626", "#7C3AED", "#0891B2", "#DB2777", "#65A30D", "#EA580C", "#4F46E5", "#0D9488", "#9333EA"];
+// グラフSVG内の文字サイズ。SVGの fontSize 属性には var() が書けないため、
+// --fs-xs(12px) の値をここで一度だけ数値にする(マジックナンバーを散らさない)。
+// DESIGN-SYSTEM §4.1: グラフSVG内の 9/9.5/10/11px は --fs-xs まで引き上げる。
+const SVG_FS_XS = 12;
+
+// ピボットの折れ線グラフの系列スタイル(DESIGN-SYSTEM §1.7 系列色)。
+// 機能色(緑/橙/赤)は音程の正誤という意味を持つので系列識別に流用しない。
+// グレー(--c-ink-3)は理想値の破線用に予約されているので系列が取らない。
+// 紺の明度段階3段 × 線種(実線/破線)の6系列。7系列以上は色を足さず表示を絞る。
+// 色は CSS 変数で持つ(presentation属性では var() が解決されないため style で当てる)。
+const PIVOT_SERIES_STYLES = [
+  { color: "var(--c-accent)",      width: 2, dash: null },
+  { color: "var(--c-accent-mid)",  width: 2, dash: null },
+  { color: "var(--c-accent-line)", width: 3, dash: null },
+  { color: "var(--c-accent)",      width: 2, dash: "4 3" },
+  { color: "var(--c-accent-mid)",  width: 2, dash: "4 3" },
+  { color: "var(--c-accent-line)", width: 3, dash: "4 3" },
+];
+
+// SVG内テキストの実描画幅(px)を測る。--font-num / --font-jp は入れ子の var() を含むため
+// getComputedStyle().getPropertyValue() では未解決の文字列しか得られない(resolveBottomGap と同じ罠)。
+// 実際に文書へ置いた <text> の getComputedTextLength() で測ることで確定値を取る。
+let _svgTextProbe = null;
+function measureSvgTextPx(s, fontPx, fontFamily = "var(--font-num)") {
+  const str = String(s);
+  if (typeof document === "undefined") return str.length * fontPx * 0.6;
+  if (!_svgTextProbe) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.cssText = "position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;visibility:hidden;pointer-events:none";
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    svg.appendChild(t);
+    document.body.appendChild(svg);
+    _svgTextProbe = t;
+  }
+  _svgTextProbe.style.fontFamily = fontFamily;
+  _svgTextProbe.style.fontSize = `${fontPx}px`;
+  _svgTextProbe.textContent = str;
+  return _svgTextProbe.getComputedTextLength();
+}
+
+// ラベルを与えられた幅に収める。入らないときだけ末尾を「…」に畳む。
+// 文字数ではなく実描画幅で判定するので、和文/欧文が混じっても切り位置が破綻しない。
+// 縦軸の項目ラベルと凡例はこの同一の規則を共有する(同じ値が両方に出たとき表記が食い違わないため)。
+function fitLabel(s, maxPx, fontPx, fontFamily = "var(--font-num)") {
+  const str = String(s);
+  if (maxPx <= 0 || measureSvgTextPx(str, fontPx, fontFamily) <= maxPx) return str;
+  let lo = 0, hi = str.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (measureSvgTextPx(str.slice(0, mid) + "…", fontPx, fontFamily) <= maxPx) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo <= 0 ? "…" : str.slice(0, lo) + "…";
+}
+
+// 描画コンテナの実ピクセル幅を返す。グラフはこの実測値に追従させ、SVGは viewBox と実寸を
+// 1:1 に保つ(preserveAspectRatio による全体縮小はしない。縮小すると 12px の文字が
+// 実効 9.6px になり DESIGN-SYSTEM §4.1「グラフ内は --fs-xs 以上」が破れる)。
+function useMeasuredWidth() {
+  const ref = useRef(null);
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // 小数のはみ出しで横スクロールが出ないよう、実測値は必ず切り捨てて使う
+    const measure = () => setW(Math.floor(el.getBoundingClientRect().width));
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
 
 // ピボット集計を縦向きの折れ線グラフで表示する。
 //   縦軸 = 縦軸で選んだ項目の値(rowKeys。音名なら上から高い音の順)
@@ -5901,6 +5977,9 @@ const PIVOT_LINE_COLORS = ["#174585", "#D97706", "#16A34A", "#DC2626", "#7C3AED"
 //   系列 = 「指標」セレクタで選んだ次元の値ごと(colKeys)に色分けした折れ線を同じ場所に重ねる
 // 値の無いセルは線を途切れさせる。ピッチ偏差では0(ジャスト)の縦基準線を破線で示す。
 function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
+  // グラフ幅は固定値ではなくコンテナの実測幅。375pxでも横に溢れない条件がここで決まる。
+  const [boxRef, W] = useMeasuredWidth();
+
   const cellValue = (rk, ck) => {
     const c = cells[rk]?.[ck];
     if (!c) return null;
@@ -5908,85 +5987,140 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
     return v === null || v === undefined || isNaN(v) ? null : v;
   };
 
+  // 7系列以上は色を足さず表示を絞る(DESIGN-SYSTEM §1.7)。絞ったことは凡例の下に明記する。
+  const shownKeys = colKeys.slice(0, PIVOT_SERIES_STYLES.length);
+  const hiddenCount = colKeys.length - shownKeys.length;
+  const styleAt = (i) => PIVOT_SERIES_STYLES[i];
+
   const allVals = [];
-  rowKeys.forEach((rk) => colKeys.forEach((ck) => { const v = cellValue(rk, ck); if (v !== null) allVals.push(v); }));
-  if (allVals.length === 0) return null;
+  rowKeys.forEach((rk) => shownKeys.forEach((ck) => { const v = cellValue(rk, ck); if (v !== null) allVals.push(v); }));
 
-  let minV = Math.min(...allVals), maxV = Math.max(...allVals);
-  // ピッチ偏差は0(ジャスト)を基準線として必ず範囲に含める
-  if (metricDef.key === "pitchCents") { minV = Math.min(minV, 0); maxV = Math.max(maxV, 0); }
-  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
-  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+  // 項目ラベル(縦軸)と凡例に共通の文字幅の上限。固定文字数では切らず、この幅で畳む。
+  // 幅の4割強までをラベルに割き、残りをプロットに回す(375pxで両方が成立する配分)。
+  const LABEL_MAX = Math.round(W * 0.42);
 
-  const ROW = 26;                 // 1項目(行)あたりの高さ
-  const LABELW = 78;              // 左の項目ラベル欄
-  const PLOTW = 300;              // 値のプロット幅
-  const padTop = 6, padBottom = 30;
-  const H = padTop + rowKeys.length * ROW + padBottom;
-  const W = LABELW + PLOTW + 10;
-  const xAt = (v) => LABELW + ((v - lo) / rng) * PLOTW;
-  const yAt = (ri) => padTop + ri * ROW + ROW / 2;
-  const colorAt = (i) => PIVOT_LINE_COLORS[i % PIVOT_LINE_COLORS.length];
+  // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るので描画のちらつきは出ない。
+  const body = (() => {
+    if (allVals.length === 0 || W <= 0) return null;
 
-  // 系列(指標の値)ごとに、縦(行)方向へ連続する行をつないだ折れ線を作る(欠けはギャップ)
-  const segmentsFor = (ck) => {
-    const segs = []; let cur = [];
-    rowKeys.forEach((rk, ri) => {
-      const v = cellValue(rk, ck);
-      if (v !== null) cur.push(`${xAt(v)},${yAt(ri)}`);
-      else { if (cur.length) segs.push(cur); cur = []; }
-    });
-    if (cur.length) segs.push(cur);
-    return segs;
-  };
-  const zeroX = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? xAt(0) : null;
-  const truncate = (s, n = 7) => (String(s).length > n ? String(s).slice(0, n) + "…" : String(s));
+    let minV = Math.min(...allVals), maxV = Math.max(...allVals);
+    // ピッチ偏差は0(ジャスト)を基準線として必ず範囲に含める
+    if (metricDef.key === "pitchCents") { minV = Math.min(minV, 0); maxV = Math.max(maxV, 0); }
+    const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+    const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+
+    const FS = SVG_FS_XS;           // --fs-xs (12px)
+    const SP1 = 4, SP2 = 8;         // --sp-1 / --sp-2
+    const ROW = 26;                 // 1項目(行)あたりの高さ
+    const GAPL = SP2;               // 項目ラベルとプロット領域の間隔
+    const RPAD = SP1;               // 右端の内側寄せ。最大値の目盛と点(r=3)が枠外に出ないため
+    const BASE = Math.round(FS * 0.8);  // 文字の上端からベースラインまで(組版上の目安。トークンではない)
+    const padTop = 6;
+    const padBottom = SP1 * 3 + FS * 2; // 目盛(--fs-xs)と指標名(--fs-xs)を --sp-1 の余白で挟む
+    const H = padTop + rowKeys.length * ROW + padBottom;
+
+    // 左端も RPAD と同じだけ内側に寄せる。getComputedTextLength() は送り幅で、和文グリフの
+    // 実インクは 1px 前後それを超えることがあるため、この余白が無いと左端で欠ける。
+    const longest = rowKeys.reduce((m, rk) => Math.max(m, measureSvgTextPx(rk, FS)), 0);
+    const LABELW = RPAD + Math.min(Math.ceil(longest), LABEL_MAX) + GAPL;
+    const PLOTW = Math.max(1, W - LABELW - RPAD);
+
+    const xAt = (v) => LABELW + ((v - lo) / rng) * PLOTW;
+    const yAt = (ri) => padTop + ri * ROW + ROW / 2;
+
+    // 系列(指標の値)ごとに、縦(行)方向へ連続する行をつないだ折れ線を作る(欠けはギャップ)
+    const segmentsFor = (ck) => {
+      const segs = []; let cur = [];
+      rowKeys.forEach((rk, ri) => {
+        const v = cellValue(rk, ck);
+        if (v !== null) cur.push(`${xAt(v)},${yAt(ri)}`);
+        else { if (cur.length) segs.push(cur); cur = []; }
+      });
+      if (cur.length) segs.push(cur);
+      return segs;
+    };
+    const zeroX = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? xAt(0) : null;
+
+    // 横軸の目盛はプロット領域の内側に置く。最小=左寄せ、最大=右寄せ、0=中央合わせ。
+    // 右端を PLOTW で止めているので、最大値のラベルが枠外に出ることがない。
+    const tickY = H - padBottom + SP1 + BASE;
+    const titleY = H - SP1 - FS + BASE;
+    const loText = metricDef.fmt(lo), hiText = metricDef.fmt(hi);
+    const loW = measureSvgTextPx(loText, FS), hiW = measureSvgTextPx(hiText, FS);
+    const zeroW = measureSvgTextPx("0", FS);
+    // 0の目盛は最小・最大と重なるときだけ省く(基準線そのものは常に引く)
+    const showZeroText = zeroX !== null &&
+      zeroX - zeroW / 2 > LABELW + loW + SP1 &&
+      zeroX + zeroW / 2 < LABELW + PLOTW - hiW - SP1;
+
+    // 指標名は幅に入らなければ同じ規則で畳み、左右どちらにもはみ出さない位置に置く
+    const titleText = fitLabel(metricDef.label, W - SP1, FS, "var(--font-jp)");
+    const titleW = measureSvgTextPx(titleText, FS, "var(--font-jp)");
+    const titleX = Math.min(Math.max(LABELW + PLOTW / 2, titleW / 2 + SP1 / 2), W - titleW / 2 - SP1 / 2);
+
+    return (
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+        {/* 行ごとの薄いガイド線と項目ラベル(縦軸) */}
+        {rowKeys.map((rk, ri) => (
+          <g key={rk}>
+            <line x1={LABELW} y1={yAt(ri)} x2={LABELW + PLOTW} y2={yAt(ri)} stroke="#F3F5F7" strokeWidth="1" />
+            <text x={LABELW - GAPL} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS} fill="#435266" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rk, LABEL_MAX, FS)}</text>
+          </g>
+        ))}
+        {/* 横軸(指標値)の枠と目盛 */}
+        <line x1={LABELW} y1={padTop} x2={LABELW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
+        <line x1={LABELW} y1={H - padBottom} x2={LABELW + PLOTW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
+        {zeroX !== null && <line x1={zeroX} y1={padTop} x2={zeroX} y2={H - padBottom} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
+        <text x={LABELW} y={tickY} fontSize={FS} fill="#A6AEBA" textAnchor="start" fontFamily="var(--font-num)">{loText}</text>
+        <text x={LABELW + PLOTW} y={tickY} fontSize={FS} fill="#A6AEBA" textAnchor="end" fontFamily="var(--font-num)">{hiText}</text>
+        {showZeroText && <text x={zeroX} y={tickY} fontSize={FS} fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">0</text>}
+        <text x={titleX} y={titleY} fontSize={FS} fill="#8D95A1" textAnchor="middle" className="sans">{titleText}</text>
+        {/* 系列(指標の値ごと)の折れ線を同じ場所に重ねる。識別は紺の明度段階と線種で行う */}
+        {shownKeys.map((ck, ci) => {
+          const st = styleAt(ci);
+          return (
+            <g key={ck} style={{ stroke: st.color, fill: st.color }}>
+              {segmentsFor(ck).map((seg, k) => (
+                <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
+              ))}
+              {rowKeys.map((rk, ri) => {
+                const v = cellValue(rk, ck);
+                if (v === null) return null;
+                return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={3} stroke="none" />;
+              })}
+            </g>
+          );
+        })}
+      </svg>
+    );
+  })();
 
   return (
     <div>
-      <div style={{ overflowX: "auto" }}>
-        <svg width={W} height={H} style={{ display: "block" }}>
-          {/* 行ごとの薄いガイド線と項目ラベル(縦軸) */}
-          {rowKeys.map((rk, ri) => (
-            <g key={rk}>
-              <line x1={LABELW} y1={yAt(ri)} x2={LABELW + PLOTW} y2={yAt(ri)} stroke="#F3F5F7" strokeWidth="1" />
-              <text x={LABELW - 8} y={yAt(ri) + 3.5} fontSize="11" fill="#435266" textAnchor="end" fontFamily="var(--font-num)">{truncate(rk)}</text>
-            </g>
-          ))}
-          {/* 横軸(指標値)の枠と目盛 */}
-          <line x1={LABELW} y1={padTop} x2={LABELW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
-          <line x1={LABELW} y1={H - padBottom} x2={LABELW + PLOTW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
-          {zeroX !== null && <line x1={zeroX} y1={padTop} x2={zeroX} y2={H - padBottom} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
-          <text x={LABELW} y={H - padBottom + 14} fontSize="9.5" fill="#A6AEBA" textAnchor="start" fontFamily="var(--font-num)">{metricDef.fmt(lo)}</text>
-          <text x={LABELW + PLOTW} y={H - padBottom + 14} fontSize="9.5" fill="#A6AEBA" textAnchor="end" fontFamily="var(--font-num)">{metricDef.fmt(hi)}</text>
-          {zeroX !== null && <text x={zeroX} y={H - padBottom + 14} fontSize="9.5" fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">0</text>}
-          <text x={LABELW + PLOTW / 2} y={H - 4} fontSize="9.5" fill="#8D95A1" textAnchor="middle" className="sans">{metricDef.label}</text>
-          {/* 系列(指標の値ごと)の折れ線を同じ場所に色分けで重ねる */}
-          {colKeys.map((ck, ci) => {
-            const color = colorAt(ci);
+      <div ref={boxRef}>{body}</div>
+      {/* 凡例: 系列(指標の値)を色と線種で識別。省略規則は縦軸の項目ラベルと同一
+          (同じ値が軸と凡例の両方に出たとき、表記が食い違わないようにするため)。
+          描く線が1本も無いときは凡例も出さない(従来どおり何も表示しない) */}
+      {body && (
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 12, color: "#435266", maxHeight: 96, overflowY: "auto" }}>
+          {shownKeys.map((ck, ci) => {
+            const st = styleAt(ci);
             return (
-              <g key={ck}>
-                {segmentsFor(ck).map((seg, k) => (
-                  <polyline key={k} fill="none" stroke={color} strokeWidth="2" points={seg.join(" ")} />
-                ))}
-                {rowKeys.map((rk, ri) => {
-                  const v = cellValue(rk, ck);
-                  if (v === null) return null;
-                  return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={3} fill={color} />;
-                })}
-              </g>
+              <span key={ck} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <svg width="12" height="3" style={{ flexShrink: 0, overflow: "visible" }} aria-hidden="true">
+                  <line x1="0" y1="1.5" x2="12" y2="1.5" strokeWidth={st.width} strokeDasharray={st.dash || undefined} style={{ stroke: st.color }} />
+                </svg>
+                {fitLabel(ck, LABEL_MAX, SVG_FS_XS)}
+              </span>
             );
           })}
-        </svg>
-      </div>
-      {/* 凡例: 系列(指標の値)を色で識別 */}
-      <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 12, color: "#435266", maxHeight: 96, overflowY: "auto" }}>
-        {colKeys.map((ck, ci) => (
-          <span key={ck} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 12, height: 2, background: colorAt(ci), display: "inline-block", flexShrink: 0 }} />{ck}
-          </span>
-        ))}
-      </div>
+        </div>
+      )}
+      {body && hiddenCount > 0 && (
+        <div className="sans" style={{ marginTop: 6, fontSize: 12, color: "#8D95A1" }}>
+          残り{hiddenCount}件は表示していません（見分けのつく系列は6本まで）。フィルターで絞ると全部見えます
+        </div>
+      )}
     </div>
   );
 }

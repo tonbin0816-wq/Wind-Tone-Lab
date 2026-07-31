@@ -31,8 +31,9 @@
   --c-line:       #E9ECF0; /* 罫線・トラック */
   --c-line-strong:#C3CAD3; /* 中間の罫線(入力欄・丸ボタンの枠) */
   --c-accent:     #174585; /* プライマリ紺 */
+  --c-accent-mid: #7FA0CE; /* 紺の中間(系列色の第2段) */
   --c-accent-dim: #9DB3CC; /* 紺の薄い方(オクターブ数字など) */
-  --c-accent-line:#B9C9E4; /* 紺系の罫線 */
+  --c-accent-line:#B9C9E4; /* 紺系の罫線・系列色の第3段 */
   --c-accent-tint:#EAEFF5; /* 選択状態の背景 */
   --c-disabled:   #B7BFC9; /* 無音時の音名 */
   /* 停止・削除・録音中(破壊的/中断の操作)。--c-bad と同値だが意味が別。
