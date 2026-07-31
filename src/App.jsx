@@ -3233,6 +3233,20 @@ const RING_MAX_CENTS = 50;     // 環の端に対応するセント差(PitchMete
 const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度
 const RING_IN_TUNE_CENTS = 5;  // これ以内なら「合った」として環を閉じる
 
+// --- 音名の組み方(design/DESIGN-SYSTEM.md §4.2/§4.3 で確定) ---
+// Instrument Serif は既定の送り幅が 0.457em(一般的なserifの64%)と細い。細さ自体は
+// 1m先から読む演奏中サーフェスに合っているが、書体既定のままでは「幅を選んでいない」
+// 見え方になる。そこで横幅を scaleX で明示的に指定する。
+const NOTE_FS = 118;           // 音名の文字サイズ
+const NOTE_SCALE_X = 1.30;     // 音名の横幅(明示指定)
+// scaleX は要素のレイアウト幅を変えないため、変形後のグリフが左右に (1.30-1)/2 = 15%
+// はみ出す。隣の臨時記号と重ならないよう、送り幅 0.457em の15%分を左右marginで補う。
+const NOTE_SCALE_PAD_EM = 0.457 * (NOTE_SCALE_X - 1) / 2;
+// 臨時記号(♯/♭)は音名に付属する記号。本体と近いサイズだと主従が逆転して見えるため
+// 明確に小さくする。横幅の指定は本体だけに掛け、記号には掛けない。
+const NOTE_ACC_RATIO = 0.34;   // 臨時記号 = 音名の34%
+const NOTE_OCT_RATIO = 0.31;   // オクターブ数字 = 音名の31%
+
 // 12時を0として時計回りに測った角度(度) → SVG座標
 function ringPoint(deg, r, cx, cy) {
   const rad = ((deg - 90) * Math.PI) / 180;
@@ -3264,6 +3278,10 @@ function PitchRing({ note, centsOffset }) {
   const [r, g, b] = pitchBarColorRGB(exact);
   const color = `rgb(${r},${g},${b})`;
   const inTune = sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
+
+  // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
+  const noteLetter = sounding ? note.name.charAt(0) : "—";
+  const accidental = sounding ? note.name.slice(1) : "";
 
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
@@ -3301,9 +3319,26 @@ function PitchRing({ note, centsOffset }) {
         position: "absolute", inset: 0, display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", pointerEvents: "none",
       }}>
-        <div style={{ fontFamily: "var(--font-serif)", fontSize: 118, lineHeight: 0.82, color: sounding ? "var(--c-ink)" : "var(--c-disabled)" }}>
-          {sounding ? note.name : "—"}
-          <span style={{ fontSize: 44, color: "var(--c-accent-dim)" }}>{sounding ? note.octave : ""}</span>
+        <div style={{
+          display: "flex", alignItems: "baseline", justifyContent: "center",
+          lineHeight: 0.82, fontFamily: "var(--font-serif)",
+          color: sounding ? "var(--c-ink)" : "var(--c-disabled)",
+        }}>
+          {/* 音名の文字。横幅は scaleX で明示指定する(書体既定のままにしない) */}
+          <span style={{
+            fontSize: NOTE_FS, display: "inline-block",
+            transform: `scaleX(${NOTE_SCALE_X})`, transformOrigin: "center bottom",
+            margin: `0 ${NOTE_SCALE_PAD_EM}em`,
+          }}>
+            {sounding ? noteLetter : "—"}
+          </span>
+          {/* 臨時記号。文字として組み、本体より明確に小さくする(scaleXは掛けない) */}
+          {accidental && (
+            <span style={{ fontSize: NOTE_FS * NOTE_ACC_RATIO }}>{accidental}</span>
+          )}
+          <span style={{ fontSize: NOTE_FS * NOTE_OCT_RATIO, color: "var(--c-accent-dim)", marginLeft: 3 }}>
+            {sounding ? note.octave : ""}
+          </span>
         </div>
         <div className="sans" style={{
           marginTop: 16, fontFamily: "var(--font-num)", fontSize: 14, fontWeight: 700,
