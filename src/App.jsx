@@ -5268,6 +5268,122 @@ function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8) {
   };
 }
 
+// ============================================================================
+// グラフ共通の仕組み。リード比較(NoteAxisLineChart)とピボット(PivotLineChart)の
+// 両方がここから引く。同じ規則を2箇所に書かないためにこの位置に置いている。
+// ============================================================================
+
+// グラフSVG内の文字サイズ。SVGの fontSize 属性には var() が書けないため、
+// --fs-xs(12px) の値をここで一度だけ数値にする(マジックナンバーを散らさない)。
+// DESIGN-SYSTEM §4.1: グラフSVG内の 9/9.5/10/11px は --fs-xs まで引き上げる。
+const SVG_FS_XS = 12;
+
+// SVG内の余白。DESIGN-SYSTEM §1.9「目盛ラベルの左右余白は --sp-2(8px) 以上」。
+// --sp-1(4px) では足りない: getComputedTextLength() は送り幅で、和文グリフのインクは
+// それを最大1.6px程度超えるため、4pxだと「たまたま足りていた」にしかならない。
+const SVG_SP1 = 4;
+const SVG_SP2 = 8;
+
+// 折れ線グラフの系列スタイル(DESIGN-SYSTEM §1.7 系列色 / §1.8 線の太さ)。
+// 機能色(緑/橙/赤)は音程の正誤という意味を持つので系列識別に流用しない。
+// グレー(--c-ink-3)は理想値の破線用に予約されているので系列が取らない。
+// 紺の明度段階3段 × 線種(実線/破線)の6系列。7系列以上は色を足さず表示を絞る。
+// 薄い色ほど太くしないと同じ強さに見えないため、--c-accent-line だけ 3px(§1.8)。
+// 色は CSS 変数で持つ(presentation属性では var() が解決されないため style で当てる)。
+const SERIES_STYLES = [
+  { color: "var(--c-accent)",      width: 2, dash: null },
+  { color: "var(--c-accent-mid)",  width: 2, dash: null },
+  { color: "var(--c-accent-line)", width: 3, dash: null },
+  { color: "var(--c-accent)",      width: 2, dash: "4 3" },
+  { color: "var(--c-accent-mid)",  width: 2, dash: "4 3" },
+  { color: "var(--c-accent-line)", width: 3, dash: "4 3" },
+];
+
+// 理想値(目安)の線。DESIGN-SYSTEM §1.7 が --c-ink-3 を理想値の破線に予約しているので、
+// 系列がこの色を取らないようにここで1箇所に定義しておく。破線パターンは §1.8 の "4 3"。
+const IDEAL_LINE_STYLE = { color: "var(--c-ink-3)", width: 2, dash: "4 3" };
+
+// SVG内テキストの実描画幅(px)を測る。--font-num / --font-jp は入れ子の var() を含むため
+// getComputedStyle().getPropertyValue() では未解決の文字列しか得られない(resolveBottomGap と同じ罠)。
+// 実際に文書へ置いた <text> の getComputedTextLength() で測ることで確定値を取る。
+let _svgTextProbe = null;
+function measureSvgTextPx(s, fontPx, fontFamily = "var(--font-num)") {
+  const str = String(s);
+  if (typeof document === "undefined") return str.length * fontPx * 0.6;
+  if (!_svgTextProbe) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.cssText = "position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;visibility:hidden;pointer-events:none";
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    svg.appendChild(t);
+    document.body.appendChild(svg);
+    _svgTextProbe = t;
+  }
+  _svgTextProbe.style.fontFamily = fontFamily;
+  _svgTextProbe.style.fontSize = `${fontPx}px`;
+  _svgTextProbe.textContent = str;
+  return _svgTextProbe.getComputedTextLength();
+}
+
+// ラベルを与えられた幅に収める。入らないときだけ末尾を「…」に畳む。
+// 文字数ではなく実描画幅で判定するので、和文/欧文が混じっても切り位置が破綻しない。
+// 縦軸の項目ラベルと凡例はこの同一の規則を共有する(同じ値が両方に出たとき表記が食い違わないため)。
+function fitLabel(s, maxPx, fontPx, fontFamily = "var(--font-num)") {
+  const str = String(s);
+  if (maxPx <= 0 || measureSvgTextPx(str, fontPx, fontFamily) <= maxPx) return str;
+  let lo = 0, hi = str.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (measureSvgTextPx(str.slice(0, mid) + "…", fontPx, fontFamily) <= maxPx) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo <= 0 ? "…" : str.slice(0, lo) + "…";
+}
+
+// 描画コンテナの実ピクセル幅を返す。グラフはこの実測値に追従させ、SVGは viewBox と実寸を
+// 1:1 に保つ(preserveAspectRatio による全体縮小はしない。縮小すると 12px の文字が
+// 実効 9.6px になり DESIGN-SYSTEM §4.1「グラフ内は --fs-xs 以上」が破れる)。
+function useMeasuredWidth() {
+  const ref = useRef(null);
+  const [w, setW] = useState(0);
+  // 小数のはみ出しで横スクロールが出ないよう、実測値は必ず切り捨てて使う
+  const measure = () => {
+    const el = ref.current;
+    if (el) setW(Math.floor(el.getBoundingClientRect().width));
+  };
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // レンダーのたびに測り直す。グラフを描いたことでページが伸びて縦スクロールバーが出ると
+  // コンテナはその幅ぶん狭まるが、そこで ResizeObserver を取りこぼすとSVGだけ古い幅のまま
+  // 残ってコンテナからはみ出す(768pxで15pxはみ出す実例があった)。値が変わらなければ
+  // setState は再レンダーを起こさないので、この測り直しはループしない。
+  useLayoutEffect(() => { measure(); });
+  return [ref, w];
+}
+
+// 系列の線サンプル。色だけでは実線/破線の別が伝わらないので、凡例も選択チップも
+// 実際の線種で描く。選択中のチップは --c-accent の面なので、その上でも1本目
+// (--c-accent の実線)が沈まないよう、常に --c-on-accent の小さな面の上に置く。
+function SeriesSwatch({ style: st, width = 14 }) {
+  return (
+    <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, background: "var(--c-on-accent)", borderRadius: 2, padding: 2 }}>
+      <svg width={width} height={st.width} style={{ display: "block", overflow: "visible" }}>
+        <line x1="0" y1={st.width / 2} x2={width} y2={st.width / 2} strokeWidth={st.width} strokeDasharray={st.dash || undefined} style={{ stroke: st.color }} />
+      </svg>
+    </span>
+  );
+}
+
 // リード別比較・リード毎比較で共通する比較項目の定義
 const REED_COMPARE_METRICS = [
   { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
@@ -5276,8 +5392,9 @@ const REED_COMPARE_METRICS = [
   { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
 ];
 
-// リード比較で複数リードを色分けするためのパレット(選択順に割り当て)
-const REED_COMPARE_COLORS = ["#174585", "#7FA0CE", "#B9C9E4", "#D97706", "#16A34A", "#8D95A1"];
+// リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
+// 以前はここに専用の hex パレットがあり、4・5番目が機能色(#D97706 注意 / #16A34A 良い)の
+// 流用、6番目 #8D95A1 が理想値の破線と同色で6枚目のリードと理想線が見分けられなかった。
 
 // --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
 function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, saxType, tuningHz }) {
@@ -5295,15 +5412,16 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
     return <div className="sans" style={{ fontSize: 12, color: "#8D95A1", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
   }
 
-  const items = compareReedIds
+  const selectedItems = compareReedIds
     .map((id) => reeds.find((r) => r.id === id))
     .filter(Boolean)
     .map((r) => ({ reed: r, label: reedLabel(r, reeds), frameCount: frameCountFor(r.id) }));
 
-  // 複数リードを色で識別するためのパレット(Claude Designのネイビー系グラデーション)。
-  // 選択順にitemsへ割り当て、チップの色ドットと各項目の棒グラフ色を揃える。
-  const colorForIndex = (i) => REED_COMPARE_COLORS[i % REED_COMPARE_COLORS.length];
-  const colorById = new Map(items.map((it, i) => [it.reed.id, colorForIndex(i)]));
+  // 見分けのつく系列は6本まで。7本目以降は色を足さず表示を絞る(DESIGN-SYSTEM §1.7)。
+  // 選択順に SERIES_STYLES を割り当て、チップの線サンプル・折れ線・凡例で同じ線種を使う。
+  const items = selectedItems.slice(0, SERIES_STYLES.length);
+  const hiddenCount = selectedItems.length - items.length;
+  const styleById = new Map(items.map((it, i) => [it.reed.id, SERIES_STYLES[i]]));
 
   return (
     <div>
@@ -5337,7 +5455,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
                           background: sel ? "#174585" : "transparent",
                           color: sel ? "#FFFFFF" : "#435266",
                         }}>
-                          {sel && <span style={{ width: 8, height: 8, borderRadius: 2, background: colorById.get(r.id) || "#FFFFFF" }} />}
+                          {sel && styleById.has(r.id) && <SeriesSwatch style={styleById.get(r.id)} />}
                           {reedPosition(r, reeds) ?? idx + 1}
                         </button>
                       );
@@ -5354,6 +5472,11 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
         <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "17px" }}>
+          {hiddenCount > 0 && (
+            <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 12 }}>
+              選択中{selectedItems.length}枚のうち先頭6枚を表示しています（見分けのつく系列は6本まで）。残り{hiddenCount}枚は選択を外すと入れ替わります
+            </div>
+          )}
           {/* 全指標(音量・ピッチ誤差・HNR・重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
           {["volumeDb", "pitchCents", "hnrDb", "spectralCentroidHz"].map((key) => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === key);
@@ -5364,7 +5487,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
                 unit={m.unit}
                 metricKey={key}
                 series={items.map((it) => ({
-                  id: it.reed.id, label: it.label, color: colorById.get(it.reed.id),
+                  id: it.reed.id, label: it.label, style: styleById.get(it.reed.id),
                   frames: sessions.filter((s) => s.reedId === it.reed.id).flatMap((s) => s.frames || []),
                 }))}
                 saxType={saxType}
@@ -5399,6 +5522,9 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 // (欠けている音はギャップにする)。横軸の音名は選択中の楽器種別ごとに変わる。
 // selectedIdeal+idealKeyを渡すと、音ごとの理想値も破線の折れ線で重ねる。
 function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey }) {
+  // 幅は固定しない。コンテナの実測幅に音域全体を収める(DESIGN-SYSTEM §1.9)。
+  // 以前は COL=26 の固定列幅で W=33音×26=858px あり、375pxでは31%しか見えていなかった。
+  const [boxRef, W] = useMeasuredWidth();
   const table = buildFingeringTable(saxType, tuningHz);
   const N = table.length;
   const noteLabels = table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz) || "");
@@ -5433,11 +5559,6 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
   const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
 
-  const COL = 26, H = 132, padTop = 8, padBottom = 30, plotH = H - padTop - padBottom;
-  const W = Math.max(N * COL, 220);
-  const xAt = (i) => i * COL + COL / 2;
-  const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
-
   // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)
   const ebIndexes = noteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
   const axisCenter = (N - 1) / 2;
@@ -5445,16 +5566,66 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     ? ebIndexes.reduce((best, i) => (Math.abs(i - axisCenter) < Math.abs(best - axisCenter) ? i : best), ebIndexes[0])
     : null;
 
+  // レイアウトは実測幅から毎回引き直す。音数(N)が増えても列幅が縮むだけで、
+  // 横スクロールは出さない。SVGの実寸と viewBox は 1:1 に保つ
+  // (preserveAspectRatio で全体を縮めると 12px の文字が実効 9.6px になり §4.1 が破れる)。
+  const L = (() => {
+    if (!hasData || W <= 0) return null;
+    const FS = SVG_FS_XS;
+    const plotH = 94;                 // 4指標が縦に積まれるため従来の作図高さを踏襲する
+    const padTop = SVG_SP2;
+
+    // 縦軸は上端・中間・下端の3値。中間値が無いと、横に長い折れ線のどこが基準か掴めない。
+    const tickVals = [hi, (hi + lo) / 2, lo];
+    const tickTexts = tickVals.map((v) => fmt(v));
+    const tickW = Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))));
+    // 目盛ラベルの左右に --sp-2 以上(§1.9)。measureSvgTextPx は送り幅なので、実インクは
+    // 左右どちらにも送り幅を最大1px程度はみ出す(実測: 右 0.7px / 左 0.95px)。
+    // --sp-1 を逃げとして足す。足さないと実測が 7.3px / 7.05px と 8px を割る。
+    const TICK_GAP = SVG_SP2 + SVG_SP1;      // 目盛ラベルの左右の余白
+    const AXW = TICK_GAP + tickW + TICK_GAP;
+
+    // 音名ラベルは中央揃えなので両端で半分ぶん外へ出る。送り幅より実インクが広くなる
+    // ぶん(和文で最大1.6px程度)の逃げに --sp-1 を足してからプロット域を決める。
+    const maxLblW = Math.ceil(Math.max(0, ...noteLabels.map((nm) => measureSvgTextPx(nm, FS))));
+    const halfLbl = Math.ceil(maxLblW / 2) + SVG_SP1;
+    const x0 = AXW + halfLbl;
+    const x1 = Math.max(x0 + 1, W - SVG_SP2 - halfLbl);
+    const colStep = (x1 - x0) / Math.max(1, N - 1);
+
+    // 間引くのは**ラベルだけ**(データ点は全音描く。線の形が比較の実体)。
+    // 間引き幅は12の約数から選び、どの幅でもオクターブ単位で同じ音名が残るようにする。
+    const need = maxLblW + SVG_SP2;   // 隣り合うラベルの中心間に要る幅(隙間は --sp-2 以上)
+    const labelStep = [1, 2, 3, 4, 6, 12].find((s) => s * colStep >= need)
+      ?? Math.max(12, Math.ceil(need / colStep / 12) * 12);
+    const labelAnchor = midEbIdx ?? 0;
+    const showLabel = (i) => (((i - labelAnchor) % labelStep) + labelStep) % labelStep === 0;
+
+    // 点が隣とくっついて見えないよう、直径は音の間隔の6割までに抑える(上限3px)
+    const dotR = Math.max(1.5, Math.min(3, colStep * 0.3));
+    const labelY = padTop + plotH + SVG_SP2 + Math.round(FS * 0.8);
+    return {
+      FS, plotH, padTop, AXW, TICK_GAP, tickVals, tickTexts, dotR, labelY, showLabel,
+      H: labelY + SVG_SP1,
+      xAt: (i) => x0 + i * colStep,
+      yAt: (v) => padTop + plotH - ((v - lo) / rng) * plotH,
+    };
+  })();
+
   // データのある音を連続区間(欠けで分割)ごとにpolylineにする
   const segmentsFor = (byIdx) => {
     const segs = []; let cur = [];
     for (let i = 0; i < N; i++) {
-      if (byIdx[i] !== undefined) cur.push(`${xAt(i)},${yAt(byIdx[i])}`);
+      if (byIdx[i] !== undefined) cur.push(`${L.xAt(i)},${L.yAt(byIdx[i])}`);
       else { if (cur.length) segs.push(cur); cur = []; }
     }
     if (cur.length) segs.push(cur);
     return segs;
   };
+
+  // 凡例のリード名は縦軸ラベルと同じ規則で畳む(fitLabel を共有)。
+  const legendMax = Math.round(W * 0.42);
+  const legendPad = L ? L.AXW : 0;
 
   return (
     <div style={{ marginBottom: 18 }}>
@@ -5462,58 +5633,65 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
       {!hasData ? (
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この音域のデータがまだありません</div>
       ) : (
-        <div style={{ display: "flex" }}>
-          {/* 縦軸(値)の目盛: 上=最大 / 下=最小 */}
-          <div style={{ position: "relative", width: 42, height: H, flexShrink: 0 }}>
-            <span className="sans" style={{ position: "absolute", right: 4, top: padTop - 6, fontSize: 12, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{fmt(hi)}</span>
-            <span className="sans" style={{ position: "absolute", right: 4, top: padTop + plotH - 6, fontSize: 12, color: "#A6AEBA", fontFamily: "var(--font-num)" }}>{fmt(lo)}</span>
-          </div>
-          <div style={{ overflowX: "auto", flex: 1, minWidth: 0 }}>
-            <svg width={W} height={H} style={{ display: "block" }}>
-              <line x1="0" y1={padTop + plotH} x2={W} y2={padTop + plotH} stroke="#EEF1F4" strokeWidth="1" />
+        // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るのでちらつきは出ない
+        <div ref={boxRef}>
+          {L && (
+            <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
+              {/* 縦軸(値)の目盛と水平グリッド: 上端・中間・下端 */}
+              {L.tickVals.map((v, k) => (
+                <g key={k}>
+                  <line x1={L.AXW} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
+                  <text x={L.AXW - L.TICK_GAP} y={L.yAt(v) + Math.round(L.FS * 0.35)} fontSize={L.FS} textAnchor="end" fontFamily="var(--font-num)" style={{ fill: "var(--c-ink-4)" }}>{L.tickTexts[k]}</text>
+                </g>
+              ))}
               {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする) */}
               {midEbIdx !== null && (
-                <line x1={xAt(midEbIdx)} y1={padTop} x2={xAt(midEbIdx)} y2={padTop + plotH} stroke="#B9C9E4" strokeWidth="1" strokeDasharray="3 3" />
+                <line x1={L.xAt(midEbIdx)} y1={L.padTop} x2={L.xAt(midEbIdx)} y2={L.padTop + L.plotH} strokeWidth="1" strokeDasharray="4 3" style={{ stroke: "var(--c-accent-line)" }} />
               )}
               {/* 理想値(破線)は実測より先に描き、実測の線が上に乗るようにする */}
               {idealByIdx && (
-                <g>
+                <g style={{ stroke: IDEAL_LINE_STYLE.color }}>
                   {segmentsFor(idealByIdx).map((seg, k) => (
-                    <polyline key={k} fill="none" stroke="#8D95A1" strokeWidth="1.5" strokeDasharray="5 4" points={seg.join(" ")} />
+                    <polyline key={k} fill="none" strokeWidth={IDEAL_LINE_STYLE.width} strokeDasharray={IDEAL_LINE_STYLE.dash} points={seg.join(" ")} />
                   ))}
                   {Object.entries(idealByIdx).map(([idx, v]) => (
-                    <circle key={idx} cx={xAt(+idx)} cy={yAt(v)} r={2.5} fill="#FFFFFF" stroke="#8D95A1" strokeWidth="1.5" />
+                    <circle key={idx} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} strokeWidth="1" style={{ fill: "var(--c-surface)" }} />
                   ))}
                 </g>
               )}
-              {seriesData.map((s, si) => (
-                <g key={s.id ?? si}>
-                  {segmentsFor(s.byIdx).map((seg, k) => (
-                    <polyline key={k} fill="none" stroke={s.color || "#174585"} strokeWidth="2" points={seg.join(" ")} />
-                  ))}
-                  {Object.entries(s.byIdx).map(([idx, v]) => (
-                    <circle key={idx} cx={xAt(+idx)} cy={yAt(v)} r={3} fill={s.color || "#174585"} />
-                  ))}
-                </g>
-              ))}
-              {noteLabels.map((nm, i) => (
-                <text key={i} x={xAt(i)} y={H - 10} fontSize={i === midEbIdx ? "10" : "9"} fill={i === midEbIdx ? "#174585" : "#8D95A1"} fontWeight={i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)">{nm}</text>
-              ))}
+              {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない */}
+              {seriesData.map((s, si) => {
+                const st = s.style || SERIES_STYLES[0];
+                return (
+                  <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
+                    {segmentsFor(s.byIdx).map((seg, k) => (
+                      <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
+                    ))}
+                    {Object.entries(s.byIdx).map(([idx, v]) => (
+                      <circle key={idx} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
+                    ))}
+                  </g>
+                );
+              })}
+              {noteLabels.map((nm, i) => (L.showLabel(i) ? (
+                <text key={i} x={L.xAt(i)} y={L.labelY} fontSize={L.FS} fontWeight={i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)" style={{ fill: i === midEbIdx ? "var(--c-accent)" : "var(--c-ink-3)" }}>{nm}</text>
+              ) : null))}
             </svg>
-          </div>
+          )}
         </div>
       )}
       {idealByIdx && hasData && (
-        <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: 42 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 2, background: "#174585", display: "inline-block" }} />実測</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 0, borderTop: "2px dashed #8D95A1", display: "inline-block" }} />理想</span>
+        <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={seriesData[0]?.style || SERIES_STYLES[0]} />実測</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={IDEAL_LINE_STYLE} />理想</span>
         </div>
       )}
       {series.length > 1 && (
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: 42 }}>
-          {series.map((s) => (
-            <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ width: 11, height: 2, background: s.color || "#174585", display: "inline-block" }} />{s.label}
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
+          {series.map((s, si) => (
+            <span key={s.id ?? si} style={{ display: "flex", alignItems: "center", gap: 4 }} title={s.label}>
+              <SeriesSwatch style={s.style || SERIES_STYLES[si % SERIES_STYLES.length]} />
+              {W > 0 ? fitLabel(s.label, legendMax, SVG_FS_XS, "var(--font-jp)") : s.label}
             </span>
           ))}
         </div>
@@ -5535,7 +5713,7 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
       {open ? (
         <NoteAxisLineChart
           label={label} unit={unit} metricKey={metricKey}
-          series={[{ id: "self", label, color: "#174585", frames }]}
+          series={[{ id: "self", label, style: SERIES_STYLES[0], frames }]}
           saxType={saxType} tuningHz={tuningHz} fmt={fmt}
           selectedIdeal={selectedIdeal} idealKey={idealKey}
         />
@@ -5892,85 +6070,6 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
-// グラフSVG内の文字サイズ。SVGの fontSize 属性には var() が書けないため、
-// --fs-xs(12px) の値をここで一度だけ数値にする(マジックナンバーを散らさない)。
-// DESIGN-SYSTEM §4.1: グラフSVG内の 9/9.5/10/11px は --fs-xs まで引き上げる。
-const SVG_FS_XS = 12;
-
-// ピボットの折れ線グラフの系列スタイル(DESIGN-SYSTEM §1.7 系列色)。
-// 機能色(緑/橙/赤)は音程の正誤という意味を持つので系列識別に流用しない。
-// グレー(--c-ink-3)は理想値の破線用に予約されているので系列が取らない。
-// 紺の明度段階3段 × 線種(実線/破線)の6系列。7系列以上は色を足さず表示を絞る。
-// 色は CSS 変数で持つ(presentation属性では var() が解決されないため style で当てる)。
-const PIVOT_SERIES_STYLES = [
-  { color: "var(--c-accent)",      width: 2, dash: null },
-  { color: "var(--c-accent-mid)",  width: 2, dash: null },
-  { color: "var(--c-accent-line)", width: 3, dash: null },
-  { color: "var(--c-accent)",      width: 2, dash: "4 3" },
-  { color: "var(--c-accent-mid)",  width: 2, dash: "4 3" },
-  { color: "var(--c-accent-line)", width: 3, dash: "4 3" },
-];
-
-// SVG内テキストの実描画幅(px)を測る。--font-num / --font-jp は入れ子の var() を含むため
-// getComputedStyle().getPropertyValue() では未解決の文字列しか得られない(resolveBottomGap と同じ罠)。
-// 実際に文書へ置いた <text> の getComputedTextLength() で測ることで確定値を取る。
-let _svgTextProbe = null;
-function measureSvgTextPx(s, fontPx, fontFamily = "var(--font-num)") {
-  const str = String(s);
-  if (typeof document === "undefined") return str.length * fontPx * 0.6;
-  if (!_svgTextProbe) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("aria-hidden", "true");
-    svg.style.cssText = "position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;visibility:hidden;pointer-events:none";
-    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    svg.appendChild(t);
-    document.body.appendChild(svg);
-    _svgTextProbe = t;
-  }
-  _svgTextProbe.style.fontFamily = fontFamily;
-  _svgTextProbe.style.fontSize = `${fontPx}px`;
-  _svgTextProbe.textContent = str;
-  return _svgTextProbe.getComputedTextLength();
-}
-
-// ラベルを与えられた幅に収める。入らないときだけ末尾を「…」に畳む。
-// 文字数ではなく実描画幅で判定するので、和文/欧文が混じっても切り位置が破綻しない。
-// 縦軸の項目ラベルと凡例はこの同一の規則を共有する(同じ値が両方に出たとき表記が食い違わないため)。
-function fitLabel(s, maxPx, fontPx, fontFamily = "var(--font-num)") {
-  const str = String(s);
-  if (maxPx <= 0 || measureSvgTextPx(str, fontPx, fontFamily) <= maxPx) return str;
-  let lo = 0, hi = str.length - 1;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (measureSvgTextPx(str.slice(0, mid) + "…", fontPx, fontFamily) <= maxPx) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo <= 0 ? "…" : str.slice(0, lo) + "…";
-}
-
-// 描画コンテナの実ピクセル幅を返す。グラフはこの実測値に追従させ、SVGは viewBox と実寸を
-// 1:1 に保つ(preserveAspectRatio による全体縮小はしない。縮小すると 12px の文字が
-// 実効 9.6px になり DESIGN-SYSTEM §4.1「グラフ内は --fs-xs 以上」が破れる)。
-function useMeasuredWidth() {
-  const ref = useRef(null);
-  const [w, setW] = useState(0);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // 小数のはみ出しで横スクロールが出ないよう、実測値は必ず切り捨てて使う
-    const measure = () => setW(Math.floor(el.getBoundingClientRect().width));
-    measure();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, w];
-}
-
 // ピボット集計を縦向きの折れ線グラフで表示する。
 //   縦軸 = 縦軸で選んだ項目の値(rowKeys。音名なら上から高い音の順)
 //   横軸 = 指標の値(metricDef。平均ピッチ偏差など)
@@ -5988,9 +6087,9 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
   };
 
   // 7系列以上は色を足さず表示を絞る(DESIGN-SYSTEM §1.7)。絞ったことは凡例の下に明記する。
-  const shownKeys = colKeys.slice(0, PIVOT_SERIES_STYLES.length);
+  const shownKeys = colKeys.slice(0, SERIES_STYLES.length);
   const hiddenCount = colKeys.length - shownKeys.length;
-  const styleAt = (i) => PIVOT_SERIES_STYLES[i];
+  const styleAt = (i) => SERIES_STYLES[i];
 
   const allVals = [];
   rowKeys.forEach((rk) => shownKeys.forEach((ck) => { const v = cellValue(rk, ck); if (v !== null) allVals.push(v); }));
