@@ -48,14 +48,33 @@ function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPro
 
 // 対象要素の上端から画面下端(下部固定ナビの手前)までの高さを返すフック。スワイプ領域を
 // この高さ以上に広げることで、コンテンツが短くても画面下側の空白部分までスワイプが効くようにする。
-function useFillViewportHeight(ref, bottomGap = 72) {
+// --page-bottom-gap(= --nav-h + env(safe-area-inset-bottom)) の実効ピクセル値を得る。
+// getComputedStyle().getPropertyValue() はカスタムプロパティを「未解決の文字列」
+// ("calc(47px + 34px)")のまま返すため parseFloat では読めない。実際に其の高さを持つ
+// 要素を一瞬置いて測ることで、calc() と env() を解決させた確定値を取る。
+function resolveBottomGap() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;height:var(--page-bottom-gap)";
+  document.body.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  probe.remove();
+  return h > 0 ? h : 47; // 何らかの理由で測れなかった場合はナビ高だけ確保する
+}
+
+// 下部固定ナビに隠れる分を差し引いて、要素が画面下端まで占める高さを返す。
+// 差し引く量は index.css の --page-bottom-gap(= --nav-h + env(safe-area-inset-bottom))から
+// 実測で読む。以前は 72px をJS側にも直書きしていたため、セーフエリアのある端末で
+// ナビの実効高(81px)に9px足りず、コンテンツ末尾がナビの下に隠れていた。
+// bottomGap に数値を渡した場合はそれを優先する(呼び出し側で上書きしたいケース用)。
+function useFillViewportHeight(ref, bottomGap = null) {
   const [minH, setMinH] = useState(0);
   useLayoutEffect(() => {
     const measure = () => {
       const el = ref.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top;
-      const h = window.innerHeight - top - bottomGap;
+      const gap = bottomGap != null ? bottomGap : resolveBottomGap();
+      const h = window.innerHeight - top - gap;
       setMinH(h > 0 ? h : 0);
     };
     measure();
@@ -2473,7 +2492,7 @@ export default function WindToneLabPhaseMode() {
   const centsOffset = note ? note.cents : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F6F7F9", color: "#121F32", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 72px calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
+    <div style={{ minHeight: "100vh", background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) var(--page-bottom-gap) calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
