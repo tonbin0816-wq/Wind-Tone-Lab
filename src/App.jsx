@@ -2728,8 +2728,10 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 const RECENT_NOTES_WINDOW_SEC = 30;
 const RECENT_NOTES_RANGE_CENTS = 25;
 
-function PitchDeviationLine({ frames }) {
-  const W = 600, H = 110;
+// quiet: 演奏中サーフェス(環のチューナーの下)に置くときの控えめな見せ方。
+// 縦軸の数値ラベルを落とし、全体を一段落として環から視線を奪わないようにする。
+function PitchDeviationLine({ frames, quiet = false }) {
+  const W = 600, H = quiet ? 84 : 110;
   const latestT = frames.length ? frames[frames.length - 1].t : 0;
   const windowFrames = frames.filter((f) => f.t >= latestT - RECENT_NOTES_WINDOW_SEC);
 
@@ -2785,14 +2787,18 @@ function PitchDeviationLine({ frames }) {
   const axisLabel = { position: "absolute", right: 4, fontSize: 12, color: "#A6AEBA", whiteSpace: "nowrap" };
 
   return (
-    <div style={{ padding: "18px 0 0" }}>
+    <div style={{ padding: quiet ? "10px 0 0" : "18px 0 0", opacity: quiet ? 0.72 : 1 }}>
       <div style={{ display: "flex" }}>
-        {/* 縦軸の目盛ラベル: 上=+25¢ / 中央=0 / 下=-25¢ */}
+        {/* 縦軸の目盛ラベル: 上=+25¢ / 中央=0 / 下=-25¢。
+            演奏中サーフェス(quiet)では出さない。1m先の12px文字は読めず、環の邪魔になるだけのため。
+            音名ラベルは「どの音だったか」を伝える実質的な情報なのでquietでも残す。 */}
+        {!quiet && (
         <div style={{ position: "relative", width: 34, height: H, flexShrink: 0 }}>
           <span className="sans" style={{ ...axisLabel, top: 0 }}>+{RECENT_NOTES_RANGE_CENTS}¢</span>
           <span className="sans" style={{ ...axisLabel, top: "50%", transform: "translateY(-50%)" }}>0</span>
           <span className="sans" style={{ ...axisLabel, bottom: 0 }}>-{RECENT_NOTES_RANGE_CENTS}¢</span>
         </div>
+        )}
         {/* グラフ本体 */}
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
           <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
@@ -3185,6 +3191,109 @@ function PitchMeter({ note, centsOffset, showScaleLabels = true }) {
         </div>
       )}
     </>
+  );
+}
+
+// ============================================================
+// 演奏中サーフェスのチューナー(環)。
+//
+// このアプリの特殊性: ユーザーは両手で楽器を持ち、口にマウスピースを咥え、スマホは
+// 譜面台の上(目から50cm〜1m)にある。手は塞がっていて操作できず、見るのはチラ見・
+// 周辺視野。したがってこの画面だけは「文字を読ませない」設計にする。
+//
+//   - 目盛の数字(-50/+50)は置かない。ズレは環の色と弧の長さだけで伝える
+//   - 音名は視線の中心=環の内側に大きく置く
+//   - 合った(|¢|<=RING_IN_TUNE_CENTS)ら環が閉じてゆっくり呼吸する。
+//     「到達した」を色と動きで返すのがこの画面の唯一の報酬表現
+//
+// 角度のマッピング: 12時=0¢(ジャスト)を基準に、±RING_MAX_CENTS を ±RING_SWEEP_DEG に
+// 割り当てる。上半分だけを使い、下半分は常に空ける(円を一周させると0¢の位置が
+// 分からなくなるため)。
+// ============================================================
+const RING_MAX_CENTS = 50;     // 環の端に対応するセント差(PitchMeterの±50¢と揃える)
+const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度
+const RING_IN_TUNE_CENTS = 5;  // これ以内なら「合った」として環を閉じる
+
+// 12時を0として時計回りに測った角度(度) → SVG座標
+function ringPoint(deg, r, cx, cy) {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return [cx + Math.cos(rad) * r, cy + Math.sin(rad) * r];
+}
+
+function PitchRing({ note, centsOffset }) {
+  const sounding = !!note;
+  const rawExact = note ? Math.max(-RING_MAX_CENTS, Math.min(RING_MAX_CENTS, note.centsExact ?? centsOffset)) : 0;
+
+  // 平滑化の考え方はPitchMeterと同じ: 生のピッチはフレーム毎に細かく揺れるため指数移動平均で
+  // 落ち着かせる。ただし音名(半音)が変わった瞬間はcentsExactが大きく飛ぶのでスナップして
+  // 平滑をやり直す(隣の音へ不自然にスウィープしない)。
+  const smoothRef = useRef({ semi: null, val: 0 });
+  let exact = rawExact;
+  if (sounding) {
+    const semi = Math.round(note.midi);
+    if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact };
+    else smoothRef.current.val += (rawExact - smoothRef.current.val) * 0.15;
+    exact = smoothRef.current.val;
+  } else {
+    smoothRef.current = { semi: null, val: 0 };
+  }
+
+  // viewBoxは300固定。実寸は幅に追従させる(375px幅の端末で環の直径が約300pxになる)。
+  const VB = 300, CX = 150, CY = 150, R = 136, SW = 14;
+  const deg = (exact / RING_MAX_CENTS) * RING_SWEEP_DEG;
+  const [mx, my] = ringPoint(deg, R, CX, CY);
+  const [r, g, b] = pitchBarColorRGB(exact);
+  const color = `rgb(${r},${g},${b})`;
+  const inTune = sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
+
+  // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
+  const [sx, sy] = ringPoint(0, R, CX, CY);
+  const arcD = Math.abs(deg) < 1 ? "" : `M${sx.toFixed(2)},${sy.toFixed(2)} A${R},${R} 0 0,${deg > 0 ? 1 : 0} ${mx.toFixed(2)},${my.toFixed(2)}`;
+
+  return (
+    <div style={{ width: "100%", maxWidth: 330, margin: "0 auto", position: "relative" }}>
+      <svg viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", width: "100%", height: "auto" }} aria-hidden="true">
+        {/* 環のトラック(常に全周)。色はCSS変数から引くため属性ではなくstyleで指定する
+            (SVGのプレゼンテーション属性に var() は書けない)。 */}
+        <circle cx={CX} cy={CY} r={R} fill="none" strokeWidth={SW} style={{ stroke: "var(--c-line)" }} />
+        {/* 12時=0¢の基準マーカー。トラックを跨いで内外にわずかに出す */}
+        <line
+          x1={CX} y1={CY - R - SW / 2 - 5} x2={CX} y2={CY - R + SW / 2 + 5}
+          strokeWidth="3" strokeLinecap="round" style={{ stroke: "var(--c-accent)" }}
+        />
+        {sounding && (
+          <>
+            {/* ズレの弧: 0¢から現在位置まで伸びる。長さと色の両方でズレの大きさを示す */}
+            {arcD && <path d={arcD} fill="none" stroke={color} strokeWidth={SW} strokeLinecap="round" />}
+            {/* 合っている間は環を閉じて呼吸させる(到達の合図) */}
+            {inTune && (
+              <circle
+                className="ficus-breathe" cx={CX} cy={CY} r={R} fill="none" stroke={color} strokeWidth={SW}
+                style={{ animation: "ficus-breathe 1.9s ease-in-out infinite" }}
+              />
+            )}
+            {/* 現在位置 */}
+            <circle cx={mx} cy={my} r={SW / 2 + 3} fill={color} />
+          </>
+        )}
+      </svg>
+      {/* 環の内側: 音名(実音)とセント差。数値は「合間に読む」ための補助で、主役は環そのもの。 */}
+      <div style={{
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", pointerEvents: "none",
+      }}>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 118, lineHeight: 0.82, color: sounding ? "var(--c-ink)" : "var(--c-disabled)" }}>
+          {sounding ? note.name : "—"}
+          <span style={{ fontSize: 44, color: "var(--c-accent-dim)" }}>{sounding ? note.octave : ""}</span>
+        </div>
+        <div className="sans" style={{
+          marginTop: 16, fontFamily: "var(--font-num)", fontSize: 14, fontWeight: 700,
+          letterSpacing: "0.02em", color: sounding ? color : "var(--c-ink-3)",
+        }}>
+          {sounding ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "—"}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3750,13 +3859,14 @@ function MeasureView(props) {
         </div>
       )}
 
-      {/* メイン領域: チューナーのメーターを主役にする。詳細を閉じた素のチューナー表示では
-          flex:1で余った縦スペースを上側に集め、音名+メーター+グラフ+下矢印は下寄せ(flex-end)で
-          録音ボタンのすぐ上にまとめる(下矢印と録音ボタンの余白を狭く/メーターとグラフを下へ)。
+      {/* メイン領域: チューナーの環を主役にする。詳細を閉じた素のチューナー表示では
+          flex:1で余った縦スペースの中央に環+グラフを置く(環は視線の中心に来るのが要件)。
           詳細やメトロノームを開いた時は自然な高さに戻し、必要ならスクロールさせる。 */}
-      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "flex-end" }}>
-      {/* 音名+ピッチメーター。メトロノームパネル表示中はコンパクトな1行(音名/メーター/セント)、
-          非表示時は従来どおり音名の大表示+メーター(両端-50¢/+50¢)。実音(コンサートピッチ)表示。 */}
+      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "center" }}>
+      {/* 音名+ピッチ表示。実音(コンサートピッチ)表示。
+          - 素のチューナー時 = 演奏中サーフェス。環(PitchRing)を主役にする。
+          - メトロノームパネル表示中は縦スペースを振り子に譲るため、環は置けない。
+            従来どおりコンパクトな1行(音名/横メーター/セント)にフォールバックする。 */}
       {showMetroPanel ? (metroPanel !== null ? null : (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 4px 0" }}>
           <span style={{ fontFamily: "var(--font-serif)", fontSize: 26, lineHeight: 1, color: note ? "#121F32" : "#435266", width: 52, flexShrink: 0, textAlign: "center" }}>
@@ -3777,16 +3887,9 @@ function MeasureView(props) {
           })()}
         </div>
       )) : (
-        <>
-          <div style={{ textAlign: "center", padding: "0 0 8px" }}>
-            <span style={{ fontFamily: "var(--font-serif)", fontSize: 84, lineHeight: 1, color: note ? "#121F32" : "#435266" }}>
-              {note ? note.name : "—"}<span style={{ fontSize: 36, color: "#9DB3CC" }}>{note ? note.octave : ""}</span>
-            </span>
-          </div>
-          <div style={{ padding: "26px 6px 0" }}>
-            <PitchMeter note={note} centsOffset={centsOffset} />
-          </div>
-        </>
+        <div style={{ padding: "0 0 4px" }}>
+          <PitchRing note={note} centsOffset={centsOffset} />
+        </div>
       )}
 
       {/* 「これまでの音」ミニタイムライン。メーターと同様、録音開始有無に関わらず常時動かす。
@@ -3797,8 +3900,8 @@ function MeasureView(props) {
       {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
           フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
       {!(showMetroPanel && metroPanel !== null) && (
-      <div style={{ marginTop: showMetroPanel ? 10 : 22 }}>
-        <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} />
+      <div style={{ marginTop: showMetroPanel ? 10 : 6 }}>
+        <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} quiet={!showMetroPanel} />
       </div>
       )}
 
