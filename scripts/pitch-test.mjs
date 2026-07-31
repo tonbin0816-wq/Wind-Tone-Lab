@@ -86,24 +86,42 @@ const code = [
   extractFunction("isNearScheduledClick"),
   extractConst("RING_MAX_CENTS"),
   extractConst("RING_SWEEP_DEG"),
-  extractConst("RING_BEAT_SWEEP_DEG"),
   extractConst("RING_CX"),
   extractConst("RING_CY"),
   extractConst("RING_R"),
   extractConst("RING_SW"),
   extractConst("RING_PITCH_DOT_R"),
-  extractConst("RING_BEAT_DOT_R"),
   extractConst("RING_MARKER_MIN_GAP_PX"),
   extractConst("RING_D_FULL"),
-  extractConst("RING_D_COMPACT"),
   extractFunction("ringPoint"),
   extractFunction("ringPitchArcD"),
   extractConst("RING_PITCH_ARC_D"),
-  extractConst("RING_BEAT_HALO_SW"),
-  extractConst("RING_BEAT_HALO_GROW"),
-  extractConst("RING_BEAT_HALO_MAX_R"),
-  extractFunction("ringBeatDeg"),
-  extractFunction("ringBeatAccent"),
+  // メトロノーム(E案: 上半円=振り子 / 下半円=拍の点)
+  extractConst("RING_PEND_R"),
+  extractConst("RING_PEND_SWING_DEG"),
+  extractConst("RING_PEND_BOB_R"),
+  extractConst("RING_PEND_BOB_GROW"),
+  extractConst("RING_PEND_HALO_GAP"),
+  extractConst("RING_PEND_HALO_SW"),
+  extractConst("RING_PEND_HALO_OPACITY"),
+  extractConst("RING_BEAT_DOT_ORBIT_R"),
+  extractConst("RING_BEAT_DOT_SPREAD_DEG"),
+  extractConst("RING_BEAT_DOT_R"),
+  extractConst("RING_BEAT_DOT_CUR_R"),
+  extractConst("RING_BEAT_DOT_CUR_GROW"),
+  extractConst("RING_BEAT_DOT_HEAD_R"),
+  extractConst("RING_BEAT_DOT_HEAD_GROW"),
+  extractConst("RING_BEAT_EMPH_DECAY"),
+  extractConst("RING_BEAT_EMPH_HEAD"),
+  extractConst("RING_BEAT_EMPH_OTHER"),
+  extractFunction("ringPendDeg"),
+  extractFunction("ringPendArcD"),
+  extractConst("RING_PEND_ARC_D"),
+  extractFunction("ringBeatEmphasis"),
+  extractFunction("ringBeatIndex"),
+  extractFunction("ringBeatIsHead"),
+  extractFunction("ringBeatDotDeg"),
+  extractFunction("ringBeatDotR"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -112,12 +130,17 @@ const api = new Function(`${code}
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
            matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
            clampMetroTempo, parseMetroSig, metroBeatGroups, metroX8BeatStarts, metroTickKind, isNearScheduledClick,
-           ringPoint, ringBeatDeg, ringBeatAccent,
+           ringPoint, ringPendDeg, ringBeatEmphasis, ringBeatIndex, ringBeatIsHead, ringBeatDotDeg, ringBeatDotR,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
-           METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG, RING_BEAT_SWEEP_DEG,
-           RING_CX, RING_CY, RING_R, RING_SW, RING_PITCH_DOT_R, RING_BEAT_DOT_R, RING_BEAT_HALO_SW, RING_BEAT_HALO_MAX_R,
-           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_D_COMPACT, RING_PITCH_ARC_D };`)();
+           METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG,
+           RING_CX, RING_CY, RING_R, RING_SW, RING_PITCH_DOT_R,
+           RING_PEND_R, RING_PEND_SWING_DEG, RING_PEND_BOB_R, RING_PEND_BOB_GROW,
+           RING_PEND_HALO_GAP, RING_PEND_HALO_SW, RING_PEND_HALO_OPACITY, RING_PEND_ARC_D,
+           RING_BEAT_DOT_ORBIT_R, RING_BEAT_DOT_SPREAD_DEG, RING_BEAT_DOT_R, RING_BEAT_DOT_CUR_R,
+           RING_BEAT_DOT_CUR_GROW, RING_BEAT_DOT_HEAD_R, RING_BEAT_DOT_HEAD_GROW,
+           RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
+           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_PITCH_ARC_D };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -735,60 +758,186 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
   check("テンポ不正値は120", api.clampMetroTempo("abc") === 120);
   check("テンポ小数は丸め", api.clampMetroTempo(120.6) === 121);
 
-  // 拍マーカー(環の下弧)。振り子(248px)を廃してここに拍を移したもの。
-  // 位相→角度の写像・上下の弧の非接触・小節頭の強調量が対象。
-  const BEAT_L = 180 - api.RING_BEAT_SWEEP_DEG, BEAT_R = 180 + api.RING_BEAT_SWEEP_DEG;
-  check("停止中(null)は6時(180°)に止まる", api.ringBeatDeg(null) === 180);
-  check("拍の瞬間に下弧の端へ達する(0拍=左端 / 1拍=右端 / 2拍=左端)",
-    Math.abs(api.ringBeatDeg(0) - BEAT_L) < 1e-9 && Math.abs(api.ringBeatDeg(1) - BEAT_R) < 1e-9 && Math.abs(api.ringBeatDeg(2) - BEAT_L) < 1e-9,
-    `${api.ringBeatDeg(0)},${api.ringBeatDeg(1)}`);
+  // ------------------------------------------------------------------
+  // メトロノーム(E案): 上半円=振り子(予測) / 下半円=拍の点(今が何拍目か)
+  // ------------------------------------------------------------------
+  // 振り子: 位相→角度の写像。拍の瞬間(位相が整数)にちょうど両端へ達する。
+  check("停止中(null)は静止した振り子と同じ12時(0°)", api.ringPendDeg(null) === 0);
+  check("拍の瞬間に振れの端へ達する(0拍=右端 / 1拍=左端 / 2拍=右端)",
+    Math.abs(api.ringPendDeg(0) - api.RING_PEND_SWING_DEG) < 1e-9
+    && Math.abs(api.ringPendDeg(1) + api.RING_PEND_SWING_DEG) < 1e-9
+    && Math.abs(api.ringPendDeg(2) - api.RING_PEND_SWING_DEG) < 1e-9,
+    `${api.ringPendDeg(0)},${api.ringPendDeg(1)}`);
+  check("振れ角を超えない(全位相で |deg| <= 振れ角)", (() => {
+    for (let p = 0; p <= 8; p += 0.001) if (Math.abs(api.ringPendDeg(p)) > api.RING_PEND_SWING_DEG + 1e-9) return false;
+    return true;
+  })());
+
+  // 錘は必ず上半円、拍の点は必ず下半円に描かれる(環の二役を上下で分ける)。
+  {
+    let bobMaxY = -Infinity;
+    for (let p = 0; p <= 8; p += 0.001) {
+      const y = api.ringPoint(api.ringPendDeg(p), api.RING_PEND_R, api.RING_CX, api.RING_CY)[1];
+      if (y > bobMaxY) bobMaxY = y;
+    }
+    check("錘は全位相で上半円(cy < 中心)", bobMaxY < api.RING_CY, `最下点 cy=${bobMaxY.toFixed(2)}`);
+    let dotMinY = Infinity;
+    for (let n = 1; n <= 12; n++) {
+      for (let i = 0; i < n; i++) {
+        const y = api.ringPoint(api.ringBeatDotDeg(i, n), api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY)[1];
+        if (y < dotMinY) dotMinY = y;
+      }
+    }
+    check("拍の点は全拍子で下半円(cy > 中心)", dotMinY > api.RING_CY, `最上点 cy=${dotMinY.toFixed(2)}`);
+  }
+
+  // 拍の点: 数が拍子と一致し、左から右へ数え、6時を中心に ±SPREAD に収まる。
+  for (const n of [2, 3, 4, 6]) {
+    const degs = Array.from({ length: n }, (_, i) => api.ringBeatDotDeg(i, n));
+    const xs = degs.map((d) => api.ringPoint(d, api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY)[0]);
+    let ascending = true;
+    for (let i = 1; i < n; i++) if (!(xs[i] > xs[i - 1])) ascending = false;
+    const inRange = degs.every((d) => d >= 180 - api.RING_BEAT_DOT_SPREAD_DEG - 1e-9 && d <= 180 + api.RING_BEAT_DOT_SPREAD_DEG + 1e-9);
+    const symmetric = Math.abs((xs[0] - api.RING_CX) + (xs[n - 1] - api.RING_CX)) < 1e-9;
+    check(`拍の点(${n}拍): 左から右へ並び、6時を中心に対称で ±${api.RING_BEAT_DOT_SPREAD_DEG}° 以内`,
+      ascending && inRange && symmetric, degs.map((d) => d.toFixed(1)).join(","));
+  }
+  check("1拍のときは6時ちょうどに1つ", api.ringBeatDotDeg(0, 1) === 180);
+
+  // 現在の拍だけが大きい(2/4・3/4・4/4・6/8)。点は動かず大きさだけが変わる。
+  for (const n of [2, 3, 4, 6]) {
+    let ok = true, detail = "";
+    for (let beat = 0; beat < 2 * n; beat++) {
+      const phase = beat + 0.3;                                   // 拍の途中(演出は残っている位相)
+      const cur = api.ringBeatIndex(phase, n);
+      if (cur !== beat % n) { ok = false; detail = `index ${cur}!=${beat % n}`; break; }
+      const e = api.ringBeatEmphasis(phase, n, true);
+      const isHead = api.ringBeatIsHead(phase, n, true);
+      const rs = Array.from({ length: n }, (_, i) => api.ringBeatDotR(cur === i, cur === i && isHead, e));
+      const others = rs.filter((_, i) => i !== cur);
+      if (!others.every((r) => r === api.RING_BEAT_DOT_R)) { ok = false; detail = "現在以外の点の大きさが既定でない"; break; }
+      if (!others.every((r) => rs[cur] > r)) { ok = false; detail = `現在の点が大きくない ${rs.join(",")}`; break; }
+    }
+    check(`拍の点(${n}拍): 現在の拍だけが大きく、位置は変わらない`, ok, detail);
+  }
+  check("6/8は主拍2つ(拍子パースと点の数が一致)", api.metroBeatGroups(6).length === 2);
 
   // ------------------------------------------------------------------
-  // ピッチマーカーと拍マーカーの最小距離。
+  // 【毎拍・両端で演出が出る】以前は小節頭だけを強調していたため、偶数拍子では
+  // cos(π×通算拍) が必ず同じ端に来て**片側でしか光らなかった**。
+  // 通算拍の偶数・奇数の両方で e>0 になることを確かめる(=両端で光る)。
+  // ------------------------------------------------------------------
+  {
+    let evenMin = Infinity, oddMin = Infinity;
+    const sides = new Set();
+    for (const beats of [2, 3, 4, 6]) {
+      for (let beat = 0; beat < 4 * beats; beat++) {
+        const e = api.ringBeatEmphasis(beat, beats, true);         // 拍の瞬間
+        if (beat % 2 === 0) evenMin = Math.min(evenMin, e); else oddMin = Math.min(oddMin, e);
+        if (e > 0) sides.add(Math.sign(api.ringPendDeg(beat)));    // +1=右端 / -1=左端
+      }
+    }
+    check("拍の演出が通算拍の偶数・奇数どちらでも出る(=両端で光る)",
+      evenMin > 0 && oddMin > 0 && sides.has(1) && sides.has(-1),
+      `偶数拍の最小 e=${evenMin} / 奇数拍の最小 e=${oddMin} / 光った端=${[...sides].join(",")}`);
+    check("係数は小節頭だけ強い(小節頭=1 / それ以外=0.55)",
+      api.ringBeatEmphasis(0, 4, true) === api.RING_BEAT_EMPH_HEAD
+      && api.ringBeatEmphasis(1, 4, true) === api.RING_BEAT_EMPH_OTHER
+      && api.ringBeatEmphasis(2, 4, true) === api.RING_BEAT_EMPH_OTHER
+      && api.ringBeatEmphasis(3, 4, true) === api.RING_BEAT_EMPH_OTHER
+      && api.ringBeatEmphasis(4, 4, true) === api.RING_BEAT_EMPH_HEAD,
+      `${api.ringBeatEmphasis(0, 4, true)},${api.ringBeatEmphasis(1, 4, true)}`);
+    check("演出は拍内位相で減衰して0になる(明滅しない)",
+      api.ringBeatEmphasis(0.25, 4, true) > 0 && api.ringBeatEmphasis(0.5, 4, true) === 0
+      && api.ringBeatEmphasis(1.25, 4, true) > 0 && api.ringBeatEmphasis(1.5, 4, true) === 0
+      && api.ringBeatEmphasis(null, 4, true) === 0);
+    // 減衰の傾き。拍内位相 × RING_BEAT_EMPH_DECAY を 1 から引いた値に係数を掛けたもの
+    check("減衰は 1 - 拍内位相×2.2 に係数を掛けたもの",
+      Math.abs(api.ringBeatEmphasis(0.2, 4, true) - (1 - 0.2 * api.RING_BEAT_EMPH_DECAY)) < 1e-9
+      && Math.abs(api.ringBeatEmphasis(1.2, 4, true) - (1 - 0.2 * api.RING_BEAT_EMPH_DECAY) * api.RING_BEAT_EMPH_OTHER) < 1e-9);
+    // アクセントOFF(=強拍が鳴らない)なら小節頭の"差"は出ない。ただし拍そのものは毎拍鳴るので
+    // 演出自体は残る(鳴っていないものを見せない / 鳴っているものは見せる)。
+    let headDiff = false, allBeatsLit = true;
+    for (let beat = 0; beat < 8; beat++) {
+      const e = api.ringBeatEmphasis(beat, 4, false);
+      if (e !== api.RING_BEAT_EMPH_OTHER) headDiff = true;
+      if (!(e > 0)) allBeatsLit = false;
+    }
+    check("アクセントOFFなら全拍が同じ強さ(小節頭を主張しない)が、演出自体は毎拍出る",
+      !headDiff && allBeatsLit && api.ringBeatIsHead(0, 4, false) === false);
+  }
+
+  // 減速設定(prefers-reduced-motion)の再現: 実装は演出量 e を 0 に固定するだけ。
+  // 錘の移動(位相→角度)と点の切り替え(現在の拍)は e に依存しないので残ることを確かめる。
+  {
+    const movedAngles = new Set();
+    for (let p = 0; p <= 2; p += 0.1) movedAngles.add(api.ringPendDeg(p).toFixed(3));
+    const idx = [0, 1, 2, 3].map((b) => api.ringBeatIndex(b + 0.3, 4)).join(",");
+    const curR = api.ringBeatDotR(true, true, 0), otherR = api.ringBeatDotR(false, false, 0);
+    check("減速設定でも錘は動き、点の切り替えも続く(止まるのは膨らみだけ)",
+      movedAngles.size > 10 && idx === "0,1,2,3" && curR > otherR
+      && curR === api.RING_BEAT_DOT_HEAD_R && api.ringBeatDotR(true, false, 0) === api.RING_BEAT_DOT_CUR_R,
+      `角度の種類=${movedAngles.size} / 拍=${idx} / 現在r=${curR} 他r=${otherR}`);
+  }
+
+  // ------------------------------------------------------------------
+  // ピッチマーカーと拍の要素(錘・点)の最小距離。
   //
-  // DESIGN-SYSTEM §6.1 の要件は「**最も小さい環(RING_D_COMPACT)の実寸**で最低 6 CSS px」。
+  // DESIGN-SYSTEM §6.1 の要件は「**実寸**で最低 6 CSS px」。
   // ここは実装の定数の定義を言い換えるのではなく、実寸を独立に計算して要件と突き合わせる。
   // (過去に「距離 − (定義から引き算で作った上限) > 余白」という恒等式を書いてしまい、
   //  構造上失敗し得ないテストで余白を守っているつもりになっていた。定義から導出しない)
   //
   // viewBox は 300 で、実寸は環の直径。つまり 1 viewBox 単位 = 直径/300 CSS px。
-  // 250px 環では 0.833 倍にしかならないので、viewBox 単位を px と呼んではいけない。
+  // 環は常に RING_D_FULL(330) なので 1.1 倍。viewBox 単位を px と呼んではいけない。
   // ------------------------------------------------------------------
   {
-    const VB_TO_PX = api.RING_D_COMPACT / 300; // 拍マーカーが出るのは小さい環のときだけ
+    const VB_TO_PX = api.RING_D_FULL / 300;
     let minPx = Infinity, worst = null;
-    // 拍子は 2〜7 すべてを見る。小節頭(強調が最大)が来る位相が拍子によって変わり、
-    // 偶数拍子なら位相0(下弧の左端)、奇数拍子ならその奇数倍の位相(右端)も最悪ケースになる。
-    // どちらの端も必ず走査されるよう、拍子の偶奇を両方含める。
+    // ピッチマーカーが取りうる位置(±50¢を0.25¢刻み。最悪ケースの ±25¢=振り子の端と
+    // 同じ角度 もグリッド上に乗る)
+    const CENT_STEP = 0.25;
+    const pitchPts = [];
+    for (let cc = -api.RING_MAX_CENTS; cc <= api.RING_MAX_CENTS + 1e-9; cc += CENT_STEP) {
+      pitchPts.push([cc, api.ringPoint((cc / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY)]);
+    }
+    // 拍子は 2〜7 すべてを見る。演出が最大になる位相が拍子によって変わり、
+    // 偶数拍子なら通算拍0(右端)、奇数拍子ならその奇数倍の位相(左端)も最悪ケースになる。
     for (const beats of [2, 3, 4, 5, 6, 7]) {
-      for (let ci = -1000; ci <= 1000; ci++) {
-        const cc = (ci / 1000) * api.RING_MAX_CENTS;
-        const [px, py] = api.ringPoint((cc / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
-        for (let p = 0; p <= 2 * beats + 1e-9; p += 0.002) {
-          const [bx, by] = api.ringPoint(api.ringBeatDeg(p), api.RING_R, api.RING_CX, api.RING_CY);
-          const em = api.ringBeatAccent(p, beats, true);
-          // 実装が実際に描く大きさをそのまま使う。点のふくらみと、輪の外縁(線幅の半分ぶん
-          // 半径より外に出る)の大きい方が、拍側の外径。
-          const dotR = api.RING_BEAT_DOT_R + em * (api.RING_PITCH_DOT_R - api.RING_BEAT_DOT_R);
-          const haloOuter = api.RING_PITCH_DOT_R + em * (api.RING_BEAT_HALO_MAX_R - api.RING_PITCH_DOT_R) + api.RING_BEAT_HALO_SW / 2;
-          const beatOuter = Math.max(dotR, em > 0 ? haloOuter : 0);
-          const clearVb = Math.hypot(px - bx, py - by) - (api.RING_PITCH_DOT_R + beatOuter);
+      // 拍の点(下半円・位置は固定)
+      const dots = Array.from({ length: beats }, (_, i) =>
+        api.ringPoint(api.ringBeatDotDeg(i, beats), api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY));
+      for (let p = 0; p <= 2 * beats + 1e-9; p += 0.005) {
+        const e = api.ringBeatEmphasis(p, beats, true);
+        const cur = api.ringBeatIndex(p, beats);
+        const isHead = api.ringBeatIsHead(p, beats, true);
+        // --- 錘(上半円) --- 実装が実際に描く大きさをそのまま使う。
+        // 錘の膨らみと、輪の外縁(線幅の半分ぶん半径より外に出る)の大きい方が外径。
+        const [bx, by] = api.ringPoint(api.ringPendDeg(p), api.RING_PEND_R, api.RING_CX, api.RING_CY);
+        const bobR = api.RING_PEND_BOB_R + e * api.RING_PEND_BOB_GROW;
+        const haloOuter = bobR + api.RING_PEND_HALO_GAP + api.RING_PEND_HALO_SW / 2;
+        const bobOuter = Math.max(bobR, e > 0 ? haloOuter : 0);
+        // --- 拍の点(下半円) --- 現在の拍だけ大きさが変わる
+        const dotRs = Array.from({ length: beats }, (_, i) => api.ringBeatDotR(cur === i, cur === i && isHead, e));
+        for (const [cc, [px, py]] of pitchPts) {
+          let clearVb = Math.hypot(px - bx, py - by) - (api.RING_PITCH_DOT_R + bobOuter);
+          let which = "錘";
+          for (let i = 0; i < beats; i++) {
+            const c = Math.hypot(px - dots[i][0], py - dots[i][1]) - (api.RING_PITCH_DOT_R + dotRs[i]);
+            if (c < clearVb) { clearVb = c; which = `点${i}`; }
+          }
           const clearPx = clearVb * VB_TO_PX;
-          if (clearPx < minPx) { minPx = clearPx; worst = { beats, cents: +cc.toFixed(2), phase: +p.toFixed(3), em: +em.toFixed(3) }; }
+          if (clearPx < minPx) { minPx = clearPx; worst = { beats, cents: +cc.toFixed(2), phase: +p.toFixed(3), e: +e.toFixed(3), which }; }
         }
       }
     }
-    check(`ピッチと拍のマーカーが実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
+    check(`ピッチマーカーと拍の要素(錘・点)が実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
       minPx >= api.RING_MARKER_MIN_GAP_PX,
-      `最小 ${minPx.toFixed(2)} CSS px (${api.RING_D_COMPACT}px環) @ ${JSON.stringify(worst)}`);
-    // 大きい環(拍マーカーは出ないが、将来出すことになっても成立する)側も一応記録する
-    check("要件の判定は最も小さい環で行っている(大きい環の方が必ず余裕がある)",
-      api.RING_D_COMPACT < api.RING_D_FULL);
+      `最小 ${minPx.toFixed(2)} CSS px (${api.RING_D_FULL}px環) @ ${JSON.stringify(worst)}`);
   }
 
-  // 到達(inTune)の合図が下弧に侵入しないこと。
-  // 以前は r=RING_R の全周円をピッチ色で塗って呼吸させており、下弧＝拍の帯まで
-  // ピッチ色に染まって「上弧=ピッチ / 下弧=拍」の役割分離が崩れていた。
+  // 到達(inTune)の合図は上弧の**帯**をピッチ色で塗るので、拍の要素はその帯の内側に
+  // 入ってはいけない。帯の内縁(r - 線幅/2)より、拍の要素の最大到達半径が内側にあること。
   {
     const m = /^M([\d.-]+),([\d.-]+) A(\d+(?:\.\d+)?),\d+(?:\.\d+)? 0 1,1 ([\d.-]+),([\d.-]+)$/.exec(api.RING_PITCH_ARC_D);
     const [lx, ly] = api.ringPoint(-api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
@@ -797,26 +946,24 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
       !!m && Math.abs(+m[1] - lx) < 0.01 && Math.abs(+m[2] - ly) < 0.01
       && Math.abs(+m[4] - rx) < 0.01 && Math.abs(+m[5] - ry) < 0.01,
       api.RING_PITCH_ARC_D);
-    // 上弧の下端(線幅の外縁まで含む)が、拍マーカーが到達する最上点より上にあること
-    const arcLowestY = ly + api.RING_SW / 2;                       // 弧の帯の下端
-    const beatHighestY = api.ringPoint(180 - api.RING_BEAT_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY)[1]
-      - (api.RING_BEAT_HALO_MAX_R + api.RING_BEAT_HALO_SW / 2);    // 拍側の上端(輪の外縁)
-    check("到達の合図の帯が拍マーカーの走る帯に届かない",
-      arcLowestY < beatHighestY, `弧の下端 ${arcLowestY.toFixed(2)} / 拍の上端 ${beatHighestY.toFixed(2)} (viewBox単位)`);
+    const bandInner = api.RING_R - api.RING_SW / 2;                 // 環の帯の内縁
+    const bobOuterMax = api.RING_PEND_R + api.RING_PEND_BOB_R + api.RING_PEND_BOB_GROW
+      + api.RING_PEND_HALO_GAP + api.RING_PEND_HALO_SW / 2;
+    const dotOuterMax = api.RING_BEAT_DOT_ORBIT_R + api.RING_BEAT_DOT_HEAD_R + api.RING_BEAT_DOT_HEAD_GROW;
+    const gapPx = (bandInner - Math.max(bobOuterMax, dotOuterMax)) * (api.RING_D_FULL / 300);
+    check(`拍の要素が環の帯に届かない(実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上内側)`,
+      gapPx >= api.RING_MARKER_MIN_GAP_PX,
+      `帯の内縁 ${bandInner} / 錘 ${bobOuterMax.toFixed(2)} / 点 ${dotOuterMax} → ${gapPx.toFixed(2)} CSS px`);
   }
 
-  check("小節頭だけ強調が立ち、他の拍は0(4/4・アクセントON)",
-    api.ringBeatAccent(0, 4, true) === 1 && api.ringBeatAccent(1, 4, true) === 0 && api.ringBeatAccent(2.2, 4, true) === 0
-    && api.ringBeatAccent(3.9, 4, true) === 0 && api.ringBeatAccent(4, 4, true) === 1 && api.ringBeatAccent(8, 4, true) === 1);
-  check("強調は拍の前半で1→0に減衰し、停止中・拍子未確定では常に0",
-    Math.abs(api.ringBeatAccent(0.25, 4, true) - 0.5) < 1e-9 && api.ringBeatAccent(0.5, 4, true) === 0 && api.ringBeatAccent(0.75, 4, true) === 0
-    && api.ringBeatAccent(null, 4, true) === 0 && api.ringBeatAccent(0, 0, true) === 0);
-  // アクセントOFF(=強拍が鳴らない)なら、視覚も小節頭を強調しない
+  // 軌道の弧は錘と同じ半径・同じ振れ角の上に描かれていること(錘が弧から外れて見えない)
   {
-    let anyEmphasis = false;
-    for (let p = 0; p <= 8; p += 0.01) if (api.ringBeatAccent(p, 4, false) !== 0) { anyEmphasis = true; break; }
-    check("アクセントOFFなら全位相で強調が0(鳴らないものを見せない)",
-      !anyEmphasis && api.ringBeatAccent(0, 4, false) === 0 && api.ringBeatAccent(0, 4, undefined) === 0);
+    const m = /^M([\d.-]+),([\d.-]+) A(\d+(?:\.\d+)?),\d+(?:\.\d+)? 0 0,1 ([\d.-]+),([\d.-]+)$/.exec(api.RING_PEND_ARC_D);
+    const [lx, ly] = api.ringPoint(-api.RING_PEND_SWING_DEG, api.RING_PEND_R, api.RING_CX, api.RING_CY);
+    const [rx, ry] = api.ringPoint(api.RING_PEND_SWING_DEG, api.RING_PEND_R, api.RING_CX, api.RING_CY);
+    check("軌道の弧は錘の軌道(半径・振れ角)と一致する",
+      !!m && +m[3] === api.RING_PEND_R && Math.abs(+m[1] - lx) < 0.01 && Math.abs(+m[2] - ly) < 0.01
+      && Math.abs(+m[4] - rx) < 0.01 && Math.abs(+m[5] - ry) < 0.01, api.RING_PEND_ARC_D);
   }
 }
 

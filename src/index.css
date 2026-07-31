@@ -103,6 +103,15 @@ html, body, #root {
   height: 100%;
 }
 
+/* アプリのルート。iOS Safari の 100vh は**アドレスバーを含む高さ**を返すため、可視領域より
+   大きい min-height が敷かれ、詳細を閉じた素の状態でも常にアドレスバーぶんだけ縦スクロール
+   できてしまう(実機で計測タブ・リードタブの両方で報告された)。可視領域に追従する dvh を使う。
+   1行目の 100vh は dvh 未対応環境のフォールバック(後勝ちなので対応環境では dvh が効く)。 */
+.app-root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body {
   font-family: var(--font-jp);
   -webkit-font-smoothing: antialiased;

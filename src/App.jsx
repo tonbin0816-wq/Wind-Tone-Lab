@@ -66,6 +66,15 @@ function resolveBottomGap() {
 // 実測で読む。以前は 72px をJS側にも直書きしていたため、セーフエリアのある端末で
 // ナビの実効高(81px)に9px足りず、コンテンツ末尾がナビの下に隠れていた。
 // bottomGap に数値を渡した場合はそれを優先する(呼び出し側で上書きしたいケース用)。
+// 【iOSでは innerHeight を使わない】window.innerHeight はアドレスバーを含む高さを返すため、
+// 実際に見えている領域より大きくなる。その値で minHeight を敷くと、詳細を閉じた素の状態でも
+// 常にアドレスバーぶんだけ縦スクロールできてしまう(実機で計測タブ・リードタブの両方で報告)。
+// 見えている領域の高さは visualViewport.height が返すので、あればそちらを優先する。
+function visibleViewportHeight() {
+  const vv = typeof window !== "undefined" ? window.visualViewport : null;
+  const h = vv && vv.height > 0 ? vv.height : 0;
+  return h || window.innerHeight;
+}
 function useFillViewportHeight(ref, bottomGap = null) {
   const [minH, setMinH] = useState(0);
   useLayoutEffect(() => {
@@ -74,16 +83,20 @@ function useFillViewportHeight(ref, bottomGap = null) {
       if (!el) return;
       const top = el.getBoundingClientRect().top;
       const gap = bottomGap != null ? bottomGap : resolveBottomGap();
-      const h = window.innerHeight - top - gap;
+      const h = visibleViewportHeight() - top - gap;
       setMinH(h > 0 ? h : 0);
     };
     measure();
     window.addEventListener("resize", measure);
     window.addEventListener("orientationchange", measure);
+    // アドレスバーの伸縮は window の resize を伴わないことがあるため visualViewport も購読する
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
     const t = setTimeout(measure, 300); // フォント読込等で上の要素高さが変わった後にも測り直す
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
+      vv?.removeEventListener("resize", measure);
       clearTimeout(t);
     };
   }, [ref, bottomGap]);
@@ -2508,8 +2521,10 @@ export default function WindToneLabPhaseMode() {
   const note = pitch ? freqToNote(pitch, effectiveTuningHz) : null;
   const centsOffset = note ? note.cents : 0;
 
+  // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
+  // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
   return (
-    <div style={{ minHeight: "100vh", background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) var(--page-bottom-gap) calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
+    <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) var(--page-bottom-gap) calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
       <style>{`
         @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
@@ -3126,30 +3141,29 @@ function pitchBarColorRGB(cents) {
 // 割り当てる。上半分だけを使い、下半分は常に空ける(円を一周させると0¢の位置が
 // 分からなくなるため)。
 //
-// 【メトロノーム表示中の二役】ピッチが使うのは上側の ±RING_SWEEP_DEG(±110°)だけなので、
-// 下側の弧に拍を担わせる。縦スペースを一切増やさずに拍を見せられる(振り子248pxが不要になる)。
-// 上弧=ピッチ(機能色)/下弧=拍(紺 --c-accent)と、役割ごとに色と位置を分ける。
+// 【メトロノーム表示中の環の中身(E案: 振り子＋拍の点)】DESIGN-SYSTEM §6.1。
+// 拍マーカーが下弧を往復する形は「既存のメトロノームは上半円なのに下半円で振れる」
+// 違和感と、点だけでは今が何拍目か読めない問題があったため作り直した。
+//   上半円 = 振り子(予測を担う)。錘が端に近づくのが見えるから身体が次の拍を準備できる。
+//            機械式メトロノームの錘が支点の上に来るのは複合振り子の機構上の都合だが、
+//            結果としてそれが視覚的な常識になっている。
+//   下半円 = 拍の点(今が何拍目かを担う)。点は動かず、灯る場所だけが変わる。
 //
-// 【重要・上下の弧は必ず離す】拍の振れ幅は「余った角度(180-110=70°)」にしてはいけない。
-// 70°にすると拍マーカーの折返し点がピッチ ±50¢ の点と同一座標になり、2つのマーカーが
-// 完全に重なる。しかも折返し点は cos の停留点＝最も長く滞留する場所なので、いちばん
-// 見える瞬間に混ざる。
+// 拍の演出は**毎拍・両端で**出す。実際のメトロノームは両端で鳴るのに、以前の実装は
+// 小節頭だけを強調していたため、偶数拍子では cos(π×通算拍) が必ず同じ端に来て
+// 片側でしか光らなかった。
 //
-// DESIGN-SYSTEM §6.1 は「最も小さい環(RING_D_COMPACT)の**実寸**で最低6 CSS px 離れること」
-// を要件にしている。viewBox単位ではなく実寸で見るのが要点(250px環では viewBox 1単位が
-// 0.833 CSS px にしかならない)。
-// ここでは RING_BEAT_SWEEP_DEG と輪の広がりを「設計値として素直に決め」、要件を満たすかは
+// DESIGN-SYSTEM §6.1 は「ピッチマーカーと拍の要素が**実寸で**最低6 CSS px 離れること」を
+// 要件にしている。viewBox単位ではなく実寸で見るのが要点(330px環では viewBox 1単位が
+// 1.1 CSS px)。ここでは軌道半径・錘の大きさを「設計値として素直に決め」、要件を満たすかは
 // scripts/pitch-test.mjs が**独立に実寸で計算して**検証する。定数の定義から要件を逆算すると
 // テストが恒等式になって何も守らなくなるため、その形にはしない。
 // ============================================================
 const RING_MAX_CENTS = 50;     // 環の端に対応するセント差
 const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上弧)
 const RING_IN_TUNE_CENTS = 5;  // これ以内なら「合った」として環を閉じる
-// 下弧。拍マーカーは6時を中心にこの角度だけ左右へ振れる(128°〜232°)。
-// 上弧の端(110°)との角度差は 18°。
-const RING_BEAT_SWEEP_DEG = 52;
-// DESIGN-SYSTEM §6.1 が定めるマーカー間の最小距離(実寸・CSS px)。
-// 上の角度と下の輪の大きさは、この値を満たすように選んである。
+// DESIGN-SYSTEM §6.1 が定めるピッチマーカーと拍の要素の最小距離(実寸・CSS px)。
+// 振り子の軌道半径と錘の大きさは、この値を満たすように選んである。
 const RING_MARKER_MIN_GAP_PX = 6;
 // 環の形状。viewBoxは300固定で、実寸はCSSの幅で追従させる。
 // rAFでDOMを直接書き換える拍マーカーからも参照するためモジュール定数として持つ。
@@ -3159,20 +3173,20 @@ const RING_CX = 150;
 const RING_CY = 150;
 const RING_R = 136;
 const RING_SW = 14;
-// マーカーの半径。ピッチ(上弧)は大きく、拍(下弧)は小さくして役割を形でも分ける。
-// 拍は小節頭でだけピッチと同じ大きさまで一瞬ふくらむ。
+// ピッチマーカー(上弧)の半径。
 const RING_PITCH_DOT_R = RING_SW / 2 + 3;
-const RING_BEAT_DOT_R = RING_SW / 2;
 
 // 環の実寸(直径)。DESIGN-SYSTEM §4.2 の表と対応する。
-const RING_D_FULL = 330;       // 素のチューナー
-const RING_D_COMPACT = 250;    // メトロノームを開いている間(操作UIを環の下に置くため)
+// **メトロノームの開閉で大きさを変えない。** 以前は開くと 330→250 に縮めていたが、
+// 環は演奏中サーフェスの主役で、開閉のたびに主役の大きさが変わるのは読み取りを妨げる。
+// 縦スペースはメトロノームを開いている間だけ「これまでの音」を隠して捻出する。
+const RING_D_FULL = 330;       // 環の直径(常にこの値)
 
 // --- 音名の組み方(design/DESIGN-SYSTEM.md §4.2/§4.3 で確定) ---
 // 音名のサイズは環の直径に比例させる(固定pxにしない)。環が縮んだときに音名だけ据え置くと
 // 音名と環内周のクリアランスが 55px/辺 → 14px/辺 のように別物になり、同一サーフェス内で
 // 見え方が割れるため。比で持てば環がどの大きさでもクリアランスの比率が保たれる。
-//   330 × 0.3576 = 118px / 250 × 0.3576 = 89px
+// 環が 330px 固定になったので結果として 330 × 0.3576 = 118px 固定になるが、比の仕組みは残す。
 const NOTE_FS_RATIO = 0.3576;
 // Instrument Serif は既定の送り幅が 0.457em(一般的なserifの64%)と細い。細さ自体は
 // 1m先から読む演奏中サーフェスに合っているが、書体既定のままでは「幅を選んでいない」
@@ -3192,13 +3206,33 @@ function ringPoint(deg, r, cx, cy) {
   return [cx + Math.cos(rad) * r, cy + Math.sin(rad) * r];
 }
 
-// 拍マーカーの外側の輪。小節頭で半径がこの分だけ広がって消える。
-// 点のふくらみ(7→10)より一回り大きくして「広がって消える」動きを作る。
-// 【この2つを大きくする / RING_BEAT_SWEEP_DEG を上げると、マーカー間距離が縮む。】
+// --- 上半円: 振り子(予測を担う) ---
+// 【RING_PEND_R を上げる / 錘・輪を大きくすると、ピッチマーカーとの距離が縮む。】
 // 要件(RING_MARKER_MIN_GAP_PX)を割ったら pitch-test.mjs が実寸で検証して落ちる。
-const RING_BEAT_HALO_SW = 2;      // 輪の線幅。輪の実際の外縁は r + SW/2 まで届く
-const RING_BEAT_HALO_GROW = 6;    // 小節頭での半径の増分
-const RING_BEAT_HALO_MAX_R = RING_PITCH_DOT_R + RING_BEAT_HALO_GROW;
+// 軌道半径は要件を満たす最大の整数値。錘は環のトラック(内縁 r=129)ではなく
+// **ピッチマーカー(r=136 の点・半径10 なので内縁は 126)** との距離で効いてくる。
+const RING_PEND_R = 94;             // 錘の軌道半径
+const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍の瞬間が両端になる
+const RING_PEND_ARC_SW = 2;         // 軌道の弧の太さ(--c-line)
+const RING_PEND_BOB_R = 14;         // 錘の基本半径
+const RING_PEND_BOB_GROW = 4;       // 拍の演出での半径の増分
+const RING_PEND_HALO_GAP = 7;       // 錘の外側の輪 = 錘の半径 + この値
+const RING_PEND_HALO_SW = 2;        // 輪の線幅。輪の実際の外縁は r + SW/2 まで届く
+const RING_PEND_HALO_OPACITY = 0.45; // 輪の最大不透明度(演出量 e に比例)
+
+// --- 下半円: 拍の点(今が何拍目かを担う) ---
+const RING_BEAT_DOT_ORBIT_R = 112;  // 点を並べる半径
+const RING_BEAT_DOT_SPREAD_DEG = 60; // 6時(180°)を中心に左右へこの角度
+const RING_BEAT_DOT_R = 4;          // 現在以外の点(--c-accent-line)
+const RING_BEAT_DOT_CUR_R = 6.5;    // 現在の拍(小節頭以外)
+const RING_BEAT_DOT_CUR_GROW = 2;
+const RING_BEAT_DOT_HEAD_R = 8;     // 現在の拍(小節頭)
+const RING_BEAT_DOT_HEAD_GROW = 3;
+
+// --- 拍の演出(毎拍・両端で出す) ---
+const RING_BEAT_EMPH_DECAY = 2.2;   // 拍内位相 × これ を 1 から引く
+const RING_BEAT_EMPH_HEAD = 1;      // 小節頭の係数
+const RING_BEAT_EMPH_OTHER = 0.55;  // それ以外の拍の係数
 
 // 到達(inTune)の合図に使う上弧のパス。以前はここで r=RING_R の**全周円**を
 // ピッチ色で塗って呼吸させていたが、それだと下弧＝拍の領域までピッチ色に染まり、
@@ -3212,29 +3246,64 @@ function ringPitchArcD() {
 }
 const RING_PITCH_ARC_D = ringPitchArcD();
 
-// 拍マーカーの角度(12時=0とした度)。位相(拍単位の連続値)を下弧の往復に写す。
-// 振り子と同じ cos(π*phase) を使うので、拍の瞬間にちょうど弧の端へ達する。
-// 停止中(phase===null)は6時(180°)に止めて「ここに拍が出る」ことだけを示す。
-// 値域は 180±RING_BEAT_SWEEP_DEG = 128〜232°。ピッチが使う上弧(±RING_SWEEP_DEG=110°)
-// との間に18°の隙間が残る。
-function ringBeatDeg(phase) {
-  const p = phase === null || phase === undefined ? 0.5 : phase;
-  return 180 - RING_BEAT_SWEEP_DEG * Math.cos(Math.PI * p);
+// 振り子の錘の角度(12時=0とした度)。位相(拍単位の連続値)を上半円の往復に写す。
+// cos(π*phase) なので拍の瞬間(位相が整数)にちょうど両端へ達する。
+// 停止中(phase===null)は静止した振り子と同じく最下点=12時(0°)に置く。
+function ringPendDeg(phase) {
+  if (phase === null || phase === undefined) return 0;
+  return RING_PEND_SWING_DEG * Math.cos(Math.PI * phase);
 }
 
-// 小節頭の強調量(0〜1)。位相の整数部=通算拍を拍子で割った余りが0の拍(=小節頭)だけ、
-// その拍の前半で 1→0 に減衰する。小節頭以外・停止中は常に0。
+// 錘の軌道の弧(薄く描く)。-55°→+55° は110°<180°なので large-arc=0、時計回りで sweep=1。
+function ringPendArcD() {
+  const [ax, ay] = ringPoint(-RING_PEND_SWING_DEG, RING_PEND_R, RING_CX, RING_CY);
+  const [bx, by] = ringPoint(RING_PEND_SWING_DEG, RING_PEND_R, RING_CX, RING_CY);
+  return `M${ax.toFixed(2)},${ay.toFixed(2)} A${RING_PEND_R},${RING_PEND_R} 0 0,1 ${bx.toFixed(2)},${by.toFixed(2)}`;
+}
+const RING_PEND_ARC_D = ringPendArcD();
+
+// 拍の演出量(0〜1)。**毎拍・両端で**出す(実際のメトロノームは両端で鳴る)。
+// 拍の瞬間に最大で、拍内位相 × RING_BEAT_EMPH_DECAY のぶんだけ減衰して0になる。
+// 強さの係数だけを小節頭(1)とそれ以外(0.55)で分ける。
 // ficus-breathe と同じく「静かに立ち上がって消える」量として使い、明滅はさせない。
 //
 // accentOn = メトロノームの「一拍目にアクセントをつける」設定(metroAccent)。
 // これがOFFのときは強拍が"鳴らない"ので、視覚だけが小節頭を主張してはいけない
 // (鳴っていないものを見せるのは、P1-6が直そうとした「鳴るのに見えない」の裏返しになる)。
-function ringBeatAccent(phase, beatsPerMeasure, accentOn) {
-  if (!accentOn) return 0;
-  if (phase === null || phase === undefined || !(beatsPerMeasure > 0)) return 0;
+// この設定が効くのは小節頭の"差"だけで、拍そのものの演出は毎拍出る(毎拍鳴っているため)。
+function ringBeatEmphasis(phase, beatsPerMeasure, accentOn) {
+  if (phase === null || phase === undefined) return 0;
   const beat = Math.floor(phase);
-  if (((beat % beatsPerMeasure) + beatsPerMeasure) % beatsPerMeasure !== 0) return 0;
-  return Math.max(0, 1 - (phase - beat) * 2);
+  const emph = Math.max(0, 1 - (phase - beat) * RING_BEAT_EMPH_DECAY);
+  return emph * (ringBeatIsHead(phase, beatsPerMeasure, accentOn) ? RING_BEAT_EMPH_HEAD : RING_BEAT_EMPH_OTHER);
+}
+
+// 今が小節の何拍目か(0起点)。停止中・拍子未確定は null。下半円の点はこれで灯る場所を変える。
+function ringBeatIndex(phase, beatsPerMeasure) {
+  if (phase === null || phase === undefined || !(beatsPerMeasure > 0)) return null;
+  const beat = Math.floor(phase);
+  return ((beat % beatsPerMeasure) + beatsPerMeasure) % beatsPerMeasure;
+}
+
+// 今の拍が小節頭か。アクセント設定がOFFなら鳴り方が同じなので小節頭として扱わない。
+function ringBeatIsHead(phase, beatsPerMeasure, accentOn) {
+  if (!accentOn) return false;
+  return ringBeatIndex(phase, beatsPerMeasure) === 0;
+}
+
+// 拍の点の角度(12時=0とした度)。6時を中心に ±RING_BEAT_DOT_SPREAD_DEG に、
+// **左から右へ**数える順で並べる(i=0 が左端)。1拍なら6時ちょうど。
+function ringBeatDotDeg(i, n) {
+  if (!(n > 1)) return 180;
+  return (180 + RING_BEAT_DOT_SPREAD_DEG) - ((2 * RING_BEAT_DOT_SPREAD_DEG) / (n - 1)) * i;
+}
+
+// 拍の点の半径。点は動かず、大きさと色だけが変わる。
+function ringBeatDotR(isCurrent, isHead, e) {
+  if (!isCurrent) return RING_BEAT_DOT_R;
+  return isHead
+    ? RING_BEAT_DOT_HEAD_R + e * RING_BEAT_DOT_HEAD_GROW
+    : RING_BEAT_DOT_CUR_R + e * RING_BEAT_DOT_CUR_GROW;
 }
 
 // getBeatPhase: メトロノームの位相(拍単位の連続値)を返す関数。渡された時だけ環の下弧に
@@ -3280,40 +3349,51 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const [sx, sy] = ringPoint(0, R, CX, CY);
   const arcD = Math.abs(deg) < 1 ? "" : `M${sx.toFixed(2)},${sy.toFixed(2)} A${R},${R} 0 0,${deg > 0 ? 1 : 0} ${mx.toFixed(2)},${my.toFixed(2)}`;
 
-  // --- 拍(環の下弧) ---
-  // 位置は毎フレーム変わるため、Reactの再レンダーを挟まず60fpsでDOMを直接書き換える
-  // (振り子が使っていたのと同じ方法)。位相は音声時計そのものなので、拍の瞬間に
-  // ちょうど弧の端へ達する。
-  const beatDotRef = useRef(null);
-  const beatHaloRef = useRef(null);
+  // --- 拍(上半円=振り子 / 下半円=拍の点) ---
+  // 位置は毎フレーム変わるため、Reactの再レンダーを挟まず60fpsでDOMを直接書き換える。
+  // 位相は音声時計そのものなので、拍の瞬間にちょうど振り子の端へ達する。
+  const bobRef = useRef(null);
+  const bobHaloRef = useRef(null);
+  const beatDotRefs = useRef([]);
+  // 点の数は拍子で決まる(位置は固定・灯る場所だけが変わる)。
+  const dotCount = getBeatPhase && beatsPerMeasure > 0 ? beatsPerMeasure : 0;
   useEffect(() => {
     if (!getBeatPhase) return undefined;
     // 動きを減らす設定。属性をrAFで直接書き換えるぶんはCSSの
     // @media (prefers-reduced-motion) が効かないので、ここで自分で見る。
-    // 【止めるのは装飾だけ】小節頭のふくらみ(装飾)は止め、拍マーカーの移動(機能=拍がどこかを
-    // 伝える情報そのもの)は残す。DESIGN-SYSTEM §6.1「減速設定」の規則。
+    // 【止めるのは装飾だけ】拍の演出=ふくらみ(装飾)は止め、錘の移動と点の切り替え
+    // (機能=拍がどこかを伝える情報そのもの)は残す。DESIGN-SYSTEM §6.1「減速設定」の規則。
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let raf;
     const loop = () => {
       const phase = getBeatPhase();
       const running = phase !== null;
-      const [bx, by] = ringPoint(ringBeatDeg(phase), RING_R, RING_CX, RING_CY);
-      // 小節頭は拍の前半で減衰する強調をかける(点が少し大きくなり、外側の輪が広がって消える)
-      const em = reduceMotion.matches ? 0 : ringBeatAccent(phase, beatsPerMeasure, accentOn);
-      const dot = beatDotRef.current;
-      if (dot) {
-        dot.setAttribute("cx", bx.toFixed(2));
-        dot.setAttribute("cy", by.toFixed(2));
-        // 小節頭のピークで、ピッチのマーカーと同じ大きさまで一瞬ふくらむ
-        dot.setAttribute("r", (RING_BEAT_DOT_R + em * (RING_PITCH_DOT_R - RING_BEAT_DOT_R)).toFixed(2));
-        dot.setAttribute("fill-opacity", running ? "1" : "0.35");
+      const [bx, by] = ringPoint(ringPendDeg(phase), RING_PEND_R, RING_CX, RING_CY);
+      // 拍の演出は毎拍・両端で出す。小節頭だけ強い(係数1 / 0.55)。
+      const e = reduceMotion.matches ? 0 : ringBeatEmphasis(phase, beatsPerMeasure, accentOn);
+      const isHead = ringBeatIsHead(phase, beatsPerMeasure, accentOn);
+      const bobR = RING_PEND_BOB_R + e * RING_PEND_BOB_GROW;
+      const bob = bobRef.current;
+      if (bob) {
+        bob.setAttribute("cx", bx.toFixed(2));
+        bob.setAttribute("cy", by.toFixed(2));
+        bob.setAttribute("r", bobR.toFixed(2));
+        bob.setAttribute("fill-opacity", running ? "1" : "0.35");
       }
-      const halo = beatHaloRef.current;
+      const halo = bobHaloRef.current;
       if (halo) {
         halo.setAttribute("cx", bx.toFixed(2));
         halo.setAttribute("cy", by.toFixed(2));
-        halo.setAttribute("r", (RING_PITCH_DOT_R + em * (RING_BEAT_HALO_MAX_R - RING_PITCH_DOT_R)).toFixed(2));
-        halo.setAttribute("stroke-opacity", (em * 0.45).toFixed(3));
+        halo.setAttribute("r", (bobR + RING_PEND_HALO_GAP).toFixed(2));
+        halo.setAttribute("stroke-opacity", (e * RING_PEND_HALO_OPACITY).toFixed(3));
+      }
+      const cur = ringBeatIndex(phase, beatsPerMeasure);
+      for (let i = 0; i < beatDotRefs.current.length; i++) {
+        const d = beatDotRefs.current[i];
+        if (!d) continue;
+        const isCur = cur === i;
+        d.setAttribute("r", ringBeatDotR(isCur, isCur && isHead, e).toFixed(2));
+        d.style.fill = isCur ? "var(--c-accent)" : "var(--c-accent-line)";
       }
       raf = requestAnimationFrame(loop);
     };
@@ -3350,16 +3430,30 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
             <circle cx={mx} cy={my} r={RING_PITCH_DOT_R} fill={color} />
           </>
         )}
-        {/* 拍マーカー(下弧)。ピッチ(上弧・機能色・大きめの点)と役割が混ざらないよう、
-            拍は紺(--c-accent)の小さな点にする。座標・大きさはrAFで直接書き換える。 */}
+        {/* メトロノーム(E案)。ピッチ(環の上弧・機能色)と役割が混ざらないよう、拍はすべて
+            紺(--c-accent)で、環より内側に描く。座標・大きさはrAFで直接書き換える。 */}
         {getBeatPhase && (
           <>
+            {/* 下半円: 拍の点。位置は固定で、灯る場所だけが変わる */}
+            {Array.from({ length: dotCount }).map((_, i) => {
+              const [dx, dy] = ringPoint(ringBeatDotDeg(i, dotCount), RING_BEAT_DOT_ORBIT_R, CX, CY);
+              return (
+                <circle
+                  key={i} ref={(el) => { beatDotRefs.current[i] = el; }}
+                  cx={dx.toFixed(2)} cy={dy.toFixed(2)} r={RING_BEAT_DOT_R}
+                  style={{ fill: "var(--c-accent-line)" }}
+                />
+              );
+            })}
+            {/* 上半円: 振り子。軌道の弧を薄く描き、その上を錘が往復する
+                (錘が端に近づくのが見えることが「次の拍の予測」を担う) */}
+            <path d={RING_PEND_ARC_D} fill="none" strokeWidth={RING_PEND_ARC_SW} style={{ stroke: "var(--c-line)" }} />
             <circle
-              ref={beatHaloRef} cx={CX} cy={CY + R} r={RING_PITCH_DOT_R}
-              fill="none" strokeWidth={RING_BEAT_HALO_SW} strokeOpacity="0" style={{ stroke: "var(--c-accent)" }}
+              ref={bobHaloRef} cx={CX} cy={CY - RING_PEND_R} r={RING_PEND_BOB_R + RING_PEND_HALO_GAP}
+              fill="none" strokeWidth={RING_PEND_HALO_SW} strokeOpacity="0" style={{ stroke: "var(--c-accent)" }}
             />
             <circle
-              ref={beatDotRef} cx={CX} cy={CY + R} r={RING_BEAT_DOT_R}
+              ref={bobRef} cx={CX} cy={CY - RING_PEND_R} r={RING_PEND_BOB_R}
               fillOpacity="0.35" style={{ fill: "var(--c-accent)" }}
             />
           </>
@@ -3925,14 +4019,19 @@ function MeasureView(props) {
       <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "center" }}>
       {/* 音名+ピッチ表示。実音(コンサートピッチ)表示。演奏中サーフェスなので、
           メトロノームの開閉にかかわらず環(PitchRing)を主役にする(設計言語を1つに保つ)。
-          メトロノームを開いている間は、環の下側の未使用弧が拍マーカーを兼ねる。
+          【大きさは変えない】以前はメトロノームを開くと 330→250 に縮めていたが、主役の
+          大きさが開閉のたびに変わるのは読み取りを妨げる。環は常に RING_D_FULL(330)。
+          メトロノームを開いている間は、環の内側の上半円が振り子・下半円が拍の点になる。
           以前あった「26pxの音名+横メーター+13pxのセント値」へのフォールバックは廃止した
           (1m先で読めないうえ、セント色の閾値が環と一致していなかった)。 */}
       {!(showMetroPanel && metroPanel !== null) && (
-        <div style={{ padding: "0 0 4px" }}>
+        // メトロノームを開いている間は下の余白を操作UI側の marginTop(--sp-2) 一本にまとめる。
+        // 4px + 8px の二重取りをやめると、セーフエリア(上44/下34)の実機で 673px あった
+        // 必要高が 669px になり、可視領域(671px)に収まる。
+        <div style={{ padding: showMetroPanel ? 0 : "0 0 4px" }}>
           <PitchRing
             note={note} centsOffset={centsOffset}
-            diameter={showMetroPanel ? RING_D_COMPACT : RING_D_FULL}
+            diameter={RING_D_FULL}
             getBeatPhase={showMetroPanel ? getMetroPhase : null}
             beatsPerMeasure={metroBeatsPerMeasure}
             accentOn={metroAccent}
@@ -4016,9 +4115,11 @@ function MeasureView(props) {
           ため、録音していない間はliveFramesを優先してライブ追従させる。 */}
       {/* フレームが無い(マイク未接続・音を出す前)状態でも常にグラフを描き、既定は中央0¢の
           フラットなラインを表示する(空状態の別レイアウトに切り替えず、位置ブレをなくす)。 */}
-      {/* quietはメトロノームの開閉によらず常にtrue。どちらも環が主役の演奏中サーフェスなので、
-          縦軸の12px数値ラベルを出す/出さないで設計言語が割れないようにする。 */}
-      {!(showMetroPanel && metroPanel !== null) && (
+      {/* quietは常にtrue。環が主役の演奏中サーフェスなので、縦軸の12px数値ラベルを
+          出す/出さないで設計言語が割れないようにする。
+          【メトロノームを開いている間は隠す】環を330px固定にしたぶんの縦スペースをここから
+          捻出する。メトロノーム使用中はリズムに集中していて、ピッチの履歴は合間に読むもの。 */}
+      {!showMetroPanel && (
       <div style={{ marginTop: 6 }}>
         <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} quiet />
       </div>
