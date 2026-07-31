@@ -906,6 +906,23 @@ function shortDate(dateStr) {
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// 一覧に生のISO文字列("2026-07-31")を出さないための表示用フォーマッタ。
+// 値が無い/壊れている場合は null を返し、呼び出し側で「未設定」の文言に振り替える
+// (欠測でも行が崩れないようにするため、ここでは空文字を返さない)。
+function formatYmd(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// リード1本ぶんの計測フレーム総数。ReedCompareTab が同じ集計をローカルに持っており
+// (「Nフレーム」の表示に使っている)、リード登録一覧の「育てる」表示でも同じ数を使う。
+// 新しい集計は足さない: この関数と usageDays() の2つだけで「開封からの日数 / 使用量」を出す。
+function frameCountFor(sessions, reedId) {
+  return sessions.filter((s) => s.reedId === reedId).reduce((n, s) => n + (s.frames?.length ?? 0), 0);
+}
+
 function reedLabel(reed, reeds) {
   if (!reed) return "";
   const pos = reedPosition(reed, reeds);
@@ -4721,7 +4738,7 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
           transform: isDragging ? `translateY(${dragOffsetY}px)` : "none",
           boxShadow: isDragging ? "0 6px 14px rgba(15,23,42,0.18)" : "none",
           background: isDragging ? "#EAEFF5" : "transparent",
-          borderRadius: isDragging ? 6 : 0,
+          borderRadius: isDragging ? "var(--r-sm)" : 0,
           touchAction: "pan-y",
           cursor: "pointer",
         }}
@@ -4812,6 +4829,49 @@ function ReedsTab(props) {
 // ============================================================
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
+
+// 入力欄・selectの共通スタイル。角丸は --r-xs(4px)、高さは --tap-min(44px)。
+// select/input は「見た目＝当たり判定」なので、DESIGN-SYSTEM §5 の minHeight 方式を
+// そのまま当てて枠ごと44ptにする(枠より広い透明領域を作ると隣の欄と食い合うため)。
+const REED_FORM_CONTROL_STYLE = {
+  width: "100%",
+  minHeight: "var(--tap-min)",
+  borderRadius: "var(--r-xs)",
+  padding: "0 8px",
+  boxSizing: "border-box",
+};
+
+// 削除選択のチェックボックス。18/20pxの箱のままだと当たり判定が44ptに届かないため、
+// appearance:none にして「44×44の透明な当たり判定 + 中央に18pxの箱を描いた背景画像」にする。
+// 見た目の大きさは変えず当たり判定だけ広げる(DESIGN-SYSTEM §5)。
+// 色は data URI 内に直書きするしかないので、パレットの値をそのまま埋めている
+// (枠=--c-line-strong #C3CAD3 / 面=--c-surface #FFFFFF / 選択=--c-accent #174585 / チェック=--c-on-accent #FFFFFF)。
+const CHECKBOX_OFF_IMG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect x='0.75' y='0.75' width='16.5' height='16.5' rx='4' fill='%23FFFFFF' stroke='%23C3CAD3' stroke-width='1.5'/%3E%3C/svg%3E\")";
+const CHECKBOX_ON_IMG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect width='18' height='18' rx='4' fill='%23174585'/%3E%3Cpath d='M4.4 9.3l3 3 6.2-6.6' fill='none' stroke='%23FFFFFF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")";
+
+function reedCheckboxStyle(checked, glyph = 18) {
+  return {
+    appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
+    width: "var(--tap-min)", height: "var(--tap-min)",
+    flexShrink: 0, margin: 0, padding: 0, border: "none", background: "transparent",
+    backgroundImage: checked ? CHECKBOX_ON_IMG : CHECKBOX_OFF_IMG,
+    backgroundRepeat: "no-repeat", backgroundPosition: "center",
+    backgroundSize: `${glyph}px ${glyph}px`,
+    cursor: "pointer",
+  };
+}
+
+// 見た目のピルは内側の<span>が持ち、<button>自体は高さ44ptの透明な当たり判定にする。
+// これで「見た目の大きさは変えず当たり判定だけ広げる」(DESIGN-SYSTEM §5)が成立する。
+// fontSize を明示するのは、<button> のUA既定(13.333px)が7段スケールの外だから。
+// 見えている文字は内側の<span>が持つが、素の button を放置するとスケール外の値が残る。
+const TAP_BUTTON_RESET = {
+  minHeight: "var(--tap-min)",
+  display: "flex", alignItems: "center",
+  padding: 0, background: "none", border: "none", cursor: "pointer",
+  fontSize: "var(--fs-xs)",
+};
+
 function ReedRegisterView(props) {
   const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz, onOpenReed, expandedGroupKey, setExpandedGroupKey } = props;
 
@@ -4947,34 +5007,75 @@ function ReedRegisterView(props) {
   };
 
   const reedGroups = groupReeds(reeds);
+
+  // 個体行の「育てる」行(P1-8)。リードは消耗品なので、開封後日数と使用量が最も育つ/老いる対象。
+  // 集計は既存の usageDays() と frameCountFor() だけを使う(新しい指標は作らない)。
+  // 主役は張らせない: --fs-xs / --c-ink-3 の副次テキストで、数値が静かに増えるだけ(DESIGN-SYSTEM §7)。
+  const today = new Date();
+  const growthLine = (r) => {
+    const days = usageDays(today, r.startDate);   // 使用開始日が未設定なら null
+    const frames = frameCountFor(sessions, r.id); // このリードで記録した総フレーム数
+    const sessionCount = sessions.filter((s) => s.reedId === r.id).length;
+    // 真偽値で判定する(=== null では足りない)。usageDays() は startDate が空なら null を返すが、
+    // パースできない文字列では Math.max(1, NaN) = NaN を返すため、=== null だと NaN が素通りして
+    // 「開封 NaN日」と表示される。ピボット側の reedDays も同じ真偽値判定で弾いている。
+    // usageDays() の下限は 1 なので、0 を誤って弾く心配はない。
+    const left = !days ? "開封日 未設定" : `開封 ${days}日`;
+    const right = frames > 0 ? `${sessionCount}セッション` : "未測定";
+    return `${left} ・ ${right}`;
+  };
+
+  // 箱ヘッダ(2行)。1行目=銘柄+番手 / 2行目=使用開始日・枚数。
+  // 以前は3要素を1行に詰めていたため、右の★+chevronを引いた残り約200pxに対し
+  // 必要幅が約290pxとなり常時2〜3行に折り返していた(P0-5)。
+  const boxHeading = (g) => (
+    <span style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "var(--sp-1)" }}>
+      {/* 親(箱)を --fs-md(15px) に上げ、子(個体番号)と同じサイズにする。
+          階層はサイズではなくインデントと縦罫線が担う(DESIGN-SYSTEM §6.2)。 */}
+      <span style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)", minWidth: 0, maxWidth: "100%" }}>
+        <span title={g.brand} style={{ fontSize: 15, color: "#121F32", fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.brand}</span>
+        <span style={{ fontSize: 15, color: "#174585", fontWeight: 700, flexShrink: 0 }}>{g.strength}</span>
+      </span>
+      {/* 生のISO文字列("2026-07-31")をやめ、読める形式にする */}
+      <span className="sans" style={{ fontSize: 12, color: "#8D95A1", fontWeight: 400, whiteSpace: "nowrap" }}>
+        {formatYmd(g.startDate) ? `開始 ${formatYmd(g.startDate)}` : "開始日 未設定"} ・ {g.members.length}枚
+      </span>
+    </span>
+  );
+
   // 展開中の箱(expandedGroupKey)は親のReedsTabが保持する。個別リード詳細を開いている間も
   // 状態が消えず、戻ったときに同じ箱が開いたままの一覧へ復帰できるようにするため。
   // 個別リード評価詳細の開閉は親(ReedsTab)が持つ。ここでは行タップでonOpenReed(id)を呼ぶだけ。
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: "var(--r-lg)", padding: "16px 18px", marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+        {/* 銘柄は1行フル幅。3カラム(1カラム97.7px)では select のネイティブ矢印を引いた
+            文字表示域が約60pxしかなく、"Rico (D'Addario)" や "＋ 新しい銘柄を入力..." が
+            ほぼ全て切れていた(P0-5)。番手と使用開始日だけを2カラムに割る。 */}
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor="reed-brand-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>銘柄</label>
+          <select id="reed-brand-select" value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
+            {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
+            <option value="__custom__">＋ 新しい銘柄を入力...</option>
+          </select>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <div>
-            <label className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 3 }}>銘柄</label>
-            <select value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={{ width: "100%" }}>
-              {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
-              <option value="__custom__">＋ 新しい銘柄を入力...</option>
-            </select>
-          </div>
-          <div>
-            <label className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 3 }}>番手</label>
-            <select value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={{ width: "100%" }}>
+            <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
+            <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
               {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
           </div>
           <div>
-            <label className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 3 }}>使用開始日</label>
+            <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
             <input
+              id="reed-startdate-input"
               type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-              style={{ width: "100%", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "0 6px", height: 27, color: "#121F32", fontSize: 12, boxSizing: "border-box" }}
+              style={{ ...REED_FORM_CONTROL_STYLE, background: "#F6F7F9", border: "1px solid #E9ECF0", color: "#121F32", fontSize: 12 }}
             />
           </div>
         </div>
@@ -4984,16 +5085,16 @@ function ReedRegisterView(props) {
             type="text" placeholder="新しい銘柄名を入力" value={customBrand}
             onChange={(e) => setCustomBrand(e.target.value)}
             className="sans"
-            style={{ width: "100%", background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "7px 10px", color: "#121F32", fontSize: 12, marginBottom: 8, boxSizing: "border-box" }}
+            style={{ ...REED_FORM_CONTROL_STYLE, background: "#F6F7F9", border: "1px solid #E9ECF0", color: "#121F32", fontSize: 12, marginBottom: 8 }}
           />
         )}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button
             onClick={() => registerReeds(1)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 12, cursor: "pointer" }}
+            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 12, cursor: "pointer" }}
           >
             1枚ずつ追加
           </button>
@@ -5001,15 +5102,15 @@ function ReedRegisterView(props) {
             onClick={promptBulkCount}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
             className="sans"
-            style={{ flex: 1, padding: "10px 4px", borderRadius: 999, border: "none", background: "#174585", color: "#F6F7F9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", borderRadius: "var(--r-pill)", border: "none", background: "#174585", color: "#F6F7F9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             まとめて追加
           </button>
         </div>
       </div>
 
-      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 16, padding: "16px 18px", marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: "var(--r-lg)", padding: "16px 18px", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>登録済みリード <span style={{ color: "#8D95A1", fontWeight: 400 }}>{reeds.length}</span></div>
           {reeds.length > 0 && (
             boxSelectionMode ? (
@@ -5017,26 +5118,31 @@ function ReedRegisterView(props) {
                 <button
                   onClick={exitBoxSelectionMode}
                   className="sans"
-                  style={{ padding: "7px 14px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 12, cursor: "pointer" }}
+                  style={{ ...TAP_BUTTON_RESET }}
                 >
-                  キャンセル
+                  <span style={{ padding: "7px 14px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
                 </button>
                 <button
                   onClick={confirmBoxBatchDelete}
                   disabled={selectedBoxesForDelete.size === 0}
                   className="sans"
-                  style={{ padding: "7px 14px", borderRadius: 999, border: "none", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
+                  style={{ ...TAP_BUTTON_RESET, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
                 >
-                  {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
+                  <span style={{ padding: "7px 14px", borderRadius: "var(--r-pill)", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                    {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
+                  </span>
                 </button>
               </div>
             ) : (
               <button
                 onClick={startBoxSelectionMode}
                 className="sans"
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 12, cursor: "pointer" }}
+                aria-label="箱を選んで削除"
+                style={{ ...TAP_BUTTON_RESET }}
               >
-                <Trash2 size={13} /> 削除
+                <span style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>
+                  <Trash2 size={13} /> 削除
+                </span>
               </button>
             )
           )}
@@ -5054,41 +5160,38 @@ function ReedRegisterView(props) {
               const ratedValues = g.members.map((m) => m.rating).filter((v) => v !== null && v !== undefined);
               const avgRating = ratedValues.length ? ratedValues.reduce((a, b) => a + b, 0) / ratedValues.length : null;
               return (
-                <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, overflow: "hidden" }}>
+                <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: "var(--r-lg)", overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EAEFF5" : "#FFFFFF" }}>
                     {boxSelectionMode ? (
                       <button
                         onClick={() => toggleBoxSelected(g.key)}
                         className="sans"
-                        style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                        style={{ flex: 1, minWidth: 0, minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: 4, padding: "var(--sp-2) var(--sp-3)", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: "var(--fs-md)" }}
                       >
                         <input
                           type="checkbox" checked={boxChecked} onChange={() => toggleBoxSelected(g.key)}
                           onClick={(e) => e.stopPropagation()}
-                          style={{ width: 18, height: 18, flexShrink: 0, cursor: "pointer" }}
+                          aria-label={`${g.brand} ${g.strength} の箱を選択`}
+                          style={reedCheckboxStyle(boxChecked, 18)}
                         />
-                        <span style={{ fontSize: 13 }}>
-                          <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
-                          <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                          <span style={{ color: "#8D95A1", fontSize: 12, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
-                        </span>
+                        {boxHeading(g)}
                       </button>
                     ) : (
                       <>
                         <button
                           onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
                           className="sans"
-                          style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                          aria-expanded={isExpanded}
+                          style={{ flex: 1, minWidth: 0, minHeight: "var(--tap-min)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "var(--sp-2) var(--sp-3)", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: "var(--fs-md)" }}
                         >
-                          <span style={{ fontSize: 13 }}>
-                            <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
-                            <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                            <span style={{ color: "#8D95A1", fontSize: 12, fontWeight: 400 }}>使用開始 {g.startDate} ・ {g.members.length}枚</span>
-                          </span>
+                          {boxHeading(g)}
                           <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                            {avgRating !== null && (
+                            {/* 箱の平均★は畳んでいる間だけ出す。開いている間は個体ごとの★が
+                                すぐ下に並ぶので重複するうえ、★(64px)+削除ボタン(46px)を同時に置くと
+                                銘柄の表示域が108pxまで痩せて "Rico (D'Addario)"(140px)が見切れる。 */}
+                            {avgRating !== null && !isExpanded && (
                               <span style={{ opacity: 0.55 }} title={`箱の平均評価 ${avgRating.toFixed(1)}`}>
-                                <StarRating value={avgRating} size={11} />
+                                <StarRating value={avgRating} size={12} />
                               </span>
                             )}
                             {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
@@ -5099,7 +5202,8 @@ function ReedRegisterView(props) {
                           <button
                             onClick={() => startMemberSelect(g)}
                             title="この箱の中から選んで削除"
-                            style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", background: "none", border: "none", borderLeft: "1px solid #E9ECF0", color: "#8D95A1", cursor: "pointer" }}
+                            aria-label="この箱の中から選んで削除"
+                            style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", background: "none", border: "none", borderLeft: "1px solid #E9ECF0", color: "#8D95A1", cursor: "pointer", fontSize: "var(--fs-xs)" }}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -5108,67 +5212,78 @@ function ReedRegisterView(props) {
                     )}
                   </div>
                   {isExpanded && !boxSelectionMode && (
-                    <div style={{ borderTop: "1px solid #E9ECF0", padding: "4px 12px" }}>
-                      {isMemberSelecting ? (
-                        <>
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "8px 0" }}>
-                            <button
-                              onClick={exitMemberSelect}
-                              className="sans"
-                              style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #E9ECF0", background: "transparent", color: "#435266", fontSize: 12, cursor: "pointer" }}
-                            >
-                              キャンセル
-                            </button>
-                            <button
-                              onClick={confirmMemberBatchDelete}
-                              disabled={selectedMembersForDelete.size === 0}
-                              className="sans"
-                              style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: selectedMembersForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: selectedMembersForDelete.size > 0 ? "pointer" : "default" }}
-                            >
+                    <div style={{ borderTop: "1px solid #E9ECF0", padding: "var(--sp-1) var(--sp-3)" }}>
+                      {isMemberSelecting && (
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "4px 0" }}>
+                          <button
+                            onClick={exitMemberSelect}
+                            className="sans"
+                            style={{ ...TAP_BUTTON_RESET }}
+                          >
+                            <span style={{ padding: "6px 12px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
+                          </button>
+                          <button
+                            onClick={confirmMemberBatchDelete}
+                            disabled={selectedMembersForDelete.size === 0}
+                            className="sans"
+                            style={{ ...TAP_BUTTON_RESET, cursor: selectedMembersForDelete.size > 0 ? "pointer" : "default" }}
+                          >
+                            <span style={{ padding: "6px 12px", borderRadius: "var(--r-pill)", background: selectedMembersForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
                               {selectedMembersForDelete.size > 0 ? `${selectedMembersForDelete.size}枚を削除` : "削除"}
-                            </button>
-                          </div>
-                          {/* 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する */}
-                          {g.members.map((r, idx) => (
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                      {/* 個体一覧は左に --sp-3(12px) のインデントと縦罫線1本を入れ、箱に属していることを
+                          位置で示す(P1-9)。親子を同サイズ(--fs-md)にしたぶん、階層はここが担う。 */}
+                      <div style={{ borderLeft: "1px solid #E9ECF0", paddingLeft: "var(--sp-3)" }}>
+                      {isMemberSelecting ? (
+                        /* 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する */
+                        g.members.map((r, idx) => (
                             <div
                               key={r.id}
                               onClick={() => toggleMemberSelected(r.id)}
-                              style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #EEF1F4" : "none", cursor: "pointer" }}
+                              style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #E9ECF0" : "none", cursor: "pointer" }}
                             >
                               <input
                                 type="checkbox" checked={selectedMembersForDelete.has(r.id)}
                                 onChange={() => toggleMemberSelected(r.id)}
                                 onClick={(e) => e.stopPropagation()}
-                                style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                                aria-label={`${idx + 1}枚目を選択`}
+                                style={reedCheckboxStyle(selectedMembersForDelete.has(r.id), 20)}
                               />
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <StarRating value={r.rating} size={11} />
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 15, color: "#121F32", width: 24, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <StarRating value={r.rating} size={12} />
                             </div>
-                          ))}
-                        </>
+                        ))
                       ) : (
                         <ReorderableReedRows
                           members={g.members}
                           onReorder={reorderGroupMembers}
                           onRowClick={(id) => onOpenReed?.(id)}
                           renderRow={(r, idx) => (
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #ECEEF1" : "none" }}>
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "#121F32", width: 28, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <StarRating value={r.rating} size={19} />
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #E9ECF0" : "none" }}>
+                              {/* 子(個体番号)は --fs-md(15px)。親と同サイズにして、子だけが5px大きい反転を解消する */}
+                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 15, color: "#121F32", width: 24, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-1)", flex: 1, minWidth: 0 }}>
+                                <StarRating value={r.rating} size={18} />
+                                <span className="sans" style={{ fontSize: 12, color: "#8D95A1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{growthLine(r)}</span>
+                              </div>
                               <button
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
                                 className="sans"
-                                style={{ fontSize: 12, padding: "8px 16px", borderRadius: 999, border: "1px solid #174585", background: "transparent", color: "#174585", cursor: "pointer", fontWeight: 600, flexShrink: 0, marginLeft: "auto" }}
+                                style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
                               >
-                                測定
+                                <span style={{ fontSize: 12, padding: "8px 16px", borderRadius: "var(--r-pill)", border: "1px solid #174585", color: "#174585", fontWeight: 600, lineHeight: 1.2 }}>測定</span>
                               </button>
                             </div>
                           )}
                         />
                       )}
+                      </div>
                       {g.members.length > 1 && !isMemberSelecting && (
-                        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", padding: "6px 0 2px" }}>
+                        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", padding: "8px 0 4px" }}>
                           長押ししてスライドすると並び替えられます・タップで詳細
                         </div>
                       )}
