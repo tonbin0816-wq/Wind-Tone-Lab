@@ -84,9 +84,26 @@ const code = [
   extractFunction("metroX8BeatStarts"),
   extractFunction("metroTickKind"),
   extractFunction("isNearScheduledClick"),
-  extractConst("METRO_WEIGHT_TOP_MIN"),
-  extractConst("METRO_WEIGHT_TOP_MAX"),
-  extractFunction("metroWeightTop"),
+  extractConst("RING_MAX_CENTS"),
+  extractConst("RING_SWEEP_DEG"),
+  extractConst("RING_BEAT_SWEEP_DEG"),
+  extractConst("RING_CX"),
+  extractConst("RING_CY"),
+  extractConst("RING_R"),
+  extractConst("RING_SW"),
+  extractConst("RING_PITCH_DOT_R"),
+  extractConst("RING_BEAT_DOT_R"),
+  extractConst("RING_MARKER_MIN_GAP_PX"),
+  extractConst("RING_D_FULL"),
+  extractConst("RING_D_COMPACT"),
+  extractFunction("ringPoint"),
+  extractFunction("ringPitchArcD"),
+  extractConst("RING_PITCH_ARC_D"),
+  extractConst("RING_BEAT_HALO_SW"),
+  extractConst("RING_BEAT_HALO_GROW"),
+  extractConst("RING_BEAT_HALO_MAX_R"),
+  extractFunction("ringBeatDeg"),
+  extractFunction("ringBeatAccent"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -94,10 +111,13 @@ const api = new Function(`${code}
            buildFingeringTable, findClosestFingering, fftRadix2, detectPitchMPM, computeTimbreMetrics,
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
            matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
-           clampMetroTempo, parseMetroSig, metroBeatGroups, metroX8BeatStarts, metroTickKind, isNearScheduledClick, metroWeightTop,
+           clampMetroTempo, parseMetroSig, metroBeatGroups, metroX8BeatStarts, metroTickKind, isNearScheduledClick,
+           ringPoint, ringBeatDeg, ringBeatAccent,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
-           METRO_TEMPO_MIN, METRO_TEMPO_MAX, METRO_WEIGHT_TOP_MIN, METRO_WEIGHT_TOP_MAX };`)();
+           METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG, RING_BEAT_SWEEP_DEG,
+           RING_CX, RING_CY, RING_R, RING_SW, RING_PITCH_DOT_R, RING_BEAT_DOT_R, RING_BEAT_HALO_SW, RING_BEAT_HALO_MAX_R,
+           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_D_COMPACT, RING_PITCH_ARC_D };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -715,14 +735,89 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
   check("テンポ不正値は120", api.clampMetroTempo("abc") === 120);
   check("テンポ小数は丸め", api.clampMetroTempo(120.6) === 121);
 
-  // 振り子の錘位置(テンポに応じてアーム上を上下する)
-  check("最低テンポで錘は上端(40)", api.metroWeightTop(api.METRO_TEMPO_MIN) === api.METRO_WEIGHT_TOP_MIN);
-  check("最高テンポで錘は下端(208)", api.metroWeightTop(api.METRO_TEMPO_MAX) === api.METRO_WEIGHT_TOP_MAX);
-  const wMid = api.metroWeightTop(160); // (20,300)の中点
-  check("中間テンポで錘は中間位置", Math.abs(wMid - (api.METRO_WEIGHT_TOP_MIN + api.METRO_WEIGHT_TOP_MAX) / 2) < 0.01, `${wMid}`);
-  check("テンポが上がると錘の位置(top)も単調に増える",
-    api.metroWeightTop(20) < api.metroWeightTop(100) && api.metroWeightTop(100) < api.metroWeightTop(200) && api.metroWeightTop(200) < api.metroWeightTop(300));
-  check("範囲外テンポもクランプされ端の位置になる", api.metroWeightTop(9999) === api.METRO_WEIGHT_TOP_MAX && api.metroWeightTop(-50) === api.METRO_WEIGHT_TOP_MIN);
+  // 拍マーカー(環の下弧)。振り子(248px)を廃してここに拍を移したもの。
+  // 位相→角度の写像・上下の弧の非接触・小節頭の強調量が対象。
+  const BEAT_L = 180 - api.RING_BEAT_SWEEP_DEG, BEAT_R = 180 + api.RING_BEAT_SWEEP_DEG;
+  check("停止中(null)は6時(180°)に止まる", api.ringBeatDeg(null) === 180);
+  check("拍の瞬間に下弧の端へ達する(0拍=左端 / 1拍=右端 / 2拍=左端)",
+    Math.abs(api.ringBeatDeg(0) - BEAT_L) < 1e-9 && Math.abs(api.ringBeatDeg(1) - BEAT_R) < 1e-9 && Math.abs(api.ringBeatDeg(2) - BEAT_L) < 1e-9,
+    `${api.ringBeatDeg(0)},${api.ringBeatDeg(1)}`);
+
+  // ------------------------------------------------------------------
+  // ピッチマーカーと拍マーカーの最小距離。
+  //
+  // DESIGN-SYSTEM §6.1 の要件は「**最も小さい環(RING_D_COMPACT)の実寸**で最低 6 CSS px」。
+  // ここは実装の定数の定義を言い換えるのではなく、実寸を独立に計算して要件と突き合わせる。
+  // (過去に「距離 − (定義から引き算で作った上限) > 余白」という恒等式を書いてしまい、
+  //  構造上失敗し得ないテストで余白を守っているつもりになっていた。定義から導出しない)
+  //
+  // viewBox は 300 で、実寸は環の直径。つまり 1 viewBox 単位 = 直径/300 CSS px。
+  // 250px 環では 0.833 倍にしかならないので、viewBox 単位を px と呼んではいけない。
+  // ------------------------------------------------------------------
+  {
+    const VB_TO_PX = api.RING_D_COMPACT / 300; // 拍マーカーが出るのは小さい環のときだけ
+    let minPx = Infinity, worst = null;
+    // 拍子は 2〜7 すべてを見る。小節頭(強調が最大)が来る位相が拍子によって変わり、
+    // 偶数拍子なら位相0(下弧の左端)、奇数拍子ならその奇数倍の位相(右端)も最悪ケースになる。
+    // どちらの端も必ず走査されるよう、拍子の偶奇を両方含める。
+    for (const beats of [2, 3, 4, 5, 6, 7]) {
+      for (let ci = -1000; ci <= 1000; ci++) {
+        const cc = (ci / 1000) * api.RING_MAX_CENTS;
+        const [px, py] = api.ringPoint((cc / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
+        for (let p = 0; p <= 2 * beats + 1e-9; p += 0.002) {
+          const [bx, by] = api.ringPoint(api.ringBeatDeg(p), api.RING_R, api.RING_CX, api.RING_CY);
+          const em = api.ringBeatAccent(p, beats, true);
+          // 実装が実際に描く大きさをそのまま使う。点のふくらみと、輪の外縁(線幅の半分ぶん
+          // 半径より外に出る)の大きい方が、拍側の外径。
+          const dotR = api.RING_BEAT_DOT_R + em * (api.RING_PITCH_DOT_R - api.RING_BEAT_DOT_R);
+          const haloOuter = api.RING_PITCH_DOT_R + em * (api.RING_BEAT_HALO_MAX_R - api.RING_PITCH_DOT_R) + api.RING_BEAT_HALO_SW / 2;
+          const beatOuter = Math.max(dotR, em > 0 ? haloOuter : 0);
+          const clearVb = Math.hypot(px - bx, py - by) - (api.RING_PITCH_DOT_R + beatOuter);
+          const clearPx = clearVb * VB_TO_PX;
+          if (clearPx < minPx) { minPx = clearPx; worst = { beats, cents: +cc.toFixed(2), phase: +p.toFixed(3), em: +em.toFixed(3) }; }
+        }
+      }
+    }
+    check(`ピッチと拍のマーカーが実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
+      minPx >= api.RING_MARKER_MIN_GAP_PX,
+      `最小 ${minPx.toFixed(2)} CSS px (${api.RING_D_COMPACT}px環) @ ${JSON.stringify(worst)}`);
+    // 大きい環(拍マーカーは出ないが、将来出すことになっても成立する)側も一応記録する
+    check("要件の判定は最も小さい環で行っている(大きい環の方が必ず余裕がある)",
+      api.RING_D_COMPACT < api.RING_D_FULL);
+  }
+
+  // 到達(inTune)の合図が下弧に侵入しないこと。
+  // 以前は r=RING_R の全周円をピッチ色で塗って呼吸させており、下弧＝拍の帯まで
+  // ピッチ色に染まって「上弧=ピッチ / 下弧=拍」の役割分離が崩れていた。
+  {
+    const m = /^M([\d.-]+),([\d.-]+) A(\d+(?:\.\d+)?),\d+(?:\.\d+)? 0 1,1 ([\d.-]+),([\d.-]+)$/.exec(api.RING_PITCH_ARC_D);
+    const [lx, ly] = api.ringPoint(-api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
+    const [rx, ry] = api.ringPoint(api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
+    check("到達の合図は全周円ではなく上弧のパス(端が ±RING_SWEEP_DEG と一致)",
+      !!m && Math.abs(+m[1] - lx) < 0.01 && Math.abs(+m[2] - ly) < 0.01
+      && Math.abs(+m[4] - rx) < 0.01 && Math.abs(+m[5] - ry) < 0.01,
+      api.RING_PITCH_ARC_D);
+    // 上弧の下端(線幅の外縁まで含む)が、拍マーカーが到達する最上点より上にあること
+    const arcLowestY = ly + api.RING_SW / 2;                       // 弧の帯の下端
+    const beatHighestY = api.ringPoint(180 - api.RING_BEAT_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY)[1]
+      - (api.RING_BEAT_HALO_MAX_R + api.RING_BEAT_HALO_SW / 2);    // 拍側の上端(輪の外縁)
+    check("到達の合図の帯が拍マーカーの走る帯に届かない",
+      arcLowestY < beatHighestY, `弧の下端 ${arcLowestY.toFixed(2)} / 拍の上端 ${beatHighestY.toFixed(2)} (viewBox単位)`);
+  }
+
+  check("小節頭だけ強調が立ち、他の拍は0(4/4・アクセントON)",
+    api.ringBeatAccent(0, 4, true) === 1 && api.ringBeatAccent(1, 4, true) === 0 && api.ringBeatAccent(2.2, 4, true) === 0
+    && api.ringBeatAccent(3.9, 4, true) === 0 && api.ringBeatAccent(4, 4, true) === 1 && api.ringBeatAccent(8, 4, true) === 1);
+  check("強調は拍の前半で1→0に減衰し、停止中・拍子未確定では常に0",
+    Math.abs(api.ringBeatAccent(0.25, 4, true) - 0.5) < 1e-9 && api.ringBeatAccent(0.5, 4, true) === 0 && api.ringBeatAccent(0.75, 4, true) === 0
+    && api.ringBeatAccent(null, 4, true) === 0 && api.ringBeatAccent(0, 0, true) === 0);
+  // アクセントOFF(=強拍が鳴らない)なら、視覚も小節頭を強調しない
+  {
+    let anyEmphasis = false;
+    for (let p = 0; p <= 8; p += 0.01) if (api.ringBeatAccent(p, 4, false) !== 0) { anyEmphasis = true; break; }
+    check("アクセントOFFなら全位相で強調が0(鳴らないものを見せない)",
+      !anyEmphasis && api.ringBeatAccent(0, 4, false) === 0 && api.ringBeatAccent(0, 4, undefined) === 0);
+  }
 }
 
 // ============================================================
