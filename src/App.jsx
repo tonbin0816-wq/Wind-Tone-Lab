@@ -4132,77 +4132,10 @@ function MeasureView(props) {
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
       )}
 
-      {isRecording && (
-        <div className="sans" style={{ fontSize: 12, color: "#174585", display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-          <span style={{ width: 8, height: 8, background: "#DC2626", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
-          録音中
-        </div>
-      )}
       <input
         ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
       />
-
-      {/* 音声ファイルのアップロード解析中/完了(ライブ録音と同じ解析パイプラインを通す。ファイルの長さと同じだけ時間がかかる) */}
-      {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
-          (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
-      {isAnalyzingUpload && uploadNeedsTap && (
-        <div style={{ display: "flex", gap: 10, marginBottom: 10, padding: "12px 14px", background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 14, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 13, color: "#174585", fontWeight: 600, flex: 1 }}>タップして動画の解析を開始してください</span>
-          <button
-            onClick={() => { const start = uploadNeedsTap; setUploadNeedsTap(null); start(); }}
-            className="sans"
-            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-          >
-            解析を開始
-          </button>
-        </div>
-      )}
-      {isAnalyzingUpload && !uploadNeedsTap && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ background: "#EEF1F4", borderRadius: 4, height: 8, overflow: "hidden" }}>
-            <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "#174585", borderRadius: 4, transition: "width 0.2s linear" }} />
-          </div>
-          <div className="sans" style={{ fontSize: 12, color: "#435266", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
-        </div>
-      )}
-      {!isAnalyzingUpload && lastUploadedSession && (
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <span className="sans" style={{ fontSize: 12, color: "#16A34A" }}>アップロードの解析が完了しました</span>
-          <SetAsIdealButton frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
-          {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える) */}
-          <button
-            onClick={() => setLastUploadedSession(null)}
-            className="sans"
-            aria-label="閉じる"
-            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 999, border: "1px solid #E9ECF0", background: "#FFFFFF", color: "#8D95A1", fontSize: 13, lineHeight: 1, cursor: "pointer", flexShrink: 0 }}
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* 録音停止後: この録音を「登録」(セッションとして保存)するか「取り直し」(破棄)するか選ぶ。
-          登録したセッションは分析タブから理想値に設定することもできる。 */}
-      {!isRecording && pendingSession && (
-        <div style={{ display: "flex", gap: 10, marginBottom: 10, padding: "12px 14px", background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 14, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 13, color: "#174585", fontWeight: 600, flex: 1 }}>この録音を保存しますか？</span>
-          <button
-            onClick={discardPendingSession}
-            className="sans"
-            style={{ padding: "8px 16px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-          >
-            取り直し
-          </button>
-          <button
-            onClick={registerPendingSession}
-            className="sans"
-            style={{ padding: "8px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-          >
-            登録
-          </button>
-        </div>
-      )}
 
       {/* メトロノームの設定パネル(拍子 / 1拍の分割)。開いている間はこの枠だけを見せる。
           拍そのものの表示は環(PitchRing)の下弧が担うため、ここには振り子を置かない。
@@ -4526,6 +4459,118 @@ function MeasureView(props) {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 浮かせる告知(レイアウトの流れの外) ───────────────────────────────
+          録音中・アップロード・保存確認は「出たり消えたりする過渡的な告知」なので、
+          上端固定ブロックの流れに置くと出た瞬間に環・録音ボタン・詳細トグルが下がる
+          (F-8。審査役の実測で上端に40px出ると環+40 / アクション+29 / スクロール29)。
+          可変の中間へ移す案も、メトロノーム開の中間の余りが2pxしかないため溢れる(F-3)。
+          → 流れから外す(position:fixed)のが唯一の解。DESIGN-SYSTEM §6.1.5。 */}
+
+      {/* 過渡的な告知(録音中 / アップロードの進捗・タップ要求・完了)。
+          画面上端(=.app-root の padding と同じ式)に浮かせてコンテンツ列に揃える。
+          環は上端から147px下なので、環と音名は隠さない。 */}
+      {(isRecording || isAnalyzingUpload || lastUploadedSession) && (
+        <div
+          style={{
+            position: "fixed", zIndex: 40,
+            top: "calc(16px + env(safe-area-inset-top))",
+            left: "calc(14px + env(safe-area-inset-left))",
+            right: "calc(14px + env(safe-area-inset-right))",
+            pointerEvents: "none", // 告知が出ていない領域は下の操作を邪魔しない
+          }}
+        >
+          <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+            {isRecording && (
+              <div className="sans" style={{ pointerEvents: "auto", alignSelf: "flex-start", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-2) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-pill)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)", fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--c-accent)" }}>
+                {/* 点滅は index.css の @keyframes pulse。.ficus-pulse を付けると
+                    prefers-reduced-motion の端末で止まる(既に用意されていたが未使用だった)。 */}
+                <span className="ficus-pulse" style={{ width: 8, height: 8, background: "var(--c-danger)", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
+                録音中
+              </div>
+            )}
+            {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
+                (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
+            {isAnalyzingUpload && uploadNeedsTap && (
+              <div style={{ pointerEvents: "auto", display: "flex", gap: "var(--sp-3)", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-accent-tint)", border: "1px solid var(--c-accent-line)", borderRadius: "var(--r-lg)", alignItems: "center", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-accent)", fontWeight: 600, flex: 1 }}>タップして動画の解析を開始してください</span>
+                <button
+                  onClick={() => { const start = uploadNeedsTap; setUploadNeedsTap(null); start(); }}
+                  className="sans"
+                  style={{ minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+                >
+                  解析を開始
+                </button>
+              </div>
+            )}
+            {/* 解析の進捗(ライブ録音と同じ解析パイプラインを通すため、ファイルの長さと同じだけ時間がかかる) */}
+            {isAnalyzingUpload && !uploadNeedsTap && (
+              <div style={{ pointerEvents: "auto", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <div style={{ background: "#EEF1F4", borderRadius: "var(--r-xs)", height: 8, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "var(--c-accent)", borderRadius: "var(--r-xs)", transition: "width 0.2s linear" }} />
+                </div>
+                <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", color: "var(--c-ink-2)", marginTop: "var(--sp-1)" }}>{Math.round(uploadProgress * 100)}%</div>
+              </div>
+            )}
+            {!isAnalyzingUpload && lastUploadedSession && (
+              <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-good)", flex: 1 }}>アップロードの解析が完了しました</span>
+                <SetAsIdealButton tapMin frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
+                {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
+                    見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
+                <button
+                  onClick={() => setLastUploadedSession(null)}
+                  className="sans"
+                  aria-label="閉じる"
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "var(--tap-min)", height: "var(--tap-min)", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--r-pill)", border: "1px solid var(--c-line)", background: "var(--c-surface)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 録音停止後: この録音を「登録」(セッションとして保存)するか「取り直し」(破棄)するか選ぶ。
+          登録したセッションは分析タブから理想値に設定することもできる。
+          【背景タップでは閉じない】誤タップで録音を失わせないため、暗幕に onClick を付けない。
+          どちらかを選べば registerPendingSession / discardPendingSession が pendingSession を
+          null にするので、そのまま消える。保存・破棄のロジックには触っていない。
+          暗幕の色・不透明度・カードの影は ScrollPicker と同値(新しい濃さを発明しない)。
+          カードは下寄せ。画面中央に置くと環(top 147〜477)を覆ってしまうため、
+          環と音名を隠さない位置=環の下・アクションの上に浮かせる。 */}
+      {!isRecording && pendingSession && (
+        <div
+          role="dialog" aria-modal="true" aria-label="この録音を保存しますか？"
+          style={{
+            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+            padding: "var(--sp-4)",
+            paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
+          }}
+        >
+          <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+            <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>この録音を保存しますか？</div>
+            <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
+              <button
+                onClick={discardPendingSession}
+                className="sans"
+                style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+              >
+                取り直し
+              </button>
+              <button
+                onClick={registerPendingSession}
+                className="sans"
+                style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer" }}
+              >
+                登録
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -4897,7 +4942,9 @@ function RatingDial({ value, onChange, onCommit, height = 96 }) {
 // 一度追加した名前はperformersに積み上がり、以後の選択肢として残り続ける。
 // セッション(またはライブ録音直後のフレーム列)を理想値プロファイルに設定するボタン。
 // onSave({frames, saxType}, name) を呼び、実際のプロファイル生成はbuildIdealProfileFromSessionが行う。
-function SetAsIdealButton({ frames, saxType, onSave }) {
+// tapMin: 当たり判定を --tap-min(44px) 以上にする(既定は従来どおり。分析タブ側は変えない)。
+// 計測タブの「解析が完了しました」告知は浮かせた告知の中に入るため、ここだけ44pt化する。
+function SetAsIdealButton({ frames, saxType, onSave, tapMin }) {
   const [isNaming, setIsNaming] = useState(false);
   const [name, setName] = useState("");
 
@@ -4928,7 +4975,13 @@ function SetAsIdealButton({ frames, saxType, onSave }) {
   }
 
   return (
-    <button onClick={() => setIsNaming(true)} className="sans" style={{ fontSize: 12, padding: "5px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600 }}>
+    <button
+      onClick={() => setIsNaming(true)}
+      className="sans"
+      style={tapMin
+        ? { fontSize: "var(--fs-sm)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", borderRadius: "var(--r-pill)", border: "1px solid var(--c-accent)", background: "var(--c-accent-tint)", color: "var(--c-accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }
+        : { fontSize: 12, padding: "5px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600 }}
+    >
       ★ 理想値に設定
     </button>
   );
