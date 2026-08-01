@@ -3587,8 +3587,14 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const inTune = sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
 
   // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
-  const noteLetter = sounding ? note.name.charAt(0) : "—";
+  // 【音が入っていないときは文字を出さない】以前は "—" を置いていたが、待っている状態は
+  // 環のトラックと12時の基準マーカーだけで読める。文字で説明しない(DESIGN-SYSTEM §6.1)。
+  const noteLetter = sounding ? note.name.charAt(0) : "";
   const accidental = sounding ? note.name.slice(1) : "";
+  // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
+  // これを明示しないと、文字が無いときに行の高さが0になり、環の内側の寸法が状態で変わる。
+  const NOTE_LINE_H = 0.82;
+  const noteBoxH = noteFs * NOTE_LINE_H;
 
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
@@ -3711,7 +3717,8 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
       }}>
         <div style={{
           display: "flex", alignItems: "baseline", justifyContent: "center",
-          lineHeight: 0.82, fontFamily: "var(--font-serif)",
+          width: "100%", height: noteBoxH,
+          lineHeight: NOTE_LINE_H, fontFamily: "var(--font-serif)",
           color: sounding ? "var(--c-ink)" : "var(--c-disabled)",
         }}>
           {/* 音名の文字。横幅は scaleX で明示指定する(書体既定のままにしない) */}
@@ -3720,7 +3727,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
             transform: `scaleX(${NOTE_SCALE_X})`, transformOrigin: "center bottom",
             margin: `0 ${NOTE_SCALE_PAD_EM}em`,
           }}>
-            {sounding ? noteLetter : "—"}
+            {noteLetter}
           </span>
           {/* 臨時記号。文字として組み、本体より明確に小さくする(scaleXは掛けない) */}
           {accidental && (
@@ -3734,12 +3741,17 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
             (以前メトロノーム表示中だけ ac<=3 / <=10 の3段階で塗り分けており、環の判定と
             食い違っていた)。「合った」の判定はこの画面では RING_IN_TUNE_CENTS だけを使い、
             到達したときは環と同じ ficus-breathe(透明度のみ)で静かに返す。 */}
+        {/* 音が入っていないときはセント値も文字を出さない。ただし箱(高さ--fs-md+--sp-1 =
+            文字がある時の行の高さ・幅は環の内寸いっぱい)は残し、音の有無で環の内側の寸法が
+            変わらないようにする(DESIGN-SYSTEM §6.1.5)。 */}
         <div className={`sans${inTune ? " ficus-breathe" : ""}`} style={{
-          marginTop: 16, fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", fontWeight: 700,
+          marginTop: "var(--sp-4)", width: "100%", height: "calc(var(--fs-md) + var(--sp-1))",
+          textAlign: "center",
+          fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", fontWeight: 700,
           letterSpacing: "0.02em", color: sounding ? color : "var(--c-ink-3)",
           animation: inTune ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
         }}>
-          {sounding ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : "—"}
+          {sounding ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : ""}
         </div>
       </div>
     </div>
@@ -4032,11 +4044,22 @@ function MeasureView(props) {
   }, []);
 
   return (
-    <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+    <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* 【縦構造】DESIGN-SYSTEM §6.1.5「レイアウトの安定」。
+          画面ぶんの高さ(measureMinH)を持つ枠を1枚だけ敷き、その中を
+            上端に固定(設定行) → 固定の間隔(--sp-1) → 主役(環) → 可変の中間(flex:1) → 下端に固定(アクション)
+          の順で並べる。余りは必ず「可変の中間」が吸収する。
+          ・justify-content を状態で切り替えない(全状態 flex-start)。以前は素の状態だけ center で、
+            中身の高さが変わるたびに環と録音ボタンが動いていた(本人の実機フィードバック2026-08-01)。
+          ・詳細カードはこの枠の「外・下」に置く。開いても枠の高さは measureMinH のままなので
+            環・録音ボタン・詳細トグルは1pxも動かず、増えたぶんだけページがスクロールする。 */}
+      <div style={{ display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+      {/* ── 上端に固定 ── 設定行と各種の告知。この塊の下端が「固定の間隔」--sp-1。 */}
+      <div style={{ flexShrink: 0 }}>
       {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
           右に楽器種別・基準ピッチ(タップでスクロール選択、値はテキストリンク風)。
           いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: "var(--sp-1)", flexWrap: "wrap" }}>
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
           {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
               楽器種別・基準Hzの反対側=左端に置く */}
@@ -4106,7 +4129,7 @@ function MeasureView(props) {
         )}
       </div>
       {(!reeds || reeds.length === 0) && (
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 4 }}>「リード」タブでリードを登録できます</div>
+        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
       )}
 
       {isRecording && (
@@ -4260,11 +4283,10 @@ function MeasureView(props) {
           ) : null}
         </div>
       )}
+      </div>{/* /上端に固定 */}
 
-      {/* メイン領域: チューナーの環を主役にする。詳細を閉じた素のチューナー表示では
-          flex:1で余った縦スペースの中央に環+グラフを置く(環は視線の中心に来るのが要件)。
-          詳細やメトロノームを開いた時は自然な高さに戻し、必要ならスクロールさせる。 */}
-      <div style={{ flex: (detailOpen || showMetroPanel) ? "0 0 auto" : "1 1 auto", display: "flex", flexDirection: "column", justifyContent: (detailOpen || showMetroPanel) ? "flex-start" : "center" }}>
+      {/* ── 主役 ── 環。上端の塊から --sp-1 の固定間隔だけ下、という位置から絶対に動かさない。
+          flexShrink:0 を明示して、下の中身が増えても環が痩せないようにする。 */}
       {/* 音名+ピッチ表示。実音(コンサートピッチ)表示。演奏中サーフェスなので、
           メトロノームの開閉にかかわらず環(PitchRing)を主役にする(設計言語を1つに保つ)。
           【大きさは変えない】以前はメトロノームを開くと 330→250 に縮めていたが、主役の
@@ -4273,10 +4295,9 @@ function MeasureView(props) {
           以前あった「26pxの音名+横メーター+13pxのセント値」へのフォールバックは廃止した
           (1m先で読めないうえ、セント色の閾値が環と一致していなかった)。 */}
       {!(showMetroPanel && metroPanel !== null) && (
-        // メトロノームを開いている間は下の余白を操作UI側の marginTop(--sp-2) 一本にまとめる。
-        // 4px + 8px の二重取りをやめると、セーフエリア(上44/下34)の実機で 673px あった
-        // 必要高が 669px になり、可視領域(671px)に収まる。
-        <div style={{ padding: showMetroPanel ? 0 : "0 0 4px" }}>
+        // 環の下の余白は「可変の中間」側(グラフの marginTop / 操作UIの marginTop)が持つ。
+        // ここに状態で変わる padding を足すと、それ自体が状態依存の寸法になるので置かない。
+        <div style={{ flexShrink: 0 }}>
           <PitchRing
             note={note} centsOffset={centsOffset}
             diameter={RING_D_FULL}
@@ -4287,6 +4308,9 @@ function MeasureView(props) {
         </div>
       )}
 
+      {/* ── 可変の中間 ── flex:1。状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=操作UI)。
+          余った縦スペースはすべてここが吸収するので、上の環も下のアクションも動かない。 */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
       {/* メトロノームの操作UI: START/STOP・テンポ・拍子・1拍の分割。
           拍の「表示」は環が担うので、ここは操作系だけを環の下にまとめる。
           【当たり判定の注意】拍子/分割ボタンは絶対配置で中央のテンポ行に「重ねて」いる。
@@ -4373,10 +4397,13 @@ function MeasureView(props) {
       </div>
       )}
 
-      </div>{/* /メイン領域 */}
-      {/* 拍子/リズムの選択パネルを開いている間は、その枠だけを見せるため録音・アップロード・詳細も隠す */}
+      </div>{/* /可変の中間 */}
+
+      {/* ── 下端に固定 ── 録音・アップロードと詳細トグル。枠の高さが measureMinH で固定なので
+          この2つの top は状態が変わっても動かない。
+          拍子/リズムの選択パネルを開いている間は、その枠だけを見せるため録音・アップロード・詳細も隠す */}
       {!(showMetroPanel && metroPanel !== null) && (
-      <>
+      <div style={{ flexShrink: 0 }}>
       {/* 録音/アップロード: 「これまでの音」の直下に置き、スクロールなしで押せるようにする。
           アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは輪郭のみ。 */}
       <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
@@ -4412,7 +4439,14 @@ function MeasureView(props) {
             : <ChevronDown size={24} color="#174585" strokeWidth={2.5} />}
         </button>
       </div>
-      {detailOpen && (
+      </div>
+      )}
+      </div>{/* /画面ぶんの固定枠 */}
+
+      {/* ── 追加表示 ── 詳細カード。固定枠の「外・下」に置く。開いても枠の高さは measureMinH の
+          ままなので、環・録音ボタン・詳細トグルは1pxも動かない。増えたぶんだけページが縦に伸び、
+          ここから下だけがスクロールする(素の状態・メトロノームだけの状態ではスクロールしない)。 */}
+      {detailOpen && !(showMetroPanel && metroPanel !== null) && (
         <div style={{ padding: "16px 0 10px" }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 14, padding: 16 }}>
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
@@ -4494,8 +4528,6 @@ function MeasureView(props) {
             )}
           </div>
         </div>
-      )}
-      </>
       )}
 
     </div>
