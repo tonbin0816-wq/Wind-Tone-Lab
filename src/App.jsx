@@ -1653,6 +1653,107 @@ function analyzeMediaFile(file, opts) {
 }
 
 // ============================================================
+// マイク接続の生存監視・復旧(iOS対策)
+// ============================================================
+// 【背景】アプリを一度バックグラウンドにして戻ると、マイクは繋がっている(readyState="live")のに
+// 解析バッファが全ゼロのまま=音量が -200dB 付近に張り付いたまま戻らない、という不具合がある。
+// -200 は 20*log10(0 + 1e-10) の値、つまり「バッファが完全にゼロ」の状態を意味する。
+// 静かな部屋の実測は -60dB 前後なので、-200 近傍は「ストリームが死んでいる」ことの明確な指標になる。
+
+// ウォッチドッグの無音しきい値(dBFS)。これ以下を「バッファが全ゼロ=死んでいる」とみなす。
+// -150dB の RMS は約 3.2e-8 で、24bit の最下位ビット(-144dB)より下。実マイクの暗騒音では
+// 到達しえない値なので、静かな部屋(-60dB前後)で誤発火しない。全ゼロ(-200)とは 50dB の余裕がある。
+const SILENCE_WATCHDOG_DB = -150;
+// この時間だけ連続で全ゼロが続いたら壊れているとみなす(起動直後の数フレームでは発火させない)
+const SILENCE_WATCHDOG_SUSTAIN_MS = 1500;
+// 復旧を連打しないためのクールダウン。マイク再取得は端末のインジケータを点滅させるため間隔を空ける
+const MIC_RECOVER_COOLDOWN_MS = 5000;
+// ユーザーが「画面をタップしてください」に応えてタップしたときのクールダウン。自動復旧より短くして
+// 待たせないが、0にはしない(連打すると連打ぶんだけマイクを取り直してしまうため)。
+const MIC_RETRY_TAP_COOLDOWN_MS = 1000;
+// 復旧に失敗したときにユーザーへ出す文言(タップで再試行できることを明示する)
+const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした。画面をタップしてください";
+
+// iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)側に回すため、メトロノームが極端に
+// 小さく聞こえる。setSinkId は iOS Safari 未実装、AVAudioSessionCategoryOptionDefaultToSpeaker は
+// ネイティブ専用でWebから触れないため、Web側から確実にルートを変える手段は現状無い。
+// navigator.audioSession(Safariのみ実装)への用途宣言だけが唯一試せる手で、どの値が最適かは
+// 実機でしか確認できない。後から差し替えられるよう値はこの1箇所の定数にまとめる。
+// 候補: "play-and-record"(録音を伴う再生) / "playback" / "ambient" / "auto"
+const AUDIO_SESSION_TYPE = "play-and-record";
+function applyAudioSessionType() {
+  // 未対応環境ではプロパティ自体が無いので何も起きない(例外も握りつぶす)
+  try { if (typeof navigator !== "undefined" && navigator.audioSession) navigator.audioSession.type = AUDIO_SESSION_TYPE; } catch { /* noop */ }
+}
+
+// AudioContext の state から取るべき手を決める(純関数)。
+// iOS Safari は仕様外の "interrupted" を返すことがあるため明示的に扱う
+// (=== "suspended" だけの判定では漏れる)。未知の値は安全側=作り直しに倒す。
+// 戻り値: "ok"(そのまま使える) | "resume"(resume()で戻せる見込み) | "rebuild"(作り直しが必要)
+function audioCtxRecoveryAction(state) {
+  if (state === "running") return "ok";
+  if (state === "suspended" || state === "interrupted") return "resume";
+  return "rebuild"; // "closed" と未知の状態
+}
+
+// マイクのトラックが実際に音を運べる状態か(純関数)。readyState が live でも、iOSは中断中に
+// muted=true のまま返すことがあるため両方を見る。muted が未実装の環境で誤って毎回取り直さないよう
+// 「muted が明示的に true のときだけ駄目」と判定する。
+function isMicTrackUsable(track) {
+  return !!track && track.readyState === "live" && track.muted !== true;
+}
+function isMicStreamUsable(stream) {
+  const tracks = stream?.getTracks?.() || [];
+  return tracks.length > 0 && tracks.some(isMicTrackUsable);
+}
+
+// 無音ウォッチドッグの判定(純関数)。解析ループから毎フレーム呼ぶ。
+//   volumeDb        : そのフレームの音量(dBFS)
+//   prevSilentFrames: 直前フレームまでの連続無音フレーム数
+//   frameIntervalMs : 実測したフレーム間隔(ms)。rAFなので端末により16.7〜33msと幅がある
+//   isRecording     : 録音中は復旧を走らせない(セッションが壊れるため)
+//   nowMs/lastRecoverAtMs: クールダウン判定用
+// 戻り値: { silentFrames(更新後のカウンタ), recover(復旧を走らせるか) }
+// ※引数の分割代入は関数の本体側で行う(テストハーネスのextractFunctionが波括弧の対応で
+//   関数末尾を探すため、シグネチャに { } を書くとそこで切れてしまう)。
+function shouldRecoverFromSilence(opts) {
+  const o = opts || {};
+  const volumeDb = o.volumeDb;
+  const prevSilentFrames = o.prevSilentFrames || 0;
+  const frameIntervalMs = o.frameIntervalMs || 0;
+  const isRecording = o.isRecording === true;
+  const nowMs = o.nowMs || 0;
+  const lastRecoverAtMs = o.lastRecoverAtMs || 0;
+  const thresholdDb = o.thresholdDb === undefined ? SILENCE_WATCHDOG_DB : o.thresholdDb;
+  const sustainMs = o.sustainMs === undefined ? SILENCE_WATCHDOG_SUSTAIN_MS : o.sustainMs;
+  const cooldownMs = o.cooldownMs === undefined ? MIC_RECOVER_COOLDOWN_MS : o.cooldownMs;
+  const silent = Number.isFinite(volumeDb) ? volumeDb <= thresholdDb : true;
+  const silentFrames = silent ? prevSilentFrames + 1 : 0;
+  if (!silent) return { silentFrames, recover: false };
+  if (isRecording) return { silentFrames, recover: false };
+  if (!(frameIntervalMs > 0)) return { silentFrames, recover: false };
+  if (silentFrames * frameIntervalMs < sustainMs) return { silentFrames, recover: false };
+  if (nowMs - lastRecoverAtMs < cooldownMs) return { silentFrames, recover: false };
+  return { silentFrames, recover: true };
+}
+
+// 中断された AudioContext を running に戻す。resume() を呼んでも running にならなければ、
+// そのコンテキストを close() して作り直す。作り直した場合は rebuilt:true を返すので、
+// 呼び出し側は「古いノードは新しいコンテキストに繋げない」ため source/analyser/バンドパスを
+// すべて作り直さなければならない。
+async function recoverAudioContext(ctx, createCtx) {
+  const create = createCtx || (() => new (window.AudioContext || window.webkitAudioContext)());
+  if (ctx && audioCtxRecoveryAction(ctx.state) === "resume") {
+    try { await ctx.resume(); } catch { /* noop */ }
+  }
+  if (ctx && ctx.state === "running") return { ctx, rebuilt: false };
+  if (ctx && ctx.state !== "closed") { try { await ctx.close(); } catch { /* noop */ } }
+  const fresh = create();
+  try { await fresh.resume(); } catch { /* noop */ }
+  return { ctx: fresh, rebuilt: true };
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
@@ -1737,6 +1838,13 @@ export default function WindToneLabPhaseMode() {
   const rafRef = useRef(null);
   const tickRef = useRef(null); // 描画ループ本体(tick)。タブ切替でマイクを繋ぎ直さずループだけ再開するために保持する
   const streamRef = useRef(null);
+  // --- マイク生存監視・復旧(iOS対策。詳細はファイル上部 SILENCE_WATCHDOG_DB 付近のコメント) ---
+  const silentFramesRef = useRef(0);      // 連続で「バッファ全ゼロ」だったフレーム数
+  const lastFrameAtRef = useRef(0);       // 直前フレームの時刻(フレーム間隔を実測してms換算するため)
+  const micRecoverAtRef = useRef(0);      // 直近に復旧を走らせた時刻(クールダウン用)
+  const micRecoveringRef = useRef(false); // 復旧処理の多重起動防止
+  const micNeedsRetryRef = useRef(false); // 復旧に失敗しユーザーのタップ待ちである
+  const recoverMicRef = useRef(() => {});  // 復旧関数の最新版(tick/トラックイベントのクロージャから呼ぶ)
   const phraseStartTimeRef = useRef(null);
   const lastSampleTimeRef = useRef(0);
   const phraseFramesRef = useRef([]); // stop()のクロージャから最新フレーム配列を参照するためのref
@@ -1883,9 +1991,20 @@ export default function WindToneLabPhaseMode() {
   // 端末のマイク使用インジケータも消える。録音中に離脱した場合の保険としてここでも保存する。
   const stopListening = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => {
+      // 停止させる前にハンドラを外す(t.stop()自体でendedが飛ぶ実装があり、意図しない復旧を招くため)
+      t.onmute = null;
+      t.onended = null;
+      t.stop();
+    });
     streamRef.current = null;
     tickRef.current = null;
+    silentFramesRef.current = 0;
+    lastFrameAtRef.current = 0;
+    // 古いノードを新しいコンテキストに繋がないよう、コンテキストと一緒に必ず捨てる
+    analyserRef.current = null;
+    gateAnalyserRef.current = null;
+    bandpassRef.current = null;
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") audioCtxRef.current.close();
     audioCtxRef.current = null;
     if (isRecordingRef.current) finalizeRecording();
@@ -1914,20 +2033,41 @@ export default function WindToneLabPhaseMode() {
     soundingRef.current = false;
     setLiveFrames([]);
 
+    silentFramesRef.current = 0;
+    lastFrameAtRef.current = 0;
+
     // 【マイク権限ポップアップ対策】タブを行き来するたびにgetUserMediaを呼ぶと、
     // 端末によっては毎回マイク許可のポップアップが出る。既にマイク接続が生きていれば
     // 繋ぎ直さず、ミュートを解除して描画ループだけ再開する(pauseListeningと対で使う)。
+    // ただし再利用してよいのは「トラックが live かつ muted でない」かつ「AudioContextが実際に
+    // running に戻せた」ときだけ。戻せなければ下の完全再取得パスへ落ちる(古いノードを新しい
+    // コンテキストに繋ぐことはできないため、部分的な作り直しはしない)。
     const existingTracks = streamRef.current?.getTracks?.() || [];
-    const streamAlive = existingTracks.some((t) => t.readyState === "live");
     const ctxAlive = audioCtxRef.current && audioCtxRef.current.state !== "closed";
-    if (streamAlive && ctxAlive && tickRef.current) {
+    if (isMicStreamUsable(streamRef.current) && ctxAlive && tickRef.current) {
       existingTracks.forEach((t) => { t.enabled = true; });
-      try { audioCtxRef.current.resume(); } catch { /* noop */ }
-      setIsListening(true);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(tickRef.current);
-      return true;
+      // ジェスチャー権限内で同期的にキックする(awaitを挟むと権限が切れる)
+      try { audioCtxRef.current.resume().catch(() => {}); } catch { /* noop */ }
+      if (audioCtxRef.current.state === "running") {
+        setIsListening(true);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        lastFrameAtRef.current = 0;
+        rafRef.current = requestAnimationFrame(tickRef.current);
+        return true;
+      }
     }
+
+    // ここから先は完全再取得。古いコンテキスト・トラックが残っていれば必ず捨てる
+    // (中途半端に残すと、新しいコンテキストに古いノードが繋がったままになる)。
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (streamRef.current) { try { streamRef.current.getTracks().forEach((t) => t.stop()); } catch { /* noop */ } }
+    streamRef.current = null;
+    tickRef.current = null;
+    analyserRef.current = null;
+    gateAnalyserRef.current = null;
+    bandpassRef.current = null;
+    if (audioCtxRef.current && audioCtxRef.current.state !== "closed") { try { audioCtxRef.current.close(); } catch { /* noop */ } }
+    audioCtxRef.current = null;
 
     try {
       // 【iOS対策・重要】AudioContextの生成とresume()は、getUserMediaのawaitより「前」に、
@@ -1936,8 +2076,8 @@ export default function WindToneLabPhaseMode() {
       // 二度と音を流さなくなる(=起動直後からずっと-200dB、リロードでしか治らない)不具合になる。
       // iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)に回すため、メトロノームが
       // 極端に小さく聞こえる。audioSessionに用途を明示しておくと対応ブラウザではスピーカー側に
-      // 寄せられる(未対応環境ではプロパティ自体が無いので何も起きない)。
-      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch { /* noop */ }
+      // 寄せられる(未対応環境ではプロパティ自体が無いので何も起きない)。値は AUDIO_SESSION_TYPE の1箇所。
+      applyAudioSessionType();
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
@@ -1947,6 +2087,13 @@ export default function WindToneLabPhaseMode() {
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       streamRef.current = stream;
+
+      // 【トラックの死亡検知】iOSは他アプリにマイクを奪われると readyState は live のまま
+      // muted だけ true にして戻ってくることがある。ended/mute のどちらでも復旧を試みる。
+      stream.getTracks().forEach((t) => {
+        t.onmute = () => { recoverMicRef.current("track-muted"); };
+        t.onended = () => { recoverMicRef.current("track-ended"); };
+      });
 
       // 端末が実際にAGC/ノイズ抑制/エコー除去を無効化できたか確認する(iOS Safariは
       // 制約を無視することがある)。有効なままだと音量・音色の測定値に端末側の加工が
@@ -1987,6 +2134,10 @@ export default function WindToneLabPhaseMode() {
       setIsListening(true);
 
       const tick = () => {
+        // 【世代チェック】復旧でマイクを取り直すと新しいtickが作られる。cancelAnimationFrameが
+        // 間に合わず古いtickが1回だけ走ってしまうことがあり、そのままだと閉じたコンテキストを見て
+        // 復旧を要求したり、二重にループを回し続けたりする。現行世代でなければ次を予約せず静かに終わる。
+        if (tickRef.current !== tick) return;
         // tick本体はtry/finallyで包み、1フレームで例外が出ても必ず次フレームを予約して
         // ループが永久停止しない(＝メーターやグラフが固まらない)ようにする。以前は末尾の
         // requestAnimationFrameに到達しないと二度と更新されず、途中で止まる不具合につながっていた。
@@ -1994,9 +2145,11 @@ export default function WindToneLabPhaseMode() {
         const analyserNode = analyserRef.current;
         if (!analyserNode) return;
         // AudioContextがrunning以外(suspend/iOS固有のinterrupted等)だと解析用データが更新
-        // されず検出が止まる。検知したら毎フレームresumeを試みて復帰させる(中断からの復帰は
-        // ユーザー操作外でも通ることが多い)。
-        if (audioCtx.state !== "running") { audioCtx.resume().catch(() => {}); }
+        // されず検出が止まる。resumeで戻せる状態なら毎フレーム試み、closed等の戻せない状態なら
+        // コンテキストごと作り直す復旧に回す(中断からの復帰はユーザー操作外でも通ることが多い)。
+        const ctxAction = audioCtxRecoveryAction(audioCtx.state);
+        if (ctxAction === "resume") audioCtx.resume().catch(() => {});
+        else if (ctxAction === "rebuild") recoverMicRef.current(`audiocontext-${audioCtx.state}`);
         // 測定(ピッチ・倍音・重心・HNR)はすべて時間波形から自前計算する。AnalyserNodeの
         // 平滑済みスペクトルは使わない(スペクトル表示バーを廃止したため周波数データも読まない)。
         const sampleRate = audioCtx.sampleRate;
@@ -2009,6 +2162,24 @@ export default function WindToneLabPhaseMode() {
         const rms = Math.sqrt(ss / timeBuf.length);
         const vDb = 20 * Math.log10(rms + 1e-10);
         setVolumeDb(vDb);
+
+        // 【無音ウォッチドッグ】トラックがliveでも、バッファが全ゼロ(=-200dB近傍)のまま
+        // 一定時間続いたらストリームは死んでいる。判定は純関数に切り出してテストしている。
+        {
+          const wNow = performance.now();
+          const wInterval = lastFrameAtRef.current ? wNow - lastFrameAtRef.current : 0;
+          lastFrameAtRef.current = wNow;
+          const wd = shouldRecoverFromSilence({
+            volumeDb: vDb,
+            prevSilentFrames: silentFramesRef.current,
+            frameIntervalMs: wInterval,
+            isRecording: isRecordingRef.current,
+            nowMs: wNow,
+            lastRecoverAtMs: micRecoverAtRef.current,
+          });
+          silentFramesRef.current = wd.silentFrames;
+          if (wd.recover) recoverMicRef.current("silence-watchdog");
+        }
 
         // バンドパス後の音量(dBFS)。空調のうなり・高域ヒスを除いた楽器帯の音量でゲート判定する。
         let bandDb = -Infinity;
@@ -2336,6 +2507,65 @@ export default function WindToneLabPhaseMode() {
   useEffect(() => { stopListeningRef.current = stopListening; }, [stopListening]);
   useEffect(() => { pauseListeningRef.current = pauseListening; }, [pauseListening]);
 
+  // 【マイク復旧の唯一の入口】無音ウォッチドッグ・トラックのmute/ended・AudioContextのclosed検知・
+  // 画面タップ、どの経路もここに集約する(経路ごとに別々のクールダウンを持つと連打で
+  // マイクが点滅するため)。マイクを完全に解放してから取り直し、AudioContextが本当に
+  // running まで戻ったこととトラックが使える状態であることを確認する。戻らなければ
+  // errorMsg でユーザーに知らせ、次のタップで再試行できる状態(micNeedsRetryRef)にする。
+  //   urgent=true : ユーザーの明示的なタップからの再試行。クールダウンを短いほうに切り替える
+  //                 (0にはしない。連打すると連打ぶんだけマイクを取り直してしまうため)
+  // 録音中は絶対に走らせない(セッションが壊れるため)。
+  const recoverMic = useCallback(async (reason, urgent = false) => {
+    if (isRecordingRef.current) return false;
+    if (micRecoveringRef.current) return false;
+    const now = performance.now();
+    const cooldown = urgent ? MIC_RETRY_TAP_COOLDOWN_MS : MIC_RECOVER_COOLDOWN_MS;
+    if (now - micRecoverAtRef.current < cooldown) return false;
+    micRecoverAtRef.current = now;
+    micRecoveringRef.current = true;
+    silentFramesRef.current = 0;
+    console.warn("mic recovery:", reason);
+    try {
+      stopListeningRef.current();
+      const ok = await startListeningRef.current();
+      const ctx = audioCtxRef.current;
+      if (ok && ctx && ctx.state !== "running") {
+        // resume()しても running にならなければ、そのコンテキストは close() して作り直す。
+        const { ctx: next, rebuilt } = await recoverAudioContext(ctx);
+        if (rebuilt) {
+          // 作り直したコンテキストの上にはまだノードが1つも無い(古いノードは新しい
+          // コンテキストに繋げない)。refに入れてから stopListening で確実に閉じ(=放置してリークさせない)、
+          // startListening で source/analyser/バンドパスをすべて作り直す。
+          audioCtxRef.current = next;
+          stopListeningRef.current();
+          await startListeningRef.current();
+        }
+      }
+      const healthy = ok
+        && audioCtxRef.current
+        && audioCtxRef.current.state === "running"
+        && isMicStreamUsable(streamRef.current);
+      if (healthy) {
+        micNeedsRetryRef.current = false;
+        setErrorMsg("");
+        return true;
+      }
+      micNeedsRetryRef.current = true;
+      setErrorMsg(MIC_RECOVER_FAILED_MSG);
+      return false;
+    } catch {
+      micNeedsRetryRef.current = true;
+      setErrorMsg(MIC_RECOVER_FAILED_MSG);
+      return false;
+    } finally {
+      micRecoveringRef.current = false;
+      silentFramesRef.current = 0;
+      lastFrameAtRef.current = 0;
+      micRecoverAtRef.current = performance.now(); // 復旧に要した時間ぶんクールダウンを食われないよう終了時刻で更新
+    }
+  }, []);
+  useEffect(() => { recoverMicRef.current = recoverMic; }, [recoverMic]);
+
   // 計測タブに滞在中は自動でマイクを起動し、他タブへ移ったら一時停止する(マイク接続は保持)。
   // 繋ぎ直さないことで、タブを行き来してもマイク許可のポップアップが繰り返し出ないようにする。
   useEffect(() => {
@@ -2356,7 +2586,19 @@ export default function WindToneLabPhaseMode() {
       if (document.hidden) {
         stopListeningRef.current();
       } else {
-        if (topTab === "measure") startListeningRef.current();
+        // 復帰時はまず通常どおり繋ぎ直し、実際に「AudioContextがrunning」かつ「トラックが使える」
+        // 状態まで戻れたかを確かめる。戻れていなければ復旧経路(recoverMic)に回す。
+        // ここまでやらないと、繋ぎ直しは成功したのに解析バッファが全ゼロ(=-200dB)のまま、という
+        // 一番厄介な壊れ方を無言で通してしまう。
+        if (topTab === "measure") {
+          Promise.resolve(startListeningRef.current())
+            .then((ok) => {
+              const ctx = audioCtxRef.current;
+              const healthy = ok && ctx && ctx.state === "running" && isMicStreamUsable(streamRef.current);
+              if (!healthy) recoverMicRef.current("visibility-restore");
+            })
+            .catch(() => recoverMicRef.current("visibility-restore-error"));
+        }
         // Wake Lockは非表示で自動解放されるため、録音中またはアップロード解析中なら復帰時に再取得
         if (isRecordingRef.current || isAnalyzingUploadRef.current) requestWakeLock();
       }
@@ -2367,24 +2609,24 @@ export default function WindToneLabPhaseMode() {
 
   // 【iOS対策】ユーザー操作なしに作られたAudioContextはsuspendedのまま起動し、その上で作られた
   // sourceが音を流さない(=起動直後からずっと-200dB、リロードでしか治らない)。画面をタップした
-  // 時に、runningでなければまずresumeを試み、計測タブなら「このタップ(ジェスチャー)の中で」
-  // マイクを取り直してrunningなcontext上でsourceを作り直す。これでリロードせず1タップで復旧する。
-  // 連打での再取得ループ・マイク点滅を防ぐため、①runningでない時だけ ②3秒クールダウン ③録音中は
-  // 除外、とする(runningに復帰すればこの分岐に入らなくなり、以後は何もしない)。
+  // 時に、runningでなければまずこのジェスチャーの権限内で同期的にresumeを試み、それでも駄目なら
+  // 復旧経路(recoverMic)へ回す。復旧経路は1本に統一してあるので、ウォッチドッグ・トラックの
+  // mute/ended・このタップが同時に起きても多重に走らない(micRecoveringRef + クールダウン)。
+  // errorMsgで「画面をタップしてください」と出した後のタップだけは、クールダウンを飛ばして
+  // 即座に再試行する(ユーザーの明示的な操作なので待たせない)。
   useEffect(() => {
-    let lastReacquire = 0;
     const onGesture = () => {
       const c = audioCtxRef.current;
-      if (!c || c.state === "closed") return;
-      if (c.state !== "running") {
-        c.resume().catch(() => {});
-        const now = performance.now();
-        if (topTab === "measure" && !document.hidden && !isRecordingRef.current && now - lastReacquire > 3000) {
-          lastReacquire = now;
-          stopListeningRef.current();
-          startListeningRef.current();
-        }
-      }
+      // ジェスチャー権限内で同期的にキックする(awaitを挟むと権限が切れる)
+      if (c && audioCtxRecoveryAction(c.state) === "resume") c.resume().catch(() => {});
+      if (topTab !== "measure" || document.hidden || isRecordingRef.current) return;
+      // 【重要】suspendedのまま作られたコンテキスト上のsourceはresume()しても音を流さない。
+      // よって「runningでない」だけで取り直しの対象にする(closedだけでは足りない)。
+      const ctxBroken = !c || c.state !== "running";
+      const micBroken = !isMicStreamUsable(streamRef.current);
+      const needsRetry = micNeedsRetryRef.current;
+      if (needsRetry) recoverMicRef.current("gesture-retry", true);
+      else if (ctxBroken || micBroken) recoverMicRef.current("gesture");
     };
     document.addEventListener("touchend", onGesture, { passive: true });
     document.addEventListener("pointerdown", onGesture, { passive: true });
@@ -2570,7 +2812,10 @@ export default function WindToneLabPhaseMode() {
       )}
 
       {/* 計測タブでのみ発生しうるエラー(マイク接続・アップロード解析)のため、他タブでは表示しない。
-          タップで消せるほか、再度マイク接続を試みる操作(タブ再訪問等)でも自動的にクリアされる。 */}
+          タップで消せるほか、再度マイク接続を試みる操作(タブ再訪問等)でも自動的にクリアされる。
+          マイク復旧失敗(MIC_RECOVER_FAILED_MSG)のときは、documentに付けたジェスチャー復旧パスが
+          このタップを拾って即座に再試行する(復旧経路は1本に統一してあるのでここでは呼ばない)。
+          成功すれば recoverMic 側が errorMsg をクリアする。 */}
       {errorMsg && topTab === "measure" && (
         <div
           onClick={() => setErrorMsg("")}
@@ -3705,6 +3950,9 @@ function MeasureView(props) {
     // なり、awaitを挟んでからresume()してもユーザー操作(このタップ)の権限が切れて再開できない。
     // そこで「runningでなければ、このタップの中で同期的にコンテキストを作り直し、resume()も
     // awaitせず同期でキックする」。これで一度閉じてから戻ってもSTARTで必ず鳴らせる。
+    // 出力の行き先(受話口/スピーカー)の宣言。マイク使用中に音が小さくなる問題への唯一の試行手段で、
+    // 値は AUDIO_SESSION_TYPE の1箇所。効果は実機でしか確認できない(未対応環境では何も起きない)。
+    applyAudioSessionType();
     let ctx = metroCtxRef.current;
     if (!ctx || ctx.state !== "running") {
       try { ctx?.close(); } catch { /* noop */ }

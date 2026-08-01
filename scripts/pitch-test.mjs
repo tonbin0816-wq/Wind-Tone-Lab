@@ -122,6 +122,16 @@ const code = [
   extractFunction("ringBeatIsHead"),
   extractFunction("ringBeatDotDeg"),
   extractFunction("ringBeatDotR"),
+  // マイク生存監視・復旧(iOS対策)
+  extractConst("SILENCE_WATCHDOG_DB"),
+  extractConst("SILENCE_WATCHDOG_SUSTAIN_MS"),
+  extractConst("MIC_RECOVER_COOLDOWN_MS"),
+  extractConst("MIC_RETRY_TAP_COOLDOWN_MS"),
+  extractConst("AUDIO_SESSION_TYPE"),
+  extractFunction("audioCtxRecoveryAction"),
+  extractFunction("isMicTrackUsable"),
+  extractFunction("isMicStreamUsable"),
+  extractFunction("shouldRecoverFromSilence"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -140,7 +150,10 @@ const api = new Function(`${code}
            RING_BEAT_DOT_ORBIT_R, RING_BEAT_DOT_SPREAD_DEG, RING_BEAT_DOT_R, RING_BEAT_DOT_CUR_R,
            RING_BEAT_DOT_CUR_GROW, RING_BEAT_DOT_HEAD_R, RING_BEAT_DOT_HEAD_GROW,
            RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
-           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_PITCH_ARC_D };`)();
+           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_PITCH_ARC_D,
+           audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
+           SILENCE_WATCHDOG_DB, SILENCE_WATCHDOG_SUSTAIN_MS, MIC_RECOVER_COOLDOWN_MS,
+           MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -1064,6 +1077,165 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
   {
     const kNeg = api.metroTickKind(-1, "6/8", 1, true);
     check("負のtickIndexでもクラッシュせず妥当な値を返す", ["accent", "beat", "sub", "silent"].includes(kNeg), kNeg);
+  }
+}
+
+// ============================================================
+// 13. マイク生存監視・復旧(iOS対策)
+// ============================================================
+// 実測の基準値: 全ゼロバッファ = 20*log10(0 + 1e-10) = -200dB / 静かな部屋 = -60dB 前後。
+// ウォッチドッグは前者でだけ発火し、後者では絶対に発火してはならない。
+{
+  console.log("\n========== 13. マイク生存監視・復旧 ==========");
+
+  const ALL_ZERO_DB = 20 * Math.log10(0 + 1e-10); // = -200。App.jsxのtickと同じ式
+  const QUIET_ROOM_DB = -60;                       // 静かな部屋の実測値
+
+  check("全ゼロバッファのdB計算は-200", Math.abs(ALL_ZERO_DB - (-200)) < 1e-9, String(ALL_ZERO_DB));
+
+  // 解析ループを模したシミュレータ。実装(tick)と同じく、復旧が走ったらカウンタを0に戻し
+  // クールダウンの起点を更新する。
+  function runWatchdog({ volumeDb, ms, frameIntervalMs = 16.7, isRecording = false, startMs = 1e6, alternateDb = null }) {
+    let silentFrames = 0;
+    let lastRecoverAtMs = startMs - 1e6; // 十分に過去(初回はクールダウンに掛からない)
+    const recoverTimes = [];
+    const frames = Math.round(ms / frameIntervalMs);
+    for (let i = 1; i <= frames; i++) {
+      const nowMs = startMs + i * frameIntervalMs;
+      const db = alternateDb !== null && i % 2 === 0 ? alternateDb : volumeDb;
+      const r = api.shouldRecoverFromSilence({
+        volumeDb: db, prevSilentFrames: silentFrames, frameIntervalMs,
+        isRecording, nowMs, lastRecoverAtMs,
+      });
+      silentFrames = r.silentFrames;
+      if (r.recover) { recoverTimes.push(nowMs - startMs); silentFrames = 0; lastRecoverAtMs = nowMs; }
+    }
+    return recoverTimes;
+  }
+
+  // --- 発火する側: 全ゼロ(-200) ---
+  {
+    const t = runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 10000 });
+    check("全ゼロ(-200dB)が続けば復旧が発火する", t.length >= 1, `発火${t.length}回`);
+    check("発火は無音がしきい時間続いた後(早すぎない)",
+      t.length >= 1 && t[0] >= api.SILENCE_WATCHDOG_SUSTAIN_MS, `初回${t[0]}ms / 必要${api.SILENCE_WATCHDOG_SUSTAIN_MS}ms`);
+    check("発火はしきい時間+2フレーム以内(遅すぎない)",
+      t.length >= 1 && t[0] <= api.SILENCE_WATCHDOG_SUSTAIN_MS + 2 * 16.7, `初回${t[0]}ms`);
+  }
+  // ほぼゼロだが厳密には0でない値(-180dB)でも発火する = 「全ゼロ」判定に十分な余裕がある
+  check("-180dB(実質ゼロ)でも発火する", runWatchdog({ volumeDb: -180, ms: 10000 }).length >= 1);
+
+  // --- 発火してはいけない側: 静かな部屋 ---
+  check("静かな部屋(-60dB)では10秒経っても発火しない",
+    runWatchdog({ volumeDb: QUIET_ROOM_DB, ms: 10000 }).length === 0);
+  check("さらに静かな-100dBでも発火しない(誤発火の余裕が40dB以上ある)",
+    runWatchdog({ volumeDb: -100, ms: 10000 }).length === 0);
+  check("極端に長く(60秒)静かでも-60dBなら発火しない",
+    runWatchdog({ volumeDb: QUIET_ROOM_DB, ms: 60000 }).length === 0);
+  // 途中で1フレームでも音があればカウンタはリセットされる
+  check("全ゼロと-60dBが交互なら発火しない(連続でないため)",
+    runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 10000, alternateDb: QUIET_ROOM_DB }).length === 0);
+
+  // --- 録音中は絶対に走らせない ---
+  check("録音中は全ゼロが続いても発火しない",
+    runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 30000, isRecording: true }).length === 0);
+
+  // --- クールダウン: 連続で復旧を走らせない ---
+  {
+    const t = runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 30000 });
+    let minGap = Infinity;
+    for (let i = 1; i < t.length; i++) minGap = Math.min(minGap, t[i] - t[i - 1]);
+    check("復旧の間隔はクールダウン以上", t.length < 2 || minGap >= api.MIC_RECOVER_COOLDOWN_MS,
+      `最小間隔${minGap}ms / クールダウン${api.MIC_RECOVER_COOLDOWN_MS}ms`);
+    // クールダウンが効いていなければ30秒間に数百〜数千回発火する
+    check("30秒間の発火回数は10回以下(連打しない)", t.length <= 10, `${t.length}回`);
+    check("30秒間に1回以上は発火する(黙って諦めない)", t.length >= 1, `${t.length}回`);
+  }
+
+  // --- 発火までの時間(要件を絶対値で書く。定数から逆算すると定数の言い換えになり何も守れない) ---
+  // 要件: 一瞬の全ゼロ(接続直後の数フレーム・端末側の瞬断)で復旧を走らせてはならない。
+  //       逆に、数秒にわたって全ゼロなら確実に壊れているので必ず復旧を走らせる。
+  check("全ゼロが0.5秒(=一瞬)では発火しない", runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 500 }).length === 0,
+    `${runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 500 }).length}回`);
+  check("全ゼロが1.0秒でも発火しない", runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 1000 }).length === 0,
+    `${runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 1000 }).length}回`);
+  check("全ゼロが3.0秒続けば必ず発火する", runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 3000 }).length >= 1,
+    `${runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 3000 }).length}回`);
+  // 低フレームレート(30ms/フレーム)の端末でも同じ時間感覚で動く(フレーム数ではなく時間で判定している)
+  check("30ms/フレームの端末でも0.5秒では発火しない",
+    runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 500, frameIntervalMs: 30 }).length === 0);
+  check("30ms/フレームの端末でも3.0秒なら発火する",
+    runWatchdog({ volumeDb: ALL_ZERO_DB, ms: 3000, frameIntervalMs: 30 }).length >= 1);
+
+  // --- 単発呼び出しの契約 ---
+  {
+    const r1 = api.shouldRecoverFromSilence({ volumeDb: ALL_ZERO_DB, prevSilentFrames: 0, frameIntervalMs: 16.7, nowMs: 1e6, lastRecoverAtMs: 0 });
+    check("無音フレームでカウンタが増える", r1.silentFrames === 1 && r1.recover === false);
+    const r2 = api.shouldRecoverFromSilence({ volumeDb: QUIET_ROOM_DB, prevSilentFrames: 999, frameIntervalMs: 16.7, nowMs: 1e6, lastRecoverAtMs: 0 });
+    check("音があればカウンタは0に戻る", r2.silentFrames === 0 && r2.recover === false);
+    // フレーム間隔が不明(0)のうちは時間換算できないので発火しない
+    const r3 = api.shouldRecoverFromSilence({ volumeDb: ALL_ZERO_DB, prevSilentFrames: 9999, frameIntervalMs: 0, nowMs: 1e6, lastRecoverAtMs: 0 });
+    check("フレーム間隔が未計測(0)なら発火しない", r3.recover === false);
+    // クールダウン中は発火しない
+    const r4 = api.shouldRecoverFromSilence({ volumeDb: ALL_ZERO_DB, prevSilentFrames: 9999, frameIntervalMs: 16.7, nowMs: 1e6, lastRecoverAtMs: 1e6 - 1 });
+    check("クールダウン中は発火しない", r4.recover === false);
+    // NaN(計算不能)は安全側=無音として扱う
+    const r5 = api.shouldRecoverFromSilence({ volumeDb: NaN, prevSilentFrames: 0, frameIntervalMs: 16.7, nowMs: 1e6, lastRecoverAtMs: 0 });
+    check("NaNは安全側(無音)として数える", r5.silentFrames === 1);
+  }
+
+  // --- AudioContext の状態分類 ---
+  check("running はそのまま使える", api.audioCtxRecoveryAction("running") === "ok");
+  check("suspended は resume で戻す", api.audioCtxRecoveryAction("suspended") === "resume");
+  check("iOS固有の interrupted も resume で戻す", api.audioCtxRecoveryAction("interrupted") === "resume");
+  check("closed は作り直す", api.audioCtxRecoveryAction("closed") === "rebuild");
+  check("未知の状態は安全側(作り直し)", api.audioCtxRecoveryAction("something-new") === "rebuild");
+  check("undefined でも例外を投げず作り直しに倒す", api.audioCtxRecoveryAction(undefined) === "rebuild");
+
+  // --- トラックの生存判定 ---
+  const mkTrack = (readyState, muted) => ({ readyState, muted });
+  check("live かつ muted=false なら使える", api.isMicTrackUsable(mkTrack("live", false)) === true);
+  check("live でも muted=true なら使えない", api.isMicTrackUsable(mkTrack("live", true)) === false);
+  check("ended なら使えない", api.isMicTrackUsable(mkTrack("ended", false)) === false);
+  check("ended かつ muted=true なら使えない", api.isMicTrackUsable(mkTrack("ended", true)) === false);
+  check("null/undefined でも例外を投げない", api.isMicTrackUsable(null) === false && api.isMicTrackUsable(undefined) === false);
+  {
+    const mkStream = (tracks) => ({ getTracks: () => tracks });
+    check("生きたトラックを持つstreamは使える", api.isMicStreamUsable(mkStream([mkTrack("live", false)])) === true);
+    check("mutedなトラックだけのstreamは使えない", api.isMicStreamUsable(mkStream([mkTrack("live", true)])) === false);
+    check("endedなトラックだけのstreamは使えない", api.isMicStreamUsable(mkStream([mkTrack("ended", false)])) === false);
+    check("トラック0本のstreamは使えない", api.isMicStreamUsable(mkStream([])) === false);
+    check("stream が null でも例外を投げない", api.isMicStreamUsable(null) === false);
+  }
+
+  // --- タップでの再試行にもクールダウンがある(連打で連打ぶんだけマイクを取り直さない) ---
+  // 実測(Browserペイン)で、これが0だと20連打で20回getUserMediaが走ることを確認している。
+  check("タップ再試行のクールダウンは0より大きい", api.MIC_RETRY_TAP_COOLDOWN_MS > 0, `${api.MIC_RETRY_TAP_COOLDOWN_MS}ms`);
+  check("タップ再試行は自動復旧より待たされない", api.MIC_RETRY_TAP_COOLDOWN_MS <= api.MIC_RECOVER_COOLDOWN_MS,
+    `tap=${api.MIC_RETRY_TAP_COOLDOWN_MS} / auto=${api.MIC_RECOVER_COOLDOWN_MS}`);
+  {
+    // 復旧経路はこの2つの定数以外のクールダウンを持たない(経路ごとの独自クールダウンは連打を招く)
+    const usesTap = /const cooldown = urgent \? MIC_RETRY_TAP_COOLDOWN_MS : MIC_RECOVER_COOLDOWN_MS;/.test(src);
+    check("復旧のクールダウンは urgent で2定数を切り替える1箇所だけ", usesTap);
+    check("復旧経路は録音中に走らない", /const recoverMic = useCallback\(async \(reason, urgent = false\) => \{\s*\n\s*if \(isRecordingRef\.current\) return false;/.test(src));
+  }
+
+  // --- ソース側の契約(定数の一元化・購読・既存設定の維持) ---
+  {
+    const assigns = (src.match(/audioSession\.type\s*=/g) || []).length;
+    check("navigator.audioSession.type への代入は1箇所だけ", assigns === 1, `${assigns}箇所`);
+    check("その代入は定数 AUDIO_SESSION_TYPE を使っている", /audioSession\.type = AUDIO_SESSION_TYPE;/.test(src));
+    check("AUDIO_SESSION_TYPE は非空の文字列", typeof api.AUDIO_SESSION_TYPE === "string" && api.AUDIO_SESSION_TYPE.length > 0, String(api.AUDIO_SESSION_TYPE));
+    check("トラックの onmute を購読している", /\.onmute = \(\) => \{ recoverMicRef\.current/.test(src));
+    check("トラックの onended を購読している", /\.onended = \(\) => \{ recoverMicRef\.current/.test(src));
+    check("復旧失敗時に errorMsg を出している", /setErrorMsg\(MIC_RECOVER_FAILED_MSG\)/.test(src));
+    check("復旧失敗の文言はタップでの再試行を促している", /const MIC_RECOVER_FAILED_MSG = "[^"]*画面をタップ[^"]*";/.test(src));
+    // 既存のメトロノーム出力設定(ゲイン・リミッター)を変えていないこと
+    check("メトロノームのマスターゲインは2.6のまま", /master\.gain\.value = 2\.6;/.test(src));
+    check("リミッターのthresholdは-3のまま", /limiter\.threshold\.value = -3;/.test(src));
+    check("リミッターのratioは20のまま", /limiter\.ratio\.value = 20;/.test(src));
+    check("リミッターのknee/attack/releaseも維持",
+      /limiter\.knee\.value = 0;/.test(src) && /limiter\.attack\.value = 0\.002;/.test(src) && /limiter\.release\.value = 0\.05;/.test(src));
   }
 }
 
