@@ -132,6 +132,27 @@ const code = [
   extractFunction("isMicTrackUsable"),
   extractFunction("isMicStreamUsable"),
   extractFunction("shouldRecoverFromSilence"),
+  // リードの主観評価(総評/厚さ/バランス)。1〜5の整数化・履歴の追加判定・グラフの座標
+  extractConst("REED_SCORE_MIN"),
+  extractConst("REED_SCORE_MAX"),
+  extractConst("REED_SCORE_STEPS"),
+  extractConst("REED_SCORE_KEYS"),
+  extractConst("RATING_DIAL_ORDER"),
+  extractConst("RATING_DIAL_ITEM_H"),
+  extractConst("REED_SCORE_NEUTRAL"),
+  extractConst("REED_SCORE_PLOT_H"),
+  extractFunction("normalizeReedScore"),
+  extractFunction("reedHistoryEntry"),
+  extractFunction("normalizeRatingHistory"),
+  extractFunction("commitReedScores"),
+  extractFunction("ratingDialValueAt"),
+  extractFunction("ratingDialOffsetFor"),
+  extractFunction("ratingDialScrollIsUser"),
+  extractFunction("reedScoreY"),
+  extractFunction("reedScoreX"),
+  extractFunction("reedScoreSegments"),
+  extractFunction("reedScoreLabelStep"),
+  extractFunction("reedScoreDateLabel"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -153,7 +174,12 @@ const api = new Function(`${code}
            RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_PITCH_ARC_D,
            audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
            SILENCE_WATCHDOG_DB, SILENCE_WATCHDOG_SUSTAIN_MS, MIC_RECOVER_COOLDOWN_MS,
-           MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE };`)();
+           MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE,
+           REED_SCORE_MIN, REED_SCORE_MAX, REED_SCORE_STEPS, REED_SCORE_KEYS,
+           RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_NEUTRAL, REED_SCORE_PLOT_H,
+           normalizeReedScore, reedHistoryEntry, normalizeRatingHistory, commitReedScores,
+           ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
+           reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -1236,6 +1262,311 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
     check("リミッターのratioは20のまま", /limiter\.ratio\.value = 20;/.test(src));
     check("リミッターのknee/attack/releaseも維持",
       /limiter\.knee\.value = 0;/.test(src) && /limiter\.attack\.value = 0\.002;/.test(src) && /limiter\.release\.value = 0\.05;/.test(src));
+  }
+}
+
+// ============================================================
+// 14. リードの主観評価(総評 / 厚さ / バランス)
+//
+// このハーネスは JSX を見ないので、描画側を壊してもここは緑のまま通る。
+// **テストで守れているのは以下の純関数の振る舞いだけ**であり、
+// 「数値だけを表示する」「モーダルが fixed で浮く」といった描画の要件は
+// ソース文字列の照合(この節の後半)と Browserペインでの実測で確認している。
+// ============================================================
+console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴・グラフ) ==========");
+{
+  // Reactコンポーネントは引数が分割代入(function Foo({ a, b }))なので、
+  // 「function の次の { から数える」extractFunction では引数リストで閉じてしまい本文が取れない。
+  // 引数リストの ) を跨いでから本文の { を数える版をここに置く(ソース照合専用。evalはしない)。
+  const sourceOf = (name) => {
+    const idx = src.indexOf(`function ${name}(`);
+    if (idx === -1) throw new Error(`function ${name} not found`);
+    let i = src.indexOf("(", idx), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+    }
+    while (i < src.length && src[i] !== "{") i++;
+    depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+    }
+    throw new Error(`function ${name}: unbalanced braces`);
+  };
+  // sourceOf 自体が壊れていたら以降の照合がすべて無意味になるので、先に自己検査する
+  check("sourceOf が分割代入の引数を跨いで本文を取れている",
+    sourceOf("ReedScoreField").includes("</div>") && sourceOf("ReedScoreField").length > 400,
+    `${sourceOf("ReedScoreField").length}文字`);
+
+  const N = api.normalizeReedScore;
+
+  // --- 1〜5の整数への正規化。既存の0.1刻みデータ・0・null を壊さずに読む ---
+  check("小数は四捨五入する(3.7→4)", N(3.7) === 4, String(N(3.7)));
+  check("小数は四捨五入する(3.4→3)", N(3.4) === 3, String(N(3.4)));
+  check("0 は未評価(null)", N(0) === null, String(N(0)));
+  check("null は未評価", N(null) === null);
+  check("undefined は未評価", N(undefined) === null);
+  check("負値は未評価", N(-2) === null, String(N(-2)));
+  check("上限を超えたら5にクランプ", N(9.9) === 5, String(N(9.9)));
+  check("0より大きく1未満は1にクランプ", N(0.4) === 1, String(N(0.4)));
+  check("文字列の数値も読める", N("4") === 4, String(N("4")));
+  check("数値でない文字列は未評価", N("abc") === null, String(N("abc")));
+  check("NaN は未評価", N(NaN) === null);
+  check("整数はそのまま", [1, 2, 3, 4, 5].every((v) => N(v) === v));
+  // 段階数の要件(本人指示「五段階でいい」)。0.1刻み(50段階)に戻したらここが落ちる
+  {
+    const distinct = new Set();
+    for (let x = 0.1; x <= 5.001; x += 0.1) { const v = N(Math.round(x * 10) / 10); if (v !== null) distinct.add(v); }
+    check("0.1刻みの入力を投げても取りうる値は5段階だけ", distinct.size === 5, `${distinct.size}段階`);
+    check("その5段階は1〜5", [...distinct].sort().join(",") === "1,2,3,4,5", [...distinct].sort().join(","));
+  }
+  check("REED_SCORE_MIN/MAX は 1/5", api.REED_SCORE_MIN === 1 && api.REED_SCORE_MAX === 5,
+    `${api.REED_SCORE_MIN}〜${api.REED_SCORE_MAX}`);
+  check("スライダーの目盛は5段", api.REED_SCORE_STEPS.length === 5 && api.REED_SCORE_STEPS.join(",") === "1,2,3,4,5",
+    api.REED_SCORE_STEPS.join(","));
+
+  // --- ダイヤルは上が5・下が1(本人指示) ---
+  check("ダイヤルの上端は5", api.RATING_DIAL_ORDER[0] === 5, String(api.RATING_DIAL_ORDER[0]));
+  check("ダイヤルの下端は1", api.RATING_DIAL_ORDER[api.RATING_DIAL_ORDER.length - 1] === 1,
+    String(api.RATING_DIAL_ORDER[api.RATING_DIAL_ORDER.length - 1]));
+  check("ダイヤルは5段", api.RATING_DIAL_ORDER.length === 5, `${api.RATING_DIAL_ORDER.length}段`);
+  check("ダイヤルは上から下へ降順(途中で入れ替わっていない)",
+    api.RATING_DIAL_ORDER.every((v, i, a) => i === 0 || a[i - 1] > v), api.RATING_DIAL_ORDER.join(","));
+  // 「上が5」を座標で言い直す: スクロール位置0(いちばん上)で5が選ばれること
+  {
+    const H = api.RATING_DIAL_ITEM_H;
+    check("スクロール最上部で5が選ばれる", api.ratingDialValueAt(0, H) === 5, String(api.ratingDialValueAt(0, H)));
+    check("スクロール最下部で1が選ばれる", api.ratingDialValueAt(H * 4, H) === 1, String(api.ratingDialValueAt(H * 4, H)));
+    check("下へスクロールするほど値が小さくなる",
+      [0, 1, 2, 3, 4].every((i, k, a) => k === 0 || api.ratingDialValueAt(a[k - 1] * H, H) > api.ratingDialValueAt(i * H, H)));
+    check("行き過ぎても範囲外にならない",
+      api.ratingDialValueAt(-999, H) === 5 && api.ratingDialValueAt(99999, H) === 1);
+    check("値→位置は位置→値の逆写像",
+      [1, 2, 3, 4, 5].every((v) => api.ratingDialValueAt(api.ratingDialOffsetFor(v, H), H) === v));
+    check("未評価は中央(3)の位置に置く", api.ratingDialOffsetFor(null, H) === api.ratingDialOffsetFor(api.REED_SCORE_NEUTRAL, H));
+    // 未評価のダイヤルを中央に置くための scrollTop 代入で「3を選んだ」ことにしない。
+    // これを取り違えると、開いて閉じただけで履歴が1件増える(項目6違反)。実機で踏んだ罠。
+    {
+      const parked = api.ratingDialOffsetFor(null, H);
+      check("位置合わせぶんのスクロールは確定に使わない", api.ratingDialScrollIsUser(parked, parked) === false);
+      check("1px以内のずれも位置合わせ扱い", api.ratingDialScrollIsUser(parked + 1, parked) === false);
+      check("指で動かしたスクロールは確定に使う", api.ratingDialScrollIsUser(parked + H, parked) === true);
+      check("位置合わせ待ちが無ければ常に確定に使う", api.ratingDialScrollIsUser(parked, null) === true);
+      check("位置合わせ後に中央(3)へ戻す操作は確定に使う(3を選べなくならない)",
+        api.ratingDialScrollIsUser(parked, parked + H) === true);
+    }
+    // タップ領域(DESIGN-SYSTEM §5)。行そのものが選択の当たり判定
+    check("ダイヤルの1行は44pt以上", api.RATING_DIAL_ITEM_H >= 44, `${api.RATING_DIAL_ITEM_H}px`);
+  }
+
+  // --- 履歴の後方互換(旧形式 {value, at} を書き換えずに読む) ---
+  {
+    const at = "2026-07-31T01:00:00.000Z";
+    const legacy = api.reedHistoryEntry({ value: 3.7, at });
+    check("旧形式の value を rating として読む", legacy.rating === 4, String(legacy.rating));
+    check("旧形式では厚さは未評価扱い", legacy.thickness === null);
+    check("旧形式ではバランスは未評価扱い", legacy.balance === null);
+    const modern = api.reedHistoryEntry({ at, rating: 2, thickness: 5, balance: 1 });
+    check("新形式は3つとも読む", modern.rating === 2 && modern.thickness === 5 && modern.balance === 1);
+    check("新形式で rating が null なら null のまま(value に落ちない)",
+      api.reedHistoryEntry({ at, rating: null, value: 5 }).rating === null);
+    const mixed = api.normalizeRatingHistory([
+      { value: 2, at: "2026-07-30T00:00:00.000Z" },
+      { at: "2026-07-28T00:00:00.000Z", rating: 5, thickness: 3, balance: null },
+      { at: "こわれた日付", rating: 4 },
+      null,
+    ]);
+    check("読めない日時と null のエントリは落とす", mixed.length === 2, `${mixed.length}件`);
+    check("古い順に並ぶ", new Date(mixed[0].at) < new Date(mixed[1].at));
+    check("空・未定義でも例外を投げない",
+      api.normalizeRatingHistory(undefined).length === 0 && api.normalizeRatingHistory([]).length === 0);
+  }
+
+  // --- 変更があった時だけ記録する(項目6) ---
+  {
+    const at = "2026-08-01T05:00:00.000Z";
+    const reed = { rating: 3, thickness: 2, balance: null, ratings: [{ at: "2026-07-31T00:00:00.000Z", rating: 3, thickness: 2, balance: null }] };
+    check("同じ値で確定したら何も書かない",
+      api.commitReedScores(reed, { rating: 3, thickness: 2, balance: null }, at) === null);
+    check("開いただけ(ドラフト=現在値)でも何も書かない",
+      api.commitReedScores(reed, { rating: reed.rating, thickness: reed.thickness, balance: reed.balance }, at) === null);
+    const p = api.commitReedScores(reed, { rating: 3, thickness: 2, balance: 4 }, at);
+    check("1つ変えたら patch が返る", p !== null);
+    check("変わっていない項目は patch に入れない(既存値を書き換えない)",
+      p && !("rating" in p) && !("thickness" in p) && p.balance === 4, p ? Object.keys(p).join(",") : "null");
+    check("履歴が1件だけ増える", p.ratings.length === reed.ratings.length + 1, `${p.ratings.length}件`);
+    check("追加された履歴は3つ全部の値を持つ",
+      p.ratings[1].rating === 3 && p.ratings[1].thickness === 2 && p.ratings[1].balance === 4);
+    check("追加された履歴は日時を持つ", p.ratings[1].at === at);
+    check("既存の履歴エントリはそのまま残る", p.ratings[0] === reed.ratings[0]);
+    // 小数・0 の既存データ: 表示上は同じ値なので「変わっていない」と判定して書かない
+    const legacyReed = { rating: 3.7, thickness: 0, balance: null, ratings: [] };
+    check("小数の現在値と丸めた値が同じなら書かない",
+      api.commitReedScores(legacyReed, { rating: 4, thickness: null, balance: null }, at) === null);
+    const lp = api.commitReedScores(legacyReed, { rating: 5, thickness: null, balance: null }, at);
+    check("小数の現在値でも実際に変えれば書く", lp !== null && lp.rating === 5);
+    check("履歴0件からでも1件だけ積む", lp.ratings.length === 1, `${lp.ratings.length}件`);
+    check("小数は整数で保存される", Number.isInteger(lp.ratings[0].rating));
+    // 直前の記録と3つとも同じなら履歴は増やさない(現在値だけがずれていた場合)
+    const skew = { rating: 2, thickness: null, balance: null, ratings: [{ at: "2026-07-01T00:00:00.000Z", rating: 4, thickness: null, balance: null }] };
+    const sp = api.commitReedScores(skew, { rating: 4, thickness: null, balance: null }, at);
+    check("直前の記録と同じ値なら履歴は増やさない", sp !== null && !("ratings" in sp), sp ? Object.keys(sp).join(",") : "null");
+    check("それでも現在値は更新する", sp.rating === 4);
+    // 未評価に戻すのも「変更」
+    const clear = api.commitReedScores({ rating: 4, thickness: null, balance: null, ratings: [] }, { rating: null, thickness: null, balance: null }, at);
+    check("評価を消すのも変更として記録する", clear !== null && clear.rating === null && clear.ratings.length === 1);
+    check("reed が空でも例外を投げない",
+      api.commitReedScores({}, { rating: null, thickness: null, balance: null }, at) === null);
+  }
+
+  // --- グラフの座標: 縦軸は1〜5固定 ---
+  {
+    const padTop = 12, plotH = api.REED_SCORE_PLOT_H;
+    check("5は作図域の上端", api.reedScoreY(5, padTop, plotH) === padTop, String(api.reedScoreY(5, padTop, plotH)));
+    check("1は作図域の下端", api.reedScoreY(1, padTop, plotH) === padTop + plotH, String(api.reedScoreY(1, padTop, plotH)));
+    check("3は中央", api.reedScoreY(3, padTop, plotH) === padTop + plotH / 2, String(api.reedScoreY(3, padTop, plotH)));
+    check("値が大きいほど上に来る",
+      [1, 2, 3, 4, 5].every((v, i, a) => i === 0 || api.reedScoreY(a[i - 1], padTop, plotH) > api.reedScoreY(v, padTop, plotH)));
+    check("目盛の間隔は等間隔",
+      Math.abs((api.reedScoreY(1, padTop, plotH) - api.reedScoreY(2, padTop, plotH)) -
+               (api.reedScoreY(4, padTop, plotH) - api.reedScoreY(5, padTop, plotH))) < 1e-9);
+    // 「データに応じて伸縮させない」: yAt はデータを引数に取らないので、
+    // どんなデータでも 3 の位置は同じ。仮に自動フルスケールに戻すと reedScoreY の
+    // シグネチャ自体が変わるためこの呼び出しが壊れる。
+    check("縦軸はデータを見ない(引数はvalue/padTop/plotHの3つだけ)", api.reedScoreY.length === 3, `${api.reedScoreY.length}引数`);
+
+    // 横軸
+    check("1件しかないときは中央に置く", api.reedScoreX(0, 1, 100, 300) === 200, String(api.reedScoreX(0, 1, 100, 300)));
+    check("0件でも例外を投げない", Number.isFinite(api.reedScoreX(0, 0, 100, 300)));
+    check("複数件は左端から右端まで等間隔",
+      api.reedScoreX(0, 3, 100, 300) === 100 && api.reedScoreX(1, 3, 100, 300) === 200 && api.reedScoreX(2, 3, 100, 300) === 300);
+    check("新しい記録ほど右", api.reedScoreX(0, 5, 0, 400) < api.reedScoreX(4, 5, 0, 400));
+
+    // 欠測(未評価)で線を繋がない
+    const segs = api.reedScoreSegments([3, null, 4, 5]);
+    check("未評価をまたいで線を繋がない", segs.length === 2, `${segs.length}区間`);
+    check("未評価の前後で区間が分かれる", JSON.stringify(segs) === JSON.stringify([[0], [2, 3]]), JSON.stringify(segs));
+    check("全部未評価なら区間0", api.reedScoreSegments([null, null]).length === 0);
+    check("全部評価済みなら1区間", api.reedScoreSegments([1, 2, 3]).length === 1);
+    check("undefined も欠測として扱う", api.reedScoreSegments([1, undefined, 2]).length === 2);
+    check("先頭・末尾の欠測で空区間を作らない",
+      JSON.stringify(api.reedScoreSegments([null, 2, 3, null])) === JSON.stringify([[1, 2]]));
+    check("空配列でも例外を投げない", api.reedScoreSegments([]).length === 0 && api.reedScoreSegments(null).length === 0);
+    // 欠測は「線を繋がない」だけで、点は打つ(値がある記録は必ず見える)
+    check("欠測を挟んだ1点だけの区間も区間として残る",
+      JSON.stringify(api.reedScoreSegments([1, null, 2, null, 3])) === JSON.stringify([[0], [2], [4]]));
+
+    // 日付ラベル
+    check("記録が1件ならラベルは間引かない", api.reedScoreLabelStep(0, 40, 1) === 1);
+    check("間隔が足りていれば間引かない", api.reedScoreLabelStep(50, 40, 10) === 1, String(api.reedScoreLabelStep(50, 40, 10)));
+    check("間隔が半分なら1つおき", api.reedScoreLabelStep(20, 40, 10) === 2, String(api.reedScoreLabelStep(20, 40, 10)));
+    check("間隔が0でも0除算しない", Number.isFinite(api.reedScoreLabelStep(0, 40, 10)));
+    check("日付ラベルは M/D", api.reedScoreDateLabel("2026-07-31T12:00:00") === "7/31", api.reedScoreDateLabel("2026-07-31T12:00:00"));
+    check("読めない日付は空文字", api.reedScoreDateLabel("こわれた") === "");
+  }
+
+  // --- ソース側の契約(ハーネスが見られない描画の要件をここで押さえる) ---
+  {
+    // 項目7: テキストの履歴行を消したこと
+    check("「履歴:」のテキスト行が残っていない", !/>\s*履歴:\s*</.test(src) && !src.includes("履歴:"));
+    // 項目2: 厚さ・バランスに★を出さない。StarRating 自体は他画面で使うので残す
+    check("StarRating コンポーネントは残っている", /function StarRating\(/.test(src));
+    check("RatingSlider は StarRating を呼ばない", !/RatingSlider[\s\S]{0,1400}?<StarRating/.test(sourceOf("RatingSlider")));
+    check("RatingDial は StarRating を呼ばない", !sourceOf("RatingDial").includes("<StarRating"));
+    check("ReedScoreField は StarRating を呼ばない", !sourceOf("ReedScoreField").includes("<StarRating"));
+    check("ReedScoreEditor は StarRating を呼ばない", !sourceOf("ReedScoreEditor").includes("<StarRating"));
+    // 項目1: スライダーは5段階(0.1刻みの復活を止める)
+    check("スライダーの step は1", /step="1"/.test(sourceOf("RatingSlider")));
+    check("スライダーに step 0.1 が残っていない", !/step="0\.1"/.test(sourceOf("RatingSlider")));
+    check("スライダーの範囲は REED_SCORE_MIN〜MAX", /min=\{REED_SCORE_MIN\} max=\{REED_SCORE_MAX\}/.test(sourceOf("RatingSlider")));
+    // 項目3: ダイヤルの並びは定数から引く(その場で reverse したりしない)
+    check("ダイヤルは RATING_DIAL_ORDER を順に描く", /RATING_DIAL_ORDER\.map\(/.test(sourceOf("RatingDial")));
+    check("ダイヤルが並びを反転していない", !/RATING_DIAL_ORDER\][\s\S]*?\.reverse\(\)/.test(sourceOf("RatingDial")));
+    // 項目4/5 + §6.1.5: 編集UIは fixed のモーダルで、暗幕・影は既存モーダルと同値
+    {
+      const ed = sourceOf("ReedScoreEditor");
+      check("編集ダイアログは position:fixed(流れから外す)", /position: "fixed"/.test(ed));
+      check("暗幕は既存モーダルと同値", ed.includes('background: "rgba(15,23,42,0.28)"'));
+      check("影は既存モーダルと同値", ed.includes('boxShadow: "0 8px 24px rgba(15,23,42,0.18)"'));
+      check("カードの角丸は --r-lg", ed.includes('borderRadius: "var(--r-lg)"'));
+      // 暗幕(role="dialog" の容器)自身が onClose を持つこと。完了ボタンにも同じ属性があるので、
+      // 単に onClick={onClose} を探すと暗幕から外しても気づけない
+      check("暗幕自身のタップで閉じる", /role="dialog"[\s\S]{0,120}?onClick=\{onClose\}[\s\S]{0,80}?position: "fixed"/.test(ed));
+      check("完了ボタンは --tap-min 以上", /minHeight: "var\(--tap-min\)"/.test(ed));
+      // 暗幕・影の値がアプリ全体で1種類であること(新しい濃さを発明していない)
+      const scrimVals = new Set(src.match(/background: "rgba\(15,\s*23,\s*42,\s*[\d.]+\)"/g) || []);
+      const shadowVals = new Set(src.match(/boxShadow: "[^"]*rgba\(15,\s*23,\s*42,\s*[\d.]+\)"/g) || []);
+      const scrims = (src.match(/background: "rgba\(15,23,42,0\.28\)"/g) || []).length;
+      const shadows = (src.match(/boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) || []).length;
+      check("暗幕の値はアプリ内で1種類", scrimVals.size === 1, `${scrimVals.size}種 / ${scrims}箇所`);
+      check("モーダルの影の値はアプリ内で1種類", shadowVals.size === 1, `${shadowVals.size}種 / ${shadows}箇所`);
+      check("その1種類を3箇所以上(ScrollPicker/保存確認/評価編集)が共有している", scrims >= 3 && shadows >= 3, `暗幕${scrims} / 影${shadows}`);
+    }
+    // 項目4/5: 通常時はダイヤル/スライダーが出ていない(数値だけ)
+    {
+      const detail = sourceOf("ReedEvaluationDetail");
+      check("詳細ビューは RatingDial を直接描かない", !detail.includes("<RatingDial"));
+      check("詳細ビューは RatingSlider を直接描かない", !detail.includes("<RatingSlider"));
+      check("詳細ビューは数値フィールドを描く", detail.includes("<ReedScoreField"));
+      check("詳細ビューは編集ダイアログを条件付きで描く", /\{editingField && \(\s*<ReedScoreEditor/.test(detail));
+      check("詳細ビューは評価の推移グラフを描く", detail.includes("<ReedScoreHistoryChart"));
+      check("確定は commitReedScores 経由の1箇所だけ", (detail.match(/commitReedScores\(/g) || []).length === 1);
+      check("履歴への直接 push が残っていない", !/ratings: \[\.\.\.\(reed\.ratings \|\| \[\]\), \{ value/.test(detail));
+    }
+    // 合格ライン15: 共通部品を共有していること(同等品の重複実装が無い)
+    for (const [name, re] of [
+      ["useMeasuredWidth", /function useMeasuredWidth\(/g],
+      ["fitLabel", /function fitLabel\(/g],
+      ["measureSvgTextPx", /function measureSvgTextPx\(/g],
+      ["SERIES_STYLES", /const SERIES_STYLES = /g],
+      ["SVG_FS_XS", /const SVG_FS_XS = /g],
+    ]) {
+      const n = (src.match(re) || []).length;
+      check(`${name} の定義は1つだけ(重複実装が無い)`, n === 1, `${n}箇所`);
+    }
+    {
+      const chart = sourceOf("ReedScoreHistoryChart");
+      check("グラフは useMeasuredWidth を使う", chart.includes("useMeasuredWidth()"));
+      check("グラフは SERIES_STYLES を使う", chart.includes("SERIES_STYLES["));
+      check("グラフは SVG_FS_XS を使う", chart.includes("SVG_FS_XS"));
+      check("グラフは fitLabel を使う", chart.includes("fitLabel("));
+      check("グラフは measureSvgTextPx を使う", chart.includes("measureSvgTextPx("));
+      check("グラフの実寸と viewBox は 1:1", /width=\{W\} height=\{L\.H\} viewBox=\{`0 0 \$\{W\} \$\{L\.H\}`\}/.test(chart));
+      check("preserveAspectRatio による全体縮小をしていない", !chart.includes("preserveAspectRatio"));
+      check("グラフの縦軸目盛は RATING_DIAL_ORDER(1〜5固定)", /RATING_DIAL_ORDER\.map\(/.test(chart));
+      // 自動フルスケール描画に戻していないこと(NoteAxisLineChart はデータから lo/hi/rng を作る。
+      // ここはそれを持たず、y の写像は reedScoreY(=1〜5固定)しか無い)
+      check("グラフの y 写像は reedScoreY だけ", /yAt: \(v\) => reedScoreY\(v, padTop, plotH\)/.test(chart));
+      check("グラフはデータから縦軸の範囲を作っていない", !/const (lo|hi|rng|minV|maxV|pad) =/.test(chart));
+      check("グラフは履歴値の min/max を取っていない", !/Math\.(min|max)\([^;]*history/.test(chart));
+      check("グラフの系列は3本", (chart.match(/\{ key: "(rating|thickness|balance)"/g) || []).length === 3);
+      check("空状態は「育つ」の語り口", chart.includes("評価するとここに折れ線が育ちます"));
+      check("線は2点以上の区間だけ引く", chart.includes("filter((seg) => seg.length >= 2)"));
+    }
+    // §1.7/§1.8: 系列は紺3段・機能色を使わない
+    {
+      const s = api ? null : null; // SERIES_STYLES は JSX 側の定数なのでソースで確認する
+      const block = extractConst("SERIES_STYLES");
+      check("系列色に機能色(緑/橙/赤)を使っていない", !/#16A34A|#D97706|#DC2626/.test(block));
+      check("系列1は --c-accent の実線2px", /\{ color: "var\(--c-accent\)",\s+width: 2, dash: null \}/.test(block));
+      check("系列2は --c-accent-mid の実線2px", /\{ color: "var\(--c-accent-mid\)",\s+width: 2, dash: null \}/.test(block));
+      check("系列3は --c-accent-line の実線3px", /\{ color: "var\(--c-accent-line\)", width: 3, dash: null \}/.test(block));
+      void s;
+    }
+    // §1.9/§4.1: グラフ内の文字は12px以上、目盛の余白は左右8px・上下4px以上
+    check("グラフSVG内の文字サイズは12px(--fs-xs)", api.REED_SCORE_PLOT_H > 0 && /const SVG_FS_XS = 12;/.test(src));
+    {
+      const chart = sourceOf("ReedScoreHistoryChart");
+      check("目盛の左右余白は --sp-2 以上", /const TICK_GAP = SVG_SP2 \+ SVG_SP1;/.test(chart));
+      check("上端の余白は --sp-1 以上", /const padTop = SVG_SP2 \+ SVG_SP1;/.test(chart));
+      check("下端の余白は --sp-1 以上", /H: labelY \+ SVG_SP2,/.test(chart));
+    }
+    // 立入禁止の確認: リードのデータモデルを壊していない
+    check("リード新規作成の rating 初期値は null のまま", /rating: null, \/\/ 主観の5段階評価/.test(src));
+    check("thickness の初期値は null のまま", /thickness: null, \/\/ 主観の厚さ/.test(src));
+    check("balance の初期値は null のまま", /balance: null,\s+\/\/ 主観のバランス/.test(src));
+    check("pitchBarColorRGB を触っていない", /function pitchBarColorRGB\(/.test(src));
   }
 }
 

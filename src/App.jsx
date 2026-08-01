@@ -4843,7 +4843,143 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
   );
 }
 
-// 主観評価の表示(0.1刻み)。星を部分的に塗って小数の評価を表す。編集はRatingSliderで行う。
+// ============================================================================
+// リードの主観評価(総評 / 厚さ / バランス)の共通ルール。
+//
+// 3つとも **1〜5の整数**・未評価は **null** に統一する(本人指示: 「厚さとバランスは
+// 五段階でいい」)。以前は 0.1 刻みの50段階だったため、保存済みデータには小数や 0 が残る。
+// **既存データは書き換えない**。読み取り時にだけ整数へ丸めてクランプし、ユーザーが実際に
+// 値を変えたときだけ整数で保存する(壊してしまうと元の記録が復元できないため)。
+//
+// 純関数として切り出してあるのは、scripts/pitch-test.mjs のハーネスが JSX を見ないため。
+// 「同じ値なら履歴を増やさない」「未評価は線を繋がない」「縦軸は1〜5固定」といった
+// 要件は、この層に置いてテストで押さえる。
+// ============================================================================
+const REED_SCORE_MIN = 1;
+const REED_SCORE_MAX = 5;
+const REED_SCORE_STEPS = [1, 2, 3, 4, 5];
+const REED_SCORE_KEYS = ["rating", "thickness", "balance"];
+
+// ダイヤル・縦軸目盛の並び。**上が5・下が1**(本人指示: 「リードの総評ダイアルは上が5下が1」)。
+// グラフの縦軸目盛も上から下へ同じ並びなので、同じ定数を共有する。
+const RATING_DIAL_ORDER = [5, 4, 3, 2, 1];
+// ダイヤル1行の高さ。行そのものがタップ選択の当たり判定なので --tap-min(44px)。DESIGN-SYSTEM §5。
+const RATING_DIAL_ITEM_H = 44;
+// ダイヤル・スライダーで未評価から編集を始めるときに指を置く位置(中央)。
+// この値を**選んだことにはしない**(触らずに閉じれば null のまま)。
+const REED_SCORE_NEUTRAL = 3;
+
+// 評価値を 1〜5 の整数に正規化する。0 / null / undefined / 数値でないものは未評価(null)。
+function normalizeReedScore(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(REED_SCORE_MIN, Math.min(REED_SCORE_MAX, Math.round(n)));
+}
+
+// 履歴1件の読み取り。旧形式 { value, at }(総評だけの履歴)は value を rating として読み、
+// 厚さ・バランスは未評価とみなす。新形式は { at, rating, thickness, balance }。
+function reedHistoryEntry(h) {
+  if (!h) return { at: null, rating: null, thickness: null, balance: null };
+  const raw = Object.prototype.hasOwnProperty.call(h, "rating") ? h.rating : h.value;
+  return {
+    at: h.at ?? null,
+    rating: normalizeReedScore(raw),
+    thickness: normalizeReedScore(h.thickness),
+    balance: normalizeReedScore(h.balance),
+  };
+}
+
+// 履歴配列を読み取り用に正規化する(日時が読めないものは捨て、古い順に並べる)。
+function normalizeRatingHistory(list) {
+  return (list || [])
+    .map(reedHistoryEntry)
+    .filter((h) => h.at && !isNaN(new Date(h.at).getTime()))
+    .sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+// 評価の確定。**値が1つも変わっていなければ null を返す**(ページを開いただけ・同じ値で
+// ダイアログを閉じただけでは何も書かない)。変わっていれば、変わった項目だけを patch し、
+// 履歴には**3つ全部の現在値を1エントリ**として積む(グラフで同じx点に3本が揃うため)。
+// 直前の記録と3つとも同じなら履歴は増やさない。
+function commitReedScores(reed, next, at) {
+  const cur = {}, norm = {};
+  for (const k of REED_SCORE_KEYS) {
+    cur[k] = normalizeReedScore(reed ? reed[k] : null);
+    norm[k] = normalizeReedScore(next ? next[k] : null);
+  }
+  const changed = REED_SCORE_KEYS.filter((k) => norm[k] !== cur[k]);
+  if (changed.length === 0) return null;
+  const patch = {};
+  for (const k of changed) patch[k] = norm[k];
+  const list = (reed && reed.ratings) || [];
+  const last = list.length ? reedHistoryEntry(list[list.length - 1]) : null;
+  const same = last && REED_SCORE_KEYS.every((k) => last[k] === norm[k]);
+  if (!same) patch.ratings = [...list, { at, ...norm }];
+  return patch;
+}
+
+// ダイヤルのスクロール位置 ⇄ 値。RATING_DIAL_ORDER の並び(上が5)がそのまま index になる。
+function ratingDialValueAt(scrollTop, itemH) {
+  const i = Math.max(0, Math.min(RATING_DIAL_ORDER.length - 1, Math.round(scrollTop / itemH)));
+  return RATING_DIAL_ORDER[i];
+}
+function ratingDialOffsetFor(value, itemH) {
+  const v = normalizeReedScore(value) ?? REED_SCORE_NEUTRAL;
+  return Math.max(0, RATING_DIAL_ORDER.indexOf(v)) * itemH;
+}
+// そのscrollイベントを「指で動かした」とみなしてよいか。
+// 表示位置を合わせるために自分で scrollTop を代入したぶん(syncTarget)は確定に使わない。
+// 使ってしまうと、未評価(null)のダイヤルを中央(3)に置いた時点で 3 が選ばれたことになり、
+// 「開いて閉じただけで履歴が増える」(項目6違反)状態になる。
+function ratingDialScrollIsUser(scrollTop, syncTarget) {
+  if (syncTarget === null || syncTarget === undefined) return true;
+  return Math.abs(scrollTop - syncTarget) > 1;
+}
+
+// ============================================================================
+// 評価の経時変化グラフの座標。縦軸は **1〜5 で固定**(データに応じて伸縮させない。
+// DESIGN-SYSTEM §7「数値の自動フルスケール描画」をしない)。yAt はデータを引数に取らない
+// ので、値の分布が変わっても目盛の位置は動かない。
+// ============================================================================
+const REED_SCORE_PLOT_H = 94; // 作図高さ。リード比較の折れ線と同じ
+
+function reedScoreY(v, padTop, plotH) {
+  const t = (v - REED_SCORE_MIN) / (REED_SCORE_MAX - REED_SCORE_MIN);
+  return padTop + plotH - t * plotH;
+}
+// 横軸は記録1件につき1点。1件しかないときは中央に置く(端に貼り付くと欠けて見える)。
+function reedScoreX(i, n, x0, x1) {
+  if (n <= 1) return (x0 + x1) / 2;
+  return x0 + (i * (x1 - x0)) / (n - 1);
+}
+// 未評価(null)を欠測として扱い、連続して値がある区間の index 列に分ける。
+// 区間をまたいで線を引かないことで「評価していない期間」を繋がないようにする。
+function reedScoreSegments(values) {
+  const segs = [];
+  let cur = [];
+  for (let i = 0; i < (values || []).length; i++) {
+    const v = values[i];
+    if (v === null || v === undefined) { if (cur.length) segs.push(cur); cur = []; }
+    else cur.push(i);
+  }
+  if (cur.length) segs.push(cur);
+  return segs;
+}
+// 日付ラベルの間引き幅。隣り合うラベルの中心間に need px 要る。
+function reedScoreLabelStep(colStep, need, n) {
+  if (n <= 1) return 1;
+  if (colStep <= 0) return Math.max(1, n);
+  return Math.max(1, Math.ceil(need / colStep));
+}
+function reedScoreDateLabel(at) {
+  const d = new Date(at);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// 主観評価の表示(0.1刻み)。星を部分的に塗って小数の評価を表す。
+// リード一覧・比較タブの総評表示で使う(個別詳細では数値表示に統一したため使わない)。
 function StarRating({ value, size = 13 }) {
   const v = value || 0;
   return (
@@ -4861,79 +4997,163 @@ function StarRating({ value, size = 13 }) {
   );
 }
 
-// 主観評価の入力(0〜5・0.1刻みスライダー)。数値を右に表示する。onCommitは指を離した時に呼ぶ
-// (評価履歴への追記など、確定タイミングで実行したい処理に使う)。
-function RatingSlider({ value, onChange, onCommit }) {
-  const v = value ?? 0;
+// 厚さ・バランスの入力シークバー。**1〜5の整数の5段階**(以前は0〜5の0.1刻み=50段階)。
+// ダイアログの中でだけ使う。つまみの当たり判定を確保するため入力欄自体を --tap-min にする。
+function RatingSlider({ value, onChange }) {
+  const v = normalizeReedScore(value);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+    <div style={{ width: "100%" }} data-noswipe>
       <input
-        type="range" min="0" max="5" step="0.1" value={v}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        onPointerUp={() => onCommit?.()} onKeyUp={() => onCommit?.()}
-        style={{ flex: 1, accentColor: "#174585" }}
+        type="range" min={REED_SCORE_MIN} max={REED_SCORE_MAX} step="1"
+        value={v ?? REED_SCORE_NEUTRAL}
+        aria-valuetext={v === null ? "未評価" : String(v)}
+        onChange={(e) => onChange(normalizeReedScore(parseInt(e.target.value, 10)))}
+        style={{ display: "block", width: "100%", height: "var(--tap-min)", margin: 0, accentColor: "var(--c-accent)" }}
       />
-      <span style={{ fontFamily: "var(--font-num)", fontSize: 15, fontWeight: 700, color: "#174585", width: 30, textAlign: "right" }}>{v.toFixed(1)}</span>
+      <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--sp-1)" }}>
+        {REED_SCORE_STEPS.map((n) => (
+          <span key={n} style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: n === v ? "var(--c-accent)" : "var(--c-ink-3)", fontWeight: n === v ? 700 : 400 }}>{n}</span>
+        ))}
+      </div>
     </div>
   );
 }
 
-// 主観評価(総評)の入力: 縦スクロールのダイヤル。0.0〜5.0を0.1刻みで縦に並べ、中央枠に来た値を選ぶ。
-// スライダーより指の移動量あたりの分解能が高く、片手で微調整しやすい(ユーザー要望)。
-// スクロールが止まってからonCommitするため、履歴が1操作につき1件だけ積まれる。
-function RatingDial({ value, onChange, onCommit, height = 96 }) {
+// 総評の入力ダイヤル。**1〜5の整数を縦に並べ、上が5・下が1**(本人指示)。
+// 並び順は RATING_DIAL_ORDER が唯一の答え。行の高さは --tap-min(44px)で、
+// スクロールでも行タップでも選べる(スクロールが効かない環境でも操作できるようにする)。
+// 確定はダイアログを閉じたときに1回だけ行うので、ここでは onCommit を持たない。
+function RatingDial({ value, onChange }) {
   const ref = useRef(null);
-  const ITEM = 24;
-  const steps = useMemo(() => Array.from({ length: 51 }, (_, i) => i / 10), []);
-  const v = Math.max(0, Math.min(5, value ?? 0));
+  const ITEM = RATING_DIAL_ITEM_H;
+  const VISIBLE = 3;
+  const height = ITEM * VISIBLE;
+  const v = normalizeReedScore(value);
   const settleRef = useRef(null);
   const selfScrollRef = useRef(false);
-  // 確定(onCommit)はスクロール停止後に遅れて走るため、scrollハンドラのクロージャに載せると
-  // 1レンダー古いonCommit/値を呼んでしまう(保存値が1段ずれる)。最新のハンドラをrefで保持し、
-  // 値は引数で明示的に渡す。
-  const onCommitRef = useRef(onCommit);
-  useEffect(() => { onCommitRef.current = onCommit; });
+  // 表示位置を合わせるために**自分で**動かしたスクロール量。ここから来た scroll イベントは
+  // 確定に使わない。これが無いと、未評価(null)のダイヤルを中央(3)に置くだけで scroll が飛び、
+  // 「開いただけで3が入る」= 変更していないのに履歴が増える、という状態になる。
+  const syncTargetRef = useRef(null);
   // 外から値が変わった時だけスクロール位置を合わせる(自分のスクロール由来なら何もしない)
   useEffect(() => {
     const el = ref.current;
     if (!el || selfScrollRef.current) return;
-    const target = Math.round(v * 10) * ITEM;
-    if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
-  }, [v]);
+    const target = ratingDialOffsetFor(v, ITEM);
+    if (Math.abs(el.scrollTop - target) > 1) { syncTargetRef.current = target; el.scrollTop = target; }
+  }, [v, ITEM]);
   const onScroll = () => {
     const el = ref.current;
     if (!el) return;
-    const next = Math.max(0, Math.min(5, Math.round(el.scrollTop / ITEM) / 10));
+    const isUser = ratingDialScrollIsUser(el.scrollTop, syncTargetRef.current);
+    syncTargetRef.current = null;
+    if (!isUser) return; // 位置合わせぶん。指で動かしたものではないので確定しない
+    const next = ratingDialValueAt(el.scrollTop, ITEM);
     selfScrollRef.current = true;
-    if (Math.abs(next - v) > 0.001) onChange(next);
+    if (next !== v) onChange(next);
     clearTimeout(settleRef.current);
-    settleRef.current = setTimeout(() => {
-      selfScrollRef.current = false;
-      onCommitRef.current?.(next);
-    }, 400); // 指が止まってから確定
+    settleRef.current = setTimeout(() => { selfScrollRef.current = false; }, 400);
   };
   useEffect(() => () => clearTimeout(settleRef.current), []);
+  const pick = (s) => {
+    const el = ref.current;
+    if (el) { syncTargetRef.current = ratingDialOffsetFor(s, ITEM); el.scrollTop = syncTargetRef.current; }
+    onChange(s);
+  };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
-      {/* data-noswipe: 子タブのスワイプpagerに横取りされないようにする */}
-      <div style={{ position: "relative", height, width: 62, flexShrink: 0 }} data-noswipe>
-        <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: ITEM, marginTop: -ITEM / 2, background: "#EAEFF5", border: "1px solid #B9C9E4", borderRadius: 5, pointerEvents: "none" }} />
-        <div
-          ref={ref}
-          onScroll={onScroll}
-          style={{ position: "absolute", inset: 0, overflowY: "auto", scrollSnapType: "y mandatory", padding: `${(height - ITEM) / 2}px 0`, boxSizing: "border-box", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
-        >
-          {steps.map((s) => {
-            const on = Math.abs(s - v) < 0.05;
-            return (
-              <div key={s} style={{ height: ITEM, scrollSnapAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-num)", fontSize: 15, fontWeight: on ? 700 : 400, color: on ? "#174585" : "#A6AEBA", position: "relative" }}>
-                {s.toFixed(1)}
-              </div>
-            );
-          })}
-        </div>
+    // data-noswipe: 子タブのスワイプpagerに横取りされないようにする
+    <div style={{ position: "relative", height, width: ITEM * 2, flexShrink: 0 }} data-noswipe>
+      <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: ITEM, marginTop: -ITEM / 2, background: "var(--c-accent-tint)", border: "1px solid var(--c-accent-line)", borderRadius: "var(--r-xs)", pointerEvents: "none" }} />
+      <div
+        ref={ref}
+        onScroll={onScroll}
+        style={{ position: "absolute", inset: 0, overflowY: "auto", scrollSnapType: "y mandatory", padding: `${(height - ITEM) / 2}px 0`, boxSizing: "border-box", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
+        {RATING_DIAL_ORDER.map((s) => {
+          const on = s === v;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => pick(s)}
+              aria-pressed={on}
+              style={{ display: "block", width: "100%", height: ITEM, minHeight: "var(--tap-min)", scrollSnapAlign: "center", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: on ? 700 : 400, color: on ? "var(--c-accent)" : "var(--c-ink-4)" }}
+            >
+              {s}
+            </button>
+          );
+        })}
       </div>
-      <StarRating value={v} size={16} />
+    </div>
+  );
+}
+
+// 評価を編集するダイアログ。**過渡的な告知は流れから外す**(DESIGN-SYSTEM §6.1.5)ため
+// position:fixed で浮かせる。インラインで開くと下の要素が押し下げられる。
+// 暗幕の色・不透明度・カードの影は ScrollPicker / 保存確認ダイアログと同値
+// (rgba(15,23,42,0.28) / 0 8px 24px rgba(15,23,42,0.18))。新しい濃さを発明しない。
+// 破棄されて困る情報は無いので、保存確認と違い**背景タップで閉じてよい**。
+function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const v = normalizeReedScore(value);
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label={title}
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-4)",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-3)" }}>
+          <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>{title}</div>
+          <div style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xl)", fontWeight: 700, color: v === null ? "var(--c-ink-3)" : "var(--c-accent)" }}>{v === null ? "—" : v}</div>
+        </div>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: "var(--sp-1)" }}>1〜5の5段階</div>
+        <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
+          {kind === "dial"
+            ? <RatingDial value={value} onChange={onChange} />
+            : <RatingSlider value={value} onChange={onChange} />}
+        </div>
+        <button
+          type="button" onClick={onClose} className="sans"
+          style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer" }}
+        >
+          完了
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 通常時の評価表示。**数値だけ**を出し、タップでダイアログを開く(本人指示: 「総評最初から
+// ダイヤログ出す必要なくて数字押したらダイヤログ」「厚さとバランスも同じで数字押したらシークバー」)。
+// 高さは --tap-min 固定なので、値が入っても未評価でも行の高さは変わらない(§6.1.5)。
+function ReedScoreField({ label, value, onOpen }) {
+  const v = normalizeReedScore(value);
+  return (
+    <div className="sans" style={{ fontSize: "var(--fs-xs)", display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+      <span style={{ color: "var(--c-ink-2)", flexShrink: 0, width: 58 }}>{label}:</span>
+      <button
+        type="button" onClick={onOpen} className="sans"
+        aria-label={`${label}を編集`}
+        style={{
+          minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
+          borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)",
+          cursor: "pointer", fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700,
+          color: v === null ? "var(--c-ink-3)" : "var(--c-accent)",
+        }}
+      >
+        {v === null ? "—" : v}
+      </button>
     </div>
   );
 }
@@ -6279,6 +6499,113 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
   );
 }
 
+// 評価(総評・厚さ・バランス)の経時変化。3本を同じグラフに重ねる。
+// 縦軸は **1〜5 で固定**(データに応じて伸縮させない。DESIGN-SYSTEM §7「数値の自動フルスケール
+// 描画」をしない)。横軸は評価を記録した日。未評価(null)の区間は線を繋がない。
+// 幅はコンテナ実測(useMeasuredWidth)に追従させ、SVGの実寸と viewBox は 1:1(§1.9)。
+// 系列色は §1.7 の紺3段、線幅は §1.8。共通部品(useMeasuredWidth / fitLabel /
+// measureSvgTextPx / SERIES_STYLES / SVG_FS_XS)はすべて既存のものを共有する。
+function ReedScoreHistoryChart({ reed }) {
+  const [boxRef, W] = useMeasuredWidth();
+  const history = useMemo(() => normalizeRatingHistory(reed.ratings), [reed.ratings]);
+  const n = history.length;
+  const dateLabels = history.map((h) => reedScoreDateLabel(h.at));
+  const series = [
+    { key: "rating", label: "総評", style: SERIES_STYLES[0] },
+    { key: "thickness", label: "厚さ", style: SERIES_STYLES[1] },
+    { key: "balance", label: "バランス", style: SERIES_STYLES[2] },
+  ];
+
+  const L = (() => {
+    if (n === 0 || W <= 0) return null;
+    const FS = SVG_FS_XS;
+    const plotH = REED_SCORE_PLOT_H;
+    // 上端の目盛(5)のラベルが上に食い込む分の逃げ。--sp-1 以上を確保する(§1.9)。
+    const padTop = SVG_SP2 + SVG_SP1;
+    const tickTexts = RATING_DIAL_ORDER.map(String);
+    const tickW = Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))));
+    const TICK_GAP = SVG_SP2 + SVG_SP1; // 目盛ラベルの左右の余白(§1.9: --sp-2 以上)
+    const AXW = TICK_GAP + tickW + TICK_GAP;
+    const maxLblW = Math.ceil(Math.max(0, ...dateLabels.map((s) => measureSvgTextPx(s, FS))));
+    const halfLbl = Math.ceil(maxLblW / 2) + SVG_SP1; // 中央揃えのラベルが端で半分外へ出る分
+    const x0 = AXW + halfLbl;
+    const x1 = Math.max(x0 + 1, W - SVG_SP2 - halfLbl);
+    const colStep = n > 1 ? (x1 - x0) / (n - 1) : 0;
+    const labelStep = reedScoreLabelStep(colStep, maxLblW + SVG_SP2, n);
+    // 間引きの起点は最新(右端)。いちばん新しい日付は必ず出す。
+    const showLabel = (i) => ((n - 1 - i) % labelStep) === 0;
+    const dotR = n > 1 ? Math.max(1.5, Math.min(3, colStep * 0.3)) : 3;
+    const labelY = padTop + plotH + SVG_SP2 + Math.round(FS * 0.8);
+    return {
+      FS, plotH, padTop, AXW, TICK_GAP, tickTexts, dotR, labelY, showLabel,
+      H: labelY + SVG_SP2, // ディセンダの逃げ(§1.9: --sp-1 以上)
+      xAt: (i) => reedScoreX(i, n, x0, x1),
+      yAt: (v) => reedScoreY(v, padTop, plotH),
+    };
+  })();
+
+  const legendMax = Math.round(W * 0.42);
+
+  return (
+    <div style={{ background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", marginTop: "var(--sp-3)" }}>
+      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", fontWeight: 700, marginBottom: "var(--sp-1)" }}>評価の推移</div>
+      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-3)" }}>
+        {n === 0 ? "まだ記録がありません" : `${n}件の記録`}
+      </div>
+      {n === 0 ? (
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>評価するとここに折れ線が育ちます</div>
+      ) : (
+        // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るのでちらつきは出ない
+        <div ref={boxRef}>
+          {L && (
+            <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
+              {/* 縦軸は 1〜5 の5段。データが何であってもこの位置は動かない */}
+              {RATING_DIAL_ORDER.map((v) => (
+                <g key={v}>
+                  <line x1={L.AXW} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
+                  <text x={L.AXW - L.TICK_GAP} y={L.yAt(v) + Math.round(L.FS * 0.35)} fontSize={L.FS} textAnchor="end" fontFamily="var(--font-num)" style={{ fill: "var(--c-ink-4)" }}>{v}</text>
+                </g>
+              ))}
+              {series.map((s) => {
+                const vals = history.map((h) => h[s.key]);
+                return (
+                  <g key={s.key} style={{ stroke: s.style.color, fill: s.style.color }}>
+                    {reedScoreSegments(vals).filter((seg) => seg.length >= 2).map((seg, k) => (
+                      <polyline key={k} fill="none" strokeWidth={s.style.width} strokeDasharray={s.style.dash || undefined}
+                        points={seg.map((i) => `${L.xAt(i)},${L.yAt(vals[i])}`).join(" ")} />
+                    ))}
+                    {vals.map((v, i) => (v === null ? null : (
+                      <circle key={i} cx={L.xAt(i)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
+                    )))}
+                  </g>
+                );
+              })}
+              {dateLabels.map((d, i) => (L.showLabel(i) ? (
+                <text key={i} x={L.xAt(i)} y={L.labelY} fontSize={L.FS} textAnchor="middle" fontFamily="var(--font-num)" style={{ fill: "var(--c-ink-3)" }}>{d}</text>
+              ) : null))}
+            </svg>
+          )}
+        </div>
+      )}
+      {n > 0 && (
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>
+          {series.map((s) => (
+            <span key={s.key} style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }} title={s.label}>
+              <SeriesSwatch style={s.style} />
+              {W > 0 ? fitLabel(s.label, legendMax, SVG_FS_XS, "var(--font-jp)") : s.label}
+            </span>
+          ))}
+        </div>
+      )}
+      {n === 1 && (
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: "var(--sp-2)" }}>
+          次に評価を変えると、ここが線でつながります
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
 // リード登録一覧からのタップ遷移として統合したもの。
 function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack }) {
@@ -6295,16 +6622,21 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   // (デフォルトは登録順の連番のまま。空にすればまた自動採番に戻る)。
   const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
   const [memoDraft, setMemoDraft] = useState(reed.memo || "");
-  const [ratingDraft, setRatingDraft] = useState(reed.rating ?? 0);
+  // 評価は3つとも 1〜5 の整数・未評価は null。保存済みの小数や 0 は読み取り時にだけ丸める
+  // (normalizeReedScore)。既存データは書き換えず、実際に値を変えたときだけ整数で保存する。
+  const [ratingDraft, setRatingDraft] = useState(() => normalizeReedScore(reed.rating));
   // 総評とは別軸の主観評価。厚さ=抵抗感/密度、バランス=低音〜高音の鳴りの揃い方。
-  const [thicknessDraft, setThicknessDraft] = useState(reed.thickness ?? 0);
-  const [balanceDraft, setBalanceDraft] = useState(reed.balance ?? 0);
+  const [thicknessDraft, setThicknessDraft] = useState(() => normalizeReedScore(reed.thickness));
+  const [balanceDraft, setBalanceDraft] = useState(() => normalizeReedScore(reed.balance));
+  // 開いている編集ダイアログ("rating" | "thickness" | "balance" | null)
+  const [editingScore, setEditingScore] = useState(null);
   useEffect(() => {
     setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
     setMemoDraft(reed.memo || "");
-    setRatingDraft(reed.rating ?? 0);
-    setThicknessDraft(reed.thickness ?? 0);
-    setBalanceDraft(reed.balance ?? 0);
+    setRatingDraft(normalizeReedScore(reed.rating));
+    setThicknessDraft(normalizeReedScore(reed.thickness));
+    setBalanceDraft(normalizeReedScore(reed.balance));
+    setEditingScore(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reed.id]);
 
@@ -6319,17 +6651,19 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
     if (trimmed === (reed.memo || "")) return;
     patchReed({ memo: trimmed || null });
   };
-  // 評価は確定時(スライダーを離した時)に現在値を反映しつつ、過去の評価も履歴として残す。
-  // ダイヤルは確定値を引数で渡してくる(遅延確定でstateが1段古くなるのを避けるため)。
-  // スライダー等、引数なしで呼ばれた場合は現在のドラフト値を使う。
-  const commitRating = (v) => {
-    const value = typeof v === "number" ? v : ratingDraft;
-    patchReed({
-      rating: value,
-      ratings: [...(reed.ratings || []), { value, at: new Date().toISOString() }],
-    });
+  // 評価の確定はダイアログを閉じたときの1回だけ。**値が変わったときだけ**書き込む
+  // (以前は開閉のたびに履歴が1件増えていた)。判定は commitReedScores に閉じてある。
+  const closeScoreEditor = () => {
+    const patch = commitReedScores(reed, { rating: ratingDraft, thickness: thicknessDraft, balance: balanceDraft }, new Date().toISOString());
+    if (patch) patchReed(patch);
+    setEditingScore(null);
   };
-  const ratingHistory = [...(reed.ratings || [])].reverse();
+  const SCORE_FIELDS = [
+    { key: "rating", label: "総評", kind: "dial", value: ratingDraft, set: setRatingDraft },
+    { key: "thickness", label: "厚さ", kind: "slider", value: thicknessDraft, set: setThicknessDraft },
+    { key: "balance", label: "バランス", kind: "slider", value: balanceDraft, set: setBalanceDraft },
+  ];
+  const editingField = SCORE_FIELDS.find((f) => f.key === editingScore) || null;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -6354,29 +6688,11 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
               style={{ width: 80, flexShrink: 0, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "6px 10px", color: "#121F32", fontSize: 12 }}
             />
           </div>
-          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>総評:</span>
-            <RatingDial value={ratingDraft} onChange={setRatingDraft} onCommit={commitRating} />
-          </div>
-          {/* 総評とは別軸の主観評価。履歴は残さず現在値のみ持つ。 */}
-          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>厚さ:</span>
-            <RatingSlider value={thicknessDraft} onChange={setThicknessDraft} onCommit={() => patchReed({ thickness: thicknessDraft })} />
-            <StarRating value={thicknessDraft} size={16} />
-          </div>
-          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>バランス:</span>
-            <RatingSlider value={balanceDraft} onChange={setBalanceDraft} onCommit={() => patchReed({ balance: balanceDraft })} />
-            <StarRating value={balanceDraft} size={16} />
-          </div>
-          {ratingHistory.length > 0 && (
-            <div className="sans" style={{ fontSize: 12, color: "#8D95A1", display: "flex", flexWrap: "wrap", gap: "4px 10px", paddingLeft: 66 }}>
-              <span style={{ color: "#435266" }}>履歴:</span>
-              {ratingHistory.slice(0, 8).map((h, i) => (
-                <span key={i}>{(h.value ?? 0).toFixed(1)} <span style={{ color: "#C3CAD3" }}>({new Date(h.at).toLocaleDateString("ja-JP")})</span></span>
-              ))}
-            </div>
-          )}
+          {/* 総評 / 厚さ / バランス。通常は数値だけを出し、タップでダイアログを開く。
+              ★は出さない(本人指示: 「厚さは星不要」。バランスも数値表示に統一)。 */}
+          {SCORE_FIELDS.map((f) => (
+            <ReedScoreField key={f.key} label={f.label} value={f.value} onOpen={() => setEditingScore(f.key)} />
+          ))}
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 58, marginTop: 6 }}>メモ:</span>
             <textarea
@@ -6413,6 +6729,20 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
           </div>
         )}
       </div>
+
+      {/* 測定データの下に評価の推移(縦軸=1〜5・横軸=日付・総評/厚さ/バランスの3本) */}
+      <ReedScoreHistoryChart reed={reed} />
+
+      {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
+      {editingField && (
+        <ReedScoreEditor
+          title={editingField.label}
+          kind={editingField.kind}
+          value={editingField.value}
+          onChange={editingField.set}
+          onClose={closeScoreEditor}
+        />
+      )}
     </div>
   );
 }
