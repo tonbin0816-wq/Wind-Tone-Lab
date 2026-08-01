@@ -153,6 +153,19 @@ const code = [
   extractFunction("reedScoreSegments"),
   extractFunction("reedScoreLabelStep"),
   extractFunction("reedScoreDateLabel"),
+  // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
+  extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
+  extractConst("SWIPE_BACK_THRESHOLD_MIN"),
+  extractConst("SWIPE_AXIS_LOCK_PX"),
+  extractConst("SWIPE_DEAD_END_RESIST"),
+  extractConst("SWIPE_BACK_EASE"),
+  extractConst("SWIPE_BACK_SETTLE_MS"),
+  extractFunction("swipeBackThreshold"),
+  extractFunction("swipeAxisIsHorizontal"),
+  extractFunction("swipeBackOffset"),
+  extractFunction("swipeBackDecision"),
+  extractFunction("swipeBackHandler"),
+  extractFunction("createSwipeBackGesture"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -179,7 +192,11 @@ const api = new Function(`${code}
            RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_NEUTRAL, REED_SCORE_PLOT_H,
            normalizeReedScore, reedHistoryEntry, normalizeRatingHistory, commitReedScores,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
-           reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel };`)();
+           reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
+           SWIPE_BACK_THRESHOLD_RATIO, SWIPE_BACK_THRESHOLD_MIN, SWIPE_AXIS_LOCK_PX, SWIPE_DEAD_END_RESIST,
+           SWIPE_BACK_EASE, SWIPE_BACK_SETTLE_MS,
+           swipeBackThreshold, swipeAxisIsHorizontal, swipeBackOffset, swipeBackDecision, swipeBackHandler,
+           createSwipeBackGesture };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -1568,6 +1585,642 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
     check("balance の初期値は null のまま", /balance: null,\s+\/\/ 主観のバランス/.test(src));
     check("pitchBarColorRGB を触っていない", /function pitchBarColorRGB\(/.test(src));
   }
+}
+
+// ============================================================
+console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻る/左=比較タブ) ==========");
+{
+  const sourceOf = (name) => {
+    const idx = src.indexOf(`function ${name}(`);
+    if (idx === -1) throw new Error(`function ${name} not found`);
+    let i = src.indexOf("(", idx), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+    }
+    while (i < src.length && src[i] !== "{") i++;
+    depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+    }
+    throw new Error(`function ${name}: unbalanced braces`);
+  };
+  const th = api.swipeBackThreshold, axis = api.swipeAxisIsHorizontal;
+  const off = api.swipeBackOffset, handler = api.swipeBackHandler;
+  // 横と決まったジェスチャーの判定(第1引数=horizontal)。既存の呼び方を短く保つための薄い包み。
+  const dec = (dx, w, cf) => api.swipeBackDecision(true, dx, w, cf);
+  const W = 375; // 本番想定の画面幅
+
+  // --- しきい値: SwipePager と同じ「幅の20%、測れなければ60px」 ---
+  check("375px幅のしきい値は75px", th(W) === 75, String(th(W)));
+  check("幅が0なら60px", th(0) === 60, String(th(0)));
+  check("幅が負でも60px", th(-1) === 60, String(th(-1)));
+  check("しきい値は 60px を下回らない(判定が緩くなっていない)", th(W) >= 60 && th(0) >= 60);
+  check("しきい値は幅の半分を超えない(判定がきつすぎない)", th(W) < W / 2, String(th(W)));
+
+  // --- 軸判定: 最初の数pxで縦横を決める。決まるまでは null(何もしない) ---
+  check("動かしていない間は軸が決まらない", axis(0, 0) === null);
+  check("5pxでは軸が決まらない", axis(5, 0) === null && axis(0, 5) === null);
+  check("横に6pxで横と決まる", axis(6, 0) === true);
+  check("縦に6pxで縦と決まる", axis(0, 6) === false);
+  check("斜め(縦が優勢)は縦", axis(10, 20) === false);
+  check("斜め(横が優勢)は横", axis(20, 10) === true);
+  check("左向きも横と判定する", axis(-30, 5) === true);
+  check("真下へのドラッグは横ではない", axis(0, 200) === false);
+  check("縦ドラッグ中はどこまで引いても横にならない",
+    [10, 30, 60, 120, 240, 400].every((d) => axis(0, d) === false));
+  // 軸ロックの距離が 6px であること(5.9 では決まらない / 6 で決まる)
+  check("軸が決まる距離はちょうど6px", axis(5.9, 0) === null && axis(6, 0) === true);
+
+  // --- 追従量: 行き先のある向きは等倍、無い向きは抵抗 ---
+  check("右へのドラッグは等倍で追従(行き先あり)", off(80, false) === 80 && off(80, true) === 80);
+  check("左へのドラッグは等倍で追従(onForward あり)", off(-80, true) === -80);
+  check("左へのドラッグは抵抗がかかる(onForward なし)", off(-100, false) === -35, String(off(-100, false)));
+  check("抵抗があっても動きはする(0ではない)", off(-100, false) !== 0);
+  check("抵抗時の移動量はドラッグ量より小さい", Math.abs(off(-100, false)) < 100);
+  {
+    // ドラッグ量に対して単調に増える(＝指に追従する)。等号でしか通らない主張にしないため
+    // 「隣り合う量で必ず増えている」ことを見る。
+    let mono = true, monoDead = true;
+    for (let d = 0; d < 200; d += 5) {
+      if (!(off(d + 5, true) > off(d, true))) mono = false;
+      if (!(off(-(d + 5), false) < off(-d, false))) monoDead = false;
+    }
+    check("追従量はドラッグ量に対して単調増加", mono);
+    check("抵抗のかかる向きでも単調に動く", monoDead);
+  }
+
+  // --- 行き先の判定 ---
+  check("動かさずに離せば元の位置", dec(0, W, true) === "stay" && dec(0, W, false) === "stay");
+  check("右へ74pxでは戻らない(閾値未満)", dec(74, W, true) === "stay");
+  check("右へ75pxで一覧へ戻る", dec(75, W, true) === "back");
+  check("右へ200pxで一覧へ戻る", dec(200, W, true) === "back");
+  check("onForward が無くても右スワイプは戻る(セッション詳細)", dec(200, W, false) === "back");
+  check("左へ74pxでは移らない(閾値未満)", dec(-74, W, true) === "stay");
+  check("左へ75pxで比較タブへ移る", dec(-75, W, true) === "forward");
+  check("左へ200pxで比較タブへ移る", dec(-200, W, true) === "forward");
+  check("onForward 未指定なら左スワイプでは何も起きない",
+    dec(-75, W, false) === "stay" && dec(-200, W, false) === "stay" && dec(-2000, W, false) === "stay");
+  check("幅が測れないときは60pxで判定", dec(59, 0, true) === "stay" && dec(60, 0, true) === "back");
+  check("向きを取り違えていない(右がforwardになっていない)",
+    dec(200, W, true) !== "forward" && dec(-200, W, true) !== "back");
+  {
+    // 動く向きと行き先が一致していること(右へ動いたのに比較タブ、のような取り違えを弾く)
+    let consistent = true;
+    for (let d = -300; d <= 300; d += 7) {
+      for (const cf of [true, false]) {
+        const g = dec(d, W, cf);
+        if (g === "back" && !(off(d, cf) > 0)) consistent = false;
+        if (g === "forward" && !(off(d, cf) < 0)) consistent = false;
+      }
+    }
+    check("動かした向きと行き先が一致している", consistent);
+  }
+
+  // --- 横と決まっていないジェスチャーは絶対に遷移しない(縦スクロール/未確定) ---
+  const D = api.swipeBackDecision;
+  check("縦と決まったジェスチャーは離しても遷移しない",
+    [200, -200, 2000, -2000].every((d) => D(false, d, W, true) === "stay"));
+  check("軸が未確定(null)のまま離しても遷移しない",
+    [200, -200].every((d) => D(null, d, W, true) === "stay"));
+  check("軸が undefined でも遷移しない", D(undefined, 200, W, true) === "stay");
+  check("横と決まったときだけ遷移する", D(true, 200, W, true) === "back" && D(false, 200, W, true) === "stay");
+
+  // --- 行き先 → コールバックの配線(右と左の取り違えを検出する) ---
+  {
+    const back = () => "BACK", fwd = () => "FORWARD";
+    const hs = { onBack: back, onForward: fwd };
+    check("back は onBack を呼ぶ", handler("back", hs) === back);
+    check("forward は onForward を呼ぶ", handler("forward", hs) === fwd);
+    check("back と forward の配線が入れ替わっていない",
+      handler("back", hs) !== fwd && handler("forward", hs) !== back);
+    check("stay は何も呼ばない", handler("stay", hs) === null);
+    check("onForward が無ければ forward でも呼ぶものが無い", handler("forward", { onBack: back }) === null);
+    check("onBack が無ければ back でも呼ぶものが無い", handler("back", { onForward: fwd }) === null);
+    check("handlers が無くても落ちない", handler("back", null) === null && handler("back", undefined) === null);
+    // 判定→配線を通した結果が、右=戻る / 左=比較 になっていること(端から端まで通す)
+    check("右へ大きく引いて離すと onBack が呼ばれる",
+      handler(D(true, 200, W, true), hs) === back);
+    check("左へ大きく引いて離すと onForward が呼ばれる",
+      handler(D(true, -200, W, true), hs) === fwd);
+    check("セッション詳細(onForward なし)で左へ引いても呼ぶものが無い",
+      handler(D(true, -200, W, false), { onBack: back }) === null);
+    check("縦に引いて離しても呼ぶものが無い", handler(D(false, 200, W, true), hs) === null);
+  }
+
+  // --- 戻すアニメーションの時間と、transform を消すまでの時間の整合 ---
+  {
+    const m = /transform\s+([\d.]+)s\s/.exec(api.SWIPE_BACK_EASE);
+    check("SWIPE_BACK_EASE から所要時間を読める", !!m, api.SWIPE_BACK_EASE);
+    const easeMs = m ? Math.round(parseFloat(m[1]) * 1000) : null;
+    check("transform を消すのはアニメーションが終わった時刻(二重管理の食い違いが無い)",
+      api.SWIPE_BACK_SETTLE_MS === easeMs, `SETTLE=${api.SWIPE_BACK_SETTLE_MS} / EASE=${easeMs}`);
+    // transform が残る時間は「戻り終わるまで」だけ。長く残すと fixed の基準を壊す時間が延びる。
+    check("transform が残る時間は0.5秒以内",
+      api.SWIPE_BACK_SETTLE_MS > 0 && api.SWIPE_BACK_SETTLE_MS <= 500, String(api.SWIPE_BACK_SETTLE_MS));
+  }
+
+  // ============================================================
+  // ジェスチャーの状態機械を「実行」で検査する。
+  // createSwipeBackGesture は DOM を触る操作(setX/clearX/settle/cancelSettle/beginDrag/
+  // 幅/コールバック/対象判定)をすべて引数で受け取るので、偽物に差し替えて down→move→up を
+  // 順に流し込み、何が何回呼ばれたかを数えられる。正規表現ではなく実行で守る部分。
+  // 守る不変条件:
+  //   ジェスチャーが始まる時も終わる時も、track に残った transform は必ず消えている。
+  // ============================================================
+  {
+    const rig = ({ hasBack = true, hasForward = false, width = W, swipeTarget = true } = {}) => {
+      const log = [];
+      const hs = {};
+      if (hasBack) hs.onBack = () => log.push("onBack");
+      if (hasForward) hs.onForward = () => log.push("onForward");
+      // 対象判定は down ごとに切り替えられるようにする。実機では1本目の指が対象でも、
+      // 2本目の指(isPrimary === false)や入力欄の上の down は対象外になるため。
+      let target = swipeTarget;
+      const g = api.createSwipeBackGesture({
+        setX: (px) => log.push("setX(" + px + ")"),
+        clearX: () => log.push("clearX"),
+        settle: () => log.push("settle"),
+        cancelSettle: () => log.push("cancelSettle"),
+        beginDrag: () => log.push("beginDrag"),
+        getWidth: () => width,
+        canForward: () => !!hs.onForward,
+        handlers: () => hs,
+        isSwipeTarget: () => target,
+      });
+      const ev = (dx, dy, id = 1) => ({ pointerId: id, clientX: 100 + dx, clientY: 200 + dy });
+      return {
+        log,
+        down: (id) => g.down(ev(0, 0, id)),
+        // 対象外の要素の上で起きる down(2本目の指・入力欄・data-noswipe・横スクロール表)。
+        downBlocked: (id) => { target = false; g.down(ev(0, 0, id)); target = swipeTarget; },
+        move: (dx, dy, id) => g.move(ev(dx, dy, id)),
+        up: (dx = 0, dy = 0, id) => g.up(ev(dx, dy, id)),
+        cancel: (dx = 0, dy = 0, id) => g.cancel(ev(dx, dy, id)),
+        n: (k) => log.filter((s) => s === k).length,
+        nSetX: () => log.filter((s) => s.startsWith("setX(")).length,
+        has: (k) => log.includes(k),
+        // 指定した印より後ろに出来事があるか(settle の後で本当に消えたか等を見る)
+        after: (mark, k) => log.slice(log.lastIndexOf(mark) + 1).includes(k),
+        mark: () => log.length,                  // ここから後ろを「その操作が起こしたこと」として見る
+        since: (m) => log.slice(m),
+      };
+    };
+
+    // --- 開始側の保証: どんな始まり方でも transform は素の状態に戻してから始める ---
+    {
+      const r = rig();
+      r.down();
+      check("ジェスチャー開始時に古い transform を必ず消す", r.n("clearX") === 1, r.log.join("/"));
+      check("ジェスチャー開始時に進行中の settle タイマーを解除する", r.n("cancelSettle") === 1, r.log.join("/"));
+      check("開始しただけでは動かさない(setX を呼ばない)", r.nSetX() === 0, r.log.join("/"));
+    }
+    // --- ただのタップ(横に一切動かさない) ---
+    {
+      const r = rig();
+      r.down(); r.up();
+      check("ただのタップ(down→up)でも transform の後始末が走る", r.n("clearX") === 2, r.log.join("/"));
+      check("ただのタップでは動かさない・戻しもしない",
+        r.nSetX() === 0 && !r.has("settle") && !r.has("onBack"), r.log.join("/"));
+    }
+    // --- 縦ドラッグ ---
+    {
+      const r = rig();
+      r.down(); r.move(2, 40); r.up(2, 40);
+      check("縦ドラッグ(dx=2,dy=40)を離しても transform の後始末が走る", r.n("clearX") === 2, r.log.join("/"));
+      check("縦ドラッグでは一度も横へ動かさない", r.nSetX() === 0 && !r.has("beginDrag"), r.log.join("/"));
+      check("縦ドラッグでは遷移しない", !r.has("onBack") && !r.has("onForward"), r.log.join("/"));
+    }
+    // --- 横・しきい値未満 ---
+    {
+      const r = rig();
+      r.down(); r.move(40, 0); r.up(40, 0);
+      check("横に40px(閾値75px未満)引いて離すと元へ戻す(settle)", r.has("settle"), r.log.join("/"));
+      check("横に引いた瞬間だけアニメーションを外す(beginDrag)", r.n("beginDrag") === 1, r.log.join("/"));
+      check("横に引いている間は指に追従する(setX)", r.has("setX(40)"), r.log.join("/"));
+      check("閾値未満では遷移しない", !r.has("onBack") && !r.has("onForward"), r.log.join("/"));
+    }
+    // --- 横・しきい値超(戻る / 進む)。遷移の前に必ず transform を消す ---
+    {
+      const r = rig();
+      r.down(); r.move(200, 0); r.up(200, 0);
+      check("右へ200px引いて離すと onBack が呼ばれる", r.has("onBack"), r.log.join("/"));
+      check("onBack を呼ぶ前に transform を消している",
+        r.log.lastIndexOf("clearX") < r.log.indexOf("onBack") && r.log.indexOf("onBack") >= 0, r.log.join("/"));
+      check("遷移するときは settle しない(transform を残さない)", !r.has("settle"), r.log.join("/"));
+    }
+    {
+      const r = rig({ hasForward: true });
+      r.down(); r.move(-200, 0); r.up(-200, 0);
+      check("左へ200px引いて離すと onForward が呼ばれる", r.has("onForward"), r.log.join("/"));
+      check("onForward を呼ぶ前に transform を消している",
+        r.log.lastIndexOf("clearX") < r.log.indexOf("onForward"), r.log.join("/"));
+    }
+    // --- 今回の欠陥そのもの: settle の最中に割り込んでタップする ---
+    {
+      const r = rig();
+      r.down(); r.move(40, 0); r.up(40, 0);          // ここで settle(320ms後に消す予定)
+      const beforeTap = r.n("clearX");
+      r.down(); r.up();                              // 320ms 以内にタップ
+      check("settle の最中にタップしても transform が残らない(開始側で消える)",
+        r.after("settle", "clearX"), r.log.join("/"));
+      check("settle 中の割り込みタップで clearX が増える", r.n("clearX") > beforeTap,
+        `${beforeTap} → ${r.n("clearX")}`);
+      check("settle 中の割り込みタップでタイマーも解除する", r.after("settle", "cancelSettle"), r.log.join("/"));
+      check("割り込みタップは遷移を起こさない", !r.has("onBack"), r.log.join("/"));
+    }
+    // --- settle の最中に縦ドラッグで割り込む ---
+    {
+      const r = rig();
+      r.down(); r.move(40, 0); r.up(40, 0);
+      r.down(); r.move(2, 40); r.up(2, 40);
+      check("settle の最中に縦ドラッグで割り込んでも transform が残らない",
+        r.after("settle", "clearX"), r.log.join("/"));
+    }
+    // --- pointercancel(ブラウザが縦スクロールを引き取った) ---
+    {
+      const r = rig();
+      r.down(); r.move(40, 0); r.cancel(40, 0);
+      check("横へ動かした後の pointercancel は元へ戻す(settle)", r.has("settle"), r.log.join("/"));
+    }
+    {
+      const r = rig();
+      r.down(); r.move(2, 40); r.cancel(2, 40);
+      check("縦ドラッグの pointercancel は transform を消す", r.n("clearX") === 2, r.log.join("/"));
+      check("縦ドラッグの pointercancel では戻しアニメーションを出さない", !r.has("settle"), r.log.join("/"));
+    }
+    {
+      const r = rig();
+      r.down(); r.cancel();
+      check("動かさないままの pointercancel でも transform を消す", r.n("clearX") === 2, r.log.join("/"));
+    }
+    // --- 対象外の要素(入力欄・data-noswipe・横スクロール表)の上では何も起きない ---
+    {
+      const r = rig({ swipeTarget: false });
+      r.down(); r.move(200, 0); r.up(200, 0);
+      check("対象外の要素の上ではジェスチャーが始まらない", r.log.length === 0, r.log.join("/"));
+      check("対象外の要素の上では遷移しない", !r.has("onBack"), r.log.join("/"));
+    }
+    // --- 別の指(pointerId 違い)のイベントは無視する ---
+    {
+      const r = rig();
+      r.down(1); r.move(200, 0, 2); r.up(200, 0, 2);
+      check("別の pointerId の move/up は無視する", r.nSetX() === 0 && !r.has("onBack"), r.log.join("/"));
+    }
+    // --- 別の指の down はドラッグを「中断」させる(無視ではない) ---
+    // 実機の再現手順: 評価グラフを拡大しようとして、1本目が動いた後に2本目が着地する。
+    // index.html の viewport meta に user-scalable=no も maximum-scale も無く、
+    // ピンチズームは有効。2本指は想定外操作ではなくサポートされた操作。
+    // 2本目は isPrimary === false なので isSwipeTarget が偽になる。ここで進行中の
+    // ドラッグを後始末なしに捨てると、track は最後の setX の値のまま無期限に固着する。
+    {
+      const r = rig();
+      r.down(1); r.move(6, 0);                     // 軸ロック6pxちょうどで横と確定
+      const m = r.mark();
+      r.downBlocked(2);                            // 2本目の指(isSwipeTarget 偽)
+      const tail = r.since(m);
+      check("横にドラッグ中に2本目の指が触れたら、その場で戻す(settle)",
+        tail[0] === "settle", r.log.join("/"));
+      check("2本目の指の down は settle の予約を解除しない(解除すると transform が残る)",
+        !tail.includes("cancelSettle"), r.log.join("/"));
+      // 中断後は st が null。1本目を動かしても離しても、もう何も起きない
+      r.move(200, 0, 1); r.up(200, 0, 1); r.up(0, 0, 2);
+      check("中断後は1本目の move/up がもう効かない(遷移しない・動かさない)",
+        !r.has("onBack") && !r.has("setX(200)"), r.log.join("/"));
+    }
+    // --- 軸が決まる前に2本目が触れた場合(横と確定していないので即消す) ---
+    {
+      const r = rig();
+      r.down(1); r.move(3, 3);
+      const m = r.mark();
+      r.downBlocked(2);
+      check("軸が決まる前に2本目の指が触れたら transform を即消す",
+        r.since(m)[0] === "clearX", r.log.join("/"));
+    }
+    // --- 対象外の down は「始めない」だけ。進行中の戻しの予約を殺さない ---
+    // ここを cancelSettle で潰すと、戻し終えた translateX(0px) がそのまま居座る。
+    {
+      const r = rig();
+      r.down(); r.move(40, 0); r.up(40, 0);        // settle(320ms後に clearX の予約)
+      const m = r.mark();
+      r.downBlocked();                             // 入力欄・data-noswipe をタップ
+      check("進行中のジェスチャーが無ければ対象外の down は何も起こさない",
+        r.since(m).length === 0, r.log.join("/"));
+    }
+    // --- 別の指の down(その指も対象)は、前のドラッグを終端させてから始める ---
+    {
+      const r = rig();
+      r.down(1); r.move(40, 0);
+      const m = r.mark();
+      r.down(2);
+      check("対象の上の別の指の down も、前のドラッグを終端させてから始める",
+        r.since(m)[0] === "settle" && r.since(m).includes("clearX"), r.log.join("/"));
+    }
+    // --- 網羅: 終わり方の全組み合わせで必ず後始末が走る ---
+    // (前2回の欠陥はどちらも「終わり方を1つ数え落とした」ことから来ている。個別ケースの
+    //  積み上げではなく、移動量×終わり方の全組み合わせを回して漏れを潰す)
+    //
+    // 終わり方は4通り。up(行き先判定あり) / cancel(戻すだけ) /
+    // 別の指の down(その指も対象) / 対象外の down(2本目の指・入力欄・data-noswipe)。
+    // 主張は「終端が起こした最初の出来事が clearX か settle である」。単に
+    // 「どこかに clearX がある」だと、新しいジェスチャーの開始が出す clearX で
+    // 中断側の抜けが隠れるため、必ず先頭で見る。
+    const ENDINGS = {
+      up: (r, dx, dy) => r.up(dx, dy),
+      cancel: (r, dx, dy) => r.cancel(dx, dy),
+      downOther: (r) => r.down(2),
+      downBlocked: (r) => r.downBlocked(2),
+    };
+    {
+      let missing = null, total = 0;
+      const DXS = [0, 1, 2, 5, 6, 40, 74, 75, 200, -1, -5, -6, -40, -74, -75, -200];
+      const DYS = [0, 3, 5, 6, 40, 200];
+      for (const dx of DXS) for (const dy of DYS)
+        for (const hasForward of [true, false]) for (const end of Object.keys(ENDINGS)) {
+          const r = rig({ hasForward });
+          r.down(1);
+          r.move(dx, dy);
+          const m = r.mark();
+          ENDINGS[end](r, dx, dy);
+          total++;
+          const first = r.since(m)[0];
+          if (first !== "clearX" && first !== "settle") {
+            missing = missing || `dx=${dx} dy=${dy} forward=${hasForward} end=${end} → ${r.log.join("/")}`;
+          }
+        }
+      check(`up/cancel/別の指のdown/対象外のdown のどれで終わっても、まず transform を消すか戻す(${total}通り)`,
+        !missing, missing || "");
+    }
+    // --- 網羅: どんな終わり方の後でも、対象の上で始まる次のジェスチャーは素の状態から始まる ---
+    // 対象外の down は「始めない」ので対象外(cancelSettle を呼ばせてはいけない)。
+    // ここが守るのは「始める側」だけ。中断側は上の網羅が守る。
+    {
+      let missing = null, total = 0;
+      for (const dx of [0, 6, 40, 200, -40, -200]) for (const dy of [0, 6, 40]) {
+        for (const end of Object.keys(ENDINGS)) {
+          const r = rig();
+          r.down(1); r.move(dx, dy); ENDINGS[end](r, dx, dy);   // 1回目(settle が残るかもしれない)
+          const m = r.mark();
+          r.down(3);                                 // 対象の上で始まる次のジェスチャー
+          total++;
+          const tail = r.since(m);
+          if (!(tail.includes("clearX") && tail.includes("cancelSettle"))) {
+            missing = missing || `dx=${dx} dy=${dy} end=${end} → ${r.log.join("/")}`;
+          }
+        }
+      }
+      check(`直前がどう終わっていても、対象の上で始まる次のジェスチャーは transform を消してから始まる(${total}通り)`,
+        !missing, missing || "");
+    }
+    // --- 網羅: 対象外の down は、戻しの予約を絶対に解除しない ---
+    // 解除すると settle が置いた translateX(0px) が消されずに居座る。
+    // (「2本指の固着」を直そうとして down の頭に cancelSettle を無条件で足すと、
+    //  今度はこちらが落ちる)
+    {
+      let missing = null, total = 0;
+      for (const dx of [0, 6, 40, 200, -40, -200]) for (const dy of [0, 6, 40]) {
+        for (const end of Object.keys(ENDINGS)) {
+          const r = rig();
+          r.down(1); r.move(dx, dy); ENDINGS[end](r, dx, dy);
+          const m = r.mark();
+          r.downBlocked(4);                          // 対象外の上の down
+          total++;
+          if (r.since(m).includes("cancelSettle")) {
+            missing = missing || `dx=${dx} dy=${dy} end=${end} → ${r.log.join("/")}`;
+          }
+        }
+      }
+      check(`対象外の down は戻しの予約を解除しない(${total}通り)`, !missing, missing || "");
+    }
+    // --- 状態機械が判定を自前で持っていない(純関数を通している)ことの実行確認 ---
+    {
+      // 閾値ちょうど(75px)で遷移し、1px手前(74px)では遷移しない = swipeBackThreshold と同じ値を使っている
+      const a = rig(); a.down(); a.move(75, 0); a.up(75, 0);
+      const b = rig(); b.down(); b.move(74, 0); b.up(74, 0);
+      check("状態機械の閾値は swipeBackThreshold と同じ(75で遷移・74で戻す)",
+        a.has("onBack") && !b.has("onBack") && b.has("settle"), `${a.log.join("/")} | ${b.log.join("/")}`);
+      // 幅が測れないときは 60px
+      const c = rig({ width: 0 }); c.down(); c.move(60, 0); c.up(60, 0);
+      const d = rig({ width: 0 }); d.down(); d.move(59, 0); d.up(59, 0);
+      check("幅が測れないときの閾値も状態機械に通っている(60で遷移・59で戻す)",
+        c.has("onBack") && !d.has("onBack"), `${c.log.join("/")} | ${d.log.join("/")}`);
+      // 行き先の無い向きは抵抗つきで動くが遷移しない
+      const e = rig({ hasForward: false }); e.down(); e.move(-200, 0); e.up(-200, 0);
+      check("行き先の無い向きは抵抗つきで動くだけ(遷移しない)",
+        e.has("setX(-70)") && !e.has("onForward") && e.has("settle"), e.log.join("/"));
+    }
+  }
+
+  // --- 実装の作り(ハーネスはJSXを見ないのでソースで照合する) ---
+  const area = sourceOf("SwipeBackArea");
+  const gest = sourceOf("createSwipeBackGesture");
+  check("SwipeBackArea は PointerEvent で組んである",
+    ["pointerdown", "pointermove", "pointerup", "pointercancel"].every((n) => area.includes(`"${n}"`)));
+  check("SwipeBackArea は transform を直接書き換える", /track\.style\.transform = /.test(area));
+  check("SwipeBackArea はドラッグ中にstateを更新しない(useStateを持たない)", !area.includes("useState("));
+  // 状態遷移はファクトリに出してある。SwipeBackArea 側は DOM の手足を渡して繋ぐだけ。
+  check("SwipeBackArea は状態機械のファクトリを使う(コンポーネントに if を残さない)",
+    area.includes("createSwipeBackGesture({"));
+  check("SwipeBackArea 側に状態遷移が残っていない",
+    !/swipeBack(Decision|Offset|Handler)\(/.test(area) && !area.includes("swipeAxisIsHorizontal("), area);
+  check("イベントに繋ぐのはファクトリが返した4つだけ",
+    ["g.down", "g.move", "g.up", "g.cancel"].every((n) => area.includes(n)));
+  check("状態機械は軸判定の純関数を使う", gest.includes("swipeAxisIsHorizontal("));
+  check("状態機械は追従量の純関数を使う", gest.includes("swipeBackOffset("));
+  check("状態機械は行き先判定の純関数を使う", gest.includes("swipeBackDecision("));
+  check("状態機械は配線も純関数を通す(ifで直接呼び分けない)",
+    gest.includes("swipeBackHandler(go, handlers())") && !/handlers\(\)\.on(Back|Forward)/.test(gest));
+  check("状態機械は DOM に一切触らない(だから実行で検査できる)",
+    !/\.style\.|document\.|window\.|clientWidth|addEventListener/.test(gest), gest);
+  check("状態機械は down/move/up/cancel の4つを返す",
+    /return \{ down, move, up, cancel \};/.test(gest));
+  check("SwipeBackArea は onForward を受け取る", /function SwipeBackArea\(\{[^}]*onForward/.test(area));
+  // canForward は1箇所で定義し、追従(move)と判定(up)の両方で同じものを使う。
+  // 片方だけ true に書き換える改変を数で検出する。
+  check("canForward の出どころは onForward の有無ただ1つ",
+    area.includes("canForward: () => !!cbRef.current.onForward,"));
+  check("canForward は追従と判定の2箇所で使われている",
+    (gest.match(/canForward\(\)/g) || []).length === 2, `${(gest.match(/canForward\(\)/g) || []).length}箇所`);
+  check("canForward に定数を直書きしていない", !/swipeBack(Offset|Decision)\([^)]*,\s*(true|false)\s*\)/.test(gest));
+  check("しきい値は viewport の実幅から出す", area.includes("getWidth: () => vp.clientWidth,"));
+  check("横スクロール要素・入力欄の上では発火しない",
+    area.includes("hasHorizontalScrollAncestor(") && area.includes('"input, select, textarea, [data-noswipe]"'));
+  check("対象判定はファクトリの入口(isSwipeTarget)にただ1つ",
+    area.includes("isSwipeTarget: (e) => {") && (gest.match(/isSwipeTarget\(/g) || []).length === 1);
+  check("touch-action を敷いていない(中の横スクロール表を殺さない)", !/touchAction/.test(area));
+  check("マウスのドラッグでは発火しない(ソース検査: 綴りしか見ていない)",
+    area.includes('e.pointerType === "mouse"'));
+
+  // --- 対象判定(isSwipeTarget)の「実物」を取り出して実行で検査する ---
+  // 上の768通りのリグは isSwipeTarget を `() => target` という真偽値の偽物で差し替えている。
+  // つまり「2本目の指は対象外だから abort に入る」という今周の設計を支えている述語そのものは
+  // 一度も通っていない。ここだけは SwipeBackArea に直書きされている実物を取り出し、
+  // 偽の PointerEvent を通す。hasHorizontalScrollAncestor と vp は差し替える。
+  const bodyAfter = (s, head) => {                 // head は '{' で終わる文字列
+    const i = s.indexOf(head);
+    if (i === -1) return "";
+    let j = i + head.length - 1, depth = 0;
+    for (; j < s.length; j++) {
+      if (s[j] === "{") depth++;
+      else if (s[j] === "}") { depth--; if (depth === 0) return s.slice(i, j + 1); }
+    }
+    return "";
+  };
+  {
+    const decl = bodyAfter(area, "isSwipeTarget: (e) => {");
+    check("対象判定の実物をソースから取り出せる", decl.startsWith("isSwipeTarget: (e) => {"), decl.slice(0, 40));
+    const arrow = decl.replace(/^isSwipeTarget:\s*/, "");
+    // scroll=true で「横スクロールできる祖先がある」状況を作る
+    const T = (scroll = false) =>
+      new Function("hasHorizontalScrollAncestor", "vp", `return (${arrow});`)(() => scroll, {});
+    const t = T();
+    const plain = { closest: () => null };                                  // 何にも当たらない要素
+    const noswipe = { closest: (sel) => (sel.includes("[data-noswipe]") ? {} : null) };
+    check("実物の対象判定: 1本目の指(touch/isPrimary=true)は対象",
+      t({ pointerType: "touch", isPrimary: true, target: plain }) === true);
+    check("実物の対象判定: 2本目の指(isPrimary === false)は対象外",
+      t({ pointerType: "touch", isPrimary: false, target: plain }) === false);
+    // 「2本目の指の down は中断だけして始めない」という今周の物語は、この1行だけに乗っている。
+    // target が何であっても偽になること(＝入力欄判定の巻き添えではないこと)まで見る。
+    check("実物の対象判定: 2本目の指は触れた先に関係なく対象外",
+      [plain, noswipe, {}, null, undefined]
+        .every((tg) => t({ pointerType: "touch", isPrimary: false, target: tg }) === false));
+    check("実物の対象判定: isPrimary が来ないイベントは対象(=== false のときだけ弾く)",
+      t({ pointerType: "touch", target: plain }) === true &&
+      t({ pointerType: "touch", isPrimary: undefined, target: plain }) === true);
+    check("実物の対象判定: マウスは対象外", t({ pointerType: "mouse", isPrimary: true, target: plain }) === false);
+    check("実物の対象判定: pen は対象(弾くのは mouse だけで、touch 以外を弾いてはいない)",
+      t({ pointerType: "pen", isPrimary: true, target: plain }) === true);
+    check("実物の対象判定: 入力欄・data-noswipe の上は対象外",
+      t({ pointerType: "touch", isPrimary: true, target: noswipe }) === false);
+    check("実物の対象判定: 横スクロールできる祖先の上は対象外",
+      T(true)({ pointerType: "touch", isPrimary: true, target: plain }) === false);
+    check("実物の対象判定: closest を持たない target でも落ちない",
+      t({ pointerType: "touch", isPrimary: true, target: {} }) === true &&
+      t({ pointerType: "touch", isPrimary: true, target: null }) === true);
+  }
+  check("縦と決まったら横へは動かさない(早期return)", /if \(!st\.horizontal\) return;/.test(gest));
+  check("軸が決まる前は何もしない", /if \(h === null\) return;/.test(gest));
+  // 上の網羅ループが回せるのは「知っている終わり方」だけ。4つ目の出口が後から生えても
+  // 実行検査は気づけない(掃引の dx は最大200pxなので、その外側で発火させれば触れない)。
+  // だから st に触る場所の数をここで固定する。
+  //
+  // 前は `st = null;` という**綴り**を数えていた。それでは `st = undefined;` や
+  // `st.id = -1;`(以後のイベントを pointerId 違いとして素通りさせる)で後始末なしの
+  // 出口を足せてしまう。どちらも「捨てるだけで transform が居座る」という同じ欠陥。
+  // そこで綴りではなく **st への再代入** と **st の破壊的な書き換え** を数える。
+  //   再代入(= 状態そのものを差し替える): 宣言 / abort / down の開始 / up の4つだけ。
+  //     null でも undefined でも void 0 でも 0 でも、右辺が何であれ1件として数える。
+  //   破壊的な書き換え(= 状態の中身をいじる): move の st.horizontal と st.dx の2つだけ。
+  // 代入の数だけでは Object.assign(st, { id: -1 }) のように「= を使わずに書き換える」
+  // 経路が残る(自分で試して実際に生き残った)ので、st を関数へ渡すこと自体も禁じる。
+  // それでも網羅ではない。「綴りに依らず数える」であって「どんな書き方でも捕まえる」ではない。
+  {
+    const asg = gest.match(/(?<![.\w$])st\s*=(?!=)/g) || [];         // let st = / st = / (st === は除く)
+    const decl = gest.match(/\blet\s+st\s*=(?!=)/g) || [];
+    const props = (gest.match(/(?<![.\w$])st\.(\w+)\s*=(?!=)/g) || [])
+      .map((s) => s.slice(3).replace(/\s*=$/, ""));
+    check("st を捨てる(再代入する)場所は abort / down の開始 / up の3つだけ(綴りは問わない)",
+      asg.length - decl.length === 3, `再代入${asg.length - decl.length}箇所 / 宣言${decl.length}箇所`);
+    check("st の宣言はただ1つ(別名に退避して使い回していない)", decl.length === 1, `${decl.length}箇所`);
+    check("st の中身を書き換えるのは move の st.horizontal と st.dx だけ(st.id 等で無効化しない)",
+      props.slice().sort().join(",") === "dx,horizontal", props.join(",") || "(なし)");
+    check("st を関数へ渡さない(Object.assign(st, …) のような = を使わない書き換えを封じる)",
+      !/[(,]\s*st\s*[,)]/.test(gest), (gest.match(/[(,]\s*st\s*[,)]/g) || []).join(" / "));
+    // 上の2本は `st.名前 =` という書き方しか数えない。添字と別名はその外側なので個別に塞ぐ。
+    check("st に添字でアクセスしない(st[\"id\"] = -1 で名前の検査をすり抜けさせない)",
+      !/(?<![.\w$])st\s*\[/.test(gest), (gest.match(/(?<![.\w$])st\s*\[[^\]]*\]/g) || []).join(" / "));
+    // `const s = st;` は封じるが、`const { dx, horizontal } = st;`(up の読み出し)は通す。
+    // 左辺が識別子で終わるものだけを見る(分割代入は直前が `}` なので当たらない)。
+    check("st を別の変数に写さない(別名越しの書き換えを封じる。分割代入での読み出しは可)",
+      !/\w\s*=\s*st\s*[;,)]/.test(gest), (gest.match(/\w+\s*=\s*st\s*[;,)]/g) || []).join(" / "));
+  }
+  // cancel も同じ罠を踏まないよう、終端の綴り(st = null)ではなく st への再代入全般を弾く。
+  const cancelSrc = bodyAfter(gest, "const cancel = (e) => {");
+  check("cancel は自前で終端せず abort に合流する(綴りに依らず st への再代入を禁じる)",
+    cancelSrc.includes("abort();") && !/settle\(|clearX\(|(?<![.\w$])st\s*=(?!=)/.test(cancelSrc), cancelSrc);
+
+  // --- ①②③(fixed の基準を壊さない / はみ出しを封じる)の構造検査 ---
+  // transform も will-change も position:fixed の子孫の包含ブロックを作る。
+  // 「静止時は transform を消す」だけでは足りず、will-change を一切使わないこと。
+  check("will-change を使わない(identityでも包含ブロックを作るため)", !/willChange|will-change/.test(area));
+  check("戻し終えたら transform も transition も消す",
+    /const clearX = \(\) => \{ track\.style\.transition = ""; track\.style\.transform = ""; \};/.test(area));
+  check("戻しは SWIPE_BACK_EASE で 0 へ向かわせる",
+    /const settle = \(\) => \{[\s\S]*?track\.style\.transition = SWIPE_BACK_EASE;[\s\S]*?setX\(0\);/.test(area));
+  // 「必ず消える」はこの正規表現ではなく上の実行検査が守る。ここが見ているのは
+  // 「戻しの SWIPE_BACK_SETTLE_MS 後に clearX を予約している」という配線1本だけ。
+  check("戻しは SWIPE_BACK_SETTLE_MS 後に clearX を予約する",
+    /settleTimer = setTimeout\(clearX, SWIPE_BACK_SETTLE_MS\);/.test(area));
+  // 予約は1本だけ。settle が古い予約を解除せずに setTimeout を重ねると、
+  // 2回目の戻しの最中に1回目のタイマーが起きて clearX する = transition ごと消えて
+  // 戻し途中の位置から瞬間移動する。settleTimer は最後の1本しか覚えていないので、
+  // 取り残された古いタイマーは cancelSettle でも止められない。
+  {
+    const s = bodyAfter(area, "const settle = () => {");
+    const iClear = s.indexOf("clearTimeout(settleTimer);");
+    const iSet = s.indexOf("settleTimer = setTimeout(");
+    check("戻しは予約し直す前に古い予約を解除する(settle 本体で clearTimeout が setTimeout より前)",
+      iClear >= 0 && iSet >= 0 && iClear < iSet, s);
+  }
+  check("予約したタイマーは解除できる(cancelSettle が同じタイマーを見ている)",
+    area.includes("cancelSettle: () => clearTimeout(settleTimer),"));
+  check("アンマウント時にもタイマーを解除する", /return \(\) => \{\s*clearTimeout\(settleTimer\);/.test(area));
+  check("遷移するときは transform を消してからコールバックを呼ぶ",
+    /if \(run\) \{ clearX\(\); run\(\); return; \}/.test(gest));
+  check("横に動かした後だけ元へ戻す(動いていないのに transform を置かない)",
+    /if \(horizontal === true\) settle\(\);/.test(gest));
+  check("横と確定しなかった経路は必ず transform を消す(タップ・縦ドラッグ)",
+    /if \(horizontal === true\) settle\(\);[^\n]*\n\s*else clearX\(\);/.test(gest));
+  check("ジェスチャー開始でタイマー解除と transform 消しの両方をする",
+    /cancelSettle\(\);[\s\S]{0,120}?clearX\(\);[\s\S]{0,120}?st = \{ id: e\.pointerId/.test(gest));
+  // 動かすのは track。viewport が overflow:hidden で包み、ページを横に伸ばさない(SwipePagerと同じ構造)。
+  check("viewport が overflow:hidden で track を包む",
+    /<div ref=\{viewportRef\} style=\{\{ overflow: "hidden", width: "100%", minHeight: minH \|\| undefined \}\}>/.test(area));
+  check("track は viewport の中身をそのまま包む", /<div ref=\{trackRef\}>\{children\}<\/div>/.test(area));
+  // transform / transition を書く相手が track 以外に1つでもあれば、overflow:hidden の
+  // 外側が動くことになり、はみ出しを封じる構造が壊れる。書き込み先を数で突き合わせる。
+  check("transform を書く相手は track だけ",
+    (area.match(/\.style\.transform\b/g) || []).length > 0 &&
+    (area.match(/\.style\.transform\b/g) || []).length === (area.match(/track\.style\.transform\b/g) || []).length,
+    `全${(area.match(/\.style\.transform\b/g) || []).length} / track宛${(area.match(/track\.style\.transform\b/g) || []).length}`);
+  check("transition を書く相手も track だけ",
+    (area.match(/\.style\.transition\b/g) || []).length > 0 &&
+    (area.match(/\.style\.transition\b/g) || []).length === (area.match(/track\.style\.transition\b/g) || []).length,
+    `全${(area.match(/\.style\.transition\b/g) || []).length} / track宛${(area.match(/track\.style\.transition\b/g) || []).length}`);
+  check("画面下端までの高さは viewport が持つ", area.includes("useFillViewportHeight(viewportRef)"));
+
+  // 評価ダイアログは SwipeBackArea の木の外(document.body)に出す。中に置くと祖先の
+  // transform が包含ブロックになり、暗幕が画面全体を覆えなくなる(審査役の実測: 44,65,347x700)。
+  const editor = sourceOf("ReedScoreEditor");
+  check("評価ダイアログは document.body へポータルする",
+    /return createPortal\(/.test(editor) && /\bdocument\.body,\s*\);\s*$/.test(editor.trim().replace(/\}$/, "").trim()));
+  check("createPortal を react-dom から import している", /import \{ createPortal \} from "react-dom";/.test(src));
+  check("暗幕・パネル・完了ボタンは data-noswipe で掴まれない",
+    (editor.match(/\bdata-noswipe\b/g) || []).length === 3, `${(editor.match(/\bdata-noswipe\b/g) || []).length}箇所`);
+  check("暗幕は画面全体(position:fixed / inset:0)のまま",
+    editor.includes('position: "fixed", inset: 0, zIndex: 60'));
+
+  // 呼び出し側: リード詳細だけが onForward を持つ
+  const reedsTab = sourceOf("ReedsTab");
+  check("リード詳細は onBack と onForward の両方を渡す",
+    /<SwipeBackArea onBack=\{closeReed\} onForward=\{openCompareFromReed\}>/.test(reedsTab));
+  check("左スワイプの行き先は「詳細を閉じて比較タブ」",
+    /openCompareFromReed = \(\) => \{[^}]*setEvaluatingReedId\(null\);[^}]*setReedsSubTab\("compare"\);/.test(reedsTab));
+  const lab = sourceOf("AnalysisLabView");
+  check("セッション詳細は onForward を渡さない", /<SwipeBackArea onBack=\{[^}]*\}>/.test(lab) && !/<SwipeBackArea[^>]*onForward/.test(lab));
+
+  // 立入禁止の確認: SwipePager 本体に手を入れていない
+  const pager = sourceOf("SwipePager");
+  check("SwipePager のしきい値はそのまま", pager.includes("const threshold = w ? w * 0.2 : 60;"));
+  check("SwipePager の端の抵抗はそのまま", pager.includes("if ((i === 0 && dx > 0) || (i === count - 1 && dx < 0)) dx *= 0.35;"));
+  check("SwipePager の軸判定はそのまま", pager.includes("if (Math.abs(dxRaw) < 6 && Math.abs(dy) < 6) return;"));
+  check("SwipePager は touchmove を非パッシブで登録したまま", pager.includes('el.addEventListener("touchmove", onMove, { passive: false });'));
+  check("SwipePager は touch イベントのまま(pointerに変えていない)",
+    pager.includes("onTouchStart") && !pager.includes("pointerdown"));
+  check("SwipeBackArea の使用箇所は2つのまま", (src.match(/<SwipeBackArea /g) || []).length === 2, `${(src.match(/<SwipeBackArea /g) || []).length}箇所`);
+  check("旧しきい値方式(useHorizontalSwipe)の呼び出しが残っていない", !src.includes("useHorizontalSwipe("));
 }
 
 // ============================================================

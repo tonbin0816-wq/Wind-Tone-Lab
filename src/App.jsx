@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
@@ -13,37 +14,6 @@ function hasHorizontalScrollAncestor(el, stopEl) {
     node = node.parentElement;
   }
   return false;
-}
-
-// 横スワイプでタブ切替/前画面への戻りを行うための共通フック(モバイルのタッチ操作専用)。
-// 縦スクロール・横スクロール要素・スライダー等と競合しないよう、指を離した時点で
-// 「横移動が縦移動より十分大きく、しきい値を超え、素早い」場合のみ発火する。
-// stopPropagation=true のときは発火時にイベント伝播を止め、親のスワイプ領域(例: サブタブ
-// 切替)が二重に反応しないようにする(詳細画面からの戻りスワイプで使う)。
-function useHorizontalSwipe({ onSwipeLeft, onSwipeRight, threshold = 60, stopPropagation = false }) {
-  const start = useRef(null);
-  const onTouchStart = (e) => {
-    // スライダー・プルダウン・入力欄・明示的に除外した要素の上では発火させない
-    if (e.touches.length !== 1 || e.target.closest?.("input, select, textarea, [data-noswipe]") ||
-        hasHorizontalScrollAncestor(e.target, e.currentTarget)) {
-      start.current = null;
-      return;
-    }
-    const t = e.touches[0];
-    start.current = { x: t.clientX, y: t.clientY, at: Date.now() };
-  };
-  const onTouchEnd = (e) => {
-    const s = start.current;
-    start.current = null;
-    if (!s) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - s.x;
-    const dy = t.clientY - s.y;
-    if (Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - s.at > 700) return;
-    if (stopPropagation) e.stopPropagation();
-    if (dx < 0) onSwipeLeft?.(); else onSwipeRight?.();
-  };
-  return { onTouchStart, onTouchEnd };
 }
 
 // 対象要素の上端から画面下端(下部固定ナビの手前)までの高さを返すフック。スワイプ領域を
@@ -195,15 +165,205 @@ function SwipePager({ index, onIndexChange, children }) {
   );
 }
 
-// 詳細画面の「右スワイプで一覧へ戻る」領域。コンテンツが短くても画面下側の空白まで
-// スワイプが効くよう、画面下端まで高さを確保する。
-function SwipeBackArea({ onBack, children }) {
-  const ref = useRef(null);
-  const minH = useFillViewportHeight(ref);
-  const swipe = useHorizontalSwipe({ onSwipeRight: onBack });
+// 詳細画面の横スワイプ領域。コンテンツが短くても画面下側の空白までスワイプが効くよう、
+// 画面下端まで高さを確保する。
+//   右スワイプ(指が右へ) = 一覧へ戻る(onBack)。iOSの戻る操作と同じ向き。
+//   左スワイプ(指が左へ) = onForward。未指定なら何も起きない(動かすが遷移しない)。
+// SwipePager と同じ「指に追従」の作法にそろえる: ドラッグ量ぶんだけ translateX で実際に
+// 動かし、指を離した時点でしきい値(幅の20%)を超えていれば遷移、足りなければ元に戻す。
+// ・パフォーマンス: ドラッグ中はReactのstateを更新せず、要素のstyleを直接書き換える
+//   (重い詳細画面を毎フレーム再レンダーしないため)。
+// ・縦スクロールとの両立: 最初の SWIPE_AXIS_LOCK_PX で縦横どちらのジェスチャーかを決め、
+//   横と決まってからのみ横へ動かす。縦と決まったら何もしない。ブラウザが縦スクロールを
+//   引き取ると pointercancel が来るので、そこで元の位置へ戻す。
+// ・PointerEvent を使う理由: touch-action は祖先の指定が子孫より優先されるため、ここに
+//   touch-action:pan-y を敷くと SessionDetailView の中にある横スクロール表(overflowX:auto)
+//   が横に動かせなくなる。touch-action を触らずに済む Pointer Events で組む。
+// ・スライダー・プルダウン・入力欄・横スクロール要素の上では発火しない(既存と同じ判定)。
+// ・マウスは対象外。デスクトップの文字選択・ドラッグを妨げない(従来もタッチ専用だった)。
+// ・構造も SwipePager に合わせる: overflow:hidden の viewport が track を包む。動かすのは
+//   track だけ。包まないと右ドラッグのぶんだけページが横に伸び(実測 scrollWidth 375→422)、
+//   ページ全体が横スクロールできてしまう。
+// ・will-change は使わない。transform と同じく position:fixed の子孫の包含ブロックを
+//   作ってしまうため(暗幕が画面全体を覆えなくなる)。
+
+// しきい値は SwipePager と同じ「viewport幅の20%、幅が測れなければ 60px」。
+const SWIPE_BACK_THRESHOLD_RATIO = 0.2;
+const SWIPE_BACK_THRESHOLD_MIN = 60;
+// 縦横どちらのジェスチャーかを決めるまでの移動量(SwipePager と同じ 6px)。
+const SWIPE_AXIS_LOCK_PX = 6;
+// 行き先の無い向きへ引いたときの抵抗(SwipePager の端と同じ 0.35)。動くが遷移はしない。
+const SWIPE_DEAD_END_RESIST = 0.35;
+// 戻すときの動き(SwipePager と同じイージング)と、その後 transform を消すまでの時間。
+const SWIPE_BACK_EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+const SWIPE_BACK_SETTLE_MS = 320;
+
+// --- 以下5つはジェスチャー判定の純関数。scripts/pitch-test.mjs から直接検証する ---
+// 判定はすべてここに閉じ込め、コンポーネント側には if を残さない
+// (コンポーネントのifはハーネスから見えず、消しても書き換えても検出できないため)。
+
+// 要素幅からしきい値(px)を出す。幅が測れないときだけ固定値にする。
+function swipeBackThreshold(width) {
+  return width > 0 ? width * SWIPE_BACK_THRESHOLD_RATIO : SWIPE_BACK_THRESHOLD_MIN;
+}
+// 縦横の軸判定。まだどちらとも決められないうちは null(何もしない)。
+function swipeAxisIsHorizontal(dx, dy) {
+  if (Math.abs(dx) < SWIPE_AXIS_LOCK_PX && Math.abs(dy) < SWIPE_AXIS_LOCK_PX) return null;
+  return Math.abs(dx) > Math.abs(dy);
+}
+// ドラッグ量 → 実際に動かす量。行き先の無い向き(左スワイプで onForward が無い)には抵抗をつける。
+function swipeBackOffset(dx, canForward) {
+  return !canForward && dx < 0 ? dx * SWIPE_DEAD_END_RESIST : dx;
+}
+// 指を離したときの行き先。横と決まっていないジェスチャー(縦・未確定)は必ず "stay"。
+// dx>0(右)=戻る / dx<0(左)=onForward / それ以外=元の位置へ。
+function swipeBackDecision(horizontal, dx, width, canForward) {
+  if (horizontal !== true) return "stay";
+  const th = swipeBackThreshold(width);
+  if (dx >= th) return "back";
+  if (canForward && dx <= -th) return "forward";
+  return "stay";
+}
+// 行き先 → 実際に呼ぶコールバック。この対応表を通すことで、右と左の配線の取り違えが
+// ハーネスから見えるようになる("stay" は呼ぶものが無いので null)。
+function swipeBackHandler(go, handlers) {
+  if (go === "back") return handlers?.onBack || null;
+  if (go === "forward") return handlers?.onForward || null;
+  return null;
+}
+
+// ジェスチャーの状態機械そのもの。DOMに触る操作(setX / clearX / settle / cancelSettle /
+// beginDrag / 幅の取得 / コールバック / 対象判定)はすべて引数で受け取り、ここには
+// 状態遷移だけを置く。判定の純関数と同じ理由で外に出してある: コンポーネントの中に
+// 状態遷移を書くと、ハーネスからは正規表現でしか見えず、「呼ばれるはずの後始末が
+// 呼ばれない経路」を検出できないため。ここに出しておけば scripts/pitch-test.mjs から
+// 偽のイベントを順に流し込んで、clearX が実際に呼ばれた回数で守れる。
+//
+// 守る不変条件: **進行中のジェスチャーが終わるイベント経路は up / cancel / 別の down による
+// 中断 の3つしかなく、どれを通っても transform は消えるか「戻して消す」予約が入る。**
+// (経路と言えるものは実はもう1つ、アンマウントがある。SwipeBackArea の useEffect の
+//  後片付けが settle のタイマーを解除しリスナーを外すが、st は後始末されず閉包ごと捨てられる。
+//  ただし transform を持つ track も同時に消えるので、居座る先が無く実害は無い。
+//  この行が数えているのは「イベントで終わる」3経路。)
+// identity(0px)でも transform があると position:fixed の子孫の基準がこの要素になり、
+// モーダルの暗幕が画面全体を覆えなくなる。
+// 「終わり」を数え落とすと transform が居座る。過去に2度落としている:
+//   1度目: down が settle のタイマーを解除するだけで clearX を呼ばず、直後のジェスチャーが
+//          横と確定しないまま終わる(＝ただのタップ)と transform が永久に残った。
+//   2度目: 対象外の down(2本目の指・入力欄・data-noswipe)が、進行中のドラッグを後始末なしに
+//          捨てていた。最後の setX の値のまま固着し、以後の move/up/cancel は st が null なので
+//          素通りし、無期限にずれたままになった。
+// したがって中断の終端は **対象判定より前** に置く。対象外かどうかは「新しく始めるか」の
+// 判断であって、「前のを終わらせるか」の判断ではない。
+// なお対象外の down では cancelSettle を呼ばない。予約済みの clearX を消してしまうと、
+// 戻し終えた transform がそのまま残る(＝直そうとして同じ穴を開けることになる)。
+// 引数は名前付きのオブジェクト1つ。分割代入は本体の中でする(ハーネスの extractFunction は
+// 「関数名の後の最初の { 」を本体の始まりと見なすため、引数の位置で分割代入すると抽出できない)。
+function createSwipeBackGesture(io) {
+  const { setX, clearX, settle, cancelSettle, beginDrag, getWidth, canForward, handlers, isSwipeTarget } = io;
+  let st = null;
+  // 行き先を決めない終わり方。pointercancel と、別の down による中断が共有する。
+  // st を捨てる(再代入する)場所は abort と up の2つだけ。ここを増やすと終端が漏れる。
+  // 綴りを変えても(undefined / void 0)、st.id などを書き換えて以後のイベントを素通り
+  // させても同じ穴が開くので、pitch-test は綴りではなく「st への再代入」と
+  // 「st の破壊的な書き換え」の数を固定している。
+  const abort = () => {
+    if (!st) return;
+    const horizontal = st.horizontal === true;
+    st = null;
+    if (horizontal) settle(); else clearX();
+  };
+  const down = (e) => {
+    abort();                                   // 前のジェスチャーの「終わり」。対象判定より前に置く
+    if (!isSwipeTarget(e)) return;             // 対象外: 始めないだけ。settle の予約は生かす
+    cancelSettle();                            // 進行中のドラッグを古いタイマーに消させない
+    clearX();                                  // 新しいジェスチャーは必ず素の状態から始める
+    st = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, horizontal: null };
+  };
+  const move = (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (st.horizontal === null) {
+      const h = swipeAxisIsHorizontal(dx, dy);
+      if (h === null) return;
+      st.horizontal = h;
+      if (h) beginDrag();                      // 横と決まった瞬間だけアニメーションを外す
+    }
+    if (!st.horizontal) return;                // 縦と決まったら横へは一切動かさない
+    st.dx = dx;
+    setX(swipeBackOffset(dx, canForward()));
+  };
+  const up = (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const { dx, horizontal } = st;
+    st = null;
+    const go = swipeBackDecision(horizontal, dx, getWidth(), canForward());
+    const run = swipeBackHandler(go, handlers());
+    if (run) { clearX(); run(); return; }      // 遷移するときは transform を消してから呼ぶ
+    if (horizontal === true) settle();         // 動かした後で行き先が無いときだけ戻す
+    else clearX();                             // 横と確定しなかった経路(タップ・縦)も必ず後始末する
+  };
+  const cancel = (e) => {                      // 縦スクロール等をブラウザが引き取った
+    if (!st || e.pointerId !== st.id) return;
+    abort();                                   // 中断と同じ終端に合流させる
+  };
+  return { down, move, up, cancel };
+}
+
+function SwipeBackArea({ onBack, onForward, children }) {
+  const viewportRef = useRef(null);
+  const trackRef = useRef(null);
+  const minH = useFillViewportHeight(viewportRef);
+  // 遷移先はレンダーごとに新しい関数が来るのでrefで読む(リスナーは張り替えない)。
+  const cbRef = useRef({ onBack, onForward });
+  useEffect(() => { cbRef.current = { onBack, onForward }; });
+
+  useEffect(() => {
+    const vp = viewportRef.current, track = trackRef.current;
+    if (!vp || !track) return;
+    let settleTimer = 0;
+    const setX = (px) => { track.style.transform = `translateX(${px}px)`; };
+    // 静止時は transform を残さない。identityでも transform があると position:fixed の
+    // 子孫の基準がこの要素になり、モーダルの暗幕が画面全体を覆えなくなるため。
+    const clearX = () => { track.style.transition = ""; track.style.transform = ""; };
+    const settle = () => {                       // しきい値未満: 元の位置へ戻す
+      track.style.transition = SWIPE_BACK_EASE;
+      setX(0);
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(clearX, SWIPE_BACK_SETTLE_MS);
+    };
+    // 状態遷移は createSwipeBackGesture(純関数のファクトリ)が持つ。ここは DOM を触る
+    // 手足を渡して、返ってきた down/move/up/cancel をイベントに繋ぐだけにする。
+    const g = createSwipeBackGesture({
+      setX, clearX, settle,
+      cancelSettle: () => clearTimeout(settleTimer),
+      beginDrag: () => { track.style.transition = "none"; },
+      getWidth: () => vp.clientWidth,
+      canForward: () => !!cbRef.current.onForward,
+      handlers: () => cbRef.current,
+      isSwipeTarget: (e) => {
+        if (e.pointerType === "mouse" || e.isPrimary === false) return false;
+        if (e.target?.closest?.("input, select, textarea, [data-noswipe]")) return false;
+        return !hasHorizontalScrollAncestor(e.target, vp);
+      },
+    });
+
+    vp.addEventListener("pointerdown", g.down);
+    window.addEventListener("pointermove", g.move);
+    window.addEventListener("pointerup", g.up);
+    window.addEventListener("pointercancel", g.cancel);
+    return () => {
+      clearTimeout(settleTimer);
+      vp.removeEventListener("pointerdown", g.down);
+      window.removeEventListener("pointermove", g.move);
+      window.removeEventListener("pointerup", g.up);
+      window.removeEventListener("pointercancel", g.cancel);
+    };
+  }, []);
+
   return (
-    <div ref={ref} {...swipe} style={{ minHeight: minH || undefined }}>
-      {children}
+    <div ref={viewportRef} style={{ overflow: "hidden", width: "100%", minHeight: minH || undefined }}>
+      <div ref={trackRef}>{children}</div>
     </div>
   );
 }
@@ -5093,6 +5253,11 @@ function RatingDial({ value, onChange }) {
 // 暗幕の色・不透明度・カードの影は ScrollPicker / 保存確認ダイアログと同値
 // (rgba(15,23,42,0.28) / 0 8px 24px rgba(15,23,42,0.18))。新しい濃さを発明しない。
 // 破棄されて困る情報は無いので、保存確認と違い**背景タップで閉じてよい**。
+// 【document.body へポータルする理由】position:fixed の基準(包含ブロック)は、祖先に
+// transform / will-change / filter があるとその祖先に移る。この画面は SwipeBackArea の
+// 子孫で、スワイプ中は祖先に transform が乗る。DOM上そのまま置くと暗幕が画面全体ではなく
+// 祖先の矩形(0,0,375x812 → 44,65,347x700)になり、下部ナビが触れてしまう(審査役の実測)。
+// ポータルで木の外に出せば、祖先の transform と無関係に常に画面全体を覆う。
 function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -5100,10 +5265,11 @@ function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   const v = normalizeReedScore(value);
-  return (
+  return createPortal(
     <div
       role="dialog" aria-modal="true" aria-label={title}
       onClick={onClose}
+      data-noswipe
       style={{
         position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-4)",
@@ -5111,6 +5277,7 @@ function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        data-noswipe
         style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}
       >
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-3)" }}>
@@ -5125,12 +5292,14 @@ function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
         </div>
         <button
           type="button" onClick={onClose} className="sans"
+          data-noswipe
           style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer" }}
         >
           完了
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -5425,7 +5594,7 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
 // Reeds view — 企画書v5 10節: リード管理・リード別比較・リード毎比較・ランキング
 // ============================================================
 // リードタブの親。登録⇄比較をスワイプpagerで行き来し、個別リード詳細の開閉も担う。
-// 詳細を開いている間はpagerを出さず(早期return)、右スワイプで一覧へ戻す。
+// 詳細を開いている間はpagerを出さず(早期return)、右スワイプで一覧へ戻し、左スワイプで比較タブへ移る。
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
@@ -5440,6 +5609,9 @@ function ReedsTab(props) {
   const listScrollYRef = useRef(0);
   const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
   const closeReed = () => setEvaluatingReedId(null);
+  // 詳細からの左スワイプの行き先。詳細を閉じて比較タブへ移る(登録が左・比較が右の並びに沿う)。
+  // 一覧へ戻ったわけではないので、控えてあった一覧のスクロール位置は復元しない(0にして無効化)。
+  const openCompareFromReed = () => { listScrollYRef.current = 0; setEvaluatingReedId(null); setReedsSubTab("compare"); };
 
   const evaluatingReed = reeds.find((r) => r.id === evaluatingReedId) || null;
   useEffect(() => {
@@ -5450,7 +5622,7 @@ function ReedsTab(props) {
 
   if (evaluatingReed) {
     return (
-      <SwipeBackArea onBack={closeReed}>
+      <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
         <ReedEvaluationDetail
           reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
           selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
