@@ -3664,7 +3664,10 @@ function ringPoint(deg, r, cx, cy) {
 // **ピッチマーカー(r=136 の点・半径10 なので内縁は 126)** との距離で効いてくる。
 const RING_PEND_R = 94;             // 錘の軌道半径
 const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍の瞬間が両端になる
-const RING_PEND_ARC_SW = 2;         // 軌道の弧の太さ(--c-line)
+// 【削除済み】RING_PEND_ARC_SW / ringPendArcD / RING_PEND_ARC_D(軌道のガイド線)
+// 錘の往復する道筋を薄い弧で下敷きに描いていたが、本人指示で削除した。
+// 環は「上弧=ピッチ / 下弧=拍」の二役を持つ演奏中サーフェスで、読ませる線を増やさない
+// ほうが良い(DESIGN-SYSTEM §6.1)。錘が動けば軌道は見えるので、線は情報を足していなかった。
 const RING_PEND_BOB_R = 14;         // 錘の基本半径
 const RING_PEND_BOB_GROW = 4;       // 拍の演出での半径の増分
 const RING_PEND_HALO_GAP = 7;       // 錘の外側の輪 = 錘の半径 + この値
@@ -3704,14 +3707,6 @@ function ringPendDeg(phase) {
   if (phase === null || phase === undefined) return 0;
   return RING_PEND_SWING_DEG * Math.cos(Math.PI * phase);
 }
-
-// 錘の軌道の弧(薄く描く)。-55°→+55° は110°<180°なので large-arc=0、時計回りで sweep=1。
-function ringPendArcD() {
-  const [ax, ay] = ringPoint(-RING_PEND_SWING_DEG, RING_PEND_R, RING_CX, RING_CY);
-  const [bx, by] = ringPoint(RING_PEND_SWING_DEG, RING_PEND_R, RING_CX, RING_CY);
-  return `M${ax.toFixed(2)},${ay.toFixed(2)} A${RING_PEND_R},${RING_PEND_R} 0 0,1 ${bx.toFixed(2)},${by.toFixed(2)}`;
-}
-const RING_PEND_ARC_D = ringPendArcD();
 
 // 拍の演出量(0〜1)。**毎拍・両端で**出す(実際のメトロノームは両端で鳴る)。
 // 拍の瞬間に最大で、拍内位相 × RING_BEAT_EMPH_DECAY のぶんだけ減衰して0になる。
@@ -3902,9 +3897,8 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
                 />
               );
             })}
-            {/* 上半円: 振り子。軌道の弧を薄く描き、その上を錘が往復する
-                (錘が端に近づくのが見えることが「次の拍の予測」を担う) */}
-            <path d={RING_PEND_ARC_D} fill="none" strokeWidth={RING_PEND_ARC_SW} style={{ stroke: "var(--c-line)" }} />
+            {/* 上半円: 振り子。錘そのものの往復が「次の拍の予測」を担う。
+                軌道を示すガイド線は描かない(本人指示。錘が動けば軌道は読める) */}
             <circle
               ref={bobHaloRef} cx={CX} cy={CY - RING_PEND_R} r={RING_PEND_BOB_R + RING_PEND_HALO_GAP}
               fill="none" strokeWidth={RING_PEND_HALO_SW} strokeOpacity="0" style={{ stroke: "var(--c-accent)" }}
@@ -5413,15 +5407,18 @@ function reedScoreRowItems(fields) {
     label: f.label,
     text: reedScoreText(f.key, f.value),
     rated: normalizeReedScoreOf(f.key, f.value) !== null,
-    sep: i > 0,                                  // 先頭以外の前に「・」を置く
+    sep: i > 0,                                  // 先頭以外の左に区切り罫を置く
   }));
 }
 
 // 通常時の評価表示。**総評 / 厚さ / バランスを1行に横並び**にし、行のどこを押しても
 // 同じ1つのダイアログが開く(本人指示: 「同列に横一列にしてタップすると…一度で三つとも」)。
-// 行全体が1つのタップ対象で、高さは --tap-min(44px)固定。値が入っても未評価でも
-// 行の高さは変わらない(§6.1.5)。★は出さない(本人指示: 「厚さは星不要」)。
-// 折り返さない: flexWrap は nowrap(flex の初期値だが、明示して「折り返さない」を要件にする)。
+// 各列は**見出しの下に数字**を積む(本人指示: 「『総評』というテキストの下に数字」)。
+// 3列は flex:1 1 0 + minWidth:0 で**画面幅を余白なく三等分**する(本人指示)。
+// そのため列の外側に padding も gap も置かない。区切りは列と列の境の1px罫だけで、
+// 幅を食う「・」は使わない(文字だと3列が等幅にならない)。
+// 行全体が1つのタップ対象。値が入っても未評価でも高さは変わらない(§6.1.5)。
+// ★は出さない(本人指示: 「厚さは星不要」)。
 // 中身は reedScoreRowItems の返り値をそのまま並べる。ここで slice / filter しない。
 function ReedScoreField({ fields, onOpen }) {
   return (
@@ -5429,18 +5426,24 @@ function ReedScoreField({ fields, onOpen }) {
       type="button" onClick={onOpen} className="sans"
       aria-label="総評・厚さ・バランスを編集"
       style={{
-        display: "flex", alignItems: "center", flexWrap: "nowrap", gap: "var(--sp-2)",
-        width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-2)",
+        display: "flex", alignItems: "stretch", flexWrap: "nowrap",
+        width: "100%", minHeight: "var(--tap-min)", padding: "var(--sp-2) 0",
         borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)",
-        cursor: "pointer", textAlign: "left",
+        cursor: "pointer",
       }}
     >
       {reedScoreRowItems(fields).map((it) => (
-        <span key={it.key} style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-1)", whiteSpace: "nowrap" }}>
-          {/* 区切りは装飾なので --c-ink-4(装飾専用)。読ませる文字ではない */}
-          {it.sep && <span aria-hidden="true" style={{ color: "var(--c-ink-4)", fontSize: "var(--fs-xs)", marginRight: "var(--sp-1)" }}>・</span>}
+        <span
+          key={it.key}
+          style={{
+            flex: "1 1 0", minWidth: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-1)",
+            // 区切りは列の境の罫。装飾なので --c-line(読ませる線ではない)
+            borderLeft: it.sep ? "1px solid var(--c-line)" : "none",
+          }}
+        >
           <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{it.label}</span>
-          <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
+          <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700, lineHeight: 1, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
             {it.text}
           </span>
         </span>
@@ -6970,24 +6973,28 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
 
       {/* 個体の識別情報・主観評価・メモ。名前とメモはここでのみ編集する(一覧側の鉛筆編集は廃止) */}
       <div style={{ background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius: 6, padding: "14px 16px", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 10 }}>{reedLabel(reed, reeds)}</div>
+        {/* リード名の中の番号がそのまま編集欄。以前はこの下に「#番号:」の行が別にあり、
+            見出しと同じ番号が2度出ていた(本人指示で統合)。空欄にすると自動採番に戻り、
+            placeholder にその自動採番値が出る(＝今なら何番になるかが分かる)。 */}
+        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+          <span>{reed.brand} {reed.strength}</span>
+          <span>#</span>
+          <input
+            type="text" aria-label="番号" placeholder={String(reedPosition(reed, reeds))}
+            value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
+            className="sans"
+            style={{ width: 64, flexShrink: 0, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "4px 8px", color: "#121F32", fontSize: 13, fontWeight: 700 }}
+          />
+          <span style={{ fontWeight: 400, color: "#435266" }}>({shortDate(reed.startDate)})</span>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 58 }}>#番号:</span>
-            <input
-              type="text" placeholder="数字・アルファベット・記号など自由に(空欄で自動採番に戻る)"
-              value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
-              className="sans"
-              style={{ width: 80, flexShrink: 0, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "6px 10px", color: "#121F32", fontSize: 12 }}
-            />
-          </div>
           {/* 総評 / 厚さ / バランスを1行に横並び。行のどこを押しても3列のダイヤルが1回で開く。
               ★は出さない(本人指示: 「厚さは星不要」。バランスも数値表示に統一)。 */}
           <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 58, marginTop: 6 }}>メモ:</span>
+            {/* placeholder は置かない(本人指示)。見出しの「メモ:」で用途は足りている */}
             <textarea
-              placeholder="このリードの印象・特徴など(任意)"
               value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
               rows={2}
               className="sans"

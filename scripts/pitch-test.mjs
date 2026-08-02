@@ -12,6 +12,13 @@ import { dirname, join } from "path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
 
+// コメントを外した「実際に動く側」だけを返す。「○○は使わない」「【削除済み】○○」という
+// 記録をコメントに書くと、その綴りが本文に現れて「○○が無いこと」の検査が落ちる。
+// 記録を残せなくなるのは本末転倒なので、綴りの不在を見る検査はここを通してから見る。
+function codeOf(s) {
+  return String(s || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 function extractFunction(name) {
   const idx = src.indexOf(`function ${name}(`);
   if (idx === -1) throw new Error(`function ${name} not found`);
@@ -115,8 +122,7 @@ const code = [
   extractConst("RING_BEAT_EMPH_HEAD"),
   extractConst("RING_BEAT_EMPH_OTHER"),
   extractFunction("ringPendDeg"),
-  extractFunction("ringPendArcD"),
-  extractConst("RING_PEND_ARC_D"),
+  // ringPendArcD / RING_PEND_ARC_D は軌道のガイド線ごと削除した(本人指示)
   extractFunction("ringBeatEmphasis"),
   extractFunction("ringBeatIndex"),
   extractFunction("ringBeatIsHead"),
@@ -189,7 +195,7 @@ const api = new Function(`${code}
            METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG,
            RING_CX, RING_CY, RING_R, RING_SW, RING_PITCH_DOT_R,
            RING_PEND_R, RING_PEND_SWING_DEG, RING_PEND_BOB_R, RING_PEND_BOB_GROW,
-           RING_PEND_HALO_GAP, RING_PEND_HALO_SW, RING_PEND_HALO_OPACITY, RING_PEND_ARC_D,
+           RING_PEND_HALO_GAP, RING_PEND_HALO_SW, RING_PEND_HALO_OPACITY,
            RING_BEAT_DOT_ORBIT_R, RING_BEAT_DOT_SPREAD_DEG, RING_BEAT_DOT_R, RING_BEAT_DOT_CUR_R,
            RING_BEAT_DOT_CUR_GROW, RING_BEAT_DOT_HEAD_R, RING_BEAT_DOT_HEAD_GROW,
            RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
@@ -1025,15 +1031,14 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
       `帯の内縁 ${bandInner} / 錘 ${bobOuterMax.toFixed(2)} / 点 ${dotOuterMax} → ${gapPx.toFixed(2)} CSS px`);
   }
 
-  // 軌道の弧は錘と同じ半径・同じ振れ角の上に描かれていること(錘が弧から外れて見えない)
-  {
-    const m = /^M([\d.-]+),([\d.-]+) A(\d+(?:\.\d+)?),\d+(?:\.\d+)? 0 0,1 ([\d.-]+),([\d.-]+)$/.exec(api.RING_PEND_ARC_D);
-    const [lx, ly] = api.ringPoint(-api.RING_PEND_SWING_DEG, api.RING_PEND_R, api.RING_CX, api.RING_CY);
-    const [rx, ry] = api.ringPoint(api.RING_PEND_SWING_DEG, api.RING_PEND_R, api.RING_CX, api.RING_CY);
-    check("軌道の弧は錘の軌道(半径・振れ角)と一致する",
-      !!m && +m[3] === api.RING_PEND_R && Math.abs(+m[1] - lx) < 0.01 && Math.abs(+m[2] - ly) < 0.01
-      && Math.abs(+m[4] - rx) < 0.01 && Math.abs(+m[5] - ry) < 0.01, api.RING_PEND_ARC_D);
-  }
+  // 軌道のガイド線は描かない(本人指示で削除)。以前はここに「弧が錘の軌道と一致する」検査が
+  // あったが、弧そのものを消したので、代わりに**復活していないこと**を見る。
+  // 演奏中サーフェスは読ませる線を増やさない(DESIGN-SYSTEM §6.1)。
+  // 「削除した」という記録をコメントに残すと、識別子の綴りが本文に現れる。
+  // コメントを外してから見ないと、記録を書いた瞬間にこの検査が落ちる(実際に落ちた)。
+  check("振り子の軌道にガイド線を描かない(定数も描画も残っていない)",
+    !/const RING_PEND_ARC/.test(codeOf(src)) && !/function ringPendArcD/.test(codeOf(src))
+    && !/<path d=\{RING_PEND/.test(codeOf(src)));
 }
 
 // ============================================================
@@ -1719,7 +1724,7 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         check("未評価かどうかは normalizeReedScoreOf と一致する(色の出し分けの根拠)",
           row.map((r) => r.rated).join(",") === F.map((f) => api.normalizeReedScoreOf(f.key, f.value) !== null).join(","),
           row.map((r) => r.rated).join(","));
-        check("区切り「・」は先頭以外にだけ付く", row.map((r) => (r.sep ? 1 : 0)).join(",") === "0,1,1",
+        check("区切り(列と列の境の罫)は先頭以外にだけ付く", row.map((r) => (r.sep ? 1 : 0)).join(",") === "0,1,1",
           row.map((r) => (r.sep ? 1 : 0)).join(","));
         // 件数を落とす変異(slice / filter / 先頭だけ)を、長さを振って捕まえる
         let dropped = null;
@@ -1742,14 +1747,33 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       // --- 「折り返さない」 ---
       // 以前は whiteSpace:nowrap(項目の中の改行止め)しか見ておらず、行に flexWrap:"wrap" を
       // 足す変異が素通りした(3項目が2段に折り返っても通る)。行そのものの折り返しを見る。
-      check("3項目を横一列に並べる(flex)", /display: "flex", alignItems: "center"/.test(fld));
+      check("3項目を横一列に並べる(flex)", /display: "flex", alignItems: "stretch"/.test(fld));
       check("行は折り返さない(flexWrap は nowrap ただ1つ。wrap を足しても後勝ちにならない)",
         (fld.match(/flexWrap:/g) || []).length === 1 && /flexWrap: "nowrap"/.test(fld),
         (fld.match(/flexWrap: "[a-z-]+"/g) || []).join(" / ") || "flexWrap の指定なし");
       check("flexFlow で折り返しを持ち込んでいない", !/flexFlow/.test(fld));
-      check("項目そのものも改行しない(whiteSpace:nowrap)", /whiteSpace: "nowrap"/.test(fld));
-      check("行の高さは --tap-min(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
-      check("区切りは装飾色 --c-ink-4", /color: "var\(--c-ink-4\)"/.test(fld));
+      // --- 「余白なく均等に三等分」(本人指示) ---
+      // 列に flex:1 1 0 + minWidth:0 を与え、行の外側に padding も gap も置かない。
+      // どれか1つでも欠けると幅が中身依存になり、3列が等幅にならない。
+      check("列は flex:1 1 0 で幅を均等に分ける", /flex: "1 1 0"/.test(fld));
+      check("列の幅は中身に引きずられない(minWidth:0)", /minWidth: 0/.test(fld));
+      check("行の左右に padding を置かない(縦だけ --sp-2)",
+        /padding: "var\(--sp-2\) 0"/.test(fld),
+        (fld.match(/padding: "[^"]*"/g) || []).join(" / ") || "padding の指定なし");
+      // gap は列の中(見出し↔数字)の1つだけ。行に gap を足すと列の合計幅が
+      // 「画面幅 - gap」になり、三等分が崩れる
+      check("行そのものに gap を置かない(gap は列の中の1つだけ)",
+        (codeOf(fld).match(/gap:/g) || []).length === 1,
+        `${(codeOf(fld).match(/gap:/g) || []).length}箇所`);
+      // 見出しの下に数字(本人指示)。横並びに戻すと縦積みが崩れる
+      check("各列は見出しの下に数字を積む(flexDirection:column)", /flexDirection: "column"/.test(fld));
+      check("行の高さは --tap-min 以上(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
+      // 区切りは幅を食わない1px罫。文字(「・」)だと列ごとに幅が変わり等幅にならない
+      // 「・」は aria-label("総評・厚さ・バランスを編集")には出てよい。描画される文字として
+      // 出ると列ごとに幅が変わって三等分が崩れるので、要素の中身(>の直後)だけを見る。
+      check("区切りは列の境の罫(--c-line)で、幅を食う文字を描画しない",
+        /borderLeft: it\.sep \?/.test(fld) && /1px solid var\(--c-line\)/.test(fld)
+        && !/>\s*・/.test(codeOf(fld)) && !/\{"・"\}/.test(codeOf(fld)));
       check("フォントサイズはスケール内(--fs-xs / --fs-lg のみ)",
         (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).every((s) => /--fs-(xs|lg)\)/.test(s)),
         (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).join(","));
