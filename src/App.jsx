@@ -179,6 +179,18 @@ function SwipePager({ index, onIndexChange, children }) {
 // ・PointerEvent を使う理由: touch-action は祖先の指定が子孫より優先されるため、ここに
 //   touch-action:pan-y を敷くと SessionDetailView の中にある横スクロール表(overflowX:auto)
 //   が横に動かせなくなる。touch-action を触らずに済む Pointer Events で組む。
+// ・ただし Pointer Events だけではブラウザのスクロールを一度も止められない。縦に長い
+//   ページでは、真横(0°)に引いてさえ 20px 進んだ時点でブラウザが縦スクロールを引き取り、
+//   pointercancel が飛んでジェスチャーごと死ぬ(実機報告「反応自体もよくない」。
+//    審査役が Chrome DevTools Protocol の Input.dispatchTouchEvent で測り直した実測:
+//    docH 1160 / innerH 812 の状態で、修正前は 20通り中 0 件しか遷移せず、
+//    pointercancel が 20/20。preventDefault は1件も打てていなかった)。
+//   そこで **非パッシブの touchmove を1本足し、横と確定している間だけ preventDefault する**
+//   (同じ実測で 9/20 が遷移・pointercancel 0。除外要素を除くと 0/12 → 9/12)。
+//   touch-action を触らずに済むので上記の横スクロール表も生きたまま。
+// ・SwipePager との異同: 「非パッシブの touchmove を張り、横と確定してからだけ
+//   preventDefault する」という作法は同じだが、**軸を決める場所は違う**。SwipePager は
+//   touchmove の中で軸を決める。こちらは pointermove で決め、touchmove は旗を読むだけ。
 // ・スライダー・プルダウン・入力欄・横スクロール要素の上では発火しない(既存と同じ判定)。
 // ・マウスは対象外。デスクトップの文字選択・ドラッグを妨げない(従来もタッチ専用だった)。
 // ・構造も SwipePager に合わせる: overflow:hidden の viewport が track を包む。動かすのは
@@ -192,6 +204,19 @@ const SWIPE_BACK_THRESHOLD_RATIO = 0.2;
 const SWIPE_BACK_THRESHOLD_MIN = 60;
 // 縦横どちらのジェスチャーかを決めるまでの移動量(SwipePager と同じ 6px)。
 const SWIPE_AXIS_LOCK_PX = 6;
+// 「縦」と断定するのに要る縦成分と横成分の比。縦成分が横成分のこの倍以上でなければ
+// 縦とは決めず、未確定のまま観察を続ける。
+// 理由: 親指のスワイプは根元を支点に弧を描くので**最初の6pxは縦成分が勝ちやすい**。
+// 1.0(=単純な大小比較)だと一度の揺れで縦に固定され、そのまま二度と横へ戻れない。
+// 効き目の実測(審査役が Chrome DevTools Protocol の Input.dispatchTouchEvent で計測):
+//   **1.5 が実際に救っているのは初角 42〜44° の帯**。1.0 では×、1.5 では○になる。
+//   座標の丸めのゆらぎで一瞬 |dy| >= |dx| になる帯を、断定せず拾い直せるため。
+//   一方、46〜70° の弧のドラッグは 1.0 でも 1.5 でも成立しない(この定数だけでは救えない)。
+//   ジェスチャーが死んでいた主因は preventDefault が一度も打てていなかったことで、
+//   そちらは非パッシブ touchmove の追加で解決している(0/12 → 9/12)。
+// 境界は atan(1.5)=56.3°。真に縦のドラッグは 1.5 倍をすぐ超えるので縦スクロールは残る
+// (同じ実測で、上へ200px引くと scrollY +185px・preventDefault 0/19)。
+const SWIPE_VERTICAL_BIAS = 1.5;
 // 行き先の無い向きへ引いたときの抵抗(SwipePager の端と同じ 0.35)。動くが遷移はしない。
 const SWIPE_DEAD_END_RESIST = 0.35;
 // 戻すときの動き(SwipePager と同じイージング)と、その後 transform を消すまでの時間。
@@ -206,10 +231,16 @@ const SWIPE_BACK_SETTLE_MS = 320;
 function swipeBackThreshold(width) {
   return width > 0 ? width * SWIPE_BACK_THRESHOLD_RATIO : SWIPE_BACK_THRESHOLD_MIN;
 }
-// 縦横の軸判定。まだどちらとも決められないうちは null(何もしない)。
+// 縦横の軸判定。3値。**勝つまで決めない**のが要点で、どちらとも言えないうちは null を返し、
+// 呼び出し側は観察を続ける(6px時点の一瞬の優劣で永久に固定しない)。
+//   横と確定: |dx| が軸ロック距離に達し、かつ横成分が縦成分より大きい
+//   縦と確定: |dy| が軸ロック距離に達し、かつ縦成分が横成分の SWIPE_VERTICAL_BIAS 倍以上
+//   それ以外: null(未確定)
 function swipeAxisIsHorizontal(dx, dy) {
-  if (Math.abs(dx) < SWIPE_AXIS_LOCK_PX && Math.abs(dy) < SWIPE_AXIS_LOCK_PX) return null;
-  return Math.abs(dx) > Math.abs(dy);
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  if (ax >= SWIPE_AXIS_LOCK_PX && ax > ay) return true;
+  if (ay >= SWIPE_AXIS_LOCK_PX && ay >= ax * SWIPE_VERTICAL_BIAS) return false;
+  return null;
 }
 // ドラッグ量 → 実際に動かす量。行き先の無い向き(左スワイプで onForward が無い)には抵抗をつける。
 function swipeBackOffset(dx, canForward) {
@@ -322,22 +353,35 @@ function SwipeBackArea({ onBack, onForward, children }) {
     const vp = viewportRef.current, track = trackRef.current;
     if (!vp || !track) return;
     let settleTimer = 0;
+    // 横と確定している間だけ true。立てるのは beginDrag(横と決まった瞬間)、降ろすのは
+    // clearX と settle(ジェスチャーの開始・終了はすべてこの2つを通る)。
+    // この旗が touchmove の preventDefault の可否そのもの。
+    let dragHorizontal = false;
     const setX = (px) => { track.style.transform = `translateX(${px}px)`; };
     // 静止時は transform を残さない。identityでも transform があると position:fixed の
     // 子孫の基準がこの要素になり、モーダルの暗幕が画面全体を覆えなくなるため。
-    const clearX = () => { track.style.transition = ""; track.style.transform = ""; };
+    const clearX = () => { dragHorizontal = false; track.style.transition = ""; track.style.transform = ""; };
     const settle = () => {                       // しきい値未満: 元の位置へ戻す
+      dragHorizontal = false;                    // 指はもう離れている。戻しの間は何も止めない
       track.style.transition = SWIPE_BACK_EASE;
       setX(0);
       clearTimeout(settleTimer);
       settleTimer = setTimeout(clearX, SWIPE_BACK_SETTLE_MS);
+    };
+    // 非パッシブの touchmove。**横と確定している間だけ**ブラウザのスクロールを止める。
+    // 未確定・縦のあいだは preventDefault しない(縦スクロールを妨げない)。
+    // Pointer Events だけではここが止められず、斜めに引くとブラウザが縦スクロールを
+    // 引き取って pointercancel が飛び、ジェスチャーごと死んでいた。
+    const onTouchMove = (e) => {
+      if (!dragHorizontal) return;
+      e.preventDefault();
     };
     // 状態遷移は createSwipeBackGesture(純関数のファクトリ)が持つ。ここは DOM を触る
     // 手足を渡して、返ってきた down/move/up/cancel をイベントに繋ぐだけにする。
     const g = createSwipeBackGesture({
       setX, clearX, settle,
       cancelSettle: () => clearTimeout(settleTimer),
-      beginDrag: () => { track.style.transition = "none"; },
+      beginDrag: () => { dragHorizontal = true; track.style.transition = "none"; },
       getWidth: () => vp.clientWidth,
       canForward: () => !!cbRef.current.onForward,
       handlers: () => cbRef.current,
@@ -349,12 +393,14 @@ function SwipeBackArea({ onBack, onForward, children }) {
     });
 
     vp.addEventListener("pointerdown", g.down);
+    vp.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("pointermove", g.move);
     window.addEventListener("pointerup", g.up);
     window.addEventListener("pointercancel", g.cancel);
     return () => {
       clearTimeout(settleTimer);
       vp.removeEventListener("pointerdown", g.down);
+      vp.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("pointermove", g.move);
       window.removeEventListener("pointerup", g.up);
       window.removeEventListener("pointercancel", g.cancel);
@@ -5006,10 +5052,17 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 // ============================================================================
 // リードの主観評価(総評 / 厚さ / バランス)の共通ルール。
 //
-// 3つとも **1〜5の整数**・未評価は **null** に統一する(本人指示: 「厚さとバランスは
-// 五段階でいい」)。以前は 0.1 刻みの50段階だったため、保存済みデータには小数や 0 が残る。
-// **既存データは書き換えない**。読み取り時にだけ整数へ丸めてクランプし、ユーザーが実際に
-// 値を変えたときだけ整数で保存する(壊してしまうと元の記録が復元できないため)。
+// **総評だけ 1.0〜5.0 の 0.1 刻み(41段)**、厚さ・バランスは **1〜5 の整数(5段)**。
+// (本人指示: 「厚さとバランスは五段階でいい」→ その後「総評だけは.1きざみでできるように」)
+// 未評価はどれも **null**。
+// **既存データは書き換えない**。読み取り時にだけ丸めてクランプし、ユーザーが実際に
+// 値を変えたときだけ書き込む(壊してしまうと元の記録が復元できないため)。既に入っている
+// 整数の総評(3)はそのまま有効な値で、表示だけ "3.0" になる。マイグレーションはしない。
+//
+// **0.1 刻みは2進小数で正確に表せない。** 生の値どうしを === で比べると
+// 0.1*37 = 3.7000000000000006 のような値が「変わった」と判定され、
+// 「開いただけで履歴が1件増える」バグが再発する(前の周で潰した挙動)。
+// したがって総評は必ず normalizeReedRating(= Math.round(v*10)/10)を通してから比較する。
 //
 // 純関数として切り出してあるのは、scripts/pitch-test.mjs のハーネスが JSX を見ないため。
 // 「同じ値なら履歴を増やさない」「未評価は線を繋がない」「縦軸は1〜5固定」といった
@@ -5017,24 +5070,63 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 // ============================================================================
 const REED_SCORE_MIN = 1;
 const REED_SCORE_MAX = 5;
-const REED_SCORE_STEPS = [1, 2, 3, 4, 5];
 const REED_SCORE_KEYS = ["rating", "thickness", "balance"];
 
-// ダイヤル・縦軸目盛の並び。**上が5・下が1**(本人指示: 「リードの総評ダイアルは上が5下が1」)。
+// 総評の刻みと段数。1.0〜5.0 を 0.1 刻みで並べると 41 段。
+const REED_RATING_STEP = 0.1;
+const REED_RATING_STEPS_N = 41;
+
+// ダイヤル(厚さ・バランス)・グラフ縦軸目盛の並び。**上が5・下が1**
+// (本人指示: 「リードの総評ダイアルは上が5下が1」)。
 // グラフの縦軸目盛も上から下へ同じ並びなので、同じ定数を共有する。
 const RATING_DIAL_ORDER = [5, 4, 3, 2, 1];
+// 総評のダイヤルの並び。同じく上が 5.0・下が 1.0 で、間を 0.1 刻みで埋めた41段。
+// 各要素は Math.round(x*10)/10 を通してあり、normalizeReedRating の出す値と完全に一致する
+// (一致していないと indexOf が -1 になり、選んだ値へスクロール位置を合わせられない)。
+const RATING_DIAL_RATING_ORDER = Array.from({ length: REED_RATING_STEPS_N }, (_, i) => Math.round((REED_SCORE_MAX - i * REED_RATING_STEP) * 10) / 10);
 // ダイヤル1行の高さ。行そのものがタップ選択の当たり判定なので --tap-min(44px)。DESIGN-SYSTEM §5。
 const RATING_DIAL_ITEM_H = 44;
-// ダイヤル・スライダーで未評価から編集を始めるときに指を置く位置(中央)。
+// ダイヤルの窓の高さ(行数換算)。**5行ぶん**。
+// 【注意】「5行ぶんの高さ」であって「常に5段が見える」ではない。選択行を中央に合わせるため
+// 上下に (窓高 - 行高)/2 = 88px の padding があり、**一度に見える段数は選択位置で変わる**。
+// 実測(375px・窓220px): 選択が中央(3)なら5段、その隣(2 / 4)なら4段、端(1 / 5)なら3段。
+// つまり F-13 の「1と2がスクロールでしか選べない」は、**値が5のときは今も起きる**。
+// 3行のときはどの選択位置でも3段だったので窓は広がっているが、解消はしていない。
+const RATING_DIAL_VISIBLE = 5;
+// ダイヤルで未評価から編集を始めるときに指を置く位置(中央)。
 // この値を**選んだことにはしない**(触らずに閉じれば null のまま)。
 const REED_SCORE_NEUTRAL = 3;
 
-// 評価値を 1〜5 の整数に正規化する。0 / null / undefined / 数値でないものは未評価(null)。
+// 評価値を 1〜5 の整数に正規化する(厚さ・バランス)。0 / null / undefined / 数値でないものは未評価(null)。
 function normalizeReedScore(v) {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.max(REED_SCORE_MIN, Math.min(REED_SCORE_MAX, Math.round(n)));
+}
+// 総評を 1.0〜5.0 の 0.1 刻みに正規化する。**丸めはここが唯一の場所**で、
+// 比較も表示も保存もすべてこの出力を使う(生の値どうしを比べない)。
+function normalizeReedRating(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const r = Math.round(n / REED_RATING_STEP) * REED_RATING_STEP; // 刻みに乗せる
+  return Math.max(REED_SCORE_MIN, Math.min(REED_SCORE_MAX, Math.round(r * 10) / 10)); // 乗せた結果の2進誤差を落とす
+}
+// 項目ごとの正規化。総評だけ 0.1 刻み、厚さ・バランスは整数。
+function normalizeReedScoreOf(key, v) {
+  return key === "rating" ? normalizeReedRating(v) : normalizeReedScore(v);
+}
+// 項目ごとのダイヤルの並び。
+function ratingDialOrder(key) {
+  return key === "rating" ? RATING_DIAL_RATING_ORDER : RATING_DIAL_ORDER;
+}
+// 表示用の文字列。**総評は常に小数第1位まで**(3 は "3.0")。厚さ・バランスは整数。
+// 未評価は "—"。
+function reedScoreText(key, v) {
+  const n = normalizeReedScoreOf(key, v);
+  if (n === null) return "—";
+  return key === "rating" ? n.toFixed(1) : String(n);
 }
 
 // 履歴1件の読み取り。旧形式 { value, at }(総評だけの履歴)は value を rating として読み、
@@ -5044,8 +5136,8 @@ function reedHistoryEntry(h) {
   const raw = Object.prototype.hasOwnProperty.call(h, "rating") ? h.rating : h.value;
   return {
     at: h.at ?? null,
-    rating: normalizeReedScore(raw),
-    thickness: normalizeReedScore(h.thickness),
+    rating: normalizeReedRating(raw),           // 総評は 0.1 刻み
+    thickness: normalizeReedScore(h.thickness), // 厚さ・バランスは整数
     balance: normalizeReedScore(h.balance),
   };
 }
@@ -5065,9 +5157,12 @@ function normalizeRatingHistory(list) {
 function commitReedScores(reed, next, at) {
   const cur = {}, norm = {};
   for (const k of REED_SCORE_KEYS) {
-    cur[k] = normalizeReedScore(reed ? reed[k] : null);
-    norm[k] = normalizeReedScore(next ? next[k] : null);
+    // 総評は 0.1 刻みに丸めてから入れる。丸めずに比べると 0.1*37 のような値が
+    // 「変わった」と判定され、開いただけで履歴が増える(§冒頭のコメント)。
+    cur[k] = normalizeReedScoreOf(k, reed ? reed[k] : null);
+    norm[k] = normalizeReedScoreOf(k, next ? next[k] : null);
   }
+  // 3つとも見る。どれか1つでも変わっていれば patch を返し、履歴は1件だけ積む。
   const changed = REED_SCORE_KEYS.filter((k) => norm[k] !== cur[k]);
   if (changed.length === 0) return null;
   const patch = {};
@@ -5079,14 +5174,17 @@ function commitReedScores(reed, next, at) {
   return patch;
 }
 
-// ダイヤルのスクロール位置 ⇄ 値。RATING_DIAL_ORDER の並び(上が5)がそのまま index になる。
-function ratingDialValueAt(scrollTop, itemH) {
-  const i = Math.max(0, Math.min(RATING_DIAL_ORDER.length - 1, Math.round(scrollTop / itemH)));
-  return RATING_DIAL_ORDER[i];
+// ダイヤルのスクロール位置 ⇄ 値。並び(上が5)がそのまま index になる。
+// key を渡さなければ整数のダイヤル(厚さ・バランス)、"rating" なら 0.1 刻み41段。
+function ratingDialValueAt(scrollTop, itemH, key) {
+  const order = ratingDialOrder(key);
+  const i = Math.max(0, Math.min(order.length - 1, Math.round(scrollTop / itemH)));
+  return order[i];
 }
-function ratingDialOffsetFor(value, itemH) {
-  const v = normalizeReedScore(value) ?? REED_SCORE_NEUTRAL;
-  return Math.max(0, RATING_DIAL_ORDER.indexOf(v)) * itemH;
+function ratingDialOffsetFor(value, itemH, key) {
+  const order = ratingDialOrder(key);
+  const v = normalizeReedScoreOf(key, value) ?? REED_SCORE_NEUTRAL;
+  return Math.max(0, order.indexOf(v)) * itemH;
 }
 // そのscrollイベントを「指で動かした」とみなしてよいか。
 // 表示位置を合わせるために自分で scrollTop を代入したぶん(syncTarget)は確定に使わない。
@@ -5157,38 +5255,29 @@ function StarRating({ value, size = 13 }) {
   );
 }
 
-// 厚さ・バランスの入力シークバー。**1〜5の整数の5段階**(以前は0〜5の0.1刻み=50段階)。
-// ダイアログの中でだけ使う。つまみの当たり判定を確保するため入力欄自体を --tap-min にする。
-function RatingSlider({ value, onChange }) {
-  const v = normalizeReedScore(value);
-  return (
-    <div style={{ width: "100%" }} data-noswipe>
-      <input
-        type="range" min={REED_SCORE_MIN} max={REED_SCORE_MAX} step="1"
-        value={v ?? REED_SCORE_NEUTRAL}
-        aria-valuetext={v === null ? "未評価" : String(v)}
-        onChange={(e) => onChange(normalizeReedScore(parseInt(e.target.value, 10)))}
-        style={{ display: "block", width: "100%", height: "var(--tap-min)", margin: 0, accentColor: "var(--c-accent)" }}
-      />
-      <div className="sans" style={{ display: "flex", justifyContent: "space-between", marginTop: "var(--sp-1)" }}>
-        {REED_SCORE_STEPS.map((n) => (
-          <span key={n} style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: n === v ? "var(--c-accent)" : "var(--c-ink-3)", fontWeight: n === v ? 700 : 400 }}>{n}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
+// (入力シークバー RatingSlider はここにあった。今周で ReedScoreEditor を3ダイヤル化した
+//  時点で呼び出し元がゼロになったので削除した。
+//  ＊直前の HEAD(80bf314)までは死にコードではなく**出荷されていた**。厚さ・バランスが
+//    SCORE_FIELDS の kind:"slider" で、ReedScoreEditor がこの要素を実際に描いており、
+//    HEAD のバンドル dist/assets/index-u8DNZPZS.js には type:"range" が3箇所あった
+//    (現行は2箇所＝ノイズゲートのしきい値と再生位置スクラバだけ)。
+//    「元から死にコードだった」という以前のコメントは誤りだったので訂正しておく。)
 
-// 総評の入力ダイヤル。**1〜5の整数を縦に並べ、上が5・下が1**(本人指示)。
-// 並び順は RATING_DIAL_ORDER が唯一の答え。行の高さは --tap-min(44px)で、
-// スクロールでも行タップでも選べる(スクロールが効かない環境でも操作できるようにする)。
+// 評価の入力ダイヤル1列ぶん。**上が5・下が1**(本人指示)。
+// 並び順は ratingDialOrder(itemKey) が唯一の答え(総評=0.1刻み41段 / 厚さ・バランス=整数5段)。
+// 行の高さは --tap-min(44px)で、スクロールでも行タップでも選べる
+// (スクロールが効かない環境でも操作できるようにする)。
+// 窓の高さは RATING_DIAL_VISIBLE(5行ぶん=220px)。ただし選択行を中央に合わせる padding が
+// 上下に付くので、**一度に見える段数は選択位置による**(中央=5段 / 隣=4段 / 端=3段)。
+// 厚さ・バランスでも、値が5や1のときは他の段を選ぶのにスクロールが要る。
+// 幅は列いっぱい(100%)。3列を横に並べる側(ReedScoreEditor)が列幅を決める。
 // 確定はダイアログを閉じたときに1回だけ行うので、ここでは onCommit を持たない。
-function RatingDial({ value, onChange }) {
+function RatingDial({ itemKey, value, onChange }) {
   const ref = useRef(null);
   const ITEM = RATING_DIAL_ITEM_H;
-  const VISIBLE = 3;
+  const VISIBLE = RATING_DIAL_VISIBLE;
   const height = ITEM * VISIBLE;
-  const v = normalizeReedScore(value);
+  const v = normalizeReedScoreOf(itemKey, value);
   const settleRef = useRef(null);
   const selfScrollRef = useRef(false);
   // 表示位置を合わせるために**自分で**動かしたスクロール量。ここから来た scroll イベントは
@@ -5199,16 +5288,16 @@ function RatingDial({ value, onChange }) {
   useEffect(() => {
     const el = ref.current;
     if (!el || selfScrollRef.current) return;
-    const target = ratingDialOffsetFor(v, ITEM);
+    const target = ratingDialOffsetFor(v, ITEM, itemKey);
     if (Math.abs(el.scrollTop - target) > 1) { syncTargetRef.current = target; el.scrollTop = target; }
-  }, [v, ITEM]);
+  }, [v, ITEM, itemKey]);
   const onScroll = () => {
     const el = ref.current;
     if (!el) return;
     const isUser = ratingDialScrollIsUser(el.scrollTop, syncTargetRef.current);
     syncTargetRef.current = null;
     if (!isUser) return; // 位置合わせぶん。指で動かしたものではないので確定しない
-    const next = ratingDialValueAt(el.scrollTop, ITEM);
+    const next = ratingDialValueAt(el.scrollTop, ITEM, itemKey);
     selfScrollRef.current = true;
     if (next !== v) onChange(next);
     clearTimeout(settleRef.current);
@@ -5217,19 +5306,20 @@ function RatingDial({ value, onChange }) {
   useEffect(() => () => clearTimeout(settleRef.current), []);
   const pick = (s) => {
     const el = ref.current;
-    if (el) { syncTargetRef.current = ratingDialOffsetFor(s, ITEM); el.scrollTop = syncTargetRef.current; }
+    if (el) { syncTargetRef.current = ratingDialOffsetFor(s, ITEM, itemKey); el.scrollTop = syncTargetRef.current; }
     onChange(s);
   };
   return (
-    // data-noswipe: 子タブのスワイプpagerに横取りされないようにする
-    <div style={{ position: "relative", height, width: ITEM * 2, flexShrink: 0 }} data-noswipe>
+    // data-noswipe: 縦スクロールする列なので、横スワイプ(SwipeBackArea / SwipePager)に掴ませない
+    <div style={{ position: "relative", height, width: "100%", flexShrink: 0 }} data-noswipe>
       <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: ITEM, marginTop: -ITEM / 2, background: "var(--c-accent-tint)", border: "1px solid var(--c-accent-line)", borderRadius: "var(--r-xs)", pointerEvents: "none" }} />
       <div
         ref={ref}
         onScroll={onScroll}
+        data-noswipe
         style={{ position: "absolute", inset: 0, overflowY: "auto", scrollSnapType: "y mandatory", padding: `${(height - ITEM) / 2}px 0`, boxSizing: "border-box", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
       >
-        {RATING_DIAL_ORDER.map((s) => {
+        {ratingDialOrder(itemKey).map((s) => {
           const on = s === v;
           return (
             <button
@@ -5239,7 +5329,7 @@ function RatingDial({ value, onChange }) {
               aria-pressed={on}
               style={{ display: "block", width: "100%", height: ITEM, minHeight: "var(--tap-min)", scrollSnapAlign: "center", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: on ? 700 : 400, color: on ? "var(--c-accent)" : "var(--c-ink-4)" }}
             >
-              {s}
+              {reedScoreText(itemKey, s)}
             </button>
           );
         })}
@@ -5258,16 +5348,22 @@ function RatingDial({ value, onChange }) {
 // 子孫で、スワイプ中は祖先に transform が乗る。DOM上そのまま置くと暗幕が画面全体ではなく
 // 祖先の矩形(0,0,375x812 → 44,65,347x700)になり、下部ナビが触れてしまう(審査役の実測)。
 // ポータルで木の外に出せば、祖先の transform と無関係に常に画面全体を覆う。
-function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
+//
+// 【3項目3列】生年月日ピッカーと同じで、1回開けば総評・厚さ・バランスの3つとも回せる
+// (本人指示: 「タップすると生年月日みたいに一度で三つともダイヤルでるように」)。
+// 列の並びは表示(ReedScoreField)と同じ 総評 / 厚さ / バランス。
+// 寸法(375px実機): 暗幕の padding --sp-4 → パネル343、パネルの padding --sp-4 → 内側311、
+// 3列 + gap --sp-2×2 = (311-16)/3 = 98.33px/列。完了ボタンは幅いっぱい(311×44)。
+// 「完了」は1つだけ。背景タップでも閉じる。確定(履歴への記録)は閉じたとき1回。
+function ReedScoreEditor({ fields, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  const v = normalizeReedScore(value);
   return createPortal(
     <div
-      role="dialog" aria-modal="true" aria-label={title}
+      role="dialog" aria-modal="true" aria-label="評価を編集"
       onClick={onClose}
       data-noswipe
       style={{
@@ -5280,15 +5376,17 @@ function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
         data-noswipe
         style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}
       >
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-3)" }}>
-          <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>{title}</div>
-          <div style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xl)", fontWeight: 700, color: v === null ? "var(--c-ink-3)" : "var(--c-accent)" }}>{v === null ? "—" : v}</div>
-        </div>
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: "var(--sp-1)" }}>1〜5の5段階</div>
-        <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
-          {kind === "dial"
-            ? <RatingDial value={value} onChange={onChange} />
-            : <RatingSlider value={value} onChange={onChange} />}
+        <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>評価</div>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: "var(--sp-1)" }}>総評は0.1刻み・厚さとバランスは1〜5</div>
+        {/* 3列は折り返さない。flexWrap は初期値と同じ nowrap だが、明示して要件にする */}
+        <div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+          {fields.map((f) => (
+            // data-noswipe: 縦スクロールする列。付けないと横スワイプと喧嘩する
+            <div key={f.key} data-noswipe style={{ flex: "1 1 0", minWidth: 0 }}>
+              <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginBottom: "var(--sp-1)" }}>{f.label}</div>
+              <RatingDial itemKey={f.key} value={f.value} onChange={f.set} />
+            </div>
+          ))}
         </div>
         <button
           type="button" onClick={onClose} className="sans"
@@ -5303,27 +5401,51 @@ function ReedScoreEditor({ title, kind, value, onChange, onClose }) {
   );
 }
 
-// 通常時の評価表示。**数値だけ**を出し、タップでダイアログを開く(本人指示: 「総評最初から
-// ダイヤログ出す必要なくて数字押したらダイヤログ」「厚さとバランスも同じで数字押したらシークバー」)。
-// 高さは --tap-min 固定なので、値が入っても未評価でも行の高さは変わらない(§6.1.5)。
-function ReedScoreField({ label, value, onOpen }) {
-  const v = normalizeReedScore(value);
+// 評価表示の1行に並べる要素。**渡された項目を1つも落とさず**、それぞれの表示文字列・
+// 区切りの有無・未評価かどうかまでここで決める。
+// JSX 側は返り値をそのまま map するだけにしてある。理由: scripts/pitch-test.mjs の
+// ハーネスは JSX を見ないので、行の中身を JSX に書くと「3つ並んでいること」を
+// 正規表現でしか見られず、fields.slice(0,1).map(…) の1文字の変異が素通りする
+// (実際に審査役の変異が生き残った)。ここに出しておけば実行で数えられる。
+function reedScoreRowItems(fields) {
+  return (fields || []).map((f, i) => ({
+    key: f.key,
+    label: f.label,
+    text: reedScoreText(f.key, f.value),
+    rated: normalizeReedScoreOf(f.key, f.value) !== null,
+    sep: i > 0,                                  // 先頭以外の前に「・」を置く
+  }));
+}
+
+// 通常時の評価表示。**総評 / 厚さ / バランスを1行に横並び**にし、行のどこを押しても
+// 同じ1つのダイアログが開く(本人指示: 「同列に横一列にしてタップすると…一度で三つとも」)。
+// 行全体が1つのタップ対象で、高さは --tap-min(44px)固定。値が入っても未評価でも
+// 行の高さは変わらない(§6.1.5)。★は出さない(本人指示: 「厚さは星不要」)。
+// 折り返さない: flexWrap は nowrap(flex の初期値だが、明示して「折り返さない」を要件にする)。
+// 中身は reedScoreRowItems の返り値をそのまま並べる。ここで slice / filter しない。
+function ReedScoreField({ fields, onOpen }) {
   return (
-    <div className="sans" style={{ fontSize: "var(--fs-xs)", display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-      <span style={{ color: "var(--c-ink-2)", flexShrink: 0, width: 58 }}>{label}:</span>
-      <button
-        type="button" onClick={onOpen} className="sans"
-        aria-label={`${label}を編集`}
-        style={{
-          minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
-          borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)",
-          cursor: "pointer", fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700,
-          color: v === null ? "var(--c-ink-3)" : "var(--c-accent)",
-        }}
-      >
-        {v === null ? "—" : v}
-      </button>
-    </div>
+    <button
+      type="button" onClick={onOpen} className="sans"
+      aria-label="総評・厚さ・バランスを編集"
+      style={{
+        display: "flex", alignItems: "center", flexWrap: "nowrap", gap: "var(--sp-2)",
+        width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-2)",
+        borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)",
+        cursor: "pointer", textAlign: "left",
+      }}
+    >
+      {reedScoreRowItems(fields).map((it) => (
+        <span key={it.key} style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-1)", whiteSpace: "nowrap" }}>
+          {/* 区切りは装飾なので --c-ink-4(装飾専用)。読ませる文字ではない */}
+          {it.sep && <span aria-hidden="true" style={{ color: "var(--c-ink-4)", fontSize: "var(--fs-xs)", marginRight: "var(--sp-1)" }}>・</span>}
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{it.label}</span>
+          <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
+            {it.text}
+          </span>
+        </span>
+      ))}
+    </button>
   );
 }
 
@@ -6794,21 +6916,21 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   // (デフォルトは登録順の連番のまま。空にすればまた自動採番に戻る)。
   const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
   const [memoDraft, setMemoDraft] = useState(reed.memo || "");
-  // 評価は3つとも 1〜5 の整数・未評価は null。保存済みの小数や 0 は読み取り時にだけ丸める
-  // (normalizeReedScore)。既存データは書き換えず、実際に値を変えたときだけ整数で保存する。
-  const [ratingDraft, setRatingDraft] = useState(() => normalizeReedScore(reed.rating));
+  // 総評は 0.1 刻み、厚さ・バランスは整数。未評価は null。保存済みの値は読み取り時にだけ
+  // 丸める(normalizeReedScoreOf)。既存データは書き換えず、実際に値を変えたときだけ保存する。
+  const [ratingDraft, setRatingDraft] = useState(() => normalizeReedRating(reed.rating));
   // 総評とは別軸の主観評価。厚さ=抵抗感/密度、バランス=低音〜高音の鳴りの揃い方。
   const [thicknessDraft, setThicknessDraft] = useState(() => normalizeReedScore(reed.thickness));
   const [balanceDraft, setBalanceDraft] = useState(() => normalizeReedScore(reed.balance));
-  // 開いている編集ダイアログ("rating" | "thickness" | "balance" | null)
-  const [editingScore, setEditingScore] = useState(null);
+  // 編集ダイアログを開いているか。3つを1つのダイアログでまとめて回すので真偽値1つ。
+  const [editingScores, setEditingScores] = useState(false);
   useEffect(() => {
     setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
     setMemoDraft(reed.memo || "");
-    setRatingDraft(normalizeReedScore(reed.rating));
+    setRatingDraft(normalizeReedRating(reed.rating));
     setThicknessDraft(normalizeReedScore(reed.thickness));
     setBalanceDraft(normalizeReedScore(reed.balance));
-    setEditingScore(null);
+    setEditingScores(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reed.id]);
 
@@ -6823,19 +6945,18 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
     if (trimmed === (reed.memo || "")) return;
     patchReed({ memo: trimmed || null });
   };
-  // 評価の確定はダイアログを閉じたときの1回だけ。**値が変わったときだけ**書き込む
+  // 評価の確定はダイアログを閉じたときの1回だけ。**3つのうち1つでも変わったときだけ**1件書き込む
   // (以前は開閉のたびに履歴が1件増えていた)。判定は commitReedScores に閉じてある。
   const closeScoreEditor = () => {
     const patch = commitReedScores(reed, { rating: ratingDraft, thickness: thicknessDraft, balance: balanceDraft }, new Date().toISOString());
     if (patch) patchReed(patch);
-    setEditingScore(null);
+    setEditingScores(false);
   };
   const SCORE_FIELDS = [
-    { key: "rating", label: "総評", kind: "dial", value: ratingDraft, set: setRatingDraft },
-    { key: "thickness", label: "厚さ", kind: "slider", value: thicknessDraft, set: setThicknessDraft },
-    { key: "balance", label: "バランス", kind: "slider", value: balanceDraft, set: setBalanceDraft },
+    { key: "rating", label: "総評", value: ratingDraft, set: setRatingDraft },
+    { key: "thickness", label: "厚さ", value: thicknessDraft, set: setThicknessDraft },
+    { key: "balance", label: "バランス", value: balanceDraft, set: setBalanceDraft },
   ];
-  const editingField = SCORE_FIELDS.find((f) => f.key === editingScore) || null;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -6860,11 +6981,9 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
               style={{ width: 80, flexShrink: 0, background: "#F6F7F9", border: "1px solid #E9ECF0", borderRadius: 4, padding: "6px 10px", color: "#121F32", fontSize: 12 }}
             />
           </div>
-          {/* 総評 / 厚さ / バランス。通常は数値だけを出し、タップでダイアログを開く。
+          {/* 総評 / 厚さ / バランスを1行に横並び。行のどこを押しても3列のダイヤルが1回で開く。
               ★は出さない(本人指示: 「厚さは星不要」。バランスも数値表示に統一)。 */}
-          {SCORE_FIELDS.map((f) => (
-            <ReedScoreField key={f.key} label={f.label} value={f.value} onOpen={() => setEditingScore(f.key)} />
-          ))}
+          <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
           <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ color: "#435266", flexShrink: 0, width: 58, marginTop: 6 }}>メモ:</span>
             <textarea
@@ -6906,14 +7025,8 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
       <ReedScoreHistoryChart reed={reed} />
 
       {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
-      {editingField && (
-        <ReedScoreEditor
-          title={editingField.label}
-          kind={editingField.kind}
-          value={editingField.value}
-          onChange={editingField.set}
-          onClose={closeScoreEditor}
-        />
+      {editingScores && (
+        <ReedScoreEditor fields={SCORE_FIELDS} onClose={closeScoreEditor} />
       )}
     </div>
   );

@@ -132,16 +132,23 @@ const code = [
   extractFunction("isMicTrackUsable"),
   extractFunction("isMicStreamUsable"),
   extractFunction("shouldRecoverFromSilence"),
-  // リードの主観評価(総評/厚さ/バランス)。1〜5の整数化・履歴の追加判定・グラフの座標
+  // リードの主観評価(総評=0.1刻み41段 / 厚さ・バランス=1〜5の整数)。履歴の追加判定・グラフの座標
   extractConst("REED_SCORE_MIN"),
   extractConst("REED_SCORE_MAX"),
-  extractConst("REED_SCORE_STEPS"),
   extractConst("REED_SCORE_KEYS"),
+  extractConst("REED_RATING_STEP"),
+  extractConst("REED_RATING_STEPS_N"),
   extractConst("RATING_DIAL_ORDER"),
+  extractConst("RATING_DIAL_RATING_ORDER"),
   extractConst("RATING_DIAL_ITEM_H"),
+  extractConst("RATING_DIAL_VISIBLE"),
   extractConst("REED_SCORE_NEUTRAL"),
   extractConst("REED_SCORE_PLOT_H"),
   extractFunction("normalizeReedScore"),
+  extractFunction("normalizeReedRating"),
+  extractFunction("normalizeReedScoreOf"),
+  extractFunction("ratingDialOrder"),
+  extractFunction("reedScoreText"),
   extractFunction("reedHistoryEntry"),
   extractFunction("normalizeRatingHistory"),
   extractFunction("commitReedScores"),
@@ -153,10 +160,12 @@ const code = [
   extractFunction("reedScoreSegments"),
   extractFunction("reedScoreLabelStep"),
   extractFunction("reedScoreDateLabel"),
+  extractFunction("reedScoreRowItems"),
   // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
   extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
   extractConst("SWIPE_BACK_THRESHOLD_MIN"),
   extractConst("SWIPE_AXIS_LOCK_PX"),
+  extractConst("SWIPE_VERTICAL_BIAS"),
   extractConst("SWIPE_DEAD_END_RESIST"),
   extractConst("SWIPE_BACK_EASE"),
   extractConst("SWIPE_BACK_SETTLE_MS"),
@@ -188,12 +197,16 @@ const api = new Function(`${code}
            audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
            SILENCE_WATCHDOG_DB, SILENCE_WATCHDOG_SUSTAIN_MS, MIC_RECOVER_COOLDOWN_MS,
            MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE,
-           REED_SCORE_MIN, REED_SCORE_MAX, REED_SCORE_STEPS, REED_SCORE_KEYS,
+           REED_SCORE_MIN, REED_SCORE_MAX, REED_SCORE_KEYS,
+           REED_RATING_STEP, REED_RATING_STEPS_N, RATING_DIAL_RATING_ORDER, RATING_DIAL_VISIBLE,
            RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_NEUTRAL, REED_SCORE_PLOT_H,
-           normalizeReedScore, reedHistoryEntry, normalizeRatingHistory, commitReedScores,
+           normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
+           reedHistoryEntry, normalizeRatingHistory, commitReedScores,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
            reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
+           reedScoreRowItems,
            SWIPE_BACK_THRESHOLD_RATIO, SWIPE_BACK_THRESHOLD_MIN, SWIPE_AXIS_LOCK_PX, SWIPE_DEAD_END_RESIST,
+           SWIPE_VERTICAL_BIAS,
            SWIPE_BACK_EASE, SWIPE_BACK_SETTLE_MS,
            swipeBackThreshold, swipeAxisIsHorizontal, swipeBackOffset, swipeBackDecision, swipeBackHandler,
            createSwipeBackGesture };`)();
@@ -1290,7 +1303,7 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
 // 「数値だけを表示する」「モーダルが fixed で浮く」といった描画の要件は
 // ソース文字列の照合(この節の後半)と Browserペインでの実測で確認している。
 // ============================================================
-console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴・グラフ) ==========");
+console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / 厚さ・バランス=1〜5・履歴・グラフ) ==========");
 {
   // Reactコンポーネントは引数が分割代入(function Foo({ a, b }))なので、
   // 「function の次の { から数える」extractFunction では引数リストで閉じてしまい本文が取れない。
@@ -1313,12 +1326,12 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
   };
   // sourceOf 自体が壊れていたら以降の照合がすべて無意味になるので、先に自己検査する
   check("sourceOf が分割代入の引数を跨いで本文を取れている",
-    sourceOf("ReedScoreField").includes("</div>") && sourceOf("ReedScoreField").length > 400,
-    `${sourceOf("ReedScoreField").length}文字`);
+    sourceOf("ReedScoreEditor").includes("</div>") && sourceOf("ReedScoreEditor").length > 400,
+    `${sourceOf("ReedScoreEditor").length}文字`);
 
   const N = api.normalizeReedScore;
 
-  // --- 1〜5の整数への正規化。既存の0.1刻みデータ・0・null を壊さずに読む ---
+  // --- 1〜5の整数への正規化(厚さ・バランス)。既存の0.1刻みデータ・0・null を壊さずに読む ---
   check("小数は四捨五入する(3.7→4)", N(3.7) === 4, String(N(3.7)));
   check("小数は四捨五入する(3.4→3)", N(3.4) === 3, String(N(3.4)));
   check("0 は未評価(null)", N(0) === null, String(N(0)));
@@ -1340,8 +1353,165 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
   }
   check("REED_SCORE_MIN/MAX は 1/5", api.REED_SCORE_MIN === 1 && api.REED_SCORE_MAX === 5,
     `${api.REED_SCORE_MIN}〜${api.REED_SCORE_MAX}`);
-  check("スライダーの目盛は5段", api.REED_SCORE_STEPS.length === 5 && api.REED_SCORE_STEPS.join(",") === "1,2,3,4,5",
-    api.REED_SCORE_STEPS.join(","));
+  // (REED_SCORE_STEPS = [1,2,3,4,5] を数えていた検査はここにあったが、唯一の読み手だった
+  //  RatingSlider を削除して定数ごと消えたため撤去した。1〜5であることは上の
+  //  「その5段階は1〜5」と RATING_DIAL_ORDER の検査が押さえている。)
+
+  // ============================================================
+  // 総評だけ 0.1 刻み(本人指示「総評だけは.1きざみでできるように」)
+  // ============================================================
+  {
+    const R = api.normalizeReedRating;
+    const OF = api.normalizeReedScoreOf;
+    const TXT = api.reedScoreText;
+    // --- 刻み: 0.1 を取れること。ここが1(整数)に戻ると全滅する ---
+    check("総評は 3.7 をそのまま取れる", R(3.7) === 3.7, String(R(3.7)));
+    check("総評は 3.4 を丸め上げない", R(3.4) === 3.4, String(R(3.4)));
+    check("総評は 0.05 単位を最寄りの 0.1 に乗せる", R(3.74) === 3.7 && R(3.76) === 3.8, `${R(3.74)} / ${R(3.76)}`);
+    check("総評の下限は 1.0", R(0.4) === 1 && R(1) === 1, `${R(0.4)} / ${R(1)}`);
+    check("総評の上限は 5.0", R(9.9) === 5, String(R(9.9)));
+    check("総評の 0 / null / undefined / 非数値は未評価", R(0) === null && R(null) === null && R(undefined) === null && R("abc") === null && R(NaN) === null);
+    check("総評の文字列も読める", R("3.7") === 3.7, String(R("3.7")));
+    // 既存の整数の総評はそのまま有効(マイグレーション不要)
+    check("既存の整数の総評はそのまま有効な値", [1, 2, 3, 4, 5].every((v) => R(v) === v));
+    // 段階数の要件。刻みを1に戻すとここが 5段 になって落ちる
+    {
+      const distinct = new Set();
+      for (let i = 0; i <= 40; i++) { const v = R(1 + i * 0.1); if (v !== null) distinct.add(v); }
+      check("総評は41段(1.0〜5.0の0.1刻み)", distinct.size === 41, `${distinct.size}段`);
+      check("総評の最小と最大は 1 と 5", Math.min(...distinct) === 1 && Math.max(...distinct) === 5);
+    }
+    // --- 2進小数の誤差を落としていること(丸めをやめると落ちる) ---
+    check("累積加算で作った値も同じ値に落ちる", (() => {
+      let x = 1; for (let i = 0; i < 27; i++) x += 0.1;    // x = 3.7000000000000024
+      return x !== 3.7 && R(x) === R(3.7);
+    })(), "生の加算は 3.7 と一致しない");
+    check("2進誤差を持つ値をすべて刻みに戻せる(1.0〜5.0を累積加算で走査)", (() => {
+      let x = 1, bad = 0;
+      for (let i = 0; i < 40; i++) { x += 0.1; if (R(x) !== Math.round((1 + (i + 1) * 0.1) * 10) / 10) bad++; }
+      return bad === 0;
+    })());
+    check("正規化した値をもう一度正規化しても変わらない(冪等)",
+      api.RATING_DIAL_RATING_ORDER.every((v) => R(v) === v));
+
+    // --- 【訂正】「刻みに乗せる行を消しても末尾の丸めと等価」は誤りだった ---
+    // 前回の報告で「総評の丸めをやめる変異は末尾の Math.round(r*10)/10 が同じ仕事をする
+    // (600,001通り＋累積加算で差分0を確認)」と書いたが、**この申告は数値として誤り**。
+    // 生き残る変異は「刻み乗せ Math.round(n / REED_RATING_STEP) * REED_RATING_STEP を外す版」
+    // (= const r = n; にする)で、等価ではない。
+    //   掃き方: n = i / 1000 を i = 1000〜5000 で生成した 4001 点(1.000〜5.000 の0.001刻み)。
+    //   結果: 14点で食い違う。1.15 1.45 1.65 2.05 2.15 2.55 2.65 3.05 3.15 3.55 4.05 4.35 4.55 4.85
+    //         (いずれも現行のほうが 0.1 低い。例: 1.15 → 現行 1.1 / 変異 1.2。
+    //          1.15 * 10 は丸め上がって 11.5 ちょうどになるのに、1.15 / 0.1 は
+    //          11.499999999999998 に落ちるため、前段の Math.round が届かない。)
+    // なぜ前回見つからなかったか: **掃き方が刻みに揃っていた**。
+    //   x = 1 から x += 1e-5 を 600,001 回まわす累積加算では差分0(下で再現している)。
+    //   1 + i * 1e-5 の格子でも 6 点しか出ない。x.x5 という**3桁目が5の10進リテラル**を
+    //   生む格子(i/1000 や Number(v.toFixed(3)))でないと現れない差だった。
+    // 実害: 無い。総評に入る値はダイヤルの RATING_DIAL_RATING_ORDER か、一度
+    //   normalizeReedRating を通った保存値だけで、x.x5 には到達しない。
+    // 検査で出力を焼き付けない理由: x.x5 は40点あるうち食い違うのは14点だけで、残り26点は
+    //   一致する。つまりこの差は**方針ではなく2進誤差の当たり外れ**であり、
+    //   R(1.15) === 1.1 のような期待値を検査に書くと偶然を要件に格上げすることになる。
+    //   代わりに「丸めが2段であること」をソースの形で固定して、この変異だけを殺す。
+    //   ＝これは実行では守れない。ソースの綴りでしか守っていない。
+    {
+      // 掃き方の再現(前回の申告が通ってしまった掃引)。等価に見えることを検査として残す。
+      const mut = (n) => Math.max(1, Math.min(5, Math.round(n * 10) / 10));
+      let same = 0, x = 1;
+      for (let i = 0; i <= 600000; i++) { if (R(x) === mut(x)) same++; x += 1e-5; }
+      check("刻みに揃った掃引(0.1の累積加算)では刻み乗せの有無が見分けられない(前回の掃き方の再現)",
+        same === 600001, `${same}/600001 点で一致`);
+      // x.x5 を生む格子でだけ差が出る。ここでは点数だけを見る(どの点かは要件ではない)。
+      let diff = 0;
+      for (let i = 1000; i <= 5000; i++) { const n = i / 1000; if (R(n) !== mut(n)) diff++; }
+      check("0.001刻み(i/1000)で掃くと刻み乗せの有無は見分けられる(＝等価ではない)",
+        diff > 0, `${diff}/4001 点で食い違う`);
+      const NR = (src.match(/function normalizeReedRating\(\)?[\s\S]*?\n\}/) || [""])[0];
+      check("総評の丸めは2段(刻みに乗せてから2進誤差を落とす)。実行では差が出ないのでソースで固定する",
+        /Math\.round\(n \/ REED_RATING_STEP\) \* REED_RATING_STEP/.test(NR) &&
+        /Math\.round\(r \* 10\) \/ 10/.test(NR), NR ? "" : "normalizeReedRating を取り出せない");
+    }
+
+    // --- 項目ごとの正規化。総評だけ0.1刻み、厚さ・バランスは整数 ---
+    check("項目別: rating は 0.1 刻み", OF("rating", 3.7) === 3.7, String(OF("rating", 3.7)));
+    check("項目別: thickness は整数に丸める", OF("thickness", 3.7) === 4, String(OF("thickness", 3.7)));
+    check("項目別: balance は整数に丸める", OF("balance", 2.4) === 2, String(OF("balance", 2.4)));
+    check("項目別: 知らないキーは整数側(総評だけが特別)", OF("memo", 3.7) === 4, String(OF("memo", 3.7)));
+
+    // --- 表示は総評だけ小数第1位まで ---
+    check("総評 3 は \"3.0\" と表示する", TXT("rating", 3) === "3.0", TXT("rating", 3));
+    check("総評 3.7 は \"3.7\" と表示する", TXT("rating", 3.7) === "3.7", TXT("rating", 3.7));
+    check("総評 5 は \"5.0\" と表示する", TXT("rating", 5) === "5.0", TXT("rating", 5));
+    check("厚さは整数表示(小数点を付けない)", TXT("thickness", 3) === "3", TXT("thickness", 3));
+    check("バランスも整数表示", TXT("balance", 2) === "2", TXT("balance", 2));
+    check("未評価はどれも —", TXT("rating", null) === "—" && TXT("thickness", null) === "—" && TXT("balance", null) === "—");
+    check("総評の表示は必ず小数第1位まで(41段すべて)",
+      api.RATING_DIAL_RATING_ORDER.every((v) => /^\d\.\d$/.test(TXT("rating", v))),
+      api.RATING_DIAL_RATING_ORDER.map((v) => TXT("rating", v)).filter((s) => !/^\d\.\d$/.test(s)).join(",") || "(全部OK)");
+
+    // --- 総評のダイヤルの並び: 上が5.0・下が1.0・0.1刻み41段 ---
+    const O = api.RATING_DIAL_RATING_ORDER;
+    check("総評ダイヤルの上端は5", O[0] === 5, String(O[0]));
+    check("総評ダイヤルの下端は1", O[O.length - 1] === 1, String(O[O.length - 1]));
+    check("総評ダイヤルは41段", O.length === 41, `${O.length}段`);
+    check("総評ダイヤルは上から下へ降順", O.every((v, i, a) => i === 0 || a[i - 1] > v));
+    check("総評ダイヤルの隣り合う差はすべて0.1",
+      O.every((v, i, a) => i === 0 || Math.abs((a[i - 1] - v) - 0.1) < 1e-9),
+      O.map((v, i, a) => (i === 0 ? "" : (a[i - 1] - v).toFixed(3))).filter((s) => s && s !== "0.100").join(",") || "(全部0.1)");
+    check("総評ダイヤルに 3.7 がある", O.includes(3.7));
+    check("総評ダイヤルの値はすべて正規化済みの値と一致する(indexOfが-1にならない)",
+      O.every((v) => O.indexOf(R(v)) >= 0));
+    check("厚さ・バランスのダイヤルは整数5段のまま", api.ratingDialOrder("thickness").join(",") === "5,4,3,2,1",
+      api.ratingDialOrder("thickness").join(","));
+    check("総評だけ別の並びを使う", api.ratingDialOrder("rating").length === 41 && api.ratingDialOrder("balance").length === 5);
+
+    // --- 位置 ⇄ 値(総評) ---
+    {
+      const H = api.RATING_DIAL_ITEM_H;
+      check("総評: スクロール最上部で5.0", api.ratingDialValueAt(0, H, "rating") === 5);
+      check("総評: スクロール最下部で1.0", api.ratingDialValueAt(H * 40, H, "rating") === 1);
+      check("総評: 値→位置は位置→値の逆写像(41段すべて)",
+        O.every((v) => api.ratingDialValueAt(api.ratingDialOffsetFor(v, H, "rating"), H, "rating") === v));
+      check("総評: 3.7 の位置は上から13行目", api.ratingDialOffsetFor(3.7, H, "rating") === 13 * H,
+        `${api.ratingDialOffsetFor(3.7, H, "rating")}px`);
+      check("総評: 未評価は中央(3.0)の位置に置く",
+        api.ratingDialOffsetFor(null, H, "rating") === api.ratingDialOffsetFor(3, H, "rating"));
+      check("総評: 行き過ぎても範囲外にならない",
+        api.ratingDialValueAt(-999, H, "rating") === 5 && api.ratingDialValueAt(999999, H, "rating") === 1);
+    }
+  }
+  // --- 窓の高さは5行ぶん。ただし「常に5段が見える」ではない ---
+  // 以前ここには「窓の行数は整数の段数(5段)以上=厚さ・バランスはスクロール不要」という
+  // 検査があったが、名乗りが実態より強かった。ダイヤルは選択行を窓の中央に合わせるため
+  // 上下に (窓高 - 行高)/2 の padding を持つので、**一度に見える段数は選択位置で変わる**。
+  // 名前を実態に落としたうえで、実際に見える段数を数えて固定する。
+  check("ダイヤルの窓の高さは5行ぶん", api.RATING_DIAL_VISIBLE === 5, `${api.RATING_DIAL_VISIBLE}行`);
+  {
+    const H = api.RATING_DIAL_ITEM_H, VIS = api.RATING_DIAL_VISIBLE;
+    const winH = H * VIS;
+    const pad = (winH - H) / 2;                       // RatingDial の padding と同じ式
+    // 窓(スクロール位置 top から winH ぶん)に全体が収まっている段の数
+    const rowsVisible = (v) => {
+      const top = api.ratingDialOffsetFor(v, H);
+      let n = 0;
+      for (let i = 0; i < api.RATING_DIAL_ORDER.length; i++) {
+        const a = pad + i * H;
+        if (a >= top && a + H <= top + winH) n++;
+      }
+      return n;
+    };
+    const seen = api.RATING_DIAL_ORDER.map((v) => `${v}:${rowsVisible(v)}`).join(" ");
+    check("一度に見えるのは中央(3)を選んでいるときだけ5段", rowsVisible(3) === 5, seen);
+    check("端(5 / 1)を選んでいるときは3段しか見えない(F-13の「1と2はスクロール」は値が5のとき残る)",
+      rowsVisible(5) === 3 && rowsVisible(1) === 3, seen);
+    check("その隣(4 / 2)は4段", rowsVisible(4) === 4 && rowsVisible(2) === 4, seen);
+    check("どの選択位置でも最低3段は見える(3行だった頃を下回らない)",
+      api.RATING_DIAL_ORDER.every((v) => rowsVisible(v) >= 3), seen);
+    // 上のモデルが実装と同じ padding を前提にしていること(前提が崩れたら数え直しになる)
+    check("ダイヤルの padding は中央合わせの (窓高 - 行高)/2",
+      /padding: `\$\{\(height - ITEM\) \/ 2\}px 0`/.test(sourceOf("RatingDial")));
+  }
 
   // --- ダイヤルは上が5・下が1(本人指示) ---
   check("ダイヤルの上端は5", api.RATING_DIAL_ORDER[0] === 5, String(api.RATING_DIAL_ORDER[0]));
@@ -1381,7 +1551,8 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
   {
     const at = "2026-07-31T01:00:00.000Z";
     const legacy = api.reedHistoryEntry({ value: 3.7, at });
-    check("旧形式の value を rating として読む", legacy.rating === 4, String(legacy.rating));
+    // 総評は 0.1 刻みになったので、旧データの小数はもう丸めない(3.7 は 3.7 のまま有効)
+    check("旧形式の value を rating として読む", legacy.rating === 3.7, String(legacy.rating));
     check("旧形式では厚さは未評価扱い", legacy.thickness === null);
     check("旧形式ではバランスは未評価扱い", legacy.balance === null);
     const modern = api.reedHistoryEntry({ at, rating: 2, thickness: 5, balance: 1 });
@@ -1412,27 +1583,55 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
     check("1つ変えたら patch が返る", p !== null);
     check("変わっていない項目は patch に入れない(既存値を書き換えない)",
       p && !("rating" in p) && !("thickness" in p) && p.balance === 4, p ? Object.keys(p).join(",") : "null");
-    check("履歴が1件だけ増える", p.ratings.length === reed.ratings.length + 1, `${p.ratings.length}件`);
+    // 変異で patch が null になったときにハーネスごと落ちると、以降の検査が全部消えて
+    // 「何件落ちたか」が読めなくなる。件数として数えられるよう null 安全に書く。
+    const hist = (q) => (q && q.ratings) || [];
+    check("履歴が1件だけ増える", hist(p).length === reed.ratings.length + 1, `${hist(p).length}件`);
     check("追加された履歴は3つ全部の値を持つ",
-      p.ratings[1].rating === 3 && p.ratings[1].thickness === 2 && p.ratings[1].balance === 4);
-    check("追加された履歴は日時を持つ", p.ratings[1].at === at);
-    check("既存の履歴エントリはそのまま残る", p.ratings[0] === reed.ratings[0]);
-    // 小数・0 の既存データ: 表示上は同じ値なので「変わっていない」と判定して書かない
+      !!hist(p)[1] && hist(p)[1].rating === 3 && hist(p)[1].thickness === 2 && hist(p)[1].balance === 4);
+    check("追加された履歴は日時を持つ", !!hist(p)[1] && hist(p)[1].at === at);
+    check("既存の履歴エントリはそのまま残る", hist(p)[0] === reed.ratings[0]);
+    // 0 の既存データ(厚さ): 未評価と同じ意味なので「変わっていない」と判定して書かない
     const legacyReed = { rating: 3.7, thickness: 0, balance: null, ratings: [] };
-    check("小数の現在値と丸めた値が同じなら書かない",
-      api.commitReedScores(legacyReed, { rating: 4, thickness: null, balance: null }, at) === null);
+    check("0 の厚さと未評価は同じ値なので書かない",
+      api.commitReedScores(legacyReed, { rating: 3.7, thickness: null, balance: null }, at) === null);
+    // **0.1刻みの肝**: 生の浮動小数と比べると「変えていないのに変わった」になり、
+    // 開いただけで履歴が1件増える(前の周で潰した挙動)。丸めをやめるとここが落ちる。
+    check("累積加算で作った同値でも書かない", (() => {
+      let x = 1; for (let i = 0; i < 27; i++) x += 0.1;
+      return x !== 3.7 && api.commitReedScores(legacyReed, { rating: x, thickness: null, balance: null }, at) === null;
+    })());
+    // 0.1 だけ動かしたら「変わった」。刻みを1に戻すとここが落ちる
+    const step = api.commitReedScores(legacyReed, { rating: 3.8, thickness: null, balance: null }, at);
+    check("総評を 0.1 だけ動かしたら記録する", step !== null && step.rating === 3.8, step ? String(step.rating) : "null");
+    check("0.1 の変更でも履歴は1件だけ増える", hist(step).length === 1, `${hist(step).length}件`);
     const lp = api.commitReedScores(legacyReed, { rating: 5, thickness: null, balance: null }, at);
-    check("小数の現在値でも実際に変えれば書く", lp !== null && lp.rating === 5);
-    check("履歴0件からでも1件だけ積む", lp.ratings.length === 1, `${lp.ratings.length}件`);
-    check("小数は整数で保存される", Number.isInteger(lp.ratings[0].rating));
+    check("総評を大きく変えれば書く", lp !== null && lp.rating === 5);
+    check("履歴0件からでも1件だけ積む", hist(lp).length === 1, `${hist(lp).length}件`);
+    check("総評は 0.1 に乗った値で保存される",
+      !!hist(lp)[0] && api.normalizeReedRating(hist(lp)[0].rating) === hist(lp)[0].rating,
+      hist(lp)[0] ? String(hist(lp)[0].rating) : "null");
+    // --- 3つのうちどれか1つでも変わったら1件。1つでも検知から外すと落ちる ---
+    {
+      const base = { rating: 3, thickness: 3, balance: 3, ratings: [] };
+      for (const [k, v] of [["rating", 3.1], ["thickness", 4], ["balance", 2]]) {
+        const nx = { rating: 3, thickness: 3, balance: 3, [k]: v };
+        const q = api.commitReedScores(base, nx, at);
+        check(`${k} だけ変えても1件記録する`, q !== null && q[k] === v && hist(q).length === 1,
+          q ? `${Object.keys(q).join(",")} / ${hist(q).length}件` : "null");
+      }
+      check("3つとも変えても履歴は1件だけ",
+        hist(api.commitReedScores(base, { rating: 4.2, thickness: 1, balance: 5 }, at)).length === 1);
+      check("3つとも同じなら0件", api.commitReedScores(base, { rating: 3, thickness: 3, balance: 3 }, at) === null);
+    }
     // 直前の記録と3つとも同じなら履歴は増やさない(現在値だけがずれていた場合)
     const skew = { rating: 2, thickness: null, balance: null, ratings: [{ at: "2026-07-01T00:00:00.000Z", rating: 4, thickness: null, balance: null }] };
     const sp = api.commitReedScores(skew, { rating: 4, thickness: null, balance: null }, at);
     check("直前の記録と同じ値なら履歴は増やさない", sp !== null && !("ratings" in sp), sp ? Object.keys(sp).join(",") : "null");
-    check("それでも現在値は更新する", sp.rating === 4);
+    check("それでも現在値は更新する", !!sp && sp.rating === 4);
     // 未評価に戻すのも「変更」
     const clear = api.commitReedScores({ rating: 4, thickness: null, balance: null, ratings: [] }, { rating: null, thickness: null, balance: null }, at);
-    check("評価を消すのも変更として記録する", clear !== null && clear.rating === null && clear.ratings.length === 1);
+    check("評価を消すのも変更として記録する", clear !== null && clear.rating === null && hist(clear).length === 1);
     check("reed が空でも例外を投げない",
       api.commitReedScores({}, { rating: null, thickness: null, balance: null }, at) === null);
   }
@@ -1489,17 +1688,115 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
     check("「履歴:」のテキスト行が残っていない", !/>\s*履歴:\s*</.test(src) && !src.includes("履歴:"));
     // 項目2: 厚さ・バランスに★を出さない。StarRating 自体は他画面で使うので残す
     check("StarRating コンポーネントは残っている", /function StarRating\(/.test(src));
-    check("RatingSlider は StarRating を呼ばない", !/RatingSlider[\s\S]{0,1400}?<StarRating/.test(sourceOf("RatingSlider")));
     check("RatingDial は StarRating を呼ばない", !sourceOf("RatingDial").includes("<StarRating"));
     check("ReedScoreField は StarRating を呼ばない", !sourceOf("ReedScoreField").includes("<StarRating"));
+    // 【C-1】表示は1行。行全体が1つのタップ対象で、押すと1つのダイアログが開く
+    {
+      const fld = sourceOf("ReedScoreField");
+      check("評価表示は行全体が1つのボタン", /^function ReedScoreField[\s\S]*?return \(\s*<button/.test(fld));
+      check("ボタンは1つだけ(項目ごとのボタンに戻していない)",
+        (fld.match(/<button/g) || []).length === 1, `${(fld.match(/<button/g) || []).length}個`);
+      check("押すと開くのは1つのダイアログ", (fld.match(/onClick=\{onOpen\}/g) || []).length === 1);
+      // --- 「3つとも出る」を実行で数える ---
+      // 以前はスタイル文字列の正規表現しか見ておらず、fields.slice(0,1).map(…)(総評だけ表示)
+      // という1文字の変異が素通りした。行の中身を組み立てる部分を純関数 reedScoreRowItems に
+      // 出したので、ここから直接呼んで数えられる。
+      {
+        const F = [
+          { key: "rating", label: "総評", value: 3.7 },
+          { key: "thickness", label: "厚さ", value: 4 },
+          { key: "balance", label: "バランス", value: null },
+        ];
+        const row = api.reedScoreRowItems(F);
+        check("行に並ぶのは渡された3項目すべて", row.length === 3, `${row.length}件`);
+        check("行の並びは 総評 → 厚さ → バランス(渡された順を変えない)",
+          row.map((r) => r.key).join(",") === "rating,thickness,balance", row.map((r) => r.key).join(","));
+        check("行は項目名をそのまま出す", row.map((r) => r.label).join(",") === "総評,厚さ,バランス",
+          row.map((r) => r.label).join(","));
+        check("行の表示文字列は reedScoreText と同じ(総評だけ小数第1位・未評価は「—」)",
+          row.map((r) => r.text).join(",") === F.map((f) => api.reedScoreText(f.key, f.value)).join(","),
+          row.map((r) => r.text).join(","));
+        check("未評価かどうかは normalizeReedScoreOf と一致する(色の出し分けの根拠)",
+          row.map((r) => r.rated).join(",") === F.map((f) => api.normalizeReedScoreOf(f.key, f.value) !== null).join(","),
+          row.map((r) => r.rated).join(","));
+        check("区切り「・」は先頭以外にだけ付く", row.map((r) => (r.sep ? 1 : 0)).join(",") === "0,1,1",
+          row.map((r) => (r.sep ? 1 : 0)).join(","));
+        // 件数を落とす変異(slice / filter / 先頭だけ)を、長さを振って捕まえる
+        let dropped = null;
+        for (let n = 0; n <= 6; n++) {
+          const some = Array.from({ length: n }, (_, i) => ({ key: "thickness", label: "L" + i, value: 3 }));
+          if (api.reedScoreRowItems(some).length !== n) dropped = dropped || `${n}件渡して${api.reedScoreRowItems(some).length}件`;
+        }
+        check("項目を1つも落とさない(0〜6件のどれを渡しても同じ数だけ返す)", !dropped, dropped || "");
+        check("fields が無くても落ちない",
+          api.reedScoreRowItems(null).length === 0 && api.reedScoreRowItems(undefined).length === 0);
+      }
+      // JSX 側は純関数の返り値をそのまま並べるだけ。ここで間引くと上の実行検査をすり抜ける。
+      check("行の中身は reedScoreRowItems(fields) をそのまま map する",
+        /\{reedScoreRowItems\(fields\)\.map\(\(it\) => \(/.test(fld));
+      check("行の中身を間引く操作を挟んでいない(slice/filter/splice/添字)",
+        !/\.(slice|filter|splice|shift|pop|find)\(/.test(fld) && !/fields\s*\[/.test(fld),
+        (fld.match(/\.(slice|filter|splice|shift|pop|find)\(/g) || []).join(" / "));
+      check("map は1つだけ(2段組みに分けていない)", (fld.match(/\.map\(/g) || []).length === 1,
+        `${(fld.match(/\.map\(/g) || []).length}箇所`);
+      // --- 「折り返さない」 ---
+      // 以前は whiteSpace:nowrap(項目の中の改行止め)しか見ておらず、行に flexWrap:"wrap" を
+      // 足す変異が素通りした(3項目が2段に折り返っても通る)。行そのものの折り返しを見る。
+      check("3項目を横一列に並べる(flex)", /display: "flex", alignItems: "center"/.test(fld));
+      check("行は折り返さない(flexWrap は nowrap ただ1つ。wrap を足しても後勝ちにならない)",
+        (fld.match(/flexWrap:/g) || []).length === 1 && /flexWrap: "nowrap"/.test(fld),
+        (fld.match(/flexWrap: "[a-z-]+"/g) || []).join(" / ") || "flexWrap の指定なし");
+      check("flexFlow で折り返しを持ち込んでいない", !/flexFlow/.test(fld));
+      check("項目そのものも改行しない(whiteSpace:nowrap)", /whiteSpace: "nowrap"/.test(fld));
+      check("行の高さは --tap-min(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
+      check("区切りは装飾色 --c-ink-4", /color: "var\(--c-ink-4\)"/.test(fld));
+      check("フォントサイズはスケール内(--fs-xs / --fs-lg のみ)",
+        (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).every((s) => /--fs-(xs|lg)\)/.test(s)),
+        (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).join(","));
+      check("生の px フォントサイズを使っていない", !/fontSize: \d/.test(fld));
+    }
     check("ReedScoreEditor は StarRating を呼ばない", !sourceOf("ReedScoreEditor").includes("<StarRating"));
-    // 項目1: スライダーは5段階(0.1刻みの復活を止める)
-    check("スライダーの step は1", /step="1"/.test(sourceOf("RatingSlider")));
-    check("スライダーに step 0.1 が残っていない", !/step="0\.1"/.test(sourceOf("RatingSlider")));
-    check("スライダーの範囲は REED_SCORE_MIN〜MAX", /min=\{REED_SCORE_MIN\} max=\{REED_SCORE_MAX\}/.test(sourceOf("RatingSlider")));
+    // 項目1: 入力は5段階(0.1刻みの復活を止める)
+    // 以前ここには RatingSlider の step / min / max を見る検査が3件あったが、今周で
+    // ReedScoreEditor を3ダイヤル化した時点で呼び出し元がゼロになったため、コンポーネント
+    // ごと削除した。入力の段数を守っているのは下の RatingDial の検査
+    // (ratingDialOrder / RATING_DIAL_ORDER)。
+    // 【訂正】前回この位置には「RatingSlider はダイヤル化の時点で死にコードで製品バンドルにも
+    //  入っていなかった。出荷物について何も主張していない検査だった」と書いたが、これは事実に
+    //  反していた。HEAD(80bf314)では SCORE_FIELDS の厚さ・バランスが kind:"slider" で、
+    //  ReedScoreEditor が <RatingSlider> を実際に描いており、HEAD のバンドル
+    //  dist/assets/index-u8DNZPZS.js には type:"range" が3箇所あった(現行は2箇所)。
+    //  削除した3件は**書かれた時点では出荷物を守っていた検査**で、死にコードになったのは
+    //  今周で3ダイヤル化した瞬間である。削除そのものは正しい(A/Bビルドで裏取り済み)。
+    check("RatingSlider は定義も呼び出しも残っていない(3ダイヤル化で呼び出し元が消えたので削除した)",
+      !/function RatingSlider\(/.test(src) && !/<RatingSlider/.test(src));
+    // 残る type="range" は評価と無関係の2箇所(ノイズゲートのしきい値・再生位置スクラバ)。
+    // 評価の入力にスライダーが復活したらここで気づく。
+    check("評価の入力に range スライダーを使っていない",
+      !sourceOf("ReedScoreEditor").includes('type="range"') && !sourceOf("RatingDial").includes('type="range"') &&
+      (src.match(/type="range"/g) || []).length === 2,
+      `アプリ全体で${(src.match(/type="range"/g) || []).length}箇所`);
     // 項目3: ダイヤルの並びは定数から引く(その場で reverse したりしない)
-    check("ダイヤルは RATING_DIAL_ORDER を順に描く", /RATING_DIAL_ORDER\.map\(/.test(sourceOf("RatingDial")));
-    check("ダイヤルが並びを反転していない", !/RATING_DIAL_ORDER\][\s\S]*?\.reverse\(\)/.test(sourceOf("RatingDial")));
+    {
+      const dial = sourceOf("RatingDial");
+      check("ダイヤルは ratingDialOrder(itemKey) を順に描く", /ratingDialOrder\(itemKey\)\.map\(/.test(dial));
+      check("ダイヤルが並びを反転していない", !/\.reverse\(\)/.test(dial));
+      check("ダイヤルの窓の行数は RATING_DIAL_VISIBLE から引く(直書きしない)",
+        /const VISIBLE = RATING_DIAL_VISIBLE;/.test(dial), (dial.match(/const VISIBLE = .*/) || [""])[0]);
+      check("ダイヤルの行の高さは RATING_DIAL_ITEM_H から引く", /const ITEM = RATING_DIAL_ITEM_H;/.test(dial));
+      check("ダイヤルの表示は reedScoreText を通す(総評だけ小数第1位)",
+        /\{reedScoreText\(itemKey, s\)\}/.test(dial));
+      check("ダイヤルの値の正規化も項目別のものを通す", /normalizeReedScoreOf\(itemKey, value\)/.test(dial));
+      check("ダイヤルの位置合わせも itemKey を渡す(総評だけ41段)",
+        (dial.match(/ratingDial(OffsetFor|ValueAt)\([^)]*itemKey\)/g) || []).length === 3,
+        `${(dial.match(/ratingDial(OffsetFor|ValueAt)\([^)]*itemKey\)/g) || []).length}箇所`);
+      // 列は縦にスクロールする。data-noswipe が無いと横スワイプに掴まれる
+      check("ダイヤルの列は data-noswipe(外枠とスクローラの両方)",
+        (dial.match(/data-noswipe(?=[\s/>=])/g) || []).length === 2,
+        `${(dial.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
+      check("ダイヤルの列幅は列いっぱい(3列の割り付けは呼び出し側が決める)",
+        /width: "100%", flexShrink: 0/.test(dial));
+    }
     // 項目4/5 + §6.1.5: 編集UIは fixed のモーダルで、暗幕・影は既存モーダルと同値
     {
       const ed = sourceOf("ReedScoreEditor");
@@ -1519,6 +1816,45 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
       check("暗幕の値はアプリ内で1種類", scrimVals.size === 1, `${scrimVals.size}種 / ${scrims}箇所`);
       check("モーダルの影の値はアプリ内で1種類", shadowVals.size === 1, `${shadowVals.size}種 / ${shadows}箇所`);
       check("その1種類を3箇所以上(ScrollPicker/保存確認/評価編集)が共有している", scrims >= 3 && shadows >= 3, `暗幕${scrims} / 影${shadows}`);
+      // --- 【C-2】3項目3列。1回開けば3つとも回せる(生年月日ピッカー方式) ---
+      check("ダイヤルは fields を map して並べる(1項目1ダイアログに戻していない)",
+        /fields\.map\(\(f\) => \(/.test(ed));
+      check("列は横並び(flex)で gap は --sp-2", /display: "flex", flexWrap: "nowrap", gap: "var\(--sp-2\)"/.test(ed));
+      check("3列は折り返さない(flexWrap は nowrap ただ1つ)",
+        (ed.match(/flexWrap:/g) || []).length === 1 && /flexWrap: "nowrap"/.test(ed),
+        (ed.match(/flexWrap: "[a-z-]+"/g) || []).join(" / ") || "flexWrap の指定なし");
+      check("列は3等分(flex:1 1 0)", /flex: "1 1 0", minWidth: 0/.test(ed));
+      check("各列にはダイヤルが1つ(スライダーに戻していない)",
+        (ed.match(/<RatingDial /g) || []).length === 1 && !ed.includes("<RatingSlider"));
+      check("各列に項目名の小ラベルが付く", /\{f\.label\}/.test(ed));
+      check("ダイヤルには項目キーを渡す", /itemKey=\{f\.key\}/.test(ed));
+      check("「完了」ボタンは1つだけ", (ed.match(/完了/g) || []).length === 1);
+      // 【C-4】暗幕・パネル・3列・完了ボタンの data-noswipe。列の1つでも外すと落ちる
+      check("data-noswipe は暗幕・パネル・列・完了ボタンの4箇所",
+        (ed.match(/data-noswipe(?=[\s/>=])/g) || []).length === 4,
+        `${(ed.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
+      check("列の data-noswipe は map の中(=3列すべてに付く)",
+        /fields\.map\(\(f\) => \([\s\S]{0,200}?<div key=\{f\.key\} data-noswipe/.test(ed));
+      // will-change は transform と同じく position:fixed の子孫の包含ブロックを作る。
+      // これは木全体の話で、ReedScoreEditor 1つだけを見ても足りない。実際、子の RatingDial に
+      // willChange を足す変異は素通りした(審査役の N21)。ダイアログから辿れる木の全体を見る。
+      {
+        const tree = [], seen = new Set(), missing = [];
+        const walk = (name) => {
+          if (seen.has(name)) return;
+          seen.add(name);
+          let s;
+          try { s = sourceOf(name); } catch { missing.push(name); return; }   // 関数でないもの(定数等)は辿らない
+          tree.push(name);
+          for (const m of s.match(/<([A-Z]\w*)[\s/>]/g) || []) walk(m.slice(1).replace(/[\s/>]$/, ""));
+        };
+        walk("ReedScoreEditor");
+        check("ダイアログの木を辿れている(ReedScoreEditor と RatingDial を含む)",
+          tree.includes("ReedScoreEditor") && tree.includes("RatingDial") && tree.length >= 2, tree.join(","));
+        const offenders = tree.filter((n) => /willChange|will-change/.test(sourceOf(n)));
+        check("ダイアログの木の全体で will-change を使っていない(fixed の包含ブロックを作らない)",
+          offenders.length === 0, `${offenders.join(",") || "なし"} / 見た木: ${tree.join(",")}`);
+      }
     }
     // 項目4/5: 通常時はダイヤル/スライダーが出ていない(数値だけ)
     {
@@ -1526,7 +1862,20 @@ console.log("\n========== 14. リードの主観評価(1〜5の整数・履歴�
       check("詳細ビューは RatingDial を直接描かない", !detail.includes("<RatingDial"));
       check("詳細ビューは RatingSlider を直接描かない", !detail.includes("<RatingSlider"));
       check("詳細ビューは数値フィールドを描く", detail.includes("<ReedScoreField"));
-      check("詳細ビューは編集ダイアログを条件付きで描く", /\{editingField && \(\s*<ReedScoreEditor/.test(detail));
+      // 【C-1】3行ではなく1行。行のどこを押しても同じ1つのダイアログが開く
+      check("詳細ビューの評価フィールドは1つだけ(3行に戻していない)",
+        (detail.match(/<ReedScoreField/g) || []).length === 1,
+        `${(detail.match(/<ReedScoreField/g) || []).length}箇所`);
+      check("評価フィールドには3項目をまとめて渡す", /<ReedScoreField fields=\{SCORE_FIELDS\} onOpen=/.test(detail));
+      check("SCORE_FIELDS は 総評 / 厚さ / バランス の3つ",
+        (detail.match(/\{ key: "(rating|thickness|balance)", label:/g) || []).length === 3);
+      check("SCORE_FIELDS の並びは 総評→厚さ→バランス",
+        /key: "rating"[\s\S]{0,200}key: "thickness"[\s\S]{0,200}key: "balance"/.test(detail));
+      check("詳細ビューは編集ダイアログを条件付きで描く", /\{editingScores && \(\s*<ReedScoreEditor/.test(detail));
+      check("編集ダイアログには3項目をまとめて渡す", /<ReedScoreEditor fields=\{SCORE_FIELDS\}/.test(detail));
+      check("総評のドラフトは 0.1 刻みで正規化する",
+        (detail.match(/normalizeReedRating\(reed\.rating\)/g) || []).length === 2,
+        `${(detail.match(/normalizeReedRating\(reed\.rating\)/g) || []).length}箇所`);
       check("詳細ビューは評価の推移グラフを描く", detail.includes("<ReedScoreHistoryChart"));
       check("確定は commitReedScores 経由の1箇所だけ", (detail.match(/commitReedScores\(/g) || []).length === 1);
       check("履歴への直接 push が残っていない", !/ratings: \[\.\.\.\(reed\.ratings \|\| \[\]\), \{ value/.test(detail));
@@ -1633,6 +1982,52 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   // 軸ロックの距離が 6px であること(5.9 では決まらない / 6 で決まる)
   check("軸が決まる距離はちょうど6px", axis(5.9, 0) === null && axis(6, 0) === true);
 
+  // --- 【A-2】縦と断定するには縦成分が横成分の SWIPE_VERTICAL_BIAS 倍以上要る ---
+  // 親指のスワイプは弧を描くので最初の6pxは縦成分が勝ちやすい。1.0(単純な大小比較)に戻すと
+  // 一度の揺れで縦に固定され、そのまま二度と横に戻れない(実機報告「反応自体もよくない」)。
+  {
+    const B = api.SWIPE_VERTICAL_BIAS;
+    check("SWIPE_VERTICAL_BIAS は1より大きい(単純な大小比較に戻っていない)", B > 1, String(B));
+    check("SWIPE_VERTICAL_BIAS は1.5", B === 1.5, String(B));
+    check("縦が横の1.5倍未満なら「縦」と断定しない(未確定のまま観察を続ける)",
+      axis(10, 14) === null, String(axis(10, 14)));
+    check("縦が横のちょうど1.5倍なら縦と確定する", axis(10, 15) === false, String(axis(10, 15)));
+    check("縦が横の1.5倍を超えたら縦と確定する", axis(10, 20) === false);
+    // 境界は atan(SWIPE_VERTICAL_BIAS) = 56.31°。その手前は未確定、その先は縦。
+    // 【名乗りの注意】ここが言えるのは「この純関数が 46〜56° で null を返す」ことだけ。
+    // 実ブラウザで「弧を描いて 46〜56° から横へ戻せる」という意味ではない。審査役が
+    // Input.dispatchTouchEvent で測った実測では、初角 46/50/55/60/70° → 5° の弧は全部×。
+    // この定数が実際に救っているのは、座標の丸めで一瞬 |dy| >= |dx| になる 42〜44° の帯。
+    const at20 = (deg) => axis(20 * Math.cos(deg * Math.PI / 180), 20 * Math.sin(deg * Math.PI / 180));
+    check("斜め46〜56°では軸を決めない(この関数は null を返す)",
+      [46, 50, 53, 55, 56].every((deg) => at20(deg) === null),
+      [46, 50, 53, 55, 56].map((deg) => `${deg}:${at20(deg)}`).join(" "));
+    check("斜め57°以上は縦と確定する(真に縦のドラッグは今までどおり縦)",
+      [57, 60, 75, 90].every((deg) => at20(deg) === false),
+      [57, 60, 75, 90].map((deg) => `${deg}:${at20(deg)}`).join(" "));
+    check("横が優勢な角(44°以下)は即・横", [0, 15, 30, 44].every((deg) => at20(deg) === true));
+    // 42〜44°は BIAS の有無に関わらず即・横だが、丸めで縦成分がわずかに勝った瞬間に
+    // 1.0 なら縦へ固定され、1.5 なら未確定で踏みとどまる。その差をここで固定する。
+    check("42〜44°で丸めにより縦成分がわずかに勝っても、縦とは断定しない(BIAS が救う帯)",
+      [42, 43, 44].every((deg) => axis(20 * Math.cos(deg * Math.PI / 180), 20 * Math.cos(deg * Math.PI / 180) + 0.5) === null),
+      [42, 43, 44].map((deg) => `${deg}:${axis(20 * Math.cos(deg * Math.PI / 180), 20 * Math.cos(deg * Math.PI / 180) + 0.5)}`).join(" "));
+    check("横が勝っていれば bias に関係なく即・横", axis(20, 10) === true && axis(7, 6) === true);
+    // 未確定のまま引き続けても、横に転じれば横と確定できる(「勝つまで決めない」の実効)
+    check("未確定から横に転じれば横と確定できる",
+      axis(10, 14) === null && axis(30, 14) === true);
+    check("未確定から縦に転じれば縦と確定できる",
+      axis(10, 14) === null && axis(10, 30) === false);
+    // 3値であること。true/false/null 以外を返さない
+    {
+      let bad = null;
+      for (let dx = -40; dx <= 40; dx += 3) for (let dy = -40; dy <= 40; dy += 3) {
+        const r = axis(dx, dy);
+        if (r !== true && r !== false && r !== null) bad = `${dx},${dy} → ${r}`;
+      }
+      check("軸判定は必ず true / false / null のいずれか", !bad, bad || "");
+    }
+  }
+
   // --- 追従量: 行き先のある向きは等倍、無い向きは抵抗 ---
   check("右へのドラッグは等倍で追従(行き先あり)", off(80, false) === 80 && off(80, true) === 80);
   check("左へのドラッグは等倍で追従(onForward あり)", off(-80, true) === -80);
@@ -1721,6 +2116,102 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
       api.SWIPE_BACK_SETTLE_MS > 0 && api.SWIPE_BACK_SETTLE_MS <= 500, String(api.SWIPE_BACK_SETTLE_MS));
   }
 
+  // ソース文字列。実物のハンドラを取り出して実行するのにも使う。
+  const area = sourceOf("SwipeBackArea");
+  const gest = sourceOf("createSwipeBackGesture");
+  const bodyAfter = (s, head) => {                 // head は '{' で終わる文字列
+    const i = s.indexOf(head);
+    if (i === -1) return "";
+    let j = i + head.length - 1, depth = 0;
+    for (; j < s.length; j++) {
+      if (s[j] === "{") depth++;
+      else if (s[j] === "}") { depth--; if (depth === 0) return s.slice(i, j + 1); }
+    }
+    return "";
+  };
+  // 非パッシブ touchmove の「実物」。旗の状態だけを与えて preventDefault の回数を数える。
+  // 取り出しに失敗しても投げない(投げるとハーネスごと落ちて PASS/FAIL の集計行すら出ない)。
+  // 失敗時は -1 を返し、下の検査が落ちる形にする。
+  const onTouchMoveSrc = bodyAfter(area, "const onTouchMove = (e) => {");
+  const touchMovePD = (() => {
+    let fn = null, err = "";
+    try {
+      if (!onTouchMoveSrc) throw new Error("onTouchMove を取り出せない");
+      fn = new Function("dragHorizontal", `return (${onTouchMoveSrc.replace(/^const onTouchMove\s*=\s*/, "")});`);
+    } catch (e) { err = String((e && e.message) || e); }
+    const run = (flag, shape = {}) => {
+      if (!fn) return -1;
+      let n = 0;
+      try { fn(flag)({ ...shape, preventDefault: () => { n++; } }); } catch (e) { return -1; }
+      return n;
+    };
+    run.err = err;
+    // 任意のイベント(Proxy 等)を通す口。数と「投げたか」を返し、ここでも絶対に投げない。
+    run.with = (flag, makeEvent) => {
+      if (!fn) return { n: -1, threw: true };
+      let n = 0, threw = false;
+      try { fn(flag)(makeEvent(() => { n++; })); } catch (e) { threw = true; }
+      return { n, threw };
+    };
+    return run;
+  })();
+  check("非パッシブ touchmove の実物を取り出して実行できる",
+    touchMovePD(true) >= 0 && touchMovePD(false) >= 0, touchMovePD.err);
+
+  // ------------------------------------------------------------
+  // 【可否を決めてよいのは旗だけ】
+  // イベントの中身(type / cancelable / touches / changedTouches …)で分岐すると、
+  // 旗を使った検査を通しながら実機では常に preventDefault する、という改変ができてしまう。
+  //
+  // 以前ここは**偽イベントを10形状**通して「旗だけで決まる」と名乗っていた。これは
+  // 「標本にある性質しか守れない」形で、11形状目が必ず残る。実際
+  //     if (!dragHorizontal && !e.changedTouches) return; e.preventDefault();
+  // は10形状のどれにも changedTouches が無いため素通りし、実 TouchEvent は必ず
+  // changedTouches を持つので**旗と無関係に毎回 preventDefault する**(＝詳細画面の
+  // 縦スクロールが全面的に死ぬ)改変が全件緑のまま通った。
+  //
+  // そこで標本を並べるのをやめ、性質を列挙せずに済む3本で縛る。3本とも独立に効く。
+  //   (1) Proxy でイベントへの参照そのものを記録する。preventDefault 以外の名前に
+  //       一度でも触れたら落とす。「どの性質か」を知らなくても「中身を見ていない」が言える。
+  //   (2) 本体に出てくる識別子の**ホワイトリスト**。node で実行しても browser でしか
+  //       差の出ない分岐(typeof window === "undefined" 等)は (1) にも旗の実行検査にも
+  //       掛からないが、window / globalThis / Date … という名前が増えるのでここで落ちる。
+  //   (3) 本体の形そのものの固定。整形も含めて2文以外を許さない。
+  // ------------------------------------------------------------
+  {
+    // (1) イベントへの参照を Proxy で記録する
+    const probe = (flag) => {
+      const reads = [];
+      const mk = (pd) => {
+        const t = { preventDefault: pd };
+        return new Proxy(t, {
+          get: (o, k) => { reads.push(String(k)); return k === "preventDefault" ? pd : undefined; },
+          has: (o, k) => { reads.push(String(k)); return k === "preventDefault"; },
+          ownKeys: (o) => { reads.push("«列挙»"); return Reflect.ownKeys(o); },
+          getOwnPropertyDescriptor: (o, k) => { reads.push(String(k)); return Reflect.getOwnPropertyDescriptor(o, k); },
+        });
+      };
+      return { ...touchMovePD.with(flag, mk), reads };
+    };
+    const on = probe(true), off = probe(false);
+    const extra = [...on.reads, ...off.reads].filter((k) => k !== "preventDefault");
+    check("preventDefault の可否は旗だけで決まる(イベントの中身を一切読まない)",
+      on.n === 1 && off.n === 0 && !on.threw && !off.threw && extra.length === 0,
+      `旗true:${on.n} / 旗false:${off.n} / 読んだ性質:${extra.join(",") || "なし"}`);
+
+    // (2) 本体に出てくる名前のホワイトリスト
+    const ALLOWED = new Set(["const", "onTouchMove", "e", "if", "return", "dragHorizontal", "preventDefault"]);
+    const names = [...new Set(onTouchMoveSrc.match(/[A-Za-z_$][\w$]*/g) || [])];
+    const alien = names.filter((s) => !ALLOWED.has(s));
+    check("touchmove の本体は旗と e.preventDefault 以外の名前を持たない(window / globalThis 等を読んでいない)",
+      onTouchMoveSrc.length > 0 && alien.length === 0, alien.join(",") || (onTouchMoveSrc ? "" : "取り出せない"));
+
+    // (3) 本体の形そのものを固定する。ここだけは綴り依存だが、綴り依存だと名乗っている。
+    check("touchmove の本体は「旗を読んで preventDefault する」2文だけ(整形も含めて固定)",
+      /^const onTouchMove = \(e\) => \{\s*if \(!dragHorizontal\) return;\s*e\.preventDefault\(\);\s*\}$/
+        .test(onTouchMoveSrc.trim()), onTouchMoveSrc.trim().replace(/\s+/g, " "));
+  }
+
   // ============================================================
   // ジェスチャーの状態機械を「実行」で検査する。
   // createSwipeBackGesture は DOM を触る操作(setX/clearX/settle/cancelSettle/beginDrag/
@@ -1728,8 +2219,65 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   // 順に流し込み、何が何回呼ばれたかを数えられる。正規表現ではなく実行で守る部分。
   // 守る不変条件:
   //   ジェスチャーが始まる時も終わる時も、track に残った transform は必ず消えている。
+  //   横と確定している間だけ横へ動き、その間だけ preventDefault が打てる。
+  //
+  // 【リグの手足は模型ではなく SwipeBackArea の実物】
+  // 以前ここは setX / clearX / settle / beginDrag を**別に書き写した模型**で、
+  // dragHorizontal もリグ側が持っていた。そのため r.pd() が数えていたのは
+  // 「実物の配線でどうなるか」ではなく「模型でどうなるか」だった。実物の
+  //     const setX = (px) => { dragHorizontal ||= true; track.style.transform = …; };
+  // (settle は dragHorizontal = false の直後に setX(0) を呼ぶので、戻しの320msのあいだ
+  //  旗が立ちっぱなしになり、その間ずっと preventDefault が打たれる = スワイプが不発に
+  //  終わるたび直後0.32秒は縦スクロールが効かない)を足しても全件緑のまま通り、
+  // 「横確定の旗を立てるのは beginDrag ただ1箇所」「戻し(settle)の間は preventDefault
+  // しない」という2つの検査名が同時に嘘になっていた。
+  //
+  // いまは SwipeBackArea の useEffect の中身(`let settleTimer = 0;` から
+  // createSwipeBackGesture の呼び出しまで)を**ソースから丸ごと切り出して評価**し、
+  // そこで組み上がった setX / clearX / settle / cancelSettle / beginDrag と onTouchMove を
+  // そのまま使う。旗は実物の1個しか存在しないので、模型と実物がずれる余地が無い。
+  // ログは実物を包む薄いラッパで取る(ラッパは必ず実物へ委譲する)。
+  // isSwipeTarget だけはリグ側で差し替える(実物は下の「実物の対象判定」で単体検査する)。
+  // 切り出しに失敗してもハーネスごと落とさない(F-22)。失敗は1件の FAIL として出し、
+  // その場合だけ旧来の模型へ退避して残りの検査を回す。
   // ============================================================
   {
+    const wiring = (() => {
+      let mk = null, err = "";
+      try {
+        const head = "const g = createSwipeBackGesture({";
+        const i0 = area.indexOf("let settleTimer = 0;");
+        const i1 = area.indexOf(head);
+        const gStmt = bodyAfter(area, head);
+        if (i0 === -1 || i1 === -1 || !gStmt) throw new Error("useEffect の配線を切り出せない");
+        const block = area.slice(i0, i1 + gStmt.length) + ");";
+        mk = new Function(
+          "track", "vp", "cbRef", "createSwipeBackGesture", "hasHorizontalScrollAncestor",
+          "SWIPE_BACK_EASE", "SWIPE_BACK_SETTLE_MS", "setTimeout", "clearTimeout",
+          `${block}\nreturn { onTouchMove };`);
+      } catch (e) { err = String((e && e.message) || e); }
+      const build = (width, hs) => {
+        if (!mk) return null;
+        try {
+          let io = null;
+          const res = mk(
+            { style: {} },                                  // track(transform の書き込み先)
+            { clientWidth: width },                         // vp(幅の測定元)
+            { current: hs },                                // cbRef(遷移先のコールバック)
+            (o) => { io = o; return {}; },                  // createSwipeBackGesture を横取りして io を捕まえる
+            () => false,                                    // hasHorizontalScrollAncestor(呼ばれない)
+            api.SWIPE_BACK_EASE, api.SWIPE_BACK_SETTLE_MS,
+            () => 1, () => {});                             // タイマーは進めない(戻しの予約は張るだけ)
+          if (!io || !res || typeof res.onTouchMove !== "function") return null;
+          return { io, onTouchMove: res.onTouchMove };
+        } catch (e) { return null; }
+      };
+      build.err = err;
+      return build;
+    })();
+    check("SwipeBackArea の配線(setX/clearX/settle/beginDrag/onTouchMove)を実物ごと取り出して組める",
+      !!wiring(W, {}), wiring.err);
+
     const rig = ({ hasBack = true, hasForward = false, width = W, swipeTarget = true } = {}) => {
       const log = [];
       const hs = {};
@@ -1738,15 +2286,24 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
       // 対象判定は down ごとに切り替えられるようにする。実機では1本目の指が対象でも、
       // 2本目の指(isPrimary === false)や入力欄の上の down は対象外になるため。
       let target = swipeTarget;
+      const w = wiring(width, hs);
+      // 退避用の模型(実物を切り出せなかったときだけ使う。上の check が FAIL として出る)
+      let modelFlag = false;
+      const io = w ? w.io : {
+        setX: () => {}, clearX: () => { modelFlag = false; }, settle: () => { modelFlag = false; },
+        cancelSettle: () => {}, beginDrag: () => { modelFlag = true; },
+        getWidth: () => width, canForward: () => !!hs.onForward, handlers: () => hs,
+      };
+      const wrap = (name, f) => (...a) => { log.push(name); return f(...a); };
       const g = api.createSwipeBackGesture({
-        setX: (px) => log.push("setX(" + px + ")"),
-        clearX: () => log.push("clearX"),
-        settle: () => log.push("settle"),
-        cancelSettle: () => log.push("cancelSettle"),
-        beginDrag: () => log.push("beginDrag"),
-        getWidth: () => width,
-        canForward: () => !!hs.onForward,
-        handlers: () => hs,
+        setX: (px) => { log.push("setX(" + px + ")"); return io.setX(px); },
+        clearX: wrap("clearX", io.clearX),
+        settle: wrap("settle", io.settle),
+        cancelSettle: wrap("cancelSettle", io.cancelSettle),
+        beginDrag: wrap("beginDrag", io.beginDrag),
+        getWidth: io.getWidth,
+        canForward: io.canForward,
+        handlers: io.handlers,
         isSwipeTarget: () => target,
       });
       const ev = (dx, dy, id = 1) => ({ pointerId: id, clientX: 100 + dx, clientY: 200 + dy });
@@ -1760,6 +2317,14 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
         cancel: (dx = 0, dy = 0, id) => g.cancel(ev(dx, dy, id)),
         n: (k) => log.filter((s) => s === k).length,
         nSetX: () => log.filter((s) => s.startsWith("setX(")).length,
+        // 今この瞬間に touchmove が preventDefault する回数。実物の onTouchMove を、
+        // 実物の setX/clearX/settle/beginDrag が上げ下げした**同じ旗**の上で走らせる。
+        pd: () => {
+          if (!w) return touchMovePD(modelFlag);
+          let n = 0;
+          try { w.onTouchMove({ preventDefault: () => { n++; } }); } catch (e) { return -1; }
+          return n;
+        },
         has: (k) => log.includes(k),
         // 指定した印より後ろに出来事があるか(settle の後で本当に消えたか等を見る)
         after: (mark, k) => log.slice(log.lastIndexOf(mark) + 1).includes(k),
@@ -2010,11 +2575,124 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
       check("行き先の無い向きは抵抗つきで動くだけ(遷移しない)",
         e.has("setX(-70)") && !e.has("onForward") && e.has("settle"), e.log.join("/"));
     }
+
+    // ============================================================
+    // 【A-3】軸判定の「結果そのもの」を掃引で固定する。
+    //
+    // これまでの768通りの網羅は**後始末しか見ておらず**、「どの入力のとき実際に横へ動くか」を
+    // 一度も確かめていなかった。そのため move の1行を
+    //   const h = swipeAxisIsHorizontal(dx, dy) ?? (Math.abs(dy) >= SWIPE_AXIS_LOCK_PX ? false : null);
+    // と書き換えて未確定帯を縦に倒しても(=X01)、逆に横に倒しても(=X02)、
+    // 純関数・代入箇所の数・旗の配線がどれも無傷なので全件緑のまま通ってしまった。
+    // X02 は未確定帯で preventDefault を打つので**縦スクロールを殺す**改変でもある。
+    //
+    // ここでは同じリグで、角度θのドラッグを流したときに
+    //   ・setX が呼ばれたか(= 実際に横へ動いたか)
+    //   ・そのまま横へ引き直せば横になれるか(= 未確定か、縦に固定されたか)
+    //   ・その時点で touchmove が preventDefault するか(= 縦スクロールを止めるか)
+    // を1°刻みで記録し、境界を **SWIPE_VERTICAL_BIAS から計算した値**と突き合わせる。
+    // 角度の定数を並べ替えただけでは通らないよう、期待値は掃引の外で atan から出す。
+    // ============================================================
+    {
+      const BIAS = api.SWIPE_VERTICAL_BIAS;
+      const HB = Math.atan(1) * 180 / Math.PI;             // 横と確定する境界(|dx| > |dy|) = 45°
+      const VB = Math.atan(BIAS) * 180 / Math.PI;          // 縦と確定する境界 = atan(BIAS) = 56.31°
+      const rad = (deg) => deg * Math.PI / 180;
+      // 角度θへ何回かに分けて引き、状態機械の反応を3値で返す。
+      //   "h" = 横と確定して実際に動いた / "u" = 動かないが未確定(横へ引き直せば横になれる)
+      //   "v" = 縦に固定された(横へ引き直しても二度と動かない)
+      const trace = (deg) => {
+        const r = rig();
+        r.down();
+        for (const d of [10, 25, 40, 60]) r.move(d * Math.cos(rad(deg)), d * Math.sin(rad(deg)));
+        const pd = r.pd();                                  // この時点で preventDefault するか
+        const drags = r.n("beginDrag");
+        if (r.nSetX() > 0) return { axis: "h", pd, drags };
+        const m = r.mark();
+        r.move(240, 60 * Math.sin(rad(deg)));               // 横へ引き直す
+        const recovered = r.since(m).some((s) => s.startsWith("setX("));
+        return { axis: recovered ? "u" : "v", pd, drags };
+      };
+      const sweep = [];
+      for (let deg = 0; deg <= 90; deg++) sweep.push({ deg, ...trace(deg) });
+
+      // 境界ちょうどの角度(45°)は cos と sin が 1ulp しか違わないので、どちらに倒れても可とする。
+      // それ以外は一意に決まる。VB は整数にならないのでこの緩和は効かない。
+      const want = (deg) => {
+        if (Math.abs(deg - HB) < 1e-9) return ["h", "u"];
+        if (Math.abs(deg - VB) < 1e-9) return ["u", "v"];
+        if (deg < HB) return ["h"];
+        if (deg < VB) return ["u"];
+        return ["v"];
+      };
+      {
+        let bad = null;
+        for (const s of sweep) if (!want(s.deg).includes(s.axis)) bad = bad || `${s.deg}°→${s.axis}(期待${want(s.deg).join("|")})`;
+        check(`軸の掃引(0〜90°を1°刻み): 横の境界は atan(1)=${HB.toFixed(2)}°、縦の境界は atan(SWIPE_VERTICAL_BIAS)=${VB.toFixed(2)}°`,
+          !bad, bad || "");
+      }
+      // 帯ごとにも見る。上の1件だけだと落ちたときに何が起きたか読めないため。
+      // 帯の端は定数の直書きではなく HB / VB から出す。
+      {
+        const band = (a, b) => sweep.filter((s) => s.deg >= a && s.deg <= b);
+        const all = (a, b, k) => band(a, b).every((s) => s.axis === k);
+        const show = (a, b) => band(a, b).map((s) => `${s.deg}:${s.axis}`).join(" ");
+        const hHi = Math.ceil(HB) - 1, uLo = Math.floor(HB) + 1, uHi = Math.ceil(VB) - 1, vLo = Math.floor(VB) + 1;
+        check(`0〜${hHi}°は横と確定して実際に動く(setX が呼ばれる)`, all(0, hHi, "h"), show(0, hHi));
+        check(`${uLo}〜${uHi}°は動かないが未確定のまま(横へ引き直せば横と確定できる)`, all(uLo, uHi, "u"), show(uLo, uHi));
+        check(`${vLo}〜90°は縦に固定される(横へ引き直しても動かない)`, all(vLo, 90, "v"), show(vLo, 90));
+        check("未確定の帯は空ではない(SWIPE_VERTICAL_BIAS が効いている)", uHi >= uLo, `${uLo}〜${uHi}`);
+      }
+      // 横と確定したときだけ beginDrag が1回。未確定・縦では一度も呼ばない。
+      {
+        let bad = null;
+        for (const s of sweep) {
+          const n = s.axis === "h" ? 1 : 0;
+          if (s.drags !== n) bad = bad || `${s.deg}°(${s.axis}) → beginDrag ${s.drags}回(期待${n})`;
+        }
+        check("beginDrag は横と確定した瞬間の1回だけ(未確定・縦では呼ばない)", !bad, bad || "");
+      }
+      // preventDefault の可否を同じ掃引で見る。期待値は**観測した軸ではなく上の期待の軸**から
+      // 出す。そうしないと未確定帯を横に倒す改変(X02)がここも一緒に動いてすり抜ける。
+      {
+        let bad = null;
+        for (const s of sweep) {
+          const ok = new Set(want(s.deg).map((a) => (a === "h" ? 1 : 0)));
+          if (!ok.has(s.pd)) bad = bad || `${s.deg}°(${s.axis}) → preventDefault ${s.pd}回(期待${[...ok].join("|")})`;
+        }
+        check("preventDefault は横と確定している間だけ(未確定・縦のあいだは打たない=縦スクロールを殺さない)",
+          !bad, bad || "");
+      }
+      // 掃引は距離60pxまで引いている。軸ロックの距離そのものは別に押さえる
+      // (「20px引かないと反応しない」のような距離のすり替えを掃引だけでは見つけられない)。
+      {
+        const L = api.SWIPE_AXIS_LOCK_PX;
+        const a = rig(); a.down(); a.move(L - 0.1, 0);
+        const b = rig(); b.down(); b.move(L, 0);
+        check("状態機械が動き始める距離は SWIPE_AXIS_LOCK_PX ちょうど(1つ手前では動かない)",
+          a.nSetX() === 0 && b.nSetX() === 1 && b.n("beginDrag") === 1, `${a.log.join("/")} | ${b.log.join("/")}`);
+        check("軸ロックに届く前は preventDefault しない", a.pd() === 0, String(a.pd()));
+        check("軸ロックに届いた瞬間から preventDefault する", b.pd() === 1, String(b.pd()));
+      }
+      // ジェスチャーが終わったら旗は必ず降りる(戻しの最中・遷移後・中断後に縦スクロールを殺さない)
+      {
+        const s1 = rig(); s1.down(); s1.move(60, 0);
+        check("横へ引いている最中は preventDefault する", s1.pd() === 1, String(s1.pd()));
+        s1.up(60, 0);                                       // しきい値未満 → settle
+        check("指を離して戻している最中は preventDefault しない", s1.pd() === 0, String(s1.pd()));
+        const s2 = rig(); s2.down(); s2.move(200, 0); s2.up(200, 0);   // 遷移
+        check("遷移した後は preventDefault しない", s2.pd() === 0, String(s2.pd()));
+        const s3 = rig(); s3.down(); s3.move(60, 0); s3.cancel(60, 0);
+        check("pointercancel の後は preventDefault しない", s3.pd() === 0, String(s3.pd()));
+        const s4 = rig(); s4.down(); s4.move(60, 0); s4.downBlocked(2);
+        check("2本目の指で中断された後は preventDefault しない", s4.pd() === 0, String(s4.pd()));
+        const s5 = rig(); s5.down();
+        check("ジェスチャー開始直後(まだ動かしていない)は preventDefault しない", s5.pd() === 0, String(s5.pd()));
+      }
+    }
   }
 
   // --- 実装の作り(ハーネスはJSXを見ないのでソースで照合する) ---
-  const area = sourceOf("SwipeBackArea");
-  const gest = sourceOf("createSwipeBackGesture");
   check("SwipeBackArea は PointerEvent で組んである",
     ["pointerdown", "pointermove", "pointerup", "pointercancel"].every((n) => area.includes(`"${n}"`)));
   check("SwipeBackArea は transform を直接書き換える", /track\.style\.transform = /.test(area));
@@ -2057,16 +2735,6 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   // つまり「2本目の指は対象外だから abort に入る」という今周の設計を支えている述語そのものは
   // 一度も通っていない。ここだけは SwipeBackArea に直書きされている実物を取り出し、
   // 偽の PointerEvent を通す。hasHorizontalScrollAncestor と vp は差し替える。
-  const bodyAfter = (s, head) => {                 // head は '{' で終わる文字列
-    const i = s.indexOf(head);
-    if (i === -1) return "";
-    let j = i + head.length - 1, depth = 0;
-    for (; j < s.length; j++) {
-      if (s[j] === "{") depth++;
-      else if (s[j] === "}") { depth--; if (depth === 0) return s.slice(i, j + 1); }
-    }
-    return "";
-  };
   {
     const decl = bodyAfter(area, "isSwipeTarget: (e) => {");
     check("対象判定の実物をソースから取り出せる", decl.startsWith("isSwipeTarget: (e) => {"), decl.slice(0, 40));
@@ -2102,6 +2770,81 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   }
   check("縦と決まったら横へは動かさない(早期return)", /if \(!st\.horizontal\) return;/.test(gest));
   check("軸が決まる前は何もしない", /if \(h === null\) return;/.test(gest));
+
+  // ============================================================
+  // 【A-1】非パッシブ touchmove。Pointer Events だけではブラウザのスクロールを止められず、
+  // 斜めに引くとブラウザが縦スクロールを引き取って pointercancel が飛び、ジェスチャーが死ぬ。
+  // 「横と確定している間だけ preventDefault する」を**実行**で検査する
+  // (isSwipeTarget と同じやり方で、ソースから実物を取り出して偽のイベントを通す)。
+  // ・preventDefault を消す → 横のとき止まらないので落ちる
+  // ・無条件に preventDefault する → 未確定・縦のときも止まるので落ちる(縦スクロールが死ぬ)
+  // ============================================================
+  {
+    check("viewport に touchmove を非パッシブで登録している",
+      area.includes('vp.addEventListener("touchmove", onTouchMove, { passive: false });'), area.slice(0, 0));
+    check("アンマウント時に touchmove を外す", area.includes('vp.removeEventListener("touchmove", onTouchMove);'));
+    check("touchmove を張る相手は viewport(window ではない)",
+      !/window\.addEventListener\("touchmove"/.test(area));
+    const decl = bodyAfter(area, "const onTouchMove = (e) => {");
+    check("touchmove ハンドラの実物をソースから取り出せる", decl.startsWith("const onTouchMove = (e) => {"), decl.slice(0, 40));
+    const arrow = decl.replace(/^const onTouchMove\s*=\s*/, "");
+    const run = (dragHorizontal) => {
+      let n = 0;
+      new Function("dragHorizontal", `return (${arrow});`)(dragHorizontal)({ preventDefault: () => { n++; } });
+      return n;
+    };
+    check("横と確定している間は preventDefault する(ブラウザに縦スクロールさせない)", run(true) === 1, String(run(true)));
+    check("未確定・縦のあいだは preventDefault しない(縦スクロールを妨げない)", run(false) === 0, String(run(false)));
+    // 旗の上げ下げの配線。ここが1本でも抜けると上の実行検査をすり抜ける
+    const ups = (area.match(/dragHorizontal = true/g) || []).length;
+    // 宣言(let dragHorizontal = false)は数えない。降ろす代入だけを数える
+    const downs = (area.match(/(?<!let\s)\bdragHorizontal = false/g) || []).length;
+    check("横確定の旗を立てるのは beginDrag ただ1箇所",
+      ups === 1 && /beginDrag: \(\) => \{ dragHorizontal = true;/.test(area), `${ups}箇所`);
+    check("旗を降ろすのは clearX と settle の2箇所(開始・終了はすべてここを通る)",
+      downs === 2, `${downs}箇所`);
+    // 上の2つが数えているのは **綴り**(`dragHorizontal = true` / `= false`)なので、
+    // `dragHorizontal ||= true` のような別の書き方を数え落とす。実際、setX に
+    //     const setX = (px) => { dragHorizontal ||= true; … };
+    // を足す改変は ups=1 / downs=2 のまま通った(戻しの320msのあいだ旗が立ちっぱなしになる)。
+    // st と同じ方針で、綴りではなく **旗への書き込みの数** を固定する。
+    // 数える対象: 単純代入 / 複合代入(||= &&= ??= += …) / ++ -- の前置・後置。
+    // 期待は 宣言1(let … = false) + 立てる1(beginDrag) + 降ろす2(clearX / settle) の計4。
+    // これでも「= を使わずに書き換える」経路(旗をオブジェクトに入れて Object.assign 等)は
+    // 残る。そちらは上の実行検査が実物の配線ごと走っているので、旗が余計に立てば pd() が拾う。
+    {
+      const NAME = "dragHorizontal";
+      const writes = [];
+      const re = new RegExp("\\b" + NAME + "\\b", "g");
+      let m;
+      while ((m = re.exec(area))) {
+        const before = area.slice(Math.max(0, m.index - 4), m.index);
+        const after = area.slice(m.index + NAME.length, m.index + NAME.length + 6).replace(/^\s*/, "");
+        if (/(\+\+|--)\s*$/.test(before)) writes.push(before.trim().slice(-2) + NAME);
+        else if (/^(\+\+|--)/.test(after)) writes.push(NAME + after.slice(0, 2));
+        else if (/^(\|\||&&|\?\?|\*\*|<<|>>>|>>|[-+*/%&|^])?=(?!=)/.test(after)) writes.push(NAME + " " + after.split(/\s/)[0]);
+      }
+      check("旗への書き込みは 宣言1 + beginDrag1 + clearX/settle2 の計4箇所だけ(綴りに依らず数える)",
+        writes.length === 4, `${writes.length}箇所: ${writes.join(" / ")}`);
+    }
+    check("戻し(settle)の間は preventDefault しない(指はもう離れている)",
+      /const settle = \(\) => \{[^\n]*\n\s*dragHorizontal = false;/.test(area));
+    check("旗の初期値は false(前のジェスチャーの状態を引き継がない)",
+      /let dragHorizontal = false;/.test(area));
+    // touch-action は今までどおり触らない(祖先指定が子孫より優先され、中の横スクロール表が死ぬ)
+    check("preventDefault 方式にしても touch-action は敷いていない", !/touchAction/.test(area));
+    // SwipePager と共通なのは「非パッシブの touchmove を張る」ことだけ。
+    // **軸を決める場所は違う**: SwipePager は touchmove の中で決め(s.horizontal をその場で立てる)、
+    // SwipeBackArea は pointermove(状態機械)で決めて touchmove は旗を読むだけ。
+    // 以前この検査は「SwipePager と同じ形」と名乗っていたが、名乗りが実態より強かった。
+    check("どちらも touchmove を非パッシブで張っている(preventDefault を打てる形)",
+      sourceOf("SwipePager").includes('addEventListener("touchmove", onMove, { passive: false })') &&
+      area.includes('addEventListener("touchmove", onTouchMove, { passive: false })'));
+    check("軸を決める場所は SwipePager と違う(SwipePager は touchmove の中・こちらは pointermove)",
+      /s\.horizontal = Math\.abs\(dxRaw\) > Math\.abs\(dy\);/.test(sourceOf("SwipePager")) &&
+      !/swipeAxisIsHorizontal\(/.test(bodyAfter(area, "const onTouchMove = (e) => {")) &&
+      gest.includes("swipeAxisIsHorizontal("));
+  }
   // 上の網羅ループが回せるのは「知っている終わり方」だけ。4つ目の出口が後から生えても
   // 実行検査は気づけない(掃引の dx は最大200pxなので、その外側で発火させれば触れない)。
   // だから st に触る場所の数をここで固定する。
@@ -2145,8 +2888,8 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   // transform も will-change も position:fixed の子孫の包含ブロックを作る。
   // 「静止時は transform を消す」だけでは足りず、will-change を一切使わないこと。
   check("will-change を使わない(identityでも包含ブロックを作るため)", !/willChange|will-change/.test(area));
-  check("戻し終えたら transform も transition も消す",
-    /const clearX = \(\) => \{ track\.style\.transition = ""; track\.style\.transform = ""; \};/.test(area));
+  check("戻し終えたら transform も transition も消し、横確定の旗も降ろす",
+    /const clearX = \(\) => \{ dragHorizontal = false; track\.style\.transition = ""; track\.style\.transform = ""; \};/.test(area));
   check("戻しは SWIPE_BACK_EASE で 0 へ向かわせる",
     /const settle = \(\) => \{[\s\S]*?track\.style\.transition = SWIPE_BACK_EASE;[\s\S]*?setX\(0\);/.test(area));
   // 「必ず消える」はこの正規表現ではなく上の実行検査が守る。ここが見ているのは
@@ -2197,8 +2940,11 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   check("評価ダイアログは document.body へポータルする",
     /return createPortal\(/.test(editor) && /\bdocument\.body,\s*\);\s*$/.test(editor.trim().replace(/\}$/, "").trim()));
   check("createPortal を react-dom から import している", /import \{ createPortal \} from "react-dom";/.test(src));
-  check("暗幕・パネル・完了ボタンは data-noswipe で掴まれない",
-    (editor.match(/\bdata-noswipe\b/g) || []).length === 3, `${(editor.match(/\bdata-noswipe\b/g) || []).length}箇所`);
+  // 数えるのは「暗幕 / パネル / 列(map の中の1記述が3列ぶん) / 完了ボタン」の4記述。
+  // 4という数はこの4記述であって「4つの要素」ではない(列は描画上3つになる)。
+  // 属性としての出現だけを数える(コメント中の "data-noswipe:" は後続が : なので当たらない)。
+  check("暗幕・パネル・列・完了ボタンの4記述が data-noswipe を持つ(列は map の中なので3列すべてに付く)",
+    (editor.match(/data-noswipe(?=[\s/>=])/g) || []).length === 4, `${(editor.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
   check("暗幕は画面全体(position:fixed / inset:0)のまま",
     editor.includes('position: "fixed", inset: 0, zIndex: 60'));
 
