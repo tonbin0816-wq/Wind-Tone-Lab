@@ -3003,7 +3003,9 @@ export default function WindToneLabPhaseMode() {
       {/* リードタブ: 子タブ(登録 / 比較) + 本体。子タブの溝も同じ作法の中に置く */}
       {topTab === "reeds" && (
         <div className="surf-rule">
-        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4 }}>
+        {/* 子タブの溝。地は --c-sunken(B型と同じ「くぼみ」の段)。
+            以前は #EDEFF3 の直書きで、--c-sunken(#EEF1F4) と最大成分差 2 のトークン外の色だった。 */}
+        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "var(--c-sunken)", borderRadius: 11, padding: 4 }}>
           {[
             { key: "register", label: "登録" },
             { key: "compare", label: "比較" },
@@ -3043,9 +3045,19 @@ export default function WindToneLabPhaseMode() {
           このタップを拾って即座に再試行する(復旧経路は1本に統一してあるのでここでは呼ばない)。
           成功すれば recoverMic 側が errorMsg をクリアする。 */}
       {errorMsg && topTab === "measure" && (
+        /* 【A型/B型の検査から明示的に除外する】この面は「操作するもの」ではなく**通知**。
+             枠(#DC2626)と地(#FEF2F2)を両方持つのは A型/B型の芯1に反するが、
+             それは操作の語彙(枠=状態を持つ / 地=状態を持たない)の話で、
+             通知は状態を切り替えない。危険を面ごと伝えるために枠と地の両方が要る。
+             onClick + cursor:pointer を持つのは「読んだら消せる」ためだけで、
+             消すことがこの面の役目ではない(タブ再訪問や復旧成功でも自動で消える)。
+             ただし onClick を持つ以上、入口(iii)には入ってしまう。**黙って外れる**のと
+             **意図して外す**のは別物なので、印を貼って外し、理由をここに書く。
+             scripts/pitch-test.mjs 17.10 はこの印を1件だけ許し、2件目が出たら落ちる。 */
         <div
           onClick={() => setErrorMsg("")}
           className="sans"
+          data-frame-exempt="notice"
           style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 5, padding: "10px 14px", fontSize: 12, cursor: "pointer" }}
         >
           {errorMsg}
@@ -4623,7 +4635,11 @@ function MeasureView(props) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: "var(--sp-1)", flexWrap: "wrap" }}>
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
           {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
-              楽器種別・基準Hzの反対側=左端に置く */}
+              楽器種別・基準Hzの反対側=左端に置く。
+              【A型 = index.css の .ctl-state】枠線あり・地は透明。開閉という**状態を持つ**ので
+              枠線を使ってよい(本人指示「on off の違いが分かったほうがいい」)。
+              ON/OFF は枠線の色(--c-line-strong → --c-accent)とアイコンの色で返し、地は足さない
+              (枠線と違う地を両方持たせない)。ON/OFF の状態は aria-pressed が持つ。 */}
           <button
             onClick={() => {
               if (showMetroPanel) {
@@ -4634,17 +4650,21 @@ function MeasureView(props) {
               }
             }}
             aria-label="メトロノーム"
+            aria-pressed={showMetroPanel}
+            className="ctl-state"
             style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 10,
-              border: showMetroPanel ? "1.5px solid #174585" : "1px solid #E9ECF0",
-              background: showMetroPanel ? "#EAEFF5" : "#FFFFFF", cursor: "pointer", flexShrink: 0, padding: 0,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34,
+              cursor: "pointer", flexShrink: 0,
             }}
           >
             <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} />
           </button>
-          {/* リード選択のピル。中身は select 2つ＝操作するものなので、未選択時の地は
-              入力欄と同じ --c-sunk(白地でも「ここは触れる」と分かる必要がある)。 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 2, background: selectedReedId ? "#EAEFF5" : "var(--c-sunk)", borderRadius: 999, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
+          {/* リード選択のピル。中身は select 2つ＝操作するものだが、ピル自身は開閉も
+              on/off も持たない**状態を持たないもの**なので B型(index.css の .ctl-plain)。
+              枠線なし・地は --c-sunken だけ。選択済み/未選択は左の点の色と文字の色・太さが
+              返すので、地を選択状態で塗り分けない(以前は #EAEFF5 / --c-sunk の2値だった)。
+              中の select 2つは地も枠も持たない — DESIGN-SYSTEM §6.6 が明記する意図的な例外。 */}
+          <div className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", gap: 2, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
             <select
               value={selectedBoxKey || ""}
@@ -4707,15 +4727,19 @@ function MeasureView(props) {
         <div style={{ marginTop: 4 }}>
           {metroPanel === "sig" ? (
             <div className="card" style={{ minHeight: 180, boxSizing: "border-box" }}>
-              {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック) */}
+              {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック)。
+                  【A型 = .ctl-state】選択中/非選択という**状態を持つ**ので枠線を使う。
+                  状態は枠線の色(--c-line-strong → --c-accent)と文字色だけで返し、地は足さない
+                  (以前は選択中に枠 1.5px #174585 と地 #EAEFF5 を両方持っていた)。 */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
                 {METRO_SIGS.map((sig) => (
-                  <button key={sig} onClick={() => { setMetroSig(sig); setMetroPanel(null); }} style={{
-                    padding: "8px 0", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
-                    border: metroSig === sig ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                    background: metroSig === sig ? "#EAEFF5" : "#FFFFFF",
-                    color: metroSig === sig ? "#174585" : "#435266",
-                  }}>{sig}</button>
+                  <button key={sig} onClick={() => { setMetroSig(sig); setMetroPanel(null); }}
+                    aria-pressed={metroSig === sig}
+                    className="ctl-state"
+                    style={{
+                      padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
+                      color: metroSig === sig ? "var(--c-accent)" : "var(--c-ink-2)",
+                    }}>{sig}</button>
                 ))}
               </div>
               {/* アクセント(デフォルトON)。拍子を選ぶとパネルは自動で閉じるため完了ボタンは置かない */}
@@ -4734,12 +4758,14 @@ function MeasureView(props) {
               <div style={{ display: "flex", alignItems: "stretch", gap: 6, marginTop: 10 }}>
                 {metroSubdivOptions.map((s) => {
                   const selected = metroSubdiv === s.value;
+                  // A型 = .ctl-state。選択中/非選択という状態を枠線の色だけで返す
                   return (
-                    <button key={s.value} onClick={() => { setMetroSubdiv(s.value); if (metroSig !== "5/8" && metroSig !== "7/8") setMetroPanel(null); }} aria-label={`分割 ${s.value}`} style={{
-                      flex: 1, padding: "12px 0", borderRadius: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                      border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                      background: selected ? "#EAEFF5" : "#FFFFFF",
-                    }}>
+                    <button key={s.value} onClick={() => { setMetroSubdiv(s.value); if (metroSig !== "5/8" && metroSig !== "7/8") setMetroPanel(null); }} aria-label={`分割 ${s.value}`}
+                      aria-pressed={selected}
+                      className="ctl-state"
+                      style={{
+                        flex: 1, padding: "12px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
                       <SubdivNoteIcon value={s.icon ?? s.value} size={30} color={selected ? "#174585" : "#435266"} />
                     </button>
                   );
@@ -4756,12 +4782,14 @@ function MeasureView(props) {
                       {choices.map((g) => {
                         const label = g.join("+");
                         const selected = cur === label;
+                        // A型 = .ctl-state。選択中/非選択という状態を枠線の色だけで返す
                         return (
-                          <button key={label} onClick={() => { setMetroGrouping(g); setMetroPanel(null); }} className="sans" style={{
-                            flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
-                            border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                            background: selected ? "#EAEFF5" : "#FFFFFF", color: selected ? "#174585" : "#435266",
-                          }}>{label}</button>
+                          <button key={label} onClick={() => { setMetroGrouping(g); setMetroPanel(null); }}
+                            aria-pressed={selected}
+                            className="sans ctl-state" style={{
+                              flex: 1, padding: "8px 0", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
+                              color: selected ? "var(--c-accent)" : "var(--c-ink-2)",
+                            }}>{label}</button>
                         );
                       })}
                     </div>
@@ -4816,24 +4844,37 @@ function MeasureView(props) {
           かつ各ボタンが重ならないことを elementFromPoint で確認したうえでの値。 */}
       {showMetroPanel && metroPanel === null && (
         <div style={{ position: "relative", marginTop: 8 }}>
-          <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子" style={{
-            position: "absolute", left: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 16px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            border: metroPanel === "sig" ? "1.5px solid var(--c-accent)" : "1px solid var(--c-line)",
-            background: metroPanel === "sig" ? "var(--c-accent-tint)" : "var(--c-surface)",
-          }}><TimeSigStacked sig={metroSig} fontSize={20} /></button>
-          <button onClick={() => setMetroPanel((p) => (p === "subdiv" ? null : "subdiv"))} aria-label="1拍の分割" style={{
-            position: "absolute", right: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 8px", borderRadius: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            border: metroPanel === "subdiv" ? "1.5px solid var(--c-accent)" : "1px solid var(--c-line)",
-            background: metroPanel === "subdiv" ? "var(--c-accent-tint)" : "var(--c-surface)",
-          }}>
+          {/* A型 = .ctl-state。パネルの開/閉という状態を aria-expanded が持ち、枠線の色だけで返す
+              (以前は開いている間だけ枠 1.5px --c-accent と地 --c-accent-tint を両方持っていた)。
+              枠幅が状態で変わらなくなるので、開閉で幅が 1px 揺れることも無くなる。 */}
+          <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子"
+            aria-expanded={metroPanel === "sig"}
+            className="ctl-state"
+            style={{
+              position: "absolute", left: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            }}><TimeSigStacked sig={metroSig} fontSize={20} /></button>
+          <button onClick={() => setMetroPanel((p) => (p === "subdiv" ? null : "subdiv"))} aria-label="1拍の分割"
+            aria-expanded={metroPanel === "subdiv"}
+            className="ctl-state"
+            style={{
+              position: "absolute", right: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
             {/* SubdivNoteIcon は色をSVGのプレゼンテーション属性(fill/stroke)に渡すため
                 var() が使えない。--c-accent と同値のhexをそのまま渡す。 */}
             <SubdivNoteIcon value={metroSigDen === 8 && metroSubdiv >= 2 ? (metroCompoundX8 ? 3 : 2) : metroSubdiv} size={32} color="#174585" />
           </button>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
             {/* 上段: START/STOP(画面中央・大きめ) */}
+            {/* 【型の例外】鳴っている/止まっているという状態を持つが A型ではない。
+                ON は --c-danger の枠(中断の意味色)、OFF は --c-accent の塗り。
+                A型の「ON = 枠線が --c-accent」に流し込むと、意味色(--c-danger)が
+                状態色に化けて DESIGN-SYSTEM §1.5 の区別が消えるため。
+                どちらの状態でも「枠線」と「違う地」を同時には持たない(OFF の枠は透明、
+                ON の地は --c-surface = 地と同色)ので、統一の芯には反していない。
+                状態の出所は aria-pressed。 */}
             <button
               onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+              aria-pressed={metronomeOn}
               className="sans"
               style={{
                 width: 210, maxWidth: "82%", minHeight: 44, padding: "12px 0", borderRadius: 999, fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
@@ -4850,7 +4891,11 @@ function MeasureView(props) {
             </button>
             {/* 下段: テンポ(−/数値タップで直接入力/+)。STARTと同じく画面中央 */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" style={{ width: 46, height: 46, borderRadius: "50%", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)", color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
+              {/* 【B型 = .ctl-plain + .ctl-pill】テンポの ± は on/off も開閉も持たない
+                  **状態を持たないもの**なので枠線を外し、地(--c-sunken)だけで「触れる」を出す。
+                  46×46 は明示指定 + box-sizing:border-box なので、枠を外しても外形は動かない。
+                  丸は .ctl-pill(--r-pill = 999px)が正方形に効いて 50% と同じ円になる。 */}
+              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" className="ctl-plain ctl-pill" style={{ width: 46, height: 46, color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
               {tempoEditing ? (
                 // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
                 // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
@@ -4864,15 +4909,15 @@ function MeasureView(props) {
                     type="number" inputMode="numeric"
                     defaultValue={metroTempo}
                     onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                    // 地と枠は index.css の入力欄の規則(--c-sunk / --c-line-strong)。
-                    // 枠幅は変更前(1px)と同じなので 104×46 の外形は動かない(§6.1.5)。
-                    style={{ width: 104, height: 46, textAlign: "center", fontSize: 36, fontWeight: 600, fontFamily: "var(--font-num)", borderRadius: 8, padding: "3px 0" }}
+                    // 地・枠・角丸は index.css の入力欄の規則(B型: --c-sunken の地 + 見えない枠 + --r-xs)。
+                    // 枠幅は 1px のまま(透明)なので 104×46 の外形は動かない(§6.1.5)。
+                    style={{ width: 104, height: 46, textAlign: "center", fontSize: 36, fontWeight: 600, fontFamily: "var(--font-num)", padding: "3px 0" }}
                   />
                 </form>
               ) : (
                 <button onClick={() => setTempoEditing(true)} className="num-tight" style={{ minWidth: 104, minHeight: 46, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 42, fontWeight: 600, color: "var(--c-ink)", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
               )}
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" style={{ width: 46, height: 46, borderRadius: "50%", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)", color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
+              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" className="ctl-plain ctl-pill" style={{ width: 46, height: 46, color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
             </div>
           </div>
         </div>
@@ -4903,13 +4948,17 @@ function MeasureView(props) {
       {!(showMetroPanel && metroPanel !== null) && (
       <div style={{ flexShrink: 0 }}>
       {/* 録音/アップロード: 「これまでの音」の直下に置き、スクロールなしで押せるようにする。
-          アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは輪郭のみ。 */}
+          アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは地だけ。
+          【B型 = .ctl-plain + .ctl-lg】アップロードは on/off も開閉も持たない**状態を持たないもの**
+          なので、輪郭(1.5px #174585)をやめて地(--c-sunken)だけにする。相方の録音ボタンは
+          --r-lg(16px)の角丸を持つので、角丸だけ .ctl-lg で --r-lg に差し替える。
+          「1枚ずつ追加(輪郭) / まとめて追加(塗り)」と同じ主従の対で、扱いも同じにする。 */}
       <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isRecording || isAnalyzingUpload}
-          className="sans"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#FFFFFF", color: "#174585", border: "1.5px solid #174585", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
+          className="sans ctl-plain ctl-lg"
+          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#174585", padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
         >
           <Upload size={16} />
           {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
@@ -4926,11 +4975,17 @@ function MeasureView(props) {
 
       {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめ、
           画面の一番下(録音ボタンより下)に置く。 */}
+      {/* 【A型 = index.css の .ctl-state + .ctl-pill】開/閉という**状態を持つ**ので枠線を残し、
+          地は透明にする(以前は枠 #D9E1EC と地 #F3F6FA を両方持っていて重かった)。
+          開いているかどうかは枠線の色(--c-line-strong → --c-accent)と山形の向きが返す。
+          状態は aria-expanded が持つ。 */}
       <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
         <button
           onClick={() => setDetailOpen((v) => !v)}
           aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
-          style={{ width: 200, maxWidth: "72%", padding: "9px 0", borderRadius: 999, border: "1px solid #D9E1EC", background: "#F3F6FA", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          aria-expanded={detailOpen}
+          className="ctl-state ctl-pill"
+          style={{ width: 200, maxWidth: "72%", padding: "9px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           {detailOpen
             ? <ChevronUp size={24} color="#174585" strokeWidth={2.5} />
@@ -5016,7 +5071,20 @@ function MeasureView(props) {
                 <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>基準</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {idealProfiles.map((p) => (
-                    <div key={p.id} onClick={() => setSelectedIdealId(p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", borderRadius: 4, cursor: "pointer", border: selectedIdealId === p.id ? "1.5px solid #174585" : "1px solid #E9ECF0", background: selectedIdealId === p.id ? "#EAEFF5" : "transparent" }}>
+                    /* 【A型 = index.css の .ctl-state】選択中/非選択という**状態を持つ**ので枠線を使う。
+                       状態は枠線の色(--c-line-strong → --c-accent)と文字色だけで返し、地は足さない
+                       (以前は選択中だけ 枠 1.5px #174585 と 地 #EAEFF5 を両方持っていた。
+                        枠の太さも 1.5px/1px で割れていた。両方 1px に揃える。
+                        なお DPR=1 の実測では両方 1px に丸められ高さは 39px で同じだった。
+                        枠の太さの差が見えるのは端末の画素密度が高いときだけ)。
+                       <button> ではなく <div> のままなのは、行の中に削除の <button> を抱えているため
+                       (button の入れ子は作れない)。状態は aria-pressed が持つ。
+                       角丸のインライン(4px)も外す。型がクラスで角丸まで決めるので(A型 = --r-sm 8px)、
+                       インラインで書き戻すと型が効かなくなる(17.6 の検査が落ちる)。 */
+                    <div key={p.id} onClick={() => setSelectedIdealId(p.id)}
+                      aria-pressed={selectedIdealId === p.id}
+                      className="ctl-state"
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", cursor: "pointer" }}>
                       <div className="sans" style={{ fontSize: 12, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 12, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
                       <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#435266", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
                     </div>
@@ -5092,7 +5160,9 @@ function MeasureView(props) {
                   aria-label="閉じる"
                   style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "var(--tap-min)", height: "var(--tap-min)", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
                 >
-                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--r-pill)", border: "1px solid var(--c-line)", background: "var(--c-surface)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
+                  {/* B型 = .ctl-plain + .ctl-pill。閉じるは状態を持たないので枠線を外し、
+                      地(--c-sunken)だけにする。22×22 は明示 + border-box なので外形は動かない。 */}
+                  <span className="ctl-plain ctl-pill" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
                 </button>
               </div>
             )}
@@ -5121,10 +5191,11 @@ function MeasureView(props) {
           <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>この録音を保存しますか？</div>
             <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
+              {/* B型 = .ctl-plain + .ctl-pill。取り直しは状態を持たない普通のボタン */}
               <button
                 onClick={discardPendingSession}
-                className="sans"
-                style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+                className="sans ctl-plain ctl-pill"
+                style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
               >
                 取り直し
               </button>
@@ -5785,15 +5856,17 @@ function reedScoreRowItems(fields) {
 // 行全体が1つのタップ対象。値が入っても未評価でも高さは変わらない(§6.1.5)。
 // ★は出さない(本人指示: 「厚さは星不要」)。
 // 中身は reedScoreRowItems の返り値をそのまま並べる。ここで slice / filter しない。
+// B型 = .ctl-plain。ダイアログを開くだけで on/off も開閉も保持しない
+// **状態を持たないもの**なので枠線を外し、地(--c-sunken)だけにする。
+// 角丸は型の既定(--r-xs)で、これまでと同じ値。
 function ReedScoreField({ fields, onOpen }) {
   return (
     <button
-      type="button" onClick={onOpen} className="sans"
+      type="button" onClick={onOpen} className="sans ctl-plain"
       aria-label="総評・厚さ・バランスを編集"
       style={{
         display: "flex", alignItems: "stretch", flexWrap: "nowrap",
         width: "100%", minHeight: "var(--tap-min)", padding: "var(--sp-2) 0",
-        borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)", background: "var(--c-surface)",
         cursor: "pointer",
       }}
     >
@@ -5854,12 +5927,22 @@ function SetAsIdealButton({ frames, saxType, onSave, tapMin }) {
   }
 
   return (
+    // B型 = .ctl-plain + .ctl-pill。理想値に設定は on/off も開閉も持たない
+    // **状態を持たないもの**なので、枠(--c-accent)と地(--c-accent-tint)を両方持つのをやめ、
+    // 地(--c-sunken)だけにする。強調は文字色(--c-accent)と ★ が担う。
+    // 【style を1つのオブジェクトリテラルに統合した理由】以前の `style={tapMin ? {…} : {…}}`
+    // は式なので、インライン宣言を静的に読む検査(pitch-test 17.6 / 17.10)から丸ごと外れる。
+    // 実際この抜け道のせいで、ここの「枠 + 違う地」は前周の走査に一度も掛かっていなかった。
     <button
       onClick={() => setIsNaming(true)}
-      className="sans"
-      style={tapMin
-        ? { fontSize: "var(--fs-sm)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", borderRadius: "var(--r-pill)", border: "1px solid var(--c-accent)", background: "var(--c-accent-tint)", color: "var(--c-accent)", cursor: "pointer", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }
-        : { fontSize: 12, padding: "5px 10px", borderRadius: 5, border: "1px solid #174585", background: "#EAEFF5", color: "#174585", cursor: "pointer", fontWeight: 600 }}
+      className="sans ctl-plain ctl-pill"
+      style={{
+        fontSize: tapMin ? "var(--fs-sm)" : "var(--fs-xs)",
+        minHeight: tapMin ? "var(--tap-min)" : undefined,
+        padding: tapMin ? "0 var(--sp-3)" : "5px 10px",
+        color: "var(--c-accent)", cursor: "pointer", fontWeight: 600,
+        flexShrink: 0, whiteSpace: "nowrap",
+      }}
     >
       ★ 理想値に設定
     </button>
@@ -6149,13 +6232,18 @@ function ReedsTab(props) {
 // リード登録タブ (企画書10.2/10.3節) — 銘柄/番手プルダウン化、10枚まとめ登録に対応
 // ============================================================
 
-// 入力欄・selectの共通スタイル。角丸は --r-xs(4px)、高さは --tap-min(44px)。
+// 入力欄・selectの共通スタイル。高さは --tap-min(44px)。
 // select/input は「見た目＝当たり判定」なので、DESIGN-SYSTEM §5 の minHeight 方式を
 // そのまま当てて枠ごと44ptにする(枠より広い透明領域を作ると隣の欄と食い合うため)。
+// 地・枠・角丸は index.css の入力欄の規則(B型: --c-sunken の地 + 見えない枠 + --r-xs)が持つ。
+// ここで角丸を書き足すと、型を変えたときにこの1箇所だけ取り残される。
+// minWidth: 0 は input[type=date] のため。type=date は「年/月/日」＋カレンダーアイコンを
+// 抱えた固有幅を持ち、既定の min-width:auto のままだとグリッド項目の取り分より縮まず、
+// width:100% が効かずに右の列へはみ出す(iOS Safari で本人報告)。
 const REED_FORM_CONTROL_STYLE = {
   width: "100%",
+  minWidth: 0,
   minHeight: "var(--tap-min)",
-  borderRadius: "var(--r-xs)",
   padding: "0 8px",
   boxSizing: "border-box",
 };
@@ -6382,14 +6470,21 @@ function ReedRegisterView(props) {
           </select>
         </div>
 
+        {/* 【グリッド項目に minWidth: 0】グリッド項目の min-width は既定が auto = 最小内容幅で、
+            1fr は「最小内容幅より下には縮まない」。input[type=date] は「年/月/日」＋カレンダー
+            アイコンを抱えた固有幅を持ち、iOS Safari ではそれが 1fr の取り分より広くなるため、
+            使用開始日の欄が右の列(比較タブ側)へはみ出す(本人報告)。minWidth: 0 を入れると
+            1fr の取り分まで縮められるようになり、中の width:100% が効く。
+            グリッドの溢れの定石で、Chrome では日付欄の固有幅が 1fr の取り分に収まるため再現しない
+            (＝Chrome では見た目が変わらない)。iOS Safari では未検証。 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
             <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
               {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
             <input
               id="reed-startdate-input"
@@ -6408,12 +6503,15 @@ function ReedRegisterView(props) {
           />
         )}
 
+        {/* B型 = .ctl-plain + .ctl-pill。「1枚ずつ追加」は状態を持たない普通のボタンなので
+            枠線をやめ、地(--c-sunken)だけにする。相方の「まとめて追加」は塗り(--c-accent)で、
+            こちらも枠線を持たない。主従は地の濃さと文字色で返す。 */}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button
             onClick={() => registerReeds(1)}
             disabled={newBrand === "__custom__" && !customBrand.trim()}
-            className="sans"
-            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", background: "transparent", color: "#121F32", fontSize: 12, cursor: "pointer" }}
+            className="sans ctl-plain ctl-pill"
+            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", color: "#121F32", fontSize: 12, cursor: "pointer" }}
           >
             1枚ずつ追加
           </button>
@@ -6439,7 +6537,7 @@ function ReedRegisterView(props) {
                   className="sans"
                   style={{ ...TAP_BUTTON_RESET }}
                 >
-                  <span style={{ padding: "7px 14px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
+                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
                 </button>
                 <button
                   onClick={confirmBoxBatchDelete}
@@ -6447,7 +6545,16 @@ function ReedRegisterView(props) {
                   className="sans"
                   style={{ ...TAP_BUTTON_RESET, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
                 >
-                  <span style={{ padding: "7px 14px", borderRadius: "var(--r-pill)", background: selectedBoxesForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                  {/* 【危険色の扱い】**実際に削除が実行される一手だけ** --c-danger の塗り +
+                      --c-on-accent の文字にする(index.css の .ctl-danger)。塗りは体系の中で
+                      既に「主要動作の合図」(まとめて追加 = --c-accent 塗り + --c-on-accent)
+                      として認めた語彙なので、破壊的動作にだけ危険色の塗りを許すのは一貫する。
+                      白 on #DC2626 = 4.8281:1 で WCAG AA(4.5:1)を満たす。
+                      枠は持たないので芯1・芯2 に反しない。
+                      押せない(0件選択)ときは何も消えないので B型のまま・文字は --c-ink-3。
+                      地・文字色を**インラインで書かない**のは、インラインがクラスより強く、
+                      書くと型(.ctl-plain)が効かなくなるため(17.6 の検査が落ちる)。 */}
+                  <span className="ctl-plain ctl-pill ctl-danger" data-armed={selectedBoxesForDelete.size > 0} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
                     {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
                   </span>
                 </button>
@@ -6459,7 +6566,9 @@ function ReedRegisterView(props) {
                 aria-label="箱を選んで削除"
                 style={{ ...TAP_BUTTON_RESET }}
               >
-                <span style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>
+                {/* 削除「モードに入る」入口。破壊はまだ起きないので文字色は中立(--c-ink-2)。
+                    危険色は実際に消える一手(上の「n箱を削除」)だけが持つ。 */}
+                <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>
                   <Trash2 size={13} /> 削除
                 </span>
               </button>
@@ -6539,7 +6648,7 @@ function ReedRegisterView(props) {
                             className="sans"
                             style={{ ...TAP_BUTTON_RESET }}
                           >
-                            <span style={{ padding: "6px 12px", borderRadius: "var(--r-pill)", border: "1px solid #C3CAD3", color: "#435266", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
+                            <span className="ctl-plain ctl-pill" style={{ padding: "6px 12px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
                           </button>
                           <button
                             onClick={confirmMemberBatchDelete}
@@ -6547,7 +6656,8 @@ function ReedRegisterView(props) {
                             className="sans"
                             style={{ ...TAP_BUTTON_RESET, cursor: selectedMembersForDelete.size > 0 ? "pointer" : "default" }}
                           >
-                            <span style={{ padding: "6px 12px", borderRadius: "var(--r-pill)", background: selectedMembersForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                            {/* 実際に消える一手なので --c-danger の塗り(上の「n箱を削除」と同じ扱い) */}
+                            <span className="ctl-plain ctl-pill ctl-danger" data-armed={selectedMembersForDelete.size > 0} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
                               {selectedMembersForDelete.size > 0 ? `${selectedMembersForDelete.size}枚を削除` : "削除"}
                             </span>
                           </button>
@@ -6594,7 +6704,9 @@ function ReedRegisterView(props) {
                                 className="sans"
                                 style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
                               >
-                                <span style={{ fontSize: 12, padding: "8px 16px", borderRadius: "var(--r-pill)", border: "1px solid #174585", color: "#174585", fontWeight: 600, lineHeight: 1.2 }}>測定</span>
+                                {/* B型。測定へ飛ぶだけで状態を持たないので枠線をやめ、
+                                    地(--c-sunken)だけにする。誘い(--c-accent)は文字色が担う。 */}
+                                <span className="ctl-plain ctl-pill" style={{ fontSize: 12, padding: "8px 16px", color: "var(--c-accent)", fontWeight: 600, lineHeight: 1.2 }}>測定</span>
                               </button>
                             </div>
                           )}
@@ -6882,13 +6994,18 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
                   <div style={{ padding: "10px 14px", borderTop: "1px solid #E9ECF0", display: "flex", gap: 7, flexWrap: "wrap" }}>
                     {g.members.map((r, idx) => {
                       const sel = compareReedIds.includes(r.id);
+                      // A型 = .ctl-state + .ctl-pill。比較に入れる/入れないという**状態を持つ**。
+                      // 以前は選択中だけ塗り(#174585)、非選択だけ枠(#E9ECF0)で、状態ごとに
+                      // 語彙そのものが入れ替わっていた。枠線の色だけで返すよう揃える。
+                      // 系列色は選択中に出る SeriesSwatch が担う。
                       return (
-                        <button key={r.id} onClick={() => toggleReed(r.id)} className="sans" style={{
-                          display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 999, fontSize: 12, cursor: "pointer",
-                          border: sel ? "none" : "1px solid #E9ECF0",
-                          background: sel ? "#174585" : "transparent",
-                          color: sel ? "#FFFFFF" : "#435266",
-                        }}>
+                        <button key={r.id} onClick={() => toggleReed(r.id)}
+                          aria-pressed={sel}
+                          className="sans ctl-state ctl-pill" style={{
+                            display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", fontSize: 12, cursor: "pointer",
+                            color: sel ? "var(--c-accent)" : "var(--c-ink-2)",
+                            fontWeight: sel ? 600 : 400,
+                          }}>
                           {sel && styleById.has(r.id) && <SeriesSwatch style={styleById.get(r.id)} />}
                           {reedPosition(r, reeds) ?? idx + 1}
                         </button>
@@ -8112,7 +8229,8 @@ function AnalysisLabView(props) {
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* データタブ内の子タブ: My Data / 分析(クロス集計) */}
-      <div style={{ display: "flex", gap: 6, background: "#EDEFF3", borderRadius: 11, padding: 4, marginBottom: 12 }}>
+      {/* 子タブの溝。地は --c-sunken(リードタブの溝と同じ。以前は #EDEFF3 の直書き) */}
+      <div style={{ display: "flex", gap: 6, background: "var(--c-sunken)", borderRadius: 11, padding: 4, marginBottom: 12 }}>
         {[
           { key: "mydata", label: "My Data" },
           { key: "analysis", label: "分析" },
@@ -8152,18 +8270,22 @@ function AnalysisLabView(props) {
           {sessions.length > 0 && (
             selectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>
+                {/* どちらも B型(状態を持たない・枠なし)。削除は**実際に消える一手**なので
+                    --c-danger の塗り + --c-on-accent の文字(4.83:1)。0件選択のときは
+                    何も消えないので B型のまま。詳細はリードタブの「n箱を削除」のコメント。 */}
                 <button
                   onClick={exitSelectionMode}
-                  className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 12, cursor: "pointer" }}
+                  className="sans ctl-plain ctl-pill"
+                  style={{ padding: "7px 12px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
                 >
                   キャンセル
                 </button>
                 <button
                   onClick={confirmBatchDeleteSessions}
                   disabled={selectedForDelete.size === 0}
-                  className="sans"
-                  style={{ padding: "7px 12px", borderRadius: 999, border: "none", background: selectedForDelete.size > 0 ? "#DC2626" : "#E9ECF0", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                  className="sans ctl-plain ctl-pill ctl-danger"
+                  data-armed={selectedForDelete.size > 0}
+                  style={{ padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
                 >
                   {selectedForDelete.size > 0 ? `${selectedForDelete.size}件を削除` : "削除"}
                 </button>
@@ -8171,8 +8293,8 @@ function AnalysisLabView(props) {
             ) : (
               <button
                 onClick={() => setSelectionMode(true)}
-                className="sans"
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", borderRadius: 999, border: "1px solid #C3CAD3", background: "transparent", color: "#435266", fontSize: 12, cursor: "pointer" }}
+                className="sans ctl-plain ctl-pill"
+                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
               >
                 選択
               </button>
@@ -8197,7 +8319,7 @@ function AnalysisLabView(props) {
                 {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
               </select>
               {sessionFilterActive && (
-                <button onClick={clearSessionFilters} className="sans" style={{ padding: "5px 10px", borderRadius: 999, border: "1px solid #C3CAD3", background: "#FFFFFF", color: "#435266", fontSize: 12, cursor: "pointer" }}>クリア</button>
+                <button onClick={clearSessionFilters} className="sans ctl-plain ctl-pill" style={{ padding: "5px 10px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}>クリア</button>
               )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -8276,8 +8398,8 @@ function AnalysisLabView(props) {
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
             <button
               onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
-              className="sans"
-              style={{ fontSize: 12, padding: "6px 13px", borderRadius: 999, border: "1px dashed #A6AEBA", background: "#FFFFFF", color: "#435266", cursor: "pointer" }}
+              className="sans ctl-plain ctl-pill"
+              style={{ fontSize: 12, padding: "6px 13px", color: "var(--c-ink-2)", cursor: "pointer" }}
             >
               ＋ 条件を追加
             </button>
@@ -8346,12 +8468,11 @@ function AnalysisLabView(props) {
                                           ? flt.values.filter((v) => !bandValues.includes(v))
                                           : [...new Set([...flt.values, ...bandValues])],
                                       })}
-                                      className="sans"
+                                      aria-pressed={allSelected}
+                                      className="sans ctl-state"
                                       style={{
-                                        fontSize: 12, padding: "3px 10px", borderRadius: 10, cursor: "pointer",
-                                        border: allSelected ? "1.5px solid #174585" : "1px dashed #8D95A1",
-                                        background: allSelected ? "#EAEFF5" : "#FFFFFF",
-                                        color: allSelected ? "#174585" : "#435266", fontWeight: 600,
+                                        fontSize: 12, padding: "3px 10px", cursor: "pointer",
+                                        color: allSelected ? "var(--c-accent)" : "var(--c-ink-2)", fontWeight: 600,
                                       }}
                                     >
                                       {REGISTER_BAND_LABELS[band]}
@@ -8372,12 +8493,11 @@ function AnalysisLabView(props) {
                                   <button
                                     key={v}
                                     onClick={() => updateFilter({ values: selected ? flt.values.filter((x) => x !== v) : [...flt.values, v] })}
-                                    className="sans"
+                                    aria-pressed={selected}
+                                    className="sans ctl-state"
                                     style={{
-                                      fontSize: 12, padding: "3px 8px", borderRadius: 10, cursor: "pointer",
-                                      border: selected ? "1.5px solid #174585" : "1px solid #E9ECF0",
-                                      background: selected ? "#EAEFF5" : "#FFFFFF",
-                                      color: selected ? "#174585" : "#435266",
+                                      fontSize: 12, padding: "3px 8px", cursor: "pointer",
+                                      color: selected ? "var(--c-accent)" : "var(--c-ink-2)",
                                       fontWeight: selected ? 600 : 400,
                                     }}
                                   >

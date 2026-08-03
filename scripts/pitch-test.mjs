@@ -4393,14 +4393,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     check("沈めた面と地の差は旧来の群の境界(1.0719:1)以上",
       now >= OLD - 1e-4, `いま ${now.toFixed(4)}:1 / 旧来 ${OLD}:1`);
   }
-  // 入力欄の枠。§1.3 は「--c-line-strong = 入力欄の枠」と**名前で**定めているだけなので、
-  // トークン名の参照を守っても値を薄めれば「ここは触れる」は消える
+  // A型(状態を持つもの)の枠。§1.3 の --c-line-strong は名前で定めているだけなので、
+  // トークン名の参照を守っても値を薄めれば「状態を持っている」の合図は消える
   // (#C3CAD3 → #F0F2F5 にすると 1.6523 → 1.1215 まで落ち、--c-line より弱くなる)。
   // --c-sunk と同じく**差**で下限を置く。根拠は現在値の 1.6523:1。
   {
     const now = ratio(cssVar("--c-bg"), cssVar("--c-line-strong"));
     const MIN = 1.6523;
-    check("入力欄の枠(--c-line-strong)と白地の差は 1.6523:1 以上(名前だけでなく値で縛る)",
+    check("A型の枠(--c-line-strong)と白地の差は 1.6523:1 以上(名前だけでなく値で縛る)",
       now >= MIN - 1e-4, `いま ${now.toFixed(4)}:1 / 下限 ${MIN}:1`);
     // 罫も同じく差で縛る。下限は現在値 #E1E6EC の 1.2551:1。
     const r = ratio(cssVar("--c-bg"), cssVar("--c-rule"));
@@ -4582,19 +4582,22 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     }
   }
 
-  // --- 4. 入力欄は両方の作法で --c-sunk の塗り + --c-line-strong の枠 ----
+  // --- 4. 入力欄は両方の作法で B型(枠線なし + --c-sunken の地) ------------
   // 入力欄は「群」ではなく「操作するもの」。白地でも触れると分かる必要がある。
-  // 枠は DESIGN-SYSTEM §1.3 の「--c-line-strong = 入力欄の枠」に従う。
-  // (--c-line #E9ECF0 は白地とのコントラスト比 1.1850:1 しかなく、役目を果たせない)
+  // **枠線は付けない。** 本人指示(2026-08-03)「枠線は重くなるので不要」
+  // 「背景と同じ色で枠線をつけるか、違う色で枠線をつかないかに統一して」。
+  // 入力欄は on/off も開閉も持たない = 状態を持たないので B型(下の 17. を参照)。
+  // 枠は 0 ではなく透明で残す(DESIGN-SYSTEM §6.1.5。0 にすると外形が 2px 縮み、
+  // リード選択ピルが縮んで環が 2px 上がる)。
   const inputSels = selectorsMatching(cssRules, /(^|[\s,>+~])(input|select|textarea)\b/);
   const inputRules = cssRules.filter((r) => r.sels.some((s) => inputSels.includes(s)));
   const inputBlock = inputRules.length ? inputRules[inputRules.length - 1].body : null;
   check("入力欄(input/select/textarea)の共通規則がある", inputBlock !== null);
   check("入力欄の規則は index.css に1つだけ(後から別規則で上書きしていない)",
     inputRules.length === 1, `${inputRules.length}規則`);
-  check("入力欄の地は --c-sunk", decl(inputBlock, "background") === "var(--c-sunk)", String(decl(inputBlock, "background")));
-  check("入力欄の枠は --c-line-strong(DESIGN-SYSTEM §1.3)",
-    decl(inputBlock, "border") === "1px solid var(--c-line-strong)", String(decl(inputBlock, "border")));
+  check("入力欄の地は --c-sunken(B型)", decl(inputBlock, "background") === "var(--c-sunken)", String(decl(inputBlock, "background")));
+  check("入力欄は見える枠線を持たない(B型。透明で場所だけ残す)",
+    decl(inputBlock, "border") === "1px solid transparent", String(decl(inputBlock, "border")));
   // 別綴り(background-color / border-color …)で後ろから上書きしていないこと。
   // ここも名前の集合の固定はやめ、**最終プロパティごとの勝者**で見る
   // (集合固定だと font-size を足すような正当な調整まで落ちる)。
@@ -4875,6 +4878,700 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     const leftovers = (code.match(/background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius/g) || []).length;
     check("旧カードの3点セット(白 + #E9ECF0 + 角丸)の直書きが残っていない", leftovers === 0, `${leftovers}箇所`);
   }
+
+  // ============================================================
+  console.log("\n========== 17. 操作するものの型(A型 = 枠線 / B型 = 地) ==========");
+  // 本人指示(2026-08-03):
+  //   「銘柄、番手、使用開始日のどれも枠線をつけていますが、枠線は重くなるので不要です」
+  //   「他も背景と同じ色で枠線をつけるか、違う色で枠線をつかないかに統一してください」
+  //   「メトロノームアイコンは on off の違いが分かったほうがいいので枠線があっていいです」
+  //   「データタブのセッション一覧の絞り込みも枠線もあって色も変わっています どちらかにして」
+  //
+  // 確定した規則: **枠線は「状態を持つもの」にだけ使う。**
+  //   A型 .ctl-state — 枠線 --c-line-strong / 地は透明。on-off・開閉・選択が切り替わるもの
+  //   B型 .ctl-plain — 枠線なし        / 地は --c-sunken。状態を持たないもの
+  // **同じ物に「枠線」と「違う地」を両方与えない。** これが統一の芯なので、
+  // 下の「排他」の検査が本体で、個別の値の検査はその補助でしかない。
+  //
+  // この節は section 16 のスコープの中にある(cssRules / decl / tagsWithClass /
+  // withPrefix / inlineProps などの道具をそのまま使うため)。
+  {
+    const code = codeOf(src);
+    // 入力欄のタグ一覧(17.7 と 17.8 の両方で使う)。tagAt は section 16 の道具。
+    const inputTags = [];
+    {
+      const re = /<(input|select|textarea)[\s>]/g;
+      let m;
+      while ((m = re.exec(src)) !== null) inputTags.push({ el: m[1], tag: tagAt(m.index + 1) });
+    }
+
+    // --- 17.1 B型の地のトークン(--c-sunken。F-30 の回収) ------------------
+    // DESIGN-SYSTEM §1.2 にありながら index.css に定義が無く、段がひとつ欠けていた。
+    check("B型の地のトークン --c-sunken が定義されている",
+      /^#[0-9A-Fa-f]{6}$/.test(String(cssVar("--c-sunken"))), String(cssVar("--c-sunken")));
+    check("--c-sunken は地(--c-bg)と別の値", cssVar("--c-sunken") !== cssVar("--c-bg"));
+    // 枠線を外すと、地の差だけが「ここは触れる」の唯一の信号になる。**値ではなく差**で縛る。
+    // 下限は現在値 #EEF1F4 の 1.1337:1。--c-sunk(1.0719:1)まで戻すとここで落ちる。
+    {
+      const now = ratio(cssVar("--c-bg"), cssVar("--c-sunken"));
+      check("B型の地(--c-sunken)と白地の差は 1.1337:1 以上(枠線を外したぶん、地だけが合図になる)",
+        now >= 1.1337 - 1e-4, `いま ${now.toFixed(4)}:1 / 下限 1.1337:1`);
+    }
+    // 段の順序: --c-bg(白) < --c-sunk < --c-sunken <= --c-line。
+    // 面が罫(ヘアライン)より濃くなると、面と線の役割が入れ替わる。
+    check("--c-sunken は --c-sunk より濃い(§1.2 の段の順序)",
+      luminance(cssVar("--c-sunken")) < luminance(cssVar("--c-sunk")),
+      `sunken L=${luminance(cssVar("--c-sunken")).toFixed(4)} / sunk L=${luminance(cssVar("--c-sunk")).toFixed(4)}`);
+    check("--c-sunken は --c-line(ヘアライン)より濃くない(面が線を追い越さない)",
+      luminance(cssVar("--c-sunken")) >= luminance(cssVar("--c-line")),
+      `sunken L=${luminance(cssVar("--c-sunken")).toFixed(4)} / line L=${luminance(cssVar("--c-line")).toFixed(4)}`);
+
+    // --- 17.2 型の規則そのもの -------------------------------------------
+    const stateBlock = cssBlock(".ctl-state");
+    const plainBlock = cssBlock(".ctl-plain");
+    const pillBlock  = cssBlock(".ctl-pill");
+    check("A型(.ctl-state) と B型(.ctl-plain) の規則が index.css にある",
+      stateBlock !== null && plainBlock !== null);
+    check("A型は枠線を持つ(--c-line-strong)",
+      decl(stateBlock, "border") === "1px solid var(--c-line-strong)", String(decl(stateBlock, "border")));
+    check("A型の地は透明(背景と同色。枠線と地を両方持たせない)",
+      decl(stateBlock, "background") === "transparent", String(decl(stateBlock, "background")));
+    check("B型の地は --c-sunken", decl(plainBlock, "background") === "var(--c-sunken)", String(decl(plainBlock, "background")));
+    check("B型は枠線を持たない(border: 0)", decl(plainBlock, "border") === "0", String(decl(plainBlock, "border")));
+    // 角丸は型のスケール(§2)から引く。ピル形だけを後ろの .ctl-pill が差し替える。
+    check("A型の角丸は --r-sm", decl(stateBlock, "border-radius") === "var(--r-sm)", String(decl(stateBlock, "border-radius")));
+    check("B型の角丸は --r-xs(入力欄のスケール)", decl(plainBlock, "border-radius") === "var(--r-xs)", String(decl(plainBlock, "border-radius")));
+    check(".ctl-pill は角丸だけを差し替える(地・枠を持たない)",
+      pillBlock !== null && decl(pillBlock, "border-radius") === "var(--r-pill)" &&
+      declList(pillBlock).every((d) => d.name === "border-radius"),
+      declList(pillBlock ?? "").map((d) => d.name).join(" "));
+    // 後に書いたほうが勝つ。.ctl-pill が型より前にあると角丸が効かない。
+    {
+      const idx = (sel) => cssRules.findIndex((r) => r.sels.includes(sel));
+      check(".ctl-pill は .ctl-state / .ctl-plain より後に書かれている(角丸の後勝ちが成立する)",
+        idx(".ctl-pill") > idx(".ctl-state") && idx(".ctl-pill") > idx(".ctl-plain"),
+        `state=${idx(".ctl-state")} plain=${idx(".ctl-plain")} pill=${idx(".ctl-pill")}`);
+    }
+
+    // --- 17.3 【統一の芯】枠線と違う地を両方持たない ----------------------
+    // ここが規則の本体。個別の値ではなく「排他」そのものを見る。
+    // 変異試験で確認済み: A型に地を足す / B型から地を外す / 入力欄に枠線を戻す
+    // のいずれでもここが落ちる。
+    const resolveVar = (v) => {
+      let s = String(v ?? "").trim();
+      for (let i = 0; i < 4; i++) {
+        const m = /^var\(\s*(--[A-Za-z0-9-]+)\s*\)$/.exec(s);
+        if (!m) break;
+        s = String(cssVar(m[1]) ?? "").trim();
+      }
+      return s;
+    };
+    // 「見える枠線」= 幅が 0 でなく、色が transparent でもない
+    const borderVisible = (block) => {
+      const b = String(decl(block, "border") ?? "").trim();
+      if (!b) return false;
+      const parts = b.split(/\s+/);
+      if (parts.includes("none") || parts.includes("0") || parts.includes("0px")) return false;
+      // border の色は最後の語。border-color を後から書いていればそちらが勝つ
+      const col = decl(block, "border-color") ?? parts[parts.length - 1];
+      const c = resolveVar(col).toLowerCase();
+      return c !== "transparent" && c !== "rgba(0,0,0,0)";
+    };
+    // 「違う地」= 塗りがあり、それがページの地(--c-bg)と違う色
+    const groundDistinct = (block) => {
+      const g = resolveVar(decl(block, "background")).toLowerCase();
+      if (!g || g === "transparent" || g === "none") return false;
+      return g !== String(cssVar("--c-bg")).toLowerCase();
+    };
+    for (const [label, block] of [
+      ["A型(.ctl-state)", stateBlock],
+      ["B型(.ctl-plain)", plainBlock],
+      ["入力欄(input/select/textarea)", inputBlock],
+    ]) {
+      const vis = borderVisible(block), gnd = groundDistinct(block);
+      check(`${label} は「枠線」と「違う地」を両方持たない(統一の芯)`,
+        !(vis && gnd), `枠線=${vis} 地=${gnd}`);
+      check(`${label} は「枠線」か「違う地」のどちらか一方は持つ(触れると分かる合図が消えていない)`,
+        vis || gnd, `枠線=${vis} 地=${gnd}`);
+    }
+    // 入力欄は B型でなければならない(A型に「昇格」させて枠線を戻す抜け道を塞ぐ)。
+    check("入力欄は B型(枠線を持たない)。状態を持たないものに枠線を使わない",
+      !borderVisible(inputBlock) && groundDistinct(inputBlock),
+      `枠線=${borderVisible(inputBlock)} 地=${groundDistinct(inputBlock)}`);
+    // 入力欄と B型クラスの地は同じトークンでなければならない(片方だけ変えると型が割れる)。
+    check("入力欄の地と B型(.ctl-plain)の地は同じトークン",
+      decl(inputBlock, "background") === decl(plainBlock, "background"),
+      `入力欄=${decl(inputBlock, "background")} / .ctl-plain=${decl(plainBlock, "background")}`);
+
+    // --- 17.4 A型の状態は「枠線の色」だけで返す --------------------------
+    // 地を足すと A型が「枠線 + 違う地」になり、芯が崩れる。
+    {
+      const onSel = '.ctl-state[aria-pressed="true"]';
+      const onBlock = cssBlock(onSel);
+      check("A型の ON 状態の規則がある(aria-pressed / aria-expanded)", onBlock !== null);
+      check("A型の ON 状態は枠線の色だけを変える(--c-accent)",
+        decl(onBlock, "border-color") === "var(--c-accent)", String(decl(onBlock, "border-color")));
+      check("A型の ON 状態は地・角丸・余白を持たない(状態は枠線の色だけで返す)",
+        declList(onBlock ?? "").every((d) => d.name === "border-color"),
+        declList(onBlock ?? "").map((d) => d.name).join(" "));
+      check("A型の ON 状態は開閉(aria-expanded)にも効く",
+        (rulesFor(onSel)[0]?.sels ?? []).includes('.ctl-state[aria-expanded="true"]'),
+        (rulesFor(onSel)[0]?.sels ?? []).join(" | "));
+    }
+
+    // --- 17.5 型に触れる規則の集合を固定する ------------------------------
+    // CSS は後勝ちなので、`[class~="ctl-plain"] { border: 1px solid #C3CAD3 }` を
+    // 1行足すだけで B型に枠線が戻る(詳細度は .ctl-plain と同じ 0,1,0)。
+    // 綴りではなく「型に効く宣言(地/枠/角丸)を持っているか」で見る。
+    {
+      const expect = [".ctl-state", '.ctl-state[aria-pressed="true"]',
+        '.ctl-state[aria-expanded="true"]', ".ctl-plain", ".ctl-pill"];
+      const re = /\.ctl-(state|plain|pill)(?![-\w])|\[\s*class\s*[~*^$|]?=\s*["']?[^"'\]]*ctl-(state|plain|pill)/;
+      const touching = cssRules.filter((r) => r.sels.some((s) => re.test(s)));
+      const owners = [...new Set(touching.filter((r) => hasSurfDecl(r.body))
+        .flatMap((r) => r.sels).filter((s) => re.test(s)))].sort();
+      check("index.css で型(A型/B型)に地・枠・角丸を与える規則はこの集合だけ",
+        sameSet(owners, [...expect].sort()), owners.join(" | ") || "0件");
+      for (const sel of [".ctl-state", ".ctl-plain", ".ctl-pill"]) {
+        check(`index.css の ${sel} は1回しか書かれていない(後勝ちの上書きが無い)`,
+          rulesFor(sel).length === 1, `${rulesFor(sel).length}回`);
+      }
+      // 影・輪郭は border を書かずに「枠線」を描き直せる別経路
+      // (boxShadow: "inset 0 0 0 1px #C3CAD3" は見た目そのものが枠線)。
+      for (const sel of [".ctl-state", ".ctl-plain", ".ctl-pill"]) {
+        const boxy = declList(cssBlock(sel)).map((d) => d.name)
+          .filter((n) => /^(box-shadow|outline|filter|backdrop-filter)/.test(n));
+        check(`${sel} は影・輪郭で枠線を描き直していない`, boxy.length === 0, boxy.join(" "));
+      }
+      // App.jsx の <style> は body の中に描かれるので、同じ詳細度なら必ず勝つ。
+      // section 16 の PAINT_OK 検査が地・枠を塞いでいるが、型のクラスは名指しでも塞ぐ。
+      const st = /<style>\{`([\s\S]*?)`\}<\/style>/.exec(src);
+      const appRules = st ? parseRules(st[1]) : [];
+      const bad = appRules.filter((r) => r.sels.some((s) => re.test(s)));
+      check("App.jsx の <style> は型のクラス(.ctl-*)に触れる規則を持たない",
+        bad.length === 0, bad.map((r) => r.sels.join(",")).join(" | "));
+    }
+
+    // --- 17.6 JSX 側: 型はクラスで表す。インラインで書き戻さない -----------
+    const stateTags = tagsWithClass("ctl-state");
+    const plainTags = tagsWithClass("ctl-plain");
+    const pillTags  = tagsWithClass("ctl-pill");
+    check("A型(.ctl-state)が実際に使われている", stateTags.length >= 2, `${stateTags.length}箇所`);
+    check("B型(.ctl-plain)が実際に使われている", plainTags.length >= 1, `${plainTags.length}箇所`);
+    // className={...} の式に隠すと下の走査から丸ごと外れる(.card と同じ抜け道)。
+    {
+      const exprs = (src.match(/className=\{[^}]*\}/g) || []).filter((s) => /\bctl-(state|plain|pill)\b/.test(s));
+      check("型のクラス(ctl-*)は className=\"…\" の直書きだけ(式に隠して走査から逃げていない)",
+        exprs.length === 0, exprs.slice(0, 2).join(" | "));
+    }
+    // インライン style はクラスより強い。地・枠・角丸・影を1つでも書くと型が効かなくなる。
+    {
+      const all = [...stateTags, ...plainTags, ...pillTags];
+      const bad = withPrefix(all, ["background", "border", "boxshadow", "outline", "filter", "backdropfilter"]);
+      check("型のクラスを持つタグに background* / border* / 影 / 輪郭のインライン宣言が無い",
+        bad.length === 0, bad.length ? bad[0].slice(0, 200) : "");
+      const opaque = all.filter((t) => /style=\{(?!\{)/.test(t));
+      check("型のクラスを持つタグの style はオブジェクトリテラル直書きだけ(変数経由で走査から逃げていない)",
+        opaque.length === 0, opaque.length ? opaque[0].slice(0, 160) : "");
+      const spread = all.filter((t) => /style=\{\{[\s\S]*?\.\.\.[\s\S]*?\}\}/.test(t));
+      check("型のクラスを持つタグの style にスプレッドが無い(中身が静的に読めなくなる)",
+        spread.length === 0, spread.length ? spread[0].slice(0, 160) : "");
+    }
+
+    // --- 17.7 個別の割り当て ---------------------------------------------
+    // メトロノーム = A型。本人指示「on off の違いが分かったほうがいいので枠線があっていい」。
+    {
+      const i = src.indexOf('aria-label="メトロノーム"');
+      const tag = i === -1 ? "" : tagAt(i);
+      check("メトロノームのボタンは A型(ctl-state)", /className="[^"]*\bctl-state\b/.test(tag),
+        (tag.match(/className="[^"]*"/) || ["className 無し"])[0]);
+      check("メトロノームのボタンは ON/OFF を aria-pressed で持つ(A型の状態の出所)",
+        /aria-pressed=\{showMetroPanel\}/.test(tag));
+      check("メトロノームのボタンはインラインで地・枠を書き戻していない",
+        !withPrefix([tag], ["background", "border"]).length, tag.slice(0, 200));
+      // 旧実装(枠 + 地の両方)が残っていないこと
+      check("メトロノームの旧実装(枠と地を両方持つ)が残っていない",
+        !/showMetroPanel \? "1\.5px solid|showMetroPanel \? "#EAEFF5"/.test(code));
+    }
+    // 「詳細を見る」トグル = A型(開/閉の状態を持つ)。
+    {
+      const i = src.indexOf('"詳細を閉じる"');
+      const tag = i === -1 ? "" : tagAt(i);
+      check("「詳細を見る」トグルは A型(ctl-state)", /className="[^"]*\bctl-state\b/.test(tag),
+        (tag.match(/className="[^"]*"/) || ["className 無し"])[0]);
+      check("「詳細を見る」トグルはピル形(ctl-pill)", /className="[^"]*\bctl-pill\b/.test(tag));
+      check("「詳細を見る」トグルは開閉を aria-expanded で持つ", /aria-expanded=\{detailOpen\}/.test(tag));
+      check("「詳細を見る」トグルの旧実装(枠 #D9E1EC + 地 #F3F6FA)が残っていない",
+        !code.includes('border: "1px solid #D9E1EC", background: "#F3F6FA"'));
+    }
+    // リード選択ピル = B型(状態を持たない選択欄)。
+    {
+      const tag = plainTags.find((t) => /\bctl-pill\b/.test(t)) || "";
+      check("計測タブのリード選択ピルは B型(ctl-plain) + ピル形(ctl-pill)", tag !== "", tag.slice(0, 160));
+      check("リード選択ピルの旧実装(選択で地を塗り分ける)が残っていない",
+        !/selectedReedId \? "#EAEFF5"/.test(code));
+      // ピルの中の select 2つは DESIGN-SYSTEM §6.6 が明記する**意図的な例外**。
+      // ピル自身が地を持つので、中の select にさらに地・枠を出すと二重になる。
+      // 次の実装役がこれを違反と読んで潰さないよう、ここで「例外のまま」を固定する。
+      const pillSelects = inputTags
+        .filter((x) => x.el === "select" && /background: "none", border: "none"/.test(x.tag)).length;
+      check("リード選択ピルの中の select 2つは地も枠も持たない(§6.6 の意図的な例外を維持)",
+        pillSelects === 2, `${pillSelects}箇所`);
+    }
+    // データタブの軸セレクタ = §6.6 の意図的な例外(枠なし・地なし)。B型にすると地が付く。
+    check("select.pivot-axis-select は例外のまま(枠なし・地なし)",
+      /select\.pivot-axis-select \{[^}]*background:transparent;[^}]*border:none;/.test(src));
+
+    // --- 17.8 入力欄にインラインで地・枠を書いていないこと ------------------
+    // CSS を B型にしても、個々の <input> / <select> に
+    // style={{ border: "1px solid #C3CAD3" }} と書けば枠線は戻る。
+    // 例外はピルの中の select 2つ(上で数を固定した「地も枠も無い」だけ)。
+    {
+      const tags = inputTags.map((x) => x.tag);
+      check("入力欄のタグを走査できている", tags.length >= 25, `${tags.length}箇所`);
+      const bad = withPrefix(tags, ["background", "border", "boxshadow"])
+        .filter((t) => !/background: "none", border: "none"/.test(t));
+      check("<input>/<select>/<textarea> にインラインの地・枠・影が無い(例外はピル内の select 2つ)",
+        bad.length === 0, bad.length ? bad[0].slice(0, 200) : "");
+      // 共通スタイルのオブジェクト経由でも書き戻せる。角丸も型が持つ。
+      const rfBody = rfBodyFor(src);
+      check("REED_FORM_CONTROL_STYLE がある", rfBody !== "");
+      check("REED_FORM_CONTROL_STYLE は地・枠・角丸を持たない(型が持つ)",
+        !withPrefix([rfBody], ["background", "border", "boxshadow"]).length, rfBody.replace(/\s+/g, " ").slice(0, 160));
+    }
+
+    // --- 17.9 リード登録のグリッドが右の列へはみ出さないこと ----------------
+    // 本人報告「使用開始日の枠が右の比較にかぶっている」。
+    // グリッド項目の min-width は既定が auto(=最小内容幅)で、1fr はそこより下に縮まない。
+    // input[type=date] は「年/月/日」+ カレンダーアイコンを抱えた固有幅を持つため、
+    // iOS Safari ではそれが 1fr の取り分を超えて右へ溢れる。minWidth: 0 が定石。
+    {
+      const i = src.indexOf('gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8');
+      check("リード登録の 番手 / 使用開始日 の2カラムグリッドがある", i !== -1);
+      const block = i === -1 ? "" : src.slice(i, src.indexOf("reed-startdate-input", i) + 600);
+      const items = (block.match(/<div style=\{\{ minWidth: 0 \}\}>/g) || []).length;
+      check("2カラムグリッドの項目2つに minWidth: 0 がある(既定の auto だと日付欄が右へ溢れる)",
+        items === 2, `${items}箇所`);
+      check("使用開始日の input[type=date] 自身にも minWidth: 0 がある(width:100% を効かせる)",
+        /minWidth: 0,/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
+    }
+
+    // --- 17.10 【統一の芯】JSX 側を機械的に走査する ------------------------
+    // ここまでの 17.7〜17.9 は「メトロノーム」「詳細を見る」…と**対象を綴りで名指し**
+    // していた。名指しの検査は、名指ししていない要素をいくら増やされても発火しない
+    // (実際 前周は名指しした4件だけを直し、拍子ボタン6個・分割・拍グループ・
+    //  音域バンド・値ピル・キャンセル/クリア/＋条件を追加 … が同じ違反のまま残っていた)。
+    //
+    // この節は**対象を列挙しない**。JSX のタグを全部走査し、規則そのものを2つ当てる:
+    //   (芯1) 操作するものは「見える全周の枠線」と「違う地」を**同じ分岐で**両方持たない
+    //   (芯2) 「見える全周の枠線」を持てるのは**状態を持つ操作**だけ
+    //         (= aria-pressed / aria-expanded を持つ、または .ctl-state)
+    //
+    // 【入口(=何を「操作するもの」と見るか)】次の3つ。ここに挙げたものが入口のすべてで、
+    // 走査はこの入口と**その部分木の中のタグ**に掛かる(見た目のピルを内側の <span> に
+    // 持たせる書き方があるため)。
+    //   (i)   <button> / <select> / <input> / <textarea>
+    //   (ii)  role="button" を持つタグ
+    //   (iii) onClick / onPointerDown / onPointerUp / onMouseDown / cursor:"pointer" の
+    //         いずれかを持つ**小文字タグ**(= DOM のタグ)
+    //
+    // 【なぜ (iii) が要るか】以前は (i)(ii) だけを入口にし、「列挙の漏れは走査不能の判定で
+    // 担保される」と称していたが、**これは実態と違った**。走査不能の判定は入口の中の要素に
+    // しか掛からないので、入口の外の要素は判定にすら到達しない。審査役の変異で
+    //   ・<div onClick> に 枠+違う地   → SURVIVE
+    //   ・<label> でくるんで 枠+違う地 → SURVIVE
+    // が通り、実際に App.jsx の「基準」プロファイル行(<div onClick> + cursor:pointer +
+    // 選択中だけ 1.5px 枠 + 地 #EAEFF5)が違反のまま残っていた。入口の形ひとつで
+    // 落ちていたので、入口を「タグの綴り」ではなく「触れるかどうか」で決める。
+    //
+    // 【入口の中の担保】走査はインライン style を**静的に読めること**が前提なので、
+    // 読めない書き方(style={式} / 未知のスプレッド / 文字列リテラルでない枠の値)は
+    // **それ自体を失敗にする**(下の「走査不能」)。実際 SetAsIdealButton は
+    // `style={tapMin ? {…} : {…}}` の式だったせいで前周の走査を丸ごとすり抜けており、
+    // 枠(--c-accent)と地(--c-accent-tint)を両方持ったまま残っていた。
+    //
+    // 【除外】通知面(タップで消せるが操作対象ではないもの)だけは data-frame-exempt で
+    // 明示的に外す。外せるのは (iii) で拾ったタグだけで、<button> 等は外せない。
+    // 件数も下で固定するので、貼れば逃げられる印にはならない。
+    {
+      // (0) コメントを空白で潰す(位置は保つ)。コメント中の例示コードを拾わないため。
+      //     【罠】`/\/\*[\s\S]*?\*\//` をそのまま当てると accept="audio/*,video/*" の
+      //     `/*` をコメントの開始と読み、そこから次の `*/` までを丸ごと消してしまう
+      //     (実際これで <input type="file"> 以降の 400行が走査から消え、
+      //      通知面が「操作するもの」に化けて誤検出になった)。
+      //     コメントの開始は**直前が空白か区切り記号のとき**だけと見る。
+      const blank = (m) => m.replace(/[^\n]/g, " ");
+      const jsx = src
+        .replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//g, (m, a) => a + blank(m.slice(a.length)))
+        .replace(/(^|\n)([ \t]*)(\/\/[^\n]*)/g, (m, a, b, c) => a + b + blank(c));
+
+      // (1) 開始タグの走査。タグの終わりは {} の深さ0に現れる > (section 16 の tagAt と同じ考え)
+      const tagEndAt = (start) => {
+        let depth = 0;
+        for (let i = start; i < jsx.length; i++) {
+          if (jsx[i] === "{") depth++;
+          else if (jsx[i] === "}") depth--;
+          else if (jsx[i] === ">" && depth === 0) return i + 1;
+        }
+        return jsx.length;
+      };
+      const opens = [];
+      {
+        const re = /<([A-Za-z][A-Za-z0-9.]*)[\s/>]/g;
+        let m;
+        while ((m = re.exec(jsx)) !== null) {
+          const end = tagEndAt(m.index);
+          opens.push({ el: m[1], start: m.index, end, tag: jsx.slice(m.index, end) });
+        }
+      }
+      // 対応する閉じタグまで(= その操作の部分木)。自己終了タグは自分だけ
+      const subtreeEnd = (o) => {
+        if (/\/>\s*$/.test(o.tag)) return o.end;
+        const close = `</${o.el}>`;
+        let depth = 1, i = o.end;
+        while (i < jsx.length) {
+          const c = jsx.indexOf(close, i);
+          if (c === -1) return jsx.length;
+          let nested = 0;
+          const re = new RegExp(`<${o.el}[\\s/>]`, "g");
+          re.lastIndex = i;
+          let mm;
+          while ((mm = re.exec(jsx)) !== null && mm.index < c) {
+            if (!/\/>\s*$/.test(jsx.slice(mm.index, tagEndAt(mm.index)))) nested++;
+          }
+          depth += nested - 1;
+          i = c + close.length;
+          if (depth === 0) return i;
+        }
+        return jsx.length;
+      };
+
+      // (2) 中括弧の対応を取る(スプレッド元・関数の返り値を読むのに使う)
+      const braceBody = (s, open) => {
+        let d = 0;
+        for (let i = open; i < s.length; i++) {
+          if (s[i] === "{") d++;
+          else if (s[i] === "}") { d--; if (d === 0) return s.slice(open + 1, i); }
+        }
+        return null;
+      };
+      // `const NAME = { … };` と `function NAME(…) { return { … }; }` の中身
+      const objSource = (name) => {
+        let m = new RegExp(`const ${name}\\s*=\\s*\\{`).exec(jsx);
+        if (m) return braceBody(jsx, m.index + m[0].length - 1);
+        m = new RegExp(`function ${name}\\s*\\(`).exec(jsx);
+        if (m) {
+          const r = jsx.indexOf("return {", m.index);
+          if (r !== -1) return braceBody(jsx, r + "return ".length);
+        }
+        return null;
+      };
+
+      // (3) style の中身を「読めた宣言の列」にする。読めなければ null(=走査不能)
+      const splitTop = (body) => {
+        const out = [];
+        let d = 0, cur = "";
+        for (const ch of body) {
+          if ("([{".includes(ch)) d++;
+          else if (")]}".includes(ch)) d--;
+          if (ch === "," && d === 0) { out.push(cur); cur = ""; } else cur += ch;
+        }
+        out.push(cur);
+        return out.map((s) => s.trim()).filter(Boolean);
+      };
+      const readObj = (body, depth = 0) => {
+        if (body === null || depth > 3) return null;
+        const out = [];
+        for (const part of splitTop(body)) {
+          const sp = /^\.\.\.\s*([A-Za-z_$][\w$]*)\s*$/.exec(part);
+          if (sp) {                        // スプレッドは元をたどる。たどれなければ走査不能
+            const inner = readObj(objSource(sp[1]), depth + 1);
+            if (inner === null) return null;
+            out.push(...inner);
+            continue;
+          }
+          if (part.startsWith("...")) return null;          // 式のスプレッド
+          if (/^\[/.test(part)) return null;                // 計算したキー
+          const i = part.indexOf(":");
+          // 短縮記法({ height } のような値省略)。地・枠の綴りでは使えないので名前だけ拾う
+          if (i === -1 && /^[A-Za-z_$][\w$]*$/.test(part)) { out.push({ name: part, value: "" }); continue; }
+          if (i === -1) return null;
+          out.push({ name: part.slice(0, i).trim(), value: part.slice(i + 1).trim() });
+        }
+        return out;
+      };
+      const styleOf = (tag) => {
+        const i = tag.indexOf("style=");
+        if (i === -1) return [];                            // style 無し = 読めている
+        const j = tag.indexOf("{", i);
+        if (j === -1) return null;
+        const outer = braceBody(tag, j);                    // style={ … } の中身
+        if (outer === null) return null;
+        const t = outer.trim();
+        if (t.startsWith("{")) return readObj(braceBody(t, 0));      // オブジェクトリテラル
+        const id = /^([A-Za-z_$][\w$]*)\s*(\(|$)/.exec(t);           // 定数 / 関数呼び出し
+        if (id) return readObj(objSource(id[1]));
+        return null;                                        // 三項などの式 = 走査不能
+      };
+
+      // (4) 値の読み取り。三項は**条件式を値と読まない**
+      //     (metroPanel === "sig" ? … の "sig" を地の値と誤読していた)
+      const lits = (v) => [...String(v).matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+      const arms = (v) => {
+        const s = String(v).trim();
+        const q = s.indexOf("?");
+        if (q === -1) return { test: null, arms: [s] };
+        const rest = s.slice(q + 1);
+        let d = 0;
+        for (let i = 0; i < rest.length; i++) {
+          const ch = rest[i];
+          if ("([{".includes(ch)) d++;
+          else if (")]}".includes(ch)) d--;
+          else if (ch === "?") d++;
+          else if (ch === ":" && d === 0)
+            return { test: s.slice(0, q).trim(), arms: [rest.slice(0, i).trim(), rest.slice(i + 1).trim()] };
+        }
+        return { test: s.slice(0, q).trim(), arms: [rest.trim()] };
+      };
+      // 「全周の枠」だけを見る。borderTop/Left… は**区切りの罫**なので箱を作らない。
+      // borderRadius も箱の有無には関わらない。
+      // boxShadow は **inset のときだけ**枠と見る。`inset 0 0 0 1px …` は border と同じ
+      // 全周の線を描くので、border を外して inset 影で描き直す逃げ道になる
+      // (審査役の変異で SURVIVE した経路。現状コードに inset 影は無い)。
+      // inset でない影は落ち影(浮きの表現)なので枠ではない。
+      // outline も全周の線を描く別経路。**インラインで**書いたものだけを見る
+      // (App.jsx の <style> にある :focus-visible の outline はキーボード操作の
+      //  焦点の合図で、常に見える枠ではないのでここには掛からない)。
+      const FRAME = ["border", "borderWidth", "borderStyle", "borderColor",
+        "borderBlock", "borderInline", "boxShadow",
+        "outline", "outlineWidth", "outlineStyle", "outlineColor"];
+      const GROUND = ["background", "backgroundColor", "backgroundImage"];
+      const isFrame = (n) => FRAME.includes(n);
+      const isGround = (n) => GROUND.includes(n);
+      const frameVisible = (n, l) => {
+        const s = String(l).trim().toLowerCase();
+        if (n === "boxShadow") return s.includes("inset");
+        if (!s || s === "none" || s === "0" || s === "0px") return false;
+        if (s.includes("transparent")) return false;
+        if (/^0(px)?(\s|$)/.test(s)) return false;
+        return true;
+      };
+      const groundDistinct = (l) => {
+        const s = resolveVar(l).trim().toLowerCase();
+        if (!s || s === "none" || s === "transparent" || s === "inherit") return false;
+        return s !== String(cssVar("--c-bg")).toLowerCase();
+      };
+
+      // (5) 入口。(i)(ii) はタグの綴り、(iii) は「触れるかどうか」で決める。
+      const lineOf = (i) => src.slice(0, i).split("\n").length;
+      const CONTROL = /^(button|select|input|textarea)$/;
+      const styleCache = new Map();
+      const dsOf = (o) => {
+        if (!styleCache.has(o)) styleCache.set(o, styleOf(o.tag));
+        return styleCache.get(o);
+      };
+      // cursor:"pointer" は三項の腕に入っていることがある(押せないときだけ default 等)ので
+      // 宣言を読んで腕まで見る。style が読めない(=null)タグは、後で走査不能として落とす。
+      const hasPointer = (o) => {
+        const ds = dsOf(o);
+        if (ds === null) return false;
+        return ds.some((d) => d.name === "cursor" &&
+          arms(d.value).arms.flatMap(lits).includes("pointer"));
+      };
+      const HANDLER = /\son(Click|PointerDown|PointerUp|MouseDown)\s*=/;
+      const isTagged = (o) => CONTROL.test(o.el) || /role="button"/.test(o.tag);
+      // (iii) で拾ったタグのうち、data-frame-exempt を持つものだけ外せる。
+      // <button> 等((i)(ii))は data-frame-exempt を貼っても外れない。
+      const exempt = [];
+      const isEntry = (o) => {
+        if (isTagged(o)) return true;
+        if (!/^[a-z]/.test(o.el)) return false;           // 自作コンポーネントは入口にしない
+        if (!(HANDLER.test(o.tag) || /style=/.test(o.tag) && hasPointer(o))) return false;
+        if (/data-frame-exempt=/.test(o.tag)) { exempt.push(`${lineOf(o.start)}: <${o.el}>`); return false; }
+        return true;
+      };
+      const controls = opens.filter(isEntry);
+      const ranges = controls.map((c) => ({ c, end: subtreeEnd(c) }));
+      const ownerOf = (o) => {
+        let best = null;
+        for (const { c, end } of ranges)
+          if (o.start >= c.start && o.start < end && (!best || c.start > best.start)) best = c;
+        return best;
+      };
+      const unreadable = [], both = [], framed = [];
+      for (const o of opens) {
+        const owner = ownerOf(o);
+        if (!owner) continue;
+        const ds = dsOf(o);
+        if (ds === null) {
+          // 【この走査の限界】大文字始まり = 自作コンポーネントの `style` は
+          // ただのプロップで、CSS とは限らない(SeriesSwatch は SVG の線の色を受け取る)。
+          // 読めることを要求するのは DOM のタグ(小文字)だけにする。
+          // 自作コンポーネントが**自分の定義側で**描く地・枠は、その定義が
+          // 操作の部分木の外にあるとこの走査には掛からない。コードレビューで見るしかない。
+          if (/^[a-z]/.test(o.el)) unreadable.push(`${lineOf(o.start)}: <${o.el}>`);
+          continue;
+        }
+        const bd = ds.filter((d) => isFrame(d.name));
+        const gd = ds.filter((d) => isGround(d.name));
+        // 枠の値は文字列リテラルでなければならない(変数に逃がすと読めなくなる)
+        for (const d of bd) if (arms(d.value).arms.some((a) => lits(a).length === 0))
+          unreadable.push(`${lineOf(o.start)}: <${o.el}> ${d.name} が文字列リテラルでない`);
+        // (芯1) 同じ分岐で 枠 ∧ 違う地 を持たない。
+        //       条件式が同じ三項どうしは真同士・偽同士で対にする。違えば総当たり。
+        if (bd.length && gd.length) {
+          const ba = arms(bd[0].value), ga = arms(gd[0].value);
+          const pairs = [];
+          if (ba.test && ga.test && ba.test === ga.test && ba.arms.length === 2 && ga.arms.length === 2) {
+            for (let k = 0; k < 2; k++)
+              for (const x of lits(ba.arms[k])) for (const y of lits(ga.arms[k])) pairs.push([bd[0].name, x, y]);
+          } else {
+            const bl = bd.flatMap((d) => arms(d.value).arms.flatMap(lits).map((x) => [d.name, x]));
+            const gl = gd.flatMap((d) => arms(d.value).arms.flatMap(lits));
+            for (const [n, x] of bl) for (const y of gl) pairs.push([n, x, y]);
+          }
+          for (const [n, x, y] of pairs) if (frameVisible(n, x) && groundDistinct(y))
+            both.push(`${lineOf(o.start)}: <${o.el}> 枠(${n})="${x}" ∧ 地="${y}"`);
+        }
+        // (芯2) 枠を持てるのは状態を持つ操作だけ
+        const hasFrame = bd.some((d) => arms(d.value).arms.flatMap(lits).some((x) => frameVisible(d.name, x)));
+        const hasState = /aria-pressed=|aria-expanded=/.test(owner.tag) ||
+          /className="[^"]*\bctl-state\b/.test(owner.tag);
+        if (hasFrame && !hasState)
+          framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
+      }
+      // 走査そのものが空回りしていないことの下限。要素を減らして「0件だから合格」を作らせない
+      check("入口(button/select/input/textarea/role=button/触れる小文字タグ)を走査できている",
+        controls.length >= 80, `${controls.length}個`);
+      console.log(`  入口: 合計 ${controls.length}個 (うち(iii)触れる小文字タグ ` +
+        `${controls.filter((c) => !isTagged(c)).length}個) / 除外 ${exempt.length}件`);
+      // 入口 (iii) が実際に効いていること。(i)(ii) だけに戻すとここが 0 になって落ちる。
+      check("入口(iii)『触れる小文字タグ』が実際に拾えている",
+        controls.filter((c) => !isTagged(c)).length >= 5,
+        `${controls.filter((c) => !isTagged(c)).length}個`);
+      // 除外は通知面1件だけ。増やせば落ちるので「印を貼って逃げる」ができない。
+      check("data-frame-exempt による除外は1件だけ(計測タブのエラー通知面)",
+        exempt.length === 1, exempt.join(" | "));
+      check("操作するものの style はすべて静的に読める(式・未知のスプレッド・変数の枠に逃がしていない)",
+        unreadable.length === 0, unreadable.slice(0, 3).join(" | "));
+      check("【芯1】操作するもので「全周の枠線」と「違う地」を同じ状態で両方持つものが1つも無い",
+        both.length === 0, `${both.length}件: ` + both.slice(0, 3).join(" | "));
+      check("【芯2】「全周の枠線」を持つ操作はすべて状態(aria-pressed / aria-expanded / .ctl-state)を持つ",
+        framed.length === 0, `${framed.length}件: ` + framed.slice(0, 3).join(" | "));
+      // 型のクラスが実際に広く行き渡っていること(名指しの検査では見えない全体像)
+      check("A型(.ctl-state)は 8箇所以上で使われている", tagsWithClass("ctl-state").length >= 8,
+        `${tagsWithClass("ctl-state").length}箇所`);
+      check("B型(.ctl-plain)は 15箇所以上で使われている", tagsWithClass("ctl-plain").length >= 15,
+        `${tagsWithClass("ctl-plain").length}箇所`);
+    }
+
+    // --- 17.11 角丸だけを差し替えるクラス(.ctl-pill / .ctl-lg) ---------------
+    // 型は地・枠・角丸の3つを持つ。角丸だけは要素ごとに要るので後ろで差し替えるが、
+    // ここに地や枠を書けば型が壊れる。.ctl-pill と同じ縛りを .ctl-lg にも当てる。
+    {
+      const lgBlock = cssBlock(".ctl-lg");
+      check(".ctl-lg は角丸だけを差し替える(地・枠を持たない)",
+        lgBlock !== null && decl(lgBlock, "border-radius") === "var(--r-lg)" &&
+        declList(lgBlock).every((d) => d.name === "border-radius"),
+        declList(lgBlock ?? "").map((d) => d.name).join(" "));
+      const idx = (sel) => cssRules.findIndex((r) => r.sels.includes(sel));
+      check(".ctl-lg は .ctl-plain より後に書かれている(角丸の後勝ちが成立する)",
+        idx(".ctl-lg") > idx(".ctl-plain"), `plain=${idx(".ctl-plain")} lg=${idx(".ctl-lg")}`);
+      check("index.css の .ctl-lg は1回しか書かれていない", rulesFor(".ctl-lg").length === 1,
+        `${rulesFor(".ctl-lg").length}回`);
+    }
+
+    // --- 17.12 子タブの溝はトークンの色 -------------------------------------
+    // リード/データの子タブの溝が #EDEFF3 の直書きだった(--c-sunken #EEF1F4 と
+    // 最大成分差 2 のトークン外の色。F-30 の残り)。**綴りを禁止するのではなく**
+    // 「溝が var(--c-sunken) であること」と「トークン外の近似色が居ないこと」の両方を見る。
+    {
+      const code = codeOf(src);
+      const grooves = (code.match(/display: "flex", gap: 6, background: "var\(--c-sunken\)", borderRadius: 11, padding: 4/g) || []).length;
+      check("子タブの溝2箇所(リード/データ)の地は var(--c-sunken)", grooves === 2, `${grooves}箇所`);
+      check("トークン外の近似色 #EDEFF3 が App.jsx に残っていない", !/#EDEFF3/i.test(code));
+    }
+
+    // --- 17.13 危険色の塗り(.ctl-danger) ------------------------------------
+    // 塗りは体系の中で既に「主要動作の合図」(--c-accent 塗り + --c-on-accent 文字)
+    // として使っている語彙。**押せば実際に消える一手にだけ**危険色の塗りを許す。
+    // ここで縛るのは3つ:
+    //   (a) 塗りであって枠ではない(枠を持つと芯1・芯2 の話に戻る)
+    //   (b) 文字が読める(AA 4.5:1)。**トークン名ではなく値で**見る
+    //   (c) 付けられるのは「本当に消える一手」だけ。削除モードに入る入口には付かない
+    {
+      const dgBlock = cssBlock(".ctl-danger");
+      const dgOn = cssBlock('.ctl-danger[data-armed="true"]');
+      check(".ctl-danger の規則が index.css にある", dgBlock !== null && dgOn !== null);
+      check("index.css の .ctl-danger は1回しか書かれていない",
+        rulesFor(".ctl-danger").length === 1, `${rulesFor(".ctl-danger").length}回`);
+      {
+        const idx = (sel) => cssRules.findIndex((r) => r.sels.includes(sel));
+        check(".ctl-danger は .ctl-plain より後に書かれている",
+          idx(".ctl-danger") > idx(".ctl-plain"), `plain=${idx(".ctl-plain")} danger=${idx(".ctl-danger")}`);
+      }
+      // (a) 塗りであって枠ではない。border だけでなく影・輪郭も塞ぐ
+      //     (`box-shadow: inset 0 0 0 1px …` は border を書かずに全周の枠を描ける)。
+      for (const [label, block] of [[".ctl-danger", dgBlock], ['.ctl-danger[data-armed="true"]', dgOn]]) {
+        const boxy = declList(block).map((d) => d.name)
+          .filter((n) => /^(border|box-shadow|outline|filter|backdrop-filter)/.test(n));
+        check(`${label} は枠・影・輪郭を持たない(塗りだけで危険を返す)`, boxy.length === 0, boxy.join(" "));
+      }
+      check(".ctl-danger は押せないとき地を持たず、文字だけ弱める(--c-ink-3)",
+        declList(dgBlock).length === 1 && decl(dgBlock, "color") === "var(--c-ink-3)",
+        declList(dgBlock ?? "").map((d) => `${d.name}:${d.value}`).join(" "));
+      check('.ctl-danger[data-armed="true"] は 地=--c-danger / 文字=--c-on-accent だけを持つ',
+        declList(dgOn).length === 2 && decl(dgOn, "background") === "var(--c-danger)" &&
+        decl(dgOn, "color") === "var(--c-on-accent)",
+        declList(dgOn ?? "").map((d) => `${d.name}:${d.value}`).join(" "));
+      // (b) 値で読む。--c-danger を明るい色に、--c-on-accent を薄い色に変えれば落ちる。
+      const dangerRatio = ratio(cssVar("--c-on-accent"), cssVar("--c-danger"));
+      check(`危険色の塗りの上の文字は WCAG AA(4.5:1)を満たす`, dangerRatio >= 4.5,
+        `${cssVar("--c-on-accent")} on ${cssVar("--c-danger")} = ${dangerRatio.toFixed(4)}:1`);
+      console.log(`  危険色の塗りのコントラスト: ${cssVar("--c-on-accent")} on ${cssVar("--c-danger")} = ${dangerRatio.toFixed(4)}:1`);
+      // (c) 付いているのは「実際に消える一手」だけ。data-armed は
+      //     「1件以上選択済み = 押せば本当に消える」に結び付いていなければならない。
+      const dgTags = tagsWithClass("ctl-danger");
+      check(".ctl-danger が付くのは実際に削除が実行される3箇所だけ(箱 / 個体 / セッション)",
+        dgTags.length === 3, `${dgTags.length}箇所`);
+      const armed = dgTags.filter((t) => /data-armed=\{[A-Za-z]*[Ff]orDelete\.size > 0\}/.test(t));
+      check(".ctl-danger はすべて data-armed={選択数 > 0} を持つ(常時塗る印にしていない)",
+        armed.length === dgTags.length, `${armed.length}/${dgTags.length}箇所`);
+      // 地・文字色をインラインで書くとクラスより強くなり、この型が丸ごと効かなくなる。
+      check(".ctl-danger を持つタグに background* / color のインライン宣言が無い",
+        withPrefix(dgTags, ["background", "color"]).length === 0,
+        (withPrefix(dgTags, ["background", "color"])[0] ?? "").slice(0, 120));
+      // 「削除モードに入る入口」は破壊がまだ起きないので中立のまま(危険色を持たない)。
+      for (const entry of ["startBoxSelectionMode", "startMemberSelect", "setSelectionMode(true)"]) {
+        const i = Math.max(src.indexOf(`onClick={() => ${entry}`), src.indexOf(`onClick={${entry}}`));
+        const open = i === -1 ? -1 : src.lastIndexOf("<button", i);
+        const close = i === -1 ? -1 : src.indexOf("</button>", i);
+        const block = open === -1 || close === -1 ? null : src.slice(open, close + "</button>".length);
+        check(`削除モードに入る入口(${entry})は危険色を持たない(破壊はまだ起きない)`,
+          block !== null && !/\bctl-danger\b/.test(block),
+          block === null ? "入口が見つからない" : block.replace(/\s+/g, " ").slice(0, 140));
+      }
+    }
+
+    // --- 17.14 芯1 を index.css の全規則にも当てる --------------------------
+    // 17.10 は JSX の**インライン style** を見る。だから「新しいクラスを1つ作って
+    // そこに枠と地を書き、操作に付ける」だけですり抜ける(自作の変異試験で SURVIVE を確認。
+    // `.fake-chip { border: 1px solid var(--c-line-strong); background: var(--c-sunken) }`)。
+    // 17.5 は .ctl-* を名指しした規則しか見ないので、別名のクラスには効かない。
+    // ここは**綴りを列挙せず**、index.css の全規則に芯1(枠 ∧ 違う地)をそのまま当てる。
+    // 白い地(--c-bg と同色)+枠 は「違う地」ではないので通る(.surf-sunk .tile がこれ)。
+    {
+      const bad = cssRules.filter((r) => borderVisible(r.body) && groundDistinct(r.body));
+      check("index.css のどの規則も「見える全周の枠線」と「違う地」を同時に持たない(芯1)",
+        bad.length === 0, bad.map((r) => r.sels.join(",")).join(" | "));
+    }
+  }
+}
+
+// REED_FORM_CONTROL_STYLE の中身(17.9 から使う)
+function rfBodyFor(src) {
+  const m = /const REED_FORM_CONTROL_STYLE = \{([\s\S]*?)\};/.exec(src);
+  return m ? m[1] : "";
 }
 
 // ============================================================

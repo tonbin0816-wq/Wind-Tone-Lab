@@ -55,6 +55,14 @@
      データタブは群の境界をこの面だけで作るので、弱めるのは筋が悪い。
      #F6F7F9 に戻すと 2.79 を回復し、入力欄は以前と同じ見え方になる(前も白の上の #F6F7F9)。 */
   --c-sunk:       #F6F7F9;
+  /* もう1段沈めた面(DESIGN-SYSTEM §1.2)。白地との差は 1.1337:1 / ΔL* 5.00。
+     これまで index.css に定義が無く、§1.2 の段がひとつ欠けていた(F-30 の回収)。
+     用途は「くぼみ」＝**枠線を持たない操作対象の地**(下の B型 .ctl-plain と入力欄)。
+     --c-sunk(1.0719:1 / ΔL* 2.79)ではなくこちらを使う理由:
+     枠線(--c-line-strong = 白地と 1.6523:1 / ΔL* 18.96)を外すと、地の差だけが
+     「ここは触れる」の唯一の信号になる。--c-sunk はその信号の ΔL* を 2.79 まで落とすが、
+     --c-sunken なら 5.00 で 1.79倍を保てる。体系内の既存の段なので新しい値は発明していない。 */
+  --c-sunken:     #EEF1F4;
   /* 罫。白地で群の境界を担う唯一の線なので --c-line(#E9ECF0)より少しだけ強い。
      白地とのコントラスト比 1.2551:1 / ΔL* 8.92(審査役が独立に計算した実測値)。
      旧来いちばん強かった信号(カード枠 #E9ECF0 vs 地 #F6F7F9 = ΔL* 3.93)の 2.3倍。
@@ -224,12 +232,62 @@ body {
   overflow: hidden;
 }
 
-/* 入力欄は「群」ではなく「操作するもの」。どちらの作法でも、白い地の上で
-   「ここは触れる」と分かる必要があるので、地は --c-sunk・枠は --c-line-strong で固定する。
-   枠が --c-line-strong なのは DESIGN-SYSTEM §1.3 が「--c-line-strong = 入力欄の枠」と
-   定めているため。--c-line(#E9ECF0)は白地とのコントラスト比 1.1850:1 しかなく、
-   「ここは触れる」を担えていなかった(--c-line-strong #C3CAD3 は 1.6523:1)。
-   type を列挙するのは range / checkbox / file を UA 描画のままにするため。 */
+/* ------------------------------------------------------------------
+   操作するものの型(A型 / B型)。本人指示(2026-08-03):
+     「銘柄、番手、使用開始日のどれも枠線をつけていますが、枠線は重くなるので不要です」
+     「背景と同じ色で枠線をつけるか、違う色で枠線をつかないかに統一してください」
+     「メトロノームアイコンは on off の違いが分かったほうがいいので枠線があっていいです」
+
+   **同じ物に「枠線」と「違う地」を両方与えない。** どちらか一方で足りるものを
+   両方やると重くなり、そのうえ「枠線が何を意味するのか」が読めなくなる。
+   枠線は**状態を持つものにだけ**使う。
+
+     A型 .ctl-state — 枠線 --c-line-strong / 地は透明(＝背景と同色)
+                      on-off・開閉・選択中が切り替わる**状態を持つもの**。
+                      状態は**枠線の色**で返す(ON = --c-accent)。地は足さない。
+     B型 .ctl-plain — 枠線なし / 地は --c-sunken
+                      入力欄・選択欄・普通のボタンなど**状態を持たないもの**。
+
+   これで「枠線があるものは状態を持っている」が読み手への約束になる。
+   これが統一の芯なので、scripts/pitch-test.mjs の「17. 操作するものの型」が
+   **同じ型が枠線と地を両方持たないこと**を規則そのものから検査している。
+
+   DESIGN-SYSTEM §1.3 の --c-line-strong は「入力欄の枠」ではなく
+   「**A型＝状態を持つものの枠**」になる。入力欄は B型(枠なし)。 */
+.ctl-state { background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-sm); }
+/* 状態は枠線の色だけで返す(地は足さない)。aria-pressed=トグル / aria-expanded=開閉 */
+.ctl-state[aria-pressed="true"], .ctl-state[aria-expanded="true"] { border-color: var(--c-accent); }
+.ctl-plain { background: var(--c-sunken); border: 0; border-radius: var(--r-xs); }
+/* ピル形が要る A型/B型だけに足す。角丸だけを差し替えるので後ろに置く */
+.ctl-pill { border-radius: var(--r-pill); }
+/* 大きな操作ブロック(録音とアップロードの対)だけに足す。相方の録音ボタンが
+   --r-lg(16px) を持つため、型の既定(--r-xs)のままだと対の角丸が割れる。
+   .ctl-pill と同じく**角丸だけ**を差し替える(地・枠は型が持つ)。 */
+.ctl-lg { border-radius: var(--r-lg); }
+
+/* 破壊的な一手(押せば**実際に消える**削除)だけが持つ塗り。
+   塗りは体系の中で既に「主要動作の合図」として使っている語彙(まとめて追加 =
+   --c-accent の塗り + --c-on-accent の文字)なので、**本当に消える一手にだけ**
+   危険色の塗りを許すのは一貫する。白 on #DC2626 = 4.8281:1 で WCAG AA(4.5:1)を満たす。
+   **枠は持たない**ので芯1(枠 ∧ 違う地)・芯2(枠は状態を持つものだけ)に反しない。
+   角丸は B型(.ctl-plain / .ctl-pill)が決める。ここは地と文字色だけを持つ。
+
+   data-armed="true" = 押せば実際に消える(1件以上選択済み)。
+   0件選択のときは何も消えないので B型の地のまま・文字は --c-ink-3。
+   「削除モードに入る入口」はまだ破壊が起きないので、この塗りを持たない(中立の --c-ink-2)。
+   詳細度は .ctl-danger[data-armed="true"] が 0,2,0 で .ctl-plain(0,1,0)に確実に勝つ。 */
+.ctl-danger { color: var(--c-ink-3); }
+.ctl-danger[data-armed="true"] { background: var(--c-danger); color: var(--c-on-accent); }
+
+/* 入力欄は「群」ではなく「操作するもの」。状態を持たないので **B型**。
+   地は --c-sunken だけで「ここは触れる」を担う(枠線は付けない)。
+   type を列挙するのは range / checkbox / file を UA 描画のままにするため。
+
+   【枠を 0 にせず「1px solid transparent」で残す理由】DESIGN-SYSTEM §6.1.5
+   「既にあった要素は1pxも動かない」。入力欄の枠を 0 にすると高さも幅も 2px 縮み、
+   計測タブのリード選択ピル(中身が select 2つ)が 2px 縮んで**環が 2px 上がる**。
+   場所だけ確保して線を見せない(.surf-sunk .card と同じ手)。
+   .ctl-plain 側は元から枠を持たない要素に付けるので border: 0 で外形が変わらない。 */
 input[type="text"],
 input[type="number"],
 input[type="date"],
@@ -237,9 +295,9 @@ input[type="datetime-local"],
 input[type="search"],
 select,
 textarea {
-  background: var(--c-sunk);
+  background: var(--c-sunken);
   color: var(--c-ink);
-  border: 1px solid var(--c-line-strong);
+  border: 1px solid transparent;
   border-radius: var(--r-xs);
 }
 
