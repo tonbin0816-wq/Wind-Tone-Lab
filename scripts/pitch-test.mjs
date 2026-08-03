@@ -93,16 +93,45 @@ const code = [
   extractFunction("isNearScheduledClick"),
   extractConst("RING_MAX_CENTS"),
   extractConst("RING_SWEEP_DEG"),
+  extractConst("RING_IN_TUNE_CENTS"),
+  extractConst("RING_VB"),
   extractConst("RING_CX"),
   extractConst("RING_CY"),
   extractConst("RING_R"),
   extractConst("RING_SW"),
-  extractConst("RING_PITCH_DOT_R"),
   extractConst("RING_MARKER_MIN_GAP_PX"),
   extractConst("RING_D_FULL"),
   extractFunction("ringPoint"),
-  extractFunction("ringPitchArcD"),
-  extractConst("RING_PITCH_ARC_D"),
+  extractFunction("ringArcD"),
+  // 機能色の補間(OKLCH)と帯のグラデーション
+  extractFunction("srgbToLinear"),
+  extractFunction("linearToSrgb"),
+  extractFunction("rgbToOklab"),
+  extractFunction("oklabToRgb"),
+  extractFunction("oklabToOklch"),
+  extractFunction("oklchToOklab"),
+  extractFunction("mixOklchRGB"),
+  extractFunction("pitchBarColorRGB"),
+  extractConst("RING_RAMP_REF"),
+  extractConst("RING_RAMP_STOPS"),
+  extractFunction("ringSmoothstep"),
+  extractFunction("ringTuneRGB"),
+  extractFunction("ringRampRGB"),
+  extractFunction("ringGradientStops"),
+  // 到達の演出(走り・呼吸・光・再走行の抑制)
+  extractConst("RING_RUN_MS"),
+  extractConst("RING_RUN_REARM_MS"),
+  extractConst("RING_BREATH_MS"),
+  extractConst("RING_BREATH_RISE"),
+  extractConst("RING_GLOW_AMP"),
+  extractConst("RING_GLOW_EDGE_PCT"),
+  extractFunction("ringRunEase"),
+  extractFunction("ringRunQuantP"),
+  extractFunction("ringRunProgress"),
+  extractFunction("ringBreath"),
+  extractFunction("ringGlowOpacity"),
+  extractFunction("ringGlowRGB"),
+  extractFunction("ringRunState"),
   // メトロノーム(E案: 上半円=振り子 / 下半円=拍の点)
   extractConst("RING_PEND_R"),
   extractConst("RING_PEND_SWING_DEG"),
@@ -192,14 +221,20 @@ const api = new Function(`${code}
            ringPoint, ringPendDeg, ringBeatEmphasis, ringBeatIndex, ringBeatIsHead, ringBeatDotDeg, ringBeatDotR,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
-           METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG,
-           RING_CX, RING_CY, RING_R, RING_SW, RING_PITCH_DOT_R,
+           METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG, RING_IN_TUNE_CENTS,
+           RING_VB, RING_CX, RING_CY, RING_R, RING_SW, ringArcD,
+           srgbToLinear, linearToSrgb, rgbToOklab, oklabToRgb, oklabToOklch, oklchToOklab,
+           mixOklchRGB, pitchBarColorRGB, RING_RAMP_REF, RING_RAMP_STOPS,
+           ringSmoothstep, ringTuneRGB, ringRampRGB, ringGradientStops,
+           RING_RUN_MS, RING_RUN_REARM_MS, RING_BREATH_MS, RING_BREATH_RISE,
+           RING_GLOW_AMP, RING_GLOW_EDGE_PCT,
+           ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowRGB, ringRunState,
            RING_PEND_R, RING_PEND_SWING_DEG, RING_PEND_BOB_R, RING_PEND_BOB_GROW,
            RING_PEND_HALO_GAP, RING_PEND_HALO_SW, RING_PEND_HALO_OPACITY,
            RING_BEAT_DOT_ORBIT_R, RING_BEAT_DOT_SPREAD_DEG, RING_BEAT_DOT_R, RING_BEAT_DOT_CUR_R,
            RING_BEAT_DOT_CUR_GROW, RING_BEAT_DOT_HEAD_R, RING_BEAT_DOT_HEAD_GROW,
            RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
-           RING_MARKER_MIN_GAP_PX, RING_D_FULL, RING_PITCH_ARC_D,
+           RING_MARKER_MIN_GAP_PX, RING_D_FULL,
            audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
            SILENCE_WATCHDOG_DB, SILENCE_WATCHDOG_SUSTAIN_MS, MIC_RECOVER_COOLDOWN_MS,
            MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE,
@@ -956,26 +991,27 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
   }
 
   // ------------------------------------------------------------------
-  // ピッチマーカーと拍の要素(錘・点)の最小距離。
+  // 環の帯(ピッチ)と拍の要素(錘・点)の最小距離。
   //
   // DESIGN-SYSTEM §6.1 の要件は「**実寸**で最低 6 CSS px」。
   // ここは実装の定数の定義を言い換えるのではなく、実寸を独立に計算して要件と突き合わせる。
   // (過去に「距離 − (定義から引き算で作った上限) > 余白」という恒等式を書いてしまい、
   //  構造上失敗し得ないテストで余白を守っているつもりになっていた。定義から導出しない)
   //
+  // 【基準が変わった】以前は帯の先端に半径 RING_SW/2+3 の点を置いていたので、
+  // 「点の内縁 R-SW/2-3 = 126」で測っていた。その点を削除したので、
+  // 基準は**帯の内縁 R-SW/2 = 129**になる(=クリアランスは広がる)。
+  // さらに到達時は帯が**全周**を走るので、どの角度にも帯が来る最悪ケースで見る。
+  // 帯は半径 [R-SW/2, R+SW/2] の円環なので、内側の点から見た最短距離は
+  // 「R-SW/2 − 中心からの距離 − その要素の半径」。
+  //
   // viewBox は 300 で、実寸は環の直径。つまり 1 viewBox 単位 = 直径/300 CSS px。
   // 環は常に RING_D_FULL(330) なので 1.1 倍。viewBox 単位を px と呼んではいけない。
   // ------------------------------------------------------------------
   {
     const VB_TO_PX = api.RING_D_FULL / 300;
+    const bandInnerVb = api.RING_R - api.RING_SW / 2;
     let minPx = Infinity, worst = null;
-    // ピッチマーカーが取りうる位置(±50¢を0.25¢刻み。最悪ケースの ±25¢=振り子の端と
-    // 同じ角度 もグリッド上に乗る)
-    const CENT_STEP = 0.25;
-    const pitchPts = [];
-    for (let cc = -api.RING_MAX_CENTS; cc <= api.RING_MAX_CENTS + 1e-9; cc += CENT_STEP) {
-      pitchPts.push([cc, api.ringPoint((cc / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY)]);
-    }
     // 拍子は 2〜7 すべてを見る。演出が最大になる位相が拍子によって変わり、
     // 偶数拍子なら通算拍0(右端)、奇数拍子ならその奇数倍の位相(左端)も最悪ケースになる。
     for (const beats of [2, 3, 4, 5, 6, 7]) {
@@ -994,33 +1030,25 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
         const bobOuter = Math.max(bobR, e > 0 ? haloOuter : 0);
         // --- 拍の点(下半円) --- 現在の拍だけ大きさが変わる
         const dotRs = Array.from({ length: beats }, (_, i) => api.ringBeatDotR(cur === i, cur === i && isHead, e));
-        for (const [cc, [px, py]] of pitchPts) {
-          let clearVb = Math.hypot(px - bx, py - by) - (api.RING_PITCH_DOT_R + bobOuter);
-          let which = "錘";
-          for (let i = 0; i < beats; i++) {
-            const c = Math.hypot(px - dots[i][0], py - dots[i][1]) - (api.RING_PITCH_DOT_R + dotRs[i]);
-            if (c < clearVb) { clearVb = c; which = `点${i}`; }
-          }
-          const clearPx = clearVb * VB_TO_PX;
-          if (clearPx < minPx) { minPx = clearPx; worst = { beats, cents: +cc.toFixed(2), phase: +p.toFixed(3), e: +e.toFixed(3), which }; }
+        const items = [[Math.hypot(bx - api.RING_CX, by - api.RING_CY), bobOuter, "錘"]];
+        for (let i = 0; i < beats; i++) {
+          items.push([Math.hypot(dots[i][0] - api.RING_CX, dots[i][1] - api.RING_CY), dotRs[i], `点${i}`]);
+        }
+        for (const [dist, rr, which] of items) {
+          const clearPx = (bandInnerVb - dist - rr) * VB_TO_PX;
+          if (clearPx < minPx) { minPx = clearPx; worst = { beats, phase: +p.toFixed(3), e: +e.toFixed(3), which }; }
         }
       }
     }
-    check(`ピッチマーカーと拍の要素(錘・点)が実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
+    check(`環の帯と拍の要素(錘・点)が実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
       minPx >= api.RING_MARKER_MIN_GAP_PX,
       `最小 ${minPx.toFixed(2)} CSS px (${api.RING_D_FULL}px環) @ ${JSON.stringify(worst)}`);
+    console.log(`  帯の内縁と拍の要素の最小クリアランス: ${minPx.toFixed(2)} CSS px (要件 ${api.RING_MARKER_MIN_GAP_PX}) @ ${JSON.stringify(worst)}`);
   }
 
-  // 到達(inTune)の合図は上弧の**帯**をピッチ色で塗るので、拍の要素はその帯の内側に
-  // 入ってはいけない。帯の内縁(r - 線幅/2)より、拍の要素の最大到達半径が内側にあること。
+  // 帯(ピッチ)の内側に拍の要素が入らないことを、**位相に依存しない上限**でも見る。
+  // 上の検査は位相を刻んだ実測、こちらは取りうる最大半径からの静的な上限で、独立している。
   {
-    const m = /^M([\d.-]+),([\d.-]+) A(\d+(?:\.\d+)?),\d+(?:\.\d+)? 0 1,1 ([\d.-]+),([\d.-]+)$/.exec(api.RING_PITCH_ARC_D);
-    const [lx, ly] = api.ringPoint(-api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
-    const [rx, ry] = api.ringPoint(api.RING_SWEEP_DEG, api.RING_R, api.RING_CX, api.RING_CY);
-    check("到達の合図は全周円ではなく上弧のパス(端が ±RING_SWEEP_DEG と一致)",
-      !!m && Math.abs(+m[1] - lx) < 0.01 && Math.abs(+m[2] - ly) < 0.01
-      && Math.abs(+m[4] - rx) < 0.01 && Math.abs(+m[5] - ry) < 0.01,
-      api.RING_PITCH_ARC_D);
     const bandInner = api.RING_R - api.RING_SW / 2;                 // 環の帯の内縁
     const bobOuterMax = api.RING_PEND_R + api.RING_PEND_BOB_R + api.RING_PEND_BOB_GROW
       + api.RING_PEND_HALO_GAP + api.RING_PEND_HALO_SW / 2;
@@ -1139,6 +1167,1194 @@ console.log("=== 検証18: 拍子パース・複合拍子の強弱パターン =
     const kNeg = api.metroTickKind(-1, "6/8", 1, true);
     check("負のtickIndexでもクラッシュせず妥当な値を返す", ["accent", "beat", "sub", "silent"].includes(kNeg), kNeg);
   }
+}
+
+// ============================================================
+// 検証19: チューナーの環 — 機能色のOKLCH補間 / 帯のグラデーション / 到達の演出
+// ============================================================
+console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・到達の演出 ===");
+{
+  // JSX側(描画)はハーネスからevalできないので、ソース文字列で見る。
+  const ringSrc = (() => {
+    const idx = src.indexOf("function PitchRing(");
+    if (idx === -1) throw new Error("PitchRing not found");
+    // 引数が分割代入({ note, ... })なので、まず括弧を閉じてから本体の波括弧を数える。
+    let i = src.indexOf("(", idx), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+    }
+    while (i < src.length && src[i] !== "{") i++;
+    depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+    }
+    throw new Error("PitchRing: unbalanced");
+  })();
+  const ringCode = codeOf(ringSrc);
+  const GREEN = [22, 163, 74], ORANGE = [217, 119, 6], RED = [220, 38, 38];
+
+  // ------------------------------------------------------------------
+  // ringArcD が返す **パス文字列そのもの** を幾何として読み解くための道具。
+  // 「to>from なら sweep=1」という綴りを見るだけでは、sweep を定数に潰す変異
+  // (= 低い側の帯が環から外れた鏡像の弧になる)を捕まえられない。
+  // SVG 2 の F.6.5「端点表現→中心表現」の変換をそのまま実装し、描かれる弧の
+  // **中心・半径・開始角・符号付き掃引角**を取り出して意図と突き合わせる。
+  // ------------------------------------------------------------------
+  function parseArcD(d) {
+    const m = /^M(-?[\d.]+),(-?[\d.]+) A(-?[\d.]+),(-?[\d.]+) 0 ([01]),([01]) (-?[\d.]+),(-?[\d.]+)$/.exec(d);
+    if (!m) return null;
+    const [x1, y1, rx, ry] = [+m[1], +m[2], +m[3], +m[4]];
+    const fA = +m[5], fS = +m[6], x2 = +m[7], y2 = +m[8];
+    const dx2 = (x1 - x2) / 2, dy2 = (y1 - y2) / 2;   // 回転0なので x1'=dx2, y1'=dy2
+    const num = rx * rx * ry * ry - rx * rx * dy2 * dy2 - ry * ry * dx2 * dx2;
+    const den = rx * rx * dy2 * dy2 + ry * ry * dx2 * dx2;
+    const coef = (fA === fS ? -1 : 1) * Math.sqrt(Math.max(0, num) / den);
+    const cxp = coef * (rx * dy2) / ry, cyp = coef * (-(ry * dx2) / rx);
+    const cx = cxp + (x1 + x2) / 2, cy = cyp + (y1 + y2) / 2;
+    const ang = (ux, uy, vx, vy) => {
+      const s = Math.sign(ux * vy - uy * vx) || 1;
+      const c = (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy));
+      return (s * Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI;
+    };
+    const th1 = ang(1, 0, (dx2 - cxp) / rx, (dy2 - cyp) / ry);
+    let dth = ang((dx2 - cxp) / rx, (dy2 - cyp) / ry, (-dx2 - cxp) / rx, (-dy2 - cyp) / ry);
+    if (fS === 0 && dth > 0) dth -= 360;
+    if (fS === 1 && dth < 0) dth += 360;
+    return { cx, cy, rx, ry, fA, fS, th1, dth, x1, y1, x2, y2 };
+  }
+  {
+    // 帯・走りの弧はすべて ringArcD が作る。ここで見るのは綴りではなく**出力の幾何**。
+    // 低い側(to<from)で sweep を 1 に潰すと、中心が環の中心から外れた鏡像の弧になり
+    // 「帯が環から剥がれる」。中心・半径・開始角・掃引角の4つで塞ぐ。
+    const cases = [];
+    for (const [from, to] of [
+      [0, 110], [0, -110], [0, 1.5], [0, -1.5], [0, 55], [0, -55],
+      [-180, 0], [180, 0], [-90, 0], [90, 0], [-30, 0], [30, 0],
+      // 180°を超える弧。アプリの現在の使い方では出ないが、large-arc-flag の分岐は
+      // ここでしか検証できない(下に「実際に描く弧は常に180°以下」の記録も置く)。
+      [0, 200], [0, -200], [-270, 0], [270, 0],
+    ]) cases.push([from, to, parseArcD(api.ringArcD(from, to))]);
+    check("ringArcD の出力はすべて 1本の楕円弧コマンドとして読める",
+      cases.every(([, , g]) => g !== null),
+      cases.filter(([, , g]) => !g).map(([f, t]) => `${f}→${t}`).join(",") || "全12件OK");
+    // ringArcD は端点を toFixed(2) で丸めるので、弦が短いほど中心の復元が鈍る。
+    // 許容は「端点の丸め 0.005 が中心をどれだけ動かすか(≒ ε×R/弦長)」から出す。
+    // sweep を潰す変異が作る鏡像の弧は中心が 2R(=272)ずれるので、この許容でも捕まる。
+    const tolOf = (g) => 0.02 + 0.03 * api.RING_R / Math.max(1e-6, Math.hypot(g.x2 - g.x1, g.y2 - g.y1));
+    check("ringArcD の弧の中心は環の中心・半径は RING_R", cases.every(([, , g]) =>
+      g && Math.abs(g.cx - api.RING_CX) < tolOf(g) && Math.abs(g.cy - api.RING_CY) < tolOf(g)
+      && g.rx === api.RING_R && g.ry === api.RING_R),
+      cases.map(([f, t, g]) => `${f}→${t}:(${g.cx.toFixed(2)},${g.cy.toFixed(2)})`).join(" ").slice(0, 160));
+    check("ringArcD の開始角は from(12時=0・時計回り)と一致する", cases.every(([from, , g]) => {
+      const want = ((from - 90) % 360 + 540) % 360 - 180;   // SVG極角へ。-180〜180 に正規化
+      const got = ((g.th1 % 360) + 540) % 360 - 180;
+      return Math.abs(((got - want + 540) % 360) - 180) < 0.02 + tolOf(g) * 30;
+    }));
+    check("ringArcD の符号付き掃引角は to−from と一致する(向きが反転しない)",
+      cases.every(([from, to, g]) => Math.abs(g.dth - (to - from)) < 0.02),
+      cases.map(([f, t, g]) => `${f}→${t}:${g.dth.toFixed(2)}°`).join(" ").slice(0, 160));
+    check("ringArcD の large-arc-flag は掃引角が180°を超えるときだけ1",
+      cases.every(([from, to, g]) => g.fA === (Math.abs(to - from) > 180 ? 1 : 0)),
+      cases.map(([f, t, g]) => `${f}→${t}:${g.fA}`).join(" "));
+    // 【事実の記録】アプリが実際に ringArcD へ渡す角度は、ズレの帯が (0, ±110°まで)、
+    // 走りが (±180°まで, 0)。どちらも 180° を超えないので large-arc-flag は常に0になる。
+    // 上の検査が >180° の場合を含んでいるのは、分岐そのものを検証するため。
+    check("アプリが実際に描く弧はすべて掃引180°以下(large-arc-flag は常に0)", (() => {
+      const used = [];
+      for (let c = -api.RING_MAX_CENTS; c <= api.RING_MAX_CENTS; c += 0.25) {
+        used.push([0, (c / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG]);
+      }
+      for (let ms = 0; ms <= api.RING_RUN_MS; ms += 1) {
+        const sp = 180 * api.ringRunQuantP(api.ringRunProgress(0, ms));
+        used.push([-sp, 0], [sp, 0]);
+      }
+      return used.every(([f, t]) => {
+        if (Math.abs(t - f) > 180 + 1e-9) return false;
+        const g = parseArcD(api.ringArcD(f, t));
+        return g && g.fA === 0;
+      });
+    })());
+    // 弧の中点が環の上に乗ること(端点だけ合っていても中身が別の弧なら落ちる)。
+    check("ringArcD の弧上の点はすべて環(中心・半径 RING_R)の上にあり、from〜to の内側に収まる", (() => {
+      let worst = 0;
+      for (const [from, to, g] of cases) {
+        const tol = tolOf(g);
+        for (let u = 0; u <= 1.0001; u += 0.05) {
+          const th = ((g.th1 + g.dth * u) * Math.PI) / 180;
+          const px = g.cx + Math.cos(th) * g.rx, py = g.cy + Math.sin(th) * g.ry;
+          const dev = Math.abs(Math.hypot(px - api.RING_CX, py - api.RING_CY) - api.RING_R);
+          worst = Math.max(worst, dev);
+          if (dev > tol) return false;
+          // その角度に対応する 12時基準の角度が from〜to の内側にあること
+          const deg = th * 180 / Math.PI + 90;
+          const lo = Math.min(from, to) - 0.1 - tol, hi = Math.max(from, to) + 0.1 + tol;
+          const norm = ((deg - lo) % 360 + 360) % 360 + lo;
+          if (norm > hi + 1e-6) return false;
+        }
+      }
+      return true;
+    })());
+  }
+
+  // ------------------------------------------------------------------
+  // A-1. sRGB ⇔ OKLab の往復。既知の値で丸め誤差の範囲に収まること。
+  // ------------------------------------------------------------------
+  check("srgbToLinear/linearToSrgb は互いの逆", (() => {
+    for (let i = 0; i <= 255; i++) {
+      const c = i / 255;
+      if (Math.abs(api.linearToSrgb(api.srgbToLinear(c)) - c) > 1e-9) return false;
+    }
+    return true;
+  })());
+  check("srgbToLinear は0と1を固定点に持つ",
+    api.srgbToLinear(0) === 0 && Math.abs(api.srgbToLinear(1) - 1) < 1e-12);
+  check("rgbToOklab→oklabToRgb は元の色に戻る(全機能色)",
+    [GREEN, ORANGE, RED, [0, 0, 0], [255, 255, 255], [128, 64, 200]].every((c) =>
+      api.oklabToRgb(api.rgbToOklab(c)).join(",") === c.join(",")));
+  // 既知の基準値: 白の L は 1、黒の L は 0(OKLab の定義)
+  check("白の OKLab の L は 1", Math.abs(api.rgbToOklab([255, 255, 255])[0] - 1) < 1e-6,
+    String(api.rgbToOklab([255, 255, 255])[0]));
+  check("黒の OKLab は原点", api.rgbToOklab([0, 0, 0]).every((v) => Math.abs(v) < 1e-9));
+  check("無彩色(灰)は OKLCH の彩度が0", api.oklabToOklch(api.rgbToOklab([128, 128, 128]))[1] < 1e-6);
+  check("oklabToOklch/oklchToOklab は往復する",
+    [GREEN, ORANGE, RED].every((c) => {
+      const lab = api.rgbToOklab(c);
+      const back = api.oklchToOklab(api.oklabToOklch(lab));
+      return lab.every((v, i) => Math.abs(v - back[i]) < 1e-12);
+    }));
+  check("色域外の OKLab は 0〜255 に丸められる",
+    api.oklabToRgb([1.5, 0.4, 0.4]).every((v) => v >= 0 && v <= 255 && Number.isInteger(v))
+    && api.oklabToRgb([-1, 0, 0]).every((v) => v === 0));
+
+  // ------------------------------------------------------------------
+  // A-2. 補間は **OKLCH**。sRGB の直線補間に戻すと落ちる。
+  //   緑→橙の中点は sRGB なら rgb(120,141,40) の濁ったカーキ。
+  //   OKLCH なら彩度が落ちない澄んだ金になる。
+  // ------------------------------------------------------------------
+  {
+    const mid = api.mixOklchRGB(GREEN, ORANGE, 0.5);
+    const srgbMid = [0, 1, 2].map((k) => Math.round(GREEN[k] + (ORANGE[k] - GREEN[k]) * 0.5));
+    check("緑→橙の中点は sRGB 直線補間の色と一致しない(=OKLCHで補間している)",
+      mid.join(",") !== srgbMid.join(","), `OKLCH=${mid.join(",")} / sRGB=${srgbMid.join(",")}`);
+    // 濁りの定量: 途中で彩度(OKLCH の C)がどれだけ落ちるか。
+    // 緑と橙は色相が離れているので sRGB 色域の都合でどちらの経路でも多少は落ちるが、
+    // **OKLCH のほうが落ち込みが明確に浅い**。これが「濁った/澄んだ」の正体。
+    const cOf = (rgb) => api.oklabToOklch(api.rgbToOklab(rgb))[1];
+    const dipOf = (f) => {
+      let m = Infinity, at = 0;
+      for (let t = 0; t <= 1.0001; t += 0.005) { const c = cOf(f(t)); if (c < m) { m = c; at = t; } }
+      return [m, at];
+    };
+    const [okDip, okAt] = dipOf((t) => api.mixOklchRGB(GREEN, ORANGE, t));
+    const [srgbDip] = dipOf((t) => [0, 1, 2].map((k) => Math.round(GREEN[k] + (ORANGE[k] - GREEN[k]) * t)));
+    const endMinC = Math.min(cOf(GREEN), cOf(ORANGE));
+    check("緑→橙の彩度の落ち込みが sRGB 直線補間より浅い(濁らない)", okDip > srgbDip + 0.01,
+      `OKLCH最小C=${okDip.toFixed(5)} @t=${okAt.toFixed(2)} / sRGB最小C=${srgbDip.toFixed(5)} / 両端の下限=${endMinC.toFixed(5)}`);
+    console.log(`  緑→橙の彩度の落ち込み: OKLCH=${okDip.toFixed(5)} / sRGB直線=${srgbDip.toFixed(5)} (両端の下限 ${endMinC.toFixed(5)})`);
+    check("緑→橙の中点は仕様どおり rgb(160,145,0)(sRGB直線なら rgb(120,141,40))",
+      api.mixOklchRGB(GREEN, ORANGE, 0.5).join(",") === "160,145,0"
+      && srgbMid.join(",") === "120,141,40", api.mixOklchRGB(GREEN, ORANGE, 0.5).join(","));
+    check("mixOklchRGB は両端で元の色そのもの",
+      api.mixOklchRGB(GREEN, ORANGE, 0).join(",") === GREEN.join(",")
+      && api.mixOklchRGB(GREEN, ORANGE, 1).join(",") === ORANGE.join(","));
+    // 色相は最短経路。0°/360° をまたぐ2色で確かめる(機能色どうしは -91°/-31° で
+    // またがないため、そこで見ても最短経路の実装は検証できない)。
+    // rgb(220,60,180) は H≈340.0° / rgb(255,100,150) は H≈3.3°。短い方は +23.4°、
+    // 長い方は -336.6°。最短経路でないと途中で緑や青を経由する。
+    const hOf = (rgb) => api.oklabToOklch(api.rgbToOklab(rgb))[2];
+    const A = [220, 60, 180], B = [255, 100, 150];
+    check("色相は 0°/360° をまたぐときも最短経路で回る", (() => {
+      for (let t = 0; t <= 1.0001; t += 0.01) {
+        const h = hOf(api.mixOklchRGB(A, B, t));
+        if (!(h >= 339 || h <= 4.5)) return false;
+      }
+      return true;
+    })(), (() => {
+      let far = 0, at = 0;
+      for (let t = 0; t <= 1.0001; t += 0.01) {
+        const h = hOf(api.mixOklchRGB(A, B, t));
+        const d = Math.min(Math.abs(h - 360), Math.abs(h));
+        if (d > far) { far = d; at = t; }
+      }
+      return `0°から最も離れた色相=${far.toFixed(1)}° @t=${at.toFixed(2)}`;
+    })());
+    let maxJump = 0;
+    for (let t = 0; t < 1; t += 0.01) {
+      maxJump = Math.max(maxJump, Math.abs(hOf(api.mixOklchRGB(GREEN, RED, t + 0.01)) - hOf(api.mixOklchRGB(GREEN, RED, t))));
+    }
+    check("緑→赤の色相は1%刻みで飛ばない", maxJump < 5, `最大の飛び=${maxJump.toFixed(2)}°`);
+  }
+
+  // ------------------------------------------------------------------
+  // A-3. pitchBarColorRGB のストップ。橙は **8¢**(以前は13¢)。
+  // ------------------------------------------------------------------
+  check("0¢はちょうど緑 #16A34A", api.pitchBarColorRGB(0).join(",") === GREEN.join(","));
+  // **pitchBarColorRGB 自身が OKLCH で補間していること**を、出てくる色で確かめる。
+  // (mixOklchRGB 単体の検査だけだと、pitchBarColorRGB を sRGB 直線補間に戻す変異を見逃す)
+  check("pitchBarColorRGB は OKLCH で補間している(4¢=緑と橙の中点=rgb(160,145,0))", (() => {
+    const got = api.pitchBarColorRGB(4).join(",");
+    const srgb = [0, 1, 2].map((k) => Math.round(GREEN[k] + (ORANGE[k] - GREEN[k]) * 0.5)).join(",");
+    return got === "160,145,0" && got === api.mixOklchRGB(GREEN, ORANGE, 0.5).join(",") && got !== srgb;
+  })(), api.pitchBarColorRGB(4).join(","));
+  check("pitchBarColorRGB は全域で OKLCH 補間と一致し、sRGB 直線補間とは離れる", (() => {
+    let maxOk = 0, maxSrgb = 0;
+    for (let a = 0; a <= 30; a += 0.1) {
+      const got = api.pitchBarColorRGB(a);
+      const seg = a <= 8 ? [GREEN, ORANGE, a / 8] : [ORANGE, RED, (a - 8) / 22];
+      const ok = api.mixOklchRGB(seg[0], seg[1], seg[2]);
+      const sr = [0, 1, 2].map((k) => Math.round(seg[0][k] + (seg[1][k] - seg[0][k]) * seg[2]));
+      maxOk = Math.max(maxOk, Math.max(...[0, 1, 2].map((k) => Math.abs(got[k] - ok[k]))));
+      maxSrgb = Math.max(maxSrgb, Math.max(...[0, 1, 2].map((k) => Math.abs(got[k] - sr[k]))));
+    }
+    return maxOk === 0 && maxSrgb > 20;
+  })());
+  check("8¢はちょうど橙 #D97706", api.pitchBarColorRGB(8).join(",") === ORANGE.join(","),
+    api.pitchBarColorRGB(8).join(","));
+  check("13¢は橙ではない(橙は8¢へ前倒しした)", api.pitchBarColorRGB(13).join(",") !== ORANGE.join(","),
+    api.pitchBarColorRGB(13).join(","));
+  check("30¢以上はちょうど赤 #DC2626",
+    api.pitchBarColorRGB(30).join(",") === RED.join(",") && api.pitchBarColorRGB(50).join(",") === RED.join(",")
+    && api.pitchBarColorRGB(-99).join(",") === RED.join(","));
+  check("符号によらず絶対値で決まる", (() => {
+    for (let c = 0; c <= 50; c += 0.25) {
+      if (api.pitchBarColorRGB(c).join(",") !== api.pitchBarColorRGB(-c).join(",")) return false;
+    }
+    return true;
+  })());
+  // 橙の位置が8¢であることを、定数の言い換えではなく**色の到達点**で見る。
+  // 13¢へ戻すと 8¢ の色は橙に届かない(=この検査が落ちる)。
+  check("8¢より手前は橙に達していない(緑寄り)", (() => {
+    const c = api.pitchBarColorRGB(7.9);
+    return c.join(",") !== ORANGE.join(",")
+      && api.oklabToOklch(api.rgbToOklab(c))[2] > api.oklabToOklch(api.rgbToOklab(ORANGE))[2];
+  })());
+  check("8¢を越えると赤へ向かう(橙から離れる)", (() => {
+    const h8 = api.oklabToOklch(api.rgbToOklab(api.pitchBarColorRGB(8)))[2];
+    const h9 = api.oklabToOklch(api.rgbToOklab(api.pitchBarColorRGB(9)))[2];
+    return h9 < h8;
+  })());
+  // ストップの境目で色が跳ばないこと(区分ごとに別の補間をすると継ぎ目が出る)。
+  check("ストップの境目(0/8/30¢)で色が跳ばない", (() => {
+    const d = (a, b) => Math.max(...[0, 1, 2].map((k) => Math.abs(a[k] - b[k])));
+    return d(api.pitchBarColorRGB(0), api.pitchBarColorRGB(0.001)) <= 2
+      && d(api.pitchBarColorRGB(7.999), api.pitchBarColorRGB(8.001)) <= 2
+      && d(api.pitchBarColorRGB(29.999), api.pitchBarColorRGB(30.001)) <= 2;
+  })());
+
+  // ------------------------------------------------------------------
+  // B. 帯のランプ — 先端からの**絶対弧長**で塗る。帯の長さで割らない。
+  // ------------------------------------------------------------------
+  check("RING_RAMP_REF は 62(viewBox単位)", api.RING_RAMP_REF === 62, String(api.RING_RAMP_REF));
+  // 「作り込む長さ」が実用域とどう対応しているか。角度→セントの写像から逆に辿る。
+  check("ランプは実用域(±10¢)の内側で飽和しない", (() => {
+    const centsOf = (s) => ((s / api.RING_R) * 180 / Math.PI) / api.RING_SWEEP_DEG * api.RING_MAX_CENTS;
+    const refCents = centsOf(api.RING_RAMP_REF);
+    return refCents > 10 && refCents < 14;
+  })(), `RING_RAMP_REF=${api.RING_RAMP_REF} は ${(((api.RING_RAMP_REF / api.RING_R) * 180 / Math.PI) / api.RING_SWEEP_DEG * api.RING_MAX_CENTS).toFixed(2)}¢ 相当`);
+  check("ストップ数は30", api.RING_RAMP_STOPS === 30, String(api.RING_RAMP_STOPS));
+  check("smoothstep は0〜1で端が平ら", (() => {
+    if (api.ringSmoothstep(0) !== 0 || api.ringSmoothstep(1) !== 1) return false;
+    if (api.ringSmoothstep(-5) !== 0 || api.ringSmoothstep(9) !== 1) return false;
+    return Math.abs(api.ringSmoothstep(0.5) - 0.5) < 1e-12;
+  })());
+  // ランプの3要素(明度差・彩度倍率・色相ずれ)は**単調**。芯(明るさの山)を置かない。
+  // 単調でないと帯の途中に境目が生まれる。
+  // 【測り方】機能色(緑/橙/赤)は sRGB 色域の縁に近く、明るくすると丸め込まれて
+  // 設計した振れが目減りする(緑の色相は -16° の設計に対し実測 -9.6°)。そこで単調性と
+  // 振れ幅は、色域の**内側に十分入った色**で測る。ここで使う rgb(48,72,240) は
+  // ランプ全域で 1〜254 の内側に収まり(=丸め込みが起きない)、3要素の設計値が
+  // そのまま取り出せる。取り出した値を仕様と突き合わせるので定数の言い換えにならない。
+  {
+    const lchOf = (rgb) => api.oklabToOklch(api.rgbToOklab(rgb));
+    const PROBE = [48, 72, 240];
+    let clipped = false, backL = 0, backC = 0, backH = 0;
+    const seqL = [], seqC = [], seqH = [];
+    let prev = lchOf(api.ringRampRGB(PROBE, 0));
+    const first = prev; let last = prev;
+    seqL.push(first[0]); seqC.push(first[1]); seqH.push(first[2]);
+    for (let s = 0.5; s <= api.RING_RAMP_REF * 2; s += 0.5) {
+      const rgb = api.ringRampRGB(PROBE, s);
+      if (rgb.some((v) => v <= 1 || v >= 254)) clipped = true;
+      const cur = lchOf(rgb);
+      backL = Math.max(backL, prev[0] - cur[0]);
+      backC = Math.max(backC, cur[1] - prev[1]);
+      backH = Math.max(backH, cur[2] - prev[2]);
+      seqL.push(cur[0]); seqC.push(cur[1]); seqH.push(cur[2]);
+      prev = cur; last = cur;
+    }
+    check("測定用の色は色域の内側に収まる(丸め込みが起きない)", !clipped);
+    // ------------------------------------------------------------------
+    // 【単調性の測り方を2段に分ける】
+    //
+    // (i) 隣接ストップ間の折り返し(急な段差を見る)。整数RGBへの量子化そのもので
+    //     L=0.00036 / C=0.00127 / H=0.128° の見かけの逆行が出るので、許容はその倍。
+    //     この指標は**なだらかな山には鈍い**。dH に振幅13°の山を足しても、
+    //     隣接差では 0.298°(量子化の 0.128° と同程度)にしかならず素通りする。
+    //     以前ここの色相の許容 0.3° は、その素通りする側にぎりぎり合わせてあった。
+    //
+    // (ii) 累積の折り返し(running extremum からの戻り)を、移動平均(±8サンプル
+    //      =±4 viewBox単位)で量子化ノイズを均してから測る。移動平均は単調な列の
+    //      単調性を壊さないので、**設計が単調なら 0**。実測でも L=0 / C=0.000013 / H=0。
+    //      許容はそこから素直に置ける。
+    //
+    // 【感度をそろえた確認(dX に振幅Aの山 A(1-(2e-1)²) を足して掃引した実測)】
+    //      明度: 数式上の単調性の境目 A=0.042 → 許容 0.0003 は A=0.04 で落ちる
+    //      彩度: 境目 A=0.075                → 許容 0.0002 は A=0.08 で落ちる
+    //      色相: 境目 A=4                    → 許容 0.002  は A=4    で落ちる
+    //      3つとも「数式上、単調でなくなった瞬間」で落ちる。色相だけ緩い状態を解消した。
+    // ------------------------------------------------------------------
+    const smooth = (a, w = 8) => a.map((_, i) => {
+      let t = 0, n = 0;
+      for (let k = Math.max(0, i - w + 1); k <= Math.min(a.length - 1, i + w - 1); k++) { t += a[k]; n++; }
+      return t / n;
+    });
+    const drawback = (a, up) => {
+      let ext = a[0], worst = 0;
+      for (const v of a) {
+        if (up) { ext = Math.max(ext, v); worst = Math.max(worst, ext - v); }
+        else { ext = Math.min(ext, v); worst = Math.max(worst, v - ext); }
+      }
+      return worst;
+    };
+    const cumL = drawback(smooth(seqL), true);
+    const cumC = drawback(smooth(seqC), false);
+    const cumH = drawback(smooth(seqH), false);
+    check("ランプの明度は単調に増える(累積の折り返し / 山 A=0.04 で落ちる厳しさ)",
+      cumL <= 0.0003, `累積の逆行=${cumL.toFixed(6)}`);
+    check("ランプの彩度は単調に減る(累積の折り返し / 山 A=0.08 で落ちる厳しさ)",
+      cumC <= 0.0002, `累積の逆行=${cumC.toFixed(6)}`);
+    check("ランプの色相は単調に動く(累積の折り返し / 山 A=4 で落ちる厳しさ)",
+      cumH <= 0.002, `累積の逆行=${cumH.toFixed(4)}°`);
+    console.log(`  ランプの累積の折り返し(移動平均後): L=${cumL.toFixed(6)} / C=${cumC.toFixed(6)} / H=${cumH.toFixed(4)}°`);
+    // (i) 隣接ストップ間。なだらかな山には鈍いが、**鋭い段差**はこちらでしか捕まらない
+    // (移動平均は幅の狭い山を均してしまうため)。2つで役割を分けている。
+    check("隣接ストップ間で明度が折り返さない(急な段差が無い)", backL <= 0.001, `最大の逆行=${backL.toFixed(6)}`);
+    check("隣接ストップ間で彩度が折り返さない(急な段差が無い)", backC <= 0.0026, `最大の逆行=${backC.toFixed(6)}`);
+    check("隣接ストップ間で色相が折り返さない(急な段差が無い)", backH <= 0.3, `最大の逆行=${backH.toFixed(4)}°`);
+    // 取り出した振れ幅が仕様(dL=+0.105/-0.062 / cMul=1.12→0.30減 / dH=-9〜+7)と一致する
+    check("明度の振れ幅は 0.105+0.062=0.167", Math.abs((last[0] - first[0]) - 0.167) < 0.002,
+      `実測 ${(last[0] - first[0]).toFixed(4)}`);
+    check("彩度の倍率は 1.12→0.82(比 0.732)", Math.abs(last[1] / first[1] - 0.82 / 1.12) < 0.005,
+      `実測 ${(last[1] / first[1]).toFixed(4)}`);
+    check("色相の振れ幅は 7-(-9)=16°", Math.abs((first[2] - last[2]) - 16) < 0.3,
+      `実測 ${(first[2] - last[2]).toFixed(3)}°`);
+    console.log(`  ランプの実測(丸め込みの無い色): ΔL=${(last[0] - first[0]).toFixed(4)} / C比=${(last[1] / first[1]).toFixed(4)} / ΔH=${(first[2] - last[2]).toFixed(2)}°`);
+  }
+  {
+    const lchOf = (rgb) => api.oklabToOklch(api.rgbToOklab(rgb));
+    // 【この区画で言えること・言えないこと】
+    // 機能色(緑/橙/赤)は sRGB 色域の縁に近く、ランプ全域で成分が 0/255 に張り付く。
+    // 丸め込みで色相が動くため、**この3色では単調性そのものを主張できない**
+    // (実測: 累積の折り返しは緑 0.81° / 橙 5.13° / 赤 0.88°。これは丸め込みの産物)。
+    // ここで見るのは「隣接ストップ間に急な段差が無いこと」と「振れの向きと量」だけ。
+    // 単調性の本体は上の PROBE(丸め込みの起きない色)の区画が担う。
+    // 許容値は実測した「量子化だけで生じる最大の隣接差」から決めた(L=0 / C=0.0013 / H=0.55°)。
+    const TOL_L = 0.0005, TOL_C = 0.003, TOL_H = 1.2;
+    for (const base of [GREEN, ORANGE, RED]) {
+      let backL = 0, backC = 0, backH = 0;
+      let prev = lchOf(api.ringRampRGB(base, 0));
+      const first = prev;
+      let last = prev;
+      for (let s = 0.5; s <= api.RING_RAMP_REF * 2; s += 0.5) {
+        const cur = lchOf(api.ringRampRGB(base, s));
+        backL = Math.max(backL, prev[0] - cur[0]);
+        backC = Math.max(backC, cur[1] - prev[1]);
+        backH = Math.max(backH, cur[2] - prev[2]);
+        prev = cur; last = cur;
+      }
+      check(`根元ほど明るく、隣接ストップ間で明度が折り返さない(base=${base.join(",")})`,
+        backL <= TOL_L && last[0] - first[0] > 0.10,
+        `先端L=${first[0].toFixed(4)} → 根元L=${last[0].toFixed(4)} / 最大の逆行=${backL.toFixed(5)}`);
+      check(`先端ほど濃く、隣接ストップ間で彩度が折り返さない(base=${base.join(",")})`,
+        backC <= TOL_C && first[1] - last[1] > 0.015,
+        `先端C=${first[1].toFixed(4)} → 根元C=${last[1].toFixed(4)} / 最大の逆行=${backC.toFixed(5)}`);
+      check(`色相が先端から根元へ4°以上動き、隣接ストップ間で折り返さない(base=${base.join(",")})`,
+        backH <= TOL_H && first[2] - last[2] > 4,
+        `先端H=${first[2].toFixed(2)} → 根元H=${last[2].toFixed(2)} / 最大の逆行=${backH.toFixed(3)}`);
+    }
+  }
+  // **帯の長さで正規化していない**ことの検査:
+  // 長さの違う2本の帯で、先端から同じ弧長だけ入った点の色が一致すること。
+  // 「帯の長さで割る」実装に戻すと、短い帯の色が先に飽和して一致しなくなる。
+  {
+    let ok = true, detail = "";
+    for (const s of [0, 5, 12, 24, 40]) {
+      const a = api.ringRampRGB(GREEN, s).join(",");
+      const b = api.ringRampRGB(GREEN, s).join(",");
+      if (a !== b) { ok = false; break; }
+      // 実際の帯(±8¢ と ±24¢)のストップ列から、先端から s に最も近いストップの色を引く
+      const colorAt = (cents) => {
+        const deg = (cents / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG;
+        const stops = api.ringGradientStops(0, deg);
+        let best = stops[0];
+        for (const st of stops) if (Math.abs(st.s - s) < Math.abs(best.s - s)) best = st;
+        return { s: best.s, c: api.ringRampRGB(GREEN, best.s) };
+      };
+      const short = colorAt(8), long = colorAt(24);
+      // 同じ弧長 s の色は帯の長さに依存しない。ストップの刻みぶんの差だけ許す。
+      const cShort = api.ringRampRGB(GREEN, short.s).join(",");
+      const cShortByS = api.ringRampRGB(GREEN, short.s).join(",");
+      if (cShort !== cShortByS) { ok = false; detail = "不定"; break; }
+      const dLong = api.ringRampRGB(GREEN, long.s);
+      const dShort = api.ringRampRGB(GREEN, short.s);
+      if (Math.abs(short.s - long.s) < 0.6 && dShort.join(",") !== dLong.join(",")) {
+        ok = false; detail = `s=${s}: 短い帯=${dShort.join(",")} / 長い帯=${dLong.join(",")}`;
+      }
+    }
+    check("色は先端からの絶対弧長だけで決まる(帯の長さに依存しない)", ok, detail);
+  }
+  // 上の検査だけだと「ringRampRGB が s しか受け取らない」ことの言い換えになりかねないので、
+  // **描画で使う色列そのもの**を比べる: ±8¢ と ±24¢ の帯で、先端から重なる範囲の
+  // 色が一致すること。帯の長さで正規化すると、この重なりが崩れる。
+  {
+    const rampAt = (cents) => {
+      const deg = (cents / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG;
+      return api.ringGradientStops(0, deg).map((st) => ({ s: st.s, c: api.ringRampRGB(GREEN, st.s).join(",") }));
+    };
+    const shortR = rampAt(8), longR = rampAt(24);
+    let maxDiff = 0;
+    for (const st of shortR) {
+      // 長い帯の中で同じ弧長にあたる色(線形補間せず最近傍)
+      let best = longR[0];
+      for (const q of longR) if (Math.abs(q.s - st.s) < Math.abs(best.s - st.s)) best = q;
+      const a = st.c.split(",").map(Number), b = best.c.split(",").map(Number);
+      // 弧長の差ぶんは色が違って当然なので、弧長差が小さいものだけ比べる
+      if (Math.abs(best.s - st.s) <= 0.6) {
+        maxDiff = Math.max(maxDiff, Math.max(...[0, 1, 2].map((k) => Math.abs(a[k] - b[k]))));
+      }
+    }
+    check("±8¢の帯と±24¢の帯は、先端から同じ弧長の位置で同じ色になる", maxDiff <= 2, `最大差=${maxDiff}`);
+  }
+  // 隣接ストップ間の明度差(断層の指標)。ストップは角度で等分するので、帯が長いほど
+  // 1ストップあたりの弧長が伸びて差は大きくなる。実用域(±10¢)で十分小さいことを見る。
+  {
+    const dLOf = (cents) => {
+      const deg = (cents / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG;
+      const stops = api.ringGradientStops(0, deg);
+      const base = api.pitchBarColorRGB(cents);
+      let prev = null, worst = 0;
+      for (const st of stops) {
+        const L = api.oklabToOklch(api.rgbToOklab(api.ringRampRGB(base, st.s)))[0];
+        if (prev !== null) worst = Math.max(worst, Math.abs(L - prev));
+        prev = L;
+      }
+      return worst;
+    };
+    const measured = [2, 5, 8, 10, 24, 50].map((c) => [c, dLOf(c)]);
+    const practical = Math.max(...measured.filter(([c]) => c <= 10).map(([, d]) => d));
+    const all = Math.max(...measured.map(([, d]) => d));
+    check("実用域(±10¢)の帯で隣接ストップ間の明度差が 0.012 未満(断層が出ない)", practical < 0.012,
+      `最大 ΔL=${practical.toFixed(5)}`);
+    check("最も長い帯(±50¢)でも隣接ストップ間の明度差が 0.04 未満", all < 0.04, `最大 ΔL=${all.toFixed(5)}`);
+    console.log(`  隣接ストップ間の最大明度差: ${measured.map(([c, d]) => `${c}¢:${d.toFixed(5)}`).join(" / ")}`);
+    // 帯の根元・先端の色も記録に残す(報告用)。
+    console.log(`  帯の色(根元→先端): ${[2, 5, 8, 10, 24].map((c) => {
+      const deg = (c / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG;
+      const st = api.ringGradientStops(0, deg);
+      const base = api.pitchBarColorRGB(c);
+      const a = api.ringRampRGB(base, st[0].s), b = api.ringRampRGB(base, st[st.length - 1].s);
+      return `${c}¢ rgb(${a.join(",")})→rgb(${b.join(",")})`;
+    }).join(" / ")}`);
+  }
+
+  // ------------------------------------------------------------------
+  // B-2. ストップの位置 — 弧を弦へ**射影**する(等間隔に戻すと落ちる)。
+  // ------------------------------------------------------------------
+  {
+    const deg = api.RING_SWEEP_DEG; // 110°の帯(最長)
+    const stops = api.ringGradientStops(0, deg);
+    check("ストップ数はグラデーションでも30", stops.length === api.RING_RAMP_STOPS);
+    check("offset は 0 から 1 まで", Math.abs(stops[0].offset) < 1e-12 && Math.abs(stops[stops.length - 1].offset - 1) < 1e-12,
+      `${stops[0].offset} … ${stops[stops.length - 1].offset}`);
+    check("offset は非減少", stops.every((st, i) => i === 0 || st.offset >= stops[i - 1].offset - 1e-12));
+    check("先端の弧長は0・根元の弧長は帯の全長", (() => {
+      const total = (deg * Math.PI / 180) * api.RING_R;
+      return Math.abs(stops[stops.length - 1].s) < 1e-9 && Math.abs(stops[0].s - total) < 1e-9;
+    })(), `根元s=${stops[0].s.toFixed(3)}`);
+    // 射影していることの実証: 等間隔(i/29)とは実際にずれる。
+    let maxDev = 0;
+    for (let i = 0; i < stops.length; i++) {
+      maxDev = Math.max(maxDev, Math.abs(stops[i].offset - i / (stops.length - 1)));
+    }
+    check("110°の帯で offset は等間隔から明確にずれる(=弦へ射影している)", maxDev > 0.01,
+      `等間隔との最大差=${maxDev.toFixed(4)}`);
+    // 射影の正しさ: 各ストップの点が、弦の上でその offset の位置に落ちること。
+    {
+      const [x0, y0] = api.ringPoint(0, api.RING_R, api.RING_CX, api.RING_CY);
+      const [x1, y1] = api.ringPoint(deg, api.RING_R, api.RING_CX, api.RING_CY);
+      let ok = true, worst = 0;
+      for (let i = 0; i < stops.length; i++) {
+        const phi = (deg * i) / (stops.length - 1);
+        const [px, py] = api.ringPoint(phi, api.RING_R, api.RING_CX, api.RING_CY);
+        // 弦上の offset 位置と、弧上の点との差は弦に**垂直**であること(=射影になっている)
+        const qx = x0 + (x1 - x0) * stops[i].offset, qy = y0 + (y1 - y0) * stops[i].offset;
+        const dot = (px - qx) * (x1 - x0) + (py - qy) * (y1 - y0);
+        worst = Math.max(worst, Math.abs(dot));
+        if (Math.abs(dot) > 1e-6) ok = false;
+      }
+      check("各ストップは弧上の点を弦へ垂直に落とした位置にある", ok, `最大内積=${worst.toExponential(2)}`);
+    }
+    check("負の角度(低い側)でも offset は非減少で 0→1", (() => {
+      const s2 = api.ringGradientStops(0, -api.RING_SWEEP_DEG);
+      return Math.abs(s2[0].offset) < 1e-12 && Math.abs(s2[s2.length - 1].offset - 1) < 1e-12
+        && s2.every((st, i) => i === 0 || st.offset >= s2[i - 1].offset - 1e-12);
+    })());
+    check("長さ0の弧でも例外を投げない", (() => {
+      const s0 = api.ringGradientStops(0, 0);
+      return s0.length === api.RING_RAMP_STOPS && s0.every((st) => st.offset === 0 && st.s === 0);
+    })());
+  }
+
+  // ------------------------------------------------------------------
+  // B-3. 描画側(JSX)の契約 — linecap は butt / 帯に stop-opacity を書かない /
+  //      先端の点は無い。
+  // ------------------------------------------------------------------
+  check("帯に丸端(linecap round)を使っていない", !/strokeLinecap="round"/.test(
+    (ringCode.match(/<path[\s\S]*?\/>/g) || []).join("\n")),
+    (ringCode.match(/<path[^>]*strokeLinecap="[a-z]+"/g) || []).join(" | "));
+  check("帯とグラデーションの path はすべて linecap=butt",
+    (ringCode.match(/<path[\s\S]*?\/>/g) || []).filter((t) => /strokeWidth=\{SW\}/.test(t))
+      .every((t) => /strokeLinecap="butt"/.test(t)),
+    (ringCode.match(/<path[\s\S]*?\/>/g) || []).filter((t) => /strokeWidth=\{SW\}/.test(t)).length + "本");
+  {
+    const linear = ringCode.match(/<linearGradient[\s\S]*?<\/linearGradient>/g) || [];
+    // ソース上は2箇所(ズレの帯 + 走りの弧)。走りのほうは runGradIds(左右2本)を map するので
+    // 実際に描かれる linearGradient は3つになる。
+    check("linearGradient はソース上2箇所(ズレの帯 + 走りの左右をmapする1箇所)", linear.length === 2, `${linear.length}個`);
+    check("走りのグラデーションは左右2本ぶん作られる",
+      /const runGradIds = \[`ring-run-l-\$\{uid\}`, `ring-run-r-\$\{uid\}`\];/.test(codeOf(src))
+      && /runGradIds\.map\(\(gid, k\) => \(\s*<linearGradient/.test(ringCode));
+    check("帯のグラデーションに stop-opacity を1つも書いていない",
+      linear.every((blk) => !/stopOpacity|stop-opacity/.test(blk)));
+    check("帯の path に不透明度を指定していない(属性でもstyleでも)",
+      !(ringCode.match(/<path[\s\S]*?\/>/g) || []).some((t) => /opacity/i.test(t)));
+    // rAF が書き換えるのは帯側では offset と stop-color だけ。stop-opacity を書くのは
+    // 光の1箇所のみ(走りの帯に透明度が入ると根元から下地が透ける)。
+    check("rAF が stop-opacity を書くのは光の1箇所だけ",
+      (ringCode.match(/setAttribute\("stop-opacity"/g) || []).length === 1,
+      `${(ringCode.match(/setAttribute\("stop-opacity"/g) || []).length}箇所`);
+    check("走りのストップに書くのは offset と stop-color だけ",
+      /el\.setAttribute\("offset", list\[i\]\.offset\.toFixed\(5\)\);/.test(ringCode)
+      && /el\.setAttribute\("stop-color", `rgb\(\$\{c\[0\]\},\$\{c\[1\]\},\$\{c\[2\]\}\)`\);/.test(ringCode));
+    // ズレの帯のグラデーションの軸は「根元(12時)→先端(現在位置)」の弦。
+    check("ズレの帯のグラデーションの軸は根元→先端の弦",
+      /x1=\{sx\.toFixed\(2\)\} y1=\{sy\.toFixed\(2\)\} x2=\{mx\.toFixed\(2\)\} y2=\{my\.toFixed\(2\)\}/.test(ringCode)
+      && /const \[sx, sy\] = ringPoint\(0, R, CX, CY\);/.test(ringCode)
+      && /const \[mx, my\] = ringPoint\(deg, R, CX, CY\);/.test(ringCode));
+    // 到達している間はズレの帯を描かない(±1¢ の帯は線幅より短く、全周の帯と重なって
+    // 12時に継ぎ目として見えるため)。走りが全周を覆うので情報も失われない。
+    check("到達している間はズレの帯を描かない",
+      /const arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);/.test(ringCode));
+    check("グラデーションはユーザー座標系(弦を軸にする)",
+      linear.every((blk) => /gradientUnits="userSpaceOnUse"/.test(blk)));
+  }
+  check("帯の先端に点(circle)を置いていない",
+    !/RING_PITCH_DOT_R/.test(codeOf(src)) && !/<circle cx=\{mx\}/.test(ringCode));
+  // 環の中(SVG)では ficus-breathe(要素全体の透明度アニメ)を使わない。
+  // 到達は走り＋外側の光で返す。透明度で環そのものを薄くすると下地が透ける。
+  check("環のSVGの中で ficus-breathe を使っていない", (() => {
+    const a = ringCode.indexOf("<svg"), b = ringCode.indexOf("</svg>");
+    return a >= 0 && b > a && !/ficus-breathe/.test(ringCode.slice(a, b));
+  })());
+
+  // ------------------------------------------------------------------
+  // B-4. 描画の配線(JSX)。
+  //
+  // 【なぜ綴りで縛るのか】このハーネスは関数と定数を抽出して評価する方式なので、
+  // **描画側を壊しても純関数のテストは緑のまま通る**(LOOP.md の既知の弱点 F-19/F-24)。
+  // 審査で「グラデーションを stroke から外す」「帯を描く条件を false にする」
+  // 「ストップの色を先端一色にする」等がすべて素通りした。ここはその穴を塞ぐ区画で、
+  // **見た目を決めている配線を1本ずつ名指しする**。値の正しさは他の区画が見ている。
+  // ------------------------------------------------------------------
+  {
+    const svg = ringCode.slice(ringCode.indexOf("<svg"), ringCode.indexOf("</svg>"));
+    const flat = svg.replace(/\s*\n\s*/g, " ");
+    // (a) 帯・走りの色は必ずグラデーションから引く。単色に置き換えるとランプが死ぬ。
+    check("ズレの帯の stroke はズレの帯のグラデーション",
+      /<path d=\{arcD\} fill="none" stroke=\{`url\(#\$\{barGradId\}\)`\} strokeWidth=\{SW\} strokeLinecap="butt" \/>/.test(flat),
+      (flat.match(/<path d=\{arcD\}[^/]*\/>/) || [""])[0].slice(0, 120));
+    check("走りの弧の stroke は走りのグラデーション(左右それぞれの id)",
+      /d="" fill="none" stroke=\{`url\(#\$\{gid\}\)`\} strokeWidth=\{SW\} strokeLinecap="butt"/.test(flat));
+    check("stroke に単色を直接入れている path が無い(必ず url(#…) を通す)", (() => {
+      const paths = flat.match(/<path[\s\S]*?\/>/g) || [];
+      return paths.length > 0 && paths.every((t) => !/stroke=/.test(t) || /stroke=\{`url\(#/.test(t));
+    })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/stroke=\{[^}]*\}/.exec(t) || [""])[0]).join(" | "));
+    check("ズレの帯のストップの色は各ストップの弧長 s から引く(先端一色にしない)",
+      /const c = ringRampRGB\(\[r, g, b\], st\.s\);/.test(ringCode));
+    check("ズレの帯のストップは barStops をそのまま並べる",
+      /\{barStops\.map\(\(st, i\) => \{/.test(ringCode)
+      && /const barStops = ringGradientStops\(0, deg\);/.test(ringCode));
+    // (b) 描画の条件。false に潰すと帯そのものが消える。
+    check("ズレの帯は「音が鳴っていて arcD がある」ときに描く",
+      /\{sounding && arcD && \(/.test(ringCode));
+    check("拍の要素は getBeatPhase が渡されたときだけ描く", /\{getBeatPhase && \(/.test(ringCode));
+    // (c) 半径。役割ごとに違う半径を使い分けているので、取り違えると二役が崩れる。
+    check("環のトラックの半径は R(=RING_R)",
+      /<circle cx=\{CX\} cy=\{CY\} r=\{R\} fill="none" strokeWidth=\{SW\} style=\{\{ stroke: "var\(--c-line\)" \}\} \/>/.test(flat));
+    check("拍の点は RING_BEAT_DOT_ORBIT_R の上に並べる(環のトラックに乗せない)",
+      /ringPoint\(ringBeatDotDeg\(i, dotCount\), RING_BEAT_DOT_ORBIT_R, CX, CY\)/.test(ringCode));
+    check("錘は RING_PEND_R の軌道を回る(環のトラックに乗せない)",
+      /ringPoint\(ringPendDeg\(phase\), RING_PEND_R, RING_CX, RING_CY\)/.test(ringCode));
+    check("錘と輪の初期位置も RING_PEND_R(12時)",
+      (flat.match(/cx=\{CX\} cy=\{CY - RING_PEND_R\}/g) || []).length === 2);
+    // (d) 線幅。SW 以外を混ぜると帯と走りの太さが揃わない。
+    check("SW で描く path は帯と走りの2本だけで、太さはどちらも SW ちょうど", (() => {
+      const paths = flat.match(/<path[\s\S]*?\/>/g) || [];
+      const sw = paths.filter((t) => /strokeWidth=\{SW\}/.test(t));
+      const other = paths.filter((t) => /strokeWidth=/.test(t) && !/strokeWidth=\{SW\}/.test(t));
+      return sw.length === 2 && other.length === 0;
+    })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/strokeWidth=\{[^}]*\}/.exec(t) || ["(線幅なし)"])[0]).join(" | "));
+    // (e) 重ね順。光は一番奥、拍は一番手前。入れ替えると光が帯を覆う/拍が帯に隠れる。
+    check("重ね順は 光 → トラック → 12時の基準 → 走り → ズレの帯 → 拍", (() => {
+      const order = [
+        flat.indexOf("fill={`url(#${glowGradId})`}"),
+        flat.indexOf('r={R} fill="none" strokeWidth={SW}'),
+        flat.indexOf('strokeWidth="3" strokeLinecap="round"'),
+        flat.indexOf('d="" fill="none" stroke={`url(#${gid})`}'),
+        flat.indexOf("<path d={arcD}"),
+        flat.indexOf("{getBeatPhase && ("),
+      ];
+      return order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1]));
+    })());
+  }
+  // (f) 到達の判定は1箇所だけ。rAF に渡す値を別式にすり替える変異が通っていた。
+  check("到達の判定は ringCode 内で1箇所だけ(閾値の二重定義が無い)",
+    (ringCode.match(/Math\.abs\(exact\)/g) || []).length === 1,
+    `Math.abs(exact) が ${(ringCode.match(/Math\.abs\(exact\)/g) || []).length}箇所`);
+  check("rAF に渡す到達判定は const inTune をそのまま渡す(別式に置き換えない)",
+    /liveRef\.current = \{ inTune, base: \[r, g, b\] \};/.test(ringCode));
+
+  // ------------------------------------------------------------------
+  // C. 合格判定は ±1¢。
+  // ------------------------------------------------------------------
+  check("RING_IN_TUNE_CENTS は 1", api.RING_IN_TUNE_CENTS === 1, String(api.RING_IN_TUNE_CENTS));
+  check("判定に使う定数は RING_IN_TUNE_CENTS だけ(閾値の直書きが無い)",
+    /const inTune = sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
+
+  // ------------------------------------------------------------------
+  // D-1. 走り — 640ms・ease-out cubic・12時から両サイドへ対称。
+  // ------------------------------------------------------------------
+  check("RING_RUN_MS は 640", api.RING_RUN_MS === 640, String(api.RING_RUN_MS));
+  check("イージングは ease-out cubic", (() => {
+    for (let p = 0; p <= 1.0001; p += 0.001) {
+      if (Math.abs(api.ringRunEase(p) - (1 - Math.pow(1 - p, 3))) > 1e-12) return false;
+    }
+    return true;
+  })());
+  check("イージングは linear ではない(中間で明確に先行する)",
+    api.ringRunEase(0.5) - 0.5 > 0.3, String(api.ringRunEase(0.5)));
+  check("イージングは0で0・1で1、単調増加", (() => {
+    if (api.ringRunEase(0) !== 0 || api.ringRunEase(1) !== 1) return false;
+    let prev = -1;
+    for (let p = 0; p <= 1.0001; p += 0.001) { const v = api.ringRunEase(p); if (v < prev) return false; prev = v; }
+    return api.ringRunEase(-1) === 0 && api.ringRunEase(2) === 1;
+  })());
+  // 走行中の角度。仕様書にある試作の実測表(60ms=41.4° / 180ms=104.1° / 360ms=157.5°)は
+  // **720msの試作**で採ったもの。同じイージングなら 720ms を入れた式が表を再現する。
+  // 本実装の 640ms では比例して速くなる(表より大きい角度になる)。
+  {
+    const proto = [[60, 41.4], [180, 104.1], [360, 157.5], [720, 180]];
+    let ok = true;
+    const protoGot = [];
+    for (const [ms, degExp] of proto) {
+      const d = 180 * api.ringRunEase(ms / 720);
+      protoGot.push(`${ms}ms:${d.toFixed(1)}`);
+      if (Math.abs(d - degExp) > 0.06) ok = false;
+    }
+    check("イージングが試作(720ms)の実測表を再現する(60/180/360/720ms)", ok, protoGot.join(" "));
+    const got = [60, 180, 360, 640].map((ms) => `${ms}ms:${(180 * api.ringRunEase(ms / api.RING_RUN_MS)).toFixed(1)}°`);
+    check("640msでは試作(720ms)より速く進む(同じ時刻で角度が大きい)",
+      [60, 180, 360].every((ms) => 180 * api.ringRunEase(ms / 640) > 180 * api.ringRunEase(ms / 720)));
+    console.log(`  走りの角度(640ms・左右とも): ${got.join(" / ")}`);
+    console.log(`  同じ式に720msを入れた値(試作の実測表と照合): ${protoGot.join(" / ")}`);
+  }
+  // ------------------------------------------------------------------
+  // D-1b. 走りの終端 — ±180.0000° ちょうどで閉じること。
+  //
+  // 【過去の欠陥】rAF は書き換えの間引きに p.toFixed(4) をキーとして使うが、以前は
+  // キーだけを丸め、描画には量子化前の p を渡していた。toFixed は四捨五入なので
+  // t=617ms(p=0.99996)でキーが "1.0000" に丸まり、以降キーが変わらず**最終フレームが
+  // 書かれなかった**。終端が ±179.9916° で止まり、6時に 0.044 CSS px の隙間が残る
+  // (審査で8倍解像度のラスタから1画素検出された)。
+  // ringRunQuantP で切り捨て量子化し、キーの値と描画に使う値を一致させて直した。
+  // ------------------------------------------------------------------
+  check("走り切る前のどの時刻でも量子化後の進捗は1にならない(0.01ms刻み)", (() => {
+    for (let ms = 0; ms <= api.RING_RUN_MS - 0.01; ms += 0.01) {
+      if (api.ringRunQuantP(api.ringRunProgress(0, ms)) >= 1) return false;
+    }
+    return true;
+  })());
+  // 旧実装が実際に止まっていた時刻。toFixed(4) で丸めると t=617ms でキーが "1.0000" になった。
+  check("t=617ms(旧実装が終端を書かなくなった時刻)でも進捗はまだ1未満", (() => {
+    const q = api.ringRunQuantP(api.ringRunProgress(0, 617));
+    const old = api.ringRunEase(api.ringRunProgress(0, 617));
+    return q < 1 && old.toFixed(4) === "1.0000";
+  })(), `量子化後=${api.ringRunQuantP(api.ringRunProgress(0, 617))} / 旧キー="${api.ringRunEase(api.ringRunProgress(0, 617)).toFixed(4)}" / 旧実装の広がり=${(180 * api.ringRunEase(api.ringRunProgress(0, 617))).toFixed(4)}°`);
+  check("進捗が1になったら量子化後もちょうど1", api.ringRunQuantP(1) === 1 && api.ringRunQuantP(2) === 1);
+  check("量子化は切り捨て(イージング値を超えない・差は 1e-4 未満)", (() => {
+    for (let raw = 0; raw <= 1.0001; raw += 0.0005) {
+      const q = api.ringRunQuantP(raw), e = api.ringRunEase(raw);
+      if (q > e + 1e-12) return false;
+      if (e - q >= 1e-4) return false;
+    }
+    return true;
+  })());
+  // 実際の rAF ループと同じ間引き(キー)を回して、**最後に DOM へ書かれた広がり**を取る。
+  {
+    const frameSpread = (ms) => 180 * api.ringRunQuantP(api.ringRunProgress(0, ms));
+    let lastKey = "", lastSpread = null, lastMs = null;
+    for (let ms = 0; ms <= api.RING_RUN_MS + 200; ms += 0.5) {
+      const p = api.ringRunQuantP(api.ringRunProgress(0, ms));
+      const key = p <= 0 ? "off" : `${p.toFixed(4)}|22,163,74`;
+      if (key !== lastKey) { lastKey = key; lastSpread = 180 * p; lastMs = ms; }
+    }
+    check("最後に書き換えられるフレームの広がりはちょうど180.0000°", lastSpread === 180,
+      `${lastSpread}° @${lastMs}ms`);
+    check("その最終書き換えは走り切った時刻(RING_RUN_MS)で起きる", lastMs === api.RING_RUN_MS,
+      `${lastMs}ms / RING_RUN_MS=${api.RING_RUN_MS}`);
+    const [lx, ly] = api.ringPoint(-lastSpread, api.RING_R, api.RING_CX, api.RING_CY);
+    const [rx, ry] = api.ringPoint(lastSpread, api.RING_R, api.RING_CX, api.RING_CY);
+    check("左右の弧の先端は6時ちょうどで重なる(隙間0)",
+      Math.abs(lx - rx) < 1e-9 && Math.abs(ly - ry) < 1e-9
+      && Math.abs(lx - api.RING_CX) < 1e-9 && Math.abs(ly - (api.RING_CY + api.RING_R)) < 1e-9,
+      `左(${lx.toFixed(6)},${ly.toFixed(6)}) / 右(${rx.toFixed(6)},${ry.toFixed(6)})`);
+    // 隙間を CSS px でも出しておく(実寸 = viewBox × RING_D_FULL/RING_VB)。
+    const gapPx = Math.hypot(lx - rx, ly - ry) * (api.RING_D_FULL / api.RING_VB);
+    // 旧実装(179.9916°)では 0.044 CSS px の隙間が残り、8倍解像度のラスタで1画素検出された。
+    const gapOld = Math.hypot(
+      ...(() => {
+        const s = 180 * api.ringRunEase(api.ringRunProgress(0, 617));
+        const [ax, ay] = api.ringPoint(-s, api.RING_R, api.RING_CX, api.RING_CY);
+        const [bx, by] = api.ringPoint(s, api.RING_R, api.RING_CX, api.RING_CY);
+        return [ax - bx, ay - by];
+      })()
+    ) * (api.RING_D_FULL / api.RING_VB);
+    check("6時の隙間は実質0 CSS px(浮動小数の誤差 1e-9 px 未満)", gapPx < 1e-9, `${gapPx.toExponential(2)} CSS px`);
+    check("旧実装(終端179.9916°)なら隙間が残る = この検査は空振りではない",
+      gapOld > 0.03 && gapOld < 0.06, `旧実装の隙間=${gapOld.toFixed(4)} CSS px`);
+    console.log(`  走りの終端: ${lastSpread.toFixed(4)}° @${lastMs}ms / 6時の隙間 ${gapPx} CSS px`);
+    check("走り切る前は閉じていない(RING_RUN_MS の1ms手前で360°未満)",
+      frameSpread(api.RING_RUN_MS - 1) * 2 < 360, `${(frameSpread(api.RING_RUN_MS - 1) * 2).toFixed(4)}°`);
+    check("走り始めから RING_RUN_MS 後にちょうど全周(360°)が閉じる",
+      frameSpread(api.RING_RUN_MS) * 2 === 360 && frameSpread(api.RING_RUN_MS + 500) * 2 === 360,
+      `RING_RUN_MS=${api.RING_RUN_MS}ms で ${frameSpread(api.RING_RUN_MS) * 2}°`);
+  }
+  // 左右対称: 左弧は -180p→0、右弧は +180p→0。同じ p で角度の絶対値が等しい。
+  check("左右の弧は常に対称(角度・弧長・色すべて)", (() => {
+    for (let p = 0; p <= 1.0001; p += 0.01) {
+      const spread = 180 * api.ringRunEase(p);
+      if (spread <= 0) continue;
+      const l = api.ringGradientStops(-spread, 0), r = api.ringGradientStops(spread, 0);
+      for (let i = 0; i < l.length; i++) {
+        if (Math.abs(l[i].offset - r[i].offset) > 1e-9) return false;
+        if (Math.abs(l[i].s - r[i].s) > 1e-9) return false;
+      }
+      // 端点も左右対称(x が中心から等距離・y が同じ)
+      const [lx, ly] = api.ringPoint(-spread, api.RING_R, api.RING_CX, api.RING_CY);
+      const [rx, ry] = api.ringPoint(spread, api.RING_R, api.RING_CX, api.RING_CY);
+      if (Math.abs((lx - api.RING_CX) + (rx - api.RING_CX)) > 1e-9) return false;
+      if (Math.abs(ly - ry) > 1e-9) return false;
+    }
+    return true;
+  })());
+  // 【名乗りに注意】これは ringPoint(±180) が真下を指すことの確認だけで、走りには触れない。
+  // 「走り切って6時で出会う」の検査は D-1b(走りの終端)にある。
+  check("ringPoint(±180°) は環の真下(6時)を指す", (() => {
+    const [lx, ly] = api.ringPoint(-180, api.RING_R, api.RING_CX, api.RING_CY);
+    const [rx, ry] = api.ringPoint(180, api.RING_R, api.RING_CX, api.RING_CY);
+    return Math.abs(lx - api.RING_CX) < 1e-9 && Math.abs(rx - api.RING_CX) < 1e-9
+      && Math.abs(ly - (api.RING_CY + api.RING_R)) < 1e-9 && Math.abs(ry - (api.RING_CY + api.RING_R)) < 1e-9;
+  })());
+  // 走りのランプは「深い端が12時」の向き。to=0(12時)で s=0 になる。
+  check("走りのランプは深い端(s=0)が12時に来る", (() => {
+    const st = api.ringGradientStops(-90, 0);
+    return Math.abs(st[st.length - 1].s) < 1e-9 && st[0].s > 100;
+  })());
+  // 描画側も「左右で同じ広がり・向きは 12時(to=0)へ」であること。
+  // 片側だけ係数を変える/向きを反転する変異は、純関数の対称性テストだけでは捕まらない。
+  check("描画は左右とも from=±spread, to=0(同じ広がり・深い端は12時)",
+    /const from = \(k === 0 \? -1 : 1\) \* spread, to = 0;/.test(ringCode));
+  check("走りの広がりは量子化した進捗×180°",
+    /const spread = 180 \* p;/.test(ringCode) && /const p = ringRunQuantP\(raw\);/.test(ringCode));
+  // キーの値と描画に使う値が同じ p であること。分けると最終フレームが書かれない(D-1b)。
+  check("書き換えの間引きキーは描画に使う p そのものから作る",
+    /const key = p <= 0 \? "off" : `\$\{p\.toFixed\(4\)\}\|\$\{base\.join\(","\)\}`;/.test(ringCode));
+  check("走りの左右は2本とも書き換える(k は 0 と 1)",
+    /for \(let k = 0; k < 2; k\+\+\) \{/.test(ringCode));
+  check("走りの弧の d は ringArcD(from, to) の出力をそのまま入れる",
+    /path\.setAttribute\("d", ringArcD\(from, to\)\);/.test(ringCode));
+  check("走りのグラデーションの軸は from→to の端点(弦)に毎フレーム合わせる",
+    /grad\.setAttribute\("x1", ax\.toFixed\(2\)\);/.test(ringCode)
+    && /grad\.setAttribute\("y1", ay\.toFixed\(2\)\);/.test(ringCode)
+    && /grad\.setAttribute\("x2", bx\.toFixed\(2\)\);/.test(ringCode)
+    && /grad\.setAttribute\("y2", by\.toFixed\(2\)\);/.test(ringCode));
+  check("走りのストップの色は各ストップの弧長 s から引く(先端一色のベタ塗りにしない)",
+    /const c = ringRampRGB\(base, list\[i\]\.s\);/.test(ringCode));
+  check("走りの進捗は 0〜1 にクランプされる",
+    api.ringRunProgress(1000, 500) === 0 && api.ringRunProgress(1000, 1000) === 0
+    && Math.abs(api.ringRunProgress(1000, 1000 + api.RING_RUN_MS / 2) - 0.5) < 1e-12
+    && api.ringRunProgress(1000, 99999) === 1 && api.ringRunProgress(null, 1000) === 0);
+
+  // ------------------------------------------------------------------
+  // D-2/D-3. 光と呼吸。
+  // ------------------------------------------------------------------
+  check("RING_GLOW_AMP は 0.90", api.RING_GLOW_AMP === 0.90, String(api.RING_GLOW_AMP));
+  check("光の内縁は環の帯の外縁と一致する", (() => {
+    const want = ((api.RING_R + api.RING_SW / 2) / (api.RING_VB / 2)) * 100;
+    return Math.abs(api.RING_GLOW_EDGE_PCT - want) < 1e-12 && Math.abs(want - 95.33333333333333) < 1e-9;
+  })(), `${api.RING_GLOW_EDGE_PCT}%`);
+  check("光は環の外側だけ(内縁が音名の領域に食い込まない)",
+    api.RING_GLOW_EDGE_PCT > 90 && api.RING_GLOW_EDGE_PCT < 100, `${api.RING_GLOW_EDGE_PCT}%`);
+  check("呼吸の周期は2600ms・上りは0.50",
+    api.RING_BREATH_MS === 2600 && api.RING_BREATH_RISE === 0.50,
+    `${api.RING_BREATH_MS}ms / ${api.RING_BREATH_RISE}`);
+  check("呼吸は 0→1→0 を周期で繰り返す(正弦波ではなく smoothstep の上り下り)", (() => {
+    if (Math.abs(api.ringBreath(0)) > 1e-12) return false;
+    if (Math.abs(api.ringBreath(api.RING_BREATH_MS * api.RING_BREATH_RISE) - 1) > 1e-12) return false;
+    if (Math.abs(api.ringBreath(api.RING_BREATH_MS - 1e-9)) > 1e-6) return false;
+    // 周期性
+    for (const t of [123, 777, 2599]) {
+      if (Math.abs(api.ringBreath(t) - api.ringBreath(t + api.RING_BREATH_MS * 3)) > 1e-9) return false;
+    }
+    return true;
+  })());
+  check("呼吸は正弦波ではない(smoothstep を上り下りに分けたもの)", (() => {
+    let maxD = 0;
+    for (let t = 0; t < api.RING_BREATH_MS; t += 1) {
+      const sine = 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / api.RING_BREATH_MS);
+      maxD = Math.max(maxD, Math.abs(api.ringBreath(t) - sine));
+    }
+    // 実測: 正弦波との最大差は 0.0100。閾値はその半分に置く。
+    return maxD > 0.005;
+  })());
+  check("呼吸は仕様の式(上り smoothstep(u/rise) / 下り 1-smoothstep((u-rise)/(1-rise)))そのもの", (() => {
+    for (let t = 0; t < api.RING_BREATH_MS * 2; t += 3) {
+      const u = ((t % api.RING_BREATH_MS) + api.RING_BREATH_MS) % api.RING_BREATH_MS / api.RING_BREATH_MS;
+      const want = u < api.RING_BREATH_RISE
+        ? api.ringSmoothstep(u / api.RING_BREATH_RISE)
+        : 1 - api.ringSmoothstep((u - api.RING_BREATH_RISE) / (1 - api.RING_BREATH_RISE));
+      if (Math.abs(api.ringBreath(t) - want) > 1e-12) return false;
+    }
+    return true;
+  })());
+  check("上りと下りが同じ長さ(rise=0.50 なので山は周期のちょうど中央)", (() => {
+    // 山の位置を波形そのものから探す(定数の言い換えにしない)
+    let peakT = 0, peak = -1;
+    for (let t = 0; t < api.RING_BREATH_MS; t += 1) { const v = api.ringBreath(t); if (v > peak) { peak = v; peakT = t; } }
+    return Math.abs(peakT / api.RING_BREATH_MS - 0.5) < 0.002 && Math.abs(peak - 1) < 1e-9;
+  })(), (() => { let pt = 0, p = -1; for (let t = 0; t < api.RING_BREATH_MS; t += 1) { const v = api.ringBreath(t); if (v > p) { p = v; pt = t; } } return `山=${pt}ms/${api.RING_BREATH_MS}ms`; })());
+  check("呼吸は両端で変化が緩く中ほどが速い(上り区間で単調増加・微分が山型)", (() => {
+    const h = 1;
+    let prev = -1, dPrev = 0, rose = false, fell = false;
+    for (let t = 0; t <= api.RING_BREATH_MS * api.RING_BREATH_RISE; t += 5) {
+      const v = api.ringBreath(t);
+      if (v < prev - 1e-12) return false;
+      const d = api.ringBreath(t + h) - api.ringBreath(t);
+      if (t > 0) { if (d > dPrev + 1e-12) rose = true; if (d < dPrev - 1e-12) fell = true; }
+      dPrev = d; prev = v;
+    }
+    return rose && fell;
+  })());
+  check("呼吸は0〜1に収まる", (() => {
+    for (let t = 0; t < api.RING_BREATH_MS * 3; t += 7) {
+      const v = api.ringBreath(t);
+      if (v < -1e-12 || v > 1 + 1e-12) return false;
+    }
+    return true;
+  })());
+  check("光の不透明度 = AMP × 線形進捗 × (0.34 + 0.66×呼吸)", (() => {
+    for (const raw of [0, 0.25, 0.5, 1]) {
+      for (const br of [0, 0.5, 1]) {
+        const want = api.RING_GLOW_AMP * raw * (0.34 + 0.66 * br);
+        if (Math.abs(api.ringGlowOpacity(raw, br) - want) > 1e-12) return false;
+      }
+    }
+    return true;
+  })());
+  check("走りが始まる前は光が出ていない", api.ringGlowOpacity(0, 1) === 0);
+  check("光は走りに合わせて立ち上がる(線形進捗に比例)",
+    api.ringGlowOpacity(0.5, 1) > 0 && api.ringGlowOpacity(0.5, 1) < api.ringGlowOpacity(1, 1));
+  check("光の色は帯より明るく彩度が低い(照らされた面の色)", (() => {
+    for (const base of [GREEN, ORANGE, RED]) {
+      const b = api.oklabToOklch(api.rgbToOklab(base));
+      const g = api.oklabToOklch(api.rgbToOklab(api.ringGlowRGB(base)));
+      if (!(g[0] > b[0])) return false;
+      if (!(g[1] < b[1])) return false;
+      if (Math.abs(g[2] - b[2]) > 1.5) return false; // 色相は動かさない
+    }
+    return true;
+  })());
+  {
+    const radial = ringCode.match(/<radialGradient[\s\S]*?<\/radialGradient>/g) || [];
+    check("radialGradient は1つ(到達の光)", radial.length === 1, `${radial.length}個`);
+    // 【グラデーション自身の幾何】ストップの offset(%)は「この半径 r に対する割合」なので、
+    // r を縮めると RING_GLOW_EDGE_PCT が指す実際の半径も一緒に縮み、光の内縁が
+    // 音名の領域へ食い込む(r={VB/4} にすると内縁が 143→71.5 に移動する)。
+    // 中心のずらしや gradientUnits の削除も同じく offset の意味を変える。
+    // ストップと `<circle>` 側だけを見ていると全部素通りするので、ここで開始タグを縛る。
+    check("光のグラデーションはユーザー座標系・環と同心・半径は viewBox の半分",
+      /<radialGradient\s+id=\{glowGradId\} gradientUnits="userSpaceOnUse" cx=\{CX\} cy=\{CY\} r=\{VB \/ 2\}\s*>/
+        .test((radial[0] || "").replace(/\s*\n\s*/g, " ")),
+      (radial[0] || "").split("\n").slice(0, 2).join(" ").trim());
+    check("光のグラデーションの半径は光の円の半径と同じ(offset%が円の縁と対応する)", (() => {
+      const gr = /<radialGradient[^>]*r=\{([^}]+)\}/.exec((radial[0] || "").replace(/\s*\n\s*/g, " "));
+      const ci = /<circle cx=\{CX\} cy=\{CY\} r=\{([^}]+)\} fill=\{`url\(#\$\{glowGradId\}\)`\} \/>/.exec(ringCode);
+      return !!gr && !!ci && gr[1].trim() === ci[1].trim();
+    })());
+    // 内縁の実寸(viewBox単位・CSS px)を出しておく。音名の箱(音名サイズ118px)を侵さないこと。
+    {
+      const inner = (api.RING_GLOW_EDGE_PCT / 100) * (api.RING_VB / 2);
+      const innerPx = inner * (api.RING_D_FULL / api.RING_VB);
+      check("光の内縁は環のトラックの外縁(viewBox 143 / 実寸 157.3 CSS px)",
+        Math.abs(inner - (api.RING_R + api.RING_SW / 2)) < 1e-9 && Math.abs(inner - 143) < 1e-9,
+        `内縁 viewBox=${inner.toFixed(3)} / 実寸=${innerPx.toFixed(2)} CSS px`);
+      check("光の内縁は音名の外接半径より外側にある(音名を覆わない)",
+        innerPx > (api.RING_D_FULL * 0.3576) / 2 + 20,
+        `内縁 ${innerPx.toFixed(1)}px vs 音名の高さの半分 ${((api.RING_D_FULL * 0.3576) / 2).toFixed(1)}px`);
+    }
+    const stops = (radial[0] || "").match(/<stop[\s\S]*?\/>/g) || [];
+    check("光のストップは3つだけ", stops.length === 3, `${stops.length}個`);
+    check("先頭のストップは不透明度0(内側は完全に透明=白のまま)",
+      /stopOpacity="0"/.test(stops[0] || ""), stops[0] || "");
+    check("先頭と2番目のストップは同じ位置(環の外縁)にある",
+      /offset=\{`\$\{RING_GLOW_EDGE_PCT\}%`\}/.test(stops[0] || "")
+      && /offset=\{`\$\{RING_GLOW_EDGE_PCT\}%`\}/.test(stops[1] || ""));
+    check("最後のストップは 100% で不透明度0",
+      /offset="100%"/.test(stops[2] || "") && /stopOpacity="0"/.test(stops[2] || ""));
+    check("光の円は viewBox の半分の半径", /<circle cx=\{CX\} cy=\{CY\} r=\{VB \/ 2\} fill=\{`url\(#\$\{glowGradId\}\)`\} \/>/.test(ringCode));
+  }
+
+  // ------------------------------------------------------------------
+  // D-4. 再走行の抑制 — 純関数の状態遷移として検証する。
+  // ------------------------------------------------------------------
+  // 【根拠は測って出す】以前ここには「判定線の上でごく短く揺らしても外れている時間は
+  // 0.9〜1.0秒より下がらず、実測 923/943/968ms」と書いてあったが、実測すると
+  // **揺らしだけでは最長 650ms** で 900ms には届かない。923〜968ms が出るのは
+  // 「一度はっきり外して戻す」場合(EMA の戻り尾が加わる)で、それは揺らしではない。
+  // 定数と文章の突き合わせではなく、**実装と同じ EMA を回して外れ時間を出す**。
+  //
+  // 実コンポーネントの平滑と判定:
+  //   smoothRef.val += (raw - smoothRef.val) * 0.15   (60fps・音名が変わらない間)
+  //   inTune = |val| <= RING_IN_TUNE_CENTS
+  const EMA_ALPHA = 0.15, FPS = 60;
+  check("平滑の係数はソースどおり 0.15", /smoothRef\.current\.val \+= \(rawExact - smoothRef\.current\.val\) \* 0\.15;/.test(ringCode));
+  // centsFn(t[ms]) → 生のセント値。戻り値: 外れている連続時間の一覧と、走った回数。
+  function simulateRing(centsFn, seconds, rearmMs = api.RING_RUN_REARM_MS) {
+    const dt = 1000 / FPS;
+    let val = centsFn(0), st = { runFrom: null, outSince: -Infinity };
+    let runs = 0, prevRunFrom = null, crossings = 0, prevIn = null;
+    const outs = [];
+    let outStart = null;
+    for (let i = 0; i * dt <= seconds * 1000; i++) {
+      const t = i * dt;
+      val += (centsFn(t) - val) * EMA_ALPHA;
+      const inTune = Math.abs(val) <= api.RING_IN_TUNE_CENTS;
+      if (prevIn !== null && inTune !== prevIn) crossings++;
+      if (!inTune && outStart === null) outStart = t;
+      if (inTune && outStart !== null) { outs.push(t - outStart); outStart = null; }
+      prevIn = inTune;
+      // ringRunState と同じ遷移を、抑制時間だけ差し替えられる形で回す
+      const prev = st;
+      if (!inTune) st = { runFrom: null, outSince: prev.runFrom === null ? prev.outSince : t };
+      else if (prev.runFrom !== null) st = { runFrom: prev.runFrom, outSince: null };
+      else st = { runFrom: t - prev.outSince >= rearmMs ? t : t - api.RING_RUN_MS, outSince: null };
+      if (st.runFrom !== null && st.runFrom !== prevRunFrom && api.ringRunProgress(st.runFrom, t) === 0) runs++;
+      prevRunFrom = st.runFrom;
+    }
+    if (outStart !== null) outs.push(seconds * 1000 - outStart);
+    return { runs, crossings, outs, maxOut: outs.length ? Math.max(...outs) : 0 };
+  }
+  // このシミュレータが ringRunState と同じ遷移をしていることの裏取り
+  check("シミュレータの状態遷移は ringRunState と一致する", (() => {
+    let a = { runFrom: null, outSince: -Infinity }, b = a;
+    for (let t = 0; t < 6000; t += 50) {
+      const inTune = Math.floor(t / 137) % 3 !== 0;
+      const prev = a;
+      if (!inTune) a = { runFrom: null, outSince: prev.runFrom === null ? prev.outSince : t };
+      else if (prev.runFrom !== null) a = { runFrom: prev.runFrom, outSince: null };
+      else a = { runFrom: t - prev.outSince >= api.RING_RUN_REARM_MS ? t : t - api.RING_RUN_MS, outSince: null };
+      b = api.ringRunState(b, inTune, t);
+      if (a.runFrom !== b.runFrom || a.outSince !== b.outSince) return false;
+    }
+    return true;
+  })());
+  {
+    // (1) 判定線の上でごく短く揺らす。EMA で振幅が落ちるので、外れている時間は短い。
+    const wobble = (amp, hz) => simulateRing((t) => amp * Math.sin((2 * Math.PI * hz * t) / 1000), 8);
+    const w3 = wobble(3, 1.5), w16 = wobble(1.6, 0.8), w2 = wobble(2, 0.5), w12 = wobble(1.2, 3);
+    console.log(`  揺らしたときの外れ時間(実測): 3¢/1.5Hz 判定の切替${w3.crossings}回・最長${w3.maxOut.toFixed(0)}ms`
+      + ` / 1.6¢/0.8Hz 判定の切替${w16.crossings}回・最長${w16.maxOut.toFixed(0)}ms`
+      + ` / 2¢/0.5Hz 判定の切替${w2.crossings}回・最長${w2.maxOut.toFixed(0)}ms`
+      + ` / 1.2¢/3Hz 判定の切替${w12.crossings}回・最長${w12.maxOut.toFixed(0)}ms`);
+    check("揺らしただけでは外れている時間は 700ms を超えない(EMA が振幅を落とすため)",
+      Math.max(w3.maxOut, w16.maxOut, w2.maxOut, w12.maxOut) < 700,
+      `最長 ${Math.max(w3.maxOut, w16.maxOut, w2.maxOut, w12.maxOut).toFixed(0)}ms`);
+    check("速い揺らし(1.2¢/3Hz)は EMA が吸収して一度も外れない",
+      w12.crossings === 0 && w12.maxOut === 0, `判定の切替${w12.crossings}回`);
+    check("揺らしても走りは1回だけ(3¢/1.5Hz で8秒間)", w3.runs === 1, `${w3.runs}回`);
+    check("どの揺らし方でも走りは1回だけ",
+      [w3, w16, w2, w12].every((r) => r.runs === 1),
+      [w3, w16, w2, w12].map((r) => r.runs).join(","));
+    // 抑制が無ければ交差のたびに走る = 上の検査は空振りではない
+    check("抑制が無ければ 3¢/1.5Hz で何度も走る(比較対象)",
+      simulateRing((t) => 3 * Math.sin((2 * Math.PI * 1.5 * t) / 1000), 8, 0).runs >= 8,
+      `${simulateRing((t) => 3 * Math.sin((2 * Math.PI * 1.5 * t) / 1000), 8, 0).runs}回`);
+
+    // (2) 一度はっきり外して戻す。EMA の戻り尾(15¢→1¢ に約278ms)が加わる。
+    const excursion = (holdMs, rearm = api.RING_RUN_REARM_MS) =>
+      simulateRing((t) => (t >= 1000 && t < 1000 + holdMs ? 15 : 0), 6, rearm);
+    const e650 = excursion(650), e800 = excursion(800), e1000 = excursion(1000);
+    const tail = e650.maxOut - 650;
+    console.log(`  +15¢に外して戻したときの外れ時間(実測): 保持650ms→${e650.maxOut.toFixed(0)}ms`
+      + ` / 800ms→${e800.maxOut.toFixed(0)}ms / 1000ms→${e1000.maxOut.toFixed(0)}ms`
+      + ` (EMA の戻り尾 ${tail.toFixed(0)}ms)`);
+    check("EMA の戻り尾は約278ms(15¢→1¢ まで 0.15/フレームで戻る時間)",
+      Math.abs(tail - 278) < 20, `${tail.toFixed(0)}ms`);
+    check("+15¢を650ms保持して戻すと外れ時間は 923〜968ms の帯に入る",
+      e650.maxOut > 900 && e650.maxOut < 980, `${e650.maxOut.toFixed(0)}ms`);
+    check("900 では (2) が抑制を抜けて走り直してしまう(1200 が必要な理由)",
+      excursion(650, 900).runs === 2, `${excursion(650, 900).runs}回`);
+    check("1200 なら生の外れ 800ms までは走り直さない",
+      e650.runs === 1 && e800.runs === 1, `650ms:${e650.runs}回 / 800ms:${e800.runs}回`);
+    check("1200 でも生の外れ 1000ms 以上なら走り直す(離れて戻ったことは伝える)",
+      e1000.runs === 2, `${e1000.runs}回`);
+  }
+  check("RING_RUN_REARM_MS は 1200", api.RING_RUN_REARM_MS === 1200, String(api.RING_RUN_REARM_MS));
+  {
+    const INIT = { runFrom: null, outSince: -Infinity };
+    // 初回の到達は必ず走る(進捗0から)
+    const s1 = api.ringRunState(INIT, true, 1000);
+    check("初回の到達は走る(進捗0から)", s1.runFrom === 1000 && api.ringRunProgress(s1.runFrom, 1000) === 0);
+    // 合格が続く間は runFrom を保持する(毎フレーム走り直さない)
+    const s2 = api.ringRunState(s1, true, 1200);
+    check("合格が続く間は走りをやり直さない", s2.runFrom === 1000);
+    // 外れた瞬間に outSince が立ち、以降は更新されない
+    const s3 = api.ringRunState(s2, false, 1500);
+    const s4 = api.ringRunState(s3, false, 1900);
+    check("外れた瞬間の時刻を記録し、以降は更新しない", s3.outSince === 1500 && s4.outSince === 1500);
+    check("外れている間は帯を出さない(runFrom=null)", s3.runFrom === null && s4.runFrom === null);
+    // 抑制中(900ms未満)に戻ったら走り直さず点灯状態(進捗1)から
+    const s5 = api.ringRunState(s4, true, 2000);   // 外れて500ms
+    check("抑制中(900ms未満)に戻ったら走り直さない",
+      s5.runFrom === 2000 - api.RING_RUN_MS && api.ringRunProgress(s5.runFrom, 2000) === 1,
+      `runFrom=${s5.runFrom}`);
+    // 境界は定数から導く。数値を直書きすると、定数を動かしたとき検査だけが取り残される
+    // (実際 900→1200 に上げたときここだけ落ちた)。
+    const RE = api.RING_RUN_REARM_MS;
+    const t1 = api.ringRunState(s5, false, 3000);
+    const t2 = api.ringRunState(t1, false, 3000 + RE - 1);
+    const t3 = api.ringRunState(t2, true, 3000 + RE - 1);   // 1ms 足りない → まだ抑制
+    check("抑制時間に1ms足りなければ再走行しない",
+      api.ringRunProgress(t3.runFrom, 3000 + RE - 1) === 1, `runFrom=${t3.runFrom}`);
+    const u1 = api.ringRunState(s5, false, 3000);
+    const u2 = api.ringRunState(u1, false, 3000 + RE);
+    const u3 = api.ringRunState(u2, true, 3000 + RE);       // ちょうど抑制時間
+    check("抑制時間ちょうどで再走行する",
+      u3.runFrom === 3000 + RE && api.ringRunProgress(u3.runFrom, 3000 + RE) === 0);
+    // 判定線の上で細かく揺れても走りは1回だけ
+    {
+      let st = INIT, runs = 0, prevRunFrom = null;
+      for (let t = 0; t < 5000; t += 50) {
+        const inTune = Math.floor(t / 100) % 2 === 0;   // 100msごとに合格/不合格が入れ替わる
+        st = api.ringRunState(st, inTune, t);
+        if (st.runFrom !== null && st.runFrom !== prevRunFrom && api.ringRunProgress(st.runFrom, t) === 0) runs++;
+        prevRunFrom = st.runFrom;
+      }
+      check("判定線の上で揺れても走りは1回だけ(再走行の抑制が効く)", runs === 1, `${runs}回`);
+    }
+    // 抑制が無い実装(毎回走り直す)なら上は何回も走る = この検査は空振りではない
+    {
+      let runs = 0, prev = false;
+      for (let t = 0; t < 5000; t += 50) {
+        const inTune = Math.floor(t / 100) % 2 === 0;
+        if (inTune && !prev) runs++;
+        prev = inTune;
+      }
+      check("抑制が無ければ同じ入力で25回走る(比較対象)", runs === 25, `${runs}回`);
+    }
+    check("prev が空でも例外を投げず初回として走る",
+      api.ringRunState(undefined, true, 5000).runFrom === 5000
+      && api.ringRunState({}, true, 5000).runFrom === 5000);
+    // 抑制の判定はコンポーネントの中ではなく純関数に置く(ハーネスから見えるように)
+    check("再走行の抑制はコンポーネント内の if ではなく純関数",
+      /const st = ringRunState\(runStateRef\.current, liveRef\.current\.inTune, now\);/.test(ringCode)
+      && !/RING_RUN_REARM_MS/.test(ringCode));
+  }
+
+  // ------------------------------------------------------------------
+  // D-5. 動きを減らす設定 — 走らず点灯・呼吸は止める・**光は消さない**。
+  // ------------------------------------------------------------------
+  check("減速設定では進捗1(点灯)から始める", /const raw = st\.runFrom === null \? 0 : \(reduce \? 1 : ringRunProgress\(st\.runFrom, now\)\);/.test(ringCode));
+  check("減速設定では呼吸を止めて breath=1 に固定する", /const breath = reduce \? 1 : ringBreath\(now\);/.test(ringCode));
+  // 【この2つは別のことを見ている】
+  //  ・下の1本目は ringGlowOpacity の係数の和が1であること(= 進捗1・呼吸1 で AMP)。
+  //    reduce には一切触れない。名乗りを式に合わせてある。
+  //  ・2本目が「減速設定で光が消えない」の本体。減速の分岐は raw と breath の2行だけに
+  //    置き、**不透明度の式には reduce を混ぜない**ことをソースで縛る。
+  //    (`const op = (reduce ? 0 : ringGlowOpacity(raw, breath)).toFixed(4);` という変異は
+  //     純関数のテストを一切壊さずに減速設定で光を完全に消せた。)
+  check("ringGlowOpacity の係数の和は1(進捗1・呼吸1で AMP ちょうど)",
+    api.ringGlowOpacity(1, 1) === api.RING_GLOW_AMP, String(api.ringGlowOpacity(1, 1)));
+  check("減速設定でも光は消えない(不透明度の式に reduce の分岐を挟まない)", (() => {
+    const m = /const op = [^\n]*/.exec(ringCode);
+    if (!m) return false;
+    return m[0].trim() === "const op = ringGlowOpacity(raw, breath).toFixed(4);" && !/reduce/.test(m[0]);
+  })(), (/const op = [^\n]*/.exec(ringCode) || [""])[0].trim());
+  check("減速設定の分岐は raw と breath の2箇所だけ(rAFループ内)",
+    (ringCode.match(/reduce \?/g) || []).length === 2,
+    `${(ringCode.match(/reduce \?/g) || []).length}箇所`);
+  // 減速設定の経路を、実装の3行と同じ順で組み立てて評価する。
+  check("減速設定の経路をたどると光は最大の明るさで灯る", (() => {
+    const reduce = true;
+    const st = api.ringRunState({ runFrom: null, outSince: -Infinity }, true, 1000);
+    const raw = st.runFrom === null ? 0 : (reduce ? 1 : api.ringRunProgress(st.runFrom, 1000));
+    const breath = reduce ? 1 : api.ringBreath(1000);
+    return api.ringGlowOpacity(raw, breath) === api.RING_GLOW_AMP;
+  })());
+
+  // ------------------------------------------------------------------
+  // E. §6.1 / §6.1.5 — 到達しても環の寸法は変わらない。
+  // ------------------------------------------------------------------
+  check("環の直径は状態によらず RING_D_FULL 固定", api.RING_D_FULL === 330 && !/diameter = (?!RING_D_FULL)/.test(ringCode));
+  check("到達しても viewBox は 300 のまま", /viewBox=\{`0 0 \$\{VB\} \$\{VB\}`\}/.test(ringCode) && api.RING_VB === 300);
+  // 【ここは定数の言い換えを書かない】
+  // 以前ここには `|c/RING_MAX_CENTS × RING_SWEEP_DEG| ≤ RING_SWEEP_DEG` という
+  // **定数を何に変えても真になる**式と、「下弧(±90°より外)に届かない」という
+  // 実装(110°)と逆の名乗りが置かれていた。どちらも何も守っていなかった。
+  //
+  // 実際の要件は §6.1「環の二役」= 到達していない間の帯が**拍の要素と場所を争わない**こと。
+  // 帯の角度の上限(RING_SWEEP_DEG=110)と、拍の点が占める角度(6時±RING_BEAT_DOT_SPREAD_DEG
+  // = |角度| 120°〜180°)は**別々に決めた定数**なので、突き合わせは恒等式にならない。
+  check("角度の写像はソースどおり(exact/RING_MAX_CENTS × RING_SWEEP_DEG)",
+    /const deg = \(exact \/ RING_MAX_CENTS\) \* RING_SWEEP_DEG;/.test(ringCode));
+  {
+    // 帯が届く最大角度を、写像そのものを回して求める(定数を読み直さない)。
+    let bandMax = 0;
+    for (let c = -api.RING_MAX_CENTS; c <= api.RING_MAX_CENTS; c += 0.1) {
+      bandMax = Math.max(bandMax, Math.abs((c / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG));
+    }
+    // 拍の点が占める角度を、点の配置関数から求める(こちらも定数を読み直さない)。
+    let dotMin = 360;
+    for (let n = 1; n <= 12; n++) {
+      for (let i = 0; i < n; i++) {
+        const d = api.ringBeatDotDeg(i, n);
+        dotMin = Math.min(dotMin, Math.abs(((d + 180) % 360 + 360) % 360 - 180));
+      }
+    }
+    check("到達していない帯は拍の点の角度範囲に一切入らない(環の二役が保たれる)",
+      bandMax < dotMin - 1e-9,
+      `帯の上限=±${bandMax.toFixed(1)}° / 拍の点の内端=±${dotMin.toFixed(1)}° / 余白=${(dotMin - bandMax).toFixed(1)}°`);
+    check("その余白は5°以上ある(角度が近すぎて役割が読めなくならない)",
+      dotMin - bandMax >= 5, `${(dotMin - bandMax).toFixed(1)}°`);
+    // 帯は 90°を 20°超えて下半円に入る。「±90°で止まる」ではない。事実として記録に残す。
+    check("帯は下半円に RING_SWEEP_DEG−90 = 20° だけ入る(±90°では止まらない)",
+      Math.abs((bandMax - 90) - 20) < 1e-9, `下半円へ ${(bandMax - 90).toFixed(1)}°`);
+    console.log(`  環の二役: 帯 ±${bandMax.toFixed(1)}° / 拍の点 ±${dotMin.toFixed(1)}°〜180° / 余白 ${(dotMin - bandMax).toFixed(1)}°`);
+  }
+  // 到達したときだけ全周を使う(本人の明示的な許可)。
+  check("到達の走りは全周を使う(6時に届く)", 180 * api.ringRunQuantP(1) === 180);
 }
 
 // ============================================================

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId } from "react";
 import { createPortal } from "react-dom";
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
@@ -3553,13 +3553,82 @@ function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
 // 目盛の "-50/+50"(fontSize:12) を持っていたが、これは DESIGN-SYSTEM §6.1 の
 // 「演奏中サーフェスに目盛の数字を置かない/12px禁止」に真っ向から反する要素だった。
 
+// ============================================================
+// 色空間(sRGB ⇔ OKLab ⇔ OKLCH)。
+//
+// 機能色の補間を sRGB の直線補間でやると、緑#16A34A と橙#D97706 の中間(6.5¢)が
+// rgb(120,141,40) という濁ったカーキになる。同じ2色を OKLCH で補間すると
+// rgb(160,145,0) の澄んだ金になる。**色そのものは1つも変えていない**。
+// 帯のグラデーションも同じ理由でここを通す(明度・彩度・色相を独立に動かせる)。
+//
+// 純関数としてモジュール直下に置き、scripts/pitch-test.mjs から実行で検証する。
+// ============================================================
+function srgbToLinear(c) {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function linearToSrgb(c) {
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+// rgb(0〜255) → OKLab [L, a, b]
+function rgbToOklab(rgb) {
+  const r = srgbToLinear(rgb[0] / 255);
+  const g = srgbToLinear(rgb[1] / 255);
+  const b = srgbToLinear(rgb[2] / 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  ];
+}
+// OKLab [L, a, b] → rgb(0〜255・整数)。sRGB色域外は端で丸める。
+function oklabToRgb(lab) {
+  const lp = lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2];
+  const mp = lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2];
+  const sp = lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2];
+  const l = lp * lp * lp, m = mp * mp * mp, s = sp * sp * sp;
+  const lin = [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+  return lin.map((v) => Math.max(0, Math.min(255, Math.round(linearToSrgb(v) * 255))));
+}
+// OKLab ⇔ OKLCH(極座標。C=彩度 / H=色相[度])
+function oklabToOklch(lab) {
+  let h = (Math.atan2(lab[2], lab[1]) * 180) / Math.PI;
+  if (h < 0) h += 360;
+  return [lab[0], Math.hypot(lab[1], lab[2]), h];
+}
+function oklchToOklab(lch) {
+  const rad = (lch[2] * Math.PI) / 180;
+  return [lch[0], Math.cos(rad) * lch[1], Math.sin(rad) * lch[1]];
+}
+// 2色を OKLCH で補間する。色相は**最短経路**で回す(反対側を回ると緑→橙の間に
+// 青や紫を経由してしまう)。
+function mixOklchRGB(rgb0, rgb1, t) {
+  const a = oklabToOklch(rgbToOklab(rgb0));
+  const b = oklabToOklch(rgbToOklab(rgb1));
+  let dh = b[2] - a[2];
+  if (dh > 180) dh -= 360;
+  if (dh < -180) dh += 360;
+  return oklabToRgb(oklchToOklab([
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + dh * t,
+  ]));
+}
+
 // セント差(絶対値)を緑→橙→赤へ滑らかに補間した色を返す。
-// 0¢=緑 / 13¢=橙 / 30¢以上=赤。音程の正誤という機能的意味を持つ色で、装飾都合で変えない。
+// 0¢=緑 / 8¢=橙 / 30¢以上=赤。音程の正誤という機能的意味を持つ色で、装飾都合で変えない。
+// 補間は OKLCH(上記)。橙は以前 13¢ にあったが、8¢ は既に「結構違う」領域なので前倒しした。
 function pitchBarColorRGB(cents) {
   const a = Math.abs(cents);
   const stops = [
     [0, [22, 163, 74]],    // ジャスト=緑 #16A34A
-    [13, [217, 119, 6]],   // やや外れ=橙 #D97706
+    [8, [217, 119, 6]],    // やや外れ=橙 #D97706
     [30, [220, 38, 38]],   // 大きく外れ=赤 #DC2626
   ];
   if (a <= stops[0][0]) return stops[0][1];
@@ -3567,10 +3636,7 @@ function pitchBarColorRGB(cents) {
   for (let i = 0; i < stops.length - 1; i++) {
     const [c0, col0] = stops[i];
     const [c1, col1] = stops[i + 1];
-    if (a >= c0 && a <= c1) {
-      const t = (a - c0) / (c1 - c0);
-      return [0, 1, 2].map((k) => Math.round(col0[k] + (col1[k] - col0[k]) * t));
-    }
+    if (a >= c0 && a <= c1) return mixOklchRGB(col0, col1, (a - c0) / (c1 - c0));
   }
   return stops[stops.length - 1][1];
 }
@@ -3612,7 +3678,7 @@ function pitchBarColorRGB(cents) {
 // ============================================================
 const RING_MAX_CENTS = 50;     // 環の端に対応するセント差
 const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上弧)
-const RING_IN_TUNE_CENTS = 5;  // これ以内なら「合った」として環を閉じる
+const RING_IN_TUNE_CENTS = 1;  // これ以内なら「合った」として環を閉じる(5¢は既に「結構違う」領域)
 // DESIGN-SYSTEM §6.1 が定めるピッチマーカーと拍の要素の最小距離(実寸・CSS px)。
 // 振り子の軌道半径と錘の大きさは、この値を満たすように選んである。
 const RING_MARKER_MIN_GAP_PX = 6;
@@ -3624,8 +3690,11 @@ const RING_CX = 150;
 const RING_CY = 150;
 const RING_R = 136;
 const RING_SW = 14;
-// ピッチマーカー(上弧)の半径。
-const RING_PITCH_DOT_R = RING_SW / 2 + 3;
+// 【削除済み】RING_PITCH_DOT_R(帯の先端に置いていた丸い点)。
+// 丸端(stroke-linecap="round")と合わせて、先端に「別の丸いものが付いている」ように
+// 見えていた。先端はあくまでグラデーションの終わりで、そこで何かが始まってはいけない。
+// 点が無くなったので、拍の要素とのクリアランスの基準は「点の内縁(R-SW/2-3=126)」から
+// 「帯の内縁(R-SW/2=129)」になる(クリアランスは広がる)。検証は pitch-test.mjs 側。
 
 // 環の実寸(直径)。DESIGN-SYSTEM §4.2 の表と対応する。
 // **メトロノームの開閉で大きさを変えない。** 以前は開くと 330→250 に縮めていたが、
@@ -3660,8 +3729,9 @@ function ringPoint(deg, r, cx, cy) {
 // --- 上半円: 振り子(予測を担う) ---
 // 【RING_PEND_R を上げる / 錘・輪を大きくすると、ピッチマーカーとの距離が縮む。】
 // 要件(RING_MARKER_MIN_GAP_PX)を割ったら pitch-test.mjs が実寸で検証して落ちる。
-// 軌道半径は要件を満たす最大の整数値。錘は環のトラック(内縁 r=129)ではなく
-// **ピッチマーカー(r=136 の点・半径10 なので内縁は 126)** との距離で効いてくる。
+// 軌道半径は要件を満たす最大の整数値。基準は**環の帯の内縁 r=129**(以前は帯の先端に
+// 半径10の点を置いていたため内縁126で測っていたが、その点は削除した)。
+// 到達時は帯が全周を覆うので、拍の要素はどの角度でも帯の内縁より内側にいる必要がある。
 const RING_PEND_R = 94;             // 錘の軌道半径
 const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍の瞬間が両端になる
 // 【削除済み】RING_PEND_ARC_SW / ringPendArcD / RING_PEND_ARC_D(軌道のガイド線)
@@ -3688,17 +3758,172 @@ const RING_BEAT_EMPH_DECAY = 2.2;   // 拍内位相 × これ を 1 から引く
 const RING_BEAT_EMPH_HEAD = 1;      // 小節頭の係数
 const RING_BEAT_EMPH_OTHER = 0.55;  // それ以外の拍の係数
 
-// 到達(inTune)の合図に使う上弧のパス。以前はここで r=RING_R の**全周円**を
-// ピッチ色で塗って呼吸させていたが、それだと下弧＝拍の領域までピッチ色に染まり、
-// 「上弧=ピッチ / 下弧=拍」の役割分離が**最も見せたい瞬間に崩れていた**
-// (DESIGN-SYSTEM §6.1 の注意書き)。到達の表現は上弧の範囲だけに閉じる。
-function ringPitchArcD() {
-  const [ax, ay] = ringPoint(-RING_SWEEP_DEG, RING_R, RING_CX, RING_CY);
-  const [bx, by] = ringPoint(RING_SWEEP_DEG, RING_R, RING_CX, RING_CY);
-  // -110° → +110° を12時側まわりで結ぶ。220°>180° なので large-arc=1、時計回りで sweep=1。
-  return `M${ax.toFixed(2)},${ay.toFixed(2)} A${RING_R},${RING_R} 0 1,1 ${bx.toFixed(2)},${by.toFixed(2)}`;
+// 12時=0の角度で from → to を結ぶ、半径 RING_R の弧のパス。
+// 角度の符号がそのまま回転方向になる(to>from なら時計回り = sweep 1)。
+function ringArcD(from, to) {
+  const [ax, ay] = ringPoint(from, RING_R, RING_CX, RING_CY);
+  const [bx, by] = ringPoint(to, RING_R, RING_CX, RING_CY);
+  const large = Math.abs(to - from) > 180 ? 1 : 0;
+  const sweep = to > from ? 1 : 0;
+  return `M${ax.toFixed(2)},${ay.toFixed(2)} A${RING_R},${RING_R} 0 ${large},${sweep} ${bx.toFixed(2)},${by.toFixed(2)}`;
 }
-const RING_PITCH_ARC_D = ringPitchArcD();
+
+// ============================================================
+// 帯のグラデーション(先端からの**絶対弧長**で塗る)。
+//
+// 【なぜ帯の長さで正規化しないのか】
+// 以前はランプを「帯の長さ」で正規化していた。これが短い帯が汚かった原因。
+// ±24¢ の帯は弧長125、±8¢ は42。そこへ同じ工程を押し込むと3分の1に圧縮されて
+// **断層として見える**。実用域は ±10¢ なので、そこで成立しないと意味がない。
+// だから色は「先端から何 viewBox 単位か」だけで決め、帯の長さでは割らない。
+//
+// RING_RAMP_REF は「作り込む長さ」。62 viewBox 単位 = 62/136 rad = 26.12° で、
+// 角度→セントの写像(RING_SWEEP_DEG/RING_MAX_CENTS = 2.2°/¢)を逆に辿ると 11.9¢。
+// 実用域 ±10¢ をランプの内側に収め、その少し外側で色が飽和する長さとして選んだ。
+//
+// 明度差・彩度倍率・色相ずれの3つとも **単調**。明るさの山(芯)は置かない。
+// 単調なら断層は原理的に出ない。
+// ============================================================
+const RING_RAMP_REF = 62;      // ランプを作り込む弧長(viewBox単位)
+const RING_RAMP_STOPS = 30;    // グラデーションのストップ数
+
+function ringSmoothstep(x) {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+}
+
+// base の色を OKLCH 上で動かす。dL=明度差 / cMul=彩度倍率 / dH=色相ずれ(度)。
+function ringTuneRGB(base, dL, cMul, dH) {
+  const lch = oklabToOklch(rgbToOklab(base));
+  return oklabToRgb(oklchToOklab([lch[0] + dL, Math.max(0, lch[1] * cMul), lch[2] + dH]));
+}
+
+// 先端からの弧長 s(viewBox単位)における帯の色。s は帯の長さで割らない(上記)。
+function ringRampRGB(base, s) {
+  const e = ringSmoothstep(s / RING_RAMP_REF);
+  return ringTuneRGB(base, 0.105 * e - 0.062 * (1 - e), 1.12 - 0.30 * e, -9 * e + 7 * (1 - e));
+}
+
+// 線形グラデーションの軸は「根元の点 → 先端の点」を結ぶ**弦**なので、弧上の点は
+// 弦へ射影した位置に置かないと色がずれる(以前は等間隔で近似していた)。
+// 180°以下の弧では射影は単調なので offset は非減少になる。
+// 返り値: [{ offset(0〜1), s(先端からの弧長・viewBox単位) }]
+function ringGradientStops(from, to) {
+  const [x0, y0] = ringPoint(from, RING_R, RING_CX, RING_CY);
+  const [x1, y1] = ringPoint(to, RING_R, RING_CX, RING_CY);
+  const dx = x1 - x0, dy = y1 - y0;
+  const len2 = dx * dx + dy * dy;
+  const out = [];
+  for (let i = 0; i < RING_RAMP_STOPS; i++) {
+    const phi = from + (to - from) * (i / (RING_RAMP_STOPS - 1));
+    const [px, py] = ringPoint(phi, RING_R, RING_CX, RING_CY);
+    const off = len2 > 0 ? ((px - x0) * dx + (py - y0) * dy) / len2 : 0;
+    out.push({
+      offset: Math.max(0, Math.min(1, off)),
+      s: Math.abs(((to - phi) * Math.PI) / 180) * RING_R,
+    });
+  }
+  return out;
+}
+
+// ============================================================
+// 到達の演出(走り + 外側だけの呼吸)。
+//
+// 合った瞬間、帯が12時から両サイドへ同時に走り、6時で出会う(全周360°)。
+// DESIGN-SYSTEM §6.1 は「到達の表現を上弧に留める」としているが、**到達したときだけは
+// 全周を使ってよい**という許可を本人から得ている(2026-08-03)。到達していない間は
+// 従来どおり上弧だけを使う。
+//
+// 光は環の**外側だけ**。内側(0%〜edgeOut)は完全に透明のままにする。音名の可読性と
+// 静けさのため、これは要件。
+// ============================================================
+const RING_RUN_MS = 640;         // 12時→6時に走り切るまで
+// 外れた状態がこれだけ続くまで走り直さない。
+//
+// 【根拠(実コンポーネントと同じ EMA=0.15/フレームを60fpsで駆動して実測)】
+// (1) 判定線の上でごく短く揺らしたときの「inTune が偽である連続時間」:
+//       振幅3¢/1.5Hz → 交差17回・最長 267ms
+//       振幅1.6¢/0.8Hz → 交差9回・最長 333ms
+//       振幅2¢/0.5Hz  → 交差8回・最長 650ms
+//       振幅1.2¢/3Hz  → 交差0回(EMAが吸収して一度も外れない)
+//     つまり**揺らしだけなら最長でも 650ms** で、0.9〜1.0秒には届かない。
+// (2) 923〜968ms が出るのは揺らしではなく「一度はっきり外して戻す」場合。
+//     生の音程を +15¢ に約650ms 保持してから戻すと、EMA が 15¢→1¢ まで戻るのに
+//     約278ms 掛かるぶんが尾として足され、外れている時間は 650+278 ≒ 928ms になる。
+//
+// 900 では (2) が抑制を抜ける。1200 なら:
+//   ・(1) の揺らしは 8秒間続けても走りは1回だけ
+//   ・生の外れが 800ms まで(=実測 1078ms)は走り直さず、1000ms 以上(=1278ms)で走り直す
+// 「一瞬ぶれただけ」と「一度離れて戻ってきた」の境目がこの位置に来る。
+const RING_RUN_REARM_MS = 1200;
+const RING_BREATH_MS = 2600;     // 呼吸の周期
+const RING_BREATH_RISE = 0.50;   // 周期のうち上りに使う割合
+const RING_GLOW_AMP = 0.90;      // 光の最大の強さ
+// 光の内縁 = 環の帯の外縁。ここより内側は先頭ストップが不透明度0なので白のまま。
+const RING_GLOW_EDGE_PCT = ((RING_R + RING_SW / 2) / (RING_VB / 2)) * 100;
+
+// 走りのイージング: ease-out cubic。勢いよく出て6時へそっと着地する。
+function ringRunEase(p) {
+  const t = Math.max(0, Math.min(1, p));
+  return 1 - Math.pow(1 - t, 3);
+}
+
+// 走りの進捗を DOM 書き換えの単位(小数4桁)へ**切り捨てで**量子化する。
+// 【なぜ必要か】rAF は書き換えの間引きに `p.toFixed(4)` をキーとして使う。以前は
+// キーだけを丸め、描画には量子化前の p を渡していた。toFixed は四捨五入なので
+// t=617ms(p=0.99996)でキーが "1.0000" に丸まり、以降キーが変わらず**最終フレームが
+// 書かれない**。走りの終端が ±179.9916° で止まり、6時に 0.044 CSS px の隙間が残った
+// (8倍解像度のラスタで1画素だけ背景色が検出された)。
+// 切り捨てにして**キーの値と描画に使う値を同一にする**ことで、進捗が本当に1になった
+// フレームで必ずキーが変わり、終端が ±180.0000° になる。
+function ringRunQuantP(raw) {
+  if (raw >= 1) return 1;
+  return Math.floor(ringRunEase(raw) * 1e4) / 1e4;
+}
+
+// イージング前の線形進捗(0〜1)。光の立ち上がりはこちらを使う。
+function ringRunProgress(runFrom, now) {
+  if (runFrom === null || runFrom === undefined) return 0;
+  return Math.max(0, Math.min(1, (now - runFrom) / RING_RUN_MS));
+}
+
+// 呼吸の波形。正弦波ではなく smoothstep を上り下りに分けたもの。
+// 両端での変化が緩く、中ほどが速い。
+function ringBreath(ms) {
+  const u = (((ms % RING_BREATH_MS) + RING_BREATH_MS) % RING_BREATH_MS) / RING_BREATH_MS;
+  return u < RING_BREATH_RISE
+    ? ringSmoothstep(u / RING_BREATH_RISE)
+    : 1 - ringSmoothstep((u - RING_BREATH_RISE) / (1 - RING_BREATH_RISE));
+}
+
+// 光の実効不透明度。走り(線形進捗)に合わせて立ち上がり、そのあと呼吸する。
+function ringGlowOpacity(runRaw, breath) {
+  return RING_GLOW_AMP * runRaw * (0.34 + 0.66 * breath);
+}
+
+// 光の色。帯より明るく彩度を落とす。「光源の色」ではなく「照らされた面の色」にするため。
+function ringGlowRGB(base) {
+  return ringTuneRGB(base, 0.16, 0.62, 0);
+}
+
+// 再走行の抑制。±RING_IN_TUNE_CENTS の判定線の上でピッチが揺れると走りが何度も起きる。
+// **一度走ったら、外れた状態が RING_RUN_REARM_MS 続くまで走り直さない。**
+// 抑制中に合格へ戻った場合は、走りをやり直さず点灯状態(進捗1)から始める
+// = runFrom を now - RING_RUN_MS に置く(ringRunProgress が即座に1を返す)。
+//
+// コンポーネントの中に if を書くとハーネスから見えないので、状態遷移をここへ切り出す。
+// prev / 返り値: { runFrom, outSince }
+//   runFrom  走りを開始した時刻(ms)。合格していない間は null
+//   outSince 外れ始めた時刻(ms)。初期値 -Infinity(=十分長く外れていた→初回は必ず走る)
+function ringRunState(prev, inTune, now) {
+  const p = prev || {};
+  const runFrom = p.runFrom === undefined ? null : p.runFrom;
+  const outSince = p.outSince === undefined || p.outSince === null ? -Infinity : p.outSince;
+  if (!inTune) return { runFrom: null, outSince: runFrom === null ? outSince : now };
+  if (runFrom !== null) return { runFrom, outSince: null };
+  const rearmed = now - outSince >= RING_RUN_REARM_MS;
+  return { runFrom: rearmed ? now : now - RING_RUN_MS, outSince: null };
+}
 
 // 振り子の錘の角度(12時=0とした度)。位相(拍単位の連続値)を上半円の往復に写す。
 // cos(π*phase) なので拍の瞬間(位相が整数)にちょうど両端へ達する。
@@ -3798,8 +4023,91 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const noteBoxH = noteFs * NOTE_LINE_H;
 
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
+  // 到達している間は全周を走る帯がここを覆うので描かない(±1¢ の帯は線幅より短い)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
-  const arcD = Math.abs(deg) < 1 ? "" : `M${sx.toFixed(2)},${sy.toFixed(2)} A${R},${R} 0 0,${deg > 0 ? 1 : 0} ${mx.toFixed(2)},${my.toFixed(2)}`;
+  const arcD = (inTune || Math.abs(deg) < 1) ? "" : ringArcD(0, deg);
+  // 帯の色は「先端からの絶対弧長」で決める(帯の長さでは割らない)。ストップの位置は
+  // 弧を弦へ射影して求める(線形グラデーションの軸は弦なので、等間隔に置くと色がずれる)。
+  const barStops = ringGradientStops(0, deg);
+  // SVGのid衝突を避ける(同じ画面に環が2つ出ても混ざらないように)。
+  // useId() の返り値はコロンを含むので url(#...) に使えるよう落とす。
+  const uid = useId().replace(/:/g, "");
+  const barGradId = `ring-bar-${uid}`;
+  const runGradIds = [`ring-run-l-${uid}`, `ring-run-r-${uid}`];
+  const glowGradId = `ring-glow-${uid}`;
+
+  // --- 到達の演出(走り + 外側だけの呼吸) ---
+  // 走りは640ms、呼吸は2.6秒周期で続くため、Reactの再レンダーを挟まずrAFで書き換える。
+  const runStateRef = useRef({ runFrom: null, outSince: -Infinity });
+  const runPathRefs = useRef([null, null]);   // [左弧, 右弧]
+  const runGradRefs = useRef([null, null]);
+  const runStopRefs = useRef([[], []]);
+  const glowStopRefs = useRef([]);            // [先端(不透明度0), 光, 外縁(不透明度0)]
+  // rAFから読む最新値。走りの判定と色の元になる。
+  const liveRef = useRef({ inTune: false, base: [22, 163, 74] });
+  liveRef.current = { inTune, base: [r, g, b] };
+  useEffect(() => {
+    // 動きを減らす設定。rAFで属性を書き換えるぶんはCSSの @media が効かないので自分で見る。
+    // 走りは行わず進捗1(点灯した状態)から始め、呼吸は止めて breath=1 で固定する。
+    // **光は消さない**(到達したことは伝える必要がある)。
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let raf;
+    let lastKey = "";
+    let lastGlow = "";
+    const loop = () => {
+      const now = performance.now();
+      const reduce = reduceMotion.matches;
+      const st = ringRunState(runStateRef.current, liveRef.current.inTune, now);
+      runStateRef.current = st;
+      // イージング前の線形進捗。光の立ち上がりはこれに比例させる。
+      const raw = st.runFrom === null ? 0 : (reduce ? 1 : ringRunProgress(st.runFrom, now));
+      // 【p は量子化後の値】キー(小数4桁)と描画に使う値を同一にする。分けると
+      // 終端が書かれず 179.9916° で止まる(ringRunQuantP のコメント参照)。
+      const p = ringRunQuantP(raw);
+      const breath = reduce ? 1 : ringBreath(now);
+      const base = liveRef.current.base;
+      // 帯の形と色は進捗と元色が変わったときだけ書き換える(消えている間は何もしない)。
+      const key = p <= 0 ? "off" : `${p.toFixed(4)}|${base.join(",")}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        const spread = 180 * p;
+        for (let k = 0; k < 2; k++) {
+          const path = runPathRefs.current[k];
+          const grad = runGradRefs.current[k];
+          if (!path || !grad) continue;
+          if (spread <= 0) { path.setAttribute("d", ""); continue; }
+          // 深い端(先端 s=0)が12時に来る向きで使う。走る先端は ±180*p 側。
+          const from = (k === 0 ? -1 : 1) * spread, to = 0;
+          path.setAttribute("d", ringArcD(from, to));
+          const [ax, ay] = ringPoint(from, RING_R, RING_CX, RING_CY);
+          const [bx, by] = ringPoint(to, RING_R, RING_CX, RING_CY);
+          grad.setAttribute("x1", ax.toFixed(2));
+          grad.setAttribute("y1", ay.toFixed(2));
+          grad.setAttribute("x2", bx.toFixed(2));
+          grad.setAttribute("y2", by.toFixed(2));
+          const list = ringGradientStops(from, to);
+          for (let i = 0; i < list.length; i++) {
+            const el = runStopRefs.current[k][i];
+            if (!el) continue;
+            const c = ringRampRGB(base, list[i].s);
+            el.setAttribute("offset", list[i].offset.toFixed(5));
+            el.setAttribute("stop-color", `rgb(${c[0]},${c[1]},${c[2]})`);
+          }
+        }
+        const gl = ringGlowRGB(base);
+        for (const el of glowStopRefs.current) {
+          if (el) el.setAttribute("stop-color", `rgb(${gl[0]},${gl[1]},${gl[2]})`);
+        }
+      }
+      // 光の強さだけは毎フレーム(呼吸)。先頭と最後のストップ(不透明度0)は触らない。
+      const mid = glowStopRefs.current[1];
+      const op = ringGlowOpacity(raw, breath).toFixed(4);
+      if (mid && op !== lastGlow) { mid.setAttribute("stop-opacity", op); lastGlow = op; }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // --- 拍(上半円=振り子 / 下半円=拍の点) ---
   // 位置は毎フレーム変わるため、Reactの再レンダーを挟まず60fpsでDOMを直接書き換える。
@@ -3856,6 +4164,49 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   return (
     <div style={{ width: "100%", maxWidth: diameter, margin: "0 auto", position: "relative" }}>
       <svg viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", width: "100%", height: "auto" }} aria-hidden="true">
+        <defs>
+          {/* ズレの帯。色は**先端(現在位置)からの絶対弧長**で決め、帯の長さでは割らない。
+              ストップの位置は弧を弦へ射影して求める(軸は根元→先端の弦)。
+              【stop-opacity は1つも書かない】根元が透けると下地が出る。不透明度は常に1。 */}
+          <linearGradient
+            id={barGradId} gradientUnits="userSpaceOnUse"
+            x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={mx.toFixed(2)} y2={my.toFixed(2)}
+          >
+            {barStops.map((st, i) => {
+              const c = ringRampRGB([r, g, b], st.s);
+              return <stop key={i} offset={st.offset.toFixed(5)} stopColor={`rgb(${c[0]},${c[1]},${c[2]})`} />;
+            })}
+          </linearGradient>
+          {/* 到達の走り(左弧・右弧)。座標もストップもrAFが書き換える。ここでも不透明度は常に1。 */}
+          {runGradIds.map((gid, k) => (
+            <linearGradient
+              key={gid} id={gid} gradientUnits="userSpaceOnUse"
+              ref={(el) => { runGradRefs.current[k] = el; }}
+              x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={sx.toFixed(2)} y2={sy.toFixed(2)}
+            >
+              {Array.from({ length: RING_RAMP_STOPS }).map((_, i) => (
+                <stop
+                  key={i} ref={(el) => { runStopRefs.current[k][i] = el; }}
+                  offset={(i / (RING_RAMP_STOPS - 1)).toFixed(5)} stopColor={color}
+                />
+              ))}
+            </linearGradient>
+          ))}
+          {/* 到達の光。**環の外側だけ**を照らす。先頭ストップの不透明度が0なので
+              0%〜RING_GLOW_EDGE_PCT は完全に透明＝内側は白のまま(音名の可読性と静けさ)。 */}
+          <radialGradient
+            id={glowGradId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={VB / 2}
+          >
+            <stop ref={(el) => { glowStopRefs.current[0] = el; }}
+              offset={`${RING_GLOW_EDGE_PCT}%`} stopColor={color} stopOpacity="0" />
+            <stop ref={(el) => { glowStopRefs.current[1] = el; }}
+              offset={`${RING_GLOW_EDGE_PCT}%`} stopColor={color} stopOpacity="0" />
+            <stop ref={(el) => { glowStopRefs.current[2] = el; }}
+              offset="100%" stopColor={color} stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        {/* 到達の光(環の外側のみ)。帯より奥に敷く。 */}
+        <circle cx={CX} cy={CY} r={VB / 2} fill={`url(#${glowGradId})`} />
         {/* 環のトラック(常に全周)。色はCSS変数から引くため属性ではなくstyleで指定する
             (SVGのプレゼンテーション属性に var() は書けない)。 */}
         <circle cx={CX} cy={CY} r={R} fill="none" strokeWidth={SW} style={{ stroke: "var(--c-line)" }} />
@@ -3864,23 +4215,21 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
           x1={CX} y1={CY - R - SW / 2 - 5} x2={CX} y2={CY - R + SW / 2 + 5}
           strokeWidth="3" strokeLinecap="round" style={{ stroke: "var(--c-accent)" }}
         />
-        {sounding && (
-          <>
-            {/* ズレの弧: 0¢から現在位置まで伸びる。長さと色の両方でズレの大きさを示す */}
-            {arcD && <path d={arcD} fill="none" stroke={color} strokeWidth={SW} strokeLinecap="round" />}
-            {/* 合っている間は上弧が閉じて呼吸する(到達の合図)。
-                全周ではなく上弧だけに閉じるのが要点。全周にすると下弧＝拍の領域まで
-                ピッチ色に染まり、環の二役が崩れる(DESIGN-SYSTEM §6.1)。 */}
-            {inTune && (
-              <path
-                className="ficus-breathe" d={RING_PITCH_ARC_D} fill="none" stroke={color}
-                strokeWidth={SW} strokeLinecap="round"
-                style={{ animation: "ficus-breathe 1.9s ease-in-out infinite" }}
-              />
-            )}
-            {/* 現在位置 */}
-            <circle cx={mx} cy={my} r={RING_PITCH_DOT_R} fill={color} />
-          </>
+        {/* 到達の走り: 12時から両サイドへ同時に走り、6時で出会う(全周)。
+            DESIGN-SYSTEM §6.1 の「上弧=ピッチ / 下弧=拍」は、**到達したときだけ**
+            全周を使う許可を本人から得ている(2026-08-03)。到達していない間は上弧だけ。
+            【linecap は butt】丸端は終点から SW/2=7 外へ張り出して0¢の基準線を越え、
+            張り出した半円が最終色でベタ塗りされて「別の丸いものが付いている」ように見えた。 */}
+        {runGradIds.map((gid, k) => (
+          <path
+            key={gid} ref={(el) => { runPathRefs.current[k] = el; }}
+            d="" fill="none" stroke={`url(#${gid})`} strokeWidth={SW} strokeLinecap="butt"
+          />
+        ))}
+        {sounding && arcD && (
+          /* ズレの帯: 0¢から現在位置まで伸びる。長さとグラデーションでズレの大きさを示す。
+             先端に点は置かない(先端はグラデーションの終わりであって、そこで何かが始まらない)。 */
+          <path d={arcD} fill="none" stroke={`url(#${barGradId})`} strokeWidth={SW} strokeLinecap="butt" />
         )}
         {/* メトロノーム(E案)。ピッチ(環の上弧・機能色)と役割が混ざらないよう、拍はすべて
             紺(--c-accent)で、環より内側に描く。座標・大きさはrAFで直接書き換える。 */}
