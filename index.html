@@ -7,7 +7,9 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- viewport-fit=cover: ノッチ/ホームバー領域まで使い、env(safe-area-inset-*)を有効化する -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#F6F7F9" />
+    <!-- 地の色と必ず一致させる(--c-bg)。ここだけ旧地 #F6F7F9 のままだと、
+         iPhone Safari / PWA でブラウザ・ステータスバーの帯だけが灰色に残る。 -->
+    <meta name="theme-color" content="#FFFFFF" />
     <!-- ホーム画面から全画面(ブラウザのURLバー等なし)で起動する設定 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />

@@ -4215,6 +4215,669 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
 }
 
 // ============================================================
+console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法) ==========");
+// DESIGN-SYSTEM §6。地を白にしたうえで、群のまとめ方だけをタブごとに変える。
+//   計測・リード = 罫(.surf-rule) / データ = 沈める(.surf-sunk)
+// この作法は **CSSクラス** が持つ。インライン style はクラスより強いので、
+// .card / .tile に background / border / borderRadius をインラインで書くと
+// 作法が丸ごと無効になる。ここはそれを構造で見張るための節。
+{
+  const css = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+
+  // --- CSS を読むための最小限の道具 ------------------------------------
+  // カスタムプロパティの値(`--name: value;`)。
+  // **最初の一致では読まない。** CSS は後勝ちなので、ファイル末尾に
+  // `:root { --c-rule: #FFFFFF }` を1行足すだけでトークンを反転できてしまう
+  // (最初の一致だけを見る実装では、それが検査を素通りしていた)。
+  // ここでは最後の定義を返し、同時に「定義は1回だけ」を下で検査する。
+  const cssVarAll = (name) =>
+    [...css.matchAll(new RegExp(`${name}\\s*:\\s*([^;]+);`, "g"))].map((m) => m[1].trim());
+  const cssVar = (name) => { const v = cssVarAll(name); return v.length ? v[v.length - 1] : null; };
+
+  // スタイルシートを「規則の列」に分解する。
+  // **最初に一致した規則だけを読む方式は使わない。** CSS は後に書いたほうが勝つので、
+  // 同じセレクタをファイル末尾にもう一度書けば作法が丸ごと反転してしまう。
+  // ここでは全規則を順に持ち、(a) 同じセレクタが2回現れないこと を検査したうえで
+  // (b) 読むときは**最後の規則**を読む。どちらか片方だけでは追記で抜けられる。
+  const parseRules = (text) => {
+    const noComment = text.replace(/\/\*[\s\S]*?\*\//g, "");
+    const out = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(noComment)) !== null) {
+      // 直前に @import 等の文があると前置きとして取り込まれるので `;` の後ろだけ見る
+      const raw = m[1].split(";").pop().trim();
+      if (!raw || raw.startsWith("@")) continue;         // @media / @keyframes の頭
+      if (/^\d+%/.test(raw) || raw === "from" || raw === "to") continue; // キーフレーム
+      const sels = raw.split(",").map((s) => s.trim().replace(/\s+/g, " ")).filter(Boolean);
+      out.push({ sels, body: m[2] });
+    }
+    return out;
+  };
+  const cssRules = parseRules(css);
+  // そのセレクタを持つ規則すべて(宣言順)
+  const rulesFor = (sel) => cssRules.filter((r) => r.sels.includes(sel));
+  // 実際に効く規則 = 最後に書かれたもの
+  const cssBlock = (sel) => {
+    const rs = rulesFor(sel);
+    return rs.length ? rs[rs.length - 1].body : null;
+  };
+  // 宣言1つの値。同じ規則の中に2回書かれていたら後勝ちの値を返す
+  const decl = (block, prop) => {
+    if (block === null) return null;
+    const re = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "g");
+    let m, last = null;
+    while ((m = re.exec(block)) !== null) last = m[1].trim();
+    return last;
+  };
+  // 宣言の名前だけを正規化して並べる(`border-top` → `bordertop`)。
+  // **綴りを列挙しない**ための道具。接頭辞で見れば個別プロパティも一緒に捕まる。
+  const propNames = (block) =>
+    (String(block ?? "").match(/(?:^|;)\s*([A-Za-z-]+)\s*:/g) || [])
+      .map((s) => s.replace(/[^A-Za-z-]/g, "").toLowerCase().replace(/-/g, ""));
+  const hasPropPrefix = (block, prefixes) =>
+    propNames(block).some((p) => prefixes.some((x) => p.startsWith(x)));
+  // スタイルシート中で、あるセレクタ片に触れているセレクタの一覧
+  const selectorsMatching = (rules, re) => {
+    const s = new Set();
+    for (const r of rules) for (const sel of r.sels) if (re.test(sel)) s.add(sel);
+    return [...s].sort();
+  };
+  const sameSet = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // hex色の相対輝度(WCAG)。罫が --c-line より弱くなっていないことを見るのに使う
+  const luminance = (hex) => {
+    const h = hex.replace("#", "");
+    const ch = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+  // 2色のコントラスト比(WCAG)。**トークン名ではなく値で**線の強さを縛るのに使う。
+  const ratio = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  // --- 作法に効く宣言をカスケードで読むための道具 ------------------------
+  // 「禁止する綴りを列挙する」方式はいくらでも別綴りを作られるし、逆に
+  // padding-top を足すような**作法そのものの調整**まで止めてしまう。
+  // ここでは宣言を longhand へ展開し、「このプロパティを最終的に決めているのは
+  // どの宣言か」を**宣言順で**求める。見るのは綴りではなくカスケードの勝敗。
+  const SIDES = ["top", "right", "bottom", "left"];
+  const BPARTS = ["width", "style", "color"];
+  const CORNERS = ["top-left", "top-right", "bottom-right", "bottom-left"];
+  const BG_LONG = ["color", "image", "position", "size", "repeat", "origin", "clip", "attachment"]
+    .map((k) => `background-${k}`);
+  const BORDER_LONG = SIDES.flatMap((s) => BPARTS.map((p) => `border-${s}-${p}`))
+    .concat(CORNERS.map((c) => `border-${c}-radius`));
+  // 作法が握っているプロパティの「根」。ここに属さない宣言(color / opacity / outline …)は
+  // 作法を壊さないので、この道具の対象外にする。
+  const SURF_ROOTS = {
+    background: BG_LONG,
+    border: BORDER_LONG,
+    padding: SIDES.map((s) => `padding-${s}`),
+    margin: SIDES.map((s) => `margin-${s}`),
+    gap: ["row-gap", "column-gap"],
+    overflow: ["overflow-x", "overflow-y"],
+  };
+  const rootOf = (n) => Object.keys(SURF_ROOTS).find((r) => n === r || n.startsWith(r + "-")) || null;
+  // 宣言名 → それが値を決める longhand の集合。
+  // 既知の shorthand は正確に、**知らない綴りは根まるごと**(保守側に倒す)。
+  const expandDecl = (raw) => {
+    const n = String(raw).trim().toLowerCase();
+    const root = rootOf(n);
+    if (!root) return [n];
+    const all = SURF_ROOTS[root];
+    if (all.includes(n)) return [n];                                  // 既知の longhand
+    if (n === root) return all;                                       // 根の shorthand
+    if (root === "border") {
+      let m;
+      if (n === "border-radius") return CORNERS.map((c) => `border-${c}-radius`);
+      if ((m = /^border-(width|style|color)$/.exec(n))) return SIDES.map((s) => `border-${s}-${m[1]}`);
+      if ((m = /^border-(top|right|bottom|left)$/.exec(n))) return BPARTS.map((p) => `border-${m[1]}-${p}`);
+    }
+    return all;   // border-inline-start / padding-inline / background-blend-mode …
+  };
+  // 宣言を「順番のまま」名前と値で取り出す
+  const declList = (block) =>
+    [...String(block ?? "").matchAll(/(?:^|;)\s*([A-Za-z-]+)\s*:\s*([^;]*)/g)]
+      .map((m) => ({ name: m[1].toLowerCase(), value: m[2].trim() }));
+  // その longhand を最終的に決めている宣言の名前(= 後勝ちの勝者)
+  const ownerOf = (block, longhand) => {
+    let win = null;
+    for (const d of declList(block)) if (expandDecl(d.name).includes(longhand)) win = d.name;
+    return win;
+  };
+  // 作法に効く宣言(= 根を持つ宣言)を1つでも持っているか
+  const hasSurfDecl = (block) => declList(block).some((d) => rootOf(d.name) !== null);
+  // 作法のクラスを対象にしているセレクタか。`.card` だけでなく
+  // `[class~="card"]` / `[class*=card]` のような**別綴り**も同じ扱いにする
+  // (詳細度が同じで後に書けば、実際に作法は反転する)。
+  const targetsClass = (cls) =>
+    new RegExp(`\\.${cls}(?![-\\w])|\\[\\s*class\\s*[~*^$|]?=\\s*["']?[^"'\\]]*${cls}`);
+
+  // --- 1. トークン ------------------------------------------------------
+  // トークンは1回しか定義しない。末尾に `:root { --c-rule: #FFFFFF }` を足すだけで
+  // セレクタを一切触らずに罫を消せてしまうため(実測で確認済み)。
+  {
+    const dup = [...new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))]
+      .filter((n) => cssVarAll(n).length > 1);
+    check("index.css のトークンはそれぞれ1回しか定義されていない(末尾追記での差し替えが無い)",
+      dup.length === 0, dup.join(" "));
+  }
+  check("地は白(--c-bg: #FFFFFF)", cssVar("--c-bg") === "#FFFFFF", String(cssVar("--c-bg")));
+  // --c-sunk は**値を固定しない**。下の「地との差の下限」で縛る。
+  // 値を固定する検査を併置すると下限検査が永久に発火せず、下限を置いた意味が消える
+  // (「もっと沈めたい」という正当な変更まで止めてしまう)。
+  check("沈めた面のトークン --c-sunk が定義されている", /^#[0-9A-Fa-f]{6}$/.test(String(cssVar("--c-sunk"))), String(cssVar("--c-sunk")));
+  // --c-rule も**値を固定しない**。index.css 自身が「1m先で足りなければ
+  // 次の段は --c-line-strong」と逃げ道を書いているのに、値を固定していたせいで
+  // その正当な変更が落ちていた(--c-sunk で一度踏んだのと同じ壊れ方)。
+  // 下は「--c-line より濃い + 白地と 1.2551:1 以上」、上は「--c-line-strong まで」で
+  // 体系の段の中に閉じ込める。
+  check("罫のトークン --c-rule が定義されている", /^#[0-9A-Fa-f]{6}$/.test(String(cssVar("--c-rule"))), String(cssVar("--c-rule")));
+  check("--c-surface は白のまま残っている(沈めた面の上に置く白い要素に使う)", cssVar("--c-surface") === "#FFFFFF");
+  // 罫は「白地で群の境界を担う唯一の線」なので、ヘアライン(--c-line)と同値では役目を果たせない。
+  check("--c-rule は --c-line と別の値", cssVar("--c-rule") !== cssVar("--c-line"),
+    `rule=${cssVar("--c-rule")} / line=${cssVar("--c-line")}`);
+  check("--c-rule は --c-line より濃い(相対輝度が小さい)",
+    luminance(cssVar("--c-rule")) < luminance(cssVar("--c-line")),
+    `rule L=${luminance(cssVar("--c-rule")).toFixed(4)} / line L=${luminance(cssVar("--c-line")).toFixed(4)}`);
+  // 沈めた面は白地と見分けが付く必要がある(見分けが付かないなら沈めていない)。
+  check("--c-sunk は地(--c-bg)と別の値", cssVar("--c-sunk") !== cssVar("--c-bg"));
+  // データタブは群の境界を「沈めた面 vs 白地」だけで作る。ここを薄くすると群が消える。
+  // 一度 #F7F9FB を指定して**旧来(白カード vs 地 #F6F7F9)より弱く**したことがあるので、
+  // 旧来の強さを下限として固定する。値ではなく**差**で縛るのが要点。
+  {
+    const now = ratio(cssVar("--c-bg"), cssVar("--c-sunk"));
+    const OLD = 1.0719;   // 旧来の「白カード #FFFFFF vs 地 #F6F7F9」
+    check("沈めた面と地の差は旧来の群の境界(1.0719:1)以上",
+      now >= OLD - 1e-4, `いま ${now.toFixed(4)}:1 / 旧来 ${OLD}:1`);
+  }
+  // 入力欄の枠。§1.3 は「--c-line-strong = 入力欄の枠」と**名前で**定めているだけなので、
+  // トークン名の参照を守っても値を薄めれば「ここは触れる」は消える
+  // (#C3CAD3 → #F0F2F5 にすると 1.6523 → 1.1215 まで落ち、--c-line より弱くなる)。
+  // --c-sunk と同じく**差**で下限を置く。根拠は現在値の 1.6523:1。
+  {
+    const now = ratio(cssVar("--c-bg"), cssVar("--c-line-strong"));
+    const MIN = 1.6523;
+    check("入力欄の枠(--c-line-strong)と白地の差は 1.6523:1 以上(名前だけでなく値で縛る)",
+      now >= MIN - 1e-4, `いま ${now.toFixed(4)}:1 / 下限 ${MIN}:1`);
+    // 罫も同じく差で縛る。下限は現在値 #E1E6EC の 1.2551:1。
+    const r = ratio(cssVar("--c-bg"), cssVar("--c-rule"));
+    check("罫(--c-rule)と白地の差は 1.2551:1 以上", r >= 1.2551 - 1e-4, `いま ${r.toFixed(4)}:1 / 下限 1.2551:1`);
+    // 段の順序: --c-line < --c-rule <= --c-line-strong。
+    // 上限を --c-line-strong に置くことで「新しい値を発明しない」を保ちつつ、
+    // index.css が逃げ道として書いている1段の引き上げは通す。
+    check("--c-line-strong は --c-rule と同じか濃い(入力欄の枠 >= 群の罫)",
+      luminance(cssVar("--c-line-strong")) <= luminance(cssVar("--c-rule")),
+      `strong L=${luminance(cssVar("--c-line-strong")).toFixed(4)} / rule L=${luminance(cssVar("--c-rule")).toFixed(4)}`);
+  }
+
+  // --- 1.5 作法を持つ規則が「これだけ」であること -------------------------
+  // CSS は後勝ちなので、同じ詳細度で後に書き足すだけで作法は丸ごと反転する。
+  // `.surf-rule [class~="card"]` は `.surf-rule .card` と同じ (0,2,0) なので、
+  // **セレクタの綴りを列挙する方式では塞げない**(実測で反転を確認済み)。
+  //
+  // なので見るのは綴りではなく「作法に効く宣言(background/border/padding/
+  // margin/gap/overflow)を持っているか」。
+  //   (a) 作法を持ってよい規則の集合を固定する
+  //   (b) 各規則が1回しか書かれていないこと
+  //   (c) それ以外に作法のクラスへ触れる規則があってもよいが、
+  //       作法に効く宣言は持てない
+  // (c) があるので `.card:focus-visible { outline: … }` や `.tile:hover { opacity: … }`
+  // のような**正当な追加**は通り、`[class~="card"] { background: … }` は落ちる。
+  {
+    const expectCard = [".card", ".surf-rule .card", ".surf-sunk .card"];
+    const expectTile = [".surf-rule .tile", ".surf-sunk .tile", ".tile"];
+    const expectRow  = [".surf-rule .tile-row", ".tile-row"];
+    // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
+    const expectInput = [
+      'input[type="date"]', 'input[type="datetime-local"]', 'input[type="number"]',
+      'input[type="search"]', 'input[type="text"]', "select", "textarea",
+    ];
+    for (const [label, re, expect] of [
+      [".card", targetsClass("card"), expectCard],
+      [".tile", targetsClass("tile"), expectTile],
+      [".tile-row", targetsClass("tile-row"), expectRow],
+      ["入力欄", /(^|[\s,>+~])(input|select|textarea)\b/, expectInput],
+    ]) {
+      const touching = cssRules.filter((r) => r.sels.some((s) => re.test(s)));
+      // (a) 作法に効く宣言を持つ規則のセレクタ集合
+      const owners = [...new Set(touching.filter((r) => hasSurfDecl(r.body)).flatMap((r) => r.sels)
+        .filter((s) => re.test(s)))].sort();
+      check(`index.css で ${label} に作法(地/枠/角丸/余白/間隔)を与える規則はこの集合だけ`,
+        sameSet(owners, [...expect].sort()), owners.join(" | ") || "0件");
+      // (b) 後勝ちの上書きが無い
+      for (const sel of expect) {
+        check(`index.css の ${sel} は1回しか書かれていない(後勝ちの上書きが無い)`,
+          rulesFor(sel).length === 1, `${rulesFor(sel).length}回`);
+      }
+      // (c) 集合の外から作法に効く宣言が入っていない(属性セレクタ・別綴りを含む)
+      const extra = touching
+        .filter((r) => !r.sels.some((s) => expect.includes(s)))
+        .filter((r) => hasSurfDecl(r.body));
+      check(`index.css で ${label} を狙う他の規則は作法に効く宣言を持たない(別綴り・属性セレクタでの上書きが無い)`,
+        extra.length === 0, extra.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").slice(0, 2).join(" | "));
+    }
+    // 地はページの根が持つ。.app-root は高さだけを持ち、色・枠は一切持たない
+    // (`.app-root { background:#F6F7F9 }` を足すだけで旧地に戻せてしまう)。
+    {
+      const rootRules = cssRules.filter((r) => r.sels.some((s) => targetsClass("app-root").test(s)));
+      const bad = rootRules.filter((r) => hasSurfDecl(r.body));
+      check("index.css の .app-root は作法に効く宣言(地・枠・余白)を持たない",
+        bad.length === 0, bad.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").join(" | "));
+      check("index.css の .app-root は1回しか書かれていない", rulesFor(".app-root").length === 1,
+        `${rulesFor(".app-root").length}回`);
+      // 地そのもの。ラバーバンドで引っ張ると見える面なので、勝者の値まで固定する。
+      let bodyBg = null;
+      for (const r of cssRules.filter((x) => x.sels.includes("body")))
+        for (const d of declList(r.body)) if (expandDecl(d.name).includes("background-color")) bodyBg = d.value;
+      check("html, body の地は var(--c-bg)(最後に勝つ宣言で見る)", bodyBg === "var(--c-bg)", String(bodyBg));
+    }
+    // 影・輪郭は border と同じく「箱」を描ける。作法の規則そのものに持たせない
+    // (:hover / :focus-visible のような別セレクタは上の (c) の対象で、outline は許す)。
+    for (const sel of [".card", ".surf-rule .card", ".surf-sunk .card", ".tile",
+      ".surf-rule .tile", ".surf-sunk .tile", ".tile-row", ".surf-rule .tile-row", ".app-root"]) {
+      const names = declList(cssBlock(sel)).map((d) => d.name);
+      const boxy = names.filter((n) => /^(box-shadow|outline|filter|backdrop-filter)/.test(n));
+      check(`${sel} は影・輪郭で箱を描き直していない`, boxy.length === 0, boxy.join(" "));
+    }
+    // !important は詳細度も宣言順も飛び越える。作法に効くところで使わせない。
+    const bangs = (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[a-zA-Z-]+\s*:[^;{}]*!important/g) || [])
+      .map((s) => s.trim());
+    check("index.css の !important は動きを止める1件だけ(作法を飛び越える手を残さない)",
+      bangs.length === 1 && /^animation\s*:/.test(bangs[0]), bangs.join(" | ") || "0件");
+  }
+
+  // --- 2. 作法の規則そのもの -------------------------------------------
+  const ruleCard = cssBlock(".surf-rule .card");
+  const sunkCard = cssBlock(".surf-sunk .card");
+  const ruleTile = cssBlock(".surf-rule .tile");
+  const sunkTile = cssBlock(".surf-sunk .tile");
+  const ruleRow  = cssBlock(".surf-rule .tile-row");
+
+  check(".surf-rule .card / .surf-sunk .card の両方が定義されている", ruleCard !== null && sunkCard !== null);
+  // 罫: 箱を消す。塗りが復活したら(background: var(--c-surface) 等)ここで落ちる。
+  check("罫の作法のカードは塗りを持たない", decl(ruleCard, "background") === "transparent", String(decl(ruleCard, "background")));
+  check("罫の作法のカードは枠を持たない(border: 0)", decl(ruleCard, "border") === "0", String(decl(ruleCard, "border")));
+  check("罫の作法のカードは上辺の罫1本だけ", decl(ruleCard, "border-top") === "1px solid var(--c-rule)", String(decl(ruleCard, "border-top")));
+  check("罫の作法のカードは角丸なし", decl(ruleCard, "border-radius") === "0");
+  check("罫の作法のカードは左右の padding なし",
+    decl(ruleCard, "padding-left") === "0" && decl(ruleCard, "padding-right") === "0");
+  // 沈める: 地は白のまま、面だけを沈める。
+  check("沈める作法のカードの塗りは --c-sunk", decl(sunkCard, "background") === "var(--c-sunk)", String(decl(sunkCard, "background")));
+  check("沈める作法のカードの枠は透明", decl(sunkCard, "border") === "1px solid transparent", String(decl(sunkCard, "border")));
+  check("沈める作法のカードは角丸あり", decl(sunkCard, "border-radius") === "var(--r-md)");
+  check("カードの内側余白は --sp-4(DESIGN-SYSTEM §3)", decl(cssBlock(".card"), "padding") === "var(--sp-4)");
+
+  check("罫の作法のタイルは塗りも枠も持たず、左罫1本だけ",
+    decl(ruleTile, "background") === "transparent" && decl(ruleTile, "border") === "0" &&
+    decl(ruleTile, "border-left") === "1px solid var(--c-rule)" && decl(ruleTile, "border-radius") === "0");
+  check("沈める作法のタイルは白い面 + ヘアライン + 角丸",
+    decl(sunkTile, "background") === "var(--c-surface)" && decl(sunkTile, "border") === "1px solid var(--c-line)" &&
+    decl(sunkTile, "border-radius") === "var(--r-sm)");
+
+  // --- 3. 行の先頭のタイルに左罫が出ないこと ---------------------------
+  // 位置で決める方式: 罫はタイルの左端(margin-left:-1px で自分の枠の外)に付き、
+  // 行の左端に来た1本だけを容器の overflow:hidden が落とす。
+  // :nth-child で数える方式にすると、TappableMetricCard を開いたとき
+  // (gridColumn:1/-1)に行頭の位置がずれて破綻する。
+  check("罫の作法のタイルは罫を自分の枠の外(1px左)に出す", decl(ruleTile, "margin-left") === "-1px", String(decl(ruleTile, "margin-left")));
+  check("タイルの行は行頭の罫を落とすため overflow:hidden", decl(ruleRow, "overflow") === "hidden", String(decl(ruleRow, "overflow")));
+  check("タイルの行は左右へはみ出させ、タイルの padding と相殺して中身を地の左端に揃える",
+    decl(ruleRow, "margin-left") === "calc(-1 * var(--sp-3))" && decl(ruleRow, "margin-right") === "calc(-1 * var(--sp-3))",
+    `${decl(ruleRow, "margin-left")} / ${decl(ruleRow, "margin-right")}`);
+  check("罫の作法では列の間隔を0にする(罫の左右の余白はタイルの padding が持つ)", decl(ruleRow, "gap") === "0");
+  check("タイルの内側余白は --sp-3", decl(cssBlock(".tile"), "padding") === "var(--sp-3)");
+
+  // --- 3.5 作法の宣言が「後から別綴りで上書きされていない」こと ------------
+  // 上の decl() は綴りが完全に一致する1つの宣言しか見ない。同じ規則の中に
+  // `background-color:` や `border-color:` を足せば、`background: transparent` を
+  // 残したまま見た目だけ変えられてしまう。
+  //
+  // かつてここは**宣言名の集合そのもの**を固定していたが、それだと
+  // `.surf-rule .card` に `padding-top` を足すような**作法そのものの調整**まで
+  // 落ちてしまい、作法を育てられなかった。
+  // 見るのは名前の集合ではなく **longhand ごとのカスケードの勝者**にする。
+  //   ・作法が握る longhand それぞれについて、最後に値を決めている宣言が
+  //     「作法として書いた宣言」であること
+  //   ・作法が握っていない longhand(padding-top など)は対象外 = 足してよい
+  {
+    // [セレクタ, 本体, 作法として書いた宣言(**ソース順**)]
+    // 順序が意味を持つ: border-top は border より後に書かれて上辺だけを取り戻す。
+    const surfRules = [
+      [".surf-rule .card", ruleCard, ["background", "border", "border-top", "border-radius", "padding-left", "padding-right"]],
+      [".surf-sunk .card", sunkCard, ["background", "border", "border-radius"]],
+      [".surf-rule .tile", ruleTile, ["background", "border", "border-left", "border-radius", "margin-left"]],
+      [".surf-sunk .tile", sunkTile, ["background", "border", "border-radius"]],
+      [".surf-rule .tile-row", ruleRow, ["gap", "margin-left", "margin-right", "overflow"]],
+      [".card", cssBlock(".card"), ["padding"]],
+      [".tile", cssBlock(".tile"), ["padding"]],
+      [".tile-row", cssBlock(".tile-row"), ["gap"]],
+    ];
+    for (const [sel, block, intended] of surfRules) {
+      // 作法が握る longhand と、その意図された持ち主(後に書いたものが勝つ)
+      const want = new Map();
+      for (const name of intended) for (const lh of expandDecl(name)) want.set(lh, name);
+      const wrong = [];
+      for (const [lh, name] of want) {
+        const win = ownerOf(block, lh);
+        if (win !== name) wrong.push(`${lh}: ${win ?? "無し"}(期待 ${name})`);
+      }
+      check(`${sel} の作法は同じ規則の中で上書きされていない(${[...want.keys()].length}個の最終プロパティを宣言順で確認)`,
+        wrong.length === 0, wrong.slice(0, 4).join(" / "));
+      // 意図した宣言が実際に書かれていること(片方だけ消して「勝者無し」で
+      // 通り抜けるのを防ぐ。上の win !== name で落ちるが、意図を文にして残す)
+      const names = declList(block).map((d) => d.name);
+      const missing = intended.filter((n) => !names.includes(n));
+      check(`${sel} は作法の宣言(${intended.join(" / ")})をすべて持つ`, missing.length === 0, missing.join(" "));
+      // 地と線は「箱を作るか作らないか」そのものなので、意図した宣言の外に
+      // 1つでもあってはならない(例: .surf-rule .tile-row に border-left を足すと
+      // 行の左端に縦線が出て、まさに避けたい「囲み」になる)。
+      // 余白・間隔(padding/margin/gap/overflow)は上のカスケード検査で
+      // 握っているぶんだけ守り、それ以外は足してよい(作法を育てられるように)。
+      const strayPaint = names.filter((n) => ["background", "border"].includes(rootOf(n)) && !intended.includes(n));
+      check(`${sel} は意図した以外の地・線の宣言を持たない(箱を作り直していない)`,
+        strayPaint.length === 0, strayPaint.join(" "));
+    }
+  }
+
+  // --- 4. 入力欄は両方の作法で --c-sunk の塗り + --c-line-strong の枠 ----
+  // 入力欄は「群」ではなく「操作するもの」。白地でも触れると分かる必要がある。
+  // 枠は DESIGN-SYSTEM §1.3 の「--c-line-strong = 入力欄の枠」に従う。
+  // (--c-line #E9ECF0 は白地とのコントラスト比 1.1850:1 しかなく、役目を果たせない)
+  const inputSels = selectorsMatching(cssRules, /(^|[\s,>+~])(input|select|textarea)\b/);
+  const inputRules = cssRules.filter((r) => r.sels.some((s) => inputSels.includes(s)));
+  const inputBlock = inputRules.length ? inputRules[inputRules.length - 1].body : null;
+  check("入力欄(input/select/textarea)の共通規則がある", inputBlock !== null);
+  check("入力欄の規則は index.css に1つだけ(後から別規則で上書きしていない)",
+    inputRules.length === 1, `${inputRules.length}規則`);
+  check("入力欄の地は --c-sunk", decl(inputBlock, "background") === "var(--c-sunk)", String(decl(inputBlock, "background")));
+  check("入力欄の枠は --c-line-strong(DESIGN-SYSTEM §1.3)",
+    decl(inputBlock, "border") === "1px solid var(--c-line-strong)", String(decl(inputBlock, "border")));
+  // 別綴り(background-color / border-color …)で後ろから上書きしていないこと。
+  // ここも名前の集合の固定はやめ、**最終プロパティごとの勝者**で見る
+  // (集合固定だと font-size を足すような正当な調整まで落ちる)。
+  {
+    const intended = ["background", "color", "border", "border-radius"];
+    const want = new Map();
+    for (const name of intended) for (const lh of expandDecl(name)) want.set(lh, name);
+    const wrong = [];
+    for (const [lh, name] of want) {
+      const win = ownerOf(inputBlock, lh);
+      if (win !== name) wrong.push(`${lh}: ${win ?? "無し"}(期待 ${name})`);
+    }
+    check("入力欄の地・枠は同じ規則の中で上書きされていない(別綴りの個別プロパティが無い)",
+      wrong.length === 0, wrong.slice(0, 4).join(" / "));
+  }
+  check("入力欄の規則は select と textarea を含む", inputSels.includes("select") && inputSels.includes("textarea"));
+  for (const t of ["text", "number", "date", "datetime-local"]) {
+    check(`入力欄の規則は input[type="${t}"] を含む`, inputSels.includes(`input[type="${t}"]`));
+  }
+  // range / checkbox に塗りを当てるとUAの描画(つまみ・チェック)が壊れる。列挙方式であることの確認。
+  check("入力欄の規則は range / checkbox を含まない(UA描画のまま残す)",
+    !inputSels.includes('input[type="range"]') && !inputSels.includes('input[type="checkbox"]'));
+
+  // App.jsx の <style> は React が <body> の中に描く。index.css は本番ビルドでは
+  // <head> の <link> なので、**同じ詳細度なら必ず body 側が勝つ**。
+  // ここに1行足すだけで index.css の作法は丸ごと反転する(実測で確認済み:
+  // `.surf-rule .card { background:#FFFFFF; padding-left:16px; border-radius:12px }`
+  // を足すと旧デザインの白カードがそのまま戻る)。
+  // 入力欄だけでなく、**作法に関わるセレクタすべて**をここで塞ぐ。
+  {
+    // <style ...> の別綴り(<style type="text/css">)で2つ目を隠せないよう、
+    // タグの数え方も綴り完全一致から外す。
+    const st = /<style>\{`([\s\S]*?)`\}<\/style>/.exec(src);
+    check("App.jsx の <style> は1つだけ", (src.match(/<style[\s>]/g) || []).length === 1 && st !== null,
+      `${(src.match(/<style[\s>]/g) || []).length}箇所`);
+    check("App.jsx に dangerouslySetInnerHTML が無い(<style> の中身を静的に読めなくなる)",
+      !src.includes("dangerouslySetInnerHTML"));
+    const appRules = st ? parseRules(st[1]) : [];
+
+    // (1) 作法そのもの。.card / .tile / .tile-row / .surf-* / .app-root に
+    //     触れる規則は1つも置かせない(属性セレクタ = 別綴りも同じ扱い)。
+    const surfSel = [
+      ["card", targetsClass("card")], ["tile", targetsClass("tile")],
+      ["tile-row", targetsClass("tile-row")], ["app-root", targetsClass("app-root")],
+      ["surf-rule", targetsClass("surf-rule")], ["surf-sunk", targetsClass("surf-sunk")],
+    ];
+    const surfOffenders = appRules.filter((r) =>
+      r.sels.some((s) => surfSel.some(([, re]) => re.test(s))));
+    check("App.jsx の <style> は面の作法(.card/.tile/.tile-row/.surf-*/.app-root)に触れる規則を持たない",
+      surfOffenders.length === 0,
+      surfOffenders.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").slice(0, 2).join(" | "));
+
+    // (2) トークンの差し替え。`:root { --c-rule: #FFFFFF }` を1行足せば
+    //     セレクタを一切触らずに罫を消せる。値の唯一の答えは index.css に置く。
+    const varDefs = appRules.filter((r) => /(^|;)\s*--[A-Za-z0-9-]+\s*:/.test(r.body));
+    check("App.jsx の <style> は CSS カスタムプロパティを定義しない(トークンの値は index.css だけが持つ)",
+      varDefs.length === 0, varDefs.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").join(" | "));
+
+    // (3) 全称セレクタ。`* { background: #F6F7F9 }` は詳細度0でも、地を持たない
+    //     要素すべてを塗り替える。ここは box-sizing 専用にする。
+    const starRules = appRules.filter((r) => r.sels.includes("*"));
+    const starProps = [...new Set(starRules.flatMap((r) => declList(r.body).map((d) => d.name)))].sort();
+    check("App.jsx の <style> の * が持つ宣言は box-sizing だけ",
+      sameSet(starProps, ["box-sizing"]), starProps.join(" "));
+
+    // (3.5) セレクタを名指しで塞ぐ方式には終わりが無い。`body` / `div` / `#root` に
+    //     地を塗れば、作法のクラスに一度も触れずに面を作り替えられる(実測で確認済み)。
+    //     ここは**宣言の側**で閉じる: この <style> で地・枠・余白・間隔を持てるのは
+    //     select の2規則だけ(丸角カード内の軸セレクタと select 固有の詰め)。
+    const PAINT_OK = ["select", "select.pivot-axis-select"];
+    const painters = appRules
+      .filter((r) => !r.sels.every((s) => PAINT_OK.includes(s)))
+      .filter((r) => hasSurfDecl(r.body));
+    check("App.jsx の <style> で地・枠・余白・間隔を持てるのは select の2規則だけ",
+      painters.length === 0,
+      painters.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").slice(0, 2).join(" | "));
+
+    // (4) 入力欄。
+    const appInputSels = selectorsMatching(appRules, /(^|[\s,>+~])(input|select|textarea)\b/);
+    // 意図して地・枠を落とす唯一の例外。丸角カードの中に置く軸セレクタ。
+    const EXCEPTION = "select.pivot-axis-select";
+    check("App.jsx の <style> で入力欄に触れるセレクタはこの集合だけ",
+      sameSet(appInputSels, ["input:focus-visible", "input[type=range]", "select",
+        EXCEPTION, "select:focus-visible"].sort()), appInputSels.join(" | "));
+    const offenders = appRules
+      .filter((r) => r.sels.some((s) => appInputSels.includes(s)) && !r.sels.includes(EXCEPTION))
+      .filter((r) => hasPropPrefix(r.body, ["background", "border"]));
+    check("App.jsx の <style> は入力欄の地・枠を上書きしない(例外は軸セレクタ1件のみ)",
+      offenders.length === 0, offenders.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").join(" | "));
+    check("App.jsx の <style> に !important が無い(index.css の作法を飛び越えさせない)",
+      st !== null && !st[1].includes("!important"));
+  }
+
+  // --- 4.5 JSX のタグを読むための道具 -----------------------------------
+  // タグの終わりは「{} の深さが0のところに現れる > 」で判定する。
+  // onClick={() => ...} の "=>" は必ず {} の中にあるので誤検出しない。
+  const tagAt = (idx) => {
+    const start = src.lastIndexOf("<", idx);
+    let depth = 0;
+    for (let i = start; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") depth--;
+      else if (src[i] === ">" && depth === 0) return src.slice(start, i + 1);
+    }
+    return src.slice(start);
+  };
+  // **完全一致では見ない。** `className="card cardx"` とクラスを1つ足すだけで
+  // 走査から外れてしまう(クラスを足すのは日常的な編集なので、意図せず踏む)。
+  // className の中身を空白で割り、**トークンとして含まれるか**で判定する。
+  const tagsWithClass = (cls) => {
+    const out = [];
+    const re = /className="([^"]*)"/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      if (m[1].trim().split(/\s+/).includes(cls)) out.push(tagAt(m.index));
+    }
+    return out;
+  };
+
+  // --- 5. タブの根に作法のクラスが付いていること ------------------------
+  check("計測タブの根は罫の作法(surf-rule)",
+    /\{topTab === "measure" && \(\s*<div className="surf-rule">\s*<MeasureView/.test(src));
+  check("データタブの根は沈める作法(surf-sunk)",
+    /\{topTab === "analysis" && \(\s*<div className="surf-sunk">\s*<AnalysisLabView/.test(src));
+  // リードタブは子タブ(登録/比較)の溝と本体の2つを1つの根で包む。
+  const reedsBlockIdx = src.indexOf('{topTab === "reeds" && (');
+  const reedsBlock = reedsBlockIdx === -1 ? "" : src.slice(reedsBlockIdx, src.indexOf('{topTab === "measure" && ('));
+  check("リードタブの根は罫の作法(surf-rule)",
+    /\{topTab === "reeds" && \(\s*<div className="surf-rule">/.test(src));
+  check("ReedsTab(登録・比較・個別詳細のすべて)が罫の作法の根の中にある", reedsBlock.includes("<ReedsTab"));
+  check("ReedsTab の描画箇所は1つだけ(作法の外に置き去りにしていない)",
+    (src.match(/<ReedsTab/g) || []).length === 1, `${(src.match(/<ReedsTab/g) || []).length}箇所`);
+  // トークンで数える。`className="surf-rule wrap"` と書いても数から漏れない。
+  {
+    const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length;
+    check("作法のクラスは3タブぶんの3箇所だけ", roots === 3, `${roots}箇所`);
+  }
+
+  // --- 6. .card / .tile にインラインで見た目を書いていないこと ----------
+  // ここが今回いちばん壊れやすい。インライン style はクラスより強いので、
+  // background / border / borderRadius を1つでも書くとその要素だけ作法から外れる。
+  const cardTags = tagsWithClass("card");
+  const tileTags = tagsWithClass("tile");
+  const rowTags = tagsWithClass("tile-row");
+  // 数そのものが要件ではないが、0件なら検査が何も見ていないので下限だけ置く。
+  check(".card が実際に使われている", cardTags.length >= 15, `${cardTags.length}箇所`);
+  check(".tile が実際に使われている", tileTags.length >= 3, `${tileTags.length}箇所`);
+  check(".tile-row が実際に使われている", rowTags.length >= 5, `${rowTags.length}箇所`);
+  // 上の tagsWithClass は className="card" という**綴りそのもの**を探す。
+  // className={"card"} / className={`card ${x}`} と書けば走査から外れてしまうので、
+  // 作法のクラスは文字列リテラルでしか書けないことを先に固定する。
+  {
+    const exprs = (src.match(/className=\{[^}]*\}/g) || []).filter((s) => /\b(card|tile|tile-row)\b/.test(s));
+    check("作法のクラス(card/tile/tile-row)は className=\"…\" の直書きだけ(式に隠して走査から逃げていない)",
+      exprs.length === 0, exprs.slice(0, 2).join(" | "));
+    // React は `class=` も DOM に通す(警告は出るが描画はされる)。
+    // 綴りを変えるだけで上の走査から丸ごと外れるので、JSX では使わせない。
+    const rawClass = src.match(/[^a-zA-Z-]class=/g) || [];
+    check("JSX で class= を使っていない(className= だけ。綴りを変えて走査から逃げていない)",
+      rawClass.length === 0, `${rawClass.length}箇所`);
+    // style={someObject} だと中身を静的に読めない。作法のクラスを持つタグでは使わせない。
+    const all = [...cardTags, ...tileTags, ...rowTags];
+    const opaque = all.filter((t) => /style=\{(?!\{)/.test(t));
+    check("作法のクラスを持つタグの style はオブジェクトリテラル直書きだけ(変数経由で走査から逃げていない)",
+      opaque.length === 0, opaque.length ? opaque[0].slice(0, 160) : "");
+    // スプレッド({...OVERRIDE})と計算したキー({["background"+"Color"]: …})も
+    // 宣言名が静的に読めなくなる。オブジェクトリテラルであること自体を担保する。
+    const styleBody = (t) => { const m = /style=\{\{([\s\S]*?)\}\}/.exec(t); return m ? m[1] : ""; };
+    const spread = all.filter((t) => /\.\.\./.test(styleBody(t)));
+    check("作法のクラスを持つタグの style にスプレッドが無い(中身が静的に読めなくなる)",
+      spread.length === 0, spread.length ? spread[0].slice(0, 160) : "");
+    const computed = all.filter((t) => /(^|[{,])\s*\[/.test(styleBody(t)));
+    check("作法のクラスを持つタグの style に計算したキーが無い(宣言名が静的に読めなくなる)",
+      computed.length === 0, computed.length ? computed[0].slice(0, 160) : "");
+  }
+  // 実行時に見た目を書き換えられると、ここまでの静的検査は何も見られない。
+  // 塞ぐ口は2つある。**規則**の差し込みと、**要素の style プロパティ**。
+  // 前者だけを塞いで「スタイルは2箇所だけ」と名乗っていたが、
+  // `el.style.background = "#FFFFFF"` / `style.setProperty("--c-rule", …)` は
+  // 素通しだった(実測で確認済み)。名乗りを実態に合わせ、両方を見る。
+  {
+    const code = codeOf(src);
+    // (a) 規則そのものの差し込み
+    const inject = ["createElement(\"style\"", "createElement('style'", "insertRule",
+      "adoptedStyleSheets", "document.styleSheets", "CSSStyleSheet", "innerHTML"]
+      .filter((k) => code.includes(k));
+    check("App.jsx は実行時にスタイル規則を差し込まない(規則は index.css と <style> の2箇所だけ)",
+      inject.length === 0, inject.join(" | "));
+
+    // (b) 要素の style プロパティ。作法が握るプロパティだけを見る。
+    //     PitchRing の rAF は setAttribute("d"/"cx"/"stop-color" …) を正当に使うので、
+    //     ここでは巻き込まない(見るのは .style.<prop> = と setAttribute("style"))。
+    // DOM の style は camelCase。CSS の綴りへ直してから根を引く
+    // (backgroundColor → background-color → 根 background)。
+    const toKebab = (n) => n.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+    const styleWrites = [...code.matchAll(/\.style\.([A-Za-z-]+)\s*=(?!=)/g)]
+      .map((m) => m[1])
+      .filter((n) => n !== "cssText")
+      .filter((n) => rootOf(toKebab(n)) !== null || /^(box-shadow|outline)/.test(toKebab(n)));
+    check("App.jsx は要素の style で作法のプロパティ(地/枠/角丸/余白/間隔/影)を書かない",
+      styleWrites.length === 0, styleWrites.join(" | "));
+    // setProperty はカスタムプロパティを触れる。`--c-rule` を白にすれば罫は消える。
+    check("App.jsx は style.setProperty を使わない(トークンを実行時に差し替えられる)",
+      !/\.style\.setProperty\s*\(/.test(code));
+    check('App.jsx は setAttribute("style") / setAttribute("class") を使わない',
+      !/setAttribute\s*\(\s*["'`](style|class)\b/.test(code));
+    check("App.jsx は className / classList を実行時に書き換えない",
+      !/\.className\s*=(?!=)/.test(code) && !/\.classList\b/.test(code));
+    // cssText は画面外の計測用プローブ2箇所でだけ使う。文字列リテラルに限り、
+    // 作法のプロパティを含めない(overflow は画面外要素の隠しに要るので対象外)。
+    const cssTexts = [...code.matchAll(/\.style\.cssText\s*=\s*([^\n]*)/g)]
+      .map((m) => m[1].trim().replace(/;\s*$/, ""));
+    const badCssText = cssTexts.filter((v) =>
+      !/^(["'])[^"'`]*\1$/.test(v) || /(^|;)\s*(background|border|padding|margin|gap|box-shadow|outline)[a-z-]*\s*:/i.test(v));
+    check("style.cssText は文字列リテラルで、作法のプロパティを含まない",
+      badCssText.length === 0, badCssText.slice(0, 2).join(" | "));
+    // 作法のクラスを JS から掴めれば、上のどの経路でも直接 style を書ける。
+    const grab = code.match(/["'`][^"'`\n]*\.(card|tile|tile-row|surf-rule|surf-sunk|app-root)(?![-\w])[^"'`\n]*["'`]/g) || [];
+    check("App.jsx は作法のクラスを JS の文字列(セレクタ)で掴まない",
+      grab.length === 0, grab.slice(0, 2).join(" | "));
+  }
+  // ページの根の地。ここを `#F6F7F9` にすれば地だけ旧デザインに戻せる。
+  // .app-root は index.css 側では地を持たない(上の 1.5 で固定)ので、
+  // 実際の地はこのインライン1行が決めている。値まで見る。
+  {
+    const rootTags = tagsWithClass("app-root");
+    check(".app-root は1箇所だけ", rootTags.length === 1, `${rootTags.length}箇所`);
+    const rootTag = rootTags[0] || "";
+    check(".app-root の地は var(--c-bg)(旧地 #F6F7F9 への差し戻しを止める)",
+      /background:\s*"var\(--c-bg\)"/.test(rootTag),
+      (rootTag.match(/background[A-Za-z]*:\s*[^,}]*/) || ["無し"])[0]);
+    const rootBg = (rootTag.match(/([A-Za-z-]+)\s*:/g) || [])
+      .map((s) => s.replace(/[^A-Za-z-]/g, "").toLowerCase())
+      .filter((p) => p.startsWith("background"));
+    check(".app-root のインライン地の宣言は background 1つだけ(別綴りで後から上書きしていない)",
+      rootBg.length === 1 && rootBg[0] === "background", rootBg.join(" ") || "0件");
+  }
+  // インライン style の宣言名を正規化して並べる。
+  // **綴りを列挙しない。** React の style は camelCase なので background / border /
+  // padding は backgroundColor・borderWidth・borderStyle・borderColor・borderTop・
+  // paddingLeft … といくらでも別綴りが作れる。接頭辞で見れば全部まとめて捕まる。
+  const inlineProps = (tag) =>
+    (tag.match(/([A-Za-z-]+)\s*:/g) || [])
+      .map((s) => s.replace(/[^A-Za-z-]/g, "").toLowerCase().replace(/-/g, ""));
+  const withPrefix = (tags, prefixes, extra = () => false) =>
+    tags.filter((t) => inlineProps(t).some((p) => prefixes.some((x) => p.startsWith(x)) || extra(p)));
+  for (const [name, tags] of [[".card", cardTags], [".tile", tileTags]]) {
+    // borderRadius も border 接頭辞で一緒に落ちる(作法が角丸を決めているため)。
+    // boxShadow / outline / filter は border を書かずに「箱」を描き直せる別経路
+    // (`boxShadow: "inset 0 0 0 1px #E9ECF0"` で旧カードの枠がそのまま戻る)。
+    const bad = withPrefix(tags, ["background", "border", "padding", "boxshadow", "outline", "filter", "backdropfilter"]);
+    check(`${name} に background* / border* / padding* / 影 / 輪郭のインライン宣言が無い(あると作法が効かなくなる)`,
+      bad.length === 0, bad.length ? bad[0].slice(0, 160) : "");
+  }
+  // インライン style で CSS カスタムプロパティを定義すると、セレクタにも
+  // 宣言名にも作法の綴りが現れないまま作法を反転できる
+  // (`style={{ "--c-rule": "#FFFFFF" }}` を根に1つ書けば罫が全滅する)。
+  // 上の inlineProps は `--` を落として正規化するため、ここだけ生の綴りで見る。
+  {
+    const code = codeOf(src);
+    const vars = code.match(/["']--[A-Za-z0-9-]+["']\s*:/g) || [];
+    check("App.jsx はインライン style で CSS カスタムプロパティを定義しない(トークンを要素単位で差し替えられる)",
+      vars.length === 0, [...new Set(vars)].slice(0, 3).join(" | "));
+  }
+  // タイルの行にインラインの gap を書くと、罫の作法の gap:0 を上書きして
+  // 罫の左右の余白が非対称になる。margin-left/right と overflow も同様
+  // (行頭の罫を落とす仕掛けそのものが壊れる)。marginTop/Bottom は作法が触らないので許す。
+  {
+    const bad = withPrefix(rowTags, ["gap", "background", "border", "overflow"],
+      (p) => p === "margin" || p === "marginleft" || p === "marginright" || p.startsWith("margininline"));
+    check(".tile-row に gap* / margin(左右) / overflow* / background* / border* のインライン宣言が無い",
+      bad.length === 0, bad.length ? bad[0].slice(0, 160) : "");
+  }
+  // 旧カードの綴りが .card へ移らずに残っていないか(白カード+ヘアラインの3点セット)。
+  // コメント中の記録には当たらないよう codeOf を通す。
+  {
+    const code = codeOf(src);
+    const leftovers = (code.match(/background: "#FFFFFF", border: "1px solid #E9ECF0", borderRadius/g) || []).length;
+    check("旧カードの3点セット(白 + #E9ECF0 + 角丸)の直書きが残っていない", leftovers === 0, `${leftovers}箇所`);
+  }
+}
+
+// ============================================================
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

@@ -45,8 +45,22 @@
      現在の適用範囲: 計測タブの演奏中サーフェス(PitchRing とその周辺)。
      一括置換はしない(検証できない変更を増やさないため)。
      ------------------------------------------------------------------ */
-  --c-bg:         #F6F7F9; /* ページ背景 */
-  --c-surface:    #FFFFFF; /* カード */
+  /* 地は白。群のまとめ方はタブごとの「作法」(下の .surf-rule / .surf-sunk)が決める。
+     以前の地 #F6F7F9 は白カードとの差が L* で 2.79 しかなく、群の境界を担えていなかった。 */
+  --c-bg:         #FFFFFF; /* ページ背景 */
+  --c-surface:    #FFFFFF; /* 面。沈めた面の上に置く白い要素(タイル等) */
+  /* 沈めた面。データタブのパネルと、全画面の入力欄の地。
+     **旧来の地 #F6F7F9 をそのまま流用する。** 一度 #F7F9FB を指定したが、白地との差が
+     ΔL* 2.17 で、旧来の「白カード vs 地 #F6F7F9」の 2.79 より**弱くなっていた**。
+     データタブは群の境界をこの面だけで作るので、弱めるのは筋が悪い。
+     #F6F7F9 に戻すと 2.79 を回復し、入力欄は以前と同じ見え方になる(前も白の上の #F6F7F9)。 */
+  --c-sunk:       #F6F7F9;
+  /* 罫。白地で群の境界を担う唯一の線なので --c-line(#E9ECF0)より少しだけ強い。
+     白地とのコントラスト比 1.2551:1 / ΔL* 8.92(審査役が独立に計算した実測値)。
+     旧来いちばん強かった信号(カード枠 #E9ECF0 vs 地 #F6F7F9 = ΔL* 3.93)の 2.3倍。
+     ただし WCAG 1.4.11 の 3:1 には届かない。1m先で足りなければ、体系内で上げられる
+     次の段は --c-line-strong(1.6523:1 / ΔL* 18.96)。新しい値を発明しないこと。 */
+  --c-rule:       #E1E6EC;
   --c-ink:        #121F32; /* 最濃テキスト */
   --c-ink-2:      #435266; /* 副テキスト */
   --c-ink-3:      #8D95A1; /* ミュートテキスト */
@@ -135,6 +149,98 @@ body {
 /* 動きを減らす設定の端末では、呼吸も点滅も止めて静止した状態で見せる */
 @media (prefers-reduced-motion: reduce) {
   .ficus-breathe, .ficus-pulse { animation: none !important; }
+}
+
+/* ------------------------------------------------------------------
+   面の作法(DESIGN-SYSTEM §6 二面サーフェス)。地は白で全タブ共通。
+   変えるのは「群のまとめ方」だけ。作法はタブの根に付ける。
+
+     .surf-rule = 罫    箱を消し、上辺の罫1本で群を分ける(計測 / リード)
+     .surf-sunk = 沈める 地は白のまま、パネルだけを沈める(データ)
+
+   タブの根に付けるので、中のカードは「自分がどの作法の中にいるか」で見た目が決まる。
+   共有部品(PhraseTimeline・MetricCard・TappableMetricCard)を分岐なしで両方に置ける。
+
+   【いちばん壊れやすいところ】その1: インライン style
+   .card / .tile にインラインで background / border / padding を書くと、
+   インライン style はクラスより強いので作法が丸ごと効かなくなる。書かないこと。
+   **個別プロパティも同じ**(backgroundColor / borderWidth / borderTop / paddingLeft …)。
+
+   【いちばん壊れやすいところ】その2: このファイルの末尾への追記
+   CSS は後に書いたほうが勝つので、下の規則と同じセレクタをこのファイルの
+   どこかにもう一度書くと、作法が丸ごと反転する。**1セレクタ1規則**を守ること。
+
+   scripts/pitch-test.mjs の「16. 面の作法」が、この2つを
+   (1) 接頭辞での走査 (2) 規則の重複禁止 + 後勝ちの読み取り で検査している。
+   ------------------------------------------------------------------ */
+.card { padding: var(--sp-4); }
+.tile { padding: var(--sp-3); }
+.tile-row { gap: var(--sp-2); }
+
+/* 罫: 箱を消して罫1本にする。左右の padding も落として地に直接置く */
+.surf-rule .card {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--c-rule);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+/* 沈める: 地は白のまま、面だけ沈める。枠は透明(場所だけ確保して線は見せない) */
+.surf-sunk .card {
+  background: var(--c-sunk);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+}
+
+/* カードの中に並ぶ小さい面(指標のタイル等) */
+.surf-rule .tile {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--c-rule);
+  border-radius: 0;
+  /* 罫を自分の枠の外(1px左)へ出す。下の .tile-row の overflow が行頭の1本だけを落とす */
+  margin-left: -1px;
+}
+.surf-sunk .tile {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-sm);
+}
+
+/* 行の先頭のタイルには左罫を付けない(列の左端に罫が出ると囲みに見える)。
+   :nth-child で数える方法は採らない。タイルが1つでも全幅に広がると
+   (TappableMetricCard を開くと gridColumn:1/-1 になる)行頭の位置が1つずれ、
+   以降の行の先頭に罫が出てしまうため。ここでは**位置そのもの**で決める:
+   罫はタイルの左端に付け(上の margin-left:-1px)、行の左端に来た罫だけを
+   容器の overflow:hidden が落とす。どの行も左端は容器の左端なので、
+   列数・全幅タイルの有無・折り返しに関係なく成立する。
+   容器を左右へ --sp-3 はみ出させ、タイルの padding と相殺することで、
+   1列目の中身がカードの左端(=地の左端)にちょうど揃う。 */
+.surf-rule .tile-row {
+  gap: 0;
+  margin-left: calc(-1 * var(--sp-3));
+  margin-right: calc(-1 * var(--sp-3));
+  overflow: hidden;
+}
+
+/* 入力欄は「群」ではなく「操作するもの」。どちらの作法でも、白い地の上で
+   「ここは触れる」と分かる必要があるので、地は --c-sunk・枠は --c-line-strong で固定する。
+   枠が --c-line-strong なのは DESIGN-SYSTEM §1.3 が「--c-line-strong = 入力欄の枠」と
+   定めているため。--c-line(#E9ECF0)は白地とのコントラスト比 1.1850:1 しかなく、
+   「ここは触れる」を担えていなかった(--c-line-strong #C3CAD3 は 1.6523:1)。
+   type を列挙するのは range / checkbox / file を UA 描画のままにするため。 */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="search"],
+select,
+textarea {
+  background: var(--c-sunk);
+  color: var(--c-ink);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-xs);
 }
 
 /* 和文ラベル・小さめの本文(〜13px)用: 既定字間だと詰まって見えるため少し広げる */
