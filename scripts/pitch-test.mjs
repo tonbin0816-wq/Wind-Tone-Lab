@@ -1807,17 +1807,22 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       return sw.length === 2 && other.length === 0;
     })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/strokeWidth=\{[^}]*\}/.exec(t) || ["(線幅なし)"])[0]).join(" | "));
     // (e) 重ね順。光は一番奥、拍は一番手前。入れ替えると光が帯を覆う/拍が帯に隠れる。
-    check("重ね順は 光 → トラック → 12時の基準 → 走り → ズレの帯 → 拍", (() => {
+    check("重ね順は 光 → トラック → 走り → ズレの帯 → 拍", (() => {
       const order = [
         flat.indexOf("fill={`url(#${glowGradId})`}"),
         flat.indexOf('r={R} fill="none" strokeWidth={SW}'),
-        flat.indexOf('strokeWidth="3" strokeLinecap="round"'),
         flat.indexOf('d="" fill="none" stroke={`url(#${gid})`}'),
         flat.indexOf("<path d={arcD}"),
         flat.indexOf("{getBeatPhase && ("),
       ];
       return order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1]));
     })());
+    // 12時の基準マーカー(紺の縦線)は本人指示で撤去した。帯の根元そのものが0¢を示すので、
+    // 印を別に置く理由が無い。**復活させないこと**を綴りではなく要素の有無で見る。
+    // `<line` は `<linearGradient` の接頭辞でもあるので境界を付ける(最初これで空振りした)
+    check("12時の基準マーカーを復活させていない(環に <line> は無い)",
+      !/<line[\s/>]/.test(flat.slice(flat.indexOf("<svg"), flat.indexOf("{getBeatPhase && ("))),
+      (flat.match(/<line[\s/>][\s\S]{0,60}/g) || []).join(" | ") || "");
   }
   // (f) 到達の判定は1箇所だけ。rAF に渡す値を別式にすり替える変異が通っていた。
   check("到達の判定は ringCode 内で1箇所だけ(閾値の二重定義が無い)",

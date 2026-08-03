@@ -4014,7 +4014,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
 
   // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
   // 【音が入っていないときは文字を出さない】以前は "—" を置いていたが、待っている状態は
-  // 環のトラックと12時の基準マーカーだけで読める。文字で説明しない(DESIGN-SYSTEM §6.1)。
+  // 環のトラックだけで読める。文字で説明しない(DESIGN-SYSTEM §6.1)。
   const noteLetter = sounding ? note.name.charAt(0) : "";
   const accidental = sounding ? note.name.slice(1) : "";
   // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
@@ -4210,11 +4210,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
         {/* 環のトラック(常に全周)。色はCSS変数から引くため属性ではなくstyleで指定する
             (SVGのプレゼンテーション属性に var() は書けない)。 */}
         <circle cx={CX} cy={CY} r={R} fill="none" strokeWidth={SW} style={{ stroke: "var(--c-line)" }} />
-        {/* 12時=0¢の基準マーカー。トラックを跨いで内外にわずかに出す */}
-        <line
-          x1={CX} y1={CY - R - SW / 2 - 5} x2={CX} y2={CY - R + SW / 2 + 5}
-          strokeWidth="3" strokeLinecap="round" style={{ stroke: "var(--c-accent)" }}
-        />
+        {/* 【削除済み】12時=0¢の基準マーカー(紺の縦線)。本人指示で撤去した。
+            帯は必ず12時から伸びるので、**帯の根元そのものが0¢の位置**を示す。
+            音が入っていないときは指すものが無いので、印だけを残す理由も無い。
+            演奏中サーフェスは要素を足すより減らすほうが効く(DESIGN-SYSTEM §6.1)。 */}
         {/* 到達の走り: 12時から両サイドへ同時に走り、6時で出会う(全周)。
             DESIGN-SYSTEM §6.1 の「上弧=ピッチ / 下弧=拍」は、**到達したときだけ**
             全周を使う許可を本人から得ている(2026-08-03)。到達していない間は上弧だけ。
