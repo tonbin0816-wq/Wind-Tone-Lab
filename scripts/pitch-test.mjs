@@ -5026,10 +5026,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /hi = maxAbs \|\| 1;/.test(chart));
     // ここが今回の指示の芯。ミラー描画の痕跡(2本目のポリライン・負値の作成・分岐フラグ)が
     // 1つでも残っていたら、線が2本に戻り得るということなので落とす。
+    // **「綴りが無いこと」を見る検査は codeOf() を通す**(このファイル冒頭の規約)。
+    // 通さないと、経緯をコメントに書き残しただけで落ちる(審査役が変異試験で実証)。
+    const chartCode = codeOf(chart);
     check("ミラー描画の2本目のポリラインが無い(折れ線は1系列につき1本)",
-      !/segmentsFor\(negByIdx\)/.test(chart));
-    check("ミラー用の負値(negByIdx)を作っていない", !/negByIdx/.test(chart));
-    check("ミラー分岐のフラグ(isStabilityMirror)が残っていない", !/isStabilityMirror/.test(chart));
+      !/segmentsFor\(negByIdx\)/.test(chartCode));
+    check("ミラー用の負値(negByIdx)を作っていない", !/negByIdx/.test(chartCode));
+    check("ミラー分岐のフラグ(isStabilityMirror)が残っていない", !/isStabilityMirror/.test(chartCode));
     // 目盛は fmt に生の値を渡す(符号付きの fmt が自分で "+"/"-" を付ける)。絶対値に潰すと
     // 下端の目盛が上端と同じ表示になり、上下の向きが読めなくなる。
     check("縦軸の目盛は fmt に生の値をそのまま渡す(絶対値に潰さない)",
@@ -5051,6 +5054,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     check("ヒーローの良否判定は絶対値(0からの距離)のままで評価する",
       /const todayErr = todayVal != null \? Math\.abs\(todayVal\) : null;/.test(myDataSection) &&
       /const periodErr = periodVal != null \? Math\.abs\(periodVal\) : null;/.test(myDataSection));
+
+    // 本人の問い(2026-08-04)「上方向にしかブレていないように見えるが実データが+側だけだから?」
+    // → 違い、スパークラインだけ絶対値(pitchCents)を渡していたので**構造上片側にしか
+    // 振れなかった**。すぐ上の大きい数字が符号つきなので、真下の線だけ絶対値だと読み違える。
+    check("ヒーロー直下のスパークラインも符号付き(pitchCentsSigned)を使う",
+      /const sparkVals = points\.map\(\(p\) => p\.pitchCentsSigned\)/.test(myDataSection));
+    check("スパークラインは絶対値(pitchCents)を使っていない",
+      !/points\.map\(\(p\) => p\.pitchCents\)/.test(codeOf(myDataSection)));
+    // 符号付きにしただけでは足りない。minV〜maxV の自動フルスケールのままだと0がどこか
+    // 分からず、上下の向きが読めない(0中心の対称スケール + 0の基準線がセットで要る)。
+    check("スパークラインは0を中央に置いた対称スケールにする",
+      /const zeroY = H \/ 2;/.test(myDataSection) &&
+      /const maxAbs = Math\.max\(\.\.\.sparkVals\.map\(\(v\) => Math\.abs\(v\)\)\) \|\| 1;/.test(myDataSection));
+    check("スパークラインは0の基準線を描く(上下の意味が読めるように)",
+      /<line x1="0" y1=\{zeroY\} x2=\{W\} y2=\{zeroY\}/.test(myDataSection));
+    check("スパークラインの面は0の線まで塗る(箱の底ではない)",
+      /\$\{W\},\$\{zeroY\} 0,\$\{zeroY\}/.test(myDataSection));
   }
 
   // --- 6.9 input[type=date] は appearance を落として幅を効かせる ------------
@@ -5069,6 +5089,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /appearance: "none"/.test(decl));
     check("使用開始日の input[type=date] は maxWidth:100% で親を超えないようにする",
       /maxWidth: "100%"/.test(decl));
+    // 本人報告(2026-08-04)「横幅は直ったが縦幅が変わった」。appearance を落とすと幅と一緒に
+    // **縦方向の固有の寸法も失われる**ため、行の高さを明示しないと中のテキストが上寄せに落ちる。
+    check("使用開始日の input[type=date] は lineHeight を明示する(appearance:none で失う縦位置の補償)",
+      /lineHeight: "1\.25"/.test(decl));
+    check("使用開始日の input[type=date] は overflow:hidden を持つ(内部UIのはみ出しの最後の歯止め)",
+      /overflow: "hidden"/.test(decl));
+    // 高さは共通スタイル側で固定する。minHeight だけだと下限にしかならず、ネイティブ描画の
+    // ままの select が 44px を上回ったときに使用開始日だけ低くなる(本人報告の「縦幅が変わった」)。
+    const rf = rfBodyFor(src);
+    check("REED_FORM_CONTROL_STYLE は height を固定して3つの欄の縦幅を揃える",
+      /height: "var\(--tap-min\)"/.test(rf));
+    check("REED_FORM_CONTROL_STYLE は minHeight も併記する(§5 の 44pt 要件の意図を残す)",
+      /minHeight: "var\(--tap-min\)"/.test(rf));
   }
 
   // ============================================================

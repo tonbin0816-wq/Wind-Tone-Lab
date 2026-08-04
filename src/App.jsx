@@ -6207,9 +6207,16 @@ function ReedsTab(props) {
 // minWidth: 0 は input[type=date] のため。type=date は「年/月/日」＋カレンダーアイコンを
 // 抱えた固有幅を持ち、既定の min-width:auto のままだとグリッド項目の取り分より縮まず、
 // width:100% が効かずに右の列へはみ出す(iOS Safari で本人報告)。
+// height を minHeight と**両方**書く理由(2026-08-04・本人報告「使用開始日だけ縦幅が変わった」):
+// minHeight は下限でしかないので、ネイティブ描画のまま(appearance:auto)の select が
+// 固有の高さで 44px を上回ると、appearance を落とした使用開始日(=固有の高さを失って
+// ちょうど 44px になる)だけが低くなり、3つの欄の縦幅が揃わない。Chrome では 3つとも
+// 44px に収まるためこの差は出ない(またしても実機だけで出る差)。height で固定して
+// 「揃っている」を実装で保証する。minHeight は §5 の 44pt 要件の意図を残すために併記する。
 const REED_FORM_CONTROL_STYLE = {
   width: "100%",
   minWidth: 0,
+  height: "var(--tap-min)",
   minHeight: "var(--tap-min)",
   padding: "0 8px",
   boxSizing: "border-box",
@@ -6458,13 +6465,21 @@ function ReedRegisterView(props) {
             appearance を落とすと素のテキスト欄と同じ箱になり width:100% が効くようになる。
             タップでネイティブの日付ピッカーが開く挙動はそのまま残る。
             maxWidth:100% は「それでも固有幅が勝つ」場合に親を超えないための二重の歯止め。
+            **本人の実機で「横幅は直った」ことを確認済み(2026-08-04)。**
+
+            【lineHeight と overflow を併記する理由】appearance を落とすと、幅と一緒に
+            **縦方向の固有の寸法(高さ・内部テキストの縦位置)も失われる**。実際、本人から
+            「横幅は直ったが縦幅が変わった」という報告が続いた。高さ自体は
+            REED_FORM_CONTROL_STYLE の height で固定してあるので、ここでは中のテキストが
+            上寄せに落ちないよう行の高さを与える。overflow:hidden は内部UIが箱をはみ出した
+            場合の最後の歯止め(Chromeでは3つとも無影響なので、足さない理由が無い)。
             iOS実機でしか検証できないため、ここを触るときは必ず実機で確認すること。 */}
         <div style={{ marginBottom: 8 }}>
           <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
           <input
             id="reed-startdate-input"
             type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%" }}
+            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
           />
         </div>
 
@@ -6716,9 +6731,11 @@ function computeFrameMetrics(frames) {
   // 平均はすべてclarity重み付き(weightedMean)。音色系(HNR・重心)はさらに
   // アタック過渡フレームを除外(timbreSustained)して定常状態だけを平均する。
   const sustained = frames.filter(timbreSustained);
-  // ピッチのブレ(安定度): 符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
-  // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す
-  // 別の指標(My Dataのヒーローと同じ数字の重複表示を避けるために使う)。
+  // ピッチのブレ: 符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
+  // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す。
+  // 【2026-08-04】以前は My Data のカードがこれを「ピッチの安定度」として表示していたが、
+  // 本人指示で符号つきの平均ズレ(pitchCentsSigned)に置き換わったため、**現在この値を
+  // 表示している画面は無い**(算出だけ残してある)。使うときは表示先を決めてから。
   const pitchVals = frames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
   return {
     hnrDb: weightedMean(sustained, (f) => f.hnrDb),
@@ -6762,7 +6779,7 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         hnrDb: m.hnrDb,
         pitchCents: m.pitchCents,                     // 平均ピッチ誤差(絶対値)。音名軸グラフ用
         pitchCentsSigned: m.pitchCentsSigned, // 符号付きピッチ誤差。最新セッション/個別セッションの音名軸グラフ用
-        pitchStabilityCents: m.pitchStabilityCents,   // ピッチの安定度(±stddev)。音名軸グラフ用
+        pitchStabilityCents: m.pitchStabilityCents,   // ピッチのブレ(stddev)。現在どの画面でも未使用
         harmonicsProfile,
       };
     })
@@ -7999,7 +8016,12 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCentsSigned : null; // 今日の平均ピッチ偏差(符号つき)
   const periodVal = overall.pitchCentsSigned;                                                    // 対象期間の平均(符号つき)
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
-  const sparkVals = points.map((p) => p.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  // 【2026-08-04 本人の問い】「上方向にしかブレていないように見えるが、実データが+側にしか
+  // ブレていないからか?」→ **違う。データではなくここが絶対値(pitchCents)を渡していたから**、
+  // 構造上どんなデータでも片側にしか振れなかった。すぐ上の大きい数字が符号つきになった以上、
+  // その真下の折れ線だけ絶対値なのは読み違いを生む(「-6.0¢」と出ているのに線は上に伸びる)。
+  // 符号つき(pitchCentsSigned)に揃える。下の描画も0を中心にした対称スケールにする。
+  const sparkVals = points.map((p) => p.pitchCentsSigned).filter((v) => v !== null && v !== undefined && !isNaN(v));
 
   // 色分け: 完全一致(≒0)=ミント / 平均より大きく改善=緑 / 平均並み=オレンジ / 平均より悪化=赤。
   // 誤差は0からの距離(絶対値)で評価する。ネイビー背景で映えるよう明るめの色を使う。
@@ -8046,16 +8068,23 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
         )}
         {sparkVals.length >= 2 && (() => {
           const W = 320, H = 48;
-          const minV = Math.min(...sparkVals), maxV = Math.max(...sparkVals);
-          const rng = maxV - minV || 1;
+          // 0を画面の中央に置き、上をシャープ側・下をフラット側にする(グラフ全体で同じ約束)。
+          // 以前は minV〜maxV の自動フルスケールだったので、**0がどこにあるか分からず**
+          // 「上がった=悪い」なのか「0に寄った=良い」のかが線からは読めなかった。
+          const maxAbs = Math.max(...sparkVals.map((v) => Math.abs(v))) || 1;
+          const zeroY = H / 2;
+          const half = (H - 12) / 2; // 上下に6pxずつの余白
+          const yAt = (v) => zeroY - (v / maxAbs) * half;
           const xy = sparkVals.map((v, i) => {
             const x = sparkVals.length > 1 ? (i / (sparkVals.length - 1)) * W : W / 2;
-            const y = H - 6 - ((v - minV) / rng) * (H - 14);
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
+            return `${x.toFixed(1)},${yAt(v).toFixed(1)}`;
           });
           return (
             <svg width="100%" height="48" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ marginTop: 12, display: "block" }}>
-              <polyline points={`${xy.join(" ")} ${W},${H} 0,${H}`} fill="rgba(143,180,255,.15)" stroke="none" />
+              {/* 面は0の線まで塗る(0からどちら側にどれだけ離れているかが面積で見える) */}
+              <polyline points={`${xy.join(" ")} ${W},${zeroY} 0,${zeroY}`} fill="rgba(143,180,255,.15)" stroke="none" />
+              {/* 0の基準線。これが無いと符号付きにしても上下の意味が読めない */}
+              <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke="#9DB3D6" strokeWidth="1" strokeDasharray="3 3" />
               <polyline points={xy.join(" ")} fill="none" stroke="#8FB4FF" strokeWidth="2.5" />
             </svg>
           );
