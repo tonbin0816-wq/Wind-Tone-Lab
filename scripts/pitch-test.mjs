@@ -5002,24 +5002,73 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     check("TappableMetricCard は noteFocus を受け取り NoteAxisLineChart へそのまま渡す(既定 null)",
       /noteFocus\s*=\s*null/.test(card) && /noteFocus=\{noteFocus\}/.test(card));
   }
-  // --- 6.7 ピッチの安定度(pitchStabilityCents)は±ミラーで描く ------------
-  // 常に非負の実測値をそのまま描くと0からの片側だけの折れ線になるため、+v/-v の2本を
-  // 同じ色で描いて帯として見せる。MY_DATA_METRICS だけに存在し idealKey は null
-  // (REED_COMPARE_METRICS には無い)ので、この分岐は「My Data」カードにしか効かない。
+  // --- 6.7 符号付きピッチ誤差(pitchCentsSigned)は0中心の対称軸・折れ線1本 ------------
+  // 【2026-08-04 本人指示で仕様変更】以前は「ピッチの安定度」(pitchStabilityCents = 標準偏差、
+  // 常に非負)を ±v の2本のミラー折れ線で帯として見せていた。本人の指示は
+  //   「0を挟んで上が＋、下がマイナスに変更。この変更で折れ線グラフが1本になるはず」
+  // で、見たいのは「シャープ側/フラット側のどちらへどれだけズレたか」だったため、
+  // My Data のカードは符号付きの平均ズレ(pitchCentsSigned)に変わり、ミラー描画は
+  // 使う指標が無くなったので撤去した。**ミラーを復活させないこと**(復活させると
+  // 1本のはずの線が2本に戻り、指示に反する)。
   {
-    check("pitchStabilityCents は MY_DATA_METRICS にだけ存在する(REED_COMPARE_METRICSには無い)",
-      /key: "pitchStabilityCents"/.test(extractConst("MY_DATA_METRICS")) &&
-      !/key: "pitchStabilityCents"/.test(extractConst("REED_COMPARE_METRICS")));
     const chart = srcOf("NoteAxisLineChart");
-    check("NoteAxisLineChart は metricKey===\"pitchStabilityCents\" で分岐する",
-      /metricKey === "pitchStabilityCents"/.test(chart));
-    check("安定度は縦軸ドメインを ±maxAbs の対称にする(lo = -hi)", /lo = -hi;/.test(chart));
-    check("安定度はゼロ除算だけ避ける(実測が全て0のとき hi を1にフォールバック)",
+    const myData = extractConst("MY_DATA_METRICS");
+    check("MY_DATA_METRICS のピッチ系指標は符号付き(pitchCentsSigned)である",
+      /key: "pitchCentsSigned"/.test(myData));
+    check("MY_DATA_METRICS に非負のブレ幅(pitchStabilityCents)はもう使われていない",
+      !/key: "pitchStabilityCents"/.test(myData));
+    check("符号付きピッチ誤差は REED_COMPARE_METRICS(リード別比較・登録済みリード)には無い(あちらは絶対値のまま)",
+      !/key: "pitchCentsSigned"/.test(extractConst("REED_COMPARE_METRICS")));
+    check("NoteAxisLineChart は metricKey===\"pitchCentsSigned\" で分岐する",
+      /metricKey === "pitchCentsSigned"/.test(chart));
+    check("符号付きピッチ誤差は縦軸ドメインを ±maxAbs の対称にする(lo = -hi)", /lo = -hi;/.test(chart));
+    check("ゼロ除算だけ避ける(実測が全て0のとき hi を1にフォールバック)",
       /hi = maxAbs \|\| 1;/.test(chart));
-    check("安定度は同じ系列を +v と -v の2本のポリラインで描く(ミラー表示)",
-      /segmentsFor\(s\.byIdx\)/.test(chart) && /segmentsFor\(negByIdx\)/.test(chart));
-    check("安定度のミラー用の負値は同じ byIdx から作る(別の実測を持ち込まない)",
-      /negByIdx = Object\.fromEntries\(Object\.entries\(s\.byIdx\)\.map\(\(\[k, v\]\) => \[k, -v\]\)\)/.test(chart));
+    // ここが今回の指示の芯。ミラー描画の痕跡(2本目のポリライン・負値の作成・分岐フラグ)が
+    // 1つでも残っていたら、線が2本に戻り得るということなので落とす。
+    check("ミラー描画の2本目のポリラインが無い(折れ線は1系列につき1本)",
+      !/segmentsFor\(negByIdx\)/.test(chart));
+    check("ミラー用の負値(negByIdx)を作っていない", !/negByIdx/.test(chart));
+    check("ミラー分岐のフラグ(isStabilityMirror)が残っていない", !/isStabilityMirror/.test(chart));
+    // 目盛は fmt に生の値を渡す(符号付きの fmt が自分で "+"/"-" を付ける)。絶対値に潰すと
+    // 下端の目盛が上端と同じ表示になり、上下の向きが読めなくなる。
+    check("縦軸の目盛は fmt に生の値をそのまま渡す(絶対値に潰さない)",
+      /const tickTexts = tickVals\.map\(\(v\) => fmt\(v\)\);/.test(chart));
+    check("符号付き指標の fmt は正の値に \"+\" を前置する(0を挟んだ向きが読める)",
+      /fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(myData));
+  }
+
+  // --- 6.8 データタブ最上部のヒーロー「今日のピッチ誤差」は符号付き ------------
+  // 本人指示(2026-08-04): 「データタブ最上部の今日のピッチ誤差は符号付きがいいです」。
+  // 以前は絶対値(pitchCents)を渡しながら表示側だけ符号つき前提の分岐を持っており、
+  // "-" が構造上出得なかった(BACKLOG F-37)。良否の色分けは今までどおり絶対値で評価する。
+  {
+    const myDataSection = srcOf("MyDataSection");
+    check("ヒーローの今日の値は符号付き(pitchCentsSigned)を使う",
+      /computeFrameMetrics\(todayFrames\)\.pitchCentsSigned/.test(myDataSection));
+    check("ヒーローの対象期間平均も符号付き(pitchCentsSigned)を使う",
+      /const periodVal = overall\.pitchCentsSigned;/.test(myDataSection));
+    check("ヒーローの良否判定は絶対値(0からの距離)のままで評価する",
+      /const todayErr = todayVal != null \? Math\.abs\(todayVal\) : null;/.test(myDataSection) &&
+      /const periodErr = periodVal != null \? Math\.abs\(periodVal\) : null;/.test(myDataSection));
+  }
+
+  // --- 6.9 input[type=date] は appearance を落として幅を効かせる ------------
+  // 本人報告(2026-08-04・3周目): 「使用開始日の横幅がまだずれている。必ず修正しろ」。
+  // iOS Safari の input[type=date] はネイティブのdateコントロールとして描かれる間、
+  // 固有の内容幅を優先して CSS の width:100% を無視する(Chromeは無視しないため
+  // Browser pane では再現せず、2周ぶん見落とした)。appearance を落とすと素の箱になり
+  // width が効く。**この2行を外すと実機でだけ再発する**ので外さないこと。
+  {
+    const register = srcOf("ReedRegisterView");
+    const dateInput = register.slice(register.indexOf('id="reed-startdate-input"'));
+    const decl = dateInput.slice(0, dateInput.indexOf("/>"));
+    check("使用開始日の input[type=date] は WebkitAppearance:none を持つ",
+      /WebkitAppearance: "none"/.test(decl));
+    check("使用開始日の input[type=date] は appearance:none も併記する(非WebKit系のため)",
+      /appearance: "none"/.test(decl));
+    check("使用開始日の input[type=date] は maxWidth:100% で親を超えないようにする",
+      /maxWidth: "100%"/.test(decl));
   }
 
   // ============================================================

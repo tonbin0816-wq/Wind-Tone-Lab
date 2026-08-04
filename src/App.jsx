@@ -6447,12 +6447,24 @@ function ReedRegisterView(props) {
             </select>
           </div>
         </div>
+        {/* 【使用開始日だけが銘柄・番手より横に広くなる件の本命の対処。2026-08-04】
+            本人報告: 「普通の画面では分からないが、スワイプで指に追従して動くときに
+            日付だけ横幅がずれているのが分かる」。実際、実機(iOS Safari)では
+            width:100% / minWidth:0 / boxSizing:border-box を全部与えても直らなかった。
+            原因は **-webkit-appearance がネイティブのままだから**。iOS Safari の
+            input[type=date] はネイティブのdateコントロールとして描かれ、その状態では
+            「年/月/日＋カレンダー」を収める固有の幅を優先し、CSS の width を無視する
+            (Chrome は無視しないので Browser pane では再現しない = 前2周で見落とした理由)。
+            appearance を落とすと素のテキスト欄と同じ箱になり width:100% が効くようになる。
+            タップでネイティブの日付ピッカーが開く挙動はそのまま残る。
+            maxWidth:100% は「それでも固有幅が勝つ」場合に親を超えないための二重の歯止め。
+            iOS実機でしか検証できないため、ここを触るときは必ず実機で確認すること。 */}
         <div style={{ marginBottom: 8 }}>
           <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
           <input
             id="reed-startdate-input"
             type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12 }}
+            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%" }}
           />
         </div>
 
@@ -7087,15 +7099,16 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
   const minV = allVals.length ? Math.min(...allVals) : 0;
   const maxV = allVals.length ? Math.max(...allVals) : 1;
-  // ピッチの安定度(pitchStabilityCents)は常に非負の値。0を挟んで上下対称のドメインにし、
-  // ±v のミラー折れ線で「ここまでブレる」という帯として見せる(他の指標は従来どおり)。
-  const isStabilityMirror = metricKey === "pitchStabilityCents";
-  // pitchCentsSigned(最新セッション・個別セッションの符号付きピッチ誤差)も同様に0中心の
-  // 対称ドメインにする。ただしこちらはデータ自体が既に符号を持つので、下のミラー描画
-  // (isStabilityMirror分岐)は使わず、通常の1本の折れ線でそのまま描ける。
+  // 符号付きピッチ誤差(pitchCentsSigned)は0を挟んで上がシャープ側・下がフラット側になる
+  // ように、0中心の対称ドメイン(lo = -hi)にする。データ自体が既に符号を持つので、
+  // 折れ線は通常どおり1本。
+  // 【2026-08-04 本人指示】以前は「ピッチの安定度」(pitchStabilityCents = 標準偏差、常に非負)を
+  // ±v の2本のミラー折れ線で帯として見せていたが、「0を挟んで上が＋・下がマイナス、線は1本」
+  // という指示によりMy Dataの該当カードは符号付きの平均ズレ(pitchCentsSigned)に変わったため、
+  // ミラー描画は使う指標が無くなり撤去した(MY_DATA_METRICS のコメントを見ること)。
   const isSignedCentered = metricKey === "pitchCentsSigned";
   let lo, hi, rng;
-  if (isStabilityMirror || isSignedCentered) {
+  if (isSignedCentered) {
     const maxAbs = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v))) : 0;
     hi = maxAbs || 1; // 実測が全て0(またはデータ無し)のときのゼロ除算だけ避ける
     lo = -hi;
@@ -7123,9 +7136,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 
     // 縦軸は上端・中間・下端の3値。中間値が無いと、横に長い折れ線のどこが基準か掴めない。
     const tickVals = [hi, (hi + lo) / 2, lo];
-    // ミラー軸(pitchStabilityCents)は fmt 自体が "±" を前置するため、負の目盛にそのまま
-    // 適用すると "±-4.4" と符号が二重になる。目盛だけは絶対値にしてから渡す(値そのものは変えない)。
-    const tickTexts = tickVals.map((v) => fmt(isStabilityMirror ? Math.abs(v) : v));
+    // fmt にはどの指標でも生の値をそのまま渡す(符号付き指標の fmt は自分で "+"/"-" を付ける)。
+    // 以前ここで絶対値に潰していたのは "±" を前置する安定度の fmt が負の目盛で "±-4.4" と
+    // 二重符号になるのを避けるためだったが、その指標(ミラー描画)ごと撤去したので不要になった。
+    const tickTexts = tickVals.map((v) => fmt(v));
     const tickW = Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))));
     // 目盛ラベルの左右に --sp-2 以上(§1.9)。measureSvgTextPx は送り幅なので、実インクは
     // 左右どちらにも送り幅を最大1px程度はみ出す(実測: 右 0.7px / 左 0.95px)。
@@ -7213,27 +7227,6 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
               {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない */}
               {seriesData.map((s, si) => {
                 const st = s.style || SERIES_STYLES[0];
-                if (isStabilityMirror) {
-                  // 安定度は実測が常に≥0なので、そのまま描くと0からの片側だけの折れ線になり
-                  // 読みにくい。同じ色で +v/-v の2本(上下ミラー)を描き、帯として見せる。
-                  const negByIdx = Object.fromEntries(Object.entries(s.byIdx).map(([k, v]) => [k, -v]));
-                  return (
-                    <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
-                      {segmentsFor(s.byIdx).map((seg, k) => (
-                        <polyline key={`p${k}`} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
-                      ))}
-                      {segmentsFor(negByIdx).map((seg, k) => (
-                        <polyline key={`n${k}`} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
-                      ))}
-                      {Object.entries(s.byIdx).map(([idx, v]) => (
-                        <circle key={`p${idx}`} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
-                      ))}
-                      {Object.entries(negByIdx).map(([idx, v]) => (
-                        <circle key={`n${idx}`} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
-                      ))}
-                    </g>
-                  );
-                }
                 return (
                   <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
                     {segmentsFor(s.byIdx).map((seg, k) => (
@@ -7912,9 +7905,13 @@ const MY_DATA_METRICS = [
   { key: "volumeDb", idealKey: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "spectralCentroidHz", idealKey: "centroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "hnrDb", idealKey: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
-  // ヒーローカードが「今日のピッチ誤差」を主役として表示するため、ここでは同じ数字を
-  // 繰り返さず、ピッチの安定度(値のブレ幅=標準偏差)という別の切り口を見せる。
-  { key: "pitchStabilityCents", idealKey: null, label: "ピッチの安定度", unit: "¢", fmt: (v) => `±${v.toFixed(1)}` },
+  // 【2026-08-04 本人指示】「0を挟んで上が＋・下がマイナス、折れ線は1本」。
+  // 以前はブレ幅(標準偏差、常に非負)を ±v の2本のミラーで描いていたが、本人が見たいのは
+  // 「シャープ側/フラット側のどちらにどれだけズレたか」だったので、符号付きの平均ズレ
+  // (pitchCentsSigned)に変えた。ラベルは本人の呼び方に合わせて「ピッチの安定度」のまま。
+  // ヒーローの「今日のピッチ誤差」と同じ量だが、あちらは期間全体の1つの数字、
+  // こちらはタップで開く音名ごとの内訳なので、見えるものが違う。
+  { key: "pitchCentsSigned", idealKey: null, label: "ピッチの安定度", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -7994,8 +7991,13 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   const todayFrames = allMySessions
     .filter((s) => new Date(s.recordedAt) >= startOfToday)
     .flatMap((s) => s.frames || []);
-  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCents : null; // 今日の平均ピッチ偏差(符号つき)
-  const periodVal = overall.pitchCents;                                                    // 対象期間の平均
+  // 【2026-08-04 本人指示】「データタブ最上部の今日のピッチ誤差は符号付きがいい」。
+  // 以前は pitchCents(Math.abs を通した絶対値)を渡しておきながら表示側は符号つき前提の
+  // 分岐(displayVal > 0 ? "+" : "")を持っており、"-" が出ることが構造上あり得なかった。
+  // 符号つきの平均ズレ(pitchCentsSigned)を渡し、シャープ側/フラット側が読めるようにする。
+  // 良否の色分け(下の todayErr / periodErr)は今までどおり絶対値=0からの距離で評価する。
+  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCentsSigned : null; // 今日の平均ピッチ偏差(符号つき)
+  const periodVal = overall.pitchCentsSigned;                                                    // 対象期間の平均(符号つき)
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
   const sparkVals = points.map((p) => p.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
 
