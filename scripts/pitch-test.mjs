@@ -4879,6 +4879,142 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     check("旧カードの3点セット(白 + #E9ECF0 + 角丸)の直書きが残っていない", leftovers === 0, `${leftovers}箇所`);
   }
 
+  // --- 6.5 .no-top-rule: 2箇所だけの上辺ライン除去特例 --------------------
+  // 本人指示(F-?): リードタブ上部(子タブの溝・「一覧に戻る」との間)のラインを
+  // 「新しいリードを登録」カードと「登録済みの個別リード」識別情報カードの2箇所だけ消す。
+  // .card 自体はロック済みの集合({expectCard})以外に触れてはいけないので、
+  // .card という文字列を一切含まない別セレクタ .surf-rule .no-top-rule で
+  // border-top だけを後勝ちさせる方式にした。この節はその方式が実際に機能していることを
+  // 独立に検証する(16節の .card ロック検査は selector 文字列に「.card」を含まないと
+  // そもそも捕捉しないため、ここで守らないと何も守られていないテストになる)。
+  {
+    const noTopBlock = cssBlock(".surf-rule .no-top-rule");
+    check(".surf-rule .no-top-rule の規則が index.css にある", noTopBlock !== null);
+    check("index.css の .surf-rule .no-top-rule は1回しか書かれていない(後勝ちの上書きが無い)",
+      rulesFor(".surf-rule .no-top-rule").length === 1, `${rulesFor(".surf-rule .no-top-rule").length}回`);
+    // セレクタの綴りそのものが .card を含まない(本人指示の絶対条件)。16節のロック検査は
+    // セレクタに ".card" という文字列が現れることを前提に走査するので、含んでいたら
+    // その時点でロック検査に引っかかって別の形で落ちる。ここは**その前提を直接確認する**。
+    check(".surf-rule .no-top-rule というセレクタの綴りに \".card\" という文字列を含まない",
+      !/\.card(?![-\w])/.test(".surf-rule .no-top-rule"));
+    // 中身は border-top だけ(他のプロパティに手を広げていない = 乱用の芽を摘む)
+    const noTopDecls = declList(noTopBlock ?? "");
+    check(".surf-rule .no-top-rule は border-top だけを持つ(他のプロパティに触れていない)",
+      noTopDecls.length === 1 && noTopDecls[0].name === "border-top",
+      noTopDecls.map((d) => d.name).join(" ") || "0件");
+    check(".surf-rule .no-top-rule の border-top は none",
+      decl(noTopBlock, "border-top") === "none", String(decl(noTopBlock, "border-top")));
+    // 【カスケードの実地検証】.surf-rule .card と .surf-rule .no-top-rule は詳細度が
+    // 同じ(0,2,0)。ファイル順で後に書かれたほうが border-top を決める。ここでは
+    // 「両方のクラスを持つ要素に実際にどちらが効くか」を宣言列を連結してシミュレートする
+    // (decl() は最後に一致した宣言を返すので、連結順=カスケード順そのもの)。
+    {
+      const ruleIdx = cssRules.findIndex((r) => r.sels.includes(".surf-rule .card"));
+      const noTopIdx = cssRules.findIndex((r) => r.sels.includes(".surf-rule .no-top-rule"));
+      check(".surf-rule .no-top-rule は .surf-rule .card より後に書かれている(後勝ちが成立する)",
+        ruleIdx !== -1 && noTopIdx !== -1 && noTopIdx > ruleIdx, `card=${ruleIdx} no-top-rule=${noTopIdx}`);
+      const cardBody = cssBlock(".surf-rule .card") ?? "";
+      const merged = cardBody + ";" + (noTopBlock ?? "");
+      check("両方のクラスを持つ要素では border-top が none に上書きされる(カスケードのシミュレーション)",
+        decl(merged, "border-top") === "none", String(decl(merged, "border-top")));
+      // 【変異への裏取り】.no-top-rule 側を外した(=merged から除いた)ときは
+      // .surf-rule .card 単体の border-top(= 罫が生きている状態)に戻ることを確認する。
+      // これが変わらなければ、上のテストは「連結すれば必ず none になる」という
+      // 恒等式を検査しているだけで、何も守っていないことになる(LOOP.md が戒める罠)。
+      check("(裏取り) .no-top-rule を外すと border-top は元の罫(1px solid var(--c-rule))に戻る",
+        decl(cardBody, "border-top") === "1px solid var(--c-rule)", String(decl(cardBody, "border-top")));
+    }
+  }
+  // App.jsx 側: no-top-rule を付けているのは本人指示の2箇所だけ(乱用しないこと)。
+  {
+    const noTopTags = tagsWithClass("no-top-rule");
+    check('className="card no-top-rule" は2箇所だけ(リード登録カード / 識別情報カードの2つのみ)',
+      noTopTags.length === 2, `${noTopTags.length}箇所`);
+    check("no-top-rule を持つタグはすべて .card も同時に持つ(単独では使わない)",
+      noTopTags.every((t) => (t.match(/className="([^"]*)"/) || ["", ""])[1].trim().split(/\s+/).includes("card")),
+      noTopTags.join(" | ").slice(0, 200));
+  }
+
+  // extractFunction (ファイル先頭) は「関数名の直後の最初の { 」を本体開始とみなすため、
+  // 分割代入の引数(`function X({ a, b }) {`)を持つ関数では引数側の { } で早期に
+  // 閉じてしまい、本体を取り違える(実際に確認済み: MyDataSection で69文字しか取れず、
+  // noteFocus を含む本体が丸ごと欠落した)。ここでは「引数の丸括弧をまず対応させ、
+  // その後で最初の { から本体を対応させる」正しい版をローカルに用意する
+  // (15節の sourceOf と同じ実装。15節はブロックスコープに閉じているため再利用できない)。
+  const srcOf = (name) => {
+    const idx = src.indexOf(`function ${name}(`);
+    if (idx === -1) throw new Error(`function ${name} not found`);
+    let i = src.indexOf("(", idx), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+    }
+    while (i < src.length && src[i] !== "{") i++;
+    depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+    }
+    throw new Error(`function ${name}: unbalanced braces`);
+  };
+  // --- 6.6 noteFocus(音名の絞り込み)は指定した2箇所だけに効く ------------
+  // データタブの「My Data」「最新セッション」の各カードだけ x軸を E♭3/E♭4/E♭5 に絞る。
+  // ReedEvaluationDetail の測定データ・SessionDetailView のセッション平均・ReedCompareTab は
+  // 対象外(従来どおり全音域)。渡し忘れ・渡しすぎのどちらも壊れたら検出できるようにする。
+  {
+    const FOCUS = 'noteFocus={["E♭3", "E♭4", "E♭5"]}';
+    const total = (src.match(/noteFocus=\{\["E♭3", "E♭4", "E♭5"\]\}/g) || []).length;
+    check("noteFocus=[\"E♭3\",\"E♭4\",\"E♭5\"] を渡す箇所は全体でちょうど2箇所",
+      total === 2, `${total}箇所`);
+    const myData = srcOf("MyDataSection");
+    const latest = srcOf("LatestSessionCard");
+    const reedDetail = srcOf("ReedEvaluationDetail");
+    const sessionDetail = srcOf("SessionDetailView");
+    check("MyDataSection(My Dataカード)は noteFocus を渡す", myData.includes(FOCUS));
+    check("LatestSessionCard(最新セッションカード)は noteFocus を渡す", latest.includes(FOCUS));
+    check("ReedEvaluationDetail(登録済みリードの測定データ)は noteFocus を渡さない(全音域のまま)",
+      !reedDetail.includes("noteFocus"));
+    check("SessionDetailView(セッション平均)は noteFocus を渡さない(全音域のまま)",
+      !sessionDetail.includes("noteFocus"));
+    // TappableMetricCard の呼び出しは全体で4箇所(登録済みリード/My Data/最新セッション/
+    // セッション詳細)。noteFocus を持つのはそのうち2箇所だけ、という数の対応も見る
+    // (渡し忘れ・渡しすぎのどちらでもここが動く)。
+    const callSites = (src.match(/<TappableMetricCard/g) || []).length;
+    check("TappableMetricCard の呼び出しは4箇所", callSites === 4, `${callSites}箇所`);
+  }
+  // NoteAxisLineChart / TappableMetricCard 自体が noteFocus を実装として持っている
+  // (呼び出し側だけ書いて実装が無い、という状態を防ぐ)。
+  {
+    const chart = srcOf("NoteAxisLineChart");
+    check("NoteAxisLineChart は noteFocus を受け取る(既定 null)", /noteFocus\s*=\s*null/.test(chart));
+    check("NoteAxisLineChart は noteFocus 指定時に音名で絞り込む(noteLabels[i] を noteFocus で判定)",
+      /noteFocus\.includes\(noteLabels\[i\]\)/.test(chart));
+    check("NoteAxisLineChart は noteFocus 指定時、中央E♭の強調(ガイド線・太字)を行わない",
+      /noteFocus \? \[\] :/.test(chart));
+    const card = srcOf("TappableMetricCard");
+    check("TappableMetricCard は noteFocus を受け取り NoteAxisLineChart へそのまま渡す(既定 null)",
+      /noteFocus\s*=\s*null/.test(card) && /noteFocus=\{noteFocus\}/.test(card));
+  }
+  // --- 6.7 ピッチの安定度(pitchStabilityCents)は±ミラーで描く ------------
+  // 常に非負の実測値をそのまま描くと0からの片側だけの折れ線になるため、+v/-v の2本を
+  // 同じ色で描いて帯として見せる。MY_DATA_METRICS だけに存在し idealKey は null
+  // (REED_COMPARE_METRICS には無い)ので、この分岐は「My Data」カードにしか効かない。
+  {
+    check("pitchStabilityCents は MY_DATA_METRICS にだけ存在する(REED_COMPARE_METRICSには無い)",
+      /key: "pitchStabilityCents"/.test(extractConst("MY_DATA_METRICS")) &&
+      !/key: "pitchStabilityCents"/.test(extractConst("REED_COMPARE_METRICS")));
+    const chart = srcOf("NoteAxisLineChart");
+    check("NoteAxisLineChart は metricKey===\"pitchStabilityCents\" で分岐する",
+      /metricKey === "pitchStabilityCents"/.test(chart));
+    check("安定度は縦軸ドメインを ±maxAbs の対称にする(lo = -hi)", /lo = -hi;/.test(chart));
+    check("安定度はゼロ除算だけ避ける(実測が全て0のとき hi を1にフォールバック)",
+      /hi = maxAbs \|\| 1;/.test(chart));
+    check("安定度は同じ系列を +v と -v の2本のポリラインで描く(ミラー表示)",
+      /segmentsFor\(s\.byIdx\)/.test(chart) && /segmentsFor\(negByIdx\)/.test(chart));
+    check("安定度のミラー用の負値は同じ byIdx から作る(別の実測を持ち込まない)",
+      /negByIdx = Object\.fromEntries\(Object\.entries\(s\.byIdx\)\.map\(\(\[k, v\]\) => \[k, -v\]\)\)/.test(chart));
+  }
+
   // ============================================================
   console.log("\n========== 17. 操作するものの型(A型 = 枠線 / B型 = 地) ==========");
   // 本人指示(2026-08-03):
@@ -5140,20 +5276,26 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         !withPrefix([rfBody], ["background", "border", "boxshadow"]).length, rfBody.replace(/\s+/g, " ").slice(0, 160));
     }
 
-    // --- 17.9 リード登録のグリッドが右の列へはみ出さないこと ----------------
-    // 本人報告「使用開始日の枠が右の比較にかぶっている」。
-    // グリッド項目の min-width は既定が auto(=最小内容幅)で、1fr はそこより下に縮まない。
-    // input[type=date] は「年/月/日」+ カレンダーアイコンを抱えた固有幅を持つため、
-    // iOS Safari ではそれが 1fr の取り分を超えて右へ溢れる。minWidth: 0 が定石。
+    // --- 17.9 リード登録: 銘柄/番手/使用開始日は3つとも1行フル幅 -------------
+    // 本人報告「使用開始日の枠が右の比較にかぶっている」。以前は2カラムグリッド+
+    // minWidth:0 で対処していたが、iOS Safari では input[type=date] が最小内容幅
+    // (Chrome実測150px)から一切縮まないため実機で直らなかった。銘柄と同じ
+    // 「1行フル幅」に統一したのが確定仕様(F-1)。2カラムグリッドが復活していないこと、
+    // 3つとも同じ1行フル幅のブロックで並んでいることの両方を見る。
     {
-      const i = src.indexOf('gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8');
-      check("リード登録の 番手 / 使用開始日 の2カラムグリッドがある", i !== -1);
-      const block = i === -1 ? "" : src.slice(i, src.indexOf("reed-startdate-input", i) + 600);
-      const items = (block.match(/<div style=\{\{ minWidth: 0 \}\}>/g) || []).length;
-      check("2カラムグリッドの項目2つに minWidth: 0 がある(既定の auto だと日付欄が右へ溢れる)",
-        items === 2, `${items}箇所`);
-      check("使用開始日の input[type=date] 自身にも minWidth: 0 がある(width:100% を効かせる)",
-        /minWidth: 0,/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
+      const startIdx = src.indexOf("新しいリードを登録");
+      const endIdx = src.indexOf("1枚ずつ追加", startIdx);
+      const block = startIdx === -1 || endIdx === -1 ? "" : src.slice(startIdx, endIdx);
+      check("リード登録カードのブロックを走査できている", block !== "");
+      check("リード登録: 銘柄/番手/使用開始日の2カラムグリッド(display:grid)が無い",
+        !/display: "grid"/.test(block), block.replace(/\s+/g, " ").slice(0, 200));
+      const fullWidthRows = (block.match(/<div style=\{\{ marginBottom: 8 \}\}>/g) || []).length;
+      check("リード登録: 銘柄・番手・使用開始日が3つとも同じ1行フル幅のdivで並んでいる",
+        fullWidthRows === 3, `${fullWidthRows}箇所`);
+      check("使用開始日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
+        /id="reed-startdate-input"[\s\S]{0,200}REED_FORM_CONTROL_STYLE/.test(block));
+      check("使用開始日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
+        /width: "100%",/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
     }
 
     // --- 17.10 【統一の芯】JSX 側を機械的に走査する ------------------------
@@ -5191,8 +5333,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 枠(--c-accent)と地(--c-accent-tint)を両方持ったまま残っていた。
     //
     // 【除外】通知面(タップで消せるが操作対象ではないもの)だけは data-frame-exempt で
-    // 明示的に外す。外せるのは (iii) で拾ったタグだけで、<button> 等は外せない。
+    // 明示的に外せる。外せるのは (iii) で拾ったタグだけで、<button> 等は外せない。
     // 件数も下で固定するので、貼れば逃げられる印にはならない。
+    // (F-?? 計測タブのエラー通知(唯一の使用箇所だった)を、上部の赤い帯から
+    //  保存確認モーダルと同じ idiom のモーダルに変更した。モーダルは 背景(ground)だけの
+    //  暗幕 + 枠を持たないカード + 枠なしの塗りボタン、で構成され、「枠と地を同じ要素が
+    //  同時に持つ」組み合わせがそもそも無いため、この除外印は不要になった。
+    //  以後 data-frame-exempt の使用箇所は0件が正)
     {
       // (0) コメントを空白で潰す(位置は保つ)。コメント中の例示コードを拾わないため。
       //     【罠】`/\/\*[\s\S]*?\*\//` をそのまま当てると accept="audio/*,video/*" の
@@ -5449,9 +5596,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       check("入口(iii)『触れる小文字タグ』が実際に拾えている",
         controls.filter((c) => !isTagged(c)).length >= 5,
         `${controls.filter((c) => !isTagged(c)).length}個`);
-      // 除外は通知面1件だけ。増やせば落ちるので「印を貼って逃げる」ができない。
-      check("data-frame-exempt による除外は1件だけ(計測タブのエラー通知面)",
-        exempt.length === 1, exempt.join(" | "));
+      // 除外は0件が正(唯一使っていた計測タブのエラー通知をモーダルに変更し、
+      // 枠+地を同時に持つ通知面が無くなったため)。増えたら「印を貼って逃げた」ということ。
+      check("data-frame-exempt による除外は0件(計測タブのエラー通知はモーダル化して枠+地の組を持たない)",
+        exempt.length === 0, exempt.join(" | "));
       check("操作するものの style はすべて静的に読める(式・未知のスプレッド・変数の枠に逃がしていない)",
         unreadable.length === 0, unreadable.slice(0, 3).join(" | "));
       check("【芯1】操作するもので「全周の枠線」と「違う地」を同じ状態で両方持つものが1つも無い",

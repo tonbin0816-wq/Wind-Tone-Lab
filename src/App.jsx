@@ -414,43 +414,6 @@ function SwipeBackArea({ onBack, onForward, children }) {
   );
 }
 
-// 縦横どちらにもスクロールできる領域を「1回の操作では縦か横の片方だけ」に制限する
-// (斜めスクロール防止)。最初の数pxで優勢な軸を決め、その軸がスクロール可能なら
-// preventDefaultして手動でその軸だけ動かす。スクロールできない軸ならページ側の
-// スクロールを妨げない。返り値のrefを対象のスクロール要素に付ける。
-function useAxisLockScroll() {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let sx = 0, sy = 0, sl = 0, stp = 0, axis = null, active = false;
-    const onStart = (e) => {
-      if (e.touches.length !== 1) { active = false; return; }
-      const t = e.touches[0];
-      sx = t.clientX; sy = t.clientY; sl = el.scrollLeft; stp = el.scrollTop;
-      axis = null; active = true;
-    };
-    const onMove = (e) => {
-      if (!active || e.touches.length !== 1) return;
-      const t = e.touches[0];
-      const dx = t.clientX - sx, dy = t.clientY - sy;
-      if (axis === null) {
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
-      }
-      const canX = el.scrollWidth > el.clientWidth + 1;
-      const canY = el.scrollHeight > el.clientHeight + 1;
-      if (axis === "x" && canX) { e.preventDefault(); el.scrollLeft = sl - dx; }
-      else if (axis === "y" && canY) { e.preventDefault(); el.scrollTop = stp - dy; }
-      // 優勢軸がスクロール不可の場合は何もしない(ページ側の縦スクロール等を妨げない)
-    };
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false });
-    return () => { el.removeEventListener("touchstart", onStart); el.removeEventListener("touchmove", onMove); };
-  }, []);
-  return ref;
-}
-
 // ============================================================
 // Music theory helpers
 // ============================================================
@@ -3040,27 +3003,42 @@ export default function WindToneLabPhaseMode() {
       )}
 
       {/* 計測タブでのみ発生しうるエラー(マイク接続・アップロード解析)のため、他タブでは表示しない。
-          タップで消せるほか、再度マイク接続を試みる操作(タブ再訪問等)でも自動的にクリアされる。
-          マイク復旧失敗(MIC_RECOVER_FAILED_MSG)のときは、documentに付けたジェスチャー復旧パスが
-          このタップを拾って即座に再試行する(復旧経路は1本に統一してあるのでここでは呼ばない)。
-          成功すれば recoverMic 側が errorMsg をクリアする。 */}
+          以前は上部に赤い帯で表示するインライン通知だったが、保存確認モーダル(pendingSession、
+          このファイル内)と同じ idiom(下寄せの position:fixed モーダル)に統一する。
+          【極めて重要・絶対に壊さないこと】マイク復旧失敗(MIC_RECOVER_FAILED_MSG)のときは、
+          documentに付けたジェスチャー復旧パスが**このタップを拾って**即座に再試行する
+          (復旧経路は1本に統一してあるのでここでは呼ばない)。成功すれば recoverMic 側が
+          errorMsg をクリアする。この仕組みは「タップが document まで伝播すること」に依存して
+          いるため、このモーダルは stopPropagation を一切使わない。暗幕(backdrop)・カードの
+          どちらをタップしても同じ setErrorMsg("") だけを呼び、伝播を止めない設計にする。
+          【position:fixedの配置】環(top 147〜477)を覆わないよう下寄せにする(DESIGN-SYSTEM
+          §6.1.5: 計測タブでモーダルを垂直中央に置くと環と必ず重なる)。この要素は既に
+          MeasureView 呼び出しより前・SwipeBackArea/SwipePager の外にあるので createPortal は
+          使わない(pendingSession モーダルも同じ理由でポータルしていないことを確認済み)。 */}
       {errorMsg && topTab === "measure" && (
-        /* 【A型/B型の検査から明示的に除外する】この面は「操作するもの」ではなく**通知**。
-             枠(#DC2626)と地(#FEF2F2)を両方持つのは A型/B型の芯1に反するが、
-             それは操作の語彙(枠=状態を持つ / 地=状態を持たない)の話で、
-             通知は状態を切り替えない。危険を面ごと伝えるために枠と地の両方が要る。
-             onClick + cursor:pointer を持つのは「読んだら消せる」ためだけで、
-             消すことがこの面の役目ではない(タブ再訪問や復旧成功でも自動で消える)。
-             ただし onClick を持つ以上、入口(iii)には入ってしまう。**黙って外れる**のと
-             **意図して外す**のは別物なので、印を貼って外し、理由をここに書く。
-             scripts/pitch-test.mjs 17.10 はこの印を1件だけ許し、2件目が出たら落ちる。 */
         <div
+          role="dialog" aria-modal="true" aria-label="エラー"
           onClick={() => setErrorMsg("")}
-          className="sans"
-          data-frame-exempt="notice"
-          style={{ maxWidth: 900, margin: "0 auto 10px", background: "#FEF2F2", border: "1px solid #DC2626", color: "#DC2626", borderRadius: 5, padding: "10px 14px", fontSize: 12, cursor: "pointer" }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+            padding: "var(--sp-4)",
+            paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
+          }}
         >
-          {errorMsg}
+          <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+            <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
+            {/* onClick はここにも付けるが、あくまで backdrop と同じ setErrorMsg("") を呼ぶだけ。
+                stopPropagation は呼ばない(呼ぶとマイク復旧の document 側リスナーに
+                タップが届かなくなる)。 */}
+            <button
+              onClick={() => setErrorMsg("")}
+              className="sans"
+              style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontWeight: 700, cursor: "pointer" }}
+            >
+              閉じる
+            </button>
+          </div>
         </div>
       )}
 
@@ -5807,7 +5785,6 @@ function ReedScoreEditor({ fields, onClose }) {
         style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}
       >
         <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>評価</div>
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: "var(--sp-1)" }}>総評は0.1刻み・厚さとバランスは1〜5</div>
         {/* 3列は折り返さない。flexWrap は初期値と同じ nowrap だが、明示して要件にする */}
         <div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
           {fields.map((f) => (
@@ -6456,12 +6433,14 @@ function ReedRegisterView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card no-top-rule" style={{ marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
-        {/* 銘柄は1行フル幅。3カラム(1カラム97.7px)では select のネイティブ矢印を引いた
-            文字表示域が約60pxしかなく、"Rico (D'Addario)" や "＋ 新しい銘柄を入力..." が
-            ほぼ全て切れていた(P0-5)。番手と使用開始日だけを2カラムに割る。 */}
+        {/* 銘柄・番手・使用開始日はすべて1行フル幅(本人指示: 3つとも銘柄と横幅をそろえる)。
+            以前は3カラムで select のネイティブ矢印を引いた文字表示域が約60pxしかなく、
+            "Rico (D'Addario)" や "＋ 新しい銘柄を入力..." がほぼ全て切れていた(P0-5)。
+            さらに番手と使用開始日だけを2カラムに割った版も iOS Safari で使用開始日が
+            はみ出したため(下のコメント参照)、最終的に3つとも1行フル幅にした。 */}
         <div style={{ marginBottom: 8 }}>
           <label htmlFor="reed-brand-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>銘柄</label>
           <select id="reed-brand-select" value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
@@ -6470,28 +6449,25 @@ function ReedRegisterView(props) {
           </select>
         </div>
 
-        {/* 【グリッド項目に minWidth: 0】グリッド項目の min-width は既定が auto = 最小内容幅で、
-            1fr は「最小内容幅より下には縮まない」。input[type=date] は「年/月/日」＋カレンダー
-            アイコンを抱えた固有幅を持ち、iOS Safari ではそれが 1fr の取り分より広くなるため、
-            使用開始日の欄が右の列(比較タブ側)へはみ出す(本人報告)。minWidth: 0 を入れると
-            1fr の取り分まで縮められるようになり、中の width:100% が効く。
-            グリッドの溢れの定石で、Chrome では日付欄の固有幅が 1fr の取り分に収まるため再現しない
-            (＝Chrome では見た目が変わらない)。iOS Safari では未検証。 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
-            <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
-              {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
-            </select>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
-            <input
-              id="reed-startdate-input"
-              type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-              style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12 }}
-            />
-          </div>
+        {/* 【2カラムをやめ、銘柄と同じ1行フル幅にする】以前は番手と使用開始日を2カラムグリッドに
+            割り、グリッド項目へ minWidth:0 を入れて対処していたが、実機(iOS Safari)では直っていなかった。
+            原因は input[type=date] が iOS Safari では最小内容幅(Chrome実測150px)から一切縮まない
+            ためで、CSS の minWidth:0 はグリッド項目を縮められるようにするだけで、中身の input 自体が
+            縮む保証にはならないことが実機で判明した。銘柄と同じ「1行フル幅」の扱いにすれば、銘柄が
+            確実に収まっているのと同じ理由で、使用開始日も確実に収まる。 */}
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
+          <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
+            {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
+          <input
+            id="reed-startdate-input"
+            type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
+            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12 }}
+          />
         </div>
 
         {newBrand === "__custom__" && (
@@ -6564,12 +6540,15 @@ function ReedRegisterView(props) {
                 onClick={startBoxSelectionMode}
                 className="sans"
                 aria-label="箱を選んで削除"
-                style={{ ...TAP_BUTTON_RESET }}
+                style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center" }}
               >
                 {/* 削除「モードに入る」入口。破壊はまだ起きないので文字色は中立(--c-ink-2)。
-                    危険色は実際に消える一手(上の「n箱を削除」)だけが持つ。 */}
-                <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>
-                  <Trash2 size={13} /> 削除
+                    危険色は実際に消える一手(上の「n箱を削除」)だけが持つ。
+                    「削除」の文字を消してアイコン単体にしたので、当たり判定が44px幅を割らないよう
+                    minWidth: var(--tap-min) を明示する(6607行の「この箱の中から選んで削除」と
+                    同じパターン。DESIGN-SYSTEM §5「最小44×44pt。例外なし」)。 */}
+                <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>
+                  <Trash2 size={13} />
                 </span>
               </button>
             )
@@ -7072,7 +7051,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 // 低音→高音の順に線で結ぶ。データのある音だけ点を打ち、連続する音の間を線でつなぐ
 // (欠けている音はギャップにする)。横軸の音名は選択中の楽器種別ごとに変わる。
 // selectedIdeal+idealKeyを渡すと、音ごとの理想値も破線の折れ線で重ねる。
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey }) {
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null }) {
   // 幅は固定しない。コンテナの実測幅に音域全体を収める(DESIGN-SYSTEM §1.9)。
   // 以前は COL=26 の固定列幅で W=33音×26=858px あり、375pxでは31%しか見えていなかった。
   const [boxRef, W] = useMeasuredWidth();
@@ -7083,7 +7062,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // 系列ごとに音(semitoneIndex)別の平均値を出す(groupFramesByNoteでclarity重み・
   // アタック除外は共通ロジックに従う)。groupFramesByNoteは重心を"centroidHz"で返すため対応づける。
   const groupKey = metricKey === "spectralCentroidHz" ? "centroidHz" : metricKey;
-  const seriesData = series.map((s) => {
+  let seriesData = series.map((s) => {
     const byIdx = {};
     for (const g of groupFramesByNote(s.frames || [])) {
       const v = g[groupKey];
@@ -7103,16 +7082,56 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     if (Object.keys(m).length) idealByIdx = m;
   }
 
+  // noteFocus: 音名を絞り込む(データタブの「My Data」「最新セッション」カードのみが渡す)。
+  // byIdx/idealByIdx は実測時の運指(semitoneIndex)をそのままキーに持つ非連続な値なので、
+  // 単純に table/noteLabels/N を切り詰めるだけでは x 座標が合わない。ここで
+  // 元のインデックス→絞り込み後の連番インデックスへ明示的に付け替える。
+  let plotN = N;
+  let plotNoteLabels = noteLabels;
+  if (noteFocus) {
+    const focusIndexes = [];
+    for (let i = 0; i < N; i++) if (noteFocus.includes(noteLabels[i])) focusIndexes.push(i);
+    const origToNew = {};
+    focusIndexes.forEach((origIdx, newIdx) => { origToNew[origIdx] = newIdx; });
+    const remap = (byIdx) => {
+      const out = {};
+      for (const [k, v] of Object.entries(byIdx)) {
+        const ni = origToNew[k];
+        if (ni !== undefined) out[ni] = v;
+      }
+      return out;
+    };
+    seriesData = seriesData.map((s) => ({ ...s, byIdx: remap(s.byIdx) }));
+    if (idealByIdx) {
+      const remapped = remap(idealByIdx);
+      idealByIdx = Object.keys(remapped).length ? remapped : null;
+    }
+    plotN = focusIndexes.length;
+    plotNoteLabels = focusIndexes.map((i) => noteLabels[i]);
+  }
+
   const allVals = [...seriesData.flatMap((s) => Object.values(s.byIdx)), ...(idealByIdx ? Object.values(idealByIdx) : [])];
   const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
   const minV = allVals.length ? Math.min(...allVals) : 0;
   const maxV = allVals.length ? Math.max(...allVals) : 1;
-  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
-  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+  // ピッチの安定度(pitchStabilityCents)は常に非負の値。0を挟んで上下対称のドメインにし、
+  // ±v のミラー折れ線で「ここまでブレる」という帯として見せる(他の指標は従来どおり)。
+  const isStabilityMirror = metricKey === "pitchStabilityCents";
+  let lo, hi, rng;
+  if (isStabilityMirror) {
+    const maxAbs = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v))) : 0;
+    hi = maxAbs || 1; // 実測が全て0(またはデータ無し)のときのゼロ除算だけ避ける
+    lo = -hi;
+    rng = hi - lo || 1;
+  } else {
+    const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+    lo = minV - pad; hi = maxV + pad; rng = hi - lo || 1;
+  }
 
-  // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)
-  const ebIndexes = noteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
-  const axisCenter = (N - 1) / 2;
+  // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)。
+  // noteFocus 指定時は3つとも同じE♭系列の音なので、どれか1つだけを特別扱いする理由が無い。
+  const ebIndexes = noteFocus ? [] : plotNoteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  const axisCenter = (plotN - 1) / 2;
   const midEbIdx = ebIndexes.length
     ? ebIndexes.reduce((best, i) => (Math.abs(i - axisCenter) < Math.abs(best - axisCenter) ? i : best), ebIndexes[0])
     : null;
@@ -7128,7 +7147,9 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 
     // 縦軸は上端・中間・下端の3値。中間値が無いと、横に長い折れ線のどこが基準か掴めない。
     const tickVals = [hi, (hi + lo) / 2, lo];
-    const tickTexts = tickVals.map((v) => fmt(v));
+    // ミラー軸(pitchStabilityCents)は fmt 自体が "±" を前置するため、負の目盛にそのまま
+    // 適用すると "±-4.4" と符号が二重になる。目盛だけは絶対値にしてから渡す(値そのものは変えない)。
+    const tickTexts = tickVals.map((v) => fmt(isStabilityMirror ? Math.abs(v) : v));
     const tickW = Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))));
     // 目盛ラベルの左右に --sp-2 以上(§1.9)。measureSvgTextPx は送り幅なので、実インクは
     // 左右どちらにも送り幅を最大1px程度はみ出す(実測: 右 0.7px / 左 0.95px)。
@@ -7138,11 +7159,11 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 
     // 音名ラベルは中央揃えなので両端で半分ぶん外へ出る。送り幅より実インクが広くなる
     // ぶん(和文で最大1.6px程度)の逃げに --sp-1 を足してからプロット域を決める。
-    const maxLblW = Math.ceil(Math.max(0, ...noteLabels.map((nm) => measureSvgTextPx(nm, FS))));
+    const maxLblW = Math.ceil(Math.max(0, ...plotNoteLabels.map((nm) => measureSvgTextPx(nm, FS))));
     const halfLbl = Math.ceil(maxLblW / 2) + SVG_SP1;
     const x0 = AXW + halfLbl;
     const x1 = Math.max(x0 + 1, W - SVG_SP2 - halfLbl);
-    const colStep = (x1 - x0) / Math.max(1, N - 1);
+    const colStep = (x1 - x0) / Math.max(1, plotN - 1);
 
     // 間引くのは**ラベルだけ**(データ点は全音描く。線の形が比較の実体)。
     // 間引き幅は12の約数から選び、どの幅でもオクターブ単位で同じ音名が残るようにする。
@@ -7166,7 +7187,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // データのある音を連続区間(欠けで分割)ごとにpolylineにする
   const segmentsFor = (byIdx) => {
     const segs = []; let cur = [];
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < plotN; i++) {
       if (byIdx[i] !== undefined) cur.push(`${L.xAt(i)},${L.yAt(byIdx[i])}`);
       else { if (cur.length) segs.push(cur); cur = []; }
     }
@@ -7213,6 +7234,27 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
               {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない */}
               {seriesData.map((s, si) => {
                 const st = s.style || SERIES_STYLES[0];
+                if (isStabilityMirror) {
+                  // 安定度は実測が常に≥0なので、そのまま描くと0からの片側だけの折れ線になり
+                  // 読みにくい。同じ色で +v/-v の2本(上下ミラー)を描き、帯として見せる。
+                  const negByIdx = Object.fromEntries(Object.entries(s.byIdx).map(([k, v]) => [k, -v]));
+                  return (
+                    <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
+                      {segmentsFor(s.byIdx).map((seg, k) => (
+                        <polyline key={`p${k}`} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
+                      ))}
+                      {segmentsFor(negByIdx).map((seg, k) => (
+                        <polyline key={`n${k}`} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
+                      ))}
+                      {Object.entries(s.byIdx).map(([idx, v]) => (
+                        <circle key={`p${idx}`} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
+                      ))}
+                      {Object.entries(negByIdx).map(([idx, v]) => (
+                        <circle key={`n${idx}`} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
+                      ))}
+                    </g>
+                  );
+                }
                 return (
                   <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
                     {segmentsFor(s.byIdx).map((seg, k) => (
@@ -7224,7 +7266,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                   </g>
                 );
               })}
-              {noteLabels.map((nm, i) => (L.showLabel(i) ? (
+              {plotNoteLabels.map((nm, i) => (L.showLabel(i) ? (
                 <text key={i} x={L.xAt(i)} y={L.labelY} fontSize={L.FS} fontWeight={i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)" style={{ fill: i === midEbIdx ? "var(--c-accent)" : "var(--c-ink-3)" }}>{nm}</text>
               ) : null))}
             </svg>
@@ -7254,7 +7296,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 // タップで「数値表示 ⇄ 音名軸の折れ線グラフ」を切り替えるメトリクスカード。
 // My Data・登録済みリードの測定データ・最新セッション・セッション詳細で共通して使う。
 // グラフ表示中はグリッドの全幅に広がり(gridColumn: 1/-1)、理想値があれば破線で重ねる。
-function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub }) {
+function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub, noteFocus = null }) {
   const [open, setOpen] = useState(false);
   return (
     // 面の作法は .tile が持つ(background / border / borderRadius をここに書かない)。
@@ -7270,7 +7312,7 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
           label={label} unit={unit} metricKey={metricKey}
           series={[{ id: "self", label, style: SERIES_STYLES[0], frames }]}
           saxType={saxType} tuningHz={tuningHz} fmt={fmt}
-          selectedIdeal={selectedIdeal} idealKey={idealKey}
+          selectedIdeal={selectedIdeal} idealKey={idealKey} noteFocus={noteFocus}
         />
       ) : (
         <>
@@ -7461,7 +7503,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
       </button>
 
       {/* 個体の識別情報・主観評価・メモ。名前とメモはここでのみ編集する(一覧側の鉛筆編集は廃止) */}
-      <div className="card" style={{ marginBottom: 10 }}>
+      <div className="card no-top-rule" style={{ marginBottom: 10 }}>
         {/* リード名の中の番号がそのまま編集欄。以前はこの下に「#番号:」の行が別にあり、
             見出しと同じ番号が2度出ていた(本人指示で統合)。空欄にすると自動採番に戻り、
             placeholder にその自動採番値が出る(＝今なら何番になるかが分かる)。 */}
@@ -7480,16 +7522,16 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
           {/* 総評 / 厚さ / バランスを1行に横並び。行のどこを押しても3列のダイヤルが1回で開く。
               ★は出さない(本人指示: 「厚さは星不要」。バランスも数値表示に統一)。 */}
           <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
-          <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <span style={{ color: "#435266", flexShrink: 0, width: 58, marginTop: 6 }}>メモ:</span>
-            {/* placeholder は置かない(本人指示)。見出しの「メモ:」で用途は足りている */}
-            <textarea
-              value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
-              rows={2}
-              className="sans"
-              style={{ flex: 1, padding: "6px 10px", fontSize: 12, resize: "vertical", fontFamily: "inherit" }}
-            />
-          </div>
+          {/* ラベル「メモ:」の行は廃止(本人指示)。幅は親の flex column が ReedScoreField を
+              width:100% で持っているのに合わせ、textarea 自身も width:100% にして評価行と揃える。
+              placeholder="メモ" を薄いガイドとして出す(index.css の ::placeholder が --c-ink-3 を担う)。 */}
+          <textarea
+            placeholder="メモ"
+            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+            rows={2}
+            className="sans"
+            style={{ width: "100%", padding: "6px 10px", fontSize: 12, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+          />
         </div>
       </div>
 
@@ -8069,6 +8111,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
                     {diff !== null && <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>}
                   </>
                 ) : null}
+                noteFocus={["E♭3", "E♭4", "E♭5"]}
               />
             );
           })}
@@ -8106,6 +8149,7 @@ function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
               frames={session.frames || []}
               saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
               value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+              noteFocus={["E♭3", "E♭4", "E♭5"]}
             />
           );
         })}
@@ -8139,6 +8183,9 @@ function AnalysisLabView(props) {
   const [sessionFilterReed, setSessionFilterReed] = useState(""); // "" = すべて / "__none__" = 未紐付け
   const [sessionFilterDateFrom, setSessionFilterDateFrom] = useState(""); // "YYYY-MM-DD" or ""
   const [sessionFilterDateTo, setSessionFilterDateTo] = useState("");
+  // 期間の date input はタップで展開する方式にする(常に開いていると入力欄が3段目の行を圧迫し、
+  // インラインで枠・地を上書きすると入力欄ロック検査を壊すため)。閉じているときはピル1個で「期間: …」を示す。
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   // 削除はリードタブと同様、行ごとのボタンではなくチェックボックスによる複数選択削除にする。
   // (selectedSessionがある時の早期returnより前で呼ぶ必要があるため、ここでまとめて宣言する)
   const [selectionMode, setSelectionMode] = useState(false);
@@ -8181,6 +8228,13 @@ function AnalysisLabView(props) {
   const fromMs = sessionFilterDateFrom ? new Date(sessionFilterDateFrom).setHours(0, 0, 0, 0) : null;
   const toMs = sessionFilterDateTo ? new Date(sessionFilterDateTo).setHours(23, 59, 59, 999) : null;
   const sessionFilterActive = !!(sessionFilterPerformer || sessionFilterReed || sessionFilterDateFrom || sessionFilterDateTo);
+  // 閉じた期間ピルの表示文字列。formatYmd は既存の関数(1131行)をそのまま使う。
+  const dateFilterText = () => {
+    if (!sessionFilterDateFrom && !sessionFilterDateTo) return "期間: 全期間";
+    const f = sessionFilterDateFrom ? formatYmd(sessionFilterDateFrom) : "";
+    const t = sessionFilterDateTo ? formatYmd(sessionFilterDateTo) : "";
+    return `期間: ${f}〜${t}`;
+  };
   const filteredSessions = [...sessions]
     .sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt))
     .filter((s) => {
@@ -8276,7 +8330,7 @@ function AnalysisLabView(props) {
                 <button
                   onClick={exitSelectionMode}
                   className="sans ctl-plain ctl-pill"
-                  style={{ padding: "7px 12px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
+                  style={{ padding: "7px 12px", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
                 >
                   キャンセル
                 </button>
@@ -8285,7 +8339,7 @@ function AnalysisLabView(props) {
                   disabled={selectedForDelete.size === 0}
                   className="sans ctl-plain ctl-pill ctl-danger"
                   data-armed={selectedForDelete.size > 0}
-                  style={{ padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
+                  style={{ padding: "7px 12px", minHeight: "var(--tap-min)", fontSize: 12, fontWeight: 600, cursor: selectedForDelete.size > 0 ? "pointer" : "default" }}
                 >
                   {selectedForDelete.size > 0 ? `${selectedForDelete.size}件を削除` : "削除"}
                 </button>
@@ -8294,9 +8348,10 @@ function AnalysisLabView(props) {
               <button
                 onClick={() => setSelectionMode(true)}
                 className="sans ctl-plain ctl-pill"
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "7px 12px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
+                aria-label="セッションを選んで削除"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 12px", minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
               >
-                選択
+                <Trash2 size={13} />
               </button>
             )
           )}
@@ -8307,8 +8362,8 @@ function AnalysisLabView(props) {
           // 沈めたカードの中に置く小ブロック。沈めた面(--c-sunk)の上でさらに沈めることは
           // できないので、浮かせる側(--c-surface＝白)で分ける(DESIGN-SYSTEM §6.6)。
           <div className="sans" style={{ marginBottom: 10, padding: "10px 12px", background: "var(--c-surface)", borderRadius: "var(--r-md)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "#8D95A1" }}>絞り込み</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#8D95A1", flexShrink: 0 }}>絞り込み</span>
               <select value={sessionFilterPerformer} onChange={(e) => setSessionFilterPerformer(e.target.value)} style={{ fontSize: 12 }}>
                 <option value="">奏者: すべて</option>
                 {sessionPerformerOptions.map((p) => (<option key={p} value={p}>{p}</option>))}
@@ -8322,12 +8377,20 @@ function AnalysisLabView(props) {
                 <button onClick={clearSessionFilters} className="sans ctl-plain ctl-pill" style={{ padding: "5px 10px", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}>クリア</button>
               )}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#8D95A1", flexShrink: 0 }}>期間</span>
-              <input type="date" value={sessionFilterDateFrom} onChange={(e) => setSessionFilterDateFrom(e.target.value)} style={{ fontSize: 12 }} />
-              <span style={{ fontSize: 12, color: "#8D95A1" }}>〜</span>
-              <input type="date" value={sessionFilterDateTo} onChange={(e) => setSessionFilterDateTo(e.target.value)} style={{ fontSize: 12 }} />
-            </div>
+            {/* 期間はタップで展開する方式(§7 参照)。閉じているときは1個のピルで現在の絞り込みを示す。
+                date input 自体の見た目はインラインで上書きしない(fontSize のみ既存どおり指定)。 */}
+            {!dateFilterOpen ? (
+              <button type="button" onClick={() => setDateFilterOpen(true)} className="sans ctl-plain ctl-pill" style={{ padding: "6px 10px", fontSize: 12, color: "var(--c-ink-2)", cursor: "pointer", alignSelf: "flex-start" }}>
+                {dateFilterText()}
+              </button>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <input type="date" value={sessionFilterDateFrom} onChange={(e) => setSessionFilterDateFrom(e.target.value)} style={{ fontSize: 12 }} />
+                <span style={{ fontSize: 12, color: "#8D95A1" }}>〜</span>
+                <input type="date" value={sessionFilterDateTo} onChange={(e) => setSessionFilterDateTo(e.target.value)} style={{ fontSize: 12 }} />
+                <button type="button" onClick={() => setDateFilterOpen(false)} className="sans ctl-plain ctl-pill" style={{ padding: "6px 10px", fontSize: 12, color: "var(--c-ink-2)", cursor: "pointer" }}>閉じる</button>
+              </div>
+            )}
           </div>
         )}
 
@@ -8395,7 +8458,7 @@ function AnalysisLabView(props) {
 
         {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
         <div style={{ marginBottom: 12, padding: "12px 14px", background: "var(--c-surface)", borderRadius: "var(--r-md)", border: "1px solid var(--c-line)" }}>
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
             <button
               onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
               className="sans ctl-plain ctl-pill"
@@ -8577,8 +8640,6 @@ function AnalysisLabView(props) {
 // セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
 function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
-  // 「音階ごとの平均」表は縦横スクロールするが、1操作では縦か横の片方だけ動くようにする(斜め防止)
-  const noteAvgScrollRef = useAxisLockScroll();
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
@@ -8615,6 +8676,12 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
     updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, memo: trimmed || null } : s)));
   };
 
+  // DOM順序は既にセッション情報(1.)が先頭だが、タブから遷移する前のスクロール位置が
+  // そのまま引き継がれるため、以前スクロールした状態でセッションを開くとタイムラインが
+  // 最初に見えてしまう(リスト側のスクロール復元とは別件)。マウント時・セッション切り替え時に
+  // 上端へ戻す。listScrollYRef 等、一覧側のスクロール復元ロジックには触れない(別件・F-15)。
+  useEffect(() => { window.scrollTo(0, 0); }, [session.id]);
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <button
@@ -8627,14 +8694,17 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
 
       {/* 1. セッション情報 */}
       <div className="card" style={{ marginBottom: 10 }}>
-        <div style={{ marginBottom: 6 }}>
+        {/* 日付と「理想値に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
+            日付を左、SetAsIdealButton を右に置く。 */}
+        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <input
             type="datetime-local"
             value={recordedAtLocal}
             onChange={(e) => setSessionRecordedAt(e.target.value)}
             className="sans"
-            style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, boxSizing: "border-box" }}
+            style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, boxSizing: "border-box", width: 190, flexShrink: 0 }}
           />
+          <SetAsIdealButton frames={frames} saxType={session.saxType} onSave={promoteSessionToIdeal} />
         </div>
         {/* 日付の下段に奏者・リード・楽器種別を横一列で並べる(1行に収める。はみ出す分は横スクロール) */}
         <div className="sans" style={{ fontSize: 12, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", overflowX: "auto" }}>
@@ -8657,14 +8727,11 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         <div className="sans" style={{ fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "#435266", flexShrink: 0 }}>メモ:</span>
           <input
-            type="text" placeholder="何を試したか(例: マウスピース変更・アンブシュアを緩めた 等)"
+            type="text"
             value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
             className="sans"
             style={{ flex: 1, padding: "6px 10px", fontSize: 12 }}
           />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <SetAsIdealButton frames={frames} saxType={session.saxType} onSave={promoteSessionToIdeal} />
         </div>
       </div>
 
@@ -8703,17 +8770,20 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
-          {/* 表示枠は5行分にとどめ、それ以上はスクロールで閲覧する(見出し行は上に固定) */}
-          <div ref={noteAvgScrollRef} style={{ overflowX: "auto", maxHeight: 133, overflowY: "auto" }}>
+          {/* 全件を縦に常時表示する(本人指示)。縦スクロールが無いので見出しの sticky は不要。
+              横は375px幅ではテーブルの minWidth:480 に対して足りないため overflowX は残す。
+              軸ロック(useAxisLockScroll)は「縦横どちらもスクロールする場合の斜め防止」用だったが、
+              縦スクロールが無くなったのでこの箇所では不要になった。 */}
+          <div style={{ overflowX: "auto" }}>
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 480 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>記音</th>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>音量</th>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>重心</th>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
-                <th style={{ position: "sticky", top: 0, background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>理想値との差</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>記音</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>音量</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>重心</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>理想値との差</th>
               </tr>
             </thead>
             <tbody>

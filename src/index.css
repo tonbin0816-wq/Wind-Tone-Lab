@@ -194,6 +194,12 @@ body {
   padding-left: 0;
   padding-right: 0;
 }
+/* 直前に別の区切り(子タブの溝・「一覧に戻る」ボタン)がある2箇所だけの特例。
+   .card 自体には触れず、別のクラス名で border-top だけを後勝ちさせる
+   (.surf-rule .card と同じ詳細度(0,2,0)。後に書けば border-top だけが上書きされる。
+   他のプロパティ(背景・padding 等)は .surf-rule .card のまま生きる)。
+   乱用しないこと(本人指示の2箇所だけ: リード登録カード / リード個別詳細の識別情報カード)。 */
+.surf-rule .no-top-rule { border-top: none; }
 /* 沈める: 地は白のまま、面だけ沈める。枠は透明(場所だけ確保して線は見せない) */
 .surf-sunk .card {
   background: var(--c-sunk);
@@ -300,6 +306,12 @@ textarea {
   border: 1px solid transparent;
   border-radius: var(--r-xs);
 }
+
+/* プレースホルダーは「読ませる」目的のガイドなので、装飾専用の --c-ink-4 ではなく
+   --c-ink-3 を使う(DESIGN-SYSTEM §1.1)。opacity:1 は Firefox 等がデフォルトで
+   placeholder に opacity を掛ける対策。既存の入力欄のプレースホルダー(銘柄の
+   カスタム入力欄など)にも同じ見た目が適用されるようになるが、統一として問題ない。 */
+::placeholder { color: var(--c-ink-3); opacity: 1; }
 
 /* 和文ラベル・小さめの本文(〜13px)用: 既定字間だと詰まって見えるため少し広げる */
 .jp-label { letter-spacing: 0.02em; }
