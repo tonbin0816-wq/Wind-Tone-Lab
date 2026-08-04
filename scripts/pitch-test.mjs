@@ -4987,10 +4987,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   {
     const chart = srcOf("NoteAxisLineChart");
     check("NoteAxisLineChart は noteFocus を受け取る(既定 null)", /noteFocus\s*=\s*null/.test(chart));
-    check("NoteAxisLineChart は noteFocus 指定時に音名で絞り込む(noteLabels[i] を noteFocus で判定)",
-      /noteFocus\.includes\(noteLabels\[i\]\)/.test(chart));
-    check("NoteAxisLineChart は noteFocus 指定時、中央E♭の強調(ガイド線・太字)を行わない",
-      /noteFocus \? \[\] :/.test(chart));
+    // 2026-08-04 本人指示により仕様を訂正: noteFocus はデータ(折れ線・y軸)を絞り込まず、
+    // 横軸の「ラベル表示」だけを絞る。plotN/plotNoteLabels は常に N/noteLabels のままで、
+    // データの再マッピング(旧: focusIndexes によるインデックス付け替え)は行わない。
+    check("NoteAxisLineChart は noteFocus 指定時もデータ(折れ線・y軸)は絞り込まない(plotN/plotNoteLabelsは常にN/noteLabels)",
+      /const plotN = N;/.test(chart) && /const plotNoteLabels = noteLabels;/.test(chart) && !/focusIndexes/.test(chart));
+    check("NoteAxisLineChart は noteFocus 指定時、横軸ラベルだけを noteFocus に含まれる音名に絞る(plotNoteLabels[i] を noteFocus で判定)",
+      /noteFocus\.includes\(plotNoteLabels\[i\]\)/.test(chart));
+    // データを絞り込まなくなったため、中央E♭の強調(ガイド線)を noteFocus で特別扱いする理由も
+    // 無くなった(3音とも同じE♭系列という前提自体が旧仕様のもの)。ebIndexes は常に通常どおり計算する。
+    check("NoteAxisLineChart は noteFocus指定時も中央E♭の強調(ガイド線)を通常どおり計算する(ebIndexesはnoteFocusで分岐しない)",
+      !/noteFocus \? \[\] :/.test(chart));
     const card = srcOf("TappableMetricCard");
     check("TappableMetricCard は noteFocus を受け取り NoteAxisLineChart へそのまま渡す(既定 null)",
       /noteFocus\s*=\s*null/.test(card) && /noteFocus=\{noteFocus\}/.test(card));
@@ -5276,22 +5283,34 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         !withPrefix([rfBody], ["background", "border", "boxshadow"]).length, rfBody.replace(/\s+/g, " ").slice(0, 160));
     }
 
-    // --- 17.9 リード登録: 銘柄/番手/使用開始日は3つとも1行フル幅 -------------
-    // 本人報告「使用開始日の枠が右の比較にかぶっている」。以前は2カラムグリッド+
-    // minWidth:0 で対処していたが、iOS Safari では input[type=date] が最小内容幅
-    // (Chrome実測150px)から一切縮まないため実機で直らなかった。銘柄と同じ
-    // 「1行フル幅」に統一したのが確定仕様(F-1)。2カラムグリッドが復活していないこと、
-    // 3つとも同じ1行フル幅のブロックで並んでいることの両方を見る。
+    // --- 17.9 リード登録: 銘柄+番手は2カラム、使用開始日は単独1行フル幅 -------
+    // 2026-08-04 本人指示により確定仕様を訂正: 「計測タブ上部のリード選択と同じように
+    // 銘柄と番手は同じ行でまとめて、カレンダー(使用開始日)だけ違う段に表示」。
+    // 過去(F-23)に見つかった実機不具合は「番手+使用開始日」を2カラムにした版で
+    // input[type=date] が iOS Safari の最小内容幅(Chrome実測150px)から縮まず
+    // はみ出したというもの(番手とdateの組み合わせ)。今回の組み合わせは
+    // 銘柄+番手(どちらもselect)で、input[type=date]をこの2カラムに含めないため、
+    // その不具合は再現しない。使用開始日は今まで通り単独の1行フル幅のまま変更しない。
     {
       const startIdx = src.indexOf("新しいリードを登録");
       const endIdx = src.indexOf("1枚ずつ追加", startIdx);
       const block = startIdx === -1 || endIdx === -1 ? "" : src.slice(startIdx, endIdx);
       check("リード登録カードのブロックを走査できている", block !== "");
-      check("リード登録: 銘柄/番手/使用開始日の2カラムグリッド(display:grid)が無い",
-        !/display: "grid"/.test(block), block.replace(/\s+/g, " ").slice(0, 200));
+      check("リード登録: 銘柄+番手の2カラムグリッド(display:grid, 1fr 1fr)がある",
+        /display: "grid", gridTemplateColumns: "1fr 1fr"/.test(block), block.replace(/\s+/g, " ").slice(0, 200));
+      // 銘柄セレクトと番手セレクトが同じグリッドの中(=グリッドdivの開始から次の
+      // フル幅div開始までの間)にあることを見る(渡し忘れ・順序ずれの検出)。
+      const gridStart = block.indexOf('display: "grid", gridTemplateColumns: "1fr 1fr"');
+      const fullWidthStart = block.indexOf('<div style={{ marginBottom: 8 }}>');
+      const gridBlock = gridStart === -1 ? "" : block.slice(gridStart, fullWidthStart === -1 ? undefined : fullWidthStart);
+      check("2カラムグリッドの中に銘柄セレクトと番手セレクトが両方ある",
+        /id="reed-brand-select"/.test(gridBlock) && /id="reed-strength-select"/.test(gridBlock));
+      check("2カラムグリッドの各項目に minWidth: 0 がある(グリッド内の select が 1fr を超えて広がらないため)",
+        (gridBlock.match(/minWidth: 0/g) || []).length === 2, gridBlock.replace(/\s+/g, " ").slice(0, 300));
+      // 使用開始日は2カラムに含めず、銘柄と同じ「1行フル幅」のdivのまま(F-23で確定した形を維持)。
       const fullWidthRows = (block.match(/<div style=\{\{ marginBottom: 8 \}\}>/g) || []).length;
-      check("リード登録: 銘柄・番手・使用開始日が3つとも同じ1行フル幅のdivで並んでいる",
-        fullWidthRows === 3, `${fullWidthRows}箇所`);
+      check("リード登録: 使用開始日は単独の1行フル幅のdivのまま(2カラムに含まれない)",
+        fullWidthRows === 1, `${fullWidthRows}箇所`);
       check("使用開始日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
         /id="reed-startdate-input"[\s\S]{0,200}REED_FORM_CONTROL_STYLE/.test(block));
       check("使用開始日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",

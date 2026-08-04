@@ -3028,16 +3028,6 @@ export default function WindToneLabPhaseMode() {
         >
           <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
-            {/* onClick はここにも付けるが、あくまで backdrop と同じ setErrorMsg("") を呼ぶだけ。
-                stopPropagation は呼ばない(呼ぶとマイク復旧の document 側リスナーに
-                タップが届かなくなる)。 */}
-            <button
-              onClick={() => setErrorMsg("")}
-              className="sans"
-              style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontWeight: 700, cursor: "pointer" }}
-            >
-              閉じる
-            </button>
           </div>
         </div>
       )}
@@ -6436,30 +6426,26 @@ function ReedRegisterView(props) {
       <div className="card no-top-rule" style={{ marginBottom: 12 }}>
         <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
 
-        {/* 銘柄・番手・使用開始日はすべて1行フル幅(本人指示: 3つとも銘柄と横幅をそろえる)。
-            以前は3カラムで select のネイティブ矢印を引いた文字表示域が約60pxしかなく、
-            "Rico (D'Addario)" や "＋ 新しい銘柄を入力..." がほぼ全て切れていた(P0-5)。
-            さらに番手と使用開始日だけを2カラムに割った版も iOS Safari で使用開始日が
-            はみ出したため(下のコメント参照)、最終的に3つとも1行フル幅にした。 */}
-        <div style={{ marginBottom: 8 }}>
-          <label htmlFor="reed-brand-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>銘柄</label>
-          <select id="reed-brand-select" value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
-            {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
-            <option value="__custom__">＋ 新しい銘柄を入力...</option>
-          </select>
-        </div>
-
-        {/* 【2カラムをやめ、銘柄と同じ1行フル幅にする】以前は番手と使用開始日を2カラムグリッドに
-            割り、グリッド項目へ minWidth:0 を入れて対処していたが、実機(iOS Safari)では直っていなかった。
-            原因は input[type=date] が iOS Safari では最小内容幅(Chrome実測150px)から一切縮まない
-            ためで、CSS の minWidth:0 はグリッド項目を縮められるようにするだけで、中身の input 自体が
-            縮む保証にはならないことが実機で判明した。銘柄と同じ「1行フル幅」の扱いにすれば、銘柄が
-            確実に収まっているのと同じ理由で、使用開始日も確実に収まる。 */}
-        <div style={{ marginBottom: 8 }}>
-          <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
-          <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
-            {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
-          </select>
+        {/* 銘柄と番手を本人指示により2カラムの同じ行にまとめる(計測タブ上部のリード選択と
+            同じ「2つを横に並べる」配置方針。2026-08-04)。使用開始日はこの2カラムに含めず、
+            前回の周(F-23)で直したとおり単独の1行フル幅のまま変更しない。前回、番手と
+            使用開始日を2カラムにした際はinput[type=date]がiOS Safariで最小内容幅から
+            縮まずはみ出したため全部1行フル幅に戻した経緯があるが(6452行台の旧コメント参照)、
+            今回のペアはselect同士(銘柄・番手)でdateを含まないため、その問題は関係ない。 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <label htmlFor="reed-brand-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>銘柄</label>
+            <select id="reed-brand-select" value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
+              {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
+              <option value="__custom__">＋ 新しい銘柄を入力...</option>
+            </select>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
+            <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
+              {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+          </div>
         </div>
         <div style={{ marginBottom: 8 }}>
           <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
@@ -6727,6 +6713,7 @@ function computeFrameMetrics(frames) {
     spectralCentroidHz: weightedMean(sustained, (f) => f.spectralCentroidHz),
     volumeDb: weightedMean(frames, (f) => f.volumeDb),
     pitchCents: weightedMean(frames, (f) => (f.pitchCents === null || f.pitchCents === undefined ? null : Math.abs(f.pitchCents))),
+    pitchCentsSigned: weightedMean(frames, (f) => f.pitchCents),
     pitchStabilityCents: stddev(pitchVals),
   };
 }
@@ -6762,6 +6749,7 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         centroidHz: m.spectralCentroidHz,
         hnrDb: m.hnrDb,
         pitchCents: m.pitchCents,                     // 平均ピッチ誤差(絶対値)。音名軸グラフ用
+        pitchCentsSigned: m.pitchCentsSigned, // 符号付きピッチ誤差。最新セッション/個別セッションの音名軸グラフ用
         pitchStabilityCents: m.pitchStabilityCents,   // ピッチの安定度(±stddev)。音名軸グラフ用
         harmonicsProfile,
       };
@@ -6916,6 +6904,14 @@ const REED_COMPARE_METRICS = [
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
 ];
+
+// 最新セッション・個別セッションだけはピッチ誤差を絶対値ではなく符号付き(0中心)で見せる(本人指示)。
+// リード別比較・登録済みリードの測定データはREED_COMPARE_METRICSのまま(対象外・変更しない)。
+const SESSION_METRICS = REED_COMPARE_METRICS.map((mt) =>
+  mt.key === "pitchCents"
+    ? { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` }
+    : mt
+);
 
 // リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
 // 以前はここに専用の hex パレットがあり、4・5番目が機能色(#D97706 注意 / #16A34A 良い)の
@@ -7082,33 +7078,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     if (Object.keys(m).length) idealByIdx = m;
   }
 
-  // noteFocus: 音名を絞り込む(データタブの「My Data」「最新セッション」カードのみが渡す)。
-  // byIdx/idealByIdx は実測時の運指(semitoneIndex)をそのままキーに持つ非連続な値なので、
-  // 単純に table/noteLabels/N を切り詰めるだけでは x 座標が合わない。ここで
-  // 元のインデックス→絞り込み後の連番インデックスへ明示的に付け替える。
-  let plotN = N;
-  let plotNoteLabels = noteLabels;
-  if (noteFocus) {
-    const focusIndexes = [];
-    for (let i = 0; i < N; i++) if (noteFocus.includes(noteLabels[i])) focusIndexes.push(i);
-    const origToNew = {};
-    focusIndexes.forEach((origIdx, newIdx) => { origToNew[origIdx] = newIdx; });
-    const remap = (byIdx) => {
-      const out = {};
-      for (const [k, v] of Object.entries(byIdx)) {
-        const ni = origToNew[k];
-        if (ni !== undefined) out[ni] = v;
-      }
-      return out;
-    };
-    seriesData = seriesData.map((s) => ({ ...s, byIdx: remap(s.byIdx) }));
-    if (idealByIdx) {
-      const remapped = remap(idealByIdx);
-      idealByIdx = Object.keys(remapped).length ? remapped : null;
-    }
-    plotN = focusIndexes.length;
-    plotNoteLabels = focusIndexes.map((i) => noteLabels[i]);
-  }
+  // noteFocus: 横軸の「ラベル表示」だけを絞り込む(データタブの「My Data」「最新セッション」
+  // カードのみが渡す)。プロットするデータ(折れ線・y軸スケール)は音域の全音を対象のまま。
+  const plotN = N;
+  const plotNoteLabels = noteLabels;
 
   const allVals = [...seriesData.flatMap((s) => Object.values(s.byIdx)), ...(idealByIdx ? Object.values(idealByIdx) : [])];
   const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
@@ -7117,8 +7090,12 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // ピッチの安定度(pitchStabilityCents)は常に非負の値。0を挟んで上下対称のドメインにし、
   // ±v のミラー折れ線で「ここまでブレる」という帯として見せる(他の指標は従来どおり)。
   const isStabilityMirror = metricKey === "pitchStabilityCents";
+  // pitchCentsSigned(最新セッション・個別セッションの符号付きピッチ誤差)も同様に0中心の
+  // 対称ドメインにする。ただしこちらはデータ自体が既に符号を持つので、下のミラー描画
+  // (isStabilityMirror分岐)は使わず、通常の1本の折れ線でそのまま描ける。
+  const isSignedCentered = metricKey === "pitchCentsSigned";
   let lo, hi, rng;
-  if (isStabilityMirror) {
+  if (isStabilityMirror || isSignedCentered) {
     const maxAbs = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v))) : 0;
     hi = maxAbs || 1; // 実測が全て0(またはデータ無し)のときのゼロ除算だけ避ける
     lo = -hi;
@@ -7129,8 +7106,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   }
 
   // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)。
-  // noteFocus 指定時は3つとも同じE♭系列の音なので、どれか1つだけを特別扱いする理由が無い。
-  const ebIndexes = noteFocus ? [] : plotNoteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  const ebIndexes = plotNoteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
   const axisCenter = (plotN - 1) / 2;
   const midEbIdx = ebIndexes.length
     ? ebIndexes.reduce((best, i) => (Math.abs(i - axisCenter) < Math.abs(best - axisCenter) ? i : best), ebIndexes[0])
@@ -7171,7 +7147,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     const labelStep = [1, 2, 3, 4, 6, 12].find((s) => s * colStep >= need)
       ?? Math.max(12, Math.ceil(need / colStep / 12) * 12);
     const labelAnchor = midEbIdx ?? 0;
-    const showLabel = (i) => (((i - labelAnchor) % labelStep) + labelStep) % labelStep === 0;
+    // noteFocus 指定時はデータを絞らず、ラベル表示だけを noteFocus に含まれる音名に絞る。
+    const showLabel = noteFocus
+      ? (i) => noteFocus.includes(plotNoteLabels[i])
+      : (i) => (((i - labelAnchor) % labelStep) + labelStep) % labelStep === 0;
 
     // 点が隣とくっついて見えないよう、直径は音の間隔の6割までに抑える(上限3px)
     const dotR = Math.max(1.5, Math.min(3, colStep * 0.3));
@@ -8124,7 +8103,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
 
 // REED_COMPARE_METRICSの各指標に対応する理想値プロファイル側のフィールド名
 // (音名軸グラフに理想の破線を重ねるための対応表。ピッチ誤差は理想=0のため対象外)
-const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCents: null };
+const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCents: null, pitchCentsSigned: null };
 
 // 直近追加された最新セッション単体の内訳。My Dataの平均(複数セッション)とは別に、
 // 「今撮ったばかりの1回分」を単独で確認できるようにする。カードはタップで音名軸グラフに切替。
@@ -8139,7 +8118,7 @@ function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
         {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
       <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-        {REED_COMPARE_METRICS.map((mt) => {
+        {SESSION_METRICS.map((mt) => {
           const v = m[mt.key];
           return (
             <TappableMetricCard
@@ -8748,7 +8727,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       {frames.length > 0 && (
         <div className="card" style={{ marginTop: 10 }}>
           <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-            {REED_COMPARE_METRICS.map((mt) => {
+            {SESSION_METRICS.map((mt) => {
               const v = sessionMetrics[mt.key];
               return (
                 <TappableMetricCard
