@@ -5824,6 +5824,338 @@ function rfBodyFor(src) {
 }
 
 // ============================================================
+// 検証18: F-44 ピッチ集計のノイズ除外(集計側ゲート + 頑健統計 + 透明性)
+// 合成フレーム列で数値を独立に検算する(綴りの有無だけの検査にしない)。
+// 期待値はすべてテスト側で手計算した値(定数の定義の言い換えではなく、
+// 「25msホップでどのtのフレームが残るか」を独立に導出して突き合わせる)。
+// ============================================================
+console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
+{
+  // 専用サンドボックス。overridesで定数を、edits([from,to]の配列)でコード本文を
+  // 書き換えた変異体を作れる(変異はこの複製文字列上でだけ起き、実ソースには触れない)。
+  // 置換が空振りしたら例外(効かない変異試験を防ぐ)。
+  const buildPitchGateApi = (overrides = {}, edits = []) => {
+    let pieces = [
+      extractFunction("mean"),
+      extractFunction("median"),
+      extractFunction("stddev"),
+      extractFunction("frameWeight"),
+      extractFunction("timbreSustained"),
+      extractFunction("weightedMean"),
+      extractConst("TIMBRE_SUSTAIN_MS"),
+      extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"),
+      extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"),
+      extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"),
+      extractFunction("computeFrameMetrics"),
+      extractFunction("groupFramesByNote"),
+    ].join("\n\n");
+    for (const [name, val] of Object.entries(overrides)) {
+      const before = pieces;
+      pieces = pieces.replace(new RegExp(`const ${name} = [^;]+;`), `const ${name} = ${val};`);
+      if (pieces === before) throw new Error(`mutation failed: const ${name} not replaced`);
+    }
+    for (const [from, to] of edits) {
+      const before = pieces;
+      pieces = pieces.replace(from, to);
+      if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
+    }
+    return new Function(`${pieces}
+      return { selectPitchAggregationFrames, computeFrameMetrics, groupFramesByNote,
+               PITCH_EDGE_TRIM_MS, PITCH_RUN_GAP_MS, PITCH_FLIP_MAX_MS };`)();
+  };
+  const gate = buildPitchGateApi();
+
+  // 合成フレーム: 25msホップ。si=半音インデックス(nullなら運指範囲外)、dev=最寄り半音との
+  // 差(¢)。pitchHzはそのsiの音の周波数×2^(dev/1200)なので、絶対セントにはsi間の音程差が
+  // そのまま現れる(si+12の区間はちょうど+1200¢上に居る)。
+  const HOP = 0.025;
+  const hzOf = (si) => 440 * Math.pow(2, (si - 9) / 12);
+  const pf = (t, si, dev) => ({
+    t,
+    semitoneIndex: si,
+    pitchHz: (si === null ? hzOf(30) : hzOf(si)) * Math.pow(2, dev / 1200),
+    pitchCents: dev,
+    clarity: 1, volumeDb: -20, noteAgeMs: 1000, hnrDb: 20, spectralCentroidHz: 1000, harmonics: [],
+  });
+  // devFn(t)でdevを変えながら等間隔フレーム列を作る
+  const noteFrames = (t0, count, si, devFn) =>
+    Array.from({ length: count }, (_, k) => pf(t0 + k * HOP, si, devFn(t0 + k * HOP, k)));
+  const near = (a, b, eps = 1e-9) => a !== null && a !== undefined && Math.abs(a - b) <= eps;
+
+  // --- 18.1 アタックのしゃくり: 冒頭120msのランプが中央値に混入しない -----------
+  // 1000ms(41フレーム)の+2¢安定音。冒頭のt<0.12(5フレーム)は-40→-10¢のランプ。
+  // 手計算: dur=1.000, e=min(0.12, dur/3)=0.12 → 採用は t∈[0.12,0.88] の31フレーム(全部+2)。
+  // 除外は 冒頭5(ランプ) + 末尾5(t=0.90〜1.00) = 10。
+  {
+    const frames = noteFrames(0, 41, 10, (t) => (t < 0.12 ? -40 + (t / 0.12) * 30 : 2));
+    const m = gate.computeFrameMetrics(frames);
+    check("18.1 中央値は安定区間の+2.0¢(しゃくりが混入しない)", near(m.pitchCentsSigned, 2));
+    check("18.1 絶対値の中央値も2.0¢", near(m.pitchCents, 2));
+    check("18.1 採用フレームは全て+2¢なのでブレ(stddev)は0", near(m.pitchStabilityCents, 0));
+    check("18.1 除外数は手計算どおり(冒頭5+末尾5=10 / total 41)",
+      m.pitchFrameTotal === 41 && m.pitchFrameUsed === 31 && m.pitchFrameExcluded === 10,
+      `total=${m.pitchFrameTotal} used=${m.pitchFrameUsed} excluded=${m.pitchFrameExcluded}`);
+    // 従来仕様(clarity加重平均=clarity1なら算術平均)を独立に計算し、汚染値と異なることを確認
+    const contaminated = frames.reduce((s, f) => s + f.pitchCents, 0) / frames.length;
+    check("18.1 従来の加重平均は汚染されている(その値と中央値が異なる)",
+      Math.abs(contaminated - 2) > 0.5 && Math.abs(m.pitchCentsSigned - contaminated) > 0.5,
+      `汚染平均=${contaminated.toFixed(2)}¢ 中央値=${m.pitchCentsSigned}¢`);
+  }
+
+  // --- 18.2 スラー過渡: 音替わり境界±60msのランプが両音の中央値に混入しない -------
+  // A(+2¢, si=10, t=0〜0.475)の末尾3フレームは+10/+20/+30、
+  // B(-3¢, si=12, t=0.5〜0.975)の先頭3フレームは-45/-25/-10(noteAgeMsはスラーでは
+  // リセットされない想定なので全フレーム1000のまま=音量ベースの除外は効かない状況)。
+  {
+    const rampA = [10, 20, 30];  // Aの末尾3フレーム(t=0.425〜0.475)
+    const rampB = [-45, -25, -10]; // Bの先頭3フレーム(t=0.5〜0.55)
+    const frames = [
+      ...noteFrames(0, 20, 10, (t, k) => (k >= 17 ? rampA[k - 17] : 2)),
+      ...noteFrames(0.5, 20, 12, (t, k) => (k <= 2 ? rampB[k] : -3)),
+    ];
+    const groups = gate.groupFramesByNote(frames);
+    const gA = groups.find((g) => g.semitoneIndex === 10);
+    const gB = groups.find((g) => g.semitoneIndex === 12);
+    check("18.2 音Aの中央値は+2.0¢(スラーの過渡が混入しない)", near(gA?.pitchCentsSigned, 2));
+    check("18.2 音Bの中央値は-3.0¢(スラーの過渡が混入しない)", near(gB?.pitchCentsSigned, -3));
+    check("18.2 両音とも除外(excluded)がある",
+      gA?.pitchFrameExcluded > 0 && gB?.pitchFrameExcluded > 0,
+      `A=${gA?.pitchFrameExcluded} B=${gB?.pitchFrameExcluded}`);
+  }
+
+  // --- 18.3 短い音を全滅させない ------------------------------------------------
+  {
+    // (a) 90msの音(dur=0.09): e=min(0.12, 0.03)=0.03 → 中央1/3のt∈[0.03,0.06]だけが残る。
+    //     ライブ計測はrAF(≒16ms)で等間隔とは限らないため、tは明示指定
+    //     (帯の境界ちょうどにフレームを置かない。浮動小数の丸めに依存する検査にしない)。
+    const times = [0, 0.02, 0.04, 0.05, 0.07, 0.09];
+    const devs6 = [-30, -10, 5, 5, 15, 25];
+    const short6 = times.map((t, k) => pf(t, 10, devs6[k]));
+    const m4 = gate.computeFrameMetrics(short6);
+    check("18.3a 90msの音は中央1/3(2フレーム,+5¢)が残る(全滅しない)",
+      m4.pitchFrameUsed === 2 && near(m4.pitchCentsSigned, 5),
+      `used=${m4.pitchFrameUsed} val=${m4.pitchCentsSigned}`);
+    // (b) 2フレーム(dur=0.025): e=dur/3≈0.0083の帯t∈[0.0083,0.0167]にフレームが無い
+    //     → インデックス中央(2>>1=1番目=+9¢)の1フレームだけ採用される。
+    const devs2 = [7, 9];
+    const short2 = noteFrames(0, 2, 10, (t, k) => devs2[k]);
+    const m2 = gate.computeFrameMetrics(short2);
+    check("18.3b 離散化で帯が空になる音は中央の1フレームが残る(全滅しない)",
+      m2.pitchFrameUsed === 1 && near(m2.pitchCentsSigned, 9),
+      `used=${m2.pitchFrameUsed} val=${m2.pitchCentsSigned}`);
+  }
+
+  // --- 18.4 持続オクターブ誤検出ラン(75ms)は丸ごと除外される ---------------------
+  // 安定音P(si=10, 0¢, t=0〜0.375) → R(si=22=+1200¢, 3フレーム=dur0.05) →
+  // 安定音N(si=10, 0¢, t=0.475〜0.975)。sanitizePitchOutliers(単発用)が素通しする形。
+  {
+    const frames = [
+      ...noteFrames(0, 16, 10, () => 0),
+      ...noteFrames(0.4, 3, 22, () => 0),
+      ...noteFrames(0.475, 21, 10, () => 0),
+      pf(1.4, null, 10), // 運指範囲外(アルティッシモ等): 区間に入らず自然に除外される
+    ];
+    const groups = gate.groupFramesByNote(frames);
+    const gFlip = groups.find((g) => g.semitoneIndex === 22);
+    const gMain = groups.find((g) => g.semitoneIndex === 10);
+    check("18.4 +12側のグループのピッチ系はnull(ランごと除外)",
+      gFlip && gFlip.pitchCentsSigned === null && gFlip.pitchCents === null &&
+      gFlip.pitchHz === null && gFlip.pitchFrameUsed === 0 && gFlip.pitchFrameExcluded === 3,
+      gFlip ? `used=${gFlip.pitchFrameUsed} val=${gFlip.pitchCentsSigned}` : "groupなし");
+    check("18.4 実音側の中央値は0¢のまま", near(gMain?.pitchCentsSigned, 0));
+    // 全体の内訳を手計算と突き合わせる: total=16+3+21+1=41。
+    // P: dur=0.375, e=0.12 → t∈[0.12,0.255]の6フレーム。N: dur=0.5, e=0.12 →
+    // t∈[0.595,0.855]の11フレーム。used=17, excluded=24(フリップ3+si=null 1を含む)。
+    const sel = gate.selectPitchAggregationFrames(frames);
+    check("18.4 全体の内訳(total/used/excluded)が手計算と一致",
+      sel.total === 41 && sel.used === 17 && sel.excluded === 24,
+      `total=${sel.total} used=${sel.used} excluded=${sel.excluded}`);
+  }
+
+  // --- 18.5 実奏のオクターブ跳躍(300ms)は除外されない(誤爆防止。最重要) ----------
+  // P(si=10, 0¢, 375ms) → R(si=22, +4¢, t=0.4〜0.675=dur0.275 > PITCH_FLIP_MAX_MS)
+  // → N(si=10, 0¢, 475ms)。Rは疑い対象にならず、両端トリムだけ受けて生き残る。
+  // 手計算: Rのdur=0.275, e=min(0.12, 0.0917)=0.0917 → t∈[0.4917,0.5833]の4フレーム。
+  {
+    const frames = [
+      ...noteFrames(0, 16, 10, () => 0),
+      ...noteFrames(0.4, 12, 22, () => 4),
+      ...noteFrames(0.7, 20, 10, () => 0),
+    ];
+    const groups = gate.groupFramesByNote(frames);
+    const gJump = groups.find((g) => g.semitoneIndex === 22);
+    check("18.5 実奏のオクターブ跳躍は除外されない(ピッチ+4.0¢が残る)",
+      near(gJump?.pitchCentsSigned, 4) && gJump?.pitchFrameUsed === 4,
+      `used=${gJump?.pitchFrameUsed} val=${gJump?.pitchCentsSigned}`);
+    check("18.5 跳躍先のpitchHzも非null(中央値)", gJump?.pitchHz > 0, String(gJump?.pitchHz));
+  }
+
+  // --- 18.6 セッション連結境界(tの逆行)で区間が跨がらない ------------------------
+  // s1: 安定音(si=10,+2¢) → 末尾に短いsi=22ラン(75ms)。s2: 安定音(si=10,+2¢)。
+  // 連結するとsi=22ランの直後でtが逆行する。境界を跨いでs2を「後続の安定区間」として
+  // 使うとランが誤検出扱いで消えるが、正しくは隣接扱いしない→トリムだけ受けて残る。
+  {
+    const s1 = [
+      ...noteFrames(0, 20, 10, () => 2),
+      ...noteFrames(0.5, 3, 22, () => 0),
+    ];
+    const s2 = noteFrames(0, 16, 10, () => 2); // tが0に戻る=連結境界
+    const frames = [...s1, ...s2];
+    const groups = gate.groupFramesByNote(frames);
+    const gEnd = groups.find((g) => g.semitoneIndex === 22);
+    check("18.6 境界を跨いで前後の安定区間として扱わない(末尾ランは誤検出扱いされない)",
+      gEnd?.pitchFrameUsed === 1 && near(gEnd?.pitchCentsSigned, 0),
+      `used=${gEnd?.pitchFrameUsed} val=${gEnd?.pitchCentsSigned}`);
+    // si=10は2つの区間に割れ、それぞれ独立にトリムされる。
+    // run1: dur=0.475, e=0.12 → t∈[0.12,0.355]の10フレーム。
+    // run2: dur=0.375, e=0.12 → t∈[0.12,0.255]の6フレーム。計16。
+    const gMain = groups.find((g) => g.semitoneIndex === 10);
+    check("18.6 逆行の前後が別区間として独立にトリムされる(採用16フレーム,+2¢)",
+      gMain?.pitchFrameUsed === 16 && near(gMain?.pitchCentsSigned, 2),
+      `used=${gMain?.pitchFrameUsed} val=${gMain?.pitchCentsSigned}`);
+  }
+
+  // --- 18.7 変異試験(検査自体に組み込む。変異は複製したコード文字列にだけ当てる) ---
+  {
+    // (a) PITCH_EDGE_TRIM_MS=0 にすると 18.1 の主張が成立しなくなる
+    //     (除外0になり、ランプ混入でstddevが立つ)=18.1はトリムを本当に検査している。
+    const mutTrim = buildPitchGateApi({ PITCH_EDGE_TRIM_MS: 0 });
+    const framesA = noteFrames(0, 41, 10, (t) => (t < 0.12 ? -40 + (t / 0.12) * 30 : 2));
+    const mA = mutTrim.computeFrameMetrics(framesA);
+    check("18.7a 変異(トリム0)では18.1が落ちる(excluded=0・stddev>0になる)",
+      mA.pitchFrameExcluded === 0 && mA.pitchStabilityCents > 1,
+      `excluded=${mA.pitchFrameExcluded} stddev=${mA.pitchStabilityCents}`);
+    // (b) PITCH_FLIP_MAX_MS=300 にすると 18.5 の実奏跳躍(275ms)が誤爆で消える
+    //     =18.5は誤爆防止の上限を本当に検査している。
+    const mutFlip = buildPitchGateApi({ PITCH_FLIP_MAX_MS: 300 });
+    const framesB = [
+      ...noteFrames(0, 16, 10, () => 0),
+      ...noteFrames(0.4, 12, 22, () => 4),
+      ...noteFrames(0.7, 20, 10, () => 0),
+    ];
+    const gJumpMut = mutFlip.groupFramesByNote(framesB).find((g) => g.semitoneIndex === 22);
+    check("18.7b 変異(疑い上限300ms)では18.5が落ちる(実奏跳躍が除外されnullになる)",
+      gJumpMut && gJumpMut.pitchCentsSigned === null && gJumpMut.pitchFrameUsed === 0,
+      `used=${gJumpMut?.pitchFrameUsed} val=${gJumpMut?.pitchCentsSigned}`);
+  }
+
+  // --- 18.8 音量・音色はゲートを通らない(従来のまま) -----------------------------
+  // ピッチ系だけの変更であることを数値で固定する: 全フレームがvolumeDb=-20なら従来どおり
+  // -20。過渡フレームのvolumeDbだけ変えた列で、加重平均が過渡を含む値になる(除外されない)。
+  {
+    const frames = noteFrames(0, 41, 10, (t) => (t < 0.12 ? -40 : 2));
+    frames.forEach((f, i) => { f.volumeDb = i < 5 ? -60 : -20; });
+    const m = gate.computeFrameMetrics(frames);
+    const expectVol = (5 * -60 + 36 * -20) / 41; // clarity=1なので算術平均
+    check("18.8 volumeDbは全フレームの加重平均のまま(ピッチのゲートが効いていない)",
+      near(m.volumeDb, expectVol, 1e-6), `vol=${m.volumeDb} expect=${expectVol}`);
+  }
+
+  // --- 18.9 透明性の1行(SessionDetailView)。JSXはハーネスの外なので綴りの存在確認のみ ---
+  // (描画の実測はBrowser paneで行う。この検査はリグレッションの早期検知用の補助)
+  {
+    const sdvStart = src.indexOf("function SessionDetailView(");
+    const sdv = sdvStart === -1 ? "" : src.slice(sdvStart, sdvStart + 20000);
+    check("18.9 音階ごとの平均の直下に除外率の1行がある",
+      /ピッチは各音の安定区間の中央値（立ち上がり・切り替わりの過渡 \{pct\}% を除外）/.test(sdv));
+    check("18.9 除外率は全グループ合計から計算し、合計0なら行ごと出さない",
+      /if \(used \+ excluded === 0\) return null;/.test(sdv) &&
+      /Math\.round\(\(excluded \/ \(used \+ excluded\)\) \* 100\)/.test(sdv));
+  }
+  // --- 18.10 代表値は中央値であること(平均では落ちる) ---------------------------
+  // 審査役の変異試験(2026-08-04)で median→mean の変異が生き残った。18.1〜18.6は採用
+  // フレームの値が一様(中央値=平均)で、中央値であること自体を固定していなかった。
+  // トリム帯の内側に単発の+30¢(±700¢未満なのでsanitizePitchOutliersでも消えない)を
+  // 置き、中央値なら+2.0¢のまま・平均なら約+2.9¢に汚染される非対称な列で固定する。
+  {
+    // 41フレーム(t=0〜1.0)。採用帯はt∈[0.12,0.88]の31フレーム(18.1と同じ)。
+    // その内側のt=0.5(k=20)だけ+30¢ → 採用31個の内訳は「+2が30個 / +30が1個」。
+    const frames = noteFrames(0, 41, 10, (t, k) => (k === 20 ? 30 : 2));
+    const m = gate.computeFrameMetrics(frames);
+    // 独立に手計算した期待値: 中央値=+2(31個中16番目) / 採用フレームの平均=(30*2+30)/31
+    const adoptedMean = (30 * 2 + 30) / 31; // ≈2.903(clarity=1なので加重平均=算術平均)
+    check("18.10 採用帯の内側の単発外れ値に中央値は動じない(+2.0¢)",
+      near(m.pitchCentsSigned, 2) && near(m.pitchCents, 2),
+      `signed=${m.pitchCentsSigned} abs=${m.pitchCents}`);
+    check("18.10 同じ採用フレームの平均(約+2.9¢)とは異なる=代表値は平均ではない",
+      Math.abs(m.pitchCentsSigned - adoptedMean) > 0.5, `mean=${adoptedMean.toFixed(3)}`);
+    // 変異: median→mean に差し替えると平均値そのものになり、上の2検査が落ちる
+    const mutMean = buildPitchGateApi({}, [
+      ["pitchCents: median(signed.map((v) => Math.abs(v))),", "pitchCents: mean(signed.map((v) => Math.abs(v))),"],
+      ["pitchCentsSigned: median(signed),", "pitchCentsSigned: mean(signed),"],
+    ]);
+    const mm = mutMean.computeFrameMetrics(frames);
+    check("18.10x 変異(median→mean)では代表値が平均値になり18.10が落ちる",
+      near(mm.pitchCentsSigned, adoptedMean, 1e-9) && !near(mm.pitchCentsSigned, 2, 0.5),
+      `mutant=${mm.pitchCentsSigned}`);
+  }
+
+  // --- 18.11 前後安定条件: 速いパッセージ(短いランの連続)は1音も除外されない -------
+  // 審査役の変異試験で「durOf(p)/durOf(n) > flipMaxSec の条件を削除しても通過」が発覚。
+  // 実奏のオクターブ交互(全ランが100ms=疑い対象の長さ、前後の音程は1200¢ちょうど)を
+  // 合成し、「隣が安定区間でなければフリップ判定は発動しない」という核心を固定する。
+  {
+    // 5つの短いラン(各5フレーム=dur0.1≤PITCH_FLIP_MAX_MS)を25ms間隔で連続させる:
+    // si10 → si22 → si10 → si22 → si10(+3¢)。中3ランは前後の音程一致も1200¢一致も
+    // 満たすため、安定条件が無ければ丸ごと除外されてしまう配置。
+    const runStarts = [0, 0.125, 0.25, 0.375, 0.5];
+    const frames = runStarts.flatMap((t0, r) => noteFrames(t0, 5, r % 2 === 0 ? 10 : 22, () => 3));
+    const sel = gate.selectPitchAggregationFrames(frames);
+    // 手計算: 各ラン dur=0.1, e=0.1/3≈0.033 → 帯[t0+0.033,t0+0.067]はt0+0.05の1フレーム
+    // → 採用は5ランで5フレーム(除外はトリムの20のみ。ラン除外は0)。
+    check("18.11 速いオクターブ交互は1音も除外されない(採用5=各ランの中央1フレーム)",
+      sel.total === 25 && sel.used === 5 && sel.excluded === 20,
+      `total=${sel.total} used=${sel.used} excluded=${sel.excluded}`);
+    const groups = gate.groupFramesByNote(frames);
+    const gLow = groups.find((g) => g.semitoneIndex === 10);
+    const gHigh = groups.find((g) => g.semitoneIndex === 22);
+    check("18.11 両方の音のピッチが残る(+3.0¢)",
+      near(gLow?.pitchCentsSigned, 3) && gLow?.pitchFrameUsed === 3 &&
+      near(gHigh?.pitchCentsSigned, 3) && gHigh?.pitchFrameUsed === 2,
+      `low used=${gLow?.pitchFrameUsed} high used=${gHigh?.pitchFrameUsed}`);
+    // 変異: 前後安定条件の行を削除すると中3ランが誤検出扱いで消え、上の検査が落ちる
+    const mutStable = buildPitchGateApi({}, [
+      ["if (!(durOf(p) > flipMaxSec && durOf(n) > flipMaxSec)) continue;", ""],
+    ]);
+    const selMut = mutStable.selectPitchAggregationFrames(frames);
+    const gHighMut = mutStable.groupFramesByNote(frames).find((g) => g.semitoneIndex === 22);
+    check("18.11x 変異(前後安定条件の削除)では交互練習が破壊され18.11が落ちる",
+      selMut.used === 2 && gHighMut?.pitchFrameUsed === 0 && gHighMut?.pitchCentsSigned === null,
+      `used=${selMut.used} high used=${gHighMut?.pitchFrameUsed}`);
+  }
+
+  // --- 18.12 前後一致条件: 前後が別の音(>200¢差)なら短いランを疑わない -------------
+  // 審査役の変異試験で「|medAbs(P)-medAbs(N)| ≤ 200¢ の条件を削除しても通過」が発覚。
+  // 安定音P(si10)→短い音R(si22=Pの+1200¢。音程だけならフリップ候補)→安定音N(si17=
+  // Pの+700¢)。前後が一致しないので「同じ音の途中の誤検出」ではなく、Rは実音として残る。
+  {
+    const frames = [
+      ...noteFrames(0, 16, 10, () => 0),      // P: 375ms 安定
+      ...noteFrames(0.4, 3, 22, () => 5),     // R: 50ms(P比+1200¢+5¢)
+      ...noteFrames(0.475, 16, 17, () => 0),  // N: 375ms 安定(P比+700¢ > 200¢)
+    ];
+    const gR = gate.groupFramesByNote(frames).find((g) => g.semitoneIndex === 22);
+    // 手計算: R dur=0.05, e=0.05/3≈0.017 → 帯[0.417,0.433]にt=0.425の1フレームが残る
+    check("18.12 前後が別の音なら短いランは除外されない(+5.0¢が残る)",
+      near(gR?.pitchCentsSigned, 5) && gR?.pitchFrameUsed === 1,
+      `used=${gR?.pitchFrameUsed} val=${gR?.pitchCentsSigned}`);
+    // 変異: 前後一致条件の行を削除するとRがフリップ扱いで消え、上の検査が落ちる
+    const mutAgree = buildPitchGateApi({}, [
+      ["if (Math.abs(mp - mn) > PITCH_FLIP_NEIGHBOR_AGREE_CENTS) continue;", ""],
+    ]);
+    const gRMut = mutAgree.groupFramesByNote(frames).find((g) => g.semitoneIndex === 22);
+    check("18.12x 変異(前後一致条件の削除)では実音Rが消え18.12が落ちる",
+      gRMut?.pitchFrameUsed === 0 && gRMut?.pitchCentsSigned === null,
+      `used=${gRMut?.pitchFrameUsed}`);
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

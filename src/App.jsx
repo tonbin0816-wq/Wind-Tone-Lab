@@ -443,6 +443,14 @@ const BANDPASS_Q = 0.3;
 const TIMBRE_SUSTAIN_MS = 120;
 const NOTE_SWITCH_CENTS = 60;
 const PITCH_OUTLIER_CENTS = 700;
+// ピッチ集計の入口ゲート(F-44)。保存データは非破壊のまま、集計に使うフレームだけを
+// selectPitchAggregationFrames で選別する。タイムライン表示は生のまま。
+const PITCH_EDGE_TRIM_MS = 120;        // 各ノート区間の両端をこの時間だけピッチ集計から外す(アタックのしゃくり・スラーの過渡)
+const PITCH_RUN_GAP_MS = 250;          // フレーム間隔がこれを超えたら(または t が逆行したら)別区間とみなす(無音・セッション連結境界)
+const PITCH_FLIP_MAX_MS = 120;         // これ以下の短い区間だけをオクターブ誤検出の疑い対象にする(実奏のオクターブ跳躍を誤爆しないための上限)
+const PITCH_FLIP_NEIGHBOR_AGREE_CENTS = 200; // 前後の安定区間同士がこの範囲で一致しているときだけ判定する
+const PITCH_FLIP_INTERVALS_CENTS = [1200, 1902]; // オクターブ / 12度(3倍音)
+const PITCH_FLIP_TOLERANCE_CENTS = 150;          // 上記音程との一致とみなす許容
 // 運指テーブルの範囲から大きく外れた音(アルティッシモ・他楽器・誤検出)は運指に紐付けない。
 // テーブル範囲内なら最近傍運指との差は必ず±50¢以内のため、これを超えるのは範囲外のみ。
 const FINGERING_MATCH_MAX_CENTS = 150;
@@ -953,6 +961,88 @@ function sanitizePitchOutliers(frames, outlierCents = PITCH_OUTLIER_CENTS) {
     }
   }
   return out;
+}
+
+// ピッチ集計の入口ゲート(F-44)。保存データは変更せず、ピッチの平均・音階ごとの平均に
+// 使うフレームだけを選ぶ純関数。入力は変更しない。
+//   1) 同一semitoneIndexの連続区間(run)に分割(音替わり・無音ギャップ・tの逆行=
+//      セッション連結境界で切る)
+//   2) 前後の安定区間に挟まれた短い区間が、オクターブ/12度だけ離れていたら丸ごと除外
+//      (2フレーム以上続く倍音誤検出はsanitizePitchOutliers=単発用を素通しするため)。
+//      pitchCentsは最寄り半音との差(±50¢)なのでオクターブ誤検出が見えない。判定は
+//      絶対セント(1200*log2(pitchHz/440))の中央値で行う
+//   3) 残った各区間の両端をトリム(アタックのしゃくり・スラーで指だけ変えた音替わりの過渡。
+//      noteAgeMsは音量ベースでしかリセットされずスラーでは効かないため、tで直接切る)
+// semitoneIndexがnullのフレーム(運指範囲外=アルティッシモ等)は区間に入らず自然に
+// 除外される(意図した仕様変更: 音階に紐付かない音はピッチ集計から外す)。
+// 音量・音色の集計とタイムライン表示(PhraseTimeline)はこのゲートを通らない。
+function selectPitchAggregationFrames(frames) {
+  const list = frames || [];
+  const gapSec = PITCH_RUN_GAP_MS / 1000;
+  const flipMaxSec = PITCH_FLIP_MAX_MS / 1000;
+  // 1) run分割。idxは元配列のインデックス列(配列順のまま)
+  const runs = [];
+  let cur = null;
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i];
+    const si = f?.semitoneIndex;
+    if (si === null || si === undefined) { cur = null; continue; }
+    if (cur) {
+      const dt = f.t - list[cur.idx[cur.idx.length - 1]].t;
+      // 音替わり / t逆行(セッション連結境界。!(dt>=0)はtが無い旧データのNaNも区間を切る) / 無音ギャップ
+      if (si !== cur.semitoneIndex || !(dt >= 0) || dt > gapSec) cur = null;
+    }
+    if (!cur) { cur = { semitoneIndex: si, idx: [] }; runs.push(cur); }
+    cur.idx.push(i);
+  }
+  const tFirst = (r) => list[r.idx[0]].t;
+  const tLast = (r) => list[r.idx[r.idx.length - 1]].t;
+  const durOf = (r) => tLast(r) - tFirst(r);
+  // 区間の絶対セント中央値(=A4からの距離)。オクターブ誤検出はここでしか見えない
+  const medAbs = (r) => median(
+    r.idx.map((i) => list[i].pitchHz).filter((hz) => hz > 0).map((hz) => 1200 * Math.log2(hz / 440)));
+  // 2) オクターブ/12度誤検出ランの除外
+  const excludedRuns = new Set();
+  for (let k = 0; k < runs.length; k++) {
+    const r = runs[k];
+    if (durOf(r) > flipMaxSec) continue; // 疑うのは短い区間だけ(実奏のオクターブ跳躍を誤爆しない)
+    const p = runs[k - 1], n = runs[k + 1];
+    if (!p || !n) continue;
+    // 時間的に隣接している場合だけ(gap<0はt逆行=連結境界。跨いで判定しない)
+    const gapP = tFirst(r) - tLast(p);
+    const gapN = tFirst(n) - tLast(r);
+    if (!(gapP >= 0 && gapP <= gapSec && gapN >= 0 && gapN <= gapSec)) continue;
+    if (!(durOf(p) > flipMaxSec && durOf(n) > flipMaxSec)) continue; // 前後が両方とも安定区間の場合だけ
+    const mp = medAbs(p), mn = medAbs(n), mr = medAbs(r);
+    if (mp === null || mn === null || mr === null) continue;
+    if (Math.abs(mp - mn) > PITCH_FLIP_NEIGHBOR_AGREE_CENTS) continue; // 前後の区間の音程が近い(±200¢=全音以内で一致する)場合だけ
+    const jump = Math.abs(mr - mp); // 上下どちらの誤検出も絶対差で拾う
+    if (PITCH_FLIP_INTERVALS_CENTS.some((iv) => Math.abs(jump - iv) <= PITCH_FLIP_TOLERANCE_CENTS)) {
+      excludedRuns.add(r);
+    }
+  }
+  // 3) 両端トリム。離散化で1つも残らない短い音は中央の1フレームを採用する(全滅させない)
+  const selected = new Set();
+  for (const r of runs) {
+    if (excludedRuns.has(r)) continue;
+    const t0 = tFirst(r), t1 = tLast(r);
+    const e = Math.min(PITCH_EDGE_TRIM_MS / 1000, (t1 - t0) / 3);
+    let any = false;
+    for (const i of r.idx) {
+      if (list[i].t >= t0 + e && list[i].t <= t1 - e) { selected.add(i); any = true; }
+    }
+    if (!any) selected.add(r.idx[r.idx.length >> 1]); // インデックス中央の1フレーム
+  }
+  // 透明性のための集計: totalはpitchCentsが非nullのフレーム総数。semitoneIndexがnullで
+  // pitchCentsを持つフレーム(運指範囲外)もexcludedに数える
+  let total = 0, used = 0;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i]?.pitchCents;
+    if (v === null || v === undefined || isNaN(v)) continue;
+    total++;
+    if (selected.has(i)) used++;
+  }
+  return { selected, total, used, excluded: total - used };
 }
 
 // 音名グルーピングのヒステリシス。実測f0が前フレームの判定音から±holdCents以内なら
@@ -6727,23 +6817,38 @@ function ReedRegisterView(props) {
 // データ分析タブ (企画書10.4節) — リード別比較・リード毎比較・ランキング
 // ============================================================
 // フレーム配列から比較用の平均値を算出(リード別比較・リード毎比較で共通利用)
-function computeFrameMetrics(frames) {
-  // 平均はすべてclarity重み付き(weightedMean)。音色系(HNR・重心)はさらに
+// pitchSelection: ピッチ集計に採用するフレーム配列。groupFramesByNoteだけが
+// 「全体の時系列で選別したサブセット」を渡す(グループ分け後では区間の文脈が失われるため)。
+// nullなら内部でselectPitchAggregationFrames(F-44のゲート)を通して自分で選ぶ。
+function computeFrameMetrics(frames, pitchSelection = null) {
+  // 音量・音色は従来どおりclarity重み付き(weightedMean)。音色系(HNR・重心)はさらに
   // アタック過渡フレームを除外(timbreSustained)して定常状態だけを平均する。
   const sustained = frames.filter(timbreSustained);
-  // ピッチのブレ: 符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
-  // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す。
-  // 【2026-08-04】以前は My Data のカードがこれを「ピッチの安定度」として表示していたが、
-  // 本人指示で符号つきの平均ズレ(pitchCentsSigned)に置き換わったため、**現在この値を
-  // 表示している画面は無い**(算出だけ残してある)。使うときは表示先を決めてから。
-  const pitchVals = frames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  // ピッチ系3値だけはF-44のゲート(過渡トリム・オクターブ誤検出ラン除外)を通し、
+  // 代表値を中央値にする(残った外れ値への頑健性。加重平均はclarityが減衰するだけで
+  // 外れ値を除外しない)。
+  const pitchFrames = pitchSelection ?? (() => {
+    const sel = selectPitchAggregationFrames(frames);
+    return frames.filter((_, i) => sel.selected.has(i));
+  })();
+  const signed = pitchFrames.map((f) => f.pitchCents).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  // 透明性のための内訳: total=ピッチを持つ全フレーム / used=採用 / excluded=除外
+  const pitchFrameTotal = frames.filter((f) => f.pitchCents !== null && f.pitchCents !== undefined && !isNaN(f.pitchCents)).length;
   return {
     hnrDb: weightedMean(sustained, (f) => f.hnrDb),
     spectralCentroidHz: weightedMean(sustained, (f) => f.spectralCentroidHz),
     volumeDb: weightedMean(frames, (f) => f.volumeDb),
-    pitchCents: weightedMean(frames, (f) => (f.pitchCents === null || f.pitchCents === undefined ? null : Math.abs(f.pitchCents))),
-    pitchCentsSigned: weightedMean(frames, (f) => f.pitchCents),
-    pitchStabilityCents: stddev(pitchVals),
+    pitchCents: median(signed.map((v) => Math.abs(v))),
+    pitchCentsSigned: median(signed),
+    // ピッチのブレ: 採用フレームの符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
+    // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す。
+    // 【2026-08-04】以前は My Data のカードがこれを「ピッチの安定度」として表示していたが、
+    // 本人指示で符号つきの平均ズレ(pitchCentsSigned)に置き換わったため、**現在この値を
+    // 表示している画面は無い**(算出だけ残してある)。使うときは表示先を決めてから。
+    pitchStabilityCents: stddev(signed),
+    pitchFrameTotal,
+    pitchFrameUsed: signed.length,
+    pitchFrameExcluded: pitchFrameTotal - signed.length,
   };
 }
 
@@ -6752,16 +6857,26 @@ function computeFrameMetrics(frames) {
 // 「1つのデータには様々な音が含まれる」ため、理想値・セッション詳細画面の両方で
 // 音階ごとの内訳を出すのに使う共通ロジック。semitoneIndexが取れないフレーム(無音等)は除外する。
 function groupFramesByNote(frames, NUM_HARMONICS = 8) {
+  // ピッチの採用フレームは**グループ分けの前に、全体の時系列に対して1回だけ**選別する。
+  // グループ分け後の配列では区間の隣接関係(前後の安定区間・過渡の位置)が失われ、
+  // 両端トリムもオクターブ誤検出ランの判定もできなくなるため(F-44)。
+  const sel = selectPitchAggregationFrames(frames);
   const groups = {};
-  for (const f of frames) {
+  const selectedByGroup = {};
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i];
     if (f.semitoneIndex === null || f.semitoneIndex === undefined) continue;
-    if (!groups[f.semitoneIndex]) groups[f.semitoneIndex] = [];
+    if (!groups[f.semitoneIndex]) { groups[f.semitoneIndex] = []; selectedByGroup[f.semitoneIndex] = []; }
     groups[f.semitoneIndex].push(f);
+    if (sel.selected.has(i)) selectedByGroup[f.semitoneIndex].push(f);
   }
   return Object.entries(groups)
     .map(([key, groupFrames]) => {
       const semitoneIndex = Number(key);
-      const m = computeFrameMetrics(groupFrames);
+      // ピッチ系は「グループ内フレーム ∩ 採用フレーム」から中央値で算出。
+      // 採用が0のグループ(全編が過渡・誤検出ラン)はピッチ系がnullになる。
+      const pitchFrames = selectedByGroup[key];
+      const m = computeFrameMetrics(groupFrames, pitchFrames);
       // 倍音構成もアタック過渡を除外し、clarity重み付きで平均する(音色系の共通方針)
       const sustained = groupFrames.filter(timbreSustained);
       const harmonicsProfile = Array.from({ length: NUM_HARMONICS }, (_, i) => {
@@ -6773,13 +6888,16 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         semitoneIndex,
         writtenLabel: groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote ?? null,
         frameCount: groupFrames.length,
-        pitchHz: weightedMean(groupFrames, (f) => f.pitchHz),
+        // 表示の一貫性のため、pitchHzも採用フレームの中央値(ピッチ系と同じ土台の値)
+        pitchHz: median(pitchFrames.map((f) => f.pitchHz).filter((v) => v > 0)),
         volumeDb: m.volumeDb,
         centroidHz: m.spectralCentroidHz,
         hnrDb: m.hnrDb,
-        pitchCents: m.pitchCents,                     // 平均ピッチ誤差(絶対値)。音名軸グラフ用
-        pitchCentsSigned: m.pitchCentsSigned, // 符号付きピッチ誤差。最新セッション/個別セッションの音名軸グラフ用
+        pitchCents: m.pitchCents,                     // ピッチ誤差の中央値(絶対値)。音名軸グラフ用
+        pitchCentsSigned: m.pitchCentsSigned, // 符号付きピッチ誤差の中央値。最新セッション/個別セッションの音名軸グラフ用
         pitchStabilityCents: m.pitchStabilityCents,   // ピッチのブレ(stddev)。現在どの画面でも未使用
+        pitchFrameUsed: m.pitchFrameUsed,             // ピッチ集計の透明性(採用/除外の内訳)
+        pitchFrameExcluded: m.pitchFrameExcluded,
         harmonicsProfile,
       };
     })
@@ -7084,8 +7202,9 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const N = table.length;
   const noteLabels = table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz) || "");
 
-  // 系列ごとに音(semitoneIndex)別の平均値を出す(groupFramesByNoteでclarity重み・
-  // アタック除外は共通ロジックに従う)。groupFramesByNoteは重心を"centroidHz"で返すため対応づける。
+  // 系列ごとに音(semitoneIndex)別の代表値を出す(groupFramesByNoteの共通ロジックに従う:
+  // 音量・音色はclarity重み+アタック除外、ピッチはF-44のゲートを通した中央値)。
+  // groupFramesByNoteは重心を"centroidHz"で返すため対応づける。
   const groupKey = metricKey === "spectralCentroidHz" ? "centroidHz" : metricKey;
   let seriesData = series.map((s) => {
     const byIdx = {};
@@ -8780,6 +8899,18 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
+          {/* ピッチ集計の透明性(F-44)。集計が主役のアプリなので「何を捨てた数字か」を1行だけ添える */}
+          {(() => {
+            const used = noteGroups.reduce((n, g) => n + (g.pitchFrameUsed || 0), 0);
+            const excluded = noteGroups.reduce((n, g) => n + (g.pitchFrameExcluded || 0), 0);
+            if (used + excluded === 0) return null;
+            const pct = Math.round((excluded / (used + excluded)) * 100);
+            return (
+              <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10 }}>
+                ピッチは各音の安定区間の中央値（立ち上がり・切り替わりの過渡 {pct}% を除外）
+              </div>
+            );
+          })()}
           {/* 全件を縦に常時表示する(本人指示)。縦スクロールが無いので見出しの sticky は不要。
               横は375px幅ではテーブルの minWidth:480 に対して足りないため overflowX は残す。
               軸ロック(useAxisLockScroll)は「縦横どちらもスクロールする場合の斜め防止」用だったが、
