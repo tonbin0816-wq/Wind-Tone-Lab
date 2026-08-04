@@ -6182,6 +6182,187 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
 }
 
 // ============================================================
+// 検証19: F-45 PIVOTのピッチ集計にF-44/F-46のノイズゲートを適用
+// 合成データで数値を独立に検算する(綴りの有無だけの検査にしない)。
+// buildFramesWithContext(App.jsxのモジュールスコープ関数。AnalysisLabViewはこれを呼ぶだけ)・
+// selectPitchAggregationFrames・buildPivot/PIVOT_MEASURES/PIVOT_DIMENSIONSは
+// すべて実ソースからそのまま抽出して検証する(テスト側の再実装を持たない)。
+// 【審査で発覚した罠】buildFramesWithContextを最初テスト側で手書き再実装していたところ、
+// 実ソースのゲート注入(_pitchGateOk: sel.selected.has(i))を`true`固定に変異させても
+// このテストは何も検知できなかった(再実装側は変異の影響を受けないため)。F-45で
+// buildFramesWithContextをApp.jsxのモジュールスコープ関数に切り出し、ここもextractFunctionで
+// 実体を取るように直した(19.5でこの変異が今度こそ落ちることを確認している)。
+// ============================================================
+console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
+{
+  // 専用サンドボックス(18節のbuildPitchGateApiと同じ方式)。edits([from,to]の配列)で
+  // 抽出済みコード本文を書き換えた変異体を作れる(変異はこの複製文字列上でだけ起き、
+  // 実ソースには触れない)。置換が空振りしたら例外(効かない変異試験を防ぐ)。
+  // PIVOT_DIMENSIONS/PIVOT_MEASURESの他次元・他指標のgetValueはこのテストでは一度も
+  // 呼ばれない(row="note"・metric="pitchCents"/"volume"/"hnr"のみ使用)。それらのgetValueは
+  // 呼ばれるまで評価されないアロー関数の中身なので、reedLabel/registerBand/usageDays等の
+  // 未抽出の依存関数を参照していても問題は起きない(buildFramesWithContextが呼ぶ
+  // reeds.find(...)もreedsを空配列で渡す限り同様に安全)。
+  const buildPivotApi = (edits = []) => {
+    let pieces = [
+      extractFunction("mean"),
+      extractFunction("median"),
+      extractFunction("stddev"),
+      extractFunction("frameWeight"),
+      extractFunction("timbreSustained"),
+      extractFunction("weightedMean"),
+      extractConst("TIMBRE_SUSTAIN_MS"),
+      extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"),
+      extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"),
+      extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"),
+      extractFunction("computeFrameMetrics"),
+      extractFunction("groupFramesByNote"),
+      extractFunction("buildFramesWithContext"),
+      extractFunction("pitchCellColor"),
+      extractConst("PIVOT_DIMENSIONS"),
+      extractConst("PIVOT_MEASURES"),
+      extractFunction("buildPivot"),
+    ].join("\n\n");
+    for (const [from, to] of edits) {
+      const before = pieces;
+      pieces = pieces.replace(from, to);
+      if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
+    }
+    return new Function(`${pieces}
+      return { selectPitchAggregationFrames, groupFramesByNote, buildFramesWithContext,
+               buildPivot, PIVOT_MEASURES, PIVOT_DIMENSIONS };`)();
+  };
+  const api = buildPivotApi();
+
+  const HOP = 0.025;
+  const hzOf = (si) => 440 * Math.pow(2, (si - 9) / 12);
+  const pf = (t, si, dev, note) => ({
+    t, semitoneIndex: si,
+    pitchHz: hzOf(si) * Math.pow(2, dev / 1200),
+    pitchCents: dev,
+    matchedWrittenNote: note,
+    clarity: 1, volumeDb: -20, noteAgeMs: 1000, hnrDb: 20, spectralCentroidHz: 1000, harmonics: [],
+  });
+  const noteFrames = (t0, count, si, dev, note) =>
+    Array.from({ length: count }, (_, k) => pf(t0 + k * HOP, si, dev, note));
+  const near = (a, b, eps = 1e-9) => a !== null && a !== undefined && Math.abs(a - b) <= eps;
+
+  // 合成セッション(検証18.4と同じトリム配置。devだけ非対称にする):
+  // 安定音P(si=10,+2¢,"C4",16フレーム=375ms) → 短いオクターブ誤検出ランR
+  // (si=22,+5¢,"C5",3フレーム=75ms≤120ms) → 安定音N(si=10,-6¢,"C4",21フレーム=500ms)。
+  // P/Nのdevをあえて非対称(+2 / -6)にして、C4セルが「トリムで生き残ったフレーム数の
+  // 重み付き」平均であることまで検算する(一様データでは代表値の検査が何も固定しない、
+  // というF-44/F-46の教訓の再適用)。
+  // 手計算: P dur=0.375,e=min(0.12,0.125)=0.12→採用6(t∈[0.12,0.255])。
+  // N dur=0.5,e=0.12→採用11(t∈[0.595,0.855])。Rは前後(P,N)が安定区間・音程差8¢(≤200¢)で
+  // 一致・ジャンプ|1305-102|=1203¢(オクターブ1200¢±150許容)を満たすため丸ごと除外される。
+  const P = noteFrames(0, 16, 10, 2, "C4");
+  const R = noteFrames(0.4, 3, 22, 5, "C5");
+  const N = noteFrames(0.475, 21, 10, -6, "C4");
+  const sessionFrames = [...P, ...R, ...N];
+  // buildFramesWithContext(sessions, reeds) はセッション"オブジェクト"の配列を取る
+  // (App.jsx AnalysisLabViewが渡す形と同じ。reedIdはnull=未紐付けでreeds探索を空振りさせる)。
+  const sessionObj = {
+    frames: sessionFrames, reedId: null, recordedAt: "2026-08-04T00:00:00.000Z",
+    performer: "自分", saxType: "alto", source: "recording", memo: "",
+  };
+  const fwc = api.buildFramesWithContext([sessionObj], []);
+  const ctx = { reeds: [] };
+
+  // --- 19.1 ゲート適用の確認 -----------------------------------------------------
+  {
+    const pivot = api.buildPivot(fwc, ctx, "note", "none", "pitchCents", []);
+    const expectedC4 = (6 * 2 + 11 * -6) / 17; // = -54/17 ≈ -3.176470588235294
+    const cellC4 = pivot.cells["C4"]?.["全体"];
+    check("19.1 C4セル(ラン除外後)は手計算の加重平均(-3.176…)と一致",
+      !!cellC4 && near(cellC4.wsum / cellC4.wtotal, expectedC4, 1e-9),
+      `value=${cellC4 ? cellC4.wsum / cellC4.wtotal : "なし"} expect=${expectedC4}`);
+    check("19.1 短いオクターブ誤検出ラン(C5)はセルごと消える(groupFramesByNoteの「―」と同じ扱い)",
+      pivot.rowKeys.includes("C5") === false, `rowKeys=${pivot.rowKeys.join(",")}`);
+    // 「ランを含めた場合の値」を生データで独立に手計算(F-45以前の挙動相当)し、
+    // ゲート後の結果(セルが存在しない)と異なることを確認する
+    const rawC5Avg = R.reduce((s, f) => s + f.pitchCents, 0) / R.length; // = +5.0
+    check("19.1 ランを含めた場合の値(+5.0¢)はゲート後の結果(セル無し)と異なる",
+      near(rawC5Avg, 5, 1e-9) && !pivot.cells["C5"]);
+  }
+
+  // --- 19.2 整合性の確認: PIVOTと音階ごとの平均(groupFramesByNote)が同じ値を返す ----
+  {
+    const pivot = api.buildPivot(fwc, ctx, "note", "none", "pitchCents", []);
+    const cellC4 = pivot.cells["C4"]["全体"];
+    const pivotVal = cellC4.wsum / cellC4.wtotal;
+    const groups = api.groupFramesByNote(sessionFrames);
+    const g10 = groups.find((g) => g.semitoneIndex === 10);
+    check("19.2 PIVOTのC4セルとgroupFramesByNote(si=10)のpitchCentsSignedが一致",
+      near(pivotVal, g10?.pitchCentsSigned, 1e-9),
+      `pivot=${pivotVal} group=${g10?.pitchCentsSigned}`);
+    const g22 = groups.find((g) => g.semitoneIndex === 22);
+    check("19.2 誤検出ラン側もgroupFramesByNoteと同じくnull(2つの経路が同じゲートを共有)",
+      g22?.pitchCentsSigned === null, `group22=${g22?.pitchCentsSigned}`);
+  }
+
+  // --- 19.3 他measure(volume/hnr)は無変更(ゲートを通らず従来どおり全フレームで集計) ---
+  {
+    const pivotVol = api.buildPivot(fwc, ctx, "note", "none", "volume", []);
+    const cellVolC5 = pivotVol.cells["C5"]?.["全体"];
+    check("19.3 volume: 誤検出ラン(C5)もゲートされず3フレームとも残る",
+      !!cellVolC5 && near(cellVolC5.wtotal, 3, 1e-9) && near(cellVolC5.wsum / cellVolC5.wtotal, -20, 1e-9),
+      cellVolC5 ? `wtotal=${cellVolC5.wtotal}` : "セルなし");
+    const cellVolC4 = pivotVol.cells["C4"]["全体"];
+    check("19.3 volume: C4セルはP+N全37フレーム(ピッチのトリムを受けない)",
+      near(cellVolC4.wtotal, 37, 1e-9), `wtotal=${cellVolC4.wtotal}`);
+
+    const pivotHnr = api.buildPivot(fwc, ctx, "note", "none", "hnr", []);
+    const cellHnrC5 = pivotHnr.cells["C5"]?.["全体"];
+    check("19.3 hnr: 誤検出ラン(C5)もゲートされず3フレームとも残る",
+      !!cellHnrC5 && near(cellHnrC5.wtotal, 3, 1e-9) && near(cellHnrC5.wsum / cellHnrC5.wtotal, 20, 1e-9),
+      cellHnrC5 ? `wtotal=${cellHnrC5.wtotal}` : "セルなし");
+  }
+
+  // --- 19.4 変異試験(検査自体に組み込む。変異は複製したコード文字列にだけ当てる) ---
+  // getValueのゲート判定(f._pitchGateOk ? f.pitchCents : null)を外すと、19.1で
+  // 消えるはずの誤検出ラン(C5)がセルに残ってしまう=19.1はゲートを本当に検査している。
+  {
+    const mutApi = buildPivotApi([
+      ['getValue: (f) => (f._pitchGateOk ? f.pitchCents : null)', 'getValue: (f) => f.pitchCents'],
+    ]);
+    const pivotMut = mutApi.buildPivot(fwc, ctx, "note", "none", "pitchCents", []);
+    const cellMutC5 = pivotMut.cells["C5"]?.["全体"];
+    check("19.4x 変異(getValueのゲート判定を外す)では誤検出ラン(C5)がセルに残り19.1が落ちる",
+      pivotMut.rowKeys.includes("C5") && !!cellMutC5 && near(cellMutC5.wsum / cellMutC5.wtotal, 5, 1e-9),
+      `rowKeys=${pivotMut.rowKeys.join(",")}`);
+  }
+
+  // --- 19.5 変異試験: buildFramesWithContext自体のゲート注入を無効化すると19.1が落ちる ---
+  // 【審査指摘への直接対応】buildFramesWithContextを実ソースからextractFunctionで抽出する
+  // ようにしたことで、App.jsx側の "_pitchGateOk: sel.selected.has(i)," を
+  // "_pitchGateOk: true," に変異(=ゲートを丸ごと無効化)させると、今度こそ19.1相当の
+  // 主張が落ちることを確認する(この変異が検知できないことこそが審査で指摘された欠陥だった)。
+  {
+    const mutApi = buildPivotApi([
+      ["_pitchGateOk: sel.selected.has(i),", "_pitchGateOk: true, // MUTATION"],
+    ]);
+    const fwcMut = mutApi.buildFramesWithContext([sessionObj], []);
+    const pivotMut = mutApi.buildPivot(fwcMut, ctx, "note", "none", "pitchCents", []);
+    const cellMutC5 = pivotMut.cells["C5"]?.["全体"];
+    check("19.5x 変異(_pitchGateOkを常にtrueにする)では誤検出ラン(C5)がセルに残り19.1が落ちる",
+      pivotMut.rowKeys.includes("C5") && !!cellMutC5 && near(cellMutC5.wsum / cellMutC5.wtotal, 5, 1e-9),
+      `rowKeys=${pivotMut.rowKeys.join(",")}`);
+    const cellMutC4 = pivotMut.cells["C4"]["全体"];
+    const expectedC4 = (6 * 2 + 11 * -6) / 17; // 19.1のトリム後の期待値
+    check("19.5x 変異(_pitchGateOkを常にtrueにする)ではC4セルもトリム前の値に汚染され19.1の期待値と食い違う",
+      !near(cellMutC4.wsum / cellMutC4.wtotal, expectedC4, 0.05),
+      `mutant=${cellMutC4.wsum / cellMutC4.wtotal} expect(gate後)=${expectedC4}`);
+  }
+
+  console.log("  -> done");
+}
+
+// ============================================================
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

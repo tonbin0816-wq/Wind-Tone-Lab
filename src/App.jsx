@@ -6905,6 +6905,28 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
     .sort((a, b) => b.semitoneIndex - a.semitoneIndex); // 音が高い順(半音インデックスが大きいほど高音)
 }
 
+// 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
+// (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)。分析タブのクロス集計
+// (PIVOT)が使う入力を組み立てる純関数。React hooks/JSXに依存しないモジュールスコープの関数として
+// 切り出してある(AnalysisLabViewのローカル定義のままだと、抽出型のテストハーネス
+// (scripts/pitch-test.mjs)がJSXの外に出せず検証できないため。F-45の審査で指摘)。
+// 【F-45】ピッチ集計にF-44/F-46と同じ入口ゲート(selectPitchAggregationFrames)を通すため、
+// セッションごとに(=groupFramesByNoteと同じ時系列の粒度で)選別し、通過フレームに
+// _pitchGateOk を立てる。複数セッションを連結してから1回で掛けると区間の文脈(前後の安定区間・
+// tの連続性)が壊れるため、必ずセッション単位で個別に呼ぶ(F-44の罠1と同じ)。
+function buildFramesWithContext(sessions, reeds) {
+  return sessions.flatMap((s) => {
+    const reed = reeds.find((r) => r.id === s.reedId) || null;
+    const frames = s.frames || [];
+    const sel = selectPitchAggregationFrames(frames);
+    return frames.map((f, i) => ({
+      ...f, reedId: s.reedId, reed, recordedAt: s.recordedAt,
+      performer: s.performer, saxType: s.saxType, source: s.source, memo: s.memo,
+      _pitchGateOk: sel.selected.has(i),
+    }));
+  });
+}
+
 // 理想値プロファイルのnotesマップから、指定した音(semitoneIndex)の理想値を取り出す。
 // 該当する音がまだ理想値に登録されていない場合はnull(比較の対象外として扱う)。
 function getNoteIdeal(profile, semitoneIndex) {
@@ -7787,8 +7809,10 @@ function harmonicSliceMean(f, lo, hi) {
 // 音色系(倍音・HNR・重心)はアタック過渡フレームを集計から除外する(timbreSustained。
 // セッション詳細・My Dataの平均と同じ方針で、ビューによって値が食い違わないようにする)
 const PIVOT_MEASURES = [
-  // ラベルは【F-46 本人指示】で「ピッチ誤差」に統一。データ側(生フレームの平均)はF-45のスコープで今回触らない
-  { key: "pitchCents", label: "ピッチ誤差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
+  // 【F-45】ラベルに続きデータ側もF-44/F-46と同じゲート(_pitchGateOk。framesWithContextで
+  // セッション単位にselectPitchAggregationFramesを通して付与)を通す。ゲート非通過フレームは
+  // nullを返し、buildPivotの「値がnullなら集計から除外」に乗せる(buildPivot自体は無変更)。
+  { key: "pitchCents", label: "ピッチ誤差(¢)", getValue: (f) => (f._pitchGateOk ? f.pitchCents : null), fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
   { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
   { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 0, 4) : null), fmt: (v) => (v * 100).toFixed(0) },
@@ -8318,15 +8342,10 @@ function AnalysisLabView(props) {
   const [selectedForDelete, setSelectedForDelete] = useState(() => new Set());
   const [bulkReedId, setBulkReedId] = useState(""); // 選択セッションにまとめて紐付けるリード
 
-  // 全セッションのフレームを、セッション情報(リード・録音日時・奏者・種別・メモ)つきで平坦化する
-  // (semitoneIndexはフレーム自体が保持: 企画書11.7節の記録拡張を実施済み)
-  const framesWithContext = sessions.flatMap((s) => {
-    const reed = reeds.find((r) => r.id === s.reedId) || null;
-    return (s.frames || []).map((f) => ({
-      ...f, reedId: s.reedId, reed, recordedAt: s.recordedAt,
-      performer: s.performer, saxType: s.saxType, source: s.source, memo: s.memo,
-    }));
-  });
+  // 全セッションのフレームを、セッション情報つきで平坦化(F-44/F-46ゲート込み)。
+  // モジュールスコープの純関数buildFramesWithContextに切り出し済み(テストハーネスから
+  // extractFunctionで直接検証できるようにするため。F-45の審査で指摘)。
+  const framesWithContext = buildFramesWithContext(sessions, reeds);
 
   // --- ピボット集計 ---
   const pivotCtx = { reeds };
@@ -8821,15 +8840,22 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       {/* 1. セッション情報 */}
       <div className="card" style={{ marginBottom: 10 }}>
         {/* 日付と「理想値に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
-            日付を左、SetAsIdealButton を右に置く。 */}
+            日付を左、SetAsIdealButton を右に置く。
+            【2026-08-04 本人指摘】日付欄だけ太字で、下段の奏者・リードと体裁が揃っていなかった。
+            fontWeight:700 を撤去し、下段と同じ「ラベル: 値」の体裁(薄いラベル+標準太さの値)に揃える。
+            ラベル追加ぶん、入力欄の幅を予算(行の空き313px弱からボタン107.9px+gap8pxを引いた
+            約197px)に収まるよう詰める(F-39の教訓: 幅を先に確保してから足す)。 */}
         <div style={{ marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <input
-            type="datetime-local"
-            value={recordedAtLocal}
-            onChange={(e) => setSessionRecordedAt(e.target.value)}
-            className="sans"
-            style={{ padding: "4px 8px", fontSize: 13, fontWeight: 700, boxSizing: "border-box", width: 190, flexShrink: 0 }}
-          />
+          <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+            <span className="sans" style={{ fontSize: 12, color: "#435266", flexShrink: 0 }}>日付:</span>
+            <input
+              type="datetime-local"
+              value={recordedAtLocal}
+              onChange={(e) => setSessionRecordedAt(e.target.value)}
+              className="sans"
+              style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 158, flexShrink: 0 }}
+            />
+          </span>
           <SetAsIdealButton frames={frames} saxType={session.saxType} onSave={promoteSessionToIdeal} />
         </div>
         {/* 日付の下段に奏者・リード・楽器種別を横一列で並べる(1行に収める。はみ出す分は横スクロール) */}
