@@ -3,9 +3,12 @@
   --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
              "Hiragino Kaku Gothic ProN", "BIZ UDPGothic",
              "Noto Sans JP", sans-serif;
-  /* 数値・英字: Space Grotesk */
-  --font-num: "Space Grotesk", var(--font-jp);
-  /* 音名・リード番号: Instrument Serif */
+  /* 数値・英字: システムフォント(iPhone本番ではSF Pro)。本人選定(F-43・2026-08-04、
+     比較ページの候補2)。以前のSpace Groteskは癖の強い幾何学系で「いびつ」との本人評、
+     かつwebfontなので読み込み遅延もあった。システムフォントは取得ゼロ・OSと同じ端正さ。
+     等幅数字(tabular-nums)はbody側で全体に適用する(下の宣言を見ること)。 */
+  --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* 音名・リード番号: Instrument Serif(本人選定で継続。読み込みはindex.htmlのlinkが担う) */
   --font-serif: "Instrument Serif", serif;
 
   /* サイズスケール(px): 9〜10.5pxの細かい刻みを廃止し、この7段に統一する */
@@ -138,6 +141,10 @@ body {
   font-family: var(--font-jp);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 等幅数字(F-43・本人選定の候補2)。計測アプリなので、値が変わっても数字の幅が
+     揺れない(桁が縦に揃う)ことを全体の既定にする。数字のグリフ選択だけに効き、
+     和文や英字の字形・字間には影響しない。SVGの<text>にも継承される。 */
+  font-variant-numeric: tabular-nums;
 }
 
 /* 録音中インジケータの点滅。App.jsx が animation:pulse を参照していたが

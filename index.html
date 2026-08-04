@@ -15,6 +15,13 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Ficus" />
+    <!-- 音名の主役書体(Instrument Serif)。以前は App.jsx 内 <style> の @import で読み込んでいたが、
+         それだと JS バンドル評価後に取得が始まり、初回表示で音名が一瞬別書体になる(FOUT)。
+         ここ(HTML)に置くと HTML パース時点で取得が始まり、最初の描画に間に合いやすい(F-43)。
+         数字・英字はシステムフォント(SF Pro)なのでネットワーク取得はこの1書体だけ。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
     <title>Ficus - サックス練習支援アプリ</title>
   </head>
   <body>

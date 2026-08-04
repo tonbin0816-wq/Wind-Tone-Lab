@@ -5017,8 +5017,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /key: "pitchCentsSigned"/.test(myData));
     check("MY_DATA_METRICS に非負のブレ幅(pitchStabilityCents)はもう使われていない",
       !/key: "pitchStabilityCents"/.test(myData));
-    check("符号付きピッチ誤差は REED_COMPARE_METRICS(リード別比較・登録済みリード)には無い(あちらは絶対値のまま)",
-      !/key: "pitchCentsSigned"/.test(extractConst("REED_COMPARE_METRICS")));
+    // 【2026-08-04 F-46 本人指示で仕様変更】以前は「リード比較系だけ絶対値のまま」だったが、
+    // 本人自身が上書きし、リード比較タブ・リード個別ページも符号付きに統一された。
+    const reedCompare = extractConst("REED_COMPARE_METRICS");
+    check("REED_COMPARE_METRICS のピッチも符号付き(pitchCentsSigned)に統一(F-46)",
+      /key: "pitchCentsSigned"/.test(reedCompare) && !/key: "pitchCents",/.test(reedCompare));
+    check("REED_COMPARE_METRICS のピッチのラベルは「ピッチ誤差」・fmtは符号付き",
+      /label: "ピッチ誤差", unit: "¢", fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(reedCompare));
+    check("旧SESSION_METRICS(符号付き差し替え版)は廃止され、配列は1つに統合されている(F-46)",
+      !/SESSION_METRICS/.test(codeOf(src)));
+    check("リード比較タブのグラフのピッチも符号付きキーを使う(F-46)",
+      /\["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"\]/.test(src));
     check("NoteAxisLineChart は metricKey===\"pitchCentsSigned\" で分岐する",
       /metricKey === "pitchCentsSigned"/.test(chart));
     check("符号付きピッチ誤差は縦軸ドメインを ±maxAbs の対称にする(lo = -hi)", /lo = -hi;/.test(chart));
@@ -5039,6 +5048,18 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /const tickTexts = tickVals\.map\(\(v\) => fmt\(v\)\);/.test(chart));
     check("符号付き指標の fmt は正の値に \"+\" を前置する(0を挟んだ向きが読める)",
       /fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(myData));
+  }
+
+  // --- 6.7b ピッチ指標の表記ゆれ禁止(F-46 本人指示) ---------------------------
+  // 「平均ピッチ誤差」「ピッチの安定度」「ピッチ誤差(絶対値)」「平均ピッチ偏差」の
+  // 4表記は全て「ピッチ誤差」に統一された。動く側(コメント除去後)のソースに
+  // 旧表記が1つも現れないことを固定する(経緯はコメントに書き残してよい)。
+  {
+    const liveSrc = codeOf(src);
+    for (const old of ["平均ピッチ誤差", "ピッチの安定度", "ピッチ誤差(絶対値)", "平均ピッチ偏差"]) {
+      check(`旧表記「${old}」が動く側のソースに残っていない(表示は「ピッチ誤差」に統一)`,
+        !liveSrc.includes(old));
+    }
   }
 
   // --- 6.8 データタブ最上部のヒーロー「今日のピッチ誤差」は符号付き ------------
@@ -5886,27 +5907,28 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
     Array.from({ length: count }, (_, k) => pf(t0 + k * HOP, si, devFn(t0 + k * HOP, k)));
   const near = (a, b, eps = 1e-9) => a !== null && a !== undefined && Math.abs(a - b) <= eps;
 
-  // --- 18.1 アタックのしゃくり: 冒頭120msのランプが中央値に混入しない -----------
+  // --- 18.1 アタックのしゃくり: 冒頭120msのランプが集計に混入しない --------------
   // 1000ms(41フレーム)の+2¢安定音。冒頭のt<0.12(5フレーム)は-40→-10¢のランプ。
   // 手計算: dur=1.000, e=min(0.12, dur/3)=0.12 → 採用は t∈[0.12,0.88] の31フレーム(全部+2)。
   // 除外は 冒頭5(ランプ) + 末尾5(t=0.90〜1.00) = 10。
+  // 【F-46】代表値はゲート通過フレームのclarity加重平均(中央値は本人指示で廃止)。
   {
     const frames = noteFrames(0, 41, 10, (t) => (t < 0.12 ? -40 + (t / 0.12) * 30 : 2));
     const m = gate.computeFrameMetrics(frames);
-    check("18.1 中央値は安定区間の+2.0¢(しゃくりが混入しない)", near(m.pitchCentsSigned, 2));
-    check("18.1 絶対値の中央値も2.0¢", near(m.pitchCents, 2));
+    check("18.1 ピッチ誤差は安定区間の加重平均+2.0¢(しゃくりが混入しない)", near(m.pitchCentsSigned, 2));
+    check("18.1 絶対値版(旧pitchCents)は廃止されている(F-46)", m.pitchCents === undefined);
     check("18.1 採用フレームは全て+2¢なのでブレ(stddev)は0", near(m.pitchStabilityCents, 0));
     check("18.1 除外数は手計算どおり(冒頭5+末尾5=10 / total 41)",
       m.pitchFrameTotal === 41 && m.pitchFrameUsed === 31 && m.pitchFrameExcluded === 10,
       `total=${m.pitchFrameTotal} used=${m.pitchFrameUsed} excluded=${m.pitchFrameExcluded}`);
-    // 従来仕様(clarity加重平均=clarity1なら算術平均)を独立に計算し、汚染値と異なることを確認
+    // ゲート無しの全フレーム平均(clarity1なら算術平均)を独立に計算し、汚染値と異なることを確認
     const contaminated = frames.reduce((s, f) => s + f.pitchCents, 0) / frames.length;
-    check("18.1 従来の加重平均は汚染されている(その値と中央値が異なる)",
+    check("18.1 ゲート無しの全フレーム平均は汚染されている(ゲート後の平均と異なる)",
       Math.abs(contaminated - 2) > 0.5 && Math.abs(m.pitchCentsSigned - contaminated) > 0.5,
-      `汚染平均=${contaminated.toFixed(2)}¢ 中央値=${m.pitchCentsSigned}¢`);
+      `汚染平均=${contaminated.toFixed(2)}¢ ゲート後=${m.pitchCentsSigned}¢`);
   }
 
-  // --- 18.2 スラー過渡: 音替わり境界±60msのランプが両音の中央値に混入しない -------
+  // --- 18.2 スラー過渡: 音替わり境界±60msのランプが両音の平均に混入しない ---------
   // A(+2¢, si=10, t=0〜0.475)の末尾3フレームは+10/+20/+30、
   // B(-3¢, si=12, t=0.5〜0.975)の先頭3フレームは-45/-25/-10(noteAgeMsはスラーでは
   // リセットされない想定なので全フレーム1000のまま=音量ベースの除外は効かない状況)。
@@ -5920,8 +5942,8 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
     const groups = gate.groupFramesByNote(frames);
     const gA = groups.find((g) => g.semitoneIndex === 10);
     const gB = groups.find((g) => g.semitoneIndex === 12);
-    check("18.2 音Aの中央値は+2.0¢(スラーの過渡が混入しない)", near(gA?.pitchCentsSigned, 2));
-    check("18.2 音Bの中央値は-3.0¢(スラーの過渡が混入しない)", near(gB?.pitchCentsSigned, -3));
+    check("18.2 音Aの平均は+2.0¢(スラーの過渡が混入しない)", near(gA?.pitchCentsSigned, 2));
+    check("18.2 音Bの平均は-3.0¢(スラーの過渡が混入しない)", near(gB?.pitchCentsSigned, -3));
     check("18.2 両音とも除外(excluded)がある",
       gA?.pitchFrameExcluded > 0 && gB?.pitchFrameExcluded > 0,
       `A=${gA?.pitchFrameExcluded} B=${gB?.pitchFrameExcluded}`);
@@ -5963,10 +5985,10 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
     const gFlip = groups.find((g) => g.semitoneIndex === 22);
     const gMain = groups.find((g) => g.semitoneIndex === 10);
     check("18.4 +12側のグループのピッチ系はnull(ランごと除外)",
-      gFlip && gFlip.pitchCentsSigned === null && gFlip.pitchCents === null &&
+      gFlip && gFlip.pitchCentsSigned === null &&
       gFlip.pitchHz === null && gFlip.pitchFrameUsed === 0 && gFlip.pitchFrameExcluded === 3,
       gFlip ? `used=${gFlip.pitchFrameUsed} val=${gFlip.pitchCentsSigned}` : "groupなし");
-    check("18.4 実音側の中央値は0¢のまま", near(gMain?.pitchCentsSigned, 0));
+    check("18.4 実音側の平均は0¢のまま", near(gMain?.pitchCentsSigned, 0));
     // 全体の内訳を手計算と突き合わせる: total=16+3+21+1=41。
     // P: dur=0.375, e=0.12 → t∈[0.12,0.255]の6フレーム。N: dur=0.5, e=0.12 →
     // t∈[0.595,0.855]の11フレーム。used=17, excluded=24(フリップ3+si=null 1を含む)。
@@ -5991,7 +6013,7 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
     check("18.5 実奏のオクターブ跳躍は除外されない(ピッチ+4.0¢が残る)",
       near(gJump?.pitchCentsSigned, 4) && gJump?.pitchFrameUsed === 4,
       `used=${gJump?.pitchFrameUsed} val=${gJump?.pitchCentsSigned}`);
-    check("18.5 跳躍先のpitchHzも非null(中央値)", gJump?.pitchHz > 0, String(gJump?.pitchHz));
+    check("18.5 跳躍先のpitchHzも非null(採用フレームの加重平均)", gJump?.pitchHz > 0, String(gJump?.pitchHz));
   }
 
   // --- 18.6 セッション連結境界(tの逆行)で区間が跨がらない ------------------------
@@ -6061,36 +6083,40 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
     const sdvStart = src.indexOf("function SessionDetailView(");
     const sdv = sdvStart === -1 ? "" : src.slice(sdvStart, sdvStart + 20000);
     check("18.9 音階ごとの平均の直下に除外率の1行がある",
-      /ピッチは各音の安定区間の中央値（立ち上がり・切り替わりの過渡 \{pct\}% を除外）/.test(sdv));
+      /ピッチは各音の安定区間の平均（立ち上がり・切り替わりの過渡 \{pct\}% を除外）/.test(sdv));
     check("18.9 除外率は全グループ合計から計算し、合計0なら行ごと出さない",
       /if \(used \+ excluded === 0\) return null;/.test(sdv) &&
       /Math\.round\(\(excluded \/ \(used \+ excluded\)\) \* 100\)/.test(sdv));
   }
-  // --- 18.10 代表値は中央値であること(平均では落ちる) ---------------------------
-  // 審査役の変異試験(2026-08-04)で median→mean の変異が生き残った。18.1〜18.6は採用
-  // フレームの値が一様(中央値=平均)で、中央値であること自体を固定していなかった。
-  // トリム帯の内側に単発の+30¢(±700¢未満なのでsanitizePitchOutliersでも消えない)を
-  // 置き、中央値なら+2.0¢のまま・平均なら約+2.9¢に汚染される非対称な列で固定する。
+  // --- 18.10 代表値は「採用フレームのclarity加重平均」であること(F-46 本人指示) ----
+  // F-44では中央値を固定していたが、F-46で本人が「平均値に統一」と指示し反転した。
+  // 18.1〜18.6は採用フレームの値が一様(中央値=平均)なので、ここだけ非対称な列
+  // (+2が30個 / +30が1個、外れ値だけclarity 0.8)を使い、
+  //   加重平均 = (30*1*2 + 0.8*30) / (30*1 + 0.8) = 84/30.8 ≈ +2.727¢
+  // をテスト側で独立に手計算して固定する。中央値(+2.0)とも算術平均(90/31≈+2.903)とも
+  // 異なる値になるため、中央値に戻す変異・clarity重みを落とす変異の両方が落ちる。
   {
     // 41フレーム(t=0〜1.0)。採用帯はt∈[0.12,0.88]の31フレーム(18.1と同じ)。
-    // その内側のt=0.5(k=20)だけ+30¢ → 採用31個の内訳は「+2が30個 / +30が1個」。
-    const frames = noteFrames(0, 41, 10, (t, k) => (k === 20 ? 30 : 2));
+    // その内側のt=0.5(k=20)だけ+30¢・clarity0.8(±700¢未満なのでsanitizeでも消えない)。
+    const frames = noteFrames(0, 41, 10, () => 2);
+    frames[20] = { ...frames[20], pitchCents: 30, clarity: 0.8 };
     const m = gate.computeFrameMetrics(frames);
-    // 独立に手計算した期待値: 中央値=+2(31個中16番目) / 採用フレームの平均=(30*2+30)/31
-    const adoptedMean = (30 * 2 + 30) / 31; // ≈2.903(clarity=1なので加重平均=算術平均)
-    check("18.10 採用帯の内側の単発外れ値に中央値は動じない(+2.0¢)",
-      near(m.pitchCentsSigned, 2) && near(m.pitchCents, 2),
-      `signed=${m.pitchCentsSigned} abs=${m.pitchCents}`);
-    check("18.10 同じ採用フレームの平均(約+2.9¢)とは異なる=代表値は平均ではない",
-      Math.abs(m.pitchCentsSigned - adoptedMean) > 0.5, `mean=${adoptedMean.toFixed(3)}`);
-    // 変異: median→mean に差し替えると平均値そのものになり、上の2検査が落ちる
-    const mutMean = buildPitchGateApi({}, [
-      ["pitchCents: median(signed.map((v) => Math.abs(v))),", "pitchCents: mean(signed.map((v) => Math.abs(v))),"],
-      ["pitchCentsSigned: median(signed),", "pitchCentsSigned: mean(signed),"],
+    const expectedWeighted = (30 * 1 * 2 + 0.8 * 30) / (30 * 1 + 0.8); // ≈2.727
+    const adoptedMedian = 2;             // 31個中16番目
+    const arithmeticMean = (30 * 2 + 30) / 31; // ≈2.903(clarity無視の平均)
+    check("18.10 代表値は採用フレームのclarity加重平均(手計算+2.727¢と一致)",
+      near(m.pitchCentsSigned, expectedWeighted, 1e-9), `signed=${m.pitchCentsSigned}`);
+    check("18.10 中央値(+2.0)とは異なる=代表値は中央値ではない(F-46)",
+      Math.abs(m.pitchCentsSigned - adoptedMedian) > 0.5);
+    check("18.10 clarity無視の算術平均(+2.903)とも異なる=重み付けが効いている",
+      Math.abs(m.pitchCentsSigned - arithmeticMean) > 0.1);
+    // 変異: 加重平均→中央値(F-44仕様)に戻すと+2.0になり、上の検査が落ちる
+    const mutMedian = buildPitchGateApi({}, [
+      ["pitchCentsSigned: weightedMean(pitchFrames, (f) => f.pitchCents),", "pitchCentsSigned: median(signed),"],
     ]);
-    const mm = mutMean.computeFrameMetrics(frames);
-    check("18.10x 変異(median→mean)では代表値が平均値になり18.10が落ちる",
-      near(mm.pitchCentsSigned, adoptedMean, 1e-9) && !near(mm.pitchCentsSigned, 2, 0.5),
+    const mm = mutMedian.computeFrameMetrics(frames);
+    check("18.10x 変異(加重平均→中央値)では+2.0になり18.10が落ちる",
+      near(mm.pitchCentsSigned, adoptedMedian, 1e-9) && !near(mm.pitchCentsSigned, expectedWeighted, 0.5),
       `mutant=${mm.pitchCentsSigned}`);
   }
 

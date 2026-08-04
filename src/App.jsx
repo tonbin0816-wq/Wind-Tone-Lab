@@ -3027,12 +3027,13 @@ export default function WindToneLabPhaseMode() {
   return (
     <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) var(--page-bottom-gap) calc(14px + env(safe-area-inset-left))", boxSizing: "border-box" }}>
       <style>{`
-        @import url('https://cdnjs.cloudflare.com/ajax/libs/JetBrains-Mono/2.304/web/JetBrainsMono.css');
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap');
-        /* 音名/リード番号の表示にInstrument Serif、数値表示にSpace Grotesk、和文本文は
-           OS標準のヒラギノ優先スタック(--font-jp)。Noto Sans JPはヒラギノの無い端末向けの
-           フォールバックとしてのみ読み込む(index.cssの:root変数を参照)。 */
-        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@600;700&display=swap');
+        /* 【F-43・2026-08-04】webfontの@importをここから撤去した。
+           - JetBrains Mono: 参照0件の死蔵だった(P2-1)
+           - Noto Sans JP: 本番のiPhoneでは --font-jp 先頭のヒラギノが必ず当たり1グリフも使われない
+           - Space Grotesk: 本人選定により数字・英字はシステムフォント(SF Pro)+tabular-numsへ移行
+           - Instrument Serif(音名の主役書体・本人選定で継続): JSバンドル評価後に読み込みが始まる
+             @import だと初回表示で音名がFOUTするため、index.html の preconnect+link に移した。
+           ここに@importを書き戻さないこと。 */
         * { box-sizing: border-box; }
         .sans { font-family: var(--font-jp); }
         button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
@@ -6824,9 +6825,11 @@ function computeFrameMetrics(frames, pitchSelection = null) {
   // 音量・音色は従来どおりclarity重み付き(weightedMean)。音色系(HNR・重心)はさらに
   // アタック過渡フレームを除外(timbreSustained)して定常状態だけを平均する。
   const sustained = frames.filter(timbreSustained);
-  // ピッチ系3値だけはF-44のゲート(過渡トリム・オクターブ誤検出ラン除外)を通し、
-  // 代表値を中央値にする(残った外れ値への頑健性。加重平均はclarityが減衰するだけで
-  // 外れ値を除外しない)。
+  // ピッチはF-44のゲート(過渡トリム・オクターブ誤検出ラン除外)を通過したフレームだけの
+  // clarity加重平均。【2026-08-04 F-46 本人指示】「代表値に中央値採用はやめて平均値に統一。
+  // ±をふまえた符号付きの平均」— 中央値(F-44)をやめてF-44以前と同じ加重平均に戻した。
+  // F-44以前との違いは「採用フレーム=ゲート通過分のみ」という母集団だけ。
+  // 絶対値版(旧pitchCents)は全画面が符号付きに統一されたため廃止(死にフィールドを残さない)。
   const pitchFrames = pitchSelection ?? (() => {
     const sel = selectPitchAggregationFrames(frames);
     return frames.filter((_, i) => sel.selected.has(i));
@@ -6838,10 +6841,9 @@ function computeFrameMetrics(frames, pitchSelection = null) {
     hnrDb: weightedMean(sustained, (f) => f.hnrDb),
     spectralCentroidHz: weightedMean(sustained, (f) => f.spectralCentroidHz),
     volumeDb: weightedMean(frames, (f) => f.volumeDb),
-    pitchCents: median(signed.map((v) => Math.abs(v))),
-    pitchCentsSigned: median(signed),
-    // ピッチのブレ: 採用フレームの符号つきpitchCentsの標準偏差。平均絶対誤差(pitchCents)が
-    // 「中心からどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す。
+    pitchCentsSigned: weightedMean(pitchFrames, (f) => f.pitchCents),
+    // ピッチのブレ: 採用フレームの符号つきpitchCentsの標準偏差。ピッチ誤差(pitchCentsSigned)が
+    // 「中心からどちらへどれだけズレているか」を表すのに対し、こちらは「値がどれだけ揺れ動くか」を表す。
     // 【2026-08-04】以前は My Data のカードがこれを「ピッチの安定度」として表示していたが、
     // 本人指示で符号つきの平均ズレ(pitchCentsSigned)に置き換わったため、**現在この値を
     // 表示している画面は無い**(算出だけ残してある)。使うときは表示先を決めてから。
@@ -6873,7 +6875,7 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
   return Object.entries(groups)
     .map(([key, groupFrames]) => {
       const semitoneIndex = Number(key);
-      // ピッチ系は「グループ内フレーム ∩ 採用フレーム」から中央値で算出。
+      // ピッチ系は「グループ内フレーム ∩ 採用フレーム」のclarity加重平均(F-46)。
       // 採用が0のグループ(全編が過渡・誤検出ラン)はピッチ系がnullになる。
       const pitchFrames = selectedByGroup[key];
       const m = computeFrameMetrics(groupFrames, pitchFrames);
@@ -6888,13 +6890,12 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
         semitoneIndex,
         writtenLabel: groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote ?? null,
         frameCount: groupFrames.length,
-        // 表示の一貫性のため、pitchHzも採用フレームの中央値(ピッチ系と同じ土台の値)
-        pitchHz: median(pitchFrames.map((f) => f.pitchHz).filter((v) => v > 0)),
+        // 表示の一貫性のため、pitchHzも採用フレームの加重平均(ピッチ系と同じ土台の値)
+        pitchHz: weightedMean(pitchFrames, (f) => f.pitchHz),
         volumeDb: m.volumeDb,
         centroidHz: m.spectralCentroidHz,
         hnrDb: m.hnrDb,
-        pitchCents: m.pitchCents,                     // ピッチ誤差の中央値(絶対値)。音名軸グラフ用
-        pitchCentsSigned: m.pitchCentsSigned, // 符号付きピッチ誤差の中央値。最新セッション/個別セッションの音名軸グラフ用
+        pitchCentsSigned: m.pitchCentsSigned, // ピッチ誤差(符号付き・採用フレームの加重平均)。音名軸グラフ用
         pitchStabilityCents: m.pitchStabilityCents,   // ピッチのブレ(stddev)。現在どの画面でも未使用
         pitchFrameUsed: m.pitchFrameUsed,             // ピッチ集計の透明性(採用/除外の内訳)
         pitchFrameExcluded: m.pitchFrameExcluded,
@@ -7044,21 +7045,16 @@ function SeriesSwatch({ style: st, width = 14 }) {
   );
 }
 
-// リード別比較・リード毎比較で共通する比較項目の定義
+// リード別比較・リード個別・最新セッション・個別セッションで共通する比較項目の定義。
+// 【2026-08-04 F-46 本人指示】ピッチは全画面「符号付きのピッチ誤差」に統一(以前の
+// 「リード比較系だけ絶対値のまま」という指示は本人自身が上書き)。これにより
+// 旧SESSION_METRICS(符号付き差し替え版)と同一になったため配列を1つに統合した。
 const REED_COMPARE_METRICS = [
   { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "spectralCentroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
-  { key: "pitchCents", label: "ピッチ誤差(絶対値)", unit: "¢", fmt: (v) => v.toFixed(1) },
+  { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
 ];
-
-// 最新セッション・個別セッションだけはピッチ誤差を絶対値ではなく符号付き(0中心)で見せる(本人指示)。
-// リード別比較・登録済みリードの測定データはREED_COMPARE_METRICSのまま(対象外・変更しない)。
-const SESSION_METRICS = REED_COMPARE_METRICS.map((mt) =>
-  mt.key === "pitchCents"
-    ? { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` }
-    : mt
-);
 
 // リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
 // 以前はここに専用の hex パレットがあり、4・5番目が機能色(#D97706 注意 / #16A34A 良い)の
@@ -7151,7 +7147,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
             </div>
           )}
           {/* 全指標(音量・ピッチ誤差・HNR・重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
-          {["volumeDb", "pitchCents", "hnrDb", "spectralCentroidHz"].map((key) => {
+          {["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"].map((key) => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === key);
             return (
               <NoteAxisLineChart
@@ -7685,7 +7681,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
 // (音域軸はフレームにsemitoneIndexを保存する拡張により有効化済み)
 // 11.6節の自由軸集計: ピボット型クロス集計として実装。
 // 縦軸(音名/音域帯) × 横軸(リード/リード×使用日数/録音日) の交点に
-// 選択した指標(平均ピッチ偏差・高次倍音強度・HNR・重心)を数値表示する。
+// 選択した指標(ピッチ誤差・高次倍音強度・HNR・重心)を数値表示する。
 // ============================================================
 // ピッチ偏差セルの色分け(絶対値: <10¢緑 / <25¢アンバー / それ以上赤)
 function pitchCellColor(cents) {
@@ -7791,7 +7787,8 @@ function harmonicSliceMean(f, lo, hi) {
 // 音色系(倍音・HNR・重心)はアタック過渡フレームを集計から除外する(timbreSustained。
 // セッション詳細・My Dataの平均と同じ方針で、ビューによって値が食い違わないようにする)
 const PIVOT_MEASURES = [
-  { key: "pitchCents", label: "平均ピッチ偏差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
+  // ラベルは【F-46 本人指示】で「ピッチ誤差」に統一。データ側(生フレームの平均)はF-45のスコープで今回触らない
+  { key: "pitchCents", label: "ピッチ誤差(¢)", getValue: (f) => f.pitchCents, fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
   { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
   { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 0, 4) : null), fmt: (v) => (v * 100).toFixed(0) },
@@ -7882,7 +7879,7 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
 
 // ピボット集計を縦向きの折れ線グラフで表示する。
 //   縦軸 = 縦軸で選んだ項目の値(rowKeys。音名なら上から高い音の順)
-//   横軸 = 指標の値(metricDef。平均ピッチ偏差など)
+//   横軸 = 指標の値(metricDef。ピッチ誤差など)
 //   系列 = 「指標」セレクタで選んだ次元の値ごと(colKeys)に色分けした折れ線を同じ場所に重ねる
 // 値の無いセルは線を途切れさせる。ピッチ偏差では0(ジャスト)の縦基準線を破線で示す。
 function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
@@ -8044,10 +8041,10 @@ const MY_DATA_METRICS = [
   // 【2026-08-04 本人指示】「0を挟んで上が＋・下がマイナス、折れ線は1本」。
   // 以前はブレ幅(標準偏差、常に非負)を ±v の2本のミラーで描いていたが、本人が見たいのは
   // 「シャープ側/フラット側のどちらにどれだけズレたか」だったので、符号付きの平均ズレ
-  // (pitchCentsSigned)に変えた。ラベルは本人の呼び方に合わせて「ピッチの安定度」のまま。
+  // (pitchCentsSigned)に変えた。ラベルは【F-46 本人指示】で表記ゆれを「ピッチ誤差」に統一。
   // ヒーローの「今日のピッチ誤差」と同じ量だが、あちらは期間全体の1つの数字、
   // こちらはタップで開く音名ごとの内訳なので、見えるものが違う。
-  { key: "pitchCentsSigned", idealKey: null, label: "ピッチの安定度", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
+  { key: "pitchCentsSigned", idealKey: null, label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -8132,7 +8129,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   // 分岐(displayVal > 0 ? "+" : "")を持っており、"-" が出ることが構造上あり得なかった。
   // 符号つきの平均ズレ(pitchCentsSigned)を渡し、シャープ側/フラット側が読めるようにする。
   // 良否の色分け(下の todayErr / periodErr)は今までどおり絶対値=0からの距離で評価する。
-  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCentsSigned : null; // 今日の平均ピッチ偏差(符号つき)
+  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCentsSigned : null; // 今日のピッチ誤差(符号つき)
   const periodVal = overall.pitchCentsSigned;                                                    // 対象期間の平均(符号つき)
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
   // 【2026-08-04 本人の問い】「上方向にしかブレていないように見えるが、実データが+側にしか
@@ -8161,7 +8158,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
       {/* 今日のピッチ誤差ヒーローカード。対象期間平均と比較して色分けする */}
       <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "平均ピッチ誤差"}</div>
+          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "ピッチ誤差"}</div>
           <select value={range} onChange={(e) => setRange(e.target.value)} style={{ fontSize: 12 }}>
             {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
@@ -8253,7 +8250,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
 
 // REED_COMPARE_METRICSの各指標に対応する理想値プロファイル側のフィールド名
 // (音名軸グラフに理想の破線を重ねるための対応表。ピッチ誤差は理想=0のため対象外)
-const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCents: null, pitchCentsSigned: null };
+const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCentsSigned: null };
 
 // 直近追加された最新セッション単体の内訳。My Dataの平均(複数セッション)とは別に、
 // 「今撮ったばかりの1回分」を単独で確認できるようにする。カードはタップで音名軸グラフに切替。
@@ -8268,7 +8265,7 @@ function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
         {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
       <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-        {SESSION_METRICS.map((mt) => {
+        {REED_COMPARE_METRICS.map((mt) => {
           const v = m[mt.key];
           return (
             <TappableMetricCard
@@ -8877,7 +8874,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       {frames.length > 0 && (
         <div className="card" style={{ marginTop: 10 }}>
           <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-            {SESSION_METRICS.map((mt) => {
+            {REED_COMPARE_METRICS.map((mt) => {
               const v = sessionMetrics[mt.key];
               return (
                 <TappableMetricCard
@@ -8907,7 +8904,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
             const pct = Math.round((excluded / (used + excluded)) * 100);
             return (
               <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10 }}>
-                ピッチは各音の安定区間の中央値（立ち上がり・切り替わりの過渡 {pct}% を除外）
+                ピッチは各音の安定区間の平均（立ち上がり・切り替わりの過渡 {pct}% を除外）
               </div>
             );
           })()}
