@@ -1795,8 +1795,13 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       /<circle cx=\{CX\} cy=\{CY\} r=\{R\} fill="none" strokeWidth=\{SW\} style=\{\{ stroke: "var\(--c-line\)" \}\} \/>/.test(flat));
     check("拍の点は RING_BEAT_DOT_ORBIT_R の上に並べる(環のトラックに乗せない)",
       /ringPoint\(ringBeatDotDeg\(i, dotCount\), RING_BEAT_DOT_ORBIT_R, CX, CY\)/.test(ringCode));
+    // F-51 で「停止後にゆっくり中央へ戻る」を足したため、角度はいったん pendDeg に受ける。
+    // 軌道半径(RING_PEND_R)と、**動作中の角度が ringPendDeg(位相) そのものであること**は
+    // 分けて縛る(戻りの実装が動作中の角度を書き換えたら落ちる)。
     check("錘は RING_PEND_R の軌道を回る(環のトラックに乗せない)",
-      /ringPoint\(ringPendDeg\(phase\), RING_PEND_R, RING_CX, RING_CY\)/.test(ringCode));
+      /ringPoint\(pendDeg, RING_PEND_R, RING_CX, RING_CY\)/.test(ringCode));
+    check("動作中の錘の角度は ringPendDeg(位相)そのもの",
+      /pendDeg = ringPendDeg\(phase\);/.test(ringCode));
     check("錘と輪の初期位置も RING_PEND_R(12時)",
       (flat.match(/cx=\{CX\} cy=\{CY - RING_PEND_R\}/g) || []).length === 2);
     // (d) 線幅。SW 以外を混ぜると帯と走りの太さが揃わない。
@@ -5351,9 +5356,27 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         !code.includes('border: "1px solid #D9E1EC", background: "#F3F6FA"'));
     }
     // リード選択ピル = B型(状態を持たない選択欄)。
+    // 【F-50 で角丸が変わった】本人指示「画面上部のリード枠が一つだけ丸いので、奏者枠と
+    // 同じ形式に変更」により .ctl-pill を外した。**対象を綴りで特定し直す**こと。
+    // 以前は plainTags の中から「ctl-pill を持つ最初のもの」で拾っていたが、それだと
+    // テンポの ± ボタン(同じ ctl-plain ctl-pill)が代わりに当たって**別の要素を検査したまま
+    // 緑になる**(実際 F-50 の変更後もこの検査は通ってしまった)。
     {
-      const tag = plainTags.find((t) => /\bctl-pill\b/.test(t)) || "";
-      check("計測タブのリード選択ピルは B型(ctl-plain) + ピル形(ctl-pill)", tag !== "", tag.slice(0, 160));
+      const i = src.indexOf('<option value="">リードを選択</option>');
+      const tag = i === -1 ? "" : tagAt(src.lastIndexOf('<div className="ctl-plain', i) + 1);
+      check("計測タブのリード選択ピルを綴りで特定できている", tag !== "" && /ctl-plain/.test(tag), tag.slice(0, 160));
+      check("計測タブのリード選択ピルは B型(ctl-plain)", /className="[^"]*\bctl-plain\b/.test(tag), tag.slice(0, 160));
+      // 【F-50 の完了条件そのもの】隣の奏者枠は素の <select> なので角丸は入力欄の規則が決める。
+      // 「同じ形式」= 同じ角丸の値になること。値ではなく **2つの規則の一致** で縛る
+      // (どちらかを勝手に変えたら落ちる)。ctl-pill を戻しても落ちる。
+      check("リード選択ピルはピル形(ctl-pill)を持たない(奏者枠と同じ角丸にする)",
+        !/className="[^"]*\bctl-pill\b/.test(tag), tag.slice(0, 160));
+      check("リード選択ピル(B型)の角丸と、奏者枠(素の select)の角丸が同じ規則から来ている",
+        decl(plainBlock, "border-radius") === decl(inputBlock, "border-radius") &&
+        decl(plainBlock, "border-radius") === "var(--r-xs)",
+        `.ctl-plain=${decl(plainBlock, "border-radius")} / select=${decl(inputBlock, "border-radius")}`);
+      check("リード選択ピルは角丸をインラインで書き戻していない",
+        !withPrefix([tag], ["borderradius"]).length, tag.slice(0, 160));
       check("リード選択ピルの旧実装(選択で地を塗り分ける)が残っていない",
         !/selectedReedId \? "#EAEFF5"/.test(code));
       // ピルの中の select 2つは DESIGN-SYSTEM §6.6 が明記する**意図的な例外**。
@@ -5834,6 +5857,98 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const bad = cssRules.filter((r) => borderVisible(r.body) && groundDistinct(r.body));
       check("index.css のどの規則も「見える全周の枠線」と「違う地」を同時に持たない(芯1)",
         bad.length === 0, bad.map((r) => r.sels.join(",")).join(" | "));
+    }
+
+    // --- 17.15 F-49 長押しでテキスト選択させない(.no-select) -----------------
+    // 本人指示: 「メトロノームのプラスマイナスとボタンが長押しでテキスト選択の判定になる」
+    //           「テンポタップ時も同様」「登録済みリードを並び替えで長押しすると選択になる」
+    // 対象が9箇所以上あるのでインラインでは必ず漏れる。クラス1つに寄せた。
+    // ここで縛るのは3つ: (a) 規則の中身 (b) 面の作法・操作の型に触れないこと
+    //                    (c) 実際に必要な要素に付いていて、入力欄には付いていないこと
+    {
+      const nsBlock = cssBlock(".no-select");
+      check(".no-select の規則が index.css にある", nsBlock !== null);
+      check("index.css の .no-select は1回しか書かれていない(後勝ちで無効化されない)",
+        rulesFor(".no-select").length === 1, `${rulesFor(".no-select").length}回`);
+      for (const prop of ["user-select", "-webkit-user-select", "-webkit-touch-callout"]) {
+        check(`.no-select は ${prop}: none を持つ`, decl(nsBlock, prop) === "none", String(decl(nsBlock, prop)));
+      }
+      // 新しいクラスに地・枠・角丸・余白を混ぜると、付けた要素だけ作法(§6.6)/型(§6.7)が割れる。
+      check(".no-select は選択の抑制だけを持つ(地・枠・角丸・余白を持ち込まない)",
+        declList(nsBlock).every((d) => /user-select$/.test(d.name) || d.name === "-webkit-touch-callout"),
+        declList(nsBlock ?? "").map((d) => d.name).join(" "));
+
+      const nsTags = tagsWithClass("no-select");
+      // 本人が名指しした操作 + 同じ長押しを持つ並び替えの行。**綴りで1つずつ確かめる**
+      // (数だけ見ると、別の要素に付け替えても通ってしまう)。
+      const nsHas = (needle) => nsTags.some((t) => t.includes(needle));
+      for (const [label, needle] of [
+        ["テンポを下げる(−)", 'aria-label="テンポを下げる"'],
+        ["テンポを上げる(＋)", 'aria-label="テンポを上げる"'],
+        ["テンポの数値(タップで直接入力)", "onClick={() => setTempoEditing(true)}"],
+        ["START/STOP", "aria-pressed={metronomeOn}"],
+        ["拍子パネルを開くボタン", 'aria-label="拍子"'],
+        ["1拍の分割パネルを開くボタン", 'aria-label="1拍の分割"'],
+        ["拍子の選択(METRO_SIGS)", "aria-pressed={metroSig === sig}"],
+        ["分割の選択", "aria-pressed={selected}"],
+        ["アクセントのラベル", 'className="sans no-select"'],
+        ["登録済みリードの並び替えの行", "onPointerDown={handlePointerDown(r.id, idx)}"],
+      ]) {
+        check(`.no-select が付いている: ${label}`, nsHas(needle), needle);
+      }
+      check(".no-select は12箇所以上で使われている(対象を減らして緑にしていない)",
+        nsTags.length >= 12, `${nsTags.length}箇所`);
+      // 入力欄に効かせると値を選択・コピーできなくなる。**絶対に付けない**。
+      const nsInputs = nsTags.filter((t) => /^<(input|select|textarea)[\s/>]/.test(t));
+      check(".no-select は入力欄(input/select/textarea)に付いていない(値を選択・コピーできなくしない)",
+        nsInputs.length === 0, nsInputs.map((t) => t.slice(0, 80)).join(" | "));
+      // 祖先に付けても子の入力欄まで効く。並び替えの行の中に入力欄が無いことを確かめる。
+      {
+        const i = src.indexOf("<ReorderableReedRows");
+        const j = i === -1 ? -1 : src.indexOf("/>", src.indexOf("renderRow=", i));
+        const rowBlock = i === -1 || j === -1 ? "" : src.slice(i, j);
+        check("並び替えの行(no-select の祖先)の中に入力欄が無い", rowBlock !== "" &&
+          !/<(input|textarea|select)[\s/>]/.test(rowBlock), rowBlock.slice(0, 80));
+      }
+    }
+
+    // --- 17.16 F-50 録音ボタンは影を持たない --------------------------------
+    // 本人指示「録音するボタンの周辺に影がついてるので削除」。
+    // box-shadow はレイアウトに影響しないので、外形寸法(§6.1.5)は変わらない。
+    {
+      const i = src.indexOf("{isRecording ? \"停止\" : \"録音する\"}");
+      const tag = i === -1 ? "" : tagAt(src.lastIndexOf("<button", i) + 1);
+      check("録音ボタンのタグを走査できている", /onClick=\{toggleRecording\}/.test(tag), tag.slice(0, 120));
+      check("録音ボタンは影(boxShadow)を持たない",
+        !withPrefix([tag], ["boxshadow"]).length, tag.replace(/\s+/g, " ").slice(0, 200));
+      check("録音ボタンの外形(角丸16 / padding 16px 0)は変わっていない",
+        /borderRadius: 16/.test(tag) && /padding: "16px 0"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+    }
+
+    // --- 17.17 F-48 録音中バッジはメトロノームアイコンと重ならない ------------
+    // 本人指示「録音中のポップアップがメトロノームアイコンと被るので修正。
+    //           画面上部であれば右でも左でもよい」。
+    // 上部バーの左端はメトロノームアイコン(34×34)なので、左寄せだと必ず重なる。
+    // 【縛り方】綴りだけでなく**幾何**でも見る: 告知はページ左右余白と同じ式で全幅に敷かれ、
+    // 中の要素は alignSelf で寄る。左端どうしが同じ x なので flex-start は重なる。
+    {
+      const i = src.indexOf('<span className="ficus-pulse"');
+      const tag = i === -1 ? "" : tagAt(src.lastIndexOf('<div className="sans"', i) + 1);
+      check("録音中バッジのタグを走査できている",
+        i !== -1 && /pointerEvents: "auto"/.test(tag) && /var\(--c-danger\)/.test(src.slice(i, i + 300)),
+        tag.replace(/\s+/g, " ").slice(0, 120));
+      check("録音中バッジは右寄せ(alignSelf: flex-end)。左端のメトロノームアイコンと重ならない",
+        /alignSelf: "flex-end"/.test(tag), (tag.match(/alignSelf: "[^"]*"/) || ["alignSelf 無し"])[0]);
+      // メトロノームアイコンは上部バーの**左端**にあり、告知の左端と同じ x から始まる。
+      const mi = src.indexOf('aria-label="メトロノーム"');
+      const mtag = mi === -1 ? "" : tagAt(mi);
+      check("メトロノームアイコンは 34×34 のまま(F-48 で上部バーは動かしていない)",
+        /width: 34, height: 34/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 160));
+      // 告知の容器は position:fixed のまま = レイアウトの流れの外(§6.1.5 / F-8)。
+      const ci = src.indexOf("{(isRecording || isAnalyzingUpload || lastUploadedSession) && (");
+      const cblock = ci === -1 ? "" : src.slice(ci, ci + 700);
+      check("録音中バッジの容器は position:fixed のまま(流れの外。出ても環は動かない)",
+        /position: "fixed"/.test(cblock) && /pointerEvents: "none"/.test(cblock), cblock.slice(0, 120));
     }
   }
 }
@@ -6359,6 +6474,302 @@ console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
       `mutant=${cellMutC4.wsum / cellMutC4.wtotal} expect(gate後)=${expectedC4}`);
   }
 
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証20: F-51 / F-52 / F-53
+//   F-51 振り子: 錘のタップで開始・停止/停止後にゆっくり中央へ戻る
+//   F-52 【バグ】別アプリから戻るとメトロノームが端で固まる(音声時計が止まったまま)
+//   F-53 【バグ】詳細を開いた状態でテンポ入力すると録音ボタン以下が下へずれる
+// 関数はすべて実ソースから extractFunction / extractConst で取り出して評価する
+// (F-45 の審査で「テスト側の手書き再実装は実ソースを守らない」と不合格になった前例がある)。
+// ============================================================
+console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 画面ぶんの高さ ===");
+{
+  // extractFunction は「関数名の次の { 」から括弧を数えるので、引数が分割代入
+  // (function PitchRing({ note, … })) の関数では**引数の { } だけ**を取ってしまう。
+  // コンポーネントの本体を読むときはこちらを使う(section 15 の sourceOf と同じ考え)。
+  const componentSourceOf = (name) => {
+    const idx = src.indexOf(`function ${name}(`);
+    if (idx === -1) throw new Error(`function ${name} not found`);
+    let i = src.indexOf("(", idx), depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+    }
+    while (i < src.length && src[i] !== "{") i++;
+    let d = 0;
+    for (let j = i; j < src.length; j++) {
+      if (src[j] === "{") d++;
+      else if (src[j] === "}") { d--; if (d === 0) return src.slice(idx, j + 1); }
+    }
+    throw new Error(`function ${name}: unbalanced braces`);
+  };
+
+  const api20 = new Function(`${[
+    extractFunction("fillViewportMinHeight"),
+    extractConst("AUDIO_CLOCK_STALL_MIN_WALL_S"),
+    extractConst("AUDIO_CLOCK_STALL_RATIO"),
+    extractFunction("audioClockStalled"),
+    extractConst("RING_PEND_R"),
+    extractConst("RING_PEND_SWING_DEG"),
+    extractConst("RING_PEND_SETTLE_EPS_VB"),
+    extractFunction("ringPendDeg"),
+    extractFunction("ringPendSettleDeg"),
+    extractFunction("ringPendSettleDone"),
+  ].join("\n\n")}
+    return { fillViewportMinHeight, audioClockStalled, ringPendDeg, ringPendSettleDeg, ringPendSettleDone,
+             AUDIO_CLOCK_STALL_MIN_WALL_S, AUDIO_CLOCK_STALL_RATIO, RING_PEND_SETTLE_EPS_VB,
+             RING_PEND_R, RING_PEND_SWING_DEG };`)();
+
+  // --- 20.1 F-53 画面ぶんの高さは「スクロール位置に依存しない」 --------------
+  // 本人報告「詳細ページを開いているときにテンポ入力をすると録音ボタンから下のすべての
+  // 位置が下に大きくズレる」。詳細を開くとページがスクロールできるようになり、
+  // スクロールした状態で測り直し(resize / visualViewport の resize)が走ると
+  // getBoundingClientRect().top がスクロール量ぶん小さくなって minHeight が膨らむ。
+  // **枠の高さがスクロール量に比例して伸び、flex:1 の中間がそれを吸収するので
+  // 録音ボタン以下がそのぶん下がる。** DESIGN-SYSTEM §6.1.5 に真正面から反する。
+  //
+  // 【縛り方】文書上の位置(docTop)を固定したまま、スクロール量だけを動かして
+  // 返り値が1pxも変わらないことを見る。スクロール項を落とすと即座に落ちる。
+  {
+    const docTop = 60, visibleH = 768, gap = 81;
+    const at = (scrollY) => api20.fillViewportMinHeight(docTop - scrollY, scrollY, visibleH, gap);
+    const base = at(0);
+    check("F-53: 画面ぶんの高さの基準値(スクロール0)", base === visibleH - docTop - gap, `${base}`);
+    for (const s of [1, 100, 447, 900]) {
+      check(`F-53: スクロール ${s}px でも画面ぶんの高さは変わらない`, at(s) === base, `${at(s)} / 基準 ${base}`);
+    }
+    // 下端の余白・可視高は素直に効くこと(スクロール項だけを無視する実装になっていない)
+    check("F-53: 下端の余白が増えればそのぶん減る",
+      api20.fillViewportMinHeight(docTop, 0, visibleH, gap + 34) === base - 34);
+    check("F-53: 可視高が縮めばそのぶん減る(キーボードで visualViewport が縮む場合)",
+      api20.fillViewportMinHeight(docTop, 0, visibleH - 300, gap) === base - 300);
+    check("F-53: 負にはならない(0で止める)",
+      api20.fillViewportMinHeight(10000, 0, visibleH, gap) === 0);
+    // 【配線】純関数が正しくても、フックが呼んでいなければ意味がない。
+    const hook = codeOf(extractFunction("useFillViewportHeight"));
+    check("F-53: useFillViewportHeight は fillViewportMinHeight にスクロール量を渡している",
+      /fillViewportMinHeight\(\s*el\.getBoundingClientRect\(\)\.top\s*,\s*scrollY\s*,/.test(hook),
+      hook.replace(/\s+/g, " ").slice(0, 220));
+    check("F-53: スクロール量は window.scrollY(無ければ documentElement.scrollTop)から取る",
+      /window\.scrollY\s*\?\?\s*document\.documentElement\.scrollTop/.test(hook));
+    check("F-53: フックが自前で高さを計算し直していない(計算は純関数1箇所)",
+      !/visibleViewportHeight\(\)\s*-/.test(hook), hook.replace(/\s+/g, " ").slice(0, 220));
+    // 計測タブの枠がこのフックを使っていること(F-7 で組んだ構造の入口)
+    check("F-53: 計測タブの枠は useFillViewportHeight で高さを決めている",
+      /const measureMinH = useFillViewportHeight\(measureRootRef\);/.test(src));
+    check("F-53: 枠の minHeight は measureMinH(枠は1枚だけ・詳細カードはその外)",
+      /minHeight: measureMinH \|\| undefined/.test(src));
+  }
+
+  // --- 20.2 F-52 音声時計が止まったまま復帰したことを検出する ----------------
+  // 本人報告「メトロノーム起動中に違うアプリへ行って戻ると、たまに右端から動かなくなる。
+  // スタートを押しても動かない。ストップで真ん中に戻るが、またスタートすると右端へ飛ぶだけ。
+  // アプリを落とすと直る」。
+  // iOS は割り込みから戻ったあと state を "running" と報告したまま currentTime が
+  // 止まったコンテキストを返すことがあり、既存の audioCtxRecoveryAction(state だけを見る)
+  // では "ok" になって使い回されてしまう。
+  {
+    const stalled = api20.audioClockStalled;
+    check("F-52: 健全な時計は「止まった」と判定しない(実5秒/音声5秒)", stalled(5, 5) === false);
+    check("F-52: 止まった時計を検出する(実5秒/音声0秒)", stalled(0, 5) === true);
+    check("F-52: 作り直された直後の時計(音声が巻き戻る)も「止まった」側に落ちる", stalled(-3, 5) === true);
+    check("F-52: 実時間が1秒未満なら判定しない(連打で作り直さない)", stalled(0, 0.5) === false);
+    check("F-52: 実時間ちょうど1秒からは判定する", stalled(0, 1) === true);
+    // しきい値(実時間の50%)を独立に当てる。片側ずつ挟んで、比率を変えると落ちるようにする。
+    check("F-52: 実時間の49%しか進んでいなければ止まっている", stalled(5 * 0.49, 5) === true);
+    check("F-52: 実時間の51%進んでいれば止まっていない", stalled(5 * 0.51, 5) === false);
+    check("F-52: 判定に使う定数(1秒 / 0.5)が体系の外の値になっていない",
+      api20.AUDIO_CLOCK_STALL_MIN_WALL_S === 1 && api20.AUDIO_CLOCK_STALL_RATIO === 0.5,
+      `${api20.AUDIO_CLOCK_STALL_MIN_WALL_S} / ${api20.AUDIO_CLOCK_STALL_RATIO}`);
+
+    // 【配線】判定関数があっても、START が呼ばなければ何も直らない。
+    const startBody = codeOf(src.slice(src.indexOf("const startMetronome = useCallback("),
+      src.indexOf("const stopMetronome = useCallback(")));
+    const stopBody = codeOf(src.slice(src.indexOf("const stopMetronome = useCallback("),
+      src.indexOf("// アンマウント(=計測タブを離れた)時は完全に停止して音を止める")));
+    const markStart = src.indexOf("const markMetroClock = useCallback(");
+    const markFn = markStart === -1 ? "" : codeOf(src.slice(markStart, src.indexOf("}, []);", markStart) + 7));
+    const visBody = codeOf(src.slice(src.indexOf("const onVis = () => {"),
+      src.indexOf('document.addEventListener("visibilitychange", onVis);')));
+    check("F-52: START が audioClockStalled で時計の停止を見ている",
+      /audioClockStalled\(\s*ctx\.currentTime - mark\.audio\s*,\s*\(performance\.now\(\) - mark\.wall\) \/ 1000\s*\)/.test(startBody),
+      startBody.replace(/\s+/g, " ").slice(0, 240));
+    check("F-52: 時計が止まっていたら state を信じずにコンテキストを作り直す",
+      /if \(!ctx \|\| ctx\.state !== "running" \|\| clockStalled\)/.test(startBody),
+      startBody.replace(/\s+/g, " ").slice(0, 240));
+    check("F-52: 基準点は1回のSTARTで使い切る(作り直した新しい時計と比べない)",
+      /metroClockMarkRef\.current = null;/.test(startBody));
+    check("F-52: 基準点は (音声時計, 実時計) の対で控える",
+      /\{ audio: ctx\.currentTime, wall: performance\.now\(\) \}/.test(markFn), markFn.replace(/\s+/g, " ").slice(0, 200));
+    check("F-52: 非表示になる瞬間に基準点を控える(鳴っていたかに関わらず)",
+      /markMetroClock\(\);/.test(visBody) &&
+      visBody.indexOf("markMetroClock()") < visBody.indexOf("stopMetronome()"),
+      visBody.replace(/\s+/g, " ").slice(0, 200));
+    check("F-52: 停止したときも基準点を控える(visibilitychange が飛ばない端末の逃げ道)",
+      /markMetroClock\(\);/.test(stopBody), stopBody.replace(/\s+/g, " ").slice(0, 200));
+    // 発音のスケジューリングそのものには触れていないこと(直したのは位相の基準時刻の再同期だけ)
+    const schedStart = src.indexOf("const metroSchedulerTick = useCallback(");
+    const sched = codeOf(src.slice(schedStart, src.indexOf("const startMetronome = useCallback(", schedStart)));
+    check("F-52: スケジューラを走査できている", /while \(metroNextTimeRef\.current < ctx\.currentTime \+ LOOKAHEAD\)/.test(sched));
+    check("F-52: 発音のスケジューラには手を入れていない(時計の判定を持ち込んでいない)",
+      !/audioClockStalled|metroClockMarkRef|markMetroClock/.test(sched));
+  }
+
+  // --- 20.3 F-51 停止後に「ゆっくり中央へ戻る」 -----------------------------
+  // 本人指示「メトロノーム止めた時にいきなり真ん中に振り子が戻るのではなく、
+  //           本物の振り子のようにゆっくり真ん中に戻るモーションを追加」。
+  // 【新しい値を作っていないこと】角振動数も減衰の時定数も 1拍の長さ(beatDur)から出す。
+  //   動作中: deg = SWING × cos(π × 経過/beatDur) → ω = π/beatDur
+  //   戻り  : deg = from × exp(−経過/beatDur) × cos(ω × 経過)
+  // この2点を**数値の同一性**で当てると、ω や τ に係数を1つでも入れた瞬間に落ちる。
+  {
+    const A = 55, D = 0.5;
+    const f = api20.ringPendSettleDeg;
+    check("F-51: 停止した瞬間は止まった角度そのもの", f(A, D, 0) === A);
+    // ω = π/beatDur の裏取り: 1/4周期(=beatDur/2)でちょうど0を通る
+    check("F-51: 角振動数は動作中の振り子と同じ(beatDur/2 で中央を通過)",
+      Math.abs(f(A, D, D / 2)) < 1e-12, `${f(A, D, D / 2)}`);
+    check("F-51: 角振動数は beatDur に比例する(テンポを変えても同じ関係)",
+      Math.abs(f(A, 0.8, 0.4)) < 1e-12, `${f(A, 0.8, 0.4)}`);
+    // τ = beatDur の裏取り: 片道1振り(beatDur)後に振幅がちょうど 1/e
+    check("F-51: 減衰の時定数は1拍ぶん(beatDur 後に振幅が 1/e)",
+      Math.abs(f(A, D, D) - (-A * Math.exp(-1))) < 1e-12, `${f(A, D, D)} / 期待 ${-A * Math.exp(-1)}`);
+    check("F-51: 時定数も beatDur に比例する", Math.abs(f(A, 0.8, 0.8) - (-A * Math.exp(-1))) < 1e-12);
+    // 包絡は単調減少で、必ず0へ収束する(端に張り付いたままにならない)
+    {
+      let ok = true, prev = Infinity;
+      for (let t = 0; t <= 4 * D; t += D / 40) {
+        const env = Math.abs(A) * Math.exp(-t / D);
+        if (Math.abs(f(A, D, t)) > env + 1e-9) ok = false;
+        if (env > prev + 1e-12) ok = false;
+        prev = env;
+      }
+      check("F-51: 角度は常に包絡の内側で、包絡は単調に減る", ok);
+    }
+    check("F-51: 十分に時間が経てば中央に落ち着く", Math.abs(f(A, D, 20 * D)) < 1e-6, `${f(A, D, 20 * D)}`);
+    // 静止の判定は**包絡だけ**を見る(cos は途中で何度も0を通るので角度では判定できない)
+    check("F-51: 止まった直後は「戻りきった」と判定しない", api20.ringPendSettleDone(A, D, 0) === false);
+    check("F-51: 中央を通過する瞬間(角度0)でも戻りきったとは判定しない",
+      api20.ringPendSettleDone(A, D, D / 2) === false);
+    check("F-51: 描画の丸め(toFixed(2))より小さくなったら戻りきったと判定する",
+      api20.ringPendSettleDone(A, D, 12 * D) === true);
+    const ring = codeOf(componentSourceOf("PitchRing"));
+    // --- 静止と判定するしきい値 -------------------------------------------
+    // 【この検査は一度書き直している】最初は期待時刻を
+    //   tDone = -D * log(eps / (A * π/180 * RING_PEND_R))
+    // と **守るべき定数 eps そのものから逆算**して突き合わせていた。これは
+    // LOOP.md が禁じる「定数の定義を言い換えるテスト」で、両辺が一緒に動くため
+    // eps を 0.005 → 50(1万倍)にしても緑のまま通った。**そのとき振り子は中央から
+    // 30.5°(画面上 55px)離れた位置からいきなり中央へ飛ぶ** = F-51 が直そうとした
+    // 本人指示「いきなり真ん中に振り子が戻る」そのものになる(審査役が実測)。
+    //
+    // 書き直した形: しきい値の根拠は「錘の座標を toFixed(桁) で書くので、
+    // それより小さい変位は属性の文字列を変えられない=静止と区別できない」。
+    // ならば **桁数を実ソースの描画側から読み**、そこから丸め幅を出して当てる。
+    // eps を触っても描画側の桁数は動かないので、両辺が連動しない。
+    {
+      const m = /bob\.setAttribute\("cx", bx\.toFixed\((\d+)\)\)/.exec(ring);
+      check("F-51: 錘の座標を書く桁数を実ソースから読めている", m !== null, String(m && m[1]));
+      const digits = m ? Number(m[1]) : NaN;
+      const half = 0.5 * Math.pow(10, -digits);   // toFixed(2) なら 0.005 viewBox
+      // (a) しきい値そのものが描画の丸め幅と一致していること。
+      //     eps を動かすとここが落ちる。逆に toFixed の桁を変えてもここが落ちる
+      //     (桁を変えたら eps も直すべき、という関係を両方向に縛る)。
+      check("F-51: 静止のしきい値は描画の丸め幅そのもの(定数の綴りではなく値で見る)",
+        api20.RING_PEND_SETTLE_EPS_VB === half,
+        `eps=${api20.RING_PEND_SETTLE_EPS_VB} / toFixed(${digits}) の丸め幅=${half}`);
+      // (b) 挙動でも当てる。**定数を一切使わず**、静止と判定した最初の瞬間の
+      //     「錘の実際の変位」が丸め幅の内側にあり、その1ステップ前はまだ外側にある
+      //     ことを掃引で確かめる(= 丸めに乗った瞬間に静止と判定している)。
+      //     eps を大きくすると (b-1) が、小さくすると (b-2) が落ちる。
+      const disp = (t) => Math.abs(A) * Math.exp(-t / D) * (Math.PI / 180) * api20.RING_PEND_R;
+      const step = D / 2000;
+      let tFirst = null;
+      for (let t = 0; t <= 40 * D; t += step) if (api20.ringPendSettleDone(A, D, t)) { tFirst = t; break; }
+      check("F-51: 掃引で「静止と判定した最初の時刻」を見つけられている", tFirst !== null,
+        tFirst === null ? "40拍たっても静止と判定しない" : `t=${tFirst.toFixed(4)}s`);
+      check("F-51: 静止と判定した瞬間、錘の変位は描画の丸め幅より小さい(=画面上で飛ばない)",
+        tFirst !== null && disp(tFirst) < half,
+        `変位=${tFirst === null ? "-" : disp(tFirst).toExponential(3)} / 丸め幅=${half}`);
+      check("F-51: その1ステップ前はまだ丸め幅以上(必要以上に長く回し続けていない)",
+        tFirst !== null && tFirst > 0 && disp(tFirst - step) >= half,
+        `1つ前の変位=${tFirst === null || tFirst === 0 ? "-" : disp(tFirst - step).toExponential(3)} / 丸め幅=${half}`);
+      // 参考出力。**アサーションにはしない**(上の (b-1) から自動的に従うので、
+      //   ここで「〜px 未満」を主張しても恒真な条件を1つ増やすだけになる)。
+      //   viewBox 300 に対し環の実寸は RING_D_FULL(330) = 1.1倍(§6.1「単位を書き間違えない」)。
+      if (tFirst !== null) console.log(`  静止に切り替わる瞬間の飛び: ${(disp(tFirst) * (330 / 300)).toExponential(3)} CSS px ` +
+        `(判定時刻 ${tFirst.toFixed(3)}s / 停止角 ${A}° / beatDur ${D}s)`);
+    }
+    check("F-51: beatDur が取れないときは戻りを出さない(0除算・NaNを作らない)",
+      f(A, 0, 1) === 0 && api20.ringPendSettleDone(A, 0, 0) === true);
+
+    // 【配線】環のrAFループが実際にこの2つを使い、減速設定では出さないこと。
+    check("F-51: 停止中は ringPendSettleDeg で角度を作る",
+      /pendDeg = ringPendSettleDeg\(s\.from, s\.dur, el\)/.test(ring), "");
+    check("F-51: 戻りきったかは ringPendSettleDone で見る",
+      /ringPendSettleDone\(s\.from, s\.dur, el\)/.test(ring));
+    check("F-51: 減速設定の端末では戻りを出さず即座に中央(装飾は止める・§6.1)",
+      /reduceMotion\.matches \|\| !settleOnStopRef\.current/.test(ring), "");
+    check("F-51: 戻りの起点は「止まった瞬間の角度」(lastDegRef)",
+      /const from = lastDegRef\.current;/.test(ring) && /lastDegRef\.current = pendDeg;/.test(ring));
+    check("F-51: 動き出したら戻りの状態は捨てる(次の停止で古い角度から戻らない)",
+      /settleRef\.current = null;/.test(ring));
+    check("F-51: 1拍の長さは MeasureView の getMetroBeatDur から受け取る(勝手な周期を持たない)",
+      /getBeatDur=\{getMetroBeatDur\}/.test(src) &&
+      /const getMetroBeatDur = useCallback\(\(\) => \{[\s\S]{0,200}?a\.dur \|\| \(60 \/ metroTempoRef\.current\)/.test(src));
+    // 【2026-08-04 統括の仕様ミスの訂正】当初「録音中は絶対に走らせないこと(既存の規則)」と
+    // 指示したが、実装役が「その規則の出典が見つからない」と報告して正しかった。
+    // リポジトリで「録音中は走らせない」と書かれているのは**マイク復旧**だけで
+    // (recoverMic: セッションが壊れるため)、振り子の戻りは計測にも発音にも一切関与しない
+    // 純粋な描画。録音中だけカクッと戻る差を作る根拠が無いので settleOnStop の指定を外し、
+    // 既定の true(常にゆっくり戻る)に統一した。**録音状態で戻り方を分岐させないこと**を固定する。
+    check("F-51: 戻りは録音状態で分岐させない(settleOnStop を isRecording で切らない)",
+      !/settleOnStop=\{!?\s*isRecording\s*\}/.test(codeOf(src)));
+  }
+
+  // --- 20.4 F-51 錘のタップで開始/停止 --------------------------------------
+  // 本人指示「メトロノームモードで振り子をタップでスタートしてもメトロノームがスタートする」。
+  // 錘そのものは実寸 直径 30.8 CSS px しかなく、DESIGN-SYSTEM §5 の 44pt に足りない。
+  // **見た目は変えず、透明な当たり判定だけを広げる。**
+  {
+    const ring = codeOf(componentSourceOf("PitchRing"));
+    const i = src.indexOf('aria-label="メトロノームの開始/停止"');
+    const tapTag = i === -1 ? "" : src.slice(src.lastIndexOf("<button", i), src.indexOf("/>", i) + 2);
+    check("F-51: 錘のタップ用のボタンがある", i !== -1 && /ref=\{bobTapRef\}/.test(tapTag), tapTag.slice(0, 120));
+    check("F-51: タップは onBeatToggle を呼ぶ(発音・位相の計算には触れない)",
+      /onClick=\{onBeatToggle\}/.test(tapTag));
+    check("F-51: 状態は aria-pressed が持つ(SVG は aria-hidden なので名前もここが持つ)",
+      /aria-pressed=\{beatOn\}/.test(tapTag) && /aria-hidden="true"/.test(ring));
+    check("F-51: 当たり判定は --tap-min(§5 の下限)で、見た目は持たない",
+      /width: "var\(--tap-min\)", height: "var\(--tap-min\)"/.test(tapTag) &&
+      /background: "transparent"/.test(tapTag) && /border: "none"/.test(tapTag),
+      tapTag.replace(/\s+/g, " ").slice(0, 240));
+    check("F-51: 当たり判定は錘の中心に合わせる(--tap-min の半分だけ戻す)",
+      /marginLeft: "calc\(var\(--tap-min\) \/ -2\)", marginTop: "calc\(var\(--tap-min\) \/ -2\)"/.test(tapTag));
+    check("F-51: 当たり判定は position:absolute(出ても消えてもレイアウトが動かない・§6.1.5)",
+      /position: "absolute"/.test(tapTag));
+    // 初期値は錘の静止位置(12時)と同じ式から出す。0% だと最初の1フレームだけ
+    // 当たり判定が錘より 61.6px 上にいる(審査役の指摘)。
+    check("F-51: 当たり判定の初期位置は錘の静止位置(12時)と同じ式で書く",
+      /left: `\$\{\(CX \/ VB\) \* 100\}%`, top: `\$\{\(\(CY - RING_PEND_R\) \/ VB\) \* 100\}%`/.test(tapTag),
+      tapTag.replace(/\s+/g, " ").slice(0, 200));
+    check("F-51: 当たり判定は rAF が錘に追従させる(left/top を % で書き換える)",
+      /tap\.style\.left = `\$\{\(bx \/ RING_VB\) \* 100\}%`/.test(ring) &&
+      /tap\.style\.top = `\$\{\(by \/ RING_VB\) \* 100\}%`/.test(ring));
+    check("F-51: メトロノームを開いていて、かつトグルが渡されたときだけ出す",
+      /\{getBeatPhase && onBeatToggle && \(/.test(ring));
+    check("F-51: MeasureView は既存の startMetronome / stopMetronome をそのまま渡す",
+      /onBeatToggle=\{\(\) => \(metronomeOn \? stopMetronome\(\) : startMetronome\(\)\)\}/.test(src));
+    // 【当たり判定を広げる必要があることの独立計算】錘の実寸 < 44。
+    {
+      const bobPx = 2 * 14 * (330 / 300); // RING_PEND_BOB_R × 2 × (RING_D_FULL / RING_VB)
+      check("F-51: 錘そのものの実寸(30.8px)は §5 の 44pt に足りない(だから透明な当たり判定が要る)",
+        bobPx < 44 && Math.abs(bobPx - 30.8) < 1e-9, `${bobPx.toFixed(2)}px`);
+    }
+  }
   console.log("  -> done");
 }
 
