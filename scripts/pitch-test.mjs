@@ -5073,8 +5073,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // "-" が構造上出得なかった(BACKLOG F-37)。良否の色分けは今までどおり絶対値で評価する。
   {
     const myDataSection = srcOf("MyDataSection");
+    // 【F-66で書き方が変わった】ばらつき(pitchStabilityCents)も同じ集計から出すため、
+    // 指標オブジェクトを一度受けてから .pitchCentsSigned を取る形になった。
+    // 「今日のフレームの computeFrameMetrics から符号付きの値を取る」という縛りは同じ強さで残す。
     check("ヒーローの今日の値は符号付き(pitchCentsSigned)を使う",
-      /computeFrameMetrics\(todayFrames\)\.pitchCentsSigned/.test(myDataSection));
+      /const todayMetrics = todayFrames\.length \? computeFrameMetrics\(todayFrames\) : null;/.test(myDataSection) &&
+      /const todayVal = todayMetrics \? todayMetrics\.pitchCentsSigned : null;/.test(myDataSection));
     check("ヒーローの対象期間平均も符号付き(pitchCentsSigned)を使う",
       /const periodVal = overall\.pitchCentsSigned;/.test(myDataSection));
     check("ヒーローの良否判定は絶対値(0からの距離)のままで評価する",
@@ -6770,6 +6774,218 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
         bobPx < 44 && Math.abs(bobPx - 30.8) < 1e-9, `${bobPx.toFixed(2)}px`);
     }
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証21: F-66 ピッチ誤差に「ばらつき」を併記する
+//
+// 主役の数字(pitchCentsSigned)は**符号付きの加重平均**なので、+5¢と−5¢を行き来していると
+// 打ち消し合って0に近づく=「一度も合っていないのに0¢」が起こる(本人報告「肌感覚より過剰に
+// 合っている」の正体)。この節はその状況を合成フレーム列で実際に作り、
+// **主役が0.0¢でも副次テキストが「ばらつき ±5.0¢」を返す**ことを実ソースで固定する。
+//
+// 関数・定数・指標定義はすべて実ソースから extractFunction / extractConst で取り出して
+// 評価する(テスト側の手書き再実装は実ソースを守らない。F-45 の前例)。
+// 期待値は「25msホップでどのtのフレームが残るか」をテスト側で独立に数えた値であって、
+// 定数(PITCH_EDGE_TRIM_MS 等)の言い換えではない(F-51 の前例)。
+// ============================================================
+console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
+{
+  // 実ソースの断片を束ねたサンドボックス。edits([from,to])で変異体を作れる
+  // (変異はこの複製文字列上でだけ起き、実ソースには触れない)。置換の空振りは例外。
+  const buildF66Api = (edits = []) => {
+    let pieces = [
+      extractFunction("mean"),
+      extractFunction("median"),
+      extractFunction("stddev"),
+      extractFunction("frameWeight"),
+      extractFunction("timbreSustained"),
+      extractFunction("weightedMean"),
+      extractConst("TIMBRE_SUSTAIN_MS"),
+      extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"),
+      extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"),
+      extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"),
+      extractFunction("computeFrameMetrics"),
+      extractFunction("pitchSpreadSub"),
+      extractConst("REED_COMPARE_METRICS"),
+      extractConst("MY_DATA_METRICS"),
+    ].join("\n\n");
+    for (const [from, to] of edits) {
+      const before = pieces;
+      pieces = pieces.replace(from, to);
+      if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
+    }
+    return new Function(`${pieces}
+      return { computeFrameMetrics, pitchSpreadSub, REED_COMPARE_METRICS, MY_DATA_METRICS };`)();
+  };
+  const api = buildF66Api();
+
+  const HOP = 0.025;
+  const hzOf = (si) => 440 * Math.pow(2, (si - 9) / 12);
+  const pf = (t, si, dev) => ({
+    t, semitoneIndex: si,
+    pitchHz: hzOf(si) * Math.pow(2, dev / 1200),
+    pitchCents: dev,
+    clarity: 1, volumeDb: -20, noteAgeMs: 1000, hnrDb: 20, spectralCentroidHz: 1000, harmonics: [],
+  });
+  const near = (a, b, eps = 1e-9) => a !== null && a !== undefined && Math.abs(a - b) <= eps;
+  // 副次テキストの導出を**例外ごと**評価する。null ガードを外す変異は
+  // undefined.toFixed で throw するので、素で呼ぶとハーネスごと落ちて
+  // 「どの検査が何を守ったか」が残らない。落ちた事実を値として拾い、検査を落とす。
+  const callSub = (fn, arg) => { try { return fn(arg); } catch (e) { return `例外(${e.message})`; } };
+
+  // --- 21.1 本人報告そのものの再現: 打ち消し合って0¢になる列 --------------------
+  // 42フレーム(t=0〜1.025s, 25msホップ)を1つの音(si=10)で、+5¢と−5¢を1フレームおきに往復。
+  // 【テスト側の独立な手計算】区間長 dur = 41×0.025 = 1.025s。両端トリム量は
+  // e = min(120ms, dur/3=341.7ms) = 0.12s なので採用は t∈[0.12, 0.905]。
+  // t=0.025k がこの帯に入るのは k=5(t=0.125)〜k=36(t=0.900) の **32フレーム**。
+  // その内訳は奇数k(=−5¢)が16個、偶数k(=+5¢)が16個で**ちょうど釣り合う**。
+  //   → 主役(符号付き加重平均, clarity=1) = 0/32 = 0.0¢  ← 「一度も合っていないのに0¢」
+  //   → ばらつき(母標準偏差) = √(32×25/32) = 5.0¢       ← 実際には常に5¢外している
+  {
+    const frames = Array.from({ length: 42 }, (_, k) => pf(k * HOP, 10, k % 2 === 0 ? 5 : -5));
+    const m = api.computeFrameMetrics(frames);
+    check("21.1 採用フレームは手計算どおり32個(t∈[0.12,0.905]のk=5〜36)",
+      m.pitchFrameUsed === 32, `used=${m.pitchFrameUsed} total=${m.pitchFrameTotal}`);
+    check("21.1 主役のピッチ誤差は打ち消し合って0.0¢になる(本人が見ていた数字)",
+      near(m.pitchCentsSigned, 0), `${m.pitchCentsSigned}`);
+    check("21.1 主役の表示は「+0.0」(合っているように見える)",
+      `${m.pitchCentsSigned >= 0 ? "+" : ""}${m.pitchCentsSigned.toFixed(1)}` === "+0.0");
+    // ここが F-66 の芯。主役が0.0でも、副次テキストは実際のズレ幅5¢を返さなければならない。
+    check("21.1 副次テキストは「ばらつき ±5.0¢」(合っていないことが数字に出る)",
+      callSub(api.pitchSpreadSub, m) === "ばらつき ±5.0¢", `${callSub(api.pitchSpreadSub, m)}`);
+    // (この列は全フレームがちょうど±5¢で、0¢のフレームは1つも無い。
+    //  主役の +0.0 は「合っている」ではなく打ち消し合いの産物である、という状況そのもの)
+  }
+
+  // --- 21.2 ばらつきが出せないときは副次テキストごと出さない --------------------
+  // stddev は arr.length < 2 で null を返す。採用フレームが1つしかないセッションで
+  // 「ばらつき ±null¢」「±NaN¢」を出さないこと。
+  {
+    // 2フレーム(dur=25ms)。トリム帯 t∈[0.00833,0.01667] にフレームが無いので
+    // 「全滅させない」フォールバックでインデックス中央の1フレームだけが採用される。
+    const frames = [pf(0, 10, 7), pf(0.025, 10, 9)];
+    const m = api.computeFrameMetrics(frames);
+    check("21.2 採用フレームが1つのとき ばらつきは算出されない(stddevがnull)",
+      m.pitchFrameUsed === 1 && m.pitchStabilityCents === null,
+      `used=${m.pitchFrameUsed} sd=${m.pitchStabilityCents}`);
+    check("21.2 そのとき副次テキストは出さない(nullを返す)",
+      callSub(api.pitchSpreadSub, m) === null, `${callSub(api.pitchSpreadSub, m)}`);
+    check("21.2 主役の数字は今までどおり出る(副次だけが消える)",
+      m.pitchCentsSigned !== null && m.pitchCentsSigned !== undefined);
+    for (const [label, arg] of [
+      ["null", null], ["undefined", undefined], ["空オブジェクト", {}],
+      ["sd=null", { pitchStabilityCents: null }],
+      ["sd=undefined", { pitchStabilityCents: undefined }],
+      ["sd=NaN", { pitchStabilityCents: NaN }],
+    ]) {
+      check(`21.2 ${label} でも副次テキストは null(「±null¢」「±NaN¢」を出さない)`,
+        callSub(api.pitchSpreadSub, arg) === null, `${callSub(api.pitchSpreadSub, arg)}`);
+    }
+  }
+
+  // --- 21.3 表記と桁 -----------------------------------------------------------
+  // 表記は「ばらつき ±5.3¢」で統一(F-46 の「ピッチ誤差」統一と同じ方針)。桁は主役と揃えて小数1桁。
+  {
+    check("21.3 桁は主役と同じ小数1桁(5.34 → ±5.3)",
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.34 }) === "ばらつき ±5.3¢",
+      `${callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.34 })}`);
+    // 端数は toFixed(1) の丸め(5.37→5.4 / 0.04→0.0)。5.35 のような二進で表せない中間値は
+    // 処理系の丸めが "5.3" 側に落ちるので、丸め方向の検査には使わない。
+    check("21.3 端数は1桁に丸める(5.37 → ±5.4 / 0.04 → ±0.0)",
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.37 }) === "ばらつき ±5.4¢" &&
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0.04 }) === "ばらつき ±0.0¢");
+    check("21.3 ばらつき0(全採用フレームが同じ値)は「±0.0¢」として出す(消さない)",
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0 }) === "ばらつき ±0.0¢");
+    // 主役(偏り)ではなく、ばらつき(標準偏差)を読んでいること。
+    // 両方入れた指標オブジェクトで、どちらを読んでいるかを判別する。
+    check("21.3 読むのは pitchStabilityCents であって pitchCentsSigned ではない",
+      callSub(api.pitchSpreadSub, { pitchCentsSigned: 9.9, pitchStabilityCents: 5.34 }) === "ばらつき ±5.3¢");
+    check("21.3 常に非負の量なので符号は「±」1つだけ(「±-」が出ない)",
+      !/±-/.test(callSub(api.pitchSpreadSub, { pitchStabilityCents: 4.4 })));
+  }
+
+  // --- 21.4 導出は指標定義に1つだけ(4画面へコピペしない) ------------------------
+  // F-46 で SESSION_METRICS を廃止して1配列に統合したのと同じ考え方。
+  {
+    const fixture = { pitchCentsSigned: 1.2, pitchStabilityCents: 5.3 };
+    for (const [name, arr] of [["REED_COMPARE_METRICS", api.REED_COMPARE_METRICS], ["MY_DATA_METRICS", api.MY_DATA_METRICS]]) {
+      const pitch = arr.find((x) => x.key === "pitchCentsSigned");
+      const sub = typeof pitch?.sub === "function" ? pitch.sub : () => "(subが無い)";
+      check(`21.4 ${name} のピッチ誤差は副次テキストの導出(sub)を持つ`,
+        typeof pitch?.sub === "function");
+      check(`21.4 ${name} の sub は指標オブジェクトから「ばらつき ±5.3¢」を返す`,
+        callSub(sub, fixture) === "ばらつき ±5.3¢", `${callSub(sub, fixture)}`);
+      check(`21.4 ${name} の sub は共通の pitchSpreadSub と同じ結果を返す(写しではない)`,
+        callSub(sub, fixture) === callSub(api.pitchSpreadSub, fixture) &&
+        callSub(sub, {}) === callSub(api.pitchSpreadSub, {}));
+      // ばらつきはピッチ誤差だけの話。音量・HNR・重心に副次テキストは付かない
+      for (const other of arr.filter((x) => x.key !== "pitchCentsSigned")) {
+        check(`21.4 ${name} の ${other.key} には sub が無い(ばらつきはピッチ誤差だけ)`,
+          other.sub === undefined);
+      }
+    }
+    // 「4箇所にコピペしない」を綴りで縛る。表示文言の組み立ては動く側に1回しか現れない
+    // (**「無いこと」ではなく「1回だけ」を見る検査なので codeOf() で経緯コメントを外す**)。
+    const liveSrc = codeOf(src);
+    check("21.4 副次テキストの文言の組み立ては動く側のソースに1箇所だけ",
+      (liveSrc.match(/ばらつき/g) || []).length === 1,
+      `${(liveSrc.match(/ばらつき/g) || []).length}箇所`);
+    check("21.4 表記は「ばらつき」で統一(「安定度」「標準偏差」を混ぜない)",
+      !liveSrc.includes("安定度") && !liveSrc.includes("標準偏差"));
+  }
+
+  // --- 21.5 配線: 4画面すべてが指標定義の sub を渡している ----------------------
+  // 純関数と指標定義が正しくても、カードに渡していなければ画面には出ない。
+  // (ハーネスはJSXを評価しないので、ここは実ソースの綴りで縛る。この節の限界として明記する)
+  {
+    const componentSourceOf = (name) => {
+      const idx = src.indexOf(`function ${name}(`);
+      if (idx === -1) throw new Error(`function ${name} not found`);
+      let i = src.indexOf("(", idx), depth = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === "(") depth++;
+        else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+      }
+      while (i < src.length && src[i] !== "{") i++;
+      let d = 0;
+      for (let j = i; j < src.length; j++) {
+        if (src[j] === "{") d++;
+        else if (src[j] === "}") { d--; if (d === 0) return src.slice(idx, j + 1); }
+      }
+      throw new Error(`function ${name}: unbalanced braces`);
+    };
+    const wiring = [
+      ["MyDataSection（My Dataカード）", "MyDataSection", /sub=\{m\.sub\?\.\(overall\)/],
+      ["LatestSessionCard（最新セッション）", "LatestSessionCard", /sub=\{mt\.sub\?\.\(m\) \?\? null\}/],
+      ["SessionDetailView（個別セッション）", "SessionDetailView", /sub=\{mt\.sub\?\.\(sessionMetrics\) \?\? null\}/],
+      ["ReedEvaluationDetail（登録済みリードの測定データ）", "ReedEvaluationDetail", /sub=\{m\.sub\?\.\(overall\) \?\? null\}/],
+    ];
+    for (const [label, fn, re] of wiring) {
+      check(`21.5 ${label} は指標定義の sub をカードに渡している`, re.test(componentSourceOf(fn)));
+    }
+    // ヒーローは TappableMetricCard ではないので個別に見る。主役の大きい数字と**同じ母集団**
+    // から出していること(今日を出しているのに対象期間のばらつきを添えると読み違える)。
+    const myDataSection = componentSourceOf("MyDataSection");
+    check("21.5 ヒーローのばらつきは主役の数字と同じ母集団から出す",
+      /const heroSpread = pitchSpreadSub\(todayVal != null \? todayMetrics : overall\);/.test(myDataSection));
+    check("21.5 ヒーローは heroSpread があるときだけ副次行を出す",
+      /\{heroSpread && <span>\{heroSpread\}<\/span>\}/.test(myDataSection));
+    check("21.5 ヒーローの副次行の色は既存の副次色(#9DB3D6)のまま(新しい色を作らない)",
+      /\{\(heroSpread \|\| \(todayVal != null && periodVal != null\)\) && \([\s\S]{0,200}?color: "#9DB3D6"/.test(myDataSection));
+    // TappableMetricCard 側の受け口(sub)が生きていること
+    const cardCode = componentSourceOf("TappableMetricCard");
+    check("21.5 TappableMetricCard は sub を引数に受け取る",
+      /function TappableMetricCard\(\{[^}]*\bsub\b[^}]*\}\)/.test(src));
+    check("21.5 TappableMetricCard は sub があるときだけ副次行を描く",
+      /\{sub && <div className="sans"/.test(cardCode));
+  }
+
   console.log("  -> done");
 }
 
