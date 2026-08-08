@@ -6369,7 +6369,9 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
       extractFunction("freqToNote"),
       extractFunction("concertFreqLabel"),
       extractFunction("buildFingeringTable"),
+      extractFunction("concertNoteTableOf"),
       extractFunction("concertNoteLabelOf"),
+      extractFunction("concertNoteFreqOf"),
       extractFunction("groupFramesByNote"),
     ].join("\n\n");
     for (const [name, val] of Object.entries(overrides)) {
@@ -6728,7 +6730,9 @@ console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
       extractFunction("freqToNote"),
       extractFunction("concertFreqLabel"),
       extractFunction("buildFingeringTable"),
+      extractFunction("concertNoteTableOf"),
       extractFunction("concertNoteLabelOf"),
+      extractFunction("concertNoteFreqOf"),
       extractFunction("groupFramesByNote"),
       extractFunction("buildFramesWithContext"),
       extractFunction("pitchCellColor"),
@@ -7425,7 +7429,9 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       extractFunction("concertFreqLabel"),
       extractFunction("buildFingeringTable"),
       extractConst("CONCERT_LABEL_CACHE"),
+      extractFunction("concertNoteTableOf"),
       extractFunction("concertNoteLabelOf"),
+      extractFunction("concertNoteFreqOf"),
       extractFunction("mean"),
       extractFunction("median"),
       extractFunction("stddev"),
@@ -7454,7 +7460,7 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
     }
     return new Function(`${pieces}
-      return { concertNoteLabelOf, writtenNoteLabel, buildFingeringTable, freqToNote,
+      return { concertNoteLabelOf, concertNoteFreqOf, writtenNoteLabel, buildFingeringTable, freqToNote,
                groupFramesByNote, buildFramesWithContext, buildPivot,
                PIVOT_DIMENSIONS, SAX_CONCERT_RANGE, NOTE_NAMES };`)();
   };
@@ -7607,17 +7613,66 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       groups.map((g) => g.concertLabel).join(","));
     const sess = { frames: multi, reedId: null, recordedAt: "2026-08-08T00:00:00.000Z", performer: "自分", saxType: "alto", source: "recording", memo: "" };
     const pv = nApi.buildPivot(nApi.buildFramesWithContext([sess], []), ctx, "note", "none", "volume", []);
-    check("21.6 PIVOTの行順も運指の降順のまま(getSort = -semitoneIndex)",
+    check("21.6 PIVOTの行順も高い音が上(単一楽器)",
       pv.rowKeys.join(",") === [32, 20, 0].map((i) => nApi.concertNoteLabelOf(i, "alto", TUNE)).join(","),
       pv.rowKeys.join(","));
+
+    // 【F-60 の差し戻しで追加】**複数の楽器種別を混ぜたときこそ本番**。
+    // 検証役の実測で、運指(semitoneIndex)で並べていたために実音の高さが4箇所逆転していた
+    // (アルト si=32 は A5=880Hz、テナー si=32 は E5=659Hz。運指が同じでも実音は違う)。
+    // ここは「1つの楽器だけ流す」検査では絶対に捕まらない。混在を必ず流すこと。
+    {
+      // 楽器種別は**フレームではなくセッション**が持つ(buildFramesWithContext が s.saxType を
+      // 各フレームへ配る)。
+      //
+      // 【データの選び方がこの検査の生命線】運指順と実音順が**食い違う**組み合わせを選ぶこと。
+      // 同じ運指番号を2つの楽器で吹かせるだけでは、運指で並べても実音で並べても同じ順序になり、
+      // 検査が何も守らない(統括が最初にこれをやり、変異を当てても緑のまま通った)。
+      // 使う組み合わせ(検証役が実機で見つけた逆転そのもの):
+      //   アルト si=32 → A5(880Hz) / アルト si=28 → F5(698Hz) / テナー si=32 → E5(659Hz)
+      //   実音の高さ順 : A5 > F5 > E5
+      //   運指の降順   : si32(A5) → si32(E5) → si28(F5)   ← F5 と E5 が逆転する
+      const framesAlto = [
+        ...Array.from({ length: 12 }, (_, k) => mkFrame(k * HOP, 32, "alto", null, nApi.writtenNoteLabel(32))),
+        ...Array.from({ length: 12 }, (_, k) => mkFrame(2.0 + k * HOP, 28, "alto", null, nApi.writtenNoteLabel(28))),
+      ];
+      const framesTenor = Array.from({ length: 12 }, (_, k) => mkFrame(k * HOP, 32, "tenor", null, nApi.writtenNoteLabel(32)));
+      const sA = { frames: framesAlto, reedId: null, recordedAt: "2026-08-08T00:00:00.000Z", performer: "自分", saxType: "alto", source: "recording", memo: "" };
+      const sT = { frames: framesTenor, reedId: null, recordedAt: "2026-08-08T01:00:00.000Z", performer: "自分", saxType: "tenor", source: "recording", memo: "" };
+      const pvMix = nApi.buildPivot(nApi.buildFramesWithContext([sA, sT], []), ctx, "note", "none", "volume", []);
+      // 期待順はテスト側で独立に組む: 4つの (運指, 楽器) の実音Hzを降順に並べたラベル列
+      const USED = [[32, "alto"], [28, "alto"], [32, "tenor"]];
+      const expect = USED
+        .map(([i, sx]) => ({ label: nApi.concertNoteLabelOf(i, sx, TUNE), hz: nApi.concertNoteFreqOf(i, sx, TUNE) }))
+        .sort((a, b) => b.hz - a.hz)
+        .map((e) => e.label);
+      // このデータで運指順と実音順が本当に違うことを、検査自身が先に確かめる
+      // (同じ順序になるデータを選ぶと、以下の主張は何も守らなくなるため)
+      const byFingering = USED.slice().sort((a, b) => -a[0] - -b[0]).map(([i, sx]) => nApi.concertNoteLabelOf(i, sx, TUNE));
+      check("21.6 (前提) 選んだデータは運指順と実音順が食い違う=この検査が意味を持つ",
+        byFingering.join(",") !== expect.join(","), `運指順 ${byFingering.join(",")} / 実音順 ${expect.join(",")}`);
+      check("21.6 PIVOTの行順は**楽器が混ざっても**実音の高さの降順(運指の順ではない)",
+        pvMix.rowKeys.join(",") === expect.join(","), `実測 ${pvMix.rowKeys.join(",")} / 期待 ${expect.join(",")}`);
+      // 逆転が1つも無いことを、ラベルではなく実音Hzで直接主張する(ラベルの綴りに依らない)
+      const hzSeq = pvMix.rowKeys.map((lbl) => {
+        for (const [i, sx] of USED) {
+          if (nApi.concertNoteLabelOf(i, sx, TUNE) === lbl) return nApi.concertNoteFreqOf(i, sx, TUNE);
+        }
+        return null;
+      });
+      check("21.6 混在時の行順に音の高さの逆転が1つも無い",
+        hzSeq.every((v, i) => i === 0 || (v !== null && hzSeq[i - 1] !== null && hzSeq[i - 1] >= v)),
+        hzSeq.map((v) => (v === null ? "?" : v.toFixed(1))).join(" > "));
+    }
   }
 
   // --- 21.7 変異試験(変異は複製した文字列にだけ当てる。実ツリーには触れない) --------
   {
     // (a) ラベルを記音に戻す変異 → 21.1 が落ちる
     const mutWritten = buildNoteApi([
-      ["labels: buildFingeringTable(saxType, tuningHz).map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),",
-        "labels: buildFingeringTable(saxType, tuningHz).map((e) => e.writtenLabel), // MUTATION"],
+      // F-60 の修正で labels は table 変数から作るようになった(freqs と同じ土台から出すため)。
+      ["labels: table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),",
+        "labels: table.map((e) => e.writtenLabel), // MUTATION"],
     ]);
     check("21.7x 変異(ラベルを記音に戻す)では最低音がB♭3・最高音がF♯6になり21.1が落ちる",
       mutWritten.concertNoteLabelOf(0, "alto", TUNE) === "B♭3" &&
@@ -7742,10 +7797,20 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         `del=${del} select=${dimSelect}`);
       check("F-57: × は1個だけ(末尾に置いていた分が残っていない)",
         (lab.match(/title="このフィルターを削除"/g) || []).length === 1);
-      // タップ領域を落とさない: 移動前と同じ padding / fontSize のまま
+      // 【検証で差し戻し】この検査は元々「移動前と同じ padding のまま」= 15.59×19px を固定して
+      // おり、本人が出した完了条件(§5 の 44×44pt)に**反する状態をロックしていた**。
+      // 「既存と同じ」を守る検査は、その既存が要件違反のときに要件違反を守ってしまう。
+      // 当たり判定は 44pt を要求し、**見た目の文字の大きさ**(fontSize 13)は据え置きを要求する。
       const delTag = lab.slice(lab.lastIndexOf("<button", del), lab.indexOf("</button>", del));
-      check("F-57: × の当たり判定(padding / fontSize)は移動前と同じ",
-        /fontSize: 13/.test(delTag) && /padding: "2px 4px"/.test(delTag), delTag.replace(/\s+/g, " ").slice(0, 200));
+      check("F-57: × の当たり判定は §5 の 44×44pt 以上(--tap-min)",
+        /minWidth: "var\(--tap-min\)"/.test(delTag) && /minHeight: "var\(--tap-min\)"/.test(delTag),
+        delTag.replace(/\s+/g, " ").slice(0, 200));
+      check("F-57: × の見た目(文字の大きさ)は変えない(fontSize 13 のまま)",
+        /fontSize: 13/.test(delTag), delTag.replace(/\s+/g, " ").slice(0, 200));
+      // 当たり判定を広げたぶんで行が伸びないよう、上下の食い出しを相殺していること
+      check("F-57: 当たり判定を広げた分は marginTop/Bottom で相殺し、行の高さを変えない",
+        /marginTop: -8/.test(delTag) && /marginBottom: -8/.test(delTag),
+        delTag.replace(/\s+/g, " ").slice(0, 200));
     }
 
     // F-58: セッション一覧のゴミ箱を、リードタブの削除ボタンと同じ枠(内側のピル)にする。

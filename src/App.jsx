@@ -638,19 +638,36 @@ function buildFingeringTable(saxType, tuningHz, numNotes) {
 // 同じ semitoneIndex でも実音は変わるので、**そのフレームのセッションの saxType** を必ず渡すこと。
 // buildFingeringTable はフレームごとに呼ばない(毎回33音のテーブルを作ることになる)ため、
 // 楽器種別ごとに直近の tuningHz のラベル列だけを持つ。Map の要素数は楽器種別の数(4)が上限。
-const CONCERT_LABEL_CACHE = new Map(); // saxType -> { tuningHz, labels: string[] }
-function concertNoteLabelOf(semitoneIndex, saxType, tuningHz) {
-  if (semitoneIndex === null || semitoneIndex === undefined) return null;
+const CONCERT_LABEL_CACHE = new Map(); // saxType -> { tuningHz, labels: string[], freqs: number[] }
+function concertNoteTableOf(saxType, tuningHz) {
   if (!SAX_CONCERT_RANGE[saxType] || !(tuningHz > 0)) return null;
   let hit = CONCERT_LABEL_CACHE.get(saxType);
   if (!hit || hit.tuningHz !== tuningHz) {
+    const table = buildFingeringTable(saxType, tuningHz);
     hit = {
       tuningHz,
-      labels: buildFingeringTable(saxType, tuningHz).map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),
+      labels: table.map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),
+      // 並べ替え用の実音の高さ。ラベルと同じテーブルから同時に作るので、
+      // 表示と並びが必ず同じ土台から出る(片方だけ実音・片方だけ運指、という食い違いを防ぐ)。
+      freqs: table.map((e) => e.soundingFreqHz),
     };
     CONCERT_LABEL_CACHE.set(saxType, hit);
   }
-  return hit.labels[semitoneIndex] ?? null;
+  return hit;
+}
+function concertNoteLabelOf(semitoneIndex, saxType, tuningHz) {
+  if (semitoneIndex === null || semitoneIndex === undefined) return null;
+  const hit = concertNoteTableOf(saxType, tuningHz);
+  return hit ? (hit.labels[semitoneIndex] ?? null) : null;
+}
+// 実音の高さ(Hz)。PIVOTの音名軸を「音の高さ順」に並べるのに使う。
+// 【F-60】運指(semitoneIndex)で並べてはいけない。F-54でラベルを実音にしたので、
+// 楽器種別が混ざると運指の順と実音の高さの順が一致しなくなる
+// (アルトの si=32 は A5=880Hz、テナーの si=32 は E5=659Hz。運指で並べると E5 が A5 より上に来る)。
+function concertNoteFreqOf(semitoneIndex, saxType, tuningHz) {
+  if (semitoneIndex === null || semitoneIndex === undefined) return null;
+  const hit = concertNoteTableOf(saxType, tuningHz);
+  return hit ? (hit.freqs[semitoneIndex] ?? null) : null;
 }
 
 // 実測周波数に最も近い運指をテーブルから検索(セント距離で比較)
@@ -8097,10 +8114,19 @@ const PIVOT_DIMENSIONS = [
     getValue: (f, ctx) =>
       concertNoteLabelOf(f.semitoneIndex, f.saxType, ctx?.tuningHz)
       || f.concertNote || f.matchedWrittenNote || null,
-    // 縦軸では上から、横軸では左から高い音が来るように、半音インデックスの降順(符号反転)で
-    // ソートする(未判定は999で従来通り末尾に置く)。行・列とも同じ昇順ソートを共通で使う
+    // 縦軸では上から、横軸では左から高い音が来るように、**実音の高さ**の降順(符号反転)で
+    // ソートする(未判定は Infinity で従来通り末尾に置く)。行・列とも同じ昇順ソートを共通で使う
     // buildPivotの仕組み上、ここでソートキーを反転させるのが一番シンプルな実装になる。
-    getSort: (f) => (f.semitoneIndex === null || f.semitoneIndex === undefined ? 999 : -f.semitoneIndex),
+    // 【F-60】以前は運指(semitoneIndex)の降順だった。F-54 でラベルを実音にしたため、
+    // 楽器種別が混ざると運指の順と実音の高さの順が食い違い、実測で4箇所の逆転が出た
+    // (E5がF5より上・G♯4がA4より上・C4がC♯4より上・E3がF3より上)。表示と同じ土台
+    // (concertNoteTableOf)から高さを引いて並べる。旧データ等で高さが引けない場合だけ、
+    // 従来どおり運指で並べる(実音ラベルも引けないので、その行は元々フォールバック表示)。
+    getSort: (f, ctx) => {
+      if (f.semitoneIndex === null || f.semitoneIndex === undefined) return Infinity;
+      const hz = concertNoteFreqOf(f.semitoneIndex, f.saxType, ctx?.tuningHz);
+      return hz ? -hz : -f.semitoneIndex;
+    },
   },
   {
     key: "band", label: "音域帯",
@@ -9026,10 +9052,20 @@ function AnalysisLabView(props) {
                 return (
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                     {/* 【F-57 本人指示】条件削除の × は「そのカテゴリ名の先頭」に置く。
-                        見た目・当たり判定は末尾にあったときと同一のまま、並び順だけ入れ替える。 */}
+                        当たり判定は §5 の 44×44pt を満たす(検証で 15.59×19px しかないと指摘された)。
+                        **見た目の × の大きさは変えない**。透明な当たり判定を広げるだけなので、
+                        文字は fontSize 13 のまま中央に置き、行の高さが伸びないよう
+                        marginTop で上下の食い出しを相殺する(隣の select は高さ28px)。 */}
                     <button
                       onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
-                      style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 4px" }}
+                      aria-label="このフィルターを削除"
+                      style={{
+                        background: "none", border: "none", color: "#8D95A1", cursor: "pointer",
+                        fontSize: 13, flexShrink: 0, padding: 0,
+                        minWidth: "var(--tap-min)", minHeight: "var(--tap-min)",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        marginTop: -8, marginBottom: -8,
+                      }}
                       title="このフィルターを削除"
                     >
                       ×
