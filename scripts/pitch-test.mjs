@@ -185,8 +185,10 @@ const code = [
   extractFunction("ratingDialOrder"),
   extractFunction("reedScoreText"),
   extractFunction("reedHistoryEntry"),
+  extractFunction("reedRatingDayKey"),
   extractFunction("normalizeRatingHistory"),
   extractFunction("commitReedScores"),
+  extractFunction("reedGroupAvgRating"),
   extractFunction("ratingDialValueAt"),
   extractFunction("ratingDialOffsetFor"),
   extractFunction("ratingDialScrollIsUser"),
@@ -242,7 +244,8 @@ const api = new Function(`${code}
            REED_RATING_STEP, REED_RATING_STEPS_N, RATING_DIAL_RATING_ORDER, RATING_DIAL_VISIBLE,
            RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_NEUTRAL, REED_SCORE_PLOT_H,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
-           reedHistoryEntry, normalizeRatingHistory, commitReedScores,
+           reedHistoryEntry, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
+           reedGroupAvgRating,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
            reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
            reedScoreRowItems,
@@ -2867,6 +2870,210 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       api.commitReedScores({}, { rating: null, thickness: null, balance: null }, at) === null);
   }
 
+  // --- F-61 同じカレンダー日(ローカル)の記録は積まずに上書きする ---------------
+  // 本人指示「リード評価遷移は同じ日付に変更があった場合は上書きされる仕組みに変更」。
+  //
+  // 【この検査が TZ を固定する理由】「ローカルの暦日で判定する」という要件は、
+  // 実行環境が UTC だと**成立しているかどうか観測できない**(ローカル日 = UTC 日 なので、
+  // toISOString().slice(0,10) で書かれた実装も同じ答えを返す)。
+  // ずれのある実在のゾーン(Asia/Tokyo = UTC+9・DST なし)に固定して、
+  // 「UTC の日は同じだがローカルの日は違う」「UTC の日は違うがローカルの日は同じ」の
+  // 両方向を当てる。固定できたこと・元へ戻せたことも検査にする(黙って素通りさせない)。
+  {
+    const tzOrig = process.env.TZ;
+    const tzSystem = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const offBefore = new Date(2026, 0, 1).getTimezoneOffset();
+    const hist = (q) => (q && q.ratings) || [];
+    const entry = (a, r, t, b) => ({ at: a, rating: r, thickness: t, balance: b });
+    try {
+      process.env.TZ = "Asia/Tokyo";
+      check("TZ を Asia/Tokyo(UTC+9)に固定できている(以下の判定の前提)",
+        new Date("2026-08-08T15:30:00.000Z").getTimezoneOffset() === -540,
+        String(new Date("2026-08-08T15:30:00.000Z").getTimezoneOffset()));
+
+      // (a) 同じ日に2回変えても履歴は1件のまま。中身は最後の値、日時も最後の時刻
+      {
+        const t1 = "2026-08-08T01:00:00.000Z"; // JST 8/8 10:00
+        const t2 = "2026-08-08T08:00:00.000Z"; // JST 8/8 17:00
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry(t1, 3, 3, 3)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 2, balance: 5 }, t2);
+        check("同じ日に評価し直しても履歴は1件のまま", hist(p).length === 1, `${hist(p).length}件`);
+        check("残るのはその日の最後の値", !!hist(p)[0] &&
+          hist(p)[0].rating === 4.2 && hist(p)[0].thickness === 2 && hist(p)[0].balance === 5,
+          JSON.stringify(hist(p)[0] || null));
+        check("残る記録の日時は新しい方の時刻", !!hist(p)[0] && hist(p)[0].at === t2,
+          hist(p)[0] ? hist(p)[0].at : "null");
+      }
+      // (b) 日をまたげば増える
+      {
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry("2026-08-07T08:00:00.000Z", 3, 3, 3)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 3, balance: 3 }, "2026-08-08T08:00:00.000Z");
+        check("日をまたいだら履歴は2件になる", hist(p).length === 2, `${hist(p).length}件`);
+        check("前の日の記録はそのまま残る", hist(p)[0] && hist(p)[0].rating === 3 && hist(p)[1].rating === 4.2,
+          hist(p).map((h) => h.rating).join(","));
+      }
+      // (c) **年が違う同じ月日は別の記録**。表示用の reedScoreDateLabel(M/D)を
+      //     判定に流用すると、ここで1年前の記録が消える
+      {
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry("2025-08-08T08:00:00.000Z", 3, 3, 3)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 3, balance: 3 }, "2026-08-08T08:00:00.000Z");
+        check("年が違う同じ月日は別の記録になる(M/D で判定していない)", hist(p).length === 2, `${hist(p).length}件`);
+        check("表示用ラベルは両方とも同じ 8/8(判定に使えないことの裏取り)",
+          api.reedScoreDateLabel("2025-08-08T08:00:00.000Z") === api.reedScoreDateLabel("2026-08-08T08:00:00.000Z"),
+          `${api.reedScoreDateLabel("2025-08-08T08:00:00.000Z")} / ${api.reedScoreDateLabel("2026-08-08T08:00:00.000Z")}`);
+      }
+      // (d) 【UTC 実装だと落ちる方向 その1】UTC は同じ 8/8 だが、JST では 8/8 と 8/9
+      {
+        const t1 = "2026-08-08T14:30:00.000Z"; // JST 8/8 23:30
+        const t2 = "2026-08-08T15:30:00.000Z"; // JST 8/9 00:30
+        check("この2つの UTC 日は同じ(前提)",
+          t1.slice(0, 10) === t2.slice(0, 10), `${t1.slice(0, 10)} / ${t2.slice(0, 10)}`);
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry(t1, 3, 3, 3)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 3, balance: 3 }, t2);
+        check("ローカルで日付が変わっていれば増える(UTC で判定していない)", hist(p).length === 2, `${hist(p).length}件`);
+      }
+      // (e) 【UTC 実装だと落ちる方向 その2】UTC は 8/7 と 8/8 だが、JST ではどちらも 8/8
+      {
+        const t1 = "2026-08-07T16:00:00.000Z"; // JST 8/8 01:00
+        const t2 = "2026-08-08T13:00:00.000Z"; // JST 8/8 22:00
+        check("この2つの UTC 日は違う(前提)",
+          t1.slice(0, 10) !== t2.slice(0, 10), `${t1.slice(0, 10)} / ${t2.slice(0, 10)}`);
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry(t1, 3, 3, 3)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 3, balance: 3 }, t2);
+        check("ローカルで同じ日なら上書きする(UTC で判定していない)", hist(p).length === 1, `${hist(p).length}件`);
+      }
+      // (f) 置き換えても並びは古い順のまま。前後に別の日の記録があっても位置がずれない
+      {
+        const reed = {
+          rating: 3, thickness: 3, balance: 3,
+          ratings: [
+            entry("2026-08-05T08:00:00.000Z", 1, 1, 1),
+            entry("2026-08-08T01:00:00.000Z", 2, 2, 2),
+            entry("2026-08-11T08:00:00.000Z", 5, 5, 5),
+          ],
+        };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 4, balance: 4 }, "2026-08-08T09:00:00.000Z");
+        check("真ん中の日を上書きしても件数は増えない", hist(p).length === 3, `${hist(p).length}件`);
+        check("上書きしたのは同じ日の1件だけ(前後の日は無傷)",
+          hist(p)[0] && hist(p)[0].rating === 1 && hist(p)[1].rating === 4.2 && hist(p)[2].rating === 5,
+          hist(p).map((h) => h.rating).join(","));
+        const sorted = api.normalizeRatingHistory(hist(p));
+        check("上書き後も古い順に並ぶ(並べ直しても順序が変わらない)",
+          sorted.length === 3 && sorted.map((h) => h.rating).join(",") === "1,4.2,5",
+          sorted.map((h) => h.rating).join(","));
+      }
+      // (g) 古いデータに同じ日が2件以上あっても、上書きで1件にまとまる
+      {
+        const reed = {
+          rating: 3, thickness: 3, balance: 3,
+          ratings: [
+            entry("2026-08-08T01:00:00.000Z", 1, 1, 1),
+            entry("2026-08-08T05:00:00.000Z", 2, 2, 2),
+            entry("2026-08-09T05:00:00.000Z", 5, 5, 5),
+          ],
+        };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 4, balance: 4 }, "2026-08-08T09:00:00.000Z");
+        check("同じ日が複数あった古いデータは1件にまとまる", hist(p).length === 2, `${hist(p).length}件`);
+        check("まとまった位置は元の並びのまま(翌日の記録より前)",
+          hist(p)[0] && hist(p)[0].rating === 4.2 && hist(p)[1].rating === 5,
+          hist(p).map((h) => h.rating).join(","));
+      }
+      // (h) 「直前と3つとも同じなら積まない」既存の意図を壊していない
+      {
+        const reed = { rating: 2, thickness: 2, balance: 2, ratings: [entry("2026-08-08T01:00:00.000Z", 4, 4, 4)] };
+        const p = api.commitReedScores(reed, { rating: 4, thickness: 4, balance: 4 }, "2026-08-08T09:00:00.000Z");
+        check("直前の記録と3つとも同じなら履歴に触れない(上書きもしない)",
+          p !== null && !("ratings" in p), p ? Object.keys(p).join(",") : "null");
+      }
+      // (i) 読めない日時の記録を巻き込まない(捨てられる記録を上書き対象にしない)
+      {
+        const reed = { rating: 3, thickness: 3, balance: 3, ratings: [entry("こわれた", 1, 1, 1)] };
+        const p = api.commitReedScores(reed, { rating: 4.2, thickness: 3, balance: 3 }, "2026-08-08T09:00:00.000Z");
+        check("日時が読めない記録は上書き対象にしない(末尾へ追加する)", hist(p).length === 2, `${hist(p).length}件`);
+        check("暦日キーは読めない日時に null を返す", api.reedRatingDayKey("こわれた") === null,
+          String(api.reedRatingDayKey("こわれた")));
+      }
+      // (j) 暦日キーそのもの: 年を落とさない / 0埋めする
+      check("暦日キーは年月日を全部持つ", api.reedRatingDayKey("2026-01-02T09:00:00.000Z") === "2026-01-02",
+        String(api.reedRatingDayKey("2026-01-02T09:00:00.000Z")));
+      check("暦日キーは1桁の月日を0埋めする(1/12 と 11/2 が同じ綴りにならない)",
+        api.reedRatingDayKey("2026-01-12T09:00:00.000Z") !== api.reedRatingDayKey("2026-11-02T09:00:00.000Z") &&
+        api.reedRatingDayKey("2026-01-12T09:00:00.000Z").length === api.reedRatingDayKey("2026-11-02T09:00:00.000Z").length,
+        `${api.reedRatingDayKey("2026-01-12T09:00:00.000Z")} / ${api.reedRatingDayKey("2026-11-02T09:00:00.000Z")}`);
+    } finally {
+      process.env.TZ = tzOrig === undefined ? tzSystem : tzOrig;
+    }
+    check("TZ を元に戻せている(以降の日付の検査を汚していない)",
+      new Date(2026, 0, 1).getTimezoneOffset() === offBefore,
+      `${new Date(2026, 0, 1).getTimezoneOffset()} / 元 ${offBefore}`);
+  }
+
+  // --- F-62 箱の平均総評は総評と同じ 0.1 刻み ---------------------------------
+  // 本人指示「箱単位の平均総評が.1刻みになっているか確認。なっていなければ.1刻みに修正」。
+  // 丸めていないと、title に出る "4.1" と StarRating の塗り(生の 4.0666…)が別の値を指す。
+  {
+    const mem = (...vs) => vs.map((v) => ({ rating: v }));
+    check("4.0 / 4.1 / 4.1 の箱の平均は 4.1", api.reedGroupAvgRating(mem(4.0, 4.1, 4.1)) === 4.1,
+      String(api.reedGroupAvgRating(mem(4.0, 4.1, 4.1))));
+    // 生の平均そのものではないこと(丸めを外すとここが落ちる)
+    check("生の平均(4.0666…)をそのまま返していない",
+      api.reedGroupAvgRating(mem(4.0, 4.1, 4.1)) !== (4.0 + 4.1 + 4.1) / 3,
+      String((4.0 + 4.1 + 4.1) / 3));
+    // 整数に丸めてもいない
+    check("整数に丸めてもいない(0.1 刻みを保つ)", api.reedGroupAvgRating(mem(4.0, 4.1, 4.1)) !== 4,
+      String(api.reedGroupAvgRating(mem(4.0, 4.1, 4.1))));
+    check("2枚 3.0 / 4.0 の平均は 3.5", api.reedGroupAvgRating(mem(3, 4)) === 3.5,
+      String(api.reedGroupAvgRating(mem(3, 4))));
+    check("1枚だけならその値", api.reedGroupAvgRating(mem(3.7)) === 3.7, String(api.reedGroupAvgRating(mem(3.7))));
+    check("未評価しか無い箱は null",
+      api.reedGroupAvgRating([{ rating: null }, { rating: undefined }, {}]) === null,
+      String(api.reedGroupAvgRating([{ rating: null }, { rating: undefined }, {}])));
+    check("空の箱でも例外を投げない",
+      api.reedGroupAvgRating([]) === null && api.reedGroupAvgRating(null) === null &&
+      api.reedGroupAvgRating(undefined) === null);
+    check("未評価の枚数は平均に混ざらない(3.0 と未評価2枚の平均は 3.0)",
+      api.reedGroupAvgRating([{ rating: 3 }, { rating: null }, { rating: undefined }]) === 3,
+      String(api.reedGroupAvgRating([{ rating: 3 }, { rating: null }, { rating: undefined }])));
+    // **完了条件そのもの**: title の文字列(toFixed(1))と星に渡す値が同じものを指す。
+    // 41段の総評から作れる 1〜5枚のあらゆる組み合わせを総当たりし、
+    //   (1) 値が小数第1位で正確に書ける = toFixed(1) を通しても値が変わらない
+    //   (2) その値が総評の刻み(normalizeReedRating)の上に乗っている
+    // の両方を要求する。丸めを外すと 4.0666… で (1) が落ちる。
+    {
+      // 41^5 は総当たりできないので、刻みの端・中・端の代表値で1〜5枚の箱を作る
+      const grid = api.RATING_DIAL_RATING_ORDER;
+      const reps = [grid[0], grid[1], grid[10], grid[20], grid[30], grid[grid.length - 2], grid[grid.length - 1]];
+      let mismatch = null, offGrid = null, n = 0;
+      const walk = (acc) => {
+        if (acc.length) {
+          const v = api.reedGroupAvgRating(acc.map((x) => ({ rating: x })));
+          n++;
+          if (v !== null && Number(v.toFixed(1)) !== v) mismatch = mismatch || `${acc.join("+")} -> ${v}`;
+          if (v !== null && api.normalizeReedRating(v) !== v) offGrid = offGrid || `${acc.join("+")} -> ${v}`;
+        }
+        if (acc.length === 5) return;
+        for (const g of reps) walk([...acc, g]);
+      };
+      walk([]);
+      check("星に渡す平均は title の toFixed(1) と同じ値を指す(小数第1位で正確に書ける)",
+        mismatch === null, mismatch || `${n}通り検査`);
+      check("平均は総評の刻み(0.1)の上に乗っている", offGrid === null, offGrid || `${n}通り検査`);
+      check("組み合わせの総当たりが空回りしていない", n >= 2000, `${n}通り`);
+    }
+    // JSX 側: 箱のヘッダが生の平均を作り直していないこと(丸めが1箇所に閉じている)
+    {
+      const i = src.indexOf("const avgRating =");
+      const line = i === -1 ? "" : src.slice(i, src.indexOf("\n", i));
+      check("箱の平均は reedGroupAvgRating から取る(その場で平均を作り直さない)",
+        /reedGroupAvgRating\(g\.members\)/.test(line), line.trim().slice(0, 160));
+      check("箱のヘッダに生の平均を作る旧実装(ratedValues)が残っていない",
+        !/const ratedValues\b/.test(codeOf(src)));
+      check("星と title は同じ変数(avgRating)を見る",
+        /title=\{`箱の平均評価 \$\{avgRating\.toFixed\(1\)\}`\}/.test(src) &&
+        /<StarRating value=\{avgRating\} size=\{12\} \/>/.test(src));
+    }
+  }
+
   // --- グラフの座標: 縦軸は1〜5固定 ---
   {
     const padTop = 12, plotH = api.REED_SCORE_PLOT_H;
@@ -2950,8 +3157,6 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         check("未評価かどうかは normalizeReedScoreOf と一致する(色の出し分けの根拠)",
           row.map((r) => r.rated).join(",") === F.map((f) => api.normalizeReedScoreOf(f.key, f.value) !== null).join(","),
           row.map((r) => r.rated).join(","));
-        check("区切り(列と列の境の罫)は先頭以外にだけ付く", row.map((r) => (r.sep ? 1 : 0)).join(",") === "0,1,1",
-          row.map((r) => (r.sep ? 1 : 0)).join(","));
         // 件数を落とす変異(slice / filter / 先頭だけ)を、長さを振って捕まえる
         let dropped = null;
         for (let n = 0; n <= 6; n++) {
@@ -2978,28 +3183,48 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         (fld.match(/flexWrap:/g) || []).length === 1 && /flexWrap: "nowrap"/.test(fld),
         (fld.match(/flexWrap: "[a-z-]+"/g) || []).join(" / ") || "flexWrap の指定なし");
       check("flexFlow で折り返しを持ち込んでいない", !/flexFlow/.test(fld));
-      // --- 「余白なく均等に三等分」(本人指示) ---
-      // 列に flex:1 1 0 + minWidth:0 を与え、行の外側に padding も gap も置かない。
-      // どれか1つでも欠けると幅が中身依存になり、3列が等幅にならない。
-      check("列は flex:1 1 0 で幅を均等に分ける", /flex: "1 1 0"/.test(fld));
-      check("列の幅は中身に引きずられない(minWidth:0)", /minWidth: 0/.test(fld));
-      check("行の左右に padding を置かない(縦だけ --sp-2)",
-        /padding: "var\(--sp-2\) 0"/.test(fld),
-        (fld.match(/padding: "[^"]*"/g) || []).join(" / ") || "padding の指定なし");
-      // gap は列の中(見出し↔数字)の1つだけ。行に gap を足すと列の合計幅が
-      // 「画面幅 - gap」になり、三等分が崩れる
-      check("行そのものに gap を置かない(gap は列の中の1つだけ)",
-        (codeOf(fld).match(/gap:/g) || []).length === 1,
+      // --- 3枚のカードは等幅(F-65 で1枚を3枚に分けた後も「均等」は変えない) ---
+      // カードに flex:1 1 0 + minWidth:0 を与える。どちらか欠けると幅が中身依存になる。
+      check("カードは flex:1 1 0 で幅を均等に分ける", /flex: "1 1 0"/.test(fld));
+      check("カードの幅は中身に引きずられない(minWidth:0)", /minWidth: 0/.test(fld));
+      // --- 【F-65】1枚の枠 → 3枚のカード -------------------------------------
+      // 本人指示「総評と厚さとバランスの数字枠を、色と配置はそのままでカード3枚に分割表示」。
+      // (a) 地(色)を持つのは**カードの側**で、外側のボタンは透明な当たり判定になった。
+      //     B型(.ctl-plain)が外側に戻ると3枚が1枚の箱に戻る。
+      check("カードが B型(.ctl-plain)の地を持つ",
+        /className="ctl-plain"/.test(fld), (fld.match(/className="[^"]*"/g) || []).join(" / "));
+      check("外側のボタンは地を持たない(3枚が1枚の箱に戻っていない)",
+        !/className="sans ctl-plain"/.test(fld) && /className="sans"/.test(fld),
+        (fld.match(/className="[^"]*"/g) || []).join(" / "));
+      check("外側のボタンの地・枠は none(インラインで箱を描き直していない)",
+        /background: "none", border: "none"/.test(fld));
+      // (b) カードとカードの間に隙間がある。隙間が0だと3枚が1枚に見える
+      check("カードの間に隙間がある(行の gap)", /flexWrap: "nowrap", gap: "var\(--sp-2\)"/.test(fld),
+        (fld.match(/gap: "[^"]*"/g) || []).join(" / "));
+      check("gap は行(カード間)と列の中(見出し↔数字)の2つだけ",
+        (codeOf(fld).match(/gap:/g) || []).length === 2,
         `${(codeOf(fld).match(/gap:/g) || []).length}箇所`);
+      // (c) 余白はカードの内側が持つ。外側のボタンに戻すと3枚の外に余白が出て並びがずれる
+      check("外側のボタンは padding を持たない", /padding: 0,/.test(fld));
+      check("カードの内側に余白がある(--sp-2)", /padding: "var\(--sp-2\)"/.test(fld),
+        (fld.match(/padding: [^,]*/g) || []).join(" / "));
+      // (d) 角丸・地はクラス(型)が持つ。インラインで書き戻すと §6.7 が効かなくなる
+      // (外側のボタンの background:"none" / border:"none" は「箱を描かない」宣言なので除く)
+      check("カードに地・枠・角丸をインラインで書いていない(型が持つ)",
+        !/borderRadius/.test(fld) && !/background: "(?!none")/.test(fld) && !/border: "(?!none")/.test(fld),
+        (fld.match(/(borderRadius|background|border): "[^"]*"/g) || []).join(" / "));
+      // (e) 旧実装(1枚の枠の中を1px罫で区切る)が残っていない
+      check("列の境の罫で区切る旧実装が残っていない",
+        !/borderLeft/.test(codeOf(fld)) && !/\bsep\b/.test(codeOf(fld)),
+        (codeOf(fld).match(/borderLeft[^,]*/g) || []).join(" / "));
       // 見出しの下に数字(本人指示)。横並びに戻すと縦積みが崩れる
-      check("各列は見出しの下に数字を積む(flexDirection:column)", /flexDirection: "column"/.test(fld));
+      check("各カードは見出しの下に数字を積む(flexDirection:column)", /flexDirection: "column"/.test(fld));
       check("行の高さは --tap-min 以上(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
-      // 区切りは幅を食わない1px罫。文字(「・」)だと列ごとに幅が変わり等幅にならない
-      // 「・」は aria-label("総評・厚さ・バランスを編集")には出てよい。描画される文字として
-      // 出ると列ごとに幅が変わって三等分が崩れるので、要素の中身(>の直後)だけを見る。
-      check("区切りは列の境の罫(--c-line)で、幅を食う文字を描画しない",
-        /borderLeft: it\.sep \?/.test(fld) && /1px solid var\(--c-line\)/.test(fld)
-        && !/>\s*・/.test(codeOf(fld)) && !/\{"・"\}/.test(codeOf(fld)));
+      // 幅を食う文字(「・」)は描画しない。列ごとに幅が変わって等幅が崩れる。
+      // 「・」は aria-label("総評・厚さ・バランスを編集")には出てよいので、
+      // 描画される中身(>の直後 / {"・"})だけを見る。
+      check("幅を食う区切り文字を描画しない",
+        !/>\s*・/.test(codeOf(fld)) && !/\{"・"\}/.test(codeOf(fld)));
       check("フォントサイズはスケール内(--fs-xs / --fs-lg のみ)",
         (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).every((s) => /--fs-(xs|lg)\)/.test(s)),
         (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).join(","));
@@ -5903,10 +6128,26 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       check(".no-select は入力欄(input/select/textarea)に付いていない(値を選択・コピーできなくしない)",
         nsInputs.length === 0, nsInputs.map((t) => t.slice(0, 80)).join(" | "));
       // 祖先に付けても子の入力欄まで効く。並び替えの行の中に入力欄が無いことを確かめる。
+      // 【以前の切り出し方の穴】`indexOf("/>", indexOf("renderRow="))` で終端を探していたが、
+      // これは renderRow の中に自己終了タグ(<MeasureIcon /> 等)が1つでもあると
+      // **そこで切れる**。切れた後ろに入力欄を足しても緑のまま通ってしまうので、
+      // {} の深さを数えてタグの本当の終わりまで取る(section 16 の tagAt と同じ考え)。
       {
         const i = src.indexOf("<ReorderableReedRows");
-        const j = i === -1 ? -1 : src.indexOf("/>", src.indexOf("renderRow=", i));
+        let j = -1;
+        if (i !== -1) {
+          let d = 0;
+          for (let k = i; k < src.length; k++) {
+            const ch = src[k];
+            if (ch === "{") d++;
+            else if (ch === "}") d--;
+            else if (ch === ">" && d === 0) { j = k + 1; break; }
+          }
+        }
         const rowBlock = i === -1 || j === -1 ? "" : src.slice(i, j);
+        check("並び替えの行のブロックを最後まで走査できている(自己終了タグで切れていない)",
+          rowBlock.trim().endsWith("/>") && /renderRow=/.test(rowBlock) && rowBlock.includes("goToMeasure"),
+          `${rowBlock.length}文字`);
         check("並び替えの行(no-select の祖先)の中に入力欄が無い", rowBlock !== "" &&
           !/<(input|textarea|select)[\s/>]/.test(rowBlock), rowBlock.slice(0, 80));
       }
@@ -5949,6 +6190,127 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const cblock = ci === -1 ? "" : src.slice(ci, ci + 700);
       check("録音中バッジの容器は position:fixed のまま(流れの外。出ても環は動かない)",
         /position: "fixed"/.test(cblock) && /pointerEvents: "none"/.test(cblock), cblock.slice(0, 120));
+    }
+
+    // --- 17.18 F-63 測定ボタンは計測タブと同じアイコン(絵は1箇所に閉じる) -----
+    // 本人指示「登録済みリードの一覧の測定ボタンを測定タブと同じアイコンに変更」。
+    // **同じ絵を2箇所に書かないこと**が要件の中身。コピーを残すと、次に絵を直した人が
+    // 片方だけ直して食い違う。綴りが1箇所しか無いことを、絵そのもの(path の d)で見る。
+    {
+      const code = codeOf(src);
+      check("MeasureIcon が共通コンポーネントとして存在する", /function MeasureIcon\(/.test(src));
+      const arcs = (code.match(/M4 15 A8 8 0 0 1 20 15/g) || []).length;
+      check("計測の絵(メーターの弧)はアプリ全体で1箇所だけ(コピーが残っていない)",
+        arcs === 1, `${arcs}箇所`);
+      // 引数の分割代入({ size = 30, … })で終端を誤らないよう、括弧を数えてから本体を取る
+      // (ファイル先頭の extractFunction は引数の { を本体の { と読むので使えない)。
+      const bodyOf = (name) => {
+        const idx = src.indexOf(`function ${name}(`);
+        if (idx === -1) return "";
+        let i = src.indexOf("(", idx), d = 0;
+        for (; i < src.length; i++) {
+          if (src[i] === "(") d++;
+          else if (src[i] === ")") { d--; if (d === 0) { i++; break; } }
+        }
+        while (i < src.length && src[i] !== "{") i++;
+        d = 0;
+        for (; i < src.length; i++) {
+          if (src[i] === "{") d++;
+          else if (src[i] === "}") { d--; if (d === 0) return src.slice(idx, i + 1); }
+        }
+        return "";
+      };
+      const body = bodyOf("MeasureIcon");
+      check("MeasureIcon の本体を走査できている", body !== "" && body.includes("</svg>"), `${body.length}文字`);
+      check("その1箇所は MeasureIcon の中にある", /M4 15 A8 8 0 0 1 20 15/.test(body));
+      check("MeasureIcon は針と軸の点も持つ(弧だけの別物になっていない)",
+        /<line x1="12" y1="15" x2="15" y2="9" \/>/.test(body) && /<circle cx="12" cy="15" r="1.4"/.test(body));
+      // 【変異で1度すり抜けた】`/size = 30/` だけを見ていたら、本体に const size = 30 を
+      // 置いて引数から size を消す変異が通った(呼び出し側がサイズを決められなくなるのに緑)。
+      // **引数の並びそのもの**を見る。
+      check("MeasureIcon のサイズは呼び出し側が決められる(size は引数で既定30)",
+        /function MeasureIcon\(\{ size = 30\b/.test(body) && /width=\{size\} height=\{size\}/.test(body),
+        body.replace(/\s+/g, " ").slice(0, 120));
+      check("MeasureIcon の中でサイズを固定していない(引数の size を握り潰していない)",
+        !/const size\s*=/.test(codeOf(body)), body.replace(/\s+/g, " ").slice(0, 120));
+      check("MeasureIcon は装飾(aria-hidden)。意味は呼び出し側の aria-label が担う",
+        /aria-hidden="true"/.test(body));
+      // 下部ナビ側: 計測タブのアイコンが MeasureIcon になっている
+      {
+        const i = src.indexOf('key: "measure", label: "計測"');
+        const block = i === -1 ? "" : src.slice(i, i + 200);
+        check("下部ナビの計測タブは MeasureIcon を使う", /<MeasureIcon/.test(block), block.replace(/\s+/g, " ").slice(0, 120));
+        check("下部ナビは選択色を渡せる(現在タブと非選択で色が変わる挙動を壊していない)",
+          /<MeasureIcon color=\{c\}/.test(block), block.replace(/\s+/g, " ").slice(0, 120));
+      }
+      // リード一覧側: テキスト「測定」を消してアイコンにした。aria-label は必須
+      {
+        const i = src.indexOf("goToMeasure(r.id)");
+        const tag = i === -1 ? "" : tagAt(src.lastIndexOf("<button", i) + 1);
+        const close = i === -1 ? -1 : src.indexOf("</button>", i);
+        const block = i === -1 || close === -1 ? "" : src.slice(src.lastIndexOf("<button", i), close);
+        check("一覧の測定ボタンを走査できている", tag !== "" && /goToMeasure/.test(block), tag.slice(0, 120));
+        check("一覧の測定ボタンは MeasureIcon を描く", /<MeasureIcon/.test(block), block.replace(/\s+/g, " ").slice(0, 160));
+        check("一覧の測定ボタンからテキスト「測定」が消えている(アイコンのみ)",
+          !/>\s*測定\s*</.test(codeOf(block)), codeOf(block).replace(/\s+/g, " ").slice(0, 200));
+        check("一覧の測定ボタンに aria-label=\"測定\" がある(文字を消したので名前が要る)",
+          /aria-label="測定"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
+        // §5「最小44×44pt。例外なし」。文字を消すと幅が縮むので明示が要る
+        check("一覧の測定ボタンの当たり判定は44×44以上(minWidth / minHeight とも --tap-min)",
+          /minWidth: "var\(--tap-min\)"/.test(tag) && /TAP_BUTTON_RESET/.test(tag),
+          tag.replace(/\s+/g, " ").slice(0, 200));
+        check("TAP_BUTTON_RESET が minHeight: var(--tap-min) を持つ(上の縛りの片側)",
+          /const TAP_BUTTON_RESET = \{[\s\S]*?minHeight: "var\(--tap-min\)"/.test(src));
+        // タップで測定へ飛ぶための stopPropagation は**このボタンだけ**が持つ
+        check("測定ボタンは行の長押しを止める(タップで測定へ飛ぶため)",
+          /onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
+      }
+    }
+
+    // --- 17.19 F-64 並び替えの目印(三本線) ------------------------------------
+    // 本人指示「測定ボタンをアイコンに変更したうえで、右側に長押しで順番変更を意味する
+    //           三本線アイコンを追加。この二つのアイコンは右寄せで、三本線アイコンが外側」。
+    //
+    // 【この検査でいちばん大事なところ】三本線は**目印であって掴む場所ではない**。
+    // ここに onPointerDown の stopPropagation を付けると、行全体の長押しで始まる並び替えが
+    // **目印を掴んだときだけ効かなくなる**(意味が逆になる)。綴りで固定する。
+    {
+      const i = src.indexOf("<GripLines");
+      const tag = i === -1 ? "" : tagAt(i);
+      check("並び替えの目印(三本線)が行にある", tag !== "", tag.slice(0, 120));
+      check("三本線は lucide の Menu(3本の水平線)を読み替えて使う",
+        /import \{[^}]*\bMenu as GripLines\b[^}]*\} from "lucide-react"/.test(src),
+        (src.match(/import \{[^}]*\} from "lucide-react";/) || [""])[0]);
+      check("三本線は装飾(aria-hidden)でフォーカスも取らない(操作は行全体が担う)",
+        /aria-hidden="true"/.test(tag) && /focusable="false"/.test(tag) && !/tabIndex/.test(tag),
+        tag.replace(/\s+/g, " ").slice(0, 160));
+      check("三本線に pointer/click のハンドラを付けていない",
+        !/on(Pointer|Mouse|Click|Touch)/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
+      check("【F-64 の肝】三本線は stopPropagation しない(掴んだときだけ並び替え不能になる)",
+        !/stopPropagation/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
+      // 行の中で stopPropagation を持つのは測定ボタンだけ(目印側へ増えていないこと)
+      {
+        const s = src.indexOf("renderRow={(r, idx) => (");
+        let e = -1;
+        if (s !== -1) { let d = 0; for (let k = s; k < src.length; k++) { const ch = src[k]; if (ch === "{") d++; else if (ch === "}") { d--; if (d === 0) { e = k; break; } } } }
+        const row = s === -1 || e === -1 ? "" : src.slice(s, e);
+        check("並び替えの行(renderRow)の中身を走査できている",
+          row.includes("<GripLines") && row.includes("goToMeasure"), `${row.length}文字`);
+        const stops = (codeOf(row).match(/stopPropagation/g) || []).length;
+        check("行の中で長押しを止めるのは測定ボタンの2つ(pointerdown / click)だけ",
+          stops === 2, `${stops}箇所`);
+        // 並び: 測定が内側、三本線が外側(= より右)。ソース上の前後関係がそのまま左右になる
+        check("三本線は測定ボタンより後ろ(= より外側・右)に置かれている",
+          row.indexOf("goToMeasure") < row.indexOf("<GripLines"),
+          `測定=${row.indexOf("goToMeasure")} / 三本線=${row.indexOf("<GripLines")}`);
+        // 2つは1つの塊として右へ寄せる。中央列が空でも右寄せが崩れないこと
+        check("2つのアイコンは右寄せの塊にまとめてある(marginLeft:auto)",
+          /gap: "var\(--sp-1\)", flexShrink: 0, marginLeft: "auto"/.test(row),
+          (row.match(/marginLeft: "[^"]*"/g) || []).join(" / ") || "marginLeft 無し");
+        // 行そのものの長押しは ReorderableReedRows が持つ(目印を足しても壊れていない)
+        check("行全体の長押しで並び替えが始まる仕組みは変わっていない",
+          /onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(src));
+      }
     }
   }
 }
