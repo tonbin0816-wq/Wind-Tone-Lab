@@ -95,18 +95,25 @@
     { rMax:206, decay:1.8, grainLo:0.10, grainHi:1.00, rampPow:1.4 }
   ];
 
-  // 光の減衰。終端で値も傾きも0にする(ここが折れると「縁」として見える)
+  // 光の減衰。
+  // 【要点1】**環の外縁(R+SW/2=133)で最大**にし、そこから外へ減衰させる。
+  //   立ち上がり(126→133)は環のトラックの下に隠れるので、見える範囲では
+  //   「環の縁からいきなり明るい光が出て、外へ薄れる」= 環から漏れ出る光になる。
+  //   以前は立ち上がりが137pxまで続き、環の外縁との間の4pxが淡いまま残っていたため、
+  //   環と光の間に細い明るい線が見えていた(本人指摘)。
+  // 【要点2】終端で値も傾きも0にする(ここが折れると「縁」として見える)。
+  var R_EDGE=133;
   function alphaAt(r,p){
-    var rIn=130, rPk=137;
+    var rIn=126;
     if (r<=rIn) return 0;
-    if (r<rPk){ var t=(r-rIn)/(rPk-rIn); return t*t*(3-2*t); }
-    var x=(r-rPk)/(p.rMax-rPk);
+    if (r<R_EDGE){ var t=(r-rIn)/(R_EDGE-rIn); return t*t*(3-2*t); }
+    var x=(r-R_EDGE)/(p.rMax-R_EDGE);
     if (x>=1) return 0;
     return Math.exp(-p.decay*x)*Math.pow(1-x,3);
   }
-  // 粒の効き具合(0=内側は滑らか, 1=外側は完全に粒まかせ)
+  // 粒の効き具合(0=内側は滑らか, 1=外側は完全に粒まかせ)。環の縁から数え始める。
   function rampAt(r,p){
-    var x=Math.max(0,Math.min(1,(r-137)/(p.rMax-137)));
+    var x=Math.max(0,Math.min(1,(r-R_EDGE)/(p.rMax-R_EDGE)));
     return Math.pow(x,p.rampPow);
   }
 
@@ -167,7 +174,10 @@
     svg.appendChild(halo);
 
     svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",class:"band"}));
-    svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run"}));
+    // 走りは**左右2本**。本番と同じ「12時から両サイドへ同時に走り、6時で出会う」(src/App.jsx:3997)。
+    // 試作3までは片方向の1本に簡略化していたが、本番の仕様と食い違っていたので合わせた。
+    svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run runR"}));
+    svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run runL"}));
   }
 
   var svgs=[].slice.call(document.querySelectorAll("svg[data-v]"));
@@ -209,9 +219,13 @@
       if (inTune){ if(r.armed){ r.p=0; r.active=true; r.armed=false; } }
       else { r.active=false; r.p=0; if(ac>3) r.armed=true; }
       if (r.active&&r.p<1) r.p=Math.min(1,r.p+0.055);
-      var run=svg.querySelector(".run");
-      if (r.active&&r.p>0){ run.setAttribute("d",arc(R,0,Math.min(359.9,360*r.p))); run.setAttribute("stroke",GREEN); run.setAttribute("opacity",1); }
-      else run.setAttribute("opacity",0);
+      // 左右それぞれ 0→180° まで走らせ、6時(180°)で出会わせる
+      var runR=svg.querySelector(".runR"), runL=svg.querySelector(".runL");
+      if (r.active&&r.p>0){
+        var d=180*r.p;
+        runR.setAttribute("d",arc(R,0,d));  runR.setAttribute("stroke",GREEN); runR.setAttribute("opacity",1);
+        runL.setAttribute("d",arc(R,0,-d)); runL.setAttribute("stroke",GREEN); runL.setAttribute("opacity",1);
+      } else { runR.setAttribute("opacity",0); runL.setAttribute("opacity",0); }
 
       var halo=svg.querySelector(".halo");
       var col=inTune?GREEN:color(ac), s;
