@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId } from "react";
 import { createPortal } from "react-dom";
-import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
+// Menu(3本の水平線)は登録済みリードの行で「長押しで並び替えられる」目印に使う(F-64)。
+// 名前が用途と食い違うので GripLines に読み替えて import する。
+// **絵の選定理由**: 本人指示が「三本線」。lucide の Grip 系は点(ドット)の格子で線ではなく、
+// AlignJustify は4本。3本の水平線は lucide では Menu だけ。自前の inline SVG も考えたが、
+// 同じ行に並ぶ Trash2 / ChevronDown と線の太さ・端の形・余白の取り方が揃わなくなるため、
+// 既に使っている lucide から取る(未使用アイコンは tree-shaking で落ちる)。
+import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Menu as GripLines } from "lucide-react";
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
 // あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
@@ -3213,17 +3219,28 @@ export default function WindToneLabPhaseMode() {
   );
 }
 
+// 「計測」を表すアイコン(メーターの針)。**下部ナビとリード一覧の測定ボタンが同じ絵を使う**
+// ので、綴りはここ1箇所だけに置く(F-63)。片方にコピーを残すと、次に絵を直した人が
+// 片方だけ直して食い違う。サイズは呼び出し側が決める(ナビ=30 / 行の中=もっと小さい)。
+// 色の既定は currentColor。**SVG のプレゼンテーション属性は var() を解決しない**
+// (DESIGN-SYSTEM §1.9)ので、トークンで色を指定したい呼び出し側は親要素の CSS の
+// color で渡すこと。hex を直接渡す道も残してある(下部ナビは選択状態で色を出し分ける)。
+// 装飾なので aria-hidden。意味は呼び出し側のボタンの aria-label が担う。
+function MeasureIcon({ size = 30, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" />
+      <circle cx="12" cy="15" r="1.4" fill={color} stroke="none" />
+    </svg>
+  );
+}
+
 // 画面下部の固定ナビ。計測/リード/分析をアイコン+ラベルで切り替える(モバイルアプリ風)。
 function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
       key: "measure", label: "計測",
-      icon: (c) => (
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
-          <path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" />
-          <circle cx="12" cy="15" r="1.4" fill={c} stroke="none" />
-        </svg>
-      ),
+      icon: (c) => (<MeasureIcon color={c} />),
     },
     {
       // 実際のリード1枚を正面から見たピクトグラム: 先端(チップ)はとがらせず、なだらかな
@@ -5812,6 +5829,20 @@ function reedHistoryEntry(h) {
   };
 }
 
+// 履歴の「同じ日」を判定するためのローカル暦日キー(YYYY-MM-DD)。
+// **表示用の reedScoreDateLabel(M/D)を判定に流用してはいけない**。年が落ちるので
+// 2025-08-08 と 2026-08-08 が同じ日に見え、1年前の記録を上書きしてしまう。
+// UTC(toISOString)でもいけない。JST では日本時間 8/9 00:30 が UTC 8/8 になり、
+// 「日付が変わったのに上書きされる / 変わっていないのに増える」が両方起きる。
+// 読めない日時は null を返す。null 同士は「同じ日」とみなさない
+// (normalizeRatingHistory が捨てる壊れた記録を、上書きに巻き込まないため)。
+function reedRatingDayKey(at) {
+  const d = new Date(at);
+  if (isNaN(d.getTime())) return null;
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
 // 履歴配列を読み取り用に正規化する(日時が読めないものは捨て、古い順に並べる)。
 function normalizeRatingHistory(list) {
   return (list || [])
@@ -5824,6 +5855,9 @@ function normalizeRatingHistory(list) {
 // ダイアログを閉じただけでは何も書かない)。変わっていれば、変わった項目だけを patch し、
 // 履歴には**3つ全部の現在値を1エントリ**として積む(グラフで同じx点に3本が揃うため)。
 // 直前の記録と3つとも同じなら履歴は増やさない。
+// **同じカレンダー日(ローカル)の記録が既にあれば、積まずにそれを置き換える(F-61)。**
+// 本人指示「リード評価遷移は同じ日付に変更があった場合は上書きされる仕組みに変更」。
+// その日の最後の評価だけが残り、グラフの x 軸に同じ日付が2つ並ばなくなる。
 function commitReedScores(reed, next, at) {
   const cur = {}, norm = {};
   for (const k of REED_SCORE_KEYS) {
@@ -5840,7 +5874,21 @@ function commitReedScores(reed, next, at) {
   const list = (reed && reed.ratings) || [];
   const last = list.length ? reedHistoryEntry(list[list.length - 1]) : null;
   const same = last && REED_SCORE_KEYS.every((k) => last[k] === norm[k]);
-  if (!same) patch.ratings = [...list, { at, ...norm }];
+  if (!same) {
+    const day = reedRatingDayKey(at);
+    const entry = { at, ...norm };
+    // 同じ暦日の最初の記録の位置。そこへ新しい値を置き、同じ日の記録は全部落とす
+    // (古いデータに同じ日が2件以上ある場合もここで1件にまとまる)。
+    // 落とす前の位置 hit より前の記録は必ず別の日なので、kept の中でも同じ添字に入る。
+    // 時刻は新しい方(at)にするので、昇順に並べ直しても順序は壊れない。
+    const hit = day === null ? -1 : list.findIndex((h) => reedRatingDayKey(h && h.at) === day);
+    if (hit === -1) {
+      patch.ratings = [...list, entry];
+    } else {
+      const kept = list.filter((h) => reedRatingDayKey(h && h.at) !== day);
+      patch.ratings = [...kept.slice(0, hit), entry, ...kept.slice(hit)];
+    }
+  }
   return patch;
 }
 
@@ -5904,6 +5952,19 @@ function reedScoreDateLabel(at) {
   const d = new Date(at);
   if (isNaN(d.getTime())) return "";
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// 箱(同じ銘柄・番手・使用開始日の群)の平均総評。**総評そのものと同じ 0.1 刻みに丸める**(F-62)。
+// 丸めずに星へ渡すと、4.0 / 4.1 / 4.1 の箱が 4.0666… で塗られ、隣に出ている title の
+// 「4.1」と星の塗りが別の値を指す。丸めは総評の正規化(normalizeReedScoreOf の "rating")に
+// 任せる。**ここで新しい丸めを書かない**(刻みが2箇所に分かれると必ず食い違う)。
+// 未評価しかない箱は null(呼び出し側が★ごと出さない)。
+function reedGroupAvgRating(members) {
+  const rated = (members || [])
+    .map((m) => (m ? m.rating : null))
+    .filter((v) => v !== null && v !== undefined);
+  if (!rated.length) return null;
+  return normalizeReedScoreOf("rating", rated.reduce((a, b) => a + b, 0) / rated.length);
 }
 
 // 主観評価の表示(0.1刻み)。星を部分的に塗って小数の評価を表す。
@@ -6076,47 +6137,57 @@ function ReedScoreEditor({ fields, onClose }) {
 // ハーネスは JSX を見ないので、行の中身を JSX に書くと「3つ並んでいること」を
 // 正規表現でしか見られず、fields.slice(0,1).map(…) の1文字の変異が素通りする
 // (実際に審査役の変異が生き残った)。ここに出しておけば実行で数えられる。
+// (F-65 で1枚の枠を3枚のカードに分けたので、「先頭以外の左に区切り罫」を表していた
+//  sep は返さなくなった。カードとカードの間の隙間が区切りを担う。)
 function reedScoreRowItems(fields) {
-  return (fields || []).map((f, i) => ({
+  return (fields || []).map((f) => ({
     key: f.key,
     label: f.label,
     text: reedScoreText(f.key, f.value),
     rated: normalizeReedScoreOf(f.key, f.value) !== null,
-    sep: i > 0,                                  // 先頭以外の左に区切り罫を置く
   }));
 }
 
 // 通常時の評価表示。**総評 / 厚さ / バランスを1行に横並び**にし、行のどこを押しても
-// 同じ1つのダイアログが開く(本人指示: 「同列に横一列にしてタップすると…一度で三つとも」)。
-// 各列は**見出しの下に数字**を積む(本人指示: 「『総評』というテキストの下に数字」)。
-// 3列は flex:1 1 0 + minWidth:0 で**画面幅を余白なく三等分**する(本人指示)。
-// そのため列の外側に padding も gap も置かない。区切りは列と列の境の1px罫だけで、
-// 幅を食う「・」は使わない(文字だと3列が等幅にならない)。
+// 同じ1つのダイアログが開く(本人指示: 「同列に横一列にしてタップすると…一度で三つとも」。
+// DESIGN-SYSTEM §6.4)。各列は**見出しの下に数字**を積む(本人指示)。
+// 3列は flex:1 1 0 + minWidth:0 で**等幅**にする。
 // 行全体が1つのタップ対象。値が入っても未評価でも高さは変わらない(§6.1.5)。
 // ★は出さない(本人指示: 「厚さは星不要」)。
 // 中身は reedScoreRowItems の返り値をそのまま並べる。ここで slice / filter しない。
-// B型 = .ctl-plain。ダイアログを開くだけで on/off も開閉も保持しない
-// **状態を持たないもの**なので枠線を外し、地(--c-sunken)だけにする。
-// 角丸は型の既定(--r-xs)で、これまでと同じ値。
+//
+// 【F-65】本人指示「総評と厚さとバランスの数字枠を、**色と配置はそのまま**でカード3枚に
+// 分割表示に変更」。1枚の枠に3列(境は1px罫)だったものを、**3枚の枠**にした。
+//  - 色は変えていない: 枠の地は今までどおり B型の --c-sunken、見出しは --c-ink-2、
+//    数字は評価済み --c-accent / 未評価 --c-ink-3。角丸も型の既定(--r-xs)のまま。
+//  - 並び順も変えていない: 総評 → 厚さ → バランス(reedScoreRowItems が渡された順を守る)。
+//  - **B型(.ctl-plain)を外側のボタンから3枚のカードへ移した。** 外側は地も枠も持たない
+//    透明な当たり判定になる(「測定」ボタンと同じ書き方)。
+//    面の作法(§6.6 の .card / .tile)は使わない。**これは群ではなく操作するもの**で、
+//    §6.6 自身が「操作するものの見た目は §6.7 が決める。面の作法は操作するものに触らない」
+//    と書いているため。罫の作法の .tile は塗りを持たないので、使うと地の色が消えて
+//    「色はそのまま」に反する。
+//  - 以前は「余白なく三等分」(本人指示)で列の間に隙間を置かなかったが、隙間が無いと
+//    3枚が1枚に戻って見える。カード間にだけ --sp-2 を入れ、3枚の幅は等しいまま保つ。
 function ReedScoreField({ fields, onOpen }) {
   return (
     <button
-      type="button" onClick={onOpen} className="sans ctl-plain"
+      type="button" onClick={onOpen} className="sans"
       aria-label="総評・厚さ・バランスを編集"
       style={{
-        display: "flex", alignItems: "stretch", flexWrap: "nowrap",
-        width: "100%", minHeight: "var(--tap-min)", padding: "var(--sp-2) 0",
-        cursor: "pointer",
+        display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: "var(--sp-2)",
+        width: "100%", minHeight: "var(--tap-min)", padding: 0,
+        background: "none", border: "none", cursor: "pointer",
       }}
     >
       {reedScoreRowItems(fields).map((it) => (
         <span
           key={it.key}
+          className="ctl-plain"
           style={{
             flex: "1 1 0", minWidth: 0,
-            display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-1)",
-            // 区切りは列の境の罫。装飾なので --c-line(読ませる線ではない)
-            borderLeft: it.sep ? "1px solid var(--c-line)" : "none",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: "var(--sp-1)", padding: "var(--sp-2)",
           }}
         >
           <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{it.label}</span>
@@ -6852,8 +6923,9 @@ function ReedRegisterView(props) {
               const isMemberSelecting = memberSelectGroupKey === g.key;
               // 箱の平均評価。個体行のメイン評価★と見た目で差をつけるため、薄い色・小さいサイズで表示する
               // (タイポグラフィ指示書5節③)。誰も評価していない箱では表示しない。
-              const ratedValues = g.members.map((m) => m.rating).filter((v) => v !== null && v !== undefined);
-              const avgRating = ratedValues.length ? ratedValues.reduce((a, b) => a + b, 0) / ratedValues.length : null;
+              // 0.1 刻みへの丸めまで含めて reedGroupAvgRating が持つ(F-62)。
+              // ここで生の平均を作り直さないこと。title の "4.1" と星の塗りがずれる。
+              const avgRating = reedGroupAvgRating(g.members);
               return (
                 <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: "var(--r-lg)", overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EAEFF5" : "#FFFFFF" }}>
@@ -6965,16 +7037,37 @@ function ReedRegisterView(props) {
                                 <StarRating value={r.rating} size={18} />
                                 <span className="sans" style={{ fontSize: 12, color: "#8D95A1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{growthLine(r)}</span>
                               </div>
-                              <button
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
-                                className="sans"
-                                style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
-                              >
-                                {/* B型。測定へ飛ぶだけで状態を持たないので枠線をやめ、
-                                    地(--c-sunken)だけにする。誘い(--c-accent)は文字色が担う。 */}
-                                <span className="ctl-plain ctl-pill" style={{ fontSize: 12, padding: "8px 16px", color: "var(--c-accent)", fontWeight: 600, lineHeight: 1.2 }}>測定</span>
-                              </button>
+                              {/* 右端の2つ。**測定(押せる)が内側、並び替えの目印が外側**(F-64 本人指示)。
+                                  行の中央列が flex:1 なのでこの塊は右へ寄る。marginLeft:auto を
+                                  明示して、中央列が空(成長行も★も出ない)になっても右寄せが崩れないようにする。 */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)", flexShrink: 0, marginLeft: "auto" }}>
+                                <button
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
+                                  className="sans"
+                                  aria-label="測定"
+                                  title="測定"
+                                  style={{ ...TAP_BUTTON_RESET, flexShrink: 0, minWidth: "var(--tap-min)", justifyContent: "center" }}
+                                >
+                                  {/* B型。測定へ飛ぶだけで状態を持たないので枠線をやめ、
+                                      地(--c-sunken)だけにする。誘い(--c-accent)は色が担う。
+                                      文字「測定」はやめ、計測タブと同じ絵(MeasureIcon)だけにした(F-63)。
+                                      アイコン単体になったぶん当たり判定が44px幅を割らないよう
+                                      minWidth: var(--tap-min) を明示する(DESIGN-SYSTEM §5)。
+                                      色は span の color から currentColor で降りる(SVG の属性に
+                                      var() は書けないため。DESIGN-SYSTEM §1.9)。 */}
+                                  <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-2)", color: "var(--c-accent)", lineHeight: 1 }}>
+                                    <MeasureIcon size={20} />
+                                  </span>
+                                </button>
+                                {/* 長押しで並び替えられることを示す**目印**(F-64)。
+                                    【stopPropagation を付けないこと】並び替えは ReorderableReedRows の
+                                    行全体の長押しで始まる。ここで pointerdown を止めると、
+                                    **目印を掴んだときだけ並び替えられない**という逆の意味になる。
+                                    操作は行全体が担うので、これ自体はフォーカスも取らない装飾
+                                    (aria-hidden)。色は装飾専用の --c-ink-4(DESIGN-SYSTEM §1.1)。 */}
+                                <GripLines size={16} aria-hidden="true" focusable="false" style={{ color: "var(--c-ink-4)", flexShrink: 0 }} />
+                              </div>
                             </div>
                           )}
                         />
