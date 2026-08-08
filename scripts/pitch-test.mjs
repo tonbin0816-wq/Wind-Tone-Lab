@@ -2281,8 +2281,15 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       check("viewBox の枠で切ると縁が見える明るさが残っている(overflow:visible が必要な理由)",
         api.ringGlowAlphaAt(api.RING_VB / 2) > 0.1,
         `r=${api.RING_VB / 2} での明るさ ${api.ringGlowAlphaAt(api.RING_VB / 2).toFixed(4)}`);
-      check("SVG は overflow:visible で、当たり判定は持たない",
-        /overflow: "visible"/.test(ringCode) && /pointerEvents: "none"/.test(ringCode));
+      // 【審査で差し戻し】以前は overflow と pointerEvents を**別々の正規表現**で
+      // PitchRing 全体に当てていた。しかし PitchRing には音名を重ねる div にも
+      // pointerEvents:"none" があり(F-47 以前からの無関係な記述)、**svg 側から
+      // pointerEvents だけを消しても検査が通ってしまった**(審査役が変異試験で実証)。
+      // 実際の綴りどおり「同じ style の中で隣り合っている」ことを1本で要求する。
+      // これなら片方だけ消しても落ちる。
+      check("光を出す SVG は overflow:visible かつ当たり判定を持たない(同じ style に隣接)",
+        /overflow: "visible", pointerEvents: "none"/.test(ringCode),
+        ringCode.slice(ringCode.indexOf("<svg"), ringCode.indexOf("<svg") + 220).replace(/\s+/g, " "));
       // 光を塗る矩形は、届く範囲を完全に覆っていること(足りないと矩形の辺が縁になる)。
       check("光を塗る矩形は届く範囲(半径 rMax)を完全に覆う",
         api.RING_GLOW_RECT_MIN <= api.RING_CX - api.RING_GLOW_R_MAX
