@@ -3877,7 +3877,10 @@ function pitchBarColorRGB(cents) {
 // ============================================================
 const RING_MAX_CENTS = 50;     // 環の端に対応するセント差
 const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上弧)
-const RING_IN_TUNE_CENTS = 1;  // これ以内なら「合った」として環を閉じる(5¢は既に「結構違う」領域)
+// これ以内なら「合った」として環を閉じる。本人指示(F-47)で 1 → 2 に広げた。
+// 【この定数を見ている箇所】(1) 到達の判定 inTune = 走りの発火・帯の抑制・セント値の呼吸
+// (2) 外周の光の「合った」側の境界(RING_GLOW_NEAR_CENTS までの帯の起点)。他に閾値の直書きは無い。
+const RING_IN_TUNE_CENTS = 2;
 // DESIGN-SYSTEM §6.1 が定めるピッチマーカーと拍の要素の最小距離(実寸・CSS px)。
 // 振り子の軌道半径と錘の大きさは、この値を満たすように選んである。
 const RING_MARKER_MIN_GAP_PX = 6;
@@ -4033,33 +4036,129 @@ function ringGradientStops(from, to) {
 // 全周を使ってよい**という許可を本人から得ている(2026-08-03)。到達していない間は
 // 従来どおり上弧だけを使う。
 //
-// 光は環の**外側だけ**。内側(0%〜edgeOut)は完全に透明のままにする。音名の可読性と
-// 静けさのため、これは要件。
+// 光は環の**外側だけ**。トラックの内縁より内側は完全に透明のままにする(減衰カーブが
+// そこで0になる)。音名の可読性と静けさのため、これは要件。
+// 光は「合った」ときだけでなく ±RING_GLOW_NEAR_CENTS まで出す(F-47。下の外周の光の節)。
 // ============================================================
 const RING_RUN_MS = 640;         // 12時→6時に走り切るまで
 // 外れた状態がこれだけ続くまで走り直さない。
 //
 // 【根拠(実コンポーネントと同じ EMA=0.15/フレームを60fpsで駆動して実測)】
-// (1) 判定線の上でごく短く揺らしたときの「inTune が偽である連続時間」:
-//       振幅3¢/1.5Hz → 交差17回・最長 267ms
-//       振幅1.6¢/0.8Hz → 交差9回・最長 333ms
-//       振幅2¢/0.5Hz  → 交差8回・最長 650ms
-//       振幅1.2¢/3Hz  → 交差0回(EMAが吸収して一度も外れない)
+// 数値は F-47 で判定線を ±1 → ±2 に広げたあとに取り直したもの。
+// (1) 判定線の上でごく短く揺らしたときの「inTune が偽である連続時間」。
+//     揺らしは判定線に対する相対量なので、振幅は判定線の倍数で置く
+//     (EMA は線形・判定はしきい値比較なので、この系は判定線に対してスケール不変。
+//      ±1 のときの実測値と完全に一致する):
+//       振幅3.0倍/1.5Hz → 交差47回・最長 267ms
+//       振幅1.6倍/0.8Hz → 交差25回・最長 333ms
+//       振幅2.0倍/0.5Hz → 交差16回・最長 650ms
+//       振幅1.2倍/3Hz   → 交差0回(EMAが吸収して一度も外れない)
 //     つまり**揺らしだけなら最長でも 650ms** で、0.9〜1.0秒には届かない。
-// (2) 923〜968ms が出るのは揺らしではなく「一度はっきり外して戻す」場合。
-//     生の音程を +15¢ に約650ms 保持してから戻すと、EMA が 15¢→1¢ まで戻るのに
-//     約278ms 掛かるぶんが尾として足され、外れている時間は 650+278 ≒ 928ms になる。
+// (2) 0.9秒を超えるのは揺らしではなく「一度はっきり外して戻す」場合。
+//     生の音程を +15¢ に保持してから戻すと、EMA が 15¢→判定線まで戻るぶんが尾として
+//     足される。判定線が ±2 になって尾は 278ms → **200ms** に縮んだので、
+//     650ms 保持での外れ時間は 928ms → **850ms**。
 //
-// 900 では (2) が抑制を抜ける。1200 なら:
-//   ・(1) の揺らしは 8秒間続けても走りは1回だけ
-//   ・生の外れが 800ms まで(=実測 1078ms)は走り直さず、1000ms 以上(=1278ms)で走り直す
+// 【1200 の位置づけ(F-47 で根拠を置き直した)】
+// ±1 のときは「650ms 保持の外れ(928ms)が 900 では抑制を抜ける」ことが直接の根拠だった。
+// ±2 では 850ms なので、その事例では 900 でも抑制される。根拠は事例ではなく掃引の境目で持つ:
+//   ・抑制 900ms は保持 690ms から、抑制 1200ms は保持 990ms から走り直す
+//   ・つまり 1200 のほうが厳しく、「生の外れが 800ms までは走らず 1000ms 以上で走る」
+//     という選定時の性質はそのまま保たれている
 // 「一瞬ぶれただけ」と「一度離れて戻ってきた」の境目がこの位置に来る。
 const RING_RUN_REARM_MS = 1200;
 const RING_BREATH_MS = 2600;     // 呼吸の周期
 const RING_BREATH_RISE = 0.50;   // 周期のうち上りに使う割合
-const RING_GLOW_AMP = 0.90;      // 光の最大の強さ
-// 光の内縁 = 環の帯の外縁。ここより内側は先頭ストップが不透明度0なので白のまま。
-const RING_GLOW_EDGE_PCT = ((RING_R + RING_SW / 2) / (RING_VB / 2)) * 100;
+const RING_GLOW_AMP = 0.90;      // 光の最大の強さ(時間方向。呼吸と走りの立ち上がりに掛かる)
+
+// ============================================================
+// 外周の光(F-47)。本人選定の試作 public/ring-proto.html「案③ やや強め」をそのまま移植した。
+//
+// 【何を作るか】環の縁から間接照明のように漏れる光。均一なグラデーションではなく、
+// 外へ行くほど**粒**に分解して散る。
+//
+// 【要点1: 光の最大は環の外縁(RING_GLOW_EDGE_R)に置く】
+//   立ち上がり(RING_GLOW_RISE_R → RING_GLOW_EDGE_R)は環のトラックの下に隠れるので、
+//   見える範囲では「環の縁からいきなり明るい光が出て外へ薄れる」= 環から漏れ出る光になる。
+//   立ち上がりが外縁より外まで続くと、環と光の間の数pxが淡いまま残り
+//   **環と光の間に細い明るい線**が見える(試作の初期版で本人が指摘した不具合)。
+//
+// 【要点2: 終端で値も傾きも0にする】exp(-decay·x)·(1-x)³ は x=1 で値も微分も0になる。
+//   ここが折れると「グラデーションの終わり」が縁として見える。
+//
+// 【要点3: mix-blend-mode を一切使わない】試作の初版は粒をマスクの中で
+//   mix-blend-mode:multiply で重ねており、その指定がマスク内で効かない環境では
+//   ノイズが全面に加算されて**画面全体が緑になった**(本人報告)。
+//   現行はマスクの入れ子(=掛け算)だけで作る:
+//       <g mask=減衰>                       ← 最外。ここが0なら何も描かれない
+//         <g mask=1-傾斜>       光 </g>      ← 内側: 滑らかな光
+//         <g mask=傾斜><g mask=粒> 光 </g></g> ← 外側: 粒に分解した光
+//   減衰マスクが常に最外に掛かるので、どんな事情があっても環の外側へは漏れない。
+//
+// 【毎フレーム変えるのは明るさだけ】ストップも粒も静的に1度だけ作り、rAF は
+//   いちばん外の <g> の opacity だけを動かす(作り直すと重い)。
+//
+// 試作からそのまま引いた値(案③): peak 0.66 / rMax 190 / decay 2.3 /
+//   grainLo 0.30 / grainHi 1.00 / rampPow 1.8 / ストップ44段。
+// 試作の座標は viewBox 300 基準なので、本体の RING_VB に合わせて換算する(RING_VB=300 なので等倍)。
+// ただし環そのものの寸法は試作(R=128/線幅10 → 外縁133)と本体(R=136/線幅14 → 外縁143)で違うため、
+// 外縁から外への到達距離は試作の 57 に対し本体は 47 viewBox 単位になる。
+// ============================================================
+// 「合った」の外側で、走らせずに光だけを出す範囲(本人指示: ±4以内はほんのり広がる)。
+const RING_GLOW_NEAR_CENTS = 4;
+const RING_GLOW_PEAK = 0.66;                        // 環の外縁での明るさ(本人選定: 案③)
+const RING_GLOW_EDGE_R = RING_R + RING_SW / 2;      // 光の最大の位置 = 環のトラックの外縁
+// 立ち上がりの開始。トラックの内縁(RING_R - RING_SW/2)と外縁の間に収め、**全部トラックの下に隠す**。
+// 試作は外縁の 0.7×線幅 内側(133-7=126)から立ち上げていたので、同じ比で置く。
+const RING_GLOW_RISE_R = RING_GLOW_EDGE_R - 0.7 * RING_SW;
+const RING_GLOW_R_MAX = 190 * (RING_VB / 300);      // 光が届く半径(ここで値も傾きも0)
+const RING_GLOW_DECAY = 2.3;                        // 裾の伸び(小さいほど遠くまで)
+const RING_GLOW_RAMP_POW = 1.8;                     // 粒が効き始める急さ
+const RING_GLOW_GRAIN_LO = 0.30;                    // 粒の明るさの下限(狭いほど粒が目立たない)
+const RING_GLOW_GRAIN_HI = 1.00;                    // 粒の明るさの上限
+const RING_GLOW_STEPS = 44;                         // 減衰・傾斜を近似するストップの段数
+const RING_GLOW_SEED = 6;                           // 粒(feTurbulence)の種。案③のもの
+// ストップを刻み始める半径。立ち上がりの開始より内側なら値は0のままなのでどこでもよいが、
+// 環のトラックの内縁に合わせて「トラックの下から刻み始める」形にする。
+const RING_GLOW_STOP_R0 = RING_R - RING_SW / 2;
+// 光を塗る矩形。マスクで削るための下地なので、光の届く範囲(半径190)を余裕をもって覆う。
+// 試作の {x:-80, y:-80, 460×460} をそのまま換算したもの。
+const RING_GLOW_RECT_MIN = -80 * (RING_VB / 300);
+const RING_GLOW_RECT_SIZE = 460 * (RING_VB / 300);
+
+// 光の減衰。環の外縁で最大(RING_GLOW_PEAK)、そこから外へ exp·(1-x)³ で0へ落ちる。
+function ringGlowAlphaAt(r) {
+  if (r <= RING_GLOW_RISE_R) return 0;
+  if (r < RING_GLOW_EDGE_R) {
+    const t = (r - RING_GLOW_RISE_R) / (RING_GLOW_EDGE_R - RING_GLOW_RISE_R);
+    return RING_GLOW_PEAK * t * t * (3 - 2 * t);
+  }
+  const x = (r - RING_GLOW_EDGE_R) / (RING_GLOW_R_MAX - RING_GLOW_EDGE_R);
+  if (x >= 1) return 0;
+  return RING_GLOW_PEAK * Math.exp(-RING_GLOW_DECAY * x) * Math.pow(1 - x, 3);
+}
+
+// 粒の効き具合(0=内側は滑らか / 1=外側は完全に粒まかせ)。環の外縁から数え始める。
+function ringGlowRampAt(r) {
+  const x = Math.max(0, Math.min(1, (r - RING_GLOW_EDGE_R) / (RING_GLOW_R_MAX - RING_GLOW_EDGE_R)));
+  return Math.pow(x, RING_GLOW_RAMP_POW);
+}
+
+// 減衰・傾斜を多段のストップで近似する(直線2〜3本だと折れ目が見える)。
+// offset はグラデーションの半径 RING_GLOW_R_MAX に対する割合。
+function ringGlowStops(fn) {
+  const out = [];
+  for (let i = 0; i <= RING_GLOW_STEPS; i++) {
+    const r = RING_GLOW_STOP_R0 + (RING_GLOW_R_MAX - RING_GLOW_STOP_R0) * (i / RING_GLOW_STEPS);
+    out.push({ offset: r / RING_GLOW_R_MAX, value: fn(r) });
+  }
+  return out;
+}
+
+// 3種のストップは静的。毎フレーム作り直さない(重い)。
+const RING_GLOW_FALLOFF_STOPS = ringGlowStops(ringGlowAlphaAt);
+const RING_GLOW_GRAINY_STOPS = ringGlowStops(ringGlowRampAt);
+const RING_GLOW_SMOOTH_STOPS = ringGlowStops((r) => 1 - ringGlowRampAt(r));
 
 // 走りのイージング: ease-out cubic。勢いよく出て6時へそっと着地する。
 function ringRunEase(p) {
@@ -4095,9 +4194,20 @@ function ringBreath(ms) {
     : 1 - ringSmoothstep((u - RING_BREATH_RISE) / (1 - RING_BREATH_RISE));
 }
 
-// 光の実効不透明度。走り(線形進捗)に合わせて立ち上がり、そのあと呼吸する。
-function ringGlowOpacity(runRaw, breath) {
-  return RING_GLOW_AMP * runRaw * (0.34 + 0.66 * breath);
+// 光の実効不透明度。ズレの大きさで3つの段に分かれる(本人指示 F-47)。
+//   |¢| <= RING_IN_TUNE_CENTS   合った。走り(線形進捗)に合わせて立ち上がり、そのあと呼吸する
+//   〜 RING_GLOW_NEAR_CENTS     走りは出さない。光だけを出し、合格線に近いほど強く、
+//                               RING_GLOW_NEAR_CENTS でちょうど0になるよう連続的に落とす
+//   それより外 / 音が無い        光らない
+//
+// 【rAF の中に条件分岐を散らさない】段の切り替えはこの純関数の中に閉じる。そうすれば
+// ハーネスが数値を固定できる(コンポーネントの中の if はハーネスから見えない)。
+// absCents に音が無いことを表す NaN が来た場合も、最初の判定が偽になって0を返す。
+function ringGlowOpacity(runRaw, breath, absCents) {
+  const ac = Math.abs(absCents);
+  if (!(ac <= RING_GLOW_NEAR_CENTS)) return 0;
+  if (ac <= RING_IN_TUNE_CENTS) return RING_GLOW_AMP * runRaw * (0.34 + 0.66 * breath);
+  return RING_GLOW_AMP * ((RING_GLOW_NEAR_CENTS - ac) / (RING_GLOW_NEAR_CENTS - RING_IN_TUNE_CENTS));
 }
 
 // 光の色。帯より明るく彩度を落とす。「光源の色」ではなく「照らされた面の色」にするため。
@@ -4237,6 +4347,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const [mx, my] = ringPoint(deg, R, CX, CY);
   const [r, g, b] = pitchBarColorRGB(exact);
   const color = `rgb(${r},${g},${b})`;
+  // 光の色は帯より明るく彩度を落とす(「光源の色」ではなく「照らされた面の色」)。
+  // 初期値だけJSXで置き、以降はrAFが元色の変化に追従して塗り替える。
+  const glowRGB = ringGlowRGB([r, g, b]);
+  const glowColor = `rgb(${glowRGB[0]},${glowRGB[1]},${glowRGB[2]})`;
   const inTune = sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
 
   // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
@@ -4250,7 +4364,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const noteBoxH = noteFs * NOTE_LINE_H;
 
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
-  // 到達している間は全周を走る帯がここを覆うので描かない(±1¢ の帯は線幅より短い)。
+  // 到達している間は全周を走る帯がここを覆うので描かない(±2¢ の帯は弧長10.4で線幅14より短い)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
   const arcD = (inTune || Math.abs(deg) < 1) ? "" : ringArcD(0, deg);
   // 帯の色は「先端からの絶対弧長」で決める(帯の長さでは割らない)。ストップの位置は
@@ -4261,7 +4375,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const uid = useId().replace(/:/g, "");
   const barGradId = `ring-bar-${uid}`;
   const runGradIds = [`ring-run-l-${uid}`, `ring-run-r-${uid}`];
-  const glowGradId = `ring-glow-${uid}`;
+  // 外周の光。減衰・傾斜(内/外)・粒の4つのマスクを入れ子にする。
+  const glowFalloffId = `ring-glow-falloff-${uid}`;
+  const glowSmoothId = `ring-glow-smooth-${uid}`;
+  const glowGrainyId = `ring-glow-grainy-${uid}`;
+  const glowNoiseId = `ring-glow-noise-${uid}`;
 
   // --- 到達の演出(走り + 外側だけの呼吸) ---
   // 走りは640ms、呼吸は2.6秒周期で続くため、Reactの再レンダーを挟まずrAFで書き換える。
@@ -4269,10 +4387,13 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const runPathRefs = useRef([null, null]);   // [左弧, 右弧]
   const runGradRefs = useRef([null, null]);
   const runStopRefs = useRef([[], []]);
-  const glowStopRefs = useRef([]);            // [先端(不透明度0), 光, 外縁(不透明度0)]
+  const glowGroupRef = useRef(null);          // 光のいちばん外の <g>。明るさはここの opacity だけ
+  const glowFillRefs = useRef([]);            // 光を塗る矩形 [滑らかな側, 粒の側]
   // rAFから読む最新値。走りの判定と色の元になる。
-  const liveRef = useRef({ inTune: false, base: [22, 163, 74] });
-  liveRef.current = { inTune, base: [r, g, b] };
+  // glowCents は光の段(合った / ±RING_GLOW_NEAR_CENTS まで / それ以外)を決める |¢|。
+  // 音が入っていないときは NaN を渡し、ringGlowOpacity 側で0になるようにする。
+  const liveRef = useRef({ inTune: false, base: [22, 163, 74], glowCents: NaN });
+  liveRef.current = { inTune, base: [r, g, b], glowCents: sounding ? Math.abs(exact) : NaN };
   useEffect(() => {
     // 動きを減らす設定。rAFで属性を書き換えるぶんはCSSの @media が効かないので自分で見る。
     // 走りは行わず進捗1(点灯した状態)から始め、呼吸は止めて breath=1 で固定する。
@@ -4281,6 +4402,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
     let raf;
     let lastKey = "";
     let lastGlow = "";
+    let lastBase = "";
     const loop = () => {
       const now = performance.now();
       const reduce = reduceMotion.matches;
@@ -4321,15 +4443,22 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
             el.setAttribute("stop-color", `rgb(${c[0]},${c[1]},${c[2]})`);
           }
         }
+      }
+      // 光の色。**走りが出ていない間(±RING_GLOW_NEAR_CENTS までの帯)も光るので、
+      // 走りのキーとは別に、元色が変わったときだけ塗り替える。**
+      const baseKey = base.join(",");
+      if (baseKey !== lastBase) {
+        lastBase = baseKey;
         const gl = ringGlowRGB(base);
-        for (const el of glowStopRefs.current) {
-          if (el) el.setAttribute("stop-color", `rgb(${gl[0]},${gl[1]},${gl[2]})`);
+        for (const el of glowFillRefs.current) {
+          if (el) el.setAttribute("fill", `rgb(${gl[0]},${gl[1]},${gl[2]})`);
         }
       }
-      // 光の強さだけは毎フレーム(呼吸)。先頭と最後のストップ(不透明度0)は触らない。
-      const mid = glowStopRefs.current[1];
-      const op = ringGlowOpacity(raw, breath).toFixed(4);
-      if (mid && op !== lastGlow) { mid.setAttribute("stop-opacity", op); lastGlow = op; }
+      // 【毎フレーム変えるのは明るさだけ】いちばん外の <g> の opacity だけを動かす。
+      // 減衰のストップも粒も静的なので作り直さない。
+      const glow = glowGroupRef.current;
+      const op = ringGlowOpacity(raw, breath, liveRef.current.glowCents).toFixed(4);
+      if (glow && op !== lastGlow) { glow.setAttribute("opacity", op); lastGlow = op; }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -4433,7 +4562,18 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
 
   return (
     <div style={{ width: "100%", maxWidth: diameter, margin: "0 auto", position: "relative" }}>
-      <svg viewBox={`0 0 ${VB} ${VB}`} style={{ display: "block", width: "100%", height: "auto" }} aria-hidden="true">
+      {/* 【overflow: visible】外周の光は環の外縁(viewBox 143)から RING_GLOW_R_MAX(190)まで
+          届くので、viewBox(半径150)の内側では収まらない。既定の overflow:hidden のままだと
+          viewBox の枠で切られて**四角い切り口が縁として見える**(r=150 の時点で減衰は
+          まだ最大の44%残っている)。切らずに外へ出す。
+          レイアウトには影響しない(はみ出すのは描画だけで、要素の寸法は変わらない §6.1.5)。
+          【pointerEvents: none】はみ出した描画が上下の要素の当たり判定を食わないようにする。
+          錘のタップはこのSVGの外にある透明なボタンが持つので、SVG側は当たり判定を持たない。 */}
+      <svg
+        viewBox={`0 0 ${VB} ${VB}`}
+        style={{ display: "block", width: "100%", height: "auto", overflow: "visible", pointerEvents: "none" }}
+        aria-hidden="true"
+      >
         <defs>
           {/* ズレの帯。色は**先端(現在位置)からの絶対弧長**で決め、帯の長さでは割らない。
               ストップの位置は弧を弦へ射影して求める(軸は根元→先端の弦)。
@@ -4462,21 +4602,99 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
               ))}
             </linearGradient>
           ))}
-          {/* 到達の光。**環の外側だけ**を照らす。先頭ストップの不透明度が0なので
-              0%〜RING_GLOW_EDGE_PCT は完全に透明＝内側は白のまま(音名の可読性と静けさ)。 */}
+          {/* 外周の光(F-47)。減衰・傾斜・粒の3種のマスクを作る。すべて静的。
+              光の最大は環のトラックの外縁(RING_GLOW_EDGE_R)。立ち上がりはトラックの下に隠れる。 */}
           <radialGradient
-            id={glowGradId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={VB / 2}
+            id={glowFalloffId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
           >
-            <stop ref={(el) => { glowStopRefs.current[0] = el; }}
-              offset={`${RING_GLOW_EDGE_PCT}%`} stopColor={color} stopOpacity="0" />
-            <stop ref={(el) => { glowStopRefs.current[1] = el; }}
-              offset={`${RING_GLOW_EDGE_PCT}%`} stopColor={color} stopOpacity="0" />
-            <stop ref={(el) => { glowStopRefs.current[2] = el; }}
-              offset="100%" stopColor={color} stopOpacity="0" />
+            {RING_GLOW_FALLOFF_STOPS.map((st, i) => (
+              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
+            ))}
           </radialGradient>
+          <mask id={`${glowFalloffId}-m`}>
+            <rect
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
+              fill={`url(#${glowFalloffId})`}
+            />
+          </mask>
+          {/* 外へ行くほど粒に置き換えるための傾斜と、その逆(内側の滑らかな側) */}
+          <radialGradient
+            id={glowGrainyId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
+          >
+            {RING_GLOW_GRAINY_STOPS.map((st, i) => (
+              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
+            ))}
+          </radialGradient>
+          <mask id={`${glowGrainyId}-m`}>
+            <rect
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
+              fill={`url(#${glowGrainyId})`}
+            />
+          </mask>
+          <radialGradient
+            id={glowSmoothId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
+          >
+            {RING_GLOW_SMOOTH_STOPS.map((st, i) => (
+              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
+            ))}
+          </radialGradient>
+          <mask id={`${glowSmoothId}-m`}>
+            <rect
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
+              fill={`url(#${glowSmoothId})`}
+            />
+          </mask>
+          {/* 粒そのもの。マスクとして使うので輝度がそのまま光の濃淡になる。
+              feComponentTransfer で明るさの幅を grainLo〜grainHi に収め、
+              **alpha は slope 0 / intercept 1 で不透明に固定する**(穴を空けない)。 */}
+          <filter id={glowNoiseId} x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence
+              type="fractalNoise" baseFrequency="0.9" numOctaves="2"
+              seed={RING_GLOW_SEED} stitchTiles="stitch"
+            />
+            <feColorMatrix type="saturate" values="0" />
+            <feComponentTransfer>
+              <feFuncR type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
+              <feFuncG type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
+              <feFuncB type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
+              <feFuncA type="linear" slope="0" intercept="1" />
+            </feComponentTransfer>
+          </filter>
+          <mask id={`${glowNoiseId}-m`}>
+            <rect
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
+              filter={`url(#${glowNoiseId})`}
+            />
+          </mask>
         </defs>
-        {/* 到達の光(環の外側のみ)。帯より奥に敷く。 */}
-        <circle cx={CX} cy={CY} r={VB / 2} fill={`url(#${glowGradId})`} />
+        {/* 外周の光。帯より奥に敷く。**mix-blend-mode は一切使わず、マスクの入れ子
+            (=掛け算)だけ**で作る(ブレンドが効かない環境で全面が染まった経緯がある)。
+            いちばん外の減衰マスクが常に掛かるので、環の外側の届く範囲を超えて漏れない。
+            明るさは rAF がこの <g> の opacity だけを書き換える。 */}
+        <g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`} opacity="0">
+          {/* 内側 = 減衰 × (1-傾斜) … 滑らかな光 */}
+          <g mask={`url(#${glowSmoothId}-m)`}>
+            <rect
+              ref={(el) => { glowFillRefs.current[0] = el; }}
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill={glowColor}
+            />
+          </g>
+          {/* 外側 = 減衰 × 傾斜 × 粒 … 粒に分解した光 */}
+          <g mask={`url(#${glowGrainyId}-m)`}>
+            <g mask={`url(#${glowNoiseId}-m)`}>
+              <rect
+                ref={(el) => { glowFillRefs.current[1] = el; }}
+                x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+                width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill={glowColor}
+              />
+            </g>
+          </g>
+        </g>
         {/* 環のトラック(常に全周)。色はCSS変数から引くため属性ではなくstyleで指定する
             (SVGのプレゼンテーション属性に var() は書けない)。 */}
         <circle cx={CX} cy={CY} r={R} fill="none" strokeWidth={SW} style={{ stroke: "var(--c-line)" }} />
