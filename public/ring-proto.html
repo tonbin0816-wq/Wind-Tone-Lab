@@ -46,7 +46,7 @@
   加算されてマスクが画面いっぱいに広がっていました。ブレンドモードを一切使わず、
   <b>マスクの掛け算だけ</b>で作り直したので、構造的に環の外側へ漏れません。
 </p>
-<div class="warn">⚠️ 案Bをベースに、<b>粒の強さ違い3案</b>です。帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</div>
+<div class="warn">⚠️ 案B2をベースに、<b>光り始めの強さ違い3案</b>です。散り方・粒・届く範囲はB2のまま、明るさだけを変えています。帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</div>
 
 <div class="ctl">
   <div class="row">
@@ -61,18 +61,18 @@
   </div>
 </div>
 
-<h2>案B1 粒ひかえめ</h2>
-<p class="sub">内側は滑らかな光、外へ行くほど粒に分解。散り方はおとなしめ。</p>
+<h2>案① いちばん弱い</h2>
+<p class="sub">かすかに滲む程度。暗い場所でようやく分かるくらいの明るさ。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="0"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案B2 標準　★案Bに近いのはこれ</h2>
-<p class="sub">粒と散り方のバランスを取ったもの。</p>
+<h2>案② ほんのり　★おすすめ</h2>
+<p class="sub">環の縁からやわらかく漏れる程度。「ほんのり光る」に一番近いつもりのもの。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="1"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案B3 もっと散る</h2>
-<p class="sub">粒を強く、光の届く範囲も広げたもの。</p>
+<h2>案③ やや強め</h2>
+<p class="sub">はっきり光っていると分かる程度。①②が弱すぎたときはこちら。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="2"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
@@ -89,10 +89,13 @@
 
   // rMax=光が届く半径 / grainLo..grainHi=粒の明るさの範囲(狭いほど粒が目立たない)
   // / decay=裾の伸び(小さいほど遠くまで) / rampPow=粒が効き始める急さ
+  // 本人選定の案B2(rMax/decay/粒/傾斜)を共通の土台にし、**光り始めの強さ(peak)だけ**を変えた3案。
+  // peak = 環の外縁での明るさ。1.0だと環から強い光が出ている状態で、下げるほど「ほんのり」になる。
+  var B2={ rMax:190, decay:2.3, grainLo:0.30, grainHi:1.00, rampPow:1.8 };
   var VARIANTS=[
-    { rMax:180, decay:2.7, grainLo:0.55, grainHi:1.00, rampPow:2.2 },
-    { rMax:190, decay:2.3, grainLo:0.30, grainHi:1.00, rampPow:1.8 },
-    { rMax:206, decay:1.8, grainLo:0.10, grainHi:1.00, rampPow:1.4 }
+    Object.assign({}, B2, { peak:0.32 }),
+    Object.assign({}, B2, { peak:0.48 }),
+    Object.assign({}, B2, { peak:0.66 })
   ];
 
   // 光の減衰。
@@ -102,14 +105,16 @@
   //   以前は立ち上がりが137pxまで続き、環の外縁との間の4pxが淡いまま残っていたため、
   //   環と光の間に細い明るい線が見えていた(本人指摘)。
   // 【要点2】終端で値も傾きも0にする(ここが折れると「縁」として見える)。
+  // 【要点3】全体に peak を掛けて「光り始めの強さ」を決める(本人指示: もう少し弱く、ほんのり)。
+  //   形(減衰カーブ)は変えずに明るさだけを下げるので、縁の見えなさ・散り方はそのまま。
   var R_EDGE=133;
   function alphaAt(r,p){
-    var rIn=126;
+    var rIn=126, peak=(p.peak==null?1:p.peak);
     if (r<=rIn) return 0;
-    if (r<R_EDGE){ var t=(r-rIn)/(R_EDGE-rIn); return t*t*(3-2*t); }
+    if (r<R_EDGE){ var t=(r-rIn)/(R_EDGE-rIn); return peak*t*t*(3-2*t); }
     var x=(r-R_EDGE)/(p.rMax-R_EDGE);
     if (x>=1) return 0;
-    return Math.exp(-p.decay*x)*Math.pow(1-x,3);
+    return peak*Math.exp(-p.decay*x)*Math.pow(1-x,3);
   }
   // 粒の効き具合(0=内側は滑らか, 1=外側は完全に粒まかせ)。環の縁から数え始める。
   function rampAt(r,p){
