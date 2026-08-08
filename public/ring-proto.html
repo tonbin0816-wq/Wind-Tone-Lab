@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ficus 外周の光 試作2（F-47）</title>
+<title>Ficus 外周の光 試作4（F-47）</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -21,15 +21,12 @@
   .warn{font-size:12px;background:var(--sunken);border-radius:8px;padding:10px 12px;margin:12px 0 6px;color:var(--ink2);line-height:1.65}
   h2{font-size:14px;margin:30px 0 2px;padding-top:16px;border-top:1px solid var(--line)}
   .sub{font-size:11px;color:var(--ink3);line-height:1.6;margin-bottom:2px}
-
-  /* 光が viewBox の外まで届くので、はみ出しを許可し、上下に逃げを取る */
   .stage{display:flex;justify-content:center;margin:2px 0;padding:26px 0}
   .ringwrap{position:relative;width:300px;height:300px}
   svg{display:block;width:100%;height:100%;overflow:visible}
   .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
   .nm{font-family:"Instrument Serif",serif;font-size:96px;line-height:.82}
   .ct{font-size:15px;color:var(--ink2);margin-top:8px;font-weight:600}
-
   .ctl{background:var(--sunken);border-radius:12px;padding:14px;margin:10px 0 2px;position:sticky;top:0;z-index:5}
   .row{display:flex;align-items:center;gap:10px}
   .row label{font-size:12px;color:var(--ink2);flex-shrink:0;width:66px}
@@ -42,13 +39,14 @@
 </head>
 <body>
 
-<h1>外周の光 試作2（F-47）</h1>
+<h1>外周の光 試作4（F-47）</h1>
 <p class="note">
-  案3をベースに、<b>「グラデーションの終わりが見える」</b>を潰しました。原因は、光が0になる地点で
-  <b>減り方の傾きが急に変わる</b>こと（人の目はそこを縁として拾います）。終端で傾きも0になる長い裾に変え、
-  <b>外ほど粒を強くして光を粒に散らし</b>、<b>角度方向にもムラ</b>を入れて真円の輪郭を消しています。
+  <b>画面全体が緑になる不具合を直しました。</b>原因は、粒（ノイズ）をマスクの中で
+  <code>mix-blend-mode</code> で重ねていたこと。この指定がマスク内で効かない場合、ノイズが全面に
+  加算されてマスクが画面いっぱいに広がっていました。ブレンドモードを一切使わず、
+  <b>マスクの掛け算だけ</b>で作り直したので、構造的に環の外側へ漏れません。
 </p>
-<div class="warn">⚠️ <b>iPhoneで、暗めの場所で</b>見てください。帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</div>
+<div class="warn">⚠️ 案Bをベースに、<b>粒の強さ違い3案</b>です。帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</div>
 
 <div class="ctl">
   <div class="row">
@@ -63,153 +61,121 @@
   </div>
 </div>
 
-<h2>案A 裾を伸ばしただけ</h2>
-<p class="sub">終端で傾きも0にした滑らかな減衰。粒は全体に均一。まず「縁が消えたか」を見てください。</p>
+<h2>案B1 粒ひかえめ</h2>
+<p class="sub">内側は滑らかな光、外へ行くほど粒に分解。散り方はおとなしめ。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="0"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案B ＋外ほど粒が強い</h2>
-<p class="sub">内側は滑らかな光、外へ行くほど粒に分解して消える。光が空気に散る感じ。</p>
+<h2>案B2 標準　★案Bに近いのはこれ</h2>
+<p class="sub">粒と散り方のバランスを取ったもの。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="1"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案C ＋角度方向のムラ　★本命</h2>
-<p class="sub">Bに加えて、光の強さが円周方向にも不均一。真円の輪郭が消え、間接照明に近づきます。</p>
+<h2>案B3 もっと散る</h2>
+<p class="sub">粒を強く、光の届く範囲も広げたもの。</p>
 <div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="2"></svg>
   <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案D Cをもっと散らす</h2>
-<p class="sub">Cと同じ作りで、光の届く範囲・粒の強さ・ムラを一段強くしたもの。</p>
-<div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="3"></svg>
-  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
-
 <p class="note" style="margin-top:24px">
-  <b>案の記号</b>と、必要なら「もっと散らす／粒を強く・弱く／光の届く範囲を広く・狭く／ムラを強く・弱く」を教えてください。<br>
-  <span style="color:var(--ink3)">※ ノイズは固定で1度だけ作り、明るさだけを変えています（毎フレーム作り直すと重くなるため）。</span>
+  <b>案の記号</b>と、必要なら「もっと散らす／粒を強く・弱く／光の届く範囲を広く・狭く」を教えてください。<br>
+  <span style="color:var(--ink3)">※ ノイズは固定で1度だけ作り、明るさだけを変えています。</span>
 </p>
 
 <script>
 (function(){
   var CX=150, CY=150, R=128, SWEEP=110, MAX_CENTS=50;
   var GREEN="rgb(80,145,0)";
-  var SVGNS="http://www.w3.org/2000/svg";
+  var NS="http://www.w3.org/2000/svg";
 
-  // 4案のパラメータ。rMax=光が届く半径 / grainAmt=粒の強さ / grainOut=外ほど粒を強くするか
-  // / blobs=角度方向のムラ / decay=裾の伸び(小さいほど遠くまで届く)
-  var VARIANTS = [
-    { rMax:178, grainAmt:0.30, grainOut:false, blobs:false, decay:2.8 },
-    { rMax:188, grainAmt:0.60, grainOut:true,  blobs:false, decay:2.4 },
-    { rMax:194, grainAmt:0.62, grainOut:true,  blobs:true,  decay:2.2 },
-    { rMax:210, grainAmt:0.85, grainOut:true,  blobs:true,  decay:1.7 }
+  // rMax=光が届く半径 / grainLo..grainHi=粒の明るさの範囲(狭いほど粒が目立たない)
+  // / decay=裾の伸び(小さいほど遠くまで) / rampPow=粒が効き始める急さ
+  var VARIANTS=[
+    { rMax:180, decay:2.7, grainLo:0.55, grainHi:1.00, rampPow:2.2 },
+    { rMax:190, decay:2.3, grainLo:0.30, grainHi:1.00, rampPow:1.8 },
+    { rMax:206, decay:1.8, grainLo:0.10, grainHi:1.00, rampPow:1.4 }
   ];
 
-  // 光の減衰。**終端で値も傾きも0**にするのが要点(ここが折れると「縁」として見える)。
-  // 内側: 環の外縁から素早く立ち上げる / 外側: 指数減衰 ×(1-x)^3
-  function alphaAt(r, p){
+  // 光の減衰。終端で値も傾きも0にする(ここが折れると「縁」として見える)
+  function alphaAt(r,p){
     var rIn=130, rPk=137;
-    if (r <= rIn) return 0;
-    if (r < rPk){ var t=(r-rIn)/(rPk-rIn); return t*t*(3-2*t); }
+    if (r<=rIn) return 0;
+    if (r<rPk){ var t=(r-rIn)/(rPk-rIn); return t*t*(3-2*t); }
     var x=(r-rPk)/(p.rMax-rPk);
-    if (x >= 1) return 0;
-    return Math.exp(-p.decay*x) * Math.pow(1-x, 3);
+    if (x>=1) return 0;
+    return Math.exp(-p.decay*x)*Math.pow(1-x,3);
+  }
+  // 粒の効き具合(0=内側は滑らか, 1=外側は完全に粒まかせ)
+  function rampAt(r,p){
+    var x=Math.max(0,Math.min(1,(r-137)/(p.rMax-137)));
+    return Math.pow(x,p.rampPow);
   }
 
-  function el(name, attrs){
-    var e=document.createElementNS(SVGNS, name);
-    for (var k in attrs) e.setAttribute(k, attrs[k]);
-    return e;
-  }
-  // 減衰カーブを多段ストップで近似する(直線2〜3本だと折れ目が見える)
-  function gradStops(grad, p, invert){
+  function E(n,a){ var e=document.createElementNS(NS,n); for(var k in a) e.setAttribute(k,a[k]); return e; }
+  function FULL(a){ var o={x:-80,y:-80,width:460,height:460}; for(var k in a) o[k]=a[k]; return E("rect",o); }
+
+  // 減衰・傾斜を多段ストップで近似(直線2〜3本だと折れ目が見える)
+  function stops(g,p,fn){
     var N=44;
-    for (var i=0;i<=N;i++){
-      var r = 120 + (p.rMax-120)*(i/N);
-      var a = alphaAt(r, p);
-      if (invert){
-        // 粒の効き具合: 内側0 → 外側1(外ほど粒に分解する)
-        var x = Math.max(0, Math.min(1, (r-137)/(p.rMax-137)));
-        a = x*x;
-      }
-      grad.appendChild(el("stop", {
-        offset:(r/p.rMax).toFixed(4),
-        "stop-color":"#fff",
-        "stop-opacity":a.toFixed(4)
-      }));
+    for(var i=0;i<=N;i++){
+      var r=118+(p.rMax-118)*(i/N);
+      g.appendChild(E("stop",{offset:(r/p.rMax).toFixed(4),"stop-color":"#fff","stop-opacity":fn(r,p).toFixed(4)}));
     }
   }
 
-  function build(svg, idx){
-    var p=VARIANTS[idx], u="v"+idx;
-    var defs=el("defs",{});
+  function build(svg,idx){
+    var p=VARIANTS[idx], u="w"+idx, defs=E("defs",{});
 
-    // 1) 光の減衰
-    var g1=el("radialGradient",{id:u+"fall",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
-    gradStops(g1,p,false); defs.appendChild(g1);
+    // (1) 光の減衰マスク。**これが一番外側。ここが0なら何も描かれない**ので、
+    //     どんな事情があっても環の外側へ漏れない(前回の全面緑はここを通していなかった)。
+    var gf=E("radialGradient",{id:u+"f",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
+    stops(gf,p,alphaAt); defs.appendChild(gf);
+    var mf=E("mask",{id:u+"fM"}); mf.appendChild(FULL({fill:"url(#"+u+"f)"})); defs.appendChild(mf);
 
-    // 2) 粒(固定。毎フレーム作り直さない)
-    var f=el("filter",{id:u+"noise",x:"-20%",y:"-20%",width:"140%",height:"140%"});
-    f.appendChild(el("feTurbulence",{type:"fractalNoise",baseFrequency:"0.9",numOctaves:"2",seed:String(3+idx),stitchTiles:"stitch"}));
-    f.appendChild(el("feColorMatrix",{type:"saturate",values:"0"}));
-    defs.appendChild(f);
+    // (2) 外ほど粒に置き換えるための傾斜(と、その逆)
+    var gr=E("radialGradient",{id:u+"r",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
+    stops(gr,p,rampAt); defs.appendChild(gr);
+    var mr=E("mask",{id:u+"rM"}); mr.appendChild(FULL({fill:"url(#"+u+"r)"})); defs.appendChild(mr);
 
-    // 3) 角度方向のムラ(低周波のゆらぎ = 大きな斑)
-    if (p.blobs){
-      var fb=el("filter",{id:u+"blob",x:"-20%",y:"-20%",width:"140%",height:"140%"});
-      fb.appendChild(el("feTurbulence",{type:"fractalNoise",baseFrequency:"0.008",numOctaves:"2",seed:String(11+idx),stitchTiles:"stitch"}));
-      fb.appendChild(el("feColorMatrix",{type:"saturate",values:"0"}));
-      // 平均0.5付近の斑を、0.55〜1.0 の範囲に寄せる(暗くしすぎない)
-      var ct=el("feComponentTransfer",{});
-      ct.appendChild(el("feFuncR",{type:"linear",slope:"0.45",intercept:"0.55"}));
-      ct.appendChild(el("feFuncG",{type:"linear",slope:"0.45",intercept:"0.55"}));
-      ct.appendChild(el("feFuncB",{type:"linear",slope:"0.45",intercept:"0.55"}));
-      fb.appendChild(ct);
-      defs.appendChild(fb);
-    }
+    var gi=E("radialGradient",{id:u+"i",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
+    stops(gi,p,function(r,q){ return 1-rampAt(r,q); }); defs.appendChild(gi);
+    var mi=E("mask",{id:u+"iM"}); mi.appendChild(FULL({fill:"url(#"+u+"i)"})); defs.appendChild(mi);
 
-    // 4) 粒を外ほど効かせるための傾斜マスク
-    if (p.grainOut){
-      var g2=el("radialGradient",{id:u+"ramp",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
-      gradStops(g2,p,true); defs.appendChild(g2);
-      var mr=el("mask",{id:u+"rampM"});
-      mr.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,fill:"url(#"+u+"ramp)"}));
-      defs.appendChild(mr);
-    }
-
-    // 5) 本体のマスク: 減衰 × (粒で削る) × (角度のムラ)
-    var m=el("mask",{id:u+"m"});
-    m.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,fill:"url(#"+u+"fall)"}));
-    var grainRect=el("rect",{x:-60,y:-60,width:420,height:420,filter:"url(#"+u+"noise)",opacity:String(p.grainAmt)});
-    grainRect.style.mixBlendMode="multiply";   // 粒の暗い所で光を削る = 粒に散る
-    if (p.grainOut){
-      var wrap=el("g",{mask:"url(#"+u+"rampM)"});
-      wrap.appendChild(grainRect); m.appendChild(wrap);
-    } else m.appendChild(grainRect);
-    if (p.blobs){
-      var blobRect=el("rect",{x:-60,y:-60,width:420,height:420,filter:"url(#"+u+"blob)"});
-      blobRect.style.mixBlendMode="multiply";
-      m.appendChild(blobRect);
-    }
-    defs.appendChild(m);
+    // (3) 粒そのもの。マスクとして使う(輝度がそのまま光の濃淡になる)。
+    //     feComponentTransfer で明るさの幅を調整し、粒の目立ち方を案ごとに変える。
+    var fn=E("filter",{id:u+"n",x:"-20%",y:"-20%",width:"140%",height:"140%"});
+    fn.appendChild(E("feTurbulence",{type:"fractalNoise",baseFrequency:"0.9",numOctaves:"2",seed:String(4+idx),stitchTiles:"stitch"}));
+    fn.appendChild(E("feColorMatrix",{type:"saturate",values:"0"}));
+    var ct=E("feComponentTransfer",{});
+    var sl=(p.grainHi-p.grainLo).toFixed(3), ic=p.grainLo.toFixed(3);
+    ["feFuncR","feFuncG","feFuncB"].forEach(function(f){ ct.appendChild(E(f,{type:"linear",slope:sl,intercept:ic})); });
+    ct.appendChild(E("feFuncA",{type:"linear",slope:"0",intercept:"1"})); // 不透明にする(穴を空けない)
+    fn.appendChild(ct); defs.appendChild(fn);
+    var mn=E("mask",{id:u+"nM"}); mn.appendChild(FULL({filter:"url(#"+u+"n)"})); defs.appendChild(mn);
     svg.appendChild(defs);
 
-    // 環のトラック
-    svg.appendChild(el("circle",{cx:CX,cy:CY,r:R,fill:"none",stroke:"#EEF1F4","stroke-width":10}));
-    // 光(このgのopacityだけを毎フレーム変える)
-    var halo=el("g",{mask:"url(#"+u+"m)",opacity:"0",class:"halo"});
-    halo.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,class:"glowfill"}));
+    svg.appendChild(E("circle",{cx:CX,cy:CY,r:R,fill:"none",stroke:"#EEF1F4","stroke-width":10}));
+
+    // (4) 光。**ブレンドモードを一切使わず、マスクの入れ子(=掛け算)だけで作る。**
+    //     外側の減衰マスクが常に効くので、環の周辺から外へは出ない。
+    //       内側 = 減衰 × (1-傾斜)           … 滑らかな光
+    //       外側 = 減衰 × 傾斜 × 粒          … 粒に分解した光
+    var halo=E("g",{mask:"url(#"+u+"fM)",opacity:"0",class:"halo"});
+    var inner=E("g",{mask:"url(#"+u+"iM)"}); inner.appendChild(FULL({class:"glowfill"})); halo.appendChild(inner);
+    var outer=E("g",{mask:"url(#"+u+"rM)"});
+    var grainy=E("g",{mask:"url(#"+u+"nM)"}); grainy.appendChild(FULL({class:"glowfill"}));
+    outer.appendChild(grainy); halo.appendChild(outer);
     svg.appendChild(halo);
-    // 帯(ズレ) と 合った瞬間の走り
-    svg.appendChild(el("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",class:"band"}));
-    svg.appendChild(el("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run"}));
+
+    svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",class:"band"}));
+    svg.appendChild(E("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run"}));
   }
 
   var svgs=[].slice.call(document.querySelectorAll("svg[data-v]"));
-  svgs.forEach(function(s){ build(s, +s.getAttribute("data-v")); });
+  svgs.forEach(function(s){ build(s,+s.getAttribute("data-v")); });
 
-  function pol(r,deg){ var a=(deg-90)*Math.PI/180; return [CX+r*Math.cos(a), CY+r*Math.sin(a)]; }
-  function arc(r,from,to){
-    var s=pol(r,from), e=pol(r,to);
-    var lg=Math.abs(to-from)>180?1:0, sw=to>from?1:0;
+  function pol(r,d){ var a=(d-90)*Math.PI/180; return [CX+r*Math.cos(a),CY+r*Math.sin(a)]; }
+  function arc(r,f,t){
+    var s=pol(r,f),e=pol(r,t),lg=Math.abs(t-f)>180?1:0,sw=t>f?1:0;
     return "M"+s[0].toFixed(2)+","+s[1].toFixed(2)+" A"+r+","+r+" 0 "+lg+" "+sw+" "+e[0].toFixed(2)+","+e[1].toFixed(2);
   }
   function color(ac){
@@ -229,41 +195,39 @@
     var c=state.cents, ac=Math.abs(c);
     document.getElementById("centsVal").textContent=(c>=0?"+":"")+c.toFixed(1);
     var inTune=ac<=2, near=ac<=4;
-
     svgs.forEach(function(svg,i){
-      var wrap=svg.parentElement;
-      wrap.querySelector(".ct").textContent=(c>=0?"+":"")+c.toFixed(1)+" ¢";
-      wrap.querySelector(".nm").style.color= inTune?GREEN:"var(--ink)";
+      var w=svg.parentElement;
+      w.querySelector(".ct").textContent=(c>=0?"+":"")+c.toFixed(1)+" ¢";
+      w.querySelector(".nm").style.color=inTune?GREEN:"var(--ink)";
 
       var band=svg.querySelector(".band");
       var deg=Math.max(-SWEEP,Math.min(SWEEP,(c/MAX_CENTS)*SWEEP));
-      if (inTune || Math.abs(deg)<0.6) band.setAttribute("d","");
+      if (inTune||Math.abs(deg)<0.6) band.setAttribute("d","");
       else { band.setAttribute("d",arc(R,0,deg)); band.setAttribute("stroke",color(ac)); }
 
       var r=runs[i];
       if (inTune){ if(r.armed){ r.p=0; r.active=true; r.armed=false; } }
       else { r.active=false; r.p=0; if(ac>3) r.armed=true; }
-      if (r.active && r.p<1) r.p=Math.min(1,r.p+0.055);
+      if (r.active&&r.p<1) r.p=Math.min(1,r.p+0.055);
       var run=svg.querySelector(".run");
-      if (r.active && r.p>0){ run.setAttribute("d",arc(R,0,Math.min(359.9,360*r.p))); run.setAttribute("stroke",GREEN); run.setAttribute("opacity",1); }
+      if (r.active&&r.p>0){ run.setAttribute("d",arc(R,0,Math.min(359.9,360*r.p))); run.setAttribute("stroke",GREEN); run.setAttribute("opacity",1); }
       else run.setAttribute("opacity",0);
 
       var halo=svg.querySelector(".halo");
-      var col=inTune?GREEN:color(ac);
-      var s;
+      var col=inTune?GREEN:color(ac), s;
       if (inTune) s=0.85+0.15*Math.sin(Date.now()/430);
       else if (near) s=Math.max(0,Math.min(1,(4-ac)/2))*0.9;
       else s=0;
-      halo.setAttribute("opacity", s.toFixed(3));
-      svg.querySelector(".glowfill").setAttribute("fill", col);
+      halo.setAttribute("opacity",s.toFixed(3));
+      svg.querySelectorAll(".glowfill").forEach(function(el){ el.setAttribute("fill",col); });
     });
   }
 
-  var slider=document.getElementById("cents");
-  slider.addEventListener("input",function(){ state.mode="manual"; state.cents=parseFloat(slider.value); render(); });
+  var sl=document.getElementById("cents");
+  sl.addEventListener("input",function(){ state.mode="manual"; state.cents=parseFloat(sl.value); render(); });
   document.getElementById("auto").addEventListener("click",function(){ state.mode="auto"; state.t=0; render(); });
-  document.getElementById("hold3").addEventListener("click",function(){ state.mode="manual"; state.cents=3; slider.value=3; render(); });
-  document.getElementById("hold1").addEventListener("click",function(){ state.mode="manual"; state.cents=1; slider.value=1; render(); });
+  document.getElementById("hold3").addEventListener("click",function(){ state.mode="manual"; state.cents=3; sl.value=3; render(); });
+  document.getElementById("hold1").addEventListener("click",function(){ state.mode="manual"; state.cents=1; sl.value=1; render(); });
 
   function tick(){
     if (state.mode==="auto"){
@@ -271,10 +235,9 @@
       var x=Math.min(1,state.t/3.4), e=1-Math.pow(1-x,3);
       state.cents=11*(1-e)+Math.sin(state.t*3.1)*2.2*(1-e);
       if (state.t>5) state.mode="manual";
-      slider.value=Math.max(-12,Math.min(12,state.cents));
+      sl.value=Math.max(-12,Math.min(12,state.cents));
     }
-    render();
-    requestAnimationFrame(tick);
+    render(); requestAnimationFrame(tick);
   }
   render(); requestAnimationFrame(tick);
 })();
