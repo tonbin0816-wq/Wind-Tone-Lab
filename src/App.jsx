@@ -630,6 +630,29 @@ function buildFingeringTable(saxType, tuningHz, numNotes) {
   return table;
 }
 
+// 運指(semitoneIndex)→ 実音(コンサートピッチ)の音名ラベル。【F-54】
+// 集計の行ラベル・ピボットの音名次元は**運指から一意に導く**こと。フレームの concertNote は
+// *実測*の音名なので、同じ運指でも演奏が大きくズレると隣の音名になり、同じ運指が複数の行に割れる
+// (NoteAxisLineChart が横軸を buildFingeringTable から作っているのと同じ考え方)。
+// 楽器種別はフレームごとに違い得る(複数セッションを混ぜる PIVOT ではアルトとテナーが同居する)。
+// 同じ semitoneIndex でも実音は変わるので、**そのフレームのセッションの saxType** を必ず渡すこと。
+// buildFingeringTable はフレームごとに呼ばない(毎回33音のテーブルを作ることになる)ため、
+// 楽器種別ごとに直近の tuningHz のラベル列だけを持つ。Map の要素数は楽器種別の数(4)が上限。
+const CONCERT_LABEL_CACHE = new Map(); // saxType -> { tuningHz, labels: string[] }
+function concertNoteLabelOf(semitoneIndex, saxType, tuningHz) {
+  if (semitoneIndex === null || semitoneIndex === undefined) return null;
+  if (!SAX_CONCERT_RANGE[saxType] || !(tuningHz > 0)) return null;
+  let hit = CONCERT_LABEL_CACHE.get(saxType);
+  if (!hit || hit.tuningHz !== tuningHz) {
+    hit = {
+      tuningHz,
+      labels: buildFingeringTable(saxType, tuningHz).map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),
+    };
+    CONCERT_LABEL_CACHE.set(saxType, hit);
+  }
+  return hit.labels[semitoneIndex] ?? null;
+}
+
 // 実測周波数に最も近い運指をテーブルから検索(セント距離で比較)
 function findClosestFingering(measuredHz, fingeringTable) {
   if (!measuredHz || measuredHz <= 0) return null;
@@ -2073,6 +2096,20 @@ export default function WindToneLabPhaseMode() {
     setNavNonce((n) => n + 1);
   }, []);
   const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
+  // 【F-59 本人指示】「pivotの集計条件や選択軸はページを移動して戻ってきても内容がキープ」。
+  // AnalysisLabView は (a) タブを離れるとアンマウントされ (b) 下部ナビのタップごとに
+  // key={`data-${navNonce}`} で**意図的に**再マウントされる(上記 navNonce の目的:
+  // 開いていた個別セッションを閉じて一覧に戻す)。その意図は壊さずに条件だけ残すため、
+  // 保持したい状態だけをここへ持ち上げる。**再マウントで消えるべきもの
+  // (開いている個別セッション selectedSessionId・子タブ dataSubTab)は子の useState のまま。**
+  const [pivotRow, setPivotRow] = useState("note");
+  const [pivotCol, setPivotCol] = useState("brand");
+  const [pivotMetric, setPivotMetric] = useState("pitchCents");
+  // null = まだ本人が触っていない。既定値(「サックス種別=今の楽器」)はここで作らない:
+  // saxType は IndexedDB から**非同期に**復元されるため、アプリ起動時点では既定の "alto" しか
+  // 見えず、テナー使用者の初期フィルターが誤って固定される(以前は子が毎回マウントし直されて
+  // いたので、実際に開く時点の saxType で作られていた)。実際に使う側で埋める。
+  const [pivotFilters, setPivotFilters] = useState(null);
   // isListening: マイク+ライブ表示が有効か(計測タブ滞在中は自動でON/OFF)。
   // isRecording: 録音ボタンで蓄積中かどうか(セッションとして保存されるのはこの間のフレームのみ)。
   const [isListening, setIsListening] = useState(false);
@@ -2948,7 +2985,9 @@ export default function WindToneLabPhaseMode() {
   // これにより、複数回に分けて録音した音をまとめて1つの理想値プロファイルに積み上げていける。
   const promoteSessionToIdeal = useCallback((sessionLike, name) => {
     const trimmedName = name.trim();
-    const newProfile = buildIdealProfileFromSession(sessionLike, trimmedName, NUM_HARMONICS);
+    // tuningHz は音ごとの実音ラベル(concertLabel)の算出に使う(F-54)。運指テーブルと同じ
+    // 基準ピッチ(楽器個体差の補正込み)を渡さないと、記録される音名が計測タブとずれる。
+    const newProfile = buildIdealProfileFromSession(sessionLike, trimmedName, NUM_HARMONICS, effectiveTuningHz);
     setIdealProfiles((prev) => {
       const existingIdx = prev.findIndex((p) => p.name === trimmedName);
       if (existingIdx === -1) {
@@ -2960,7 +2999,7 @@ export default function WindToneLabPhaseMode() {
       setSelectedIdealId(merged.id);
       return prev.map((p, i) => (i === existingIdx ? merged : p));
     });
-  }, [NUM_HARMONICS]);
+  }, [NUM_HARMONICS, effectiveTuningHz]);
 
   // アップロードされた音声/動画ファイルを、ライブ録音と同じ解析パイプラインで処理し、通常の録音と同じ
   // セッション構造で保存する(企画書のフレームデータ構造に準拠。source:"upload"で区別)。
@@ -3209,6 +3248,10 @@ export default function WindToneLabPhaseMode() {
           updateSessions={updateSessions} deleteSessions={deleteSessions}
           performers={performers} setPerformers={setPerformers}
           saxType={saxType} tuningHz={effectiveTuningHz}
+          pivotRow={pivotRow} setPivotRow={setPivotRow}
+          pivotCol={pivotCol} setPivotCol={setPivotCol}
+          pivotMetric={pivotMetric} setPivotMetric={setPivotMetric}
+          pivotFilters={pivotFilters} setPivotFilters={setPivotFilters}
         />
         </div>
       )}
@@ -7135,7 +7178,9 @@ function computeFrameMetrics(frames, pitchSelection = null) {
 // それぞれの音の平均値(音高・音量・重心・HNR・倍音構成)を算出する。
 // 「1つのデータには様々な音が含まれる」ため、理想値・セッション詳細画面の両方で
 // 音階ごとの内訳を出すのに使う共通ロジック。semitoneIndexが取れないフレーム(無音等)は除外する。
-function groupFramesByNote(frames, NUM_HARMONICS = 8) {
+// 【F-54】saxType / tuningHz は concertLabel(実音の音名)を運指から導くために要る。
+// 呼び出し元(理想値プロファイル生成・NoteAxisLineChart・セッション詳細)は必ず渡すこと。
+function groupFramesByNote(frames, NUM_HARMONICS = 8, saxType = null, tuningHz = null) {
   // ピッチの採用フレームは**グループ分けの前に、全体の時系列に対して1回だけ**選別する。
   // グループ分け後の配列では区間の隣接関係(前後の安定区間・過渡の位置)が失われ、
   // 両端トリムもオクターブ誤検出ランの判定もできなくなるため(F-44)。
@@ -7165,7 +7210,16 @@ function groupFramesByNote(frames, NUM_HARMONICS = 8) {
       });
       return {
         semitoneIndex,
+        // 記音(サックスの譜面上の音名)。理想値プロファイルに保存され、旧表記(D#/A#)の
+        // 一括変換(migrateIdealProfile)が参照する。**画面には出さない**(F-54で実音に統一した)。
         writtenLabel: groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote ?? null,
+        // 実音(コンサートピッチ)の音名。計測タブ・NoteAxisLineChart と同じ土台にするため、
+        // 実測の concertNote ではなく**運指から**導く(F-54)。運指から引けない旧データ
+        // (semitoneIndex 無し等)だけ、既存の idiom concertNote || matchedWrittenNote に倣う。
+        concertLabel: concertNoteLabelOf(semitoneIndex, saxType, tuningHz)
+          || groupFrames.find((f) => f.concertNote)?.concertNote
+          || groupFrames.find((f) => f.matchedWrittenNote)?.matchedWrittenNote
+          || null,
         frameCount: groupFrames.length,
         // 表示の一貫性のため、pitchHzも採用フレームの加重平均(ピッチ系と同じ土台の値)
         pitchHz: weightedMean(pitchFrames, (f) => f.pitchHz),
@@ -7215,8 +7269,8 @@ function getNoteIdeal(profile, semitoneIndex) {
 // 1回の録音/アップロードに複数の音(スケール等)が含まれていても、それぞれの音ごとに
 // 平均値を算出して理想値として持つ。計測タブの録音後・アップロード解析後・
 // セッション詳細画面の「理想値に設定」ボタンから共通で使う。
-function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8) {
-  const noteGroups = groupFramesByNote(session.frames || [], NUM_HARMONICS);
+function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8, tuningHz = null) {
+  const noteGroups = groupFramesByNote(session.frames || [], NUM_HARMONICS, session.saxType, tuningHz);
   const notes = {};
   for (const g of noteGroups) notes[g.semitoneIndex] = g;
   return {
@@ -7525,7 +7579,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const groupKey = metricKey === "spectralCentroidHz" ? "centroidHz" : metricKey;
   let seriesData = series.map((s) => {
     const byIdx = {};
-    for (const g of groupFramesByNote(s.frames || [])) {
+    for (const g of groupFramesByNote(s.frames || [], undefined, saxType, tuningHz)) {
       const v = g[groupKey];
       if (v !== null && v !== undefined && !isNaN(v)) byIdx[g.semitoneIndex] = v;
     }
@@ -8025,14 +8079,24 @@ function usageDays(recordedAt, startDate) {
 // 「次元」(カテゴリ値)はフィルター(集計対象抽出)・縦軸・横軸のどこにでも配置でき、
 // 「指標」(数値)はセルの集計値として選ぶ。フレームは呼び出し側でセッション情報
 // (録音日時・奏者・サックス種別・録音/アップロード・メモ・リードオブジェクト)を
-// 付与した形(enriched frame)で渡す。getValue(f, ctx)のctxは{reeds}。
+// 付与した形(enriched frame)で渡す。getValue(f, ctx)のctxは{reeds, tuningHz}。
 // ============================================================
 const PIVOT_BAND_ORDER = { low: 0, mid: 1, high: 2 };
 
 const PIVOT_DIMENSIONS = [
   {
     key: "note", label: "音名",
-    getValue: (f) => f.matchedWrittenNote ?? null,
+    // 【F-54】実音(コンサートピッチ)で表示する。記音(matchedWrittenNote)のままだと、
+    // 計測タブ・NoteAxisLineChart・PhraseTimeline(すべて実音)と同じデータなのに画面ごとに
+    // 別の音名が出ていた(アルトなら記音B♭3〜F♯6 / 実音D♭3〜A5)。
+    // ラベルは**運指(semitoneIndex)から**導く。実測の concertNote を使うと、同じ運指でも
+    // 大きく外したフレームが隣の音名になり、同じ運指が複数の行に割れる。
+    // 楽器種別はフレームごとに違い得る(複数セッションを混ぜるので f.saxType を使う。
+    // ctx.tuningHz は AnalysisLabView が渡す実効基準ピッチ)。
+    // 運指から引けない旧データだけ、既存の idiom concertNote || matchedWrittenNote に倣う。
+    getValue: (f, ctx) =>
+      concertNoteLabelOf(f.semitoneIndex, f.saxType, ctx?.tuningHz)
+      || f.concertNote || f.matchedWrittenNote || null,
     // 縦軸では上から、横軸では左から高い音が来るように、半音インデックスの降順(符号反転)で
     // ソートする(未判定は999で従来通り末尾に置く)。行・列とも同じ昇順ソートを共通で使う
     // buildPivotの仕組み上、ここでソートキーを反転させるのが一番シンプルな実装になる。
@@ -8100,6 +8164,16 @@ const PIVOT_DIMENSIONS = [
     getValue: (f) => f.memo || "（メモなし）",
   },
 ];
+
+// PIVOTの集計条件の既定値。他機種のデータが混ざると平均が意味を失うため、初期状態で
+// 「サックス種別=今の楽器」を1つ入れておく(不要なら × で消せる)。
+// 【F-59】状態を親へ持ち上げたので、既定値の生成をここに切り出して**使う時点の saxType**で
+// 評価できるようにした(親の useState 初期化子で評価すると、IndexedDB からの楽器種別の復元より
+// 前に固定されてしまう)。
+function defaultPivotFilters(saxType) {
+  const label = SAX_PRESETS[saxType]?.label;
+  return label ? [{ dimKey: "saxType", values: [label], rangeMin: null, rangeMax: null }] : [];
+}
 
 function harmonicSliceMean(f, lo, hi) {
   const hs = f.harmonics?.slice(lo, hi).map((h) => h.levelNorm) ?? [];
@@ -8444,7 +8518,8 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
     return { date: s.recordedAt, frameCount: frames.length, memo: s.memo, ideals, ...computeFrameMetrics(frames) };
   });
 
-  // ヒーローカード: 今日のピッチ誤差を、対象期間の平均と比較して色分けする。
+  // ヒーローカード: 今日のピッチ誤差を、0からの距離で3段に色分けする(F-56)。
+  // 対象期間の平均は、比較の基準ではなく「今日のデータが無いときの代替値」と参考表示に使う。
   const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
   const todayFrames = allMySessions
     .filter((s) => new Date(s.recordedAt) >= startOfToday)
@@ -8466,17 +8541,18 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   // 符号つき(pitchCentsSigned)に揃える。下の描画も0を中心にした対称スケールにする。
   const sparkVals = points.map((p) => p.pitchCentsSigned).filter((v) => v !== null && v !== undefined && !isNaN(v));
 
-  // 色分け: 完全一致(≒0)=ミント / 平均より大きく改善=緑 / 平均並み=オレンジ / 平均より悪化=赤。
-  // 誤差は0からの距離(絶対値)で評価する。ネイビー背景で映えるよう明るめの色を使う。
+  // 【2026-08-08 F-56 本人指示】「±2以内でGreat、±4以内でGood、±6以上でKeep Trying」。
+  // 評価は**0からの距離だけ**で決まる3段にした(対象期間平均との比較・MARGIN は使わない)。
+  // 指示は 4〜6 の範囲が未定義だったが、統括の判断で「境界を空けない」を優先し
+  // **4超はすべて Keep Trying** とする(4と6の間に無評価の帯を作らない)。
+  // 色は既存の判定色から3つを流用する(最も良い=ミント / 中間=緑 / 注意=オレンジ)。
+  // 新しい色は発明しない。この Tailwind 系パレット自体は BACKLOG P2-5 の撤去対象(別周)。
   const todayErr = todayVal != null ? Math.abs(todayVal) : null;
-  const periodErr = periodVal != null ? Math.abs(periodVal) : null;
-  const MARGIN = 3;
   let heroColor = "#FFFFFF", heroStatus = null;
   if (todayErr != null) {
-    if (todayErr < 2) { heroColor = "#6EE7B7"; heroStatus = "ほぼ完璧"; }
-    else if (periodErr != null && todayErr < periodErr - MARGIN) { heroColor = "#4ADE80"; heroStatus = "平均より改善"; }
-    else if (periodErr != null && todayErr > periodErr + MARGIN) { heroColor = "#F87171"; heroStatus = "平均より悪化"; }
-    else { heroColor = "#FBBF24"; heroStatus = "平均並み"; }
+    if (todayErr <= 2) { heroColor = "#6EE7B7"; heroStatus = "Great"; }
+    else if (todayErr <= 4) { heroColor = "#4ADE80"; heroStatus = "Good"; }
+    else { heroColor = "#FBBF24"; heroStatus = "Keep Trying"; }
   }
   const displayVal = todayVal != null ? todayVal : periodVal;
   // 【F-66】主役の大きい数字と**同じ母集団**からばらつきを出す(今日を出しているときは今日の
@@ -8485,7 +8561,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
 
   return (
     <>
-      {/* 今日のピッチ誤差ヒーローカード。対象期間平均と比較して色分けする */}
+      {/* 今日のピッチ誤差ヒーローカード。0からの距離で3段に色分けする(F-56) */}
       <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "ピッチ誤差"}</div>
@@ -8508,13 +8584,15 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
           )}
         </div>
         {/* 副次行。【F-66】ばらつきを主役の数字のすぐ下に置く(主役=偏り / ばらつき=精度)。
-            濃紺の面なので色は既にある副次テキストと同じ #9DB3D6。行が増えないよう、既存の
-            「対象期間平均…と比較」と同じ1行に並べる(入り切らないときだけ折り返す)。 */}
+            濃紺の面なので色は既にある副次テキストと同じ #9DB3D6。行が増えないよう、
+            期間平均と同じ1行に並べる(入り切らないときだけ折り返す)。
+            【F-56】色分けが「0からの距離だけ」になったため「と比較」は事実でなくなった。
+            数字そのものは本人が残す判断(F-42)なので、参考表示として残す。 */}
         {(heroSpread || (todayVal != null && periodVal != null)) && (
           <div style={{ fontSize: 12, color: "#9DB3D6", marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
             {heroSpread && <span>{heroSpread}</span>}
             {todayVal != null && periodVal != null && (
-              <span>対象期間平均 {periodVal > 0 ? "+" : ""}{periodVal.toFixed(1)}¢（{rangeLabel}）と比較</span>
+              <span>対象期間平均 {periodVal > 0 ? "+" : ""}{periodVal.toFixed(1)}¢（{rangeLabel}）</span>
             )}
           </div>
         )}
@@ -8627,18 +8705,23 @@ function AnalysisLabView(props) {
     NUM_HARMONICS,
     updateSessions, deleteSessions, performers, setPerformers,
     saxType, tuningHz,
+    // 【F-59】選択軸・集計条件は親が持つ(タブ移動・下部ナビの再マウントをまたいで保持する)。
+    pivotRow, setPivotRow, pivotCol, setPivotCol, pivotMetric, setPivotMetric,
+    pivotFilters: pivotFiltersRaw, setPivotFilters: setPivotFiltersRaw,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
+  // **これは持ち上げない**。下部ナビをタップしたら一覧のトップに戻る、という既存の挙動
+  // (navNonce による再マウント)を保つため、再マウントで "mydata" に戻ってよい。
   const [dataSubTab, setDataSubTab] = useState("mydata");
-  const [pivotRow, setPivotRow] = useState("note");
-  const [pivotCol, setPivotCol] = useState("brand");
-  const [pivotMetric, setPivotMetric] = useState("pitchCents");
   // 集計対象抽出: [{dimKey, values: string[]}]。他機種のデータが混ざると平均が意味を失うため、
   // 初期状態で「サックス種別=今の楽器」を入れておく(不要なら×で消せる)。
-  const [pivotFilters, setPivotFilters] = useState(() => {
-    const label = SAX_PRESETS[saxType]?.label;
-    return label ? [{ dimKey: "saxType", values: [label], rangeMin: null, rangeMax: null }] : [];
+  // 親が持つ値が null(まだ本人が触っていない)のときだけ、**このレンダー時点の** saxType から
+  // 既定値を作る(親のuseState初期化子で作ると、IndexedDBからの復元前の値で固定されてしまう)。
+  const pivotFilters = pivotFiltersRaw ?? defaultPivotFilters(saxType);
+  const setPivotFilters = (next) => setPivotFiltersRaw((prev) => {
+    const base = prev ?? defaultPivotFilters(saxType);
+    return typeof next === "function" ? next(base) : next;
   });
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   // セッション一覧の絞り込み(並び替えではなく絞り込み)。期間・奏者・リードで絞る。
@@ -8661,7 +8744,8 @@ function AnalysisLabView(props) {
   const framesWithContext = buildFramesWithContext(sessions, reeds);
 
   // --- ピボット集計 ---
-  const pivotCtx = { reeds };
+  // tuningHz は音名次元が実音ラベルを運指から導くのに使う(F-54)。
+  const pivotCtx = { reeds, tuningHz };
   const pivot = buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters);
   const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
 
@@ -8803,13 +8887,20 @@ function AnalysisLabView(props) {
                 </button>
               </div>
             ) : (
+              /* 【F-58 本人指示】枠のサイズを登録済みリードの削除ボタン(aria-label="箱を選んで削除")
+                 と同じにする。あちらは「見た目のピル(41×27)を内側の<span>が持ち、<button>自体は
+                 44×44の透明な当たり判定」(TAP_BUTTON_RESET・DESIGN-SYSTEM §5)という構造で、
+                 こちらは<button>そのものにピルの地を持たせていたため枠が44×44に膨らんでいた。
+                 同じ構造・同じpadding(7px 14px)に揃える。当たり判定は44×44のまま。 */
               <button
                 onClick={() => setSelectionMode(true)}
-                className="sans ctl-plain ctl-pill"
+                className="sans"
                 aria-label="セッションを選んで削除"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 12px", minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: 12, cursor: "pointer" }}
+                style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center" }}
               >
-                <Trash2 size={13} />
+                <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>
+                  <Trash2 size={13} />
+                </span>
               </button>
             )
           )}
@@ -8934,6 +9025,15 @@ function AnalysisLabView(props) {
                 const updateFilter = (patch) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { ...p, ...patch } : p)));
                 return (
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    {/* 【F-57 本人指示】条件削除の × は「そのカテゴリ名の先頭」に置く。
+                        見た目・当たり判定は末尾にあったときと同一のまま、並び順だけ入れ替える。 */}
+                    <button
+                      onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
+                      style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 4px" }}
+                      title="このフィルターを削除"
+                    >
+                      ×
+                    </button>
                     <select
                       value={flt.dimKey}
                       onChange={(e) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: e.target.value, values: [], rangeMin: null, rangeMax: null } : p)))}
@@ -9031,13 +9131,6 @@ function AnalysisLabView(props) {
                         </>
                       )}
                     </div>
-                    <button
-                      onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
-                      style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 4px" }}
-                      title="このフィルターを削除"
-                    >
-                      ×
-                    </button>
                   </div>
                 );
               })}
@@ -9099,7 +9192,7 @@ function AnalysisLabView(props) {
 function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
-  const noteGroups = groupFramesByNote(frames, NUM_HARMONICS);
+  const noteGroups = groupFramesByNote(frames, NUM_HARMONICS, session.saxType, tuningHz);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
   const sessionMetrics = computeFrameMetrics(frames);
 
@@ -9189,8 +9282,17 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         {session.source === "upload" && (
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>アップロード: {session.sourceFileName}</div>
         )}
-        <div className="sans" style={{ fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "#435266", flexShrink: 0 }}>メモ:</span>
+        {/* 【F-55】メモの入力欄の左端を、上の日付入力・奏者セレクタと縦に揃える。
+            日付・奏者側は動かさない。合わせるのはメモ側だけで、要因は2つあった:
+            (1) ラベルと欄の間隔が8pxで、日付・奏者の4px(--sp-1)より4px右にずれていた。
+            (2) 「日付」「奏者」は全角2文字ぶん(2em=24.000px)だが、「メモ」は片仮名が
+                プロポーショナルに詰まる書体(Windowsのフォールバック等)で 22.453px になり、
+                残り1.547pxぶんずれる。ラベルの文字部分に 2em の下限を与えて、
+                書体によらず「全角2文字ぶん」の幅を占めるようにする(コロンは3書とも同じ)。 */}
+        <div className="sans" style={{ fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: "#435266", flexShrink: 0 }}>
+            <span style={{ display: "inline-block", minWidth: "2em" }}>メモ</span>:
+          </span>
           <input
             type="text"
             value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
@@ -9256,7 +9358,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 480 }}>
             <thead>
               <tr>
-                <th style={{ background: "var(--c-sunk)", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>記音</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>実音</th>
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>音量</th>
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>重心</th>
@@ -9270,7 +9372,8 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
                 const cents = noteIdeal?.pitchHz && g.pitchHz ? centsBetween(g.pitchHz, noteIdeal.pitchHz) : null;
                 return (
                   <tr key={g.semitoneIndex}>
-                    <td style={{ padding: "5px 8px", color: "#121F32", fontWeight: 600, borderBottom: "1px solid #EEF1F4" }}>{g.writtenLabel ?? "—"}</td>
+                    {/* 音名は実音(コンサートピッチ)。計測タブ・音名軸グラフと同じ表記に揃える(F-54) */}
+                    <td style={{ padding: "5px 8px", color: "#121F32", fontWeight: 600, borderBottom: "1px solid #EEF1F4" }}>{g.concertLabel ?? "—"}</td>
                     <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.pitchHz ? `${g.pitchHz.toFixed(1)}Hz` : "—"}</td>
                     <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.volumeDb !== null ? `${g.volumeDb.toFixed(1)}dB` : "—"}</td>
                     <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.centroidHz !== null ? `${Math.round(g.centroidHz)}Hz` : "—"}</td>

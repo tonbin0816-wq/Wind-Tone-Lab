@@ -5306,9 +5306,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /const todayVal = todayMetrics \? todayMetrics\.pitchCentsSigned : null;/.test(myDataSection));
     check("ヒーローの対象期間平均も符号付き(pitchCentsSigned)を使う",
       /const periodVal = overall\.pitchCentsSigned;/.test(myDataSection));
-    check("ヒーローの良否判定は絶対値(0からの距離)のままで評価する",
-      /const todayErr = todayVal != null \? Math\.abs\(todayVal\) : null;/.test(myDataSection) &&
-      /const periodErr = periodVal != null \? Math\.abs\(periodVal\) : null;/.test(myDataSection));
+    // 【F-56 で仕様が変わった】評価は「0からの距離だけ」の3段(Great/Good/Keep Trying)になり、
+    // 対象期間平均との比較(旧 periodErr / MARGIN)は使わなくなった。よって periodErr の存在は
+    // もう要求しない。**絶対値で評価する**という芯だけを引き続き固定する
+    // (符号で良否を決めるように変えたら落ちる)。
+    check("ヒーローの良否判定は絶対値(0からの距離)で評価する",
+      /const todayErr = todayVal != null \? Math\.abs\(todayVal\) : null;/.test(myDataSection));
+    check("ヒーローの良否判定に期間平均との比較を持ち込まない(F-56で0からの距離だけになった)",
+      !/const periodErr\b/.test(codeOf(myDataSection)));
 
     // 本人の問い(2026-08-04)「上方向にしかブレていないように見えるが実データが+側だけだから?」
     // → 違い、スパークラインだけ絶対値(pitchCents)を渡していたので**構造上片側にしか
@@ -6353,6 +6358,18 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
       extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
       extractFunction("selectPitchAggregationFrames"),
       extractFunction("computeFrameMetrics"),
+      // F-54 で groupFramesByNote が音名を実音(concertLabel)で返すようになり、
+      // その導出に必要なものを一式取り込む(運指テーブル → 実音Hz → 実音の音名)。
+      // 取り込まないと groupFramesByNote の評価が ReferenceError で落ちる。
+      extractConst("SAX_CONCERT_RANGE"),
+      extractConst("LOW_BB_WRITTEN_MIDI"),
+      extractConst("NOTE_NAMES"),
+      extractFunction("writtenMidiToSoundingFreq"),
+      extractFunction("writtenNoteLabel"),
+      extractFunction("freqToNote"),
+      extractFunction("concertFreqLabel"),
+      extractFunction("buildFingeringTable"),
+      extractFunction("concertNoteLabelOf"),
       extractFunction("groupFramesByNote"),
     ].join("\n\n");
     for (const [name, val] of Object.entries(overrides)) {
@@ -6701,6 +6718,17 @@ console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
       extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
       extractFunction("selectPitchAggregationFrames"),
       extractFunction("computeFrameMetrics"),
+      // F-54: 音名の次元 / groupFramesByNote が実音ラベルを運指から導くようになったので、
+      // その依存(運指テーブル → 実音Hz → 実音の音名)をここにも取り込む。
+      extractConst("SAX_CONCERT_RANGE"),
+      extractConst("LOW_BB_WRITTEN_MIDI"),
+      extractConst("NOTE_NAMES"),
+      extractFunction("writtenMidiToSoundingFreq"),
+      extractFunction("writtenNoteLabel"),
+      extractFunction("freqToNote"),
+      extractFunction("concertFreqLabel"),
+      extractFunction("buildFingeringTable"),
+      extractFunction("concertNoteLabelOf"),
       extractFunction("groupFramesByNote"),
       extractFunction("buildFramesWithContext"),
       extractFunction("pitchCellColor"),
@@ -7348,6 +7376,435 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
       /\{sub && <div className="sans"/.test(cardCode));
   }
 
+  console.log("  -> done");
+}
+
+// ============================================================
+// ============================================================
+// 検証22: F-54〜F-60(データタブ)
+//   F-54 音名を実音(コンサートピッチ)に統一。ラベルは運指(semitoneIndex)から導く
+//   F-55 メモ欄の左端を日付・奏者と揃える
+//   F-56 My Data のヒーローの評価を「0からの距離だけ」の3段(Great/Good/Keep Trying)に
+//   F-57 PIVOTのフィルターの × をカテゴリ名の先頭へ
+//   F-58 セッション一覧のゴミ箱の枠をリードタブの削除ボタンと同じ寸法に
+//   F-59 PIVOTの選択軸・集計条件をタブ移動をまたいで保持
+//   F-60 実音に変えても並び順は運指(高い音が上)のまま
+//
+// F-54/F-56 は**実ソースを extractFunction / 実ソース文字列の評価**で検証する
+// (テスト側に手書きの再実装を置くと実ソースを守らない。F-45の審査で不合格になった前例)。
+// F-55/F-57/F-58/F-59 の配線はJSXなのでハーネスから評価できず、**ソース文字列の検査**に
+// とどまる(このハーネスがJSXを見ていないことの帰結。冒頭の規約どおり報告でも区別する)。
+// ============================================================
+console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-60 ===");
+{
+  const componentSourceOf = (name) => {
+    const idx = src.indexOf(`function ${name}(`);
+    if (idx === -1) throw new Error(`function ${name} not found`);
+    let i = src.indexOf("{", src.indexOf(")", idx));
+    let depth = 0;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+    }
+    throw new Error(`function ${name}: unbalanced braces`);
+  };
+
+  // --- サンドボックス(19節と同じ方式。変異は複製した文字列にだけ当てる) ---------
+  const buildNoteApi = (edits = []) => {
+    let pieces = [
+      extractConst("NOTE_NAMES"),
+      extractConst("NOTE_NAMES_SHARP"),
+      extractConst("LOW_BB_WRITTEN_MIDI"),
+      extractConst("TRANSPOSITION_SEMITONES"),
+      extractConst("A4_MIDI"),
+      extractConst("SAX_CONCERT_RANGE"),
+      extractFunction("freqToNote"),
+      extractFunction("writtenNoteLabel"),
+      extractFunction("writtenMidiToSoundingFreq"),
+      extractFunction("concertMidiToFreq"),
+      extractFunction("concertFreqLabel"),
+      extractFunction("buildFingeringTable"),
+      extractConst("CONCERT_LABEL_CACHE"),
+      extractFunction("concertNoteLabelOf"),
+      extractFunction("mean"),
+      extractFunction("median"),
+      extractFunction("stddev"),
+      extractFunction("frameWeight"),
+      extractFunction("timbreSustained"),
+      extractFunction("weightedMean"),
+      extractConst("TIMBRE_SUSTAIN_MS"),
+      extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"),
+      extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"),
+      extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"),
+      extractFunction("computeFrameMetrics"),
+      extractFunction("groupFramesByNote"),
+      extractFunction("buildFramesWithContext"),
+      extractFunction("pitchCellColor"),
+      extractConst("PIVOT_DIMENSIONS"),
+      extractConst("PIVOT_MEASURES"),
+      extractFunction("buildPivot"),
+    ].join("\n\n");
+    for (const [from, to] of edits) {
+      const before = pieces;
+      pieces = pieces.replace(from, to);
+      if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
+    }
+    return new Function(`${pieces}
+      return { concertNoteLabelOf, writtenNoteLabel, buildFingeringTable, freqToNote,
+               groupFramesByNote, buildFramesWithContext, buildPivot,
+               PIVOT_DIMENSIONS, SAX_CONCERT_RANGE, NOTE_NAMES };`)();
+  };
+  const nApi = buildNoteApi();
+  const TUNE = 442;
+
+  // 実音MIDI → 音名ラベル。**運指テーブルもconcertFreqLabelも通さない独立計算**。
+  // 「i番目の運指の実音MIDIは SAX_CONCERT_RANGE[sax].lowMidi + i」という要件
+  // (App.jsx の SAX_CONCERT_RANGE のコメント「音域の左端は運指テーブルの最低音の実音と一致」)
+  // だけを使う。実装が周波数経由でどう出そうと、結果はこの表と一致しなければならない。
+  const midiLabel = (midi) => nApi.NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+
+  // --- 21.1 アルトの音名は実音(D♭3〜A5)になり、記音(B♭3〜F♯6)ではない -------------
+  {
+    const r = nApi.SAX_CONCERT_RANGE.alto;
+    const labels = [];
+    let allMatch = true;
+    for (let i = 0; i <= r.highMidi - r.lowMidi; i++) {
+      const got = nApi.concertNoteLabelOf(i, "alto", TUNE);
+      const want = midiLabel(r.lowMidi + i);
+      labels.push(got);
+      if (got !== want) allMatch = false;
+    }
+    check("21.1 アルトの全運指(33音)の音名が実音の期待値(lowMidi+i)と一致する",
+      allMatch && labels.length === 33, `${labels[0]}…${labels[labels.length - 1]}`);
+    // 本人報告の症状そのもの: 最低音がB♭3(記音)・最高音がF♯6(記音)になっていた
+    check("21.1 最低音は実音のD♭3(=C♯3)。記音のB♭3ではない",
+      labels[0] === midiLabel(49) && labels[0] !== nApi.writtenNoteLabel(0),
+      `low=${labels[0]} written=${nApi.writtenNoteLabel(0)}`);
+    check("21.1 最高音は実音のA5。記音のF♯6ではない",
+      labels[32] === "A5" && labels[32] !== nApi.writtenNoteLabel(32),
+      `high=${labels[32]} written=${nApi.writtenNoteLabel(32)}`);
+    check("21.1 F6 / F♯6 のような音域外(記音)のラベルが1つも現れない",
+      !labels.includes("F6") && !labels.includes("F♯6"), labels.join(","));
+    // 運指の外(範囲外・不明な楽器・基準ピッチ無し)はnullを返し、呼び出し側のフォールバックに任せる
+    check("21.1 semitoneIndex が null / 範囲外 / 楽器不明ならnull(フォールバックは呼び出し側)",
+      nApi.concertNoteLabelOf(null, "alto", TUNE) === null &&
+      nApi.concertNoteLabelOf(99, "alto", TUNE) === null &&
+      nApi.concertNoteLabelOf(0, "unknown", TUNE) === null &&
+      nApi.concertNoteLabelOf(0, "alto", null) === null);
+  }
+
+  // --- 21.2 楽器種別ごとに実音が変わる(同じ運指でも別の音名) ----------------------
+  {
+    let ok = true;
+    for (const sax of ["soprano", "alto", "tenor", "baritone"]) {
+      const r = nApi.SAX_CONCERT_RANGE[sax];
+      for (let i = 0; i <= r.highMidi - r.lowMidi; i++) {
+        if (nApi.concertNoteLabelOf(i, sax, TUNE) !== midiLabel(r.lowMidi + i)) ok = false;
+      }
+    }
+    check("21.2 4機種すべてで実音ラベルが各機種の音域(lowMidi+i)と一致する", ok);
+    // メモ化が楽器種別ごとに分かれていること(1つのテーブルを使い回すと全機種同じ音名になる)
+    const pairs = [[10, "alto", "tenor"], [32, "alto", "tenor"], [0, "soprano", "baritone"]];
+    check("21.2 同じ semitoneIndex でも楽器種別が違えば別の音名になる(メモ化が種別で分かれている)",
+      pairs.every(([i, a, b]) => nApi.concertNoteLabelOf(i, a, TUNE) !== nApi.concertNoteLabelOf(i, b, TUNE)),
+      pairs.map(([i, a, b]) => `si${i}:${nApi.concertNoteLabelOf(i, a, TUNE)}/${nApi.concertNoteLabelOf(i, b, TUNE)}`).join(" "));
+  }
+
+  // --- 合成データ(21.3以降で共用) ------------------------------------------------
+  // 同じ運指(si=10)なのに**実測の音名(concertNote)が隣に振れている**列を作る。
+  // ラベルを実測から取ると同じ運指が複数行に割れる。運指から導けば1行のまま。
+  const HOP = 0.025;
+  const mkFrame = (t, si, sax, concertNote, written) => ({
+    t, semitoneIndex: si, pitchHz: 440, pitchCents: 1, concertNote, matchedWrittenNote: written,
+    clarity: 1, volumeDb: -20, noteAgeMs: 1000, hnrDb: 20, spectralCentroidHz: 1000, harmonics: [],
+  });
+  const ALTO_SI10 = nApi.concertNoteLabelOf(10, "alto", TUNE);   // 実音
+  const TENOR_SI10 = nApi.concertNoteLabelOf(10, "tenor", TUNE); // 実音(アルトとは別)
+  const WRITTEN_SI10 = nApi.writtenNoteLabel(10);                // 記音(旧表示)
+  const NEIGHBOR = "C4"; // 実測が隣に振れたときの誤ラベル(運指とは無関係の値)
+  const wobbly = (sax) => Array.from({ length: 24 }, (_, k) =>
+    mkFrame(k * HOP, 10, sax, k % 2 === 0 ? NEIGHBOR : nApi.concertNoteLabelOf(10, sax, TUNE), WRITTEN_SI10));
+  const altoSession = { frames: wobbly("alto"), reedId: null, recordedAt: "2026-08-08T01:00:00.000Z", performer: "自分", saxType: "alto", source: "recording", memo: "" };
+  const tenorSession = { frames: wobbly("tenor"), reedId: null, recordedAt: "2026-08-08T00:00:00.000Z", performer: "自分", saxType: "tenor", source: "recording", memo: "" };
+  const ctx = { reeds: [], tuningHz: TUNE };
+
+  // --- 21.3 ラベルは運指から導く(実測のconcertNoteに引きずられない) ---------------
+  {
+    const groups = nApi.groupFramesByNote(altoSession.frames, 8, "alto", TUNE);
+    check("21.3 実測の音名が隣に振れていても、音階ごとの平均は1行のまま",
+      groups.length === 1, `groups=${groups.length}`);
+    check("21.3 音階ごとの平均のラベルは運指から導いた実音(実測の誤ラベルでも記音でもない)",
+      groups[0].concertLabel === ALTO_SI10 && groups[0].concertLabel !== NEIGHBOR &&
+      groups[0].concertLabel !== WRITTEN_SI10,
+      `label=${groups[0].concertLabel} expect=${ALTO_SI10}`);
+    // 記音は「消した」のではなく別フィールドとして残す(理想値プロファイルの旧表記変換が読む)
+    check("21.3 記音は writtenLabel として残り、表示用の concertLabel と混ざっていない",
+      groups[0].writtenLabel === WRITTEN_SI10 && groups[0].writtenLabel !== groups[0].concertLabel);
+
+    const fwc = nApi.buildFramesWithContext([altoSession, tenorSession], []);
+    const pivot = nApi.buildPivot(fwc, ctx, "note", "none", "volume", []);
+    check("21.3 PIVOTの音名次元も1機種につき1行(実測の誤ラベルで行が割れない)",
+      pivot.rowKeys.length === 2 && !pivot.rowKeys.includes(NEIGHBOR), `rowKeys=${pivot.rowKeys.join(",")}`);
+    check("21.3 PIVOTはアルトとテナーを**それぞれの実音**で別の行にする(記音だと同じ行に潰れる)",
+      pivot.rowKeys.includes(ALTO_SI10) && pivot.rowKeys.includes(TENOR_SI10) &&
+      !pivot.rowKeys.includes(WRITTEN_SI10),
+      `rowKeys=${pivot.rowKeys.join(",")} written=${WRITTEN_SI10}`);
+  }
+
+  // --- 21.4 PIVOTと音階ごとの平均が同じ音名を出す(画面によって食い違わない) --------
+  {
+    const fwc = nApi.buildFramesWithContext([altoSession], []);
+    const pivot = nApi.buildPivot(fwc, ctx, "note", "none", "volume", []);
+    const groups = nApi.groupFramesByNote(altoSession.frames, 8, "alto", TUNE);
+    check("21.4 PIVOTの行ラベルと音階ごとの平均のラベルが一致する",
+      pivot.rowKeys.length === 1 && pivot.rowKeys[0] === groups[0].concertLabel,
+      `pivot=${pivot.rowKeys.join(",")} group=${groups[0].concertLabel}`);
+    // 音名軸グラフ(NoteAxisLineChart)の横軸と同じ導出であること。グラフ側は
+    // concertFreqLabel(buildFingeringTable(...)[i].soundingFreqHz, tuningHz) で作る。
+    const axis = nApi.buildFingeringTable("alto", TUNE).map((e) => nApi.freqToNote(e.soundingFreqHz, TUNE));
+    check("21.4 音名軸グラフの横軸ラベルと同じ音名になる(同じ運指テーブル・同じ基準ピッチ)",
+      `${axis[10].name}${axis[10].octave}` === groups[0].concertLabel,
+      `axis=${axis[10].name}${axis[10].octave} group=${groups[0].concertLabel}`);
+  }
+
+  // --- 21.5 旧データのフォールバック(記音を完全には消さない) ----------------------
+  {
+    // (a) saxType/tuningHz が取れない呼び出し → 実測concertNote → 記音 の順に落ちる
+    const noSax = nApi.groupFramesByNote(altoSession.frames, 8);
+    check("21.5 運指から引けないときは実測のconcertNoteにフォールバックする",
+      noSax[0].concertLabel === NEIGHBOR, `label=${noSax[0].concertLabel}`);
+    const onlyWritten = Array.from({ length: 24 }, (_, k) => mkFrame(k * HOP, 10, "alto", null, WRITTEN_SI10));
+    const g2 = nApi.groupFramesByNote(onlyWritten, 8);
+    check("21.5 concertNoteも無い最古のデータでは記音が最後の手段として残る",
+      g2[0].concertLabel === WRITTEN_SI10, `label=${g2[0].concertLabel}`);
+    // (b) PIVOT: semitoneIndex が無いフレーム(運指未判定の旧データ)
+    const legacy = {
+      frames: Array.from({ length: 24 }, (_, k) => ({ ...mkFrame(k * HOP, null, "alto", null, WRITTEN_SI10) })),
+      reedId: null, recordedAt: "2026-08-08T00:00:00.000Z", performer: "自分", saxType: "alto", source: "recording", memo: "",
+    };
+    const pv = nApi.buildPivot(nApi.buildFramesWithContext([legacy], []), ctx, "note", "none", "volume", []);
+    check("21.5 PIVOTでも semitoneIndex 無しの旧データは記音のラベルで拾える",
+      pv.rowKeys.length === 1 && pv.rowKeys[0] === WRITTEN_SI10, `rowKeys=${pv.rowKeys.join(",")}`);
+  }
+
+  // --- 21.6 F-60 並び順は運指のまま(高い音が上) ----------------------------------
+  {
+    const multi = [
+      ...Array.from({ length: 24 }, (_, k) => mkFrame(k * HOP, 0, "alto", null, nApi.writtenNoteLabel(0))),
+      ...Array.from({ length: 24 }, (_, k) => mkFrame(1.0 + k * HOP, 20, "alto", null, nApi.writtenNoteLabel(20))),
+      ...Array.from({ length: 24 }, (_, k) => mkFrame(2.0 + k * HOP, 32, "alto", null, nApi.writtenNoteLabel(32))),
+    ];
+    const groups = nApi.groupFramesByNote(multi, 8, "alto", TUNE);
+    check("21.6 音階ごとの平均は運指の降順(高い音が上)のまま",
+      groups.map((g) => g.semitoneIndex).join(",") === "32,20,0", groups.map((g) => g.semitoneIndex).join(","));
+    check("21.6 実音のラベルに変えても、並びは運指の順(A5 → A4 → C♯3)",
+      groups.map((g) => g.concertLabel).join(",") ===
+      [32, 20, 0].map((i) => nApi.concertNoteLabelOf(i, "alto", TUNE)).join(","),
+      groups.map((g) => g.concertLabel).join(","));
+    const sess = { frames: multi, reedId: null, recordedAt: "2026-08-08T00:00:00.000Z", performer: "自分", saxType: "alto", source: "recording", memo: "" };
+    const pv = nApi.buildPivot(nApi.buildFramesWithContext([sess], []), ctx, "note", "none", "volume", []);
+    check("21.6 PIVOTの行順も運指の降順のまま(getSort = -semitoneIndex)",
+      pv.rowKeys.join(",") === [32, 20, 0].map((i) => nApi.concertNoteLabelOf(i, "alto", TUNE)).join(","),
+      pv.rowKeys.join(","));
+  }
+
+  // --- 21.7 変異試験(変異は複製した文字列にだけ当てる。実ツリーには触れない) --------
+  {
+    // (a) ラベルを記音に戻す変異 → 21.1 が落ちる
+    const mutWritten = buildNoteApi([
+      ["labels: buildFingeringTable(saxType, tuningHz).map((e) => concertFreqLabel(e.soundingFreqHz, tuningHz)),",
+        "labels: buildFingeringTable(saxType, tuningHz).map((e) => e.writtenLabel), // MUTATION"],
+    ]);
+    check("21.7x 変異(ラベルを記音に戻す)では最低音がB♭3・最高音がF♯6になり21.1が落ちる",
+      mutWritten.concertNoteLabelOf(0, "alto", TUNE) === "B♭3" &&
+      mutWritten.concertNoteLabelOf(32, "alto", TUNE) === "F♯6",
+      `${mutWritten.concertNoteLabelOf(0, "alto", TUNE)}…${mutWritten.concertNoteLabelOf(32, "alto", TUNE)}`);
+
+    // (b) PIVOTの音名次元を記音(matchedWrittenNote)に戻す変異 → 21.3 が落ちる
+    // (置換は1行に閉じる。App.jsx は CRLF なので複数行にまたがる needle は空振りする)
+    const mutPivot = buildNoteApi([
+      ["concertNoteLabelOf(f.semitoneIndex, f.saxType, ctx?.tuningHz)",
+        "(f.matchedWrittenNote ?? null) /* MUTATION: F-54以前(記音)に戻す */"],
+    ]);
+    const pvMut = mutPivot.buildPivot(mutPivot.buildFramesWithContext([altoSession, tenorSession], []), ctx, "note", "none", "volume", []);
+    check("21.7x 変異(PIVOTを記音に戻す)ではアルトとテナーが同じ記音の1行に潰れ21.3が落ちる",
+      pvMut.rowKeys.length === 1 && pvMut.rowKeys[0] === WRITTEN_SI10, `rowKeys=${pvMut.rowKeys.join(",")}`);
+
+    // (c) フレームごとの楽器種別を使わず固定にする変異 → テナーがアルトの音名になる
+    const mutSax = buildNoteApi([
+      ["concertNoteLabelOf(f.semitoneIndex, f.saxType, ctx?.tuningHz)",
+        'concertNoteLabelOf(f.semitoneIndex, "alto", ctx?.tuningHz) /* MUTATION */'],
+    ]);
+    const pvSax = mutSax.buildPivot(mutSax.buildFramesWithContext([altoSession, tenorSession], []), ctx, "note", "none", "volume", []);
+    check("21.7x 変異(楽器種別をaltoに固定)ではテナーの行がアルトの音名に化けて21.3が落ちる",
+      pvSax.rowKeys.length === 1 && pvSax.rowKeys[0] === ALTO_SI10 && !pvSax.rowKeys.includes(TENOR_SI10),
+      `rowKeys=${pvSax.rowKeys.join(",")}`);
+
+    // (d) 運指より実測のconcertNoteを優先する変異 → 行が割れる / ラベルが誤ラベルになる
+    const mutMeasured = buildNoteApi([
+      ["concertLabel: concertNoteLabelOf(semitoneIndex, saxType, tuningHz)",
+        "concertLabel: (groupFrames.find((f) => f.concertNote)?.concertNote ?? null) /* MUTATION: 実測優先 */"],
+    ]);
+    const gMut = mutMeasured.groupFramesByNote(altoSession.frames, 8, "alto", TUNE);
+    check("21.7x 変異(実測のconcertNoteを優先)では音階ごとの平均のラベルが誤ラベルになり21.3が落ちる",
+      gMut[0].concertLabel === NEIGHBOR, `label=${gMut[0].concertLabel}`);
+  }
+
+  // --- 21.8 F-56 ヒーローの3段評価(実ソースの判定コードをそのまま評価する) ---------
+  {
+    const myData = componentSourceOf("MyDataSection");
+    const from = myData.indexOf("const todayErr =");
+    const to = myData.indexOf("const displayVal");
+    if (from === -1 || to === -1 || to <= from) throw new Error("F-56: ヒーローの判定ブロックを切り出せない");
+    const decideSrc = myData.slice(from, to);
+    const decide = (todayVal) => new Function("todayVal", `${decideSrc}\nreturn { heroColor, heroStatus };`)(todayVal);
+    const st = (v) => decide(v).heroStatus;
+    check("21.8 |値| ≤ 2 は Great (0 / +2 / -2 の3点)",
+      st(0) === "Great" && st(2) === "Great" && st(-2) === "Great",
+      `${st(0)}/${st(2)}/${st(-2)}`);
+    check("21.8 2を超え4以下は Good (+2.0001 / -3 / +4 / -4)",
+      st(2.0001) === "Good" && st(-3) === "Good" && st(4) === "Good" && st(-4) === "Good",
+      `${st(2.0001)}/${st(-3)}/${st(4)}/${st(-4)}`);
+    // 【統括の判断】本人の指示は「±4以内でGood」「±6以上でKeep Trying」で4〜6が未定義。
+    // 境界を空けない方を採り、**4超はすべて Keep Trying**。5(=未定義帯)もここで固定する。
+    check("21.8 4を超えたら Keep Trying (+4.0001 / ±5(指示の未定義帯) / ±6 / ±50)",
+      st(4.0001) === "Keep Trying" && st(5) === "Keep Trying" && st(-5) === "Keep Trying" &&
+      st(6) === "Keep Trying" && st(-6) === "Keep Trying" && st(50) === "Keep Trying",
+      `${st(4.0001)}/${st(5)}/${st(-5)}/${st(6)}`);
+    check("21.8 値が無いときは評価そのものを出さない", st(null) === null && decide(null).heroColor === "#FFFFFF");
+    check("21.8 判定は「0からの距離」だけ。符号が違っても同じ評価になる",
+      [0.5, 2, 3, 4, 7, 30].every((v) => st(v) === st(-v)));
+    check("21.8 3段はそれぞれ違う色。旧4段の色(平均より悪化=#F87171)は使われない",
+      new Set([decide(0).heroColor, decide(3).heroColor, decide(9).heroColor]).size === 3 &&
+      ![decide(0).heroColor, decide(3).heroColor, decide(9).heroColor].includes("#F87171"),
+      [decide(0).heroColor, decide(3).heroColor, decide(9).heroColor].join(","));
+    check("21.8 旧4段の文言(ほぼ完璧/平均より改善/平均より悪化/平均並み)が動く側に残っていない",
+      ["ほぼ完璧", "平均より改善", "平均より悪化", "平均並み"].every((t) => !codeOf(src).includes(t)));
+    // 変異試験: 閾値を動かすと上の主張が落ちる(閾値そのものを固定できている)
+    {
+      const mutSrc = decideSrc.replace("todayErr <= 2", "todayErr <= 3");
+      if (mutSrc === decideSrc) throw new Error("F-56 変異が空振り");
+      const mutSt = (v) => new Function("todayVal", `${mutSrc}\nreturn { heroColor, heroStatus };`)(v).heroStatus;
+      check("21.8x 変異(Greatの閾値を2→3)では +2.0001 が Good ではなく Great になり21.8が落ちる",
+        mutSt(2.0001) === "Great", mutSt(2.0001));
+    }
+  }
+
+  // --- 21.9 F-55/F-57/F-58/F-59 の配線(JSXなので**ソース文字列の検査**にとどまる) ---
+  {
+    const detail = componentSourceOf("SessionDetailView");
+    const lab = componentSourceOf("AnalysisLabView");
+    const root = componentSourceOf("WindToneLabPhaseMode");
+
+    // F-54(配線): 実音ラベルは「呼び出し元が saxType/tuningHz を渡し、表示が concertLabel を
+    // 読む」ところまで通っていて初めて画面に出る。ここが切れても集計側の検算(21.1〜21.6)は
+    // 全部通ってしまう(複製ツリーでの変異試験で実際に素通りした)ので、配線を綴りで固定する。
+    check("F-54: セッション詳細は groupFramesByNote に楽器種別と基準ピッチを渡す",
+      /groupFramesByNote\(frames, NUM_HARMONICS, session\.saxType, tuningHz\)/.test(detail));
+    check("F-54: 音階ごとの平均の表は実音(concertLabel)を表示する",
+      /\{g\.concertLabel \?\? "—"\}/.test(detail));
+    check("F-54: 音階ごとの平均の表に記音(writtenLabel)を表示していない",
+      !/g\.writtenLabel/.test(codeOf(detail)));
+    check("F-54: 音階ごとの平均の表の見出しは「実音」(「記音」のままにしない)",
+      />実音<\/th>/.test(detail) && !/>記音<\/th>/.test(codeOf(src)));
+    check("F-54: 理想値プロファイル生成も楽器種別と基準ピッチを渡す",
+      /groupFramesByNote\(session\.frames \|\| \[\], NUM_HARMONICS, session\.saxType, tuningHz\)/.test(src) &&
+      /buildIdealProfileFromSession\(sessionLike, trimmedName, NUM_HARMONICS, effectiveTuningHz\)/.test(src));
+    check("F-54: 音名軸グラフ(NoteAxisLineChart)も同じ楽器種別・基準ピッチで集計する",
+      /groupFramesByNote\(s\.frames \|\| \[\], undefined, saxType, tuningHz\)/.test(src));
+    check("F-54: PIVOTのctxに基準ピッチを載せる(音名次元が実音を導けない)",
+      /const pivotCtx = \{ reeds, tuningHz \};/.test(lab));
+
+    // F-55: メモ行のラベルと入力欄の間隔を日付・奏者と同じ4pxにし、ラベルの文字部分を
+    // 全角2文字ぶん(2em)確保する。日付・奏者側の gap は変えない(両方4pxのまま)。
+    const memoAt = detail.indexOf("【F-55】");
+    const memoRow = memoAt === -1 ? "" : detail.slice(memoAt, memoAt + 1400);
+    check("F-55: メモ行のラベルと入力欄の間隔は日付・奏者と同じ4px",
+      /marginTop: 8, display: "flex", alignItems: "center", gap: 4 \}\}>\s*<span style=\{\{ color: "#435266", flexShrink: 0 \}\}>/.test(memoRow),
+      memoRow.replace(/\s+/g, " ").slice(-260));
+    check("F-55: メモのラベルの文字部分は全角2文字ぶん(2em)を確保する(片仮名が詰まる書体でもずれない)",
+      /<span style=\{\{ display: "inline-block", minWidth: "2em" \}\}>メモ<\/span>:/.test(memoRow));
+    check("F-55: 日付・奏者側の間隔(gap: 4)は動かしていない",
+      (detail.match(/display: "flex", alignItems: "center", gap: 4, minWidth: 0/) || []).length === 1 &&
+      (detail.match(/display: "flex", alignItems: "center", gap: 4, flexShrink: 0/g) || []).length === 2);
+
+    // F-57: フィルター行で × がカテゴリ名(次元のselect)より**前**にある
+    {
+      const rowStart = lab.indexOf("pivotFilters.map((flt, i)");
+      const del = lab.indexOf('title="このフィルターを削除"', rowStart);
+      const dimSelect = lab.indexOf("value={flt.dimKey}", rowStart);
+      check("F-57: 条件削除の × はカテゴリ名(次元のselect)より前に置かれている",
+        rowStart !== -1 && del !== -1 && dimSelect !== -1 && del < dimSelect,
+        `del=${del} select=${dimSelect}`);
+      check("F-57: × は1個だけ(末尾に置いていた分が残っていない)",
+        (lab.match(/title="このフィルターを削除"/g) || []).length === 1);
+      // タップ領域を落とさない: 移動前と同じ padding / fontSize のまま
+      const delTag = lab.slice(lab.lastIndexOf("<button", del), lab.indexOf("</button>", del));
+      check("F-57: × の当たり判定(padding / fontSize)は移動前と同じ",
+        /fontSize: 13/.test(delTag) && /padding: "2px 4px"/.test(delTag), delTag.replace(/\s+/g, " ").slice(0, 200));
+    }
+
+    // F-58: セッション一覧のゴミ箱を、リードタブの削除ボタンと同じ枠(内側のピル)にする。
+    // 「同じ寸法」は数値を書き写すのではなく、**両者から抜き出したpaddingが等しいこと**で見る。
+    {
+      const tagOf = (label) => {
+        const i = src.indexOf(`aria-label="${label}"`);
+        if (i === -1) throw new Error(`${label} が見つからない`);
+        return src.slice(src.lastIndexOf("<button", i), src.indexOf("</button>", i));
+      };
+      const sess = tagOf("セッションを選んで削除");
+      const reed = tagOf("箱を選んで削除");
+      const pillPad = (tag) => (tag.match(/className="ctl-plain ctl-pill"[^>]*?padding: "([^"]+)"/) || [])[1] ?? null;
+      check("F-58: どちらも「見た目のピルは内側の<span>・<button>は透明な当たり判定」の構造",
+        /\.\.\.TAP_BUTTON_RESET/.test(sess) && /\.\.\.TAP_BUTTON_RESET/.test(reed) &&
+        /className="ctl-plain ctl-pill"/.test(sess) && /className="ctl-plain ctl-pill"/.test(reed));
+      check("F-58: 内側のピルの padding が両者で一致する(＝枠の寸法が同じ)",
+        pillPad(sess) !== null && pillPad(sess) === pillPad(reed), `session=${pillPad(sess)} reed=${pillPad(reed)}`);
+      check("F-58: どちらも当たり判定は --tap-min(§5 の 44pt)",
+        /minWidth: "var\(--tap-min\)"/.test(sess) && /minWidth: "var\(--tap-min\)"/.test(reed));
+      check("F-58: <button>自身にピルの地を持たせない(持たせると枠が44×44に膨らむ)",
+        !/className="sans ctl-plain ctl-pill"[\s\S]*?aria-label="セッションを選んで削除"/.test(sess));
+    }
+
+    // F-59: 保持したい状態だけを親へ持ち上げる。navNonce による再マウントの意図は壊さない。
+    for (const name of ["pivotRow", "pivotCol", "pivotMetric", "pivotFilters"]) {
+      check(`F-59: ${name} は親(WindToneLabPhaseMode)が持つ`,
+        new RegExp(`const \\[${name}, set${name[0].toUpperCase()}${name.slice(1)}\\] = useState\\(`).test(root));
+      check(`F-59: ${name} は AnalysisLabView の useState ではない(再マウントで消えなくなる)`,
+        !new RegExp(`const \\[${name},`).test(lab));
+      check(`F-59: ${name} は props として渡されている`,
+        new RegExp(`${name}=\\{${name}\\}`).test(root));
+    }
+    // 「親に無いこと」を見る検査なので codeOf() を通す(経緯をコメントに書き残すと落ちるため)
+    const rootCode = codeOf(root);
+    check("F-59: 開いている個別セッション(selectedSessionId)は持ち上げない(戻ってきたら一覧)",
+      /const \[selectedSessionId, setSelectedSessionId\] = useState\(null\);/.test(lab) &&
+      !/selectedSessionId/.test(rootCode));
+    check("F-59: データタブ内の子タブ(dataSubTab)も持ち上げない(戻ってきたらトップ)",
+      /const \[dataSubTab, setDataSubTab\] = useState\("mydata"\);/.test(lab) && !/dataSubTab/.test(rootCode));
+    check("F-59: 下部ナビのタップで子ビューを作り直す仕組み(navNonce)を壊していない",
+      /key=\{`data-\$\{navNonce\}`\}/.test(root) && /key=\{`reeds-\$\{navNonce\}`\}/.test(root) &&
+      /setNavNonce\(\(n\) => n \+ 1\);/.test(root));
+    // 既定値(サックス種別=今の楽器)は**使う時点**で作る。親のuseState初期化子で作ると、
+    // 楽器種別がIndexedDBから復元される前の既定値("alto")で固定されてしまう。
+    check("F-59: 初期フィルターは defaultPivotFilters(saxType) を使う側で評価する",
+      /const \[pivotFilters, setPivotFilters\] = useState\(null\);/.test(root) &&
+      /const pivotFilters = pivotFiltersRaw \?\? defaultPivotFilters\(saxType\);/.test(lab));
+    {
+      const dpf = new Function(`${extractFunction("defaultPivotFilters")}
+        ${extractConst("SAX_PRESETS")}
+        return defaultPivotFilters;`)();
+      const f = dpf("tenor");
+      check("F-59: defaultPivotFilters はその時点の楽器種別で1件のフィルターを作る",
+        f.length === 1 && f[0].dimKey === "saxType" && f[0].values.length === 1, JSON.stringify(f));
+      check("F-59: 未知の楽器種別ならフィルター無し(存在しない値で全データを消さない)",
+        dpf("unknown").length === 0);
+    }
+  }
   console.log("  -> done");
 }
 
