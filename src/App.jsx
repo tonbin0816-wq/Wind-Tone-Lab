@@ -2983,23 +2983,34 @@ export default function WindToneLabPhaseMode() {
   // 数十音を1つずつ手動設定するのは非現実的なため、同じ名前のプロファイルが既にあれば
   // そのnotesに今回のデータの音だけをマージ(上書き)する。ない場合は新規作成する。
   // これにより、複数回に分けて録音した音をまとめて1つの理想値プロファイルに積み上げていける。
-  const promoteSessionToIdeal = useCallback((sessionLike, name) => {
+  // 【F-68】scope: "session"(このセッションだけ) | "performer"(同じ奏者・同じ楽器種別の全セッション)。
+  // 対象の選別は selectPerformerSessions が1箇所で持つ(ボタン側は同じ関数で件数だけを出す)。
+  const promoteSessionToIdeal = useCallback((sessionLike, name, scope = "session") => {
     const trimmedName = name.trim();
+    const targets = scope === "performer" ? selectPerformerSessions(sessions, sessionLike) : [sessionLike];
     // tuningHz は音ごとの実音ラベル(concertLabel)の算出に使う(F-54)。運指テーブルと同じ
     // 基準ピッチ(楽器個体差の補正込み)を渡さないと、記録される音名が計測タブとずれる。
-    const newProfile = buildIdealProfileFromSession(sessionLike, trimmedName, NUM_HARMONICS, effectiveTuningHz);
+    const newProfile = buildIdealProfileFromSessions(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope);
     setIdealProfiles((prev) => {
       const existingIdx = prev.findIndex((p) => p.name === trimmedName);
       if (existingIdx === -1) {
         setSelectedIdealId(newProfile.id);
         return [...prev, newProfile];
       }
+      // 同じ名前があれば notes をマージする(複数回に分けて録った音を積み上げる既存の挙動)。
+      // 由来も同じく積む: マージ後のプロファイルには両方のセッションのデータが入っているので、
+      // どちらのセッション詳細でも「理想値設定中」が出るのが正しい。
       const existing = prev[existingIdx];
-      const merged = { ...existing, notes: { ...existing.notes, ...newProfile.notes } };
+      const merged = {
+        ...existing,
+        notes: { ...existing.notes, ...newProfile.notes },
+        sourceKind: newProfile.sourceKind,
+        sourceSessionIds: [...new Set([...(existing.sourceSessionIds || []), ...newProfile.sourceSessionIds])],
+      };
       setSelectedIdealId(merged.id);
       return prev.map((p, i) => (i === existingIdx ? merged : p));
     });
-  }, [NUM_HARMONICS, effectiveTuningHz]);
+  }, [NUM_HARMONICS, effectiveTuningHz, sessions]);
 
   // アップロードされた音声/動画ファイルを、ライブ録音と同じ解析パイプラインで処理し、通常の録音と同じ
   // セッション構造で保存する(企画書のフレームデータ構造に準拠。source:"upload"で区別)。
@@ -3230,7 +3241,7 @@ export default function WindToneLabPhaseMode() {
           scheduledClicksRef={scheduledClicksRef} metroActiveRef={metroActiveRef} metroBarPerfTimesRef={metroBarPerfTimesRef}
           requestWakeLock={requestWakeLock} releaseWakeLock={releaseWakeLock}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
-          promoteSessionToIdeal={promoteSessionToIdeal}
+          promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
           uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession} setLastUploadedSession={setLastUploadedSession}
@@ -4604,6 +4615,7 @@ function MeasureView(props) {
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
     scheduledClicksRef, metroActiveRef, metroBarPerfTimesRef, requestWakeLock, releaseWakeLock,
     phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
+    sessions, // F-68: 理想値の「この奏者の平均」の対象件数を出すため(選別はselectPerformerSessions)
     pendingSession, registerPendingSession, discardPendingSession,
     handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
     uploadNeedsTap, setUploadNeedsTap,
@@ -5451,7 +5463,7 @@ function MeasureView(props) {
             {!isAnalyzingUpload && lastUploadedSession && (
               <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
                 <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-good)", flex: 1 }}>アップロードの解析が完了しました</span>
-                <SetAsIdealButton tapMin frames={lastUploadedSession.frames} saxType={lastUploadedSession.saxType} onSave={promoteSessionToIdeal} />
+                <SetAsIdealButton tapMin session={lastUploadedSession} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
                 {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
                     見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
                 <button
@@ -6246,59 +6258,147 @@ function ReedScoreField({ fields, onOpen }) {
 // 奏者選択。「自分」固定 + 登録済みの名前 + 「名前を入力」で新規追加できる可変プルダウン。
 // 一度追加した名前はperformersに積み上がり、以後の選択肢として残り続ける。
 // セッション(またはライブ録音直後のフレーム列)を理想値プロファイルに設定するボタン。
-// onSave({frames, saxType}, name) を呼び、実際のプロファイル生成はbuildIdealProfileFromSessionが行う。
+// onSave(session, name, scope) を呼び、実際のプロファイル生成は buildIdealProfileFromSessions が行う。
 // tapMin: 当たり判定を --tap-min(44px) 以上にする(既定は従来どおり。分析タブ側は変えない)。
 // 計測タブの「解析が完了しました」告知は浮かせた告知の中に入るため、ここだけ44pt化する。
-function SetAsIdealButton({ frames, saxType, onSave, tapMin }) {
-  const [isNaming, setIsNaming] = useState(false);
+//
+// 【F-67】名前の入力はポップアップ(下寄せの暗幕モーダル)に移した。
+// 以前はこの場で入力欄+保存+×に化けており、押した瞬間に日付欄の隣の要素が入れ替わって
+// 行の中身が動いていた(DESIGN-SYSTEM §6.1.5「何かを開いても既にあった要素は1pxも動かない」に反する)。
+// モーダルは position:fixed でレイアウトの流れから外れるので、押しても周囲は動かない。
+//
+// 【F-67 型の変更 B型 → A型】このボタンは「理想値設定中 / 未設定」という**状態を持つ**ように
+// なったので、§6.7 の A型(.ctl-state = 枠線 --c-line-strong / 地は透明、ON は枠線の色だけ
+// --c-accent)が該当する。B型(.ctl-plain = 枠なし・地 --c-sunken)のままだと、状態を返せるのは
+// 地か文字だけになり「枠線があるものは状態を持っている」という読み手への約束から外れる。
+// ON の合図に地は足さない(足すと A型が「枠線+違う地」になり規則そのものを破る)。
+function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) {
+  const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
+  const [scope, setScope] = useState("session"); // "session" | "performer"(F-68)
 
-  if (!frames || frames.length === 0) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setIsOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen]);
+
+  const frames = session?.frames || [];
+  if (frames.length === 0) return null;
+
+  // 由来を持たない古いプロファイルでは false になる(クラッシュさせず「設定中」を出さないだけ)
+  const isSet = isSessionInIdeal(selectedIdeal, session);
+  // F-68 の2択に添える件数。選別は selectPerformerSessions が唯一の答えを持つ(画面側で数え直さない)
+  const performerCount = selectPerformerSessions(sessions, session).length;
 
   const confirm = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    onSave({ frames, saxType }, trimmed);
+    onSave(session, trimmed, scope);
     setName("");
-    setIsNaming(false);
+    setScope("session");
+    setIsOpen(false);
   };
 
-  if (isNaming) {
-    return (
-      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <input
-          type="text" autoFocus placeholder="理想値の名前" value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") confirm(); if (e.key === "Escape") { setIsNaming(false); setName(""); } }}
-          className="sans"
-          style={{ padding: "5px 8px", fontSize: 12, width: 130 }}
-        />
-        <button onClick={confirm} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "var(--c-on-accent)", cursor: "pointer" }}>保存</button>
-        <button onClick={() => { setIsNaming(false); setName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 12 }}>×</button>
-      </div>
-    );
-  }
+  const scopeOptions = [
+    { key: "session", label: "このセッション", count: 1 },
+    { key: "performer", label: "この奏者の平均", count: performerCount },
+  ];
 
   return (
-    // B型 = .ctl-plain + .ctl-pill。理想値に設定は on/off も開閉も持たない
-    // **状態を持たないもの**なので、枠(--c-accent)と地(--c-accent-tint)を両方持つのをやめ、
-    // 地(--c-sunken)だけにする。強調は文字色(--c-accent)と ★ が担う。
-    // 【style を1つのオブジェクトリテラルに統合した理由】以前の `style={tapMin ? {…} : {…}}`
-    // は式なので、インライン宣言を静的に読む検査(pitch-test 17.6 / 17.10)から丸ごと外れる。
-    // 実際この抜け道のせいで、ここの「枠 + 違う地」は前周の走査に一度も掛かっていなかった。
-    <button
-      onClick={() => setIsNaming(true)}
-      className="sans ctl-plain ctl-pill"
-      style={{
-        fontSize: tapMin ? "var(--fs-sm)" : "var(--fs-xs)",
-        minHeight: tapMin ? "var(--tap-min)" : undefined,
-        padding: tapMin ? "0 var(--sp-3)" : "5px 10px",
-        color: "var(--c-accent)", cursor: "pointer", fontWeight: 600,
-        flexShrink: 0, whiteSpace: "nowrap",
-      }}
-    >
-      ★ 理想値に設定
-    </button>
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="sans ctl-state ctl-pill"
+        aria-pressed={isSet}
+        style={{
+          fontSize: tapMin ? "var(--fs-sm)" : "var(--fs-xs)",
+          minHeight: tapMin ? "var(--tap-min)" : undefined,
+          padding: tapMin ? "0 var(--sp-3)" : "5px 10px",
+          color: "var(--c-accent)", cursor: "pointer", fontWeight: 600,
+          flexShrink: 0, whiteSpace: "nowrap",
+        }}
+      >
+        {/* 和文6文字ぶんで揃えてある(理想値に設定 / 理想値設定中)。
+            文字数が変わるとボタンの幅が変わり、右寄せの行で左端が動く */}
+        {isSet ? "★ 理想値設定中" : "★ 理想値に設定"}
+      </button>
+      {isOpen && createPortal(
+        // 体裁は pendingSession の保存確認・マイク許可エラーと同じ(暗幕 rgba(15,23,42,0.28) /
+        // zIndex 60 / 下寄せ / カードは --c-surface + --r-lg + 影)。新しい濃さを発明しない。
+        // 【document.body へポータルする理由】position:fixed の基準は祖先に transform があると
+        // そちらへ移る。この画面は SwipeBackArea の子孫で、スワイプ中は祖先に transform が乗る
+        // (ReedScoreEditor と同じ理由)。
+        // 【stopPropagation を使わない】暗幕とカードの当たりは e.target === e.currentTarget で
+        // 見分ける。伝播を止めると、document に張られた復旧用のジェスチャー監視まで殺してしまう。
+        <div
+          role="dialog" aria-modal="true" aria-label="理想値に設定"
+          data-noswipe
+          onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+            padding: "var(--sp-4)",
+            paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
+          }}
+        >
+          <div data-noswipe style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+            <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>理想値に設定</div>
+            {/* 【F-68】対象の2択。選択中かどうかという**状態を持つ**ので A型(.ctl-state)。
+                状態は枠線の色だけで返す(地は足さない)。件数はそれぞれの選択肢に添える。 */}
+            <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-3)" }}>
+              {scopeOptions.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setScope(o.key)}
+                  className="sans ctl-state"
+                  aria-pressed={scope === o.key}
+                  style={{
+                    flex: 1, minWidth: 0, minHeight: "var(--tap-min)", padding: "var(--sp-2)",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: "var(--sp-1)", cursor: "pointer",
+                    color: scope === o.key ? "var(--c-accent)" : "var(--c-ink-2)",
+                    fontSize: "var(--fs-sm)", fontWeight: 600,
+                  }}
+                >
+                  <span>{o.label}</span>
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>{o.count}セッション</span>
+                </button>
+              ))}
+            </div>
+            <input
+              type="text" placeholder="理想値の名前" value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
+              className="sans"
+              style={{ width: "100%", marginTop: "var(--sp-3)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-md)" }}
+            />
+            <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
+              {/* B型 = .ctl-plain + .ctl-pill。キャンセルは状態を持たない普通のボタン */}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="sans ctl-plain ctl-pill"
+                style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+              >
+                キャンセル
+              </button>
+              {/* 塗りの強調ボタン(§6.7 の意図した例外5)。名前が空のときは押しても何も起きない
+                  ので disabled にする(§6.1.5「押しても何も起きない」を作らない)。 */}
+              <button
+                onClick={confirm}
+                disabled={!name.trim()}
+                className="sans"
+                style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", opacity: name.trim() ? 1 : 0.45 }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -7181,18 +7281,34 @@ function computeFrameMetrics(frames, pitchSelection = null) {
 // 【F-54】saxType / tuningHz は concertLabel(実音の音名)を運指から導くために要る。
 // 呼び出し元(理想値プロファイル生成・NoteAxisLineChart・セッション詳細)は必ず渡すこと。
 function groupFramesByNote(frames, NUM_HARMONICS = 8, saxType = null, tuningHz = null) {
-  // ピッチの採用フレームは**グループ分けの前に、全体の時系列に対して1回だけ**選別する。
-  // グループ分け後の配列では区間の隣接関係(前後の安定区間・過渡の位置)が失われ、
-  // 両端トリムもオクターブ誤検出ランの判定もできなくなるため(F-44)。
-  const sel = selectPitchAggregationFrames(frames);
+  return groupFramesByNoteAcrossSessions([frames], NUM_HARMONICS, saxType, tuningHz);
+}
+
+// 複数セッションぶんのフレーム列を、まとめて音階(運指)ごとに集計する。
+// groupFramesByNote は「セッションが1つだけ」の特別な場合としてこれに委ねる
+// (音ごとの値の作り方を2箇所に書くと、理想値プロファイルの構造が必ず食い違うため)。
+// 【F-68】理想値の「この奏者の平均」がここを使う。
+// **frameLists はセッションごとに分けたまま渡すこと。** ピッチのゲート
+// (selectPitchAggregationFrames)は**セッション単位で個別に**掛ける。連結してから1回で
+// 掛けると、セッションの継ぎ目が「同じ音が続いている区間」に見えて両端トリムの位置が動き、
+// 前後の安定区間を見るオクターブ誤検出ランの判定も別のセッションの音を参照してしまう
+// (F-44の罠1。F-45で buildFramesWithContext が同じ形で解いている)。
+function groupFramesByNoteAcrossSessions(frameLists, NUM_HARMONICS = 8, saxType = null, tuningHz = null) {
   const groups = {};
   const selectedByGroup = {};
-  for (let i = 0; i < frames.length; i++) {
-    const f = frames[i];
-    if (f.semitoneIndex === null || f.semitoneIndex === undefined) continue;
-    if (!groups[f.semitoneIndex]) { groups[f.semitoneIndex] = []; selectedByGroup[f.semitoneIndex] = []; }
-    groups[f.semitoneIndex].push(f);
-    if (sel.selected.has(i)) selectedByGroup[f.semitoneIndex].push(f);
+  for (const list of frameLists || []) {
+    const frames = list || [];
+    // ピッチの採用フレームは**グループ分けの前に、そのセッションの時系列に対して1回だけ**選別する。
+    // グループ分け後の配列では区間の隣接関係(前後の安定区間・過渡の位置)が失われ、
+    // 両端トリムもオクターブ誤検出ランの判定もできなくなるため(F-44)。
+    const sel = selectPitchAggregationFrames(frames);
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      if (f.semitoneIndex === null || f.semitoneIndex === undefined) continue;
+      if (!groups[f.semitoneIndex]) { groups[f.semitoneIndex] = []; selectedByGroup[f.semitoneIndex] = []; }
+      groups[f.semitoneIndex].push(f);
+      if (sel.selected.has(i)) selectedByGroup[f.semitoneIndex].push(f);
+    }
   }
   return Object.entries(groups)
     .map(([key, groupFrames]) => {
@@ -7270,16 +7386,57 @@ function getNoteIdeal(profile, semitoneIndex) {
 // 平均値を算出して理想値として持つ。計測タブの録音後・アップロード解析後・
 // セッション詳細画面の「理想値に設定」ボタンから共通で使う。
 function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8, tuningHz = null) {
-  const noteGroups = groupFramesByNote(session.frames || [], NUM_HARMONICS, session.saxType, tuningHz);
+  return buildIdealProfileFromSessions([session], name, NUM_HARMONICS, tuningHz, "session");
+}
+
+// 複数セッションから理想値プロファイルを作る(F-68「この奏者の平均」)。
+// **プロファイルの構造(getNoteIdeal が引く notes[semitoneIndex])は単一セッションと同じ。**
+// 構造を変えると既に保存されているプロファイルが読めなくなるため、増えるのは
+// 「どのセッション由来か」の記録(sourceKind / sourceSessionIds)だけにする。
+// sourceSessionIds は F-67 の「理想値設定中」の判定に使う。**古いプロファイルは
+// このフィールドを持たない**ので、読む側は必ず Array.isArray() で確かめること。
+function buildIdealProfileFromSessions(sessionList, name, NUM_HARMONICS = 8, tuningHz = null, sourceKind = "session") {
+  const list = (sessionList || []).filter(Boolean);
+  const noteGroups = groupFramesByNoteAcrossSessions(
+    list.map((s) => s.frames || []), NUM_HARMONICS, list[0]?.saxType ?? null, tuningHz);
   const notes = {};
   for (const g of noteGroups) notes[g.semitoneIndex] = g;
   return {
     id: generateId(),
     name,
-    saxType: session.saxType,
+    // 楽器種別は対象セッションで揃っている(selectPerformerSessions が同じ saxType だけを選ぶ)
+    saxType: list[0]?.saxType ?? null,
     recordedAt: new Date().toISOString(),
     notes,
+    sourceKind,
+    sourceSessionIds: list.map((s) => s.id).filter((id) => id !== null && id !== undefined),
   };
+}
+
+// 【F-68】「この奏者の平均」の対象セッションを選ぶ。
+// **同じ楽器種別のセッションだけ**を対象にする(アルトとテナーの平均は音域も移調も違うので
+// 音ごとの理想値として意味を成さない)。奏者名は未設定を「自分」と読む
+// (セッション詳細の表示・計測タブの既定値と同じ扱い)。
+// 対象セッション自身が一覧に無い場合(保存直後で反映前など)でも必ず含めるので、
+// 戻り値が空になることはない。対象が1件しかなければ「このセッション」と同じ結果になる。
+function idealPerformerKeyOf(session) {
+  return (session && session.performer) || "自分";
+}
+function selectPerformerSessions(sessions, session) {
+  if (!session) return [];
+  const key = idealPerformerKeyOf(session);
+  const list = (sessions || []).filter((s) =>
+    s && idealPerformerKeyOf(s) === key && s.saxType === session.saxType && (s.frames || []).length > 0);
+  if (!list.some((s) => s.id === session.id)) return [session, ...list];
+  return list;
+}
+
+// 「このセッションのデータが、いま選ばれている理想値に入っているか」(F-67の「理想値設定中」)。
+// 由来を持たない古いプロファイルでは常に false(クラッシュさせず、単に出さないフォールバック)。
+function isSessionInIdeal(profile, session) {
+  if (!profile || !session || session.id === null || session.id === undefined) return false;
+  if (!Array.isArray(profile.sourceSessionIds)) return false;
+  return profile.sourceSessionIds.includes(session.id);
 }
 
 // ============================================================================
@@ -9262,7 +9419,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
               style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 158, flexShrink: 0 }}
             />
           </span>
-          <SetAsIdealButton frames={frames} saxType={session.saxType} onSave={promoteSessionToIdeal} />
+          <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
         </div>
         {/* 日付の下段に奏者・リード・楽器種別を横一列で並べる(1行に収める。はみ出す分は横スクロール) */}
         <div className="sans" style={{ fontSize: 12, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", overflowX: "auto" }}>

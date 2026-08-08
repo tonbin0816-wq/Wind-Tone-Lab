@@ -6371,6 +6371,7 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
       extractFunction("buildFingeringTable"),
       extractFunction("concertNoteLabelOf"),
       extractFunction("groupFramesByNote"),
+      extractFunction("groupFramesByNoteAcrossSessions"),
     ].join("\n\n");
     for (const [name, val] of Object.entries(overrides)) {
       const before = pieces;
@@ -6730,6 +6731,7 @@ console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
       extractFunction("buildFingeringTable"),
       extractFunction("concertNoteLabelOf"),
       extractFunction("groupFramesByNote"),
+      extractFunction("groupFramesByNoteAcrossSessions"),
       extractFunction("buildFramesWithContext"),
       extractFunction("pitchCellColor"),
       extractConst("PIVOT_DIMENSIONS"),
@@ -7442,6 +7444,7 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       extractFunction("selectPitchAggregationFrames"),
       extractFunction("computeFrameMetrics"),
       extractFunction("groupFramesByNote"),
+      extractFunction("groupFramesByNoteAcrossSessions"),
       extractFunction("buildFramesWithContext"),
       extractFunction("pitchCellColor"),
       extractConst("PIVOT_DIMENSIONS"),
@@ -7711,9 +7714,13 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       !/g\.writtenLabel/.test(codeOf(detail)));
     check("F-54: 音階ごとの平均の表の見出しは「実音」(「記音」のままにしない)",
       />実音<\/th>/.test(detail) && !/>記音<\/th>/.test(codeOf(src)));
+    // 【F-68で配線が変わった】理想値の生成は buildIdealProfileFromSessions(複数セッション対応)に
+    // 一本化され、単一セッション版はその特別な場合になった。**渡すもの(楽器種別・基準ピッチ)は
+    // 変わっていない**ので、検査の意図(この経路にも saxType と tuningHz が通っていること)は同じ。
     check("F-54: 理想値プロファイル生成も楽器種別と基準ピッチを渡す",
-      /groupFramesByNote\(session\.frames \|\| \[\], NUM_HARMONICS, session\.saxType, tuningHz\)/.test(src) &&
-      /buildIdealProfileFromSession\(sessionLike, trimmedName, NUM_HARMONICS, effectiveTuningHz\)/.test(src));
+      /groupFramesByNoteAcrossSessions\(\s*list\.map\(\(s\) => s\.frames \|\| \[\]\), NUM_HARMONICS, list\[0\]\?\.saxType \?\? null, tuningHz\)/.test(src) &&
+      /buildIdealProfileFromSessions\(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope\)/.test(src) &&
+      /return buildIdealProfileFromSessions\(\[session\], name, NUM_HARMONICS, tuningHz, "session"\);/.test(src));
     check("F-54: 音名軸グラフ(NoteAxisLineChart)も同じ楽器種別・基準ピッチで集計する",
       /groupFramesByNote\(s\.frames \|\| \[\], undefined, saxType, tuningHz\)/.test(src));
     check("F-54: PIVOTのctxに基準ピッチを載せる(音名次元が実音を導けない)",
@@ -7804,6 +7811,404 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       check("F-59: 未知の楽器種別ならフィルター無し(存在しない値で全データを消さない)",
         dpf("unknown").length === 0);
     }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証23: F-67 「理想値に設定」のポップアップ化・設定中表示 / F-68 対象の2択
+//
+// この節が守るもの(集計側・実ソースを評価する):
+//   (a) 複数セッションから理想値を作るとき、ピッチのゲートは**セッション単位で個別に**掛かる
+//       (F-44の罠1。連結してから1回で掛けると区間の文脈が壊れる)
+//   (b) 「この奏者の平均」の対象は**同じ奏者かつ同じ楽器種別**のセッションだけ
+//   (c) 理想値プロファイルの構造(getNoteIdeal が引く notes[semitoneIndex])が単一セッション版と同じ
+//   (d) 「理想値設定中」の判定は由来を持たない古いプロファイルでクラッシュしない
+// 守れないもの(このハーネスはJSXを見ない): ポップアップの見た目・レイアウトの不動。
+//   モーダルの体裁だけは**既存モーダルのソースと突き合わせる**形で綴りを縛る(下の 23.6)。
+//
+// 期待値は「25msホップでどのtのフレームが残るか」を実ソースの選別器から**独立に組み立てた**
+// もので、守るべき定数の言い換えではない(F-51 の前例)。
+// ============================================================
+console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平均 ===");
+{
+  const buildIdealApi = (edits = []) => {
+    let pieces = [
+      extractConst("NOTE_NAMES"),
+      extractConst("NOTE_NAMES_SHARP"),
+      extractConst("LOW_BB_WRITTEN_MIDI"),
+      extractConst("TRANSPOSITION_SEMITONES"),
+      extractConst("A4_MIDI"),
+      extractConst("SAX_CONCERT_RANGE"),
+      extractFunction("freqToNote"),
+      extractFunction("writtenNoteLabel"),
+      extractFunction("writtenMidiToSoundingFreq"),
+      extractFunction("concertMidiToFreq"),
+      extractFunction("concertFreqLabel"),
+      extractFunction("buildFingeringTable"),
+      extractConst("CONCERT_LABEL_CACHE"),
+      extractFunction("concertNoteLabelOf"),
+      extractFunction("mean"),
+      extractFunction("median"),
+      extractFunction("stddev"),
+      extractFunction("frameWeight"),
+      extractFunction("timbreSustained"),
+      extractFunction("weightedMean"),
+      extractFunction("generateId"),
+      extractConst("TIMBRE_SUSTAIN_MS"),
+      extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"),
+      extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"),
+      extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"),
+      extractFunction("computeFrameMetrics"),
+      extractFunction("groupFramesByNote"),
+      extractFunction("groupFramesByNoteAcrossSessions"),
+      extractFunction("getNoteIdeal"),
+      extractFunction("buildIdealProfileFromSession"),
+      extractFunction("buildIdealProfileFromSessions"),
+      extractFunction("idealPerformerKeyOf"),
+      extractFunction("selectPerformerSessions"),
+      extractFunction("isSessionInIdeal"),
+    ].join("\n\n");
+    for (const [from, to] of edits) {
+      const before = pieces;
+      pieces = pieces.replace(from, to);
+      if (pieces === before) throw new Error(`mutation failed: "${from}" not found`);
+    }
+    return new Function(`${pieces}
+      return { selectPitchAggregationFrames, weightedMean, groupFramesByNoteAcrossSessions,
+               buildIdealProfileFromSession, buildIdealProfileFromSessions,
+               selectPerformerSessions, isSessionInIdeal, getNoteIdeal };`)();
+  };
+  const api = buildIdealApi();
+  const TUNE = 442;
+  // 実ソースを壊す変異(ガードの削除など)で例外が出ると、ハーネスごと落ちて
+  // 「どの検査が何を守ったか」が残らない。落ちた事実を値として拾い、検査を落とす。
+  const safe = (fn, ...args) => { try { return fn(...args); } catch (e) { return `例外(${e.message})`; } };
+  // 変異体の構築も同じ。綴りが変わって置換が空振りしたら、その事実で検査を落とす。
+  const mutant = (edits) => { try { return buildIdealApi(edits); } catch (e) { return { _err: e.message }; } };
+
+  // --- 合成データ ---------------------------------------------------------------
+  // 25msホップ。si=判定運指、hz=実測f0(オクターブ誤検出を作るために直接指定する)、
+  // dev=最寄り半音との差(¢)。silence は無音フレーム(semitoneIndex 無し)。
+  const HOP = 0.025;
+  const fr = (t, si, hz, dev) => ({
+    t, semitoneIndex: si, pitchHz: hz, pitchCents: dev,
+    clarity: 1, volumeDb: -20, noteAgeMs: 1000, hnrDb: 20, spectralCentroidHz: 1000, harmonics: [],
+  });
+  const silence = (t) => ({
+    t, semitoneIndex: null, pitchHz: null, pitchCents: null,
+    clarity: null, volumeDb: -60, noteAgeMs: 0, hnrDb: null, spectralCentroidHz: null, harmonics: [],
+  });
+  const seq = (n, f) => Array.from({ length: n }, (_, k) => f(k));
+
+  // セッションA: 短い1音(si=10 / 220Hz / +4¢)。t=0.000〜0.200 の9フレーム。
+  const framesA = seq(9, (k) => fr(k * HOP, 10, 220, 4));
+  // セッションB: 冒頭0.275sは無音 → 0.300〜0.375 に**1オクターブ上の誤検出**(si=22 / 440Hz /
+  // +20¢, 4フレーム=75ms) → 0.400〜0.700 に本来の音(si=10 / 220Hz / −6¢, 13フレーム)。
+  // **Bの誤検出は「前の区間」を持たない**(セッションの先頭)ので、F-44の除外条件
+  // 「前後の安定区間に挟まれている」を満たさず、Bだけを見る限り除外されない。
+  const framesB = [
+    ...seq(12, (k) => silence(k * HOP)),
+    ...seq(4, (k) => fr(0.300 + k * HOP, 22, 440, 20)),
+    ...seq(13, (k) => fr(0.400 + k * HOP, 10, 220, -6)),
+  ];
+  const sessA = { id: "sA", performer: "自分", saxType: "alto", frames: framesA };
+  const sessB = { id: "sB", performer: "自分", saxType: "alto", frames: framesB };
+
+  // テスト側の期待値は**実ソースの選別器を1セッションずつ呼んで**組み立てる。
+  // (定数から逆算しない。ゲートの中身が変われば期待値も同じように動く。
+  //  ここで固定しているのは「掛け方」= セッションごとに1回、という構造そのもの)
+  const expectByNote = (frameLists) => {
+    const acc = {};
+    for (const list of frameLists) {
+      const sel = api.selectPitchAggregationFrames(list);
+      list.forEach((f, i) => {
+        if (f.semitoneIndex === null || f.semitoneIndex === undefined) return;
+        if (!sel.selected.has(i)) return;
+        (acc[f.semitoneIndex] ||= []).push(f);
+      });
+    }
+    const out = {};
+    for (const [si, fs] of Object.entries(acc)) out[si] = api.weightedMean(fs, (f) => f.pitchCents);
+    return out;
+  };
+
+  // --- 23.1 ゲートはセッション単位。連結してから1回で掛けたのと結果が違う -----------
+  {
+    const perSession = expectByNote([framesA, framesB]);
+    const concatenated = expectByNote([[...framesA, ...framesB]]);
+    // needle が本当に効いているか(=2つの掛け方で結果が違うデータになっているか)を先に確かめる。
+    // ここが同じ値になるデータで下の検査を書くと、何も固定できていないことになる。
+    check("23.1 needle: このデータは「セッションごと」と「連結して1回」で結果が違う",
+      perSession[22] !== null && perSession[22] !== undefined &&
+      (concatenated[22] === null || concatenated[22] === undefined),
+      `perSession[22]=${perSession[22]} concat[22]=${concatenated[22]}`);
+
+    const groups = api.groupFramesByNoteAcrossSessions([framesA, framesB], 8, "alto", TUNE);
+    const got = Object.fromEntries(groups.map((g) => [g.semitoneIndex, g.pitchCentsSigned]));
+    const same = (a, b) => (a === null || a === undefined) ? (b === null || b === undefined)
+      : (b !== null && b !== undefined && Math.abs(a - b) < 1e-9);
+    check("23.1 複数セッションの集計は「セッションごとにゲート」を掛けた結果と全音一致する",
+      Object.keys(perSession).every((si) => same(got[si], perSession[si])) &&
+      Object.keys(got).length === Object.keys(perSession).length,
+      `got=${JSON.stringify(got)} want=${JSON.stringify(perSession)}`);
+    check("23.1 連結してから1回だけ掛けた結果(F-44の罠1)にはなっていない",
+      !same(got[22], concatenated[22]), `got[22]=${got[22]} concat[22]=${concatenated[22]}`);
+    // 音10は両セッションのフレームが混ざる。加重平均は (3×(+4) + 5×(−6))/8
+    // (採用フレーム数はテスト側で数えず、上の expectByNote が実ソースの選別器から出している)
+    check("23.1 両セッションに出てくる音(si=10)は両方のフレームを合わせた加重平均になる",
+      same(got[10], perSession[10]) && got[10] < 0 && got[10] > -6,
+      `si10=${got[10]}`);
+  }
+
+  // --- 23.1x 変異試験: 連結してから掛ける実装にすると 23.1 が落ちる -----------------
+  {
+    const mut = mutant([[
+      "for (const list of frameLists || []) {",
+      "for (const list of [[].concat(...(frameLists || []).map((l) => l || []))]) {",
+    ]]);
+    const g = mut._err ? null : mut.groupFramesByNoteAcrossSessions([framesA, framesB], 8, "alto", TUNE)
+      .find((x) => x.semitoneIndex === 22);
+    check("23.1x 変異(連結してから1回だけゲート)では si=22 の理想値が消え、23.1が落ちる",
+      !!g && (g.pitchCentsSigned === null || g.pitchCentsSigned === undefined),
+      mut._err ? `変異の空振り: ${mut._err}` : `si22=${g ? g.pitchCentsSigned : "グループ無し"}`);
+  }
+
+  // --- 23.2 単一セッションは「セッションが1つだけ」の特別な場合として同じ経路を通る ---
+  {
+    const one = api.groupFramesByNoteAcrossSessions([framesB], 8, "alto", TUNE);
+    const legacy = api.buildIdealProfileFromSession(sessB, "single", 8, TUNE);
+    const ok = one.every((g) => {
+      const n = legacy.notes[g.semitoneIndex];
+      return n && JSON.stringify(n.pitchCentsSigned) === JSON.stringify(g.pitchCentsSigned) &&
+        n.frameCount === g.frameCount;
+    });
+    check("23.2 単一セッションの理想値は複数セッション版と同じ値を返す(経路が1本)",
+      ok && Object.keys(legacy.notes).length === one.length,
+      `notes=${Object.keys(legacy.notes).join(",")}`);
+  }
+
+  // --- 23.3 プロファイルの構造は変えていない(getNoteIdeal が引く形) ----------------
+  {
+    const single = api.buildIdealProfileFromSession(sessA, "単一", 8, TUNE);
+    const avg = api.buildIdealProfileFromSessions([sessA, sessB], "平均", 8, TUNE, "performer");
+    const keysOf = (p) => Object.keys(api.getNoteIdeal(p, 10) || {}).sort().join(",");
+    check("23.3 getNoteIdeal が引く音ごとのオブジェクトのキーが単一/平均で完全に一致する",
+      keysOf(single) !== "" && keysOf(single) === keysOf(avg), `single=[${keysOf(single)}]`);
+    check("23.3 プロファイルのトップレベルに notes / saxType / name / id がある(既存の読み手の形)",
+      ["id", "name", "saxType", "recordedAt", "notes"].every((k) => k in avg) &&
+      typeof avg.notes === "object", Object.keys(avg).join(","));
+    check("23.3 由来(sourceKind / sourceSessionIds)が記録される(F-67の「設定中」判定に使う)",
+      avg.sourceKind === "performer" && Array.isArray(avg.sourceSessionIds) &&
+      avg.sourceSessionIds.join(",") === "sA,sB" && single.sourceKind === "session" &&
+      single.sourceSessionIds.join(",") === "sA",
+      `${avg.sourceKind}:${avg.sourceSessionIds} / ${single.sourceKind}:${single.sourceSessionIds}`);
+    // 完了条件: 「奏者の平均」は単一セッションの理想値と**違う値**になる
+    check("23.3 奏者の平均は単一セッションの理想値と違う値になる(合成データでの実測)",
+      api.getNoteIdeal(single, 10).pitchCentsSigned !== api.getNoteIdeal(avg, 10).pitchCentsSigned &&
+      api.getNoteIdeal(single, 22) === null && api.getNoteIdeal(avg, 22) !== null,
+      `single(si10)=${api.getNoteIdeal(single, 10).pitchCentsSigned} avg(si10)=${api.getNoteIdeal(avg, 10).pitchCentsSigned}`);
+    check("23.3 楽器種別はプロファイルに残る(対象セッションで揃っている前提)",
+      avg.saxType === "alto" && single.saxType === "alto", `${avg.saxType}/${single.saxType}`);
+  }
+
+  // --- 23.4 「この奏者の平均」の対象選び(同じ奏者 × 同じ楽器種別だけ) ---------------
+  {
+    const sTenor = { id: "sT", performer: "自分", saxType: "tenor", frames: framesA };
+    const sOther = { id: "sO", performer: "後輩", saxType: "alto", frames: framesA };
+    const sNoName = { id: "sN", saxType: "alto", frames: framesA };             // performer未設定=「自分」
+    const sEmpty = { id: "sE", performer: "自分", saxType: "alto", frames: [] }; // 音が入っていない
+    const all = [sessA, sessB, sTenor, sOther, sNoName, sEmpty];
+    const got = api.selectPerformerSessions(all, sessA).map((s) => s.id).sort().join(",");
+    check("23.4 同じ奏者・同じ楽器種別のセッションだけが対象になる",
+      got === "sA,sB,sN", got);
+    check("23.4 楽器種別が違うセッションは混ぜない(アルトとテナーの平均を作らない)",
+      api.selectPerformerSessions(all, sessA).every((s) => s.saxType === sessA.saxType) &&
+      !got.includes("sT"), got);
+    check("23.4 別の奏者のセッションは入らない", !got.includes("sO"), got);
+    check("23.4 奏者名が未設定のセッションは「自分」として扱う", got.includes("sN"), got);
+    check("23.4 フレームが空のセッションは対象にしない(理想値に何も足せない)",
+      !got.includes("sE"), got);
+    check("23.4 テナー側から見ればテナーのセッションだけが対象",
+      api.selectPerformerSessions(all, sTenor).map((s) => s.id).join(",") === "sT",
+      api.selectPerformerSessions(all, sTenor).map((s) => s.id).join(","));
+    check("23.4 別の奏者から見ればその奏者のセッションだけ",
+      api.selectPerformerSessions(all, sOther).map((s) => s.id).join(",") === "sO");
+    // 対象0件を作らない(仕様: 1件しかなければ「このセッション」と同じ結果になる。エラーにしない)
+    check("23.4 一覧に自分が入っていなくても対象は0件にならない",
+      api.selectPerformerSessions([], sessA).length === 1 &&
+      api.selectPerformerSessions([], sessA)[0].id === "sA");
+    check("23.4 セッションが無ければ空(nullでも例外にしない)",
+      api.selectPerformerSessions(null, null).length === 0 &&
+      api.selectPerformerSessions(null, sessA).length === 1);
+    // 対象が1件だけなら「このセッション」と同じ結果になる(仕様: エラーにしない)
+    const only = api.buildIdealProfileFromSessions(
+      api.selectPerformerSessions([sessA], sessA), "x", 8, TUNE, "performer");
+    const single = api.buildIdealProfileFromSession(sessA, "x", 8, TUNE);
+    check("23.4 対象が1件のときの平均は「このセッション」と同じ値になる",
+      api.getNoteIdeal(only, 10).pitchCentsSigned === api.getNoteIdeal(single, 10).pitchCentsSigned);
+  }
+
+  // --- 23.4x 変異試験: 楽器種別の条件を外すとテナーが混ざり 23.4 が落ちる ------------
+  {
+    const mut = mutant([[
+      "s && idealPerformerKeyOf(s) === key && s.saxType === session.saxType && (s.frames || []).length > 0",
+      "s && idealPerformerKeyOf(s) === key && (s.frames || []).length > 0",
+    ]]);
+    const sTenor = { id: "sT", performer: "自分", saxType: "tenor", frames: framesA };
+    const got = mut._err ? `変異の空振り: ${mut._err}`
+      : mut.selectPerformerSessions([sessA, sessB, sTenor], sessA).map((s) => s.id).join(",");
+    check("23.4x 変異(楽器種別の条件を外す)ではテナーが混ざり、23.4が落ちる",
+      !mut._err && got.includes("sT"), got);
+  }
+
+  // --- 23.5 「理想値設定中」の判定(古いプロファイルでクラッシュしない) --------------
+  {
+    const legacy = { id: "p0", name: "旧", notes: {} };                       // 由来を持たない旧データ
+    const nu = { id: "p1", name: "新", notes: {}, sourceSessionIds: ["sA", "sB"] };
+    const inIdeal = (p, s) => safe(api.isSessionInIdeal, p, s); // ガードを外す変異は例外になるので拾う
+    check("23.5 由来を持たない古いプロファイルでは「設定中」を出さない(例外にもしない)",
+      inIdeal(legacy, sessA) === false, `${inIdeal(legacy, sessA)}`);
+    check("23.5 由来にそのセッションが入っていれば「設定中」", inIdeal(nu, sessB) === true);
+    check("23.5 入っていなければ出さない",
+      inIdeal(nu, { id: "sX" }) === false);
+    check("23.5 プロファイル未選択(null)・セッション無しでも例外にしない",
+      inIdeal(null, sessA) === false && inIdeal(nu, null) === false &&
+      inIdeal(nu, {}) === false,
+      `${inIdeal(null, sessA)} / ${inIdeal(nu, null)} / ${inIdeal(nu, {})}`);
+    check("23.5 sourceSessionIds が配列でない壊れたデータでも false",
+      inIdeal({ notes: {}, sourceSessionIds: "sA" }, sessA) === false,
+      `${inIdeal({ notes: {}, sourceSessionIds: "sA" }, sessA)}`);
+  }
+
+  // --- 23.6 F-67 の配線(JSXなので**ソース文字列の検査**にとどまる) ------------------
+  // このハーネスはJSXを評価しないので、以下は「綴りが実ソースにあるか」しか見ていない。
+  // ポップアップの見た目・レイアウトが動かないことは Browser pane の実測が担保する。
+  {
+    const btnStart = src.indexOf("function SetAsIdealButton(");
+    const btn = (() => {
+      let i = src.indexOf("{", src.indexOf(")", btnStart)), d = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === "{") d++;
+        else if (src[i] === "}") { d--; if (d === 0) return src.slice(btnStart, i + 1); }
+      }
+      throw new Error("SetAsIdealButton を切り出せない");
+    })();
+    const btnCode = codeOf(btn);
+
+    check("F-67: その場で入力欄に化けるインライン方式(isNaming)は残っていない",
+      !/isNaming/.test(btnCode) && /createPortal\(/.test(btnCode), "");
+    check("F-67: ボタンは A型(.ctl-state)で、状態を aria-pressed で返す",
+      /className="sans ctl-state ctl-pill"/.test(btn) && /aria-pressed=\{isSet\}/.test(btn));
+    check("F-67: B型(.ctl-plain)の地はボタン自身には残っていない(型の二重取りをしない)",
+      !/className="sans ctl-plain ctl-pill"[\s\S]{0,200}aria-pressed=\{isSet\}/.test(btn));
+    // ラベルは「押す前後で行の中身が動かない」ために**同じ文字数**で組む(全角のみ)。
+    // 文字数を数えるのはソースから取り出した実際の文字列であって、書き写した定数ではない。
+    {
+      const m = /\{isSet \? "([^"]+)" : "([^"]+)"\}/.exec(btn);
+      const a = m ? [...m[1]] : [], b = m ? [...m[2]] : [];
+      check("F-67: 設定中/未設定のラベルは同じ文字数(幅が変わるとボタンの左端が動く)",
+        m !== null && a.length === b.length && a.length > 0,
+        m ? `"${m[1]}"(${a.length}) / "${m[2]}"(${b.length})` : "ラベルの三項が見つからない");
+      // 文字数が同じでも、片方だけに半角文字が入れば幅は変わる。共通の頭(★+空白)を外した
+      // 残りが両方とも全角だけであることを見る(★と空白は両方に同じだけあるので幅に効かない)。
+      const head = m ? m[1].slice(0, 2) : "";
+      const restOf = (s) => [...s.slice(2)];
+      check("F-67: 共通の頭を除いた残りは両方とも全角のみ(片方だけ半角が混ざると幅が変わる)",
+        m !== null && m[2].startsWith(head) &&
+        [...restOf(m[1]), ...restOf(m[2])].every((c) => c.charCodeAt(0) > 0x2000),
+        m ? `頭="${head}" / "${m[1]}" / "${m[2]}"` : "");
+    }
+    check("F-68: ポップアップに2択(このセッション / この奏者の平均)がある",
+      /key: "session", label: "このセッション"/.test(btn) &&
+      /key: "performer", label: "この奏者の平均"/.test(btn));
+    check("F-68: 2択は A型(.ctl-state)で、選択中を aria-pressed で返す",
+      /className="sans ctl-state"[\s\S]{0,120}aria-pressed=\{scope === o\.key\}/.test(btn));
+    check("F-68: 選択肢に対象件数を添える",
+      /\{o\.count\}セッション/.test(btn));
+    check("F-68: 件数は selectPerformerSessions から出す(画面側で数え直さない)",
+      /selectPerformerSessions\(sessions, session\)\.length/.test(btnCode));
+    check("F-68: 保存は選んだ対象(scope)を渡す", /onSave\(session, trimmed, scope\)/.test(btnCode));
+    // promoteSessionToIdeal はコンポーネント内(useCallback)なのでハーネスから評価できない。
+    // 「奏者の平均を選んだのに1セッションしか渡さない」という配線ミスを綴りで縛る
+    // (複製ツリーでの変異試験で、この検査が無いと丸ごと素通りすることを確認した)。
+    check("F-68: 「この奏者の平均」の対象は selectPerformerSessions が返す全セッション",
+      /const targets = scope === "performer" \? selectPerformerSessions\(sessions, sessionLike\) : \[sessionLike\];/.test(src));
+    check("F-68: 生成はその対象一式を渡す(1セッションに縮めない)",
+      /buildIdealProfileFromSessions\(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope\)/.test(src));
+    check("F-67: 呼び出し元は2箇所ともセッション・一覧・選択中の理想値を渡す",
+      (src.match(/<SetAsIdealButton[^>]*session=\{[^}]+\} sessions=\{sessions\} selectedIdeal=\{selectedIdeal\}/g) || []).length === 2,
+      `${(src.match(/<SetAsIdealButton/g) || []).length}箇所`);
+    // マージ(同名の理想値に積み上げる既存の挙動)でも由来を失わない
+    check("F-67: 同名マージで由来(sourceSessionIds)を積む",
+      /sourceSessionIds: \[\.\.\.new Set\(\[\.\.\.\(existing\.sourceSessionIds \|\| \[\]\), \.\.\.newProfile\.sourceSessionIds\]\)\]/.test(src));
+
+    // --- モーダルの体裁を既存2つと突き合わせる(値を書き写さず、ソース同士を比較する) ---
+    const dialogStyle = (label) => {
+      const i = src.indexOf(`aria-label="${label}"`);
+      if (i === -1) throw new Error(`aria-label="${label}" が見つからない`);
+      const open = src.lastIndexOf("<div", i);
+      const s = src.indexOf("style={{", open);
+      let d = 0, j = s + "style={".length;
+      for (; j < src.length; j++) {
+        if (src[j] === "{") d++;
+        else if (src[j] === "}") { d--; if (d === 0) break; }
+      }
+      return src.slice(s, j + 1).replace(/\s+/g, " ");
+    };
+    // 宣言の切り出しは**括弧の深さを見て**行う。単純に「次のカンマまで」で切ると
+    // rgba(15,23,42,0.28) が `rgba(15` で切れ、暗幕の濃さを変えても差が出なくなる
+    // (複製ツリーでの変異試験で実際にすり抜けた)。
+    const declMap = (style) => {
+      const body = style.slice(style.indexOf("{{") + 2, style.lastIndexOf("}}"));
+      const out = {};
+      let d = 0, cur = "";
+      const push = (s) => {
+        const i = s.indexOf(":");
+        if (i > 0) out[s.slice(0, i).trim()] = s.slice(i + 1).trim();
+      };
+      for (const ch of body) {
+        if ("([{".includes(ch)) d++;
+        else if (")]}".includes(ch)) d--;
+        if (ch === "," && d === 0) { push(cur); cur = ""; } else cur += ch;
+      }
+      push(cur);
+      return out;
+    };
+    const keyDecls = (style) => {
+      const m = declMap(style);
+      return ["position", "inset", "zIndex", "background", "flexDirection",
+        "justifyContent", "alignItems", "padding", "paddingBottom"]
+        .map((k) => `${k}=${m[k] ?? "無し"}`).join(" | ");
+    };
+    const mine = keyDecls(dialogStyle("理想値に設定"));
+    const pending = keyDecls(dialogStyle("この録音を保存しますか？"));
+    const micErr = keyDecls(dialogStyle("エラー"));
+    check("F-67: ポップアップの暗幕は保存確認モーダルと同じ宣言(位置・色・下寄せ・余白)",
+      mine === pending, `理想値=[${mine}] 保存確認=[${pending}]`);
+    check("F-67: マイク許可エラーのモーダルとも同じ宣言(体裁は1つに揃える)",
+      mine === micErr, `理想値=[${mine}] エラー=[${micErr}]`);
+    check("F-67: 下寄せ(justifyContent: flex-end)である(計測タブと同じ理由で中央寄せにしない)",
+      /flex-end/.test(mine), mine);
+    // カード側(白い面)も同じ体裁であること
+    const cardOf = (label) => {
+      const i = src.indexOf(`aria-label="${label}"`);
+      const c = src.indexOf('style={{ width: "100%", maxWidth: 900', i);
+      if (c === -1 || c - i > 2000) return "無し";
+      let d = 0, j = c + "style={".length;
+      for (; j < src.length; j++) {
+        if (src[j] === "{") d++;
+        else if (src[j] === "}") { d--; if (d === 0) break; }
+      }
+      return src.slice(c, j + 1).replace(/\s+/g, " ");
+    };
+    check("F-67: ポップアップのカードは保存確認モーダルのカードと同じ宣言",
+      cardOf("理想値に設定") !== "無し" && cardOf("理想値に設定") === cardOf("この録音を保存しますか？"),
+      `${cardOf("理想値に設定")}`);
   }
   console.log("  -> done");
 }
