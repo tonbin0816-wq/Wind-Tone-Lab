@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ficus 外周の光 試作（F-47）</title>
+<title>Ficus 外周の光 試作2（F-47）</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -19,12 +19,13 @@
   h1{font-size:17px;margin-bottom:6px}
   .note{font-size:12px;color:var(--ink2);line-height:1.65}
   .warn{font-size:12px;background:var(--sunken);border-radius:8px;padding:10px 12px;margin:12px 0 6px;color:var(--ink2);line-height:1.65}
-  h2{font-size:14px;margin:24px 0 2px;padding-top:14px;border-top:1px solid var(--line)}
-  .sub{font-size:11px;color:var(--ink3);line-height:1.6;margin-bottom:6px}
+  h2{font-size:14px;margin:30px 0 2px;padding-top:16px;border-top:1px solid var(--line)}
+  .sub{font-size:11px;color:var(--ink3);line-height:1.6;margin-bottom:2px}
 
-  .stage{display:flex;justify-content:center;margin:6px 0}
+  /* 光が viewBox の外まで届くので、はみ出しを許可し、上下に逃げを取る */
+  .stage{display:flex;justify-content:center;margin:2px 0;padding:26px 0}
   .ringwrap{position:relative;width:300px;height:300px}
-  svg{display:block;width:100%;height:100%}
+  svg{display:block;width:100%;height:100%;overflow:visible}
   .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
   .nm{font-family:"Instrument Serif",serif;font-size:96px;line-height:.82}
   .ct{font-size:15px;color:var(--ink2);margin-top:8px;font-weight:600}
@@ -41,12 +42,13 @@
 </head>
 <body>
 
-<h1>外周の光 試作（F-47）</h1>
+<h1>外周の光 試作2（F-47）</h1>
 <p class="note">
-  <b>帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</b>
-  変えたのは <b>±4¢以内で出る外周の光</b> だけです。4案を並べたので、どれが「間接照明のように漏れている」感じに近いか選んでください。
+  案3をベースに、<b>「グラデーションの終わりが見える」</b>を潰しました。原因は、光が0になる地点で
+  <b>減り方の傾きが急に変わる</b>こと（人の目はそこを縁として拾います）。終端で傾きも0になる長い裾に変え、
+  <b>外ほど粒を強くして光を粒に散らし</b>、<b>角度方向にもムラ</b>を入れて真円の輪郭を消しています。
 </p>
-<div class="warn">⚠️ <b>iPhoneで、できれば暗めの場所で</b>見てください。光の滲みと粒は明るい場所だと分かりにくいです。</div>
+<div class="warn">⚠️ <b>iPhoneで、暗めの場所で</b>見てください。帯（ズレの表示）は今のまま・両側に伸びる形を変えていません。</div>
 
 <div class="ctl">
   <div class="row">
@@ -61,104 +63,154 @@
   </div>
 </div>
 
-<h2>案1 ぼかし（stroke + ガウスぼかし）</h2>
-<p class="sub">今の「線」をぼかしただけ。輪郭は消えるが、光の減衰が直線的で人工的に見えやすい。</p>
-<div class="stage"><div class="ringwrap">
-  <svg viewBox="0 0 300 300" id="s1">
-    <defs><filter id="blur1" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5"/></filter></defs>
-    <circle cx="150" cy="150" r="128" fill="none" stroke="#EEF1F4" stroke-width="10"/>
-    <circle class="halo" cx="150" cy="150" r="134" fill="none" stroke-width="7" filter="url(#blur1)" opacity="0"/>
-    <path class="band" fill="none" stroke-width="10" stroke-linecap="round"/>
-    <path class="run" fill="none" stroke-width="10" stroke-linecap="round" opacity="0"/>
-  </svg>
-  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div>
-</div></div>
+<h2>案A 裾を伸ばしただけ</h2>
+<p class="sub">終端で傾きも0にした滑らかな減衰。粒は全体に均一。まず「縁が消えたか」を見てください。</p>
+<div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="0"></svg>
+  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案2 光の減衰（放射グラデーション）</h2>
-<p class="sub">中心から外へ滑らかに減衰。輪郭は無いが、階調が細かい段（バンディング）として見えることがある。</p>
-<div class="stage"><div class="ringwrap">
-  <svg viewBox="0 0 300 300" id="s2">
-    <defs>
-      <radialGradient id="g2">
-        <stop offset="0.72" stop-color="#fff" stop-opacity="0"/>
-        <stop offset="0.855" stop-color="#fff" stop-opacity="1"/>
-        <stop offset="0.93" stop-color="#fff" stop-opacity="0.45"/>
-        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-      </radialGradient>
-      <mask id="m2"><rect width="300" height="300" fill="url(#g2)"/></mask>
-    </defs>
-    <circle cx="150" cy="150" r="128" fill="none" stroke="#EEF1F4" stroke-width="10"/>
-    <g class="halo" mask="url(#m2)" opacity="0"><rect class="glowfill" width="300" height="300"/></g>
-    <path class="band" fill="none" stroke-width="10" stroke-linecap="round"/>
-    <path class="run" fill="none" stroke-width="10" stroke-linecap="round" opacity="0"/>
-  </svg>
-  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div>
-</div></div>
+<h2>案B ＋外ほど粒が強い</h2>
+<p class="sub">内側は滑らかな光、外へ行くほど粒に分解して消える。光が空気に散る感じ。</p>
+<div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="1"></svg>
+  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案3 光＋粒（グラデーション + ノイズ）★本命</h2>
-<p class="sub">案2に微細なノイズを重ねて段差を散らす。実際の間接照明の「空気に散った光」に近い質感になる。</p>
-<div class="stage"><div class="ringwrap">
-  <svg viewBox="0 0 300 300" id="s3">
-    <defs>
-      <radialGradient id="g3">
-        <stop offset="0.70" stop-color="#fff" stop-opacity="0"/>
-        <stop offset="0.85" stop-color="#fff" stop-opacity="1"/>
-        <stop offset="0.94" stop-color="#fff" stop-opacity="0.4"/>
-        <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-      </radialGradient>
-      <mask id="m3"><rect width="300" height="300" fill="url(#g3)"/></mask>
-      <filter id="grain3" x="0" y="0" width="100%" height="100%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="5" stitchTiles="stitch"/>
-        <feColorMatrix type="saturate" values="0"/>
-      </filter>
-    </defs>
-    <circle cx="150" cy="150" r="128" fill="none" stroke="#EEF1F4" stroke-width="10"/>
-    <g class="halo" mask="url(#m3)" opacity="0">
-      <rect class="glowfill" width="300" height="300"/>
-      <rect width="300" height="300" filter="url(#grain3)" opacity="0.5" style="mix-blend-mode:overlay"/>
-    </g>
-    <path class="band" fill="none" stroke-width="10" stroke-linecap="round"/>
-    <path class="run" fill="none" stroke-width="10" stroke-linecap="round" opacity="0"/>
-  </svg>
-  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div>
-</div></div>
+<h2>案C ＋角度方向のムラ　★本命</h2>
+<p class="sub">Bに加えて、光の強さが円周方向にも不均一。真円の輪郭が消え、間接照明に近づきます。</p>
+<div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="2"></svg>
+  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<h2>案4 多層ブルーム（にじみを重ねる）</h2>
-<p class="sub">半径と濃さの違うぼかしを3枚重ねる。光源が強く、遠くまで滲む。粒は無い。</p>
-<div class="stage"><div class="ringwrap">
-  <svg viewBox="0 0 300 300" id="s4">
-    <defs>
-      <filter id="b4a" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2"/></filter>
-      <filter id="b4b" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7"/></filter>
-      <filter id="b4c" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
-    </defs>
-    <circle cx="150" cy="150" r="128" fill="none" stroke="#EEF1F4" stroke-width="10"/>
-    <g class="halo" opacity="0">
-      <circle cx="150" cy="150" r="133" fill="none" stroke-width="3" filter="url(#b4a)" opacity="0.85"/>
-      <circle cx="150" cy="150" r="135" fill="none" stroke-width="8" filter="url(#b4b)" opacity="0.55"/>
-      <circle cx="150" cy="150" r="138" fill="none" stroke-width="14" filter="url(#b4c)" opacity="0.35"/>
-    </g>
-    <path class="band" fill="none" stroke-width="10" stroke-linecap="round"/>
-    <path class="run" fill="none" stroke-width="10" stroke-linecap="round" opacity="0"/>
-  </svg>
-  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div>
-</div></div>
+<h2>案D Cをもっと散らす</h2>
+<p class="sub">Cと同じ作りで、光の届く範囲・粒の強さ・ムラを一段強くしたもの。</p>
+<div class="stage"><div class="ringwrap"><svg viewBox="0 0 300 300" data-v="3"></svg>
+  <div class="center"><div class="nm">E♭4</div><div class="ct">+3.0 ¢</div></div></div></div>
 
-<p class="note" style="margin-top:20px">
-  <b>選んだ案の番号</b>と、必要なら「もっと滲ませて／粒を強く・弱く／光が届く範囲を広く」を教えてください。<br>
-  <span style="color:var(--ink3)">※ 実装時はノイズを毎フレーム作り直さず固定し、明るさだけを変える形にします（毎フレーム生成すると重くなるため）。</span>
+<p class="note" style="margin-top:24px">
+  <b>案の記号</b>と、必要なら「もっと散らす／粒を強く・弱く／光の届く範囲を広く・狭く／ムラを強く・弱く」を教えてください。<br>
+  <span style="color:var(--ink3)">※ ノイズは固定で1度だけ作り、明るさだけを変えています（毎フレーム作り直すと重くなるため）。</span>
 </p>
 
 <script>
 (function(){
-  var R = 128, CX = 150, CY = 150, SWEEP = 110, MAX_CENTS = 50;
-  var GREEN = "rgb(80,145,0)";
+  var CX=150, CY=150, R=128, SWEEP=110, MAX_CENTS=50;
+  var GREEN="rgb(80,145,0)";
+  var SVGNS="http://www.w3.org/2000/svg";
 
-  function pol(r, deg){ var a=(deg-90)*Math.PI/180; return [CX+r*Math.cos(a), CY+r*Math.sin(a)]; }
-  function arc(r, from, to){
+  // 4案のパラメータ。rMax=光が届く半径 / grainAmt=粒の強さ / grainOut=外ほど粒を強くするか
+  // / blobs=角度方向のムラ / decay=裾の伸び(小さいほど遠くまで届く)
+  var VARIANTS = [
+    { rMax:178, grainAmt:0.30, grainOut:false, blobs:false, decay:2.8 },
+    { rMax:188, grainAmt:0.60, grainOut:true,  blobs:false, decay:2.4 },
+    { rMax:194, grainAmt:0.62, grainOut:true,  blobs:true,  decay:2.2 },
+    { rMax:210, grainAmt:0.85, grainOut:true,  blobs:true,  decay:1.7 }
+  ];
+
+  // 光の減衰。**終端で値も傾きも0**にするのが要点(ここが折れると「縁」として見える)。
+  // 内側: 環の外縁から素早く立ち上げる / 外側: 指数減衰 ×(1-x)^3
+  function alphaAt(r, p){
+    var rIn=130, rPk=137;
+    if (r <= rIn) return 0;
+    if (r < rPk){ var t=(r-rIn)/(rPk-rIn); return t*t*(3-2*t); }
+    var x=(r-rPk)/(p.rMax-rPk);
+    if (x >= 1) return 0;
+    return Math.exp(-p.decay*x) * Math.pow(1-x, 3);
+  }
+
+  function el(name, attrs){
+    var e=document.createElementNS(SVGNS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  // 減衰カーブを多段ストップで近似する(直線2〜3本だと折れ目が見える)
+  function gradStops(grad, p, invert){
+    var N=44;
+    for (var i=0;i<=N;i++){
+      var r = 120 + (p.rMax-120)*(i/N);
+      var a = alphaAt(r, p);
+      if (invert){
+        // 粒の効き具合: 内側0 → 外側1(外ほど粒に分解する)
+        var x = Math.max(0, Math.min(1, (r-137)/(p.rMax-137)));
+        a = x*x;
+      }
+      grad.appendChild(el("stop", {
+        offset:(r/p.rMax).toFixed(4),
+        "stop-color":"#fff",
+        "stop-opacity":a.toFixed(4)
+      }));
+    }
+  }
+
+  function build(svg, idx){
+    var p=VARIANTS[idx], u="v"+idx;
+    var defs=el("defs",{});
+
+    // 1) 光の減衰
+    var g1=el("radialGradient",{id:u+"fall",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
+    gradStops(g1,p,false); defs.appendChild(g1);
+
+    // 2) 粒(固定。毎フレーム作り直さない)
+    var f=el("filter",{id:u+"noise",x:"-20%",y:"-20%",width:"140%",height:"140%"});
+    f.appendChild(el("feTurbulence",{type:"fractalNoise",baseFrequency:"0.9",numOctaves:"2",seed:String(3+idx),stitchTiles:"stitch"}));
+    f.appendChild(el("feColorMatrix",{type:"saturate",values:"0"}));
+    defs.appendChild(f);
+
+    // 3) 角度方向のムラ(低周波のゆらぎ = 大きな斑)
+    if (p.blobs){
+      var fb=el("filter",{id:u+"blob",x:"-20%",y:"-20%",width:"140%",height:"140%"});
+      fb.appendChild(el("feTurbulence",{type:"fractalNoise",baseFrequency:"0.008",numOctaves:"2",seed:String(11+idx),stitchTiles:"stitch"}));
+      fb.appendChild(el("feColorMatrix",{type:"saturate",values:"0"}));
+      // 平均0.5付近の斑を、0.55〜1.0 の範囲に寄せる(暗くしすぎない)
+      var ct=el("feComponentTransfer",{});
+      ct.appendChild(el("feFuncR",{type:"linear",slope:"0.45",intercept:"0.55"}));
+      ct.appendChild(el("feFuncG",{type:"linear",slope:"0.45",intercept:"0.55"}));
+      ct.appendChild(el("feFuncB",{type:"linear",slope:"0.45",intercept:"0.55"}));
+      fb.appendChild(ct);
+      defs.appendChild(fb);
+    }
+
+    // 4) 粒を外ほど効かせるための傾斜マスク
+    if (p.grainOut){
+      var g2=el("radialGradient",{id:u+"ramp",gradientUnits:"userSpaceOnUse",cx:CX,cy:CY,r:p.rMax});
+      gradStops(g2,p,true); defs.appendChild(g2);
+      var mr=el("mask",{id:u+"rampM"});
+      mr.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,fill:"url(#"+u+"ramp)"}));
+      defs.appendChild(mr);
+    }
+
+    // 5) 本体のマスク: 減衰 × (粒で削る) × (角度のムラ)
+    var m=el("mask",{id:u+"m"});
+    m.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,fill:"url(#"+u+"fall)"}));
+    var grainRect=el("rect",{x:-60,y:-60,width:420,height:420,filter:"url(#"+u+"noise)",opacity:String(p.grainAmt)});
+    grainRect.style.mixBlendMode="multiply";   // 粒の暗い所で光を削る = 粒に散る
+    if (p.grainOut){
+      var wrap=el("g",{mask:"url(#"+u+"rampM)"});
+      wrap.appendChild(grainRect); m.appendChild(wrap);
+    } else m.appendChild(grainRect);
+    if (p.blobs){
+      var blobRect=el("rect",{x:-60,y:-60,width:420,height:420,filter:"url(#"+u+"blob)"});
+      blobRect.style.mixBlendMode="multiply";
+      m.appendChild(blobRect);
+    }
+    defs.appendChild(m);
+    svg.appendChild(defs);
+
+    // 環のトラック
+    svg.appendChild(el("circle",{cx:CX,cy:CY,r:R,fill:"none",stroke:"#EEF1F4","stroke-width":10}));
+    // 光(このgのopacityだけを毎フレーム変える)
+    var halo=el("g",{mask:"url(#"+u+"m)",opacity:"0",class:"halo"});
+    halo.appendChild(el("rect",{x:-60,y:-60,width:420,height:420,class:"glowfill"}));
+    svg.appendChild(halo);
+    // 帯(ズレ) と 合った瞬間の走り
+    svg.appendChild(el("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",class:"band"}));
+    svg.appendChild(el("path",{fill:"none","stroke-width":10,"stroke-linecap":"round",opacity:"0",class:"run"}));
+  }
+
+  var svgs=[].slice.call(document.querySelectorAll("svg[data-v]"));
+  svgs.forEach(function(s){ build(s, +s.getAttribute("data-v")); });
+
+  function pol(r,deg){ var a=(deg-90)*Math.PI/180; return [CX+r*Math.cos(a), CY+r*Math.sin(a)]; }
+  function arc(r,from,to){
     var s=pol(r,from), e=pol(r,to);
-    var large = Math.abs(to-from)>180?1:0, sweep = to>from?1:0;
-    return "M"+s[0].toFixed(2)+","+s[1].toFixed(2)+" A"+r+","+r+" 0 "+large+" "+sweep+" "+e[0].toFixed(2)+","+e[1].toFixed(2);
+    var lg=Math.abs(to-from)>180?1:0, sw=to>from?1:0;
+    return "M"+s[0].toFixed(2)+","+s[1].toFixed(2)+" A"+r+","+r+" 0 "+lg+" "+sw+" "+e[0].toFixed(2)+","+e[1].toFixed(2);
   }
   function color(ac){
     var t=Math.min(1,ac/25);
@@ -170,65 +222,56 @@
     return "rgb(206,26,0)";
   }
 
-  var ids = ["s1","s2","s3","s4"];
-  var runs = {}; ids.forEach(function(id){ runs[id]={p:1,active:false,armed:true}; });
-  var state = { cents: 3, mode: "manual", t: 0 };
+  var runs=svgs.map(function(){ return {p:1,active:false,armed:true}; });
+  var state={cents:3,mode:"manual",t:0};
 
   function render(){
-    var c = state.cents, ac = Math.abs(c);
-    document.getElementById("centsVal").textContent = (c>=0?"+":"")+c.toFixed(1);
-    var inTune = ac <= 2, near = ac <= 4;
+    var c=state.cents, ac=Math.abs(c);
+    document.getElementById("centsVal").textContent=(c>=0?"+":"")+c.toFixed(1);
+    var inTune=ac<=2, near=ac<=4;
 
-    ids.forEach(function(id){
-      var svg = document.getElementById(id);
-      var wrap = svg.parentElement;
-      wrap.querySelector(".ct").textContent = (c>=0?"+":"")+c.toFixed(1)+" ¢";
-      wrap.querySelector(".nm").style.color = inTune ? GREEN : "var(--ink)";
+    svgs.forEach(function(svg,i){
+      var wrap=svg.parentElement;
+      wrap.querySelector(".ct").textContent=(c>=0?"+":"")+c.toFixed(1)+" ¢";
+      wrap.querySelector(".nm").style.color= inTune?GREEN:"var(--ink)";
 
-      // 帯: 今のまま(12時から左右どちらにも伸びる)。合ったときだけ隠す
-      var band = svg.querySelector(".band");
-      var deg = Math.max(-SWEEP, Math.min(SWEEP, (c/MAX_CENTS)*SWEEP));
-      if (inTune || Math.abs(deg) < 0.6) { band.setAttribute("d",""); }
-      else { band.setAttribute("d", arc(R,0,deg)); band.setAttribute("stroke", color(ac)); }
+      var band=svg.querySelector(".band");
+      var deg=Math.max(-SWEEP,Math.min(SWEEP,(c/MAX_CENTS)*SWEEP));
+      if (inTune || Math.abs(deg)<0.6) band.setAttribute("d","");
+      else { band.setAttribute("d",arc(R,0,deg)); band.setAttribute("stroke",color(ac)); }
 
-      // 合った瞬間の走り(12時から閉じる)
-      var r = runs[id];
+      var r=runs[i];
       if (inTune){ if(r.armed){ r.p=0; r.active=true; r.armed=false; } }
       else { r.active=false; r.p=0; if(ac>3) r.armed=true; }
-      if (r.active && r.p<1) r.p=Math.min(1, r.p+0.055);
-      var run = svg.querySelector(".run");
-      if (r.active && r.p>0){ run.setAttribute("d", arc(R,0,Math.min(359.9,360*r.p))); run.setAttribute("stroke",GREEN); run.setAttribute("opacity",1); }
+      if (r.active && r.p<1) r.p=Math.min(1,r.p+0.055);
+      var run=svg.querySelector(".run");
+      if (r.active && r.p>0){ run.setAttribute("d",arc(R,0,Math.min(359.9,360*r.p))); run.setAttribute("stroke",GREEN); run.setAttribute("opacity",1); }
       else run.setAttribute("opacity",0);
 
-      // 外周の光: ±4¢以内で、±2に近いほど強い。合っている間は静かに呼吸
-      var halo = svg.querySelector(".halo");
-      var col = inTune ? GREEN : color(ac);
-      var strength;
-      if (inTune) strength = 0.85 + 0.15*Math.sin(Date.now()/430);
-      else if (near) strength = Math.max(0, Math.min(1,(4-ac)/2)) * 0.9;
-      else strength = 0;
-      halo.setAttribute("opacity", strength.toFixed(3));
-      // 色: strokeで描く案(1,4)とfillで描く案(2,3)で塗り先が違う
-      halo.querySelectorAll("circle").forEach(function(el){ el.setAttribute("stroke", col); });
-      halo.querySelectorAll(".glowfill").forEach(function(el){ el.setAttribute("fill", col); });
+      var halo=svg.querySelector(".halo");
+      var col=inTune?GREEN:color(ac);
+      var s;
+      if (inTune) s=0.85+0.15*Math.sin(Date.now()/430);
+      else if (near) s=Math.max(0,Math.min(1,(4-ac)/2))*0.9;
+      else s=0;
+      halo.setAttribute("opacity", s.toFixed(3));
+      svg.querySelector(".glowfill").setAttribute("fill", col);
     });
   }
 
-  // 操作した瞬間に描き直す(rAFに頼らない)。バックグラウンドのタブや、
-  // 省電力でrAFが間引かれる端末でもスライダーが即座に反応するようにするため。
-  var slider = document.getElementById("cents");
-  slider.addEventListener("input", function(){ state.mode="manual"; state.cents=parseFloat(slider.value); render(); });
-  document.getElementById("auto").addEventListener("click", function(){ state.mode="auto"; state.t=0; render(); });
-  document.getElementById("hold3").addEventListener("click", function(){ state.mode="manual"; state.cents=3; slider.value=3; render(); });
-  document.getElementById("hold1").addEventListener("click", function(){ state.mode="manual"; state.cents=1; slider.value=1; render(); });
+  var slider=document.getElementById("cents");
+  slider.addEventListener("input",function(){ state.mode="manual"; state.cents=parseFloat(slider.value); render(); });
+  document.getElementById("auto").addEventListener("click",function(){ state.mode="auto"; state.t=0; render(); });
+  document.getElementById("hold3").addEventListener("click",function(){ state.mode="manual"; state.cents=3; slider.value=3; render(); });
+  document.getElementById("hold1").addEventListener("click",function(){ state.mode="manual"; state.cents=1; slider.value=1; render(); });
 
   function tick(){
     if (state.mode==="auto"){
-      state.t += 1/60;
-      var x=Math.min(1,state.t/3.4), eased=1-Math.pow(1-x,3);
-      state.cents = 11*(1-eased) + Math.sin(state.t*3.1)*2.2*(1-eased);
+      state.t+=1/60;
+      var x=Math.min(1,state.t/3.4), e=1-Math.pow(1-x,3);
+      state.cents=11*(1-e)+Math.sin(state.t*3.1)*2.2*(1-e);
       if (state.t>5) state.mode="manual";
-      slider.value = Math.max(-12, Math.min(12, state.cents));
+      slider.value=Math.max(-12,Math.min(12,state.cents));
     }
     render();
     requestAnimationFrame(tick);
