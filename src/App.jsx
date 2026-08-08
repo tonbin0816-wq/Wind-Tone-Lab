@@ -7344,6 +7344,27 @@ function SeriesSwatch({ style: st, width = 14 }) {
   );
 }
 
+// 【F-66 2026-08-08】ピッチ誤差カードの副次テキスト「ばらつき ±5.3¢」。
+//
+// 本人報告「データタブのピッチ誤差が肌感覚より過剰に合っている気がする。±5くらいずれて
+// いそうな感覚でも ±1以内で出ることがある」の正体は、主役の数字(pitchCentsSigned)が
+// **符号付きの加重平均**であることそのもの。+5¢ と −5¢ を行き来していると打ち消し合って
+// 0 に近づくため「一度も合っていないのに 0¢」が起こる。つまり主役は「偏り(平均して
+// シャープ寄りかフラット寄りか)」であって「精度(どれくらい外しているか)」ではない。
+// 本人が感じている「±5」は後者なので、採用フレームの標準偏差(pitchStabilityCents)を
+// 精度の目安として副次テキストで併記する。**主役の数字の意味・計算は変えない**(F-46)。
+//
+// 導出はこの1箇所だけに置く。表示する4画面(My Data / 最新セッション / セッション詳細 /
+// 登録済みリードの測定データ)は指標定義の sub を呼ぶだけにして、同じ式を写さない
+// (F-46 で SESSION_METRICS を廃止して1配列に統合したのと同じ考え方)。
+// 採用フレームが2未満のとき stddev は null を返す。そのときは**副次テキストごと出さない**
+// (「±null¢」「±NaN¢」を出さない)。桁は主役と揃えて小数1桁。
+function pitchSpreadSub(metrics) {
+  const sd = metrics?.pitchStabilityCents;
+  if (sd === null || sd === undefined || isNaN(sd)) return null;
+  return `ばらつき ±${sd.toFixed(1)}¢`;
+}
+
 // リード別比較・リード個別・最新セッション・個別セッションで共通する比較項目の定義。
 // 【2026-08-04 F-46 本人指示】ピッチは全画面「符号付きのピッチ誤差」に統一(以前の
 // 「リード比較系だけ絶対値のまま」という指示は本人自身が上書き)。これにより
@@ -7352,7 +7373,8 @@ const REED_COMPARE_METRICS = [
   { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "spectralCentroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
-  { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
+  // sub は副次テキストの導出(F-66)。ピッチ誤差だけが持つ。カード側は m.sub?.(metrics) を渡す
+  { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
 ];
 
 // リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
@@ -7955,6 +7977,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
                   metricKey={m.key} idealKey={METRIC_IDEAL_KEYS[m.key]}
                   frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
                   value={v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
+                  sub={m.sub?.(overall) ?? null}
                 />
               );
             })}
@@ -8345,7 +8368,8 @@ const MY_DATA_METRICS = [
   // (pitchCentsSigned)に変えた。ラベルは【F-46 本人指示】で表記ゆれを「ピッチ誤差」に統一。
   // ヒーローの「今日のピッチ誤差」と同じ量だが、あちらは期間全体の1つの数字、
   // こちらはタップで開く音名ごとの内訳なので、見えるものが違う。
-  { key: "pitchCentsSigned", idealKey: null, label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}` },
+  // sub は副次テキストの導出(F-66)。理想値(idealKey)を持たないこの指標だけが持つ
+  { key: "pitchCentsSigned", idealKey: null, label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -8430,7 +8454,9 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   // 分岐(displayVal > 0 ? "+" : "")を持っており、"-" が出ることが構造上あり得なかった。
   // 符号つきの平均ズレ(pitchCentsSigned)を渡し、シャープ側/フラット側が読めるようにする。
   // 良否の色分け(下の todayErr / periodErr)は今までどおり絶対値=0からの距離で評価する。
-  const todayVal = todayFrames.length ? computeFrameMetrics(todayFrames).pitchCentsSigned : null; // 今日のピッチ誤差(符号つき)
+  // 【F-66】ばらつき(pitchStabilityCents)も同じ集計から出すので、指標オブジェクトごと持つ。
+  const todayMetrics = todayFrames.length ? computeFrameMetrics(todayFrames) : null;
+  const todayVal = todayMetrics ? todayMetrics.pitchCentsSigned : null; // 今日のピッチ誤差(符号つき)
   const periodVal = overall.pitchCentsSigned;                                                    // 対象期間の平均(符号つき)
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
   // 【2026-08-04 本人の問い】「上方向にしかブレていないように見えるが、実データが+側にしか
@@ -8453,6 +8479,9 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
     else { heroColor = "#FBBF24"; heroStatus = "平均並み"; }
   }
   const displayVal = todayVal != null ? todayVal : periodVal;
+  // 【F-66】主役の大きい数字と**同じ母集団**からばらつきを出す(今日を出しているときは今日の
+  // フレーム、対象期間平均を出しているときは対象期間)。導出は pitchSpreadSub の1箇所だけ。
+  const heroSpread = pitchSpreadSub(todayVal != null ? todayMetrics : overall);
 
   return (
     <>
@@ -8478,9 +8507,15 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
             </span>
           )}
         </div>
-        {todayVal != null && periodVal != null && (
-          <div style={{ fontSize: 12, color: "#9DB3D6", marginTop: 6 }}>
-            対象期間平均 {periodVal > 0 ? "+" : ""}{periodVal.toFixed(1)}¢（{rangeLabel}）と比較
+        {/* 副次行。【F-66】ばらつきを主役の数字のすぐ下に置く(主役=偏り / ばらつき=精度)。
+            濃紺の面なので色は既にある副次テキストと同じ #9DB3D6。行が増えないよう、既存の
+            「対象期間平均…と比較」と同じ1行に並べる(入り切らないときだけ折り返す)。 */}
+        {(heroSpread || (todayVal != null && periodVal != null)) && (
+          <div style={{ fontSize: 12, color: "#9DB3D6", marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {heroSpread && <span>{heroSpread}</span>}
+            {todayVal != null && periodVal != null && (
+              <span>対象期間平均 {periodVal > 0 ? "+" : ""}{periodVal.toFixed(1)}¢（{rangeLabel}）と比較</span>
+            )}
           </div>
         )}
         {sparkVals.length >= 2 && (() => {
@@ -8532,12 +8567,12 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
                 metricKey={m.key} idealKey={m.idealKey}
                 frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
                 value={measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
-                sub={ideal !== null ? (
+                sub={m.sub?.(overall) ?? (ideal !== null ? (
                   <>
                     <span>理想: {m.fmt(ideal)} {m.unit}</span>
                     {diff !== null && <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>}
                   </>
-                ) : null}
+                ) : null)}
                 noteFocus={["E♭3", "E♭4", "E♭5"]}
               />
             );
@@ -8576,6 +8611,7 @@ function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
               frames={session.frames || []}
               saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
               value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+              sub={mt.sub?.(m) ?? null}
               noteFocus={["E♭3", "E♭4", "E♭5"]}
             />
           );
@@ -9186,6 +9222,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
                   metricKey={mt.key} idealKey={METRIC_IDEAL_KEYS[mt.key]}
                   frames={frames} saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
                   value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+                  sub={mt.sub?.(sessionMetrics) ?? null}
                 />
               );
             })}
