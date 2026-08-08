@@ -8260,6 +8260,7 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       extractFunction("concertFreqLabel"),
       extractFunction("buildFingeringTable"),
       extractConst("CONCERT_LABEL_CACHE"),
+      extractFunction("concertNoteTableOf"),
       extractFunction("concertNoteLabelOf"),
       extractFunction("mean"),
       extractFunction("median"),
