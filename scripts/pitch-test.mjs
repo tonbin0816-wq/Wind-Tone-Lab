@@ -5607,8 +5607,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     const reedCompare = extractConst("REED_COMPARE_METRICS");
     check("REED_COMPARE_METRICS のピッチも符号付き(pitchCentsSigned)に統一(F-46)",
       /key: "pitchCentsSigned"/.test(reedCompare) && !/key: "pitchCents",/.test(reedCompare));
-    check("REED_COMPARE_METRICS のピッチのラベルは「ピッチ誤差」・fmtは符号付き",
-      /label: "ピッチ誤差", unit: "¢", fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(reedCompare));
+    check("REED_COMPARE_METRICS のピッチのラベルは「平均差分」(N-2 表記統一)・fmtは符号付き",
+      /label: "平均差分", unit: "¢", fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(reedCompare));
     check("旧SESSION_METRICS(符号付き差し替え版)は廃止され、配列は1つに統合されている(F-46)",
       !/SESSION_METRICS/.test(codeOf(src)));
     check("リード比較タブのグラフのピッチも符号付きキーを使う(F-46)",
@@ -5635,15 +5635,78 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(myData));
   }
 
-  // --- 6.7b ピッチ指標の表記ゆれ禁止(F-46 本人指示) ---------------------------
-  // 「平均ピッチ誤差」「ピッチの安定度」「ピッチ誤差(絶対値)」「平均ピッチ偏差」の
-  // 4表記は全て「ピッチ誤差」に統一された。動く側(コメント除去後)のソースに
-  // 旧表記が1つも現れないことを固定する(経緯はコメントに書き残してよい)。
+  // --- 6.7b ピッチ指標の表記ゆれ禁止(F-46 本人指示 → N-2 表記統一で改訂) --------
+  // F-46 で「平均ピッチ誤差」「ピッチの安定度」「ピッチ誤差(絶対値)」「平均ピッチ偏差」の
+  // 4表記を「ピッチ誤差」に統一 → N-2(2026-08-10 本人決定)で表示は**「平均差分」**、
+  // 副次テキストの「ばらつき」は**「標準偏差」**になった。旧表記(「ピッチ誤差」「ばらつき」を含む)が
+  // 動く側(コメント除去後)のソースに1つも現れないことを固定する(経緯はコメントに書き残してよい)。
   {
     const liveSrc = codeOf(src);
-    for (const old of ["平均ピッチ誤差", "ピッチの安定度", "ピッチ誤差(絶対値)", "平均ピッチ偏差"]) {
-      check(`旧表記「${old}」が動く側のソースに残っていない(表示は「ピッチ誤差」に統一)`,
+    for (const old of ["平均ピッチ誤差", "ピッチの安定度", "ピッチ誤差(絶対値)", "平均ピッチ偏差", "ピッチ誤差", "ばらつき"]) {
+      check(`旧表記「${old}」が動く側のソースに残っていない(表示は「平均差分」「標準偏差」に統一)`,
         !liveSrc.includes(old));
+    }
+  }
+
+  // --- 6.7c N-2 表記統一(2026/08/11): 目安・英語のサックス種別・日付 yyyy/mm/dd ---
+  // (1) 「理想値」「理想」「基準」(理想値プロファイルの意味のもの)→ 表示は「目安」。
+  //     変数名(idealXxx)・IndexedDBのキー・関数名は変えない。**「基準ピッチ」(442Hz の
+  //     チューニング基準)は別概念なので対象外**。「基準」は比較基準の意味(「絶対値基準」等)で
+  //     正当に残るため綴り0件は固定できない。代わりに(a)「理想」の0件と、(b)機械置換の
+  //     事故形「目安ピッチ」が現れないことを固定する。
+  // (2) サックス種別の label は英語表記(Alto / Tenor / Soprano / Baritone)。
+  //     保存データが参照するのは key の方なので、key は英小文字のまま変えない。
+  // (3) 表示用の日付は formatYmd の1関数に寄せ、yyyy/mm/dd(ゼロ埋め)に統一。
+  //     時刻が付く場所は { time: true } で yyyy/mm/dd hh:mm。
+  {
+    const liveSrc = codeOf(src);
+    // (1) 目安への統一
+    check("旧表記「理想」(理想値・理想:等)が動く側のソースに残っていない(表示は「目安」に統一)",
+      !liveSrc.includes("理想"));
+    for (const kept of ["目安に設定", "目安設定中", "目安との差", "目安未設定"]) {
+      check(`新表記「${kept}」が動く側のソースに存在する(統一先が消えていない)`,
+        liveSrc.includes(kept));
+    }
+    check("「基準ピッチ」を機械置換した事故形「目安ピッチ」が現れていない",
+      !liveSrc.includes("目安ピッチ"));
+    // (2) サックス種別の英語表記。key(保存データが参照)はそのまま、label だけ英語
+    {
+      const presets = new Function(`${extractConst("SAX_PRESETS")} return SAX_PRESETS;`)();
+      const want = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
+      check("SAX_PRESETS の key は英小文字のまま過不足なし(保存データの互換)",
+        JSON.stringify(Object.keys(presets).sort()) === JSON.stringify(Object.keys(want).sort()),
+        Object.keys(presets).join(","));
+      for (const [k, label] of Object.entries(want)) {
+        check(`SAX_PRESETS.${k}.label は英語表記「${label}」`, presets[k]?.label === label,
+          `${presets[k]?.label}`);
+      }
+      for (const old of ["アルト", "テナー", "ソプラノ", "バリトン"]) {
+        check(`旧表記「${old}」が動く側のソースに残っていない(種別は英語表記)`,
+          !liveSrc.includes(old));
+      }
+    }
+    // (3) 日付表示 yyyy/mm/dd。formatYmd を実ソースから取り出して実際の出力で確かめる
+    {
+      const fy = new Function(`${extractFunction("formatYmd")} return formatYmd;`)();
+      check("formatYmd は yyyy/mm/dd(月日ゼロ埋め)を返す",
+        fy("2026-08-05T00:00:00") === "2026/08/05", `${fy("2026-08-05T00:00:00")}`);
+      check("formatYmd は { time: true } で yyyy/mm/dd hh:mm(時分ゼロ埋め)を返す",
+        fy("2026-08-05T09:07:59", { time: true }) === "2026/08/05 09:07",
+        `${fy("2026-08-05T09:07:59", { time: true })}`);
+      check("formatYmd は欠測・壊れた値で null を返す(呼び出し側が文言に振り替える)",
+        fy(null) === null && fy("not-a-date") === null);
+      // 端末ロケール依存の整形を表示に使わない(以前は toLocaleString("ja-JP") が3箇所、
+      // toLocaleDateString("ja-JP") が1箇所あり、ゼロ埋め無し・秒付きで形が割れていた)
+      check("表示用の日付整形に toLocaleString / toLocaleDateString を使っていない",
+        !liveSrc.includes("toLocaleString") && !liveSrc.includes("toLocaleDateString"));
+      // 配線(ハーネスはJSXを評価しないので綴りで縛る): 時刻つき表示3箇所は formatYmd に寄せた
+      check("セッション一覧・最新セッション・別セッション選択の日時は formatYmd(..., { time: true })",
+        (liveSrc.match(/formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g) || []).length === 3,
+        `${(liveSrc.match(/formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g) || []).length}箇所`);
+      check("PIVOTの日付次元も formatYmd を使う",
+        /getValue: \(f\) => formatYmd\(f\.recordedAt\),/.test(liveSrc));
+      check("リードの開始日表示(reedLabel)も formatYmd を使う",
+        /formatYmd\(reed\.startDate\) \?\? "—"/.test(liveSrc));
     }
   }
 
@@ -7529,19 +7592,20 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
 }
 
 // ============================================================
-// 検証21: F-66 ピッチ誤差に「ばらつき」を併記する
+// 検証21: F-66 平均差分(ピッチ)に「標準偏差」を併記する
+// (N-2 表記統一 2026-08-10 本人決定: 表示は「ピッチ誤差」→「平均差分」、「ばらつき」→「標準偏差」)
 //
 // 主役の数字(pitchCentsSigned)は**符号付きの加重平均**なので、+5¢と−5¢を行き来していると
 // 打ち消し合って0に近づく=「一度も合っていないのに0¢」が起こる(本人報告「肌感覚より過剰に
 // 合っている」の正体)。この節はその状況を合成フレーム列で実際に作り、
-// **主役が0.0¢でも副次テキストが「ばらつき ±5.0¢」を返す**ことを実ソースで固定する。
+// **主役が0.0¢でも副次テキストが「標準偏差 ±5.0¢」を返す**ことを実ソースで固定する。
 //
 // 関数・定数・指標定義はすべて実ソースから extractFunction / extractConst で取り出して
 // 評価する(テスト側の手書き再実装は実ソースを守らない。F-45 の前例)。
 // 期待値は「25msホップでどのtのフレームが残るか」をテスト側で独立に数えた値であって、
 // 定数(PITCH_EDGE_TRIM_MS 等)の言い換えではない(F-51 の前例)。
 // ============================================================
-console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
+console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 ===");
 {
   // 実ソースの断片を束ねたサンドボックス。edits([from,to])で変異体を作れる
   // (変異はこの複製文字列上でだけ起き、実ソースには触れない)。置換の空振りは例外。
@@ -7608,21 +7672,21 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
     check("21.1 主役の表示は「+0.0」(合っているように見える)",
       `${m.pitchCentsSigned >= 0 ? "+" : ""}${m.pitchCentsSigned.toFixed(1)}` === "+0.0");
     // ここが F-66 の芯。主役が0.0でも、副次テキストは実際のズレ幅5¢を返さなければならない。
-    check("21.1 副次テキストは「ばらつき ±5.0¢」(合っていないことが数字に出る)",
-      callSub(api.pitchSpreadSub, m) === "ばらつき ±5.0¢", `${callSub(api.pitchSpreadSub, m)}`);
+    check("21.1 副次テキストは「標準偏差 ±5.0¢」(合っていないことが数字に出る)",
+      callSub(api.pitchSpreadSub, m) === "標準偏差 ±5.0¢", `${callSub(api.pitchSpreadSub, m)}`);
     // (この列は全フレームがちょうど±5¢で、0¢のフレームは1つも無い。
     //  主役の +0.0 は「合っている」ではなく打ち消し合いの産物である、という状況そのもの)
   }
 
-  // --- 21.2 ばらつきが出せないときは副次テキストごと出さない --------------------
+  // --- 21.2 標準偏差が出せないときは副次テキストごと出さない --------------------
   // stddev は arr.length < 2 で null を返す。採用フレームが1つしかないセッションで
-  // 「ばらつき ±null¢」「±NaN¢」を出さないこと。
+  // 「標準偏差 ±null¢」「±NaN¢」を出さないこと。
   {
     // 2フレーム(dur=25ms)。トリム帯 t∈[0.00833,0.01667] にフレームが無いので
     // 「全滅させない」フォールバックでインデックス中央の1フレームだけが採用される。
     const frames = [pf(0, 10, 7), pf(0.025, 10, 9)];
     const m = api.computeFrameMetrics(frames);
-    check("21.2 採用フレームが1つのとき ばらつきは算出されない(stddevがnull)",
+    check("21.2 採用フレームが1つのとき 標準偏差は算出されない(stddevがnull)",
       m.pitchFrameUsed === 1 && m.pitchStabilityCents === null,
       `used=${m.pitchFrameUsed} sd=${m.pitchStabilityCents}`);
     check("21.2 そのとき副次テキストは出さない(nullを返す)",
@@ -7641,22 +7705,22 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
   }
 
   // --- 21.3 表記と桁 -----------------------------------------------------------
-  // 表記は「ばらつき ±5.3¢」で統一(F-46 の「ピッチ誤差」統一と同じ方針)。桁は主役と揃えて小数1桁。
+  // 表記は「標準偏差 ±5.3¢」で統一(F-46 → N-2 の表記統一と同じ方針)。桁は主役と揃えて小数1桁。
   {
     check("21.3 桁は主役と同じ小数1桁(5.34 → ±5.3)",
-      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.34 }) === "ばらつき ±5.3¢",
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.34 }) === "標準偏差 ±5.3¢",
       `${callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.34 })}`);
     // 端数は toFixed(1) の丸め(5.37→5.4 / 0.04→0.0)。5.35 のような二進で表せない中間値は
     // 処理系の丸めが "5.3" 側に落ちるので、丸め方向の検査には使わない。
     check("21.3 端数は1桁に丸める(5.37 → ±5.4 / 0.04 → ±0.0)",
-      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.37 }) === "ばらつき ±5.4¢" &&
-      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0.04 }) === "ばらつき ±0.0¢");
-    check("21.3 ばらつき0(全採用フレームが同じ値)は「±0.0¢」として出す(消さない)",
-      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0 }) === "ばらつき ±0.0¢");
-    // 主役(偏り)ではなく、ばらつき(標準偏差)を読んでいること。
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 5.37 }) === "標準偏差 ±5.4¢" &&
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0.04 }) === "標準偏差 ±0.0¢");
+    check("21.3 標準偏差0(全採用フレームが同じ値)は「±0.0¢」として出す(消さない)",
+      callSub(api.pitchSpreadSub, { pitchStabilityCents: 0 }) === "標準偏差 ±0.0¢");
+    // 主役(偏り)ではなく、標準偏差(ブレ幅)を読んでいること。
     // 両方入れた指標オブジェクトで、どちらを読んでいるかを判別する。
     check("21.3 読むのは pitchStabilityCents であって pitchCentsSigned ではない",
-      callSub(api.pitchSpreadSub, { pitchCentsSigned: 9.9, pitchStabilityCents: 5.34 }) === "ばらつき ±5.3¢");
+      callSub(api.pitchSpreadSub, { pitchCentsSigned: 9.9, pitchStabilityCents: 5.34 }) === "標準偏差 ±5.3¢");
     check("21.3 常に非負の量なので符号は「±」1つだけ(「±-」が出ない)",
       !/±-/.test(callSub(api.pitchSpreadSub, { pitchStabilityCents: 4.4 })));
   }
@@ -7668,16 +7732,16 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
     for (const [name, arr] of [["REED_COMPARE_METRICS", api.REED_COMPARE_METRICS], ["MY_DATA_METRICS", api.MY_DATA_METRICS]]) {
       const pitch = arr.find((x) => x.key === "pitchCentsSigned");
       const sub = typeof pitch?.sub === "function" ? pitch.sub : () => "(subが無い)";
-      check(`21.4 ${name} のピッチ誤差は副次テキストの導出(sub)を持つ`,
+      check(`21.4 ${name} の平均差分(ピッチ)は副次テキストの導出(sub)を持つ`,
         typeof pitch?.sub === "function");
-      check(`21.4 ${name} の sub は指標オブジェクトから「ばらつき ±5.3¢」を返す`,
-        callSub(sub, fixture) === "ばらつき ±5.3¢", `${callSub(sub, fixture)}`);
+      check(`21.4 ${name} の sub は指標オブジェクトから「標準偏差 ±5.3¢」を返す`,
+        callSub(sub, fixture) === "標準偏差 ±5.3¢", `${callSub(sub, fixture)}`);
       check(`21.4 ${name} の sub は共通の pitchSpreadSub と同じ結果を返す(写しではない)`,
         callSub(sub, fixture) === callSub(api.pitchSpreadSub, fixture) &&
         callSub(sub, {}) === callSub(api.pitchSpreadSub, {}));
-      // ばらつきはピッチ誤差だけの話。音量・HNR・重心に副次テキストは付かない
+      // 標準偏差は平均差分(ピッチ)だけの話。音量・HNR・重心に副次テキストは付かない
       for (const other of arr.filter((x) => x.key !== "pitchCentsSigned")) {
-        check(`21.4 ${name} の ${other.key} には sub が無い(ばらつきはピッチ誤差だけ)`,
+        check(`21.4 ${name} の ${other.key} には sub が無い(標準偏差は平均差分だけ)`,
           other.sub === undefined);
       }
     }
@@ -7685,10 +7749,10 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
     // (**「無いこと」ではなく「1回だけ」を見る検査なので codeOf() で経緯コメントを外す**)。
     const liveSrc = codeOf(src);
     check("21.4 副次テキストの文言の組み立ては動く側のソースに1箇所だけ",
-      (liveSrc.match(/ばらつき/g) || []).length === 1,
-      `${(liveSrc.match(/ばらつき/g) || []).length}箇所`);
-    check("21.4 表記は「ばらつき」で統一(「安定度」「標準偏差」を混ぜない)",
-      !liveSrc.includes("安定度") && !liveSrc.includes("標準偏差"));
+      (liveSrc.match(/標準偏差/g) || []).length === 1,
+      `${(liveSrc.match(/標準偏差/g) || []).length}箇所`);
+    check("21.4 表記は「標準偏差」で統一(「安定度」「ばらつき」を混ぜない)",
+      !liveSrc.includes("安定度") && !liveSrc.includes("ばらつき"));
   }
 
   // --- 21.5 配線: 4画面すべてが指標定義の sub を渡している ----------------------
@@ -7721,9 +7785,9 @@ console.log("=== 検証21: F-66 ピッチ誤差にばらつきを併記 ===");
       check(`21.5 ${label} は指標定義の sub をカードに渡している`, re.test(componentSourceOf(fn)));
     }
     // ヒーローは TappableMetricCard ではないので個別に見る。主役の大きい数字と**同じ母集団**
-    // から出していること(今日を出しているのに対象期間のばらつきを添えると読み違える)。
+    // から出していること(今日を出しているのに対象期間の標準偏差を添えると読み違える)。
     const myDataSection = componentSourceOf("MyDataSection");
-    check("21.5 ヒーローのばらつきは主役の数字と同じ母集団から出す",
+    check("21.5 ヒーローの標準偏差は主役の数字と同じ母集団から出す",
       /const heroSpread = pitchSpreadSub\(todayVal != null \? todayMetrics : overall\);/.test(myDataSection));
     check("21.5 ヒーローは heroSpread があるときだけ副次行を出す",
       /\{heroSpread && <span>\{heroSpread\}<\/span>\}/.test(myDataSection));
@@ -8606,13 +8670,14 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
         "justifyContent", "alignItems", "padding", "paddingBottom"]
         .map((k) => `${k}=${m[k] ?? "無し"}`).join(" | ");
     };
-    const mine = keyDecls(dialogStyle("理想値に設定"));
+    // 【N-2 表記統一】ダイアログの aria-label は「理想値に設定」→「目安に設定」になった
+    const mine = keyDecls(dialogStyle("目安に設定"));
     const pending = keyDecls(dialogStyle("この録音を保存しますか？"));
     const micErr = keyDecls(dialogStyle("エラー"));
     check("F-67: ポップアップの暗幕は保存確認モーダルと同じ宣言(位置・色・下寄せ・余白)",
-      mine === pending, `理想値=[${mine}] 保存確認=[${pending}]`);
+      mine === pending, `目安=[${mine}] 保存確認=[${pending}]`);
     check("F-67: マイク許可エラーのモーダルとも同じ宣言(体裁は1つに揃える)",
-      mine === micErr, `理想値=[${mine}] エラー=[${micErr}]`);
+      mine === micErr, `目安=[${mine}] エラー=[${micErr}]`);
     check("F-67: 下寄せ(justifyContent: flex-end)である(計測タブと同じ理由で中央寄せにしない)",
       /flex-end/.test(mine), mine);
     // カード側(白い面)も同じ体裁であること
@@ -8628,8 +8693,8 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       return src.slice(c, j + 1).replace(/\s+/g, " ");
     };
     check("F-67: ポップアップのカードは保存確認モーダルのカードと同じ宣言",
-      cardOf("理想値に設定") !== "無し" && cardOf("理想値に設定") === cardOf("この録音を保存しますか？"),
-      `${cardOf("理想値に設定")}`);
+      cardOf("目安に設定") !== "無し" && cardOf("目安に設定") === cardOf("この録音を保存しますか？"),
+      `${cardOf("目安に設定")}`);
   }
   console.log("  -> done");
 }

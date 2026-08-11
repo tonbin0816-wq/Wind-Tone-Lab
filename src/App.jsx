@@ -505,10 +505,10 @@ function speedOfSound(tempC) {
 // gateBandpassHz: ノイズゲート判定用バンドパスの中心周波数。楽器の基音域の中心付近に
 // 合わせる(バリトンの最低音域65〜100Hzは500Hz中心だと減衰し、ppの低音を拾い損ねるため)。
 const SAX_PRESETS = {
-  soprano: { label: "ソプラノ", effectiveLengthCm: 73.3, bellRadiusCm: 0.6, gateBandpassHz: 650 },
-  alto: { label: "アルト", effectiveLengthCm: 123.4, bellRadiusCm: 0.8, gateBandpassHz: 500 },
-  tenor: { label: "テナー", effectiveLengthCm: 164.8, bellRadiusCm: 1.0, gateBandpassHz: 400 },
-  baritone: { label: "バリトン", effectiveLengthCm: 261.7, bellRadiusCm: 1.3, gateBandpassHz: 300 },
+  soprano: { label: "Soprano", effectiveLengthCm: 73.3, bellRadiusCm: 0.6, gateBandpassHz: 650 },
+  alto: { label: "Alto", effectiveLengthCm: 123.4, bellRadiusCm: 0.8, gateBandpassHz: 500 },
+  tenor: { label: "Tenor", effectiveLengthCm: 164.8, bellRadiusCm: 1.0, gateBandpassHz: 400 },
+  baritone: { label: "Baritone", effectiveLengthCm: 261.7, bellRadiusCm: 1.3, gateBandpassHz: 300 },
 };
 
 function conicalTubeHarmonics(effectiveLengthCm, bellRadiusCm, tempC, count) {
@@ -1231,20 +1231,19 @@ function reedPosition(reed, reeds) {
   return idx >= 0 ? idx + 1 : null;
 }
 
-function shortDate(dateStr) {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-}
-
 // 一覧に生のISO文字列("2026-07-31")を出さないための表示用フォーマッタ。
-// 値が無い/壊れている場合は null を返し、呼び出し側で「未設定」の文言に振り替える
+// 【N-2 表記統一】表示用の日付はこの1関数に寄せ、yyyy/mm/dd(ゼロ埋め)に統一する。
+// 時刻が付く場所は { time: true } で yyyy/mm/dd hh:mm。
+// 値が無い/壊れている場合は null を返し、呼び出し側で「未設定」等の文言に振り替える
 // (欠測でも行が崩れないようにするため、ここでは空文字を返さない)。
-function formatYmd(dateStr) {
+// input[type=date] / datetime-local のネイティブ値(yyyy-MM-dd形式)はここを通さない。
+function formatYmd(dateStr, opts) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  const p2 = (n) => String(n).padStart(2, "0");
+  const ymd = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())}`;
+  return opts?.time ? `${ymd} ${p2(d.getHours())}:${p2(d.getMinutes())}` : ymd;
 }
 
 // リード1本ぶんの計測フレーム総数。ReedCompareTab が同じ集計をローカルに持っており
@@ -1257,7 +1256,7 @@ function frameCountFor(sessions, reedId) {
 function reedLabel(reed, reeds) {
   if (!reed) return "";
   const pos = reedPosition(reed, reeds);
-  return `${reed.brand} ${reed.strength} #${pos}(${shortDate(reed.startDate)})`;
+  return `${reed.brand} ${reed.strength} #${pos}(${formatYmd(reed.startDate) ?? "—"})`;
 }
 
 // ============================================================
@@ -2185,7 +2184,7 @@ export default function WindToneLabPhaseMode() {
   const isAnalyzingUploadRef = useRef(false); // 可視状態復帰時のWake Lock再取得判定に使う
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadNeedsTap, setUploadNeedsTap] = useState(null); // 自動再生ブロック時の再開関数(タップで呼ぶ)
-  const [lastUploadedSession, setLastUploadedSession] = useState(null); // 解析完了直後に「理想値に設定」を出すため
+  const [lastUploadedSession, setLastUploadedSession] = useState(null); // 解析完了直後に「目安に設定」を出すため
 
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -3016,7 +3015,7 @@ export default function WindToneLabPhaseMode() {
       }
       // 同じ名前があれば notes をマージする(複数回に分けて録った音を積み上げる既存の挙動)。
       // 由来も同じく積む: マージ後のプロファイルには両方のセッションのデータが入っているので、
-      // どちらのセッション詳細でも「理想値設定中」が出るのが正しい。
+      // どちらのセッション詳細でも「目安設定中」が出るのが正しい。
       const existing = prev[existingIdx];
       const merged = {
         ...existing,
@@ -3306,7 +3305,7 @@ function MeasureIcon({ size = 30, color = "currentColor" }) {
   );
 }
 
-// 画面下部の固定ナビ。計測/リード/分析をアイコン+ラベルで切り替える(モバイルアプリ風)。
+// 画面下部の固定ナビ。計測/リード/データをアイコンのみで切り替える(ラベルは aria-label)。
 function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
@@ -5567,9 +5566,9 @@ function MeasureView(props) {
         <div style={{ padding: "16px 0 10px" }}>
           <div className="card">
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 基準）</span>
+              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 目安）</span>
               <div className="sans" style={{ display: "flex", gap: 10, fontSize: 12, color: "#435266" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 基準</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 目安</label>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140, paddingTop: 14 }}>
@@ -5595,16 +5594,16 @@ function MeasureView(props) {
             </div>
             <div className="sans" style={{ fontSize: 12, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />基準{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />目安{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
 
             <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginTop: 16 }}>
-              {/* 値・単位・理想行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
-              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`基準: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
-              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`基準: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
-              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`基準: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
+              {/* 値・単位・目安行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
+              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`目安: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`目安: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
+              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`目安: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
             </div>
 
             <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
@@ -5627,12 +5626,12 @@ function MeasureView(props) {
               </div>
             )}
 
-            {/* 基準(旧・理想値プロファイル)。作成は録音後の「基準に設定」ボタンから行う。
+            {/* 目安(旧・理想値プロファイル)。作成は録音後の「目安に設定」ボタンから行う。
                 計測下限dBの下に置き、詳細を閉じると一緒に隠れる。 */}
             {idealProfiles.length > 0 && (
               <>
                 <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
-                <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>基準</div>
+                <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>目安</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {idealProfiles.map((p) => (
                     /* 【A型 = index.css の .ctl-state】選択中/非選択という**状態を持つ**ので枠線を使う。
@@ -5744,7 +5743,7 @@ function MeasureView(props) {
       )}
 
       {/* 録音停止後: この録音を「登録」(セッションとして保存)するか「取り直し」(破棄)するか選ぶ。
-          登録したセッションは分析タブから理想値に設定することもできる。
+          登録したセッションは分析タブから目安に設定することもできる。
           【背景タップでは閉じない】誤タップで録音を失わせないため、暗幕に onClick を付けない。
           どちらかを選べば registerPendingSession / discardPendingSession が pendingSession を
           null にするので、そのまま消える。保存・破棄のロジックには触っていない。
@@ -5864,11 +5863,11 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
   const referenceOptions = timelineMetric === "pitch"
     ? [
         { key: "theoretical", label: "絶対値" },
-        { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
+        { key: "ideal", label: `目安${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
         { key: "session", label: "別セッション" },
       ]
     : [
-        { key: "ideal", label: `理想値${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
+        { key: "ideal", label: `目安${selectedIdeal ? `(${selectedIdeal.name})` : ""}` },
         { key: "session", label: "別セッション" },
       ];
 
@@ -5943,7 +5942,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
               <option value="">別セッションを選択</option>
               {referenceCandidates.map((s) => (
-                <option key={s.id} value={s.id}>{new Date(s.recordedAt).toLocaleString("ja-JP")}{s.memo ? ` 「${s.memo}」` : ""}</option>
+                <option key={s.id} value={s.id}>{formatYmd(s.recordedAt, { time: true })}{s.memo ? ` 「${s.memo}」` : ""}</option>
               ))}
             </select>
           )}
@@ -5958,7 +5957,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* タイムライン */}
       <div className="card" style={{ marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 8 }}>
-          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "別セッション基準" : "理想値基準"}）
+          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "別セッション基準" : "目安基準"}）
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
@@ -6033,7 +6032,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 
           {(() => {
             const target = getComparisonTarget(selectedFrame);
-            const noTargetLabel = referenceBasis === "session" ? "対応する別セッションの瞬間がありません" : "この音の理想値が未登録";
+            const noTargetLabel = referenceBasis === "session" ? "対応する別セッションの瞬間がありません" : "この音の目安が未登録";
             return (
               <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", marginBottom: 12 }}>
                 <MetricCard label="ピッチ一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
@@ -6581,9 +6580,9 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
           flexShrink: 0, whiteSpace: "nowrap",
         }}
       >
-        {/* 和文6文字ぶんで揃えてある(理想値に設定 / 理想値設定中)。
+        {/* 和文5文字ぶんで揃えてある(目安に設定 / 目安設定中)。
             文字数が変わるとボタンの幅が変わり、右寄せの行で左端が動く */}
-        {isSet ? "★ 理想値設定中" : "★ 理想値に設定"}
+        {isSet ? "★ 目安設定中" : "★ 目安に設定"}
       </button>
       {isOpen && createPortal(
         // 体裁は pendingSession の保存確認・マイク許可エラーと同じ(暗幕 rgba(15,23,42,0.28) /
@@ -6594,7 +6593,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
         // 【stopPropagation を使わない】暗幕とカードの当たりは e.target === e.currentTarget で
         // 見分ける。伝播を止めると、document に張られた復旧用のジェスチャー監視まで殺してしまう。
         <div
-          role="dialog" aria-modal="true" aria-label="理想値に設定"
+          role="dialog" aria-modal="true" aria-label="目安に設定"
           data-noswipe
           onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
           style={{
@@ -6605,7 +6604,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
           }}
         >
           <div data-noswipe style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-            <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>理想値に設定</div>
+            <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>目安に設定</div>
             {/* 【F-68】対象の2択。選択中かどうかという**状態を持つ**ので A型(.ctl-state)。
                 状態は枠線の色だけで返す(地は足さない)。件数はそれぞれの選択肢に添える。 */}
             <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-3)" }}>
@@ -6629,7 +6628,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
               ))}
             </div>
             <input
-              type="text" placeholder="理想値の名前" value={name}
+              type="text" placeholder="目安の名前" value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
               className="sans"
@@ -7644,8 +7643,8 @@ function getNoteIdeal(profile, semitoneIndex) {
 
 // セッション全体のフレームを音階(運指)ごとに分解し、理想値プロファイルを組み立てる。
 // 1回の録音/アップロードに複数の音(スケール等)が含まれていても、それぞれの音ごとに
-// 平均値を算出して理想値として持つ。計測タブの録音後・アップロード解析後・
-// セッション詳細画面の「理想値に設定」ボタンから共通で使う。
+// 平均値を算出して目安(理想値プロファイル)として持つ。計測タブの録音後・アップロード解析後・
+// セッション詳細画面の「目安に設定」ボタンから共通で使う。
 function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8, tuningHz = null) {
   return buildIdealProfileFromSessions([session], name, NUM_HARMONICS, tuningHz, "session");
 }
@@ -7816,7 +7815,9 @@ function SeriesSwatch({ style: st, width = 14 }) {
   );
 }
 
-// 【F-66 2026-08-08】ピッチ誤差カードの副次テキスト「ばらつき ±5.3¢」。
+// 【F-66 2026-08-08】平均差分(ピッチ)カードの副次テキスト「標準偏差 ±5.3¢」。
+// 【N-2 表記統一】表示は「ピッチ誤差」→「平均差分」、「ばらつき」→「標準偏差」
+// (2026-08-10 本人決定)。量の意味・計算は変えていない。
 //
 // 本人報告「データタブのピッチ誤差が肌感覚より過剰に合っている気がする。±5くらいずれて
 // いそうな感覚でも ±1以内で出ることがある」の正体は、主役の数字(pitchCentsSigned)が
@@ -7834,7 +7835,7 @@ function SeriesSwatch({ style: st, width = 14 }) {
 function pitchSpreadSub(metrics) {
   const sd = metrics?.pitchStabilityCents;
   if (sd === null || sd === undefined || isNaN(sd)) return null;
-  return `ばらつき ±${sd.toFixed(1)}¢`;
+  return `標準偏差 ±${sd.toFixed(1)}¢`;
 }
 
 // リード別比較・リード個別・最新セッション・個別セッションで共通する比較項目の定義。
@@ -7845,8 +7846,8 @@ const REED_COMPARE_METRICS = [
   { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
   { key: "spectralCentroidHz", label: "スペクトル重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
-  // sub は副次テキストの導出(F-66)。ピッチ誤差だけが持つ。カード側は m.sub?.(metrics) を渡す
-  { key: "pitchCentsSigned", label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
+  // sub は副次テキストの導出(F-66)。平均差分(ピッチ)だけが持つ。カード側は m.sub?.(metrics) を渡す
+  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
 ];
 
 // リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
@@ -8173,7 +8174,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
       {idealByIdx && hasData && (
         <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={seriesData[0]?.style || SERIES_STYLES[0]} />実測</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={IDEAL_LINE_STYLE} />理想</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={IDEAL_LINE_STYLE} />目安</span>
         </div>
       )}
       {series.length > 1 && (
@@ -8413,7 +8414,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
             className="sans"
             style={{ width: 64, flexShrink: 0, padding: "4px 8px", fontSize: 13, fontWeight: 700 }}
           />
-          <span style={{ fontWeight: 400, color: "#435266" }}>({shortDate(reed.startDate)})</span>
+          <span style={{ fontWeight: 400, color: "#435266" }}>({formatYmd(reed.startDate) ?? "—"})</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {/* 総評 / 厚さ / バランスを1行に横並び。行のどこを押しても3列のダイヤルが1回で開く。
@@ -8569,7 +8570,7 @@ const PIVOT_DIMENSIONS = [
   },
   {
     key: "date", label: "録音日",
-    getValue: (f) => new Date(f.recordedAt).toLocaleDateString("ja-JP"),
+    getValue: (f) => formatYmd(f.recordedAt),
     getSort: (f) => new Date(f.recordedAt).setHours(0, 0, 0, 0),
     filterKind: "dateRange",
     getRangeValue: (f) => new Date(f.recordedAt).setHours(0, 0, 0, 0),
@@ -8613,7 +8614,7 @@ const PIVOT_MEASURES = [
   // 【F-45】ラベルに続きデータ側もF-44/F-46と同じゲート(_pitchGateOk。framesWithContextで
   // セッション単位にselectPitchAggregationFramesを通して付与)を通す。ゲート非通過フレームは
   // nullを返し、buildPivotの「値がnullなら集計から除外」に乗せる(buildPivot自体は無変更)。
-  { key: "pitchCents", label: "ピッチ誤差(¢)", getValue: (f) => (f._pitchGateOk ? f.pitchCents : null), fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
+  { key: "pitchCents", label: "平均差分(¢)", getValue: (f) => (f._pitchGateOk ? f.pitchCents : null), fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
   { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
   { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 0, 4) : null), fmt: (v) => (v * 100).toFixed(0) },
@@ -8866,11 +8867,11 @@ const MY_DATA_METRICS = [
   // 【2026-08-04 本人指示】「0を挟んで上が＋・下がマイナス、折れ線は1本」。
   // 以前はブレ幅(標準偏差、常に非負)を ±v の2本のミラーで描いていたが、本人が見たいのは
   // 「シャープ側/フラット側のどちらにどれだけズレたか」だったので、符号付きの平均ズレ
-  // (pitchCentsSigned)に変えた。ラベルは【F-46 本人指示】で表記ゆれを「ピッチ誤差」に統一。
-  // ヒーローの「今日のピッチ誤差」と同じ量だが、あちらは期間全体の1つの数字、
+  // (pitchCentsSigned)に変えた。ラベルは【F-46 本人指示】の統一を経て【N-2】で「平均差分」になった。
+  // ヒーローの「今日の平均差分」と同じ量だが、あちらは期間全体の1つの数字、
   // こちらはタップで開く音名ごとの内訳なので、見えるものが違う。
-  // sub は副次テキストの導出(F-66)。理想値(idealKey)を持たないこの指標だけが持つ
-  { key: "pitchCentsSigned", idealKey: null, label: "ピッチ誤差", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
+  // sub は副次テキストの導出(F-66)。目安(idealKey)を持たないこの指標だけが持つ
+  { key: "pitchCentsSigned", idealKey: null, label: "平均差分", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -8988,10 +8989,10 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
 
   return (
     <>
-      {/* 今日のピッチ誤差ヒーローカード。0からの距離で3段に色分けする(F-56) */}
+      {/* 今日の平均差分ヒーローカード。0からの距離で3段に色分けする(F-56) */}
       <div style={{ background: "#174585", borderRadius: 20, padding: 20, marginBottom: 12, color: "#FFFFFF" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日のピッチ誤差" : "ピッチ誤差"}</div>
+          <div style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日の平均差分" : "平均差分"}</div>
           <select value={range} onChange={(e) => setRange(e.target.value)} style={{ fontSize: 12 }}>
             {rangeOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
           </select>
@@ -9074,7 +9075,7 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
                 value={measured !== null ? `${m.fmt(measured)} ${m.unit}` : "—"}
                 sub={m.sub?.(overall) ?? (ideal !== null ? (
                   <>
-                    <span>理想: {m.fmt(ideal)} {m.unit}</span>
+                    <span>目安: {m.fmt(ideal)} {m.unit}</span>
                     {diff !== null && <span style={{ color: "#174585" }}>Δ {diff > 0 ? "+" : ""}{m.fmt(diff)}</span>}
                   </>
                 ) : null)}
@@ -9103,7 +9104,7 @@ function LatestSessionCard({ session, reeds, selectedIdeal, tuningHz }) {
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>最新セッション</div>
       <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 12 }}>
-        {new Date(session.recordedAt).toLocaleString("ja-JP")} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
+        {formatYmd(session.recordedAt, { time: true })} ・ {session.performer || "—"} ・ {reed ? reedLabel(reed, reeds) : "未紐付け"}
       </div>
       <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         {REED_COMPARE_METRICS.map((mt) => {
@@ -9412,7 +9413,7 @@ function AnalysisLabView(props) {
                       style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
                     />
                   )}
-                  <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{new Date(s.recordedAt).toLocaleString("ja-JP")}</span>
+                  <span style={{ color: "#121F32", minWidth: 110, flexShrink: 0 }}>{formatYmd(s.recordedAt, { time: true })}</span>
                   <span style={{ color: "#174585", minWidth: 60, flexShrink: 0 }}>{s.performer || "—"}</span>
                   <span style={{ color: "#435266", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reed ? reedLabel(reed, reeds) : "未紐付け"}</span>
                   {s.source === "upload" && <FileAudio size={12} strokeWidth={1.8} style={{ color: "#8D95A1", flexShrink: 0 }} />}
@@ -9682,7 +9683,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
 
       {/* 1. セッション情報 */}
       <div className="card" style={{ marginBottom: 10 }}>
-        {/* 日付と「理想値に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
+        {/* 日付と「目安に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
             日付を左、SetAsIdealButton を右に置く。
             【2026-08-04 本人指摘】日付欄だけ太字で、下段の奏者・リードと体裁が揃っていなかった。
             fontWeight:700 を撤去し、下段と同じ「ラベル: 値」の体裁(薄いラベル+標準太さの値)に揃える。
@@ -9800,7 +9801,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>音量</th>
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>重心</th>
                 <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>理想値との差</th>
+                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>目安との差</th>
               </tr>
             </thead>
             <tbody>

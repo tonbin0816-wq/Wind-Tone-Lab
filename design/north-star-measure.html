@@ -1,0 +1,839 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>北極星モック 完全版 — 現行Ficus全機能を収容</title>
+<style>
+  :root{
+    --ink:#1A2433; --ink2:#5A6675; --ink3:#98A1AC; --line:#E8EBEF; --line2:#C9CFD8;
+    --accent:#174585; --dim:#9DB3CC; --tint:#EAEFF5; --sunken:#F1F3F6;
+    --good:#16A34A; --rec:#DC2626; --mint:#6EE7B7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#FAFAFA;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:14px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1400px;margin:0 auto;padding:36px 24px 100px}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{font-size:12px;color:var(--ink3);margin-bottom:30px;max-width:760px}
+  h2{font-size:15px;margin:56px 0 16px;padding-top:24px;border-top:1px solid var(--line2)}
+  p{font-size:13px;color:var(--ink2);margin:0 0 10px;max-width:660px}
+
+  .stage{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:375px;height:812px;background:#fff;border:1px solid var(--line2);
+    border-radius:40px;overflow:hidden;position:relative;flex-shrink:0;
+    box-shadow:0 20px 50px rgba(20,30,50,.08)}
+  .cap{font-size:12px;color:var(--ink3);margin-top:12px;max-width:375px;line-height:1.7}
+  .mini{width:280px;background:#fff;border:1px solid var(--line2);border-radius:22px;
+    box-shadow:0 12px 34px rgba(20,30,50,.10);padding:18px 20px;flex-shrink:0}
+  .minicap{font-size:11.5px;color:var(--ink3);margin-top:10px;max-width:280px;line-height:1.6}
+  .col{display:flex;flex-direction:column;align-items:flex-start}
+
+  /* ---- 共通 ---- */
+  .top{position:absolute;top:0;left:0;right:0;padding:52px 24px 0;display:flex;
+    align-items:center;justify-content:space-between}
+  .reedchip{font-size:13px;color:var(--ink2)}
+  .reedchip b{color:var(--ink);font-weight:600}
+  .chev{color:var(--ink3);font-size:10px}
+  .topicons{position:absolute;right:24px;top:50px;height:58px;display:flex;align-items:center;color:var(--ink2)}
+  .set1{display:flex;gap:16px;font-size:12px;color:var(--ink3)}
+  .set2{position:absolute;top:88px;left:0;right:0;padding:0 24px}
+  .trip{display:inline-flex;flex-direction:column;align-items:center;line-height:1;gap:1px}
+  .trip small{font-size:8px}
+  .tabs{position:absolute;bottom:0;left:0;right:0;height:76px;display:flex;
+    border-top:1px solid var(--line);padding-bottom:14px;background:#fff}
+  .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
+  .tab.on{color:var(--ink);font-weight:600}
+  .subtabs{position:absolute;top:52px;left:0;right:0;display:flex;gap:18px;padding:0 24px;
+    font-size:13px;color:var(--ink3)}
+  .subtabs .on{color:var(--ink);font-weight:600}
+  .backrow{position:absolute;top:52px;left:0;right:0;padding:0 20px;display:flex;
+    align-items:center;justify-content:space-between;font-size:13px;color:var(--ink2)}
+
+  /* ---- 計測 ---- */
+  .ringzone{position:absolute;top:120px;left:0;right:0;height:400px}
+  .notewrap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .note{font-family:"Instrument Serif",Georgia,serif;font-size:148px;line-height:1}
+  .note .oct{font-size:44px;color:var(--dim)}
+  .cents{font-family:ui-monospace,Menlo,monospace;font-size:21px;margin-top:10px;font-variant-numeric:tabular-nums}
+  .pend{position:absolute;top:496px;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .beatrow{display:flex;align-items:center;gap:12px}
+  .beat{width:7px;height:7px;border-radius:50%;background:var(--line2)}
+  .beat.on{background:var(--accent);transform:scale(1.4)}
+  .tsig{font-size:12px;color:var(--ink3);margin-left:6px}
+  .pmt{width:72px;height:48px;display:flex;align-items:center;justify-content:center;
+    font-size:20px;font-weight:300;color:var(--ink2)}
+  .bpmtxt{font-size:15px;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .recwrap{position:absolute;bottom:118px;left:0;right:0;display:flex;justify-content:center}
+  .rec{width:68px;height:68px;border-radius:50%;border:1.5px solid var(--line2);background:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .rec .dot{width:26px;height:26px;border-radius:50%;background:var(--rec)}
+  .rec .stop{width:22px;height:22px;border-radius:5px;background:var(--rec)}
+  .rectime{position:absolute;bottom:96px;left:0;right:0;text-align:center;font-size:12px;
+    color:var(--ink3);font-variant-numeric:tabular-nums;display:flex;justify-content:center;gap:6px;align-items:center}
+  .recdot{width:6px;height:6px;border-radius:50%;background:var(--rec)}
+  .chevbtn{position:absolute;bottom:84px;left:0;right:0;display:flex;justify-content:center;color:var(--line2)}
+
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;
+    box-shadow:0 -12px 40px rgba(20,30,50,.14);padding:14px 24px 40px;
+    display:flex;flex-direction:column;align-items:center}
+  .handle{width:36px;height:4px;border-radius:2px;background:var(--line2);margin-bottom:12px}
+  .bpmrow{display:flex;align-items:center;gap:30px}
+  .pm{width:62px;height:62px;border-radius:50%;border:1.5px solid var(--line2);
+    display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:300}
+  .bpmbig{font-family:ui-monospace,Menlo,monospace;font-size:76px;line-height:1;font-variant-numeric:tabular-nums}
+  .selrow{display:flex;gap:7px;justify-content:center;flex-wrap:wrap}
+  .selpill{font-size:12.5px;color:var(--ink2);border:1px solid var(--line2);border-radius:999px;
+    padding:4px 11px;font-variant-numeric:tabular-nums}
+  .selpill.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .selpill.dis{opacity:.35}
+  .ckrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:14px}
+  .ck{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--accent);position:relative}
+  .ck.on{background:var(--accent)}
+  .ck.on::after{content:"✓";color:#fff;font-size:11px;position:absolute;top:-2px;left:2px}
+
+  /* 詳細カード */
+  .detail{position:absolute;left:0;right:0;bottom:76px;top:340px;background:#fff;padding:16px 24px 0;
+    border-top:1px solid var(--line)}
+  .dlabel{font-size:11px;color:var(--ink3);margin:14px 0 6px}
+  .numrow{display:flex}
+  .numrow .m{flex:1;text-align:center}
+  .numrow .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+  .numrow .v small{font-size:11px;color:var(--ink3);font-weight:400}
+  .numrow .l{font-size:10.5px;color:var(--ink3)}
+  .numrow .b{font-size:10.5px;color:var(--ink3)}
+  .sliderrow{display:flex;align-items:center;gap:12px;margin-top:6px}
+  .slider{flex:1;height:2px;background:var(--line);border-radius:1px;position:relative}
+  .slider .knob{position:absolute;left:62%;top:-6px;width:14px;height:14px;border-radius:50%;
+    background:#fff;border:1.5px solid var(--accent)}
+  .profrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;
+    border-bottom:1px solid var(--line);font-size:13px;color:var(--ink2)}
+  .profrow.sel{color:var(--accent);font-weight:600}
+
+  /* ---- リード ---- */
+  .rlist{position:absolute;top:96px;left:0;right:0;bottom:76px;padding:0 24px;overflow:hidden}
+  .rgroup{padding:20px 0 24px;border-bottom:1px solid var(--line)}
+  .rhead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+  .rname{font-size:15px;font-weight:600}
+  .rname i{color:var(--ink3);font-weight:400;font-style:normal}
+  .rmeta{font-size:12px;color:var(--ink3);display:flex;gap:10px;align-items:baseline}
+  .rgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .tile{aspect-ratio:1;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:14px;border:1.2px solid var(--line2);color:var(--ink2);position:relative}
+  .tile.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tile.data{border-color:var(--ink3);color:var(--ink)}
+  .tile.ret{border-color:var(--line);color:var(--line2)}
+  .tile.drag{transform:translateY(-6px) rotate(-2deg);box-shadow:0 10px 22px rgba(20,30,50,.22);
+    border-color:var(--accent);z-index:2}
+  .addrow{display:flex;justify-content:center;padding-top:20px}
+  .addbtn{font-size:14px;color:var(--accent)}
+
+  .starrow{display:flex;padding:16px 0;border-bottom:1px solid var(--line)}
+  .starrow .m{flex:1;text-align:center}
+  .starrow .v{font-size:23px;font-weight:600;font-variant-numeric:tabular-nums}
+  .starrow .l{font-size:11px;color:var(--ink3);margin-top:1px}
+  .memoline{padding:13px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink3)}
+  .bigbtn{display:block;margin:20px auto 0;font-size:14px;font-weight:600;color:#fff;
+    background:var(--accent);border-radius:999px;padding:11px 26px;width:max-content}
+
+  /* ---- データ ---- */
+  .dbody{position:absolute;top:96px;left:0;right:0;bottom:76px;padding:0 24px;overflow:hidden}
+  .hero{background:var(--accent);border-radius:22px;padding:18px 20px;color:#fff}
+  .hero .lbl{font-size:12px;color:#B9C9E4}
+  .hero .num{font-family:ui-monospace,Menlo,monospace;font-size:44px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+  .hero .u{font-size:21px;color:#9DB3D6}
+  .hero .pill{display:inline-flex;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;
+    margin-left:10px;vertical-align:6px;color:#04130D;background:var(--mint)}
+  .hero .sd{font-size:12px;color:#9DB3D6;margin-top:7px}
+  .mrow{display:flex;padding:12px 2px;border-bottom:1px solid var(--line);align-items:baseline}
+  .mrow .rl{width:64px;font-size:11px;color:var(--ink3);flex-shrink:0}
+  .mrow .m{flex:1;text-align:center}
+  .mrow .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+  .mrow .v small{font-size:10.5px;color:var(--ink3);font-weight:400}
+  .mrow .l{font-size:10px;color:var(--ink3)}
+  .shead{display:flex;align-items:center;justify-content:space-between;padding:16px 2px 10px}
+  .shead .t{font-size:13px;font-weight:600}
+  .impbtn{font-size:13px;color:#fff;background:var(--accent);border-radius:999px;
+    padding:6px 14px;font-weight:600}
+  .fpills{display:flex;gap:8px;padding:0 2px 12px;flex-wrap:wrap}
+  .fp{font-size:12px;color:var(--ink2);border:1px solid var(--line2);border-radius:999px;padding:3px 11px}
+  .srow{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+  .srow .val{font-size:13px;color:var(--ink2);font-variant-numeric:tabular-nums}
+
+  table.nt{border-collapse:collapse;width:100%;font-size:10.5px;color:var(--ink2)}
+  table.nt th{font-weight:400;color:var(--ink3);text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)}
+  table.nt td{text-align:right;padding:4px 6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  table.nt th:first-child,table.nt td:first-child{text-align:left}
+
+  .pillbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .axis{font-size:12px;color:var(--ink2);border:1px solid var(--line2);border-radius:10px;padding:6px 10px}
+  .axis b{font-weight:600;color:var(--ink)}
+
+  .ann{max-width:400px;font-size:13px;color:var(--ink2)}
+  .ann h3{font-size:13px;color:var(--ink);margin:0 0 8px}
+  .ann ul{margin:0 0 20px;padding-left:0;list-style:none}
+  .ann li{padding:6px 0;border-bottom:1px solid var(--line);line-height:1.6}
+  .ann li b{color:var(--ink);font-weight:600}
+</style>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <!-- 3形状とも src/App.jsx の BottomNav 実装(正典)と同一。モック側を勝手に変えない -->
+    <g id="ic-measure" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M4 15 A8 8 0 0 1 20 15"/>
+      <line x1="12" y1="15" x2="15" y2="9"/>
+      <circle cx="12" cy="15" r="1.4" fill="currentColor" stroke="none"/>
+    </g>
+    <!-- リード: 実物と同じく、肩の丸いドーム状の先端・まっすぐな側面・直線のヴァンプ・平らな根元 -->
+    <g id="ic-reed" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/>
+      <line x1="9" y1="14" x2="15" y2="14"/>
+    </g>
+    <g id="ic-data" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/>
+    </g>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <h1>北極星モック 完全版</h1>
+  <div class="sub">
+    <b>確定版（2026/08/11）。</b>決定6件と朝の指摘2巡をすべて反映し、
+    <b>現行 Ficus の全機能</b>（App.jsx 全数棚卸し・north-star-coverage.md）を収容した。
+    表記の規則: 日付は yyyy/mm/dd、「基準/理想」は<b>「目安」に統一</b>（「基準ピッチ 442Hz」は別概念なので対象外）。
+    スワイプ回遊・録音中タブロック・スクロール位置復元などの非表示機構はすべて現行のまま継続。
+    この文書が移行の正典。実装は design/BACKLOG.md の起票に従う。
+  </div>
+
+  <!-- ================================================================ -->
+  <h2>計測タブ</h2>
+  <div class="stage">
+
+    <!-- A: 待機中 -->
+    <div class="col">
+      <div class="phone">
+        <!-- 決定1+朝の指示: 1行目=奏者・楽器・基準ピッチ、2行目=リード。メトロノームは2行ぶん -->
+        <div class="top">
+          <span class="set1">
+            <span>自分 <span class="chev">▾</span></span>
+            <span>Alto <span class="chev">▾</span></span>
+            <span>442Hz <span class="chev">▾</span></span>
+          </span>
+        </div>
+        <span class="topicons">
+          <svg width="27" height="27" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M7 3.5L4.5 16.5H15.5L13 3.5Z" stroke-linejoin="round"/><path d="M10 13L13.8 6.2"/></svg>
+        </span>
+        <div class="set2"><span class="reedchip"><b>V16-3</b> #4 <span class="chev">▾</span></span></div>
+        <div class="ringzone">
+          <div class="notewrap">
+            <div class="cents" style="color:#C3CAD3;font-family:inherit;letter-spacing:.05em">音を出すと始まります</div>
+          </div>
+        </div>
+        <div class="recwrap"><div class="rec"><div class="dot"></div></div></div>
+        <div class="tabs"><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">待機中 — <b>1行目が奏者・楽器・基準ピッチ、2行目がリード</b>(朝の指示で上下入替)。表示も選択も現行のまま。メトロノームアイコンは2行ぶんの高さ。リード未登録時は空状態文言が「「リード」タブで登録できます」に変わる</div>
+    </div>
+
+    <!-- mini: スクロールピッカー -->
+    <div class="col">
+      <div class="mini" style="text-align:center">
+        <div style="font-size:14px;color:var(--line2);padding:3px">440Hz</div>
+        <div style="font-size:14px;color:var(--ink3);padding:3px">441Hz</div>
+        <div style="font-size:17px;color:var(--ink);font-weight:600;padding:5px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">442Hz</div>
+        <div style="font-size:14px;color:var(--ink3);padding:3px">443Hz</div>
+        <div style="font-size:14px;color:var(--line2);padding:3px">444Hz</div>
+      </div>
+      <div class="minicap">スクロールピッカーは現行のまま(止まった位置で即確定・背景タップで閉じる)。楽器種別も同じ作法</div>
+
+      <div class="mini" style="margin-top:22px">
+        <div style="font-size:13.5px;color:var(--ink);text-align:center;margin-bottom:14px">この録音を保存しますか？</div>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <span style="font-size:13px;color:var(--ink2);border:1px solid var(--line2);border-radius:999px;padding:8px 20px">取り直し</span>
+          <span style="font-size:13px;color:#fff;background:var(--accent);border-radius:999px;padding:8px 20px;font-weight:600">登録</span>
+        </div>
+      </div>
+      <div class="minicap">録音停止後の保存確認(現行のまま。背景タップでは閉じない)</div>
+    </div>
+
+    <!-- B: 演奏中 -->
+    <div class="col">
+      <div class="phone">
+        <div class="top" style="opacity:.35">
+          <span class="set1">
+            <span>自分 <span class="chev">▾</span></span>
+            <span>Alto <span class="chev">▾</span></span>
+            <span>442Hz <span class="chev">▾</span></span>
+          </span>
+        </div>
+        <span class="topicons" style="opacity:.35">
+          <svg width="27" height="27" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M7 3.5L4.5 16.5H15.5L13 3.5Z" stroke-linejoin="round"/><path d="M10 13L13.8 6.2"/></svg>
+        </span>
+        <div class="set2" style="opacity:.35"><span class="reedchip"><b>V16-3</b> #4 <span class="chev">▾</span></span></div>
+        <div class="ringzone">
+          <svg width="375" height="400" viewBox="0 0 375 400" style="position:absolute;top:0;left:0">
+            <defs><linearGradient id="arc" x1="187.5" y1="51" x2="253" y2="68" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="rgb(22,163,74)"/><stop offset="1" stop-color="rgb(150,148,10)"/>
+            </linearGradient></defs>
+            <path d="M187.5 51 A159 159 0 0 1 252.9 64.8" fill="none" stroke="url(#arc)" stroke-width="13" stroke-linecap="butt"/>
+          </svg>
+          <div class="notewrap">
+            <div class="note">G<span class="oct">4</span></div>
+            <div class="cents" style="color:rgb(120,140,10)">+3¢</div>
+          </div>
+        </div>
+        <!-- 決定4: ゾーン帯なし・音名ラベル復帰(間引きは現行のまま) -->
+        <div style="position:absolute;bottom:200px;left:0;right:0;display:flex;justify-content:center">
+          <svg width="300" height="74" viewBox="0 0 300 74">
+            <text x="12" y="12" font-size="10" fill="#98A1AC">E4</text>
+            <text x="86" y="12" font-size="10" fill="#98A1AC">F4</text>
+            <text x="168" y="12" font-size="10" fill="#98A1AC">A4</text>
+            <text x="242" y="12" font-size="10" fill="#98A1AC">B♭4</text>
+            <line x1="0" y1="44" x2="300" y2="44" stroke="#E8EBEF" stroke-width="1"/>
+            <path d="M0 58 L28 54 L52 57 L84 40 L118 36 L150 47 L180 50 L214 38 L246 41 L278 35 L300 38"
+              fill="none" stroke="#A6AEBA" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="recwrap"><div class="rec"><div class="stop"></div></div></div>
+        <div class="rectime"><span class="recdot"></span>1:24</div>
+        <div class="chevbtn"><svg width="16" height="8" viewBox="0 0 16 8" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2L8 7L14 2"/></svg></div>
+        <div class="tabs" style="opacity:.35"><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">演奏中 — 折れ線は線+0¢基準線+<b>音名ラベル(復帰)</b>。ゾーン帯は削除(決定4)。録音中は赤点+経過時間。下端のシェブロンが詳細カード(→C)</div>
+    </div>
+
+    <!-- C: 詳細カード展開 -->
+    <div class="col">
+      <div class="phone">
+        <div style="opacity:.25">
+          <div class="top">
+            <span class="reedchip"><b>V16-3</b> #4 <span class="chev">▾</span></span>
+          </div>
+          <div class="ringzone" style="height:250px">
+            <div class="notewrap"><div class="note" style="font-size:96px">G<span class="oct" style="font-size:30px">4</span></div></div>
+          </div>
+        </div>
+        <div class="detail">
+          <div style="display:flex;justify-content:center;color:var(--line2);margin-bottom:2px">
+            <svg width="16" height="8" viewBox="0 0 16 8" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 7L8 2L14 7"/></svg>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span class="dlabel" style="margin:0">倍音構成</span>
+            <span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2)"><span class="ck on" style="width:13px;height:13px"></span>目安</span>
+          </div>
+          <svg width="100%" height="64" viewBox="0 0 327 64" style="margin-top:6px">
+            <!-- 実測=塗り / 目安=破線枠 -->
+            <g fill="#7FA0CE">
+              <rect x="8"   y="10" width="16" height="54"/><rect x="48"  y="22" width="16" height="42"/>
+              <rect x="88"  y="34" width="16" height="30"/><rect x="128" y="30" width="16" height="34"/>
+              <rect x="168" y="46" width="16" height="18"/><rect x="208" y="52" width="16" height="12"/>
+              <rect x="248" y="56" width="16" height="8"/><rect x="288" y="58" width="16" height="6"/>
+            </g>
+            <g fill="none" stroke="#98A1AC" stroke-dasharray="3 2">
+              <rect x="26"  y="16" width="16" height="48"/><rect x="66"  y="18" width="16" height="46"/>
+              <rect x="106" y="38" width="16" height="26"/><rect x="146" y="36" width="16" height="28"/>
+              <rect x="186" y="50" width="16" height="14"/><rect x="226" y="54" width="16" height="10"/>
+              <rect x="266" y="57" width="16" height="7"/><rect x="306" y="59" width="16" height="5"/>
+            </g>
+          </svg>
+          <div class="numrow" style="margin-top:12px">
+            <div class="m"><div class="v">−21.4<small>dB</small></div><div class="l">音量</div><div class="b">目安 −18.2</div></div>
+            <div class="m"><div class="v">1214<small>Hz</small></div><div class="l">重心</div><div class="b">目安 1150</div></div>
+            <div class="m"><div class="v">18.2<small>dB</small></div><div class="l">HNR</div><div class="b">目安 20.1</div></div>
+          </div>
+          <div class="dlabel">計測下限</div>
+          <div class="sliderrow">
+            <div class="slider"><div class="knob"></div></div>
+            <span style="font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums">−50dB</span>
+          </div>
+          <div class="dlabel">目安</div>
+          <div class="profrow sel"><span>本気のロングトーン</span><span style="display:flex;gap:14px;align-items:center"><span style="font-size:11px">8/2</span><span style="color:var(--ink3)">🗑</span></span></div>
+          <div class="profrow"><span>先生のアルト</span><span style="display:flex;gap:14px;align-items:center"><span style="font-size:11px">2026/07/28</span><span>🗑</span></span></div>
+        </div>
+        <div class="tabs"><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">詳細カード(決定3: シェブロンで現行踏襲) — 倍音構成(実測=塗り/目安=破線)+目安チェック、数値3つ(目安の副次つき)、計測下限スライダー(−80〜−20)、目安プロファイルの選択と削除。「基準/理想」の表現は全画面「目安」に統一。AGC警告もここに出る</div>
+    </div>
+
+    <!-- D: メトロノーム中 -->
+    <div class="col">
+      <div class="phone">
+        <div class="top" style="opacity:.35">
+          <span class="set1">
+            <span>自分 <span class="chev">▾</span></span>
+            <span>Alto <span class="chev">▾</span></span>
+            <span>442Hz <span class="chev">▾</span></span>
+          </span>
+        </div>
+        <span class="topicons" style="color:var(--accent)">
+          <svg width="27" height="27" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M7 3.5L4.5 16.5H15.5L13 3.5Z" stroke-linejoin="round"/><path d="M10 13L13.8 6.2"/></svg>
+        </span>
+        <div class="set2" style="opacity:.35"><span class="reedchip"><b>V16-3</b> #4 <span class="chev">▾</span></span></div>
+        <div class="ringzone">
+          <svg width="375" height="400" viewBox="0 0 375 400" style="position:absolute;top:0;left:0">
+            <path d="M187.5 51 A159 159 0 0 0 129.5 62.1" fill="none" stroke="rgb(22,163,74)" stroke-width="13" stroke-linecap="butt"/>
+          </svg>
+          <div class="notewrap">
+            <div class="note">D<span class="oct">5</span></div>
+            <div class="cents" style="color:rgb(22,140,70)">−2¢</div>
+          </div>
+        </div>
+        <div class="pend">
+          <svg width="150" height="26" viewBox="0 0 150 26">
+            <path d="M10 8 Q75 30 140 8" fill="none" stroke="#E8EBEF" stroke-width="1.5"/>
+            <circle cx="10" cy="8" r="5" fill="#174585"/>
+          </svg>
+          <!-- 拍の●は中央固定。拍子は●の左に -->
+          <div class="beatrow" style="position:relative;width:100%;justify-content:center">
+            <span class="tsig" style="position:absolute;left:calc(50% - 80px);margin:0">4/4</span>
+            <div class="beat on"></div><div class="beat"></div><div class="beat"></div><div class="beat"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:34px">
+            <span class="pmt">−</span><span class="bpmtxt">♩= 92</span><span class="pmt">＋</span>
+          </div>
+        </div>
+        <div class="recwrap"><div class="rec"><div class="dot"></div></div></div>
+        <div class="tabs" style="opacity:.35"><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">メトロノーム中 — <b>開始/停止は画面のどこをタップしてもよい(決定2)</b>。操作要素の上だけは各自の機能が勝つ。拍の●は<b>中央固定、拍子はその左</b>。−＋は反応領域72×48で連打即応。数字タップで右のシートが開く。タブを離れると停止・設定は保存(現行のまま)</div>
+    </div>
+
+    <!-- E: テンポシート(完全版) -->
+    <div class="col">
+      <div class="phone">
+        <div style="opacity:.22">
+          <div class="top"><span class="reedchip"><b>V16-3</b> #4</span></div>
+          <div class="ringzone" style="height:240px">
+            <div class="notewrap"><div class="note" style="font-size:96px">D<span class="oct" style="font-size:30px">5</span></div></div>
+          </div>
+        </div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="bpmrow">
+            <div class="pm">−</div><div class="bpmbig">92</div><div class="pm">＋</div>
+          </div>
+          <div class="selrow" style="margin-top:18px">
+            <span class="selpill">1/4</span><span class="selpill">2/4</span><span class="selpill">3/4</span>
+            <span class="selpill on">4/4</span><span class="selpill">5/4</span><span class="selpill">6/4</span>
+          </div>
+          <div class="selrow" style="margin-top:7px">
+            <span class="selpill">3/8</span><span class="selpill">5/8</span><span class="selpill">6/8</span>
+            <span class="selpill">7/8</span><span class="selpill">9/8</span><span class="selpill">12/8</span>
+          </div>
+          <div class="selrow" style="margin-top:14px">
+            <span class="selpill on">♩</span><span class="selpill">♫</span>
+            <span class="selpill" style="display:inline-flex;align-items:center">
+              <!-- 3連: 旗を1本の桁でつないだ8分音符×3。数字は書かない -->
+              <svg width="21" height="14" viewBox="0 0 21 14" fill="currentColor">
+                <rect x="4.4" y="1" width="13.8" height="2.1" rx="0.6"/>
+                <rect x="4.4" y="1" width="1.3" height="9.4"/>
+                <rect x="10.65" y="1" width="1.3" height="9.4"/>
+                <rect x="16.9" y="1" width="1.3" height="9.4"/>
+                <ellipse cx="3.9" cy="11" rx="2" ry="1.5" transform="rotate(-16 3.9 11)"/>
+                <ellipse cx="10.15" cy="11" rx="2" ry="1.5" transform="rotate(-16 10.15 11)"/>
+                <ellipse cx="16.4" cy="11" rx="2" ry="1.5" transform="rotate(-16 16.4 11)"/>
+              </svg>
+            </span>
+            <span class="selpill">♬</span>
+          </div>
+          <div class="selrow" style="margin-top:7px">
+            <span class="selpill dis">3+2+2</span><span class="selpill dis">2+3+2</span><span class="selpill dis">2+2+3</span>
+          </div>
+          <div class="ckrow"><span class="ck on"></span>小節アクセント</div>
+        </div>
+        <div class="tabs" style="opacity:.22"><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">テンポシート — 大きな−92＋(数字タップで直接入力欄に)。拍子は現行の<b>12種全部</b>。分割は現行の条件分岐のまま(X/4=1・2・3連・4、X/8=主拍のみ/8分で埋める)。拍グループ行は<b>5/8・7/8を選んだ時だけ</b>点灯(いまは4/4なので薄い)。リズムは全て音符表記、チェックは「小節アクセント」</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2>リードタブ</h2>
+  <div class="stage">
+
+    <!-- G: 登録(一覧) -->
+    <div class="col">
+      <div class="phone">
+        <div class="subtabs"><span class="on">登録</span><span>比較</span>
+          <span style="margin-left:auto;color:var(--ink2)">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg>
+          </span>
+        </div>
+        <div class="rlist">
+          <div class="rgroup">
+            <div class="rhead">
+              <span class="rname">Vandoren V16 <i>3</i></span>
+              <span class="rmeta"><span>★3.8</span><span>2026/08/02</span></span>
+            </div>
+            <div class="rgrid">
+              <div class="tile data">1</div><div class="tile data">2</div><div class="tile data">3</div>
+              <div class="tile sel">4</div><div class="tile data">5</div>
+              <div class="tile">6</div><div class="tile drag">7</div><div class="tile">8</div>
+              <div class="tile">9</div><div class="tile">10</div>
+            </div>
+          </div>
+          <div class="rgroup">
+            <div class="rhead">
+              <span class="rname">D'Addario Select <i>3</i></span>
+              <span class="rmeta"><span>★3.2</span><span>2026/07/18</span></span>
+            </div>
+            <div class="rgrid">
+              <div class="tile ret">1</div><div class="tile ret">2</div><div class="tile data">3</div>
+              <div class="tile data">4</div><div class="tile">5</div>
+            </div>
+          </div>
+          <div class="addrow"><span class="addbtn">＋ 追加</span></div>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">登録 — 箱見出しに銘柄・番手・平均★・開封日(自動、編集は右上「…」)。#7は<b>長押しで持ち上がった状態</b>: ドラッグで並び替え(決定6・必須)。「…」に箱/個体の削除モード。タイルタップで個体詳細(→I)。登録⇄比較は横スワイプでも移動</div>
+    </div>
+
+    <!-- mini: 追加フロー -->
+    <div class="col">
+      <div class="mini">
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:10px">追加</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px">
+          <span><b>Vandoren V16</b></span><span class="chev">▾</span>
+        </div>
+        <div class="selrow" style="margin-top:12px;justify-content:flex-start">
+          <span class="selpill">2.0</span><span class="selpill">2.5</span><span class="selpill on">3.0</span>
+          <span class="selpill">3.5</span><span class="selpill">4.0</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:26px;margin-top:16px">
+          <span class="pmt" style="height:40px">−</span>
+          <span style="font-size:26px;font-weight:600;font-variant-numeric:tabular-nums">10</span>
+          <span class="pmt" style="height:40px">＋</span>
+        </div>
+        <div style="display:flex;justify-content:center;margin-top:12px">
+          <span style="font-size:13px;color:#fff;background:var(--accent);border-radius:999px;padding:8px 22px;font-weight:600">10枚の箱を追加</span>
+        </div>
+      </div>
+      <div class="minicap">追加シート — 銘柄プルダウン(「＋新しい銘柄を入力…」で自由入力が出るのは現行のまま)・番手5種・枚数1〜10。枚数1なら「1枚を追加」になる(=現行の「1枚ずつ/まとめて」の統合)。開封日入力欄は無い(箱の追加日が自動)</div>
+    </div>
+
+    <!-- I: 個体詳細 -->
+    <div class="col">
+      <div class="phone">
+        <div class="backrow">
+          <span>‹ 一覧</span>
+          <span style="font-size:15px;color:var(--ink)"><b>V16-3</b> <span style="border-bottom:1px dashed var(--line2)">#4</span></span>
+          <span style="font-size:12px;color:var(--ink3)">2026/08/02</span>
+        </div>
+        <div class="rlist" style="top:100px">
+          <div class="starrow">
+            <div class="m"><div class="v">3.7</div><div class="l">総評</div></div>
+            <div class="m"><div class="v">3</div><div class="l">厚さ</div></div>
+            <div class="m"><div class="v">2</div><div class="l">バランス</div></div>
+          </div>
+          <div class="memoline">先端がやや厚い。2週目から鳴り出した</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:16px">
+            <span style="font-size:11px;color:var(--ink3)">測定データ · 12セッション</span>
+          </div>
+          <div class="numrow" style="padding:10px 0 14px;border-bottom:1px solid var(--line)">
+            <div class="m"><div class="v">+1.8<small>¢</small></div><div class="l">平均差分</div><div class="b">±3.1¢</div></div>
+            <div class="m"><div class="v">18.9<small>dB</small></div><div class="l">HNR</div></div>
+            <div class="m"><div class="v">1180<small>Hz</small></div><div class="l">重心</div></div>
+            <div class="m"><div class="v">−20.6<small>dB</small></div><div class="l">音量</div></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink3);padding:14px 0 6px">評価の推移</div>
+          <svg width="100%" height="72" viewBox="0 0 327 72">
+            <line x1="0" y1="64" x2="327" y2="64" stroke="#E8EBEF"/>
+            <path d="M10 46 L90 40 L170 30 L250 24 L317 20" fill="none" stroke="#174585" stroke-width="1.5"/>
+            <path d="M10 50 L90 50 L170 44 L250 44 L317 38" fill="none" stroke="#7FA0CE" stroke-width="1.5"/>
+            <path d="M10 58 L90 54 L170 56 L250 50 L317 50" fill="none" stroke="#B9C9E4" stroke-width="2"/>
+          </svg>
+          <div style="display:flex;gap:14px;font-size:10.5px;color:var(--ink3)">
+            <span style="color:#174585">— 総評</span><span style="color:#7FA0CE">— 厚さ</span><span style="color:#98A1AC">— バランス</span>
+          </div>
+          <span class="bigbtn">このリードで計測</span>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">個体詳細 — #番号は自由入力(空で自動採番)。★3つはどこをタップしても右のダイヤルが開く。測定データはタップで音名軸グラフに切替(現行)。<b>「このリードで計測」=計測タブへのジャンプ(決定6)</b>。右スワイプで一覧へ・左スワイプで比較へ(現行)</div>
+    </div>
+
+    <!-- mini: 評価ダイヤル -->
+    <div class="col">
+      <div class="mini">
+        <div style="display:flex;gap:8px;text-align:center">
+          <div style="flex:1">
+            <div style="font-size:10.5px;color:var(--ink3)">総評</div>
+            <div style="font-size:13px;color:var(--line2)">—</div>
+            <div style="font-size:13px;color:var(--line2)">3.9</div>
+            <div style="font-size:13px;color:var(--ink3)">3.8</div>
+            <div style="font-size:17px;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 0">3.7</div>
+            <div style="font-size:13px;color:var(--ink3)">3.6</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:10.5px;color:var(--ink3)">厚さ</div>
+            <div style="font-size:13px;color:var(--line2)">—</div>
+            <div style="font-size:13px;color:var(--line2)">5</div>
+            <div style="font-size:13px;color:var(--ink3)">4</div>
+            <div style="font-size:17px;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 0">3</div>
+            <div style="font-size:13px;color:var(--ink3)">2</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:10.5px;color:var(--ink3)">バランス</div>
+            <div style="font-size:13px;color:var(--line2)">—</div>
+            <div style="font-size:13px;color:var(--line2)">4</div>
+            <div style="font-size:13px;color:var(--ink3)">3</div>
+            <div style="font-size:17px;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 0">2</div>
+            <div style="font-size:13px;color:var(--ink3)">1</div>
+          </div>
+        </div>
+        <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--accent);font-weight:600">完了</div>
+      </div>
+      <div class="minicap">3列ダイヤル — 各列の端に<b>「—」(未評価)を追加</b>: 未計測の初期表示と同じ記号で、評価の取り消しもできる。総評は1.0〜5.0の0.1刻み・スナップスクロール・変わった時だけ履歴1件(現行のまま)</div>
+    </div>
+
+    <!-- J: 比較 -->
+    <div class="col">
+      <div class="phone">
+        <div class="subtabs"><span>登録</span><span class="on">比較</span></div>
+        <div class="rlist">
+          <div style="padding:16px 0 4px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+              <span class="rname" style="font-size:13.5px">Vandoren V16 <i>3</i></span>
+              <span style="font-size:11px;color:var(--ink3)">3枚選択中</span>
+            </div>
+            <div class="selrow" style="justify-content:flex-start">
+              <span class="selpill on">— #1</span><span class="selpill on">— #2</span>
+              <span class="selpill">#3</span><span class="selpill on">-- #4</span><span class="selpill">#5</span>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--ink3);padding:18px 0 4px">ピッチ誤差(¢)</div>
+          <svg width="100%" height="110" viewBox="0 0 327 110">
+            <line x1="0" y1="55" x2="327" y2="55" stroke="#E8EBEF"/>
+            <path d="M10 70 L60 62 L110 66 L160 48 L210 44 L260 52 L317 40" fill="none" stroke="#174585" stroke-width="1.5"/>
+            <path d="M10 60 L60 58 L110 50 L160 54 L210 38 L260 44 L317 36" fill="none" stroke="#7FA0CE" stroke-width="1.5"/>
+            <path d="M10 80 L60 72 L110 78 L160 62 L210 66 L260 58 L317 60" fill="none" stroke="#174585" stroke-width="1.5" stroke-dasharray="5 3"/>
+            <g font-size="9" fill="#98A1AC">
+              <text x="6" y="105">C4</text><text x="58" y="105">E4</text><text x="108" y="105">G4</text>
+              <text x="158" y="105">A4</text><text x="208" y="105">C5</text><text x="258" y="105">E5</text><text x="308" y="105">G5</text>
+            </g>
+          </svg>
+          <div style="font-size:11px;color:var(--ink3);padding:14px 0 4px">音量(dB)</div>
+          <svg width="100%" height="70" viewBox="0 0 327 70">
+            <path d="M10 50 L60 44 L110 46 L160 34 L210 30 L260 36 L317 28" fill="none" stroke="#174585" stroke-width="1.5"/>
+            <path d="M10 42 L60 40 L110 34 L160 38 L210 26 L260 30 L317 24" fill="none" stroke="#7FA0CE" stroke-width="1.5"/>
+            <path d="M10 58 L60 52 L110 56 L160 46 L210 48 L260 42 L317 44" fill="none" stroke="#174585" stroke-width="1.5" stroke-dasharray="5 3"/>
+          </svg>
+          <div class="srow" style="margin-top:8px"><span class="d">#1 <i>★3.7</i></span><span class="d">#2 <i>★4.0</i></span><span class="d">#4 <i>★3.2</i></span></div>
+          <div style="font-size:10px;color:var(--ink3);padding-top:8px">#1: 1240 · #2: 980 · #4: 1105 フレーム</div>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">比較 — 箱を開いて個体チップをトグル(選択チップに系列の線種見本)。HNR・重心を含む4グラフが縦に並ぶ(2枚だけ描画)。7枚以上選ぶと先頭6枚表示の告知(現行)。★一覧とフレーム数脚注も現行のまま</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2>データタブ</h2>
+  <div class="stage">
+
+    <!-- K: My Data -->
+    <div class="col">
+      <div class="phone">
+        <div class="subtabs"><span class="on">My Data</span><span>分析</span>
+          <span style="margin-left:auto;color:var(--ink2)">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg>
+          </span>
+        </div>
+        <div class="dbody">
+          <div class="hero">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span class="lbl">今日</span><span class="lbl">1ヶ月 ▾</span>
+            </div>
+            <div style="margin-top:6px"><span class="num" style="color:var(--mint)">+1.2<span class="u">¢</span></span><span class="pill">Great</span></div>
+            <div class="sd">±3.4¢ · 平均 −0.8¢</div>
+            <svg width="100%" height="36" viewBox="0 0 285 36" preserveAspectRatio="none" style="margin-top:10px;display:block">
+              <line x1="0" y1="18" x2="285" y2="18" stroke="#3D5F94" stroke-width="1" stroke-dasharray="3 4"/>
+              <path d="M0 26 L26 23 L52 27 L80 20 L108 16 L136 21 L164 23 L192 15 L220 18 L248 13 L285 15"
+                fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <!-- 決定5+朝の指示: 累計(全期間)と最新の2行。平均差分はヒーローに出ているので列から削除 -->
+          <div class="mrow" style="margin-top:6px">
+            <span class="rl">累計</span>
+            <div class="m"><div class="v">17.6<small>dB</small></div><div class="l">HNR</div></div>
+            <div class="m"><div class="v">1195<small>Hz</small></div><div class="l">重心</div></div>
+            <div class="m"><div class="v">−21.9<small>dB</small></div><div class="l">音量</div></div>
+          </div>
+          <div class="mrow">
+            <span class="rl">最新<br><span style="font-size:9px">2026/08/09</span></span>
+            <div class="m"><div class="v">18.2<small>dB</small></div><div class="l">HNR</div></div>
+            <div class="m"><div class="v">1214<small>Hz</small></div><div class="l">重心</div></div>
+            <div class="m"><div class="v">−21.4<small>dB</small></div><div class="l">音量</div></div>
+          </div>
+          <div class="shead">
+            <span class="t">セッション <span style="color:var(--ink3);font-weight:400">5/12</span></span>
+            <span class="impbtn">↥ 録音をアップロード</span>
+          </div>
+          <div class="fpills">
+            <span class="fp">1ヶ月 <span class="chev">▾</span></span>
+            <span class="fp">リード <span class="chev">▾</span></span>
+            <span class="fp">奏者 <span class="chev">▾</span></span>
+            <span class="fp" style="color:var(--accent);border-color:var(--accent)">クリア</span>
+          </div>
+          <div class="srow"><span class="d">2026/08/09 19:04 <i>V16-3 #4 · 自分 · 12:24</i></span></div>
+          <div class="srow"><span class="d">2026/08/08 20:41 <i>V16-3 #2 · 自分 · 26:10</i></span><span style="color:var(--ink3)">↥</span></div>
+          <div class="srow"><span class="d">2026/08/07 19:12 <i>Select3 #4 · 友人 · 8:05</i></span></div>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">My Data — 指標は<b>累計(全期間)と最新の2行</b>。平均差分の列はヒーローに出ているので削除。数字タップで音名軸グラフ+目安Δ(現行)。セッション行は日時+リード+<b>奏者</b>でピッチ差分なし。アップロードは<b>塗りボタン</b>にしてフィルタピルと区別。「…」に削除モードと一括リード変更。↥はアップロード由来の印</div>
+    </div>
+
+    <!-- mini: 読み込み -->
+    <div class="col">
+      <div class="mini">
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:8px">読み込み中</div>
+        <div style="height:3px;background:var(--line);border-radius:2px"><div style="width:64%;height:3px;background:var(--accent);border-radius:2px"></div></div>
+        <div style="font-size:11px;color:var(--ink3);text-align:right;margin-top:4px">64%</div>
+        <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px;display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:12.5px">解析が完了しました</span>
+          <span style="display:flex;gap:12px;align-items:center">
+            <span style="font-size:12px;color:var(--accent);font-weight:600">★ 目安に設定</span>
+            <span style="color:var(--ink3)">×</span>
+          </span>
+        </div>
+      </div>
+      <div class="minicap">アップロードの解析進捗と完了通知はデータタブ上端に浮く(移設)。動画で自動再生がブロックされた時の「解析を開始」ボタンも同じ場所。無音ファイルのエラーは共通モーダル</div>
+
+      <div class="mini" style="margin-top:22px">
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:10px">目安に設定</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <span><span style="display:inline-block;width:13px;height:13px;border-radius:50%;border:1.5px solid var(--accent);background:var(--accent);margin-right:8px"></span>このセッション</span>
+          <span style="color:var(--ink2)"><span style="display:inline-block;width:13px;height:13px;border-radius:50%;border:1.5px solid var(--line2);margin-right:8px"></span>この奏者の平均 <span style="color:var(--ink3)">(12セッション)</span></span>
+        </div>
+        <div style="border-bottom:1px solid var(--line2);margin-top:14px;padding:6px 0;font-size:14px">本気のロングトーン</div>
+        <div style="display:flex;justify-content:flex-end;gap:16px;margin-top:14px;font-size:13px">
+          <span style="color:var(--ink3)">キャンセル</span><span style="color:var(--accent);font-weight:600">保存</span>
+        </div>
+      </div>
+      <div class="minicap">目安に設定 — 対象2択+命名。同名なら音ごとに上書きマージ(現行のまま)</div>
+    </div>
+
+    <!-- L: セッション詳細 -->
+    <div class="col">
+      <div class="phone">
+        <div class="backrow">
+          <span>‹ 一覧</span>
+          <span style="font-size:14px;color:var(--ink)">2026/08/09 19:04 <span style="color:var(--ink3);font-size:11px">✎</span></span>
+          <span style="font-size:12px;color:var(--accent);font-weight:600">★ 目安に設定</span>
+        </div>
+        <div class="dbody" style="top:100px">
+          <div style="display:flex;gap:16px;font-size:12.5px;color:var(--ink2);padding-bottom:10px;border-bottom:1px solid var(--line)">
+            <span>自分 <span class="chev">▾</span></span>
+            <span>V16-3 #4 <span class="chev">▾</span></span>
+            <span style="color:var(--ink3)">Alto</span>
+          </div>
+          <div class="memoline" style="border-bottom:1px solid var(--line)">通し練習。サビで上ずる</div>
+          <div style="display:flex;gap:8px;padding:14px 0 8px">
+            <span class="fp">ピッチ <span class="chev">▾</span></span>
+            <span class="fp">目安 <span class="chev">▾</span></span>
+            <span style="font-size:11px;color:var(--ink3);margin-left:auto;align-self:center">ノート12 · アタック45ms</span>
+          </div>
+          <svg width="100%" height="96" viewBox="0 0 327 96">
+            <line x1="70" y1="0" x2="70" y2="76" stroke="#EEF1F4" stroke-width="1.5"/>
+            <line x1="180" y1="0" x2="180" y2="76" stroke="#EEF1F4" stroke-width="1.5"/>
+            <line x1="290" y1="0" x2="290" y2="76" stroke="#EEF1F4" stroke-width="1.5"/>
+            <g font-size="9" fill="#98A1AC">
+              <text x="8" y="10">C4</text><text x="90" y="10">E4</text><text x="200" y="10">G4</text><text x="300" y="10">A4</text>
+            </g>
+            <path d="M8 50 L60 46 L110 52 L160 38 L210 34 L260 42 L320 30" fill="none" stroke="#174585" stroke-width="1.5"/>
+            <path d="M8 44 L60 44 L110 46 L160 42 L210 38 L260 40 L320 36" fill="none" stroke="#98A1AC" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <!-- 一致度の帯: タップでフレーム選択 -->
+            <g>
+              <rect x="8" y="82" width="60" height="6" fill="#16A34A" opacity=".55"/>
+              <rect x="68" y="82" width="40" height="6" fill="#D97706" opacity=".5"/>
+              <rect x="108" y="82" width="70" height="6" fill="#16A34A" opacity=".55"/>
+              <rect x="178" y="82" width="30" height="6" fill="#C9CFD8" opacity=".6"/>
+              <rect x="208" y="82" width="112" height="6" fill="#16A34A" opacity=".45"/>
+            </g>
+          </svg>
+          <div class="sliderrow" style="margin-top:2px">
+            <div class="slider"><div class="knob" style="left:44%"></div></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink2);padding:8px 0;border-bottom:1px solid var(--line)">
+            t=3.42s · ピッチ一致 <b>96%</b> · 音色一致 <b>88%</b>
+          </div>
+          <div class="mrow">
+            <div class="m"><div class="v">+1.2<small>¢</small></div><div class="l">平均差分</div></div>
+            <div class="m"><div class="v">18.2<small>dB</small></div><div class="l">HNR</div></div>
+            <div class="m"><div class="v">1214<small>Hz</small></div><div class="l">重心</div></div>
+            <div class="m"><div class="v">−21.4<small>dB</small></div><div class="l">音量</div></div>
+          </div>
+          <table class="nt" style="margin-top:10px">
+            <tr><th>実音</th><th>¢</th><th>dB</th><th>Hz</th><th>HNR</th><th>差</th></tr>
+            <tr><td>F3</td><td>+2.1</td><td>−22.4</td><td>1088</td><td>17.9</td><td style="color:#16A34A">4¢</td></tr>
+            <tr><td>A3</td><td>−1.4</td><td>−21.0</td><td>1150</td><td>18.4</td><td style="color:#16A34A">2¢</td></tr>
+            <tr><td>C4</td><td>+4.8</td><td>−20.2</td><td>1260</td><td>18.8</td><td style="color:#D97706">12¢</td></tr>
+          </table>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">セッション詳細 — 日時は✎で編集(datetime)。奏者・リード紐付けは枠なしプルダウン、メモも現行のまま。タイムライン: 指標4種と比較先(絶対値/目安/<b>別セッション自動整列</b>)のプルダウン、小節線、音名、一致度の帯(タップでフレーム選択)、スクラブ、ドリルダウン行。下に平均4指標(タップでグラフ)と音階ごとの平均テーブル(色分け・横スクロール)。右スワイプで一覧へ</div>
+    </div>
+
+    <!-- M: PIVOT -->
+    <div class="col">
+      <div class="phone">
+        <div class="subtabs"><span>My Data</span><span class="on">分析</span></div>
+        <div class="dbody">
+          <div style="font-size:11px;color:var(--ink3);padding:14px 0 6px">絞り込み</div>
+          <div class="pillbar" style="margin:0 0 4px">
+            <span class="fp">× サックス種別: Alto</span>
+            <span class="fp" style="color:var(--accent);border-color:var(--accent)">＋ 条件</span>
+          </div>
+          <div style="font-size:11px;color:var(--ink3);padding:12px 0 6px">軸</div>
+          <div class="pillbar" style="margin:0">
+            <span class="axis">縦 <b>音名 ▾</b></span>
+            <span class="axis">横 <b>ピッチ誤差(¢) ▾</b></span>
+            <span class="axis">系列 <b>リード ▾</b></span>
+          </div>
+          <svg width="100%" height="150" viewBox="0 0 327 150" style="margin-top:14px">
+            <line x1="60" y1="0" x2="60" y2="140" stroke="#E8EBEF"/>
+            <g font-size="9" fill="#98A1AC">
+              <text x="8" y="18">G5</text><text x="8" y="48">C5</text><text x="8" y="78">A4</text>
+              <text x="8" y="108">E4</text><text x="8" y="138">C4</text>
+            </g>
+            <path d="M92 14 L80 44 L104 74 L86 104 L96 134" fill="none" stroke="#174585" stroke-width="1.5"/>
+            <path d="M120 14 L106 44 L128 74 L112 104 L120 134" fill="none" stroke="#7FA0CE" stroke-width="1.5"/>
+            <path d="M74 14 L66 44 L84 74 L70 104 L78 134" fill="none" stroke="#174585" stroke-width="1.5" stroke-dasharray="5 3"/>
+          </svg>
+          <div style="display:flex;gap:14px;font-size:10.5px;color:var(--ink3);padding-top:6px">
+            <span style="color:#174585">— #1</span><span style="color:#7FA0CE">— #2</span><span style="color:#174585">┅ #4</span>
+          </div>
+        </div>
+        <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
+      </div>
+      <div class="cap">分析(PIVOT) — 見出しと説明文は消し、絞り込み(12次元・値チップ複数選択・音域帯まとめ選択・日付/日数範囲・既定のサックス種別条件)と軸3つ(縦12次元/測度7種/系列)はすべて現行のまま。設定はタブ移動をまたいで保持</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2>反映した決定と、残る作業</h2>
+  <div class="stage">
+    <div class="ann">
+      <h3>2026-08-11 の決定</h3>
+      <ul>
+        <li><b>1</b> 奏者・楽器・基準ピッチは計測の1行目に表示+選択とも維持(朝の指示でリードと上下入替)</li>
+        <li><b>2</b> メトロノームは画面タップで開始/停止(操作要素の上を除く)</li>
+        <li><b>3</b> 詳細カードはシェブロンで現行踏襲</li>
+        <li><b>4</b> ゾーン帯は削除・音名ラベルは復帰</li>
+        <li><b>5</b> 期間平均と最新は同じ4列×2行で同居</li>
+        <li><b>6</b> 並び替えはタイルの長押しドラッグで必須実装・計測ジャンプは個体詳細内</li>
+      </ul>
+      <h3>このモックに描いていないが継続する機構</h3>
+      <ul>
+        <li>横スワイプ子タブ移動・右スワイプ戻り・回遊ジャンプ全般</li>
+        <li>録音中のタブロック・スクロール位置復元・ナビ再タップでトップ</li>
+        <li>マイク自動再接続・エラーモーダル・Wake Lock・IndexedDB</li>
+        <li>クリック音の干渉除去・小節線記録・拍子変更時の仕切り直し</li>
+        <li>削除時のセッション紐付け解除・削除前confirm・選択削除の一括リード変更</li>
+      </ul>
+    </div>
+  </div>
+</div>
