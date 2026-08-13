@@ -3486,6 +3486,60 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
   );
 }
 
+// ============================================================
+// 【F-72】「押せば選択肢が出る」を形で示す ▾。
+//
+// 本人指示(2026/08/12・実機): 「モックでは上部の奏者やリードもカード色を変えて
+// カード方式にしていない。モックに合わせて。モックどおり ▾ などがあれば
+// タップすれば選択肢が出るんだなと直感的に分かる」。
+// 地と枠を落とすと「ここは触れる」の信号が全部消えるので、その唯一の代わりがこれ。
+// 正典 design/north-star-measure.html の `.chev { color: var(--ink3); font-size: 10px }`
+// をそのまま採る(10px は正典の実寸。DESIGN-SYSTEM §6.0 でモックが見た目の唯一の正典)。
+// 色はアプリの体系側の同じ役の段 --c-ink-3 を使う(正典 --ink3 #98A1AC の位置)。
+// 文字との間隔は正典が半角空白1つなので、体系内の最小段 --sp-1(4px)を当てる。
+//
+// **必ず「押せるもの」の中に置くこと。** <button> の中か、<select> を指す <label> の中。
+// 外に置くと、そこだけ当たり判定の穴になる(N-4 の罠1 と同じ形の事故になる)。
+const PICK_CHEV_PX = 10;       // 正典 .chev の font-size
+function PickChevron() {
+  return (
+    <span aria-hidden="true" style={{
+      fontSize: PICK_CHEV_PX, color: "var(--c-ink-3)",
+      marginLeft: "var(--sp-1)", flexShrink: 0, lineHeight: 1,
+    }}>▾</span>
+  );
+}
+
+// 【F-72】計測タブの上部設定行の <select> は appearance を落として「素のテキスト + ▾」にする。
+// 落とさないと、ネイティブの三角を描く環境で ▾ が二重に見える(Chrome で実測: 各 select が
+// 自前の三角を持ち、幅が 20px ぶん広い)。
+// **appearance を落としたら縦も自分で決める**(DESIGN-SYSTEM §6.7。実機で一度これを踏んでいる)。
+// 下の2つの値は**新しく決めた寸法ではなく、落とす前に Chrome 375×812 で実測した現行の値**:
+//   奏者の枠 = 28px / リード枠の中の値を包む箱 = 26px
+// ※ どちらも「値をテキストで描き、透明な <select> を重ねる」形にしたので、
+//   **<select> の高さではなく、それを包む箱の高さ**になっている。
+//   役目は同じ(上部設定行の高さ 60px を保ち、環を動かさない。§6.1.5)。
+//   重ねた <select> は高さ 100% なので、そちらの固有の縦寸法はもう効かない。
+// 【TOPSET_LINE_H_PX(行送り 14px)は削除した】重ねる形にしたときに参照が 0 件になったが、
+//   定義とコメントだけが残り「3つとも効いている」ように読めていた。死んだ定数は残さない。
+//
+// 【ここは Chrome では判定不能・実機待ち(iOS Safari)】
+// DESIGN-SYSTEM §6.7 が同じ操作について明記している:
+//   「Chrome では、この症状は横も縦も最初から再現しない。Browser pane の実測は必ず『揃っている』と
+//     出る。**この欄を触ったときの Chrome の実測は判定に使えない**ので、必ず実機で確認すること」
+// したがって上の2つは「どのエンジンでも同じ高さになる」ことの証明にはならない。**Chrome で
+// 高さが不変(28/26)だったという事実**だけがここでの根拠で、iOS Safari の <select> が
+// appearance を落としたあと同じ高さになるかは**実機で本人が見るまで分からない**。
+// ずれていたら、この2定数の調整で吸収する(呼び出し側は触らなくてよい形にしてある)。
+// 【overflow の置き場所】§6.7 は overflow:hidden を「最後の歯止め」と書いているが、
+// **<select> に書いても Chrome では効かない**(インラインには乗るが computed が visible。実測)。
+// 重ねる形では <select> は inset 0 なので自身の overflow は意味を持たない。
+// 歯止めは**値を包む箱と値そのもの**に置いてある(overflow:hidden + textOverflow:ellipsis)。
+// これが無いと、maxWidth を超える長い銘柄が箱の外へ描かれて隣の #N や ▾ に重なる
+// (実測: `D'Addario Select Jazz-3S` で #3 に 56.4px 重なった)。
+const TOPSET_PERFORMER_H_PX = 28;
+const TOPSET_REED_SELECT_H_PX = 26;
+
 // 計測タブの「これまでの音」ミニタイムライン。SessionDetailView等で使う履歴振り返り用の
 // PhraseTimeline(スクラブ・ドリルダウンつき)とは別物として実装する: こちらは直近30秒の
 // 理論値(運指テーブル)からのピッチ偏差(セント)をそのまま折れ線で表す。縦軸はメーターと
@@ -3970,17 +4024,43 @@ const NOTE_FS_PX = 148;        // 正典 .note
 const NOTE_OCT_PX = 44;        // 正典 .note .oct
 const NOTE_CENTS_PX = 21;      // 正典 .cents
 const NOTE_CENTS_GAP_PX = 10;  // 正典 .cents の margin-top
-// 【N-4c で撤去】NOTE_SCALE_X(1.30)と NOTE_SCALE_PAD_EM(§4.2 の「横幅を scaleX(1.30) で
-// 明示する」)。**撤去の理由は1つだけ: 正典 design/north-star-measure.html の .note が
-// transform を持たないから**(DESIGN-SYSTEM §6.0「見た目についてはモックが唯一の正典」)。
+// 【F-77 で復活】NOTE_SCALE_X(1.30)と NOTE_SCALE_PAD_EM(§4.2「横幅を scaleX(1.30) で明示する」)。
+// N-4c で一度撤去した。撤去の理由は「正典 design/north-star-measure.html の .note が
+// transform を持たない」(DESIGN-SYSTEM §6.0)だったが、**本人が実機で見て
+// 「細いので引き伸ばしを継続する」と決めた**(2026/08/12)。本人の直接指示は正典より上位。
+// Instrument Serif の既定の送り幅は 0.457em(一般的な serif の64%)で、書体既定のままだと
+// 「幅を選んでいない」見え方になる(§4.2)。scaleX(1.30) で 0.594em にする。
+const NOTE_SCALE_X = 1.30;     // 音名の横幅(明示指定)
+// scaleX は要素のレイアウト幅を変えないため、変形後のグリフが左右に (1.30-1)/2 = 15%
+// はみ出す。隣の臨時記号と重ならないよう、送り幅 0.457em の15%分を左右marginで補う。
+const NOTE_SCALE_PAD_EM = 0.457 * (NOTE_SCALE_X - 1) / 2;
 //
-// 【以前ここに書いていた数値は取り消した】「148px では G♯3 の余白が 1.41px まで詰まる /
-// 外すと 17.83px」と書いていたが、**測り方が誤っていた**(行の箱=em 全高の角で測っており、
-// 実際のグリフの角ではなかった)。審査役の実測では scaleX を掛けたままでも
-// G♯3 で 17.04px あり、§4.2 の要件 14.8px を割らない。**掛けても要件は満たせる。**
-// クリアランスを縛る検査はハーネスに書けない(Node に書体の字幅が無い)。
-// **書いていない検査を「縛っている」と書かないこと**(LOOP.md / F-39)。
-// pitch-test が縛っているのは「transform を掛けていない」という**構造**だけ。
+// 【クリアランスの記録。この節の数字は2度書き直している。読む前に測り方まで見ること】
+// ・N-4c で撤去の根拠にした 1.41px / 17.83px / 35.08px … **em の箱の角**で測っていて再現しない
+// ・F-77 の1周目に書いた 21.16px 等 … **書体の読み込み前**(フォールバックの serif)で測っていて再現しない
+//   (`D` の送り幅が 113.96px と出ていた。Instrument Serif の実値は 78.44px)
+//   → 測る前に `await document.fonts.ready` を通すこと。これが1周目に外した原因。
+//
+// 【3度目の実測(2026/08/13)】375×812 / 環の直径 330 / 音名 148px + scaleX 1.30。
+//   環の内周の半径 = (RING_R − RING_SW/2) × 330/300 = 141.90 CSS px、中心 (187.5, 261)。
+//   測り方: (1) `document.fonts.ready` を待つ (2) 行末に高さ0の inline-block を挿して
+//           **ベースラインの実測値**を取る(この条件では 293.5) (3) canvas TextMetrics の
+//           actualBoundingBox* を **ベースラインに当てて**インクの矩形を出す。本体だけ
+//           transform-origin "center bottom" で 1.30 倍に写す (4) A〜G × ♮/♯/♭ × oct3〜5 の
+//           **63通りすべて**を実DOMに入れて走査する。
+//   結果(要件は §4.2「視覚幅の左右端が環の内周に対し音名サイズの10%以上」= 14.80px):
+//     水平の最悪 … `D♯4` / `D♭4` で **36.39 CSS px**
+//                  (インク 左103.79 / 右271.88 / 上186.50 / 下296.50。
+//                   水平は**インクの縦の帯の中で弦がいちばん狭くなる高さ**= y186.50 で測る)
+//     半径方向の最悪 … `G♯4` / `G♭4` で **29.18 CSS px**(中心から最も遠いインクの角まで 112.72)
+//   要件に対し 2.4倍の余裕。**scaleX 1.30 を掛けても要件は割らない。**
+//   ※ 審査役は同じ日に 水平 38.88 / 半径 31.41 を報告している。名前(D♯4・D♭4)は一致するので
+//     差は**水平をどの高さで測るかの定義差**とみられる(上の (4) の取り方が違うと数 px ずれる)。
+//     ここに書いてあるのは上の手順で再現できる値。**定義ごと読み替えずに引き写さないこと。**
+// **この値をハーネスで検算することはできない**(Node に書体の字幅が無い)。
+// pitch-test が縛るのは「scaleX(NOTE_SCALE_X) が音名の本体に掛かっている」という構造だけで、
+// **環内周とのクリアランスは縛っていない**。書いていない検査を「縛っている」と書かないこと(F-39)。
+//
 // 臨時記号(♯/♭)は音名に付属する記号。本体と近いサイズだと主従が逆転して見えるため
 // 明確に小さくする。横幅の指定は本体だけに掛け、記号には掛けない。
 // モックの計測タブは臨時記号のある音(G♯ 等)を描いていないので、比は §4.2 のまま残す。
@@ -4789,8 +4869,12 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           lineHeight: NOTE_LINE_H, fontFamily: "var(--font-serif)",
           color: sounding ? "var(--c-ink)" : "var(--c-disabled)",
         }}>
-          {/* 音名の文字。横幅は書体既定のまま(正典 .note は transform を持たない)。 */}
-          <span style={{ fontSize: noteFs, display: "inline-block" }}>
+          {/* 音名の文字。横幅は scaleX で明示指定する(F-77 で復活。書体既定のままにしない) */}
+          <span style={{
+            fontSize: noteFs, display: "inline-block",
+            transform: `scaleX(${NOTE_SCALE_X})`, transformOrigin: "center bottom",
+            margin: `0 ${NOTE_SCALE_PAD_EM}em`,
+          }}>
             {noteLetter}
           </span>
           {/* 臨時記号。文字として組み、本体より明確に小さくする(scaleXは掛けない) */}
@@ -5010,6 +5094,21 @@ function MeasureView(props) {
     if (key) setSelectedBoxKey((prev) => (prev === key ? prev : key));
   }, [selectedReedId, reeds]);
   const selectedBoxGroup = reedGroups.find((g) => g.key === selectedBoxKey) || null;
+
+  // 【差し戻し①】リード枠の選択肢。**綴りをここ1箇所に集める。**
+  // 上部設定行は「値をテキストで描き、透明な <select> を重ねる」形にしたので、
+  // 見えているテキストと <option> の**両方**がこの配列から作られる。
+  // 2箇所に書くと必ず片方が腐る(見えている値と選択肢がずれる、という最悪の壊れ方をする)。
+  // 先頭は必ず「未選択のときに見せるラベル」にしておくこと(描画側が [0] を既定に使う)。
+  // 【N-4a】箱の表記「Vandoren V16 3.0」→「V16-3」。短縮規則は shortBoxLabel を参照。
+  const reedBoxOptions = [
+    { value: "", label: "リードを選択" },
+    ...reedGroups.map((g) => ({ value: g.key, label: shortBoxLabel(g.brand, g.strength, reedGroups.map((x) => x.brand)) })),
+  ];
+  const reedMemberOptions = [
+    { value: "", label: selectedBoxGroup ? "#" : "—" },
+    ...(selectedBoxGroup?.members || []).map((r) => ({ value: r.id, label: `#${reedPosition(r, reeds) ?? "?"}` })),
+  ];
 
   // メーター内の基準ピッチ・楽器種別は、タップでスクロールピッカーを開いて選ぶ(下段の設定より
   // 優先的に触る値のため、演奏姿勢のまま指の届く位置に置く)。どちらか一方だけ開く。
@@ -5307,43 +5406,11 @@ function MeasureView(props) {
             中身の高さが変わるたびに環と録音ボタンが動いていた(本人の実機フィードバック2026-08-01)。
           ・詳細カードはこの枠の「外・下」に置く。開いても枠の高さは measureMinH のままなので
             環・録音ボタン・詳細トグルは1pxも動かず、増えたぶんだけページがスクロールする。
-          【A-1 の背面レイヤはこの枠の中】= 正典の「メトロノーム中」の1画面ぶん。
-          詳細カードは枠の外なので覆わない(カードは読む面で、中の操作は自分で受け取る)。 */}
+          【F-74 で並びが1つ増えた】余りを吸収する flex:1 を「可変の中間」から独立した
+          スペーサーへ出し、環と可変の中間を「チューナーの帯」1箱にまとめた。背面レイヤは
+          その箱の中だけに敷く(= 上部設定行の直下 〜 テンポ操作行の下端)。
+          上部設定行・録音ボタンより下・詳細カード・下部ナビは覆わない。 */}
       <div style={{ position: "relative", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
-      {/* 【A-1】メトロノームの開始/停止は**画面のどこをタップしてもよい**(本人確定・決定2)。
-          実装は「背面レイヤ1枚 + 操作要素を前面に置く」。stopPropagation は使わない
-          (伝播を止める作りにすると、マイク復旧のジェスチャー経路のように
-           "document まで届くこと"に依存している既存の仕組みを壊しうる)。
-          このレイヤは position:absolute。**枠の外側にある .app-root の padding
-          (左右 14px + 安全域 / 上端 16px + 安全域)まで負のオフセットで広げてある**。
-          広げないと、審査役の1px刻み全走査で 26,972px²(画面の8.9%)が無反応のまま残る
-          (左右 14×749 の帯と上端 375×16 の帯)。本人要件は「画面のどこをタップしても」。
-          オフセットは .app-root の padding と**同じ式**を符号だけ変えて書く(別管理にしない)。
-          下端は広げない: 枠の下端(765)から下は下部ナビ(position:fixed / z-index 30)の帯で、
-          ナビが自分でタップを受け取る(奪うと計測↔リード↔データの切り替えが効かなくなる)。
-          詳細カード(枠の外・下)も奪わない。
-          z-index 0 の位置指定要素は静的な中身より前に来るので、押せなければならない物には
-          z-index 1 を与えて**前面**に出す: 上部設定行 / テンポの操作行 / 録音ボタンと詳細トグル。
-          さらにそれらの箱自身は .tap-through で当たり判定を捨て、中の操作要素だけが受け取る
-          (箱に当たり判定を残すと、箱の**余白**でタップが死ぬ。375×812 の全走査で実測して直した)。
-          モーダル(ScrollPicker・保存確認・テンポシート)は position:fixed の z-index 60 で更に上。 */}
-      {showMetroPanel && (
-        <button
-          type="button"
-          onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
-          aria-label="メトロノームの開始/停止"
-          aria-pressed={metronomeOn}
-          className="no-select"
-          style={{
-            position: "absolute", zIndex: 0,
-            top: "calc(-16px - env(safe-area-inset-top))",
-            left: "calc(-14px - env(safe-area-inset-left))",
-            right: "calc(-14px - env(safe-area-inset-right))",
-            bottom: 0,
-            background: "transparent", border: "none", padding: 0, cursor: "pointer",
-          }}
-        />
-      )}
       {/* ── 上端に固定 ── 設定行と各種の告知。この塊の下端が「固定の間隔」--sp-1。 */}
       <div style={{ flexShrink: 0 }}>
       {/* 上部設定行【N-4a で2行構成に変更】本人指示「リードと奏者・楽器・基準ピッチの上下を逆に」。
@@ -5361,26 +5428,33 @@ function MeasureView(props) {
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
           {/* 1行目 = 奏者 / 楽器種別 / 基準ピッチ。**表示と選択の両方**を担う(本人指示)。 */}
+          {/* 【F-72】bare を渡すのは**この画面だけ**(正典 .set1 の「自分 ▾」)。
+              セッション詳細の呼び出し(識別情報行)は既定のまま = 入力欄の作法を維持する。 */}
           <PerformerSelector
             performers={performers} selectedPerformer={selectedPerformer}
             setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
             disabled={isRecording}
+            bare selectId="measure-performer-select"
           />
-          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}</button>
+          {/* 【F-72】地も枠も元から持たない素のテキスト。**足したのは ▾ だけ**
+              (正典 .set1 の「Alto ▾」「442Hz ▾」)。▾ はボタンの中に入れるので穴にならない。 */}
+          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
           <span style={{ color: "#8D95A1" }}>·</span>
-          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz</button>
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz<PickChevron /></button>
         </div>
         {/* 2行目 = リード。 */}
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
-          {/* リード選択のピル。中身は select 2つ＝操作するものだが、ピル自身は開閉も
-              on/off も持たない**状態を持たないもの**なので B型(index.css の .ctl-plain)。
-              枠線なし・地は --c-sunken だけ。選択済み/未選択は左の点の色と文字の色・太さが
-              返すので、地を選択状態で塗り分けない(以前は #EAEFF5 / --c-sunk の2値だった)。
+          {/* リード選択の枠。
+              【F-72 で地を落とした】本人指示(2026/08/12・実機)「モックでは上部の奏者やリードも
+              カード色を変えてカード方式にしていない。モックに合わせて」。正典 .reedchip は
+              **地も枠も持たない素のテキスト + ▾** なので、B型 .ctl-plain(地 --c-sunken)を外す。
+              DESIGN-SYSTEM §6.7 の B型は §6.0 により「モックに対する制約として機能しない」。
+              .ctl-plain は border:0 なので、クラスを外しても外形は 1px も変わらない
+              (実測で確認済み。§6.1.5)。
+              選択済み/未選択は左の点の色と文字の色・太さが返す(地では返さない)。
               中の select 2つは地も枠も持たない — DESIGN-SYSTEM §6.6 が明記する意図的な例外。
-              【角丸はピルにしない】本人指示(F-50)「画面上部のリード枠が一つだけ丸いので、
-              奏者枠と同じ形式に変更」。隣の奏者枠(PerformerSelector)は素の <select> で、
-              index.css の入力欄の規則により --r-xs(4px)。B型 .ctl-plain の既定の角丸も
-              --r-xs なので、.ctl-pill を外すだけで奏者枠と同じ値になる(新しい値は足さない)。 */}
+              【当たり判定】地が消えても**枠まるごとが箱の <select> の <label>** のままなので、
+              N-4 で塞いだ 1,088px² の穴は開き直らない(F-72 で 1px 刻みに測り直して確認)。 */}
           {/* 【D-2】表記は正典の `V16-3 #4`。箱と個体は別の <select> だが、**1つの塊**として
               読めるように間を詰め(gap 0)、色も正典に合わせて 箱=--c-ink(太字) / 個体=--c-ink-2 にする。
               以前は箱も個体も --c-accent で、DESIGN-SYSTEM §1.4「--c-accent はアクション専用」に
@@ -5394,7 +5468,7 @@ function MeasureView(props) {
               (実測で残り 4px² = 角丸の縁だけ)。
               中の個体 <select> は「いちばん内側の操作」が勝つので、これまでどおり自分で受け取る
               (個体を押しても箱へ転送されないことを実測で確認済み)。
-              タグを div → label に変えただけで地・枠・角丸は .ctl-plain のまま = **見た目は不変**。
+              (地・枠・角丸を持っていた .ctl-plain は F-72 で外した。当たり判定の構造はこのまま。)
 
               【ここで保証できること／できないこと】**書き分ける。**
               保証できる: (a) 枠の中に背面レイヤへ落ちる穴が無い (b) 枠を押すと箱の <select> へ
@@ -5406,37 +5480,70 @@ function MeasureView(props) {
               (LOOP.md「Chrome で判定できない類」= ネイティブフォームコントロールの固有挙動)。
               実機で開かなければ label 方式は却下し、onClick で ScrollPicker を開く形
               (楽器種別・基準ピッチで既に使っている idiom) へ差し替える。 */}
-          <label className="ctl-plain" htmlFor="measure-reed-box" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0, padding: "2px 4px 2px 10px", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}>
+          {/* 【差し戻し①】奏者枠と同じ作りにした: **値をテキストで描き、その上に透明な <select> を重ねる**。
+              <select> に値を描かせると箱の幅が「いちばん長い option」で決まるため、
+              値が短いときに右へ大きく余る。375×812 の実測(リード12枚・V16-3 #4 を選択):
+                箱の select … 幅84 に対し値「V16-3」は 40.7(最長 option「リードを選択」67.9 + padding 16)
+                個体の select … 幅44 に対し値「#4」は 20.2(最長 option「#12」27.7 + padding 16)
+                → **「V16-3」と「#4」の間が 43.3px、「#4」と ▾ の間が 19.8px** 空いていた。
+              正典 .reedchip は `<b>V16-3</b> #4 ▾` で、間は半角空白1つ。gap:0 を書いても
+              **箱の余白は消せない**ので、「1つの塊として読ませる」が実際には成立していなかった
+              (gap:0 だけを見る検査は通り続けていた)。
+              重ねる形にすると幅が値そのものになり、間隔は --sp-1(4px)だけになる。
+              **option の綴りは1箇所(下の配列)に集約**し、見えているテキストと <option> の
+              両方をそこから作る(2箇所に書くと必ず片方が腐る)。 */}
+          <label htmlFor="measure-reed-box" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0, padding: "2px 4px 2px 10px", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
-            <select
-              id="measure-reed-box"
-              value={selectedBoxKey || ""}
-              onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
-              disabled={isRecording}
-              style={{ pointerEvents: "auto", minWidth: 0, maxWidth: 110, background: "none", border: "none", color: selectedReedId ? "var(--c-ink)" : "#435266", fontWeight: selectedReedId ? 600 : 400 }}
-            >
-              <option value="">リードを選択</option>
-              {/* 【N-4a】「Vandoren V16 3.0」→「V16-3」。短縮規則は shortBoxLabel を参照 */}
-              {reedGroups.map((g) => (<option key={g.key} value={g.key}>{shortBoxLabel(g.brand, g.strength, reedGroups.map((x) => x.brand))}</option>))}
-            </select>
-            <select
-              value={selectedReedId || ""}
-              onChange={(e) => setSelectedReedId(e.target.value || null)}
-              disabled={isRecording || !selectedBoxGroup}
-              style={{ pointerEvents: "auto", minWidth: 0, maxWidth: 60, background: "none", border: "none", color: selectedReedId ? "var(--c-ink-2)" : "#C3CAD3", fontWeight: 400 }}
-            >
-              <option value="">{selectedBoxGroup ? "#" : "—"}</option>
-              {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
-            </select>
+            {/* 【overflow は箱と値の両方に要る】maxWidth は**幅の上限**でしかない。
+                値を <span> に描かせる形では、上限を超えた文字は箱の外へそのまま描かれる
+                (素の <select> はコントロールの箱が値をクリップしてくれていた。
+                 実測: `D'Addario Select Jazz-3S` は 166.9px あり、maxWidth 110 の外へ出て
+                 隣の #3 に 56.4px 重なった)。銘柄の最後の語が衝突すると shortBoxLabel が
+                フル銘柄へ戻す仕様なので、この長さは実在しうる。 */}
+            <span style={{ position: "relative", display: "inline-flex", alignItems: "center", height: TOPSET_REED_SELECT_H_PX, maxWidth: 110, overflow: "hidden" }}>
+              <span style={{ color: selectedReedId ? "var(--c-ink)" : "#435266", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {(reedBoxOptions.find((o) => o.value === (selectedBoxKey || "")) || reedBoxOptions[0]).label}
+              </span>
+              <select
+                id="measure-reed-box"
+                value={selectedBoxKey || ""}
+                onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
+                disabled={isRecording}
+                style={{ pointerEvents: "auto", position: "absolute", left: 0, top: 0, width: "100%", height: "100%", padding: 0, color: "transparent", background: "none", border: "none", appearance: "none", WebkitAppearance: "none", cursor: isRecording ? "default" : "pointer" }}
+              >
+                {reedBoxOptions.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+              </select>
+            </span>
+            {/* 箱と個体の間隔は**この marginLeft だけ**が作っている(label の gap は 0)。
+                正典 .reedchip の半角空白1つに当たる。--sp-1(4px)より広げないこと
+                (43.3px 空いて「V16-3 #4」が1つの塊に読めなくなったのが差し戻しの理由)。 */}
+            <span style={{ position: "relative", display: "inline-flex", alignItems: "center", height: TOPSET_REED_SELECT_H_PX, maxWidth: 60, marginLeft: "var(--sp-1)", overflow: "hidden" }}>
+              <span style={{ color: selectedReedId ? "var(--c-ink-2)" : "#C3CAD3", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {(reedMemberOptions.find((o) => o.value === (selectedReedId || "")) || reedMemberOptions[0]).label}
+              </span>
+              <select
+                value={selectedReedId || ""}
+                onChange={(e) => setSelectedReedId(e.target.value || null)}
+                disabled={isRecording || !selectedBoxGroup}
+                style={{ pointerEvents: "auto", position: "absolute", left: 0, top: 0, width: "100%", height: "100%", padding: 0, color: "transparent", background: "none", border: "none", appearance: "none", WebkitAppearance: "none", cursor: isRecording || !selectedBoxGroup ? "default" : "pointer" }}
+              >
+                {reedMemberOptions.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+              </select>
+            </span>
+            {/* 正典 .reedchip の末尾の ▾。枠(label)の中なので当たり判定の穴にならない。 */}
+            <PickChevron />
           </label>
         </div>
         </div>
         {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
             【N-4a】右端に移し、**2行ぶんの高さ**にする(本人指示)。
-            【A型 = index.css の .ctl-state】枠線あり・地は透明。開閉という**状態を持つ**ので
-            枠線を使ってよい(本人指示「on off の違いが分かったほうがいい」)。
-            ON/OFF は枠線の色(--c-line-strong → --c-accent)とアイコンの色で返し、地は足さない
-            (枠線と違う地を両方持たせない)。ON/OFF の状態は aria-pressed が持つ。 */}
+            【F-75 で枠線を撤去】本人指示(2026/08/12・実機)「メトロノームアイコンも同様に枠線不要」。
+            A型 .ctl-state(枠線 --c-line-strong / ON は --c-accent)を外した。
+            **ON/OFF が分かることは維持する**: 正典 design/north-star-measure.html の
+            「待機中」と「メトロノーム中」もアイコンの色だけが変わっている(--ink2 → --accent)ので、
+            返し方はアイコンの色(--c-ink-3 → --c-accent)と aria-pressed。
+            枠は `1px solid transparent` で**場所だけ残す**(DESIGN-SYSTEM §6.7「枠を透明にして残す」。
+            border:0 にすると 44×56 が 42×54 に縮み、行の高さを通って環が動く。§6.1.5)。 */}
         <button
           onClick={() => {
             if (showMetroPanel) {
@@ -5448,28 +5555,16 @@ function MeasureView(props) {
           }}
           aria-label="メトロノーム"
           aria-pressed={showMetroPanel}
-          className="ctl-state"
           style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             width: "var(--tap-min)", height: 56, cursor: "pointer", flexShrink: 0,
+            background: "transparent", border: "1px solid transparent", padding: 0,
           }}
         >
+          {/* 色は hex のまま。SVG のプレゼンテーション属性(stroke/fill)は var() を
+              解決しない環境があるため(DESIGN-SYSTEM §1.9)。#174585=--c-accent / #8D95A1=--c-ink-3。 */}
           <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} size={26} />
         </button>
-        {openPicker === "tuning" && (
-          <ScrollPicker
-            options={TUNING_HZ_OPTIONS} value={tuningHz}
-            onChange={setTuningHz} onClose={() => setOpenPicker(null)}
-            labelFn={(hz) => `${hz} Hz`}
-          />
-        )}
-        {openPicker === "sax" && (
-          <ScrollPicker
-            options={SAX_TYPE_OPTIONS} value={saxType}
-            onChange={setSaxType} onClose={() => setOpenPicker(null)}
-            labelFn={(key) => SAX_PRESETS[key]?.label}
-          />
-        )}
       </div>
       {(!reeds || reeds.length === 0) && (
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
@@ -5492,15 +5587,68 @@ function MeasureView(props) {
           拍(振り子・拍の●)は環の下に並ぶ(正典 = design/north-star-measure.html「メトロノーム中」)。
           以前あった「26pxの音名+横メーター+13pxのセント値」へのフォールバックは廃止した
           (1m先で読めないうえ、セント色の閾値が環と一致していなかった)。 */}
+      {/* ── チューナーの帯 ── 環 + 可変の中間の中身を1つの箱にまとめる。
+          【F-74 でこの箱を作った】本人指示(2026/08/12・実機)「どこをタップしても作動しすぎる。
+          **上部の奏者やリード表示があるところより下から、テンポ表示があるところまで**を
+          タップで開始/停止に(おおむねチューナー表示周辺)」。
+          背面レイヤ(下)をこの箱の inset に貼るので、**箱の下端 = テンポ操作行の下端**に
+          なるように、余りを吸収する flex:1 はこの箱の**外**(下のスペーサー)へ出してある。
+          この箱自身は flexShrink:0 で中身ぶんの高さしか持たない。
+          この付け替えでは環・録音ボタン・詳細トグルの位置は 1px も動かない(実測で確認。§6.1.5)。 */}
+      <div style={{ position: "relative", flexShrink: 0 }}>
+
+      {/* 【A-1 / F-74】メトロノームの開始/停止は**この帯のどこをタップしてもよい**。
+          実装は「背面レイヤ1枚 + 操作要素を前面に置く」。stopPropagation は使わない
+          (伝播を止める作りにすると、マイク復旧のジェスチャー経路のように
+           "document まで届くこと"に依存している既存の仕組みを壊しうる)。
+          【F-74 で範囲を狭めた】以前は画面ぶんの枠(上端16 〜 下端765)を丸ごと覆っていた。
+          本人には「どこをタップしても作動しすぎる」と映ったので、**上部設定行の直下から
+          テンポ操作行の下端まで**に限る。範囲外(上部設定行・録音ボタンの周り・詳細トグル・
+          下部ナビ)は開始/停止しない。**新しい無反応領域が生まれるのは意図した仕様。**
+          【上端の負オフセットを外した】N-4 で入れた `.app-root` の padding-top ぶんの
+          負オフセット(上端 16px + 安全域)は、上端を覆わなくなったので不要。
+          **左右の負オフセットは残す**: 帯は画面の端から端まで反応してほしいので、
+          枠の外側にある .app-root の左右 padding(14px + 安全域)まで広げる。式は
+          .app-root の padding と**同じもの**を符号だけ変えて書く(別管理にしない)。
+          上端は `calc(-1 * var(--sp-1))` = 上端の塊との「固定の間隔」ぶんだけ遡り、
+          上部設定行の下端との間に無反応の隙間を作らない。
+          下端は箱の下端そのもの(= メトロノームを開いていればテンポ操作行の下端)。
+          【F-73】ピッカーを開いている間は disabled にする。本人報告
+          「サックス種別とHzを押すと選択肢は出てくるが、メトロノームの開始/停止が優先されて
+          動かない」。ピッカー自体もこの枠の外(z-index 60)へ出したので暗幕が最前面になるが、
+          **覆う側が出ているときは覆われる側を無効化する**(§6.1.5「押しても何も起きないを作らない」)。
+          z-index 0 の位置指定要素は静的な中身より前に来るので、押せなければならない物には
+          z-index 1 を与えて**前面**に出す: 上部設定行 / テンポの操作行 / 録音ボタンと詳細トグル。
+          さらにそれらの箱自身は .tap-through で当たり判定を捨て、中の操作要素だけが受け取る
+          (箱に当たり判定を残すと、箱の**余白**でタップが死ぬ。375×812 の全走査で実測して直した)。
+          モーダル(ScrollPicker・保存確認・テンポシート)は position:fixed の z-index 60 で更に上。 */}
+      {showMetroPanel && (
+        <button
+          type="button"
+          onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+          aria-label="メトロノームの開始/停止"
+          aria-pressed={metronomeOn}
+          disabled={openPicker !== null}
+          className="no-select"
+          style={{
+            position: "absolute", zIndex: 0,
+            top: "calc(-1 * var(--sp-1))",
+            left: "calc(-14px - env(safe-area-inset-left))",
+            right: "calc(-14px - env(safe-area-inset-right))",
+            bottom: 0,
+            background: "transparent", border: "none", padding: 0, cursor: "pointer",
+          }}
+        />
+      )}
+
       {/* 環の下の余白は「可変の中間」側(グラフの marginTop / 操作UIの marginTop)が持つ。
           ここに状態で変わる padding を足すと、それ自体が状態依存の寸法になるので置かない。 */}
       <div style={{ flexShrink: 0 }}>
         <PitchRing note={note} centsOffset={centsOffset} diameter={RING_D_FULL} />
       </div>
 
-      {/* ── 可変の中間 ── flex:1。状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。
-          余った縦スペースはすべてここが吸収するので、上の環も下のアクションも動かない。 */}
-      <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {/* ── 可変の中間 ── 状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。 */}
+      <div style={{ display: "flex", flexDirection: "column" }}>
       {/* メトロノーム。正典「メトロノーム中」の .pend そのもの:
             浅い弧のガイド + 往復する点 → 拍の●(中央固定)と拍子表示 → テンポの − / ♩=n / ＋。
           開始/停止のボタンは無い。**画面のどこをタップしても開始/停止する**(A-1)。
@@ -5567,6 +5715,12 @@ function MeasureView(props) {
       )}
 
       </div>{/* /可変の中間 */}
+      </div>{/* /チューナーの帯(背面レイヤの範囲) */}
+
+      {/* ── 余りを吸収するスペーサー ── 以前は「可変の中間」が flex:1 で兼ねていた役。
+          F-74 で背面レイヤの下端を**テンポ操作行の下端**に合わせるため、余りの吸収だけを
+          ここへ分離した。中身は持たないので、環・録音ボタン・詳細トグルの位置は変わらない。 */}
+      <div style={{ flex: "1 1 auto", minHeight: 0 }} />
 
       {/* ── 下端に固定 ── 録音ボタン・経過時間・詳細トグル。枠の高さが measureMinH で固定なので
           これらの top は状態が変わっても動かない。
@@ -5582,10 +5736,15 @@ function MeasureView(props) {
           文字を持たないので名前は aria-label が担う。状態は aria-pressed(トグル)。
           【影は持たない】本人指示(F-50)。box-shadow は外形寸法を変えない(実測で確認)。 */}
       <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
+        {/* 【F-73】ピッカーを開いている間は無効化する。本人報告「録音ボタンも選択肢提示中に
+            有効になっている。選択肢提示中は他と同様に裏面でよい」。ピッカーは position:fixed の
+            z-index 60 で最前面に出したが、無効化も併せて行う(§6.1.5「押しても何も起きないを作らない」の
+            逆側 = 覆われている側は無反応ではなく disabled にする)。 */}
         <button
           onClick={toggleRecording}
           aria-label={isRecording ? "録音を停止" : "録音する"}
           aria-pressed={isRecording}
+          disabled={openPicker !== null}
           className="sans"
           style={{ width: 68, height: 68, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--c-surface)", border: "1.5px solid var(--c-line-strong)", padding: 0, cursor: "pointer" }}
         >
@@ -5612,17 +5771,18 @@ function MeasureView(props) {
 
       {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・目安を1枚の折りたたみカードにまとめ、
           画面の一番下(録音ボタンより下)に置く。 */}
-      {/* 【A型 = index.css の .ctl-state + .ctl-pill】開/閉という**状態を持つ**ので枠線を残し、
-          地は透明にする(以前は枠 #D9E1EC と地 #F3F6FA を両方持っていて重かった)。
-          開いているかどうかは枠線の色(--c-line-strong → --c-accent)と山形の向きが返す。
-          状態は aria-expanded が持つ。 */}
+      {/* 【F-75 で枠線を撤去】本人指示(2026/08/12・実機)「詳細タブも枠線を作る必要はない」。
+          A型 .ctl-state + .ctl-pill(枠線 --c-line-strong / 開くと --c-accent)を外した。
+          正典 design/north-star-measure.html の .chevbtn も**素の山形1つ**で枠を持たない。
+          開いているかどうかは**山形の向き**が返し、状態は aria-expanded が持つ。
+          枠は `1px solid transparent` で場所だけ残す(DESIGN-SYSTEM §6.7)。border:0 にすると
+          高さが 44 → 42 になり、§5 のタップ領域 44px を割る(機能側の規定なので §6.0 でも有効)。 */}
       <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
         <button
           onClick={() => setDetailOpen((v) => !v)}
           aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
           aria-expanded={detailOpen}
-          className="ctl-state ctl-pill"
-          style={{ width: 200, maxWidth: "72%", padding: "9px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 200, maxWidth: "72%", padding: "9px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "1px solid transparent" }}
         >
           {detailOpen
             ? <ChevronUp size={24} color="#174585" strokeWidth={2.5} />
@@ -5640,7 +5800,15 @@ function MeasureView(props) {
           そのまま自分でタップを受け取る。 */}
       {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
-          <div className="card">
+          {/* 【F-75 で上辺の罫を撤去】本人指示(2026/08/12・実機)「詳細タブも枠線を作る必要はない」。
+              計測タブは罫の作法(.surf-rule)なので .card は上辺に --c-rule の罫1本を持つ。
+              罫を消すのに .card 自身へインラインで書くと作法が丸ごと効かなくなるので、
+              DESIGN-SYSTEM §6.6 が用意している逃げ道 = **`.card` という文字列を含まない
+              別名クラス .no-top-rule** を使う(既存の規則。乱用しないための「本人が明示した箇所だけ」に
+              この1件が加わって計3箇所)。地・padding などは .surf-rule .card のまま生きる。
+              **正典 design/north-star-measure.html の .detail は border-top を持っている**が、
+              本人の実機指示が正典より上位(F-77 と同じ扱い)。 */}
+          <div className="card no-top-rule">
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
               <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 目安）</span>
               <div className="sans" style={{ display: "flex", gap: 10, fontSize: 12, color: "#435266" }}>
@@ -5719,8 +5887,17 @@ function MeasureView(props) {
                        <button> ではなく <div> のままなのは、行の中に削除の <button> を抱えているため
                        (button の入れ子は作れない)。状態は aria-pressed が持つ。
                        角丸のインライン(4px)も外す。型がクラスで角丸まで決めるので(A型 = --r-sm 8px)、
-                       インラインで書き戻すと型が効かなくなる(17.6 の検査が落ちる)。 */
-                    <div key={p.id} onClick={() => setSelectedIdealId(p.id)}
+                       インラインで書き戻すと型が効かなくなる(17.6 の検査が落ちる)。
+
+                       【F-76】**選択中の行をもう一度タップすると選択を解除する。**
+                       本人指示(2026/08/12・実機)「選択中のものを解除するには他の目安をタップするか
+                       削除するしか今は選択肢がない。選択中の目安をタップで目安設定を解除できるように」。
+                       解除後は「目安未設定」= selectedIdealId が null の状態に戻る
+                       (削除で選択中の目安が消えたときと同じ状態。deleteIdealProfile 参照)。
+                       比較の破線・「目安: n」の表示は selectedIdeal / currentNoteIdeal が null に
+                       なることで自動的に消える(表示側に分岐を足さない)。
+                       削除(ゴミ箱)の挙動は変えていない。 */
+                    <div key={p.id} onClick={() => setSelectedIdealId((cur) => (cur === p.id ? null : p.id))}
                       aria-pressed={selectedIdealId === p.id}
                       className="ctl-state"
                       style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", cursor: "pointer" }}>
@@ -5743,6 +5920,35 @@ function MeasureView(props) {
             F-48 の要件は「メトロノームのアイコンを覆わない」で、覆うと押せなくなるのが理由。
             バッジそのものが無くなったので、覆う経路が構造的に消えた。
           ・アップロードの進捗・タップ要求・完了通知 → データタブへ移設した(C-2)。 */}
+
+      {/* 【F-73 でここへ移した】楽器種別・基準ピッチのスクロールピッカー。
+          本人報告(2026/08/12・実機)「サックス種別とHzを押すと選択肢は出てくるが、
+          **メトロノームの開始/停止が優先されて動かない**」「録音ボタンも選択肢提示中に
+          有効になっている。選択肢提示中は他と同様に裏面でよい」。
+          原因は**置き場所**だった: 以前は上部設定行(.tap-through = pointer-events:none / z-index 1)の
+          **中**に置いていたので、
+            (a) 暗幕もピッカーの行も pointer-events を継承して none になり、
+                タップがそのまま背面レイヤ(メトロノームの開始/停止)へ抜けていた
+            (b) 上部設定行(z-index 1)より後ろの兄弟である録音ボタンの塊(z-index 1)が
+                ピッカーより手前に描かれ、暗幕の上から押せていた
+          テンポシートと同じ場所(画面ぶんの枠の**外**・position:fixed の z-index 60)へ出すと、
+          どちらも構造的に起きない。**併せて背面レイヤと録音ボタンを disabled にする**
+          (§6.1.5「押しても何も起きないを作らない」)。
+          ピッカー自体の作法(止まった位置で即確定・暗幕タップ / Esc で閉じる)は変えていない。 */}
+      {openPicker === "tuning" && (
+        <ScrollPicker
+          options={TUNING_HZ_OPTIONS} value={tuningHz}
+          onChange={setTuningHz} onClose={() => setOpenPicker(null)}
+          labelFn={(hz) => `${hz} Hz`}
+        />
+      )}
+      {openPicker === "sax" && (
+        <ScrollPicker
+          options={SAX_TYPE_OPTIONS} value={saxType}
+          onChange={setSaxType} onClose={() => setOpenPicker(null)}
+          labelFn={(key) => SAX_PRESETS[key]?.label}
+        />
+      )}
 
       {/* 【A-5】テンポシート。テンポ数値のタップで下から開く。正典 = north-star-measure.html の
           「テンポシート」。中身は 大きな −/数値/＋ ・拍子12種 ・1拍の分割 ・(5/8・7/8だけ)拍グループ
@@ -6853,7 +7059,19 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
   );
 }
 
-function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer, setPerformers, disabled }) {
+// 【F-72 の適用範囲】この部品は**共有**で、計測タブの上部設定行と
+// **セッション詳細の識別情報行**の2箇所から呼ばれる。
+// F-72(地と枠を落として ▾ を添える)は**計測タブだけ**の話なので、`bare` で明示的に選ぶ:
+//   bare 無し(既定) … 入力欄の規則そのまま(地 --c-sunken / ネイティブの ▼)。
+//                      セッション詳細はこちら。**N-6 が未着手で、北極星モックは
+//                      この画面を描いていない**ので §6.0 の「モックが勝つ」は及ばず、
+//                      §6.7 の B型(入力欄は地を持つ)が現に有効。隣のリード <select> と
+//                      同じ行に並ぶので、片方だけ作法を変えると1行に2種類の入力欄が混ざる。
+//   bare 指定     … 正典 .set1 の「自分 ▾」。計測タブだけがこちらを渡す。
+// **既定を bare 側にしないこと。** 既定を変えると、次に呼び出しを増やした画面へ
+// 黙って計測タブの作法が漏れる(F-72 の1周目で実際にセッション詳細へ漏れた)。
+// id も呼び出し側から渡す(部品の中に画面名を直書きすると、名前と事実がずれる)。
+function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer, setPerformers, disabled, bare = false, selectId }) {
   const [addingName, setAddingName] = useState("");
   const [isAdding, setIsAdding] = useState(false);
 
@@ -6884,18 +7102,75 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
     );
   }
 
+  if (!bare) {
+    return (
+      /* 既定の見た目。**HEAD のまま一切変えていない**(セッション詳細はここを使う)。
+         地・枠・角丸は index.css の入力欄の規則(B型)が持つ。
+         pointerEvents は既定値そのもの。計測タブの上部設定行は .tap-through(index.css)の
+         中にあり箱ごと当たり判定を捨てているので、入力欄はここで明示的に取り戻す。 */
+      <select
+        value={selectedPerformer}
+        onChange={(e) => { if (e.target.value === "__add__") setIsAdding(true); else setSelectedPerformer(e.target.value); }}
+        disabled={disabled}
+        style={{ pointerEvents: "auto" }}
+      >
+        {options.map((name) => (<option key={name} value={name}>{name}</option>))}
+        <option value="__add__">＋ 名前を入力...</option>
+      </select>
+    );
+  }
+
   return (
-    /* pointerEvents は既定値そのもの。計測タブの上部設定行は .tap-through(index.css)の
-       中にあり箱ごと当たり判定を捨てているので、入力欄はここで明示的に取り戻す。 */
-    <select
-      value={selectedPerformer}
-      onChange={(e) => { if (e.target.value === "__add__") setIsAdding(true); else setSelectedPerformer(e.target.value); }}
-      disabled={disabled}
-      style={{ pointerEvents: "auto" }}
+    /* 【F-72・計測タブだけ】正典 design/north-star-measure.html の .set1 は「自分 ▾」=
+       **地も枠も持たない素のテキスト + ▾**。入力欄の規則(index.css)が付ける地 --c-sunken を
+       落とし、▾ を添える。
+
+       【差し戻し①で作りを変えた: 値をテキストで描き、その上に透明な <select> を重ねる】
+       <select> に値を描かせると、**箱の幅が「いちばん長い option」で決まる**ため
+       (Blink/WebKit 共通の内在サイズ規則。この構造そのものはエンジンに依らない)、
+       値が短いときに ▾ が右へ大きく離れる。375×812 の実測:
+         「自分」の右端 47.0 / ▾ 123.0-131.4 / 「Alto」の左端 141.4
+         → **自分のラベルから 76.0px、隣の Alto から 10.0px** で、近接の原則から
+           ▾ が Alto の記号に見えていた(本人指示「▾ があればタップすれば選択肢が出ると
+           直感的に分かる」を満たさない)。
+         幅の内訳も実測: option が「自分 + ＋名前を入力...」なら 105px、
+         「＋名前を入力...」だけでも 105px、「自分」だけなら 42px。**長い option が幅を決めている。**
+       重ねる形にすると (a) 箱の幅が option に引きずられず、値のすぐ隣に ▾ が来る
+       (b) 枠のどこを押しても **<select> 自身**が押されるので、N-4 の罠5
+       (「label を押して選択リストが開くか」はプラットフォーム依存)を構造ごと回避できる。
+       ※ px 値は Chrome 実測。<select> の寸法・タップ時の挙動は
+         LOOP.md「Chrome で判定できない類」なので **iOS Safari は実機待ち**。
+       ※ 透明化は opacity ではなく `color: transparent` を使う。opacity:0 にすると
+         :focus-visible の輪郭まで消えてキーボード操作の焦点が見えなくなる。
+         色で消せることは同じ行のリードの <select>(color で文字色を出し分けている)で確認済み。
+       ※ 近接(「▾ と自分の値の距離 < ▾ と隣の項目の距離」)は Node のハーネスには書けない
+         (書体の字幅が無い)。**検査では縛っていない**。実測値と手順はこのコメントが持つ。 */
+    <label
+      htmlFor={selectId}
+      style={{ pointerEvents: "auto", position: "relative", display: "inline-flex", alignItems: "center", height: TOPSET_PERFORMER_H_PX, flexShrink: 0, cursor: disabled ? "default" : "pointer" }}
     >
-      {options.map((name) => (<option key={name} value={name}>{name}</option>))}
-      <option value="__add__">＋ 名前を入力...</option>
-    </select>
+      {/* 見えている値。色は <select> が持っていたのと同じ --c-ink(見た目は変えない)。
+          【幅の上限は**持たせない**。理由を書く】リード枠(maxWidth 110 / 60)と違い、
+          ここは枠の中に続く要素が ▾ しか無く、上限が無ければ箱の幅は値そのものになる。
+          flex の項目は重ならないので、名前が長いときは行が伸びて
+          上部設定行の overflowX:auto で横スクロールするだけ(隣の Alto・442Hz を押すが重ならない)。
+          HEAD も <select> の固有幅が最長 option で決まっていたので同じ伸び方をしていた = 退行ではない。
+          **上限を付けるなら「何 px か」を決める必要があり、それは本人の決めごと**なので、
+          発明せずに現状(上限なし)を維持する。
+          overflow / textOverflow は上限を持ったときに効くよう入れてある(今は無効)。 */}
+      <span style={{ color: "var(--c-ink)", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{selectedPerformer}</span>
+      <PickChevron />
+      <select
+        id={selectId}
+        value={selectedPerformer}
+        onChange={(e) => { if (e.target.value === "__add__") setIsAdding(true); else setSelectedPerformer(e.target.value); }}
+        disabled={disabled}
+        style={{ pointerEvents: "auto", position: "absolute", left: 0, top: 0, width: "100%", height: "100%", padding: 0, color: "transparent", background: "none", appearance: "none", WebkitAppearance: "none", cursor: disabled ? "default" : "pointer" }}
+      >
+        {options.map((name) => (<option key={name} value={name}>{name}</option>))}
+        <option value="__add__">＋ 名前を入力...</option>
+      </select>
+    </label>
   );
 }
 
