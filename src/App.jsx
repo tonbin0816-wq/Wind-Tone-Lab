@@ -1231,6 +1231,38 @@ function reedPosition(reed, reeds) {
   return idx >= 0 ? idx + 1 : null;
 }
 
+// 【N-4a】計測タブの上部設定行で使う、箱の短い表記。「Vandoren V16」+「3.0」→「V16-3」。
+// 本人指示「要素は最小限にしたいので V16-3 #4 の形に」。
+//
+// 短縮は**銘柄の最後の語**(=型番。"Vandoren V16" の "V16"、"D'Addario Select" の "Select")を採る。
+// ただし登録済みの銘柄の中で最後の語が衝突する場合(例: "Vandoren Java" と "Marca Java")は、
+// **その銘柄だけ**フルの銘柄名に戻す。衝突しているのに同じ表記になると、どの箱を選んでいるのか
+// 画面から判別できなくなるため。判定は「いま登録されている銘柄の集合」に対して行うので、
+// 銘柄が増えて衝突が生まれた時点で自動的にフル表記へ切り替わる。
+// 番手は末尾の ".0" だけ落とす("3.0"→"3" / "2.5"→"2.5")。
+function shortBoxLabel(brand, strength, allBrands) {
+  const b = String(brand ?? "").trim();
+  if (!b) return String(strength ?? "");
+  const last = b.split(/\s+/).pop();
+  const collides = (allBrands || []).some((other) => {
+    const o = String(other ?? "").trim();
+    return o && o !== b && o.split(/\s+/).pop() === last;
+  });
+  const head = collides ? b : last;
+  const s = String(strength ?? "").replace(/\.0$/, "");
+  return s ? `${head}-${s}` : head;
+}
+
+// 【N-4b / B-2】録音の経過時間 m:ss。正典の .rectime(赤点 + 1:24)の表記。
+// 秒は必ず2桁ゼロ埋め、分は桁上がりしても切らない(60分を超えたら 60:00 と出す)。
+// 負値・非数は 0:00 に落とす(実時計の巻き戻りで "-1:59" のような表示を作らない)。
+function formatElapsedMs(ms) {
+  const total = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 // 一覧に生のISO文字列("2026-07-31")を出さないための表示用フォーマッタ。
 // 【N-2 表記統一】表示用の日付はこの1関数に寄せ、yyyy/mm/dd(ゼロ埋め)に統一する。
 // 時刻が付く場所は { time: true } で yyyy/mm/dd hh:mm。
@@ -1990,6 +2022,11 @@ const MIC_RECOVER_COOLDOWN_MS = 5000;
 const MIC_RETRY_TAP_COOLDOWN_MS = 1000;
 // 復旧に失敗したときにユーザーへ出す文言(タップで再試行できることを明示する)
 const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした。画面をタップしてください";
+// **計測タブでしか意味を持たない案内**。「画面をタップしてください」に応えるジェスチャー経路は
+// 計測タブ限定(onGesture の topTab !== "measure" で return)なので、他のタブで出すと
+// 指示どおりタップしても何も起きない。エラーモーダルはこの集合だけをタブで出し分ける。
+// アップロード由来のエラー(無音ファイル等)はここに入れない=データタブでも出る。
+const ERROR_MEASURE_ONLY = [MIC_RECOVER_FAILED_MSG];
 
 // iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)側に回すため、メトロノームが極端に
 // 小さく聞こえる。setSinkId は iOS Safari 未実装、AVAudioSessionCategoryOptionDefaultToSpeaker は
@@ -3216,7 +3253,16 @@ export default function WindToneLabPhaseMode() {
           §6.1.5: 計測タブでモーダルを垂直中央に置くと環と必ず重なる)。この要素は既に
           MeasureView 呼び出しより前・SwipeBackArea/SwipePager の外にあるので createPortal は
           使わない(pendingSession モーダルも同じ理由でポータルしていないことを確認済み)。 */}
-      {errorMsg && topTab === "measure" && (
+      {/* 【C-2 + 審査②の修正】アップロードの入口をデータタブへ移したので、
+          無音ファイルのエラー(handleUploadFile → setErrorMsg)はデータタブでも出す必要がある。
+          ただし**タブで広げてはいけない**。MIC_RECOVER_FAILED_MSG は
+          「マイクを再接続できませんでした。画面をタップしてください」と**行動を指示する**が、
+          その指示に応えるジェスチャー経路(このファイルの onGesture)は
+          `if (topTab !== "measure" …) return;` で**計測タブ限定**。データタブで出すと、
+          指示どおりタップしても復旧処理が1行も走らない=嘘の案内になる(審査役がスクショで確認)。
+          → **タブではなくメッセージの種類で出し分ける。**
+          計測タブ: すべてのエラーを出す / データタブ: 計測タブでしか意味を持たない案内だけ出さない。 */}
+      {errorMsg && (topTab === "measure" || (topTab === "analysis" && !ERROR_MEASURE_ONLY.includes(errorMsg))) && (
         <div
           role="dialog" aria-modal="true" aria-label="エラー"
           onClick={() => setErrorMsg("")}
@@ -3257,11 +3303,7 @@ export default function WindToneLabPhaseMode() {
           scheduledClicksRef={scheduledClicksRef} metroActiveRef={metroActiveRef} metroBarPerfTimesRef={metroBarPerfTimesRef}
           requestWakeLock={requestWakeLock} releaseWakeLock={releaseWakeLock}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
-          promoteSessionToIdeal={promoteSessionToIdeal} sessions={sessions}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
-          handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
-          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession} setLastUploadedSession={setLastUploadedSession}
-          uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
         </div>
       )}
@@ -3279,6 +3321,11 @@ export default function WindToneLabPhaseMode() {
           pivotCol={pivotCol} setPivotCol={setPivotCol}
           pivotMetric={pivotMetric} setPivotMetric={setPivotMetric}
           pivotFilters={pivotFilters} setPivotFilters={setPivotFilters}
+          /* 【C-1/C-2 で移設】録音のアップロードはデータタブで完結させる(正典)。
+             解析処理・エラーモーダルの配線はそのまま流用し、入口と告知だけを移した。 */
+          handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
+          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession} setLastUploadedSession={setLastUploadedSession}
+          uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
         </div>
       )}
@@ -3333,10 +3380,15 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
     },
   ];
   return (
+    /* 【B-1】録音中は下部タブを淡くする(正典の「演奏中」は下部タブ全体が opacity .35)。
+       演奏中は「今の音」だけを読む場面なので、周辺を一段落として主役を立てる。
+       タブそのものは従来どおり disabled のままで、機能は何も変えていない。
+       帯全体に1つだけ掛けるので、選択中/非選択の濃淡の差は淡くしても保たれる。 */
     <div style={{
       position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
+      opacity: isRecording ? 0.35 : 1,
     }}>
       {/* アイコンのみの1行。ラベルを廃してタブ帯の縦幅を小さくする(演奏中の画面領域を広く取るため) */}
       <div style={{ maxWidth: 480, margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
@@ -3353,7 +3405,9 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                 background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
-                color, opacity: isRecording && !active ? 0.4 : 1,
+                /* 【B-1】録音中の淡さは帯(親)に1回だけ掛ける。ここで重ねて掛けると
+                   0.35 × 0.4 = 0.14 になり、正典の .35 より2段暗くなる。 */
+                color,
               }}
             >
               {t.icon(color)}
@@ -3435,7 +3489,7 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 // 計測タブの「これまでの音」ミニタイムライン。SessionDetailView等で使う履歴振り返り用の
 // PhraseTimeline(スクラブ・ドリルダウンつき)とは別物として実装する: こちらは直近30秒の
 // 理論値(運指テーブル)からのピッチ偏差(セント)をそのまま折れ線で表す。縦軸はメーターと
-// 揃えて-50¢〜+50¢に固定し、±10¢の良好ゾーンを帯で示す。
+// 揃えて-50¢〜+50¢に固定する。**±10¢ の良好ゾーンの帯は N-4a で撤去した**(本人判定)。
 const RECENT_NOTES_WINDOW_SEC = 30;
 const RECENT_NOTES_RANGE_CENTS = 25;
 
@@ -3453,7 +3507,6 @@ function PitchDeviationLine({ frames, quiet = false }) {
     const clamped = Math.max(-RECENT_NOTES_RANGE_CENTS, Math.min(RECENT_NOTES_RANGE_CENTS, cents));
     return H / 2 - (clamped / RECENT_NOTES_RANGE_CENTS) * (H / 2 - 6);
   };
-  const goodTop = y(10), goodBottom = y(-10);
 
   // 無音判定: pitchCentsがnull(=発音判定がfalseだったフレーム。メーターと同じ音量フロア判定で
   // 決まる)。無音は中央(0¢)に落とし、線は途切れず中央ライン上に留まる。
@@ -3513,7 +3566,9 @@ function PitchDeviationLine({ frames, quiet = false }) {
         {/* グラフ本体 */}
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
           <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
-            <rect x="0" y={goodTop} width={W} height={goodBottom - goodTop} fill="#E8F6ED" />
+            {/* 【N-4a で撤去】±10¢ の良好ゾーンの帯。本人判定「真ん中の緑の帯は役目を
+                果たしていない」。DESIGN-SYSTEM §6.0「説明を消して形に語らせる」に従い、
+                残すのは 0¢ の基準線と音名ラベルだけ。ゾーンの範囲は環の色が返している。 */}
             <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
             {points && <polyline fill="none" stroke="#8D95A1" strokeWidth="2.5"
               strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
@@ -3704,27 +3759,21 @@ function MetronomeIcon({ color, size = 20 }) {
   );
 }
 
-// 「1拍の分割」を音符アイコンで表す。1=四分音符 / 2=八分音符2つ / 3=三連符 / 4=十六分音符4つ。
-// 分割ボタン(現在の選択表示)と分割選択パネルの両方で共通利用する。
-// 拍子を楽譜のように分子/分母を縦に積んで表示する(例: 4/4 → 4 の下に 4)。
-function TimeSigStacked({ sig, fontSize = 18, color = "#174585" }) {
-  const { num, den } = parseMetroSig(sig);
-  return (
-    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 0.9, fontFamily: "var(--font-num)", fontWeight: 700, fontSize, color }}>
-      <span>{num}</span>
-      <span>{den}</span>
-    </span>
-  );
-}
+// 【N-4b で削除】TimeSigStacked(拍子を分子/分母に縦積みして見せる部品)。
+// 唯一の呼び出し元だった「拍子パネルを開くボタン」が無くなり、参照0件になった。
+// 正典では拍子は**拍の●の左に 4/4 の1行**で出す(MetroPendulum)。
 
+// 【N-4b】3連符は「3」の**文字を書かない**(本人指示。正典のシートも数字を持たない)。
+// 旗を1本の桁でつないだ8分音符×3 = 3連符、という譜面そのものの形で見せる。
+// 2つ(♫)・4つ(♬)との違いは音符の数と桁の本数で読める。
 function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
   const cfg = {
-    1: { n: 1, beams: 0, triplet: false },
-    2: { n: 2, beams: 1, triplet: false },
-    3: { n: 3, beams: 1, triplet: true },
-    4: { n: 4, beams: 2, triplet: false },
-  }[value] || { n: 1, beams: 0, triplet: false };
-  const { n, beams, triplet } = cfg;
+    1: { n: 1, beams: 0 },
+    2: { n: 2, beams: 1 },
+    3: { n: 3, beams: 1 },
+    4: { n: 4, beams: 2 },
+  }[value] || { n: 1, beams: 0 };
+  const { n, beams } = cfg;
   const W = 32, H = 24;
   const yHead = 17, yBeam = 5, headRx = 3.6, headRy = 2.7;
   const xs = n === 1 ? [13] : Array.from({ length: n }, (_, i) => 6 + (20 * i) / (n - 1));
@@ -3742,9 +3791,6 @@ function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
       )}
       {beams >= 2 && n >= 2 && (
         <line x1={stemX(xs[0])} y1={yBeam + 4} x2={stemX(xs[n - 1])} y2={yBeam + 4} stroke={color} strokeWidth={2.6} />
-      )}
-      {triplet && (
-        <text x={(stemX(xs[0]) + stemX(xs[n - 1])) / 2} y={3.4} textAnchor="middle" fontSize="8" fontWeight="700" fill={color} fontFamily="var(--font-num)">3</text>
       )}
     </svg>
   );
@@ -3879,11 +3925,10 @@ function pitchBarColorRGB(cents) {
 // 小節頭だけを強調していたため、偶数拍子では cos(π×通算拍) が必ず同じ端に来て
 // 片側でしか光らなかった。
 //
-// DESIGN-SYSTEM §6.1 は「ピッチマーカーと拍の要素が**実寸で**最低6 CSS px 離れること」を
-// 要件にしている。viewBox単位ではなく実寸で見るのが要点(330px環では viewBox 1単位が
-// 1.1 CSS px)。ここでは軌道半径・錘の大きさを「設計値として素直に決め」、要件を満たすかは
-// scripts/pitch-test.mjs が**独立に実寸で計算して**検証する。定数の定義から要件を逆算すると
-// テストが恒等式になって何も守らなくなるため、その形にはしない。
+// 【N-4b】環はピッチ専用になった。拍(振り子・●列)は環の外・下に置く(正典)。
+// かつてここには「ピッチマーカーと拍の要素が実寸で最低6 CSS px 離れること」という
+// 要件があったが、環の中に拍の要素が無くなったので測る相手そのものが消えた。
+// 検証は「PitchRing の中に拍の描画が1つも無いこと」に置き換えている(pitch-test.mjs)。
 // ============================================================
 const RING_MAX_CENTS = 50;     // 環の端に対応するセント差
 const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上弧)
@@ -3891,9 +3936,9 @@ const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上�
 // 【この定数を見ている箇所】(1) 到達の判定 inTune = 走りの発火・帯の抑制・セント値の呼吸
 // (2) 外周の光の「合った」側の境界(RING_GLOW_NEAR_CENTS までの帯の起点)。他に閾値の直書きは無い。
 const RING_IN_TUNE_CENTS = 2;
-// DESIGN-SYSTEM §6.1 が定めるピッチマーカーと拍の要素の最小距離(実寸・CSS px)。
-// 振り子の軌道半径と錘の大きさは、この値を満たすように選んである。
-const RING_MARKER_MIN_GAP_PX = 6;
+// 【撤去】RING_MARKER_MIN_GAP_PX(ピッチマーカーと拍の要素の最小距離)。
+// N-4b で拍の描画を環の外へ出したため、環の中に「拍の要素」が1つも無くなり、
+// 距離を測る相手がいなくなった。**環はピッチ専用**という、より強い形で置き換わっている。
 // 環の形状。viewBoxは300固定で、実寸はCSSの幅で追従させる。
 // rAFでDOMを直接書き換える拍マーカーからも参照するためモジュール定数として持つ。
 // (テストハーネスが1つずつ抽出するため、まとめて宣言せず1行1定数にする)
@@ -3914,23 +3959,32 @@ const RING_SW = 14;
 // 縦スペースはメトロノームを開いている間だけ「これまでの音」を隠して捻出する。
 const RING_D_FULL = 330;       // 環の直径(常にこの値)
 
-// --- 音名の組み方(design/DESIGN-SYSTEM.md §4.2/§4.3 で確定) ---
-// 音名のサイズは環の直径に比例させる(固定pxにしない)。環が縮んだときに音名だけ据え置くと
-// 音名と環内周のクリアランスが 55px/辺 → 14px/辺 のように別物になり、同一サーフェス内で
-// 見え方が割れるため。比で持てば環がどの大きさでもクリアランスの比率が保たれる。
-// 環が 330px 固定になったので結果として 330 × 0.3576 = 118px 固定になるが、比の仕組みは残す。
-const NOTE_FS_RATIO = 0.3576;
-// Instrument Serif は既定の送り幅が 0.457em(一般的なserifの64%)と細い。細さ自体は
-// 1m先から読む演奏中サーフェスに合っているが、書体既定のままでは「幅を選んでいない」
-// 見え方になる。そこで横幅を scaleX で明示的に指定する。
-const NOTE_SCALE_X = 1.30;     // 音名の横幅(明示指定)
-// scaleX は要素のレイアウト幅を変えないため、変形後のグリフが左右に (1.30-1)/2 = 15%
-// はみ出す。隣の臨時記号と重ならないよう、送り幅 0.457em の15%分を左右marginで補う。
-const NOTE_SCALE_PAD_EM = 0.457 * (NOTE_SCALE_X - 1) / 2;
+// --- 音名の組み方 ---
+// 【N-4c】サイズは**正典 design/north-star-measure.html の実寸**をそのまま採る
+// (DESIGN-SYSTEM §6.0: 見た目についてはモックが唯一の正典。§4.2 の比率計算より優先)。
+//   .note      148px   .note .oct  44px   .cents  21px(margin-top 10px)
+// 以前は「環の直径 × NOTE_FS_RATIO(0.3576) = 118px」と比で持っていた。環は 330px 固定なので
+// 比の仕組みは結果を1つに固定するだけになっており、モックの実寸に置き換えても
+// 「環が縮んだときに崩れる」という当時の懸念は起きない(環は縮まない)。
+const NOTE_FS_PX = 148;        // 正典 .note
+const NOTE_OCT_PX = 44;        // 正典 .note .oct
+const NOTE_CENTS_PX = 21;      // 正典 .cents
+const NOTE_CENTS_GAP_PX = 10;  // 正典 .cents の margin-top
+// 【N-4c で撤去】NOTE_SCALE_X(1.30)と NOTE_SCALE_PAD_EM(§4.2 の「横幅を scaleX(1.30) で
+// 明示する」)。**撤去の理由は1つだけ: 正典 design/north-star-measure.html の .note が
+// transform を持たないから**(DESIGN-SYSTEM §6.0「見た目についてはモックが唯一の正典」)。
+//
+// 【以前ここに書いていた数値は取り消した】「148px では G♯3 の余白が 1.41px まで詰まる /
+// 外すと 17.83px」と書いていたが、**測り方が誤っていた**(行の箱=em 全高の角で測っており、
+// 実際のグリフの角ではなかった)。審査役の実測では scaleX を掛けたままでも
+// G♯3 で 17.04px あり、§4.2 の要件 14.8px を割らない。**掛けても要件は満たせる。**
+// クリアランスを縛る検査はハーネスに書けない(Node に書体の字幅が無い)。
+// **書いていない検査を「縛っている」と書かないこと**(LOOP.md / F-39)。
+// pitch-test が縛っているのは「transform を掛けていない」という**構造**だけ。
 // 臨時記号(♯/♭)は音名に付属する記号。本体と近いサイズだと主従が逆転して見えるため
 // 明確に小さくする。横幅の指定は本体だけに掛け、記号には掛けない。
+// モックの計測タブは臨時記号のある音(G♯ 等)を描いていないので、比は §4.2 のまま残す。
 const NOTE_ACC_RATIO = 0.34;   // 臨時記号 = 音名の34%
-const NOTE_OCT_RATIO = 0.31;   // オクターブ数字 = 音名の31%
 
 // 12時を0として時計回りに測った角度(度) → SVG座標
 function ringPoint(deg, r, cx, cy) {
@@ -3938,32 +3992,49 @@ function ringPoint(deg, r, cx, cy) {
   return [cx + Math.cos(rad) * r, cy + Math.sin(rad) * r];
 }
 
-// --- 上半円: 振り子(予測を担う) ---
-// 【RING_PEND_R を上げる / 錘・輪を大きくすると、ピッチマーカーとの距離が縮む。】
-// 要件(RING_MARKER_MIN_GAP_PX)を割ったら pitch-test.mjs が実寸で検証して落ちる。
-// 軌道半径は要件を満たす最大の整数値。基準は**環の帯の内縁 r=129**(以前は帯の先端に
-// 半径10の点を置いていたため内縁126で測っていたが、その点は削除した)。
-// 到達時は帯が全周を覆うので、拍の要素はどの角度でも帯の内縁より内側にいる必要がある。
-const RING_PEND_R = 94;             // 錘の軌道半径
+// --- 振り子(N-4b で環の外へ出した) ---
+//
+// 【なぜ環から出したか】正典 design/north-star-measure.html の「メトロノーム中」は、
+// 環をピッチ専用のまま残し、拍は**環の下**に「浅い弧のガイド1本 + 点1つ」と
+// 「拍の●列」として置く(本人確定 2026/08/11)。DESIGN-SYSTEM §6.0 は
+// 「本節と他節が矛盾する場合、目標状態としては本節が勝つ / 置き換えは画面単位」と定めており、
+// §6.1 の「環の二役(上半円=振り子 / 下半円=拍の点)」はこの画面の置き換えで役目を終える。
+// 環は**ピッチ専用**になったので、帯と拍が場所を争う問題そのものが無くなった。
+// 【撤去した定数】RING_PEND_R / RING_PEND_BOB_* / RING_PEND_HALO_* /
+// RING_BEAT_DOT_ORBIT_R / RING_BEAT_DOT_SPREAD_DEG / RING_BEAT_DOT_* / RING_MARKER_MIN_GAP_PX。
+// いずれも「環の中に拍を描く」ための値で、参照0件になったため残さない。
+//
+// 【ガイドの弧は正典で復活した】以前「軌道のガイド線は描かない」という本人指示で消していたが、
+// 確定版の正典は浅い弧を1本描いている。錘(大きな円)を細い点に落としたぶん、
+// 点だけでは往復の道筋が読めないため。**新しい指示が古い指示を上書きしている。**
 const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍の瞬間が両端になる
-// 【削除済み】RING_PEND_ARC_SW / ringPendArcD / RING_PEND_ARC_D(軌道のガイド線)
-// 錘の往復する道筋を薄い弧で下敷きに描いていたが、本人指示で削除した。
-// 環は「上弧=ピッチ / 下弧=拍」の二役を持つ演奏中サーフェスで、読ませる線を増やさない
-// ほうが良い(DESIGN-SYSTEM §6.1)。錘が動けば軌道は見えるので、線は情報を足していなかった。
-const RING_PEND_BOB_R = 14;         // 錘の基本半径
-const RING_PEND_BOB_GROW = 4;       // 拍の演出での半径の増分
-const RING_PEND_HALO_GAP = 7;       // 錘の外側の輪 = 錘の半径 + この値
-const RING_PEND_HALO_SW = 2;        // 輪の線幅。輪の実際の外縁は r + SW/2 まで届く
-const RING_PEND_HALO_OPACITY = 0.45; // 輪の最大不透明度(演出量 e に比例)
 
-// --- 下半円: 拍の点(今が何拍目かを担う) ---
-const RING_BEAT_DOT_ORBIT_R = 112;  // 点を並べる半径
-const RING_BEAT_DOT_SPREAD_DEG = 60; // 6時(180°)を中心に左右へこの角度
-const RING_BEAT_DOT_R = 4;          // 現在以外の点(--c-accent-line)
-const RING_BEAT_DOT_CUR_R = 6.5;    // 現在の拍(小節頭以外)
-const RING_BEAT_DOT_CUR_GROW = 2;
-const RING_BEAT_DOT_HEAD_R = 8;     // 現在の拍(小節頭)
-const RING_BEAT_DOT_HEAD_GROW = 3;
+// ガイドの弧。正典の <svg width="150" height="26"> と path "M10 8 Q75 30 140 8" そのもの。
+// 実寸で描くので viewBox 1単位 = 1 CSS px(環のように直径で伸縮させない)。
+const METRO_ARC_W = 150;
+const METRO_ARC_H = 26;
+const METRO_ARC_P0 = [10, 8];       // 左端
+const METRO_ARC_C = [75, 30];       // 制御点(浅い弧)
+const METRO_ARC_P2 = [140, 8];      // 右端
+const METRO_ARC_SW = 1.5;           // ガイドの線幅(正典 stroke-width)
+const METRO_DOT_R = 5;              // 往復する点の半径(正典 circle r=5)
+// 小節頭で点が膨らむ最大倍率。正典 .beat.on の transform: scale(1.4) と同じ値を使う
+// (新しい値を発明せず、正典の中にある倍率を1つだけ使い回す)。
+const METRO_DOT_HEAD_SCALE = 1.4;
+
+// --- 拍の●列(今が何拍目かを担う。正典 .beatrow) ---
+const METRO_BEAT_DOT_PX = 7;        // 正典 .beat の 7px(直径)
+const METRO_BEAT_GAP_PX = 12;       // 正典 .beatrow の gap
+// 行の高さは固定する。点が膨らんでも行が伸びないようにするため(DESIGN-SYSTEM §6.1.5)。
+// 最大直径 = 7 × 1.4 = 9.8 なので、それを含む偶数の 16 を箱にする。
+const METRO_BEAT_ROW_H = 16;
+
+// テンポの −/＋ の**反応領域**。正典 .pmt の 72×48(DESIGN-SYSTEM §6.0 の予告改訂にも同じ値)。
+// 見た目(46×46 のピル)と文字サイズは据え置きで、当たり判定だけをこの大きさにする
+// (DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+// テンポ数値の箱も同じ幅にして、桁が変わっても ± が動かないようにする(§6.1.5)。
+const METRO_PM_W = 72;
+const METRO_PM_H = 48;
 
 // --- 拍の演出(毎拍・両端で出す) ---
 const RING_BEAT_EMPH_DECAY = 2.2;   // 拍内位相 × これ を 1 から引く
@@ -4291,14 +4362,54 @@ function ringPendSettleDeg(fromDeg, beatDurSec, elapsedSec) {
   if (!(beatDurSec > 0)) return 0;
   return fromDeg * Math.exp(-elapsedSec / beatDurSec) * Math.cos((Math.PI / beatDurSec) * elapsedSec);
 }
+// 角度1度あたり、弧の上の点が何 CSS px 動くか。
+// 角度→弧のパラメータ t の写像は線形(下の metroPendT)なので dt/ddeg = 1/(2×振れ角)。
+// 【事実の訂正】以前ここに「2次ベジエの速さは弧の中央(t=0.5)で**最大**」と書いていたが、
+// これは**逆**だった。B'(t) = 2[(1−t)(C−P0) + t(P2−C)] で C−P0=(65,22) / P2−C=(65,−22) なので
+//   |B'(0)| = |B'(1)| = 2√(65²+22²) = 137.244  … 端が最大
+//   |B'(0.5)| = |P2 − P0| = 130                … 中央が最小
+// **値(130)は変えていない。変えたのは理由の書き方。** この定数の唯一の用途は
+// ringPendSettleDone の「これ以上動いても toFixed(2) の文字列が変わらないか」の判定で、
+// 戻りの終盤は角度が0の近傍 = **弧の中央の近傍**にしか行かない(角度 → t の写像は
+// t = 0.5 + deg/(2×振れ角) なので deg→0 は t→0.5)。判定に効くのは中央での速さであって
+// 端での速さではないので、130 が正しい。端の 137.244 を使うと、中央付近では絶対に
+// 到達しない速さで見積もることになり、必要より長く回し続ける。
+const METRO_ARC_PX_PER_DEG = (METRO_ARC_P2[0] - METRO_ARC_P0[0]) / (2 * RING_PEND_SWING_DEG);
+
 // 戻りきったか。**包絡(振幅)だけ**を見る(cos は途中で何度も0を通るので角度では判定できない)。
-// しきい値は描画の丸め。錘の座標は toFixed(2) で書くので、軌道半径 RING_PEND_R に対する
-// 変位がこれ未満になれば、以後どう動いても属性の文字列は変わらない=静止と区別できない。
-const RING_PEND_SETTLE_EPS_VB = 0.005; // toFixed(2) の丸め幅(viewBox単位)。設計値ではなく描画の精度
+// しきい値は描画の丸め。点の座標は toFixed(2) で書くので、変位がこれ未満になれば
+// 以後どう動いても属性の文字列は変わらない=静止と区別できない。
+const RING_PEND_SETTLE_EPS_VB = 0.005; // toFixed(2) の丸め幅(弧は実寸なので CSS px と同じ)
 function ringPendSettleDone(fromDeg, beatDurSec, elapsedSec) {
   if (!(beatDurSec > 0)) return true;
   const envelope = Math.abs(fromDeg) * Math.exp(-elapsedSec / beatDurSec);
-  return envelope * (Math.PI / 180) * RING_PEND_R < RING_PEND_SETTLE_EPS_VB;
+  return envelope * METRO_ARC_PX_PER_DEG < RING_PEND_SETTLE_EPS_VB;
+}
+
+// 角度(12時=0とした度・時計回りが正) → ガイドの弧のパラメータ t∈[0,1]。
+// 左端(−振れ角)=0 / 中央(0°)=0.5 / 右端(+振れ角)=1。
+// 角度が正のとき右へ行くのは、環に描いていた頃の錘の向き(時計回りが右)と同じ。
+// 角度の写像そのもの(ringPendDeg / ringPendSettleDeg)は環の時代から一切変えていないので、
+// 「拍の瞬間が両端」も「停止後は中央へ減衰しながら戻る(F-51)」もそのまま成立する。
+function metroPendT(deg) {
+  const t = 0.5 + deg / (2 * RING_PEND_SWING_DEG);
+  return Math.max(0, Math.min(1, t));
+}
+
+// ガイドの弧(2次ベジエ)の上の点。正典 path "M10 8 Q75 30 140 8" と同じ制御点を使う。
+function metroArcPoint(t) {
+  const u = 1 - t;
+  return [
+    u * u * METRO_ARC_P0[0] + 2 * u * t * METRO_ARC_C[0] + t * t * METRO_ARC_P2[0],
+    u * u * METRO_ARC_P0[1] + 2 * u * t * METRO_ARC_C[1] + t * t * METRO_ARC_P2[1],
+  ];
+}
+
+// 往復する点の半径。**小節頭のときだけ**演出量 e に比例して膨らむ(本人指示「1拍目は点が大きくなる」)。
+// アクセントOFF のときは ringBeatIsHead が false を返すので膨らみも出ない
+// (鳴っていないアクセントを視覚だけが主張しない。DESIGN-SYSTEM §6.1 と同じ扱い)。
+function metroDotR(isHead, e) {
+  return METRO_DOT_R * (1 + (METRO_DOT_HEAD_SCALE - 1) * (isHead ? e : 0));
 }
 
 // 拍の演出量(0〜1)。**毎拍・両端で**出す(実際のメトロノームは両端で鳴る)。
@@ -4317,7 +4428,7 @@ function ringBeatEmphasis(phase, beatsPerMeasure, accentOn) {
   return emph * (ringBeatIsHead(phase, beatsPerMeasure, accentOn) ? RING_BEAT_EMPH_HEAD : RING_BEAT_EMPH_OTHER);
 }
 
-// 今が小節の何拍目か(0起点)。停止中・拍子未確定は null。下半円の点はこれで灯る場所を変える。
+// 今が小節の何拍目か(0起点)。停止中・拍子未確定は null。拍の●はこれで灯る場所を変える。
 function ringBeatIndex(phase, beatsPerMeasure) {
   if (phase === null || phase === undefined || !(beatsPerMeasure > 0)) return null;
   const beat = Math.floor(phase);
@@ -4330,34 +4441,30 @@ function ringBeatIsHead(phase, beatsPerMeasure, accentOn) {
   return ringBeatIndex(phase, beatsPerMeasure) === 0;
 }
 
-// 拍の点の角度(12時=0とした度)。6時を中心に ±RING_BEAT_DOT_SPREAD_DEG に、
-// **左から右へ**数える順で並べる(i=0 が左端)。1拍なら6時ちょうど。
-function ringBeatDotDeg(i, n) {
-  if (!(n > 1)) return 180;
-  return (180 + RING_BEAT_DOT_SPREAD_DEG) - ((2 * RING_BEAT_DOT_SPREAD_DEG) / (n - 1)) * i;
+// 拍の●列の幅(CSS px)。●が n 個、間隔 METRO_BEAT_GAP_PX。
+// 列は画面中央に置く(本人指示「拍の●は中央固定」)ので、拍子表示の位置もこの幅から決める。
+function metroBeatRowW(n) {
+  if (!(n > 0)) return 0;
+  return n * METRO_BEAT_DOT_PX + (n - 1) * METRO_BEAT_GAP_PX;
 }
 
-// 拍の点の半径。点は動かず、大きさと色だけが変わる。
-function ringBeatDotR(isCurrent, isHead, e) {
-  if (!isCurrent) return RING_BEAT_DOT_R;
-  return isHead
-    ? RING_BEAT_DOT_HEAD_R + e * RING_BEAT_DOT_HEAD_GROW
-    : RING_BEAT_DOT_CUR_R + e * RING_BEAT_DOT_CUR_GROW;
+// i 番目の●の中心x(列の左端を0としたCSS px)。左から右へ数える。
+function metroBeatDotX(i, n) {
+  if (!(n > 0)) return 0;
+  return i * (METRO_BEAT_DOT_PX + METRO_BEAT_GAP_PX) + METRO_BEAT_DOT_PX / 2;
 }
 
-// getBeatPhase: メトロノームの位相(拍単位の連続値)を返す関数。渡された時だけ環の下弧に
-//   拍マーカーを出す(=メトロノームパネルを開いている時)。位相の計算そのものは
-//   MeasureView の getMetroPhase(クリックのスケジュールと同じ音声時計)をそのまま使う。
-// beatsPerMeasure: 1小節の拍数。位相の整数部(通算拍)をこれで割った余りが0の拍=小節頭。
-// accentOn: メトロノームの「一拍目にアクセントをつける」設定。OFFなら小節頭を強調しない
-//   (鳴っていないアクセントを視覚だけが主張しないように)。
+// ●の半径。**位置は動かさず、大きさと色だけが変わる**(正典 .beat / .beat.on)。
+// 現在の拍だけ scale(1.4)。膨らみのアニメーションは往復する点の側が担うので、
+// ●列は「今が何拍目か」だけを静かに返す(1画面で動く物を増やさない)。
+function metroBeatDotR(isCurrent) {
+  return (METRO_BEAT_DOT_PX / 2) * (isCurrent ? METRO_DOT_HEAD_SCALE : 1);
+}
+
+// 【N-4b】環は**ピッチ専用**になった。拍(振り子・拍の●)は環の外・下の MetroPendulum が描く。
+// 正典 design/north-star-measure.html の「メトロノーム中」がその形(環と共存)。
 // diameter: 環の実寸(直径)。音名のサイズはこれに比例させる(DESIGN-SYSTEM §4.2)。
-// getBeatDur: 1拍(振り子の片道1振り)の秒数を返す関数。停止後の戻りの角振動数・
-//   時定数をここから引く(F-51。新しい値を作らずBPM由来の量だけで決める)。
-// onBeatToggle / beatOn: 錘のタップでメトロノームを開始/停止するための口(F-51)。
-//   渡されたときだけ錘の上に透明な当たり判定(44×44pt以上)を置く。見た目は変えない。
-// settleOnStop: 停止時にゆっくり中央へ戻すか。false なら即座に中央へ。
-function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = null, beatsPerMeasure = 0, accentOn = false, getBeatDur = null, onBeatToggle = null, beatOn = false, settleOnStop = true }) {
+function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const sounding = !!note;
   const rawExact = note ? Math.max(-RING_MAX_CENTS, Math.min(RING_MAX_CENTS, note.centsExact ?? centsOffset)) : 0;
 
@@ -4377,8 +4484,8 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
 
   // viewBoxは300固定。実寸は幅に追従させる(上限が diameter)。
   const VB = RING_VB, CX = RING_CX, CY = RING_CY, R = RING_R, SW = RING_SW;
-  // 音名のサイズは環の直径に比例(固定pxにしない)。臨時記号・オクターブはそこからの比。
-  const noteFs = diameter * NOTE_FS_RATIO;
+  // 【N-4c】音名のサイズは正典の実寸(148px)。臨時記号だけ比で従う。
+  const noteFs = NOTE_FS_PX;
   const deg = (exact / RING_MAX_CENTS) * RING_SWEEP_DEG;
   const [mx, my] = ringPoint(deg, R, CX, CY);
   const [r, g, b] = pitchBarColorRGB(exact);
@@ -4396,7 +4503,8 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
   const accidental = sounding ? note.name.slice(1) : "";
   // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
   // これを明示しないと、文字が無いときに行の高さが0になり、環の内側の寸法が状態で変わる。
-  const NOTE_LINE_H = 0.82;
+  // 行送りは正典の .note の line-height:1 に合わせる(以前は 0.82 で詰めていた)。
+  const NOTE_LINE_H = 1;
   const noteBoxH = noteFs * NOTE_LINE_H;
 
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
@@ -4501,103 +4609,12 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // --- 拍(上半円=振り子 / 下半円=拍の点) ---
-  // 位置は毎フレーム変わるため、Reactの再レンダーを挟まず60fpsでDOMを直接書き換える。
-  // 位相は音声時計そのものなので、拍の瞬間にちょうど振り子の端へ達する。
-  const bobRef = useRef(null);
-  const bobHaloRef = useRef(null);
-  const bobTapRef = useRef(null);
-  const beatDotRefs = useRef([]);
-  // 停止後の戻り(F-51)。rAFループの中だけで進む状態なので ref で持つ。
-  //   lastDegRef  最後に「動いている状態で」描いた角度 = 止まった瞬間の角度
-  //   settleRef   null=まだ入っていない / {from,dur,t0} = 減衰中 / {done:true} = 戻りきった
-  const lastDegRef = useRef(0);
-  const settleRef = useRef(null);
-  // 毎レンダー最新値をrefへ。ループの依存に足すと、録音の開始/停止でrAFが張り直しになる。
-  const settleOnStopRef = useRef(settleOnStop);
-  settleOnStopRef.current = settleOnStop;
-  const getBeatDurRef = useRef(getBeatDur);
-  getBeatDurRef.current = getBeatDur;
-  // 点の数は拍子で決まる(位置は固定・灯る場所だけが変わる)。
-  const dotCount = getBeatPhase && beatsPerMeasure > 0 ? beatsPerMeasure : 0;
-  useEffect(() => {
-    if (!getBeatPhase) return undefined;
-    // 動きを減らす設定。属性をrAFで直接書き換えるぶんはCSSの
-    // @media (prefers-reduced-motion) が効かないので、ここで自分で見る。
-    // 【止めるのは装飾だけ】拍の演出=ふくらみ(装飾)は止め、錘の移動と点の切り替え
-    // (機能=拍がどこかを伝える情報そのもの)は残す。DESIGN-SYSTEM §6.1「減速設定」の規則。
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let raf;
-    const loop = () => {
-      const phase = getBeatPhase();
-      const running = phase !== null;
-      // 錘の角度。動いている間は位相そのもの。止まっている間は「止まった瞬間の角度から
-      // 減衰しながら中央へ戻る」(F-51)。減速設定の端末では装飾なので出さず即座に中央へ
-      // (DESIGN-SYSTEM §6.1「減速設定」: 装飾は止め、機能=拍の伝達は残す)。
-      let pendDeg;
-      if (running) {
-        settleRef.current = null;
-        pendDeg = ringPendDeg(phase);
-        lastDegRef.current = pendDeg;
-      } else {
-        if (settleRef.current === null) {
-          const from = lastDegRef.current;
-          const dur = getBeatDurRef.current ? getBeatDurRef.current() : 0;
-          settleRef.current = (reduceMotion.matches || !settleOnStopRef.current || from === 0 || !(dur > 0))
-            ? { done: true }
-            : { from, dur, t0: performance.now() };
-        }
-        const s = settleRef.current;
-        if (s.done) pendDeg = 0;
-        else {
-          const el = (performance.now() - s.t0) / 1000;
-          if (ringPendSettleDone(s.from, s.dur, el)) { s.done = true; pendDeg = 0; }
-          else pendDeg = ringPendSettleDeg(s.from, s.dur, el);
-        }
-      }
-      const [bx, by] = ringPoint(pendDeg, RING_PEND_R, RING_CX, RING_CY);
-      // 拍の演出は毎拍・両端で出す。小節頭だけ強い(係数1 / 0.55)。
-      const e = reduceMotion.matches ? 0 : ringBeatEmphasis(phase, beatsPerMeasure, accentOn);
-      const isHead = ringBeatIsHead(phase, beatsPerMeasure, accentOn);
-      const bobR = RING_PEND_BOB_R + e * RING_PEND_BOB_GROW;
-      const bob = bobRef.current;
-      if (bob) {
-        bob.setAttribute("cx", bx.toFixed(2));
-        bob.setAttribute("cy", by.toFixed(2));
-        bob.setAttribute("r", bobR.toFixed(2));
-        bob.setAttribute("fill-opacity", running ? "1" : "0.35");
-      }
-      const halo = bobHaloRef.current;
-      if (halo) {
-        halo.setAttribute("cx", bx.toFixed(2));
-        halo.setAttribute("cy", by.toFixed(2));
-        halo.setAttribute("r", (bobR + RING_PEND_HALO_GAP).toFixed(2));
-        halo.setAttribute("stroke-opacity", (e * RING_PEND_HALO_OPACITY).toFixed(3));
-      }
-      // 錘の当たり判定(見た目は持たない透明なボタン)を錘と同じ場所へ運ぶ。
-      // SVG は viewBox 300 を容器の幅いっぱいに伸ばして描いているので、
-      // 座標の比(viewBox単位 / 300)をそのまま % で置けば環の実寸に追従する。
-      const tap = bobTapRef.current;
-      if (tap) {
-        tap.style.left = `${(bx / RING_VB) * 100}%`;
-        tap.style.top = `${(by / RING_VB) * 100}%`;
-      }
-      const cur = ringBeatIndex(phase, beatsPerMeasure);
-      for (let i = 0; i < beatDotRefs.current.length; i++) {
-        const d = beatDotRefs.current[i];
-        if (!d) continue;
-        const isCur = cur === i;
-        d.setAttribute("r", ringBeatDotR(isCur, isCur && isHead, e).toFixed(2));
-        d.style.fill = isCur ? "var(--c-accent)" : "var(--c-accent-line)";
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [getBeatPhase, beatsPerMeasure, accentOn]);
-
   return (
-    <div style={{ width: "100%", maxWidth: diameter, margin: "0 auto", position: "relative" }}>
+    /* 【pointerEvents: none】環は読む物で、押す物を1つも持たない(拍の要素は出て行った)。
+       ここを既定のままにすると、position:relative の箱が 330×330 の当たり判定として
+       背面レイヤ(A-1)の上に乗り、環の上と内側の余白でタップが死ぬ。実測で確認して直した。
+       レイアウトは1pxも変わらない(pointer-events は寸法に影響しない)。 */
+    <div style={{ width: "100%", maxWidth: diameter, margin: "0 auto", position: "relative", pointerEvents: "none" }}>
       {/* 【overflow: visible】外周の光は環の外縁(viewBox 143)から RING_GLOW_R_MAX(190)まで
           届くので、viewBox(半径150)の内側では収まらない。既定の overflow:hidden のままだと
           viewBox の枠で切られて**四角い切り口が縁として見える**(r=150 の時点で減衰は
@@ -4731,9 +4748,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
             </g>
           </g>
         </g>
-        {/* 環のトラック(常に全周)。色はCSS変数から引くため属性ではなくstyleで指定する
-            (SVGのプレゼンテーション属性に var() は書けない)。 */}
-        <circle cx={CX} cy={CY} r={R} fill="none" strokeWidth={SW} style={{ stroke: "var(--c-line)" }} />
+        {/* 【N-4a で撤去】環のトラック(常に全周の円)。本人指示「チューナーの円環の枠は要らない」。
+            DESIGN-SYSTEM §6.0「説明を消して形に語らせる」: 枠は「帯がここを通ります」という
+            予告=説明であって、データではない。帯は必ず12時から伸びるので**帯そのものが軌道を示す**。
+            半径 R / 線幅 SW は帯・走り・光・振り子・拍の点が座標の基準として参照し続けるため、
+            定数は残して**描画だけ**を消している(定数を消すとそれらの位置がすべて壊れる)。 */}
         {/* 【削除済み】12時=0¢の基準マーカー(紺の縦線)。本人指示で撤去した。
             帯は必ず12時から伸びるので、**帯の根元そのものが0¢の位置**を示す。
             音が入っていないときは指すものが無いので、印だけを残す理由も無い。
@@ -4754,58 +4773,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
              先端に点は置かない(先端はグラデーションの終わりであって、そこで何かが始まらない)。 */
           <path d={arcD} fill="none" stroke={`url(#${barGradId})`} strokeWidth={SW} strokeLinecap="butt" />
         )}
-        {/* メトロノーム(E案)。ピッチ(環の上弧・機能色)と役割が混ざらないよう、拍はすべて
-            紺(--c-accent)で、環より内側に描く。座標・大きさはrAFで直接書き換える。 */}
-        {getBeatPhase && (
-          <>
-            {/* 下半円: 拍の点。位置は固定で、灯る場所だけが変わる */}
-            {Array.from({ length: dotCount }).map((_, i) => {
-              const [dx, dy] = ringPoint(ringBeatDotDeg(i, dotCount), RING_BEAT_DOT_ORBIT_R, CX, CY);
-              return (
-                <circle
-                  key={i} ref={(el) => { beatDotRefs.current[i] = el; }}
-                  cx={dx.toFixed(2)} cy={dy.toFixed(2)} r={RING_BEAT_DOT_R}
-                  style={{ fill: "var(--c-accent-line)" }}
-                />
-              );
-            })}
-            {/* 上半円: 振り子。錘そのものの往復が「次の拍の予測」を担う。
-                軌道を示すガイド線は描かない(本人指示。錘が動けば軌道は読める) */}
-            <circle
-              ref={bobHaloRef} cx={CX} cy={CY - RING_PEND_R} r={RING_PEND_BOB_R + RING_PEND_HALO_GAP}
-              fill="none" strokeWidth={RING_PEND_HALO_SW} strokeOpacity="0" style={{ stroke: "var(--c-accent)" }}
-            />
-            <circle
-              ref={bobRef} cx={CX} cy={CY - RING_PEND_R} r={RING_PEND_BOB_R}
-              fillOpacity="0.35" style={{ fill: "var(--c-accent)" }}
-            />
-          </>
-        )}
+        {/* 【N-4b で撤去】拍の要素(下半円の点・上半円の錘と輪・錘のタップ)。
+            正典 design/north-star-measure.html は、拍を**環の外・下**の浅い弧と●列で描く。
+            環はピッチ専用になり、帯と拍が場所を争う関係そのものが無くなった。
+            拍の描画は MetroPendulum が持つ。開始/停止は画面のどこをタップしてもよい(A-1)。 */}
       </svg>
-      {/* 錘のタップでメトロノームを開始/停止する(本人指示 F-51)。
-          【見た目は1pxも変えない】錘そのものは上のSVGが描いたまま。ここは地も枠も文字も
-          持たない透明な当たり判定だけで、44×44(DESIGN-SYSTEM §5 の下限)を確保する
-          (錘の実寸は直径 30.8 CSS px しかなく、そのままでは足りない)。
-          position:absolute なので、出ても消えてもレイアウトは動かない(§6.1.5)。
-          SVGは aria-hidden なので、状態(aria-pressed)と名前はこのボタンが持つ。
-          位置は上の rAF が left/top(%) を書き換えて錘に追従させる。初期値は錘の静止位置
-          (12時 = CX, CY-RING_PEND_R)を同じ式で % に直したもの。0% にしておくと、
-          最初の1フレームだけ当たり判定が錘より 61.6px 上にいる。 */}
-      {getBeatPhase && onBeatToggle && (
-        <button
-          ref={bobTapRef}
-          onClick={onBeatToggle}
-          aria-label="メトロノームの開始/停止"
-          aria-pressed={beatOn}
-          className="no-select"
-          style={{
-            position: "absolute", left: `${(CX / VB) * 100}%`, top: `${((CY - RING_PEND_R) / VB) * 100}%`,
-            width: "var(--tap-min)", height: "var(--tap-min)",
-            marginLeft: "calc(var(--tap-min) / -2)", marginTop: "calc(var(--tap-min) / -2)",
-            padding: 0, background: "transparent", border: "none", cursor: "pointer",
-          }}
-        />
-      )}
       {/* 環の内側: 音名(実音)とセント差。数値は「合間に読む」ための補助で、主役は環そのもの。 */}
       <div style={{
         position: "absolute", inset: 0, display: "flex", flexDirection: "column",
@@ -4817,19 +4789,16 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
           lineHeight: NOTE_LINE_H, fontFamily: "var(--font-serif)",
           color: sounding ? "var(--c-ink)" : "var(--c-disabled)",
         }}>
-          {/* 音名の文字。横幅は scaleX で明示指定する(書体既定のままにしない) */}
-          <span style={{
-            fontSize: noteFs, display: "inline-block",
-            transform: `scaleX(${NOTE_SCALE_X})`, transformOrigin: "center bottom",
-            margin: `0 ${NOTE_SCALE_PAD_EM}em`,
-          }}>
+          {/* 音名の文字。横幅は書体既定のまま(正典 .note は transform を持たない)。 */}
+          <span style={{ fontSize: noteFs, display: "inline-block" }}>
             {noteLetter}
           </span>
           {/* 臨時記号。文字として組み、本体より明確に小さくする(scaleXは掛けない) */}
           {accidental && (
             <span style={{ fontSize: noteFs * NOTE_ACC_RATIO }}>{accidental}</span>
           )}
-          <span style={{ fontSize: noteFs * NOTE_OCT_RATIO, color: "var(--c-accent-dim)", marginLeft: 3 }}>
+          {/* オクターブ数字は正典 .note .oct の実寸(44px)。色も .oct と同じ薄い紺。 */}
+          <span style={{ fontSize: NOTE_OCT_PX, color: "var(--c-accent-dim)", marginLeft: 3 }}>
             {sounding ? note.octave : ""}
           </span>
         </div>
@@ -4840,15 +4809,159 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL, getBeatPhase = n
         {/* 音が入っていないときはセント値も文字を出さない。ただし箱(高さ--fs-md+--sp-1 =
             文字がある時の行の高さ・幅は環の内寸いっぱい)は残し、音の有無で環の内側の寸法が
             変わらないようにする(DESIGN-SYSTEM §6.1.5)。 */}
+        {/* 【N-4c】サイズと間隔は正典 .cents の実寸(21px / margin-top 10px)。 */}
         <div className={`sans${inTune ? " ficus-breathe" : ""}`} style={{
-          marginTop: "var(--sp-4)", width: "100%", height: "calc(var(--fs-md) + var(--sp-1))",
+          marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
           textAlign: "center",
-          fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", fontWeight: 700,
+          fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
           letterSpacing: "0.02em", color: sounding ? color : "var(--c-ink-3)",
           animation: inTune ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
         }}>
           {sounding ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : ""}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 振り子と拍の●(N-4b)。**環の外・下**に置く。
+// 正典 design/north-star-measure.html「メトロノーム中」の .pend そのもの:
+//   1行目 = 浅い弧のガイド1本 + 往復する点1つ(端が拍の瞬間・小節頭で点が膨らむ)
+//   2行目 = 拍の● (画面中央固定) と、その左に拍子表示
+// 開始/停止はこの部品が持たない。計測タブの背面レイヤ(画面のどこでも)が持つ(A-1)。
+//
+// getBeatPhase: メトロノームの位相(拍単位の連続値)を返す関数。null を返す=停止中。
+//   位相の計算は MeasureView の getMetroPhase(クリックと同じ音声時計)をそのまま使う。
+// getBeatDur:   1拍(片道1振り)の秒数。停止後の戻り(F-51)の角振動数・時定数をここから引く。
+// beatsPerMeasure / accentOn: ●の数と、小節頭を強調してよいか。
+// settleOnStop: 停止時にゆっくり中央へ戻すか。false なら即座に中央へ。
+// ============================================================
+function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn = false, sig = "4/4", settleOnStop = true }) {
+  const dotRef = useRef(null);
+  const beatDotRefs = useRef([]);
+  // 停止後の戻り(F-51)。rAFループの中だけで進む状態なので ref で持つ。
+  //   lastDegRef  最後に「動いている状態で」描いた角度 = 止まった瞬間の角度
+  //   settleRef   null=まだ入っていない / {from,dur,t0} = 減衰中 / {done:true} = 戻りきった
+  const lastDegRef = useRef(0);
+  const settleRef = useRef(null);
+  // 毎レンダー最新値をrefへ。ループの依存に足すと、録音の開始/停止でrAFが張り直しになる。
+  const settleOnStopRef = useRef(settleOnStop);
+  settleOnStopRef.current = settleOnStop;
+  const getBeatDurRef = useRef(getBeatDur);
+  getBeatDurRef.current = getBeatDur;
+  const n = beatsPerMeasure > 0 ? beatsPerMeasure : 0;
+  const rowW = metroBeatRowW(n);
+
+  useEffect(() => {
+    if (!getBeatPhase) return undefined;
+    // 動きを減らす設定。属性をrAFで直接書き換えるぶんはCSSの
+    // @media (prefers-reduced-motion) が効かないので、ここで自分で見る。
+    // 【止めるのは装飾だけ】拍の演出=ふくらみ(装飾)は止め、点の移動と●の切り替え
+    // (機能=拍がどこかを伝える情報そのもの)は残す。DESIGN-SYSTEM §6.1「減速設定」の規則。
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let raf;
+    const loop = () => {
+      const phase = getBeatPhase();
+      const running = phase !== null;
+      // 角度。動いている間は位相そのもの。止まっている間は「止まった瞬間の角度から
+      // 減衰しながら中央へ戻る」(F-51)。角度の写像は環の時代から変えていない。
+      let pendDeg;
+      if (running) {
+        settleRef.current = null;
+        pendDeg = ringPendDeg(phase);
+        lastDegRef.current = pendDeg;
+      } else {
+        if (settleRef.current === null) {
+          const from = lastDegRef.current;
+          const dur = getBeatDurRef.current ? getBeatDurRef.current() : 0;
+          settleRef.current = (reduceMotion.matches || !settleOnStopRef.current || from === 0 || !(dur > 0))
+            ? { done: true }
+            : { from, dur, t0: performance.now() };
+        }
+        const s = settleRef.current;
+        if (s.done) pendDeg = 0;
+        else {
+          const el = (performance.now() - s.t0) / 1000;
+          if (ringPendSettleDone(s.from, s.dur, el)) { s.done = true; pendDeg = 0; }
+          else pendDeg = ringPendSettleDeg(s.from, s.dur, el);
+        }
+      }
+      const [px, py] = metroArcPoint(metroPendT(pendDeg));
+      // 拍の演出は毎拍・両端で出す。膨らむのは小節頭だけ(本人指示)。
+      const e = reduceMotion.matches ? 0 : ringBeatEmphasis(phase, beatsPerMeasure, accentOn);
+      const isHead = ringBeatIsHead(phase, beatsPerMeasure, accentOn);
+      const dot = dotRef.current;
+      if (dot) {
+        dot.setAttribute("cx", px.toFixed(2));
+        dot.setAttribute("cy", py.toFixed(2));
+        dot.setAttribute("r", metroDotR(isHead, e).toFixed(2));
+        dot.setAttribute("fill-opacity", running ? "1" : "0.35");
+      }
+      const cur = ringBeatIndex(phase, beatsPerMeasure);
+      for (let i = 0; i < beatDotRefs.current.length; i++) {
+        const d = beatDotRefs.current[i];
+        if (!d) continue;
+        const isCur = cur === i;
+        d.setAttribute("r", metroBeatDotR(isCur).toFixed(2));
+        d.style.fill = isCur ? "var(--c-accent)" : "var(--c-line-strong)";
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [getBeatPhase, beatsPerMeasure, accentOn]);
+
+  return (
+    /* 【pointerEvents: none】振り子も拍の●も**読む物**で、押す物を持たない。
+       開始/停止は画面のどこでも効く(A-1)ので、ここが当たり判定を持つと
+       いちばん押したい場所(振り子の上)でタップが死ぬ。実測で確認して直した。 */
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-2)", pointerEvents: "none" }}>
+      {/* 1行目: ガイドの弧 + 往復する点。実寸で描くので viewBox 単位 = CSS px。
+          【overflow: visible】小節頭で点が膨らむと弧の箱から出るため。
+          レイアウトには影響しない(はみ出すのは描画だけ。§6.1.5)。 */}
+      <svg
+        width={METRO_ARC_W} height={METRO_ARC_H} viewBox={`0 0 ${METRO_ARC_W} ${METRO_ARC_H}`}
+        style={{ display: "block", overflow: "visible", pointerEvents: "none" }}
+        aria-hidden="true"
+      >
+        <path
+          d={`M${METRO_ARC_P0[0]} ${METRO_ARC_P0[1]} Q${METRO_ARC_C[0]} ${METRO_ARC_C[1]} ${METRO_ARC_P2[0]} ${METRO_ARC_P2[1]}`}
+          fill="none" strokeWidth={METRO_ARC_SW} strokeLinecap="round" style={{ stroke: "var(--c-line)" }}
+        />
+        <circle
+          ref={dotRef} cx={METRO_ARC_P0[0]} cy={METRO_ARC_P0[1]} r={METRO_DOT_R}
+          fillOpacity="0.35" style={{ fill: "var(--c-accent)" }}
+        />
+      </svg>
+      {/* 2行目: 拍の●は**画面中央固定**(本人指示)。拍子表示はその左。
+          拍子表示を絶対配置にして流れから外すので、●の列は拍子の桁数に関係なく
+          常に行の中央=画面の中央に来る。行の高さは固定で、●が膨らんでも動かない。 */}
+      <div style={{ position: "relative", width: "100%", height: METRO_BEAT_ROW_H, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span
+          className="sans no-select"
+          style={{
+            position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
+            /* 【N-4c】正典 .tsig の実寸 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
+               従って 15px にしていたが、見た目はモックが唯一の正典(§6.0)。 */
+            fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1,
+          }}
+        >
+          {sig}
+        </span>
+        <svg
+          width={rowW} height={METRO_BEAT_ROW_H} viewBox={`0 0 ${rowW} ${METRO_BEAT_ROW_H}`}
+          style={{ display: "block", overflow: "visible", pointerEvents: "none" }}
+          aria-hidden="true"
+        >
+          {Array.from({ length: n }).map((_, i) => (
+            <circle
+              key={i} ref={(el) => { beatDotRefs.current[i] = el; }}
+              cx={metroBeatDotX(i, n)} cy={METRO_BEAT_ROW_H / 2} r={METRO_BEAT_DOT_PX / 2}
+              style={{ fill: "var(--c-line-strong)" }}
+            />
+          ))}
+        </svg>
       </div>
     </div>
   );
@@ -4874,17 +4987,16 @@ function MeasureView(props) {
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
     scheduledClicksRef, metroActiveRef, metroBarPerfTimesRef, requestWakeLock, releaseWakeLock,
-    phraseFrames, phraseNoteEvents, liveFrames, promoteSessionToIdeal,
-    sessions, // F-68: 理想値の「この奏者の平均」の対象件数を出すため(選別はselectPerformerSessions)
+    phraseFrames, phraseNoteEvents, liveFrames,
     pendingSession, registerPendingSession, discardPendingSession,
-    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
-    uploadNeedsTap, setUploadNeedsTap,
+    // 【C-1】アップロード関連(handleUploadFile / isAnalyzingUpload / uploadProgress /
+    // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
+    // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
   } = props;
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
   // 理想値は音(運指)ごとに持つため、今演奏している音に対応する理想値を都度引く
   const currentNoteIdeal = getNoteIdeal(selectedIdeal, matchedFingering?.semitoneIndex);
-  const fileInputRef = useRef(null);
 
   // リード選択は箱→個体の二段階にする(枚数が増えるとフラットな一覧では選びにくいため)。
   const reedGroups = groupReeds(reeds || []);
@@ -4920,7 +5032,10 @@ function MeasureView(props) {
   // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
   // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
   const [showMetroPanel, setShowMetroPanel] = usePersistedState("showMetroPanel", false); // 開いただけでは音は鳴らない
-  const [metroPanel, setMetroPanel] = useState(null); // 振り子と入れ替えて表示する設定パネル: null | "sig"(拍子) | "subdiv"(1拍の分割)
+  // 【N-4b】テンポ・拍子・分割・拍グループ・小節アクセントは、下から出るシート1枚にまとめた。
+  // 以前は環と入れ替わる2種類の設定パネル(metroPanel = "sig" | "subdiv")で、開くと環が消えていた。
+  // 正典は「環と共存」なので、設定は環の上に**重ねる**シートにする。
+  const [tempoSheetOpen, setTempoSheetOpen] = useState(false);
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
   // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
@@ -5168,6 +5283,20 @@ function MeasureView(props) {
     return a.gBeat + (ctx.currentTime - a.time) / getMetroBeatDur();
   }, [getMetroBeatDur]);
 
+  // --- 録音の経過時間(B-2) ---
+  // 正典は録音ボタンの下に「赤点 + m:ss」を出す。役割が重複する「録音中」バッジは撤去した
+  // (バッジは position:fixed でメトロノームアイコンと場所を取り合っていた。F-48)。
+  // 実時計で測る(フレームは無音だと進まないため)。0.25秒ごとに更新し、表示は m:ss。
+  const [recElapsedMs, setRecElapsedMs] = useState(0);
+  const recStartRef = useRef(0);
+  useEffect(() => {
+    if (!isRecording) { setRecElapsedMs(0); return undefined; }
+    recStartRef.current = performance.now();
+    setRecElapsedMs(0);
+    const id = setInterval(() => setRecElapsedMs(performance.now() - recStartRef.current), 250);
+    return () => clearInterval(id);
+  }, [isRecording]);
+
   return (
     <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 【縦構造】DESIGN-SYSTEM §6.1.5「レイアウトの安定」。
@@ -5177,40 +5306,72 @@ function MeasureView(props) {
           ・justify-content を状態で切り替えない(全状態 flex-start)。以前は素の状態だけ center で、
             中身の高さが変わるたびに環と録音ボタンが動いていた(本人の実機フィードバック2026-08-01)。
           ・詳細カードはこの枠の「外・下」に置く。開いても枠の高さは measureMinH のままなので
-            環・録音ボタン・詳細トグルは1pxも動かず、増えたぶんだけページがスクロールする。 */}
-      <div style={{ display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+            環・録音ボタン・詳細トグルは1pxも動かず、増えたぶんだけページがスクロールする。
+          【A-1 の背面レイヤはこの枠の中】= 正典の「メトロノーム中」の1画面ぶん。
+          詳細カードは枠の外なので覆わない(カードは読む面で、中の操作は自分で受け取る)。 */}
+      <div style={{ position: "relative", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+      {/* 【A-1】メトロノームの開始/停止は**画面のどこをタップしてもよい**(本人確定・決定2)。
+          実装は「背面レイヤ1枚 + 操作要素を前面に置く」。stopPropagation は使わない
+          (伝播を止める作りにすると、マイク復旧のジェスチャー経路のように
+           "document まで届くこと"に依存している既存の仕組みを壊しうる)。
+          このレイヤは position:absolute。**枠の外側にある .app-root の padding
+          (左右 14px + 安全域 / 上端 16px + 安全域)まで負のオフセットで広げてある**。
+          広げないと、審査役の1px刻み全走査で 26,972px²(画面の8.9%)が無反応のまま残る
+          (左右 14×749 の帯と上端 375×16 の帯)。本人要件は「画面のどこをタップしても」。
+          オフセットは .app-root の padding と**同じ式**を符号だけ変えて書く(別管理にしない)。
+          下端は広げない: 枠の下端(765)から下は下部ナビ(position:fixed / z-index 30)の帯で、
+          ナビが自分でタップを受け取る(奪うと計測↔リード↔データの切り替えが効かなくなる)。
+          詳細カード(枠の外・下)も奪わない。
+          z-index 0 の位置指定要素は静的な中身より前に来るので、押せなければならない物には
+          z-index 1 を与えて**前面**に出す: 上部設定行 / テンポの操作行 / 録音ボタンと詳細トグル。
+          さらにそれらの箱自身は .tap-through で当たり判定を捨て、中の操作要素だけが受け取る
+          (箱に当たり判定を残すと、箱の**余白**でタップが死ぬ。375×812 の全走査で実測して直した)。
+          モーダル(ScrollPicker・保存確認・テンポシート)は position:fixed の z-index 60 で更に上。 */}
+      {showMetroPanel && (
+        <button
+          type="button"
+          onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
+          aria-label="メトロノームの開始/停止"
+          aria-pressed={metronomeOn}
+          className="no-select"
+          style={{
+            position: "absolute", zIndex: 0,
+            top: "calc(-16px - env(safe-area-inset-top))",
+            left: "calc(-14px - env(safe-area-inset-left))",
+            right: "calc(-14px - env(safe-area-inset-right))",
+            bottom: 0,
+            background: "transparent", border: "none", padding: 0, cursor: "pointer",
+          }}
+        />
+      )}
       {/* ── 上端に固定 ── 設定行と各種の告知。この塊の下端が「固定の間隔」--sp-1。 */}
       <div style={{ flexShrink: 0 }}>
-      {/* 上部設定行(Claude Designの計測タブ提案を反映): 左にリード(pill・箱→個体の二段階)+奏者、
-          右に楽器種別・基準ピッチ(タップでスクロール選択、値はテキストリンク風)。
-          いずれも演奏前に一度決めたら触らない設定項目のため、1行に収めて画面の縦スペースを確保する。 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: "var(--sp-1)", flexWrap: "wrap" }}>
+      {/* 上部設定行【N-4a で2行構成に変更】本人指示「リードと奏者・楽器・基準ピッチの上下を逆に」。
+          ・1行目 = 奏者 / 楽器種別 / 基準ピッチ。3つとも**表示と選択の両方**を維持する
+            (本人指示「表示の役割だけでなく選択の役割もあるので3つとも表示」)
+          ・2行目 = リード(箱→個体の二段階)
+          ・メトロノームの開閉は右端で**2行ぶんの高さ**。正典 = design/north-star-measure.html の待機中
+          いずれも演奏前に決めたら触らない設定なので、上端に固めて環の縦スペースを確保する意図は不変。
+          【B-1 録音中は淡くする】正典の「演奏中」は上部設定行と下部タブが opacity .35。
+          環・音名・折れ線は淡くしない(演奏中に読む物だから)。淡くするだけで無効化はしない
+          (メトロノームは録音中も押せる)。
+          【A-1 の前面】position:relative + zIndex 1 で背面レイヤより手前に置く。
+          レイアウトは動かない(static → relative でオフセット0のため。§6.1.5)。 */}
+      <div className="tap-through" style={{ position: "relative", zIndex: 1, opacity: isRecording ? 0.35 : 1, display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--sp-1)" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
-          {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
-              楽器種別・基準Hzの反対側=左端に置く。
-              【A型 = index.css の .ctl-state】枠線あり・地は透明。開閉という**状態を持つ**ので
-              枠線を使ってよい(本人指示「on off の違いが分かったほうがいい」)。
-              ON/OFF は枠線の色(--c-line-strong → --c-accent)とアイコンの色で返し、地は足さない
-              (枠線と違う地を両方持たせない)。ON/OFF の状態は aria-pressed が持つ。 */}
-          <button
-            onClick={() => {
-              if (showMetroPanel) {
-                if (metronomeOn) stopMetronome(); // パネルを閉じる時、鳴っていれば止める
-                setShowMetroPanel(false);
-              } else {
-                setShowMetroPanel(true);
-              }
-            }}
-            aria-label="メトロノーム"
-            aria-pressed={showMetroPanel}
-            className="ctl-state"
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34,
-              cursor: "pointer", flexShrink: 0,
-            }}
-          >
-            <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} />
-          </button>
+          {/* 1行目 = 奏者 / 楽器種別 / 基準ピッチ。**表示と選択の両方**を担う(本人指示)。 */}
+          <PerformerSelector
+            performers={performers} selectedPerformer={selectedPerformer}
+            setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
+            disabled={isRecording}
+          />
+          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}</button>
+          <span style={{ color: "#8D95A1" }}>·</span>
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz</button>
+        </div>
+        {/* 2行目 = リード。 */}
+        <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
           {/* リード選択のピル。中身は select 2つ＝操作するものだが、ピル自身は開閉も
               on/off も持たない**状態を持たないもの**なので B型(index.css の .ctl-plain)。
               枠線なし・地は --c-sunken だけ。選択済み/未選択は左の点の色と文字の色・太さが
@@ -5220,38 +5381,81 @@ function MeasureView(props) {
               奏者枠と同じ形式に変更」。隣の奏者枠(PerformerSelector)は素の <select> で、
               index.css の入力欄の規則により --r-xs(4px)。B型 .ctl-plain の既定の角丸も
               --r-xs なので、.ctl-pill を外すだけで奏者枠と同じ値になる(新しい値は足さない)。 */}
-          <div className="ctl-plain" style={{ display: "flex", alignItems: "center", gap: 2, padding: "2px 4px 2px 10px", flexShrink: 0 }}>
+          {/* 【D-2】表記は正典の `V16-3 #4`。箱と個体は別の <select> だが、**1つの塊**として
+              読めるように間を詰め(gap 0)、色も正典に合わせて 箱=--c-ink(太字) / 個体=--c-ink-2 にする。
+              以前は箱も個体も --c-accent で、DESIGN-SYSTEM §1.4「--c-accent はアクション専用」に
+              反していた(この枠は押せるが、文字色が状態を主張する必要は無い)。
+              選択済み/未選択は左の点の色と文字の濃さ・太さが返す。 */}
+          {/* 【審査⑥の修正】**枠まるごとを箱の <select> の <label> にする。**
+              以前は <div> で、枠の左端(padding + 選択済みの点)・上下 2px・右 4px の padding が
+              どの操作要素にも属さず**背面レイヤに落ちていた**(1px刻みの実測で 1,088px²。
+              見た目は1つの枠なのに、そこを押すとメトロノームが開始/停止していた)。
+              枠そのものを <label htmlFor> にすると、その 1,088px² が label に属して穴が塞がる
+              (実測で残り 4px² = 角丸の縁だけ)。
+              中の個体 <select> は「いちばん内側の操作」が勝つので、これまでどおり自分で受け取る
+              (個体を押しても箱へ転送されないことを実測で確認済み)。
+              タグを div → label に変えただけで地・枠・角丸は .ctl-plain のまま = **見た目は不変**。
+
+              【ここで保証できること／できないこと】**書き分ける。**
+              保証できる: (a) 枠の中に背面レイヤへ落ちる穴が無い (b) 枠を押すと箱の <select> へ
+              フォーカスが移る。どちらも 375×812 の実測で確認した。
+              **保証できない**: 押した結果**選択リストが開くか**。HTML 仕様は <label> の
+              activation behavior を「プラットフォーム依存」とし、<select> を開くとは規定していない
+              (WHATWG HTML §4.10.4)。**Chrome では開かない**(信頼されたクリックを合成して実測。
+              フォーカスリングが出るだけ)。**iOS Safari は未検証＝実機待ち**
+              (LOOP.md「Chrome で判定できない類」= ネイティブフォームコントロールの固有挙動)。
+              実機で開かなければ label 方式は却下し、onClick で ScrollPicker を開く形
+              (楽器種別・基準ピッチで既に使っている idiom) へ差し替える。 */}
+          <label className="ctl-plain" htmlFor="measure-reed-box" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0, padding: "2px 4px 2px 10px", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
             <select
+              id="measure-reed-box"
               value={selectedBoxKey || ""}
               onChange={(e) => { setSelectedBoxKey(e.target.value || null); setSelectedReedId(null); }}
               disabled={isRecording}
-              style={{ minWidth: 0, maxWidth: 110, background: "none", border: "none", color: selectedReedId ? "#174585" : "#435266", fontWeight: selectedReedId ? 600 : 400 }}
+              style={{ pointerEvents: "auto", minWidth: 0, maxWidth: 110, background: "none", border: "none", color: selectedReedId ? "var(--c-ink)" : "#435266", fontWeight: selectedReedId ? 600 : 400 }}
             >
               <option value="">リードを選択</option>
-              {reedGroups.map((g) => (<option key={g.key} value={g.key}>{g.brand} {g.strength}</option>))}
+              {/* 【N-4a】「Vandoren V16 3.0」→「V16-3」。短縮規則は shortBoxLabel を参照 */}
+              {reedGroups.map((g) => (<option key={g.key} value={g.key}>{shortBoxLabel(g.brand, g.strength, reedGroups.map((x) => x.brand))}</option>))}
             </select>
             <select
               value={selectedReedId || ""}
               onChange={(e) => setSelectedReedId(e.target.value || null)}
               disabled={isRecording || !selectedBoxGroup}
-              style={{ minWidth: 0, maxWidth: 60, background: "none", border: "none", color: selectedReedId ? "#174585" : "#C3CAD3", fontWeight: selectedReedId ? 600 : 400 }}
+              style={{ pointerEvents: "auto", minWidth: 0, maxWidth: 60, background: "none", border: "none", color: selectedReedId ? "var(--c-ink-2)" : "#C3CAD3", fontWeight: 400 }}
             >
               <option value="">{selectedBoxGroup ? "#" : "—"}</option>
               {selectedBoxGroup?.members.map((r) => (<option key={r.id} value={r.id}>#{reedPosition(r, reeds) ?? "?"}</option>))}
             </select>
-          </div>
-          <PerformerSelector
-            performers={performers} selectedPerformer={selectedPerformer}
-            setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
-            disabled={isRecording}
-          />
+          </label>
         </div>
-        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#8D95A1", flexShrink: 0 }}>
-          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}</button>
-          <span>·</span>
-          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz</button>
         </div>
+        {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
+            【N-4a】右端に移し、**2行ぶんの高さ**にする(本人指示)。
+            【A型 = index.css の .ctl-state】枠線あり・地は透明。開閉という**状態を持つ**ので
+            枠線を使ってよい(本人指示「on off の違いが分かったほうがいい」)。
+            ON/OFF は枠線の色(--c-line-strong → --c-accent)とアイコンの色で返し、地は足さない
+            (枠線と違う地を両方持たせない)。ON/OFF の状態は aria-pressed が持つ。 */}
+        <button
+          onClick={() => {
+            if (showMetroPanel) {
+              if (metronomeOn) stopMetronome(); // パネルを閉じる時、鳴っていれば止める
+              setShowMetroPanel(false);
+            } else {
+              setShowMetroPanel(true);
+            }
+          }}
+          aria-label="メトロノーム"
+          aria-pressed={showMetroPanel}
+          className="ctl-state"
+          style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: "var(--tap-min)", height: 56, cursor: "pointer", flexShrink: 0,
+          }}
+        >
+          <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} size={26} />
+        </button>
         {openPicker === "tuning" && (
           <ScrollPicker
             options={TUNING_HZ_OPTIONS} value={tuningHz}
@@ -5271,98 +5475,11 @@ function MeasureView(props) {
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
       )}
 
-      <input
-        ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
-      />
-
-      {/* メトロノームの設定パネル(拍子 / 1拍の分割)。開いている間はこの枠だけを見せる。
-          拍そのものの表示は環(PitchRing)の下弧が担うため、ここには振り子を置かない。
-          START/STOP・テンポ・拍子・分割の操作UIは環の下(下記)にまとめている。 */}
-      {showMetroPanel && metroPanel !== null && (
-        <div style={{ marginTop: 4 }}>
-          {metroPanel === "sig" ? (
-            <div className="card" style={{ minHeight: 180, boxSizing: "border-box" }}>
-              {/* 拍子グリッド(分母の音符=1拍。6/8なら8分音符が1拍で1小節6クリック)。
-                  【A型 = .ctl-state】選択中/非選択という**状態を持つ**ので枠線を使う。
-                  状態は枠線の色(--c-line-strong → --c-accent)と文字色だけで返し、地は足さない
-                  (以前は選択中に枠 1.5px #174585 と地 #EAEFF5 を両方持っていた)。 */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
-                {METRO_SIGS.map((sig) => (
-                  <button key={sig} onClick={() => { setMetroSig(sig); setMetroPanel(null); }}
-                    aria-pressed={metroSig === sig}
-                    className="ctl-state no-select"
-                    style={{
-                      padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
-                      color: metroSig === sig ? "var(--c-accent)" : "var(--c-ink-2)",
-                    }}>{sig}</button>
-                ))}
-              </div>
-              {/* アクセント(デフォルトON)。拍子を選ぶとパネルは自動で閉じるため完了ボタンは置かない */}
-              <div style={{ display: "flex", alignItems: "center", marginTop: 10 }}>
-                <label className="sans no-select" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266", cursor: "pointer" }}>
-                  <input type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)} />
-                  一拍目にアクセントをつける
-                </label>
-              </div>
-            </div>
-          ) : metroPanel === "subdiv" ? (
-            <div className="card" style={{ minHeight: 180, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
-              {/* 1拍の分割を音符アイコンで選択。X/4等は 1/2/3連/16分。
-                  X/8拍子は「主拍のみ」か「8分音符で拍を埋める(複合なら1拍に8分3つ=実質3連)」の2択。 */}
-              <span className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>1拍の分割</span>
-              <div style={{ display: "flex", alignItems: "stretch", gap: 6, marginTop: 10 }}>
-                {metroSubdivOptions.map((s) => {
-                  const selected = metroSubdiv === s.value;
-                  // A型 = .ctl-state。選択中/非選択という状態を枠線の色だけで返す
-                  return (
-                    <button key={s.value} onClick={() => { setMetroSubdiv(s.value); if (metroSig !== "5/8" && metroSig !== "7/8") setMetroPanel(null); }} aria-label={`分割 ${s.value}`}
-                      aria-pressed={selected}
-                      className="ctl-state no-select"
-                      style={{
-                        flex: 1, padding: "12px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>
-                      <SubdivNoteIcon value={s.icon ?? s.value} size={30} color={selected ? "#174585" : "#435266"} />
-                    </button>
-                  );
-                })}
-              </div>
-              {/* 5/8・7/8は拍のグループ(8分音符の束ね方=主拍の区切り)をここで選ぶ。 */}
-              {(metroSig === "5/8" || metroSig === "7/8") && (() => {
-                const choices = metroSig === "5/8" ? [[3, 2], [2, 3]] : [[3, 2, 2], [2, 3, 2], [2, 2, 3]];
-                const cur = Array.isArray(metroGrouping) ? metroGrouping.join("+") : "";
-                return (
-                  <div style={{ marginTop: 14 }}>
-                    <span className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>拍のグループ</span>
-                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      {choices.map((g) => {
-                        const label = g.join("+");
-                        const selected = cur === label;
-                        // A型 = .ctl-state。選択中/非選択という状態を枠線の色だけで返す
-                        return (
-                          <button key={label} onClick={() => { setMetroGrouping(g); setMetroPanel(null); }}
-                            aria-pressed={selected}
-                            className="sans ctl-state no-select" style={{
-                              flex: 1, padding: "8px 0", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-num)",
-                              color: selected ? "var(--c-accent)" : "var(--c-ink-2)",
-                            }}>{label}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* 5/8・7/8は分割と拍グループの2つを選ぶため完了ボタンを残す(片方だけ変えたい時の閉じ手段)。
-                  他の拍子は分割を選んだ時点で自動で閉じるので完了ボタンは出さない。 */}
-              {(metroSig === "5/8" || metroSig === "7/8") && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto", paddingTop: 10 }}>
-                  <button onClick={() => setMetroPanel(null)} className="sans no-select" style={{ padding: "7px 18px", borderRadius: 999, border: "none", background: "#174585", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>完了</button>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      )}
+      {/* 【C-1 で移設】隠しファイル入力とアップロードのボタン・告知はデータタブへ移した。
+          正典の計測タブは**録音ボタン1つだけ**。解析の進捗・完了通知・「目安に設定」も
+          アップロードに付いてデータタブ側に出る(AnalysisLabView)。 */}
+      {/* 【N-4b で撤去】環と入れ替わる設定パネル(拍子 / 1拍の分割)。
+          正典は「環と共存」なので、設定は環を消さずに**下から重ねるシート**(下記)にした。 */}
       </div>{/* /上端に固定 */}
 
       {/* ── 主役 ── 環。上端の塊から --sp-1 の固定間隔だけ下、という位置から絶対に動かさない。
@@ -5371,115 +5488,63 @@ function MeasureView(props) {
           メトロノームの開閉にかかわらず環(PitchRing)を主役にする(設計言語を1つに保つ)。
           【大きさは変えない】以前はメトロノームを開くと 330→250 に縮めていたが、主役の
           大きさが開閉のたびに変わるのは読み取りを妨げる。環は常に RING_D_FULL(330)。
-          メトロノームを開いている間は、環の内側の上半円が振り子・下半円が拍の点になる。
+          【N-4b】環は**ピッチ専用**になった。メトロノームを開いている間も環は消えず、
+          拍(振り子・拍の●)は環の下に並ぶ(正典 = design/north-star-measure.html「メトロノーム中」)。
           以前あった「26pxの音名+横メーター+13pxのセント値」へのフォールバックは廃止した
           (1m先で読めないうえ、セント色の閾値が環と一致していなかった)。 */}
-      {!(showMetroPanel && metroPanel !== null) && (
-        // 環の下の余白は「可変の中間」側(グラフの marginTop / 操作UIの marginTop)が持つ。
-        // ここに状態で変わる padding を足すと、それ自体が状態依存の寸法になるので置かない。
-        <div style={{ flexShrink: 0 }}>
-          <PitchRing
-            note={note} centsOffset={centsOffset}
-            diameter={RING_D_FULL}
-            getBeatPhase={showMetroPanel ? getMetroPhase : null}
+      {/* 環の下の余白は「可変の中間」側(グラフの marginTop / 操作UIの marginTop)が持つ。
+          ここに状態で変わる padding を足すと、それ自体が状態依存の寸法になるので置かない。 */}
+      <div style={{ flexShrink: 0 }}>
+        <PitchRing note={note} centsOffset={centsOffset} diameter={RING_D_FULL} />
+      </div>
+
+      {/* ── 可変の中間 ── flex:1。状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。
+          余った縦スペースはすべてここが吸収するので、上の環も下のアクションも動かない。 */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {/* メトロノーム。正典「メトロノーム中」の .pend そのもの:
+            浅い弧のガイド + 往復する点 → 拍の●(中央固定)と拍子表示 → テンポの − / ♩=n / ＋。
+          開始/停止のボタンは無い。**画面のどこをタップしても開始/停止する**(A-1)。
+          拍子・分割・拍グループ・小節アクセントは、テンポ数値のタップで開くシートに入っている。 */}
+      {showMetroPanel && (
+        <div style={{ marginTop: "var(--sp-2)", display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-2)" }}>
+          <MetroPendulum
+            getBeatPhase={getMetroPhase}
             getBeatDur={getMetroBeatDur}
             beatsPerMeasure={metroBeatsPerMeasure}
             accentOn={metroAccent}
-            /* 錘のタップでもSTART/STOPできるようにする(F-51)。呼ぶのは既存の
-               startMetronome / stopMetronome そのもので、発音や位相の計算には触れない。 */
-            onBeatToggle={() => (metronomeOn ? stopMetronome() : startMetronome())}
-            beatOn={metronomeOn}
+            sig={metroSig}
           />
-        </div>
-      )}
-
-      {/* ── 可変の中間 ── flex:1。状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=操作UI)。
-          余った縦スペースはすべてここが吸収するので、上の環も下のアクションも動かない。 */}
-      <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
-      {/* メトロノームの操作UI: START/STOP・テンポ・拍子・1拍の分割。
-          拍の「表示」は環が担うので、ここは操作系だけを環の下にまとめる。
-          【当たり判定の注意】拍子/分割ボタンは絶対配置で中央のテンポ行に「重ねて」いる。
-          左右のボタンが幅を取りすぎると、見た目には重なりが見えないまま ± ボタンの上に
-          乗り、押しても効かない領域ができる(実際に ＋ の実効幅が39.5pxまで削られていた)。
-          左右の padding とテンポ行の gap は、この行の合計幅が実効内寸347pxに収まり、
-          かつ各ボタンが重ならないことを elementFromPoint で確認したうえでの値。 */}
-      {showMetroPanel && metroPanel === null && (
-        <div style={{ position: "relative", marginTop: 8 }}>
-          {/* A型 = .ctl-state。パネルの開/閉という状態を aria-expanded が持ち、枠線の色だけで返す
-              (以前は開いている間だけ枠 1.5px --c-accent と地 --c-accent-tint を両方持っていた)。
-              枠幅が状態で変わらなくなるので、開閉で幅が 1px 揺れることも無くなる。 */}
-          <button onClick={() => setMetroPanel((p) => (p === "sig" ? null : "sig"))} aria-label="拍子"
-            aria-expanded={metroPanel === "sig"}
-            className="ctl-state no-select"
-            style={{
-              position: "absolute", left: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            }}><TimeSigStacked sig={metroSig} fontSize={20} /></button>
-          <button onClick={() => setMetroPanel((p) => (p === "subdiv" ? null : "subdiv"))} aria-label="1拍の分割"
-            aria-expanded={metroPanel === "subdiv"}
-            className="ctl-state no-select"
-            style={{
-              position: "absolute", right: 2, top: 0, bottom: 0, minHeight: 44, padding: "0 8px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-            {/* SubdivNoteIcon は色をSVGのプレゼンテーション属性(fill/stroke)に渡すため
-                var() が使えない。--c-accent と同値のhexをそのまま渡す。 */}
-            <SubdivNoteIcon value={metroSigDen === 8 && metroSubdiv >= 2 ? (metroCompoundX8 ? 3 : 2) : metroSubdiv} size={32} color="#174585" />
-          </button>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            {/* 上段: START/STOP(画面中央・大きめ) */}
-            {/* 【型の例外】鳴っている/止まっているという状態を持つが A型ではない。
-                ON は --c-danger の枠(中断の意味色)、OFF は --c-accent の塗り。
-                A型の「ON = 枠線が --c-accent」に流し込むと、意味色(--c-danger)が
-                状態色に化けて DESIGN-SYSTEM §1.5 の区別が消えるため。
-                どちらの状態でも「枠線」と「違う地」を同時には持たない(OFF の枠は透明、
-                ON の地は --c-surface = 地と同色)ので、統一の芯には反していない。
-                状態の出所は aria-pressed。 */}
+          {/* テンポ行。押せる物(− / ♩=n / ＋)があるので背面レイヤより手前(zIndex 1)。
+              【審査①の修正】ただし**箱そのものは当たり判定を持たない**(.tap-through)。
+              持たせると −と♩=n の隙間・♩=n と＋の隙間・数値の下 2px が「押しても何も起きない」
+              領域になる(審査役の1px刻み全走査で y492-539 × x120-254 = 3,268px² が無反応だった)。
+              §6.1.5「押しても何も起きないを作らない」。 */}
+          <div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 34 }}>
+            {/* 【A-4 / 逸脱4 の撤回】正典 .pmt をそのまま採る:
+                  width 72 / height 48 / font-size 20 / font-weight 300 / color --ink2 / 地も枠も無し。
+                以前は「文字サイズ据え置き(24px)+46×46 のピル」にしていたが、見た目については
+                モックが唯一の正典(DESIGN-SYSTEM §6.0)。**反応領域 72×48 は本人の明示要件**なので維持。
+                gap 34 も正典(.pmt を並べる行の gap)。 */}
             <button
-              onClick={() => (metronomeOn ? stopMetronome() : startMetronome())}
-              aria-pressed={metronomeOn}
+              onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))}
+              aria-label="テンポを下げる" className="no-select"
+              style={{ width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+            >−</button>
+            {/* 【A-5】テンポ数値をタップすると下からシートが開く。正典の .bpmtxt「♩= 92」(15px)。
+                箱の幅は ± と同じ METRO_PM_W に固定してあるので、桁が変わっても ± は動かない(§6.1.5)。 */}
+            <button
+              onClick={() => setTempoSheetOpen(true)}
+              aria-label="テンポと拍子" aria-expanded={tempoSheetOpen}
               className="sans no-select"
-              style={{
-                width: 210, maxWidth: "82%", minHeight: 44, padding: "12px 0", borderRadius: 999, fontSize: 17, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em",
-                // 停止の赤は --c-danger(中断の操作)。--c-bad(音程が大きく外れている)とは
-                // 値が同じでも意味が違うので流用しない(DESIGN-SYSTEM §1.5 / §1.6)。
-                border: metronomeOn ? "2px solid var(--c-danger)" : "2px solid transparent",
-                background: metronomeOn ? "var(--c-surface)" : "var(--c-accent)",
-                // 紺地に乗る白文字は --c-on-accent。面のトークン(--c-surface)を文字色に
-                // 流用しない(片方だけ変えたいときに必ず破綻するため)。
-                color: metronomeOn ? "var(--c-danger)" : "var(--c-on-accent)",
-              }}
+              style={{ width: METRO_PM_W, minHeight: "var(--tap-min)", background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 15, color: "var(--c-ink-2)", cursor: "pointer", padding: 0, lineHeight: 1, flexShrink: 0 }}
             >
-              {metronomeOn ? "STOP" : "START"}
+              ♩= {metroTempo}
             </button>
-            {/* 下段: テンポ(−/数値タップで直接入力/+)。STARTと同じく画面中央 */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              {/* 【B型 = .ctl-plain + .ctl-pill】テンポの ± は on/off も開閉も持たない
-                  **状態を持たないもの**なので枠線を外し、地(--c-sunken)だけで「触れる」を出す。
-                  46×46 は明示指定 + box-sizing:border-box なので、枠を外しても外形は動かない。
-                  丸は .ctl-pill(--r-pill = 999px)が正方形に効いて 50% と同じ円になる。 */}
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))} aria-label="テンポを下げる" className="ctl-plain ctl-pill no-select" style={{ width: 46, height: 46, color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>−</button>
-              {tempoEditing ? (
-                // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
-                // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
-                // フィールド外タップでの確定はonBlurで引き続き対応する。
-                <form
-                  onSubmit={(e) => { e.preventDefault(); setMetroTempo(clampMetroTempo(tempoInputRef.current?.value)); setTempoEditing(false); }}
-                  style={{ display: "inline-block" }}
-                >
-                  <input
-                    ref={tempoInputRef}
-                    type="number" inputMode="numeric"
-                    defaultValue={metroTempo}
-                    onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
-                    // 地・枠・角丸は index.css の入力欄の規則(B型: --c-sunken の地 + 見えない枠 + --r-xs)。
-                    // 枠幅は 1px のまま(透明)なので 104×46 の外形は動かない(§6.1.5)。
-                    style={{ width: 104, height: 46, textAlign: "center", fontSize: 36, fontWeight: 600, fontFamily: "var(--font-num)", padding: "3px 0" }}
-                  />
-                </form>
-              ) : (
-                <button onClick={() => setTempoEditing(true)} className="num-tight no-select" style={{ minWidth: 104, minHeight: 46, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 42, fontWeight: 600, color: "var(--c-ink)", cursor: "pointer", padding: 0, lineHeight: 1 }}>{metroTempo}</button>
-              )}
-              <button onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))} aria-label="テンポを上げる" className="ctl-plain ctl-pill no-select" style={{ width: 46, height: 46, color: "var(--c-ink-2)", fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}>＋</button>
-            </div>
+            <button
+              onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))}
+              aria-label="テンポを上げる" className="no-select"
+              style={{ width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+            >＋</button>
           </div>
         </div>
       )}
@@ -5503,40 +5568,49 @@ function MeasureView(props) {
 
       </div>{/* /可変の中間 */}
 
-      {/* ── 下端に固定 ── 録音・アップロードと詳細トグル。枠の高さが measureMinH で固定なので
-          この2つの top は状態が変わっても動かない。
-          拍子/リズムの選択パネルを開いている間は、その枠だけを見せるため録音・アップロード・詳細も隠す */}
-      {!(showMetroPanel && metroPanel !== null) && (
-      <div style={{ flexShrink: 0 }}>
-      {/* 録音/アップロード: 「これまでの音」の直下に置き、スクロールなしで押せるようにする。
-          アイコンをラベルの上に積んだpill型。均等幅で並べ、録音は塗り、アップロードは地だけ。
-          【B型 = .ctl-plain + .ctl-lg】アップロードは on/off も開閉も持たない**状態を持たないもの**
-          なので、輪郭(1.5px #174585)をやめて地(--c-sunken)だけにする。相方の録音ボタンは
-          --r-lg(16px)の角丸を持つので、角丸だけ .ctl-lg で --r-lg に差し替える。
-          「1枚ずつ追加(輪郭) / まとめて追加(塗り)」と同じ主従の対で、扱いも同じにする。 */}
-      <div style={{ display: "flex", gap: 11, padding: "12px 0 4px" }}>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isRecording || isAnalyzingUpload}
-          className="sans ctl-plain ctl-lg"
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#174585", padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: isRecording || isAnalyzingUpload ? "default" : "pointer", opacity: isRecording || isAnalyzingUpload ? 0.5 : 1 }}
-        >
-          <Upload size={16} />
-          {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
-        </button>
+      {/* ── 下端に固定 ── 録音ボタン・経過時間・詳細トグル。枠の高さが measureMinH で固定なので
+          これらの top は状態が変わっても動かない。
+          【A-1 の前面】この塊は押せなければならないので zIndex 1(背面レイヤより手前)。
+          ただし**箱そのものは当たり判定を持たない**(index.css の .tap-through)。持たせると
+          録音ボタンの左右の余白と経過時間の行でタップが死ぬ(375×812 の実測で確認)。
+          中の <button> だけが当たり判定を取り戻す。 */}
+      <div className="tap-through" style={{ position: "relative", zIndex: 1, flexShrink: 0 }}>
+      {/* 【C-1】正典の計測タブは録音ボタン**1つだけ**。アップロードはデータタブへ移した。
+          【⑥ / 逸脱9 の撤回】形は正典 .rec をそのまま:
+            68×68 の白い円 / 1.5px の輪郭(--c-line-strong) / 文字は持たない。
+            中身は 待機= .rec .dot(赤い丸 26px) / 録音中= .rec .stop(赤い角丸 22px・r5)。
+          文字を持たないので名前は aria-label が担う。状態は aria-pressed(トグル)。
+          【影は持たない】本人指示(F-50)。box-shadow は外形寸法を変えない(実測で確認)。 */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
         <button
           onClick={toggleRecording}
+          aria-label={isRecording ? "録音を停止" : "録音する"}
+          aria-pressed={isRecording}
           className="sans"
-          /* 【影は持たない】本人指示(F-50)「録音するボタンの周辺に影がついてるので削除」。
-             box-shadow はレイアウトに影響しないので、外しても外形寸法は変わらない(実測で確認)。 */
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: isRecording ? "#DC2626" : "#174585", color: "#FFFFFF", border: "none", borderRadius: 16, padding: "16px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}
+          style={{ width: 68, height: 68, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--c-surface)", border: "1.5px solid var(--c-line-strong)", padding: 0, cursor: "pointer" }}
         >
-          {isRecording ? <Square size={16} /> : <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />}
-          {isRecording ? "停止" : "録音する"}
+          {isRecording
+            ? <span style={{ width: 22, height: 22, borderRadius: 5, background: "var(--c-danger)", display: "inline-block" }} />
+            : <span style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--c-danger)", display: "inline-block" }} />}
         </button>
       </div>
 
-      {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・基準を1枚の折りたたみカードにまとめ、
+      {/* 【B-2】録音の経過時間。正典は録音ボタンの下に「赤点 + m:ss」。
+          役割が重複していた「録音中」バッジ(position:fixed)は撤去した。
+          **箱は常に確保し、文字だけを出し入れする**(DESIGN-SYSTEM §6.1.5)。
+          高さは音名の下のセント値と同じ式 calc(--fs-md + --sp-1) を使い、新しい値を足さない。 */}
+      {/* 寸法は正典 .rectime / .recdot をそのまま: font-size 12 / gap 6 / 赤点 6×6。 */}
+      <div className="sans" style={{ height: 19, marginTop: "var(--sp-1)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)" }}>
+        {isRecording && (
+          <>
+            {/* 点滅は index.css の @keyframes pulse。.ficus-pulse で prefers-reduced-motion では止まる。 */}
+            <span className="ficus-pulse" style={{ width: 6, height: 6, background: "var(--c-danger)", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
+            {formatElapsedMs(recElapsedMs)}
+          </>
+        )}
+      </div>
+
+      {/* 詳細トグル: 倍音構成・音量/重心/HNR・計測下限dB・目安を1枚の折りたたみカードにまとめ、
           画面の一番下(録音ボタンより下)に置く。 */}
       {/* 【A型 = index.css の .ctl-state + .ctl-pill】開/閉という**状態を持つ**ので枠線を残し、
           地は透明にする(以前は枠 #D9E1EC と地 #F3F6FA を両方持っていて重かった)。
@@ -5556,13 +5630,15 @@ function MeasureView(props) {
         </button>
       </div>
       </div>
-      )}
       </div>{/* /画面ぶんの固定枠 */}
 
       {/* ── 追加表示 ── 詳細カード。固定枠の「外・下」に置く。開いても枠の高さは measureMinH の
           ままなので、環・録音ボタン・詳細トグルは1pxも動かない。増えたぶんだけページが縦に伸び、
-          ここから下だけがスクロールする(素の状態・メトロノームだけの状態ではスクロールしない)。 */}
-      {detailOpen && !(showMetroPanel && metroPanel !== null) && (
+          ここから下だけがスクロールする(素の状態・メトロノームだけの状態ではスクロールしない)。
+          【A-1 とは無関係】背面レイヤは画面ぶんの枠の中だけに敷いてあるので、このカードは
+          覆われない。中の操作要素(目安チェック・計測下限スライダー・目安の選択と削除)は
+          そのまま自分でタップを受け取る。 */}
+      {detailOpen && (
         <div style={{ padding: "16px 0 10px" }}>
           <div className="card">
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
@@ -5660,84 +5736,199 @@ function MeasureView(props) {
       )}
 
       {/* ── 浮かせる告知(レイアウトの流れの外) ───────────────────────────────
-          録音中・アップロード・保存確認は「出たり消えたりする過渡的な告知」なので、
-          上端固定ブロックの流れに置くと出た瞬間に環・録音ボタン・詳細トグルが下がる
-          (F-8。審査役の実測で上端に40px出ると環+40 / アクション+29 / スクロール29)。
-          可変の中間へ移す案も、メトロノーム開の中間の余りが2pxしかないため溢れる(F-3)。
-          → 流れから外す(position:fixed)のが唯一の解。DESIGN-SYSTEM §6.1.5。 */}
+          保存確認は「出たり消えたりする過渡的な告知」なので、上端固定ブロックの流れに置くと
+          出た瞬間に環・録音ボタン・詳細トグルが下がる(F-8)。流れから外す(position:fixed)。
+          【N-4b で減った告知】
+          ・「録音中」バッジ → 録音ボタンの下の経過時間(赤点 + m:ss)に一本化した(B-2)。
+            F-48 の要件は「メトロノームのアイコンを覆わない」で、覆うと押せなくなるのが理由。
+            バッジそのものが無くなったので、覆う経路が構造的に消えた。
+          ・アップロードの進捗・タップ要求・完了通知 → データタブへ移設した(C-2)。 */}
 
-      {/* 過渡的な告知(録音中 / アップロードの進捗・タップ要求・完了)。
-          画面上端(=.app-root の padding と同じ式)に浮かせてコンテンツ列に揃える。
-          環は上端から147px下なので、環と音名は隠さない。 */}
-      {(isRecording || isAnalyzingUpload || lastUploadedSession) && (
+      {/* 【A-5】テンポシート。テンポ数値のタップで下から開く。正典 = north-star-measure.html の
+          「テンポシート」。中身は 大きな −/数値/＋ ・拍子12種 ・1拍の分割 ・(5/8・7/8だけ)拍グループ
+          ・小節アクセント。**環は消さずに上へ重ねる**(以前は環と入れ替わっていた)。
+          暗幕の色・カードの影は ScrollPicker / 保存確認と同値(新しい濃さを発明しない)。
+          背景タップで閉じる。z-index 60 なので A-1 の背面レイヤには絶対に届かない。 */}
+      {tempoSheetOpen && (
         <div
+          role="dialog" aria-modal="true" aria-label="テンポと拍子"
+          onClick={() => setTempoSheetOpen(false)}
           style={{
-            position: "fixed", zIndex: 40,
-            top: "calc(16px + env(safe-area-inset-top))",
-            left: "calc(14px + env(safe-area-inset-left))",
-            right: "calc(14px + env(safe-area-inset-right))",
-            pointerEvents: "none", // 告知が出ていない領域は下の操作を邪魔しない
+            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
           }}
         >
-          <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
-            {isRecording && (
-              /* 【右寄せ】上部左端はメトロノームのアイコン(34×34)なので、左寄せだと必ず重なる
-                 (本人報告 F-48。「画面上部であれば右でも左でもよい」)。
-                 実測(375x812)。左寄せ時: バッジ x14-109 / アイコン x14-48 → 重なり 34x33 = 1122px²。
-                 右寄せ時: バッジ x266-361 → アイコンとの重なり 0px²。
-                 【右で代わりに覆うもの】楽器種別「アルト」(y58-83)・基準ピッチ「442Hz」(y59.5-81.5)は
-                 バッジ(y16-49)の下にあり **1px も覆われない**。実際に覆うのは奏者セレクタ
-                 (x244-369 / y19-47。重なり 2660px² = 奏者枠の76%)だが、これは録音中 disabled
-                 なので「押しても何も起きない」にはならない(§6.1.5)。
-                 上部バーのレイアウト自体は動かさない(§6.1.5)。バッジは position:fixed のまま。 */
-              <div className="sans" style={{ pointerEvents: "auto", alignSelf: "flex-end", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-2) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-pill)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)", fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--c-accent)" }}>
-                {/* 点滅は index.css の @keyframes pulse。.ficus-pulse を付けると
-                    prefers-reduced-motion の端末で止まる(既に用意されていたが未使用だった)。 */}
-                <span className="ficus-pulse" style={{ width: 8, height: 8, background: "var(--c-danger)", borderRadius: "50%", display: "inline-block", animation: "pulse 1s infinite" }} />
-                録音中
-              </div>
-            )}
-            {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
-                (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
-            {isAnalyzingUpload && uploadNeedsTap && (
-              <div style={{ pointerEvents: "auto", display: "flex", gap: "var(--sp-3)", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-accent-tint)", border: "1px solid var(--c-accent-line)", borderRadius: "var(--r-lg)", alignItems: "center", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-accent)", fontWeight: 600, flex: 1 }}>タップして動画の解析を開始してください</span>
-                <button
-                  onClick={() => { const start = uploadNeedsTap; setUploadNeedsTap(null); start(); }}
-                  className="sans"
-                  style={{ minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            /* 寸法は正典 .sheet をそのまま: border-radius 28px 28px 0 0 / padding 14px 24px 40px。
+               下端だけ env(safe-area-inset-bottom) を足す(モックは静的なので安全域を持たないが、
+               シートは下部ナビを覆うので実機ではホームインジケータに文字が乗る)。
+               Chrome では inset=0 なので 40px ちょうど = モックと同値。 */
+            style={{
+              width: "100%", maxWidth: 900, background: "var(--c-surface)",
+              borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+              padding: "14px 24px",
+              paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+              display: "flex", flexDirection: "column", alignItems: "center",
+            }}
+          >
+            {/* つまみ。ここをタップしても閉じる(背景タップと同じ動作を明示的に持たせる)。
+                見た目は 36×4 の棒のまま、当たり判定だけ --tap-min 角にする(DESIGN-SYSTEM §5)。 */}
+            <button
+              onClick={() => setTempoSheetOpen(false)} aria-label="閉じる" className="no-select"
+              style={{ width: "var(--tap-min)", height: "var(--tap-min)", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+            >
+              {/* 正典 .handle: 36×4 / border-radius 2px(4px高の棒なので --r-pill と同じ見え方) */}
+              <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
+            </button>
+
+            {/* 大きな − / 数値 / ＋。数値のタップで直接入力に切り替わる(現行の機能を維持)。
+                【逸脱2/3 の撤回】正典 .bpmrow / .pm / .bpmbig をそのまま:
+                  行の gap 30 / ± は 62×62 の円で 1.5px の輪郭(--c-line-strong)・font-size 28・weight 300 /
+                  数値は 76px。以前は §6.7(枠線は状態を持つ物だけ)と §4.1(7段スケール)に従って
+                  地だけの B型 + --fs-hero(46px) にしていたが、見た目はモックが唯一の正典(§6.0)。 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 30 }}>
+              <button
+                onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))}
+                aria-label="テンポを下げる" className="no-select"
+                style={{ width: 62, height: 62, borderRadius: "50%", border: "1.5px solid var(--c-line-strong)", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--c-ink-2)", fontSize: 28, fontWeight: 300, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}
+              >−</button>
+              {tempoEditing ? (
+                // Enterでの確定はカスタムkeydown判定ではなく、<form>のsubmit(ブラウザ標準機構、
+                // number inputを含む単一フィールドのフォームはEnterで自動submitされる)に任せる。
+                // フィールド外タップでの確定はonBlurで引き続き対応する。
+                <form
+                  onSubmit={(e) => { e.preventDefault(); setMetroTempo(clampMetroTempo(tempoInputRef.current?.value)); setTempoEditing(false); }}
+                  style={{ display: "inline-block" }}
                 >
-                  解析を開始
-                </button>
+                  <input
+                    ref={tempoInputRef}
+                    type="number" inputMode="numeric"
+                    defaultValue={metroTempo}
+                    onBlur={(e) => { setMetroTempo(clampMetroTempo(e.target.value)); setTempoEditing(false); }}
+                    // 地・枠・角丸は index.css の入力欄の規則(B型: --c-sunken の地 + 見えない枠 + --r-xs)。
+                    style={{ width: 150, height: 84, textAlign: "center", fontSize: 76, fontWeight: 600, fontFamily: "var(--font-num)", padding: "3px 0" }}
+                  />
+                </form>
+              ) : (
+                <button
+                  onClick={() => setTempoEditing(true)} aria-label="テンポを直接入力"
+                  className="num-tight no-select"
+                  style={{ width: 150, height: 84, background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 76, fontWeight: 600, color: "var(--c-ink)", cursor: "pointer", padding: 0, lineHeight: 1 }}
+                >{metroTempo}</button>
+              )}
+              <button
+                onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))}
+                aria-label="テンポを上げる" className="no-select"
+                style={{ width: 62, height: 62, borderRadius: "50%", border: "1.5px solid var(--c-line-strong)", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--c-ink-2)", fontSize: 28, fontWeight: 300, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 }}
+              >＋</button>
+            </div>
+
+            {/* 拍子12種(1/4〜12/8)。正典 .selrow どおり**6個ずつ2行**、行の gap は 7、
+                1行目の上マージン 18 / 2行目 7。
+                【逸脱1 の撤回】見た目は正典 .selpill / .selpill.on をそのまま:
+                  非選択 = 1px の輪郭(--c-line-strong)・地なし・文字 --c-ink-2
+                  選択中 = --c-accent の塗り + 白文字(枠は地と同色なので「塗り」に見える)
+                以前は §6.7 の A型(状態は枠線の色だけ・地は足さない)にしていたが、
+                見た目はモックが唯一の正典(§6.0)。
+                【枠の書き方】選択中の枠は "1px solid transparent" にしてある。**描画は
+                モックと同一**(背景は枠の下まで塗られるので、地と同色の枠と見分けられない)で、
+                「枠と違う地を同じ状態で両方持たない」という構造だけを保っている。
+                【タップ領域】見た目のピルは 44 に満たないので、外側の <button> が
+                --tap-min の当たり判定を持ち、内側の <span> が見た目を持つ(DESIGN-SYSTEM §5)。 */}
+            {[METRO_SIGS.slice(0, 6), METRO_SIGS.slice(6)].map((row, ri) => (
+              <div key={ri} style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 7, marginTop: ri === 0 ? 18 : 7 }}>
+                {row.map((sig) => (
+                  <button key={sig} onClick={() => setMetroSig(sig)}
+                    aria-pressed={metroSig === sig}
+                    aria-label={`拍子 ${sig}`}
+                    className="no-select"
+                    style={{
+                      minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    }}>
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                      border: metroSig === sig ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                      background: metroSig === sig ? "var(--c-accent)" : "transparent",
+                      color: metroSig === sig ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                    }}>{sig}</span>
+                  </button>
+                ))}
               </div>
-            )}
-            {/* 解析の進捗(ライブ録音と同じ解析パイプラインを通すため、ファイルの長さと同じだけ時間がかかる) */}
-            {isAnalyzingUpload && !uploadNeedsTap && (
-              <div style={{ pointerEvents: "auto", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-                <div style={{ background: "#EEF1F4", borderRadius: "var(--r-xs)", height: 8, overflow: "hidden" }}>
-                  <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "var(--c-accent)", borderRadius: "var(--r-xs)", transition: "width 0.2s linear" }} />
+            ))}
+
+            {/* 1拍の分割。**条件分岐は現行のまま**: X/4系は 1・2・3連・4、
+                X/8系は「主拍のみ」と「8分音符で拍を埋める」の2択(複合拍子なら8分3つ=実質3連)。
+                見た目は拍子と同じ正典 .selpill(選択中は塗り)。行の上マージンは正典の 14。 */}
+            <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 7, marginTop: 14 }}>
+              {metroSubdivOptions.map((s) => {
+                const selected = metroSubdiv === s.value;
+                return (
+                  <button key={s.value} onClick={() => setMetroSubdiv(s.value)} aria-label={`分割 ${s.value}`}
+                    aria-pressed={selected}
+                    className="no-select"
+                    style={{
+                      minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    }}>
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      padding: "4px 11px", borderRadius: 999,
+                      border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                      background: selected ? "var(--c-accent)" : "transparent",
+                    }}>
+                      <SubdivNoteIcon value={s.icon ?? s.value} size={26} color={selected ? "#FFFFFF" : "#435266"} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 拍のグループ(8分音符の束ね方=主拍の区切り)は 5/8・7/8 のときだけ出す。 */}
+            {(metroSig === "5/8" || metroSig === "7/8") && (() => {
+              const choices = metroSig === "5/8" ? [[3, 2], [2, 3]] : [[3, 2, 2], [2, 3, 2], [2, 2, 3]];
+              const cur = Array.isArray(metroGrouping) ? metroGrouping.join("+") : "";
+              return (
+                <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 7, marginTop: 7 }}>
+                  {choices.map((g) => {
+                    const label = g.join("+");
+                    const selected = cur === label;
+                    return (
+                      <button key={label} onClick={() => setMetroGrouping(g)}
+                        aria-pressed={selected}
+                        aria-label={`拍のグループ ${label}`}
+                        className="sans no-select" style={{
+                          minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
+                          display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                        }}>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                          border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                          background: selected ? "var(--c-accent)" : "transparent",
+                          color: selected ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                        }}>{label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", color: "var(--c-ink-2)", marginTop: "var(--sp-1)" }}>{Math.round(uploadProgress * 100)}%</div>
-              </div>
-            )}
-            {!isAnalyzingUpload && lastUploadedSession && (
-              <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-good)", flex: 1 }}>アップロードの解析が完了しました</span>
-                <SetAsIdealButton tapMin session={lastUploadedSession} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
-                {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
-                    見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
-                <button
-                  onClick={() => setLastUploadedSession(null)}
-                  className="sans"
-                  aria-label="閉じる"
-                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "var(--tap-min)", height: "var(--tap-min)", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-                >
-                  {/* B型 = .ctl-plain + .ctl-pill。閉じるは状態を持たないので枠線を外し、
-                      地(--c-sunken)だけにする。22×22 は明示 + border-box なので外形は動かない。 */}
-                  <span className="ctl-plain ctl-pill" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
-                </button>
-              </div>
-            )}
+              );
+            })()}
+
+            {/* 小節アクセント(既定ON)。OFF にすると小節頭の強拍が鳴らず、
+                振り子の点の膨らみも出なくなる(鳴っていないものを見せない)。 */}
+            {/* 寸法・色は正典 .ckrow / .ck をそのまま: 行の上マージン 14 / gap 8 / 文字 12.5px /
+                箱は 16×16・角丸4・紺の 1.5px 枠、チェック時は紺の塗り + 白いチェック。
+                箱は 16px の絵のまま、当たり判定だけ 44×44 に広げる(reedCheckboxStyle。§5)。 */}
+            <label className="sans no-select" style={{ alignSelf: "flex-start", marginTop: 14, minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--c-ink-2)", cursor: "pointer" }}>
+              <input
+                type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)}
+                style={reedCheckboxStyle(metroAccent, 16, CHECKBOX_OFF_ACCENT_IMG)}
+              />
+              小節アクセント
+            </label>
           </div>
         </div>
       )}
@@ -6679,7 +6870,7 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
 
   if (isAdding) {
     return (
-      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      <div style={{ pointerEvents: "auto", display: "flex", gap: 4, alignItems: "center" }}>
         <input
           type="text" autoFocus placeholder="名前を入力" value={addingName}
           onChange={(e) => setAddingName(e.target.value)}
@@ -6694,10 +6885,13 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
   }
 
   return (
+    /* pointerEvents は既定値そのもの。計測タブの上部設定行は .tap-through(index.css)の
+       中にあり箱ごと当たり判定を捨てているので、入力欄はここで明示的に取り戻す。 */
     <select
       value={selectedPerformer}
       onChange={(e) => { if (e.target.value === "__add__") setIsAdding(true); else setSelectedPerformer(e.target.value); }}
       disabled={disabled}
+      style={{ pointerEvents: "auto" }}
     >
       {options.map((name) => (<option key={name} value={name}>{name}</option>))}
       <option value="__add__">＋ 名前を入力...</option>
@@ -6978,13 +7172,18 @@ const REED_FORM_CONTROL_STYLE = {
 // (枠=--c-line-strong #C3CAD3 / 面=--c-surface #FFFFFF / 選択=--c-accent #174585 / チェック=--c-on-accent #FFFFFF)。
 const CHECKBOX_OFF_IMG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect x='0.75' y='0.75' width='16.5' height='16.5' rx='4' fill='%23FFFFFF' stroke='%23C3CAD3' stroke-width='1.5'/%3E%3C/svg%3E\")";
 const CHECKBOX_ON_IMG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect width='18' height='18' rx='4' fill='%23174585'/%3E%3Cpath d='M4.4 9.3l3 3 6.2-6.6' fill='none' stroke='%23FFFFFF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")";
+// テンポシートの「小節アクセント」用。正典 .ck は**紺(--c-accent)の 1.5px 枠**で地は透明。
+// 上の CHECKBOX_OFF_IMG(灰枠+白地)と分けるのは、モックがこの1箇所だけ枠の色を変えているため。
+const CHECKBOX_OFF_ACCENT_IMG = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect x='0.75' y='0.75' width='16.5' height='16.5' rx='4' fill='none' stroke='%23174585' stroke-width='1.5'/%3E%3C/svg%3E\")";
 
-function reedCheckboxStyle(checked, glyph = 18) {
+// offImg: 未チェックの絵。既定はリードタブの灰枠。テンポシートの「小節アクセント」だけは
+// 正典 .ck の**紺の枠**(CHECKBOX_OFF_ACCENT_IMG)を渡す。チェック時の絵は共通(.ck.on と同形)。
+function reedCheckboxStyle(checked, glyph = 18, offImg = CHECKBOX_OFF_IMG) {
   return {
     appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
     width: "var(--tap-min)", height: "var(--tap-min)",
     flexShrink: 0, margin: 0, padding: 0, border: "none", background: "transparent",
-    backgroundImage: checked ? CHECKBOX_ON_IMG : CHECKBOX_OFF_IMG,
+    backgroundImage: checked ? CHECKBOX_ON_IMG : offImg,
     backgroundRepeat: "no-repeat", backgroundPosition: "center",
     backgroundSize: `${glyph}px ${glyph}px`,
     cursor: "pointer",
@@ -9136,7 +9335,12 @@ function AnalysisLabView(props) {
     // 【F-59】選択軸・集計条件は親が持つ(タブ移動・下部ナビの再マウントをまたいで保持する)。
     pivotRow, setPivotRow, pivotCol, setPivotCol, pivotMetric, setPivotMetric,
     pivotFilters: pivotFiltersRaw, setPivotFilters: setPivotFiltersRaw,
+    // 【C-1/C-2 で移設】録音のアップロード。解析処理そのもの(handleUploadFile)は親のまま。
+    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
+    uploadNeedsTap, setUploadNeedsTap,
   } = props;
+  // 隠しファイル入力。計測タブから移した(配線はそのまま流用)。
+  const uploadInputRef = useRef(null);
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
   // **これは持ち上げない**。下部ナビをタップしたら一覧のトップに戻る、という既存の挙動
@@ -9252,6 +9456,67 @@ function AnalysisLabView(props) {
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* 【C-2 で移設】アップロードの過渡的な告知(自動再生ブロック時の「解析を開始」/
+          解析の進捗 / 完了通知 + 「★ 目安に設定」)。
+          正典「アップロードの解析進捗と完了通知はデータタブ上端に浮く」。
+          レイアウトの流れから外す(position:fixed)ので、出ても下の一覧は1pxも動かない
+          (DESIGN-SYSTEM §6.1.5)。座標はルートの padding と同じ式。
+          容器は pointerEvents:none、カードだけ auto(告知が無い領域の操作を殺さない)。 */}
+      {(isAnalyzingUpload || lastUploadedSession) && (
+        <div
+          style={{
+            position: "fixed", zIndex: 40,
+            top: "calc(16px + env(safe-area-inset-top))",
+            left: "calc(14px + env(safe-area-inset-left))",
+            right: "calc(14px + env(safe-area-inset-right))",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+            {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
+                (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
+            {isAnalyzingUpload && uploadNeedsTap && (
+              <div style={{ pointerEvents: "auto", display: "flex", gap: "var(--sp-3)", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-accent-tint)", border: "1px solid var(--c-accent-line)", borderRadius: "var(--r-lg)", alignItems: "center", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-accent)", fontWeight: 600, flex: 1 }}>タップして動画の解析を開始してください</span>
+                <button
+                  onClick={() => { const start = uploadNeedsTap; setUploadNeedsTap(null); start(); }}
+                  className="sans"
+                  style={{ minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+                >
+                  解析を開始
+                </button>
+              </div>
+            )}
+            {/* 解析の進捗(ライブ録音と同じ解析パイプラインを通すため、ファイルの長さと同じだけ時間がかかる) */}
+            {isAnalyzingUpload && !uploadNeedsTap && (
+              <div style={{ pointerEvents: "auto", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <div style={{ background: "#EEF1F4", borderRadius: "var(--r-xs)", height: 8, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "var(--c-accent)", borderRadius: "var(--r-xs)", transition: "width 0.2s linear" }} />
+                </div>
+                <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", color: "var(--c-ink-2)", marginTop: "var(--sp-1)" }}>{Math.round(uploadProgress * 100)}%</div>
+              </div>
+            )}
+            {!isAnalyzingUpload && lastUploadedSession && (
+              <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+                <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-good)", flex: 1 }}>アップロードの解析が完了しました</span>
+                <SetAsIdealButton tapMin session={lastUploadedSession} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
+                {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
+                    見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
+                <button
+                  onClick={() => setLastUploadedSession(null)}
+                  className="sans"
+                  aria-label="閉じる"
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "var(--tap-min)", height: "var(--tap-min)", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+                >
+                  {/* B型 = .ctl-plain + .ctl-pill。閉じるは状態を持たないので枠線を外し、
+                      地(--c-sunken)だけにする。22×22 は明示 + border-box なので外形は動かない。 */}
+                  <span className="ctl-plain ctl-pill" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {/* データタブ内の子タブ: My Data / 分析(クロス集計) */}
       {/* 子タブの溝。地は --c-sunken(リードタブの溝と同じ。以前は #EDEFF3 の直書き) */}
       <div style={{ display: "flex", gap: 6, background: "var(--c-sunken)", borderRadius: 11, padding: 4, marginBottom: 12 }}>
@@ -9285,12 +9550,30 @@ function AnalysisLabView(props) {
       {/* --- 最新セッション: 直近1回分の内訳を単独表示 --- */}
       {latestSession && <LatestSessionCard session={latestSession} reeds={reeds} selectedIdeal={selectedIdeal} tuningHz={tuningHz} />}
 
-      {/* --- セッション一覧(録音+アップロード。アップロードは計測タブに統合済み) --- */}
+      {/* --- セッション一覧(録音 + アップロード) --- */}
       <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
           <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>
             セッション一覧 <span style={{ color: "#8D95A1", fontWeight: 400 }}>{sessionFilterActive ? `${filteredSessions.length}/${sessions.length}` : sessions.length}</span>
           </div>
+          {/* 【C-1/C-2】録音をアップロード。正典では見出しの右に置いた**塗りボタン**
+              (紺地・白文字)で、輪郭だけのフィルタピルと形言語を分ける
+              (DESIGN-SYSTEM §6.0「主要ボタンは塗り、フィルタピルは輪郭のみ」)。
+              §6.7 の意図した例外5「塗りの強調ボタン」= 枠なし・地だけなので芯には反しない。
+              解析中は押せない(disabled)。進捗・完了通知はこのカードの上に浮く(下の告知)。 */}
+          <input
+            ref={uploadInputRef} type="file" accept="audio/*,video/*" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFile(f); e.target.value = ""; }}
+          />
+          <button
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={isAnalyzingUpload}
+            className="sans"
+            style={{ display: "flex", alignItems: "center", gap: 6, minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: 13, fontWeight: 700, cursor: isAnalyzingUpload ? "default" : "pointer", opacity: isAnalyzingUpload ? 0.5 : 1 }}
+          >
+            <Upload size={14} />
+            {isAnalyzingUpload ? "解析中…" : "録音をアップロード"}
+          </button>
           {sessions.length > 0 && (
             selectionMode ? (
               <div style={{ display: "flex", gap: 8 }}>

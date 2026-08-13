@@ -99,7 +99,6 @@ const code = [
   extractConst("RING_CY"),
   extractConst("RING_R"),
   extractConst("RING_SW"),
-  extractConst("RING_MARKER_MIN_GAP_PX"),
   extractConst("RING_D_FULL"),
   extractFunction("ringPoint"),
   extractFunction("ringArcD"),
@@ -152,21 +151,22 @@ const code = [
   extractFunction("ringGlowOpacity"),
   extractFunction("ringGlowRGB"),
   extractFunction("ringRunState"),
-  // メトロノーム(E案: 上半円=振り子 / 下半円=拍の点)
-  extractConst("RING_PEND_R"),
+  // メトロノーム(N-4b: 環の外・下に「浅い弧+点」と「拍の●列」)
   extractConst("RING_PEND_SWING_DEG"),
-  extractConst("RING_PEND_BOB_R"),
-  extractConst("RING_PEND_BOB_GROW"),
-  extractConst("RING_PEND_HALO_GAP"),
-  extractConst("RING_PEND_HALO_SW"),
-  extractConst("RING_PEND_HALO_OPACITY"),
-  extractConst("RING_BEAT_DOT_ORBIT_R"),
-  extractConst("RING_BEAT_DOT_SPREAD_DEG"),
-  extractConst("RING_BEAT_DOT_R"),
-  extractConst("RING_BEAT_DOT_CUR_R"),
-  extractConst("RING_BEAT_DOT_CUR_GROW"),
-  extractConst("RING_BEAT_DOT_HEAD_R"),
-  extractConst("RING_BEAT_DOT_HEAD_GROW"),
+  extractConst("METRO_ARC_W"),
+  extractConst("METRO_ARC_H"),
+  extractConst("METRO_ARC_P0"),
+  extractConst("METRO_ARC_C"),
+  extractConst("METRO_ARC_P2"),
+  extractConst("METRO_ARC_SW"),
+  extractConst("METRO_DOT_R"),
+  extractConst("METRO_DOT_HEAD_SCALE"),
+  extractConst("METRO_BEAT_DOT_PX"),
+  extractConst("METRO_BEAT_GAP_PX"),
+  extractConst("METRO_BEAT_ROW_H"),
+  extractConst("METRO_PM_W"),
+  extractConst("METRO_PM_H"),
+  extractConst("METRO_ARC_PX_PER_DEG"),
   extractConst("RING_BEAT_EMPH_DECAY"),
   extractConst("RING_BEAT_EMPH_HEAD"),
   extractConst("RING_BEAT_EMPH_OTHER"),
@@ -175,8 +175,13 @@ const code = [
   extractFunction("ringBeatEmphasis"),
   extractFunction("ringBeatIndex"),
   extractFunction("ringBeatIsHead"),
-  extractFunction("ringBeatDotDeg"),
-  extractFunction("ringBeatDotR"),
+  extractFunction("metroPendT"),
+  extractFunction("metroArcPoint"),
+  extractFunction("metroDotR"),
+  extractFunction("metroBeatRowW"),
+  extractFunction("metroBeatDotX"),
+  extractFunction("metroBeatDotR"),
+  extractFunction("formatElapsedMs"),
   // マイク生存監視・復旧(iOS対策)
   extractConst("SILENCE_WATCHDOG_DB"),
   extractConst("SILENCE_WATCHDOG_SUSTAIN_MS"),
@@ -240,7 +245,8 @@ const api = new Function(`${code}
            frameWeight, timbreSustained, weightedMean, sanitizePitchOutliers, holdFingering,
            matchFingering, applyBandpassRBJ, concertMidiToFreq, concertFreqLabel, saxPitchBounds,
            clampMetroTempo, parseMetroSig, metroBeatGroups, metroX8BeatStarts, metroTickKind, isNearScheduledClick,
-           ringPoint, ringPendDeg, ringBeatEmphasis, ringBeatIndex, ringBeatIsHead, ringBeatDotDeg, ringBeatDotR,
+           ringPoint, ringPendDeg, ringBeatEmphasis, ringBeatIndex, ringBeatIsHead,
+           metroPendT, metroArcPoint, metroDotR, metroBeatRowW, metroBeatDotX, metroBeatDotR, formatElapsedMs,
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
            METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG, RING_IN_TUNE_CENTS,
@@ -255,12 +261,12 @@ const api = new Function(`${code}
            ringGlowAlphaAt, ringGlowRampAt, ringGlowStops,
            RING_GLOW_FALLOFF_STOPS, RING_GLOW_GRAINY_STOPS, RING_GLOW_SMOOTH_STOPS,
            ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowRGB, ringRunState,
-           RING_PEND_R, RING_PEND_SWING_DEG, RING_PEND_BOB_R, RING_PEND_BOB_GROW,
-           RING_PEND_HALO_GAP, RING_PEND_HALO_SW, RING_PEND_HALO_OPACITY,
-           RING_BEAT_DOT_ORBIT_R, RING_BEAT_DOT_SPREAD_DEG, RING_BEAT_DOT_R, RING_BEAT_DOT_CUR_R,
-           RING_BEAT_DOT_CUR_GROW, RING_BEAT_DOT_HEAD_R, RING_BEAT_DOT_HEAD_GROW,
+           RING_PEND_SWING_DEG,
+           METRO_ARC_W, METRO_ARC_H, METRO_ARC_P0, METRO_ARC_C, METRO_ARC_P2, METRO_ARC_SW,
+           METRO_DOT_R, METRO_DOT_HEAD_SCALE, METRO_ARC_PX_PER_DEG,
+           METRO_BEAT_DOT_PX, METRO_BEAT_GAP_PX, METRO_BEAT_ROW_H, METRO_PM_W, METRO_PM_H,
            RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
-           RING_MARKER_MIN_GAP_PX, RING_D_FULL,
+           RING_D_FULL,
            audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
            SILENCE_WATCHDOG_DB, SILENCE_WATCHDOG_SUSTAIN_MS, MIC_RECOVER_COOLDOWN_MS,
            MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE,
@@ -910,54 +916,79 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
     return true;
   })());
 
-  // 錘は必ず上半円、拍の点は必ず下半円に描かれる(環の二役を上下で分ける)。
+  // 【N-4b で置き換えた検査】以前ここは「錘は全位相で上半円 / 拍の点は全拍子で下半円」
+  // = 環の中で上下に分けることを主張していた。正典(design/north-star-measure.html)は
+  // 拍を**環の外・下**に出したので、主張を「環の中に無い」+「弧の上を動く」へ置き換える。
+  // 弱めていない: 以前は"環の中のどこか"を許していたが、いまは環の中に1つも許さない。
   {
-    let bobMaxY = -Infinity;
+    // 点は必ずガイドの弧そのものの上にいる(x は左端〜右端の間、y は弧の式と一致)。
+    let outside = 0, offCurve = 0, minX = Infinity, maxX = -Infinity;
     for (let p = 0; p <= 8; p += 0.001) {
-      const y = api.ringPoint(api.ringPendDeg(p), api.RING_PEND_R, api.RING_CX, api.RING_CY)[1];
-      if (y > bobMaxY) bobMaxY = y;
+      const t = api.metroPendT(api.ringPendDeg(p));
+      const [x, y] = api.metroArcPoint(t);
+      if (x < api.METRO_ARC_P0[0] - 1e-9 || x > api.METRO_ARC_P2[0] + 1e-9) outside++;
+      // 弧の式(2次ベジエ)を独立に組み立てて突き合わせる(実装の返り値を言い換えない)
+      const u = 1 - t;
+      const ey = u * u * api.METRO_ARC_P0[1] + 2 * u * t * api.METRO_ARC_C[1] + t * t * api.METRO_ARC_P2[1];
+      if (Math.abs(y - ey) > 1e-9) offCurve++;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
     }
-    check("錘は全位相で上半円(cy < 中心)", bobMaxY < api.RING_CY, `最下点 cy=${bobMaxY.toFixed(2)}`);
-    let dotMinY = Infinity;
-    for (let n = 1; n <= 12; n++) {
-      for (let i = 0; i < n; i++) {
-        const y = api.ringPoint(api.ringBeatDotDeg(i, n), api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY)[1];
-        if (y < dotMinY) dotMinY = y;
-      }
+    check("往復する点はガイドの弧の内側だけを動く(端をはみ出さない)", outside === 0, `はみ出し ${outside} 回`);
+    check("点の y はガイドの弧の式そのもの(弧から浮かない)", offCurve === 0, `ずれ ${offCurve} 回`);
+    check("点は弧の左端から右端まで使い切る",
+      Math.abs(minX - api.METRO_ARC_P0[0]) < 1e-9 && Math.abs(maxX - api.METRO_ARC_P2[0]) < 1e-9,
+      `x ${minX.toFixed(3)}〜${maxX.toFixed(3)} / 弧 ${api.METRO_ARC_P0[0]}〜${api.METRO_ARC_P2[0]}`);
+    // 拍の瞬間(位相が整数)にちょうど端にいる = 「点が往復し端で拍」
+    check("拍の瞬間に点が弧の端にいる(0拍=右端 / 1拍=左端)",
+      Math.abs(api.metroArcPoint(api.metroPendT(api.ringPendDeg(0)))[0] - api.METRO_ARC_P2[0]) < 1e-9
+      && Math.abs(api.metroArcPoint(api.metroPendT(api.ringPendDeg(1)))[0] - api.METRO_ARC_P0[0]) < 1e-9);
+    // 停止中(角度0)は弧の中央。戻りは角度が0へ減衰するので、中央へ戻ることと同義。
+    check("停止中は弧の中央に止まる", Math.abs(api.metroPendT(0) - 0.5) < 1e-12);
+    // 弧は「浅い」= 制御点が高さの中にあり、たわみが弧の横幅よりずっと小さい。
+    // 数字を言い換えないよう、たわみは metroArcPoint の実測(中央の y − 端の y)で取る。
+    {
+      const sag = api.metroArcPoint(0.5)[1] - api.METRO_ARC_P0[1];
+      const span = api.METRO_ARC_P2[0] - api.METRO_ARC_P0[0];
+      check("ガイドは浅い弧(たわみが横幅の1/8未満)", sag > 0 && sag < span / 8,
+        `たわみ ${sag.toFixed(2)} / 横幅 ${span}`);
     }
-    check("拍の点は全拍子で下半円(cy > 中心)", dotMinY > api.RING_CY, `最上点 cy=${dotMinY.toFixed(2)}`);
   }
 
-  // 拍の点: 数が拍子と一致し、左から右へ数え、6時を中心に ±SPREAD に収まる。
-  for (const n of [2, 3, 4, 6]) {
-    const degs = Array.from({ length: n }, (_, i) => api.ringBeatDotDeg(i, n));
-    const xs = degs.map((d) => api.ringPoint(d, api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY)[0]);
+  // 拍の●列: 数が拍子と一致し、左から右へ等間隔、列の中心が列幅の中心。
+  for (const n of [1, 2, 3, 4, 6]) {
+    const w = api.metroBeatRowW(n);
+    const xs = Array.from({ length: n }, (_, i) => api.metroBeatDotX(i, n));
     let ascending = true;
     for (let i = 1; i < n; i++) if (!(xs[i] > xs[i - 1])) ascending = false;
-    const inRange = degs.every((d) => d >= 180 - api.RING_BEAT_DOT_SPREAD_DEG - 1e-9 && d <= 180 + api.RING_BEAT_DOT_SPREAD_DEG + 1e-9);
-    const symmetric = Math.abs((xs[0] - api.RING_CX) + (xs[n - 1] - api.RING_CX)) < 1e-9;
-    check(`拍の点(${n}拍): 左から右へ並び、6時を中心に対称で ±${api.RING_BEAT_DOT_SPREAD_DEG}° 以内`,
-      ascending && inRange && symmetric, degs.map((d) => d.toFixed(1)).join(","));
+    // 間隔が全部同じ(等間隔)
+    let evenGap = true;
+    for (let i = 2; i < n; i++) if (Math.abs((xs[i] - xs[i - 1]) - (xs[1] - xs[0])) > 1e-9) evenGap = false;
+    // 列の重心が列幅のちょうど中央 = 行の中央に置けば画面中央に来る
+    const centered = Math.abs(((xs[0] + xs[n - 1]) / 2) - w / 2) < 1e-9;
+    // 端の●が列の外へ出ない(左端の中心 − 半径 >= 0、右端の中心 + 半径 <= 幅)
+    const rMax = api.metroBeatDotR(true);
+    const inside = xs[0] - api.METRO_BEAT_DOT_PX / 2 >= -1e-9 && xs[n - 1] + api.METRO_BEAT_DOT_PX / 2 <= w + 1e-9;
+    check(`拍の●(${n}拍): 左から右へ等間隔で並び、列の中心が列幅の中心`,
+      ascending && evenGap && centered && inside,
+      `xs=${xs.map((v) => v.toFixed(1)).join(",")} / w=${w} / 最大r=${rMax}`);
   }
-  check("1拍のときは6時ちょうどに1つ", api.ringBeatDotDeg(0, 1) === 180);
+  check("1拍のときは●が1つだけで幅は●の直径", api.metroBeatRowW(1) === api.METRO_BEAT_DOT_PX);
 
-  // 現在の拍だけが大きい(2/4・3/4・4/4・6/8)。点は動かず大きさだけが変わる。
+  // 現在の拍だけが大きい。位置は動かさない(●の x は拍に依存しない)。
   for (const n of [2, 3, 4, 6]) {
     let ok = true, detail = "";
     for (let beat = 0; beat < 2 * n; beat++) {
-      const phase = beat + 0.3;                                   // 拍の途中(演出は残っている位相)
+      const phase = beat + 0.3;
       const cur = api.ringBeatIndex(phase, n);
       if (cur !== beat % n) { ok = false; detail = `index ${cur}!=${beat % n}`; break; }
-      const e = api.ringBeatEmphasis(phase, n, true);
-      const isHead = api.ringBeatIsHead(phase, n, true);
-      const rs = Array.from({ length: n }, (_, i) => api.ringBeatDotR(cur === i, cur === i && isHead, e));
+      const rs = Array.from({ length: n }, (_, i) => api.metroBeatDotR(cur === i));
       const others = rs.filter((_, i) => i !== cur);
-      if (!others.every((r) => r === api.RING_BEAT_DOT_R)) { ok = false; detail = "現在以外の点の大きさが既定でない"; break; }
-      if (!others.every((r) => rs[cur] > r)) { ok = false; detail = `現在の点が大きくない ${rs.join(",")}`; break; }
+      if (!others.every((r) => r === api.METRO_BEAT_DOT_PX / 2)) { ok = false; detail = "現在以外の●が既定の大きさでない"; break; }
+      if (!others.every((r) => rs[cur] > r)) { ok = false; detail = `現在の●が大きくない ${rs.join(",")}`; break; }
     }
-    check(`拍の点(${n}拍): 現在の拍だけが大きく、位置は変わらない`, ok, detail);
+    check(`拍の●(${n}拍): 現在の拍だけが大きく、位置は変わらない`, ok, detail);
   }
-  check("6/8は主拍2つ(拍子パースと点の数が一致)", api.metroBeatGroups(6).length === 2);
+  check("6/8は主拍2つ(拍子パースと●の数が一致)", api.metroBeatGroups(6).length === 2);
 
   // ------------------------------------------------------------------
   // 【毎拍・両端で演出が出る】以前は小節頭だけを強調していたため、偶数拍子では
@@ -1005,95 +1036,77 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
   }
 
   // 減速設定(prefers-reduced-motion)の再現: 実装は演出量 e を 0 に固定するだけ。
-  // 錘の移動(位相→角度)と点の切り替え(現在の拍)は e に依存しないので残ることを確かめる。
+  // 点の移動(位相→角度→弧の上の位置)と●の切り替え(現在の拍)は e に依存しないので残る。
   {
-    const movedAngles = new Set();
-    for (let p = 0; p <= 2; p += 0.1) movedAngles.add(api.ringPendDeg(p).toFixed(3));
+    const movedX = new Set();
+    for (let p = 0; p <= 2; p += 0.1) movedX.add(api.metroArcPoint(api.metroPendT(api.ringPendDeg(p)))[0].toFixed(3));
     const idx = [0, 1, 2, 3].map((b) => api.ringBeatIndex(b + 0.3, 4)).join(",");
-    const curR = api.ringBeatDotR(true, true, 0), otherR = api.ringBeatDotR(false, false, 0);
-    check("減速設定でも錘は動き、点の切り替えも続く(止まるのは膨らみだけ)",
-      movedAngles.size > 10 && idx === "0,1,2,3" && curR > otherR
-      && curR === api.RING_BEAT_DOT_HEAD_R && api.ringBeatDotR(true, false, 0) === api.RING_BEAT_DOT_CUR_R,
-      `角度の種類=${movedAngles.size} / 拍=${idx} / 現在r=${curR} 他r=${otherR}`);
+    const curR = api.metroBeatDotR(true), otherR = api.metroBeatDotR(false);
+    check("減速設定でも点は動き、●の切り替えも続く(止まるのは膨らみだけ)",
+      movedX.size > 10 && idx === "0,1,2,3" && curR > otherR
+      && api.metroDotR(true, 0) === api.METRO_DOT_R && api.metroDotR(false, 0) === api.METRO_DOT_R,
+      `位置の種類=${movedX.size} / 拍=${idx} / 現在r=${curR} 他r=${otherR}`);
   }
 
-  // ------------------------------------------------------------------
-  // 環の帯(ピッチ)と拍の要素(錘・点)の最小距離。
-  //
-  // DESIGN-SYSTEM §6.1 の要件は「**実寸**で最低 6 CSS px」。
-  // ここは実装の定数の定義を言い換えるのではなく、実寸を独立に計算して要件と突き合わせる。
-  // (過去に「距離 − (定義から引き算で作った上限) > 余白」という恒等式を書いてしまい、
-  //  構造上失敗し得ないテストで余白を守っているつもりになっていた。定義から導出しない)
-  //
-  // 【基準が変わった】以前は帯の先端に半径 RING_SW/2+3 の点を置いていたので、
-  // 「点の内縁 R-SW/2-3 = 126」で測っていた。その点を削除したので、
-  // 基準は**帯の内縁 R-SW/2 = 129**になる(=クリアランスは広がる)。
-  // さらに到達時は帯が**全周**を走るので、どの角度にも帯が来る最悪ケースで見る。
-  // 帯は半径 [R-SW/2, R+SW/2] の円環なので、内側の点から見た最短距離は
-  // 「R-SW/2 − 中心からの距離 − その要素の半径」。
-  //
-  // viewBox は 300 で、実寸は環の直径。つまり 1 viewBox 単位 = 直径/300 CSS px。
-  // 環は常に RING_D_FULL(330) なので 1.1 倍。viewBox 単位を px と呼んではいけない。
-  // ------------------------------------------------------------------
+  // 往復する点の膨らみ: **小節頭だけ**が膨らむ(本人指示「1拍目は点が大きくなる」)。
+  // 上限は正典の scale(1.4)。小節頭以外は演出量に関わらず既定の大きさのまま。
   {
-    const VB_TO_PX = api.RING_D_FULL / 300;
-    const bandInnerVb = api.RING_R - api.RING_SW / 2;
-    let minPx = Infinity, worst = null;
-    // 拍子は 2〜7 すべてを見る。演出が最大になる位相が拍子によって変わり、
-    // 偶数拍子なら通算拍0(右端)、奇数拍子ならその奇数倍の位相(左端)も最悪ケースになる。
-    for (const beats of [2, 3, 4, 5, 6, 7]) {
-      // 拍の点(下半円・位置は固定)
-      const dots = Array.from({ length: beats }, (_, i) =>
-        api.ringPoint(api.ringBeatDotDeg(i, beats), api.RING_BEAT_DOT_ORBIT_R, api.RING_CX, api.RING_CY));
-      for (let p = 0; p <= 2 * beats + 1e-9; p += 0.005) {
+    let headGrew = false, otherGrew = false, over = false;
+    for (const beats of [2, 3, 4, 6]) {
+      for (let p = 0; p <= 2 * beats; p += 0.01) {
         const e = api.ringBeatEmphasis(p, beats, true);
-        const cur = api.ringBeatIndex(p, beats);
         const isHead = api.ringBeatIsHead(p, beats, true);
-        // --- 錘(上半円) --- 実装が実際に描く大きさをそのまま使う。
-        // 錘の膨らみと、輪の外縁(線幅の半分ぶん半径より外に出る)の大きい方が外径。
-        const [bx, by] = api.ringPoint(api.ringPendDeg(p), api.RING_PEND_R, api.RING_CX, api.RING_CY);
-        const bobR = api.RING_PEND_BOB_R + e * api.RING_PEND_BOB_GROW;
-        const haloOuter = bobR + api.RING_PEND_HALO_GAP + api.RING_PEND_HALO_SW / 2;
-        const bobOuter = Math.max(bobR, e > 0 ? haloOuter : 0);
-        // --- 拍の点(下半円) --- 現在の拍だけ大きさが変わる
-        const dotRs = Array.from({ length: beats }, (_, i) => api.ringBeatDotR(cur === i, cur === i && isHead, e));
-        const items = [[Math.hypot(bx - api.RING_CX, by - api.RING_CY), bobOuter, "錘"]];
-        for (let i = 0; i < beats; i++) {
-          items.push([Math.hypot(dots[i][0] - api.RING_CX, dots[i][1] - api.RING_CY), dotRs[i], `点${i}`]);
-        }
-        for (const [dist, rr, which] of items) {
-          const clearPx = (bandInnerVb - dist - rr) * VB_TO_PX;
-          if (clearPx < minPx) { minPx = clearPx; worst = { beats, phase: +p.toFixed(3), e: +e.toFixed(3), which }; }
-        }
+        const r = api.metroDotR(isHead, e);
+        if (r > api.METRO_DOT_R + 1e-12) { if (isHead) headGrew = true; else otherGrew = true; }
+        if (r > api.METRO_DOT_R * api.METRO_DOT_HEAD_SCALE + 1e-9) over = true;
       }
     }
-    check(`環の帯と拍の要素(錘・点)が実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上離れている`,
-      minPx >= api.RING_MARKER_MIN_GAP_PX,
-      `最小 ${minPx.toFixed(2)} CSS px (${api.RING_D_FULL}px環) @ ${JSON.stringify(worst)}`);
-    console.log(`  帯の内縁と拍の要素の最小クリアランス: ${minPx.toFixed(2)} CSS px (要件 ${api.RING_MARKER_MIN_GAP_PX}) @ ${JSON.stringify(worst)}`);
+    check("往復する点は小節頭でだけ膨らむ(それ以外の拍では既定の大きさ)", headGrew && !otherGrew);
+    check("膨らみの上限は正典の倍率(scale 1.4)を超えない", !over);
+    // アクセントOFF なら小節頭も膨らまない(鳴っていないものを見せない)。
+    let anyGrewOff = false;
+    for (let p = 0; p <= 8; p += 0.01) {
+      if (api.metroDotR(api.ringBeatIsHead(p, 4, false), api.ringBeatEmphasis(p, 4, false)) > api.METRO_DOT_R + 1e-12) anyGrewOff = true;
+    }
+    check("小節アクセントOFF なら点は膨らまない", !anyGrewOff);
   }
 
-  // 帯(ピッチ)の内側に拍の要素が入らないことを、**位相に依存しない上限**でも見る。
-  // 上の検査は位相を刻んだ実測、こちらは取りうる最大半径からの静的な上限で、独立している。
+  // ------------------------------------------------------------------
+  // 【N-4b で置き換えた検査】以前ここには「環の帯(ピッチ)と拍の要素(錘・点)が
+  // 実寸で 6 CSS px 以上離れている」という2本のクリアランス検査があった。
+  // 拍を環の外へ出したので、**環の中に拍の要素が1つも無い**という、
+  // 距離ではなく有無の主張に置き換える(距離の要件より強い)。
+  // 実際の JSX を見る検査は下の「検証19」側(PitchRing の SVG の走査)に置いてある。
+  // ここでは「環の中で拍を描くための定数・関数が1つも残っていない」ことを見る。
+  // codeOf でコメントを外してから見る(経緯をコメントに書いた瞬間に落ちないようにする)。
+  // ------------------------------------------------------------------
   {
-    const bandInner = api.RING_R - api.RING_SW / 2;                 // 環の帯の内縁
-    const bobOuterMax = api.RING_PEND_R + api.RING_PEND_BOB_R + api.RING_PEND_BOB_GROW
-      + api.RING_PEND_HALO_GAP + api.RING_PEND_HALO_SW / 2;
-    const dotOuterMax = api.RING_BEAT_DOT_ORBIT_R + api.RING_BEAT_DOT_HEAD_R + api.RING_BEAT_DOT_HEAD_GROW;
-    const gapPx = (bandInner - Math.max(bobOuterMax, dotOuterMax)) * (api.RING_D_FULL / 300);
-    check(`拍の要素が環の帯に届かない(実寸で ${api.RING_MARKER_MIN_GAP_PX} CSS px 以上内側)`,
-      gapPx >= api.RING_MARKER_MIN_GAP_PX,
-      `帯の内縁 ${bandInner} / 錘 ${bobOuterMax.toFixed(2)} / 点 ${dotOuterMax} → ${gapPx.toFixed(2)} CSS px`);
+    const c = codeOf(src);
+    const gone = ["RING_PEND_R", "RING_PEND_BOB_R", "RING_PEND_BOB_GROW", "RING_PEND_HALO_GAP",
+      "RING_PEND_HALO_SW", "RING_PEND_HALO_OPACITY", "RING_BEAT_DOT_ORBIT_R", "RING_BEAT_DOT_SPREAD_DEG",
+      "RING_BEAT_DOT_R", "RING_BEAT_DOT_CUR_R", "RING_BEAT_DOT_HEAD_R", "RING_MARKER_MIN_GAP_PX"];
+    const left = gone.filter((k) => new RegExp(`\\b${k}\\b`).test(c));
+    check("環の中に拍を描くための定数が1つも残っていない(環はピッチ専用)", left.length === 0, left.join(" "));
+    check("環の中に拍を描くための関数(ringBeatDotDeg / ringBeatDotR)が残っていない",
+      !/function ringBeatDotDeg/.test(c) && !/function ringBeatDotR/.test(c));
   }
 
-  // 軌道のガイド線は描かない(本人指示で削除)。以前はここに「弧が錘の軌道と一致する」検査が
-  // あったが、弧そのものを消したので、代わりに**復活していないこと**を見る。
-  // 演奏中サーフェスは読ませる線を増やさない(DESIGN-SYSTEM §6.1)。
-  // 「削除した」という記録をコメントに残すと、識別子の綴りが本文に現れる。
-  // コメントを外してから見ないと、記録を書いた瞬間にこの検査が落ちる(実際に落ちた)。
-  check("振り子の軌道にガイド線を描かない(定数も描画も残っていない)",
-    !/const RING_PEND_ARC/.test(codeOf(src)) && !/function ringPendArcD/.test(codeOf(src))
-    && !/<path d=\{RING_PEND/.test(codeOf(src)));
+  // 【N-4b で反転した検査】以前は「振り子の軌道にガイド線を描かない」だった。
+  // 確定版の正典(design/north-star-measure.html)は**浅い弧のガイドを1本描く**。
+  // 錘(直径30px超の円)を細い点に落としたぶん、点だけでは往復の道筋が読めないため。
+  // 主張を反転させたので、**ガイドが実際に描かれていること**を見る。
+  {
+    const c = codeOf(src);
+    const i = c.indexOf("function MetroPendulum");
+    const body = i === -1 ? "" : c.slice(i, c.indexOf("function MeasureView", i));
+    check("振り子のガイドの弧を描いている(正典の浅い弧1本)", /<path[\s\S]{0,400}?METRO_ARC_C\[0\]/.test(body), body ? "" : "MetroPendulum が見つからない");
+    check("ガイドの弧の制御点は METRO_ARC_* から引く(座標の直書きが無い)",
+      /METRO_ARC_P0\[0\]\} \$\{METRO_ARC_P0\[1\]\} Q\$\{METRO_ARC_C\[0\]\} \$\{METRO_ARC_C\[1\]\} \$\{METRO_ARC_P2\[0\]\} \$\{METRO_ARC_P2\[1\]\}/.test(body));
+    check("往復する点の位置は metroArcPoint(metroPendT(角度)) から引く",
+      /metroArcPoint\(metroPendT\(pendDeg\)\)/.test(body));
+    check("動作中の角度は ringPendDeg(位相)そのもの(戻りの実装が動作中の角度を書き換えていない)",
+      /pendDeg = ringPendDeg\(phase\);/.test(body));
+  }
 }
 
 // ============================================================
@@ -1818,21 +1831,26 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     // (b) 描画の条件。false に潰すと帯そのものが消える。
     check("ズレの帯は「音が鳴っていて arcD がある」ときに描く",
       /\{sounding && arcD && \(/.test(ringCode));
-    check("拍の要素は getBeatPhase が渡されたときだけ描く", /\{getBeatPhase && \(/.test(ringCode));
+    // 【N-4b】環は**ピッチ専用**になった(拍は環の外・下の MetroPendulum が描く)。
+    // 以前ここは「拍の要素は getBeatPhase が渡されたときだけ描く」だった。
+    // 主張を「環の中に拍の描画が1つも無い」へ**強めて**置き換える。
+    check("環の SVG に拍の要素が1つも無い(環はピッチ専用)",
+      !/getBeatPhase|beatDot|BEAT_DOT|PEND|metroArcPoint|metroBeatDot/.test(ringCode),
+      (ringCode.match(/getBeatPhase|beatDot|BEAT_DOT|PEND|metroArcPoint|metroBeatDot/g) || []).join(" "));
+    check("PitchRing が受け取るのは音・セント・直径だけ(拍の口が残っていない)",
+      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL \}\)/.test(ringCode),
+      (ringCode.match(/function PitchRing\([^)]*\)/) || [""])[0]);
     // (c) 半径。役割ごとに違う半径を使い分けているので、取り違えると二役が崩れる。
-    check("環のトラックの半径は R(=RING_R)",
-      /<circle cx=\{CX\} cy=\{CY\} r=\{R\} fill="none" strokeWidth=\{SW\} style=\{\{ stroke: "var\(--c-line\)" \}\} \/>/.test(flat));
-    check("拍の点は RING_BEAT_DOT_ORBIT_R の上に並べる(環のトラックに乗せない)",
-      /ringPoint\(ringBeatDotDeg\(i, dotCount\), RING_BEAT_DOT_ORBIT_R, CX, CY\)/.test(ringCode));
-    // F-51 で「停止後にゆっくり中央へ戻る」を足したため、角度はいったん pendDeg に受ける。
-    // 軌道半径(RING_PEND_R)と、**動作中の角度が ringPendDeg(位相) そのものであること**は
-    // 分けて縛る(戻りの実装が動作中の角度を書き換えたら落ちる)。
-    check("錘は RING_PEND_R の軌道を回る(環のトラックに乗せない)",
-      /ringPoint\(pendDeg, RING_PEND_R, RING_CX, RING_CY\)/.test(ringCode));
-    check("動作中の錘の角度は ringPendDeg(位相)そのもの",
-      /pendDeg = ringPendDeg\(phase\);/.test(ringCode));
-    check("錘と輪の初期位置も RING_PEND_R(12時)",
-      (flat.match(/cx=\{CX\} cy=\{CY - RING_PEND_R\}/g) || []).length === 2);
+    // 【N-4a】環のトラック(常時全周の円)は撤去した。本人指示「チューナーの円環の枠は要らない」。
+    // 帯は必ず12時から伸びるので軌道は帯自身が示す(DESIGN-SYSTEM §6.0)。
+    // **復活させないこと**を見る。svg は codeOf を通した ringCode 由来なので、
+    // 経緯をコメントに書いても落ちない(綴りの不在を見る検査の作法)。
+    check("環のトラック(全周の円)を復活させていない",
+      !/<circle[^>]*r=\{R\}[^>]*strokeWidth=\{SW\}/.test(flat), flat.match(/<circle[^>]*\/>/g)?.join(" | ") || "circle無し");
+    // 【N-4b】環の中に <circle> が1つも無い(帯・走り・光はすべて <path>/<rect>)。
+    // 拍の点も錘も輪も出て行ったので、環に丸い物は残らない。
+    check("環の SVG に <circle> が1つも無い(拍の丸が出て行った)",
+      !/<circle[\s/>]/.test(flat), (flat.match(/<circle[^>]*\/>/g) || []).join(" | ") || "circle無し");
     // (d) 線幅。SW 以外を混ぜると帯と走りの太さが揃わない。
     check("SW で描く path は帯と走りの2本だけで、太さはどちらも SW ちょうど", (() => {
       const paths = flat.match(/<path[\s\S]*?\/>/g) || [];
@@ -1841,13 +1859,12 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       return sw.length === 2 && other.length === 0;
     })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/strokeWidth=\{[^}]*\}/.exec(t) || ["(線幅なし)"])[0]).join(" | "));
     // (e) 重ね順。光は一番奥、拍は一番手前。入れ替えると光が帯を覆う/拍が帯に隠れる。
-    check("重ね順は 光 → トラック → 走り → ズレの帯 → 拍", (() => {
+    // 【N-4a】トラックを撤去したので重ね順から外した。残る4つの相対順は不変。
+    check("重ね順は 光 → 走り → ズレの帯", (() => {
       const order = [
         flat.indexOf("<g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`}"),
-        flat.indexOf('r={R} fill="none" strokeWidth={SW}'),
         flat.indexOf('d="" fill="none" stroke={`url(#${gid})`}'),
         flat.indexOf("<path d={arcD}"),
-        flat.indexOf("{getBeatPhase && ("),
       ];
       return order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1]));
     })());
@@ -1855,8 +1872,36 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     // 印を別に置く理由が無い。**復活させないこと**を綴りではなく要素の有無で見る。
     // `<line` は `<linearGradient` の接頭辞でもあるので境界を付ける(最初これで空振りした)
     check("12時の基準マーカーを復活させていない(環に <line> は無い)",
-      !/<line[\s/>]/.test(flat.slice(flat.indexOf("<svg"), flat.indexOf("{getBeatPhase && ("))),
+      !/<line[\s/>]/.test(flat),
       (flat.match(/<line[\s/>][\s\S]{0,60}/g) || []).join(" | ") || "");
+  }
+  // 【N-4a】「これまでの音」の ±10¢ 良好ゾーンの帯を撤去した。
+  // 本人判定「真ん中の緑の帯は役目を果たしていない」。残すのは 0¢ の基準線と音名ラベルだけ。
+  // **復活させないこと**を、綴りではなく「描かれる要素」で見る(codeOf 済みなので経緯の
+  // コメントを書いても落ちない)。0¢ の基準線と音名ラベルが**消えていないこと**も同時に縛る
+  // ―― 片方だけを見ると「全部消した」変異が通ってしまう。
+  {
+    // 【抽出の注意】extractFunction は `function 名(` の直後の `{` から波括弧を数えるので、
+    // **引数が分割代入の関数では引数の `{...}` を本体と誤認する**（PitchDeviationLine は
+    // `({ frames, quiet = false })` なので 53文字しか取れなかった）。ここは次の
+    // トップレベル `function ` までを切り出す。
+    const devStart = src.indexOf("function PitchDeviationLine(");
+    const devEnd = src.indexOf("\nfunction ", devStart + 1);
+    const devSrc = codeOf(src.slice(devStart, devEnd === -1 ? undefined : devEnd)).replace(/\s*\n\s*/g, " ");
+    check("PitchDeviationLine を走査できている(分割代入の引数で空振りしていない)",
+      devSrc.length > 1000 && /<svg/.test(devSrc), `${devSrc.length}文字`);
+    // 【綴りで見ない】最初 `goodTop|goodBottom` という**変数名**で見ていたが、
+    // 変異試験で「同じ帯を y(10)/y(-10) 直書きで復活させる」変異が**素通しした**。
+    // 見るべきは描かれる要素そのもの: このミニタイムラインの svg に <rect> は1つも無い
+    // (帯が唯一の rect だった。0¢線は <line>、折れ線は <polyline>、音名は HTML の span)。
+    check("ゾーン帯を復活させていない(ミニタイムラインの svg に <rect> が無い)",
+      !/<rect[\s/>]/.test(devSrc),
+      (devSrc.match(/<rect[\s\S]{0,80}/g) || []).join(" | ") || "rect無し");
+    check("0¢ の基準線は残っている",
+      /<line x1="0" y1=\{H \/ 2\} x2=\{W\} y2=\{H \/ 2\}/.test(devSrc));
+    check("音名ラベルの重ね描きは残っている",
+      /labels\.map\(/.test(devSrc) && /\{l\.name\}/.test(devSrc));
+    check("折れ線そのものは残っている", /<polyline/.test(devSrc));
   }
   // (f) 到達の判定は1箇所だけ。rAF に渡す値を別式にすり替える変異が通っていた。
   // 【F-47で1→2箇所になった】光は ±RING_GLOW_NEAR_CENTS までの帯も出すので、|¢| そのものを
@@ -2319,12 +2364,14 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       /<g mask=\{`url\(#\$\{glowSmoothId\}-m\)`\}> <rect/.test(flatRing));
     check("外側は 減衰 × 傾斜 × 粒 の入れ子(掛け算で粒に分解する)",
       /<g mask=\{`url\(#\$\{glowGrainyId\}-m\)`\}> <g mask=\{`url\(#\$\{glowNoiseId\}-m\)`\}> <rect/.test(flatRing));
+    // 【N-4a】終端の目印だったトラックを撤去したので、次の兄弟=走り(runGradIds の path)を
+    // 境界に使う。主張は変えていない: 2枚の光がどちらも減衰マスクの <g> の内側で閉じていること。
     check("光の <g> は減衰マスクの中で閉じる(2枚の光がどちらも減衰の内側にある)", (() => {
       const open = flatRing.indexOf('<g ref={glowGroupRef}');
       const smooth = flatRing.indexOf('<g mask={`url(#${glowSmoothId}-m)`}>');
       const grainy = flatRing.indexOf('<g mask={`url(#${glowGrainyId}-m)`}>');
-      const track = flatRing.indexOf('r={R} fill="none" strokeWidth={SW}');
-      return open >= 0 && smooth > open && grainy > smooth && track > grainy;
+      const afterGlow = flatRing.indexOf('d="" fill="none" stroke={`url(#${gid})`}');
+      return open >= 0 && smooth > open && grainy > smooth && afterGlow > grainy;
     })());
     // 粒そのもの。fractalNoise / 彩度0 / 明るさの幅 / **alpha は不透明に固定**。
     const filt = (ringCode.match(/<filter[\s\S]*?<\/filter>/g) || []);
@@ -2692,9 +2739,10 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   // **定数を何に変えても真になる**式と、「下弧(±90°より外)に届かない」という
   // 実装(110°)と逆の名乗りが置かれていた。どちらも何も守っていなかった。
   //
-  // 実際の要件は §6.1「環の二役」= 到達していない間の帯が**拍の要素と場所を争わない**こと。
-  // 帯の角度の上限(RING_SWEEP_DEG=110)と、拍の点が占める角度(6時±RING_BEAT_DOT_SPREAD_DEG
-  // = |角度| 120°〜180°)は**別々に決めた定数**なので、突き合わせは恒等式にならない。
+  // 【N-4b で置き換えた要件】以前の要件は §6.1「環の二役」= 到達していない間の帯が
+  // **拍の要素と場所を争わない**ことだった。正典が拍を環の外へ出したので、
+  // 争う相手そのものが無い。代わりに「帯が上弧を出て下半円へどれだけ入るか」という
+  // **帯そのものの事実**を、写像を回して独立に確かめる(定数を読み直さない)。
   check("角度の写像はソースどおり(exact/RING_MAX_CENTS × RING_SWEEP_DEG)",
     /const deg = \(exact \/ RING_MAX_CENTS\) \* RING_SWEEP_DEG;/.test(ringCode));
   {
@@ -2703,23 +2751,12 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     for (let c = -api.RING_MAX_CENTS; c <= api.RING_MAX_CENTS; c += 0.1) {
       bandMax = Math.max(bandMax, Math.abs((c / api.RING_MAX_CENTS) * api.RING_SWEEP_DEG));
     }
-    // 拍の点が占める角度を、点の配置関数から求める(こちらも定数を読み直さない)。
-    let dotMin = 360;
-    for (let n = 1; n <= 12; n++) {
-      for (let i = 0; i < n; i++) {
-        const d = api.ringBeatDotDeg(i, n);
-        dotMin = Math.min(dotMin, Math.abs(((d + 180) % 360 + 360) % 360 - 180));
-      }
-    }
-    check("到達していない帯は拍の点の角度範囲に一切入らない(環の二役が保たれる)",
-      bandMax < dotMin - 1e-9,
-      `帯の上限=±${bandMax.toFixed(1)}° / 拍の点の内端=±${dotMin.toFixed(1)}° / 余白=${(dotMin - bandMax).toFixed(1)}°`);
-    check("その余白は5°以上ある(角度が近すぎて役割が読めなくならない)",
-      dotMin - bandMax >= 5, `${(dotMin - bandMax).toFixed(1)}°`);
     // 帯は 90°を 20°超えて下半円に入る。「±90°で止まる」ではない。事実として記録に残す。
     check("帯は下半円に RING_SWEEP_DEG−90 = 20° だけ入る(±90°では止まらない)",
       Math.abs((bandMax - 90) - 20) < 1e-9, `下半円へ ${(bandMax - 90).toFixed(1)}°`);
-    console.log(`  環の二役: 帯 ±${bandMax.toFixed(1)}° / 拍の点 ±${dotMin.toFixed(1)}°〜180° / 余白 ${(dotMin - bandMax).toFixed(1)}°`);
+    check("帯は全周(±180°)には届かない(到達の走りだけが全周を使う)",
+      bandMax < 180, `帯の上限 ±${bandMax.toFixed(1)}°`);
+    console.log(`  帯の到達角: ±${bandMax.toFixed(1)}° (下半円へ ${(bandMax - 90).toFixed(1)}°)`);
   }
   // 到達したときだけ全周を使う(本人の明示的な許可)。
   check("到達の走りは全周を使う(6時に届く)", 180 * api.ringRunQuantP(1) === 180);
@@ -6015,7 +6052,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 緑になる**(実際 F-50 の変更後もこの検査は通ってしまった)。
     {
       const i = src.indexOf('<option value="">リードを選択</option>');
-      const tag = i === -1 ? "" : tagAt(src.lastIndexOf('<div className="ctl-plain', i) + 1);
+      const tag = i === -1 ? "" : tagAt(src.lastIndexOf('<label className="ctl-plain', i) + 1);
       check("計測タブのリード選択ピルを綴りで特定できている", tag !== "" && /ctl-plain/.test(tag), tag.slice(0, 160));
       check("計測タブのリード選択ピルは B型(ctl-plain)", /className="[^"]*\bctl-plain\b/.test(tag), tag.slice(0, 160));
       // 【F-50 の完了条件そのもの】隣の奏者枠は素の <select> なので角丸は入力欄の規則が決める。
@@ -6342,7 +6379,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           if (o.start >= c.start && o.start < end && (!best || c.start > best.start)) best = c;
         return best;
       };
-      const unreadable = [], both = [], framed = [];
+      const unreadable = [], both = [], framed = [], mockOutline = [];
       for (const o of opens) {
         const owner = ownerOf(o);
         if (!owner) continue;
@@ -6377,12 +6414,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           for (const [n, x, y] of pairs) if (frameVisible(n, x) && groundDistinct(y))
             both.push(`${lineOf(o.start)}: <${o.el}> 枠(${n})="${x}" ∧ 地="${y}"`);
         }
-        // (芯2) 枠を持てるのは状態を持つ操作だけ
+        // (芯2) 枠を持てるのは状態を持つ操作だけ。
+        // 【意図した例外(N-4c)】正典 design/north-star-measure.html のテンポシートは
+        // ± を「1.5px の輪郭だけの円(.pm)」で描く。状態は持たないが枠を持つ。
+        // DESIGN-SYSTEM §6.0 が「見た目についてはモックが唯一の正典。§6.7 はモックに対する
+        // 制約として機能しない」と定めたので、**この2つだけ**を名指しで外す。
+        // 名指しなので、他の要素に枠を足せば従来どおり落ちる。件数も下で固定する。
+        const MOCK_OUTLINE_ONLY = /aria-label="テンポを(下|上)げる" className="no-select"\s*\r?\n?\s*style=\{\{ width: 62/;
         const hasFrame = bd.some((d) => arms(d.value).arms.flatMap(lits).some((x) => frameVisible(d.name, x)));
         const hasState = /aria-pressed=|aria-expanded=/.test(owner.tag) ||
           /className="[^"]*\bctl-state\b/.test(owner.tag);
-        if (hasFrame && !hasState)
-          framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
+        if (hasFrame && !hasState) {
+          if (MOCK_OUTLINE_ONLY.test(owner.tag)) mockOutline.push(`${lineOf(owner.start)}`);
+          else framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
+        }
       }
       // 走査そのものが空回りしていないことの下限。要素を減らして「0件だから合格」を作らせない
       check("入口(button/select/input/textarea/role=button/触れる小文字タグ)を走査できている",
@@ -6401,8 +6446,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         unreadable.length === 0, unreadable.slice(0, 3).join(" | "));
       check("【芯1】操作するもので「全周の枠線」と「違う地」を同じ状態で両方持つものが1つも無い",
         both.length === 0, `${both.length}件: ` + both.slice(0, 3).join(" | "));
-      check("【芯2】「全周の枠線」を持つ操作はすべて状態(aria-pressed / aria-expanded / .ctl-state)を持つ",
+      check("【芯2】「全周の枠線」を持つ操作はすべて状態を持つ(正典の輪郭だけの円を除く)",
         framed.length === 0, `${framed.length}件: ` + framed.slice(0, 3).join(" | "));
+      // 例外は**テンポシートの ± の2つだけ**。増えたら「例外に逃がした」ということ。
+      check("芯2 の例外は正典 .pm(テンポシートの ±)の2つだけ",
+        mockOutline.length === 2, `${mockOutline.length}件: ` + mockOutline.join(" | "));
       // 型のクラスが実際に広く行き渡っていること(名指しの検査では見えない全体像)
       check("A型(.ctl-state)は 8箇所以上で使われている", tagsWithClass("ctl-state").length >= 8,
         `${tagsWithClass("ctl-state").length}箇所`);
@@ -6537,10 +6585,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       for (const [label, needle] of [
         ["テンポを下げる(−)", 'aria-label="テンポを下げる"'],
         ["テンポを上げる(＋)", 'aria-label="テンポを上げる"'],
-        ["テンポの数値(タップで直接入力)", "onClick={() => setTempoEditing(true)}"],
-        ["START/STOP", "aria-pressed={metronomeOn}"],
-        ["拍子パネルを開くボタン", 'aria-label="拍子"'],
-        ["1拍の分割パネルを開くボタン", 'aria-label="1拍の分割"'],
+        ["テンポの数値(シートの中。タップで直接入力)", "onClick={() => setTempoEditing(true)}"],
+        ["画面タップでの開始/停止(背面レイヤ)", "aria-pressed={metronomeOn}"],
+        ["テンポシートを開くボタン", 'aria-label="テンポと拍子"'],
+        ["テンポシートを閉じるつまみ", 'aria-label="閉じる" className="no-select"'],
         ["拍子の選択(METRO_SIGS)", "aria-pressed={metroSig === sig}"],
         ["分割の選択", "aria-pressed={selected}"],
         ["アクセントのラベル", 'className="sans no-select"'],
@@ -6580,43 +6628,66 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       }
     }
 
-    // --- 17.16 F-50 録音ボタンは影を持たない --------------------------------
+    // --- 17.16 録音ボタン: 影を持たない(F-50) + 形は正典 .rec ----------------
     // 本人指示「録音するボタンの周辺に影がついてるので削除」。
     // box-shadow はレイアウトに影響しないので、外形寸法(§6.1.5)は変わらない。
+    // 【N-4c で形が変わった】旧主張「外形は 角丸16 / padding 16px 0」→
+    // 正典 .rec の **68×68 の白い円 + 1.5px の輪郭**。中身は .rec .dot(赤丸26) /
+    // .rec .stop(赤い角丸22・r5)。文字を持たないので名前は aria-label が担う。
     {
-      const i = src.indexOf("{isRecording ? \"停止\" : \"録音する\"}");
+      const i = src.indexOf("onClick={toggleRecording}");
       const tag = i === -1 ? "" : tagAt(src.lastIndexOf("<button", i) + 1);
       check("録音ボタンのタグを走査できている", /onClick=\{toggleRecording\}/.test(tag), tag.slice(0, 120));
       check("録音ボタンは影(boxShadow)を持たない",
         !withPrefix([tag], ["boxshadow"]).length, tag.replace(/\s+/g, " ").slice(0, 200));
-      check("録音ボタンの外形(角丸16 / padding 16px 0)は変わっていない",
-        /borderRadius: 16/.test(tag) && /padding: "16px 0"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      check("録音ボタンは正典 .rec の 68×68 の円",
+        /width: 68, height: 68, borderRadius: "50%"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
+      check("録音ボタンは白い地 + 1.5px の輪郭(正典 .rec)",
+        /background: "var\(--c-surface\)", border: "1\.5px solid var\(--c-line-strong\)"/.test(tag),
+        tag.replace(/\s+/g, " ").slice(0, 240));
+      check("録音ボタンは文字を持たないので aria-label が名前を担う",
+        /aria-label=\{isRecording \? "録音を停止" : "録音する"\}/.test(tag) && !/録音する<\/button>/.test(codeOf(src)));
+      check("録音ボタンはトグルなので状態を aria-pressed が持つ", /aria-pressed=\{isRecording\}/.test(tag));
+      // 中身: 待機 = 赤い丸 26px / 録音中 = 赤い角丸 22px(r5)。正典 .rec .dot / .rec .stop。
+      {
+        const body = src.slice(src.indexOf(">", src.lastIndexOf("<button", i) + 1), src.indexOf("</button>", i));
+        check("待機中は赤い丸 26px(正典 .rec .dot)",
+          /width: 26, height: 26, borderRadius: "50%", background: "var\(--c-danger\)"/.test(body), body.replace(/\s+/g, " ").slice(0, 240));
+        check("録音中は赤い角丸 22px・r5(正典 .rec .stop)",
+          /width: 22, height: 22, borderRadius: 5, background: "var\(--c-danger\)"/.test(body), body.replace(/\s+/g, " ").slice(0, 240));
+      }
     }
 
-    // --- 17.17 F-48 録音中バッジはメトロノームアイコンと重ならない ------------
-    // 本人指示「録音中のポップアップがメトロノームアイコンと被るので修正。
-    //           画面上部であれば右でも左でもよい」。
-    // 上部バーの左端はメトロノームアイコン(34×34)なので、左寄せだと必ず重なる。
-    // 【縛り方】綴りだけでなく**幾何**でも見る: 告知はページ左右余白と同じ式で全幅に敷かれ、
-    // 中の要素は alignSelf で寄る。左端どうしが同じ x なので flex-start は重なる。
+    // --- 17.17 【B-2 で置き換え】録音中バッジ → 録音ボタンの下の経過時間 ------
+    // 元の要件(F-48)は本人指示「録音中のポップアップがメトロノームアイコンと被るので修正」。
+    // 正典(design/north-star-measure.html の「演奏中」)は、上に浮かぶバッジを持たず
+    // **録音ボタンの下に赤点 + m:ss** を置く。バッジそのものを撤去したので、
+    // 「メトロノームアイコンを覆う」経路が構造的に消えた。
+    // 【縛り方】(1) バッジが復活していないこと (2) 経過時間が録音ボタンの下にあること
+    // (3) 箱を常に確保していること(出入りでレイアウトが動かない。§6.1.5)。
     {
-      const i = src.indexOf('<span className="ficus-pulse"');
-      const tag = i === -1 ? "" : tagAt(src.lastIndexOf('<div className="sans"', i) + 1);
-      check("録音中バッジのタグを走査できている",
-        i !== -1 && /pointerEvents: "auto"/.test(tag) && /var\(--c-danger\)/.test(src.slice(i, i + 300)),
-        tag.replace(/\s+/g, " ").slice(0, 120));
-      check("録音中バッジは右寄せ(alignSelf: flex-end)。左端のメトロノームアイコンと重ならない",
-        /alignSelf: "flex-end"/.test(tag), (tag.match(/alignSelf: "[^"]*"/) || ["alignSelf 無し"])[0]);
-      // メトロノームアイコンは上部バーの**左端**にあり、告知の左端と同じ x から始まる。
+      const code17 = codeOf(src);
+      check("上に浮かぶ「録音中」バッジが復活していない(経過時間に一本化)",
+        !/録音中/.test(code17), (code17.match(/.{0,30}録音中.{0,30}/) || [""])[0]);
+      const i = code17.indexOf("formatElapsedMs(recElapsedMs)");
+      check("録音の経過時間を出している(m:ss)", i !== -1);
+      const box = i === -1 ? "" : code17.slice(code17.lastIndexOf("<div className=\"sans\"", i), i);
+      check("経過時間は赤点(--c-danger)を伴う", /var\(--c-danger\)/.test(box), box.replace(/\s+/g, " ").slice(0, 160));
+      // 【逸脱6 の撤回】寸法は正典 .rectime / .recdot: 12px / gap 6 / 赤点 6×6。
+      // 箱の高さは固定のまま(録音の有無で行が増減しない。§6.1.5)。
+      check("経過時間の箱は常に確保されている(高さが固定で、録音の有無で行が増減しない)",
+        /height: 19, marginTop: "var\(--sp-1\)"/.test(box), box.replace(/\s+/g, " ").slice(0, 200));
+      check("経過時間は正典 .rectime の 12px / gap 6",
+        /gap: 6, fontFamily: "var\(--font-num\)", fontSize: 12/.test(box), box.replace(/\s+/g, " ").slice(0, 200));
+      check("赤点は正典 .recdot の 6×6", /width: 6, height: 6, background: "var\(--c-danger\)"/.test(box));
+      // 録音ボタンより**後ろ**にある = 画面上では下(正典の .rectime の位置)。
+      const rb = code17.indexOf("onClick={toggleRecording}");
+      check("経過時間は録音ボタンの下に置かれている", rb !== -1 && i > rb, `録音ボタン ${rb} / 経過時間 ${i}`);
       const mi = src.indexOf('aria-label="メトロノーム"');
       const mtag = mi === -1 ? "" : tagAt(mi);
-      check("メトロノームアイコンは 34×34 のまま(F-48 で上部バーは動かしていない)",
-        /width: 34, height: 34/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 160));
-      // 告知の容器は position:fixed のまま = レイアウトの流れの外(§6.1.5 / F-8)。
-      const ci = src.indexOf("{(isRecording || isAnalyzingUpload || lastUploadedSession) && (");
-      const cblock = ci === -1 ? "" : src.slice(ci, ci + 700);
-      check("録音中バッジの容器は position:fixed のまま(流れの外。出ても環は動かない)",
-        /position: "fixed"/.test(cblock) && /pointerEvents: "none"/.test(cblock), cblock.slice(0, 120));
+      // 高さ56 = 上部バー2行ぶん。幅は --tap-min(44px)。バッジが無くなっても寸法は不変。
+      check("メトロノームアイコンは2行ぶんの高さ(height 56)でタップ幅は --tap-min",
+        /width: "var\(--tap-min\)", height: 56/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 200));
     }
 
     // --- 17.18 F-63 測定ボタンは計測タブと同じアイコン(絵は1箇所に閉じる) -----
@@ -7330,8 +7401,11 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
     extractConst("AUDIO_CLOCK_STALL_MIN_WALL_S"),
     extractConst("AUDIO_CLOCK_STALL_RATIO"),
     extractFunction("audioClockStalled"),
-    extractConst("RING_PEND_R"),
     extractConst("RING_PEND_SWING_DEG"),
+    extractConst("METRO_ARC_P0"),
+    extractConst("METRO_ARC_C"),
+    extractConst("METRO_ARC_P2"),
+    extractConst("METRO_ARC_PX_PER_DEG"),
     extractConst("RING_PEND_SETTLE_EPS_VB"),
     extractFunction("ringPendDeg"),
     extractFunction("ringPendSettleDeg"),
@@ -7339,7 +7413,7 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
   ].join("\n\n")}
     return { fillViewportMinHeight, audioClockStalled, ringPendDeg, ringPendSettleDeg, ringPendSettleDone,
              AUDIO_CLOCK_STALL_MIN_WALL_S, AUDIO_CLOCK_STALL_RATIO, RING_PEND_SETTLE_EPS_VB,
-             RING_PEND_R, RING_PEND_SWING_DEG };`)();
+             METRO_ARC_P0, METRO_ARC_C, METRO_ARC_P2, METRO_ARC_PX_PER_DEG, RING_PEND_SWING_DEG };`)();
 
   // --- 20.1 F-53 画面ぶんの高さは「スクロール位置に依存しない」 --------------
   // 本人報告「詳細ページを開いているときにテンポ入力をすると録音ボタンから下のすべての
@@ -7474,7 +7548,8 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       api20.ringPendSettleDone(A, D, D / 2) === false);
     check("F-51: 描画の丸め(toFixed(2))より小さくなったら戻りきったと判定する",
       api20.ringPendSettleDone(A, D, 12 * D) === true);
-    const ring = codeOf(componentSourceOf("PitchRing"));
+    // 【N-4b】振り子は環の外へ出た。配線を見る先は MetroPendulum。
+    const ring = codeOf(componentSourceOf("MetroPendulum"));
     // --- 静止と判定するしきい値 -------------------------------------------
     // 【この検査は一度書き直している】最初は期待時刻を
     //   tDone = -D * log(eps / (A * π/180 * RING_PEND_R))
@@ -7489,8 +7564,8 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
     // ならば **桁数を実ソースの描画側から読み**、そこから丸め幅を出して当てる。
     // eps を触っても描画側の桁数は動かないので、両辺が連動しない。
     {
-      const m = /bob\.setAttribute\("cx", bx\.toFixed\((\d+)\)\)/.exec(ring);
-      check("F-51: 錘の座標を書く桁数を実ソースから読めている", m !== null, String(m && m[1]));
+      const m = /dot\.setAttribute\("cx", px\.toFixed\((\d+)\)\)/.exec(ring);
+      check("F-51: 点の座標を書く桁数を実ソースから読めている", m !== null, String(m && m[1]));
       const digits = m ? Number(m[1]) : NaN;
       const half = 0.5 * Math.pow(10, -digits);   // toFixed(2) なら 0.005 viewBox
       // (a) しきい値そのものが描画の丸め幅と一致していること。
@@ -7503,7 +7578,18 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       //     「錘の実際の変位」が丸め幅の内側にあり、その1ステップ前はまだ外側にある
       //     ことを掃引で確かめる(= 丸めに乗った瞬間に静止と判定している)。
       //     eps を大きくすると (b-1) が、小さくすると (b-2) が落ちる。
-      const disp = (t) => Math.abs(A) * Math.exp(-t / D) * (Math.PI / 180) * api20.RING_PEND_R;
+      // 【N-4b】変位は「弧の上の実際の移動量」で測る。**定数 METRO_ARC_PX_PER_DEG を
+      // 使わずに** metroArcPoint を実際に回して x の差から出す(定数の言い換えにしない)。
+      // 角度→t は線形なので、中央付近が最も速い=最悪ケースになる。
+      const dispAt = (deg) => {
+        const t0 = 0.5, t1 = 0.5 + deg / (2 * api20.RING_PEND_SWING_DEG);
+        const bez = (t) => {
+          const u = 1 - t;
+          return u * u * api20.METRO_ARC_P0[0] + 2 * u * t * api20.METRO_ARC_C[0] + t * t * api20.METRO_ARC_P2[0];
+        };
+        return Math.abs(bez(t1) - bez(t0));
+      };
+      const disp = (t) => dispAt(Math.abs(A) * Math.exp(-t / D));
       const step = D / 2000;
       let tFirst = null;
       for (let t = 0; t <= 40 * D; t += step) if (api20.ringPendSettleDone(A, D, t)) { tFirst = t; break; }
@@ -7518,7 +7604,8 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       // 参考出力。**アサーションにはしない**(上の (b-1) から自動的に従うので、
       //   ここで「〜px 未満」を主張しても恒真な条件を1つ増やすだけになる)。
       //   viewBox 300 に対し環の実寸は RING_D_FULL(330) = 1.1倍(§6.1「単位を書き間違えない」)。
-      if (tFirst !== null) console.log(`  静止に切り替わる瞬間の飛び: ${(disp(tFirst) * (330 / 300)).toExponential(3)} CSS px ` +
+      // 弧は実寸で描く(viewBox 1単位 = 1 CSS px)ので、換算は要らない。
+      if (tFirst !== null) console.log(`  静止に切り替わる瞬間の飛び: ${disp(tFirst).toExponential(3)} CSS px ` +
         `(判定時刻 ${tFirst.toFixed(3)}s / 停止角 ${A}° / beatDur ${D}s)`);
     }
     check("F-51: beatDur が取れないときは戻りを出さない(0除算・NaNを作らない)",
@@ -7548,44 +7635,205 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       !/settleOnStop=\{!?\s*isRecording\s*\}/.test(codeOf(src)));
   }
 
-  // --- 20.4 F-51 錘のタップで開始/停止 --------------------------------------
-  // 本人指示「メトロノームモードで振り子をタップでスタートしてもメトロノームがスタートする」。
-  // 錘そのものは実寸 直径 30.8 CSS px しかなく、DESIGN-SYSTEM §5 の 44pt に足りない。
-  // **見た目は変えず、透明な当たり判定だけを広げる。**
+  // --- 20.4 【A-1 で置き換え】錘のタップ → **画面のどこをタップしても開始/停止** ----
+  // 元の指示(F-51)は「振り子をタップでスタートしてもメトロノームがスタートする」。
+  // 正典の決定2(2026/08/11)はこれを広げて「画面のどこをタップしてもよい。
+  // ただし操作要素の上ではその要素の機能が勝つ」。錘のタップはこれに吸収された。
+  // 【縛り方】(1) 背面レイヤが計測タブの全面を覆い、押すと開始/停止すること
+  //           (2) stopPropagation で実装していないこと(伝播を止める作りにしない)
+  //           (3) 押せなければならない物が**前面(z-index 1)**に居ること。
+  //               ここが本体。1つでも背面に落ちると「押しても何も起きない」が生まれる(§6.1.5)。
   {
-    const ring = codeOf(componentSourceOf("PitchRing"));
-    const i = src.indexOf('aria-label="メトロノームの開始/停止"');
-    const tapTag = i === -1 ? "" : src.slice(src.lastIndexOf("<button", i), src.indexOf("/>", i) + 2);
-    check("F-51: 錘のタップ用のボタンがある", i !== -1 && /ref=\{bobTapRef\}/.test(tapTag), tapTag.slice(0, 120));
-    check("F-51: タップは onBeatToggle を呼ぶ(発音・位相の計算には触れない)",
-      /onClick=\{onBeatToggle\}/.test(tapTag));
-    check("F-51: 状態は aria-pressed が持つ(SVG は aria-hidden なので名前もここが持つ)",
-      /aria-pressed=\{beatOn\}/.test(tapTag) && /aria-hidden="true"/.test(ring));
-    check("F-51: 当たり判定は --tap-min(§5 の下限)で、見た目は持たない",
-      /width: "var\(--tap-min\)", height: "var\(--tap-min\)"/.test(tapTag) &&
-      /background: "transparent"/.test(tapTag) && /border: "none"/.test(tapTag),
-      tapTag.replace(/\s+/g, " ").slice(0, 240));
-    check("F-51: 当たり判定は錘の中心に合わせる(--tap-min の半分だけ戻す)",
-      /marginLeft: "calc\(var\(--tap-min\) \/ -2\)", marginTop: "calc\(var\(--tap-min\) \/ -2\)"/.test(tapTag));
-    check("F-51: 当たり判定は position:absolute(出ても消えてもレイアウトが動かない・§6.1.5)",
-      /position: "absolute"/.test(tapTag));
-    // 初期値は錘の静止位置(12時)と同じ式から出す。0% だと最初の1フレームだけ
-    // 当たり判定が錘より 61.6px 上にいる(審査役の指摘)。
-    check("F-51: 当たり判定の初期位置は錘の静止位置(12時)と同じ式で書く",
-      /left: `\$\{\(CX \/ VB\) \* 100\}%`, top: `\$\{\(\(CY - RING_PEND_R\) \/ VB\) \* 100\}%`/.test(tapTag),
+    const code20 = codeOf(src);
+    const i = code20.indexOf('aria-label="メトロノームの開始/停止"');
+    const tapTag = i === -1 ? "" : code20.slice(code20.lastIndexOf("<button", i), code20.indexOf("/>", i) + 2);
+    check("A-1: 画面タップ用の背面レイヤがある", i !== -1 && /position: "absolute", zIndex: 0/.test(tapTag),
       tapTag.replace(/\s+/g, " ").slice(0, 200));
-    check("F-51: 当たり判定は rAF が錘に追従させる(left/top を % で書き換える)",
-      /tap\.style\.left = `\$\{\(bx \/ RING_VB\) \* 100\}%`/.test(ring) &&
-      /tap\.style\.top = `\$\{\(by \/ RING_VB\) \* 100\}%`/.test(ring));
-    check("F-51: メトロノームを開いていて、かつトグルが渡されたときだけ出す",
-      /\{getBeatPhase && onBeatToggle && \(/.test(ring));
-    check("F-51: MeasureView は既存の startMetronome / stopMetronome をそのまま渡す",
-      /onBeatToggle=\{\(\) => \(metronomeOn \? stopMetronome\(\) : startMetronome\(\)\)\}/.test(src));
-    // 【当たり判定を広げる必要があることの独立計算】錘の実寸 < 44。
+    // 【審査⑤の修正】枠の中だけに敷くと、.app-root の padding(左右14px帯・上端16px帯)が
+    // 外に残り、審査役の1px刻み全走査で 26,972px²(画面の8.9%)が無反応だった。
+    // 負のオフセットで padding のぶんだけ広げる。**式は .app-root の padding と同じもの**を
+    // 符号だけ変えて書く(別管理にすると安全域のある端末でずれる)。
     {
-      const bobPx = 2 * 14 * (330 / 300); // RING_PEND_BOB_R × 2 × (RING_D_FULL / RING_VB)
-      check("F-51: 錘そのものの実寸(30.8px)は §5 の 44pt に足りない(だから透明な当たり判定が要る)",
-        bobPx < 44 && Math.abs(bobPx - 30.8) < 1e-9, `${bobPx.toFixed(2)}px`);
+      const rootPad = /className="app-root"[\s\S]{0,400}?padding: "([^"]+)"/.exec(code20);
+      check("A-1: .app-root の padding を実ソースから読めている", rootPad !== null, rootPad ? rootPad[1] : "");
+      // padding は「上 右 下 左」の4値。上・右・左をレイヤの負のオフセットと突き合わせる。
+      // padding の4値を「括弧の外の空白」で割る(calc(...) の中の空白では割らない)
+      const splitTop = (str) => {
+        const out = []; let d = 0, cur = "";
+        for (const ch of str) {
+          if (ch === "(") d++;
+          else if (ch === ")") d--;
+          if (/\s/.test(ch) && d === 0) { if (cur) out.push(cur); cur = ""; } else cur += ch;
+        }
+        if (cur) out.push(cur);
+        return out;
+      };
+      const [padTop, padRight, , padLeft] = splitTop(rootPad ? rootPad[1] : "");
+      // calc(16px + env(x)) → calc(-16px - env(x))。**中身の符号だけ**を反転する
+      // (末尾の ) を落とすと env( の閉じ括弧を壊す)。
+      const neg = (v) => {
+        const m = /^calc\((.*)\)$/.exec(String(v).trim());
+        const body = m ? m[1] : String(v).trim();
+        return "calc(-" + body.replace(/ \+ /g, " - ") + ")";
+      };
+      check("A-1: レイヤは上端を .app-root の padding-top ぶん広げている",
+        new RegExp('top: "' + neg(padTop).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(tapTag),
+        `期待 ${neg(padTop)} / 実際 ${(tapTag.match(/top: "[^"]*"/) || [""])[0]}`);
+      check("A-1: レイヤは左右を .app-root の padding ぶん広げている",
+        new RegExp('left: "' + neg(padLeft).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(tapTag)
+        && new RegExp('right: "' + neg(padRight).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(tapTag),
+        `期待 ${neg(padLeft)} / 実際 ${(tapTag.match(/left: "[^"]*"/) || [""])[0]}`);
+      // 下端は広げない。広げると下部ナビ(position:fixed / z-index 30)の帯に重なる意図が生まれ、
+      // 「ナビを奪わない」という約束が読めなくなる。
+      check("A-1: レイヤの下端は広げない(下部ナビの帯を奪わない)", /bottom: 0,/.test(tapTag),
+        (tapTag.match(/bottom: [^,]*/) || [""])[0]);
+    }
+    check("A-1: レイヤは既存の startMetronome / stopMetronome をそのまま呼ぶ(発音・位相に触れない)",
+      /onClick=\{\(\) => \(metronomeOn \? stopMetronome\(\) : startMetronome\(\)\)\}/.test(tapTag));
+    check("A-1: 状態は aria-pressed が持つ", /aria-pressed=\{metronomeOn\}/.test(tapTag));
+    check("A-1: レイヤは見た目を持たない(地も枠も無い透明な当たり判定)",
+      /background: "transparent"/.test(tapTag) && /border: "none"/.test(tapTag), tapTag.replace(/\s+/g, " ").slice(0, 240));
+    check("A-1: レイヤはメトロノームを開いている間だけ出す(素の計測タブでは誤爆しない)",
+      /\{showMetroPanel && \(\s*<button/.test(code20.replace(/\s+/g, " ").replace(/\{showMetroPanel && \( <button/g, "{showMetroPanel && (\n<button")) ||
+      /\{showMetroPanel && \([\s\S]{0,40}<button/.test(code20));
+    // レイヤが覆うのは**画面ぶんの枠の中だけ**。下部ナビ(枠の外)も詳細カード(枠の外・下)も奪わない。
+    check("A-1: レイヤは画面ぶんの枠(position:relative)の中に敷いてある",
+      /position: "relative", display: "flex", flexDirection: "column", minHeight: measureMinH/.test(code20));
+    check("A-1: 詳細カードはレイヤの外(枠の外・下)にあり、覆われない",
+      /\{detailOpen && \(\s*<div style=\{\{ padding: "16px 0 10px" \}\}>/.test(code20));
+    // stopPropagation で作っていないこと。伝播を止める作りは、document まで届くことに
+    // 依存している既存の仕組み(マイク復旧のジェスチャー経路)を壊しうる。
+    {
+      const mv = code20.slice(code20.indexOf("function MeasureView(props)"), code20.indexOf("function PhraseTimeline"));
+      const sp = (mv.match(/stopPropagation/g) || []).length;
+      // 残ってよいのは「目安プロファイルの削除」と「シートの中身」の2箇所だけ。
+      check("A-1: 開始/停止は stopPropagation ではなく重ね順で実装している(伝播を止める作りにしない)",
+        sp <= 2, `MeasureView 内の stopPropagation ${sp}箇所`);
+    }
+    // 【審査②③の修正】前面に居なければならない物を、**綴りの列挙ではなく性質**で見る。
+    //
+    // 旧: 4件を needle で名指ししていたが、そのうち「上部設定行」の needle が
+    //     'opacity: isRecording ? 0.35 : 1, display: "flex"' で **zIndex を含んでいなかった**。
+    //     審査役が上部設定行から position/zIndex を削る変異を当てたところ**生存**した
+    //     (=メトロノームトグル・Alto・442Hz・リード・奏者が全部背面に沈む変異を通していた)。
+    // 旧: 「.tap-through は2箇所」と**箇所数を固定**していたため、テンポ行に .tap-through を
+    //     足す正しい修正をすると落ちた。**正しい修正で落ちる検査は検査ではない。**
+    //
+    // 新: MeasureView の中で「背面レイヤより手前に居なければならない箱」を
+    //     **操作要素を含むかどうか**で機械的に見つけ、その全部が
+    //       (a) position:relative + zIndex:1 を持つ
+    //       (b) className に tap-through を持つ(箱自身は当たり判定を持たない)
+    //     を満たすことを見る。件数は固定しない(増減しても性質だけを見る)。
+    {
+      const mvStart = code20.indexOf("function MeasureView(props)");
+      const mvEnd = code20.indexOf("function PhraseTimeline");
+      const mv = code20.slice(mvStart, mvEnd);
+      // zIndex: 1 を持つ箱を全部集める(= 作者が「前面に出す」と決めた箱)
+      const front = [...mv.matchAll(/<div ([^>]*?)zIndex: 1([^>]*?)>/g)].map((m) => m[0]);
+      // 3箱 = 上部設定行 / テンポの操作行 / 録音ボタンと詳細トグルの塊。
+      // 下限で縛る(減らして「0件だから合格」を作らせない)。増える分には性質の検査が受け止める。
+      check("A-1: 前面(zIndex 1)に出している箱を走査できている", front.length >= 3, `${front.length}箱`);
+      // (a) 位置指定が無いと z-index は効かない。static のまま zIndex を書いても無視される。
+      const noPos = front.filter((t) => !/position: "relative"/.test(t));
+      check("A-1: 前面の箱はすべて position:relative を持つ(static だと z-index が効かない)",
+        noPos.length === 0, noPos.map((t) => t.slice(0, 90)).join(" | "));
+      // (b) 箱自身が当たり判定を持つと、その中の**余白**でタップが死ぬ(審査①の実測)。
+      //     箱は .tap-through で当たり判定を捨て、中の <button>/<select> だけが取り戻す。
+      const noThrough = front.filter((t) => !/className="tap-through"/.test(t) && !/pointerEvents: "none"/.test(t));
+      check("A-1: 前面の箱はすべて当たり判定を捨てている(.tap-through か pointerEvents:none)",
+        noThrough.length === 0, noThrough.map((t) => t.slice(0, 120)).join(" | "));
+      // 名指しの補助(消えたら気付けるように)。**上部設定行は zIndex を含む綴りで見る**。
+      for (const [label, needle] of [
+        ["上部設定行(奏者・楽器・基準ピッチ・リード・メトロノーム)",
+          'className="tap-through" style={{ position: "relative", zIndex: 1, opacity: isRecording ? 0.35 : 1'],
+        ["テンポの操作行(− / ♩=n / ＋)",
+          'className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 34 }}'],
+        ["録音ボタンと詳細トグルの塊",
+          'className="tap-through" style={{ position: "relative", zIndex: 1, flexShrink: 0 }}'],
+      ]) {
+        check(`A-1: 前面(position:relative + z-index 1)に居る: ${label}`, code20.includes(needle), needle);
+      }
+    }
+    // モーダル類はさらに上(z-index 60)。レイヤに吸われない。
+    check("A-1: テンポシートは z-index 60(背面レイヤに吸われない)",
+      /aria-label="テンポと拍子"[\s\S]{0,400}?zIndex: 60/.test(code20));
+
+    // 【375×812 の実測で見つけて直した穴】前面に上げた箱は、位置指定された透明な板として
+    // レイヤを覆う。箱そのものが当たり判定を持つと、その中の**余白**でタップが死ぬ
+    // (実測では 環の中・振り子の上・拍の●・録音ボタンの左右・経過時間の行 で死んでいた)。
+    // 直し方は「箱は当たり判定を捨て、押せる物だけが取り戻す」。ここを綴りで固定する。
+    {
+      // (a) 読むだけの箱は丸ごと当たり判定を持たない
+      for (const [label, needle] of [
+        ["環(PitchRing の外枠)", 'margin: "0 auto", position: "relative", pointerEvents: "none"'],
+        ["振り子と拍の●(MetroPendulum の外枠)", 'alignItems: "center", gap: "var(--sp-2)", pointerEvents: "none"'],
+      ]) {
+        check(`A-1: 読むだけの箱は当たり判定を持たない: ${label}`, code20.includes(needle), needle);
+      }
+      // (b) .tap-through は「使われていること」だけを見る(**箇所数は固定しない**)。
+      //     数を固定すると、押せる箱を1つ足すたびに正しい修正が落ちる。
+      const tt = (code20.match(/className="tap-through"/g) || []).length;
+      check("A-1: 操作を含む箱は .tap-through を使う(1箇所以上)", tt >= 1, `${tt}箇所`);
+      // (c) 入力欄は <button> ではないので index.css の .tap-through button では戻らない。
+      //     **入力欄そのもの**に pointerEvents:"auto" が要る(リード選択の箱2つと奏者セレクタ)。
+      //     ピルの箱の側に付けると、箱の padding と点の上でタップが死ぬ(審査①の実測)。
+      {
+        const pillStart = code20.indexOf('<label className="ctl-plain"', code20.indexOf("function MeasureView(props)"));
+        const pill = code20.slice(pillStart, code20.indexOf("</div>", code20.indexOf("reedPosition(r, reeds)", pillStart)));
+        const selects = (pill.match(/<select[\s\S]*?\n\s*>/g) || []);
+        // 【審査④⑥の修正】旧は「箱そのものは当たり判定を持たない」を `style={{` の**直後**だけで
+        // 見ており、style の**末尾**に pointerEvents を足す変異が生存した。
+        // さらに「左端だけ label」では枠の上下 2px・右 4px が背面レイヤに落ちたまま残った(実測 1,088px²)。
+        // 新: **枠まるごとが箱の <select> の <label>** = 枠の中に当たり判定の穴が構造的に無い。
+        // 綴りの並び順にも位置にも依存しない「構造」で見る。
+        {
+          const pillTag = (pill.match(/<label className="ctl-plain"[\s\S]*?>/) || [""])[0];
+          check("A-1: リード選択ピルのタグを走査できている", /ctl-plain/.test(pillTag), pillTag.slice(0, 140));
+          check("A-1: リード枠そのものが箱の <select> の <label>(枠の中に当たり判定の穴を作らない)",
+            /^<label className="ctl-plain" htmlFor="measure-reed-box"/.test(pillTag),
+            pillTag.replace(/\s+/g, " ").slice(0, 200));
+          check("A-1: リード枠は当たり判定を取り戻している(.tap-through の中なので明示が要る)",
+            /pointerEvents: "auto"/.test(pillTag), pillTag.replace(/\s+/g, " ").slice(0, 200));
+          check("A-1: その <label> が指す id が箱の <select> にある",
+            /<select\s+id="measure-reed-box"/.test(pill));
+          // 枠の中に「label にも select にも属さない箱」を挟んでいないこと(挟むと穴が復活する)
+          const innerTags = (pill.match(/<(div|span|select)[\s>]/g) || []).map((t) => t.slice(1).trim());
+          check("A-1: リード枠の中身は 点の span と select 2つだけ(穴になる箱を挟まない)",
+            innerTags.filter((t) => t === "div").length === 0 && innerTags.filter((t) => t === "select").length === 2,
+            innerTags.join(" "));
+          check("A-1: 枠の padding は元のまま(タグを label に変えただけで外形は不変)",
+            /padding: "2px 4px 2px 10px"/.test(pillTag), (pillTag.match(/padding: "[^"]*"/g) || []).join(" | "));
+        }
+        check("A-1: リード選択の <select> が当たり判定を取り戻している",
+          selects.length >= 1 && selects.every((t) => /pointerEvents: "auto"/.test(t)),
+          `${selects.length}個 / ` + selects.map((t) => t.slice(0, 60)).join(" | "));
+      }
+      check("A-1: 奏者セレクタ(素の select)は当たり判定を取り戻している",
+        /disabled=\{disabled\}\s*style=\{\{ pointerEvents: "auto" \}\}/.test(code20));
+      // (d) index.css 側の規則。**入力欄の規則を2つ目として足していない**ことも見る
+      //     (足すと「入力欄の規則は index.css に1つだけ」が壊れる)。
+      // index.css をここで独立に読む(section 16 の道具はそのスコープの外からは見えない)。
+      const cssSrc = readFileSync(new URL("../src/index.css", import.meta.url), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ");   // コメントを潰す(セレクタに混ざるため)
+      const ttRules = [...cssSrc.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .map((m) => ({ sels: m[1].split(",").map((x) => x.trim().replace(/\s+/g, " ")).filter(Boolean), body: m[2] }))
+        .filter((r) => r.sels.some((x) => /(^|[\s.])tap-through\b/.test(x)));
+      const declsOf = (body) => body.split(";").map((d) => d.trim()).filter(Boolean)
+        .map((d) => ({ name: d.slice(0, d.indexOf(":")).trim(), value: d.slice(d.indexOf(":") + 1).trim() }));
+      const ttBlock = ttRules.find((r) => r.sels.length === 1 && r.sels[0] === ".tap-through");
+      const ttBtn = ttRules.find((r) => r.sels.length === 1 && r.sels[0] === ".tap-through button");
+      check("A-1: .tap-through は pointer-events: none だけを持つ(地・枠・角丸・余白を持ち込まない)",
+        !!ttBlock && declsOf(ttBlock.body).length === 1 && declsOf(ttBlock.body)[0].name === "pointer-events"
+        && declsOf(ttBlock.body)[0].value === "none",
+        ttBlock ? declsOf(ttBlock.body).map((d) => `${d.name}:${d.value}`).join(" ") : "規則が無い");
+      check("A-1: .tap-through button は pointer-events: auto だけを持つ",
+        !!ttBtn && declsOf(ttBtn.body).length === 1 && declsOf(ttBtn.body)[0].name === "pointer-events"
+        && declsOf(ttBtn.body)[0].value === "auto",
+        ttBtn ? declsOf(ttBtn.body).map((d) => `${d.name}:${d.value}`).join(" ") : "規則が無い");
+      check("A-1: .tap-through の規則は2つだけ(なし崩しに対象を増やしていない)", ttRules.length === 2, `${ttRules.length}規則`);
+      check("A-1: .tap-through の規則に input/select/textarea を書いていない(入力欄の規則を増やさない)",
+        !ttRules.some((r) => r.sels.some((x) => /(input|select|textarea)\b/.test(x))),
+        ttRules.flatMap((r) => r.sels).join(" | "));
     }
   }
   console.log("  -> done");
@@ -8695,6 +8943,517 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
     check("F-67: ポップアップのカードは保存確認モーダルのカードと同じ宣言",
       cardOf("目安に設定") !== "無し" && cardOf("目安に設定") === cardOf("この録音を保存しますか？"),
       `${cardOf("目安に設定")}`);
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証24: N-4b 計測タブを正典どおりに完成させる
+//   A テンポシート(拍子12種 / 分割の条件分岐 / 拍グループ / 小節アクセント)
+//   A 拍の●は画面中央固定・拍子表示はその左 / −＋ の反応領域 72×48
+//   B 録音中は周辺だけ淡くする(環・音名・折れ線は淡くしない)
+//   C アップロードはデータタブで完結する(計測タブに残っていない)
+//   D 3連符は数字ではなく音符 / スクロールピッカーに見出しを出さない
+// 正典: design/north-star-measure.html(確定版 2026/08/11)
+// ============================================================
+console.log("=== 検証24: N-4b/N-4c 計測タブ(メトロノーム / 録音 / アップロード移設 / 正典の実寸) ===");
+let METRO_SIGS_ALL = [];
+{
+  const code = codeOf(src);
+  // 【罠】codeOf のコメント除去は `/\*` をそのままコメントの開始と読むので、
+  // accept="audio/*,video/*" の `/*` から次の `*/` までを丸ごと消してしまう
+  // (section 17.10 が同じ罠を踏んで400行が走査から消えた記録がある)。
+  // データタブ側は隠しファイル入力を持つので、こちらの除去器を使う:
+  // コメントの開始は**直前が空白か区切り記号のとき**だけと見る。
+  const blank = (m) => m.replace(/[^\n]/g, " ");
+  const codeSafe = src
+    .replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//g, (m, a) => a + blank(m.slice(a.length)))
+    .replace(/(^|\n)([ \t]*)(\/\/[^\n]*)/g, (m, a, b, c) => a + b + blank(c));
+  const sheetStart = code.indexOf('aria-label="テンポと拍子"', code.indexOf('role="dialog" aria-modal="true" aria-label="テンポと拍子"'));
+  const sheet = sheetStart === -1 ? "" : code.slice(sheetStart, code.indexOf("録音停止後: この録音を", sheetStart));
+  check("テンポシートのブロックを走査できている", sheet !== "" && sheet.length > 500, `${sheet.length}文字`);
+
+  // --- 24.1 拍子は12種すべて。**数ではなく綴りで1つずつ**確かめる --------------
+  // (「6列グリッドがある」だけだと、配列を減らされても通ってしまう)
+  {
+    const want = ["1/4", "2/4", "3/4", "4/4", "5/4", "6/4", "3/8", "5/8", "6/8", "7/8", "9/8", "12/8"];
+    const m = /const METRO_SIGS = \[([^\]]*)\]/.exec(code);
+    const got = m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : [];
+    METRO_SIGS_ALL = got;
+    check("拍子は12種ちょうど", got.length === 12, `${got.length}種: ${got.join(" ")}`);
+    check("拍子の顔ぶれが正典どおり(1/4 2/4 3/4 4/4 5/4 6/4 3/8 5/8 6/8 7/8 9/8 12/8)",
+      want.every((w) => got.includes(w)) && got.every((g) => want.includes(g)), got.join(" "));
+    // 【N-4c】正典 .selrow は **6個ずつ2行**。slice(0,6) / slice(6) で全12種を漏れなく描く。
+    // 「全部並べる」を、綴りではなく**実際に描かれる拍子の集合**で見る
+    // (slice の範囲を変えたり片方の行を消したりすると落ちる)。
+    {
+      const rm = /\[METRO_SIGS\.slice\((\d+), (\d+)\), METRO_SIGS\.slice\((\d+)\)\]\.map\(\(row, ri\) => \(/.exec(sheet);
+      check("テンポシートは拍子を2行に分けて並べる(式を実ソースから取れている)", rm !== null, rm ? rm[0] : "取れない");
+      const drawn = rm ? [...got.slice(Number(rm[1]), Number(rm[2])), ...got.slice(Number(rm[3]))] : [];
+      check("テンポシートが描く拍子は METRO_SIGS 12種の全部(重複なし・欠けなし)",
+        drawn.length === 12 && new Set(drawn).size === 12 && want.every((w) => drawn.includes(w)),
+        `${drawn.length}種: ${drawn.join(" ")}`);
+      check("1行目6個 / 2行目6個(正典 .selrow の並び)",
+        rm !== null && Number(rm[1]) === 0 && Number(rm[2]) === 6 && Number(rm[3]) === 6,
+        rm ? `${rm[1]},${rm[2]} / ${rm[3]}` : "");
+    }
+    // 状態は aria-pressed が持つ。
+    check("拍子のピルの状態は aria-pressed が持つ", /aria-pressed=\{metroSig === sig\}/.test(sheet));
+    // 【逸脱1 の撤回】見た目は正典 .selpill / .selpill.on:
+    //   非選択 = 1px の輪郭 + 地なし / 選択中 = --c-accent の塗り + 白文字。
+    // 選択中の枠を "1px solid transparent" にしてあるのは、描画を変えずに
+    //   「枠と違う地を同じ状態で両方持たない」構造を保つため(背景は枠の下まで塗られる)。
+    check("拍子の非選択は輪郭のみ(正典 .selpill)",
+      /border: metroSig === sig \? "1px solid transparent" : "1px solid var\(--c-line-strong\)"/.test(sheet));
+    check("拍子の選択中は --c-accent の塗り + 白文字(正典 .selpill.on)",
+      /background: metroSig === sig \? "var\(--c-accent\)" : "transparent"/.test(sheet)
+      && /color: metroSig === sig \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)"/.test(sheet));
+    check("拍子のピルの寸法は正典 .selpill(12.5px / padding 4px 11px / 角丸999)",
+      /fontSize: 12\.5, padding: "4px 11px", borderRadius: 999/.test(sheet));
+    check("拍子の行の gap は正典 .selrow の 7、上マージンは 18 / 7",
+      /gap: 7, marginTop: ri === 0 \? 18 : 7/.test(sheet));
+    // タップ領域 44 以上(§5 は §6.0 が「機能側の規定として引き続き有効」と明記した規定)。
+    // 見た目のピルは 44 未満なので、外側の <button> が当たり判定を持ち、内側の <span> が見た目を持つ。
+    //
+    // 【審査③の修正】以前は sheet 全体に正規表現を1回当てていたので、
+    // **拍子ピルだけ 30px にする / 分割ピルだけ 30px にする**変異がどちらも生存した
+    // (他の群の一致で通ってしまう)。**群ごとに、その群のタグを切り出して1つずつ見る。**
+    {
+      // シート内の <button> を、直前の aria-label / aria-pressed で群に分けて集める
+      // 【切り出し】`<button…>` の終わりは **{} の深さ0に現れる >**。
+      // 非貪欲の /<button[\s\S]*?>/ だと onClick={() => …} の `=>` で切れてしまい、
+      // 群がすべて0件になって「走査できている」ごと落ちる(実際に落ちた)。
+      const tagsIn = (str, el) => {
+        const out = []; const re = new RegExp("<" + el + "[\\s/>]", "g");
+        let m;
+        while ((m = re.exec(str)) !== null) {
+          let d = 0;
+          for (let i = m.index; i < str.length; i++) {
+            if (str[i] === "{") d++;
+            else if (str[i] === "}") d--;
+            else if (str[i] === ">" && d === 0) { out.push(str.slice(m.index, i + 1)); break; }
+          }
+        }
+        return out;
+      };
+      const btns = tagsIn(sheet, "button");
+      const groups = {
+        "拍子": btns.filter((t) => /aria-pressed=\{metroSig === sig\}/.test(t)),
+        "1拍の分割": btns.filter((t) => /aria-label=\{`分割 \$\{s\.value\}`\}/.test(t)),
+        "拍のグループ": btns.filter((t) => /aria-label=\{`拍のグループ \$\{label\}`\}/.test(t)),
+        "テンポの ±(シート)": btns.filter((t) => /aria-label="テンポを(下|上)げる"/.test(t)),
+        "テンポの直接入力": btns.filter((t) => /aria-label="テンポを直接入力"/.test(t)),
+        "つまみ(閉じる)": btns.filter((t) => /aria-label="閉じる"/.test(t)),
+      };
+      // 44 を満たす書き方は2通り: --tap-min の min か、44 以上の実寸(62 の円など)
+      const meetsTap = (t) => {
+        if (/minHeight: "var\(--tap-min\)"/.test(t) && /minWidth: "var\(--tap-min\)"/.test(t)) return true;
+        if (/height: "var\(--tap-min\)"/.test(t) && /width: "var\(--tap-min\)"/.test(t)) return true;
+        const w = /width: (\d+)/.exec(t), h = /height: (\d+)/.exec(t);
+        return !!(w && h && Number(w[1]) >= 44 && Number(h[1]) >= 44);
+      };
+      for (const [name, tags] of Object.entries(groups)) {
+        check(`シートの「${name}」のタグを走査できている`, tags.length >= 1, `${tags.length}個`);
+        const bad = tags.filter((t) => !meetsTap(t));
+        check(`シートの「${name}」のタップ領域は 44px 以上(群ごとに個別に確認)`,
+          tags.length >= 1 && bad.length === 0,
+          bad.length ? bad[0].replace(/\s+/g, " ").slice(0, 170) : "");
+      }
+      // 群の数が減っていないこと(群ごと消して「0件だから合格」を作らせない)
+      check("シートの操作の群は6つある(群ごと消して緑にしていない)",
+        Object.values(groups).every((g) => g.length >= 1), Object.entries(groups).map(([k, v]) => `${k}:${v.length}`).join(" "));
+    }
+  }
+
+  // --- 24.2 1拍の分割は**現行の条件分岐のまま** -------------------------------
+  // X/4系 = 1・2・3連・4 の4択 / X/8系 = 「主拍のみ」と「8分で埋める」の2択。
+  // 複合拍子(3の倍数)のときだけ、埋める側のアイコンが8分3つになる。
+  // 分岐そのものを実際に評価して確かめる(綴りの一致では中身が変わっても通る)。
+  {
+    const m = /const metroSubdivOptions = ([\s\S]*?);\r?\n/.exec(code);
+    check("分割の選択肢を作る式を実ソースから取れている", m !== null);
+    const build = (sig) => {
+      const { num, den } = api.parseMetroSig(sig);
+      const compound = den === 8 && num % 3 === 0;
+      // 実ソースの式をそのまま評価する(手書きの再実装をしない)
+      const f = new Function("metroSigDen", "metroCompoundX8", "METRO_SUBDIVS",
+        `const metroSubdivOptions = ${m[1]}; return metroSubdivOptions;`);
+      return f(den, compound, [
+        { value: 1, label: "1" }, { value: 2, label: "2" }, { value: 3, label: "3連" }, { value: 4, label: "4" },
+      ]);
+    };
+    for (const sig of ["1/4", "2/4", "3/4", "4/4", "5/4", "6/4"]) {
+      const o = build(sig);
+      check(`分割(${sig}): 1・2・3連・4 の4択`,
+        o.length === 4 && o.map((x) => x.value).join(",") === "1,2,3,4" && o.map((x) => x.icon).join(",") === "1,2,3,4",
+        JSON.stringify(o));
+    }
+    for (const sig of ["3/8", "6/8", "9/8", "12/8"]) {
+      const o = build(sig);
+      check(`分割(${sig} 複合): 主拍のみ / 8分で埋める の2択で、埋める側は8分3つの絵`,
+        o.length === 2 && o[0].value === 1 && o[1].value === 2 && o[0].icon === 1 && o[1].icon === 3,
+        JSON.stringify(o));
+    }
+    for (const sig of ["5/8", "7/8"]) {
+      const o = build(sig);
+      check(`分割(${sig} 非複合): 2択で、埋める側は8分2つの絵`,
+        o.length === 2 && o[1].value === 2 && o[1].icon === 2, JSON.stringify(o));
+    }
+    check("テンポシートは metroSubdivOptions をそのまま並べる(選択肢を作り直していない)",
+      /metroSubdivOptions\.map\(\(s\) => \{/.test(sheet));
+  }
+
+  // --- 24.3 拍グループ行は 5/8・7/8 のときだけ --------------------------------
+  {
+
+    // 【審査④の修正】旧実装はテスト内の述語をテスト内の配列にかけているだけで、
+    // **src を1文字も参照していなかった**(実装をどう壊しても永久に通る。LOOP.md が
+    // 名指しで禁じている「構造上失敗し得ないアサーション」の7例目)。
+    // **実ソースの条件式そのものを取り出して評価する**形に直す(24.2 の分割と同じ方式)。
+    {
+      const m = /\{\((metroSig === "[^"]+" \|\| metroSig === "[^"]+")\) && \(\(\) => \{/.exec(sheet);
+      check("拍グループ行を出す条件式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
+      const shows = new Function("metroSig", `return (${m ? m[1] : "false"});`);
+      const on = METRO_SIGS_ALL.filter((sig) => shows(sig));
+      check("拍グループ行が出るのは 5/8 と 7/8 だけ(実ソースの条件式を評価)",
+        on.length === 2 && on.includes("5/8") && on.includes("7/8"), `出る拍子: ${on.join(" ")}`);
+      // 選択肢そのものも実ソースの式から取り出して評価する(綴りの一致では中身を変えられる)。
+      const cm = /const choices = (metroSig === "5\/8" \? \[\[[\s\S]*?\]\]);/.exec(sheet);
+      check("拍グループの選択肢の式を実ソースから取れている", cm !== null);
+      const choicesOf = new Function("metroSig", `return (${cm ? cm[1] : "null"});`);
+      check("5/8 の拍グループは [3,2] と [2,3](実ソースの式を評価)",
+        JSON.stringify(choicesOf("5/8")) === JSON.stringify([[3, 2], [2, 3]]), JSON.stringify(choicesOf("5/8")));
+      check("7/8 の拍グループは [3,2,2] [2,3,2] [2,2,3](実ソースの式を評価)",
+        JSON.stringify(choicesOf("7/8")) === JSON.stringify([[3, 2, 2], [2, 3, 2], [2, 2, 3]]), JSON.stringify(choicesOf("7/8")));
+      // 拍数の合計が分子と一致する(グループ分けとして成立している)ことも独立に見る。
+      for (const [sig, num] of [["5/8", 5], ["7/8", 7]]) {
+        const ok = choicesOf(sig).every((g) => g.reduce((a, b) => a + b, 0) === num);
+        check(`${sig} の拍グループはどれも合計が ${num}`, ok, JSON.stringify(choicesOf(sig)));
+      }
+    }
+  }
+
+  // --- 24.4 小節アクセント -----------------------------------------------------
+  {
+    check("チェックの文言は「小節アクセント」(旧「一拍目にアクセントをつける」ではない)",
+      /小節アクセント/.test(sheet) && !/一拍目にアクセントをつける/.test(code));
+    check("小節アクセントは metroAccent を読み書きする(表示だけの飾りではない)",
+      /checked=\{metroAccent\} onChange=\{\(e\) => setMetroAccent\(e\.target\.checked\)\}/.test(sheet));
+    check("小節アクセントの行は --tap-min 以上",
+      /alignSelf: "flex-start", marginTop: 14, minHeight: "var\(--tap-min\)"/.test(sheet));
+    // 見た目は正典 .ckrow / .ck: 行 12.5px・gap 8 / 箱 16px・紺の枠・チェック時は紺の塗り。
+    check("小節アクセントの行の寸法は正典 .ckrow(12.5px / gap 8 / marginTop 14)",
+      /marginTop: 14, minHeight: "var\(--tap-min\)", display: "flex", alignItems: "center", gap: 8, fontSize: 12\.5/.test(sheet));
+    check("チェックの箱は正典 .ck(16px・未チェックは紺の枠)",
+      /reedCheckboxStyle\(metroAccent, 16, CHECKBOX_OFF_ACCENT_IMG\)/.test(sheet));
+    check("未チェックの絵は紺(--c-accent #174585)の 1.5px 枠で地を持たない(正典 .ck)",
+      /const CHECKBOX_OFF_ACCENT_IMG = [^;]*fill='none' stroke='%23174585' stroke-width='1\.5'/.test(code));
+    // 実際に効いていること: OFF なら小節頭の"差"が出ない(発音側と視覚側の両方)。
+    check("小節アクセントOFF は発音側の強拍を消す",
+      api.metroTickKind(0, "4/4", 1, true) === "accent" && api.metroTickKind(0, "4/4", 1, false) === "beat");
+    check("小節アクセントOFF は視覚側の小節頭の差も消す",
+      api.ringBeatIsHead(0, 4, true) === true && api.ringBeatIsHead(0, 4, false) === false);
+  }
+
+  // --- 24.5 テンポの −/＋ の反応領域は 72×48 ----------------------------------
+  // 【縛り方】定数の値そのものと、**その定数が実際に反応領域(width/height)に使われている**
+  // ことを両方見る。定数だけ見ると使われていなくても通り、綴りだけ見ると値を変えられる。
+  {
+    check("反応領域の定数は 72×48(正典 .pmt)", api.METRO_PM_W === 72 && api.METRO_PM_H === 48,
+      `${api.METRO_PM_W}×${api.METRO_PM_H}`);
+    const minus = code.indexOf('aria-label="テンポを下げる" className="no-select"');
+    const plus = code.indexOf('aria-label="テンポを上げる" className="no-select"');
+    check("画面上の −/＋ を綴りで特定できている", minus !== -1 && plus !== -1);
+    for (const [label, at] of [["−", minus], ["＋", plus]]) {
+      const tag = at === -1 ? "" : code.slice(code.lastIndexOf("<button", at), code.indexOf(">", at) + 1);
+      check(`テンポの ${label} の反応領域は METRO_PM_W × METRO_PM_H`,
+        /width: METRO_PM_W, height: METRO_PM_H/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      check(`テンポの ${label} 自体は見た目を持たない(見た目は内側の span が持つ)`,
+        /background: "transparent"/.test(tag) && /border: "none"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+    }
+    // 【逸脱4 の撤回】見た目は正典 .pmt そのもの: 地も枠も持たない素のテキスト、
+    // font-size 20 / font-weight 300 / color --ink2。以前は 46×46 のピル + 24px だった。
+    {
+      const pmt = (code.match(/width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var\(--c-ink-2\)", lineHeight: 1/g) || []).length;
+      check("−/＋ は正典 .pmt(地も枠も無い素のテキスト / 20px / weight 300 / --ink2)", pmt === 2, `${pmt}個`);
+      check("−/＋ に見た目のピル(46×46 の .ctl-plain)が残っていない",
+        !/width: 46, height: 46[^}]*ctl-plain|ctl-pill[^>]*width: 46/.test(code)
+        && (code.match(/<span className="ctl-plain ctl-pill" style=\{\{ width: 46, height: 46/g) || []).length === 0);
+      check("−/＋ と ♩=n の間隔は正典の 34", /justifyContent: "center", gap: 34 \}\}/.test(code));
+      check("♩=n は正典 .bpmtxt の 15px", /fontFamily: "var\(--font-num\)", fontSize: 15, color: "var\(--c-ink-2\)"/.test(code));
+    }
+    // テンポ数値の箱も同じ幅 = 桁が変わっても ± が動かない(§6.1.5)
+    check("テンポ数値の箱は ± と同じ幅(桁が変わっても ± が動かない)",
+      /aria-label="テンポと拍子"[\s\S]{0,300}?width: METRO_PM_W/.test(code));
+  }
+
+  // --- 24.6 拍の●は画面中央固定・拍子表示はその左 ------------------------------
+  {
+    const mp = code.slice(code.indexOf("function MetroPendulum"), code.indexOf("function MeasureView"));
+    check("●の列は行の中央に置く(justifyContent: center)",
+      /height: METRO_BEAT_ROW_H, display: "flex", alignItems: "center", justifyContent: "center"/.test(mp));
+    check("拍子表示は流れの外(absolute)に置く。●の列の幅・桁数に影響されない",
+      /position: "absolute", right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/.test(mp));
+    check("拍子表示は●の列の左にある(右端が中央より rowW/2 以上左)",
+      /right: `calc\(50% \+ \$\{rowW \/ 2\}px/.test(mp));
+    // 幾何: 列の中心が列幅の中心にあるので、行の中央に置けば画面中央に来る。
+    // 拍子の桁数(2〜4文字)が変わっても●は1pxも動かない = 絶対配置の帰結を数値で確認する。
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      const w = api.metroBeatRowW(n);
+      const c = (api.metroBeatDotX(0, n) + api.metroBeatDotX(n - 1, n)) / 2;
+      check(`●列(${n}拍)の中心は列幅の中心(=行の中央に置けば画面中央)`, Math.abs(c - w / 2) < 1e-9,
+        `中心 ${c} / 幅の半分 ${w / 2}`);
+    }
+    check("行の高さは固定(●が膨らんでも行が伸びない)", /height: METRO_BEAT_ROW_H/.test(mp) && api.METRO_BEAT_ROW_H > api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE,
+      `行 ${api.METRO_BEAT_ROW_H} / ●の最大 ${api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE}`);
+    // 【逸脱5 の撤回】拍子表示は正典 .tsig の 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
+    // 従って --fs-md(15px)にしていたが、見た目はモックが唯一の正典(§6.0)。
+    check("拍子表示は正典 .tsig の 12px", /fontSize: 12, color: "var\(--c-ink-3\)"/.test(mp));
+
+    // 【審査の穴だった箇所】●の寸法と間隔を縛る検査が1件も無く、
+    // METRO_BEAT_GAP_PX を 12→4 にする変異が生存していた。正典の実寸を値で縛る。
+    check("●の直径は正典 .beat の 7px", api.METRO_BEAT_DOT_PX === 7, String(api.METRO_BEAT_DOT_PX));
+    check("●の間隔は正典 .beatrow の gap 12px", api.METRO_BEAT_GAP_PX === 12, String(api.METRO_BEAT_GAP_PX));
+    check("現在の●の倍率は正典 .beat.on の scale(1.4)", api.METRO_DOT_HEAD_SCALE === 1.4, String(api.METRO_DOT_HEAD_SCALE));
+    check("往復する点の半径は正典 .pend の circle r=5", api.METRO_DOT_R === 5, String(api.METRO_DOT_R));
+    check("ガイドの弧は正典 .pend の svg 150×26", api.METRO_ARC_W === 150 && api.METRO_ARC_H === 26,
+      `${api.METRO_ARC_W}×${api.METRO_ARC_H}`);
+    check("ガイドの弧の制御点は正典の M10 8 Q75 30 140 8",
+      JSON.stringify([api.METRO_ARC_P0, api.METRO_ARC_C, api.METRO_ARC_P2]) === JSON.stringify([[10, 8], [75, 30], [140, 8]]),
+      JSON.stringify([api.METRO_ARC_P0, api.METRO_ARC_C, api.METRO_ARC_P2]));
+    check("ガイドの線幅は正典の 1.5", api.METRO_ARC_SW === 1.5, String(api.METRO_ARC_SW));
+    // 値だけでなく**実際にその値から描いている**ことも見る(定数だけ正しくて描画は別、を防ぐ)。
+    check("●の間隔は metroBeatDotX / metroBeatRowW が METRO_BEAT_GAP_PX から導く",
+      /i \* \(METRO_BEAT_DOT_PX \+ METRO_BEAT_GAP_PX\)/.test(code)
+      && /n \* METRO_BEAT_DOT_PX \+ \(n - 1\) \* METRO_BEAT_GAP_PX/.test(code));
+    check("隣り合う●の中心間距離は 直径7 + 間隔12 = 19",
+      api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4) === 19,
+      String(api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4)));
+
+    // 【審査⑤の修正】●の数が**拍子から導かれている**ことを固定する。
+    // 審査役が metroBeatsPerMeasure を 4 に固定する変異を当てたところ生存した
+    // (=●の数が拍子と無関係になっても緑だった)。
+    // (a) 導出式そのものを実ソースから取り出して評価する。
+    {
+      const m = /const metroBeatsPerMeasure = ([\s\S]*?);\r?\n/.exec(code);
+      check("●の数の導出式を実ソースから取れている", m !== null);
+      const beatsOf = (sig, grouping) => {
+        const { num, den } = api.parseMetroSig(sig);
+        return new Function("metroSigDen", "metroSigNum", "metroGrouping", "metroBeatGroups",
+          `return (${m ? m[1] : "null"});`)(den, num, grouping, api.metroBeatGroups);
+      };
+      // X/4 は分子そのもの。**拍子ごとに違う値が返る**ことを1つずつ確かめる。
+      for (const [sig, n] of [["1/4", 1], ["2/4", 2], ["3/4", 3], ["4/4", 4], ["5/4", 5], ["6/4", 6]]) {
+        check(`●の数(${sig}) = ${n}`, beatsOf(sig, null) === n, String(beatsOf(sig, null)));
+      }
+      // X/8 は主拍(グループ)の数。3/8→1 / 6/8→2 / 9/8→3 / 12/8→4 / 5/8→2 / 7/8→3。
+      for (const [sig, n] of [["3/8", 1], ["6/8", 2], ["9/8", 3], ["12/8", 4], ["5/8", 2], ["7/8", 3]]) {
+        check(`●の数(${sig}) = ${n}(主拍の数)`, beatsOf(sig, null) === n, String(beatsOf(sig, null)));
+      }
+      // 5/8 のグループ選択が変わっても主拍の数は 2 のまま(合計が分子と合う選択だけ効く)
+      check("●の数(5/8・グループ [2,3]) = 2", beatsOf("5/8", [2, 3]) === 2, String(beatsOf("5/8", [2, 3])));
+      // 合計が分子と合わない不正なグループは自動(metroBeatGroups)に落ちる
+      check("●の数(7/8・不正なグループ [9]) は自動に落ちて 3", beatsOf("7/8", [9]) === 3, String(beatsOf("7/8", [9])));
+      // 定数に潰されていないこと: 12種すべてで同じ値にならない
+      const all = ["1/4", "2/4", "3/4", "4/4", "5/4", "6/4", "3/8", "5/8", "6/8", "7/8", "9/8", "12/8"].map((sg) => beatsOf(sg, null));
+      check("●の数は拍子ごとに変わる(定数に潰されていない)", new Set(all).size >= 5, all.join(","));
+    }
+    // (b) その値が実際に MetroPendulum へ渡っていること(導出だけあって使われていない、を防ぐ)
+    check("●の数は metroBeatsPerMeasure を MetroPendulum に渡して決まる",
+      /<MetroPendulum[\s\S]{0,240}?beatsPerMeasure=\{metroBeatsPerMeasure\}/.test(code));
+    // (c) MetroPendulum の中で、●の数が beatsPerMeasure そのものであること
+    check("MetroPendulum は beatsPerMeasure の数だけ●を描く",
+      /const n = beatsPerMeasure > 0 \? beatsPerMeasure : 0;/.test(mp)
+      && /Array\.from\(\{ length: n \}\)\.map\(\(_, i\) => \(/.test(mp));
+  }
+
+  // --- 24.7 録音中は周辺だけ淡くする ------------------------------------------
+  // 正典「演奏中」: 上部設定行と下部タブが opacity .35。**環・音名・折れ線は淡くしない**。
+  {
+    const dims = [...code.matchAll(/opacity: isRecording \? ([0-9.]+) : 1/g)].map((m) => Number(m[1]));
+    check("録音中に淡くする箇所は2つ(上部設定行と下部タブ)だけ", dims.length === 2, `${dims.length}箇所: ${dims.join(",")}`);
+    check("淡さは正典の .35", dims.every((d) => d === 0.35), dims.join(","));
+    // 環・音名・折れ線が淡さの中に入っていないこと = PitchRing / PitchDeviationLine を
+    // 呼ぶ行が opacity を持つ祖先の中に無いこと。綴りで直に確かめる。
+    check("環(PitchRing)は淡くしない", /<div style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(code));
+    check("折れ線(PitchDeviationLine)は淡くしない",
+      /\{!showMetroPanel && \(\s*<div style=\{\{ marginTop: 6 \}\}>\s*<PitchDeviationLine/.test(code));
+    // 淡くするだけで無効化はしない(メトロノームは録音中も押せる)。
+    const mi = code.indexOf('aria-label="メトロノーム"');
+    const mtag = mi === -1 ? "" : code.slice(code.lastIndexOf("<button", mi), code.indexOf(">", mi) + 1);
+    check("メトロノームのボタンは録音中も disabled にしない(淡くするだけ)",
+      mtag !== "" && !/disabled/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 160));
+    // 下部タブ側で二重に掛けていない(0.35 × 0.4 = 0.14 になる)
+    check("下部タブの淡さは帯に1回だけ(ボタン側で二重に掛けない)",
+      !/opacity: isRecording && !active/.test(code));
+  }
+
+  // --- 24.8 アップロードはデータタブで完結する --------------------------------
+  {
+    const mv = code.slice(code.indexOf("function MeasureView(props)"), code.indexOf("function PhraseTimeline"));
+    const dv = codeSafe.slice(codeSafe.indexOf("function AnalysisLabView(props)"), codeSafe.indexOf("function SessionDetailView"));
+    // (a) 計測タブから消えている。**綴りではなく「到達経路」で見る**:
+    //     ファイル入力・アップロードの呼び出し・進捗・完了通知のどれも無いこと。
+    for (const [label, re] of [
+      ["隠しファイル入力", /type="file"/],
+      ["アップロードの実行", /handleUploadFile/],
+      ["解析の進捗", /uploadProgress/],
+      ["完了通知", /lastUploadedSession/],
+      ["自動再生ブロック時の再開", /uploadNeedsTap/],
+    ]) {
+      check(`計測タブにアップロードの${label}が残っていない`, !re.test(mv), (mv.match(re) || [""])[0]);
+    }
+    // (b) データタブに全部ある。
+    for (const [label, re] of [
+      ["隠しファイル入力", /type="file" accept="audio\/\*,video\/\*"/],
+      ["アップロードの実行", /handleUploadFile\(f\)/],
+      ["解析の進捗バー", /Math\.round\(uploadProgress \* 100\)/],
+      ["完了通知", /アップロードの解析が完了しました/],
+      ["「★ 目安に設定」", /<SetAsIdealButton tapMin session=\{lastUploadedSession\}/],
+      ["自動再生ブロック時の「解析を開始」", /解析を開始/],
+    ]) {
+      check(`データタブにアップロードの${label}がある`, re.test(dv), "");
+    }
+    // (c) 見出しの右の**塗り**ボタン(フィルタピルは輪郭のみ。§6.0 の形言語)
+    const bi = dv.indexOf("録音をアップロード");
+    const btag = bi === -1 ? "" : dv.slice(dv.lastIndexOf("<button", bi), dv.indexOf(">", bi) + 1);
+    check("データタブのアップロードは塗りボタン(--c-accent 地 + --c-on-accent 文字)",
+      /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
+    check("データタブのアップロードボタンのタップ領域は --tap-min 以上",
+      /minHeight: "var\(--tap-min\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
+    check("アップロードは「セッション一覧」の見出しの行にある",
+      dv.indexOf("セッション一覧") !== -1 && bi > dv.indexOf("セッション一覧"),
+      `見出し ${dv.indexOf("セッション一覧")} / ボタン ${bi}`);
+    // (d) エラー(無音ファイル等)の出口がデータタブでも開いている。
+    //     ここを計測タブ限定に戻すと、アップロードのエラーが誰にも見えなくなる。
+    // 【審査②の修正】タブで広げるのではなく、**メッセージの種類**で出し分ける。
+    // MIC_RECOVER_FAILED_MSG は「画面をタップしてください」と指示するが、その指示に応える
+    // ジェスチャー経路は計測タブ限定なので、データタブで出すと嘘の案内になる。
+    check("エラーモーダルはデータタブでも出る(アップロードのエラーの出口)",
+      /\{errorMsg && \(topTab === "measure" \|\| \(topTab === "analysis" && !ERROR_MEASURE_ONLY\.includes\(errorMsg\)\)\) && \(/.test(code));
+    check("計測タブ限定の案内の集合(ERROR_MEASURE_ONLY)が定義されている",
+      /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG\];/.test(code));
+    // 【本体】「画面をタップしてください」と指示するメッセージは、その指示が効くタブでしか出さない。
+    // 出し分けの式とジェスチャー経路のタブ条件を**両方ソースから取り出して**突き合わせる
+    // (どちらか片方を変えたら落ちる)。
+    {
+      const gesture = /const onGesture = \(\) => \{[\s\S]{0,400}?if \(topTab !== "([a-z]+)"/.exec(code);
+      check("マイク復旧のジェスチャー経路が効くタブをソースから読めている", gesture !== null, gesture ? gesture[1] : "");
+      const gestureTab = gesture ? gesture[1] : null;
+      // 【この検査を一度書き直している】最初は条件式を**テスト側にコピーして**評価していた。
+      // それは実装を1文字も見ておらず、実装をどう壊しても永久に通る
+      // (LOOP.md が名指しで禁じている「構造上失敗し得ないアサーション」)。
+      // **JSX の表示条件そのものをソースから取り出して**評価する。
+      const condM = /\{errorMsg && \(([\s\S]*?)\) && \(\r?\n\s*<div\r?\n\s*role="dialog" aria-modal="true" aria-label="エラー"/.exec(code);
+      check("エラーモーダルの表示条件をソースから取り出せている", condM !== null,
+        condM ? condM[1] : "取り出せない");
+      const shownOn = (tab, msg) => new Function("topTab", "errorMsg", "ERROR_MEASURE_ONLY",
+        `return !!(errorMsg && (${condM ? condM[1] : "false"}));`
+      )(tab, msg, ["MIC"]);
+      check("「画面をタップしてください」の案内は、その指示が効くタブ(計測)でだけ出る",
+        shownOn(gestureTab, "MIC") === true && shownOn("analysis", "MIC") === false,
+        `計測=${shownOn(gestureTab, "MIC")} / データ=${shownOn("analysis", "MIC")}`);
+      check("アップロード由来のエラー(無音ファイル等)はデータタブでも出る",
+        shownOn("analysis", "この音声には音が入っていません") === true);
+    }
+  }
+
+  // --- 24.9 D 細部 -------------------------------------------------------------
+  {
+    // 3連符は「3」の文字ではなく、旗をつないだ8分音符×3。
+    const si = code.indexOf("function SubdivNoteIcon");
+    const sub = si === -1 ? "" : code.slice(si, code.indexOf("function ", si + 10));
+    check("3連符のアイコンに「3」の文字を書かない", !/<text/.test(sub), (sub.match(/<text[\s\S]{0,80}/) || [""])[0]);
+    check("3連符は音符3つ + 桁1本(2つ・4つと数で区別できる)",
+      /3: \{ n: 3, beams: 1 \}/.test(sub) && /2: \{ n: 2, beams: 1 \}/.test(sub) && /4: \{ n: 4, beams: 2 \}/.test(sub));
+    // スクロールピッカーに見出しを出さない(正典)。
+    const pi = code.indexOf("function ScrollPicker");
+    const picker = pi === -1 ? "" : code.slice(pi, code.indexOf("function PitchDeviationLine"));
+    check("スクロールピッカーは見出し(「基準ピッチ」等の label)を持たない",
+      !/基準ピッチ/.test(picker) && !/<h[1-6]/.test(picker) && !/label=/.test(picker), "");
+    check("スクロールピッカーを開く側も見出しを渡していない",
+      !/<ScrollPicker[^>]*(title|heading|label)=/.test(code));
+    // リード表記は V16-3 #4 が1つの塊として読める = 2つの select の間に隙間を作らない。
+    check("リード表記は箱と個体を隙間なく並べる(V16-3 #4 を1つの塊として読ませる)",
+      /className="ctl-plain" htmlFor="measure-reed-box" style=\{\{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0,/.test(code));
+    check("リード表記の色は箱=--c-ink / 個体=--c-ink-2(--c-accent はアクション専用・§1.4)",
+      /color: selectedReedId \? "var\(--c-ink\)" : "#435266"/.test(code) &&
+      /color: selectedReedId \? "var\(--c-ink-2\)" : "#C3CAD3"/.test(code));
+    // 詳細カードは下端のシェブロンで開閉(現行踏襲)。
+    check("詳細カードはシェブロンのトグルで開閉する", /aria-expanded=\{detailOpen\}/.test(code));
+  }
+
+  // --- 24.9b 【N-4c】正典の実寸に戻した箇所 -------------------------------------
+  // DESIGN-SYSTEM §6.0(2026/08/12 本人確定): 見た目についてはモックが唯一の正典。
+  // §6.7 の A型/B型・§6.1 の 12px 禁止・§4.1 の7段スケール・§2/§3 のスケールは
+  // モックに対する制約として機能しない。ここは「モックの実寸がそのまま入っていること」を見る。
+  {
+    // 音名まわり(正典 .note / .note .oct / .cents)
+    check("音名は正典 .note の 148px", /const NOTE_FS_PX = 148;/.test(code) && /const noteFs = NOTE_FS_PX;/.test(code));
+    check("オクターブ数字は正典 .note .oct の 44px",
+      /const NOTE_OCT_PX = 44;/.test(code) && /fontSize: NOTE_OCT_PX, color: "var\(--c-accent-dim\)"/.test(code));
+    check("セント値は正典 .cents の 21px / margin-top 10",
+      /const NOTE_CENTS_PX = 21;/.test(code) && /const NOTE_CENTS_GAP_PX = 10;/.test(code)
+      && /marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX \+ 4/.test(code));
+    check("音名の行送りは正典 .note の line-height:1", /const NOTE_LINE_H = 1;/.test(code));
+    // 環の直径に比例させる旧方式(NOTE_FS_RATIO / NOTE_OCT_RATIO)は使っていない
+    check("音名のサイズは比ではなく実寸(NOTE_FS_RATIO / NOTE_OCT_RATIO が残っていない)",
+      !/NOTE_FS_RATIO|NOTE_OCT_RATIO/.test(code), (code.match(/NOTE_[A-Z_]*RATIO/g) || []).join(" "));
+    // 横幅の引き伸ばし(§4.2 の scaleX 1.30)を掛けない。**理由は正典 .note が transform を
+    // 持たないことだけ**(DESIGN-SYSTEM §6.0)。
+    // 【以前ここに書いていた数値は取り消した】「掛けたままだと G♯3 で余白 1.41px / 外すと 35.08px」
+    // と書いていたが、測り方(行の箱=em 全高の角)が誤っており、App.jsx 側のコメント(17.83px)とも
+    // 食い違っていた。審査役の実測では掛けたままでも 17.04px あり、要件 14.8px を割らない。
+    // **この検査が縛っているのは「transform を掛けていない」という構造だけで、
+    //   環の内周とのクリアランスは縛っていない**(Node に書体の字幅が無く計算できない)。
+    check("音名に横幅の引き伸ばし(scaleX)を掛けていない(正典 .note に transform は無い)",
+      !/NOTE_SCALE_X|NOTE_SCALE_PAD_EM/.test(code) && !/transform: `scaleX/.test(code),
+      (code.match(/NOTE_SCALE[A-Z_]*/g) || []).join(" "));
+    check("音名の文字は素の <span>(サイズだけを持つ)",
+      /<span style=\{\{ fontSize: noteFs, display: "inline-block" \}\}>/.test(code));
+
+    // シート(正典 .sheet / .handle / .bpmrow / .pm / .bpmbig)
+    check("シートの角丸は正典 .sheet の 28px", /borderRadius: "28px 28px 0 0"/.test(sheet));
+    check("シートの padding は正典 .sheet の 14px 24px 40px(下端だけ安全域を足す)",
+      /padding: "14px 24px",/.test(sheet) && /paddingBottom: "calc\(40px \+ env\(safe-area-inset-bottom\)\)"/.test(sheet));
+    // 【変異試験で穴が見つかって直した】以前は /marginBottom: 12,/ を sheet 全体に当てていたが、
+    // 小節アクセントの行が同じ綴り(marginTop: 14 の隣)を持っていたため、
+    // **つまみから marginBottom を消しても他所の一致で通ってしまった**(SURVIVE)。
+    // つまみのタグに限定して見る。
+    check("つまみは正典 .handle の 36×4 / 下マージン 12",
+      /aria-label="閉じる"[\s\S]{0,220}?height: "var\(--tap-min\)", marginBottom: 12,/.test(sheet)
+      && /width: 36, height: 4, borderRadius: 2/.test(sheet),
+      (sheet.match(/aria-label="閉じる"[\s\S]{0,220}/) || [""])[0].replace(/\s+/g, " ").slice(0, 200));
+    check("大きな ± の行の gap は正典 .bpmrow の 30", /justifyContent: "center", gap: 30 \}\}/.test(sheet));
+    {
+      const pm = (sheet.match(/width: 62, height: 62, borderRadius: "50%", border: "1\.5px solid var\(--c-line-strong\)", background: "transparent"[^}]*fontSize: 28, fontWeight: 300/g) || []).length;
+      check("シートの ± は正典 .pm(62×62 の円 / 1.5px の輪郭 / 28px / weight 300)", pm === 2, `${pm}個`);
+    }
+    check("シートの数値は正典 .bpmbig の 76px",
+      (sheet.match(/fontSize: 76, fontWeight: 600/g) || []).length === 2, "表示と直接入力の2箇所");
+
+    // 分割・拍グループのピルも拍子と同じ塗り(正典 .selpill / .selpill.on)
+    check("分割のピルは選択中が塗り(正典 .selpill.on)",
+      /border: selected \? "1px solid transparent" : "1px solid var\(--c-line-strong\)"/.test(sheet)
+      && /background: selected \? "var\(--c-accent\)" : "transparent"/.test(sheet));
+    check("分割の選択中は音符が白抜きになる(塗りの上に乗るので)",
+      /color=\{selected \? "#FFFFFF" : "#435266"\}/.test(sheet));
+    // 選択中のピルが「枠と違う地」を同時に持たないこと(描画は正典と同一・構造だけ保つ)
+    check("選択中のピルの枠は transparent(描画は正典と同一・枠と地を両方持たない構造を保つ)",
+      (sheet.match(/"1px solid transparent"/g) || []).length >= 3, "拍子 / 分割 / 拍グループ");
+  }
+
+  // --- 24.10 経過時間の書式 ----------------------------------------------------
+  {
+    check("経過時間は m:ss(秒は2桁ゼロ埋め)",
+      api.formatElapsedMs(0) === "0:00" && api.formatElapsedMs(5000) === "0:05"
+      && api.formatElapsedMs(84000) === "1:24" && api.formatElapsedMs(600000) === "10:00",
+      `${api.formatElapsedMs(84000)}`);
+    check("経過時間は60分を超えても切らない", api.formatElapsedMs(3600000) === "60:00", api.formatElapsedMs(3600000));
+    check("経過時間は負値・非数を 0:00 に落とす",
+      api.formatElapsedMs(-1) === "0:00" && api.formatElapsedMs(NaN) === "0:00" && api.formatElapsedMs(undefined) === "0:00");
+    check("経過時間は切り捨て(999ms は 0:00、1000ms で 0:01)",
+      api.formatElapsedMs(999) === "0:00" && api.formatElapsedMs(1000) === "0:01");
   }
   console.log("  -> done");
 }
