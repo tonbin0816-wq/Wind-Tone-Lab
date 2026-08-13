@@ -51,6 +51,29 @@ function extractConst(name) {
   return src.slice(start, end + 1);
 }
 
+// 関数の本体を**そのままの文字列で**取り出す(eval はしない。ソース照合専用)。
+// extractFunction は「関数名の直後の最初の {」を本体開始とみなすため、
+// React コンポーネントのような分割代入の引数(`function X({ a, b }) {`)では
+// 引数側の { } で早く閉じてしまう。ここでは引数の丸括弧をまず対応させてから本体を取る。
+// 同じ実装が節ごとに sourceOf / srcOf という名前でローカルに置かれているが、
+// それらはブロックスコープに閉じていて他の節から使えないので、ここに1つ置く。
+function srcOfFn(source, name) {
+  const idx = source.indexOf(`function ${name}(`);
+  if (idx === -1) throw new Error(`function ${name} not found`);
+  let i = source.indexOf("(", idx), depth = 0;
+  for (; i < source.length; i++) {
+    if (source[i] === "(") depth++;
+    else if (source[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+  }
+  while (i < source.length && source[i] !== "{") i++;
+  depth = 0;
+  for (; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") { depth--; if (depth === 0) return source.slice(idx, i + 1); }
+  }
+  throw new Error(`function ${name}: unbalanced braces`);
+}
+
 const code = [
   extractConst("NOTE_NAMES"),
   extractConst("NOTE_NAMES_SHARP"),
@@ -202,7 +225,11 @@ const code = [
   extractConst("RATING_DIAL_RATING_ORDER"),
   extractConst("RATING_DIAL_ITEM_H"),
   extractConst("RATING_DIAL_VISIBLE"),
-  extractConst("REED_SCORE_NEUTRAL"),
+  // 【N-5】ダイヤルの先頭に「—」(未評価)を1段足した並び。REED_SCORE_NEUTRAL は
+  // 「未評価のとき指を置く位置=中央の3」だったが、「—」の段ができて参照が0件になり削除された。
+  extractConst("RATING_DIAL_UNRATED"),
+  extractConst("RATING_DIAL_ORDER_WITH_UNRATED"),
+  extractConst("RATING_DIAL_RATING_ORDER_WITH_UNRATED"),
   extractConst("REED_SCORE_PLOT_H"),
   extractFunction("normalizeReedScore"),
   extractFunction("normalizeReedRating"),
@@ -210,6 +237,7 @@ const code = [
   extractFunction("ratingDialOrder"),
   extractFunction("reedScoreText"),
   extractFunction("reedHistoryEntry"),
+  extractFunction("localDayKey"),
   extractFunction("reedRatingDayKey"),
   extractFunction("normalizeRatingHistory"),
   extractFunction("commitReedScores"),
@@ -223,6 +251,38 @@ const code = [
   extractFunction("reedScoreLabelStep"),
   extractFunction("reedScoreDateLabel"),
   extractFunction("reedScoreRowItems"),
+  // 【N-5】リードタブを正典どおりにするための純関数と実寸。
+  extractConst("REED_APP_SIDE_PAD_PX"),
+  extractConst("REED_SIDE_PAD_PX"),
+  extractConst("REED_LIST_EXTRA_PAD_PX"),
+  extractConst("REED_GRID_COLS"),
+  extractConst("REED_GRID_GAP_PX"),
+  extractConst("REED_TILE_FS_PX"),
+  extractConst("REED_HEAD_MB_PX"),
+  extractConst("REED_GROUP_PAD_TOP_PX"),
+  extractConst("REED_GROUP_PAD_BOTTOM_PX"),
+  extractConst("REED_ADDROW_PAD_TOP_PX"),
+  extractConst("REED_SUBTAB_GAP_PX"),
+  extractConst("REED_SUBTAB_HALF_GAP_PX"),
+  extractConst("REED_NUMROW_MIN_PX"),
+  extractConst("REED_DRAG_LONGPRESS_MS"),
+  extractConst("REED_DRAG_SLOP_PX"),
+  // REED_BOX_SIZE は REED_ADD_COUNT_MAX の定義が参照するので**先に**並べる
+  // (この配列の順序がそのまま評価順になる)。
+  extractConst("REED_BOX_SIZE"),
+  extractConst("REED_STRENGTHS"),
+  extractConst("REED_ADD_COUNT_MIN"),
+  extractConst("REED_ADD_COUNT_MAX"),
+  extractConst("REED_BRAND_CUSTOM"),
+  extractConst("REED_BRAND_CUSTOM_LABEL"),
+  extractConst("REED_MORE_ITEMS"),
+  extractConst("REED_DETAIL_METRICS"),
+  extractConst("REED_COMPARE_CHART_KEYS"),
+  extractFunction("reedTileTone"),
+  extractFunction("gridDropIndex"),
+  extractFunction("reedDetailMetaLine"),
+  extractFunction("reedAddButtonLabel"),
+  extractFunction("clampReedAddCount"),
   // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
   extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
   extractConst("SWIPE_BACK_THRESHOLD_MIN"),
@@ -272,9 +332,19 @@ const api = new Function(`${code}
            MIC_RETRY_TAP_COOLDOWN_MS, AUDIO_SESSION_TYPE,
            REED_SCORE_MIN, REED_SCORE_MAX, REED_SCORE_KEYS,
            REED_RATING_STEP, REED_RATING_STEPS_N, RATING_DIAL_RATING_ORDER, RATING_DIAL_VISIBLE,
-           RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_NEUTRAL, REED_SCORE_PLOT_H,
+           RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_PLOT_H,
+           RATING_DIAL_UNRATED, RATING_DIAL_ORDER_WITH_UNRATED, RATING_DIAL_RATING_ORDER_WITH_UNRATED,
+           REED_APP_SIDE_PAD_PX, REED_SIDE_PAD_PX, REED_LIST_EXTRA_PAD_PX,
+           REED_GRID_COLS, REED_GRID_GAP_PX, REED_TILE_FS_PX,
+           REED_HEAD_MB_PX, REED_GROUP_PAD_TOP_PX, REED_GROUP_PAD_BOTTOM_PX, REED_ADDROW_PAD_TOP_PX,
+           REED_SUBTAB_GAP_PX, REED_SUBTAB_HALF_GAP_PX, REED_NUMROW_MIN_PX,
+           REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
+           REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
+           REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
+           REED_DETAIL_METRICS, REED_COMPARE_CHART_KEYS,
+           reedTileTone, gridDropIndex, reedDetailMetaLine, reedAddButtonLabel, clampReedAddCount,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
-           reedHistoryEntry, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
+           reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
            reedGroupAvgRating,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
            reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
@@ -3088,23 +3158,55 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
     check("総評ダイヤルに 3.7 がある", O.includes(3.7));
     check("総評ダイヤルの値はすべて正規化済みの値と一致する(indexOfが-1にならない)",
       O.every((v) => O.indexOf(R(v)) >= 0));
-    check("厚さ・バランスのダイヤルは整数5段のまま", api.ratingDialOrder("thickness").join(",") === "5,4,3,2,1",
+    // 【N-5 で並びが変わった】ダイヤルの**先頭に「—」(未評価 = null)が1段入る**
+    // (本人指示 / 正典の「評価ダイヤル」ミニ)。旧主張は
+    //   「厚さ・バランスのダイヤルは 5,4,3,2,1 の5段」「総評は41段」
+    //   「スクロール最上部で5.0 / 最下部で1.0」「未評価は中央(3.0)の位置」だった。
+    // 新主張はそれぞれ
+    //   「先頭が「—」で、その後ろは 5,4,3,2,1 のまま(6段)」「総評は「—」+41段の42段」
+    //   「最上部は「—」/ 最下部は 1.0」「未評価は先頭の「—」の位置」。
+    // **値の側(1〜5 / 0.1刻み41段)は1つも動いていない**ことを、下で並びから切り出して確かめる。
+    check("ダイヤルの先頭は「—」(未評価 = null)",
+      api.ratingDialOrder("thickness")[0] === null && api.ratingDialOrder("rating")[0] === null,
+      `${JSON.stringify(api.ratingDialOrder("thickness")[0])} / ${JSON.stringify(api.ratingDialOrder("rating")[0])}`);
+    check("「—」は先頭の1段だけ(並びの途中に未評価が混ざらない)",
+      api.ratingDialOrder("thickness").filter((v) => v === null).length === 1
+      && api.ratingDialOrder("rating").filter((v) => v === null).length === 1);
+    check("厚さ・バランスは「—」を除くと 5,4,3,2,1 のまま",
+      api.ratingDialOrder("thickness").slice(1).join(",") === "5,4,3,2,1",
       api.ratingDialOrder("thickness").join(","));
-    check("総評だけ別の並びを使う", api.ratingDialOrder("rating").length === 41 && api.ratingDialOrder("balance").length === 5);
+    check("総評は「—」を除くと41段のまま",
+      api.ratingDialOrder("rating").slice(1).length === 41, `${api.ratingDialOrder("rating").slice(1).length}段`);
+    check("「—」を除いた並びは元の定数そのもの(ダイヤル用に値を作り直していない)",
+      api.ratingDialOrder("thickness").slice(1).join(",") === api.RATING_DIAL_ORDER.join(",")
+      && api.ratingDialOrder("rating").slice(1).join(",") === api.RATING_DIAL_RATING_ORDER.join(","));
+    check("総評だけ別の並びを使う", api.ratingDialOrder("rating").length === 42 && api.ratingDialOrder("balance").length === 6);
+    // グラフの縦軸目盛が使う RATING_DIAL_ORDER には「—」を混ぜていない(混ぜると目盛が1本増える)
+    check("評価の推移グラフの目盛の定数(RATING_DIAL_ORDER)に null は入っていない",
+      api.RATING_DIAL_ORDER.every((v) => v !== null) && api.RATING_DIAL_ORDER.length === 5,
+      api.RATING_DIAL_ORDER.join(","));
+    check("RATING_DIAL_RATING_ORDER にも null は入っていない",
+      api.RATING_DIAL_RATING_ORDER.every((v) => v !== null) && api.RATING_DIAL_RATING_ORDER.length === 41);
 
     // --- 位置 ⇄ 値(総評) ---
     {
       const H = api.RATING_DIAL_ITEM_H;
-      check("総評: スクロール最上部で5.0", api.ratingDialValueAt(0, H, "rating") === 5);
-      check("総評: スクロール最下部で1.0", api.ratingDialValueAt(H * 40, H, "rating") === 1);
+      check("総評: スクロール最上部は「—」(未評価)", api.ratingDialValueAt(0, H, "rating") === null,
+        String(api.ratingDialValueAt(0, H, "rating")));
+      check("総評: その次の段が 5.0", api.ratingDialValueAt(H, H, "rating") === 5, String(api.ratingDialValueAt(H, H, "rating")));
+      check("総評: スクロール最下部で1.0", api.ratingDialValueAt(H * 41, H, "rating") === 1, String(api.ratingDialValueAt(H * 41, H, "rating")));
       check("総評: 値→位置は位置→値の逆写像(41段すべて)",
         O.every((v) => api.ratingDialValueAt(api.ratingDialOffsetFor(v, H, "rating"), H, "rating") === v));
-      check("総評: 3.7 の位置は上から13行目", api.ratingDialOffsetFor(3.7, H, "rating") === 13 * H,
+      check("総評: 「—」も値→位置→値で往復できる(選んで未評価に戻せる)",
+        api.ratingDialValueAt(api.ratingDialOffsetFor(null, H, "rating"), H, "rating") === null);
+      check("総評: 3.7 の位置は上から14行目(「—」が1段増えたぶん)", api.ratingDialOffsetFor(3.7, H, "rating") === 14 * H,
         `${api.ratingDialOffsetFor(3.7, H, "rating")}px`);
-      check("総評: 未評価は中央(3.0)の位置に置く",
-        api.ratingDialOffsetFor(null, H, "rating") === api.ratingDialOffsetFor(3, H, "rating"));
+      check("総評: 未評価は先頭(「—」)の位置に置く(中央の3.0ではない)",
+        api.ratingDialOffsetFor(null, H, "rating") === 0
+        && api.ratingDialOffsetFor(null, H, "rating") !== api.ratingDialOffsetFor(3, H, "rating"),
+        `${api.ratingDialOffsetFor(null, H, "rating")} / 3.0は${api.ratingDialOffsetFor(3, H, "rating")}`);
       check("総評: 行き過ぎても範囲外にならない",
-        api.ratingDialValueAt(-999, H, "rating") === 5 && api.ratingDialValueAt(999999, H, "rating") === 1);
+        api.ratingDialValueAt(-999, H, "rating") === null && api.ratingDialValueAt(999999, H, "rating") === 1);
     }
   }
   // --- 窓の高さは5行ぶん。ただし「常に5段が見える」ではない ---
@@ -3118,22 +3220,30 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
     const winH = H * VIS;
     const pad = (winH - H) / 2;                       // RatingDial の padding と同じ式
     // 窓(スクロール位置 top から winH ぶん)に全体が収まっている段の数
+    // 【N-5 で数え直した】並びの先頭に「—」が入ったので、段の総数が 5 → 6 に、
+    // 各値の位置が1段ぶん下へ動いた。**数える対象を「実際にダイヤルが描く並び」に直す**
+    // (RATING_DIAL_ORDER は目盛用の定数で、ダイヤルの並びとは別物になった)。
+    const DIAL = api.ratingDialOrder("thickness");
     const rowsVisible = (v) => {
       const top = api.ratingDialOffsetFor(v, H);
       let n = 0;
-      for (let i = 0; i < api.RATING_DIAL_ORDER.length; i++) {
+      for (let i = 0; i < DIAL.length; i++) {
         const a = pad + i * H;
         if (a >= top && a + H <= top + winH) n++;
       }
       return n;
     };
-    const seen = api.RATING_DIAL_ORDER.map((v) => `${v}:${rowsVisible(v)}`).join(" ");
-    check("一度に見えるのは中央(3)を選んでいるときだけ5段", rowsVisible(3) === 5, seen);
-    check("端(5 / 1)を選んでいるときは3段しか見えない(F-13の「1と2はスクロール」は値が5のとき残る)",
-      rowsVisible(5) === 3 && rowsVisible(1) === 3, seen);
-    check("その隣(4 / 2)は4段", rowsVisible(4) === 4 && rowsVisible(2) === 4, seen);
+    const seen = DIAL.map((v) => `${v === null ? "—" : v}:${rowsVisible(v)}`).join(" ");
+    // 旧主張「中央(3)のときだけ5段」→ 新主張「中央寄りの 4 と 3 のときに5段」
+    // (6段になったので中央は 4 と 3 の間。窓の高さ 5行 は変えていない)
+    check("一度に5段見えるのは中央寄りの 4 / 3 を選んでいるとき", rowsVisible(4) === 5 && rowsVisible(3) === 5, seen);
+    check("端(「—」/ 1)を選んでいるときは3段しか見えない(F-13の「1と2はスクロール」は残る)",
+      rowsVisible(null) === 3 && rowsVisible(1) === 3, seen);
+    check("その隣(5 / 2)は4段", rowsVisible(5) === 4 && rowsVisible(2) === 4, seen);
     check("どの選択位置でも最低3段は見える(3行だった頃を下回らない)",
-      api.RATING_DIAL_ORDER.every((v) => rowsVisible(v) >= 3), seen);
+      DIAL.every((v) => rowsVisible(v) >= 3), seen);
+    check("未評価(「—」)を選んでも 5 と 4 は同じ窓に見える(そこから戻せる)",
+      rowsVisible(null) >= 3 && api.ratingDialOffsetFor(null, H) === 0, seen);
     // 上のモデルが実装と同じ padding を前提にしていること(前提が崩れたら数え直しになる)
     check("ダイヤルの padding は中央合わせの (窓高 - 行高)/2",
       /padding: `\$\{\(height - ITEM\) \/ 2\}px 0`/.test(sourceOf("RatingDial")));
@@ -3149,15 +3259,22 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
   // 「上が5」を座標で言い直す: スクロール位置0(いちばん上)で5が選ばれること
   {
     const H = api.RATING_DIAL_ITEM_H;
-    check("スクロール最上部で5が選ばれる", api.ratingDialValueAt(0, H) === 5, String(api.ratingDialValueAt(0, H)));
-    check("スクロール最下部で1が選ばれる", api.ratingDialValueAt(H * 4, H) === 1, String(api.ratingDialValueAt(H * 4, H)));
-    check("下へスクロールするほど値が小さくなる",
-      [0, 1, 2, 3, 4].every((i, k, a) => k === 0 || api.ratingDialValueAt(a[k - 1] * H, H) > api.ratingDialValueAt(i * H, H)));
+    // 【N-5】旧主張「スクロール最上部で5」→ 新主張「最上部は「—」、その次が5」。
+    // 「上が5・下が1」という本人指示そのものは**評価値の並びの中で**保たれている。
+    check("スクロール最上部は「—」(未評価)", api.ratingDialValueAt(0, H) === null, String(api.ratingDialValueAt(0, H)));
+    check("その次の段で5が選ばれる(値としては上が5)", api.ratingDialValueAt(H, H) === 5, String(api.ratingDialValueAt(H, H)));
+    check("スクロール最下部で1が選ばれる", api.ratingDialValueAt(H * 5, H) === 1, String(api.ratingDialValueAt(H * 5, H)));
+    check("下へスクロールするほど値が小さくなる(「—」の段を除く)",
+      [1, 2, 3, 4, 5].every((i, k, a) => k === 0 || api.ratingDialValueAt(a[k - 1] * H, H) > api.ratingDialValueAt(i * H, H)));
     check("行き過ぎても範囲外にならない",
-      api.ratingDialValueAt(-999, H) === 5 && api.ratingDialValueAt(99999, H) === 1);
+      api.ratingDialValueAt(-999, H) === null && api.ratingDialValueAt(99999, H) === 1);
     check("値→位置は位置→値の逆写像",
       [1, 2, 3, 4, 5].every((v) => api.ratingDialValueAt(api.ratingDialOffsetFor(v, H), H) === v));
-    check("未評価は中央(3)の位置に置く", api.ratingDialOffsetFor(null, H) === api.ratingDialOffsetFor(api.REED_SCORE_NEUTRAL, H));
+    check("「—」も値→位置→値で往復できる(厚さ・バランスも未評価に戻せる)",
+      api.ratingDialValueAt(api.ratingDialOffsetFor(null, H), H) === null);
+    check("未評価は先頭(「—」)の位置に置く(中央の3ではない)",
+      api.ratingDialOffsetFor(null, H) === 0 && api.ratingDialOffsetFor(null, H) !== api.ratingDialOffsetFor(3, H),
+      `${api.ratingDialOffsetFor(null, H)} / 3は${api.ratingDialOffsetFor(3, H)}`);
     // 未評価のダイヤルを中央に置くための scrollTop 代入で「3を選んだ」ことにしない。
     // これを取り違えると、開いて閉じただけで履歴が1件増える(項目6違反)。実機で踏んだ罠。
     {
@@ -3460,9 +3577,16 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         /reedGroupAvgRating\(g\.members\)/.test(line), line.trim().slice(0, 160));
       check("箱のヘッダに生の平均を作る旧実装(ratedValues)が残っていない",
         !/const ratedValues\b/.test(codeOf(src)));
-      check("星と title は同じ変数(avgRating)を見る",
-        /title=\{`箱の平均評価 \$\{avgRating\.toFixed\(1\)\}`\}/.test(src) &&
-        /<StarRating value=\{avgRating\} size=\{12\} \/>/.test(src));
+      // 【N-5 で表示が変わった】旧主張は「星の塗り(<StarRating value={avgRating}>)と
+      // title の toFixed(1) が同じ変数を見る」だったが、正典 .rmeta は**「★3.8」という文字**で、
+      // 星の絵も title も無くなった。新主張は「箱見出しに出る数字は avgRating を
+      // toFixed(1) した文字そのもの」。**表示と値が別物になり得る余地ごと消えている**
+      // (星の塗りという別経路が無くなったので、食い違いようがない)。
+      check("箱見出しの★は avgRating.toFixed(1) の文字で書く",
+        /★\{avgRating\.toFixed\(1\)\}/.test(src),
+        (src.match(/★\{[^}]*\}/g) || []).join(" / ") || "見つからない");
+      check("箱見出しの★は評価済みの箱にだけ出す(未評価しか無い箱では出さない)",
+        /avgRating !== null && <span>★\{avgRating\.toFixed\(1\)\}<\/span>/.test(src));
     }
   }
 
@@ -3516,10 +3640,18 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
   {
     // 項目7: テキストの履歴行を消したこと
     check("「履歴:」のテキスト行が残っていない", !/>\s*履歴:\s*</.test(src) && !src.includes("履歴:"));
-    // 項目2: 厚さ・バランスに★を出さない。StarRating 自体は他画面で使うので残す
-    check("StarRating コンポーネントは残っている", /function StarRating\(/.test(src));
-    check("RatingDial は StarRating を呼ばない", !sourceOf("RatingDial").includes("<StarRating"));
-    check("ReedScoreField は StarRating を呼ばない", !sourceOf("ReedScoreField").includes("<StarRating"));
+    // 項目2: 厚さ・バランスに★を出さない。
+    // 【N-5 で StarRating を削除した】旧主張は「StarRating コンポーネントは残っている
+    // (他画面で使うので)」。正典は箱見出しも比較の一覧も**「★3.8」という文字**で書いており、
+    // 星の絵の読み手が0件になった。新主張は「定義も呼び出しも残っていない」。
+    // ★の表示そのものが消えたわけではない(上の「箱見出しの★は avgRating.toFixed(1)」で固定)。
+    check("StarRating は定義も呼び出しも残っていない(★は文字で書く)",
+      !/function StarRating\(/.test(codeOf(src)) && !/<StarRating/.test(codeOf(src)),
+      (codeOf(src).match(/(function StarRating\(|<StarRating)/g) || []).join(" / ") || "0件");
+    // 星の絵が持っていた「肯定的評価に機能色 --c-warn を流用」(§1.5 違反)も一緒に消えたこと。
+    // #D97706 は計測タブのピッチ判定色としては残る(そちらは意味を持つ機能色)。
+    check("★の表示に機能色 #D97706 を使う箇所が残っていない",
+      !/color: "#D97706", whiteSpace: "nowrap" \}\}>★/.test(codeOf(src)));
     // 【C-1】表示は1行。行全体が1つのタップ対象で、押すと1つのダイアログが開く
     {
       const fld = sourceOf("ReedScoreField");
@@ -3579,50 +3711,58 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       // カードに flex:1 1 0 + minWidth:0 を与える。どちらか欠けると幅が中身依存になる。
       check("カードは flex:1 1 0 で幅を均等に分ける", /flex: "1 1 0"/.test(fld));
       check("カードの幅は中身に引きずられない(minWidth:0)", /minWidth: 0/.test(fld));
-      // --- 【F-65】1枚の枠 → 3枚のカード -------------------------------------
-      // 本人指示「総評と厚さとバランスの数字枠を、色と配置はそのままでカード3枚に分割表示」。
-      // (a) 地(色)を持つのは**カードの側**で、外側のボタンは透明な当たり判定になった。
-      //     B型(.ctl-plain)が外側に戻ると3枚が1枚の箱に戻る。
-      check("カードが B型(.ctl-plain)の地を持つ",
-        /className="ctl-plain"/.test(fld), (fld.match(/className="[^"]*"/g) || []).join(" / "));
-      check("外側のボタンは地を持たない(3枚が1枚の箱に戻っていない)",
-        !/className="sans ctl-plain"/.test(fld) && /className="sans"/.test(fld),
+      // --- 【N-5】3枚のカード → 正典 .starrow --------------------------------
+      // 旧主張(F-65 の本人指示「色と配置はそのままでカード3枚に分割表示」)は
+      //   (a) 各列が B型 .ctl-plain の地を持つ / (b) 列の間に --sp-2 の隙間がある
+      //   (c) 列の内側に --sp-2 の余白 / (d) 見出しの下に数字 / (e) フォントは --fs-xs / --fs-lg
+      // だった。正典 .starrow は
+      //   行 = padding 16px 0 + 下に罫1本 / 列 = 地も枠も隙間も持たない flex:1 の中央揃え
+      //   値 23px/600 が**上**、ラベル 11px --ink3 が**下**
+      // で、地・隙間・余白・上下関係・文字サイズがすべて違う。DESIGN-SYSTEM §6.0 が
+      // 「モックと本書(および本書に取り込まれた過去の指示)が食い違えば無条件でモックが勝つ」
+      // と定めているので、新主張は正典側に置き換える。
+      // **等幅・折り返さない・3項目とも出す・行のどこを押しても開く**は旧主張のまま残す。
+      check("列は地を持たない(正典 .starrow に箱は無い)",
+        !/className="ctl-plain"/.test(fld), (fld.match(/className="[^"]*"/g) || []).join(" / "));
+      check("外側のボタンも地を持たない", !/className="sans ctl-plain"/.test(fld) && /className="sans"/.test(fld),
         (fld.match(/className="[^"]*"/g) || []).join(" / "));
-      check("外側のボタンの地・枠は none(インラインで箱を描き直していない)",
-        /background: "none", border: "none"/.test(fld));
-      // (b) カードとカードの間に隙間がある。隙間が0だと3枚が1枚に見える
-      check("カードの間に隙間がある(行の gap)", /flexWrap: "nowrap", gap: "var\(--sp-2\)"/.test(fld),
-        (fld.match(/gap: "[^"]*"/g) || []).join(" / "));
-      check("gap は行(カード間)と列の中(見出し↔数字)の2つだけ",
-        (codeOf(fld).match(/gap:/g) || []).length === 2,
+      check("外側のボタンの地・枠は none(下の罫1本だけを持つ)",
+        /background: "none", border: "none", borderBottom: "1px solid var\(--c-line\)"/.test(fld));
+      check("行は上下 16px の余白を持つ(正典 .starrow の padding:16px 0)", /padding: "16px 0"/.test(fld));
+      check("列の間に隙間を作らない(正典 .starrow は gap を持たない)",
+        /flexWrap: "nowrap", gap: 0/.test(fld), (fld.match(/gap: [^,]*/g) || []).join(" / "));
+      check("gap は行の1つだけ(列の中にも隙間を作らない)",
+        (codeOf(fld).match(/gap:/g) || []).length === 1,
         `${(codeOf(fld).match(/gap:/g) || []).length}箇所`);
-      // (c) 余白はカードの内側が持つ。外側のボタンに戻すと3枚の外に余白が出て並びがずれる
-      check("外側のボタンは padding を持たない", /padding: 0,/.test(fld));
-      check("カードの内側に余白がある(--sp-2)", /padding: "var\(--sp-2\)"/.test(fld),
-        (fld.match(/padding: [^,]*/g) || []).join(" / "));
-      // (d) 角丸・地はクラス(型)が持つ。インラインで書き戻すと §6.7 が効かなくなる
-      // (外側のボタンの background:"none" / border:"none" は「箱を描かない」宣言なので除く)
-      check("カードに地・枠・角丸をインラインで書いていない(型が持つ)",
-        !/borderRadius/.test(fld) && !/background: "(?!none")/.test(fld) && !/border: "(?!none")/.test(fld),
-        (fld.match(/(borderRadius|background|border): "[^"]*"/g) || []).join(" / "));
-      // (e) 旧実装(1枚の枠の中を1px罫で区切る)が残っていない
+      check("列は内側の余白を持たない", /padding: 0,/.test(fld));
+      // 角丸・地をインラインで書き戻していない(型が効かなくなるのを防ぐ)。
+      // borderRadius: 0 は「.card 等の角丸を持ち込まない」宣言なので除く。
+      check("列に地・枠・角丸を書き足していない",
+        !/borderRadius: "[^"]*"/.test(fld) && !/background: "(?!none")/.test(fld),
+        (fld.match(/(borderRadius|background): [^,]*/g) || []).join(" / "));
+      // 旧実装(1枚の枠の中を1px罫で区切る)が残っていない。行の下の罫(borderBottom)は正典。
       check("列の境の罫で区切る旧実装が残っていない",
         !/borderLeft/.test(codeOf(fld)) && !/\bsep\b/.test(codeOf(fld)),
         (codeOf(fld).match(/borderLeft[^,]*/g) || []).join(" / "));
-      // 見出しの下に数字(本人指示)。横並びに戻すと縦積みが崩れる
-      check("各カードは見出しの下に数字を積む(flexDirection:column)", /flexDirection: "column"/.test(fld));
+      check("各列は縦積み(flexDirection:column)", /flexDirection: "column"/.test(fld));
+      // 【上下が入れ替わった】正典 .starrow は .v(値)が先で .l(ラベス)が後。
+      // ソース上の**出現順**で見る(綴りだけでなく順序を縛る)。
+      check("列は数字が上・ラベルが下(正典 .starrow の .v → .l)",
+        fld.indexOf("{it.text}") !== -1 && fld.indexOf("{it.label}") !== -1
+        && fld.indexOf("{it.text}") < fld.indexOf("{it.label}"),
+        `値=${fld.indexOf("{it.text}")} / ラベル=${fld.indexOf("{it.label}")}`);
       check("行の高さは --tap-min 以上(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
       // 幅を食う文字(「・」)は描画しない。列ごとに幅が変わって等幅が崩れる。
-      // 「・」は aria-label("総評・厚さ・バランスを編集")には出てよいので、
-      // 描画される中身(>の直後 / {"・"})だけを見る。
       check("幅を食う区切り文字を描画しない",
         !/>\s*・/.test(codeOf(fld)) && !/\{"・"\}/.test(codeOf(fld)));
-      check("フォントサイズはスケール内(--fs-xs / --fs-lg のみ)",
-        (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).every((s) => /--fs-(xs|lg)\)/.test(s)),
-        (fld.match(/fontSize: "var\(--fs-[a-z0-9]+\)"/g) || []).join(","));
-      check("生の px フォントサイズを使っていない", !/fontSize: \d/.test(fld));
+      // 正典の実寸: 値 23px / ラベル 11px。**どちらも 7段スケールの外**だが §6.0 でモックが勝つ。
+      check("値は正典 .starrow .v の 23px / 600", /fontSize: 23, fontWeight: 600/.test(fld));
+      check("ラベルは正典 .starrow .l の 11px / --c-ink-3", /fontSize: 11, color: "var\(--c-ink-3\)"/.test(fld));
+      check("フォントサイズは正典の2つ(23 / 11)だけ",
+        (fld.match(/fontSize: [^,]*/g) || []).join(",") === "fontSize: 23,fontSize: 11",
+        (fld.match(/fontSize: [^,]*/g) || []).join(" / "));
     }
-    check("ReedScoreEditor は StarRating を呼ばない", !sourceOf("ReedScoreEditor").includes("<StarRating"));
+    check("ReedScoreEditor は星の絵を描かない(数値のダイヤルだけ)", !sourceOf("ReedScoreEditor").includes("<StarRating"));
     // 項目1: 入力は5段階(0.1刻みの復活を止める)
     // 以前ここには RatingSlider の step / min / max を見る検査が3件あったが、今周で
     // ReedScoreEditor を3ダイヤル化した時点で呼び出し元がゼロになったため、コンポーネント
@@ -5365,7 +5505,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   const tileTags = tagsWithClass("tile");
   const rowTags = tagsWithClass("tile-row");
   // 数そのものが要件ではないが、0件なら検査が何も見ていないので下限だけ置く。
-  check(".card が実際に使われている", cardTags.length >= 15, `${cardTags.length}箇所`);
+  // 【N-5 で下限を 15 → 10 に下げた】リードタブが正典へ移り、登録フォーム・登録済みリード・
+  // 個体詳細の識別情報 / 測定データ / 評価の推移の**5枚のカードが無くなった**
+  // (正典の囲いの序列は「余白 → 揃え → 罫1本 → 面」で、面は1画面に1枚まで。§6.0)。
+  // 実測 11 枚に対して 10 を下限に置く。**下限を下げたぶんは、下で「リードタブに .card が
+  // 1枚も無い」ことを名指しで固定して埋める**(数が減ったこと自体を要件にする)。
+  check(".card が実際に使われている", cardTags.length >= 10, `${cardTags.length}箇所`);
   check(".tile が実際に使われている", tileTags.length >= 3, `${tileTags.length}箇所`);
   check(".tile-row が実際に使われている", rowTags.length >= 5, `${rowTags.length}箇所`);
   // 上の tagsWithClass は className="card" という**綴りそのもの**を探す。
@@ -5547,15 +5692,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         decl(cardBody, "border-top") === "1px solid var(--c-rule)", String(decl(cardBody, "border-top")));
     }
   }
-  // App.jsx 側: no-top-rule を付けているのは本人指示の3箇所だけ(乱用しないこと)。
-  // 【F-75 で 2 → 3】本人指示(2026/08/12・実機)「詳細タブも枠線を作る必要はない」により
-  // 計測タブの詳細カードが加わった。**箇所数を緩めたのではなく、増えた1件を名指しで固定する**
-  // (下の「3件の内訳」検査。名指ししていない場所に貼れば、そこで落ちる)。
+  // App.jsx 側: no-top-rule を付けているのは本人指示の箇所だけ(乱用しないこと)。
+  // 【F-75 で 2 → 3】計測タブの詳細カードが加わった。
+  // 【N-5 で 3 → 1】旧主張は「3箇所(リード登録カード / 識別情報カード / 計測タブの詳細カード)」。
+  // リードタブが正典へ移り、**リード登録カードと識別情報カードそのものが無くなった**
+  // (正典の登録一覧・個体詳細に .card は1枚も無い)。新主張は「1箇所(計測タブの詳細カードだけ)」。
+  // 箇所数を緩めたのではなく**減った2件が本当に消えたこと**も下で名指しで確かめる。
   {
     const noTopTags = tagsWithClass("no-top-rule");
-    check('className="card no-top-rule" は3箇所だけ(リード登録カード / 識別情報カード / 計測タブの詳細カード)',
-      noTopTags.length === 3, `${noTopTags.length}箇所`);
-    // 内訳を綴りで固定する。3件のうち1件が別の場所へ移ったら落ちる。
+    check('className="card no-top-rule" は1箇所だけ(計測タブの詳細カード)',
+      noTopTags.length === 1, `${noTopTags.length}箇所`);
     {
       const codeNT = codeOf(src);
       const at = (needle) => codeNT.indexOf(needle);
@@ -5563,13 +5709,41 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const detailCard = /\{detailOpen && \(\s*<div style=\{\{ padding: "16px 0 10px" \}\}>[\s{}]*<div className="card no-top-rule">/.test(codeNT);
       check("F-75: 計測タブの詳細カードが no-top-rule を持つ(上辺の罫を消した1件)", detailCard,
         (codeNT.match(/\{detailOpen && \([\s\S]{0,200}/) || [""])[0].replace(/\s+/g, " ").slice(0, 200));
-      check("F-75: 既存2件(リード登録カード / 識別情報カード)はそのまま残っている",
-        at('<div className="card no-top-rule" style={{ marginBottom: 12 }}>') !== -1
-        && at('<div className="card no-top-rule" style={{ marginBottom: 10 }}>') !== -1);
+      check("N-5: リード登録カード / 識別情報カードは無くなった(no-top-rule ごと消えている)",
+        at('<div className="card no-top-rule" style={{ marginBottom: 12 }}>') === -1
+        && at('<div className="card no-top-rule" style={{ marginBottom: 10 }}>') === -1);
     }
     check("no-top-rule を持つタグはすべて .card も同時に持つ(単独では使わない)",
       noTopTags.every((t) => (t.match(/className="([^"]*)"/) || ["", ""])[1].trim().split(/\s+/).includes("card")),
       noTopTags.join(" | ").slice(0, 200));
+    // 【N-5】.card の下限を 15 → 10 に下げたぶんの埋め合わせ:
+    // リードタブの3つの画面(登録一覧 / 個体詳細 / 比較)に .card が1枚も残っていないこと。
+    // 減った枚数を数えるのではなく、**どこから消えたか**を関数単位で固定する。
+    // 分割代入の引数を跨いで本体を取る版(この節より後ろで定義される srcOf と同じ実装。
+    // ここでは使えないのでローカルに置く)。
+    const bodyOf = (name) => {
+      const idx = src.indexOf(`function ${name}(`);
+      if (idx === -1) throw new Error(`function ${name} not found`);
+      let i = src.indexOf("(", idx), depth = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === "(") depth++;
+        else if (src[i] === ")") { depth--; if (depth === 0) { i++; break; } }
+      }
+      while (i < src.length && src[i] !== "{") i++;
+      depth = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+      }
+      throw new Error(`function ${name}: unbalanced braces`);
+    };
+    for (const name of ["ReedRegisterView", "ReedEvaluationDetail", "ReedCompareTab", "ReedScoreHistoryChart", "ReedsTab"]) {
+      const body = bodyOf(name);
+      check(`${name} の本体を走査できている`, body.length > 400, `${body.length}文字`);
+      check(`${name} に .card / .tile は1つも無い(正典の囲いは余白と罫1本だけ)`,
+        !/className="[^"]*\b(card|tile|tile-row)\b[^"]*"/.test(body),
+        (body.match(/className="[^"]*"/g) || []).filter((s) => /\b(card|tile|tile-row)\b/.test(s)).join(" / ") || "0件");
+    }
   }
 
   // extractFunction (ファイル先頭) は「関数名の直後の最初の { 」を本体開始とみなすため、
@@ -5809,21 +5983,25 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 固有の内容幅を優先して CSS の width:100% を無視する(Chromeは無視しないため
   // Browser pane では再現せず、2周ぶん見落とした)。appearance を落とすと素の箱になり
   // width が効く。**この2行を外すと実機でだけ再発する**ので外さないこと。
+  // 【N-5】この欄は「新しいリードを登録」フォームの使用開始日から、
+  // 「…」→「箱の開封日を編集」の中の開封日へ**移った**。要件(appearance を落として
+  // 幅を効かせ、縦位置を自分で決める)は1つも下げずにそのまま引き継ぐ。
   {
     const register = srcOf("ReedRegisterView");
-    const dateInput = register.slice(register.indexOf('id="reed-startdate-input"'));
+    const dateInput = register.slice(register.indexOf('type="date"'));
     const decl = dateInput.slice(0, dateInput.indexOf("/>"));
-    check("使用開始日の input[type=date] は WebkitAppearance:none を持つ",
+    check("開封日の入力欄を走査できている", decl.length > 100 && /type="date"/.test(decl), `${decl.length}文字`);
+    check("開封日の input[type=date] は WebkitAppearance:none を持つ",
       /WebkitAppearance: "none"/.test(decl));
-    check("使用開始日の input[type=date] は appearance:none も併記する(非WebKit系のため)",
+    check("開封日の input[type=date] は appearance:none も併記する(非WebKit系のため)",
       /appearance: "none"/.test(decl));
-    check("使用開始日の input[type=date] は maxWidth:100% で親を超えないようにする",
+    check("開封日の input[type=date] は maxWidth:100% で親を超えないようにする",
       /maxWidth: "100%"/.test(decl));
     // 本人報告(2026-08-04)「横幅は直ったが縦幅が変わった」。appearance を落とすと幅と一緒に
     // **縦方向の固有の寸法も失われる**ため、行の高さを明示しないと中のテキストが上寄せに落ちる。
-    check("使用開始日の input[type=date] は lineHeight を明示する(appearance:none で失う縦位置の補償)",
+    check("開封日の input[type=date] は lineHeight を明示する(appearance:none で失う縦位置の補償)",
       /lineHeight: "1\.25"/.test(decl));
-    check("使用開始日の input[type=date] は overflow:hidden を持つ(内部UIのはみ出しの最後の歯止め)",
+    check("開封日の input[type=date] は overflow:hidden を持つ(内部UIのはみ出しの最後の歯止め)",
       /overflow: "hidden"/.test(decl));
     // 高さは共通スタイル側で固定する。minHeight だけだと下限にしかならず、ネイティブ描画の
     // ままの select が 44px を上回ったときに使用開始日だけ低くなる(本人報告の「縦幅が変わった」)。
@@ -6575,10 +6753,26 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
             JSON.stringify(horiz) === JSON.stringify(wantHoriz),
             `実際=${JSON.stringify(horiz)} / 期待=${JSON.stringify(wantHoriz)}`);
         }
-        // 上部設定行の4箇所(奏者 / 楽器 / 基準ピッチ / リード)すべてに出ていること
+        // 上部設定行の4箇所(奏者 / 楽器 / 基準ピッチ / リード)すべてに出ていること。
+        // 【N-5 で 4 → 5】リードタブの追加シートの銘柄プルダウンが5つ目。
+        // **箇所数を緩めたのではなく**、計測タブの上部設定行に4つあることと、
+        // 増えた1件が追加シートの銘柄であることを別々に固定する
+        // (F-72 の罠5「箇所数の固定で逃げない」)。
         const n = (code.match(/<PickChevron \/>/g) || []).length;
-        check("F-72: ▾ は上部設定行の4箇所すべてにある(奏者・楽器種別・基準ピッチ・リード)",
-          n === 4, `${n}箇所`);
+        check("F-72: ▾ を使う箇所は5つ(上部設定行の4つ + N-5 の追加シートの銘柄)",
+          n === 5, `${n}箇所`);
+        {
+          // 上部設定行の4つの内訳: 楽器種別・基準ピッチ・リード枠は MeasureView が直接描き、
+          // 奏者は共有部品 PerformerSelector が描く。合わせて4つ。
+          const inMeasure = (srcOfFn(src, "MeasureView").match(/<PickChevron \/>/g) || []).length;
+          const inPerformer = (srcOfFn(src, "PerformerSelector").match(/<PickChevron \/>/g) || []).length;
+          check("F-72: 上部設定行の ▾ は4つ(MeasureView に3つ + 奏者セレクタに1つ)",
+            inMeasure === 3 && inPerformer === 1, `MeasureView=${inMeasure} / PerformerSelector=${inPerformer}`);
+          const sheet = srcOfFn(src, "ReedAddSheet");
+          check("N-5: 追加シートの銘柄プルダウンにも ▾ がある(押せば選択肢が出ることを形で示す)",
+            (sheet.match(/<PickChevron \/>/g) || []).length === 1,
+            `${(sheet.match(/<PickChevron \/>/g) || []).length}箇所`);
+        }
       }
       // 型のクラスの CSS 側は変えていない(リードタブ等で使い続けるため)。
       check("B型(.ctl-plain)の角丸と入力欄の角丸は同じ規則から来ている(CSS 側は不変)",
@@ -6627,37 +6821,192 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         !withPrefix([rfBody], ["background", "border", "boxshadow"]).length, rfBody.replace(/\s+/g, " ").slice(0, 160));
     }
 
-    // --- 17.9 リード登録: 銘柄+番手は2カラム、使用開始日は単独1行フル幅 -------
-    // 2026-08-04 本人指示により確定仕様を訂正: 「計測タブ上部のリード選択と同じように
-    // 銘柄と番手は同じ行でまとめて、カレンダー(使用開始日)だけ違う段に表示」。
-    // 過去(F-23)に見つかった実機不具合は「番手+使用開始日」を2カラムにした版で
-    // input[type=date] が iOS Safari の最小内容幅(Chrome実測150px)から縮まず
-    // はみ出したというもの(番手とdateの組み合わせ)。今回の組み合わせは
-    // 銘柄+番手(どちらもselect)で、input[type=date]をこの2カラムに含めないため、
-    // その不具合は再現しない。使用開始日は今まで通り単独の1行フル幅のまま変更しない。
+    // --- 17.9 【N-5 で置き換え】リード登録フォームは無くなり、追加シートになった -------
+    // 旧主張(2026-08-04 本人指示): 「新しいリードを登録」カードの中で
+    //   銘柄+番手が display:grid の2カラム / 使用開始日は単独の1行フル幅 /
+    //   使用開始日の input[type=date] が REED_FORM_CONTROL_STYLE(width:100%)を使う
+    // 新主張(正典 = north-star-measure.html の「追加シート」):
+    //   フォームそのものが画面から消え、「＋ 追加」1つ → シートの中に
+    //   銘柄プルダウン + 番手5種のピル + 枚数 1〜10 が入る。
+    //   **開封日の入力欄は出さない**(箱を追加した日が自動で開封日になる)。
+    //   開封日を書き換えられるのは「…」の「箱の開封日を編集」だけで、
+    //   そこで初めて input[type=date] が現れる(REED_FORM_CONTROL_STYLE はそこが使う)。
+    // これは P0-5「リード登録フォームが375pxで破綻」の解消でもある(フォームが消えた)。
     {
-      const startIdx = src.indexOf("新しいリードを登録");
-      const endIdx = src.indexOf("1枚ずつ追加", startIdx);
-      const block = startIdx === -1 || endIdx === -1 ? "" : src.slice(startIdx, endIdx);
-      check("リード登録カードのブロックを走査できている", block !== "");
-      check("リード登録: 銘柄+番手の2カラムグリッド(display:grid, 1fr 1fr)がある",
-        /display: "grid", gridTemplateColumns: "1fr 1fr"/.test(block), block.replace(/\s+/g, " ").slice(0, 200));
-      // 銘柄セレクトと番手セレクトが同じグリッドの中(=グリッドdivの開始から次の
-      // フル幅div開始までの間)にあることを見る(渡し忘れ・順序ずれの検出)。
-      const gridStart = block.indexOf('display: "grid", gridTemplateColumns: "1fr 1fr"');
-      const fullWidthStart = block.indexOf('<div style={{ marginBottom: 8 }}>');
-      const gridBlock = gridStart === -1 ? "" : block.slice(gridStart, fullWidthStart === -1 ? undefined : fullWidthStart);
-      check("2カラムグリッドの中に銘柄セレクトと番手セレクトが両方ある",
-        /id="reed-brand-select"/.test(gridBlock) && /id="reed-strength-select"/.test(gridBlock));
-      check("2カラムグリッドの各項目に minWidth: 0 がある(グリッド内の select が 1fr を超えて広がらないため)",
-        (gridBlock.match(/minWidth: 0/g) || []).length === 2, gridBlock.replace(/\s+/g, " ").slice(0, 300));
-      // 使用開始日は2カラムに含めず、銘柄と同じ「1行フル幅」のdivのまま(F-23で確定した形を維持)。
-      const fullWidthRows = (block.match(/<div style=\{\{ marginBottom: 8 \}\}>/g) || []).length;
-      check("リード登録: 使用開始日は単独の1行フル幅のdivのまま(2カラムに含まれない)",
-        fullWidthRows === 1, `${fullWidthRows}箇所`);
-      check("使用開始日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
-        /id="reed-startdate-input"[\s\S]{0,200}REED_FORM_CONTROL_STYLE/.test(block));
-      check("使用開始日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
+      const codeR = codeOf(src);
+      check("N-5: 「新しいリードを登録」フォームが残っていない",
+        !codeR.includes("新しいリードを登録"), codeR.includes("新しいリードを登録") ? "まだある" : "0件");
+      // 【名前を実装より強く書かない(通算9回目を潰す)】旧主張は
+      //   「『登録済みリード』の見出し(総枚数バッジ)が**一覧から**消えている」
+      // と名乗りながら、走査は**ファイル全体に対する `登録済みリード <span` の綴り1つ**だった。
+      // 審査役の変異(ReedRegisterView の空状態行に `登録済みリード {reeds.length}／` を足す)が
+      // **生存**した。そもそも「登録済みリード」の綴りは「…」の見出しに現存しているので、
+      // 名前と走査範囲が食い違っていた。
+      // 新主張: **一覧を描く関数(ReedRegisterView)の中に**枚数を出す表示が無い。
+      // 綴りではなく「reeds.length / g.members.length を描画している箇所が無いこと」で見る
+      // (文言を変えた変異も捕まえる)。
+      {
+        const reg = codeOf(srcOfFn(src, "ReedRegisterView"));
+        check("一覧を描く関数を走査できている(空回りしていない)",
+          reg.length > 4000 && /＋ 追加/.test(reg), `${reg.length}文字`);
+        check("N-5: 一覧(ReedRegisterView)に「登録済みリード」の見出しが無い",
+          !/登録済みリード/.test(reg), (reg.match(/登録済みリード[^\n]{0,20}/g) || []).join(" / ") || "0件");
+        check("N-5: 一覧に枚数(総数・箱の枚数)を描画していない",
+          !/\{reeds\.length\}/.test(reg) && !/\{g\.members\.length\}/.test(reg)
+          && !/reeds\.length\}枚/.test(reg),
+          (reg.match(/\{(reeds|g\.members)\.length\}/g) || []).join(" / ") || "0件");
+        // 総枚数は「…」の見出しにだけ出る(暫定。移設先の是非は本人判断待ち)
+        check("N-5: 総枚数は「…」の見出しにだけ出る",
+          /登録済みリード \{totalCount\}枚/.test(srcOfFn(src, "ReedMoreMenu"))
+          && !/totalCount/.test(reg));
+      }
+      check("N-5: 「1枚ずつ追加」「まとめて追加」の2択が残っていない",
+        !codeR.includes("1枚ずつ追加") && !codeR.includes("まとめて追加"));
+      check("N-5: 枚数を window.prompt で聞く旧実装が残っていない",
+        !/window\.prompt/.test(codeR), (codeR.match(/window\.prompt/g) || []).join(","));
+      check("N-5: 銘柄・番手の select(id=reed-brand-select / reed-strength-select)が残っていない",
+        !/id="reed-brand-select"/.test(codeR) && !/id="reed-strength-select"/.test(codeR));
+      check("N-5: 追加の入口は「＋ 追加」1つだけ",
+        (codeR.match(/＋ 追加/g) || []).length === 1, `${(codeR.match(/＋ 追加/g) || []).length}箇所`);
+      // 追加ボタンの文言は枚数で変わる(純関数なので実行で数える)
+      check("枚数1なら「1枚を追加」", api.reedAddButtonLabel(1) === "1枚を追加", api.reedAddButtonLabel(1));
+      check("枚数2以上なら「n枚の箱を追加」",
+        api.reedAddButtonLabel(2) === "2枚の箱を追加" && api.reedAddButtonLabel(10) === "10枚の箱を追加",
+        `${api.reedAddButtonLabel(2)} / ${api.reedAddButtonLabel(10)}`);
+      check("文言が変わる境目は 1 と 2 の間だけ(2〜10 は全部「n枚の箱を追加」)",
+        [2, 3, 4, 5, 6, 7, 8, 9, 10].every((n) => api.reedAddButtonLabel(n) === `${n}枚の箱を追加`));
+      check("シートは reedAddButtonLabel を呼んで文言を出す(JSX 側で書き分けていない)",
+        /\{reedAddButtonLabel\(count\)\}/.test(src));
+      // 枚数の範囲 1〜10(箱1つぶん)。上下にはみ出さない
+      check("枚数の下限は1・上限は箱1つぶん(10)",
+        api.REED_ADD_COUNT_MIN === 1 && api.REED_ADD_COUNT_MAX === api.REED_BOX_SIZE && api.REED_BOX_SIZE === 10,
+        `${api.REED_ADD_COUNT_MIN}〜${api.REED_ADD_COUNT_MAX}`);
+      check("枚数はクランプされる(0→1 / 11→10 / 非数→1)",
+        api.clampReedAddCount(0) === 1 && api.clampReedAddCount(-5) === 1
+        && api.clampReedAddCount(11) === 10 && api.clampReedAddCount(999) === 10
+        && api.clampReedAddCount(NaN) === 1 && api.clampReedAddCount("abc") === 1,
+        `${api.clampReedAddCount(0)} / ${api.clampReedAddCount(11)} / ${api.clampReedAddCount(NaN)}`);
+      check("枚数の −/＋ はどちらも clampReedAddCount を通す",
+        (src.match(/clampReedAddCount\(v [-+] 1\)/g) || []).length === 2,
+        `${(src.match(/clampReedAddCount\(v [-+] 1\)/g) || []).length}箇所`);
+      // 銘柄の自由入力は現行のまま(選択肢の末尾に「＋ 新しい銘柄を入力...」)
+      check("銘柄の自由入力の値とラベルは現行のまま",
+        api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しい銘柄を入力...",
+        `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
+      check("銘柄のピッカーの選択肢は 登録済み + 「＋ 新しい銘柄を入力...」",
+        /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(src));
+      check("自由入力した銘柄は候補に自動追加される(重複は避ける)",
+        /if \(newBrand === REED_BRAND_CUSTOM && !brandOptions\.includes\(brand\)\) \{\s*setExtraBrands/.test(src));
+      check("番手は5種のまま", api.REED_STRENGTHS.length === 5 && api.REED_STRENGTHS.join(",") === "2.0,2.5,3.0,3.5,4.0",
+        api.REED_STRENGTHS.join(","));
+      check("シートは REED_STRENGTHS をそのまま並べる(選択肢を作り直していない)",
+        /REED_STRENGTHS\.map\(\(s\) => \(/.test(src));
+      // --- 開封日は「箱を追加した**ローカル暦日**」------------------------------
+      // 【この検査の前身が「正しい修正をすると落ちる検査」だった】N-5 の初版は
+      //   /const startDate = new Date\(\)\.toISOString\(\)\.slice\(0, 10\);/
+      // という**綴りを要求**していた。その式は UTC の暦日なので JST の 00:00〜09:00 に
+      // 追加すると1日前の開封日が入る(審査役の実測: ローカル 2026-08-14 00:55 に追加 →
+      // 保存 2026-08-13)。綴りを要求する検査は、その不具合を直すと FAIL する
+      // (N-4 の罠2 と同型)。**綴りの要求をやめ、振る舞いを実行で確かめる**形に置き換える。
+      //
+      // 旧主張: 「startDate は `new Date().toISOString().slice(0,10)` と書かれている」
+      // 新主張: 「UTC 由来の綴りがどこにも無い」＋「TZ=Asia/Tokyo の 00:30 に追加した箱の
+      //          開封日が**ローカルの暦日と一致する**(UTC の暦日とは一致しない)」
+      {
+        // (a) UTC 由来の綴りが実装から消えていること。**コメントには残っている**
+        //     (localDayKey の解説が名指しで禁じている)ので、必ず codeOf を通してから見る。
+        //     【範囲を名前より広く主張しない】アプリ全体を見ると、データタブの PIVOT の
+        //     日付フィルタ(`new Date(flt.rangeMin).toISOString().slice(0, 10)` 2箇所)が
+        //     同じ綴りを持つ。**あれは N-5 の担当外(立入禁止)**なので、ここで巻き込んで
+        //     禁止すると「担当外を直さないと緑にならない検査」になる。
+        //     見るのは**リードタブの関数の中だけ**にし、名前もそう名乗る。
+        const codeNoComment = codeOf(src);
+        const reedBodies = ["localDayKey", "reedRatingDayKey", "ReedsTab", "ReedRegisterView",
+          "ReedTileGrid", "ReedAddSheet", "ReedMoreMenu", "ReedEvaluationDetail"]
+          .map((n) => codeOf(srcOfFn(src, n))).join("\n");
+        check("リードタブの関数を走査できている(空回りしていない)",
+          reedBodies.length > 12000 && /localDayKey\(new Date\(\)\)/.test(reedBodies), `${reedBodies.length}文字`);
+        check("N-5: リードタブの中に暦日を UTC から作る綴り(toISOString().slice(0,10))が無い",
+          !/toISOString\(\)\.slice\(0,\s*10\)/.test(reedBodies),
+          (reedBodies.match(/toISOString\(\)\.slice\(0,\s*10\)/g) || []).join(" / ") || "0件");
+        check("N-5: 開封日は箱を追加した日が自動で入る(入力欄から取らない)",
+          /const startDate = localDayKey\(new Date\(\)\);/.test(src) && /startDate,\r?\n/.test(src));
+        check("暦日の組み立ては localDayKey ただ1箇所(評価履歴の同日判定と共有)",
+          /return localDayKey\(d\); \/\/ 組み立ては localDayKey ただ1箇所/.test(src)
+          && (codeNoComment.match(/getFullYear\(\)\}-\$\{p2\(d\.getMonth\(\) \+ 1\)\}-\$\{p2\(d\.getDate\(\)\)\}/g) || []).length === 1);
+
+        // (b) 実行で確かめる。**実ソースの式をそのまま取り出して**、時計だけを差し替える。
+        //     TZ の固定は F-61 節と同じ作法(固定できたこと・戻せたことも検査する)。
+        const m = /const startDate = ([^;]+);/.exec(src);
+        check("開封日を作る式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
+        const tzOrig = process.env.TZ;
+        const tzSystem = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const offBefore = new Date(2026, 0, 1).getTimezoneOffset();
+        try {
+          process.env.TZ = "Asia/Tokyo";
+          check("TZ を Asia/Tokyo(UTC+9)に固定できている(以下の判定の前提)",
+            new Date("2026-08-13T15:30:00.000Z").getTimezoneOffset() === -540,
+            String(new Date("2026-08-13T15:30:00.000Z").getTimezoneOffset()));
+          // 時計を固定した Date を渡して、実ソースの式を評価する
+          const evalStartDate = (instantIso) => {
+            const fixed = new Date(instantIso).getTime();
+            class FixedDate extends Date {
+              constructor(...a) { if (a.length === 0) super(fixed); else super(...a); }
+              static now() { return fixed; }
+            }
+            return new Function("localDayKey", "Date", `return (${m[1]});`)(api.localDayKey, FixedDate);
+          };
+          // ケース1: ローカル 2026/08/14 00:30(= UTC 2026-08-13T15:30Z)。**ずれる時間帯**
+          {
+            const iso = "2026-08-13T15:30:00.000Z";
+            const local = new Date(iso);
+            const wantLocal = `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}`;
+            const utcDay = iso.slice(0, 10);
+            check("この時刻ではローカルの暦日と UTC の暦日が違う(検査が空回りしていない)",
+              wantLocal !== utcDay, `ローカル=${wantLocal} / UTC=${utcDay}`);
+            check("00:30 に追加した箱の開封日はローカルの暦日(2026-08-14)",
+              evalStartDate(iso) === wantLocal, `${evalStartDate(iso)} / 期待 ${wantLocal}`);
+            check("00:30 に追加した箱の開封日は UTC の暦日(1日前)ではない",
+              evalStartDate(iso) !== utcDay, `${evalStartDate(iso)} / UTC は ${utcDay}`);
+          }
+          // ケース2: ローカル 2026/08/14 12:00(= UTC 03:00Z)。**ずれない時間帯**でも一致する
+          {
+            const iso = "2026-08-14T03:00:00.000Z";
+            const local = new Date(iso);
+            const wantLocal = `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}`;
+            check("昼に追加した箱の開封日もローカルの暦日と一致する",
+              evalStartDate(iso) === wantLocal, `${evalStartDate(iso)} / 期待 ${wantLocal}`);
+            check("この時刻ではローカルと UTC の暦日は同じ(片方向だけ見ていない)",
+              wantLocal === iso.slice(0, 10), `${wantLocal} / ${iso.slice(0, 10)}`);
+          }
+          // 箱のキーが割れないこと: 同じローカル日の 08:00 と 10:00 で同じ開封日になる
+          {
+            const a = evalStartDate("2026-08-13T23:00:00.000Z"); // JST 8/14 08:00
+            const b = evalStartDate("2026-08-14T01:00:00.000Z"); // JST 8/14 10:00
+            check("同じローカル日の 08:00 と 10:00 は同じ開封日(箱が2つに割れない)",
+              a === b && a === "2026-08-14", `${a} / ${b}`);
+            // reedGroupKey が開封日を含むこと(割れる経路が実在することの裏取り)
+            check("箱のキーは 銘柄|番手|開封日(開封日がずれると箱が割れる)",
+              /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
+          }
+        } finally {
+          process.env.TZ = tzOrig === undefined ? tzSystem : tzOrig;
+        }
+        check("TZ を元に戻せている(以降の日付の検査を汚していない)",
+          new Date(2026, 0, 1).getTimezoneOffset() === offBefore,
+          `${new Date(2026, 0, 1).getTimezoneOffset()} / 元 ${offBefore}`);
+      }
+      // リードタブの中に限って数える(データタブの日付フィルタ等は対象外)。
+      check("N-5: リードタブの input[type=date] は「箱の開封日を編集」の1箇所だけ",
+        (srcOf("ReedRegisterView").match(/type="date"/g) || []).length === 1,
+        `${(srcOf("ReedRegisterView").match(/type="date"/g) || []).length}箇所`);
+      check("N-5: 開封日の入力欄は編集モードのときだけ出る(通常時は日付の文字だけ)",
+        /listMode === "dateEdit" \? \(\s*<input\s*\r?\n?\s*type="date"/.test(src));
+      check("開封日の編集は箱の全メンバーに同じ日を書く(箱が割れない)",
+        /const ids = new Set\(g\.members\.map\(\(m\) => m\.id\)\);[\s\S]{0,200}startDate: value/.test(src));
+      check("開封日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
+        /type="date"[\s\S]{0,700}\.\.\.REED_FORM_CONTROL_STYLE/.test(srcOf("ReedRegisterView")));
+      check("開封日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
         /width: "100%",/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
     }
 
@@ -6985,13 +7334,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // A型を外れた。下限だけ下げると「もっと減らしても通る」ので、**外れた2件が
       // 枠線を持たないことを 17.7 で個別に固定**したうえで下限を合わせている
       // (残る6件は リード/データ/セッション詳細側で、この周では1件も触っていない)。
-      check("A型(.ctl-state)は 6箇所以上で使われている", tagsWithClass("ctl-state").length >= 6,
+      // 【N-5 で 6 → 5】リード比較の個体チップが A型(.ctl-state)から正典 .selpill
+      // (非選択=輪郭のみ / 選択中=紺の塗り。テンポシートの拍子ピルと同じ形)へ移った。
+      // 下限だけ下げると「もっと減らしても通る」ので、**外れた1件が正典の形になっていること**を
+      // 下の N-5 の節(比較のチップ)で個別に固定してある。
+      check("A型(.ctl-state)は 5箇所以上で使われている", tagsWithClass("ctl-state").length >= 5,
         `${tagsWithClass("ctl-state").length}箇所`);
+      check("N-5: リード比較の個体チップは A型に戻っていない(正典 .selpill の形)",
+        !tagsWithClass("ctl-state").some((t) => /aria-pressed=\{sel\}/.test(t)),
+        tagsWithClass("ctl-state").filter((t) => /aria-pressed=\{sel\}/.test(t)).join(" | ").slice(0, 160));
       // 外れた2件が「A型に戻っていない」ことも同時に見る(戻せば箇所数は8に戻るが、ここで落ちる)
       check("F-75: 計測タブのメトロノーム / 詳細トグルは A型に戻っていない",
         !tagsWithClass("ctl-state").some((t) => /aria-pressed=\{showMetroPanel\}|aria-expanded=\{detailOpen\}/.test(t)),
         tagsWithClass("ctl-state").filter((t) => /showMetroPanel|detailOpen/.test(t)).join(" | ").slice(0, 160));
-      check("B型(.ctl-plain)は 15箇所以上で使われている", tagsWithClass("ctl-plain").length >= 15,
+      // 【N-5 で 15 → 12】リードタブの B型が減った(登録フォームの「1枚ずつ追加」/
+      // 一覧の削除ボタン2つ / 測定ボタン / 個体詳細の評価カード3枚が消え、
+      // 削除モードのキャンセル・削除ピル2つは子タブ行へ移って残っている)。実測13。
+      check("B型(.ctl-plain)は 12箇所以上で使われている", tagsWithClass("ctl-plain").length >= 12,
         `${tagsWithClass("ctl-plain").length}箇所`);
     }
 
@@ -7017,8 +7376,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 「溝が var(--c-sunken) であること」と「トークン外の近似色が居ないこと」の両方を見る。
     {
       const code = codeOf(src);
+      // 【N-5 で 2 → 1】リードタブの子タブは正典 .subtabs(素のテキスト2つ + 右端の「…」)に
+      // 変わり、溝そのものが無くなった。残る1つはデータタブの子タブ。
+      // **リードタブ側に溝が復活していないこと**も同時に見る(下限を下げただけにしない)。
       const grooves = (code.match(/display: "flex", gap: 6, background: "var\(--c-sunken\)", borderRadius: 11, padding: 4/g) || []).length;
-      check("子タブの溝2箇所(リード/データ)の地は var(--c-sunken)", grooves === 2, `${grooves}箇所`);
+      check("子タブの溝はデータタブの1箇所だけ(地は var(--c-sunken))", grooves === 1, `${grooves}箇所`);
+      check("N-5: リードタブの子タブに溝が無い(正典 .subtabs は素のテキスト)",
+        !/borderRadius: 11, padding: 4/.test(srcOfFn(src, "ReedsTab")));
+      check("N-5: リードタブの子タブは選択中だけ濃い太字(正典 .subtabs .on)",
+        /color: reedsSubTab === t\.key \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(src)
+        && /fontWeight: reedsSubTab === t\.key \? 600 : 400/.test(src));
       check("トークン外の近似色 #EDEFF3 が App.jsx に残っていない", !/#EDEFF3/i.test(code));
     }
 
@@ -7061,18 +7428,32 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       console.log(`  危険色の塗りのコントラスト: ${cssVar("--c-on-accent")} on ${cssVar("--c-danger")} = ${dangerRatio.toFixed(4)}:1`);
       // (c) 付いているのは「実際に消える一手」だけ。data-armed は
       //     「1件以上選択済み = 押せば本当に消える」に結び付いていなければならない。
+      // 【N-5 で 3 → 2】旧主張は「箱 / 個体 / セッションの3箇所」。リードタブの削除は
+      // 「箱を選んで削除」「個体を選んで削除」が**同じ1つの実行ボタン**(子タブ行の右)に
+      // まとまり、文言だけが「n箱を削除」「n枚を削除」に変わる形になった。
+      // 実行される場面は2つのまま(減っていない)ので、**2つの場面が両方この1つのボタンから
+      // 出ていること**を下で確かめる。
       const dgTags = tagsWithClass("ctl-danger");
-      check(".ctl-danger が付くのは実際に削除が実行される3箇所だけ(箱 / 個体 / セッション)",
-        dgTags.length === 3, `${dgTags.length}箇所`);
-      const armed = dgTags.filter((t) => /data-armed=\{[A-Za-z]*[Ff]orDelete\.size > 0\}/.test(t));
+      check(".ctl-danger が付くのは実際に削除が実行される2箇所だけ(リードの削除 / セッションの削除)",
+        dgTags.length === 2, `${dgTags.length}箇所`);
+      const armed = dgTags.filter((t) => /data-armed=\{[^}]*\.size(?:[^}]*)> 0\}/.test(t));
       check(".ctl-danger はすべて data-armed={選択数 > 0} を持つ(常時塗る印にしていない)",
         armed.length === dgTags.length, `${armed.length}/${dgTags.length}箇所`);
+      check("N-5: リードの削除ボタンは箱・個体の両方の場面で文言を出し分ける(片方を落としていない)",
+        /selectedBoxKeys\.size > 0 \? `\$\{selectedBoxKeys\.size\}箱を削除` : "削除"/.test(src)
+        && /selectedMemberIds\.size > 0 \? `\$\{selectedMemberIds\.size\}枚を削除` : "削除"/.test(src));
+      check("N-5: リードの削除はどちらの場面も window.confirm を通る(現行のまま)",
+        /confirmBoxDelete = \(\) => \{[\s\S]{0,400}?window\.confirm\(/.test(src)
+        && /confirmMemberDelete = \(\) => \{[\s\S]{0,300}?window\.confirm\(/.test(src));
+      check("N-5: 削除したリードに紐づくセッションは紐付けだけ解除する(セッションは消さない)",
+        /updateSessions\(\(prev\) => prev\.map\(\(s\) => \(idSet\.has\(s\.reedId\) \? \{ \.\.\.s, reedId: null, linkedAt: null \} : s\)\)\)/.test(src));
       // 地・文字色をインラインで書くとクラスより強くなり、この型が丸ごと効かなくなる。
       check(".ctl-danger を持つタグに background* / color のインライン宣言が無い",
         withPrefix(dgTags, ["background", "color"]).length === 0,
         (withPrefix(dgTags, ["background", "color"])[0] ?? "").slice(0, 120));
       // 「削除モードに入る入口」は破壊がまだ起きないので中立のまま(危険色を持たない)。
-      for (const entry of ["startBoxSelectionMode", "startMemberSelect", "setSelectionMode(true)"]) {
+      // 【N-5】リードの入口は「…」メニューの行になった(startMode(mode) を呼ぶ)。
+      for (const entry of ["onPick(it.mode)", "setSelectionMode(true)"]) {
         const i = Math.max(src.indexOf(`onClick={() => ${entry}`), src.indexOf(`onClick={${entry}}`));
         const open = i === -1 ? -1 : src.lastIndexOf("<button", i);
         const close = i === -1 ? -1 : src.indexOf("</button>", i);
@@ -7080,6 +7461,36 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check(`削除モードに入る入口(${entry})は危険色を持たない(破壊はまだ起きない)`,
           block !== null && !/\bctl-danger\b/.test(block),
           block === null ? "入口が見つからない" : block.replace(/\s+/g, " ").slice(0, 140));
+      }
+      // 「…」メニューの中身。**3つとも出ていること**を集合で確かめる(1つ落としても気づく)。
+      check("N-5: 「…」には 箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集 の3つがある",
+        api.REED_MORE_ITEMS.length === 3
+        && api.REED_MORE_ITEMS.map((x) => x.mode).join(",") === "boxDelete,memberDelete,dateEdit"
+        && api.REED_MORE_ITEMS.map((x) => x.label).join(",") === "箱を選んで削除,個体を選んで削除,箱の開封日を編集",
+        api.REED_MORE_ITEMS.map((x) => `${x.mode}:${x.label}`).join(" / "));
+      check("N-5: 「…」は REED_MORE_ITEMS をそのまま並べる(JSX 側で間引いていない)",
+        /REED_MORE_ITEMS\.map\(\(it\) => \(/.test(src)
+        && !/REED_MORE_ITEMS\.(slice|filter)\(/.test(src));
+      // 【リード0枚のときは実行できない操作を出さない】HEAD は削除の入口を
+      // `{reeds.length > 0 && …}` で括っていた。N-5 の初版はこれを落として、0枚でも
+      // 「箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集」を出していた(審査役の実測)。
+      // §6.0 の3原則「今に関係ない物は出ていない」。
+      // 3つとも「箱があること」が前提なので、**入口ごと**出さない。
+      {
+        const tab = srcOfFn(src, "ReedsTab");
+        // 条件式を実ソースから取り出して評価する(綴りの一致ではなく振る舞いで見る)
+        const m = /\{reedsSubTab === "register" && (\([^)]*\)) && \(/.exec(tab);
+        check("「…」を出す条件式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
+        const shows = new Function("reeds", "listMode", `return !!(${m ? m[1] : "true"});`);
+        check("リードが0枚・モード無しなら「…」を出さない", shows({ length: 0 }, null) === false);
+        check("リードが1枚以上なら「…」を出す", shows({ length: 1 }, null) === true && shows({ length: 12 }, null) === true);
+        // 0枚でモードが残った場合だけは行を出す(「キャンセル」に戻れなくなるのを防ぐ)
+        check("0枚でもモードが残っていれば行は出す(戻れなくならない)",
+          shows({ length: 0 }, "boxDelete") === true);
+        // 「…」の3項目はどれも箱があることが前提(0枚で出す意味が無いことの裏取り)
+        check("「…」の3項目はどれも箱を対象にする操作",
+          api.REED_MORE_ITEMS.every((it) => /箱|個体/.test(it.label)),
+          api.REED_MORE_ITEMS.map((x) => x.label).join(" / "));
       }
     }
 
@@ -7129,7 +7540,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         ["拍子の選択(METRO_SIGS)", "aria-pressed={metroSig === sig}"],
         ["分割の選択", "aria-pressed={selected}"],
         ["アクセントのラベル", 'className="sans no-select"'],
-        ["登録済みリードの並び替えの行", "onPointerDown={handlePointerDown(r.id, idx)}"],
+        // 【N-5】並び替えの対象が「行」から 5×2 の「タイル」に変わった。綴りは同じ。
+        ["登録済みリードの並び替えのタイル", "onPointerDown={handlePointerDown(r.id, idx)}"],
       ]) {
         check(`.no-select が付いている: ${label}`, nsHas(needle), needle);
       }
@@ -7139,29 +7551,22 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const nsInputs = nsTags.filter((t) => /^<(input|select|textarea)[\s/>]/.test(t));
       check(".no-select は入力欄(input/select/textarea)に付いていない(値を選択・コピーできなくしない)",
         nsInputs.length === 0, nsInputs.map((t) => t.slice(0, 80)).join(" | "));
-      // 祖先に付けても子の入力欄まで効く。並び替えの行の中に入力欄が無いことを確かめる。
-      // 【以前の切り出し方の穴】`indexOf("/>", indexOf("renderRow="))` で終端を探していたが、
-      // これは renderRow の中に自己終了タグ(<MeasureIcon /> 等)が1つでもあると
-      // **そこで切れる**。切れた後ろに入力欄を足しても緑のまま通ってしまうので、
-      // {} の深さを数えてタグの本当の終わりまで取る(section 16 の tagAt と同じ考え)。
+      // 祖先に付けても子の入力欄まで効く。並び替えのタイルの中に入力欄が無いことを確かめる。
+      // 【N-5】旧主張は「<ReorderableReedRows … /> の呼び出しタグの中に入力欄が無い」だった
+      // (行の中身を renderRow プロップで渡していたため、呼び出しタグが中身そのものだった)。
+      // タイルは ReedTileGrid が自分で描くので、**その関数の本体**を見る。
       {
-        const i = src.indexOf("<ReorderableReedRows");
-        let j = -1;
-        if (i !== -1) {
-          let d = 0;
-          for (let k = i; k < src.length; k++) {
-            const ch = src[k];
-            if (ch === "{") d++;
-            else if (ch === "}") d--;
-            else if (ch === ">" && d === 0) { j = k + 1; break; }
-          }
-        }
-        const rowBlock = i === -1 || j === -1 ? "" : src.slice(i, j);
-        check("並び替えの行のブロックを最後まで走査できている(自己終了タグで切れていない)",
-          rowBlock.trim().endsWith("/>") && /renderRow=/.test(rowBlock) && rowBlock.includes("goToMeasure"),
-          `${rowBlock.length}文字`);
-        check("並び替えの行(no-select の祖先)の中に入力欄が無い", rowBlock !== "" &&
-          !/<(input|textarea|select)[\s/>]/.test(rowBlock), rowBlock.slice(0, 80));
+        const grid = srcOfFn(src, "ReedTileGrid");
+        check("並び替えのタイルを描く関数を走査できている",
+          grid.length > 2000 && /className="no-select reedtile"/.test(grid), `${grid.length}文字`);
+        // タイルの部分木(<button …> から </button> まで)に入力欄が無いこと
+        const bStart = grid.indexOf("<button");
+        const bEnd = grid.indexOf("</button>", bStart);
+        const tileBlock = bStart === -1 || bEnd === -1 ? "" : grid.slice(bStart, bEnd);
+        check("タイルのブロックを最後まで走査できている", tileBlock.length > 500 && /reedtile/.test(tileBlock),
+          `${tileBlock.length}文字`);
+        check("並び替えのタイル(no-select の祖先)の中に入力欄が無い", tileBlock !== "" &&
+          !/<(input|textarea|select)[\s/>]/.test(tileBlock), tileBlock.slice(0, 80));
       }
     }
 
@@ -7278,74 +7683,75 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check("下部ナビは選択色を渡せる(現在タブと非選択で色が変わる挙動を壊していない)",
           /<MeasureIcon color=\{c\}/.test(block), block.replace(/\s+/g, " ").slice(0, 120));
       }
-      // リード一覧側: テキスト「測定」を消してアイコンにした。aria-label は必須
+      // 【N-5】リード一覧の行にあった「測定」ボタンは**個体詳細の「このリードで計測」へ移った**
+      // (本人決定6:「計測ジャンプは個体詳細内」)。旧主張は
+      //   一覧の行の測定ボタンが MeasureIcon を描く / aria-label="測定" を持つ /
+      //   当たり判定 44×44 / 行の長押しを stopPropagation で止める
+      // 新主張は「一覧に測定の入口は無い」+「個体詳細に正典 .bigbtn の
+      // 『このリードで計測』が1つある」。**ジャンプ機能そのものは落ちていない**ことを
+      // 遷移(setSelectedReedId → setTopTab("measure"))まで見て確かめる。
       {
-        const i = src.indexOf("goToMeasure(r.id)");
-        const tag = i === -1 ? "" : tagAt(src.lastIndexOf("<button", i) + 1);
-        const close = i === -1 ? -1 : src.indexOf("</button>", i);
-        const block = i === -1 || close === -1 ? "" : src.slice(src.lastIndexOf("<button", i), close);
-        check("一覧の測定ボタンを走査できている", tag !== "" && /goToMeasure/.test(block), tag.slice(0, 120));
-        check("一覧の測定ボタンは MeasureIcon を描く", /<MeasureIcon/.test(block), block.replace(/\s+/g, " ").slice(0, 160));
-        check("一覧の測定ボタンからテキスト「測定」が消えている(アイコンのみ)",
-          !/>\s*測定\s*</.test(codeOf(block)), codeOf(block).replace(/\s+/g, " ").slice(0, 200));
-        check("一覧の測定ボタンに aria-label=\"測定\" がある(文字を消したので名前が要る)",
-          /aria-label="測定"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
-        // §5「最小44×44pt。例外なし」。文字を消すと幅が縮むので明示が要る
-        check("一覧の測定ボタンの当たり判定は44×44以上(minWidth / minHeight とも --tap-min)",
-          /minWidth: "var\(--tap-min\)"/.test(tag) && /TAP_BUTTON_RESET/.test(tag),
-          tag.replace(/\s+/g, " ").slice(0, 200));
-        check("TAP_BUTTON_RESET が minHeight: var(--tap-min) を持つ(上の縛りの片側)",
+        check("N-5: 一覧の行の測定ボタン(goToMeasure)は無くなった",
+          !/goToMeasure/.test(codeOf(src)), (codeOf(src).match(/goToMeasure/g) || []).join(","));
+        const detail = srcOfFn(src, "ReedEvaluationDetail");
+        check("N-5: 個体詳細に「このリードで計測」が1つある",
+          (detail.match(/このリードで計測/g) || []).length === 1,
+          `${(detail.match(/このリードで計測/g) || []).length}箇所`);
+        const i = detail.indexOf("このリードで計測");
+        const btn = i === -1 ? "" : detail.slice(detail.lastIndexOf("<button", i), i);
+        check("「このリードで計測」は onMeasure(reed.id) を呼ぶ",
+          /onClick=\{\(\) => onMeasure\?\.\(reed\.id\)\}/.test(btn), btn.replace(/\s+/g, " ").slice(0, 160));
+        check("「このリードで計測」の当たり判定は 44px 以上(§5)",
+          /minHeight: "var\(--tap-min\)"/.test(btn), btn.replace(/\s+/g, " ").slice(0, 200));
+        // 見た目は正典 .bigbtn(紺の塗り / 14px / 600 / padding 11px 26px / 角丸999)
+        const bigbtn = i === -1 ? "" : detail.slice(i - 400, i);
+        check("「このリードで計測」は正典 .bigbtn の紺の塗りピル",
+          /fontSize: 14, fontWeight: 600, color: "var\(--c-on-accent\)",\s*\r?\n?\s*background: "var\(--c-accent\)", borderRadius: 999, padding: "11px 26px"/.test(bigbtn),
+          bigbtn.replace(/\s+/g, " ").slice(-200));
+        // 渡す側: 計測タブのリードを選んでからタブを移す(現行の goToMeasure と同じ2手)
+        check("N-5: ジャンプは「リードを選ぶ → 計測タブへ移る」の2手のまま",
+          /onMeasure=\{\(id\) => \{ setSelectedReedId\(id\); setTopTab\("measure"\); \}\}/.test(src));
+        check("TAP_BUTTON_RESET が minHeight: var(--tap-min) を持つ(削除モードのピルが使う)",
           /const TAP_BUTTON_RESET = \{[\s\S]*?minHeight: "var\(--tap-min\)"/.test(src));
-        // タップで測定へ飛ぶための stopPropagation は**このボタンだけ**が持つ
-        check("測定ボタンは行の長押しを止める(タップで測定へ飛ぶため)",
-          /onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
       }
     }
 
-    // --- 17.19 F-64 並び替えの目印(三本線) ------------------------------------
-    // 本人指示「測定ボタンをアイコンに変更したうえで、右側に長押しで順番変更を意味する
-    //           三本線アイコンを追加。この二つのアイコンは右寄せで、三本線アイコンが外側」。
-    //
-    // 【この検査でいちばん大事なところ】三本線は**目印であって掴む場所ではない**。
-    // ここに onPointerDown の stopPropagation を付けると、行全体の長押しで始まる並び替えが
-    // **目印を掴んだときだけ効かなくなる**(意味が逆になる)。綴りで固定する。
+    // --- 17.19 【N-5 で置き換え】F-64 の三本線 → 正典 .tile.drag の浮き上がり ----
+    // 旧主張(F-64 本人指示): 一覧の行の右端に「長押しで順番変更」を意味する三本線を置き、
+    //   測定ボタンより外側(右)に並べ、目印自身は stopPropagation しない(掴んだときだけ
+    //   並び替え不能になるのを防ぐ)。
+    // 新主張: 行が 5×2 のタイルになって**目印を載せる場所が無い**。
+    //   代わりに正典 .tile.drag(浮き上がり + 影 + 枠が紺)で「持ち上がった」ことを示す。
+    //   目印が無いので「目印が掴めない」という事故も構造ごと消えている。
     {
-      const i = src.indexOf("<GripLines");
-      const tag = i === -1 ? "" : tagAt(i);
-      check("並び替えの目印(三本線)が行にある", tag !== "", tag.slice(0, 120));
-      check("三本線は lucide の Menu(3本の水平線)を読み替えて使う",
-        /import \{[^}]*\bMenu as GripLines\b[^}]*\} from "lucide-react"/.test(src),
-        (src.match(/import \{[^}]*\} from "lucide-react";/) || [""])[0]);
-      check("三本線は装飾(aria-hidden)でフォーカスも取らない(操作は行全体が担う)",
-        /aria-hidden="true"/.test(tag) && /focusable="false"/.test(tag) && !/tabIndex/.test(tag),
-        tag.replace(/\s+/g, " ").slice(0, 160));
-      check("三本線に pointer/click のハンドラを付けていない",
-        !/on(Pointer|Mouse|Click|Touch)/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
-      check("【F-64 の肝】三本線は stopPropagation しない(掴んだときだけ並び替え不能になる)",
-        !/stopPropagation/.test(tag), tag.replace(/\s+/g, " ").slice(0, 160));
-      // 行の中で stopPropagation を持つのは測定ボタンだけ(目印側へ増えていないこと)
+      const grid = srcOfFn(src, "ReedTileGrid");
+      check("N-5: 三本線(GripLines)の import も描画も残っていない",
+        !/\bGripLines\b/.test(codeOf(src)), (codeOf(src).match(/GripLines/g) || []).join(","));
+      // 持ち上がりは**指を動かす前から**分かる(長押し成立の瞬間に draggingId が入る)
+      check("長押しが成立した瞬間に持ち上がる(移動量を待たない)",
+        /setReedTileDragActive\(true\);[\s\S]{0,120}?setDraggingId\(id\);/.test(grid),
+        grid.replace(/\s+/g, " ").slice(0, 0) || "");
+      check("持ち上がりの見た目は data-drag で CSS 側に渡す",
+        /data-drag=\{isDragging \? "true" : "false"\}/.test(grid));
+      // 正典 .tile.drag の3点(浮き上がり / 影 / 紺の枠)が実際に定義されていること
       {
-        const s = src.indexOf("renderRow={(r, idx) => (");
-        let e = -1;
-        if (s !== -1) { let d = 0; for (let k = s; k < src.length; k++) { const ch = src[k]; if (ch === "{") d++; else if (ch === "}") { d--; if (d === 0) { e = k; break; } } } }
-        const row = s === -1 || e === -1 ? "" : src.slice(s, e);
-        check("並び替えの行(renderRow)の中身を走査できている",
-          row.includes("<GripLines") && row.includes("goToMeasure"), `${row.length}文字`);
-        const stops = (codeOf(row).match(/stopPropagation/g) || []).length;
-        check("行の中で長押しを止めるのは測定ボタンの2つ(pointerdown / click)だけ",
-          stops === 2, `${stops}箇所`);
-        // 並び: 測定が内側、三本線が外側(= より右)。ソース上の前後関係がそのまま左右になる
-        check("三本線は測定ボタンより後ろ(= より外側・右)に置かれている",
-          row.indexOf("goToMeasure") < row.indexOf("<GripLines"),
-          `測定=${row.indexOf("goToMeasure")} / 三本線=${row.indexOf("<GripLines")}`);
-        // 2つは1つの塊として右へ寄せる。中央列が空でも右寄せが崩れないこと
-        check("2つのアイコンは右寄せの塊にまとめてある(marginLeft:auto)",
-          /gap: "var\(--sp-1\)", flexShrink: 0, marginLeft: "auto"/.test(row),
-          (row.match(/marginLeft: "[^"]*"/g) || []).join(" / ") || "marginLeft 無し");
-        // 行そのものの長押しは ReorderableReedRows が持つ(目印を足しても壊れていない)
-        check("行全体の長押しで並び替えが始まる仕組みは変わっていない",
-          /onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(src));
+        const dragBlock = cssBlock('.reedtile[data-drag="true"]');
+        check("正典 .tile.drag の影と紺の枠が index.css にある",
+          dragBlock !== null && /border-color:\s*var\(--c-accent\)/.test(dragBlock)
+          && /box-shadow:\s*0 10px 22px/.test(dragBlock), String(dragBlock).replace(/\s+/g, " "));
+        check("index.css の .reedtile[data-drag] は1回しか書かれていない",
+          rulesFor('.reedtile[data-drag="true"]').length === 1,
+          `${rulesFor('.reedtile[data-drag="true"]').length}回`);
       }
+      check("浮き上がりは -6px / -2deg(正典 .tile.drag の transform)",
+        /translate\(\$\{dragOffset\.x\}px, \$\{dragOffset\.y - 6\}px\) rotate\(-2deg\)/.test(grid));
+      // タイル全体の長押しで並び替えが始まる仕組み(掴む場所を限定しない)
+      check("タイル全体の長押しで並び替えが始まる",
+        /onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(grid));
+      // タイルの中に stopPropagation を持つ子が1つも無い(=どこを掴んでも並び替えできる)
+      check("タイルの中で長押しを止める子が1つも無い",
+        (codeOf(grid).match(/stopPropagation/g) || []).length === 0,
+        `${(codeOf(grid).match(/stopPropagation/g) || []).length}箇所`);
     }
   }
 }
@@ -10134,6 +10540,505 @@ let METRO_SIGS_ALL = [];
       api.formatElapsedMs(-1) === "0:00" && api.formatElapsedMs(NaN) === "0:00" && api.formatElapsedMs(undefined) === "0:00");
     check("経過時間は切り捨て(999ms は 0:00、1000ms で 0:01)",
       api.formatElapsedMs(999) === "0:00" && api.formatElapsedMs(1000) === "0:01");
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証25: N-5 リードタブを正典どおりにする
+//   A 登録一覧(箱見出し + 5×2タイル + 「＋ 追加」1つ)
+//   B 追加シート(銘柄・番手・枚数。window.prompt 廃止)
+//   C タイルの長押しドラッグ並び替え
+//   D 「…」の削除モードと開封日の編集
+//   E 個体詳細(#自由入力・3列ダイヤル・測定データ4指標・評価推移・このリードで計測)
+//   F 比較(チップ + 4グラフ + ★一覧 + 脚注)
+//
+// 【この節の作り方】値を実装から写して並べるのではなく、
+// **正典 design/north-star-measure.html の CSS を読み、実装の値と突き合わせる**。
+// 要件は正典に、調整値は実装に、検証はここに置いて、両者を独立に照合する
+// (design/LOOP.md「定数の定義を言い換えるテストは書かない」)。
+// ============================================================
+console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measure.html との突き合わせ) ==========");
+{
+  // REED_COMPARE_METRICS の顔ぶれは**実ソースから**取る(テスト内に写さない)。
+  const cmKeys = [...extractConst("REED_COMPARE_METRICS").matchAll(/\{ key: "(\w+)"/g)].map((m) => m[1]);
+  const mock = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const cssN5 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+
+  // --- 正典・index.css の両方を同じパーサで読む -------------------------------
+  const parseCss = (text) => {
+    const out = [];
+    const body = text.replace(/\/\*[\s\S]*?\*\//g, " ");
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const sels = m[1].split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+      out.push({ sels, body: m[2] });
+    }
+    return out;
+  };
+  const declsOf = (block) => (block || "").split(";").map((d) => d.trim()).filter(Boolean)
+    .map((d) => { const i = d.indexOf(":"); return { name: d.slice(0, i).trim(), value: d.slice(i + 1).trim() }; });
+  const ruleOf = (rules, sel) => rules.filter((r) => r.sels.includes(sel));
+  const declOf = (rules, sel, name) => {
+    let v = null;
+    for (const r of ruleOf(rules, sel)) for (const d of declsOf(r.body)) if (d.name === name) v = d.value;
+    return v;
+  };
+  const mockCss = parseCss((mock.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]);
+  const appCss = parseCss(cssN5);
+
+  // 正典側の走査が空回りしていないこと(空回りすると以降が全部「一致」になる)
+  check("正典モックの CSS を走査できている", mockCss.length >= 60, `${mockCss.length}規則`);
+  for (const sel of [".rgrid", ".tile", ".tile.sel", ".tile.data", ".tile.ret", ".tile.drag",
+    ".rhead", ".rname", ".rmeta", ".rgroup", ".addrow", ".addbtn", ".starrow", ".starrow .v",
+    ".starrow .l", ".memoline", ".bigbtn", ".numrow .v", ".numrow .l", ".rlist", ".subtabs"]) {
+    check(`正典に ${sel} の規則がある`, ruleOf(mockCss, sel).length === 1,
+      `${ruleOf(mockCss, sel).length}件`);
+  }
+
+  // --- 25.1 5×2 のグリッド(正典 .rgrid)--------------------------------------
+  {
+    const cols = declOf(mockCss, ".rgrid", "grid-template-columns");
+    const gap = declOf(mockCss, ".rgrid", "gap");
+    check("正典 .rgrid は repeat(5,1fr)", cols === "repeat(5,1fr)", String(cols));
+    check("実装の列数は正典と同じ5", api.REED_GRID_COLS === Number(/repeat\((\d+)/.exec(cols)[1]),
+      `実装=${api.REED_GRID_COLS} / 正典=${cols}`);
+    check("実装の gap は正典と同じ", api.REED_GRID_GAP_PX === parseFloat(gap),
+      `実装=${api.REED_GRID_GAP_PX} / 正典=${gap}`);
+    // JSX 側が定数から描いていること(定数だけ正しくて描画は別、を防ぐ)
+    const grid = srcOfFn(src, "ReedTileGrid");
+    check("グリッドは REED_GRID_COLS から列を作る",
+      /gridTemplateColumns: `repeat\(\$\{REED_GRID_COLS\}, 1fr\)`/.test(grid));
+    check("グリッドは REED_GRID_GAP_PX から間隔を作る", /gap: REED_GRID_GAP_PX/.test(grid));
+    check("タイルは正方形(正典 .tile の aspect-ratio:1)",
+      declOf(mockCss, ".tile", "aspect-ratio") === "1" && /aspectRatio: "1"/.test(grid));
+    check("タイルの文字サイズは正典と同じ",
+      api.REED_TILE_FS_PX === parseFloat(declOf(mockCss, ".tile", "font-size")),
+      `実装=${api.REED_TILE_FS_PX} / 正典=${declOf(mockCss, ".tile", "font-size")}`);
+    // 本人の不満「10 だけ枠の幅が違う」「8+2 で段が分かれる」= 5×2 で消える。
+    // 10枚の箱がちょうど2段になることを、列数から計算して確かめる。
+    check("10枚の箱はちょうど2段になる(8+2 に割れない)",
+      10 % api.REED_GRID_COLS === 0 && 10 / api.REED_GRID_COLS === 2,
+      `${api.REED_GRID_COLS}列 → ${10 / api.REED_GRID_COLS}段`);
+    // 375px でタイルが 44px を割らない(§5 は機能側の規定として有効)。
+    // 幅 = (画面375 - 左右padding - gap×4) / 5
+    {
+      const inner = 375 - api.REED_SIDE_PAD_PX * 2;
+      const tile = (inner - api.REED_GRID_GAP_PX * (api.REED_GRID_COLS - 1)) / api.REED_GRID_COLS;
+      check("375px でタイルの1辺は 44px 以上(§5)", tile >= 44, `${tile.toFixed(2)}px`);
+      check("左右の padding は正典 .rlist と同じ 24px",
+        api.REED_SIDE_PAD_PX === parseFloat((declOf(mockCss, ".rlist", "padding") || "").split(/\s+/)[1]),
+        `実装=${api.REED_SIDE_PAD_PX} / 正典=${declOf(mockCss, ".rlist", "padding")}`);
+      // .app-root が既に持っている 14px との差分だけを足している(二重に足していない)
+      check("リードタブが足す左右の padding は 24 − 14 = 10",
+        api.REED_LIST_EXTRA_PAD_PX === api.REED_SIDE_PAD_PX - api.REED_APP_SIDE_PAD_PX
+        && api.REED_LIST_EXTRA_PAD_PX === 10, `${api.REED_LIST_EXTRA_PAD_PX}px`);
+      check(".app-root の左右 padding は 14px のまま(この周で触っていない)",
+        new RegExp(`padding: "calc\\(16px \\+ env\\(safe-area-inset-top\\)\\) calc\\(${api.REED_APP_SIDE_PAD_PX}px`).test(src));
+    }
+  }
+
+  // --- 25.2 タイルの「濃さ」4段(正典 .tile / .data / .ret / .sel)------------
+  {
+    // (a) どの段になるかの真理値表を**全通り**(2×2)確かめる
+    check("記録が何も無ければ ret(ごく薄い)", api.reedTileTone(false, false) === "ret");
+    check("評価だけあれば既定(plain)", api.reedTileTone(false, true) === "plain");
+    check("測定データがあれば data(濃い枠)", api.reedTileTone(true, false) === "data");
+    check("測定データも評価もあれば data(測定データが勝つ)", api.reedTileTone(true, true) === "data");
+    const tones = new Set([false, true].flatMap((a) => [false, true].map((b) => api.reedTileTone(a, b))));
+    check("段は3つだけ(sel は別の軸)", tones.size === 3 && [...tones].sort().join(",") === "data,plain,ret",
+      [...tones].sort().join(","));
+
+    // (b) 濃さが単調(ret < plain < data)であることを**色の明るさで**確かめる。
+    //     トークン名の一致ではなく値で見る(トークンを差し替えても順序が崩れれば落ちる)。
+    const tokenHex = (name) => {
+      const m = new RegExp(`${name}\\s*:\\s*(#[0-9A-Fa-f]{6})`).exec(cssN5);
+      return m ? m[1] : null;
+    };
+    const lum = (hex) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const borderOf = (tone) => {
+      const sel = tone === "plain" ? ".reedtile" : `.reedtile[data-tone="${tone}"]`;
+      const v = tone === "plain"
+        ? (declOf(appCss, sel, "border") || "").split(/\s+/).pop()
+        : declOf(appCss, sel, "border-color");
+      const m = /var\((--[\w-]+)\)/.exec(v || "");
+      return m ? tokenHex(m[1]) : null;
+    };
+    const L = { ret: borderOf("ret"), plain: borderOf("plain"), data: borderOf("data") };
+    check("3段の枠の色を index.css から解決できている",
+      Object.values(L).every((h) => /^#[0-9A-Fa-f]{6}$/.test(String(h))), JSON.stringify(L));
+    check("枠は ret → 既定 → data の順に濃くなる(明るさが単調に下がる)",
+      lum(L.ret) > lum(L.plain) && lum(L.plain) > lum(L.data),
+      `ret=${lum(L.ret).toFixed(4)} / plain=${lum(L.plain).toFixed(4)} / data=${lum(L.data).toFixed(4)}`);
+    // 正典側も同じ順序であること(実装だけ勝手に並べ替えていない)
+    const mockBorder = (sel) => {
+      const v = sel === ".tile"
+        ? (declOf(mockCss, ".tile", "border") || "").split(/\s+/).pop()
+        : declOf(mockCss, sel, "border-color");
+      const m = /var\((--[\w-]+)\)/.exec(v || "");
+      const t = m ? new RegExp(`${m[1]}\\s*:\\s*(#[0-9A-Fa-f]{6})`).exec(mock) : null;
+      return t ? t[1] : null;
+    };
+    const M = { ret: mockBorder(".tile.ret"), plain: mockBorder(".tile"), data: mockBorder(".tile.data") };
+    check("正典の3段の枠の色を解決できている",
+      Object.values(M).every((h) => /^#[0-9A-Fa-f]{6}$/.test(String(h))), JSON.stringify(M));
+    check("正典も ret → 既定 → data の順に濃い(順序が実装と一致する)",
+      lum(M.ret) > lum(M.plain) && lum(M.plain) > lum(M.data),
+      `ret=${lum(M.ret).toFixed(4)} / plain=${lum(M.plain).toFixed(4)} / data=${lum(M.data).toFixed(4)}`);
+
+    // (c) 選択中は紺の塗り(正典 .tile.sel)。**枠と違う地を同時に持たない**ために
+    //     枠は透明にしてある(描画は正典と同一)。
+    check("選択中の地は --c-accent(正典 .tile.sel の background:var(--accent))",
+      declOf(appCss, '.reedtile[data-tone="sel"]', "background") === "var(--c-accent)",
+      String(declOf(appCss, '.reedtile[data-tone="sel"]', "background")));
+    check("選択中の文字は --c-on-accent / 太字600(正典 .tile.sel)",
+      declOf(appCss, '.reedtile[data-tone="sel"]', "color") === "var(--c-on-accent)"
+      && declOf(appCss, '.reedtile[data-tone="sel"]', "font-weight") === "600");
+    check("選択中の枠は透明(枠 ∧ 違う地 を同時に持たない。§6.7 の芯1)",
+      declOf(appCss, '.reedtile[data-tone="sel"]', "border-color") === "transparent");
+    check("角丸は正典 .tile と同じ",
+      parseFloat(declOf(appCss, ".reedtile", "border-radius")) === parseFloat(declOf(mockCss, ".tile", "border-radius")),
+      `実装=${declOf(appCss, ".reedtile", "border-radius")} / 正典=${declOf(mockCss, ".tile", "border-radius")}`);
+    check("枠の太さは正典 .tile と同じ",
+      parseFloat(declOf(appCss, ".reedtile", "border")) === parseFloat(declOf(mockCss, ".tile", "border")),
+      `実装=${declOf(appCss, ".reedtile", "border")} / 正典=${declOf(mockCss, ".tile", "border")}`);
+    check("index.css の .reedtile は1回しか書かれていない",
+      ruleOf(appCss, ".reedtile").length === 1, `${ruleOf(appCss, ".reedtile").length}回`);
+  }
+
+  // --- 25.3 箱見出し(正典 .rhead / .rname / .rmeta)----------------------------
+  // 【F-72 の手本に倣う】綴り1つを数えるのではなく、**直下の子と横方向の宣言を
+  // 期待表と全件照合**する。要素を足しても消しても落ちる。
+  {
+    check("正典 .rhead は baseline 揃えの両端寄せ",
+      declOf(mockCss, ".rhead", "align-items") === "baseline"
+      && declOf(mockCss, ".rhead", "justify-content") === "space-between");
+    check("実装の箱見出しも baseline 揃えの両端寄せ",
+      /display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: REED_HEAD_MB_PX/.test(src));
+    check("箱見出しの下の余白は正典 .rhead と同じ",
+      api.REED_HEAD_MB_PX === parseFloat(declOf(mockCss, ".rhead", "margin-bottom")),
+      `実装=${api.REED_HEAD_MB_PX} / 正典=${declOf(mockCss, ".rhead", "margin-bottom")}`);
+    check("箱の名前は正典 .rname の 15px / 600",
+      parseFloat(declOf(mockCss, ".rname", "font-size")) === 15
+      && declOf(mockCss, ".rname", "font-weight") === "600"
+      && /fontSize: 15, fontWeight: 600, color: "var\(--c-ink\)"/.test(src));
+    check("番手は正典 .rname i の --ink3 / 400(斜体にしない)",
+      declOf(mockCss, ".rname i", "font-weight") === "400"
+      && /color: "var\(--c-ink-3\)", fontWeight: 400, fontStyle: "normal"/.test(src));
+    check("★と開封日は正典 .rmeta の 12px / gap 10 / baseline",
+      parseFloat(declOf(mockCss, ".rmeta", "font-size")) === 12
+      && parseFloat(declOf(mockCss, ".rmeta", "gap")) === 10
+      && /fontSize: 12, color: "var\(--c-ink-3\)", display: "flex", gap: 10, alignItems: "baseline"/.test(src));
+    // 箱見出しに出るのは 銘柄・番手・平均★・開封日 の4つだけ(枚数バッジ等を足していない)
+    {
+      const i = src.indexOf("const heading = (");
+      const j = src.indexOf("\n          );", i);
+      const head = i === -1 || j === -1 ? "" : src.slice(i, j);
+      check("箱見出しのブロックを走査できている", head.length > 400, `${head.length}文字`);
+      const shown = [
+        ["銘柄", /\{g\.brand\}/],
+        ["番手", /\{g\.strength\}/],
+        ["平均★", /★\{avgRating\.toFixed\(1\)\}/],
+        ["開封日", /\{formatYmd\(g\.startDate\) \?\? "開封日 未設定"\}/],
+      ];
+      for (const [label, re] of shown) check(`箱見出しに ${label} が出る`, re.test(head), label);
+      // 枚数(g.members.length)は出さない = タイルを数えれば分かる(正典の判断)
+      check("箱見出しに枚数を出していない(タイルを数えれば分かる)",
+        !/g\.members\.length/.test(codeOf(head)), codeOf(head).slice(0, 120));
+      // 日付は yyyy/mm/dd(N-2 の表記統一)。生の ISO を出していない
+      check("箱見出しの日付は formatYmd(yyyy/mm/dd)を通す",
+        !/\{g\.startDate\}/.test(codeOf(head)));
+    }
+  }
+
+  // --- 25.4 「＋ 追加」1つ(正典 .addrow / .addbtn)----------------------------
+  {
+    check("追加の行は中央寄せ(正典 .addrow)",
+      declOf(mockCss, ".addrow", "justify-content") === "center"
+      && /display: "flex", justifyContent: "center", paddingTop: REED_ADDROW_PAD_TOP_PX/.test(src));
+    check("追加の行の上の余白は正典 .addrow と同じ",
+      api.REED_ADDROW_PAD_TOP_PX === parseFloat(declOf(mockCss, ".addrow", "padding-top")),
+      `実装=${api.REED_ADDROW_PAD_TOP_PX} / 正典=${declOf(mockCss, ".addrow", "padding-top")}`);
+    check("「＋ 追加」は正典 .addbtn の 14px / --accent",
+      parseFloat(declOf(mockCss, ".addbtn", "font-size")) === 14
+      && /fontSize: 14, color: "var\(--c-accent\)"/.test(src));
+    check("箱の上下の余白は正典 .rgroup と同じ",
+      api.REED_GROUP_PAD_TOP_PX === parseFloat((declOf(mockCss, ".rgroup", "padding") || "").split(/\s+/)[0])
+      && api.REED_GROUP_PAD_BOTTOM_PX === parseFloat((declOf(mockCss, ".rgroup", "padding") || "").split(/\s+/)[2]),
+      `実装=${api.REED_GROUP_PAD_TOP_PX}/${api.REED_GROUP_PAD_BOTTOM_PX} / 正典=${declOf(mockCss, ".rgroup", "padding")}`);
+    check("箱の下に罫1本(正典 .rgroup の border-bottom)",
+      /border-bottom:\s*1px solid/.test(declOf(mockCss, ".rgroup", "border-bottom") ? `border-bottom:${declOf(mockCss, ".rgroup", "border-bottom")}` : "")
+      && /borderBottom: "1px solid var\(--c-line\)"/.test(src));
+    // 空状態の文言は現行のまま
+    check("空状態の文言は現行のまま", src.includes("まだリードが登録されていません"));
+  }
+
+  // --- 25.5 ドラッグ並び替えの幾何(gridDropIndex)------------------------------
+  // 純関数なので**全マスを総当たり**する。座標 → 落ちる位置が格子どおりであること。
+  {
+    const W = 57, H = 57, GAP = api.REED_GRID_GAP_PX, COLS = api.REED_GRID_COLS;
+    const X0 = 24, Y0 = 100;
+    const at = (col, row) => [X0 + col * (W + GAP) + W / 2, Y0 + row * (H + GAP) + H / 2];
+    let bad = null, n = 0;
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const [x, y] = at(col, row);
+        const got = api.gridDropIndex(x, y, X0, Y0, W, H, GAP, COLS, 10);
+        n++;
+        if (got !== row * COLS + col) bad = bad || `(${col},${row}) → ${got}`;
+      }
+    }
+    check("10枚の格子の全マスで、指の位置 → 落ちる位置が一致する", bad === null, bad || `${n}マス`);
+    check("総当たりが空回りしていない", n === 10, `${n}マス`);
+    // 端のクランプ: 左外・上外・右外・下外・要素数を超える位置
+    check("グリッドの左上より外は先頭に寄る", api.gridDropIndex(-999, -999, X0, Y0, W, H, GAP, COLS, 10) === 0);
+    check("グリッドの右下より外は末尾に寄る", api.gridDropIndex(9999, 9999, X0, Y0, W, H, GAP, COLS, 10) === 9);
+    check("2段目の空きマス(5枚の箱の6番目以降)は末尾に寄る",
+      api.gridDropIndex(...at(4, 1), X0, Y0, W, H, GAP, COLS, 5) === 4,
+      String(api.gridDropIndex(...at(4, 1), X0, Y0, W, H, GAP, COLS, 5)));
+    check("要素0・列0でも例外を投げない(0を返す)",
+      api.gridDropIndex(0, 0, 0, 0, W, H, GAP, 0, 0) === 0 && api.gridDropIndex(0, 0, 0, 0, 0, 0, 0, COLS, 10) === 0);
+    // 横方向にも動くこと(行の並び替えの「縦だけ」から変わった点)
+    check("同じ段の隣のマスへ横に動かせる",
+      api.gridDropIndex(...at(3, 0), X0, Y0, W, H, GAP, COLS, 10) === 3
+      && api.gridDropIndex(...at(0, 0), X0, Y0, W, H, GAP, COLS, 10) === 0);
+    // 長押しの時間と許容移動量は現行のまま(本人が慣れている感触を変えない)
+    check("長押しは 400ms のまま", api.REED_DRAG_LONGPRESS_MS === 400, `${api.REED_DRAG_LONGPRESS_MS}ms`);
+    check("長押し成立までの許容移動量は 8px のまま", api.REED_DRAG_SLOP_PX === 8, `${api.REED_DRAG_SLOP_PX}px`);
+    {
+      const grid = srcOfFn(src, "ReedTileGrid");
+      check("長押しの時間は定数から取る(直書きしていない)", /\}, REED_DRAG_LONGPRESS_MS\);/.test(grid));
+      // 【行から変わった点】判定を縦だけ(Math.abs(dy))から2次元の距離(hypot)にした。
+      // タイルは横にも並ぶので、縦だけ見ていると横に払ったスワイプが長押しとして生き残る。
+      check("長押しのキャンセルは2次元の距離で見る(縦だけではない)",
+        /Math\.hypot\(e\.clientX - info\.startX, e\.clientY - info\.startY\) > REED_DRAG_SLOP_PX/.test(grid));
+      // 横スワイプ(子タブ移動)との同居: ドラッグ中は SwipePager が降りる
+      check("ドラッグ中は横スワイプの子タブ移動を止める(旗を立てる)",
+        /setReedTileDragActive\(true\)/.test(grid));
+      check("ドラッグの終わりで必ず旗を下ろす(finishDrag が唯一の出口)",
+        /const finishDrag = \(committed\) => \{[\s\S]{0,300}?setReedTileDragActive\(false\);/.test(grid));
+      check("アンマウントでも旗を下ろす(掴んだまま画面が変わっても残らない)",
+        /useEffect\(\(\) => \(\) => \{[\s\S]{0,200}?setReedTileDragActive\(false\);/.test(grid));
+      check("SwipePager は旗が立っている間だけ降りる",
+        /if \(isReedTileDragActive\(\)\) \{ st\.current = null; return; \}/.test(src)
+        && /if \(isReedTileDragActive\(\)\) return;/.test(src));
+      // 旗は ReedTileGrid だけが立てる(他の画面へ漏れない)
+      {
+        // 定義(function setReedTileDragActive)そのものは呼び出しではないので数から外す
+        const calls = (codeOf(src).match(/(?<!function )setReedTileDragActive\(/g) || []).length;
+        const inGrid = (codeOf(grid).match(/(?<!function )setReedTileDragActive\(/g) || []).length;
+        check("旗を立て下ろしするのは ReedTileGrid だけ(他の画面へ漏れていない)",
+          calls === inGrid && inGrid >= 3, `全体=${calls} / ReedTileGrid=${inGrid}`);
+        check("旗を読むのは SwipePager の2箇所だけ(他の部品が挙動を変えていない)",
+          (codeOf(src).match(/(?<!function )isReedTileDragActive\(\)/g) || []).length === 2,
+          `${(codeOf(src).match(/(?<!function )isReedTileDragActive\(\)/g) || []).length}箇所`);
+      }
+      // 並び替えは sortOrder だけを書き換える(管理番号 boxNumber は動かさない)
+      check("並び替えは sortOrder だけを更新する(boxNumber は動かさない)",
+        /const orderById = new Map\(newOrderIds\.map\(\(id, i\) => \[id, i \+ 1\]\)\);[\s\S]{0,200}sortOrder: orderById\.get\(r\.id\)/.test(src)
+        && !/boxNumber: orderById/.test(src));
+      check("並び替えの案内文は残っている", src.includes("長押ししてスライドすると並び替えられます・タップで詳細"));
+      check("削除モード中は並び替えない(現行と同じ方針)", /if \(deleteMode\) return;/.test(grid));
+      // 【実測で踏んだ罠】「1枚しかない箱は並び替える先が無いので pointerdown ごと降りる」と
+      // 書いたら、押下の記録(dragInfoRef)が残らず **pointerup がタップと認識できなくなり、
+      // 1枚だけの箱の詳細が開けなくなった**(375×812 の実測で発見)。
+      // 正しい形は「押下は必ず記録し、長押しのタイマーだけ張らない」。
+      // 順序まで見る: dragInfoRef への代入が canReorder の早期 return より**前**にあること。
+      check("並び替えできるかの判定は canReorder に分けてある",
+        /const canReorder = !deleteMode && members\.length >= 2;/.test(grid));
+      check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
+        grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };") !== -1
+        && grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };")
+           < grid.indexOf("if (!canReorder) return;"),
+        `記録=${grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };")} / 早期return=${grid.indexOf("if (!canReorder) return;")}`);
+      check("1枚しかない箱では長押しのタイマーを張らない",
+        /if \(!canReorder\) return;\s*\r?\n\s*longPressTimerRef\.current = setTimeout\(/.test(grid));
+      check("タップで詳細を開くのは長押しが成立しなかったときだけ",
+        /const handlePointerUp = \(id\) => \(\) => \{\s*\r?\n\s*const info = dragInfoRef\.current;\s*\r?\n\s*if \(!info \|\| info\.armed\) return;/.test(grid)
+        && /onTileTap\(id\);/.test(grid));
+    }
+  }
+
+  // --- 25.6 個体詳細(正典 .backrow / .starrow / .memoline / .numrow / .bigbtn)--
+  {
+    const detail = srcOfFn(src, "ReedEvaluationDetail");
+    check("個体詳細を走査できている", detail.length > 3000, `${detail.length}文字`);
+    check("「‹ 一覧」で一覧へ戻れる", /‹ 一覧/.test(detail) && /onClick=\{onBack\}/.test(detail));
+    check("見出しは shortBoxLabel(V16-3 の形)", /shortBoxLabel\(reed\.brand, reed\.strength, reeds\.map\(\(r\) => r\.brand\)\)/.test(detail));
+    check("#番号は自由入力(空で自動採番の値が placeholder に出る)",
+      /placeholder=\{String\(reedPosition\(reed, reeds\)\)\}/.test(detail)
+      && /onBlur=\{commitPosition\}/.test(detail));
+    check("#番号の欄は破線の下線で「書ける」ことを示す(正典)",
+      /borderBottom: "1px dashed var\(--c-line-strong\)"/.test(detail));
+    check("#番号の欄の当たり判定は 44px 以上(§5)",
+      /width: 46, minHeight: "var\(--tap-min\)"/.test(detail));
+    check("開封日は右に yyyy/mm/dd で出る", /\{formatYmd\(reed\.startDate\) \?\? "—"\}/.test(detail));
+    check("メモは編集できる(placeholder 「メモ」)",
+      /placeholder="メモ"/.test(detail) && /onBlur=\{commitMemo\}/.test(detail));
+    check("メモの行は正典 .memoline(13px / 上下13px / 下に罫1本)",
+      parseFloat(declOf(mockCss, ".memoline", "font-size")) === 13
+      && /padding: "13px 0", fontSize: 13/.test(detail));
+    // 測定データの4指標。**REED_COMPARE_METRICS の全キーが1つも欠けずに並ぶ**ことを集合で見る
+    {
+      const keys = api.REED_DETAIL_METRICS;
+      check("個体詳細の指標は4つ", keys.length === 4, keys.join(","));
+      check("個体詳細の指標の並びは正典どおり(平均差分 → HNR → 重心 → 音量)",
+        keys.join(",") === "pitchCentsSigned,hnrDb,spectralCentroidHz,volumeDb", keys.join(","));
+      check("個体詳細の指標は REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
+        new Set(keys).size === 4 && keys.every((k) => cmKeys.includes(k))
+        && cmKeys.every((k) => keys.includes(k)),
+        `${keys.join(",")} / ${cmKeys.join(",")}`);
+      check("JSX は REED_DETAIL_METRICS をそのまま map する(間引いていない)",
+        /REED_DETAIL_METRICS\.map\(\(key\) => \{/.test(detail)
+        && !/REED_DETAIL_METRICS\.(slice|filter)\(/.test(detail));
+      check("指標の定義(ラベル・単位・書式)は REED_COMPARE_METRICS から引く(写していない)",
+        /REED_COMPARE_METRICS\.find\(\(x\) => x\.key === key\)/.test(detail));
+    }
+    check("測定データはタップで音名軸グラフに切り替わる(現行のまま)",
+      /<TappableMetricCard/.test(detail) && /bare/.test(detail));
+    check("測定データの空状態文言は現行のまま", detail.includes("このリードに紐づく測定データがまだありません"));
+    // 「測定データ · nセッション · 開封n日」。一覧のタイルから落ちた情報の行き先
+    check("nセッション / 未測定 / 開封n日 は reedDetailMetaLine が組み立てる",
+      /\{reedDetailMetaLine\(reedSessions\.length, usageDays\(new Date\(\), reed\.startDate\)\)\}/.test(detail));
+    check("セッションがあれば「nセッション」", api.reedDetailMetaLine(12, 34) === "測定データ · 12セッション · 開封 34日",
+      api.reedDetailMetaLine(12, 34));
+    check("セッションが0件なら「未測定」", api.reedDetailMetaLine(0, 34) === "測定データ · 未測定 · 開封 34日",
+      api.reedDetailMetaLine(0, 34));
+    check("開封日が未設定なら日数の節を出さない",
+      api.reedDetailMetaLine(3, null) === "測定データ · 3セッション" && api.reedDetailMetaLine(0, null) === "測定データ · 未測定",
+      `${api.reedDetailMetaLine(3, null)} / ${api.reedDetailMetaLine(0, null)}`);
+    check("評価の推移グラフは残っている", detail.includes("<ReedScoreHistoryChart"));
+    // 正典 .numrow の実寸(値19px + 単位11px / ラベル10.5px)
+    {
+      const card = srcOfFn(src, "TappableMetricCard");
+      check("bare の既定は false(データタブ側へ漏れない)", /bare = false/.test(card));
+      check("bare の値は正典 .numrow の 19px / 600",
+        parseFloat(declOf(mockCss, ".numrow .v", "font-size")) === 19
+        && /fontSize: 19, fontWeight: 600, color: "var\(--c-ink\)"/.test(card));
+      check("bare のラベルは正典 .numrow .l の 10.5px",
+        parseFloat(declOf(mockCss, ".numrow .l", "font-size")) === 10.5
+        && /fontSize: 10\.5, color: "var\(--c-ink-3\)"/.test(card));
+      check("bare の当たり判定は 44px 以上(§5)", /minHeight: "var\(--tap-min\)"/.test(card));
+      // 【実測で踏んだ罠】1つがグラフに切り替わって幅100%になったとき、flex-basis 0 の
+      // 残り3つは**同じ行で幅0まで潰れて見えないボタンになった**(実測 327/0/0/0)。
+      // 折り返しの判定に使う最小幅を与えて次の行へ送る。
+      check("bare の列は最小幅を持つ(開いたときに残りが幅0の見えないボタンにならない)",
+        /flex: open \? "1 1 100%" : "1 1 0", minWidth: REED_NUMROW_MIN_PX/.test(card));
+      check("その最小幅は4列が1行に収まる値(通常時の見た目を変えない)",
+        api.REED_NUMROW_MIN_PX > 0
+        && api.REED_NUMROW_MIN_PX * 4 <= 375 - api.REED_SIDE_PAD_PX * 2,
+        `${api.REED_NUMROW_MIN_PX}×4 = ${api.REED_NUMROW_MIN_PX * 4} / 使える幅 ${375 - api.REED_SIDE_PAD_PX * 2}`);
+      // 【定義の言い換えを書かない】「3×min + 行幅 > 行幅」は min > 0 なら**恒等的に真**で、
+      // 何も守らない。守るべきは「0 ではないこと」そのもの(0 に戻すと同じ行で潰れる)。
+      check("その最小幅は 0 ではない(0 だと開いたときに残り3つが同じ行で潰れる)",
+        api.REED_NUMROW_MIN_PX > 0, `${api.REED_NUMROW_MIN_PX}px`);
+      // bare を渡しているのはリードの個体詳細だけ(データタブ・セッション詳細は従来のまま)
+      const bareSites = (codeOf(src).match(/^\s*bare$/gm) || []).length;
+      check("bare を渡しているのは1箇所(リードの個体詳細)だけ", bareSites === 1, `${bareSites}箇所`);
+      check("TappableMetricCard の呼び出しは4箇所のまま",
+        (src.match(/<TappableMetricCard/g) || []).length === 4,
+        `${(src.match(/<TappableMetricCard/g) || []).length}箇所`);
+    }
+    // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
+    check("ダイヤルの先頭の「—」は表示文字列も「—」",
+      api.reedScoreText("rating", api.RATING_DIAL_UNRATED) === "—"
+      && api.reedScoreText("thickness", api.RATING_DIAL_UNRATED) === "—");
+    check("「—」を選ぶと未評価に戻る(commitReedScores が null を書ける)", (() => {
+      const patch = api.commitReedScores({ rating: 3.7, thickness: 4, balance: 2, ratings: [] },
+        { rating: null, thickness: 4, balance: 2 }, "2026-08-13T00:00:00.000Z");
+      return patch !== null && patch.rating === null;
+    })());
+    check("「—」に戻しても履歴は1件だけ増える", (() => {
+      const patch = api.commitReedScores({ rating: 3.7, thickness: 4, balance: 2, ratings: [] },
+        { rating: null, thickness: 4, balance: 2 }, "2026-08-13T00:00:00.000Z");
+      return patch.ratings.length === 1 && patch.ratings[0].rating === null;
+    })());
+    check("値が変わっていなければ「—」でも履歴を増やさない",
+      api.commitReedScores({ rating: null, thickness: null, balance: null, ratings: [] },
+        { rating: null, thickness: null, balance: null }, "2026-08-13T00:00:00.000Z") === null);
+  }
+
+  // --- 25.7 比較(正典の .selpill と4グラフ)----------------------------------
+  {
+    const cmp = srcOfFn(src, "ReedCompareTab");
+    check("比較タブを走査できている", cmp.length > 2000, `${cmp.length}文字`);
+    check("4グラフの並びは正典どおり(音量 → 平均差分 → HNR → 重心)",
+      api.REED_COMPARE_CHART_KEYS.join(",") === "volumeDb,pitchCentsSigned,hnrDb,spectralCentroidHz",
+      api.REED_COMPARE_CHART_KEYS.join(","));
+    check("4グラフは REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
+      new Set(api.REED_COMPARE_CHART_KEYS).size === 4
+      && api.REED_COMPARE_CHART_KEYS.every((k) => cmKeys.includes(k))
+      && cmKeys.every((k) => api.REED_COMPARE_CHART_KEYS.includes(k)),
+      `${api.REED_COMPARE_CHART_KEYS.join(",")} / ${cmKeys.join(",")}`);
+    check("JSX は REED_COMPARE_CHART_KEYS をそのまま map する(間引いていない)",
+      /REED_COMPARE_CHART_KEYS\.map\(\(key\) => \{/.test(cmp)
+      && !/REED_COMPARE_CHART_KEYS\.(slice|filter)\(/.test(cmp));
+    check("個体チップは正典 .selpill の寸法(12.5px / padding 4px 11px / 角丸999)",
+      parseFloat(declOf(mockCss, ".selpill", "font-size")) === 12.5
+      && /fontSize: 12\.5, padding: "4px 11px", borderRadius: 999/.test(cmp));
+    check("選択中のチップは紺の塗り + 白文字(正典 .selpill.on)",
+      /background: sel \? "var\(--c-accent\)" : "transparent"/.test(cmp)
+      && /color: sel \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)"/.test(cmp));
+    check("選択中のチップに系列の線種見本が付く(色だけでは実線/破線が伝わらない)",
+      /\{sel && styleById\.has\(r\.id\) && <SeriesSwatch style=\{styleById\.get\(r\.id\)\} \/>\}/.test(cmp));
+    check("チップの当たり判定は 44px 以上(§5)",
+      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(cmp));
+    check("「n枚選択中」は現行のまま出る", /\{selectedInBox\}枚選択中/.test(cmp));
+    check("6本超過の告知は現行のまま", cmp.includes("先頭6枚を表示しています"));
+    check("★一覧は正典どおり文字で書く(星の絵を使わない)",
+      /★\$\{avg\.toFixed\(1\)\}/.test(cmp) && !/<StarRating/.test(cmp));
+    check("フレーム数の脚注は現行のまま", /\$\{it\.frameCount\}フレーム/.test(cmp));
+    check("空状態は2種とも残っている(リード未登録 / 未選択)",
+      cmp.includes("比較するリードがありません") && cmp.includes("リードを選択すると比較グラフが表示されます"));
+    check("フレーム数はモジュールの frameCountFor を使う(同じ集計を2箇所に書かない)",
+      /const framesOf = \(reedId\) => frameCountFor\(sessions, reedId\);/.test(cmp));
+  }
+
+  // --- 25.8 落としていないこと(横スワイプ・スクロール位置・箱グルーピング)------
+  {
+    const tab = srcOfFn(src, "ReedsTab");
+    check("登録⇄比較の横スワイプは残っている", /<SwipePager/.test(tab));
+    check("詳細からの右スワイプで一覧へ・左スワイプで比較へ",
+      /<SwipeBackArea onBack=\{closeReed\} onForward=\{openCompareFromReed\}>/.test(tab));
+    check("一覧のスクロール位置の復元は残っている",
+      /listScrollYRef\.current = window\.scrollY/.test(tab) && /window\.scrollTo\(0, y\)/.test(tab));
+    check("箱グルーピングは groupReeds のまま", /const reedGroups = groupReeds\(reeds\);/.test(tab));
+    check("子タブの「…」は登録タブのときだけ出す(正典の比較画面には無い)",
+      /\{reedsSubTab === "register" && \(/.test(tab));
+    check("モード中は「…」の代わりにキャンセルと実行が出る", /\{listMode === null \? \(/.test(tab));
+    // 個体詳細も一覧・比較と同じ左右の余白の中に置く(詳細だけ 14px になっていた実測を潰した)
+    check("個体詳細も同じ左右の余白の枠の中にある",
+      /if \(evaluatingReed\) \{\s*\r?\n\s*return \(\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+    // 子タブの当たり判定(§5)。**見た目の間隔を変えずに**広げてあること
+    check("子タブの文字の間隔は正典 .subtabs の gap と同じ",
+      api.REED_SUBTAB_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")),
+      `実装=${api.REED_SUBTAB_GAP_PX} / 正典=${declOf(mockCss, ".subtabs", "gap")}`);
+    check("子タブは行の gap を 0 にして左右に半分ずつ余白を入れる(文字の間隔は変わらない)",
+      /gap: 0, marginLeft: -REED_SUBTAB_HALF_GAP_PX/.test(tab)
+      && /padding: `0 \$\{REED_SUBTAB_HALF_GAP_PX\}px`/.test(tab));
+    check("子タブの当たり判定は 44px 以上(§5)",
+      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tab));
+    // 【定義の言い換えを書かない】REED_SUBTAB_HALF_GAP_PX は REED_SUBTAB_GAP_PX / 2 と
+    // 定義されているので、`HALF * 2 === GAP` は**恒等的に真**で何も守らない
+    // (design/LOOP.md「構造上失敗し得ないアサーション」)。**正典の値と突き合わせる**。
+    check("左右に入れる余白は正典の gap の半分(足すと文字の間隔が正典どおりになる)",
+      api.REED_SUBTAB_HALF_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2,
+      `実装=${api.REED_SUBTAB_HALF_GAP_PX} / 正典の半分=${parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2}`);
+    // 追加シートの ± は正典ミニが height:40 だが、§5(機能側)を優先して 44 にしてある
+    {
+      const sheet = srcOfFn(src, "ReedAddSheet");
+      const pm = (sheet.match(/width: METRO_PM_W, height: "var\(--tap-min\)"/g) || []).length;
+      check("追加シートの ± の当たり判定は 72×44(正典ミニの 40 ではなく §5 を優先)", pm === 2, `${pm}箇所`);
+      check("正典ミニの .pmt は 40px(この差は意図した逸脱であることの裏取り)",
+        parseFloat(declOf(mockCss, ".pmt", "height") || "0") === 48
+        && /class="pmt" style="height:40px"/.test(mock),
+        `.pmt=${declOf(mockCss, ".pmt", "height")} / ミニの上書き=${/class="pmt" style="height:40px"/.test(mock)}`);
+    }
   }
   console.log("  -> done");
 }

@@ -350,6 +350,25 @@ textarea {
 .tap-through { pointer-events: none; }
 .tap-through button { pointer-events: auto; }
 
+/* 【N-5】リード登録一覧の 5×2 タイル(正典 design/north-star-measure.html の .rgrid / .tile)。
+   記録の量を4段の「濃さ」で返す: ret(何も記録が無い) → 既定(評価だけ) → data(測定データあり)。
+   sel は「計測タブで選んでいる1枚」/ 削除モード中は「削除に選んだ枚」。
+
+   【地と枠をここに置く理由】同じ要素にインラインで「見える枠」と「違う地」を同時に書くと
+   §6.7 の芯1(枠 ∧ 違う地 を同じ状態で持たない)に触れる。**選択中は枠を透明にして地だけで塗る**
+   ことで芯1を守る(テンポシートの選択ピルと同じ書き方。背景は枠の下まで塗られるので
+   描画はモックと同一)。クラス名に "tile" というトークンを含めていないのは、
+   面の作法の .tile(index.css の .surf-* が持つ)と取り違えないため。
+
+   **このクラスは地・枠・角丸・文字色だけを持つ。** 寸法(aspect-ratio / font-size)と
+   ドラッグ中の transform は呼び出し側(ReedTileGrid)が持つ。 */
+.reedtile { background: transparent; border: 1.2px solid var(--c-line-strong); border-radius: 12px; color: var(--c-ink-2); }
+.reedtile[data-tone="ret"] { border-color: var(--c-line); color: var(--c-line-strong); }
+.reedtile[data-tone="data"] { border-color: var(--c-ink-3); color: var(--c-ink); }
+.reedtile[data-tone="sel"] { background: var(--c-accent); border-color: transparent; color: var(--c-on-accent); font-weight: 600; }
+/* 正典 .tile.drag: 浮き上がり + 影 + 枠が紺。持ち上がったことが動かす前から分かる */
+.reedtile[data-drag="true"] { border-color: var(--c-accent); box-shadow: 0 10px 22px rgba(20, 30, 50, 0.22); }
+
 /* 和文ラベル・小さめの本文(〜13px)用: 既定字間だと詰まって見えるため少し広げる */
 .jp-label { letter-spacing: 0.02em; }
 /* 大きな数値(24px以上、ヒーロー・音名セント)用: 数字は既定だと間延びするため詰める */

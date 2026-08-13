@@ -1,12 +1,9 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId } from "react";
 import { createPortal } from "react-dom";
-// Menu(3本の水平線)は登録済みリードの行で「長押しで並び替えられる」目印に使う(F-64)。
-// 名前が用途と食い違うので GripLines に読み替えて import する。
-// **絵の選定理由**: 本人指示が「三本線」。lucide の Grip 系は点(ドット)の格子で線ではなく、
-// AlignJustify は4本。3本の水平線は lucide では Menu だけ。自前の inline SVG も考えたが、
-// 同じ行に並ぶ Trash2 / ChevronDown と線の太さ・端の形・余白の取り方が揃わなくなるため、
-// 既に使っている lucide から取る(未使用アイコンは tree-shaking で落ちる)。
-import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Menu as GripLines } from "lucide-react";
+// 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
+// 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
+// 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
+import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio } from "lucide-react";
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
 // あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
@@ -101,6 +98,16 @@ function useFillViewportHeight(ref, bottomGap = null) {
 //   のみ preventDefault(非パッシブ登録)して横へ動かす。縦と判定したら何もせず縦スクロールさせる。
 // ・スライダー/プルダウン/横スクロール要素の上では発火しない。
 // ・viewportは画面下端まで高さを確保し、コンテンツが短くても画面のどこでもスワイプできる。
+// 【N-5】リードタイルの並び替え中は、横スワイプの子タブ移動を止める。
+// 行の並び替え(縦だけ)は「横に動いたら SwipePager、縦なら並び替え」と軸で棲み分けられたが、
+// 5×2 のタイルは**横にも動かす**ので軸では分けられない。
+// フラグを立てるのは ReedTileGrid の長押しが成立した瞬間だけで、それ以外は常に false。
+// (プロパティで渡さないのは、ジェスチャーの途中で値が変わる必要があり、
+//  再レンダーを待つと1フレームぶん取りこぼすため。読むのは SwipePager だけ。)
+let reedTileDragActive = false;
+function setReedTileDragActive(v) { reedTileDragActive = !!v; }
+function isReedTileDragActive() { return reedTileDragActive; }
+
 function SwipePager({ index, onIndexChange, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
@@ -115,6 +122,7 @@ function SwipePager({ index, onIndexChange, children }) {
   const onTouchStart = (e) => {
     if (e.touches.length !== 1 || e.target.closest?.("input, select, textarea, [data-noswipe]") ||
         hasHorizontalScrollAncestor(e.target, e.currentTarget)) { st.current = null; return; }
+    if (isReedTileDragActive()) { st.current = null; return; }
     const t = e.touches[0];
     st.current = { x: t.clientX, y: t.clientY, dx: 0, decided: false, horizontal: false };
   };
@@ -126,6 +134,7 @@ function SwipePager({ index, onIndexChange, children }) {
     const onMove = (e) => {
       const s = st.current;
       if (!s || e.touches.length !== 1) return;
+      if (isReedTileDragActive()) return; // タイルの並び替え中はページを動かさない(N-5)
       const t = e.touches[0];
       const dxRaw = t.clientX - s.x;
       const dy = t.clientY - s.y;
@@ -1276,6 +1285,22 @@ function formatYmd(dateStr, opts) {
   const p2 = (n) => String(n).padStart(2, "0");
   const ymd = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())}`;
   return opts?.time ? `${ymd} ${p2(d.getHours())}:${p2(d.getMinutes())}` : ymd;
+}
+
+// ローカル暦日のキー(YYYY-MM-DD)。**この組み立てはアプリ内でここ1箇所だけ**。
+//
+// 【`new Date().toISOString().slice(0, 10)` を使ってはいけない】あれは **UTC の暦日**で、
+// JST(UTC+9)では 00:00〜09:00 の間ずっと1日前の日付になる。
+// N-5 の審査で実測: ローカル 2026-08-14 00:55 に「10枚の箱を追加」→ 保存された開封日が
+// **2026-08-13**、箱見出しも 2026/08/13 と1日前になった。
+// リードでは表示だけの問題では済まない:
+//   - reedGroupKey は `銘柄|番手|開封日` なので、同じ実日の 08:00 と 10:00 で**箱が2つに割れる**
+//   - usageDays の「開封 n日」も1日ずれる
+// 評価履歴の同日判定(reedRatingDayKey)は元からローカル暦日で組んであり、そちらのコメントが
+// この式を名指しで禁じていた。リードの開封日も同じ組み立てに揃える。
+function localDayKey(d) {
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 }
 
 // リード1本ぶんの計測フレーム総数。ReedCompareTab が同じ集計をローカルに持っており
@@ -3201,38 +3226,17 @@ export default function WindToneLabPhaseMode() {
           データタブだけ作法を分けるのは、ピボット表など密度が高く、群の境界を
           余白や罫だけでは示せないため(本人指示)。 */}
 
-      {/* リードタブ: 子タブ(登録 / 比較) + 本体。子タブの溝も同じ作法の中に置く */}
+      {/* リードタブ: 子タブ(登録 / 比較) + 本体。
+          【N-5】子タブの行は ReedsTab の中へ移した。正典 .subtabs は「素のテキスト2つ + 右端の…」で、
+          右端の「…」が登録一覧の削除モード・開封日の編集を開く。溝つきのセグメントコントロールは
+          正典に無いので撤去した。**データタブの子タブ行(AnalysisLabView 側)には触っていない。** */}
       {topTab === "reeds" && (
         <div className="surf-rule">
-        {/* 子タブの溝。地は --c-sunken(B型と同じ「くぼみ」の段)。
-            以前は #EDEFF3 の直書きで、--c-sunken(#EEF1F4) と最大成分差 2 のトークン外の色だった。 */}
-        <div style={{ maxWidth: 900, margin: "0 auto 10px", display: "flex", gap: 6, background: "var(--c-sunken)", borderRadius: 11, padding: 4 }}>
-          {[
-            { key: "register", label: "登録" },
-            { key: "compare", label: "比較" },
-          ].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setReedsSubTab(t.key)}
-              className="sans"
-              style={{
-                flex: 1, padding: "9px 4px", borderRadius: 8, border: "none",
-                background: reedsSubTab === t.key ? "#FFFFFF" : "transparent",
-                color: reedsSubTab === t.key ? "#174585" : "#8D95A1",
-                fontWeight: reedsSubTab === t.key ? 700 : 400, fontSize: 13,
-                boxShadow: reedsSubTab === t.key ? "0 1px 3px rgba(0,0,0,.06)" : "none",
-                cursor: "pointer",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
         <ReedsTab
           key={`reeds-${navNonce}`}
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} updateSessions={updateSessions}
-          setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
+          setTopTab={setTopTab} setSelectedReedId={setSelectedReedId} selectedReedId={selectedReedId}
           selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
           compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
@@ -6483,6 +6487,14 @@ const RATING_DIAL_ORDER = [5, 4, 3, 2, 1];
 // 各要素は Math.round(x*10)/10 を通してあり、normalizeReedRating の出す値と完全に一致する
 // (一致していないと indexOf が -1 になり、選んだ値へスクロール位置を合わせられない)。
 const RATING_DIAL_RATING_ORDER = Array.from({ length: REED_RATING_STEPS_N }, (_, i) => Math.round((REED_SCORE_MAX - i * REED_RATING_STEP) * 10) / 10);
+// 【N-5】ダイヤルの**先頭に「—」(未評価)を1段足す**(本人指示 / 正典の「評価ダイヤル」ミニ:
+// 「各列の端に『—』(未評価)を追加。未計測の初期表示と同じ記号で、評価の取り消しもできる」)。
+// 値は null。reedScoreText(key, null) が "—" を返すので、表示側に分岐は要らない。
+// **RATING_DIAL_ORDER 自体には足さない**: この定数は評価の推移グラフの縦軸目盛(1〜5固定)と
+// 共有しており、null を混ぜると目盛が1本増えて軸が壊れる。ダイヤル専用の並びをここで作る。
+const RATING_DIAL_UNRATED = null;
+const RATING_DIAL_ORDER_WITH_UNRATED = [RATING_DIAL_UNRATED, ...RATING_DIAL_ORDER];
+const RATING_DIAL_RATING_ORDER_WITH_UNRATED = [RATING_DIAL_UNRATED, ...RATING_DIAL_RATING_ORDER];
 // ダイヤル1行の高さ。行そのものがタップ選択の当たり判定なので --tap-min(44px)。DESIGN-SYSTEM §5。
 const RATING_DIAL_ITEM_H = 44;
 // ダイヤルの窓の高さ(行数換算)。**5行ぶん**。
@@ -6492,9 +6504,9 @@ const RATING_DIAL_ITEM_H = 44;
 // つまり F-13 の「1と2がスクロールでしか選べない」は、**値が5のときは今も起きる**。
 // 3行のときはどの選択位置でも3段だったので窓は広がっているが、解消はしていない。
 const RATING_DIAL_VISIBLE = 5;
-// ダイヤルで未評価から編集を始めるときに指を置く位置(中央)。
-// この値を**選んだことにはしない**(触らずに閉じれば null のまま)。
-const REED_SCORE_NEUTRAL = 3;
+// 【N-5 で削除】REED_SCORE_NEUTRAL(未評価のとき指を置く位置=中央の 3)。
+// ダイヤルの先頭に「—」(未評価)の段ができたので、未評価はその段に置く。
+// 参照が 0 件になった定数は残さない。
 
 // 評価値を 1〜5 の整数に正規化する(厚さ・バランス)。0 / null / undefined / 数値でないものは未評価(null)。
 function normalizeReedScore(v) {
@@ -6516,9 +6528,9 @@ function normalizeReedRating(v) {
 function normalizeReedScoreOf(key, v) {
   return key === "rating" ? normalizeReedRating(v) : normalizeReedScore(v);
 }
-// 項目ごとのダイヤルの並び。
+// 項目ごとのダイヤルの並び。**先頭は必ず「—」(未評価 = null)**。
 function ratingDialOrder(key) {
-  return key === "rating" ? RATING_DIAL_RATING_ORDER : RATING_DIAL_ORDER;
+  return key === "rating" ? RATING_DIAL_RATING_ORDER_WITH_UNRATED : RATING_DIAL_ORDER_WITH_UNRATED;
 }
 // 表示用の文字列。**総評は常に小数第1位まで**(3 は "3.0")。厚さ・バランスは整数。
 // 未評価は "—"。
@@ -6551,8 +6563,7 @@ function reedHistoryEntry(h) {
 function reedRatingDayKey(at) {
   const d = new Date(at);
   if (isNaN(d.getTime())) return null;
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  return localDayKey(d); // 組み立ては localDayKey ただ1箇所(リードの開封日と共有)
 }
 
 // 履歴配列を読み取り用に正規化する(日時が読めないものは捨て、古い順に並べる)。
@@ -6611,9 +6622,14 @@ function ratingDialValueAt(scrollTop, itemH, key) {
   const i = Math.max(0, Math.min(order.length - 1, Math.round(scrollTop / itemH)));
   return order[i];
 }
+// 【N-5】未評価(null)は**中央(3)ではなく先頭の「—」**に置く。
+// 「—」が並びに入ったので、未評価のまま開いたダイヤルは「—」を指したまま止まる。
+// これで「開いて閉じただけで 3 が入る」経路がそもそも生まれない
+// (以前は中央の 3 に置いていたので、位置合わせ由来の scroll を確定に使わない
+//  ratingDialScrollIsUser だけが唯一の歯止めだった。歯止めは残してある)。
 function ratingDialOffsetFor(value, itemH, key) {
   const order = ratingDialOrder(key);
-  const v = normalizeReedScoreOf(key, value) ?? REED_SCORE_NEUTRAL;
+  const v = normalizeReedScoreOf(key, value);
   return Math.max(0, order.indexOf(v)) * itemH;
 }
 // そのscrollイベントを「指で動かした」とみなしてよいか。
@@ -6679,24 +6695,11 @@ function reedGroupAvgRating(members) {
   return normalizeReedScoreOf("rating", rated.reduce((a, b) => a + b, 0) / rated.length);
 }
 
-// 主観評価の表示(0.1刻み)。星を部分的に塗って小数の評価を表す。
-// リード一覧・比較タブの総評表示で使う(個別詳細では数値表示に統一したため使わない)。
-function StarRating({ value, size = 13 }) {
-  const v = value || 0;
-  return (
-    <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
-      {[1, 2, 3, 4, 5].map((n) => {
-        const fill = Math.max(0, Math.min(1, v - (n - 1)));
-        return (
-          <span key={n} style={{ position: "relative", fontSize: size, lineHeight: 1, userSelect: "none", display: "inline-block" }}>
-            <span style={{ color: "#C3CAD3" }}>★</span>
-            <span style={{ position: "absolute", left: 0, top: 0, width: `${fill * 100}%`, overflow: "hidden", color: "#D97706", whiteSpace: "nowrap" }}>★</span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
+// 【N-5 で削除】StarRating(★5つを部分的に塗って小数の評価を表す部品)。
+// 正典は箱見出しも比較の一覧も **「★3.8」という文字**で書いており、星の絵は1つも出てこない。
+// リードタブが唯一の読み手だったので、寄せ切った時点で参照が0件になった。
+// 副次的に、この部品が肯定的な評価に機能色 --c-warn(#D97706)を流用していた
+// DESIGN-SYSTEM §1.5 違反も消えた(意図した効果ではなく、撤去に伴う結果)。
 
 // (入力シークバー RatingSlider はここにあった。今周で ReedScoreEditor を3ダイヤル化した
 //  時点で呼び出し元がゼロになったので削除した。
@@ -6766,10 +6769,13 @@ function RatingDial({ itemKey, value, onChange }) {
           const on = s === v;
           return (
             <button
-              key={s}
+              /* 先頭の「—」は値が null なので key={s} だと React に「キー無し」と読まれる。
+                 String(null) = "null" は他のどの段(数値)とも衝突しない。 */
+              key={String(s)}
               type="button"
               onClick={() => pick(s)}
               aria-pressed={on}
+              aria-label={s === RATING_DIAL_UNRATED ? "未評価に戻す" : undefined}
               style={{ display: "block", width: "100%", height: ITEM, minHeight: "var(--tap-min)", scrollSnapAlign: "center", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: on ? 700 : 400, color: on ? "var(--c-accent)" : "var(--c-ink-4)" }}
             >
               {reedScoreText(itemKey, s)}
@@ -6881,31 +6887,38 @@ function reedScoreRowItems(fields) {
 //    「色はそのまま」に反する。
 //  - 以前は「余白なく三等分」(本人指示)で列の間に隙間を置かなかったが、隙間が無いと
 //    3枚が1枚に戻って見える。カード間にだけ --sp-2 を入れ、3枚の幅は等しいまま保つ。
+// 【N-5】見た目を正典 .starrow に揃えた。**箱(B型 .ctl-plain の地)は持たない**:
+//   行 = padding 16px 0 + 下に罫1本 / 列 = flex:1 の中央揃え
+//   値 = 23px / 600(.starrow .v) / ラベル = 11px --ink3 で**値の下**(.starrow .l)
+// 【本人の旧指示との差】F-65 の「見出しの下に数字」「地はそのまま」は、正典では
+// 逆順(数字の下に見出し)・地なしになっている。DESIGN-SYSTEM §6.0 が
+// 「モックと本書の既存規定が食い違う場合は無条件でモックが勝つ」と定めているので正典に寄せた。
+// 未評価の色分け(--c-accent / --c-ink-3)は残す(値の有無が読めなくなるため)。
 function ReedScoreField({ fields, onOpen }) {
   return (
     <button
       type="button" onClick={onOpen} className="sans"
       aria-label="総評・厚さ・バランスを編集"
       style={{
-        display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: "var(--sp-2)",
-        width: "100%", minHeight: "var(--tap-min)", padding: 0,
-        background: "none", border: "none", cursor: "pointer",
+        display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: 0,
+        width: "100%", minHeight: "var(--tap-min)", padding: "16px 0",
+        background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
+        borderRadius: 0, cursor: "pointer",
       }}
     >
       {reedScoreRowItems(fields).map((it) => (
         <span
           key={it.key}
-          className="ctl-plain"
           style={{
             flex: "1 1 0", minWidth: 0,
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            gap: "var(--sp-1)", padding: "var(--sp-2)",
+            padding: 0,
           }}
         >
-          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{it.label}</span>
-          <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: 700, lineHeight: 1, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
+          <span style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 600, lineHeight: 1.2, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
             {it.text}
           </span>
+          <span style={{ fontSize: 11, color: "var(--c-ink-3)", marginTop: 1 }}>{it.label}</span>
         </span>
       ))}
     </button>
@@ -7174,22 +7187,95 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
   );
 }
 
-// 登録済みリードの並び替え(長押し+スライド)。
-// pointerdownから400ms・移動量8px以内を維持できたら長押し成立とみなしてドラッグを開始する
-// (成立前の移動は通常のスクロール等とみなしてキャンセルする)。
-// 長押し成立後のpointermove/up/cancelはwindowに直接addEventListenerして拾う。
-// ドラッグ中の並び替えで対象行自身がDOM上で移動するため、setPointerCaptureで対象要素に
-// 紐付ける方式だと(要素の移動を「切断」とみなされて)途中でcaptureが暗黙的に外れてしまう。
-// windowへの登録なら要素の位置が変わっても影響を受けない。
-// 長押しが成立しなかった場合(＝ただのタップ)はonRowClickを呼び、成立した場合は
-// 最終順序をonReorderで返す(呼び出し側がboxNumberとして1から振り直す)。
-function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
+// ============================================================================
+// 【N-5】リードタブの正典の実寸。
+// 正典 = design/north-star-measure.html の「リードタブ」3画面(登録一覧 / 個体詳細 / 比較)と
+// ミニ2枚(追加シート / 評価ダイヤル)。DESIGN-SYSTEM §6.0「見た目はモックが唯一の正典」。
+// 対応する CSS クラス: .rlist / .rgroup / .rhead / .rname / .rmeta / .rgrid / .tile /
+//                      .addrow / .addbtn / .starrow / .memoline / .bigbtn / .numrow
+// ============================================================================
+// 正典 .rlist / .subtabs の左右 padding。.app-root が既に 14px 持っているので、
+// リードタブの中身には**差分だけ**を足す(app-root 側は他タブと共有なので触らない)。
+const REED_APP_SIDE_PAD_PX = 14;  // .app-root の左右 padding(安全域 env() は別に足される)
+const REED_SIDE_PAD_PX = 24;      // 正典 .rlist / .subtabs
+const REED_LIST_EXTRA_PAD_PX = REED_SIDE_PAD_PX - REED_APP_SIDE_PAD_PX;
+
+const REED_GRID_COLS = 5;         // 正典 .rgrid grid-template-columns: repeat(5,1fr)
+const REED_GRID_GAP_PX = 10;      // 正典 .rgrid gap
+const REED_TILE_FS_PX = 14;       // 正典 .tile font-size
+// タイルの角丸(12px)・枠(1.2px)・4段の濃さは index.css の .reedtile が持つ
+// (地と枠を1箇所にまとめないと §6.7 の芯1 を守れないため)。ここには重複して置かない。
+const REED_HEAD_MB_PX = 14;       // 正典 .rhead margin-bottom
+const REED_GROUP_PAD_TOP_PX = 20; // 正典 .rgroup padding-top
+const REED_GROUP_PAD_BOTTOM_PX = 24; // 正典 .rgroup padding-bottom
+const REED_ADDROW_PAD_TOP_PX = 20;   // 正典 .addrow padding-top
+const REED_SUBTAB_GAP_PX = 18;       // 正典 .subtabs gap(隣り合う子タブの文字の間隔)
+// 子タブの当たり判定を 44px にするために左右へ入れる余白。左右あわせて gap と同じ量になるので、
+// 行の gap を 0 にすれば**文字の間隔は正典の 18px のまま**当たり判定だけ広がる。
+const REED_SUBTAB_HALF_GAP_PX = REED_SUBTAB_GAP_PX / 2;
+// 個体詳細の .numrow の1列に与える最小幅。**折り返しの判定にだけ効く**値で、
+// 通常時(4列)の見た目は変わらない(4×60 = 240 ≤ 327)。
+// 1列がグラフに切り替わって幅100%になったとき、残りの3列を次の行へ送るために要る。
+const REED_NUMROW_MIN_PX = 60;
+
+// タイルの「濃さ」は index.css の .reedtile[data-tone] が4段持つ。
+//   ret   = ごく薄い (正典 .tile.ret)  / plain = 既定 (正典 .tile)
+//   data  = 濃い枠   (正典 .tile.data) / sel   = 紺の塗り (正典 .tile.sel)
+// ここでは「どの段になるか」だけを決める。
+//
+// 個体1枚の濃さを、**そのリードについて残っている記録の量**だけで決める。
+// 記録が増えるほど濃くなる(DESIGN-SYSTEM §7「育てる」= 数値が静かに増えるだけ)。
+//   測定データがある            → data (濃い枠)
+//   測定は無いが主観評価がある  → plain(既定)
+//   何の記録も無い              → ret  (ごく薄い)
+// **新しいフラグ(引退など)は作らない。** 既にあるデータだけで濃さを決める。
+// 純関数にしてあるのは、scripts/pitch-test.mjs のハーネスが JSX を見ないため。
+function reedTileTone(hasData, rated) {
+  if (hasData) return "data";
+  if (rated) return "plain";
+  return "ret";
+}
+
+// グリッド上の指の位置から、掴んでいるタイルの落ちる位置(index)を出す。
+// cols 列・1マス cellW×cellH・間隔 gap の格子として読む。
+// 端はクランプし、最後の行の空きマスへ落とそうとしたら末尾に寄せる。
+// 純関数(座標だけで決まる)にしてあるので、テストが実行で確かめられる。
+function gridDropIndex(x, y, gridLeft, gridTop, cellW, cellH, gap, cols, count) {
+  const stepX = cellW + gap;
+  const stepY = cellH + gap;
+  if (!(stepX > 0) || !(stepY > 0) || cols < 1 || count < 1) return 0;
+  const col = Math.max(0, Math.min(cols - 1, Math.floor((x - gridLeft) / stepX)));
+  const row = Math.max(0, Math.floor((y - gridTop) / stepY));
+  return Math.max(0, Math.min(count - 1, row * cols + col));
+}
+
+// 長押しが成立するまでの時間と、その間に許す移動量。**現行の 400ms / 8px をそのまま引き継ぐ**
+// (行の並び替えで本人が慣れている感触を変えない)。判定だけ縦から2次元(距離)に広げる。
+const REED_DRAG_LONGPRESS_MS = 400;
+const REED_DRAG_SLOP_PX = 8;
+
+// 【N-5】5×2 のタイル。長押し(400ms)で持ち上がり、ドラッグで並び替える。
+// 正典 .rgrid / .tile / .tile.drag。
+//
+// 【行(ReorderableReedRows)から置き換えた】旧実装は縦1次元で、掴んだ行の移動量を
+// 行高で割って行数を出していた。タイルは横にも動くので、**指の座標がグリッドのどのマスに
+// あるか**で落ちる位置を決める(gridDropIndex)。
+//
+// 【持ち上がりが見て分かること】GripLines の目印はタイルに載らないので、長押しが成立した
+// 瞬間に正典 .tile.drag の見た目(translateY(-6px) rotate(-2deg) + 影 + 枠が紺)へ変える。
+// 指を動かす前から変わるので、「持ち上がった」ことが動かさなくても分かる。
+//
+// 【横スワイプとの同居】タイルのドラッグは横にも動くため、軸では SwipePager と棲み分けられない。
+// 長押し成立の瞬間に setReedTileDragActive(true) を立て、SwipePager 側が降りる。
+// 指を離す/中断すると必ず false に戻す(finishDrag が唯一の出口)。
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, selectedForDelete, onTileTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   const [draggingId, setDraggingId] = useState(null);
-  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const longPressTimerRef = useRef(null);
   const dragInfoRef = useRef(null);
   const orderRef = useRef(order);
+  const gridRef = useRef(null);
 
   useEffect(() => { orderRef.current = order; }, [order]);
   useEffect(() => { setOrder(members.map((m) => m.id)); }, [members]);
@@ -7200,18 +7286,6 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
   const cancelLongPress = () => {
     if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
   };
-
-  // ドラッグ中に(箱の折りたたみ等で)アンマウントされた場合にwindowリスナーが残らないようにする
-  useEffect(() => () => {
-    cancelLongPress();
-    const info = dragInfoRef.current;
-    if (info?.onMove) {
-      window.removeEventListener("pointermove", info.onMove);
-      window.removeEventListener("pointerup", info.onUp);
-      window.removeEventListener("pointercancel", info.onUp);
-    }
-  }, []);
-
   const detachNativeListeners = () => {
     const info = dragInfoRef.current;
     if (info?.onMove) {
@@ -7220,38 +7294,56 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
       window.removeEventListener("pointercancel", info.onUp);
     }
   };
+  // ドラッグ中に(削除モードへの切り替え等で)アンマウントされてもリスナーと旗が残らないようにする
+  useEffect(() => () => {
+    cancelLongPress();
+    detachNativeListeners();
+    setReedTileDragActive(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const finishDrag = (committed) => {
     detachNativeListeners();
     cancelLongPress();
     dragInfoRef.current = null;
+    setReedTileDragActive(false);
     setDraggingId(null);
-    setDragOffsetY(0);
+    setDragOffset({ x: 0, y: 0 });
     if (committed) onReorder(orderRef.current);
   };
 
+  // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
+  // 削除モード中はタップが選択のトグルになるので、その場合だけ pointer 系を丸ごと降ろす。
+  const canReorder = !deleteMode && members.length >= 2;
+
   const handlePointerDown = (id, index) => (e) => {
+    if (deleteMode) return;                       // 削除モード中は onClick が選択を担う(現行と同じ方針)
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    const startY = e.clientY;
+    const startX = e.clientX, startY = e.clientY;
     const target = e.currentTarget;
     cancelLongPress();
-    dragInfoRef.current = { armed: false, startY, id, index };
+    // **1枚しかない箱でもここは通す。** 通さないと handlePointerUp が
+    // 「押していない」と判断してタップが死に、詳細を開けなくなる(実測で踏んだ)。
+    // 並び替える先が無いときは長押しのタイマーだけ張らない。
+    dragInfoRef.current = { armed: false, startX, startY, id, index };
+    if (!canReorder) return;
     longPressTimerRef.current = setTimeout(() => {
       if (!dragInfoRef.current) return;
       const rect = target.getBoundingClientRect();
-      // anchorY/anchorIndexは押下時点に固定し、以後は動かさない(移動量は常に押下位置からの
-      // 累積距離として計算する。moveのたびに基準点を更新すると1歩ごとの差分に矮小化されてしまう)。
-      const info = { armed: true, anchorY: startY, anchorIndex: index, rowHeight: rect.height, id };
+      const grid = gridRef.current?.getBoundingClientRect();
+      const info = {
+        armed: true, id,
+        anchorX: startX, anchorY: startY, anchorIndex: index,
+        cellW: rect.width, cellH: rect.height,
+        gridLeft: grid ? grid.left : rect.left, gridTop: grid ? grid.top : rect.top,
+      };
 
       const onMove = (ev) => {
         ev.preventDefault();
-        const deltaY = ev.clientY - info.anchorY;
-        const rowsMoved = Math.round(deltaY / info.rowHeight);
-        const targetIndex = Math.max(0, Math.min(orderRef.current.length - 1, info.anchorIndex + rowsMoved));
-        // 並び替えによって行そのものが (targetIndex - anchorIndex) 行ぶん移動するため、
-        // 指の総移動量をそのままtranslateYに使うと二重にずれる(特に上方向へ動かすと
-        // 掴んでいる行が指より上に表示される)。動いた行数ぶんを差し引いて指に追従させる。
-        setDragOffsetY(deltaY - (targetIndex - info.anchorIndex) * info.rowHeight);
+        setDragOffset({ x: ev.clientX - info.anchorX, y: ev.clientY - info.anchorY });
+        const targetIndex = gridDropIndex(
+          ev.clientX, ev.clientY, info.gridLeft, info.gridTop,
+          info.cellW, info.cellH, REED_GRID_GAP_PX, REED_GRID_COLS, orderRef.current.length);
         setOrder((prev) => {
           const currentIndex = prev.indexOf(info.id);
           if (currentIndex === -1 || currentIndex === targetIndex) return prev;
@@ -7266,34 +7358,32 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
       info.onMove = onMove;
       info.onUp = onUp;
       dragInfoRef.current = info;
+      setReedTileDragActive(true);   // ここから先は横スワイプで子タブを動かさない
       setDraggingId(id);
       window.addEventListener("pointermove", onMove, { passive: false });
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
-    }, 400);
+    }, REED_DRAG_LONGPRESS_MS);
   };
 
-  // 長押し成立前(まだネイティブリスナーを付けていない間)だけ使う。大きく動いたら
-  // スクロール等の通常操作とみなしてキャンセルする。
+  // 長押し成立前だけ使う。**2次元の距離**で見る(タイルは横にも並ぶので、縦だけ見ていると
+  // 横に払ったスワイプが長押しとして生き残る)。
   const handlePointerMove = (e) => {
     const info = dragInfoRef.current;
     if (!info || info.armed) return;
-    if (Math.abs(e.clientY - info.startY) > 8) { cancelLongPress(); dragInfoRef.current = null; }
+    if (Math.hypot(e.clientX - info.startX, e.clientY - info.startY) > REED_DRAG_SLOP_PX) {
+      cancelLongPress();
+      dragInfoRef.current = null;
+    }
   };
-
-  // 長押しが成立せずに指が離れた場合(＝ただのタップ)のみここで処理する。
-  // 成立した場合はネイティブのonUpがfinishDrag(true)を呼ぶのでここでは何もしない。
-  // 子要素(「測定へ」ボタンや★など)がpointerdownを止めた場合はdragInfoが無く、その時は
-  // 行タップとして扱わない(＝onRowClickで詳細を開かない)。これがないと、モバイルでボタンを
-  // 押しても行のonRowClickが発火して詳細が開いてしまい「測定へ」に飛べなかった。
+  // 長押しが成立せずに指が離れた=ただのタップ。成立していれば window の onUp が確定する。
   const handlePointerUp = (id) => () => {
     const info = dragInfoRef.current;
     if (!info || info.armed) return;
     cancelLongPress();
     dragInfoRef.current = null;
-    onRowClick(id);
+    onTileTap(id);
   };
-
   const handlePointerCancel = () => {
     const info = dragInfoRef.current;
     if (info?.armed) return;
@@ -7301,33 +7391,55 @@ function ReorderableReedRows({ members, onReorder, onRowClick, renderRow }) {
     dragInfoRef.current = null;
   };
 
-  return orderedMembers.map((r, idx) => {
-    const isDragging = draggingId === r.id;
-    return (
-      /* no-select: 長押し(400ms)で並び替えを起動する行なので、同じ長押しがテキスト選択
-         判定に化けないようにする(本人報告 F-49)。行の中身は表示専用で、入力欄は含まない。 */
-      <div
-        key={r.id}
-        className="no-select"
-        onPointerDown={handlePointerDown(r.id, idx)}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp(r.id)}
-        onPointerCancel={handlePointerCancel}
-        style={{
-          position: "relative",
-          zIndex: isDragging ? 2 : 1,
-          transform: isDragging ? `translateY(${dragOffsetY}px)` : "none",
-          boxShadow: isDragging ? "0 6px 14px rgba(15,23,42,0.18)" : "none",
-          background: isDragging ? "#EAEFF5" : "transparent",
-          borderRadius: isDragging ? "var(--r-sm)" : 0,
-          touchAction: "pan-y",
-          cursor: "pointer",
-        }}
-      >
-        {renderRow(r, idx)}
-      </div>
-    );
-  });
+  return (
+    <div
+      ref={gridRef}
+      style={{ display: "grid", gridTemplateColumns: `repeat(${REED_GRID_COLS}, 1fr)`, gap: REED_GRID_GAP_PX }}
+    >
+      {orderedMembers.map((r, idx) => {
+        const isDragging = draggingId === r.id;
+        const tone = deleteMode
+          ? (selectedForDelete?.has(r.id) ? "sel" : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null))
+          : (r.id === selectedReedId ? "sel"
+            : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null));
+        return (
+          /* no-select: 長押しで並び替えを起動するので、同じ長押しがテキスト選択に化けないようにする(F-49)。 */
+          <button
+            key={r.id}
+            type="button"
+            /* 地・枠・角丸・文字色は index.css の .reedtile が持つ(型と同じ扱い)。
+               ここに書くとインラインがクラスより強く、濃さの4段が丸ごと効かなくなる。 */
+            className="no-select reedtile"
+            data-tone={tone}
+            data-drag={isDragging ? "true" : "false"}
+            aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
+            aria-pressed={deleteMode ? !!selectedForDelete?.has(r.id) : undefined}
+            onPointerDown={handlePointerDown(r.id, idx)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp(r.id)}
+            onPointerCancel={handlePointerCancel}
+            onClick={deleteMode ? () => onTileTap(r.id) : undefined}
+            style={{
+              /* 正典 .tile の寸法。aspect-ratio 1 なので幅は .rgrid の 1fr が決める */
+              aspectRatio: "1",
+              fontSize: REED_TILE_FS_PX, fontFamily: "var(--font-num)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: 0, cursor: "pointer", position: "relative",
+              /* 正典 .tile.drag の浮き上がり(-6px / -2deg)に、指の移動ぶんを足す。
+                 影と紺の枠は .reedtile[data-drag] が持つ。 */
+              transform: isDragging
+                ? `translate(${dragOffset.x}px, ${dragOffset.y - 6}px) rotate(-2deg)`
+                : "none",
+              zIndex: isDragging ? 2 : 1,
+              touchAction: "pan-y",
+            }}
+          >
+            {reedPosition(r, reeds) ?? idx + 1}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // 値の行は折り返し禁止+高さ固定にする。桁数が変わるたびに「-18.2 dB」が1行に収まったり
@@ -7356,16 +7468,34 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
 // ============================================================
 // リードタブの親。登録⇄比較をスワイプpagerで行き来し、個別リード詳細の開閉も担う。
 // 詳細を開いている間はpagerを出さず(早期return)、右スワイプで一覧へ戻し、左スワイプで比較タブへ移る。
+//
+// 【N-5】正典の子タブ行(.subtabs)と右端の「…」をここで描く。
+// 以前は App.jsx のルート(topTab === "reeds" の中)に溝つきのセグメントコントロールがあったが、
+// 正典は**素のテキスト2つ**で、選択中だけ濃い太字。右端の「…」は削除モードと開封日の編集の入口。
+// ここへ移したのは、「…」の中身(削除モード)が登録一覧の状態と一体だから
+// (ルートに置くと状態を2階層またいで配らねばならない)。データタブの子タブ行には触らない。
+//
+// 【モード】listMode は登録子タブだけが持つ一時的な状態:
+//   null         通常
+//   "boxDelete"  箱を選んで削除
+//   "memberDelete" 個体を選んで削除
+//   "dateEdit"   箱の開封日を編集
+// モード中は「…」の代わりに「キャンセル」と実行(または「完了」)を同じ行に出す。
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
     selectedIdeal, saxType, tuningHz, compareReedIds, setCompareReedIds,
-    reedsSubTab, setReedsSubTab,
+    reedsSubTab, setReedsSubTab, selectedReedId,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
   // 展開中の箱は詳細を開いている間もここで保持する。ReedRegisterView側のstateにすると
   // 詳細表示中にアンマウントされ、戻ったとき一覧が畳まれてトップに戻ってしまう(ユーザー報告)。
-  const [expandedGroupKey, setExpandedGroupKey] = useState(null);
+  // 【N-5】正典の一覧は常時展開なので開閉は無くなったが、追加シートの下書き(銘柄・番手・枚数)は
+  // 同じ理由でここに置く必要がある。
+  const [listMode, setListMode] = useState(null);
+  const [selectedBoxKeys, setSelectedBoxKeys] = useState(() => new Set());
+  const [selectedMemberIds, setSelectedMemberIds] = useState(() => new Set());
+  const [moreOpen, setMoreOpen] = useState(false);
   // 一覧のスクロール位置。詳細を開く直前に控え、戻ったら同じ位置へ復帰させる。
   const listScrollYRef = useRef(0);
   const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
@@ -7381,35 +7511,243 @@ function ReedsTab(props) {
     if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [evaluatingReedId]);
 
+  const reedGroups = groupReeds(reeds);
+
+  // 削除は**現行のまま**: window.confirm で1度だけ確かめ、消したリードに紐づいていた
+  // セッションは reedId / linkedAt を落として紐付けだけ解除する(セッション自体は消さない)。
+  const deleteReeds = (ids) => {
+    const idSet = new Set(ids);
+    setReeds((prev) => prev.filter((r) => !idSet.has(r.id)));
+    updateSessions((prev) => prev.map((s) => (idSet.has(s.reedId) ? { ...s, reedId: null, linkedAt: null } : s)));
+  };
+
+  const exitMode = () => {
+    setListMode(null);
+    setSelectedBoxKeys(new Set());
+    setSelectedMemberIds(new Set());
+  };
+  const startMode = (mode) => {
+    setSelectedBoxKeys(new Set());
+    setSelectedMemberIds(new Set());
+    setListMode(mode);
+    setMoreOpen(false);
+  };
+  const toggleBoxSelected = (key) => setSelectedBoxKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const toggleMemberSelected = (id) => setSelectedMemberIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const confirmBoxDelete = () => {
+    if (selectedBoxKeys.size === 0) return;
+    const targetGroups = reedGroups.filter((g) => selectedBoxKeys.has(g.key));
+    const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
+    if (!window.confirm(`選択した${targetGroups.length}箱（${ids.length}枚）を削除しますか？(元に戻せません)`)) return;
+    deleteReeds(ids);
+    exitMode();
+  };
+  const confirmMemberDelete = () => {
+    if (selectedMemberIds.size === 0) return;
+    if (!window.confirm(`選択した${selectedMemberIds.size}枚を削除しますか？(元に戻せません)`)) return;
+    deleteReeds([...selectedMemberIds]);
+    exitMode();
+  };
+
+  // 左右の余白は一覧・個体詳細・比較で同じ(正典 .rlist の 24px)。
+  // **詳細だけ枠の外に出さない**: 早期 return を枠の内側に畳んであるのはそのため
+  // (以前ここで早期 return していたときは、詳細だけ左右が 14px になっていた)。
   if (evaluatingReed) {
     return (
-      <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
-        <ReedEvaluationDetail
-          reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
-          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-          onBack={closeReed}
-        />
-      </SwipeBackArea>
+      <div style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
+        <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
+          <ReedEvaluationDetail
+            reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
+            selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
+            onBack={closeReed}
+            onMeasure={(id) => { setSelectedReedId(id); setTopTab("measure"); }}
+          />
+        </SwipeBackArea>
+      </div>
     );
   }
 
   return (
-    <SwipePager
-      index={reedsSubTab === "compare" ? 1 : 0}
-      onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
-    >
-      <ReedRegisterView
-        reeds={reeds} setReeds={setReeds}
-        sessions={sessions} updateSessions={updateSessions}
-        setTopTab={setTopTab} setSelectedReedId={setSelectedReedId}
-        selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
-        onOpenReed={openReed}
-        expandedGroupKey={expandedGroupKey} setExpandedGroupKey={setExpandedGroupKey}
-      />
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-        <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
+    <div style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
+      {/* 正典 .subtabs: 素のテキスト2つ(13px)を gap 18 で並べ、選択中だけ --c-ink の太字。
+          溝(地 --c-sunken の segmented control)は正典に無いので撤去した。
+          【タップ領域(§5)の作り方】「登録」「比較」は実測 26px しかないので、
+          **見た目の間隔を変えずに**当たり判定だけ広げる: 行の gap を 0 にして
+          左右に 18/2 = 9px の padding を入れる(隣り合う文字の間は 9+9 = 18 のまま)。
+          先頭の文字が 9px 右へずれるぶんは行の marginLeft で戻す(文字の位置は正典どおり)。 */}
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -REED_SUBTAB_HALF_GAP_PX, fontSize: 13, marginBottom: 4 }}>
+        {[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => { if (listMode) exitMode(); setReedsSubTab(t.key); }}
+            className="sans"
+            aria-pressed={reedsSubTab === t.key}
+            style={{
+              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              padding: `0 ${REED_SUBTAB_HALF_GAP_PX}px`,
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 13,
+              color: reedsSubTab === t.key ? "var(--c-ink)" : "var(--c-ink-3)",
+              fontWeight: reedsSubTab === t.key ? 600 : 400,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+        {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。
+            【リードが0枚のときは出さない】中身は「箱を選んで削除 / 個体を選んで削除 /
+            箱の開封日を編集」の3つで、**箱が1つも無ければどれも実行できない**。
+            HEAD も削除の入口を `{reeds.length > 0 && …}` で括っていた(0枚では出さない)。
+            §6.0 の3原則「今に関係ない物は出ていない」。0枚の画面に残るのは
+            「まだリードが登録されていません」と「＋ 追加」だけになる。 */}
+        {reedsSubTab === "register" && (reeds.length > 0 || listMode !== null) && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+            {listMode === null ? (
+              <button
+                onClick={() => setMoreOpen(true)}
+                aria-label="その他の操作"
+                aria-expanded={moreOpen}
+                className="sans"
+                style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--c-ink-2)" }}
+              >
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+                  <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
+                </svg>
+              </button>
+            ) : (
+              <>
+                <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
+                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
+                </button>
+                {listMode === "dateEdit" ? (
+                  <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
+                    <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-accent)", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>完了</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
+                    disabled={listMode === "boxDelete" ? selectedBoxKeys.size === 0 : selectedMemberIds.size === 0}
+                    className="sans"
+                    style={{ ...TAP_BUTTON_RESET, cursor: (listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0 ? "pointer" : "default" }}
+                  >
+                    {/* 実際に消える一手だけが --c-danger の塗りを持つ(index.css の .ctl-danger)。 */}
+                    <span className="ctl-plain ctl-pill ctl-danger"
+                      data-armed={(listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0}
+                      style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                      {listMode === "boxDelete"
+                        ? (selectedBoxKeys.size > 0 ? `${selectedBoxKeys.size}箱を削除` : "削除")
+                        : (selectedMemberIds.size > 0 ? `${selectedMemberIds.size}枚を削除` : "削除")}
+                    </span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
-    </SwipePager>
+
+      <SwipePager
+        index={reedsSubTab === "compare" ? 1 : 0}
+        onIndexChange={(i) => { if (listMode) exitMode(); setReedsSubTab(i === 1 ? "compare" : "register"); }}
+      >
+        <ReedRegisterView
+          reeds={reeds} setReeds={setReeds}
+          sessions={sessions}
+          selectedReedId={selectedReedId}
+          onOpenReed={openReed}
+          reedGroups={reedGroups}
+          listMode={listMode}
+          selectedBoxKeys={selectedBoxKeys} toggleBoxSelected={toggleBoxSelected}
+          selectedMemberIds={selectedMemberIds} toggleMemberSelected={toggleMemberSelected}
+        />
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
+        </div>
+      </SwipePager>
+
+      {moreOpen && (
+        <ReedMoreMenu
+          totalCount={reeds.length}
+          onClose={() => setMoreOpen(false)}
+          onPick={startMode}
+        />
+      )}
+    </div>
+  );
+}
+
+// 【N-5】登録一覧の「…」。正典 .subtabs 右端の3点から開く。
+// 使用頻度の低い操作をここへ入れる(正典の3原則「今に関係ない物は出ていない」)。
+// シートの作法(暗幕・角丸28・つまみ36×4・影)はテンポシートと同値。新しい濃さを発明しない。
+// **リードが0枚のときはこのメニューの入口ごと出さない**(3つとも実行できないため。呼び出し側の条件)。
+//
+// 【総枚数の置き場所は本人判断待ち・暫定】design/north-star-coverage.md は
+// 「総枚数バッジ(登録済みリード 12)」を**要決定(消す候補)**としており、まだ決まっていない。
+// 正典の一覧に居場所が無いので**暫定でこの見出しに置いている**だけで、
+// 「ここが引き取る」と決まったわけではない。消す/一覧へ戻す/ここに残すの判断は本人に確認する。
+const REED_MORE_ITEMS = [
+  { mode: "boxDelete", label: "箱を選んで削除" },
+  { mode: "memberDelete", label: "個体を選んで削除" },
+  { mode: "dateEdit", label: "箱の開封日を編集" },
+];
+function ReedMoreMenu({ totalCount, onClose, onPick }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(
+    <div
+      role="dialog" aria-modal="true" aria-label="リードの操作"
+      onClick={onClose}
+      data-noswipe
+      style={{
+        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        data-noswipe
+        style={{
+          width: "100%", maxWidth: 900, background: "var(--c-surface)",
+          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        }}
+      >
+        <button
+          onClick={onClose} aria-label="閉じる" className="no-select"
+          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+        >
+          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
+        </button>
+        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 4 }}>登録済みリード {totalCount}枚</div>
+        {REED_MORE_ITEMS.map((it) => (
+          <button
+            key={it.mode}
+            onClick={() => onPick(it.mode)}
+            className="sans"
+            style={{
+              minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
+              background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
+              padding: 0, cursor: "pointer", fontSize: 14, color: "var(--c-ink)", textAlign: "left",
+            }}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -7476,494 +7814,363 @@ const TAP_BUTTON_RESET = {
   fontSize: "var(--fs-xs)",
 };
 
-function ReedRegisterView(props) {
-  const { reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId, selectedIdeal, saxType, tuningHz, onOpenReed, expandedGroupKey, setExpandedGroupKey } = props;
+// 【N-5】箱の見出しの2行目に出していた「開始 yyyy/mm/dd ・ n枚」は正典 .rmeta の
+// 「★3.8 / 2026/08/02」に置き換わった。枚数はタイルを数えれば分かる(正典の判断)。
+// 個体の「開封n日 ・ nセッション / 未測定」もタイルには載らないので、個体詳細へ移した
+// (下の reedDetailMetaLine)。
+//
+// 個体詳細の「測定データ · …」の1行。正典は「測定データ · 12セッション」だが、
+// 一覧のタイルから落ちた**開封からの日数**をここが引き取る(P1-8「育てる」の唯一の表示)。
+// 集計は既存の usageDays() / セッション数だけを使う。新しい指標は作らない。
+//   セッションが0件            → 「未測定」(一覧の個体行が出していた語をそのまま使う)
+//   開封日が未設定 / 読めない  → 日数の節を出さない
+function reedDetailMetaLine(sessionCount, days) {
+  const head = sessionCount > 0 ? `${sessionCount}セッション` : "未測定";
+  return days ? `測定データ · ${head} · 開封 ${days}日` : `測定データ · ${head}`;
+}
 
+// 【N-5】追加シート。正典のミニ「追加」。
+// 銘柄プルダウン(「＋ 新しい銘柄を入力...」で自由入力が出るのは現行のまま)・番手5種のピル・
+// 枚数 1〜10 の −/＋。**枚数1なら「1枚を追加」、複数なら「n枚の箱を追加」**。
+// 現行の window.prompt による枚数入力は廃止(シートの中で完結する)。
+// シートの作法(暗幕・角丸28・つまみ・影)はテンポシート/「…」と同値。
+//
+// 追加ボタンの文言は純関数に出してある(ハーネスが JSX を見ないため。実行で数えられる)。
+function reedAddButtonLabel(count) {
+  return count === 1 ? "1枚を追加" : `${count}枚の箱を追加`;
+}
+// 銘柄プルダウンの「新しい銘柄を入力」の値とラベル。現行の <option value="__custom__"> を
+// そのまま引き継ぐ(保存される銘柄名には出ない内部値)。
+const REED_BRAND_CUSTOM = "__custom__";
+const REED_BRAND_CUSTOM_LABEL = "＋ 新しい銘柄を入力...";
+const REED_ADD_COUNT_MIN = 1;
+const REED_ADD_COUNT_MAX = REED_BOX_SIZE; // 箱1つぶん(10枚)
+function clampReedAddCount(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return REED_ADD_COUNT_MIN;
+  return Math.max(REED_ADD_COUNT_MIN, Math.min(REED_ADD_COUNT_MAX, v));
+}
+
+function ReedAddSheet({
+  brandOptions, brand, setBrand, customBrand, setCustomBrand,
+  strength, setStrength, count, setCount, onAdd, onClose,
+}) {
+  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const isCustom = brand === REED_BRAND_CUSTOM;
+  const disabled = isCustom && !customBrand.trim();
+  const pickerOptions = [...brandOptions, REED_BRAND_CUSTOM];
+  return createPortal(
+    <>
+      <div
+        role="dialog" aria-modal="true" aria-label="リードを追加"
+        onClick={onClose}
+        data-noswipe
+        style={{
+          position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+          display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          data-noswipe
+          style={{
+            width: "100%", maxWidth: 900, background: "var(--c-surface)",
+            borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+            padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+            display: "flex", flexDirection: "column", alignItems: "stretch",
+          }}
+        >
+          <button
+            onClick={onClose} aria-label="閉じる" className="no-select"
+            style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+          >
+            <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
+          </button>
+
+          {/* 正典ミニの見出し「追加」(11px / --ink3) */}
+          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 10 }}>追加</div>
+
+          {/* 銘柄。正典は「太字の値 + ▾」の1行(padding 8px 0 / 下に罫1本 / 14px)。 */}
+          <button
+            onClick={() => setBrandPickerOpen(true)}
+            aria-label="銘柄" aria-expanded={brandPickerOpen}
+            className="sans"
+            style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "8px 0", minHeight: "var(--tap-min)",
+              border: "none", borderBottom: "1px solid var(--c-line)",
+              background: "none", cursor: "pointer", fontSize: 14, color: "var(--c-ink)", width: "100%",
+            }}
+          >
+            <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {isCustom ? (customBrand.trim() || REED_BRAND_CUSTOM_LABEL) : brand}
+            </span>
+            <PickChevron />
+          </button>
+          {/* 「＋ 新しい銘柄を入力...」を選んだときだけ出る自由入力(現行のまま)。 */}
+          {isCustom && (
+            <input
+              type="text" placeholder="新しい銘柄名を入力" value={customBrand}
+              onChange={(e) => setCustomBrand(e.target.value)}
+              className="sans"
+              style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, marginTop: 8 }}
+            />
+          )}
+
+          {/* 番手5種。正典 .selrow / .selpill(12.5px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
+              見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。 */}
+          <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop: 12 }}>
+            {REED_STRENGTHS.map((s) => (
+              <button key={s} onClick={() => setStrength(s)}
+                aria-pressed={strength === s}
+                aria-label={`番手 ${s}`}
+                className="no-select"
+                style={{
+                  minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0,
+                  background: "transparent", border: "none",
+                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                }}>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                  border: strength === s ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                  background: strength === s ? "var(--c-accent)" : "transparent",
+                  color: strength === s ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                }}>{s}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 枚数 1〜10。正典は −/数値/＋ を gap 26 で並べ、数値は 26px の太字。
+              ± の反応領域の幅は計測タブと同じ METRO_PM_W(72)。
+              【正典と意図的に違う1点】正典ミニの `.pmt` は **height:40px** だが、
+              DESIGN-SYSTEM §6.0 は「§5 のタップ領域 44px は機能側の規定として引き続き有効。
+              機能とモックが衝突したときは機能を残す」と定めているので **44px** にした。
+              見えているのは「−」「＋」の文字だけなので、高さを 4px 足しても見た目は変わらない。 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 26, marginTop: 16 }}>
+            <button
+              onClick={() => setCount((v) => clampReedAddCount(v - 1))}
+              aria-label="枚数を減らす" className="no-select"
+              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+            >−</button>
+            <span aria-live="polite" style={{ fontSize: 26, fontWeight: 600, fontFamily: "var(--font-num)", minWidth: 44, textAlign: "center" }}>{count}</span>
+            <button
+              onClick={() => setCount((v) => clampReedAddCount(v + 1))}
+              aria-label="枚数を増やす" className="no-select"
+              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+            >＋</button>
+          </div>
+
+          {/* 追加の一手。正典は紺の塗りピル(13px / 600 / padding 8px 22px)。 */}
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+            <button
+              onClick={onAdd}
+              disabled={disabled}
+              className="sans"
+              style={{
+                minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
+                cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center",
+              }}
+            >
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13, fontWeight: 600, color: "var(--c-on-accent)",
+                background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
+                borderRadius: 999, padding: "8px 22px",
+              }}>{reedAddButtonLabel(count)}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      {/* 銘柄のピッカーはシートの**外**に出す(z-index はシートと同じ層の上)。
+          シートの中に置くと、暗幕がシートの中に閉じて背面がタップできてしまう(F-73 と同型の罠)。 */}
+      {brandPickerOpen && (
+        <ScrollPicker
+          options={pickerOptions}
+          value={brand}
+          onChange={(v) => setBrand(v)}
+          onClose={() => setBrandPickerOpen(false)}
+          labelFn={(v) => (v === REED_BRAND_CUSTOM ? REED_BRAND_CUSTOM_LABEL : v)}
+        />
+      )}
+    </>,
+    document.body,
+  );
+}
+
+function ReedRegisterView(props) {
+  const {
+    reeds, setReeds, sessions, selectedReedId, onOpenReed, reedGroups,
+    listMode, selectedBoxKeys, toggleBoxSelected, selectedMemberIds, toggleMemberSelected,
+  } = props;
+
+  const [addOpen, setAddOpen] = useState(false);
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
   const [newStrength, setNewStrength] = useState(REED_STRENGTHS[2]); // 初期値3.0
-  const [newStartDate, setNewStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [bulkCount, setBulkCount] = useState(10); // 「まとめて追加」の枚数(上限10)
+  const [addCount, setAddCount] = useState(REED_ADD_COUNT_MAX);      // 既定は箱ぶん(10枚)
 
   // ユーザーが自由入力した銘柄を選択肢に自動追加(初期リスト+動的追加分)
   const [extraBrands, setExtraBrands] = useState([]);
   const brandOptions = [...INITIAL_REED_BRANDS, ...extraBrands];
 
-  const resolveBrand = () => {
-    if (newBrand === "__custom__") return customBrand.trim();
-    return newBrand;
-  };
+  const resolveBrand = () => (newBrand === REED_BRAND_CUSTOM ? customBrand.trim() : newBrand);
 
+  // 【N-5】開封日の入力欄は出さない。**箱を追加した日**がそのまま開封日になる
+  // (編集は「…」の「箱の開封日を編集」)。
   const registerReeds = (count) => {
     const brand = resolveBrand();
     if (!brand) return;
-
     // 自由入力の銘柄は選択肢に自動追加(重複は避ける)
-    if (newBrand === "__custom__" && !brandOptions.includes(brand)) {
+    if (newBrand === REED_BRAND_CUSTOM && !brandOptions.includes(brand)) {
       setExtraBrands((prev) => [...prev, brand]);
     }
-
+    // **ローカル暦日**で入れる(localDayKey の解説を見ること)。
+    // toISOString().slice(0,10) は UTC の暦日なので、JST の 00:00〜09:00 に追加すると
+    // 1日前の開封日になり、箱のキー(銘柄|番手|開封日)まで割れる。
+    const startDate = localDayKey(new Date());
     const newReeds = Array.from({ length: count }).map((_, i) => ({
       id: generateId(),
       brand,
       strength: newStrength,
-      startDate: newStartDate,
-      boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報。表示上の番号はグループ内の登録順で振り直す)
+      startDate,
+      boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報)
       rating: null, // 主観の5段階評価(1〜5)。未評価はnull
       thickness: null, // 主観の厚さ(抵抗感/密度)。未評価はnull
       balance: null,   // 主観のバランス(低音〜高音の鳴りの揃い)。未評価はnull
       createdAt: new Date().toISOString(),
     }));
     setReeds((prev) => [...prev, ...newReeds]);
-    if (newBrand === "__custom__") setCustomBrand("");
+    if (newBrand === REED_BRAND_CUSTOM) setCustomBrand("");
+    setAddOpen(false);
   };
 
-  // 「まとめて追加」タップ時に枚数を尋ねる(以前は事前選択のプルダウンだったが、
-  // タップ後にその場で聞く方式に変更)。前回入力した枚数を次回のデフォルト値として覚えておく。
-  const promptBulkCount = () => {
-    const input = window.prompt(`まとめて追加する枚数を入力してください（1〜${REED_BOX_SIZE}）`, String(bulkCount));
-    if (input === null) return; // キャンセル
-    const n = parseInt(input, 10);
-    if (!Number.isFinite(n) || n < 1) return;
-    const clamped = Math.min(n, REED_BOX_SIZE);
-    setBulkCount(clamped);
-    registerReeds(clamped);
+  // 箱の開封日の編集。**箱のキーは銘柄|番手|開封日**なので、開封日を変えると箱ごと動く。
+  // その箱に属する全部のリードを同じ日へ書き換える(1枚だけ動かすと箱が割れる)。
+  const setGroupStartDate = (g, value) => {
+    if (!value) return;
+    const ids = new Set(g.members.map((m) => m.id));
+    setReeds((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, startDate: value } : r)));
   };
 
-  const deleteReeds = (ids) => {
-    const idSet = new Set(ids);
-    setReeds((prev) => prev.filter((r) => !idSet.has(r.id)));
-    updateSessions((prev) => prev.map((s) => (idSet.has(s.reedId) ? { ...s, reedId: null, linkedAt: null } : s)));
-  };
-
-  const rateReed = (id, rating) => {
-    setReeds((prev) => prev.map((r) => (r.id === id ? { ...r, rating } : r)));
-  };
-
-  // 削除は誤タップが多かったため、行ごとの削除ボタンをやめてチェックボックスによる複数選択削除にする。
-  // 2種類の削除操作を分けている: 「登録済みリード」列の削除ボタンは箱ごとまとめて選んで削除、
-  // 各箱の銘柄列の削除ボタンはその箱の中から個体を選んで削除。同時には片方しか使えない。
-  const [boxSelectionMode, setBoxSelectionMode] = useState(false);
-  const [selectedBoxesForDelete, setSelectedBoxesForDelete] = useState(() => new Set());
-  const [memberSelectGroupKey, setMemberSelectGroupKey] = useState(null); // 個体選択削除中の箱のkey(nullなら非選択中)
-  const [selectedMembersForDelete, setSelectedMembersForDelete] = useState(() => new Set());
-
-  const startBoxSelectionMode = () => {
-    setMemberSelectGroupKey(null);
-    setSelectedMembersForDelete(new Set());
-    setBoxSelectionMode(true);
-  };
-  const toggleBoxSelected = (key) => {
-    setSelectedBoxesForDelete((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
-  const exitBoxSelectionMode = () => {
-    setBoxSelectionMode(false);
-    setSelectedBoxesForDelete(new Set());
-  };
-  const confirmBoxBatchDelete = () => {
-    if (selectedBoxesForDelete.size === 0) return;
-    const targetGroups = reedGroups.filter((g) => selectedBoxesForDelete.has(g.key));
-    const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
-    if (!window.confirm(`選択した${targetGroups.length}箱（${ids.length}枚）を削除しますか？(元に戻せません)`)) return;
-    deleteReeds(ids);
-    exitBoxSelectionMode();
-  };
-
-  const startMemberSelect = (g) => {
-    setBoxSelectionMode(false);
-    setSelectedBoxesForDelete(new Set());
-    setMemberSelectGroupKey(g.key);
-    setSelectedMembersForDelete(new Set());
-    setExpandedGroupKey(g.key); // 選べるよう箱を開く
-  };
-  const toggleMemberSelected = (id) => {
-    setSelectedMembersForDelete((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-  const exitMemberSelect = () => {
-    setMemberSelectGroupKey(null);
-    setSelectedMembersForDelete(new Set());
-  };
-  const confirmMemberBatchDelete = () => {
-    if (selectedMembersForDelete.size === 0) return;
-    if (!window.confirm(`選択した${selectedMembersForDelete.size}枚を削除しますか？(元に戻せません)`)) return;
-    deleteReeds([...selectedMembersForDelete]);
-    exitMemberSelect();
-  };
-
-  const goToMeasure = (id) => {
-    setSelectedReedId(id);
-    setTopTab("measure");
-  };
-
-  // 長押し+スライドでの並び替え確定時、表示順(sortOrder)だけを更新する。
+  // 長押し+ドラッグでの並び替え確定時、表示順(sortOrder)だけを更新する。
   // 管理番号(boxNumber)は並び替えても変えない(リードそのものの識別に使うため)。
   const reorderGroupMembers = (newOrderIds) => {
     const orderById = new Map(newOrderIds.map((id, i) => [id, i + 1]));
     setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
-  const reedGroups = groupReeds(reeds);
-
-  // 個体行の「育てる」行(P1-8)。リードは消耗品なので、開封後日数と使用量が最も育つ/老いる対象。
-  // 集計は既存の usageDays() と frameCountFor() だけを使う(新しい指標は作らない)。
-  // 主役は張らせない: --fs-xs / --c-ink-3 の副次テキストで、数値が静かに増えるだけ(DESIGN-SYSTEM §7)。
-  const today = new Date();
-  const growthLine = (r) => {
-    const days = usageDays(today, r.startDate);   // 使用開始日が未設定なら null
-    const frames = frameCountFor(sessions, r.id); // このリードで記録した総フレーム数
-    const sessionCount = sessions.filter((s) => s.reedId === r.id).length;
-    // 真偽値で判定する(=== null では足りない)。usageDays() は startDate が空なら null を返すが、
-    // パースできない文字列では Math.max(1, NaN) = NaN を返すため、=== null だと NaN が素通りして
-    // 「開封 NaN日」と表示される。ピボット側の reedDays も同じ真偽値判定で弾いている。
-    // usageDays() の下限は 1 なので、0 を誤って弾く心配はない。
-    const left = !days ? "開封日 未設定" : `開封 ${days}日`;
-    const right = frames > 0 ? `${sessionCount}セッション` : "未測定";
-    return `${left} ・ ${right}`;
-  };
-
-  // 箱ヘッダ(2行)。1行目=銘柄+番手 / 2行目=使用開始日・枚数。
-  // 以前は3要素を1行に詰めていたため、右の★+chevronを引いた残り約200pxに対し
-  // 必要幅が約290pxとなり常時2〜3行に折り返していた(P0-5)。
-  const boxHeading = (g) => (
-    <span style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "var(--sp-1)" }}>
-      {/* 親(箱)を --fs-md(15px) に上げ、子(個体番号)と同じサイズにする。
-          階層はサイズではなくインデントと縦罫線が担う(DESIGN-SYSTEM §6.2)。 */}
-      <span style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)", minWidth: 0, maxWidth: "100%" }}>
-        <span title={g.brand} style={{ fontSize: 15, color: "#121F32", fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.brand}</span>
-        <span style={{ fontSize: 15, color: "#174585", fontWeight: 700, flexShrink: 0 }}>{g.strength}</span>
-      </span>
-      {/* 生のISO文字列("2026-07-31")をやめ、読める形式にする */}
-      <span className="sans" style={{ fontSize: 12, color: "#8D95A1", fontWeight: 400, whiteSpace: "nowrap" }}>
-        {formatYmd(g.startDate) ? `開始 ${formatYmd(g.startDate)}` : "開始日 未設定"} ・ {g.members.length}枚
-      </span>
-    </span>
-  );
-
-  // 展開中の箱(expandedGroupKey)は親のReedsTabが保持する。個別リード詳細を開いている間も
-  // 状態が消えず、戻ったときに同じ箱が開いたままの一覧へ復帰できるようにするため。
-  // 個別リード評価詳細の開閉は親(ReedsTab)が持つ。ここでは行タップでonOpenReed(id)を呼ぶだけ。
+  // 並び替えの案内。正典に居場所は無いので、**一覧のいちばん下**(「＋ 追加」の下)に
+  // 小さく1行だけ置く。並び替える先がある箱(2枚以上)が1つも無ければ出さない。
+  const anyReorderable = reedGroups.some((g) => g.members.length >= 2);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <div className="card no-top-rule" style={{ marginBottom: 12 }}>
-        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 12 }}>新しいリードを登録</div>
+      {reeds.length === 0 ? (
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "20px 0" }}>まだリードが登録されていません</div>
+      ) : (
+        reedGroups.map((g) => {
+          const avgRating = reedGroupAvgRating(g.members);
+          const boxChecked = selectedBoxKeys?.has(g.key);
+          const heading = (
+            <>
+              {/* 正典 .rname: 15px / 600。番手は <i>(--ink3 / 400 / 斜体にしない) */}
+              <span className="rname sans" style={{ fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span>
+              </span>
+              {/* 正典 .rmeta: 12px / --ink3 / gap 10 / baseline。★は文字のまま(星の絵は使わない) */}
+              <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", display: "flex", gap: 10, alignItems: "baseline", flexShrink: 0 }}>
+                {avgRating !== null && <span>★{avgRating.toFixed(1)}</span>}
+                {listMode === "dateEdit" ? (
+                  <input
+                    type="date"
+                    aria-label={`${g.brand} ${g.strength} の開封日`}
+                    value={g.startDate || ""}
+                    onChange={(e) => setGroupStartDate(g, e.target.value)}
+                    className="sans"
+                    /* appearance を落とす理由は REED_FORM_CONTROL_STYLE の解説を見ること
+                       (iOS Safari の input[type=date] は固有幅を優先して width が効かない)。
+                       **ここは Chrome では判定できない類**(LOOP.md)。 */
+                    style={{ ...REED_FORM_CONTROL_STYLE, width: 150, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
+                  />
+                ) : (
+                  <span>{formatYmd(g.startDate) ?? "開封日 未設定"}</span>
+                )}
+              </span>
+            </>
+          );
+          return (
+            /* 正典 .rgroup: padding 20px 0 24px / 下に罫1本 */
+            <div key={g.key} style={{ paddingTop: REED_GROUP_PAD_TOP_PX, paddingBottom: REED_GROUP_PAD_BOTTOM_PX, borderBottom: "1px solid var(--c-line)" }}>
+              {listMode === "boxDelete" ? (
+                /* 箱まとめ削除。見出しの行がそのまま選択の当たり判定になる */
+                <button
+                  onClick={() => toggleBoxSelected(g.key)}
+                  className="sans"
+                  aria-pressed={!!boxChecked}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 4, minHeight: "var(--tap-min)", marginBottom: REED_HEAD_MB_PX, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                >
+                  <input
+                    type="checkbox" checked={!!boxChecked} onChange={() => toggleBoxSelected(g.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`${g.brand} ${g.strength} の箱を選択`}
+                    style={reedCheckboxStyle(!!boxChecked, 18)}
+                  />
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>{heading}</span>
+                </button>
+              ) : (
+                /* 正典 .rhead: baseline 揃えの両端寄せ / 下に 14px */
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: REED_HEAD_MB_PX }}>{heading}</div>
+              )}
+              <ReedTileGrid
+                members={g.members}
+                reeds={reeds}
+                sessions={sessions}
+                selectedReedId={selectedReedId}
+                deleteMode={listMode === "memberDelete"}
+                selectedForDelete={selectedMemberIds}
+                onTileTap={(id) => (listMode === "memberDelete" ? toggleMemberSelected(id) : onOpenReed?.(id))}
+                onReorder={reorderGroupMembers}
+              />
+            </div>
+          );
+        })
+      )}
 
-        {/* 銘柄と番手を本人指示により2カラムの同じ行にまとめる(計測タブ上部のリード選択と
-            同じ「2つを横に並べる」配置方針。2026-08-04)。使用開始日はこの2カラムに含めず、
-            前回の周(F-23)で直したとおり単独の1行フル幅のまま変更しない。前回、番手と
-            使用開始日を2カラムにした際はinput[type=date]がiOS Safariで最小内容幅から
-            縮まずはみ出したため全部1行フル幅に戻した経緯があるが(6452行台の旧コメント参照)、
-            今回のペアはselect同士(銘柄・番手)でdateを含まないため、その問題は関係ない。 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <label htmlFor="reed-brand-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>銘柄</label>
-            <select id="reed-brand-select" value={newBrand} onChange={(e) => setNewBrand(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
-              {brandOptions.map((b) => (<option key={b} value={b}>{b}</option>))}
-              <option value="__custom__">＋ 新しい銘柄を入力...</option>
-            </select>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <label htmlFor="reed-strength-select" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>番手</label>
-            <select id="reed-strength-select" value={newStrength} onChange={(e) => setNewStrength(e.target.value)} style={REED_FORM_CONTROL_STYLE}>
-              {REED_STRENGTHS.map((s) => (<option key={s} value={s}>{s}</option>))}
-            </select>
-          </div>
-        </div>
-        {/* 【使用開始日だけが銘柄・番手より横に広くなる件の本命の対処。2026-08-04】
-            本人報告: 「普通の画面では分からないが、スワイプで指に追従して動くときに
-            日付だけ横幅がずれているのが分かる」。実際、実機(iOS Safari)では
-            width:100% / minWidth:0 / boxSizing:border-box を全部与えても直らなかった。
-            原因は **-webkit-appearance がネイティブのままだから**。iOS Safari の
-            input[type=date] はネイティブのdateコントロールとして描かれ、その状態では
-            「年/月/日＋カレンダー」を収める固有の幅を優先し、CSS の width を無視する
-            (Chrome は無視しないので Browser pane では再現しない = 前2周で見落とした理由)。
-            appearance を落とすと素のテキスト欄と同じ箱になり width:100% が効くようになる。
-            タップでネイティブの日付ピッカーが開く挙動はそのまま残る。
-            maxWidth:100% は「それでも固有幅が勝つ」場合に親を超えないための二重の歯止め。
-            **本人の実機で「横幅は直った」ことを確認済み(2026-08-04)。**
-
-            【lineHeight と overflow を併記する理由】appearance を落とすと、幅と一緒に
-            **縦方向の固有の寸法(高さ・内部テキストの縦位置)も失われる**。実際、本人から
-            「横幅は直ったが縦幅が変わった」という報告が続いた。高さ自体は
-            REED_FORM_CONTROL_STYLE の height で固定してあるので、ここでは中のテキストが
-            上寄せに落ちないよう行の高さを与える。overflow:hidden は内部UIが箱をはみ出した
-            場合の最後の歯止め(Chromeでは3つとも無影響なので、足さない理由が無い)。
-            iOS実機でしか検証できないため、ここを触るときは必ず実機で確認すること。 */}
-        <div style={{ marginBottom: 8 }}>
-          <label htmlFor="reed-startdate-input" className="sans" style={{ fontSize: 12, color: "#435266", display: "block", marginBottom: 4 }}>使用開始日</label>
-          <input
-            id="reed-startdate-input"
-            type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="sans"
-            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
-          />
-        </div>
-
-        {newBrand === "__custom__" && (
-          <input
-            type="text" placeholder="新しい銘柄名を入力" value={customBrand}
-            onChange={(e) => setCustomBrand(e.target.value)}
-            className="sans"
-            style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, marginBottom: 8 }}
-          />
-        )}
-
-        {/* B型 = .ctl-plain + .ctl-pill。「1枚ずつ追加」は状態を持たない普通のボタンなので
-            枠線をやめ、地(--c-sunken)だけにする。相方の「まとめて追加」は塗り(--c-accent)で、
-            こちらも枠線を持たない。主従は地の濃さと文字色で返す。 */}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button
-            onClick={() => registerReeds(1)}
-            disabled={newBrand === "__custom__" && !customBrand.trim()}
-            className="sans ctl-plain ctl-pill"
-            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", color: "#121F32", fontSize: 12, cursor: "pointer" }}
-          >
-            1枚ずつ追加
-          </button>
-          <button
-            onClick={promptBulkCount}
-            disabled={newBrand === "__custom__" && !customBrand.trim()}
-            className="sans"
-            style={{ flex: 1, minHeight: "var(--tap-min)", padding: "10px 4px", borderRadius: "var(--r-pill)", border: "none", background: "#174585", color: "var(--c-on-accent)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-          >
-            まとめて追加
-          </button>
-        </div>
+      {/* 正典 .addrow / .addbtn: 中央 / padding-top 20 / 14px の --accent。**「＋ 追加」1つだけ**
+          (「1枚ずつ追加」「まとめて追加」の2択はシートの枚数に統合した)。 */}
+      <div style={{ display: "flex", justifyContent: "center", paddingTop: REED_ADDROW_PAD_TOP_PX }}>
+        <button
+          onClick={() => setAddOpen(true)}
+          className="sans"
+          style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", padding: "0 var(--sp-4)", cursor: "pointer", fontSize: 14, color: "var(--c-accent)" }}
+        >
+          ＋ 追加
+        </button>
       </div>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <div className="sans" style={{ fontSize: 15, color: "#121F32", fontWeight: 700 }}>登録済みリード <span style={{ color: "#8D95A1", fontWeight: 400 }}>{reeds.length}</span></div>
-          {reeds.length > 0 && (
-            boxSelectionMode ? (
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={exitBoxSelectionMode}
-                  className="sans"
-                  style={{ ...TAP_BUTTON_RESET }}
-                >
-                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
-                </button>
-                <button
-                  onClick={confirmBoxBatchDelete}
-                  disabled={selectedBoxesForDelete.size === 0}
-                  className="sans"
-                  style={{ ...TAP_BUTTON_RESET, cursor: selectedBoxesForDelete.size > 0 ? "pointer" : "default" }}
-                >
-                  {/* 【危険色の扱い】**実際に削除が実行される一手だけ** --c-danger の塗り +
-                      --c-on-accent の文字にする(index.css の .ctl-danger)。塗りは体系の中で
-                      既に「主要動作の合図」(まとめて追加 = --c-accent 塗り + --c-on-accent)
-                      として認めた語彙なので、破壊的動作にだけ危険色の塗りを許すのは一貫する。
-                      白 on #DC2626 = 4.8281:1 で WCAG AA(4.5:1)を満たす。
-                      枠は持たないので芯1・芯2 に反しない。
-                      押せない(0件選択)ときは何も消えないので B型のまま・文字は --c-ink-3。
-                      地・文字色を**インラインで書かない**のは、インラインがクラスより強く、
-                      書くと型(.ctl-plain)が効かなくなるため(17.6 の検査が落ちる)。 */}
-                  <span className="ctl-plain ctl-pill ctl-danger" data-armed={selectedBoxesForDelete.size > 0} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
-                    {selectedBoxesForDelete.size > 0 ? `${selectedBoxesForDelete.size}箱を削除` : "削除"}
-                  </span>
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={startBoxSelectionMode}
-                className="sans"
-                aria-label="箱を選んで削除"
-                style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center" }}
-              >
-                {/* 削除「モードに入る」入口。破壊はまだ起きないので文字色は中立(--c-ink-2)。
-                    危険色は実際に消える一手(上の「n箱を削除」)だけが持つ。
-                    「削除」の文字を消してアイコン単体にしたので、当たり判定が44px幅を割らないよう
-                    minWidth: var(--tap-min) を明示する(6607行の「この箱の中から選んで削除」と
-                    同じパターン。DESIGN-SYSTEM §5「最小44×44pt。例外なし」)。 */}
-                <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>
-                  <Trash2 size={13} />
-                </span>
-              </button>
-            )
-          )}
+      {anyReorderable && listMode === null && (
+        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
+          長押ししてスライドすると並び替えられます・タップで詳細
         </div>
-        {reeds.length === 0 ? (
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>まだリードが登録されていません</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {reedGroups.map((g) => {
-              const isExpanded = expandedGroupKey === g.key;
-              const boxChecked = selectedBoxesForDelete.has(g.key);
-              const isMemberSelecting = memberSelectGroupKey === g.key;
-              // 箱の平均評価。個体行のメイン評価★と見た目で差をつけるため、薄い色・小さいサイズで表示する
-              // (タイポグラフィ指示書5節③)。誰も評価していない箱では表示しない。
-              // 0.1 刻みへの丸めまで含めて reedGroupAvgRating が持つ(F-62)。
-              // ここで生の平均を作り直さないこと。title の "4.1" と星の塗りがずれる。
-              const avgRating = reedGroupAvgRating(g.members);
-              return (
-                <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: "var(--r-lg)", overflow: "hidden" }}>
-                  <div style={{ display: "flex", alignItems: "stretch", background: isExpanded ? "#EAEFF5" : "#FFFFFF" }}>
-                    {boxSelectionMode ? (
-                      <button
-                        onClick={() => toggleBoxSelected(g.key)}
-                        className="sans"
-                        style={{ flex: 1, minWidth: 0, minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: 4, padding: "var(--sp-2) var(--sp-3)", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: "var(--fs-md)" }}
-                      >
-                        <input
-                          type="checkbox" checked={boxChecked} onChange={() => toggleBoxSelected(g.key)}
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label={`${g.brand} ${g.strength} の箱を選択`}
-                          style={reedCheckboxStyle(boxChecked, 18)}
-                        />
-                        {boxHeading(g)}
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setExpandedGroupKey(isExpanded ? null : g.key)}
-                          className="sans"
-                          aria-expanded={isExpanded}
-                          style={{ flex: 1, minWidth: 0, minHeight: "var(--tap-min)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "var(--sp-2) var(--sp-3)", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: "var(--fs-md)" }}
-                        >
-                          {boxHeading(g)}
-                          <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                            {/* 箱の平均★は畳んでいる間だけ出す。開いている間は個体ごとの★が
-                                すぐ下に並ぶので重複するうえ、★(64px)+削除ボタン(46px)を同時に置くと
-                                銘柄の表示域が108pxまで痩せて "Rico (D'Addario)"(140px)が見切れる。 */}
-                            {avgRating !== null && !isExpanded && (
-                              <span style={{ opacity: 0.55 }} title={`箱の平均評価 ${avgRating.toFixed(1)}`}>
-                                <StarRating value={avgRating} size={12} />
-                              </span>
-                            )}
-                            {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
-                          </span>
-                        </button>
-                        {/* 一覧(個体)が見えている間だけ削除の入り口を出す。閉じている箱では隠す */}
-                        {isExpanded && (
-                          <button
-                            onClick={() => startMemberSelect(g)}
-                            title="この箱の中から選んで削除"
-                            aria-label="この箱の中から選んで削除"
-                            style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", background: "none", border: "none", borderLeft: "1px solid #E9ECF0", color: "#8D95A1", cursor: "pointer", fontSize: "var(--fs-xs)" }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  {isExpanded && !boxSelectionMode && (
-                    <div style={{ borderTop: "1px solid #E9ECF0", padding: "var(--sp-1) var(--sp-3)" }}>
-                      {isMemberSelecting && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "4px 0" }}>
-                          <button
-                            onClick={exitMemberSelect}
-                            className="sans"
-                            style={{ ...TAP_BUTTON_RESET }}
-                          >
-                            <span className="ctl-plain ctl-pill" style={{ padding: "6px 12px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
-                          </button>
-                          <button
-                            onClick={confirmMemberBatchDelete}
-                            disabled={selectedMembersForDelete.size === 0}
-                            className="sans"
-                            style={{ ...TAP_BUTTON_RESET, cursor: selectedMembersForDelete.size > 0 ? "pointer" : "default" }}
-                          >
-                            {/* 実際に消える一手なので --c-danger の塗り(上の「n箱を削除」と同じ扱い) */}
-                            <span className="ctl-plain ctl-pill ctl-danger" data-armed={selectedMembersForDelete.size > 0} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
-                              {selectedMembersForDelete.size > 0 ? `${selectedMembersForDelete.size}枚を削除` : "削除"}
-                            </span>
-                          </button>
-                        </div>
-                      )}
-                      {/* 個体一覧は左に --sp-3(12px) のインデントと縦罫線1本を入れ、箱に属していることを
-                          位置で示す(P1-9)。親子を同サイズ(--fs-md)にしたぶん、階層はここが担う。 */}
-                      <div style={{ borderLeft: "1px solid #E9ECF0", paddingLeft: "var(--sp-3)" }}>
-                      {isMemberSelecting ? (
-                        /* 削除選択中: ドラッグ・評価タップは無効化し、行タップ/チェックボックスで選択する */
-                        g.members.map((r, idx) => (
-                            <div
-                              key={r.id}
-                              onClick={() => toggleMemberSelected(r.id)}
-                              style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #E9ECF0" : "none", cursor: "pointer" }}
-                            >
-                              <input
-                                type="checkbox" checked={selectedMembersForDelete.has(r.id)}
-                                onChange={() => toggleMemberSelected(r.id)}
-                                onClick={(e) => e.stopPropagation()}
-                                aria-label={`${idx + 1}枚目を選択`}
-                                style={reedCheckboxStyle(selectedMembersForDelete.has(r.id), 20)}
-                              />
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 15, color: "#121F32", width: 24, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <StarRating value={r.rating} size={12} />
-                            </div>
-                        ))
-                      ) : (
-                        <ReorderableReedRows
-                          members={g.members}
-                          onReorder={reorderGroupMembers}
-                          onRowClick={(id) => onOpenReed?.(id)}
-                          renderRow={(r, idx) => (
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 0", borderBottom: idx < g.members.length - 1 ? "1px solid #E9ECF0" : "none" }}>
-                              {/* 子(個体番号)は --fs-md(15px)。親と同サイズにして、子だけが5px大きい反転を解消する */}
-                              <span style={{ fontFamily: "var(--font-serif)", fontSize: 15, color: "#121F32", width: 24, flexShrink: 0 }}>{reedPosition(r, reeds) ?? idx + 1}</span>
-                              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-1)", flex: 1, minWidth: 0 }}>
-                                <StarRating value={r.rating} size={18} />
-                                <span className="sans" style={{ fontSize: 12, color: "#8D95A1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{growthLine(r)}</span>
-                              </div>
-                              {/* 右端の2つ。**測定(押せる)が内側、並び替えの目印が外側**(F-64 本人指示)。
-                                  行の中央列が flex:1 なのでこの塊は右へ寄る。marginLeft:auto を
-                                  明示して、中央列が空(成長行も★も出ない)になっても右寄せが崩れないようにする。 */}
-                              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)", flexShrink: 0, marginLeft: "auto" }}>
-                                <button
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  onClick={(e) => { e.stopPropagation(); goToMeasure(r.id); }}
-                                  className="sans"
-                                  aria-label="測定"
-                                  title="測定"
-                                  style={{ ...TAP_BUTTON_RESET, flexShrink: 0, minWidth: "var(--tap-min)", justifyContent: "center" }}
-                                >
-                                  {/* B型。測定へ飛ぶだけで状態を持たないので枠線をやめ、
-                                      地(--c-sunken)だけにする。誘い(--c-accent)は色が担う。
-                                      文字「測定」はやめ、計測タブと同じ絵(MeasureIcon)だけにした(F-63)。
-                                      アイコン単体になったぶん当たり判定が44px幅を割らないよう
-                                      minWidth: var(--tap-min) を明示する(DESIGN-SYSTEM §5)。
-                                      色は span の color から currentColor で降りる(SVG の属性に
-                                      var() は書けないため。DESIGN-SYSTEM §1.9)。 */}
-                                  <span className="ctl-plain ctl-pill" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-2)", color: "var(--c-accent)", lineHeight: 1 }}>
-                                    <MeasureIcon size={20} />
-                                  </span>
-                                </button>
-                                {/* 長押しで並び替えられることを示す**目印**(F-64)。
-                                    【stopPropagation を付けないこと】並び替えは ReorderableReedRows の
-                                    行全体の長押しで始まる。ここで pointerdown を止めると、
-                                    **目印を掴んだときだけ並び替えられない**という逆の意味になる。
-                                    操作は行全体が担うので、これ自体はフォーカスも取らない装飾
-                                    (aria-hidden)。色は装飾専用の --c-ink-4(DESIGN-SYSTEM §1.1)。 */}
-                                <GripLines size={16} aria-hidden="true" focusable="false" style={{ color: "var(--c-ink-4)", flexShrink: 0 }} />
-                              </div>
-                            </div>
-                          )}
-                        />
-                      )}
-                      </div>
-                      {g.members.length > 1 && !isMemberSelecting && (
-                        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", padding: "8px 0 4px" }}>
-                          長押ししてスライドすると並び替えられます・タップで詳細
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      )}
 
+      {addOpen && (
+        <ReedAddSheet
+          brandOptions={brandOptions}
+          brand={newBrand} setBrand={setNewBrand}
+          customBrand={customBrand} setCustomBrand={setCustomBrand}
+          strength={newStrength} setStrength={setNewStrength}
+          count={addCount} setCount={setAddCount}
+          onAdd={() => registerReeds(addCount)}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -8324,30 +8531,45 @@ const REED_COMPARE_METRICS = [
   { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
 ];
 
+// 【N-5】個体詳細の .numrow に並べる指標と**その順**。正典は 平均差分 / HNR / 重心 / 音量。
+// 比較タブの4グラフの順(音量 / 平均差分 / HNR / 重心)とは別なので、配列を分けて持つ。
+// 中身の定義(ラベル・単位・書式・副次テキスト)は REED_COMPARE_METRICS が唯一の答えで、
+// ここはキーの並びだけを持つ(定義を2箇所に写さない)。
+const REED_DETAIL_METRICS = ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"];
+// 比較タブの4グラフの並び(正典の比較画面の順)。同じ理由でキーの並びだけを持つ。
+const REED_COMPARE_CHART_KEYS = ["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"];
+
 // リード比較の系列スタイルは SERIES_STYLES(DESIGN-SYSTEM §1.7)をそのまま使う。
 // 以前はここに専用の hex パレットがあり、4・5番目が機能色(#D97706 注意 / #16A34A 良い)の
 // 流用、6番目 #8D95A1 が理想値の破線と同色で6枚目のリードと理想線が見分けられなかった。
 
 // --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
+//
+// 【N-5】正典 = design/north-star-measure.html の「比較」画面。
+//   箱ごとに .rname(13.5px)+「n枚選択中」(11px) の見出し → 個体チップの .selrow
+//   選択中のチップには**系列の線種見本**が付く(色だけでは実線/破線が伝わらない)
+//   その下に4グラフ(音量 / 平均差分 / HNR / スペクトル重心)・★一覧・フレーム数脚注
+// 機能はすべて現行のまま(6本制限の告知・空状態2種・チップのトグル)。
+// 箱の開閉(chevron)は正典に無いので**常時展開**にした(タイル同様、畳む必要がない密度)。
 function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, saxType, tuningHz }) {
   const toggleReed = (id) => {
     setCompareReedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  // 他の画面(計測タブのリード選択・リード登録一覧)と同じく、箱をタップしてから個体一覧が
-  // 出るようにする(登録リードが増えるとボタンが一画面に収まらなくなるため)
-  const [expandedBoxKey, setExpandedBoxKey] = useState(null);
-
-  const frameCountFor = (reedId) => sessions.filter((s) => s.reedId === reedId).reduce((n, s) => n + (s.frames?.length ?? 0), 0);
+  // フレーム総数はモジュールスコープの frameCountFor(sessions, reedId) を使う。
+  // 【N-5】ここには同じ集計のローカル版があり、一覧の「育てる」行が module 版、
+  // この画面がローカル版という二重実装になっていた。一覧の行が無くなって module 版の
+  // 読み手が0になったので、**同じ数を2箇所で作らない**ようローカル版を畳んだ。
+  const framesOf = (reedId) => frameCountFor(sessions, reedId);
 
   if (reeds.length === 0) {
-    return <div className="sans" style={{ fontSize: 12, color: "#8D95A1", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
+    return <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
   }
 
   const selectedItems = compareReedIds
     .map((id) => reeds.find((r) => r.id === id))
     .filter(Boolean)
-    .map((r) => ({ reed: r, label: reedLabel(r, reeds), frameCount: frameCountFor(r.id) }));
+    .map((r) => ({ reed: r, label: reedLabel(r, reeds), frameCount: framesOf(r.id) }));
 
   // 見分けのつく系列は6本まで。7本目以降は色を足さず表示を絞る(DESIGN-SYSTEM §1.7)。
   // 選択順に SERIES_STYLES を割り当て、チップの線サンプル・折れ線・凡例で同じ線種を使う。
@@ -8357,65 +8579,64 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {groupReeds(reeds).map((g) => {
-            const isExpanded = expandedBoxKey === g.key;
-            const selectedInBox = g.members.filter((r) => compareReedIds.includes(r.id)).length;
-            return (
-              <div key={g.key} style={{ border: "1px solid #E9ECF0", borderRadius: 14, overflow: "hidden" }}>
-                <button
-                  onClick={() => setExpandedBoxKey(isExpanded ? null : g.key)}
-                  className="sans"
-                  style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", background: isExpanded ? "#EAEFF5" : "#FFFFFF", border: "none", cursor: "pointer", textAlign: "left" }}
-                >
-                  <span style={{ fontSize: 13 }}>
-                    <span style={{ color: "#121F32", fontWeight: 700 }}>{g.brand}</span>{" "}
-                    <span style={{ color: "#174585", fontWeight: 700 }}>{g.strength}</span>{" "}
-                    <span style={{ color: "#8D95A1", fontSize: 12 }}>（{g.startDate}）{selectedInBox > 0 ? ` ・ ${selectedInBox}枚選択中` : ""}</span>
-                  </span>
-                  {isExpanded ? <ChevronUp size={14} color="#435266" /> : <ChevronDown size={14} color="#435266" />}
-                </button>
-                {isExpanded && (
-                  <div style={{ padding: "10px 14px", borderTop: "1px solid #E9ECF0", display: "flex", gap: 7, flexWrap: "wrap" }}>
-                    {g.members.map((r, idx) => {
-                      const sel = compareReedIds.includes(r.id);
-                      // A型 = .ctl-state + .ctl-pill。比較に入れる/入れないという**状態を持つ**。
-                      // 以前は選択中だけ塗り(#174585)、非選択だけ枠(#E9ECF0)で、状態ごとに
-                      // 語彙そのものが入れ替わっていた。枠線の色だけで返すよう揃える。
-                      // 系列色は選択中に出る SeriesSwatch が担う。
-                      return (
-                        <button key={r.id} onClick={() => toggleReed(r.id)}
-                          aria-pressed={sel}
-                          className="sans ctl-state ctl-pill" style={{
-                            display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", fontSize: 12, cursor: "pointer",
-                            color: sel ? "var(--c-accent)" : "var(--c-ink-2)",
-                            fontWeight: sel ? 600 : 400,
-                          }}>
-                          {sel && styleById.has(r.id) && <SeriesSwatch style={styleById.get(r.id)} />}
-                          {reedPosition(r, reeds) ?? idx + 1}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {groupReeds(reeds).map((g) => {
+        const selectedInBox = g.members.filter((r) => compareReedIds.includes(r.id)).length;
+        return (
+          <div key={g.key} style={{ padding: "16px 0 4px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+              {/* 正典の比較画面の見出しは .rname の 13.5px(一覧の 15px より一段小さい) */}
+              <span className="sans" style={{ fontSize: 13.5, fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{g.strength}</span>
+              </span>
+              {selectedInBox > 0 && (
+                <span className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", flexShrink: 0 }}>{selectedInBox}枚選択中</span>
+              )}
+            </div>
+            {/* 正典 .selrow / .selpill。選択中は紺の塗り + 線種見本。
+                見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。 */}
+            <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap" }}>
+              {g.members.map((r, idx) => {
+                const sel = compareReedIds.includes(r.id);
+                return (
+                  <button key={r.id} onClick={() => toggleReed(r.id)}
+                    aria-pressed={sel}
+                    aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目を比較に入れる`}
+                    className="sans no-select"
+                    style={{
+                      minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0,
+                      background: "transparent", border: "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    }}>
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                      border: sel ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                      background: sel ? "var(--c-accent)" : "transparent",
+                      color: sel ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                      fontWeight: sel ? 600 : 400,
+                    }}>
+                      {sel && styleById.has(r.id) && <SeriesSwatch style={styleById.get(r.id)} />}
+                      #{reedPosition(r, reeds) ?? idx + 1}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
 
       {items.length === 0 ? (
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", textAlign: "center", padding: 20 }}>リードを選択すると比較グラフが表示されます</div>
       ) : (
-        <div className="card">
+        <div style={{ paddingTop: 18 }}>
           {hiddenCount > 0 && (
-            <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 12 }}>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginBottom: 12 }}>
               選択中{selectedItems.length}枚のうち先頭6枚を表示しています（見分けのつく系列は6本まで）。残り{hiddenCount}枚は選択を外すと入れ替わります
             </div>
           )}
-          {/* 全指標(音量・ピッチ誤差・HNR・重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
-          {["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"].map((key) => {
+          {/* 全指標(音量・平均差分・HNR・スペクトル重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
+          {REED_COMPARE_CHART_KEYS.map((key) => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === key);
             return (
               <NoteAxisLineChart
@@ -8433,18 +8654,18 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               />
             );
           })}
-          <div style={{ marginBottom: 4 }}>
-            <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 6 }}>主観評価</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {items.map((it) => (
-                <div key={it.reed.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className="sans" style={{ fontSize: 12, color: "#121F32", width: 150, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</span>
-                  <StarRating value={it.reed.rating} size={12} />
-                </div>
-              ))}
-            </div>
+          {/* ★一覧。正典は「#1 ★3.7」の**文字**で1行に並べる(星の絵は使わない)。 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", alignItems: "center", padding: "11px 0", borderTop: "1px solid var(--c-line)", borderBottom: "1px solid var(--c-line)" }}>
+            {items.map((it) => {
+              const avg = normalizeReedScoreOf("rating", it.reed.rating);
+              return (
+                <span key={it.reed.id} className="sans" style={{ fontSize: 13, color: "var(--c-ink)" }} title={it.label}>
+                  #{reedPosition(it.reed, reeds)} <span style={{ color: "var(--c-ink-3)" }}>{avg === null ? "★—" : `★${avg.toFixed(1)}`}</span>
+                </span>
+              );
+            })}
           </div>
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 10 }}>
+          <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", paddingTop: 8 }}>
             {items.map((it) => `${it.label}: ${it.frameCount}フレーム`).join(" ・ ")}
           </div>
         </div>
@@ -8668,8 +8889,52 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 // タップで「数値表示 ⇄ 音名軸の折れ線グラフ」を切り替えるメトリクスカード。
 // My Data・登録済みリードの測定データ・最新セッション・セッション詳細で共通して使う。
 // グラフ表示中はグリッドの全幅に広がり(gridColumn: 1/-1)、理想値があれば破線で重ねる。
-function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub, noteFocus = null }) {
+//
+// 【N-5 / bare】リードの個体詳細だけ、正典 .numrow の見た目(枠も地も持たない4列の数字)にする。
+// **既定は false = 従来の .tile のまま**にしてある。既定を新しい側にすると、次に増えた
+// 呼び出し側(データタブ・セッション詳細)へ黙って漏れる(F-72 の罠1 と同じ事故)。
+// 正典 .numrow: 値 19px/600 + 単位 11px --ink3 / ラベル 10.5px --ink3 / 副次 10.5px --ink3。
+function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub, noteFocus = null, bare = false }) {
   const [open, setOpen] = useState(false);
+  const chart = (
+    <NoteAxisLineChart
+      label={label} unit={unit} metricKey={metricKey}
+      series={[{ id: "self", label, style: SERIES_STYLES[0], frames }]}
+      saxType={saxType} tuningHz={tuningHz} fmt={fmt}
+      selectedIdeal={selectedIdeal} idealKey={idealKey} noteFocus={noteFocus}
+    />
+  );
+  if (bare) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={`${label}を音名ごとのグラフで見る`}
+        className="sans"
+        style={{
+          /* 【minWidth を 0 にしない】flex-basis 0 のままだと、1つが幅100%になっても
+             残りの3つは**同じ行で幅0まで潰れる**(実測: 327 / 0 / 0 / 0)。
+             幅0の見えないボタンが残るのは §5 の当たり判定として最悪なので、
+             折り返しの判定に使われる最小幅を与えて次の行へ送る。
+             60px は4つ並べても 4×60=240 ≤ 327 で1行に収まる値(＝通常時の見た目は変わらない)。 */
+          flex: open ? "1 1 100%" : "1 1 0", minWidth: REED_NUMROW_MIN_PX, textAlign: "center",
+          minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none", cursor: "pointer",
+        }}
+      >
+        {open ? chart : (
+          <>
+            <div style={{ fontFamily: "var(--font-num)", fontSize: 19, fontWeight: 600, color: "var(--c-ink)" }}>
+              {value}{unit && <span className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", fontWeight: 400, marginLeft: 1 }}>{unit}</span>}
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--c-ink-3)" }}>{label}</div>
+            {/* 副次(標準偏差)は正典 .numrow .b。値が無い列でも高さを揃えるため場所だけ残す(§6.1.5) */}
+            <div style={{ fontSize: 10.5, color: "var(--c-ink-3)", minHeight: 15 }}>{sub ?? " "}</div>
+          </>
+        )}
+      </button>
+    );
+  }
   return (
     // 面の作法は .tile が持つ(background / border / borderRadius をここに書かない)。
     // 開くと gridColumn:1/-1 で行いっぱいに広がるため、行の先頭かどうかを :nth-child で
@@ -8679,14 +8944,7 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
       onClick={() => setOpen((v) => !v)}
       style={{ cursor: "pointer", gridColumn: open ? "1 / -1" : "auto" }}
     >
-      {open ? (
-        <NoteAxisLineChart
-          label={label} unit={unit} metricKey={metricKey}
-          series={[{ id: "self", label, style: SERIES_STYLES[0], frames }]}
-          saxType={saxType} tuningHz={tuningHz} fmt={fmt}
-          selectedIdeal={selectedIdeal} idealKey={idealKey} noteFocus={noteFocus}
-        />
-      ) : (
+      {open ? chart : (
         <>
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>{label}</div>
           <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
@@ -8747,11 +9005,13 @@ function ReedScoreHistoryChart({ reed }) {
   const legendMax = Math.round(W * 0.42);
 
   return (
-    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
-      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", fontWeight: 700, marginBottom: "var(--sp-1)" }}>評価の推移</div>
-      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-3)" }}>
-        {n === 0 ? "まだ記録がありません" : `${n}件の記録`}
-      </div>
+    /* 【N-5】正典の個体詳細は「評価の推移」を 11px --ink3 の小さな見出し1行 + 折れ線 + 凡例だけで
+       出す(カードの枠も「n件の記録」の行も無い)。空状態の文言は現行のまま2種とも残す。 */
+    <div style={{ paddingTop: 14 }}>
+      <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingBottom: 6 }}>評価の推移</div>
+      {n === 0 && (
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-2)" }}>まだ記録がありません</div>
+      )}
       {n === 0 ? (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>評価するとここに折れ線が育ちます</div>
       ) : (
@@ -8788,7 +9048,8 @@ function ReedScoreHistoryChart({ reed }) {
         </div>
       )}
       {n > 0 && (
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>
+        /* 正典の凡例は 10.5px。線種見本(SeriesSwatch)は現行のまま残す(色だけでは実線/破線が伝わらない) */
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: "var(--sp-2)", fontSize: 10.5, color: "var(--c-ink-3)" }}>
           {series.map((s) => (
             <span key={s.key} style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }} title={s.label}>
               <SeriesSwatch style={s.style} />
@@ -8808,7 +9069,16 @@ function ReedScoreHistoryChart({ reed }) {
 
 // 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
 // リード登録一覧からのタップ遷移として統合したもの。
-function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack }) {
+//
+// 【N-5】正典 = design/north-star-measure.html の「個体詳細」。上から:
+//   .backrow  「‹ 一覧」 / V16-3 #4(#番号は自由入力・空で自動採番) / 開封日 yyyy/mm/dd
+//   .starrow  ★3枚(総評 / 厚さ / バランス)。どこを押しても3列ダイヤルが1回で開く
+//   .memoline メモ
+//   「測定データ · nセッション」 + .numrow の4指標(タップで音名軸グラフ)
+//   「評価の推移」 + 折れ線 + 凡例
+//   .bigbtn   「このリードで計測」= 計測タブへのジャンプ(一覧の「測定」ボタンの移設先)
+// カード(.card)の枠は正典に無いので、群は余白と罫1本だけで分ける(§6.0 の囲いの序列)。
+function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack, onMeasure }) {
   const reedSessions = sessions
     .filter((s) => s.reedId === reed.id)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
@@ -8816,8 +9086,8 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   const allFrames = reedSessions.flatMap((s) => s.frames || []);
   const overall = computeFrameMetrics(allFrames);
 
-  // #番号・名前(個体を識別するための自由記述のニックネーム)・メモは打鍵毎の書き込みを避けるため
-  // ローカルstateで編集し、フォーカスが外れた時にまとめてリードへ反映する(セッション詳細と同じパターン)。
+  // #番号・メモは打鍵毎の書き込みを避けるためローカルstateで編集し、フォーカスが外れた時に
+  // まとめてリードへ反映する(セッション詳細と同じパターン)。
   // #番号は数字管理の人もいればアルファベットや記号で管理する人もいるため自由記述にする
   // (デフォルトは登録順の連番のまま。空にすればまた自動採番に戻る)。
   const [positionDraft, setPositionDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
@@ -8866,74 +9136,104 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <button
-        onClick={onBack}
+      {/* 正典 .backrow: 「‹ 一覧」 / 中央に V16-3 #4 / 右に開封日。13px の1行 */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--c-ink-2)" }}>
+        <button
+          onClick={onBack}
+          className="sans"
+          style={{ minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", display: "flex", alignItems: "center", background: "none", border: "none", color: "var(--c-ink-2)", fontSize: 13, cursor: "pointer", padding: 0, flexShrink: 0 }}
+        >
+          ‹ 一覧
+        </button>
+        <span style={{ fontSize: 15, color: "var(--c-ink)", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+          <b style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
+          </b>
+          {/* #番号はそのまま編集欄(正典は破線の下線で「書ける」ことを示す)。
+              空欄にすると自動採番に戻り、placeholder にその値が出る(＝今なら何番になるかが分かる)。
+              地・枠は持たない(正典 .backrow に箱は無い)。当たり判定は 44px。 */}
+          <span style={{ display: "inline-flex", alignItems: "center" }}>
+            <span aria-hidden="true">#</span>
+            <input
+              type="text" aria-label="番号" placeholder={String(reedPosition(reed, reeds))}
+              value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
+              className="sans"
+              style={{
+                width: 46, minHeight: "var(--tap-min)", padding: 0, fontSize: 15, fontWeight: 700,
+                background: "none", border: "none", borderBottom: "1px dashed var(--c-line-strong)",
+                borderRadius: 0, color: "var(--c-ink)",
+              }}
+            />
+          </span>
+        </span>
+        <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0 }}>{formatYmd(reed.startDate) ?? "—"}</span>
+      </div>
+
+      {/* 正典 .starrow: 3列を等幅で並べ、値 23px/600 の下に 11px のラベル。上下 16px・下に罫1本。
+          行のどこを押しても3列ダイヤルが1回で開く(§6.4)。 */}
+      <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
+
+      {/* 正典 .memoline: 13px --ink3 / 上下 13px / 下に罫1本。編集できることは現行のまま。 */}
+      <textarea
+        placeholder="メモ"
+        value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+        rows={1}
         className="sans"
-        style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#174585", fontSize: 12, marginBottom: 10, cursor: "pointer", padding: 0 }}
-      >
-        <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
-      </button>
+        style={{
+          width: "100%", padding: "13px 0", fontSize: 13, resize: "vertical", fontFamily: "inherit",
+          boxSizing: "border-box", color: "var(--c-ink-3)",
+          background: "none", border: "none", borderBottom: "1px solid var(--c-line)", borderRadius: 0,
+        }}
+      />
 
-      {/* 個体の識別情報・主観評価・メモ。名前とメモはここでのみ編集する(一覧側の鉛筆編集は廃止) */}
-      <div className="card no-top-rule" style={{ marginBottom: 10 }}>
-        {/* リード名の中の番号がそのまま編集欄。以前はこの下に「#番号:」の行が別にあり、
-            見出しと同じ番号が2度出ていた(本人指示で統合)。空欄にすると自動採番に戻り、
-            placeholder にその自動採番値が出る(＝今なら何番になるかが分かる)。 */}
-        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-          <span>{reed.brand} {reed.strength}</span>
-          <span>#</span>
-          <input
-            type="text" aria-label="番号" placeholder={String(reedPosition(reed, reeds))}
-            value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
-            className="sans"
-            style={{ width: 64, flexShrink: 0, padding: "4px 8px", fontSize: 13, fontWeight: 700 }}
-          />
-          <span style={{ fontWeight: 400, color: "#435266" }}>({formatYmd(reed.startDate) ?? "—"})</span>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* 総評 / 厚さ / バランスを1行に横並び。行のどこを押しても3列のダイヤルが1回で開く。
-              ★は出さない(本人指示: 「厚さは星不要」。バランスも数値表示に統一)。 */}
-          <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
-          {/* ラベル「メモ:」の行は廃止(本人指示)。幅は親の flex column が ReedScoreField を
-              width:100% で持っているのに合わせ、textarea 自身も width:100% にして評価行と揃える。
-              placeholder="メモ" を薄いガイドとして出す(index.css の ::placeholder が --c-ink-3 を担う)。 */}
-          <textarea
-            placeholder="メモ"
-            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
-            rows={2}
-            className="sans"
-            style={{ width: "100%", padding: "6px 10px", fontSize: 12, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
-          />
-        </div>
+      {/* 測定データ。正典は「測定データ · 12セッション」の 11px 1行 + .numrow の4指標。
+          一覧のタイルから落ちた「開封n日」「未測定」はこの行が引き取る(reedDetailMetaLine)。
+          各指標はタップで音名軸の折れ線グラフに切り替わる(再タップで数値に戻る)。 */}
+      <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingTop: 16 }}>
+        {reedDetailMetaLine(reedSessions.length, usageDays(new Date(), reed.startDate))}
       </div>
-
-      {/* 測定データ: 各カードをタップすると横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る) */}
-      <div className="card">
-        <div className="sans" style={{ fontSize: 13, color: "#121F32", fontWeight: 700, marginBottom: 4 }}>測定データ</div>
-        <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 12 }}>{reedSessions.length}セッション</div>
-        {reedSessions.length === 0 ? (
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>このリードに紐づく測定データがまだありません</div>
-        ) : (
-          <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-            {REED_COMPARE_METRICS.map((m) => {
-              const v = overall[m.key];
-              return (
-                <TappableMetricCard
-                  key={m.key}
-                  label={m.label} unit={m.unit} fmt={m.fmt}
-                  metricKey={m.key} idealKey={METRIC_IDEAL_KEYS[m.key]}
-                  frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
-                  value={v !== null && v !== undefined ? `${m.fmt(v)}${m.unit ? ` ${m.unit}` : ""}` : "—"}
-                  sub={m.sub?.(overall) ?? null}
-                />
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {reedSessions.length === 0 ? (
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "10px 0 14px", borderBottom: "1px solid var(--c-line)" }}>
+          このリードに紐づく測定データがまだありません
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap", padding: "10px 0 14px", borderBottom: "1px solid var(--c-line)" }}>
+          {REED_DETAIL_METRICS.map((key) => {
+            const m = REED_COMPARE_METRICS.find((x) => x.key === key);
+            const v = overall[m.key];
+            return (
+              <TappableMetricCard
+                key={m.key}
+                bare
+                label={m.label} unit={m.unit} fmt={m.fmt}
+                metricKey={m.key} idealKey={METRIC_IDEAL_KEYS[m.key]}
+                frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
+                value={v !== null && v !== undefined ? m.fmt(v) : "—"}
+                sub={m.sub?.(overall) ?? null}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {/* 測定データの下に評価の推移(縦軸=1〜5・横軸=日付・総評/厚さ/バランスの3本) */}
       <ReedScoreHistoryChart reed={reed} />
+
+      {/* 正典 .bigbtn: 紺の塗りピル(14px / 600 / padding 11px 26px / 上 20px・中央)。
+          【決定6】計測タブへのジャンプはここ。一覧の行にあった「測定」ボタンの移設先。 */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
+        <button
+          onClick={() => onMeasure?.(reed.id)}
+          className="sans"
+          style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+        >
+          <span style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, fontWeight: 600, color: "var(--c-on-accent)",
+            background: "var(--c-accent)", borderRadius: 999, padding: "11px 26px",
+          }}>このリードで計測</span>
+        </button>
+      </div>
 
       {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
       {editingScores && (
