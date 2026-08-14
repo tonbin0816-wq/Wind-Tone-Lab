@@ -5552,9 +5552,26 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // (正典の囲いの序列は「余白 → 揃え → 罫1本 → 面」で、面は1画面に1枚まで。§6.0)。
   // 実測 11 枚に対して 10 を下限に置く。**下限を下げたぶんは、下で「リードタブに .card が
   // 1枚も無い」ことを名指しで固定して埋める**(数が減ったこと自体を要件にする)。
-  check(".card が実際に使われている", cardTags.length >= 10, `${cardTags.length}箇所`);
+  // 【N-6 で下限を 10 → 8 / 5 → 4 に下げた】データタブの My Data 子タブが正典へ移り、
+  // 「My Data」「最新セッション」「セッション一覧」の**3枚のカードと2つの .tile-row が
+  // 無くなった**(囲いの序列は同上。面はヒーロー1枚だけ)。実測 .card 8 / .tile-row 4。
+  // **下げたぶんは、下で「My Data 子タブに .card が1枚も無い」ことを名指しで固定して埋める。**
+  check(".card が実際に使われている", cardTags.length >= 8, `${cardTags.length}箇所`);
   check(".tile が実際に使われている", tileTags.length >= 3, `${tileTags.length}箇所`);
-  check(".tile-row が実際に使われている", rowTags.length >= 5, `${rowTags.length}箇所`);
+  check(".tile-row が実際に使われている", rowTags.length >= 4, `${rowTags.length}箇所`);
+  // 【N-6】My Data 子タブに面(グレーのカード)が1枚も無いこと。
+  // 走査は関数の集合で行う: ヒーロー〜指標行(MyDataSection / MetricRow)と
+  // 一覧まわり(MyDataPage)。**「面が無い」ことの十分条件ではない**(親が .card を巻けば
+  // ここは通る)ので、名前もその範囲しか名乗らない。
+  {
+    const owners = ["MyDataPage", "MyDataSection", "MetricRow"];
+    const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
+    check("N-6: My Data 子タブの3関数を走査できている(空回りしていない)",
+      bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
+    const withCard = bodies.filter((b) => /className="[^"]*\bcard\b[^"]*"/.test(b.body)).map((b) => b.n);
+    check("N-6: My Data 子タブの3関数に .card が1枚も無い(面はヒーローだけ。§6.0 の囲いの序列)",
+      withCard.length === 0, withCard.join(",") || "0件");
+  }
   // 上の tagsWithClass は className="card" という**綴りそのもの**を探す。
   // className={"card"} / className={`card ${x}`} と書けば走査から外れてしまうので、
   // 作法のクラスは文字列リテラルでしか書けないことを先に固定する。
@@ -5810,30 +5827,44 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     }
     throw new Error(`function ${name}: unbalanced braces`);
   };
-  // --- 6.6 noteFocus(音名の絞り込み)は指定した2箇所だけに効く ------------
-  // データタブの「My Data」「最新セッション」の各カードだけ x軸を E♭3/E♭4/E♭5 に絞る。
+  // --- 6.6 noteFocus(音名の絞り込み)はデータタブの指標行だけに効く ------------
+  // 【N-6 で場所が1つに畳まれた】旧: データタブの「My Data」「最新セッション」の2カードが
+  // それぞれ noteFocus を渡していた。新: 累計/最新は**同じ形の行**なので部品 MetricRow が
+  // 1つになり、渡し先も1箇所になった(2行とも MetricRow が描くので効き方は変わっていない)。
   // ReedEvaluationDetail の測定データ・SessionDetailView のセッション平均・ReedCompareTab は
   // 対象外(従来どおり全音域)。渡し忘れ・渡しすぎのどちらも壊れたら検出できるようにする。
   {
     const FOCUS = 'noteFocus={["E♭3", "E♭4", "E♭5"]}';
+    // **数ではなく「どの関数が渡しているか」の集合**で縛る(件数を釘付けにすると、
+    // 部品を1つにまとめる/分けるという正しい修正が落ちる。F-72 罠5 / F-79 罠2)。
+    // 【N-6 追記】MyDataSection も渡し手に戻った。正典 .mrow が3列で平均差分の列を持たないため
+    // 列は消したが、**「どの音がどれだけズレているか」まで消してはいけない**ので、
+    // 入口をヒーローの数字のタップに移した(本人の決定「機能を残す」/ N6-SPEC「音名軸グラフは落とさない」)。
+    const NOTE_FOCUS_OWNERS = ["MetricRow", "MyDataSection"];
+    const NOTE_FOCUS_NON_OWNERS = ["MyDataPage", "ReedEvaluationDetail",
+      "SessionDetailView", "ReedCompareTab"];
+    for (const fn of NOTE_FOCUS_OWNERS) {
+      check(`${fn} は noteFocus を渡す(データタブの指標行だけが音名を絞る)`, srcOf(fn).includes(FOCUS));
+    }
+    for (const fn of NOTE_FOCUS_NON_OWNERS) {
+      check(`${fn} は noteFocus を渡さない`, !srcOf(fn).includes("noteFocus"));
+    }
+    // 集合の外(上の関数のどれでもない場所)から渡していないこと。渡す綴りの総数と、
+    // 集合の中で数えた総数が一致するかで見る(名前どおり「集合の外に無い」しか主張しない)。
     const total = (src.match(/noteFocus=\{\["E♭3", "E♭4", "E♭5"\]\}/g) || []).length;
-    check("noteFocus=[\"E♭3\",\"E♭4\",\"E♭5\"] を渡す箇所は全体でちょうど2箇所",
-      total === 2, `${total}箇所`);
-    const myData = srcOf("MyDataSection");
-    const latest = srcOf("LatestSessionCard");
-    const reedDetail = srcOf("ReedEvaluationDetail");
-    const sessionDetail = srcOf("SessionDetailView");
-    check("MyDataSection(My Dataカード)は noteFocus を渡す", myData.includes(FOCUS));
-    check("LatestSessionCard(最新セッションカード)は noteFocus を渡す", latest.includes(FOCUS));
-    check("ReedEvaluationDetail(登録済みリードの測定データ)は noteFocus を渡さない(全音域のまま)",
-      !reedDetail.includes("noteFocus"));
-    check("SessionDetailView(セッション平均)は noteFocus を渡さない(全音域のまま)",
-      !sessionDetail.includes("noteFocus"));
-    // TappableMetricCard の呼び出しは全体で4箇所(登録済みリード/My Data/最新セッション/
-    // セッション詳細)。noteFocus を持つのはそのうち2箇所だけ、という数の対応も見る
-    // (渡し忘れ・渡しすぎのどちらでもここが動く)。
+    const inOwners = NOTE_FOCUS_OWNERS
+      .reduce((n, fn) => n + (srcOf(fn).match(/noteFocus=\{\["E♭3", "E♭4", "E♭5"\]\}/g) || []).length, 0);
+    check("noteFocus を渡しているのは上の集合の中だけ(集合の外に渡し手がいない)",
+      total === inOwners && total > 0, `全体 ${total} / 集合内 ${inOwners}`);
+    // TappableMetricCard の呼び出しは全体で3箇所(登録済みリード / データタブの指標行 /
+    // セッション詳細)。**どの関数が呼んでいるか**を集合で固定する。
+    const CARD_CALLERS = ["ReedEvaluationDetail", "MetricRow", "SessionDetailView"];
     const callSites = (src.match(/<TappableMetricCard/g) || []).length;
-    check("TappableMetricCard の呼び出しは4箇所", callSites === 4, `${callSites}箇所`);
+    const inCallers = CARD_CALLERS
+      .reduce((n, fn) => n + (srcOf(fn).match(/<TappableMetricCard/g) || []).length, 0);
+    check("TappableMetricCard を呼ぶのはこの3関数だけ(呼び出し側が集合の外に増えていない)",
+      callSites === inCallers && CARD_CALLERS.every((fn) => srcOf(fn).includes("<TappableMetricCard")),
+      `全体 ${callSites} / 集合内 ${inCallers}`);
   }
   // NoteAxisLineChart / TappableMetricCard 自体が noteFocus を実装として持っている
   // (呼び出し側だけ書いて実装が無い、という状態を防ぐ)。
@@ -5877,6 +5908,106 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       /key: "pitchCentsSigned"/.test(reedCompare) && !/key: "pitchCents",/.test(reedCompare));
     check("REED_COMPARE_METRICS のピッチのラベルは「平均差分」(N-2 表記統一)・fmtは符号付き",
       /label: "平均差分", unit: "¢", fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(reedCompare));
+    // 【N-6】ラベルは**正典(design/north-star-measure.html)の文言に固定**する。
+    // 「スペクトル重心」のまま長らく正典(「重心」)とずれていたのに、**どの検査も落ちなかった**
+    // (統括が N-6 の実測で気付いた)。正典と表示文言のずれは、値の検査では捕まらない。
+    // 期待値をここに写すのではなく、**正典の該当行から読む**(写すと正典が変わっても落ちない)。
+    {
+      const mock = readFileSync(new URL("../design/north-star-measure.html", import.meta.url), "utf8");
+      // 正典の**データタブの節だけ**を切り出す(.l はリード側の 総評/厚さ/バランス にも使われている)
+      const iData = mock.indexOf("<h2>データタブ</h2>");
+      const iNext = mock.indexOf("<h2>", iData + 8);
+      const dataSection = iData < 0 ? "" : mock.slice(iData, iNext < 0 ? mock.length : iNext);
+      // さらに **My Data の指標行(.mrow)〜セッション見出し(.shead) の手前**に絞る。
+      // データタブの節には PIVOT 側の「平均差分」の .l も含まれるので、節ごと拾うと
+      // 「行に出る3ラベル」の突き合わせに混ざる。
+      const iRow = dataSection.indexOf('class="mrow"');
+      const iHead = dataSection.indexOf('class="shead"', iRow);
+      const rowBlock = iRow < 0 ? "" : dataSection.slice(iRow, iHead < 0 ? dataSection.length : iHead);
+      const uniq = [...new Set([...rowBlock.matchAll(/<div class="l">([^<]+)<\/div>/g)].map((m) => m[1].trim()))];
+      check("N-6: 正典の My Data 指標行から指標ラベルを読めている(空回りしていない)",
+        iData >= 0 && iRow >= 0 && iHead > iRow && rowBlock.length > 200 && uniq.length === 3
+        && uniq.includes("HNR") && uniq.includes("音量") && uniq.includes("重心"),
+        `節 ${dataSection.length}文字 / 行ブロック ${rowBlock.length}文字 / ${uniq.join(" ")}`);
+      // 【重要】**画面に出るラベルを持つ配列を全部見る。**
+      // 初版は REED_COMPARE_METRICS しか見ておらず、**データタブが使う MY_DATA_METRICS を
+      // 1文字も見ていなかった**(検査名は「指標ラベルは正典と一致する」と全体を名乗っていた)。
+      // 統括が REED_COMPARE_METRICS だけ直して「直った」と報告し、審査役の変異
+      // (MY_DATA_METRICS の「音量」→「ボリューム」等)が**3件とも生存**して露見した。
+      // 通算12回目の「検査名が実際の検証より強い」。走査する配列を取りこぼすと同じことが起きるので、
+      // **配列そのものを名指しで列挙し、列挙漏れが起きたら落ちる**ようにする。
+      const LABEL_ARRAYS = ["REED_COMPARE_METRICS", "MY_DATA_METRICS"];
+      const arrays = LABEL_ARRAYS.map((n) => ({ n, src: extractConst(n) }));
+      check("N-6: ラベルを持つ配列を全部切り出せている(空回りしていない)",
+        arrays.every((a) => a.src && a.src.length > 100 && /label: "/.test(a.src)),
+        arrays.map((a) => `${a.n}:${a.src ? a.src.length : "無し"}`).join(" "));
+      // 列挙漏れの検出: ソース全体で `label: "…"` を持つ**指標配列**の名前を拾い、
+      // 上の一覧に載っていないものがあれば落とす(新しい配列が増えたら気付ける)。
+      const declared = [...codeOf(src).matchAll(/const ([A-Z_]*METRICS)\s*=\s*\[/g)].map((m) => m[1])
+        .filter((n) => /label: "/.test(extractConst(n) || ""));
+      const unlisted = declared.filter((n) => !LABEL_ARRAYS.includes(n));
+      check("N-6: ラベルを持つ指標配列がほかに増えていない(増えたらこの検査に足す)",
+        unlisted.length === 0, unlisted.join(" ") || `対象 ${declared.join("/")}`);
+      // 【許される語彙は正典から作る】前版は「`重心|音量|HNR` を**部分文字列に含む**のに
+      // 正典に無い語」しか弾いておらず、「ボリューム」「SNR」「セントロイド」が素通りした
+      // (「スペクトル重心」だけ落ちたのは、たまたま「重心」を含んでいたから)。
+      // 正しくは**正典に出てくる語の集合に属さない語をすべて弾く**。
+      // 語彙は正典**全体**の .l から作る(データタブの節だけだと、同じ配列を使う
+      // リード側の 総評/厚さ/バランス まで違反になってしまうため)。
+      const vocab = new Set([...mock.matchAll(/<div class="l">([^<]+)<\/div>/g)].map((m) => m[1].trim()));
+      check("N-6: 正典から許される語彙を作れている(空回りしていない)",
+        vocab.size >= 4 && vocab.has("重心") && vocab.has("音量") && vocab.has("HNR"),
+        `${vocab.size}語: ${[...vocab].join(" ")}`);
+      const labelsOf = (a) => [...(a.src || "").matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
+      const outside = arrays.flatMap((a) => labelsOf(a).filter((l) => !vocab.has(l)).map((l) => `${a.n}:${l}`));
+      check("N-6: 指標ラベルはすべて正典に出てくる語(言い換えを作らない)",
+        outside.length === 0, outside.join(" | ") || "0件");
+      // 【配列ごとに見る】前版は2配列の**和集合**で「正典の語が揃っているか」を見ていたため、
+      // 片方から「音量」が消えても、もう片方に残っていれば通った
+      // (審査役の実測: REED_COMPARE_METRICS の「音量」→「ボリューム」が、初版では撃墜できたのに
+      //  配列を増やした版では生存した = **配列を足したことが配列ごとの検証を消していた**)。
+      for (const a of arrays) {
+        const ls = labelsOf(a);
+        const lack = ["HNR", "重心", "音量"].filter((l) => !ls.includes(l));
+        check(`N-6: ${a.n} は音色3指標のラベルを正典の語で持つ`,
+          lack.length === 0, lack.length ? `欠け: ${lack.join("/")} / 実装 ${ls.join("/")}` : ls.join("/"));
+      }
+      // データタブの行に**実際に出る**3ラベルが、正典データタブの節の .l と一致すること。
+      // キーの並び(MY_DATA_ROW_METRICS)を辿って解決するので、配列側の定義が変わると落ちる。
+      {
+        const rowKeys = new Function(`${extractConst("MY_DATA_ROW_METRICS")} return MY_DATA_ROW_METRICS;`)();
+        const myData = extractConst("MY_DATA_METRICS");
+        const labelFor = (k) => (new RegExp(`key: "${k}"[^}]*label: "([^"]+)"`).exec(myData) || [])[1];
+        const rowLabels = rowKeys.map(labelFor);
+        // 【集合ではなく**列ごとの対応**で見る】前版は両方向の包含＝集合の一致だったので、
+        // 「音量」と「重心」の**ラベルだけ入れ替える**変異が生存した(審査役が実証)。
+        // それが通ると画面には `1195Hz 音量` / `-21.9dB 重心` と出る。
+        // 正典 .mrow は HNR / 重心 / 音量 の**並び**を持ち、MY_DATA_ROW_METRICS も同じ並びなので、
+        // 正典の1行目の .l を**出現順のまま**取って添字で突き合わせる。
+        const iSecond = rowBlock.indexOf('class="mrow"', 1);
+        const firstRow = iSecond > 0 ? rowBlock.slice(0, iSecond) : rowBlock;
+        const ordered = [...firstRow.matchAll(/<div class="l">([^<]+)<\/div>/g)].map((m) => m[1].trim());
+        check("N-6: 正典の指標行から**並び順のまま**ラベルを読めている(空回りしていない)",
+          ordered.length === 3 && ordered.join("/") === "HNR/重心/音量", ordered.join("/"));
+        check("N-6: データタブの行は正典と同じ順で同じラベルを出す(列とラベルの対応まで一致)",
+          rowLabels.length === ordered.length && rowLabels.every((l, i) => l === ordered[i]),
+          `実装 ${rowLabels.join("/")} / 正典 ${ordered.join("/")}`);
+        // 各ラベルが**正しいキーに付いている**ことを、単位まで見て確かめる
+        // (ラベルだけ入れ替えると Hz の列が「音量」になる)。
+        const UNIT_OF = { hnrDb: "dB", spectralCentroidHz: "Hz", volumeDb: "dB" };
+        const unitFor = (k) => (new RegExp(`key: "${k}"[^}]*unit: "([^"]+)"`).exec(myData) || [])[1];
+        const wrongUnit = rowKeys.filter((k) => unitFor(k) !== UNIT_OF[k]);
+        check("N-6: 重心の列だけが Hz(ラベルとキーの対応が入れ替わっていない)",
+          wrongUnit.length === 0 && labelFor("spectralCentroidHz") === "重心"
+          && labelFor("volumeDb") === "音量" && labelFor("hnrDb") === "HNR",
+          rowKeys.map((k) => `${k}:${labelFor(k)}/${unitFor(k)}`).join(" "));
+        // 【平均差分】行の列には出ないが、ヒーローのグラフの軸見出しと読み上げ名そのもの。
+        // REED_COMPARE_METRICS 側には同じ検査があるのに、こちらには無く、
+        // 「平均差分」→「総評」(語彙の**中**の語)への変異が生存した(審査役が実証)。
+        check("N-6: MY_DATA_METRICS のピッチのラベルも「平均差分」(N-2 表記統一)",
+          labelFor("pitchCentsSigned") === "平均差分", String(labelFor("pitchCentsSigned")));
+      }
+    }
     check("旧SESSION_METRICS(符号付き差し替え版)は廃止され、配列は1つに統合されている(F-46)",
       !/SESSION_METRICS/.test(codeOf(src)));
     check("リード比較タブのグラフのピッチも符号付きキーを使う(F-46)",
@@ -5967,10 +6098,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // toLocaleDateString("ja-JP") が1箇所あり、ゼロ埋め無し・秒付きで形が割れていた)
       check("表示用の日付整形に toLocaleString / toLocaleDateString を使っていない",
         !liveSrc.includes("toLocaleString") && !liveSrc.includes("toLocaleDateString"));
-      // 配線(ハーネスはJSXを評価しないので綴りで縛る): 時刻つき表示3箇所は formatYmd に寄せた
-      check("セッション一覧・最新セッション・別セッション選択の日時は formatYmd(..., { time: true })",
-        (liveSrc.match(/formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g) || []).length === 3,
-        `${(liveSrc.match(/formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g) || []).length}箇所`);
+      // 配線(ハーネスはJSXを評価しないので綴りで縛る): 時刻つきの表示はすべて formatYmd に寄せた。
+      // 【N-6 で 3 → 2】「最新セッション」カードは正典 .mrow の「最新 / yyyy/mm/dd」の行になり、
+      // 時刻を出さなくなった(日付だけ)。**件数ではなく「どの関数が出しているか」の集合**で縛る
+      // (件数の固定は、部品をまとめる/分けるという正しい修正を落とす)。
+      {
+        // セッション一覧(MyDataPage)と、別セッション整列の候補一覧(PhraseTimeline)。
+        const TIME_OWNERS = ["MyDataPage", "PhraseTimeline"];
+        const RE = () => /formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g;
+        const countIn = (s) => (s.match(RE()) || []).length;
+        const total = countIn(liveSrc);
+        const inOwners = TIME_OWNERS.reduce((n, fn) => n + countIn(codeOf(srcOfFn(src, fn))), 0);
+        for (const fn of TIME_OWNERS) {
+          check(`${fn} の日時は formatYmd(..., { time: true })`, countIn(codeOf(srcOfFn(src, fn))) > 0);
+        }
+        check("時刻つきの recordedAt を出しているのは上の集合の中だけ",
+          total === inOwners && total >= 2, `全体 ${total} / 集合内 ${inOwners}`);
+      }
       check("PIVOTの日付次元も formatYmd を使う",
         /getValue: \(f\) => formatYmd\(f\.recordedAt\),/.test(liveSrc));
       check("リードの開始日表示(reedLabel)も formatYmd を使う",
@@ -6830,9 +6974,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // **箇所数を緩めたのではなく**、計測タブの上部設定行に4つあることと、
         // 増えた1件が追加シートの銘柄であることを別々に固定する
         // (F-72 の罠5「箇所数の固定で逃げない」)。
+        // 【N-6 で 5 → 6】データタブのフィルタピル(正典 .fp の中の .chev)が6つ目。
+        // ピルは3種類あるが**描くのは共通の filterPill 1箇所**なので綴りは1つ増えるだけ。
         const n = (code.match(/<PickChevron \/>/g) || []).length;
-        check("F-72: ▾ を使う箇所は5つ(上部設定行の4つ + N-5 の追加シートの銘柄)",
-          n === 5, `${n}箇所`);
+        check("F-72: ▾ を使う箇所は6つ(上部設定行の4つ + 追加シートの銘柄 + データタブのフィルタピル)",
+          n === 6, `${n}箇所`);
+        {
+          const inMyDataPage = (srcOfFn(src, "MyDataPage").match(/<PickChevron \/>/g) || []).length;
+          check("N-6: データタブの ▾ はフィルタピルの共通部品に1つだけ(ピルごとに写していない)",
+            inMyDataPage === 1, `${inMyDataPage}箇所`);
+        }
         {
           // 上部設定行の4つの内訳: 楽器種別・基準ピッチ・リード枠は MeasureView が直接描き、
           // 奏者は共有部品 PerformerSelector が描く。合わせて4つ。
@@ -7668,7 +7819,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // 【N-5 で 15 → 12】リードタブの B型が減った(登録フォームの「1枚ずつ追加」/
       // 一覧の削除ボタン2つ / 測定ボタン / 個体詳細の評価カード3枚が消え、
       // 削除モードのキャンセル・削除ピル2つは子タブ行へ移って残っている)。実測13。
-      check("B型(.ctl-plain)は 12箇所以上で使われている", tagsWithClass("ctl-plain").length >= 12,
+      // 【N-6 で 12 → 10】データタブの一覧のゴミ箱が「…」の行に、絞り込みの2つの <select> が
+      // ピル(A型)に、一括変更の塗りボタンが B型のピルになった。差し引きで実測11。
+      check("B型(.ctl-plain)は 10箇所以上で使われている", tagsWithClass("ctl-plain").length >= 10,
         `${tagsWithClass("ctl-plain").length}箇所`);
     }
 
@@ -7697,13 +7850,21 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // 【N-5 で 2 → 1】リードタブの子タブは正典 .subtabs(素のテキスト2つ + 右端の「…」)に
       // 変わり、溝そのものが無くなった。残る1つはデータタブの子タブ。
       // **リードタブ側に溝が復活していないこと**も同時に見る(下限を下げただけにしない)。
+      // 【N-6 で 1 → 0】データタブの子タブも正典 .subtabs(素のテキスト + 右端の「…」)に
+      // 変わり、**アプリから溝が1つも無くなった**。下限を下げただけにしないため、
+      // 両タブとも「溝が復活していないこと」と「選択中だけ濃い太字」を名指しで固定する。
       const grooves = (code.match(/display: "flex", gap: 6, background: "var\(--c-sunken\)", borderRadius: 11, padding: 4/g) || []).length;
-      check("子タブの溝はデータタブの1箇所だけ(地は var(--c-sunken))", grooves === 1, `${grooves}箇所`);
-      check("N-5: リードタブの子タブに溝が無い(正典 .subtabs は素のテキスト)",
-        !/borderRadius: 11, padding: 4/.test(srcOfFn(src, "ReedsTab")));
+      check("子タブの溝はアプリのどこにも無い(正典 .subtabs は素のテキスト)", grooves === 0, `${grooves}箇所`);
+      for (const fn of ["ReedsTab", "AnalysisLabView"]) {
+        check(`${fn} の子タブに溝が無い(角丸11 + padding4 の segmented control が復活していない)`,
+          !/borderRadius: 11, padding: 4/.test(srcOfFn(src, fn)));
+      }
       check("N-5: リードタブの子タブは選択中だけ濃い太字(正典 .subtabs .on)",
         /color: reedsSubTab === t\.key \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(src)
         && /fontWeight: reedsSubTab === t\.key \? 600 : 400/.test(src));
+      check("N-6: データタブの子タブは選択中だけ濃い太字(正典 .subtabs .on)",
+        /color: dataSubTab === t\.key \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(src)
+        && /fontWeight: dataSubTab === t\.key \? 600 : 400/.test(src));
       check("トークン外の近似色 #EDEFF3 が App.jsx に残っていない", !/#EDEFF3/i.test(code));
     }
 
@@ -7771,7 +7932,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         (withPrefix(dgTags, ["background", "color"])[0] ?? "").slice(0, 120));
       // 「削除モードに入る入口」は破壊がまだ起きないので中立のまま(危険色を持たない)。
       // 【N-5】リードの入口は「…」メニューの行になった(startMode(mode) を呼ぶ)。
-      for (const entry of ["onPick(it.mode)", "setSelectionMode(true)"]) {
+      // 【N-6】データタブの入口も「…」シートの行になった(DataOptionSheet が onPick(it.key) を呼ぶ)。
+      for (const entry of ["onPick(it.mode)", "onPick(it.key)"]) {
         const i = Math.max(src.indexOf(`onClick={() => ${entry}`), src.indexOf(`onClick={${entry}}`));
         const open = i === -1 ? -1 : src.lastIndexOf("<button", i);
         const close = i === -1 ? -1 : src.indexOf("</button>", i);
@@ -9444,20 +9606,52 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
       }
       throw new Error(`function ${name}: unbalanced braces`);
     };
+    // 【N-6 で2つ減った】データタブの指標行は正典 .mrow に合わせて **HNR / 重心 / 音量の3列**に
+    // なり、平均差分の列を持たない(同じ量がヒーローの主役の数字として出ているため)。
+    // 標準偏差を添える指標は平均差分だけなので、データタブ側に sub の受け手はもう居ない。
+    // **代わりに「その3列に平均差分が混ざっていないこと」を下の 21.5b で固定する。**
     const wiring = [
-      ["MyDataSection（My Dataカード）", "MyDataSection", /sub=\{m\.sub\?\.\(overall\)/],
-      ["LatestSessionCard（最新セッション）", "LatestSessionCard", /sub=\{mt\.sub\?\.\(m\) \?\? null\}/],
       ["SessionDetailView（個別セッション）", "SessionDetailView", /sub=\{mt\.sub\?\.\(sessionMetrics\) \?\? null\}/],
       ["ReedEvaluationDetail（登録済みリードの測定データ）", "ReedEvaluationDetail", /sub=\{m\.sub\?\.\(overall\) \?\? null\}/],
     ];
     for (const [label, fn, re] of wiring) {
       check(`21.5 ${label} は指標定義の sub をカードに渡している`, re.test(componentSourceOf(fn)));
     }
+    // 21.5b データタブの指標行に平均差分(標準偏差を連れてくる唯一の指標)が入っていないこと。
+    // ここが破れると、ヒーローと同じ数字が真下に重複し、標準偏差の出どころも2つになる。
+    {
+      const rowKeys = new Function(`${extractConst("MY_DATA_ROW_METRICS")} return MY_DATA_ROW_METRICS;`)();
+      check("21.5b データタブの指標行は HNR / 重心 / 音量 の3列(正典 .mrow)",
+        JSON.stringify(rowKeys) === JSON.stringify(["hnrDb", "spectralCentroidHz", "volumeDb"]),
+        rowKeys.join(","));
+      check("21.5b データタブの指標行に平均差分(pitchCentsSigned)を入れない(ヒーローと重複させない)",
+        !rowKeys.includes("pitchCentsSigned"), rowKeys.join(","));
+    }
     // ヒーローは TappableMetricCard ではないので個別に見る。主役の大きい数字と**同じ母集団**
     // から出していること(今日を出しているのに対象期間の標準偏差を添えると読み違える)。
+    // 【N-6】正典 .hero .sd は語を持たない「±3.4¢」なので bare で形だけ選ぶ。**導出は1つのまま**。
     const myDataSection = componentSourceOf("MyDataSection");
+    // 【N-6】`{ bare: true }` を**任意にしない**。任意にすると、`bare` を足した唯一の理由
+    // (正典 .hero .sd は「標準偏差」の語を持たない)を何も固定しないことになり、
+    // 語つきに戻す変異が生き残る(審査役が実証: 削除しても PASS 6003 / FAIL 0)。
+    // 母集団の一致と表記の形は**別の主張**なので、検査も2本に分ける。
     check("21.5 ヒーローの標準偏差は主役の数字と同じ母集団から出す",
-      /const heroSpread = pitchSpreadSub\(todayVal != null \? todayMetrics : overall\);/.test(myDataSection));
+      /const heroSpread = pitchSpreadSub\(todayVal != null \? todayMetrics : overall/.test(myDataSection));
+    check("21.5 ヒーローの標準偏差は語を持たない形で出す(正典 .hero .sd は「±3.4¢」)",
+      /const heroSpread = pitchSpreadSub\([^;]*, \{ bare: true \}\);/.test(myDataSection),
+      (myDataSection.match(/const heroSpread = [^\n;]+/) || ["見つからない"])[0]);
+    // 【N-6】表示の形は2つ(語つき/語なし)だが、**数の作り方は1つ**であること。
+    // pitchSpreadSub を実ソースから取り出して両方の形を評価し、数字の部分が一致するかで見る
+    // (別の式を書き足して桁や丸めがずれたら落ちる)。
+    {
+      const ps = new Function(`${extractFunction("pitchSpreadSub")} return pitchSpreadSub;`)();
+      const m = { pitchStabilityCents: 3.44 };
+      check("21.5 標準偏差の語なし表示は語つき表示と同じ数字(導出を2つ作っていない)",
+        ps(m, { bare: true }) === "±3.4¢" && ps(m) === `標準偏差 ${ps(m, { bare: true })}`,
+        `${ps(m)} / ${ps(m, { bare: true })}`);
+      check("21.5 欠測はどちらの形でも null(「±null¢」を出さない)",
+        ps({ pitchStabilityCents: null }, { bare: true }) === null && ps({}) === null);
+    }
     check("21.5 ヒーローは heroSpread があるときだけ副次行を出す",
       /\{heroSpread && <span>\{heroSpread\}<\/span>\}/.test(myDataSection));
     check("21.5 ヒーローの副次行の色は既存の副次色(#9DB3D6)のまま(新しい色を作らない)",
@@ -9908,26 +10102,45 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         delTag.replace(/\s+/g, " ").slice(0, 200));
     }
 
-    // F-58: セッション一覧のゴミ箱を、リードタブの削除ボタンと同じ枠(内側のピル)にする。
+    // F-58: 削除モードのボタンを、リードタブの削除ボタンと同じ枠(内側のピル)にする。
     // 「同じ寸法」は数値を書き写すのではなく、**両者から抜き出したpaddingが等しいこと**で見る。
+    //
+    // 【N-6 で対象が移った】旧: セッション一覧の見出しにあった**ゴミ箱ボタン**
+    // (aria-label="セッションを選んで削除")が入口だった。新: 入口は子タブ行の「…」の中の
+    // 文言になり、ボタンとしては消えた。**要件は1つも下げず**、削除モードに入ったあとに出る
+    // 「n件を削除」を対象にする(こちらもリードタブと同じ構造・同じ寸法であるべきもの)。
+    //
+    // 【前版は構造上失敗し得ない検査だった(N-6 で発見)】リード側の目印を
+    // `aria-label="箱を選んで削除"` にしていたが、その綴りは App.jsx の**JSX コメントの中**
+    // (F-58 の経緯を書き残した行)にしか無く、しかもそのコメントは**セッション一覧のゴミ箱
+    // ボタンの中**にあった。つまり `sess` と `reed` は同じ要素を切り出しており、
+    // 「padding が両者で一致する」は恒等式だった。目印は実在する**描画されるテキスト**にする。
     {
-      const tagOf = (label) => {
-        const i = src.indexOf(`aria-label="${label}"`);
-        if (i === -1) throw new Error(`${label} が見つからない`);
+      const btnAround = (needle, what) => {
+        const i = src.indexOf(needle);
+        if (i === -1) throw new Error(`${what}が見つからない`);
         return src.slice(src.lastIndexOf("<button", i), src.indexOf("</button>", i));
       };
-      const sess = tagOf("セッションを選んで削除");
-      const reed = tagOf("箱を選んで削除");
-      const pillPad = (tag) => (tag.match(/className="ctl-plain ctl-pill"[^>]*?padding: "([^"]+)"/) || [])[1] ?? null;
+      const dataDel = btnAround("件を削除", "データタブの削除ボタン");
+      const reed = btnAround("箱を削除", "リードタブの削除ボタン");
+      // 切り出しが別々の要素であることを先に固定する(同じ要素を2回見て「一致」と言わない)
+      check("F-58: 2つの削除ボタンは別々の要素を切り出せている(恒等式になっていない)",
+        dataDel !== reed && dataDel.length > 100 && reed.length > 100,
+        `data=${dataDel.length}文字 / reed=${reed.length}文字`);
+      // 属性値の中に `>` が入り得る(data-armed={n > 0})ので、`[^>]*?` では拾えない。
+      const pillPad = (tag) => (tag.match(/className="ctl-plain ctl-pill[^"]*"[\s\S]{0,160}?padding: "([^"]+)"/) || [])[1] ?? null;
       check("F-58: どちらも「見た目のピルは内側の<span>・<button>は透明な当たり判定」の構造",
-        /\.\.\.TAP_BUTTON_RESET/.test(sess) && /\.\.\.TAP_BUTTON_RESET/.test(reed) &&
-        /className="ctl-plain ctl-pill"/.test(sess) && /className="ctl-plain ctl-pill"/.test(reed));
+        /\.\.\.TAP_BUTTON_RESET/.test(dataDel) && /\.\.\.TAP_BUTTON_RESET/.test(reed) &&
+        /className="ctl-plain ctl-pill/.test(dataDel) && /className="ctl-plain ctl-pill/.test(reed));
       check("F-58: 内側のピルの padding が両者で一致する(＝枠の寸法が同じ)",
-        pillPad(sess) !== null && pillPad(sess) === pillPad(reed), `session=${pillPad(sess)} reed=${pillPad(reed)}`);
-      check("F-58: どちらも当たり判定は --tap-min(§5 の 44pt)",
-        /minWidth: "var\(--tap-min\)"/.test(sess) && /minWidth: "var\(--tap-min\)"/.test(reed));
+        pillPad(dataDel) !== null && pillPad(dataDel) === pillPad(reed),
+        `data=${pillPad(dataDel)} reed=${pillPad(reed)}`);
       check("F-58: <button>自身にピルの地を持たせない(持たせると枠が44×44に膨らむ)",
-        !/className="sans ctl-plain ctl-pill"[\s\S]*?aria-label="セッションを選んで削除"/.test(sess));
+        !/<button[^>]*className="sans ctl-plain ctl-pill"/.test(dataDel));
+      // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)
+      check("F-58/N-6: データタブの削除は .ctl-danger + data-armed(選択0件では塗らない)",
+        /className="ctl-plain ctl-pill ctl-danger"/.test(dataDel)
+        && /data-armed=\{selectedForDelete\.size > 0\}/.test(dataDel), dataDel.replace(/\s+/g, " ").slice(0, 200));
     }
 
     // F-59: 保持したい状態だけを親へ持ち上げる。navNonce による再マウントの意図は壊さない。
@@ -10712,7 +10925,14 @@ let METRO_SIGS_ALL = [];
   // --- 24.8 アップロードはデータタブで完結する --------------------------------
   {
     const mv = code.slice(code.indexOf("function MeasureView(props)"), code.indexOf("function PhraseTimeline"));
-    const dv = codeSafe.slice(codeSafe.indexOf("function AnalysisLabView(props)"), codeSafe.indexOf("function SessionDetailView"));
+    // 【N-6】データタブ側は AnalysisLabView(告知の浮き)と MyDataPage(入口のボタン)の
+    // 2関数に分かれた。**ファイル順に依存する切り出しをやめ**、関数の集合で走査する。
+    const dv = ["AnalysisLabView", "MyDataPage"]
+      .map((n) => codeSafe.slice(codeSafe.indexOf(`function ${n}(`), codeSafe.indexOf("\n}\n", codeSafe.indexOf(`function ${n}(`)) + 3))
+      .join("\n");
+    check("データタブの2関数(AnalysisLabView / MyDataPage)を走査できている",
+      dv.includes("function AnalysisLabView(") && dv.includes("function MyDataPage(") && dv.length > 8000,
+      `${dv.length}文字`);
     // (a) 計測タブから消えている。**綴りではなく「到達経路」で見る**:
     //     ファイル入力・アップロードの呼び出し・進捗・完了通知のどれも無いこと。
     for (const [label, re] of [
@@ -10729,7 +10949,9 @@ let METRO_SIGS_ALL = [];
       ["隠しファイル入力", /type="file" accept="audio\/\*,video\/\*"/],
       ["アップロードの実行", /handleUploadFile\(f\)/],
       ["解析の進捗バー", /Math\.round\(uploadProgress \* 100\)/],
-      ["完了通知", /アップロードの解析が完了しました/],
+      // 【N-6】文言は正典 mini の「解析が完了しました」(告知はデータタブ上端にしか出ないので
+      // 「アップロードの」は言わなくても通じる。本人指示「長い説明文を書くな」)
+      ["完了通知", /解析が完了しました/],
       ["「★ 目安に設定」", /<SetAsIdealButton tapMin session=\{lastUploadedSession\}/],
       ["自動再生ブロック時の「解析を開始」", /解析を開始/],
     ]) {
@@ -10742,9 +10964,21 @@ let METRO_SIGS_ALL = [];
       /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
     check("データタブのアップロードボタンのタップ領域は --tap-min 以上",
       /minHeight: "var\(--tap-min\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
-    check("アップロードは「セッション一覧」の見出しの行にある",
-      dv.indexOf("セッション一覧") !== -1 && bi > dv.indexOf("セッション一覧"),
-      `見出し ${dv.indexOf("セッション一覧")} / ボタン ${bi}`);
+    // 【N-6】見出しは正典 .shead の「セッション 5/12」。同じ行(.shead)の中に居ることを、
+    // 見出しの綴りとボタンの距離で見る(行の中に収まる長さに上限を置く)。
+    {
+      // **距離ではなく構造で見る**: 見出しの箱が閉じたあと、**新しい箱を開かずに**ボタンが来る
+      // = 2つは同じ容器(正典 .shead の行)の直下にいる。
+      // 箱を1つでも挟めば(=別の行へ動かせば)ここが落ちる。
+      const hi = dv.indexOf("セッション <span");
+      const btnStart = bi === -1 ? -1 : dv.lastIndexOf("<button", bi);
+      const headClose = hi === -1 ? -1 : dv.indexOf("</div>", hi);
+      const between = hi !== -1 && headClose !== -1 && btnStart > headClose
+        ? dv.slice(headClose, btnStart) : null;
+      check("アップロードは「セッション」の見出しと同じ容器(.shead の行)にいる",
+        between !== null && !/<div\b/.test(between),
+        between === null ? `見出し ${hi} / ボタン ${btnStart}` : (between.match(/<div\b/g) || []).join(","));
+    }
     // (d) エラー(無音ファイル等)の出口がデータタブでも開いている。
     //     ここを計測タブ限定に戻すと、アップロードのエラーが誰にも見えなくなる。
     // 【審査②の修正】タブで広げるのではなく、**メッセージの種類**で出し分ける。
@@ -11851,13 +12085,34 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 正典 .numrow の実寸(値19px + 単位11px / ラベル10.5px)
     {
       const card = srcOfFn(src, "TappableMetricCard");
-      check("bare の既定は false(データタブ側へ漏れない)", /bare = false/.test(card));
-      check("bare の値は正典 .numrow の 19px / 600",
-        parseFloat(declOf(mockCss, ".numrow .v", "font-size")) === 19
-        && /fontSize: 19, fontWeight: 600, color: "var\(--c-ink\)"/.test(card));
-      check("bare のラベルは正典 .numrow .l の 10.5px",
-        parseFloat(declOf(mockCss, ".numrow .l", "font-size")) === 10.5
-        && /fontSize: 10\.5, color: "var\(--c-ink-3\)"/.test(card));
+      check("bare の既定は false(渡していない画面へ漏れない)", /bare = false/.test(card));
+      // 【N-6】正典には数字の列が2種類ある(.numrow = リード個体詳細 / .mrow = データタブ)。
+      // 寸法は BARE_ROW_STYLES が唯一の答えで、**モックの CSS から読んだ値と突き合わせる**
+      // (実装から写した値ではないので、片方を書き換えれば落ちる)。
+      const rowStyles = new Function(`${extractConst("BARE_ROW_STYLES")} return BARE_ROW_STYLES;`)();
+      check("bare の既定の型は numrow(リード個体詳細の見た目のまま)", /rowStyle = "numrow"/.test(card));
+      for (const [name, sel] of [["numrow", ".numrow"], ["mrow", ".mrow"]]) {
+        check(`bare(${name})の値は正典 ${sel} .v と同じ`,
+          rowStyles[name].value === parseFloat(declOf(mockCss, `${sel} .v`, "font-size")),
+          `実装 ${rowStyles[name].value} / 正典 ${declOf(mockCss, `${sel} .v`, "font-size")}`);
+        check(`bare(${name})のラベルは正典 ${sel} .l と同じ`,
+          rowStyles[name].label === parseFloat(declOf(mockCss, `${sel} .l`, "font-size")),
+          `実装 ${rowStyles[name].label} / 正典 ${declOf(mockCss, `${sel} .l`, "font-size")}`);
+        check(`bare(${name})の単位は正典 ${sel} .v small と同じ`,
+          rowStyles[name].unit === parseFloat(declOf(mockCss, `${sel} .v small`, "font-size")),
+          `実装 ${rowStyles[name].unit} / 正典 ${declOf(mockCss, `${sel} .v small`, "font-size")}`);
+      }
+      // 正典 .mrow には副次(.b)の行が無い。null を入れて**行そのものを出さない**という意味。
+      check("bare(mrow)は副次の行を持たない(正典 .mrow に .b が無い)",
+        rowStyles.mrow.sub === null && declOf(mockCss, ".mrow .b", "font-size") === null,
+        `実装 ${rowStyles.mrow.sub} / 正典 ${declOf(mockCss, ".mrow .b", "font-size")}`);
+      check("bare(numrow)は副次の行を持つ(正典 .numrow .b がある)",
+        rowStyles.numrow.sub === parseFloat(declOf(mockCss, ".numrow .b", "font-size")),
+        `実装 ${rowStyles.numrow.sub} / 正典 ${declOf(mockCss, ".numrow .b", "font-size")}`);
+      check("寸法は BARE_ROW_STYLES から引く(呼び出し側に数値を写していない)",
+        /fontSize: fs\.value, fontWeight: 600, color: "var\(--c-ink\)"/.test(card)
+        && /fontSize: fs\.label, color: "var\(--c-ink-3\)"/.test(card)
+        && /fontSize: fs\.unit,/.test(card));
       check("bare の当たり判定は 44px 以上(§5)", /minHeight: "var\(--tap-min\)"/.test(card));
       // 【実測で踏んだ罠】1つがグラフに切り替わって幅100%になったとき、flex-basis 0 の
       // 残り3つは**同じ行で幅0まで潰れて見えないボタンになった**(実測 327/0/0/0)。
@@ -11872,12 +12127,17 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 何も守らない。守るべきは「0 ではないこと」そのもの(0 に戻すと同じ行で潰れる)。
       check("その最小幅は 0 ではない(0 だと開いたときに残り3つが同じ行で潰れる)",
         api.REED_NUMROW_MIN_PX > 0, `${api.REED_NUMROW_MIN_PX}px`);
-      // bare を渡しているのはリードの個体詳細だけ(データタブ・セッション詳細は従来のまま)
-      const bareSites = (codeOf(src).match(/^\s*bare$/gm) || []).length;
-      check("bare を渡しているのは1箇所(リードの個体詳細)だけ", bareSites === 1, `${bareSites}箇所`);
-      check("TappableMetricCard の呼び出しは4箇所のまま",
-        (src.match(/<TappableMetricCard/g) || []).length === 4,
-        `${(src.match(/<TappableMetricCard/g) || []).length}箇所`);
+      // 【N-6】bare を渡すのはリードの個体詳細(numrow)とデータタブの指標行(mrow)の2つ。
+      // セッション詳細は従来の .tile のまま。**どの関数が渡しているか**を集合で固定する
+      // (件数だけを固定すると、部品をまとめる/分けるという正しい修正が落ちる)。
+      const BARE_OWNERS = ["ReedEvaluationDetail", "MetricRow"];
+      const bareSites = (codeOf(src).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length;
+      const inBareOwners = BARE_OWNERS
+        .reduce((n, fn) => n + (codeOf(srcOfFn(src, fn)).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length, 0);
+      check("bare を渡しているのはリード個体詳細とデータタブの指標行だけ(集合の外に渡し手がいない)",
+        bareSites === inBareOwners && inBareOwners === 2, `全体 ${bareSites} / 集合内 ${inBareOwners}`);
+      check("セッション詳細は bare を渡さない(従来の .tile のまま)",
+        !/\bbare\b/.test(codeOf(srcOfFn(src, "SessionDetailView"))));
     }
     // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
     check("ダイヤルの先頭の「—」は表示文字列も「—」",
@@ -11974,6 +12234,381 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         && /class="pmt" style="height:40px"/.test(mock),
         `.pmt=${declOf(mockCss, ".pmt", "height")} / ミニの上書き=${/class="pmt" style="height:40px"/.test(mock)}`);
     }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証26: N-6 データタブ(My Data 子タブ)を正典どおりにする
+//   A 正典 north-star-measure.html の K画面/mini と実装の寸法を突き合わせる
+//   B ヒーロー: 脚注(セッション数)の撤去 / 期間セレクタは素テキスト + ▾
+//   C 指標行: 累計(全期間)と最新の2行。累計は期間セレクタと連動しない
+//   D セッション一覧: 見出し・塗りボタン・ピル4つ・副次行(録音時間は最後の t から)
+//   E 「…」: 押せる項目が無ければ出さない(F-77 の罠)
+//   F 機能を1つも落としていないこと(集合で確かめる)
+//
+// 【この節の作り方】値を実装から写して並べるのではなく、**正典の CSS を読んで突き合わせる**
+// (design/LOOP.md「定数の定義を言い換えるテストは書かない」)。
+// **ハーネスは JSX を評価しない。** 配線はソース文字列の検査にとどまり、
+// 「描画が正しい」ことの証明にはならない。純関数にできたものだけ実行で確かめている。
+// ============================================================
+console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measure.html との突き合わせ) ==========");
+{
+  const mock = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const parseCss = (text) => {
+    const out = [];
+    const body = text.replace(/\/\*[\s\S]*?\*\//g, " ");
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const sels = m[1].split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+      out.push({ sels, body: m[2] });
+    }
+    return out;
+  };
+  const declsOf = (block) => (block || "").split(";").map((d) => d.trim()).filter(Boolean)
+    .map((d) => { const i = d.indexOf(":"); return { name: d.slice(0, i).trim(), value: d.slice(i + 1).trim() }; });
+  const ruleOf = (rules, sel) => rules.filter((r) => r.sels.includes(sel));
+  const declOf = (rules, sel, name) => {
+    let v = null;
+    for (const r of ruleOf(rules, sel)) for (const d of declsOf(r.body)) if (d.name === name) v = d.value;
+    return v;
+  };
+  const mockCss = parseCss((mock.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]);
+  // 走査が空回りしていないこと(空回りすると以降が全部「一致」になる)
+  check("26.0 正典モックの CSS を走査できている(データタブの規則が揃っている)",
+    mockCss.length >= 60, `${mockCss.length}規則`);
+  for (const sel of [".hero", ".hero .lbl", ".hero .num", ".hero .u", ".hero .pill", ".hero .sd",
+    ".mrow", ".mrow .rl", ".mrow .v", ".mrow .l", ".shead", ".shead .t", ".impbtn", ".fpills",
+    ".fp", ".srow", ".srow .d", ".chev"]) {
+    check(`26.0 正典に ${sel} の規則がある`, ruleOf(mockCss, sel).length === 1,
+      `${ruleOf(mockCss, sel).length}件`);
+  }
+
+  const myDataSection = srcOfFn(src, "MyDataSection");
+  const myDataPage = srcOfFn(src, "MyDataPage");
+  const metricRow = srcOfFn(src, "MetricRow");
+  const lab = srcOfFn(src, "AnalysisLabView");
+
+  // --- 26.1 ヒーロー(正典 .hero) ---------------------------------------------
+  {
+    check("26.1 ヒーローの角丸は正典 .hero と同じ",
+      new RegExp(`borderRadius: ${parseFloat(declOf(mockCss, ".hero", "border-radius"))},`).test(myDataSection),
+      `正典=${declOf(mockCss, ".hero", "border-radius")}`);
+    check("26.1 ヒーローの内側余白は正典 .hero と同じ",
+      myDataSection.includes(`padding: "${declOf(mockCss, ".hero", "padding")}"`),
+      `正典=${declOf(mockCss, ".hero", "padding")}`);
+    check("26.1 主数値の大きさは正典 .hero .num と同じ",
+      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".hero .num", "font-size"))}, fontWeight: 600`).test(myDataSection),
+      `正典=${declOf(mockCss, ".hero .num", "font-size")}`);
+    check("26.1 単位(¢)の大きさは正典 .hero .u と同じ",
+      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".hero .u", "font-size"))}, color: "#9DB3D6"`).test(myDataSection),
+      `正典=${declOf(mockCss, ".hero .u", "font-size")}`);
+    check("26.1 評価ピルの余白は正典 .hero .pill と同じ",
+      myDataSection.includes(`padding: "${declOf(mockCss, ".hero .pill", "padding")}"`),
+      `正典=${declOf(mockCss, ".hero .pill", "padding")}`);
+    check("26.1 副次行の上余白は正典 .hero .sd と同じ",
+      new RegExp(`color: "#9DB3D6", marginTop: ${parseFloat(declOf(mockCss, ".hero .sd", "margin-top"))}`).test(myDataSection),
+      `正典=${declOf(mockCss, ".hero .sd", "margin-top")}`);
+    // 【本人指示「青いカード部分のテキストが多い」】脚注「1ヶ月 ・ n セッション」を消した。
+    // **綴りを禁じるのではなく**、セッション数の数え上げが「比較以外」に使われていないことで見る
+    // (`const n = points.length;` と2行に分けて描く抜け道を塞ぐ。F-78 の網と同じ形)。
+    // **これは「脚注が無い」ことの十分条件ではない**(別の変数で数えれば通る)ので名前もそう名乗る。
+    {
+      const body = codeOf(myDataSection);
+      const bad = [];
+      const re = /\bpoints\.length\b/g;
+      let m;
+      while ((m = re.exec(body)) !== null) {
+        const after = body.slice(m.index + m[0].length, m.index + m[0].length + 12);
+        if (!/^\s*(===|!==|>=|<=|>|<)/.test(after)) bad.push(body.slice(Math.max(0, m.index - 30), m.index + 20).replace(/\s+/g, " "));
+      }
+      check("26.1 ヒーローでセッション数を比較以外に使っていない(脚注を変数経由で描く経路を塞ぐ。十分条件ではない)",
+        bad.length === 0, bad.slice(0, 2).join(" | ") || "0件");
+      check("26.1 その比較の用途は実在する(走査が空回りしていない)",
+        /\bpoints\.length === 0\b/.test(body));
+    }
+    // 期間セレクタは枠も地も持たない素のテキスト + ▾(F-72 の作法。正典 .hero .lbl の「1ヶ月 ▾」)
+    {
+      const i = myDataSection.indexOf('aria-label="集計する期間を選ぶ"');
+      const tag = i === -1 ? "" : myDataSection.slice(myDataSection.lastIndexOf("<button", i), myDataSection.indexOf("</button>", i));
+      check("26.1 期間セレクタのボタンを走査できている", tag.length > 100, `${tag.length}文字`);
+      check("26.1 期間セレクタは地も枠も持たない(型のクラスも持たない)",
+        /background: "none", border: "none"/.test(tag) && !/\bctl-(state|plain|pill)\b/.test(tag),
+        tag.replace(/\s+/g, " ").slice(0, 200));
+      check("26.1 期間セレクタには ▾ が付く(押せば選択肢が出ることを形で示す。F-72)",
+        /\{rangeLabel\} ▾/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      // 【実測で踏んだ罠】高さだけ 44 にしても、「昨日 ▾」のように短い値では**幅が 39px**しか
+      // 無く §5 を割る(375×812 で elementFromPoint を整数グリッド1px刻みに走査)。
+      // 文字は flex-end に寄せてあるので、広げるのは左の余白だけ = 見た目は動かない。
+      check("26.1 期間セレクタの当たり判定は縦横とも 44pt(§5。短い値でも幅が足りる)",
+        /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tag)
+        && /justifyContent: "flex-end"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
+      check("26.1 期間セレクタの文字色は正典 .hero .lbl の #B9C9E4",
+        /fontSize: 12, color: "#B9C9E4"/.test(tag));
+    }
+    // 期間の候補は9種すべて残っている(機能を落とさない)
+    {
+      const ranges = new Function(`${extractConst("MY_DATA_RANGES")} return MY_DATA_RANGES;`)();
+      check("26.1 期間の候補は9種すべて残っている",
+        ranges.length === 9 && ranges.map((r) => r.key).join(",") === "yesterday,1w,1m,3m,6m,1y,3y,5y,all",
+        ranges.map((r) => r.key).join(","));
+      check("26.1 期間の選択肢はシートに MY_DATA_RANGES から流し込む(綴りを2箇所に置かない)",
+        /items=\{rangeOptions\.map\(\(o\) => \(\{ key: o\.key, label: o\.label \}\)\)\}/.test(myDataSection));
+    }
+  }
+
+  // --- 26.2 指標行(正典 .mrow) ------------------------------------------------
+  {
+    check("26.2 行の内側余白は正典 .mrow と同じ",
+      metricRow.includes(`padding: "${declOf(mockCss, ".mrow", "padding")}"`),
+      `正典=${declOf(mockCss, ".mrow", "padding")}`);
+    check("26.2 行ラベルの幅は正典 .mrow .rl と同じ",
+      new RegExp(`width: ${parseFloat(declOf(mockCss, ".mrow .rl", "width"))},`).test(metricRow),
+      `正典=${declOf(mockCss, ".mrow .rl", "width")}`);
+    check("26.2 行ラベルの文字は正典 .mrow .rl と同じ",
+      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".mrow .rl", "font-size"))}, color: "var\\(--c-ink-3\\)"`).test(metricRow),
+      `正典=${declOf(mockCss, ".mrow .rl", "font-size")}`);
+    check("26.2 行の下辺に罫1本(正典 .mrow の border-bottom。面ではなく線で分ける)",
+      /borderBottom: "1px solid var\(--c-line\)"/.test(metricRow)
+      && /^\s*1px solid/.test(declOf(mockCss, ".mrow", "border-bottom") || ""),
+      `正典=${declOf(mockCss, ".mrow", "border-bottom")}`);
+    // 【累計は全期間】期間セレクタと連動しない。**綴りで縛る**(ハーネスは JSX を評価しない)。
+    check("26.2 累計の行は全期間のフレーム(期間で絞る前の allMySessions)から作る",
+      /const allTimeFrames = allMySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\);/.test(myDataSection)
+      && /rowLabel="累計" frames=\{allTimeFrames\}/.test(myDataSection));
+    check("26.2 allMySessions は期間で絞られていない(奏者だけで絞る)",
+      /const allMySessions = sessions\.filter\(\(s\) => s\.performer === "自分"\);/.test(myDataSection));
+    // 【N-6】期間で絞ったフレームは**ヒーローだけ**が使う(累計/最新の行に混ぜない)。
+    // ヒーローの中身は主役の数字(overall)と、その数字をタップして開く音名グラフ(heroFrames)の2つで、
+    // **どちらも同じ periodFrames から出る**(母集団がずれると「+1.2¢ と出ているのに
+    // グラフは別の期間」という読み違いが起きる)。
+    check("26.2 期間で絞ったフレームは1度だけ作り、ヒーローの平均がそれを使う",
+      /const periodFrames = mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\);/.test(myDataSection)
+      && /const overall = computeFrameMetrics\(periodFrames\);/.test(myDataSection)
+      && !/frames=\{mySessions/.test(myDataSection));
+    check("26.2 ヒーローの音名グラフは主役の数字と同じ母集団(今日を出しているなら今日・期間なら期間)",
+      /const heroFrames = todayVal != null \? todayFrames : periodFrames;/.test(myDataSection)
+      && /frames: heroFrames/.test(myDataSection),
+      (myDataSection.match(/const heroFrames = [^\n;]+/) || ["見つからない"])[0]);
+    // 期間で絞ったフレームを行へ渡していないこと(累計=全期間 / 最新=直近1回 を壊さない)
+    check("26.2 累計/最新の行に期間で絞ったフレームを渡していない",
+      !/rowLabel="(累計|最新)"[^>]*frames=\{periodFrames\}/.test(myDataSection));
+    // 【N-6】「最新」は**「累計」と同じ母集団(奏者=自分)から**選ぶ。
+    // 直したのに検査が無く、`[...allMySessions]` → `[...sessions]` と1語戻すだけで
+    // 欠陥が復活した(審査役の変異が生存)。母集団がずれると、友人のセッションが最後のとき
+    // 「累計=自分 / 最新=友人」が同じ形・同じ罫で並び、行には日付しか出ないので区別できない。
+    // 期間で絞った mySessions から選ぶのも誤り(「最新」は期間に関係なく直近1回)。
+    check("26.2 最新の行は累計と同じ母集団(allMySessions)から選ぶ",
+      /const latestSession = \[\.\.\.allMySessions\]\s*\r?\n?\s*\.sort\(/.test(myDataSection)
+      && !/const latestSession = \[\.\.\.(sessions|mySessions)\]/.test(myDataSection),
+      (myDataSection.match(/const latestSession = [^\n;]+/) || ["見つからない"])[0]);
+    check("26.2 最新の行は最新セッションのフレームと日付(yyyy/mm/dd)を出す",
+      /rowLabel="最新" rowSubLabel=\{formatYmd\(latestSession\.recordedAt\)\}/.test(myDataSection)
+      && /frames=\{latestSession\.frames \|\| \[\]\}/.test(myDataSection));
+    // 【N-6 音名ごとの内訳】正典 .mrow は3列で平均差分の列を持たないので列は消したが、
+    // **列と一緒に「どの音がどれだけズレているか」まで消してはいけない**
+    // (本人の決定「機能を残す」/ N6-SPEC「音名軸グラフは落とさない」)。入口はヒーローの数字。
+    // 一度これを直したときは検査が1本も無く、`{false && (`・入口の aria-label 削除・
+    // 当たり判定の削除・ラベルの書き換え・グラフを紺の面の中へ戻す、のどれも生存した。
+    {
+      // 入口: ヒーローの数字が押せて、開閉の状態を持つ
+      check("26.2 ヒーローの数字はタップで音名ごとの内訳を開く(入口が存在する)",
+        /onClick=\{\(\) => setHeroNoteChartOpen\(\(v\) => !v\)\}/.test(myDataSection)
+        && /aria-expanded=\{heroNoteChartOpen\}/.test(myDataSection));
+      // 到達不能にしない(`{false &&` や `&& false &&` で殺されていないこと)
+      check("26.2 グラフの出し分けは開閉の状態だけで決まる(常に閉じた形にしていない)",
+        /\{heroNoteChartOpen && \(/.test(myDataSection)
+        && !/heroNoteChartOpen && false/.test(myDataSection)
+        && !/\{false && \(/.test(myDataSection));
+      // §5(N-6 でも生きている規則)。ヒーローの数字は 44pt の当たり判定を持つ
+      check("26.2 ヒーローの数字の当たり判定は --tap-min(§5)",
+        /aria-expanded=\{heroNoteChartOpen\}[\s\S]{0,400}?minHeight: "var\(--tap-min\)"/.test(myDataSection));
+      // 読み上げ名に**値が入る**(aria-label は内容に優先するので、入れないと数値が名前から落ちる)
+      check("26.2 ヒーローの数字の読み上げ名に値が入る(aria-label が内容の数値を隠さない)",
+        /aria-label=\{`\$\{heroMetric\.label\} \$\{heroValueText\}。/.test(myDataSection)
+        && /const heroNumText = [\s\S]{0,140}?heroMetric\.fmt\(displayVal\)/.test(myDataSection)
+        // 【N-6】読み上げ名は**画面の数字と同じ組み立て**から作る。別々に組むと、0 のときだけ
+        // 画面 `0.0¢` / 読み上げ `+0.0¢` のように符号が食い違う(審査役の実測)。
+        && /const heroValueText = `\$\{heroNumText\}\$\{heroMetric\.unit\}`;/.test(myDataSection)
+        && /\{heroNumText\}\s*\r?\n\s*<span style=\{\{ fontSize: 21, color: "#9DB3D6" \}\}>\{heroMetric\.unit\}<\/span>/.test(myDataSection));
+      // ラベル・単位・書式は MY_DATA_METRICS が唯一の答え(リテラルを直書きしない)
+      check("26.2 ヒーローのグラフはラベル・単位・書式を MY_DATA_METRICS から取る(直書きしない)",
+        /const heroMetric = MY_DATA_METRICS\.find\(\(m\) => m\.key === "pitchCentsSigned"\);/.test(myDataSection)
+        && /label=\{heroMetric\.label\} unit=\{heroMetric\.unit\} metricKey=\{heroMetric\.key\}/.test(myDataSection)
+        && /fmt=\{heroMetric\.fmt\}/.test(myDataSection)
+        && !/label="平均差分" unit="¢"/.test(myDataSection));
+      // グラフ本体は**紺の面の外**。中に入れると線と目盛りが読めない。
+      // ヒーローの面を閉じる </div> より後ろに置かれていることを、綴りの順序で見る。
+      {
+        const iHeroClose = myDataSection.indexOf("})()}\n      </div>");
+        const iChart = myDataSection.indexOf("{heroNoteChartOpen && (");
+        check("26.2 音名グラフはヒーローの紺の面の外に出す(面の上では線と目盛りが読めない)",
+          iHeroClose > 0 && iChart > iHeroClose, `面の終わり@${iHeroClose} / グラフ@${iChart}`);
+      }
+    }
+    // 【目安Δ】常時表示をやめてグラフの凡例へ移した(情報は失わせない)
+    // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。行・ピル・期間セレクタには
+    // 検査があったのに、**この案件が新設した子タブと進捗棒だけ空いていた**(審査役の変異が生存)。
+    {
+      // 子タブと進捗棒は AnalysisLabView(データタブ全体)が描く
+      const page = srcOfFn(src, "AnalysisLabView");
+      check("26.2 データタブの子タブは 44pt の当たり判定を持つ(§5)",
+        /aria-pressed=\{dataSubTab === t\.key\}[\s\S]{0,200}?minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(page));
+      // 進捗棒の細さは正典 mini の値。CSS ではなく正典 HTML のインラインなので
+      // **正典から読む**(期待値をここに写すと、正典が変わっても落ちない)。
+      {
+        const iMini = mock.indexOf("読み込み中");
+        const bar = iMini < 0 ? "" : mock.slice(iMini, iMini + 400);
+        const h = (/height:\s*(\d+)px;background:var\(--line\)/.exec(bar) || [])[1];
+        check("26.2 正典から進捗棒の高さを読めている(空回りしていない)", h !== undefined, `正典=${h}`);
+        check("26.2 アップロードの進捗棒は正典と同じ細さ",
+          h !== undefined && new RegExp(`borderRadius: 2, height: ${h},`).test(page), `正典=${h}px`);
+      }
+    }
+    check("26.2 目安との差(Δ)は行ではなくグラフへ渡す",
+      /idealDiffText=\{diff !== null \? `Δ \$\{diff > 0 \? "\+" : ""\}\$\{m\.fmt\(diff\)\}` : null\}/.test(metricRow));
+    {
+      const chart = srcOfFn(src, "NoteAxisLineChart");
+      check("26.2 グラフは Δ を「目安」の凡例の隣に出す(破線が出ているときだけ)",
+        /\{idealDiffText && <span style=\{\{ color: "var\(--c-accent\)" \}\}>\{idealDiffText\}<\/span>\}/.test(chart)
+        && /\{idealByIdx && hasData && \(/.test(chart));
+      check("26.2 TappableMetricCard は idealDiffText をグラフへそのまま渡す",
+        /idealDiffText=\{idealDiffText\}/.test(srcOfFn(src, "TappableMetricCard")));
+    }
+    check("26.2 数字はタップで音名軸グラフに切り替わる(TappableMetricCard のまま)",
+      /<TappableMetricCard/.test(metricRow) && /bare rowStyle="mrow"/.test(metricRow));
+  }
+
+  // --- 26.3 セッション一覧(正典 .shead / .fpills / .srow) ----------------------
+  {
+    check("26.3 見出しの行の余白は正典 .shead と同じ",
+      myDataPage.includes(`padding: "${declOf(mockCss, ".shead", "padding")}"`),
+      `正典=${declOf(mockCss, ".shead", "padding")}`);
+    check("26.3 見出しの文字は正典 .shead .t と同じ",
+      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".shead .t", "font-size"))}, fontWeight: ${declOf(mockCss, ".shead .t", "font-weight")}`).test(myDataPage),
+      `正典=${declOf(mockCss, ".shead .t", "font-size")}/${declOf(mockCss, ".shead .t", "font-weight")}`);
+    check("26.3 見出しは絞り込み中だけ分数(それ以外は総数)",
+      /\{sessionFilterActive \? `\$\{filteredSessions\.length\}\/\$\{sessions\.length\}` : sessions\.length\}/.test(myDataPage));
+    check("26.3 フィルタピルの余白・文字は正典 .fp と同じ",
+      myDataPage.includes(`padding: "${declOf(mockCss, ".fp", "padding")}"`)
+      && new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".fp", "font-size"))},`).test(myDataPage),
+      `正典=${declOf(mockCss, ".fp", "padding")} / ${declOf(mockCss, ".fp", "font-size")}`);
+    check("26.3 ピルの並びの余白は正典 .fpills と同じ",
+      myDataPage.includes(`padding: "${declOf(mockCss, ".fpills", "padding")}"`),
+      `正典=${declOf(mockCss, ".fpills", "padding")}`);
+    check("26.3 一覧の行の余白は正典 .srow と同じ",
+      myDataPage.includes(`padding: "${declOf(mockCss, ".srow", "padding")}"`),
+      `正典=${declOf(mockCss, ".srow", "padding")}`);
+    check("26.3 一覧の行の日時は正典 .srow .d と同じ大きさ",
+      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".srow .d", "font-size"))}, color: "var\\(--c-ink\\)"`).test(myDataPage),
+      `正典=${declOf(mockCss, ".srow .d", "font-size")}`);
+    // 沈めた「絞り込み」ブロックは撤去した(正典に無い)。地を持つ小ブロックが残っていないこと。
+    check("26.3 沈めた「絞り込み」ブロックが残っていない",
+      !codeOf(myDataPage).includes("絞り込み")
+      && !/background: "var\(--c-surface\)"/.test(codeOf(myDataPage)),
+      (codeOf(myDataPage).match(/background: "var\(--c-surface\)"/g) || []).join(",") || "0件");
+    // ピルは輪郭(A型)・アップロードは塗り。**形言語を分ける**(§6.0)
+    check("26.3 フィルタピルは輪郭だけ(A型 .ctl-state)。塗りのボタンと形を分ける",
+      /className="ctl-state ctl-pill"/.test(myDataPage));
+    check("26.3 ピルの当たり判定は 44pt(見た目のピルは内側の <span>・<button> は透明。§5)",
+      /const filterPill = \([\s\S]{0,400}?\.\.\.TAP_BUTTON_RESET/.test(myDataPage));
+    check("26.3 一覧の行の当たり判定も 44pt(§5)",
+      /borderBottom: "1px solid var\(--c-line\)", cursor: "pointer", minHeight: "var\(--tap-min\)"/.test(myDataPage));
+    // 副次行「V16-3 #4 · 自分 · 12:24」。**読めない区画は丸ごと省く**
+    check("26.3 副次行はリード短縮形・奏者・録音時間を「 · 」でつなぎ、欠測は区画ごと省く",
+      /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(myDataPage)
+      && /\{subParts\.join\(" · "\)\}/.test(myDataPage));
+    check("26.3 ピッチの差分は行から出さない(本人指示)",
+      !/pitchCents/.test(codeOf(myDataPage)));
+    check("26.3 一覧の高さ制限とスクロールは現行のまま(190px)",
+      /maxHeight: 190, overflowY: "auto"/.test(myDataPage));
+  }
+
+  // --- 26.4 録音時間は最後のフレームの t から導く(保存されていない) --------------
+  {
+    const dur = new Function(`${extractFunction("formatElapsedMs")}
+      ${extractFunction("sessionDurationLabel")}
+      return sessionDurationLabel;`)();
+    check("26.4 最後のフレームの t(秒)から m:ss を作る",
+      dur({ frames: [{ t: 0 }, { t: 744 }] }) === "12:24", String(dur({ frames: [{ t: 0 }, { t: 744 }] })));
+    check("26.4 秒は2桁ゼロ埋め・分は桁上がりしても切らない",
+      dur({ frames: [{ t: 485 }] }) === "8:05" && dur({ frames: [{ t: 3600 }] }) === "60:00",
+      `${dur({ frames: [{ t: 485 }] })} / ${dur({ frames: [{ t: 3600 }] })}`);
+    check("26.4 フレームが空/無いときは null(時間の区画ごと省く)",
+      dur({ frames: [] }) === null && dur({}) === null && dur(null) === null);
+    check("26.4 最後のフレームに t が無い/数でないときも null",
+      dur({ frames: [{ t: 10 }, {}] }) === null && dur({ frames: [{ t: "12" }] }) === null
+      && dur({ frames: [{ t: NaN }] }) === null && dur({ frames: [{ t: -1 }] }) === null);
+    // 使われていること(導出だけあって描いていない、を防ぐ)
+    check("26.4 一覧の行が sessionDurationLabel を使っている",
+      /const dur = sessionDurationLabel\(s\);/.test(myDataPage));
+  }
+
+  // --- 26.5 リードの短縮表記(N-4a と同じ規則) ----------------------------------
+  {
+    const rs = new Function(`${extractFunction("shortBoxLabel")}
+      ${extractFunction("reedGroupKey")}
+      ${extractFunction("reedPosition")}
+      ${extractFunction("reedShortLabel")}
+      return reedShortLabel;`)();
+    const reeds = [
+      { id: "a", brand: "Vandoren V16", strength: "3.0", startDate: "2026-08-01" },
+      { id: "b", brand: "Vandoren V16", strength: "3.0", startDate: "2026-08-01" },
+    ];
+    check("26.5 「V16-3 #2」の形(短縮は shortBoxLabel・番号は reedPosition)",
+      rs(reeds[1], reeds) === "V16-3 #2", String(rs(reeds[1], reeds)));
+    check("26.5 リードが無ければ null(呼び出し側が「未紐付け」に振り替える)", rs(null, reeds) === null);
+  }
+
+  // --- 26.6 「…」は押せる項目が無ければ出さない(F-77 の罠) ---------------------
+  {
+    const items = new Function(`${extractConst("DATA_MORE_ITEM_DEFS")}
+      ${extractFunction("dataMoreItems")}
+      return dataMoreItems;`)();
+    check("26.6 セッションもリードもあれば2項目",
+      items(3, 2).map((x) => x.key).join(",") === "delete,reed", items(3, 2).map((x) => x.key).join(","));
+    check("26.6 リードが0枚なら一括リード変更を出さない(行き先が無い)",
+      items(3, 0).map((x) => x.key).join(",") === "delete", items(3, 0).map((x) => x.key).join(","));
+    check("26.6 セッションが0件なら項目ゼロ(=「…」ごと出さない)",
+      items(0, 5).length === 0 && items(0, 0).length === 0,
+      `${items(0, 5).length} / ${items(0, 0).length}`);
+    check("26.6 「…」は項目が1つ以上あるときだけ出す(呼び出し側の条件)",
+      /\{dataSubTab === "mydata" && \(moreItems\.length > 0 \|\| listMode !== null\) && \(/.test(lab));
+    check("26.6 項目の文言は削除と一括リード変更の2つ",
+      items(1, 1).map((x) => x.label).join(",") === "セッションを選んで削除,選んだセッションのリードをまとめて変更",
+      items(1, 1).map((x) => x.label).join(","));
+  }
+
+  // --- 26.7 機能を1つも落としていないこと(集合で確かめる) -----------------------
+  // 正典と現行がぶつかったら**機能を残す**(2026/08/12 本人確定)。形が変わっても消さないもの。
+  {
+    const all = codeOf(myDataSection) + codeOf(myDataPage) + codeOf(metricRow) + codeOf(lab);
+    const want = [
+      ["期間セレクタ", /MY_DATA_RANGES/],
+      ["音名軸グラフ", /<TappableMetricCard/],
+      ["目安未設定の告知", /目安未設定/],
+      ["期間に記録が無いときの文言", /この期間の「自分」のセッションはありません/],
+      ["記録が無いときの文言", /まだ記録がありません/],
+      ["条件に合わないときの文言", /条件に合うセッションがありません/],
+      ["奏者の絞り込み", /setSessionFilterPerformer/],
+      ["リードの絞り込み", /setSessionFilterReed/],
+      ["期間の絞り込み(自由な範囲)", /setSessionFilterDateFrom/],
+      ["クリア", /clearSessionFilters/],
+      ["選択削除", /confirmBatchDeleteSessions/],
+      ["一括リード変更", /applyBulkReed/],
+      ["アップロード", /handleUploadFile/],
+      ["アップロード由来の印", /<FileAudio/],
+      ["セッション詳細への遷移", /onOpenSession\(s\.id\)/],
+      ["目安に設定", /<SetAsIdealButton/],
+    ];
+    for (const [label, re] of want) {
+      check(`26.7 ${label} が残っている`, re.test(all), "");
+    }
+    // 期間の絞り込みは「いつからいつまで」の自由な範囲のまま(固定の候補に置き換えていない)
+    check("26.7 期間の絞り込みは date 入力2つのまま(自由な範囲を候補に置き換えていない)",
+      (myDataPage.match(/<input type="date"/g) || []).length === 2,
+      `${(myDataPage.match(/<input type="date"/g) || []).length}箇所`);
   }
   console.log("  -> done");
 }
