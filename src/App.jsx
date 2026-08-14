@@ -8907,6 +8907,18 @@ function SeriesSwatch({ style: st, width = 14 }) {
 // 【N-6】表示の形は2つあるが**導出は1つ**。正典 .hero .sd は「±3.4¢ · 平均 −0.8¢」で
 // 語を持たない(本人指示「青いカード部分のテキストが多い」)ので、ヒーローだけ bare を渡す。
 // 数字の作り方(小数1桁・欠測は null)を2箇所に写さないための引数であって、別の量ではない。
+// 符号付きの差分(¢)の書式。**丸めた結果が 0.0 なら符号を付けない**。
+// 【2026-08-15 本人指示】「ピッチがちょうど 0 のときの表示は 0.0¢ で」。
+// 素直に `v >= 0 ? "+" : ""` と書くと `+0.0`、`v > 0` にすると今度は
+// `(-0.04).toFixed(1)` が `-0.0` になって `-0.0¢` が出る。**どちらの側も 0 は 0**。
+// 書式をこの1関数に寄せ、リード比較・個体詳細・セッション詳細・My Data・目安との差(Δ)が
+// 同じ規則で出るようにする(以前は同じ式が3箇所に写されていた)。
+function formatSignedCents(v) {
+  const t = v.toFixed(1);
+  if (t === "0.0" || t === "-0.0") return "0.0";
+  return v > 0 ? `+${t}` : t;
+}
+
 function pitchSpreadSub(metrics, opts) {
   const sd = metrics?.pitchStabilityCents;
   if (sd === null || sd === undefined || isNaN(sd)) return null;
@@ -8932,7 +8944,7 @@ const REED_COMPARE_METRICS = [
   { key: "spectralCentroidHz", label: "重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   // sub は副次テキストの導出(F-66)。平均差分(ピッチ)だけが持つ。カード側は m.sub?.(metrics) を渡す
-  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
+  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
 // 【N-5】個体詳細の .numrow に並べる指標と**その順**。正典は 平均差分 / HNR / 重心 / 音量。
@@ -10071,7 +10083,7 @@ const MY_DATA_METRICS = [
   // (旧コメントは「こちらはタップで開く音名ごとの内訳なので見えるものが違う」と書いていたが、
   //  N-6 で列を消した時点で入口ごと失われていた。入口はヒーローの数字へ移してある)
   // sub は副次テキストの導出(F-66)。目安(idealKey)を持たないこの指標だけが持つ
-  { key: "pitchCentsSigned", idealKey: null, label: "平均差分", unit: "¢", fmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`, sub: pitchSpreadSub },
+  { key: "pitchCentsSigned", idealKey: null, label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
 // フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
@@ -10326,7 +10338,8 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   const heroSpread = pitchSpreadSub(todayVal != null ? todayMetrics : overall, { bare: true });
   // 対象期間平均は「今日」を出しているときだけ意味を持つ参考値(主役が期間平均そのものなら重複)。
   const heroPeriodText = todayVal != null && periodVal != null
-    ? `平均 ${periodVal > 0 ? "+" : ""}${periodVal.toFixed(1)}¢` : null;
+    // 主役の数字と**同じ書式・同じ単位**から組む(同じカードの中で規則が2つにならないように)。
+    ? `平均 ${heroMetric.fmt(periodVal)}${heroMetric.unit}` : null;
 
   return (
     <>

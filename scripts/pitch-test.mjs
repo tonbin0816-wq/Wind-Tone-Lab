@@ -5906,8 +5906,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     const reedCompare = extractConst("REED_COMPARE_METRICS");
     check("REED_COMPARE_METRICS のピッチも符号付き(pitchCentsSigned)に統一(F-46)",
       /key: "pitchCentsSigned"/.test(reedCompare) && !/key: "pitchCents",/.test(reedCompare));
-    check("REED_COMPARE_METRICS のピッチのラベルは「平均差分」(N-2 表記統一)・fmtは符号付き",
-      /label: "平均差分", unit: "¢", fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(reedCompare));
+    // 【2026-08-15】fmt の綴りを写すのをやめ、共有の書式 formatSignedCents を使っていることで見る
+    // (書式の中身は「0 に符号を付けない」も含めて §6.7 で挙動として固定した)。
+    check("REED_COMPARE_METRICS のピッチのラベルは「平均差分」(N-2 表記統一)・fmtは共有の書式",
+      /label: "平均差分", unit: "¢", fmt: formatSignedCents/.test(reedCompare));
     // 【N-6】ラベルは**正典(design/north-star-measure.html)の文言に固定**する。
     // 「スペクトル重心」のまま長らく正典(「重心」)とずれていたのに、**どの検査も落ちなかった**
     // (統括が N-6 の実測で気付いた)。正典と表示文言のずれは、値の検査では捕まらない。
@@ -6030,8 +6032,25 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 下端の目盛が上端と同じ表示になり、上下の向きが読めなくなる。
     check("縦軸の目盛は fmt に生の値をそのまま渡す(絶対値に潰さない)",
       /const tickTexts = tickVals\.map\(\(v\) => fmt\(v\)\);/.test(chart));
-    check("符号付き指標の fmt は正の値に \"+\" を前置する(0を挟んだ向きが読める)",
-      /fmt: \(v\) => `\$\{v >= 0 \? "\+" : ""\}\$\{v\.toFixed\(1\)\}`/.test(myData));
+    // 【2026-08-15 本人指示】「ピッチがちょうど 0 のときの表示は 0.0¢ で」。
+    // 書式は formatSignedCents 1つに寄せた(以前は同じ式が3箇所に写されていた)。
+    // **綴りではなく挙動で見る**(前版は式を丸写しした正規表現だったので、
+    //  同じ意味の書き換えでも落ち、規則を変える正しい修正も落とした)。
+    check("符号付き指標の fmt は formatSignedCents を使う(書式を写さない)",
+      /fmt: formatSignedCents/.test(myData) && /fmt: formatSignedCents/.test(reedCompare),
+      `MY_DATA:${/fmt: formatSignedCents/.test(myData)} / REED:${/fmt: formatSignedCents/.test(reedCompare)}`);
+    {
+      const f = new Function(`${extractFunction("formatSignedCents")}; return formatSignedCents;`)();
+      check("符号付き指標の fmt は正の値に \"+\" を前置する(0を挟んだ向きが読める)",
+        f(3) === "+3.0" && f(0.05) === "+0.1" && f(12.34) === "+12.3",
+        `${f(3)} / ${f(0.05)} / ${f(12.34)}`);
+      check("符号付き指標の fmt は負の値に \"-\" を付ける",
+        f(-3) === "-3.0" && f(-12.34) === "-12.3", `${f(-3)} / ${f(-12.34)}`);
+      // **丸めた結果が 0.0 なら符号を付けない**。+0.0 も -0.0 も出さない。
+      check("符号付き指標の fmt は 0 に符号を付けない(本人指示: ちょうど0は 0.0)",
+        f(0) === "0.0" && f(-0) === "0.0" && f(0.04) === "0.0" && f(-0.04) === "0.0",
+        `0→${f(0)} / -0→${f(-0)} / 0.04→${f(0.04)} / -0.04→${f(-0.04)}`);
+    }
   }
 
   // --- 6.7b ピッチ指標の表記ゆれ禁止(F-46 本人指示 → N-2 表記統一で改訂) --------
@@ -9458,6 +9477,7 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
       extractFunction("selectPitchAggregationFrames"),
       extractFunction("computeFrameMetrics"),
       extractFunction("pitchSpreadSub"),
+      extractFunction("formatSignedCents"),
       extractConst("REED_COMPARE_METRICS"),
       extractConst("MY_DATA_METRICS"),
     ].join("\n\n");
