@@ -108,6 +108,80 @@ let reedTileDragActive = false;
 function setReedTileDragActive(v) { reedTileDragActive = !!v; }
 function isReedTileDragActive() { return reedTileDragActive; }
 
+// 【F-79a の差し戻しで新設】SwipePager の**ジェスチャーの終わり方**と、そのとき track へ書く値。
+//
+// DESIGN-SYSTEM §6.3 は「ジェスチャーの終わり方は3つ(up / cancel / 別の down による中断)」とし、
+// 「これを取り違えると**画面がずれたまま無期限に固着する**(実測で最大200px)」と警告している。
+// F-79a はそこへ**4つ目の終わり方**(タイルの並び替えが成立したので観測をやめる)を増やした。
+// 最初の実装は「捨てるだけ」で戻す処理を持たず、押したまま横へ 8px ずらしてから長押しを成立
+// させると **track が translateX(calc(0% - 8px)) のまま固着**した(審査役の実測: grid の left が
+// 24 → 16。時間経過でも下タブ往復でも戻らない)。まさに §6.3 が名指ししている壊れ方だった。
+//
+// 判定と後始末をここへ集約し、**どの終わり方を通っても track が元へ戻る(または戻す予約が入る)**
+// ことを純関数としてテストから確かめられるようにする(swipeBack* と同じ作法。
+// コンポーネントの if はハーネスから見えないので、消しても書き換えても検出できない)。
+//
+//   "advance" 指を離し、しきい値を越えて**行き先がある** → onIndexChange。
+//             transform は新しい index で React が書き直すので、ここでは transition だけ戻す
+//   "settle"  指を離したが、しきい値未満か行き先が無い   → 自分で元の位置へ戻す
+//   "drop"    **中断**。行き先の判定をせずに終わる → 自分で元の位置へ戻す
+//   "idle"    横と確定していない = track を 1px も動かしていない → 何も書かない
+//
+// 【`interrupted` が指すもの】「行き先を判定せず必ず戻す」終わり方**すべて**。
+// §6.3 の「中断」がこれで、入口は次の4つ。**同じ扱いにする**:
+//   ・タイルの並び替えが成立した(F-79a)
+//   ・2本目の指が触れた(`e.touches.length !== 1`)
+//   ・入力欄・横スクロール祖先の上で新しいジェスチャーが始まった
+//   ・**`touchcancel`**(ブラウザがジェスチャーを取り上げた)
+// どれも「新しく始めるか」「もう続けられないか」の判断であって「前のを進めるか」の
+// 判断ではない。進めてしまうと、2本目の指を置いただけ・縦にスクロールしようとしただけで
+// 子タブが切り替わる。
+//
+// 【F-83】4つ目(`touchcancel`)は HEAD から抜けていた。上の一覧は「4つ」と書きながら
+// 3つしか挙げておらず、実装も `onTouchCancel={onTouchEnd}` で**指を離したのと同じ扱い**に
+// していた。統括の実測(375×812、viewport 327px / しきい値 65.4px):
+//   横へ -100px → `touchcancel` → **`translateX(0%)` → `translateX(-100%)`(登録→比較へ進む)**
+//   同じ位置・同じ移動量の `touchend` と**区別がつかない**(800ms後の値が完全に一致)
+// iOS では縦スクロールを引き取られた瞬間に `touchcancel` が来るので、斜めに引いただけで
+// 子タブが替わる。SwipeBackArea 側は `pointercancel` を「元の位置へ戻す」と扱っており、
+// アプリ内で作法が食い違っていた。どちらが正しいかは §6.3 の「中断は行き先を判定しない」で
+// 決まる。**イベントの種類 → 中断か否か**の対応を純関数に閉じ込め、
+// コンポーネントの三項演算子から追い出す(そうしないとハーネスから見えず、
+// 取り違えても検出できない。A8 の変異が生き残ったのと同じ理由)。
+function swipePagerEndKind(horizontal, interrupted, dx, width, index, count) {
+  if (horizontal !== true) return "idle";     // track を触っていないので後始末も要らない
+  if (interrupted) return "drop";             // 行き先は判定しない。ただし位置は必ず戻す
+  const th = swipeBackThreshold(width);       // しきい値の規則は §6.3 でアプリ内に1つだけ
+  if (dx <= -th && index < count - 1) return "advance";
+  if (dx >= th && index > 0) return "advance";
+  return "settle";
+}
+// 終わり方 → track に書く値。null は「何も書かない」。
+// **"idle" 以外は必ず transition を戻す**(ドラッグ中に "none" にしてあるため。
+// 戻さないと次の遷移が瞬間移動になる)。transform が null なのは "advance" だけで、
+// そこは React が新しい index の translateX を書く。
+function swipePagerTrackStyle(kind, index, ease) {
+  if (kind === "idle") return null;
+  return { transition: ease, transform: kind === "advance" ? null : `translateX(${-index * 100}%)` };
+}
+// 終わり方 → **どのページへ行くか**。"advance" 以外は今の index のまま(動かない)。
+// 指が左へ(dx<0)なら次のページ、右へ(dx>0)なら前のページ。端は動かない。
+// 向きをここに閉じ込めるのは、コンポーネント側の三項演算子だとハーネスから見えず、
+// **左右を取り違えても検出できない**ため(審査役の変異で実際に生き残った)。
+function swipePagerNextIndex(kind, dx, index, count) {
+  if (kind !== "advance") return index;
+  const next = dx < 0 ? index + 1 : index - 1;
+  return Math.max(0, Math.min(count - 1, next));
+}
+// 【F-83】ジェスチャーの終わりを告げた DOM イベント → **中断か否か**。
+// `touchcancel` は「ブラウザが取り上げた」の合図で、指を離した意思表示ではない。
+// 中断として扱う = 行き先を判定せず必ず元へ戻す(§6.3)。
+// `touchend` のときだけ、タイルの並び替えが成立していたかを見る。
+function swipePagerInterrupted(eventType, tileDragActive) {
+  if (eventType === "touchcancel") return true;
+  return tileDragActive === true;
+}
+
 function SwipePager({ index, onIndexChange, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
@@ -117,12 +191,48 @@ function SwipePager({ index, onIndexChange, children }) {
   const idxRef = useRef(index);
   useEffect(() => { idxRef.current = index; }, [index]);
   const minH = useFillViewportHeight(viewportRef);
-  const EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+  const EASE = SWIPE_BACK_EASE;
 
+  // ジェスチャーの終端はここ1本に集約する。**どの終わり方でもここを通る。**
+  // 終わり方の判定も track へ書く値も純関数が決め、ここは DOM に書くだけにする。
+  const endGesture = (s, i, interrupted) => {
+    const kind = swipePagerEndKind(s?.horizontal, interrupted, s?.dx ?? 0,
+      viewportRef.current?.clientWidth || 0, i, count);
+    const style = swipePagerTrackStyle(kind, i, EASE);
+    const track = trackRef.current;
+    if (track && style) {
+      track.style.transition = style.transition;
+      if (style.transform !== null) track.style.transform = style.transform;
+    }
+    return kind;
+  };
+
+  // **進行中のジェスチャーを終わらせる唯一の出口。** 終端(endGesture)を必ず通してから捨てる。
+  // `st.current = null` を書くのは**アプリ全体でこの1行だけ**。ここ以外に「捨てるだけ」の
+  // 経路を作ると、そこまでに書いた translateX を誰も消さず
+  // **画面がずれたまま無期限に固着する**(§6.3)。実際に2度これで差し戻された:
+  //   1度目 … タイルの並び替えが成立した経路(F-79a の初版)
+  //   2度目 … onTouchStart のガード。**「まだ track を1pxも触っていない」は誤り**だった。
+  //           あのガードは新しい touchstart のたびに走るので、**前のジェスチャーが
+  //           100px 動かした後**にも発火する(審査役の実測: 左へ100px → 2本目の指 →
+  //           離しても `translateX(calc(0% - 100px))` のまま固着。rect.x が 24 → -76)。
+  const finishGesture = (i, interrupted) => {
+    const s = st.current;
+    st.current = null;
+    if (!s) return { kind: "none", dx: 0 };
+    return { kind: endGesture(s, i, interrupted), dx: s.dx };
+  };
+
+  // 【§6.3】**中断の終端は対象判定より前に置く。**
+  // 「対象外かどうか」は新しく始めるかの判断であって、前のを終わらせるかの判断ではない。
+  // だから最初の1行で必ず前のジェスチャーを終わらせる(進行中が無ければ何も書かない)。
+  // 中断なので **interrupted = true**: 行き先は判定せず、必ず元の位置へ戻す。
+  // ここで行き先を判定すると、2本目の指を置いただけで子タブが切り替わる。
   const onTouchStart = (e) => {
+    finishGesture(index, true);
     if (e.touches.length !== 1 || e.target.closest?.("input, select, textarea, [data-noswipe]") ||
-        hasHorizontalScrollAncestor(e.target, e.currentTarget)) { st.current = null; return; }
-    if (isReedTileDragActive()) { st.current = null; return; }
+        hasHorizontalScrollAncestor(e.target, e.currentTarget)) return;
+    if (isReedTileDragActive()) return;
     const t = e.touches[0];
     st.current = { x: t.clientX, y: t.clientY, dx: 0, decided: false, horizontal: false };
   };
@@ -134,7 +244,14 @@ function SwipePager({ index, onIndexChange, children }) {
     const onMove = (e) => {
       const s = st.current;
       if (!s || e.touches.length !== 1) return;
-      if (isReedTileDragActive()) return; // タイルの並び替え中はページを動かさない(N-5)
+      // 【F-79a】タイルの並び替えが成立したら、進行中のジェスチャーを**捨てる**(旗を見て
+      // 早期 return するだけにしない)。N-5 の実装は return だけで st.current を残していたので、
+      // ドラッグ中にブラウザがスクロールを引き取って pointercancel が飛び、並び替えが終わった
+      // 瞬間に**この st が生き返り**、押した点からの大きな dx でページが横に動いていた
+      // (本人の実機報告「子タブへ切り替わりそうにはなる」)。捨てれば指を離すまで復活しない。
+      // **捨てる前に必ず戻す**("drop")。捨てるだけだと、ここまでに書いた translateX が
+      // 誰にも消されず画面がずれたまま固着する(§6.3。差し戻しの理由そのもの)。
+      if (isReedTileDragActive()) { finishGesture(idxRef.current, true); return; }
       const t = e.touches[0];
       const dxRaw = t.clientX - s.x;
       const dy = t.clientY - s.y;
@@ -159,27 +276,22 @@ function SwipePager({ index, onIndexChange, children }) {
     return () => el.removeEventListener("touchmove", onMove);
   }, [count]);
 
-  const onTouchEnd = () => {
-    const s = st.current;
-    st.current = null;
-    if (!s || !s.horizontal) return;
-    const track = trackRef.current;
-    const w = viewportRef.current?.clientWidth || 0;
-    const threshold = w ? w * 0.2 : 60;
+  // touchend / touchcancel の両方がここへ来る。**イベントの種類を引数で受ける**(F-83)。
+  // 同じ関数を両方に配線して中身で区別しないのは、`touchcancel` を「指を離した」と
+  // 取り違える形そのもの。中断か否かの判断は純関数に任せ、ここでは渡すだけにする。
+  // **行き先を決める前に必ず終端を通す。** 「並び替え中だから何もしない」で抜けると、
+  // ここまでに書いた translateX が残って画面がずれたまま固着する(§6.3)。
+  const onTouchFinish = (eventType) => {
     const i = index;
-    let next = i;
-    if (s.dx <= -threshold && i < count - 1) next = i + 1;
-    else if (s.dx >= threshold && i > 0) next = i - 1;
-    if (track) track.style.transition = EASE;
-    if (next !== i) {
-      onIndexChange(next);                                            // 再レンダーで次ページへスライド
-    } else if (track) {
-      track.style.transform = `translateX(${-i * 100}%)`;             // しきい値未満は元に戻す
-    }
+    const interrupted = swipePagerInterrupted(eventType, isReedTileDragActive());
+    const { kind, dx } = finishGesture(i, interrupted);
+    const next = swipePagerNextIndex(kind, dx, i, count);   // 行き先は純関数が決める
+    if (next !== i) onIndexChange(next);                    // 再レンダーで次ページへスライド
   };
 
   return (
-    <div ref={viewportRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
+    <div ref={viewportRef} onTouchStart={onTouchStart}
+      onTouchEnd={() => onTouchFinish("touchend")} onTouchCancel={() => onTouchFinish("touchcancel")}
       style={{ overflow: "hidden", width: "100%", minHeight: minH || undefined }}>
       <div ref={trackRef} style={{
         display: "flex", flexWrap: "nowrap", alignItems: "flex-start",
@@ -1212,6 +1324,17 @@ function reedGroupKey(r) {
   return `${r.brand}|${r.strength}|${r.startDate}`;
 }
 
+// 箱の中のタイルの並び順。表示順(sortOrder)が主で、長押し並び替えで変わる。
+// 管理番号(boxNumber)とは独立。sortOrder 未設定のものは登録順(createdAt)で後ろに続く。
+// **groupReeds と箱の合流(ReedRegisterView の updateGroup)が同じ規則を使う。**
+// 2箇所に書くと必ず食い違い、「並べ直したのに一覧の順が違う」という壊れ方をする。
+function reedMemberOrder(a, b) {
+  const an = a.sortOrder ?? Infinity;
+  const bn = b.sortOrder ?? Infinity;
+  if (an !== bn) return an - bn;
+  return new Date(a.createdAt) - new Date(b.createdAt);
+}
+
 function groupReeds(reeds) {
   const groups = {};
   for (const r of reeds) {
@@ -1219,16 +1342,7 @@ function groupReeds(reeds) {
     if (!groups[key]) groups[key] = { key, brand: r.brand, strength: r.strength, startDate: r.startDate, members: [] };
     groups[key].members.push(r);
   }
-  for (const g of Object.values(groups)) {
-    // 表示順(sortOrder)は長押し並び替えで変わるが、管理番号(boxNumber)とは独立させている。
-    // sortOrder未設定のものは登録順で後ろに続ける。
-    g.members.sort((a, b) => {
-      const an = a.sortOrder ?? Infinity;
-      const bn = b.sortOrder ?? Infinity;
-      if (an !== bn) return an - bn;
-      return new Date(a.createdAt) - new Date(b.createdAt);
-    });
-  }
+  for (const g of Object.values(groups)) g.members.sort(reedMemberOrder);
   return Object.values(groups).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
 }
 
@@ -5534,6 +5648,23 @@ function MeasureView(props) {
                 {reedMemberOptions.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
               </select>
             </span>
+            {/* 【F-81】箱の開封日。本人指示(2026/08/14・実機)「計測タブに表示されるリードに
+                開封日も追加して。同じ銘柄使った時どちらか分からない」。
+                **表記は yyyy/mm/dd**(DESIGN-SYSTEM §6.0「日付は yyyy/mm/dd」)。
+                月日だけに縮める案もあったが、(a) 375×812 の実測で最長の箱名でも収まる
+                (b) 縮めると §6.0 に無い日付表記を1つ増やすことになる、の2点で全桁を出す。
+                値でも選択肢でもない**箱の説明**なので、`·` で区切って --c-ink-3 の素の文字に落とす
+                (箱の値 --c-ink / 個体 --c-ink-2 より弱い段)。選んでいないときは出さない。
+                【当たり判定】<label> の中に置いてあるので**背面レイヤへ落ちる穴にはならない**
+                (ここまでは 375×812 の実測で確認済み)。ただし**押した結果 <select> の選択リストが
+                開くかは Chrome では判定できない = 実機待ち**: <label> の activation behavior は
+                HTML 仕様が「プラットフォーム依存」とし、Chrome では開かない(F-72 と同じ未解決点。
+                この枠全体が同じ前提の上に乗っている)。 */}
+            {selectedBoxGroup && formatYmd(selectedBoxGroup.startDate) && (
+              <span style={{ color: "var(--c-ink-3)", whiteSpace: "nowrap", flexShrink: 0, marginLeft: "var(--sp-1)" }}>
+                · {formatYmd(selectedBoxGroup.startDate)}
+              </span>
+            )}
             {/* 正典 .reedchip の末尾の ▾。枠(label)の中なので当たり判定の穴にならない。 */}
             <PickChevron />
           </label>
@@ -7254,6 +7385,52 @@ function gridDropIndex(x, y, gridLeft, gridTop, cellW, cellH, gap, cols, count) 
 const REED_DRAG_LONGPRESS_MS = 400;
 const REED_DRAG_SLOP_PX = 8;
 
+// 【F-79b】入れ替えで避ける側のタイルが新しいマスへ滑る動き。
+// **新しい値を発明していない**: DESIGN-SYSTEM §6.3 が定める唯一の「元の位置へ戻す動き」
+// (`transform 0.32s cubic-bezier(.22,.61,.36,1)` / 後始末 320ms)と同じ値をそのまま採る。
+// 定数を別に立てるのは、横スワイプの戻りを調整したときにタイルまで巻き添えにしないため。
+const REED_TILE_SLIDE_EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+const REED_TILE_SETTLE_MS = 320;
+// 正典 .tile.drag の浮き上がり。指との相対位置は掴んだ瞬間からこのぶんだけ一定にずれる
+// (ドラッグ中に値が変わらないので「指からずれる」原因にはならない)。
+const REED_TILE_LIFT_PX = 6;
+const REED_TILE_DRAG_DEG = -2;
+
+// 【F-79b】タイル1枚の見た目(transform / transition / 前後関係)を決める純関数。
+// **iPhone のアプリ並べ替えと同じ使用感**にするための要点はここ1箇所に閉じている。
+//
+//   drag = null                      … 並び替えていない。全部素の位置
+//   drag = { id, grabX, grabY, pointerX, pointerY, cells, settling }
+//     grabX/grabY … 掴んだ瞬間の「指 − タイル左上」のずれ。**最後まで変えない**
+//     cells       … 掴んだ瞬間に実測した各マスの左上座標(index 順)。ドラッグ中は変わらない
+//     settling    … 指を離してから落ち切るまで
+//   home … そのタイルが**DOM 上で**占めているマス(ドラッグ中は凍結する)
+//   cur  … 並び替え後の論理的な位置
+//
+// 掴んでいるタイル: `指 − ずれ − home のマスの左上`。
+//   **home は入れ替えが起きても動かない**(DOM の並びを凍結してあるため)ので、
+//   入れ替えのたびに基準を取り直す必要が無い＝指からずれない。
+//   N-5 の実装は「掴んだ点からの移動量」をそのまま transform に入れており、入れ替えで
+//   タイルのレイアウト位置が動くと、その動いたぶんだけ丸ごと指からずれていた(本人報告)。
+// それ以外のタイル: `cur のマス − home のマス`を transition 付きで。避けて動くのがこれ。
+function reedTileVisual(drag, id, home, cur) {
+  if (!drag || !drag.cells) return { transform: "none", transition: "none", zIndex: 1 };
+  const homeCell = drag.cells[home];
+  const curCell = drag.cells[cur >= 0 ? cur : home];
+  if (!homeCell || !curCell) return { transform: "none", transition: "none", zIndex: 1 };
+  if (id === drag.id && !drag.settling) {
+    const x = drag.pointerX - drag.grabX - homeCell.left;
+    const y = drag.pointerY - drag.grabY - homeCell.top - REED_TILE_LIFT_PX;
+    return { transform: `translate(${x}px, ${y}px) rotate(${REED_TILE_DRAG_DEG}deg)`, transition: "none", zIndex: 2 };
+  }
+  const x = curCell.left - homeCell.left;
+  const y = curCell.top - homeCell.top;
+  // 落ちていくタイルだけ rotate(0deg) を明示する。関数リストの形を揃えないと
+  // `translate(…) rotate(-2deg)` からの補間が効かず、角度がぱちんと戻る。
+  const rot = id === drag.id ? " rotate(0deg)" : "";
+  return { transform: `translate(${x}px, ${y}px)${rot}`, transition: REED_TILE_SLIDE_EASE, zIndex: id === drag.id ? 2 : 1 };
+}
+
 // 【N-5】5×2 のタイル。長押し(400ms)で持ち上がり、ドラッグで並び替える。
 // 正典 .rgrid / .tile / .tile.drag。
 //
@@ -7267,24 +7444,40 @@ const REED_DRAG_SLOP_PX = 8;
 //
 // 【横スワイプとの同居】タイルのドラッグは横にも動くため、軸では SwipePager と棲み分けられない。
 // 長押し成立の瞬間に setReedTileDragActive(true) を立て、SwipePager 側が降りる。
-// 指を離す/中断すると必ず false に戻す(finishDrag が唯一の出口)。
+// 指を離す/中断すると必ず false に戻す(endDrag / abortDrag が唯一の出口)。
+// 【F-79a】旗を立てるだけでは足りなかった。ブラウザが縦スクロールを引き取ると pointercancel が
+// 飛んでドラッグが死に、そこから SwipePager が息を吹き返す。**非パッシブの touchmove を張って
+// preventDefault する**(DESIGN-SYSTEM §6.3 と同じ作法)。長押しが成立するまで指は 8px しか
+// 動いていないので、この時点ではまだブラウザはスクロールを始めていない＝止められる。
+// `touch-action` は祖先に敷くと子孫の横スクロールが死ぬ(§6.3)ので、**掴んだタイル自身にだけ**
+// ドラッグ中 "none" を当てる(この1枚に横スクロールする子孫は無い)。
+//
+// 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
+// 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
 function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, selectedForDelete, onTileTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
-  const [draggingId, setDraggingId] = useState(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
+  const [drag, setDrag] = useState(null);
   const longPressTimerRef = useRef(null);
   const dragInfoRef = useRef(null);
   const orderRef = useRef(order);
   const gridRef = useRef(null);
+  const settleTimerRef = useRef(null);
 
   useEffect(() => { orderRef.current = order; }, [order]);
   useEffect(() => { setOrder(members.map((m) => m.id)); }, [members]);
 
   const membersById = new Map(members.map((m) => [m.id, m]));
-  const orderedMembers = order.map((id) => membersById.get(id)).filter(Boolean);
+  // **ドラッグ中は drag.baseOrder で描く**(= DOM の並びを凍結する)。並び替えの結果は
+  // order にだけ入れ、見た目は transform で表す。指を離して落ち切ってから DOM を並べ直す。
+  const renderIds = drag ? drag.baseOrder : order;
+  const orderedMembers = renderIds.map((id) => membersById.get(id)).filter(Boolean);
 
   const cancelLongPress = () => {
     if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  };
+  const cancelSettle = () => {
+    if (settleTimerRef.current) { clearTimeout(settleTimerRef.current); settleTimerRef.current = null; }
   };
   const detachNativeListeners = () => {
     const info = dragInfoRef.current;
@@ -7292,24 +7485,32 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
       window.removeEventListener("pointermove", info.onMove);
       window.removeEventListener("pointerup", info.onUp);
       window.removeEventListener("pointercancel", info.onUp);
+      window.removeEventListener("touchmove", info.onTouchMove);
     }
   };
   // ドラッグ中に(削除モードへの切り替え等で)アンマウントされてもリスナーと旗が残らないようにする
   useEffect(() => () => {
     cancelLongPress();
+    cancelSettle();
     detachNativeListeners();
     setReedTileDragActive(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const finishDrag = (committed) => {
+  // 指を離した(または pointercancel で中断された)。**並び順の確定はここで即座に行い**、
+  // 落ちる動きは見た目だけにする。確定を待たせると、落ちている 320ms の間に
+  // アンマウントされたとき並び替えが消える。
+  // 中断も確定として扱うのは HEAD と同じ(finishDrag(true) が pointercancel からも呼ばれていた)。
+  // 「中断なら元へ戻す」に変えるのは挙動の変更なので、この周ではしない。
+  const endDrag = () => {
     detachNativeListeners();
     cancelLongPress();
     dragInfoRef.current = null;
     setReedTileDragActive(false);
-    setDraggingId(null);
-    setDragOffset({ x: 0, y: 0 });
-    if (committed) onReorder(orderRef.current);
+    cancelSettle();
+    setDrag((d) => (d ? { ...d, settling: true } : null));
+    settleTimerRef.current = setTimeout(() => { settleTimerRef.current = null; setDrag(null); }, REED_TILE_SETTLE_MS);
+    onReorder(orderRef.current);
   };
 
   // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
@@ -7317,6 +7518,9 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
   const canReorder = !deleteMode && members.length >= 2;
 
   const handlePointerDown = (id, index) => (e) => {
+    // 落ちている最中に次のジェスチャーが来たら、その場で落とし切ってから始める
+    // (落下の transform を残したまま新しいドラッグを重ねると基準が二重になる)。
+    if (settleTimerRef.current) { cancelSettle(); setDrag(null); }
     if (deleteMode) return;                       // 削除モード中は onClick が選択を担う(現行と同じ方針)
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const startX = e.clientX, startY = e.clientY;
@@ -7325,22 +7529,30 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
     // **1枚しかない箱でもここは通す。** 通さないと handlePointerUp が
     // 「押していない」と判断してタップが死に、詳細を開けなくなる(実測で踏んだ)。
     // 並び替える先が無いときは長押しのタイマーだけ張らない。
-    dragInfoRef.current = { armed: false, startX, startY, id, index };
+    // lastX/lastY は長押しが成立するまでの指の現在位置(スロップ 8px の内側で動きうる)。
+    // 掴んだ瞬間のずれはここから採る。押した点から採ると、成立の瞬間に最大 8px 跳ねる。
+    dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };
     if (!canReorder) return;
     longPressTimerRef.current = setTimeout(() => {
-      if (!dragInfoRef.current) return;
+      const pending = dragInfoRef.current;
+      if (!pending) return;
       const rect = target.getBoundingClientRect();
       const grid = gridRef.current?.getBoundingClientRect();
+      // 各マスの左上を実測して控える。**マスの位置はドラッグ中ずっと変わらない**
+      // (DOM の並びを凍結するので、動くのは「どのタイルがどのマスに見えるか」だけ)。
+      const cells = Array.from(gridRef.current?.children || []).map((el) => {
+        const cr = el.getBoundingClientRect();
+        return { left: cr.left, top: cr.top };
+      });
       const info = {
         armed: true, id,
-        anchorX: startX, anchorY: startY, anchorIndex: index,
         cellW: rect.width, cellH: rect.height,
         gridLeft: grid ? grid.left : rect.left, gridTop: grid ? grid.top : rect.top,
       };
 
       const onMove = (ev) => {
         ev.preventDefault();
-        setDragOffset({ x: ev.clientX - info.anchorX, y: ev.clientY - info.anchorY });
+        setDrag((d) => (d && !d.settling ? { ...d, pointerX: ev.clientX, pointerY: ev.clientY } : d));
         const targetIndex = gridDropIndex(
           ev.clientX, ev.clientY, info.gridLeft, info.gridTop,
           info.cellW, info.cellH, REED_GRID_GAP_PX, REED_GRID_COLS, orderRef.current.length);
@@ -7353,16 +7565,30 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
           return next;
         });
       };
-      const onUp = () => finishDrag(true);
+      const onUp = () => endDrag();
+      // ブラウザにスクロールを引き取らせない(§6.3 の作法)。引き取られると pointercancel で
+      // ドラッグが死に、そのまま SwipePager が子タブを動かしにかかる(F-79a の症状)。
+      const onTouchMove = (ev) => { if (ev.cancelable) ev.preventDefault(); };
 
       info.onMove = onMove;
       info.onUp = onUp;
+      info.onTouchMove = onTouchMove;
       dragInfoRef.current = info;
       setReedTileDragActive(true);   // ここから先は横スワイプで子タブを動かさない
-      setDraggingId(id);
+      setDrag({
+        id,
+        baseOrder: [...orderRef.current],
+        cells,
+        grabX: pending.lastX - rect.left,
+        grabY: pending.lastY - rect.top,
+        pointerX: pending.lastX,
+        pointerY: pending.lastY,
+        settling: false,
+      });
       window.addEventListener("pointermove", onMove, { passive: false });
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
+      window.addEventListener("touchmove", onTouchMove, { passive: false });
     }, REED_DRAG_LONGPRESS_MS);
   };
 
@@ -7371,6 +7597,7 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
   const handlePointerMove = (e) => {
     const info = dragInfoRef.current;
     if (!info || info.armed) return;
+    info.lastX = e.clientX; info.lastY = e.clientY;
     if (Math.hypot(e.clientX - info.startX, e.clientY - info.startY) > REED_DRAG_SLOP_PX) {
       cancelLongPress();
       dragInfoRef.current = null;
@@ -7396,8 +7623,13 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
       ref={gridRef}
       style={{ display: "grid", gridTemplateColumns: `repeat(${REED_GRID_COLS}, 1fr)`, gap: REED_GRID_GAP_PX }}
     >
-      {orderedMembers.map((r, idx) => {
-        const isDragging = draggingId === r.id;
+      {orderedMembers.map((r, home) => {
+        const isDragging = drag?.id === r.id;
+        // home = DOM 上のマス(ドラッグ中は凍結) / cur = 並び替え後の論理位置。
+        // 見た目のずれは reedTileVisual がこの2つから決める。
+        const cur = drag ? order.indexOf(r.id) : home;
+        const vis = reedTileVisual(drag, r.id, home, cur);
+        const idx = home;
         const tone = deleteMode
           ? (selectedForDelete?.has(r.id) ? "sel" : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null))
           : (r.id === selectedReedId ? "sel"
@@ -7425,13 +7657,14 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
               fontSize: REED_TILE_FS_PX, fontFamily: "var(--font-num)",
               display: "flex", alignItems: "center", justifyContent: "center",
               padding: 0, cursor: "pointer", position: "relative",
-              /* 正典 .tile.drag の浮き上がり(-6px / -2deg)に、指の移動ぶんを足す。
-                 影と紺の枠は .reedtile[data-drag] が持つ。 */
-              transform: isDragging
-                ? `translate(${dragOffset.x}px, ${dragOffset.y - 6}px) rotate(-2deg)`
-                : "none",
-              zIndex: isDragging ? 2 : 1,
-              touchAction: "pan-y",
+              /* 正典 .tile.drag の浮き上がり(-6px / -2deg)と、指への追従・入れ替えで避ける動きは
+                 すべて reedTileVisual が決める。影と紺の枠は .reedtile[data-drag] が持つ。 */
+              transform: vis.transform,
+              transition: vis.transition,
+              zIndex: vis.zIndex,
+              /* 掴んでいる1枚だけ none。祖先には敷かない(§6.3: 祖先の touch-action は
+                 子孫の横スクロールを殺す)。ドラッグしていない間は従来どおり pan-y。 */
+              touchAction: isDragging ? "none" : "pan-y",
             }}
           >
             {reedPosition(r, reeds) ?? idx + 1}
@@ -7479,8 +7712,9 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
 //   null         通常
 //   "boxDelete"  箱を選んで削除
 //   "memberDelete" 個体を選んで削除
-//   "dateEdit"   箱の開封日を編集
-// モード中は「…」の代わりに「キャンセル」と実行(または「完了」)を同じ行に出す。
+// モード中は「…」の代わりに「キャンセル」と実行を同じ行に出す。
+// 【F-80】"dateEdit"(箱の開封日を編集)は廃止。開封日は箱の見出しの日付をタップして
+// 「箱を編集」シートで直す(F-82 の銘柄・番手の編集と同じシート)。モードごと消した。
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
@@ -7603,8 +7837,8 @@ function ReedsTab(props) {
           </button>
         ))}
         {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。
-            【リードが0枚のときは出さない】中身は「箱を選んで削除 / 個体を選んで削除 /
-            箱の開封日を編集」の3つで、**箱が1つも無ければどれも実行できない**。
+            【リードが0枚のときは出さない】中身は「箱を選んで削除 / 個体を選んで削除」で、
+            **箱が1つも無ければどちらも実行できない**。
             HEAD も削除の入口を `{reeds.length > 0 && …}` で括っていた(0枚では出さない)。
             §6.0 の3原則「今に関係ない物は出ていない」。0枚の画面に残るのは
             「まだリードが登録されていません」と「＋ 追加」だけになる。 */}
@@ -7627,27 +7861,21 @@ function ReedsTab(props) {
                 <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
                   <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
                 </button>
-                {listMode === "dateEdit" ? (
-                  <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
-                    <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-accent)", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>完了</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
-                    disabled={listMode === "boxDelete" ? selectedBoxKeys.size === 0 : selectedMemberIds.size === 0}
-                    className="sans"
-                    style={{ ...TAP_BUTTON_RESET, cursor: (listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0 ? "pointer" : "default" }}
-                  >
-                    {/* 実際に消える一手だけが --c-danger の塗りを持つ(index.css の .ctl-danger)。 */}
-                    <span className="ctl-plain ctl-pill ctl-danger"
-                      data-armed={(listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0}
-                      style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
-                      {listMode === "boxDelete"
-                        ? (selectedBoxKeys.size > 0 ? `${selectedBoxKeys.size}箱を削除` : "削除")
-                        : (selectedMemberIds.size > 0 ? `${selectedMemberIds.size}枚を削除` : "削除")}
-                    </span>
-                  </button>
-                )}
+                <button
+                  onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
+                  disabled={listMode === "boxDelete" ? selectedBoxKeys.size === 0 : selectedMemberIds.size === 0}
+                  className="sans"
+                  style={{ ...TAP_BUTTON_RESET, cursor: (listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0 ? "pointer" : "default" }}
+                >
+                  {/* 実際に消える一手だけが --c-danger の塗りを持つ(index.css の .ctl-danger)。 */}
+                  <span className="ctl-plain ctl-pill ctl-danger"
+                    data-armed={(listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size) > 0}
+                    style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                    {listMode === "boxDelete"
+                      ? (selectedBoxKeys.size > 0 ? `${selectedBoxKeys.size}箱を削除` : "削除")
+                      : (selectedMemberIds.size > 0 ? `${selectedMemberIds.size}枚を削除` : "削除")}
+                  </span>
+                </button>
               </>
             )}
           </div>
@@ -7675,7 +7903,6 @@ function ReedsTab(props) {
 
       {moreOpen && (
         <ReedMoreMenu
-          totalCount={reeds.length}
           onClose={() => setMoreOpen(false)}
           onPick={startMode}
         />
@@ -7687,18 +7914,19 @@ function ReedsTab(props) {
 // 【N-5】登録一覧の「…」。正典 .subtabs 右端の3点から開く。
 // 使用頻度の低い操作をここへ入れる(正典の3原則「今に関係ない物は出ていない」)。
 // シートの作法(暗幕・角丸28・つまみ36×4・影)はテンポシートと同値。新しい濃さを発明しない。
-// **リードが0枚のときはこのメニューの入口ごと出さない**(3つとも実行できないため。呼び出し側の条件)。
+// **リードが0枚のときはこのメニューの入口ごと出さない**(どちらも実行できないため。呼び出し側の条件)。
 //
-// 【総枚数の置き場所は本人判断待ち・暫定】design/north-star-coverage.md は
-// 「総枚数バッジ(登録済みリード 12)」を**要決定(消す候補)**としており、まだ決まっていない。
-// 正典の一覧に居場所が無いので**暫定でこの見出しに置いている**だけで、
-// 「ここが引き取る」と決まったわけではない。消す/一覧へ戻す/ここに残すの判断は本人に確認する。
+// 【F-78 総枚数バッジは消した(2026/08/14 本人決定)】N-5 では「登録済みリード n枚」を
+// このメニューの見出しへ**暫定**で置き、置き場所は本人判断待ちとしていた。本人の決定は「消す」。
+// 枚数はタイルを数えれば分かる(正典の判断)ので、アプリのどこにも総枚数は出さない。
+//
+// 【F-80 「箱の開封日を編集」も消した】開封日は箱の見出しの日付をタップして編集する形に移した
+// (本人指示「日付をタップしたら編集できるというのは直感的に分かるはず」)。残るのは削除2件。
 const REED_MORE_ITEMS = [
   { mode: "boxDelete", label: "箱を選んで削除" },
   { mode: "memberDelete", label: "個体を選んで削除" },
-  { mode: "dateEdit", label: "箱の開封日を編集" },
 ];
-function ReedMoreMenu({ totalCount, onClose, onPick }) {
+function ReedMoreMenu({ onClose, onPick }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -7730,7 +7958,6 @@ function ReedMoreMenu({ totalCount, onClose, onPick }) {
         >
           <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
         </button>
-        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 4 }}>登録済みリード {totalCount}枚</div>
         {REED_MORE_ITEMS.map((it) => (
           <button
             key={it.mode}
@@ -7839,6 +8066,15 @@ function reedDetailMetaLine(sessionCount, days) {
 function reedAddButtonLabel(count) {
   return count === 1 ? "1枚を追加" : `${count}枚の箱を追加`;
 }
+// 【F-80 / F-82】同じシートを「箱を編集」にも使う。実行の一手の文言はここで分ける
+// (JSX 側で書き分けるとハーネスから見えない)。
+function reedSheetButtonLabel(mode, count) {
+  return mode === "edit" ? "この箱を変更" : reedAddButtonLabel(count);
+}
+// シートの見出し(11px / --ink3)とダイアログ名。綴りを2箇所に置かないためここへ集める。
+function reedSheetTitle(mode) {
+  return mode === "edit" ? "箱を編集" : "追加";
+}
 // 銘柄プルダウンの「新しい銘柄を入力」の値とラベル。現行の <option value="__custom__"> を
 // そのまま引き継ぐ(保存される銘柄名には出ない内部値)。
 const REED_BRAND_CUSTOM = "__custom__";
@@ -7851,9 +8087,14 @@ function clampReedAddCount(n) {
   return Math.max(REED_ADD_COUNT_MIN, Math.min(REED_ADD_COUNT_MAX, v));
 }
 
-function ReedAddSheet({
+// 【F-80 / F-82】mode で「追加」と「箱を編集」を切り替える。**呼び出し側で切り替える**方式
+// (F-72 罠1 の bare と同じ考え)で、既定は今までどおり "add"。追加の呼び出しは1文字も変えない。
+//   "add"  … 銘柄 + 番手 + 枚数。開封日は出さない(箱を追加した日が自動で入る)
+//   "edit" … 銘柄 + 番手 + 開封日。枚数は出さない(枚数は箱の中身であって箱の属性ではない)
+// 銘柄・番手・開封日はどれも箱のキー(銘柄|番手|開封日)なので、編集は3つを1枚のシートで扱う。
+function ReedBoxSheet({
   brandOptions, brand, setBrand, customBrand, setCustomBrand,
-  strength, setStrength, count, setCount, onAdd, onClose,
+  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   useEffect(() => {
@@ -7861,13 +8102,17 @@ function ReedAddSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  const isEdit = mode === "edit";
   const isCustom = brand === REED_BRAND_CUSTOM;
-  const disabled = isCustom && !customBrand.trim();
+  // 押しても何も起きない一手を作らない(§6.1.5)。実行側(registerReeds / applyBoxEdit)は
+  // 銘柄が空・開封日が空のとき**黙って return する**ので、その2つをここで先に潰しておく。
+  // 片方だけにすると「押せるのに無反応」になる(審査役の変異で実際に生き残った経路)。
+  const disabled = (isCustom && !customBrand.trim()) || (isEdit && !startDate);
   const pickerOptions = [...brandOptions, REED_BRAND_CUSTOM];
   return createPortal(
     <>
       <div
-        role="dialog" aria-modal="true" aria-label="リードを追加"
+        role="dialog" aria-modal="true" aria-label={isEdit ? "箱を編集" : "リードを追加"}
         onClick={onClose}
         data-noswipe
         style={{
@@ -7892,8 +8137,8 @@ function ReedAddSheet({
             <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
           </button>
 
-          {/* 正典ミニの見出し「追加」(11px / --ink3) */}
-          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 10 }}>追加</div>
+          {/* 正典ミニの見出し「追加」(11px / --ink3)。編集のときは「箱を編集」 */}
+          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
 
           {/* 銘柄。正典は「太字の値 + ▾」の1行(padding 8px 0 / 下に罫1本 / 14px)。 */}
           <button
@@ -7952,6 +8197,34 @@ function ReedAddSheet({
               DESIGN-SYSTEM §6.0 は「§5 のタップ領域 44px は機能側の規定として引き続き有効。
               機能とモックが衝突したときは機能を残す」と定めているので **44px** にした。
               見えているのは「−」「＋」の文字だけなので、高さを 4px 足しても見た目は変わらない。 */}
+          {/* 【F-80】開封日。編集のときだけ出す。
+              **ScrollPicker ではなく input[type=date] を選んだ理由**: ScrollPicker は1列の
+              選択肢リストなので、年・月・日の3値を1列に落とせない(日付を列挙すると選択肢が
+              無限に近くなる)。一方 input[type=date] は iOS Safari で固有幅が width より
+              優先される既知の罠がある(BACKLOG F-39/F-40/F-41)。だから**行内には置かず**、
+              左右 24px の余白しか無いシートの中に置いて幅を目一杯取らせる
+              (箱見出しの行に置くと ★ と同居して 150px しか取れない)。
+              **iOS Safari での見え方は Chrome では判定できない = 実機待ち**(LOOP.md)。 */}
+          {isEdit && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
+              <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0 }}>開封日</span>
+              <input
+                type="date"
+                aria-label="開封日"
+                value={startDate || ""}
+                onChange={(e) => setStartDate?.(e.target.value)}
+                className="sans"
+                /* appearance / maxWidth / lineHeight / overflow の4点は、N-5 まで
+                   「…」の中にあった同じ欄が持っていた手当てを**1つも下げずに**引き継いだもの
+                   (理由は §6.9 の検査のコメント。iOS Safari の固有幅・縦位置・内部UIのはみ出し)。 */
+                style={{ ...REED_FORM_CONTROL_STYLE, flex: 1, fontSize: 14, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
+              />
+            </div>
+          )}
+
+          {/* 枚数は「追加」のときだけ。**箱の編集では出さない**(枚数は箱の中身であって
+              箱の属性ではない。編集で枚数を変えると、どの個体を消すのかが決まらない)。 */}
+          {!isEdit && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 26, marginTop: 16 }}>
             <button
               onClick={() => setCount((v) => clampReedAddCount(v - 1))}
@@ -7965,6 +8238,7 @@ function ReedAddSheet({
               style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >＋</button>
           </div>
+          )}
 
           {/* 追加の一手。正典は紺の塗りピル(13px / 600 / padding 8px 22px)。 */}
           <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
@@ -7982,7 +8256,7 @@ function ReedAddSheet({
                 fontSize: 13, fontWeight: 600, color: "var(--c-on-accent)",
                 background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
                 borderRadius: 999, padding: "8px 22px",
-              }}>{reedAddButtonLabel(count)}</span>
+              }}>{reedSheetButtonLabel(mode, count)}</span>
             </button>
           </div>
         </div>
@@ -8019,6 +8293,22 @@ function ReedRegisterView(props) {
   const [extraBrands, setExtraBrands] = useState([]);
   const brandOptions = [...INITIAL_REED_BRANDS, ...extraBrands];
 
+  // 【F-80 / F-82】箱の編集。見出しの銘柄／日付をタップして開く。下書きは箱のキーで持つ
+  // (箱そのものを持つと、編集で reeds が変わった瞬間に古い箱を掴んだままになる)。
+  const [editBoxKey, setEditBoxKey] = useState(null);
+  const [editBrand, setEditBrand] = useState("");
+  const [editCustomBrand, setEditCustomBrand] = useState("");
+  const [editStrength, setEditStrength] = useState(REED_STRENGTHS[2]);
+  const [editStartDate, setEditStartDate] = useState("");
+  const editGroup = reedGroups.find((g) => g.key === editBoxKey) || null;
+  const openBoxEdit = (g) => {
+    setEditBoxKey(g.key);
+    setEditBrand(g.brand);
+    setEditCustomBrand("");
+    setEditStrength(g.strength);
+    setEditStartDate(g.startDate || "");
+  };
+
   const resolveBrand = () => (newBrand === REED_BRAND_CUSTOM ? customBrand.trim() : newBrand);
 
   // 【N-5】開封日の入力欄は出さない。**箱を追加した日**がそのまま開封日になる
@@ -8050,12 +8340,50 @@ function ReedRegisterView(props) {
     setAddOpen(false);
   };
 
-  // 箱の開封日の編集。**箱のキーは銘柄|番手|開封日**なので、開封日を変えると箱ごと動く。
-  // その箱に属する全部のリードを同じ日へ書き換える(1枚だけ動かすと箱が割れる)。
-  const setGroupStartDate = (g, value) => {
-    if (!value) return;
+  // 【F-80 / F-82】箱の編集(銘柄・番手・開封日)。
+  // **箱のキーは 銘柄|番手|開封日**(reedGroupKey)なので、3つのどれを変えても箱ごと動く。
+  // その箱に属する全部のリードを同じ値へ書き換える(1枚だけ動かすと箱が割れる)。
+  // 変更後のキーが既にある箱と一致したら、groupReeds が同じキーでまとめるので**その箱へ合流する**。
+  //
+  // 【合流したタイルは末尾に続く】値を書き換えるだけでは**そうならない**。
+  // 両方の箱が sortOrder 1..n を持ったまま重なると、同じ番号が2枚ずつ並ぶので
+  // reedMemberOrder が交互に並べる(審査役が実データで確認: タイルが `1,4,2,5,3,6,7` と並んだ。
+  // タイルの数字は reedPosition = 登録順の管理番号で並び順そのものではないが、
+  // 合流分が合流先の間に**割り込んで**いることが見える)。どれが合流分か画面から読めない。
+  // → 合流のたびに**通し番号を振り直す**: 合流先を今の並びのまま 1.. に正規化し、その続きに合流分を並べる。
+  // 正規化まで要るのは、合流先が一度も並び替えられていないと sortOrder が未設定(=Infinity)で、
+  // 番号を持つ合流分のほうが**前に来てしまう**ため。
+  // **合流先の sortOrder も書き換わる**(並びは変えない。番号を詰めるだけ)。
+  const updateGroup = (g, patch) => {
+    const brand = (patch.brand ?? g.brand);
+    const strength = (patch.strength ?? g.strength);
+    const startDate = (patch.startDate ?? g.startDate);
+    if (!brand || !startDate) return;
     const ids = new Set(g.members.map((m) => m.id));
-    setReeds((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, startDate: value } : r)));
+    const nextKey = `${brand}|${strength}|${startDate}`;
+    setReeds((prev) => {
+      const dest = prev.filter((r) => !ids.has(r.id) && reedGroupKey(r) === nextKey)
+        .sort(reedMemberOrder);           // 並びの規則は groupReeds と同じものを使う
+      const rank = new Map();
+      dest.forEach((r, i) => rank.set(r.id, i + 1));
+      g.members.forEach((m, i) => rank.set(m.id, dest.length + i + 1));
+      return prev.map((r) => {
+        if (ids.has(r.id)) return { ...r, brand, strength, startDate, sortOrder: rank.get(r.id) };
+        return rank.has(r.id) ? { ...r, sortOrder: rank.get(r.id) } : r;
+      });
+    });
+  };
+
+  const applyBoxEdit = () => {
+    if (!editGroup) return;
+    const brand = editBrand === REED_BRAND_CUSTOM ? editCustomBrand.trim() : editBrand;
+    if (!brand || !editStartDate) return;
+    // 自由入力の銘柄は選択肢に自動追加(追加シートと同じ扱い)
+    if (editBrand === REED_BRAND_CUSTOM && !brandOptions.includes(brand)) {
+      setExtraBrands((prev) => [...prev, brand]);
+    }
+    updateGroup(editGroup, { brand, strength: editStrength, startDate: editStartDate });
+    setEditBoxKey(null);
   };
 
   // 長押し+ドラッグでの並び替え確定時、表示順(sortOrder)だけを更新する。
@@ -8077,29 +8405,55 @@ function ReedRegisterView(props) {
         reedGroups.map((g) => {
           const avgRating = reedGroupAvgRating(g.members);
           const boxChecked = selectedBoxKeys?.has(g.key);
+          // 【F-80 / F-82】銘柄と日付をタップすると「箱を編集」シートが開く。
+          // **見た目は 1px も足していない**: 地・枠・角丸・下線を持たない <button> にし、
+          // 当たり判定だけ index.css の .taptext(疑似要素)で 44pt へ広げる
+          // (DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+          // **どの削除モード中も**素の <span> に戻す。理由はモードによって違う:
+          //   ・箱を選んで削除(boxDelete) … 見出しの行そのものが選択の <button> になるので、
+          //     入れ子を避ける(押せる物が2つ重なると、どちらが効くか画面から読めない)。
+          //   ・個体を選んで削除(memberDelete) … 見出しの行は素の <div> のままだが、
+          //     「今は選んで消す作業中」に編集シートが開くのは筋が通らない。
+          // (前版のコメントは前者の理由だけを両方に当てていて、memberDelete では偽だった)
+          const boxEditable = listMode === null;
+          const nameStyle = { fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0 };
+          const nameInner = (
+            <>{g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span></>
+          );
+          const dateText = formatYmd(g.startDate) ?? "開封日 未設定";
           const heading = (
             <>
-              {/* 正典 .rname: 15px / 600。番手は <i>(--ink3 / 400 / 斜体にしない) */}
-              <span className="rname sans" style={{ fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span>
-              </span>
+              {/* 正典 .rname: 15px / 600。番手は <i>(--ink3 / 400 / 斜体にしない)。
+                  切り取り(ellipsis)は**内側の子**が持つ。外側に overflow:hidden を置くと
+                  .taptext の疑似要素ごと切られて当たり判定が 44pt を割る。 */}
+              {boxEditable ? (
+                <button
+                  type="button"
+                  onClick={() => openBoxEdit(g)}
+                  aria-label={`${g.brand} ${g.strength} の銘柄と番手を編集`}
+                  className="rname sans taptext"
+                  style={{ ...nameStyle, background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", display: "block" }}
+                >
+                  <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameInner}</span>
+                </button>
+              ) : (
+                <span className="rname sans" style={{ ...nameStyle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameInner}</span>
+              )}
               {/* 正典 .rmeta: 12px / --ink3 / gap 10 / baseline。★は文字のまま(星の絵は使わない) */}
               <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", display: "flex", gap: 10, alignItems: "baseline", flexShrink: 0 }}>
                 {avgRating !== null && <span>★{avgRating.toFixed(1)}</span>}
-                {listMode === "dateEdit" ? (
-                  <input
-                    type="date"
-                    aria-label={`${g.brand} ${g.strength} の開封日`}
-                    value={g.startDate || ""}
-                    onChange={(e) => setGroupStartDate(g, e.target.value)}
-                    className="sans"
-                    /* appearance を落とす理由は REED_FORM_CONTROL_STYLE の解説を見ること
-                       (iOS Safari の input[type=date] は固有幅を優先して width が効かない)。
-                       **ここは Chrome では判定できない類**(LOOP.md)。 */
-                    style={{ ...REED_FORM_CONTROL_STYLE, width: 150, fontSize: 12, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
-                  />
+                {boxEditable ? (
+                  <button
+                    type="button"
+                    onClick={() => openBoxEdit(g)}
+                    aria-label={`${g.brand} ${g.strength} の開封日を編集`}
+                    className="sans taptext"
+                    style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--c-ink-3)", cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    {dateText}
+                  </button>
                 ) : (
-                  <span>{formatYmd(g.startDate) ?? "開封日 未設定"}</span>
+                  <span>{dateText}</span>
                 )}
               </span>
             </>
@@ -8161,7 +8515,7 @@ function ReedRegisterView(props) {
       )}
 
       {addOpen && (
-        <ReedAddSheet
+        <ReedBoxSheet
           brandOptions={brandOptions}
           brand={newBrand} setBrand={setNewBrand}
           customBrand={customBrand} setCustomBrand={setCustomBrand}
@@ -8169,6 +8523,22 @@ function ReedRegisterView(props) {
           count={addCount} setCount={setAddCount}
           onAdd={() => registerReeds(addCount)}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+
+      {/* 【F-80 / F-82】箱の編集。**mode は呼び出し側で渡す**(既定は "add" のまま)。
+          銘柄の選択肢にはこの箱の銘柄を必ず含める(過去に自由入力した銘柄は
+          brandOptions に載っていないことがあり、載っていないと開いた瞬間に別の銘柄へ化ける)。 */}
+      {editGroup && (
+        <ReedBoxSheet
+          mode="edit"
+          brandOptions={[...new Set([...brandOptions, editGroup.brand])]}
+          brand={editBrand} setBrand={setEditBrand}
+          customBrand={editCustomBrand} setCustomBrand={setEditCustomBrand}
+          strength={editStrength} setStrength={setEditStrength}
+          startDate={editStartDate} setStartDate={setEditStartDate}
+          onAdd={applyBoxEdit}
+          onClose={() => setEditBoxKey(null)}
         />
       )}
     </div>

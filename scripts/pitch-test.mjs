@@ -242,6 +242,10 @@ const code = [
   extractFunction("normalizeRatingHistory"),
   extractFunction("commitReedScores"),
   extractFunction("reedGroupAvgRating"),
+  // 箱のまとめ方そのもの。F-80/F-82 の「合流する」を実行で確かめるのに要る
+  extractFunction("reedGroupKey"),
+  extractFunction("reedMemberOrder"),
+  extractFunction("groupReeds"),
   extractFunction("ratingDialValueAt"),
   extractFunction("ratingDialOffsetFor"),
   extractFunction("ratingDialScrollIsUser"),
@@ -282,7 +286,15 @@ const code = [
   extractFunction("gridDropIndex"),
   extractFunction("reedDetailMetaLine"),
   extractFunction("reedAddButtonLabel"),
+  extractFunction("reedSheetButtonLabel"),
+  extractFunction("reedSheetTitle"),
   extractFunction("clampReedAddCount"),
+  // F-79b タイルの見た目(指への追従・避ける動き)。定義を参照するので定数を先に並べる
+  extractConst("REED_TILE_SLIDE_EASE"),
+  extractConst("REED_TILE_SETTLE_MS"),
+  extractConst("REED_TILE_LIFT_PX"),
+  extractConst("REED_TILE_DRAG_DEG"),
+  extractFunction("reedTileVisual"),
   // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
   extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
   extractConst("SWIPE_BACK_THRESHOLD_MIN"),
@@ -297,6 +309,12 @@ const code = [
   extractFunction("swipeBackDecision"),
   extractFunction("swipeBackHandler"),
   extractFunction("createSwipeBackGesture"),
+  // F-79a の差し戻し: SwipePager の終わり方と track へ書く値(swipeBackThreshold を参照するので後ろ)
+  extractFunction("swipePagerEndKind"),
+  extractFunction("swipePagerTrackStyle"),
+  extractFunction("swipePagerNextIndex"),
+  // F-83: 終わりを告げたイベント → 中断か否か
+  extractFunction("swipePagerInterrupted"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -343,9 +361,12 @@ const api = new Function(`${code}
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
            REED_DETAIL_METRICS, REED_COMPARE_CHART_KEYS,
            reedTileTone, gridDropIndex, reedDetailMetaLine, reedAddButtonLabel, clampReedAddCount,
+           reedSheetButtonLabel, reedSheetTitle, reedTileVisual,
+           REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
-           reedGroupAvgRating,
+           reedGroupAvgRating, reedGroupKey, groupReeds, reedMemberOrder,
+           swipePagerEndKind, swipePagerTrackStyle, swipePagerNextIndex, swipePagerInterrupted,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
            reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
            reedScoreRowItems,
@@ -4966,7 +4987,19 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
 
   // 立入禁止の確認: SwipePager 本体に手を入れていない
   const pager = sourceOf("SwipePager");
-  check("SwipePager のしきい値はそのまま", pager.includes("const threshold = w ? w * 0.2 : 60;"));
+  // 【F-79a の差し戻しで主張を変えた】
+  // 旧主張: SwipePager の本体に `const threshold = w ? w * 0.2 : 60;` という**綴り**が残っている
+  // 新主張: しきい値の**値**が変わっていない。行き先の判定を純関数(swipePagerEndKind)へ
+  //   出したので綴りはそこへ移ったが、規則は §6.3 の「幅の20%・測れなければ60px」1つのまま。
+  //   綴りではなく**境界での振る舞い**で見る(0.2 を 0.3 にすれば落ちる)。
+  check("SwipePager のしきい値は幅の20%・測れなければ60px のまま(値で確認)",
+    api.swipePagerEndKind(true, false, -75, 375, 0, 2) === "advance"
+    && api.swipePagerEndKind(true, false, -74.99, 375, 0, 2) === "settle"
+    && api.swipePagerEndKind(true, false, -60, 0, 0, 2) === "advance"
+    && api.swipePagerEndKind(true, false, -59.99, 0, 0, 2) === "settle",
+    `375→${api.swipeBackThreshold(375)} / 幅不明→${api.swipeBackThreshold(0)}`);
+  check("SwipePager は行き先の判定を自前で持たない(純関数へ寄せた)",
+    !/w \* 0\.2 : 60/.test(pager) && /swipePagerEndKind\(/.test(pager));
   check("SwipePager の端の抵抗はそのまま", pager.includes("if ((i === 0 && dx > 0) || (i === count - 1 && dx < 0)) dx *= 0.35;"));
   check("SwipePager の軸判定はそのまま", pager.includes("if (Math.abs(dxRaw) < 6 && Math.abs(dy) < 6) return;"));
   check("SwipePager は touchmove を非パッシブで登録したまま", pager.includes('el.addEventListener("touchmove", onMove, { passive: false });'));
@@ -5247,8 +5280,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // !important は詳細度も宣言順も飛び越える。作法に効くところで使わせない。
     const bangs = (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[a-zA-Z-]+\s*:[^;{}]*!important/g) || [])
       .map((s) => s.trim());
-    check("index.css の !important は動きを止める1件だけ(作法を飛び越える手を残さない)",
-      bangs.length === 1 && /^animation\s*:/.test(bangs[0]), bangs.join(" | ") || "0件");
+    // 許すのは**2種だけ**(同じ2種なら本数は問わない)で、どちらも「見た目の作法」ではなく
+    // **壊れ方を構造的に封じる**用途:
+    //   ・animation: none  … 動きを止める(既存)
+    //   ・overflow: visible … .taptext の当たり判定が切られるのを防ぐ(F-83)。
+    //     インラインの style に勝つ必要があるので素の宣言では足りない。
+    // **件数ではなく「宣言の集合」で縛る**(箇所数の釘付けは F-72 罠5 で禁じた形)。
+    // 色・地・枠・寸法など見た目の作法に !important が現れたら、それは飛び越えなので落とす。
+    const ALLOWED_BANGS = [/^animation\s*:\s*none\b/, /^overflow\s*:\s*visible\b/];
+    const strayBangs = bangs.filter((b) => !ALLOWED_BANGS.some((re) => re.test(b)));
+    check("index.css の !important は「壊れ方を封じる」2種(animation:none / overflow:visible)だけ(作法を飛び越える手を残さない)",
+      bangs.length > 0 && strayBangs.length === 0, strayBangs.join(" | ") || `${bangs.length}件すべて許容: ${bangs.join(" | ")}`);
   }
 
   // --- 2. 作法の規則そのもの -------------------------------------------
@@ -5986,9 +6028,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 【N-5】この欄は「新しいリードを登録」フォームの使用開始日から、
   // 「…」→「箱の開封日を編集」の中の開封日へ**移った**。要件(appearance を落として
   // 幅を効かせ、縦位置を自分で決める)は1つも下げずにそのまま引き継ぐ。
+  // 【F-80 でもう一度移った】「…」のモードごと廃止し、箱見出しの日付タップで開く
+  // 「箱を編集」シート(ReedBoxSheet)の中に置いた。**要件はここでも1つも下げない**
+  // (行内に置かないぶん幅は広く取れるが、iOS Safari の固有幅の罠は同じなので同じ手当てをする)。
   {
-    const register = srcOf("ReedRegisterView");
-    const dateInput = register.slice(register.indexOf('type="date"'));
+    const sheet = srcOfFn(src, "ReedBoxSheet");
+    const dateInput = sheet.slice(sheet.indexOf('type="date"'));
     const decl = dateInput.slice(0, dateInput.indexOf("/>"));
     check("開封日の入力欄を走査できている", decl.length > 100 && /type="date"/.test(decl), `${decl.length}文字`);
     check("開封日の input[type=date] は WebkitAppearance:none を持つ",
@@ -6343,12 +6388,34 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           wraps.map((t) => (t.match(/overflow: "[^"]*"/) || ["overflow 無し"])[0]).join(" | "));
         {
           // 値そのものの <span>(包む箱の直後にある、position を持たない方)
-          const valSpans = (lbl.match(/<span style=\{\{ color: [^}]*\}\}>/g) || []);
-          check("F-72: リード枠の値の <span> は2つ(箱と個体)", valSpans.length === 2, `${valSpans.length}個`);
+          // 【F-81 で1つ増えた】箱の開封日(値でも選択肢でもない**箱の説明**)が末尾に付いた。
+          // 3つとも色を持つので、まず**総数**を固定し、役割ごとに分けて中身を見る。
+          const colorSpans = (lbl.match(/<span style=\{\{ color: [^}]*\}\}>/g) || []);
+          check("F-72/F-81: リード枠の中で色を持つ <span> は3つ(箱の値・個体の値・開封日)",
+            colorSpans.length === 3, `${colorSpans.length}個`);
+          const valSpans = colorSpans.slice(0, 2);
+          check("F-72: リード枠の値の <span> は2つ(箱と個体)",
+            valSpans.length === 2 && /selectedReedId \? "var\(--c-ink\)"/.test(valSpans[0])
+            && /selectedReedId \? "var\(--c-ink-2\)"/.test(valSpans[1]),
+            valSpans.map((t) => (t.match(/color: [^,]*/) || ["?"])[0]).join(" | "));
           check("F-72: リード枠の値は縮んで省略記号になる(minWidth:0 + overflow + textOverflow)",
             valSpans.length === 2 && valSpans.every((t) =>
               /minWidth: 0/.test(t) && /overflow: "hidden"/.test(t) && /textOverflow: "ellipsis"/.test(t)),
             valSpans.map((t) => t.replace(/\s+/g, " ").slice(0, 140)).join(" | "));
+          // 【F-81】開封日は**箱の説明**なので、値(--c-ink / --c-ink-2)より弱い段に落とす。
+          // 折り返さず、縮まず(flexShrink:0)、省略記号も出さない = 日付は全桁読める。
+          const dateSpan = colorSpans[2] || "";
+          check("F-81: 開封日は値より弱い段(--c-ink-3)の素の文字",
+            /color: "var\(--c-ink-3\)"/.test(dateSpan), dateSpan.replace(/\s+/g, " ").slice(0, 140));
+          check("F-81: 開封日は折り返さず縮まない(全桁読める)",
+            /whiteSpace: "nowrap"/.test(dateSpan) && /flexShrink: 0/.test(dateSpan)
+            && !/textOverflow/.test(dateSpan), dateSpan.replace(/\s+/g, " ").slice(0, 140));
+          // 表記は yyyy/mm/dd(§6.0)。formatYmd を通すので月日だけの独自表記は作れない。
+          check("F-81: 開封日は formatYmd(yyyy/mm/dd)を通す(独自の日付表記を作らない)",
+            /\{selectedBoxGroup && formatYmd\(selectedBoxGroup\.startDate\) && \(/.test(lbl)
+            && /· \{formatYmd\(selectedBoxGroup\.startDate\)\}/.test(lbl));
+          check("F-81: 箱を選んでいないときは開封日を出さない(今に関係ない物は出ていない)",
+            /\{selectedBoxGroup && formatYmd/.test(lbl));
         }
         // 【差し戻し②】箱と個体の間隔を作っているのは label の gap ではなく、
         // **個体を包む箱の marginLeft**。gap:0 だけを見る検査では marginLeft を広げる変異を
@@ -6433,10 +6500,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
             k++;
           }
         }
-        // (a) 直下の子は「点 / 箱の包み / 個体の包み / ▾」の4つ**ちょうど**。
+        // (a) 直下の子は「点 / 箱の包み / 個体の包み / 開封日 / ▾」の5つ**ちょうど**。
         //     スペーサーを1つ挟めばここで落ちる(幅を持たない span でも落ちる)。
-        check("F-72: リード枠の直下の子は 点span・箱の包み・個体の包み・▾ の4つちょうど",
-          JSON.stringify(children) === JSON.stringify(["span/", "span", "span", "PickChevron/"]),
+        // 【F-81 で4→5】箱の開封日が個体と ▾ の間に入った(本人指示「開封日も追加して」)。
+        check("F-72/F-81: リード枠の直下の子は 点span・箱の包み・個体の包み・開封日・▾ の5つちょうど",
+          JSON.stringify(children) === JSON.stringify(["span/", "span", "span", "span", "PickChevron/"]),
           JSON.stringify(children));
 
         // (b) 横方向に効く宣言の**集合**。左右方向の位置・幅・余白に効きうる名前を全部拾う。
@@ -6455,7 +6523,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         });
         // 期待する集合。**何のためにその宣言があるか**を1つずつ書く。
         // 番号はリード枠の中のタグの並び順(0=label / 1=点 / 2=箱の包み / 3=箱の値 /
-        // 4=箱のselect / 5=option / 6=個体の包み / 7=個体の値 / 8=個体のselect / 9=option / 10=▾)。
+        // 4=箱のselect / 5=option / 6=個体の包み / 7=個体の値 / 8=個体のselect / 9=option /
+        // 10=開封日(F-81 で挿入) / 11=▾)。
         // 並びが変われば番号がずれるので、タグを挟む変異もここで落ちる。
         const want = [
           '0:label:gap=0',                              // 間隔は gap では作らない(0 に固定)
@@ -6473,6 +6542,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           '8:select:left=0',
           '8:select:width="100%"',
           '8:select:padding=0',
+          // 【F-81】開封日と個体の間。**個体と ▾ の間隔(--sp-1)と同じ**で、
+          // 「V16-3 #4 · 2026/08/13 ▾」が1つの塊に読めるようにする(F-72 の差し戻しの理由と同じ)。
+          '10:span:marginLeft="var(--sp-1)"',
         ];
         const missing = want.filter((x) => !got.includes(x));
         const extra = got.filter((x) => !want.includes(x));
@@ -6768,7 +6840,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           const inPerformer = (srcOfFn(src, "PerformerSelector").match(/<PickChevron \/>/g) || []).length;
           check("F-72: 上部設定行の ▾ は4つ(MeasureView に3つ + 奏者セレクタに1つ)",
             inMeasure === 3 && inPerformer === 1, `MeasureView=${inMeasure} / PerformerSelector=${inPerformer}`);
-          const sheet = srcOfFn(src, "ReedAddSheet");
+          const sheet = srcOfFn(src, "ReedBoxSheet");
           check("N-5: 追加シートの銘柄プルダウンにも ▾ がある(押せば選択肢が出ることを形で示す)",
             (sheet.match(/<PickChevron \/>/g) || []).length === 1,
             `${(sheet.match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -6855,10 +6927,64 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           !/\{reeds\.length\}/.test(reg) && !/\{g\.members\.length\}/.test(reg)
           && !/reeds\.length\}枚/.test(reg),
           (reg.match(/\{(reeds|g\.members)\.length\}/g) || []).join(" / ") || "0件");
-        // 総枚数は「…」の見出しにだけ出る(暫定。移設先の是非は本人判断待ち)
-        check("N-5: 総枚数は「…」の見出しにだけ出る",
-          /登録済みリード \{totalCount\}枚/.test(srcOfFn(src, "ReedMoreMenu"))
-          && !/totalCount/.test(reg));
+        // 【F-78 で主張が反転した(2026/08/14 本人決定「消す」)】
+        // 旧主張: 「総枚数は『…』の見出しにだけ出る」(N-5 の暫定配置。本人判断待ちだった)
+        // 新主張: **リードタブのどこにも総枚数を描画していない。**
+        // 綴り(「登録済みリード」「totalCount」)だけを見ると、文言を変えた変異
+        // (例: `リード {reeds.length}枚`)が生き残る。**リードタブの4つの関数を走査し、
+        // 「枚数を描画している式」が1つも無いこと**で見る(F-72 罠5 の「構造＋集合」)。
+        {
+          const bodies = ["ReedsTab", "ReedRegisterView", "ReedMoreMenu", "ReedTileGrid"]
+            .map((n) => ({ n, body: codeOf(srcOfFn(src, n)) }));
+          check("F-78: リードタブの4関数を走査できている(空回りしていない)",
+            bodies.every((b) => b.body.length > 500) && /REED_MORE_ITEMS\.map/.test(bodies[2].body),
+            bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
+          // 【前版は名乗りが実装より強かった(通算10回目)】旧主張は「枚数を描画している箇所が
+          // 無いこと」を名乗りながら、走査は `{…reeds|members|totalCount…length…}` という
+          // **1つの補間の中に数え上げが直接書いてある形**だけだった。審査役の変異
+          // (`const reedTotalForBadge = reeds.length;` を作って `{reedTotalForBadge}枚` を描く)が
+          // **生存**した。計算と描画を2行に分けるだけですり抜ける。
+          //
+          // 新主張は「数え上げそのものを作らせない」に変える。**3枚の網**で見る:
+          //   (1) リードの本数を数える式(`reeds.length` 等)が、**比較以外**に使われていない
+          //       = 変数に束ねる/補間に置く/返す、をすべて落とす(上の変異はここで死ぬ)
+          //   (2) JSX の補間の直後に単位の語(枚/本/箱/個)が続かない
+          //       = 別名の変数で数を描いても、単位を付ければここで死ぬ
+          //       (テンプレートリテラルの中の `${n}箱を削除` は正当なので、先に取り除く)
+          //   (3) totalCount という綴りが残っていない(前版からの引き継ぎ)
+          // **どれも「枚数の表示が無い」ことの十分条件ではない**ので、名前もそう名乗る。
+          {
+            const COUNT_EXPR = /\b(?:reeds|members|orderedMembers|g\.members)\.length\b/g;
+            const bad1 = [];
+            for (const b of bodies) {
+              let m;
+              const re = new RegExp(COUNT_EXPR.source, "g");
+              while ((m = re.exec(b.body)) !== null) {
+                const after = b.body.slice(m.index + m[0].length, m.index + m[0].length + 12);
+                // 比較(> < >= <= === !==)に続いているものだけが正当な用途
+                if (!/^\s*(===|!==|>=|<=|>|<)/.test(after)) {
+                  bad1.push(`${b.n}: ${b.body.slice(Math.max(0, m.index - 28), m.index + m[0].length + 8).replace(/\s+/g, " ")}`);
+                }
+              }
+            }
+            check("F-78: リードタブでリード数(reeds.length 等)を比較以外に使っていない(変数に束ねて描くのを塞ぐ)",
+              bad1.length === 0, bad1.slice(0, 3).join(" | ") || "0件");
+            // 網(2): テンプレートリテラルを外してから、補間の直後の単位の語を探す
+            const bad2 = bodies.flatMap((b) => {
+              const noTpl = b.body.replace(/`(?:[^`\\]|\\[\s\S])*`/g, '""');
+              return (noTpl.match(/\}\s*[枚本箱個][^\n]{0,10}/g) || []).map((x) => `${b.n}: …${x}`);
+            });
+            check("F-78: リードタブの表示に「{式}+単位(枚/本/箱/個)」の形が無い(別名の変数で数を描くのを塞ぐ)",
+              bad2.length === 0, bad2.slice(0, 3).join(" | ") || "0件");
+            check("F-78: ReedMoreMenu は totalCount を受け取らない(呼び出し側も渡さない)",
+              !/totalCount/.test(codeOf(src)),
+              (codeOf(src).match(/totalCount[^\n]{0,30}/g) || []).join(" / ") || "0件");
+            // 走査が空回りしていないことの裏取り: 正当な比較の用途は実在する
+            const legit = bodies.flatMap((b) => b.body.match(/\b(?:reeds|members)\.length\s*(?:===|!==|>=|<=|>|<)/g) || []);
+            check("F-78: 比較の用途は実在する(網1 が何も見ずに通っていない)",
+              legit.length >= 3, legit.join(" / "));
+          }
+        }
       }
       check("N-5: 「1枚ずつ追加」「まとめて追加」の2択が残っていない",
         !codeR.includes("1枚ずつ追加") && !codeR.includes("まとめて追加"));
@@ -6875,8 +7001,61 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         `${api.reedAddButtonLabel(2)} / ${api.reedAddButtonLabel(10)}`);
       check("文言が変わる境目は 1 と 2 の間だけ(2〜10 は全部「n枚の箱を追加」)",
         [2, 3, 4, 5, 6, 7, 8, 9, 10].every((n) => api.reedAddButtonLabel(n) === `${n}枚の箱を追加`));
-      check("シートは reedAddButtonLabel を呼んで文言を出す(JSX 側で書き分けていない)",
-        /\{reedAddButtonLabel\(count\)\}/.test(src));
+      check("シートは reedSheetButtonLabel を呼んで文言を出す(JSX 側で書き分けていない)",
+        /\{reedSheetButtonLabel\(mode, count\)\}/.test(src));
+      // 【F-80 / F-82】同じシートを「箱を編集」にも使う。**呼び出し側で切り替える**方式で、
+      // 既定は "add"(F-72 罠1「既定を新しい側にすると次の呼び出し側へ黙って漏れる」)。
+      check("F-82: シートの mode の既定は \"add\"(追加の呼び出しは何も渡さない)",
+        /mode = "add",\s*\r?\n?\s*\}\)/.test(srcOfFn(src, "ReedBoxSheet").slice(0, 400))
+        || /startDate, setStartDate, onAdd, onClose, mode = "add",/.test(src));
+      check("F-82: mode=\"edit\" を渡す呼び出しは1つだけ(箱の編集)",
+        (src.match(/mode="edit"/g) || []).length === 1, `${(src.match(/mode="edit"/g) || []).length}箇所`);
+      check("F-82: 編集の一手は「この箱を変更」/ 追加は枚数で変わる(同じ関数が分ける)",
+        api.reedSheetButtonLabel("edit", 1) === "この箱を変更"
+        && api.reedSheetButtonLabel("edit", 10) === "この箱を変更"
+        && api.reedSheetButtonLabel("add", 1) === "1枚を追加"
+        && api.reedSheetButtonLabel("add", 10) === "10枚の箱を追加"
+        && api.reedSheetButtonLabel(undefined, 3) === "3枚の箱を追加",
+        `${api.reedSheetButtonLabel("edit", 1)} / ${api.reedSheetButtonLabel("add", 10)}`);
+      check("F-82: シートの見出しは 追加=「追加」/ 編集=「箱を編集」",
+        api.reedSheetTitle("edit") === "箱を編集" && api.reedSheetTitle("add") === "追加"
+        && api.reedSheetTitle(undefined) === "追加",
+        `${api.reedSheetTitle("edit")} / ${api.reedSheetTitle("add")}`);
+      check("F-82: 見出しの綴りは reedSheetTitle からしか出ない(JSX に直書きしていない)",
+        /\{reedSheetTitle\(mode\)\}/.test(src));
+      // 枚数は「追加」のときだけ。編集で枚数を触らせると、どの個体を消すのかが決まらない。
+      check("F-82: 枚数の −/数値/＋ は追加のときだけ出る",
+        /\{!isEdit && \(\s*\r?\n?\s*<div[\s\S]{0,300}?aria-label="枚数を減らす"/.test(srcOfFn(src, "ReedBoxSheet")));
+      // 【押しても何も起きない一手を作らない(§6.1.5)】実行側(registerReeds / applyBoxEdit)は
+      // 銘柄が空・開封日が空のとき**黙って return する**。ボタンの disabled がそれと食い違うと、
+      // 「押せるのに無反応」になる。**実ソースの式を取り出して実行で突き合わせる**
+      // (審査役の変異で `(isEdit && !startDate)` を外しても生存した = 検査が無かった)。
+      {
+        const sheet = srcOfFn(src, "ReedBoxSheet");
+        const m = /const disabled = (.+);/.exec(sheet);
+        check("F-82: シートの disabled の式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
+        const isDisabled = new Function("isCustom", "customBrand", "isEdit", "startDate",
+          `return !!(${m ? m[1] : "false"});`);
+        // 編集: 開封日が空なら押せない / 入っていれば押せる
+        check("F-82: 編集で開封日が空なら「この箱を変更」は押せない(死んだ一手にしない)",
+          isDisabled(false, "", true, "") === true && isDisabled(false, "", true, null) === true,
+          `空=${isDisabled(false, "", true, "")}`);
+        check("F-82: 編集で開封日が入っていれば押せる",
+          isDisabled(false, "", true, "2026-08-13") === false,
+          `${isDisabled(false, "", true, "2026-08-13")}`);
+        // 自由入力の銘柄が空なら追加も編集も押せない(現行のまま)
+        check("F-82: 自由入力の銘柄が空なら押せない(追加・編集とも)",
+          isDisabled(true, "  ", false, "") === true && isDisabled(true, "  ", true, "2026-08-13") === true,
+          `${isDisabled(true, "  ", false, "")} / ${isDisabled(true, "  ", true, "2026-08-13")}`);
+        // 追加は開封日を持たない(自動で入る)ので、startDate が空でも押せる
+        check("F-82: 追加は開封日を聞かないので startDate が空でも押せる",
+          isDisabled(false, "", false, "") === false, `${isDisabled(false, "", false, "")}`);
+        // 実行側が同じ2つで return していること(ボタンと実行の判断がずれない)
+        check("F-82: applyBoxEdit も 銘柄が空 / 開封日が空 で return する(ボタンと同じ判断)",
+          /const applyBoxEdit = \(\) => \{[\s\S]{0,400}?if \(!brand \|\| !editStartDate\) return;/.test(srcOf("ReedRegisterView")));
+        check("F-82: registerReeds も銘柄が空なら return する",
+          /const registerReeds = \(count\) => \{\s*\r?\n\s*const brand = resolveBrand\(\);\s*\r?\n\s*if \(!brand\) return;/.test(srcOf("ReedRegisterView")));
+      }
       // 枚数の範囲 1〜10(箱1つぶん)。上下にはみ出さない
       check("枚数の下限は1・上限は箱1つぶん(10)",
         api.REED_ADD_COUNT_MIN === 1 && api.REED_ADD_COUNT_MAX === api.REED_BOX_SIZE && api.REED_BOX_SIZE === 10,
@@ -6922,7 +7101,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         //     見るのは**リードタブの関数の中だけ**にし、名前もそう名乗る。
         const codeNoComment = codeOf(src);
         const reedBodies = ["localDayKey", "reedRatingDayKey", "ReedsTab", "ReedRegisterView",
-          "ReedTileGrid", "ReedAddSheet", "ReedMoreMenu", "ReedEvaluationDetail"]
+          "ReedTileGrid", "ReedBoxSheet", "ReedMoreMenu", "ReedEvaluationDetail"]
           .map((n) => codeOf(srcOfFn(src, n))).join("\n");
         check("リードタブの関数を走査できている(空回りしていない)",
           reedBodies.length > 12000 && /localDayKey\(new Date\(\)\)/.test(reedBodies), `${reedBodies.length}文字`);
@@ -6996,18 +7175,157 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           new Date(2026, 0, 1).getTimezoneOffset() === offBefore,
           `${new Date(2026, 0, 1).getTimezoneOffset()} / 元 ${offBefore}`);
       }
-      // リードタブの中に限って数える(データタブの日付フィルタ等は対象外)。
-      check("N-5: リードタブの input[type=date] は「箱の開封日を編集」の1箇所だけ",
-        (srcOf("ReedRegisterView").match(/type="date"/g) || []).length === 1,
-        `${(srcOf("ReedRegisterView").match(/type="date"/g) || []).length}箇所`);
-      check("N-5: 開封日の入力欄は編集モードのときだけ出る(通常時は日付の文字だけ)",
-        /listMode === "dateEdit" \? \(\s*<input\s*\r?\n?\s*type="date"/.test(src));
-      check("開封日の編集は箱の全メンバーに同じ日を書く(箱が割れない)",
-        /const ids = new Set\(g\.members\.map\(\(m\) => m\.id\)\);[\s\S]{0,200}startDate: value/.test(src));
-      check("開封日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
-        /type="date"[\s\S]{0,700}\.\.\.REED_FORM_CONTROL_STYLE/.test(srcOf("ReedRegisterView")));
-      check("開封日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
-        /width: "100%",/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
+      // 【F-80 で置き場所が変わった】
+      // 旧主張: 開封日の input[type=date] は「…」→「箱の開封日を編集」モードの中(=一覧の行内)
+      //         に1つだけあり、通常時は日付の文字だけ。
+      // 新主張: 一覧の行の中には input[type=date] が**1つも無い**(通常時も編集時も文字のまま)。
+      //         入力欄は「箱を編集」シート(ReedBoxSheet)の中に1つだけある。
+      //         行内に置かないのは iOS Safari の固有幅の罠(F-39/F-40/F-41)を避けるため
+      //         — 行では ★ と同居して 150px しか取れない。シートなら左右 24px 以外は使える。
+      {
+        const inList = (srcOf("ReedRegisterView").match(/type="date"/g) || []).length;
+        const inSheet = (srcOfFn(src, "ReedBoxSheet").match(/type="date"/g) || []).length;
+        check("F-80: 一覧(ReedRegisterView)の中に input[type=date] が無い", inList === 0, `${inList}箇所`);
+        check("F-80: 開封日の input[type=date] は「箱を編集」シートの1箇所だけ", inSheet === 1, `${inSheet}箇所`);
+        check("F-80: 開封日の欄はシートを編集で開いたときだけ出る(追加のときは出ない)",
+          /\{isEdit && \(\s*\r?\n?\s*<div[\s\S]{0,400}?type="date"/.test(srcOfFn(src, "ReedBoxSheet")));
+        check("F-80: 開封日の input[type=date] は REED_FORM_CONTROL_STYLE(width:100%)を使っている",
+          /type="date"[\s\S]{0,700}\.\.\.REED_FORM_CONTROL_STYLE/.test(srcOfFn(src, "ReedBoxSheet")));
+        check("開封日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
+          /width: "100%",/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
+      }
+      // 【F-80 / F-82】箱の編集は**銘柄・番手・開封日の3つとも**箱の全メンバーへ同じ値を書く。
+      // 1枚だけ書き換えると reedGroupKey(銘柄|番手|開封日)が割れて箱が2つになる。
+      // **綴りではなく実行で確かめる**: 実ソースの updateGroup を取り出し、setReeds だけを
+      // 差し替えて評価し、その結果を実物の groupReeds に通して箱の数を数える。
+      {
+        const upd = /const updateGroup = \(g, patch\) => \{([\s\S]*?)\n  \};/.exec(srcOf("ReedRegisterView"));
+        check("F-82: updateGroup を実ソースから取れている(空回りしていない)",
+          upd !== null && /setReeds\(/.test(upd ? upd[1] : ""), upd ? `${upd[1].length}文字` : "取れない");
+        // 実ソースの updateGroup をそのまま評価する。差し替えるのは setReeds だけで、
+        // 参照している実物の関数(reedGroupKey / reedMemberOrder)は api のものを渡す。
+        const applyUpdateRaw = new Function("reedGroupKey", "reedMemberOrder", `
+          return (g, patch, reeds) => {
+            let out = reeds;
+            const setReeds = (fn) => { out = fn(reeds); };
+            ${upd ? upd[1] : ""}
+            return out;
+          };
+        `)(api.reedGroupKey, api.reedMemberOrder);
+        const applyUpdate = (g, patch, reeds) => applyUpdateRaw(g, patch, reeds);
+        const base = [
+          { id: "a", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", createdAt: "2026-08-13T01:00:00.000Z" },
+          { id: "b", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", createdAt: "2026-08-13T01:00:01.000Z" },
+          { id: "c", brand: "Marca", strength: "2.5", startDate: "2026-08-10", createdAt: "2026-08-10T01:00:00.000Z" },
+        ];
+        check("F-82: 用意した3枚は2箱に分かれている(前提の裏取り)",
+          api.groupReeds(base).length === 2, `${api.groupReeds(base).length}箱`);
+        const marca = api.groupReeds(base).find((x) => x.brand === "Marca");
+        // (a) 銘柄・番手を Vandoren 3.0 へ変えると、開封日も同じにすれば既存の箱へ合流する
+        {
+          const after = applyUpdate(marca, { brand: "Vandoren", strength: "3.0", startDate: "2026-08-13" }, base);
+          const gs = api.groupReeds(after);
+          check("F-82: 銘柄・番手・開封日を既存の箱と同じにすると、その箱へ合流する",
+            gs.length === 1 && gs[0].members.length === 3, `${gs.length}箱 / ${gs[0]?.members.length}枚`);
+        }
+        // (b) 開封日だけを合わせても、銘柄が違えば合流しない(キーの3要素が効いていることの裏取り)
+        {
+          const after = applyUpdate(marca, { startDate: "2026-08-13" }, base);
+          const gs = api.groupReeds(after);
+          check("F-80: 開封日だけ合わせても銘柄が違えば合流しない(片方向だけ見ていない)",
+            gs.length === 2, `${gs.length}箱`);
+        }
+        // (c) 3つとも患部: 銘柄だけ変えて開封日が違えば別の箱のまま
+        {
+          const after = applyUpdate(marca, { brand: "Vandoren", strength: "3.0" }, base);
+          const gs = api.groupReeds(after);
+          check("F-82: 銘柄・番手を合わせても開封日が違えば別の箱のまま",
+            gs.length === 2, `${gs.length}箱`);
+        }
+        // (d) 書き換えは箱の全メンバーに及ぶ(1枚だけ動かして箱を割らない)
+        {
+          const vd = api.groupReeds(base).find((x) => x.brand === "Vandoren");
+          const after = applyUpdate(vd, { startDate: "2026-08-01" }, base);
+          const moved = after.filter((r) => r.startDate === "2026-08-01");
+          check("F-80: 開封日の変更は箱の2枚とも動く(1枚だけ残して割らない)",
+            moved.length === 2 && api.groupReeds(after).length === 2,
+            `${moved.length}枚 / ${api.groupReeds(after).length}箱`);
+        }
+        check("F-80/F-82: 箱のキーは 銘柄|番手|開封日 のまま(合流の判定がこの3つで決まる)",
+          /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
+
+        // (e) 【差し戻し②】合流したタイルは**末尾に続く**。
+        // 旧実装は値を書き換えるだけで、両方の箱が sortOrder 1..n を持ったまま重なり、
+        // reedMemberOrder が `1,4,2,5,3,6,7` のように**交互に**並べていた(審査役の実測)。
+        // どれが合流分か画面から読めないので、合流のたびに通し番号を振り直す。
+        {
+          const box = (pfx, n, brand, strength, date, withOrder) =>
+            Array.from({ length: n }).map((_, i) => ({
+              id: `${pfx}${i + 1}`, brand, strength, startDate: date,
+              ...(withOrder ? { sortOrder: i + 1 } : {}),
+              createdAt: new Date(Date.parse(`${date}T02:00:00.000Z`) + i * 1000).toISOString(),
+            }));
+          // 合流先4枚(並び替え済み) + 合流してくる3枚(並び替え済み)
+          const base = [...box("D", 4, "Vandoren", "3.0", "2026-08-13", true),
+            ...box("S", 3, "Marca", "2.5", "2026-08-10", true)];
+          check("F-82: 合流前は2箱・両方が sortOrder 1.. を持っている(交互になる条件が揃っている)",
+            api.groupReeds(base).length === 2
+            && base.filter((r) => r.sortOrder === 1).length === 2, `${api.groupReeds(base).length}箱`);
+          const src3 = api.groupReeds(base).find((x) => x.brand === "Marca");
+          const after = applyUpdate(src3, { brand: "Vandoren", strength: "3.0", startDate: "2026-08-13" }, base);
+          const merged = api.groupReeds(after);
+          check("F-82: 合流して1箱になる", merged.length === 1 && merged[0].members.length === 7,
+            `${merged.length}箱 / ${merged[0]?.members.length}枚`);
+          check("F-82: 合流したタイルは末尾に続く(交互に入り込まない)",
+            merged[0].members.map((m) => m.id).join(",") === "D1,D2,D3,D4,S1,S2,S3",
+            merged[0].members.map((m) => m.id).join(","));
+          // 合流先が一度も並び替えられていない(sortOrder 未設定)場合も末尾に続くこと。
+          // 未設定は reedMemberOrder では Infinity = 最後尾なので、正規化しないと
+          // 番号を持つ合流分のほうが**前に来る**。
+          {
+            const base2 = [...box("D", 4, "Vandoren", "3.0", "2026-08-13", false),
+              ...box("S", 3, "Marca", "2.5", "2026-08-10", true)];
+            const g2 = api.groupReeds(base2).find((x) => x.brand === "Marca");
+            const a2 = applyUpdate(g2, { brand: "Vandoren", strength: "3.0", startDate: "2026-08-13" }, base2);
+            check("F-82: 合流先が未並び替え(sortOrder 未設定)でも末尾に続く",
+              api.groupReeds(a2)[0].members.map((m) => m.id).join(",") === "D1,D2,D3,D4,S1,S2,S3",
+              api.groupReeds(a2)[0].members.map((m) => m.id).join(","));
+          }
+          // 合流先の並び替え結果を壊さない(1..n の順序そのものは保つ)
+          {
+            const base3 = [
+              { id: "D1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", sortOrder: 3, createdAt: "2026-08-13T02:00:00.000Z" },
+              { id: "D2", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", sortOrder: 1, createdAt: "2026-08-13T02:00:01.000Z" },
+              { id: "D3", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", sortOrder: 2, createdAt: "2026-08-13T02:00:02.000Z" },
+              ...box("S", 2, "Marca", "2.5", "2026-08-10", true),
+            ];
+            const g3 = api.groupReeds(base3).find((x) => x.brand === "Marca");
+            const a3 = applyUpdate(g3, { brand: "Vandoren", strength: "3.0", startDate: "2026-08-13" }, base3);
+            check("F-82: 合流先が並び替え済みなら、その並びを保ったまま末尾に続く",
+              api.groupReeds(a3)[0].members.map((m) => m.id).join(",") === "D2,D3,D1,S1,S2",
+              api.groupReeds(a3)[0].members.map((m) => m.id).join(","));
+          }
+          // 合流しない編集(開封日だけずらす)でも箱の中の並びは変わらない
+          {
+            const g4 = api.groupReeds(base).find((x) => x.brand === "Marca");
+            const a4 = applyUpdate(g4, { startDate: "2026-08-01" }, base);
+            const moved = api.groupReeds(a4).find((x) => x.brand === "Marca");
+            check("F-82: 合流しない編集では箱の中の並びが変わらない",
+              moved.members.map((m) => m.id).join(",") === "S1,S2,S3",
+              moved.members.map((m) => m.id).join(","));
+          }
+          // 並びの規則は groupReeds と合流で**同じ関数**を使う(2箇所に書くと必ず食い違う)
+          check("F-82: 箱の中の並びの規則は reedMemberOrder 1つ",
+            (codeOf(src).match(/reedMemberOrder/g) || []).length === 3
+            && /g\.members\.sort\(reedMemberOrder\)/.test(src)
+            && /\.sort\(reedMemberOrder\);/.test(srcOf("ReedRegisterView")),
+            `${(codeOf(src).match(/reedMemberOrder/g) || []).length}箇所`);
+          check("F-82: reedMemberOrder は sortOrder が主・未設定は登録順で後ろ",
+            api.reedMemberOrder({ sortOrder: 1 }, { sortOrder: 2 }) < 0
+            && api.reedMemberOrder({ sortOrder: 5 }, { createdAt: "2000-01-01" }) < 0
+            && api.reedMemberOrder({ createdAt: "2026-01-01" }, { createdAt: "2026-01-02" }) < 0);
+        }
+      }
     }
 
     // --- 17.10 【統一の芯】JSX 側を機械的に走査する ------------------------
@@ -7462,20 +7780,27 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           block !== null && !/\bctl-danger\b/.test(block),
           block === null ? "入口が見つからない" : block.replace(/\s+/g, " ").slice(0, 140));
       }
-      // 「…」メニューの中身。**3つとも出ていること**を集合で確かめる(1つ落としても気づく)。
-      check("N-5: 「…」には 箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集 の3つがある",
-        api.REED_MORE_ITEMS.length === 3
-        && api.REED_MORE_ITEMS.map((x) => x.mode).join(",") === "boxDelete,memberDelete,dateEdit"
-        && api.REED_MORE_ITEMS.map((x) => x.label).join(",") === "箱を選んで削除,個体を選んで削除,箱の開封日を編集",
+      // 「…」メニューの中身。**全部出ていること**を集合で確かめる(1つ落としても気づく)。
+      // 【F-80 で主張が変わった】旧主張は「箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集
+      // の3つがある」。開封日の編集は箱見出しの日付タップへ移したので、**残るのは削除2件**。
+      check("F-80: 「…」には 箱を選んで削除 / 個体を選んで削除 の2つだけがある",
+        api.REED_MORE_ITEMS.length === 2
+        && api.REED_MORE_ITEMS.map((x) => x.mode).join(",") === "boxDelete,memberDelete"
+        && api.REED_MORE_ITEMS.map((x) => x.label).join(",") === "箱を選んで削除,個体を選んで削除",
         api.REED_MORE_ITEMS.map((x) => `${x.mode}:${x.label}`).join(" / "));
+      // 「開封日を編集」という入口が「…」側に残っていないこと(モードごと消したことの裏取り)。
+      check("F-80: listMode に \"dateEdit\" が残っていない(モードごと消した)",
+        !/"dateEdit"/.test(codeOf(src)), (codeOf(src).match(/"dateEdit"/g) || []).join(",") || "0件");
+      check("F-80: 「…」に開封日の項目が無い",
+        api.REED_MORE_ITEMS.every((it) => !/開封日/.test(it.label)),
+        api.REED_MORE_ITEMS.map((x) => x.label).join(" / "));
       check("N-5: 「…」は REED_MORE_ITEMS をそのまま並べる(JSX 側で間引いていない)",
         /REED_MORE_ITEMS\.map\(\(it\) => \(/.test(src)
         && !/REED_MORE_ITEMS\.(slice|filter)\(/.test(src));
       // 【リード0枚のときは実行できない操作を出さない】HEAD は削除の入口を
       // `{reeds.length > 0 && …}` で括っていた。N-5 の初版はこれを落として、0枚でも
-      // 「箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集」を出していた(審査役の実測)。
-      // §6.0 の3原則「今に関係ない物は出ていない」。
-      // 3つとも「箱があること」が前提なので、**入口ごと**出さない。
+      // 削除の項目を出していた(審査役の実測)。§6.0 の3原則「今に関係ない物は出ていない」。
+      // どれも「箱があること」が前提なので、**入口ごと**出さない。
       {
         const tab = srcOfFn(src, "ReedsTab");
         // 条件式を実ソースから取り出して評価する(綴りの一致ではなく振る舞いで見る)
@@ -7487,8 +7812,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // 0枚でモードが残った場合だけは行を出す(「キャンセル」に戻れなくなるのを防ぐ)
         check("0枚でもモードが残っていれば行は出す(戻れなくならない)",
           shows({ length: 0 }, "boxDelete") === true);
-        // 「…」の3項目はどれも箱があることが前提(0枚で出す意味が無いことの裏取り)
-        check("「…」の3項目はどれも箱を対象にする操作",
+        // 「…」の項目はどれも箱があることが前提(0枚で出す意味が無いことの裏取り)
+        check("「…」の項目はどれも箱を対象にする操作",
           api.REED_MORE_ITEMS.every((it) => /箱|個体/.test(it.label)),
           api.REED_MORE_ITEMS.map((x) => x.label).join(" / "));
       }
@@ -7568,6 +7893,53 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check("並び替えのタイル(no-select の祖先)の中に入力欄が無い", tileBlock !== "" &&
           !/<(input|textarea|select)[\s/>]/.test(tileBlock), tileBlock.slice(0, 80));
       }
+    }
+
+    // --- 17.15b 【F-80 / F-82】.taptext = 見た目を変えずに当たり判定だけ 44pt へ ----
+    // 箱見出しの銘柄と日付は「文字そのもの」をタップさせる。padding / min-height で
+    // 広げると行が 20px → 44px に伸びて**見た目が変わる**(本人指示「今の表示から変更する
+    // 必要はない」)ので、レイアウトに参加しない疑似要素で広げる。
+    // ここで縛るのは3つ: (a) 高さが 44pt (b) レイアウトに参加しない (c) 余計な物を持ち込まない
+    {
+      const tt = cssBlock(".taptext");
+      const after = cssBlock(".taptext::after");
+      check(".taptext / .taptext::after の規則が index.css にある", tt !== null && after !== null);
+      check("index.css の .taptext::after は1回しか書かれていない",
+        rulesFor(".taptext::after").length === 1, `${rulesFor(".taptext::after").length}回`);
+      check(".taptext::after の高さは --tap-min(§5 の 44pt)",
+        decl(after, "height") === "var(--tap-min)", String(decl(after, "height")));
+      check(".taptext::after はレイアウトに参加しない(絶対配置)",
+        decl(after, "position") === "absolute" && decl(tt, "position") === "relative",
+        `${decl(after, "position")} / ${decl(tt, "position")}`);
+      check(".taptext::after は文字の左右いっぱいを覆う",
+        decl(after, "left") === "0" && decl(after, "right") === "0",
+        `${decl(after, "left")} / ${decl(after, "right")}`);
+      check(".taptext は当たり判定だけを持つ(地・枠・角丸・余白・文字色を持ち込まない)",
+        declList(tt).every((d) => /^(position|overflow)$/.test(d.name))
+        && declList(after).every((d) => /^(content|position|left|right|top|transform|height)$/.test(d.name)),
+        declList(tt ?? "").concat(declList(after ?? "")).map((d) => d.name).join(" "));
+      // 【F-83】当たり判定が切られないことを**構造的に**担保する。
+      // コメントで禁じるだけでは破っても誰も気付かず、実ブラウザで 44px → 15px に落ちた。
+      // `!important` はインラインの style に勝つために必要(素の宣言では負ける)。
+      check(".taptext は overflow を visible に固定する(疑似要素ごと切られるのを構造的に防ぐ)",
+        /overflow:\s*visible\s*!important/.test(String(tt)), String(tt));
+      // 他の規則が `.taptext` の付いた要素を名指しで切らないこと。
+      // (`.rname` は銘柄ボタンが `className="rname sans taptext"` で自分に付けているクラス名。
+      //  そこに `overflow: hidden` を1行足すと当たり判定が 15px に落ちることを審査役が実測した。
+      //  いまは上の !important が勝つが、**そもそも書かせない**ほうが読み手に親切)
+      {
+        const hostClasses = [".rname", ".sans", ".taptext"];
+        const offenders = hostClasses.filter((sel) => {
+          const b = cssBlock(sel);
+          return b !== null && declList(b).some((d) => /^overflow/.test(d.name) && !/visible/.test(d.value));
+        });
+        check(".taptext を付ける要素のクラス(.rname/.sans/.taptext)を index.css が切らない",
+          offenders.length === 0, offenders.join(" ") || "0件");
+      }
+      // 芯1(枠 ∧ 違う地)にも触れないこと。17.14 の全規則走査でも見ているが、名指しでも見る。
+      check(".taptext は枠も地も持たない",
+        !/border|background|box-shadow/.test(String(tt) + String(after)),
+        `${tt} / ${after}`);
     }
 
     // --- 17.16 録音ボタン: 影を持たない(F-50) + 形は正典 .rec ----------------
@@ -7727,10 +8099,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const grid = srcOfFn(src, "ReedTileGrid");
       check("N-5: 三本線(GripLines)の import も描画も残っていない",
         !/\bGripLines\b/.test(codeOf(src)), (codeOf(src).match(/GripLines/g) || []).join(","));
-      // 持ち上がりは**指を動かす前から**分かる(長押し成立の瞬間に draggingId が入る)
+      // 持ち上がりは**指を動かす前から**分かる(長押し成立の瞬間に drag が入る)
       check("長押しが成立した瞬間に持ち上がる(移動量を待たない)",
-        /setReedTileDragActive\(true\);[\s\S]{0,120}?setDraggingId\(id\);/.test(grid),
-        grid.replace(/\s+/g, " ").slice(0, 0) || "");
+        /setReedTileDragActive\(true\);[\s\S]{0,120}?setDrag\(\{/.test(grid));
       check("持ち上がりの見た目は data-drag で CSS 側に渡す",
         /data-drag=\{isDragging \? "true" : "false"\}/.test(grid));
       // 正典 .tile.drag の3点(浮き上がり / 影 / 紺の枠)が実際に定義されていること
@@ -7743,8 +8114,24 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           rulesFor('.reedtile[data-drag="true"]').length === 1,
           `${rulesFor('.reedtile[data-drag="true"]').length}回`);
       }
-      check("浮き上がりは -6px / -2deg(正典 .tile.drag の transform)",
-        /translate\(\$\{dragOffset\.x\}px, \$\{dragOffset\.y - 6\}px\) rotate\(-2deg\)/.test(grid));
+      // 【F-79b で書き換えた】
+      // 旧主張: transform は `translate(${dragOffset.x}px, ${dragOffset.y - 6}px) rotate(-2deg)`
+      //         という**綴り**である(= 掴んだ点からの移動量をそのまま当てる)。
+      //         その式は入れ替えでタイルのレイアウト位置が動くと丸ごと指からずれる
+      //         (本人の実機報告「入れ替えると自分の持っている指からずれる」)。
+      // 新主張: 見た目は純関数 reedTileVisual が決め、JSX はその戻り値を当てるだけ。
+      //         浮き上がり(-6px / -2deg)は**実行で**確かめる(下の 25.6 節)。
+      check("F-79b: タイルの transform / transition / 前後関係は reedTileVisual が決める",
+        /transform: vis\.transform,/.test(grid) && /transition: vis\.transition,/.test(grid)
+        && /zIndex: vis\.zIndex,/.test(grid)
+        && /const vis = reedTileVisual\(drag, r\.id, home, cur\);/.test(grid));
+      check("F-79b: ドラッグ中は DOM の並びを凍結する(描くのは drag.baseOrder)",
+        /const renderIds = drag \? drag\.baseOrder : order;/.test(grid)
+        && /const cur = drag \? order\.indexOf\(r\.id\) : home;/.test(grid));
+      check("F-79b: 掴んだ瞬間に指とタイル左上のずれ(grabX/grabY)を控える",
+        /grabX: pending\.lastX - rect\.left,/.test(grid) && /grabY: pending\.lastY - rect\.top,/.test(grid));
+      check("F-79b: 各マスの左上は掴んだ瞬間に実測して控える(以後は測り直さない)",
+        /const cells = Array\.from\(gridRef\.current\?\.children \|\| \[\]\)\.map\(/.test(grid));
       // タイル全体の長押しで並び替えが始まる仕組み(掴む場所を限定しない)
       check("タイル全体の長押しで並び替えが始まる",
         /onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(grid));
@@ -10735,16 +11122,19 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       && parseFloat(declOf(mockCss, ".rmeta", "gap")) === 10
       && /fontSize: 12, color: "var\(--c-ink-3\)", display: "flex", gap: 10, alignItems: "baseline"/.test(src));
     // 箱見出しに出るのは 銘柄・番手・平均★・開封日 の4つだけ(枚数バッジ等を足していない)
+    // 【F-80/F-82 で走査の開始位置を変えた】銘柄と日付をタップで編集できるようにしたので、
+    // 中身が nameInner / dateText に切り出された。走査は const boxEditable から始める。
     {
-      const i = src.indexOf("const heading = (");
-      const j = src.indexOf("\n          );", i);
+      const i = src.indexOf("const boxEditable = listMode === null;");
+      const j = src.indexOf("\n          return (", i);
       const head = i === -1 || j === -1 ? "" : src.slice(i, j);
-      check("箱見出しのブロックを走査できている", head.length > 400, `${head.length}文字`);
+      check("箱見出しのブロックを走査できている",
+        head.length > 1500 && /const heading = \(/.test(head), `${head.length}文字`);
       const shown = [
         ["銘柄", /\{g\.brand\}/],
         ["番手", /\{g\.strength\}/],
         ["平均★", /★\{avgRating\.toFixed\(1\)\}/],
-        ["開封日", /\{formatYmd\(g\.startDate\) \?\? "開封日 未設定"\}/],
+        ["開封日", /formatYmd\(g\.startDate\) \?\? "開封日 未設定"/],
       ];
       for (const [label, re] of shown) check(`箱見出しに ${label} が出る`, re.test(head), label);
       // 枚数(g.members.length)は出さない = タイルを数えれば分かる(正典の判断)
@@ -10753,6 +11143,103 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 日付は yyyy/mm/dd(N-2 の表記統一)。生の ISO を出していない
       check("箱見出しの日付は formatYmd(yyyy/mm/dd)を通す",
         !/\{g\.startDate\}/.test(codeOf(head)));
+
+      // --- 【F-80 / F-82】銘柄と日付をタップすると「箱を編集」が開く ----------------
+      // **見た目を足していないこと**を、この2つの <button> の宣言を全件照合して縛る。
+      // 「地・枠を持たない」は綴りの不在ではなく、**横方向・面まわりの宣言の集合**で見る
+      // (F-72 罠5「綴り1つを数える検査は別名の宣言で生き残る」)。
+      const btnOf = (needle) => {
+        const k = head.indexOf(needle);
+        if (k === -1) return null;
+        const open = head.lastIndexOf("<button", k);
+        const close = head.indexOf(">", head.indexOf("style={{", open));
+        return open === -1 ? null : head.slice(open, close + 1);
+      };
+      const nameBtn = btnOf("の銘柄と番手を編集");
+      const dateBtn = btnOf("の開封日を編集");
+      check("F-82: 銘柄が <button> になっている(タップで編集が開く)",
+        nameBtn !== null && /onClick=\{\(\) => openBoxEdit\(g\)\}/.test(nameBtn),
+        (nameBtn || "").replace(/\s+/g, " ").slice(0, 140));
+      check("F-80: 日付が <button> になっている(タップで編集が開く)",
+        dateBtn !== null && /onClick=\{\(\) => openBoxEdit\(g\)\}/.test(dateBtn),
+        (dateBtn || "").replace(/\s+/g, " ").slice(0, 140));
+      for (const [label, tag] of [["銘柄", nameBtn], ["日付", dateBtn]]) {
+        // 角丸・影・余白・寸法を**足していない** = 見た目が 1px も変わらないことの担保。
+        // `padding: 0` は UA 既定の余白を消す**打ち消し**なので許す(足していないので値は 0 のみ)。
+        // 0 以外の値が1つでも入れば落ちる(padding: 8 / minHeight: "var(--tap-min)" 等)。
+        const pairs = [...(tag || "").matchAll(/(?:^|[{,]\s*)([A-Za-z]+):\s*([^,}]+)/g)]
+          .map((m) => ({ name: m[1], value: m[2].trim() }));
+        const forbidden = pairs.filter((d) =>
+          /^(borderRadius|boxShadow|outline|margin|padding|width|height|minHeight|minWidth|maxWidth)/.test(d.name)
+          && d.value !== "0");
+        check(`F-80/F-82: ${label}のボタンは角丸・影・余白・寸法を足していない(0 の打ち消しだけ)`,
+          tag !== null && forbidden.length === 0, forbidden.map((d) => `${d.name}:${d.value}`).join(" ") || "0件");
+        check(`F-80/F-82: ${label}のボタンは地も枠も持たない`,
+          tag !== null && /background: "none"/.test(tag) && /border: "none"/.test(tag),
+          (tag || "").replace(/\s+/g, " ").slice(0, 160));
+        // 当たり判定は疑似要素(.taptext)で 44pt へ広げる。padding/minHeight で広げると行が伸びる。
+        check(`F-80/F-82: ${label}のボタンの当たり判定は .taptext(疑似要素)で広げる`,
+          tag !== null && /className="[^"]*\btaptext\b[^"]*"/.test(tag),
+          (tag || "").replace(/\s+/g, " ").slice(0, 160));
+      }
+      // 銘柄の見た目は nameStyle 1つが持ち、押せる側(button)と押せない側(span)で**共有**する。
+      // 2箇所に書くと、削除モードに入った瞬間に文字の大きさや色が変わる。
+      check("F-82: 銘柄の見た目は nameStyle 1つ(押せる側と押せない側で共有)",
+        /const nameStyle = \{ fontSize: 15, fontWeight: 600, color: "var\(--c-ink\)", minWidth: 0 \};/.test(head)
+        && (head.match(/\.\.\.nameStyle/g) || []).length === 2,
+        `${(head.match(/\.\.\.nameStyle/g) || []).length}箇所`);
+      check("F-82: 銘柄の文字も nameInner 1つ(押せる側と押せない側で共有)",
+        (head.match(/\{nameInner\}/g) || []).length === 2, `${(head.match(/\{nameInner\}/g) || []).length}箇所`);
+      check("F-80: 日付の文字も dateText 1つ(押せる側と押せない側で共有)",
+        (head.match(/\{dateText\}/g) || []).length === 2, `${(head.match(/\{dateText\}/g) || []).length}箇所`);
+      // 削除モード中は見出しの行そのものが <button> なので、入れ子にせず素の <span> に戻す。
+      check("F-80/F-82: 削除モード中は素の <span> に戻す(押せる物を入れ子にしない)",
+        /\{boxEditable \? \(/.test(head) && (head.match(/\) : \(/g) || []).length === 2,
+        `${(head.match(/\) : \(/g) || []).length}箇所`);
+      // .taptext の CSS 側(index.css)の検査は §17.15b(cssBlock 等が使える節)に置いた。
+      //
+      // 【F-83】index.css が「.taptext を付ける要素は overflow を切ってはいけない」と
+      // **明文で禁じている**のに、それを見る検査が1本も無かった。銘柄ボタンの style に
+      // `overflow: "hidden"` を足す変異は **PASS 5885 / FAIL 0 のまま生存**し、実ブラウザ
+      // (375×812)で当たり判定が **44px → 15px** に落ちた(`elementFromPoint` を整数グリッドで
+      // 1px刻みに走査。§5 の 44pt 割れ)。
+      //
+      // **本体の担保は index.css 側の `overflow: visible !important`**(構造的に起こり得なくする)。
+      // この節の検査はその**補助**で、`.taptext` を付けた要素の JSX に overflow を書いていないこと
+      // ——つまり「!important に頼らないと壊れる書き方が入っていないこと」——だけを見る。
+      // **「当たり判定が縮まない」ことの十分条件ではない**(CSS 側の別の規則、祖先の clip-path、
+      // contain など、ここから見えない経路がある)ので、名前もそう名乗る。
+      // 十分条件を名乗って中身が足りない、というのがこのプロジェクトで11回繰り返した罠。
+      {
+        // `onClick={() => …}` の `=>` があるので、単純な `>` 探索ではタグを切り出せない。
+        // 波括弧の深さを見て、深さ0の `>` を閉じとみなす。
+        const taptextTags = (() => {
+          const out = [];
+          const re = /className="[^"]*\btaptext\b[^"]*"/g;
+          let m;
+          while ((m = re.exec(src)) !== null) {
+            const open = src.lastIndexOf("<", m.index);
+            if (open < 0) continue;
+            let depth = 0, end = -1;
+            for (let i = open; i < src.length; i++) {
+              const c = src[i];
+              if (c === "{") depth++;
+              else if (c === "}") depth--;
+              else if (c === ">" && depth === 0) { end = i; break; }
+            }
+            if (end > open) out.push(src.slice(open, end + 1));
+          }
+          return out;
+        })();
+        // 走査が空回りしていないことの裏取り(0件なら何も見ずに通ってしまう)
+        check("F-83: .taptext を使っている要素を切り出せている(空回りしていない)",
+          taptextTags.length >= 2 && taptextTags.every((t) => /^<[A-Za-z]/.test(t) && t.length > 40),
+          `${taptextTags.length}件 / ${taptextTags.map((t) => t.length).join(",")}`);
+        const clipped = taptextTags.filter((t) => /(?:^|[{,\s])overflow[A-Za-z]*\s*:/.test(t));
+        check("F-83: .taptext を付けた要素の JSX に overflow を書いていない(当たり判定が縮まないことの十分条件ではない。本体の担保は index.css の !important)",
+          clipped.length === 0,
+          clipped.map((t) => t.replace(/\s+/g, " ").slice(0, 90)).join(" | ") || "0件");
+      }
     }
   }
 
@@ -10820,13 +11307,85 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 横スワイプ(子タブ移動)との同居: ドラッグ中は SwipePager が降りる
       check("ドラッグ中は横スワイプの子タブ移動を止める(旗を立てる)",
         /setReedTileDragActive\(true\)/.test(grid));
-      check("ドラッグの終わりで必ず旗を下ろす(finishDrag が唯一の出口)",
-        /const finishDrag = \(committed\) => \{[\s\S]{0,300}?setReedTileDragActive\(false\);/.test(grid));
+      check("ドラッグの終わりで必ず旗を下ろす(endDrag が唯一の出口)",
+        /const endDrag = \(\) => \{[\s\S]{0,300}?setReedTileDragActive\(false\);/.test(grid));
+      // 出口は1つ。pointerup / pointercancel の両方がここへ来る(片方だけ旗が残らない)。
+      check("指を離す・中断のどちらも endDrag へ来る",
+        /const onUp = \(\) => endDrag\(\);/.test(grid)
+        && /window\.addEventListener\("pointerup", onUp\);/.test(grid)
+        && /window\.addEventListener\("pointercancel", onUp\);/.test(grid));
       check("アンマウントでも旗を下ろす(掴んだまま画面が変わっても残らない)",
-        /useEffect\(\(\) => \(\) => \{[\s\S]{0,200}?setReedTileDragActive\(false\);/.test(grid));
-      check("SwipePager は旗が立っている間だけ降りる",
-        /if \(isReedTileDragActive\(\)\) \{ st\.current = null; return; \}/.test(src)
-        && /if \(isReedTileDragActive\(\)\) return;/.test(src));
+        /useEffect\(\(\) => \(\) => \{[\s\S]{0,240}?setReedTileDragActive\(false\);/.test(grid));
+      // 【F-79a】進行中のジェスチャーを捨てる前に必ず戻す。
+      //
+      // 【前版の検査が「正しい修正をすると落ちる」形だった(BACKLOG F-72 罠5 の再発)】
+      // 旧主張: 「st を捨てるのは onTouchStart のガード2つ + finishGesture の**3箇所ちょうど**」。
+      //   これは**箇所数の釘付け**で、①の正しい直し(ガードも finishGesture を通す = 2箇所に減る)
+      //   を FAIL にした(審査役が複製ツリーで実証: PASS 5855 / FAIL 2)。
+      //   さらに走査範囲の第2引数がコメント文字列で、codeOf 済みの文字列に対して常に -1 を返し、
+      //   「onTouchStart 内」と名乗りながら**関数末尾までを測っていた**。
+      // 新主張: **`st.current = null` の代入は SwipePager 全体で1箇所だけで、それは
+      //   finishGesture の中にある。** 1 は偶然の件数ではなく
+      //   「**終端を通らずにジェスチャーを捨てられない**」という不変条件そのもの
+      //   (捨てる場所が1つしかなく、そこが必ず endGesture を呼ぶなら、抜け道は構造上作れない)。
+      {
+        const pagerSrc = srcOfFn(src, "SwipePager");
+        const pager = codeOf(pagerSrc);
+        const iFin = pager.indexOf("const finishGesture");
+        const iStart = pager.indexOf("const onTouchStart");
+        check("F-79a: SwipePager と finishGesture の範囲を走査できている(空回りしていない)",
+          pager.length > 1500 && iFin !== -1 && iStart !== -1 && iFin < iStart,
+          `${pager.length}文字 / finishGesture@${iFin} / onTouchStart@${iStart}`);
+        const drops = (pager.match(/st\.current = null;/g) || []).length;
+        const inFinish = ((iFin === -1 || iStart === -1 ? "" : pager.slice(iFin, iStart))
+          .match(/st\.current = null;/g) || []).length;
+        check("F-79a: ジェスチャーを捨てる代入は SwipePager 全体で1箇所だけ",
+          drops === 1, `${drops}箇所`);
+        check("F-79a: その1箇所は finishGesture の中にある(= 捨てる前に必ず終端を通る)",
+          inFinish === 1, `finishGesture 内 ${inFinish}箇所`);
+        check("F-79a: finishGesture は st を読んでから捨て、終端(endGesture)の結果を返す",
+          /const finishGesture = \(i, interrupted\) => \{\s*\r?\n\s*const s = st\.current;\s*\r?\n\s*st\.current = null;\s*\r?\n\s*if \(!s\) return \{ kind: "none", dx: 0 \};\s*\r?\n\s*return \{ kind: endGesture\(s, i, interrupted\), dx: s\.dx \};/.test(pagerSrc));
+        // 【§6.3】中断の終端は**対象判定より前**。onTouchStart の1行目が終端であること。
+        check("F-79a: onTouchStart は対象判定より前に終端を通す(§6.3「中断の終端は対象判定より前」)",
+          /const onTouchStart = \(e\) => \{\s*\r?\n\s*finishGesture\(index, true\);\s*\r?\n\s*if \(e\.touches\.length !== 1/.test(pagerSrc));
+        check("F-79a: 2本目の指・入力欄・横スクロール祖先・並び替え旗は「戻すだけ」で終わる(進まない)",
+          /finishGesture\(index, true\);/.test(pagerSrc)
+          && /if \(isReedTileDragActive\(\)\) \{ finishGesture\(idxRef\.current, true\); return; \}/.test(pagerSrc));
+        // 【F-83】ジェスチャーの終わりを告げたイベントが中断かどうかは、コンポーネントの
+        // 条件式ではなく**純関数 swipePagerInterrupted** が決める。ここで三項演算子に
+        // 戻すと、`touchcancel` を「指を離した」と取り違えてもハーネスから見えない
+        // (A8 の変異が生き残ったのと同じ理由)。
+        check("F-79a/F-83: 終わりの経路は中断の判定を純関数へ委ねる(コンポーネントで条件を書かない)",
+          /const interrupted = swipePagerInterrupted\(eventType, isReedTileDragActive\(\)\);/.test(pagerSrc)
+          && /const \{ kind, dx \} = finishGesture\(i, interrupted\);/.test(pagerSrc));
+        // 中断で渡す値は必ず true(「中断なのに進む」経路を作らない)。
+        // **箇所数では縛らない**(中断の入口が将来増えても正しい実装なら通ってよい。
+        //  箇所数の釘付けは F-72 罠5 で禁じた形)。縛るのは「渡す値の集合」。
+        {
+          // 引数に括弧を含む呼び出し(isReedTileDragActive())があるので、1段だけ入れ子を許す
+          const calls = (pager.match(/finishGesture\((?:[^()]|\([^()]*\))*\)/g) || []);
+          // 許されるのは2種類だけ:
+          //   ・中断(true をその場で渡す)
+          //   ・終わりのイベントから純関数が導いた値(`interrupted`)
+          // `false` の直渡し、旗の生の値、その場の条件式はすべて弾く。
+          const bad = calls.filter((c) => !/,\s*(?:true|interrupted)\)$/.test(c));
+          check("F-79a: finishGesture の呼び出しは中断(true)か純関数の判定(interrupted)しか渡さない(false や条件式を直接渡す経路を作らない)",
+            calls.length >= 2 && bad.length === 0, bad.join(" | ") || `${calls.length}箇所すべて適合`);
+          check("F-79a: 中断の呼び出しと、終わりのイベントからの呼び出しが両方ある(片方だけにしていない)",
+            calls.some((c) => /,\s*true\)$/.test(c)) && calls.some((c) => /,\s*interrupted\)$/.test(c)),
+            calls.join(" | "));
+        }
+      }
+      // 【F-79a】ブラウザにスクロールを引き取らせない(§6.3 の作法)。
+      // 引き取られると pointercancel が飛んでドラッグごと死ぬ。
+      check("F-79a: ドラッグ中は非パッシブの touchmove で preventDefault する",
+        /const onTouchMove = \(ev\) => \{ if \(ev\.cancelable\) ev\.preventDefault\(\); \};/.test(grid)
+        && /window\.addEventListener\("touchmove", onTouchMove, \{ passive: false \}\);/.test(grid)
+        && /window\.removeEventListener\("touchmove", info\.onTouchMove\);/.test(grid));
+      check("F-79a: touch-action は掴んだ1枚にだけ none を当てる(祖先には敷かない)",
+        /touchAction: isDragging \? "none" : "pan-y",/.test(grid)
+        && (codeOf(grid).match(/touchAction/g) || []).length === 1,
+        `${(codeOf(grid).match(/touchAction/g) || []).length}箇所`);
       // 旗は ReedTileGrid だけが立てる(他の画面へ漏れない)
       {
         // 定義(function setReedTileDragActive)そのものは呼び出しではないので数から外す
@@ -10834,9 +11393,31 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         const inGrid = (codeOf(grid).match(/(?<!function )setReedTileDragActive\(/g) || []).length;
         check("旗を立て下ろしするのは ReedTileGrid だけ(他の画面へ漏れていない)",
           calls === inGrid && inGrid >= 3, `全体=${calls} / ReedTileGrid=${inGrid}`);
-        check("旗を読むのは SwipePager の2箇所だけ(他の部品が挙動を変えていない)",
-          (codeOf(src).match(/(?<!function )isReedTileDragActive\(\)/g) || []).length === 2,
-          `${(codeOf(src).match(/(?<!function )isReedTileDragActive\(\)/g) || []).length}箇所`);
+        // 【F-79a で 2 → 3】touchstart / touchmove / touchend の3箇所。読む場所はすべて
+        // SwipePager の中で、他の部品は旗を読まない(読むと挙動が2箇所に散る)。
+        {
+          const all = (codeOf(src).match(/(?<!function )isReedTileDragActive\(\)/g) || []).length;
+          const inPager = (codeOf(srcOfFn(src, "SwipePager")).match(/isReedTileDragActive\(\)/g) || []).length;
+          check("旗を読むのは SwipePager の3箇所だけ(他の部品が挙動を変えていない)",
+            all === 3 && inPager === 3, `全体=${all} / SwipePager=${inPager}`);
+          // 旗の読みは3つとも役割が違う。**どれも「終端の後」か「終端へ渡す」**であって、
+          // 「終端を飛ばして早期 return する」形が1つも無いこと(それが差し戻しの原因だった)。
+          //   touchstart … 終端を通した**後**に「新しく始めない」を決める
+          //   touchmove  … 中断として終端へ流す
+          //   touchend   … 旗の状態を終端へ渡す(中断なら行き先を判定しない)
+          {
+            const p = codeOf(srcOfFn(src, "SwipePager"));
+            const iFinishFirst = p.indexOf("finishGesture(index, true);");
+            const iStartGuard = p.indexOf("if (isReedTileDragActive()) return;");
+            check("F-79a: touchstart の旗の読みは終端の**後**にある(終端を飛ばさない)",
+              iFinishFirst !== -1 && iStartGuard !== -1 && iFinishFirst < iStartGuard,
+              `終端@${iFinishFirst} / 旗@${iStartGuard}`);
+            check("F-79a: 旗を見て終端を飛ばす早期 return が1つも無い",
+              (p.match(/if \(isReedTileDragActive\(\)\) return;/g) || []).length === 1
+              && iStartGuard > p.indexOf("const onTouchStart"),
+              p.match(/isReedTileDragActive\(\)[^\n]{0,44}/g).join(" | "));
+          }
+        }
       }
       // 並び替えは sortOrder だけを書き換える(管理番号 boxNumber は動かさない)
       check("並び替えは sortOrder だけを更新する(boxNumber は動かさない)",
@@ -10851,16 +11432,370 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 順序まで見る: dragInfoRef への代入が canReorder の早期 return より**前**にあること。
       check("並び替えできるかの判定は canReorder に分けてある",
         /const canReorder = !deleteMode && members\.length >= 2;/.test(grid));
-      check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
-        grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };") !== -1
-        && grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };")
-           < grid.indexOf("if (!canReorder) return;"),
-        `記録=${grid.indexOf("dragInfoRef.current = { armed: false, startX, startY, id, index };")} / 早期return=${grid.indexOf("if (!canReorder) return;")}`);
+      {
+        const rec = "dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };";
+        check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
+          grid.indexOf(rec) !== -1 && grid.indexOf(rec) < grid.indexOf("if (!canReorder) return;"),
+          `記録=${grid.indexOf(rec)} / 早期return=${grid.indexOf("if (!canReorder) return;")}`);
+      }
       check("1枚しかない箱では長押しのタイマーを張らない",
         /if \(!canReorder\) return;\s*\r?\n\s*longPressTimerRef\.current = setTimeout\(/.test(grid));
       check("タップで詳細を開くのは長押しが成立しなかったときだけ",
         /const handlePointerUp = \(id\) => \(\) => \{\s*\r?\n\s*const info = dragInfoRef\.current;\s*\r?\n\s*if \(!info \|\| info\.armed\) return;/.test(grid)
         && /onTileTap\(id\);/.test(grid));
+    }
+
+    // --- 25.5b 【F-79b】掴んだ点とタイルの相対位置が最後まで変わらない ------------
+    // 本人の実機報告(2026/08/14):「入れ替えると自分の持っている指からずれるのも非常に使いづらい。
+    // iphone のアプリの並び替えと全く同じ使用感にしてほしい」。
+    //
+    // 【この検査が恒等式でないこと】reedTileVisual が返すのは「タイルの transform」で、
+    // 画面上の位置は **そのタイルが DOM 上で占めているマス(home) + transform** で決まる。
+    // テスト側は home のマスを cells[home] から独立に取って足し合わせる。
+    //   実装が cells[home] を使う(正しい)  → 画面位置 = 指 − ずれ で一定
+    //   実装が cells[cur] を使う(いまの症状)→ 入れ替えた瞬間にマス1つぶん飛ぶ
+    // つまり「入れ替えを跨いで一定か」を見ており、定義の言い換えにはならない
+    // (実際に cur へ変異させると下の (b) が落ちることを確認済み)。
+    {
+      const COLS = 5, W = 57.41, H = 57.41, GAP = 10, X0 = 24, Y0 = 200;
+      // 10枚ぶんのマス(実装が長押しの瞬間に実測して控えるのと同じ格子)
+      const cells = Array.from({ length: 10 }).map((_, i) => ({
+        left: X0 + (i % COLS) * (W + GAP),
+        top: Y0 + Math.floor(i / COLS) * (H + GAP),
+      }));
+      check("F-79b: 検査用の格子が正典の 5列 / gap 10 と同じ",
+        COLS === api.REED_GRID_COLS && GAP === api.REED_GRID_GAP_PX,
+        `${COLS}列 / gap ${GAP}`);
+      // 3番目のタイル(home = 2)を、そのタイルの中の (12, 20) の点でつまむ
+      const home = 2;
+      const grabX = 12, grabY = 20;
+      const drag = (px, py, settling = false) => ({
+        id: "t2", cells, grabX, grabY, pointerX: px, pointerY: py, settling,
+      });
+      const parse = (t) => {
+        const m = /^translate\((-?[\d.]+)px, (-?[\d.]+)px\)(?: rotate\((-?[\d.]+)deg\))?$/.exec(t);
+        return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), deg: m[3] === undefined ? null : parseFloat(m[3]) } : null;
+      };
+      // 掴んだタイルの**画面上の左上** = そのタイルが居るマス(home) + transform
+      const screenTopLeft = (vis) => {
+        const t = parse(vis.transform);
+        return t === null ? null : { x: cells[home].left + t.x, y: cells[home].top + t.y };
+      };
+
+      // (a) 掴んだ直後(指はまだ動いていない)。持ち上がりは -6px / -2deg。
+      {
+        const p = { x: cells[home].left + grabX, y: cells[home].top + grabY };
+        const vis = api.reedTileVisual(drag(p.x, p.y), "t2", home, home);
+        const t = parse(vis.transform);
+        check("F-79b: 掴んだ直後の横のずれは 0(その場で持ち上がるだけ)", t !== null && t.x === 0, JSON.stringify(t));
+        check("F-79b: 持ち上がりは正典 .tile.drag の -6px / -2deg",
+          t !== null && t.y === -api.REED_TILE_LIFT_PX && t.deg === api.REED_TILE_DRAG_DEG
+          && api.REED_TILE_LIFT_PX === 6 && api.REED_TILE_DRAG_DEG === -2,
+          JSON.stringify(t));
+        check("F-79b: 掴んでいる間は追従にアニメーションを掛けない(指から遅れる)",
+          vis.transition === "none" && vis.zIndex === 2, `${vis.transition} / z=${vis.zIndex}`);
+      }
+
+      // (b) **本題**: 掴む → 動かす → 入れ替えが起きる → さらに動かす。
+      //     指とタイル左上の相対位置(= 指 − 画面上の左上)が全ステップで同じであること。
+      {
+        const start = { x: cells[home].left + grabX, y: cells[home].top + grabY };
+        // 指の軌跡。3歩目で cur が 2 → 5(次の段の先頭)へ、5歩目で 5 → 8 へ入れ替わる想定
+        const path = [
+          { x: start.x, y: start.y, cur: 2 },
+          { x: start.x + 40, y: start.y + 5, cur: 2 },
+          { x: start.x + 90, y: start.y + 70, cur: 5 },   // ← ここで入れ替わる
+          { x: start.x + 120, y: start.y + 75, cur: 5 },
+          { x: start.x + 200, y: start.y + 80, cur: 8 },  // ← もう一度入れ替わる
+          { x: start.x + 210, y: start.y + 85, cur: 8 },
+        ];
+        const rel = path.map((p) => {
+          const vis = api.reedTileVisual(drag(p.x, p.y), "t2", home, p.cur);
+          const s = screenTopLeft(vis);
+          return s === null ? null : { dx: p.x - s.x, dy: p.y - s.y };
+        });
+        check("F-79b: 途中で並び順が本当に入れ替わっている(検査が空回りしていない)",
+          new Set(path.map((p) => p.cur)).size === 3, path.map((p) => p.cur).join(","));
+        check("F-79b: 掴んだ点とタイルの相対位置が最初から最後まで変わらない(入れ替えを跨いでも)",
+          rel.every((r) => r !== null && r.dx === rel[0].dx && r.dy === rel[0].dy),
+          rel.map((r) => (r ? `(${r.dx.toFixed(2)},${r.dy.toFixed(2)})` : "?")).join(" "));
+        check("F-79b: その相対位置は掴んだときの (12, 20) そのもの(浮き上がりの 6px だけ上)",
+          rel[0].dx === grabX && rel[0].dy === grabY + api.REED_TILE_LIFT_PX,
+          `(${rel[0].dx}, ${rel[0].dy}) / 期待 (${grabX}, ${grabY + api.REED_TILE_LIFT_PX})`);
+        // 指が動いたぶんだけ実際に動いていること(「動かない」実装でも上は通るため)
+        const moved = path.map((p) => screenTopLeft(api.reedTileVisual(drag(p.x, p.y), "t2", home, p.cur)));
+        check("F-79b: タイルは指の移動ぶんだけ動く(固まっていない)",
+          moved[5].x - moved[0].x === 210 && moved[5].y - moved[0].y === 85,
+          `Δ(${moved[5].x - moved[0].x}, ${moved[5].y - moved[0].y})`);
+      }
+
+      // (c) 避ける側のタイルは「今の位置 − 元のマス」へ transition 付きで動く。
+      {
+        const vis = api.reedTileVisual(drag(0, 0), "other", 5, 2);
+        const t = parse(vis.transform);
+        check("F-79b: 避けるタイルは入れ替え後のマスへ動く(5番目 → 3番目のマス)",
+          t !== null && t.x === cells[2].left - cells[5].left && t.y === cells[2].top - cells[5].top,
+          JSON.stringify(t));
+        check("F-79b: 避ける動きはアニメーションする(ぱちんと飛ばない)",
+          vis.transition === api.REED_TILE_SLIDE_EASE && /^transform /.test(vis.transition),
+          vis.transition);
+        check("F-79b: 避けるタイルは掴んでいるタイルの下(z が低い)", vis.zIndex === 1, String(vis.zIndex));
+        // 【F-83 で名前を直した】前版は「動かないタイルは transform を持たない(§6.3)」と
+        // 名乗りながら、中身は **`translate(0px, 0px)` を持つことを要求**していた。
+        // §6.3(DESIGN-SYSTEM.md:607)が言う「transform を残さない」は**静止時**の話で、
+        // transform のある要素は `position: fixed` の子孫の包含ブロックになるため。
+        // 並び替え中は静止ではないので identity を持って構わない。名前が要求する側へ直すと
+        // 検査が落ちる、という「正しい修正を落とす検査」になっていた(通算11回目の形)。
+        // **2つは別の主張なので、検査も2本に分ける。**
+        check("F-79b: 並び替え中、動かないタイルは位置を変えない(identity の transform)",
+          api.reedTileVisual(drag(0, 0), "other", 4, 4).transform === "translate(0px, 0px)",
+          api.reedTileVisual(drag(0, 0), "other", 4, 4).transform);
+        check("F-79b: 並び替えが終われば transform を残さない(静止時は none。§6.3 = DESIGN-SYSTEM.md:607)",
+          api.reedTileVisual(null, "other", 4, 4).transform === "none",
+          api.reedTileVisual(null, "other", 4, 4).transform);
+      }
+
+      // (d) 指を離したあと(settling)は、掴んでいたタイルも落ちる先のマスへアニメーションする。
+      {
+        const vis = api.reedTileVisual(drag(999, 999, true), "t2", home, 7);
+        const t = parse(vis.transform);
+        check("F-79b: 指を離すと掴んでいたタイルは落ちる先のマスへ動く(指の位置に固まらない)",
+          t !== null && t.x === cells[7].left - cells[home].left && t.y === cells[7].top - cells[home].top,
+          JSON.stringify(t));
+        check("F-79b: 落ちる動きは rotate(0deg) を明示する(角度が補間されずに飛ぶのを防ぐ)",
+          t !== null && t.deg === 0, JSON.stringify(t));
+        check("F-79b: 落ちる動きもアニメーションする / 最前面のまま",
+          vis.transition === api.REED_TILE_SLIDE_EASE && vis.zIndex === 2,
+          `${vis.transition} / z=${vis.zIndex}`);
+      }
+
+      // (e) 動きの値は**新しく発明していない**。DESIGN-SYSTEM §6.3 の唯一の
+      //     「元の位置へ戻す動き」(transform 0.32s cubic-bezier(.22,.61,.36,1) / 後始末 320ms)と同値。
+      check("F-79b: タイルの動きの値は §6.3 の横スワイプの戻りと同じ(新しい値を発明していない)",
+        api.REED_TILE_SLIDE_EASE === api.SWIPE_BACK_EASE
+        && api.REED_TILE_SETTLE_MS === api.SWIPE_BACK_SETTLE_MS,
+        `${api.REED_TILE_SLIDE_EASE} / ${api.REED_TILE_SETTLE_MS}ms`);
+      check("F-79b: §6.3 が定める値そのもの(定数の言い換えではなく文字列で照合)",
+        api.REED_TILE_SLIDE_EASE === "transform 0.32s cubic-bezier(.22,.61,.36,1)"
+        && api.REED_TILE_SETTLE_MS === 320,
+        `${api.REED_TILE_SLIDE_EASE} / ${api.REED_TILE_SETTLE_MS}`);
+      // 並び順の確定は指を離した瞬間。落ちる 320ms を待つと、その間に画面が変わったとき消える。
+      {
+        const grid = srcOfFn(src, "ReedTileGrid");
+        // 落ちる動きのタイマーより**前**に onReorder を呼ぶ(タイマーの中に入れない)。
+        check("F-79b: 並び順の確定は指を離した瞬間(落ちる動きの完了を待たない)",
+          /settleTimerRef\.current = setTimeout\(\(\) => \{ settleTimerRef\.current = null; setDrag\(null\); \}, REED_TILE_SETTLE_MS\);\s*\r?\n\s*onReorder\(orderRef\.current\);/.test(grid)
+          && !/setTimeout\([^\n]*onReorder/.test(grid));
+        check("F-79b: 落ちている最中に次のジェスチャーが来たら、その場で落とし切る",
+          /if \(settleTimerRef\.current\) \{ cancelSettle\(\); setDrag\(null\); \}/.test(grid));
+      }
+    }
+
+    // --- 25.5c 【F-79a の差し戻し】どの終わり方でも track は必ず元へ戻る ------------
+    // DESIGN-SYSTEM §6.3:「ジェスチャーの終わり方は3つ…これを取り違えると**画面が
+    // ずれたまま無期限に固着する**」。F-79a の初版は**4つ目の終わり方(旗が立った)を増やして
+    // 戻す処理を持たせなかった**ため、押したまま横へ 8px ずらして長押しを成立させると
+    // track が translateX(calc(0% - 8px)) のまま固着した(審査役の実測: grid の left 24 → 16)。
+    //
+    // 【この検査が綴りを見ないこと】前版の検査は
+    //   `if (isReedTileDragActive()) { st.current = null; return; }` が2箇所あること
+    // しか見ておらず、**戻す処理の有無を1つも見ていなかった**(だから PASS 5828 のまま通った)。
+    // ここは判定(swipePagerEndKind)と後始末(swipePagerTrackStyle)を**実行**し、
+    // 「終わり方の全パターン × track に残る値」を総当たりで突き合わせる。
+    {
+      const EASE = "transform 0.32s cubic-bezier(.22,.61,.36,1)";
+      const W = 375, COUNT = 2;
+      const TH = api.swipeBackThreshold(W);   // = 75。しきい値の規則は §6.3 でアプリ内に1つ
+      check("F-79a: しきい値は §6.3 の規則(幅の20%)から来ている",
+        TH === W * api.SWIPE_BACK_THRESHOLD_RATIO && TH === 75, `${TH}px`);
+
+      // (a) 終わり方は4通り。**どれが出るか**を実行で確かめる。
+      const kind = (h, flag, dx, i) => api.swipePagerEndKind(h, flag, dx, W, i, COUNT);
+      check("F-79a: 横と確定していないジェスチャーは idle(track を触っていない)",
+        kind(false, false, 0, 0) === "idle" && kind(undefined, false, 0, 0) === "idle"
+        && kind(false, true, -200, 0) === "idle",
+        `${kind(false, false, 0, 0)} / ${kind(undefined, false, 0, 0)}`);
+      check("F-79a: 旗が立っていたら行き先を判定せず drop(しきい値を越えていても)",
+        kind(true, true, -200, 0) === "drop" && kind(true, true, -8, 0) === "drop"
+        && kind(true, true, 200, 1) === "drop",
+        `${kind(true, true, -200, 0)} / ${kind(true, true, -8, 0)}`);
+      check("F-79a: しきい値を越えて行き先があれば advance",
+        kind(true, false, -TH, 0) === "advance" && kind(true, false, TH, 1) === "advance",
+        `${kind(true, false, -TH, 0)} / ${kind(true, false, TH, 1)}`);
+      check("F-79a: しきい値未満は settle(戻す)",
+        kind(true, false, -TH + 0.01, 0) === "settle" && kind(true, false, TH - 0.01, 1) === "settle"
+        && kind(true, false, -8, 0) === "settle",
+        `${kind(true, false, -TH + 0.01, 0)} / ${kind(true, false, -8, 0)}`);
+      check("F-79a: 行き先が無い向き(端)はしきい値を越えても settle",
+        kind(true, false, 200, 0) === "settle" && kind(true, false, -200, COUNT - 1) === "settle",
+        `${kind(true, false, 200, 0)} / ${kind(true, false, -200, COUNT - 1)}`);
+
+      // (b) **不変条件**: 横と確定した(= track に translateX を書いた)ジェスチャーは、
+      //     どの終わり方を通っても track が元へ戻るか、React が書き直す予約(advance)が入る。
+      //     総当たり: 旗 × dx(端まで含む) × index。1つでも「戻らない」が出れば落ちる。
+      {
+        const bad = [];
+        let n = 0;
+        for (const flag of [false, true]) {
+          for (const i of [0, 1]) {
+            for (const dx of [-300, -TH - 1, -TH, -TH + 1, -80, -8, -0.5, 0, 0.5, 8, 80, TH - 1, TH, TH + 1, 300]) {
+              n++;
+              const k = api.swipePagerEndKind(true, flag, dx, W, i, COUNT);
+              const style = api.swipePagerTrackStyle(k, i, EASE);
+              // 横と確定している以上、後始末が「何も書かない」であってはならない
+              if (style === null) { bad.push(`flag=${flag} i=${i} dx=${dx} → ${k} で何も書かない`); continue; }
+              // transition は必ず EASE へ戻す(ドラッグ中に none にしてあるため)
+              if (style.transition !== EASE) { bad.push(`flag=${flag} i=${i} dx=${dx} → transition=${style.transition}`); continue; }
+              // transform: advance 以外は元の位置そのもの / advance は React が書く(null)
+              const want = k === "advance" ? null : `translateX(${-i * 100}%)`;
+              if (style.transform !== want) bad.push(`flag=${flag} i=${i} dx=${dx} → ${k} transform=${style.transform} 期待 ${want}`);
+            }
+          }
+        }
+        check("F-79a: 総当たりが空回りしていない", n === 60, `${n}通り`);
+        check("F-79a: 横と確定したジェスチャーは、どの終わり方でも track が元へ戻る(または React が書き直す)",
+          bad.length === 0, bad.slice(0, 3).join(" | "));
+      }
+      // (c) 旗が立った終わり方(= 差し戻しの原因)を名指しで固定する。
+      //     8px だけ横へずらして長押しが成立した場面: 元の位置(0%)へ戻ることが要件。
+      {
+        const k = api.swipePagerEndKind(true, true, -8, W, 0, COUNT);
+        const style = api.swipePagerTrackStyle(k, 0, EASE);
+        check("F-79a: 8px ずらして長押しが成立 → drop で translateX(0%) へ戻す(ずれたまま残さない)",
+          k === "drop" && style && style.transform === "translateX(0%)" && style.transition === EASE,
+          `${k} / ${JSON.stringify(style)}`);
+        const k1 = api.swipePagerEndKind(true, true, -8, W, 1, COUNT);
+        // null 安全にしておく。ここで例外を投げるとハーネスが落ち、**以降の検査が全部消える**
+        // (変異試験で R2 がクラッシュとして出て、何が壊れたのか読めなくなった)。
+        const s1 = api.swipePagerTrackStyle(k1, 1, EASE);
+        check("F-79a: 2ページ目にいるときは 2ページ目の位置へ戻す(0% に飛ばさない)",
+          s1 !== null && s1.transform === "translateX(-100%)", JSON.stringify(s1));
+      }
+      // (d) idle は「1px も動かしていない」ときだけ。ここで書いてしまうと、
+      //     縦スクロール中に transform が付いて position:fixed の暗幕が壊れる(§6.3)。
+      check("F-79a: idle は何も書かない(静止時に transform を残さない)",
+        api.swipePagerTrackStyle("idle", 0, EASE) === null
+        && api.swipePagerTrackStyle("idle", 1, EASE) === null);
+
+      // (d2) 【新設】**どのページへ行くか**。前版は「戻るか否か」しか見ておらず、
+      //      進む向きを反転する変異(`dx < 0 ? i - 1 : i + 1`)が**生存した**(審査役 A8)。
+      //      向きは純関数に閉じ込め、左右と端を実行で確かめる。
+      {
+        const nx = (kind, dx, i, n) => api.swipePagerNextIndex(kind, dx, i, n);
+        check("F-79a: 指が左へ(dx<0)なら**次の**ページ",
+          nx("advance", -100, 0, 3) === 1 && nx("advance", -100, 1, 3) === 2,
+          `${nx("advance", -100, 0, 3)} / ${nx("advance", -100, 1, 3)}`);
+        check("F-79a: 指が右へ(dx>0)なら**前の**ページ",
+          nx("advance", 100, 2, 3) === 1 && nx("advance", 100, 1, 3) === 0,
+          `${nx("advance", 100, 2, 3)} / ${nx("advance", 100, 1, 3)}`);
+        check("F-79a: 端では行き先が無い(先頭で右・末尾で左は動かない)",
+          nx("advance", 100, 0, 3) === 0 && nx("advance", -100, 2, 3) === 2,
+          `${nx("advance", 100, 0, 3)} / ${nx("advance", -100, 2, 3)}`);
+        check("F-79a: advance 以外はどれも今のページのまま(中断で子タブが動かない)",
+          ["settle", "drop", "idle", "none"].every((k) =>
+            nx(k, -300, 1, 3) === 1 && nx(k, 300, 1, 3) === 1),
+          ["settle", "drop", "idle", "none"].map((k) => `${k}:${nx(k, -300, 1, 3)}`).join(" "));
+        // 判定と行き先を通しで確かめる(登録=0 / 比較=1 の2ページ、幅 327 の実測値)
+        {
+          const W2 = 327, TH2 = api.swipeBackThreshold(W2);   // 65.4
+          const go = (dx, i, interrupted) => {
+            const k = api.swipePagerEndKind(true, interrupted, dx, W2, i, 2);
+            return api.swipePagerNextIndex(k, dx, i, 2);
+          };
+          check("F-79a: しきい値は 327×0.2 = 65.4(実測の viewport 幅)",
+            Math.abs(TH2 - 65.4) < 1e-9, String(TH2));
+          check("F-79a: 登録で左へ 65.4px 超 → 比較へ",
+            go(-TH2, 0, false) === 1 && go(-100, 0, false) === 1, `${go(-TH2, 0, false)}`);
+          check("F-79a: 登録で左へ 65.4px 未満 → 登録のまま",
+            go(-TH2 + 0.01, 0, false) === 0 && go(-8, 0, false) === 0, `${go(-8, 0, false)}`);
+          check("F-79a: 比較で右へ 65.4px 超 → 登録へ", go(TH2, 1, false) === 0, `${go(TH2, 1, false)}`);
+          check("F-79a: **中断なら 100px 引いていても子タブは動かない**",
+            go(-100, 0, true) === 0 && go(100, 1, true) === 1,
+            `${go(-100, 0, true)} / ${go(100, 1, true)}`);
+        }
+        // (d3) 【F-83 新設】**どのイベントが中断か**。前版は `touchcancel` を `touchend` と
+        //      同じ関数に配線し、中身でも区別していなかったので、ブラウザに縦スクロールを
+        //      引き取られただけで子タブが替わった。イベント名 × 旗の総当たりで固定する。
+        {
+          const it = (t, flag) => api.swipePagerInterrupted(t, flag);
+          check("F-83: touchcancel は旗の状態に関係なく必ず中断(ブラウザが取り上げた合図)",
+            it("touchcancel", false) === true && it("touchcancel", true) === true,
+            `旗なし:${it("touchcancel", false)} / 旗あり:${it("touchcancel", true)}`);
+          check("F-83: touchend は旗の状態にそのまま従う(並び替え成立なら中断、そうでなければ行き先を判定)",
+            it("touchend", true) === true && it("touchend", false) === false,
+            `旗あり:${it("touchend", true)} / 旗なし:${it("touchend", false)}`);
+          // 旗の値は真偽値以外(undefined 等)で来ることがある。中断側へ倒れないと
+          // 「指を離しただけで進まない」死んだ操作になるので、false に倒すことを固定する。
+          check("F-83: touchend で旗が真偽値でないときは中断にしない(進める判断を殺さない)",
+            [undefined, null, 0, ""].every((v) => it("touchend", v) === false),
+            [undefined, null, 0, ""].map((v) => `${JSON.stringify(v)}:${it("touchend", v)}`).join(" "));
+          // 通しで確認: 同じ移動量でも touchcancel は進まず、touchend は進む
+          {
+            const W2 = 327;
+            const run = (t, flag, dx, i) => {
+              const k = api.swipePagerEndKind(true, api.swipePagerInterrupted(t, flag), dx, W2, i, 2);
+              return { kind: k, next: api.swipePagerNextIndex(k, dx, i, 2) };
+            };
+            const c = run("touchcancel", false, -100, 0);
+            const e = run("touchend", false, -100, 0);
+            check("F-83: 同じ -100px でも touchcancel は登録のまま・touchend は比較へ進む(区別がついている)",
+              c.kind === "drop" && c.next === 0 && e.kind === "advance" && e.next === 1,
+              `cancel:${c.kind}→${c.next} / end:${e.kind}→${e.next}`);
+          }
+        }
+        // コンポーネントは純関数の結果をそのまま使う(向きを component 側で作り直さない)
+        // 綴りはコメントを外してから見る(行末コメントで空白の並びが変わるため)
+        check("F-79a: 行き先はコンポーネントで作り直さず swipePagerNextIndex の値を渡す",
+          /const next = swipePagerNextIndex\(kind, dx, i, count\);\s*\r?\n\s*if \(next !== i\) onIndexChange\(next\);/.test(codeOf(srcOfFn(src, "SwipePager")))
+          && !/onIndexChange\([^)]*\?[^)]*:/.test(codeOf(srcOfFn(src, "SwipePager"))));
+      }
+      // (e) コンポーネント側は「書くだけ」。判定も値も純関数から取る。
+      {
+        const pager = srcOfFn(src, "SwipePager");
+        check("F-79a: 終端は endGesture 1本に集約されている",
+          /const endGesture = \(s, i, interrupted\) => \{/.test(pager)
+          && /const kind = swipePagerEndKind\(s\?\.horizontal, interrupted, s\?\.dx \?\? 0,/.test(pager)
+          && /const style = swipePagerTrackStyle\(kind, i, EASE\);/.test(pager)
+          // **endGesture へ入る道は finishGesture の中の1本だけ**。1 は偶然の件数ではなく
+          // 「終端を finishGesture 以外から呼べない = 捨てる処理を伴わずに終端だけ通せない」
+          // という不変条件そのもの(上の `st.current = null` が1箇所であることと対になる)。
+          && (() => {
+            const c = codeOf(pager);
+            const all = (c.match(/endGesture\(/g) || []).length;
+            const inFin = ((c.slice(c.indexOf("const finishGesture"), c.indexOf("const onTouchStart")))
+              .match(/endGesture\(/g) || []).length;
+            return all === 1 && inFin === 1;
+          })(),
+          `endGesture の呼び出し ${(codeOf(pager).match(/endGesture\(/g) || []).length}回`);
+        check("F-79a: track へ書くのは endGesture の中だけ(他に transform を書く経路が無い)",
+          (codeOf(pager).match(/track\.style\.transform =/g) || []).length === 2,
+          `${(codeOf(pager).match(/track\.style\.transform =/g) || []).length}箇所`);
+        check("F-79a: endGesture は transition を必ず書き、transform は null のとき書かない",
+          /track\.style\.transition = style\.transition;\s*\r?\n\s*if \(style\.transform !== null\) track\.style\.transform = style\.transform;/.test(pager));
+        // 終わり方は3つの入口(touchmove の旗 / touchend / touchcancel)から来る。
+        // 【F-83】touchend と touchcancel は**同じ終端に来るが、渡すイベント名が違う**。
+        // 前版は `onTouchCancel={onTouchEnd}` と同じ関数を配線し、中身でも区別していなかった
+        // ので、`touchcancel` が「指を離した」と同じ扱いになり**ブラウザに縦スクロールを
+        // 引き取られただけで子タブが替わっていた**(統括の実測: 横へ -100px → touchcancel で
+        // `translateX(0%)` → `translateX(-100%)`。同条件の touchend と 800ms 後の値が一致)。
+        check("F-79a/F-83: touchend と touchcancel は同じ終端に来るが、イベント名を別々に渡す",
+          /onTouchEnd=\{\(\) => onTouchFinish\("touchend"\)\} onTouchCancel=\{\(\) => onTouchFinish\("touchcancel"\)\}/.test(pager)
+          && !/onTouchCancel=\{onTouchEnd\}/.test(pager));
+        // 【F-83】戻すときの動きも SwipePager に自前で書かせない。
+        // DESIGN-SYSTEM §6.3(:585)が「戻すときの動き transform 0.32s cubic-bezier(.22,.61,.36,1)
+        // / 後始末 320ms — **この2つは必ず同じ値。片方だけ変えない**」と値を規範として固定しており、
+        // タイル側(REED_TILE_SLIDE_EASE === SWIPE_BACK_EASE)は既に固定してあるのに、本家の
+        // SwipePager だけ空いていた(審査役の変異: EASE を "transform 0.6s linear" にしても FAIL 0)。
+        check("F-79a: SwipePager の戻す動きは SWIPE_BACK_EASE から取る(自前で書かない。§6.3「必ず同じ値」)",
+          /const EASE = SWIPE_BACK_EASE;/.test(codeOf(pager))
+          && !/const EASE = ["'`]/.test(codeOf(pager)),
+          (codeOf(pager).match(/const EASE = [^\n;]+/) || ["見つからない"])[0]);
+        // しきい値の綴りを SwipePager に持たせない(§6.3「アプリ内で1つだけ」)
+        check("F-79a: SwipePager がしきい値を自前で書いていない(swipeBackThreshold に寄せた)",
+          !/clientWidth \|\| 0;\s*\r?\n\s*const threshold = w \? w \* 0\.2 : 60;/.test(pager)
+          && !/w \* 0\.2 : 60/.test(codeOf(pager)),
+          (codeOf(pager).match(/0\.2/g) || []).join(",") || "0件");
+      }
     }
   }
 
@@ -11031,7 +11966,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       `実装=${api.REED_SUBTAB_HALF_GAP_PX} / 正典の半分=${parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2}`);
     // 追加シートの ± は正典ミニが height:40 だが、§5(機能側)を優先して 44 にしてある
     {
-      const sheet = srcOfFn(src, "ReedAddSheet");
+      const sheet = srcOfFn(src, "ReedBoxSheet");
       const pm = (sheet.match(/width: METRO_PM_W, height: "var\(--tap-min\)"/g) || []).length;
       check("追加シートの ± の当たり判定は 72×44(正典ミニの 40 ではなく §5 を優先)", pm === 2, `${pm}箇所`);
       check("正典ミニの .pmt は 40px(この差は意図した逸脱であることの裏取り)",
