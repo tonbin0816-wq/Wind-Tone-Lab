@@ -315,6 +315,23 @@ const code = [
   extractFunction("swipePagerNextIndex"),
   // F-83: 終わりを告げたイベント → 中断か否か
   extractFunction("swipePagerInterrupted"),
+  // F-88/F-90: 下から出るシートを下スワイプで閉じる(判定・書く値・行き先)
+  extractFunction("sheetDismissThreshold"),
+  extractFunction("sheetDismissOffset"),
+  extractFunction("sheetDismissEndKind"),
+  extractFunction("sheetDismissSheetStyle"),
+  extractFunction("sheetDismissShouldClose"),
+  extractFunction("sheetDismissInterrupted"),
+  extractFunction("sheetDismissShouldCapture"),
+  extractFunction("createSheetDismissGesture"),
+  extractFunction("sheetScrollTopAt"),
+  // F-89: 録音ボタンの中身の寸法
+  extractConst("REC_BTN_D"),
+  extractConst("REC_RING_SW"),
+  extractConst("REC_RING_GAP"),
+  extractConst("REC_STOP_PX"),
+  extractConst("REC_STOP_R"),
+  extractFunction("recInnerShape"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -374,7 +391,11 @@ const api = new Function(`${code}
            SWIPE_VERTICAL_BIAS,
            SWIPE_BACK_EASE, SWIPE_BACK_SETTLE_MS,
            swipeBackThreshold, swipeAxisIsHorizontal, swipeBackOffset, swipeBackDecision, swipeBackHandler,
-           createSwipeBackGesture };`)();
+           createSwipeBackGesture,
+           sheetDismissThreshold, sheetDismissOffset, sheetDismissEndKind, sheetDismissSheetStyle,
+           sheetDismissShouldClose, sheetDismissInterrupted, sheetDismissShouldCapture,
+           createSheetDismissGesture, sheetScrollTopAt,
+           REC_BTN_D, REC_RING_SW, REC_RING_GAP, REC_STOP_PX, REC_STOP_R, recInnerShape };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -5007,6 +5028,425 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
     pager.includes("onTouchStart") && !pager.includes("pointerdown"));
   check("SwipeBackArea の使用箇所は2つのまま", (src.match(/<SwipeBackArea /g) || []).length === 2, `${(src.match(/<SwipeBackArea /g) || []).length}箇所`);
   check("旧しきい値方式(useHorizontalSwipe)の呼び出しが残っていない", !src.includes("useHorizontalSwipe("));
+
+  // ============================================================
+  // 【F-88 / F-90】下から出るシートを下スワイプで閉じる。
+  // §6.3 が名指しで警告している壊れ方(終端を通らない経路が1つでもあると
+  // シートがずれたまま固着する)を、**終わり方の総当たり**で塞ぐ。
+  // ここで見ているのは純関数の振る舞いだけで、**実機での指の追従感は見ていない**。
+  // ============================================================
+  {
+    const K = ["idle", "drop", "close", "settle"];
+
+    // --- しきい値: §6.3 の「動かす面の20% / 測れなければ60px」を**値で**見る --------
+    // 綴りを写さず境界の振る舞いで見る(0.2 を 0.3 にすれば落ちる)。
+    check("シートのしきい値はシートの高さの20%(§6.3 と同じ規則)",
+      api.sheetDismissThreshold(300) === 60 && api.sheetDismissThreshold(500) === 100,
+      `300→${api.sheetDismissThreshold(300)} / 500→${api.sheetDismissThreshold(500)}`);
+    check("シートの高さが測れないときだけ 60px にする(§6.3 のフォールバック)",
+      api.sheetDismissThreshold(0) === 60 && api.sheetDismissThreshold(-1) === 60,
+      `0→${api.sheetDismissThreshold(0)}`);
+    // 【名前の範囲】これは「横スワイプの定数を**参照している**」ことの検査ではない
+    // (同じ値の別の定数を新設しても通る)。**値が一致している**ことだけを主張する。
+    check("しきい値の値は横スワイプの定数と一致する(別の割合・別の下限を持ち込んでいない)",
+      api.sheetDismissThreshold(500) === 500 * api.SWIPE_BACK_THRESHOLD_RATIO
+      && api.sheetDismissThreshold(0) === api.SWIPE_BACK_THRESHOLD_MIN);
+
+    // --- 動かす量: **下向きだけ**。上へは1pxも動かさない --------------------
+    // 【初版の誤りを撤回】§6.3 の「行き先の無い向きの抵抗 0.35」を向き無しで転用しており、
+    // 上へ 100px 引くと -35px 動いて**下端が持ち上がり暗幕が 35px 覗いた**(審査役の実測)。
+    // シートは下端に貼り付いているので、上へ動かす行き先そのものが無い。
+    check("下へ引いた量はそのまま指に追従する",
+      api.sheetDismissOffset(0) === 0 && api.sheetDismissOffset(120) === 120);
+    check("上へ引いてもシートは1pxも動かない(下端から浮かせない)",
+      [-1, -35, -100, -1000].every((v) => api.sheetDismissOffset(v) === 0),
+      [-1, -35, -100, -1000].map((v) => `${v}→${api.sheetDismissOffset(v)}`).join(" / "));
+    check("動かす量が負になることは無い(暗幕が覗く向きへ動かさない)",
+      [-1000, -1, 0, 1, 1000].every((v) => api.sheetDismissOffset(v) >= 0));
+
+    // --- 終わり方の総当たり --------------------------------------------------
+    // 縦と確定していなければ、中断でも指を離しても必ず "idle"(シートを触っていない)。
+    check("縦と確定していないジェスチャーは必ず idle(false / null / undefined のすべて)",
+      [false, null, undefined].every((v) =>
+        [true, false].every((intr) =>
+          [-500, 0, 500].every((dy) => api.sheetDismissEndKind(v, intr, dy, 400) === "idle"))));
+    // 中断は**行き先を判定しない**。しきい値を越えていても閉じない。
+    check("中断(drop)はしきい値を越えていても閉じない",
+      api.sheetDismissEndKind(true, true, 1000, 400) === "drop"
+      && api.sheetDismissEndKind(true, true, 0, 400) === "drop");
+    check("指を離してしきい値以上なら close、未満なら settle(境界を含む)",
+      api.sheetDismissEndKind(true, false, 80, 400) === "close"
+      && api.sheetDismissEndKind(true, false, 79.99, 400) === "settle"
+      && api.sheetDismissEndKind(true, false, -300, 400) === "settle",
+      `しきい値=${api.sheetDismissThreshold(400)}`);
+    // 返る値は4つだけ。知らない種類が混ざると下の style / shouldClose の総当たりが穴になる。
+    check("終わり方は4種類しか返らない",
+      [true, false, null].every((v) => [true, false].every((intr) =>
+        [-1000, -80, -1, 0, 1, 79, 80, 1000].every((dy) =>
+          [0, 400].every((h) => K.includes(api.sheetDismissEndKind(v, intr, dy, h)))))));
+
+    // --- 書く値: **idle 以外はすべて元へ戻す** ------------------------------
+    // §6.3「捨てるだけの経路を作るとシートがずれたまま固着する」。close も戻す
+    // (onClose が実際には閉じない実装だと、戻さない経路がそのまま固着になる)。
+    check("idle のときだけ何も書かない",
+      api.sheetDismissSheetStyle("idle", "E") === null);
+    check("idle 以外はすべて transition を戻し translateY(0px) へ戻す(close も含む)",
+      ["drop", "close", "settle"].every((k) => {
+        const s = api.sheetDismissSheetStyle(k, "E");
+        return s && s.transition === "E" && s.transform === "translateY(0px)";
+      }), JSON.stringify(K.map((k) => [k, api.sheetDismissSheetStyle(k, "E")])));
+
+    // --- 行き先: close のときだけ閉じる -------------------------------------
+    check("閉じるのは close のときだけ(他の3つでは閉じない)",
+      api.sheetDismissShouldClose("close") === true
+      && ["idle", "drop", "settle", "none"].every((k) => api.sheetDismissShouldClose(k) === false));
+
+    // --- 中断の判定: touchcancel だけが中断(F-83 と同じ規則) ----------------
+    check("touchcancel は中断・touchend は中断ではない",
+      api.sheetDismissInterrupted("touchcancel") === true
+      && api.sheetDismissInterrupted("touchend") === false);
+
+    // --- 掴む条件: 「先頭に居る」と「下向き」の**両方**が要る -----------------
+    // 片方だけだと、中身がスクローラのシートで scrollTop=0 から**上へ**引いたときにも
+    // preventDefault が入り、**中身が先頭から動き出せなくなる**(審査役の実測)。
+    check("先頭(scrollTop<=0)で下向きのときだけ掴む",
+      api.sheetDismissShouldCapture(0, 1) === true && api.sheetDismissShouldCapture(-2, 100) === true);
+    check("先頭でも上向き・横(dy<=0)なら掴まない(中身のスクロールを殺さない)",
+      [0, -1, -100].every((dy) => api.sheetDismissShouldCapture(0, dy) === false));
+    check("スクロール中(scrollTop>0)なら下向きでも掴まない",
+      [1, 5, 200].every((t) => api.sheetDismissShouldCapture(t, 100) === false));
+    // 2つの条件の総当たり。**論理積であること**を全組み合わせで固定する(片方を落とす変異を撃つ)。
+    check("掴む条件は2つの論理積(4象限すべてで一致)",
+      [-5, 0, 1, 50].every((t) => [-50, 0, 1, 50].every((dy) =>
+        api.sheetDismissShouldCapture(t, dy) === (t <= 0 && dy > 0))));
+
+    // --- 配線: **アプリ内のシートを全部**同じ作法にする(1つだけ違う挙動を残さない) ---
+    // シート = 正典 .sheet の角丸(28px 28px 0 0)を持つカード。集合で縛る(箇所数では縛らない)。
+    // 数を固定すると、正しくシートを増やす修正が落ちる(F-72 罠5 / F-79 罠2)。
+    {
+      // 【必ず codeOf を通す】前版は生ソースに /dismiss/i を当てており、
+      // **テンポ拍子シートだけコメントに useSheetDismiss の綴りが入っていたため、
+      // 配線行を丸ごと削っても通った**(審査役の実測。F-90 が名指しした当のシートが無防備)。
+      // 「綴りが無いこと」を主張する検査は codeOf() を通してから見る(LOOP.md)。
+      const codeSrc = codeOf(src);
+      const sheetCards = [];
+      const re = /borderRadius: "28px 28px 0 0"/g;
+      let m;
+      while ((m = re.exec(codeSrc)) !== null) {
+        // このカードの開始タグを取り、そこに ref/handlers が乗っているかを見る
+        const open = codeSrc.lastIndexOf("<div", m.index);
+        sheetCards.push(codeSrc.slice(open, m.index));
+      }
+      // 【この検査が言う「シート」の範囲】正典 .sheet の角丸(28px 28px 0 0)を持ち、
+      // 下端に密着するカードだけ。**下端寄せのカードすべてではない**。
+      // 意図的に外してあるのは「エラー」「この録音を保存しますか？」「目安に設定」の3枚で、
+      // これらは角丸 --r-lg の四方囲みで、つまみも持たない別の部品(判断は BACKLOG F-88 に記録)。
+      check("正典 .sheet の角丸を持つカードを4枚以上走査できている",
+        sheetCards.length >= 4, `${sheetCards.length}枚`);
+      const without = sheetCards.filter((t) => !/dismiss/i.test(t));
+      check("正典 .sheet の角丸を持つカードは、1枚残らず下スワイプの配線を持つ",
+        without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 90)).join(" || ") || "0枚");
+      // 呼び出し側の綴りも codeOf 済みで数える(コメントの言及で水増しされない)。
+      check("下スワイプの配線は useSheetDismiss 1本に寄っている(シートごとに書き分けていない)",
+        /function useSheetDismiss\(/.test(codeSrc)
+        && (codeSrc.match(/useSheetDismiss\(/g) || []).length >= 5,
+        `useSheetDismiss( の出現 ${(codeSrc.match(/useSheetDismiss\(/g) || []).length}回(定義1 + 呼び出し)`);
+      // 名指しで4枚を確かめる。集合の性質だけだと「シートを1枚消して緑にする」が通る。
+      for (const [label, needle] of [
+        ["テンポ拍子(計測タブ)", /ref=\{tempoSheetDismiss\.ref\} \{\.\.\.tempoSheetDismiss\.handlers\}/],
+        ["リード追加・箱を編集", /ref=\{dismiss\.ref\} \{\.\.\.dismissHandlers\}/],
+        ["リード/データの「…」・データの絞り込み", /ref=\{dismiss\.ref\} \{\.\.\.dismiss\.handlers\}/],
+      ]) {
+        check(`下スワイプの配線が実際に書かれている: ${label}`, needle.test(codeSrc), String(needle));
+      }
+    }
+
+    // --- 状態機械: **DOM へ実際に何が書かれるか**を偽のイベントで確かめる ------
+    // 【なぜ必要か】前版はここが無く、純関数の総当たりだけだった。
+    // 「純関数が正しい」は「その純関数が使われている」を1件も担保しない。
+    // 審査の変異試験で **純関数を迂回する変異が9件生存**した(戻す値を直書きする /
+    // 中断の判定を落とす / 高さを 0 に固定する / 消す予約の呼び出しを消す など)。
+    // ここでは createSheetDismissGesture に io を差し込み、**呼ばれた順に記録して**見る。
+    {
+      // io の呼ばれ方を記録する土台。height は 400(しきい値 80)固定。
+      const makeIO = (opts = {}) => {
+        const log = [];
+        const io = {
+          log,
+          ease: () => "EASE",
+          height: () => (opts.height === undefined ? 400 : opts.height),
+          touchCount: (e) => e.touches,
+          point: (e) => ({ x: e.x, y: e.y }),
+          isFormField: (e) => !!e.form,
+          scrollTopAt: () => (opts.scrollTop === undefined ? 0 : opts.scrollTop),
+          axisIsHorizontal: (dx, dy) => api.swipeAxisIsHorizontal(dx, dy),
+          preventDefault: () => log.push("preventDefault"),
+          setTransition: (v) => log.push(`transition=${v}`),
+          setTransform: (v) => log.push(`transform=${v}`),
+          close: () => log.push("close"),
+          scheduleClear: () => log.push("scheduleClear"),
+          cancelClear: () => log.push("cancelClear"),
+        };
+        return io;
+      };
+      // 指を x0,y0 から (dx,dy) へ動かして endType で離す。戻り値は io.log。
+      const run = (dy, endType, opts = {}) => {
+        const io = makeIO(opts);
+        const g = api.createSheetDismissGesture(io);
+        const x0 = 100, y0 = 100;
+        const dx = opts.dx === undefined ? 0 : opts.dx;
+        g.start({ touches: 1, x: x0, y: y0, form: opts.form });
+        for (let i = 1; i <= 4; i++) g.move({ touches: 1, x: x0 + (dx * i) / 4, y: y0 + (dy * i) / 4 });
+        if (endType === "detach") g.detach(); else g.end(endType);
+        return io.log;
+      };
+      const last = (log, prefix) => [...log].reverse().find((l) => l.startsWith(prefix)) ?? null;
+
+      check("状態機械を組み立てられている(io を差し込んで動かせる)",
+        Array.isArray(run(100, "touchend")));
+
+      // (1) しきい値を越えて指を離す → 閉じる。**close は1回だけ**。
+      {
+        const log = run(100, "touchend");
+        check("engine: 下へ100px(しきい値80超)で離すと close が呼ばれる",
+          log.filter((l) => l === "close").length === 1, log.join(" | "));
+        check("engine: 閉じるときも transform を元へ戻す(戻さない経路を作らない。§6.3)",
+          last(log, "transform=") === "transform=translateY(0px)", log.join(" | "));
+      }
+      // (2) しきい値未満 → 閉じずに戻す
+      {
+        const log = run(79, "touchend");
+        check("engine: 下へ79px(しきい値80未満)では閉じない",
+          !log.includes("close"), log.join(" | "));
+        check("engine: 戻すときは transition を戻し translateY(0px) を書く",
+          last(log, "transition=") === "transition=EASE"
+          && last(log, "transform=") === "transform=translateY(0px)", log.join(" | "));
+        check("engine: 戻したら transform を消す予約を入れる(§6.3。呼び出しごと消す変異を撃つ)",
+          log.includes("scheduleClear"), log.join(" | "));
+      }
+      // (3) touchcancel は**行き先を判定しない**(F-83 の回帰を撃つ)
+      {
+        const log = run(500, "touchcancel");
+        check("engine: touchcancel はしきい値を大きく越えていても閉じない(F-83)",
+          !log.includes("close"), log.join(" | "));
+        check("engine: touchcancel でも位置は必ず元へ戻る",
+          last(log, "transform=") === "transform=translateY(0px)", log.join(" | "));
+      }
+      // (4) アンマウントも終端を通る + 予約を取り消す
+      {
+        const log = run(500, "detach");
+        check("engine: アンマウントでも閉じない・位置は戻る(終わり方の4つ目)",
+          !log.includes("close") && last(log, "transform=") === "transform=translateY(0px)", log.join(" | "));
+        check("engine: アンマウントでは消す予約を取り消す(消えた要素にタイマーを残さない)",
+          log.includes("cancelClear"), log.join(" | "));
+      }
+      // (5) 指に追従している間の値。**sheetDismissOffset を通っていること**を値で見る。
+      {
+        const log = run(60, "touchend");
+        const during = log.filter((l) => l.startsWith("transform=")).slice(0, -1);
+        check("engine: ドラッグ中は指の位置をそのまま transform に書く(下向き)",
+          during.length > 0 && during[during.length - 1] === "transform=translateY(60px)",
+          during.join(" | "));
+        check("engine: ドラッグ中は transition を none にする(追従を鈍らせない)",
+          log.includes("transition=none"), log.join(" | "));
+        // 【R13 で足した】前版は「掴まなかったときに**呼ばない**」しか見ておらず、
+        // `io.preventDefault(e)` を**削除しても 6119/0 で通った**(統括の実測)。
+        // §6.3 の要求は「非パッシブで張り、掴んでいる間だけ preventDefault() を呼ぶ」で、
+        // 前半は綴りで守られていたが**後半が無防備**だった。
+        // 呼ばないとブラウザが縦スクロールを引き取り、シートが指に付いてくる裏でページも動く。
+        // **掴んだ move の回数と preventDefault の回数が一致する**ことで固定する。
+        {
+          const pd = log.filter((l) => l === "preventDefault").length;
+          const moved = log.filter((l) => l.startsWith("transform=translateY(") ).length - 1; // 最後の1つは戻し
+          check("engine: 掴んでいる間は毎回 preventDefault を呼ぶ(§6.3。呼ばないと裏でページが動く)",
+            pd > 0 && pd === moved, `preventDefault ${pd}回 / 掴んで動かした ${moved}回 : ${log.join(" | ")}`);
+        }
+      }
+      // (6) 上へ引く: **掴まない**(preventDefault しない・DOM を1回も触らない)
+      {
+        const log = run(-200, "touchend");
+        check("engine: 上へ引いたときは掴まない(preventDefault を呼ばない)",
+          !log.includes("preventDefault"), log.join(" | "));
+        check("engine: 掴まなかったジェスチャーは DOM を1回も触らない",
+          !log.some((l) => l.startsWith("transform=") || l.startsWith("transition=")), log.join(" | "));
+        check("engine: 掴まなかったジェスチャーでは閉じない", !log.includes("close"));
+      }
+      // (7) 横へ引く: 掴まない
+      {
+        const log = run(0, "touchend", { dx: 200 });
+        check("engine: 横へ引いたときは掴まない(子タブのスワイプを奪わない)",
+          !log.includes("preventDefault") && !log.some((l) => l.startsWith("transform=")),
+          log.join(" | "));
+      }
+      // (8) 中身がスクロール中: 掴まない(sheetScrollTopAt の戻り値が効いていること)
+      {
+        const log = run(200, "touchend", { scrollTop: 30 });
+        check("engine: 中身がスクロール中(scrollTop>0)なら掴まない",
+          !log.includes("preventDefault") && !log.includes("close"), log.join(" | "));
+      }
+      // (9) 入力欄の上では始めない
+      {
+        const log = run(200, "touchend", { form: true });
+        check("engine: 入力欄の上ではジェスチャーを始めない(値を選ぶ操作を奪わない)",
+          log.length === 0, log.join(" | "));
+      }
+      // (10) **しきい値がシートの高さから来ていること**。高さを固定値に潰す変異を撃つ。
+      //      高さ 1000(しきい値200)なら 150px では閉じず、高さ 400(しきい値80)なら閉じる。
+      {
+        const tall = run(150, "touchend", { height: 1000 });
+        const short = run(150, "touchend", { height: 400 });
+        check("engine: しきい値はシートの高さから決まる(高さを 0 や固定値に潰す変異を撃つ)",
+          !tall.includes("close") && short.includes("close"),
+          `高さ1000→${tall.includes("close") ? "閉じた" : "閉じない"} / 高さ400→${short.includes("close") ? "閉じた" : "閉じない"}`);
+        // 高さが測れない(0)ときだけ 60px のフォールバックへ落ちる
+        const zero59 = run(59, "touchend", { height: 0 });
+        const zero60 = run(60, "touchend", { height: 0 });
+        check("engine: 高さが測れないときだけ 60px のフォールバック(§6.3)",
+          !zero59.includes("close") && zero60.includes("close"));
+      }
+      // (11) 2本目の指では始めない / 進行中は動かさない
+      {
+        const io = makeIO();
+        const g = api.createSheetDismissGesture(io);
+        g.start({ touches: 2, x: 100, y: 100 });
+        g.move({ touches: 2, x: 100, y: 300 });
+        g.end("touchend");
+        check("engine: 2本の指では始めない", io.log.length === 0, io.log.join(" | "));
+      }
+      // (12) 新しい down は**進行中を必ず終わらせる**(§6.3。中断の終端が対象判定より前)
+      {
+        const io = makeIO();
+        const g = api.createSheetDismissGesture(io);
+        g.start({ touches: 1, x: 100, y: 100 });
+        g.move({ touches: 1, x: 100, y: 200 });     // 100px 掴んで動かした
+        const before = io.log.length;
+        g.start({ touches: 2, x: 0, y: 0 });        // 2本目の指 = 対象外だが、前のは終わらせる
+        const added = io.log.slice(before);
+        check("engine: 2本目の指が触れても、前のジェスチャーは終端を通って元へ戻る(§6.3)",
+          added.includes("transform=translateY(0px)") && added.includes("scheduleClear"),
+          added.join(" | "));
+        check("engine: そのとき行き先は判定しない(閉じない)", !added.includes("close"), added.join(" | "));
+      }
+      // (13) **掴んだ後に指が戻る**経路。下向きに掴んでからそのまま上へ引き返すと、
+      //      dy が負になる。ここで生の dy を書くと**シートが下端より上へ持ち上がり、
+      //      下に暗幕が覗く**(C の欠陥そのもの)。sheetDismissOffset を通していれば 0 で止まる。
+      //      【この経路が無いと sheetDismissOffset(dyRaw)→dyRaw の変異が生き残る】
+      //      掴む条件が dy>0 なので、掴んだ瞬間だけを見ても差が出ない。実際に撃たれて気付いた。
+      {
+        const io = makeIO();
+        const g = api.createSheetDismissGesture(io);
+        g.start({ touches: 1, x: 100, y: 100 });
+        g.move({ touches: 1, x: 100, y: 150 });   // 下へ 50px = 掴む
+        g.move({ touches: 1, x: 100, y: 60 });    // 指が始点より 40px 上へ戻る
+        g.end("touchend");
+        const negative = io.log.filter((l) => l.startsWith("transform=translateY(-"));
+        check("engine: 掴んだ後に指が始点より上へ戻っても、シートは下端より上へ行かない",
+          negative.length === 0, io.log.join(" | "));
+        check("engine: そのまま離しても閉じない(戻った先はしきい値未満)",
+          !io.log.includes("close"), io.log.join(" | "));
+      }
+    }
+
+    // --- sheetScrollTopAt を**単体で**確かめる ------------------------------
+    // 【R06 で足した】engine の検査は `scrollTopAt` を io で**丸ごとスタブ**しているので、
+    // 実関数を1度も通らない。実際 `return node.scrollTop;` を `return 0;` にする変異が
+    // **6119/0 で生存**した(統括の実測)。`io` に出したことで、
+    // **実 DOM を歩く唯一の部分が検査の外へ出て**しまっていた。
+    // ここでは偽の DOM を渡して中身そのものを見る。**getComputedStyle は差し替える**
+    // (Node には無い。呼ばれた要素の overflowY を返すだけの最小の偽物)。
+    {
+      const mk = (o) => ({ nodeType: 1, scrollHeight: 0, clientHeight: 0, scrollTop: 0, parentElement: null, ov: "visible", ...o });
+      const chain = (...nodes) => { for (let i = 0; i < nodes.length - 1; i++) nodes[i].parentElement = nodes[i + 1]; return nodes[0]; };
+      const saved = globalThis.getComputedStyle;
+      globalThis.getComputedStyle = (n) => ({ overflowY: n.ov });
+      try {
+        // (1) 触れた要素自身がスクローラ → その scrollTop
+        const self = mk({ scrollHeight: 500, clientHeight: 100, scrollTop: 37, ov: "auto" });
+        check("sheetScrollTopAt: 触れた要素自身がスクローラならその scrollTop を返す",
+          api.sheetScrollTopAt(self, self) === 37, String(api.sheetScrollTopAt(self, self)));
+        // (2) 祖先がスクローラ → 祖先の scrollTop(直近のものを採る)
+        const inner = mk({});
+        const near = mk({ scrollHeight: 500, clientHeight: 100, scrollTop: 21, ov: "scroll" });
+        const far = mk({ scrollHeight: 900, clientHeight: 100, scrollTop: 99, ov: "auto" });
+        const root2 = far;
+        chain(inner, near, far);
+        check("sheetScrollTopAt: 直近のスクロールできる祖先の scrollTop を返す(遠い方ではない)",
+          api.sheetScrollTopAt(inner, root2) === 21, String(api.sheetScrollTopAt(inner, root2)));
+        // (3) スクローラが1つも無い → 0(先頭とみなす)
+        const a = mk({}), b = mk({});
+        chain(a, b);
+        check("sheetScrollTopAt: スクロールできる祖先が無ければ 0(先頭とみなす)",
+          api.sheetScrollTopAt(a, b) === 0, String(api.sheetScrollTopAt(a, b)));
+        // (4) overflowY が auto / scroll 以外なら**スクローラとみなさない**
+        for (const ov of ["visible", "hidden", "clip"]) {
+          const n = mk({ scrollHeight: 500, clientHeight: 100, scrollTop: 44, ov });
+          check(`sheetScrollTopAt: overflowY:${ov} はスクローラとみなさない`,
+            api.sheetScrollTopAt(n, n) === 0, String(api.sheetScrollTopAt(n, n)));
+        }
+        // (5) 中身がはみ出していない(scrollHeight ≒ clientHeight)ならスクローラとみなさない
+        const flat = mk({ scrollHeight: 101, clientHeight: 100, scrollTop: 44, ov: "auto" });
+        check("sheetScrollTopAt: 中身がはみ出していなければスクローラとみなさない",
+          api.sheetScrollTopAt(flat, flat) === 0, String(api.sheetScrollTopAt(flat, flat)));
+        // (6) root より上は見に行かない(シートの外のスクローラを拾わない)
+        const child = mk({});
+        const rootEl = mk({});
+        const outside = mk({ scrollHeight: 500, clientHeight: 100, scrollTop: 77, ov: "auto" });
+        chain(child, rootEl, outside);
+        check("sheetScrollTopAt: root より外側のスクローラは見に行かない",
+          api.sheetScrollTopAt(child, rootEl) === 0, String(api.sheetScrollTopAt(child, rootEl)));
+      } finally {
+        globalThis.getComputedStyle = saved;
+      }
+    }
+
+    // --- 状態機械の書き方: 捨てるだけの経路が無い ----------------------------
+    {
+      const eng = codeOf(sourceOf("createSheetDismissGesture"));
+      // 1 に固定してよいのは偶然の件数ではなく「終端を通らずに捨てられない」という
+      // 不変条件そのものだから(F-79 罠2 の「箇所数を釘付けにする検査」には当たらない)。
+      // 宣言(`let st = null;`)は数に入れない。数えたいのは**捨てる代入**だけ。
+      const drops = (eng.replace(/\blet\s+st\s*=\s*null/g, "＿宣言＿").match(/\bst\s*=\s*null\b/g) || []);
+      check("進行中の状態を捨てる代入は状態機械の中で1箇所だけ(終端を通らずに捨てられない)",
+        drops.length === 1, `${drops.length}箇所`);
+      check("中断の終端は対象判定より前に置く(§6.3。start の最初の1行)",
+        /const start = \(e\) => \{\s*finish\(true\);/.test(eng));
+      check("終わりを告げたイベント種は引数で受ける(同じ関数に配線して中で区別しない。F-83)",
+        /const end = \(eventType\) => \{[\s\S]*?sheetDismissInterrupted\(eventType\)/.test(eng));
+    }
+
+    // --- React 層: 判定を持たず、状態機械へ渡すだけ --------------------------
+    {
+      const hook = codeOf(sourceOf("useSheetDismiss"));
+      check("touchend と touchcancel はイベント種を分けて状態機械へ渡す(F-83)",
+        /onTouchEnd: \(\) => g\.end\("touchend"\)/.test(hook)
+        && /onTouchCancel: \(\) => g\.end\("touchcancel"\)/.test(hook), hook.slice(-400));
+      check("touchmove は非パッシブで登録する(§6.3。横取りを止められない)",
+        /addEventListener\("touchmove", fn, \{ passive: false \}\)/.test(hook));
+      // 【名前の範囲】「依存配列が空である」ことだけを見る。**空である理由**(親の再レンダーで
+      // ref が付け外しされない)は実ブラウザで実測済みで、ここでは綴りしか見ていない。
+      check("コールバック ref の依存配列は [g] だけ(g は ref なので同一性が変わらない)",
+        /const attachRef = useCallback\(\(node\) => \{[\s\S]*?\n  \}, \[g\]\);/.test(hook),
+        (hook.match(/\}, \[[^\]]*\]\);/g) || []).join(" / "));
+      check("要素が外れたら状態機械の detach を通す(捨てるだけの経路を作らない)",
+        /\} else \{\s*g\.detach\(\);/.test(hook));
+      check("状態機械は1つだけ作る(レンダーごとに作り直すと進行中のジェスチャーが消える)",
+        /gestureRef\.current === null/.test(hook));
+      // io の各口が**実際の DOM 操作につながっている**こと。ここは綴りの確認で、
+      // 「その口が呼ばれること」は上の engine の検査が持つ。両方が揃って初めて配線が守られる。
+      for (const [label, needle] of [
+        ["高さ", /height: \(\) => el\(\)\?\.offsetHeight/],
+        ["スクロール位置", /scrollTopAt: \(e\) => sheetScrollTopAt\(e\.target, el\(\)\)/],
+        ["軸判定", /axisIsHorizontal: \(dx, dy\) => swipeAxisIsHorizontal\(dx, dy\)/],
+        ["transform を書く", /setTransform: \(v\) => \{[^}]*style\.transform = v/],
+        ["transform を消す", /style\.transform = "";/],
+        ["消すまでの時間", /SWIPE_BACK_SETTLE_MS/],
+        ["イージング", /ease: \(\) => SWIPE_BACK_EASE/],
+        ["入力欄の除外", /closest\?\.\("input, select, textarea"\)/],
+      ]) {
+        check(`io の口の中身が DOM 操作の綴りになっている: ${label}`, needle.test(hook), String(needle));
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -6900,9 +7340,18 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           // **完全ではない**が、名指しの2定数を数えるだけだった前の版よりは広い。
           const JS_GLOBAL_UPPER = ["URL", "AudioContext", "Float32Array", "Uint8Array", "MediaRecorder", "ResizeObserver", "JSON", "NaN"];
           const used = new Set();
+          // 【速度】元は一致ごとに `codeBare.slice(0, m.index)` と `codeBare.slice(m.index + …)`
+          // で **500KB の文字列を2本作って**いた。一致は数千件あるので、この1ループだけで
+          // 110,341ms(検証ゲート全体の大半)を使っていた(統括の実測 → 行番号を打って特定)。
+          // 見ているのは「直前の非空白1文字」と「直後の非空白1文字」だけなので、
+          // 切り出さずに前後へ1文字ずつ走る。**判定の結果は完全に同じ**
+          // (前が無ければ "" / 後ろが無ければ "" になるところまで含めて元と一致)。
+          const isWs = (ch) => ch === " " || ch === "\n" || ch === "\t" || ch === "\r" || ch === "\f" || ch === "\v";
+          const prevNonWs = (s, i) => { let k = i - 1; while (k >= 0 && isWs(s[k])) k--; return k >= 0 ? s[k] : ""; };
+          const nextNonWs = (s, i) => { let k = i; while (k < s.length && isWs(s[k])) k++; return k < s.length ? s[k] : ""; };
           for (const m of codeBare.matchAll(/(?<![\w$])([A-Z][A-Z0-9_]{2,})(?![\w$])/g)) {
-            const before = codeBare.slice(0, m.index).replace(/\s+$/, "").slice(-1);
-            const after = codeBare.slice(m.index + m[1].length).replace(/^\s+/, "").slice(0, 1);
+            const before = prevNonWs(codeBare, m.index);
+            const after = nextNonWs(codeBare, m.index + m[1].length);
             if (before === ">" && (after === "<" || after === "{" || after === ":")) continue;
             used.add(m[1]);
           }
@@ -7571,26 +8020,53 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           opens.push({ el: m[1], start: m.index, end, tag: jsx.slice(m.index, end) });
         }
       }
+      // 【速度】以下2つは**索引**。主張は1つも変えず、総当たりを二分探索に置き換えるだけ。
+      // 直す前はこの節だけで 251,468ms(検証ゲート全体の73%)を使っており、
+      // ゲートが5分かかるせいで**変異試験が回り切らない**状態だった(統括の実測)。
+      //
+      // (a) 要素名ごとの開始タグ位置と、「自己終了でないもの」の累積和。
+      //     opens は正規表現の走査順なので start の昇順に並んでいる(二分探索の前提)。
+      //     `<el[\s/>]` が当たる位置は opens の el 一致分と**完全に同じ**
+      //     (`<el` の直後が空白/スラッシュ/> のときだけ当たるので `<element` は当たらない)。
+      const openIdx = new Map();
+      for (const o of opens) {
+        if (!openIdx.has(o.el)) openIdx.set(o.el, { pos: [], pre: [0] });
+        const e = openIdx.get(o.el);
+        e.pos.push(o.start);
+        e.pre.push(e.pre[e.pre.length - 1] + (/\/>\s*$/.test(o.tag) ? 0 : 1));
+      }
+      // 配列 arr(昇順)の中で v 未満の要素数 = v 以上の最初の位置
+      const lowerBound = (arr, v) => {
+        let lo = 0, hi = arr.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; }
+        return lo;
+      };
+
       // 対応する閉じタグまで(= その操作の部分木)。自己終了タグは自分だけ
+      // 【速度】区間 [i, c) にある「自己終了でない同名の開始タグ」の**数**が要るだけなので、
+      // 元の「毎回 new RegExp して数え直す」を累積和の差に置き換えた。
+      // 数え方(区間の開閉・自己終了の判定)は1文字も変えていない。
+      const subtreeCache = new Map();
       const subtreeEnd = (o) => {
-        if (/\/>\s*$/.test(o.tag)) return o.end;
-        const close = `</${o.el}>`;
-        let depth = 1, i = o.end;
-        while (i < jsx.length) {
-          const c = jsx.indexOf(close, i);
-          if (c === -1) return jsx.length;
-          let nested = 0;
-          const re = new RegExp(`<${o.el}[\\s/>]`, "g");
-          re.lastIndex = i;
-          let mm;
-          while ((mm = re.exec(jsx)) !== null && mm.index < c) {
-            if (!/\/>\s*$/.test(jsx.slice(mm.index, tagEndAt(mm.index)))) nested++;
+        if (subtreeCache.has(o)) return subtreeCache.get(o);
+        const val = (() => {
+          if (/\/>\s*$/.test(o.tag)) return o.end;
+          const close = `</${o.el}>`;
+          const idx = openIdx.get(o.el) || { pos: [], pre: [0] };
+          let depth = 1, i = o.end;
+          while (i < jsx.length) {
+            const c = jsx.indexOf(close, i);
+            if (c === -1) return jsx.length;
+            // 元の内側ループと同じ範囲: i <= mm.index < c
+            const nested = idx.pre[lowerBound(idx.pos, c)] - idx.pre[lowerBound(idx.pos, i)];
+            depth += nested - 1;
+            i = c + close.length;
+            if (depth === 0) return i;
           }
-          depth += nested - 1;
-          i = c + close.length;
-          if (depth === 0) return i;
-        }
-        return jsx.length;
+          return jsx.length;
+        })();
+        subtreeCache.set(o, val);
+        return val;
       };
 
       // (2) 中括弧の対応を取る(スプレッド元・関数の返り値を読むのに使う)
@@ -7710,7 +8186,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       };
 
       // (5) 入口。(i)(ii) はタグの綴り、(iii) は「触れるかどうか」で決める。
-      const lineOf = (i) => src.slice(0, i).split("\n").length;
+      // 【速度】元は `src.slice(0, i).split("\n").length` で、1回ごとに 500KB を切って割っていた。
+      // 行頭表(改行の位置)を1度だけ作り、二分探索で数える。**返す行番号は同じ**
+      // (i より前にある改行の数 + 1)。
+      const nlPos = [];
+      for (let k = 0; k < src.length; k++) if (src[k] === "\n") nlPos.push(k);
+      const lineOf = (i) => lowerBound(nlPos, i) + 1;
       const CONTROL = /^(button|select|input|textarea)$/;
       const styleCache = new Map();
       const dsOf = (o) => {
@@ -7739,11 +8220,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       };
       const controls = opens.filter(isEntry);
       const ranges = controls.map((c) => ({ c, end: subtreeEnd(c) }));
+      // 【速度】「その要素を含む操作のうち、**開始が最も後ろのもの**」を返す規則はそのまま。
+      // 開始の降順に見れば**最初に見つかったものが答え**なので、そこで打ち切れる
+      // (元は毎回 129 個すべてを舐めて最大を取り直していた)。
+      const rangesDesc = [...ranges].sort((a, b) => b.c.start - a.c.start);
       const ownerOf = (o) => {
-        let best = null;
-        for (const { c, end } of ranges)
-          if (o.start >= c.start && o.start < end && (!best || c.start > best.start)) best = c;
-        return best;
+        for (const { c, end } of rangesDesc)
+          if (o.start >= c.start && o.start < end) return c;
+        return null;
       };
       const unreadable = [], both = [], framed = [], mockOutline = [];
       for (const o of opens) {
@@ -8013,6 +8497,32 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         bad.length === 0, bad.map((r) => r.sels.join(",")).join(" | "));
     }
 
+    // --- 17.14b 【F-92】タップした場所が四角いグレーで塗られる挙動を消す ------
+    // 本人指示(実機 2026/08/15)「タップしたところがタップ判定？で四角くグレーになる
+    // 仕様を削除」= ブラウザ既定の `-webkit-tap-highlight-color`。
+    // **アプリ全体に効かせる**必要があるので、継承する root(html)に1回だけ書く。
+    // ここで見るのは3つ: (a) root に書いてある (b) 値が transparent (c) 後から
+    // 別の要素で色を戻していない。**「押した手応えがあるか」は見ていない**
+    // (index.css には :active の規則が1つも無く、押下中の見た目を持つ要素は存在しない。
+    //  代わりの手応えを足すかどうかは本人・統括の判断。実装報告に明記した)。
+    {
+      const htmlBlocks = rulesFor("html");
+      const withTap = htmlBlocks.filter((b) => decl(b.body, "-webkit-tap-highlight-color") !== null);
+      check("F-92: html(継承の根)に -webkit-tap-highlight-color を書いている",
+        withTap.length >= 1, `html の規則 ${htmlBlocks.length}件 / うち指定あり ${withTap.length}件`);
+      check("F-92: その値は transparent(灰色の四角を出さない)",
+        withTap.length >= 1 && withTap.every((b) => decl(b.body, "-webkit-tap-highlight-color") === "transparent"),
+        withTap.map((b) => decl(b.body, "-webkit-tap-highlight-color")).join(" / "));
+      // 後勝ちで戻していないこと。**セレクタを固定しない**(html 以外に書き足す正しい修正を
+      // 落とさないため)。見るのは「透明でない値がファイル内に1つも無い」という集合の性質。
+      const opaque = cssRules.filter((r) => {
+        const v = decl(r.body, "-webkit-tap-highlight-color");
+        return v !== null && v !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(v);
+      });
+      check("F-92: 透明以外の tap-highlight を書いている規則が1つも無い(後から戻していない)",
+        opaque.length === 0, opaque.map((r) => `${r.sels.join(",")} → ${decl(r.body, "-webkit-tap-highlight-color")}`).join(" | "));
+    }
+
     // --- 17.15 F-49 長押しでテキスト選択させない(.no-select) -----------------
     // 本人指示: 「メトロノームのプラスマイナスとボタンが長押しでテキスト選択の判定になる」
     //           「テンポタップ時も同様」「登録済みリードを並び替えで長押しすると選択になる」
@@ -8132,24 +8642,101 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     {
       const i = src.indexOf("onClick={toggleRecording}");
       const tag = i === -1 ? "" : tagAt(src.lastIndexOf("<button", i) + 1);
+      // 正典の .rec / .rec .stop を**その場で**読む(この節は §25/§26 の declOf の外にある)。
+      // 綴りを写さず正典から引くのは、正典が変わったら検査も一緒に動くようにするため。
+      const recMock = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+      const mockDecl = (sel, name) => {
+        const re = new RegExp(`(^|[},])\\s*${sel.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*\\{([^{}]*)\\}`, "m");
+        const m = re.exec(recMock.replace(/\/\*[\s\S]*?\*\//g, " "));
+        if (!m) return null;
+        for (const d of m[2].split(";")) {
+          const k = d.slice(0, d.indexOf(":")).trim();
+          if (k === name) return d.slice(d.indexOf(":") + 1).trim();
+        }
+        return null;
+      };
+      check("正典 north-star-measure.html の .rec / .rec .stop を読めている",
+        mockDecl(".rec", "border") !== null && mockDecl(".rec .stop", "width") !== null,
+        `${mockDecl(".rec", "border")} / ${mockDecl(".rec .stop", "width")}`);
       check("録音ボタンのタグを走査できている", /onClick=\{toggleRecording\}/.test(tag), tag.slice(0, 120));
       check("録音ボタンは影(boxShadow)を持たない",
         !withPrefix([tag], ["boxshadow"]).length, tag.replace(/\s+/g, " ").slice(0, 200));
       check("録音ボタンは正典 .rec の 68×68 の円",
         /width: 68, height: 68, borderRadius: "50%"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
-      check("録音ボタンは白い地 + 1.5px の輪郭(正典 .rec)",
-        /background: "var\(--c-surface\)", border: "1\.5px solid var\(--c-line-strong\)"/.test(tag),
+      // 【F-89 で 1.5px → 4px】本人指示(実機 2026/08/15)「録音ボタンはスマホの動画開始、
+      // 停止ボタンと同じに変更(とる前は枠全体の丸、とると四角に形が変わる形式)」。
+      // 正典 .rec の輪は 1.5px だが、**本人の実機指示が正典より上位**(F-75 / F-77 と同じ扱い)。
+      // 4px は DESIGN-SYSTEM にも正典にも無い**新設の値**(統括/本人の確認待ち)。
+      // ここでは「地は白のまま」「輪の太さがソース中の定数 REC_RING_SW と一致する」だけを見る。
+      // **これは見た目が「太い輪に見えるか」の判定ではない**(それは実機の判断)。
+      check("録音ボタンは白い地 + 輪郭を持つ(正典 .rec の白地は据え置き)",
+        /background: "var\(--c-surface\)", border: "\d+(\.\d+)?px solid var\(--c-line-strong\)"/.test(tag),
         tag.replace(/\s+/g, " ").slice(0, 240));
+      {
+        const sw = api.REC_RING_SW;
+        const inTag = Number((tag.match(/border: "(\d+(?:\.\d+)?)px solid var\(--c-line-strong\)"/) || [])[1]);
+        check("録音ボタンの輪の太さは REC_RING_SW と一致する(2箇所に別の値が書かれていない)",
+          Number.isFinite(sw) && sw === inTag, `REC_RING_SW=${sw} / JSX=${inTag}`);
+        // 「正典より太い」= 本人指示を実際に反映したことの最低条件。1.5 は正典の値。
+        check("録音ボタンの輪は正典 .rec の 1.5px より太い(F-89)",
+          Number.isFinite(sw) && sw > parseFloat(mockDecl(".rec", "border")), `REC_RING_SW=${sw} / 正典=${mockDecl(".rec", "border")}`);
+      }
       check("録音ボタンは文字を持たないので aria-label が名前を担う",
         /aria-label=\{isRecording \? "録音を停止" : "録音する"\}/.test(tag) && !/録音する<\/button>/.test(codeOf(src)));
       check("録音ボタンはトグルなので状態を aria-pressed が持つ", /aria-pressed=\{isRecording\}/.test(tag));
-      // 中身: 待機 = 赤い丸 26px / 録音中 = 赤い角丸 22px(r5)。正典 .rec .dot / .rec .stop。
+      // 中身: 【F-89】待機 = 輪の内側いっぱいの赤い丸 / 録音中 = 赤い角丸 22px(正典 .rec .stop)。
+      // 旧主張「待機中は赤い丸 26px(正典 .rec .dot)」は本人指示で置き換わった
+      // (26px = 外径の 38% しかなく「枠全体の丸」にならない)。
+      // **寸法は recInnerShape に閉じ込めた**ので、JSX ではなく関数を評価して見る
+      // (JSX に数値が2箇所写っていないことは、下の「数値を書かない」で別に見る)。
       {
         const body = src.slice(src.indexOf(">", src.lastIndexOf("<button", i) + 1), src.indexOf("</button>", i));
-        check("待機中は赤い丸 26px(正典 .rec .dot)",
-          /width: 26, height: 26, borderRadius: "50%", background: "var\(--c-danger\)"/.test(body), body.replace(/\s+/g, " ").slice(0, 240));
-        check("録音中は赤い角丸 22px・r5(正典 .rec .stop)",
-          /width: 22, height: 22, borderRadius: 5, background: "var\(--c-danger\)"/.test(body), body.replace(/\s+/g, " ").slice(0, 240));
+        const idle = api.recInnerShape(false);
+        const rec = api.recInnerShape(true);
+        // 【期待値は実装の定数から作らない】前版は `idle.size === D - 2*(sw+gap)` と書いており、
+        // **実装と同じ式を同じ定数で書き直しただけ**でどの値でも真になる恒真式だった
+        // (審査役の実測: REC_RING_GAP 3→10 / 3→0 / REC_BTN_D 68→80 がすべて生存)。
+        // 期待値は **JSX に実際に書かれている外径と輪の太さ**(=画面に出る値)から作る。
+        // 定数側を書き換えても JSX の 68 / 4 は動かないので、食い違いがそのまま落ちる。
+        const jsxD = Number((tag.match(/width: (\d+(?:\.\d+)?), height: \d/) || [])[1]);
+        const jsxSW = Number((tag.match(/border: "(\d+(?:\.\d+)?)px solid/) || [])[1]);
+        // 輪の内側の内容ボックス(border-box なので 外径 − 輪×2)。中身はこの中に収まる。
+        const innerBox = jsxD - 2 * jsxSW;
+        check("JSX の外径は正典 .rec の width と一致する",
+          jsxD === parseFloat(mockDecl(".rec", "width")), `JSX=${jsxD} / 正典=${mockDecl(".rec", "width")}`);
+        // (1) 待機は「円」= 半径が直径の半分。**丸であることを形で見る**(綴りではなく)
+        check("待機中の中身は円(半径 = 直径の半分)",
+          idle.size > 0 && idle.radius === idle.size / 2, JSON.stringify(idle));
+        // (2) 「枠全体の丸」(本人指示)= 中身が輪の内側をほぼ埋める。
+        //     **輪の内側に収まり**、かつ**輪に接しない**(隙間がある)ことの両方を見る。
+        //     0.85 は「輪の内側の直径の85%以上」。正典の 26px は 26/60 = 0.43 で落ちる。
+        check("待機中の円は輪の内側に収まる(はみ出さない)",
+          idle.size <= innerBox, `内容ボックス=${innerBox} / 中身=${idle.size}`);
+        check("待機中の円と輪の間に隙間がある(輪に接しない)",
+          idle.size < innerBox, `内容ボックス=${innerBox} / 中身=${idle.size}`);
+        check("待機中の円は輪の内側をほぼ埋める(本人指示「枠全体の丸」。内径の85%以上)",
+          idle.size / innerBox >= 0.85,
+          `${idle.size}/${innerBox} = ${(idle.size / innerBox).toFixed(3)}`);
+        // (3) 録音中は「四角」= 半径が直径の半分**未満**。正典 .rec .stop の 22px / r5 のまま
+        check("録音中の中身は角丸の四角(半径 < 直径の半分)",
+          rec.radius < rec.size / 2, JSON.stringify(rec));
+        check("録音中の四角は正典 .rec .stop のまま(22px / r5)",
+          rec.size === parseFloat(mockDecl(".rec .stop", "width"))
+          && rec.radius === parseFloat(mockDecl(".rec .stop", "border-radius")),
+          `${JSON.stringify(rec)} / 正典=${mockDecl(".rec .stop", "width")} ${mockDecl(".rec .stop", "border-radius")}`);
+        // (4) **どちらの状態でも中身は外径を超えない** = 形が変わっても外径は動かない。
+        //     これは「位置と外径は動かさない」(本人指示)の必要条件。十分条件ではない
+        //     (実際の描画位置は実機で見る)。
+        check("中身はどちらの状態でも輪の内側に収まる(形だけが変わる。外径は動かない)",
+          idle.size <= innerBox && rec.size <= innerBox,
+          `idle=${idle.size} rec=${rec.size} 内容ボックス=${innerBox}`);
+        check("待機と録音中で形が実際に変わる(同じ寸法・同じ角丸ではない)",
+          !(idle.size === rec.size && idle.radius === rec.radius), `${JSON.stringify(idle)} / ${JSON.stringify(rec)}`);
+        // (5) JSX 側は recInnerShape だけを参照し、寸法の数値を持たない
+        //     (待機と録音中で2箇所に写すと、片方だけ直して外径が動く)
+        check("録音ボタンの中身の寸法は JSX に直書きされていない(recInnerShape が唯一の答え)",
+          /recInnerShape\(isRecording\)/.test(body) && !/width: \d/.test(codeOf(body)),
+          codeOf(body).replace(/\s+/g, " ").slice(0, 240));
       }
     }
 
@@ -10864,6 +11451,52 @@ let METRO_SIGS_ALL = [];
     // 従って --fs-md(15px)にしていたが、見た目はモックが唯一の正典(§6.0)。
     check("拍子表示は正典 .tsig の 12px", /fontSize: 12, color: "var\(--c-ink-3\)"/.test(mp));
 
+    // --- 【F-91】拍子表示・拍の●をタップしてもテンポ拍子シートが出る ------------
+    // 本人指示(実機 2026/08/15)「4/4などの拍子や、拍を表すをタップしても
+    // テンポ拍子メニューがでるルートを追加」。
+    // 【メトロノームの開始/停止と喧嘩させない】計測タブは A-1 で画面のどこでも開始/停止し、
+    // F-74 でその範囲を限定してある。ここに置く当たり判定は**拍子の文字と●の列の上だけ**。
+    // ここで見ているのは配線と寸法の規則で、**実際にどこがどちらに割り当たるかは
+    // 実ブラウザの走査で見る**(この検査だけでは十分条件にならない)。
+    {
+      const mpSrc = mp;   // MetroPendulum の本体(コメントは落としてある)
+      check("F-91: MetroPendulum は押せるかどうかを呼び出し側から受け取る(既定は押せない)",
+        /onOpenSheet = null/.test(code.slice(code.indexOf("function MetroPendulum"), code.indexOf("function MetroPendulum") + 400)));
+      // 既定を「押せる」にすると、次に増える呼び出し先へ黙って当たり判定が漏れる(F-72 罠1)。
+      check("F-91: onOpenSheet が無いときは当たり判定を1つも作らない",
+        /\{onOpenSheet \?/.test(mpSrc) && /\{onOpenSheet && n > 0 &&/.test(mpSrc));
+      check("F-91: ●が1つも無いとき(n=0)は●側の当たり判定を出さない",
+        /onOpenSheet && n > 0/.test(mpSrc));
+      // 押せる箱は流れの外(absolute)。行の高さ METRO_BEAT_ROW_H を伸ばさない(§6.1.5)。
+      const taps = [];
+      for (let k = mpSrc.indexOf("onClick={onOpenSheet}"); k !== -1; k = mpSrc.indexOf("onClick={onOpenSheet}", k + 1)) {
+        taps.push(mpSrc.slice(mpSrc.lastIndexOf("<button", k), mpSrc.indexOf(">", k) + 1));
+      }
+      // 2 に固定するのは偶然の件数ではなく、**本人が名指しした入口が2つ**だから
+      // (「4/4などの拍子」と「拍を表す」)。増やすなら仕様の側を先に変える。
+      check("F-91: 本人が名指しした入口は2つ(拍子の文字と●の列)。それ以外に増やしていない",
+        taps.length === 2, `${taps.length}個`);
+      check("F-91: どちらも流れの外(absolute)に置き、行の高さを伸ばさない",
+        taps.every((t) => /position: "absolute"/.test(t)),
+        taps.map((t) => t.replace(/\s+/g, " ").slice(0, 80)).join(" || "));
+      check("F-91: どちらも §5 の 44pt を満たす(高さ --tap-min / 最小幅 --tap-min)",
+        taps.every((t) => /height: "var\(--tap-min\)"/.test(t) && /minWidth: "var\(--tap-min\)"/.test(t)),
+        taps.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" || "));
+      // 親は pointerEvents:none(A-1 の読むだけの箱)なので、押せる箱は自分で取り戻す。
+      check("F-91: 押せる箱は pointerEvents を自分で auto に戻す(親が none のため)",
+        taps.every((t) => /pointerEvents: "auto"/.test(t)));
+      // 文字の位置は1pxも動かない = 拍子の右端の式が従来と同じであること(上の検査と同じ式)。
+      check("F-91: 拍子の文字の右端の位置は従来と同じ式のまま(当たり判定だけ広げる。§5)",
+        (mpSrc.match(/right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/g) || []).length === 2,
+        `${(mpSrc.match(/right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/g) || []).length}箇所(押せる版・押せない版の2つ)`);
+      // 呼び出し側: 計測タブだけが渡す。行き先はテンポ拍子シート。
+      const mv = code.slice(code.indexOf("function MeasureView"));
+      check("F-91: 計測タブは onOpenSheet でテンポ拍子シートを開く",
+        /onOpenSheet=\{\(\) => setTempoSheetOpen\(true\)\}/.test(mv));
+      check("F-91: テンポ数値(♩=n)からの入口も残っている",
+        /aria-label="テンポと拍子" aria-expanded=\{tempoSheetOpen\}/.test(mv));
+    }
+
     // 【審査の穴だった箇所】●の寸法と間隔を縛る検査が1件も無く、
     // METRO_BEAT_GAP_PX を 12→4 にする変異が生存していた。正典の実寸を値で縛る。
     check("●の直径は正典 .beat の 7px", api.METRO_BEAT_DOT_PX === 7, String(api.METRO_BEAT_DOT_PX));
@@ -12528,9 +13161,25 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       !codeOf(myDataPage).includes("絞り込み")
       && !/background: "var\(--c-surface\)"/.test(codeOf(myDataPage)),
       (codeOf(myDataPage).match(/background: "var\(--c-surface\)"/g) || []).join(",") || "0件");
-    // ピルは輪郭(A型)・アップロードは塗り。**形言語を分ける**(§6.0)
-    check("26.3 フィルタピルは輪郭だけ(A型 .ctl-state)。塗りのボタンと形を分ける",
-      /className="ctl-state ctl-pill"/.test(myDataPage));
+    // 【F-86 で置き換え】本人指示(実機 2026/08/15)「セッションの絞り込みにも枠線は不要」。
+    // 旧主張「フィルタピルは輪郭だけ(A型 .ctl-state)」は本人指示に反するので撤回する
+    // (正典 .fp は輪郭だが、**本人の実機指示が正典より上位**。F-75 / F-77 と同じ扱い)。
+    // 新しい主張は3つ。**この3つが揃って初めて「枠線を消したが寸法は動いていない」と言える**が、
+    // 見た目の最終判定ではない(実際の描画は実機で見る)。
+    //   (a) 型のクラス(.ctl-state / .ctl-plain)を名乗っていない = 枠も地も持たない
+    //   (b) 枠は `1px solid transparent` で**場所だけ残す**(border:0 だと幅・高さが 2px 縮む。F-75)
+    //   (c) 見える色の枠線を持たない(--c-line* / --c-accent などの枠を1つも書いていない)
+    {
+      const pill = myDataPage.slice(myDataPage.indexOf("const filterPill"),
+        myDataPage.indexOf("</button>", myDataPage.indexOf("const filterPill")));
+      check("26.3 フィルタピルは型のクラス(A型/B型)を名乗らない(F-86: 枠も地も持たない)",
+        pill.length > 0 && !/ctl-state|ctl-plain|ctl-pill/.test(pill), pill.replace(/\s+/g, " ").slice(0, 240));
+      check("26.3 フィルタピルの枠は 1px solid transparent で場所だけ残す(寸法を動かさない)",
+        /border: "1px solid transparent"/.test(pill), pill.replace(/\s+/g, " ").slice(0, 240));
+      check("26.3 フィルタピルは見える色の枠線を1つも持たない",
+        !/border(Top|Right|Bottom|Left)?: "[^"]*var\(--c-(line|accent|ink)/.test(pill),
+        (pill.match(/border[A-Za-z]*: "[^"]*"/g) || []).join(" / ") || "0件");
+    }
     check("26.3 ピルの当たり判定は 44pt(見た目のピルは内側の <span>・<button> は透明。§5)",
       /const filterPill = \([\s\S]{0,400}?\.\.\.TAP_BUTTON_RESET/.test(myDataPage));
     check("26.3 一覧の行の当たり判定も 44pt(§5)",

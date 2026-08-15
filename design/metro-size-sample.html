@@ -1,0 +1,149 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>メトロノームの大きさ比較</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
+    --accent:#174585; --dim:#B9C9E4; --rec:#C0392B; --bg:#F6F7F9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+
+  header{padding:20px 16px 8px;max-width:900px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 6px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.7;margin:0}
+  header b{color:var(--ink)}
+
+  .grid{display:flex;flex-wrap:wrap;gap:22px;justify-content:center;padding:18px 12px 60px}
+
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px}
+  .tag .n{font-size:14px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 8px;font-weight:700}
+
+  /* 実機と同じ 375 幅。高さは比較に必要な範囲だけ */
+  .phone{position:relative;width:375px;max-width:100%;height:430px;background:#fff;
+    border-radius:26px;overflow:hidden;box-shadow:0 2px 14px rgba(20,30,50,.10)}
+
+  /* 上: 音名（大きさの基準として置く。ここは変えない） */
+  .notewrap{position:absolute;top:26px;left:0;right:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center}
+  .note{font-family:"Instrument Serif",Georgia,serif;font-size:148px;line-height:1}
+  .note .oct{font-size:44px;color:var(--dim)}
+  .cents{font-family:ui-monospace,Menlo,monospace;font-size:21px;margin-top:6px;
+    font-variant-numeric:tabular-nums;color:rgb(22,140,70)}
+
+  /* 下: メトロノーム。--k で丸ごと拡大する */
+  .pend{position:absolute;top:250px;left:0;right:0;display:flex;flex-direction:column;
+    align-items:center;gap:calc(6px * var(--k))}
+  .pend svg{width:calc(150px * var(--k));height:calc(26px * var(--k))}
+  .beatrow{position:relative;width:100%;display:flex;align-items:center;
+    justify-content:center;gap:calc(12px * var(--k))}
+  .beat{width:calc(7px * var(--k));height:calc(7px * var(--k));border-radius:50%;background:var(--line2)}
+  .beat.on{background:var(--accent);transform:scale(1.4)}
+  .tsig{position:absolute;left:calc(50% - (80px * var(--k)));margin:0;
+    font-size:calc(12px * var(--k));color:var(--ink3)}
+  .bpmrow{display:flex;align-items:center;gap:calc(34px * var(--k))}
+  .pmt{width:calc(72px * var(--k));height:calc(48px * var(--k));display:flex;align-items:center;
+    justify-content:center;font-size:calc(20px * var(--k));font-weight:300;color:var(--ink2)}
+  .bpmtxt{font-size:calc(15px * var(--k));color:var(--ink2);font-variant-numeric:tabular-nums}
+
+  .note-cap{font-size:12px;color:var(--ink3);line-height:1.7;margin:8px 2px 0}
+  .note-cap b{color:var(--ink2)}
+
+  footer{max-width:900px;margin:0 auto;padding:0 16px 60px;font-size:13px;
+    color:var(--ink2);line-height:1.8}
+  footer h2{font-size:14px;color:var(--ink);margin:26px 0 6px}
+  footer li{margin-bottom:4px}
+
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4; --ink2:#B6C0CE; --ink3:#8892A0; --line:#252B34; --line2:#39414C;
+          --dim:#4C607E; --bg:#14181E;}
+    body{background:#14181E}
+    .phone{background:#1B2027;box-shadow:none}
+  }
+</style>
+
+<header>
+  <h1>メトロノームの大きさ比較</h1>
+  <p>振り子・拍子（4/4）・拍の●・テンポ（♩= 92）を<b>まとめて拡大</b>したものを4段階並べました。
+  上の音名（D5）は<b>基準として一切変えていません</b>。音名との対比で見てください。<br>
+  実機と同じ 375px 幅で描いています。<b>スマホで開くと実寸</b>です。</p>
+</header>
+
+<div class="grid">
+
+  <div class="col">
+    <div class="tag"><span class="n">A 現行</span><span class="s">1.00倍</span></div>
+    <div class="phone" style="--k:1.00">
+      <div class="notewrap"><div class="note">D<span class="oct">5</span></div><div class="cents">−2¢</div></div>
+      <div class="pend">
+        <svg viewBox="0 0 150 26"><path d="M10 8 Q75 30 140 8" fill="none" stroke="#E8EBEF" stroke-width="1.5"/><circle cx="10" cy="8" r="5" fill="#174585"/></svg>
+        <div class="beatrow"><span class="tsig">4/4</span>
+          <div class="beat on"></div><div class="beat"></div><div class="beat"></div><div class="beat"></div></div>
+        <div class="bpmrow"><span class="pmt">−</span><span class="bpmtxt">♩= 92</span><span class="pmt">＋</span></div>
+      </div>
+    </div>
+    <p class="note-cap">いま出ている大きさ。振り子 150×26 / 拍の● 7px / 拍子 12px / テンポ 15px</p>
+  </div>
+
+  <div class="col">
+    <div class="tag"><span class="n">B 少し大きく</span><span class="s">1.20倍</span><span class="rec">推し</span></div>
+    <div class="phone" style="--k:1.20">
+      <div class="notewrap"><div class="note">D<span class="oct">5</span></div><div class="cents">−2¢</div></div>
+      <div class="pend">
+        <svg viewBox="0 0 150 26"><path d="M10 8 Q75 30 140 8" fill="none" stroke="#E8EBEF" stroke-width="1.5"/><circle cx="10" cy="8" r="5" fill="#174585"/></svg>
+        <div class="beatrow"><span class="tsig">4/4</span>
+          <div class="beat on"></div><div class="beat"></div><div class="beat"></div><div class="beat"></div></div>
+        <div class="bpmrow"><span class="pmt">−</span><span class="bpmtxt">♩= 92</span><span class="pmt">＋</span></div>
+      </div>
+    </div>
+    <p class="note-cap">振り子 180×31 / ● 8.4px / 拍子 14.4px / テンポ 18px。<b>音名の主役は保ったまま、離れて見ても拍が追える</b></p>
+  </div>
+
+  <div class="col">
+    <div class="tag"><span class="n">C はっきり大きく</span><span class="s">1.40倍</span></div>
+    <div class="phone" style="--k:1.40">
+      <div class="notewrap"><div class="note">D<span class="oct">5</span></div><div class="cents">−2¢</div></div>
+      <div class="pend">
+        <svg viewBox="0 0 150 26"><path d="M10 8 Q75 30 140 8" fill="none" stroke="#E8EBEF" stroke-width="1.5"/><circle cx="10" cy="8" r="5" fill="#174585"/></svg>
+        <div class="beatrow"><span class="tsig">4/4</span>
+          <div class="beat on"></div><div class="beat"></div><div class="beat"></div><div class="beat"></div></div>
+        <div class="bpmrow"><span class="pmt">−</span><span class="bpmtxt">♩= 92</span><span class="pmt">＋</span></div>
+      </div>
+    </div>
+    <p class="note-cap">振り子 210×36 / ● 9.8px / 拍子 16.8px / テンポ 21px。<b>譜面台に置いて見るならここから</b></p>
+  </div>
+
+  <div class="col">
+    <div class="tag"><span class="n">D かなり大きく</span><span class="s">1.60倍</span></div>
+    <div class="phone" style="--k:1.60">
+      <div class="notewrap"><div class="note">D<span class="oct">5</span></div><div class="cents">−2¢</div></div>
+      <div class="pend">
+        <svg viewBox="0 0 150 26"><path d="M10 8 Q75 30 140 8" fill="none" stroke="#E8EBEF" stroke-width="1.5"/><circle cx="10" cy="8" r="5" fill="#174585"/></svg>
+        <div class="beatrow"><span class="tsig">4/4</span>
+          <div class="beat on"></div><div class="beat"></div><div class="beat"></div><div class="beat"></div></div>
+        <div class="bpmrow"><span class="pmt">−</span><span class="bpmtxt">♩= 92</span><span class="pmt">＋</span></div>
+      </div>
+    </div>
+    <p class="note-cap">振り子 240×42 / ● 11.2px / 拍子 19.2px / テンポ 24px。<b>音名と主役を取り合い始める</b></p>
+  </div>
+
+</div>
+
+<footer>
+  <h2>選ぶときの目安</h2>
+  <ul>
+    <li><b>振り子は「動き」で見るもの</b>なので、静止画で小さく見えても実際は追えます。逆に拍の●と拍子は<b>静止して読む</b>ので、小さいと効きます。</li>
+    <li>テンポの数字（♩= 92）は<b>演奏中に読む必要がない</b>とご指摘いただいた箇所です。ここだけ据え置きにもできます。</li>
+    <li>D まで大きくすると、音名（D5）と<b>どちらが主役か曖昧</b>になります。計測タブの主役は音名なので、B〜C が無難です。</li>
+  </ul>
+  <h2>部分だけ変えることもできます</h2>
+  <ul>
+    <li>「振り子と拍の●だけ C、拍子とテンポは A のまま」といった<b>混ぜ方も可能</b>です。番号でお知らせください。</li>
+  </ul>
+</footer>

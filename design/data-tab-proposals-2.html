@@ -1,0 +1,306 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>データタブ 一新案（第2版）</title>
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
+    --rule:#E1E6EC; --accent:#174585; --accent-line:#B9C9E4; --dim:#B9C9E4; --bg:#F6F7F9;
+    --mint:#6EE7B7; --good:#4ADE80; --warn:#FBBF24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:20px 16px 4px;max-width:1180px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 8px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.8;margin:0 0 6px}
+  header b{color:var(--ink)}
+  .keep{display:inline-block;font-size:11.5px;background:#fff;border:1px solid var(--line2);
+    border-radius:999px;padding:3px 10px;margin:2px 4px 2px 0;color:var(--ink2)}
+
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+
+  .phone{position:relative;width:375px;max-width:100%;height:706px;background:#fff;
+    border-radius:26px;overflow:hidden;box-shadow:0 2px 14px rgba(20,30,50,.10)}
+  .body{position:absolute;top:0;left:0;right:0;bottom:56px;padding:14px 24px 0;overflow:hidden}
+  .subtabs{display:flex;gap:18px;font-size:13px;color:var(--ink3);padding:2px 0 16px}
+  .subtabs .on{color:var(--ink);font-weight:600}
+  .subtabs .more{margin-left:auto;color:var(--ink2);letter-spacing:2px}
+  .tabs{position:absolute;left:0;right:0;bottom:0;height:56px;border-top:1px solid var(--line);display:flex}
+  .tabs div{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink3)}
+  .tabs .on{color:var(--accent);font-weight:700}
+
+  .lead{display:flex;justify-content:space-between;align-items:baseline}
+  .lbl{font-size:12px;color:var(--ink3)}
+  .big{font-family:ui-monospace,Menlo,monospace;font-size:44px;font-weight:600;line-height:1;
+    font-variant-numeric:tabular-nums;margin-top:6px}
+  .big .u{font-size:21px;color:var(--ink3)}
+  .pill{display:inline-flex;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;
+    margin-left:10px;vertical-align:6px;color:#04130D;background:var(--mint)}
+  .sd{font-size:12px;color:var(--ink3);margin-top:7px}
+
+  /* ---- 共通: 「累計＝まんなか」の帯（チューナーと同じ文法） ---- */
+  .mline{padding:13px 0;border-bottom:1px solid var(--rule)}
+  .mtop{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
+  .mname{font-size:12px;color:var(--ink2)}
+  .mval{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:600;
+    font-variant-numeric:tabular-nums}
+  .mval small{font-size:10.5px;color:var(--ink3);font-weight:400;margin-left:1px}
+  .mdiff{font-size:11.5px;font-variant-numeric:tabular-nums;margin-left:8px}
+  .up{color:#1D6B4A}.down{color:#B0433A}.flat{color:var(--ink3)}
+  .track{position:relative;height:14px}
+  .track .base{position:absolute;left:0;right:0;top:6px;height:1.5px;background:var(--line2)}
+  .track .mid{position:absolute;top:0;bottom:0;width:1.5px;background:var(--accent-line)}
+  .track .dot{position:absolute;top:2px;width:10px;height:10px;border-radius:50%;
+    background:var(--accent);margin-left:-5px}
+  .track .span{position:absolute;top:5.5px;height:3px;background:var(--accent);border-radius:2px;opacity:.28}
+  .mfoot{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3);margin-top:4px}
+
+  /* ---- 案E: 対比の2列 ---- */
+  .duo{display:flex;padding:12px 0;border-bottom:1px solid var(--rule);align-items:center;gap:10px}
+  .duo .nm{width:44px;font-size:11.5px;color:var(--ink3);flex-shrink:0}
+  .duo .cell{flex:1;text-align:right}
+  .duo .v{font-family:ui-monospace,Menlo,monospace;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .duo .v.past{font-weight:400;color:var(--ink3)}
+  .duo .v small{font-size:10px;color:var(--ink3);font-weight:400}
+  .duo .arrow{width:16px;text-align:center;color:var(--ink3);font-size:11px;flex-shrink:0}
+  .duo .d{width:56px;text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums}
+  .duohead{display:flex;gap:10px;font-size:10px;color:var(--ink3);padding:0 0 4px}
+  .duohead .nm{width:44px;flex-shrink:0}
+  .duohead .cell{flex:1;text-align:right}
+  .duohead .arrow{width:16px;flex-shrink:0}
+  .duohead .d{width:56px;text-align:right}
+
+  /* ---- 案F: 重ねる ---- */
+  .stack{padding:14px 0;border-bottom:1px solid var(--rule)}
+  .stackrow{display:flex;align-items:flex-end;justify-content:space-between}
+  .stack .nm{font-size:12px;color:var(--ink2)}
+  .stack .now{font-family:ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;
+    font-variant-numeric:tabular-nums;line-height:1}
+  .stack .now small{font-size:11px;color:var(--ink3);font-weight:400}
+  .stack .ghost{font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;margin-top:3px}
+  .bar{position:relative;height:5px;background:var(--line);border-radius:3px;margin-top:9px}
+  .bar .fill{position:absolute;top:0;bottom:0;left:0;background:var(--accent-line);border-radius:3px}
+  .bar .now{position:absolute;top:-3px;bottom:-3px;width:2.5px;background:var(--accent);border-radius:2px}
+
+  .shead{display:flex;align-items:center;justify-content:space-between;padding:18px 0 10px}
+  .shead .t{font-size:13px;font-weight:600}
+  .impbtn{font-size:13px;color:#fff;background:var(--accent);border-radius:999px;padding:6px 14px;font-weight:600}
+  .fpills{display:flex;gap:14px;padding:0 0 10px;flex-wrap:wrap}
+  .fp{font-size:12px;color:var(--ink2)}
+  .srow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+  .sectlbl{font-size:11px;color:var(--ink3);margin:20px 0 2px}
+
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap b{color:var(--ink)}
+  .cap .ok{color:#1D6B4A}.cap .ng{color:#B0433A}
+
+  footer{max-width:1180px;margin:0 auto;padding:10px 16px 70px;font-size:13px;color:var(--ink2);line-height:1.9}
+  footer h2{font-size:14px;color:var(--ink);margin:26px 0 6px}
+  footer li{margin-bottom:5px}
+
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4; --ink2:#B6C0CE; --ink3:#8892A0; --line:#252B34; --line2:#39414C;
+          --rule:#2C333D; --bg:#14181E}
+    body{background:#14181E}
+    .phone{background:#1B2027;box-shadow:none}
+    .keep{background:#1B2027}
+  }
+</style>
+
+<header>
+  <h1>データタブ 一新案（第2版）</h1>
+  <p>前回の A（1日1マス）と B（セッション＝タイル）は取り下げます。<b>「毎日続ける」ためのアプリではない</b>という前提を取り違えていました。</p>
+  <p>今回の軸は<b>「累計と比べて、いまの自分はどうか」</b>の1点だけです。手がかりは計測タブにありました —
+  <b>チューナーは「基準からのズレ」を見せる装置</b>なので、データタブも同じ文法で
+  <b>「累計からのズレ」</b>を見せれば、機能を1つも減らさずに3タブの文法が揃います。
+  細かい集計は分析（PIVOT）の仕事なので、ここでは<b>やりません</b>。</p>
+  <p>維持する機能:
+    <span class="keep">ヒーロー（今日・期間セレクタ・標準偏差）</span>
+    <span class="keep">累計</span>
+    <span class="keep">最新</span>
+    <span class="keep">数字タップで音名ごとのグラフ</span>
+    <span class="keep">セッション一覧</span>
+    <span class="keep">絞り込み</span>
+    <span class="keep">アップロード</span>
+    <span class="keep">「…」に削除・一括リード変更</span>
+  </p>
+  <p>実機と同じ 375px 幅。<b>スマホで開くと実寸</b>です。</p>
+</header>
+
+<div class="row">
+
+  <!-- ===== 案D ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案D　累計がまんなか</span><span class="rec">推し</span><span class="s">チューナーと同じ文法</span></div>
+    <div class="phone">
+      <div class="body">
+        <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="more">…</span></div>
+        <div class="lead"><span class="lbl">今日</span><span class="lbl">1ヶ月 ▾</span></div>
+        <div class="big">+1.2<span class="u">¢</span><span class="pill">Great</span></div>
+        <div class="sd">±3.4¢ · 累計 −0.8¢ より <span class="up">2.0¢ 上</span></div>
+
+        <div class="sectlbl">累計 12セッションを「まんなか」として</div>
+
+        <!-- 中央 50% = 累計。薄い帯 = いつものばらつき(±1)。軸の端は ±3 ばらつきぶん -->
+        <div class="mline">
+          <div class="mtop"><span class="mname">HNR</span>
+            <span><span class="mval">18.2<small>dB</small></span><span class="mdiff up">+0.6</span></span></div>
+          <div class="track"><div class="base"></div><div class="span" style="left:33.3%;width:33.4%"></div>
+            <div class="mid" style="left:50%"></div><div class="dot" style="left:57.1%"></div></div>
+          <div class="mfoot"><span>累計 17.6dB</span><span>いつもの範囲内</span></div>
+        </div>
+
+        <div class="mline">
+          <div class="mtop"><span class="mname">重心</span>
+            <span><span class="mval">1275<small>Hz</small></span><span class="mdiff up">+80</span></span></div>
+          <div class="track"><div class="base"></div><div class="span" style="left:33.3%;width:33.4%"></div>
+            <div class="mid" style="left:50%"></div><div class="dot" style="left:81.7%"></div></div>
+          <div class="mfoot"><span>累計 1195Hz</span><span style="color:#1D6B4A">いつもよりはっきり明るい</span></div>
+        </div>
+
+        <div class="mline">
+          <div class="mtop"><span class="mname">音量</span>
+            <span><span class="mval">−21.8<small>dB</small></span><span class="mdiff flat">+0.1</span></span></div>
+          <div class="track"><div class="base"></div><div class="span" style="left:33.3%;width:33.4%"></div>
+            <div class="mid" style="left:50%"></div><div class="dot" style="left:51.5%"></div></div>
+          <div class="mfoot"><span>累計 −21.9dB</span><span>いつもどおり</span></div>
+        </div>
+
+        <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">5/12</span></span>
+          <span class="impbtn">↥ 録音をアップロード</span></div>
+        <div class="fpills"><span class="fp">1ヶ月 ▾</span><span class="fp">リード ▾</span><span class="fp">奏者 ▾</span></div>
+        <div class="srow"><span class="d">08/15 19:04 <i>V16-3 #4 · 自分 · 12:24</i></span></div>
+        <div class="srow"><span class="d">08/14 20:41 <i>V16-3 #2 · 自分 · 26:10</i></span><span style="color:var(--ink3)">↥</span></div>
+      </div>
+      <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div>
+    </div>
+    <p class="cap"><b>まんなかの縦線＝累計の平均、●＝最新、薄い帯＝いつものばらつき</b>。
+    <span class="ok">「いつもより良い／いつもの範囲内」が一目で分かります</span>。
+    チューナーの環と同じで、<b>基準からどちら側にどれだけ離れたか</b>を見る装置です。
+    数字タップは今までどおり音名ごとのグラフ。<b>累計・最新・一覧はすべて残っています</b>。</p>
+  </div>
+
+  <!-- ===== 案E ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案E　左が累計・右が最新</span><span class="s">読み違えようがない</span></div>
+    <div class="phone">
+      <div class="body">
+        <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="more">…</span></div>
+        <div class="lead"><span class="lbl">今日</span><span class="lbl">1ヶ月 ▾</span></div>
+        <div class="big">+1.2<span class="u">¢</span><span class="pill">Great</span></div>
+        <div class="sd">±3.4¢ · 累計 −0.8¢</div>
+
+        <div class="sectlbl">累計 12セッション ／ 最新 2026/08/15</div>
+        <div class="duohead" style="margin-top:8px">
+          <span class="nm"></span><span class="cell">累計</span><span class="arrow"></span>
+          <span class="cell">最新</span><span class="d">差</span></div>
+        <div class="duo"><span class="nm">HNR</span>
+          <span class="cell"><span class="v past">17.6<small>dB</small></span></span>
+          <span class="arrow">→</span>
+          <span class="cell"><span class="v">18.2<small>dB</small></span></span>
+          <span class="d up">+0.6</span></div>
+        <div class="duo"><span class="nm">重心</span>
+          <span class="cell"><span class="v past">1195<small>Hz</small></span></span>
+          <span class="arrow">→</span>
+          <span class="cell"><span class="v">1214<small>Hz</small></span></span>
+          <span class="d up">+19</span></div>
+        <div class="duo"><span class="nm">音量</span>
+          <span class="cell"><span class="v past">−21.9<small>dB</small></span></span>
+          <span class="arrow">→</span>
+          <span class="cell"><span class="v">−21.4<small>dB</small></span></span>
+          <span class="d up">+0.5</span></div>
+
+        <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">5/12</span></span>
+          <span class="impbtn">↥ 録音をアップロード</span></div>
+        <div class="fpills"><span class="fp">1ヶ月 ▾</span><span class="fp">リード ▾</span><span class="fp">奏者 ▾</span></div>
+        <div class="srow"><span class="d">08/15 19:04 <i>V16-3 #4 · 自分 · 12:24</i></span></div>
+        <div class="srow"><span class="d">08/14 20:41 <i>V16-3 #2 · 自分 · 26:10</i></span><span style="color:var(--ink3)">↥</span></div>
+        <div class="srow"><span class="d">08/12 19:12 <i>Select3 #4 · 自分 · 8:05</i></span></div>
+        <div class="srow"><span class="d">08/11 21:03 <i>Select3 #2 · 自分 · 15:40</i></span></div>
+      </div>
+      <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div>
+    </div>
+    <p class="cap">累計を薄く、最新を濃く、右端に差。<b>「どっちがどっち」を読み違えようがない</b>のが強みです。
+    いまの2行（累計／最新）を<b>横に組み替えただけ</b>なので、実装も検査も既存の延長で済みます。<br>
+    <span class="ng">弱点</span>: 差が「大きいのか、いつもの範囲か」までは分かりません（案Dの帯が持っている情報）。
+    <span class="ok">そのぶん縦が短く、一覧が4行見えます</span>。</p>
+  </div>
+
+  <!-- ===== 案F ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案F　最新が主役・累計は背景</span><span class="s">数字を減らす</span></div>
+    <div class="phone">
+      <div class="body">
+        <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="more">…</span></div>
+        <div class="lead"><span class="lbl">今日</span><span class="lbl">1ヶ月 ▾</span></div>
+        <div class="big">+1.2<span class="u">¢</span><span class="pill">Great</span></div>
+        <div class="sd">±3.4¢ · 累計 −0.8¢</div>
+
+        <div class="sectlbl">最新 2026/08/15（棒は累計に対する位置）</div>
+
+        <div class="stack">
+          <div class="stackrow"><span class="nm">HNR</span>
+            <span style="text-align:right"><span class="now">18.2<small>dB</small></span>
+              <div class="ghost">累計 17.6 <span class="up">+0.6</span></div></span></div>
+          <div class="bar"><div class="fill" style="width:62%"></div><div class="now" style="left:62%"></div></div>
+        </div>
+        <div class="stack">
+          <div class="stackrow"><span class="nm">重心</span>
+            <span style="text-align:right"><span class="now">1214<small>Hz</small></span>
+              <div class="ghost">累計 1195 <span class="up">+19</span></div></span></div>
+          <div class="bar"><div class="fill" style="width:71%"></div><div class="now" style="left:71%"></div></div>
+        </div>
+        <div class="stack">
+          <div class="stackrow"><span class="nm">音量</span>
+            <span style="text-align:right"><span class="now">−21.4<small>dB</small></span>
+              <div class="ghost">累計 −21.9 <span class="up">+0.5</span></div></span></div>
+          <div class="bar"><div class="fill" style="width:56%"></div><div class="now" style="left:56%"></div></div>
+        </div>
+
+        <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">5/12</span></span>
+          <span class="impbtn">↥ 録音をアップロード</span></div>
+        <div class="fpills"><span class="fp">1ヶ月 ▾</span><span class="fp">リード ▾</span><span class="fp">奏者 ▾</span></div>
+        <div class="srow"><span class="d">08/15 19:04 <i>V16-3 #4 · 自分 · 12:24</i></span></div>
+        <div class="srow"><span class="d">08/14 20:41 <i>V16-3 #2 · 自分 · 26:10</i></span><span style="color:var(--ink3)">↥</span></div>
+      </div>
+      <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div>
+    </div>
+    <p class="cap">最新を大きく、累計は<b>その下に小さく添える</b>。棒は累計に対する位置。
+    <span class="ok">画面に出る数字の数が3案でいちばん少ない</span>。<br>
+    <span class="ng">弱点</span>: 棒の左端・右端が何を意味するか（＝目盛りの基準）が言葉なしでは伝わりにくく、
+    <b>案Dの「まんなか＝累計」ほど直感的ではありません</b>。</p>
+  </div>
+
+</div>
+
+<footer>
+  <h2>3案に共通してやること</h2>
+  <ul>
+    <li><b>紺のカードを廃止</b> — 3タブとも「地は白・枠は無し」に揃います</li>
+    <li><b>「累計」と「最新」を並べるのをやめ、"比べもの" として組む</b> — いまは2行がただ縦に並んでいるだけで、比較は読み手の頭の中でやっています</li>
+    <li>絞り込みのピルから枠を外す／削除と一括リード変更は「…」の中（着手済み）</li>
+    <li>数字タップで音名ごとのグラフ、上の大きな数字タップで平均差分の内訳（着手済み）</li>
+  </ul>
+
+  <h2>案Dだけが持っている情報</h2>
+  <ul>
+    <li><b>「いつものばらつき」の帯</b>。差が +0.6 と出ても、それが<b>普段の揺れの範囲内なのか、はっきり外れたのか</b>は今どこにも出ていません。帯があると「いつもの範囲」「いつもより明らかに良い」が言葉なしで分かります。</li>
+    <li>計測タブのチューナーと<b>同じ読み方</b>（まんなかが基準、そこからどちらへどれだけ）。タブをまたいでも読み方を覚え直さずに済みます。</li>
+  </ul>
+
+  <h2>決め方</h2>
+  <ul>
+    <li><b>「いつもと比べてどうか」を一目で</b> → 案D</li>
+    <li><b>数字を正確に読み比べたい</b> → 案E（縦が短く、一覧が多く見えます）</li>
+    <li><b>とにかく要素を減らしたい</b> → 案F</li>
+    <li>案Dの帯だけを案Eに足す、といった<b>混ぜ方もできます</b>。</li>
+  </ul>
+</footer>

@@ -403,6 +403,113 @@ function swipeBackHandler(go, handlers) {
   return null;
 }
 
+// ============================================================
+// 【F-88 / F-90】下から出るシートを**下スワイプで閉じる**。
+//
+// 本人指示(実機 2026/08/15):
+//   「下から出てくる追加メニューは下スワイプでも閉じれる機能を追加」(リードタブ)
+//   「下から出てくるテンポ拍子メニューは下スワイプでも閉じれる機能を追加」(計測タブ)
+// 統括の凍結: **同じ作法にするのは「シート」だけ**で、下端寄せのカードすべてではない。
+// ここで言うシート = **正典 .sheet の角丸(28px 28px 0 0)を持ち、下端に密着し、つまみを持つ**
+// カード4種(テンポ拍子 / リード追加・箱を編集 / リードの「…」 / DataOptionSheet)。
+// 下端寄せだが**外した3枚**は「エラー」「この録音を保存しますか？」「目安に設定」で、
+// いずれも角丸 --r-lg の四方囲み・つまみ無しの別部品(保存確認は誤タップ防止のため
+// 背景タップでも閉じない設計)。判断の根拠は design/BACKLOG.md の F-88 に記録した。
+//
+// 【§6.3 との関係】§6.3 が定めているのは**横**スワイプの作法で、
+// **縦のシート閉じは規範に無い**(実機で固まったら §6.3 へ逆輸入する)。
+// §6.3 の中で**向きに依らないものだけ**を流用した:
+//   指に追従する / しきい値は動かす面の20%・測れなければ60px / 軸ロック 6px /
+//   縦の断定に 1.5 倍 / 戻すときのイージングと 320ms
+// **新しい定数は1つも作っていない。**
+// 「動かす面」はシートそのものなので、しきい値は**シートの高さ**の20%。
+//
+// 【流用しなかったもの: 「行き先の無い向きの抵抗 0.35」】
+// §6.3 の 0.35 は**横に並んだページの端**のための値で、下端に貼り付いたシートには
+// 当てはまらない。上へ動かすと下端が持ち上がって暗幕が覗くだけで、行き先が無いのではなく
+// **動かしてはいけない**。初版はこれを向き無しで転用して実測 35px の隙間を作った
+// (審査で発覚)。いまは sheetDismissOffset が上向きを 0 に落とす。
+//
+// 【終わり方は4通り。どれか1つでも終端を通し忘れるとシートがずれたまま固着する】
+// F-78〜F-83 でこれを3回繰り返した(§6.3 の警告そのもの)。判定・DOM へ書く値・行き先を
+// すべて純関数に出し、総当たりで検査できる形にする(swipePager* が手本)。
+//   "close"  指を離し、しきい値を越えた → onClose を呼ぶ
+//   "settle" 指を離したが、しきい値未満 → 元の位置へ戻す
+//   "drop"   **中断**(touchcancel / 2本目の指 など)。行き先を判定せず元の位置へ戻す
+//   "idle"   縦と確定していない = シートを1pxも動かしていない → 何も書かない
+//
+// 【"close" でも transform を戻す理由】シートは onClose でアンマウントされるのが常だが、
+// **onClose が実際には閉じない実装**(親が状態を持ったまま等)だと、戻さない経路が
+// そのまま「ずれたまま固着」になる。§6.3 の警告に照らして、
+// **"idle" 以外はすべて translateY(0px) へ戻す**という1つの規則にする(分岐を作らない)。
+
+// しきい値(px)。**§6.3 の横スワイプと同じ規則**を縦に使う: 動かす面の 20%、
+// 測れなければ 60px。「動かす面」はシートなので height はシートの高さ。
+function sheetDismissThreshold(height) {
+  return height > 0 ? height * SWIPE_BACK_THRESHOLD_RATIO : SWIPE_BACK_THRESHOLD_MIN;
+}
+// ドラッグ量 → 実際にシートを動かす量。**下向きだけ**。
+//
+// 【初版の誤り(審査で実測)】§6.3 の「行き先の無い向きの抵抗 0.35」を**向き無しで**
+// 転用し、上へ引くと `translateY(-35px)` していた。シートは**下端に貼り付いている**ので、
+// 上へ動かすと下端が持ち上がり **777px の位置に上がって下 35px に暗幕が覗く**
+// (審査役の実測)。§6.3 の抵抗は「横に並んだページの端」= どちらへ動いても
+// 下に地が無い作りのための値で、下端固定のシートには当てはまらない。
+// **抵抗の概念ごと持ち込まない。上向きは 0 = 動かさない。**
+function sheetDismissOffset(dy) {
+  return dy > 0 ? dy : 0;
+}
+// ジェスチャーを**シートの操作として掴むか**。掴んだときだけ preventDefault する。
+//
+// 【なぜ軸判定だけでは足りないか(審査で実測)】縦と確定しただけで掴むと、
+// 中身がスクローラのシートで `scrollTop = 0` から**上へ**引いたときにも
+// `preventDefault` が入り、`defaultPrevented = true` になって
+// **中身が先頭から動き出せなくなる**。掴む条件は「先頭に居る」と「下向き」の**両方**。
+// どちらかが欠けたらブラウザに返す(preventDefault しない)。
+//   scrollTop: 触れた点の直近のスクロールできる祖先の scrollTop(触れた時点の値)
+//   dy: 触れた点からの縦の移動量。正が下。
+function sheetDismissShouldCapture(scrollTop, dy) {
+  return (Number(scrollTop) || 0) <= 0 && dy > 0;
+}
+// 終わり方。vertical は swipeAxisIsHorizontal(dx,dy) === false のときだけ true。
+function sheetDismissEndKind(vertical, interrupted, dy, height) {
+  if (vertical !== true) return "idle";   // シートを触っていないので後始末も要らない
+  if (interrupted) return "drop";         // 行き先は判定しない。ただし位置は必ず戻す
+  return dy >= sheetDismissThreshold(height) ? "close" : "settle";
+}
+// 終わり方 → シートに書く値。null は「何も書かない」。
+// **"idle" 以外は必ず transition を戻し、必ず translateY(0px) へ戻す**
+// (ドラッグ中に transition を "none" にしてあるため。戻さないと次が瞬間移動になる)。
+function sheetDismissSheetStyle(kind, ease) {
+  if (kind === "idle") return null;
+  return { transition: ease, transform: "translateY(0px)" };
+}
+// 終わり方 → **閉じるかどうか**。"close" のときだけ true。
+// コンポーネント側の三項演算子に置くとハーネスから見えず、取り違えても検出できない。
+function sheetDismissShouldClose(kind) {
+  return kind === "close";
+}
+// 【F-83 と同じ】ジェスチャーの終わりを告げた DOM イベント → **中断か否か**。
+// `touchcancel` は「ブラウザが取り上げた」の合図で、指を離した意思表示ではない。
+function sheetDismissInterrupted(eventType) {
+  return eventType === "touchcancel";
+}
+// 触れた点から見て、シートの中で**縦にスクロールできる直近の祖先**の scrollTop。
+// 見つからなければ 0(=先頭とみなす)。root 自身も対象に含める
+// (データタブの「…」はシートのカードそのものが overflowY:auto を持つ)。
+function sheetScrollTopAt(el, root) {
+  let node = el;
+  while (node && node.nodeType === 1) {
+    if (node.scrollHeight > node.clientHeight + 2) {
+      const ov = getComputedStyle(node).overflowY;
+      if (ov === "auto" || ov === "scroll") return node.scrollTop;
+    }
+    if (node === root) break;
+    node = node.parentElement;
+  }
+  return 0;
+}
+
 // ジェスチャーの状態機械そのもの。DOMに触る操作(setX / clearX / settle / cancelSettle /
 // beginDrag / 幅の取得 / コールバック / 対象判定)はすべて引数で受け取り、ここには
 // 状態遷移だけを置く。判定の純関数と同じ理由で外に出してある: コンポーネントの中に
@@ -479,6 +586,184 @@ function createSwipeBackGesture(io) {
     abort();                                   // 中断と同じ終端に合流させる
   };
   return { down, move, up, cancel };
+}
+
+// 【F-88 / F-90】シートを下スワイプで閉じるジェスチャーの**状態機械そのもの**。
+//
+// DOM に触る操作(シートの高さ / 触れた点のスクロール位置 / transform と transition を書く /
+// 消す予約とその取り消し / preventDefault / 閉じる)は**すべて io で受け取る**。
+// ここには状態遷移だけを置く。createSwipeBackGesture と同じ作法で、理由も同じ:
+// **コンポーネントの中に状態遷移を書くと、ハーネスからは正規表現でしか見えず、
+// 「呼ばれるはずの後始末が呼ばれない経路」を検出できない**。
+// ここに出しておけば scripts/pitch-test.mjs から偽のイベントを流し込んで、
+// io の呼ばれ方(=実際に DOM へ何が書かれるか)で守れる。
+//
+// 守る不変条件:
+//   (1) 進行中のジェスチャーが終わる経路は up / cancel / 別の down による中断 /
+//       **アンマウント**の4つで、どれを通っても transform は元へ戻り、消す予約が入る
+//   (2) 掴んでいない(= preventDefault していない)ジェスチャーは DOM を1回も触らない
+//   (3) 閉じるのは「指を離し、しきい値を越えた」ときだけ
+//
+// io の各関数は上の純関数(sheetDismiss*)を経由した値だけを受け取る。
+// 判定を io 側に書くと、また同じ「純関数を迂回する」穴になる。
+function createSheetDismissGesture(io) {
+  let st = null;
+
+  // **進行中のジェスチャーを終わらせる唯一の出口。** 終端を必ず通してから捨てる。
+  // `st = null` を書くのはこの1行だけ(ここ以外に「捨てるだけ」の経路を作ると、
+  //  そこまでに書いた translateY を誰も消さず**シートがずれたまま固着する**。§6.3)。
+  const finish = (interrupted) => {
+    const s = st;
+    st = null;
+    if (!s) return "none";
+    const kind = sheetDismissEndKind(s.captured, interrupted, s.dy, io.height());
+    const style = sheetDismissSheetStyle(kind, io.ease());
+    if (style) {
+      io.setTransition(style.transition);
+      io.setTransform(style.transform);
+      io.scheduleClear();          // §6.3「静止時に transform を残さない」
+    }
+    return kind;
+  };
+
+  // 【§6.3】**中断の終端は対象判定より前に置く。**「対象外かどうか」は新しく始めるかの
+  // 判断であって、前のを終わらせるかの判断ではない。だから最初の1行で必ず終わらせる。
+  const start = (e) => {
+    finish(true);
+    if (io.touchCount(e) !== 1) return;
+    if (io.isFormField(e)) return;          // 入力欄の上では始めない(値を選ぶ操作を奪わない)
+    const p = io.point(e);
+    st = { x: p.x, y: p.y, dy: 0, decided: false, captured: false, scrollTop: io.scrollTopAt(e) };
+  };
+
+  const move = (e) => {
+    const s = st;
+    if (!s || io.touchCount(e) !== 1) return;
+    const p = io.point(e);
+    const dx = p.x - s.x;
+    const dyRaw = p.y - s.y;
+    if (!s.decided) {
+      // 軸は §6.3 の規則そのまま。**勝つまで決めない**(未確定のうちは何もしない)。
+      const axis = io.axisIsHorizontal(dx, dyRaw);
+      if (axis === null) return;
+      s.decided = true;
+      // 縦と確定しても、**先頭に居て下向きのときだけ**シートの操作として掴む。
+      // 掴まなければ preventDefault しないのでブラウザに返り、中身のスクロールが生きる。
+      s.captured = axis === false && sheetDismissShouldCapture(s.scrollTop, dyRaw);
+    }
+    if (!s.captured) return;
+    io.preventDefault(e);
+    const dy = sheetDismissOffset(dyRaw);
+    s.dy = dy;
+    io.setTransition("none");
+    io.setTransform(`translateY(${dy}px)`);
+  };
+
+  // touchend / touchcancel の両方がここへ来る。**イベントの種類を引数で受ける**(F-83)。
+  // 中断か否かの判断は純関数に任せ、ここでは渡すだけにする。
+  const end = (eventType) => {
+    const kind = finish(sheetDismissInterrupted(eventType));
+    if (sheetDismissShouldClose(kind)) io.close();
+  };
+
+  // 要素が消える = 終わり方の4つ目(アンマウント)。ここも唯一の出口を通す。
+  const detach = () => { finish(true); io.cancelClear(); };
+
+  return { start, move, end, detach };
+}
+
+// 【F-88 / F-90】上の状態機械を React へつなぐだけの層。**判定を1つも持たない。**
+//
+// 使い方: `const dismiss = useSheetDismiss(onClose);` として
+//   <div ref={dismiss.ref} {...dismiss.handlers}>  ← シートのカード
+// を書く。カードにしか付けないので、暗幕(背景タップで閉じる)側の挙動は変わらない。
+//
+// 【touchmove を非パッシブで張る理由】§6.3。掴んでいる間だけ preventDefault() を
+// 呼ばないと、ブラウザがページの縦スクロールを引き取ってジェスチャーごと死ぬ。
+// **掴むまでは preventDefault してはいけない**(iOS は最初の touchmove で止められると
+// そのジェスチャー全体をスクロールしなくなり、シート内の縦スクロールが死ぬ)。
+function useSheetDismiss(onClose) {
+  const ref = useRef(null);
+  const settleTimer = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // io は毎レンダー作り直さない(状態機械を1つに保つため ref に入れる)。
+  // 中身は ref 越しに今の値を読むので、閉包が古くなることは無い。
+  const gestureRef = useRef(null);
+  if (gestureRef.current === null) {
+    const el = () => ref.current;
+    gestureRef.current = createSheetDismissGesture({
+      ease: () => SWIPE_BACK_EASE,
+      height: () => el()?.offsetHeight || 0,
+      touchCount: (e) => e.touches.length,
+      point: (e) => ({ x: e.touches[0].clientX, y: e.touches[0].clientY }),
+      isFormField: (e) => !!e.target.closest?.("input, select, textarea"),
+      scrollTopAt: (e) => sheetScrollTopAt(e.target, el()),
+      axisIsHorizontal: (dx, dy) => swipeAxisIsHorizontal(dx, dy),
+      preventDefault: (e) => e.preventDefault(),
+      setTransition: (v) => { const n = el(); if (n) n.style.transition = v; },
+      setTransform: (v) => { const n = el(); if (n) n.style.transform = v; },
+      close: () => onCloseRef.current?.(),
+      // 戻し終わったら **transform を消す**。§6.3「静止時に transform を残さない」。
+      // identity(translateY(0px))でも、transform を持つ要素は position:fixed の子孫の
+      // 包含ブロックになる。シートの中からは ScrollPicker(z-index 60 の全画面モーダル)が
+      // 開くので、残すと**そのピッカーがシートの中に閉じ込められる**。
+      scheduleClear: () => {
+        if (settleTimer.current) clearTimeout(settleTimer.current);
+        settleTimer.current = setTimeout(() => {
+          settleTimer.current = null;
+          const n = el();
+          if (!n) return;
+          n.style.transition = "";
+          n.style.transform = "";
+        }, SWIPE_BACK_SETTLE_MS);
+      },
+      cancelClear: () => {
+        if (settleTimer.current) { clearTimeout(settleTimer.current); settleTimer.current = null; }
+      },
+    });
+  }
+  const g = gestureRef.current;
+  useEffect(() => () => g.detach(), [g]);
+
+  // 非パッシブの touchmove は**コールバック ref で張る**。
+  // シートは条件付きレンダーなので、フックを持つ側(MeasureView)が先にマウントされる
+  // ケースがあり、useEffect([]) の時点では ref.current がまだ null になる。
+  //
+  // 【依存配列は必ず空にする】コールバック ref は**関数の同一性が変わるたびに**
+  // 「古い ref に null」→「新しい ref に要素」の順で呼ばれる。依存に onClose 等を入れると、
+  // 呼び出し側が毎レンダー新しい関数を渡すため親の再レンダーだけで下の null 分岐が走り、
+  //   ・進行中のジェスチャーが中断される(ドラッグ中に親が再レンダーすると指から外れる)
+  //   ・戻した後の transform を消すタイマーが毎回キャンセルされ、**transform が残り続ける**
+  // という2つの事故が起きる。**実ブラウザで後者を実測して見つけた**
+  // (テンポシートを下へ40px引いて離し、420ms 後も style.transform が translateY(0px) のまま)。
+  // g / listenerRef は ref なので同一性が変わらず、閉包が古くなることも無い。
+  const listenerRef = useRef(null);
+  const attachRef = useCallback((node) => {
+    const prev = ref.current;
+    if (prev && listenerRef.current) {
+      prev.removeEventListener("touchmove", listenerRef.current);
+      listenerRef.current = null;
+    }
+    ref.current = node;
+    if (node) {
+      const fn = (ev) => g.move(ev);
+      listenerRef.current = fn;
+      node.addEventListener("touchmove", fn, { passive: false });
+    } else {
+      g.detach();
+    }
+  }, [g]);
+
+  return {
+    ref: attachRef,
+    handlers: {
+      onTouchStart: (e) => g.start(e),
+      onTouchEnd: () => g.end("touchend"),
+      onTouchCancel: () => g.end("touchcancel"),
+    },
+  };
 }
 
 function SwipeBackArea({ onBack, onForward, children }) {
@@ -4255,6 +4540,42 @@ const METRO_BEAT_ROW_H = 16;
 const METRO_PM_W = 72;
 const METRO_PM_H = 48;
 
+// --- 録音ボタン(F-89) ---
+// 本人指示(実機 2026/08/15)「録音ボタンはスマホの動画開始、停止ボタンと同じに変更
+// (とる前は枠全体の丸、とると四角に形が変わる形式)」。
+//
+// 正典 design/north-star-measure.html の .rec は
+//   68px の円 / 1.5px の輪 / 中身 = 待機26pxの丸・録音中22px(r5)の四角
+// で、**「丸→四角」はすでに正典どおり実装されていた**。本人が言っている差分は
+//   (a) 輪が細い(1.5px)ので「輪」に見えない
+//   (b) 中の丸が 26px = 外径の 38% しかなく、輪の中に小さな点が浮いて見える
+//      (スマホのカメラは輪の内側いっぱいまで赤で埋まっている)
+// の2点。**本人の実機指示は正典より上位**(F-75 / F-77 と同じ扱い)。
+//
+// 【規範外なのは下の5つのうち REC_RING_SW と REC_RING_GAP の**2つだけ**。統括/本人の確認待ち。】
+// 残る3つは正典 design/north-star-measure.html にある値をそのまま使っている:
+//   REC_BTN_D=68 … .rec の width(行66) / REC_STOP_PX=22・REC_STOP_R=5 … .rec .stop(行69)
+// 外径 68 は動かさない(本人指示「位置と外径は動かさない」)。録音中の四角も正典のまま。
+// 内側の丸は「輪の内側いっぱい」= 外径 −(輪の太さ + 隙間)×2 から**導く**ので、
+// 新しく決めた数は結局 REC_RING_SW と REC_RING_GAP の2つに閉じている。
+// (この数え方は design/BACKLOG.md の F-84〜F-92「新設した値」の表と一致させること。)
+const REC_BTN_D = 68;        // 正典 .rec の外径。丸→四角で1pxも動かさない
+const REC_RING_SW = 4;       // 輪の太さ(新設)。正典の 1.5px では「輪」に見えないため
+const REC_RING_GAP = 3;      // 輪と中身の隙間(新設)
+const REC_STOP_PX = 22;      // 正典 .rec .stop の 22px
+const REC_STOP_R = 5;        // 正典 .rec .stop の border-radius 5px
+
+// 録音ボタンの**中身**の寸法。待機=丸(輪の内側いっぱい) / 録音中=四角(正典 .stop)。
+// 【純関数にする理由】JSX はテストのハーネスから見えない(LOOP.md)。
+// 「形が変わるだけで外径と位置は動かない」は**中身が外径を超えない**ことで担保されるので、
+// その不変条件をここで検査できる形にしておく。
+// 戻り値の size/radius はそのまま CSS px。radius が size/2 なら円、それ未満なら角丸の四角。
+function recInnerShape(isRecording) {
+  if (isRecording) return { size: REC_STOP_PX, radius: REC_STOP_R };
+  const d = REC_BTN_D - 2 * (REC_RING_SW + REC_RING_GAP);
+  return { size: d, radius: d / 2 };
+}
+
 // --- 拍の演出(毎拍・両端で出す) ---
 const RING_BEAT_EMPH_DECAY = 2.2;   // 拍内位相 × これ を 1 から引く
 const RING_BEAT_EMPH_HEAD = 1;      // 小節頭の係数
@@ -5060,7 +5381,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
 // beatsPerMeasure / accentOn: ●の数と、小節頭を強調してよいか。
 // settleOnStop: 停止時にゆっくり中央へ戻すか。false なら即座に中央へ。
 // ============================================================
-function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn = false, sig = "4/4", settleOnStop = true }) {
+// onOpenSheet: 【F-91】拍子表示・拍の●をタップしたときに開くもの(テンポ拍子シート)。
+//   **渡されなければ従来どおり何も押せない**(この部品は元来「読む物」なので、
+//   既定を「押せる」にすると、次に増える呼び出し先へ黙って当たり判定が漏れる。
+//   F-72 罠1「共有部品の変更が担当外の画面へ黙って漏れた」と同じ形を作らないため)。
+function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn = false, sig = "4/4", settleOnStop = true, onOpenSheet = null }) {
   const dotRef = useRef(null);
   const beatDotRefs = useRef([]);
   // 停止後の戻り(F-51)。rAFループの中だけで進む状態なので ref で持つ。
@@ -5160,18 +5485,63 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
       {/* 2行目: 拍の●は**画面中央固定**(本人指示)。拍子表示はその左。
           拍子表示を絶対配置にして流れから外すので、●の列は拍子の桁数に関係なく
           常に行の中央=画面の中央に来る。行の高さは固定で、●が膨らんでも動かない。 */}
+      {/* 【F-91】本人指示(実機 2026/08/15)「4/4などの拍子や、拍を表すをタップしても
+          テンポ拍子メニューがでるルートを追加」。テンポ数値(♩=n)からの入口はそのまま残す。
+          【メトロノームの開始/停止と喧嘩させない】計測タブは A-1 で**画面のどこをタップしても
+          開始/停止**する背面レイヤを持ち、F-74 でその範囲を上部設定行の下〜テンポ行の下端に
+          限定してある。ここに当たり判定を置くぶんだけ開始/停止の面積が減るので、
+          **拍子の文字と●の列の上だけ**に限る(行の幅いっぱいには広げない)。
+          【行の高さは動かさない】§6.1.5「●が膨らんでも行は伸びない」を守るため、
+          当たり判定は position:absolute で流れの外に置き、行の高さは METRO_BEAT_ROW_H のまま。
+          §5 の 44pt は高さ・最小幅で満たす(見た目の文字・●の大きさは1pxも変えない)。 */}
       <div style={{ position: "relative", width: "100%", height: METRO_BEAT_ROW_H, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span
-          className="sans no-select"
-          style={{
-            position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
-            /* 【N-4c】正典 .tsig の実寸 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
-               従って 15px にしていたが、見た目はモックが唯一の正典(§6.0)。 */
-            fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1,
-          }}
-        >
-          {sig}
-        </span>
+        {/* 拍子表示。押せるときだけ <button> になる。**文字の右端の位置は同じ式のまま**
+            (箱を右端で揃え、中身を右寄せにするので、最小幅で広がるぶんは左へ伸びるだけ)。 */}
+        {onOpenSheet ? (
+          <button
+            type="button" onClick={onOpenSheet}
+            aria-label="テンポと拍子" className="sans no-select"
+            style={{
+              position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
+              top: "50%", transform: "translateY(-50%)",
+              height: "var(--tap-min)", minWidth: "var(--tap-min)",
+              display: "flex", alignItems: "center", justifyContent: "flex-end",
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              pointerEvents: "auto",
+            }}
+          >
+            <span style={{ fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1 }}>{sig}</span>
+          </button>
+        ) : (
+          <span
+            className="sans no-select"
+            style={{
+              position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
+              /* 【N-4c】正典 .tsig の実寸 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
+                 従って 15px にしていたが、見た目はモックが唯一の正典(§6.0)。 */
+              fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1,
+            }}
+          >
+            {sig}
+          </span>
+        )}
+        {/* 拍の●列。押せるときは列と同じ幅・44pt高の透明な箱を重ねる。
+            **●が1つも無いとき(n=0)は箱ごと出さない**。出すと「押しても何も起きない」ではなく
+            「何も無い所が押せる」になり、開始/停止の面積だけが黙って減る。 */}
+        {onOpenSheet && n > 0 && (
+          <button
+            type="button" onClick={onOpenSheet}
+            aria-label="テンポと拍子" className="no-select"
+            style={{
+              position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
+              /* 幅は●の列と同じ。列が 44 に満たない拍子(1/4 など)でも §5 を割らないよう
+                 minWidth で下限を持たせる(44 の綴りは --tap-min の1箇所だけに置く)。 */
+              width: rowW, minWidth: "var(--tap-min)", height: "var(--tap-min)",
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              pointerEvents: "auto",
+            }}
+          />
+        )}
         <svg
           width={rowW} height={METRO_BEAT_ROW_H} viewBox={`0 0 ${rowW} ${METRO_BEAT_ROW_H}`}
           style={{ display: "block", overflow: "visible", pointerEvents: "none" }}
@@ -5274,6 +5644,9 @@ function MeasureView(props) {
   // 以前は環と入れ替わる2種類の設定パネル(metroPanel = "sig" | "subdiv")で、開くと環が消えていた。
   // 正典は「環と共存」なので、設定は環の上に**重ねる**シートにする。
   const [tempoSheetOpen, setTempoSheetOpen] = useState(false);
+  // 【F-90】テンポ拍子シートを下スワイプで閉じる。フックは条件付きで呼べないので、
+  // シートが出ていない間も常に呼ぶ(ref が付く先が無いだけで何も起きない)。
+  const tempoSheetDismiss = useSheetDismiss(() => setTempoSheetOpen(false));
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
   // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
@@ -5817,6 +6190,9 @@ function MeasureView(props) {
             beatsPerMeasure={metroBeatsPerMeasure}
             accentOn={metroAccent}
             sig={metroSig}
+            /* 【F-91】拍子表示・拍の●からもテンポ拍子シートを開く。
+                テンポ数値(♩=n)からの入口(下の <button>)はそのまま残す。 */
+            onOpenSheet={() => setTempoSheetOpen(true)}
           />
           {/* テンポ行。押せる物(− / ♩=n / ＋)があるので背面レイヤより手前(zIndex 1)。
               【審査①の修正】ただし**箱そのものは当たり判定を持たない**(.tap-through)。
@@ -5902,11 +6278,22 @@ function MeasureView(props) {
           aria-pressed={isRecording}
           disabled={openPicker !== null}
           className="sans"
-          style={{ width: 68, height: 68, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--c-surface)", border: "1.5px solid var(--c-line-strong)", padding: 0, cursor: "pointer" }}
+          /* 【F-89】外径 68 は正典 .rec のまま(状態で動かさない)。輪は 1.5px → 4px。
+              寸法は**静的に読める文字列/数値で書く**(index.css の芯を守るため、
+              テストのハーネスが式を辿れない形にしない。scripts/pitch-test.mjs 17.x)。
+              ここの 68 は正典 .rec の width と、4 は REC_RING_SW と一致していることを検査で固定する
+              (68 は REC_BTN_D との一致ではなく**正典との一致**で縛る。定数どうしを突き合わせても
+               両方を同じ値に書き換える変異が通るため)。
+              地は border-box(index.css の `*` 規則)なので、輪を太くしても外径は 68 のまま。 */
+          style={{ width: 68, height: 68, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--c-surface)", border: "4px solid var(--c-line-strong)", padding: 0, cursor: "pointer" }}
         >
-          {isRecording
-            ? <span style={{ width: 22, height: 22, borderRadius: 5, background: "var(--c-danger)", display: "inline-block" }} />
-            : <span style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--c-danger)", display: "inline-block" }} />}
+          {/* 【F-89】中身の寸法は recInnerShape が唯一の答え。ここで数値を書かない
+              (待機と録音中で2箇所に写すと、片方だけ直して外径が動く事故になる)。
+              輪(border)と外径は状態で変わらないので、**形だけが変わる**。 */}
+          {(() => {
+            const s = recInnerShape(isRecording);
+            return <span style={{ width: s.size, height: s.size, borderRadius: s.radius, background: "var(--c-danger)", display: "inline-block" }} />;
+          })()}
         </button>
       </div>
 
@@ -6121,6 +6508,9 @@ function MeasureView(props) {
           }}
         >
           <div
+            /* 【F-90】下スワイプで閉じる。テンポの直接入力(<input type=number>)の上では
+                ジェスチャーを始めない(useSheetDismiss の除外に input が入っている)。 */
+            ref={tempoSheetDismiss.ref} {...tempoSheetDismiss.handlers}
             onClick={(e) => e.stopPropagation()}
             /* 寸法は正典 .sheet をそのまま: border-radius 28px 28px 0 0 / padding 14px 24px 40px。
                下端だけ env(safe-area-inset-bottom) を足す(モックは静的なので安全域を持たないが、
@@ -7953,6 +8343,7 @@ function ReedMoreMenu({ onClose, onPick }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  const dismiss = useSheetDismiss(onClose);   // 【F-88】下スワイプで閉じる
   return createPortal(
     <div
       role="dialog" aria-modal="true" aria-label="リードの操作"
@@ -7964,6 +8355,7 @@ function ReedMoreMenu({ onClose, onPick }) {
       }}
     >
       <div
+        ref={dismiss.ref} {...dismiss.handlers}
         onClick={(e) => e.stopPropagation()}
         data-noswipe
         style={{
@@ -8130,6 +8522,13 @@ function ReedBoxSheet({
   // 片方だけにすると「押せるのに無反応」になる(審査役の変異で実際に生き残った経路)。
   const disabled = (isCustom && !customBrand.trim()) || (isEdit && !startDate);
   const pickerOptions = [...brandOptions, REED_BRAND_CUSTOM];
+  // 【F-88】下スワイプで閉じる。**銘柄ピッカーを開いている間は配線ごと外す**
+  // (ScrollPicker はこのシートの中から開く全画面モーダルで、シートに transform が
+  //  残っているとそのピッカーの position:fixed の基準がシートになる。§6.3。
+  //  ドラッグ後 SWIPE_BACK_SETTLE_MS で transform は消えるが、消える前にピッカーを
+  //  開けてしまう経路を残さない)。
+  const dismiss = useSheetDismiss(onClose);
+  const dismissHandlers = brandPickerOpen ? null : dismiss.handlers;
   return createPortal(
     <>
       <div
@@ -8142,6 +8541,7 @@ function ReedBoxSheet({
         }}
       >
         <div
+          ref={dismiss.ref} {...dismissHandlers}
           onClick={(e) => e.stopPropagation()}
           data-noswipe
           style={{
@@ -10180,6 +10580,9 @@ function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // 【F-90】下スワイプで閉じる。カードの中は縦スクロールし得るので、
+  // useSheetDismiss が**先頭に居るときだけ**ドラッグとして扱う。
+  const dismiss = useSheetDismiss(onClose);
   return createPortal(
     <div
       role="dialog" aria-modal="true" aria-label={ariaLabel}
@@ -10191,6 +10594,7 @@ function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
       }}
     >
       <div
+        ref={dismiss.ref} {...dismiss.handlers}
         onClick={(e) => e.stopPropagation()}
         data-noswipe
         style={{
@@ -11039,14 +11443,23 @@ function MyDataPage({
     setDateFilterOpen(false);
   };
 
-  // ピルの中身。見た目のピル(正典 .fp = 輪郭だけ)は内側の <span> が持ち、<button> 自身は
+  // ピルの中身。見た目のピルは内側の <span> が持ち、<button> 自身は
   // 高さ 44pt の透明な当たり判定にする(§5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+  // 【F-86】本人指示(実機 2026/08/15)「セッションの絞り込みにも枠線は不要」。
+  // 正典 .fp は輪郭だけのピルだが、**本人の実機指示が正典より上位**(F-75「詳細カード・
+  // メトロノームアイコンの枠線を撤去」/ F-77 と同じ扱い)。F-72 で上部設定行を
+  // 「素のテキスト + ▾」にしたのと同じ形に揃える。
+  // 【寸法は動かさない】F-75 の作法どおり**枠は `1px solid transparent` で場所だけ残す**。
+  // border を 0 にすると幅・高さが 2px ずつ縮み、ピルの並びと行の高さが動く(§6.1.5)。
+  // `.ctl-state` も `.ctl-pill` も外す。**A型/B型の型付けから外れる**(枠も地も持たない
+  // = 素のテキスト + ▾)ので、型のクラスを持ったままインラインで枠を上書きする形にはしない
+  // (index.css の芯「同じ物に枠線と違う地を両方与えない」を型のクラスで名乗らないため)。
   const filterPill = (label, onClick, expanded) => (
     <button
       type="button" onClick={onClick} aria-expanded={expanded}
       className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: 0 }}
     >
-      <span className="ctl-state ctl-pill" style={{ display: "inline-flex", alignItems: "center", padding: "3px 11px", fontSize: 12, color: "var(--c-ink-2)", lineHeight: 1.4, maxWidth: "100%" }}>
+      <span style={{ display: "inline-flex", alignItems: "center", border: "1px solid transparent", borderRadius: "var(--r-pill)", padding: "3px 11px", fontSize: 12, color: "var(--c-ink-2)", lineHeight: 1.4, maxWidth: "100%" }}>
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
         <PickChevron />
       </span>
@@ -11090,8 +11503,11 @@ function MyDataPage({
         </button>
       </div>
 
-      {/* 正典 .fpills: 輪郭のピルを横一列。沈めた「絞り込み」ブロックは撤去した(N-6)。
-          クリアは絞り込みが効いているときだけ出す(現行と同じ条件)。 */}
+      {/* 正典 .fpills の並び(横一列・余白は正典どおり)。沈めた「絞り込み」ブロックは撤去した(N-6)。
+          【F-86】ピルの**輪郭は撤去した**(本人指示「セッションの絞り込みにも枠線は不要」)。
+          正典 .fp は輪郭を持つが、本人の実機指示が正典より上位。形は filterPill が持つ。
+          クリアは絞り込みが効いているときだけ出す(現行と同じ条件)。
+          クリアだけは B型(.ctl-plain の地)のまま = 絞り込みではなく**一手**なので形言語を分ける。 */}
       {sessions.length > 0 && !listMode && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 2px 12px", alignItems: "center" }}>
           {filterPill(dateFilterText(), () => setDateFilterOpen((v) => !v), dateFilterOpen)}
