@@ -6610,10 +6610,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     const myDataSection = srcOf("MyDataSection");
     // 【F-66で書き方が変わった】ばらつき(pitchStabilityCents)も同じ集計から出すため、
     // 指標オブジェクトを一度受けてから .pitchCentsSigned を取る形になった。
-    // 「今日のフレームの computeFrameMetrics から符号付きの値を取る」という縛りは同じ強さで残す。
-    check("ヒーローの今日の値は符号付き(pitchCentsSigned)を使う",
-      /const todayMetrics = todayFrames\.length \? computeFrameMetrics\(todayFrames\) : null;/.test(myDataSection) &&
-      /const todayVal = todayMetrics \? todayMetrics\.pitchCentsSigned : null;/.test(myDataSection));
+    // 【N-8 2026/08/16 本人指示による書き換え】「今日」は「今日または直近の記録日」になり、
+    // 綴りが todayFrames/todayVal → dayFrames/dayVal に変わった(フレームとラベルの出どころは
+    // myDataTodayOrLatestFrames の1関数。検証28)。符号付きの縛りは同じ強さで残す。
+    check("ヒーローの今日/直近日の値は符号付き(pitchCentsSigned)を使う",
+      /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(myDataSection) &&
+      /const dayVal = dayMetrics \? dayMetrics\.pitchCentsSigned : null;/.test(myDataSection));
     check("ヒーローの対象期間平均も符号付き(pitchCentsSigned)を使う",
       /const periodVal = overall\.pitchCentsSigned;/.test(myDataSection));
     // 【F-56 で仕様が変わった】評価は「0からの距離だけ」の3段(Great/Good/Keep Trying)になり、
@@ -6621,26 +6623,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // もう要求しない。**絶対値で評価する**という芯だけを引き続き固定する
     // (符号で良否を決めるように変えたら落ちる)。
     check("ヒーローの良否判定は絶対値(0からの距離)で評価する",
-      /const todayErr = todayVal != null \? Math\.abs\(todayVal\) : null;/.test(myDataSection));
+      /const dayErr = dayVal != null \? Math\.abs\(dayVal\) : null;/.test(myDataSection));
     check("ヒーローの良否判定に期間平均との比較を持ち込まない(F-56で0からの距離だけになった)",
       !/const periodErr\b/.test(codeOf(myDataSection)));
 
-    // 本人の問い(2026-08-04)「上方向にしかブレていないように見えるが実データが+側だけだから?」
-    // → 違い、スパークラインだけ絶対値(pitchCents)を渡していたので**構造上片側にしか
-    // 振れなかった**。すぐ上の大きい数字が符号つきなので、真下の線だけ絶対値だと読み違える。
-    check("ヒーロー直下のスパークラインも符号付き(pitchCentsSigned)を使う",
-      /const sparkVals = points\.map\(\(p\) => p\.pitchCentsSigned\)/.test(myDataSection));
-    check("スパークラインは絶対値(pitchCents)を使っていない",
-      !/points\.map\(\(p\) => p\.pitchCents\)/.test(codeOf(myDataSection)));
-    // 符号付きにしただけでは足りない。minV〜maxV の自動フルスケールのままだと0がどこか
-    // 分からず、上下の向きが読めない(0中心の対称スケール + 0の基準線がセットで要る)。
-    check("スパークラインは0を中央に置いた対称スケールにする",
-      /const zeroY = H \/ 2;/.test(myDataSection) &&
-      /const maxAbs = Math\.max\(\.\.\.sparkVals\.map\(\(v\) => Math\.abs\(v\)\)\) \|\| 1;/.test(myDataSection));
-    check("スパークラインは0の基準線を描く(上下の意味が読めるように)",
-      /<line x1="0" y1=\{zeroY\} x2=\{W\} y2=\{zeroY\}/.test(myDataSection));
-    check("スパークラインの面は0の線まで塗る(箱の底ではない)",
-      /\$\{W\},\$\{zeroY\} 0,\$\{zeroY\}/.test(myDataSection));
+    // 【N-8 2026/08/16 本人指示による書き換え】旧「ヒーロー直下のスパークライン(時系列)」は
+    // **廃止**され、同じ場所に音名軸の折れ線2本(NoteAxisLineChart の hero)が入った(検証28)。
+    // 符号付き・0中央の対称軸・0の基準線という旧スパークラインの主張は、pitchCentsSigned を
+    // 0 中央で描く NoteAxisLineChart(6.7 で固定済み)がそのまま引き継いでいる。
+    // ここでは「時系列のスパークラインが戻っていない」ことだけを見る:
+    // MyDataSection は svg を1つも直接描かない(折れ線はすべて NoteAxisLineChart 経由)。
+    check("N-8: スパークラインが残っていない(sparkVals の綴りが動く側に無い)",
+      !/sparkVals/.test(codeOf(src)));
+    check("N-8: MyDataSection は svg を直接描かない(折れ線はすべて NoteAxisLineChart 経由)",
+      !/<svg/.test(codeOf(myDataSection)) && !/<polyline/.test(codeOf(myDataSection)));
   }
 
   // --- 6.9 input[type=date] は appearance を落として幅を効かせる ------------
@@ -10266,8 +10262,9 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     // (正典 .hero .sd は「標準偏差」の語を持たない)を何も固定しないことになり、
     // 語つきに戻す変異が生き残る(審査役が実証: 削除しても PASS 6003 / FAIL 0)。
     // 母集団の一致と表記の形は**別の主張**なので、検査も2本に分ける。
+    // 【N-8 書き換え】綴りが todayVal/todayMetrics → dayVal/dayMetrics(今日または直近の記録日)。
     check("21.5 ヒーローの標準偏差は主役の数字と同じ母集団から出す",
-      /const heroSpread = pitchSpreadSub\(todayVal != null \? todayMetrics : overall/.test(myDataSection));
+      /const heroSpread = pitchSpreadSub\(dayVal != null \? dayMetrics : overall/.test(myDataSection));
     check("21.5 ヒーローの標準偏差は語を持たない形で出す(正典 .hero .sd は「±3.4¢」)",
       /const heroSpread = pitchSpreadSub\([^;]*, \{ bare: true \}\);/.test(myDataSection),
       (myDataSection.match(/const heroSpread = [^\n;]+/) || ["見つからない"])[0]);
@@ -10286,7 +10283,7 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     check("21.5 ヒーローは heroSpread があるときだけ副次行を出す",
       /\{heroSpread && <span>\{heroSpread\}<\/span>\}/.test(myDataSection));
     check("21.5 ヒーローの副次行の色は既存の副次色(#9DB3D6)のまま(新しい色を作らない)",
-      /\{\(heroSpread \|\| \(todayVal != null && periodVal != null\)\) && \([\s\S]{0,200}?color: "#9DB3D6"/.test(myDataSection));
+      /\{\(heroSpread \|\| \(dayVal != null && periodVal != null\)\) && \([\s\S]{0,200}?color: "#9DB3D6"/.test(myDataSection));
     // TappableMetricCard 側の受け口(sub)が生きていること
     const cardCode = componentSourceOf("TappableMetricCard");
     check("21.5 TappableMetricCard は sub を引数に受け取る",
@@ -10626,13 +10623,15 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
   }
 
   // --- 21.8 F-56 ヒーローの3段評価(実ソースの判定コードをそのまま評価する) ---------
+  // 【N-8 書き換え】評価の対象は「今日または直近の記録日」の値になり、綴りが
+  // todayErr/todayVal → dayErr/dayVal に変わった。判定(0からの距離・3段・色)は同一。
   {
     const myData = componentSourceOf("MyDataSection");
-    const from = myData.indexOf("const todayErr =");
+    const from = myData.indexOf("const dayErr =");
     const to = myData.indexOf("const displayVal");
     if (from === -1 || to === -1 || to <= from) throw new Error("F-56: ヒーローの判定ブロックを切り出せない");
     const decideSrc = myData.slice(from, to);
-    const decide = (todayVal) => new Function("todayVal", `${decideSrc}\nreturn { heroColor, heroStatus };`)(todayVal);
+    const decide = (dayVal) => new Function("dayVal", `${decideSrc}\nreturn { heroColor, heroStatus };`)(dayVal);
     const st = (v) => decide(v).heroStatus;
     check("21.8 |値| ≤ 2 は Great (0 / +2 / -2 の3点)",
       st(0) === "Great" && st(2) === "Great" && st(-2) === "Great",
@@ -10657,9 +10656,9 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       ["ほぼ完璧", "平均より改善", "平均より悪化", "平均並み"].every((t) => !codeOf(src).includes(t)));
     // 変異試験: 閾値を動かすと上の主張が落ちる(閾値そのものを固定できている)
     {
-      const mutSrc = decideSrc.replace("todayErr <= 2", "todayErr <= 3");
+      const mutSrc = decideSrc.replace("dayErr <= 2", "dayErr <= 3");
       if (mutSrc === decideSrc) throw new Error("F-56 変異が空振り");
-      const mutSt = (v) => new Function("todayVal", `${mutSrc}\nreturn { heroColor, heroStatus };`)(v).heroStatus;
+      const mutSt = (v) => new Function("dayVal", `${mutSrc}\nreturn { heroColor, heroStatus };`)(v).heroStatus;
       check("21.8x 変異(Greatの閾値を2→3)では +2.0001 が Good ではなく Great になり21.8が落ちる",
         mutSt(2.0001) === "Great", mutSt(2.0001));
     }
@@ -13247,10 +13246,11 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       /const periodFrames = mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\);/.test(myDataSection)
       && /const overall = computeFrameMetrics\(periodFrames\);/.test(myDataSection)
       && !/frames=\{mySessions/.test(myDataSection));
-    // 【N-7】ピッチの折れ線はヒーローと同じ母集団の2本(期間 = periodFrames / 今日 = todayFrames)。
-    // 系列の組み立ては myDataChartSeries の1箇所(実行検証は検証27)。
+    // 【N-7→N-8】ピッチの折れ線はヒーローと同じ母集団の2本(期間 = periodFrames /
+    // 濃い線 = dayFrames(今日または直近の記録日。N-8))。系列の組み立ては myDataChartSeries の
+    // 1箇所(実行検証は検証27)。紺の面の上なので色だけ HERO_CHART_SERIES_STYLES(検証28)。
     check("26.2 ピッチの折れ線はヒーローと同じ母集団から2系列を作る(myDataChartSeries 経由)",
-      /const pitchSeries = myDataChartSeries\(rangeLabel, periodFrames, todayFrames\);/.test(myDataSection)
+      /const pitchSeries = myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel, HERO_CHART_SERIES_STYLES\);/.test(myDataSection)
       && /series=\{pitchSeries\}/.test(myDataSection),
       (myDataSection.match(/const pitchSeries = [^\n;]+/) || ["見つからない"])[0]);
     // 【N-7】数字タップの入口が**残っていない**こと(常時表示と開閉ボタンが二重に生きると、
@@ -13269,13 +13269,19 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       && /label=\{heroMetric\.label\} unit=\{heroMetric\.unit\} metricKey=\{heroMetric\.key\}/.test(myDataSection)
       && /fmt=\{heroMetric\.fmt\}/.test(myDataSection)
       && !/label="平均差分" unit="¢"/.test(myDataSection));
-    // グラフ本体は**紺の面の外**。中に入れると線と目盛りが読めない(N-6 から変わらない)。
-    // ヒーローの面を閉じる </div> より後ろにピッチのカードが置かれていることを、綴りの順序で見る。
+    // 【N-8 2026/08/16 本人指示による書き換え】旧主張「グラフ本体は紺の面の外」は**仕様ごと廃止**:
+    // 本人指示「濃い青のカードの折れ線グラフを音ごとの平均の折れ線グラフに変更」により、
+    // ピッチの折れ線は**ヒーローの紺の面の中**(旧スパークラインの場所)に入った。
+    // 紺の上で読めるよう、色は hero 変形(HERO_CHART_*)が持つ(検証28)。
+    // ここでは「中に居る」ことを、ヒーローの開きタグからグラフまでの <div> の深さで見る
+    // (面の外へ出すと深さが 0 になる)。
     {
-      const iHeroClose = myDataSection.indexOf("})()}\n      </div>");
-      const iChart = myDataSection.indexOf('background: "#F6F8FB"');
-      check("26.2 ピッチの折れ線はヒーローの紺の面の外に出す(面の上では線と目盛りが読めない)",
-        iHeroClose > 0 && iChart > iHeroClose, `面の終わり@${iHeroClose} / カード@${iChart}`);
+      const iHero = myDataSection.indexOf('<div style={{ background: "var(--c-accent)"');
+      const iChart = myDataSection.indexOf("<NoteAxisLineChart");
+      const seg = iHero >= 0 && iChart > iHero ? myDataSection.slice(iHero, iChart) : "";
+      const depth = (seg.match(/<div\b/g) || []).length - (seg.match(/<\/div>/g) || []).length;
+      check("26.2 N-8: ピッチの折れ線はヒーローの紺の面の中に居る(<div> の深さ ≥ 1)",
+        iHero >= 0 && iChart > iHero && depth >= 1, `面@${iHero} / グラフ@${iChart} / 深さ${depth}`);
     }
     // 【目安Δ】常時表示をやめてグラフの凡例へ移した(情報は失わせない)
     // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。行・ピル・期間セレクタには
@@ -13296,14 +13302,17 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
           h !== undefined && new RegExp(`borderRadius: 2, height: ${h},`).test(page), `正典=${h}px`);
       }
     }
-    check("26.2 目安との差(Δ)は行ではなくグラフへ渡す",
-      /idealDiffText=\{diff !== null \? `Δ \$\{diff > 0 \? "\+" : ""\}\$\{m\.fmt\(diff\)\}` : null\}/.test(metricRow));
+    // 【N-8 2026/08/16 本人指示による書き換え】旧主張「目安との差(Δ)は行ではなくグラフへ渡す」は
+    // **仕様ごと廃止**: 「目安は表示不要で、対象期間の平均と今日の平均だけでok」により、
+    // My Data の全グラフから目安の破線と Δ を外した(絶対の主張は検証28)。
+    // グラフ部品(NoteAxisLineChart)と TappableMetricCard の目安の仕組みそのものは
+    // **他画面(リード詳細・セッション詳細)のために従来のまま**であることをここで固定する。
     {
       const chart = srcOfFn(src, "NoteAxisLineChart");
-      check("26.2 グラフは Δ を「目安」の凡例の隣に出す(破線が出ているときだけ)",
+      check("26.2 グラフ部品は Δ を「目安」の凡例の隣に出す仕組みを保つ(破線が出ているときだけ。他画面用)",
         /\{idealDiffText && <span style=\{\{ color: "var\(--c-accent\)" \}\}>\{idealDiffText\}<\/span>\}/.test(chart)
         && /\{idealByIdx && hasData && \(/.test(chart));
-      check("26.2 TappableMetricCard は idealDiffText をグラフへそのまま渡す",
+      check("26.2 TappableMetricCard は idealDiffText をグラフへそのまま渡す(他画面用)",
         /idealDiffText=\{idealDiffText\}/.test(srcOfFn(src, "TappableMetricCard")));
     }
     // 【N-7 2026/08/16 本人指示による書き換え】旧「数字はタップで音名軸グラフに切り替わる
@@ -13509,10 +13518,16 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
   };
   const m27css = parseCss27((m27html.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]);
   check("27.0 正典モックの CSS を走査できている(空回りしていない)", m27css.length >= 15, `${m27css.length}規則`);
-  for (const sel of [".hero", ".hero .lbl", ".pitchcard", ".chartlbl", ".legend",
+  // 【N-8 2026/08/16 本人指示による書き換え】.pitchcard / .chartlbl は正典から削除された
+  // (ピッチカードの廃止)。凡例(.legend / .sw)はヒーローの中へ移り、紺地用の上書き
+  // .hero .legend と軸ラベル .haxis が加わった。
+  for (const sel of [".hero", ".hero .lbl", ".legend", ".sw", ".hero .legend", ".haxis",
     ".mrow", ".mtop", ".mname", ".mnums", ".mnums b", ".up"]) {
     check(`27.0 正典に ${sel} の規則がある`, rule27(sel).length === 1, `${rule27(sel).length}件`);
   }
+  check("27.0 N-8: 正典に .pitchcard / .chartlbl の規則が残っていない(ピッチカードの廃止)",
+    rule27(".pitchcard").length === 0 && rule27(".chartlbl").length === 0,
+    `${rule27(".pitchcard").length} / ${rule27(".chartlbl").length}件`);
 
   const myDataSection = srcOfFn(src, "MyDataSection");
   const myDataPage = srcOfFn(src, "MyDataPage");
@@ -13568,10 +13583,11 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
     // 母集団の絞り(奏者+楽器種別+フォールバック規則)は 26.2 で固定済み。ここでは
     // (a) 4本の折れ線がすべて dataSax で軸を作ること (b) 一覧側(MyDataPage)が dataSax を
     // 参照しないことを見る。
+    // 【N-8 書き換え】渡す母集団の綴りが todayFrames → dayFrames + dayLabel になった(検証28)。
     check("27.1 折れ線の軸は選択中の楽器種別(saxType={dataSax} がピッチ1+指標行1の2箇所)",
       (myDataSection.match(/saxType=\{dataSax\}/g) || []).length === 2
       && /series=\{pitchSeries\}\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection)
-      && /periodFrames=\{periodFrames\} todayFrames=\{todayFrames\}\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection),
+      && /periodFrames=\{periodFrames\} dayFrames=\{dayFrames\} dayLabel=\{dayLabel\}\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection),
       `${(myDataSection.match(/saxType=\{dataSax\}/g) || []).length}箇所`);
     check("27.1 MyDataSection の折れ線は計測タブの saxType を直接使わない(セレクタが効かなくなる)",
       !/saxType=\{saxType\}/.test(myDataSection));
@@ -13579,45 +13595,37 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       !/dataSax/.test(myDataPage));
   }
 
-  // --- 27.2 ピッチのカード(.pitchcard。常時表示) ------------------------------
+  // --- 27.2 ヒーローの中のピッチ折れ線(旧: ピッチのカード .pitchcard) ------------
+  // 【N-8 2026/08/16 本人指示による全面書き換え】単独のピッチカードは**グラフごと削除**され、
+  // 同じ音名軸の折れ線がヒーロー(紺のカード)の中(旧スパークラインの場所)へ移った。
+  // 旧主張(カードの寸法 .pitchcard / 見出し .chartlbl)は正典側でも削除済み(27.0 で固定)。
   {
-    const bg = decl27(".pitchcard", "background");
-    const r = parseFloat(decl27(".pitchcard", "border-radius"));
-    const pad = decl27(".pitchcard", "padding");
-    const mt = parseFloat(decl27(".pitchcard", "margin-top"));
-    check("27.2 正典からカードの寸法を読めている(空回りしていない)",
-      bg !== null && !isNaN(r) && pad !== null && !isNaN(mt), `${bg} / ${r} / ${pad} / ${mt}`);
-    check("27.2 カードの地・角丸・余白は正典 .pitchcard と同じ",
-      myDataSection.includes(`background: "${bg}", borderRadius: ${r}, padding: "${pad}", marginTop: ${mt}`),
-      `正典 = ${bg} / ${r} / ${pad} / ${mt}`);
-    // 見出しの語は正典 .chartlbl の1つ目の span。指標名と単位は MY_DATA_METRICS から組む
-    {
-      const mockTitle = (/<div class="chartlbl"><span>([^<]+)<\/span>/.exec(m27html) || [])[1];
-      const mdm = new Function(`const formatSignedCents = 0, pitchSpreadSub = 0;
-        ${extractConst("MY_DATA_METRICS")} return MY_DATA_METRICS;`)();
-      const pitch = mdm.find((x) => x.key === "pitchCentsSigned");
-      check("27.2 正典から見出しの語を読めている", !!mockTitle, String(mockTitle));
-      check("27.2 見出し「音ごとの平均差分（¢）」は MY_DATA_METRICS の指標名+単位から組むと正典と一致する",
-        mockTitle === `音ごとの${pitch.label}（${pitch.unit}）`,
-        `正典「${mockTitle}」/ 組み立て「音ごとの${pitch.label}（${pitch.unit}）」`);
-      check("27.2 実装の見出しはその組み立てそのもの(語を直書きしない)",
-        /<span>音ごとの\{heroMetric\.label\}（\{heroMetric\.unit\}）<\/span>/.test(myDataSection));
-    }
-    check("27.2 見出し行の文字は正典 .chartlbl と同じ(11px・ミュート色)",
-      new RegExp(`alignItems: "baseline", fontSize: ${parseFloat(decl27(".chartlbl", "font-size"))}, color: "var\\(--c-ink-3\\)"`).test(myDataSection),
-      `正典=${decl27(".chartlbl", "font-size")}`);
-    check("27.2 凡例は正典 .legend と同じ(gap 12・10px)で、系列の配列そのものから描く",
-      new RegExp(`gap: ${parseFloat(decl27(".legend", "gap"))}, fontSize: ${parseFloat(decl27(".legend", "font-size"))}`).test(myDataSection)
-      && /\{pitchSeries\.map\(\(s\) => \(/.test(myDataSection)
-      && /<SeriesSwatch style=\{s\.style\} \/>\{s\.label\}/.test(myDataSection),
-      `正典=${decl27(".legend", "gap")} / ${decl27(".legend", "font-size")}`);
-    // 常時表示(N-6 の開閉は廃止): カードの開きタグが条件式(&& / ?)の直後に来ていないこと。
-    // ソースの綴りで見る(十分条件ではない: 親ごと条件に包めばここは通る。名前もそう名乗る)。
-    check("27.2 カードの開きタグは条件式(&& / ?)の直後に来ていない(常時表示の綴り)",
-      !/(&&|\?)\s*\(?\s*\r?\n?\s*<div style=\{\{ background: "#F6F8FB"/.test(codeOf(myDataSection))
+    check("27.2 N-8: ピッチカード(.pitchcard 相当の #F6F8FB の面)が実装に残っていない",
+      !/#F6F8FB/.test(codeOf(myDataSection)),
+      (codeOf(myDataSection).match(/#F6F8FB/g) || []).length + "件");
+    check("27.2 N-8: 旧カードの見出し「音ごとの…」が残っていない(ヒーローの数字が見出しを兼ねる)",
+      !codeOf(myDataSection).includes("音ごとの"));
+    // 凡例: 正典 .legend(gap 12 / 10px) + 紺地用の上書き .hero .legend(右寄せ・#9DB3D6・上12)。
+    // 値はすべて正典から読む(期待値をここに写すと、正典が変わっても落ちない)。
+    check("27.2 凡例の並び・文字・色・余白は正典 .legend / .hero .legend と同じ",
+      new RegExp(`justifyContent: "${decl27(".hero .legend", "justify-content")}", alignItems: "center", `
+        + `gap: ${parseFloat(decl27(".legend", "gap"))}, fontSize: ${parseFloat(decl27(".legend", "font-size"))}, `
+        + `color: "${decl27(".hero .legend", "color")}", marginTop: ${parseFloat(decl27(".hero .legend", "margin-top"))}`).test(myDataSection),
+      `正典= ${decl27(".hero .legend", "justify-content")} / ${decl27(".legend", "gap")} / ${decl27(".legend", "font-size")} / ${decl27(".hero .legend", "color")} / ${decl27(".hero .legend", "margin-top")}`);
+    check("27.2 凡例は系列の配列そのもの(pitchSeries)から描く(綴りを2箇所に置かない)",
+      /\{pitchSeries\.map\(\(s\) => \(/.test(myDataSection));
+    // 凡例の見本は正典 .sw の色棒(白い地を敷く SeriesSwatch は紺の上では白い線が消えるため使わない)
+    check("27.2 凡例の見本は正典 .sw と同じ寸法の色棒で、色は系列そのものから取る",
+      new RegExp(`width: ${parseFloat(decl27(".sw", "width"))}, height: ${parseFloat(decl27(".sw", "height"))}, `
+        + `borderRadius: ${parseFloat(decl27(".sw", "border-radius"))}, background: s\\.style\\.color`).test(myDataSection)
+      && !/SeriesSwatch/.test(codeOf(myDataSection)),
+      `正典= ${decl27(".sw", "width")} / ${decl27(".sw", "height")} / ${decl27(".sw", "border-radius")}`);
+    check("27.2 グラフは plain + hero で描く(見出し・凡例はヒーロー側、配色は hero 変形が持つ)",
+      /<NoteAxisLineChart\s*\r?\n\s*plain hero\s*\r?\n\s*label=\{heroMetric\.label\}/.test(myDataSection));
+    // 表示の条件は「フレームを持つ記録があること」だけ(N8-SPEC 5: 記録ゼロなら従来の空表示)。
+    check("27.2 N-8: 折れ線と凡例はフレームがあるときだけ・それ以外の条件を持たない",
+      /\{\(periodFrames\.length > 0 \|\| dayFrames\.length > 0\) && \(/.test(myDataSection)
       && !/\{false && \(/.test(myDataSection));
-    check("27.2 グラフは plain で描き、見出しと凡例はカード側が持つ(二重の見出しを作らない)",
-      /<NoteAxisLineChart\s*\r?\n\s*plain\s*\r?\n\s*label=\{heroMetric\.label\}/.test(myDataSection));
     check("27.2 横軸ラベルの絞り(noteFocus)は N-6 のまま(E♭3/E♭4/E♭5)",
       (myDataSection.match(/noteFocus=\{\["E♭3", "E♭4", "E♭5"\]\}/g) || []).length === 1);
   }
@@ -13629,20 +13637,31 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       return { myDataChartSeries, SERIES_STYLES };`)();
     const f = api.myDataChartSeries;
     const S = api.SERIES_STYLES;
-    const both = f("1ヶ月", [{ t: 0 }], [{ t: 1 }]);
-    check("27.3 両方にデータがあれば2系列(期間が先=下・今日が後=上)",
+    // 【N-8 書き換え】濃い線のラベルは引数 dayLabel(myDataTodayOrLatestFrames の戻り値。検証28)。
+    // 「今日」の直書きは関数から消えた。
+    const both = f("1ヶ月", [{ t: 0 }], [{ t: 1 }], "今日");
+    check("27.3 両方にデータがあれば2系列(期間が先=下・今日/直近日が後=上)",
       both.length === 2 && both[0].id === "period" && both[1].id === "today",
       both.map((s) => s.id).join(","));
-    check("27.3 期間側のラベルは期間セレクタの語・今日側は「今日」",
-      both[0].label === "1ヶ月" && both[1].label === "今日",
+    check("27.3 期間側のラベルは期間セレクタの語・濃い線側は dayLabel の引数そのまま",
+      both[0].label === "1ヶ月" && both[1].label === "今日"
+      && f("1ヶ月", [{ t: 0 }], [{ t: 1 }], "8/15")[1].label === "8/15",
       both.map((s) => s.label).join("/"));
-    check("27.3 期間=薄(SERIES_STYLES[2])・今日=濃(SERIES_STYLES[0])。新しい線種を発明しない",
+    check("27.3 N-8: 濃い線のラベルを「今日」に固定できない(関数に「今日」の綴りが無い)",
+      !extractFunction("myDataChartSeries").includes("今日"));
+    check("27.3 既定の色は 期間=薄(SERIES_STYLES[2])・濃=SERIES_STYLES[0]。新しい線種を発明しない",
       both[0].style === S[2] && both[1].style === S[0]);
+    check("27.3 N-8: styles を渡すとその2色になる(ヒーローが紺地用の色に差し替えるための口)",
+      (() => {
+        const st = [{ color: "a" }, { color: "b" }];
+        const s = f("1ヶ月", [{ t: 0 }], [{ t: 1 }], "今日", st);
+        return s[0].style === st[0] && s[1].style === st[1];
+      })());
     check("27.3 フレーム列はそのまま渡す(別の集計に差し替えない)",
-      (() => { const p = [{ t: 0 }], t = [{ t: 1 }]; const s = f("1m", p, t); return s[0].frames === p && s[1].frames === t; })());
-    check("27.3 今日のデータが無い日は期間平均の1本だけ(N7-SPEC 8)",
-      f("1ヶ月", [{ t: 0 }], []).length === 1 && f("1ヶ月", [{ t: 0 }], null).length === 1
-      && f("1ヶ月", [{ t: 0 }], [])[0].id === "period");
+      (() => { const p = [{ t: 0 }], t = [{ t: 1 }]; const s = f("1m", p, t, "今日"); return s[0].frames === p && s[1].frames === t; })());
+    check("27.3 その日のデータが無ければ期間平均の1本だけ(N7-SPEC 8)",
+      f("1ヶ月", [{ t: 0 }], [], "今日").length === 1 && f("1ヶ月", [{ t: 0 }], null, "今日").length === 1
+      && f("1ヶ月", [{ t: 0 }], [], "今日")[0].id === "period");
     // 色の妥当性を独立に観測できる量へ接続する: 実装のトークン → index.css の値 → 正典の変数。
     // (SERIES_STYLES[2] を書き換えても、index.css の値を書き換えても、正典とずれたら落ちる)
     {
@@ -13689,19 +13708,23 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
     // 集計は computeFrameMetrics。JSX は戻り値を並べるだけ。
     check("27.4 行の定義(ラベル・単位・書式)は MY_DATA_METRICS から引く(写していない)",
       /const m = MY_DATA_METRICS\.find\(\(x\) => x\.key === metricKey\);/.test(metricRow));
+    // 【N-8 書き換え】ヘッダの数字は「今日または直近の記録日」(dayMetrics / h.dayNum)。
+    // 行頭のラベルは dayLabel(myDataTodayOrLatestFrames の戻り値)をそのまま置く(検証28)。
     check("27.4 ヘッダの数字は metricRowHeader の戻り値をそのまま並べる",
-      /const h = metricRowHeader\(m, todayMetrics \? todayMetrics\[m\.key\] : null, periodMetrics\[m\.key\]\);/.test(metricRow)
-      && />\{h\.todayNum\}<\/b>/.test(metricRow)
-      && /\{h\.todayUnit\} · \{rangeLabel\} \{h\.periodText\}/.test(metricRow)
+      /const h = metricRowHeader\(m, dayMetrics \? dayMetrics\[m\.key\] : null, periodMetrics\[m\.key\]\);/.test(metricRow)
+      && /\{dayLabel\} <b style=/.test(metricRow)
+      && />\{h\.dayNum\}<\/b>/.test(metricRow)
+      && /\{h\.dayUnit\} · \{rangeLabel\} \{h\.periodText\}/.test(metricRow)
       && /\{h\.diffText && <span style=/.test(metricRow));
-    check("27.4 集計は computeFrameMetrics(期間と今日を別々に。今日はフレームが無ければ null)",
+    check("27.4 集計は computeFrameMetrics(期間とその日を別々に。その日はフレームが無ければ null)",
       /const periodMetrics = computeFrameMetrics\(periodFrames\);/.test(metricRow)
-      && /const todayMetrics = todayFrames\.length \? computeFrameMetrics\(todayFrames\) : null;/.test(metricRow));
+      && /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(metricRow));
+    // 【N-8 書き換え】旧主張の selectedIdeal={selectedIdeal} idealKey={m.idealKey} は
+    // **仕様ごと廃止**(目安の破線と Δ を My Data から外した。絶対の主張は検証28)。
     check("27.4 折れ線は plain の NoteAxisLineChart に myDataChartSeries の2系列を渡す",
       /<NoteAxisLineChart\s*\r?\n\s*plain\s*\r?\n\s*label=\{m\.label\}/.test(metricRow)
-      && /series=\{myDataChartSeries\(rangeLabel, periodFrames, todayFrames\)\}/.test(metricRow)
-      && /fmt=\{m\.fmt\}/.test(metricRow)
-      && /selectedIdeal=\{selectedIdeal\} idealKey=\{m\.idealKey\}/.test(metricRow));
+      && /series=\{myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel\)\}/.test(metricRow)
+      && /fmt=\{m\.fmt\}/.test(metricRow));
     // 【審査で塞いだ穴】上の検査は series と fmt までしか見ておらず、
     // **MetricRow が受けた props をグラフへ渡す最後の1段**(saxType / tuningHz / metricKey)が
     // 無防備だった。`saxType={"alto"}` に固定する変異が生存し、楽器種別セレクタが
@@ -13712,13 +13735,9 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       /saxType=\{saxType\} tuningHz=\{tuningHz\} fmt=\{m\.fmt\}/.test(metricRow));
     check("27.4 グラフの指標キーは定義から引く(metricKey={m.key}。別の指標に固定できない)",
       /label=\{m\.label\} unit=\{m\.unit\} metricKey=\{m\.key\}/.test(metricRow));
-    // 目安との差(Δ)の母集団はヘッダの主役と同じ(今日があれば今日、無ければ期間)。
-    // コメントが「ずれると『+0.6 と出ているのに Δ は別の期間』になる」と主張しているのに
-    // 検査が無く、periodFrames 固定の変異が生存していた。
-    check("27.4 目安Δの母集団はヘッダの主役と同じ(今日があれば今日、無ければ期間)",
-      /const dFrames = todayMetrics \? todayFrames : periodFrames;/.test(metricRow)
-      && /const ideal = idealAvgForFrames\(dFrames, selectedIdeal, m\.idealKey\);/.test(metricRow)
-      && /const dVal = todayMetrics \? todayMetrics\[m\.key\] : periodMetrics\[m\.key\];/.test(metricRow));
+    // 【N-8 2026/08/16 本人指示による廃止】旧検査「目安Δの母集団はヘッダの主役と同じ」は
+    // **仕様ごと廃止**: 目安の破線と Δ は My Data の全グラフから外れた(「目安は表示不要」)。
+    // MetricRow が目安を一切扱わないこと(戻す変異が落ちること)は検証28 が固定する。
     // 呼び出し側(MyDataSection): 3行を MY_DATA_ROW_METRICS の並びのまま出す
     check("27.4 3行は MY_DATA_ROW_METRICS をそのまま map する(間引かない・並びを写さない)",
       /\{MY_DATA_ROW_METRICS\.map\(\(key, i\) => \(/.test(myDataSection)
@@ -13751,23 +13770,25 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
     const mm = /今日 <b>([\d.]+)<\/b>([A-Za-z]+) · 1ヶ月 ([\d.]+) <span class="up">(\+[\d.]+)<\/span>/.exec(m27html);
     check("27.5 正典の行ヘッダの数字を読めている(空回りしていない)",
       mm !== null && mm.length === 5, mm ? mm.slice(1).join(" ") : "読めない");
+    // 【N-8 書き換え】戻り値のキーが todayNum/todayUnit → dayNum/dayUnit
+    // (値は「今日または直近の記録日」のもの。数字の規則そのものは同一)。
     if (mm) {
       const r = h(hnr, parseFloat(mm[1]), parseFloat(mm[3]));
-      check("27.5 正典の数字(今日18.2 / 1ヶ月17.6)を入れると正典どおりの表示になる(+0.6・単位は今日側だけ)",
-        r.todayNum === mm[1] && r.todayUnit === mm[2] && r.periodText === mm[3]
+      check("27.5 正典の数字(今日18.2 / 1ヶ月17.6)を入れると正典どおりの表示になる(+0.6・単位はその日側だけ)",
+        r.dayNum === mm[1] && r.dayUnit === mm[2] && r.periodText === mm[3]
         && r.diffText === mm[4] && r.diffUp === true,
-        `${r.todayNum}${r.todayUnit} · ${r.periodText} ${r.diffText}`);
+        `${r.dayNum}${r.dayUnit} · ${r.periodText} ${r.diffText}`);
       check("27.5 正典の単位(dB)は MY_DATA_METRICS の HNR の単位と同じ(列の取り違えが出ない)",
         hnr.unit === mm[2], `実装 ${hnr.unit} / 正典 ${mm[2]}`);
     }
     const none = h(hnr, null, 17.6);
-    check("27.5 今日のデータが無い日は「今日 —」(単位も付けない。N7-SPEC 8)",
-      none.todayNum === "—" && none.todayUnit === "" && none.periodText === "17.6" && none.diffText === null,
-      `${none.todayNum}${none.todayUnit} / ${none.periodText} / ${none.diffText}`);
+    check("27.5 その日のデータが無ければ「—」(単位も付けない。N7-SPEC 8)",
+      none.dayNum === "—" && none.dayUnit === "" && none.periodText === "17.6" && none.diffText === null,
+      `${none.dayNum}${none.dayUnit} / ${none.periodText} / ${none.diffText}`);
     check("27.5 期間に値が無ければ期間側も「—」・差は出さない",
       h(hnr, 18.2, null).periodText === "—" && h(hnr, 18.2, null).diffText === null);
     check("27.5 NaN は欠測扱い(「NaN」を画面に出さない)",
-      h(hnr, NaN, 17.6).todayNum === "—" && h(hnr, 18.2, NaN).periodText === "—");
+      h(hnr, NaN, 17.6).dayNum === "—" && h(hnr, 18.2, NaN).periodText === "—");
     check("27.5 負の差は fmt の \"-\" のまま・正の色も付けない",
       h(hnr, 17.0, 17.6).diffText === "-0.6" && h(hnr, 17.0, 17.6).diffUp === false,
       String(h(hnr, 17.0, 17.6).diffText));
@@ -13779,8 +13800,8 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       const cent = mdm.find((x) => x.key === "spectralCentroidHz");
       const r = h(cent, 1214, 1195);
       check("27.5 重心(整数の書式)でも正典どおり(+19)",
-        r.todayNum === "1214" && r.todayUnit === "Hz" && r.diffText === "+19",
-        `${r.todayNum}${r.todayUnit} ${r.diffText}`);
+        r.dayNum === "1214" && r.dayUnit === "Hz" && r.diffText === "+19",
+        `${r.dayNum}${r.dayUnit} ${r.diffText}`);
     }
   }
 
@@ -13853,6 +13874,184 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       check("27.7 絞り込みピルのシート(リードで絞り込む)はフル表記のまま(触っていない)",
         /items=\{\[\s*\r?\n\s*\{ key: "", label: "すべて" \},\s*\r?\n\s*\{ key: "__none__", label: "未紐付け" \},\s*\r?\n\s*\.\.\.reeds\.map\(\(r\) => \(\{ key: r\.id, label: reedLabel\(r, reeds\) \}\)\),/.test(myDataPage));
     }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証28: N-8 ヒーローの折れ線化・直近日フォールバック・目安の撤去
+//   (2026/08/16 本人指示。凍結仕様 = design/N8-SPEC.md。正典 = design/data-tab-final.html の
+//    N-8 改訂版。期待値の色は**正典のヒーローの svg から読む**)
+//   A 直近日フォールバック myDataTodayOrLatestFrames(抽出して実行で検証)
+//   B 描画側の配線: 戻り値(frames / label)をヒーローの数字・濃い線・3行ヘッダの**すべて**が使う
+//     — 「純関数は完璧・配線が無防備」で通算17回差し戻された形を、名指しで固定する
+//   C ヒーローの中の折れ線(NoteAxisLineChart の hero 変形): 配色を正典と突き合わせ、
+//     既定(hero=false)の経路が従来のままであることも固定する
+//   D 目安(selectedIdeal)の破線と Δ が My Data の全グラフから外れている(他画面はそのまま)
+// ============================================================
+console.log("\n========== 検証28: N-8 ヒーローの折れ線化・直近日フォールバック(正典 data-tab-final.html) ==========");
+{
+  const m28html = readFileSync(join(__dirname, "..", "design", "data-tab-final.html"), "utf8");
+  const myDataSection = srcOfFn(src, "MyDataSection");
+  const metricRow = srcOfFn(src, "MetricRow");
+  const chart = srcOfFn(src, "NoteAxisLineChart");
+
+  // --- 28.1 直近日フォールバック(実行で検証) ---------------------------------
+  {
+    const F = new Function(`${extractFunction("localDayKey")}
+      ${extractFunction("myDataTodayOrLatestFrames")}
+      return myDataTodayOrLatestFrames;`)();
+    const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).toISOString();
+    const now = new Date(2026, 7, 16, 9, 0); // ローカル 2026/08/16 09:00
+    const s = (id, iso, n) => ({ id, recordedAt: iso, frames: Array.from({ length: n }, (_, i) => ({ t: i })) });
+
+    {
+      const r = F([s("a", at(2026, 8, 16, 7, 30), 2), s("b", at(2026, 8, 15, 20, 0), 3)], now);
+      check("28.1 今日に記録があれば frames=今日の全フレーム・label=「今日」",
+        r.label === "今日" && r.frames.length === 2, `${r.label} / ${r.frames.length}フレーム`);
+    }
+    {
+      const r = F([
+        s("a", at(2026, 8, 15, 5, 0), 1),   // 同じローカル暦日の早朝(JST なら UTC では前日)
+        s("b", at(2026, 8, 15, 23, 30), 2), // 同じローカル暦日の深夜
+        s("c", at(2026, 8, 13, 12, 0), 4),  // 前の日(混ざってはいけない)
+      ], now);
+      check("28.1 今日が無ければ直近の記録日の全フレーム(同じ暦日の複数セッションを合算・他の日は混ぜない)",
+        r.frames.length === 3, `${r.frames.length}フレーム`);
+      check("28.1 ラベルは「今日」と偽らず、その日付(M/D)", r.label === "8/15", r.label);
+    }
+    check("28.1 日付ラベルは M/D(ゼロ埋めしない・月/日だけ)",
+      F([s("a", at(2026, 8, 5, 12, 0), 1)], now).label === "8/5"
+      && F([s("a", at(2025, 12, 31, 12, 0), 1)], now).label === "12/31",
+      `${F([s("a", at(2026, 8, 5, 12, 0), 1)], now).label} / ${F([s("a", at(2025, 12, 31, 12, 0), 1)], now).label}`);
+    check("28.1 暦日の境界(昨日 23:59 の記録は「今日」ではなくその日付)",
+      F([s("a", at(2026, 8, 15, 23, 59), 1)], new Date(2026, 7, 16, 0, 1)).label === "8/15",
+      F([s("a", at(2026, 8, 15, 23, 59), 1)], new Date(2026, 7, 16, 0, 1)).label);
+    check("28.1 フレームの無い記録は無視する(最新が空セッションでも直近の実記録の日を選ぶ)",
+      F([s("empty", at(2026, 8, 16, 8, 0), 0), s("b", at(2026, 8, 14, 12, 0), 2)], now).label === "8/14",
+      F([s("empty", at(2026, 8, 16, 8, 0), 0), s("b", at(2026, 8, 14, 12, 0), 2)], now).label);
+    {
+      const r = F([], now);
+      check("28.1 記録ゼロなら frames=[]・label=「今日」(呼び出し側は従来どおりの空表示)",
+        r.frames.length === 0 && r.label === "今日", `${r.frames.length} / ${r.label}`);
+    }
+    // 暦日の組み立ては localDayKey ただ1箇所(toISOString().slice(0,10) は UTC 暦日で、
+    // JST では 00:00〜09:00 の記録が1日前になる。App.jsx の localDayKey の解説が名指しで禁止)
+    const fnSrc = extractFunction("myDataTodayOrLatestFrames");
+    check("28.1 暦日の組み立ては localDayKey(toISOString の UTC 暦日を使っていない)",
+      (fnSrc.match(/localDayKey\(/g) || []).length >= 2 && !/toISOString/.test(fnSrc),
+      `${(fnSrc.match(/localDayKey\(/g) || []).length}箇所`);
+  }
+
+  // --- 28.2 描画側の配線: 戻り値(frames / label)を使う -------------------------
+  {
+    check("28.2 MyDataSection は今日/直近日を myDataTodayOrLatestFrames(allMySessions, now) の1回で取る",
+      /const day = myDataTodayOrLatestFrames\(allMySessions, now\);/.test(myDataSection)
+      && /const dayFrames = day\.frames;/.test(myDataSection)
+      && /const dayLabel = day\.label;/.test(myDataSection)
+      && (codeOf(myDataSection).match(/myDataTodayOrLatestFrames\(/g) || []).length === 1,
+      `${(codeOf(myDataSection).match(/myDataTodayOrLatestFrames\(/g) || []).length}回`);
+    check("28.2 ヒーロー左上のラベルは戻り値の label(値が無いときだけ従来の「平均差分」)",
+      /\{dayVal != null \? dayLabel : "平均差分"\}/.test(myDataSection));
+    check("28.2 「今日」の綴りが描画側(MyDataSection / MetricRow)に無い(ラベルは戻り値だけ)",
+      !codeOf(myDataSection).includes("今日") && !codeOf(metricRow).includes("今日"));
+    check("28.2 3行ヘッダも同じ dayFrames / dayLabel を使う(MetricRow への配線)",
+      /periodFrames=\{periodFrames\} dayFrames=\{dayFrames\} dayLabel=\{dayLabel\}/.test(myDataSection));
+    check("28.2 ヒーローの数字も同じ母集団から出す(dayVal → displayVal)",
+      /const displayVal = dayVal != null \? dayVal : periodVal;/.test(myDataSection));
+  }
+
+  // --- 28.3 ヒーローの中の折れ線(hero 変形)と配色 ------------------------------
+  {
+    // 正典のヒーローの svg から、2本の線・0の破線・軸ラベルの色を読む(期待値をここに写さない)
+    const iHero = m28html.indexOf('<div class="hero">');
+    const iAfter = m28html.indexOf('<div class="mrow">');
+    const heroBlock = iHero >= 0 && iAfter > iHero ? m28html.slice(iHero, iAfter) : "";
+    const strokes = [...heroBlock.matchAll(/<path [^>]*stroke="(#[0-9A-Fa-f]{6})"/g)].map((m) => m[1]);
+    const zero = /<line [^>]*stroke="(#[0-9A-Fa-f]{6})" stroke-width="1" stroke-dasharray="4 3"/.exec(heroBlock);
+    const axis = /\.haxis\{[^}]*fill:(#[0-9A-Fa-f]{6})/.exec(m28html);
+    check("28.3 正典のヒーローから2本の線・0の破線・軸ラベルの色を読めている(空回りしていない)",
+      strokes.length === 2 && !!zero && !!axis,
+      `線=${strokes.join(",")} / 0線=${zero && zero[1]} / 軸=${axis && axis[1]}`);
+    const hs = new Function(`${extractConst("HERO_CHART_SERIES_STYLES")} return HERO_CHART_SERIES_STYLES;`)();
+    const hz = new Function(`${extractConst("HERO_CHART_ZERO_LINE")} return HERO_CHART_ZERO_LINE;`)();
+    const ha = new Function(`${extractConst("HERO_CHART_AXIS_TEXT")} return HERO_CHART_AXIS_TEXT;`)();
+    check("28.3 期間平均の線は正典の1本目(薄)と同じ色",
+      strokes.length === 2 && hs[0].color.toUpperCase() === strokes[0].toUpperCase(),
+      `実装 ${hs[0].color} / 正典 ${strokes[0]}`);
+    check("28.3 今日/直近日の線は正典の2本目(白)と同じ色",
+      strokes.length === 2 && hs[1].color.toUpperCase() === strokes[1].toUpperCase(),
+      `実装 ${hs[1].color} / 正典 ${strokes[1]}`);
+    check("28.3 薄い線は太く(§1.8 の 3px)・濃い線は 2px・2本とも実線",
+      hs[0].width === 3 && hs[1].width === 2 && hs[0].dash === null && hs[1].dash === null,
+      `${hs[0].width}px / ${hs[1].width}px`);
+    check("28.3 0の基準線は正典と同じ色(§1.8 の破線 4 3)",
+      zero !== null && hz.toUpperCase() === zero[1].toUpperCase(), `実装 ${hz} / 正典 ${zero && zero[1]}`);
+    check("28.3 軸ラベルの色は正典 .haxis と同じ",
+      axis !== null && ha.toUpperCase() === axis[1].toUpperCase(), `実装 ${ha} / 正典 ${axis && axis[1]}`);
+    // 配色が「ヒーローの既存配色」であること: 期間の線 = 正典 .hero .lbl の色 / 軸 = .hero .u の色
+    {
+      const lbl = /\.hero \.lbl\{[^}]*color:(#[0-9A-Fa-f]{6})/.exec(m28html);
+      const u = /\.hero \.u\{[^}]*color:(#[0-9A-Fa-f]{6})/.exec(m28html);
+      check("28.3 期間の線色はヒーローの既存色(.hero .lbl)と同じ(新色を発明していない)",
+        lbl !== null && hs[0].color.toUpperCase() === lbl[1].toUpperCase(), `${hs[0].color} / ${lbl && lbl[1]}`);
+      check("28.3 軸ラベル色はヒーローの既存色(.hero .u)と同じ(新色を発明していない)",
+        u !== null && ha.toUpperCase() === u[1].toUpperCase(), `${ha} / ${u && u[1]}`);
+    }
+    // hero 変形の描画(綴りで固定)と、既定(hero=false)経路の不変
+    check("28.3 hero は任意の引数(既定 false = 既存の呼び出し側は従来のまま)",
+      /plain = false, hero = false/.test(chart));
+    check("28.3 hero のとき水平グリッドを描かず、0 の基準線だけを破線で示す",
+      /\{hero \? \(v === 0 && \(/.test(chart)
+      && /strokeDasharray="4 3" style=\{\{ stroke: HERO_CHART_ZERO_LINE \}\}/.test(chart));
+    check("28.3 hero=false(既定)の目盛線は従来のまま(var(--c-line) の実線)",
+      /<line x1=\{L\.AXW\} y1=\{L\.yAt\(v\)\} x2=\{W\} y2=\{L\.yAt\(v\)\} strokeWidth="1" style=\{\{ stroke: "var\(--c-line\)" \}\} \/>/.test(chart));
+    check("28.3 目盛・音名ラベルの色は hero でヒーロー配色・既定(false)で従来色",
+      /fill: hero \? HERO_CHART_AXIS_TEXT : "var\(--c-ink-4\)"/.test(chart)
+      && /fill: hero \? HERO_CHART_AXIS_TEXT : i === midEbIdx \? "var\(--c-accent\)" : "var\(--c-ink-3\)"/.test(chart));
+    check("28.3 hero では中央E♭のガイド線を描かない(既定では描く)",
+      /\{!hero && midEbIdx !== null && \(/.test(chart));
+    check("28.3 空状態の文言も hero ではヒーロー配色(既定は従来の #8D95A1)",
+      /color: hero \? HERO_CHART_AXIS_TEXT : "#8D95A1"/.test(chart));
+    // hero を渡すのはデータタブのヒーローの1箇所だけ(集合で縛る)
+    {
+      const re = /<NoteAxisLineChart\s*\r?\n\s*plain hero\b/g;
+      const total = (src.match(re) || []).length;
+      const inOwner = (myDataSection.match(re) || []).length;
+      check("28.3 hero を渡すのは MyDataSection のヒーローだけ(集合の外に渡し手がいない)",
+        total === 1 && inOwner === 1
+        && !/\bhero\b/.test(codeOf(srcOfFn(src, "TappableMetricCard")))
+        && !/\bhero\b/.test(codeOf(metricRow)),
+        `全体 ${total} / MyDataSection ${inOwner}`);
+    }
+  }
+
+  // --- 28.4 目安(selectedIdeal)の破線と Δ の撤去(他画面はそのまま) --------------
+  {
+    check("28.4 MetricRow は目安を一切扱わない(selectedIdeal / idealKey / idealDiffText の綴りが無い)",
+      !/selectedIdeal|idealKey|idealDiffText/.test(codeOf(metricRow)));
+    check("28.4 MyDataSection はどのグラフにも selectedIdeal を渡さない(「目安未設定」の告知の条件にだけ使う)",
+      !/selectedIdeal=\{/.test(codeOf(myDataSection)) && /\{!selectedIdeal && \(/.test(myDataSection));
+    check("28.4 idealAvgForFrames(Δ の導出)は削除済み(読み手の無い定義を残さない)",
+      !/idealAvgForFrames/.test(codeOf(src)));
+    {
+      const mdm = new Function(`const formatSignedCents = 0, pitchSpreadSub = 0;
+        ${extractConst("MY_DATA_METRICS")} return MY_DATA_METRICS;`)();
+      check("28.4 MY_DATA_METRICS は idealKey を持たない(読み手の無いフィールドを残さない)",
+        mdm.every((m) => !("idealKey" in m)), mdm.map((m) => Object.keys(m).join("+")).join(" / "));
+    }
+    // 他画面はそのまま: グラフ部品の目安描画と、リード詳細・セッション詳細の配線が生きている
+    check("28.4 グラフ部品の目安描画(破線)は従来のまま生きている(他画面用)",
+      /if \(selectedIdeal && idealKey\) \{/.test(chart) && /IDEAL_LINE_STYLE/.test(chart));
+    check("28.4 リード詳細は selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
+      /selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "ReedEvaluationDetail"))
+      && /idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(srcOfFn(src, "ReedEvaluationDetail")));
+    // 【審査で塞いだ穴】前版は「コンポーネント内のどこかに selectedIdeal={selectedIdeal} が
+    // 1つあれば」通る形で、SetAsIdealButton / PhraseTimeline の同じ綴りに救われて
+    // **指標カードから selectedIdeal を外す変異が生存**した(目安の破線+Δが消えるのに緑)。
+    // **指標カードの呼び出しに隣接する綴り**(idealKey と同じ行並び)で錨止めする。
+    check("28.4 セッション詳細の指標カードは selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
+      /metricKey=\{mt\.key\} idealKey=\{METRIC_IDEAL_KEYS\[mt\.key\]\}\s*\r?\n\s*frames=\{frames\} saxType=\{session\.saxType\} tuningHz=\{tuningHz\} selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "SessionDetailView")));
   }
   console.log("  -> done");
 }

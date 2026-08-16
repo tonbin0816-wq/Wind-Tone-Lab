@@ -9290,6 +9290,21 @@ const SERIES_STYLES = [
 // 系列がこの色を取らないようにここで1箇所に定義しておく。破線パターンは §1.8 の "4 3"。
 const IDEAL_LINE_STYLE = { color: "var(--c-ink-3)", width: 2, dash: "4 3" };
 
+// 【N-8 2026/08/16 本人指示】データタブのヒーロー(紺のカード)の**中**に描く音名軸折れ線の配色。
+// 紺の面の上では §1.7 の系列色(紺の明度段階)が沈むため、**ヒーローの既存配色だけ**を使う
+// (N8-SPEC 2。新しい色を発明しない。値は正典 design/data-tab-final.html のヒーローの svg と
+// 検査が突き合わせる):
+//   期間平均 = #B9C9E4(旧スパークラインの線色 = --c-accent-line と同値。§1.8 により薄い系列は 3px)
+//   今日/直近日 = #FFFFFF(= --c-on-accent と同値。§1.8 の系列 2px)
+//   0の基準線 = #3D5F94(旧スパークラインの基準線色。破線は §1.8 の "4 3")
+//   軸ラベル = #9DB3D6(ヒーローの副次テキスト色)
+const HERO_CHART_SERIES_STYLES = [
+  { color: "#B9C9E4", width: 3, dash: null },
+  { color: "#FFFFFF", width: 2, dash: null },
+];
+const HERO_CHART_ZERO_LINE = "#3D5F94";
+const HERO_CHART_AXIS_TEXT = "#9DB3D6";
+
 // SVG内テキストの実描画幅(px)を測る。--font-num / --font-jp は入れ子の var() を含むため
 // getComputedStyle().getPropertyValue() では未解決の文字列しか得られない(resolveBottomGap と同じ罠)。
 // 実際に文書へ置いた <text> の getComputedTextLength() で測ることで確定値を取る。
@@ -9584,11 +9599,18 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 // (情報は失わせない。DESIGN-SYSTEM §6.0「今に関係ない物は出ていない」)。
 // 破線(目安)が出ているときにしか意味を持たない値なので、凡例の「目安」と同じ条件でだけ描く。
 // 【N-7 2026/08/16】plain: 見出し行(ラベル)と系列の凡例を**描かない**。データタブ(My Data)の
-// ピッチカード・指標行は、見出しと凡例を正典 design/data-tab-final.html の .chartlbl / .mtop の
-// 形で**呼び出し側が持つ**ため(ここが二重に描くと見出しが2つ並ぶ)。
-// 目安の凡例(実測/目安/Δ)は plain でも描く: 目安の破線と Δ は N-6 で決めた置き場所のままにする
-// (機能を落とさない)。既定 false = リード比較・個体詳細・セッション詳細は従来のまま。
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false }) {
+// ヒーローの折れ線(N-8)・指標行は、見出しと凡例を正典 design/data-tab-final.html の
+// .legend / .mtop の形で**呼び出し側が持つ**ため(ここが二重に描くと見出しが2つ並ぶ)。
+// 目安の凡例(実測/目安/Δ)は plain でも描く: 目安の破線と Δ の置き場所は N-6 のまま
+// (【N-8】My Data は selectedIdeal を渡さなくなったので描かれない。他画面は従来のまま)。
+// 既定 false = リード比較・個体詳細・セッション詳細は従来のまま。
+// 【N-8 2026/08/16 本人指示】hero: 紺のヒーローの中に描くための軸の変形。渡すのはデータタブの
+// ヒーローだけ。(a) 水平グリッドを描かず 0 の基準線だけを破線(HERO_CHART_ZERO_LINE)で示す
+// (b) 目盛・音名ラベルの色をヒーローの配色(HERO_CHART_AXIS_TEXT)にする (c) 中央E♭の強調
+// (ガイド線・紺の色付け)を描かない — 破線ガイドの --c-accent-line が期間平均の線色と同じで、
+// 系列と見分けられなくなるため(軸要素は最小限、の判断)。
+// **既定 false = 既存の呼び出し側の描画は1つも変えない。**
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, hero = false }) {
   // 幅は固定しない。コンテナの実測幅に音域全体を収める(DESIGN-SYSTEM §1.9)。
   // 以前は COL=26 の固定列幅で W=33音×26=858px あり、375pxでは31%しか見えていなかった。
   const [boxRef, W] = useMeasuredWidth();
@@ -9727,21 +9749,28 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     <div style={{ marginBottom: plain ? 0 : 18 }}>
       {!plain && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
       {!hasData ? (
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この音域のデータがまだありません</div>
+        // 【N-8】hero(紺の面)ではグレー #8D95A1 が沈むので、軸ラベルと同じヒーロー配色で出す
+        <div className="sans" style={{ fontSize: 12, color: hero ? HERO_CHART_AXIS_TEXT : "#8D95A1" }}>この音域のデータがまだありません</div>
       ) : (
         // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るのでちらつきは出ない
         <div ref={boxRef}>
           {L && (
             <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
-              {/* 縦軸(値)の目盛と水平グリッド: 上端・中間・下端 */}
+              {/* 縦軸(値)の目盛と水平グリッド: 上端・中間・下端。
+                  【N-8】hero では水平グリッドを描かず、0 の基準線だけを破線で示す(軸要素は最小限)。 */}
               {L.tickVals.map((v, k) => (
                 <g key={k}>
-                  <line x1={L.AXW} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
-                  <text x={L.AXW - L.TICK_GAP} y={L.yAt(v) + Math.round(L.FS * 0.35)} fontSize={L.FS} textAnchor="end" fontFamily="var(--font-num)" style={{ fill: "var(--c-ink-4)" }}>{L.tickTexts[k]}</text>
+                  {hero ? (v === 0 && (
+                    <line x1={L.AXW} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" strokeDasharray="4 3" style={{ stroke: HERO_CHART_ZERO_LINE }} />
+                  )) : (
+                    <line x1={L.AXW} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
+                  )}
+                  <text x={L.AXW - L.TICK_GAP} y={L.yAt(v) + Math.round(L.FS * 0.35)} fontSize={L.FS} textAnchor="end" fontFamily="var(--font-num)" style={{ fill: hero ? HERO_CHART_AXIS_TEXT : "var(--c-ink-4)" }}>{L.tickTexts[k]}</text>
                 </g>
               ))}
-              {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする) */}
-              {midEbIdx !== null && (
+              {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする)。
+                  【N-8】hero では描かない(--c-accent-line の破線が期間平均の線色と同じで紛れる)。 */}
+              {!hero && midEbIdx !== null && (
                 <line x1={L.xAt(midEbIdx)} y1={L.padTop} x2={L.xAt(midEbIdx)} y2={L.padTop + L.plotH} strokeWidth="1" strokeDasharray="4 3" style={{ stroke: "var(--c-accent-line)" }} />
               )}
               {/* 理想値(破線)は実測より先に描き、実測の線が上に乗るようにする */}
@@ -9770,7 +9799,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                 );
               })}
               {plotNoteLabels.map((nm, i) => (L.showLabel(i) ? (
-                <text key={i} x={L.xAt(i)} y={L.labelY} fontSize={L.FS} fontWeight={i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)" style={{ fill: i === midEbIdx ? "var(--c-accent)" : "var(--c-ink-3)" }}>{nm}</text>
+                <text key={i} x={L.xAt(i)} y={L.labelY} fontSize={L.FS} fontWeight={!hero && i === midEbIdx ? 700 : 400} textAnchor="middle" fontFamily="var(--font-num)" style={{ fill: hero ? HERO_CHART_AXIS_TEXT : i === midEbIdx ? "var(--c-accent)" : "var(--c-ink-3)" }}>{nm}</text>
               ) : null))}
             </svg>
           )}
@@ -9800,7 +9829,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 // タップで「数値表示 ⇄ 音名軸の折れ線グラフ」を切り替えるメトリクスカード。
 // 登録済みリードの測定データ・セッション詳細で共通して使う。
 // 【N-7 2026/08/16 本人指示】データタブ(My Data)はこの部品から離れた: 累計/最新の数字の列と
-// 「タップでグラフ」は廃止され、常時表示の音名軸折れ線(MetricRow / ピッチのカード)が引き継いだ。
+// 「タップでグラフ」は廃止され、常時表示の音名軸折れ線(MetricRow / ヒーローの折れ線)が引き継いだ。
 // グラフ表示中はグリッドの全幅に広がり(gridColumn: 1/-1)、理想値があれば破線で重ねる。
 //
 // 【N-5 / bare】リードの個体詳細とデータタブだけ、正典の「枠も地も持たない数字の列」にする。
@@ -10560,12 +10589,15 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
-// My Dataで扱う4指標。idealKeyは理想値プロファイルのnote側フィールド名(ピッチ誤差は理想=0が定義)
+// My Dataで扱う4指標。
+// 【N-8 2026/08/16 本人指示】idealKey(目安プロファイルとの対応)はこの配列から削除した:
+// 目安の破線と Δ は My Data の全グラフから外れた(「目安は表示不要」)ため、読み手が無い。
+// 他画面(リード詳細・セッション詳細)の目安対応は METRIC_IDEAL_KEYS が引き続き持つ。
 const MY_DATA_METRICS = [
-  { key: "volumeDb", idealKey: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   // 【N-6】ラベルは正典どおり「重心」(design/north-star-measure.html の .mrow .l)。
-  { key: "spectralCentroidHz", idealKey: "centroidHz", label: "重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
-  { key: "hnrDb", idealKey: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
+  { key: "spectralCentroidHz", label: "重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
+  { key: "hnrDb", label: "HNR", unit: "dB", fmt: (v) => v.toFixed(1) },
   // 【2026-08-04 本人指示】「0を挟んで上が＋・下がマイナス、折れ線は1本」。
   // 以前はブレ幅(標準偏差、常に非負)を ±v の2本のミラーで描いていたが、本人が見たいのは
   // 「シャープ側/フラット側のどちらにどれだけズレたか」だったので、符号付きの平均ズレ
@@ -10573,22 +10605,15 @@ const MY_DATA_METRICS = [
   // 【N-6】この定義は**行の列としては使われない**(MY_DATA_ROW_METRICS は3キーだけ。
   // 正典 .mrow に平均差分の列が無いため)。ラベル・単位・書式・副次テキストの**定義**として
   // 生きている。
-  // 【N-7 2026/08/16 本人指示】N-6 の「ヒーローの数字をタップして開く」は廃止し、
-  // ヒーロー直下に**常時表示**のピッチ折れ線カード(正典 data-tab-final.html の .pitchcard)を
-  // 置いた。そのカードの見出し「音ごとの平均差分（¢）」と fmt はここの label/unit/fmt を土台にする。
-  // sub は副次テキストの導出(F-66)。目安(idealKey)を持たないこの指標だけが持つ
-  { key: "pitchCentsSigned", idealKey: null, label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
+  // 【N-7 2026/08/16 本人指示】N-6 の「ヒーローの数字をタップして開く」は廃止し、常時表示にした。
+  // 【N-8 2026/08/16 本人指示】その常時表示のピッチ折れ線は、単独のカード(.pitchcard)ごと廃止し、
+  // **ヒーロー(紺のカード)の中**へ移った(旧スパークラインの場所)。fmt はここが唯一の答えのまま。
+  // sub は副次テキストの導出(F-66)。この指標だけが持つ
+  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
-// フレーム列に対する「理想値の加重平均」。各フレームの音(semitoneIndex)に対応する
-// 理想値をフレーム数で加重平均する(音の構成が違うセッション同士でも公平に比較できる)
-function idealAvgForFrames(frames, profile, idealKey) {
-  if (!profile || !idealKey) return null;
-  const vals = frames
-    .map((f) => getNoteIdeal(profile, f.semitoneIndex)?.[idealKey])
-    .filter((v) => v !== null && v !== undefined && !isNaN(v));
-  return vals.length ? mean(vals) : null;
-}
+// (【N-8 2026/08/16 本人指示】idealAvgForFrames(目安の加重平均。Δ の導出)はここにあったが、
+//  目安の破線と Δ が My Data の全グラフから外れて読み手が無くなったため削除した。)
 
 // 3ヶ月/6ヶ月/1年は「直近Nヶ月」のローリング期間。1年より前のデータは1年単位の
 // 期間(2年目=1〜2年前、3年目=2〜3年前…)で追加抽出できるようにする。
@@ -10618,36 +10643,62 @@ function getMyDataRangeBounds(rangeKey, now) {
   return { start: null, end: null }; // all
 }
 
+// 【N-8 2026/08/16 本人指示】「当日のデータがまだない場合は直近の記録のある日の平均を表示」。
+// 対象 = 呼び出し側が渡す「奏者=自分 + 選択中の楽器種別」のセッション(allMySessions)のうち、
+// フレームを持つものの最新 recordedAt の**ローカル暦日**の全フレーム(暦日の組み立ては
+// localDayKey ただ1箇所。toISOString の UTC 暦日を使ってはいけない — localDayKey の解説を見ること)。
+// 戻り値 { frames, label }:
+//   - その暦日が今日なら label = "今日"(従来と同じ見え方)
+//   - 今日でなければ label = "M/D"(例 "8/15")。**「今日」と偽らない**(N8-SPEC 5)
+//   - フレームを持つ記録が1件も無ければ frames = [] / label = "今日"(呼び出し側は従来どおりの空表示)
+// ヒーローの数字・折れ線の濃い線・3行のヘッダの**すべてがこの1関数の戻り値を使う**
+// (規則を2箇所に写さない。どれかが別の規則で「今日」を出すと、日付ラベルと数字の母集団がずれる)。
+function myDataTodayOrLatestFrames(sessions, now) {
+  const withFrames = sessions.filter((s) => (s.frames || []).length > 0);
+  if (withFrames.length === 0) return { frames: [], label: "今日" };
+  const latest = withFrames.reduce((a, b) => (new Date(b.recordedAt) > new Date(a.recordedAt) ? b : a));
+  const d = new Date(latest.recordedAt);
+  const dayKey = localDayKey(d);
+  const frames = withFrames
+    .filter((s) => localDayKey(new Date(s.recordedAt)) === dayKey)
+    .flatMap((s) => s.frames || []);
+  return { frames, label: dayKey === localDayKey(now) ? "今日" : `${d.getMonth() + 1}/${d.getDate()}` };
+}
+
 // 【N-6】折れ線の行に並べる指標と**その順**。正典 .mrow は HNR / 重心 / 音量 の3行(N-7)。
-// **平均差分の行は持たない**: 同じ量がヒーロー直下のピッチのカードとして別扱いで出ているため。
-// 中身の定義(ラベル・単位・書式・目安のキー)は MY_DATA_METRICS が唯一の答えで、
+// **平均差分の行は持たない**: 同じ量がヒーロー(の数字と中の折れ線。N-8)として出ているため。
+// 中身の定義(ラベル・単位・書式)は MY_DATA_METRICS が唯一の答えで、
 // ここはキーの並びだけを持つ(定義を2箇所に写さない。REED_DETAIL_METRICS と同じ作り)。
 const MY_DATA_ROW_METRICS = ["hnrDb", "spectralCentroidHz", "volumeDb"];
 
-// 【N-7 2026/08/16 本人指示】My Data の折れ線(ピッチのカード + 3指標行)の系列は
+// 【N-7 2026/08/16 本人指示】My Data の折れ線(ヒーローの折れ線 + 3指標行)の系列は
 // **必ずこの1関数から作る**(規則を2箇所に写さない)。
-// 期間平均 = 薄(SERIES_STYLES[2] = --c-accent-line。§1.8 により 3px)を先に= 下に、
-// 今日 = 濃(SERIES_STYLES[0] = --c-accent)を後に= 上に描く。色は §1.7 の系列色だけを使い、
-// 新しい色を発明しない(正典 data-tab-final.html の --pale / --accent と同じ2色)。
-// 今日のデータが無い日は期間平均の1本だけを返す(N7-SPEC 8。凡例からも「今日」が消える)。
-function myDataChartSeries(rangeLabel, periodFrames, todayFrames) {
-  const series = [{ id: "period", label: rangeLabel, style: SERIES_STYLES[2], frames: periodFrames }];
-  if ((todayFrames || []).length > 0) series.push({ id: "today", label: "今日", style: SERIES_STYLES[0], frames: todayFrames });
+// 期間平均 = 薄を先に= 下に、今日/直近日 = 濃を後に= 上に描く。
+// 指標行(白地)は既定の §1.7 系列色(SERIES_STYLES[2] = --c-accent-line / [0] = --c-accent)、
+// ヒーロー(紺地)だけ styles で HERO_CHART_SERIES_STYLES を渡す(N8-SPEC 2。どちらも新色を発明しない)。
+// 【N-8 2026/08/16 本人指示】濃い線の中身とラベルは myDataTodayOrLatestFrames の戻り値
+// (dayFrames / dayLabel)。当日のデータが無い日は直近の記録日になり、ラベルはその日付(例 "8/15")。
+// フレームを持つ記録が1件も無ければ期間平均の1本だけを返す(凡例からも濃い線の項目が消える)。
+function myDataChartSeries(rangeLabel, periodFrames, dayFrames, dayLabel, styles = [SERIES_STYLES[2], SERIES_STYLES[0]]) {
+  const series = [{ id: "period", label: rangeLabel, style: styles[0], frames: periodFrames }];
+  if ((dayFrames || []).length > 0) series.push({ id: "today", label: dayLabel, style: styles[1], frames: dayFrames });
   return series;
 }
 
 // 【N-7】行ヘッダ「今日 18.2dB · 1ヶ月 17.6 +0.6」の数字の組み立て(表示はこの1関数から)。
-// 正典 data-tab-final.html の .mnums: 単位は今日の値にだけ付き、期間平均と差は数字だけ。
-// 今日のデータが無い日は「今日 —」(単位も付けない。N7-SPEC 8)。期間に値が無ければ期間側も「—」。
-// 差(今日 − 期間平均)は両方が読めるときだけ。符号は正のときだけ "+" を前置する
+// 正典 data-tab-final.html の .mnums: 単位は今日/直近日の値にだけ付き、期間平均と差は数字だけ。
+// 【N-8】「今日」の語はここに無い: 行頭のラベルは myDataTodayOrLatestFrames の label
+// (今日なら「今日」、無ければ直近の記録日の日付)を呼び出し側がそのまま置く。
+// 値が無い日は「—」(単位も付けない)。期間に値が無ければ期間側も「—」。
+// 差(その日 − 期間平均)は両方が読めるときだけ。符号は正のときだけ "+" を前置する
 // (Δ の既存規則と同じ。負は fmt が "-" を出す)。diffUp は正典 .up(緑)を正の差にだけ使うための旗。
 // JSX は戻り値を並べるだけにする(ハーネスが JSX を評価しないため、数字の規則はここで実行検証する)。
-function metricRowHeader(m, todayVal, periodVal) {
+function metricRowHeader(m, dayVal, periodVal) {
   const has = (v) => v !== null && v !== undefined && !isNaN(v);
-  const diff = has(todayVal) && has(periodVal) ? todayVal - periodVal : null;
+  const diff = has(dayVal) && has(periodVal) ? dayVal - periodVal : null;
   return {
-    todayNum: has(todayVal) ? m.fmt(todayVal) : "—",
-    todayUnit: has(todayVal) ? m.unit : "",
+    dayNum: has(dayVal) ? m.fmt(dayVal) : "—",
+    dayUnit: has(dayVal) ? m.unit : "",
     periodText: has(periodVal) ? m.fmt(periodVal) : "—",
     diffText: diff === null ? null : `${diff > 0 ? "+" : ""}${m.fmt(diff)}`,
     diffUp: diff !== null && diff > 0,
@@ -10656,40 +10707,36 @@ function metricRowHeader(m, todayVal, periodVal) {
 
 // 【N-7 2026/08/16 本人指示】データタブの指標行。正典 = design/data-tab-final.html の .mrow
 // (案D の行構成)。N-6 の「累計/最新の2行(数字の列)」は廃止し、この**常時表示の音名軸折れ線**が
-// 引き継ぐ(情報は失わない: 累計 = 期間セレクタの「全期間」/ 最新の数字 = 行ヘッダの「今日」)。
+// 引き継ぐ(情報は失わない: 累計 = 期間セレクタの「全期間」/ 最新の数字 = 行ヘッダのその日の値)。
 // 行構成: 指標名(.mname) + 右に「今日 18.2dB · 1ヶ月 17.6 +0.6」(.mnums)、下に折れ線2本。
 // 枠なし・カードなし。行の下辺に細い罫1本(最後の行だけ正典どおり罫なし)。
 // 音によってベースが高く出たり低く出たりする(本人指示の芯)ので、平均1つの数字ではなく
-// 音名ごとの線で見せる。目安があれば破線を重ね、目安との差(Δ)は N-6 のままグラフの凡例に出す。
-function MetricRow({ metricKey, rangeLabel, periodFrames, todayFrames, saxType, tuningHz, selectedIdeal, last = false }) {
+// 音名ごとの線で見せる。
+// 【N-8 2026/08/16 本人指示】目安(selectedIdeal)の破線と Δ はこの行から**外した**(「目安は表示不要」。
+// 他画面=リード詳細・セッション詳細の目安はそのまま)。行頭のラベルと濃い線の中身は
+// myDataTodayOrLatestFrames の戻り値(dayLabel / dayFrames)。当日データが無い日は直近の記録日で、
+// ラベルは「今日」ではなくその日付(例 "8/15")になる。
+function MetricRow({ metricKey, rangeLabel, periodFrames, dayFrames, dayLabel, saxType, tuningHz, last = false }) {
   const m = MY_DATA_METRICS.find((x) => x.key === metricKey);
   const periodMetrics = computeFrameMetrics(periodFrames);
-  const todayMetrics = todayFrames.length ? computeFrameMetrics(todayFrames) : null;
-  const h = metricRowHeader(m, todayMetrics ? todayMetrics[m.key] : null, periodMetrics[m.key]);
-  // 目安との差(Δ)の母集団はヘッダの主役と同じ(今日があれば今日、無ければ期間。
-  // ヒーローの displayVal と同じ約束。母集団がずれると「+0.6 と出ているのに Δ は別の期間」になる)。
-  const dFrames = todayMetrics ? todayFrames : periodFrames;
-  const dVal = todayMetrics ? todayMetrics[m.key] : periodMetrics[m.key];
-  const ideal = idealAvgForFrames(dFrames, selectedIdeal, m.idealKey);
-  const diff = dVal !== null && dVal !== undefined && ideal !== null ? dVal - ideal : null;
+  const dayMetrics = dayFrames.length ? computeFrameMetrics(dayFrames) : null;
+  const h = metricRowHeader(m, dayMetrics ? dayMetrics[m.key] : null, periodMetrics[m.key]);
   return (
     <div className="sans" style={{ padding: "14px 0 10px", borderBottom: last ? "none" : "1px solid var(--c-line)" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
         <span style={{ fontSize: 12, color: "var(--c-ink-2)" }}>{m.label}</span>
         <span style={{ fontSize: 11.5, color: "var(--c-ink-3)", fontVariantNumeric: "tabular-nums" }}>
-          今日 <b style={{ color: "var(--c-ink)", fontFamily: "var(--font-num)", fontSize: 14, fontWeight: 600 }}>{h.todayNum}</b>
-          {h.todayUnit} · {rangeLabel} {h.periodText}
+          {dayLabel} <b style={{ color: "var(--c-ink)", fontFamily: "var(--font-num)", fontSize: 14, fontWeight: 600 }}>{h.dayNum}</b>
+          {h.dayUnit} · {rangeLabel} {h.periodText}
           {h.diffText && <span style={{ color: h.diffUp ? "#1D6B4A" : "var(--c-ink-3)" }}> {h.diffText}</span>}
         </span>
       </div>
       <NoteAxisLineChart
         plain
         label={m.label} unit={m.unit} metricKey={m.key}
-        series={myDataChartSeries(rangeLabel, periodFrames, todayFrames)}
+        series={myDataChartSeries(rangeLabel, periodFrames, dayFrames, dayLabel)}
         saxType={saxType} tuningHz={tuningHz} fmt={m.fmt}
-        selectedIdeal={selectedIdeal} idealKey={m.idealKey}
         noteFocus={["E♭3", "E♭4", "E♭5"]}
-        idealDiffText={diff !== null ? `Δ ${diff > 0 ? "+" : ""}${m.fmt(diff)}` : null}
       />
     </div>
   );
@@ -10768,12 +10815,14 @@ function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
 
 // My Data: 奏者が「自分」のセッションの集計。
 // 【N-7 2026/08/16 本人指示】正典 = design/data-tab-final.html。
-//   紺のヒーロー(現状維持) → ピッチの音名軸折れ線カード(常時表示) → HNR/重心/音量の折れ線3行。
 //   ヒーロー右上は「Alto ▾ · 1ヶ月 ▾」の2セレクタ。**楽器種別と期間が効くのは
-//   ヒーロー(スパークライン含む)と4本の折れ線だけ**で、セッション一覧には効かせない
+//   ヒーローと4本の折れ線だけ**で、セッション一覧には効かせない
 //   (N7-SPEC 2。一覧の絞り込みは既存のピルが担う。二重の絞りは混乱のもと)。
 //   N-6 の「累計/最新の2行」と「数字タップでグラフ」は廃止(常時表示の4本が引き継ぐ。
-//   累計 = 期間セレクタの「全期間」/ 最新の数字 = 行ヘッダの「今日」)。
+//   累計 = 期間セレクタの「全期間」/ 最新の数字 = 行ヘッダのその日の値)。
+// 【N-8 2026/08/16 本人指示】並びは 紺のヒーロー(数字 + 音名軸の折れ線2本) → HNR/重心/音量の
+//   折れ線3行。スパークラインと N-7 のピッチカード(.pitchcard)は廃止(ヒーローの中の折れ線が
+//   引き継ぐ)。今日のデータが無い日は「直近の記録のある日」で代替(myDataTodayOrLatestFrames)。
 function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   // 【N-7】楽器種別セレクタ。語彙は計測タブの saxType(SAX_PRESETS)と同一で、
   // **既定値 = 計測タブで選択中の saxType**(N7-SPEC 1)。永続化しない: タブを離れて
@@ -10802,7 +10851,6 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
     })
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
-  // ヒーロー(と真下のスパークライン)が見ているのは**対象期間**のフレーム。
   // 【N-6】対象期間のフレーム列。overall(平均)と4本の折れ線の期間側が**同じ母集団**を見る。
   // 【N-7】累計の行は廃止(全期間は期間セレクタの「全期間」で出す)。
   const periodFrames = mySessions.flatMap((s) => s.frames || []);
@@ -10810,42 +10858,38 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
 
   const points = mySessions.map((s) => computeFrameMetrics(s.frames || []));
 
-  // ヒーローカード: 今日のピッチの平均差分を、0からの距離で3段に色分けする(F-56)。
-  // 対象期間の平均は、比較の基準ではなく「今日のデータが無いときの代替値」と参考表示に使う。
-  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
-  const todayFrames = allMySessions
-    .filter((s) => new Date(s.recordedAt) >= startOfToday)
-    .flatMap((s) => s.frames || []);
+  // ヒーローカード: その日のピッチの平均差分を、0からの距離で3段に色分けする(F-56)。
+  // 【N-8 2026/08/16 本人指示】「当日のデータがまだない場合は直近の記録のある日の平均を表示」。
+  // 今日/直近日の選定・フレーム・ラベルは myDataTodayOrLatestFrames の1箇所(規則を2箇所に写さない)。
+  // 戻り値をヒーローの数字・折れ線の濃い線・3行のヘッダの**すべて**が使う。ラベルは今日なら「今日」、
+  // 直近日ならその日付(例 "8/15")で、**「今日」と偽らない**(N8-SPEC 5)。
+  const day = myDataTodayOrLatestFrames(allMySessions, now);
+  const dayFrames = day.frames;
+  const dayLabel = day.label;
   // 【2026-08-04 本人指示】「データタブ最上部の今日のピッチ誤差は符号付きがいい」。
   // 以前は pitchCents(Math.abs を通した絶対値)を渡しておきながら表示側は符号つき前提の
   // 分岐(displayVal > 0 ? "+" : "")を持っており、"-" が出ることが構造上あり得なかった。
   // 符号つきの平均ズレ(pitchCentsSigned)を渡し、シャープ側/フラット側が読めるようにする。
-  // 良否の色分け(下の todayErr)は今までどおり絶対値=0からの距離で評価する。
+  // 良否の色分け(下の dayErr)は今までどおり絶対値=0からの距離で評価する。
   // 【F-66】標準偏差(pitchStabilityCents)も同じ集計から出すので、指標オブジェクトごと持つ。
-  const todayMetrics = todayFrames.length ? computeFrameMetrics(todayFrames) : null;
-  const todayVal = todayMetrics ? todayMetrics.pitchCentsSigned : null; // 今日の平均差分(符号つき)
-  const periodVal = overall.pitchCentsSigned;                                                    // 対象期間の平均(符号つき)
+  const dayMetrics = dayFrames.length ? computeFrameMetrics(dayFrames) : null;
+  const dayVal = dayMetrics ? dayMetrics.pitchCentsSigned : null; // その日の平均差分(符号つき)
+  const periodVal = overall.pitchCentsSigned;                     // 対象期間の平均(符号つき)
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
-  // 【2026-08-04 本人の問い】「上方向にしかブレていないように見えるが、実データが+側にしか
-  // ブレていないからか?」→ **違う。データではなくここが絶対値(pitchCents)を渡していたから**、
-  // 構造上どんなデータでも片側にしか振れなかった。すぐ上の大きい数字が符号つきになった以上、
-  // その真下の折れ線だけ絶対値なのは読み違いを生む(「-6.0¢」と出ているのに線は上に伸びる)。
-  // 符号つき(pitchCentsSigned)に揃える。下の描画も0を中心にした対称スケールにする。
-  const sparkVals = points.map((p) => p.pitchCentsSigned).filter((v) => v !== null && v !== undefined && !isNaN(v));
 
   // 【2026-08-08 F-56 本人指示】「±2以内でGreat、±4以内でGood、±6以上でKeep Trying」。
   // 評価は**0からの距離だけ**で決まる3段にした(対象期間平均との比較・MARGIN は使わない)。
   // 指示は 4〜6 の範囲が未定義だったが、統括の判断で「境界を空けない」を優先し
   // **4超はすべて Keep Trying** とする(4と6の間に無評価の帯を作らない)。
   // 色は既存の判定色から3つを流用する(最も良い=ミント / 中間=緑 / 注意=オレンジ)。
-  const todayErr = todayVal != null ? Math.abs(todayVal) : null;
+  const dayErr = dayVal != null ? Math.abs(dayVal) : null;
   let heroColor = "#FFFFFF", heroStatus = null;
-  if (todayErr != null) {
-    if (todayErr <= 2) { heroColor = "#6EE7B7"; heroStatus = "Great"; }
-    else if (todayErr <= 4) { heroColor = "#4ADE80"; heroStatus = "Good"; }
+  if (dayErr != null) {
+    if (dayErr <= 2) { heroColor = "#6EE7B7"; heroStatus = "Great"; }
+    else if (dayErr <= 4) { heroColor = "#4ADE80"; heroStatus = "Good"; }
     else { heroColor = "#FBBF24"; heroStatus = "Keep Trying"; }
   }
-  const displayVal = todayVal != null ? todayVal : periodVal;
+  const displayVal = dayVal != null ? dayVal : periodVal;
   // ラベル・単位・書式は **MY_DATA_METRICS が唯一の答え**(定義を2箇所に写さない)。
   // 一度リテラルを直書きしてしまい、審査役の変異(label/unit の書き換え)が生存した。
   const heroMetric = MY_DATA_METRICS.find((m) => m.key === "pitchCentsSigned");
@@ -10856,19 +10900,20 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
   // 【N-7】数字はボタンではなくなった(タップで開くグラフは廃止 → 常時表示のカードが下に居る)
   // ので、読み上げ名(aria-label)は不要になり、素のテキストがそのまま読まれる。
   const heroNumText = displayVal !== null && displayVal !== undefined ? heroMetric.fmt(displayVal) : "—";
-  // 【F-66】主役の大きい数字と**同じ母集団**から標準偏差を出す(今日を出しているときは今日の
-  // フレーム、対象期間平均を出しているときは対象期間)。導出は pitchSpreadSub の1箇所だけ。
+  // 【F-66】主役の大きい数字と**同じ母集団**から標準偏差を出す(今日/直近日を出しているときは
+  // その日のフレーム、対象期間平均を出しているときは対象期間)。導出は pitchSpreadSub の1箇所だけ。
   // 【N-6】正典 .hero .sd は「±3.4¢ · 平均 −0.8¢」で、標準偏差の語を持たない
   // (本人指示「青いカード部分のテキストが多い」)。導出は増やさず、表示の形だけ bare で選ぶ。
-  const heroSpread = pitchSpreadSub(todayVal != null ? todayMetrics : overall, { bare: true });
-  // 対象期間平均は「今日」を出しているときだけ意味を持つ参考値(主役が期間平均そのものなら重複)。
-  const heroPeriodText = todayVal != null && periodVal != null
+  const heroSpread = pitchSpreadSub(dayVal != null ? dayMetrics : overall, { bare: true });
+  // 対象期間平均は今日/直近日の値を出しているときだけ意味を持つ参考値(主役が期間平均そのものなら重複)。
+  const heroPeriodText = dayVal != null && periodVal != null
     // 主役の数字と**同じ書式・同じ単位**から組む(同じカードの中で規則が2つにならないように)。
     ? `平均 ${heroMetric.fmt(periodVal)}${heroMetric.unit}` : null;
-  // 【N-7】ピッチのカードの2系列(期間平均=薄 / 今日=濃)。組み立ては指標行と同じ
-  // myDataChartSeries の1箇所(規則を2箇所に写さない)。カード右上の凡例もこの配列から描くので、
-  // 今日の線が無い日は凡例からも「今日」が消える。
-  const pitchSeries = myDataChartSeries(rangeLabel, periodFrames, todayFrames);
+  // 【N-8 2026/08/16 本人指示】ヒーローの中の折れ線の2系列(期間平均=薄 / 今日・直近日=濃(白))。
+  // 組み立ては指標行と同じ myDataChartSeries の1箇所(規則を2箇所に写さない)だが、紺の面の上なので
+  // 色だけ HERO_CHART_SERIES_STYLES(ヒーローの既存配色。N8-SPEC 2)を渡す。
+  // 凡例もこの配列から描くので、濃い線が無い日は凡例からもその項目が消える。
+  const pitchSeries = myDataChartSeries(rangeLabel, periodFrames, dayFrames, dayLabel, HERO_CHART_SERIES_STYLES);
 
   return (
     <>
@@ -10878,7 +10923,9 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
           「1ヶ月 ▾」そのまま)。▾ は<button>の中にあるので当たり判定の穴にならない。 */}
       <div style={{ background: "var(--c-accent)", borderRadius: 22, padding: "18px 20px", color: "var(--c-on-accent)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-          <span className="sans" style={{ fontSize: 12, color: "#B9C9E4" }}>{todayVal != null ? "今日" : "平均差分"}</span>
+          {/* 【N-8】左上のラベルは myDataTodayOrLatestFrames の label をそのまま出す。
+              今日のデータが無い日は直近の記録日の日付(例 "8/15")になり、「今日」と偽らない。 */}
+          <span className="sans" style={{ fontSize: 12, color: "#B9C9E4" }}>{dayVal != null ? dayLabel : "平均差分"}</span>
           {/* 【N-7】右上は正典 data-tab-final の「Alto ▾ · 1ヶ月 ▾」= 楽器種別 + 期間の2セレクタ。
               どちらも素のテキスト + ▾(F-72 の作法。枠も地も持たない)。 */}
           <div style={{ display: "flex", alignItems: "center" }}>
@@ -10920,10 +10967,11 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
           </div>
         </div>
         {/* 【N-7 2026/08/16 本人指示】主役の数字は**素のテキストに戻した**。
-            N-6 では「タップで音名ごとの内訳を開く」ボタンだったが、内訳は真下のピッチのカードに
-            **常時表示**されるようになったので、入口(ボタン・aria-label・開閉状態)ごと廃止。
+            N-6 では「タップで音名ごとの内訳を開く」ボタンだったが、内訳は**常時表示**される
+            ようになったので、入口(ボタン・aria-label・開閉状態)ごと廃止。
             「どの音がどれだけズレているか」は消えていない: 置き場所がタップの先から常時へ移っただけ
-            (N6-SPEC「音名軸グラフは落とさない」は N-7 でも生きている)。 */}
+            (N6-SPEC「音名軸グラフは落とさない」は N-7 でも生きている。
+            【N-8】その常時表示の置き場所は真下のカードからこのヒーローの中の折れ線になった)。 */}
         <div style={{ marginTop: 6 }}>
           <span style={{ fontFamily: "var(--font-num)", fontSize: 44, fontWeight: 600, lineHeight: 1, color: heroColor }}>
             {heroNumText}
@@ -10940,68 +10988,46 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
         </div>
         {/* 正典 .hero .sd の1行。標準偏差(±)と対象期間平均を「 · 」でつなぐ。
             濃紺の面なので色は既にある副次テキストと同じ #9DB3D6。 */}
-        {(heroSpread || (todayVal != null && periodVal != null)) && (
+        {(heroSpread || (dayVal != null && periodVal != null)) && (
           <div className="sans" style={{ fontSize: 12, color: "#9DB3D6", marginTop: 7 }}>
             {heroSpread && <span>{heroSpread}</span>}
             {heroSpread && heroPeriodText && <span> · </span>}
             {heroPeriodText && <span>{heroPeriodText}</span>}
           </div>
         )}
-        {sparkVals.length >= 2 && (() => {
-          const W = 320, H = 48;
-          // 0を画面の中央に置き、上をシャープ側・下をフラット側にする(グラフ全体で同じ約束)。
-          // 以前は minV〜maxV の自動フルスケールだったので、**0がどこにあるか分からず**
-          // 「上がった=悪い」なのか「0に寄った=良い」のかが線からは読めなかった。
-          const maxAbs = Math.max(...sparkVals.map((v) => Math.abs(v))) || 1;
-          const zeroY = H / 2;
-          const half = (H - 12) / 2; // 上下に6pxずつの余白
-          const yAt = (v) => zeroY - (v / maxAbs) * half;
-          const xy = sparkVals.map((v, i) => {
-            const x = sparkVals.length > 1 ? (i / (sparkVals.length - 1)) * W : W / 2;
-            return `${x.toFixed(1)},${yAt(v).toFixed(1)}`;
-          });
-          return (
-            <svg width="100%" height="48" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ marginTop: 12, display: "block" }}>
-              {/* 面は0の線まで塗る(0からどちら側にどれだけ離れているかが面積で見える) */}
-              <polyline points={`${xy.join(" ")} ${W},${zeroY} 0,${zeroY}`} fill="rgba(143,180,255,.15)" stroke="none" />
-              {/* 0の基準線。これが無いと符号付きにしても上下の意味が読めない */}
-              <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke="#9DB3D6" strokeWidth="1" strokeDasharray="3 3" />
-              <polyline points={xy.join(" ")} fill="none" stroke="#8FB4FF" strokeWidth="2.5" />
-            </svg>
-          );
-        })()}
+        {/* 【N-8 2026/08/16 本人指示】旧スパークライン(セッション単位の時系列)は廃止し、
+            同じ場所に**音名軸の折れ線2本**(期間平均・今日/直近日)を描く。軸は旧ピッチカード
+            (N-7)と同じ: 横=選択中の楽器種別(dataSax)の全音域 / 縦=0¢中央 / 0の線は破線。
+            紺の面の上なので配色はヒーローの既存色だけ(HERO_CHART_* の注記と正典の svg を見ること)。
+            フレームを持つ記録が1件も無いときは折れ線ごと出さない(従来どおりの空表示 = 「—」だけ)。 */}
+        {(periodFrames.length > 0 || dayFrames.length > 0) && (
+          <>
+            {/* 凡例(旧ピッチカード .legend の後継。正典 .hero .legend / .sw)。
+                SeriesSwatch は白い地を敷く部品なので紺の上では使えない(白い線が消える)。
+                正典 .sw と同じ「線色の小さな棒」で描く。 */}
+            <div className="sans" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, fontSize: 10, color: "#9DB3D6", marginTop: 12 }}>
+              {pitchSeries.map((s) => (
+                <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span aria-hidden="true" style={{ display: "inline-block", width: 12, height: 2.5, borderRadius: 2, background: s.style.color }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+            <NoteAxisLineChart
+              plain hero
+              label={heroMetric.label} unit={heroMetric.unit} metricKey={heroMetric.key}
+              series={pitchSeries}
+              saxType={dataSax} tuningHz={tuningHz}
+              fmt={heroMetric.fmt}
+              noteFocus={["E♭3", "E♭4", "E♭5"]}
+            />
+          </>
+        )}
       </div>
 
-      {/* 【N-7 2026/08/16 本人指示】ピッチの音名軸折れ線。**常時表示**(N-6 の「数字タップで開閉」は
-          廃止)。ピッチだけ +1.2¢/±3.4¢/Great のテキストがヒーローに残るので**別扱い = カード**
-          (本人委任 → カードにする。正典 data-tab-final.html の .pitchcard)。
-          §6.0 の「面は1画面に1枚まで」に対する本人決定の例外(ヒーローの紺 + このカードの2枚)。
-          グラフ本体をヒーローの紺の面の外に置く理由は N-6 と同じ(紺の上では線と目盛りが読めない)。
-          見出しと凡例は正典 .chartlbl の形でここが持ち、グラフは plain で描く(見出しの二重化を防ぐ)。
-          横軸(音域)と concertLabel は**選択中の楽器種別(dataSax)**から作る。 */}
-      <div style={{ background: "#F6F8FB", borderRadius: 16, padding: "12px 14px 10px", marginTop: 10 }}>
-        <div className="sans" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 11, color: "var(--c-ink-3)" }}>
-          {/* 見出しの語は正典 .chartlbl「音ごとの平均差分（¢）」。指標名と単位は
-              MY_DATA_METRICS(heroMetric)から組む(定義を2箇所に写さない)。 */}
-          <span>音ごとの{heroMetric.label}（{heroMetric.unit}）</span>
-          <span style={{ display: "flex", gap: 12, fontSize: 10, alignItems: "center" }}>
-            {pitchSeries.map((s) => (
-              <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <SeriesSwatch style={s.style} />{s.label}
-              </span>
-            ))}
-          </span>
-        </div>
-        <NoteAxisLineChart
-          plain
-          label={heroMetric.label} unit={heroMetric.unit} metricKey={heroMetric.key}
-          series={pitchSeries}
-          saxType={dataSax} tuningHz={tuningHz}
-          fmt={heroMetric.fmt}
-          selectedIdeal={selectedIdeal} idealKey={heroMetric.idealKey}
-          noteFocus={["E♭3", "E♭4", "E♭5"]}
-        />
-      </div>
+      {/* 【N-8 2026/08/16 本人指示】N-7 のピッチカード(.pitchcard)は**グラフごと削除**した。
+          同じ音名軸の折れ線はヒーローの中(上)へ移っており、情報は失われていない。
+          §6.0「面は1画面に1枚」の本人委任による例外(2枚)も解消し、面はヒーローの1枚に戻った。 */}
 
       {/* 期間に「自分」のセッションが1件も無いときの文言は**現行のまま**。
           位置はヒーローの塊の真下(期間・楽器種別に効く告知なので、それらで動く面の隣に置く)。 */}
@@ -11016,13 +11042,14 @@ function MyDataSection({ sessions, selectedIdeal, saxType, tuningHz }) {
       {MY_DATA_ROW_METRICS.map((key, i) => (
         <MetricRow
           key={key} metricKey={key} rangeLabel={rangeLabel}
-          periodFrames={periodFrames} todayFrames={todayFrames}
-          saxType={dataSax} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
+          periodFrames={periodFrames} dayFrames={dayFrames} dayLabel={dayLabel}
+          saxType={dataSax} tuningHz={tuningHz}
           last={i === MY_DATA_ROW_METRICS.length - 1}
         />
       ))}
 
-      {/* 目安が1つも選ばれていないことの告知は**現行のまま**残す(破線とΔが出ない理由がこれ) */}
+      {/* 目安が1つも選ばれていないことの告知は**現行のまま**残す(【N-8】My Data のグラフは
+          目安を描かなくなったが、告知は「目安」という機能そのものの状態表示なので落とさない) */}
       {!selectedIdeal && (
         <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", padding: "8px 2px 0" }}>目安未設定</div>
       )}
@@ -11544,10 +11571,10 @@ function AnalysisLabView(props) {
   );
 }
 
-// 【N-6→N-7】データタブの My Data 子タブ1枚ぶん。正典 = design/data-tab-final.html(N-7)。
+// 【N-6→N-7】データタブの My Data 子タブ1枚ぶん。正典 = design/data-tab-final.html(N-8 反映済み)。
 // **この画面には .card を1枚も置かない。** §6.0 の囲いの序列は「余白 → 揃え → 罫1本 → 面」。
-// 面は紺のヒーローと、N-7 で本人が委任した**ピッチのカード(.pitchcard)の2枚だけ**
-// (§6.0 の「1画面に1枚」に対する本人決定の例外。3枚目を作らない)。
+// 面は**紺のヒーローの1枚だけ**(【N-8】N-7 のピッチカード(.pitchcard)は廃止され、
+// §6.0「1画面に1枚」の本人委任による例外も解消した。2枚目を作らない)。
 // 群の境界は正典どおり**罫1本(.mrow / .srow の下辺)と余白**が作る。
 function MyDataPage({
   sessions, reeds, selectedIdeal, saxType, tuningHz,

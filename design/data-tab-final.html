@@ -1,6 +1,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>データタブ 決定版モック（N-7）</title>
+<title>データタブ 決定版モック（N-7 → N-8 改訂）</title>
+<!-- 【N-8 2026/08/16 本人指示による改訂】この正典は N-7 の決定版に、次の2点を反映したもの:
+     1. ヒーロー(紺のカード)のスパークライン(時系列)を廃止し、同じ場所に音名軸の折れ線2本
+        (薄=選択中の期間・楽器の平均 / 濃(白)=今日)。軸は旧ピッチカードと同じ
+        (横=選択楽器の全音域、縦=0¢中央、0の線は破線)。紺地なので配色はヒーローの既存色のみ:
+        期間 #B9C9E4(旧スパークラインの線色) / 今日 #FFFFFF / 0の破線 #3D5F94(旧スパークラインの
+        基準線色) / 軸・凡例ラベル #9DB3D6。
+     2. 単独のピッチカード(.pitchcard)はグラフごと削除(ヒーローの中の折れ線が引き継ぐ)。
+     あわせて目安(selectedIdeal)の破線と Δ は My Data の全グラフに出さない(本人指示
+     「目安は表示不要で、対象期間の平均と今日の平均だけでok」。他画面の目安表示はそのまま)。
+     当日のデータが無い日は「直近の記録のある日」で代替し、ヒーローの数字・濃い線・行ヘッダの
+     ラベルは「今日」ではなくその日付(例 8/15)になる。検査(scripts/pitch-test.mjs 検証27/28)は
+     この正典から期待値を読むので、値を変えるときはここを直すこと。 -->
+
 <style>
   :root{
     --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
@@ -21,7 +34,7 @@
   .subtabs .on{color:var(--ink);font-weight:600}
   .subtabs .more{margin-left:auto;color:var(--ink2);letter-spacing:2px}
 
-  /* ヒーロー(維持) + ピッチの折れ線(別扱い=同じ紺のカードの中) */
+  /* ヒーロー。【N-8】音名軸の折れ線2本はこの紺のカードの中(旧スパークラインの場所) */
   .hero{background:var(--accent);border-radius:22px;padding:18px 20px;color:#fff}
   .hero .top{display:flex;justify-content:space-between;align-items:baseline}
   .hero .lbl{font-size:12px;color:#B9C9E4}
@@ -31,12 +44,13 @@
   .hero .pill{display:inline-flex;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;
     margin-left:10px;vertical-align:6px;color:#04130D;background:var(--mint)}
   .hero .sd{font-size:12px;color:#9DB3D6;margin-top:7px}
-
-  /* 白地に戻ってからのピッチ折れ線(カード扱い=薄い地) */
-  .pitchcard{background:#F6F8FB;border-radius:16px;padding:12px 14px 10px;margin-top:10px}
-  .chartlbl{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--ink3)}
+  /* 【N-8】.pitchcard / .chartlbl は削除(単独のピッチカードの廃止に伴う)。凡例(.legend / .sw)は
+     ヒーローの中へ移った。紺地なので文字色はヒーローの副次色 #9DB3D6 に上書きする。 */
   .legend{display:flex;gap:12px;font-size:10px;color:var(--ink3);align-items:center}
   .sw{display:inline-block;width:12px;height:2.5px;border-radius:2px;margin-right:4px;vertical-align:2px}
+  .hero .legend{justify-content:flex-end;color:#9DB3D6;margin-top:12px}
+  /* 【N-8】ヒーローの中の折れ線の軸ラベル(目盛・音名)。紺地の配色 #9DB3D6 */
+  .haxis{font-size:8.5px;fill:#9DB3D6}
 
   /* HNR/重心/音量の行(案D の行構成。枠なし・細い罫) */
   .mrow{padding:14px 0 10px;border-bottom:1px solid var(--rule)}
@@ -47,7 +61,7 @@
   .up{color:#1D6B4A}
 
   svg{display:block}
-  .axis{font-size:8.5px;fill:var(--ink3)}
+  /* 【N-8】白地用の .axis は削除(使い手だった .pitchcard の svg ごと廃止。紺地用は .haxis) */
 
   .shead{display:flex;align-items:center;justify-content:space-between;padding:18px 0 10px}
   .shead .t{font-size:13px;font-weight:600}
@@ -66,53 +80,54 @@
           --rule:#2C333D; --bg:#14181E}
     body{background:#14181E}
     .phone{background:#1B2027;box-shadow:none}
-    .pitchcard{background:#20262E}
   }
 </style>
 
 <header>
-  <h1>データタブ 決定版モック（N-7）</h1>
+  <h1>データタブ 決定版モック（N-7 → N-8 改訂）</h1>
   <p><b>音ごとにベースが違う</b>ので、平均1つの数字をやめて<b>音名ごとの折れ線</b>で見せます。
   線は2本 — <b>薄いのが選択中の期間・楽器の平均、濃いのが今日</b>。横軸は選んだ楽器の全音域です。<br>
-  楽器種別のセレクタは期間の隣（<b>Alto ▾ · 1ヶ月 ▾</b>）。実機ではこの画面は縦にスクロールします。</p>
+  楽器種別のセレクタは期間の隣（<b>Alto ▾ · 1ヶ月 ▾</b>）。実機ではこの画面は縦にスクロールします。<br>
+  <b>N-8 改訂</b>: ピッチの折れ線は<b>紺のカードの中</b>（旧スパークラインの場所）へ。単独のピッチカードは廃止。
+  目安の破線・Δ はこの画面に出しません。<b>当日のデータが無い日は直近の記録のある日</b>を濃い線で出し、
+  ラベルは「今日」ではなくその日付（例 8/15）です。</p>
 </header>
 
 <div class="wrap"><div class="phone">
   <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="more">…</span></div>
 
-  <!-- ヒーロー: 今のレイアウト維持。右上に Alto ▾ が加わっただけ -->
+  <!-- ヒーロー: 数字・ピル・副次行・右上の2セレクタは N-7 のまま維持。
+       【N-8 2026/08/16 本人指示】スパークライン(時系列)を廃止し、同じ場所に音名軸の折れ線2本。
+       0¢ が中央、横軸は選択楽器の全音域。薄 #B9C9E4 = 選択中の期間・楽器の平均 / 濃 #FFFFFF = 今日。
+       0の破線は旧スパークラインの基準線色 #3D5F94(パターンは DESIGN-SYSTEM §1.8 の "4 3")。
+       軸要素は最小限: 目盛3値 + 0の破線 + 音名ラベル(E♭のみ。N-6 の noteFocus のまま)。
+       当日データが無い日は濃い線が「直近の記録のある日」になり、左上のラベル・凡例とも
+       「今日」ではなくその日付(例 8/15)を出す。目安の破線・Δ はこの画面には出さない。 -->
   <div class="hero">
     <div class="top"><span class="lbl">今日</span><span class="lbl">Alto ▾ · 1ヶ月 ▾</span></div>
     <div class="num">+1.2<span class="u">¢</span><span class="pill">Great</span></div>
     <div class="sd">±3.4¢ · 平均 −0.8¢</div>
-    <svg width="100%" height="34" viewBox="0 0 285 34" preserveAspectRatio="none" style="margin-top:10px">
-      <line x1="0" y1="17" x2="285" y2="17" stroke="#3D5F94" stroke-width="1" stroke-dasharray="3 4"/>
-      <path d="M0 25 L26 22 L52 26 L80 19 L108 15 L136 20 L164 22 L192 14 L220 17 L248 12 L285 14"
-        fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-linejoin="round"/>
+    <div class="legend"><span><span class="sw" style="background:#B9C9E4"></span>1ヶ月</span>
+      <span><span class="sw" style="background:#FFFFFF"></span>今日</span></div>
+    <svg width="100%" height="86" viewBox="0 0 307 86" preserveAspectRatio="none" style="margin-top:8px">
+      <text class="haxis" x="2" y="12">+10</text>
+      <text class="haxis" x="2" y="46">0.0</text>
+      <text class="haxis" x="2" y="80">−10</text>
+      <line x1="26" y1="43" x2="307" y2="43" stroke="#3D5F94" stroke-width="1" stroke-dasharray="4 3"/>
+      <path d="M26 47 L61 45 L96 49 L131 44 L166 40 L201 45 L236 41 L271 37 L307 33"
+        fill="none" stroke="#B9C9E4" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M26 44 L61 41 L96 46 L131 39 L166 36 L201 40 L236 34 L271 28 L307 24"
+        fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+    <svg width="100%" height="12" viewBox="0 0 307 12">
+      <text class="haxis" x="30" y="9">E♭3</text><text class="haxis" x="158" y="9">E♭4</text>
+      <text class="haxis" x="284" y="9">E♭5</text>
     </svg>
   </div>
 
-  <!-- ピッチの折れ線(別扱い=カード)。0¢ が中央、横軸は Alto の全音域 -->
-  <div class="pitchcard">
-    <div class="chartlbl"><span>音ごとの平均差分（¢）</span>
-      <span class="legend"><span><span class="sw" style="background:var(--pale)"></span>1ヶ月</span>
-        <span><span class="sw" style="background:var(--accent)"></span>今日</span></span></div>
-    <svg width="100%" height="86" viewBox="0 0 300 86" preserveAspectRatio="none">
-      <text class="axis" x="2" y="12">+10</text>
-      <text class="axis" x="2" y="46">0</text>
-      <text class="axis" x="2" y="80">−10</text>
-      <line x1="22" y1="43" x2="300" y2="43" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="3 3"/>
-      <path d="M22 47 L57 45 L92 49 L127 44 L162 40 L197 45 L232 41 L267 37 L300 33"
-        fill="none" stroke="var(--pale)" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M22 44 L57 41 L92 46 L127 39 L162 36 L197 40 L232 34 L267 28 L300 24"
-        fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
-    </svg>
-    <svg width="100%" height="12" viewBox="0 0 300 12">
-      <text class="axis" x="22" y="9">B♭3</text><text class="axis" x="92" y="9">F4</text>
-      <text class="axis" x="160" y="9">C5</text><text class="axis" x="230" y="9">G5</text>
-      <text class="axis" x="284" y="9">F♯6</text>
-    </svg>
-  </div>
+  <!-- 【N-8 2026/08/16 本人指示】N-7 のピッチカード(.pitchcard)はここにあったが、
+       グラフごと削除した(「それに伴い単独である音ごとの平均をグラフごと削除」)。
+       同じ音名軸の折れ線は上のヒーローの中が引き継ぐ。面はヒーローの1枚に戻った(§6.0)。 -->
 
   <!-- HNR / 重心 / 音量: 案D の行構成のまま、横棒 → 2本の折れ線 -->
   <div class="mrow">
@@ -155,9 +170,10 @@
 </div></div>
 
 <p class="cap">
-<b>読み方</b>: 薄い線が「いつもの自分」、濃い線が「今日」。2本が離れている音域＝今日いつもと違った音域です。<br>
+<b>読み方</b>: 薄い線が「いつもの自分」、濃い線が「今日（データが無い日は直近の記録のある日）」。
+2本が離れている音域＝その日いつもと違った音域です。<br>
 <b>置き換わるもの</b>: 累計/最新の2行と「数字タップでグラフ」は、この常時表示の4本が引き継ぎます
-（累計は期間セレクタの「全期間」で出せます。今日のデータが無い日は薄い線だけになります）。<br>
-<b>ピッチだけ別扱い</b>: ご指示どおり +1.2¢/±3.4¢/Great のテキストが残るため、ヒーロー直下のカードにしました。
-HNR/重心/音量は枠なしの行のままです。
+（累計は期間セレクタの「全期間」で出せます）。<br>
+<b>N-8</b>: ピッチの折れ線は +1.2¢/±3.4¢/Great と同じ紺のカードの中に置き、単独のカードは廃止しました。
+HNR/重心/音量は枠なしの行のままです。記録が1件も無いときだけ折れ線ごと出しません（従来どおりの空表示）。
 </p>
