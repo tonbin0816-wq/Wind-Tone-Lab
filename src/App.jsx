@@ -4513,8 +4513,37 @@ function ringPoint(deg, r, cx, cy) {
 // 点だけでは往復の道筋が読めないため。**新しい指示が古い指示を上書きしている。**
 const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍の瞬間が両端になる
 
+// ============================================================
+// 【F-95a】メトロノーム一式の拡大率。**正典の上書き**。
+//
+// 本人指示(実機 2026/08/16)「メトロノームはB」。B とは統括が作った比較サンプル
+// design/metro-size-sample.html の B 列(--k:1.20)で、**正典 design/north-star-measure.html
+// の .pend 一式を丸ごと 1.20 倍したもの**。サンプルが `--k` 1つで全部を動かしているのと
+// 同じ作りにする = 拡大はこの定数1箇所からしか入らない。
+//
+// 【正典との関係】下の基準値(150/26/7/12/16/72/48/12/15/20/34)は**正典のまま1つも動かさない**。
+// 画面に出る実寸は「基準値 × METRO_SCALE」で導く。だから正典が変われば基準値だけを直せばよく、
+// 本人が倍率を変えるならこの1行だけを直せばよい。
+// 【この値の身分】REC_RING_SW と同じ「本人の実機確認待ちの暫定値」。
+// 正典の中に無い数はこの1つだけ(design/BACKLOG.md の「新設した値」の表に起票すること)。
+const METRO_SCALE = 1.2;
+
+// 【F-95b】拍の瞬間に大きくなる倍率。正典 .beat.on の scale(1.4) を**上書き**する。
+// 本人指示(実機 2026/08/16)「振り子が端に触れるときの大きくなるのも今よりも大きくして」。
+// 【1つの定数が2箇所を動かす】この倍率は
+//   (a) 振り子の点が端(=拍の瞬間)で膨らむ最大倍率 metroDotR
+//   (b) 拍の●列の「今の拍」の倍率 metroBeatDotR
+// の両方が使う。本人が名指ししたのは (a) の言葉づかいだが、両者は同じ瞬間に起きる同じ演出で、
+// 分けると正典に無い2つ目の数を発明することになるので、**1つのまま引き上げる**。
+// 【上限】行の高さ METRO_BEAT_ROW_H(16) が ●の最大直径 7×倍率 を含む必要がある。
+// 1.8 → 12.6、2.2 → 15.4 なので、統括が言う 2.2 までは行を1pxも動かさずに上げられる。
+const METRO_DOT_HEAD_SCALE = 1.8;
+
 // ガイドの弧。正典の <svg width="150" height="26"> と path "M10 8 Q75 30 140 8" そのもの。
-// 実寸で描くので viewBox 1単位 = 1 CSS px(環のように直径で伸縮させない)。
+// 【単位】ここから下の弧まわりの数はすべて **viewBox 単位**(環のように直径で伸縮させない)。
+// F-95a 以前は svg を実寸で描いていたので viewBox 1単位 = 1 CSS px だったが、
+// **今は viewBox 1単位 = METRO_SCALE CSS px**(svg の width/height だけを拡大しているため)。
+// 弧の幾何・振り子の物理はこの単位のままで、拡大は最後の描画にしか効かない。
 const METRO_ARC_W = 150;
 const METRO_ARC_H = 26;
 const METRO_ARC_P0 = [10, 8];       // 左端
@@ -4522,23 +4551,46 @@ const METRO_ARC_C = [75, 30];       // 制御点(浅い弧)
 const METRO_ARC_P2 = [140, 8];      // 右端
 const METRO_ARC_SW = 1.5;           // ガイドの線幅(正典 stroke-width)
 const METRO_DOT_R = 5;              // 往復する点の半径(正典 circle r=5)
-// 小節頭で点が膨らむ最大倍率。正典 .beat.on の transform: scale(1.4) と同じ値を使う
-// (新しい値を発明せず、正典の中にある倍率を1つだけ使い回す)。
-const METRO_DOT_HEAD_SCALE = 1.4;
+// 拍の瞬間に膨らむ最大倍率は METRO_DOT_HEAD_SCALE(F-95b。上の定義を参照)。
 
 // --- 拍の●列(今が何拍目かを担う。正典 .beatrow) ---
 const METRO_BEAT_DOT_PX = 7;        // 正典 .beat の 7px(直径)
 const METRO_BEAT_GAP_PX = 12;       // 正典 .beatrow の gap
 // 行の高さは固定する。点が膨らんでも行が伸びないようにするため(DESIGN-SYSTEM §6.1.5)。
-// 最大直径 = 7 × 1.4 = 9.8 なので、それを含む偶数の 16 を箱にする。
+// 最大直径 = 7 × METRO_DOT_HEAD_SCALE(F-95b で 1.8)= 12.6 なので、
+// それを含む偶数の 16 を箱にする(2.2 まで上げても 15.4 で収まる)。
 const METRO_BEAT_ROW_H = 16;
 
 // テンポの −/＋ の**反応領域**。正典 .pmt の 72×48(DESIGN-SYSTEM §6.0 の予告改訂にも同じ値)。
 // 見た目(46×46 のピル)と文字サイズは据え置きで、当たり判定だけをこの大きさにする
 // (DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
 // テンポ数値の箱も同じ幅にして、桁が変わっても ± が動かないようにする(§6.1.5)。
+// 【F-95a 以降】この 72×48 は**基準値**。計測タブのテンポ行は METRO_PM_W_CSS(=×1.2)で描く。
+// リード追加シートの ±(枚数)は拡大の対象外なので、そちらは基準値の 72 のまま使う。
 const METRO_PM_W = 72;
 const METRO_PM_H = 48;
+// 正典 .pmt の font-size 20 / .bpmtxt の 15 / .tsig の 12 / ± を並べる行の gap 34。
+// 【なぜ定数にしたか】F-95a で 1.2 倍にするため。数値のまま JSX に散らすと
+// 「1箇所の定数から導く」が成り立たない。値は正典のまま(拡大は METRO_SCALE 側が持つ)。
+const METRO_PM_FS = 20;             // 正典 .pmt の font-size
+const METRO_BPM_FS = 15;            // 正典 .bpmtxt の font-size
+const METRO_TSIG_FS = 12;           // 正典 .tsig の font-size
+const METRO_PM_GAP = 34;            // 正典 ± を並べる行の gap
+
+// --- 【F-95a】画面に出る実寸(CSS px)= 正典の基準値 × METRO_SCALE ---------------
+// ここより下では基準値を直接描かない。全部この派生を通す。
+// 【svg は viewBox を正典の単位のまま残す】幅・高さだけを CSS px で拡大するので、
+// 弧の幾何(METRO_ARC_P0/C/P2)・振り子の物理・●の座標式は**1行も変わらない**。
+// 拡大は最後の描画だけに効く。
+const METRO_ARC_W_CSS = METRO_ARC_W * METRO_SCALE;
+const METRO_ARC_H_CSS = METRO_ARC_H * METRO_SCALE;
+const METRO_BEAT_ROW_H_CSS = METRO_BEAT_ROW_H * METRO_SCALE;
+const METRO_PM_W_CSS = METRO_PM_W * METRO_SCALE;
+const METRO_PM_H_CSS = METRO_PM_H * METRO_SCALE;
+const METRO_PM_FS_CSS = METRO_PM_FS * METRO_SCALE;
+const METRO_BPM_FS_CSS = METRO_BPM_FS * METRO_SCALE;
+const METRO_TSIG_FS_CSS = METRO_TSIG_FS * METRO_SCALE;
+const METRO_PM_GAP_CSS = METRO_PM_GAP * METRO_SCALE;
 
 // --- 録音ボタン(F-89) ---
 // 本人指示(実機 2026/08/15)「録音ボタンはスマホの動画開始、停止ボタンと同じに変更
@@ -4919,7 +4971,10 @@ const METRO_ARC_PX_PER_DEG = (METRO_ARC_P2[0] - METRO_ARC_P0[0]) / (2 * RING_PEN
 // 戻りきったか。**包絡(振幅)だけ**を見る(cos は途中で何度も0を通るので角度では判定できない)。
 // しきい値は描画の丸め。点の座標は toFixed(2) で書くので、変位がこれ未満になれば
 // 以後どう動いても属性の文字列は変わらない=静止と区別できない。
-const RING_PEND_SETTLE_EPS_VB = 0.005; // toFixed(2) の丸め幅(弧は実寸なので CSS px と同じ)
+// 【単位】viewBox 単位。F-95a 以前は弧が実寸だったので CSS px と同じ値だったが、
+// 今は画面上 0.005 × METRO_SCALE = 0.006 CSS px に相当する。判定の意味(属性の文字列が
+// 変わらなくなる = 静止と区別できない)は viewBox 単位のまま変わらない。
+const RING_PEND_SETTLE_EPS_VB = 0.005; // toFixed(2) の丸め幅(属性は viewBox 単位で書く)
 function ringPendSettleDone(fromDeg, beatDurSec, elapsedSec) {
   if (!(beatDurSec > 0)) return true;
   const envelope = Math.abs(fromDeg) * Math.exp(-elapsedSec / beatDurSec);
@@ -4981,21 +5036,23 @@ function ringBeatIsHead(phase, beatsPerMeasure, accentOn) {
   return ringBeatIndex(phase, beatsPerMeasure) === 0;
 }
 
-// 拍の●列の幅(CSS px)。●が n 個、間隔 METRO_BEAT_GAP_PX。
+// 拍の●列の幅(**viewBox 単位**。画面上の実寸は ×METRO_SCALE = rowWCss)。
+// ●が n 個、間隔 METRO_BEAT_GAP_PX。
 // 列は画面中央に置く(本人指示「拍の●は中央固定」)ので、拍子表示の位置もこの幅から決める。
 function metroBeatRowW(n) {
   if (!(n > 0)) return 0;
   return n * METRO_BEAT_DOT_PX + (n - 1) * METRO_BEAT_GAP_PX;
 }
 
-// i 番目の●の中心x(列の左端を0としたCSS px)。左から右へ数える。
+// i 番目の●の中心x(列の左端を0とした **viewBox 単位**)。左から右へ数える。
 function metroBeatDotX(i, n) {
   if (!(n > 0)) return 0;
   return i * (METRO_BEAT_DOT_PX + METRO_BEAT_GAP_PX) + METRO_BEAT_DOT_PX / 2;
 }
 
-// ●の半径。**位置は動かさず、大きさと色だけが変わる**(正典 .beat / .beat.on)。
-// 現在の拍だけ scale(1.4)。膨らみのアニメーションは往復する点の側が担うので、
+// ●の半径(viewBox 単位)。**位置は動かさず、大きさと色だけが変わる**(正典 .beat / .beat.on)。
+// 現在の拍だけ METRO_DOT_HEAD_SCALE 倍(F-95b で 1.8。正典 .beat.on の 1.4 の上書き)。
+// 膨らみのアニメーションは往復する点の側が担うので、
 // ●列は「今が何拍目か」だけを静かに返す(1画面で動く物を増やさない)。
 function metroBeatDotR(isCurrent) {
   return (METRO_BEAT_DOT_PX / 2) * (isCurrent ? METRO_DOT_HEAD_SCALE : 1);
@@ -5400,6 +5457,9 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
   getBeatDurRef.current = getBeatDur;
   const n = beatsPerMeasure > 0 ? beatsPerMeasure : 0;
   const rowW = metroBeatRowW(n);
+  // 【F-95a】●列の画面上の実寸(CSS px)。viewBox は rowW(正典の単位)のままで、
+  // svg の幅だけをこれにする。拍子表示の位置もこの実寸から決める。
+  const rowWCss = rowW * METRO_SCALE;
 
   useEffect(() => {
     if (!getBeatPhase) return undefined;
@@ -5464,12 +5524,17 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
     /* 【pointerEvents: none】振り子も拍の●も**読む物**で、押す物を持たない。
        開始/停止は画面のどこでも効く(A-1)ので、ここが当たり判定を持つと
        いちばん押したい場所(振り子の上)でタップが死ぬ。実測で確認して直した。 */
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-2)", pointerEvents: "none" }}>
-      {/* 1行目: ガイドの弧 + 往復する点。実寸で描くので viewBox 単位 = CSS px。
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: `calc(var(--sp-2) * ${METRO_SCALE})`, pointerEvents: "none" }}>
+      {/* 1行目: ガイドの弧 + 往復する点。
+          【F-95a】viewBox は正典の 150×26 のまま。幅・高さだけを ×METRO_SCALE で描くので
+          viewBox 1単位 = METRO_SCALE CSS px になる。弧の座標も点の半径も1つも書き換えていない。
           【overflow: visible】小節頭で点が膨らむと弧の箱から出るため。
-          レイアウトには影響しない(はみ出すのは描画だけ。§6.1.5)。 */}
+          レイアウトには影響しない(はみ出すのは描画だけ。§6.1.5)。
+          【F-95b で実際に効き始めた】点は cy=8 / 最大 r=5×1.8=9 なので、箱の上辺(y=0)を
+          1単位はみ出す(実測 1.20 CSS px)。1.4 の頃は r=7 で箱の中に収まっていたので
+          この宣言は飾りだったが、**今は hidden にすると膨らみの頭が切れる**。検査で固定した。 */}
       <svg
-        width={METRO_ARC_W} height={METRO_ARC_H} viewBox={`0 0 ${METRO_ARC_W} ${METRO_ARC_H}`}
+        width={METRO_ARC_W_CSS} height={METRO_ARC_H_CSS} viewBox={`0 0 ${METRO_ARC_W} ${METRO_ARC_H}`}
         style={{ display: "block", overflow: "visible", pointerEvents: "none" }}
         aria-hidden="true"
       >
@@ -5494,7 +5559,7 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
           【行の高さは動かさない】§6.1.5「●が膨らんでも行は伸びない」を守るため、
           当たり判定は position:absolute で流れの外に置き、行の高さは METRO_BEAT_ROW_H のまま。
           §5 の 44pt は高さ・最小幅で満たす(見た目の文字・●の大きさは1pxも変えない)。 */}
-      <div style={{ position: "relative", width: "100%", height: METRO_BEAT_ROW_H, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ position: "relative", width: "100%", height: METRO_BEAT_ROW_H_CSS, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {/* 拍子表示。押せるときだけ <button> になる。**文字の右端の位置は同じ式のまま**
             (箱を右端で揃え、中身を右寄せにするので、最小幅で広がるぶんは左へ伸びるだけ)。 */}
         {onOpenSheet ? (
@@ -5502,7 +5567,7 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
             type="button" onClick={onOpenSheet}
             aria-label="テンポと拍子" className="sans no-select"
             style={{
-              position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
+              position: "absolute", right: `calc(50% + ${rowWCss / 2}px + var(--sp-3) * ${METRO_SCALE})`,
               top: "50%", transform: "translateY(-50%)",
               height: "var(--tap-min)", minWidth: "var(--tap-min)",
               display: "flex", alignItems: "center", justifyContent: "flex-end",
@@ -5510,16 +5575,17 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
               pointerEvents: "auto",
             }}
           >
-            <span style={{ fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1 }}>{sig}</span>
+            <span style={{ fontFamily: "var(--font-num)", fontSize: METRO_TSIG_FS_CSS, color: "var(--c-ink-3)", lineHeight: 1 }}>{sig}</span>
           </button>
         ) : (
           <span
             className="sans no-select"
             style={{
-              position: "absolute", right: `calc(50% + ${rowW / 2}px + var(--sp-3))`,
+              position: "absolute", right: `calc(50% + ${rowWCss / 2}px + var(--sp-3) * ${METRO_SCALE})`,
               /* 【N-4c】正典 .tsig の実寸 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
-                 従って 15px にしていたが、見た目はモックが唯一の正典(§6.0)。 */
-              fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1,
+                 従って 15px にしていたが、見た目はモックが唯一の正典(§6.0)。
+                 【F-95a】その 12px を基準値として ×METRO_SCALE した 14.4px で描く。 */
+              fontFamily: "var(--font-num)", fontSize: METRO_TSIG_FS_CSS, color: "var(--c-ink-3)", lineHeight: 1,
             }}
           >
             {sig}
@@ -5536,14 +5602,14 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
               position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
               /* 幅は●の列と同じ。列が 44 に満たない拍子(1/4 など)でも §5 を割らないよう
                  minWidth で下限を持たせる(44 の綴りは --tap-min の1箇所だけに置く)。 */
-              width: rowW, minWidth: "var(--tap-min)", height: "var(--tap-min)",
+              width: rowWCss, minWidth: "var(--tap-min)", height: "var(--tap-min)",
               background: "none", border: "none", padding: 0, cursor: "pointer",
               pointerEvents: "auto",
             }}
           />
         )}
         <svg
-          width={rowW} height={METRO_BEAT_ROW_H} viewBox={`0 0 ${rowW} ${METRO_BEAT_ROW_H}`}
+          width={rowWCss} height={METRO_BEAT_ROW_H_CSS} viewBox={`0 0 ${rowW} ${METRO_BEAT_ROW_H}`}
           style={{ display: "block", overflow: "visible", pointerEvents: "none" }}
           aria-hidden="true"
         >
@@ -6183,7 +6249,9 @@ function MeasureView(props) {
           開始/停止のボタンは無い。**画面のどこをタップしても開始/停止する**(A-1)。
           拍子・分割・拍グループ・小節アクセントは、テンポ数値のタップで開くシートに入っている。 */}
       {showMetroPanel && (
-        <div style={{ marginTop: "var(--sp-2)", display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-2)" }}>
+        /* 【F-95a】振り子〜テンポ行の縦の間隔も一式と同じ倍率で開く。
+           marginTop(環との間)は拡大の対象外なので基準値のまま。 */
+        <div style={{ marginTop: "var(--sp-2)", display: "flex", flexDirection: "column", alignItems: "center", gap: `calc(var(--sp-2) * ${METRO_SCALE})` }}>
           <MetroPendulum
             getBeatPhase={getMetroPhase}
             getBeatDur={getMetroBeatDur}
@@ -6199,16 +6267,18 @@ function MeasureView(props) {
               持たせると −と♩=n の隙間・♩=n と＋の隙間・数値の下 2px が「押しても何も起きない」
               領域になる(審査役の1px刻み全走査で y492-539 × x120-254 = 3,268px² が無反応だった)。
               §6.1.5「押しても何も起きないを作らない」。 */}
-          <div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 34 }}>
+          <div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: METRO_PM_GAP_CSS }}>
             {/* 【A-4 / 逸脱4 の撤回】正典 .pmt をそのまま採る:
                   width 72 / height 48 / font-size 20 / font-weight 300 / color --ink2 / 地も枠も無し。
                 以前は「文字サイズ据え置き(24px)+46×46 のピル」にしていたが、見た目については
                 モックが唯一の正典(DESIGN-SYSTEM §6.0)。**反応領域 72×48 は本人の明示要件**なので維持。
-                gap 34 も正典(.pmt を並べる行の gap)。 */}
+                gap 34 も正典(.pmt を並べる行の gap)。
+                【F-95a】本人指示「メトロノームはB」で、この行も一式と同じ METRO_SCALE 倍で描く。
+                基準値(72/48/20/15/34)は正典のまま。実寸は 86.4×57.6 / 24px / 18px / gap 40.8。 */}
             <button
               onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))}
               aria-label="テンポを下げる" className="no-select"
-              style={{ width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+              style={{ width: METRO_PM_W_CSS, height: METRO_PM_H_CSS, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: METRO_PM_FS_CSS, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >−</button>
             {/* 【A-5】テンポ数値をタップすると下からシートが開く。正典の .bpmtxt「♩= 92」(15px)。
                 箱の幅は ± と同じ METRO_PM_W に固定してあるので、桁が変わっても ± は動かない(§6.1.5)。 */}
@@ -6216,14 +6286,14 @@ function MeasureView(props) {
               onClick={() => setTempoSheetOpen(true)}
               aria-label="テンポと拍子" aria-expanded={tempoSheetOpen}
               className="sans no-select"
-              style={{ width: METRO_PM_W, minHeight: "var(--tap-min)", background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: 15, color: "var(--c-ink-2)", cursor: "pointer", padding: 0, lineHeight: 1, flexShrink: 0 }}
+              style={{ width: METRO_PM_W_CSS, minHeight: "var(--tap-min)", background: "none", border: "none", fontFamily: "var(--font-num)", fontSize: METRO_BPM_FS_CSS, color: "var(--c-ink-2)", cursor: "pointer", padding: 0, lineHeight: 1, flexShrink: 0 }}
             >
               ♩= {metroTempo}
             </button>
             <button
               onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))}
               aria-label="テンポを上げる" className="no-select"
-              style={{ width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+              style={{ width: METRO_PM_W_CSS, height: METRO_PM_H_CSS, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: METRO_PM_FS_CSS, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >＋</button>
           </div>
         </div>
@@ -8613,7 +8683,10 @@ function ReedBoxSheet({
           </div>
 
           {/* 枚数 1〜10。正典は −/数値/＋ を gap 26 で並べ、数値は 26px の太字。
-              ± の反応領域の幅は計測タブと同じ METRO_PM_W(72)。
+              ± の反応領域の幅は正典 .pmt の基準値 METRO_PM_W(72)。
+              【F-95a 以降は計測タブと同じではない】計測タブのテンポ行だけが本人指示で
+              1.2 倍(86.4)になった。ここは拡大の対象外なので基準値のまま。 */}
+          {/*
               【正典と意図的に違う1点】正典ミニの `.pmt` は **height:40px** だが、
               DESIGN-SYSTEM §6.0 は「§5 のタップ領域 44px は機能側の規定として引き続き有効。
               機能とモックが衝突したときは機能を残す」と定めているので **44px** にした。

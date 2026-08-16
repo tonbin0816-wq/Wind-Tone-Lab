@@ -176,6 +176,9 @@ const code = [
   extractFunction("ringRunState"),
   // メトロノーム(N-4b: 環の外・下に「浅い弧+点」と「拍の●列」)
   extractConst("RING_PEND_SWING_DEG"),
+  // 【F-95a/F-95b】拡大率は基準値より先に読む(下の派生 *_CSS が参照する)。
+  extractConst("METRO_SCALE"),
+  extractConst("METRO_DOT_HEAD_SCALE"),
   extractConst("METRO_ARC_W"),
   extractConst("METRO_ARC_H"),
   extractConst("METRO_ARC_P0"),
@@ -183,12 +186,25 @@ const code = [
   extractConst("METRO_ARC_P2"),
   extractConst("METRO_ARC_SW"),
   extractConst("METRO_DOT_R"),
-  extractConst("METRO_DOT_HEAD_SCALE"),
   extractConst("METRO_BEAT_DOT_PX"),
   extractConst("METRO_BEAT_GAP_PX"),
   extractConst("METRO_BEAT_ROW_H"),
   extractConst("METRO_PM_W"),
   extractConst("METRO_PM_H"),
+  extractConst("METRO_PM_FS"),
+  extractConst("METRO_BPM_FS"),
+  extractConst("METRO_TSIG_FS"),
+  extractConst("METRO_PM_GAP"),
+  // 【F-95a】画面に出る実寸(基準値 × METRO_SCALE)。基準値の後に置くこと。
+  extractConst("METRO_ARC_W_CSS"),
+  extractConst("METRO_ARC_H_CSS"),
+  extractConst("METRO_BEAT_ROW_H_CSS"),
+  extractConst("METRO_PM_W_CSS"),
+  extractConst("METRO_PM_H_CSS"),
+  extractConst("METRO_PM_FS_CSS"),
+  extractConst("METRO_BPM_FS_CSS"),
+  extractConst("METRO_TSIG_FS_CSS"),
+  extractConst("METRO_PM_GAP_CSS"),
   extractConst("METRO_ARC_PX_PER_DEG"),
   extractConst("RING_BEAT_EMPH_DECAY"),
   extractConst("RING_BEAT_EMPH_HEAD"),
@@ -360,6 +376,9 @@ const api = new Function(`${code}
            METRO_ARC_W, METRO_ARC_H, METRO_ARC_P0, METRO_ARC_C, METRO_ARC_P2, METRO_ARC_SW,
            METRO_DOT_R, METRO_DOT_HEAD_SCALE, METRO_ARC_PX_PER_DEG,
            METRO_BEAT_DOT_PX, METRO_BEAT_GAP_PX, METRO_BEAT_ROW_H, METRO_PM_W, METRO_PM_H,
+           METRO_SCALE, METRO_PM_FS, METRO_BPM_FS, METRO_TSIG_FS, METRO_PM_GAP,
+           METRO_ARC_W_CSS, METRO_ARC_H_CSS, METRO_BEAT_ROW_H_CSS, METRO_PM_W_CSS, METRO_PM_H_CSS,
+           METRO_PM_FS_CSS, METRO_BPM_FS_CSS, METRO_TSIG_FS_CSS, METRO_PM_GAP_CSS,
            RING_BEAT_EMPH_DECAY, RING_BEAT_EMPH_HEAD, RING_BEAT_EMPH_OTHER,
            RING_D_FULL,
            audioCtxRecoveryAction, isMicTrackUsable, isMicStreamUsable, shouldRecoverFromSilence,
@@ -9915,8 +9934,10 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       for (const [label, needle] of [
         ["上部設定行(奏者・楽器・基準ピッチ・リード・メトロノーム)",
           'className="tap-through" style={{ position: "relative", zIndex: 1, opacity: isRecording ? 0.35 : 1'],
+        // 【F-95a】gap は正典の 34 を METRO_SCALE 倍した METRO_PM_GAP_CSS で描く。
+        // ここで見ているのは「前面に居ること」なので、綴りは今の実装に合わせて更新する。
         ["テンポの操作行(− / ♩=n / ＋)",
-          'className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 34 }}'],
+          'className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: METRO_PM_GAP_CSS }}'],
         ["録音ボタンと詳細トグルの塊",
           'className="tap-through" style={{ position: "relative", zIndex: 1, flexShrink: 0 }}'],
       ]) {
@@ -9935,7 +9956,8 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       // (a) 読むだけの箱は丸ごと当たり判定を持たない
       for (const [label, needle] of [
         ["環(PitchRing の外枠)", 'margin: "0 auto", position: "relative", pointerEvents: "none"'],
-        ["振り子と拍の●(MetroPendulum の外枠)", 'alignItems: "center", gap: "var(--sp-2)", pointerEvents: "none"'],
+        // 【F-95a】縦の間隔も METRO_SCALE 倍で開くようになった(calc の中に倍率が入る)。
+        ["振り子と拍の●(MetroPendulum の外枠)", 'alignItems: "center", gap: `calc(var(--sp-2) * ${METRO_SCALE})`, pointerEvents: "none"'],
       ]) {
         check(`A-1: 読むだけの箱は当たり判定を持たない: ${label}`, code20.includes(needle), needle);
       }
@@ -11396,47 +11418,50 @@ let METRO_SIGS_ALL = [];
       api.ringBeatIsHead(0, 4, true) === true && api.ringBeatIsHead(0, 4, false) === false);
   }
 
-  // --- 24.5 テンポの −/＋ の反応領域は 72×48 ----------------------------------
-  // 【縛り方】定数の値そのものと、**その定数が実際に反応領域(width/height)に使われている**
-  // ことを両方見る。定数だけ見ると使われていなくても通り、綴りだけ見ると値を変えられる。
+  // --- 24.5 テンポの −/＋ の反応領域は 72×48 の METRO_SCALE 倍 -------------------
+  // 【縛り方】基準値(正典 .pmt の 72×48)と、**その基準値から導いた実寸が実際に
+  // 反応領域(width/height)に使われている**ことを両方見る。
+  // 定数だけ見ると使われていなくても通り、綴りだけ見ると値を変えられる。
   {
-    check("反応領域の定数は 72×48(正典 .pmt)", api.METRO_PM_W === 72 && api.METRO_PM_H === 48,
+    check("反応領域の基準値は 72×48(正典 .pmt)", api.METRO_PM_W === 72 && api.METRO_PM_H === 48,
       `${api.METRO_PM_W}×${api.METRO_PM_H}`);
     const minus = code.indexOf('aria-label="テンポを下げる" className="no-select"');
     const plus = code.indexOf('aria-label="テンポを上げる" className="no-select"');
     check("画面上の −/＋ を綴りで特定できている", minus !== -1 && plus !== -1);
     for (const [label, at] of [["−", minus], ["＋", plus]]) {
       const tag = at === -1 ? "" : code.slice(code.lastIndexOf("<button", at), code.indexOf(">", at) + 1);
-      check(`テンポの ${label} の反応領域は METRO_PM_W × METRO_PM_H`,
-        /width: METRO_PM_W, height: METRO_PM_H/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      check(`テンポの ${label} の反応領域は METRO_PM_W_CSS × METRO_PM_H_CSS`,
+        /width: METRO_PM_W_CSS, height: METRO_PM_H_CSS/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
       check(`テンポの ${label} 自体は見た目を持たない(見た目は内側の span が持つ)`,
         /background: "transparent"/.test(tag) && /border: "none"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
     }
     // 【逸脱4 の撤回】見た目は正典 .pmt そのもの: 地も枠も持たない素のテキスト、
     // font-size 20 / font-weight 300 / color --ink2。以前は 46×46 のピル + 24px だった。
     {
-      const pmt = (code.match(/width: METRO_PM_W, height: METRO_PM_H, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var\(--c-ink-2\)", lineHeight: 1/g) || []).length;
-      check("−/＋ は正典 .pmt(地も枠も無い素のテキスト / 20px / weight 300 / --ink2)", pmt === 2, `${pmt}個`);
+      const pmt = (code.match(/width: METRO_PM_W_CSS, height: METRO_PM_H_CSS, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: METRO_PM_FS_CSS, fontWeight: 300, color: "var\(--c-ink-2\)", lineHeight: 1/g) || []).length;
+      check("−/＋ は正典 .pmt(地も枠も無い素のテキスト / weight 300 / --ink2)を METRO_SCALE 倍で描く", pmt === 2, `${pmt}個`);
       check("−/＋ に見た目のピル(46×46 の .ctl-plain)が残っていない",
         !/width: 46, height: 46[^}]*ctl-plain|ctl-pill[^>]*width: 46/.test(code)
         && (code.match(/<span className="ctl-plain ctl-pill" style=\{\{ width: 46, height: 46/g) || []).length === 0);
-      check("−/＋ と ♩=n の間隔は正典の 34", /justifyContent: "center", gap: 34 \}\}/.test(code));
-      check("♩=n は正典 .bpmtxt の 15px", /fontFamily: "var\(--font-num\)", fontSize: 15, color: "var\(--c-ink-2\)"/.test(code));
+      check("−/＋ と ♩=n の間隔は正典の 34 を METRO_SCALE 倍した METRO_PM_GAP_CSS",
+        /justifyContent: "center", gap: METRO_PM_GAP_CSS \}\}/.test(code));
+      check("♩=n は正典 .bpmtxt の 15 を METRO_SCALE 倍した METRO_BPM_FS_CSS",
+        /fontFamily: "var\(--font-num\)", fontSize: METRO_BPM_FS_CSS, color: "var\(--c-ink-2\)"/.test(code));
     }
     // テンポ数値の箱も同じ幅 = 桁が変わっても ± が動かない(§6.1.5)
     check("テンポ数値の箱は ± と同じ幅(桁が変わっても ± が動かない)",
-      /aria-label="テンポと拍子"[\s\S]{0,300}?width: METRO_PM_W/.test(code));
+      /aria-label="テンポと拍子"[\s\S]{0,300}?width: METRO_PM_W_CSS/.test(code));
   }
 
   // --- 24.6 拍の●は画面中央固定・拍子表示はその左 ------------------------------
   {
     const mp = code.slice(code.indexOf("function MetroPendulum"), code.indexOf("function MeasureView"));
     check("●の列は行の中央に置く(justifyContent: center)",
-      /height: METRO_BEAT_ROW_H, display: "flex", alignItems: "center", justifyContent: "center"/.test(mp));
+      /height: METRO_BEAT_ROW_H_CSS, display: "flex", alignItems: "center", justifyContent: "center"/.test(mp));
     check("拍子表示は流れの外(absolute)に置く。●の列の幅・桁数に影響されない",
-      /position: "absolute", right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/.test(mp));
-    check("拍子表示は●の列の左にある(右端が中央より rowW/2 以上左)",
-      /right: `calc\(50% \+ \$\{rowW \/ 2\}px/.test(mp));
+      /position: "absolute", right: `calc\(50% \+ \$\{rowWCss \/ 2\}px \+ var\(--sp-3\) \* \$\{METRO_SCALE\}\)`/.test(mp));
+    check("拍子表示は●の列の左にある(右端が中央より 列幅/2 以上左)",
+      /right: `calc\(50% \+ \$\{rowWCss \/ 2\}px/.test(mp));
     // 幾何: 列の中心が列幅の中心にあるので、行の中央に置けば画面中央に来る。
     // 拍子の桁数(2〜4文字)が変わっても●は1pxも動かない = 絶対配置の帰結を数値で確認する。
     for (const n of [1, 2, 3, 4, 5, 6]) {
@@ -11445,11 +11470,13 @@ let METRO_SIGS_ALL = [];
       check(`●列(${n}拍)の中心は列幅の中心(=行の中央に置けば画面中央)`, Math.abs(c - w / 2) < 1e-9,
         `中心 ${c} / 幅の半分 ${w / 2}`);
     }
-    check("行の高さは固定(●が膨らんでも行が伸びない)", /height: METRO_BEAT_ROW_H/.test(mp) && api.METRO_BEAT_ROW_H > api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE,
+    check("行の高さは固定(●が膨らんでも行が伸びない)", /height: METRO_BEAT_ROW_H_CSS/.test(mp) && api.METRO_BEAT_ROW_H > api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE,
       `行 ${api.METRO_BEAT_ROW_H} / ●の最大 ${api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE}`);
     // 【逸脱5 の撤回】拍子表示は正典 .tsig の 12px。以前は §6.1「演奏中サーフェスで12px禁止」に
     // 従って --fs-md(15px)にしていたが、見た目はモックが唯一の正典(§6.0)。
-    check("拍子表示は正典 .tsig の 12px", /fontSize: 12, color: "var\(--c-ink-3\)"/.test(mp));
+    // 【F-95a】その 12px は基準値になり、画面には ×METRO_SCALE で描く。
+    check("拍子表示は正典 .tsig の 12 を METRO_SCALE 倍した METRO_TSIG_FS_CSS",
+      /fontSize: METRO_TSIG_FS_CSS, color: "var\(--c-ink-3\)"/.test(mp));
 
     // --- 【F-91】拍子表示・拍の●をタップしてもテンポ拍子シートが出る ------------
     // 本人指示(実機 2026/08/15)「4/4などの拍子や、拍を表すをタップしても
@@ -11486,9 +11513,9 @@ let METRO_SIGS_ALL = [];
       check("F-91: 押せる箱は pointerEvents を自分で auto に戻す(親が none のため)",
         taps.every((t) => /pointerEvents: "auto"/.test(t)));
       // 文字の位置は1pxも動かない = 拍子の右端の式が従来と同じであること(上の検査と同じ式)。
-      check("F-91: 拍子の文字の右端の位置は従来と同じ式のまま(当たり判定だけ広げる。§5)",
-        (mpSrc.match(/right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/g) || []).length === 2,
-        `${(mpSrc.match(/right: `calc\(50% \+ \$\{rowW \/ 2\}px \+ var\(--sp-3\)\)`/g) || []).length}箇所(押せる版・押せない版の2つ)`);
+      check("F-91: 拍子の文字の右端の位置は押せる版・押せない版で同じ式(当たり判定だけ広げる。§5)",
+        (mpSrc.match(/right: `calc\(50% \+ \$\{rowWCss \/ 2\}px \+ var\(--sp-3\) \* \$\{METRO_SCALE\}\)`/g) || []).length === 2,
+        `${(mpSrc.match(/right: `calc\(50% \+ \$\{rowWCss \/ 2\}px \+ var\(--sp-3\) \* \$\{METRO_SCALE\}\)`/g) || []).length}箇所(押せる版・押せない版の2つ)`);
       // 呼び出し側: 計測タブだけが渡す。行き先はテンポ拍子シート。
       const mv = code.slice(code.indexOf("function MeasureView"));
       check("F-91: 計測タブは onOpenSheet でテンポ拍子シートを開く",
@@ -11501,7 +11528,6 @@ let METRO_SIGS_ALL = [];
     // METRO_BEAT_GAP_PX を 12→4 にする変異が生存していた。正典の実寸を値で縛る。
     check("●の直径は正典 .beat の 7px", api.METRO_BEAT_DOT_PX === 7, String(api.METRO_BEAT_DOT_PX));
     check("●の間隔は正典 .beatrow の gap 12px", api.METRO_BEAT_GAP_PX === 12, String(api.METRO_BEAT_GAP_PX));
-    check("現在の●の倍率は正典 .beat.on の scale(1.4)", api.METRO_DOT_HEAD_SCALE === 1.4, String(api.METRO_DOT_HEAD_SCALE));
     check("往復する点の半径は正典 .pend の circle r=5", api.METRO_DOT_R === 5, String(api.METRO_DOT_R));
     check("ガイドの弧は正典 .pend の svg 150×26", api.METRO_ARC_W === 150 && api.METRO_ARC_H === 26,
       `${api.METRO_ARC_W}×${api.METRO_ARC_H}`);
@@ -11516,6 +11542,191 @@ let METRO_SIGS_ALL = [];
     check("隣り合う●の中心間距離は 直径7 + 間隔12 = 19",
       api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4) === 19,
       String(api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4)));
+
+    // --- 【F-95a】メトロノーム一式を 1.2 倍(本人が選んだ B) --------------------
+    // 本人指示(実機 2026/08/16)「メトロノームはB」。B は統括が作った比較サンプル
+    // design/metro-size-sample.html の B 列で、正典 .pend 一式を丸ごと 1.20 倍したもの。
+    //
+    // 【期待値の出どころ】倍率をこのファイルに写すと、実装と一緒に書き換える変異が通る
+    // (design/LOOP.md「定数の定義を同じ式で書き直す」)。だから
+    //   ・倍率は **本人が選んだサンプルの B 列の --k** から読む
+    //   ・基準値は **正典 north-star-measure.html の該当宣言** から読む
+    // の2つとも App.jsx の外から取る。実寸はその積と突き合わせる。
+    {
+      const sample = readFileSync(join(__dirname, "..", "design", "metro-size-sample.html"), "utf8");
+      const iB = sample.indexOf('<span class="n">B ');
+      check("比較サンプルの B 列を綴りで特定できている", iB !== -1);
+      const bTag = iB === -1 ? "" : sample.slice(iB, iB + 260);
+      // 取り違え防止: B 列が「推し」の印を持つ列であること(本人が選んだのはこの列)。
+      check("B 列は「推し」の印が付いた列(本人が選んだ列を取り違えていない)",
+        /<span class="rec">推し<\/span>/.test(bTag), bTag.slice(0, 120));
+      const mK = /<div class="phone" style="--k:([\d.]+)">/.exec(bTag);
+      check("B 列の倍率(--k)を読めている", mK !== null, mK ? mK[1] : "読めない");
+      const kB = mK ? parseFloat(mK[1]) : NaN;
+      check(`拡大率はサンプル B の --k と一致する(${kB})`, api.METRO_SCALE === kB,
+        `実装=${api.METRO_SCALE} / サンプルB=${kB}`);
+
+      // 正典の該当宣言を読む(このファイルに値を写さない)。
+      const mockPend = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+      const mockStyle = (mockPend.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1];
+      const mockDeclOf = (sel, name) => {
+        const rule = new RegExp(`(?:^|[};])\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(mockStyle);
+        if (!rule) return null;
+        const d = new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`).exec(rule[1]);
+        return d ? d[1].trim() : null;
+      };
+      // 正典の .pend の中身(svg の実寸と ± を並べる行の gap はインラインで書かれている)
+      const iPend = mockPend.indexOf('<div class="pend">');
+      const iRecwrap = mockPend.indexOf('class="recwrap"', iPend);
+      const pendBlock = iPend === -1 ? "" : mockPend.slice(iPend, iRecwrap === -1 ? iPend + 1000 : iRecwrap);
+      const mSvg = /<svg width="(\d+)" height="(\d+)"/.exec(pendBlock);
+      const mGap = /display:flex;align-items:center;gap:(\d+)px/.exec(pendBlock);
+      check("正典 .pend の svg 実寸と ± 行の gap を読めている", mSvg !== null && mGap !== null,
+        `${mSvg ? mSvg.slice(1, 3).join("×") : "?"} / gap ${mGap ? mGap[1] : "?"}`);
+
+      // (a) 基準値は正典のまま1つも動かしていない
+      const base = [
+        ["振り子の幅", api.METRO_ARC_W, mSvg && parseFloat(mSvg[1])],
+        ["振り子の高さ", api.METRO_ARC_H, mSvg && parseFloat(mSvg[2])],
+        ["●の直径", api.METRO_BEAT_DOT_PX, parseFloat(mockDeclOf(".beat", "width"))],
+        ["●の間隔", api.METRO_BEAT_GAP_PX, parseFloat(mockDeclOf(".beatrow", "gap"))],
+        ["±の反応領域の幅", api.METRO_PM_W, parseFloat(mockDeclOf(".pmt", "width"))],
+        ["±の反応領域の高さ", api.METRO_PM_H, parseFloat(mockDeclOf(".pmt", "height"))],
+        ["±の文字", api.METRO_PM_FS, parseFloat(mockDeclOf(".pmt", "font-size"))],
+        ["テンポの文字", api.METRO_BPM_FS, parseFloat(mockDeclOf(".bpmtxt", "font-size"))],
+        ["拍子の文字", api.METRO_TSIG_FS, parseFloat(mockDeclOf(".tsig", "font-size"))],
+        ["±行の間隔", api.METRO_PM_GAP, mGap && parseFloat(mGap[1])],
+      ];
+      for (const [label, impl, canon] of base) {
+        check(`F-95a: 基準値は正典のまま: ${label}`, Number.isFinite(canon) && impl === canon,
+          `実装=${impl} / 正典=${canon}`);
+      }
+      // (b) 画面に出る実寸は「正典の基準値 × B の倍率」
+      const drawn = [
+        ["振り子の幅", api.METRO_ARC_W_CSS, mSvg && parseFloat(mSvg[1])],
+        ["振り子の高さ", api.METRO_ARC_H_CSS, mSvg && parseFloat(mSvg[2])],
+        ["±の反応領域の幅", api.METRO_PM_W_CSS, parseFloat(mockDeclOf(".pmt", "width"))],
+        ["±の反応領域の高さ", api.METRO_PM_H_CSS, parseFloat(mockDeclOf(".pmt", "height"))],
+        ["±の文字", api.METRO_PM_FS_CSS, parseFloat(mockDeclOf(".pmt", "font-size"))],
+        ["テンポの文字", api.METRO_BPM_FS_CSS, parseFloat(mockDeclOf(".bpmtxt", "font-size"))],
+        ["拍子の文字", api.METRO_TSIG_FS_CSS, parseFloat(mockDeclOf(".tsig", "font-size"))],
+        ["±行の間隔", api.METRO_PM_GAP_CSS, mGap && parseFloat(mGap[1])],
+      ];
+      for (const [label, impl, canon] of drawn) {
+        check(`F-95a: 画面の実寸 = 正典 × B の倍率: ${label}`,
+          Number.isFinite(canon) && Math.abs(impl - canon * kB) < 1e-9,
+          `実装=${impl} / 期待=${canon * kB}`);
+      }
+      // (b') 行の高さだけは正典に対応する宣言が無い(●の最大直径から決めた実装側の箱)。
+      // 【審査②の指摘】ここだけ値の検査が無く、`= METRO_BEAT_ROW_H` / `* 1.1` / `* 2` /
+      // `+ 0.0001` の**4種類とも生存**していた。綴りの検査は定義側の変異を通す。
+      // 【なぜ効くか】svg は viewBox を一様スケールで拡大するので、倍率は縦横の**小さいほう**が
+      // 採られる。行の高さだけ 1.0 のままだと min(1.2, 1.0)=1.0 になり、
+      // 幅が 76.8 でも**●は 8.4px ではなく 7px(拡大前)に戻る**。
+      check("F-95a: ●列の行の高さも B の倍率で伸びる(ここが 1.0 だと●が拡大前に戻る)",
+        Math.abs(api.METRO_BEAT_ROW_H_CSS - api.METRO_BEAT_ROW_H * kB) < 1e-9,
+        `実装=${api.METRO_BEAT_ROW_H_CSS} / 期待=${api.METRO_BEAT_ROW_H * kB}`);
+      check("F-95a: ●列の svg は縦横が同じ倍率(一様スケール = ●が正しい大きさで出る条件)",
+        api.METRO_BEAT_ROW_H_CSS / api.METRO_BEAT_ROW_H === api.METRO_ARC_W_CSS / api.METRO_ARC_W,
+        `縦 ${api.METRO_BEAT_ROW_H_CSS / api.METRO_BEAT_ROW_H} / 横 ${api.METRO_ARC_W_CSS / api.METRO_ARC_W}`);
+      // (c) ●列の実寸も同じ倍率で伸びる(拍子の位置がここから決まるため)
+      check("F-95a: ●列の実寸は viewBox 幅の METRO_SCALE 倍",
+        /const rowWCss = rowW \* METRO_SCALE;/.test(code));
+      // (d) svg は viewBox を正典の単位のまま残す = 弧の幾何と物理は1行も変わらない。
+      //     ここが崩れると METRO_ARC_P0/C/P2・metroArcPoint の意味が変わる。
+      check("F-95a: 振り子の svg は実寸だけ拡大し viewBox は正典のまま",
+        /width=\{METRO_ARC_W_CSS\} height=\{METRO_ARC_H_CSS\} viewBox=\{`0 0 \$\{METRO_ARC_W\} \$\{METRO_ARC_H\}`\}/.test(mp));
+      check("F-95a: ●列の svg も実寸だけ拡大し viewBox は正典の単位のまま",
+        /width=\{rowWCss\} height=\{METRO_BEAT_ROW_H_CSS\} viewBox=\{`0 0 \$\{rowW\} \$\{METRO_BEAT_ROW_H\}`\}/.test(mp));
+      // (e) 縦の間隔も同じ倍率で開く(サンプルは .pend の gap も --k 倍している)
+      check("F-95a: 縦の間隔も METRO_SCALE 倍で開く(振り子〜●〜テンポ行)",
+        (code.match(/gap: `calc\(var\(--sp-2\) \* \$\{METRO_SCALE\}\)`/g) || []).length === 2,
+        `${(code.match(/gap: `calc\(var\(--sp-2\) \* \$\{METRO_SCALE\}\)`/g) || []).length}箇所`);
+      // (f) 拡大の対象は計測タブのメトロノームだけ。リード追加シートの ± は基準値のまま
+      //     (METRO_PM_W を共有しているので、拡大を基準値側に入れると巻き添えになる)。
+      check("F-95a: リード追加シートの ± は拡大していない(基準値 METRO_PM_W のまま)",
+        /width: METRO_PM_W, height: "var\(--tap-min\)"/.test(srcOfFn(src, "ReedBoxSheet")));
+
+      // --- 【F-95b】拍の瞬間の膨らみを大きく ------------------------------------
+      // 本人指示「振り子が端に触れるときの大きくなるのも今よりも大きくして」。
+      // 正典 .beat.on は scale(1.4)。**正典を意図的に超えている**ことを、正典の側から確認する。
+      const mOn = /scale\(([\d.]+)\)/.exec(mockDeclOf(".beat.on", "transform") || "");
+      check("正典 .beat.on の倍率を読めている", mOn !== null, mOn ? mOn[1] : "読めない");
+      const canonScale = mOn ? parseFloat(mOn[1]) : NaN;
+      check("F-95b: 膨らみの倍率は 1.8(本人指示で正典 .beat.on を上書き)",
+        api.METRO_DOT_HEAD_SCALE === 1.8, String(api.METRO_DOT_HEAD_SCALE));
+      check(`F-95b: 正典(${canonScale})より大きい = 「今よりも大きく」を満たす`,
+        api.METRO_DOT_HEAD_SCALE > canonScale, `実装=${api.METRO_DOT_HEAD_SCALE} / 正典=${canonScale}`);
+      // 1つの定数が2箇所(振り子の点・拍の●)を動かすこと。片方だけ据え置く変異を殺す。
+      // 【名前を実際の検証範囲に合わせる】ここで見ているのは**純関数の戻り値**だけで、
+      // 画面が膨らむかは見ていない(それは下の「描画側が拍の瞬間を渡す」で見る)。
+      check("F-95b: metroDotR の返す最大の半径は基準の 1.8 倍(戻り値のみ)",
+        api.metroDotR(true, 1) === api.METRO_DOT_R * 1.8,
+        `${api.metroDotR(true, 1)} / 期待 ${api.METRO_DOT_R * 1.8}`);
+      check("F-95b: metroBeatDotR の返す半径は今の拍だけ 1.8 倍(戻り値のみ)",
+        api.metroBeatDotR(true) / api.metroBeatDotR(false) === 1.8,
+        `${api.metroBeatDotR(true)} / ${api.metroBeatDotR(false)}`);
+
+      // 【審査②の指摘】上の2件は戻り値しか見ておらず、**描画側が定数を書き込む形に
+      // 書き換えても緑のまま**だった(`dot.setAttribute("r", METRO_DOT_R.toFixed(2))` /
+      // `metroBeatDotR(false)` のどちらも生存)。つまり F-95b の成果物そのものが
+      // 緑のまま消せた。rAF ループは評価できないので、**描画文を綴りで固定する**。
+      // 引数が「拍の瞬間」を運んでいることまで、変数の出どころを辿って見る。
+      {
+        const loop = mp.slice(mp.indexOf("const loop = ()"), mp.indexOf("raf = requestAnimationFrame(loop);"));
+        check("F-95b: 振り子の点の r は毎フレーム metroDotR(小節頭か, 拍の演出) から書く",
+          /dot\.setAttribute\("r", metroDotR\(isHead, e\)\.toFixed\(2\)\);/.test(loop), loop.length + "字");
+        check("F-95b: 拍の●の r は毎フレーム metroBeatDotR(今の拍か) から書く",
+          /d\.setAttribute\("r", metroBeatDotR\(isCur\)\.toFixed\(2\)\);/.test(loop));
+        // 渡している引数が本当に「拍の瞬間」か(定数 true/false や固定値に化けていないか)。
+        check("F-95b: 小節頭かは位相から求める(ringBeatIsHead)",
+          /const isHead = ringBeatIsHead\(phase, beatsPerMeasure, accentOn\);/.test(loop));
+        check("F-95b: 拍の演出の強さは位相から求める(ringBeatEmphasis。減速設定のときだけ 0)",
+          /const e = reduceMotion\.matches \? 0 : ringBeatEmphasis\(phase, beatsPerMeasure, accentOn\);/.test(loop));
+        check("F-95b: 今の拍かは位相から求める(ringBeatIndex と突き合わせる)",
+          /const cur = ringBeatIndex\(phase, beatsPerMeasure\);/.test(loop) && /const isCur = cur === i;/.test(loop));
+        // 半径を書き込む文を**集合で**縛る: loop 内の `setAttribute("r"` の全出現が、
+        // 正典の2つの綴り(metroDotR / metroBeatDotR 経由)のいずれかであること。
+        // 【審査で塞いだ穴・通算16回目】前版は「定数で書き込んでいない」と名乗りながら
+        // 2つの定数**識別子**の直書きしか見ておらず、正しい描画文の直後に
+        // `dot.setAttribute("r", "5.00")` を**追記**する変異(数値リテラル)が生存した
+        // (毎フレーム上書きされ、錘は画面上一切膨らまないのに緑のまま)。
+        // 集合制約なら追記も差し替えも落ちる。箇所数の釘付けではない(出現数は縛らない)。
+        {
+          // 文末(;)まで取る。`[^)]*)` だと引数の中の閉じ括弧で切れて正典の形と一致しない
+          const rWrites = [...loop.matchAll(/setAttribute\("r",[^;]*;/g)].map((m) => m[0]);
+          const CANON = [
+            'setAttribute("r", metroDotR(isHead, e).toFixed(2));',
+            'setAttribute("r", metroBeatDotR(isCur).toFixed(2));',
+          ];
+          const stray = rWrites.filter((w) => !CANON.includes(w));
+          check("F-95b: r を書く文は正典の2形だけ(定数・数値リテラル・別の式での上書きを許さない)",
+            rWrites.length >= 2 && stray.length === 0,
+            stray.join(" | ") || `${rWrites.length}件すべて正典の形`);
+        }
+      }
+
+      // 【F-95b で overflow: visible が実際に効き始めた】点は cy=8 / 最大 r=5×1.8=9 なので
+      // 箱の上辺(y=0)を超える。1.4 の頃は r=7 で箱の中に収まっており宣言は飾りだった。
+      // まず「超える」ことを幾何で確かめ、そのうえで宣言が両方の svg に在ることを見る。
+      check("F-95b: 膨らんだ点は弧の箱の上辺を超える(overflow の宣言が飾りでなくなった)",
+        api.METRO_DOT_R * api.METRO_DOT_HEAD_SCALE > api.METRO_ARC_P0[1],
+        `最大半径 ${api.METRO_DOT_R * api.METRO_DOT_HEAD_SCALE} / 中心の高さ ${api.METRO_ARC_P0[1]}`);
+      {
+        const ov = (mp.match(/style=\{\{ display: "block", overflow: "visible", pointerEvents: "none" \}\}/g) || []).length;
+        check("F-95b: 弧と●列の svg はどちらも overflow: visible(切ると膨らみの頭が切れる)",
+          ov === 2, `${ov}箇所`);
+      }
+      // 膨らませても壊れない範囲であること(どちらも viewBox 単位なので拡大率に依らない)。
+      check("F-95b: 膨らんだ●が隣の●と重ならない(中心間19 > 最大直径)",
+        api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4) > api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE,
+        `中心間 ${api.metroBeatDotX(1, 4) - api.metroBeatDotX(0, 4)} / 最大直径 ${api.METRO_BEAT_DOT_PX * api.METRO_DOT_HEAD_SCALE}`);
+      // App.jsx のコメントが「2.2 まで行を動かさずに上げられる」と約束しているので、
+      // その約束自体を検査にする(約束だけ残って実際は入らない、を防ぐ)。
+      check("F-95b: 2.2 まで上げても行の高さ(16)に収まる(コメントの約束の裏取り)",
+        api.METRO_BEAT_ROW_H >= api.METRO_BEAT_DOT_PX * 2.2,
+        `行 ${api.METRO_BEAT_ROW_H} / 2.2倍の直径 ${api.METRO_BEAT_DOT_PX * 2.2}`);
+    }
 
     // 【審査⑤の修正】●の数が**拍子から導かれている**ことを固定する。
     // 審査役が metroBeatsPerMeasure を 4 に固定する変異を当てたところ生存した

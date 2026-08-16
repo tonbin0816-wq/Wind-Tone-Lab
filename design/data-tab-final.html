@@ -1,0 +1,163 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>データタブ 決定版モック（N-7）</title>
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
+    --rule:#E1E6EC; --accent:#174585; --pale:#B9C9E4; --bg:#F6F7F9; --mint:#6EE7B7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:20px 16px 4px;max-width:840px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 6px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.8;margin:0 0 4px}
+  header b{color:var(--ink)}
+  .wrap{display:flex;justify-content:center;padding:14px 12px 40px}
+  .phone{position:relative;width:375px;max-width:100%;background:#fff;border-radius:26px;
+    box-shadow:0 2px 14px rgba(20,30,50,.10);padding:14px 24px 70px;overflow:hidden}
+  .subtabs{display:flex;gap:18px;font-size:13px;color:var(--ink3);padding:2px 0 14px}
+  .subtabs .on{color:var(--ink);font-weight:600}
+  .subtabs .more{margin-left:auto;color:var(--ink2);letter-spacing:2px}
+
+  /* ヒーロー(維持) + ピッチの折れ線(別扱い=同じ紺のカードの中) */
+  .hero{background:var(--accent);border-radius:22px;padding:18px 20px;color:#fff}
+  .hero .top{display:flex;justify-content:space-between;align-items:baseline}
+  .hero .lbl{font-size:12px;color:#B9C9E4}
+  .hero .num{font-family:ui-monospace,Menlo,monospace;font-size:44px;font-weight:600;line-height:1;
+    font-variant-numeric:tabular-nums;margin-top:6px}
+  .hero .u{font-size:21px;color:#9DB3D6}
+  .hero .pill{display:inline-flex;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;
+    margin-left:10px;vertical-align:6px;color:#04130D;background:var(--mint)}
+  .hero .sd{font-size:12px;color:#9DB3D6;margin-top:7px}
+
+  /* 白地に戻ってからのピッチ折れ線(カード扱い=薄い地) */
+  .pitchcard{background:#F6F8FB;border-radius:16px;padding:12px 14px 10px;margin-top:10px}
+  .chartlbl{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--ink3)}
+  .legend{display:flex;gap:12px;font-size:10px;color:var(--ink3);align-items:center}
+  .sw{display:inline-block;width:12px;height:2.5px;border-radius:2px;margin-right:4px;vertical-align:2px}
+
+  /* HNR/重心/音量の行(案D の行構成。枠なし・細い罫) */
+  .mrow{padding:14px 0 10px;border-bottom:1px solid var(--rule)}
+  .mtop{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+  .mname{font-size:12px;color:var(--ink2)}
+  .mnums{font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+  .mnums b{color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:600}
+  .up{color:#1D6B4A}
+
+  svg{display:block}
+  .axis{font-size:8.5px;fill:var(--ink3)}
+
+  .shead{display:flex;align-items:center;justify-content:space-between;padding:18px 0 10px}
+  .shead .t{font-size:13px;font-weight:600}
+  .impbtn{font-size:13px;color:#fff;background:var(--accent);border-radius:999px;padding:6px 14px;font-weight:600}
+  .fpills{display:flex;gap:14px;padding:0 0 10px}
+  .fp{font-size:12px;color:var(--ink2)}
+  .srow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+
+  .cap{max-width:840px;margin:0 auto;padding:0 16px 60px;font-size:12.5px;color:var(--ink2);line-height:1.9}
+  .cap b{color:var(--ink)}
+
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4; --ink2:#B6C0CE; --ink3:#8892A0; --line:#252B34; --line2:#39414C;
+          --rule:#2C333D; --bg:#14181E}
+    body{background:#14181E}
+    .phone{background:#1B2027;box-shadow:none}
+    .pitchcard{background:#20262E}
+  }
+</style>
+
+<header>
+  <h1>データタブ 決定版モック（N-7）</h1>
+  <p><b>音ごとにベースが違う</b>ので、平均1つの数字をやめて<b>音名ごとの折れ線</b>で見せます。
+  線は2本 — <b>薄いのが選択中の期間・楽器の平均、濃いのが今日</b>。横軸は選んだ楽器の全音域です。<br>
+  楽器種別のセレクタは期間の隣（<b>Alto ▾ · 1ヶ月 ▾</b>）。実機ではこの画面は縦にスクロールします。</p>
+</header>
+
+<div class="wrap"><div class="phone">
+  <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="more">…</span></div>
+
+  <!-- ヒーロー: 今のレイアウト維持。右上に Alto ▾ が加わっただけ -->
+  <div class="hero">
+    <div class="top"><span class="lbl">今日</span><span class="lbl">Alto ▾ · 1ヶ月 ▾</span></div>
+    <div class="num">+1.2<span class="u">¢</span><span class="pill">Great</span></div>
+    <div class="sd">±3.4¢ · 平均 −0.8¢</div>
+    <svg width="100%" height="34" viewBox="0 0 285 34" preserveAspectRatio="none" style="margin-top:10px">
+      <line x1="0" y1="17" x2="285" y2="17" stroke="#3D5F94" stroke-width="1" stroke-dasharray="3 4"/>
+      <path d="M0 25 L26 22 L52 26 L80 19 L108 15 L136 20 L164 22 L192 14 L220 17 L248 12 L285 14"
+        fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <!-- ピッチの折れ線(別扱い=カード)。0¢ が中央、横軸は Alto の全音域 -->
+  <div class="pitchcard">
+    <div class="chartlbl"><span>音ごとの平均差分（¢）</span>
+      <span class="legend"><span><span class="sw" style="background:var(--pale)"></span>1ヶ月</span>
+        <span><span class="sw" style="background:var(--accent)"></span>今日</span></span></div>
+    <svg width="100%" height="86" viewBox="0 0 300 86" preserveAspectRatio="none">
+      <text class="axis" x="2" y="12">+10</text>
+      <text class="axis" x="2" y="46">0</text>
+      <text class="axis" x="2" y="80">−10</text>
+      <line x1="22" y1="43" x2="300" y2="43" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="3 3"/>
+      <path d="M22 47 L57 45 L92 49 L127 44 L162 40 L197 45 L232 41 L267 37 L300 33"
+        fill="none" stroke="var(--pale)" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M22 44 L57 41 L92 46 L127 39 L162 36 L197 40 L232 34 L267 28 L300 24"
+        fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+    <svg width="100%" height="12" viewBox="0 0 300 12">
+      <text class="axis" x="22" y="9">B♭3</text><text class="axis" x="92" y="9">F4</text>
+      <text class="axis" x="160" y="9">C5</text><text class="axis" x="230" y="9">G5</text>
+      <text class="axis" x="284" y="9">F♯6</text>
+    </svg>
+  </div>
+
+  <!-- HNR / 重心 / 音量: 案D の行構成のまま、横棒 → 2本の折れ線 -->
+  <div class="mrow">
+    <div class="mtop"><span class="mname">HNR</span>
+      <span class="mnums">今日 <b>18.2</b>dB · 1ヶ月 17.6 <span class="up">+0.6</span></span></div>
+    <svg width="100%" height="56" viewBox="0 0 300 56" preserveAspectRatio="none">
+      <path d="M0 34 L37 30 L75 38 L112 26 L150 22 L187 30 L225 24 L262 32 L300 28"
+        fill="none" stroke="var(--pale)" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M0 30 L37 26 L75 33 L112 21 L150 17 L187 26 L225 19 L262 27 L300 22"
+        fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="mrow">
+    <div class="mtop"><span class="mname">重心</span>
+      <span class="mnums">今日 <b>1214</b>Hz · 1ヶ月 1195 <span class="up">+19</span></span></div>
+    <svg width="100%" height="56" viewBox="0 0 300 56" preserveAspectRatio="none">
+      <path d="M0 44 L37 40 L75 42 L112 34 L150 28 L187 24 L225 18 L262 14 L300 10"
+        fill="none" stroke="var(--pale)" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M0 42 L37 37 L75 39 L112 30 L150 24 L187 20 L225 13 L262 10 L300 6"
+        fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <div class="mrow" style="border-bottom:none">
+    <div class="mtop"><span class="mname">音量</span>
+      <span class="mnums">今日 <b>−21.4</b>dB · 1ヶ月 −21.9 <span class="up">+0.5</span></span></div>
+    <svg width="100%" height="56" viewBox="0 0 300 56" preserveAspectRatio="none">
+      <path d="M0 30 L37 32 L75 28 L112 30 L150 26 L187 29 L225 27 L262 30 L300 28"
+        fill="none" stroke="var(--pale)" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M0 27 L37 29 L75 24 L112 27 L150 22 L187 26 L225 23 L262 27 L300 24"
+        fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <!-- 一覧は現状のまま -->
+  <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">5/12</span></span>
+    <span class="impbtn">↥ 録音をアップロード</span></div>
+  <div class="fpills"><span class="fp">1ヶ月 ▾</span><span class="fp">リード ▾</span><span class="fp">奏者 ▾</span></div>
+  <div class="srow"><span class="d">08/15 19:04 <i>V16-3 #4 · 自分 · 12:24</i></span></div>
+  <div class="srow"><span class="d">08/14 20:41 <i>V16-3 #2 · 自分 · 26:10</i></span><span style="color:var(--ink3)">↥</span></div>
+</div></div>
+
+<p class="cap">
+<b>読み方</b>: 薄い線が「いつもの自分」、濃い線が「今日」。2本が離れている音域＝今日いつもと違った音域です。<br>
+<b>置き換わるもの</b>: 累計/最新の2行と「数字タップでグラフ」は、この常時表示の4本が引き継ぎます
+（累計は期間セレクタの「全期間」で出せます。今日のデータが無い日は薄い線だけになります）。<br>
+<b>ピッチだけ別扱い</b>: ご指示どおり +1.2¢/±3.4¢/Great のテキストが残るため、ヒーロー直下のカードにしました。
+HNR/重心/音量は枠なしの行のままです。
+</p>
