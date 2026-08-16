@@ -6015,9 +6015,27 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 「My Data」「最新セッション」「セッション一覧」の**3枚のカードと2つの .tile-row が
   // 無くなった**(囲いの序列は同上。面はヒーロー1枚だけ)。実測 .card 8 / .tile-row 4。
   // **下げたぶんは、下で「My Data 子タブに .card が1枚も無い」ことを名指しで固定して埋める。**
-  check(".card が実際に使われている", cardTags.length >= 8, `${cardTags.length}箇所`);
-  check(".tile が実際に使われている", tileTags.length >= 3, `${tileTags.length}箇所`);
-  check(".tile-row が実際に使われている", rowTags.length >= 4, `${rowTags.length}箇所`);
+  // 【N-9 2026/08/16 本人指示で下限を 8→1 / 3→2 / 4→1 に下げた】セッション詳細と分析(PIVOT)が
+  // 白地+罫の文法へ移り、セッション詳細の3枚 + PhraseTimeline の3枚 + PIVOT の1枚の .card、
+  // 軸セレクタの .tile 1つ、.tile-row 3つが無くなった(囲いの序列は §6.0)。
+  // 残るのは計測タブの詳細カード(.card 1 / .tile-row 1)と、MetricCard の .tile(計測タブの詳細)。
+  // TappableMetricCard の非bare枝(.tile)は N-9 で**呼び出し0件の死枝**になった
+  // (既定の受け皿として残置。F-72 側のコメントと同じ状態)。**下げたぶんは、下で「セッション詳細・PhraseTimeline・
+  // データタブに .card / .tile / .tile-row が1つも無い」ことを名指しで固定して埋める。**
+  check(".card が実際に使われている", cardTags.length >= 1, `${cardTags.length}箇所`);
+  check(".tile が実際に使われている", tileTags.length >= 2, `${tileTags.length}箇所`);
+  check(".tile-row が実際に使われている", rowTags.length >= 1, `${rowTags.length}箇所`);
+  // 【N-9】セッション詳細と分析(PIVOT)の関数に面のクラスが1つも無いこと(N-6 の My Data と同じ形)。
+  // **「箱が無い」ことの十分条件ではない**(インラインで塗れば別・親が巻けば別)ので名前もそう名乗る。
+  {
+    const owners = ["SessionDetailView", "PhraseTimeline", "AnalysisLabView"];
+    const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
+    check("N-9: セッション詳細・PhraseTimeline・データタブの3関数を走査できている(空回りしていない)",
+      bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
+    const withCard = bodies.filter((b) => /className="[^"]*\b(card|tile|tile-row)\b[^"]*"/.test(b.body)).map((b) => b.n);
+    check("N-9: セッション詳細・PhraseTimeline・データタブに .card / .tile / .tile-row が1つも無い(白地+罫の文法)",
+      withCard.length === 0, withCard.join(",") || "0件");
+  }
   // 【N-6】My Data 子タブに面(グレーのカード)が1枚も無いこと。
   // 走査は関数の集合で行う: ヒーロー〜指標行(MyDataSection / MetricRow)と
   // 一覧まわり(MyDataPage)。**「面が無い」ことの十分条件ではない**(親が .card を巻けば
@@ -7193,13 +7211,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           (ps.match(/function PerformerSelector\(\{[^}]*\}/) || [""])[0].replace(/\s+/g, " ").slice(0, 200));
         // (1) bare でない枝 = HEAD のまま。地・枠・appearance・高さのどれも持たない素の <select>。
         const plain = (ps.match(/if \(!bare\) \{[\s\S]*?\n  \}/) || [""])[0];
-        check("F-72: bare でない枝がある(セッション詳細はこちらを使う)", plain !== "", plain.slice(0, 80));
+        // 【N-9 でセッション詳細も bare になった】この枝の呼び出しは現在0件だが、
+        // 既定の受け皿として維持する(既定を反転させると次に増えた呼び出しへ黙って漏れる)。
+        check("F-72: bare でない枝がある(既定の受け皿。呼び出しは現在0件)", plain !== "", plain.slice(0, 80));
         const plainSel = (plain.match(/<select[\s\S]*?\n\s*>/) || [""])[0];
         check("F-72: bare でない枝の <select> は入力欄の規則そのまま(地・枠・appearance・高さを持たない)",
           plainSel !== "" && /style=\{\{ pointerEvents: "auto" \}\}/.test(plainSel)
           && !/background|appearance|height|lineHeight|overflow|border/.test(plainSel),
           plainSel.replace(/\s+/g, " ").slice(0, 220));
-        check("F-72: bare でない枝は ▾ を持たない(セッション詳細に計測タブの作法を漏らさない)",
+        check("F-72: bare でない枝は ▾ を持たない(次に増えた素の呼び出しへ作法を漏らさない)",
           !/<PickChevron \/>/.test(plain), plain.replace(/\s+/g, " ").slice(0, 200));
         check("F-72: bare でない枝は id を持たない(画面名を部品の中に直書きしない)",
           !/id=/.test(plainSel), plainSel.replace(/\s+/g, " ").slice(0, 160));
@@ -7260,22 +7280,25 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check("F-72: ▾ は重ねた <select> より前(=枠の中)にある",
           bare.indexOf("<PickChevron />") !== -1 && bare.indexOf("<PickChevron />") < bare.indexOf("id={selectId}"),
           `▾ ${bare.indexOf("<PickChevron />")} / select ${bare.indexOf("id={selectId}")}`);
-        // (3) 呼び出し側。bare を渡すのは計測タブだけ。
+        // (3) 呼び出し側。
+        // 【N-9 2026/08/16 本人指示による書き換え】旧主張「bare を渡すのは計測タブだけ・
+        // セッション詳細は HEAD のまま」は仕様ごと廃止: セッション詳細も「素のテキスト + ▾」
+        // (select 類は見た目だけ既存の作法へ寄せる)。**どちらの呼び出しも** bare + 固有の
+        // selectId を渡す(画面名を部品の中に直書きしない)。
         const calls = [...src.matchAll(/<PerformerSelector[\s\S]*?\/>/g)].map((m) => m[0]);
         check("F-72: PerformerSelector の呼び出しは2箇所(計測タブ / セッション詳細)",
           calls.length === 2, `${calls.length}箇所`);
         const bareCalls = calls.filter((t) => /\bbare\b/.test(t));
-        check("F-72: bare を渡しているのは1箇所だけ", bareCalls.length === 1,
-          bareCalls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
-        check("F-72: bare を渡しているのは計測タブの呼び出し(disabled={isRecording} を持つ側)",
-          bareCalls.length === 1 && /disabled=\{isRecording\}/.test(bareCalls[0])
-          && /selectId="measure-performer-select"/.test(bareCalls[0]),
-          bareCalls[0] ? bareCalls[0].replace(/\s+/g, " ").slice(0, 200) : "");
-        // セッション詳細側 = 残り1件。bare も selectId も渡していないこと。
-        const otherCalls = calls.filter((t) => !/\bbare\b/.test(t));
-        check("F-72: セッション詳細の呼び出しは bare も selectId も渡していない(HEAD のまま)",
-          otherCalls.length === 1 && !/selectId/.test(otherCalls[0]) && /session\.performer/.test(otherCalls[0]),
-          otherCalls[0] ? otherCalls[0].replace(/\s+/g, " ").slice(0, 200) : "");
+        check("F-72/N-9: 2箇所とも bare(素のテキスト + ▾)を渡す", bareCalls.length === 2,
+          calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
+        check("F-72: 計測タブの呼び出し(disabled={isRecording} を持つ側)は selectId=\"measure-performer-select\"",
+          calls.some((t) => /disabled=\{isRecording\}/.test(t) && /selectId="measure-performer-select"/.test(t)),
+          calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
+        check("N-9: セッション詳細の呼び出し(session.performer を持つ側)は bare + selectId=\"session-performer-select\"",
+          calls.some((t) => /session\.performer/.test(t) && /\bbare\b/.test(t) && /selectId="session-performer-select"/.test(t)),
+          calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
+        check("N-9: 2つの selectId は別の値(同じ id が同時に2つ描かれる画面遷移を作らない)",
+          calls.length === 2 && new Set(calls.map((t) => (t.match(/selectId="([^"]+)"/) || [])[1])).size === 2);
       }
       // 【審査③→②の差し戻し】appearance を落とすのは DESIGN-SYSTEM §6.7 が
       // 「**Chrome の実測は判定に使えない。必ず実機(iOS Safari)で確認すること**」と
@@ -7461,9 +7484,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // (F-72 の罠5「箇所数の固定で逃げない」)。
         // 【N-6 で 5 → 6】データタブのフィルタピル(正典 .fp の中の .chev)が6つ目。
         // ピルは3種類あるが**描くのは共通の filterPill 1箇所**なので綴りは1つ増えるだけ。
+        // 【N-9 で 6 → 7】セッション詳細・分析の select を包む共有部品 PlainSelect が7つ目。
+        // 呼び出しは5箇所(タイムラインの3つ / リード紐付け / PIVOT の次元)あるが
+        // **描くのは PlainSelect の1箇所**なので綴りは1つ増えるだけ(呼び出しの集合は検証29)。
         const n = (code.match(/<PickChevron \/>/g) || []).length;
-        check("F-72: ▾ を使う箇所は6つ(上部設定行の4つ + 追加シートの銘柄 + データタブのフィルタピル)",
-          n === 6, `${n}箇所`);
+        check("F-72: ▾ を使う綴りは7つ(上部設定行の4つ + 追加シートの銘柄 + データタブのフィルタピル + PlainSelect)",
+          n === 7, `${n}箇所`);
+        check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
+          (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
+          `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
         {
           const inMyDataPage = (srcOfFn(src, "MyDataPage").match(/<PickChevron \/>/g) || []).length;
           check("N-6: データタブの ▾ はフィルタピルの共通部品に1つだけ(ピルごとに写していない)",
@@ -7487,12 +7516,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         decl(plainBlock, "border-radius") === decl(inputBlock, "border-radius") &&
         decl(plainBlock, "border-radius") === "var(--r-xs)",
         `.ctl-plain=${decl(plainBlock, "border-radius")} / select=${decl(inputBlock, "border-radius")}`);
-      // 地も枠も持たない <select> は全部で3つ(リード枠の2つ + 奏者)。
+      // 地も枠も持たない <select> は全部で4つ(リード枠の2つ + 奏者 + PlainSelect)。
       // §6.6 の「意図的な例外」の**総数**を固定する(増えたら例外に逃がしたということ)。
+      // 【N-9 で 3 → 4】セッション詳細・分析の「素のテキスト + ▾」を描く共有部品 PlainSelect の
+      // 中の <select> が4つ目。呼び出しが増えても綴りは PlainSelect の1つのまま。
       const bareSelects = inputTags
         .filter((x) => x.el === "select" && /background: "none"/.test(x.tag)).length;
-      check("地を持たない <select> は3つだけ(リード枠の箱・個体 + 奏者。§6.6 の意図的な例外)",
-        bareSelects === 3, `${bareSelects}箇所`);
+      check("地を持たない <select> は4つだけ(リード枠の箱・個体 + 奏者 + PlainSelect。§6.6 の意図的な例外)",
+        bareSelects === 4, `${bareSelects}箇所`);
     }
     // データタブの軸セレクタ = §6.6 の意図的な例外(枠なし・地なし)。B型にすると地が付く。
     check("select.pivot-axis-select は例外のまま(枠なし・地なし)",
@@ -7511,13 +7542,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       const tags = inputTags.map((x) => x.tag);
       check("入力欄のタグを走査できている", tags.length >= 25, `${tags.length}箇所`);
       const BARE_OK = [
-        /background: "none", border: "none"/,          // リード枠の中の2つ
-        /id=\{selectId\}[\s\S]*background: "none"/,    // 奏者の bare の枝(枠は透明のまま)
+        /background: "none", border: "none"/,             // リード枠の中の2つ
+        /id=\{selectId\}[\s\S]*background: "none"/,       // 奏者の bare の枝(枠は透明のまま)
+        // 【N-9】PlainSelect(セッション詳細・分析の「素のテキスト + ▾」)の中の select。
+        // 奏者の bare と同じく background: "none" **だけ**(枠は index.css の透明枠のまま)。
+        /aria-label=\{ariaLabel\}[\s\S]*background: "none"/,
       ];
       const bad = withPrefix(tags, ["background", "border", "boxshadow"])
         .filter((t) => !BARE_OK.some((re) => re.test(t)));
-      check("<input>/<select>/<textarea> にインラインの地・枠・影が無い(例外は地を持たない select 3つ)",
+      check("<input>/<select>/<textarea> にインラインの地・枠・影が無い(例外は地を持たない select 4つ)",
         bad.length === 0, bad.length ? bad[0].slice(0, 200) : "");
+      // 【N-9】例外の側(PlainSelect の select)にも枠を書き足していないこと(奏者と同じ縛り)
+      {
+        const plainSelTags = tags.filter((t) => /aria-label=\{ariaLabel\}/.test(t));
+        check("N-9: PlainSelect の select は1つで、枠のインライン指定が無い(透明枠のまま=外形不変)",
+          plainSelTags.length === 1 && !/border:/.test(plainSelTags[0]),
+          plainSelTags.map((t) => t.replace(/\s+/g, " ").slice(0, 160)).join(" | ") || "0件");
+      }
       // 例外の側にも枠を書き足していないこと(奏者の select に border を書けばここで落ちる)
       const exceptionsWithBorder = tags.filter((t) => /id=\{selectId\}/.test(t) && /border:/.test(t));
       check("F-72: 奏者の select に枠のインライン指定が無い(透明枠のまま=外形不変)",
@@ -10726,10 +10767,16 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         delTag.replace(/\s+/g, " ").slice(0, 200));
       check("F-57: × の見た目(文字の大きさ)は変えない(fontSize 13 のまま)",
         /fontSize: 13/.test(delTag), delTag.replace(/\s+/g, " ").slice(0, 200));
-      // 当たり判定を広げたぶんで行が伸びないよう、上下の食い出しを相殺していること
-      check("F-57: 当たり判定を広げた分は marginTop/Bottom で相殺し、行の高さを変えない",
-        /marginTop: -8/.test(delTag) && /marginBottom: -8/.test(delTag),
+      // 【N-9 2026/08/16 本人指示による書き換え】旧主張「marginTop/Bottom: -8 で食い出しを相殺」は
+      // 廃止: 隣の次元セレクタが PlainSelect(minHeight 44px)になり、行の高さ自体が 44px に
+      // なったため相殺は不要(残すと × の中心だけ 8px 上にずれる)。
+      check("F-57/N-9: × は食い出し相殺(marginTop/Bottom: -8)を持たない(行の高さは 44px の PlainSelect が決める)",
+        !/marginTop: -8/.test(delTag) && !/marginBottom: -8/.test(delTag),
         delTag.replace(/\s+/g, " ").slice(0, 200));
+      // 隣が本当に PlainSelect であること(上の「相殺不要」の前提。× の直後に来る)
+      check("F-57/N-9: × の直後の次元セレクタは PlainSelect(素のテキスト + ▾)",
+        /<PlainSelect\s*\r?\n\s*ariaLabel="絞り込む次元"/.test(lab.slice(del)),
+        lab.slice(del, del + 400).replace(/\s+/g, " ").slice(0, 200));
     }
 
     // F-58: 削除モードのボタンを、リードタブの削除ボタンと同じ枠(内側のピル)にする。
@@ -12996,17 +13043,21 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         api.REED_NUMROW_MIN_PX > 0, `${api.REED_NUMROW_MIN_PX}px`);
       // 【N-7 2026/08/16 本人指示による書き換え】bare を渡すのはリードの個体詳細(numrow)だけに
       // なった(N-6 のデータタブ指標行 MetricRow は TappableMetricCard を使わない常時表示の
-      // 折れ線へ変わった。検証27)。セッション詳細は従来の .tile のまま。
-      // **どの関数が渡しているか**を集合で固定する
+      // 折れ線へ変わった。検証27)。
+      // 【N-9 2026/08/16 本人指示による書き換え】旧主張「セッション詳細は従来の .tile のまま」は
+      // 仕様ごと廃止: セッション詳細のセッション平均も bare(numrow)になった(枠と地色の箱の
+      // 廃止。白地+罫の文法へ)。**どの関数が渡しているか**を集合で固定する
       // (件数だけを固定すると、部品をまとめる/分けるという正しい修正が落ちる)。
-      const BARE_OWNERS = ["ReedEvaluationDetail"];
+      const BARE_OWNERS = ["ReedEvaluationDetail", "SessionDetailView"];
       const bareSites = (codeOf(src).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length;
       const inBareOwners = BARE_OWNERS
         .reduce((n, fn) => n + (codeOf(srcOfFn(src, fn)).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length, 0);
-      check("bare を渡しているのはリード個体詳細だけ(集合の外に渡し手がいない)",
-        bareSites === inBareOwners && inBareOwners === 1, `全体 ${bareSites} / 集合内 ${inBareOwners}`);
-      check("セッション詳細は bare を渡さない(従来の .tile のまま)",
-        !/\bbare\b/.test(codeOf(srcOfFn(src, "SessionDetailView"))));
+      check("bare を渡しているのはリード個体詳細とセッション詳細だけ(集合の外に渡し手がいない)",
+        bareSites === inBareOwners && inBareOwners === 2, `全体 ${bareSites} / 集合内 ${inBareOwners}`);
+      // 【N-9】呼び出しに隣接する錨: bare が REED_COMPARE_METRICS.map の TappableMetricCard に
+      // 付いていること(「関数内のどこかに bare があれば通る」形にしない。N-8 審査の教訓)。
+      check("N-9: セッション詳細のセッション平均は bare の TappableMetricCard(枠と地色の箱を持たない数字の列)",
+        /<TappableMetricCard\s*\r?\n\s*key=\{mt\.key\}\s*\r?\n\s*bare\b/.test(srcOfFn(src, "SessionDetailView")));
     }
     // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
     check("ダイヤルの先頭の「—」は表示文字列も「—」",
@@ -14054,6 +14105,146 @@ console.log("\n========== 検証28: N-8 ヒーローの折れ線化・直近日�
       /metricKey=\{mt\.key\} idealKey=\{METRIC_IDEAL_KEYS\[mt\.key\]\}\s*\r?\n\s*frames=\{frames\} saxType=\{session\.saxType\} tuningHz=\{tuningHz\} selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "SessionDetailView")));
   }
   console.log("  -> done");
+}
+
+// ============================================================
+// 検証29: N-9 セッション詳細 + 分析(PIVOT)の北極星化(2026/08/16 本人指示。凍結仕様 = design/N9-SPEC.md)
+//   ・白地・カード枠と地色の箱を廃止 → 細い罫(--c-rule)で群を分ける
+//   ・選択は「素のテキスト + ▾」(PlainSelect / PerformerSelector bare / pivot-axis-select)
+//   ・要素を減らす: PIVOT の表題・説明段落・軸の説明文を削除
+//   ・機能は1つも落とさない(集合で確かめる)
+// 【この節の作り方】ハーネスは JSX を評価しないので、配線は**呼び出しに隣接する綴り**で
+// 錨止めする(「関数内のどこかにあれば通る」形は N-8 審査で張りぼてと判定された)。
+// 描画の実測(箱0・横あふれ0・44px)は Browser pane で行う。この節はその証明ではない。
+// ============================================================
+console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の北極星化 ==========");
+{
+  const lab29 = srcOfFn(src, "AnalysisLabView");
+  const det29 = srcOfFn(src, "SessionDetailView");
+  const pt29 = srcOfFn(src, "PhraseTimeline");
+  const ps29 = srcOfFn(src, "PlainSelect");
+  check("29.0 4関数を走査できている(空回りしていない)",
+    [lab29, det29, pt29, ps29].every((s) => s.length > 300),
+    `lab=${lab29.length} det=${det29.length} pt=${pt29.length} ps=${ps29.length}`);
+
+  // --- 29.1 要素を減らす(本人指示の芯)。「無いこと」は codeOf(コメント除去)で見る --------
+  // 旧文言そのものの再発防止であって、言い換えの禁止までは主張しない(名前もそう名乗る)。
+  check("29.1 重複表題「PIVOT」の見出しが動く側に無い(子タブ「分析」と同じことを2度言わない)",
+    !/>\s*PIVOT\s*</.test(codeOf(lab29)), (codeOf(lab29).match(/>\s*PIVOT\s*</g) || []).join("") || "0件");
+  check("29.1 冒頭の説明段落(「…マトリクスで俯瞰します」)が動く側に無い",
+    !codeOf(src).includes("マトリクスで俯瞰"));
+  check("29.1 グラフ下の軸の説明文(「縦に「…」、横に「…」…」)が動く側に無い",
+    !codeOf(lab29).includes("色分けした折れ線を重ねて比較します") && !codeOf(lab29).includes("全体を1本の折れ線で表示します"));
+  check("29.1 音階ごとの平均の見出し行の地色(--c-sunk の箱)が無い",
+    !/var\(--c-sunk\)/.test(codeOf(det29)), (codeOf(det29).match(/var\(--c-sunk\)/g) || []).length + "箇所");
+
+  // --- 29.2 罫の群(白地+罫)。罫は --c-rule、位置は**内容に隣接する綴り**で固定 ----------
+  check("29.2 分析子タブの罫は2本(軸セレクタ群 / グラフ群)",
+    (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+    `${(codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
+  check("29.2 軸セレクタ群の行が罫を持つ(隣接)",
+    /display: "flex", gap: "var\(--sp-3\)", borderTop: "1px solid var\(--c-rule\)"/.test(lab29));
+  check("29.2 グラフ群が罫を持つ(隣接: 直後に空状態の分岐)",
+    /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
+  check("29.2 セッション詳細の罫は2本(セッション平均 / 音階ごとの平均)",
+    (codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+    `${(codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
+  check("29.2 セッション平均の群が罫を持つ(隣接: 直後に bare の並び)",
+    /borderTop: "1px solid var\(--c-rule\)" \}\}>\s*<div style=\{\{ display: "flex", flexWrap: "wrap", padding: "10px 0 6px" \}\}>/.test(det29));
+  check("29.2 音階ごとの平均の群が罫を持つ(隣接: 群の中に見出しがある)",
+    /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>[\s\S]{0,400}?音階ごとの平均/.test(det29));
+  check("29.2 タイムラインの罫は2本(タイムライン / ドリルダウン)",
+    (codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+    `${(codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
+  check("29.2 ドリルダウンの群が罫を持つ(隣接: selectedFrame の分岐の直下)",
+    /\{selectedFrame && \(\s*<div style=\{\{ borderTop: "1px solid var\(--c-rule\)", padding: "10px 0" \}\}>/.test(pt29));
+  // セッション情報の群は罫を持たない(直前に「一覧に戻る」の区切りがある。no-top-rule と同じ判断)
+  check("29.2 「一覧に戻る」とセッション情報の間に罫を引いていない",
+    /一覧に戻る\s*<\/button>[\s\S]{0,600}?<div style=\{\{ marginBottom: 10 \}\}>/.test(codeOf(det29)));
+
+  // --- 29.3 PlainSelect(素のテキスト + ▾)の配線。呼び出しに隣接する綴りで錨止め ---------
+  // 部品そのもの: 値は <span>{text}</span>、select は value/onChange をそのまま受ける
+  check("29.3 PlainSelect は値を <span> が描き、select へ value/onChange をそのまま渡す",
+    /\{text\}<\/span>/.test(ps29) && /value=\{value\}/.test(ps29) && /onChange=\{onChange\}/.test(ps29)
+    && /\{children\}/.test(ps29));
+  check("29.3 PlainSelect の当たり判定は 44px(§5)", /minHeight: "var\(--tap-min\)"/.test(ps29));
+  // F-72 の bare と同じ縛り: select は枠全体に重なり、color: transparent で消す(opacity は使わない)
+  check("29.3 PlainSelect の select は枠全体に重なる(absolute / 左上0 / 幅高さ100%)",
+    /position: "absolute", left: 0, top: 0, width: "100%", height: "100%"/.test(ps29));
+  check("29.3 PlainSelect の select は color: transparent + appearance なし(▾ の二重描きと値の二重描きを防ぐ)",
+    /color: "transparent"/.test(ps29) && /appearance: "none", WebkitAppearance: "none"/.test(ps29)
+    && !/opacity: 0/.test(ps29));
+  // 呼び出しの集合(どの関数がいくつ持つか)。集合の外に増えたら気付く
+  {
+    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionDetailView", det29, 1], ["AnalysisLabView", lab29, 1]];
+    const total = (codeOf(src).match(/<PlainSelect\b/g) || []).length;
+    const inOwners = PLAIN_OWNERS.reduce((n, [, body]) => n + (codeOf(body).match(/<PlainSelect\b/g) || []).length, 0);
+    for (const [name, body, want] of PLAIN_OWNERS) {
+      check(`29.3 ${name} の PlainSelect は${want}つ`,
+        (codeOf(body).match(/<PlainSelect\b/g) || []).length === want,
+        `${(codeOf(body).match(/<PlainSelect\b/g) || []).length}箇所`);
+    }
+    check("29.3 PlainSelect の呼び出しは上の集合の中だけ(集合の外に増えていない)",
+      total === inOwners && total === 5, `全体 ${total} / 集合内 ${inOwners}`);
+  }
+  // 個々の配線(隣接): 表示 / 基準 / 別セッション / リード / PIVOT の次元
+  check("29.3 タイムラインの指標切替は timelineMetric に配線されている",
+    /ariaLabel="タイムラインの指標"[\s\S]{0,220}?value=\{timelineMetric\} onChange=\{\(e\) => setTimelineMetric\(e\.target\.value\)\}/.test(pt29));
+  check("29.3 比較基準は referenceBasis に配線されている",
+    /ariaLabel="比較の基準"[\s\S]{0,220}?value=\{referenceBasis\} onChange=\{\(e\) => setReferenceBasis\(e\.target\.value\)\}/.test(pt29));
+  check("29.3 別セッションの選択は referenceSessionId に配線され、候補は referenceCandidates",
+    /ariaLabel="比較する別セッション"[\s\S]{0,300}?value=\{referenceSessionId \|\| ""\} onChange=\{\(e\) => setReferenceSessionId\(e\.target\.value \|\| null\)\}[\s\S]{0,300}?referenceCandidates\.map/.test(pt29));
+  check("29.3 リード紐付けは setSessionReedId に配線され、表示値はリードの表記そのもの",
+    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "未紐付け"\}\s*\r?\n\s*value=\{session\.reedId \|\| ""\} onChange=\{\(e\) => setSessionReedId\(e\.target\.value \|\| null\)\}/.test(det29));
+  check("29.3 PIVOT の次元セレクタは dimKey を書き換え、値の選択をリセットする(機能は従来のまま)",
+    /text=\{dim\?\.label \?\? flt\.dimKey\}\s*\r?\n\s*value=\{flt\.dimKey\}\s*\r?\n\s*onChange=\{\(e\) => setPivotFilters\(\(prev\) => prev\.map\(\(p, j\) => \(j === i \? \{ dimKey: e\.target\.value, values: \[\], rangeMin: null, rangeMax: null \}/.test(lab29));
+
+  // bare の value は fmt の結果だけ(単位は部品側が描く。`${fmt(v)} ${unit}` に戻すと単位が二重になる)
+  check("29.3 セッション平均の value は fmt の結果だけ(単位は bare 部品が描く)",
+    /value=\{v !== null && v !== undefined \? mt\.fmt\(v\) : "—"\}/.test(det29)
+    && !/mt\.fmt\(v\)\}\$\{mt\.unit/.test(codeOf(det29)));
+  // ドリルダウンの一致度は機能色(scoreToColor)を数値の色で返す(旧 MetricCard と同じ考え)
+  check("29.3 ドリルダウンの一致度の数値は scoreToColor の色を持つ(隣接: cells の組み立て)",
+    /color: scoreToColor\(getMatchScore\(selectedFrame, "pitch"\)\)/.test(pt29)
+    && /color: c\.color \|\| "var\(--c-ink\)"/.test(pt29));
+
+  // --- 29.4 機能を1つも落としていないこと(集合で確かめる。26.7 と同じ形) ------------------
+  {
+    const all = codeOf(lab29) + codeOf(det29) + codeOf(pt29);
+    const want = [
+      ["条件の追加", /＋ 条件を追加/],
+      ["条件の削除", /aria-label="このフィルターを削除"/],
+      ["音域帯のまとめ選択", /registerBand\(e\.sortKey\) === band/],
+      ["値チップの選択", /updateFilter\(\{ values: selected \? flt\.values\.filter/],
+      ["日付範囲の入力", /rangeMin: e\.target\.value \? new Date\(e\.target\.value\)\.setHours\(0, 0, 0, 0\) : null/],
+      ["日数範囲の入力", /日目 〜/],
+      ["測度の切替", /PIVOT_MEASURES\.map/],
+      ["指標(色分け)の切替", /なし（全体）/],
+      ["縦軸の切替", /value=\{pivotRow\} onChange=\{\(e\) => setPivotRow\(e\.target\.value\)\}/],
+      // \b が要る: 無いと <PivotLineChartGone> への改名(描かない変異)が接頭辞一致で生き残る
+      // (変異試験 M17 で実際に生存した)。下の2つも同じ形で縛る。
+      ["折れ線", /<PivotLineChart\b/],
+      ["空状態の文言", /この軸の組み合わせに該当するデータがまだありません/],
+      ["日時編集", /type="datetime-local"/],
+      ["目安に設定", /<SetAsIdealButton\b/],
+      ["奏者変更", /<PerformerSelector\b/],
+      ["メモ", /onBlur=\{commitMemo\}/],
+      ["タイムラインのスクラブ", /type="range"/],
+      ["小節線", /barlineXs\.map/],
+      ["ドリルダウン", /setSelectedFrameIdx\(i\)/],
+      ["音階ごとの平均の表", /音階ごとの平均（\{noteGroups\.length\}音）/],
+      ["目安との差の列", />目安との差<\/th>/],
+    ];
+    for (const [label, re] of want) check(`29.4 ${label} が残っている`, re.test(all), "");
+    // 軸セレクタは3枚とも pivot-axis-select のまま(中身も見た目の文字組みも据え置き)
+    check("29.4 軸セレクタは3枚(pivot-axis-select)",
+      (lab29.match(/className="pivot-axis-select"/g) || []).length === 3,
+      `${(lab29.match(/className="pivot-axis-select"/g) || []).length}枚`);
+    // 値チップ・音域帯は A型(ctl-state)のピルのまま(枠の意味「状態を持つ」を保つ)
+    check("29.4 値チップと音域帯は A型(ctl-state)のピルのまま",
+      (lab29.match(/className="sans ctl-state"/g) || []).length === 2,
+      `${(lab29.match(/className="sans ctl-state"/g) || []).length}箇所`);
+  }
 }
 
 // ============================================================

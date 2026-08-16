@@ -3644,7 +3644,8 @@ export default function WindToneLabPhaseMode() {
         /* 地・枠・角丸は index.css の入力欄の規則(--c-sunk / --c-line-strong / --r-xs)が持つ。
            ここは select 固有の詰めと書体だけ(色を二重管理すると必ず片方が腐る)。 */
         select { padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
-        /* ピボットの軸セレクタは丸角カード内に置くため、枠なし・ネイビー太字で見せる */
+        /* ピボットの軸セレクタは枠なし・ネイビー太字。【N-9】丸角タイルは廃止したが、
+           select の見た目(文字組み)と中身のネイティブ select は据え置き */
         select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:var(--fs-sm); cursor:pointer; }
       `}</style>
 
@@ -6811,9 +6812,38 @@ function MeasureView(props) {
   );
 }
 
-// フレーズのタイムライン+ドリルダウン表示。計測タブ(ライブ直後)とセッション詳細(履歴)の両方から使う共通コンポーネント。
+// フレーズのタイムライン+ドリルダウン表示。**呼び出しはセッション詳細の1箇所だけ**
+// (旧コメントは「計測タブとの共通部品」と書いていたが、HEAD 時点で既に計測タブからの
+// 呼び出しは無かった。審査役の指摘 2026/08/16 で訂正)。
 // 理想値プロファイル自体の選択は計測タブの設定欄で行う前提のため、ここでは「基準」として
 // 理想値/お手本セッション/(音高のみ)理論値のどれと比較するかだけを選ぶ。
+// 【N-9 2026/08/16 本人指示】セッション詳細・分析(PIVOT)の <select> を「素のテキスト + ▾」へ
+// 寄せるための共有部品。F-72(計測タブの上部設定行)/ PerformerSelector の bare 枝と同じ構造:
+// 値は <span> が描き、その上に**透明なネイティブ <select> を枠全体に重ねる**。
+//   ・<select> に値を描かせると箱の幅が「いちばん長い option」で決まり、▾ が値から離れる
+//     (F-72 の実測 76.0px)。重ねる形は幅が値そのものになる
+//   ・押せば必ず <select> 自身が開く(label タップの挙動のプラットフォーム差を構造ごと回避)
+//   ・**中身のネイティブ <select> はそのまま**(iOS の実寸問題を新しく作らない。option の
+//     選択 UI はネイティブのまま)
+// 透明化は opacity ではなく color(opacity:0 だと :focus-visible の輪郭まで消える)。
+// 当たり判定は §5 の 44px を minHeight で確保する(文字は中央寄せのまま)。
+function PlainSelect({ text, value, onChange, children, ariaLabel }) {
+  return (
+    <label style={{ position: "relative", display: "inline-flex", alignItems: "center", minHeight: "var(--tap-min)", minWidth: 0, cursor: "pointer" }}>
+      <span className="sans" style={{ color: "var(--c-ink)", fontSize: 12, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
+      <PickChevron />
+      <select
+        aria-label={ariaLabel}
+        value={value}
+        onChange={onChange}
+        style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", padding: 0, color: "transparent", background: "none", appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
 function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sessions, ownSessionId, barlines }) {
   const [timelineMetric, setTimelineMetric] = useState("pitch");
   const [referenceBasis, setReferenceBasis] = useState("theoretical"); // "theoretical"(音高のみ) | "ideal" | "session"
@@ -6949,26 +6979,40 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
 
   return (
     <>
-      {/* 表示切り替え・比較基準 */}
-      <div className="card" style={{ marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span className="sans" style={{ fontSize: 12, color: "#435266" }}>表示:</span>
-          <select value={timelineMetric} onChange={(e) => setTimelineMetric(e.target.value)}>
+      {/* 表示切り替え・比較基準。
+          【N-9 2026/08/16 本人指示】カードの箱を廃止し、素の行にする(白地+罫の作法)。
+          select は PlainSelect(素のテキスト + ▾。中身のネイティブ select はそのまま)。 */}
+      <div style={{ marginBottom: 4, display: "flex", flexWrap: "wrap", gap: "0 10px", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+          <span className="sans" style={{ fontSize: 12, color: "#435266", flexShrink: 0 }}>表示:</span>
+          <PlainSelect
+            ariaLabel="タイムラインの指標"
+            text={metricOptions.find((m) => m.key === timelineMetric)?.label ?? timelineMetric}
+            value={timelineMetric} onChange={(e) => setTimelineMetric(e.target.value)}
+          >
             {metricOptions.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
-          </select>
+          </PlainSelect>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span className="sans" style={{ fontSize: 12, color: "#435266" }}>基準:</span>
-          <select value={referenceBasis} onChange={(e) => setReferenceBasis(e.target.value)}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+          <span className="sans" style={{ fontSize: 12, color: "#435266", flexShrink: 0 }}>基準:</span>
+          <PlainSelect
+            ariaLabel="比較の基準"
+            text={referenceOptions.find((o) => o.key === referenceBasis)?.label ?? referenceBasis}
+            value={referenceBasis} onChange={(e) => setReferenceBasis(e.target.value)}
+          >
             {referenceOptions.map((o) => (<option key={o.key} value={o.key}>{o.label}</option>))}
-          </select>
+          </PlainSelect>
           {referenceBasis === "session" && (
-            <select value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}>
+            <PlainSelect
+              ariaLabel="比較する別セッション"
+              text={referenceSession ? formatYmd(referenceSession.recordedAt, { time: true }) : "別セッションを選択"}
+              value={referenceSessionId || ""} onChange={(e) => setReferenceSessionId(e.target.value || null)}
+            >
               <option value="">別セッションを選択</option>
               {referenceCandidates.map((s) => (
                 <option key={s.id} value={s.id}>{formatYmd(s.recordedAt, { time: true })}{s.memo ? ` 「${s.memo}」` : ""}</option>
               ))}
-            </select>
+            </PlainSelect>
           )}
         </div>
       </div>
@@ -6978,8 +7022,8 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
         </div>
       )}
 
-      {/* タイムライン */}
-      <div className="card" style={{ marginBottom: 10 }}>
+      {/* タイムライン。【N-9】カードの箱 → 白地+上辺の罫1本(計測/リード/My Data と同じ文法) */}
+      <div style={{ borderTop: "1px solid var(--c-rule)", padding: "10px 0", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 8 }}>
           タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "別セッション基準" : "目安基準"}）
           {noteEvents?.length > 0 && (() => {
@@ -7047,9 +7091,12 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
         </div>
       </div>
 
-      {/* ドリルダウン: 選択フレームの詳細 */}
+      {/* ドリルダウン: 選択フレームの詳細。
+          【N-9 2026/08/16 本人指示】カードと .tile の箱を廃止し、リード個体詳細の .numrow と
+          同じ「枠も地も持たない数字の列」にする(寸法は BARE_ROW_STYLES.numrow から引く。
+          数値を写さない)。一致度の機能色は数値の色が担う(従来の MetricCard と同じ考え)。 */}
       {selectedFrame && (
-        <div className="card">
+        <div style={{ borderTop: "1px solid var(--c-rule)", padding: "10px 0" }}>
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             t = {selectedFrame.t.toFixed(2)}s の詳細
           </div>
@@ -7057,10 +7104,19 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           {(() => {
             const target = getComparisonTarget(selectedFrame);
             const noTargetLabel = referenceBasis === "session" ? "対応する別セッションの瞬間がありません" : "この音の目安が未登録";
+            const cells = [
+              { label: "ピッチ一致度", value: `${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`, sub: selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—", color: scoreToColor(getMatchScore(selectedFrame, "pitch")) },
+              { label: "音色一致度(比較対象基準)", value: target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—", sub: target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel, color: target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined },
+            ];
             return (
-              <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", marginBottom: 12 }}>
-                <MetricCard label="ピッチ一致度" value={`${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`} sub={selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—"} accentColor={scoreToColor(getMatchScore(selectedFrame, "pitch"))} />
-                <MetricCard label="音色一致度(比較対象基準)" value={target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—"} sub={target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel} accentColor={target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined} />
+              <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 12 }}>
+                {cells.map((c) => (
+                  <div key={c.label} className="sans" style={{ flex: "1 1 0", minWidth: REED_NUMROW_MIN_PX, textAlign: "center" }}>
+                    <div style={{ fontFamily: "var(--font-num)", fontSize: BARE_ROW_STYLES.numrow.value, fontWeight: 600, color: c.color || "var(--c-ink)" }}>{c.value}</div>
+                    <div style={{ fontSize: BARE_ROW_STYLES.numrow.label, color: "var(--c-ink-3)" }}>{c.label}</div>
+                    <div style={{ fontSize: BARE_ROW_STYLES.numrow.sub, color: "var(--c-ink-3)", minHeight: 15 }}>{c.sub ?? " "}</div>
+                  </div>
+                ))}
               </div>
             );
           })()}
@@ -11360,17 +11416,18 @@ function AnalysisLabView(props) {
         bulkReedId={bulkReedId} setBulkReedId={setBulkReedId} applyBulkReed={applyBulkReed}
         handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
       />
-      {/* --- 分析(11.6節): クロス集計(ピボット型マトリクス) --- */}
-      <div className="card">
-        <div className="sans" style={{ fontSize: 15, color: "#174585", fontWeight: 700, marginBottom: 4 }}>
-          PIVOT
-        </div>
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", lineHeight: 1.6, marginBottom: 12 }}>
-          集計対象抽出(フィルター)・縦軸・横軸・指標を組み合わせて、蓄積データをマトリクスで俯瞰します。各セルはその組み合わせに該当するフレームの平均値です。
-        </div>
-
+      {/* --- 分析(11.6節): クロス集計(ピボット型マトリクス) ---
+          【N-9 2026/08/16 本人指示】「いい感じにほかのページと統一して」「なるべく要素を減らす」:
+          ・カード(.card)・枠つきの箱・地色の箱を廃止し、白地+罫(--c-rule)で群を分ける
+            (計測/リード/My Data と同じ文法)
+          ・表題「PIVOT」(子タブ「分析」と同じことの二度言い)・冒頭の説明段落
+            (「集計対象抽出(フィルター)・縦軸・横軸・指標を組み合わせて…」)・
+            グラフ下の軸の説明文は**削除**(本人: 「長いテキストは趣旨がずれてる」)
+          ・機能は1つも落とさない: 条件追加/削除・12次元・値チップ・音域帯まとめ選択・
+            日付/日数範囲・既定フィルタ・軸セレクタ3枚・測度7種・折れ線・設定のタブまたぎ保持 */}
+      <div>
         {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
-        <div style={{ marginBottom: 12, padding: "12px 14px", background: "var(--c-surface)", borderRadius: "var(--r-md)", border: "1px solid var(--c-line)" }}>
+        <div style={{ padding: "6px 0 12px" }}>
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
             <button
               onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
@@ -11391,9 +11448,10 @@ function AnalysisLabView(props) {
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                     {/* 【F-57 本人指示】条件削除の × は「そのカテゴリ名の先頭」に置く。
                         当たり判定は §5 の 44×44pt を満たす(検証で 15.59×19px しかないと指摘された)。
-                        **見た目の × の大きさは変えない**。透明な当たり判定を広げるだけなので、
-                        文字は fontSize 13 のまま中央に置き、行の高さが伸びないよう
-                        marginTop で上下の食い出しを相殺する(隣の select は高さ28px)。 */}
+                        **見た目の × の大きさは変えない**(fontSize 13 のまま中央に置く)。
+                        【N-9】隣が PlainSelect(minHeight 44px)になり行の高さ自体が 44px に
+                        なったので、F-57 の食い出し相殺(marginTop/Bottom: -8)は外した
+                        (残すと × の中心だけ 8px 上にずれる)。 */}
                     <button
                       onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
                       aria-label="このフィルターを削除"
@@ -11402,19 +11460,20 @@ function AnalysisLabView(props) {
                         fontSize: 13, flexShrink: 0, padding: 0,
                         minWidth: "var(--tap-min)", minHeight: "var(--tap-min)",
                         display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        marginTop: -8, marginBottom: -8,
                       }}
                       title="このフィルターを削除"
                     >
                       ×
                     </button>
-                    <select
+                    {/* 【N-9】カテゴリ名の select も「素のテキスト + ▾」(PlainSelect)。中身はそのまま */}
+                    <PlainSelect
+                      ariaLabel="絞り込む次元"
+                      text={dim?.label ?? flt.dimKey}
                       value={flt.dimKey}
                       onChange={(e) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: e.target.value, values: [], rangeMin: null, rangeMax: null } : p)))}
-                      style={{ flexShrink: 0 }}
                     >
                       {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
-                    </select>
+                    </PlainSelect>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
                       {dim?.filterKind === "dateRange" ? (
                         <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266" }}>
@@ -11512,9 +11571,11 @@ function AnalysisLabView(props) {
           )}
         </div>
 
-        {/* 縦軸・横軸・指標のセレクタ(Claude Design: 3枚の丸角カード)。
-            縦軸=グラフの縦に並ぶ項目 / 横軸=値そのもの(指標値) / 指標=色分けして重ねる系列。 */}
-        <div className="tile-row" style={{ display: "flex", marginBottom: 16 }}>
+        {/* 縦軸・横軸・指標のセレクタ。
+            【N-9】3枚の丸角タイル(.tile-row / .tile) → 白地+上辺の罫1本の1行(箱を作らない)。
+            select は既存の pivot-axis-select(枠なし・ネイビー太字)のまま = 中身も見た目の
+            文字組みも据え置き。列の区切りは余白が担う(§6.0 囲いの序列 1)。 */}
+        <div style={{ display: "flex", gap: "var(--sp-3)", borderTop: "1px solid var(--c-rule)", padding: "12px 0", marginBottom: 4 }}>
           {[
             { label: "縦軸", node: (
               <select value={pivotRow} onChange={(e) => setPivotRow(e.target.value)} className="pivot-axis-select">
@@ -11533,29 +11594,27 @@ function AnalysisLabView(props) {
               </select>
             ) },
           ].map((z) => (
-            <div key={z.label} className="tile" style={{ flex: 1, minWidth: 0 }}>
+            <div key={z.label} style={{ flex: 1, minWidth: 0 }}>
               <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 4 }}>{z.label}</div>
               {z.node}
             </div>
           ))}
         </div>
 
-        {pivot.rowKeys.length === 0 ? (
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>
-            この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに折れ線が育ちます
-          </div>
-        ) : (
-          <div>
-            {/* 折れ線グラフ: 縦=縦軸の項目、横=指標値、指標で選んだ次元の値ごとに色分けした線を重ねる */}
+        {/* 折れ線グラフ: 縦=縦軸の項目、横=指標値、指標で選んだ次元の値ごとに色分けした線を重ねる。
+            【N-9】グラフ下の軸の説明文(「縦に「…」、横に「…」。…」)は削除した(本人指示)。 */}
+        <div style={{ borderTop: "1px solid var(--c-rule)", padding: "12px 0" }}>
+          {pivot.rowKeys.length === 0 ? (
+            <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>
+              この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに折れ線が育ちます
+            </div>
+          ) : (
             <PivotLineChart
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
               metricDef={metricDef}
             />
-            <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 10, lineHeight: 1.6 }}>
-              縦に「{PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label}」、横に「{metricDef.label}」。{pivotCol === "none" ? "全体を1本の折れ線で表示します。" : `「${PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label}」ごとに色分けした折れ線を重ねて比較します。`}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       </SwipePager>
 
@@ -11865,8 +11924,11 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
       </button>
 
-      {/* 1. セッション情報 */}
-      <div className="card" style={{ marginBottom: 10 }}>
+      {/* 1. セッション情報。
+          【N-9 2026/08/16 本人指示】カードの箱を廃止して白地に直接置く(計測/リード/My Data と
+          同じ文法)。直前に「一覧に戻る」の区切りがあるので、この群は上辺の罫を引かない
+          (リードタブの no-top-rule と同じ判断)。 */}
+      <div style={{ marginBottom: 10 }}>
         {/* 日付と「目安に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
             日付を左、SetAsIdealButton を右に置く。
             【2026-08-04 本人指摘】日付欄だけ太字で、下段の奏者・リードと体裁が揃っていなかった。
@@ -11890,14 +11952,20 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         <div className="sans" style={{ fontSize: 12, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", overflowX: "auto" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             奏者:
-            <PerformerSelector performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
+            {/* 【N-9 2026/08/16 本人指示】select 類は見た目だけ「素のテキスト + ▾」(F-72 の作法)へ。
+                PerformerSelector は bare 枝(計測タブと同じ)を使う。中身のネイティブ select はそのまま。 */}
+            <PerformerSelector bare selectId="session-performer-select" performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
             リード:
-            <select value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}>
+            <PlainSelect
+              ariaLabel="紐付けるリード"
+              text={reed ? reedLabel(reed, reeds) : "未紐付け"}
+              value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}
+            >
               <option value="">未紐付け</option>
               {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-            </select>
+            </PlainSelect>
           </span>
           <span style={{ flexShrink: 0 }}>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
         </div>
@@ -11933,19 +12001,23 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         />
       )}
 
-      {/* 2.5. セッション平均の指標カード。タップで横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る) */}
+      {/* 2.5. セッション平均の指標。タップで横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る)。
+          【N-9 2026/08/16 本人指示】カード+.tile の箱を廃止し、リード個体詳細と同じ
+          bare(numrow)の「枠も地も持たない数字の列」+ 罫1本にする。目安(selectedIdeal / idealKey)は
+          **残す**(N-8 で消したのは My Data 側だけ。検査 28.4)。 */}
       {frames.length > 0 && (
-        <div className="card" style={{ marginTop: 10 }}>
-          <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        <div style={{ marginTop: 10, borderTop: "1px solid var(--c-rule)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", padding: "10px 0 6px" }}>
             {REED_COMPARE_METRICS.map((mt) => {
               const v = sessionMetrics[mt.key];
               return (
                 <TappableMetricCard
                   key={mt.key}
+                  bare
                   label={mt.label} unit={mt.unit} fmt={mt.fmt}
                   metricKey={mt.key} idealKey={METRIC_IDEAL_KEYS[mt.key]}
                   frames={frames} saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
-                  value={v !== null && v !== undefined ? `${mt.fmt(v)}${mt.unit ? ` ${mt.unit}` : ""}` : "—"}
+                  value={v !== null && v !== undefined ? mt.fmt(v) : "—"}
                   sub={mt.sub?.(sessionMetrics) ?? null}
                 />
               );
@@ -11954,9 +12026,11 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         </div>
       )}
 
-      {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる */}
+      {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる。
+          【N-9 2026/08/16 本人指示】カードの箱 → 白地+上辺の罫1本。表の見出し行の地色
+          (--c-sunk の箱)も落とし、罫(borderBottom)だけで見出しを分ける。 */}
       {noteGroups.length > 0 && (
-        <div className="card" style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10, borderTop: "1px solid var(--c-rule)", padding: "12px 0" }}>
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
@@ -11980,12 +12054,12 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 480 }}>
             <thead>
               <tr>
-                <th style={{ background: "var(--c-sunk)", textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>実音</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>音量</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>重心</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
-                <th style={{ background: "var(--c-sunk)", textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, borderBottom: "1px solid var(--c-line)" }}>目安との差</th>
+                <th style={{ textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>実音</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>音量</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>重心</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>目安との差</th>
               </tr>
             </thead>
             <tbody>
