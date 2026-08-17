@@ -960,11 +960,12 @@ console.log("=== 検証15: バンドパス特性(RBJ)・運指の範囲外リジ
 console.log("=== 検証16: 音域制限・オクターブ誤検出の棄却 ===");
 {
   // 各楽器の音域(SAX_CONCERT_RANGE)と、buildFingeringTableの実音が一致すること
-  // 運指範囲は全機種共通で記音B♭3〜F♯6(High F♯キーまで)の33音。
-  // 以前はソプラノ/テナーが記音F♯5止まりで11半音短く、アルトも最高音がA♭5どまりで
-  // High F♯(実音A5)が鳴らせなかったため、実楽器に合わせて上限を引き上げた。
+  // 【F-103 2026/08/17 本人指示】フラジオ対応で上限を通常の最高音(記音F♯6 = High F♯キー)から
+  // **長3度(+4半音)上**の記音B♭6へ拡張。運指範囲は全機種共通で記音B♭3〜B♭6の37音。
+  // 下限は不変。期待値は「F-95 までの最高音 +4半音」を独立に書き下したもの:
+  //   soprano E6+4=A♭6 / alto A5+4=D♭6 / tenor E5+4=A♭5 / baritone A4+4=D♭5
   const expect = {
-    soprano: ["A♭3", "E6"], alto: ["D♭3", "A5"], tenor: ["A♭2", "E5"], baritone: ["D♭2", "A4"],
+    soprano: ["A♭3", "A♭6"], alto: ["D♭3", "D♭6"], tenor: ["A♭2", "A♭5"], baritone: ["D♭2", "D♭5"],
   };
   // NOTE_NAMESはC♯/D♭表記が"C♯","E♭","G♯","B♭"。A♭=G♯, D♭=C♯として突き合わせる
   const norm = (s) => s.replace("A♭", "G♯").replace("D♭", "C♯").replace("G♭", "F♯").replace("B♭", "A♯");
@@ -1179,27 +1180,39 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
       `位置の種類=${movedX.size} / 拍=${idx} / 現在r=${curR} 他r=${otherR}`);
   }
 
-  // 往復する点の膨らみ: **小節頭だけ**が膨らむ(本人指示「1拍目は点が大きくなる」)。
-  // 上限は正典の scale(1.4)。小節頭以外は演出量に関わらず既定の大きさのまま。
+  // 往復する点の膨らみ: **毎拍**膨らむ(【F-100 2026/08/17 本人指示】「拍ごとに強調が入るように」。
+  // 従来の「小節頭でだけ膨らむ」検査はこの指示で置き換えた。黙って消していない)。
+  // アクセントONなら小節頭がそれ以外より大きく膨らむ(強弱の差は e の係数 1 / 0.55 が持つ)。
+  // 上限は METRO_DOT_HEAD_SCALE(1.8。F-95b)。
   {
-    let headGrew = false, otherGrew = false, over = false;
+    let headMax = 0, otherMax = 0, over = false, deadBeat = false;
     for (const beats of [2, 3, 4, 6]) {
+      const beatMax = new Array(beats).fill(0);
       for (let p = 0; p <= 2 * beats; p += 0.01) {
         const e = api.ringBeatEmphasis(p, beats, true);
         const isHead = api.ringBeatIsHead(p, beats, true);
         const r = api.metroDotR(isHead, e);
-        if (r > api.METRO_DOT_R + 1e-12) { if (isHead) headGrew = true; else otherGrew = true; }
+        if (isHead) headMax = Math.max(headMax, r); else otherMax = Math.max(otherMax, r);
+        const bi = api.ringBeatIndex(p, beats);
+        if (bi !== null) beatMax[bi] = Math.max(beatMax[bi], r);
         if (r > api.METRO_DOT_R * api.METRO_DOT_HEAD_SCALE + 1e-9) over = true;
       }
+      // どの拍も一度は既定より膨らむ(=毎拍の強調)
+      if (beatMax.some((m) => !(m > api.METRO_DOT_R + 1e-12))) deadBeat = true;
     }
-    check("往復する点は小節頭でだけ膨らむ(それ以外の拍では既定の大きさ)", headGrew && !otherGrew);
-    check("膨らみの上限は正典の倍率(scale 1.4)を超えない", !over);
-    // アクセントOFF なら小節頭も膨らまない(鳴っていないものを見せない)。
-    let anyGrewOff = false;
-    for (let p = 0; p <= 8; p += 0.01) {
-      if (api.metroDotR(api.ringBeatIsHead(p, 4, false), api.ringBeatEmphasis(p, 4, false)) > api.METRO_DOT_R + 1e-12) anyGrewOff = true;
-    }
-    check("小節アクセントOFF なら点は膨らまない", !anyGrewOff);
+    check("F-100: 往復する点は毎拍膨らむ(膨らまない拍が1つも無い)", !deadBeat);
+    check("F-100: アクセントONでは小節頭の膨らみがそれ以外より大きい(強弱の差は残る)",
+      headMax > otherMax + 1e-12 && otherMax > api.METRO_DOT_R + 1e-12,
+      `頭拍の最大r=${headMax} / 他拍の最大r=${otherMax}`);
+    check("膨らみの上限は METRO_DOT_HEAD_SCALE を超えない", !over);
+    // アクセントOFF でも毎拍膨らむが、全拍同じ強さ(小節頭を主張しない)。
+    // 拍の瞬間(p=通算拍の整数)を**正確な位相で**評価する(0.01 刻みの掃引は浮動小数の
+    // 累積で拍頭を踏み外し、最大値がわずかにばらつく)。
+    const offR = [0, 1, 2, 3, 4, 5, 6, 7].map((b) => api.metroDotR(api.ringBeatIsHead(b, 4, false), api.ringBeatEmphasis(b, 4, false)));
+    check("F-100: アクセントOFFでも毎拍膨らみ、全拍が同じ強さ",
+      offR.every((r) => r > api.METRO_DOT_R + 1e-12)
+      && offR.every((r) => Math.abs(r - offR[0]) < 1e-9),
+      offR.join(","));
   }
 
   // ------------------------------------------------------------------
@@ -7547,11 +7560,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // 【N-9】PlainSelect(セッション詳細・分析の「素のテキスト + ▾」)の中の select。
         // 奏者の bare と同じく background: "none" **だけ**(枠は index.css の透明枠のまま)。
         /aria-label=\{ariaLabel\}[\s\S]*background: "none"/,
+        // 【F-98 2026/08/17 本人指示】セッション詳細の入力欄(日付・メモ)は「白地+細い下線」。
+        // 地(--c-sunken)を打ち消し、枠は透明で場所を残して(§6.1.5)下線だけ --c-line を見せる
+        // (リード個体詳細のメモの下線と同じ作法)。
+        /background: "none", border: "1px solid transparent", borderBottom: "1px solid var\(--c-line\)"/,
       ];
       const bad = withPrefix(tags, ["background", "border", "boxshadow"])
         .filter((t) => !BARE_OK.some((re) => re.test(t)));
-      check("<input>/<select>/<textarea> にインラインの地・枠・影が無い(例外は地を持たない select 4つ)",
+      check("<input>/<select>/<textarea> にインラインの地・枠・影が無い(例外: 地なし select 4つ / F-98 下線作法の欄)",
         bad.length === 0, bad.length ? bad[0].slice(0, 200) : "");
+      // 【F-98】下線作法(白地+透明枠+下線)の欄はセッション詳細の日付(datetime-local)とメモの2つだけ。
+      // 綴りを持ち出して他の欄へ広げれば、ここで件数が動いて見える。
+      {
+        const underlined = tags.filter((t) => /border: "1px solid transparent", borderBottom: "1px solid var\(--c-line\)"/.test(t));
+        check("F-98: 下線作法の入力欄は2箇所(セッション詳細の日付・メモ)で、datetime-local を含む",
+          underlined.length === 2 && underlined.some((t) => /type="datetime-local"/.test(t)),
+          `${underlined.length}箇所`);
+      }
       // 【N-9】例外の側(PlainSelect の select)にも枠を書き足していないこと(奏者と同じ縛り)
       {
         const plainSelTags = tags.filter((t) => /aria-label=\{ariaLabel\}/.test(t));
@@ -8505,12 +8530,31 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       }
       // 「…」メニューの中身。**全部出ていること**を集合で確かめる(1つ落としても気づく)。
       // 【F-80 で主張が変わった】旧主張は「箱を選んで削除 / 個体を選んで削除 / 箱の開封日を編集
-      // の3つがある」。開封日の編集は箱見出しの日付タップへ移したので、**残るのは削除2件**。
-      check("F-80: 「…」には 箱を選んで削除 / 個体を選んで削除 の2つだけがある",
-        api.REED_MORE_ITEMS.length === 2
-        && api.REED_MORE_ITEMS.map((x) => x.mode).join(",") === "boxDelete,memberDelete"
-        && api.REED_MORE_ITEMS.map((x) => x.label).join(",") === "箱を選んで削除,個体を選んで削除",
+      // の3つがある」。開封日の編集は箱見出しの日付タップへ移したので、削除2件になった。
+      // 【F-102 2026/08/17 本人指示】「リード番号を変更」を追加 → **3件**。
+      check("F-102: 「…」には 箱を選んで削除 / 個体を選んで削除 / リード番号を変更 の3つだけがある",
+        api.REED_MORE_ITEMS.length === 3
+        && api.REED_MORE_ITEMS.map((x) => x.mode).join(",") === "boxDelete,memberDelete,numberEdit"
+        && api.REED_MORE_ITEMS.map((x) => x.label).join(",") === "箱を選んで削除,個体を選んで削除,リード番号を変更",
         api.REED_MORE_ITEMS.map((x) => `${x.mode}:${x.label}`).join(" / "));
+      // 【審査で塞いだ穴】番号シートの「開いて閉じただけでは書かない」2ガードが無検査で、
+      // 削除する変異が生存した(開閉だけで自動採番が boxNumber に**不可逆に固定化**される
+      // = F-105 で自ら「気づきにくいが不可逆」と起票した当の形)。onCommit に**隣接する綴り**で固定。
+      {
+        const sheetWire = src.slice(src.indexOf("{numberEditReed && ("), src.indexOf("onClose={() => setNumberEditId(null)}"));
+        check("F-102: 番号の確定は、保存値と同じなら書かない(変えていない開閉で boxNumber を汚さない)",
+          /if \(trimmed === String\(numberEditReed\.boxNumber \?\? ""\)\) return;/.test(sheetWire));
+        check("F-102: 番号の確定は、表示中の自動採番のままなら書かない(開いて閉じただけで固定化しない)",
+          /if \(trimmed === String\(reedPosition\(numberEditReed, reeds\) \?\? ""\)\) return;/.test(sheetWire));
+        check("F-102: 上の2ガードは書き込み(setReeds)より前にある",
+          sheetWire.indexOf("reedPosition(numberEditReed, reeds)") > 0
+          && sheetWire.indexOf("reedPosition(numberEditReed, reeds)") < sheetWire.indexOf("setReeds((prev)"),
+          `走査 ${sheetWire.length}文字`);
+      }
+      // 番号編集モードの出口は「完了」(「キャンセル」だと blur 確定済みの変更が戻ると誤読される。
+      // 統括が承認した文言の決定。削除系モードは従来どおり「キャンセル」)。
+      check("F-102: 番号編集モードの出口の文言は「完了」・削除系は「キャンセル」",
+        /\{listMode === "numberEdit" \? "完了" : "キャンセル"\}/.test(src));
       // 「開封日を編集」という入口が「…」側に残っていないこと(モードごと消したことの裏取り)。
       check("F-80: listMode に \"dateEdit\" が残っていない(モードごと消した)",
         !/"dateEdit"/.test(codeOf(src)), (codeOf(src).match(/"dateEdit"/g) || []).join(",") || "0件");
@@ -8535,9 +8579,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // 0枚でモードが残った場合だけは行を出す(「キャンセル」に戻れなくなるのを防ぐ)
         check("0枚でもモードが残っていれば行は出す(戻れなくならない)",
           shows({ length: 0 }, "boxDelete") === true);
-        // 「…」の項目はどれも箱があることが前提(0枚で出す意味が無いことの裏取り)
-        check("「…」の項目はどれも箱を対象にする操作",
-          api.REED_MORE_ITEMS.every((it) => /箱|個体/.test(it.label)),
+        // 「…」の項目はどれも登録済みリードがあることが前提(0枚で出す意味が無いことの裏取り)。
+        // 【F-102】「リード番号を変更」もリードが無ければ対象が無い(同じ前提)。
+        check("「…」の項目はどれも登録済みリードを対象にする操作",
+          api.REED_MORE_ITEMS.every((it) => /箱|個体|リード/.test(it.label)),
           api.REED_MORE_ITEMS.map((x) => x.label).join(" / "));
       }
     }
@@ -9223,16 +9268,17 @@ console.log("=== 検証18: F-44 ピッチ集計のノイズ除外 ===");
       near(m.volumeDb, expectVol, 1e-6), `vol=${m.volumeDb} expect=${expectVol}`);
   }
 
-  // --- 18.9 透明性の1行(SessionDetailView)。JSXはハーネスの外なので綴りの存在確認のみ ---
-  // (描画の実測はBrowser paneで行う。この検査はリグレッションの早期検知用の補助)
+  // --- 18.9 【F-98 2026/08/17 本人指示で削除】透明性の1行(除外率の解説文) ---
+  // 旧主張「音階ごとの平均の直下に除外率の1行がある」(F-44)は、本人が名指しで
+  // 「長い解説文を削除」と指示したため反転する。**集計そのもの(過渡の除外)は不変**
+  // (18.5〜18.7 が実行検査で固定し続けている)。ここでは文言が戻っていないことを見る。
   {
     const sdvStart = src.indexOf("function SessionDetailView(");
     const sdv = sdvStart === -1 ? "" : src.slice(sdvStart, sdvStart + 20000);
-    check("18.9 音階ごとの平均の直下に除外率の1行がある",
-      /ピッチは各音の安定区間の平均（立ち上がり・切り替わりの過渡 \{pct\}% を除外）/.test(sdv));
-    check("18.9 除外率は全グループ合計から計算し、合計0なら行ごと出さない",
-      /if \(used \+ excluded === 0\) return null;/.test(sdv) &&
-      /Math\.round\(\(excluded \/ \(used \+ excluded\)\) \* 100\)/.test(sdv));
+    check("18.9 F-98: 除外率の解説文がセッション詳細に無い(本人指示で削除)",
+      sdvStart !== -1 && !/安定区間の平均（立ち上がり/.test(codeOf(sdv)));
+    check("18.9 F-98: タイムラインの「ピッチ一致度で色分け」の解説も無い",
+      !/一致度で色分け（/.test(codeOf(src)));
   }
   // --- 18.10 代表値は「採用フレームのclarity加重平均」であること(F-46 本人指示) ----
   // F-44では中央値を固定していたが、F-46で本人が「平均値に統一」と指示し反転した。
@@ -10438,15 +10484,17 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       labels.push(got);
       if (got !== want) allMatch = false;
     }
-    check("21.1 アルトの全運指(33音)の音名が実音の期待値(lowMidi+i)と一致する",
-      allMatch && labels.length === 33, `${labels[0]}…${labels[labels.length - 1]}`);
+    // 【F-103 2026/08/17 本人指示】フラジオ対応で 33音 → **37音**(上限 +4半音)。
+    check("21.1 アルトの全運指(37音)の音名が実音の期待値(lowMidi+i)と一致する",
+      allMatch && labels.length === 37, `${labels[0]}…${labels[labels.length - 1]}`);
     // 本人報告の症状そのもの: 最低音がB♭3(記音)・最高音がF♯6(記音)になっていた
     check("21.1 最低音は実音のD♭3(=C♯3)。記音のB♭3ではない",
       labels[0] === midiLabel(49) && labels[0] !== nApi.writtenNoteLabel(0),
       `low=${labels[0]} written=${nApi.writtenNoteLabel(0)}`);
-    check("21.1 最高音は実音のA5。記音のF♯6ではない",
-      labels[32] === "A5" && labels[32] !== nApi.writtenNoteLabel(32),
-      `high=${labels[32]} written=${nApi.writtenNoteLabel(32)}`);
+    // 【F-103】最高音は A5(通常の最高音) + 長3度 = D♭6(=C♯6)。記音B♭6 との取り違えも見る
+    check("21.1 最高音は実音のD♭6(=C♯6。A5+4半音)。記音のB♭6ではない",
+      labels[36] === midiLabel(85) && labels[36] !== nApi.writtenNoteLabel(36),
+      `high=${labels[36]} written=${nApi.writtenNoteLabel(36)}`);
     check("21.1 F6 / F♯6 のような音域外(記音)のラベルが1つも現れない",
       !labels.includes("F6") && !labels.includes("F♯6"), labels.join(","));
     // 運指の外(範囲外・不明な楽器・基準ピッチ無し)はnullを返し、呼び出し側のフォールバックに任せる
@@ -10734,18 +10782,35 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
     check("F-54: PIVOTのctxに基準ピッチを載せる(音名次元が実音を導けない)",
       /const pivotCtx = \{ reeds, tuningHz \};/.test(lab));
 
-    // F-55: メモ行のラベルと入力欄の間隔を日付・奏者と同じ4pxにし、ラベルの文字部分を
-    // 全角2文字ぶん(2em)確保する。日付・奏者側の gap は変えない(両方4pxのまま)。
-    const memoAt = detail.indexOf("【F-55】");
-    const memoRow = memoAt === -1 ? "" : detail.slice(memoAt, memoAt + 1400);
-    check("F-55: メモ行のラベルと入力欄の間隔は日付・奏者と同じ4px",
-      /marginTop: 8, display: "flex", alignItems: "center", gap: 4 \}\}>\s*<span style=\{\{ color: "#435266", flexShrink: 0 \}\}>/.test(memoRow),
-      memoRow.replace(/\s+/g, " ").slice(-260));
-    check("F-55: メモのラベルの文字部分は全角2文字ぶん(2em)を確保する(片仮名が詰まる書体でもずれない)",
-      /<span style=\{\{ display: "inline-block", minWidth: "2em" \}\}>メモ<\/span>:/.test(memoRow));
-    check("F-55: 日付・奏者側の間隔(gap: 4)は動かしていない",
-      (detail.match(/display: "flex", alignItems: "center", gap: 4, minWidth: 0/) || []).length === 1 &&
-      (detail.match(/display: "flex", alignItems: "center", gap: 4, flexShrink: 0/g) || []).length === 2);
+    // 【F-98 2026/08/17 本人指示】セッション情報は「ラベル+値」の1行1情報へ整形。
+    // F-55 の旧主張(2em / コロン / 横並び)はこの整形で置き換えた(黙って消していない)。
+    // 新主張: ラベルは .mname の文字組み(12px / --c-ink-2)で、**全行が minWidth 3em** を
+    // 持ち値の左端が縦に揃う。奏者・リード・楽器が1行1情報になっている。
+    {
+      const labelRe = /fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0/g;
+      const labelCount = (detail.match(labelRe) || []).length;
+      check("F-98: ラベル(12px/--c-ink-2/3em)の行が5つ(日付・奏者・リード・楽器・メモ)",
+        labelCount === 5, `${labelCount}箇所`);
+      for (const name of ["日付", "奏者", "リード", "楽器", "メモ"]) {
+        check(`F-98: ラベル「${name}」が 3em の綴りに隣接している(1行1情報)`,
+          new RegExp(`minWidth: "3em", flexShrink: 0 \\}\\}>${name}</span>`).test(detail));
+      }
+      // 奏者・リード・楽器が**別々の行**(それぞれが display:flex の行を持つ)であること:
+      // 旧実装は3つを1つの横並び(overflowX:auto)に押し込んでいた。その綴りが残っていないこと。
+      check("F-98: 奏者・リード・楽器の横一列(overflowX:auto)の行が残っていない",
+        !/flexWrap: "nowrap", overflowX: "auto"/.test(detail));
+      // 【審査で塞いだ穴】値側の文字サイズが 奏者16px/リード12px/楽器13px と3行3様だった
+      // (bare の PerformerSelector は fontSize を持たず親から**継承**する。旧実装は横並びの
+      //  親が 12 を持っていたが、新しい行 div が持たず 16px に膨らんだ = HEAD からの退行)。
+      // 奏者の行は**行 div に fontSize: 12 を敷いて**継承で揃え、楽器の値も 12px。
+      // 仕様 F97-SPEC の「値 .mnums 系(11.5px)」からは意図的に外れる: これらは**操作できる値**
+      // (素テキスト+▾ の作法 = 12px)であり、読み取り専用の数字の行(11.5px)とは型が違う。
+      check("F-98: 奏者の行は行に fontSize:12 を敷く(bare セレクタが 16px を継承しない)",
+        /gap: 4, fontSize: 12 \}\}>\s*\r?\n\s*<span style=\{\{ fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0 \}\}>奏者<\/span>/.test(detail));
+      check("F-98: 楽器の値は 12px(13px などの独自値を作らない)",
+        /<span style=\{\{ fontSize: 12, color: "var\(--c-ink\)" \}\}>\{SAX_PRESETS\[session\.saxType\]/.test(detail)
+        && !/fontSize: 13, color: "var\(--c-ink\)"/.test(detail));
+    }
 
     // F-57: フィルター行で × がカテゴリ名(次元のselect)より**前**にある
     {
@@ -12576,8 +12641,10 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 1枚だけの箱の詳細が開けなくなった**(375×812 の実測で発見)。
       // 正しい形は「押下は必ず記録し、長押しのタイマーだけ張らない」。
       // 順序まで見る: dragInfoRef への代入が canReorder の早期 return より**前**にあること。
-      check("並び替えできるかの判定は canReorder に分けてある",
-        /const canReorder = !deleteMode && members\.length >= 2;/.test(grid));
+      // 【F-102 2026/08/17 本人指示】番号編集モード(noDrag)でも長押しの並び替えを起動しない
+      // (タップ=番号編集に一本化)。判定の綴りに !noDrag が加わった。
+      check("並び替えできるかの判定は canReorder に分けてある(F-102 で !noDrag が加わった)",
+        /const canReorder = !deleteMode && !noDrag && members\.length >= 2;/.test(grid));
       {
         const rec = "dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };";
         check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
@@ -12954,8 +13021,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("#番号は自由入力(空で自動採番の値が placeholder に出る)",
       /placeholder=\{String\(reedPosition\(reed, reeds\)\)\}/.test(detail)
       && /onBlur=\{commitPosition\}/.test(detail));
-    check("#番号の欄は破線の下線で「書ける」ことを示す(正典)",
-      /borderBottom: "1px dashed var\(--c-line-strong\)"/.test(detail));
+    // 【F-102 2026/08/17 本人指示】「編集可」を示していた破線の下線は削除(番号編集の入口は
+    // 「…」→「リード番号を変更」が担う)。編集機能そのもの(placeholder / onBlur=commitPosition)は
+    // 上の検査が固定し続けている。ここでは破線が戻っていないことを見る。
+    check("F-102: #番号の欄に破線の下線が無い(入口は「…」へ移した)",
+      !/borderBottom: "1px dashed/.test(detail));
     check("#番号の欄の当たり判定は 44px 以上(§5)",
       /width: 46, minHeight: "var\(--tap-min\)"/.test(detail));
     check("開封日は右に yyyy/mm/dd で出る", /\{formatYmd\(reed\.startDate\) \?\? "—"\}/.test(detail));
@@ -14129,10 +14199,16 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
 
   // --- 29.1 要素を減らす(本人指示の芯)。「無いこと」は codeOf(コメント除去)で見る --------
   // 旧文言そのものの再発防止であって、言い換えの禁止までは主張しない(名前もそう名乗る)。
-  check("29.1 重複表題「PIVOT」の見出しが動く側に無い(子タブ「分析」と同じことを2度言わない)",
-    !/>\s*PIVOT\s*</.test(codeOf(lab29)), (codeOf(lab29).match(/>\s*PIVOT\s*</g) || []).join("") || "0件");
+  // 【F-99 2026/08/17 本人指示】表題「PIVOT」と**1行の簡潔な説明**は復活(N-9 の削除を上書き。
+  // 本人: 「分析は自分で集計軸を選んで初めて機能するページ…PIVOT の文字があれば Excel も想起できる」)。
+  // N-9 の長文(「…マトリクスで俯瞰します。各セルは…」)を**戻さない**ことは引き続き見る。
+  check("29.1 F-99: 表題「PIVOT」がある(15px / --c-accent / 700)",
+    /fontSize: 15, color: "var\(--c-accent\)", fontWeight: 700[^>]*\}\}>\s*PIVOT\s*</.test(lab29),
+    (lab29.match(/>\s*PIVOT\s*</g) || []).join("") || "0件");
+  check("29.1 F-99: 1行の簡潔な説明がある(書き直した文。N-9 の長文ではない)",
+    lab29.includes("条件・縦軸・横軸・指標を選ぶと、蓄積データをマトリクスで集計します"));
   check("29.1 冒頭の説明段落(「…マトリクスで俯瞰します」)が動く側に無い",
-    !codeOf(src).includes("マトリクスで俯瞰"));
+    !codeOf(src).includes("マトリクスで俯瞰") && !codeOf(lab29).includes("各セルはその組み合わせ"));
   check("29.1 グラフ下の軸の説明文(「縦に「…」、横に「…」…」)が動く側に無い",
     !codeOf(lab29).includes("色分けした折れ線を重ねて比較します") && !codeOf(lab29).includes("全体を1本の折れ線で表示します"));
   check("29.1 音階ごとの平均の見出し行の地色(--c-sunk の箱)が無い",
@@ -14244,6 +14320,95 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     check("29.4 値チップと音域帯は A型(ctl-state)のピルのまま",
       (lab29.match(/className="sans ctl-state"/g) || []).length === 2,
       `${(lab29.match(/className="sans ctl-state"/g) || []).length}箇所`);
+  }
+}
+
+// ============================================================
+// 検証30: F-97〜F-104 実機フィードバック第3陣(2026/08/17 本人指示。凍結仕様 = design/F97-SPEC.md)
+// 【この節の作り方】ハーネスは JSX を評価せず React フックも動かせないので、
+// ここで固定するのは**定義・呼び出しに隣接する綴り**(罠2)と、抽出できる純関数の実行結果。
+// 描画の実測(全行のチェックボックス・軸の上限・フリッカ)は Browser pane で行う。
+// この節はその証明ではない(名乗りに注意)。
+// ============================================================
+console.log("\n========== 検証30: F-97〜F-104 実機フィードバック第3陣 ==========");
+{
+  // --- 30.1 F-97: セッション一覧のチェックボックスは**常設**(挿入ではなく表示切替) --------
+  // 本人実機報告: 削除モードで先頭行だけチェックボックスが出ない(iPhone)。現行 Chrome では
+  // 再現せず(全可視域の 1px 走査で全点が行に命中)、全行が同一 JSX なので構造分岐も無い。
+  // 疑われる機序(モード切替と同時のノード挿入を WebKit が取りこぼす)を**構造的に不可能**に
+  // するため、チェックボックスを常設し listMode では display だけを切り替える。
+  {
+    const page30 = srcOfFn(src, "MyDataPage");
+    check("30.1 走査できている(MyDataPage)", page30.length > 3000, `${page30.length}文字`);
+    // 行の map の中の checkbox が「常設 + display 切替」の形であること(呼び出しに隣接する綴り)
+    check("30.1 F-97: 行のチェックボックスは display: listMode ? \"block\" : \"none\" の常設",
+      /type="checkbox" checked=\{selectedForDelete\.has\(s\.id\)\}[\s\S]{0,400}?display: listMode \? "block" : "none", width: 20, height: 20, flexShrink: 0/.test(page30));
+    // 条件マウント(listMode && <input)へ戻す変異がここで落ちる
+    check("30.1 F-97: 条件マウント(listMode && <input)が残っていない",
+      !/listMode && \(\s*\r?\n\s*<input/.test(codeOf(page30)));
+    // モード外ではフォーカスも読み上げも受けない(display:none と対)
+    check("30.1 F-97: モード外は tabIndex -1 / aria-hidden で不可視と整合",
+      /tabIndex=\{listMode \? undefined : -1\}/.test(page30) && /aria-hidden=\{listMode \? undefined : true\}/.test(page30));
+  }
+
+  // --- 30.2 F-101: usePersistedState のモジュールキャッシュ(再マウントのフリッカ解消) ------
+  // 一度読めた値は Map に保持し、再マウント時はキャッシュから初期化する。
+  // 初回起動(キャッシュ未加載)は従来どおり initialValue → idbGet 待ち。
+  {
+    const hook30 = src.slice(src.indexOf("const persistedStateCache"), src.indexOf("function useSessionsStore"));
+    check("30.2 走査できている(usePersistedState 周辺)", hook30.length > 300, `${hook30.length}文字`);
+    check("30.2 F-101: モジュールスコープの Map キャッシュがある",
+      /const persistedStateCache = new Map\(\);/.test(hook30));
+    // null は正当な保存値(selectedReedId 等)なので ?? ではなく has() で判定する
+    check("30.2 F-101: 初期値はキャッシュ優先(has() 判定。?? で null を潰さない)",
+      /useState\(\(\) => \(persistedStateCache\.has\(key\) \? persistedStateCache\.get\(key\) : initialValue\)\)/.test(hook30));
+    check("30.2 F-101: キャッシュ命中時は読み込み済み扱い(loadedRef が has() から始まる)",
+      /useRef\(persistedStateCache\.has\(key\)\)/.test(hook30));
+    check("30.2 F-101: IndexedDB から読めた値をキャッシュへ書く",
+      /persistedStateCache\.set\(key, saved\); setState\(saved\);/.test(hook30));
+    check("30.2 F-101: 書き込み時もキャッシュを更新する(次の再マウントが最新値で始まる)",
+      /persistedStateCache\.set\(key, state\); idbSet\(key, state\);/.test(hook30));
+  }
+
+  // --- 30.4 F-104: tick の時間波形バッファは使い回す(毎フレームの確保 = 64KB/フレームの GC 圧) ---
+  // 中身は毎フレーム getFloatTimeDomainData が全書き換えするので計測値は不変。
+  // 「確保はサイズ変化時だけ・読み出しは使い回したバッファから」を、呼び出しに隣接する綴りで固定。
+  {
+    check("30.4 F-104: 時間波形バッファは tickBufsRef を使い回す(getFloatTimeDomainData に隣接)",
+      /const timeBuf = tickBufsRef\.current\.time;\s*\r?\n\s*analyserNode\.getFloatTimeDomainData\(timeBuf\);/.test(src));
+    check("30.4 F-104: ゲート用バッファも tickBufsRef を使い回す",
+      /const gb = tickBufsRef\.current\.gate;\s*\r?\n\s*gateNode\.getFloatTimeDomainData\(gb\);/.test(src));
+    check("30.4 F-104: 確保は fftSize が変わったときだけ(サイズ検査つきの new が2箇所)",
+      (codeOf(src).match(/tickBufsRef\.current\.(time|gate)\.length !== \w+\.fftSize/g) || []).length === 2
+      && (codeOf(src).match(/tickBufsRef\.current\.(time|gate) = new Float32Array\(\w+\.fftSize\)/g) || []).length === 2);
+    // 素の確保の禁止は **rAF の tick の中だけ**(アップロード解析などの非毎フレーム経路は対象外)
+    {
+      const tickStart = src.indexOf("const tick = () => {");
+      const tickEnd = src.indexOf("tickRef.current = tick", tickStart);
+      const tickSrc = tickStart === -1 || tickEnd === -1 ? "" : src.slice(tickStart, tickEnd);
+      check("30.4 F-104: tick の中に毎フレームの素の確保(new Float32Array)が残っていない",
+        tickSrc.length > 1000 && !/const (timeBuf|gb) = new Float32Array/.test(codeOf(tickSrc)),
+        `tick=${tickSrc.length}字`);
+    }
+  }
+
+  // --- 30.3 F-103: 拡張の一貫性(運指表・チューナー判定が同じ上限に従う) --------------------
+  // 上限そのものの期待値は検証16(A♭6/D♭6/A♭5/D♭5)が独立に固定している。ここでは
+  // 「+4 が SAX_CONCERT_RANGE の1箇所にだけ入り、派生(運指表の音数・検出上限)が追従する」
+  // 一貫性を見る。
+  {
+    for (const sax of ["soprano", "alto", "tenor", "baritone"]) {
+      const r = api.SAX_CONCERT_RANGE[sax];
+      check(`30.3 F-103: ${sax} の音域は37音(33音 + フラジオ4半音)`, r.highMidi - r.lowMidi + 1 === 37,
+        `${r.highMidi - r.lowMidi + 1}音`);
+      const b = api.saxPitchBounds(sax, 442);
+      check(`30.3 F-103: ${sax} の検出上限は最高音+1半音(拡張後の highMidi に追従)`,
+        Math.abs(b.maxFreq - api.concertMidiToFreq(r.highMidi + 1, 442)) < 1e-9);
+      // 下限の**値そのもの**は検証16の期待表(A♭3/D♭3/A♭2/D♭2)が独立に固定している。
+      // ここで見るのは式の追従だけ(この検査単独では下限不変の十分条件ではない)。
+      check(`30.3 F-103: ${sax} の検出下限は lowMidi-1 に追従する`,
+        Math.abs(b.minFreq - api.concertMidiToFreq(r.lowMidi - 1, 442)) < 1e-9);
+    }
   }
 }
 

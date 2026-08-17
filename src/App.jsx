@@ -986,18 +986,22 @@ function writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz) {
 }
 
 // 楽器種別ごとの実音(コンサートピッチ)の音域(MIDIノート番号, 両端含む)。
-// 運指範囲は全機種共通で記音B♭3(58)〜F♯6(90)の33音(High F♯キーまで)とし、
-// 各機種の移調量を足した実音がこの範囲になる(以前はソプラノ/テナーだけ
-// 記音F♯5止まりで11半音短く、アルトもHigh F♯ぶんが欠けていた)。
-//   ソプラノ: A♭3(56)〜E6(88) / アルト: D♭3(49)〜A5(81)
-//   テナー:   A♭2(44)〜E5(76) / バリトン: D♭2(37)〜A4(69)
+// 【F-103 2026/08/17 本人指示】フラジオ(アルティッシモ)対応: 上限を通常の最高音
+// (記音F♯6 = High F♯キー)から**長3度(+4半音)上**の記音B♭6まで拡張する。
+// 運指範囲は全機種共通で記音B♭3(58)〜B♭6(94)の37音。下限は不変。
+// 各機種の移調量を足した実音がこの範囲になる:
+//   ソプラノ: A♭3(56)〜A♭6(92) / アルト: D♭3(49)〜D♭6(85)
+//   テナー:   A♭2(44)〜A♭5(80) / バリトン: D♭2(37)〜D♭5(73)
+// (通常運指の最高音は従来どおり 92-4 / 85-4 / 80-4 / 73-4 の位置。+4の帯がフラジオ域)
 // この範囲外の検出(倍音を基音と誤る1オクターブ上のピーク等)は測定・記録しない。
 // 音域の左端は運指テーブルの最低音(記音B♭)の実音と一致する。
+// この定数が運指表(buildFingeringTable)・音名軸グラフ・チューナー判定(saxPitchBounds)の
+// **唯一の上限**なので、+4 はここにだけ入れる。
 const SAX_CONCERT_RANGE = {
-  soprano: { lowMidi: 56, highMidi: 88 },
-  alto: { lowMidi: 49, highMidi: 81 },
-  tenor: { lowMidi: 44, highMidi: 76 },
-  baritone: { lowMidi: 37, highMidi: 69 },
+  soprano: { lowMidi: 56, highMidi: 92 },
+  alto: { lowMidi: 49, highMidi: 85 },
+  tenor: { lowMidi: 44, highMidi: 80 },
+  baritone: { lowMidi: 37, highMidi: 73 },
 };
 
 // 実音MIDI → 周波数(基準ピッチa4基準)
@@ -1042,7 +1046,7 @@ function buildFingeringTable(saxType, tuningHz, numNotes) {
 // (NoteAxisLineChart が横軸を buildFingeringTable から作っているのと同じ考え方)。
 // 楽器種別はフレームごとに違い得る(複数セッションを混ぜる PIVOT ではアルトとテナーが同居する)。
 // 同じ semitoneIndex でも実音は変わるので、**そのフレームのセッションの saxType** を必ず渡すこと。
-// buildFingeringTable はフレームごとに呼ばない(毎回33音のテーブルを作ることになる)ため、
+// buildFingeringTable はフレームごとに呼ばない(毎回37音(F-103でフラジオぶん+4)のテーブルを作ることになる)ため、
 // 楽器種別ごとに直近の tuningHz のラベル列だけを持つ。Map の要素数は楽器種別の数(4)が上限。
 const CONCERT_LABEL_CACHE = new Map(); // saxType -> { tuningHz, labels: string[], freqs: number[] }
 function concertNoteTableOf(saxType, tuningHz) {
@@ -1806,15 +1810,24 @@ async function idbSet(key, value) {
 
 // key別にIndexedDBへ自動保存するstateフック。マウント時に非同期で読み込み、
 // 以後の変更は逐次書き込む(読み込み完了前の書き込みで初期値により上書きしないようloadedRefで防ぐ)。
+//
+// 【F-101 2026/08/17 本人指示】タブ切替(navNonce の再マウント)のたびに useState(initialValue) から
+// 始まるため、IndexedDB の読み込みが解決するまでの数ms〜数十ms、既定値(期間セレクタなら「1ヶ月」)が
+// 一瞬見えるフリッカがあった。**一度読めた値はモジュールスコープの Map に保持**し、再マウント時は
+// キャッシュから初期化する(読めていれば初回描画から保存値が出る)。
+//   ・初回起動(キャッシュ未加載)の挙動は不変: 従来どおり initialValue で始まり idbGet を待つ。
+//   ・cache.get(key) ?? initialValue にしない理由: null は正当な保存値(selectedReedId 等)なので、
+//     ?? だと null が既定値に化ける。有無は has() で判定する。
+const persistedStateCache = new Map();
 function usePersistedState(key, initialValue) {
-  const [state, setState] = useState(initialValue);
-  const loadedRef = useRef(false);
+  const [state, setState] = useState(() => (persistedStateCache.has(key) ? persistedStateCache.get(key) : initialValue));
+  const loadedRef = useRef(persistedStateCache.has(key));
 
   useEffect(() => {
     let cancelled = false;
     idbGet(key).then((saved) => {
       if (cancelled) return;
-      if (saved !== undefined) setState(saved);
+      if (saved !== undefined) { persistedStateCache.set(key, saved); setState(saved); }
       loadedRef.current = true;
     });
     return () => { cancelled = true; };
@@ -1822,7 +1835,7 @@ function usePersistedState(key, initialValue) {
   }, []);
 
   useEffect(() => {
-    if (loadedRef.current) idbSet(key, state);
+    if (loadedRef.current) { persistedStateCache.set(key, state); idbSet(key, state); }
   }, [key, state]);
 
   return [state, setState];
@@ -2718,6 +2731,12 @@ export default function WindToneLabPhaseMode() {
   // ・音の遷移(レガート)で一瞬混ざった外れ値を弾き、
   // ・一瞬測れないフレームでも直近値を保持して行が「—」に落ちてガタつくのを防ぐ。
   const timbreDisplayRef = useRef({ centroid: [], hnr: [], harmonics: [], validMs: 0, lastNote: null, changedMs: 0, stale: false, lastComputeMs: 0, lastCentroid: null, lastHnr: null, lastLevels: [] });
+  // 【F-104 2026/08/17】tick が毎フレーム確保していた 2本の Float32Array(8192)(時間波形+
+  // ゲート用 = 64KB/フレーム ≒ 実測 24.8KB/tick のヒープ増加)を使い回すためのバッファ。
+  // 中身は毎フレーム getFloatTimeDomainData が全書き換えするので値の意味は不変
+  // (=計測の正確さは 1bit も変わらない)。GC の断続的な停止(特に iOS Safari)を減らす。
+  // fftSize が変わったときだけ作り直す。
+  const tickBufsRef = useRef({ time: null, gate: null });
   const noiseGateDbRef = useRef(noiseGateDb);
   useEffect(() => { noiseGateDbRef.current = noiseGateDb; }, [noiseGateDb]);
   // マイク接続中に楽器種別を変えたら、ゲート用バンドパスの中心周波数も追従させる
@@ -3004,7 +3023,11 @@ export default function WindToneLabPhaseMode() {
         const sampleRate = audioCtx.sampleRate;
 
         // 音量(RMS/dBFS)は時間領域波形から算出する(標準的なdB。無音≒-70〜-90、通常音≒-15〜-35)。
-        const timeBuf = new Float32Array(analyserNode.fftSize);
+        // 【F-104】バッファは使い回す(毎フレーム new すると 32KB/フレームの GC 圧になる)。
+        if (!tickBufsRef.current.time || tickBufsRef.current.time.length !== analyserNode.fftSize) {
+          tickBufsRef.current.time = new Float32Array(analyserNode.fftSize);
+        }
+        const timeBuf = tickBufsRef.current.time;
         analyserNode.getFloatTimeDomainData(timeBuf);
         let ss = 0;
         for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
@@ -3034,7 +3057,11 @@ export default function WindToneLabPhaseMode() {
         let bandDb = -Infinity;
         const gateNode = gateAnalyserRef.current;
         if (gateNode) {
-          const gb = new Float32Array(gateNode.fftSize);
+          // 【F-104】こちらも使い回す(time と同じ理由)。
+          if (!tickBufsRef.current.gate || tickBufsRef.current.gate.length !== gateNode.fftSize) {
+            tickBufsRef.current.gate = new Float32Array(gateNode.fftSize);
+          }
+          const gb = tickBufsRef.current.gate;
           gateNode.getFloatTimeDomainData(gb);
           let s2 = 0;
           for (let i = 0; i < gb.length; i++) s2 += gb[i] * gb[i];
@@ -4538,7 +4565,9 @@ const RING_PEND_SWING_DEG = 55;     // 振れ角(12時=0°、時計回り)。拍
 // 本人が倍率を変えるならこの1行だけを直せばよい。
 // 【この値の身分】REC_RING_SW と同じ「本人の実機確認待ちの暫定値」。
 // 正典の中に無い数はこの1つだけ(design/BACKLOG.md の「新設した値」の表に起票すること)。
-const METRO_SCALE = 1.2;
+// 【F-100 2026/08/17 本人指示】「前(1.0)と今(1.2)の中間に」→ 1.2 → **1.1**。
+// サンプル design/metro-size-sample.html の B 列の --k も 1.1 へ上書き済み(検査はそこから読む)。
+const METRO_SCALE = 1.1;
 
 // 【F-95b】拍の瞬間に大きくなる倍率。正典 .beat.on の scale(1.4) を**上書き**する。
 // 本人指示(実機 2026/08/16)「振り子が端に触れるときの大きくなるのも今よりも大きくして」。
@@ -5012,11 +5041,17 @@ function metroArcPoint(t) {
   ];
 }
 
-// 往復する点の半径。**小節頭のときだけ**演出量 e に比例して膨らむ(本人指示「1拍目は点が大きくなる」)。
-// アクセントOFF のときは ringBeatIsHead が false を返すので膨らみも出ない
-// (鳴っていないアクセントを視覚だけが主張しない。DESIGN-SYSTEM §6.1 と同じ扱い)。
+// 往復する点の半径。**毎拍**、演出量 e に比例して膨らむ。
+// 【F-100 2026/08/17 本人指示】「拍ごとに強調が入るように」。従来は `isHead ? e : 0` で
+// **小節頭以外の e を 0 に潰していた**(頭拍限定の原因はこの1箇所。ringBeatEmphasis 自体は
+// 毎拍 e>0 を返している: 小節頭 1 / それ以外 0.55)。潰すのをやめ、e をそのまま使う。
+//   ・強弱の差は e の係数(RING_BEAT_EMPH_HEAD/OTHER)が既に持つ: アクセントONなら頭拍が
+//     より大きく膨らみ、OFFなら全拍同じ 0.55(鳴り方と同じ。§6.1「小節頭の"差"を出さない」)。
+//   ・最大倍率 METRO_DOT_HEAD_SCALE(1.8)は据え置き(本人指示)。
+// isHead 引数は呼び出し側の綴りを固定している検査(F-95b)との配線を変えないため残すが、
+// 半径には使わない。
 function metroDotR(isHead, e) {
-  return METRO_DOT_R * (1 + (METRO_DOT_HEAD_SCALE - 1) * (isHead ? e : 0));
+  return METRO_DOT_R * (1 + (METRO_DOT_HEAD_SCALE - 1) * e);
 }
 
 // 拍の演出量(0〜1)。**毎拍・両端で**出す(実際のメトロノームは両端で鳴る)。
@@ -5508,7 +5543,7 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
         }
       }
       const [px, py] = metroArcPoint(metroPendT(pendDeg));
-      // 拍の演出は毎拍・両端で出す。膨らむのは小節頭だけ(本人指示)。
+      // 拍の演出は毎拍・両端で出す。膨らみも毎拍(【F-100 2026/08/17 本人指示】。強弱は e の係数が持つ)。
       const e = reduceMotion.matches ? 0 : ringBeatEmphasis(phase, beatsPerMeasure, accentOn);
       const isHead = ringBeatIsHead(phase, beatsPerMeasure, accentOn);
       const dot = dotRef.current;
@@ -7025,7 +7060,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* タイムライン。【N-9】カードの箱 → 白地+上辺の罫1本(計測/リード/My Data と同じ文法) */}
       <div style={{ borderTop: "1px solid var(--c-rule)", padding: "10px 0", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 8 }}>
-          タイムライン — ピッチ一致度で色分け（{referenceBasis === "theoretical" ? "絶対値基準" : referenceBasis === "session" ? "別セッション基準" : "目安基準"}）
+          {/* 【F-98 2026/08/17 本人指示】「— ピッチ一致度で色分け（…基準）」の解説は削除。
+              色分けの基準はすぐ上の「基準」セレクタが状態として示している(二度言いだった)。
+              検出ノート数・平均アタックは解説ではなくデータなので残す。 */}
+          タイムライン
           {noteEvents?.length > 0 && (() => {
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => v !== null);
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
@@ -8002,7 +8040,7 @@ function reedTileVisual(drag, id, home, cur) {
 //
 // 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
 // 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, selectedForDelete, onTileTap, onReorder }) {
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, noDrag = false, selectedForDelete, onTileTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -8063,7 +8101,8 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, se
 
   // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
   // 削除モード中はタップが選択のトグルになるので、その場合だけ pointer 系を丸ごと降ろす。
-  const canReorder = !deleteMode && members.length >= 2;
+  // 【F-102】番号編集モード(noDrag)中は長押しの並び替えを起動しない(タップ=番号編集に一本化)。
+  const canReorder = !deleteMode && !noDrag && members.length >= 2;
 
   const handlePointerDown = (id, index) => (e) => {
     // 落ちている最中に次のジェスチャーが来たら、その場で落とし切ってから始める
@@ -8406,9 +8445,13 @@ function ReedsTab(props) {
               </button>
             ) : (
               <>
+                {/* 【F-102】numberEdit は選んで実行する型ではなく「編集して終わる」型なので、
+                    出口の文言は「完了」(編集はシートを閉じた時点で確定済み。キャンセルと出すと
+                    変更が戻ると誤読される)。見た目の型は削除モードのキャンセルと同じ B型ピル。 */}
                 <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
-                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>キャンセル</span>
+                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>{listMode === "numberEdit" ? "完了" : "キャンセル"}</span>
                 </button>
+                {listMode !== "numberEdit" && (
                 <button
                   onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
                   disabled={listMode === "boxDelete" ? selectedBoxKeys.size === 0 : selectedMemberIds.size === 0}
@@ -8424,6 +8467,7 @@ function ReedsTab(props) {
                       : (selectedMemberIds.size > 0 ? `${selectedMemberIds.size}枚を削除` : "削除")}
                   </span>
                 </button>
+                )}
               </>
             )}
           </div>
@@ -8473,6 +8517,9 @@ function ReedsTab(props) {
 const REED_MORE_ITEMS = [
   { mode: "boxDelete", label: "箱を選んで削除" },
   { mode: "memberDelete", label: "個体を選んで削除" },
+  // 【F-102 2026/08/17 本人指示】番号編集の入口を「…」へ。モード中はタイルをタップすると
+  // その1枚の番号編集シートが開く(個別ページの点線の下線は削除した。機能はこの経路で維持)。
+  { mode: "numberEdit", label: "リード番号を変更" },
 ];
 function ReedMoreMenu({ onClose, onPick }) {
   useEffect(() => {
@@ -8522,6 +8569,63 @@ function ReedMoreMenu({ onClose, onPick }) {
             {it.label}
           </button>
         ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// 【F-102 2026/08/17 本人指示】「…」→「リード番号を変更」モードでタイルをタップすると開く、
+// 1枚ぶんの番号編集シート。シートの作法(暗幕・角丸28・つまみ36×4・影)は ReedMoreMenu と同値
+// (新しい濃さ・寸法を発明しない)。番号の意味は個別ページの入力欄と同一:
+// 自由記述・空にすると自動採番に戻る(placeholder に今の値が出る)。
+// 確定はシートを閉じる操作(背景タップ・つまみ・Escape)で行う(開いて閉じただけ=変更なしは書き込まない)。
+function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
+  const [draft, setDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
+  const close = () => { onCommit(draft); onClose(); };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  const dismiss = useSheetDismiss(close);   // 下スワイプで閉じる(F-88 と同じ作法)
+  return createPortal(
+    <div
+      role="dialog" aria-modal="true" aria-label="リード番号を変更"
+      onClick={close}
+      data-noswipe
+      style={{
+        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+      }}
+    >
+      <div
+        ref={dismiss.ref} {...dismiss.handlers}
+        onClick={(e) => e.stopPropagation()}
+        data-noswipe
+        style={{
+          width: "100%", maxWidth: 900, background: "var(--c-surface)",
+          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        }}
+      >
+        <button
+          onClick={close} aria-label="閉じる" className="no-select"
+          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+        >
+          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
+        </button>
+        <div className="sans" style={{ fontSize: 14, color: "var(--c-ink)", marginBottom: 12 }}>
+          {reedLabel(reed, reeds)} の番号
+        </div>
+        <input
+          type="text" aria-label="番号"
+          placeholder={String(reedPosition(reed, reeds))}
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+          className="sans"
+          style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 15 }}
+        />
       </div>
     </div>,
     document.body,
@@ -8854,6 +8958,13 @@ function ReedRegisterView(props) {
   const [extraBrands, setExtraBrands] = useState([]);
   const brandOptions = [...INITIAL_REED_BRANDS, ...extraBrands];
 
+  // 【F-102 2026/08/17 本人指示】番号編集モード(listMode === "numberEdit")中にタップした
+  // 1枚。id で持つ(リードそのものを持つと、編集で reeds が変わった瞬間に古い実体を掴む)。
+  const [numberEditId, setNumberEditId] = useState(null);
+  const numberEditReed = numberEditId ? reeds.find((r) => r.id === numberEditId) || null : null;
+  // モードを抜けたら開きっぱなしのシートも閉じる(モード外にシートだけ残さない)
+  useEffect(() => { if (listMode !== "numberEdit") setNumberEditId(null); }, [listMode]);
+
   // 【F-80 / F-82】箱の編集。見出しの銘柄／日付をタップして開く。下書きは箱のキーで持つ
   // (箱そのものを持つと、編集で reeds が変わった瞬間に古い箱を掴んだままになる)。
   const [editBoxKey, setEditBoxKey] = useState(null);
@@ -9048,8 +9159,11 @@ function ReedRegisterView(props) {
                 sessions={sessions}
                 selectedReedId={selectedReedId}
                 deleteMode={listMode === "memberDelete"}
+                noDrag={listMode === "numberEdit"}
                 selectedForDelete={selectedMemberIds}
-                onTileTap={(id) => (listMode === "memberDelete" ? toggleMemberSelected(id) : onOpenReed?.(id))}
+                onTileTap={(id) => (listMode === "memberDelete" ? toggleMemberSelected(id)
+                  : listMode === "numberEdit" ? setNumberEditId(id)
+                  : onOpenReed?.(id))}
                 onReorder={reorderGroupMembers}
               />
             </div>
@@ -9073,6 +9187,29 @@ function ReedRegisterView(props) {
         <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
           長押ししてスライドすると並び替えられます・タップで詳細
         </div>
+      )}
+
+      {/* 【F-102】番号編集モード中の案内(1行)と、タップした1枚の番号編集シート。
+          変更の確定はシートを閉じたとき(値が変わったときだけ書き込む=個別ページの
+          commitPosition と同じ判定)。 */}
+      {listMode === "numberEdit" && (
+        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
+          番号を変更するリードをタップ
+        </div>
+      )}
+      {numberEditReed && (
+        <ReedNumberSheet
+          reed={numberEditReed} reeds={reeds}
+          onCommit={(draft) => {
+            const trimmed = draft.trim();
+            // 保存値と同じ(変えていない) or 表示中の自動採番のまま(触っていない)なら書き込まない。
+            // 後者を見ないと「開いて閉じただけ」で自動採番が boxNumber に固定化されてしまう。
+            if (trimmed === String(numberEditReed.boxNumber ?? "")) return;
+            if (trimmed === String(reedPosition(numberEditReed, reeds) ?? "")) return;
+            setReeds((prev) => prev.map((r) => (r.id === numberEditReed.id ? { ...r, boxNumber: trimmed || null } : r)));
+          }}
+          onClose={() => setNumberEditId(null)}
+        />
       )}
 
       {addOpen && (
@@ -10161,9 +10298,12 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
           <b style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
           </b>
-          {/* #番号はそのまま編集欄(正典は破線の下線で「書ける」ことを示す)。
-              空欄にすると自動採番に戻り、placeholder にその値が出る(＝今なら何番になるかが分かる)。
-              地・枠は持たない(正典 .backrow に箱は無い)。当たり判定は 44px。 */}
+          {/* #番号はそのまま編集欄。空欄にすると自動採番に戻り、placeholder にその値が出る
+              (＝今なら何番になるかが分かる)。地・枠は持たない(正典 .backrow に箱は無い)。
+              当たり判定は 44px。
+              【F-102 2026/08/17 本人指示】「編集できる」ことを示していた破線の下線は削除。
+              編集機能そのもの(タップ→入力→blur で確定)は不変で、入口の案内は
+              リードタブの「…」→「リード番号を変更」が担う。 */}
           <span style={{ display: "inline-flex", alignItems: "center" }}>
             <span aria-hidden="true">#</span>
             <input
@@ -10172,7 +10312,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
               className="sans"
               style={{
                 width: 46, minHeight: "var(--tap-min)", padding: 0, fontSize: 15, fontWeight: 700,
-                background: "none", border: "none", borderBottom: "1px dashed var(--c-line-strong)",
+                background: "none", border: "none",
                 borderRadius: 0, color: "var(--c-ink)",
               }}
             />
@@ -11426,6 +11566,18 @@ function AnalysisLabView(props) {
           ・機能は1つも落とさない: 条件追加/削除・12次元・値チップ・音域帯まとめ選択・
             日付/日数範囲・既定フィルタ・軸セレクタ3枚・測度7種・折れ線・設定のタブまたぎ保持 */}
       <div>
+        {/* 【F-99 2026/08/17 本人指示】N-9 で消した表題と説明を**書き直して**復活。
+            本人の意図: 「分析は自分で集計軸を選んで初めて機能するページ。最初にユーザーに
+            アクションしてもらう必要があるので一定の説明が必要。PIVOT の文字があれば Excel も
+            想起できる」。説明は N-9 で消した長文を戻すのではなく、1行の簡潔な文に書き直した。
+            表題の文字組み(15px / --c-accent / 700)と説明(12px / --c-ink-3)は旧実装と同じ値
+            (箱 .card は N-9 どおり復活させない。白地に直接置く)。 */}
+        <div className="sans" style={{ fontSize: 15, color: "var(--c-accent)", fontWeight: 700, marginBottom: 4 }}>
+          PIVOT
+        </div>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginBottom: 12 }}>
+          条件・縦軸・横軸・指標を選ぶと、蓄積データをマトリクスで集計します
+        </div>
         {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
         <div style={{ padding: "6px 0 12px" }}>
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
@@ -11824,14 +11976,26 @@ function MyDataPage({
                 className="sans"
                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 2px", borderBottom: "1px solid var(--c-line)", cursor: "pointer", minHeight: "var(--tap-min)", boxSizing: "border-box" }}
               >
-                {listMode && (
-                  <input
-                    type="checkbox" checked={selectedForDelete.has(s.id)}
-                    onChange={() => toggleSessionSelected(s.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
-                  />
-                )}
+                {/* 【F-97 2026/08/17 本人実機報告】削除モードで先頭行だけチェックボックスが出ず、
+                    タップするとチェックが日付に重なる(iPhone)。現行コードでは全行が同一の JSX
+                    (この map の1形だけ)で、Chrome 実測でも全行にチェックボックス+字下げが出る
+                    (先頭行の全可視域 16,309点の elementFromPoint 走査で全点が行に命中)。
+                    構造上、先頭行だけ違う描き方になる分岐は存在しない。
+                    考えられる機序は「モード切替の瞬間に、上の絞り込みピル行の消滅(約35pxの
+                    レイアウト移動)と同時に、合成スクロール層(overflowY:auto)の各行へ**ノードを
+                    挿入**する」ことによる WebKit の再レイアウト/再描画の取りこぼし。
+                    → **挿入をやめて常設にする**: チェックボックスは常に DOM に置き、
+                    listMode で display だけを切り替える(ノード挿入よりスタイル変更の方が
+                    WebKit の無効化経路として確実)。listMode 外では display:none なので
+                    レイアウト・当たり判定とも従来と同一。 */}
+                <input
+                  type="checkbox" checked={selectedForDelete.has(s.id)}
+                  onChange={() => toggleSessionSelected(s.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  tabIndex={listMode ? undefined : -1}
+                  aria-hidden={listMode ? undefined : true}
+                  style={{ display: listMode ? "block" : "none", width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontSize: 13, color: "var(--c-ink)" }}>{formatYmd(s.recordedAt, { time: true })}</span>
                   <span style={{ display: "block", fontSize: 11, color: "var(--c-ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subParts.join(" · ")}</span>
@@ -11928,66 +12092,58 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           【N-9 2026/08/16 本人指示】カードの箱を廃止して白地に直接置く(計測/リード/My Data と
           同じ文法)。直前に「一覧に戻る」の区切りがあるので、この群は上辺の罫を引かない
           (リードタブの no-top-rule と同じ判断)。 */}
+      {/* 【F-98 2026/08/17 本人指示】セッション情報を「ラベル+値」の行構成(1行1情報)へ整形。
+          ラベルは .mname の文字組み(12px / --c-ink-2)・値の左端は minWidth 3em で縦に揃える
+          (「リード」が3文字なので 3em。F-55 の 2em はこの整形で置き換えた。コロンは正典 .mname に
+          無いので全行から外した)。
+          入力欄(datetime-local / メモ)は**白地+細い下線**へ: 地(--c-sunken)を打ち消し、
+          リード個体詳細のメモ(borderBottom 1px solid var(--c-line))と同じ下線の作法。
+          枠は透明で場所を残す(§6.1.5。border:none にすると外形が縮む)。中身のネイティブ input は不変。 */}
       <div style={{ marginBottom: 10 }}>
-        {/* 日付と「目安に設定」を同列・右寄せに(本人指示)。1つの flex 行にまとめ、
-            日付を左、SetAsIdealButton を右に置く。
-            【2026-08-04 本人指摘】日付欄だけ太字で、下段の奏者・リードと体裁が揃っていなかった。
-            fontWeight:700 を撤去し、下段と同じ「ラベル: 値」の体裁(薄いラベル+標準太さの値)に揃える。
-            ラベル追加ぶん、入力欄の幅を予算(行の空き313px弱からボタン107.9px+gap8pxを引いた
-            約197px)に収まるよう詰める(F-39の教訓: 幅を先に確保してから足す)。 */}
-        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ marginBottom: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-            <span className="sans" style={{ fontSize: 12, color: "#435266", flexShrink: 0 }}>日付:</span>
+            <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>日付</span>
             <input
               type="datetime-local"
               value={recordedAtLocal}
               onChange={(e) => setSessionRecordedAt(e.target.value)}
               className="sans"
-              style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 158, flexShrink: 0 }}
+              style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 158, flexShrink: 0, background: "none", border: "1px solid transparent", borderBottom: "1px solid var(--c-line)", borderRadius: 0 }}
             />
           </span>
           <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
         </div>
-        {/* 日付の下段に奏者・リード・楽器種別を横一列で並べる(1行に収める。はみ出す分は横スクロール) */}
-        <div className="sans" style={{ fontSize: 12, color: "#435266", display: "flex", alignItems: "center", gap: 12, flexWrap: "nowrap", overflowX: "auto" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-            奏者:
-            {/* 【N-9 2026/08/16 本人指示】select 類は見た目だけ「素のテキスト + ▾」(F-72 の作法)へ。
-                PerformerSelector は bare 枝(計測タブと同じ)を使う。中身のネイティブ select はそのまま。 */}
-            <PerformerSelector bare selectId="session-performer-select" performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-            リード:
-            <PlainSelect
-              ariaLabel="紐付けるリード"
-              text={reed ? reedLabel(reed, reeds) : "未紐付け"}
-              value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}
-            >
-              <option value="">未紐付け</option>
-              {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-            </PlainSelect>
-          </span>
-          <span style={{ flexShrink: 0 }}>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
+        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>奏者</span>
+          {/* 【N-9 2026/08/16 本人指示】select 類は見た目だけ「素のテキスト + ▾」(F-72 の作法)。
+              中身のネイティブ select はそのまま。 */}
+          <PerformerSelector bare selectId="session-performer-select" performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
+        </div>
+        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>リード</span>
+          <PlainSelect
+            ariaLabel="紐付けるリード"
+            text={reed ? reedLabel(reed, reeds) : "未紐付け"}
+            value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}
+          >
+            <option value="">未紐付け</option>
+            {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+          </PlainSelect>
+        </div>
+        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, minHeight: 28 }}>
+          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>楽器</span>
+          <span style={{ fontSize: 12, color: "var(--c-ink)" }}>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
         </div>
         {session.source === "upload" && (
           <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>アップロード: {session.sourceFileName}</div>
         )}
-        {/* 【F-55】メモの入力欄の左端を、上の日付入力・奏者セレクタと縦に揃える。
-            日付・奏者側は動かさない。合わせるのはメモ側だけで、要因は2つあった:
-            (1) ラベルと欄の間隔が8pxで、日付・奏者の4px(--sp-1)より4px右にずれていた。
-            (2) 「日付」「奏者」は全角2文字ぶん(2em=24.000px)だが、「メモ」は片仮名が
-                プロポーショナルに詰まる書体(Windowsのフォールバック等)で 22.453px になり、
-                残り1.547pxぶんずれる。ラベルの文字部分に 2em の下限を与えて、
-                書体によらず「全角2文字ぶん」の幅を占めるようにする(コロンは3書とも同じ)。 */}
-        <div className="sans" style={{ fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: "#435266", flexShrink: 0 }}>
-            <span style={{ display: "inline-block", minWidth: "2em" }}>メモ</span>:
-          </span>
+        <div className="sans" style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>メモ</span>
           <input
             type="text"
             value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
             className="sans"
-            style={{ flex: 1, padding: "6px 10px", fontSize: 12 }}
+            style={{ flex: 1, padding: "6px 2px", fontSize: 12, background: "none", border: "1px solid transparent", borderBottom: "1px solid var(--c-line)", borderRadius: 0 }}
           />
         </div>
       </div>
@@ -12034,18 +12190,8 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             音階ごとの平均（{noteGroups.length}音）
           </div>
-          {/* ピッチ集計の透明性(F-44)。集計が主役のアプリなので「何を捨てた数字か」を1行だけ添える */}
-          {(() => {
-            const used = noteGroups.reduce((n, g) => n + (g.pitchFrameUsed || 0), 0);
-            const excluded = noteGroups.reduce((n, g) => n + (g.pitchFrameExcluded || 0), 0);
-            if (used + excluded === 0) return null;
-            const pct = Math.round((excluded / (used + excluded)) * 100);
-            return (
-              <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10 }}>
-                ピッチは各音の安定区間の平均（立ち上がり・切り替わりの過渡 {pct}% を除外）
-              </div>
-            );
-          })()}
+          {/* 【F-98 2026/08/17 本人指示】F-44 の解説文「ピッチは各音の安定区間の平均（…過渡 n% を
+              除外）」は削除(本人が名指しした長い解説文)。**集計そのもの(過渡の除外)は不変**。 */}
           {/* 全件を縦に常時表示する(本人指示)。縦スクロールが無いので見出しの sticky は不要。
               横は375px幅ではテーブルの minWidth:480 に対して足りないため overflowX は残す。
               軸ロック(useAxisLockScroll)は「縦横どちらもスクロールする場合の斜め防止」用だったが、

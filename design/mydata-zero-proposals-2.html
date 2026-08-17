@@ -1,0 +1,236 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Data ゼロベース案（第2ラウンド）</title>
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
+    --rule:#E1E6EC; --accent:#174585; --mid:#7FA0CE; --pale:#B9C9E4; --faint:#D9E2EF;
+    --ghost:#EAEFF6; --bg:#F6F7F9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:20px 16px 4px;max-width:1180px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 8px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.8;margin:0 0 5px}
+  header b{color:var(--ink)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+  .phone{position:relative;width:375px;max-width:100%;height:716px;background:#fff;
+    border-radius:26px;overflow:hidden;box-shadow:0 2px 14px rgba(20,30,50,.10)}
+  .body{position:absolute;top:0;left:0;right:0;bottom:52px;padding:14px 24px 0;overflow:hidden}
+  .subtabs{display:flex;gap:18px;font-size:13px;color:var(--ink3);padding:2px 0 12px;align-items:baseline}
+  .subtabs .on{color:var(--ink);font-weight:600}
+  .subtabs .sel{margin-left:auto;font-size:12px;color:var(--ink3)}
+  .tabs{position:absolute;left:0;right:0;bottom:0;height:52px;border-top:1px solid var(--line);display:flex}
+  .tabs div{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink3)}
+  .tabs .on{color:var(--accent);font-weight:700}
+  .num{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .mut{color:var(--ink3)}
+
+  .lbl{font-size:11px;color:var(--ink3)}
+  .legend{display:flex;gap:12px;font-size:10px;color:var(--ink3);align-items:center}
+  .sw{display:inline-block;width:12px;height:2.5px;border-radius:2px;margin-right:4px;vertical-align:2px}
+  .axis{font-size:8.5px;fill:var(--ink3)}
+
+  /* 数字1行(HNR/重心/音量) */
+  .nline{display:flex;align-items:baseline;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--rule)}
+  .nline .nm{font-size:12px;color:var(--ink2)}
+  .nline .vals{font-size:11.5px;color:var(--ink3)}
+  .nline .vals b{color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:600}
+
+  /* 案K 蓄積カウンタ */
+  .stock{display:flex;gap:26px;align-items:baseline;padding:2px 0 4px}
+  .stock .big{font-family:ui-monospace,Menlo,monospace;font-size:30px;font-weight:600;line-height:1}
+  .stock .u{font-size:12px;color:var(--ink3);margin-left:2px}
+  .stock small{display:block;font-size:10px;color:var(--ink3);margin-top:4px}
+
+  /* 一覧 */
+  .shead{display:flex;align-items:baseline;justify-content:space-between;padding:15px 0 8px}
+  .shead .t{font-size:13px;font-weight:600}
+  .shead .ops{display:flex;gap:14px;font-size:12px;color:var(--ink2)}
+  .srow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+  .srow .m{font-size:11.5px;color:var(--ink2);text-align:right;flex-shrink:0}
+  .srow .m small{display:block;font-size:9.5px;color:var(--ink3)}
+
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap b{color:var(--ink)}
+  .cap .ok{color:#1D6B4A}.cap .ng{color:#B0433A}
+  footer{max-width:1180px;margin:0 auto;padding:10px 16px 70px;font-size:13px;color:var(--ink2);line-height:1.9}
+  footer h2{font-size:14px;color:var(--ink);margin:24px 0 6px}
+  footer li{margin-bottom:5px}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4; --ink2:#B6C0CE; --ink3:#8892A0; --line:#252B34; --line2:#39414C;
+          --rule:#2C333D; --ghost:#232B36; --faint:#2E3947; --bg:#14181E}
+    body{background:#14181E}
+    .phone{background:#1B2027;box-shadow:none}
+  }
+</style>
+
+<header>
+  <h1>My Data ゼロベース案（第2ラウンド）</h1>
+  <p>前回の反省を軸にしました: <b>事実だけを出す（解釈しない）</b> / テキストの壁もグラフの壁も作らない /
+  <b>PIVOT の領分（自分で軸を選ぶ）を侵さない</b>。<br>
+  このページの役目は1つ — <b>操作ゼロで、貯まったデータが勝手に形になって見えること</b>。
+  だからグラフは<b>1画面に1枚だけ</b>、その1枚に「蓄積」そのものを描きます。スマホで実寸です。</p>
+</header>
+
+<div class="row">
+
+  <!-- ===== 案J ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案J　月の層</span><span class="rec">推し</span><span class="s">蓄積が線の重なりとして見える</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾</span></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="lbl">音ごとの平均差分（¢）</span>
+        <span class="legend"><span><span class="sw" style="background:var(--faint)"></span>6月</span>
+          <span><span class="sw" style="background:var(--pale)"></span>7月</span>
+          <span><span class="sw" style="background:var(--mid)"></span>8月</span>
+          <span><span class="sw" style="background:var(--accent)"></span>今日</span></span>
+      </div>
+      <svg width="100%" height="120" viewBox="0 0 327 120" preserveAspectRatio="none" style="margin:8px 0 0">
+        <text class="axis" x="2" y="14">+10</text>
+        <text class="axis" x="2" y="62">0.0</text>
+        <text class="axis" x="2" y="112">−10</text>
+        <line x1="24" y1="59" x2="327" y2="59" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+        <path d="M24 70 L62 66 L100 74 L138 64 L176 58 L214 66 L252 52 L290 40 L327 30" fill="none" stroke="var(--faint)" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M24 67 L62 64 L100 70 L138 61 L176 55 L214 61 L252 48 L290 38 L327 30" fill="none" stroke="var(--pale)" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M24 64 L62 62 L100 66 L138 58 L176 53 L214 57 L252 46 L290 38 L327 32" fill="none" stroke="var(--mid)" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M24 62 L62 60 L100 63 L138 56 L176 52 L214 54 L252 44 L290 36 L327 31" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>
+      </svg>
+      <svg width="100%" height="12" viewBox="0 0 327 12">
+        <text class="axis" x="28" y="9">B♭3</text><text class="axis" x="160" y="9">C5</text>
+        <text class="axis" x="300" y="9">F♯6</text>
+      </svg>
+
+      <div style="margin-top:12px">
+        <div class="nline"><span class="nm">HNR</span>
+          <span class="vals num">6月 <b>16.9</b> → 7月 <b>17.4</b> → 8月 <b>17.8</b> dB</span></div>
+        <div class="nline"><span class="nm">重心</span>
+          <span class="vals num">6月 <b>1150</b> → 7月 <b>1180</b> → 8月 <b>1214</b> Hz</span></div>
+        <div class="nline" style="border-bottom:none"><span class="nm">音量</span>
+          <span class="vals num">6月 <b>−22.8</b> → 7月 <b>−22.1</b> → 8月 <b>−21.4</b> dB</span></div>
+      </div>
+
+      <div class="shead"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">グラフは1枚だけ。<b>月ごとの線が薄→濃で積み重なり</b>、貯まるほど層が増える。
+    層のズレ＝変化が<b>解釈なしで自分の目に見える</b>。下の3指標も月の並びの<b>数字だけ</b>（グラフ無し）。
+    <span class="ok">期間セレクタも不要になる</span>（層が期間そのもの）。<br>
+    <span class="ng">弱点</span>: 始めたばかりの月は層が1本で寂しい（それ自体が「これから貯まる」の表現でもある）。</p>
+  </div>
+
+  <!-- ===== 案K ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案K　基準線は自分でできている</span><span class="s">蓄積量を主役の数字に</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 全期間 ▾</span></div>
+
+      <div class="stock">
+        <span><span class="big num">46</span><span class="u">回</span><small>セッション</small></span>
+        <span><span class="big num">12.5</span><span class="u">時間</span><small>総演奏</small></span>
+        <span><span class="big num">3,120</span><span class="u">音</span><small>計測した音</small></span>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px">
+        <span class="lbl">46回ぶんの平均（帯はいつものばらつき）と今日</span>
+      </div>
+      <svg width="100%" height="110" viewBox="0 0 327 110" preserveAspectRatio="none" style="margin:8px 0 0">
+        <text class="axis" x="2" y="14">+10</text>
+        <text class="axis" x="2" y="57">0.0</text>
+        <text class="axis" x="2" y="102">−10</text>
+        <path d="M24 56 L100 60 L176 48 L252 40 L327 26 L327 42 L252 56 L176 64 L100 74 L24 70 Z"
+          fill="var(--ghost)" stroke="none"/>
+        <line x1="24" y1="54" x2="327" y2="54" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+        <path d="M24 63 L62 61 L100 67 L138 58 L176 56 L214 55 L252 48 L290 40 L327 34" fill="none" stroke="var(--pale)" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M24 60 L62 58 L100 63 L138 55 L176 52 L214 52 L252 44 L290 35 L327 28" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+      <svg width="100%" height="12" viewBox="0 0 327 12">
+        <text class="axis" x="28" y="9">B♭3</text><text class="axis" x="160" y="9">C5</text>
+        <text class="axis" x="300" y="9">F♯6</text>
+      </svg>
+      <div class="legend" style="justify-content:flex-end;margin-top:4px">
+        <span><span class="sw" style="background:var(--pale)"></span>46回の平均</span>
+        <span><span class="sw" style="background:var(--ghost);height:8px"></span>ばらつき</span>
+        <span><span class="sw" style="background:var(--accent)"></span>今日</span></div>
+
+      <div class="nline" style="margin-top:8px"><span class="nm">HNR / 重心 / 音量</span>
+        <span class="vals num"><b>17.8</b>dB · <b>1214</b>Hz · <b>−21.4</b>dB</span></div>
+
+      <div class="shead"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">主役は<b>蓄積量の数字</b>（46回・12.5時間・3,120音）。グラフは1枚 —
+    <b>その46回ぶんでできた基準線＋ばらつきの帯</b>に、今日を重ねる。
+    貯まるほど帯が締まり、基準線が滑らかになる＝<b>蓄積の成果が絵として育つ</b>。<br>
+    <span class="ng">弱点</span>: 月ごとの変化は見えない（帯に溶ける）。</p>
+  </div>
+
+  <!-- ===== 案L ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案L　一覧が主役</span><span class="s">記録の山を眺める</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 全期間 ▾</span></div>
+
+      <div class="nline" style="padding-top:2px"><span class="nm">46回の平均差分</span>
+        <span class="vals num"><b>−0.8</b>¢ · ばらつき <b>±3.4</b>¢</span></div>
+      <svg width="100%" height="64" viewBox="0 0 327 64" preserveAspectRatio="none" style="margin:6px 0 2px">
+        <line x1="24" y1="32" x2="327" y2="32" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+        <path d="M24 36 L62 35 L100 38 L138 33 L176 31 L214 32 L252 27 L290 21 L327 17" fill="none" stroke="var(--pale)" stroke-width="2.2"/>
+        <path d="M24 34 L62 33 L100 35 L138 31 L176 29 L214 29 L252 24 L290 17 L327 13" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      </svg>
+
+      <div class="shead" style="padding-top:10px"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span>
+        <span class="m num">+1.2¢<small>±2.8</small></span></div>
+      <div class="srow"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span>
+        <span class="m num">−0.4¢<small>±3.1</small></span></div>
+      <div class="srow"><span class="d">08/14 22:15 <i>Vandoren-3 #8 · 0:21</i></span>
+        <span class="m num">+4.0¢<small>±5.9</small></span></div>
+      <div class="srow"><span class="d">08/13 21:03 <i>Select3 #2 · 15:40</i></span>
+        <span class="m num">−1.1¢<small>±3.0</small></span></div>
+      <div class="srow"><span class="d">08/12 19:12 <i>Select3 #4 · 8:05</i></span>
+        <span class="m num">−0.2¢<small>±2.6</small></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/11 20:30 <i>Vandoren-3 #5 · 11:20</i></span>
+        <span class="m num">+0.6¢<small>±3.3</small></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">要約は上の<b>1行と小さな1枚</b>だけにして、<b>一覧そのものを主役</b>に。
+    各行の右に<b>その回の平均差分とばらつき</b>が付くので、スクロールして眺めるだけで
+    「揺れていた頃 → 揃ってきた今」が記録の山として見える。<br>
+    <span class="ok">削除・取り込みが主役のすぐ隣</span>。<span class="ng">弱点</span>: 音域ごとの癖は詳細を開かないと見えない。</p>
+  </div>
+
+</div>
+
+<footer>
+  <h2>3案の違い（どれも: 事実だけ・グラフ1枚・操作ゼロで成立）</h2>
+  <ul>
+    <li><b>案J</b> — 蓄積を<b>月の層</b>で見せる。時間方向の変化が主役。</li>
+    <li><b>案K</b> — 蓄積を<b>量の数字と帯</b>で見せる。「基準線は自分の46回でできている」が主役。</li>
+    <li><b>案L</b> — 蓄積を<b>記録の山そのもの</b>で見せる。一覧が主役。</li>
+  </ul>
+  <h2>PIVOT との住み分け</h2>
+  <ul>
+    <li>My Data: <b>固定の1枚</b>を操作ゼロで。軸もフィルタも選ばせない（楽器と期間だけ）。</li>
+    <li>PIVOT: 指標も軸も自分で選ぶ。深掘りはすべてこちらへ。My Data のグラフを1枚に絞ったのはこの線引きのため。</li>
+    <li>J+K の合成（層のグラフ+蓄積カウンタ）、J+L（層+行末の数字）も可能です。</li>
+  </ul>
+</footer>

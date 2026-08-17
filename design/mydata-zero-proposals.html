@@ -1,0 +1,225 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Data ゼロベース案</title>
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;
+    --rule:#E1E6EC; --accent:#174585; --pale:#B9C9E4; --bg:#F6F7F9;
+    --mint:#6EE7B7; --good:#16A34A; --warn:#D97706; --bad:#DC2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:20px 16px 4px;max-width:1180px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 8px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.8;margin:0 0 5px}
+  header b{color:var(--ink)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+  .phone{position:relative;width:375px;max-width:100%;height:716px;background:#fff;
+    border-radius:26px;overflow:hidden;box-shadow:0 2px 14px rgba(20,30,50,.10)}
+  .body{position:absolute;top:0;left:0;right:0;bottom:52px;padding:14px 24px 0;overflow:hidden}
+  .subtabs{display:flex;gap:18px;font-size:13px;color:var(--ink3);padding:2px 0 12px;align-items:baseline}
+  .subtabs .on{color:var(--ink);font-weight:600}
+  .subtabs .sel{margin-left:auto;font-size:12px;color:var(--ink3)}
+  .tabs{position:absolute;left:0;right:0;bottom:0;height:52px;border-top:1px solid var(--line);display:flex}
+  .tabs div{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink3)}
+  .tabs .on{color:var(--accent);font-weight:700}
+  .num{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .up{color:#1D6B4A}.dn{color:#B0433A}.mut{color:var(--ink3)}
+
+  /* 案G 傾向カルテ */
+  .glead{font-size:11px;color:var(--ink3);margin:4px 0 2px}
+  .grow{display:flex;align-items:baseline;gap:10px;padding:12px 0;border-bottom:1px solid var(--rule)}
+  .grow .what{flex:1;font-size:13px;color:var(--ink)}
+  .grow .what small{display:block;font-size:10.5px;color:var(--ink3);margin-top:2px}
+  .grow .val{font-size:20px;font-weight:600}
+  .grow .val small{font-size:11px;font-weight:400;color:var(--ink3)}
+  .gmini{height:26px;width:74px;flex-shrink:0}
+
+  /* 案H 数字の地図 */
+  .mx{width:100%;border-collapse:collapse;font-size:12px}
+  .mx th{font-weight:400;color:var(--ink3);font-size:10.5px;padding:7px 2px;text-align:right}
+  .mx th:first-child{text-align:left}
+  .mx td{padding:9px 2px;text-align:right;border-top:1px solid var(--rule)}
+  .mx td:first-child{text-align:left;color:var(--ink2);font-size:11.5px}
+  .mx .v{font-size:14px;font-weight:600}
+  .mx .s{display:block;font-size:9.5px;color:var(--ink3);margin-top:1px}
+
+  /* 共通: セッション一覧(削除の入口を一覧の隣に) */
+  .shead{display:flex;align-items:baseline;justify-content:space-between;padding:16px 0 8px}
+  .shead .t{font-size:13px;font-weight:600}
+  .shead .ops{display:flex;gap:14px;font-size:12px;color:var(--ink2);align-items:baseline}
+  .srow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap b{color:var(--ink)}
+  .cap .ok{color:#1D6B4A}.cap .ng{color:#B0433A}
+  footer{max-width:1180px;margin:0 auto;padding:10px 16px 70px;font-size:13px;color:var(--ink2);line-height:1.9}
+  footer h2{font-size:14px;color:var(--ink);margin:24px 0 6px}
+  footer li{margin-bottom:5px}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4; --ink2:#B6C0CE; --ink3:#8892A0; --line:#252B34; --line2:#39414C; --rule:#2C333D; --bg:#14181E}
+    body{background:#14181E}
+    .phone{background:#1B2027;box-shadow:none}
+  }
+</style>
+
+<header>
+  <h1>My Data ゼロベース案</h1>
+  <p>目的を<b>「たまったデータから、自分の癖や傾向を数字で知る」</b>の1点に置き直し、
+  今の画面を忘れて3方向から作りました。共通の変更: <b>紺のカード廃止</b> /
+  楽器・期間セレクタは右上に継続 / <b>削除の入口を一覧の見出しの隣へ</b>（遠いというご指摘の対処）/
+  アップロードも一覧の隣。実機と同じ375px幅、<b>スマホで実寸</b>です。</p>
+</header>
+
+<div class="row">
+
+  <!-- ===== 案G ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案G　傾向カルテ</span><span class="rec">推し</span><span class="s">癖を「文＋数字」で名指しする</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 3ヶ月 ▾</span></div>
+
+      <div class="glead">あなたの傾向（3ヶ月 · 46セッション）</div>
+      <div class="grow">
+        <span class="what">高音域で上ずる<small>E5より上の平均差分</small></span>
+        <svg class="gmini" viewBox="0 0 74 26"><path d="M2 16 L20 15 L38 13 L56 9 L72 5" fill="none" stroke="var(--pale)" stroke-width="2"/></svg>
+        <span class="val num dn">+4.8<small>¢</small></span>
+      </div>
+      <div class="grow">
+        <span class="what">いちばん外れる音は E5<small>次点 D5 +5.4 / F♯5 +4.9</small></span>
+        <svg class="gmini" viewBox="0 0 74 26"><circle cx="60" cy="8" r="3.5" fill="var(--accent)"/><path d="M2 18 L20 17 L38 15 L56 10 L72 8" fill="none" stroke="var(--pale)" stroke-width="2"/></svg>
+        <span class="val num dn">+7.1<small>¢</small></span>
+      </div>
+      <div class="grow">
+        <span class="what">低・中音域は安定<small>B♭3〜C5 の平均差分</small></span>
+        <svg class="gmini" viewBox="0 0 74 26"><path d="M2 13 L20 14 L38 12 L56 13 L72 12" fill="none" stroke="var(--pale)" stroke-width="2"/></svg>
+        <span class="val num up">−0.6<small>¢</small></span>
+      </div>
+      <div class="grow">
+        <span class="what">今日は音が明るい<small>重心 いつも1195Hz → 今日1275Hz</small></span>
+        <svg class="gmini" viewBox="0 0 74 26"><path d="M2 18 L24 16 L46 12 L72 6" fill="none" stroke="var(--pale)" stroke-width="2"/></svg>
+        <span class="val num">+80<small>Hz</small></span>
+      </div>
+      <div class="grow" style="border-bottom:none">
+        <span class="what">ばらつきは縮んでいる<small>±4.1¢(先月) → ±3.4¢(今月)</small></span>
+        <svg class="gmini" viewBox="0 0 74 26"><path d="M2 6 L24 10 L46 12 L72 15" fill="none" stroke="var(--pale)" stroke-width="2"/></svg>
+        <span class="val num up">±3.4<small>¢</small></span>
+      </div>
+
+      <div class="shead"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:15 <i>Vandoren-3 #8 · 0:21</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">蓄積から<b>癖を自動で抽出して文にする</b>。「どの音域が・どの音が・どれだけ」まで名指しするので、
+    <span class="ok">次の練習で何をすべきかに直結</span>します。行をタップすると根拠のグラフ（音名軸2本線）が開く。<br>
+    <span class="ng">弱点</span>: 抽出の規則づくりが実装の本体になる（しきい値の設計が要る）。</p>
+  </div>
+
+  <!-- ===== 案H ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案H　数字の地図</span><span class="s">音域×指標の一覧表</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 3ヶ月 ▾</span></div>
+
+      <div class="glead">音域ごとの「いつもの自分」（上段）と今日（下段・色つき）</div>
+      <table class="mx">
+        <tr><th></th><th>平均差分</th><th>ばらつき</th><th>HNR</th><th>重心</th></tr>
+        <tr>
+          <td>低音域<br><span class="s">B♭3〜B4</span></td>
+          <td><span class="v num">−1.2</span><span class="s num up">今日 −0.4</span></td>
+          <td><span class="v num">±2.9</span><span class="s num up">±2.1</span></td>
+          <td><span class="v num">16.8</span><span class="s num">17.0</span></td>
+          <td><span class="v num">980</span><span class="s num">1010</span></td>
+        </tr>
+        <tr>
+          <td>中音域<br><span class="s">C5〜B5</span></td>
+          <td><span class="v num">+0.3</span><span class="s num">+0.5</span></td>
+          <td><span class="v num">±3.1</span><span class="s num">±3.3</span></td>
+          <td><span class="v num">18.1</span><span class="s num">18.4</span></td>
+          <td><span class="v num">1230</span><span class="s num up">1310</span></td>
+        </tr>
+        <tr>
+          <td>高音域<br><span class="s">C6〜</span></td>
+          <td><span class="v num dn">+4.8</span><span class="s num dn">今日 +6.2</span></td>
+          <td><span class="v num">±4.4</span><span class="s num">±4.6</span></td>
+          <td><span class="v num">17.2</span><span class="s num">17.5</span></td>
+          <td><span class="v num">1580</span><span class="s num">1630</span></td>
+        </tr>
+      </table>
+      <div class="glead" style="margin-top:10px">音量: 低 −23.1 / 中 −21.4 / 高 −20.2 dB（今日 −21.8 / −21.0 / −19.4）</div>
+
+      <div class="shead"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+      <div class="srow"><span class="d">08/14 22:15 <i>Vandoren-3 #8 · 0:21</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/13 21:03 <i>Select3 #2 · 15:40</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap"><b>全指標×全音域が1画面の数字</b>で出る、いちばん密度の高い形。上段=期間平均、下段=今日
+    （いつもと明確に違うところだけ色）。セルをタップで音名軸グラフ。<br>
+    <span class="ok">一覧性は3案で最強</span>。<span class="ng">弱点</span>: 表なので、ぱっと見の「読みやすさ」は文の案Gに劣る。</p>
+  </div>
+
+  <!-- ===== 案I ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案I　帯の数字＋折れ線</span><span class="s">今の形の熟成</span></div>
+    <div class="phone"><div class="body">
+      <div class="subtabs"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 3ヶ月 ▾</span></div>
+
+      <div class="glead">平均差分（¢） 低 <b class="num">−1.2</b> · 中 <b class="num">+0.3</b> · 高 <b class="num dn">+4.8</b></div>
+      <svg width="100%" height="64" viewBox="0 0 327 64" preserveAspectRatio="none" style="margin:4px 0 2px">
+        <line x1="20" y1="32" x2="327" y2="32" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+        <path d="M20 36 L58 35 L96 37 L134 33 L172 31 L210 33 L248 28 L286 22 L327 18" fill="none" stroke="var(--pale)" stroke-width="2.4"/>
+        <path d="M20 34 L58 33 L96 35 L134 30 L172 28 L210 29 L248 23 L286 16 L327 12" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      </svg>
+      <div class="glead" style="margin-top:10px">HNR（dB） 低 <b class="num">16.8</b> · 中 <b class="num">18.1</b> · 高 <b class="num">17.2</b></div>
+      <svg width="100%" height="52" viewBox="0 0 327 52" preserveAspectRatio="none" style="margin:4px 0 2px">
+        <path d="M20 34 L58 30 L96 36 L134 26 L172 22 L210 28 L248 24 L286 30 L327 26" fill="none" stroke="var(--pale)" stroke-width="2.4"/>
+        <path d="M20 30 L58 26 L96 32 L134 22 L172 18 L210 25 L248 20 L286 26 L327 21" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      </svg>
+      <div class="glead" style="margin-top:10px">重心（Hz） 低 <b class="num">980</b> · 中 <b class="num">1230</b> · 高 <b class="num">1580</b> <span class="up">今日+80</span></div>
+      <svg width="100%" height="52" viewBox="0 0 327 52" preserveAspectRatio="none" style="margin:4px 0 2px">
+        <path d="M20 42 L58 40 L96 41 L134 34 L172 28 L210 24 L248 18 L286 14 L327 10" fill="none" stroke="var(--pale)" stroke-width="2.4"/>
+        <path d="M20 40 L58 37 L96 39 L134 30 L172 24 L210 20 L248 13 L286 10 L327 6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      </svg>
+
+      <div class="shead"><span class="t">セッション <span class="mut" style="font-weight:400">46</span></span>
+        <span class="ops"><span>↥ 取り込み</span><span>選択</span></span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">今の「音名ごとの2本線」を主役のまま、各グラフの上に<b>低・中・高の帯の数字</b>を置く
+    （「数字で知る」への最短の応え）。大きな数字1つとピルは廃止。<br>
+    <span class="ok">変更が最小で、いま慣れた形の熟成</span>。<span class="ng">弱点</span>: 癖の「名指し」はしてくれない（読み取るのは自分）。</p>
+  </div>
+
+</div>
+
+<footer>
+  <h2>3案の違い</h2>
+  <ul>
+    <li><b>案G</b> — アプリが癖を<b>文＋数字で名指し</b>する。判断の速さ重視。</li>
+    <li><b>案H</b> — <b>音域×指標の表</b>。1画面の情報量重視。</li>
+    <li><b>案I</b> — 今の折れ線の上に<b>帯の数字</b>。変更最小。</li>
+  </ul>
+  <h2>共通の変更（どの案でも）</h2>
+  <ul>
+    <li>紺の大きなカードと評価ピル（Great等）を廃止 — 数字そのものを主役に</li>
+    <li><b>削除の入口を一覧の見出しの隣（「選択」）へ</b> — 遠いというご指摘の対処。アップロードも同列の「↥ 取り込み」</li>
+    <li>楽器・期間セレクタは右上で継続。行タップでセッション詳細も継続</li>
+    <li>G と H、G と I の<b>組み合わせも可能</b>（例: 上に案Gの傾向3行、下に案Iのグラフ）</li>
+  </ul>
+</footer>
