@@ -1,6 +1,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>My Data ゼロベース案（第2ラウンド）</title>
+<!-- 【N-10 2026/08/17 本人指示・凍結仕様 design/F106-SPEC.md】
+     本人がこのページの**案K「基準線は自分でできている」を採用**した。
+     よってこのファイルの案K が My Data の**新しい正典**で、N-6〜N-9 の正典
+     design/data-tab-final.html は役目を終えた（あちらの冒頭にも同じ趣旨を書いてある）。
+     本人の追加指示（案K からの変更点）:
+       「表示されるグラフは一つで、ピッチ・重心・音量・HNR の数字カードは残して、
+         それぞれをタップするとそのグラフが表示される仕組みに変更」
+     → 実装は 案K の .stock（蓄積量の数字3つ）・グラフ1枚・帯・.ops（↥ 取り込み / 選択）を
+       この案K から読み、数字カード4枚とその切り替えを上の追加指示から作っている。
+     scripts/pitch-test.mjs の検証27 がこの案K の CSS/HTML と値を突き合わせるので、
+     **この案K の寸法・語・色を変えると検査が落ちる**（正典として参照されている）。 -->
 <style>
   :root{
     --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --line:#EEF1F4; --line2:#E0E4EA;

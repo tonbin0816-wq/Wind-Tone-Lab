@@ -497,6 +497,23 @@
 
 ---
 
+### [ ] F-116 選択モード外でもチェックボックスが読み上げ・フォーカスの対象に残る
+(番号は F-110〜F-115 が第5陣の凍結仕様で使用中のため、その次から採番)
+- 場所: `src/index.css` の `.slist-check`（F-106 の周で新設）
+- 現状: F106-SPEC の指定どおり、モード外の非表示は `opacity: 0` + `pointer-events: none` だけで
+  実現している。**これは描画とタップは殺すが、アクセシビリティツリーとフォーカス順からは外れない。**
+  VoiceOver は選択モードでない一覧でも行ごとに「チェックボックス」を読み上げる。
+  F-97 の実装（`display: none`）にはこの問題は無かった。
+- **意図した対価**: 行ごとに `aria-hidden` / `tabIndex` を出し入れすると、まさに F-106 が
+  禁じた「行ごとの属性がモードで動く」形に戻る（今回それを消したのが修正の芯）。
+  `visibility: hidden` ならレイアウトを動かさずに読み上げからも外れるが、
+  **F106-SPEC が名指しで `opacity` を指定している**ので勝手に替えていない。
+- 方向性: 実機で F-106 が直ったことを確認できたら、`opacity: 0` を `visibility: hidden` へ
+  替えて読み上げからも外せるか実機で試す（レイアウトは同じく動かない）。
+  ダメなら祖先側で `aria-hidden` を切り替える形（行ごとではない）を検討する。
+- **iOS の実機では判定不能**（Chrome で読み上げの挙動は確かめられない）。
+- 影響度: 小 / コスト: 小
+
 ### [ ] N-9a PIVOT の値チップ(46×20)と「＋条件を追加」(102×24)が §5 の 44px 未達
 HEAD からの既存未達(N-9 の diff は該当 style 行に無変更 = 審査役が裏取り済み)。
 値チップは PIVOT の主要操作経路なので個別に直す価値がある。見た目は変えず当たり判定だけ
@@ -506,6 +523,121 @@ HEAD からの既存未達(N-9 の diff は該当 style 行に無変更 = 審査
 ---
 
 ## 直近の完了記録（それ以前は BACKLOG-archive.md）
+
+## 完了: F-106 / F-107 / F-108 / N-10 実機フィードバック第4陣（2026/08/17）
+
+本人指示（凍結仕様 = `design/F106-SPEC.md`）。build 成功 / **PASS 6375・FAIL 0**
+（着手前の HEAD を LF のまま取り出して実測: **PASS 6370・FAIL 0**。`git archive` 経由だと CRLF になって関数の切り出しが壊れ 6360/10 になるので、基準値を測るときは `git show HEAD:<path>` でブロブを取ること）。
+検証ゲート **4.30〜4.32 秒**。**変異試験 30 件を一意名の複製ツリー（n10mut-6fe181-a）で単独逐次・
+30 KILLED / 生存 0**（複製は終了後に削除。復元後の複製でも PASS 6375・FAIL 0 を確認）。
+
+| | 内容 |
+|---|---|
+| F-106 | **方針転換**（前周の「常設 checkbox + 行ごとの display 切替」は実機で直らなかった）。選択モードは**祖先クラス1つ**（`.slist` ⇄ `.slist is-select`）だけで表現し、行の側は listMode を**行タップの行き先でしか見ない**。行の寸法・字下げ・見え隠れは `src/index.css` の `.slist` / `.slist-row` / `.slist-check` が持ち、**行にも checkbox にも style 属性が無い**。モード外は `opacity:0` + `pointer-events:none` だけで**レイアウトは 1px も動かない**（字下げは常時入る＝モード外の見た目は F-97 以前と変わる。F106-SPEC の「見た目より、モードで壊れないことを優先する」判断） |
+| F-106（外したもの） | **`SwipePager` の track の `willChange: "transform"` を削除**。一覧のスクロールコンテナ（`.slist`）は track の子孫で、恒久的なレイヤ昇格は iOS の再ペイント取りこぼしの典型要因（F106-SPEC が名指し）。SwipeBackArea 側は以前から「will-change は使わない」と明記しており作法が食い違っていた。`contain` / `content-visibility` は**元から0箇所**（追加していない）。`transform` は track のページ送りの実体なので残す（外せない） |
+| F-107 | ページ間の溝を `SWIPE_PAGER_GUTTER = "var(--sp-4)"`（既存トークン）で常設。**track の transform は `swipePagerTrackTransform(index, dxPx)` の1関数だけが作る**（静止時 dx=0 / ドラッグ中 dx≠0 が同じ式なので、片方だけ溝が入る壊れ方が構造的に起きない）。溝は flex の `gap` と位置計算の両方に同じトークンで入る。§6.3 のしきい値・抵抗・終わり方は不変 |
+| F-108 | 「…」は**中身が空になったのでボタンごと廃止**（`DATA_MORE_ITEM_DEFS` / `dataMoreItems` / `moreOpen` を削除）。入口は一覧の見出しの「選択」ひとつ（正典 案K の `.shead .ops`）。モードは `SESSION_SELECT_MODE = "select"` の**1つだけ**（N-6 の "delete" / "reed" を統合。入口を2つに割ると「削除のつもりで入ったらリードを変えられない」行き止まりになる）。削除は子タブ行の右上、一括リード変更は一覧の直前の行（絞り込みピルと入れ替わりで出るので、モードの出入りで一覧が大きく動かない） |
+| N-10 | 正典 = `design/mydata-zero-proposals-2.html` の**案K**。紺のヒーローカードと評価ピル（Great 等）を廃止し、**面が1枚も無い**画面へ。上から 楽器 ▾ · 期間 ▾（右上に継続）→ **蓄積量の数字3つ**（`myDataStock` / `myDataStockTexts`）→ **数字カード4枚**（平均差分 / HNR / 重心 / 音量。1枚が選択状態で、タップでグラフが切り替わる）→ **常に1枚だけのグラフ**（期間平均=薄3px / 直近日=濃2px + **ばらつきの帯**）。目安の破線と Δ は出さない（N-8 の決定を継続） |
+| N-10（帯） | 帯の半幅は `noteSpreadByIndex` = 音ごとの**セッション間**の標準偏差（案K の「貯まるほど帯が締まる」はこの量でしか成り立たない）。音ごとの代表値は `groupFramesByNoteAcrossSessions` ただ1つから取り、**セッションごとに分けたまま**渡す（ピッチのゲートはセッション単位。F-44 の罠1）。塗りは `--c-accent-tint`（正典の `--ghost` #EAEFF6 と 1/255 差。**新しい hex を足していない**） |
+
+### 削除した定義（読み手が無くなったもの）
+
+`MetricRow` / `MY_DATA_ROW_METRICS` / `metricRowHeader`（→ `metricCardNumbers` へ置換）/
+`HERO_CHART_SERIES_STYLES` / `HERO_CHART_ZERO_LINE` / `HERO_CHART_AXIS_TEXT` /
+`NoteAxisLineChart` の `hero` 引数 / `myDataChartSeries` の `styles` 引数 /
+`DATA_MORE_ITEM_DEFS` / `dataMoreItems` / データタブの `moreOpen`。
+新設: `sessionDurationSec`（録音長の規則を1箇所に）/ `myDataStock` / `groupDigits` /
+`myDataStockTexts` / `noteSpreadByIndex` / `metricCardNumbers` / `MY_DATA_CARD_METRICS` /
+`SWIPE_PAGER_GUTTER` / `swipePagerTrackTransform` / `CHART_BAND_FILL` / `SESSION_SELECT_MODE`。
+
+### 実測（375×812 Chrome。IndexedDB へ `n10test-1..4` + reed 1枚を注入して実操作）
+
+- **F-106**: 「選択」で削除モードへ。**全4行の DOM（outerHTML）が完全一致**し、行の style 属性・
+  checkbox の style 属性・checkbox の computed（display / width / height / flex-basis / margin /
+  padding / visibility）・checkbox の矩形（x16 w20 h20）・`dateLeft`（**全行 46**）・行の高さ（**全行 47**）
+  が**モード内外で 1 つも変わらない**。変わったのは祖先の className（`slist` → `slist is-select`）と
+  checkbox の `opacity`（0→1）/ `pointer-events`（none→auto）**だけ**。
+  elementFromPoint の整数1px走査（1行 16,356 点 × 4行）: モード内は**全行 cbHit 420**
+  （= 20×21。**先頭行も他行と完全に同数**）、モード外は**全行 cbHit 0** で行の hit 数は
+  モード内外で同一（＝モード外で 44px の当たり判定を奪っていない）。
+  先頭行の checkbox 中心の elementFromPoint が checkbox 本体 → タップで選択され、
+  右上が「1件を削除」`data-armed="true"` に変わる。キャンセルで祖先クラス・opacity・選択が戻る。
+  ※ マイク拒否の覆い（`role="dialog"` の暗幕）が当たり判定を奪うので、**走査の間だけ**
+  `display:none` にして直後に必ず戻した（戻り値 `flex` を確認）。
+- **F-107**（実ジェスチャー = 非パッシブ touchmove を張った viewport へ Touch を投げて実測）:
+  **隣り合うページの間隔（page0 の右端 → page1 の左端）は
+  静止時 16.00px / ドラッグ中 dx=−20 −60 −120 −200 のいずれも 16.00px**。
+  ページ幅は全状態 347.00px（縮まない）。指を離した後（index 1 へ進んだ状態）も 16.00px で、
+  computed transform は `matrix(1,0,0,1,-363,0)` = −(347+16)。track の `gap` は 16px。
+- **N-10**: 蓄積量 `4回 / 0.0時間 / 25音`（注入は 4 セッション・各 5.4 秒 = 0.006h → 0.0 /
+  noteEvents 5+7+9+4 = **25** と一致）。数字カード4枚を順にタップすると
+  **グラフ1枚だけが切り替わる**（見出し 平均差分（¢）→ HNR（dB）→ 重心（Hz）→ 音量（dB）、
+  目盛も +6.9/0.0/−6.9 → 18.3/17.4/16.5 → 1359/1220/1081 → −19.5/−21.3/−23.0 と入れ替わる。
+  `aria-pressed` は常に1枚だけ true）。グラフの中身は
+  **帯 path 1つ（fill rgb(234,239,245) = --c-accent-tint）+ polyline 2本
+  （rgb(185,201,228) 3px / rgb(23,69,133) 2px）**、凡例は「1ヶ月 / ばらつき / 8/19」。
+  横あふれ 0。
+- **直近日フォールバック**: 今日の記録を消すと、カード4枚の副次行も凡例も**「8/19」**（日付）になる
+  （「今日」と偽らない）。
+- **F-108**: 「…」ボタン 0 個。選択モード中に「選んだ0件のリードを ▾ 変更」の行が出て、
+  選択肢は `選択… / 未紐付けにする / V16-3 #1 (2026/08/01)`、select の実幅 169.2px（上限200未満）、
+  0件のうちは「変更」が disabled。モード中は絞り込みピルが消え、そこへこの行が入る。
+- **検証データの後始末**: 着手時スナップショットは `kv: [] / sessions: []`（まっさらなプロファイル）。
+  終了時に **`sessions` 4キーと `kv` 11キーをキー単位で個別に delete** して
+  `kv: [] / sessions: []` へ復帰（`clear()` / `deleteDatabase` 不使用。DB は windToneLabDB 1つのまま）。
+
+### 検査の書き換え（すべて本人指示 F-106〜F-108 / N-10 を理由とする。黙って消していない）
+
+- **正典の移行**: 検証27・検証28 が読んでいた `design/data-tab-final.html` を
+  `design/mydata-zero-proposals-2.html` の**案K**へ移した。移行の理由は**両ファイルの冒頭**に
+  コメントで残し、**その記録が残っていること自体を 27.8 で検査**している
+  （旧正典を根拠に戻せないようにするため）
+- 検証26: 26.1（.hero の寸法・評価ピル）→「ヒーローが無い / セレクタは白地でも同じ作法 / 期間9種」へ反転。
+  26.2 → 「グラフは常に1枚」を新設。26.3 → 行の寸法の突き合わせ先を index.css の `.slist-*` へ移し、
+  案K の `.ops`（取り込み / 選択）を追加。26.6（「…」の項目）→「「…」がもう無い / 入口は1つ」へ反転。
+  26.7 → 蓄積量・カード4枚・カードのタップ・帯を「落とさない機能」の集合へ追加
+- 検証27 → **N-10 の節へ全面書き換え**（案K との突き合わせ・蓄積量の実行検証・
+  metricCardNumbers の実行検証・noteSpreadByIndex の実行検証・帯の描画の配線）。
+  27.1（楽器セレクタ）/ 27.3（myDataChartSeries）/ 27.6（plain）/ 27.7（F-85 の select）は主張を維持
+- 検証28: 28.1（直近日フォールバックの実行検証）は**そのまま**。28.2 は使い手の綴りを
+  カード・凡例へ移す。28.3（hero 変形と紺の配色）は**画面ごと無くなったので削除**。28.4 は
+  MetricRow → MyDataSection へ錨を移して維持
+- 検証30: 30.1 を F-97（display 切替 / tabIndex / aria-hidden）→ **F-106（祖先クラス1つ・
+  行に style 属性なし・opacity のみ・contain/will-change なし）へ反転**。30.2〜30.4 は不変
+- 6.7b: 禁止語から「ばらつき」を外した（正典 案K が**帯の凡例の語**として使うため）。
+  代わりに 21.4 で「ばらつきの綴りは1箇所だけ」を固定
+- 21.4 / 21.5 / 21.8 / 6.8: ヒーロー（±の副次行・Great/Good/Keep Trying の3段評価）の検査を
+  「その解釈が画面から消えている」へ反転（語・色・判定の綴りの不在を固定）
+- F-79a の総当たり: 期待値を「式の写し」から**画面上の位置(px)**へ変えた
+  （calc を W と溝 G で数値に解いて `-i*(W+G)` と比較）。溝 G は index.css の `--sp-4` から読む。
+  あわせて **F-107 の総当たり検査**（index 0..3 × dx 11 通り = 44 通りで、
+  隣り合うページの間隔が常に G）を新設
+
+### 実機で確かめてほしいこと（Chrome では判定不能）
+
+- **F-106 が実機で直っているか**（Chrome では一度も再現していないので、今回も機序仮説への
+  構造的対処。まず PWA を開き直して最新ビルドか確かめてから、削除モードで先頭行を見る）。
+  **今回はモード外でも常に 32px の字下げが入る**ので、その見た目が許容できるかも合わせて見てほしい
+- **F-107 の溝 16px が実機の指の感触で「詰まっていない」と感じるか**（Chrome の実測では
+  静止時もドラッグ中も 16.00px で同一だが、体感は実機でしか判定できない）
+- 数字カードの副次行（例「8/19 −21.4dB」）が iOS の実フォントで 1 行に収まるか。
+  Chrome 実測では「今日 …」は 1 行、「8/19 …」は 2 行に折り返す（**切れてはいない**）
+- 選択モードのチェックボックスがネイティブ描画で 20px 相当に出るか（§6.7 の appearance 系の隣）
+
+### 踏んだ罠（次の担当へ）
+
+1. **Browser pane の `elementFromPoint` は、マイク拒否の暗幕（`role="dialog"` / z-index 60 /
+   inset 0）に全点を奪われる**。最初の走査は 16,356 点すべて miss で「行が無い」と誤読しかけた。
+   走査の間だけ `display:none` にして必ず戻すこと（罠10 の「計測中だけ隠して復元」はデータタブでも同じ）。
+2. **`computer` のクリックが 30 秒でタイムアウトする**場面があった（下部ナビ）。
+   `javascript_tool` から `button.click()` を呼べば通る。**綴りの確認は
+   `/src/App.jsx` を fetch して見る**が、vite dev は JSX を変換済みなので
+   `className="x"` ではなく `className: "x"` で探すこと（JSX の綴りで探すと全部 false になる）。
+3. **帯（面）は「連続する2音以上」でしか描けない**。検証データを飛び飛びの音
+   （semitoneIndex 4,8,12…）で作ると帯が1つも出ず、実装の不具合と見分けがつかない。
+   隣り合う音（8,9,10…）で注入すること。
+4. **`sessions` ストアは in-line key（keyPath:"id"）**。`put(value, key)` は DataError になる。
+   `kv` は out-of-line なので `put(value, key)`。ストアごとに作法が違う。
 
 ## 完了: F-97〜F-104 実機フィードバック第3陣（2026/08/17）
 

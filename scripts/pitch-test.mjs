@@ -327,6 +327,9 @@ const code = [
   extractFunction("createSwipeBackGesture"),
   // F-79a の差し戻し: SwipePager の終わり方と track へ書く値(swipeBackThreshold を参照するので後ろ)
   extractFunction("swipePagerEndKind"),
+  // F-107: ページ間の溝(トークンのまま)と、静止時・ドラッグ中で共有する transform の式
+  extractConst("SWIPE_PAGER_GUTTER"),
+  extractFunction("swipePagerTrackTransform"),
   extractFunction("swipePagerTrackStyle"),
   extractFunction("swipePagerNextIndex"),
   // F-83: 終わりを告げたイベント → 中断か否か
@@ -403,6 +406,7 @@ const api = new Function(`${code}
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
            reedGroupAvgRating, reedGroupKey, groupReeds, reedMemberOrder,
            swipePagerEndKind, swipePagerTrackStyle, swipePagerNextIndex, swipePagerInterrupted,
+           SWIPE_PAGER_GUTTER, swipePagerTrackTransform,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
            reedScoreY, reedScoreX, reedScoreSegments, reedScoreLabelStep, reedScoreDateLabel,
            reedScoreRowItems,
@@ -6050,16 +6054,18 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       withCard.length === 0, withCard.join(",") || "0件");
   }
   // 【N-6】My Data 子タブに面(グレーのカード)が1枚も無いこと。
-  // 走査は関数の集合で行う: ヒーロー〜指標行(MyDataSection / MetricRow)と
-  // 一覧まわり(MyDataPage)。**「面が無い」ことの十分条件ではない**(親が .card を巻けば
-  // ここは通る)ので、名前もその範囲しか名乗らない。
+  // 走査は関数の集合で行う: 上部の数字とグラフ(MyDataSection)と一覧まわり(MyDataPage)。
+  // **「面が無い」ことの十分条件ではない**(親が .card を巻けばここは通る)ので、
+  // 名前もその範囲しか名乗らない。
+  // 【N-10 2026/08/17 本人指示で書き換え】走査対象から MetricRow を外した:
+  // 常時表示の3行は「グラフは常に1枚」の指示で廃止され、関数ごと消えた(黙って消していない)。
   {
-    const owners = ["MyDataPage", "MyDataSection", "MetricRow"];
+    const owners = ["MyDataPage", "MyDataSection"];
     const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
-    check("N-6: My Data 子タブの3関数を走査できている(空回りしていない)",
+    check("N-6: My Data 子タブの2関数を走査できている(空回りしていない)",
       bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
     const withCard = bodies.filter((b) => /className="[^"]*\bcard\b[^"]*"/.test(b.body)).map((b) => b.n);
-    check("N-6: My Data 子タブの3関数に .card が1枚も無い(面はヒーローだけ。§6.0 の囲いの序列)",
+    check("N-6: My Data 子タブの2関数に .card が1枚も無い(§6.0 の囲いの序列)",
       withCard.length === 0, withCard.join(",") || "0件");
   }
   // 上の tagsWithClass は className="card" という**綴りそのもの**を探す。
@@ -6330,7 +6336,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 【N-6 追記】MyDataSection も渡し手に戻った。正典 .mrow が3列で平均差分の列を持たないため
     // 列は消したが、**「どの音がどれだけズレているか」まで消してはいけない**ので、
     // 入口をヒーローの数字のタップに移した(本人の決定「機能を残す」/ N6-SPEC「音名軸グラフは落とさない」)。
-    const NOTE_FOCUS_OWNERS = ["MetricRow", "MyDataSection"];
+    // 【N-10 2026/08/17 本人指示による書き換え】「グラフは常に1枚」で MetricRow(常時表示の
+    // 3行)が関数ごと廃止されたため、渡し手は MyDataSection だけになった(黙って消していない)。
+    const NOTE_FOCUS_OWNERS = ["MyDataSection"];
     const NOTE_FOCUS_NON_OWNERS = ["MyDataPage", "ReedEvaluationDetail",
       "SessionDetailView", "ReedCompareTab"];
     for (const fn of NOTE_FOCUS_OWNERS) {
@@ -6466,10 +6474,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check(`N-6: ${a.n} は音色3指標のラベルを正典の語で持つ`,
           lack.length === 0, lack.length ? `欠け: ${lack.join("/")} / 実装 ${ls.join("/")}` : ls.join("/"));
       }
-      // データタブの行に**実際に出る**3ラベルが、正典データタブの節の .l と一致すること。
-      // キーの並び(MY_DATA_ROW_METRICS)を辿って解決するので、配列側の定義が変わると落ちる。
+      // データタブに**実際に出る**音色3ラベルが、正典データタブの節の .l と一致すること。
+      // キーの並びを辿って解決するので、配列側の定義が変わると落ちる。
+      // 【N-10 2026/08/17 本人指示による書き換え】並びの出どころが MY_DATA_ROW_METRICS
+      // (廃止した常時表示3行のキー列)から MY_DATA_CARD_METRICS(数字カード4枚のキー列)へ移った。
+      // カードはピッチ(平均差分)を先頭に持つので、音色3指標だけを**並び順のまま**取り出す
+      // (件数で切らずにピッチのキーを除くので、カードが増減しても正しく追従する)。
       {
-        const rowKeys = new Function(`${extractConst("MY_DATA_ROW_METRICS")} return MY_DATA_ROW_METRICS;`)();
+        const cardKeys = new Function(`${extractConst("MY_DATA_CARD_METRICS")} return MY_DATA_CARD_METRICS;`)();
+        const rowKeys = cardKeys.filter((k) => k !== "pitchCentsSigned");
+        check("N-10: 数字カードのキー列から音色3指標を並び順のまま取り出せている(空回りしていない)",
+          rowKeys.length === 3 && cardKeys[0] === "pitchCentsSigned", cardKeys.join("/"));
         const myData = extractConst("MY_DATA_METRICS");
         const labelFor = (k) => (new RegExp(`key: "${k}"[^}]*label: "([^"]+)"`).exec(myData) || [])[1];
         const rowLabels = rowKeys.map(labelFor);
@@ -6552,7 +6567,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 動く側(コメント除去後)のソースに1つも現れないことを固定する(経緯はコメントに書き残してよい)。
   {
     const liveSrc = codeOf(src);
-    for (const old of ["平均ピッチ誤差", "ピッチの安定度", "ピッチ誤差(絶対値)", "平均ピッチ偏差", "ピッチ誤差", "ばらつき"]) {
+    // 【N-10 2026/08/17 本人指示で1語だけ外した】「ばらつき」は正典 案K が**グラフの帯の凡例**
+    // として使う語になったので、禁止語から外す。数字の表記が「標準偏差」1つであることは
+    // 21.4 の「標準偏差は1箇所だけ」と「ばらつきは帯の凡例の1箇所だけ」が引き続き固定する。
+    for (const old of ["平均ピッチ誤差", "ピッチの安定度", "ピッチ誤差(絶対値)", "平均ピッチ偏差", "ピッチ誤差"]) {
       check(`旧表記「${old}」が動く側のソースに残っていない(表示は「平均差分」「標準偏差」に統一)`,
         !liveSrc.includes(old));
     }
@@ -6644,19 +6662,21 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 【N-8 2026/08/16 本人指示による書き換え】「今日」は「今日または直近の記録日」になり、
     // 綴りが todayFrames/todayVal → dayFrames/dayVal に変わった(フレームとラベルの出どころは
     // myDataTodayOrLatestFrames の1関数。検証28)。符号付きの縛りは同じ強さで残す。
-    check("ヒーローの今日/直近日の値は符号付き(pitchCentsSigned)を使う",
-      /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(myDataSection) &&
-      /const dayVal = dayMetrics \? dayMetrics\.pitchCentsSigned : null;/.test(myDataSection));
-    check("ヒーローの対象期間平均も符号付き(pitchCentsSigned)を使う",
-      /const periodVal = overall\.pitchCentsSigned;/.test(myDataSection));
-    // 【F-56 で仕様が変わった】評価は「0からの距離だけ」の3段(Great/Good/Keep Trying)になり、
-    // 対象期間平均との比較(旧 periodErr / MARGIN)は使わなくなった。よって periodErr の存在は
-    // もう要求しない。**絶対値で評価する**という芯だけを引き続き固定する
-    // (符号で良否を決めるように変えたら落ちる)。
-    check("ヒーローの良否判定は絶対値(0からの距離)で評価する",
-      /const dayErr = dayVal != null \? Math\.abs\(dayVal\) : null;/.test(myDataSection));
-    check("ヒーローの良否判定に期間平均との比較を持ち込まない(F-56で0からの距離だけになった)",
-      !/const periodErr\b/.test(codeOf(myDataSection)));
+    // 【N-10 2026/08/17 本人指示で書き換え】ヒーローは廃止され、ピッチは**数字カードの1枚**に
+    // なった。符号付き(pitchCentsSigned)を使うという芯は変わらないので、錨だけ移す
+    // (母集団の綴りは dayMetrics / overall のまま)。
+    check("N-10: ピッチのカードの直近日の値は符号付き(pitchCentsSigned)の指標から取る",
+      /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(myDataSection)
+      && /dayMetrics \? dayMetrics\[key\] : null/.test(myDataSection)
+      && /const MY_DATA_CARD_METRICS = \["pitchCentsSigned"/.test(src));
+    check("N-10: ピッチのカードの期間平均も同じ符号付きの指標から取る",
+      /metricCardNumbers\(m, dayMetrics \? dayMetrics\[key\] : null, overall\[key\]\)/.test(myDataSection)
+      && /const overall = computeFrameMetrics\(periodFrames\);/.test(myDataSection));
+    // 【F-56 → N-10】良否の3段評価(Great/Good/Keep Trying)は本人指示で**廃止**された
+    // (正典 案K は「事実だけを出す(解釈しない)」)。絶対値で評価する芯ごと無くなったので、
+    // 主張を「良否の判定がもう無い」へ反転させる(21.8 が語と色まで固定する)。
+    check("N-10: 良否の判定(dayErr / periodErr)が動く側に残っていない",
+      !/const dayErr\b/.test(codeOf(myDataSection)) && !/const periodErr\b/.test(codeOf(myDataSection)));
 
     // 【N-8 2026/08/16 本人指示による書き換え】旧「ヒーロー直下のスパークライン(時系列)」は
     // **廃止**され、同じ場所に音名軸の折れ線2本(NoteAxisLineChart の hero)が入った(検証28)。
@@ -10296,8 +10316,14 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     check("21.4 副次テキストの文言の組み立ては動く側のソースに1箇所だけ",
       (liveSrc.match(/標準偏差/g) || []).length === 1,
       `${(liveSrc.match(/標準偏差/g) || []).length}箇所`);
-    check("21.4 表記は「標準偏差」で統一(「安定度」「ばらつき」を混ぜない)",
-      !liveSrc.includes("安定度") && !liveSrc.includes("ばらつき"));
+    // 【N-10 2026/08/17 本人指示で書き換え】正典 案K がグラフの帯を「ばらつき」と呼ぶので、
+    // **凡例の語としての「ばらつき」だけ**を許す(検証27 の 27.6 が正典と突き合わせている)。
+    // 数字として出す散らばりの表記は従来どおり「標準偏差」1つのまま(上の1箇所検査が固定)。
+    check("21.4 数字の表記は「標準偏差」で統一(「安定度」を混ぜない)",
+      !liveSrc.includes("安定度"));
+    check("21.4 「ばらつき」の綴りは帯の凡例の1箇所だけ(数字の表記に混ぜない)",
+      (liveSrc.match(/ばらつき/g) || []).length === 1,
+      `${(liveSrc.match(/ばらつき/g) || []).length}箇所`);
   }
 
   // --- 21.5 配線: 4画面すべてが指標定義の sub を渡している ----------------------
@@ -10331,30 +10357,31 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     for (const [label, fn, re] of wiring) {
       check(`21.5 ${label} は指標定義の sub をカードに渡している`, re.test(componentSourceOf(fn)));
     }
-    // 21.5b データタブの指標行に平均差分(標準偏差を連れてくる唯一の指標)が入っていないこと。
-    // ここが破れると、ヒーローと同じ数字が真下に重複し、標準偏差の出どころも2つになる。
+    // 21.5b 数字カードのキー列(N-10 で並びの出どころがここへ移った)。
+    // 【N-10 2026/08/17 本人指示による書き換え】旧 21.5b は「データタブの指標行は HNR/重心/音量の
+    // 3列で、平均差分を入れない(ヒーローと重複させない)」を見ていた。N-10 でヒーローが廃止され、
+    // 平均差分は**数字カードの1枚**として正しく画面に出るようになったので、主張を
+    // 「4指標が1枚ずつ・重複なし・既定選択は平均差分」へ反転させる(黙って消していない)。
     {
-      const rowKeys = new Function(`${extractConst("MY_DATA_ROW_METRICS")} return MY_DATA_ROW_METRICS;`)();
-      check("21.5b データタブの指標行は HNR / 重心 / 音量 の3列(正典 .mrow)",
-        JSON.stringify(rowKeys) === JSON.stringify(["hnrDb", "spectralCentroidHz", "volumeDb"]),
-        rowKeys.join(","));
-      check("21.5b データタブの指標行に平均差分(pitchCentsSigned)を入れない(ヒーローと重複させない)",
-        !rowKeys.includes("pitchCentsSigned"), rowKeys.join(","));
+      const cardKeys = new Function(`${extractConst("MY_DATA_CARD_METRICS")} return MY_DATA_CARD_METRICS;`)();
+      check("21.5b N-10: 数字カードは 平均差分 / HNR / 重心 / 音量 の4枚(本人指示の並び)",
+        JSON.stringify(cardKeys) === JSON.stringify(["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"]),
+        cardKeys.join(","));
+      check("21.5b N-10: 同じ指標を2枚出さない(キーが重複していない)",
+        new Set(cardKeys).size === cardKeys.length, cardKeys.join(","));
     }
-    // ヒーローは TappableMetricCard ではないので個別に見る。主役の大きい数字と**同じ母集団**
-    // から出していること(今日を出しているのに対象期間の標準偏差を添えると読み違える)。
-    // 【N-6】正典 .hero .sd は語を持たない「±3.4¢」なので bare で形だけ選ぶ。**導出は1つのまま**。
     const myDataSection = componentSourceOf("MyDataSection");
-    // 【N-6】`{ bare: true }` を**任意にしない**。任意にすると、`bare` を足した唯一の理由
-    // (正典 .hero .sd は「標準偏差」の語を持たない)を何も固定しないことになり、
-    // 語つきに戻す変異が生き残る(審査役が実証: 削除しても PASS 6003 / FAIL 0)。
-    // 母集団の一致と表記の形は**別の主張**なので、検査も2本に分ける。
-    // 【N-8 書き換え】綴りが todayVal/todayMetrics → dayVal/dayMetrics(今日または直近の記録日)。
-    check("21.5 ヒーローの標準偏差は主役の数字と同じ母集団から出す",
-      /const heroSpread = pitchSpreadSub\(dayVal != null \? dayMetrics : overall/.test(myDataSection));
-    check("21.5 ヒーローの標準偏差は語を持たない形で出す(正典 .hero .sd は「±3.4¢」)",
-      /const heroSpread = pitchSpreadSub\([^;]*, \{ bare: true \}\);/.test(myDataSection),
-      (myDataSection.match(/const heroSpread = [^\n;]+/) || ["見つからない"])[0]);
+    // 【N-10 2026/08/17 本人指示による書き換え】旧 21.5 は「ヒーローの標準偏差(±3.4¢)は主役の
+    // 数字と同じ母集団から / 語を持たない形で出す」を見ていた。紺のヒーローは案K の採用で廃止され、
+    // **ばらつきは数字ではなく音ごとの帯**として出るようになったので、その配線に置き換える。
+    // pitchSpreadSub(語つき/語なしの導出)そのものはリード詳細・セッション詳細が使い続けており、
+    // すぐ下の実行検査がそちらを引き続き固定する(F-66 はそこで生きている)。
+    check("21.5 N-10: My Data は標準偏差の数字(pitchSpreadSub)を出さない(ばらつきは帯が担う)",
+      !/pitchSpreadSub/.test(codeOf(myDataSection)));
+    check("21.5 N-10: 帯の半幅は noteSpreadByIndex から作り、**セッションごとに分けたまま**渡す",
+      /const chartBand = noteSpreadByIndex\(mySessions\.map\(\(s\) => s\.frames \|\| \[\]\), chartMetric\.key, dataSax, tuningHz\);/.test(myDataSection));
+    check("21.5 N-10: 帯はグラフの呼び出しに隣接して渡り、中心は期間平均の系列(id=\"period\")",
+      /bandByIdx=\{chartBand\} bandSeriesId="period"/.test(myDataSection));
     // 【N-6】表示の形は2つ(語つき/語なし)だが、**数の作り方は1つ**であること。
     // pitchSpreadSub を実ソースから取り出して両方の形を評価し、数字の部分が一致するかで見る
     // (別の式を書き足して桁や丸めがずれたら落ちる)。
@@ -10367,10 +10394,13 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
       check("21.5 欠測はどちらの形でも null(「±null¢」を出さない)",
         ps({ pitchStabilityCents: null }, { bare: true }) === null && ps({}) === null);
     }
-    check("21.5 ヒーローは heroSpread があるときだけ副次行を出す",
-      /\{heroSpread && <span>\{heroSpread\}<\/span>\}/.test(myDataSection));
-    check("21.5 ヒーローの副次行の色は既存の副次色(#9DB3D6)のまま(新しい色を作らない)",
-      /\{\(heroSpread \|\| \(dayVal != null && periodVal != null\)\) && \([\s\S]{0,200}?color: "#9DB3D6"/.test(myDataSection));
+    // 【N-10 2026/08/17 本人指示で書き換え】ヒーローの副次行(±3.4¢ · 平均 −0.8¢)は
+    // 紺のカードごと廃止された。散らばりは**音ごとの帯**として出る(27.5)。
+    // pitchSpreadSub そのものはリード詳細・セッション詳細が使い続けるので、上の実行検査で生きている。
+    check("21.5 N-10: My Data に副次行の綴り(heroSpread / heroPeriodText)が残っていない",
+      !/heroSpread|heroPeriodText/.test(codeOf(myDataSection)));
+    check("21.5 N-10: 散らばりの表示は帯が担う(帯の呼び出しが My Data にある)",
+      /bandByIdx=\{chartBand\} bandSeriesId="period"/.test(myDataSection));
     // TappableMetricCard 側の受け口(sub)が生きていること
     const cardCode = componentSourceOf("TappableMetricCard");
     check("21.5 TappableMetricCard は sub を引数に受け取る",
@@ -10711,46 +10741,32 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       gMut[0].concertLabel === NEIGHBOR, `label=${gMut[0].concertLabel}`);
   }
 
-  // --- 21.8 F-56 ヒーローの3段評価(実ソースの判定コードをそのまま評価する) ---------
-  // 【N-8 書き換え】評価の対象は「今日または直近の記録日」の値になり、綴りが
-  // todayErr/todayVal → dayErr/dayVal に変わった。判定(0からの距離・3段・色)は同一。
+  // --- 21.8 【N-10 2026/08/17 本人指示で反転】評価ピル(Great/Good/Keep Trying)の廃止 -----
+  // 旧 21.8 は F-56 の3段評価(0からの距離で Great / Good / Keep Trying)を、実ソースの判定
+  // ブロックをそのまま評価して固定していた。**N-10 で紺のヒーローカードごと廃止**された
+  // (本人指示: 正典 案K は「事実だけを出す(解釈しない)」)ので、主張を
+  // 「その解釈が画面から消えている」へ反転させる(黙って消していない)。
   {
-    const myData = componentSourceOf("MyDataSection");
-    const from = myData.indexOf("const dayErr =");
-    const to = myData.indexOf("const displayVal");
-    if (from === -1 || to === -1 || to <= from) throw new Error("F-56: ヒーローの判定ブロックを切り出せない");
-    const decideSrc = myData.slice(from, to);
-    const decide = (dayVal) => new Function("dayVal", `${decideSrc}\nreturn { heroColor, heroStatus };`)(dayVal);
-    const st = (v) => decide(v).heroStatus;
-    check("21.8 |値| ≤ 2 は Great (0 / +2 / -2 の3点)",
-      st(0) === "Great" && st(2) === "Great" && st(-2) === "Great",
-      `${st(0)}/${st(2)}/${st(-2)}`);
-    check("21.8 2を超え4以下は Good (+2.0001 / -3 / +4 / -4)",
-      st(2.0001) === "Good" && st(-3) === "Good" && st(4) === "Good" && st(-4) === "Good",
-      `${st(2.0001)}/${st(-3)}/${st(4)}/${st(-4)}`);
-    // 【統括の判断】本人の指示は「±4以内でGood」「±6以上でKeep Trying」で4〜6が未定義。
-    // 境界を空けない方を採り、**4超はすべて Keep Trying**。5(=未定義帯)もここで固定する。
-    check("21.8 4を超えたら Keep Trying (+4.0001 / ±5(指示の未定義帯) / ±6 / ±50)",
-      st(4.0001) === "Keep Trying" && st(5) === "Keep Trying" && st(-5) === "Keep Trying" &&
-      st(6) === "Keep Trying" && st(-6) === "Keep Trying" && st(50) === "Keep Trying",
-      `${st(4.0001)}/${st(5)}/${st(-5)}/${st(6)}`);
-    check("21.8 値が無いときは評価そのものを出さない", st(null) === null && decide(null).heroColor === "#FFFFFF");
-    check("21.8 判定は「0からの距離」だけ。符号が違っても同じ評価になる",
-      [0.5, 2, 3, 4, 7, 30].every((v) => st(v) === st(-v)));
-    check("21.8 3段はそれぞれ違う色。旧4段の色(平均より悪化=#F87171)は使われない",
-      new Set([decide(0).heroColor, decide(3).heroColor, decide(9).heroColor]).size === 3 &&
-      ![decide(0).heroColor, decide(3).heroColor, decide(9).heroColor].includes("#F87171"),
-      [decide(0).heroColor, decide(3).heroColor, decide(9).heroColor].join(","));
+    const code = codeOf(src);
+    const WORDS = ["Great", "Good", "Keep Trying"];
+    const alive = WORDS.filter((w) => code.includes(`"${w}"`));
+    check("21.8 N-10: 評価の語(Great / Good / Keep Trying)が動く側に1つも無い",
+      alive.length === 0, alive.join(",") || "0件");
+    // 旧3段の色(ミント/緑/オレンジ)も一緒に消えていること(語だけ変えて残す形を許さない)
+    const COLORS = ["#6EE7B7", "#4ADE80", "#FBBF24"];
+    const aliveColors = COLORS.filter((c) => code.includes(c));
+    check("21.8 N-10: 旧3段の評価色(#6EE7B7 / #4ADE80 / #FBBF24)も残っていない",
+      aliveColors.length === 0, aliveColors.join(",") || "0件");
+    check("21.8 N-10: 判定の綴り(heroStatus / heroColor / dayErr)も残っていない",
+      !/heroStatus|heroColor|dayErr/.test(code));
+    // 旧4段の文言(N-6 以前)も引き続き残っていないこと(21.8 の旧検査から引き継ぐ)
     check("21.8 旧4段の文言(ほぼ完璧/平均より改善/平均より悪化/平均並み)が動く側に残っていない",
-      ["ほぼ完璧", "平均より改善", "平均より悪化", "平均並み"].every((t) => !codeOf(src).includes(t)));
-    // 変異試験: 閾値を動かすと上の主張が落ちる(閾値そのものを固定できている)
-    {
-      const mutSrc = decideSrc.replace("dayErr <= 2", "dayErr <= 3");
-      if (mutSrc === decideSrc) throw new Error("F-56 変異が空振り");
-      const mutSt = (v) => new Function("dayVal", `${mutSrc}\nreturn { heroColor, heroStatus };`)(v).heroStatus;
-      check("21.8x 変異(Greatの閾値を2→3)では +2.0001 が Good ではなく Great になり21.8が落ちる",
-        mutSt(2.0001) === "Great", mutSt(2.0001));
-    }
+      ["ほぼ完璧", "平均より改善", "平均より悪化", "平均並み"].every((t) => !code.includes(t)));
+    // 紺の面そのものが1枚も無いこと(案K の前提)。My Data の2関数に限って名乗る。
+    const noSurface = ["MyDataSection", "MyDataPage"]
+      .filter((n) => /background: "var\(--c-accent\)"/.test(componentSourceOf(n)));
+    check("21.8 N-10: My Data の2関数に紺の面(--c-accent の background)が1枚も無い",
+      noSurface.length === 0, noSurface.join(",") || "0件");
   }
 
   // --- 21.9 F-55/F-57/F-58/F-59 の配線(JSXなので**ソース文字列の検査**にとどまる) ---
@@ -11934,26 +11950,36 @@ let METRO_SIGS_ALL = [];
     ]) {
       check(`データタブにアップロードの${label}がある`, re.test(dv), "");
     }
-    // (c) 見出しの右の**塗り**ボタン(フィルタピルは輪郭のみ。§6.0 の形言語)
-    const bi = dv.indexOf("録音をアップロード");
+    // (c) 見出しの右の入口。
+    // 【N-10 2026/08/17 本人指示で書き換え】正典 案K の .shead .ops は**素のテキスト2つ**
+    // (「↥ 取り込み」「選択」)で、塗りボタンを持たない。旧主張「塗りボタン(--c-accent 地)」は
+    // 形言語ごと置き換わったので、主張を「取り込みの入口が .ops の作法で、44pt を保つ」へ移す
+    // (機能=隠しファイル入力の click は不変。文言の突き合わせは 26.3 が正典と行う)。
+    const bi = dv.indexOf("取り込み");
     const btag = bi === -1 ? "" : dv.slice(dv.lastIndexOf("<button", bi), dv.indexOf(">", bi) + 1);
-    check("データタブのアップロードは塗りボタン(--c-accent 地 + --c-on-accent 文字)",
-      /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
-    check("データタブのアップロードボタンのタップ領域は --tap-min 以上",
-      /minHeight: "var\(--tap-min\)"/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
+    check("データタブの取り込みは案K の .ops の作法(塗りではなく素のテキスト)",
+      bi !== -1 && !/background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(btag)
+      && /TAP_BUTTON_RESET/.test(btag), btag.replace(/\s+/g, " ").slice(0, 200));
+    check("データタブの取り込みボタンのタップ領域は --tap-min 以上(TAP_BUTTON_RESET が持つ)",
+      /TAP_BUTTON_RESET/.test(btag) && /minHeight: "var\(--tap-min\)"/.test(extractConst("TAP_BUTTON_RESET")),
+      btag.replace(/\s+/g, " ").slice(0, 200));
+    check("データタブの取り込みは隠しファイル入力を開く(機能は不変)",
+      /onClick=\{\(\) => uploadInputRef\.current\?\.click\(\)\}/.test(dv));
     // 【N-6】見出しは正典 .shead の「セッション 5/12」。同じ行(.shead)の中に居ることを、
     // 見出しの綴りとボタンの距離で見る(行の中に収まる長さに上限を置く)。
     {
       // **距離ではなく構造で見る**: 見出しの箱が閉じたあと、**新しい箱を開かずに**ボタンが来る
       // = 2つは同じ容器(正典 .shead の行)の直下にいる。
       // 箱を1つでも挟めば(=別の行へ動かせば)ここが落ちる。
+      // 【N-10】.ops は「取り込み」「選択」の2つを1つの箱にまとめるので、間に <div> が
+      // ちょうど1つ(= .ops の箱)だけ入る。2つ以上入る = 別の行へ動いた、で落ちる。
       const hi = dv.indexOf("セッション <span");
       const btnStart = bi === -1 ? -1 : dv.lastIndexOf("<button", bi);
       const headClose = hi === -1 ? -1 : dv.indexOf("</div>", hi);
       const between = hi !== -1 && headClose !== -1 && btnStart > headClose
         ? dv.slice(headClose, btnStart) : null;
-      check("アップロードは「セッション」の見出しと同じ容器(.shead の行)にいる",
-        between !== null && !/<div\b/.test(between),
+      check("取り込みと選択は「セッション」の見出しと同じ容器(.shead の行)にいる",
+        between !== null && (between.match(/<div\b/g) || []).length <= 1,
         between === null ? `見出し ${hi} / ボタン ${btnStart}` : (between.match(/<div\b/g) || []).join(","));
     }
     // (d) エラー(無音ファイル等)の出口がデータタブでも開いている。
@@ -12846,6 +12872,22 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // (b) **不変条件**: 横と確定した(= track に translateX を書いた)ジェスチャーは、
       //     どの終わり方を通っても track が元へ戻るか、React が書き直す予約(advance)が入る。
       //     総当たり: 旗 × dx(端まで含む) × index。1つでも「戻らない」が出れば落ちる。
+      // 【F-107 2026/08/17 本人指示で書き換え】ページ間に溝が入ったので、
+      // 期待値は式の写しではなく**画面上の位置(px)**で確かめる。
+      // 実装が返す calc(...) を「トラック幅 W / 溝 G」で数値に解き、
+      // 「index 番のページの左端が viewport の左端(0)に来ること」を見る。
+      // 溝の実値 G は **index.css のトークンから読む**(実装にも検査にも px を写さない)。
+      const cssTok = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+      const G = Number((/--sp-4:\s*(\d+)px/.exec(cssTok) || [])[1]);
+      check("F-107: 溝の値を index.css のトークン(--sp-4)から読めている(空回りしていない)",
+        Number.isFinite(G) && G > 0 && api.SWIPE_PAGER_GUTTER === "var(--sp-4)",
+        `${api.SWIPE_PAGER_GUTTER} = ${G}px`);
+      // calc の文字列 → px。読めない形は NaN にして必ず落とす。
+      const evalTx = (s) => {
+        const m = /^translateX\(calc\((-?[\d.]+)% - (\d+) \* var\(--sp-4\) \+ (-?[\d.]+)px\)\)$/.exec(String(s));
+        if (!m) return NaN;
+        return (Number(m[1]) / 100) * W - Number(m[2]) * G + Number(m[3]);
+      };
       {
         const bad = [];
         let n = 0;
@@ -12859,9 +12901,17 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
               if (style === null) { bad.push(`flag=${flag} i=${i} dx=${dx} → ${k} で何も書かない`); continue; }
               // transition は必ず EASE へ戻す(ドラッグ中に none にしてあるため)
               if (style.transition !== EASE) { bad.push(`flag=${flag} i=${i} dx=${dx} → transition=${style.transition}`); continue; }
-              // transform: advance 以外は元の位置そのもの / advance は React が書く(null)
-              const want = k === "advance" ? null : `translateX(${-i * 100}%)`;
-              if (style.transform !== want) bad.push(`flag=${flag} i=${i} dx=${dx} → ${k} transform=${style.transform} 期待 ${want}`);
+              // transform: advance は React が書く(null)。それ以外は
+              // **index 番のページの左端が 0 に来る位置**(= 溝込みで -i*(W+G))。
+              if (k === "advance") {
+                if (style.transform !== null) bad.push(`flag=${flag} i=${i} dx=${dx} → advance なのに ${style.transform}`);
+                continue;
+              }
+              const px = evalTx(style.transform);
+              const want = -i * (W + G);
+              if (!(Math.abs(px - want) < 1e-9)) {
+                bad.push(`flag=${flag} i=${i} dx=${dx} → ${k} ${style.transform} = ${px}px 期待 ${want}px`);
+              }
             }
           }
         }
@@ -12869,20 +12919,64 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         check("F-79a: 横と確定したジェスチャーは、どの終わり方でも track が元へ戻る(または React が書き直す)",
           bad.length === 0, bad.slice(0, 3).join(" | "));
       }
+      // 【F-107】**ページ間の間隔は、静止時もドラッグ中も同じ。**
+      // 隣り合う2ページの左端の差が常に W + G(= 溝 G)であることを、
+      // index(0..3) × dx(引きの途中の全域)の総当たりで確かめる。
+      // これが「指で引いている最中だけ間隔が詰まる」という症状の否定そのもの。
+      {
+        const bad = [];
+        let n = 0;
+        const N = 4;
+        for (let i = 0; i < N; i++) {
+          for (const dx of [-300, -150, -75, -8, -0.5, 0, 0.5, 8, 75, 150, 300]) {
+            n++;
+            const tx = evalTx(api.swipePagerTrackTransform(i, dx));
+            if (!Number.isFinite(tx)) { bad.push(`i=${i} dx=${dx} → 読めない式`); continue; }
+            // ページ p の左端(viewport 座標) = p*(W+G) + tx。隣との差は常に W+G のはず。
+            for (let p = 0; p + 1 < N; p++) {
+              const left = p * (W + G) + tx;
+              const next = (p + 1) * (W + G) + tx;
+              const gapPx = next - (left + W);
+              if (!(Math.abs(gapPx - G) < 1e-9)) bad.push(`i=${i} dx=${dx} p=${p} → 溝 ${gapPx}px`);
+            }
+          }
+        }
+        check("F-107: 溝の総当たりが空回りしていない", n === 44, `${n}通り`);
+        check("F-107: ドラッグ中(dx≠0)と静止時(dx=0)で、隣り合うページの間隔がどちらも溝 G と等しい",
+          bad.length === 0, bad.slice(0, 3).join(" | ") || `全 ${n} 通りで溝 ${G}px`);
+        check("F-107: 静止時は index 番のページの左端がちょうど 0(溝の分ずれない)",
+          [0, 1, 2, 3].every((i) => Math.abs(i * (W + G) + evalTx(api.swipePagerTrackTransform(i, 0))) < 1e-9),
+          [0, 1, 2, 3].map((i) => (i * (W + G) + evalTx(api.swipePagerTrackTransform(i, 0))).toFixed(3)).join(","));
+        check("F-107: ドラッグ中の位置は静止時からちょうど dx だけ動く(抵抗・しきい値の規則は不変)",
+          [-300, -8, 0, 8, 300].every((dx) => [0, 2].every((i) =>
+            Math.abs((evalTx(api.swipePagerTrackTransform(i, dx)) - evalTx(api.swipePagerTrackTransform(i, 0))) - dx) < 1e-9)));
+        // 溝は「式」と「flex の gap」の**両方**が同じトークンから来ていること。
+        // 片方だけ変えると、静止時とドラッグ中でまた間隔が食い違う(F-107 の症状に戻る)。
+        {
+          const pager = srcOfFn(src, "SwipePager");
+          check("F-107: track の gap も同じトークン(SWIPE_PAGER_GUTTER)から来ている",
+            /gap: SWIPE_PAGER_GUTTER,/.test(pager) && /transform: swipePagerTrackTransform\(index, 0\)/.test(pager));
+          check("F-107: ドラッグ中の transform も同じ純関数が作る(溝を片方だけに入れない)",
+            /track\.style\.transform = swipePagerTrackTransform\(i, dx\);/.test(pager));
+          check("F-107: 溝を素の px で書いた translateX が SwipePager に残っていない",
+            !/translateX\(\$\{-i \* 100\}%\)/.test(codeOf(pager))
+            && !/translateX\(calc\(\$\{-i \* 100\}% \+ \$\{dx\}px\)\)/.test(codeOf(pager)));
+        }
+      }
       // (c) 旗が立った終わり方(= 差し戻しの原因)を名指しで固定する。
       //     8px だけ横へずらして長押しが成立した場面: 元の位置(0%)へ戻ることが要件。
       {
         const k = api.swipePagerEndKind(true, true, -8, W, 0, COUNT);
         const style = api.swipePagerTrackStyle(k, 0, EASE);
-        check("F-79a: 8px ずらして長押しが成立 → drop で translateX(0%) へ戻す(ずれたまま残さない)",
-          k === "drop" && style && style.transform === "translateX(0%)" && style.transition === EASE,
+        check("F-79a: 8px ずらして長押しが成立 → drop で先頭ページの位置(0px)へ戻す(ずれたまま残さない)",
+          k === "drop" && style && evalTx(style.transform) === 0 && style.transition === EASE,
           `${k} / ${JSON.stringify(style)}`);
         const k1 = api.swipePagerEndKind(true, true, -8, W, 1, COUNT);
         // null 安全にしておく。ここで例外を投げるとハーネスが落ち、**以降の検査が全部消える**
         // (変異試験で R2 がクラッシュとして出て、何が壊れたのか読めなくなった)。
         const s1 = api.swipePagerTrackStyle(k1, 1, EASE);
-        check("F-79a: 2ページ目にいるときは 2ページ目の位置へ戻す(0% に飛ばさない)",
-          s1 !== null && s1.transform === "translateX(-100%)", JSON.stringify(s1));
+        check("F-79a: 2ページ目にいるときは 2ページ目の位置へ戻す(0 に飛ばさない。溝込みで -(W+G))",
+          s1 !== null && Math.abs(evalTx(s1.transform) - -(W + G)) < 1e-9, JSON.stringify(s1));
       }
       // (d) idle は「1px も動かしていない」ときだけ。ここで書いてしまうと、
       //     縦スクロール中に transform が付いて position:fixed の暗幕が壊れる(§6.3)。
@@ -13268,74 +13362,57 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
   // 走査が空回りしていないこと(空回りすると以降が全部「一致」になる)
   check("26.0 正典モックの CSS を走査できている(データタブの規則が揃っている)",
     mockCss.length >= 60, `${mockCss.length}規則`);
-  for (const sel of [".hero", ".hero .lbl", ".hero .num", ".hero .u", ".hero .pill", ".hero .sd",
-    ".mrow", ".mrow .rl", ".mrow .v", ".mrow .l", ".shead", ".shead .t", ".impbtn", ".fpills",
-    ".fp", ".srow", ".srow .d", ".chev"]) {
+  // 【N-10 2026/08/17 本人指示で書き換え】ヒーロー(.hero*)・指標行(.mrow*)・塗りボタン(.impbtn)は
+  // 画面ごと無くなったので、突き合わせ先の一覧から外した(黙って消していない)。
+  // 一覧まわり(.shead / .fpills / .fp / .srow)は N-6 のまま生きているので残す。
+  for (const sel of [".shead", ".shead .t", ".fpills", ".fp", ".srow", ".srow .d", ".chev"]) {
     check(`26.0 正典に ${sel} の規則がある`, ruleOf(mockCss, sel).length === 1,
       `${ruleOf(mockCss, sel).length}件`);
   }
 
   const myDataSection = srcOfFn(src, "MyDataSection");
   const myDataPage = srcOfFn(src, "MyDataPage");
-  const metricRow = srcOfFn(src, "MetricRow");
   const lab = srcOfFn(src, "AnalysisLabView");
+  // 【N-10】正典の移行先。蓄積量の数字・数字カード・グラフ1枚・一覧の .ops はここから読む。
+  const kMock = readFileSync(join(__dirname, "..", "design", "mydata-zero-proposals-2.html"), "utf8");
+  const iK = kMock.indexOf("<!-- ===== 案K ===== -->");
+  const iL = kMock.indexOf("<!-- ===== 案L ===== -->");
+  const kBlock = iK >= 0 && iL > iK ? kMock.slice(iK, iL) : "";
+  const cssIdx = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
 
-  // --- 26.1 ヒーロー(正典 .hero) ---------------------------------------------
+  // --- 26.1 【N-10 2026/08/17 本人指示で書き換え】紺のヒーローの廃止と右上のセレクタ -------
+  // 旧 26.1 は正典 north-star-measure.html の .hero(角丸22 / padding 18-20 / 44px の主数値 /
+  // 評価ピル / ± の副次行)と実装を突き合わせていた。**案K の採用でヒーローそのものが無くなった**
+  // ので、主張を「面が無い」「セレクタは白地の上でも同じ作法のまま」「期間9種は不変」へ
+  // 置き換える(黙って消していない)。案K 側の値の突き合わせは 26.8 が持つ。
   {
-    check("26.1 ヒーローの角丸は正典 .hero と同じ",
-      new RegExp(`borderRadius: ${parseFloat(declOf(mockCss, ".hero", "border-radius"))},`).test(myDataSection),
-      `正典=${declOf(mockCss, ".hero", "border-radius")}`);
-    check("26.1 ヒーローの内側余白は正典 .hero と同じ",
-      myDataSection.includes(`padding: "${declOf(mockCss, ".hero", "padding")}"`),
-      `正典=${declOf(mockCss, ".hero", "padding")}`);
-    check("26.1 主数値の大きさは正典 .hero .num と同じ",
-      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".hero .num", "font-size"))}, fontWeight: 600`).test(myDataSection),
-      `正典=${declOf(mockCss, ".hero .num", "font-size")}`);
-    check("26.1 単位(¢)の大きさは正典 .hero .u と同じ",
-      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".hero .u", "font-size"))}, color: "#9DB3D6"`).test(myDataSection),
-      `正典=${declOf(mockCss, ".hero .u", "font-size")}`);
-    check("26.1 評価ピルの余白は正典 .hero .pill と同じ",
-      myDataSection.includes(`padding: "${declOf(mockCss, ".hero .pill", "padding")}"`),
-      `正典=${declOf(mockCss, ".hero .pill", "padding")}`);
-    check("26.1 副次行の上余白は正典 .hero .sd と同じ",
-      new RegExp(`color: "#9DB3D6", marginTop: ${parseFloat(declOf(mockCss, ".hero .sd", "margin-top"))}`).test(myDataSection),
-      `正典=${declOf(mockCss, ".hero .sd", "margin-top")}`);
-    // 【本人指示「青いカード部分のテキストが多い」】脚注「1ヶ月 ・ n セッション」を消した。
-    // **綴りを禁じるのではなく**、セッション数の数え上げが「比較以外」に使われていないことで見る
-    // (`const n = points.length;` と2行に分けて描く抜け道を塞ぐ。F-78 の網と同じ形)。
-    // **これは「脚注が無い」ことの十分条件ではない**(別の変数で数えれば通る)ので名前もそう名乗る。
-    {
-      const body = codeOf(myDataSection);
-      const bad = [];
-      const re = /\bpoints\.length\b/g;
-      let m;
-      while ((m = re.exec(body)) !== null) {
-        const after = body.slice(m.index + m[0].length, m.index + m[0].length + 12);
-        if (!/^\s*(===|!==|>=|<=|>|<)/.test(after)) bad.push(body.slice(Math.max(0, m.index - 30), m.index + 20).replace(/\s+/g, " "));
-      }
-      check("26.1 ヒーローでセッション数を比較以外に使っていない(脚注を変数経由で描く経路を塞ぐ。十分条件ではない)",
-        bad.length === 0, bad.slice(0, 2).join(" | ") || "0件");
-      check("26.1 その比較の用途は実在する(走査が空回りしていない)",
-        /\bpoints\.length === 0\b/.test(body));
-    }
-    // 期間セレクタは枠も地も持たない素のテキスト + ▾(F-72 の作法。正典 .hero .lbl の「1ヶ月 ▾」)
-    {
-      const i = myDataSection.indexOf('aria-label="集計する期間を選ぶ"');
+    check("26.1 N-10: 紺のヒーロー(角丸22の面)が MyDataSection に無い",
+      !/borderRadius: 22/.test(codeOf(myDataSection)));
+    check("26.1 N-10: 紺地の上でだけ使っていた文字色(#B9C9E4 / #9DB3D6)も残っていない",
+      !/#B9C9E4|#9DB3D6/.test(codeOf(myDataSection)));
+    check("26.1 N-10: 主数値 44px・単位 21px・評価ピルの綴りが残っていない",
+      !/fontSize: 44,/.test(codeOf(myDataSection)) && !/fontSize: 21,/.test(codeOf(myDataSection)));
+    // 期間・楽器のセレクタは白地へ移ったが、作法(素のテキスト + ▾ / 44pt / 型のクラスを
+    // 持たない)は F-72 のまま不変。**2つとも**見る(片方だけ直す事故を作らない)。
+    for (const [nm, label, tail] of [
+      ["期間", "集計する期間を選ぶ", "{rangeLabel} ▾"],
+      ["楽器種別", "集計する楽器種別を選ぶ", "{SAX_PRESETS[dataSax]?.label} ▾"],
+    ]) {
+      const i = myDataSection.indexOf(`aria-label="${label}"`);
       const tag = i === -1 ? "" : myDataSection.slice(myDataSection.lastIndexOf("<button", i), myDataSection.indexOf("</button>", i));
-      check("26.1 期間セレクタのボタンを走査できている", tag.length > 100, `${tag.length}文字`);
-      check("26.1 期間セレクタは地も枠も持たない(型のクラスも持たない)",
+      check(`26.1 ${nm}セレクタのボタンを走査できている`, tag.length > 100, `${tag.length}文字`);
+      check(`26.1 ${nm}セレクタは地も枠も持たない(型のクラスも持たない)`,
         /background: "none", border: "none"/.test(tag) && !/\bctl-(state|plain|pill)\b/.test(tag),
         tag.replace(/\s+/g, " ").slice(0, 200));
-      check("26.1 期間セレクタには ▾ が付く(押せば選択肢が出ることを形で示す。F-72)",
-        /\{rangeLabel\} ▾/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      check(`26.1 ${nm}セレクタには ▾ が付く(押せば選択肢が出ることを形で示す。F-72)`,
+        tag.includes(tail), tag.replace(/\s+/g, " ").slice(0, 200));
       // 【実測で踏んだ罠】高さだけ 44 にしても、「昨日 ▾」のように短い値では**幅が 39px**しか
       // 無く §5 を割る(375×812 で elementFromPoint を整数グリッド1px刻みに走査)。
-      // 文字は flex-end に寄せてあるので、広げるのは左の余白だけ = 見た目は動かない。
-      check("26.1 期間セレクタの当たり判定は縦横とも 44pt(§5。短い値でも幅が足りる)",
+      check(`26.1 ${nm}セレクタの当たり判定は縦横とも 44pt(§5。短い値でも幅が足りる)`,
         /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tag)
         && /justifyContent: "flex-end"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
-      check("26.1 期間セレクタの文字色は正典 .hero .lbl の #B9C9E4",
-        /fontSize: 12, color: "#B9C9E4"/.test(tag));
+      check(`26.1 N-10: ${nm}セレクタの文字色は白地の副次テキスト(--c-ink-3)へ移った`,
+        /fontSize: 12, color: "var\(--c-ink-3\)"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
     }
     // 期間の候補は9種すべて残っている(機能を落とさない)
     {
@@ -13348,72 +13425,45 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     }
   }
 
-  // --- 26.2 ヒーローの母集団と、指標の置き場所(N-7 で折れ線へ) ------------------
-  // 【N-7 2026/08/16 本人指示による書き換え】この節の旧主張のうち次は**仕様ごと廃止**された:
-  //   ・「累計/最新の2行(数字の列)」→ 常時表示の折れ線が引き継ぐ(累計 = 期間セレクタ「全期間」/
-  //     最新の数字 = 行ヘッダの「今日」)。行の寸法・並びの検査は検証27(正典 data-tab-final.html)へ。
-  //   ・「ヒーローの数字タップで音名グラフを開閉」→ 常時表示になったため入口(ボタン・aria-label・
-  //     開閉状態)ごと廃止。「どの音がどれだけズレているか」は消えていない(検証27 が常時表示を固定)。
-  // 残っている主張(母集団・fmt の一本化・紺の面の外)はここで引き続き固定する。
+  // --- 26.2 母集団と、グラフが1枚であること -------------------------------------
+  // 【N-10 2026/08/17 本人指示で書き換え】旧 26.2 のうちヒーロー固有の主張(数字の fmt 一本化 /
+  // 紺の面の中に折れ線が居ること / 指標行が常時表示であること)は、その画面ごと無くなった。
+  // 残っている主張(母集団・定義の一本化・§5・目安の仕組みの保持)はここで引き続き固定し、
+  // **「グラフは常に1枚」**(本人指示の芯)を新しく足す。
   {
     // 【N-7】母集団: 奏者=自分 かつ 選択中の楽器種別(dataSax)。セッションの楽器種別は
     // `s.saxType ?? 現在のsaxType`(既存のフォールバック規則。新規則を発明しない。N7-SPEC 3)。
     check("26.2 allMySessions は期間で絞られていない(奏者と楽器種別で絞る。N-7)",
       /const allMySessions = sessions\.filter\(\(s\) => s\.performer === "自分" && \(s\.saxType \?\? saxType\) === dataSax\);/.test(myDataSection));
-    // 【N-6】期間で絞ったフレームは**ヒーローと4本の折れ線だけ**が使う。
-    // 主役の数字(overall)と折れ線の期間側が**同じ periodFrames から出る**(母集団がずれると
-    // 「+1.2¢ と出ているのにグラフは別の期間」という読み違いが起きる)。
-    check("26.2 期間で絞ったフレームは1度だけ作り、ヒーローの平均がそれを使う",
+    // 期間で絞ったフレームは1度だけ作り、数字カードの期間平均(overall)とグラフの期間側が
+    // **同じ母集団**から出る(ずれると「数字とグラフが別の期間」という読み違いが起きる)。
+    check("26.2 期間で絞ったフレームは1度だけ作り、カードの期間平均がそれを使う",
       /const periodFrames = mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\);/.test(myDataSection)
       && /const overall = computeFrameMetrics\(periodFrames\);/.test(myDataSection)
       && !/frames=\{mySessions/.test(myDataSection));
-    // 【N-7→N-8】ピッチの折れ線はヒーローと同じ母集団の2本(期間 = periodFrames /
-    // 濃い線 = dayFrames(今日または直近の記録日。N-8))。系列の組み立ては myDataChartSeries の
-    // 1箇所(実行検証は検証27)。紺の面の上なので色だけ HERO_CHART_SERIES_STYLES(検証28)。
-    check("26.2 ピッチの折れ線はヒーローと同じ母集団から2系列を作る(myDataChartSeries 経由)",
-      /const pitchSeries = myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel, HERO_CHART_SERIES_STYLES\);/.test(myDataSection)
-      && /series=\{pitchSeries\}/.test(myDataSection),
-      (myDataSection.match(/const pitchSeries = [^\n;]+/) || ["見つからない"])[0]);
-    // 【N-7】数字タップの入口が**残っていない**こと(常時表示と開閉ボタンが二重に生きると、
-    // 同じグラフが2枚出る)。開閉状態の綴りが1つも無いことを動く側(コメント除去後)で見る。
+    check("26.2 N-10: グラフの2系列は myDataChartSeries の1箇所から作る(規則を2箇所に写さない)",
+      /const chartSeries = myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel\);/.test(myDataSection)
+      && /series=\{chartSeries\}/.test(myDataSection),
+      (myDataSection.match(/const chartSeries = [^\n;]+/) || ["見つからない"])[0]);
+    // 【本人指示の芯】「表示されるグラフは一つ」
+    check("26.2 N-10: My Data のグラフは常に1枚だけ(NoteAxisLineChart の呼び出しが1つ)",
+      (myDataSection.match(/<NoteAxisLineChart/g) || []).length === 1,
+      `${(myDataSection.match(/<NoteAxisLineChart/g) || []).length}箇所`);
+    check("26.2 N-10: そのグラフはタップ切り替えの部品(TappableMetricCard)ではない",
+      !/<TappableMetricCard/.test(myDataSection));
     check("26.2 N-7: 数字タップの開閉(heroNoteChartOpen)が動く側に残っていない",
       !/heroNoteChartOpen/.test(codeOf(src)) && !/setHeroNoteChartOpen/.test(codeOf(src)));
-    // 【N-6→N-7】画面の数字は fmt を通し、単位は heroMetric.unit の1箇所から取る
-    // (以前は直書きの符号分岐が 0 のときだけ食い違いを作った。ボタンでは無くなったが
-    //  数字の組み立ての一本化は変わらず固定する)。
-    check("26.2 ヒーローの数字は fmt を通し、単位は heroMetric.unit の1箇所から取る",
-      /const heroNumText = [\s\S]{0,140}?heroMetric\.fmt\(displayVal\)/.test(myDataSection)
-      && /\{heroNumText\}\s*\r?\n\s*<span style=\{\{ fontSize: 21, color: "#9DB3D6" \}\}>\{heroMetric\.unit\}<\/span>/.test(myDataSection));
     // ラベル・単位・書式は MY_DATA_METRICS が唯一の答え(リテラルを直書きしない)
-    check("26.2 ピッチのカードのグラフはラベル・単位・書式を MY_DATA_METRICS から取る(直書きしない)",
-      /const heroMetric = MY_DATA_METRICS\.find\(\(m\) => m\.key === "pitchCentsSigned"\);/.test(myDataSection)
-      && /label=\{heroMetric\.label\} unit=\{heroMetric\.unit\} metricKey=\{heroMetric\.key\}/.test(myDataSection)
-      && /fmt=\{heroMetric\.fmt\}/.test(myDataSection)
+    check("26.2 N-10: グラフはラベル・単位・書式を MY_DATA_METRICS から引いた指標定義で描く(直書きしない)",
+      /const chartMetric = MY_DATA_METRICS\.find\(\(m\) => m\.key === cardMetric\) \?\? MY_DATA_METRICS\[0\];/.test(myDataSection)
+      && /label=\{chartMetric\.label\} unit=\{chartMetric\.unit\} metricKey=\{chartMetric\.key\}/.test(myDataSection)
+      && /fmt=\{chartMetric\.fmt\}/.test(myDataSection)
       && !/label="平均差分" unit="¢"/.test(myDataSection));
-    // 【N-8 2026/08/16 本人指示による書き換え】旧主張「グラフ本体は紺の面の外」は**仕様ごと廃止**:
-    // 本人指示「濃い青のカードの折れ線グラフを音ごとの平均の折れ線グラフに変更」により、
-    // ピッチの折れ線は**ヒーローの紺の面の中**(旧スパークラインの場所)に入った。
-    // 紺の上で読めるよう、色は hero 変形(HERO_CHART_*)が持つ(検証28)。
-    // ここでは「中に居る」ことを、ヒーローの開きタグからグラフまでの <div> の深さで見る
-    // (面の外へ出すと深さが 0 になる)。
+    // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。
     {
-      const iHero = myDataSection.indexOf('<div style={{ background: "var(--c-accent)"');
-      const iChart = myDataSection.indexOf("<NoteAxisLineChart");
-      const seg = iHero >= 0 && iChart > iHero ? myDataSection.slice(iHero, iChart) : "";
-      const depth = (seg.match(/<div\b/g) || []).length - (seg.match(/<\/div>/g) || []).length;
-      check("26.2 N-8: ピッチの折れ線はヒーローの紺の面の中に居る(<div> の深さ ≥ 1)",
-        iHero >= 0 && iChart > iHero && depth >= 1, `面@${iHero} / グラフ@${iChart} / 深さ${depth}`);
-    }
-    // 【目安Δ】常時表示をやめてグラフの凡例へ移した(情報は失わせない)
-    // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。行・ピル・期間セレクタには
-    // 検査があったのに、**この案件が新設した子タブと進捗棒だけ空いていた**(審査役の変異が生存)。
-    {
-      // 子タブと進捗棒は AnalysisLabView(データタブ全体)が描く
       const page = srcOfFn(src, "AnalysisLabView");
       check("26.2 データタブの子タブは 44pt の当たり判定を持つ(§5)",
         /aria-pressed=\{dataSubTab === t\.key\}[\s\S]{0,200}?minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(page));
-      // 進捗棒の細さは正典 mini の値。CSS ではなく正典 HTML のインラインなので
-      // **正典から読む**(期待値をここに写すと、正典が変わっても落ちない)。
       {
         const iMini = mock.indexOf("読み込み中");
         const bar = iMini < 0 ? "" : mock.slice(iMini, iMini + 400);
@@ -13423,11 +13473,8 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
           h !== undefined && new RegExp(`borderRadius: 2, height: ${h},`).test(page), `正典=${h}px`);
       }
     }
-    // 【N-8 2026/08/16 本人指示による書き換え】旧主張「目安との差(Δ)は行ではなくグラフへ渡す」は
-    // **仕様ごと廃止**: 「目安は表示不要で、対象期間の平均と今日の平均だけでok」により、
-    // My Data の全グラフから目安の破線と Δ を外した(絶対の主張は検証28)。
     // グラフ部品(NoteAxisLineChart)と TappableMetricCard の目安の仕組みそのものは
-    // **他画面(リード詳細・セッション詳細)のために従来のまま**であることをここで固定する。
+    // **他画面(リード詳細・セッション詳細)のために従来のまま**であることを固定する。
     {
       const chart = srcOfFn(src, "NoteAxisLineChart");
       check("26.2 グラフ部品は Δ を「目安」の凡例の隣に出す仕組みを保つ(破線が出ているときだけ。他画面用)",
@@ -13436,10 +13483,6 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       check("26.2 TappableMetricCard は idealDiffText をグラフへそのまま渡す(他画面用)",
         /idealDiffText=\{idealDiffText\}/.test(srcOfFn(src, "TappableMetricCard")));
     }
-    // 【N-7 2026/08/16 本人指示による書き換え】旧「数字はタップで音名軸グラフに切り替わる
-    // (TappableMetricCard のまま)」は廃止。指標行は**常時表示**の NoteAxisLineChart になった。
-    check("26.2 N-7: 指標行は常時表示の NoteAxisLineChart(タップ切り替えの TappableMetricCard を使わない)",
-      /<NoteAxisLineChart/.test(metricRow) && !/<TappableMetricCard/.test(metricRow));
   }
 
   // --- 26.3 セッション一覧(正典 .shead / .fpills / .srow) ----------------------
@@ -13459,12 +13502,27 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.3 ピルの並びの余白は正典 .fpills と同じ",
       myDataPage.includes(`padding: "${declOf(mockCss, ".fpills", "padding")}"`),
       `正典=${declOf(mockCss, ".fpills", "padding")}`);
-    check("26.3 一覧の行の余白は正典 .srow と同じ",
-      myDataPage.includes(`padding: "${declOf(mockCss, ".srow", "padding")}"`),
-      `正典=${declOf(mockCss, ".srow", "padding")}`);
-    check("26.3 一覧の行の日時は正典 .srow .d と同じ大きさ",
-      new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".srow .d", "font-size"))}, color: "var\\(--c-ink\\)"`).test(myDataPage),
-      `正典=${declOf(mockCss, ".srow .d", "font-size")}`);
+    // 【F-106 2026/08/17 本人指示で書き換え】行の寸法はインライン style から index.css の
+    // `.slist-row` / `.slist-date` へ移った(モードを祖先クラス1つで表現するため。26.9)。
+    // **値は正典 .srow のまま 1px も動かしていない**ことを、CSS 側と突き合わせて確かめる。
+    {
+      const rowCss = (/\.slist-row \{([^}]*)\}/.exec(cssIdx) || ["", ""])[1];
+      const dateCss = (/\.slist-date \{([^}]*)\}/.exec(cssIdx) || ["", ""])[1];
+      const fsSm = (/--fs-sm:\s*(\d+)px/.exec(cssIdx) || [])[1];
+      check("26.3 index.css の一覧の行の規則を読めている(空回りしていない)",
+        rowCss.length > 40 && dateCss.length > 10 && fsSm !== undefined,
+        `row=${rowCss.length}字 / date=${dateCss.length}字 / --fs-sm=${fsSm}`);
+      check("26.3 一覧の行の余白は正典 .srow と同じ",
+        new RegExp(`padding:\\s*${declOf(mockCss, ".srow", "padding")}\\s*;`).test(rowCss),
+        `正典=${declOf(mockCss, ".srow", "padding")} / 実装=${rowCss.replace(/\s+/g, " ").trim()}`);
+      check("26.3 一覧の行の gap も正典 .srow と同じ",
+        new RegExp(`gap:\\s*${declOf(mockCss, ".srow", "gap")}\\s*;`).test(rowCss),
+        `正典=${declOf(mockCss, ".srow", "gap")}`);
+      check("26.3 一覧の行の日時は正典 .srow .d と同じ大きさ(--fs-sm 経由)",
+        /font-size:\s*var\(--fs-sm\)\s*;/.test(dateCss)
+        && Number(fsSm) === parseFloat(declOf(mockCss, ".srow .d", "font-size")),
+        `正典=${declOf(mockCss, ".srow .d", "font-size")} / --fs-sm=${fsSm}`);
+    }
     // 沈めた「絞り込み」ブロックは撤去した(正典に無い)。地を持つ小ブロックが残っていないこと。
     check("26.3 沈めた「絞り込み」ブロックが残っていない",
       !codeOf(myDataPage).includes("絞り込み")
@@ -13491,21 +13549,53 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     }
     check("26.3 ピルの当たり判定は 44pt(見た目のピルは内側の <span>・<button> は透明。§5)",
       /const filterPill = \([\s\S]{0,400}?\.\.\.TAP_BUTTON_RESET/.test(myDataPage));
-    check("26.3 一覧の行の当たり判定も 44pt(§5)",
-      /borderBottom: "1px solid var\(--c-line\)", cursor: "pointer", minHeight: "var\(--tap-min\)"/.test(myDataPage));
+    check("26.3 一覧の行の当たり判定も 44pt(§5。F-106 で CSS へ移った)",
+      /\.slist-row \{[^}]*min-height:\s*var\(--tap-min\)\s*;/.test(cssIdx));
     // 副次行「V16-3 #4 · 自分 · 12:24」。**読めない区画は丸ごと省く**
     check("26.3 副次行はリード短縮形・奏者・録音時間を「 · 」でつなぎ、欠測は区画ごと省く",
       /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(myDataPage)
       && /\{subParts\.join\(" · "\)\}/.test(myDataPage));
     check("26.3 ピッチの差分は行から出さない(本人指示)",
       !/pitchCents/.test(codeOf(myDataPage)));
-    check("26.3 一覧の高さ制限とスクロールは現行のまま(190px)",
-      /maxHeight: 190, overflowY: "auto"/.test(myDataPage));
+    check("26.3 一覧の高さ制限とスクロールは現行のまま(190px。F-106 で CSS へ移った)",
+      /\.slist \{[^}]*overflow-y:\s*auto\s*;[^}]*max-height:\s*190px\s*;/.test(cssIdx));
+    // 【N-10 / F-108】見出しの右は正典 案K の .ops =「↥ 取り込み」「選択」の2つ。
+    {
+      const opsBlock = /<span class="ops">([\s\S]*?)<\/span><\/div>/.exec(kBlock)
+        || /<span class="ops">([\s\S]*?)<\/div>/.exec(kBlock);
+      const ops = opsBlock ? [...opsBlock[1].matchAll(/<span>([^<]+)<\/span>/g)].map((x) => x[1]) : [];
+      check("26.3 N-10: 正典(案K)の .ops から見出しの右の2項目を読めている(空回りしていない)",
+        ops.length === 2, ops.join(" / "));
+      // 正典の「↥ 取り込み」は記号 + 語。実装はアイコン部品(Upload)+ 語なので**語**で突き合わせる。
+      check("26.3 N-10: 見出しの右に正典と同じ2つの語が出る(取り込み / 選択)",
+        ops.length === 2 && ops.every((t) => myDataPage.includes(t.replace("↥ ", ""))),
+        ops.join(" / "));
+      check("26.3 N-10: 塗りの「録音をアップロード」ボタンは形言語ごと置き換わった(案K に塗りは無い)",
+        !codeOf(myDataPage).includes("録音をアップロード")
+        && !/background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(codeOf(myDataPage)));
+      // 「選択」は削除・一括リード変更の**唯一の入口**で、一覧の見出しの中に居る(F-108 の芯)
+      // 【審査で訂正 2026/08/17】初版は style の式をそのまま錨にしていたため、
+      // §5 を満たすための minWidth を足すと**この検査が落ちる**形になっていた
+      // (「正しい修正を落とす検査」= 罠4)。錨は呼び出し・文言・入口だけにする。
+      check("26.3 F-108: 「選択」は一覧の見出しの行の中にあり、選択モードの入口を呼ぶ",
+        /<button onClick=\{onStartSelect\}[^>]*>\s*\r?\n\s*選択/.test(myDataPage));
+      // 「選択」は F-108 の当の操作。**当たり判定は縦だけでなく横も 44pt**(§5「例外なし」)。
+      // TAP_BUTTON_RESET は minHeight しか持たないので、短い文言だと横が 24px まで痩せる(実測)。
+      check("26.3 F-108: 「選択」の当たり判定は縦横とも --tap-min(§5。短い文言で横が痩せない)",
+        /onClick=\{onStartSelect\}[^>]*minWidth: "var\(--tap-min\)"/.test(myDataPage)
+        && /onClick=\{onStartSelect\}[^>]*justifyContent: "center"/.test(myDataPage));
+      check("26.3 F-108: セッションが0件・モード中は「選択」を出さない(押せない入口を作らない)",
+        /\{sessions\.length > 0 && !listMode && \(/.test(myDataPage)
+        && /\{sessions\.length > 0 && !listMode && \([\s\S]{0,400}?<button onClick=\{onStartSelect\}/.test(myDataPage));
+    }
   }
 
   // --- 26.4 録音時間は最後のフレームの t から導く(保存されていない) --------------
   {
+    // 【N-10】録音長そのものの導出は sessionDurationSec の1箇所へ寄せた
+    // (一覧の m:ss と My Data の総演奏時間が同じ規則から出る)。表示の形だけが別関数。
     const dur = new Function(`${extractFunction("formatElapsedMs")}
+      ${extractFunction("sessionDurationSec")}
       ${extractFunction("sessionDurationLabel")}
       return sessionDurationLabel;`)();
     check("26.4 最後のフレームの t(秒)から m:ss を作る",
@@ -13539,31 +13629,49 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.5 リードが無ければ null(呼び出し側が「未紐付け」に振り替える)", rs(null, reeds) === null);
   }
 
-  // --- 26.6 「…」は押せる項目が無ければ出さない(F-77 の罠) ---------------------
+  // --- 26.6 【F-108 2026/08/17 本人指示で反転】子タブ行の「…」の廃止 ------------------
+  // 旧 26.6 は「押せる項目が無ければ「…」を出さない」(F-77 の罠)を dataMoreItems の実行で
+  // 固定していた。本人指示「セッションの削除についての機能なのに一覧との距離が遠くて使いづらい」
+  // により、中身の2項目(削除 / 一括リード変更)は**どちらも一覧の見出しの「選択」の中へ入り**、
+  // 「…」は中身が空になったので**ボタンごと出さなくなった**(F106-SPEC「空なら「…」自体を出さない」)。
+  // したがって主張を「「…」がもう無い」「機能は落ちていない」へ反転させる(黙って消していない)。
   {
-    const items = new Function(`${extractConst("DATA_MORE_ITEM_DEFS")}
-      ${extractFunction("dataMoreItems")}
-      return dataMoreItems;`)();
-    check("26.6 セッションもリードもあれば2項目",
-      items(3, 2).map((x) => x.key).join(",") === "delete,reed", items(3, 2).map((x) => x.key).join(","));
-    check("26.6 リードが0枚なら一括リード変更を出さない(行き先が無い)",
-      items(3, 0).map((x) => x.key).join(",") === "delete", items(3, 0).map((x) => x.key).join(","));
-    check("26.6 セッションが0件なら項目ゼロ(=「…」ごと出さない)",
-      items(0, 5).length === 0 && items(0, 0).length === 0,
-      `${items(0, 5).length} / ${items(0, 0).length}`);
-    check("26.6 「…」は項目が1つ以上あるときだけ出す(呼び出し側の条件)",
-      /\{dataSubTab === "mydata" && \(moreItems\.length > 0 \|\| listMode !== null\) && \(/.test(lab));
-    check("26.6 項目の文言は削除と一括リード変更の2つ",
-      items(1, 1).map((x) => x.label).join(",") === "セッションを選んで削除,選んだセッションのリードをまとめて変更",
-      items(1, 1).map((x) => x.label).join(","));
+    const code = codeOf(src);
+    check("26.6 F-108: 「…」の項目の定義(DATA_MORE_ITEM_DEFS / dataMoreItems)が残っていない",
+      !/DATA_MORE_ITEM_DEFS|dataMoreItems|moreItems/.test(code));
+    // 「その他の操作」「moreOpen」はリードタブの「…」(ReedMoreMenu)が今も使っているので、
+    // **データタブ(AnalysisLabView / MyDataPage)に無いこと**だけを名乗る。
+    check("26.6 F-108: データタブに「…」ボタンの綴り(その他の操作 / moreOpen)が残っていない",
+      !/その他の操作|moreOpen/.test(codeOf(lab)) && !/その他の操作|moreOpen/.test(codeOf(myDataPage)));
+    check("26.6 F-108: 子タブ行の右端に出るのは**選択モード中の出口と一手だけ**",
+      /\{dataSubTab === "mydata" && listMode !== null && \(/.test(lab));
+    // 入口が1つになったので、モードの値も1つ("select")。入口・出口・実行の3本が同じ値を見る。
+    {
+      const mode = new Function(`${extractConst("SESSION_SELECT_MODE")} return SESSION_SELECT_MODE;`)();
+      check("26.6 F-108: セッションの選択モードは1つだけ(N-6 の delete / reed の2値は統合された)",
+        mode === "select" && !/listMode === "delete"|listMode === "reed"/.test(code), String(mode));
+      check("26.6 F-108: 入口(startListMode)はその1つの値だけを立て、選択状態を空から始める",
+        /const startListMode = \(\) => \{\s*\r?\n\s*setSelectedForDelete\(new Set\(\)\);\s*\r?\n\s*setBulkReedId\(""\);\s*\r?\n\s*setListMode\(SESSION_SELECT_MODE\);\s*\r?\n\s*\};/.test(lab));
+      check("26.6 F-108: その入口を一覧(MyDataPage)へ渡している(呼び出しに隣接する綴り)",
+        /onStartSelect=\{startListMode\}/.test(lab));
+    }
+    // 一括リード変更は選択モードの中の一手として残る(リードが0枚なら行き先が無いので出さない)
+    check("26.6 F-108: 一括リード変更の行は選択モード中かつリードが1枚以上のときだけ出る",
+      /\{listMode && reeds\.length > 0 && \(/.test(myDataPage));
   }
 
   // --- 26.7 機能を1つも落としていないこと(集合で確かめる) -----------------------
   // 正典と現行がぶつかったら**機能を残す**(2026/08/12 本人確定)。形が変わっても消さないもの。
   {
-    const all = codeOf(myDataSection) + codeOf(myDataPage) + codeOf(metricRow) + codeOf(lab);
+    const all = codeOf(myDataSection) + codeOf(myDataPage) + codeOf(lab);
     const want = [
       ["期間セレクタ", /MY_DATA_RANGES/],
+      // 【N-10 で足した】案K の蓄積量の数字と、数字カード4枚 → グラフ1枚の切り替え
+      ["蓄積量の数字", /myDataStockTexts\(myDataStock\(/],
+      ["数字カード4枚", /MY_DATA_CARD_METRICS\.map\(/],
+      ["カードのタップで指標が切り替わる", /onClick=\{\(\) => setCardMetric\(key\)\}/],
+      ["ばらつきの帯", /bandByIdx=\{chartBand\}/],
+      ["楽器セレクタ", /setDataSax/],
       // 【N-7 本人指示による書き換え】音名軸グラフの入口は TappableMetricCard(タップ切り替え)
       // から常時表示の NoteAxisLineChart へ移った。機能(音名ごとの内訳)は消えていない。
       ["音名軸グラフ", /<NoteAxisLineChart/],
@@ -13594,97 +13702,67 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
 }
 
 // ============================================================
-// 検証27: N-7 データタブ(My Data)の折れ線化(2026/08/16 本人指示。凍結仕様 = design/N7-SPEC.md)
-//   正典(見た目) = design/data-tab-final.html。値はすべて**正典の CSS/HTML から読んで**突き合わせる
-//   (期待値をここに写すと、正典が変わっても落ちない)。
-//   A 楽器種別セレクタ「Alto ▾ · 1ヶ月 ▾」: 既定値=計測タブの saxType / 語彙=SAX_PRESETS /
-//     効く範囲はヒーロー+4本の折れ線だけ(セッション一覧には効かせない)
-//   B ピッチのカード(.pitchcard): **常時表示**(N-6 の数字タップ開閉は廃止)
-//   C 指標行(.mrow 案D): ヘッダ「今日 18.2dB · 1ヶ月 17.6 +0.6」+ 折れ線2本
-//   D 系列は myDataChartSeries の1箇所(期間=薄 --c-accent-line / 今日=濃 --c-accent)
-//   E NoteAxisLineChart の plain(見出し・凡例は正典の形で呼び出し側が持つ)
-//   F F-85 対処: 一括リード変更の select(短い表記 + maxWidth)
-// 【この節の作り方】ハーネスは JSX を評価しない。数字の規則(metricRowHeader /
-// myDataChartSeries / bulkReedOptionLabel)は**抽出して実行**で検証し、描画側が
-// その関数を正しい引数で呼んでいることは**綴り**で固定する(LOOP.md の罠: 純関数だけ
-// 守って配線を守らない形は3周連続で差し戻されている)。
+// 検証27: N-10 My Data 刷新（2026/08/17 本人指示。凍結仕様 = design/F106-SPEC.md）
+//   【正典の移行】N-7〜N-9 の正典 design/data-tab-final.html は**役目を終えた**。
+//   本人が案Kを採用したので、正典は design/mydata-zero-proposals-2.html の**案K**へ移す
+//   （F106-SPEC「正典 design/data-tab-final.html は N-10 で役目を終えるので、
+//     mydata-zero-proposals-2.html の案Kを新しい正典として参照するよう検査を移すこと」）。
+//   旧 検証27 が突き合わせていた .pitchcard / .mrow / .mtop / .mnums / .up は、
+//   常時表示の3行が廃止されて**画面ごと無くなった**ので、この節から外した（黙って消していない）。
+//   A 楽器種別セレクタ（N7-SPEC 1〜3。**そのまま生きている**）
+//   B 蓄積量の数字（案K .stock）— 実行で検証し、書式は正典の数字そのものと突き合わせる
+//   C 系列 myDataChartSeries（実行で検証。色は index.css → 案K の変数へ接続）
+//   D 数字カード4枚とタップでの切り替え（metricCardNumbers を実行で検証 + 配線）
+//   E ばらつきの帯（noteSpreadByIndex を実行で検証 + 描画の配線 + 塗りの色）
+//   F NoteAxisLineChart の plain / F-85 対処の select
+// 【この節の作り方】ハーネスは JSX を評価しない。数字と集計の規則は**抽出して実行**で検証し、
+// 描画側がその関数を正しい引数で呼んでいることは**呼び出しに隣接する綴り**で固定する。
 // ============================================================
-console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 data-tab-final.html との突き合わせ) ==========");
+console.log("\n========== 検証27: N-10 My Data 刷新(正典 mydata-zero-proposals-2.html の案K) ==========");
 {
-  const m27html = readFileSync(join(__dirname, "..", "design", "data-tab-final.html"), "utf8");
-  // CSS の走査(検証26 と同じ規則。あちらはブロックスコープなのでここに置き直す)。
-  // この正典には @media (prefers-color-scheme: dark) の上書きがあるが、アプリは
-  // ライトの値だけを持つ(index.css のトークンは固定でダークモードを持たない)ので、
-  // **@media ブロックを丸ごと除いてから**読む(除かないと .pitchcard が2件になり、
-  // 後勝ちでダークの #20262E を「正典の値」と読み違える)。
-  const parseCss27 = (text) => {
-    const out = [];
-    const body = text.replace(/\/\*[\s\S]*?\*\//g, " ")
-      .replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, " ");
-    const re = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = re.exec(body)) !== null) {
-      const sels = m[1].split(",").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
-      out.push({ sels, body: m[2] });
-    }
-    return out;
+  const kMock = readFileSync(join(__dirname, "..", "design", "mydata-zero-proposals-2.html"), "utf8");
+  const iK = kMock.indexOf("<!-- ===== 案K ===== -->");
+  const iL = kMock.indexOf("<!-- ===== 案L ===== -->");
+  const kBlock = iK >= 0 && iL > iK ? kMock.slice(iK, iL) : "";
+  // コメントを外してから読む(規則の直前に /* 案K 蓄積カウンタ */ 等が入るため)
+  const kCss = (kMock.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1].replace(/\/\*[\s\S]*?\*\//g, " ");
+  const kDecl = (sel, name) => {
+    const m = new RegExp(`(^|[};])\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(kCss);
+    if (!m) return null;
+    const d = new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`).exec(m[2]);
+    return d ? d[1].trim() : null;
   };
-  const declsOf27 = (block) => (block || "").split(";").map((d) => d.trim()).filter(Boolean)
-    .map((d) => { const i = d.indexOf(":"); return { name: d.slice(0, i).trim(), value: d.slice(i + 1).trim() }; });
-  const rule27 = (sel) => m27css.filter((r) => r.sels.includes(sel));
-  const decl27 = (sel, name) => {
-    let v = null;
-    for (const r of rule27(sel)) for (const d of declsOf27(r.body)) if (d.name === name) v = d.value;
-    return v;
-  };
-  const m27css = parseCss27((m27html.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]);
-  check("27.0 正典モックの CSS を走査できている(空回りしていない)", m27css.length >= 15, `${m27css.length}規則`);
-  // 【N-8 2026/08/16 本人指示による書き換え】.pitchcard / .chartlbl は正典から削除された
-  // (ピッチカードの廃止)。凡例(.legend / .sw)はヒーローの中へ移り、紺地用の上書き
-  // .hero .legend と軸ラベル .haxis が加わった。
-  for (const sel of [".hero", ".hero .lbl", ".legend", ".sw", ".hero .legend", ".haxis",
-    ".mrow", ".mtop", ".mname", ".mnums", ".mnums b", ".up"]) {
-    check(`27.0 正典に ${sel} の規則がある`, rule27(sel).length === 1, `${rule27(sel).length}件`);
+  const kVar = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{3,8})`).exec(kMock) || [])[1];
+  const cssIdx27 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const tok27 = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{3,8})`).exec(cssIdx27) || [])[1];
+
+  check("27.0 正典(案K)のブロックを切り出せている(空回りしていない)",
+    kBlock.length > 1500 && kBlock.includes("基準線は自分でできている"), `${kBlock.length}文字`);
+  for (const sel of [".stock", ".stock .big", ".stock .u", ".stock small", ".shead", ".shead .ops", ".srow"]) {
+    check(`27.0 正典(案K)に ${sel} の規則がある`, kDecl(sel, "font-size") !== null || kDecl(sel, "display") !== null
+      || kDecl(sel, "padding") !== null || kDecl(sel, "font-family") !== null, sel);
   }
-  check("27.0 N-8: 正典に .pitchcard / .chartlbl の規則が残っていない(ピッチカードの廃止)",
-    rule27(".pitchcard").length === 0 && rule27(".chartlbl").length === 0,
-    `${rule27(".pitchcard").length} / ${rule27(".chartlbl").length}件`);
+  check("27.0 正典(案K)から帯・2本の線の色変数を読める(--ghost / --pale / --accent)",
+    !!kVar("--ghost") && !!kVar("--pale") && !!kVar("--accent"),
+    `${kVar("--ghost")} / ${kVar("--pale")} / ${kVar("--accent")}`);
 
   const myDataSection = srcOfFn(src, "MyDataSection");
   const myDataPage = srcOfFn(src, "MyDataPage");
-  const metricRow = srcOfFn(src, "MetricRow");
   const chart = srcOfFn(src, "NoteAxisLineChart");
 
-  // --- 27.1 楽器種別セレクタ(N7-SPEC 1〜3) -----------------------------------
+  // --- 27.1 楽器種別セレクタ(N7-SPEC 1〜3。N-10 でも不変) -----------------------
   {
     // 既定値 = 計測タブで選択中の saxType(N7-SPEC 1)。永続化しない(再マウントで計測タブへ戻る)
     check("27.1 楽器種別の既定値は計測タブの saxType(useState の初期値)",
       /const \[dataSax, setDataSax\] = useState\(saxType\);/.test(myDataSection)
       && !/usePersistedState\("[^"]*[sS]ax/.test(myDataSection),
       (myDataSection.match(/const \[dataSax[^\n;]+/) || ["見つからない"])[0]);
-    // セレクタのボタン(素のテキスト + ▾。F-72 の作法)
+    // 並びは 楽器種別 → 「 · 」 → 期間(N-7 で紺のヒーローの右上に置いた並びを、白地でも保つ)
     {
-      const i = myDataSection.indexOf('aria-label="集計する楽器種別を選ぶ"');
-      const tag = i === -1 ? "" : myDataSection.slice(myDataSection.lastIndexOf("<button", i), myDataSection.indexOf("</button>", i));
-      check("27.1 楽器種別セレクタのボタンを走査できている", tag.length > 100, `${tag.length}文字`);
-      check("27.1 楽器種別セレクタは地も枠も持たない(型のクラスも持たない)",
-        /background: "none", border: "none"/.test(tag) && !/\bctl-(state|plain|pill)\b/.test(tag));
-      check("27.1 楽器種別セレクタの文字は SAX_PRESETS のラベル + ▾(語彙を発明しない)",
-        /\{SAX_PRESETS\[dataSax\]\?\.label\} ▾/.test(tag));
-      check("27.1 楽器種別セレクタの当たり判定は縦横とも 44pt(§5)",
-        /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tag)
-        && /justifyContent: "flex-end"/.test(tag));
-      check("27.1 楽器種別セレクタの文字色は正典 .hero .lbl と同じ副次色(#B9C9E4)",
-        /fontSize: 12, color: "#B9C9E4"/.test(tag));
-    }
-    // 並びは正典「Alto ▾ · 1ヶ月 ▾」= 楽器種別が先・区切りは「 · 」・期間が後
-    {
-      check("27.1 正典の右上の並びを読めている(Alto ▾ · 1ヶ月 ▾)",
-        /Alto ▾ · 1ヶ月 ▾/.test(m27html));
       const iSax = myDataSection.indexOf('aria-label="集計する楽器種別を選ぶ"');
       const iSep = myDataSection.indexOf("> · </span>", iSax);
       const iRange = myDataSection.indexOf('aria-label="集計する期間を選ぶ"', iSax);
-      check("27.1 実装も 楽器種別 → 「 · 」 → 期間 の順(正典と同じ並び)",
+      check("27.1 右上は 楽器種別 → 「 · 」 → 期間 の順(N-7 の並びのまま)",
         iSax > 0 && iSep > iSax && iRange > iSep, `楽器@${iSax} / ·@${iSep} / 期間@${iRange}`);
     }
     // シートは既存の DataOptionSheet。選択肢は計測タブと同じ SAX_PRESETS から流し込む
@@ -13697,58 +13775,76 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       check("27.1 語彙は計測タブの4種(英語表記。N-2)そのもの",
         Object.keys(presets).join(",") === "soprano,alto,tenor,baritone"
         && labels.every((l) => /^[A-Za-z]+$/.test(l)), labels.join(","));
-      check("27.1 正典の「Alto」は SAX_PRESETS のラベルに実在する(別の言い方を作っていない)",
-        labels.includes("Alto"), labels.join(","));
+      check("27.1 正典(案K)の「Alto ▾」は SAX_PRESETS のラベルに実在する(別の言い方を作っていない)",
+        kBlock.includes("Alto ▾") && labels.includes("Alto"), labels.join(","));
     }
-    // 効く範囲 = ヒーロー + 4本の折れ線だけ(N7-SPEC 2)。
-    // 母集団の絞り(奏者+楽器種別+フォールバック規則)は 26.2 で固定済み。ここでは
-    // (a) 4本の折れ線がすべて dataSax で軸を作ること (b) 一覧側(MyDataPage)が dataSax を
-    // 参照しないことを見る。
-    // 【N-8 書き換え】渡す母集団の綴りが todayFrames → dayFrames + dayLabel になった(検証28)。
-    check("27.1 折れ線の軸は選択中の楽器種別(saxType={dataSax} がピッチ1+指標行1の2箇所)",
-      (myDataSection.match(/saxType=\{dataSax\}/g) || []).length === 2
-      && /series=\{pitchSeries\}\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection)
-      && /periodFrames=\{periodFrames\} dayFrames=\{dayFrames\} dayLabel=\{dayLabel\}\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection),
+    // 効く範囲 = 上部の数字とグラフだけ(N7-SPEC 2)。グラフは1枚になったので saxType={dataSax} も1箇所。
+    check("27.1 グラフの軸は選択中の楽器種別(saxType={dataSax} が1箇所・グラフの呼び出しに隣接)",
+      (myDataSection.match(/saxType=\{dataSax\}/g) || []).length === 1
+      && /bandByIdx=\{chartBand\} bandSeriesId="period"\s*\r?\n\s*saxType=\{dataSax\} tuningHz=\{tuningHz\}/.test(myDataSection),
       `${(myDataSection.match(/saxType=\{dataSax\}/g) || []).length}箇所`);
-    check("27.1 MyDataSection の折れ線は計測タブの saxType を直接使わない(セレクタが効かなくなる)",
+    check("27.1 帯の集計も選択中の楽器種別で音名軸を作る(グラフと母集団がずれない)",
+      /noteSpreadByIndex\(.*, chartMetric\.key, dataSax, tuningHz\);/.test(myDataSection),
+      (myDataSection.match(/noteSpreadByIndex\([^\n]*/) || ["見つからない"])[0]);
+    check("27.1 MyDataSection は計測タブの saxType を直接使わない(セレクタが効かなくなる)",
       !/saxType=\{saxType\}/.test(myDataSection));
     check("27.1 セッション一覧(MyDataPage)は dataSax を参照しない(一覧には効かせない。N7-SPEC 2)",
       !/dataSax/.test(myDataPage));
   }
 
-  // --- 27.2 ヒーローの中のピッチ折れ線(旧: ピッチのカード .pitchcard) ------------
-  // 【N-8 2026/08/16 本人指示による全面書き換え】単独のピッチカードは**グラフごと削除**され、
-  // 同じ音名軸の折れ線がヒーロー(紺のカード)の中(旧スパークラインの場所)へ移った。
-  // 旧主張(カードの寸法 .pitchcard / 見出し .chartlbl)は正典側でも削除済み(27.0 で固定)。
+  // --- 27.2 蓄積量の数字(正典 案K の .stock) ------------------------------------
   {
-    check("27.2 N-8: ピッチカード(.pitchcard 相当の #F6F8FB の面)が実装に残っていない",
-      !/#F6F8FB/.test(codeOf(myDataSection)),
-      (codeOf(myDataSection).match(/#F6F8FB/g) || []).length + "件");
-    check("27.2 N-8: 旧カードの見出し「音ごとの…」が残っていない(ヒーローの数字が見出しを兼ねる)",
-      !codeOf(myDataSection).includes("音ごとの"));
-    // 凡例: 正典 .legend(gap 12 / 10px) + 紺地用の上書き .hero .legend(右寄せ・#9DB3D6・上12)。
-    // 値はすべて正典から読む(期待値をここに写すと、正典が変わっても落ちない)。
-    check("27.2 凡例の並び・文字・色・余白は正典 .legend / .hero .legend と同じ",
-      new RegExp(`justifyContent: "${decl27(".hero .legend", "justify-content")}", alignItems: "center", `
-        + `gap: ${parseFloat(decl27(".legend", "gap"))}, fontSize: ${parseFloat(decl27(".legend", "font-size"))}, `
-        + `color: "${decl27(".hero .legend", "color")}", marginTop: ${parseFloat(decl27(".hero .legend", "margin-top"))}`).test(myDataSection),
-      `正典= ${decl27(".hero .legend", "justify-content")} / ${decl27(".legend", "gap")} / ${decl27(".legend", "font-size")} / ${decl27(".hero .legend", "color")} / ${decl27(".hero .legend", "margin-top")}`);
-    check("27.2 凡例は系列の配列そのもの(pitchSeries)から描く(綴りを2箇所に置かない)",
-      /\{pitchSeries\.map\(\(s\) => \(/.test(myDataSection));
-    // 凡例の見本は正典 .sw の色棒(白い地を敷く SeriesSwatch は紺の上では白い線が消えるため使わない)
-    check("27.2 凡例の見本は正典 .sw と同じ寸法の色棒で、色は系列そのものから取る",
-      new RegExp(`width: ${parseFloat(decl27(".sw", "width"))}, height: ${parseFloat(decl27(".sw", "height"))}, `
-        + `borderRadius: ${parseFloat(decl27(".sw", "border-radius"))}, background: s\\.style\\.color`).test(myDataSection)
-      && !/SeriesSwatch/.test(codeOf(myDataSection)),
-      `正典= ${decl27(".sw", "width")} / ${decl27(".sw", "height")} / ${decl27(".sw", "border-radius")}`);
-    check("27.2 グラフは plain + hero で描く(見出し・凡例はヒーロー側、配色は hero 変形が持つ)",
-      /<NoteAxisLineChart\s*\r?\n\s*plain hero\s*\r?\n\s*label=\{heroMetric\.label\}/.test(myDataSection));
-    // 表示の条件は「フレームを持つ記録があること」だけ(N8-SPEC 5: 記録ゼロなら従来の空表示)。
-    check("27.2 N-8: 折れ線と凡例はフレームがあるときだけ・それ以外の条件を持たない",
-      /\{\(periodFrames\.length > 0 \|\| dayFrames\.length > 0\) && \(/.test(myDataSection)
-      && !/\{false && \(/.test(myDataSection));
-    check("27.2 横軸ラベルの絞り(noteFocus)は N-6 のまま(E♭3/E♭4/E♭5)",
-      (myDataSection.match(/noteFocus=\{\["E♭3", "E♭4", "E♭5"\]\}/g) || []).length === 1);
+    const nums = [...kBlock.matchAll(/<span class="big num">([^<]+)<\/span>/g)].map((m) => m[1]);
+    const units = [...kBlock.matchAll(/<span class="u">([^<]+)<\/span>/g)].map((m) => m[1]);
+    const labels = [...kBlock.matchAll(/<small>([^<]+)<\/small>/g)].map((m) => m[1]);
+    check("27.2 正典(案K)から蓄積量の数字・単位・ラベルを読めている(空回りしていない)",
+      nums.length === 3 && units.length === 3 && labels.length === 3,
+      `${nums.join("/")} ${units.join("/")} ${labels.join("/")}`);
+    // 【実行で検証】正典と同じ量を入れたら、正典と同じ文字列が出ること。
+    // (期待値をここに書き下ろさず、**正典の数字そのもの**と突き合わせる)
+    const api = new Function(`${extractFunction("sessionDurationSec")}
+      ${extractFunction("myDataStock")}
+      ${extractFunction("groupDigits")}
+      ${extractFunction("myDataStockTexts")}
+      return { myDataStock, myDataStockTexts };`)();
+    const mk = (sec, notes) => ({ frames: [{ t: 0 }, { t: sec }], noteEvents: Array.from({ length: notes }, () => ({})) });
+    {
+      // 46回 / 12.5時間(= 45,000秒) / 3,120音
+      const list = Array.from({ length: 46 }, (_, i) => mk(i === 0 ? 45000 : 0, i === 0 ? 3120 : 0));
+      const t = api.myDataStockTexts(api.myDataStock(list));
+      check("27.2 正典と同じ量を入れると正典と同じ文字列が出る(46 / 12.5 / 3,120)",
+        t.sessions === nums[0] && t.hours === nums[1] && t.notes === nums[2],
+        `${t.sessions} / ${t.hours} / ${t.notes}  正典 ${nums.join(" / ")}`);
+    }
+    check("27.2 総演奏時間は各セッションの最後のフレームの t の合計(秒→時間・小数1桁)",
+      api.myDataStockTexts(api.myDataStock([mk(3600, 0), mk(1800, 0)])).hours === "1.5",
+      api.myDataStockTexts(api.myDataStock([mk(3600, 0), mk(1800, 0)])).hours);
+    check("27.2 計測した音は noteEvents(計測タブの「検出ノート」)の合計",
+      api.myDataStock([mk(0, 7), mk(0, 5)]).noteCount === 12,
+      String(api.myDataStock([mk(0, 7), mk(0, 5)]).noteCount));
+    check("27.2 noteEvents / frames を持たない古いセッションは 0 として数える(新しい推定規則を作らない)",
+      api.myDataStock([{}, { frames: [] }, { noteEvents: null }]).noteCount === 0
+      && api.myDataStock([{}, { frames: [] }]).seconds === 0
+      && api.myDataStock([{}, { frames: [] }]).sessionCount === 2,
+      JSON.stringify(api.myDataStock([{}, { frames: [] }])));
+    check("27.2 3桁区切りは端末のロケールに依存しない(自前のカンマ挿入)",
+      api.myDataStockTexts({ sessionCount: 1234567, seconds: 0, noteCount: 0 }).sessions === "1,234,567"
+      && !/toLocaleString/.test(extractFunction("groupDigits")),
+      api.myDataStockTexts({ sessionCount: 1234567, seconds: 0, noteCount: 0 }).sessions);
+    // 寸法は正典 .stock から読む(期待値を写さない)
+    check("27.2 大きい数字・単位・ラベルの大きさは正典 .stock と同じ",
+      new RegExp(`fontSize: ${parseFloat(kDecl(".stock .big", "font-size"))}, fontWeight: 600`).test(myDataSection)
+      && new RegExp(`fontSize: ${parseFloat(kDecl(".stock .u", "font-size"))}, color: "var\\(--c-ink-3\\)", marginLeft`).test(myDataSection)
+      && new RegExp(`fontSize: ${parseFloat(kDecl(".stock small", "font-size"))}, color: "var\\(--c-ink-3\\)", marginTop`).test(myDataSection),
+      `正典= ${kDecl(".stock .big", "font-size")} / ${kDecl(".stock .u", "font-size")} / ${kDecl(".stock small", "font-size")}`);
+    check("27.2 3つの区画の並びは正典と同じ(単位: 回 / 時間 / 音、ラベル: セッション / 総演奏 / 計測した音)",
+      units.every((u) => myDataSection.includes(`unit: "${u}"`))
+      && labels.every((l) => myDataSection.includes(`label: "${l}"`)),
+      `${units.join("/")} ${labels.join("/")}`);
+    check("27.2 表示は myDataStockTexts の戻り値をそのまま並べる(数字の規則を JSX に写さない)",
+      /const stock = myDataStockTexts\(myDataStock\(mySessions\)\);/.test(myDataSection)
+      && /num: stock\.sessions/.test(myDataSection) && /num: stock\.hours/.test(myDataSection)
+      && /num: stock\.notes/.test(myDataSection));
   }
 
   // --- 27.3 系列 myDataChartSeries(実行で検証) --------------------------------
@@ -13758,10 +13854,8 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       return { myDataChartSeries, SERIES_STYLES };`)();
     const f = api.myDataChartSeries;
     const S = api.SERIES_STYLES;
-    // 【N-8 書き換え】濃い線のラベルは引数 dayLabel(myDataTodayOrLatestFrames の戻り値。検証28)。
-    // 「今日」の直書きは関数から消えた。
     const both = f("1ヶ月", [{ t: 0 }], [{ t: 1 }], "今日");
-    check("27.3 両方にデータがあれば2系列(期間が先=下・今日/直近日が後=上)",
+    check("27.3 両方にデータがあれば2系列(期間が先=下・直近日が後=上)",
       both.length === 2 && both[0].id === "period" && both[1].id === "today",
       both.map((s) => s.id).join(","));
     check("27.3 期間側のラベルは期間セレクタの語・濃い線側は dayLabel の引数そのまま",
@@ -13770,159 +13864,166 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       both.map((s) => s.label).join("/"));
     check("27.3 N-8: 濃い線のラベルを「今日」に固定できない(関数に「今日」の綴りが無い)",
       !extractFunction("myDataChartSeries").includes("今日"));
-    check("27.3 既定の色は 期間=薄(SERIES_STYLES[2])・濃=SERIES_STYLES[0]。新しい線種を発明しない",
+    check("27.3 色は 期間=薄(SERIES_STYLES[2])・直近日=濃(SERIES_STYLES[0])。新しい線種を発明しない",
       both[0].style === S[2] && both[1].style === S[0]);
-    check("27.3 N-8: styles を渡すとその2色になる(ヒーローが紺地用の色に差し替えるための口)",
-      (() => {
-        const st = [{ color: "a" }, { color: "b" }];
-        const s = f("1ヶ月", [{ t: 0 }], [{ t: 1 }], "今日", st);
-        return s[0].style === st[0] && s[1].style === st[1];
-      })());
+    check("27.3 N-10: 色を差し替える引数(styles)は無くなった(紺地のヒーローが廃止され渡し手がいない)",
+      !/styles/.test(extractFunction("myDataChartSeries")));
     check("27.3 フレーム列はそのまま渡す(別の集計に差し替えない)",
       (() => { const p = [{ t: 0 }], t = [{ t: 1 }]; const s = f("1m", p, t, "今日"); return s[0].frames === p && s[1].frames === t; })());
     check("27.3 その日のデータが無ければ期間平均の1本だけ(N7-SPEC 8)",
       f("1ヶ月", [{ t: 0 }], [], "今日").length === 1 && f("1ヶ月", [{ t: 0 }], null, "今日").length === 1
       && f("1ヶ月", [{ t: 0 }], [], "今日")[0].id === "period");
-    // 色の妥当性を独立に観測できる量へ接続する: 実装のトークン → index.css の値 → 正典の変数。
-    // (SERIES_STYLES[2] を書き換えても、index.css の値を書き換えても、正典とずれたら落ちる)
-    {
-      const css = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
-      const tok = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{3,8})`).exec(css) || [])[1];
-      const mockVar = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{3,8})`).exec(m27html) || [])[1];
-      check("27.3 期間側の色は --c-accent-line で、その値は正典の --pale と同じ",
-        S[2].color === "var(--c-accent-line)"
-        && tok("--c-accent-line") !== undefined && mockVar("--pale") !== undefined
-        && tok("--c-accent-line").toUpperCase() === mockVar("--pale").toUpperCase(),
-        `token=${tok("--c-accent-line")} / mock=${mockVar("--pale")}`);
-      check("27.3 今日側の色は --c-accent で、その値は正典の --accent と同じ",
-        S[0].color === "var(--c-accent)"
-        && tok("--c-accent") !== undefined && mockVar("--accent") !== undefined
-        && tok("--c-accent").toUpperCase() === mockVar("--accent").toUpperCase(),
-        `token=${tok("--c-accent")} / mock=${mockVar("--accent")}`);
-    }
+    // 色の妥当性を独立に観測できる量へ接続する: 実装のトークン → index.css の値 → 正典(案K)の変数。
+    check("27.3 期間側の色は --c-accent-line で、その値は正典(案K)の --pale と同じ",
+      S[2].color === "var(--c-accent-line)"
+      && tok27("--c-accent-line") !== undefined && kVar("--pale") !== undefined
+      && tok27("--c-accent-line").toUpperCase() === kVar("--pale").toUpperCase(),
+      `token=${tok27("--c-accent-line")} / 正典=${kVar("--pale")}`);
+    check("27.3 直近日側の色は --c-accent で、その値は正典(案K)の --accent と同じ",
+      S[0].color === "var(--c-accent)"
+      && tok27("--c-accent") !== undefined && kVar("--accent") !== undefined
+      && tok27("--c-accent").toUpperCase() === kVar("--accent").toUpperCase(),
+      `token=${tok27("--c-accent")} / 正典=${kVar("--accent")}`);
   }
 
-  // --- 27.4 指標行(.mrow 案D)の寸法と配線 -------------------------------------
+  // --- 27.4 数字カード4枚とタップでの切り替え ------------------------------------
   {
-    check("27.4 行の内側余白は正典 .mrow と同じ・最後の行だけ罫なし",
-      metricRow.includes(`padding: "${decl27(".mrow", "padding")}"`)
-      && /borderBottom: last \? "none" : "1px solid var\(--c-line\)"/.test(metricRow)
-      && /^\s*1px solid/.test(decl27(".mrow", "border-bottom") || "")
-      && /class="mrow" style="border-bottom:none"/.test(m27html),
-      `正典=${decl27(".mrow", "padding")} / ${decl27(".mrow", "border-bottom")}`);
-    check("27.4 ヘッダ行の下余白は正典 .mtop と同じ",
-      new RegExp(`justifyContent: "space-between", marginBottom: ${parseFloat(decl27(".mtop", "margin-bottom"))}`).test(metricRow),
-      `正典=${decl27(".mtop", "margin-bottom")}`);
-    check("27.4 指標名は正典 .mname と同じ(12px・--ink2)で、語は MY_DATA_METRICS から",
-      new RegExp(`fontSize: ${parseFloat(decl27(".mname", "font-size"))}, color: "var\\(--c-ink-2\\)" \\}\\}>\\{m\\.label\\}`).test(metricRow),
-      `正典=${decl27(".mname", "font-size")}`);
-    check("27.4 数字の行は正典 .mnums と同じ(11.5px・--ink3・等幅数字)",
-      new RegExp(`fontSize: ${parseFloat(decl27(".mnums", "font-size"))}, color: "var\\(--c-ink-3\\)", fontVariantNumeric: "tabular-nums"`).test(metricRow),
-      `正典=${decl27(".mnums", "font-size")}`);
-    check("27.4 今日の値は正典 .mnums b と同じ(--ink・等幅・14px・600)",
-      new RegExp(`color: "var\\(--c-ink\\)", fontFamily: "var\\(--font-num\\)", fontSize: ${parseFloat(decl27(".mnums b", "font-size"))}, fontWeight: ${decl27(".mnums b", "font-weight")}`).test(metricRow),
-      `正典=${decl27(".mnums b", "font-size")} / ${decl27(".mnums b", "font-weight")}`);
-    check("27.4 正の差の色は正典 .up と同じ(それ以外は .mnums の地の色)",
-      metricRow.includes(`color: h.diffUp ? "${decl27(".up", "color")}" : "var(--c-ink-3)"`),
-      `正典=${decl27(".up", "color")}`);
-    // 配線: 定義は MY_DATA_METRICS、数字は metricRowHeader、系列は myDataChartSeries、
-    // 集計は computeFrameMetrics。JSX は戻り値を並べるだけ。
-    check("27.4 行の定義(ラベル・単位・書式)は MY_DATA_METRICS から引く(写していない)",
-      /const m = MY_DATA_METRICS\.find\(\(x\) => x\.key === metricKey\);/.test(metricRow));
-    // 【N-8 書き換え】ヘッダの数字は「今日または直近の記録日」(dayMetrics / h.dayNum)。
-    // 行頭のラベルは dayLabel(myDataTodayOrLatestFrames の戻り値)をそのまま置く(検証28)。
-    check("27.4 ヘッダの数字は metricRowHeader の戻り値をそのまま並べる",
-      /const h = metricRowHeader\(m, dayMetrics \? dayMetrics\[m\.key\] : null, periodMetrics\[m\.key\]\);/.test(metricRow)
-      && /\{dayLabel\} <b style=/.test(metricRow)
-      && />\{h\.dayNum\}<\/b>/.test(metricRow)
-      && /\{h\.dayUnit\} · \{rangeLabel\} \{h\.periodText\}/.test(metricRow)
-      && /\{h\.diffText && <span style=/.test(metricRow));
-    check("27.4 集計は computeFrameMetrics(期間とその日を別々に。その日はフレームが無ければ null)",
-      /const periodMetrics = computeFrameMetrics\(periodFrames\);/.test(metricRow)
-      && /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(metricRow));
-    // 【N-8 書き換え】旧主張の selectedIdeal={selectedIdeal} idealKey={m.idealKey} は
-    // **仕様ごと廃止**(目安の破線と Δ を My Data から外した。絶対の主張は検証28)。
-    check("27.4 折れ線は plain の NoteAxisLineChart に myDataChartSeries の2系列を渡す",
-      /<NoteAxisLineChart\s*\r?\n\s*plain\s*\r?\n\s*label=\{m\.label\}/.test(metricRow)
-      && /series=\{myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel\)\}/.test(metricRow)
-      && /fmt=\{m\.fmt\}/.test(metricRow));
-    // 【審査で塞いだ穴】上の検査は series と fmt までしか見ておらず、
-    // **MetricRow が受けた props をグラフへ渡す最後の1段**(saxType / tuningHz / metricKey)が
-    // 無防備だった。`saxType={"alto"}` に固定する変異が生存し、楽器種別セレクタが
-    // HNR/重心/音量の3行の横軸に効かなくなる(実測: 行の E♭3 ラベルが Alto↔Tenor で
-    // 82.7↔122.7 と動くのが、固定すると動かなくなる)。「配線を固定した」と記録しながら
-    // 名指しで警告されていた形をまた作っていた(通算17回目)。
-    check("27.4 グラフの軸は行が受けた saxType / tuningHz から作る(固定値を書かない)",
-      /saxType=\{saxType\} tuningHz=\{tuningHz\} fmt=\{m\.fmt\}/.test(metricRow));
-    check("27.4 グラフの指標キーは定義から引く(metricKey={m.key}。別の指標に固定できない)",
-      /label=\{m\.label\} unit=\{m\.unit\} metricKey=\{m\.key\}/.test(metricRow));
-    // 【N-8 2026/08/16 本人指示による廃止】旧検査「目安Δの母集団はヘッダの主役と同じ」は
-    // **仕様ごと廃止**: 目安の破線と Δ は My Data の全グラフから外れた(「目安は表示不要」)。
-    // MetricRow が目安を一切扱わないこと(戻す変異が落ちること)は検証28 が固定する。
-    // 呼び出し側(MyDataSection): 3行を MY_DATA_ROW_METRICS の並びのまま出す
-    check("27.4 3行は MY_DATA_ROW_METRICS をそのまま map する(間引かない・並びを写さない)",
-      /\{MY_DATA_ROW_METRICS\.map\(\(key, i\) => \(/.test(myDataSection)
-      && /last=\{i === MY_DATA_ROW_METRICS\.length - 1\}/.test(myDataSection)
-      && !/MY_DATA_ROW_METRICS\.(slice|filter)\(/.test(myDataSection));
-    check("27.4 行の map が条件式(&& / ?)の直後に来ていない(常時表示の綴り)",
-      !/(&&|\?)\s*\(?\s*\r?\n?\s*\{MY_DATA_ROW_METRICS\.map/.test(codeOf(myDataSection)));
-    // 正典の3行の並び(.mname の出現順)と、実装が出すラベルの列ごとの対応
+    const api = new Function(`${extractFunction("formatSignedCents")}
+      ${extractFunction("pitchSpreadSub")}
+      ${extractConst("MY_DATA_METRICS")}
+      ${extractFunction("metricCardNumbers")}
+      return { MY_DATA_METRICS, metricCardNumbers };`)();
+    const n = api.metricCardNumbers;
+    const hnr = api.MY_DATA_METRICS.find((x) => x.key === "hnrDb");
+    const pitch = api.MY_DATA_METRICS.find((x) => x.key === "pitchCentsSigned");
+    const cent = api.MY_DATA_METRICS.find((x) => x.key === "spectralCentroidHz");
     {
-      const ordered = [...m27html.matchAll(/<span class="mname">([^<]+)<\/span>/g)].map((m) => m[1].trim());
-      const mdm = new Function(`const formatSignedCents = 0, pitchSpreadSub = 0;
-        ${extractConst("MY_DATA_METRICS")} return MY_DATA_METRICS;`)();
-      const rowKeys = new Function(`${extractConst("MY_DATA_ROW_METRICS")} return MY_DATA_ROW_METRICS;`)();
-      const rowLabels = rowKeys.map((k) => mdm.find((x) => x.key === k)?.label);
-      check("27.4 正典の指標行から並び順のままラベルを読めている(空回りしていない)",
-        ordered.length === 3, ordered.join("/"));
-      check("27.4 行の並びとラベルは正典と列ごとに一致(HNR / 重心 / 音量)",
-        rowLabels.length === ordered.length && rowLabels.every((l, i) => l === ordered[i]),
-        `実装 ${rowLabels.join("/")} / 正典 ${ordered.join("/")}`);
+      const r = n(hnr, 18.2, 17.6);
+      check("27.4 カードは期間平均を主役の数字に、直近日を副次に出す(単位は書式そのまま)",
+        r.periodNum === "17.6" && r.periodUnit === "dB" && r.dayText === "18.2dB",
+        `${r.periodNum}${r.periodUnit} / ${r.dayText}`);
     }
+    check("27.4 直近日の値が無ければ「—」(単位も付けない)",
+      n(hnr, null, 17.6).dayText === "—" && n(hnr, NaN, 17.6).dayText === "—",
+      n(hnr, null, 17.6).dayText);
+    check("27.4 期間に値が無ければ主役も「—」で単位を付けない(「—dB」を作らない)",
+      n(hnr, 18.2, null).periodNum === "—" && n(hnr, 18.2, null).periodUnit === ""
+      && n(hnr, 18.2, NaN).periodNum === "—",
+      `${n(hnr, 18.2, null).periodNum}${n(hnr, 18.2, null).periodUnit}`);
+    check("27.4 書式は指標定義の fmt(ピッチは符号つき・0 は 0.0・重心は整数)",
+      n(pitch, 1.24, -0.84).periodNum === "-0.8" && n(pitch, 0, 0).periodNum === "0.0"
+      && n(pitch, 1.24, 2).dayText === "+1.2¢" && n(cent, 1214.4, 1195.2).periodNum === "1195",
+      `${n(pitch, 1.24, -0.84).periodNum} / ${n(pitch, 0, 0).periodNum} / ${n(pitch, 1.24, 2).dayText} / ${n(cent, 1214.4, 1195.2).periodNum}`);
+    check("27.4 差(Δ)は出さない(N-8 の「目安・差は表示しない」を継続)",
+      !("diffText" in n(hnr, 18.2, 17.6)), Object.keys(n(hnr, 18.2, 17.6)).join(","));
+    // 配線: 並びは MY_DATA_CARD_METRICS、定義は MY_DATA_METRICS、数字は metricCardNumbers
+    check("27.4 カードは MY_DATA_CARD_METRICS をそのまま map する(間引かない・並びを写さない)",
+      /\{MY_DATA_CARD_METRICS\.map\(\(key\) => \{/.test(myDataSection)
+      && !/MY_DATA_CARD_METRICS\.(slice|filter)\(/.test(myDataSection));
+    check("27.4 カードの定義(ラベル・単位・書式)は MY_DATA_METRICS から引く(写していない)",
+      /const m = MY_DATA_METRICS\.find\(\(x\) => x\.key === key\);/.test(myDataSection));
+    check("27.4 カードの数字は metricCardNumbers の戻り値をそのまま並べる",
+      /const n = metricCardNumbers\(m, dayMetrics \? dayMetrics\[key\] : null, overall\[key\]\);/.test(myDataSection)
+      && /\{n\.periodNum\}/.test(myDataSection) && /\{n\.periodUnit\}/.test(myDataSection)
+      && /\{dayLabel\} \{n\.dayText\}/.test(myDataSection));
+    check("27.4 既定で選ばれているのは並びの先頭(=平均差分)。永続化しない",
+      /const \[cardMetric, setCardMetric\] = useState\(MY_DATA_CARD_METRICS\[0\]\);/.test(myDataSection)
+      && !/usePersistedState\("[^"]*[cC]ard/.test(myDataSection));
+    check("27.4 タップでその指標に切り替わり、選択状態が aria にも出る(§5 の当たり判定つき)",
+      /onClick=\{\(\) => setCardMetric\(key\)\}\s*\r?\n\s*aria-pressed=\{sel\}/.test(myDataSection)
+      && /const sel = cardMetric === key;/.test(myDataSection)
+      && /minHeight: "var\(--tap-min\)"/.test(myDataSection));
+    check("27.4 選択中は地だけ・非選択は透明の枠で場所を残す(§6.7 の芯 / F-75 の作法)",
+      /border: "1px solid transparent",\s*\r?\n\s*background: sel \? "var\(--c-accent-tint\)" : "transparent",/.test(myDataSection));
+    check("27.4 グラフの指標は選択中のカードから決まる(別の指標に固定できない)",
+      /metricKey=\{chartMetric\.key\}/.test(myDataSection)
+      && /const chartMetric = MY_DATA_METRICS\.find\(\(m\) => m\.key === cardMetric\)/.test(myDataSection));
   }
 
-  // --- 27.5 行ヘッダの数字(metricRowHeader を実行で検証) ------------------------
+  // --- 27.5 ばらつきの帯(正典 案K の「帯はいつものばらつき」) --------------------
   {
-    const h = new Function(`${extractFunction("metricRowHeader")} return metricRowHeader;`)();
-    const mdm = new Function(`const formatSignedCents = 0, pitchSpreadSub = 0;
-      ${extractConst("MY_DATA_METRICS")} return MY_DATA_METRICS;`)();
-    const hnr = mdm.find((x) => x.key === "hnrDb");
-    // 期待値は正典の1行目(HNR)の数字から読む(写さない)。18.2 と 17.6 を入れると +0.6 が出るはず
-    const mm = /今日 <b>([\d.]+)<\/b>([A-Za-z]+) · 1ヶ月 ([\d.]+) <span class="up">(\+[\d.]+)<\/span>/.exec(m27html);
-    check("27.5 正典の行ヘッダの数字を読めている(空回りしていない)",
-      mm !== null && mm.length === 5, mm ? mm.slice(1).join(" ") : "読めない");
-    // 【N-8 書き換え】戻り値のキーが todayNum/todayUnit → dayNum/dayUnit
-    // (値は「今日または直近の記録日」のもの。数字の規則そのものは同一)。
-    if (mm) {
-      const r = h(hnr, parseFloat(mm[1]), parseFloat(mm[3]));
-      check("27.5 正典の数字(今日18.2 / 1ヶ月17.6)を入れると正典どおりの表示になる(+0.6・単位はその日側だけ)",
-        r.dayNum === mm[1] && r.dayUnit === mm[2] && r.periodText === mm[3]
-        && r.diffText === mm[4] && r.diffUp === true,
-        `${r.dayNum}${r.dayUnit} · ${r.periodText} ${r.diffText}`);
-      check("27.5 正典の単位(dB)は MY_DATA_METRICS の HNR の単位と同じ(列の取り違えが出ない)",
-        hnr.unit === mm[2], `実装 ${hnr.unit} / 正典 ${mm[2]}`);
-    }
-    const none = h(hnr, null, 17.6);
-    check("27.5 その日のデータが無ければ「—」(単位も付けない。N7-SPEC 8)",
-      none.dayNum === "—" && none.dayUnit === "" && none.periodText === "17.6" && none.diffText === null,
-      `${none.dayNum}${none.dayUnit} / ${none.periodText} / ${none.diffText}`);
-    check("27.5 期間に値が無ければ期間側も「—」・差は出さない",
-      h(hnr, 18.2, null).periodText === "—" && h(hnr, 18.2, null).diffText === null);
-    check("27.5 NaN は欠測扱い(「NaN」を画面に出さない)",
-      h(hnr, NaN, 17.6).dayNum === "—" && h(hnr, 18.2, NaN).periodText === "—");
-    check("27.5 負の差は fmt の \"-\" のまま・正の色も付けない",
-      h(hnr, 17.0, 17.6).diffText === "-0.6" && h(hnr, 17.0, 17.6).diffUp === false,
-      String(h(hnr, 17.0, 17.6).diffText));
-    check("27.5 差が0なら符号を付けない(Δ の既存規則と同じ)",
-      h(hnr, 17.6, 17.6).diffText === "0.0" && h(hnr, 17.6, 17.6).diffUp === false,
-      String(h(hnr, 17.6, 17.6).diffText));
-    // 重心(整数 fmt)でも成り立つ(正典2行目: 1214 / 1195 / +19)
+    const deps = [
+      extractConst("NOTE_NAMES"), extractConst("NOTE_NAMES_SHARP"),
+      extractConst("LOW_BB_WRITTEN_MIDI"), extractConst("TRANSPOSITION_SEMITONES"),
+      extractConst("A4_MIDI"), extractConst("SAX_CONCERT_RANGE"),
+      extractFunction("freqToNote"), extractFunction("writtenNoteLabel"),
+      extractFunction("writtenMidiToSoundingFreq"), extractFunction("concertMidiToFreq"),
+      extractFunction("concertFreqLabel"), extractFunction("buildFingeringTable"),
+      extractConst("CONCERT_LABEL_CACHE"), extractFunction("concertNoteTableOf"),
+      extractFunction("concertNoteLabelOf"), extractFunction("concertNoteFreqOf"),
+      extractFunction("mean"), extractFunction("median"), extractFunction("stddev"),
+      extractFunction("frameWeight"), extractFunction("timbreSustained"), extractFunction("weightedMean"),
+      extractConst("TIMBRE_SUSTAIN_MS"), extractConst("PITCH_EDGE_TRIM_MS"),
+      extractConst("PITCH_RUN_GAP_MS"), extractConst("PITCH_FLIP_MAX_MS"),
+      extractConst("PITCH_FLIP_NEIGHBOR_AGREE_CENTS"), extractConst("PITCH_FLIP_INTERVALS_CENTS"),
+      extractConst("PITCH_FLIP_TOLERANCE_CENTS"),
+      extractFunction("selectPitchAggregationFrames"), extractFunction("computeFrameMetrics"),
+      extractFunction("groupFramesByNoteAcrossSessions"),
+      extractFunction("noteSpreadByIndex"),
+    ].join("\n\n");
+    const spread = new Function(`${deps}\nreturn noteSpreadByIndex;`)();
+    // 1セッション = 同じ音(semitoneIndex 10)を2フレーム。セッションごとの代表値が 10 / 12 / 14 dB
+    const sess = (v) => [{ t: 0, semitoneIndex: 10, clarity: 1, volumeDb: v, hnrDb: v, spectralCentroidHz: v * 100, pitchCents: v },
+      { t: 0.5, semitoneIndex: 10, clarity: 1, volumeDb: v, hnrDb: v, spectralCentroidHz: v * 100, pitchCents: v }];
     {
-      const cent = mdm.find((x) => x.key === "spectralCentroidHz");
-      const r = h(cent, 1214, 1195);
-      check("27.5 重心(整数の書式)でも正典どおり(+19)",
-        r.dayNum === "1214" && r.dayUnit === "Hz" && r.diffText === "+19",
-        `${r.dayNum}${r.dayUnit} ${r.diffText}`);
+      const out = spread([sess(10), sess(12), sess(14)], "volumeDb", "alto", 442);
+      // 母(population)標準偏差 = sqrt(((10-12)^2 + 0 + (14-12)^2)/3) = sqrt(8/3)
+      check("27.5 帯の半幅は音ごとの**セッション間**の標準偏差(貯まるほど締まる量)",
+        Math.abs(out[10] - Math.sqrt(8 / 3)) < 1e-9, `${out[10]} / 期待 ${Math.sqrt(8 / 3)}`);
+      check("27.5 帯を持つのはデータのある音だけ(他の音に穴埋めをしない)",
+        Object.keys(out).join(",") === "10", Object.keys(out).join(","));
+    }
+    check("27.5 1セッションしか無い音には帯を出さない(stddev が定義できない)",
+      Object.keys(spread([sess(10)], "volumeDb", "alto", 442)).length === 0);
+    check("27.5 セッションを分けたまま渡す(連結して1つにすると帯が消える = ゲートの規則が壊れる)",
+      Object.keys(spread([[...sess(10), ...sess(14)]], "volumeDb", "alto", 442)).length === 0);
+    check("27.5 重心は groupFramesByNote の返すキー(centroidHz)へ正しく対応づける",
+      Math.abs(spread([sess(10), sess(12), sess(14)], "spectralCentroidHz", "alto", 442)[10]
+        - Math.sqrt(8 / 3) * 100) < 1e-6,
+      String(spread([sess(10), sess(12), sess(14)], "spectralCentroidHz", "alto", 442)[10]));
+    check("27.5 4指標すべてで帯が出る(カードのどれを選んでも描ける)",
+      ["volumeDb", "hnrDb", "spectralCentroidHz", "pitchCentsSigned"]
+        .every((k) => spread([sess(10), sess(12), sess(14)], k, "alto", 442)[10] > 0),
+      ["volumeDb", "hnrDb", "spectralCentroidHz", "pitchCentsSigned"]
+        .map((k) => `${k}:${spread([sess(10), sess(12), sess(14)], k, "alto", 442)[10]}`).join(" "));
+    // 描画側: 帯は折れ線より先に描き(線が上に乗る)、縦のスケールにも入れる(帯だけ切れない)
+    check("27.5 グラフ部品は帯の中心を bandSeriesId の系列から取り、両方読める音だけ帯にする",
+      /const center = seriesData\.find\(\(s\) => s\.id === bandSeriesId\);/.test(chart)
+      && /m\[key\] = \{ hi: c \+ half, lo: c - half \};/.test(chart));
+    check("27.5 縦のスケールは帯の上下端も含める(帯だけ枠から出て切れない)",
+      /\.\.\.\(bandBounds \? Object\.values\(bandBounds\)\.flatMap\(\(b\) => \[b\.hi, b\.lo\]\) : \[\]\),/.test(chart));
+    check("27.5 帯は折れ線より先に描く(線が帯の上に乗る)",
+      chart.indexOf("bandPaths()") > 0 && chart.indexOf("bandPaths()") < chart.indexOf("{seriesData.map("));
+    check("27.5 帯は「欠けで分割」の規則で連続区間ごとに閉じた面にする(1音だけの区間は描かない)",
+      /runs\.filter\(\(r\) => r\.length >= 2\)/.test(chart) && /\}M\$\{|`M\$\{top\.join\("L"\)\}L\$\{bottom\.join\("L"\)\}Z`/.test(chart));
+    // 【審査で塞いだ穴 2026/08/17】上の検査はテンプレートの形しか見ておらず、**下辺の向き**を
+    // 固定していなかった。`.reverse()` を外す変異が生存し、帯が面でなくなる
+    // (自己交差の蝶ネクタイ。実測: 帯の内部5点の isPointInFill が 5/5 true → 0/5 false。
+    //  bbox は同じなので寸法の検査では出ない)。上辺は左→右、下辺は**右→左**でなければ閉じない。
+    check("27.5 帯の下辺は上辺と逆向きに辿る(これが無いと面にならず蝶ネクタイになる)",
+      /const bottom = r\.slice\(\)\.reverse\(\)\.map\(/.test(chart));
+    // 恒真でないことの裏取り: 上辺は素の並び(reverse していない)であること
+    check("27.5 帯の上辺は素の並び(上下とも同じ向きにしない)",
+      /const top = r\.map\(\(i\) =>/.test(chart) && !/const top = r\.slice\(\)\.reverse\(\)/.test(chart));
+    check("27.5 bandByIdx / bandSeriesId は任意の引数(既定 null = 既存の呼び出し側は従来のまま)",
+      /bandByIdx = null, bandSeriesId = null/.test(chart));
+    // 塗りの色: 新しい hex を足さず、体系内の --c-accent-tint を使う(正典 --ghost と 1/255 差)
+    {
+      const fill = new Function(`${extractConst("CHART_BAND_FILL")} return CHART_BAND_FILL;`)();
+      const hex = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+      const a = tok27("--c-accent-tint"), b = kVar("--ghost");
+      const near = a && b && hex(a).every((v, i) => Math.abs(v - hex(b)[i]) <= 1);
+      check("27.5 帯の塗りは体系内のトークン(--c-accent-tint)で、正典 案K の --ghost と 1/255 以内",
+        fill === "var(--c-accent-tint)" && near, `token=${a} / 正典=${b}`);
+      check("27.5 帯の塗りに生の hex を書いていない(新しい色を発明していない)",
+        !/#EAEFF6/.test(codeOf(src)));
+    }
+    // 帯を渡すのは My Data のグラフだけ(集合で縛る)
+    {
+      const total = (src.match(/bandByIdx=\{/g) || []).length;
+      const inOwner = (myDataSection.match(/bandByIdx=\{/g) || []).length;
+      check("27.5 帯を渡すのは My Data のグラフだけ(他画面のグラフは従来のまま)",
+        total === 1 && inOwner === 1, `全体 ${total} / MyDataSection ${inOwner}`);
     }
   }
 
@@ -13932,23 +14033,46 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
       /plain = false/.test(chart));
     check("27.6 plain のとき見出し行を描かない(見出しは呼び出し側が正典の形で持つ)",
       /\{!plain && <div className="sans" style=\{\{ fontSize: 12, color: "#8D95A1", marginBottom: 6 \}\}>\{label\}/.test(chart));
-    check("27.6 plain のとき系列の凡例を描かない(ピッチのカードは .chartlbl・指標行は .mnums が担う)",
+    check("27.6 plain のとき系列の凡例を描かない(呼び出し側が正典 .legend の形で持つ)",
       /\{!plain && series\.length > 1 && \(/.test(chart));
-    check("27.6 plain のとき下余白も持たない(行の余白は正典 .mrow が持つ)",
+    check("27.6 plain のとき下余白も持たない(余白は呼び出し側が持つ)",
       /marginBottom: plain \? 0 : 18/.test(chart));
     check("27.6 目安の凡例(実測/目安/Δ)は plain でも描く(N-6 の置き場所のまま。機能を落とさない)",
       /\{idealByIdx && hasData && \(/.test(chart) && !/plain && idealByIdx/.test(chart));
-    // plain を渡すのはデータタブの2箇所だけ(集合で固定。件数の釘付けはしない)
+    // 【N-10 で1箇所に減った】グラフは常に1枚なので plain の渡し手も1つ。
     {
-      const PLAIN_OWNERS = ["MyDataSection", "MetricRow"];
       const re = /<NoteAxisLineChart\s*\r?\n\s*plain\b/g;
       const total = (src.match(re) || []).length;
-      const inOwners = PLAIN_OWNERS.reduce((n, fn) => n + (srcOfFn(src, fn).match(re) || []).length, 0);
-      check("27.6 plain を渡すのはデータタブの集合の中だけ(リード比較・個体詳細・セッション詳細は従来のまま)",
-        total === inOwners && total === 2
+      const inOwner = (myDataSection.match(re) || []).length;
+      check("27.6 plain を渡すのは My Data のグラフ1枚だけ(リード比較・個体詳細・セッション詳細は従来のまま)",
+        total === 1 && inOwner === 1
         && !/\bplain\b/.test(codeOf(srcOfFn(src, "TappableMetricCard")))
         && !/\bplain\b/.test(codeOf(srcOfFn(src, "ReedCompareTab"))),
-        `全体 ${total} / 集合内 ${inOwners}`);
+        `全体 ${total} / MyDataSection ${inOwner}`);
+    }
+    // 凡例(期間平均 / ばらつき / 直近日)は呼び出し側が持つ。正典 案K の並びと同じ。
+    {
+      const kLegend = [...(/<div class="legend"[^>]*>([\s\S]*?)<\/div>/.exec(kBlock) || ["", ""])[1]
+        .matchAll(/<\/span>([^<]+)<\/span>/g)].map((m) => m[1].trim());
+      check("27.6 正典(案K)の凡例から3項目を読めている(空回りしていない)",
+        kLegend.length === 3 && kLegend[1] === "ばらつき", kLegend.join(" / "));
+      // 順序は**凡例の行の中**だけで見る(関数の頭のコメントにも「ばらつき」の語が出るため、
+      // ソース全体の indexOf で見ると経緯コメントを拾って誤判定する)
+      {
+        const iLeg = myDataSection.indexOf("chartSeries[0].style");
+        const iEnd = myDataSection.indexOf("<NoteAxisLineChart", iLeg);
+        const leg = iLeg > 0 && iEnd > iLeg ? myDataSection.slice(iLeg, iEnd) : "";
+        check("27.6 凡例の行を走査できている(空回りしていない)", leg.length > 200, `${leg.length}文字`);
+        check("27.6 凡例は 期間平均 → ばらつき → 直近日 の順で、帯の項目は帯があるときだけ出す",
+          leg.indexOf("ばらつき") > 0
+          && leg.indexOf("ばらつき") < leg.indexOf("chartSeries[1].style")
+          && /\{hasBand && \(/.test(leg)
+          && /const hasBand = Object\.keys\(chartBand\)\.length > 0;/.test(myDataSection),
+          `ばらつき@${leg.indexOf("ばらつき")} / 直近日@${leg.indexOf("chartSeries[1].style")}`);
+      }
+      check("27.6 凡例の線見本は系列そのものから描く(色の綴りを2箇所に置かない)",
+        /<SeriesSwatch style=\{chartSeries\[0\]\.style\} \/>\{chartSeries\[0\]\.label\}/.test(myDataSection)
+        && /<SeriesSwatch style=\{chartSeries\[1\]\.style\} \/>\{chartSeries\[1\]\.label\}/.test(myDataSection));
     }
   }
 
@@ -13982,10 +14106,10 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
     check("27.7 選択肢の表記に銘柄のフル表記が入らない(固有幅の源だった)",
       !api.bulkReedOptionLabel(reeds[0], reeds).includes("Vandoren"),
       api.bulkReedOptionLabel(reeds[0], reeds));
-    // 配線: 一括変更の select だけが短い表記を使う(絞り込みピルのシートは選択肢が縦に並ぶ
-    // 一覧なのでフル表記のまま = 触っていない)
     {
-      const iBlock = myDataPage.indexOf('listMode === "reed"');
+      // 【F-108 で錨が変わった】入口が「…」から一覧の「選択」へ移り、モードは1つになったので、
+      // 一括変更の行の条件も `listMode === "reed"` → `listMode && reeds.length > 0` になった。
+      const iBlock = myDataPage.indexOf("{listMode && reeds.length > 0 && (");
       const block = iBlock < 0 ? "" : myDataPage.slice(iBlock, myDataPage.indexOf("</select>", iBlock));
       check("27.7 一括変更の select を走査できている", block.length > 200, `${block.length}文字`);
       check("27.7 一括変更の select の選択肢は bulkReedOptionLabel(フル表記 reedLabel を使わない)",
@@ -13996,25 +14120,43 @@ console.log("\n========== 検証27: N-7 データタブの折れ線化(正典 da
         /items=\{\[\s*\r?\n\s*\{ key: "", label: "すべて" \},\s*\r?\n\s*\{ key: "__none__", label: "未紐付け" \},\s*\r?\n\s*\.\.\.reeds\.map\(\(r\) => \(\{ key: r\.id, label: reedLabel\(r, reeds\) \}\)\),/.test(myDataPage));
     }
   }
+  // --- 27.8 正典の移行そのもの(両ファイルに理由が残っていること) ----------------
+  // F106-SPEC「移行の理由をコメントで両ファイルに残す」。**記録は消えると意味が無い**ので、
+  // 記録が残っていること自体を検査で固定する(次の担当が旧正典を根拠に戻せない)。
+  {
+    const oldMock = readFileSync(join(__dirname, "..", "design", "data-tab-final.html"), "utf8");
+    check("27.8 旧正典(data-tab-final.html)に「役目を終えた」と移行先が書いてある",
+      /役目を終えた/.test(oldMock) && oldMock.includes("mydata-zero-proposals-2.html"));
+    check("27.8 新正典(案K のファイル)に「新しい正典」であることと本人の追加指示が書いてある",
+      /新しい正典/.test(kMock) && kMock.includes("それぞれをタップするとそのグラフが表示される仕組みに変更"));
+    // 実装側の名指しは**関数の直前の解説**にある(本体ではない)ので、宣言の手前を切って見る
+    check("27.8 実装(MyDataSection / MyDataPage)の解説も新しい正典を名指ししている",
+      ["MyDataSection", "MyDataPage"].every((n) => {
+        const i = src.indexOf(`function ${n}(`);
+        return i > 0 && src.slice(Math.max(0, i - 1600), i).includes("mydata-zero-proposals-2.html");
+      }));
+    check("27.8 検査が旧正典 data-tab-final.html を読み込んでいるのは移行の記録の確認だけ",
+      (readFileSync(join(__dirname, "pitch-test.mjs"), "utf8")
+        .match(/readFileSync\(join\(__dirname, "\.\.", "design", "data-tab-final\.html"\)/g) || []).length === 1);
+  }
   console.log("  -> done");
 }
 
 // ============================================================
-// 検証28: N-8 ヒーローの折れ線化・直近日フォールバック・目安の撤去
-//   (2026/08/16 本人指示。凍結仕様 = design/N8-SPEC.md。正典 = design/data-tab-final.html の
-//    N-8 改訂版。期待値の色は**正典のヒーローの svg から読む**)
+// 検証28: N-8 直近日フォールバック + 目安の撤去
+//   (2026/08/16 本人指示。凍結仕様 = design/N8-SPEC.md)
 //   A 直近日フォールバック myDataTodayOrLatestFrames(抽出して実行で検証)
-//   B 描画側の配線: 戻り値(frames / label)をヒーローの数字・濃い線・3行ヘッダの**すべて**が使う
+//   B 描画側の配線: 戻り値(frames / label)を数字カード・濃い線・凡例の**すべて**が使う
 //     — 「純関数は完璧・配線が無防備」で通算17回差し戻された形を、名指しで固定する
-//   C ヒーローの中の折れ線(NoteAxisLineChart の hero 変形): 配色を正典と突き合わせ、
-//     既定(hero=false)の経路が従来のままであることも固定する
-//   D 目安(selectedIdeal)の破線と Δ が My Data の全グラフから外れている(他画面はそのまま)
+//   C 目安(selectedIdeal)の破線と Δ が My Data の全グラフから外れている(他画面はそのまま)
+// 【N-10 2026/08/17 本人指示で書き換え】旧 28.3(ヒーローの中の折れ線の hero 変形と、
+// 正典 data-tab-final.html のヒーローの svg との色の突き合わせ)は、紺のヒーローが
+// **画面ごと無くなった**ので削除した(黙って消していない)。正典もこの節から離れ、
+// 案K との突き合わせは検証27 が持つ。ここに残るのは正典に依存しない A / B / C だけ。
 // ============================================================
-console.log("\n========== 検証28: N-8 ヒーローの折れ線化・直近日フォールバック(正典 data-tab-final.html) ==========");
+console.log("\n========== 検証28: N-8 直近日フォールバック + 目安の撤去 ==========");
 {
-  const m28html = readFileSync(join(__dirname, "..", "design", "data-tab-final.html"), "utf8");
   const myDataSection = srcOfFn(src, "MyDataSection");
-  const metricRow = srcOfFn(src, "MetricRow");
   const chart = srcOfFn(src, "NoteAxisLineChart");
 
   // --- 28.1 直近日フォールバック(実行で検証) ---------------------------------
@@ -14065,6 +14207,9 @@ console.log("\n========== 検証28: N-8 ヒーローの折れ線化・直近日�
   }
 
   // --- 28.2 描画側の配線: 戻り値(frames / label)を使う -------------------------
+  // 【N-10 2026/08/17 本人指示で書き換え】使い手がヒーロー+3行から
+  // 「数字カード4枚の副次行 + グラフの濃い線 + 凡例」へ移った。**規則は同じ**:
+  // 今日/直近日の選定は myDataTodayOrLatestFrames の1回だけ、ラベルはその戻り値だけ。
   {
     check("28.2 MyDataSection は今日/直近日を myDataTodayOrLatestFrames(allMySessions, now) の1回で取る",
       /const day = myDataTodayOrLatestFrames\(allMySessions, now\);/.test(myDataSection)
@@ -14072,85 +14217,24 @@ console.log("\n========== 検証28: N-8 ヒーローの折れ線化・直近日�
       && /const dayLabel = day\.label;/.test(myDataSection)
       && (codeOf(myDataSection).match(/myDataTodayOrLatestFrames\(/g) || []).length === 1,
       `${(codeOf(myDataSection).match(/myDataTodayOrLatestFrames\(/g) || []).length}回`);
-    check("28.2 ヒーロー左上のラベルは戻り値の label(値が無いときだけ従来の「平均差分」)",
-      /\{dayVal != null \? dayLabel : "平均差分"\}/.test(myDataSection));
-    check("28.2 「今日」の綴りが描画側(MyDataSection / MetricRow)に無い(ラベルは戻り値だけ)",
-      !codeOf(myDataSection).includes("今日") && !codeOf(metricRow).includes("今日"));
-    check("28.2 3行ヘッダも同じ dayFrames / dayLabel を使う(MetricRow への配線)",
-      /periodFrames=\{periodFrames\} dayFrames=\{dayFrames\} dayLabel=\{dayLabel\}/.test(myDataSection));
-    check("28.2 ヒーローの数字も同じ母集団から出す(dayVal → displayVal)",
-      /const displayVal = dayVal != null \? dayVal : periodVal;/.test(myDataSection));
-  }
-
-  // --- 28.3 ヒーローの中の折れ線(hero 変形)と配色 ------------------------------
-  {
-    // 正典のヒーローの svg から、2本の線・0の破線・軸ラベルの色を読む(期待値をここに写さない)
-    const iHero = m28html.indexOf('<div class="hero">');
-    const iAfter = m28html.indexOf('<div class="mrow">');
-    const heroBlock = iHero >= 0 && iAfter > iHero ? m28html.slice(iHero, iAfter) : "";
-    const strokes = [...heroBlock.matchAll(/<path [^>]*stroke="(#[0-9A-Fa-f]{6})"/g)].map((m) => m[1]);
-    const zero = /<line [^>]*stroke="(#[0-9A-Fa-f]{6})" stroke-width="1" stroke-dasharray="4 3"/.exec(heroBlock);
-    const axis = /\.haxis\{[^}]*fill:(#[0-9A-Fa-f]{6})/.exec(m28html);
-    check("28.3 正典のヒーローから2本の線・0の破線・軸ラベルの色を読めている(空回りしていない)",
-      strokes.length === 2 && !!zero && !!axis,
-      `線=${strokes.join(",")} / 0線=${zero && zero[1]} / 軸=${axis && axis[1]}`);
-    const hs = new Function(`${extractConst("HERO_CHART_SERIES_STYLES")} return HERO_CHART_SERIES_STYLES;`)();
-    const hz = new Function(`${extractConst("HERO_CHART_ZERO_LINE")} return HERO_CHART_ZERO_LINE;`)();
-    const ha = new Function(`${extractConst("HERO_CHART_AXIS_TEXT")} return HERO_CHART_AXIS_TEXT;`)();
-    check("28.3 期間平均の線は正典の1本目(薄)と同じ色",
-      strokes.length === 2 && hs[0].color.toUpperCase() === strokes[0].toUpperCase(),
-      `実装 ${hs[0].color} / 正典 ${strokes[0]}`);
-    check("28.3 今日/直近日の線は正典の2本目(白)と同じ色",
-      strokes.length === 2 && hs[1].color.toUpperCase() === strokes[1].toUpperCase(),
-      `実装 ${hs[1].color} / 正典 ${strokes[1]}`);
-    check("28.3 薄い線は太く(§1.8 の 3px)・濃い線は 2px・2本とも実線",
-      hs[0].width === 3 && hs[1].width === 2 && hs[0].dash === null && hs[1].dash === null,
-      `${hs[0].width}px / ${hs[1].width}px`);
-    check("28.3 0の基準線は正典と同じ色(§1.8 の破線 4 3)",
-      zero !== null && hz.toUpperCase() === zero[1].toUpperCase(), `実装 ${hz} / 正典 ${zero && zero[1]}`);
-    check("28.3 軸ラベルの色は正典 .haxis と同じ",
-      axis !== null && ha.toUpperCase() === axis[1].toUpperCase(), `実装 ${ha} / 正典 ${axis && axis[1]}`);
-    // 配色が「ヒーローの既存配色」であること: 期間の線 = 正典 .hero .lbl の色 / 軸 = .hero .u の色
-    {
-      const lbl = /\.hero \.lbl\{[^}]*color:(#[0-9A-Fa-f]{6})/.exec(m28html);
-      const u = /\.hero \.u\{[^}]*color:(#[0-9A-Fa-f]{6})/.exec(m28html);
-      check("28.3 期間の線色はヒーローの既存色(.hero .lbl)と同じ(新色を発明していない)",
-        lbl !== null && hs[0].color.toUpperCase() === lbl[1].toUpperCase(), `${hs[0].color} / ${lbl && lbl[1]}`);
-      check("28.3 軸ラベル色はヒーローの既存色(.hero .u)と同じ(新色を発明していない)",
-        u !== null && ha.toUpperCase() === u[1].toUpperCase(), `${ha} / ${u && u[1]}`);
-    }
-    // hero 変形の描画(綴りで固定)と、既定(hero=false)経路の不変
-    check("28.3 hero は任意の引数(既定 false = 既存の呼び出し側は従来のまま)",
-      /plain = false, hero = false/.test(chart));
-    check("28.3 hero のとき水平グリッドを描かず、0 の基準線だけを破線で示す",
-      /\{hero \? \(v === 0 && \(/.test(chart)
-      && /strokeDasharray="4 3" style=\{\{ stroke: HERO_CHART_ZERO_LINE \}\}/.test(chart));
-    check("28.3 hero=false(既定)の目盛線は従来のまま(var(--c-line) の実線)",
-      /<line x1=\{L\.AXW\} y1=\{L\.yAt\(v\)\} x2=\{W\} y2=\{L\.yAt\(v\)\} strokeWidth="1" style=\{\{ stroke: "var\(--c-line\)" \}\} \/>/.test(chart));
-    check("28.3 目盛・音名ラベルの色は hero でヒーロー配色・既定(false)で従来色",
-      /fill: hero \? HERO_CHART_AXIS_TEXT : "var\(--c-ink-4\)"/.test(chart)
-      && /fill: hero \? HERO_CHART_AXIS_TEXT : i === midEbIdx \? "var\(--c-accent\)" : "var\(--c-ink-3\)"/.test(chart));
-    check("28.3 hero では中央E♭のガイド線を描かない(既定では描く)",
-      /\{!hero && midEbIdx !== null && \(/.test(chart));
-    check("28.3 空状態の文言も hero ではヒーロー配色(既定は従来の #8D95A1)",
-      /color: hero \? HERO_CHART_AXIS_TEXT : "#8D95A1"/.test(chart));
-    // hero を渡すのはデータタブのヒーローの1箇所だけ(集合で縛る)
-    {
-      const re = /<NoteAxisLineChart\s*\r?\n\s*plain hero\b/g;
-      const total = (src.match(re) || []).length;
-      const inOwner = (myDataSection.match(re) || []).length;
-      check("28.3 hero を渡すのは MyDataSection のヒーローだけ(集合の外に渡し手がいない)",
-        total === 1 && inOwner === 1
-        && !/\bhero\b/.test(codeOf(srcOfFn(src, "TappableMetricCard")))
-        && !/\bhero\b/.test(codeOf(metricRow)),
-        `全体 ${total} / MyDataSection ${inOwner}`);
-    }
+    check("28.2 「今日」の綴りが描画側(MyDataSection)に無い(ラベルは戻り値だけ)",
+      !codeOf(myDataSection).includes("今日"));
+    check("28.2 N-10: 数字カードの副次行のラベルも戻り値の dayLabel(日付を作り直さない)",
+      /\{dayLabel\} \{n\.dayText\}/.test(myDataSection));
+    check("28.2 N-10: カードの副次の数字も同じ母集団(dayFrames)から出す",
+      /const dayMetrics = dayFrames\.length \? computeFrameMetrics\(dayFrames\) : null;/.test(myDataSection)
+      && /metricCardNumbers\(m, dayMetrics \? dayMetrics\[key\] : null, overall\[key\]\)/.test(myDataSection));
+    check("28.2 N-10: グラフの濃い線と凡例も同じ dayFrames / dayLabel から作る",
+      /myDataChartSeries\(rangeLabel, periodFrames, dayFrames, dayLabel\)/.test(myDataSection)
+      && /\{chartSeries\[1\]\.label\}/.test(myDataSection));
   }
 
   // --- 28.4 目安(selectedIdeal)の破線と Δ の撤去(他画面はそのまま) --------------
   {
-    check("28.4 MetricRow は目安を一切扱わない(selectedIdeal / idealKey / idealDiffText の綴りが無い)",
-      !/selectedIdeal|idealKey|idealDiffText/.test(codeOf(metricRow)));
+    // 【N-10 で書き換え】旧版は MetricRow(常時表示の3行)を見ていた。関数ごと廃止されたので、
+    // 同じ主張を**唯一のグラフを持つ MyDataSection**に対して立てる(黙って消していない)。
+    check("28.4 My Data は目安の引数を一切扱わない(idealKey / idealDiffText の綴りが無い)",
+      !/idealKey|idealDiffText/.test(codeOf(myDataSection)));
     check("28.4 MyDataSection はどのグラフにも selectedIdeal を渡さない(「目安未設定」の告知の条件にだけ使う)",
       !/selectedIdeal=\{/.test(codeOf(myDataSection)) && /\{!selectedIdeal && \(/.test(myDataSection));
     check("28.4 idealAvgForFrames(Δ の導出)は削除済み(読み手の無い定義を残さない)",
@@ -14324,31 +14408,110 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
 }
 
 // ============================================================
-// 検証30: F-97〜F-104 実機フィードバック第3陣(2026/08/17 本人指示。凍結仕様 = design/F97-SPEC.md)
+// 検証30: 実機フィードバック(第3陣 F-97〜F-104 = design/F97-SPEC.md /
+//          第4陣 F-106 = design/F106-SPEC.md。いずれも本人指示)
+// 【N-10 の周で 30.1 を全面書き換え】F-97 の対処(常設 checkbox + 行ごとの display 切替)は
+// **実機で直らなかった**ので、F-106 で「祖先クラス1つ」へ仕様が転換した。30.2〜30.4 は不変。
 // 【この節の作り方】ハーネスは JSX を評価せず React フックも動かせないので、
 // ここで固定するのは**定義・呼び出しに隣接する綴り**(罠2)と、抽出できる純関数の実行結果。
 // 描画の実測(全行のチェックボックス・軸の上限・フリッカ)は Browser pane で行う。
 // この節はその証明ではない(名乗りに注意)。
 // ============================================================
-console.log("\n========== 検証30: F-97〜F-104 実機フィードバック第3陣 ==========");
+console.log("\n========== 検証30: 実機フィードバック(F-97〜F-104 / F-106) ==========");
 {
-  // --- 30.1 F-97: セッション一覧のチェックボックスは**常設**(挿入ではなく表示切替) --------
-  // 本人実機報告: 削除モードで先頭行だけチェックボックスが出ない(iPhone)。現行 Chrome では
-  // 再現せず(全可視域の 1px 走査で全点が行に命中)、全行が同一 JSX なので構造分岐も無い。
-  // 疑われる機序(モード切替と同時のノード挿入を WebKit が取りこぼす)を**構造的に不可能**に
-  // するため、チェックボックスを常設し listMode では display だけを切り替える。
+  // --- 30.1 F-106: 選択モードは**祖先クラス1つ**だけで表現する ----------------------
+  // 【F-106 2026/08/17 本人指示で全面書き換え。凍結仕様 = design/F106-SPEC.md】
+  // 本人実機報告: 削除モードで先頭行だけチェックボックスが出ず、その行をタップすると
+  // チェックが日付に重なる(iPhone)。**F-97 の対処(常設 checkbox + 行ごとの display 切替)でも
+  // 実機では直らなかった**ので、仕様が「行ごとに要素を出し入れするのをやめる」へ転換した。
+  //   ・チェックボックスは常に DOM にあり、**常にレイアウトに参加する**
+  //   ・モードの切替は祖先(一覧のコンテナ)のクラス1つだけ
+  //   ・行の寸法・字下げ・見え隠れは index.css が持つ(行に style 属性を置かない)
+  //   ・モード外は opacity:0 + pointer-events:none。**レイアウトは動かさない**
+  //   ・一覧の行にもスクロールコンテナにも contain / content-visibility / will-change /
+  //     transform を置かない
+  // 旧 30.1(display 切替 / tabIndex / aria-hidden の綴り)は**その形ごと否定された**ので、
+  // 主張も反転させる(黙って消していない)。
+  // **この節は「実機で直った」ことの証明ではない**(Chrome では一度も再現していない)。
+  // 固定できるのは「モードで行ごとの DOM/style が動く形が構造的に作れないこと」だけ。
   {
     const page30 = srcOfFn(src, "MyDataPage");
+    const css30 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
     check("30.1 走査できている(MyDataPage)", page30.length > 3000, `${page30.length}文字`);
-    // 行の map の中の checkbox が「常設 + display 切替」の形であること(呼び出しに隣接する綴り)
-    check("30.1 F-97: 行のチェックボックスは display: listMode ? \"block\" : \"none\" の常設",
-      /type="checkbox" checked=\{selectedForDelete\.has\(s\.id\)\}[\s\S]{0,400}?display: listMode \? "block" : "none", width: 20, height: 20, flexShrink: 0/.test(page30));
-    // 条件マウント(listMode && <input)へ戻す変異がここで落ちる
-    check("30.1 F-97: 条件マウント(listMode && <input)が残っていない",
+    // 行の map(一覧の行のブロック)を切り出して、その中だけを見る
+    const iList = page30.indexOf('<div className={listMode ? "slist is-select" : "slist"}>');
+    const iListEnd = page30.indexOf("{pillSheet ===", iList);
+    const rows = iList >= 0 && iListEnd > iList ? page30.slice(iList, iListEnd) : "";
+    check("30.1 一覧の行のブロックを切り出せている(空回りしていない)", rows.length > 600, `${rows.length}文字`);
+
+    // (a) モードを表現するのは**祖先の className ただ1つ**
+    check("30.1 F-106: モードは祖先の className 1つだけで表現する",
+      /className=\{listMode \? "slist is-select" : "slist"\}/.test(rows));
+    // (b) 行の側は listMode を**style にも属性にも**持たない。
+    //     行タップの行き先(onClick)だけが listMode を見てよい。
+    {
+      const hits = [...rows.matchAll(/listMode/g)].map((m) =>
+        rows.slice(Math.max(0, m.index - 60), m.index + 20).replace(/\s+/g, " "));
+      const outsideOnClick = hits.filter((h) => !/className=\{listMode \?/.test(h) && !/onClick=\{\(\) => \(listMode/.test(h));
+      check("30.1 F-106: 行の中で listMode を見るのは行タップの行き先だけ(style/属性は見ない)",
+        outsideOnClick.length === 0, outsideOnClick.slice(0, 2).join(" | ") || `${hits.length}箇所すべて許容形`);
+    }
+    // (c) 行にも checkbox にも **style 属性が無い**(行ごとの style がモードで動きようがない)
+    check("30.1 F-106: 行の <div> に style 属性が無い(寸法は index.css の .slist-row が持つ)",
+      /<div\s*\r?\n\s*key=\{s\.id\}\s*\r?\n\s*onClick=[^\n]*\s*\r?\n\s*className="sans slist-row"\s*\r?\n\s*>/.test(rows));
+    check("30.1 F-106: チェックボックスに style 属性が無い(見え隠れは index.css が持つ)",
+      /type="checkbox"[\s\S]{0,300}?className="slist-check"\s*\r?\n\s*\/>/.test(rows)
+      && !/type="checkbox"[\s\S]{0,300}?style=\{\{/.test(rows));
+    // (d) 旧形(display 切替 / 条件マウント / tabIndex / aria-hidden のモード分岐)が残っていない
+    check("30.1 F-106: display の切替が残っていない(F-97 の形へ戻せない)",
+      !/display: listMode/.test(codeOf(page30)));
+    check("30.1 F-106: 条件マウント(listMode && <input)も残っていない",
       !/listMode && \(\s*\r?\n\s*<input/.test(codeOf(page30)));
-    // モード外ではフォーカスも読み上げも受けない(display:none と対)
-    check("30.1 F-97: モード外は tabIndex -1 / aria-hidden で不可視と整合",
-      /tabIndex=\{listMode \? undefined : -1\}/.test(page30) && /aria-hidden=\{listMode \? undefined : true\}/.test(page30));
+    check("30.1 F-106: 行ごとの tabIndex / aria-hidden のモード分岐が残っていない",
+      !/tabIndex=\{listMode/.test(page30) && !/aria-hidden=\{listMode/.test(page30));
+    // (e) index.css 側: レイアウトを動かさずに見え隠れさせる / 祖先クラスだけが切り替える
+    {
+      // 宣言だけを見る。**コメントを剥がしてから**判定しないと、経緯を書いたコメントの中の
+      // 語(例「display:none には無かった劣化」)を宣言と誤認する(実際にそれで落ちた)。
+      const chk = (/\.slist-check \{([^}]*)\}/.exec(css30) || ["", ""])[1].replace(/\/\*[\s\S]*?\*\//g, "");
+      const on = /\.slist\.is-select \.slist-check \{([^}]*)\}/.exec(css30);
+      // 【審査で訂正 2026/08/17】初版は opacity:0 を要求し visibility を**禁じて**いたが、
+      // opacity は読み上げとフォーカス順を殺さず、モード外の不可視チェックボックスが
+      // tabbable に残っていた(実測: ページの tabbable 36個中14個)。
+      // visibility は display と違い**レイアウトを 1px も動かさない**ので、F-106 の不変条件
+      // (祖先クラス1つ・行ごとの更新ゼロ・レイアウト不動)を崩さずに劣化だけ消える。
+      // **display は引き続き禁止**(F-97 の失敗そのもの。レイアウトが動く)。
+      check("30.1 F-106: モード外は visibility:hidden + pointer-events:none(display は切らない)",
+        /visibility:\s*hidden\s*;/.test(chk) && /pointer-events:\s*none\s*;/.test(chk)
+        && !/display:/.test(chk) && !/opacity:/.test(chk), chk.replace(/\s+/g, " ").trim());
+      check("30.1 F-106: モード内は visibility:visible へ戻す(祖先クラス側だけで切り替える)",
+        on !== null && /visibility:\s*visible\s*;/.test(on[1]) && /pointer-events:\s*auto\s*;/.test(on[1]),
+        on ? on[1].replace(/\s+/g, " ").trim() : "規則が無い");
+      check("30.1 F-106: チェックボックスは常に場所を取る(幅は 0 にしない)",
+        /flex:\s*0 0 20px\s*;/.test(chk) && /width:\s*20px\s*;/.test(chk), chk.replace(/\s+/g, " ").trim());
+      // 【審査で訂正 2026/08/17】visibility へ移したので、禁じる側から visibility を外し
+      // opacity を入れる。**レイアウトを動かす宣言(width/height/display/margin/padding/flex)は
+      // 引き続き全部禁止** — ここが F-106 の芯(祖先クラス1つで、レイアウトは1pxも動かさない)。
+      check("30.1 F-106: モード内で変わるのは visibility と pointer-events だけ(レイアウトは動かない)",
+        on !== null && /visibility:\s*visible\s*;/.test(on[1]) && /pointer-events:\s*auto\s*;/.test(on[1])
+        && !/(width|height|display|margin|padding|flex|opacity)\s*:/.test(on[1]),
+        on ? on[1].replace(/\s+/g, " ").trim() : "規則が無い");
+      // (f) 一覧の行・スクロールコンテナに合成レイヤ系のプロパティを置かない
+      const listRules = [".slist ", ".slist{", ".slist ", ".slist-row", ".slist-check", ".slist-main", ".slist-date", ".slist-sub"];
+      const listCss = [...css30.matchAll(/(\.slist[\w.-]*(?:\s+\.[\w-]+)?)\s*\{([^}]*)\}/g)];
+      check("30.1 F-106: 一覧の CSS 規則を走査できている(空回りしていない)",
+        listCss.length >= 5 && listRules.length > 0, `${listCss.length}規則`);
+      const layered = listCss.filter(([, , body]) => /contain\s*:|content-visibility\s*:|will-change\s*:|transform\s*:/.test(body));
+      check("30.1 F-106: 一覧の行にもスクロールコンテナにも contain / content-visibility / will-change / transform が無い",
+        layered.length === 0, layered.map((m) => m[1]).join(",") || "0件");
+    }
+    // (g) 祖先(SwipePager の track)からも will-change を外した。
+    //     一覧のスクロールコンテナは SwipePager の子孫にあり、恒久的なレイヤ昇格は
+    //     iOS の再ペイント取りこぼしの典型要因(F106-SPEC が名指し)。
+    check("30.1 F-106: SwipePager の track に will-change が残っていない(祖先のレイヤ昇格を外した)",
+      !/willChange/.test(codeOf(srcOfFn(src, "SwipePager"))));
+    check("30.1 F-106: アプリ全体で will-change を1つも使っていない(SwipeBackArea の作法に統一)",
+      !/willChange|will-change:/.test(codeOf(src)) && !/will-change\s*:/.test(css30));
   }
 
   // --- 30.2 F-101: usePersistedState のモジュールキャッシュ(再マウントのフリッカ解消) ------

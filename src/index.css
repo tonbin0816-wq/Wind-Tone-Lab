@@ -421,3 +421,72 @@ textarea {
 .jp-label { letter-spacing: 0.02em; }
 /* 大きな数値(24px以上、ヒーロー・音名セント)用: 数字は既定だと間延びするため詰める */
 .num-tight { letter-spacing: -0.02em; }
+
+/* ------------------------------------------------------------------
+   【F-106 2026/08/17 本人指示・凍結仕様 design/F106-SPEC.md】
+   セッション一覧の「選択(削除)モード」。**モードは祖先クラス1つだけで表現する。**
+
+   経緯: 削除モードに入ると **iPhone で先頭行だけチェックボックスが出ず**、
+   その行をタップするとチェックが日付に重なる(＝先頭行だけモード切替時の
+   レイアウト更新が反映されていない)。
+   F-97 の対処(常設 checkbox + 行ごとの `display` 切替)でも実機では直らなかった。
+   Chrome では一度も再現していないので、iOS Safari のレイアウト/ペイントの
+   取りこぼしとして扱う。
+
+   方針(F106-SPEC の「方針転換」):
+   ・チェックボックスは**常に DOM にあり、常にレイアウトに参加する**
+     (`display` も `visibility` も切り替えない。行の字下げはモードに関係なく常時入る)
+   ・モードの切替は **`.slist` に付く `.is-select` ただ1つ**。祖先のクラス変更は
+     subtree 全体の style 再計算を必ず伴うので、行ごとの取りこぼしが構造的に起きない
+   ・行の寸法・字下げも**行ごとの style ではなくこの CSS** が与える
+     (JSX 側の行には style 属性そのものを置かない)
+   ・モード外で見えない/触れないのは `opacity: 0` + `pointer-events: none` だけ。
+     **レイアウトは 1px も動かさない**(モード内外で行の高さも字下げも同じ)
+   ・`contain` / `content-visibility` / `will-change` / `transform` は
+     一覧の行にもスクロールコンテナにも置かない(iOS の再ペイント取りこぼしの典型要因)
+
+   ※ モード外でも 20px のチェックボックスが場所を取るので、**モード外の行の
+      見た目は F-97 以前と変わる**(日付が常に 32px 字下げされる)。
+      F106-SPEC の「見た目より、モードで壊れないことを優先する」という判断に従う。 */
+.slist { overflow-y: auto; max-height: 190px; }
+.slist-row {
+  display: flex;
+  align-items: center;
+  /* gap / padding / border-bottom は正典 north-star-measure.html の .srow のまま
+     (N-6 から 1px も動かしていない。インライン style から CSS へ移しただけ)。 */
+  gap: 10px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--c-line);
+  min-height: var(--tap-min);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.slist-check {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin: 0;
+  cursor: pointer;
+  /* モード外: 見えない・触れない・**読み上げとフォーカス順からも外す**。
+     **場所は常に確保したまま**(visibility はレイアウトを 1px も動かさない)。
+     【審査で訂正 2026/08/17】初版は F106-SPEC の名指しに従って opacity:0 にしていたが、
+     opacity は描画とタップしか殺さないので、モード外の 14個のチェックボックスが
+     読み上げとフォーカス順に残っていた(実測: ページの tabbable 36個中14個が不可視の
+     チェックボックス。F-97 の display:none には無かった劣化)。
+     visibility は display と違い**レイアウトを動かさない**ので、F-106 の不変条件
+     (祖先クラス1つで切替・行ごとの更新ゼロ・レイアウト不動)を1つも崩さずに劣化だけ消える。
+     仕様側(F106-SPEC)が visibility を display と同列に禁じていたのが誤りだった。 */
+  visibility: hidden;
+  pointer-events: none;
+}
+.slist.is-select .slist-check { visibility: visible; pointer-events: auto; }
+.slist-main { flex: 1; min-width: 0; }
+.slist-date { display: block; font-size: var(--fs-sm); color: var(--c-ink); }
+.slist-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--c-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
