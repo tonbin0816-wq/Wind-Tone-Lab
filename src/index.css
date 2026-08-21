@@ -109,6 +109,17 @@
      ------------------------------------------------------------------ */
   --nav-h: 47px;
   --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+
+  /* 【N-11 2026/08/17 本人指示】本文の左右余白。**値の唯一の答えはここ**。
+     `.app-root` の左右 padding がこの2つを使い、
+     ・グラフカードが「左右の余白を食い破って画面いっぱい」に伸びる負マージン
+     ・右下に浮かせるボタンの右端(本文の左右余白と揃える)
+     も同じ2つから引く。以前は `calc(14px + env(safe-area-inset-left))` という**式ごと**
+     App.jsx の複数箇所に写されており、片方だけ直す事故の形が並んでいた。
+     安全域(env)を左右で別々に持つのは、横向きのノッチで左右の値が違うため。 */
+  --page-side-pad: 14px;
+  --page-pad-left:  calc(var(--page-side-pad) + env(safe-area-inset-left));
+  --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
 }
 
 /* ラバーバンドスクロールで body の地色が見えるため、ページ背景と同色を敷く。

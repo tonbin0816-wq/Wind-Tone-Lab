@@ -1,0 +1,256 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Data 改修案（第3ラウンド）</title>
+<style>
+  :root{--ink:#121F32;--ink2:#435266;--ink3:#8D95A1;--line:#EEF1F4;--line2:#E0E4EA;
+    --rule:#E1E6EC;--accent:#174585;--mid:#7FA0CE;--pale:#B9C9E4;--tint:#EAEFF5;
+    --ghost:#EAEFF6;--bg:#F6F7F9}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;-webkit-text-size-adjust:100%}
+  header{padding:20px 16px 4px;max-width:1180px;margin:0 auto}
+  h1{font-size:17px;margin:0 0 8px}
+  header p{font-size:13px;color:var(--ink2);line-height:1.8;margin:0 auto 5px;max-width:1180px}
+  b{color:var(--ink)}
+  .fix{display:inline-block;font-size:11.5px;background:#fff;border:1px solid var(--line2);
+    border-radius:999px;padding:3px 10px;margin:2px 4px 2px 0;color:var(--ink2)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+  .phone{position:relative;width:375px;max-width:100%;height:700px;background:#fff;border-radius:26px;
+    overflow:hidden;box-shadow:0 2px 14px rgba(20,30,50,.10)}
+  .body{position:absolute;inset:0 0 52px 0;padding:14px 24px 0;overflow:hidden}
+  .tabs{position:absolute;left:0;right:0;bottom:0;height:52px;border-top:1px solid var(--line);display:flex}
+  .tabs div{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink3)}
+  .tabs .on{color:var(--accent);font-weight:700}
+  .num{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+  /* 上部: タブ行の右端にセレクタ(空白の解消) */
+  .top{display:flex;align-items:baseline;gap:18px;font-size:13px;color:var(--ink3);padding:2px 0 14px}
+  .top .on{color:var(--ink);font-weight:600}
+  .top .sel{margin-left:auto;font-size:12px;color:var(--ink3)}
+
+  /* 蓄積量 */
+  .stock{display:flex;gap:24px;align-items:baseline;padding:0 0 14px}
+  .stock .big{font-family:ui-monospace,Menlo,monospace;font-size:28px;font-weight:600;line-height:1}
+  .stock .u{font-size:11px;color:var(--ink3);margin-left:2px}
+  .stock small{display:block;font-size:10px;color:var(--ink3);margin-top:4px}
+
+  /* グラフカード: 画面いっぱい(左右の余白を食い破る) */
+  .gcard{margin:0 -24px;padding:12px 10px 8px;background:var(--tint);border-radius:0}
+  .gcard.dark{background:var(--accent)}
+  .gcard.gray{background:#F1F3F6}
+  .gtabs{display:flex;gap:5px;padding:0 4px 8px}
+  .gtab{flex:1;text-align:center;font-size:11.5px;color:var(--ink2);padding:6px 0;border-radius:999px}
+  .gtab.on{background:#fff;color:var(--ink);font-weight:600}
+  .gcard.dark .gtab{color:#9DB3D6}
+  .gcard.dark .gtab.on{background:rgba(255,255,255,.16);color:#fff}
+  .gval{display:flex;align-items:baseline;justify-content:space-between;padding:2px 6px 4px}
+  .gval .v{font-family:ui-monospace,Menlo,monospace;font-size:22px;font-weight:600}
+  .gval .v small{font-size:11px;color:var(--ink3);font-weight:400;margin-left:1px}
+  .gcard.dark .gval .v{color:#fff}
+  .gcard.dark .gval .v small{color:#9DB3D6}
+  .gleg{font-size:10px;color:var(--ink3)}
+  .gcard.dark .gleg{color:#9DB3D6}
+  .sw{display:inline-block;width:11px;height:2.5px;border-radius:2px;margin-right:4px;vertical-align:2px}
+  .ax{font-size:8.5px;fill:var(--ink3)}
+  .gcard.dark .ax{fill:#9DB3D6}
+
+  /* 一覧 */
+  .shead{display:flex;align-items:baseline;justify-content:space-between;padding:16px 0 8px}
+  .shead .t{font-size:13px;font-weight:600}
+  .shead .op{font-size:12px;color:var(--ink2)}
+  .srow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .srow .d{font-size:13px;flex:1}
+  .srow .d i{color:var(--ink3);font-style:normal}
+  /* 取り込みの各案 */
+  .fab{position:absolute;right:20px;bottom:66px;height:44px;padding:0 18px;border-radius:999px;
+    background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;display:flex;align-items:center;
+    box-shadow:0 6px 18px rgba(20,30,50,.22)}
+  .bigimp{display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border-radius:14px;
+    background:var(--accent);color:#fff;font-size:14px;font-weight:600;margin:2px 0 4px}
+  .dashimp{display:flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:14px;
+    border:1.5px dashed var(--pale);color:var(--accent);font-size:13.5px;font-weight:600;margin:2px 0 6px;
+    background:#fff}
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap b{color:var(--ink)}
+  .cap .ok{color:#1D6B4A}.cap .ng{color:#B0433A}
+  footer{max-width:1180px;margin:0 auto;padding:10px 16px 70px;font-size:13px;color:var(--ink2);line-height:1.9}
+  footer h2{font-size:14px;color:var(--ink);margin:24px 0 6px}
+  footer li{margin-bottom:5px}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#EAEEF4;--ink2:#B6C0CE;--ink3:#8892A0;--line:#252B34;--line2:#39414C;--rule:#2C333D;
+      --tint:#1E2836;--ghost:#232B36;--bg:#14181E}
+    body{background:#14181E}.phone{background:#1B2027;box-shadow:none}
+    .gtab.on{background:#2A323D}.gcard.gray{background:#1F252D}.dashimp{background:transparent}
+  }
+</style>
+
+<header>
+  <h1>My Data 改修案（第3ラウンド）</h1>
+  <p>いただいた指摘をすべて制約にしました:
+    <span class="fix">上部の空白を解消</span>
+    <span class="fix">回数・時間・音はそのまま</span>
+    <span class="fix">4指標の数字は常時表示しない</span>
+    <span class="fix">グラフを別の色のカードに・カード内に4指標のタブ</span>
+    <span class="fix">グラフは画面いっぱい</span>
+    <span class="fix">My Data のグラフはフラジオを含めない</span>
+    <span class="fix">Y軸ラベルを重ねて横幅を稼ぐ</span>
+    <span class="fix">一括リード変更は削除・「選択」＝削除だけ</span>
+    <span class="fix">取り込みを目立たせる</span>
+  </p>
+  <p><b>3案の違いは「グラフカードの色」と「取り込みの置き方」だけ</b>です。それ以外は共通。スマホで実寸。</p>
+</header>
+
+<div class="row">
+
+  <!-- ===== 案P ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案P　薄い紺のカード＋浮かせる</span><span class="rec">推し</span></div>
+    <div class="phone"><div class="body">
+      <div class="top"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 1ヶ月 ▾</span></div>
+      <div class="stock">
+        <span><span class="big num">46</span><span class="u">回</span><small>セッション</small></span>
+        <span><span class="big num">12.5</span><span class="u">時間</span><small>総演奏</small></span>
+        <span><span class="big num">3,120</span><span class="u">音</span><small>計測した音</small></span>
+      </div>
+
+      <div class="gcard">
+        <div class="gtabs"><span class="gtab on">平均差分</span><span class="gtab">HNR</span>
+          <span class="gtab">重心</span><span class="gtab">音量</span></div>
+        <div class="gval"><span class="v num">+1.2<small>¢</small></span>
+          <span class="gleg"><span class="sw" style="background:var(--pale)"></span>1ヶ月
+            <span class="sw" style="background:var(--accent);margin-left:10px"></span>今日</span></div>
+        <svg width="100%" height="132" viewBox="0 0 355 132" preserveAspectRatio="none">
+          <path d="M0 62 L44 66 L88 54 L132 46 L176 40 L220 44 L264 34 L308 30 L355 26 L355 46 L308 52 L264 58 L220 66 L176 62 L132 70 L88 76 L44 88 L0 84 Z" fill="var(--ghost)"/>
+          <line x1="0" y1="66" x2="355" y2="66" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+          <path d="M0 73 L44 77 L88 65 L132 58 L176 51 L220 55 L264 46 L308 41 L355 36" fill="none" stroke="var(--pale)" stroke-width="2.6" stroke-linejoin="round"/>
+          <path d="M0 70 L44 73 L88 61 L132 53 L176 47 L220 50 L264 40 L308 34 L355 30" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+          <text class="ax" x="3" y="10">+10</text><text class="ax" x="3" y="62">0.0</text><text class="ax" x="3" y="128">−10</text>
+        </svg>
+        <svg width="100%" height="13" viewBox="0 0 355 13">
+          <text class="ax" x="2" y="10">B♭3</text><text class="ax" x="168" y="10">C5</text>
+          <text class="ax" x="326" y="10">F6</text></svg>
+      </div>
+
+      <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">46</span></span>
+        <span class="op">選択</span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:15 <i>Vandoren-3 #8 · 0:21</i></span></div>
+    </div>
+    <div class="fab">↥ 録音を取り込む</div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">グラフは<b>薄い紺のカードで画面いっぱい</b>（左右の余白を食い破る）。カード内に4指標のタブ、
+    選ばれた指標の数字だけが1つ出る。Y軸は<b>グラフの上に重ねて</b>いるので、線の幅が 277→355px に広がります。<br>
+    取り込みは<b>右下に浮かせる</b>（リードタブと同じ作法）。<span class="ok">スクロールしても常に届く</span>。</p>
+  </div>
+
+  <!-- ===== 案Q ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案Q　濃い紺のカード＋帯ボタン</span><span class="s">グラフを主役に</span></div>
+    <div class="phone"><div class="body">
+      <div class="top"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 1ヶ月 ▾</span></div>
+      <div class="stock">
+        <span><span class="big num">46</span><span class="u">回</span><small>セッション</small></span>
+        <span><span class="big num">12.5</span><span class="u">時間</span><small>総演奏</small></span>
+        <span><span class="big num">3,120</span><span class="u">音</span><small>計測した音</small></span>
+      </div>
+
+      <div class="gcard dark">
+        <div class="gtabs"><span class="gtab on">平均差分</span><span class="gtab">HNR</span>
+          <span class="gtab">重心</span><span class="gtab">音量</span></div>
+        <div class="gval"><span class="v num">+1.2<small>¢</small></span>
+          <span class="gleg"><span class="sw" style="background:#B9C9E4"></span>1ヶ月
+            <span class="sw" style="background:#fff;margin-left:10px"></span>今日</span></div>
+        <svg width="100%" height="132" viewBox="0 0 355 132" preserveAspectRatio="none">
+          <path d="M0 62 L44 66 L88 54 L132 46 L176 40 L220 44 L264 34 L308 30 L355 26 L355 46 L308 52 L264 58 L220 66 L176 62 L132 70 L88 76 L44 88 L0 84 Z" fill="rgba(255,255,255,.10)"/>
+          <line x1="0" y1="66" x2="355" y2="66" stroke="#3D5F94" stroke-width="1" stroke-dasharray="4 3"/>
+          <path d="M0 73 L44 77 L88 65 L132 58 L176 51 L220 55 L264 46 L308 41 L355 36" fill="none" stroke="#B9C9E4" stroke-width="2.6" stroke-linejoin="round"/>
+          <path d="M0 70 L44 73 L88 61 L132 53 L176 47 L220 50 L264 40 L308 34 L355 30" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+          <text class="ax" x="3" y="10">+10</text><text class="ax" x="3" y="62">0.0</text><text class="ax" x="3" y="128">−10</text>
+        </svg>
+        <svg width="100%" height="13" viewBox="0 0 355 13">
+          <text class="ax" x="2" y="10">B♭3</text><text class="ax" x="168" y="10">C5</text>
+          <text class="ax" x="326" y="10">F6</text></svg>
+      </div>
+
+      <div class="bigimp" style="margin-top:14px">↥ 録音を取り込む</div>
+      <div class="shead" style="padding-top:8px"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">46</span></span>
+        <span class="op">選択</span></div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:15 <i>Vandoren-3 #8 · 0:21</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">グラフカードを<b>濃い紺</b>にして、この画面で一番強い面にする（線は白＝いちばん目立つ）。
+    取り込みは一覧の直上に<b>幅いっぱいの帯ボタン</b>。<span class="ok">浮かせないので何にも重ならない</span>。<br>
+    <span class="ng">弱点</span>: 紺の面が大きいので、下の一覧が相対的に弱く見えます。</p>
+  </div>
+
+  <!-- ===== 案R ===== -->
+  <div class="col">
+    <div class="tag"><span class="n">案R　灰のカード＋取り込み枠</span><span class="s">静かに・投入口を明示</span></div>
+    <div class="phone"><div class="body">
+      <div class="top"><span class="on">My Data</span><span>分析</span><span class="sel">Alto ▾ · 1ヶ月 ▾</span></div>
+      <div class="stock">
+        <span><span class="big num">46</span><span class="u">回</span><small>セッション</small></span>
+        <span><span class="big num">12.5</span><span class="u">時間</span><small>総演奏</small></span>
+        <span><span class="big num">3,120</span><span class="u">音</span><small>計測した音</small></span>
+      </div>
+
+      <div class="gcard gray">
+        <div class="gtabs"><span class="gtab on">平均差分</span><span class="gtab">HNR</span>
+          <span class="gtab">重心</span><span class="gtab">音量</span></div>
+        <div class="gval"><span class="v num">+1.2<small>¢</small></span>
+          <span class="gleg"><span class="sw" style="background:var(--pale)"></span>1ヶ月
+            <span class="sw" style="background:var(--accent);margin-left:10px"></span>今日</span></div>
+        <svg width="100%" height="132" viewBox="0 0 355 132" preserveAspectRatio="none">
+          <path d="M0 62 L44 66 L88 54 L132 46 L176 40 L220 44 L264 34 L308 30 L355 26 L355 46 L308 52 L264 58 L220 66 L176 62 L132 70 L88 76 L44 88 L0 84 Z" fill="#E4E8EE"/>
+          <line x1="0" y1="66" x2="355" y2="66" stroke="#C3CAD3" stroke-width="1" stroke-dasharray="4 3"/>
+          <path d="M0 73 L44 77 L88 65 L132 58 L176 51 L220 55 L264 46 L308 41 L355 36" fill="none" stroke="var(--mid)" stroke-width="2.6" stroke-linejoin="round"/>
+          <path d="M0 70 L44 73 L88 61 L132 53 L176 47 L220 50 L264 40 L308 34 L355 30" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+          <text class="ax" x="3" y="10">+10</text><text class="ax" x="3" y="62">0.0</text><text class="ax" x="3" y="128">−10</text>
+        </svg>
+        <svg width="100%" height="13" viewBox="0 0 355 13">
+          <text class="ax" x="2" y="10">B♭3</text><text class="ax" x="168" y="10">C5</text>
+          <text class="ax" x="326" y="10">F6</text></svg>
+      </div>
+
+      <div class="shead"><span class="t">セッション <span style="color:var(--ink3);font-weight:400">46</span></span>
+        <span class="op">選択</span></div>
+      <div class="dashimp">↥ 録音ファイルを取り込む</div>
+      <div class="srow"><span class="d">08/14 23:26 <i>Vandoren-3 #5 · 26:14</i></span></div>
+      <div class="srow" style="border-bottom:none"><span class="d">08/14 22:52 <i>Vandoren-3 #2 · 7:45</i></span></div>
+    </div>
+    <div class="tabs"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">グラフカードは<b>灰</b>（紺を使わず、線の色だけで意味を持たせる）。
+    取り込みは一覧の先頭に<b>破線の投入口</b>を置く — 「ここにファイルが入る」が形で伝わり、
+    <span class="ok">一覧の一部として自然に目に入る</span>。<br>
+    <span class="ng">弱点</span>: 破線の枠は他の画面に無い新しい形なので、体系に1つ足すことになります。</p>
+  </div>
+
+</div>
+
+<footer>
+  <h2>3案に共通してやること（ご指摘への対応）</h2>
+  <ul>
+    <li><b>上部の空白を解消</b> — `Alto ▾ · 1ヶ月 ▾` を「My Data / 分析」と<b>同じ行の右端</b>へ。空いていた帯が無くなります</li>
+    <li><b>4指標の数字は常時表示しない</b> — グラフカードの中のタブで選び、<b>選ばれた指標の数字だけ</b>を1つ出す</li>
+    <li><b>グラフは画面いっぱい</b> — カードが左右の余白を食い破り、Y軸のラベルは<b>グラフに重ねる</b>。
+      線の幅は <b>277px → 355px（+28%）</b></li>
+    <li><b>My Data のグラフだけフラジオを含めない</b>（横軸は B♭3〜F6。他の画面は含めたまま）</li>
+    <li><b>「選択」＝削除だけ</b> — 一括リード変更は削除。「何の選択？」が消えます</li>
+    <li>回数・時間・音の3数字は<b>そのまま</b></li>
+  </ul>
+  <h2>取り込みの置き方（ここが3案の主な違い）</h2>
+  <ul>
+    <li><b>案P</b>: 右下に浮かせる（リードタブと同じ作法。スクロールしても常に届く）</li>
+    <li><b>案Q</b>: 一覧の直上に幅いっぱいの帯ボタン（浮かせないので何にも重ならない）</li>
+    <li><b>案R</b>: 一覧の先頭に破線の投入口（「ここに入る」が形で伝わる）</li>
+    <li>組み合わせも可能です（例: グラフは案Qの濃い紺、取り込みは案Pの浮かせる）</li>
+  </ul>
+</footer>
