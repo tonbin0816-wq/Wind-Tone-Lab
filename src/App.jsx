@@ -7714,7 +7714,9 @@ function ReedScoreField({ fields, onOpen }) {
       aria-label="総評・厚さ・バランスを編集"
       style={{
         display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: 0,
-        width: "100%", minHeight: "var(--tap-min)", padding: "16px 0",
+        width: "100%", minHeight: "var(--tap-min)", padding: "12px 0 14px",
+        /* 【D-4 2026/08/22】群はカード(.card)が作るので、この行の下の罫は外した
+           (正典 #15a は評価カードの中で 3カラムとメモ行を薄い罫1本で分ける)。 */
         background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
         borderRadius: 0, cursor: "pointer",
       }}
@@ -7728,10 +7730,13 @@ function ReedScoreField({ fields, onOpen }) {
             padding: 0,
           }}
         >
-          <span style={{ fontFamily: "var(--font-num)", fontSize: 23, fontWeight: 600, lineHeight: 1.2, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
+          {/* 【D-4 2026/08/22】正典 #15a は評価の数値を**セリフの 30px / --c-accent**で出す
+              (セッション詳細・リード詳細の大きな数字と同じ字面)。体系の7段に 30px は無いので
+              いちばん近い段 --fs-2xl(28px)へ写像する(新しい文字サイズを発明しない)。 */}
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: "var(--fs-2xl)", fontWeight: 500, lineHeight: 1, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
             {it.text}
           </span>
-          <span style={{ fontSize: 11, color: "var(--c-ink-3)", marginTop: 1 }}>{it.label}</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: 3 }}>{it.label}</span>
         </span>
       ))}
     </button>
@@ -9804,11 +9809,9 @@ const REED_COMPARE_METRICS = [
   { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
-// 【N-5】個体詳細の .numrow に並べる指標と**その順**。正典は 平均差分 / HNR / 重心 / 音量。
-// 比較タブの4グラフの順(音量 / 平均差分 / HNR / 重心)とは別なので、配列を分けて持つ。
-// 中身の定義(ラベル・単位・書式・副次テキスト)は REED_COMPARE_METRICS が唯一の答えで、
-// ここはキーの並びだけを持つ(定義を2箇所に写さない)。
-const REED_DETAIL_METRICS = ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"];
+// (【D-4 2026/08/22】REED_DETAIL_METRICS = 個体詳細に並べる4指標の順番はここにあったが、
+//  正典 #15a で指標が**セッション詳細と同じ MetricTabCard**へ移り、並びは
+//  DETAIL_CARD_METRICS が持つようになったので読み手が1つも無くなった。定義ごと削除。)
 // 比較タブの4グラフの並び(正典の比較画面の順)。同じ理由でキーの並びだけを持つ。
 const REED_COMPARE_CHART_KEYS = ["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"];
 
@@ -10347,6 +10350,20 @@ function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, sax
 // 幅はコンテナ実測(useMeasuredWidth)に追従させ、SVGの実寸と viewBox は 1:1(§1.9)。
 // 系列色は §1.7 の紺3段、線幅は §1.8。共通部品(useMeasuredWidth / fitLabel /
 // measureSvgTextPx / SERIES_STYLES / SVG_FS_XS)はすべて既存のものを共有する。
+// 【D-4 2026/08/22 本人指示・正典 #15a】厚さ・バランスの線が**途中から始まる**とき、
+// その最初の日付のラベルを返す(揃っていれば null = 注記を出さない)。
+// 総評だけが古くからあり、厚さ・バランスは後から足した項目なので、履歴の前半は null が並ぶ。
+// 日付の書き方は横軸のラベルと**同じ1箇所**(reedScoreDateLabel)から引く。
+function reedScoreLateStartLabel(history) {
+  const list = history || [];
+  if (list.length === 0) return null;
+  const has = (h) => (h.thickness !== null && h.thickness !== undefined)
+    || (h.balance !== null && h.balance !== undefined);
+  const i = list.findIndex(has);
+  if (i <= 0) return null;   // 見つからない(-1) = そもそも無い / 先頭(0) = 途中から始まっていない
+  return reedScoreDateLabel(list[i].at);
+}
+
 function ReedScoreHistoryChart({ reed }) {
   const [boxRef, W] = useMeasuredWidth();
   const history = useMemo(() => normalizeRatingHistory(reed.ratings), [reed.ratings]);
@@ -10387,12 +10404,17 @@ function ReedScoreHistoryChart({ reed }) {
   })();
 
   const legendMax = Math.round(W * 0.42);
+  // 【D-4】厚さ・バランスが**最初の記録より後から**始まっていれば、その日付。揃っていれば null。
+  const lateStart = reedScoreLateStartLabel(history);
 
   return (
-    /* 【N-5】正典の個体詳細は「評価の推移」を 11px --ink3 の小さな見出し1行 + 折れ線 + 凡例だけで
-       出す(カードの枠も「n件の記録」の行も無い)。空状態の文言は現行のまま2種とも残す。 */
-    <div style={{ paddingTop: 14 }}>
-      <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingBottom: 6 }}>評価の推移</div>
+    /* 【D-4 2026/08/22 本人指示】正典 #15a は「評価の推移」を**カード**にして、
+       見出しの右に「n 回の評価」を置く。空状態の文言は現行のまま2種とも残す。 */
+    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+      <div className="sans" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 6 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>評価の推移</span>
+        {n > 0 && <span style={{ fontSize: 11, color: "var(--c-ink-3)", flexShrink: 0 }}>{n} 回の評価</span>}
+      </div>
       {n === 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-2)" }}>まだ記録がありません</div>
       )}
@@ -10447,21 +10469,36 @@ function ReedScoreHistoryChart({ reed }) {
           次に評価を変えると、ここが線でつながります
         </div>
       )}
+      {/* 【D-4 2026/08/22】正典 #15a の注記「厚さ・バランスは 8/4 の記録から」。
+          **線が途中から始まる理由**が読めないと「途切れている」と誤読されるので、
+          厚さ・バランスが最初の記録より後から始まっているときだけ出す。
+          日付の書き方は横軸のラベルと同じ1箇所(reedScoreDateLabel)から引く。 */}
+      {lateStart && (
+        <div className="sans" style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--c-line)", fontSize: 10.5, color: "var(--c-ink-3)" }}>
+          厚さ・バランスは {lateStart} の記録から
+        </div>
+      )}
     </div>
   );
 }
 
-// 登録済みリードをタップした際の評価詳細(経時変化グラフ)。旧「リード毎比較」タブの内容を、
-// リード登録一覧からのタップ遷移として統合したもの。
+// 【D-4 2026/08/22 本人指示・凍結仕様 design/D3-SPEC.md】リード個体詳細を Design canon の
+// **#15a** へ。正典は「セッション詳細と**同じ部品・同じ順番**(2画面を行き来しても読み方が
+// 変わらない)」を要求しているので、並びは
+//   ヘッダー(‹ 一覧 → 銘柄+#番号 → 1行メタ)
+//   → 評価カード(総評 / 厚さ / バランスの3カラム + メモ行)
+//   → 指標グラフカード(**セッション詳細と同じ MetricTabCard**)
+//   → 評価の推移カード
+//   → 浮かせるボタン「計測」
+// 正典が却下側に置いたもの: 評価を3行リスト+5段階ドットで出す形 / 数字タップでグラフが出る形 /
+// **下端固定の「このリードで計測」ボタン**(浮かせるボタンへ)。
 //
-// 【N-5】正典 = design/north-star-measure.html の「個体詳細」。上から:
-//   .backrow  「‹ 一覧」 / V16-3 #4(#番号は自由入力・空で自動採番) / 開封日 yyyy/mm/dd
-//   .starrow  ★3枚(総評 / 厚さ / バランス)。どこを押しても3列ダイヤルが1回で開く
-//   .memoline メモ
-//   「測定データ · nセッション」 + .numrow の4指標(タップで音名軸グラフ)
-//   「評価の推移」 + 折れ線 + 凡例
-//   .bigbtn   「このリードで計測」= 計測タブへのジャンプ(一覧の「測定」ボタンの移設先)
-// カード(.card)の枠は正典に無いので、群は余白と罫1本だけで分ける(§6.0 の囲いの序列)。
+// 【正典と意図的に違えた2点】
+//   ・ヘッダー右の「編集」は**置かない**。正典 #15a は置いているが、この画面で編集できるのは
+//     #番号(見出しの中で直接編集)・メモ(評価カードの中)・評価(3カラムのタップ)だけで、
+//     すべて画面の中に入口がある。**何も起きない入口を作らない**(F-77 の罠)。
+//   ・1行メタに**楽器種別を出さない**。正典は「Alto · 開封 6/10 · 74日 · 4 セッション」だが、
+//     **リードは楽器種別を持っていない**(起票 F-87 が未着手)。持っていない値を書かない。
 function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack, onMeasure }) {
   const reedSessions = sessions
     .filter((s) => s.reedId === reed.id)
@@ -10484,6 +10521,8 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   const [balanceDraft, setBalanceDraft] = useState(() => normalizeReedScore(reed.balance));
   // 編集ダイアログを開いているか。3つを1つのダイアログでまとめて回すので真偽値1つ。
   const [editingScores, setEditingScores] = useState(false);
+  // 【D-4】指標タブの状態はこの画面が持つ(セッション詳細と同じ形。MetricTabCard の解説)。
+  const [detailMetric, setDetailMetric] = useState(DETAIL_CARD_METRICS[0]);
   useEffect(() => {
     setPositionDraft(String(reedPosition(reed, reeds) ?? ""));
     setMemoDraft(reed.memo || "");
@@ -10518,109 +10557,88 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
     { key: "balance", label: "バランス", value: balanceDraft, set: setBalanceDraft },
   ];
 
+  // 1行メタ「開封 6/10 · 74日 · 4 セッション」。読めない区画は**丸ごと省く**。
+  // 語(「開封」「日」「セッション」)の作り方は reedDetailMetaLine に既にあるので、
+  // **同じ関数から引いて**区画に割る(綴りを2箇所に持たない)。
+  const meta = [
+    reed.startDate ? `開封 ${formatYmd(reed.startDate)}` : null,
+    ...reedDetailMetaLine(reedSessions.length, usageDays(new Date(), reed.startDate)).split(" · "),
+  ].filter(Boolean);
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      {/* 正典 .backrow: 「‹ 一覧」 / 中央に V16-3 #4 / 右に開封日。13px の1行 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--c-ink-2)" }}>
-        <button
-          onClick={onBack}
-          className="sans"
-          style={{ minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", display: "flex", alignItems: "center", background: "none", border: "none", color: "var(--c-ink-2)", fontSize: 13, cursor: "pointer", padding: 0, flexShrink: 0 }}
-        >
-          ‹ 一覧
-        </button>
-        <span style={{ fontSize: 15, color: "var(--c-ink)", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-          <b style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
-          </b>
-          {/* #番号はそのまま編集欄。空欄にすると自動採番に戻り、placeholder にその値が出る
-              (＝今なら何番になるかが分かる)。地・枠は持たない(正典 .backrow に箱は無い)。
-              当たり判定は 44px。
-              【F-102 2026/08/17 本人指示】「編集できる」ことを示していた破線の下線は削除。
-              編集機能そのもの(タップ→入力→blur で確定)は不変で、入口の案内は
-              リードタブの「…」→「リード番号を変更」が担う。 */}
-          <span style={{ display: "inline-flex", alignItems: "center" }}>
+      <DetailHeader
+        onBack={onBack}
+        backLabel="‹ 一覧"
+        actions={null}
+        title={shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
+        titleSuffix={(
+          /* #番号はそのまま編集欄。空欄にすると自動採番に戻り、placeholder にその値が出る
+             (＝今なら何番になるかが分かる)。地・枠は持たない。当たり判定は 44px。
+             【F-102 2026/08/17 本人指示】「編集できる」ことを示していた破線の下線は削除。 */
+          <span style={{ display: "inline-flex", alignItems: "center", color: "var(--c-ink-3)" }}>
             <span aria-hidden="true">#</span>
             <input
               type="text" aria-label="番号" placeholder={String(reedPosition(reed, reeds))}
               value={positionDraft} onChange={(e) => setPositionDraft(e.target.value)} onBlur={commitPosition}
               className="sans"
               style={{
-                width: 46, minHeight: "var(--tap-min)", padding: 0, fontSize: 15, fontWeight: 700,
+                width: 46, minHeight: "var(--tap-min)", padding: 0, fontSize: 15, fontWeight: 600,
                 background: "none", border: "none",
-                borderRadius: 0, color: "var(--c-ink)",
+                borderRadius: 0, color: "var(--c-ink-3)",
               }}
             />
           </span>
-        </span>
-        <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0 }}>{formatYmd(reed.startDate) ?? "—"}</span>
-      </div>
-
-      {/* 正典 .starrow: 3列を等幅で並べ、値 23px/600 の下に 11px のラベル。上下 16px・下に罫1本。
-          行のどこを押しても3列ダイヤルが1回で開く(§6.4)。 */}
-      <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
-
-      {/* 正典 .memoline: 13px --ink3 / 上下 13px / 下に罫1本。編集できることは現行のまま。 */}
-      <textarea
-        placeholder="メモ"
-        value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
-        rows={1}
-        className="sans"
-        style={{
-          width: "100%", padding: "13px 0", fontSize: 13, resize: "vertical", fontFamily: "inherit",
-          boxSizing: "border-box", color: "var(--c-ink-3)",
-          background: "none", border: "none", borderBottom: "1px solid var(--c-line)", borderRadius: 0,
-        }}
+        )}
+        meta={meta}
       />
 
-      {/* 測定データ。正典は「測定データ · 12セッション」の 11px 1行 + .numrow の4指標。
-          一覧のタイルから落ちた「開封n日」「未測定」はこの行が引き取る(reedDetailMetaLine)。
-          各指標はタップで音名軸の折れ線グラフに切り替わる(再タップで数値に戻る)。 */}
-      <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingTop: 16 }}>
-        {reedDetailMetaLine(reedSessions.length, usageDays(new Date(), reed.startDate))}
+      {/* 評価カード(正典 #15a): 3カラムの数値 + その下にメモ行。
+          行のどこを押しても3列ダイヤルが1回で開く(§6.4)。 */}
+      <div className="card">
+        <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
+        <label className="sans" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "text" }}>
+          <span style={{ fontSize: 10.5, color: "var(--c-ink-3)", flexShrink: 0 }}>メモ</span>
+          <input
+            type="text"
+            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+            placeholder="タップして入力"
+            className="sans"
+            style={{ flex: 1, minWidth: 0, textAlign: "right", padding: 0, fontSize: 12.5, background: "none", border: "1px solid transparent", borderRadius: 0 }}
+          />
+        </label>
       </div>
+
+      {/* 指標グラフカード。**セッション詳細と完全に同じ部品**(正典の要求)。
+          一覧のタイルから落ちた「開封n日」「未測定」は上の1行メタが引き取っている。 */}
       {reedSessions.length === 0 ? (
-        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "10px 0 14px", borderBottom: "1px solid var(--c-line)" }}>
-          このリードに紐づく測定データがまだありません
+        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>
+            このリードに紐づく測定データがまだありません
+          </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", padding: "10px 0 14px", borderBottom: "1px solid var(--c-line)" }}>
-          {REED_DETAIL_METRICS.map((key) => {
-            const m = REED_COMPARE_METRICS.find((x) => x.key === key);
-            const v = overall[m.key];
-            return (
-              <TappableMetricCard
-                key={m.key}
-                bare
-                label={m.label} unit={m.unit} fmt={m.fmt}
-                metricKey={m.key} idealKey={METRIC_IDEAL_KEYS[m.key]}
-                frames={allFrames} saxType={saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
-                value={v !== null && v !== undefined ? m.fmt(v) : "—"}
-                sub={m.sub?.(overall) ?? null}
-              />
-            );
-          })}
-        </div>
+        <MetricTabCard
+          frames={allFrames} saxType={saxType} tuningHz={tuningHz}
+          selectedIdeal={selectedIdeal} metricsValues={overall}
+          metric={detailMetric} onMetricChange={setDetailMetric}
+        />
       )}
 
-      {/* 測定データの下に評価の推移(縦軸=1〜5・横軸=日付・総評/厚さ/バランスの3本) */}
+      {/* 評価の推移(縦軸=1〜5・横軸=日付・総評/厚さ/バランスの3本)。カードの枠は
+          この呼び出し側ではなく部品の中(ReedScoreHistoryChart)が持つ。 */}
       <ReedScoreHistoryChart reed={reed} />
 
-      {/* 正典 .bigbtn: 紺の塗りピル(14px / 600 / padding 11px 26px / 上 20px・中央)。
-          【決定6】計測タブへのジャンプはここ。一覧の行にあった「測定」ボタンの移設先。 */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
-        <button
-          onClick={() => onMeasure?.(reed.id)}
-          className="sans"
-          style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-        >
-          <span style={{
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: 14, fontWeight: 600, color: "var(--c-on-accent)",
-            background: "var(--c-accent)", borderRadius: 999, padding: "11px 26px",
-          }}>このリードで計測</span>
-        </button>
-      </div>
+      {/* 【D-4】正典 #15a: 「計測」は**下端固定のバーではなく浮かせるボタン**。
+          My Data の「録音を取り込む」と同じ部品(FloatingAction)で、右下の位置・影・角丸も同じ。
+          直前に高さぶんの余白を置いて、最後のカードがボタンの下に潜らないようにする。 */}
+      <FloatingActionSpacer />
+      <FloatingAction
+        label="計測"
+        ariaLabel="このリードで計測する"
+        icon={<MeasureIcon size={15} color="var(--c-on-accent)" />}
+        onClick={() => onMeasure?.(reed.id)}
+      />
 
       {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
       {editingScores && (
@@ -11447,12 +11465,119 @@ function myDataOwnSessions(sessions, saxType, dataSax) {
   return (sessions || []).filter((s) => s.performer === "自分" && (s.saxType ?? saxType) === dataSax);
 }
 
-// 【N-6】データタブの選択・操作シート。子タブ行の「…」も、フィルタピルの選択肢も、
-// ヒーローの期間セレクタも、出るものはこの1枚。
-// 作法(暗幕・角丸28・つまみ36×4・影・44ptの行)はリードタブの「…」(ReedMoreMenu)と
-// テンポシートに揃える。**新しい濃さ・角丸・影を発明しない。**
-// **押せない項目は呼び出し側が渡さない**(F-77 で「0リードなのに使えない削除が出る」を踏んでいる)。
-function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
+// ================= 【D-3 2026/08/22 本人指示・凍結仕様 design/D3-SPEC.md】=================
+// セッション詳細を Design canon(design/dc-mydata-redesign.html)の **#14b** へ、
+// リード詳細を **#15a** へ。正典は「2画面を行き来しても読み方が変わらないよう、
+// **同じ部品・同じ順番**にする」と言っているので、指標のカードは**1つの部品**にする。
+
+// 【D-3】指標タブの並び。正典 #14b / #15a とも 平均差分 / HNR / 重心 / 音量。
+// 中身の定義(ラベル・単位・書式・副次テキスト)は **REED_COMPARE_METRICS が唯一の答え**で、
+// ここはキーの並びだけを持つ(定義を2箇所に写さない)。My Data の MY_DATA_CARD_METRICS と
+// 同じ考え方だが、あちらは別の指標定義(MY_DATA_METRICS)を引くので配列を共有しない。
+const DETAIL_CARD_METRICS = ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"];
+// 正典 #14b / #15a のカード内タブの間隔(gap:16px)の半分。My Data の
+// MY_DATA_METRIC_TAB_HALF_GAP_PX と同じ役目 — 行の gap を 0 にして左右へこの値の padding を
+// 入れ、**見た目の間隔を変えずに**当たり判定だけ 44pt へ広げる(§5)。
+const DETAIL_TAB_HALF_GAP_PX = 8;
+
+// 【D-3】指標の下線タブ。My Data(D-1)とセッション詳細・リード詳細(D-3)で**同じ部品**にする
+// (正典が「同じ部品・同じ順番」を要求しているのと、下線の作り方を3箇所に写さないため)。
+// 見た目の間隔は halfGap の2倍。当たり判定は行の gap を 0 にして padding で作る。
+// 下線は**文字の幅**に付く(ボタン全体に付けると隣の下線と繋がる)。
+function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordered = false }) {
+  return (
+    <div
+      className="sans"
+      style={{
+        display: "flex", gap: 0, marginLeft: -halfGap,
+        borderBottom: bordered ? "1px solid var(--c-line)" : "none",
+      }}
+    >
+      {order.map((key) => {
+        const m = metrics.find((x) => x.key === key);
+        const sel = value === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            aria-pressed={sel}
+            className="sans"
+            style={{
+              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: `0 ${halfGap}px`,
+              background: "none", border: "none", cursor: "pointer",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 2px",
+                fontSize: "var(--fs-sm)", fontWeight: 600,
+                color: sel ? "var(--c-ink)" : "var(--c-ink-3)",
+                boxShadow: sel ? "inset 0 -2px 0 0 var(--c-ink)" : "none",
+              }}
+            >
+              {m?.label ?? key}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// 【D-3】指標グラフカード。正典 #14b / #15a で**完全に同じ構造**:
+//   タブ4つ → 大きな数字(セリフ)+単位、右に補足 → **常時表示**の音名軸グラフ。
+// 正典の 42px は体系の7段に無いので、いちばん近い段 --fs-hero(46px)へ写像する
+// (本人の裁定「既存トークンへ寄せる」。新しい文字サイズを発明しない)。
+// **数字タップでグラフが出る形(TappableMetricCard)は正典が却下側に置いた**ので、
+// この画面では使わない(常時表示 + タブ切替に変わった)。部品自体は他画面のために残る。
+// 指標の状態は**呼び出し側が持つ**(セッション詳細では下の表の列も同じ指標に追従するため。
+// 状態を部品の中に閉じると、表が何を出しているか呼び出し側から決められなくなる)。
+function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metricsValues, metric, onMetricChange }) {
+  const m = REED_COMPARE_METRICS.find((x) => x.key === metric) ?? REED_COMPARE_METRICS[0];
+  const v = metricsValues ? metricsValues[m.key] : null;
+  const has = v !== null && v !== undefined && !isNaN(v);
+  const sub = m.sub ? m.sub(metricsValues) : null;
+  return (
+    /* 【作法】.card の style は**オブジェクトリテラル直書き**にする(変数で渡すと
+       検査が中身を読めず、地・枠・padding をインラインで殺していないことを確かめられない)。 */
+    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+      <MetricUnderlineTabs
+        order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
+        value={m.key} onChange={onMetricChange}
+        halfGap={DETAIL_TAB_HALF_GAP_PX} bordered
+      />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, padding: "14px 2px 12px" }}>
+        <span style={{ display: "flex", alignItems: "baseline", gap: 3, minWidth: 0 }}>
+          {/* 読めないときは「—」で、**単位も付けない**(「—dB」を作らない。N-10 から不変の作法) */}
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: "var(--fs-hero)", fontWeight: 500, lineHeight: 0.9, color: "var(--c-ink)" }}>
+            {has ? m.fmt(v) : "—"}
+          </span>
+          {has && <span className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-ink-3)" }}>{m.unit}</span>}
+        </span>
+        {sub && <span className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingBottom: 4, flexShrink: 0 }}>{sub}</span>}
+      </div>
+      {/* 目安(selectedIdeal)の破線と Δ は**この画面では残す**(N-8 で消したのは My Data 側だけ。
+          検査 28.4)。グラフは常時表示で、タブを押すと縦軸のスケールと単位が切り替わる。 */}
+      <NoteAxisLineChart
+        plain
+        label={m.label} unit={m.unit} metricKey={m.key}
+        series={[{ id: "self", label: "この記録", style: SERIES_STYLES[0], frames }]}
+        saxType={saxType} tuningHz={tuningHz}
+        fmt={m.fmt}
+        selectedIdeal={selectedIdeal} idealKey={METRIC_IDEAL_KEYS[m.key]}
+      />
+    </div>
+  );
+}
+
+// 【D-3】下端から出るシートの**枠**(暗幕・角丸28・つまみ36×4・影・下スワイプで閉じる・
+// Escape で閉じる・上限は画面高 − ナビ)。**作法を2箇所に書かないための抽出**で、
+// 中身は呼び出し側が渡す。N-6 の DataOptionSheet が持っていた枠をそのまま外に出しただけで、
+// 濃さ・角丸・影・上限の値は**1つも変えていない**。
+function BottomSheet({ ariaLabel, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -11480,12 +11605,11 @@ function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
           padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
           display: "flex", flexDirection: "column", alignItems: "stretch",
-          /* リードの候補は箱1つで10枚増えるので、シートは画面を越え得る(ReedMoreMenu は
-             項目が2つ固定なので上限を持たない)。下端に貼り付く作りなので、越えると
-             **上の項目から画面外へ出て届かなくなる**。上限は新しい割合を発明せず、
-             既にある2つの値だけで書く: 画面の高さ(--app-root と同じ 100dvh)から
-             下部ナビ1つぶん(--nav-h)を引く。残る帯は暗幕なので、そこを押せば閉じられる。
-             dvh 未対応の環境ではこの宣言ごと落ちて上限なし(＝現行の ReedMoreMenu と同じ)になる。 */
+          /* 候補は箱1つで10枚増えるので、シートは画面を越え得る。下端に貼り付く作りなので、
+             越えると**上の項目から画面外へ出て届かなくなる**。上限は新しい割合を発明せず、
+             既にある2つの値だけで書く: 画面の高さ(100dvh)から下部ナビ1つぶん(--nav-h)を引く。
+             残る帯は暗幕なので、そこを押せば閉じられる。
+             dvh 未対応の環境ではこの宣言ごと落ちて上限なしになる。 */
           maxHeight: "calc(100dvh - var(--nav-h))", overflowY: "auto",
         }}
       >
@@ -11495,28 +11619,122 @@ function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
         >
           <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
         </button>
-        {items.map((it) => (
-          <button
-            key={it.key}
-            onClick={() => onPick(it.key)}
-            className="sans"
-            aria-pressed={value !== undefined ? value === it.key : undefined}
-            style={{
-              minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
-              background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
-              padding: 0, cursor: "pointer", fontSize: 14, textAlign: "left",
-              color: value !== undefined && value === it.key ? "var(--c-accent)" : "var(--c-ink)",
-              fontWeight: value !== undefined && value === it.key ? 600 : 400,
-            }}
-          >
-            {it.label}
-          </button>
-        ))}
+        {children}
       </div>
     </div>,
     document.body,
   );
 }
+
+// 【N-6】データタブの選択・操作シート。子タブ行の「…」も、フィルタピルの選択肢も、
+// 期間セレクタも、出るものはこの1枚。枠は BottomSheet が持つ(作法を写さない)。
+// **押せない項目は呼び出し側が渡さない**(F-77 で「0リードなのに使えない削除が出る」を踏んでいる)。
+function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
+  return (
+    <BottomSheet ariaLabel={ariaLabel} onClose={onClose}>
+      {items.map((it) => (
+        <button
+          key={it.key}
+          onClick={() => onPick(it.key)}
+          className="sans"
+          aria-pressed={value !== undefined ? value === it.key : undefined}
+          style={{
+            minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
+            background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
+            padding: 0, cursor: "pointer", fontSize: 14, textAlign: "left",
+            color: value !== undefined && value === it.key ? "var(--c-accent)" : "var(--c-ink)",
+            fontWeight: value !== undefined && value === it.key ? 600 : 400,
+          }}
+        >
+          {it.label}
+        </button>
+      ))}
+    </BottomSheet>
+  );
+}
+
+// 【D-3】セッションの属性を直すシート。正典 #14b は上部の1行メタを**読み取り専用**にして、
+// 編集を「編集」からこのシートへ送る(「属性は編集フォームではなく『この記録の状況』」)。
+// **中身は N-9 の5行から1つも減っていない**(日付・奏者・リード)。楽器は元から読み取り専用、
+// メモは正典どおり独立したカードに残っている。
+function SessionEditSheet({
+  recordedAtLocal, onSetRecordedAt,
+  performers, setPerformers, performer, onSetPerformer,
+  reeds, reedId, onSetReedId,
+  onClose,
+}) {
+  const reed = reeds.find((r) => r.id === reedId) || null;
+  const row = (label, node) => (
+    <div className="sans" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: "var(--tap-min)", borderBottom: "1px solid var(--c-line)" }}>
+      <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>{label}</span>
+      {node}
+    </div>
+  );
+  return (
+    <BottomSheet ariaLabel="この記録の情報を編集" onClose={onClose}>
+      {row("日付", (
+        <input
+          type="datetime-local"
+          value={recordedAtLocal}
+          onChange={(e) => onSetRecordedAt(e.target.value)}
+          className="sans"
+          style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 190, flexShrink: 0, background: "none", border: "1px solid transparent", borderRadius: 0 }}
+        />
+      ))}
+      {row("奏者", (
+        <PerformerSelector bare selectId="session-performer-select" performers={performers} selectedPerformer={performer || "自分"} setSelectedPerformer={onSetPerformer} setPerformers={setPerformers} />
+      ))}
+      {row("リード", (
+        <PlainSelect
+          ariaLabel="紐付けるリード"
+          text={reed ? reedLabel(reed, reeds) : "未紐付け"}
+          value={reedId || ""} onChange={(e) => onSetReedId(e.target.value || null)}
+        >
+          <option value="">未紐付け</option>
+          {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
+        </PlainSelect>
+      ))}
+    </BottomSheet>
+  );
+}
+
+// 【D-3】画面の上に置く「見出し + 1行メタ」。正典 #14b / #15a が**同じ形**を持つので部品にする。
+//   左上に戻る導線、右上に一手(0〜2個)、その下にセリフの見出し(+ 添え字)、その下に1行メタ。
+// 区切りの「·」は --c-line-strong(正典 #C2C9D4 の写像)。
+function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {
+  return (
+    <div style={{ paddingBottom: "var(--sp-3)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginLeft: -DETAIL_TAB_HALF_GAP_PX }}>
+        <button
+          type="button" onClick={onBack} className="sans"
+          style={{
+            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+            padding: `0 ${DETAIL_TAB_HALF_GAP_PX}px`,
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 13, color: "var(--c-accent)", textAlign: "left",
+          }}
+        >
+          {backLabel}
+        </button>
+        {actions ? <div style={{ display: "flex", alignItems: "center", gap: 14 }}>{actions}</div> : null}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: 6, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "var(--font-serif)", fontSize: "var(--fs-2xl)", fontWeight: 500, letterSpacing: "-.01em", color: "var(--c-ink)" }}>{title}</span>
+        {titleSuffix ? <span className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink-3)" }}>{titleSuffix}</span> : null}
+      </div>
+      {/* 1行メタ。読めない区画は**丸ごと省く**(呼び出し側が filter(Boolean) 済みの配列を渡す)。 */}
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", flexWrap: "wrap" }}>
+        {meta.map((t, i) => (
+          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            {i > 0 && <span aria-hidden="true" style={{ color: "var(--c-line-strong)" }}>·</span>}
+            <span>{t}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 // My Data: 奏者が「自分」のセッションの集計。
 // 【N-11 2026/08/17 本人指示】**正典は design/mydata-v2-proposals.html の案P**へ移った
@@ -12858,13 +13076,36 @@ function MyDataPage({
   );
 }
 
-// セッション詳細ビュー。録音/アップロードいずれかのセッションを、計測タブに近いレイアウトで振り返る。
+// セッション詳細ビュー。
+// 【D-3 2026/08/22 本人指示・凍結仕様 design/D3-SPEC.md】正典 = design/dc-mydata-redesign.html
+// の **#14b**(1行メタ型)。並びは
+//   ヘッダー(‹ 一覧 / ★ 目安に設定 / 編集 → 日付+時刻 → 1行メタ)
+//   → 指標グラフカード(タブ4 → 大きな数字 → 常時表示のグラフ)
+//   → 録音カード(時間変化のタイムライン)
+//   → メモカード
+//   → 音階ごとの平均(**選んでいる指標の列だけ**出す)
+// 正典が却下側に置いたもの: 上部の「日付/奏者/リード/楽器/メモ」5行が同じ濃さで並ぶ形 /
+// 数字タップでグラフが出る形(常時表示 + タブへ)/ 表の5列詰め(HNR が画面外に切れていた)。
+//
+// 【本人の裁定 2026/08/22】録音カードの**再生は作らない**(音声そのものを保存していないため)。
+// 正典 #14b の再生ボタンとシークバーは出さない。ピッチ推移・検出音名・音量帯は既存データで描く。
+//
+// 【機能を残す】正典は「表示：ピッチ」「基準：絶対値」の選択UIも却下しているが、
+// **基準の切替(絶対値 / 目安 / 別セッション整列)はタブと重複していない**(タブは音名軸グラフの
+// 指標を切り替えるもので、こちらはタイムラインの比較基準)。落とすと機能が消えるので、
+// PhraseTimeline の中身はそのまま残した。**正典と意図的に違えた1点**として BACKLOG に起票する。
 function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
   // 1回のデータには複数の音(スケール等)が含まれることがあるため、音階(運指)ごとにも分解して平均を出す
   const noteGroups = groupFramesByNote(frames, NUM_HARMONICS, session.saxType, tuningHz);
   const reed = reeds.find((r) => r.id === session.reedId) || null;
   const sessionMetrics = computeFrameMetrics(frames);
+
+  // 【D-3】指標タブの状態は**この画面が持つ**。カードのグラフと、下の表の列が同じ指標に追従する
+  // (正典 #14b「下の表もタブに追従させ、選んでいる指標の列だけ出す」)。
+  const [detailMetric, setDetailMetric] = useState(DETAIL_CARD_METRICS[0]);
+  const detailDef = REED_COMPARE_METRICS.find((x) => x.key === detailMetric) ?? REED_COMPARE_METRICS[0];
+  const [editOpen, setEditOpen] = useState(false);
 
   // 記録後に気づいた誤り(奏者・リードの紐付け間違い等)をその場で修正できるようにする
   const setSessionPerformer = (name) => {
@@ -12897,155 +13138,112 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
     updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, memo: trimmed || null } : s)));
   };
 
-  // DOM順序は既にセッション情報(1.)が先頭だが、タブから遷移する前のスクロール位置が
-  // そのまま引き継がれるため、以前スクロールした状態でセッションを開くとタイムラインが
-  // 最初に見えてしまう(リスト側のスクロール復元とは別件)。マウント時・セッション切り替え時に
-  // 上端へ戻す。listScrollYRef 等、一覧側のスクロール復元ロジックには触れない(別件・F-15)。
+  // タブから遷移する前のスクロール位置がそのまま引き継がれるため、マウント時・
+  // セッション切り替え時に上端へ戻す(一覧側のスクロール復元には触れない。F-15)。
   useEffect(() => { window.scrollTo(0, 0); }, [session.id]);
+
+  const recordedAt = new Date(session.recordedAt);
+  // 1行メタ「自分 · Alto · Vandoren-3 #1 · 21.7秒」。**読めない区画は丸ごと省く**。
+  const meta = [
+    session.performer || "自分",
+    SAX_PRESETS[session.saxType]?.label ?? session.saxType,
+    reedShortLabel(reed, reeds) ?? "未紐付け",
+    sessionDurationLabel(session),
+    session.source === "upload" ? session.sourceFileName : null,
+  ].filter(Boolean);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <button
-        onClick={onBack}
-        className="sans"
-        style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "#174585", fontSize: 12, marginBottom: 10, cursor: "pointer", padding: 0 }}
-      >
-        <ChevronDown size={13} style={{ transform: "rotate(90deg)" }} /> 一覧に戻る
-      </button>
-
-      {/* 1. セッション情報。
-          【N-9 2026/08/16 本人指示】カードの箱を廃止して白地に直接置く(計測/リード/My Data と
-          同じ文法)。直前に「一覧に戻る」の区切りがあるので、この群は上辺の罫を引かない
-          (リードタブの no-top-rule と同じ判断)。 */}
-      {/* 【F-98 2026/08/17 本人指示】セッション情報を「ラベル+値」の行構成(1行1情報)へ整形。
-          ラベルは .mname の文字組み(12px / --c-ink-2)・値の左端は minWidth 3em で縦に揃える
-          (「リード」が3文字なので 3em。F-55 の 2em はこの整形で置き換えた。コロンは正典 .mname に
-          無いので全行から外した)。
-          入力欄(datetime-local / メモ)は**白地+細い下線**へ: 地(--c-sunken)を打ち消し、
-          リード個体詳細のメモ(borderBottom 1px solid var(--c-line))と同じ下線の作法。
-          枠は透明で場所を残す(§6.1.5。border:none にすると外形が縮む)。中身のネイティブ input は不変。 */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ marginBottom: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-            <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>日付</span>
-            <input
-              type="datetime-local"
-              value={recordedAtLocal}
-              onChange={(e) => setSessionRecordedAt(e.target.value)}
+      <DetailHeader
+        onBack={onBack}
+        backLabel="‹ 一覧"
+        actions={(
+          <>
+            <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
+            {/* 正典 #14b: 属性は読み取り専用の1行にして、編集はここからシートへ送る。 */}
+            <button
+              type="button" onClick={() => setEditOpen(true)} aria-expanded={editOpen}
               className="sans"
-              style={{ padding: "4px 8px", fontSize: 13, boxSizing: "border-box", width: 158, flexShrink: 0, background: "none", border: "1px solid transparent", borderBottom: "1px solid var(--c-line)", borderRadius: 0 }}
-            />
-          </span>
-          <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
-        </div>
-        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
-          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>奏者</span>
-          {/* 【N-9 2026/08/16 本人指示】select 類は見た目だけ「素のテキスト + ▾」(F-72 の作法)。
-              中身のネイティブ select はそのまま。 */}
-          <PerformerSelector bare selectId="session-performer-select" performers={performers} selectedPerformer={session.performer || "自分"} setSelectedPerformer={setSessionPerformer} setPerformers={setPerformers} />
-        </div>
-        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>リード</span>
-          <PlainSelect
-            ariaLabel="紐付けるリード"
-            text={reed ? reedLabel(reed, reeds) : "未紐付け"}
-            value={session.reedId || ""} onChange={(e) => setSessionReedId(e.target.value || null)}
-          >
-            <option value="">未紐付け</option>
-            {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
-          </PlainSelect>
-        </div>
-        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 4, minHeight: 28 }}>
-          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>楽器</span>
-          <span style={{ fontSize: 12, color: "var(--c-ink)" }}>{SAX_PRESETS[session.saxType]?.label ?? session.saxType}</span>
-        </div>
-        {session.source === "upload" && (
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>アップロード: {session.sourceFileName}</div>
+              style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-accent)", fontWeight: 600, fontSize: 11.5 }}
+            >
+              編集
+            </button>
+          </>
         )}
-        <div className="sans" style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 12, color: "var(--c-ink-2)", minWidth: "3em", flexShrink: 0 }}>メモ</span>
-          <input
-            type="text"
-            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
-            className="sans"
-            style={{ flex: 1, padding: "6px 2px", fontSize: 12, background: "none", border: "1px solid transparent", borderBottom: "1px solid var(--c-line)", borderRadius: 0 }}
-          />
-        </div>
-      </div>
+        title={formatMonthDay(recordedAt)}
+        titleSuffix={formatYmd(session.recordedAt, { timeOnly: true })}
+        meta={meta}
+      />
 
-      {/* 2. 録音データグラフ(時間変化のタイムライン。単音でも音の立ち上がり等の変化があるため常に表示) */}
+      {/* 指標グラフカード。リード詳細(#15a)と**完全に同じ部品**(正典の要求)。 */}
       {frames.length > 0 && (
-        <PhraseTimeline
-          frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
-          NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
-          barlines={session.barlines}
+        <MetricTabCard
+          frames={frames} saxType={session.saxType} tuningHz={tuningHz}
+          selectedIdeal={selectedIdeal} metricsValues={sessionMetrics}
+          metric={detailMetric} onMetricChange={setDetailMetric}
         />
       )}
 
-      {/* 2.5. セッション平均の指標。タップで横軸=音名の折れ線グラフに切り替わる(再タップで数値に戻る)。
-          【N-9 2026/08/16 本人指示】カード+.tile の箱を廃止し、リード個体詳細と同じ
-          bare(numrow)の「枠も地も持たない数字の列」+ 罫1本にする。目安(selectedIdeal / idealKey)は
-          **残す**(N-8 で消したのは My Data 側だけ。検査 28.4)。 */}
+      {/* 録音カード(時間変化のタイムライン)。単音でも音の立ち上がり等の変化があるため常に表示。
+          見出しの右の「検出ノート n ・ 平均アタック xxx ms」は PhraseTimeline の中が既に出している
+          (正典 #14b の「検出 4音 · 平均アタック 164ms」と同じ内容。綴りを2箇所に持たない)。 */}
       {frames.length > 0 && (
-        <div style={{ marginTop: 10, borderTop: "1px solid var(--c-rule)" }}>
-          <div style={{ display: "flex", flexWrap: "wrap", padding: "10px 0 6px" }}>
-            {REED_COMPARE_METRICS.map((mt) => {
-              const v = sessionMetrics[mt.key];
-              return (
-                <TappableMetricCard
-                  key={mt.key}
-                  bare
-                  label={mt.label} unit={mt.unit} fmt={mt.fmt}
-                  metricKey={mt.key} idealKey={METRIC_IDEAL_KEYS[mt.key]}
-                  frames={frames} saxType={session.saxType} tuningHz={tuningHz} selectedIdeal={selectedIdeal}
-                  value={v !== null && v !== undefined ? mt.fmt(v) : "—"}
-                  sub={mt.sub?.(sessionMetrics) ?? null}
-                />
-              );
-            })}
-          </div>
+        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+          <div className="sans" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)", paddingBottom: 10 }}>録音</div>
+          <PhraseTimeline
+            frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
+            NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
+            barlines={session.barlines}
+          />
         </div>
       )}
 
-      {/* 3. 音階ごとの平均値。1回のデータに複数の音が含まれる場合、音ごとの理想値との差もここで確認できる。
-          【N-9 2026/08/16 本人指示】カードの箱 → 白地+上辺の罫1本。表の見出し行の地色
-          (--c-sunk の箱)も落とし、罫(borderBottom)だけで見出しを分ける。 */}
+      {/* メモカード(正典 #14b: 角丸16 の1行。空なら「タップして入力」)。 */}
+      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+        <label className="sans" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "text" }}>
+          <span style={{ fontSize: 10.5, color: "var(--c-ink-3)", flexShrink: 0 }}>メモ</span>
+          <input
+            type="text"
+            value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} onBlur={commitMemo}
+            placeholder="タップして入力"
+            className="sans"
+            style={{ flex: 1, minWidth: 0, textAlign: "right", padding: 0, fontSize: 12.5, background: "none", border: "1px solid transparent", borderRadius: 0 }}
+          />
+        </label>
+      </div>
+
+      {/* 音階ごとの平均。**選んでいる指標の列だけ**出す(正典 #14b: 元の表は5列を無理に詰めて
+          HNR が画面外に切れていた)。目安との差の列は残す — 音ごとの目安との差を**数値で**読める
+          のはこの表だけで、グラフは破線でしか示さない。 */}
       {noteGroups.length > 0 && (
-        <div style={{ marginTop: 10, borderTop: "1px solid var(--c-rule)", padding: "12px 0" }}>
-          <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
-            音階ごとの平均（{noteGroups.length}音）
+        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+          <div className="sans" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 10 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>音階ごとの平均（{noteGroups.length}音）</span>
+            <span style={{ fontSize: 11, color: "var(--c-ink-3)", flexShrink: 0 }}>{detailDef.label}</span>
           </div>
-          {/* 【F-98 2026/08/17 本人指示】F-44 の解説文「ピッチは各音の安定区間の平均（…過渡 n% を
-              除外）」は削除(本人が名指しした長い解説文)。**集計そのもの(過渡の除外)は不変**。 */}
-          {/* 全件を縦に常時表示する(本人指示)。縦スクロールが無いので見出しの sticky は不要。
-              横は375px幅ではテーブルの minWidth:480 に対して足りないため overflowX は残す。
-              軸ロック(useAxisLockScroll)は「縦横どちらもスクロールする場合の斜め防止」用だったが、
-              縦スクロールが無くなったのでこの箇所では不要になった。 */}
-          <div style={{ overflowX: "auto" }}>
-          <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 480 }}>
+          <table className="sans" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>実音</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>ピッチ</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>音量</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>重心</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>HNR</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", color: "#435266", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>目安との差</th>
+                <th style={{ textAlign: "left", padding: "5px 2px", color: "var(--c-ink-2)", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>実音</th>
+                <th style={{ textAlign: "right", padding: "5px 2px", color: "var(--c-ink-2)", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>{detailDef.label}</th>
+                <th style={{ textAlign: "right", padding: "5px 2px", color: "var(--c-ink-2)", fontSize: 12, fontWeight: 400, borderBottom: "1px solid var(--c-line)" }}>目安との差</th>
               </tr>
             </thead>
             <tbody>
               {noteGroups.map((g) => {
                 const noteIdeal = getNoteIdeal(selectedIdeal, g.semitoneIndex);
                 const cents = noteIdeal?.pitchHz && g.pitchHz ? centsBetween(g.pitchHz, noteIdeal.pitchHz) : null;
+                // 重心だけ groupFramesByNote が別の綴り(centroidHz)で返す。対応づけは noteGroupKeyOf の1箇所。
+                const v = g[noteGroupKeyOf(detailDef.key)];
+                const has = v !== null && v !== undefined && !isNaN(v);
                 return (
                   <tr key={g.semitoneIndex}>
                     {/* 音名は実音(コンサートピッチ)。計測タブ・音名軸グラフと同じ表記に揃える(F-54) */}
-                    <td style={{ padding: "5px 8px", color: "#121F32", fontWeight: 600, borderBottom: "1px solid #EEF1F4" }}>{g.concertLabel ?? "—"}</td>
-                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.pitchHz ? `${g.pitchHz.toFixed(1)}Hz` : "—"}</td>
-                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.volumeDb !== null ? `${g.volumeDb.toFixed(1)}dB` : "—"}</td>
-                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.centroidHz !== null ? `${Math.round(g.centroidHz)}Hz` : "—"}</td>
-                    <td style={{ textAlign: "right", padding: "5px 8px", color: "#121F32", borderBottom: "1px solid #EEF1F4" }}>{g.hnrDb !== null ? `${g.hnrDb.toFixed(1)}dB` : "—"}</td>
-                    <td style={{ textAlign: "right", padding: "5px 8px", fontWeight: 600, borderBottom: "1px solid #EEF1F4", color: cents !== null ? pitchCellColor(cents) : "#8D95A1" }}>
+                    <td style={{ padding: "5px 2px", color: "var(--c-ink)", fontWeight: 600, borderBottom: "1px solid var(--c-line)" }}>{g.concertLabel ?? "—"}</td>
+                    <td style={{ textAlign: "right", padding: "5px 2px", color: "var(--c-ink)", borderBottom: "1px solid var(--c-line)", fontFamily: "var(--font-num)" }}>
+                      {has ? `${detailDef.fmt(v)}${detailDef.unit}` : "—"}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "5px 2px", fontWeight: 600, borderBottom: "1px solid var(--c-line)", fontFamily: "var(--font-num)", color: cents !== null ? pitchCellColor(cents) : "var(--c-ink-3)" }}>
                       {cents !== null ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)}¢` : noteIdeal ? "—" : "未登録"}
                     </td>
                   </tr>
@@ -13053,8 +13251,17 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
               })}
             </tbody>
           </table>
-          </div>
         </div>
+      )}
+
+      {editOpen && (
+        <SessionEditSheet
+          recordedAtLocal={recordedAtLocal} onSetRecordedAt={setSessionRecordedAt}
+          performers={performers} setPerformers={setPerformers}
+          performer={session.performer} onSetPerformer={setSessionPerformer}
+          reeds={reeds} reedId={session.reedId} onSetReedId={setSessionReedId}
+          onClose={() => setEditOpen(false)}
+        />
       )}
     </div>
   );

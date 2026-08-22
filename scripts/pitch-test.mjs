@@ -299,7 +299,7 @@ const code = [
   extractConst("REED_BRAND_CUSTOM"),
   extractConst("REED_BRAND_CUSTOM_LABEL"),
   extractConst("REED_MORE_ITEMS"),
-  extractConst("REED_DETAIL_METRICS"),
+  extractConst("DETAIL_CARD_METRICS"),
   extractConst("REED_COMPARE_CHART_KEYS"),
   extractFunction("reedTileTone"),
   extractFunction("gridDropIndex"),
@@ -402,7 +402,7 @@ const api = new Function(`${code}
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
-           REED_DETAIL_METRICS, REED_COMPARE_CHART_KEYS,
+           DETAIL_CARD_METRICS, REED_COMPARE_CHART_KEYS,
            reedTileTone, gridDropIndex, reedDetailMetaLine, reedAddButtonLabel, clampReedAddCount,
            reedSheetButtonLabel, reedSheetTitle, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
@@ -3810,7 +3810,9 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         (fld.match(/className="[^"]*"/g) || []).join(" / "));
       check("外側のボタンの地・枠は none(下の罫1本だけを持つ)",
         /background: "none", border: "none", borderBottom: "1px solid var\(--c-line\)"/.test(fld));
-      check("行は上下 16px の余白を持つ(正典 .starrow の padding:16px 0)", /padding: "16px 0"/.test(fld));
+      // 【D-4 2026/08/22】正典が north-star-measure.html の .starrow から
+      // Design canon #15a の評価カードへ移った。上下の余白は 12px / 14px。
+      check("行の上下の余白は正典 #15a の評価カードと同じ", /padding: "12px 0 14px"/.test(fld));
       check("列の間に隙間を作らない(正典 .starrow は gap を持たない)",
         /flexWrap: "nowrap", gap: 0/.test(fld), (fld.match(/gap: [^,]*/g) || []).join(" / "));
       check("gap は行の1つだけ(列の中にも隙間を作らない)",
@@ -3838,10 +3840,17 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       check("幅を食う区切り文字を描画しない",
         !/>\s*・/.test(codeOf(fld)) && !/\{"・"\}/.test(codeOf(fld)));
       // 正典の実寸: 値 23px / ラベル 11px。**どちらも 7段スケールの外**だが §6.0 でモックが勝つ。
-      check("値は正典 .starrow .v の 23px / 600", /fontSize: 23, fontWeight: 600/.test(fld));
-      check("ラベルは正典 .starrow .l の 11px / --c-ink-3", /fontSize: 11, color: "var\(--c-ink-3\)"/.test(fld));
-      check("フォントサイズは正典の2つ(23 / 11)だけ",
-        (fld.match(/fontSize: [^,]*/g) || []).join(",") === "fontSize: 23,fontSize: 11",
+      // 【D-4 2026/08/22 本人指示で書き換え】正典が Design canon #15a へ移り、評価の数値は
+      // **セリフの 30px / --c-accent**(セッション詳細の大きな数字と同じ字面)になった。
+      // 体系の7段に 30px は無いので、いちばん近い段 --fs-2xl(28px)へ写像している
+      // (本人の裁定「既存トークンへ寄せる」。新しい文字サイズを発明しない)。
+      check("D-4: 値はセリフ + --fs-2xl + 500(正典 #15a の 30px/500 の写像)",
+        /fontFamily: "var\(--font-serif\)", fontSize: "var\(--fs-2xl\)", fontWeight: 500/.test(fld));
+      check("D-4: 値の色は評価済みだけアクセント(未評価は --c-ink-3)",
+        /color: it\.rated \? "var\(--c-accent\)" : "var\(--c-ink-3\)"/.test(fld));
+      check("D-4: ラベルは --fs-xs / --c-ink-3", /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)"/.test(fld));
+      check("D-4: フォントサイズはトークンの2つだけ(独自の px を混ぜない)",
+        (fld.match(/fontSize: [^,]*/g) || []).join(",") === 'fontSize: "var(--fs-2xl)",fontSize: "var(--fs-xs)"',
         (fld.match(/fontSize: [^,]*/g) || []).join(" / "));
     }
     check("ReedScoreEditor は星の絵を描かない(数値のダイヤルだけ)", !sourceOf("ReedScoreEditor").includes("<StarRating"));
@@ -6319,12 +6328,25 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       }
       throw new Error(`function ${name}: unbalanced braces`);
     };
-    for (const name of ["ReedRegisterView", "ReedEvaluationDetail", "ReedCompareTab", "ReedScoreHistoryChart", "ReedsTab"]) {
+    // 【D-4 2026/08/22 本人指示で書き換え】Design canon #15a はリード個体詳細を
+    // **カードで群を作る**画面にした(評価カード / 指標グラフカード / 評価の推移カード)。
+    // 一覧・登録・比較の3画面は N-5 のまま箱を持たない。**個体詳細と推移だけを集合から外す**
+    // (外した2つは、下でカードの作法(.surf-* をインラインで殺していない)を別に固定する)。
+    for (const name of ["ReedRegisterView", "ReedCompareTab", "ReedsTab"]) {
       const body = bodyOf(name);
       check(`${name} の本体を走査できている`, body.length > 400, `${body.length}文字`);
       check(`${name} に .card / .tile は1つも無い(正典の囲いは余白と罫1本だけ)`,
         !/className="[^"]*\b(card|tile|tile-row)\b[^"]*"/.test(body),
         (body.match(/className="[^"]*"/g) || []).filter((s) => /\b(card|tile|tile-row)\b/.test(s)).join(" / ") || "0件");
+    }
+    for (const name of ["ReedEvaluationDetail", "ReedScoreHistoryChart"]) {
+      const body = bodyOf(name);
+      check(`D-4: ${name} はカードで群を作る(正典 #15a)`,
+        /className="card"/.test(body), (body.match(/className="[^"]*"/g) || []).join(" / ").slice(0, 120));
+      const bad = [...body.matchAll(/<div className="card"([^>]*)>/g)]
+        .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
+      check(`D-4: ${name} の .card にインラインの地・枠・padding が無い(作法を殺していない)`,
+        bad.length === 0, bad.map((m) => m[1].replace(/\s+/g, " ").slice(0, 80)).join(" | ") || "0件");
     }
   }
 
@@ -6390,13 +6412,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // (登録済みリード / セッション詳細)になった。データタブの指標行(MetricRow)は
     // 「数字タップでグラフ」をやめ、常時表示の NoteAxisLineChart になった(検証27)。
     // **どの関数が呼んでいるか**を集合で固定する。
-    const CARD_CALLERS = ["ReedEvaluationDetail", "SessionDetailView"];
+    // 【D-3 / D-4 2026/08/22 本人指示で反転】「数字をタップするとグラフが出る」形は
+    // 正典 #14b / #15a が**却下側**に置いた(常時表示 + タブ切替へ)。
+    // 2つあった呼び手(セッション詳細 / リード個体詳細)がどちらも MetricTabCard へ移り、
+    // **呼び手はゼロになった**。部品そのものはまだ残っているので、
+    // 「読み手ゼロの部品が残っている」ことを起票(D-3a)したうえで、ここでは事実を固定する。
     const callSites = (src.match(/<TappableMetricCard/g) || []).length;
-    const inCallers = CARD_CALLERS
-      .reduce((n, fn) => n + (srcOf(fn).match(/<TappableMetricCard/g) || []).length, 0);
-    check("TappableMetricCard を呼ぶのはこの2関数だけ(呼び出し側が集合の外に増えていない)",
-      callSites === inCallers && CARD_CALLERS.every((fn) => srcOf(fn).includes("<TappableMetricCard")),
-      `全体 ${callSites} / 集合内 ${inCallers}`);
+    check("D-3/D-4: TappableMetricCard の呼び手はゼロ(常時表示のカードへ移った)",
+      callSites === 0, `${callSites}箇所`);
+    check("D-3/D-4: 移った先(MetricTabCard)が2画面から呼ばれている",
+      /<MetricTabCard/.test(srcOf("SessionDetailView")) && /<MetricTabCard/.test(srcOf("ReedEvaluationDetail")));
   }
   // NoteAxisLineChart / TappableMetricCard 自体が noteFocus を実装として持っている
   // (呼び出し側だけ書いて実装が無い、という状態を防ぐ)。
@@ -7367,8 +7392,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check("F-72: 計測タブの呼び出し(disabled={isRecording} を持つ側)は selectId=\"measure-performer-select\"",
           calls.some((t) => /disabled=\{isRecording\}/.test(t) && /selectId="measure-performer-select"/.test(t)),
           calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
-        check("N-9: セッション詳細の呼び出し(session.performer を持つ側)は bare + selectId=\"session-performer-select\"",
-          calls.some((t) => /session\.performer/.test(t) && /\bbare\b/.test(t) && /selectId="session-performer-select"/.test(t)),
+        // 【D-3 2026/08/22】セッションの属性の編集は正典 #14b どおり**編集シート**へ移った
+        // (上部の1行メタは読み取り専用)。作法(bare + 専用の selectId)は不変で、置き場所だけ動いた。
+        check("D-3: セッションの奏者の呼び出しは bare + selectId=\"session-performer-select\"",
+          calls.some((t) => /\bbare\b/.test(t) && /selectId="session-performer-select"/.test(t)),
           calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
         check("N-9: 2つの selectId は別の値(同じ id が同時に2つ描かれる画面遷移を作らない)",
           calls.length === 2 && new Set(calls.map((t) => (t.match(/selectId="([^"]+)"/) || [])[1])).size === 2);
@@ -7630,6 +7657,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         // 地(--c-sunken)を打ち消し、枠は透明で場所を残して(§6.1.5)下線だけ --c-line を見せる
         // (リード個体詳細のメモの下線と同じ作法)。
         /background: "none", border: "1px solid transparent", borderBottom: "1px solid var\(--c-line\)"/,
+        // 【D-3 / D-4 2026/08/22】正典 #14b / #15a の**メモ行**と編集シートの日付。
+        // カードの中の1行なので下線は要らない(群はカードが作る)。地は打ち消し、
+        // 枠は透明で場所だけ残す(§6.1.5。border:none にすると外形が 2px 縮む)。
+        /background: "none", border: "1px solid transparent", borderRadius: 0/,
       ];
       const bad = withPrefix(tags, ["background", "border", "boxshadow"])
         .filter((t) => !BARE_OK.some((re) => re.test(t)));
@@ -7637,11 +7668,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         bad.length === 0, bad.length ? bad[0].slice(0, 200) : "");
       // 【F-98】下線作法(白地+透明枠+下線)の欄はセッション詳細の日付(datetime-local)とメモの2つだけ。
       // 綴りを持ち出して他の欄へ広げれば、ここで件数が動いて見える。
+      // 【D-3 / D-4 2026/08/22 本人指示で書き換え】F-98 の「白地+細い下線」の欄は、
+      // 正典 #14b / #15a が**カードの中の1行**にしたので下線ごと無くなった
+      // (群はカードが作るので、行の下に罫を引くと二重になる)。
+      // 新しい主張は「透明枠で場所だけ残す欄は3つ(セッション詳細のメモ・リード詳細のメモ・
+      // 編集シートの日付)で、下線を引いた欄は1つも無い」。
       {
-        const underlined = tags.filter((t) => /border: "1px solid transparent", borderBottom: "1px solid var\(--c-line\)"/.test(t));
-        check("F-98: 下線作法の入力欄は2箇所(セッション詳細の日付・メモ)で、datetime-local を含む",
-          underlined.length === 2 && underlined.some((t) => /type="datetime-local"/.test(t)),
-          `${underlined.length}箇所`);
+        const framed = tags.filter((t) => /border: "1px solid transparent", borderRadius: 0/.test(t));
+        const underlined = tags.filter((t) => /borderBottom: "1px solid var\(--c-line\)"/.test(t));
+        check("D-3/D-4: 透明枠で場所だけ残す欄は3つ(メモ2つ + 編集シートの日付)",
+          framed.length === 3 && framed.some((t) => /type="datetime-local"/.test(t)),
+          `${framed.length}箇所`);
+        check("D-3/D-4: 下線を引いた入力欄はもう無い(群はカードが作る)",
+          underlined.length === 0, `${underlined.length}箇所`);
       }
       // 【N-9】例外の側(PlainSelect の select)にも枠を書き足していないこと(奏者と同じ縛り)
       {
@@ -9018,17 +9057,21 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check("N-5: 個体詳細に「このリードで計測」が1つある",
           (detail.match(/このリードで計測/g) || []).length === 1,
           `${(detail.match(/このリードで計測/g) || []).length}箇所`);
-        const i = detail.indexOf("このリードで計測");
-        const btn = i === -1 ? "" : detail.slice(detail.lastIndexOf("<button", i), i);
-        check("「このリードで計測」は onMeasure(reed.id) を呼ぶ",
-          /onClick=\{\(\) => onMeasure\?\.\(reed\.id\)\}/.test(btn), btn.replace(/\s+/g, " ").slice(0, 160));
-        check("「このリードで計測」の当たり判定は 44px 以上(§5)",
-          /minHeight: "var\(--tap-min\)"/.test(btn), btn.replace(/\s+/g, " ").slice(0, 200));
-        // 見た目は正典 .bigbtn(紺の塗り / 14px / 600 / padding 11px 26px / 角丸999)
-        const bigbtn = i === -1 ? "" : detail.slice(i - 400, i);
-        check("「このリードで計測」は正典 .bigbtn の紺の塗りピル",
-          /fontSize: 14, fontWeight: 600, color: "var\(--c-on-accent\)",\s*\r?\n?\s*background: "var\(--c-accent\)", borderRadius: 999, padding: "11px 26px"/.test(bigbtn),
-          bigbtn.replace(/\s+/g, " ").slice(-200));
+        // 【D-4 2026/08/22 本人指示で書き換え】正典 #15a は「計測」を**下端固定のバーではなく
+        // 浮かせるボタン**にする(却下した選択肢に「下端固定の『このリードで計測』ボタン」が
+        // 名指しで入っている)。My Data の「録音を取り込む」と**同じ部品**(FloatingAction)。
+        // 文言も正典どおり「計測」だけになった。
+        check("D-4: 計測の入口は浮かせるボタン(FloatingAction)で、onMeasure(reed.id) を呼ぶ",
+          /<FloatingAction\s*\r?\n\s*label="計測"/.test(detail)
+          && /onClick=\{\(\) => onMeasure\?\.\(reed\.id\)\}/.test(detail));
+        check("D-4: 正典 .bigbtn の塗りピル(下端固定のバー)が残っていない",
+          !/borderRadius: 999, padding: "11px 26px"/.test(detail)
+          // 描かれる文言は正典どおり「計測」だけ。**読み上げの aria-label は別物**なので
+          // 綴りの有無ではなく、label= に何が入っているかで見る。
+          && !/label="このリードで計測"/.test(detail)
+          && /label="計測"/.test(detail));
+        check("D-4: 浮かせるボタンの下に潜らないよう、直前に高さぶんの余白がある",
+          /<FloatingActionSpacer \/>\s*\r?\n\s*<FloatingAction/.test(detail));
         // 渡す側: 計測タブのリードを選んでからタブを移す(現行の goToMeasure と同じ2手)
         check("N-5: ジャンプは「リードを選ぶ → 計測タブへ移る」の2手のまま",
           /onMeasure=\{\(id\) => \{ setSelectedReedId\(id\); setTopTab\("measure"\); \}\}/.test(src));
@@ -10415,13 +10458,17 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     // なり、平均差分の列を持たない(同じ量がヒーローの主役の数字として出ているため)。
     // 標準偏差を添える指標は平均差分だけなので、データタブ側に sub の受け手はもう居ない。
     // **代わりに「その3列に平均差分が混ざっていないこと」を下の 21.5b で固定する。**
-    const wiring = [
-      ["SessionDetailView（個別セッション）", "SessionDetailView", /sub=\{mt\.sub\?\.\(sessionMetrics\) \?\? null\}/],
-      ["ReedEvaluationDetail（登録済みリードの測定データ）", "ReedEvaluationDetail", /sub=\{m\.sub\?\.\(overall\) \?\? null\}/],
-    ];
-    for (const [label, fn, re] of wiring) {
-      check(`21.5 ${label} は指標定義の sub をカードに渡している`, re.test(componentSourceOf(fn)));
-    }
+    // 【D-3 / D-4 2026/08/22 本人指示で書き換え】セッション詳細とリード個体詳細の指標は
+    // **同じ部品 MetricTabCard** になった(正典 #14b / #15a「同じ部品・同じ順番」)。
+    // 副次テキストは呼び出し側が渡すのではなく、部品が**指標定義から自分で引く**。
+    // 渡し手が2つから0になったので、主張を「部品が指標定義の sub を引いている」へ移す。
+    check("21.5 D-3: 指標カードは副次テキストを指標定義(REED_COMPARE_METRICS)の sub から引く",
+      /const sub = m\.sub \? m\.sub\(metricsValues\) : null;/.test(componentSourceOf("MetricTabCard")));
+    check("21.5 D-3: 副次テキストがあるときだけ出す(「null」を描かない)",
+      /\{sub && <span/.test(componentSourceOf("MetricTabCard")));
+    check("21.5 D-3: セッション詳細もリード個体詳細も同じ部品を使う(2画面で読み方が変わらない)",
+      /<MetricTabCard/.test(componentSourceOf("SessionDetailView"))
+      && /<MetricTabCard/.test(componentSourceOf("ReedEvaluationDetail")));
     // 21.5b 数字カードのキー列(N-10 で並びの出どころがここへ移った)。
     // 【N-10 2026/08/17 本人指示による書き換え】旧 21.5b は「データタブの指標行は HNR/重心/音量の
     // 3列で、平均差分を入れない(ヒーローと重複させない)」を見ていた。N-10 でヒーローが廃止され、
@@ -10863,21 +10910,29 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
     check("F-54: PIVOTのctxに基準ピッチを載せる(音名次元が実音を導けない)",
       /const pivotCtx = \{ reeds, tuningHz \};/.test(lab));
 
-    // 【F-98 2026/08/17 本人指示】セッション情報は「ラベル+値」の1行1情報へ整形。
-    // F-55 の旧主張(2em / コロン / 横並び)はこの整形で置き換えた(黙って消していない)。
-    // 新主張: ラベルは .mname の文字組み(12px / --c-ink-2)で、**全行が minWidth 3em** を
-    // 持ち値の左端が縦に揃う。奏者・リード・楽器が1行1情報になっている。
+    // 【D-3 2026/08/22 本人指示で全面書き換え】F-98 の「ラベル+値の5行」は、
+    // Design canon #14b が**却下側**に置いた(「日付/奏者/リード/楽器/メモが全部同じ濃さで
+    // 並んでいる」のが上部が重かった原因)。正典の形は
+    //   見出し(日付・セリフ) + 時刻 → **読み取り専用の1行メタ** → 編集は「編集」からシートへ。
+    // したがって主張を「5行ある」→「1行メタで、読めない区画は丸ごと省く」へ反転させる。
     {
-      const labelRe = /fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0/g;
-      const labelCount = (detail.match(labelRe) || []).length;
-      check("F-98: ラベル(12px/--c-ink-2/3em)の行が5つ(日付・奏者・リード・楽器・メモ)",
-        labelCount === 5, `${labelCount}箇所`);
-      for (const name of ["日付", "奏者", "リード", "楽器", "メモ"]) {
-        check(`F-98: ラベル「${name}」が 3em の綴りに隣接している(1行1情報)`,
-          new RegExp(`minWidth: "3em", flexShrink: 0 \\}\\}>${name}</span>`).test(detail));
-      }
-      // 奏者・リード・楽器が**別々の行**(それぞれが display:flex の行を持つ)であること:
-      // 旧実装は3つを1つの横並び(overflowX:auto)に押し込んでいた。その綴りが残っていないこと。
+      check("D-3: 上部は共通部品 DetailHeader の見出し + 1行メタ",
+        /<DetailHeader/.test(detail) && /title=\{formatMonthDay\(recordedAt\)\}/.test(detail)
+        && /titleSuffix=\{formatYmd\(session\.recordedAt, \{ timeOnly: true \}\)\}/.test(detail));
+      check("D-3: 1行メタは 奏者 · 楽器 · リード · 長さ の順で、読めない区画を落とす",
+        /const meta = \[\s*\r?\n\s*session\.performer \|\| "自分",[\s\S]{0,400}?\]\.filter\(Boolean\);/.test(detail)
+        && /SAX_PRESETS\[session\.saxType\]\?\.label/.test(detail)
+        && /reedShortLabel\(reed, reeds\) \?\? "未紐付け"/.test(detail)
+        && /sessionDurationLabel\(session\)/.test(detail));
+      check("D-3: 1行メタは読み取り専用(編集は「編集」からシートへ)",
+        /onClick=\{\(\) => setEditOpen\(true\)\}/.test(detail)
+        && /<SessionEditSheet/.test(detail));
+      check("D-3: 編集シートは日付・奏者・リードの3つとも持つ(5行から1つも減っていない)",
+        ["日付", "奏者", "リード"].every((n) => new RegExp(`row\\("${n}"`).test(srcOfFn(src, "SessionEditSheet"))));
+      check("D-3: 区切りの「·」は DetailHeader が1箇所で描く(綴りを画面ごとに写さない)",
+        /color: "var\(--c-line-strong\)" \}\}>·<\/span>/.test(srcOfFn(src, "DetailHeader"))
+        && !/·/.test(codeOf(detail).replace(/reedDetailMetaLine[^\n]*/g, "")));
+      // 旧実装(3つを1つの横並びに押し込む)が戻っていないこと
       check("F-98: 奏者・リード・楽器の横一列(overflowX:auto)の行が残っていない",
         !/flexWrap: "nowrap", overflowX: "auto"/.test(detail));
       // 【審査で塞いだ穴】値側の文字サイズが 奏者16px/リード12px/楽器13px と3行3様だった
@@ -10886,11 +10941,12 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       // 奏者の行は**行 div に fontSize: 12 を敷いて**継承で揃え、楽器の値も 12px。
       // 仕様 F97-SPEC の「値 .mnums 系(11.5px)」からは意図的に外れる: これらは**操作できる値**
       // (素テキスト+▾ の作法 = 12px)であり、読み取り専用の数字の行(11.5px)とは型が違う。
-      check("F-98: 奏者の行は行に fontSize:12 を敷く(bare セレクタが 16px を継承しない)",
-        /gap: 4, fontSize: 12 \}\}>\s*\r?\n\s*<span style=\{\{ fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0 \}\}>奏者<\/span>/.test(detail));
-      check("F-98: 楽器の値は 12px(13px などの独自値を作らない)",
-        /<span style=\{\{ fontSize: 12, color: "var\(--c-ink\)" \}\}>\{SAX_PRESETS\[session\.saxType\]/.test(detail)
-        && !/fontSize: 13, color: "var\(--c-ink\)"/.test(detail));
+      // 【D-3】編集シートの行はラベル 12px / --c-ink-2 / 3em で値の左端が縦に揃う
+      // (F-98 の「1行1情報」の作法は**シートの中で**生きている)。
+      check("D-3: 編集シートの行はラベル 12px / --c-ink-2 / 3em(値の左端が揃う)",
+        /fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0/.test(srcOfFn(src, "SessionEditSheet")));
+      check("D-3: 編集シートの行は 44pt の高さを持つ(§5)",
+        /minHeight: "var\(--tap-min\)", borderBottom: "1px solid var\(--c-line\)"/.test(srcOfFn(src, "SessionEditSheet")));
     }
 
     // F-57: フィルター行で × がカテゴリ名(次元のselect)より**前**にある
@@ -12575,8 +12631,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("F-111: 一覧末尾の「＋ 追加」の行が実装に残っていない",
       !/REED_ADDROW_PAD_TOP_PX/.test(codeOf(src)) && !codeOf(src).includes("＋ 追加"),
       (codeOf(src).match(/＋ 追加|REED_ADDROW_PAD_TOP_PX/g) || []).length + "件");
+    // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
     check("F-111: 追加の入口は右下に浮かせるボタン1つ(リード0枚の空状態でも出す)",
-      (codeOf(src).match(/<FloatingAction\b/g) || []).length === 2
+      (codeOf(src).match(/<FloatingAction\b/g) || []).length === 3
       && /<FloatingAction\s*\r?\n\s*label="＋ リードを追加"/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b/g) || []).length}箇所`);
@@ -13223,7 +13280,10 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
   {
     const detail = srcOfFn(src, "ReedEvaluationDetail");
     check("個体詳細を走査できている", detail.length > 3000, `${detail.length}文字`);
-    check("「‹ 一覧」で一覧へ戻れる", /‹ 一覧/.test(detail) && /onClick=\{onBack\}/.test(detail));
+    // 【D-4】戻る導線は共通部品 DetailHeader が描く(セッション詳細と同じ形)。
+    check("「‹ 一覧」で一覧へ戻れる",
+      /backLabel="‹ 一覧"/.test(detail) && /onBack=\{onBack\}/.test(detail)
+      && /onClick=\{onBack\}/.test(srcOfFn(src, "DetailHeader")));
     check("見出しは shortBoxLabel(V16-3 の形)", /shortBoxLabel\(reed\.brand, reed\.strength, reeds\.map\(\(r\) => r\.brand\)\)/.test(detail));
     check("#番号は自由入力(空で自動採番の値が placeholder に出る)",
       /placeholder=\{String\(reedPosition\(reed, reeds\)\)\}/.test(detail)
@@ -13235,34 +13295,45 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       !/borderBottom: "1px dashed/.test(detail));
     check("#番号の欄の当たり判定は 44px 以上(§5)",
       /width: 46, minHeight: "var\(--tap-min\)"/.test(detail));
-    check("開封日は右に yyyy/mm/dd で出る", /\{formatYmd\(reed\.startDate\) \?\? "—"\}/.test(detail));
-    check("メモは編集できる(placeholder 「メモ」)",
-      /placeholder="メモ"/.test(detail) && /onBlur=\{commitMemo\}/.test(detail));
-    check("メモの行は正典 .memoline(13px / 上下13px / 下に罫1本)",
-      parseFloat(declOf(mockCss, ".memoline", "font-size")) === 13
-      && /padding: "13px 0", fontSize: 13/.test(detail));
-    // 測定データの4指標。**REED_COMPARE_METRICS の全キーが1つも欠けずに並ぶ**ことを集合で見る
+    // 【D-4】開封日は右上の独立した区画ではなく、正典 #15a の**1行メタの先頭**に入った。
+    check("開封日は1行メタに yyyy/mm/dd で出る",
+      /reed\.startDate \? `開封 \$\{formatYmd\(reed\.startDate\)\}` : null/.test(detail));
+    // 【D-4 2026/08/22】メモは正典 #15a の**評価カードの中の1行**になった
+    // (ラベル「メモ」を左、値を右寄せ、空なら「タップして入力」)。
+    // セッション詳細のメモカードと**同じ形**(2画面で読み方が変わらない)。
+    check("メモは編集できる(placeholder 「タップして入力」)",
+      /placeholder="タップして入力"/.test(detail) && /onBlur=\{commitMemo\}/.test(detail));
+    check("D-4: メモの行はセッション詳細と同じ形(min-height 44 / ラベル左 / 値は右寄せ)",
+      /minHeight: "var\(--tap-min\)", display: "flex", alignItems: "center", justifyContent: "space-between"/.test(detail)
+      && /textAlign: "right"/.test(detail));
+    // 【D-4 2026/08/22 本人指示で書き換え】測定データの4指標は、セッション詳細と**同じ部品**
+    // (MetricTabCard)の中のタブへ移った(正典 #15a「同じ部品・同じ順番」)。
+    // 並びの出どころも REED_DETAIL_METRICS から **DETAIL_CARD_METRICS** へ移った
+    // (2画面が同じ配列を見る = 並びが食い違いようがない)。
     {
-      const keys = api.REED_DETAIL_METRICS;
-      check("個体詳細の指標は4つ", keys.length === 4, keys.join(","));
-      check("個体詳細の指標の並びは正典どおり(平均差分 → HNR → 重心 → 音量)",
+      const keys = api.DETAIL_CARD_METRICS;
+      check("D-4: 詳細の指標は4つ", keys.length === 4, keys.join(","));
+      check("D-4: 並びは正典どおり(平均差分 → HNR → 重心 → 音量)",
         keys.join(",") === "pitchCentsSigned,hnrDb,spectralCentroidHz,volumeDb", keys.join(","));
-      check("個体詳細の指標は REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
+      check("D-4: 詳細の指標は REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
         new Set(keys).size === 4 && keys.every((k) => cmKeys.includes(k))
         && cmKeys.every((k) => keys.includes(k)),
         `${keys.join(",")} / ${cmKeys.join(",")}`);
-      check("JSX は REED_DETAIL_METRICS をそのまま map する(間引いていない)",
-        /REED_DETAIL_METRICS\.map\(\(key\) => \{/.test(detail)
-        && !/REED_DETAIL_METRICS\.(slice|filter)\(/.test(detail));
-      check("指標の定義(ラベル・単位・書式)は REED_COMPARE_METRICS から引く(写していない)",
-        /REED_COMPARE_METRICS\.find\(\(x\) => x\.key === key\)/.test(detail));
+      const card = srcOfFn(src, "MetricTabCard");
+      check("D-4: 指標カードは DETAIL_CARD_METRICS をそのまま並べる(間引いていない)",
+        /order=\{DETAIL_CARD_METRICS\} metrics=\{REED_COMPARE_METRICS\}/.test(card)
+        && !/DETAIL_CARD_METRICS\.(slice|filter)\(/.test(card));
+      check("D-4: 指標の定義(ラベル・単位・書式)は REED_COMPARE_METRICS から引く(写していない)",
+        /REED_COMPARE_METRICS\.find\(\(x\) => x\.key === metric\)/.test(card));
+      check("D-4: セッション詳細とリード個体詳細が同じ部品を呼ぶ(2画面で読み方が変わらない)",
+        /<MetricTabCard/.test(srcOfFn(src, "SessionDetailView")) && /<MetricTabCard/.test(detail));
     }
-    check("測定データはタップで音名軸グラフに切り替わる(現行のまま)",
-      /<TappableMetricCard/.test(detail) && /bare/.test(detail));
+    check("D-4: 測定データのグラフは常時表示(数字タップで出る形は正典が却下側に置いた)",
+      !/<TappableMetricCard/.test(detail) && /<NoteAxisLineChart/.test(srcOfFn(src, "MetricTabCard")));
     check("測定データの空状態文言は現行のまま", detail.includes("このリードに紐づく測定データがまだありません"));
-    // 「測定データ · nセッション · 開封n日」。一覧のタイルから落ちた情報の行き先
-    check("nセッション / 未測定 / 開封n日 は reedDetailMetaLine が組み立てる",
-      /\{reedDetailMetaLine\(reedSessions\.length, usageDays\(new Date\(\), reed\.startDate\)\)\}/.test(detail));
+    // 「nセッション · 開封n日」。一覧のタイルから落ちた情報は**1行メタ**が引き取った(正典 #15a)。
+    check("D-4: nセッション / 未測定 / 開封n日 は reedDetailMetaLine が組み立て、1行メタへ割る",
+      /\.\.\.reedDetailMetaLine\(reedSessions\.length, usageDays\(new Date\(\), reed\.startDate\)\)\.split\(" · "\)/.test(detail));
     check("セッションがあれば「nセッション」", api.reedDetailMetaLine(12, 34) === "測定データ · 12セッション · 開封 34日",
       api.reedDetailMetaLine(12, 34));
     check("セッションが0件なら「未測定」", api.reedDetailMetaLine(0, 34) === "測定データ · 未測定 · 開封 34日",
@@ -13325,16 +13396,14 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 仕様ごと廃止: セッション詳細のセッション平均も bare(numrow)になった(枠と地色の箱の
       // 廃止。白地+罫の文法へ)。**どの関数が渡しているか**を集合で固定する
       // (件数だけを固定すると、部品をまとめる/分けるという正しい修正が落ちる)。
-      const BARE_OWNERS = ["ReedEvaluationDetail", "SessionDetailView"];
+      // 【D-3 / D-4 2026/08/22 本人指示で反転】bare(枠と地色の箱を持たない数字の列)の
+      // 渡し手は2つとも MetricTabCard へ移り、**ゼロになった**。
+      // 部品(TappableMetricCard)と型(BARE_ROW_STYLES)は残っているが読み手が居ない(起票 D-3a)。
       const bareSites = (codeOf(src).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length;
-      const inBareOwners = BARE_OWNERS
-        .reduce((n, fn) => n + (codeOf(srcOfFn(src, fn)).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length, 0);
-      check("bare を渡しているのはリード個体詳細とセッション詳細だけ(集合の外に渡し手がいない)",
-        bareSites === inBareOwners && inBareOwners === 2, `全体 ${bareSites} / 集合内 ${inBareOwners}`);
-      // 【N-9】呼び出しに隣接する錨: bare が REED_COMPARE_METRICS.map の TappableMetricCard に
-      // 付いていること(「関数内のどこかに bare があれば通る」形にしない。N-8 審査の教訓)。
-      check("N-9: セッション詳細のセッション平均は bare の TappableMetricCard(枠と地色の箱を持たない数字の列)",
-        /<TappableMetricCard\s*\r?\n\s*key=\{mt\.key\}\s*\r?\n\s*bare\b/.test(srcOfFn(src, "SessionDetailView")));
+      check("D-3/D-4: bare の渡し手はゼロ(2画面とも常時表示のカードへ移った)",
+        bareSites === 0, `${bareSites}箇所`);
+      check("D-3/D-4: 移った先は大きな数字 + 常時表示のグラフ(正典 #14b / #15a)",
+        /fontFamily: "var\(--font-serif\)", fontSize: "var\(--fs-hero\)"/.test(srcOfFn(src, "MetricTabCard")));
     }
     // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
     check("ダイヤルの先頭の「—」は表示文字列も「—」",
@@ -14451,15 +14520,21 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     // 他画面はそのまま: グラフ部品の目安描画と、リード詳細・セッション詳細の配線が生きている
     check("28.4 グラフ部品の目安描画(破線)は従来のまま生きている(他画面用)",
       /if \(selectedIdeal && idealKey\) \{/.test(chart) && /IDEAL_LINE_STYLE/.test(chart));
-    check("28.4 リード詳細は selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
-      /selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "ReedEvaluationDetail"))
-      && /idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(srcOfFn(src, "ReedEvaluationDetail")));
+    // 【D-3 / D-4 2026/08/22】2画面とも同じ部品(MetricTabCard)になったので、
+    // 目安の配線も**部品の中の1箇所**になった。呼び出し側は selectedIdeal を渡すだけ。
+    check("28.4 D-3: 2画面とも指標カードへ selectedIdeal を渡している",
+      /selectedIdeal=\{selectedIdeal\} metricsValues=\{overall\}/.test(srcOfFn(src, "ReedEvaluationDetail"))
+      && /selectedIdeal=\{selectedIdeal\} metricsValues=\{sessionMetrics\}/.test(srcOfFn(src, "SessionDetailView")));
     // 【審査で塞いだ穴】前版は「コンポーネント内のどこかに selectedIdeal={selectedIdeal} が
     // 1つあれば」通る形で、SetAsIdealButton / PhraseTimeline の同じ綴りに救われて
     // **指標カードから selectedIdeal を外す変異が生存**した(目安の破線+Δが消えるのに緑)。
     // **指標カードの呼び出しに隣接する綴り**(idealKey と同じ行並び)で錨止めする。
-    check("28.4 セッション詳細の指標カードは selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
-      /metricKey=\{mt\.key\} idealKey=\{METRIC_IDEAL_KEYS\[mt\.key\]\}\s*\r?\n\s*frames=\{frames\} saxType=\{session\.saxType\} tuningHz=\{tuningHz\} selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "SessionDetailView")));
+    // 【審査で塞いだ穴・D-3 で移設】前版は「関数内のどこかに selectedIdeal={selectedIdeal} が
+    // 1つあれば」通る形で、SetAsIdealButton / PhraseTimeline の同じ綴りに救われて
+    // **指標カードから selectedIdeal を外す変異が生存**した(目安の破線+Δが消えるのに緑)。
+    // 錨は**グラフの呼び出しに隣接する綴り**(部品の中)へ移した。
+    check("28.4 D-3: 指標カードのグラフは selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
+      /selectedIdeal=\{selectedIdeal\} idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(srcOfFn(src, "MetricTabCard")));
   }
   console.log("  -> done");
 }
@@ -14516,21 +14591,33 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     /<div className="card" style=\{\{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var\(--sp-2\)"/.test(lab29));
   check("29.2 グラフ群が罫を持つ(隣接: 直後に空状態の分岐)",
     /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
-  check("29.2 セッション詳細の罫は2本(セッション平均 / 音階ごとの平均)",
-    (codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+  // 【D-3 2026/08/22 本人指示で書き換え】セッション詳細は正典 #14b で**カードの画面**になった
+  // (指標グラフ / 録音 / メモ / 音階ごとの平均の4枚)。罫で群を分ける形は終わったので、
+  // 主張を「罫が2本ある」→「カードが4枚あり、作法をインラインで殺していない」へ反転させる。
+  check("29.2 D-3: セッション詳細に罫の群がもう無い(群はカードが作る)",
+    (codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 0,
     `${(codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 セッション平均の群が罫を持つ(隣接: 直後に bare の並び)",
-    /borderTop: "1px solid var\(--c-rule\)" \}\}>\s*<div style=\{\{ display: "flex", flexWrap: "wrap", padding: "10px 0 6px" \}\}>/.test(det29));
-  check("29.2 音階ごとの平均の群が罫を持つ(隣接: 群の中に見出しがある)",
-    /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>[\s\S]{0,400}?音階ごとの平均/.test(det29));
+  check("29.2 D-3: カードは4枚(指標グラフ / 録音 / メモ / 音階ごとの平均)",
+    (det29.match(/className="card"/g) || []).length === 3 && /<MetricTabCard/.test(det29),
+    `.card ${(det29.match(/className="card"/g) || []).length}枚 + MetricTabCard`);
+  {
+    const bad = [...det29.matchAll(/<div className="card"([^>]*)>/g)]
+      .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
+    check("29.2 D-3: .card にインラインの地・枠・padding が無い(作法を殺していない)",
+      bad.length === 0, bad.map((m) => m[1].replace(/\s+/g, " ").slice(0, 80)).join(" | ") || "0件");
+  }
+  check("29.2 D-3: 音階ごとの平均は**選んでいる指標の列だけ**出す(正典 #14b)",
+    /<th[^>]*>\{detailDef\.label\}<\/th>/.test(det29)
+    && />目安との差<\/th>/.test(det29)
+    && !/>ピッチ<\/th>/.test(det29));
   check("29.2 タイムラインの罫は2本(タイムライン / ドリルダウン)",
     (codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
     `${(codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
   check("29.2 ドリルダウンの群が罫を持つ(隣接: selectedFrame の分岐の直下)",
     /\{selectedFrame && \(\s*<div style=\{\{ borderTop: "1px solid var\(--c-rule\)", padding: "10px 0" \}\}>/.test(pt29));
-  // セッション情報の群は罫を持たない(直前に「一覧に戻る」の区切りがある。no-top-rule と同じ判断)
-  check("29.2 「一覧に戻る」とセッション情報の間に罫を引いていない",
-    /一覧に戻る\s*<\/button>[\s\S]{0,600}?<div style=\{\{ marginBottom: 10 \}\}>/.test(codeOf(det29)));
+  // 【D-3】戻る導線と見出しの間にも罫は無い(共通部品 DetailHeader が余白だけで分ける)。
+  check("29.2 D-3: 戻る導線と見出しの間に罫を引いていない",
+    !/borderBottom/.test(codeOf(srcOfFn(src, "DetailHeader"))));
 
   // --- 29.3 PlainSelect(素のテキスト + ▾)の配線。呼び出しに隣接する綴りで錨止め ---------
   // 部品そのもの: 値は <span>{text}</span>、select は value/onChange をそのまま受ける
@@ -14550,7 +14637,11 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     // 3カラム(並べる軸 / 数値 / 分け方)が増えた。**綴りは 2つ**: 3カラムは1つの配列を
     // map して描くので、呼び出しの綴りは1つしか増えない(描き方を3回写していない)。
     // 「3枚あること」は 29.4 が配列の中身(3つのラベル)で別に固定する。
-    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionDetailView", det29, 1], ["AnalysisLabView", lab29, 2]];
+    // 【D-3 2026/08/22 で SessionDetailView 1 → 0】セッションの属性の編集は正典 #14b の
+    // **編集シート**へ移った(上部の1行メタは読み取り専用)。リード紐付けの PlainSelect も
+    // シートの中にある。**機能は1つも減っていない**(置き場所だけが動いた)。
+    const sheet29 = srcOfFn(src, "SessionEditSheet");
+    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionEditSheet", sheet29, 1], ["AnalysisLabView", lab29, 2]];
     const total = (codeOf(src).match(/<PlainSelect\b/g) || []).length;
     const inOwners = PLAIN_OWNERS.reduce((n, [, body]) => n + (codeOf(body).match(/<PlainSelect\b/g) || []).length, 0);
     for (const [name, body, want] of PLAIN_OWNERS) {
@@ -14568,15 +14659,20 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     /ariaLabel="比較の基準"[\s\S]{0,220}?value=\{referenceBasis\} onChange=\{\(e\) => setReferenceBasis\(e\.target\.value\)\}/.test(pt29));
   check("29.3 別セッションの選択は referenceSessionId に配線され、候補は referenceCandidates",
     /ariaLabel="比較する別セッション"[\s\S]{0,300}?value=\{referenceSessionId \|\| ""\} onChange=\{\(e\) => setReferenceSessionId\(e\.target\.value \|\| null\)\}[\s\S]{0,300}?referenceCandidates\.map/.test(pt29));
-  check("29.3 リード紐付けは setSessionReedId に配線され、表示値はリードの表記そのもの",
-    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "未紐付け"\}\s*\r?\n\s*value=\{session\.reedId \|\| ""\} onChange=\{\(e\) => setSessionReedId\(e\.target\.value \|\| null\)\}/.test(det29));
+  // 【D-3】編集シートへ移った。渡し方(値と onChange をそのまま)は変わっていない。
+  check("29.3 D-3: リード紐付けは編集シートで onSetReedId に配線され、表示値はリードの表記そのもの",
+    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "未紐付け"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(e\) => onSetReedId\(e\.target\.value \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
+    && /onSetReedId=\{setSessionReedId\}/.test(det29));
   check("29.3 PIVOT の次元セレクタは dimKey を書き換え、値の選択をリセットする(機能は従来のまま)",
     /text=\{dim\?\.label \?\? flt\.dimKey\}\s*\r?\n\s*value=\{flt\.dimKey\}\s*\r?\n\s*onChange=\{\(e\) => setPivotFilters\(\(prev\) => prev\.map\(\(p, j\) => \(j === i \? \{ dimKey: e\.target\.value, values: \[\], rangeMin: null, rangeMax: null \}/.test(lab29));
 
   // bare の value は fmt の結果だけ(単位は部品側が描く。`${fmt(v)} ${unit}` に戻すと単位が二重になる)
-  check("29.3 セッション平均の value は fmt の結果だけ(単位は bare 部品が描く)",
-    /value=\{v !== null && v !== undefined \? mt\.fmt\(v\) : "—"\}/.test(det29)
-    && !/mt\.fmt\(v\)\}\$\{mt\.unit/.test(codeOf(det29)));
+  // 【D-3】数字は指標カード(MetricTabCard)の中で描くようになった。
+  // **単位は数字とは別の <span> が描く**ので、fmt の結果に単位を混ぜないという芯は不変。
+  check("29.3 D-3: 指標カードの数字は fmt の結果だけ(単位は別の span が描く)",
+    /\{has \? m\.fmt\(v\) : "—"\}/.test(srcOfFn(src, "MetricTabCard"))
+    && /\{has && <span className="sans"[^>]*>\{m\.unit\}<\/span>\}/.test(srcOfFn(src, "MetricTabCard"))
+    && !/m\.fmt\(v\)\}\$\{m\.unit/.test(codeOf(srcOfFn(src, "MetricTabCard"))));
   // ドリルダウンの一致度は機能色(scoreToColor)を数値の色で返す(旧 MetricCard と同じ考え)
   check("29.3 ドリルダウンの一致度の数値は scoreToColor の色を持つ(隣接: cells の組み立て)",
     /color: scoreToColor\(getMatchScore\(selectedFrame, "pitch"\)\)/.test(pt29)
@@ -14584,7 +14680,10 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
 
   // --- 29.4 機能を1つも落としていないこと(集合で確かめる。26.7 と同じ形) ------------------
   {
-    const all = codeOf(lab29) + codeOf(det29) + codeOf(pt29);
+    // 【D-3 2026/08/22】セッションの属性の編集は編集シートへ、指標のカードは共通部品へ移った。
+    // **機能の確認先を見失わないよう集合に足す**(件数は縛らない)。
+    const all = codeOf(lab29) + codeOf(det29) + codeOf(pt29)
+      + codeOf(srcOfFn(src, "SessionEditSheet")) + codeOf(srcOfFn(src, "MetricTabCard"));
     const want = [
       // 【D-2】「＋ 条件を追加」のピルは、正典 #13a の破線の「＋」チップになった(綴りが変わった)
       ["条件の追加", /aria-label="集計の条件を追加"/],
@@ -14847,8 +14946,9 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       (src.match(/^function FloatingAction\(/gm) || []).length === 1
       && (src.match(/^function FloatingActionSpacer\(/gm) || []).length === 1,
       `${(src.match(/^function FloatingAction\(/gm) || []).length}個`);
-    check("31.4 使い手は2画面(My Data の取り込み / リードタブの追加)だけ",
-      (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 2
+    // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
+    check("31.4 使い手は3画面(My Data の取り込み / リードタブの追加 / 個体詳細の計測)だけ",
+      (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 3
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => uploadInputRef\.current\?\.click\(\)\}/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length}箇所`);
@@ -14879,17 +14979,18 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       (() => { const z = new Function(`${extractConst("FLOAT_ACTION_Z")} return FLOAT_ACTION_Z;`)();
         return z > 30 && z < 60; })(),
       String(new Function(`${extractConst("FLOAT_ACTION_Z")} return FLOAT_ACTION_Z;`)()));
-    check("31.4 aria-label を持ち、呼び出し側が2つとも渡している",
+    check("31.4 aria-label を持ち、呼び出し側が3つとも渡している",
       /aria-label=\{ariaLabel\}/.test(fab)
-      && (codeOf(src).match(/<FloatingAction[\s\S]{0,300}?ariaLabel="/g) || []).length === 2);
+      && (codeOf(src).match(/<FloatingAction[\s\S]{0,300}?ariaLabel="/g) || []).length === 3);
     // 一覧の下にボタンの高さぶんの余白(最下行に重ならない)。**対で置く**
     check("31.4 余白の高さはボタンの高さ + 上下の間隔(直書きの数値を作らない)",
       /const FLOAT_ACTION_SPACER_H = `calc\(var\(--tap-min\) \+ \$\{FLOAT_ACTION_GAP\} \+ \$\{FLOAT_ACTION_GAP\}\)`;/.test(src)
       && /height: FLOAT_ACTION_SPACER_H/.test(src));
-    check("31.4 2画面とも一覧の下に余白を置いている(片方だけ置くと最下行が隠れる)",
-      (codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length === 2
+    check("31.4 3画面とも中身の下に余白を置いている(1つでも欠けるとそこだけ最下行が隠れる)",
+      (codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length === 3
       && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "MyDataPage")))
-      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedRegisterView"))),
+      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedRegisterView")))
+      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedEvaluationDetail"))),
       `${(codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length}箇所`);
     // 隣のページ(分析 / 比較)を見ている間は出さない(portal なので自分では判断できない)
     check("31.4 どちらの呼び出しも「今このページか」を条件に持つ(隣のページで出したままにしない)",
