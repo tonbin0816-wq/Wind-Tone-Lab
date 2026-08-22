@@ -3763,9 +3763,9 @@ export default function WindToneLabPhaseMode() {
         /* 地・枠・角丸は index.css の入力欄の規則(--c-sunk / --c-line-strong / --r-xs)が持つ。
            ここは select 固有の詰めと書体だけ(色を二重管理すると必ず片方が腐る)。 */
         select { padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
-        /* ピボットの軸セレクタは枠なし・ネイビー太字。【N-9】丸角タイルは廃止したが、
-           select の見た目(文字組み)と中身のネイティブ select は据え置き */
-        select.pivot-axis-select { width:100%; background:transparent; border:none; border-radius:0; padding:0; color:#174585; font-weight:600; font-size:var(--fs-sm); cursor:pointer; }
+        /* (【D-2 2026/08/22】ピボットの軸セレクタ select.pivot-axis-select はここにあったが、
+           正典 #13a の3カラムカードで**共有部品 PlainSelect(素のテキスト + ▾)へ寄せた**ので
+           使い手が1つも無くなった。読み手ゼロの規則を残さない。) */
       `}</style>
 
       {/* アプリ名ヘッダーは削除(Claude Designに準拠。タブ切替は画面下部の固定ナビ=BottomNavに集約)。 */}
@@ -6956,10 +6956,12 @@ function MeasureView(props) {
 //     選択 UI はネイティブのまま)
 // 透明化は opacity ではなく color(opacity:0 だと :focus-visible の輪郭まで消える)。
 // 当たり判定は §5 の 44px を minHeight で確保する(文字は中央寄せのまま)。
-function PlainSelect({ text, value, onChange, children, ariaLabel }) {
+// 【D-2 2026/08/22】strong: 太字にするだけの任意指定(既定 false = 既存の呼び出しは 1px も変わらない)。
+// 正典 #13a の3カラムセレクタは値が 600 で、3つの関係が一目で分かることを担っているため。
+function PlainSelect({ text, value, onChange, children, ariaLabel, strong = false }) {
   return (
-    <label style={{ position: "relative", display: "inline-flex", alignItems: "center", minHeight: "var(--tap-min)", minWidth: 0, cursor: "pointer" }}>
-      <span className="sans" style={{ color: "var(--c-ink)", fontSize: 12, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
+    <label style={{ position: "relative", display: "inline-flex", alignItems: "center", minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", cursor: "pointer" }}>
+      <span className="sans" style={{ color: "var(--c-ink)", fontSize: 12, fontWeight: strong ? 600 : 400, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
       <PickChevron />
       <select
         aria-label={ariaLabel}
@@ -10862,12 +10864,98 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
-// ピボット集計を縦向きの折れ線グラフで表示する。
-//   縦軸 = 縦軸で選んだ項目の値(rowKeys。音名なら上から高い音の順)
-//   横軸 = 指標の値(metricDef。ピッチ誤差など)
-//   系列 = 「指標」セレクタで選んだ次元の値ごと(colKeys)に色分けした折れ線を同じ場所に重ねる
-// 値の無いセルは線を途切れさせる。ピッチ偏差では0(ジャスト)の縦基準線を破線で示す。
-function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
+// ================= 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】=================
+// 分析(PIVOT)タブを Design canon(design/dc-mydata-redesign.html)の **#13a** へ。
+// 折れ線の**向き**(縦軸=音名・上から下へ / 横軸=選んだ数値)は N-9 から不変で、
+// 正典が足したのは「行の縞」「縦の目盛り線(0だけ濃い)」「凡例をグラフの上へ」の3つ。
+// 操作部は「条件のチップ行」と「3カラムのセレクタカード(並べる軸 / 数値 / 分け方)」になった。
+
+// 正典 #13a の実数。行高 25px / 目盛5本 / 点は r2.8 に白フチ1.1px。
+const PIVOT_ROW_H = 25;
+const PIVOT_TICK_COUNT = 5;
+const PIVOT_DOT_R = 2.8;
+const PIVOT_DOT_RING = 1.1;
+
+// 【D-2】縦の目盛りの値。lo から hi まで等間隔に n 本。**両端は lo と hi そのもの**。
+// 【0 を目盛へ寄せない】初版は「いちばん 0 に近い目盛を 0 ちょうどへ動かす」形だったが、
+// それだと**端の目盛が 0 に化ける**(lo=-1, hi=9 で左端のラベルが「-1」ではなく「0」になる)。
+// 軸の端の値を偽るのは目盛の役目に反するので、0 の線は**目盛とは別に**引き、
+// ラベルが重なる目盛だけを1つ譲る(pivotCrowdedTickIndex)。
+function pivotTickValues(lo, hi, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(lo + ((hi - lo) * i) / (n - 1));
+  return out;
+}
+// 0 のラベルと重なる目盛の番号(重なっていなければ -1)。**0 のラベルは必ず出す**ので、
+// 譲るのは目盛の側。距離は描画後の x(px)で見る(値の間隔ではなく実際の重なりで決める)。
+const PIVOT_TICK_MIN_GAP_PX = 18;
+function pivotCrowdedTickIndex(tickXs, zeroX, minGap) {
+  if (zeroX === null || zeroX === undefined) return -1;
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < (tickXs || []).length; i++) {
+    const d = Math.abs(tickXs[i] - zeroX);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return bd < minGap ? best : -1;
+}
+
+// 【D-2】行の縞(正典 #13a「オクターブ単位で交互に極薄い面」)。
+// 行ラベルを parseNoteLabel で割り、**同じオクターブが続く区間**を1群として、1つおきに塗る。
+// 戻り値は塗る区間だけ [{ from, to }](to は含まない)。
+// オクターブが読めない行(音名でない次元)は群ごと落とす — 「2行ごとに交互」のような
+// **正典に無い規則を発明しない**ため。
+function pivotOctaveStripes(rowKeys) {
+  const groups = [];
+  for (let i = 0; i < (rowKeys || []).length; i++) {
+    const p = parseNoteLabel(String(rowKeys[i]));
+    const oct = p ? p.octave : null;
+    const last = groups[groups.length - 1];
+    if (last && last.oct === oct) last.to = i + 1;
+    else groups.push({ oct, from: i, to: i + 1 });
+  }
+  return groups.filter((g, i) => i % 2 === 1 && g.oct !== null).map((g) => ({ from: g.from, to: g.to }));
+}
+
+// 【D-2】グラフ右上に出す単位。PIVOT_MEASURES の label は「平均差分(¢)」のように
+// **名前と単位を括弧でつないだ1つの文字列**なので、その括弧の中だけを取る
+// (単位の綴りを2箇所に持たないため。括弧が無い測度は空文字)。
+function pivotUnitOf(metricDef) {
+  const m = /[（(]([^（）()]*)[）)]\s*$/.exec(metricDef?.label ?? "");
+  return m ? m[1] : "";
+}
+
+// 【D-2】条件チップの文字。正典 #13a は適用中のフィルタを「Alto」「6ヶ月」のように
+// **値そのもの**で出す。値を選んでいないフィルタ(=全選択と同じ扱い)は次元名だけを出す。
+// 範囲(日付・日数)のフィルタは端の値をつないで出す。**押せば必ず編集に入れる**ので、
+// ここで出せない情報があっても行き止まりにはならない。
+function pivotFilterChipText(flt, dim) {
+  const name = dim?.label ?? flt?.dimKey ?? "";
+  if (dim?.filterKind === "dateRange" || dim?.filterKind === "numberRange") {
+    const a = flt?.rangeMin, b = flt?.rangeMax;
+    if (a === null && b === null) return name;
+    const f = (v) => (dim.filterKind === "dateRange" ? (formatYmd(v) ?? "") : String(v));
+    return `${name} ${a === null ? "" : f(a)}〜${b === null ? "" : f(b)}`;
+  }
+  const vals = flt?.values ?? [];
+  if (vals.length === 0) return name;
+  if (vals.length <= PIVOT_CHIP_VALUES_MAX) return vals.join(" / ");
+  return `${vals.slice(0, PIVOT_CHIP_VALUES_MAX).join(" / ")} 他${vals.length - PIVOT_CHIP_VALUES_MAX}`;
+}
+// チップに並べる値の上限。超えたぶんは「他n」に畳む(チップが行を埋め尽くさないため)。
+const PIVOT_CHIP_VALUES_MAX = 2;
+
+
+// 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】正典 = design/dc-mydata-redesign.html
+// の **#13a**。縦軸=音名(上から下へ)／横軸=選んだ数値、という**向きは N-9 から不変**で、
+// 正典が足したのは次の3つ:
+//   ・**行の縞**(オクターブ単位で交互に極薄い面)— どの行がどのオクターブか掴めるようにする
+//   ・**縦の目盛り線**(5本)と、その下の目盛ラベル。**0線だけ濃い**
+//   ・**凡例をグラフの上**へ(左に系列、右端に単位)。下の指標名は凡例の単位が引き継ぐ
+// 行高は正典の 25px。線幅2px・点 r2.8 + 白フチ1.1px も正典どおり。
+//
+// 【行の縞をオクターブで割れるのは行が音名のときだけ】rowIsNote が false のときは縞を出さない
+// (「2行ごとに交互」のような**正典に無い規則を発明しない**)。
+function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false }) {
   // グラフ幅は固定値ではなくコンテナの実測幅。375pxでも横に溢れない条件がここで決まる。
   const [boxRef, W] = useMeasuredWidth();
 
@@ -10902,12 +10990,13 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
 
     const FS = SVG_FS_XS;           // --fs-xs (12px)
     const SP1 = 4, SP2 = 8;         // --sp-1 / --sp-2
-    const ROW = 26;                 // 1項目(行)あたりの高さ
+    const ROW = PIVOT_ROW_H;        // 1項目(行)あたりの高さ(正典 #13a の 25px)
     const GAPL = SP2;               // 項目ラベルとプロット領域の間隔
-    const RPAD = SP1;               // 右端の内側寄せ。最大値の目盛と点(r=3)が枠外に出ないため
+    const RPAD = SP1;               // 右端の内側寄せ。最大値の目盛と点(r=2.8)が枠外に出ないため
     const BASE = Math.round(FS * 0.8);  // 文字の上端からベースラインまで(組版上の目安。トークンではない)
     const padTop = 6;
-    const padBottom = SP1 * 3 + FS * 2; // 目盛(--fs-xs)と指標名(--fs-xs)を --sp-1 の余白で挟む
+    // 【D-2】下は目盛ラベル1行だけ。グラフの下に置いていた指標名は**凡例の右端の単位**が引き継いだ。
+    const padBottom = SP1 * 2 + FS;
     const H = padTop + rowKeys.length * ROW + padBottom;
 
     // 左端も RPAD と同じだけ内側に寄せる。getComputedTextLength() は送り幅で、和文グリフの
@@ -10930,43 +11019,47 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
       if (cur.length) segs.push(cur);
       return segs;
     };
-    const zeroX = metricDef.key === "pitchCents" && lo < 0 && hi > 0 ? xAt(0) : null;
+    // 【D-2】縦の目盛り線(5本)と、それとは別に引く 0 の線。
+    // 0 が範囲の内側にあるときだけ 0 の線を引き、**ラベルが重なる目盛を1つ譲る**。
+    const ticks = pivotTickValues(lo, hi, PIVOT_TICK_COUNT);
+    const zeroX = lo < 0 && hi > 0 ? xAt(0) : null;
+    const crowded = pivotCrowdedTickIndex(ticks.map(xAt), zeroX, PIVOT_TICK_MIN_GAP_PX);
 
-    // 横軸の目盛はプロット領域の内側に置く。最小=左寄せ、最大=右寄せ、0=中央合わせ。
-    // 右端を PLOTW で止めているので、最大値のラベルが枠外に出ることがない。
-    const tickY = H - padBottom + SP1 + BASE;
-    const titleY = H - SP1 - FS + BASE;
-    const loText = metricDef.fmt(lo), hiText = metricDef.fmt(hi);
-    const loW = measureSvgTextPx(loText, FS), hiW = measureSvgTextPx(hiText, FS);
-    const zeroW = measureSvgTextPx("0", FS);
-    // 0の目盛は最小・最大と重なるときだけ省く(基準線そのものは常に引く)
-    const showZeroText = zeroX !== null &&
-      zeroX - zeroW / 2 > LABELW + loW + SP1 &&
-      zeroX + zeroW / 2 < LABELW + PLOTW - hiW - SP1;
-
-    // 指標名は幅に入らなければ同じ規則で畳み、左右どちらにもはみ出さない位置に置く
-    const titleText = fitLabel(metricDef.label, W - SP1, FS, "var(--font-jp)");
-    const titleW = measureSvgTextPx(titleText, FS, "var(--font-jp)");
-    const titleX = Math.min(Math.max(LABELW + PLOTW / 2, titleW / 2 + SP1 / 2), W - titleW / 2 - SP1 / 2);
+    // 行の縞。オクターブが変わるたびに交互(正典 #13a)。行が音名でないときは出さない。
+    const stripes = rowIsNote ? pivotOctaveStripes(rowKeys) : [];
 
     return (
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
-        {/* 行ごとの薄いガイド線と項目ラベル(縦軸) */}
-        {rowKeys.map((rk, ri) => (
-          <g key={rk}>
-            <line x1={LABELW} y1={yAt(ri)} x2={LABELW + PLOTW} y2={yAt(ri)} stroke="#F3F5F7" strokeWidth="1" />
-            <text x={LABELW - GAPL} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS} fill="#435266" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rk, LABEL_MAX, FS)}</text>
-          </g>
+        {/* 【D-2】行の縞(オクターブ単位で交互に極薄い面)。地は --c-sunk(白地との差 ΔL* 2.79)。
+            **新しい薄さを発明しない**: 体系でいちばん淡い面がこれ。 */}
+        {stripes.map((s) => (
+          <rect key={s.from} x={LABELW} y={padTop + s.from * ROW} width={PLOTW} height={(s.to - s.from) * ROW}
+            fill="var(--c-sunk)" />
         ))}
-        {/* 横軸(指標値)の枠と目盛 */}
-        <line x1={LABELW} y1={padTop} x2={LABELW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
-        <line x1={LABELW} y1={H - padBottom} x2={LABELW + PLOTW} y2={H - padBottom} stroke="#EEF1F4" strokeWidth="1" />
-        {zeroX !== null && <line x1={zeroX} y1={padTop} x2={zeroX} y2={H - padBottom} stroke="#DDE2E8" strokeWidth="1" strokeDasharray="4 3" />}
-        <text x={LABELW} y={tickY} fontSize={FS} fill="#A6AEBA" textAnchor="start" fontFamily="var(--font-num)">{loText}</text>
-        <text x={LABELW + PLOTW} y={tickY} fontSize={FS} fill="#A6AEBA" textAnchor="end" fontFamily="var(--font-num)">{hiText}</text>
-        {showZeroText && <text x={zeroX} y={tickY} fontSize={FS} fill="#8D95A1" textAnchor="middle" fontFamily="var(--font-num)">0</text>}
-        <text x={titleX} y={titleY} fontSize={FS} fill="#8D95A1" textAnchor="middle" className="sans">{titleText}</text>
-        {/* 系列(指標の値ごと)の折れ線を同じ場所に重ねる。識別は紺の明度段階と線種で行う */}
+        {/* 【D-2】縦の目盛り線は罫(--c-line)。**0 の線だけ濃い**(--c-line-strong)。 */}
+        {ticks.map((t) => (
+          <line key={t} x1={xAt(t)} y1={padTop} x2={xAt(t)} y2={H - padBottom} strokeWidth="1" stroke="var(--c-line)" />
+        ))}
+        {zeroX !== null && (
+          <line x1={zeroX} y1={padTop} x2={zeroX} y2={H - padBottom} strokeWidth="1" stroke="var(--c-line-strong)" />
+        )}
+        {/* 項目ラベル(縦軸) */}
+        {rowKeys.map((rk, ri) => (
+          <text key={rk} x={LABELW - GAPL} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS}
+            fill="var(--c-ink-2)" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rk, LABEL_MAX, FS)}</text>
+        ))}
+        {/* 目盛ラベル。両端だけは枠の内側へ寄せる(中央合わせだと半分が枠外に出る)。
+            0 のラベルと重なる1本だけは譲る(crowded)。 */}
+        {ticks.map((t, ti) => (ti === crowded ? null : (
+          <text key={t} x={xAt(t)} y={H - padBottom + SP1 + BASE} fontSize={FS} fill="var(--c-ink-4)"
+            textAnchor={ti === 0 ? "start" : ti === ticks.length - 1 ? "end" : "middle"}
+            fontFamily="var(--font-num)">{metricDef.fmt(t)}</text>
+        )))}
+        {zeroX !== null && (
+          <text x={zeroX} y={H - padBottom + SP1 + BASE} fontSize={FS} fill="var(--c-ink-3)"
+            textAnchor="middle" fontFamily="var(--font-num)">{metricDef.fmt(0)}</text>
+        )}
+        {/* 系列(分け方の値ごと)の折れ線を同じ場所に重ねる。識別は紺の明度段階と線種で行う */}
         {shownKeys.map((ck, ci) => {
           const st = styleAt(ci);
           return (
@@ -10977,7 +11070,8 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
               {rowKeys.map((rk, ri) => {
                 const v = cellValue(rk, ck);
                 if (v === null) return null;
-                return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={3} stroke="none" />;
+                /* 正典 #13a の点: r 2.8 + 白フチ 1.1px。線が重なっても点だけは読める。 */
+                return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={PIVOT_DOT_R} stroke="var(--c-surface)" strokeWidth={PIVOT_DOT_RING} />;
               })}
             </g>
           );
@@ -10988,27 +11082,27 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef }) {
 
   return (
     <div>
-      <div ref={boxRef}>{body}</div>
-      {/* 凡例: 系列(指標の値)を色と線種で識別。省略規則は縦軸の項目ラベルと同一
-          (同じ値が軸と凡例の両方に出たとき、表記が食い違わないようにするため)。
-          描く線が1本も無いときは凡例も出さない(従来どおり何も表示しない) */}
+      {/* 【D-2】凡例は**グラフの上**(正典 #13a)。左に系列、右端に単位。
+          旧実装はグラフの下に凡例、さらに下に指標名を置いていたが、
+          正典は「上に凡例、右上に単位」の1行にまとめている。 */}
       {body && (
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 8, fontSize: 12, color: "#435266", maxHeight: 96, overflowY: "auto" }}>
-          {shownKeys.map((ck, ci) => {
-            const st = styleAt(ci);
-            return (
-              <span key={ck} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <svg width="12" height="3" style={{ flexShrink: 0, overflow: "visible" }} aria-hidden="true">
-                  <line x1="0" y1="1.5" x2="12" y2="1.5" strokeWidth={st.width} strokeDasharray={st.dash || undefined} style={{ stroke: st.color }} />
-                </svg>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 2px 12px" }}>
+          <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "8px 13px", maxHeight: 96, overflowY: "auto" }}>
+            {shownKeys.map((ck, ci) => (
+              <span key={ck} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--c-ink-2)" }}>
+                <SeriesSwatch style={styleAt(ci)} width={12} />
                 {fitLabel(ck, LABEL_MAX, SVG_FS_XS)}
               </span>
-            );
-          })}
+            ))}
+          </div>
+          {/* 単位。指標の定義(PIVOT_MEASURES)の label の括弧の中から引く(綴りを2箇所に置かない)。
+              名前そのものは上の「数値」セレクタが出しているので、ここは単位だけ。 */}
+          <span className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", flexShrink: 0 }}>{pivotUnitOf(metricDef)}</span>
         </div>
       )}
+      <div ref={boxRef}>{body}</div>
       {body && hiddenCount > 0 && (
-        <div className="sans" style={{ marginTop: 6, fontSize: 12, color: "#8D95A1" }}>
+        <div className="sans" style={{ marginTop: 6, fontSize: 12, color: "var(--c-ink-3)" }}>
           残り{hiddenCount}件は表示していません（見分けのつく系列は6本まで）。フィルターで絞ると全部見えます
         </div>
       )}
@@ -11977,6 +12071,10 @@ function AnalysisLabView(props) {
   // 正典 #8a どおり**別画面**になった。入口は My Data のカレンダー最下行「すべてのセッション n 件 ›」
   // ただ1つ。セッション詳細と同じく早期 return で開くので、子タブ行も SwipePager も出ない。
   const [allSessionsOpen, setAllSessionsOpen] = useState(false);
+  // 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】条件の編集(12次元・値チップ・
+  // 音域帯まとめ選択・日付/日数範囲・条件の削除)は**畳んである**。正典 #13a が条件を
+  // チップ1行に畳んでいるため。チップか「＋」を押すと開く。**機能は1つも落としていない。**
+  const [filterEditorOpen, setFilterEditorOpen] = useState(false);
 
   // 全セッションのフレームを、セッション情報つきで平坦化(F-44/F-46ゲート込み)。
   // モジュールスコープの純関数buildFramesWithContextに切り出し済み(テストハーネスから
@@ -12212,19 +12310,72 @@ function AnalysisLabView(props) {
           PIVOT
         </div>
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginBottom: 12 }}>
-          条件・縦軸・横軸・指標を選ぶと、蓄積データをマトリクスで集計します
+          条件・並べる軸・数値・分け方を選ぶと、蓄積データをマトリクスで集計します
         </div>
-        {/* 集計対象抽出(フィルター): 任意の次元の値で絞り込み。値を1つも選んでいないフィルターは全選択と同じ扱い */}
-        <div style={{ padding: "6px 0 12px" }}>
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 10, display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
+        {/* 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】条件のチップ行(正典 #13a)。
+            ラベル「条件」＋ 適用中のフィルタのチップ ＋ 追加用の「＋」(破線)。
+            **正典は条件を1行に畳んでいる**が、現行の編集UI(12次元・値チップ・音域帯まとめ選択・
+            日付/日数範囲・条件の削除)は**1つも落とさない**(本人の決定「モックと現行が
+            ぶつかったら機能を残す」)。畳んだぶんは**チップか「＋」を押すと下に開く**。
+            チップの文字は pivotFilterChipText の1箇所(値の畳み方を2箇所に書かない)。
+            【型】チップは地だけ / 「＋」は破線の枠だけ。**同じ物に枠と違う地を両方与えない**(芯1)。 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "0 0 4px" }}>
+          <span className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", flexShrink: 0 }}>条件</span>
+          {pivotFilters.map((flt, i) => (
             <button
-              onClick={() => setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }])}
-              className="sans ctl-plain ctl-pill"
-              style={{ fontSize: 12, padding: "6px 13px", color: "var(--c-ink-2)", cursor: "pointer" }}
+              key={i} type="button" onClick={() => setFilterEditorOpen(true)}
+              aria-expanded={filterEditorOpen}
+              className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: 0 }}
             >
-              ＋ 条件を追加
+              <span style={{
+                display: "inline-flex", alignItems: "center", maxWidth: 160,
+                background: "var(--c-accent-tint)", border: "1px solid transparent",
+                borderRadius: "var(--r-sm)", padding: "4px 9px",
+                fontSize: 11, fontWeight: 600, color: "var(--c-accent)", lineHeight: 1.4,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {pivotFilterChipText(flt, PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey))}
+              </span>
             </button>
-          </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setPivotFilters((prev) => [...prev, { dimKey: PIVOT_DIMENSIONS[0].key, values: [], rangeMin: null, rangeMax: null }]);
+              setFilterEditorOpen(true);
+            }}
+            aria-label="集計の条件を追加"
+            /* 【芯2】枠(破線)を持つ操作は**状態を持つ**。この「＋」は条件を1つ足して
+               編集を開くので、開いているかどうかが状態そのもの。 */
+            aria-expanded={filterEditorOpen}
+            className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center" }}
+          >
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              background: "transparent", border: "1px dashed var(--c-line-strong)",
+              borderRadius: "var(--r-sm)", padding: "4px 9px",
+              fontSize: 11, color: "var(--c-ink-2)", lineHeight: 1.4,
+            }}>＋</span>
+          </button>
+          {pivotFilters.length > 0 && (
+            <button
+              type="button" onClick={() => setFilterEditorOpen((v) => !v)}
+              aria-expanded={filterEditorOpen}
+              className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", marginLeft: "auto", color: "var(--c-ink-2)" }}
+            >
+              {filterEditorOpen ? "閉じる" : "編集"}
+            </button>
+          )}
+        </div>
+        {pivotFilters.length === 0 && (
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 0 8px" }}>条件なし（全データを集計）</div>
+        )}
+
+        {/* 集計対象抽出(フィルター)の編集。**中身は N-9 から 1つも変えていない**(置き場所と
+            開閉だけが変わった)。任意の次元の値で絞り込み。値を1つも選んでいないフィルターは
+            全選択と同じ扱い。 */}
+        {filterEditorOpen && (
+        <div style={{ padding: "6px 0 12px" }}>
           {pivotFilters.length === 0 ? (
             <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>フィルターなし（全データを集計）</div>
           ) : (
@@ -12235,11 +12386,7 @@ function AnalysisLabView(props) {
                 return (
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                     {/* 【F-57 本人指示】条件削除の × は「そのカテゴリ名の先頭」に置く。
-                        当たり判定は §5 の 44×44pt を満たす(検証で 15.59×19px しかないと指摘された)。
-                        **見た目の × の大きさは変えない**(fontSize 13 のまま中央に置く)。
-                        【N-9】隣が PlainSelect(minHeight 44px)になり行の高さ自体が 44px に
-                        なったので、F-57 の食い出し相殺(marginTop/Bottom: -8)は外した
-                        (残すと × の中心だけ 8px 上にずれる)。 */}
+                        当たり判定は §5 の 44×44pt を満たす。**見た目の × の大きさは変えない**。 */}
                     <button
                       onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
                       aria-label="このフィルターを削除"
@@ -12265,15 +12412,17 @@ function AnalysisLabView(props) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
                       {dim?.filterKind === "dateRange" ? (
                         <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266" }}>
+                          {/* 【N-5b / 罠14】表示は localDayKey(ローカル暦日)。toISOString の UTC 暦日を
+                              使うと JST では常に1日前が出る(保存値は正しいのに入力欄だけずれる)。 */}
                           <input
                             type="date"
-                            value={flt.rangeMin ? new Date(flt.rangeMin).toISOString().slice(0, 10) : ""}
+                            value={flt.rangeMin ? localDayKey(new Date(flt.rangeMin)) : ""}
                             onChange={(e) => updateFilter({ rangeMin: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
                           />
                           <span>〜</span>
                           <input
                             type="date"
-                            value={flt.rangeMax ? new Date(flt.rangeMax).toISOString().slice(0, 10) : ""}
+                            value={flt.rangeMax ? localDayKey(new Date(flt.rangeMax)) : ""}
                             onChange={(e) => updateFilter({ rangeMax: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
                           />
                         </div>
@@ -12358,33 +12507,38 @@ function AnalysisLabView(props) {
             </div>
           )}
         </div>
+        )}
 
-        {/* 縦軸・横軸・指標のセレクタ。
-            【N-9】3枚の丸角タイル(.tile-row / .tile) → 白地+上辺の罫1本の1行(箱を作らない)。
-            select は既存の pivot-axis-select(枠なし・ネイビー太字)のまま = 中身も見た目の
-            文字組みも据え置き。列の区切りは余白が担う(§6.0 囲いの序列 1)。 */}
-        <div style={{ display: "flex", gap: "var(--sp-3)", borderTop: "1px solid var(--c-rule)", padding: "12px 0", marginBottom: 4 }}>
+        {/* 【D-2】3カラムのセレクタカード(正典 #13a)。「並べる軸 / 数値 / 分け方」を横1列に並べ、
+            3つの関係が一目で分かるようにする。**中の3つは N-9 の縦軸 / 横軸 / 指標と同じ状態**で、
+            正典に合わせて**名前だけ**を変えた(親が持つ pivotRow / pivotMetric / pivotCol は不変)。
+            器は .surf-sunk の中の .card(地・角丸・padding は作法が持つ。インラインで書かない)。
+            中央の列だけ左右に罫を持つのは正典どおり(列の境界を余白ではなく線で示す)。 */}
+        <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--sp-2)", marginBottom: "var(--sp-3)" }}>
           {[
-            { label: "縦軸", node: (
-              <select value={pivotRow} onChange={(e) => setPivotRow(e.target.value)} className="pivot-axis-select">
-                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
-              </select>
-            ) },
-            { label: "横軸", node: (
-              <select value={pivotMetric} onChange={(e) => setPivotMetric(e.target.value)} className="pivot-axis-select">
-                {PIVOT_MEASURES.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
-              </select>
-            ) },
-            { label: "指標", node: (
-              <select value={pivotCol} onChange={(e) => setPivotCol(e.target.value)} className="pivot-axis-select">
-                <option value="none">なし（全体）</option>
-                {PIVOT_DIMENSIONS.map((d) => (<option key={d.key} value={d.key}>{d.label}</option>))}
-              </select>
-            ) },
-          ].map((z) => (
-            <div key={z.label} style={{ flex: 1, minWidth: 0 }}>
-              <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 4 }}>{z.label}</div>
-              {z.node}
+            { key: "row", label: "並べる軸", aria: "並べる軸を選ぶ",
+              text: PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label ?? pivotRow,
+              value: pivotRow, onChange: (e) => setPivotRow(e.target.value),
+              options: PIVOT_DIMENSIONS.map((d) => ({ v: d.key, l: d.label })) },
+            { key: "metric", label: "数値", aria: "集計する数値を選ぶ",
+              text: PIVOT_MEASURES.find((m) => m.key === pivotMetric)?.label ?? pivotMetric,
+              value: pivotMetric, onChange: (e) => setPivotMetric(e.target.value),
+              options: PIVOT_MEASURES.map((m) => ({ v: m.key, l: m.label })) },
+            { key: "col", label: "分け方", aria: "分け方を選ぶ",
+              text: pivotCol === "none" ? "なし（全体）" : (PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label ?? pivotCol),
+              value: pivotCol, onChange: (e) => setPivotCol(e.target.value),
+              options: [{ v: "none", l: "なし（全体）" }, ...PIVOT_DIMENSIONS.map((d) => ({ v: d.key, l: d.label }))] },
+          ].map((z, zi) => (
+            <div
+              key={z.key}
+              style={zi === 1
+                ? { minWidth: 0, borderLeft: "1px solid var(--c-line)", borderRight: "1px solid var(--c-line)", padding: "0 var(--sp-2)" }
+                : { minWidth: 0 }}
+            >
+              <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", letterSpacing: ".02em" }}>{z.label}</div>
+              <PlainSelect strong ariaLabel={z.aria} text={z.text} value={z.value} onChange={z.onChange}>
+                {z.options.map((o) => (<option key={o.v} value={o.v}>{o.l}</option>))}
+              </PlainSelect>
             </div>
           ))}
         </div>
@@ -12400,6 +12554,8 @@ function AnalysisLabView(props) {
             <PivotLineChart
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
               metricDef={metricDef}
+              /* 行の縞(オクターブ単位)は**行が音名のときだけ**。正典に無い規則を発明しない。 */
+              rowIsNote={pivotRow === "note"}
             />
           )}
         </div>

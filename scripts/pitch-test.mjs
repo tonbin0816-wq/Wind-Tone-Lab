@@ -5964,15 +5964,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
 
     // (4) 入力欄。
     const appInputSels = selectorsMatching(appRules, /(^|[\s,>+~])(input|select|textarea)\b/);
-    // 意図して地・枠を落とす唯一の例外。丸角カードの中に置く軸セレクタ。
-    const EXCEPTION = "select.pivot-axis-select";
+    // 【D-2 2026/08/22】例外だった select.pivot-axis-select は**規則ごと消えた**:
+    // 正典 #13a の3カラムカードで、軸セレクタを共有部品 PlainSelect(素のテキスト + ▾)へ
+    // 寄せたので使い手が1つも無くなった。**例外が0件に戻ったので、集合からも外す。**
     check("App.jsx の <style> で入力欄に触れるセレクタはこの集合だけ",
       sameSet(appInputSels, ["input:focus-visible", "input[type=range]", "select",
-        EXCEPTION, "select:focus-visible"].sort()), appInputSels.join(" | "));
+        "select:focus-visible"].sort()), appInputSels.join(" | "));
     const offenders = appRules
-      .filter((r) => r.sels.some((s) => appInputSels.includes(s)) && !r.sels.includes(EXCEPTION))
+      .filter((r) => r.sels.some((s) => appInputSels.includes(s)))
       .filter((r) => hasPropPrefix(r.body, ["background", "border"]));
-    check("App.jsx の <style> は入力欄の地・枠を上書きしない(例外は軸セレクタ1件のみ)",
+    check("App.jsx の <style> は入力欄の地・枠を1つも上書きしない(例外は無くなった)",
       offenders.length === 0, offenders.map((r) => r.sels.join(",") + " {" + r.body.trim() + "}").join(" | "));
     check("App.jsx の <style> に !important が無い(index.css の作法を飛び越えさせない)",
       st !== null && !st[1].includes("!important"));
@@ -6052,13 +6053,32 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 【N-9】セッション詳細と分析(PIVOT)の関数に面のクラスが1つも無いこと(N-6 の My Data と同じ形)。
   // **「箱が無い」ことの十分条件ではない**(インラインで塗れば別・親が巻けば別)ので名前もそう名乗る。
   {
-    const owners = ["SessionDetailView", "PhraseTimeline", "AnalysisLabView"];
+    // 【D-1 / D-2 2026/08/22 本人指示で反転】N-9 の主張は「データ系の画面から箱を消す」だったが、
+    // Design canon(#9b / #13a / #14b / #15a)は**4画面ともカードで群を作る**。
+    // 本人の裁定「既存トークンへ寄せる」に従い、カードは **.surf-sunk の作法**
+    // (地は白のまま、パネルだけ --c-sunk に沈める)で作る = 体系がデータタブのために
+    // 用意していた形そのもの。したがって主張を
+    // 「箱が無い」→「箱はあるが、作法をインラインで殺していない」へ反転させる。
+    // (index.css の「いちばん壊れやすいところ その1」= .card にインラインで
+    //  background / border / padding を書くと作法が丸ごと効かなくなる、が本体。)
+    const owners = ["NoteMatrixCard", "PracticeCalendarCard", "AnalysisLabView"];
     const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
-    check("N-9: セッション詳細・PhraseTimeline・データタブの3関数を走査できている(空回りしていない)",
+    check("D-1/D-2: カードを持つ3関数を走査できている(空回りしていない)",
       bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
-    const withCard = bodies.filter((b) => /className="[^"]*\b(card|tile|tile-row)\b[^"]*"/.test(b.body)).map((b) => b.n);
-    check("N-9: セッション詳細・PhraseTimeline・データタブに .card / .tile / .tile-row が1つも無い(白地+罫の文法)",
-      withCard.length === 0, withCard.join(",") || "0件");
+    check("D-1/D-2: データ系のカードは実際に .card を名乗っている(作法の外で箱を作っていない)",
+      bodies.every((b) => /className="card"/.test(b.body)),
+      bodies.filter((b) => !/className="card"/.test(b.body)).map((b) => b.n).join(",") || "3関数とも");
+    {
+      // .card の開きタグを切り出し、その style に地・枠・padding が無いことを見る。
+      const bad = [];
+      for (const b of bodies) {
+        for (const m of b.body.matchAll(/<div className="card"([^>]*)>/g)) {
+          if (/background|border(?!Radius)|padding/i.test(m[1])) bad.push(`${b.n}: ${m[1].replace(/\s+/g, " ").slice(0, 90)}`);
+        }
+      }
+      check("D-1/D-2: .card にインラインの地・枠・padding が1つも無い(作法を殺していない)",
+        bad.length === 0, bad.join(" | ") || "0件");
+    }
   }
   // 【N-6】My Data 子タブに面(グレーのカード)が1枚も無いこと。
   // 走査は関数の集合で行う: 上部の数字とグラフ(MyDataSection)と一覧まわり(MyDataPage)。
@@ -7579,9 +7599,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       check("地を持たない <select> は4つだけ(リード枠の箱・個体 + 奏者 + PlainSelect。§6.6 の意図的な例外)",
         bareSelects === 4, `${bareSelects}箇所`);
     }
-    // データタブの軸セレクタ = §6.6 の意図的な例外(枠なし・地なし)。B型にすると地が付く。
-    check("select.pivot-axis-select は例外のまま(枠なし・地なし)",
-      /select\.pivot-axis-select \{[^}]*background:transparent;[^}]*border:none;/.test(src));
+    // 【D-2 2026/08/22】データタブの軸セレクタは §6.6 の「意図的な例外」だったが、
+    // 正典 #13a で共有部品 PlainSelect へ寄せたので**例外そのものが無くなった**。
+    // 主張を「例外のまま」→「例外が消えている」へ反転させる(黙って消していない)。
+    // 綴りそのものは「なぜ消したか」を書き残したコメントに残っているので、
+    // **規則の定義と、そのクラスを名乗る要素**の2つが無いことを見る(コメントは数えない)。
+    check("D-2: select.pivot-axis-select の例外は規則ごと消えている(PlainSelect へ寄せた)",
+      !/select\.pivot-axis-select\s*\{/.test(src) && !/className="pivot-axis-select"/.test(src),
+      (src.match(/select\.pivot-axis-select\s*\{|className="pivot-axis-select"/g) || []).length + "箇所");
 
     // --- 17.8 入力欄にインラインで地・枠を書いていないこと ------------------
     // CSS を B型にしても、個々の <input> / <select> に
@@ -8456,7 +8481,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // 削除モードのキャンセル・削除ピル2つは子タブ行へ移って残っている)。実測13。
       // 【N-6 で 12 → 10】データタブの一覧のゴミ箱が「…」の行に、絞り込みの2つの <select> が
       // ピル(A型)に、一括変更の塗りボタンが B型のピルになった。差し引きで実測11。
-      check("B型(.ctl-plain)は 10箇所以上で使われている", tagsWithClass("ctl-plain").length >= 10,
+      // 【D-2 で 10 → 9】分析タブの「＋ 条件を追加」(B型のピル)が、正典 #13a の
+      // **破線の「＋」チップ**(枠だけ = 地を持たない)に置き換わった。
+      // 下限だけ下げると「もっと減らしても通る」ので、**外れた1件が正典の形になっていること**を
+      // 検証32 の「条件のチップ行」で個別に固定してある。
+      check("B型(.ctl-plain)は 9箇所以上で使われている", tagsWithClass("ctl-plain").length >= 9,
         `${tagsWithClass("ctl-plain").length}箇所`);
     }
 
@@ -14463,8 +14492,13 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.1 F-99: 表題「PIVOT」がある(15px / --c-accent / 700)",
     /fontSize: 15, color: "var\(--c-accent\)", fontWeight: 700[^>]*\}\}>\s*PIVOT\s*</.test(lab29),
     (lab29.match(/>\s*PIVOT\s*</g) || []).join("") || "0件");
+  // 【D-2 2026/08/22】説明の中の語も、正典 #13a の名前(並べる軸 / 数値 / 分け方)へ揃えた。
+  // **説明そのものは F-99 の本人指示で置いてあるので落とさない**(正典 #13a には無いが、
+  // 「分析は自分で軸を選んで初めて機能する。最初に一定の説明が要る」という本人の意図が上位)。
   check("29.1 F-99: 1行の簡潔な説明がある(書き直した文。N-9 の長文ではない)",
-    lab29.includes("条件・縦軸・横軸・指標を選ぶと、蓄積データをマトリクスで集計します"));
+    lab29.includes("条件・並べる軸・数値・分け方を選ぶと、蓄積データをマトリクスで集計します"));
+  check("29.1 D-2: 説明の語はセレクタの名前と一致している(画面の中で名前が食い違わない)",
+    ["並べる軸", "数値", "分け方"].every((w) => new RegExp(`条件・[^"]*${w}`).test(lab29)));
   check("29.1 冒頭の説明段落(「…マトリクスで俯瞰します」)が動く側に無い",
     !codeOf(src).includes("マトリクスで俯瞰") && !codeOf(lab29).includes("各セルはその組み合わせ"));
   check("29.1 グラフ下の軸の説明文(「縦に「…」、横に「…」…」)が動く側に無い",
@@ -14473,11 +14507,13 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     !/var\(--c-sunk\)/.test(codeOf(det29)), (codeOf(det29).match(/var\(--c-sunk\)/g) || []).length + "箇所");
 
   // --- 29.2 罫の群(白地+罫)。罫は --c-rule、位置は**内容に隣接する綴り**で固定 ----------
-  check("29.2 分析子タブの罫は2本(軸セレクタ群 / グラフ群)",
-    (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+  // 【D-2 2026/08/22 本人指示で書き換え】軸セレクタ群は**罫ではなくカード**になった
+  // (正典 #13a の3カラムセレクタカード)。罫はグラフ群の1本だけが残る。
+  check("29.2 分析子タブの罫は1本(グラフ群。軸セレクタはカードになった)",
+    (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 1,
     `${(codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 軸セレクタ群の行が罫を持つ(隣接)",
-    /display: "flex", gap: "var\(--sp-3\)", borderTop: "1px solid var\(--c-rule\)"/.test(lab29));
+  check("29.2 D-2: 軸セレクタ群はカード(.card)で、3カラムの grid を持つ",
+    /<div className="card" style=\{\{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var\(--sp-2\)"/.test(lab29));
   check("29.2 グラフ群が罫を持つ(隣接: 直後に空状態の分岐)",
     /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
   check("29.2 セッション詳細の罫は2本(セッション平均 / 音階ごとの平均)",
@@ -14510,7 +14546,11 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     && !/opacity: 0/.test(ps29));
   // 呼び出しの集合(どの関数がいくつ持つか)。集合の外に増えたら気付く
   {
-    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionDetailView", det29, 1], ["AnalysisLabView", lab29, 1]];
+    // 【D-2 で 1 → 2】分析タブの PlainSelect は「絞り込む次元」に加えて、正典 #13a の
+    // 3カラム(並べる軸 / 数値 / 分け方)が増えた。**綴りは 2つ**: 3カラムは1つの配列を
+    // map して描くので、呼び出しの綴りは1つしか増えない(描き方を3回写していない)。
+    // 「3枚あること」は 29.4 が配列の中身(3つのラベル)で別に固定する。
+    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionDetailView", det29, 1], ["AnalysisLabView", lab29, 2]];
     const total = (codeOf(src).match(/<PlainSelect\b/g) || []).length;
     const inOwners = PLAIN_OWNERS.reduce((n, [, body]) => n + (codeOf(body).match(/<PlainSelect\b/g) || []).length, 0);
     for (const [name, body, want] of PLAIN_OWNERS) {
@@ -14519,7 +14559,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
         `${(codeOf(body).match(/<PlainSelect\b/g) || []).length}箇所`);
     }
     check("29.3 PlainSelect の呼び出しは上の集合の中だけ(集合の外に増えていない)",
-      total === inOwners && total === 5, `全体 ${total} / 集合内 ${inOwners}`);
+      total === inOwners && total === 6, `全体 ${total} / 集合内 ${inOwners}`);
   }
   // 個々の配線(隣接): 表示 / 基準 / 別セッション / リード / PIVOT の次元
   check("29.3 タイムラインの指標切替は timelineMetric に配線されている",
@@ -14546,7 +14586,8 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   {
     const all = codeOf(lab29) + codeOf(det29) + codeOf(pt29);
     const want = [
-      ["条件の追加", /＋ 条件を追加/],
+      // 【D-2】「＋ 条件を追加」のピルは、正典 #13a の破線の「＋」チップになった(綴りが変わった)
+      ["条件の追加", /aria-label="集計の条件を追加"/],
       ["条件の削除", /aria-label="このフィルターを削除"/],
       ["音域帯のまとめ選択", /registerBand\(e\.sortKey\) === band/],
       ["値チップの選択", /updateFilter\(\{ values: selected \? flt\.values\.filter/],
@@ -14554,7 +14595,10 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["日数範囲の入力", /日目 〜/],
       ["測度の切替", /PIVOT_MEASURES\.map/],
       ["指標(色分け)の切替", /なし（全体）/],
-      ["縦軸の切替", /value=\{pivotRow\} onChange=\{\(e\) => setPivotRow\(e\.target\.value\)\}/],
+      // 【D-2】3枚の <select> は PlainSelect へ寄せたので、配線の綴りが onChange だけになった
+      ["並べる軸の切替", /onChange: \(e\) => setPivotRow\(e\.target\.value\)/],
+      ["数値の切替", /onChange: \(e\) => setPivotMetric\(e\.target\.value\)/],
+      ["分け方の切替", /onChange: \(e\) => setPivotCol\(e\.target\.value\)/],
       // \b が要る: 無いと <PivotLineChartGone> への改名(描かない変異)が接頭辞一致で生き残る
       // (変異試験 M17 で実際に生存した)。下の2つも同じ形で縛る。
       ["折れ線", /<PivotLineChart\b/],
@@ -14570,10 +14614,14 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["目安との差の列", />目安との差<\/th>/],
     ];
     for (const [label, re] of want) check(`29.4 ${label} が残っている`, re.test(all), "");
-    // 軸セレクタは3枚とも pivot-axis-select のまま(中身も見た目の文字組みも据え置き)
-    check("29.4 軸セレクタは3枚(pivot-axis-select)",
-      (lab29.match(/className="pivot-axis-select"/g) || []).length === 3,
-      `${(lab29.match(/className="pivot-axis-select"/g) || []).length}枚`);
+    // 【D-2 2026/08/22 本人指示で書き換え】軸セレクタ3枚は正典 #13a の3カラムカードへ移り、
+    // 部品も共有の PlainSelect(素のテキスト + ▾)になった。**3枚あることは変わらない。**
+    check("29.4 軸セレクタは3枚(3カラムカードの中の PlainSelect)",
+      (codeOf(lab29).match(/label: "並べる軸"|label: "数値"|label: "分け方"/g) || []).length === 3,
+      `${(codeOf(lab29).match(/label: "並べる軸"|label: "数値"|label: "分け方"/g) || []).length}枚`);
+    check("29.4 pivot-axis-select は読み手ゼロの綴りとして残っていない",
+      !/pivot-axis-select/.test(codeOf(src)),
+      (codeOf(src).match(/pivot-axis-select/g) || []).length + "箇所");
     // 値チップ・音域帯は A型(ctl-state)のピルのまま(枠の意味「状態を持つ」を保つ)
     check("29.4 値チップと音域帯は A型(ctl-state)のピルのまま",
       (lab29.match(/className="sans ctl-state"/g) || []).length === 2,
@@ -14852,6 +14900,209 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
 }
 
 // ============================================================
+
+// ============================================================
+// 検証32: D-2 分析(PIVOT)タブを Design canon #13a へ（2026/08/22 本人指示。凍結仕様 = design/D2-SPEC.md）
+//   正典 = design/dc-mydata-redesign.html の **#13a**。
+//   折れ線の向き(縦軸=音名・上から下へ / 横軸=選んだ数値)は N-9 から不変。正典が足したのは:
+//     A 行の縞（オクターブ単位で交互）
+//     B 縦の目盛り線（5本）と目盛ラベル。**0線だけ濃い**
+//     C 凡例をグラフの上へ（左に系列 / 右端に単位）
+//     D 条件のチップ行（値のチップ + 破線の「＋」）
+//     E 3カラムのセレクタカード（並べる軸 / 数値 / 分け方）
+//   **機能は1つも落としていない**（12次元・値チップ・音域帯まとめ選択・日付/日数範囲・
+//   条件の削除は「編集」を開けば従来どおり）。集合での確認は 29.4 が持つ。
+// 【この節の作り方】数字の規則は**抽出して実行**、寸法は**正典から読んで**突き合わせ、
+// 描画側の配線は**呼び出しに隣接する綴り**で固定する。
+// ============================================================
+console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-redesign.html の #13a) ==========");
+{
+  const canon32 = readFileSync(join(__dirname, "..", "design", "dc-mydata-redesign.html"), "utf8");
+  const i13a = canon32.indexOf('<div class="dv-opt" id="13a">');
+  const iNext = canon32.indexOf('<p class="dv-next">', i13a);
+  const b13 = i13a >= 0 && iNext > i13a ? canon32.slice(i13a, iNext) : "";
+  const chart32 = srcOfFn(src, "PivotLineChart");
+  const lab32 = srcOfFn(src, "AnalysisLabView");
+
+  check("32.0 正典 #13a の区画を切り出せている(空回りしていない)", b13.length > 3000, `${b13.length}文字`);
+  check("32.0 実装(PivotLineChart / AnalysisLabView)を走査できている",
+    chart32.length > 3000 && lab32.length > 3000, `chart=${chart32.length} / lab=${lab32.length}`);
+
+  // --- 32.1 正典から読んだ実数と実装の定数を突き合わせる ------------------------
+  {
+    const rowH = (/height:(\d+)px;line-height:\1px/.exec(b13) || [])[1];
+    const dotR = (/<circle[^>]*r="([\d.]+)"/.exec(b13) || [])[1];
+    const dotRing = (/<circle[^>]*stroke="#fff" stroke-width="([\d.]+)"/.exec(b13) || [])[1];
+    const lineW = (/<path[^>]*fill="none" stroke="\{\{ s\.c \}\}" stroke-width="(\d+)"/.exec(b13) || [])[1];
+    const tickN = (/list="\{\{ pv13\.ticks \}\}"[^>]*hint-placeholder-count="(\d+)"/.exec(b13) || [])[1];
+    const cols = (/grid-template-columns:(1fr 1fr 1fr);gap:(\d+)px/.exec(b13) || []);
+    check("32.1 正典から実数を読めている(空回りしていない)",
+      rowH === "25" && dotR === "2.8" && dotRing === "1.1" && lineW === "2" && tickN === "5"
+      && cols[1] === "1fr 1fr 1fr" && cols[2] === "8",
+      `行高=${rowH} 点=${dotR}/${dotRing} 線=${lineW} 目盛=${tickN} 3カラム=${cols[1]}/gap${cols[2]}`);
+    const api = new Function(`${extractConst("PIVOT_ROW_H")}
+      ${extractConst("PIVOT_TICK_COUNT")}
+      ${extractConst("PIVOT_DOT_R")}
+      ${extractConst("PIVOT_DOT_RING")}
+      return { PIVOT_ROW_H, PIVOT_TICK_COUNT, PIVOT_DOT_R, PIVOT_DOT_RING };`)();
+    check("32.1 行高・目盛の本数・点の大きさは正典と同じ",
+      String(api.PIVOT_ROW_H) === rowH && String(api.PIVOT_TICK_COUNT) === tickN
+      && String(api.PIVOT_DOT_R) === dotR && String(api.PIVOT_DOT_RING) === dotRing,
+      `${api.PIVOT_ROW_H} / ${api.PIVOT_TICK_COUNT} / ${api.PIVOT_DOT_R} / ${api.PIVOT_DOT_RING}`);
+    check("32.1 3カラムの grid は正典と同じ列構成(gap はトークン --sp-2 = 8px へ写像)",
+      new RegExp(`gridTemplateColumns: "repeat\\\\(3, 1fr\\\\)"|gridTemplateColumns: "${cols[1]}"`).test(lab32)
+      && /gap: "var\(--sp-2\)"/.test(lab32)
+      && /--sp-2:\s*8px/.test(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")));
+    // 条件チップと「＋」の余白・文字は正典から読む
+    const chip = (/background:#E4EAF2;border-radius:(\d+)px;padding:(\d+px \d+px);font-size:([\d.]+)px;font-weight:(\d+)/.exec(b13) || []);
+    check("32.1 正典から条件チップの寸法を読めている", chip[1] === "7" && chip[3] === "11" && chip[4] === "600",
+      `角丸=${chip[1]} 余白=${chip[2]} 文字=${chip[3]}/${chip[4]}`);
+    check("32.1 条件チップの余白・文字は正典と同じ(角丸は体系の --r-sm へ写像)",
+      new RegExp(`padding: "${chip[2]}"`).test(lab32)
+      && new RegExp(`fontSize: ${chip[3]}, fontWeight: ${chip[4]}`).test(lab32)
+      && /borderRadius: "var\(--r-sm\)"/.test(lab32));
+    check("32.1 チップの地はアクセントの淡い面・文字はアクセント(正典 #E4EAF2 / #1D4E89 の写像)",
+      /background: "var\(--c-accent-tint\)"[\s\S]{0,200}?color: "var\(--c-accent\)"/.test(lab32));
+    check("32.1 「＋」は破線の枠だけ(地を持たない。芯1)",
+      /background: "transparent", border: "1px dashed var\(--c-line-strong\)"/.test(lab32)
+      && /1px dashed/.test(b13));
+  }
+
+  // --- 32.2 縦の目盛りと 0 の線(実行で検証) --------------------------------------
+  {
+    const tick = new Function(`${extractFunction("pivotTickValues")} return pivotTickValues;`)();
+    const crowd = new Function(`${extractFunction("pivotCrowdedTickIndex")} return pivotCrowdedTickIndex;`)();
+    check("32.2 目盛は等間隔に n 本で、両端は lo と hi そのもの",
+      JSON.stringify(tick(0, 8, 5)) === "[0,2,4,6,8]", JSON.stringify(tick(0, 8, 5)));
+    // 【初版の欠陥・統括が実行で発見】初版は「いちばん 0 に近い目盛を 0 ちょうどへ寄せる」形
+    // だったが、lo=-1 / hi=9 では **左端の目盛が -1 なのに「0」と表示される**
+    // (軸の端の値を偽る)。0 の線は目盛とは別に引き、重なる目盛だけを1つ譲る形へ直した。
+    check("32.2 端の目盛は lo / hi のまま(0 に近くても 0 に化けない)",
+      JSON.stringify(tick(-1, 9, 5)) === "[-1,1.5,4,6.5,9]", JSON.stringify(tick(-1, 9, 5)));
+    check("32.2 目盛は常に昇順",
+      [[-1, 9], [-9, 1], [-5, 5], [-0.2, 9.8], [0, 1]].every(([lo, hi]) => {
+        const t = tick(lo, hi, 5);
+        return t.every((v, i) => i === 0 || t[i - 1] <= v);
+      }));
+    check("32.2 0 のラベルと重なる目盛だけを1つ譲る(重なっていなければ譲らない)",
+      crowd([0, 25, 50, 75, 100], 52, 18) === 2      // 50 と 2px しか離れていない → 譲る
+      && crowd([0, 50, 100], 25, 18) === -1          // どの目盛からも 25px 離れている → 譲らない
+      && crowd([0, 25, 50, 75, 100], null, 18) === -1, // 0 が範囲の外(線を引かない)
+      `${crowd([0, 25, 50, 75, 100], 52, 18)} / ${crowd([0, 50, 100], 25, 18)}`);
+    check("32.2 譲るのは**いちばん近い**1本だけ(2本以上落とさない)",
+      crowd([0, 10, 20], 11, 18) === 1, String(crowd([0, 10, 20], 11, 18)));
+    check("32.2 目盛が無い/0 が無いときも落ちない",
+      crowd([], 5, 18) === -1 && crowd(null, 5, 18) === -1 && crowd([0], undefined, 18) === -1);
+    check("32.2 描画側は 0 が範囲の内側のときだけ 0 の線を引く",
+      /const zeroX = lo < 0 && hi > 0 \? xAt\(0\) : null;/.test(chart32)
+      && /const crowded = pivotCrowdedTickIndex\(ticks\.map\(xAt\), zeroX, PIVOT_TICK_MIN_GAP_PX\);/.test(chart32));
+    check("32.2 0 の線だけ濃い(目盛の線は罫のまま)",
+      /\{ticks\.map\(\(t\) => \([\s\S]{0,240}?stroke="var\(--c-line\)" \/>/.test(chart32)
+      && /\{zeroX !== null && \(\s*\r?\n\s*<line x1=\{zeroX\}[^>]*stroke="var\(--c-line-strong\)"/.test(chart32));
+    check("32.2 0 のラベルは必ず出し、譲った目盛のラベルだけ描かない",
+      /\{ticks\.map\(\(t, ti\) => \(ti === crowded \? null : \(/.test(chart32)
+      && /<text x=\{zeroX\}[\s\S]{0,200}?\{metricDef\.fmt\(0\)\}<\/text>/.test(chart32));
+  }
+  // --- 32.3 行の縞(実行で検証) --------------------------------------------------
+  {
+    const st = new Function(`${extractFunction("parseNoteLabel")}
+      ${extractFunction("pivotOctaveStripes")} return pivotOctaveStripes;`)();
+    check("32.3 同じオクターブが続く区間を1群として、1つおきに塗る",
+      JSON.stringify(st(["C3", "D3", "C4", "D4", "C5"])) === '[{"from":2,"to":4}]',
+      JSON.stringify(st(["C3", "D3", "C4", "D4", "C5"])));
+    check("32.3 群は3つ以上でも1つおき(2群目・4群目…)",
+      JSON.stringify(st(["C3", "C4", "C5", "C6"])) === '[{"from":1,"to":2},{"from":3,"to":4}]',
+      JSON.stringify(st(["C3", "C4", "C5", "C6"])));
+    check("32.3 オクターブが読めない行(音名でない次元)は縞を出さない",
+      st(["Vandoren", "Rico", "V16"]).length === 0, JSON.stringify(st(["Vandoren", "Rico", "V16"])));
+    check("32.3 空の入力でも落ちない", st([]).length === 0 && st(null).length === 0);
+    check("32.3 縞は**行が音名のときだけ**描く(正典に無い『2行ごとに交互』を作らない)",
+      /const stripes = rowIsNote \? pivotOctaveStripes\(rowKeys\) : \[\];/.test(chart32)
+      && /rowIsNote=\{pivotRow === "note"\}/.test(lab32));
+    check("32.3 縞の地は体系でいちばん淡い面(--c-sunk。新しい薄さを発明していない)",
+      /fill="var\(--c-sunk\)"/.test(chart32));
+  }
+
+  // --- 32.4 凡例と単位 ----------------------------------------------------------
+  {
+    const unit = new Function(`${extractFunction("pivotUnitOf")} return pivotUnitOf;`)();
+    check("32.4 単位は測度のラベルの括弧の中から引く(綴りを2箇所に持たない)",
+      unit({ label: "平均差分(¢)" }) === "¢" && unit({ label: "重心(Hz)" }) === "Hz"
+      && unit({ label: "倍音強度(低次1-4)" }) === "低次1-4",
+      [unit({ label: "平均差分(¢)" }), unit({ label: "重心(Hz)" })].join(" / "));
+    check("32.4 括弧が無い測度・未定義でも空文字(「undefined」を描かない)",
+      unit({ label: "件数" }) === "" && unit(null) === "" && unit({}) === "");
+    check("32.4 実際の測度はすべて単位を持つ(正典どおり右上に出せる)",
+      new Function(`${extractConst("PIVOT_MEASURES")}
+        ${extractFunction("pivotUnitOf")}
+        ${extractFunction("harmonicSliceMean")}
+        ${extractFunction("timbreSustained")}
+        ${extractFunction("pitchCellColor")}
+        return PIVOT_MEASURES.every((m) => pivotUnitOf(m) !== "");`)());
+    check("32.4 凡例はグラフの**上**にあり、右端が単位(正典 #13a)",
+      /justifyContent: "space-between"[\s\S]{0,600}?<SeriesSwatch style=\{styleAt\(ci\)\} width=\{12\} \/>[\s\S]{0,400}?pivotUnitOf\(metricDef\)[\s\S]{0,200}?<div ref=\{boxRef\}>/.test(chart32));
+    check("32.4 グラフの下の指標名は廃止された(単位が引き継いだ。二度言いを作らない)",
+      !/const titleText|titleX=|y=\{titleY\}/.test(chart32));
+  }
+
+  // --- 32.5 条件のチップ行(実行で検証 + 配線) ------------------------------------
+  {
+    const api = new Function(`${extractConst("PIVOT_CHIP_VALUES_MAX")}
+      ${extractFunction("formatYmd")}
+      ${extractFunction("pivotFilterChipText")}
+      return pivotFilterChipText;`)();
+    const dimNote = { label: "音名" };
+    check("32.5 値を選んでいない条件は次元名だけ(全選択と同じ扱いなので値を書けない)",
+      api({ values: [] }, dimNote) === "音名", api({ values: [] }, dimNote));
+    check("32.5 値を選んでいれば**値そのもの**を出す(正典 #13a の「Alto」「6ヶ月」)",
+      api({ values: ["C4"] }, dimNote) === "C4" && api({ values: ["C4", "D4"] }, dimNote) === "C4 / D4",
+      api({ values: ["C4", "D4"] }, dimNote));
+    check("32.5 多すぎる値は畳む(チップが行を埋め尽くさない)",
+      api({ values: ["C4", "D4", "E4", "F4"] }, dimNote) === "C4 / D4 他2",
+      api({ values: ["C4", "D4", "E4", "F4"] }, dimNote));
+    check("32.5 範囲の条件は端の値をつなぐ。片側だけでも出す",
+      api({ rangeMin: 3, rangeMax: 10 }, { label: "使用日数", filterKind: "numberRange" }) === "使用日数 3〜10"
+      && api({ rangeMin: null, rangeMax: 10 }, { label: "使用日数", filterKind: "numberRange" }) === "使用日数 〜10",
+      api({ rangeMin: 3, rangeMax: 10 }, { label: "使用日数", filterKind: "numberRange" }));
+    check("32.5 範囲が両方とも空なら次元名だけ",
+      api({ rangeMin: null, rangeMax: null }, { label: "録音日", filterKind: "dateRange" }) === "録音日");
+    check("32.5 次元が読めなくても落ちない(次元名の代わりにキーを出す)",
+      api({ dimKey: "reed", values: [] }, null) === "reed", api({ dimKey: "reed", values: [] }, null));
+    // 配線: チップは押すと編集が開き、「＋」は条件を足して開く
+    check("32.5 チップの文字は pivotFilterChipText の1箇所から出る(畳み方を2箇所に書かない)",
+      /pivotFilterChipText\(flt, PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === flt\.dimKey\)\)/.test(lab32)
+      && (codeOf(lab32).match(/pivotFilterChipText\(/g) || []).length === 1);
+    check("32.5 チップを押すと編集が開く(行き止まりを作らない)",
+      /onClick=\{\(\) => setFilterEditorOpen\(true\)\}/.test(lab32));
+    check("32.5 「＋」は条件を1つ足して編集を開く(足しただけで何も起きない、を作らない)",
+      /setPivotFilters\(\(prev\) => \[\.\.\.prev, \{ dimKey: PIVOT_DIMENSIONS\[0\]\.key, values: \[\], rangeMin: null, rangeMax: null \}\]\);\s*\r?\n\s*setFilterEditorOpen\(true\);/.test(lab32));
+    check("32.5 編集は既定で畳んである(正典 #13a は条件を1行に畳んでいる)",
+      /const \[filterEditorOpen, setFilterEditorOpen\] = useState\(false\);/.test(lab32));
+    check("32.5 畳んでいる間も編集の中身は消えていない(開けば従来どおり出る)",
+      /\{filterEditorOpen && \(/.test(lab32)
+      && /aria-label="このフィルターを削除"/.test(lab32)
+      && /registerBand\(e\.sortKey\) === band/.test(lab32));
+  }
+
+  // --- 32.6 【N-5b】PIVOT の日付フィルタの1日ずれを直した ------------------------
+  // `new Date(...).toISOString().slice(0,10)` は **UTC の暦日**で、JST では 00〜09時に
+  // 常に1日前が出る(保存値は正しいのに入力欄だけずれ、開き直すたびに過去へずれていく)。
+  // App.jsx:1292 が名指しで禁じていた最後の2箇所。D-2 でこの行を触るので同時に直した。
+  {
+    check("32.6 N-5b: PIVOT の日付フィルタの表示は localDayKey(ローカル暦日)",
+      /value=\{flt\.rangeMin \? localDayKey\(new Date\(flt\.rangeMin\)\) : ""\}/.test(lab32)
+      && /value=\{flt\.rangeMax \? localDayKey\(new Date\(flt\.rangeMax\)\) : ""\}/.test(lab32));
+    check("32.6 N-5b: 動く側に toISOString().slice(0, 10) が1箇所も残っていない",
+      !/toISOString\(\)\.slice\(0, 10\)/.test(codeOf(src)),
+      (codeOf(src).match(/toISOString\(\)\.slice\(0, 10\)/g) || []).length + "箇所");
+    // 実行で確かめる: JST の深夜でも、保存値の暦日がそのまま出る
+    const lk = new Function(`${extractFunction("localDayKey")} return localDayKey;`)();
+    check("32.6 N-5b: ローカル深夜0時台の保存値は、その日の暦日として表示される",
+      lk(new Date(2026, 7, 14, 0, 55)) === "2026-08-14", lk(new Date(2026, 7, 14, 0, 55)));
+  }
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {
