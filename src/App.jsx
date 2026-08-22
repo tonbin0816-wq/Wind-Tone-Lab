@@ -8862,14 +8862,21 @@ function FloatingActionSpacer() {
 // 個体の「開封n日 ・ nセッション / 未測定」もタイルには載らないので、個体詳細へ移した
 // (下の reedDetailMetaLine)。
 //
-// 個体詳細の「測定データ · …」の1行。正典は「測定データ · 12セッション」だが、
+// 【D-4 2026/08/22 本人指示・正典 #15a】個体詳細の**1行メタの区画**。
+// 正典は「Alto · 開封 6/10 · 74日 · 4 セッション」。区切りは呼び出し側(DetailHeader)が打つので、
+// ここは**区画の配列**を返す(「·」の綴りを画面ごとに写さないため)。
 // 一覧のタイルから落ちた**開封からの日数**をここが引き取る(P1-8「育てる」の唯一の表示)。
 // 集計は既存の usageDays() / セッション数だけを使う。新しい指標は作らない。
 //   セッションが0件            → 「未測定」(一覧の個体行が出していた語をそのまま使う)
-//   開封日が未設定 / 読めない  → 日数の節を出さない
-function reedDetailMetaLine(sessionCount, days) {
-  const head = sessionCount > 0 ? `${sessionCount}セッション` : "未測定";
-  return days ? `測定データ · ${head} · 開封 ${days}日` : `測定データ · ${head}`;
+//   開封日が未設定 / 読めない  → その区画ごと出さない(穴を作らない)
+// **楽器種別は出さない**: リードは楽器種別を持っていない(起票 F-87 が未着手)。
+// 正典の先頭の「Alto」に当たる区画は、F-87 を入れるまで空ける。
+function reedDetailMetaParts(startDate, days, sessionCount) {
+  return [
+    startDate ? `開封 ${formatYmd(startDate)}` : null,
+    days ? `${days}日` : null,
+    sessionCount > 0 ? `${sessionCount} セッション` : "未測定",
+  ].filter(Boolean);
 }
 
 // 【N-5】追加シート。正典のミニ「追加」。
@@ -10560,10 +10567,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   // 1行メタ「開封 6/10 · 74日 · 4 セッション」。読めない区画は**丸ごと省く**。
   // 語(「開封」「日」「セッション」)の作り方は reedDetailMetaLine に既にあるので、
   // **同じ関数から引いて**区画に割る(綴りを2箇所に持たない)。
-  const meta = [
-    reed.startDate ? `開封 ${formatYmd(reed.startDate)}` : null,
-    ...reedDetailMetaLine(reedSessions.length, usageDays(new Date(), reed.startDate)).split(" · "),
-  ].filter(Boolean);
+  const meta = reedDetailMetaParts(reed.startDate, usageDays(new Date(), reed.startDate), reedSessions.length);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -11704,12 +11708,19 @@ function SessionEditSheet({
 function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {
   return (
     <div style={{ paddingBottom: "var(--sp-3)" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginLeft: -DETAIL_TAB_HALF_GAP_PX }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <button
           type="button" onClick={onBack} className="sans"
           style={{
+            /* 【当たり判定 §5・実測で直した】初版は行を左へ食い出させて(marginLeft: -8)
+               文字を本文の左端に揃えていたが、**親が食い出しを切る画面があり**
+               (リード個体詳細は左右に padding を持つ容器の中)、
+               左の 8px が当たり判定から消えて実効 43px しか無かった
+               (Browser pane 375×812 の実測: 見た目 50.27px / 実効 43px)。
+               食い出しをやめ、**右側にだけ余白を足す**形にすれば、文字は左端に揃ったまま
+               当たり判定が切られない。 */
             minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-            padding: `0 ${DETAIL_TAB_HALF_GAP_PX}px`,
+            padding: `0 ${DETAIL_TAB_HALF_GAP_PX}px 0 0`,
             background: "none", border: "none", cursor: "pointer",
             fontSize: 13, color: "var(--c-accent)", textAlign: "left",
           }}

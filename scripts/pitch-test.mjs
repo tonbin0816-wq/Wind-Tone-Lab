@@ -303,7 +303,8 @@ const code = [
   extractConst("REED_COMPARE_CHART_KEYS"),
   extractFunction("reedTileTone"),
   extractFunction("gridDropIndex"),
-  extractFunction("reedDetailMetaLine"),
+  extractFunction("formatYmd"),   // reedDetailMetaParts が開封日の書式に使う
+  extractFunction("reedDetailMetaParts"),
   extractFunction("reedAddButtonLabel"),
   extractFunction("reedSheetButtonLabel"),
   extractFunction("reedSheetTitle"),
@@ -403,7 +404,7 @@ const api = new Function(`${code}
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
            DETAIL_CARD_METRICS, REED_COMPARE_CHART_KEYS,
-           reedTileTone, gridDropIndex, reedDetailMetaLine, reedAddButtonLabel, clampReedAddCount,
+           reedTileTone, gridDropIndex, reedDetailMetaParts, reedAddButtonLabel, clampReedAddCount,
            reedSheetButtonLabel, reedSheetTitle, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
@@ -10931,7 +10932,7 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         ["日付", "奏者", "リード"].every((n) => new RegExp(`row\\("${n}"`).test(srcOfFn(src, "SessionEditSheet"))));
       check("D-3: 区切りの「·」は DetailHeader が1箇所で描く(綴りを画面ごとに写さない)",
         /color: "var\(--c-line-strong\)" \}\}>·<\/span>/.test(srcOfFn(src, "DetailHeader"))
-        && !/·/.test(codeOf(detail).replace(/reedDetailMetaLine[^\n]*/g, "")));
+        && !/·/.test(codeOf(detail)));
       // 旧実装(3つを1つの横並びに押し込む)が戻っていないこと
       check("F-98: 奏者・リード・楽器の横一列(overflowX:auto)の行が残っていない",
         !/flexWrap: "nowrap", overflowX: "auto"/.test(detail));
@@ -13296,8 +13297,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("#番号の欄の当たり判定は 44px 以上(§5)",
       /width: 46, minHeight: "var\(--tap-min\)"/.test(detail));
     // 【D-4】開封日は右上の独立した区画ではなく、正典 #15a の**1行メタの先頭**に入った。
-    check("開封日は1行メタに yyyy/mm/dd で出る",
-      /reed\.startDate \? `開封 \$\{formatYmd\(reed\.startDate\)\}` : null/.test(detail));
+    // 書式(yyyy/mm/dd)は reedDetailMetaParts の中で formatYmd から引く。
+    // **実行で確かめる**(綴りを写した検査は、書式を変えても綴りが同じなら通ってしまう)。
+    check("開封日は1行メタの先頭に yyyy/mm/dd で出る",
+      api.reedDetailMetaParts("2026-06-10", 74, 4)[0] === "開封 2026/06/10",
+      api.reedDetailMetaParts("2026-06-10", 74, 4)[0]);
     // 【D-4 2026/08/22】メモは正典 #15a の**評価カードの中の1行**になった
     // (ラベル「メモ」を左、値を右寄せ、空なら「タップして入力」)。
     // セッション詳細のメモカードと**同じ形**(2画面で読み方が変わらない)。
@@ -13332,15 +13336,22 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       !/<TappableMetricCard/.test(detail) && /<NoteAxisLineChart/.test(srcOfFn(src, "MetricTabCard")));
     check("測定データの空状態文言は現行のまま", detail.includes("このリードに紐づく測定データがまだありません"));
     // 「nセッション · 開封n日」。一覧のタイルから落ちた情報は**1行メタ**が引き取った(正典 #15a)。
-    check("D-4: nセッション / 未測定 / 開封n日 は reedDetailMetaLine が組み立て、1行メタへ割る",
-      /\.\.\.reedDetailMetaLine\(reedSessions\.length, usageDays\(new Date\(\), reed\.startDate\)\)\.split\(" · "\)/.test(detail));
-    check("セッションがあれば「nセッション」", api.reedDetailMetaLine(12, 34) === "測定データ · 12セッション · 開封 34日",
-      api.reedDetailMetaLine(12, 34));
-    check("セッションが0件なら「未測定」", api.reedDetailMetaLine(0, 34) === "測定データ · 未測定 · 開封 34日",
-      api.reedDetailMetaLine(0, 34));
-    check("開封日が未設定なら日数の節を出さない",
-      api.reedDetailMetaLine(3, null) === "測定データ · 3セッション" && api.reedDetailMetaLine(0, null) === "測定データ · 未測定",
-      `${api.reedDetailMetaLine(3, null)} / ${api.reedDetailMetaLine(0, null)}`);
+    // 【D-4 2026/08/22】1行メタの区画は reedDetailMetaParts が組み立てる。
+    // 区切りの「·」は DetailHeader が打つので、この関数は**配列**を返す。
+    check("D-4: 1行メタは reedDetailMetaParts が組み立てる(区切りは画面が打つ)",
+      /const meta = reedDetailMetaParts\(reed\.startDate, usageDays\(new Date\(\), reed\.startDate\), reedSessions\.length\);/.test(detail));
+    check("D-4: 正典 #15a の並び(開封日 → 日数 → セッション数)",
+      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · ") === "開封 2026/06/10 · 74日 · 4 セッション",
+      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · "));
+    check("D-4: セッションが0件なら「未測定」",
+      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · 未測定",
+      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · "));
+    check("D-4: 開封日が未設定なら開封の区画も日数の区画も出さない(穴を作らない)",
+      api.reedDetailMetaParts(null, null, 3).join(" · ") === "3 セッション"
+      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "未測定",
+      `${api.reedDetailMetaParts(null, null, 3).join(" · ")} / ${api.reedDetailMetaParts(null, null, 0).join(" · ")}`);
+    check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
+      !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
     check("評価の推移グラフは残っている", detail.includes("<ReedScoreHistoryChart"));
     // 正典 .numrow の実寸(値19px + 単位11px / ラベル10.5px)
     {
