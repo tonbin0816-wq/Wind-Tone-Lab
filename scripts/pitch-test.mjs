@@ -13353,6 +13353,34 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
       !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
     check("評価の推移グラフは残っている", detail.includes("<ReedScoreHistoryChart"));
+    // 【D-4 2026/08/22・変異試験で足した】正典 #15a の注記「厚さ・バランスは 8/4 の記録から」。
+    // **線が途中から始まる理由**を説明する行なので、
+    //   ・途中から始まっている  → その日付を返す(注記を出す)
+    //   ・最初から揃っている    → null(出さない)  ← ここを守らないと嘘の注記が常に出る
+    //   ・1件も無い / 空        → null
+    // 日付の書式は横軸のラベルと**同じ1箇所**(reedScoreDateLabel)から出ることも確かめる。
+    {
+      const api2 = new Function(`${extractFunction("reedScoreDateLabel")}
+        ${extractFunction("reedScoreLateStartLabel")}
+        return { reedScoreLateStartLabel, reedScoreDateLabel };`)();
+      const late = api2.reedScoreLateStartLabel;
+      const H = (at, th) => ({ at, rating: 3, thickness: th, balance: th });
+      const d1 = "2026-07-22T00:00:00.000Z", d2 = "2026-08-04T00:00:00.000Z";
+      check("D-4: 厚さ・バランスが途中から始まるとき、その日付を返す",
+        late([H(d1, null), H(d2, 3)]) === api2.reedScoreDateLabel(d2),
+        `${late([H(d1, null), H(d2, 3)])} / ${api2.reedScoreDateLabel(d2)}`);
+      check("D-4: 最初から揃っていれば注記を出さない(嘘の注記を常に出さない)",
+        late([H(d1, 3), H(d2, 3)]) === null, String(late([H(d1, 3), H(d2, 3)])));
+      check("D-4: 厚さ・バランスが1件も無ければ注記を出さない",
+        late([H(d1, null), H(d2, null)]) === null, String(late([H(d1, null), H(d2, null)])));
+      check("D-4: 空の履歴でも落ちない", late([]) === null && late(null) === null);
+      // 片方(バランスだけ)が後から始まる場合も注記の対象(線が途中から始まるのは同じ)
+      check("D-4: 厚さかバランスのどちらかが後から始まれば注記の対象",
+        late([H(d1, null), { at: d2, rating: 3, thickness: null, balance: 4 }]) === api2.reedScoreDateLabel(d2));
+      check("D-4: 描画側は返り値があるときだけ注記を出す(null を描かない)",
+        /\{lateStart && \(/.test(srcOfFn(src, "ReedScoreHistoryChart"))
+        && /厚さ・バランスは \{lateStart\} の記録から/.test(srcOfFn(src, "ReedScoreHistoryChart")));
+    }
     // 正典 .numrow の実寸(値19px + 単位11px / ラベル10.5px)
     {
       const card = srcOfFn(src, "TappableMetricCard");
