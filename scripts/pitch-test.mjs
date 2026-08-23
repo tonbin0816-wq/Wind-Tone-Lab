@@ -300,7 +300,6 @@ const code = [
   extractConst("REED_BRAND_CUSTOM_LABEL"),
   extractConst("REED_MORE_ITEMS"),
   extractConst("DETAIL_CARD_METRICS"),
-  extractConst("REED_COMPARE_CHART_KEYS"),
   extractFunction("reedTileTone"),
   extractFunction("gridDropIndex"),
   extractFunction("formatYmd"),   // reedDetailMetaParts が開封日の書式に使う
@@ -403,7 +402,7 @@ const api = new Function(`${code}
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
-           DETAIL_CARD_METRICS, REED_COMPARE_CHART_KEYS,
+           DETAIL_CARD_METRICS,
            reedTileTone, gridDropIndex, reedDetailMetaParts, reedAddButtonLabel, clampReedAddCount,
            reedSheetButtonLabel, reedSheetTitle, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
@@ -3845,8 +3844,25 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       // **セリフの 30px / --c-accent**(セッション詳細の大きな数字と同じ字面)になった。
       // 体系の7段に 30px は無いので、いちばん近い段 --fs-2xl(28px)へ写像している
       // (本人の裁定「既存トークンへ寄せる」。新しい文字サイズを発明しない)。
-      check("D-4: 値はセリフ + --fs-2xl + 500(正典 #15a の 30px/500 の写像)",
-        /fontFamily: "var\(--font-serif\)", fontSize: "var\(--fs-2xl\)", fontWeight: 500/.test(fld));
+      // 【D-5 2026/08/23 本人指示で書き換え】本人「タブ内の数字に使われているフォントがいままでこのアプリで
+      // 使われていないフォントなので、ほかのものに合わせて(元のフォントでいい)。リードの個別ページも同様」。
+      // **大きさは正典 #15a の写像のまま**(30px → --fs-2xl)。変えたのは書体と太さだけ。
+      check("D-5: 値は元からある数字の書体(--font-num)+ --fs-2xl + 600",
+        /fontFamily: "var\(--font-num\)", fontSize: "var\(--fs-2xl\)", fontWeight: 600/.test(fld));
+      // 【D-5 2026/08/23 本人指示で書き換え】セリフ(Instrument Serif)はデータ系の画面から**全廃**した。
+      // 残ってよいのは**チューナーの環の音名だけ**(このアプリが元から使っていた唯一の場所で、
+      // 本人の指示「いままでこのアプリで使われていないフォント」の対象外)。
+      // 件数ではなく**どの関数が持つか**で縛る(罠4: 件数を釘付けにしない)。
+      {
+        const RE = () => /var\(--font-serif\)/g;
+        const total = (codeOf(src).match(RE()) || []).length;
+        const inOwners = (codeOf(srcOfFn(src, "PitchRing")).match(RE()) || []).length;
+        check("D-5: セリフを使っているのはチューナーの環だけ(データ系の4画面には1つも無い)",
+          total > 0 && total === inOwners, `全体 ${total} / 集合内 ${inOwners}`);
+        for (const fn of ["ReedScoreField", "MetricTabCard", "SessionDetailView", "MyDataSection", "ReedEvaluationDetail"]) {
+          check(`D-5: ${fn} にセリフが無い`, !RE().test(codeOf(srcOfFn(src, fn))));
+        }
+      }
       check("D-4: 値の色は評価済みだけアクセント(未評価は --c-ink-3)",
         /color: it\.rated \? "var\(--c-accent\)" : "var\(--c-ink-3\)"/.test(fld));
       check("D-4: ラベルは --fs-xs / --c-ink-3", /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)"/.test(fld));
@@ -6071,7 +6087,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 「箱が無い」→「箱はあるが、作法をインラインで殺していない」へ反転させる。
     // (index.css の「いちばん壊れやすいところ その1」= .card にインラインで
     //  background / border / padding を書くと作法が丸ごと効かなくなる、が本体。)
-    const owners = ["NoteMatrixCard", "PracticeCalendarCard", "AnalysisLabView"];
+    // 【D-5 2026/08/23 本人指示で書き換え】マトリクスは**自分のカードを持たない**。本人「2つの種類のタブが
+    // 同じ見た目で存在していてわかりにくい」→ 指標タブと比較対象をマトリクスと同じ1枚の
+    // カードへ入れた(タブがどこまで効くかを箱が示す)。囲いの持ち主は MyDataSection へ移った。
+    const owners = ["MyDataSection", "PracticeCalendarCard", "AnalysisLabView"];
     const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
     check("D-1/D-2: カードを持つ3関数を走査できている(空回りしていない)",
       bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
@@ -6097,7 +6116,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // 【N-10 2026/08/17 本人指示で書き換え】走査対象から MetricRow を外した:
   // 常時表示の3行は「グラフは常に1枚」の指示で廃止され、関数ごと消えた(黙って消していない)。
   {
-    const owners = ["MyDataPage", "MyDataSection"];
+    // 【D-5 2026/08/23 本人指示で書き換え】MyDataSection は**カードを1枚持つ側**になった(上の D-1/D-2 の集合が見る)。
+    // 「面が1枚も無い」という N-6 の主張はこの関数について反転したので、走査先から外す。
+    const owners = ["MyDataPage"];
     const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
     check("N-6: My Data 子タブの2関数を走査できている(空回りしていない)",
       bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
@@ -6577,8 +6598,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     }
     check("旧SESSION_METRICS(符号付き差し替え版)は廃止され、配列は1つに統合されている(F-46)",
       !/SESSION_METRICS/.test(codeOf(src)));
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「他のグラフと同様に表示グラフは一つでタブ切り替えで見れるように」。
+    // 比較タブ専用の並び(REED_COMPARE_CHART_KEYS)は廃止し、**セッション詳細・リード詳細と
+    // 同じ DETAIL_CARD_METRICS** を見るようになった(3画面で並びが食い違いようがない)。
+    // 符号付き(pitchCentsSigned)を使う F-46 の芯は、その配列の中身で固定し続ける。
+    check("D-5: 比較タブの並びは3画面共通の DETAIL_CARD_METRICS から出る",
+      /order=\{DETAIL_CARD_METRICS\} metrics=\{REED_COMPARE_METRICS\}/.test(srcOfFn(src, "ReedCompareTab")));
     check("リード比較タブのグラフのピッチも符号付きキーを使う(F-46)",
-      /\["volumeDb", "pitchCentsSigned", "hnrDb", "spectralCentroidHz"\]/.test(src));
+      /const DETAIL_CARD_METRICS = \["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"\];/.test(src));
+    check("D-5: 比較タブ専用の並び(REED_COMPARE_CHART_KEYS)は定義ごと消えている",
+      !/REED_COMPARE_CHART_KEYS/.test(codeOf(src)));
     check("NoteAxisLineChart は metricKey===\"pitchCentsSigned\" で分岐する",
       /metricKey === "pitchCentsSigned"/.test(chart));
     check("符号付きピッチ誤差は縦軸ドメインを ±maxAbs の対称にする(lo = -hi)", /lo = -hi;/.test(chart));
@@ -6649,10 +6678,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // (1) 目安への統一
     check("旧表記「理想」(理想値・理想:等)が動く側のソースに残っていない(表示は「目安」に統一)",
       !liveSrc.includes("理想"));
-    for (const kept of ["目安に設定", "目安設定中", "目安との差", "目安未設定"]) {
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「音階ごとの平均を丸ごと削除」。「目安との差」はその**表の列見出し**
+    // だけが持っていた綴りなので、表と一緒に画面から消えた。語を消したのではなく
+    // **置き場所ごと消えた**ので、この集合からは外し、代わりに「目安そのものは
+    // グラフで読める」ことを下で固定する。
+    for (const kept of ["目安に設定", "目安設定中", "目安未設定"]) {
       check(`新表記「${kept}」が動く側のソースに存在する(統一先が消えていない)`,
         liveSrc.includes(kept));
     }
+    check("D-5: 目安はグラフの破線として読める(表を消したせいで目安ごと消えていない)",
+      /目安/.test(codeOf(srcOfFn(src, "NoteAxisLineChart"))));
     check("「基準ピッチ」を機械置換した事故形「目安ピッチ」が現れていない",
       !liveSrc.includes("目安ピッチ"));
     // (2) サックス種別の英語表記。key(保存データが参照)はそのまま、label だけ英語
@@ -6692,7 +6727,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       {
         // セッション一覧(MyDataPage)と、別セッション整列の候補一覧(PhraseTimeline)。
         // 【D-1 2026/08/22】セッション一覧は MyDataPage から AllSessionsPage(別画面)へ移った。
-        const TIME_OWNERS = ["AllSessionsPage", "PhraseTimeline"];
+        // 【D-5 2026/08/23 本人指示で書き換え】本人「タイムラインは表示をピッチ、基準を絶対値に固定。それぞれ選択できる
+        // 機能を削除」→ **別セッション整列**が無くなり、その候補一覧(日時つき)も消えた。
+        // 時刻を出すのはセッション一覧だけになった。
+        const TIME_OWNERS = ["AllSessionsPage"];
         const RE = () => /formatYmd\((?:s|session)\.recordedAt, \{ time: true \}\)/g;
         const countIn = (s) => (s.match(RE()) || []).length;
         const total = countIn(liveSrc);
@@ -6701,7 +6739,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
           check(`${fn} の日時は formatYmd(..., { time: true })`, countIn(codeOf(srcOfFn(src, fn))) > 0);
         }
         check("時刻つきの recordedAt を出しているのは上の集合の中だけ",
-          total === inOwners && total >= 2, `全体 ${total} / 集合内 ${inOwners}`);
+          total === inOwners && total >= 1, `全体 ${total} / 集合内 ${inOwners}`);
       }
       check("PIVOTの日付次元も formatYmd を使う",
         /getValue: \(f\) => formatYmd\(f\.recordedAt\),/.test(liveSrc));
@@ -7677,9 +7715,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       {
         const framed = tags.filter((t) => /border: "1px solid transparent", borderRadius: 0/.test(t));
         const underlined = tags.filter((t) => /borderBottom: "1px solid var\(--c-line\)"/.test(t));
-        check("D-3/D-4: 透明枠で場所だけ残す欄は3つ(メモ2つ + 編集シートの日付)",
-          framed.length === 3 && framed.some((t) => /type="datetime-local"/.test(t)),
+        // 【D-5 2026/08/23 本人指示で書き換え】本人「メモ入力を左詰めに」「縦幅が無駄に大きい」「1行分入力されたら
+        // 次の行に続く。改行も有効に」→ セッション詳細とリード詳細のメモは**同じ1つの部品
+        // (MemoField)**になった。綴りは1つに減ったが、**使われている場所は2つのまま**。
+        // 綴りの数ではなく「呼び手が2つ」で機能の数を固定する(罠4)。
+        check("D-3/D-5: 透明枠で場所だけ残す欄の綴りは2つ(共通のメモ欄 + 編集シートの日付)",
+          framed.length === 2 && framed.some((t) => /type="datetime-local"/.test(t)),
           `${framed.length}箇所`);
+        check("D-5: そのメモ欄はセッション詳細とリード詳細の2画面から呼ばれている",
+          (codeOf(src).match(/<MemoField\b/g) || []).length === 2,
+          `${(codeOf(src).match(/<MemoField\b/g) || []).length}箇所`);
         check("D-3/D-4: 下線を引いた入力欄はもう無い(群はカードが作る)",
           underlined.length === 0, `${underlined.length}箇所`);
       }
@@ -8525,7 +8570,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // **破線の「＋」チップ**(枠だけ = 地を持たない)に置き換わった。
       // 下限だけ下げると「もっと減らしても通る」ので、**外れた1件が正典の形になっていること**を
       // 検証32 の「条件のチップ行」で個別に固定してある。
-      check("B型(.ctl-plain)は 9箇所以上で使われている", tagsWithClass("ctl-plain").length >= 9,
+      // 【D-5 で 9 → 7】期間の絞り込み(本人指示で削除)と、削除ピルの文言の作り分けが
+      // 1つの共通部品(DeleteActionButton)にまとまった分だけ綴りが減った。**下限**なので、
+      // 減った実数に合わせて引き直す(型が使われなくなったわけではない)。
+      check("B型(.ctl-plain)は 7箇所以上で使われている", tagsWithClass("ctl-plain").length >= 7,
         `${tagsWithClass("ctl-plain").length}箇所`);
     }
 
@@ -8616,15 +8664,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
       // まとまり、文言だけが「n箱を削除」「n枚を削除」に変わる形になった。
       // 実行される場面は2つのまま(減っていない)ので、**2つの場面が両方この1つのボタンから
       // 出ていること**を下で確かめる。
+      // 【D-5 で 2 → 1】本人「選択には削除機能しかないので削除ボタンをゴミ箱アイコンに変更」。
+      // 危険色のピルの**綴り**は共通部品 DeleteActionButton の1つにまとまった。
+      // **実際に消える場面は3つのまま**(セッション / リードの箱 / リードの個体)で、
+      // それは下の「呼び手」と「読み上げ」が固定する。
       const dgTags = tagsWithClass("ctl-danger");
-      check(".ctl-danger が付くのは実際に削除が実行される2箇所だけ(リードの削除 / セッションの削除)",
-        dgTags.length === 2, `${dgTags.length}箇所`);
-      const armed = dgTags.filter((t) => /data-armed=\{[^}]*\.size(?:[^}]*)> 0\}/.test(t));
-      check(".ctl-danger はすべて data-armed={選択数 > 0} を持つ(常時塗る印にしていない)",
+      check("D-5: .ctl-danger の綴りは削除の共通部品1つだけ(危険色を写し歩いていない)",
+        dgTags.length === 1, `${dgTags.length}箇所`);
+      const armed = dgTags.filter((t) => /data-armed=\{count > 0\}/.test(t));
+      check(".ctl-danger は data-armed={選択数 > 0} を持つ(常時塗る印にしていない)",
         armed.length === dgTags.length, `${armed.length}/${dgTags.length}箇所`);
-      check("N-5: リードの削除ボタンは箱・個体の両方の場面で文言を出し分ける(片方を落としていない)",
-        /selectedBoxKeys\.size > 0 \? `\$\{selectedBoxKeys\.size\}箱を削除` : "削除"/.test(src)
-        && /selectedMemberIds\.size > 0 \? `\$\{selectedMemberIds\.size\}枚を削除` : "削除"/.test(src));
+      check("D-5: リードの削除は箱・個体の両方の場面で読み上げを出し分ける(片方を落としていない)",
+        /selectedBoxKeys\.size > 0 \? `選んだ\$\{selectedBoxKeys\.size\}箱を削除` : "箱を削除"/.test(src)
+        && /selectedMemberIds\.size > 0 \? `選んだ\$\{selectedMemberIds\.size\}枚を削除` : "リードを削除"/.test(src));
       check("N-5: リードの削除はどちらの場面も window.confirm を通る(現行のまま)",
         /confirmBoxDelete = \(\) => \{[\s\S]{0,400}?window\.confirm\(/.test(src)
         && /confirmMemberDelete = \(\) => \{[\s\S]{0,300}?window\.confirm\(/.test(src));
@@ -10512,8 +10564,11 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     // pitchSpreadSub そのものはリード詳細・セッション詳細が使い続けるので、上の実行検査で生きている。
     check("21.5 N-10: My Data に副次行の綴り(heroSpread / heroPeriodText)が残っていない",
       !/heroSpread|heroPeriodText/.test(codeOf(myDataSection)));
-    check("21.5 D-1: 散らばりはマトリクスの色が担う(比較対象との差を8段で塗る)",
-      /background: divergingFill\(step\), color: divergingInk\(step\),/.test(srcOfFn(src, "NoteMatrixCard")));
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「色だとどっちの色が高い低いが今一つ想像しづらく、グラデーションも
+    // どれくらい高いかの程度が読みにくい」→ 程度は**窓の中の棒の長さ**が担い、色は方向だけになった。
+    check("21.5 D-5: 散らばりはマトリクスの棒の長さが担う(比較対象との差を中央 0 から伸ばす)",
+      /const g = matrixBarGeometry\(v, matrix\.maxAbs\);/.test(srcOfFn(src, "NoteMatrixBlock"))
+      && /background: matrixBarColor\(g\.up\)/.test(srcOfFn(src, "NoteMatrixBlock")));
     // TappableMetricCard 側の受け口(sub)が生きていること
     const cardCode = componentSourceOf("TappableMetricCard");
     check("21.5 TappableMetricCard は sub を引数に受け取る",
@@ -10891,14 +10946,21 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
     // F-54(配線): 実音ラベルは「呼び出し元が saxType/tuningHz を渡し、表示が concertLabel を
     // 読む」ところまで通っていて初めて画面に出る。ここが切れても集計側の検算(21.1〜21.6)は
     // 全部通ってしまう(複製ツリーでの変異試験で実際に素通りした)ので、配線を綴りで固定する。
-    check("F-54: セッション詳細は groupFramesByNote に楽器種別と基準ピッチを渡す",
-      /groupFramesByNote\(frames, NUM_HARMONICS, session\.saxType, tuningHz\)/.test(detail));
-    check("F-54: 音階ごとの平均の表は実音(concertLabel)を表示する",
-      /\{g\.concertLabel \?\? "—"\}/.test(detail));
-    check("F-54: 音階ごとの平均の表に記音(writtenLabel)を表示していない",
-      !/g\.writtenLabel/.test(codeOf(detail)));
-    check("F-54: 音階ごとの平均の表の見出しは「実音」(「記音」のままにしない)",
-      />実音<\/th>/.test(detail) && !/>記音<\/th>/.test(codeOf(src)));
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「音階ごとの平均を丸ごと削除」。
+    // セッション詳細にあった**音ごとの表**(実音 / 選択中の指標 / 目安との差)は画面ごと無くなった。
+    // 表を作っていた集計そのもの(groupFramesByNoteAcrossSessions)は My Data のマトリクスと
+    // PIVOT がまだ使うので**消していない**。消えたのは「セッション詳細で表として読む」道だけ。
+    check("D-5: セッション詳細に音ごとの表がもう無い(表の骨組みが残っていない)",
+      !/<th/.test(codeOf(detail)) && !/noteGroups\.map/.test(codeOf(detail)),
+      `th ${(codeOf(detail).match(/<th/g) || []).length}個`);
+    check("D-5: 実音のラベル(concertLabel)を出す場所がセッション詳細に無い",
+      !/concertLabel/.test(codeOf(detail)));
+    // 集計の側は生きている。**楽器種別と基準ピッチを渡す**という F-54 の芯は、
+    // その集計を今も呼ぶ My Data の側で固定し続ける(渡し忘れれば実音がずれる)。
+    check("F-54: 実音の算出に楽器種別と基準ピッチを渡す経路は生きている",
+      /groupFramesByNote\(s\.frames \|\| \[\], undefined, saxType, tuningHz\)/.test(codeOf(src)));
+    check("F-54: 記音(writtenLabel)を表示している場所は1つも無い",
+      !/g\.writtenLabel/.test(codeOf(src)));
     // 【F-68で配線が変わった】理想値の生成は buildIdealProfileFromSessions(複数セッション対応)に
     // 一本化され、単一セッション版はその特別な場合になった。**渡すもの(楽器種別・基準ピッチ)は
     // 変わっていない**ので、検査の意図(この経路にも saxType と tuningHz が通っていること)は同じ。
@@ -10944,8 +11006,16 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       // (素テキスト+▾ の作法 = 12px)であり、読み取り専用の数字の行(11.5px)とは型が違う。
       // 【D-3】編集シートの行はラベル 12px / --c-ink-2 / 3em で値の左端が縦に揃う
       // (F-98 の「1行1情報」の作法は**シートの中で**生きている)。
-      check("D-3: 編集シートの行はラベル 12px / --c-ink-2 / 3em(値の左端が揃う)",
-        /fontSize: 12, color: "var\(--c-ink-2\)", minWidth: "3em", flexShrink: 0/.test(srcOfFn(src, "SessionEditSheet")));
+      // 【D-5 2026/08/23 本人指示で書き換え】本人「編集を押したときのポップアップのフォントサイズも、右寄せ、左寄せも
+      // ばらばら過ぎるのでいずれかに統一」→ ラベルは**添え物**なので、他の画面の添え字と同じ
+      // --c-ink-3 に揃えた(値の --c-ink との差がはっきりし、行の主役が値だと読める)。
+      check("D-5: 編集シートの行はラベル 12px / --c-ink-3 / 3em(値の左端が揃う)",
+        /fontSize: 12, color: "var\(--c-ink-3\)", minWidth: "3em", flexShrink: 0/.test(srcOfFn(src, "SessionEditSheet")));
+      // 【D-5 実機確認で発見して直した】3行の**値の左端**が揃うのは、ラベルの 3em だけでは
+      // 足りない。日付の欄はブラウザ既定の横 padding を持っていて、この行だけ文字が右へ
+      // ずれていた。**横の padding は 0** にする(残る差は透明枠の 1px)。
+      check("D-5: 日付の欄は横に padding を持たない(値の左端が他の2行と揃う)",
+        /style=\{\{ padding: "4px 0", fontSize: 12, boxSizing: "border-box", width: 190/.test(srcOfFn(src, "SessionEditSheet")));
       check("D-3: 編集シートの行は 44pt の高さを持つ(§5)",
         /minHeight: "var\(--tap-min\)", borderBottom: "1px solid var\(--c-line\)"/.test(srcOfFn(src, "SessionEditSheet")));
     }
@@ -10995,32 +11065,46 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
     // (F-58 の経緯を書き残した行)にしか無く、しかもそのコメントは**セッション一覧のゴミ箱
     // ボタンの中**にあった。つまり `sess` と `reed` は同じ要素を切り出しており、
     // 「padding が両者で一致する」は恒等式だった。目印は実在する**描画されるテキスト**にする。
+    // 【D-5 2026/08/23 本人指示で書き換え】削除の一手は**ゴミ箱アイコンの共通部品**
+    // (DeleteActionButton)になった。本人の実機指摘「選択には削除機能しかないので
+    // 削除ボタンをゴミ箱アイコンに変更」。3箇所(すべてのセッション / リードの箱 / リードの個体)が
+    // **同じ部品**を呼ぶので、「2つのボタンの padding が一致するか」を比べる必要が無くなった
+    // (構造上一致する)。代わりに**部品が1つであること**と**呼び手が3つであること**を固定する。
     {
-      const btnAround = (needle, what) => {
-        const i = src.indexOf(needle);
-        if (i === -1) throw new Error(`${what}が見つからない`);
-        return src.slice(src.lastIndexOf("<button", i), src.indexOf("</button>", i));
-      };
-      const dataDel = btnAround("件を削除", "データタブの削除ボタン");
-      const reed = btnAround("箱を削除", "リードタブの削除ボタン");
-      // 切り出しが別々の要素であることを先に固定する(同じ要素を2回見て「一致」と言わない)
-      check("F-58: 2つの削除ボタンは別々の要素を切り出せている(恒等式になっていない)",
-        dataDel !== reed && dataDel.length > 100 && reed.length > 100,
-        `data=${dataDel.length}文字 / reed=${reed.length}文字`);
-      // 属性値の中に `>` が入り得る(data-armed={n > 0})ので、`[^>]*?` では拾えない。
-      const pillPad = (tag) => (tag.match(/className="ctl-plain ctl-pill[^"]*"[\s\S]{0,160}?padding: "([^"]+)"/) || [])[1] ?? null;
-      check("F-58: どちらも「見た目のピルは内側の<span>・<button>は透明な当たり判定」の構造",
-        /\.\.\.TAP_BUTTON_RESET/.test(dataDel) && /\.\.\.TAP_BUTTON_RESET/.test(reed) &&
-        /className="ctl-plain ctl-pill/.test(dataDel) && /className="ctl-plain ctl-pill/.test(reed));
-      check("F-58: 内側のピルの padding が両者で一致する(＝枠の寸法が同じ)",
-        pillPad(dataDel) !== null && pillPad(dataDel) === pillPad(reed),
-        `data=${pillPad(dataDel)} reed=${pillPad(reed)}`);
-      check("F-58: <button>自身にピルの地を持たせない(持たせると枠が44×44に膨らむ)",
-        !/<button[^>]*className="sans ctl-plain ctl-pill"/.test(dataDel));
-      // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)
-      check("F-58/N-6: データタブの削除は .ctl-danger + data-armed(選択0件では塗らない)",
+      const del = srcOfFn(src, "DeleteActionButton");
+      check("F-58 → D-5: 削除の一手は共通部品1つ(見た目のピルは内側の <span>・<button> は透明な当たり判定)",
+        /\.\.\.TAP_BUTTON_RESET/.test(del) && /className="ctl-plain ctl-pill ctl-danger"/.test(del)
+        && /<Trash2 size=\{14\}/.test(del));
+      check("F-58 → D-5: <button>自身にピルの地を持たせない(持たせると枠が44×44に膨らむ)",
+        !/<button[^>]*className="sans ctl-plain ctl-pill"/.test(del));
+      // 呼び手は2つ。リードタブの箱・個体は**同じ1つの実行ボタン**(子タブ行の右)に載り、
+      // 何を消すかはモードで切り替わる。**場面は3つ**あることは次の読み上げの検査が持つ。
+      check("D-5: 呼び手は2つ(すべてのセッション / リードタブ)",
+        (codeOf(src).match(/<DeleteActionButton\b/g) || []).length === 2,
+        `${(codeOf(src).match(/<DeleteActionButton\b/g) || []).length}箇所`);
+      // 【変異試験 M21 で生存 → 足した】0件のときは**押せない**。
+      // ここが外れると、何も選ばずにゴミ箱を押して window.confirm が出る(空の削除を訊く)。
+      check("D-5: 0件のときは押せない(選んでいないのに確認を出さない)",
+        /disabled=\{count === 0\}/.test(del));
+      check("D-5: 押せないときはカーソルも指にしない(押せる見た目を作らない)",
+        /cursor: count > 0 \? "pointer" : "default"/.test(del));
+      check("D-5: 番号変更の出口はゴミ箱にしない(削除ではないので「完了」のまま)",
+        /\{listMode === "numberEdit" \? "完了" : "キャンセル"\}/.test(srcOfFn(src, "ReedsTab"))
+        && /\{listMode !== "numberEdit" && \(\s*\r?\n\s*<DeleteActionButton/.test(srcOfFn(src, "ReedsTab")));
+      // 【罠9】ariaLabel の中身はテンプレート文字列なので波括弧を含む。
+      // [^}]* で刈ると 0 件になり「空回りしたのに通る」検査になる。**場面の綴りそのもの**で数える。
+      {
+        const scenes = ["件のセッションを削除", "箱を削除", "枚を削除"].filter((w) => codeOf(src).includes(w));
+        check("D-5: 読み上げは件数つきの言葉で3つの場面ぶん出す(アイコンだけでは何が消えるか分からない)",
+          scenes.length === 3, scenes.join(" / ") || "0箇所");
+        check("D-5: 0件のときも何が消えるかを名指しする(無言のゴミ箱にしない)",
+          ["セッションを削除", "箱を削除", "リードを削除"].every((w) => codeOf(src).includes(w)));
+      }
+      const dataDel = del;
+      // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)      // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)
+      check("F-58/N-6 → D-5: 削除は .ctl-danger + data-armed(選択0件では塗らない)",
         /className="ctl-plain ctl-pill ctl-danger"/.test(dataDel)
-        && /data-armed=\{selectedForDelete\.size > 0\}/.test(dataDel), dataDel.replace(/\s+/g, " ").slice(0, 200));
+        && /data-armed=\{count > 0\}/.test(dataDel), dataDel.replace(/\s+/g, " ").slice(0, 200));
     }
 
     // F-59: 保持したい状態だけを親へ持ち上げる。navNonce による再マウントの意図は壊さない。
@@ -13305,11 +13389,26 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 【D-4 2026/08/22】メモは正典 #15a の**評価カードの中の1行**になった
     // (ラベル「メモ」を左、値を右寄せ、空なら「タップして入力」)。
     // セッション詳細のメモカードと**同じ形**(2画面で読み方が変わらない)。
-    check("メモは編集できる(placeholder 「タップして入力」)",
-      /placeholder="タップして入力"/.test(detail) && /onBlur=\{commitMemo\}/.test(detail));
-    check("D-4: メモの行はセッション詳細と同じ形(min-height 44 / ラベル左 / 値は右寄せ)",
-      /minHeight: "var\(--tap-min\)", display: "flex", alignItems: "center", justifyContent: "space-between"/.test(detail)
-      && /textAlign: "right"/.test(detail));
+    // 【D-5 2026/08/23 本人指示で書き換え】メモはセッション詳細とリード詳細で**同じ部品(MemoField)**になった。
+    // 本人「メモ入力を左詰めに」「縦幅が無駄に大きい」「1行分入力されたら次の行に続く。改行も有効に」。
+    {
+      const memo = srcOfFn(src, "MemoField");
+      check("メモは編集できる(placeholder 「タップして入力」)",
+        /placeholder="タップして入力"/.test(memo) && /onBlur=\{onBlur\}/.test(memo));
+      check("D-5: メモはラベルが上・本文が下の全幅(右寄せをやめて左詰めにした)",
+        /<span style=\{\{ display: "block", fontSize: 10.5, color: "var\(--c-ink-3\)", marginBottom: 3 \}\}>メモ<\/span>/.test(memo)
+        && !/textAlign: "right"/.test(memo));
+      check("D-5: 改行が入力できる(1行の input ではなく textarea)",
+        /<textarea/.test(memo) && !/<input/.test(memo));
+      check("D-5: 高さは中身に追従して伸びる(空でも大きい箱を置かない)",
+        /rows=\{1\}/.test(memo) && /resize: "none", overflow: "hidden"/.test(memo)
+        && /el\.style\.height = "auto"; el\.style\.height = `\$\{el\.scrollHeight\}px`;/.test(memo));
+      check("D-5: 伸ばす処理は入力のたびと値の差し替えの両方で走る(貼り付け・復元でも合う)",
+        /onChange=\{\(e\) => \{ onChange\(e\.target\.value\); fit\(e\.target\); \}\}/.test(memo)
+        && /useEffect\(\(\) => \{ fit\(ref\.current\); \}, \[value\]\);/.test(memo));
+      check("D-5: §5 タップ先は 44pt(ラベルごと label で包んで当たり判定にする)",
+        /<label className="sans" style=\{\{ display: "block", minHeight: "var\(--tap-min\)", cursor: "text" \}\}>/.test(memo));
+    }
     // 【D-4 2026/08/22 本人指示で書き換え】測定データの4指標は、セッション詳細と**同じ部品**
     // (MetricTabCard)の中のタブへ移った(正典 #15a「同じ部品・同じ順番」)。
     // 並びの出どころも REED_DETAIL_METRICS から **DETAIL_CARD_METRICS** へ移った
@@ -13441,8 +13540,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       const bareSites = (codeOf(src).match(/^\s*bare(?:$| rowStyle=)/gm) || []).length;
       check("D-3/D-4: bare の渡し手はゼロ(2画面とも常時表示のカードへ移った)",
         bareSites === 0, `${bareSites}箇所`);
-      check("D-3/D-4: 移った先は大きな数字 + 常時表示のグラフ(正典 #14b / #15a)",
-        /fontFamily: "var\(--font-serif\)", fontSize: "var\(--fs-hero\)"/.test(srcOfFn(src, "MetricTabCard")));
+      // 【D-5 2026/08/23 本人指示で書き換え】ここもセリフをやめた(大きさ --fs-hero は正典 #14b / #15a の 42px の写像のまま)。
+      check("D-5: 移った先は大きな数字 + 常時表示のグラフ(書体は --font-num)",
+        /fontFamily: "var\(--font-num\)", fontSize: "var\(--fs-hero\)"/.test(srcOfFn(src, "MetricTabCard")));
     }
     // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
     check("ダイヤルの先頭の「—」は表示文字列も「—」",
@@ -13467,17 +13567,25 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
   {
     const cmp = srcOfFn(src, "ReedCompareTab");
     check("比較タブを走査できている", cmp.length > 2000, `${cmp.length}文字`);
-    check("4グラフの並びは正典どおり(音量 → 平均差分 → HNR → 重心)",
-      api.REED_COMPARE_CHART_KEYS.join(",") === "volumeDb,pitchCentsSigned,hnrDb,spectralCentroidHz",
-      api.REED_COMPARE_CHART_KEYS.join(","));
-    check("4グラフは REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
-      new Set(api.REED_COMPARE_CHART_KEYS).size === 4
-      && api.REED_COMPARE_CHART_KEYS.every((k) => cmKeys.includes(k))
-      && cmKeys.every((k) => api.REED_COMPARE_CHART_KEYS.includes(k)),
-      `${api.REED_COMPARE_CHART_KEYS.join(",")} / ${cmKeys.join(",")}`);
-    check("JSX は REED_COMPARE_CHART_KEYS をそのまま map する(間引いていない)",
-      /REED_COMPARE_CHART_KEYS\.map\(\(key\) => \{/.test(cmp)
-      && !/REED_COMPARE_CHART_KEYS\.(slice|filter)\(/.test(cmp));
+    // 【D-5 2026/08/23 本人指示で書き換え】「他のグラフと同様に表示グラフは一つで
+    // タブ切り替えで見れるように変更」。4枚並べるのをやめたので、並びの出どころも
+    // REED_COMPARE_CHART_KEYS から **DETAIL_CARD_METRICS**(セッション詳細・リード詳細と同じ)へ移り、
+    // **4画面すべてが同じ4指標・同じ並びのタブ**になった。
+    check("D-5: 比較タブのグラフは1枚で、タブは共通部品(4画面で同じ形)",
+      (cmp.match(/<NoteAxisLineChart/g) || []).length === 1
+      && /<MetricUnderlineTabs\s*\r?\n\s*order=\{DETAIL_CARD_METRICS\} metrics=\{REED_COMPARE_METRICS\}/.test(cmp));
+    check("D-5: 並びは4画面で同じ(DETAIL_CARD_METRICS)",
+      api.DETAIL_CARD_METRICS.join(",") === "pitchCentsSigned,hnrDb,spectralCentroidHz,volumeDb",
+      api.DETAIL_CARD_METRICS.join(","));
+    check("D-5: 4指標は REED_COMPARE_METRICS の全キーと同じ集合(1つも落としていない)",
+      new Set(api.DETAIL_CARD_METRICS).size === 4
+      && api.DETAIL_CARD_METRICS.every((k) => cmKeys.includes(k))
+      && cmKeys.every((k) => api.DETAIL_CARD_METRICS.includes(k)),
+      `${api.DETAIL_CARD_METRICS.join(",")} / ${cmKeys.join(",")}`);
+    check("D-5: 比較タブに大きな数字を出さない(リードが複数なので値が1つに決まらない)",
+      !/var\(--fs-hero\)/.test(cmp));
+    check("D-5: 読み手ゼロになった REED_COMPARE_CHART_KEYS は定義ごと消えている",
+      !/const REED_COMPARE_CHART_KEYS/.test(src));
     check("個体チップは正典 .selpill の寸法(12.5px / padding 4px 11px / 角丸999)",
       parseFloat(declOf(mockCss, ".selpill", "font-size")) === 12.5
       && /fontSize: 12\.5, padding: "4px 11px", borderRadius: 999/.test(cmp));
@@ -13698,9 +13806,9 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       `${(codeOf(myDataSection).match(/flatMap\(\(s\) => s\.frames/g) || []).length}箇所`);
     // 【D-1 の芯】面は「マトリクス2枚(条件付きで1枚)」+「練習カード1枚」だけ。
     check("26.2 D-1: マトリクスの呼び出しは2つだけ(今日の自分 / いつもの自分)",
-      (myDataSection.match(/<NoteMatrixCard/g) || []).length === 2
-      && (src.match(/<NoteMatrixCard/g) || []).length === 2,
-      `${(src.match(/<NoteMatrixCard/g) || []).length}箇所`);
+      (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 2
+      && (src.match(/<NoteMatrixBlock/g) || []).length === 2,
+      `${(src.match(/<NoteMatrixBlock/g) || []).length}箇所`);
     check("26.2 D-1: 練習カードは1枚だけ",
       (src.match(/<PracticeCalendarCard/g) || []).length === 1,
       `${(src.match(/<PracticeCalendarCard/g) || []).length}箇所`);
@@ -13709,10 +13817,15 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.2 N-7: 数字タップの開閉(heroNoteChartOpen)が動く側に残っていない",
       !/heroNoteChartOpen/.test(codeOf(src)) && !/setHeroNoteChartOpen/.test(codeOf(src)));
     // 指標の定義(ラベル・単位)は MY_DATA_METRICS が唯一の答え(タブの文言を直書きしない)
-    check("26.2 D-1: 指標タブの文言は MY_DATA_METRICS から引く(直書きしない)",
-      /const m = MY_DATA_METRICS\.find\(\(x\) => x\.key === key\);/.test(myDataSection)
-      && /\{m\.label\}/.test(myDataSection)
+    // 【D-5 2026/08/23 本人指示で書き換え】指標タブは3画面(My Data / セッション詳細 / リード詳細)の共通部品
+    // MetricUnderlineTabs になった。文言を語彙から引く芯はその部品が持ち、
+    // My Data の側は**どの語彙を見るか**を渡す責任だけを持つ。
+    check("26.2 D-5: My Data は指標の語彙として MY_DATA_METRICS を渡す(直書きしない)",
+      /order=\{MY_DATA_CARD_METRICS\} metrics=\{MY_DATA_METRICS\}/.test(myDataSection)
       && !/平均差分<\/button>|>平均差分</.test(myDataSection));
+    check("26.2 D-5: 文言を語彙から引くのは共通部品の中(3画面が同じ規則で名前を出す)",
+      /const m = metrics\.find\(\(x\) => x\.key === key\);/.test(srcOfFn(src, "MetricUnderlineTabs"))
+      && /\{m\?\.label \?\? key\}/.test(srcOfFn(src, "MetricUnderlineTabs")));
     // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。
     {
       const page = srcOfFn(src, "AnalysisLabView");
@@ -13947,23 +14060,26 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     // 【D-1】一覧・絞り込み・選択削除は AllSessionsPage へ、マトリクス・凡例・カレンダーは
     // 専用の部品へ分かれた。**機能の確認先を見失わないよう集合に足す**(件数は縛らない)。
     const all = codeOf(myDataSection) + codeOf(myDataPage) + codeOf(lab)
-      + codeOf(srcOfFn(src, "AllSessionsPage")) + codeOf(srcOfFn(src, "NoteMatrixCard"))
-      + codeOf(srcOfFn(src, "DivergingLegend")) + codeOf(srcOfFn(src, "PracticeCalendarCard"))
+      + codeOf(srcOfFn(src, "AllSessionsPage")) + codeOf(srcOfFn(src, "NoteMatrixBlock"))
+      + codeOf(srcOfFn(src, "PracticeCalendarCard"))
       + codeOf(srcOfFn(src, "MyDataScopePicker")) + codeOf(srcOfFn(src, "FloatingAction"));
     const want = [
       ["期間セレクタ", /MY_DATA_RANGES/],
       // 【N-10 で足した】案K の蓄積量の数字と、指標のタップ切り替え
       ["蓄積量の数字", /myDataStockTexts\(myDataStock\(/],
       // 【N-11】数字カード4枚 → **グラフカードの中の4指標のタブ**(数字は選択中の1つだけ)
-      ["4指標のタブ", /MY_DATA_CARD_METRICS\.map\(/],
-      ["タブのタップで指標が切り替わる", /onClick=\{\(\) => setCardMetric\(key\)\}/],
+      // 【D-5】タブは共通部品 MetricUnderlineTabs に移った(描き方を3画面に写さない)。
+      ["4指標のタブ", /order=\{MY_DATA_CARD_METRICS\}/],
+      ["タブのタップで指標が切り替わる", /value=\{cardMetric\} onChange=\{setCardMetric\}/],
       // 【D-1 2026/08/17→08/22】ばらつきの帯と音名軸の折れ線は**正典が却下側に置いた**ので
       // この集合から外した(検証27 の 27.9 が「消えている」ことを固定する)。
       // 代わりに D-1 で足した3つ(マトリクス / 比較対象 / 練習カレンダー)を集合に入れる。
-      ["音ごとのマトリクス", /<NoteMatrixCard/],
+      ["音ごとのマトリクス", /<NoteMatrixBlock/],
       ["比較対象の切り替え", /onClick=\{\(\) => setCompareRaw\(t\.key\)\}/],
-      ["発散カラースケールの凡例", /<DivergingLegend/],
+      // 【D-5】8段の凡例は廃止され、読み方は**1行の説明**が引き取った(色は方向だけになった)。
+      ["高い/低いの読み方の説明", /段の中央が 0。/],
       ["練習カレンダー", /<PracticeCalendarCard/],
+      ["月の移動", /calendarShiftMonth\(p\.year, p\.month, delta\)/],
       ["全件一覧への入口", /onClick=\{onOpenAllSessions\}/],
       ["楽器セレクタ", /setDataSax/],
       // 【N-7 本人指示による書き換え】音名軸グラフの入口は TappableMetricCard(タップ切り替え)
@@ -13975,7 +14091,9 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       ["条件に合わないときの文言", /条件に合うセッションがありません/],
       ["奏者の絞り込み", /setSessionFilterPerformer/],
       ["リードの絞り込み", /setSessionFilterReed/],
-      ["期間の絞り込み(自由な範囲)", /setSessionFilterDateFrom/],
+      // 【D-5 2026/08/23 本人指示で削除】「『すべてのセッション』ページの絞り込みに期間軸を削除」。
+      // **本人が名指しで消した機能**なので、この「残っている集合」から外す
+      // (下の 26.7 が「もう無い」ことを固定する)。
       ["クリア", /clearSessionFilters/],
       ["選択削除", /confirmBatchDeleteSessions/],
       // (【N-11 2026/08/17 本人指示】「一括リード変更」はこの集合から**外した**。
@@ -13989,9 +14107,12 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       check(`26.7 ${label} が残っている`, re.test(all), "");
     }
     // 期間の絞り込みは「いつからいつまで」の自由な範囲のまま(固定の候補に置き換えていない)
-    check("26.7 期間の絞り込みは date 入力2つのまま(自由な範囲を候補に置き換えていない)",
-      (allSessionsPage.match(/<input type="date"/g) || []).length === 2,
-      `${(allSessionsPage.match(/<input type="date"/g) || []).length}箇所`);
+    check("26.7 D-5: 期間の絞り込みは画面から消えている(date 入力も状態も残っていない)",
+      (allSessionsPage.match(/<input type="date"/g) || []).length === 0
+      && !/sessionFilterDateFrom|sessionFilterDateTo|dateFilterOpen|dateFilterText/.test(codeOf(src)),
+      `date ${(allSessionsPage.match(/<input type="date"/g) || []).length}箇所`);
+    check("26.7 D-5: 奏者とリードの絞り込みは残っている(期間だけを消した)",
+      /setSessionFilterPerformer/.test(allSessionsPage) && /setSessionFilterReed/.test(allSessionsPage));
   }
   console.log("  -> done");
 }
@@ -14023,101 +14144,85 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
   const block = i9b >= 0 && i9c > i9b ? canon.slice(i9b, i9c) : "";
   const cssIdx = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
   const myDataSection = srcOfFn(src, "MyDataSection");
-  const matrixCard = srcOfFn(src, "NoteMatrixCard");
-  const legendFn = srcOfFn(src, "DivergingLegend");
+  const matrixCard = srcOfFn(src, "NoteMatrixBlock");
+
   const calCard = srcOfFn(src, "PracticeCalendarCard");
   const lab27 = srcOfFn(src, "AnalysisLabView");
 
   check("27.0 正典 #9b の区画を切り出せている(空回りしていない)", block.length > 4000, `${block.length}文字`);
-  check("27.0 実装の部品を4つとも走査できている(空回りしていない)",
-    myDataSection.length > 2000 && matrixCard.length > 1500
-    && legendFn.length > 400 && calCard.length > 2000,
-    `section=${myDataSection.length} / matrix=${matrixCard.length} / legend=${legendFn.length} / cal=${calCard.length}`);
+  check("27.0 実装の部品を3つとも走査できている(空回りしていない)",
+    myDataSection.length > 2000 && matrixCard.length > 1500 && calCard.length > 2000,
+    `section=${myDataSection.length} / matrix=${matrixCard.length} / cal=${calCard.length}`);
 
-  // --- 27.1 発散カラースケール: 8段の hex は**正典の凡例バーから読む** -------------
-  // 期待値を実装の定数から書き写すと恒真になる(罠3)。正典の凡例バーの background を
-  // 順に読み、index.css の --c-div-1..8 と突き合わせる。
+  // --- 27.1 高い/低いの2色(D-1 の8段の発散スケールは廃止) ----------------------
   {
-    const hexOf = (v) => {
-      const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(v.trim());
-      if (m) return "#" + [1, 2, 3].map((k) => Number(m[k]).toString(16).padStart(2, "0")).join("").toUpperCase();
-      return v.trim().toUpperCase();
-    };
-    const bars = [...block.matchAll(/height:5px;[^"]*?background:(#[0-9A-Fa-f]{6}|rgb\([^)]*\))/g)].map((m) => hexOf(m[1]));
-    check("27.1 正典の凡例バーから8段の色を読めている(空回りしていない)",
-      bars.length === 8 && new Set(bars).size === 8, bars.join(" "));
-    const impl = [];
-    for (let i = 1; i <= 8; i++) {
-      const m = new RegExp(`--c-div-${i}:\\s*(#[0-9A-Fa-f]{6})\\s*;`).exec(cssIdx);
-      impl.push(m ? m[1].toUpperCase() : null);
-    }
-    check("27.1 index.css の --c-div-1..8 が8つとも定義されている", impl.every(Boolean), impl.join(" "));
-    check("27.1 8段の色は正典の凡例バーと1つ残らず一致する",
-      bars.length === 8 && bars.every((h, i) => h === impl[i]),
-      `正典 ${bars.join(" ")} / 実装 ${impl.join(" ")}`);
-    // 中央ほど淡い(=発散スケールの形をしている)。両端が中央より暗いことを相対輝度で見る。
+    const cssIdx = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+    const above = (/--c-above:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
+    const below = (/--c-below:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
+    check("27.1 index.css に --c-above / --c-below が定義されている",
+      !!above && !!below, `${above} / ${below}`);
+    // 【罠1】綴りの有無で見ると、廃止の**由来を書いた注釈**に当たって落ちる。
+    // 見たいのは「宣言が無い」ことなので、宣言の形(--c-div-N:)で縛る。
+    check("27.1 D-5: 8段の発散スケール(--c-div-1..8)は宣言ごと消えている",
+      !/--c-div-\d\s*:/.test(cssIdx), (cssIdx.match(/--c-div-\d\s*:/g) || []).length + "件");
+    // 金(高い)は正典 #9b の凡例バーの端の色そのもの。**値の出どころが正典であること**は
+    // 廃止しても変わらない(2色に減っただけ)。青(低い)は --c-accent と同値。
     {
-      const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-      const L = (h) => 0.2126 * lin(parseInt(h.slice(1, 3), 16)) + 0.7152 * lin(parseInt(h.slice(3, 5), 16)) + 0.0722 * lin(parseInt(h.slice(5, 7), 16));
-      const ls = impl.map(L);
-      check("27.1 中央(4-5)がいちばん淡く、両端へ向かって暗くなる(発散スケールの形)",
-        ls[0] < ls[1] && ls[1] < ls[2] && ls[2] < ls[3] && ls[7] < ls[6] && ls[6] < ls[5] && ls[5] < ls[4],
-        ls.map((v) => v.toFixed(3)).join(" "));
+      const i9b = canon.indexOf('<div class="dv-opt" id="9b">');
+      const i9c = canon.indexOf('<div class="dv-opt" id="9c">');
+      const b9 = i9b >= 0 && i9c > i9b ? canon.slice(i9b, i9c) : "";
+      const goldEnd = (/background:(#B5891C)/i.exec(b9) || [])[1];
+      check("27.1 「高い」の色は正典 #9b の凡例の金の端そのもの",
+        goldEnd && above && goldEnd.toUpperCase() === above.toUpperCase(), `${goldEnd} / ${above}`);
+      const accent = (/--c-accent:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
+      check("27.1 「低い」は --c-accent と同値だが**別のトークン**(意味を混ぜない)",
+        below && accent && below.toUpperCase() === accent.toUpperCase()
+        && /--c-below:/.test(cssIdx), `${below} / ${accent}`);
     }
-    // hex は index.css の1箇所だけ。App.jsx は段の番号しか扱わない(値を2箇所に持たない)。
-    // **動く行**(// で始まる行を除いたもの)に hex が1つも無いこと。コメントは除く:
-    // divergingInk の解説が、白と濃のコントラスト比の実測表として8段の hex を挙げている。
-    // codeOf は使わない(accept="audio/*" の /* を誤認して数百行消すため。罠9)。
-    {
-      const noComments = src.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
-      check("27.1 動く行に発散スケールの hex が1つも無い(段の番号だけを扱う)",
-        !new RegExp(impl.filter(Boolean).join("|"), "i").test(noComments),
-        (noComments.match(new RegExp(impl.filter(Boolean).join("|"), "gi")) || []).join(",") || "0件");
-    }
-    check("27.1 塗りはトークン名を組み立てる1関数だけが作る(divergingFill)",
-      /function divergingFill\(step\) \{ return "var\(--c-div-" \+ step \+ "\)"; \}/.test(src)
-      && (codeOf(src).match(/var\(--c-div-/g) || []).length === 1,
-      `${(codeOf(src).match(/var\(--c-div-/g) || []).length}箇所`);
+    // 読み手は2つ: 棒の色(matrixBarColor)と、その読み方を書いた1行の説明。
+    // **説明が色そのものを見せる**ので、ここで綴りが増えるのは正しい(4 = 2関数 × 上下)。
+    check("27.1 App.jsx は色の hex を持たない(トークン名だけを扱う)",
+      /function matrixBarColor\(up\) \{ return up \? "var\(--c-above\)" : "var\(--c-below\)"; \}/.test(src)
+      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)/g) || []).length === 4,
+      `${(codeOf(src).match(/var\(--c-above\)|var\(--c-below\)/g) || []).length}箇所`);
+    check("27.1 D-5: 読み方の1行も同じトークンで色を見せる(説明と棒の色が食い違わない)",
+      /color: "var\(--c-above\)", fontWeight: 700 \}\}>上＝高い/.test(srcOfFn(src, "MyDataSection")));
   }
 
-  // --- 27.2 段の決め方 divergingStep / 文字色 divergingInk(実行で検証) -------------
+  // --- 27.2 窓の中の棒(実行で検証) ------------------------------------------------
+  // 【D-5 2026/08/23 本人指示】色の段(divergingStep / divergingInk)は廃止し、
+  // **窓の中央を0にした棒の長さ**で程度を示す形になった。
   {
-    const api = new Function(`${extractConst("DIVERGING_STEPS")}
-      ${extractFunction("divergingStep")}
-      ${extractFunction("divergingFill")}
-      ${extractFunction("divergingInk")}
-      return { divergingStep, divergingFill, divergingInk, DIVERGING_STEPS };`)();
-    const st = api.divergingStep;
-    check("27.2 段は8段(正典の凡例バーと同じ数)", api.DIVERGING_STEPS === 8, String(api.DIVERGING_STEPS));
-    check("27.2 いちばん低い値は 1、いちばん高い値は 8",
-      st(-10, 10) === 1 && st(10, 10) === 8, `${st(-10, 10)} / ${st(10, 10)}`);
-    check("27.2 0 は 5(金側のいちばん淡い段)、0 のすぐ下は 4(青側のいちばん淡い段)",
-      st(0, 10) === 5 && st(-0.001, 10) === 4, `${st(0, 10)} / ${st(-0.001, 10)}`);
-    check("27.2 レンジを超える値は端に張り付く(枠の外の色を作らない)",
-      st(-99, 10) === 1 && st(99, 10) === 8, `${st(-99, 10)} / ${st(99, 10)}`);
-    check("27.2 maxAbs が 0 / 負 / 未定義でも段は 4 か 5(NaN や 0 段を返さない)",
-      st(0, 0) === 5 && st(-1, 0) === 4 && st(3, -1) === 5 && st(-3, undefined) === 4,
-      `${st(0, 0)} / ${st(-1, 0)} / ${st(3, -1)} / ${st(-3, undefined)}`);
-    // 8段すべてに到達できる(片側4段が死んでいない)
-    {
-      const seen = new Set();
-      for (let k = -100; k <= 100; k++) seen.add(st(k / 10, 10));
-      check("27.2 8段すべてに到達できる(使われない段が無い)",
-        seen.size === 8 && [...seen].sort((a, b) => a - b).join(",") === "1,2,3,4,5,6,7,8",
-        [...seen].sort((a, b) => a - b).join(","));
+    const api = new Function(`${extractConst("MATRIX_CELL_H")}
+      ${extractConst("MATRIX_BAR_MAX")}
+      ${extractConst("MATRIX_BAR_W")}
+      ${extractConst("MATRIX_BAR_MIN")}
+      ${extractFunction("matrixBarGeometry")}
+      ${extractFunction("matrixBarColor")}
+      return { matrixBarGeometry, matrixBarColor, MATRIX_CELL_H, MATRIX_BAR_MAX, MATRIX_BAR_MIN };`)();
+    const g = api.matrixBarGeometry;
+    check("27.2 上=高い / 下=低い。0 は上向き扱い(下向きの 0 を作らない)",
+      g(3, 6).up === true && g(-3, 6).up === false && g(0, 6).up === true,
+      `${g(3, 6).up} / ${g(-3, 6).up} / ${g(0, 6).up}`);
+    check("27.2 長さは maxAbs に対する比。いちばん長い棒が MATRIX_BAR_MAX",
+      g(6, 6).h === api.MATRIX_BAR_MAX && Math.abs(g(3, 6).h - api.MATRIX_BAR_MAX / 2) < 1e-9,
+      `${g(6, 6).h} / ${g(3, 6).h}`);
+    check("27.2 maxAbs を超える値でも枠から飛び出さない(端で止まる)",
+      g(99, 6).h === api.MATRIX_BAR_MAX && g(-99, 6).h === api.MATRIX_BAR_MAX);
+    check("27.2 0 でも線として見える最小の長さを持つ(消えない)",
+      g(0, 6).h === api.MATRIX_BAR_MIN && api.MATRIX_BAR_MIN > 0, String(g(0, 6).h));
+    check("27.2 maxAbs が 0 / 負 / 未定義でも落ちず、最小の長さになる",
+      g(0, 0).h === api.MATRIX_BAR_MIN && g(1, -1).h === api.MATRIX_BAR_MIN && g(-1, undefined).h === api.MATRIX_BAR_MIN);
+    check("27.2 棒は窓の半分に収まる(上下どちらへ伸びても枠を割らない)",
+      api.MATRIX_BAR_MAX <= api.MATRIX_CELL_H / 2,
+      `棒 ${api.MATRIX_BAR_MAX} / 窓の半分 ${api.MATRIX_CELL_H / 2}`);
+    check("27.2 色は方向だけを示す(程度は長さが示す)",
+      api.matrixBarColor(true) === "var(--c-above)" && api.matrixBarColor(false) === "var(--c-below)");
+    // 【D-5】8段の色の関数は消えている(読み手ゼロの定義を残さない)
+    for (const nm of ["divergingStep", "divergingFill", "divergingInk"]) {
+      check(`27.2 ${nm}(8段の色)は定義ごと消えている`, !new RegExp(`function ${nm}\\b`).test(src));
     }
-    // 【文字色】相対輝度から出した**答えの表**を固定する(実装と同じ式で書き直さない)。
-    // 白が勝つのは 1 だけ(統括の実測: 1 は 白5.12 / 濃3.24。8 は 白3.20 / 濃5.17)。
-    {
-      const want = ["var(--c-on-accent)", "var(--c-ink)", "var(--c-ink)", "var(--c-ink)",
-        "var(--c-ink)", "var(--c-ink)", "var(--c-ink)", "var(--c-ink)"];
-      const got = [1, 2, 3, 4, 5, 6, 7, 8].map((s) => api.divergingInk(s));
-      check("27.2 セルの文字色は8段それぞれこの答え(白が勝つのは1段目だけ)",
-        got.join("|") === want.join("|"), got.join(" "));
-    }
-    check("27.2 塗りは段の番号からトークン名を作る(1と8で別の値になる)",
-      api.divergingFill(1) === "var(--c-div-1)" && api.divergingFill(8) === "var(--c-div-8)",
-      `${api.divergingFill(1)} / ${api.divergingFill(8)}`);
+    check("27.2 DIVERGING_STEPS も消えている", !/const DIVERGING_STEPS/.test(src));
   }
 
   // --- 27.3 マトリクスの組み立て(実行で検証) --------------------------------------
@@ -14167,8 +14272,10 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     {
       api.setLabels(["C3", "C♯3", "D3", "B3", "C4", "G♯4"]);
       const m = api.buildNoteMatrix({ 0: 10, 1: -4, 2: 0, 3: 2, 4: 6 }, { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 }, 5, null, null);
-      check("27.3 行(オクターブ)はデータから出す(3/4/5 に釘付けしない)",
-        m.octaves.join(",") === "3,4", m.octaves.join(","));
+      // 【D-5 2026/08/23 本人指示】「上が高い音の方が自然なので上の行から高い音に変更」。
+      // 並びは**降順**になった(上の行 = 高いオクターブ)。データから出す芯は変わらない。
+      check("27.3 D-5: 行(オクターブ)はデータから降順で出す(3/4/5 に釘付けしない)",
+        m.octaves.join(",") === "4,3", m.octaves.join(","));
       check("27.3 鍵は「オクターブ:音名」で、値は 実測 − 比較対象",
         m.byKey["3:C"] === 10 && m.byKey["3:C♯"] === -4 && m.byKey["3:D"] === 0 && m.byKey["4:C"] === 6,
         JSON.stringify(m.byKey));
@@ -14237,53 +14344,96 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       && api.MY_DATA_COMPARE_TARGETS.filter((t) => t.pitchOnly).length === 1);
   }
 
-  // --- 27.5 練習カレンダー(実行で検証) --------------------------------------------
+  // --- 27.5 練習カレンダー(月表示・実行で検証) ------------------------------------
+  // 【D-5 2026/08/23 本人指示】「カレンダーが一目でカレンダーとわからない。月と日付も入れて」
+  // → 5週の窓(practiceCalendarDays)は**役目を終え**、月表示(前後の月へ移動)になった。
   {
-    const api = new Function(`${extractConst("CALENDAR_WEEKS")}
-      ${extractConst("CALENDAR_DAY_LABELS")}
+    const api = new Function(`${extractConst("CALENDAR_WEEK_LABELS")}
       ${extractConst("CALENDAR_FILLS")}
+      ${extractConst("CALENDAR_CELL_H")}
+      ${extractConst("CALENDAR_DOT")}
       ${extractFunction("localDayKey")}
       ${extractFunction("formatElapsedMs")}
       ${extractFunction("sessionDurationSec")}
-      ${extractFunction("practiceCalendarDays")}
+      ${extractFunction("calendarMonthDays")}
+      ${extractFunction("calendarMonthTotals")}
+      ${extractFunction("calendarShiftMonth")}
+      ${extractFunction("calendarLatestKey")}
+      ${extractFunction("calendarMonthLabel")}
       ${extractFunction("calendarLevel")}
       ${extractFunction("calendarFill")}
-      return { practiceCalendarDays, calendarLevel, calendarFill, localDayKey,
-               CALENDAR_WEEKS, CALENDAR_DAY_LABELS, CALENDAR_FILLS };`)();
-    check("27.5 窓は5週 × 7日 = 35マス(正典 #9b の「この5週の練習」)",
-      api.CALENDAR_WEEKS === 5 && api.practiceCalendarDays([], new Date(2026, 7, 22)).length === 35,
-      `${api.practiceCalendarDays([], new Date(2026, 7, 22)).length}マス`);
-    check("27.5 曜日の並びは月始まり(正典の曜日ヘッダ 月〜日)",
-      api.CALENDAR_DAY_LABELS.join("") === "月火水木金土日", api.CALENDAR_DAY_LABELS.join(""));
+      ${extractFunction("calendarInk")}
+      return { calendarMonthDays, calendarMonthTotals, calendarShiftMonth, calendarLatestKey,
+               calendarMonthLabel, calendarLevel, calendarFill, calendarInk,
+               CALENDAR_WEEK_LABELS, CALENDAR_FILLS, CALENDAR_CELL_H, CALENDAR_DOT };`)();
+    check("27.5 曜日は日曜始まり(一般的な暦に合わせる。5週窓の月曜始まりから変更)",
+      api.CALENDAR_WEEK_LABELS.join("") === "日月火水木金土", api.CALENDAR_WEEK_LABELS.join(""));
     {
-      // 2026/08/22 は土曜。その週の日曜 = 8/23 が窓の末日、35日前 = 7/20(月)が先頭。
-      const days = api.practiceCalendarDays([], new Date(2026, 7, 22, 13, 0, 0));
-      check("27.5 窓の末日は今日を含む週の日曜(今日で切らない)",
-        days[34].key === "2026-08-23", days[34].key);
-      check("27.5 窓の先頭は月曜(先頭の列が必ず月曜になる)",
-        days[0].key === "2026-07-20" && days[0].date.getDay() === 1, days[0].key);
-      // 【罠14】暦日は localDayKey だけ。JST 00〜09時でも前日にずれない。
-      const early = api.practiceCalendarDays(
-        [{ recordedAt: new Date(2026, 7, 22, 1, 30).toISOString(), frames: [{ t: 0 }, { t: 600 }] }],
-        new Date(2026, 7, 22, 1, 30));
-      const hit = early.find((d) => d.count > 0);
-      check("27.5 深夜1時の記録もその日の箱に入る(UTC 暦日で前日へずれない。罠14)",
-        hit && hit.key === "2026-08-22" && Math.abs(hit.minutes - 10) < 1e-9,
-        hit ? `${hit.key} / ${hit.minutes}分` : "見つからない");
+      // 2026年8月は土曜始まり・31日。先頭に空きマスが6つ入る。
+      const cells = api.calendarMonthDays([], 2026, 7);
+      check("27.5 月初の曜日ぶんだけ先頭に空きマスが入る(2026年8月は土曜始まり=6つ)",
+        cells.slice(0, 6).every((c) => c === null) && cells[6] && cells[6].day === 1,
+        `${cells.filter((c) => c === null).length}個の空き / 先頭の日=${cells[6] && cells[6].day}`);
+      check("27.5 その月の日数ぶんのマスが出る(8月=31)",
+        cells.filter(Boolean).length === 31 && cells[cells.length - 1].day === 31,
+        `${cells.filter(Boolean).length}日`);
+      check("27.5 うるう年の2月も正しい(2028年2月=29日)",
+        api.calendarMonthDays([], 2028, 1).filter(Boolean).length === 29,
+        `${api.calendarMonthDays([], 2028, 1).filter(Boolean).length}日`);
     }
+    {
+      // 【罠14】暦日は localDayKey。JST の深夜1時の記録もその日の箱に入る。
+      const s1 = { recordedAt: new Date(2026, 7, 22, 1, 30).toISOString(), frames: [{ t: 0 }, { t: 600 }] };
+      const s2 = { recordedAt: new Date(2026, 7, 22, 20, 0).toISOString(), frames: [{ t: 0 }, { t: 300 }] };
+      const cells = api.calendarMonthDays([s1, s2], 2026, 7);
+      const hit = cells.find((c) => c && c.key === "2026-08-22");
+      check("27.5 深夜1時の記録もその日の箱に入る(UTC 暦日で前日へずれない。罠14)",
+        hit && hit.count === 2 && Math.abs(hit.minutes - 15) < 1e-9,
+        hit ? `${hit.count}件 / ${hit.minutes}分` : "見つからない");
+      const t = api.calendarMonthTotals(cells);
+      check("27.5 見出しの合計はその月ぶん(秒と、記録のあった日数)",
+        Math.abs(t.seconds - 900) < 1e-6 && t.activeDays === 1, `${t.seconds}秒 / ${t.activeDays}日`);
+      // 【変異試験 M16 で生存 → 足した】記録のある日が1つしか無い試験データだと
+      // 「最新」と「最古」が同じ日になり、走査を先頭優先へ変える変異が生き残る。
+      // **2日以上ある月**で、後ろの日が選ばれることを見る。
+      {
+        const s3 = { recordedAt: new Date(2026, 7, 5, 12, 0).toISOString(), frames: [{ t: 0 }, { t: 60 }] };
+        const many = api.calendarMonthDays([s3, s1, s2], 2026, 7);
+        check("27.5 その月の記録のある最新の日が既定の選択日(最古ではない)",
+          api.calendarLatestKey(many) === "2026-08-22", String(api.calendarLatestKey(many)));
+        check("27.5 その走査は月の中の日付順に見ている(先に見つけた日で止まらない)",
+          many.filter((c) => c && c.count > 0).map((c) => c.key).join(",") === "2026-08-05,2026-08-22",
+          many.filter((c) => c && c.count > 0).map((c) => c.key).join(","));
+      }
+      check("27.5 記録が1つの月でも同じ規則で選べる",
+        api.calendarLatestKey(cells) === "2026-08-22", String(api.calendarLatestKey(cells)));
+      check("27.5 記録が1件も無い月は選択日を持たない(null)",
+        api.calendarLatestKey(api.calendarMonthDays([], 2026, 0)) === null);
+    }
+    check("27.5 月の移動は年をまたいで繰り上がる",
+      JSON.stringify(api.calendarShiftMonth(2026, 11, 1)) === '{"year":2027,"month":0}'
+      && JSON.stringify(api.calendarShiftMonth(2026, 0, -1)) === '{"year":2025,"month":11}',
+      `${JSON.stringify(api.calendarShiftMonth(2026, 11, 1))} / ${JSON.stringify(api.calendarShiftMonth(2026, 0, -1))}`);
+    check("27.5 見出しの綴りは1箇所(calendarMonthLabel)",
+      api.calendarMonthLabel(2026, 7) === "2026年8月", api.calendarMonthLabel(2026, 7));
     const lv = api.calendarLevel;
-    check("27.5 記録が無い日は 0(いちばん淡い地)", lv(0, 100, 0) === 0 && lv(50, 100, 0) === 0);
+    check("27.5 記録が無い日は 0(丸を描かない)", lv(0, 100, 0) === 0 && api.calendarFill(0) === "transparent");
     check("27.5 記録がある日は必ず 1 以上(長さが保存されていない古い記録も「した日」に見える)",
       lv(0, 100, 3) === 1 && lv(0, 0, 1) === 1, `${lv(0, 100, 3)} / ${lv(0, 0, 1)}`);
     check("27.5 濃さは最大の日に対する比で4段(境界は 25 / 50 / 75%)",
-      lv(25, 100, 1) === 1 && lv(25.1, 100, 1) === 2 && lv(50, 100, 1) === 2
-      && lv(50.1, 100, 1) === 3 && lv(75, 100, 1) === 3 && lv(75.1, 100, 1) === 4 && lv(100, 100, 1) === 4,
+      [25, 25.1, 50, 50.1, 75, 75.1, 100].map((v) => lv(v, 100, 1)).join(",") === "1,2,2,3,3,4,4",
       [25, 25.1, 50, 50.1, 75, 75.1, 100].map((v) => lv(v, 100, 1)).join(","));
     check("27.5 濃さの色は既存の紺ランプそのまま(新しい値を発明していない)",
-      api.CALENDAR_FILLS.join(" ") === "var(--c-sunk) var(--c-accent-tint) var(--c-accent-line) var(--c-accent-mid) var(--c-accent)",
+      api.CALENDAR_FILLS.join(" ") === "transparent var(--c-accent-tint) var(--c-accent-line) var(--c-accent-mid) var(--c-accent)",
       api.CALENDAR_FILLS.join(" "));
-    check("27.5 段の外を渡しても地の色に落ちる(未定義の塗りを返さない)",
-      api.calendarFill(9) === "var(--c-sunk)" && api.calendarFill(-1) === "var(--c-sunk)");
+    check("27.5 濃い2段だけ白い日付(淡い段は濃い文字のほうが読める)",
+      [1, 2].every((l) => api.calendarInk(l) === "var(--c-ink)")
+      && [3, 4].every((l) => api.calendarInk(l) === "var(--c-on-accent)"));
+    check("27.5 §5: マスは 44pt、その中の丸は小さい(見た目は普通の暦のまま当たり判定を満たす)",
+      api.CALENDAR_CELL_H === 44 && api.CALENDAR_DOT < api.CALENDAR_CELL_H,
+      `マス ${api.CALENDAR_CELL_H} / 丸 ${api.CALENDAR_DOT}`);
+    check("27.5 5週の窓(practiceCalendarDays / CALENDAR_WEEKS)は定義ごと消えている",
+      !/function practiceCalendarDays\b/.test(src) && !/const CALENDAR_WEEKS\b/.test(src));
   }
 
   // --- 27.6 セルの数字とレンジの表記(実行で検証) ----------------------------------
@@ -14342,20 +14492,23 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.7 下のカードを畳むのは 比較対象 = 自分の平均 のとき(全セルが構造的に 0 になる側)",
       /const showLower = compare !== MY_DATA_COMPARE_TARGETS\[0\]\.key;/.test(myDataSection)
       && /\{showLower && \(/.test(myDataSection));
-    check("27.7 マトリクスの塗りと文字色は段の番号から引く(呼び出しに隣接)",
-      /const step = divergingStep\(v, matrix\.maxAbs\);/.test(matrixCard)
-      && /background: divergingFill\(step\), color: divergingInk\(step\),/.test(matrixCard));
-    check("27.7 色は**そのマトリクスの実測レンジ**で引き直す(固定閾値を渡していない)",
-      !/divergingStep\([^)]*,\s*\d/.test(matrixCard));
-    check("27.7 凡例は上下2枚の外に1つだけ(正典 #9b「カード2枚の外側に1つ」)",
-      (myDataSection.match(/<DivergingLegend/g) || []).length === 1
-      && (src.match(/<DivergingLegend/g) || []).length === 1,
-      `${(src.match(/<DivergingLegend/g) || []).length}箇所`);
-    check("27.7 凡例のバーは8段をまとめて描く(色の綴りを8回写していない)",
-      /Array\.from\(\{ length: DIVERGING_STEPS \}, \(_, i\) => i \+ 1\)\.map\(\(step\) => \(/.test(legendFn)
-      && (legendFn.match(/divergingFill\(/g) || []).length === 1);
+    // 【D-5】窓の中の棒。長さは matrixBarGeometry、色は matrixBarColor(方向だけ)。
+    check("27.7 D-5: 棒の長さと向きは matrixBarGeometry から引く(呼び出しに隣接)",
+      /const g = matrixBarGeometry\(v, matrix\.maxAbs\);/.test(matrixCard)
+      && /background: matrixBarColor\(g\.up\)/.test(matrixCard));
+    check("27.7 D-5: 長さは**そのマトリクスの実測レンジ**で引き直す(固定閾値を渡していない)",
+      !/matrixBarGeometry\([^)]*,\s*\d/.test(matrixCard));
+    check("27.7 D-5: 段ごとに 0 の線を1本、行の端から端まで通す(窓ごとの短い線ではない)",
+      /position: "absolute", left: 0, right: 0, top: MATRIX_CELL_H \/ 2, height: 1, background: "var\(--c-line-strong\)"/.test(matrixCard));
+    check("27.7 D-5: 数値は**棒と反対側の半分**へ置く(棒と絶対に重ならない)",
+      /top: g\.up \? "50%" : "auto", bottom: g\.up \? "auto" : "50%"/.test(matrixCard)
+      && /height: g\.h, top: g\.up \? "auto" : "50%", bottom: g\.up \? "50%" : "auto"/.test(matrixCard));
+    check("27.7 D-5: 8段の凡例は廃止され、読み方は**1行の説明**が引き取った",
+      !/<DivergingLegend/.test(src)
+      && /段の中央が 0。/.test(myDataSection)
+      && /上＝高い/.test(myDataSection) && /下＝低い/.test(myDataSection));
     check("27.7 カレンダーの濃さは calendarLevel → calendarFill の順で引く(呼び出しに隣接)",
-      /const level = calendarLevel\(d\.minutes, maxMinutes, d\.count\);/.test(calCard)
+      /const level = calendarLevel\(c\.minutes, maxMinutes, c\.count\);/.test(calCard)
       && /background: calendarFill\(level\),/.test(calCard));
     check("27.7 カレンダーの母集団は My Data と同じ(奏者=自分 + 選択楽器を渡している)",
       /<PracticeCalendarCard\s*\r?\n\s*sessions=\{allMySessions\}/.test(myDataSection));
@@ -14371,62 +14524,33 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       && !/myDataStock/.test(codeOf(myDataSection)));
   }
 
-  // --- 27.8 正典との寸法の突き合わせ ----------------------------------------------
-  // 正典 #9b のセル・マス・グリッドの実数と実装を突き合わせる(色と文字は写像するが、
-  // **レイアウトの関係と実数はそのまま採る**のがこの周の裁定)。
+  // --- 27.8 寸法(正典 #9b から D-5 のモックへ移った分を明記する) --------------------
+  // 【D-5 2026/08/23 本人指示】マトリクスとカレンダーの見た目は、正典 #9b から
+  // design/mydata-cell-proposals.html の**案B1 / 案G**へ移った(本人が選択)。
+  // したがって寸法の出どころも #9b からモックへ移る。**正典から変わった点だけ**をここに残す。
   {
-    const cellH = (/height:26px;border-radius:5px/.exec(block) || [])[0] ? 26 : null;
     const gridGap = (/grid-template-columns:repeat\(12,1fr\);gap:(\d+)px/.exec(block) || [])[1];
-    const calH = (/height:34px;border-radius:8px/.exec(block) || [])[0] ? 34 : null;
-    const calGap = (/grid-template-columns:repeat\(7,1fr\);gap:(\d+)px/.exec(block) || [])[1];
-    check("27.8 正典からセル・マスの寸法を読めている(空回りしていない)",
-      cellH === 26 && gridGap === "3" && calH === 34 && calGap === "4",
-      `セル=${cellH} / 列gap=${gridGap} / マス=${calH} / 週gap=${calGap}`);
-    check("27.8 マトリクスのセルは正典と同じ高さ・列数・gap",
-      new RegExp(`height: ${cellH}, borderRadius: "var\\(--r-xs\\)"`).test(matrixCard)
-      && new RegExp(`gridTemplateColumns: "repeat\\(12, 1fr\\)", gap: ${gridGap}`).test(matrixCard),
-      `正典 ${cellH}px / gap ${gridGap}px`);
-    // 【D-1 §5 で正典と意図的に違えた1点】マスの高さは正典 34px ではなく 44px。
-    // 375px の実機では 7列 × 5週のマスが **41.3 × 34** にしかならず §5(44×44・例外なし)を
-    // 割る(統括の Browser pane 実測)。402px の正典では 44.3 × 34 で**横だけ**足りていた。
-    // README 自身が「タップ可能要素は最小 44px 高」と書いているので、
-    //   ・縦 … CALENDAR_CELL_H = 44(正典より 10px 高い)
-    //   ・横 … grid だけカードの padding(--sp-4)を食い破って地の端まで広げる → 45.8px(実測)
-    // の2つで満たす。**色・角丸・gap・週の数は正典のまま**。
-    check("27.8 カレンダーのマスの高さは §5 を満たす定数から引く(正典の 34px は 375px で足りない)",
-      /height: CALENDAR_CELL_H, padding: 0/.test(calCard)
-      && /const CALENDAR_CELL_H = 44;/.test(src),
-      `正典 ${calH}px → 実装 CALENDAR_CELL_H`);
-    check("27.8 カレンダーの列数と gap は正典のまま",
-      new RegExp(`gridTemplateColumns: "repeat\\(7, 1fr\\)", gap: ${calGap}`).test(calCard),
-      `正典 gap ${calGap}px`);
+    check("27.8 正典から列の gap を読めている(空回りしていない)", gridGap === "3", `gap=${gridGap}`);
+    check("27.8 列は12・gap は正典のまま(変えたのは窓の高さと中身だけ)",
+      new RegExp(`gridTemplateColumns: "repeat\\(12, 1fr\\)", gap: ${gridGap}`).test(matrixCard));
+    check("27.8 D-5: 窓の高さは正典の 26px ではなく 28px(棒と数値が縦に住み分けるため)",
+      /const MATRIX_CELL_H = 28;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
+    check("27.8 D-5: カレンダーのマスは 44pt(§5)。正典 #9b の 34px は 375px では足りない",
+      /const CALENDAR_CELL_H = 44;/.test(src) && /height: CALENDAR_CELL_H, padding: 0/.test(calCard));
     // 曜日ヘッダとマスの grid が**同じだけ**食い破っていること(片方だけだと列がずれる)
     {
       const bleed = (calCard.match(/marginLeft: "calc\(-1 \* var\(--sp-4\)\)", marginRight: "calc\(-1 \* var\(--sp-4\)\)"/g) || []).length;
       check("27.8 曜日ヘッダとマスは同じ量だけカードの padding を食い破る(列がずれない)",
         bleed === 2, `${bleed}箇所`);
     }
-    // 指標タブの当たり判定(§5)。**見た目の間隔は正典の 22px のまま**で、
-    // 行の gap を 0 にして左右へ半分ずつ padding を入れる(子タブ行と同じ手)。
-    check("27.8 指標タブは見た目の間隔を変えずに当たり判定だけ 44pt へ広げる",
-      /const MY_DATA_METRIC_TAB_HALF_GAP_PX = 11;/.test(src)
-      && /gap: 0, marginLeft: -MY_DATA_METRIC_TAB_HALF_GAP_PX/.test(myDataSection)
-      && /padding: `0 \${MY_DATA_METRIC_TAB_HALF_GAP_PX}px`/.test(myDataSection)
-      && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(myDataSection));
-    check("27.8 半分の値は正典の gap:22px の半分(値を勝手に決めていない)",
-      (/gap:22px/.test(block) ? 22 : null) === 11 * 2,
-      `正典 ${(/gap:(\d+)px;margin-top/.exec(block) || [])[1] ?? "?"}px`);
-    check("27.8 下線は**文字の幅**に付く(ボタン全体に付けると隣と繋がる)",
-      /<span\s*\r?\n\s*style=\{\{\s*\r?\n\s*display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 2px",[\s\S]{0,240}?boxShadow: sel \? "inset 0 -2px 0 0 var\(--c-ink\)" : "none",/.test(myDataSection));
-    check("27.8 選択日の枠は場所を常に確保する(選択で 2px 動かない。F-75 の作法)",
-      /border: isSel \? "2px solid var\(--c-ink\)" : "2px solid transparent"/.test(calCard)
-      && /boxSizing: "border-box"/.test(calCard));
     check("27.8 マトリクスの器は .surf-sunk の作法に任せる(地・枠・padding をインラインで書かない)",
-      /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>/.test(matrixCard)
-      && !/background: "var\(--c-(sunk|surface)\)"/.test(matrixCard),
-      (matrixCard.match(/background: "[^"]*"/g) || []).join(" / ") || "0件");
-    check("27.8 指標タブの下線は box-shadow(高さを動かさない)",
-      /boxShadow: sel \? "inset 0 -2px 0 0 var\(--c-ink\)" : "none"/.test(myDataSection));
+      /<div className="card">/.test(myDataSection));
+    check("27.8 D-5: 指標タブと比較対象は**カードの中**にある(上部の余白と2種類のタブの見分け)",
+      /<div className="card">\s*\r?\n[\s\S]{0,400}?<MetricUnderlineTabs/.test(myDataSection)
+      && /比較対象/.test(myDataSection));
+    check("27.8 D-5: マトリクス2枚は同じカードの中(タブがどこまで効くかを箱が示す)",
+      (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 2
+      && (myDataSection.match(/<div className="card">/g) || []).length === 1);
     check("27.8 比較対象チップは A型(.ctl-state)。地も枠も角丸もクラスが持つ",
       /className="sans ctl-state"/.test(myDataSection)
       && !/borderRadius/.test(myDataSection.slice(myDataSection.indexOf('className="sans ctl-state"'),
@@ -14435,7 +14559,9 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
 
   // --- 27.9 消えた側の綴りが残っていない(読み手ゼロの定義を残さない) ---------------
   {
-    const dead = ["myDataChartSeries", "noteSpreadByIndex", "metricCardNumbers"];
+    // 【D-5 で追加】8段の色・5週の窓・凡例の部品も読み手ゼロになったので落とした。
+    const dead = ["myDataChartSeries", "noteSpreadByIndex", "metricCardNumbers",
+      "divergingStep", "divergingFill", "divergingInk", "practiceCalendarDays", "DivergingLegend"];
     for (const nm of dead) {
       check(`27.9 ${nm}(折れ線と帯のための関数)は定義ごと消えている`,
         !new RegExp(`function ${nm}\\b`).test(src), `${nm} が残っている`);
@@ -14609,10 +14735,14 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // 【D-2 2026/08/22】説明の中の語も、正典 #13a の名前(並べる軸 / 数値 / 分け方)へ揃えた。
   // **説明そのものは F-99 の本人指示で置いてあるので落とさない**(正典 #13a には無いが、
   // 「分析は自分で軸を選んで初めて機能する。最初に一定の説明が要る」という本人の意図が上位)。
+  // 【D-5 2026/08/23 本人指示で書き換え】本人「並べる軸→縦軸、数値→横軸、分け方→分析軸に変更」。
+  // 説明文の語も**セレクタと同じ名前**に付け替えた(画面の中で名前が食い違わない、が芯)。
   check("29.1 F-99: 1行の簡潔な説明がある(書き直した文。N-9 の長文ではない)",
-    lab29.includes("条件・並べる軸・数値・分け方を選ぶと、蓄積データをマトリクスで集計します"));
-  check("29.1 D-2: 説明の語はセレクタの名前と一致している(画面の中で名前が食い違わない)",
-    ["並べる軸", "数値", "分け方"].every((w) => new RegExp(`条件・[^"]*${w}`).test(lab29)));
+    lab29.includes("条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します"));
+  check("29.1 D-5: 説明の語はセレクタの名前と一致している(画面の中で名前が食い違わない)",
+    ["縦軸", "横軸", "分析軸"].every((w) => new RegExp(`条件・[^"]*${w}`).test(lab29)));
+  check("29.1 D-5: 旧い名前(並べる軸 / 分け方)が動く側に残っていない",
+    !/並べる軸|分け方/.test(codeOf(src)));
   check("29.1 冒頭の説明段落(「…マトリクスで俯瞰します」)が動く側に無い",
     !codeOf(src).includes("マトリクスで俯瞰") && !codeOf(lab29).includes("各セルはその組み合わせ"));
   check("29.1 グラフ下の軸の説明文(「縦に「…」、横に「…」…」)が動く側に無い",
@@ -14636,8 +14766,10 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.2 D-3: セッション詳細に罫の群がもう無い(群はカードが作る)",
     (codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 0,
     `${(codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 D-3: カードは4枚(指標グラフ / 録音 / メモ / 音階ごとの平均)",
-    (det29.match(/className="card"/g) || []).length === 3 && /<MetricTabCard/.test(det29),
+  // 【D-5 で 3 → 2】本人「音階ごとの平均を丸ごと削除」→ その1枚が画面ごと無くなった。
+  // 残るのは「録音」と「メモ」の2枚 + 共通部品の指標グラフ(MetricTabCard)。
+  check("29.2 D-5: カードは3枚(指標グラフ / 録音 / メモ)",
+    (det29.match(/className="card"/g) || []).length === 2 && /<MetricTabCard/.test(det29),
     `.card ${(det29.match(/className="card"/g) || []).length}枚 + MetricTabCard`);
   {
     const bad = [...det29.matchAll(/<div className="card"([^>]*)>/g)]
@@ -14645,10 +14777,12 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     check("29.2 D-3: .card にインラインの地・枠・padding が無い(作法を殺していない)",
       bad.length === 0, bad.map((m) => m[1].replace(/\s+/g, " ").slice(0, 80)).join(" | ") || "0件");
   }
-  check("29.2 D-3: 音階ごとの平均は**選んでいる指標の列だけ**出す(正典 #14b)",
-    /<th[^>]*>\{detailDef\.label\}<\/th>/.test(det29)
-    && />目安との差<\/th>/.test(det29)
-    && !/>ピッチ<\/th>/.test(det29));
+  // 【D-5 2026/08/23 本人指示で削除】「音階ごとの平均を丸ごと削除」。
+  // 正典 #14b は「選んでいる指標の列だけ」に絞る形を示していたが、本人はその表**ごと**
+  // 要らないと判断した(本人の指示が正典より上位)。もう無いことを固定する。
+  check("29.2 D-5: 音階ごとの平均の表は画面ごと無い(列を絞る話ではなく表が消えた)",
+    !/>目安との差<\/th>/.test(det29) && !/<th/.test(codeOf(det29)),
+    `th ${(codeOf(det29).match(/<th/g) || []).length}個`);
   check("29.2 タイムラインの罫は2本(タイムライン / ドリルダウン)",
     (codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
     `${(codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
@@ -14680,7 +14814,10 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     // **編集シート**へ移った(上部の1行メタは読み取り専用)。リード紐付けの PlainSelect も
     // シートの中にある。**機能は1つも減っていない**(置き場所だけが動いた)。
     const sheet29 = srcOfFn(src, "SessionEditSheet");
-    const PLAIN_OWNERS = [["PhraseTimeline", pt29, 3], ["SessionEditSheet", sheet29, 1], ["AnalysisLabView", lab29, 2]];
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「タイムラインは表示をピッチ、基準を絶対値に固定。それぞれ
+        // 選択できる機能を削除」→ PhraseTimeline の3つのセレクタ(表示指標 / 比較基準 /
+        // 別セッション)は**まとめて無くなった**。残る2つの持ち主は変わらない。
+        const PLAIN_OWNERS = [["PhraseTimeline", pt29, 0], ["SessionEditSheet", sheet29, 1], ["AnalysisLabView", lab29, 2]];
     const total = (codeOf(src).match(/<PlainSelect\b/g) || []).length;
     const inOwners = PLAIN_OWNERS.reduce((n, [, body]) => n + (codeOf(body).match(/<PlainSelect\b/g) || []).length, 0);
     for (const [name, body, want] of PLAIN_OWNERS) {
@@ -14689,15 +14826,29 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
         `${(codeOf(body).match(/<PlainSelect\b/g) || []).length}箇所`);
     }
     check("29.3 PlainSelect の呼び出しは上の集合の中だけ(集合の外に増えていない)",
-      total === inOwners && total === 6, `全体 ${total} / 集合内 ${inOwners}`);
+      total === inOwners && total === 3, `全体 ${total} / 集合内 ${inOwners}`);
   }
   // 個々の配線(隣接): 表示 / 基準 / 別セッション / リード / PIVOT の次元
-  check("29.3 タイムラインの指標切替は timelineMetric に配線されている",
-    /ariaLabel="タイムラインの指標"[\s\S]{0,220}?value=\{timelineMetric\} onChange=\{\(e\) => setTimelineMetric\(e\.target\.value\)\}/.test(pt29));
-  check("29.3 比較基準は referenceBasis に配線されている",
-    /ariaLabel="比較の基準"[\s\S]{0,220}?value=\{referenceBasis\} onChange=\{\(e\) => setReferenceBasis\(e\.target\.value\)\}/.test(pt29));
-  check("29.3 別セッションの選択は referenceSessionId に配線され、候補は referenceCandidates",
-    /ariaLabel="比較する別セッション"[\s\S]{0,300}?value=\{referenceSessionId \|\| ""\} onChange=\{\(e\) => setReferenceSessionId\(e\.target\.value \|\| null\)\}[\s\S]{0,300}?referenceCandidates\.map/.test(pt29));
+  // 【D-5 2026/08/23 本人指示で書き換え】3つの選択は**固定**になった。配線の検査は「その固定が実際に
+  // 効いているか」へ置き換える(セレクタが無いのに状態だけ残る、を作らない)。
+  check("29.3 D-5: タイムラインの指標はピッチに固定(選ばせない)",
+    /const getMetricValue = \(frame\) => frame\.pitchHz;/.test(pt29)
+    && !/timelineMetric/.test(codeOf(src)));
+  check("29.3 D-5: 比較の基準は絶対値(目安)に固定(選ばせない)",
+    /const getComparisonTarget = \(frame\) => getNoteIdeal\(selectedIdeal, frame\.semitoneIndex\);/.test(pt29)
+    && !/referenceBasis/.test(codeOf(src)));
+  check("29.3 D-5: 別セッション整列は状態ごと消えている(読み手ゼロの綴りを残さない)",
+    !/referenceSessionId|referenceCandidates/.test(codeOf(src)));
+  // 【D-5 2026/08/23 実機確認で発見して直した】平均アタックの平均は **数として使える値だけ**
+  // で取る。!== null だと undefined が通り抜け、1つでも混ざると画面に「NaNms」と出る
+  // (実機で実際に出た)。件数(検出ノート)は全部数えるので、そちらは絞らない。
+  check("29.3 D-5: 平均アタックは数として使える値だけで平均する(NaN を画面に出さない)",
+    /const attacks = noteEvents\.map\(\(e\) => e\.attackTimeMs\)\.filter\(\(v\) => Number\.isFinite\(v\)\);/.test(pt29));
+  check("29.3 D-5: 使える値が1つも無ければ平均そのものを出さない(0ms と嘘をつかない)",
+    /const avg = attacks\.length \? Math\.round\(attacks\.reduce\(\(a, b\) => a \+ b, 0\) \/ attacks\.length\) : null;/.test(pt29)
+    && /avg !== null \? \` ・ 平均アタック \$\{avg\}ms\` : ""/.test(pt29));
+  check("29.3 D-5: タイムライン本体(スクラブ・小節線・ドリルダウン)は残っている",
+    /type="range"/.test(pt29) && /barlineXs\.map/.test(pt29) && /setSelectedFrameIdx\(i\)/.test(pt29));
   // 【D-3】編集シートへ移った。渡し方(値と onChange をそのまま)は変わっていない。
   check("29.3 D-3: リード紐付けは編集シートで onSetReedId に配線され、表示値はリードの表記そのもの",
     /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "未紐付け"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(e\) => onSetReedId\(e\.target\.value \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
@@ -14748,15 +14899,18 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["タイムラインのスクラブ", /type="range"/],
       ["小節線", /barlineXs\.map/],
       ["ドリルダウン", /setSelectedFrameIdx\(i\)/],
-      ["音階ごとの平均の表", /音階ごとの平均（\{noteGroups\.length\}音）/],
-      ["目安との差の列", />目安との差<\/th>/],
+      // 【D-5 2026/08/23 本人指示で削除】「音階ごとの平均を丸ごと削除」。表と、その中に
+      // しか無かった「目安との差」の列は**本人が名指しで消した**ので、この集合から外す
+      // (29.2 が「もう無い」ことを固定する)。
     ];
     for (const [label, re] of want) check(`29.4 ${label} が残っている`, re.test(all), "");
     // 【D-2 2026/08/22 本人指示で書き換え】軸セレクタ3枚は正典 #13a の3カラムカードへ移り、
     // 部品も共有の PlainSelect(素のテキスト + ▾)になった。**3枚あることは変わらない。**
-    check("29.4 軸セレクタは3枚(3カラムカードの中の PlainSelect)",
-      (codeOf(lab29).match(/label: "並べる軸"|label: "数値"|label: "分け方"/g) || []).length === 3,
-      `${(codeOf(lab29).match(/label: "並べる軸"|label: "数値"|label: "分け方"/g) || []).length}枚`);
+    // 【D-2 → D-5】軸セレクタ3枚は正典 #13a の3カラムカードのまま。**名前だけ**が
+    // 本人指示で 縦軸 / 横軸 / 分析軸 に変わった(3枚あることは変わらない)。
+    check("29.4 D-5: 軸セレクタは3枚(縦軸 / 横軸 / 分析軸)",
+      (codeOf(lab29).match(/label: "縦軸"|label: "横軸"|label: "分析軸"/g) || []).length === 3,
+      `${(codeOf(lab29).match(/label: "縦軸"|label: "横軸"|label: "分析軸"/g) || []).length}枚`);
     check("29.4 pivot-axis-select は読み手ゼロの綴りとして残っていない",
       !/pivot-axis-select/.test(codeOf(src)),
       (codeOf(src).match(/pivot-axis-select/g) || []).length + "箇所");
@@ -15214,8 +15368,19 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       && (codeOf(lab32).match(/pivotFilterChipText\(/g) || []).length === 1);
     check("32.5 チップを押すと編集が開く(行き止まりを作らない)",
       /onClick=\{\(\) => setFilterEditorOpen\(true\)\}/.test(lab32));
-    check("32.5 「＋」は条件を1つ足して編集を開く(足しただけで何も起きない、を作らない)",
-      /setPivotFilters\(\(prev\) => \[\.\.\.prev, \{ dimKey: PIVOT_DIMENSIONS\[0\]\.key, values: \[\], rangeMin: null, rangeMax: null \}\]\);\s*\r?\n\s*setFilterEditorOpen\(true\);/.test(lab32));
+    // 【D-5 2026/08/23 本人指示で書き換え】本人「絞り込みで追加できる条件が音名だけなのでそれ以外も
+    // 元の通り追加」。実際には次元は変えられたが、「＋」が**必ず音名を足す**うえに
+    // 変え方が畳んだ編集の中に隠れていたので、音名しか足せないように見えていた。
+    // 「＋」は**どの条件を足すか選ばせるシート**を開く形にした。
+    check("32.5 D-5: 「＋」は足す条件を選ぶシートを開く(勝手に音名を足さない)",
+      /onClick=\{\(\) => setAddFilterSheetOpen\(true\)\}/.test(lab32)
+      && /const \[addFilterSheetOpen, setAddFilterSheetOpen\] = useState\(false\);/.test(lab32));
+    check("32.5 D-5: シートの候補は PIVOT_DIMENSIONS の全部から出る(音名に固定していない)",
+      /items=\{PIVOT_DIMENSIONS/.test(lab32));
+    check("32.5 D-5: 既に条件にしている次元は候補に出さない(押せない項目を出さない。F-77)",
+      /\.filter\(\(d\) => !pivotFilters\.some\(\(f\) => f\.dimKey === d\.key\)\)/.test(lab32));
+    check("32.5 D-5: 選ぶとその次元で条件が1つ増え、シートが閉じて編集が開く(行き止まりにしない)",
+      /setPivotFilters\(\(prev\) => \[\.\.\.prev, \{ dimKey: k, values: \[\], rangeMin: null, rangeMax: null \}\]\);\s*\n\s*setAddFilterSheetOpen\(false\);\s*\n\s*setFilterEditorOpen\(true\);/.test(lab32));
     check("32.5 編集は既定で畳んである(正典 #13a は条件を1行に畳んでいる)",
       /const \[filterEditorOpen, setFilterEditorOpen\] = useState\(false\);/.test(lab32));
     check("32.5 畳んでいる間も編集の中身は消えていない(開けば従来どおり出る)",
