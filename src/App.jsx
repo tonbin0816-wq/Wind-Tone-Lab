@@ -7932,10 +7932,8 @@ const REED_GROUP_PAD_BOTTOM_PX = 24; // 正典 .rgroup padding-bottom
 // (【F-111 2026/08/17 本人指示】REED_ADDROW_PAD_TOP_PX = 正典 .addrow の padding-top は
 //  ここにあったが、一覧末尾の「＋ 追加」を右下に浮かせるボタン(案D)へ移して読み手が
 //  無くなったので削除した。使い手の無い定義を残さない。)
-const REED_SUBTAB_GAP_PX = 18;       // 正典 .subtabs gap(隣り合う子タブの文字の間隔)
-// 子タブの当たり判定を 44px にするために左右へ入れる余白。左右あわせて gap と同じ量になるので、
-// 行の gap を 0 にすれば**文字の間隔は正典の 18px のまま**当たり判定だけ広がる。
-const REED_SUBTAB_HALF_GAP_PX = REED_SUBTAB_GAP_PX / 2;
+// 【D-6】子タブの間隔の定数はここに2組あったが、子タブそのものが共通部品 SubTabs に
+// まとまったので **SUBTAB_GAP_PX / SUBTAB_HALF_GAP_PX の1組**へ寄せた(定義は SubTabs の隣)。
 // 個体詳細の .numrow の1列に与える最小幅。**折り返しの判定にだけ効く**値で、
 // 通常時(4列)の見た目は変わらない(4×60 = 240 ≤ 327)。
 // 1列がグラフに切り替わって幅100%になったとき、残りの3列を次の行へ送るために要る。
@@ -8410,25 +8408,11 @@ function ReedsTab(props) {
           **見た目の間隔を変えずに**当たり判定だけ広げる: 行の gap を 0 にして
           左右に 18/2 = 9px の padding を入れる(隣り合う文字の間は 9+9 = 18 のまま)。
           先頭の文字が 9px 右へずれるぶんは行の marginLeft で戻す(文字の位置は正典どおり)。 */}
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -REED_SUBTAB_HALF_GAP_PX, fontSize: 13, marginBottom: 4 }}>
-        {[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => { if (listMode) exitMode(); setReedsSubTab(t.key); }}
-            className="sans"
-            aria-pressed={reedsSubTab === t.key}
-            style={{
-              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-              padding: `0 ${REED_SUBTAB_HALF_GAP_PX}px`,
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 13,
-              color: reedsSubTab === t.key ? "var(--c-ink)" : "var(--c-ink-3)",
-              fontWeight: reedsSubTab === t.key ? 600 : 400,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+      <SubTabs
+        items={[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }]}
+        value={reedsSubTab}
+        onChange={(k) => { if (listMode) exitMode(); setReedsSubTab(k); }}
+      >
         {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。
             【リードが0枚のときは出さない】中身は「箱を選んで削除 / 個体を選んで削除」で、
             **箱が1つも無ければどちらも実行できない**。
@@ -8472,7 +8456,7 @@ function ReedsTab(props) {
             )}
           </div>
         )}
-      </div>
+      </SubTabs>
 
       <SwipePager
         index={reedsSubTab === "compare" ? 1 : 0}
@@ -11276,19 +11260,67 @@ function buildNoteMatrix(valueByIdx, targetByIdx, count, saxType, tuningHz) {
 //   ・窓の中央が 0。上＝高い(--c-above 金) / 下＝低い(--c-below 紺)
 //   ・**段ごとに 0 の線を1本**(窓ごとの短い線ではなく、行の端から端まで貫く)
 //   ・数値は**棒と反対側の半分**へ置く。棒は片側にしか伸びないので**絶対に重ならない**
-const MATRIX_CELL_H = 28;      // 窓の高さ(D-1 の 26 から +2)
-const MATRIX_BAR_MAX = 12;     // 窓の中央から端までに使える長さ(28/2 = 14 の内側)
-const MATRIX_BAR_W = 9;        // 棒の幅
-const MATRIX_BAR_MIN = 1.5;    // 0 でも線として見える最小の長さ
-// 棒の向きと長さ。maxAbs は**そのマトリクスの実測の最大絶対値**(固定閾値にしない)。
-// 長さは MATRIX_BAR_MAX を超えない(枠から飛び出さない)。
-function matrixBarGeometry(v, maxAbs) {
+const MATRIX_CELL_H = 40;          // 窓の高さ(D-5 の 28 から。本人が案B を選択)
+const MATRIX_GRID_GAP = 1;         // 列の間隔(D-5 の 3 から。窓の横幅を稼ぐ)
+const MATRIX_FILL_MAX = MATRIX_CELL_H / 2;  // 中央から端まで。塗りは窓の半分を超えない
+const MATRIX_FILL_MIN = 2;         // 0 でも帯として見える最小の高さ
+// 塗りの向きと**高さ**。maxAbs は**そのマトリクスの実測の最大絶対値**(固定閾値にしない)。
+// 高さは MATRIX_FILL_MAX を超えない(窓から飛び出さない)。**横幅は窓いっぱい**なので
+// ここでは持たない(幅が一定 = 列が揃って見える、が本人の指示の眼目)。
+function matrixFillGeometry(v, maxAbs) {
   const up = v >= 0;
-  const raw = maxAbs > 0 ? (Math.abs(v) / maxAbs) * MATRIX_BAR_MAX : MATRIX_BAR_MIN;
-  return { up, h: Math.min(MATRIX_BAR_MAX, Math.max(MATRIX_BAR_MIN, raw)) };
+  const raw = maxAbs > 0 ? (Math.abs(v) / maxAbs) * MATRIX_FILL_MAX : MATRIX_FILL_MIN;
+  return { up, h: Math.min(MATRIX_FILL_MAX, Math.max(MATRIX_FILL_MIN, raw)) };
 }
-// 色は方向だけを示す(程度は長さが示す)。hex は index.css の --c-above / --c-below が持つ。
-function matrixBarColor(up) { return up ? "var(--c-above)" : "var(--c-below)"; }
+
+// 【D-6】「合っている」とみなす幅(帯)。**この中の窓は色を持たない**(灰)。
+// 本人指示「±2以内は色を目立たな色にして、ずれているところに目が行くようにしたら」。
+//   ・平均差分(¢)だけ**絶対値**。RING_IN_TUNE_CENTS = チューナーが「合った」とする幅で、
+//     **本人が F-47 で 1 → 2 に広げた数字**。環が閉じたなら窓も灰、と2つの画面が一致する。
+//   ・他の3指標(HNR/重心/音量)は「これ以内なら同じ」と言える絶対値が**存在しない**ので相対。
+//     本人裁定「他の指標は絶対値で存在しないので音程だけ絶対値でほかは相対で出して」。
+//     式は maxAbs ÷ 3。design/mydata-size-band-proposals.html で二乗平均と比べ、
+//     重心 16 対 17個・HNR と音量は完全一致だったので、**説明の簡単なほう**を採った。
+//     (この式を平均差分に当てると 6÷3 = ±2 で絶対値の答えと一致する。ただし調子の悪い日は
+//      maxAbs が動くので、意味の決まっているピッチは絶対値に固定する。)
+const MATRIX_RELATIVE_BAND_DIVISOR = 3;
+function matrixBand(metricKey, maxAbs) {
+  if (metricKey === "pitchCentsSigned") return RING_IN_TUNE_CENTS;
+  return (Number(maxAbs) > 0 ? maxAbs : 0) / MATRIX_RELATIVE_BAND_DIVISOR;
+}
+// 色は**3状態だけ**。程度は高さが担うので、濃さの段は作らない
+// (本人「色だけで判断するのは難しい」への答え)。
+// 【罠】帯の判定は**画面に出す値**(丸めた後)で行う。生値でやると「0 と書いてあるのに
+// 色がつく窓」ができる(生値 0.4 / 帯 0.33)。呼び手が matrixCellValue を渡すこと。
+// 【D-6】凡例に出す帯の綴り。帯は指標で変わる(ピッチだけ絶対値)ので、**その場の数**を出す。
+// 単位は指標の定義(MY_DATA_METRICS の unit)から引く — 綴りを2箇所に持たない。
+// 相対の帯は小数になりうるので、画面に出すときだけ整数へ丸める(窓の数値と同じ粒度に揃える)。
+function matrixBandText(metric, matrix) {
+  const band = matrixBand(metric?.key, matrix?.maxAbs ?? 0);
+  const n = band >= 1 ? Math.round(band) : Math.round(band * 10) / 10;
+  return `±${n}${metric?.unit ?? ""}`;
+}
+function matrixCellColor(v, band) {
+  if (Math.abs(v) <= band) return "var(--c-quiet)";
+  return v >= 0 ? "var(--c-above)" : "var(--c-below)";
+}
+// 【D-6】数値の字の大きさは**そのマトリクスのいちばん長い綴り**から決める。
+// 窓の内幅は 23.7px しかないので、4桁(重心の百単位の差)に引きずられて全指標が
+// 小さいままになるのを避ける。D-5 までは全指標 9.5px 固定だった。
+// 【実測 2026/08/23 Browser pane 375×812】窓の内幅 23.83px に対する --font-num の送り幅:
+//   2桁「+6」   13px→15.91 / 15px→18.36
+//   3桁「-45」  12px→17.75 / 13px→19.22
+//   4桁「+240」 10px→23.02 / 10.5px→24.17(あふれる)
+//   5桁「-1200」 9px→23.02
+// **見積もりではなく測った値**。段はこの表から選んでいる(罠7)。
+// 数値は窓の半分(20px)に入るので、行の高さ込みで 15px まで(15×1.2 = 18 ≤ 20)。
+function matrixNumFontSize(texts) {
+  const L = Math.max(0, ...(texts || []).map((t) => String(t).length));
+  if (L <= 2) return 15;
+  if (L === 3) return 13;
+  if (L === 4) return 10;
+  return 9;
+}
 
 // 【D-1】セルの数字。**4指標とも符号付きの整数**にする。
 // 平均差分だけ formatSignedCents(小数1桁)を使う手もあるが、"+12.3" は5字あり、
@@ -11380,8 +11412,17 @@ function calendarLatestKey(cells) {
 function calendarMonthLabel(year, month) { return `${year}年${month + 1}月`; }
 // 【D-5】マスの当たり判定(§5 は例外なし)と、その中に描く丸の大きさ。
 // 丸を 30px にしてマスを 44px にすることで、**見た目は普通の暦のまま**当たり判定を満たす。
-const CALENDAR_CELL_H = 44;
-const CALENDAR_DOT = 30;
+// 【D-6 2026/08/23 本人裁定・§5 の唯一の例外】本人が
+// design/mydata-size-band-proposals.html の4枚を実寸で見比べ、「案B + カレンダー38 が一番いい」
+// と選んだ。44 → 38 でカレンダーは 6行 × 6px = **36px 縮む**。
+// **これは §5(タップ先は 44×44・例外なし)を破る唯一の箇所**であり、事故ではなく裁定である:
+//   ・縦は隣の行と当たり判定を食い合うので「見た目は小さく当たり判定だけ広げる」手が**使えない**
+//     (指標タブや子タブで使っている横方向の手は、縦には効かない)。行の高さ = タップの高さ。
+//   ・横は 45.8px あるので **38 × 45.8**。指の当たりは横に余裕がある。
+//   ・代わりに窓(マトリクス)を 28 → 40 に上げ、ページ全体では +36px に収めている。
+// この例外を広げないこと。**他の場所で 44 を割ってよい根拠にはならない。**
+const CALENDAR_CELL_H = 38;
+const CALENDAR_DOT = 28;
 // 秒 → 「9.4」。小数1桁の規則をここ1箇所に閉じる(myDataStockTexts とカレンダーの合計時間が共有)。
 function hoursText(seconds) { return ((Number(seconds) || 0) / 3600).toFixed(1); }
 
@@ -11411,6 +11452,56 @@ const DETAIL_TAB_HALF_GAP_PX = 8;
 // (正典が「同じ部品・同じ順番」を要求しているのと、下線の作り方を3箇所に写さないため)。
 // 見た目の間隔は halfGap の2倍。当たり判定は行の gap を 0 にして padding で作る。
 // 下線は**文字の幅**に付く(ボタン全体に付けると隣の下線と繋がる)。
+// 【D-6 2026/08/23 本人指摘の積み残しを実装】「2つの種類のタブが同じ見た目で存在していて
+// わかりにくい」。D-5 では指標タブをカードの中へ入れたが、**見た目そのものは変えていなかった**。
+// 実測すると子タブも指標タブも 13px・同じ色の使い方で、違いは下線だけだった(= 直っていない)。
+// 正典 #9b は子タブを「大見出し + 小さい兄弟」(選択中 20px/600・非選択 17px/400)にしている。
+// 体系の7段に 20/17 は無いので、いちばん近い段 **--fs-lg(18) / --fs-md(15)** へ写す
+// (本人裁定「既存トークンへ寄せる」。旧起票 D-1e がここで解ける)。
+// これで2つのタブは「ページの見出し(大・下線なし)」と「カードの中の指標(小・下線あり)」に分かれる。
+//
+// **データタブ(My Data / 分析)とリードタブ(登録 / 比較)は同じ写しが2つあった**ので、
+// ここに1つにまとめた(片方だけ大きくなる事故を構造的に防ぐ)。
+const SUBTAB_GAP_PX = 18;                      // 正典 .subtabs gap(隣り合う子タブの文字の間隔)
+const SUBTAB_HALF_GAP_PX = SUBTAB_GAP_PX / 2;
+// 【§5 タップ領域】文字の実高は 26px しかない。**見た目の間隔を変えずに**当たり判定だけ
+// 広げるため、行の gap を 0 にして左右へ halfGap の padding を入れる
+// (隣り合う文字の間は 9+9 = 18 のまま)。先頭が右へずれるぶんは行の marginLeft で戻す。
+// 縦にはこの手が使えない(隣の行と食い合う)ので、高さは素直に 44 を取る。
+function SubTabs({ items, value, onChange, children }) {
+  return (
+    <div
+      className="sans"
+      style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -SUBTAB_HALF_GAP_PX, marginBottom: 4 }}
+    >
+      {items.map((t) => {
+        const sel = value === t.key;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            aria-pressed={sel}
+            className="sans"
+            style={{
+              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              padding: `0 ${SUBTAB_HALF_GAP_PX}px`,
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: sel ? "var(--fs-lg)" : "var(--fs-md)",
+              color: sel ? "var(--c-ink)" : "var(--c-ink-3)",
+              fontWeight: sel ? 600 : 400,
+              lineHeight: 1.2,
+            }}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+      {children}
+    </div>
+  );
+}
+
 function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordered = false }) {
   return (
     <div
@@ -11747,6 +11838,20 @@ function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) 
 // D-1 の NoteMatrixCard は「1枚ごとにカード」だったが、タブがカードの外にあると
 // 「タブがどこまで効くか」が箱で示せず、本人の指摘「2種類のタブが同じ見た目」が残るため。
 function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
+  // 【D-6】帯と字の大きさは**このマトリクス全体で1つ**なので、行を回す前に1度だけ決める
+  // (窓ごとに決めると、同じ大きさのずれが窓によって別の色に見える)。
+  const band = matrixBand(metricKey, matrix.maxAbs);
+  // 【罠】帯の判定も字の大きさも、**画面に出す綴り**から出す。生値でやると
+  // 「0 と書いてあるのに色がつく窓」や「桁があふれる窓」ができる。
+  const cellTexts = [];
+  for (const oct of matrix.octaves) {
+    for (const pc of NOTE_NAMES) {
+      const v = matrix.byKey[oct + ":" + pc];
+      if (v === null || v === undefined || isNaN(v)) continue;
+      cellTexts.push(matrixCellText(v));
+    }
+  }
+  const numFs = matrixNumFontSize(cellTexts);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: "var(--sp-3)" }}>
@@ -11762,7 +11867,7 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
       </div>
       <div style={{ display: "flex", gap: 5 }}>
         {/* 左のオクターブ番号の列。上の音名ラベル行(高さ14px)ぶん下げてから窓の高さに揃える。 */}
-        <div style={{ width: 11, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, paddingTop: 14 }}>
+        <div style={{ width: 11, flexShrink: 0, display: "flex", flexDirection: "column", gap: MATRIX_GRID_GAP, paddingTop: 14 }}>
           {matrix.octaves.map((oct) => (
             <span
               key={oct}
@@ -11773,13 +11878,13 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
           ))}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 3, marginBottom: 3 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: MATRIX_GRID_GAP, marginBottom: MATRIX_GRID_GAP }}>
             {NOTE_NAMES.map((pc) => (
               <span key={pc} className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", textAlign: "center", overflow: "hidden" }}>{pc}</span>
             ))}
           </div>
           {matrix.octaves.map((oct) => (
-            <div key={oct} style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 3, marginBottom: 3 }}>
+            <div key={oct} style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: MATRIX_GRID_GAP, marginBottom: MATRIX_GRID_GAP }}>
               {/* 【本人指示】段ごとに 0 の線を**1本**。窓の枠と隙間を貫いて行の端から端まで通す
                   (窓ごとの短い線ではない)。棒はこの線から生える。 */}
               <span
@@ -11792,32 +11897,34 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
                 if (v === null || v === undefined || isNaN(v)) {
                   return <div key={pc} style={{ height: MATRIX_CELL_H }} />;
                 }
-                const g = matrixBarGeometry(v, matrix.maxAbs);
+                const g = matrixFillGeometry(v, matrix.maxAbs);
+                const label = matrixCellText(v);
                 return (
                   <div
                     key={pc}
                     style={{ height: MATRIX_CELL_H, borderRadius: "var(--r-xs)", background: "var(--c-sunk)", position: "relative", overflow: "hidden" }}
                   >
-                    {/* 棒: 窓の中央(= 0 の線)から上下へ。長さが差の大きさ、色は方向だけ。 */}
+                    {/* 塗り: 窓の中央(= 0 の線)から上下へ。**横幅は窓いっぱい**で、
+                        高さが差の大きさ。色は 上/下/帯の中 の3状態だけ(程度は高さが担う)。
+                        帯の判定は**画面に出す綴り**から読み直した数で行う(丸めと食い違わせない)。 */}
                     <span
                       aria-hidden="true"
                       style={{
-                        position: "absolute", left: "50%", width: MATRIX_BAR_W, marginLeft: -MATRIX_BAR_W / 2,
+                        position: "absolute", left: 0, right: 0,
                         height: g.h, top: g.up ? "auto" : "50%", bottom: g.up ? "50%" : "auto",
-                        background: matrixBarColor(g.up), borderRadius: 1.5, zIndex: 2,
+                        background: matrixCellColor(Number(label), band), zIndex: 2,
                       }}
                     />
-                    {/* 数値: **棒と反対側の半分**。棒は片側にしか伸びないので絶対に重ならない。
-                        9.5px の根拠は D1-SPEC 2.4 の実測(窓の内幅 22.00px に「+166」が 21.88px)。 */}
+                    {/* 数値: **塗りと反対側の半分**。塗りは片側にしか伸びないので絶対に重ならない。 */}
                     <span
                       style={{
                         position: "absolute", left: 0, right: 0, height: "50%",
                         top: g.up ? "50%" : "auto", bottom: g.up ? "auto" : "50%",
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: "var(--font-num)", fontSize: 9.5, color: "var(--c-ink-2)", zIndex: 3,
+                        fontFamily: "var(--font-num)", fontSize: numFs, color: "var(--c-ink-2)", zIndex: 3,
                       }}
                     >
-                      {matrixCellText(v)}
+                      {label}
                     </span>
                   </div>
                 );
@@ -12108,10 +12215,13 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           </div>
         )}
 
-        {/* 【D-5】8段のカラースケールの凡例は**廃止**した(色は方向だけになったので段が要らない)。
-            代わりに読み方を1行で置く。「低い ← → 高い」の方向ラベルもこの1行が引き取った。 */}
+        {/* 【D-6】読み方の1行。D-5 では「棒の長さ」と言っていたが、塗りが窓の幅いっぱいになり、
+            さらに帯(合っている幅)が入ったので**3つとも言い直す**必要がある:
+            どこが 0 か / 何が大きさを表すか / 灰は何か。
+            帯の幅は指標で変わる(ピッチだけ絶対値の ±2¢)ので、**その場の数**を出す。 */}
         <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", lineHeight: 1.7, marginTop: "var(--sp-3)" }}>
-          段の中央が 0。<b style={{ color: "var(--c-above)", fontWeight: 700 }}>上＝高い</b> / <b style={{ color: "var(--c-below)", fontWeight: 700 }}>下＝低い</b>。棒の長さが差の大きさ
+          段の中央が 0。<b style={{ color: "var(--c-above)", fontWeight: 700 }}>上＝高い</b> / <b style={{ color: "var(--c-below)", fontWeight: 700 }}>下＝低い</b>。塗りの高さが差の大きさ。
+          <b style={{ color: "var(--c-quiet)", fontWeight: 700 }}>灰</b>＝{matrixBandText(chartMetric, upper)}以内（ほぼ合っている）
         </div>
       </div>
 
@@ -12209,12 +12319,10 @@ function MyDataScopePicker({ dataSax, setDataSax, range, setRange }) {
 // (音名軸グラフに目安の破線を重ねるための対応表。平均差分は目安=0のため対象外)
 const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCentsSigned: null };
 
-// 【N-6】正典 .subtabs の gap は 18px。リードタブ(N-5)と同じクラスの寸法だが、
-// 定数を共有すると片方を調整したときにもう片方が黙って動くので、画面ごとに持つ。
-const DATA_SUBTAB_GAP_PX = 18;
-// 子タブの当たり判定を 44px にするために左右へ入れる余白。左右あわせて gap と同じ量になるので、
-// 行の gap を 0 にすれば**文字の間隔は正典の 18px のまま**当たり判定だけ広がる。
-const DATA_SUBTAB_HALF_GAP_PX = DATA_SUBTAB_GAP_PX / 2;
+// 【D-6】「画面ごとに定数を持つ」という N-6 の判断は**取り消した**。本人指摘
+// 「2つの種類のタブが同じ見た目で存在していてわかりにくい」を直すとき、
+// 2つの子タブの寸法が**別々に動けること自体が事故のもと**だと分かったため
+// (片方だけ 18px にして、もう片方が 13px のまま残る)。SUBTAB_GAP_PX の1組に寄せた。
 
 // 【F-108 2026/08/17 本人指示】「セッションの削除についての機能なのに一覧との距離が遠くて
 // 使いづらい。せめてスクロール不要で同一画面内に収まるように」。
@@ -12443,28 +12551,11 @@ function AnalysisLabView(props) {
           当たり判定だけ広げる: 行の gap を 0 にして左右に 18/2 = 9px の padding を入れる
           (隣り合う文字の間は 9+9 = 18 のまま)。先頭が 9px 右へずれるぶんは行の marginLeft で戻す。
           右端(正典の margin-left:auto)が「…」。 */}
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -DATA_SUBTAB_HALF_GAP_PX, fontSize: 13, marginBottom: 4 }}>
-        {[
-          { key: "mydata", label: "My Data" },
-          { key: "analysis", label: "分析" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => { if (listMode) exitSelectionMode(); setDataSubTab(t.key); }}
-            className="sans"
-            aria-pressed={dataSubTab === t.key}
-            style={{
-              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-              padding: `0 ${DATA_SUBTAB_HALF_GAP_PX}px`,
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 13,
-              color: dataSubTab === t.key ? "var(--c-ink)" : "var(--c-ink-3)",
-              fontWeight: dataSubTab === t.key ? 600 : 400,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+      <SubTabs
+        items={[{ key: "mydata", label: "My Data" }, { key: "analysis", label: "分析" }]}
+        value={dataSubTab}
+        onChange={(k) => { if (listMode) exitSelectionMode(); setDataSubTab(k); }}
+      >
         {/* 【N-11 2026/08/17 本人指示】子タブ行の右端(正典 案P の .top .sel)に
             **楽器種別 ▾ · 期間 ▾** を置く。以前は子タブ行の下に専用の1行を敷いていて、
             そこが「不自然に空いた帯」に見えていた(本人指示の1項目め)。
@@ -12485,7 +12576,7 @@ function AnalysisLabView(props) {
             選択モードの出口(キャンセル)と一手(削除)も**一覧と一緒にそちらへ移した**。
             この行には子タブ2つと集計範囲セレクタだけが残る
             (モードは一覧の画面でしか始まらないので、ここに出口を置く必要が無くなった)。 */}
-      </div>
+      </SubTabs>
 
       {/* 【N-11】bleed: グラフカードが左右の余白を食い破れるよう、viewport の切り取り線だけを
           本文の左右余白ぶん外へ出す(ページの幅と溝は 1px も変えない。SwipePager の解説を見ること)。 */}
@@ -12884,12 +12975,12 @@ function AllSessionsPage({
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 戻る導線 + モードの出口/一手。正典 #14b の「‹ 一覧」と同じ作法(左に戻る、右に一手)。
           選択モード中は「選択」を出さない(入口と出口が同時に並ばない)。 */}
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: -DATA_SUBTAB_HALF_GAP_PX }}>
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: -SUBTAB_HALF_GAP_PX }}>
         <button
           type="button" onClick={onBack} className="sans"
           style={{
             minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-            padding: `0 ${DATA_SUBTAB_HALF_GAP_PX}px`,
+            padding: `0 ${SUBTAB_HALF_GAP_PX}px`,
             background: "none", border: "none", cursor: "pointer",
             fontSize: 13, color: "var(--c-accent)",
           }}

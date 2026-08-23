@@ -285,8 +285,8 @@ const code = [
   extractConst("REED_GROUP_PAD_TOP_PX"),
   extractConst("REED_GROUP_PAD_BOTTOM_PX"),
   // (【F-111 2026/08/17 本人指示】REED_ADDROW_PAD_TOP_PX は「＋ 追加」の行ごと廃止された)
-  extractConst("REED_SUBTAB_GAP_PX"),
-  extractConst("REED_SUBTAB_HALF_GAP_PX"),
+  extractConst("SUBTAB_GAP_PX"),
+  extractConst("SUBTAB_HALF_GAP_PX"),
   extractConst("REED_NUMROW_MIN_PX"),
   extractConst("REED_DRAG_LONGPRESS_MS"),
   extractConst("REED_DRAG_SLOP_PX"),
@@ -398,7 +398,7 @@ const api = new Function(`${code}
            REED_APP_SIDE_PAD_PX, REED_SIDE_PAD_PX, REED_LIST_EXTRA_PAD_PX,
            REED_GRID_COLS, REED_GRID_GAP_PX, REED_TILE_FS_PX,
            REED_HEAD_MB_PX, REED_GROUP_PAD_TOP_PX, REED_GROUP_PAD_BOTTOM_PX,
-           REED_SUBTAB_GAP_PX, REED_SUBTAB_HALF_GAP_PX, REED_NUMROW_MIN_PX,
+           SUBTAB_GAP_PX, SUBTAB_HALF_GAP_PX, REED_NUMROW_MIN_PX,
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
@@ -8611,12 +8611,33 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
         check(`${fn} の子タブに溝が無い(角丸11 + padding4 の segmented control が復活していない)`,
           !/borderRadius: 11, padding: 4/.test(srcOfFn(src, fn)));
       }
-      check("N-5: リードタブの子タブは選択中だけ濃い太字(正典 .subtabs .on)",
-        /color: reedsSubTab === t\.key \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(src)
-        && /fontWeight: reedsSubTab === t\.key \? 600 : 400/.test(src));
-      check("N-6: データタブの子タブは選択中だけ濃い太字(正典 .subtabs .on)",
-        /color: dataSubTab === t\.key \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(src)
-        && /fontWeight: dataSubTab === t\.key \? 600 : 400/.test(src));
+      // 【D-6 2026/08/23 本人指示で書き換え】子タブは**共通部品 SubTabs**になった(データタブとリードタブの
+      // 2つの写しを1つに寄せた)。選択中だけ濃い太字、という正典 .subtabs .on の芯は不変。
+      // 「どちらのタブか」は呼び手が渡す items で決まるので、ここは**呼び手を固定する**。
+      check("N-5 → D-6: リードタブの子タブは共通部品 SubTabs から出ている",
+        /<SubTabs\s*\r?\n\s*items=\{\[\{ key: "register", label: "登録" \}, \{ key: "compare", label: "比較" \}\]\}/.test(srcOfFn(src, "ReedsTab")));
+      // 【D-6 2026/08/23 本人指示で書き換え】同上。データタブの子タブも SubTabs から出る。
+      check("N-6 → D-6: データタブの子タブは共通部品 SubTabs から出ている",
+        /<SubTabs\s*\r?\n\s*items=\{\[\{ key: "mydata", label: "My Data" \}, \{ key: "analysis", label: "分析" \}\]\}/.test(srcOfFn(src, "AnalysisLabView")));
+      // 【D-6 の芯】2つの子タブは**同じ部品**から出る。片方だけ大きさが変わる事故を構造的に防ぐ。
+      check("D-6: 子タブの綴りは1つだけ(2画面が同じ部品を見ている)",
+        (codeOf(src).match(/<SubTabs\b/g) || []).length === 2
+        && (codeOf(src).match(/function SubTabs\b/g) || []).length === 1,
+        `呼び手 ${(codeOf(src).match(/<SubTabs\b/g) || []).length} / 定義 ${(codeOf(src).match(/function SubTabs\b/g) || []).length}`);
+      // 本人指摘「2つの種類のタブが同じ見た目で存在していてわかりにくい」への答え。
+      // **子タブと指標タブが違う大きさであること**が、この指摘が直ったことの証拠。
+      {
+        const sub = srcOfFn(src, "SubTabs"), met = srcOfFn(src, "MetricUnderlineTabs");
+        check("D-6: 子タブは選択中 --fs-lg(18) / 非選択 --fs-md(15)(正典 #9b の 20/17 を体系の段へ写した)",
+          /fontSize: sel \? "var\(--fs-lg\)" : "var\(--fs-md\)"/.test(sub));
+        check("D-6: 指標タブは --fs-sm(13) のまま(子タブと同じ大きさにしない)",
+          /fontSize: "var\(--fs-sm\)"/.test(met) && !/--fs-lg|--fs-md/.test(met));
+        check("D-6: 見分けは大きさが担う。子タブは下線を持たない(下線は指標タブの印)",
+          !/boxShadow/.test(sub) && /boxShadow: sel \? "inset 0 -2px 0 0 var\(--c-ink\)"/.test(met));
+        check("D-6: 子タブも選択中だけ濃い太字(正典 .subtabs .on の芯は不変)",
+          /color: sel \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(sub)
+          && /fontWeight: sel \? 600 : 400/.test(sub));
+      }
       check("トークン外の近似色 #EDEFF3 が App.jsx に残っていない", !/#EDEFF3/i.test(code));
     }
 
@@ -10566,9 +10587,11 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
       !/heroSpread|heroPeriodText/.test(codeOf(myDataSection)));
     // 【D-5 2026/08/23 本人指示で書き換え】本人「色だとどっちの色が高い低いが今一つ想像しづらく、グラデーションも
     // どれくらい高いかの程度が読みにくい」→ 程度は**窓の中の棒の長さ**が担い、色は方向だけになった。
-    check("21.5 D-5: 散らばりはマトリクスの棒の長さが担う(比較対象との差を中央 0 から伸ばす)",
-      /const g = matrixBarGeometry\(v, matrix\.maxAbs\);/.test(srcOfFn(src, "NoteMatrixBlock"))
-      && /background: matrixBarColor\(g\.up\)/.test(srcOfFn(src, "NoteMatrixBlock")));
+    // 【D-6 2026/08/23 本人指示で書き換え】本人「窓の横幅はkeepしつつ縦幅でずれの幅を表現して」。
+    // 棒(9px幅)は**窓の幅いっぱいの塗り**になり、高さだけが大きさを表す。
+    check("21.5 D-6: 散らばりはマトリクスの塗りの高さが担う(窓の中央 0 から上下へ)",
+      /const g = matrixFillGeometry\(v, matrix\.maxAbs\);/.test(srcOfFn(src, "NoteMatrixBlock"))
+      && /background: matrixCellColor\(Number\(label\), band\)/.test(srcOfFn(src, "NoteMatrixBlock")));
     // TappableMetricCard 側の受け口(sub)が生きていること
     const cardCode = componentSourceOf("TappableMetricCard");
     check("21.5 TappableMetricCard は sub を引数に受け取る",
@@ -13624,19 +13647,23 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       /if \(evaluatingReed\) \{\s*\r?\n\s*return \(\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
     // 子タブの当たり判定(§5)。**見た目の間隔を変えずに**広げてあること
     check("子タブの文字の間隔は正典 .subtabs の gap と同じ",
-      api.REED_SUBTAB_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")),
-      `実装=${api.REED_SUBTAB_GAP_PX} / 正典=${declOf(mockCss, ".subtabs", "gap")}`);
-    check("子タブは行の gap を 0 にして左右に半分ずつ余白を入れる(文字の間隔は変わらない)",
-      /gap: 0, marginLeft: -REED_SUBTAB_HALF_GAP_PX/.test(tab)
-      && /padding: `0 \$\{REED_SUBTAB_HALF_GAP_PX\}px`/.test(tab));
-    check("子タブの当たり判定は 44px 以上(§5)",
-      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tab));
-    // 【定義の言い換えを書かない】REED_SUBTAB_HALF_GAP_PX は REED_SUBTAB_GAP_PX / 2 と
+      api.SUBTAB_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")),
+      `実装=${api.SUBTAB_GAP_PX} / 正典=${declOf(mockCss, ".subtabs", "gap")}`);
+    // 【D-6 2026/08/23 本人指示で書き換え】綴りの持ち主は共通部品 SubTabs へ移った(2画面ぶんの写しは無くなった)。
+    {
+      const sub = srcOfFn(src, "SubTabs");
+      check("子タブは行の gap を 0 にして左右に半分ずつ余白を入れる(文字の間隔は変わらない)",
+        /gap: 0, marginLeft: -SUBTAB_HALF_GAP_PX/.test(sub)
+        && /padding: `0 \$\{SUBTAB_HALF_GAP_PX\}px`/.test(sub));
+      check("子タブの当たり判定は 44px 以上(§5)",
+        /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(sub));
+    }
+    // 【定義の言い換えを書かない】SUBTAB_HALF_GAP_PX は SUBTAB_GAP_PX / 2 と
     // 定義されているので、`HALF * 2 === GAP` は**恒等的に真**で何も守らない
     // (design/LOOP.md「構造上失敗し得ないアサーション」)。**正典の値と突き合わせる**。
     check("左右に入れる余白は正典の gap の半分(足すと文字の間隔が正典どおりになる)",
-      api.REED_SUBTAB_HALF_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2,
-      `実装=${api.REED_SUBTAB_HALF_GAP_PX} / 正典の半分=${parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2}`);
+      api.SUBTAB_HALF_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2,
+      `実装=${api.SUBTAB_HALF_GAP_PX} / 正典の半分=${parseFloat(declOf(mockCss, ".subtabs", "gap")) / 2}`);
     // 追加シートの ± は正典ミニが height:40 だが、§5(機能側)を優先して 44 にしてある
     {
       const sheet = srcOfFn(src, "ReedBoxSheet");
@@ -13829,8 +13856,9 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     // 【N-6】§6.0 で「なお生きている」と明記された §5(44pt)。
     {
       const page = srcOfFn(src, "AnalysisLabView");
-      check("26.2 データタブの子タブは 44pt の当たり判定を持つ(§5)",
-        /aria-pressed=\{dataSubTab === t\.key\}[\s\S]{0,200}?minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(page));
+      // 【D-6】子タブは共通部品 SubTabs が 44pt を持つ(画面ごとの写しは無くなった)。
+      check("26.2 D-6: データタブの子タブは 44pt の当たり判定を持つ(§5。共通部品が持つ)",
+        /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(srcOfFn(src, "SubTabs")));
       {
         const iMini = mock.indexOf("読み込み中");
         const bar = iMini < 0 ? "" : mock.slice(iMini, iMini + 400);
@@ -14181,44 +14209,152 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     }
     // 読み手は2つ: 棒の色(matrixBarColor)と、その読み方を書いた1行の説明。
     // **説明が色そのものを見せる**ので、ここで綴りが増えるのは正しい(4 = 2関数 × 上下)。
-    check("27.1 App.jsx は色の hex を持たない(トークン名だけを扱う)",
-      /function matrixBarColor\(up\) \{ return up \? "var\(--c-above\)" : "var\(--c-below\)"; \}/.test(src)
-      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)/g) || []).length === 4,
-      `${(codeOf(src).match(/var\(--c-above\)|var\(--c-below\)/g) || []).length}箇所`);
-    check("27.1 D-5: 読み方の1行も同じトークンで色を見せる(説明と棒の色が食い違わない)",
-      /color: "var\(--c-above\)", fontWeight: 700 \}\}>上＝高い/.test(srcOfFn(src, "MyDataSection")));
+    // 【D-6 2026/08/23 本人指示で書き換え】色は 上/下/**帯の中** の3状態になったので、トークンも3つ。
+    check("27.1 D-6: App.jsx は色の hex を持たない(トークン名だけを扱う)",
+      /return v >= 0 \? "var\(--c-above\)" : "var\(--c-below\)";/.test(src)
+      && /if \(Math\.abs\(v\) <= band\) return "var\(--c-quiet\)";/.test(src)
+      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length === 6,
+      `${(codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length}箇所`);
+    check("27.1 D-6: 帯の中の色は index.css に定義されている(意味ごとに別トークン)",
+      /--c-quiet:\s*#[0-9A-Fa-f]{6}\s*;/.test(cssIdx));
+    // 【変異試験 M31 で生存 → 足した】--c-quiet を --c-below と**同じ値**にしても
+    // 全検査が通っていた。トークンが3つあることと、画面で3つに見えることは別。
+    // 窓の色は「高い / 低い / 合っている」の3状態を運ぶので、**値として見分けられる**必要がある。
+    {
+      // 【この節の中に閉じる】luminance / ratio は 17節のブロックの中にしかいないので、
+      // ここでも同じ式(WCAG の相対輝度)を持つ。式そのものは規格なので写しても腐らない。
+      const lum = (hex) => {
+        const h = String(hex).replace("#", "");
+        const ch = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+          .map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+      };
+      const cRatio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      // 【罠】テンプレート文字列の中では `\s` は「s」に潰れる(未知のエスケープ)。
+      // new RegExp に渡す綴りでは **\\s** と二重に書くこと。
+      const varOf = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})\\s*;`).exec(cssIdx) || [])[1];
+      const quiet = varOf("--c-quiet"), hi = varOf("--c-above"), lo = varOf("--c-below"), ground = varOf("--c-bg");
+      check("27.1 D-6: 3色と地を読めている(空回りしていない)", !!quiet && !!hi && !!lo && !!ground, `${hi} / ${lo} / ${quiet} / 地 ${ground}`);
+      check("27.1 D-6: 3色は互いに違う値(トークンだけ分けて同じ色、を作らない)",
+        new Set([quiet, hi, lo].map((x) => String(x).toUpperCase())).size === 3,
+        [hi, lo, quiet].join(" / "));
+      // 「合っている」は**引っ込む**側。高い/低いのどちらよりも淡い(白に近い)こと。
+      // これが崩れると、いちばん目立つ窓が「合っている窓」になり、本人の指示
+      // 「ずれているところに目が行くように」が反転する。
+      check("27.1 D-6: 帯の中の色は高い/低いのどちらよりも淡い(合っている窓が目立たない)",
+        lum(quiet) > lum(hi) && lum(quiet) > lum(lo),
+        `合=${lum(quiet).toFixed(3)} / 高=${lum(hi).toFixed(3)} / 低=${lum(lo).toFixed(3)}`);
+      // 淡いだけでは足りない。**白い地の上で見える**こと(消えたら「データが無い」に見える)。
+      const onGround = cRatio(quiet, ground);
+      check("27.1 D-6: それでも白い地の上で見える(合っている窓が消えてしまわない)",
+        onGround >= 1.2, `${quiet} on ${ground} = ${onGround.toFixed(3)}:1`);
+      console.log(`  窓の3色: 高=${hi} / 低=${lo} / 合=${quiet}(地との差 ${onGround.toFixed(2)}:1)`);
+    }
+    // 【D-6】読み方の1行は3つとも色そのものを見せる(説明と窓の色が食い違わない)。
+    check("27.1 D-6: 読み方の1行も同じトークンで色を見せる(上 / 下 / 帯の中)",
+      /color: "var\(--c-above\)", fontWeight: 700 \}\}>上＝高い/.test(srcOfFn(src, "MyDataSection"))
+      && /color: "var\(--c-below\)", fontWeight: 700 \}\}>下＝低い/.test(srcOfFn(src, "MyDataSection"))
+      && /color: "var\(--c-quiet\)", fontWeight: 700 \}\}>灰/.test(srcOfFn(src, "MyDataSection")));
   }
 
-  // --- 27.2 窓の中の棒(実行で検証) ------------------------------------------------
-  // 【D-5 2026/08/23 本人指示】色の段(divergingStep / divergingInk)は廃止し、
-  // **窓の中央を0にした棒の長さ**で程度を示す形になった。
+  // --- 27.2 窓の中の塗り + 帯(実行で検証) -----------------------------------------
+  // 【D-6 2026/08/23 本人指示】「色だけで判断するのは難しいので窓の横幅はkeepしつつ
+  // 縦幅でずれの幅を表現してみて」。D-5 の 9px 幅の棒は**窓の幅いっぱいの塗り**になり、
+  // 高さだけが大きさを表す。あわせて「±2以内は色を目立たな色にして、ずれているところに
+  // 目が行くように」の**帯**が入った(色は 上/下/帯の中 の3状態だけになった)。
   {
     const api = new Function(`${extractConst("MATRIX_CELL_H")}
-      ${extractConst("MATRIX_BAR_MAX")}
-      ${extractConst("MATRIX_BAR_W")}
-      ${extractConst("MATRIX_BAR_MIN")}
-      ${extractFunction("matrixBarGeometry")}
-      ${extractFunction("matrixBarColor")}
-      return { matrixBarGeometry, matrixBarColor, MATRIX_CELL_H, MATRIX_BAR_MAX, MATRIX_BAR_MIN };`)();
-    const g = api.matrixBarGeometry;
+      ${extractConst("MATRIX_GRID_GAP")}
+      ${extractConst("MATRIX_FILL_MAX")}
+      ${extractConst("MATRIX_FILL_MIN")}
+      ${extractConst("MATRIX_RELATIVE_BAND_DIVISOR")}
+      ${extractConst("RING_IN_TUNE_CENTS")}
+      ${extractFunction("matrixFillGeometry")}
+      ${extractFunction("matrixCellColor")}
+      ${extractFunction("matrixBand")}
+      ${extractFunction("matrixNumFontSize")}
+      return { matrixFillGeometry, matrixCellColor, matrixBand, matrixNumFontSize,
+               MATRIX_CELL_H, MATRIX_GRID_GAP, MATRIX_FILL_MAX, MATRIX_FILL_MIN, RING_IN_TUNE_CENTS };`)();
+    const g = api.matrixFillGeometry;
     check("27.2 上=高い / 下=低い。0 は上向き扱い(下向きの 0 を作らない)",
       g(3, 6).up === true && g(-3, 6).up === false && g(0, 6).up === true,
       `${g(3, 6).up} / ${g(-3, 6).up} / ${g(0, 6).up}`);
-    check("27.2 長さは maxAbs に対する比。いちばん長い棒が MATRIX_BAR_MAX",
-      g(6, 6).h === api.MATRIX_BAR_MAX && Math.abs(g(3, 6).h - api.MATRIX_BAR_MAX / 2) < 1e-9,
+    check("27.2 D-6: 高さは maxAbs に対する比。いちばん高い塗りが MATRIX_FILL_MAX",
+      g(6, 6).h === api.MATRIX_FILL_MAX && Math.abs(g(3, 6).h - api.MATRIX_FILL_MAX / 2) < 1e-9,
       `${g(6, 6).h} / ${g(3, 6).h}`);
-    check("27.2 maxAbs を超える値でも枠から飛び出さない(端で止まる)",
-      g(99, 6).h === api.MATRIX_BAR_MAX && g(-99, 6).h === api.MATRIX_BAR_MAX);
-    check("27.2 0 でも線として見える最小の長さを持つ(消えない)",
-      g(0, 6).h === api.MATRIX_BAR_MIN && api.MATRIX_BAR_MIN > 0, String(g(0, 6).h));
-    check("27.2 maxAbs が 0 / 負 / 未定義でも落ちず、最小の長さになる",
-      g(0, 0).h === api.MATRIX_BAR_MIN && g(1, -1).h === api.MATRIX_BAR_MIN && g(-1, undefined).h === api.MATRIX_BAR_MIN);
-    check("27.2 棒は窓の半分に収まる(上下どちらへ伸びても枠を割らない)",
-      api.MATRIX_BAR_MAX <= api.MATRIX_CELL_H / 2,
-      `棒 ${api.MATRIX_BAR_MAX} / 窓の半分 ${api.MATRIX_CELL_H / 2}`);
-    check("27.2 色は方向だけを示す(程度は長さが示す)",
-      api.matrixBarColor(true) === "var(--c-above)" && api.matrixBarColor(false) === "var(--c-below)");
-    // 【D-5】8段の色の関数は消えている(読み手ゼロの定義を残さない)
+    check("27.2 maxAbs を超える値でも窓から飛び出さない(端で止まる)",
+      g(99, 6).h === api.MATRIX_FILL_MAX && g(-99, 6).h === api.MATRIX_FILL_MAX);
+    check("27.2 0 でも帯として見える最小の高さを持つ(消えない)",
+      g(0, 6).h === api.MATRIX_FILL_MIN && api.MATRIX_FILL_MIN > 0, String(g(0, 6).h));
+    check("27.2 maxAbs が 0 / 負 / 未定義でも落ちず、最小の高さになる",
+      g(0, 0).h === api.MATRIX_FILL_MIN && g(1, -1).h === api.MATRIX_FILL_MIN && g(-1, undefined).h === api.MATRIX_FILL_MIN);
+    check("27.2 塗りは窓の半分に収まる(上下どちらへ伸びても窓を割らない)",
+      api.MATRIX_FILL_MAX <= api.MATRIX_CELL_H / 2,
+      `塗り ${api.MATRIX_FILL_MAX} / 窓の半分 ${api.MATRIX_CELL_H / 2}`);
+    // 【D-6 の芯】**幅は持たない**。幅を持つ定数が復活したら、窓ごとに幅が変わる形へ
+    // 戻りかけているということなので落とす(本人指示「窓の横幅はkeep」)。
+    check("27.2 D-6: 塗りの幅を決める定数はもう無い(幅は窓いっぱいで一定)",
+      !/const MATRIX_BAR_W\b/.test(src) && !/MATRIX_BAR_MAX|MATRIX_BAR_MIN|matrixBarGeometry|matrixBarColor/.test(src));
+    check("27.2 D-6: 描く側も幅を書いていない(left:0 / right:0 で窓いっぱい)",
+      /position: "absolute", left: 0, right: 0,\s*\r?\n\s*height: g\.h,/.test(matrixCard),
+      /width:/.test(matrixCard.slice(matrixCard.indexOf("height: g.h"), matrixCard.indexOf("height: g.h") + 200)) ? "幅を書いている" : "ok");
+
+    // --- 帯(合っている幅) ---
+    check("27.2 D-6: 平均差分の帯は**絶対値**で、チューナーの「合った」と同じ数",
+      api.matrixBand("pitchCentsSigned", 6) === api.RING_IN_TUNE_CENTS
+      && api.matrixBand("pitchCentsSigned", 60) === api.RING_IN_TUNE_CENTS,
+      `maxAbs 6 → ${api.matrixBand("pitchCentsSigned", 6)} / maxAbs 60 → ${api.matrixBand("pitchCentsSigned", 60)}`);
+    check("27.2 D-6: 他の3指標は**相対**(そのマトリクスの maxAbs ÷ 3)",
+      ["hnrDb", "spectralCentroidHz", "volumeDb"].every((k) => Math.abs(api.matrixBand(k, 45) - 15) < 1e-9),
+      `重心 maxAbs 45 → ${api.matrixBand("spectralCentroidHz", 45)}`);
+    check("27.2 D-6: 相対の帯は maxAbs と一緒に動く(固定閾値ではない)",
+      api.matrixBand("hnrDb", 3) === 1 && api.matrixBand("hnrDb", 30) === 10);
+    check("27.2 D-6: maxAbs が 0 / 負 / 未定義でも帯は落ちない(0 になる = 全部が色つき)",
+      api.matrixBand("hnrDb", 0) === 0 && api.matrixBand("hnrDb", -5) === 0 && api.matrixBand("hnrDb", undefined) === 0);
+    // 【罠3】期待値を実装の式で書き直さない。**本人の指示の数(±2)そのもの**で見る。
+    check("27.2 D-6: 平均差分は本人の指示どおり ±2 が帯(F-47 で 1 → 2 に広げた数)",
+      api.RING_IN_TUNE_CENTS === 2, String(api.RING_IN_TUNE_CENTS));
+
+    // --- 色は3状態だけ ---
+    const c = api.matrixCellColor;
+    check("27.2 D-6: 帯の中は高い/低いを主張しない中立の色",
+      c(0, 2) === "var(--c-quiet)" && c(2, 2) === "var(--c-quiet)" && c(-2, 2) === "var(--c-quiet)");
+    check("27.2 D-6: 帯の外だけが金/紺になる(境界は帯に含める)",
+      c(3, 2) === "var(--c-above)" && c(-3, 2) === "var(--c-below)"
+      && c(2, 2) === "var(--c-quiet)" && c(-2, 2) === "var(--c-quiet)");
+    check("27.2 D-6: 帯が 0 のときは 0 だけが中立(全部が色つきにならない)",
+      c(0, 0) === "var(--c-quiet)" && c(1, 0) === "var(--c-above)" && c(-1, 0) === "var(--c-below)");
+    check("27.2 D-6: 色は**3つだけ**(濃さの段を作らない = 程度は高さが担う)",
+      new Set([-99, -3, -2, 0, 2, 3, 99].map((v) => c(v, 2))).size === 3,
+      [...new Set([-99, -3, -2, 0, 2, 3, 99].map((v) => c(v, 2)))].join(" / "));
+
+    // --- 字の大きさ(綴りの長さから決める) ---
+    // 【実測 2026/08/23 Browser pane 375×812】窓の内幅 23.83px に対する --font-num の送り幅。
+    // **見積もりの係数ではなく測った値**を使う(罠7: 測っていない数値を書かない)。
+    const MEASURED = { "+6@15": 18.36, "-45@13": 19.22, "+240@10": 23.02, "+240@10.5": 24.17, "-1200@9": 23.02 };
+    const CELL_INNER_W = 23.83;
+    const f = api.matrixNumFontSize;
+    check("27.2 D-6: 字の大きさは**いちばん長い綴り**から決める(短いほうに引きずられない)",
+      f(["+1", "-6"]) === 15 && f(["+1", "-45"]) === 13 && f(["+1", "+240"]) === 10 && f(["-1200"]) === 9,
+      `${f(["+1", "-6"])} / ${f(["+1", "-45"])} / ${f(["+1", "+240"])} / ${f(["-1200"])}`);
+    check("27.2 D-6: 選んだ段は実測で窓に収まる(あふれない)",
+      MEASURED["+6@15"] <= CELL_INNER_W && MEASURED["-45@13"] <= CELL_INNER_W
+      && MEASURED["+240@10"] <= CELL_INNER_W && MEASURED["-1200@9"] <= CELL_INNER_W);
+    check("27.2 D-6: 一段上げるとあふれる = 選んだ段がぎりぎり大きいほう(小さすぎない)",
+      MEASURED["+240@10.5"] > CELL_INNER_W,
+      `4桁 10.5px → ${MEASURED["+240@10.5"]}px > 窓 ${CELL_INNER_W}px`);
+    check("27.2 D-6: 数値は窓の半分(20px)に行の高さごと収まる(15 × 1.2 = 18)",
+      f(["+6"]) * 1.2 <= api.MATRIX_CELL_H / 2, `${f(["+6"])} × 1.2 = ${(f(["+6"]) * 1.2).toFixed(1)}`);
+    check("27.2 D-6: 桁が増えるほど小さくなる(逆転しない)",
+      f(["+1"]) >= f(["-45"]) && f(["-45"]) >= f(["+240"]));
+    check("27.2 D-6: 窓が空でも落ちない",
+      Number.isFinite(f([])) && f([]) > 0, String(f([])));
+    // D-5 までは全指標 9.5px 固定だった。**上がったこと**を数で固定する
+    // (「桁から決める」だけだと 9.5 を返す実装でも通ってしまう)。
+    check("27.2 D-6: 2桁の指標は D-5 の 9.5px より大きい(拡大の目的そのもの)",
+      f(["+1", "-6"]) > 9.5, `${f(["+1", "-6"])}px`);
+
+    // 【D-5 → D-6】8段の色の関数は今も消えている(読み手ゼロの定義を残さない)
     for (const nm of ["divergingStep", "divergingFill", "divergingInk"]) {
       check(`27.2 ${nm}(8段の色)は定義ごと消えている`, !new RegExp(`function ${nm}\\b`).test(src));
     }
@@ -14429,8 +14565,8 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.5 濃い2段だけ白い日付(淡い段は濃い文字のほうが読める)",
       [1, 2].every((l) => api.calendarInk(l) === "var(--c-ink)")
       && [3, 4].every((l) => api.calendarInk(l) === "var(--c-on-accent)"));
-    check("27.5 §5: マスは 44pt、その中の丸は小さい(見た目は普通の暦のまま当たり判定を満たす)",
-      api.CALENDAR_CELL_H === 44 && api.CALENDAR_DOT < api.CALENDAR_CELL_H,
+    check("27.5 D-6: マスは 38pt(本人裁定の例外)、その中の丸はさらに小さい",
+      api.CALENDAR_CELL_H === 38 && api.CALENDAR_DOT < api.CALENDAR_CELL_H,
       `マス ${api.CALENDAR_CELL_H} / 丸 ${api.CALENDAR_DOT}`);
     check("27.5 5週の窓(practiceCalendarDays / CALENDAR_WEEKS)は定義ごと消えている",
       !/function practiceCalendarDays\b/.test(src) && !/const CALENDAR_WEEKS\b/.test(src));
@@ -14493,14 +14629,26 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /const showLower = compare !== MY_DATA_COMPARE_TARGETS\[0\]\.key;/.test(myDataSection)
       && /\{showLower && \(/.test(myDataSection));
     // 【D-5】窓の中の棒。長さは matrixBarGeometry、色は matrixBarColor(方向だけ)。
-    check("27.7 D-5: 棒の長さと向きは matrixBarGeometry から引く(呼び出しに隣接)",
-      /const g = matrixBarGeometry\(v, matrix\.maxAbs\);/.test(matrixCard)
-      && /background: matrixBarColor\(g\.up\)/.test(matrixCard));
+    check("27.7 D-6: 塗りの高さと向きは matrixFillGeometry から引く(呼び出しに隣接)",
+      /const g = matrixFillGeometry\(v, matrix\.maxAbs\);/.test(matrixCard)
+      && /background: matrixCellColor\(Number\(label\), band\)/.test(matrixCard));
+    // 【D-6 の罠】帯の判定は**画面に出す綴り**から読み直した数で行う。生値だと
+    // 「0 と書いてあるのに色がつく窓」ができる(生値 0.4 / 帯 0.33)。
+    check("27.7 D-6: 帯の判定は画面に出す綴りから読み直す(丸めと食い違わせない)",
+      /const label = matrixCellText\(v\);/.test(matrixCard)
+      && /matrixCellColor\(Number\(label\), band\)/.test(matrixCard)
+      && !/matrixCellColor\(v,/.test(matrixCard));
+    // 帯と字の大きさは**マトリクス全体で1つ**(窓ごとに決めると同じずれが別の色に見える)
+    check("27.7 D-6: 帯と字の大きさは行を回す前に1度だけ決める",
+      /const band = matrixBand\(metricKey, matrix\.maxAbs\);/.test(matrixCard)
+      && /const numFs = matrixNumFontSize\(cellTexts\);/.test(matrixCard));
+    check("27.7 D-6: 字の大きさの材料も**画面に出す綴り**(生値の桁ではない)",
+      /cellTexts\.push\(matrixCellText\(v\)\);/.test(matrixCard));
     check("27.7 D-5: 長さは**そのマトリクスの実測レンジ**で引き直す(固定閾値を渡していない)",
       !/matrixBarGeometry\([^)]*,\s*\d/.test(matrixCard));
     check("27.7 D-5: 段ごとに 0 の線を1本、行の端から端まで通す(窓ごとの短い線ではない)",
       /position: "absolute", left: 0, right: 0, top: MATRIX_CELL_H \/ 2, height: 1, background: "var\(--c-line-strong\)"/.test(matrixCard));
-    check("27.7 D-5: 数値は**棒と反対側の半分**へ置く(棒と絶対に重ならない)",
+    check("27.7 D-6: 数値は**塗りと反対側の半分**へ置く(塗りと絶対に重ならない)",
       /top: g\.up \? "50%" : "auto", bottom: g\.up \? "auto" : "50%"/.test(matrixCard)
       && /height: g\.h, top: g\.up \? "auto" : "50%", bottom: g\.up \? "50%" : "auto"/.test(matrixCard));
     check("27.7 D-5: 8段の凡例は廃止され、読み方は**1行の説明**が引き取った",
@@ -14531,12 +14679,25 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
   {
     const gridGap = (/grid-template-columns:repeat\(12,1fr\);gap:(\d+)px/.exec(block) || [])[1];
     check("27.8 正典から列の gap を読めている(空回りしていない)", gridGap === "3", `gap=${gridGap}`);
-    check("27.8 列は12・gap は正典のまま(変えたのは窓の高さと中身だけ)",
-      new RegExp(`gridTemplateColumns: "repeat\\(12, 1fr\\)", gap: ${gridGap}`).test(matrixCard));
-    check("27.8 D-5: 窓の高さは正典の 26px ではなく 28px(棒と数値が縦に住み分けるため)",
-      /const MATRIX_CELL_H = 28;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
-    check("27.8 D-5: カレンダーのマスは 44pt(§5)。正典 #9b の 34px は 375px では足りない",
-      /const CALENDAR_CELL_H = 44;/.test(src) && /height: CALENDAR_CELL_H, padding: 0/.test(calCard));
+    // 【D-6 2026/08/23 本人指示で書き換え】列の間隔は正典の 3px から **1px** へ詰めた。本人が案B(間隔1px)を
+    // 実寸で選んだため。窓の内幅が 22.2 → 23.8px に増え、数値の字を上げる余地になった。
+    check("27.8 D-6: 列は12のまま。間隔は定数から出る(綴りを3箇所に写していない)",
+      /const MATRIX_GRID_GAP = 1;/.test(src)
+      && (matrixCard.match(/gap: MATRIX_GRID_GAP/g) || []).length === 3,
+      `gap: MATRIX_GRID_GAP ${(matrixCard.match(/gap: MATRIX_GRID_GAP/g) || []).length}箇所`);
+    check("27.8 D-6: 正典より詰めたことを明示できている(正典の gap は 3)",
+      gridGap === "3", `正典=${gridGap} / 実装=1`);
+    check("27.8 D-6: 窓の高さは 40px(本人が実寸で案B を選択。D-5 の 28 から)",
+      /const MATRIX_CELL_H = 40;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
+    // 【D-6 2026/08/23 本人指示で書き換え】本人が4枚を実寸で見比べ「案B + カレンダー38 が一番いい」と選んだ。
+    // **§5(44pt・例外なし)を破る唯一の箇所**。事故と区別できるよう、
+    // 「本人裁定である」ことを綴り(注釈)ごと固定する。ここが黙って書き換わったら落ちる。
+    check("27.8 D-6: カレンダーのマスは 38pt(§5 の唯一の例外・本人裁定)",
+      /const CALENDAR_CELL_H = 38;/.test(src) && /height: CALENDAR_CELL_H, padding: 0/.test(calCard));
+    check("27.8 D-6: その例外は「本人裁定」と「広げないこと」が注釈に残っている",
+      /§5 の唯一の例外/.test(src) && /この例外を広げないこと/.test(src));
+    check("27.8 D-6: 他の場所は 44pt のまま(例外が波及していない)",
+      /--tap-min:\s*44px/.test(cssIdx) && !/const CALENDAR_DOT = 3[0-9];/.test(src));
     // 曜日ヘッダとマスの grid が**同じだけ**食い破っていること(片方だけだと列がずれる)
     {
       const bleed = (calCard.match(/marginLeft: "calc\(-1 \* var\(--sp-4\)\)", marginRight: "calc\(-1 \* var\(--sp-4\)\)"/g) || []).length;
