@@ -5519,9 +5519,9 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
 }
 
 // ============================================================
-console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法) ==========");
+console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========");
 // DESIGN-SYSTEM §6。地を白にしたうえで、群のまとめ方だけをタブごとに変える。
-//   計測・リード = 罫(.surf-rule) / データ = 沈める(.surf-sunk)
+//   【D-7 2026/08/23 本人指示】3タブとも 罫(.surf-rule)。沈める作法は使い手ゼロで削除した。
 // この作法は **CSSクラス** が持つ。インライン style はクラスより強いので、
 // .card / .tile に background / border / borderRadius をインラインで書くと
 // 作法が丸ごと無効になる。ここはそれを構造で見張るための節。
@@ -5731,8 +5731,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // (c) があるので `.card:focus-visible { outline: … }` や `.tile:hover { opacity: … }`
   // のような**正当な追加**は通り、`[class~="card"] { background: … }` は落ちる。
   {
-    const expectCard = [".card", ".surf-rule .card", ".surf-sunk .card"];
-    const expectTile = [".surf-rule .tile", ".surf-sunk .tile", ".tile"];
+    // 【D-7 2026/08/23 本人指示で書き換え】面の作法は**罫の1つだけ**になった(沈める作法は使い手ゼロ → 定義ごと削除)。
+    const expectCard = [".card", ".surf-rule .card"];
+    const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
@@ -5780,8 +5781,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     }
     // 影・輪郭は border と同じく「箱」を描ける。作法の規則そのものに持たせない
     // (:hover / :focus-visible のような別セレクタは上の (c) の対象で、outline は許す)。
-    for (const sel of [".card", ".surf-rule .card", ".surf-sunk .card", ".tile",
-      ".surf-rule .tile", ".surf-sunk .tile", ".tile-row", ".surf-rule .tile-row", ".app-root"]) {
+    for (const sel of [".card", ".surf-rule .card", ".tile",
+      ".surf-rule .tile", ".tile-row", ".surf-rule .tile-row", ".app-root"]) {
       const names = declList(cssBlock(sel)).map((d) => d.name);
       const boxy = names.filter((n) => /^(box-shadow|outline|filter|backdrop-filter)/.test(n));
       check(`${sel} は影・輪郭で箱を描き直していない`, boxy.length === 0, boxy.join(" "));
@@ -5804,12 +5805,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
 
   // --- 2. 作法の規則そのもの -------------------------------------------
   const ruleCard = cssBlock(".surf-rule .card");
-  const sunkCard = cssBlock(".surf-sunk .card");
   const ruleTile = cssBlock(".surf-rule .tile");
-  const sunkTile = cssBlock(".surf-sunk .tile");
   const ruleRow  = cssBlock(".surf-rule .tile-row");
 
-  check(".surf-rule .card / .surf-sunk .card の両方が定義されている", ruleCard !== null && sunkCard !== null);
+  // 【D-7 2026/08/23 本人指示で書き換え】本人「整理されていないからカード化する必要に陥っているだけで、整理できていれば
+  // カード化は不要なはず。背景色を多用すると画面全体が重く見えるのでやめて。
+  // 計測タブもリードタブも背景色使われてないでしょ」。
+  // **面の作法は罫の1つだけ**になった。沈める作法(.surf-sunk .card / .tile)は
+  // 使い手がゼロになったので定義ごと落とした(読み手ゼロの規則を残さない)。
+  check("D-7: 面の作法は罫の1つだけ(沈める作法は定義ごと消えている)",
+    ruleCard !== null && cssBlock(".surf-sunk .card") === null && cssBlock(".surf-sunk .tile") === null);
+  check("D-7: 沈める作法の綴りが CSS のどこにも残っていない(読み手ゼロの規則を残さない)",
+    !/\.surf-sunk/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")),
+    (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/\.surf-sunk/g) || []).length + "件");
   // 罫: 箱を消す。塗りが復活したら(background: var(--c-surface) 等)ここで落ちる。
   check("罫の作法のカードは塗りを持たない", decl(ruleCard, "background") === "transparent", String(decl(ruleCard, "background")));
   check("罫の作法のカードは枠を持たない(border: 0)", decl(ruleCard, "border") === "0", String(decl(ruleCard, "border")));
@@ -5817,18 +5825,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   check("罫の作法のカードは角丸なし", decl(ruleCard, "border-radius") === "0");
   check("罫の作法のカードは左右の padding なし",
     decl(ruleCard, "padding-left") === "0" && decl(ruleCard, "padding-right") === "0");
-  // 沈める: 地は白のまま、面だけを沈める。
-  check("沈める作法のカードの塗りは --c-sunk", decl(sunkCard, "background") === "var(--c-sunk)", String(decl(sunkCard, "background")));
-  check("沈める作法のカードの枠は透明", decl(sunkCard, "border") === "1px solid transparent", String(decl(sunkCard, "border")));
-  check("沈める作法のカードは角丸あり", decl(sunkCard, "border-radius") === "var(--r-md)");
   check("カードの内側余白は --sp-4(DESIGN-SYSTEM §3)", decl(cssBlock(".card"), "padding") === "var(--sp-4)");
 
   check("罫の作法のタイルは塗りも枠も持たず、左罫1本だけ",
     decl(ruleTile, "background") === "transparent" && decl(ruleTile, "border") === "0" &&
     decl(ruleTile, "border-left") === "1px solid var(--c-rule)" && decl(ruleTile, "border-radius") === "0");
-  check("沈める作法のタイルは白い面 + ヘアライン + 角丸",
-    decl(sunkTile, "background") === "var(--c-surface)" && decl(sunkTile, "border") === "1px solid var(--c-line)" &&
-    decl(sunkTile, "border-radius") === "var(--r-sm)");
 
   // --- 3. 行の先頭のタイルに左罫が出ないこと ---------------------------
   // 位置で決める方式: 罫はタイルの左端(margin-left:-1px で自分の枠の外)に付き、
@@ -5860,9 +5861,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
     // 順序が意味を持つ: border-top は border より後に書かれて上辺だけを取り戻す。
     const surfRules = [
       [".surf-rule .card", ruleCard, ["background", "border", "border-top", "border-radius", "padding-left", "padding-right"]],
-      [".surf-sunk .card", sunkCard, ["background", "border", "border-radius"]],
       [".surf-rule .tile", ruleTile, ["background", "border", "border-left", "border-radius", "margin-left"]],
-      [".surf-sunk .tile", sunkTile, ["background", "border", "border-radius"]],
       [".surf-rule .tile-row", ruleRow, ["gap", "margin-left", "margin-right", "overflow"]],
       [".card", cssBlock(".card"), ["padding"]],
       [".tile", cssBlock(".tile"), ["padding"]],
@@ -6034,8 +6033,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫と沈めるの2作法
   // --- 5. タブの根に作法のクラスが付いていること ------------------------
   check("計測タブの根は罫の作法(surf-rule)",
     /\{topTab === "measure" && \(\s*<div className="surf-rule">\s*<MeasureView/.test(src));
-  check("データタブの根は沈める作法(surf-sunk)",
-    /\{topTab === "analysis" && \(\s*<div className="surf-sunk">\s*<AnalysisLabView/.test(src));
+  // 【D-7 2026/08/23 本人指示で書き換え】データタブも罫の作法へ。**3タブとも同じ作法**になった。
+  check("D-7: データタブの根も罫の作法(surf-rule)。3タブとも同じ作法",
+    /\{topTab === "analysis" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-rule">\s*<AnalysisLabView/.test(src));
+  check("D-7: surf-sunk を名乗る要素はもうどこにも無い",
+    !/className="surf-sunk"/.test(src));
   // リードタブは子タブ(登録/比較)の溝と本体の2つを1つの根で包む。
   const reedsBlockIdx = src.indexOf('{topTab === "reeds" && (');
   const reedsBlock = reedsBlockIdx === -1 ? "" : src.slice(reedsBlockIdx, src.indexOf('{topTab === "measure" && ('));
@@ -10536,10 +10538,20 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     // **同じ部品 MetricTabCard** になった(正典 #14b / #15a「同じ部品・同じ順番」)。
     // 副次テキストは呼び出し側が渡すのではなく、部品が**指標定義から自分で引く**。
     // 渡し手が2つから0になったので、主張を「部品が指標定義の sub を引いている」へ移す。
-    check("21.5 D-3: 指標カードは副次テキストを指標定義(REED_COMPARE_METRICS)の sub から引く",
-      /const sub = m\.sub \? m\.sub\(metricsValues\) : null;/.test(componentSourceOf("MetricTabCard")));
-    check("21.5 D-3: 副次テキストがあるときだけ出す(「null」を描かない)",
-      /\{sub && <span/.test(componentSourceOf("MetricTabCard")));
+    // 【D-7 2026/08/23 本人指示で書き換え】本人「個別ページのグラフ上部に大きく表示のあるその数値の平均を削除」。
+    // 大きい数字と、その隣の標準偏差(副次テキスト)を**両方**落とした(本人裁定)。
+    // 主張は「もう無い」へ反転する。**指標定義の sub 自体は消していない**
+    // (リード比較タブなど他の読み手が今も使う語彙なので、そちらで生き続ける)。
+    // 【罠9の親戚】「ここに大きい数字があったが削除した」と書いた**注釈**にも
+    // --fs-hero の綴りが出る。codeOf で注釈を剥がしてから、描画の綴りそのもので見る。
+    check("21.5 D-7: 指標カードは大きい数字も副次テキストも持たない(タブとグラフだけ)",
+      !/fontSize: "var\(--fs-hero\)"/.test(codeOf(componentSourceOf("MetricTabCard")))
+      && !/m\.sub\(/.test(codeOf(componentSourceOf("MetricTabCard")))
+      && !/metricsValues/.test(codeOf(componentSourceOf("MetricTabCard"))));
+    check("21.5 D-7: 受け口(metricsValues)も呼び手も消えている(読み手ゼロの綴りを残さない)",
+      !/metricsValues/.test(codeOf(src)) && !/computeFrameMetrics\(allFrames\)|computeFrameMetrics\(frames\)/.test(codeOf(src)));
+    check("21.5 D-7: 指標定義の sub は語彙として生きている(他の読み手のために消していない)",
+      /sub: pitchSpreadSub/.test(src));
     check("21.5 D-3: セッション詳細もリード個体詳細も同じ部品を使う(2画面で読み方が変わらない)",
       /<MetricTabCard/.test(componentSourceOf("SessionDetailView"))
       && /<MetricTabCard/.test(componentSourceOf("ReedEvaluationDetail")));
@@ -13564,8 +13576,10 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       check("D-3/D-4: bare の渡し手はゼロ(2画面とも常時表示のカードへ移った)",
         bareSites === 0, `${bareSites}箇所`);
       // 【D-5 2026/08/23 本人指示で書き換え】ここもセリフをやめた(大きさ --fs-hero は正典 #14b / #15a の 42px の写像のまま)。
-      check("D-5: 移った先は大きな数字 + 常時表示のグラフ(書体は --font-num)",
-        /fontFamily: "var\(--font-num\)", fontSize: "var\(--fs-hero\)"/.test(srcOfFn(src, "MetricTabCard")));
+      // 【D-7 2026/08/23 本人指示で書き換え】大きい数字は削除。残るのは**常時表示のグラフ**だけ。
+      check("D-7: 移った先は常時表示のグラフ(大きい数字はもう無い)",
+        /<NoteAxisLineChart/.test(srcOfFn(src, "MetricTabCard"))
+        && !/fontSize: "var\(--fs-hero\)"/.test(srcOfFn(src, "MetricTabCard")));
     }
     // 3列ダイヤルの「—」(この節では並びだけ。値の往復は14節が見ている)
     check("ダイヤルの先頭の「—」は表示文字列も「—」",
@@ -14207,14 +14221,21 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
         below && accent && below.toUpperCase() === accent.toUpperCase()
         && /--c-below:/.test(cssIdx), `${below} / ${accent}`);
     }
-    // 読み手は2つ: 棒の色(matrixBarColor)と、その読み方を書いた1行の説明。
-    // **説明が色そのものを見せる**ので、ここで綴りが増えるのは正しい(4 = 2関数 × 上下)。
-    // 【D-6 2026/08/23 本人指示で書き換え】色は 上/下/**帯の中** の3状態になったので、トークンも3つ。
+    // 色は 上/下/帯の中 の3状態で、トークンも3つ。読み手は4つある:
+    //   (1) 窓の色を決める matrixCellColor(3つとも)
+    //   (2) 窓型の読み方の1行(3つとも。**説明が色そのものを見せる**)
+    //   (3) 折れ線の「合っている」帯の塗り(帯の中の1つ)
+    //   (4) 折れ線の読み方の1行(帯の中の1つ)
+    // 合計 3 + 3 + 1 + 1 = 8。【D-7 で 6 → 8】折れ線が増えたぶん (3)(4) が足された。
     check("27.1 D-6: App.jsx は色の hex を持たない(トークン名だけを扱う)",
       /return v >= 0 \? "var\(--c-above\)" : "var\(--c-below\)";/.test(src)
       && /if \(Math\.abs\(v\) <= band\) return "var\(--c-quiet\)";/.test(src)
-      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length === 6,
+      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length === 8,
       `${(codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length}箇所`);
+    // 【D-7】折れ線の帯は**窓型と同じトークン**。2つの見方で「合っている」の色が食い違わない。
+    check("27.1 D-7: 折れ線の帯も窓型と同じ --c-quiet を使う(濃さだけ面積ぶん薄める)",
+      /fill: "var\(--c-quiet\)", opacity: CHART_OK_BAND_OPACITY/.test(codeOf(src))
+      && /const CHART_OK_BAND_OPACITY = /.test(src));
     check("27.1 D-6: 帯の中の色は index.css に定義されている(意味ごとに別トークン)",
       /--c-quiet:\s*#[0-9A-Fa-f]{6}\s*;/.test(cssIdx));
     // 【変異試験 M31 で生存 → 足した】--c-quiet を --c-below と**同じ値**にしても
@@ -14454,8 +14475,9 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     const api = new Function(`${extractConst("MY_DATA_COMPARE_TARGETS")}
       ${extractConst("MY_DATA_SIGNED_METRIC")}
       ${extractFunction("myDataCompareTargets")}
+      ${extractFunction("myDataCompareDefault")}
       ${extractFunction("myDataCompareFallback")}
-      return { myDataCompareTargets, myDataCompareFallback, MY_DATA_COMPARE_TARGETS, MY_DATA_SIGNED_METRIC };`)();
+      return { myDataCompareTargets, myDataCompareDefault, myDataCompareFallback, MY_DATA_COMPARE_TARGETS, MY_DATA_SIGNED_METRIC };`)();
     const keys = (m, hi) => api.myDataCompareTargets(m, hi).map((t) => t.key).join(",");
     check("27.4 平均差分のときだけ ±0 が列に増える(正典 #9b の指定)",
       keys("pitchCentsSigned", true) === "myAverage,reference,zero"
@@ -14468,16 +14490,154 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.4 「自分の平均」はどの条件でも必ず残る(列が空にならない)",
       ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"]
         .every((m) => [true, false].every((hi) => keys(m, hi).split(",")[0] === "myAverage")));
-    check("27.4 選べなくなった比較対象は先頭(自分の平均)へ落ちる",
-      api.myDataCompareFallback("zero", "hnrDb", true) === "myAverage"
-      && api.myDataCompareFallback("reference", "pitchCentsSigned", false) === "myAverage",
-      `${api.myDataCompareFallback("zero", "hnrDb", true)} / ${api.myDataCompareFallback("reference", "pitchCentsSigned", false)}`);
+    // 【D-7 2026/08/23 本人指示で書き換え】本人「デフォルト比較対象は音程は ±0、そのほかは目安との比較に」。
+    // 既定が指標ごとに違うので、**落とし先も既定に合わせる**(以前は必ず先頭=自分の平均だった)。
+    check("27.4 D-7: 既定は 音程=±0 / 他の3指標=目安",
+      api.myDataCompareDefault("pitchCentsSigned", true) === "zero"
+      && ["hnrDb", "spectralCentroidHz", "volumeDb"].every((m) => api.myDataCompareDefault(m, true) === "reference"),
+      `${api.myDataCompareDefault("pitchCentsSigned", true)} / ${api.myDataCompareDefault("hnrDb", true)}`);
+    check("27.4 D-7: 目安が未設定なら自分の平均へ落とす(押せない選択肢を既定にしない。F-77)",
+      ["hnrDb", "spectralCentroidHz", "volumeDb"].every((m) => api.myDataCompareDefault(m, false) === "myAverage"),
+      api.myDataCompareDefault("hnrDb", false));
+    check("27.4 D-7: 音程の既定は目安の有無で動かない(±0 は常に選べるので)",
+      api.myDataCompareDefault("pitchCentsSigned", false) === "zero");
+    check("27.4 D-7: 既定は必ず**その場で選べる**もの(押せない既定を作らない)",
+      ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"].every((m) =>
+        [true, false].every((hi) =>
+          api.myDataCompareTargets(m, hi).some((t) => t.key === api.myDataCompareDefault(m, hi)))));
+    check("27.4 D-7: 選べなくなった比較対象は**その指標の既定**へ落ちる",
+      api.myDataCompareFallback("zero", "hnrDb", true) === "reference"
+      && api.myDataCompareFallback("reference", "pitchCentsSigned", false) === "zero"
+      && api.myDataCompareFallback("reference", "hnrDb", false) === "myAverage",
+      `${api.myDataCompareFallback("zero", "hnrDb", true)} / ${api.myDataCompareFallback("reference", "pitchCentsSigned", false)} / ${api.myDataCompareFallback("reference", "hnrDb", false)}`);
     check("27.4 選べる比較対象はそのまま残る(勝手に落とさない)",
       api.myDataCompareFallback("zero", "pitchCentsSigned", true) === "zero"
       && api.myDataCompareFallback("reference", "volumeDb", true) === "reference");
     check("27.4 ±0 が付くのは MY_DATA_SIGNED_METRIC の1箇所で決まる(綴りを2箇所に持たない)",
       api.MY_DATA_SIGNED_METRIC === "pitchCentsSigned"
       && api.MY_DATA_COMPARE_TARGETS.filter((t) => t.pitchOnly).length === 1);
+  }
+
+  // --- 27.4b D-7 折れ線と窓型の切替 / 引き算の一本化(実行 + 配線で検証) ------------
+  // 【D-7 2026/08/23 本人指示】「mydata は窓型と折れ線グラフ二つ選んで見れるように。
+  // デフォルトは折れ線グラフで」。本人裁定で**折れ線も窓型と同じ差分**を描く。
+  {
+    // アイコンは lucide の実体なので、ハーネスでは名前だけを持つ器に置き換えて評価する
+    // (見たいのは key / label / 既定であって、アイコンの中身ではない)。
+    const api = new Function(`const Activity = "Activity", Grid3x3 = "Grid3x3";
+      ${extractConst("MY_DATA_VIEWS")}
+      ${extractConst("MY_DATA_VIEW_DEFAULT")}
+      ${extractFunction("noteDiffByIdx")}
+      return { MY_DATA_VIEWS, MY_DATA_VIEW_DEFAULT, noteDiffByIdx };`)();
+    check("27.4b 折れ線と窓型に別のアイコンを割り当てている(同じ絵で2択にしない)",
+      api.MY_DATA_VIEWS[0].Icon !== api.MY_DATA_VIEWS[1].Icon
+      && api.MY_DATA_VIEWS.every((v) => !!v.Icon),
+      api.MY_DATA_VIEWS.map((v) => `${v.key}:${v.Icon}`).join(" / "));
+    check("27.4b 見せ方は2つ(折れ線 / 窓型)",
+      api.MY_DATA_VIEWS.map((v) => v.key).join(",") === "line,matrix",
+      api.MY_DATA_VIEWS.map((v) => v.key).join(","));
+    check("27.4b 既定は折れ線(本人指示)。**先頭を既定にする**規則を綴りで持つ",
+      api.MY_DATA_VIEW_DEFAULT === "line" && /MY_DATA_VIEW_DEFAULT = MY_DATA_VIEWS\[0\]\.key/.test(src));
+    check("27.4b 文言は語彙の1箇所から出る(画面に直書きしない)",
+      api.MY_DATA_VIEWS.map((v) => v.label).join(",") === "折れ線,窓型");
+
+    // 引き算(実測 − 比較対象)は**1関数**。窓型と折れ線が同じ数を見るための芯。
+    const d = api.noteDiffByIdx;
+    check("27.4b 差分は 実測 − 比較対象",
+      JSON.stringify(d({ 0: 10, 1: -4 }, { 0: 4, 1: -1 }, 2)) === '{"0":6,"1":-3}',
+      JSON.stringify(d({ 0: 10, 1: -4 }, { 0: 4, 1: -1 }, 2)));
+    check("27.4b 片方でも読めない音は**入れない**(0 で埋めない = 穴を作らない)",
+      JSON.stringify(d({ 0: 10, 1: 5 }, { 0: 4 }, 2)) === '{"0":6}'
+      && JSON.stringify(d({ 0: 10 }, { 0: 4, 1: 1 }, 2)) === '{"0":6}',
+      `${JSON.stringify(d({ 0: 10, 1: 5 }, { 0: 4 }, 2))} / ${JSON.stringify(d({ 0: 10 }, { 0: 4, 1: 1 }, 2))}`);
+    check("27.4b NaN / null / undefined も入れない",
+      JSON.stringify(d({ 0: NaN, 1: 3, 2: null }, { 0: 1, 1: 1, 2: 1 }, 3)) === '{"1":2}',
+      JSON.stringify(d({ 0: NaN, 1: 3, 2: null }, { 0: 1, 1: 1, 2: 1 }, 3)));
+    check("27.4b 引数が空でも落ちない",
+      JSON.stringify(d(null, null, 3)) === "{}" && JSON.stringify(d({}, {}, 0)) === "{}");
+    check("27.4b count を超える音は見ない(軸の外を持ち込まない。N-11 の罠)",
+      JSON.stringify(d({ 0: 1, 5: 9 }, { 0: 0, 5: 0 }, 1)) === '{"0":1}',
+      JSON.stringify(d({ 0: 1, 5: 9 }, { 0: 0, 5: 0 }, 1)));
+
+    // 【D-7 の芯】窓型と折れ線は**同じ数**を見る。片方だけ引き算を変えたら落ちる。
+    // 同じ入力を buildNoteMatrix と noteDiffByIdx に通し、音ごとの値が一致することを見る。
+    {
+      const two = new Function(`${extractConst("NOTE_NAMES")}
+        ${extractFunction("parseNoteLabel")}
+        let LABELS = [];
+        const concertNoteLabelOf = (i) => LABELS[i] ?? null;
+        ${extractFunction("buildNoteMatrix")}
+        ${extractFunction("noteDiffByIdx")}
+        return { buildNoteMatrix, noteDiffByIdx, parseNoteLabel,
+                 setLabels: (a) => { LABELS = a; } };`)();
+      two.setLabels(["C3", "C♯3", "D3", "B3", "C4", "G♯4"]);
+      const value = { 0: 10, 1: -4, 2: 0, 3: 2, 4: 6, 5: -7 };
+      const target = { 0: 4, 1: -1, 2: 0, 3: 5, 4: 6 };   // 5 は比較対象が読めない音
+      const mtx = two.buildNoteMatrix(value, target, 6, null, null);
+      const dif = two.noteDiffByIdx(value, target, 6);
+      // 音ごとに突き合わせる。窓型は「オクターブ:音名」、折れ線は semitoneIndex で持つ。
+      const mismatches = [];
+      for (let i = 0; i < 6; i++) {
+        const p = two.parseNoteLabel(["C3", "C♯3", "D3", "B3", "C4", "G♯4"][i]);
+        const inMatrix = p ? mtx.byKey[Number(p.octave) + ":" + p.name] : undefined;
+        const inLine = dif[i];
+        const same = (inMatrix === undefined || inMatrix === null) ? (inLine === undefined)
+          : Math.abs(inMatrix - inLine) < 1e-9;
+        if (!same) mismatches.push(`${i}: 窓=${inMatrix} / 線=${inLine}`);
+      }
+      check("27.4b 窓型の値と折れ線の値は**同じ差**になる(2つの見方で数が食い違わない)",
+        mismatches.length === 0, mismatches.join(" / ") || "全音一致");
+      check("27.4b 突き合わせが空回りしていない(実際に値が入っている)",
+        Object.keys(dif).length === 5 && dif[0] === 6,
+        `${Object.keys(dif).length}音 / dif[0]=${dif[0]}`);
+      check("27.4b 比較対象が読めない音は**どちらの見方でも**出さない(片方だけ穴が開かない)",
+        dif[5] === undefined && mtx.byKey["4:G♯"] === undefined,
+        `線=${dif[5]} / 窓=${mtx.byKey["4:G♯"]}`);
+    }
+  }
+
+  // --- 27.4c D-7 配線: 切替・既定・ラベルの撤去 ------------------------------------
+  {
+    const vt = srcOfFn(src, "ViewToggle");
+    check("27.4c 切替は**アイコン**で描く(3つ目の文字タブを作らない)",
+      /<v\.Icon size=\{17\}/.test(vt) && !/fontSize/.test(codeOf(vt)));
+    check("27.4c §5: 切替のタップ先は 44pt",
+      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(vt));
+    check("27.4c 読み上げは語彙から作る(「折れ線で見る」/「窓型で見る」)",
+      /aria-label=\{`\$\{v\.label\}で見る`\}/.test(vt));
+    check("27.4c 選択中は色だけで返す(枠と地を両方与えない。芯1)",
+      /color: sel \? "var\(--c-accent\)" : "var\(--c-ink-3\)"/.test(vt)
+      && !/border:/.test(codeOf(vt).replace(/border: "none"/g, "")));
+
+    check("27.4c 切替は比較対象の行の右端に同居する(行を増やさない)",
+      /<ViewToggle value=\{view\} onChange=\{setView\}/.test(myDataSection)
+      && /marginLeft: "auto"/.test(vt));
+    check("27.4c 既定の見せ方は状態の初期値から出る",
+      /useState\(MY_DATA_VIEW_DEFAULT\)/.test(myDataSection));
+    check("27.4c 既定の比較対象も**関数から**引く(初期値を直書きしない)",
+      /useState\(\(\) => myDataCompareDefault\(MY_DATA_CARD_METRICS\[0\], !!selectedIdeal\)\)/.test(myDataSection));
+
+    // 本人「わざわざ比較対象と書かなくてもわかるので比較対象というテキストも削除」。
+    // **同じ体裁・同じ役割の「条件」(PIVOT)も同時に消した**ので、両方まとめて縛る。
+    check("27.4c 「比較対象」ラベルは消えている(本人指示)",
+      !/>比較対象</.test(codeOf(src)));
+    check("27.4c 同じ役割の「条件」ラベル(PIVOT)も同時に消えている",
+      !/>条件</.test(codeOf(src)));
+    check("27.4c それでも比較対象の**選択肢**は残っている(ラベルだけを消した)",
+      /compareOptions\.map\(/.test(myDataSection) && /setCompareRaw\(t\.key\)/.test(myDataSection));
+    check("27.4c それでも PIVOT の**条件チップ**は残っている(ラベルだけを消した)",
+      /pivotFilters\.map\(/.test(srcOfFn(src, "AnalysisLabView")));
+
+    // 折れ線側の読み方の1行(窓型と別の文になる: 0 の線が何かを言う)
+    // 【変異試験 M25 で生存 → 書き直した】`view === "line" ?` は myDataSection に**2つ**ある
+    // (本体の出し分けと、読み方の1行の出し分け)。綴りの有無で見ると、片方を殺しても
+    // もう片方が通してしまう。**分岐と、その直後に来る文**を隣接で縛る(罠2)。
+    check("27.4c 読み方の1行は見せ方で出し分ける(形が違えば読み方も違う)",
+      /\{view === "line" \? \(\s*\r?\n\s*<>0 の線が \{compareName\}。/.test(myDataSection)
+      && /\) : \(\s*\r?\n\s*<>段の中央が 0。/.test(myDataSection));
+    check("27.4c 本体の出し分けと読み方の出し分けは別々にある(片方が肩代わりしていない)",
+      (myDataSection.match(/view === "line" \?/g) || []).length === 2,
+      `${(myDataSection.match(/view === "line" \?/g) || []).length}箇所`);
   }
 
   // --- 27.5 練習カレンダー(月表示・実行で検証) ------------------------------------
@@ -14698,12 +14858,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /§5 の唯一の例外/.test(src) && /この例外を広げないこと/.test(src));
     check("27.8 D-6: 他の場所は 44pt のまま(例外が波及していない)",
       /--tap-min:\s*44px/.test(cssIdx) && !/const CALENDAR_DOT = 3[0-9];/.test(src));
-    // 曜日ヘッダとマスの grid が**同じだけ**食い破っていること(片方だけだと列がずれる)
-    {
-      const bleed = (calCard.match(/marginLeft: "calc\(-1 \* var\(--sp-4\)\)", marginRight: "calc\(-1 \* var\(--sp-4\)\)"/g) || []).length;
-      check("27.8 曜日ヘッダとマスは同じ量だけカードの padding を食い破る(列がずれない)",
-        bleed === 2, `${bleed}箇所`);
-    }
+    // 【D-7 2026/08/23 本人指示で書き換え】罫の作法では .card の左右 padding が **0** なので、
+    // 食い破る相手が無くなった(食い破ったままだと地の外へ 16px ずつはみ出して横スクロールが出る)。
+    check("27.8 D-7: 食い破りは外してある(罫の作法では .card の左右 padding が 0)",
+      !/marginLeft: "calc\(-1 \* var\(--sp-4\)\)"/.test(calCard));
+    check("27.8 D-7: 曜日ヘッダとマスの grid は同じ列指定(列がずれない)",
+      (calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length === 2,
+      `${(calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length}箇所`);
     check("27.8 マトリクスの器は .surf-sunk の作法に任せる(地・枠・padding をインラインで書かない)",
       /<div className="card">/.test(myDataSection));
     check("27.8 D-5: 指標タブと比較対象は**カードの中**にある(上部の余白と2種類のタブの見分け)",
@@ -14727,8 +14888,24 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       check(`27.9 ${nm}(折れ線と帯のための関数)は定義ごと消えている`,
         !new RegExp(`function ${nm}\\b`).test(src), `${nm} が残っている`);
     }
-    check("27.9 My Data から音名軸の折れ線の呼び出しが消えている(正典が却下した側)",
-      !/<NoteAxisLineChart/.test(myDataSection));
+    // 【D-7 2026/08/23 本人指示で書き換え】本人「mydata は窓型と折れ線グラフ二つ選んで見れるように。
+    // デフォルトは折れ線グラフで」。D-1 で正典が却下した側に置いた折れ線が**戻ってきた**。
+    // ただし戻ったのは「絶対値の折れ線」ではなく、**窓型と同じ差分**を描く折れ線
+    // (本人裁定「窓型と同じ差分を描く」)なので、D-1 で消した myDataChartSeries とは別物。
+    check("27.9 D-7: My Data の折れ線は戻ったが、描くのは**差分**(0中心 + 合っている帯)",
+      /<NoteAxisLineChart/.test(myDataSection)
+      && /zeroCentered bandAbs=\{matrixBand\(chartMetric\.key, upper\.maxAbs\)\}/.test(myDataSection));
+    check("27.9 D-7: 折れ線と窓型は**同じ引き算**を1関数から引く(2箇所に書かない)",
+      /const dayDiff = noteDiffByIdx\(dayByIdx, targetByIdx, noteCount\);/.test(myDataSection)
+      && /const periodDiff = noteDiffByIdx\(periodByIdx, targetByIdx, noteCount\);/.test(myDataSection));
+    check("27.9 D-7: 折れ線は音ごとの値をそのまま渡す(frames から数え直さない)",
+      /byIdx: dayDiff/.test(myDataSection) && /byIdx: periodDiff/.test(myDataSection));
+    check("27.9 D-7: 既定は折れ線(本人指示)。窓型はもう一方の選択肢",
+      /const MY_DATA_VIEW_DEFAULT = MY_DATA_VIEWS\[0\]\.key;/.test(src)
+      && /\{ key: "line", label: "折れ線"/.test(src));
+    check("27.9 D-7: 見せ方の切替は**アイコン**(3つ目の文字タブを作らない)",
+      /<v\.Icon size=\{17\}/.test(srcOfFn(src, "ViewToggle"))
+      && !/fontSize/.test(srcOfFn(src, "ViewToggle")));
     check("27.9 音名軸の折れ線そのものは他の画面のために残っている(部品ごと消していない)",
       /function NoteAxisLineChart\(/.test(src) && (src.match(/<NoteAxisLineChart/g) || []).length >= 2,
       `${(src.match(/<NoteAxisLineChart/g) || []).length}箇所`);
@@ -14819,10 +14996,14 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     check("28.2 D-1: 直近日のフレームは上のマトリクスの値になる",
       /const dayByIdx = noteValuesByIdx\(day\.frames, chartMetric\.key, noteCount, dataSax, tuningHz\);/.test(myDataSection)
       && /const upper = buildNoteMatrix\(dayByIdx, /.test(myDataSection));
-    check("28.2 D-1: 直近日のラベルは上のマトリクスのサブ見出しになる(「今日」と偽らない)",
+    // 【D-7 で 1 → 3】折れ線でも同じラベルを使う(見出しと、系列の名前)。
+    // **件数ではなく「描画側が自分で『今日』と書いていないこと」**が芯なので、
+    // 綴りの数ではなく **day.label を通していること**で縛る。
+    check("28.2 D-7: 直近日のラベルは窓型のサブ見出しにも折れ線の見出しにも使う(「今日」と偽らない)",
       /sub=\{day\.label \+ " − " \+ compareName\}/.test(myDataSection)
-      && (codeOf(myDataSection).match(/day\.label/g) || []).length === 1,
-      `${(codeOf(myDataSection).match(/day\.label/g) || []).length}回`);
+      && /\{day\.label\} と \{rangeLabel\}の平均/.test(myDataSection)
+      && /label: day\.label/.test(myDataSection),
+      `day.label ${(codeOf(myDataSection).match(/day\.label/g) || []).length}回`);
     check("28.2 D-1: 直近日の値を別の集計から作り直していない(day.frames を通すだけ)",
       !/computeFrameMetrics\(day/.test(codeOf(myDataSection)));
   }
@@ -14831,10 +15012,14 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
   {
     // 【N-10 で書き換え】旧版は MetricRow(常時表示の3行)を見ていた。関数ごと廃止されたので、
     // 同じ主張を**唯一のグラフを持つ MyDataSection**に対して立てる(黙って消していない)。
-    check("28.4 My Data は目安の引数を一切扱わない(idealKey / idealDiffText の綴りが無い)",
-      !/idealKey|idealDiffText/.test(codeOf(myDataSection)));
-    check("28.4 MyDataSection はどのグラフにも selectedIdeal を渡さない(「目安未設定」の告知の条件にだけ使う)",
-      !/selectedIdeal=\{/.test(codeOf(myDataSection)) && /\{!selectedIdeal && \(/.test(myDataSection));
+    // 【D-7 2026/08/23 本人指示で書き換え】My Data に折れ線が戻ったが、描くのは**差分**なので目安の破線は要らない
+    // (比較対象=目安 のとき、差分の 0 線がそのまま目安を意味する)。
+    // **明示的に null を渡す**ことで「渡し忘れ」と「意図して渡さない」を区別する。
+    check("28.4 D-7: My Data の折れ線は目安の破線を描かない(0 の線が比較対象そのもの)",
+      /selectedIdeal=\{null\} idealKey=\{null\}/.test(myDataSection)
+      && !/idealDiffText/.test(codeOf(myDataSection)));
+    check("28.4 D-7: selectedIdeal は「目安が選べるか」の判定にだけ使う",
+      /const hasIdeal = !!selectedIdeal;/.test(myDataSection));
     check("28.4 idealAvgForFrames(Δ の導出)は削除済み(読み手の無い定義を残さない)",
       !/idealAvgForFrames/.test(codeOf(src)));
     {
@@ -14848,9 +15033,10 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
       /if \(selectedIdeal && idealKey\) \{/.test(chart) && /IDEAL_LINE_STYLE/.test(chart));
     // 【D-3 / D-4 2026/08/22】2画面とも同じ部品(MetricTabCard)になったので、
     // 目安の配線も**部品の中の1箇所**になった。呼び出し側は selectedIdeal を渡すだけ。
-    check("28.4 D-3: 2画面とも指標カードへ selectedIdeal を渡している",
-      /selectedIdeal=\{selectedIdeal\} metricsValues=\{overall\}/.test(srcOfFn(src, "ReedEvaluationDetail"))
-      && /selectedIdeal=\{selectedIdeal\} metricsValues=\{sessionMetrics\}/.test(srcOfFn(src, "SessionDetailView")));
+    // 【D-7 で綴りが変わった】metricsValues を落としたので、渡すのは selectedIdeal だけになった。
+    check("28.4 D-7: 2画面とも指標カードへ selectedIdeal を渡している",
+      /<MetricTabCard[\s\S]{0,200}?selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "ReedEvaluationDetail"))
+      && /<MetricTabCard[\s\S]{0,200}?selectedIdeal=\{selectedIdeal\}/.test(srcOfFn(src, "SessionDetailView")));
     // 【審査で塞いだ穴】前版は「コンポーネント内のどこかに selectedIdeal={selectedIdeal} が
     // 1つあれば」通る形で、SetAsIdealButton / PhraseTimeline の同じ綴りに救われて
     // **指標カードから selectedIdeal を外す変異が生存**した(目安の破線+Δが消えるのに緑)。
@@ -15020,10 +15206,16 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // bare の value は fmt の結果だけ(単位は部品側が描く。`${fmt(v)} ${unit}` に戻すと単位が二重になる)
   // 【D-3】数字は指標カード(MetricTabCard)の中で描くようになった。
   // **単位は数字とは別の <span> が描く**ので、fmt の結果に単位を混ぜないという芯は不変。
-  check("29.3 D-3: 指標カードの数字は fmt の結果だけ(単位は別の span が描く)",
-    /\{has \? m\.fmt\(v\) : "—"\}/.test(srcOfFn(src, "MetricTabCard"))
-    && /\{has && <span className="sans"[^>]*>\{m\.unit\}<\/span>\}/.test(srcOfFn(src, "MetricTabCard"))
-    && !/m\.fmt\(v\)\}\$\{m\.unit/.test(codeOf(srcOfFn(src, "MetricTabCard"))));
+  // 【D-7 2026/08/23 本人指示で書き換え】指標カードから数字が消えたので、この主張の対象そのものが無くなった。
+  // 「fmt に単位を混ぜない」という芯は**グラフの軸**が引き継ぐ(そちらは今も fmt を使う)。
+  // 単位(m.unit)と書式(m.fmt)は**グラフへ渡す**用途で今も生きている。
+  // 見たいのは「指標カードが数字を*描いて*いないこと」なので、描画の綴りで見る。
+  check("29.3 D-7: 指標カードは数字を描かない(単位の二重表示が起きようがない)",
+    !/m\.fmt\(v\)/.test(codeOf(srcOfFn(src, "MetricTabCard")))
+    && !/>\{m\.unit\}</.test(codeOf(srcOfFn(src, "MetricTabCard")))
+    && /unit=\{m\.unit\}/.test(codeOf(srcOfFn(src, "MetricTabCard"))));
+  check("29.3 D-7: fmt は今もグラフの軸が使う(語彙ごと消していない)",
+    /fmt=\{m\.fmt\}/.test(srcOfFn(src, "MetricTabCard")));
   // ドリルダウンの一致度は機能色(scoreToColor)を数値の色で返す(旧 MetricCard と同じ考え)
   check("29.3 ドリルダウンの一致度の数値は scoreToColor の色を持つ(隣接: cells の組み立て)",
     /color: scoreToColor\(getMatchScore\(selectedFrame, "pitch"\)\)/.test(pt29)

@@ -258,11 +258,9 @@ body {
    乱用しないこと(本人指示の2箇所だけ: リード登録カード / リード個別詳細の識別情報カード)。 */
 .surf-rule .no-top-rule { border-top: none; }
 /* 沈める: 地は白のまま、面だけ沈める。枠は透明(場所だけ確保して線は見せない) */
-.surf-sunk .card {
-  background: var(--c-sunk);
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-}
+/* 【D-7 2026/08/23 本人指示で削除】沈める作法の .card。
+   データタブが罫の作法へ移り、**使い手がゼロ**になったので定義ごと落とした
+   (読み手ゼロの規則を残さない)。面の作法はアプリ全体で「罫」の1つだけになった。 */
 
 /* カードの中に並ぶ小さい面(指標のタイル等) */
 .surf-rule .tile {
@@ -273,11 +271,7 @@ body {
   /* 罫を自分の枠の外(1px左)へ出す。下の .tile-row の overflow が行頭の1本だけを落とす */
   margin-left: -1px;
 }
-.surf-sunk .tile {
-  background: var(--c-surface);
-  border: 1px solid var(--c-line);
-  border-radius: var(--r-sm);
-}
+/* 【D-7】沈める作法の .tile も同じ理由で削除(使い手ゼロ)。 */
 
 /* 行の先頭のタイルには左罫を付けない(列の左端に罫が出ると囲みに見える)。
    :nth-child で数える方法は採らない。タイルが1つでも全幅に広がると
