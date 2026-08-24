@@ -9897,7 +9897,12 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 //   ・bandAbs       … 「合っている」幅(±)を **0 の周りの横帯**として塗る。
 //     窓型では窓の灰が担っている役目。ここが無いと、同じデータの2つの見方で
 //     「合っている」の定義が食い違う。
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, bandByIdx = null, bandSeriesId = null, includeAltissimo = true, axisOverlay = false, zeroCentered = false, bandAbs = null }) {
+// 【D-8 2026/08/23 本人指示】さらに3つ足した。**どれも既定は今までどおり**:
+//   ・refByIdx / refLabel … 目安以外の**比較対象**(自分の平均など)を破線で重ねる。
+//     ピッチ以外は実数で描くので、比較対象は「引き算の相手」ではなく「重ねる線」になった。
+//   ・legend       … 系列と破線に**名前を出す**(本人「どの色が自分の平均でどれが比較なのか
+//     わからないので凡例追加」)。SVG の外に1行置く。
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, bandByIdx = null, bandSeriesId = null, includeAltissimo = true, axisOverlay = false, zeroCentered = false, bandAbs = null, refByIdx = null, refLabel = null, legend = false }) {
   // 幅は固定しない。コンテナの実測幅に音域全体を収める(DESIGN-SYSTEM §1.9)。
   // 以前は COL=26 の固定列幅で W=33音×26=858px あり、375pxでは31%しか見えていなかった。
   const [boxRef, W] = useMeasuredWidth();
@@ -9928,7 +9933,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 
   // 理想値プロファイルの音ごとの値(存在する音だけ)。実測と同じ音名軸に破線で重ねる
   let idealByIdx = null;
-  if (selectedIdeal && idealKey) {
+  // 【D-8】呼び手が比較対象の音ごとの値を持っているなら、それを破線の相手にする
+  // (目安もそのうちの1つ。ここから先の描き方は目安の破線と**完全に同じ**)。
+  if (refByIdx && Object.keys(refByIdx).length) idealByIdx = refByIdx;
+  else if (selectedIdeal && idealKey) {
     const m = {};
     for (let i = 0; i < N; i++) {
       const v = getNoteIdeal(selectedIdeal, i)?.[idealKey];
@@ -10097,6 +10105,29 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     // plain(N-7)のときは下余白も持たない(行の余白は正典 .mrow の padding が持つ)
     <div style={{ marginBottom: plain ? 0 : 18 }}>
       {!plain && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
+      {/* 【D-8 2026/08/23 本人指示】「どの色が自分の平均でどれが比較なのかわからないので凡例追加」。
+          **SVG の外に1行**置く(SVG の中に入れるとプロットの高さを食う)。
+          色は系列そのものの style から引く — 凡例と線の色が食い違いようがない。
+          破線(比較対象 / 目安)にも名前を出す。名前が無いのが指摘の実体だったので。 */}
+      {legend && hasData && (
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 10.5, color: "var(--c-ink-2)", marginBottom: 5 }}>
+          {seriesData.map((sr) => (
+            <span key={sr.id} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span aria-hidden="true" style={{ width: 14, height: 3, borderRadius: 2, flexShrink: 0, background: sr.style?.color ?? "var(--c-accent)" }} />
+              {sr.label}
+            </span>
+          ))}
+          {idealByIdx && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span aria-hidden="true" style={{
+                width: 14, height: 2, flexShrink: 0,
+                backgroundImage: `repeating-linear-gradient(90deg, ${IDEAL_LINE_STYLE.color} 0 5px, transparent 5px 9px)`,
+              }} />
+              {refLabel ?? "目安"}
+            </span>
+          )}
+        </div>
+      )}
       {!hasData ? (
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この音域のデータがまだありません</div>
       ) : (
@@ -10108,7 +10139,19 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
               {L.tickVals.map((v, k) => (
                 <g key={k}>
                   <line x1={L.gridX0} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
-                  <text x={L.tickX} y={L.tickTextY(v)} fontSize={L.FS} textAnchor={L.tickAnchor} fontFamily="var(--font-num)" style={{ fill: "var(--c-ink-4)" }}>{L.tickTexts[k]}</text>
+                  {/* 【D-8】軸ラベルを**プロットに重ねる**とき(axisOverlay)は、折れ線の上に
+                      文字が乗る。実測: ラベルが x=8〜38、折れ線の左端が x=26 で**重なる**。
+                      横幅を取り戻すのが目的なので左へ避けるのではなく、**白い縁取り**で読ませる。
+                      paint-order: stroke で「縁 → 塗り」の順に描くと、字の形を太らせずに
+                      背景から浮く(地の色 --c-surface をそのまま縁に使う)。
+                      重ねないとき(他の3画面)は縁が要らないので付けない。 */}
+                  <text
+                    x={L.tickX} y={L.tickTextY(v)} fontSize={L.FS} textAnchor={L.tickAnchor}
+                    fontFamily="var(--font-num)"
+                    style={axisOverlay
+                      ? { fill: "var(--c-ink-4)", stroke: "var(--c-surface)", strokeWidth: 3, paintOrder: "stroke" }
+                      : { fill: "var(--c-ink-4)" }}
+                  >{L.tickTexts[k]}</text>
                 </g>
               ))}
               {/* 【N-10】ばらつきの帯。**折れ線より先に**描いて、線が帯の上に乗るようにする。
@@ -11336,18 +11379,28 @@ function buildNoteMatrix(valueByIdx, targetByIdx, count, saxType, tuningHz) {
 //   ・窓の中央が 0。上＝高い(--c-above 金) / 下＝低い(--c-below 紺)
 //   ・**段ごとに 0 の線を1本**(窓ごとの短い線ではなく、行の端から端まで貫く)
 //   ・数値は**棒と反対側の半分**へ置く。棒は片側にしか伸びないので**絶対に重ならない**
-const MATRIX_CELL_H = 40;          // 窓の高さ(D-5 の 28 から。本人が案B を選択)
+// 【D-8 2026/08/23 本人指示】「窓枠表示は当初のこの案を採用して」(D-1 の8段の色に戻す)。
+// D-6 の「塗りの高さでずれを表す」形は**取り消し**。窓は色だけで読む形へ戻った。
+// 高さは棒も塗りも入らなくなったので 40 → **32** に下げる(数字は窓を丸ごと使えるので
+// 32 で 15px が入る。D-1 の 26/28 よりは大きいまま = 本人の「音比較が小さすぎる」は保つ)。
+const MATRIX_CELL_H = 32;          // 窓の高さ(D-1 の 28 → D-6 の 40 → ここで 32)
 const MATRIX_GRID_GAP = 1;         // 列の間隔(D-5 の 3 から。窓の横幅を稼ぐ)
-const MATRIX_FILL_MAX = MATRIX_CELL_H / 2;  // 中央から端まで。塗りは窓の半分を超えない
-const MATRIX_FILL_MIN = 2;         // 0 でも帯として見える最小の高さ
-// 塗りの向きと**高さ**。maxAbs は**そのマトリクスの実測の最大絶対値**(固定閾値にしない)。
-// 高さは MATRIX_FILL_MAX を超えない(窓から飛び出さない)。**横幅は窓いっぱい**なので
-// ここでは持たない(幅が一定 = 列が揃って見える、が本人の指示の眼目)。
-function matrixFillGeometry(v, maxAbs) {
-  const up = v >= 0;
-  const raw = maxAbs > 0 ? (Math.abs(v) / maxAbs) * MATRIX_FILL_MAX : MATRIX_FILL_MIN;
-  return { up, h: Math.min(MATRIX_FILL_MAX, Math.max(MATRIX_FILL_MIN, raw)) };
+// 【D-8 で git 947b42c から復元】色の段。中央(4-5)ほど淡い。**段の決め方はここ1箇所**。
+const DIVERGING_STEPS = 8;
+function divergingStep(v, maxAbs) {
+  if (!(maxAbs > 0)) return v < 0 ? 4 : 5;
+  const t = Math.max(-1, Math.min(1, v / maxAbs));
+  return Math.max(0, Math.min(DIVERGING_STEPS - 1, Math.floor(((t + 1) / 2) * DIVERGING_STEPS))) + 1;
 }
+function divergingFill(step) { return "var(--c-div-" + step + ")"; }
+// セルの数字の色。**相対輝度から出した答えを表として固定する**(実行時に計算しない)。
+// 白(--c-on-accent)と濃(--c-ink #121F32)のコントラスト比の実測(D-1 で計算):
+//   1 #43719F 白5.12 / 濃3.24 → **白**     5 #E2D0A3 白1.52 / 濃10.87 → 濃
+//   2 #658BB1 白3.57 / 濃4.64 → 濃         6 #D1B570 白1.99 / 濃 8.33 → 濃
+//   3 #89A6C3 白2.53 / 濃6.55 → 濃         7 #C39F45 白2.51 / 濃 6.60 → 濃
+//   4 #B3C6D9 白1.75 / 濃9.46 → 濃         8 #B5891C 白3.20 / 濃 5.17 → 濃
+// 左右の端で答えが揃わないのは**2つの端の明度が違うから**で、揃えると片方が読めなくなる。
+function divergingInk(step) { return step === 1 ? "var(--c-on-accent)" : "var(--c-ink)"; }
 
 // 【D-6】「合っている」とみなす幅(帯)。**この中の窓は色を持たない**(灰)。
 // 本人指示「±2以内は色を目立たな色にして、ずれているところに目が行くようにしたら」。
@@ -11359,15 +11412,21 @@ function matrixFillGeometry(v, maxAbs) {
 //     重心 16 対 17個・HNR と音量は完全一致だったので、**説明の簡単なほう**を採った。
 //     (この式を平均差分に当てると 6÷3 = ±2 で絶対値の答えと一致する。ただし調子の悪い日は
 //      maxAbs が動くので、意味の決まっているピッチは絶対値に固定する。)
+// 【D-8 2026/08/23 本人指示】本人「ピッチの平均差分だけ基準からの差分でだして、それ以外は実数で折れ線表示」。
+// **折れ線だけの規則**で、窓型は4指標とも差分のまま(窓は「比較対象との差」を読む形なので)。
+//   ・平均差分(¢) … セント差はそれ自体が「基準からどれだけ外れたか」の量。
+//     折れ線でも差分(0中心・合っている帯つき)で描く。
+//   ・他の3指標(dB / Hz) … 実数そのものに意味があるので**そのまま**描き、
+//     比較対象は**破線で重ねる**(セッション詳細・リード詳細の目安の破線と同じ描き方)。
+// 比較対象のチップは**4指標とも残す**(本人裁定)。ピッチでは引き算の相手、
+// 他の3指標では**重ねる破線の相手**を選ぶ、と役目が変わる。
+function myDataLineIsDiff(metricKey) { return metricKey === MY_DATA_SIGNED_METRIC; }
+
 const MATRIX_RELATIVE_BAND_DIVISOR = 3;
 function matrixBand(metricKey, maxAbs) {
   if (metricKey === "pitchCentsSigned") return RING_IN_TUNE_CENTS;
   return (Number(maxAbs) > 0 ? maxAbs : 0) / MATRIX_RELATIVE_BAND_DIVISOR;
 }
-// 色は**3状態だけ**。程度は高さが担うので、濃さの段は作らない
-// (本人「色だけで判断するのは難しい」への答え)。
-// 【罠】帯の判定は**画面に出す値**(丸めた後)で行う。生値でやると「0 と書いてあるのに
-// 色がつく窓」ができる(生値 0.4 / 帯 0.33)。呼び手が matrixCellValue を渡すこと。
 // 【D-6】凡例に出す帯の綴り。帯は指標で変わる(ピッチだけ絶対値)ので、**その場の数**を出す。
 // 単位は指標の定義(MY_DATA_METRICS の unit)から引く — 綴りを2箇所に持たない。
 // 相対の帯は小数になりうるので、画面に出すときだけ整数へ丸める(窓の数値と同じ粒度に揃える)。
@@ -11376,9 +11435,15 @@ function matrixBandText(metric, matrix) {
   const n = band >= 1 ? Math.round(band) : Math.round(band * 10) / 10;
   return `±${n}${metric?.unit ?? ""}`;
 }
-function matrixCellColor(v, band) {
-  if (Math.abs(v) <= band) return "var(--c-quiet)";
-  return v >= 0 ? "var(--c-above)" : "var(--c-below)";
+// 【D-8】窓の地と文字。**帯の中は色の段に乗せず引っ込める**(灰)。外れた窓だけを8段の色で塗る。
+// これが D-5 の指摘「グラデーションもどれくらい高いかの程度が読みにくい」への手当てで、
+// 色で読む窓の数が減るぶん、残った窓の濃淡が比べやすくなる。
+// 【罠】帯の判定も色の段も**画面に出す値**(丸めた後)で決める。生値でやると
+// 「0 と書いてあるのに色がつく窓」ができる(生値 0.4 / 帯 0.33)。
+function matrixCellPaint(v, band, maxAbs) {
+  if (Math.abs(v) <= band) return { bg: "var(--c-sunk)", fg: "var(--c-ink-3)", step: 0 };
+  const step = divergingStep(v, maxAbs);
+  return { bg: divergingFill(step), fg: divergingInk(step), step };
 }
 // 【D-6】数値の字の大きさは**そのマトリクスのいちばん長い綴り**から決める。
 // 窓の内幅は 23.7px しかないので、4桁(重心の百単位の差)に引きずられて全指標が
@@ -11389,7 +11454,8 @@ function matrixCellColor(v, band) {
 //   4桁「+240」 10px→23.02 / 10.5px→24.17(あふれる)
 //   5桁「-1200」 9px→23.02
 // **見積もりではなく測った値**。段はこの表から選んでいる(罠7)。
-// 数値は窓の半分(20px)に入るので、行の高さ込みで 15px まで(15×1.2 = 18 ≤ 20)。
+// 【D-8】数値は**窓を丸ごと**使えるようになった(塗りと住み分ける必要が無くなった)ので、
+// 縦の制約は窓の高さ 32px。15 × 1.2 = 18 ≤ 32 で余裕がある。横幅だけが効く。
 function matrixNumFontSize(texts) {
   const L = Math.max(0, ...(texts || []).map((t) => String(t).length));
   if (L <= 2) return 15;
@@ -11597,7 +11663,12 @@ function SubTabs({ items, value, onChange, children }) {
               minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
               padding: `0 ${SUBTAB_HALF_GAP_PX}px`,
               background: "none", border: "none", cursor: "pointer",
-              fontSize: sel ? "var(--fs-lg)" : "var(--fs-md)",
+              /* 【D-8】案1「見出し型」。子タブは**ページの見出し**として立たせる。
+                 本人「My Data と 平均差分・HNR などのタブ同士の間の線を引かない方がスマート。
+                 でもそうすると平均差分とかのタブと連続して見にくくなるよね」への答え:
+                 罫の代わりに**字の大きさの差**で切る。18 → --fs-xl(22)へ。
+                 指標タブは 13px のままなので、22 と 13 で役割が読み分けられる。 */
+              fontSize: sel ? "var(--fs-xl)" : "var(--fs-md)",
               color: sel ? "var(--c-ink)" : "var(--c-ink-3)",
               fontWeight: sel ? 600 : 400,
               lineHeight: 1.2,
@@ -11987,47 +12058,28 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
           </div>
           {matrix.octaves.map((oct) => (
             <div key={oct} style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: MATRIX_GRID_GAP, marginBottom: MATRIX_GRID_GAP }}>
-              {/* 【本人指示】段ごとに 0 の線を**1本**。窓の枠と隙間を貫いて行の端から端まで通す
-                  (窓ごとの短い線ではない)。棒はこの線から生える。 */}
-              <span
-                aria-hidden="true"
-                style={{ position: "absolute", left: 0, right: 0, top: MATRIX_CELL_H / 2, height: 1, background: "var(--c-line-strong)", zIndex: 1 }}
-              />
+              {/* 【D-8】段ごとの 0 の線は**外した**。窓が丸ごと色で塗られるので、
+                  線を貫かせても窓に隠れて読めない(D-6 は棒がその線から生えていた)。 */}
               {NOTE_NAMES.map((pc) => {
                 const v = matrix.byKey[oct + ":" + pc];
                 // 音域の外の音も、データが読めない音も、**同じ空セル**にする(穴を作らない)。
                 if (v === null || v === undefined || isNaN(v)) {
                   return <div key={pc} style={{ height: MATRIX_CELL_H }} />;
                 }
-                const g = matrixFillGeometry(v, matrix.maxAbs);
                 const label = matrixCellText(v);
+                // 帯の判定も色の段も、**画面に出す綴りから読み直した数**で決める。
+                const paint = matrixCellPaint(Number(label), band, matrix.maxAbs);
                 return (
                   <div
                     key={pc}
-                    style={{ height: MATRIX_CELL_H, borderRadius: "var(--r-xs)", background: "var(--c-sunk)", position: "relative", overflow: "hidden" }}
+                    style={{
+                      height: MATRIX_CELL_H, borderRadius: "var(--r-xs)", overflow: "hidden",
+                      background: paint.bg, color: paint.fg,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--font-num)", fontWeight: 600, fontSize: numFs,
+                    }}
                   >
-                    {/* 塗り: 窓の中央(= 0 の線)から上下へ。**横幅は窓いっぱい**で、
-                        高さが差の大きさ。色は 上/下/帯の中 の3状態だけ(程度は高さが担う)。
-                        帯の判定は**画面に出す綴り**から読み直した数で行う(丸めと食い違わせない)。 */}
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: "absolute", left: 0, right: 0,
-                        height: g.h, top: g.up ? "auto" : "50%", bottom: g.up ? "50%" : "auto",
-                        background: matrixCellColor(Number(label), band), zIndex: 2,
-                      }}
-                    />
-                    {/* 数値: **塗りと反対側の半分**。塗りは片側にしか伸びないので絶対に重ならない。 */}
-                    <span
-                      style={{
-                        position: "absolute", left: 0, right: 0, height: "50%",
-                        top: g.up ? "50%" : "auto", bottom: g.up ? "auto" : "50%",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: "var(--font-num)", fontSize: numFs, color: "var(--c-ink-2)", zIndex: 3,
-                      }}
-                    >
-                      {label}
-                    </span>
+                    {label}
                   </div>
                 );
               })}
@@ -12238,9 +12290,17 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   const periodByIdx = noteValuesByIdx(periodFrames, chartMetric.key, noteCount, dataSax, tuningHz);
   const dayByIdx = noteValuesByIdx(day.frames, chartMetric.key, noteCount, dataSax, tuningHz);
   const targetByIdx = compareTargetByIdx(compare, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
-  // 【D-7】折れ線が描く数。窓型(buildNoteMatrix)と**同じ引き算**を1関数から引く。
+  // 【D-7】窓型が描く数。**同じ引き算**を1関数から引く(窓型は4指標とも差分)。
   const dayDiff = noteDiffByIdx(dayByIdx, targetByIdx, noteCount);
   const periodDiff = noteDiffByIdx(periodByIdx, targetByIdx, noteCount);
+  // 【D-8】折れ線が描く数。ピッチだけ差分、他は実数(上の myDataLineIsDiff が決める)。
+  const lineIsDiff = myDataLineIsDiff(chartMetric.key);
+  const lineDay = lineIsDiff ? dayDiff : dayByIdx;
+  const linePeriod = lineIsDiff ? periodDiff : periodByIdx;
+  // 実数のときだけ比較対象を破線で重ねる(差分のときは 0 の線がその役目をしている)。
+  // ただし比較対象が「自分の平均」のときは**下の系列そのもの**なので重ねない
+  // (同じ線を2本描くことになる)。
+  const lineRef = lineIsDiff || compare === MY_DATA_COMPARE_TARGETS[0].key ? null : targetByIdx;
   const upper = buildNoteMatrix(dayByIdx, targetByIdx, noteCount, dataSax, tuningHz);
   const lower = buildNoteMatrix(periodByIdx, targetByIdx, noteCount, dataSax, tuningHz);
   // 【D-1 / D1-SPEC 4.3】下のブロックを畳む条件。**正典の記述からは意図的に外している**。
@@ -12259,7 +12319,11 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           → 外に残るのは**子タブ(My Data / 分析)だけ**。指標タブはカードの中に入るので、
             「外＝画面の切替 / 中＝このカードの中身の切替」が箱で読み分けられる。
           マトリクス2枚も**同じカード**に収める(タブがどこまで効くかを箱が示す)。 */}
-      <div className="card">
+      {/* 【D-8】案1。子タブと指標タブの間に**罫を引かない**(本人指示)。
+          .surf-rule .card は上辺に罫を持つので、既存の例外クラス .no-top-rule で外す
+          (「直前に別の区切りがある箇所だけ」という既存の使い方に合う。ここでは
+          子タブの見出しが区切りそのものになっている)。 */}
+      <div className="card no-top-rule">
         {/* 指標タブ。My Data・セッション詳細・リード詳細・リード比較で**同じ部品**。 */}
         <MetricUnderlineTabs
           order={MY_DATA_CARD_METRICS} metrics={MY_DATA_METRICS}
@@ -12273,7 +12337,11 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
             書かなくてもわかるので比較対象というテキストも削除」)。PIVOT の「条件」ラベルも
             まったく同じ体裁・同じ役割だったので**同時に**消してある。
             空いた右端に見せ方の切替(アイコン2つ)を置く。**行を増やさない**ので縦幅は変わらない。 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "var(--sp-2) 0 var(--sp-3)" }}>
+        {/* 【D-8】本人「相変わらず比較対象の縦幅が過剰に大きい」。
+            チップ自体は **44pt が §5 の床**なので削れない。削れるのは上下の余白で、
+            実測 64px = 44(チップ) + 20(余白) だった。余白を 20 → 8 にして 52px にする。
+            これ以上は §5 の例外を作ることになるので、ここで止める。 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 0 var(--sp-2)" }}>
           <div style={{ display: "flex", gap: "var(--sp-1)", minWidth: 0, flexWrap: "wrap" }}>
             {compareOptions.map((t) => {
               const sel = compare === t.key;
@@ -12315,25 +12383,24 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
             差分なので縦軸は 0 中心(zeroCentered)で、「合っている」幅は 0 の周りの帯
             (bandAbs)として塗る — 窓型の灰と**同じ意味・同じトークン**。 */}
         {view === "line" ? (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-              <span className="sans" style={{ fontSize: 12, fontWeight: 600 }}>{day.label} と {rangeLabel}の平均</span>
-              <span className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)" }}>{compareName} との差</span>
-            </div>
-            <NoteAxisLineChart
-              plain
-              label={chartMetric.label} unit={chartMetric.unit} metricKey={chartMetric.key}
-              series={[
-                { id: "day", label: day.label, style: SERIES_STYLES[0], byIdx: dayDiff },
-                ...(showLower ? [{ id: "period", label: rangeLabel + "の平均", style: SERIES_STYLES[1], byIdx: periodDiff }] : []),
-              ]}
-              saxType={dataSax} tuningHz={tuningHz}
-              fmt={chartMetric.fmt}
-              includeAltissimo={false}
-              zeroCentered bandAbs={matrixBand(chartMetric.key, upper.maxAbs)}
-              selectedIdeal={null} idealKey={null}
-            />
-          </div>
+          /* 【D-8】軸ラベルは**プロットに重ねる**(axisOverlay)。左に列を作らないので
+             横幅を1pxも食わない。実測で 347px 中 55px(16%)を取り戻す。
+             凡例(legend)は系列の style から色を引くので、線と食い違いようがない。 */
+          <NoteAxisLineChart
+            plain legend axisOverlay
+            label={chartMetric.label} unit={chartMetric.unit} metricKey={chartMetric.key}
+            series={[
+              { id: "day", label: day.label, style: SERIES_STYLES[0], byIdx: lineDay },
+              ...(showLower ? [{ id: "period", label: rangeLabel + "の平均", style: SERIES_STYLES[1], byIdx: linePeriod }] : []),
+            ]}
+            saxType={dataSax} tuningHz={tuningHz}
+            fmt={chartMetric.fmt}
+            includeAltissimo={false}
+            zeroCentered={lineIsDiff}
+            bandAbs={lineIsDiff ? matrixBand(chartMetric.key, upper.maxAbs) : null}
+            refByIdx={lineRef} refLabel={compareName}
+            selectedIdeal={null} idealKey={null}
+          />
         ) : (
           <>
         <NoteMatrixBlock
@@ -12356,19 +12423,9 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           </>
         )}
 
-        {/* 【D-6】読み方の1行。D-5 では「棒の長さ」と言っていたが、塗りが窓の幅いっぱいになり、
-            さらに帯(合っている幅)が入ったので**3つとも言い直す**必要がある:
-            どこが 0 か / 何が大きさを表すか / 灰は何か。
-            帯の幅は指標で変わる(ピッチだけ絶対値の ±2¢)ので、**その場の数**を出す。 */}
-        <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", lineHeight: 1.7, marginTop: "var(--sp-3)" }}>
-          {view === "line" ? (
-            <>0 の線が {compareName}。上へ離れるほど高く、下へ離れるほど低い。
-              <b style={{ color: "var(--c-quiet)", fontWeight: 700 }}>灰の帯</b>＝{matrixBandText(chartMetric, upper)}以内（ほぼ合っている）</>
-          ) : (
-            <>段の中央が 0。<b style={{ color: "var(--c-above)", fontWeight: 700 }}>上＝高い</b> / <b style={{ color: "var(--c-below)", fontWeight: 700 }}>下＝低い</b>。塗りの高さが差の大きさ。
-              <b style={{ color: "var(--c-quiet)", fontWeight: 700 }}>灰</b>＝{matrixBandText(chartMetric, upper)}以内（ほぼ合っている）</>
-          )}
-        </div>
+        {/* 【D-8 2026/08/23 本人指示で削除】「0の線が目安〜〜とかのテキストも不要」。
+            読み方の1行は**丸ごと外した**。代わりに折れ線は凡例が系列に名前を出し、
+            窓型は8段の色そのものが向きと程度を示す。**帯(灰)は残っている**(本人裁定)。 */}
       </div>
 
       <PracticeCalendarCard

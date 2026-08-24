@@ -6096,9 +6096,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     const bodies = owners.map((n) => ({ n, body: srcOfFn(src, n) }));
     check("D-1/D-2: カードを持つ3関数を走査できている(空回りしていない)",
       bodies.every((b) => b.body.length > 400), bodies.map((b) => `${b.n}:${b.body.length}`).join(" "));
+    // 【D-8 2026/08/23 本人指示で書き換え】My Data のカードは子タブとの間に罫を引かないので .no-top-rule が付いた。
+    // 「.card を名乗っている」という主張は変わらないので、綴りを両方許す。
     check("D-1/D-2: データ系のカードは実際に .card を名乗っている(作法の外で箱を作っていない)",
-      bodies.every((b) => /className="card"/.test(b.body)),
-      bodies.filter((b) => !/className="card"/.test(b.body)).map((b) => b.n).join(",") || "3関数とも");
+      owners.every((fn) => /className="card(?: no-top-rule)?"/.test(srcOfFn(src, fn))),
+      owners.filter((fn) => !/className="card(?: no-top-rule)?"/.test(srcOfFn(src, fn))).join(" / ") || "全部 .card");
     {
       // .card の開きタグを切り出し、その style に地・枠・padding が無いことを見る。
       const bad = [];
@@ -6315,8 +6317,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // 箇所数を緩めたのではなく**減った2件が本当に消えたこと**も下で名指しで確かめる。
   {
     const noTopTags = tagsWithClass("no-top-rule");
-    check('className="card no-top-rule" は1箇所だけ(計測タブの詳細カード)',
-      noTopTags.length === 1, `${noTopTags.length}箇所`);
+    // 【D-8 で 1 → 2】本人「My Data と 平均差分・HNR などのタブ同士の間の線を引かない方が
+    // スマート」。My Data の最初のカードも、直前の子タブ(22px の見出し)が区切りそのものなので
+    // 罫を外した。**既存の例外の使い方(直前に別の区切りがある箇所だけ)に沿っている。**
+    {
+      const noTop = (codeOf(src).match(/className="card no-top-rule"/g) || []).length;
+      check("D-8: className=\"card no-top-rule\" は2箇所(計測タブの詳細 / My Data の先頭)",
+        noTop === 2, `${noTop}箇所`);
+    }
     {
       const codeNT = codeOf(src);
       const at = (needle) => codeNT.indexOf(needle);
@@ -8630,8 +8638,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // **子タブと指標タブが違う大きさであること**が、この指摘が直ったことの証拠。
       {
         const sub = srcOfFn(src, "SubTabs"), met = srcOfFn(src, "MetricUnderlineTabs");
-        check("D-6: 子タブは選択中 --fs-lg(18) / 非選択 --fs-md(15)(正典 #9b の 20/17 を体系の段へ写した)",
-          /fontSize: sel \? "var\(--fs-lg\)" : "var\(--fs-md\)"/.test(sub));
+        // 【D-8 2026/08/23 本人指示で書き換え】案1「見出し型」。罫の代わりに**字の大きさの差**で切るので、
+        // 子タブは 18 → **--fs-xl(22)** へ上げた。指標タブは 13 のままなので 22 と 13 で読み分く。
+        check("D-8: 子タブは選択中 --fs-xl(22) / 非選択 --fs-md(15)(見出しとして立てる)",
+          /fontSize: sel \? "var\(--fs-xl\)" : "var\(--fs-md\)"/.test(sub));
         check("D-6: 指標タブは --fs-sm(13) のまま(子タブと同じ大きさにしない)",
           /fontSize: "var\(--fs-sm\)"/.test(met) && !/--fs-lg|--fs-md/.test(met));
         check("D-6: 見分けは大きさが担う。子タブは下線を持たない(下線は指標タブの印)",
@@ -10601,9 +10611,11 @@ console.log("=== 検証21: F-66 平均差分(ピッチ)に標準偏差を併記 
     // どれくらい高いかの程度が読みにくい」→ 程度は**窓の中の棒の長さ**が担い、色は方向だけになった。
     // 【D-6 2026/08/23 本人指示で書き換え】本人「窓の横幅はkeepしつつ縦幅でずれの幅を表現して」。
     // 棒(9px幅)は**窓の幅いっぱいの塗り**になり、高さだけが大きさを表す。
-    check("21.5 D-6: 散らばりはマトリクスの塗りの高さが担う(窓の中央 0 から上下へ)",
-      /const g = matrixFillGeometry\(v, matrix\.maxAbs\);/.test(srcOfFn(src, "NoteMatrixBlock"))
-      && /background: matrixCellColor\(Number\(label\), band\)/.test(srcOfFn(src, "NoteMatrixBlock")));
+    // 【D-8 2026/08/23 本人指示で書き換え】本人「窓枠表示は当初のこの案を採用して」。D-6 の「塗りの高さ」は取り消し、
+    // **D-1 の8段の色**へ戻った。ただし帯(灰)は残るので、色で読むのは外れた窓だけ。
+    check("21.5 D-8: 散らばりはマトリクスの色の段が担う(帯の中は段に乗せない)",
+      /const paint = matrixCellPaint\(Number\(label\), band, matrix\.maxAbs\);/.test(srcOfFn(src, "NoteMatrixBlock"))
+      && /background: paint\.bg, color: paint\.fg/.test(srcOfFn(src, "NoteMatrixBlock")));
     // TappableMetricCard 側の受け口(sub)が生きていること
     const cardCode = componentSourceOf("TappableMetricCard");
     check("21.5 TappableMetricCard は sub を引数に受け取る",
@@ -14119,7 +14131,10 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       ["音ごとのマトリクス", /<NoteMatrixBlock/],
       ["比較対象の切り替え", /onClick=\{\(\) => setCompareRaw\(t\.key\)\}/],
       // 【D-5】8段の凡例は廃止され、読み方は**1行の説明**が引き取った(色は方向だけになった)。
-      ["高い/低いの読み方の説明", /段の中央が 0。/],
+      // 【D-8 2026/08/23 本人指示で削除】「0の線が目安〜〜とかのテキストも不要」。
+      // 読み方の1行は本人が名指しで消したので、この「残っている集合」から外す
+      // (27.7 が「もう無い」ことを固定する)。代わりに折れ線の**凡例**を集合に入れる。
+      ["折れ線の凡例", /plain legend axisOverlay/],
       ["練習カレンダー", /<PracticeCalendarCard/],
       ["月の移動", /calendarShiftMonth\(p\.year, p\.month, delta\)/],
       ["全件一覧への入口", /onClick=\{onOpenAllSessions\}/],
@@ -14199,27 +14214,34 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
   // --- 27.1 高い/低いの2色(D-1 の8段の発散スケールは廃止) ----------------------
   {
     const cssIdx = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
-    const above = (/--c-above:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
-    const below = (/--c-below:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
-    check("27.1 index.css に --c-above / --c-below が定義されている",
-      !!above && !!below, `${above} / ${below}`);
+    // 【D-8】--c-above / --c-below は読み手ゼロになったので**定義ごと削除**した
+    // (窓が8段へ戻り、この2色を読む場所が無くなった)。値は --c-div-8 / --c-accent と
+    // 同じなので情報は失われていない。宣言が復活していないことをここで固定する。
+    check("27.1 D-8: 読み手ゼロになった2色トークンは宣言ごと消えている",
+      !/--c-above\s*:/.test(cssIdx) && !/--c-below\s*:/.test(cssIdx),
+      (cssIdx.match(/--c-(?:above|below)\s*:/g) || []).join(" ") || "0件");
     // 【罠1】綴りの有無で見ると、廃止の**由来を書いた注釈**に当たって落ちる。
     // 見たいのは「宣言が無い」ことなので、宣言の形(--c-div-N:)で縛る。
-    check("27.1 D-5: 8段の発散スケール(--c-div-1..8)は宣言ごと消えている",
-      !/--c-div-\d\s*:/.test(cssIdx), (cssIdx.match(/--c-div-\d\s*:/g) || []).length + "件");
-    // 金(高い)は正典 #9b の凡例バーの端の色そのもの。**値の出どころが正典であること**は
-    // 廃止しても変わらない(2色に減っただけ)。青(低い)は --c-accent と同値。
+    // 【D-8 2026/08/23 本人指示で書き換え】8段は**戻した**(本人「窓枠表示は当初のこの案を採用して」)。
+    // 値の出どころは正典 #9b の凡例バーのまま(git 947b42c から復元)。
+    {
+      const steps = (cssIdx.match(/--c-div-\d\s*:/g) || []).length;
+      check("27.1 D-8: 8段の発散スケールは8つとも宣言されている", steps === 8, `${steps}件`);
+      check("27.1 D-8: 端の2色は正典 #9b の凡例バーそのもの(勝手に作り直していない)",
+        /--c-div-1:\s*#43719F/.test(cssIdx) && /--c-div-8:\s*#B5891C/.test(cssIdx));
+      check("27.1 D-8: 一度消して戻したことが注釈に残っている(履歴を失わない)",
+        /D-5 で一度廃止し、D-8 で戻した/.test(cssIdx));
+    }
+    // 【D-8】値の出どころは今も正典 #9b の凡例バー。**8段の金の端**で突き合わせる。
     {
       const i9b = canon.indexOf('<div class="dv-opt" id="9b">');
       const i9c = canon.indexOf('<div class="dv-opt" id="9c">');
       const b9 = i9b >= 0 && i9c > i9b ? canon.slice(i9b, i9c) : "";
       const goldEnd = (/background:(#B5891C)/i.exec(b9) || [])[1];
-      check("27.1 「高い」の色は正典 #9b の凡例の金の端そのもの",
-        goldEnd && above && goldEnd.toUpperCase() === above.toUpperCase(), `${goldEnd} / ${above}`);
-      const accent = (/--c-accent:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
-      check("27.1 「低い」は --c-accent と同値だが**別のトークン**(意味を混ぜない)",
-        below && accent && below.toUpperCase() === accent.toUpperCase()
-        && /--c-below:/.test(cssIdx), `${below} / ${accent}`);
+      const div8 = (/--c-div-8:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(cssIdx) || [])[1];
+      check("27.1 正典から金の端を読めている(空回りしていない)", !!goldEnd, String(goldEnd));
+      check("27.1 8段の金の端は正典 #9b の凡例の端そのもの",
+        goldEnd && div8 && goldEnd.toUpperCase() === div8.toUpperCase(), `${goldEnd} / ${div8}`);
     }
     // 色は 上/下/帯の中 の3状態で、トークンも3つ。読み手は4つある:
     //   (1) 窓の色を決める matrixCellColor(3つとも)
@@ -14227,11 +14249,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     //   (3) 折れ線の「合っている」帯の塗り(帯の中の1つ)
     //   (4) 折れ線の読み方の1行(帯の中の1つ)
     // 合計 3 + 3 + 1 + 1 = 8。【D-7 で 6 → 8】折れ線が増えたぶん (3)(4) が足された。
-    check("27.1 D-6: App.jsx は色の hex を持たない(トークン名だけを扱う)",
-      /return v >= 0 \? "var\(--c-above\)" : "var\(--c-below\)";/.test(src)
-      && /if \(Math\.abs\(v\) <= band\) return "var\(--c-quiet\)";/.test(src)
-      && (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length === 8,
-      `${(codeOf(src).match(/var\(--c-above\)|var\(--c-below\)|var\(--c-quiet\)/g) || []).length}箇所`);
+    // 【D-8 で読み手が変わった】窓の色は8段のトークンへ戻り、--c-above / --c-below は
+    // **読み手ゼロ**になった。--c-quiet は帯(窓と折れ線の両方)が今も使う。
+    check("27.1 D-8: 窓の色は8段のトークン名から組み立てる(hex を持たない)",
+      /function divergingFill\(step\) \{ return "var\(--c-div-" \+ step \+ "\)"; \}/.test(src));
+    check("27.1 D-8: 帯の色(--c-quiet)は窓と折れ線で同じトークン(2つの見方で食い違わない)",
+      /return \{ bg: "var\(--c-sunk\)", fg: "var\(--c-ink-3\)", step: 0 \};/.test(src)
+      && /fill: "var\(--c-quiet\)", opacity: CHART_OK_BAND_OPACITY/.test(codeOf(src)));
     // 【D-7】折れ線の帯は**窓型と同じトークン**。2つの見方で「合っている」の色が食い違わない。
     check("27.1 D-7: 折れ線の帯も窓型と同じ --c-quiet を使う(濃さだけ面積ぶん薄める)",
       /fill: "var\(--c-quiet\)", opacity: CHART_OK_BAND_OPACITY/.test(codeOf(src))
@@ -14254,132 +14278,159 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       // 【罠】テンプレート文字列の中では `\s` は「s」に潰れる(未知のエスケープ)。
       // new RegExp に渡す綴りでは **\\s** と二重に書くこと。
       const varOf = (name) => (new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})\\s*;`).exec(cssIdx) || [])[1];
-      const quiet = varOf("--c-quiet"), hi = varOf("--c-above"), lo = varOf("--c-below"), ground = varOf("--c-bg");
-      check("27.1 D-6: 3色と地を読めている(空回りしていない)", !!quiet && !!hi && !!lo && !!ground, `${hi} / ${lo} / ${quiet} / 地 ${ground}`);
-      check("27.1 D-6: 3色は互いに違う値(トークンだけ分けて同じ色、を作らない)",
-        new Set([quiet, hi, lo].map((x) => String(x).toUpperCase())).size === 3,
-        [hi, lo, quiet].join(" / "));
+      // 【D-8 で相手が変わった】窓は8段へ戻ったので、帯の灰が見分けられるべき相手は
+      // **8段の両端**(--c-div-1 = 低い側の端 / --c-div-8 = 高い側の端)。
+      const quiet = varOf("--c-quiet"), lo = varOf("--c-div-1"), hi = varOf("--c-div-8"), ground = varOf("--c-bg");
+      check("27.1 D-8: 帯の灰・8段の両端・地を読めている(空回りしていない)",
+        !!quiet && !!hi && !!lo && !!ground, `${lo} 〜 ${hi} / 灰 ${quiet} / 地 ${ground}`);
+      // 【変異試験 M9 で生存 → 足した】8段のうち2つを同じ色にしても全検査が通っていた。
+      // 段が8つ**ある**ことと、8つに**見える**ことは別。値として全部違うことを見る。
+      {
+        const steps = [1, 2, 3, 4, 5, 6, 7, 8].map((k) => String(varOf(`--c-div-${k}`)).toUpperCase());
+        check("27.1 D-8: 8段は互いに違う色(同じ色が2つあると段が潰れる)",
+          new Set(steps).size === 8, steps.join(" "));
+        // 淡→濃の並びも崩れていないこと(中央が淡く、両端へ向かって濃くなる)。
+        const l = steps.map(lum);
+        // 【実測 2026/08/23】相対輝度は 0.155 0.244 0.365 0.550 **0.639** 0.478 0.368 0.278。
+        // 山は段5(金側のいちばん淡い段)にあり、そこから両端へ向かって濃くなる。
+        // 「中央が淡い」の実体はこれ(**測った並び**であって左右対称ではない)。
+        check("27.1 D-8: 段5がいちばん淡く、そこから両端へ向かって濃くなる",
+          l[0] < l[1] && l[1] < l[2] && l[2] < l[3] && l[3] < l[4]
+          && l[4] > l[5] && l[5] > l[6] && l[6] > l[7],
+          l.map((x) => x.toFixed(3)).join(" "));
+        check("27.1 D-8: いちばん濃いのは青の端(段1)。金の端(段8)より暗い",
+          l[0] < l[7], `段1=${l[0].toFixed(3)} / 段8=${l[7].toFixed(3)}`);
+      }
+      check("27.1 D-8: 帯の灰は8段のどの色とも違う(段に紛れない)",
+        [1, 2, 3, 4, 5, 6, 7, 8].every((k) => String(varOf(`--c-div-${k}`)).toUpperCase() !== String(quiet).toUpperCase()),
+        [1, 2, 3, 4, 5, 6, 7, 8].map((k) => varOf(`--c-div-${k}`)).join(" "));
       // 「合っている」は**引っ込む**側。高い/低いのどちらよりも淡い(白に近い)こと。
       // これが崩れると、いちばん目立つ窓が「合っている窓」になり、本人の指示
       // 「ずれているところに目が行くように」が反転する。
-      check("27.1 D-6: 帯の中の色は高い/低いのどちらよりも淡い(合っている窓が目立たない)",
+      check("27.1 D-8: 帯の灰は8段の両端のどちらよりも淡い(合っている窓が目立たない)",
         lum(quiet) > lum(hi) && lum(quiet) > lum(lo),
-        `合=${lum(quiet).toFixed(3)} / 高=${lum(hi).toFixed(3)} / 低=${lum(lo).toFixed(3)}`);
+        `灰=${lum(quiet).toFixed(3)} / 高の端=${lum(hi).toFixed(3)} / 低の端=${lum(lo).toFixed(3)}`);
       // 淡いだけでは足りない。**白い地の上で見える**こと(消えたら「データが無い」に見える)。
       const onGround = cRatio(quiet, ground);
       check("27.1 D-6: それでも白い地の上で見える(合っている窓が消えてしまわない)",
         onGround >= 1.2, `${quiet} on ${ground} = ${onGround.toFixed(3)}:1`);
-      console.log(`  窓の3色: 高=${hi} / 低=${lo} / 合=${quiet}(地との差 ${onGround.toFixed(2)}:1)`);
+      console.log(`  窓の色: 8段 ${lo}〜${hi} / 帯の灰 ${quiet}(地との差 ${onGround.toFixed(2)}:1)`);
     }
-    // 【D-6】読み方の1行は3つとも色そのものを見せる(説明と窓の色が食い違わない)。
-    check("27.1 D-6: 読み方の1行も同じトークンで色を見せる(上 / 下 / 帯の中)",
-      /color: "var\(--c-above\)", fontWeight: 700 \}\}>上＝高い/.test(srcOfFn(src, "MyDataSection"))
-      && /color: "var\(--c-below\)", fontWeight: 700 \}\}>下＝低い/.test(srcOfFn(src, "MyDataSection"))
-      && /color: "var\(--c-quiet\)", fontWeight: 700 \}\}>灰/.test(srcOfFn(src, "MyDataSection")));
+    // 【D-8 2026/08/23 本人指示で書き換え】読み方の1行そのものが無くなったので
+    // 「説明が色を見せる」という主張は成り立たない。代わりに、色を見せていた
+    // --c-above / --c-below が**読み手ゼロになっていないか**を見る
+    // (窓は8段のトークンへ戻ったので、この2つは今どこからも読まれていないはず)。
+    check("27.1 D-8: 高い/低いの2色トークンは読み手ゼロになっている(8段へ戻ったため)",
+      !/var\(--c-above\)|var\(--c-below\)/.test(codeOf(src)),
+      (codeOf(src).match(/var\(--c-above\)|var\(--c-below\)/g) || []).join(" ") || "0箇所");
   }
 
-  // --- 27.2 窓の中の塗り + 帯(実行で検証) -----------------------------------------
-  // 【D-6 2026/08/23 本人指示】「色だけで判断するのは難しいので窓の横幅はkeepしつつ
-  // 縦幅でずれの幅を表現してみて」。D-5 の 9px 幅の棒は**窓の幅いっぱいの塗り**になり、
-  // 高さだけが大きさを表す。あわせて「±2以内は色を目立たな色にして、ずれているところに
-  // 目が行くように」の**帯**が入った(色は 上/下/帯の中 の3状態だけになった)。
+  // --- 27.2 窓の色(8段)+ 帯(実行で検証) ------------------------------------------
+  // 【D-8 2026/08/23 本人指示】「窓枠表示は当初のこの案を採用して」。
+  // 窓は **D-1 の8段の色**へ戻った(D-6 の「塗りの高さ」は取り消し)。
+  // ただし**帯(合っている幅)は残す**(本人裁定)ので、帯の中の窓は段に乗せず灰へ引っ込める。
   {
     const api = new Function(`${extractConst("MATRIX_CELL_H")}
       ${extractConst("MATRIX_GRID_GAP")}
-      ${extractConst("MATRIX_FILL_MAX")}
-      ${extractConst("MATRIX_FILL_MIN")}
+      ${extractConst("DIVERGING_STEPS")}
       ${extractConst("MATRIX_RELATIVE_BAND_DIVISOR")}
       ${extractConst("RING_IN_TUNE_CENTS")}
-      ${extractFunction("matrixFillGeometry")}
-      ${extractFunction("matrixCellColor")}
+      ${extractConst("MY_DATA_SIGNED_METRIC")}
+      ${extractFunction("divergingStep")}
+      ${extractFunction("divergingFill")}
+      ${extractFunction("divergingInk")}
+      ${extractFunction("matrixCellPaint")}
       ${extractFunction("matrixBand")}
       ${extractFunction("matrixNumFontSize")}
-      return { matrixFillGeometry, matrixCellColor, matrixBand, matrixNumFontSize,
-               MATRIX_CELL_H, MATRIX_GRID_GAP, MATRIX_FILL_MAX, MATRIX_FILL_MIN, RING_IN_TUNE_CENTS };`)();
-    const g = api.matrixFillGeometry;
-    check("27.2 上=高い / 下=低い。0 は上向き扱い(下向きの 0 を作らない)",
-      g(3, 6).up === true && g(-3, 6).up === false && g(0, 6).up === true,
-      `${g(3, 6).up} / ${g(-3, 6).up} / ${g(0, 6).up}`);
-    check("27.2 D-6: 高さは maxAbs に対する比。いちばん高い塗りが MATRIX_FILL_MAX",
-      g(6, 6).h === api.MATRIX_FILL_MAX && Math.abs(g(3, 6).h - api.MATRIX_FILL_MAX / 2) < 1e-9,
-      `${g(6, 6).h} / ${g(3, 6).h}`);
-    check("27.2 maxAbs を超える値でも窓から飛び出さない(端で止まる)",
-      g(99, 6).h === api.MATRIX_FILL_MAX && g(-99, 6).h === api.MATRIX_FILL_MAX);
-    check("27.2 0 でも帯として見える最小の高さを持つ(消えない)",
-      g(0, 6).h === api.MATRIX_FILL_MIN && api.MATRIX_FILL_MIN > 0, String(g(0, 6).h));
-    check("27.2 maxAbs が 0 / 負 / 未定義でも落ちず、最小の高さになる",
-      g(0, 0).h === api.MATRIX_FILL_MIN && g(1, -1).h === api.MATRIX_FILL_MIN && g(-1, undefined).h === api.MATRIX_FILL_MIN);
-    check("27.2 塗りは窓の半分に収まる(上下どちらへ伸びても窓を割らない)",
-      api.MATRIX_FILL_MAX <= api.MATRIX_CELL_H / 2,
-      `塗り ${api.MATRIX_FILL_MAX} / 窓の半分 ${api.MATRIX_CELL_H / 2}`);
-    // 【D-6 の芯】**幅は持たない**。幅を持つ定数が復活したら、窓ごとに幅が変わる形へ
-    // 戻りかけているということなので落とす(本人指示「窓の横幅はkeep」)。
-    check("27.2 D-6: 塗りの幅を決める定数はもう無い(幅は窓いっぱいで一定)",
-      !/const MATRIX_BAR_W\b/.test(src) && !/MATRIX_BAR_MAX|MATRIX_BAR_MIN|matrixBarGeometry|matrixBarColor/.test(src));
-    check("27.2 D-6: 描く側も幅を書いていない(left:0 / right:0 で窓いっぱい)",
-      /position: "absolute", left: 0, right: 0,\s*\r?\n\s*height: g\.h,/.test(matrixCard),
-      /width:/.test(matrixCard.slice(matrixCard.indexOf("height: g.h"), matrixCard.indexOf("height: g.h") + 200)) ? "幅を書いている" : "ok");
+      ${extractFunction("myDataLineIsDiff")}
+      return { divergingStep, divergingFill, divergingInk, matrixCellPaint, matrixBand,
+               matrixNumFontSize, myDataLineIsDiff,
+               MATRIX_CELL_H, MATRIX_GRID_GAP, DIVERGING_STEPS, RING_IN_TUNE_CENTS };`)();
 
-    // --- 帯(合っている幅) ---
-    check("27.2 D-6: 平均差分の帯は**絶対値**で、チューナーの「合った」と同じ数",
+    // --- 8段の色 ---
+    const st = api.divergingStep;
+    check("27.2 D-8: 段は1〜8。負ほど小さく(青側)、正ほど大きく(金側)",
+      st(-6, 6) === 1 && st(6, 6) === 8 && st(-6, 6) < st(0, 6) && st(0, 6) < st(6, 6),
+      `${st(-6, 6)} / ${st(0, 6)} / ${st(6, 6)}`);
+    check("27.2 D-8: 0 のまわりは中央の2段(4-5)。**中央ほど淡い**",
+      st(-0.1, 6) === 4 && st(0, 6) === 5, `${st(-0.1, 6)} / ${st(0, 6)}`);
+    check("27.2 D-8: maxAbs を超えても段は 1..8 からはみ出さない",
+      st(-99, 6) === 1 && st(99, 6) === 8);
+    check("27.2 D-8: maxAbs が 0 / 負 / 未定義でも落ちない(中央の2段へ)",
+      st(1, 0) === 5 && st(-1, 0) === 4 && st(1, undefined) === 5);
+    check("27.2 D-8: 段はトークン名に素直に写る(色の hex を持たない)",
+      api.divergingFill(1) === "var(--c-div-1)" && api.divergingFill(8) === "var(--c-div-8)");
+    // 【罠3】期待値を実装の式で書き直さない。**D-1 が実測したコントラストの表**が根拠。
+    check("27.2 D-8: 白い字は段1だけ(#43719F 白5.12 / 濃3.24 の実測から)",
+      api.divergingInk(1) === "var(--c-on-accent)"
+      && [2, 3, 4, 5, 6, 7, 8].every((k) => api.divergingInk(k) === "var(--c-ink)"));
+
+    // --- 帯の中は段に乗せない ---
+    const p = api.matrixCellPaint;
+    check("27.2 D-8: 帯の中の窓は色の段に乗らず灰へ引っ込む",
+      p(0, 2, 6).step === 0 && p(2, 2, 6).step === 0 && p(-2, 2, 6).step === 0
+      && p(0, 2, 6).bg === "var(--c-sunk)" && p(0, 2, 6).fg === "var(--c-ink-3)",
+      `${p(0, 2, 6).bg} / step ${p(0, 2, 6).step}`);
+    check("27.2 D-8: 帯の外だけが8段の色になる(境界は帯に含める)",
+      p(3, 2, 6).step > 0 && p(-3, 2, 6).step > 0
+      && p(3, 2, 6).bg.startsWith("var(--c-div-") && p(-3, 2, 6).bg.startsWith("var(--c-div-"),
+      `${p(3, 2, 6).bg} / ${p(-3, 2, 6).bg}`);
+    check("27.2 D-8: 帯が 0 のときは 0 だけが灰(全部が色つきにならない)",
+      p(0, 0, 6).step === 0 && p(1, 0, 6).step > 0 && p(-1, 0, 6).step > 0);
+    check("27.2 D-8: 帯の外では字の色も段から引く(読めない組み合わせを作らない)",
+      p(-6, 2, 6).fg === "var(--c-on-accent)" && p(6, 2, 6).fg === "var(--c-ink)",
+      `${p(-6, 2, 6).fg} / ${p(6, 2, 6).fg}`);
+    // 【D-5 の指摘への手当て】色で読む窓は**外れた窓だけ**に減る。
+    {
+      const vals = [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6];
+      const grey = vals.filter((v) => p(v, 2, 6).step === 0).length;
+      check("27.2 D-8: 帯があるぶん、色で読む窓の数が減る(D-5「程度が読みにくい」への手当て)",
+        grey === 5 && grey < vals.length - grey, `${grey}/${vals.length} が灰`);
+    }
+
+    // --- 高さと間隔 ---
+    check("27.2 D-8: 窓の高さは 32(D-1 の 28 より大きく、D-6 の 40 より低い)",
+      api.MATRIX_CELL_H === 32, String(api.MATRIX_CELL_H));
+    check("27.2 D-8: 塗りの高さで読ませる仕組み(D-6)は定義ごと消えている",
+      !/MATRIX_FILL_MAX|MATRIX_FILL_MIN|matrixFillGeometry|matrixCellColor\b/.test(src));
+    check("27.2 D-8: 段ごとの 0 の線も消えている(窓が丸ごと塗られるので読めない)",
+      !/top: MATRIX_CELL_H \/ 2, height: 1/.test(matrixCard));
+
+    // --- 帯の幅(D-6 から不変) ---
+    check("27.2 D-6: 平均差分の帯は絶対値で、チューナーの「合った」と同じ数",
       api.matrixBand("pitchCentsSigned", 6) === api.RING_IN_TUNE_CENTS
       && api.matrixBand("pitchCentsSigned", 60) === api.RING_IN_TUNE_CENTS,
-      `maxAbs 6 → ${api.matrixBand("pitchCentsSigned", 6)} / maxAbs 60 → ${api.matrixBand("pitchCentsSigned", 60)}`);
-    check("27.2 D-6: 他の3指標は**相対**(そのマトリクスの maxAbs ÷ 3)",
-      ["hnrDb", "spectralCentroidHz", "volumeDb"].every((k) => Math.abs(api.matrixBand(k, 45) - 15) < 1e-9),
-      `重心 maxAbs 45 → ${api.matrixBand("spectralCentroidHz", 45)}`);
-    check("27.2 D-6: 相対の帯は maxAbs と一緒に動く(固定閾値ではない)",
-      api.matrixBand("hnrDb", 3) === 1 && api.matrixBand("hnrDb", 30) === 10);
-    check("27.2 D-6: maxAbs が 0 / 負 / 未定義でも帯は落ちない(0 になる = 全部が色つき)",
+      `${api.matrixBand("pitchCentsSigned", 6)} / ${api.matrixBand("pitchCentsSigned", 60)}`);
+    check("27.2 D-6: 他の3指標は相対(そのマトリクスの maxAbs ÷ 3)",
+      ["hnrDb", "spectralCentroidHz", "volumeDb"].every((k) => Math.abs(api.matrixBand(k, 45) - 15) < 1e-9));
+    check("27.2 D-6: maxAbs が 0 / 負 / 未定義でも帯は落ちない",
       api.matrixBand("hnrDb", 0) === 0 && api.matrixBand("hnrDb", -5) === 0 && api.matrixBand("hnrDb", undefined) === 0);
-    // 【罠3】期待値を実装の式で書き直さない。**本人の指示の数(±2)そのもの**で見る。
     check("27.2 D-6: 平均差分は本人の指示どおり ±2 が帯(F-47 で 1 → 2 に広げた数)",
       api.RING_IN_TUNE_CENTS === 2, String(api.RING_IN_TUNE_CENTS));
 
-    // --- 色は3状態だけ ---
-    const c = api.matrixCellColor;
-    check("27.2 D-6: 帯の中は高い/低いを主張しない中立の色",
-      c(0, 2) === "var(--c-quiet)" && c(2, 2) === "var(--c-quiet)" && c(-2, 2) === "var(--c-quiet)");
-    check("27.2 D-6: 帯の外だけが金/紺になる(境界は帯に含める)",
-      c(3, 2) === "var(--c-above)" && c(-3, 2) === "var(--c-below)"
-      && c(2, 2) === "var(--c-quiet)" && c(-2, 2) === "var(--c-quiet)");
-    check("27.2 D-6: 帯が 0 のときは 0 だけが中立(全部が色つきにならない)",
-      c(0, 0) === "var(--c-quiet)" && c(1, 0) === "var(--c-above)" && c(-1, 0) === "var(--c-below)");
-    check("27.2 D-6: 色は**3つだけ**(濃さの段を作らない = 程度は高さが担う)",
-      new Set([-99, -3, -2, 0, 2, 3, 99].map((v) => c(v, 2))).size === 3,
-      [...new Set([-99, -3, -2, 0, 2, 3, 99].map((v) => c(v, 2)))].join(" / "));
+    // --- 折れ線を差分で描くか実数で描くか(D-8 の新しい規則) ---
+    check("27.2 D-8: 折れ線は**ピッチだけ差分**、他の3指標は実数",
+      api.myDataLineIsDiff("pitchCentsSigned") === true
+      && ["hnrDb", "spectralCentroidHz", "volumeDb"].every((k) => api.myDataLineIsDiff(k) === false));
+    check("27.2 D-8: その判定は MY_DATA_SIGNED_METRIC の1箇所から出る(綴りを2箇所に持たない)",
+      /function myDataLineIsDiff\(metricKey\) \{ return metricKey === MY_DATA_SIGNED_METRIC; \}/.test(src));
 
-    // --- 字の大きさ(綴りの長さから決める) ---
-    // 【実測 2026/08/23 Browser pane 375×812】窓の内幅 23.83px に対する --font-num の送り幅。
-    // **見積もりの係数ではなく測った値**を使う(罠7: 測っていない数値を書かない)。
+    // --- 字の大きさ(窓を丸ごと使えるようになった) ---
+    // 【実測 2026/08/23】窓の内幅 23.83px に対する送り幅: 2桁@15=18.36 / 3桁@13=19.22 /
+    // 4桁@10=23.02 / 4桁@10.5=24.17(あふれる) / 5桁@9=23.02。**測った値**から段を選ぶ(罠7)。
     const MEASURED = { "+6@15": 18.36, "-45@13": 19.22, "+240@10": 23.02, "+240@10.5": 24.17, "-1200@9": 23.02 };
     const CELL_INNER_W = 23.83;
     const f = api.matrixNumFontSize;
-    check("27.2 D-6: 字の大きさは**いちばん長い綴り**から決める(短いほうに引きずられない)",
+    check("27.2 D-6: 字の大きさはいちばん長い綴りから決める(短いほうに引きずられない)",
       f(["+1", "-6"]) === 15 && f(["+1", "-45"]) === 13 && f(["+1", "+240"]) === 10 && f(["-1200"]) === 9,
       `${f(["+1", "-6"])} / ${f(["+1", "-45"])} / ${f(["+1", "+240"])} / ${f(["-1200"])}`);
     check("27.2 D-6: 選んだ段は実測で窓に収まる(あふれない)",
       MEASURED["+6@15"] <= CELL_INNER_W && MEASURED["-45@13"] <= CELL_INNER_W
       && MEASURED["+240@10"] <= CELL_INNER_W && MEASURED["-1200@9"] <= CELL_INNER_W);
-    check("27.2 D-6: 一段上げるとあふれる = 選んだ段がぎりぎり大きいほう(小さすぎない)",
-      MEASURED["+240@10.5"] > CELL_INNER_W,
-      `4桁 10.5px → ${MEASURED["+240@10.5"]}px > 窓 ${CELL_INNER_W}px`);
-    check("27.2 D-6: 数値は窓の半分(20px)に行の高さごと収まる(15 × 1.2 = 18)",
-      f(["+6"]) * 1.2 <= api.MATRIX_CELL_H / 2, `${f(["+6"])} × 1.2 = ${(f(["+6"]) * 1.2).toFixed(1)}`);
-    check("27.2 D-6: 桁が増えるほど小さくなる(逆転しない)",
-      f(["+1"]) >= f(["-45"]) && f(["-45"]) >= f(["+240"]));
-    check("27.2 D-6: 窓が空でも落ちない",
-      Number.isFinite(f([])) && f([]) > 0, String(f([])));
-    // D-5 までは全指標 9.5px 固定だった。**上がったこと**を数で固定する
-    // (「桁から決める」だけだと 9.5 を返す実装でも通ってしまう)。
-    check("27.2 D-6: 2桁の指標は D-5 の 9.5px より大きい(拡大の目的そのもの)",
-      f(["+1", "-6"]) > 9.5, `${f(["+1", "-6"])}px`);
-
-    // 【D-5 → D-6】8段の色の関数は今も消えている(読み手ゼロの定義を残さない)
-    for (const nm of ["divergingStep", "divergingFill", "divergingInk"]) {
-      check(`27.2 ${nm}(8段の色)は定義ごと消えている`, !new RegExp(`function ${nm}\\b`).test(src));
-    }
-    check("27.2 DIVERGING_STEPS も消えている", !/const DIVERGING_STEPS/.test(src));
+    check("27.2 D-6: 一段上げるとあふれる = 選んだ段がぎりぎり大きいほう",
+      MEASURED["+240@10.5"] > CELL_INNER_W);
+    check("27.2 D-8: 数値は窓を丸ごと使う(塗りと住み分ける必要が無くなった)",
+      f(["+6"]) * 1.2 <= api.MATRIX_CELL_H, `${f(["+6"])} × 1.2 = ${(f(["+6"]) * 1.2).toFixed(1)} ≤ ${api.MATRIX_CELL_H}`);
   }
 
   // --- 27.3 マトリクスの組み立て(実行で検証) --------------------------------------
@@ -14632,12 +14683,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // 【変異試験 M25 で生存 → 書き直した】`view === "line" ?` は myDataSection に**2つ**ある
     // (本体の出し分けと、読み方の1行の出し分け)。綴りの有無で見ると、片方を殺しても
     // もう片方が通してしまう。**分岐と、その直後に来る文**を隣接で縛る(罠2)。
-    check("27.4c 読み方の1行は見せ方で出し分ける(形が違えば読み方も違う)",
-      /\{view === "line" \? \(\s*\r?\n\s*<>0 の線が \{compareName\}。/.test(myDataSection)
-      && /\) : \(\s*\r?\n\s*<>段の中央が 0。/.test(myDataSection));
-    check("27.4c 本体の出し分けと読み方の出し分けは別々にある(片方が肩代わりしていない)",
-      (myDataSection.match(/view === "line" \?/g) || []).length === 2,
+    // 【D-8 2026/08/23 本人指示で書き換え】読み方の1行は削除したので、出し分ける対象そのものが無くなった。
+    // **本体の出し分け**だけが残る(折れ線 / 窓型)。
+    check("27.4c D-8: 本体は見せ方で出し分ける(折れ線 / 窓型)",
+      (myDataSection.match(/view === "line" \?/g) || []).length === 1,
       `${(myDataSection.match(/view === "line" \?/g) || []).length}箇所`);
+    check("27.4c D-8: 読み方のテキストは画面に無い(本人指示)",
+      !/段の中央が 0。/.test(codeOf(src)) && !/0 の線が /.test(codeOf(src)));
   }
 
   // --- 27.5 練習カレンダー(月表示・実行で検証) ------------------------------------
@@ -14789,15 +14841,16 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /const showLower = compare !== MY_DATA_COMPARE_TARGETS\[0\]\.key;/.test(myDataSection)
       && /\{showLower && \(/.test(myDataSection));
     // 【D-5】窓の中の棒。長さは matrixBarGeometry、色は matrixBarColor(方向だけ)。
-    check("27.7 D-6: 塗りの高さと向きは matrixFillGeometry から引く(呼び出しに隣接)",
-      /const g = matrixFillGeometry\(v, matrix\.maxAbs\);/.test(matrixCard)
-      && /background: matrixCellColor\(Number\(label\), band\)/.test(matrixCard));
+    check("27.7 D-8: 窓の地と字は matrixCellPaint から引く(呼び出しに隣接)",
+      /const paint = matrixCellPaint\(Number\(label\), band, matrix\.maxAbs\);/.test(matrixCard)
+      && /background: paint\.bg, color: paint\.fg/.test(matrixCard));
     // 【D-6 の罠】帯の判定は**画面に出す綴り**から読み直した数で行う。生値だと
     // 「0 と書いてあるのに色がつく窓」ができる(生値 0.4 / 帯 0.33)。
-    check("27.7 D-6: 帯の判定は画面に出す綴りから読み直す(丸めと食い違わせない)",
+    // 【D-6 から不変の罠】帯の判定も色の段も**画面に出す綴り**から読み直した数で決める。
+    check("27.7 D-8: 帯も段も画面に出す綴りから読み直す(丸めと食い違わせない)",
       /const label = matrixCellText\(v\);/.test(matrixCard)
-      && /matrixCellColor\(Number\(label\), band\)/.test(matrixCard)
-      && !/matrixCellColor\(v,/.test(matrixCard));
+      && /matrixCellPaint\(Number\(label\), band, matrix\.maxAbs\)/.test(matrixCard)
+      && !/matrixCellPaint\(v,/.test(matrixCard));
     // 帯と字の大きさは**マトリクス全体で1つ**(窓ごとに決めると同じずれが別の色に見える)
     check("27.7 D-6: 帯と字の大きさは行を回す前に1度だけ決める",
       /const band = matrixBand\(metricKey, matrix\.maxAbs\);/.test(matrixCard)
@@ -14806,15 +14859,17 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /cellTexts\.push\(matrixCellText\(v\)\);/.test(matrixCard));
     check("27.7 D-5: 長さは**そのマトリクスの実測レンジ**で引き直す(固定閾値を渡していない)",
       !/matrixBarGeometry\([^)]*,\s*\d/.test(matrixCard));
-    check("27.7 D-5: 段ごとに 0 の線を1本、行の端から端まで通す(窓ごとの短い線ではない)",
-      /position: "absolute", left: 0, right: 0, top: MATRIX_CELL_H \/ 2, height: 1, background: "var\(--c-line-strong\)"/.test(matrixCard));
-    check("27.7 D-6: 数値は**塗りと反対側の半分**へ置く(塗りと絶対に重ならない)",
-      /top: g\.up \? "50%" : "auto", bottom: g\.up \? "auto" : "50%"/.test(matrixCard)
-      && /height: g\.h, top: g\.up \? "auto" : "50%", bottom: g\.up \? "50%" : "auto"/.test(matrixCard));
-    check("27.7 D-5: 8段の凡例は廃止され、読み方は**1行の説明**が引き取った",
+    // 【D-8 2026/08/23 本人指示で書き換え】窓が丸ごと色で塗られるので、0 の線を貫かせても窓に隠れて読めない。外した。
+    check("27.7 D-8: 段ごとの 0 の線は外してある(窓の色に隠れて読めないため)",
+      !/background: "var\(--c-line-strong\)", zIndex: 1/.test(matrixCard));
+    // 【D-8 2026/08/23 本人指示で書き換え】塗りが窓を丸ごと覆うので、数値は**窓の中央**に置く(住み分ける相手が無い)。
+    check("27.7 D-8: 数値は窓の中央。地と字の色は同じ1関数が対で返す(読めない組み合わせを作らない)",
+      /display: "flex", alignItems: "center", justifyContent: "center",\s*\r?\n\s*fontFamily: "var\(--font-num\)", fontWeight: 600, fontSize: numFs,/.test(matrixCard));
+    // 【D-8 2026/08/23 本人指示で書き換え】本人「0の線が目安〜〜とかのテキストも不要」。読み方の1行は**丸ごと削除**。
+    // 8段の凡例(D-1 の DivergingLegend)も戻していない。代わりに折れ線には**凡例**が付いた。
+    check("27.7 D-8: 読み方の1行も8段の凡例も画面に無い(本人指示)",
       !/<DivergingLegend/.test(src)
-      && /段の中央が 0。/.test(myDataSection)
-      && /上＝高い/.test(myDataSection) && /下＝低い/.test(myDataSection));
+      && !/段の中央が 0。/.test(codeOf(src)) && !/0 の線が /.test(codeOf(src)));
     check("27.7 カレンダーの濃さは calendarLevel → calendarFill の順で引く(呼び出しに隣接)",
       /const level = calendarLevel\(c\.minutes, maxMinutes, c\.count\);/.test(calCard)
       && /background: calendarFill\(level\),/.test(calCard));
@@ -14847,8 +14902,8 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       `gap: MATRIX_GRID_GAP ${(matrixCard.match(/gap: MATRIX_GRID_GAP/g) || []).length}箇所`);
     check("27.8 D-6: 正典より詰めたことを明示できている(正典の gap は 3)",
       gridGap === "3", `正典=${gridGap} / 実装=1`);
-    check("27.8 D-6: 窓の高さは 40px(本人が実寸で案B を選択。D-5 の 28 から)",
-      /const MATRIX_CELL_H = 40;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
+    check("27.8 D-8: 窓の高さは 32px(棒も塗りも入らなくなったので 40 から下げた)",
+      /const MATRIX_CELL_H = 32;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
     // 【D-6 2026/08/23 本人指示で書き換え】本人が4枚を実寸で見比べ「案B + カレンダー38 が一番いい」と選んだ。
     // **§5(44pt・例外なし)を破る唯一の箇所**。事故と区別できるよう、
     // 「本人裁定である」ことを綴り(注釈)ごと固定する。ここが黙って書き換わったら落ちる。
@@ -14865,14 +14920,15 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.8 D-7: 曜日ヘッダとマスの grid は同じ列指定(列がずれない)",
       (calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length === 2,
       `${(calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length}箇所`);
-    check("27.8 マトリクスの器は .surf-sunk の作法に任せる(地・枠・padding をインラインで書かない)",
-      /<div className="card">/.test(myDataSection));
+    // 【D-8 2026/08/23 本人指示で書き換え】沈める作法は D-7 で廃止。器は**罫の作法**の .card に任せる(綴りは変わらない)。
+    check("27.8 D-8: マトリクスの器は作法の .card に任せる(地・枠・padding をインラインで書かない)",
+      /<div className="card no-top-rule">/.test(myDataSection));
     check("27.8 D-5: 指標タブと比較対象は**カードの中**にある(上部の余白と2種類のタブの見分け)",
-      /<div className="card">\s*\r?\n[\s\S]{0,400}?<MetricUnderlineTabs/.test(myDataSection)
-      && /比較対象/.test(myDataSection));
+      /<div className="card no-top-rule">\s*\r?\n[\s\S]{0,400}?<MetricUnderlineTabs/.test(myDataSection)
+      && /compareOptions\.map\(/.test(myDataSection));
     check("27.8 D-5: マトリクス2枚は同じカードの中(タブがどこまで効くかを箱が示す)",
       (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 2
-      && (myDataSection.match(/<div className="card">/g) || []).length === 1);
+      && (myDataSection.match(/<div className="card no-top-rule">/g) || []).length === 1);
     check("27.8 比較対象チップは A型(.ctl-state)。地も枠も角丸もクラスが持つ",
       /className="sans ctl-state"/.test(myDataSection)
       && !/borderRadius/.test(myDataSection.slice(myDataSection.indexOf('className="sans ctl-state"'),
@@ -14882,24 +14938,58 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
   // --- 27.9 消えた側の綴りが残っていない(読み手ゼロの定義を残さない) ---------------
   {
     // 【D-5 で追加】8段の色・5週の窓・凡例の部品も読み手ゼロになったので落とした。
+    // 【D-8 で divergingStep / divergingFill / divergingInk を**この集合から外した**】
+    // 本人「窓枠表示は当初のこの案を採用して」で 8段の色が戻り、読み手ができたため。
+    // 「使い手ゼロの定義を残さない」という芯は変わらず、**使い手ができたから外す**。
     const dead = ["myDataChartSeries", "noteSpreadByIndex", "metricCardNumbers",
-      "divergingStep", "divergingFill", "divergingInk", "practiceCalendarDays", "DivergingLegend"];
+      "practiceCalendarDays", "DivergingLegend", "matrixFillGeometry", "matrixCellColor"];
     for (const nm of dead) {
-      check(`27.9 ${nm}(折れ線と帯のための関数)は定義ごと消えている`,
+      check(`27.9 ${nm}(役目を終えた定義)は定義ごと消えている`,
         !new RegExp(`function ${nm}\\b`).test(src), `${nm} が残っている`);
     }
     // 【D-7 2026/08/23 本人指示で書き換え】本人「mydata は窓型と折れ線グラフ二つ選んで見れるように。
     // デフォルトは折れ線グラフで」。D-1 で正典が却下した側に置いた折れ線が**戻ってきた**。
     // ただし戻ったのは「絶対値の折れ線」ではなく、**窓型と同じ差分**を描く折れ線
     // (本人裁定「窓型と同じ差分を描く」)なので、D-1 で消した myDataChartSeries とは別物。
-    check("27.9 D-7: My Data の折れ線は戻ったが、描くのは**差分**(0中心 + 合っている帯)",
-      /<NoteAxisLineChart/.test(myDataSection)
-      && /zeroCentered bandAbs=\{matrixBand\(chartMetric\.key, upper\.maxAbs\)\}/.test(myDataSection));
+    // 【D-8 2026/08/23 本人指示で書き換え】本人「ピッチの平均差分だけ基準からの差分でだして、それ以外は実数で折れ線表示」。
+    // **折れ線だけの規則**(窓型は4指標とも差分のまま)。ピッチのときだけ 0 中心 + 帯になる。
+    check("27.9 D-8: 折れ線はピッチのときだけ 0 中心 + 合っている帯(他は実数)",
+      /zeroCentered=\{lineIsDiff\}/.test(myDataSection)
+      && /bandAbs=\{lineIsDiff \? matrixBand\(chartMetric\.key, upper\.maxAbs\) : null\}/.test(myDataSection));
+    check("27.9 D-8: 実数のときは比較対象を**破線で重ねる**(引き算の相手ではなく重ねる線)",
+      /refByIdx=\{lineRef\} refLabel=\{compareName\}/.test(myDataSection)
+      && /const lineRef = lineIsDiff \|\| compare === MY_DATA_COMPARE_TARGETS\[0\]\.key \? null : targetByIdx;/.test(myDataSection));
+    check("27.9 D-8: 比較対象が「自分の平均」のときは重ねない(同じ線を2本描かない)",
+      /compare === MY_DATA_COMPARE_TARGETS\[0\]\.key \? null : targetByIdx/.test(myDataSection));
+    check("27.9 D-8: 軸ラベルはプロットに重ねる(横幅を食わない。本人指示)",
+      /plain legend axisOverlay/.test(myDataSection));
+    check("27.9 D-8: 凡例を出す(本人「どの色が自分の平均でどれが比較なのかわからない」)",
+      /plain legend axisOverlay/.test(myDataSection)
+      && /legend && hasData/.test(srcOfFn(src, "NoteAxisLineChart")));
+    // 【変異試験 M24 で生存 → 足した】lineDay を dayByIdx 固定にしても通っていた
+    // (byIdx: lineDay の綴りだけを見ていたため)。**分岐そのもの**を縛る。
+    check("27.9 D-8: 折れ線の系列はピッチのとき差分・他は実数を選ぶ(片方に固定していない)",
+      /const lineDay = lineIsDiff \? dayDiff : dayByIdx;/.test(myDataSection)
+      && /const linePeriod = lineIsDiff \? periodDiff : periodByIdx;/.test(myDataSection));
+    // 【変異試験 M27 で生存 → 足した】凡例の色を直書きしても通っていた。
+    // 凡例と線の色が食い違わないのは**系列から引いているから**なので、そこを縛る。
+    check("27.9 D-8: 凡例の色は系列そのものから引く(線と食い違いようがない)",
+      /background: sr\.style\?\.color \?\? "var\(--c-accent\)"/.test(srcOfFn(src, "NoteAxisLineChart")));
+    check("27.9 D-8: 破線(比較対象 / 目安)にも名前を出す(名前が無いのが指摘の実体だった)",
+      /\{refLabel \?\? "目安"\}/.test(srcOfFn(src, "NoteAxisLineChart")));
+    // 【変異試験 M28 で生存 → 足した】重ねた軸ラベルの白い縁を外しても通っていた。
+    // 縁が無いと折れ線に埋もれて読めない(重ねる方式の代償を打ち消す仕掛けそのもの)。
+    check("27.9 D-8: 重ねた軸ラベルは白い縁で折れ線から浮かせる(重ねない画面には付けない)",
+      /axisOverlay[\s\S]{0,40}\? \{ fill: "var\(--c-ink-4\)", stroke: "var\(--c-surface\)", strokeWidth: 3, paintOrder: "stroke" \}[\s\S]{0,40}: \{ fill: "var\(--c-ink-4\)" \}/.test(srcOfFn(src, "NoteAxisLineChart")));
+    // 【変異試験 M31 で生存 → 足した】比較対象の行に余白を戻しても通っていた。
+    // 本人が2周続けて「縦幅が過剰」と言った箇所なので、**削った余白**を綴りで固定する。
+    check("27.9 D-8: 比較対象の行は上の余白を持たない(44pt のチップだけで組む)",
+      /gap: 9, padding: "0 0 var\(--sp-2\)" \}\}>/.test(myDataSection));
     check("27.9 D-7: 折れ線と窓型は**同じ引き算**を1関数から引く(2箇所に書かない)",
       /const dayDiff = noteDiffByIdx\(dayByIdx, targetByIdx, noteCount\);/.test(myDataSection)
       && /const periodDiff = noteDiffByIdx\(periodByIdx, targetByIdx, noteCount\);/.test(myDataSection));
     check("27.9 D-7: 折れ線は音ごとの値をそのまま渡す(frames から数え直さない)",
-      /byIdx: dayDiff/.test(myDataSection) && /byIdx: periodDiff/.test(myDataSection));
+      /byIdx: lineDay/.test(myDataSection) && /byIdx: linePeriod/.test(myDataSection));
     check("27.9 D-7: 既定は折れ線(本人指示)。窓型はもう一方の選択肢",
       /const MY_DATA_VIEW_DEFAULT = MY_DATA_VIEWS\[0\]\.key;/.test(src)
       && /\{ key: "line", label: "折れ線"/.test(src));
@@ -14999,10 +15089,12 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     // 【D-7 で 1 → 3】折れ線でも同じラベルを使う(見出しと、系列の名前)。
     // **件数ではなく「描画側が自分で『今日』と書いていないこと」**が芯なので、
     // 綴りの数ではなく **day.label を通していること**で縛る。
-    check("28.2 D-7: 直近日のラベルは窓型のサブ見出しにも折れ線の見出しにも使う(「今日」と偽らない)",
+    // 【D-8 で 3 → 2】折れ線の見出しの行は**凡例が引き取った**ので消えた。
+    // day.label の使い手は 窓型のサブ見出し と 折れ線の系列名 の2つ。
+    check("28.2 D-8: 直近日のラベルは窓型のサブ見出しと折れ線の系列名になる(「今日」と偽らない)",
       /sub=\{day\.label \+ " − " \+ compareName\}/.test(myDataSection)
-      && /\{day\.label\} と \{rangeLabel\}の平均/.test(myDataSection)
-      && /label: day\.label/.test(myDataSection),
+      && /label: day\.label/.test(myDataSection)
+      && (codeOf(myDataSection).match(/day\.label/g) || []).length === 2,
       `day.label ${(codeOf(myDataSection).match(/day\.label/g) || []).length}回`);
     check("28.2 D-1: 直近日の値を別の集計から作り直していない(day.frames を通すだけ)",
       !/computeFrameMetrics\(day/.test(codeOf(myDataSection)));
