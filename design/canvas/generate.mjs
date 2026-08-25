@@ -142,6 +142,7 @@ const TOKENS = `
       --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
       --c-quiet: #C7CFD9;
     }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
     a { color: var(--c-accent); } a:hover { color: #123A70; }`;
 
