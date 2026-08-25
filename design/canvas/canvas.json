@@ -1,0 +1,11 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",     "x": 0,    "y": 0, "w": 375, "h": 360, "title": "平均差分 × 折れ線" },
+    { "file": "Centroid.dc.html", "x": 455,  "y": 0, "w": 375, "h": 360, "title": "重心 × 折れ線" },
+    { "file": "Windows.dc.html",  "x": 910,  "y": 0, "w": 375, "h": 560, "title": "平均差分 × 窓型" }
+  ],
+  "annotations": [
+    { "id": "scope", "x": 0, "y": -150, "w": 560, "text": "D-8 直後の My Data(375×812 の実機幅)。src/App.jsx から数値を写した現状で、提案ではありません。\n練習カレンダーは入れていません(D-1c の 44px マスは別件)。数値はダミーです。" }
+  ],
+  "launch": { "view": "canvas" }
+}

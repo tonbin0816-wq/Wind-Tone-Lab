@@ -28,3 +28,6 @@ dist-ssr
 *.bak
 *.zip
 .vercel
+
+# Claude Design キャンバスの成果物(約2MBのエディタ同梱HTML)。design/canvas/generate.mjs から作り直せる
+design/canvas/ficus-my-data.html
