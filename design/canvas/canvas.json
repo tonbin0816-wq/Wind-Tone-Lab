@@ -1,11 +1,21 @@
 {
+  "pages": [
+    { "id": "page-1", "name": "現状（D-8 直後）" },
+    { "id": "page-2", "name": "改善案" }
+  ],
   "artboards": [
-    { "file": "Main.dc.html",     "x": 0,    "y": 0, "w": 375, "h": 360, "title": "平均差分 × 折れ線" },
-    { "file": "Centroid.dc.html", "x": 455,  "y": 0, "w": 375, "h": 360, "title": "重心 × 折れ線" },
-    { "file": "Windows.dc.html",  "x": 910,  "y": 0, "w": 375, "h": 560, "title": "平均差分 × 窓型" }
+    { "file": "Main.dc.html",     "page": "page-1", "x": 0,    "y": 0, "w": 375, "h": 340, "title": "平均差分 × 折れ線" },
+    { "file": "Centroid.dc.html", "page": "page-1", "x": 455,  "y": 0, "w": 375, "h": 340, "title": "重心 × 折れ線" },
+    { "file": "Windows.dc.html",  "page": "page-1", "x": 910,  "y": 0, "w": 375, "h": 540, "title": "平均差分 × 窓型" },
+
+    { "file": "StackA.dc.html",   "page": "page-2", "x": 0,    "y": 0,   "w": 420, "h": 480, "title": "案A 効き目（実寸の積み上げ）" },
+    { "file": "PlanA.dc.html",    "page": "page-2", "x": 500,  "y": 0,   "w": 375, "h": 290, "title": "案A 統合後の画面" },
+    { "file": "CompareB.dc.html", "page": "page-2", "x": 955,  "y": 0,   "w": 375, "h": 375, "title": "案B 子タブの濃さ" },
+    { "file": "PlanD.dc.html",    "page": "page-2", "x": 1410, "y": 0,   "w": 375, "h": 365, "title": "案D 空セルを2つに" }
   ],
   "annotations": [
-    { "id": "scope", "x": 0, "y": -150, "w": 560, "text": "D-8 直後の My Data(375×812 の実機幅)。src/App.jsx から数値を写した現状で、提案ではありません。\n練習カレンダーは入れていません(D-1c の 44px マスは別件)。数値はダミーです。" }
+    { "id": "scope", "page": "page-1", "x": 0, "y": -150, "w": 560, "text": "D-8 直後の My Data(375×812 の実機幅)。src/App.jsx から数値を写した現状で、提案ではありません。\n練習カレンダーは入れていません(D-1c の 44px マスは別件)。数値はダミーです。" },
+    { "id": "plans", "page": "page-2", "x": 0, "y": -170, "w": 640, "text": "まだ正典ではありません。決めるための絵です。\n案A = 比較対象の行を指標タブへ畳む(-52px) / 案B = 子タブ非選択の色を1段戻す(1行) / 案D = 窓型の空セルを「音域外」と「まだ吹いていない」に分ける。\n案C(体系外の文字サイズ44箇所)は絵にならないので、検査を足す周として別に。" }
   ],
-  "launch": { "view": "canvas" }
+  "launch": { "view": "canvas", "page": "page-2" }
 }

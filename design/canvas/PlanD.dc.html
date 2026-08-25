@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --r-xs: 4px; --r-sm: 8px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9;
+      --c-rule: #E1E6EC; --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-line: #B9C9E4;
+      --c-on-accent: #FFFFFF;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">案D ─ 空セルを2つに分ける</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">現状は「音域外」と「まだ吹いていない」が同じ白。<br>音域内で値の無い窓にだけ枠を出す（新しい色は使わない）。</div>
+      <div style="display: flex; gap: 5px">
+        <div style="width: 11px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; padding-top: 14px">
+          <span style="height: 32px; display: flex; align-items: center; font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">5</span>
+          <span style="height: 32px; display: flex; align-items: center; font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">4</span>
+          <span style="height: 32px; display: flex; align-items: center; font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">3</span>
+        </div>
+        <div style="flex: 1; min-width: 0">
+          <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1px; margin-bottom: 1px">
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">C</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">C♯</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">D</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">E♭</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">E</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">F</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">F♯</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">G</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">G♯</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">A</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">B♭</span>
+            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">B</span>
+          </div>
+            <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1px; margin-bottom: 1px">
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-8); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+7</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-7); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+6</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-7); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+5</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-6); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+3</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-3); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-3</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-2); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-5</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-1); color: var(--c-on-accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-7</div>
+              <div style="height: 32px; border-radius: 4px; border: 1px solid var(--c-line)"></div>
+              <div style="height: 32px"></div>
+              <div style="height: 32px"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1px; margin-bottom: 1px">
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+2</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">0</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-2</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-3); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-4</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-3); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-3</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+2</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-6); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+4</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-7); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+5</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-7); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+6</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1px; margin-bottom: 1px">
+              <div style="height: 32px"></div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-1); color: var(--c-on-accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-8</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-2); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-6</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-2); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-5</div>
+              <div style="height: 32px; border-radius: 4px; border: 1px solid var(--c-line)"></div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-3); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-3</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-2</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+1</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-6); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+3</div>
+              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-6); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+3</div>
+            </div>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 14px; font-size: 11px; color: var(--c-ink-2)">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0; background: var(--c-div-8)"></span>高い（8段）</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0; background: var(--c-sunk)"></span>帯の中 = 合っている</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0; border: 1px solid var(--c-line)"></span>まだ吹いていない</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0; background: transparent"></span>音域外（窓を置かない）</span>
+      </div>
+      <div style="margin-top: 14px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        上段は <span style="font-family: var(--font-num)">B♭5 / B5</span>、下段は <span style="font-family: var(--font-num)">C3</span> が音域外。<br>
+        枠が出るのは <span style="font-family: var(--font-num)">E3</span> と <span style="font-family: var(--font-num)">A5</span> ＝ この日まだ吹いていない音。
+      </div>
+    </div>
+</x-dc>
+</body>
+</html>

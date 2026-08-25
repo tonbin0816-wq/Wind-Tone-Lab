@@ -357,3 +357,171 @@ ${rows}
   writeFileSync(OUT + "Windows.dc.html", dcFile(body));
   console.log("Windows octaves=" + upper.octaves.join(",") + " maxAbs=" + upper.maxAbs + " cells=" + upper.count);
 }
+
+// ========================================================================
+// 改善案(2ページ目)。**まだ正典ではない**。本人が見て決めるための絵。
+// ========================================================================
+
+// ---- StackA.dc.html : 上部の積み上げを実寸で並べる ----------------------
+{
+  const blk = (h, label, fill, ink) =>
+    `<div style="height: ${h}px; background: ${fill}; color: ${ink}; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; font-size: 11px; font-weight: 600"><span>${label}</span><span style="font-family: var(--font-num); opacity: .75">${h}</span></div>`;
+  const col = (title, blocks, total) => `<div style="width: 176px; flex-shrink: 0">
+          <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); margin-bottom: 8px">${title}</div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+${blocks.join("\n")}
+          </div>
+          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-rule); font-size: 11px; color: var(--c-ink-3)">グラフの上端 <span style="font-family: var(--font-num); font-size: 13px; font-weight: 600; color: var(--c-ink)">y = ${total}</span></div>
+        </div>`;
+  const now = [
+    blk(48, "子タブ", "var(--c-sunk)", "var(--c-ink-2)"),
+    blk(16, "カードの上余白", "var(--c-line)", "var(--c-ink-3)"),
+    blk(45, "指標タブ", "var(--c-sunk)", "var(--c-ink-2)"),
+    blk(52, "比較対象 + 切替", "#FDE8E8", "#9B2C2C"),
+    blk(19, "凡例", "var(--c-line)", "var(--c-ink-3)"),
+  ];
+  const plan = [
+    blk(48, "子タブ", "var(--c-sunk)", "var(--c-ink-2)"),
+    blk(16, "カードの上余白", "var(--c-line)", "var(--c-ink-3)"),
+    blk(45, "指標タブ + 比較対象", "var(--c-accent-tint)", "var(--c-accent)"),
+    blk(19, "凡例", "var(--c-line)", "var(--c-ink-3)"),
+  ];
+  const body = `<div style="width: 420px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">案A ─ 比較対象の行を畳む</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">375x812 の実測。実効ビューポートは 812 − ナビ47 − セーフエリア34 = <span style="font-family: var(--font-num)">731px</span>。<br>ブロックの高さは実寸。</div>
+      <div style="display: flex; gap: 16px; align-items: flex-start">
+        ${col("現状", now, 180)}
+        ${col("案A", plan, 128)}
+      </div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        <span style="font-weight: 600; color: var(--c-ink)">−52px（実効ビューポートの 7%）。</span>データに触る前の割合は <span style="font-family: var(--font-num)">25% → 18%</span>。<br>
+        44pt はチップの床なので、行を減らす以外に削る余地はもう無い。
+      </div>
+    </div>`;
+  writeFileSync(OUT + "StackA.dc.html", dcFile(body));
+  console.log("StackA  現状 y=180 / 案 y=128 / 差 52");
+}
+
+// ---- PlanA.dc.html : 案Aを実寸の画面で ---------------------------------
+{
+  const series = [
+    { id: "day", label: "8/24", color: "var(--c-accent)", width: 2, byIdx: pitchDay },
+    { id: "period", label: "1ヶ月の平均", color: "var(--c-accent-mid)", width: 2, byIdx: pitchPeriod },
+  ];
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents });
+  const icon = (kind, on) => kind === "line"
+    ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${on ? "var(--c-accent)" : "var(--c-ink-3)"}" stroke-width="${on ? 2.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>`
+    : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${on ? "var(--c-accent)" : "var(--c-ink-3)"}" stroke-width="${on ? 2.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg>`;
+  // 指標タブの行に、比較対象(既存の DataOptionSheet を開く「素のテキスト + ▾」)と切替を同居させる
+  const mergedRow = `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line)">
+${["平均差分", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === "平均差分" ? "var(--c-ink)" : "var(--c-ink-3)"};${t === "平均差分" ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
+          </div>`).join("\n")}
+          <div style="margin-left: auto; display: flex; align-items: center; flex-shrink: 0">
+            <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--c-accent)">±0 ▾</div>
+            <div style="min-height: 44px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center">${icon("line", true)}</div>
+            <div style="min-height: 44px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center">${icon("matrix", false)}</div>
+          </div>
+        </div>`;
+  const body = page([
+    mergedRow,
+    legendRow(series, null),
+    `<div>
+          ${chartSvg({ series, L, zeroCentered: true, bandAbs: RING_IN_TUNE_CENTS })}
+        </div>`,
+  ].join("\n        "));
+  writeFileSync(OUT + "PlanA.dc.html", dcFile(body));
+  console.log("PlanA   統合行を実寸で");
+}
+
+// ---- CompareB.dc.html : 子タブの非選択の濃さ ----------------------------
+{
+  const row = (inkClass) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -9px">
+          <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
+          <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: ${inkClass}; font-weight: 400; line-height: 1.2">分析</div>
+        </div>`;
+  const one = (title, note, inkClass) => `<div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); margin-bottom: 2px">${title}</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 4px; font-family: var(--font-num)">${note}</div>
+          ${row(inkClass)}
+        </div>`;
+  const body = `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">案B ─ 非選択の色を1段だけ戻す</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">大きさ(22→15)と太さ(600→400)の差はそのまま。<br>色だけ体系内で1段上げて、押せることを返す。</div>
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        ${one("現状", "--c-ink-3  #8D95A1", "var(--c-ink-3)")}
+        ${one("案B", "--c-ink-2  #435266", "var(--c-ink-2)")}
+      </div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        白地とのコントラスト比 <span style="font-family: var(--font-num)">3.02:1 → 7.96:1</span>。<br>
+        新しい値は要らない（どちらも既にある段）。変更は1行。
+      </div>
+    </div>`;
+  writeFileSync(OUT + "CompareB.dc.html", dcFile(body));
+  console.log("CompareB 子タブ非選択 --c-ink-3 → --c-ink-2");
+}
+
+// ---- PlanD.dc.html : 窓型の空セルを2つに分ける -------------------------
+{
+  // 【罠】HIGH_MIDI(85)はフラジオ込みの上端。My Data の軸は includeAltissimo=false なので
+  // 上端は LOW_MIDI + N - 1 = 81。HIGH_MIDI で判定すると B♭5 / B5 が「音域内」になる。
+  const AXIS_HIGH_MIDI = LOW_MIDI + N - 1;
+  const inRange = (oct, pcIdx) => { const midi = (oct + 1) * 12 + pcIdx; return midi >= LOW_MIDI && midi <= AXIS_HIGH_MIDI; };
+  const m = buildMatrix(pitchDay);
+  const band = RING_IN_TUNE_CENTS;
+  const texts = [];
+  for (const oct of m.octaves) for (const pc of NOTE_NAMES) {
+    const v = m.byKey[oct + ":" + pc];
+    if (v === null || v === undefined) continue;
+    texts.push(matrixCellText(v));
+  }
+  const numFs = matrixNumFontSize(texts);
+  const rows = m.octaves.map((oct) => {
+    const cells = NOTE_NAMES.map((pc, pi) => {
+      const v = m.byKey[oct + ":" + pc];
+      if (v === null || v === undefined) {
+        // 【案D】音域外 = 何も描かない / 音域内でデータ無し = --c-line の枠だけ
+        return inRange(oct, pi)
+          ? `              <div style="height: ${MATRIX_CELL_H}px; border-radius: 4px; border: 1px solid var(--c-line)"></div>`
+          : `              <div style="height: ${MATRIX_CELL_H}px"></div>`;
+      }
+      const label = matrixCellText(v);
+      const n = Number(label);
+      let bg, fg;
+      if (Math.abs(n) <= band) { bg = "var(--c-sunk)"; fg = "var(--c-ink-3)"; }
+      else { const st = divergingStep(n, m.maxAbs); bg = "var(--c-div-" + st + ")"; fg = divergingInk(st); }
+      return `              <div style="height: ${MATRIX_CELL_H}px; border-radius: 4px; overflow: hidden; background: ${bg}; color: ${fg}; display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: ${numFs}px">${label}</div>`;
+    }).join("\n");
+    return `            <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: ${MATRIX_GRID_GAP}px; margin-bottom: ${MATRIX_GRID_GAP}px">
+${cells}
+            </div>`;
+  }).join("\n");
+  const swatch = (style, label) => `          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 20px; height: 14px; border-radius: 3px; flex-shrink: 0; ${style}"></span>${label}</span>`;
+  const body = `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">案D ─ 空セルを2つに分ける</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">現状は「音域外」と「まだ吹いていない」が同じ白。<br>音域内で値の無い窓にだけ枠を出す（新しい色は使わない）。</div>
+      <div style="display: flex; gap: 5px">
+        <div style="width: 11px; flex-shrink: 0; display: flex; flex-direction: column; gap: ${MATRIX_GRID_GAP}px; padding-top: 14px">
+${m.octaves.map((o) => `          <span style="height: ${MATRIX_CELL_H}px; display: flex; align-items: center; font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">${o}</span>`).join("\n")}
+        </div>
+        <div style="flex: 1; min-width: 0">
+          <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: ${MATRIX_GRID_GAP}px; margin-bottom: ${MATRIX_GRID_GAP}px">
+${NOTE_NAMES.map((pc) => `            <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">${pc}</span>`).join("\n")}
+          </div>
+${rows}
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 14px; font-size: 11px; color: var(--c-ink-2)">
+${swatch("background: var(--c-div-8)", "高い（8段）")}
+${swatch("background: var(--c-sunk)", "帯の中 = 合っている")}
+${swatch("border: 1px solid var(--c-line)", "まだ吹いていない")}
+${swatch("background: transparent", "音域外（窓を置かない）")}
+      </div>
+      <div style="margin-top: 14px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        上段は <span style="font-family: var(--font-num)">B♭5 / B5</span>、下段は <span style="font-family: var(--font-num)">C3</span> が音域外。<br>
+        枠が出るのは <span style="font-family: var(--font-num)">E3</span> と <span style="font-family: var(--font-num)">A5</span> ＝ この日まだ吹いていない音。
+      </div>
+    </div>`;
+  writeFileSync(OUT + "PlanD.dc.html", dcFile(body));
+  console.log("PlanD   音域外/未演奏を分けた");
+}
