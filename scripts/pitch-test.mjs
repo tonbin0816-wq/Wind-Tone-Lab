@@ -5741,9 +5741,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // のような**正当な追加**は通り、`[class~="card"] { background: … }` は落ちる。
   {
     // 【D-7 2026/08/23 本人指示で書き換え】面の作法は**罫の1つだけ**になった(沈める作法は使い手ゼロ → 定義ごと削除)。
-    const expectCard = [".card", ".surf-rule .card"];
+    // 【D-10 2026/08/26 本人裁定で再び2つ】罫(計測 / リード / セッション詳細 / すべてのセッション)と
+    // カード(My Data / 分析タブ)。**入れ子にしない**ので、どちらが勝つかは行の順序に依存しない。
+    const expectCard = [".card", ".surf-rule .card", ".surf-card .card"];
     const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
+    // カードの作法が持つもの: 地そのもの(.surf-card)と、小さいカード(.rowcard)。
+    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .rowcard"];
+    const expectRowCard  = [".surf-card .rowcard"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
       'input[type="date"]', 'input[type="datetime-local"]', 'input[type="number"]',
@@ -5754,6 +5759,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       [".tile", targetsClass("tile"), expectTile],
       [".tile-row", targetsClass("tile-row"), expectRow],
       ["入力欄", /(^|[\s,>+~])(input|select|textarea)\b/, expectInput],
+      [".surf-card(カードの作法)", targetsClass("surf-card"), expectSurfCard],
+      [".rowcard(小さいカード)", targetsClass("rowcard"), expectRowCard],
     ]) {
       const touching = cssRules.filter((r) => r.sels.some((s) => re.test(s)));
       // (a) 作法に効く宣言を持つ規則のセレクタ集合
@@ -5788,10 +5795,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         for (const d of declList(r.body)) if (expandDecl(d.name).includes("background-color")) bodyBg = d.value;
       check("html, body の地は var(--c-bg)(最後に勝つ宣言で見る)", bodyBg === "var(--c-bg)", String(bodyBg));
     }
-    // 影・輪郭は border と同じく「箱」を描ける。作法の規則そのものに持たせない
+    // 影・輪郭は border と同じく「箱」を描ける。**罫の作法**の規則には持たせない
     // (:hover / :focus-visible のような別セレクタは上の (c) の対象で、outline は許す)。
+    // 【D-10 2026/08/26 本人裁定】カードの作法(.surf-card .card / .rowcard)は
+    // **影で箱を浮かせるのが仕様そのもの**なので、この走査の対象にしない。
+    // 代わりに下で「影がトークンから引かれていること」を名指しで固定する
+    // (影を消す変異も、影を直値で書く変異も、そちらで落ちる)。
     for (const sel of [".card", ".surf-rule .card", ".tile",
-      ".surf-rule .tile", ".tile-row", ".surf-rule .tile-row", ".app-root"]) {
+      ".surf-rule .tile", ".tile-row", ".surf-rule .tile-row", ".app-root", ".surf-card"]) {
       const names = declList(cssBlock(sel)).map((d) => d.name);
       const boxy = names.filter((n) => /^(box-shadow|outline|filter|backdrop-filter)/.test(n));
       check(`${sel} は影・輪郭で箱を描き直していない`, boxy.length === 0, boxy.join(" "));
@@ -5836,6 +5847,85 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     decl(ruleCard, "padding-left") === "0" && decl(ruleCard, "padding-right") === "0");
   check("カードの内側余白は --sp-4(DESIGN-SYSTEM §3)", decl(cssBlock(".card"), "padding") === "var(--sp-4)");
 
+  // --- 2b. カードの作法(D-10) ------------------------------------------
+  // 【D-10 2026/08/26 本人裁定・凍結仕様 design/D10-SPEC.md §0 A / §1】
+  // 本人「白いカードがある方が機械感が強くて、少しうるさくなりますが、mydata はラボ的に
+  // 使ってほしい側面があるのでその表現としてはありと考えて採用です」。
+  // D-7 で1つに畳んだ作法が **2つ**に戻った(罫 / カード)。分かれ目は画面で、
+  // My Data と分析タブだけがカード。**入れ子にしない**(どちらが勝つかが行の順序に依存する)。
+  // 期待値は凍結仕様と正典 design/canvas/S1.dc.html から取る(実装の式を書き直さない)。
+  {
+    const surfCard = cssBlock(".surf-card");
+    const cardCard = cssBlock(".surf-card .card");
+    const rowCard = cssBlock(".surf-card .rowcard");
+    check("D-10: カードの作法(.surf-card)が index.css にある",
+      surfCard !== null && cardCard !== null && rowCard !== null);
+    // 地。ページの地そのものなので、**画面の左右端まで**届かせる必要がある
+    // (本文の余白 14px の中で止めると白い縁が残り、地に見えない)。
+    // 打ち消しと足し戻しは .app-root の padding と**同じトークン**で書く。
+    check("D-10: カードの作法の地は --c-sunk(薄い地)",
+      decl(surfCard, "background") === "var(--c-sunk)", String(decl(surfCard, "background")));
+    check("D-10: 地は .app-root の左右 padding を同じトークンで打ち消して画面の端まで届く",
+      decl(surfCard, "margin-left") === "calc(-1 * var(--page-pad-left))"
+      && decl(surfCard, "margin-right") === "calc(-1 * var(--page-pad-right))"
+      && decl(surfCard, "padding-left") === "var(--page-pad-left)"
+      && decl(surfCard, "padding-right") === "var(--page-pad-right)",
+      `${decl(surfCard, "margin-left")} / ${decl(surfCard, "padding-left")}`);
+    // 大きいカード。角丸16 / 内側16 / 影。**罫は1本も引かない**(本人「むやみに線をひくのやめて」)。
+    check("D-10: カードは白い面(--c-surface)", decl(cardCard, "background") === "var(--c-surface)", String(decl(cardCard, "background")));
+    check("D-10: カードは枠を持たない(border: 0)", decl(cardCard, "border") === "0", String(decl(cardCard, "border")));
+    check("D-10: カードは罫を1本も持たない(border-top / border-bottom を宣言していない)",
+      declList(cardCard).every((d) => !/^border-(top|bottom|left|right)/.test(d.name)),
+      declList(cardCard).map((d) => d.name).join(" "));
+    check("D-10: カードの角丸は --r-lg(16px)", decl(cardCard, "border-radius") === "var(--r-lg)", String(decl(cardCard, "border-radius")));
+    check("D-10: カードの内側余白は --sp-4(16px)", decl(cardCard, "padding") === "var(--sp-4)", String(decl(cardCard, "padding")));
+    check("D-10: カードは --shadow-card で浮く(影を直値で書かない)",
+      decl(cardCard, "box-shadow") === "var(--shadow-card)", String(decl(cardCard, "box-shadow")));
+    // 小さいカード(セッション1件 / すべてのセッション)。角丸12 / 内側 10px 14px。
+    check("D-10: 小さいカードは白い面・枠なし・角丸 --r-md(12px)",
+      decl(rowCard, "background") === "var(--c-surface)" && decl(rowCard, "border") === "0"
+      && decl(rowCard, "border-radius") === "var(--r-md)",
+      `${decl(rowCard, "background")} / ${decl(rowCard, "border")} / ${decl(rowCard, "border-radius")}`);
+    check("D-10: 小さいカードの内側余白は 10px 14px(凍結仕様 §1)",
+      decl(rowCard, "padding") === "10px 14px", String(decl(rowCard, "padding")));
+    check("D-10: 小さいカードは --shadow-row で浮く",
+      decl(rowCard, "box-shadow") === "var(--shadow-row)", String(decl(rowCard, "box-shadow")));
+    // 影のトークン。**値は正典 design/canvas/S1.dc.html の box-shadow から読む**
+    // (index.css の値を書き写した期待値にすると恒真になる)。
+    {
+      const s1 = readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8");
+      const m = /box-shadow:\s*([^;"]+)/.exec(s1);
+      const want = m ? m[1].trim() : null;
+      const norm = (v) => String(v).replace(/\s+/g, " ").trim();
+      check("D-10: 影のトークンが2つ新設されている(--shadow-card / --shadow-row)",
+        cssVar("--shadow-card") !== null && cssVar("--shadow-row") !== null,
+        `${cssVar("--shadow-card")} / ${cssVar("--shadow-row")}`);
+      check("D-10: --shadow-card の値は正典 S1.dc.html の box-shadow と同じ",
+        want !== null && norm(cssVar("--shadow-card")) === norm(want),
+        `いま ${cssVar("--shadow-card")} / 正典 ${want}`);
+      check("D-10: --shadow-row も同じ値から始まる(役割が違うので名前だけ分けてある)",
+        want !== null && norm(cssVar("--shadow-row")) === norm(want),
+        `いま ${cssVar("--shadow-row")} / 正典 ${want}`);
+    }
+    // 【D-10 §4】日付を押すと開く枠の動き。時間と曲線は CSS 側に1箇所。
+    // **prefers-reduced-motion: reduce で止まること**まで見る(§6.1.5 の趣旨)。
+    {
+      const panel = cssBlock(".day-panel");
+      check("D-10 §4: 開閉の動きは 200ms / ease-out(.day-panel が1箇所で持つ)",
+        /\.day-panel\s*\{\s*transition:\s*height\s+200ms\s+ease-out;\s*\}/.test(css), String(panel));
+      const reduced = /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g;
+      let hit = false, mm;
+      while ((mm = reduced.exec(css)) !== null) {
+        if (/\.day-panel\s*\{[^}]*transition:\s*none/.test(mm[1])) hit = true;
+      }
+      check("D-10 §4: 動きを減らす設定では開閉を動かさない(prefers-reduced-motion: reduce)", hit);
+    }
+    // 【入れ子にしない】.surf-card と .surf-rule のどちらが勝つかが行の順序で決まる形を作らない。
+    // CSS 側では読めないので、**App.jsx の綴り**で見る(下の 5. で根の数も数える)。
+    check("D-10: .surf-card と .surf-rule を同じタグに同時に付けていない",
+      !/className="[^"]*surf-card[^"]*surf-rule/.test(src) && !/className="[^"]*surf-rule[^"]*surf-card/.test(src));
+  }
+
   check("罫の作法のタイルは塗りも枠も持たず、左罫1本だけ",
     decl(ruleTile, "background") === "transparent" && decl(ruleTile, "border") === "0" &&
     decl(ruleTile, "border-left") === "1px solid var(--c-rule)" && decl(ruleTile, "border-radius") === "0");
@@ -5875,6 +5965,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       [".card", cssBlock(".card"), ["padding"]],
       [".tile", cssBlock(".tile"), ["padding"]],
       [".tile-row", cssBlock(".tile-row"), ["gap"]],
+      // 【D-10】カードの作法。地(--c-sunk)はページの地なので .surf-card が持ち、
+      // 左右は .app-root の padding を打ち消して画面の端まで届かせる。
+      [".surf-card", cssBlock(".surf-card"), ["background", "margin-left", "margin-right", "padding-left", "padding-right"]],
+      [".surf-card .card", cssBlock(".surf-card .card"), ["background", "border", "border-radius", "padding"]],
+      [".surf-card .rowcard", cssBlock(".surf-card .rowcard"), ["background", "border", "border-radius", "padding"]],
     ];
     for (const [sel, block, intended] of surfRules) {
       // 作法が握る longhand と、その意図された持ち主(後に書いたものが勝つ)
@@ -6042,9 +6137,21 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // --- 5. タブの根に作法のクラスが付いていること ------------------------
   check("計測タブの根は罫の作法(surf-rule)",
     /\{topTab === "measure" && \(\s*<div className="surf-rule">\s*<MeasureView/.test(src));
-  // 【D-7 2026/08/23 本人指示で書き換え】データタブも罫の作法へ。**3タブとも同じ作法**になった。
-  check("D-7: データタブの根も罫の作法(surf-rule)。3タブとも同じ作法",
-    /\{topTab === "analysis" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-rule">\s*<AnalysisLabView/.test(src));
+  // 【D-10 2026/08/26 本人裁定で書き換え】データタブは**画面ごとに作法が違う**ようになった。
+  // My Data / 分析はカード(.surf-card)、セッション詳細 / すべてのセッションは罫(.surf-rule)。
+  // なので**タブの根には作法のクラスを置かない**(置くと入れ子になり、どちらが勝つかが
+  // index.css の行の順序に依存する)。3つの return がそれぞれ名乗ることを綴りで固定する。
+  check("D-10: データタブの根には作法のクラスを置かない(画面ごとに違うため)",
+    /\{topTab === "analysis" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<AnalysisLabView/.test(src));
+  {
+    const lab = srcOfFn(src, "AnalysisLabView");
+    check("D-10: My Data / 分析の本体はカードの作法(.surf-card)を名乗る",
+      /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card">\s*\r?\n\s*<div style=\{\{ maxWidth: 900, margin: "0 auto" \}\}>/.test(lab));
+    check("D-10: セッション詳細は罫の作法(.surf-rule)のまま(1px も変えない)",
+      /if \(selectedSession\) \{[\s\S]{0,600}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{\(\) => setSelectedSessionId\(null\)\}>\s*\r?\n\s*<SessionDetailView/.test(lab));
+    check("D-10: すべてのセッションも罫の作法(.surf-rule)のまま",
+      /if \(allSessionsOpen\) \{[\s\S]{0,700}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{closeAllSessions\}>\s*\r?\n\s*<AllSessionsPage/.test(lab));
+  }
   check("D-7: surf-sunk を名乗る要素はもうどこにも無い",
     !/className="surf-sunk"/.test(src));
   // リードタブは子タブ(登録/比較)の溝と本体の2つを1つの根で包む。
@@ -6057,8 +6164,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     (src.match(/<ReedsTab/g) || []).length === 1, `${(src.match(/<ReedsTab/g) || []).length}箇所`);
   // トークンで数える。`className="surf-rule wrap"` と書いても数から漏れない。
   {
-    const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length;
-    check("作法のクラスは3タブぶんの3箇所だけ", roots === 3, `${roots}箇所`);
+    // 【D-10 2026/08/26】作法を名乗る根は **5つ**になった:
+    //   罫(.surf-rule) … 計測 / リード / セッション詳細 / すべてのセッションの4つ
+    //   カード(.surf-card) … My Data / 分析の1つ(2つの子タブを同じ根が包む)
+    // データタブだけが画面ごとに分かれるので、タブの数とは一致しない。
+    const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length
+      + tagsWithClass("surf-card").length;
+    check("D-10: 作法を名乗る根は5箇所(罫4 + カード1)", roots === 5, `${roots}箇所`);
+    check("D-10: 罫の根は4箇所(計測 / リード / セッション詳細 / すべてのセッション)",
+      tagsWithClass("surf-rule").length === 4, `${tagsWithClass("surf-rule").length}箇所`);
+    check("D-10: カードの根は1箇所だけ(My Data / 分析を包む1枚)",
+      tagsWithClass("surf-card").length === 1, `${tagsWithClass("surf-card").length}箇所`);
   }
 
   // --- 6. .card / .tile にインラインで見た目を書いていないこと ----------
@@ -6342,8 +6458,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 【D-9z2 2026/08/26】My Data のカードには上余白を詰める .card-tight-top が続くので、
       // 綴りを完全一致で数えると取りこぼす。**後ろに続くクラスを許して**数える。
       const noTop = (codeOf(src).match(/className="card no-top-rule(?: [a-z-]+)*"/g) || []).length;
-      check("D-8 / D-9z2: className に no-top-rule を持つカードは2箇所(計測タブの詳細 / My Data の先頭)",
-        noTop === 2, `${noTop}箇所`);
+      // 【D-10 2026/08/26 で 2 → 1】My Data がカードの作法へ移り、そこでは
+      // **そもそも罫が引かれない**ので例外が要らなくなった。
+      // 上余白を詰める .card-tight-top も読み手ゼロになったので定義ごと落としてある。
+      check("D-10: className に no-top-rule を持つカードは1箇所(計測タブの詳細だけ)",
+        noTop === 1, `${noTop}箇所`);
+      check("D-10: .card-tight-top は定義ごと消えている(読み手ゼロの規則を残さない)",
+        cssBlock(".surf-rule .card-tight-top") === null
+        && !/card-tight-top/.test(codeOf(src))
+        && !/card-tight-top/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")));
     }
     {
       const codeNT = codeOf(src);
@@ -13837,7 +13960,22 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
         /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(tag)
         && /justifyContent: "flex-end"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
       check(`26.1 N-10: ${nm}セレクタの文字色は白地の副次テキスト(--c-ink-3)へ移った`,
-        /fontSize: 12, color: "var\(--c-ink-3\)"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
+        /color: "var\(--c-ink-3\)"/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
+      // 【D-10 §6 本人指示で 12 → 10】本人がキャンバスで縮小した。
+      // **綴りを 2箇所に持たない**ため、両方のボタンが同じ定数を見ていることを見る。
+      // 【変異試験 M24 で生存 → 足した】綴りが定数を指していることだけ見ると、
+      // 定数の値を 12 へ戻す変異が通る。**値は正典 S1.dc.html から読む**。
+      check(`26.1 D-10: ${nm}セレクタの文字は MY_DATA_SCOPE_FS から引く(綴りを2箇所に持たない)`,
+        /fontSize: MY_DATA_SCOPE_FS/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
+      {
+        const s1 = readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8");
+        const want = (/font-size: (\d+)px; color: var\(--c-ink-3\)">Alto/.exec(s1) || [])[1];
+        check("26.1 D-10: 正典 S1 から集計範囲の文字サイズを読めている(空回りしていない)",
+          want === "10", `正典=${want}`);
+        check("26.1 D-10: MY_DATA_SCOPE_FS は正典と同じ 10px(本人がキャンバスで縮小した)",
+          new RegExp(`const MY_DATA_SCOPE_FS = ${want};`).test(src),
+          (src.match(/const MY_DATA_SCOPE_FS = \d+;/) || [""])[0]);
+      }
     }
     // 期間の候補は9種すべて残っている(機能を落とさない)
     {
@@ -14779,20 +14917,53 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.4c それでも PIVOT の**条件チップ**は残っている(ラベルだけを消した)",
       /pivotFilters\.map\(/.test(srcOfFn(src, "AnalysisLabView")));
 
-    // 【D-9 §2】凡例は撤去し、**チップの枠が系列の色を持つ**。
-    // 色は SERIES_STYLES から引く(綴りを2箇所に持たない = チップと線が食い違いようがない)。
-    // 【D-9 §2】本人「凡例は消してチップの枠をその該当の折れ線と同じ色にして」。
-    // 枠は**文字列リテラル**で書く決まり(§6.3)なので、色を実行時に SERIES_STYLES から
-    // 引くことはできない。代わりに**この検査が突き合わせる**: チップの枠に書いてある2色が
-    // SERIES_STYLES[0] / [1] の色と一致していなければ落ちる(片方だけ変えたら食い違う)。
+    // 【D-9 §2 → D-10 §5 で書き換え】D-9 は「チップの枠が系列の色を持つ」だったが、
+    // 本人がキャンバスで **案M1 + 案M3 の合体**(design/canvas/Chips.dc.html)を選んだ:
+    //   枠は**両方とも共通の --c-line-strong**、系列との対応は**先頭の 6px の丸**が持つ。
+    //   枠 =「選ぶ器」/ 丸 =「どの線か」と役割が分かれ、凡例の丸と同じ読み方になる。
+    // これで色を**実行時に SERIES_STYLES から引ける**ようになった(丸は枠ではないので
+    // §6.3 の「操作の枠は文字列リテラル」に触れない)= 綴りが1箇所になり、
+    // D-9 で必要だった「2箇所の綴りを検査で突き合わせる」当て木が要らなくなった。
     {
       const styles = new Function(`${extractConst("SERIES_STYLES")} return SERIES_STYLES;`)();
-      const chip = (myDataSection.match(/border: view !== "line" \? "1px solid var\(--c-line-strong\)"\s*\r?\n\s*: \(side === 0 \? "1px solid (var\([^)]*\))" : "1px solid (var\([^)]*\))"\)/) || []);
-      check("27.4c D-9 §2: チップの枠の2色は SERIES_STYLES[0] / [1] と一致する",
-        chip.length === 3 && chip[1] === styles[0].color && chip[2] === styles[1].color,
-        `${chip[1]} / ${chip[2]} vs ${styles[0].color} / ${styles[1].color}`);
-      check("27.4c D-9 §2: 窓型のときは系列の線が無いので枠は --c-line-strong",
-        /border: view !== "line" \? "1px solid var\(--c-line-strong\)"/.test(myDataSection));
+      check("27.4c D-10 §5: 式のチップの枠は左右とも共通の --c-line-strong(系列色を枠に持たせない)",
+        /border: "1px solid var\(--c-line-strong\)",/.test(myDataSection)
+        && !/1px solid var\(--c-accent\)/.test(myDataSection)
+        && !/1px solid var\(--c-accent-mid\)/.test(myDataSection));
+      // 【罠2】錨は**呼び出しに隣接する綴り**。丸の寸法と色を同じ style オブジェクトの中で見る。
+      check("27.4c D-10 §5: 先頭の丸は 6px で、色は SERIES_STYLES から引く(綴りを2箇所に持たない)",
+        /width: 6, height: 6, borderRadius: "50%", marginRight: 6, flexShrink: 0,\s*\r?\n\s*background: SERIES_STYLES\[side\]\.color,/.test(myDataSection),
+        (myDataSection.match(/background: SERIES_STYLES\[[^\]]*\]\.color/g) || []).join(" | "));
+      // その SERIES_STYLES の先頭2つが折れ線に渡っている2本と同じであること
+      // (丸が引く色と、線が引く色が別の配列になっていないこと)。
+      check("27.4c D-10 §5: 折れ線の2本も同じ SERIES_STYLES[0] / [1] を使う",
+        /style: SERIES_STYLES\[0\], byIdx: seriesA/.test(myDataSection)
+        && /style: SERIES_STYLES\[1\], byIdx: seriesB/.test(myDataSection)
+        && styles.length >= 2 && styles[0].color !== styles[1].color,
+        `${styles[0].color} / ${styles[1].color}`);
+      // 窓型には対応する線が無いので**丸を出さない**。枠と ▾ はそのまま。
+      check("27.4c D-10 §5: 窓型のときは丸を出さない(対応する線が無いため)",
+        /\{view === "line" && \(\s*\r?\n\s*<span aria-hidden="true" style=\{\{\s*\r?\n\s*width: 6, height: 6/.test(myDataSection));
+      check("27.4c D-10 §5: ピルの右に 9px の ▾(押せることを形で示す)",
+        /fontSize: 9, color: "var\(--c-line-strong\)", marginLeft: 5 \}\}>▾<\/span>/.test(myDataSection));
+      check("27.4c D-10 §5: ピルの左右の余白は 0 9px 0 12px(丸のぶん左を広く取る)",
+        /padding: "0 9px 0 12px", borderRadius: "var\(--r-sm\)"/.test(myDataSection));
+      // 【D-10a 2026/08/26 審査の指摘で足した】記号(× / ー)の大きさ。
+      // ここは --fs-md(15px)を当てていたが、凍結仕様 §5 の表も正典 S1.dc.html /
+      // Chips.dc.html も **16px**。§5 の表で1行だけ落ちていた箇所なので、
+      // **期待値は正典から読む**(実装の値を書き写した期待値にすると恒真になる)。
+      {
+        const chips = readFileSync(join(__dirname, "..", "design", "canvas", "Chips.dc.html"), "utf8");
+        const want = (/font-size: (\d+)px; line-height: 1; color: var\(--c-ink-3\)/.exec(chips) || [])[1];
+        check("27.4c D-10: 正典 Chips から記号の大きさを読めている(空回りしていない)",
+          want === "16", `正典=${want}`);
+        check("27.4c D-10: 式の記号は正典と同じ 16px(綴りは MY_DATA_EXPR_OP_FS の1箇所)",
+          new RegExp(`const MY_DATA_EXPR_OP_FS = ${want};`).test(src)
+          && /fontSize: MY_DATA_EXPR_OP_FS, lineHeight: 1, color: "var\(--c-ink-3\)"/.test(myDataSection),
+          (src.match(/const MY_DATA_EXPR_OP_FS = \d+;/) || [""])[0]);
+        check("27.4c D-10: 記号は折れ線=× / 窓型=ー を見せ方から引く(綴りを2箇所に持たない)",
+          /\{MY_DATA_EXPR_OPERATORS\[view\]\}/.test(myDataSection));
+      }
     }
     check("27.4c D-9 §2: 凡例(legend)は部品からも配線からも消えている",
       !/legend/.test(codeOf(srcOfFn(src, "NoteAxisLineChart")).replace(/legendMax|legendPad/g, ""))
@@ -14829,12 +15000,11 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       ${extractFunction("calendarMonthDays")}
       ${extractFunction("calendarMonthTotals")}
       ${extractFunction("calendarShiftMonth")}
-      ${extractFunction("calendarLatestKey")}
       ${extractFunction("calendarMonthLabel")}
       ${extractFunction("calendarLevel")}
       ${extractFunction("calendarFill")}
       ${extractFunction("calendarInk")}
-      return { calendarMonthDays, calendarMonthTotals, calendarShiftMonth, calendarLatestKey,
+      return { calendarMonthDays, calendarMonthTotals, calendarShiftMonth,
                calendarMonthLabel, calendarLevel, calendarFill, calendarInk,
                CALENDAR_WEEK_LABELS, CALENDAR_FILLS, CALENDAR_CELL_H, CALENDAR_DOT };`)();
     check("27.5 曜日は日曜始まり(一般的な暦に合わせる。5週窓の月曜始まりから変更)",
@@ -14864,29 +15034,29 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       const t = api.calendarMonthTotals(cells);
       check("27.5 見出しの合計はその月ぶん(秒と、記録のあった日数)",
         Math.abs(t.seconds - 900) < 1e-6 && t.activeDays === 1, `${t.seconds}秒 / ${t.activeDays}日`);
-      // 【変異試験 M16 で生存 → 足した】記録のある日が1つしか無い試験データだと
-      // 「最新」と「最古」が同じ日になり、走査を先頭優先へ変える変異が生き残る。
-      // **2日以上ある月**で、後ろの日が選ばれることを見る。
+      // 【D-10 2026/08/26 本人指示】既定の選択日(その月の記録のある最新の日 =
+      // calendarLatestKey)は**要らなくなった**。本人「その日付に紐づくセッションの表示だけ、
+      // 常時表示ではなく、日付を押したら…出てくるように変更」。
+      // マスの並びそのものは日付順であること(既定が消えても暦は暦のまま)だけ見る。
       {
         const s3 = { recordedAt: new Date(2026, 7, 5, 12, 0).toISOString(), frames: [{ t: 0 }, { t: 60 }] };
         const many = api.calendarMonthDays([s3, s1, s2], 2026, 7);
-        check("27.5 その月の記録のある最新の日が既定の選択日(最古ではない)",
-          api.calendarLatestKey(many) === "2026-08-22", String(api.calendarLatestKey(many)));
-        check("27.5 その走査は月の中の日付順に見ている(先に見つけた日で止まらない)",
+        check("27.5 マスは月の中の日付順に並ぶ",
           many.filter((c) => c && c.count > 0).map((c) => c.key).join(",") === "2026-08-05,2026-08-22",
           many.filter((c) => c && c.count > 0).map((c) => c.key).join(","));
       }
-      check("27.5 記録が1つの月でも同じ規則で選べる",
-        api.calendarLatestKey(cells) === "2026-08-22", String(api.calendarLatestKey(cells)));
-      check("27.5 記録が1件も無い月は選択日を持たない(null)",
-        api.calendarLatestKey(api.calendarMonthDays([], 2026, 0)) === null);
+      check("27.5 D-10: 既定の選択日の規則(calendarLatestKey)は定義ごと消えている(読み手ゼロ)",
+        !/function calendarLatestKey\b/.test(codeOf(src)) && !/calendarLatestKey\(/.test(codeOf(src)));
     }
     check("27.5 月の移動は年をまたいで繰り上がる",
       JSON.stringify(api.calendarShiftMonth(2026, 11, 1)) === '{"year":2027,"month":0}'
       && JSON.stringify(api.calendarShiftMonth(2026, 0, -1)) === '{"year":2025,"month":11}',
       `${JSON.stringify(api.calendarShiftMonth(2026, 11, 1))} / ${JSON.stringify(api.calendarShiftMonth(2026, 0, -1))}`);
-    check("27.5 見出しの綴りは1箇所(calendarMonthLabel)",
-      api.calendarMonthLabel(2026, 7) === "2026年8月", api.calendarMonthLabel(2026, 7));
+    // 【D-10 §2.2 本人裁定】月見出しは **yyyy/m**(正典 design/canvas/S1.dc.html の「2026/8」)。
+    // 期待値は**正典の綴りそのもの**で、実装の式を書き直したものではない。
+    check("27.5 D-10: 見出しの綴りは yyyy/m。作り方は1箇所(calendarMonthLabel)",
+      api.calendarMonthLabel(2026, 7) === "2026/8" && api.calendarMonthLabel(2027, 0) === "2027/1",
+      `${api.calendarMonthLabel(2026, 7)} / ${api.calendarMonthLabel(2027, 0)}`);
     const lv = api.calendarLevel;
     check("27.5 記録が無い日は 0(丸を描かない)", lv(0, 100, 0) === 0 && api.calendarFill(0) === "transparent");
     check("27.5 記録がある日は必ず 1 以上(長さが保存されていない古い記録も「した日」に見える)",
@@ -14900,9 +15070,14 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.5 濃い2段だけ白い日付(淡い段は濃い文字のほうが読める)",
       [1, 2].every((l) => api.calendarInk(l) === "var(--c-ink)")
       && [3, 4].every((l) => api.calendarInk(l) === "var(--c-on-accent)"));
-    check("27.5 D-6: マスは 38pt(本人裁定の例外)、その中の丸はさらに小さい",
-      api.CALENDAR_CELL_H === 38 && api.CALENDAR_DOT < api.CALENDAR_CELL_H,
-      `マス ${api.CALENDAR_CELL_H} / 丸 ${api.CALENDAR_DOT}`);
+    // 【D-10 §0 C 本人裁定】38 → **44pt**。これで §5(タップ先は 44×44)の例外は
+    // 「式の行」1つだけになった(DESIGN-SYSTEM §5.1 は削除済み)。
+    // 期待値 44 / 34 は凍結仕様 design/D10-SPEC.md §2.2 と正典 S1.dc.html から取る。
+    check("27.5 D-10: マスは 44pt(§5 の例外だった 38pt は無くなった)",
+      api.CALENDAR_CELL_H === 44, `マス ${api.CALENDAR_CELL_H}`);
+    check("27.5 D-10: マスの中の丸は 34px(マスより小さい = 当たり判定のほうが広い)",
+      api.CALENDAR_DOT === 34 && api.CALENDAR_DOT < api.CALENDAR_CELL_H,
+      `丸 ${api.CALENDAR_DOT} / マス ${api.CALENDAR_CELL_H}`);
     check("27.5 5週の窓(practiceCalendarDays / CALENDAR_WEEKS)は定義ごと消えている",
       !/function practiceCalendarDays\b/.test(src) && !/const CALENDAR_WEEKS\b/.test(src));
   }
@@ -15003,21 +15178,34 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.7 D-8: 読み方の1行も8段の凡例も画面に無い(本人指示)",
       !/<DivergingLegend/.test(src)
       && !/段の中央が 0。/.test(codeOf(src)) && !/0 の線が /.test(codeOf(src)));
+    // 【罠2】錨は**呼び出しに隣接する綴り**。丸の濃さは level → fill の順で引く。
     check("27.7 カレンダーの濃さは calendarLevel → calendarFill の順で引く(呼び出しに隣接)",
       /const level = calendarLevel\(c\.minutes, maxMinutes, c\.count\);/.test(calCard)
-      && /background: calendarFill\(level\),/.test(calCard));
+      && /background: isSel \? "var\(--c-accent\)" : calendarFill\(level\),/.test(calCard));
     check("27.7 カレンダーの母集団は My Data と同じ(奏者=自分 + 選択楽器を渡している)",
       /<PracticeCalendarCard\s*\r?\n\s*sessions=\{allMySessions\}/.test(myDataSection));
-    check("27.7 一覧への入口は練習カードの最下行の1つだけ(正典 #9b)",
-      (myDataSection.match(/onOpenAllSessions=\{onOpenAllSessions\}/g) || []).length === 1
-      && (calCard.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
-      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1,
+    // 【D-10 §2.3】一覧への入口は**1つだけ**(正典 #9b から不変)。
+    // 置き場所だけが練習カードの最下行から**カレンダーの下の小カード**へ移った。
+    check("27.7 D-10: 一覧への入口は小カード1枚だけ(入口の数は #9b から不変)",
+      (myDataSection.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
+      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
+      && !/onOpenAllSessions/.test(calCard),
       `${(src.match(/onClick=\{onOpenAllSessions\}/g) || []).length}箇所`);
-    // 【D-1】蓄積量3数字は My Data から消え、分析タブの脚注へ移った(画面から消してはいない)
-    check("27.7 蓄積量は分析タブの脚注に移った(表示文字列は myDataStockTexts の1箇所から引く)",
-      /myDataStockTexts\(myDataStock\(sessions\)\)/.test(lab27)
-      && /\$\{st\.notes\} 音 · \$\{st\.sessions\} セッション · \$\{st\.hours\} 時間/.test(lab27)
-      && !/myDataStock/.test(codeOf(myDataSection)));
+    // 【D-10 §2.1 本人指示】蓄積量は**分析タブの脚注から My Data の先頭の「累計」カードへ**移った。
+    // 本人「自分の総計測時間、回数などを先頭にだして」。表示文字列は myDataStockTexts の1箇所のまま。
+    // 母集団も変わっている: 脚注は分析タブの全セッション、累計カードは allMySessions
+    // (奏者=自分 + 選択中の楽器種別)。**期間では絞らない**(統括の裁定 §8(1))。
+    check("27.7 D-10: 蓄積量は My Data の先頭へ移った(分析タブの脚注は消えている)",
+      /const stock = myDataStockTexts\(myDataStock\(allMySessions\)\);/.test(myDataSection)
+      && !/myDataStock/.test(codeOf(lab27)));
+    check("27.7 D-10: 累計の綴りは「累計 / 計測時間 / 計測回数 / 計測音」(本人がキャンバスで直した語)",
+      /}}>累計<\/div>/.test(myDataSection)
+      && /unit: "時間", label: "計測時間"/.test(myDataSection)
+      && /unit: "回", label: "計測回数"/.test(myDataSection)
+      && /unit: "音", label: "計測音"/.test(myDataSection));
+    check("27.7 D-10: 累計の3つの数字は stock の3つをそのまま並べる(数の作り方を増やさない)",
+      /value: stock\.hours/.test(myDataSection) && /value: stock\.sessions/.test(myDataSection)
+      && /value: stock\.notes/.test(myDataSection));
   }
 
   // --- 27.8 寸法(正典 #9b から D-5 のモックへ移った分を明記する) --------------------
@@ -15037,36 +15225,43 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       gridGap === "3", `正典=${gridGap} / 実装=1`);
     check("27.8 D-8: 窓の高さは 32px(棒も塗りも入らなくなったので 40 から下げた)",
       /const MATRIX_CELL_H = 32;/.test(src) && /height: MATRIX_CELL_H, borderRadius: "var\(--r-xs\)"/.test(matrixCard));
-    // 【D-6 2026/08/23 本人指示で書き換え】本人が4枚を実寸で見比べ「案B + カレンダー38 が一番いい」と選んだ。
-    // **§5(44pt・例外なし)を破る唯一の箇所**。事故と区別できるよう、
-    // 「本人裁定である」ことを綴り(注釈)ごと固定する。ここが黙って書き換わったら落ちる。
-    check("27.8 D-6: カレンダーのマスは 38pt(§5.1 の例外・本人裁定)",
-      /const CALENDAR_CELL_H = 38;/.test(src) && /height: CALENDAR_CELL_H, padding: 0/.test(calCard));
-    check("27.8 D-6: その例外は「本人裁定」と「広げないこと」が注釈に残っている",
-      /§5 の唯一の例外/.test(src) && /この例外を広げないこと/.test(src));
-    check("27.8 D-6: 他の場所は 44pt のまま(例外が波及していない)",
-      /--tap-min:\s*44px/.test(cssIdx) && !/const CALENDAR_DOT = 3[0-9];/.test(src));
-    // 【D-7 2026/08/23 本人指示で書き換え】罫の作法では .card の左右 padding が **0** なので、
-    // 食い破る相手が無くなった(食い破ったままだと地の外へ 16px ずつはみ出して横スクロールが出る)。
-    check("27.8 D-7: 食い破りは外してある(罫の作法では .card の左右 padding が 0)",
-      !/marginLeft: "calc\(-1 \* var\(--sp-4\)\)"/.test(calCard));
-    check("27.8 D-7: 曜日ヘッダとマスの grid は同じ列指定(列がずれない)",
-      (calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length === 2,
-      `${(calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)", gap: 4/g) || []).length}箇所`);
-    // 【D-8 2026/08/23 本人指示で書き換え】沈める作法は D-7 で廃止。器は**罫の作法**の .card に任せる(綴りは変わらない)。
-    // 【D-9z2 2026/08/25 本人指示】カードの上余白を 16 → 8 に詰める。
-    // **.card にインラインで padding を書かない**(index.css が名指しで禁じている)ので、
-    // .no-top-rule と同じ手で別クラスにする。
-    check("27.8 D-9z2: マトリクスの器は作法の .card に任せ、上余白は別クラスで詰める",
-      /<div className="card no-top-rule card-tight-top">/.test(myDataSection)
-      && /\.surf-rule \.card-tight-top \{ padding-top: var\(--sp-2\); \}/.test(cssIdx)
-      && !/padding[^:]*:/.test((myDataSection.match(/<div className="card[^>]*>/) || [""])[0]));
-    check("27.8 D-9: 指標タブと式は**カードの中**にある(上部の余白と2種類のタブの見分け)",
-      /<div className="card no-top-rule card-tight-top">\s*\r?\n[\s\S]{0,600}?<MetricUnderlineTabs/.test(myDataSection)
+    // 【D-10 2026/08/26 本人裁定で 38 → 44】D-6 の「§5 の唯一の例外(38pt)」は**無くなった**。
+    // カレンダーが自分のカードを1枚持つようになり、マトリクスと縦幅を取り合わなくなったため。
+    // 期待値は凍結仕様 design/D10-SPEC.md §2.2 と正典 design/canvas/S1.dc.html から取る。
+    check("27.8 D-10: カレンダーのマスは 44pt(§5 の例外ではなくなった)",
+      /const CALENDAR_CELL_H = 44;/.test(src) && /height: CALENDAR_CELL_H, padding: 0/.test(calCard));
+    check("27.8 D-10: §5 の例外は「式の行」だけになった(カレンダーの例外の綴りが消えている)",
+      !/§5 の唯一の例外/.test(src) && /§5 の例外はこの行だけ/.test(src));
+    check("27.8 D-10: 丸は 34px でマスより小さい(見た目の丸より当たり判定が広い)",
+      /const CALENDAR_DOT = 34;/.test(src) && /width: CALENDAR_DOT, height: CALENDAR_DOT/.test(calCard));
+    check("27.8 D-10: 他の場所は 44pt のまま(--tap-min を触っていない)",
+      /--tap-min:\s*44px/.test(cssIdx));
+    // 【D-10 §2.2】マスの間隔は 0(44pt のマスが隣り合う = 暦らしい格子)。
+    // 曜日ヘッダとマスは**同じ列指定**でなければ列がずれる。
+    check("27.8 D-10: 曜日ヘッダとマスの grid は同じ列指定(列がずれない)",
+      (calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)"/g) || []).length === 2,
+      `${(calCard.match(/gridTemplateColumns: "repeat\(7, 1fr\)"/g) || []).length}箇所`);
+    check("27.8 D-10: マスの間隔は 0(44pt のマスが隣り合う)",
+      /gridTemplateColumns: "repeat\(7, 1fr\)", gap: 0, marginTop: 4/.test(calCard));
+    // 【D-10 §2.2】選択中は紺の塗り + 白字、今日は枠。**選択中に両方は出さない**
+    // (塗りの上に同じ色の枠が乗ると読めない)。
+    check("27.8 D-10: 今日の枠は選択中でないときだけ(塗りと枠を同時に出さない)",
+      /boxShadow: !isSel && isToday \? "inset 0 0 0 1\.5px var\(--c-accent\)" : "none",/.test(calCard));
+    check("27.8 D-10: 選択中の日は紺の塗り + --c-on-accent の字",
+      /background: isSel \? "var\(--c-accent\)" : calendarFill\(level\),/.test(calCard)
+      && /color: isSel \? "var\(--c-on-accent\)" :/.test(calCard));
+    // 【F-77】記録が0件の日は押しても開かないので**ボタンにしない**。
+    check("27.8 D-10: 記録が0件の日はボタンにしない(押せない選択肢を出さない。F-77)",
+      /if \(!\(c\.count > 0\)\) \{\s*\r?\n\s*return \(\s*\r?\n\s*<div key=\{c\.key\} style=\{\{ height: CALENDAR_CELL_H/.test(calCard));
+    // 【D-10 §0 A】器は**カードの作法**の .card に任せる。上余白を詰める特例は要らなくなった。
+    check("27.8 D-10: カレンダーの器は作法の .card に任せる(padding をインラインで書かない)",
+      /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>/.test(calCard)
+      && !/padding[^:]*:/.test((calCard.match(/<div className="card[^>]*>/) || [""])[0]));
+    check("27.8 D-10: 指標タブと式と本体は**音の傾向カード**の中にある",
+      /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n[\s\S]{0,900}?<MetricUnderlineTabs/.test(myDataSection)
       && /MY_DATA_EXPR_OPERATORS\[view\]/.test(myDataSection));
-    check("27.8 D-9: 窓型1枚も同じカードの中(タブがどこまで効くかを箱が示す)",
-      (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 1
-      && (myDataSection.match(/<div className="card no-top-rule card-tight-top">/g) || []).length === 1);
+    check("27.8 D-10: 窓型1枚も同じカードの中(タブがどこまで効くかを箱が示す)",
+      (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 1);
     // 【D-9y 2026/08/25 本人指示】「指標タブの下の罫は両方外して」。
     // 上の罫は .no-top-rule が、下の罫は bordered を渡さないことで消える。
     check("27.8 D-9y: 指標タブの下に罫を引かない(My Data だけ bordered を渡さない)",
@@ -15143,6 +15338,123 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.9 音名軸の折れ線そのものは他の画面のために残っている(部品ごと消していない)",
       /function NoteAxisLineChart\(/.test(src) && (src.match(/<NoteAxisLineChart/g) || []).length >= 2,
       `${(src.match(/<NoteAxisLineChart/g) || []).length}箇所`);
+  }
+
+  // --- 27.10 D-10: My Data のレイアウト(並び / 罫を引かない / 日付を押すと開く) --------
+  // 【D-10 2026/08/26 本人指示・凍結仕様 design/D10-SPEC.md §2〜§4】
+  // 本人「mydata は見たくなる感じが今ない。自分の総計測時間、回数などを先頭にだして、
+  // 次にカレンダー(カレンダーも今のレイアウトではなくよりカレンダーらしく)。
+  // 機能はそのままだがレイアウトは一から」。
+  {
+    const code = codeOf(myDataSection);
+    // (1) 並び。**位置そのもの**を index の大小で見る(綴りが1つでも入れ替われば落ちる)。
+    const at = (needle) => code.indexOf(needle);
+    const iStock = at(">累計<");
+    const iCal = at("<PracticeCalendarCard");
+    const iDay = at('className="day-panel"');
+    const iAll = at("onClick={onOpenAllSessions}");
+    const iChart = at("<MetricUnderlineTabs");
+    check("27.10 D-10 §2: 並びは 累計 → カレンダー → 開いた日 → すべてのセッション → 音の傾向",
+      [iStock, iCal, iDay, iAll, iChart].every((i) => i > 0)
+      && iStock < iCal && iCal < iDay && iDay < iAll && iAll < iChart,
+      `累計=${iStock} 暦=${iCal} 開いた日=${iDay} 一覧=${iAll} 傾向=${iChart}`);
+    // (2) 罫を1本も引かない(本人「むやみに線をひくのやめて」)。
+    // 群はカードと 12px の余白だけが切る。**綴りが無いこと**の主張なので codeOf を通す
+    // (通さないと、経緯をコメントに書き残しただけで落ちる)。
+    for (const [nm, re] of [
+      ["上辺の罫", /borderTop: "1px solid/],
+      ["下辺の罫", /borderBottom: "1px solid/],
+      ["罫のトークン", /var\(--c-rule\)/],
+    ]) {
+      check(`27.10 D-10 §1: My Data は${nm}を1本も引かない`, !re.test(code),
+        (code.match(re) || []).join(" "));
+    }
+    check("27.10 D-10 §1: カレンダーのカードも罫を1本も引かない",
+      !/borderTop: "1px solid|borderBottom: "1px solid|var\(--c-rule\)/.test(codeOf(calCard)));
+    // (3) 日付を押すと開く。**配線**を見る(純関数だけ守っても意味がない。罠2)。
+    check("27.10 D-10 §4: 既定は閉じている(開いている日は null から始まる)",
+      /const \[openDayKey, setOpenDayKey\] = useState\(null\);/.test(myDataSection));
+    check("27.10 D-10 §4: 同じ日をもう一度押すと閉じ、別の日を押すと切り替わる(閉じない)",
+      /const toggleDay = \(key\) => setOpenDayKey\(\(prev\) => \(prev === key \? null : key\)\);/.test(myDataSection));
+    check("27.10 D-10 §4: その配線がカレンダーへ渡っている(押す側と開く側がつながっている)",
+      /onToggleDay=\{toggleDay\}/.test(myDataSection) && /openDayKey=\{openDayKey\}/.test(myDataSection)
+      && /onClick=\{\(\) => onToggleDay\(c\.key\)\}/.test(calCard));
+    // 閉じる3つ目: My Data の他の場所。**除くのはマスと枠の中だけ**。
+    // stopPropagation は使わない(伝播に依存している既存の仕組みを壊しうる。罠8 / F-59 の周辺)。
+    check("27.10 D-10 §4: 他の場所を押すと閉じる(除くのはカレンダーのマスと開いた枠の中だけ)",
+      /if \(calendarGridRef\.current && calendarGridRef\.current\.contains\(t\)\) return;/.test(myDataSection)
+      && /if \(dayPanelRef\.current && dayPanelRef\.current\.contains\(t\)\) return;/.test(myDataSection)
+      && /<div onClick=\{closeDayIfOutside\}/.test(myDataSection));
+    check("27.10 D-10 §4: 閉じる判定に stopPropagation を使っていない",
+      !/stopPropagation/.test(code) && !/stopPropagation/.test(codeOf(calCard)));
+    // (4) 最大3件とスクロール。上限 192px は凍結仕様 §4 / 正典 S1open.dc.html の max-height。
+    {
+      const s1o = readFileSync(join(__dirname, "..", "design", "canvas", "S1open.dc.html"), "utf8");
+      const want = (/max-height: (\d+)px; overflow-y: auto/.exec(s1o) || [])[1];
+      check("27.10 D-10 §4: 正典 S1open から枠の上限を読めている(空回りしていない)",
+        want === "192", `正典=${want}`);
+      check("27.10 D-10 §4: 枠の上限は正典と同じ 192px(3件ぶん)",
+        new RegExp(`const MY_DATA_DAY_PANEL_MAX_H = ${want};`).test(src));
+      check("27.10 D-10 §4: 4件目からは枠の中でスクロールする(件数で切らない)",
+        /maxHeight: MY_DATA_DAY_PANEL_MAX_H, overflowY: "auto"/.test(myDataSection)
+        && !/daySessions\.slice\(/.test(myDataSection));
+    }
+    // (5) 開閉の動き。高さは実測して持つ(height: auto へはトランジションが掛からない)。
+    check("27.10 D-10 §4: 開閉は高さ 0 ⇄ 実測値。実測は useLayoutEffect で取る",
+      /useLayoutEffect\(\(\) => \{\s*\r?\n\s*const el = dayInnerRef\.current;\s*\r?\n\s*setDayPanelH\(el \? el\.scrollHeight : 0\);/.test(myDataSection)
+      && /height: openDayKey === null \? 0 : dayPanelH/.test(myDataSection));
+    // 閉じる間も中身を描き続ける(開いた日を消すと同時に中身が消え、動きが走らない)。
+    check("27.10 D-10 §4: 閉じる動きの間も中身を描き続ける(描く日は開いている日と別に持つ)",
+      /const \[shownDayKey, setShownDayKey\] = useState\(null\);/.test(myDataSection)
+      && /if \(openDayKey !== null\) setShownDayKey\(openDayKey\);/.test(myDataSection));
+    // (6) セッション1件の小カード。左の帯は**意味を持たない**(統括の裁定 §8(2))。
+    check("27.10 D-10 §3: セッション1件は小カード(.rowcard)で、左の帯は全件同じ色",
+      /className="rowcard sans"/.test(srcOfFn(src, "DaySessionRow"))
+      && (srcOfFn(src, "DaySessionRow").match(/background: "var\(--c-accent-mid\)"/g) || []).length === 1);
+    // 【D-10b 2026/08/26 本人裁定】メタは**リードだけ**。奏者は出さない。
+    // **恒真にしないための対**: 「奏者を読んでいない」だけだと、母集団が全奏者に変わっても
+    // 通ってしまう(そのときは奏者を出さないほうが誤り)。**母集団が奏者=自分に絞られていること**と
+    // 対で縛る。片方でも崩れたら落ちる。
+    {
+      const rowSrc = codeOf(srcOfFn(src, "DaySessionRow"));
+      const own = new Function(`${extractFunction("myDataOwnSessions")} return myDataOwnSessions;`)();
+      // (a) 母集団: myDataOwnSessions が奏者=自分 かつ 選択中の楽器種別だけを返す(実行で確かめる)
+      const pool = [
+        { id: "a", performer: "自分", saxType: "alto" },
+        { id: "b", performer: "他人", saxType: "alto" },
+        { id: "c", performer: "自分", saxType: "tenor" },
+        { id: "d", performer: "自分" },
+      ];
+      const got = own(pool, "alto", "alto").map((s) => s.id).join(",");
+      check("27.10 D-10b: 母集団は奏者=自分 かつ 選択中の楽器種別だけ(奏者の列が情報を運ばない根拠)",
+        got === "a,d", got);
+      // (b) その日の一覧は**その母集団から**作っている(呼び出しに隣接する綴り。罠2)
+      check("27.10 D-10b: その日の一覧は allMySessions から作る(全奏者の sessions からではない)",
+        /const daySessions = shownDayKey === null \? \[\] : allMySessions/.test(myDataSection)
+        && /const allMySessions = myDataOwnSessions\(sessions, saxType, dataSax\);/.test(myDataSection));
+      // (c) だからこの行に奏者を出さない
+      check("27.10 D-10b: その日のセッションの行は奏者を出さない(母集団が自分だけなので情報を運ばない)",
+        !/performer/.test(rowSrc), (rowSrc.match(/.{0,40}performer.{0,40}/) || [""])[0]);
+      check("27.10 D-10b: メタはリードだけ。読めなければ「未紐付け」(D-5 の規則は不変)",
+        /const meta = reedShortLabel\(reed, reeds\) \?\? "未紐付け";/.test(srcOfFn(src, "DaySessionRow")));
+      // (d) **「すべてのセッション」の行は触っていない** ── あちらは全奏者が出る画面なので
+      //     奏者が情報になる。同じ綴りに見えても母集団が違う、を検査でも分ける。
+      check("27.10 D-10b: すべてのセッションの行は奏者を出したまま(母集団が違うので巻き添えにしない)",
+        /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]/.test(srcOfFn(src, "AllSessionsPage")));
+      check("27.10 D-10b: その画面の母集団は絞っていない全セッション(奏者が情報になる)",
+        /<AllSessionsPage\s*\r?\n\s*sessions=\{sessions\} reeds=\{reeds\}/.test(srcOfFn(src, "AnalysisLabView")));
+    }
+    check("27.10 D-10 §3: 件数の行も日付の見出しも置かない(本人指示)",
+      !/のセッション</.test(code) && !/\{daySessions\.length\} 件/.test(code)
+      && !/formatMonthDay/.test(code));
+    // (7) すべてのセッションも小カード。入口は1つだけ(27.7 が数えている)。
+    check("27.10 D-10 §2.3: すべてのセッションの行は小カード(.rowcard)",
+      /className="rowcard sans"[\s\S]{0,400}?すべてのセッション \{totalSessionCount\} 件/.test(myDataSection));
+    // (8) 累計の数字は 26px・字間 −.02em(§4.4「24px以上の数値」)。単位だけ字間を 0 に戻す。
+    check("27.10 D-10 §2.1: 累計の数字は 26px / --font-num / 字間 −.02em(§4.4)",
+      /fontFamily: "var\(--font-num\)", fontWeight: 600, color: "var\(--c-ink\)", letterSpacing: "-\.02em", fontSize: 26/.test(myDataSection));
+    check("27.10 D-10 §2.1: 単位は 12px で字間を 0 に戻す(小さい字を詰めない)",
+      /fontSize: 12, fontWeight: 400, color: "var\(--c-ink-3\)", marginLeft: 2, letterSpacing: 0/.test(myDataSection));
   }
   console.log("  -> done");
 }
@@ -15338,15 +15650,19 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     !/var\(--c-sunk\)/.test(codeOf(det29)), (codeOf(det29).match(/var\(--c-sunk\)/g) || []).length + "箇所");
 
   // --- 29.2 罫の群(白地+罫)。罫は --c-rule、位置は**内容に隣接する綴り**で固定 ----------
-  // 【D-2 2026/08/22 本人指示で書き換え】軸セレクタ群は**罫ではなくカード**になった
-  // (正典 #13a の3カラムセレクタカード)。罫はグラフ群の1本だけが残る。
-  check("29.2 分析子タブの罫は1本(グラフ群。軸セレクタはカードになった)",
-    (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 1,
+  // 【D-10 2026/08/26 本人裁定で書き換え】分析タブは**カードの作法**へ移った。
+  // 本人「むやみに線をひくのやめて」。群の境界はカードの縁と 12px の余白だけが作る。
+  check("29.2 D-10: 分析子タブに罫は1本も無い(群はカードが作る)",
+    (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 0,
     `${(codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 D-2: 軸セレクタ群はカード(.card)で、3カラムの grid を持つ",
-    /<div className="card" style=\{\{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var\(--sp-2\)"/.test(lab29));
-  check("29.2 グラフ群が罫を持つ(隣接: 直後に空状態の分岐)",
-    /borderTop: "1px solid var\(--c-rule\)", padding: "12px 0" \}\}>\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
+  check("29.2 D-10: 操作はカード1枚(条件チップの行 + 軸の行)",
+    /<div className="card">\s*\r?\n[\s\S]{0,900}?minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*\{pivotFilters\.map\(/.test(lab29));
+  check("29.2 D-10: グラフもカード1枚(隣接: 直後に空状態の分岐)",
+    /<div className="card">\s*\r?\n\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
+  check("29.2 D-10: 操作のカードとグラフのカードの間は 12px の余白(罫ではない)",
+    /<div style=\{\{ height: 12 \}\} \/>\s*\r?\n[\s\S]{0,400}?<div className="card">\s*\r?\n\s*\{pivot\.rowKeys\.length === 0/.test(lab29));
+  check("29.2 D-10: 軸の列の境界の罫(中央の列の左右)も引いていない",
+    !/borderLeft: "1px solid var\(--c-line\)", borderRight: "1px solid var\(--c-line\)"/.test(lab29));
   // 【D-3 2026/08/22 本人指示で書き換え】セッション詳細は正典 #14b で**カードの画面**になった
   // (指標グラフ / 録音 / メモ / 音階ごとの平均の4枚)。罫で群を分ける形は終わったので、
   // 主張を「罫が2本ある」→「カードが4枚あり、作法をインラインで殺していない」へ反転させる。
@@ -15824,9 +16140,12 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
     const tickN = (/list="\{\{ pv13\.ticks \}\}"[^>]*hint-placeholder-count="(\d+)"/.exec(b13) || [])[1];
     const cols = (/grid-template-columns:(1fr 1fr 1fr);gap:(\d+)px/.exec(b13) || []);
     check("32.1 正典から実数を読めている(空回りしていない)",
-      rowH === "25" && dotR === "2.8" && dotRing === "1.1" && lineW === "2" && tickN === "5"
-      && cols[1] === "1fr 1fr 1fr" && cols[2] === "8",
-      `行高=${rowH} 点=${dotR}/${dotRing} 線=${lineW} 目盛=${tickN} 3カラム=${cols[1]}/gap${cols[2]}`);
+      rowH === "25" && dotR === "2.8" && dotRing === "1.1" && lineW === "2" && tickN === "5",
+      `行高=${rowH} 点=${dotR}/${dotRing} 線=${lineW} 目盛=${tickN}`);
+    // 【D-10 2026/08/26】旧正典 #13a の**3カラムの軸セレクタカード**は役目を終えた
+    // (本人がキャンバスで A1 の 1行 30px へ直した)。読み取った値を使わなくなったので
+    // 上の行から cols を外してある。新しい正典は下の A1.dc.html から読む。
+    void cols;
     const api = new Function(`${extractConst("PIVOT_ROW_H")}
       ${extractConst("PIVOT_TICK_COUNT")}
       ${extractConst("PIVOT_DOT_R")}
@@ -15836,18 +16155,137 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       String(api.PIVOT_ROW_H) === rowH && String(api.PIVOT_TICK_COUNT) === tickN
       && String(api.PIVOT_DOT_R) === dotR && String(api.PIVOT_DOT_RING) === dotRing,
       `${api.PIVOT_ROW_H} / ${api.PIVOT_TICK_COUNT} / ${api.PIVOT_DOT_R} / ${api.PIVOT_DOT_RING}`);
-    check("32.1 3カラムの grid は正典と同じ列構成(gap はトークン --sp-2 = 8px へ写像)",
-      new RegExp(`gridTemplateColumns: "repeat\\\\(3, 1fr\\\\)"|gridTemplateColumns: "${cols[1]}"`).test(lab32)
-      && /gap: "var\(--sp-2\)"/.test(lab32)
-      && /--sp-2:\s*8px/.test(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")));
-    // 条件チップと「＋」の余白・文字は正典から読む
-    const chip = (/background:#E4EAF2;border-radius:(\d+)px;padding:(\d+px \d+px);font-size:([\d.]+)px;font-weight:(\d+)/.exec(b13) || []);
-    check("32.1 正典から条件チップの寸法を読めている", chip[1] === "7" && chip[3] === "11" && chip[4] === "600",
-      `角丸=${chip[1]} 余白=${chip[2]} 文字=${chip[3]}/${chip[4]}`);
-    check("32.1 条件チップの余白・文字は正典と同じ(角丸は体系の --r-sm へ写像)",
-      new RegExp(`padding: "${chip[2]}"`).test(lab32)
-      && new RegExp(`fontSize: ${chip[3]}, fontWeight: ${chip[4]}`).test(lab32)
-      && /borderRadius: "var\(--r-sm\)"/.test(lab32));
+    // 【D-10 2026/08/26 本人裁定で正典が移った】軸の行とチップの行の見た目の出どころは
+    // dc-mydata-redesign #13a から **design/canvas/A1.dc.html**(本人がキャンバスで直した採用案)へ。
+    // 期待値は**その正典から読む**(実装の値を書き写した期待値にすると恒真になる)。
+    {
+      const a1 = readFileSync(join(__dirname, "..", "design", "canvas", "A1.dc.html"), "utf8");
+      // 【D-10c 2026/08/26 本人裁定で作り直した】軸の行は「ラベル 値 ▾」の1行(inline)をやめ、
+      // **ラベルを値の上に積む縦積み**へ戻した。器は **3カラムの等幅グリッド**。
+      // 直した欠陥: 前周は 1アイテムの下限(min-width: 87px)で潰れを止めようとしたが、
+      // **CSS の min-width は無条件の床**なので、自然幅が下限に満たないアイテムを押し広げ、
+      // 幅が余っていた組にまで不足を作った(審査役の実測: 1文字も切れない組が 18/30 → 4/30)。
+      // 等幅にすれば取り合いそのものが起きない。期待値は**正典 A1 から読む**。
+      const axisRow = /display: grid; grid-template-columns: ([^;"]+); gap: (\d+)px"/.exec(a1) || [];
+      const axisCell = /gap: \d+px"><div style="min-width: (\d+)">/.exec(a1) || [];
+      const axisItem = /flex-direction: column; align-items: flex-start; justify-content: center; min-height: (\d+)px/.exec(a1) || [];
+      const axisLabel = /font-size: (\d+)px; color: var\(--c-ink-3\); letter-spacing: \.02em; flex-shrink: 0">縦軸</.exec(a1) || [];
+      const axisValue = /font-size: (\d+)px; font-weight: (\d+); color: var\(--c-ink\); white-space: nowrap/.exec(a1) || [];
+      check("32.1 D-10c: 正典 A1 から軸の行の実数を読めている(空回りしていない)",
+        axisRow[1] === "1fr 1fr 1fr" && axisRow[2] === "8" && axisCell[1] === "0"
+        && axisItem[1] === "44" && axisLabel[1] === "10"
+        && axisValue[1] === "12" && axisValue[2] === "600",
+        `列=${axisRow[1]} gap=${axisRow[2]} セル下限=${axisCell[1]} 高さ=${axisItem[1]}`
+        + ` ラベル=${axisLabel[1]} 値=${axisValue[1]}/${axisValue[2]}`);
+      // 器そのもの。gap は正典が px、実装がトークンなので **index.css を経由して突き合わせる**
+      // (数値をテストに直書きしない)。
+      {
+        const css32 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+        // 【罠4】style の**リテラル全体**を釘付けにすると、宣言の順序を入れ替えるだけの
+        // 正しい修正まで落とす。器の style を1つ切り出してから、主張する項目を個別に見る。
+        const litAt = (hay, from) => {
+          if (from < 0) return "";
+          const open = hay.lastIndexOf("style={{", from);
+          if (open === -1) return "";
+          const close = hay.indexOf("}}", open + 8);
+          return close === -1 ? "" : hay.slice(open, close + 2);
+        };
+        const rowLit = litAt(lab32, lab32.indexOf('display: "grid"'));
+        const cols = (/gridTemplateColumns:\s*"([^"]+)"/.exec(rowLit) || [])[1];
+        const gapName = (/gap:\s*"var\((--sp-\d)\)"/.exec(rowLit) || [])[1];
+        const gapTok = gapName ? (new RegExp(`${gapName}:\\s*([\\d.]+)px`).exec(css32) || [])[1] : undefined;
+        check("32.1 D-10c: 軸の行は正典と同じ3カラムの等幅グリッド(列の並びと gap が正典と一致)",
+          cols === axisRow[1] && gapTok === axisRow[2],
+          `実装=${cols} / gap ${gapName}=${gapTok}px  正典=${axisRow[1]} / ${axisRow[2]}px`);
+        // 【D-10b の反省】ここに px の下限を戻さないこと。min-width は無条件の床なので、
+        // 自然幅が下限に満たない組を押し広げて**余っていた行に不足を作る**。
+        // 主張は「セルの下限は正典と同じ値で、px の床が無い」。セルは
+        // **<PlainSelect> を直に包む div** として取る(map の変数名の綴りに依存しない)。
+        const cellAttrs = (/<div([^>]*)>\s*\r?\n(?:\s*\/\*[\s\S]*?\*\/\s*\r?\n)?\s*<PlainSelect/.exec(lab32) || [])[1] || "";
+        const cellMinW = (/minWidth:\s*(\d+)/.exec(cellAttrs) || [])[1];
+        check("32.1 D-10c: 各軸は minWidth が正典と同じ値のセルに1つずつ入る(px の床を置いていない)",
+          cellMinW === axisCell[1] && !/minWidth:\s*[1-9]/.test(cellAttrs) && !/minWidth:\s*"/.test(cellAttrs),
+          `実装=${cellMinW} 正典=${axisCell[1]} / セル=${cellAttrs.replace(/\s+/g, " ").slice(0, 120)}`);
+        // 高さ。正典は 44px、実装は --tap-min。これも index.css を経由して突き合わせる。
+        const tapMin = (/--tap-min:\s*([\d.]+)px/.exec(css32) || [])[1];
+        check("32.1 D-10c: 軸の1つの当たり判定の高さは正典と同じ(--tap-min ＝ 正典の min-height)",
+          tapMin === axisItem[1]
+          && /minHeight: "var\(--tap-min\)"/.test(srcOfFn(src, "PlainSelect")),
+          `--tap-min=${tapMin}px 正典=${axisItem[1]}px`);
+        // 行の器そのものは高さを持たない(高さは中の 44pt が決める)。
+        // ここに ANALYSIS_ROW_H(条件チップの行の 30px)が混ざると §5 の例外が復活する。
+        check("32.1 D-10c: 軸の行の器は高さを持たない(条件チップの 30px を借りていない)",
+          rowLit.length > 40 && !/minHeight/.test(rowLit) && !/ANALYSIS_ROW_H/.test(rowLit),
+          rowLit.replace(/\s+/g, " ").slice(0, 160));
+      }
+      // 【罠: 呼び手ゼロの分岐】inline / grow / 下限の定数は**定義ごと**消えていること。
+      // codeOf() でコメントを落としてから見る(経緯をコメントに残しただけで落ちないように)。
+      {
+        const code32 = codeOf(src);
+        const ps32 = srcOfFn(src, "PlainSelect");
+        const all = code32.match(/<PlainSelect(?:\s[^>]*)?>/g) || [];
+        const withInline = all.filter((t) => /\s(?:inline|grow)[\s=>]/.test(t));
+        check("32.1 D-10c: inline / grow を渡す <PlainSelect> は動く側に1つも無い",
+          withInline.length === 0, `${withInline.length}箇所 / <PlainSelect> は全${all.length}箇所`);
+        check("32.1 D-10c: PlainSelect の受け口からも inline / grow が消えている(呼び手ゼロの prop を残さない)",
+          !/\binline\s*=\s*false\b/.test(ps32) && !/\bgrow\s*=\s*false\b/.test(ps32),
+          (/function PlainSelect\([^)]*\)/.exec(ps32) || ["無し"])[0]);
+        check("32.1 D-10c: 下限の定数 ANALYSIS_AXIS_MIN_W は定義も参照も残っていない",
+          !/ANALYSIS_AXIS_MIN_W/.test(code32),
+          `${(code32.match(/ANALYSIS_AXIS_MIN_W/g) || []).length}箇所`);
+        // 枝分けが消えたので、**どの呼び手も同じ 44pt の当たり判定**になる。
+        // 三項が残っていれば「渡さない画面は 1px も変わらない」という主張が要るが、
+        // 消えた以上は「枝が1つであること」を見るのが正しい主張。
+        check("32.1 D-10c: label の style は枝分けの無い1つの object(inline の三項が消えた)",
+          !/<label style=\{inline/.test(ps32)
+          && /<label style=\{\{ position: "relative", display: caption \?/.test(ps32),
+          ps32.replace(/\s+/g, " ").slice(0, 200));
+        check("32.1 D-10c: 軸の3つは caption(ラベルを値の上に積む枝)を渡している",
+          /<PlainSelect[\s\S]{0,120}?caption=\{\w+\.label\}/.test(lab32)
+          && /flexDirection: caption \? "column" : "row"/.test(ps32));
+      }
+      // 【本人「むやみに線をひくのやめて」】列の境界に罫を引かない。
+      // 正典の軸の行の区間にも、実装の行・セルにも border が無いことを見る。
+      {
+        const a1Axis = a1.slice(a1.indexOf('grid-template-columns'), a1.indexOf('grid-template-columns') + 1400);
+        const implAxis = lab32.slice(lab32.indexOf('gridTemplateColumns'), lab32.indexOf('gridTemplateColumns') + 1400);
+        check("32.1 D-10c: 軸の列の境界に罫が無い(正典にも実装にも border が無い)",
+          a1Axis.length > 400 && implAxis.length > 400
+          && !/border/i.test(a1Axis) && !/border/i.test(implAxis),
+          `正典 ${a1Axis.length}文字 / 実装 ${implAxis.length}文字`);
+      }
+      check("32.1 D-10c: ラベルと値は正典と同じ大きさ(ラベル 10px / 値 12px・600)",
+        new RegExp(`fontSize: ${axisLabel[1]}, color: "var\\(--c-ink-3\\)"`).test(srcOfFn(src, "PlainSelect"))
+        && new RegExp(`fontSize: ${axisValue[1]}, fontWeight: strong \\? ${axisValue[2]} : 400`).test(srcOfFn(src, "PlainSelect")),
+        srcOfFn(src, "PlainSelect").replace(/\s+/g, " ").slice(0, 240));
+      // 【この検査が言えないこと】値が画面に**何文字出るか**。字幅はブラウザの実測でしか出ない。
+      // 実測は DESIGN-SYSTEM §5.2 の表を見ること(1092 組の走査結果を書いてある)。
+      // 条件チップ。正典 A1 は **pill(999)**・11px・600・padding 4px 11px。
+      const chipA1 = /padding: (\d+px \d+px); font-size: (\d+)px; font-weight: (\d+); color: var\(--c-accent\); background: var\(--c-accent-tint\); border-radius: (\d+)px/.exec(a1) || [];
+      check("32.1 D-10: 正典 A1 から条件チップの寸法を読めている",
+        chipA1[1] === "4px 11px" && chipA1[2] === "11" && chipA1[3] === "600" && chipA1[4] === "999",
+        `余白=${chipA1[1]} 文字=${chipA1[2]}/${chipA1[3]} 角丸=${chipA1[4]}`);
+      // 【変異試験 M22 で生存 → 直した】角丸を lab32 のどこかで探すと、隣の「＋」の
+      // --r-pill が拾われてチップだけを --r-sm へ戻す変異が通る。
+      // **チップの style オブジェクトの中**で、地・角丸・余白・文字を一続きに見る。
+      check("32.1 D-10: 条件チップは正典と同じ(角丸は体系の --r-pill = 999px へ写像)",
+        new RegExp(`background: "var\\(--c-accent-tint\\)", border: "1px solid transparent",\\s*\\r?\\n\\s*borderRadius: "var\\(--r-pill\\)", padding: "${chipA1[1]}",\\s*\\r?\\n\\s*fontSize: ${chipA1[2]}, fontWeight: ${chipA1[3]}, color: "var\\(--c-accent\\)"`).test(lab32)
+        && /--r-pill:\s*999px/.test(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")),
+        (lab32.match(/borderRadius: "var\(--r-[a-z]+\)", padding: "4px 11px"/g) || []).join(" | "));
+      // 「編集」は 10px / --c-accent(本人がキャンバスで縮小した)。
+      const editA1 = /font-size: (\d+)px; color: var\(--c-accent\)">編集</.exec(a1) || [];
+      check("32.1 D-10: 「編集」の大きさと色は正典と同じ(10px / --c-accent)",
+        editA1[1] === "10"
+        && new RegExp(`fontSize: ${editA1[1]}, color: "var\\(--c-accent\\)"`).test(lab32),
+        `正典=${editA1[1]}px`);
+      // 説明の綴り。「条件」→「抽出条件」(本人がキャンバスで直した語)。
+      check("32.1 D-10: 説明の綴りは正典 A1 と同じ(「抽出条件・…」)",
+        a1.includes("抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します")
+        && lab32.includes("抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します"));
+      // 脚注(蓄積量)は正典 A1 から消えている = 実装からも消えていること。
+      check("32.1 D-10: 蓄積量の脚注は分析タブから消えた(My Data の先頭へ移った)",
+        !/音 · \$\{st\.sessions\} セッション/.test(lab32) && !/myDataStock/.test(codeOf(lab32)));
+    }
     check("32.1 チップの地はアクセントの淡い面・文字はアクセント(正典 #E4EAF2 / #1D4E89 の写像)",
       /background: "var\(--c-accent-tint\)"[\s\S]{0,200}?color: "var\(--c-accent\)"/.test(lab32));
     check("32.1 「＋」は破線の枠だけ(地を持たない。芯1)",

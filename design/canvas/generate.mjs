@@ -1360,22 +1360,30 @@ function aChart() {
           ${lines}
         </svg>`;
 }
-const aSel = (label, value, wide) => `<span style="display: inline-flex; align-items: baseline; gap: 5px; ${wide ? "flex: 1; min-width: 0;" : ""}">
-            <span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">${label}</span>
-            <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${value} ▾</span>
-          </span>`;
+// 【D-10c 2026/08/26 本人裁定】軸の1つは**ラベルを値の上に積む**縦積み。
+// 器は3カラムの等幅グリッドなので、値は列の幅をまるごと使える(取り合いが起きない)。
+// セルの min-width: 0 は grid の `1fr`(= minmax(auto, 1fr))の自動最小を外すためのもの。
+const aSel = (label, value) => `<div style="min-width: 0">
+            <span style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: 44px; min-width: 44px">
+              <span style="font-size: 10px; color: var(--c-ink-3); letter-spacing: .02em; flex-shrink: 0">${label}</span>
+              <span style="display: inline-flex; align-items: center; min-width: 0; max-width: 100%">
+                <span style="font-size: 12px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${value}</span>
+                <span style="font-size: 10px; color: var(--c-ink-3); margin-left: 4px; flex-shrink: 0">▾</span>
+              </span>
+            </span>
+          </div>`;
 {
   const inner = `${aDesc}
       <div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: 16px">
         ${aChips}
-        <div style="display: flex; align-items: center; gap: 10px; min-height: 30px">${aSel("縦軸", "音名")}${aSel("横軸", "平均差分")}${aSel("分析軸", "リード", true)}</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px">${aSel("縦軸", "音名")}${aSel("横軸", "平均差分")}${aSel("分析軸", "リード")}</div>
       </div>
       ${sGap}
       ${sCard(aChart())}`;
   writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
       ${aSubTab}
       <div style="padding-top: 8px">${inner}</div>
-      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行と軸の行を <b>30px</b> に詰める / 「編集」を 10px。<br><b>減った縦幅</b>: 軸のセレクタが 77 → <b>30px</b>、カード全体で 80px。<br><b>代償</b>: 44pt を割る行が2つ増える(チップ行・軸の行)。§5 の例外を<b>My Data の式の行に加えてもう2つ</b>作ることになるので、DESIGN-SYSTEM に明記が要る。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行を <b>30px</b> に詰める / 「編集」を 10px。<br>【<b>2026/08/26 本人裁定・D-10c</b>】軸の行は「ラベル 値 ▾」の1行をやめ、<b>ラベルを値の上に積む</b>形へ戻した。器は<b>3カラムの等幅グリッド</b>(gap 8px / 各セル min-width: 0)で、行は <b>44px</b>(--tap-min)。<br><b>狙い</b>: 値に列の幅をまるごと使わせて、長い選択肢を見分けられるようにする。幅の下限(min-width)で解こうとした案は<b>撤回</b> ── CSS の min-width は無条件の床なので、自然幅が下限に満たないアイテムを押し広げ、<b>幅が余っていた組にまで不足を作る</b>(1文字も切れない組が 18/30 → 4/30)。<br><b>代償と見返り</b>: 行が 30 → 44px(+14px)。そのかわり §5(44pt)を割る例外は<b>条件チップの行の1つだけ</b>になる。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>
     </div>`));
   console.log("A1      分析: 採用案(本人の手直し込み)");
 }
