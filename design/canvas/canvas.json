@@ -1,99 +1,23 @@
 {
+  "pages": [
+    { "id": "page-1", "name": "D-9 反映" },
+    { "id": "page-2", "name": "現状（D-8 のまま）" },
+    { "id": "page-3", "name": "検討した案" }
+  ],
   "artboards": [
-    {
-      "file": "Main.dc.html",
-      "x": 0,
-      "y": 0,
-      "w": 375,
-      "h": 340,
-      "title": "平均差分 × 折れ線",
-      "page": "page-1"
-    },
-    {
-      "file": "Centroid.dc.html",
-      "x": 455,
-      "y": 0,
-      "w": 375,
-      "h": 340,
-      "title": "重心 × 折れ線",
-      "page": "page-1"
-    },
-    {
-      "file": "Windows.dc.html",
-      "x": 910,
-      "y": 0,
-      "w": 375,
-      "h": 540,
-      "title": "平均差分 × 窓型",
-      "page": "page-1"
-    },
-    {
-      "file": "StackA.dc.html",
-      "x": 0,
-      "y": 0,
-      "w": 420,
-      "h": 480,
-      "title": "案A 効き目（実寸の積み上げ）",
-      "page": "page-2"
-    },
-    {
-      "file": "PlanA.dc.html",
-      "x": 500,
-      "y": 0,
-      "w": 375,
-      "h": 290,
-      "title": "案A 統合後の画面",
-      "page": "page-2"
-    },
-    {
-      "file": "CompareB.dc.html",
-      "x": 955,
-      "y": 0,
-      "w": 375,
-      "h": 375,
-      "title": "案B 子タブの濃さ",
-      "page": "page-2"
-    },
-    {
-      "file": "PlanD.dc.html",
-      "x": 1410,
-      "y": 0,
-      "w": 375,
-      "h": 365,
-      "title": "案D 空セルを2つに",
-      "page": "page-2"
-    }
+    { "file": "Main.dc.html",     "page": "page-1", "x": 0,   "y": 0, "w": 375, "h": 380, "title": "平均差分 × 折れ線" },
+    { "file": "Windows.dc.html",  "page": "page-1", "x": 455, "y": 0, "w": 375, "h": 380, "title": "平均差分 ー 窓型" },
+
+    { "file": "Centroid.dc.html", "page": "page-2", "x": 0,   "y": 0, "w": 375, "h": 340, "title": "重心 × 折れ線（未着手）" },
+
+    { "file": "StackA.dc.html",   "page": "page-3", "x": 0,    "y": 0, "w": 420, "h": 480, "title": "案A 効き目（不採用）" },
+    { "file": "PlanA.dc.html",    "page": "page-3", "x": 500,  "y": 0, "w": 375, "h": 290, "title": "案A 統合後（不採用）" },
+    { "file": "CompareB.dc.html", "page": "page-3", "x": 955,  "y": 0, "w": 375, "h": 375, "title": "案B 子タブの濃さ（不採用）" },
+    { "file": "PlanD.dc.html",    "page": "page-3", "x": 1410, "y": 0, "w": 375, "h": 365, "title": "案D 空セル（採用・D-9 に同梱）" }
   ],
   "annotations": [
-    {
-      "id": "scope",
-      "x": 0,
-      "y": -150,
-      "w": 560,
-      "text": "D-8 直後の My Data(375×812 の実機幅)。src/App.jsx から数値を写した現状で、提案ではありません。\n練習カレンダーは入れていません(D-1c の 44px マスは別件)。数値はダミーです。",
-      "page": "page-1"
-    },
-    {
-      "id": "plans",
-      "x": 0,
-      "y": -170,
-      "w": 640,
-      "text": "まだ正典ではありません。決めるための絵です。\n案A = 比較対象の行を指標タブへ畳む(-52px) / 案B = 子タブ非選択の色を1段戻す(1行) / 案D = 窓型の空セルを「音域外」と「まだ吹いていない」に分ける。\n案C(体系外の文字サイズ44箇所)は絵にならないので、検査を足す周として別に。",
-      "page": "page-2"
-    }
+    { "id": "d9", "page": "page-1", "x": 0, "y": -180, "w": 700, "text": "D-9 の裁定を全部当てた版（凍結仕様 design/D9-SPEC.md）。位置ズレを直し、実寸で組み直しました。\n式のチップ / 凡例を撤去して枠が系列色 / 指標タブの罫なし / 集計範囲セレクタを指標タブの行へ / 上部を詰めた / 折れ線は上下の目盛線と帯なし・plotH 170 / 窓型は1枚 + 案D。\nまだ実装には入れていません。この絵が正しければ src/App.jsx へ写します。" },
+    { "id": "left", "page": "page-2", "x": 0, "y": -130, "w": 520, "text": "重心 × 折れ線。D-8 のまま手を入れていません。\n他の3指標（HNR / 重心 / 音量）は実数 + 破線で、D-9 の式をどう当てるかがまだ決まっていません。" }
   ],
-  "launch": {
-    "view": "canvas",
-    "page": "page-1"
-  },
-  "pages": [
-    {
-      "id": "page-1",
-      "name": "現状（D-8 直後）"
-    },
-    {
-      "id": "page-2",
-      "name": "改善案"
-    }
-  ]
+  "launch": { "view": "canvas", "page": "page-1" }
 }

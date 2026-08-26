@@ -30,17 +30,12 @@
   </style>
 </helmet>
 <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
-      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 4px">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
         <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
         <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">分析</div>
-        <div style="margin-left: auto; display: flex; align-items: center">
-          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3)">Alto ▾</div>
-          <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
-          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</div>
-        </div>
       </div>
-      <div style="padding: 16px 0; background: transparent; border: 0; border-radius: 0">
-        <div style="display: flex; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line)">
+      <div style="padding: 8px 0 16px; background: transparent; border: 0; border-radius: 0">
+        <div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
           <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">平均差分</span>
           </div>
@@ -53,25 +48,24 @@
           <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink-3);">音量</span>
           </div>
+          <div style="display: flex; align-items: center; margin-left: auto; flex-shrink: 0">
+            <div style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">Alto ▾</div>
+            <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
+            <div style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</div>
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 9px; padding: 0 0 8px; position: relative">
-          <div style="display: flex; gap: 4px; min-width: 0; flex-wrap: wrap">
-            
-            
-            
+        <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          <div style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2)">my平均</div>
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">ー</span>
+          <div style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2)">±0</div>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
           </div>
-          <div style="display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2); flex-direction: row; height: 20px; width: 75px; text-align: right">my平均</div><div style="display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-accent); border-radius: 8px; color: var(--c-accent); position: relative; width: 75px; height: 21px; left: 25px">±0</div><div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
-            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18M3 9h18M3 15h18"></path></svg></div>
-          </div>
-        <div style="font-size: 16px; line-height: 1; position: absolute; left: 95px; top: 14px">ー</div></div><div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--c-line); border-style: none; position: relative; top: -25px">
-          <div>
-          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 12px">
-            <div style="min-width: 0">
-              <div style="font-size: 12px; font-weight: 600; color: var(--c-ink)">いつもの自分</div>
-              <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 2px">1ヶ月の平均 − ±0</div>
-            </div>
-            <span style="font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">-5 〜 +5</span>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: flex-end; padding-bottom: 8px">
+            <span style="font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">-5 〜 +5</span>
           </div>
           <div style="display: flex; gap: 5px">
             <div style="width: 11px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; padding-top: 14px">
@@ -97,7 +91,7 @@
             <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1px; margin-bottom: 1px">
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-8); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+5</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-8); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+4</div>
-              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-7); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+3</div>
+              <div style="height: 32px; border-radius: 4px; border: 1px solid var(--c-line)"></div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+2</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">+1</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">0</div>
@@ -127,7 +121,7 @@
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-1); color: var(--c-on-accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-5</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-1); color: var(--c-on-accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-4</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-1); color: var(--c-on-accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-4</div>
-              <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-div-2); color: var(--c-ink); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-3</div>
+              <div style="height: 32px; border-radius: 4px; border: 1px solid var(--c-line)"></div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-2</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
               <div style="height: 32px; border-radius: 4px; overflow: hidden; background: var(--c-sunk); color: var(--c-ink-3); display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: 15px">-1</div>
@@ -139,16 +133,8 @@
             </div>
           </div>
         </div>
-        </div>
-        <div>
-          
-          
-        </div>
-        
       </div>
     </div>
-
-
 </x-dc>
 </body>
 </html>

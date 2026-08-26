@@ -4,6 +4,7 @@ const OUT = "/home/user/Wind-Tone-Lab/design/canvas/";
 // 既定では上書きしない。D-8 当時の写しを作り直したいときだけ --regen-baseline を付ける。
 const REGEN_BASELINE = process.argv.includes("--regen-baseline");
 const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html"].includes(name);
+// 【D-9】この下の Main / Windows は D-8 当時の写し。ファイルの末尾で D-9 版が上書きする。
 
 // ---- src/App.jsx から写した定数 ----------------------------------------
 const NOTE_NAMES = ["C","C♯","D","E♭","E","F","F♯","G","G♯","A","B♭","B"];
@@ -37,7 +38,7 @@ const formatSignedCents = (v) => {
 const roundInt = (v) => Math.round(v).toString();
 
 // ---- NoteAxisLineChart の L( ) をそのまま再現 ---------------------------
-function layout({ vals, zeroCentered, fmt, refVals }) {
+function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H }) {
   const all = [...vals.flat().filter((v) => v !== null), ...(refVals ? refVals.filter((v) => v !== null) : [])];
   let lo, hi;
   if (zeroCentered) { hi = Math.max(...all.map(Math.abs)) || 1; lo = -hi; }
@@ -61,10 +62,10 @@ function layout({ vals, zeroCentered, fmt, refVals }) {
   const center = (N - 1) / 2;
   const midEb = ebIdx.reduce((b, i) => (Math.abs(i - center) < Math.abs(b - center) ? i : b), ebIdx[0]);
   const dotR = Math.max(1.5, Math.min(3, colStep * 0.3));
-  const labelY = PAD_TOP + PLOT_H + SVG_SP2 + Math.round(FS * 0.8);
-  const yAt = (v) => PAD_TOP + PLOT_H - ((v - lo) / rng) * PLOT_H;
+  const labelY = PAD_TOP + plotH + SVG_SP2 + Math.round(FS * 0.8);
+  const yAt = (v) => PAD_TOP + plotH - ((v - lo) / rng) * plotH;
   return {
-    lo, hi, FS, tickVals, tickTexts, dotR, labelY, midEb, labelStep,
+    lo, hi, FS, plotH, tickVals, tickTexts, dotR, labelY, midEb, labelStep,
     H: labelY + SVG_SP1,
     xAt: (i) => x0 + i * colStep,
     yAt,
@@ -86,20 +87,22 @@ const segsOf = (byIdx, L) => {
 };
 const r2 = (n) => Math.round(n * 100) / 100;
 
-function chartSvg({ series, L, zeroCentered, bandAbs, refVals }) {
+function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = true }) {
   const p = [];
   p.push(`<svg width="${W}" height="${L.H}" viewBox="0 0 ${W} ${L.H}" style="display: block">`);
   if (zeroCentered && bandAbs > 0) {
     const yTop = L.yAt(Math.min(bandAbs, L.hi)), yBot = L.yAt(Math.max(-bandAbs, L.lo));
     p.push(`<rect x="0" y="${r2(yTop)}" width="${W}" height="${r2(yBot - yTop)}" stroke="none" style="fill: var(--c-quiet); opacity: ${CHART_OK_BAND_OPACITY}" />`);
   }
-  for (const v of L.tickVals) {
-    p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
+  if (edgeGridLines) {
+    for (const v of L.tickVals) {
+      p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
+    }
   }
   if (zeroCentered) {
     p.push(`<line x1="0" y1="${r2(L.yAt(0))}" x2="${W}" y2="${r2(L.yAt(0))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
   }
-  p.push(`<line x1="${r2(L.xAt(L.midEb))}" y1="${PAD_TOP}" x2="${r2(L.xAt(L.midEb))}" y2="${PAD_TOP + PLOT_H}" stroke-width="1" style="stroke: var(--c-line)" />`);
+  p.push(`<line x1="${r2(L.xAt(L.midEb))}" y1="${PAD_TOP}" x2="${r2(L.xAt(L.midEb))}" y2="${PAD_TOP + L.plotH}" stroke-width="1" style="stroke: var(--c-line)" />`);
   // 目盛の文字は折れ線の上・白い縁つき(D-8 の axisOverlay)
   for (let k = 0; k < L.tickVals.length; k++) {
     p.push(`<text x="${L.tickX}" y="${r2(L.tickTextY(L.tickVals[k]))}" font-size="${L.FS}" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">${L.tickTexts[k]}</text>`);
@@ -528,4 +531,148 @@ ${swatch("background: transparent", "音域外（窓を置かない）")}
     </div>`;
   writeFileSync(OUT + "PlanD.dc.html", dcFile(body));
   console.log("PlanD   音域外/未演奏を分けた");
+}
+
+// ========================================================================
+// 【D-9 2026/08/25 本人指示・凍結仕様 design/D9-SPEC.md】
+// 本人がキャンバスで置いた絵は「イメージ」なので、位置ズレを直し、追加の裁定を当てた版。
+// これが Main.dc.html / Windows.dc.html を**上書きする**（上の D-8 版は履歴のためだけ）。
+// ========================================================================
+
+// 折れ線の系列色 = チップの枠の色。**綴りを2箇所に持たない**ための1箇所。
+const D9_SERIES = [
+  { key: "day",    label: "8/24",   color: "var(--c-accent)" },      // SERIES_STYLES[0]
+  { key: "period", label: "my平均", color: "var(--c-accent-mid)" },  // SERIES_STYLES[1]
+];
+
+// 【D-9 §3】この行は §5(44pt) を要求しない。高さ 20px。当たり判定は行の高さいっぱい。
+const d9Chip = (label, borderColor) =>
+  `<div style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid ${borderColor}; border-radius: 8px; color: var(--c-ink-2)">${label}</div>`;
+
+// 【D-9z】集計範囲セレクタは指標タブの行の右端へ。子タブ行からは外す
+const d9ScopePicker = () => `<div style="display: flex; align-items: center; margin-left: auto; flex-shrink: 0">
+            <div style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">Alto ▾</div>
+            <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
+            <div style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</div>
+          </div>`;
+
+// 【D-9z 追加指示】「不自然に上部があくのは不自然にならないように上部に寄せてください」
+// 子タブはナビゲーションなので 44pt を保つ(チップ行の例外とは別)。詰めるのは縦の余白:
+//   子タブ行の marginBottom 4 → 0 / カードの上余白 --sp-4(16) → --sp-2(8)
+const d9SubTabRow = () => `<div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">分析</div>
+      </div>`;
+
+// 【D-9y】指標タブの下の罫は**両方外す**(本人裁定)
+const d9MetricTabs = (sel) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
+${["平均差分", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === sel ? "var(--c-ink)" : "var(--c-ink-3)"};${t === sel ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
+          </div>`).join("\n")}
+          ${d9ScopePicker()}
+        </div>`;
+
+const d9Toggle = (view) => {
+  const ic = (kind, on) => kind === "line"
+    ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${on ? "var(--c-accent)" : "var(--c-ink-3)"}" stroke-width="${on ? 2.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>`
+    : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${on ? "var(--c-accent)" : "var(--c-ink-3)"}" stroke-width="${on ? 2.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg>`;
+  return `<div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center">${ic("line", view === "line")}</div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center">${ic("matrix", view === "matrix")}</div>
+          </div>`;
+};
+
+// 【D-9 §1】式の行。記号は折れ線が「×」(重ねる) / 窓型が「ー」(引く)。使い分けは本人確認済み
+const d9FormulaRow = (left, sign, right, view) => `<div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          ${left}
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">${sign}</span>
+          ${right}
+          ${d9Toggle(view)}
+        </div>`;
+
+const d9Page = (inner) => `<div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
+      ${d9SubTabRow()}
+      <div style="padding: 8px 0 16px; background: transparent; border: 0; border-radius: 0">
+        ${inner}
+      </div>
+    </div>`;
+
+// ---- Main.dc.html（D-9）: 平均差分 × 折れ線 ------------------------------
+{
+  const series = [
+    { id: "day", label: D9_SERIES[0].label, color: D9_SERIES[0].color, width: 2, byIdx: pitchDay },
+    { id: "period", label: D9_SERIES[1].label, color: D9_SERIES[1].color, width: 2, byIdx: pitchPeriod },
+  ];
+  // 【D-9w】plotH 94 → 170。「4指標が縦に積まれるため」という 94 の理由はタブ化で既に古い
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH: 170 });
+  const body = d9Page([
+    d9MetricTabs("平均差分"),
+    d9FormulaRow(d9Chip(D9_SERIES[0].label, D9_SERIES[0].color), "×", d9Chip(D9_SERIES[1].label, D9_SERIES[1].color), "line"),
+    `<div>
+          ${chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false })}
+        </div>`,
+  ].join("\n        "));
+  writeFileSync(OUT + "Main.dc.html", dcFile(body));
+  console.log("D-9 Main   plotH=170 H=" + L.H + " ticks=" + L.tickTexts.join("/") + "（上下の目盛線なし・帯なし）");
+}
+
+// ---- Windows.dc.html（D-9）: 平均差分 × 窓型（1枚 + 案D） ---------------
+{
+  const inRangeHigh = LOW_MIDI + N - 1;
+  const inRange = (oct, pcIdx) => { const midi = (oct + 1) * 12 + pcIdx; return midi >= LOW_MIDI && midi <= inRangeHigh; };
+  // 【D-9 §4】1枚だけ = 選んだ2つの引き算。
+  // 案D の見え方を確かめるため、期間中に一度も吹いていない音を2つ空けたダミーにする
+  const periodWithGaps = { ...pitchPeriod, 3: null, 25: null };
+  const m = buildMatrix(periodWithGaps);
+  const band = RING_IN_TUNE_CENTS;
+  const texts = [];
+  for (const oct of m.octaves) for (const pc of NOTE_NAMES) {
+    const v = m.byKey[oct + ":" + pc];
+    if (v !== null && v !== undefined) texts.push(matrixCellText(v));
+  }
+  const numFs = matrixNumFontSize(texts);
+  const rangeText = m.count === 0 ? "—" : matrixCellText(m.min) + " 〜 " + matrixCellText(m.max);
+  const rows = m.octaves.map((oct) => `            <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: ${MATRIX_GRID_GAP}px; margin-bottom: ${MATRIX_GRID_GAP}px">
+${NOTE_NAMES.map((pc, pi) => {
+    const v = m.byKey[oct + ":" + pc];
+    if (v === null || v === undefined) {
+      // 【案D】音域外は窓を置かない / 音域内でデータ無しは --c-line の枠だけ
+      return inRange(oct, pi)
+        ? `              <div style="height: ${MATRIX_CELL_H}px; border-radius: 4px; border: 1px solid var(--c-line)"></div>`
+        : `              <div style="height: ${MATRIX_CELL_H}px"></div>`;
+    }
+    const label = matrixCellText(v);
+    const n = Number(label);
+    let bg, fg;
+    if (Math.abs(n) <= band) { bg = "var(--c-sunk)"; fg = "var(--c-ink-3)"; }
+    else { const st = divergingStep(n, m.maxAbs); bg = "var(--c-div-" + st + ")"; fg = divergingInk(st); }
+    return `              <div style="height: ${MATRIX_CELL_H}px; border-radius: 4px; overflow: hidden; background: ${bg}; color: ${fg}; display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 600; font-size: ${numFs}px">${label}</div>`;
+  }).join("\n")}
+            </div>`).join("\n");
+  // 【D-9 §4】title(今日の自分 / いつもの自分)と sub("8/24 − ±0")は式が兼ねるので撤去。
+  // 実測レンジだけ残す（いちばん長い窓がいくつかを数字で確かめられる）
+  const matrix = `<div>
+          <div style="display: flex; justify-content: flex-end; padding-bottom: 8px">
+            <span style="font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">${rangeText}</span>
+          </div>
+          <div style="display: flex; gap: 5px">
+            <div style="width: 11px; flex-shrink: 0; display: flex; flex-direction: column; gap: ${MATRIX_GRID_GAP}px; padding-top: 14px">
+${m.octaves.map((o) => `              <span style="height: ${MATRIX_CELL_H}px; display: flex; align-items: center; font-family: var(--font-num); font-size: 10px; color: var(--c-ink-3)">${o}</span>`).join("\n")}
+            </div>
+            <div style="flex: 1; min-width: 0">
+              <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: ${MATRIX_GRID_GAP}px; margin-bottom: ${MATRIX_GRID_GAP}px">
+${NOTE_NAMES.map((pc) => `                <span style="font-size: 10px; color: var(--c-ink-3); text-align: center; overflow: hidden">${pc}</span>`).join("\n")}
+              </div>
+${rows}
+            </div>
+          </div>
+        </div>`;
+  // 【D-9】窓型は「系列」ではなく「引かれる数 ー 引く数」なので、枠に系列色を持たせない
+  const body = d9Page([
+    d9MetricTabs("平均差分"),
+    d9FormulaRow(d9Chip("my平均", "var(--c-line-strong)"), "ー", d9Chip("±0", "var(--c-line-strong)"), "matrix"),
+    matrix,
+  ].join("\n        "));
+  writeFileSync(OUT + "Windows.dc.html", dcFile(body));
+  console.log("D-9 Windows 1枚 + 案D（音域外は窓なし / 未演奏は枠）");
 }
