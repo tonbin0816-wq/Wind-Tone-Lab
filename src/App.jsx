@@ -3776,7 +3776,7 @@ export default function WindToneLabPhaseMode() {
           群の境界を余白や罫だけでは示せない」だった。本人の裁定でこれは**取り消し**:
           「整理されていないからカード化する必要に陥っているだけ」。
           中のカードは「自分がどの作法の中にいるか」で見た目が決まるので、
-          共有部品(PhraseTimeline・MetricCard・TappableMetricCard)を分岐なしで置ける。 */}
+          共有部品(PhraseTimeline・MetricCard・MetricTabCard)を分岐なしで置ける。 */}
 
       {/* リードタブ: 子タブ(登録 / 比較) + 本体。
           【N-5】子タブの行は ReedsTab の中へ移した。正典 .subtabs は「素のテキスト2つ + 右端の…」で、
@@ -7943,8 +7943,11 @@ const REED_GROUP_PAD_BOTTOM_PX = 24; // 正典 .rgroup padding-bottom
 // 【D-6】子タブの間隔の定数はここに2組あったが、子タブそのものが共通部品 SubTabs に
 // まとまったので **SUBTAB_GAP_PX / SUBTAB_HALF_GAP_PX の1組**へ寄せた(定義は SubTabs の隣)。
 // 個体詳細の .numrow の1列に与える最小幅。**折り返しの判定にだけ効く**値で、
-// 通常時(4列)の見た目は変わらない(4×60 = 240 ≤ 327)。
-// 1列がグラフに切り替わって幅100%になったとき、残りの3列を次の行へ送るために要る。
+// 4列並べても1行に収まる(4×60 = 240 ≤ 327)ので通常時の見た目は変わらない。
+// flex-basis 0 のままだと列は幅0まで潰れ得るので、潰さずに次の行へ送るための下限。
+// 【D-3a 2026/08/26】この値を読むのは **PhraseTimeline のドリルダウン**(2列)だけになった。
+// もう1つの読み手だった TappableMetricCard(1列を開くと幅100%になり、残り3列が同じ行で
+// 幅0まで潰れた ─ 実測 327/0/0/0 ─ ので下限が要った)は部品ごと削除した。
 const REED_NUMROW_MIN_PX = 60;
 
 // タイルの「濃さ」は index.css の .reedtile[data-tone] が4段持つ。
@@ -9542,6 +9545,11 @@ const SVG_SP2 = 8;
 // 紺の明度段階3段 × 線種(実線/破線)の6系列。7系列以上は色を足さず表示を絞る。
 // 薄い色ほど太くしないと同じ強さに見えないため、--c-accent-line だけ 3px(§1.8)。
 // 色は CSS 変数で持つ(presentation属性では var() が解決されないため style で当てる)。
+// 作図域(プロット)の高さ。【D-9w 2026/08/25 本人指示】My Data だけ 94 → 170 へ上げる。
+// 他の3画面は4指標が縦に積まれるので上げない(上げると1画面に1指標しか入らなくなる)。
+const CHART_PLOT_H = 94;
+const CHART_PLOT_H_MY_DATA = 170;
+
 const SERIES_STYLES = [
   { color: "var(--c-accent)",      width: 2, dash: null },
   { color: "var(--c-accent-mid)",  width: 2, dash: null },
@@ -9558,11 +9566,9 @@ const IDEAL_LINE_STYLE = { color: "var(--c-ink-3)", width: 2, dash: "4 3" };
 // (【N-10 2026/08/17 本人指示】N-8 の HERO_CHART_* = 紺のヒーローの中の折れ線の配色は、
 //  案K 採用で紺のカードそのものが無くなったため削除した。使い手の無い定義を残さない。)
 
-// 【N-10 2026/08/17 本人指示】ばらつきの帯(正典 案K の .stock 下の面)の塗り。
-// 正典の --ghost は #EAEFF6 だが、**新しい hex を足さず**体系内でいちばん薄い紺系の面
-// (--c-accent-tint = #EAEFF5。1/255 の差)をそのまま使う。線(--c-accent-line)より薄いので
-// 帯の上に重なる2本の折れ線が沈まない。
-const CHART_BAND_FILL = "var(--c-accent-tint)";
+// (【D-1d 2026/08/26】CHART_BAND_FILL = ばらつきの帯(正典 案K の .stock 下の面)の塗りは
+//  ここにあったが、帯そのものが D-1 で画面から外れ、D-2 の分析タブも引き継がなかったので
+//  受け口ごと削除した。使い手の無い定義を残さない。)
 
 // SVG内テキストの実描画幅(px)を測る。--font-num / --font-jp は入れ子の var() を含むため
 // getComputedStyle().getPropertyValue() では未解決の文字列しか得られない(resolveBottomGap と同じ罠)。
@@ -9873,36 +9879,37 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 // 既定 false = リード比較・個体詳細・セッション詳細は従来のまま。
 // (【N-10 2026/08/17 本人指示】N-8 の hero 変形は**廃止**した。紺のヒーローそのものが
 //  案K の採用で無くなったため、渡し手が1つも無くなった。使い手の無い引数を残さない。)
-// 【N-10 2026/08/17 本人指示】bandByIdx / bandSeriesId: 正典 案K の**ばらつきの帯**。
-// bandSeriesId で指定した系列の値を中心に、音ごとに ±bandByIdx[音] の帯を敷く。
-// 帯の半幅の**作り方**は呼び出し側が持ち、ここは描くだけ(グラフの部品に集計規則を持たせない)。
-// 【D-1 2026/08/22】**この引数を渡す呼び出し側は今は1つも無い。** My Data の折れ線が
-// Design canon #9b の採用でマトリクスへ置き換わり、半幅を作っていた noteSpreadByIndex も
-// 読み手ゼロになったので削除した。描く側の仕組みだけをここに残してある
-// (次の周で分析タブが折れ線を引き継ぐかを見てから、残すか落とすかを決める。BACKLOG 起票済み)。
+// (【D-1d 2026/08/26】bandByIdx / bandSeriesId = 正典 案K の**ばらつきの帯**の受け口は
+//  ここにあった。D-1 で My Data の折れ線がマトリクスへ置き換わって渡し手がゼロになり、
+//  D-2 で分析タブが折れ線を引き継いだときも**帯は使わなかった**ので、描く側の仕組み
+//  (bandBounds / bandPaths / CHART_BAND_FILL)ごと削除した。使い手の無い定義を残さない。)
 // 【N-11 2026/08/17 本人指示】includeAltissimo: 横軸にフラジオ域(F-103 の +4 半音)を含めるか。
 // **既定 true = 既存の呼び出し側(リード比較・個体詳細・セッション詳細・PIVOT・計測)は
 // 従来のまま。** false を渡すのは My Data のグラフだけ(本人「My Data のカードのグラフには
 // フラジオを入れなくてよい。他は入れる」)。音数の作り方は noteAxisCount の1箇所。
-// 【N-11 2026/08/17 本人指示】axisOverlay: 縦軸の目盛ラベルを**プロットに重ねて**描き、
-// 左に軸用の余白(AXW)を取らない。線の描画幅がそのぶん広がる(本人「左のY軸ラベルが横幅を
-// 取るのでY軸をずらしてグラフの横幅を増やして」)。**既定 false = 既存の呼び出し側は不変。**
-// 【D-7 2026/08/23 本人指示】My Data に**折れ線と窓型の切替**が入った。折れ線は窓型と
-// **同じ数(実測 − 比較対象)**を描く(本人裁定「窓型と同じ差分を描く」)ので、この部品に
-// 3つだけ受け口を足した。**どれも既定は今までどおり**なので他の3画面の描画は1つも変わらない:
-//   ・series[].byIdx … 音ごとの値を**そのまま**渡す(frames から数え直さない)。
-//     My Data は差分を既に持っているので、frames を渡しても同じ数にはならない。
-//   ・zeroCentered  … 0 を中心にした対称の縦軸 + 0 の横線。差分は符号を持つので
-//     ピッチ以外の3指標でも 0 中心が要る(既定はピッチだけ、という従来の規則のまま)。
-//   ・bandAbs       … 「合っている」幅(±)を **0 の周りの横帯**として塗る。
-//     窓型では窓の灰が担っている役目。ここが無いと、同じデータの2つの見方で
-//     「合っている」の定義が食い違う。
-// 【D-8 2026/08/23 本人指示】さらに3つ足した。**どれも既定は今までどおり**:
-//   ・refByIdx / refLabel … 目安以外の**比較対象**(自分の平均など)を破線で重ねる。
-//     ピッチ以外は実数で描くので、比較対象は「引き算の相手」ではなく「重ねる線」になった。
-//   ・legend       … 系列と破線に**名前を出す**(本人「どの色が自分の平均でどれが比較なのか
-//     わからないので凡例追加」)。SVG の外に1行置く。
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, bandByIdx = null, bandSeriesId = null, includeAltissimo = true, axisOverlay = false, zeroCentered = false, bandAbs = null, refByIdx = null, refLabel = null, legend = false }) {
+// (【D-9 2026/08/26】N-11 で足した axisOverlay = 縦軸の目盛ラベルをプロットに重ねる受け口は
+//  myData プリセットに畳んだ。渡し手は My Data だけだったので、受け口としては残さない。)
+// ・series[].byIdx … 音ごとの値を**そのまま**渡す(frames から数え直さない)。D-7 で足した受け口。
+//   My Data は系列そのものを選ばせる(目安・±0 は frames を持たない)ので、この経路で渡す。
+//
+// 【D-9 2026/08/25 本人指示・凍結仕様 design/D9-SPEC.md】My Data だけ別の文法になった
+// (本人裁定 D-9x「他の3画面は My Data だけ別の文法でいい」)。受け口を1つずつ足すと
+// **この部品の分岐が8つになる**ので、My Data ぶんは **myData プリセット1つ**に畳んである:
+//   ・見出しと外余白を持たない(= plain と同じ)
+//   ・縦軸の目盛ラベルを**プロットに重ねる**(左に軸の柱を立てない。旧 axisOverlay)
+//   ・作図域を高くする(CHART_PLOT_H_MY_DATA)。D-9w
+//   ・**上下の目盛線を引かない**(D-9v。目盛の**文字**は残す)。基準は中央線1本が担う
+// centerAt は**値**なので別の受け口。D-9u: 中央線は必ず1本あり、平均差分は 0、
+// 他3指標は「その指標で描いている全値の平均」。渡さなければ従来どおり
+// (平均差分だけ 0 中心 / 他は最小〜最大に余白を足した範囲)。
+// (【D-9 2026/08/26】zeroCentered / bandAbs / refByIdx / refLabel / legend / axisOverlay は
+//  ここにあった。zeroCentered は centerAt が引き取り、残りは D-9 の裁定で画面から消えたので
+//  受け口ごと削除した ─ 折れ線の「合っている」帯は出さない(§5)、比較対象は破線ではなく
+//  **2本目の系列そのもの**になった(§1)、凡例はチップの枠が引き取った(§2)。)
+function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, includeAltissimo = true, myData = false, centerAt = null }) {
+  // 【D-9】プリセットの中身はこの2つに畳む(呼び出し側は myData だけを渡す)。
+  const plainLayout = plain || myData;
+  const overlay = myData;
   // 幅は固定しない。コンテナの実測幅に音域全体を収める(DESIGN-SYSTEM §1.9)。
   // 以前は COL=26 の固定列幅で W=33音×26=858px あり、375pxでは31%しか見えていなかった。
   const [boxRef, W] = useMeasuredWidth();
@@ -9931,12 +9938,11 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     return { ...s, byIdx };
   });
 
-  // 理想値プロファイルの音ごとの値(存在する音だけ)。実測と同じ音名軸に破線で重ねる
+  // 理想値プロファイルの音ごとの値(存在する音だけ)。実測と同じ音名軸に破線で重ねる。
+  // (【D-9 2026/08/26】D-8 の refByIdx = 「目安以外の比較対象も破線で重ねる」入口は消した。
+  //  My Data では比較対象が**2本目の系列そのもの**になったので、破線で重ねる相手が居ない。)
   let idealByIdx = null;
-  // 【D-8】呼び手が比較対象の音ごとの値を持っているなら、それを破線の相手にする
-  // (目安もそのうちの1つ。ここから先の描き方は目安の破線と**完全に同じ**)。
-  if (refByIdx && Object.keys(refByIdx).length) idealByIdx = refByIdx;
-  else if (selectedIdeal && idealKey) {
+  if (selectedIdeal && idealKey) {
     const m = {};
     for (let i = 0; i < N; i++) {
       const v = getNoteIdeal(selectedIdeal, i)?.[idealKey];
@@ -9950,28 +9956,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const plotN = N;
   const plotNoteLabels = noteLabels;
 
-  // 【N-10】帯(±)の実体。中心は bandSeriesId の系列の値、半幅は呼び出し側が渡した音ごとの量。
-  // 両方が読める音だけが帯を持つ(片方しか無い音は帯を出さない = 穴を作らない)。
-  const bandBounds = (() => {
-    if (!bandByIdx || bandSeriesId === null || bandSeriesId === undefined) return null;
-    const center = seriesData.find((s) => s.id === bandSeriesId);
-    if (!center) return null;
-    const m = {};
-    for (const key of Object.keys(bandByIdx)) {
-      const c = center.byIdx[key];
-      const half = bandByIdx[key];
-      if (c === null || c === undefined || isNaN(c)) continue;
-      if (half === null || half === undefined || isNaN(half)) continue;
-      m[key] = { hi: c + half, lo: c - half };
-    }
-    return Object.keys(m).length ? m : null;
-  })();
-
-  // 縦のスケールは帯の上下端も含めて決める(帯だけが枠から出て切れる、を作らない)
+  // 縦のスケールは描くものを全部含めて決める(1つだけ枠から出て切れる、を作らない)
   const allVals = [
     ...seriesData.flatMap((s) => Object.values(s.byIdx)),
     ...(idealByIdx ? Object.values(idealByIdx) : []),
-    ...(bandBounds ? Object.values(bandBounds).flatMap((b) => [b.hi, b.lo]) : []),
   ];
   const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
   const minV = allVals.length ? Math.min(...allVals) : 0;
@@ -9983,13 +9971,19 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // ±v の2本のミラー折れ線で帯として見せていたが、「0を挟んで上が＋・下がマイナス、線は1本」
   // という指示によりMy Dataの該当カードは符号付きの平均ズレ(pitchCentsSigned)に変わったため、
   // ミラー描画は使う指標が無くなり撤去した(MY_DATA_METRICS のコメントを見ること)。
-  // 【D-7】差分を描くときは**どの指標でも** 0 中心(呼び手が zeroCentered を渡す)。
-  const isSignedCentered = metricKey === "pitchCentsSigned" || zeroCentered;
+  // 【D-9u 2026/08/25 本人指示】**中央線は必ず1本**。centerAt が渡されればその値、
+  // 渡されなければ従来どおり平均差分だけ 0(セント差は 0 が意味を持つ絶対の基準)。
+  // 中央線を持つときは**その線が絵の中央に来る**ように上下対称のドメインにする
+  // (0 中心と平均中心が同じ形になり、目盛は必ず hi / 中央線 / lo の3つになる)。
+  const center = centerAt !== null && centerAt !== undefined
+    ? centerAt
+    : (metricKey === "pitchCentsSigned" ? 0 : null);
   let lo, hi, rng;
-  if (isSignedCentered) {
-    const maxAbs = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v))) : 0;
-    hi = maxAbs || 1; // 実測が全て0(またはデータ無し)のときのゼロ除算だけ避ける
-    lo = -hi;
+  if (center !== null) {
+    const maxDev = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v - center))) : 0;
+    const half = maxDev || 1; // 実測が全て中央値(またはデータ無し)のときのゼロ除算だけ避ける
+    hi = center + half;
+    lo = center - half;
     rng = hi - lo || 1;
   } else {
     const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
@@ -10009,7 +10003,8 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const L = (() => {
     if (!hasData || W <= 0) return null;
     const FS = SVG_FS_XS;
-    const plotH = 94;                 // 4指標が縦に積まれるため従来の作図高さを踏襲する
+    // 【D-9w】My Data だけ背を高くする。他の3画面は 4指標が縦に積まれるため従来のまま。
+    const plotH = myData ? CHART_PLOT_H_MY_DATA : CHART_PLOT_H;
     const padTop = SVG_SP2;
 
     // 縦軸は上端・中間・下端の3値。中間値が無いと、横に長い折れ線のどこが基準か掴めない。
@@ -10023,17 +10018,17 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     // 左右どちらにも送り幅を最大1px程度はみ出す(実測: 右 0.7px / 左 0.95px)。
     // --sp-1 を逃げとして足す。足さないと実測が 7.3px / 7.05px と 8px を割る。
     const TICK_GAP = SVG_SP2 + SVG_SP1;      // 目盛ラベルの左右の余白
-    // 【N-11 2026/08/17 本人指示】axisOverlay のときは**左に軸の柱を立てない**(AXW = 0)。
+    // 【N-11 2026/08/17 本人指示】重ねるとき(overlay)は**左に軸の柱を立てない**(AXW = 0)。
     // 目盛の文字はプロットの左上へ重ねて描く(下の tickX / tickTextY)。
     // 重ねるぶん、線の描画幅が AXW = TICK_GAP + 目盛の文字幅 + TICK_GAP ぶん広がる。
-    const AXW = axisOverlay ? 0 : TICK_GAP + tickW + TICK_GAP;
+    const AXW = overlay ? 0 : TICK_GAP + tickW + TICK_GAP;
 
     // 音名ラベルは中央揃えなので両端で半分ぶん外へ出る。送り幅より実インクが広くなる
     // ぶん(和文で最大1.6px程度)の逃げに --sp-1 を足してからプロット域を決める。
     const maxLblW = Math.ceil(Math.max(0, ...plotNoteLabels.map((nm) => measureSvgTextPx(nm, FS))));
     const halfLbl = Math.ceil(maxLblW / 2) + SVG_SP1;
     // 重ねるときの左端は右端(W - SVG_SP2 - halfLbl)と対称にする。
-    const x0 = axisOverlay ? SVG_SP2 + halfLbl : AXW + halfLbl;
+    const x0 = overlay ? SVG_SP2 + halfLbl : AXW + halfLbl;
     const x1 = Math.max(x0 + 1, W - SVG_SP2 - halfLbl);
     const colStep = (x1 - x0) / Math.max(1, plotN - 1);
 
@@ -10060,10 +10055,10 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
       // 【N-11】目盛ラベルの置き方。重ねるときは左端から start 揃えで、目盛線の**上**に乗せる
       // (正典 案P の <text x="3" y="…"> と同じ形)。上端の目盛だけは SVG の外へ出るので、
       // 文字の高さぶんだけ下げて必ず枠内に収める。
-      gridX0: axisOverlay ? 0 : AXW,
-      tickX: axisOverlay ? SVG_SP2 : AXW - TICK_GAP,
-      tickAnchor: axisOverlay ? "start" : "end",
-      tickTextY: axisOverlay
+      gridX0: overlay ? 0 : AXW,
+      tickX: overlay ? SVG_SP2 : AXW - TICK_GAP,
+      tickAnchor: overlay ? "start" : "end",
+      tickTextY: overlay
         ? (v) => Math.max(Math.round(FS * 0.85), yAt(v) - SVG_SP1)
         : (v) => yAt(v) + Math.round(FS * 0.35),
     };
@@ -10080,54 +10075,17 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     return segs;
   };
 
-  // 【N-10】帯の塗り。折れ線と同じ「欠けで分割」の規則で連続区間ごとに閉じた多角形にする
-  // (上辺を左→右、下辺を右→左)。帯が1音しか無い区間は面にならないので描かない。
-  const bandPaths = () => {
-    if (!bandBounds) return [];
-    const runs = []; let cur = [];
-    for (let i = 0; i < plotN; i++) {
-      if (bandBounds[i] !== undefined) cur.push(i);
-      else { if (cur.length) runs.push(cur); cur = []; }
-    }
-    if (cur.length) runs.push(cur);
-    return runs.filter((r) => r.length >= 2).map((r) => {
-      const top = r.map((i) => `${L.xAt(i)},${L.yAt(bandBounds[i].hi)}`);
-      const bottom = r.slice().reverse().map((i) => `${L.xAt(i)},${L.yAt(bandBounds[i].lo)}`);
-      return `M${top.join("L")}L${bottom.join("L")}Z`;
-    });
-  };
-
   // 凡例のリード名は縦軸ラベルと同じ規則で畳む(fitLabel を共有)。
   const legendMax = Math.round(W * 0.42);
   const legendPad = L ? L.AXW : 0;
 
   return (
     // plain(N-7)のときは下余白も持たない(行の余白は正典 .mrow の padding が持つ)
-    <div style={{ marginBottom: plain ? 0 : 18 }}>
-      {!plain && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
-      {/* 【D-8 2026/08/23 本人指示】「どの色が自分の平均でどれが比較なのかわからないので凡例追加」。
-          **SVG の外に1行**置く(SVG の中に入れるとプロットの高さを食う)。
-          色は系列そのものの style から引く — 凡例と線の色が食い違いようがない。
-          破線(比較対象 / 目安)にも名前を出す。名前が無いのが指摘の実体だったので。 */}
-      {legend && hasData && (
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 10.5, color: "var(--c-ink-2)", marginBottom: 5 }}>
-          {seriesData.map((sr) => (
-            <span key={sr.id} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span aria-hidden="true" style={{ width: 14, height: 3, borderRadius: 2, flexShrink: 0, background: sr.style?.color ?? "var(--c-accent)" }} />
-              {sr.label}
-            </span>
-          ))}
-          {idealByIdx && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span aria-hidden="true" style={{
-                width: 14, height: 2, flexShrink: 0,
-                backgroundImage: `repeating-linear-gradient(90deg, ${IDEAL_LINE_STYLE.color} 0 5px, transparent 5px 9px)`,
-              }} />
-              {refLabel ?? "目安"}
-            </span>
-          )}
-        </div>
-      )}
+    <div style={{ marginBottom: plainLayout ? 0 : 18 }}>
+      {!plainLayout && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
+      {/* (【D-9 2026/08/26】D-8 で足した凡例はここにあった。本人指示「凡例は消して
+          チップの枠をその該当の折れ線と同じ色にして」で、**チップの枠**が名前と色の
+          対応を引き取ったので撤去した。色を系列の style から引く規則はチップ側が継いでいる。) */}
       {!hasData ? (
         <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この音域のデータがまだありません</div>
       ) : (
@@ -10135,11 +10093,16 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
         <div ref={boxRef}>
           {L && (
             <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
-              {/* 縦軸(値)の目盛と水平グリッド: 上端・中間・下端。 */}
+              {/* 縦軸(値)の目盛: 上端・中間・下端。
+                  【D-9v 2026/08/25 本人指示】My Data では**上下の水平線を引かない**
+                  (本人「+8.4とマイナス8.4を示す線も不要」)。**目盛の文字は残す**ので
+                  上下の値は読めるままで、基準は下の中央線1本が担う。 */}
               {L.tickVals.map((v, k) => (
                 <g key={k}>
-                  <line x1={L.gridX0} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
-                  {/* 【D-8】軸ラベルを**プロットに重ねる**とき(axisOverlay)は、折れ線の上に
+                  {!myData && (
+                    <line x1={L.gridX0} y1={L.yAt(v)} x2={W} y2={L.yAt(v)} strokeWidth="1" style={{ stroke: "var(--c-line)" }} />
+                  )}
+                  {/* 【D-8】軸ラベルを**プロットに重ねる**とき(overlay)は、折れ線の上に
                       文字が乗る。実測: ラベルが x=8〜38、折れ線の左端が x=26 で**重なる**。
                       横幅を取り戻すのが目的なので左へ避けるのではなく、**白い縁取り**で読ませる。
                       paint-order: stroke で「縁 → 塗り」の順に描くと、字の形を太らせずに
@@ -10148,33 +10111,19 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                   <text
                     x={L.tickX} y={L.tickTextY(v)} fontSize={L.FS} textAnchor={L.tickAnchor}
                     fontFamily="var(--font-num)"
-                    style={axisOverlay
+                    style={overlay
                       ? { fill: "var(--c-ink-4)", stroke: "var(--c-surface)", strokeWidth: 3, paintOrder: "stroke" }
                       : { fill: "var(--c-ink-4)" }}
                   >{L.tickTexts[k]}</text>
                 </g>
               ))}
-              {/* 【N-10】ばらつきの帯。**折れ線より先に**描いて、線が帯の上に乗るようにする。
-                  塗りは体系内でいちばん薄い紺系の面(--c-accent-tint)。正典 案K の --ghost
-                  (#EAEFF6)は既存トークン #EAEFF5 と 1/255 しか違わないので、
-                  **新しい hex を足さずに既存トークンを使う**。 */}
-              {bandBounds && bandPaths().map((d, k) => (
-                <path key={`band${k}`} d={d} stroke="none" style={{ fill: CHART_BAND_FILL }} />
-              ))}
-              {/* 【D-7】「合っている」幅(±bandAbs)を 0 の周りの横帯として塗る。
-                  窓型では窓の灰(--c-quiet)が担っている役目なので、**同じトークン**を使う
-                  (2つの見方で「合っている」の色が食い違わない)。帯より先に 0 の線を敷かず、
-                  帯 → 0 線 の順に描いて線が帯の上に乗るようにする。 */}
-              {zeroCentered && bandAbs > 0 && (
-                <rect
-                  x={L.gridX0} y={L.yAt(Math.min(bandAbs, hi))}
-                  width={Math.max(0, W - L.gridX0)}
-                  height={Math.max(0, L.yAt(Math.max(-bandAbs, lo)) - L.yAt(Math.min(bandAbs, hi)))}
-                  stroke="none" style={{ fill: "var(--c-quiet)", opacity: CHART_OK_BAND_OPACITY }}
-                />
-              )}
-              {zeroCentered && (
-                <line x1={L.gridX0} y1={L.yAt(0)} x2={W} y2={L.yAt(0)} strokeWidth="1" style={{ stroke: "var(--c-line-strong)" }} />
+              {/* (【D-9 §5 2026/08/25 本人指示】折れ線の「合っている」帯はここで塗っていた。
+                  **出さない**(本人確認済み「人間の感覚的に食い違いません」)。窓型の灰は残る。) */}
+              {/* 【D-9u】中央線。**必ず1本**引く(上下の目盛線を消しても基準が消えないのはこの線のため)。
+                  色は従来の 0 線と同じ --c-line-strong で、平均差分では 0、他3指標では
+                  その指標で描いている全値の平均(呼び出し側が centerAt で渡す)。 */}
+              {center !== null && (
+                <line x1={L.gridX0} y1={L.yAt(center)} x2={W} y2={L.yAt(center)} strokeWidth="1" style={{ stroke: "var(--c-line-strong)" }} />
               )}
               {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする)。 */}
               {midEbIdx !== null && (
@@ -10219,7 +10168,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
           {idealDiffText && <span style={{ color: "var(--c-accent)" }}>{idealDiffText}</span>}
         </div>
       )}
-      {!plain && series.length > 1 && (
+      {!plainLayout && series.length > 1 && (
         <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
           {series.map((s, si) => (
             <span key={s.id ?? si} style={{ display: "flex", alignItems: "center", gap: 4 }} title={s.label}>
@@ -10233,93 +10182,22 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   );
 }
 
-// タップで「数値表示 ⇄ 音名軸の折れ線グラフ」を切り替えるメトリクスカード。
-// 登録済みリードの測定データ・セッション詳細で共通して使う。
-// 【N-10 2026/08/17・審査で訂正】データタブ(My Data)はこの部品から離れている。
-// N-7 の MetricRow も N-8 のヒーローの折れ線も**現在は存在しない**(N-10 で削除)。
-// 今の My Data は「数字カード4枚 + 常に1枚だけのグラフ」で、この部品を使っていない。
-// グラフ表示中はグリッドの全幅に広がり(gridColumn: 1/-1)、理想値があれば破線で重ねる。
-//
-// 【N-5 / bare】リードの個体詳細とデータタブだけ、正典の「枠も地も持たない数字の列」にする。
-// **既定は false = 従来の .tile のまま**にしてある。既定を新しい側にすると、次に増えた
-// 呼び出し側(セッション詳細)へ黙って漏れる(F-72 の罠1 と同じ事故)。
-//
-// 【N-6 / rowStyle】寸法はモックの実測値そのままで、どちらを使うかを呼び出し側が選ぶ
-// (BARE_ROW_STYLES が唯一の答え。数値を呼び出し側に写さない)。
-//   numrow … リード個体詳細 .numrow: 値 19 / 単位 11 / ラベル 10.5 / 副次 10.5(場所を常に確保)
+// 正典の「枠も地も持たない数字の列」(.numrow)の寸法。**数値を呼び出し側に写さない**ため、
+// ここが唯一の答え(モックの実測値そのまま)。
+//   numrow … リード個体詳細 .numrow: 値 19 / ラベル 10.5 / 副次 10.5(場所を常に確保)
 // 【N-7 → N-10・審査で訂正】mrow(データタブの累計/最新の数字の列)は N-7 で廃止し、
-// 定義ごと消した(使い手の無い定義を残さない)。移行先として挙げていた MetricRow も
-// N-10 で削除済みなので、現存物として名指ししない。
+// 定義ごと消した(使い手の無い定義を残さない)。
+// 【D-3a 2026/08/26】いま読んでいるのは **PhraseTimeline のドリルダウン**(セッション詳細の
+// 録音カードで選んだフレームの詳細)ただ1つ。N-9 の本人指示「カードと .tile の箱を廃止し、
+// リード個体詳細の .numrow と同じ数字の列にする」でこの列だけが .numrow の作法を引き継いだ。
+// (【D-3a】もう1つの読み手だった TappableMetricCard = タップで「数値 ⇄ 音名軸の折れ線」を
+//  切り替える部品は、D-3 / D-4 で正典 #14b / #15a が**却下側**に置き、呼び手が2つとも
+//  MetricTabCard へ移って読み手ゼロになったので部品ごと削除した。bare / rowStyle という
+//  受け口もその部品と一緒に消えている。unit(正典 .numrow .v small = 11px)も
+//  読み手がその部品だけだったので鍵ごと落とした ─ 単位を出す列がまた要るときは正典から引き直す。)
 const BARE_ROW_STYLES = {
-  numrow: { value: 19, unit: 11, label: 10.5, sub: 10.5 },
+  numrow: { value: 19, label: 10.5, sub: 10.5 },
 };
-function TappableMetricCard({ label, unit, fmt, metricKey, idealKey, frames, saxType, tuningHz, selectedIdeal, value, sub, noteFocus = null, bare = false, rowStyle = "numrow", idealDiffText = null }) {
-  const [open, setOpen] = useState(false);
-  const chart = (
-    <NoteAxisLineChart
-      label={label} unit={unit} metricKey={metricKey}
-      series={[{ id: "self", label, style: SERIES_STYLES[0], frames }]}
-      saxType={saxType} tuningHz={tuningHz} fmt={fmt}
-      selectedIdeal={selectedIdeal} idealKey={idealKey} noteFocus={noteFocus}
-      idealDiffText={idealDiffText}
-    />
-  );
-  if (bare) {
-    const fs = BARE_ROW_STYLES[rowStyle] ?? BARE_ROW_STYLES.numrow;
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label={`${label}を音名ごとのグラフで見る`}
-        className="sans"
-        style={{
-          /* 【minWidth を 0 にしない】flex-basis 0 のままだと、1つが幅100%になっても
-             残りの3つは**同じ行で幅0まで潰れる**(実測: 327 / 0 / 0 / 0)。
-             幅0の見えないボタンが残るのは §5 の当たり判定として最悪なので、
-             折り返しの判定に使われる最小幅を与えて次の行へ送る。
-             60px は4つ並べても 4×60=240 ≤ 327 で1行に収まる値(＝通常時の見た目は変わらない)。 */
-          flex: open ? "1 1 100%" : "1 1 0", minWidth: REED_NUMROW_MIN_PX, textAlign: "center",
-          minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none", cursor: "pointer",
-        }}
-      >
-        {open ? chart : (
-          <>
-            <div style={{ fontFamily: "var(--font-num)", fontSize: fs.value, fontWeight: 600, color: "var(--c-ink)" }}>
-              {value}{unit && <span className="sans" style={{ fontSize: fs.unit, color: "var(--c-ink-3)", fontWeight: 400, marginLeft: 1 }}>{unit}</span>}
-            </div>
-            <div style={{ fontSize: fs.label, color: "var(--c-ink-3)" }}>{label}</div>
-            {/* 副次(標準偏差)は正典 .numrow .b。値が無い列でも高さを揃えるため場所だけ残す(§6.1.5)。
-                正典 .mrow にはこの行が無いので、mrow のときは場所ごと出さない。 */}
-            {fs.sub !== null && (
-              <div style={{ fontSize: fs.sub, color: "var(--c-ink-3)", minHeight: 15 }}>{sub ?? " "}</div>
-            )}
-          </>
-        )}
-      </button>
-    );
-  }
-  return (
-    // 面の作法は .tile が持つ(background / border / borderRadius をここに書かない)。
-    // 開くと gridColumn:1/-1 で行いっぱいに広がるため、行の先頭かどうかを :nth-child で
-    // 数える方式は使えない。左罫の消し方は index.css の .surf-rule .tile-row を参照。
-    <div
-      className="tile"
-      onClick={() => setOpen((v) => !v)}
-      style={{ cursor: "pointer", gridColumn: open ? "1 / -1" : "auto" }}
-    >
-      {open ? chart : (
-        <>
-          <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>{label}</div>
-          <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, margin: "2px 0", color: "#121F32" }}>
-            {value}
-          </div>
-          {sub && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>{sub}</div>}
-        </>
-      )}
-    </div>
-  );
-}
 
 // 評価(総評・厚さ・バランス)の経時変化。3本を同じグラフに重ねる。
 // 縦軸は **1〜5 で固定**(データに応じて伸縮させない。DESIGN-SYSTEM §7「数値の自動フルスケール
@@ -11226,72 +11104,104 @@ function myDataStockTexts(stock) {
 // トークンへ写像する(DESIGN-SYSTEM「新しい値を発明しない」が上位)。
 // **唯一の例外が発散カラースケール**で、これだけ体系に無かったので正典から取り込んだ。
 
-// 比較対象。**上下2枚のマトリクスで共通**(別々には選べない。正典 #9b)。
-// ±0 は平均差分のときだけ列に増える(README「平均差分タブのときだけ ±0 が追加される」)。
-const MY_DATA_COMPARE_TARGETS = [
-  { key: "myAverage", label: "自分の平均" },
+// 【D-9 §1 2026/08/25 本人指示・凍結仕様 design/D9-SPEC.md】比較は「1つ選ぶ」をやめ、
+// **2つの系列をそれぞれ選ぶ式**になった。本人「8/24×my平均のように2本の数値を
+// 選択可能にして、グラフを一つに固定しています」。
+//     折れ線   [ 8/24 ] × [ my平均 ]   ← 2本を**重ねる**
+//     窓型     [ my平均 ] ー [ ±0 ]     ← **引き算**
+// 記号の使い分けは意図的(本人確認済み)。同じ2つの系列を、折れ線は重ねて・窓型は引いて見せる。
+// 「自分の平均」は本人指示で **my平均** になった。その日(day)のラベルだけは中身が日付
+// (「今日」/「8/24」)なので、myDataTodayOrLatestFrames の label を呼び出し側から渡す。
+const MY_DATA_SERIES = [
+  { key: "day", label: null },              // ラベルは日付そのもの(下の myDataSeriesLabel)
+  { key: "period", label: "my平均" },
   { key: "reference", label: "目安" },
   { key: "zero", label: "±0", pitchOnly: true },
 ];
+// 式の既定。**1本目 = その日 / 2本目 = my平均**(正典 Main.dc.html / Centroid.dc.html の状態)。
+const MY_DATA_SERIES_DEFAULT = ["day", "period"];
 // 平均差分のキー。「±0 が出るのはこの指標だけ」という規則を綴りで2箇所に持たないための1箇所。
 const MY_DATA_SIGNED_METRIC = "pitchCentsSigned";
 
-// この指標を選んでいるときに選べる比較対象。**押せない選択肢を出さない**(F-77 の罠)ので、
-// 目安が未設定なら「目安」も列から落ちる。
-function myDataCompareTargets(metricKey, hasIdeal) {
-  return MY_DATA_COMPARE_TARGETS.filter((t) => {
-    if (t.pitchOnly && metricKey !== MY_DATA_SIGNED_METRIC) return false;
-    if (t.key === "reference" && !hasIdeal) return false;
+// チップに出す綴り。その日だけ日付が入る。
+function myDataSeriesLabel(key, dayLabel) {
+  if (key === "day") return dayLabel;
+  return MY_DATA_SERIES.find((x) => x.key === key)?.label ?? "";
+}
+// 選択肢の行に出す綴り。**その日だけ**「8/24（その日）」と役目を添える
+// (日付だけだと、それが何の系列なのかがシートの中で読めない)。
+function myDataSeriesSheetLabel(key, dayLabel) {
+  return key === "day" ? `${dayLabel}（その日）` : myDataSeriesLabel(key, dayLabel);
+}
+// 片側の選択肢。**押せない選択肢を出さない**(F-77 の罠)の適用が3つある:
+//   ・±0 は平均差分のときだけ
+//   ・目安は理想値プロファイルがあるときだけ
+//   ・【D-9 §1 本人指示】**もう一方で選ばれている系列は列から消す**
+//     (「左右で同じものを選べないように、一方で選ばれているものはそもそも
+//       もう一方の選択肢から削除するようにして」)
+function myDataSeriesOptions(metricKey, hasIdeal, taken) {
+  return MY_DATA_SERIES.filter((x) => {
+    if (x.pitchOnly && metricKey !== MY_DATA_SIGNED_METRIC) return false;
+    if (x.key === "reference" && !hasIdeal) return false;
+    if (taken !== null && taken !== undefined && x.key === taken) return false;
     return true;
   });
 }
-// 【D-7 2026/08/23 本人指示】既定の比較対象。本人「デフォルト比較対象は音程は ±0、そのほかは目安との比較に」。
-//   ・平均差分(¢) … **±0**。セント差はそれ自体が「合っているか」の絶対の尺度なので、
-//     何かとの差ではなく**そのままの値**を見るのが素直(±0 との差 = 実測そのもの)。
-//   ・他の3指標 … **目安**。dB や Hz は絶対値だけ見ても良し悪しが読めないので、
-//     自分で決めた目安との差で見る。
-//   ・**目安が未設定なら目安チップ自体が出ない**(押せない選択肢を出さない。F-77)ので、
-//     そのときは自分の平均へ落とす。
-function myDataCompareDefault(metricKey, hasIdeal) {
-  if (metricKey === MY_DATA_SIGNED_METRIC) return "zero";
-  return hasIdeal ? "reference" : MY_DATA_COMPARE_TARGETS[0].key;
-}
-// 選べなくなった比較対象が選ばれたまま残らないようにする(指標タブを平均差分から動かした/
-// 目安を消した、のどちらでも起きる)。落とし先は**その指標の既定**。
-// 【D-7 で変えた】以前は必ず先頭(自分の平均)に落としていた。既定が指標ごとに違うので、
-// 落とし先も既定に合わせないと「±0 しか無いピッチから重心へ移ると自分の平均になる」形になる。
-function myDataCompareFallback(targetKey, metricKey, hasIdeal) {
-  return myDataCompareTargets(metricKey, hasIdeal).some((t) => t.key === targetKey)
-    ? targetKey
-    : myDataCompareDefault(metricKey, hasIdeal);
+// 選べなくなった系列が選ばれたまま残らないようにする(指標を平均差分から動かすと ±0 が消え、
+// 目安を消すと目安が消える)。落とし先は**既定の並び → 残りの並び**の順で最初に空いているもの。
+// 左右が同じ値になることは、2本目を決めるときに1本目を taken に渡すことで**構造的に**防ぐ。
+function myDataSeriesFallback(pair, metricKey, hasIdeal) {
+  const all = myDataSeriesOptions(metricKey, hasIdeal, null).map((x) => x.key);
+  const pick = (want, taken) => (all.includes(want) && want !== taken
+    ? want
+    : (MY_DATA_SERIES_DEFAULT.concat(all).find((k) => all.includes(k) && k !== taken) ?? null));
+  const a = pick(pair?.[0], null);
+  return [a, pick(pair?.[1], a)];
 }
 
-// 【D-7 2026/08/23 本人指示】My Data の見せ方。本人「mydata は窓型と折れ線グラフ二つ選んで見れるように。
-// デフォルトは折れ線グラフで」。**どちらも同じ数(実測 − 比較対象)**を描く
-// (本人裁定「窓型と同じ差分を描く」)ので、切り替えても意味は変わらず形だけが変わる。
-// 【D-7】折れ線の「合っている」帯の濃さ。**窓型と同じ --c-quiet** を使うが、
-// 窓型は小さな窓を塗るのに対し、こちらは**グラフの帯域を丸ごと**塗るので、
-// 同じ濃さだと面が強くなりすぎて折れ線が読めなくなる。色は同じ・面積ぶんだけ薄める。
-// (実効色は白地の上で約 #EFF1F4。--c-sunk(#F6F7F9)より濃く、罫 --c-line より薄い。)
-const CHART_OK_BAND_OPACITY = 0.28;
+// 【D-7 2026/08/23 本人指示】My Data の見せ方。本人「mydata は窓型と折れ線グラフ二つ選んで
+// 見れるように。デフォルトは折れ線グラフで」。**どちらも同じ2つの系列**を見る
+// (折れ線は重ね、窓型は引く)ので、切り替えても母集団は変わらず形だけが変わる。
+// (【D-9 §5 2026/08/26】CHART_OK_BAND_OPACITY = 折れ線の「合っている」帯の濃さは
+//  ここにあったが、**帯そのものを出さない**という本人確認済みの裁定で読み手ゼロになったので
+//  定義ごと削除した。窓型の灰(--c-quiet)は残る。)
+// 【D-9 §3 2026/08/25 本人指示】式の行の寸法。本人「min高さが44に設定されていましたが、
+// この行で44は余白が大きすぎるのでここは最小44の必要はありません」。
+// **§5(44pt)の例外はこの行だけ**で、DESIGN-SYSTEM §5 に明文化してある。
+// 見た目のチップは 20px。当たり判定は見た目と別に広げてあり、
+// **縦は行の高さいっぱい(35px)・横はチップの幅**まで(SubTabs が横でやっている手と同じ)。
+const MY_DATA_EXPR_ROW_H = 35;
+const MY_DATA_EXPR_CHIP_H = 20;
+// 式の記号。折れ線は2本を**重ねる**ので ×、窓型は**引く**ので ー(本人確認済みの使い分け)。
+const MY_DATA_EXPR_OPERATORS = { line: "×", matrix: "ー" };
 
 const MY_DATA_VIEWS = [
   { key: "line", label: "折れ線", Icon: Activity },
   { key: "matrix", label: "窓型", Icon: Grid3x3 },
 ];
 const MY_DATA_VIEW_DEFAULT = MY_DATA_VIEWS[0].key;   // 折れ線
-// 音ごとの差分(実測 − 比較対象)。窓型は buildNoteMatrix が同じ引き算をしている。
-// **どちらの見せ方も同じ数を見る**ための1関数(引き算を2箇所に書かない)。
-function noteDiffByIdx(valueByIdx, targetByIdx, count) {
-  const out = {};
-  for (let i = 0; i < count; i++) {
-    const v = valueByIdx?.[i];
-    const t = targetByIdx?.[i];
-    if (v === null || v === undefined || isNaN(v)) continue;
-    if (t === null || t === undefined || isNaN(t)) continue;
-    out[i] = v - t;
+// (【D-9 §1 2026/08/26】noteDiffByIdx = 折れ線が描いていた差分(実測 − 比較対象)は
+//  ここにあった。折れ線は**2本の系列をそのまま重ねる**形になり、引き算をするのは
+//  窓型(buildNoteMatrix)だけになったので、読み手ゼロで削除した。)
+
+// 【D-9u 2026/08/25 本人指示】中央線の値。**必ず1本ある**(上下の目盛線を消しても
+// 基準が消えないのはこの線のため)。本人「平均差分以外はその項目の平均を中央線にして同様に」。
+//   ・平均差分(¢) … **0**。セント差は 0 そのものが「合っている」を意味する絶対の基準で、
+//     母集団によって動いてはいけない
+//   ・HNR / 重心 / 音量 … **その指標でいま描いている全値の平均**
+// 「何の平均か」で絵が変わるので母集団をここに固定する: **画面に描いている系列の、
+// 描いている音の値だけ**(選ばれていない系列も、軸に無い音も入れない)。
+// 呼び出し側は描画に渡すのと同じ byIdx をそのまま渡すこと。
+function myDataCenterValue(metricKey, byIdxList) {
+  if (metricKey === MY_DATA_SIGNED_METRIC) return 0;
+  let sum = 0, n = 0;
+  for (const m of byIdxList || []) {
+    for (const v of Object.values(m || {})) {
+      if (v === null || v === undefined || isNaN(v)) continue;
+      sum += v; n += 1;
+    }
   }
-  return out;
+  return n === 0 ? null : sum / n;
 }
 
 // groupFramesByNote は重心だけ "centroidHz" という別の綴りで返す。**対応づけはこの1関数だけ**
@@ -11315,17 +11225,21 @@ function noteValuesByIdx(frames, metricKey, count, saxType, tuningHz) {
   return out;
 }
 
-// 【D-1】比較対象の音ごとの値。読めない音は**入れない**(0 で埋めない = そのセルは空になる)。
-//   自分の平均 … 選択期間の平均(呼び出し側が既に作ってある periodByIdx をそのまま使う)
-//   目安       … getNoteIdeal(選択中の理想値プロファイル)
-//   ±0        … 定数 0(平均差分のときだけ選べる)
-function compareTargetByIdx(targetKey, periodByIdx, selectedIdeal, metricKey, count) {
-  if (targetKey === "zero") {
+// 【D-9 §1】系列の音ごとの値。読めない音は**入れない**(0 で埋めない = その音は描かない)。
+//   その日(day)     … 当日(データが無ければ直近の記録日)の音ごとの値
+//   my平均(period)  … 選択期間の平均
+//   目安(reference) … getNoteIdeal(選択中の理想値プロファイル)
+//   ±0(zero)       … 定数 0(平均差分のときだけ選べる)
+// **左右どちらのチップも同じこの1関数から引く**(片側だけ別の作り方になると、
+// 式の左右で母集団が違う、という読めない絵になる)。
+function myDataSeriesByIdx(seriesKey, dayByIdx, periodByIdx, selectedIdeal, metricKey, count) {
+  if (seriesKey === "day") return dayByIdx || {};
+  if (seriesKey === "zero") {
     const m = {};
     for (let i = 0; i < count; i++) m[i] = 0;
     return m;
   }
-  if (targetKey === "reference") {
+  if (seriesKey === "reference") {
     const groupKey = noteGroupKeyOf(metricKey);
     const m = {};
     for (let i = 0; i < count; i++) {
@@ -11347,6 +11261,10 @@ function compareTargetByIdx(targetKey, periodByIdx, selectedIdeal, metricKey, co
 //   maxAbs は**このマトリクスの実測の最大絶対値**。色はこれで毎回引き直す(固定閾値ではない)。
 function buildNoteMatrix(valueByIdx, targetByIdx, count, saxType, tuningHz) {
   const byKey = {};
+  // 【D-9 §4 案D】**音域の中にある窓**の集合。「音域の外」と「まだ弾いていない」は
+  // どちらも値を持たないが、案D はこの2つを描き分ける(空セルを2つに分ける)ので、
+  // 値とは別に「軸にこの音がある」ことをここで記録する。
+  const inRange = {};
   const octaves = [];
   let min = null, max = null, filled = 0;
   for (let i = 0; i < count; i++) {
@@ -11354,6 +11272,7 @@ function buildNoteMatrix(valueByIdx, targetByIdx, count, saxType, tuningHz) {
     if (!p) continue;
     const oct = Number(p.octave);
     if (!octaves.includes(oct)) octaves.push(oct);
+    inRange[oct + ":" + p.name] = true;
     const a = valueByIdx ? valueByIdx[i] : undefined;
     const b = targetByIdx ? targetByIdx[i] : undefined;
     if (a === null || a === undefined || isNaN(a)) continue;
@@ -11368,7 +11287,7 @@ function buildNoteMatrix(valueByIdx, targetByIdx, count, saxType, tuningHz) {
   // D-1 は昇順(3 → 4 → 5)で、PIVOT の音名軸(上から高い音)とも向きが逆だった。
   octaves.sort((x, y) => y - x);
   const maxAbs = min === null ? 0 : Math.max(Math.abs(min), Math.abs(max));
-  return { octaves, byKey, min, max, maxAbs, count: filled };
+  return { octaves, byKey, inRange, min, max, maxAbs, count: filled };
 }
 
 // 【D-5 2026/08/23 本人指示・凍結仕様 design/D5-SPEC.md】マトリクスの窓の中の棒。
@@ -11412,29 +11331,18 @@ function divergingInk(step) { return step === 1 ? "var(--c-on-accent)" : "var(--
 //     重心 16 対 17個・HNR と音量は完全一致だったので、**説明の簡単なほう**を採った。
 //     (この式を平均差分に当てると 6÷3 = ±2 で絶対値の答えと一致する。ただし調子の悪い日は
 //      maxAbs が動くので、意味の決まっているピッチは絶対値に固定する。)
-// 【D-8 2026/08/23 本人指示】本人「ピッチの平均差分だけ基準からの差分でだして、それ以外は実数で折れ線表示」。
-// **折れ線だけの規則**で、窓型は4指標とも差分のまま(窓は「比較対象との差」を読む形なので)。
-//   ・平均差分(¢) … セント差はそれ自体が「基準からどれだけ外れたか」の量。
-//     折れ線でも差分(0中心・合っている帯つき)で描く。
-//   ・他の3指標(dB / Hz) … 実数そのものに意味があるので**そのまま**描き、
-//     比較対象は**破線で重ねる**(セッション詳細・リード詳細の目安の破線と同じ描き方)。
-// 比較対象のチップは**4指標とも残す**(本人裁定)。ピッチでは引き算の相手、
-// 他の3指標では**重ねる破線の相手**を選ぶ、と役目が変わる。
-function myDataLineIsDiff(metricKey) { return metricKey === MY_DATA_SIGNED_METRIC; }
+// (【D-9 §1 2026/08/26】myDataLineIsDiff = D-8 の「折れ線はピッチだけ差分・他は実数」は
+//  ここにあった。折れ線が**選んだ2本をそのまま重ねる**形になり、差分を描くのは窓型だけに
+//  なったので、指標で描き方を分ける規則そのものが要らなくなった。)
 
 const MATRIX_RELATIVE_BAND_DIVISOR = 3;
 function matrixBand(metricKey, maxAbs) {
   if (metricKey === "pitchCentsSigned") return RING_IN_TUNE_CENTS;
   return (Number(maxAbs) > 0 ? maxAbs : 0) / MATRIX_RELATIVE_BAND_DIVISOR;
 }
-// 【D-6】凡例に出す帯の綴り。帯は指標で変わる(ピッチだけ絶対値)ので、**その場の数**を出す。
-// 単位は指標の定義(MY_DATA_METRICS の unit)から引く — 綴りを2箇所に持たない。
-// 相対の帯は小数になりうるので、画面に出すときだけ整数へ丸める(窓の数値と同じ粒度に揃える)。
-function matrixBandText(metric, matrix) {
-  const band = matrixBand(metric?.key, matrix?.maxAbs ?? 0);
-  const n = band >= 1 ? Math.round(band) : Math.round(band * 10) / 10;
-  return `±${n}${metric?.unit ?? ""}`;
-}
+// (【D-9 2026/08/26】matrixBandText = 帯の幅の綴り(「±2¢」)は D-6 の凡例に出していたが、
+//  その凡例は D-8 で画面から外れており、読み手ゼロのまま残っていたので削除した。
+//  帯の**幅そのもの**を決める matrixBand は窓型が使い続けている。)
 // 【D-8】窓の地と文字。**帯の中は色の段に乗せず引っ込める**(灰)。外れた窓だけを8段の色で塗る。
 // これが D-5 の指摘「グラデーションもどれくらい高いかの程度が読みにくい」への手当てで、
 // 色で読む窓の数が減るぶん、残った窓の濃淡が比べやすくなる。
@@ -11630,9 +11538,12 @@ function ViewToggle({ value, onChange }) {
             aria-label={`${v.label}で見る`}
             className="sans"
             style={{
-              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              /* 【D-9 §3】この切替は**式の行に同居する**ので、行と同じ高さ(35px)にする。
+                 44 のままだと行がそのぶん高くなり、本人が削れと言った余白が戻る。
+                 §5 の例外はこの行だけ、という範囲もそこで閉じている。 */
+              height: MY_DATA_EXPR_ROW_H, minWidth: MY_DATA_EXPR_ROW_H,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              background: "none", border: "none", cursor: "pointer",
+              padding: 0, background: "none", border: "none", cursor: "pointer",
               color: sel ? "var(--c-accent)" : "var(--c-ink-3)",
             }}
           >
@@ -11644,11 +11555,19 @@ function ViewToggle({ value, onChange }) {
   );
 }
 
-function SubTabs({ items, value, onChange, children }) {
+// (【D-9r 2026/08/25 本人指示】children = 子タブ行の右端に相乗りする受け口はここにあった。
+//  集計範囲セレクタが指標タブの行へ下りて(D-9z)渡し手がゼロになったので削除した。
+//  副産物として**子タブ行は両タブとも「素のテキスト2つだけ」**になり、
+//  dataSubTab === "mydata" の分岐が1つ消えている。)
+function SubTabs({ items, value, onChange }) {
   return (
     <div
       className="sans"
-      style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -SUBTAB_HALF_GAP_PX, marginBottom: 4 }}
+      /* 【D-9z2 2026/08/25 本人指示】「不自然に上部があくのは不自然にならないように上部に
+         寄せてください」。子タブ行の下の余白 4 → 0(カードの上余白 16 → 8 と合わせて 12px 詰まる)。
+         **リードタブの子タブも同じ部品**なので一緒に 4px 詰まる ─ D-6 で1つにまとめた部品を
+         また2つに割るほうが事故のもとなので、割らずに揃える。 */
+      style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -SUBTAB_HALF_GAP_PX, marginBottom: 0 }}
     >
       {items.map((t) => {
         const sel = value === t.key;
@@ -11678,17 +11597,19 @@ function SubTabs({ items, value, onChange, children }) {
           </button>
         );
       })}
-      {children}
     </div>
   );
 }
 
-function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordered = false }) {
+// 【D-9z 2026/08/25 本人指示】children = **この行の右端**に相乗りするもの(My Data の
+// 集計範囲セレクタ)。行を新設せず既にある行へ乗せる、という N-11 の手はそのままで、
+// 乗せる先が子タブ行から指標タブの行へ移った。渡さない3画面の見た目は 1px も変わらない。
+function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordered = false, children }) {
   return (
     <div
       className="sans"
       style={{
-        display: "flex", gap: 0, marginLeft: -halfGap,
+        display: "flex", alignItems: "center", gap: 0, marginLeft: -halfGap,
         borderBottom: bordered ? "1px solid var(--c-line)" : "none",
       }}
     >
@@ -11722,6 +11643,7 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordere
           </button>
         );
       })}
+      {children}
     </div>
   );
 }
@@ -11730,8 +11652,9 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordere
 //   タブ4つ → 大きな数字(セリフ)+単位、右に補足 → **常時表示**の音名軸グラフ。
 // 正典の 42px は体系の7段に無いので、いちばん近い段 --fs-hero(46px)へ写像する
 // (本人の裁定「既存トークンへ寄せる」。新しい文字サイズを発明しない)。
-// **数字タップでグラフが出る形(TappableMetricCard)は正典が却下側に置いた**ので、
-// この画面では使わない(常時表示 + タブ切替に変わった)。部品自体は他画面のために残る。
+// **数字タップでグラフが出る形は正典が却下側に置いた**ので、この画面では使わない
+// (常時表示 + タブ切替に変わった)。その形の部品 TappableMetricCard は D-3 / D-4 で
+// 呼び手が両画面ともここへ移り、**D-3a(2026/08/26)で定義ごと削除した**。
 // 指標の状態は**呼び出し側が持つ**(セッション詳細では下の表の列も同じ指標に追従するため。
 // 状態を部品の中に閉じると、表が何を出しているか呼び出し側から決められなくなる)。
 // 【D-7 2026/08/23 本人指示】本人「個別ページのグラフ上部に大きく表示のあるその数値の平均を削除」。
@@ -11824,9 +11747,17 @@ function BottomSheet({ ariaLabel, onClose, children }) {
 // 【N-6】データタブの選択・操作シート。子タブ行の「…」も、フィルタピルの選択肢も、
 // 期間セレクタも、出るものはこの1枚。枠は BottomSheet が持つ(作法を写さない)。
 // **押せない項目は呼び出し側が渡さない**(F-77 で「0リードなのに使えない削除が出る」を踏んでいる)。
-function DataOptionSheet({ ariaLabel, items, value, onPick, onClose }) {
+// 【D-9 §1】title = シートの中に出す見出し(「1本目」/「2本目」)。**式の左右で同じ見た目の
+// シートが2つある**ので、どちらを選んでいるのかが読めないと選びようがない。
+// 渡さない呼び出し側(期間・楽器種別・条件の追加)の見た目は 1px も変わらない。
+function DataOptionSheet({ ariaLabel, title = null, items, value, onPick, onClose }) {
   return (
     <BottomSheet ariaLabel={ariaLabel} onClose={onClose}>
+      {title && (
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)", padding: "0 2px var(--sp-2)" }}>
+          {title}
+        </div>
+      )}
       {items.map((it) => (
         <button
           key={it.key}
@@ -12010,7 +11941,10 @@ function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) 
 // **カードは持たない**(指標タブ・比較対象と一緒に MyDataSection が1枚のカードに収める)。
 // D-1 の NoteMatrixCard は「1枚ごとにカード」だったが、タブがカードの外にあると
 // 「タブがどこまで効くか」が箱で示せず、本人の指摘「2種類のタブが同じ見た目」が残るため。
-function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
+// 【D-9 §4 2026/08/25 本人指示】title(今日の自分 / いつもの自分)と sub("8/24 − ±0")は
+// **撤去した**。マトリクスが1枚になり、何を引いているかは**式のチップ行**が出すので、
+// 同じことを2箇所で言う形になっていた。
+function NoteMatrixBlock({ metricKey, matrix }) {
   // 【D-6】帯と字の大きさは**このマトリクス全体で1つ**なので、行を回す前に1度だけ決める
   // (窓ごとに決めると、同じ大きさのずれが窓によって別の色に見える)。
   const band = matrixBand(metricKey, matrix.maxAbs);
@@ -12027,14 +11961,10 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
   const numFs = matrixNumFontSize(cellTexts);
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: "var(--sp-3)" }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink)" }}>{title}</div>
-          <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", marginTop: 2 }}>{sub}</div>
-        </div>
-        {/* そのマトリクスの実測レンジ。棒の長さを引く maxAbs と**同じ matrix から出す**
-            (「いちばん長い棒がいくつか」を読み手が数字で確かめられるようにする)。 */}
-        <span style={{ fontFamily: "var(--font-num)", fontSize: 10, color: "var(--c-ink-3)", flexShrink: 0 }}>
+      {/* そのマトリクスの実測レンジ。色の段を引く maxAbs と**同じ matrix から出す**
+          (「いちばん濃い窓がいくつか」を読み手が数字で確かめられるようにする)。 */}
+      <div style={{ display: "flex", justifyContent: "flex-end", paddingBottom: "var(--sp-2)" }}>
+        <span style={{ fontFamily: "var(--font-num)", fontSize: 10, color: "var(--c-ink-3)" }}>
           {matrixRangeText(matrix)}
         </span>
       </div>
@@ -12062,9 +11992,15 @@ function NoteMatrixBlock({ title, sub, metricKey, matrix }) {
                   線を貫かせても窓に隠れて読めない(D-6 は棒がその線から生えていた)。 */}
               {NOTE_NAMES.map((pc) => {
                 const v = matrix.byKey[oct + ":" + pc];
-                // 音域の外の音も、データが読めない音も、**同じ空セル**にする(穴を作らない)。
+                // 【D-9 §4 案D 2026/08/25 本人指示】空のセルを**2つに分ける**。
+                //   ・音域の外(そもそもその楽器に無い音) … **窓を置かない**
+                //   ・音域の中で値が読めない音        … --c-line の枠だけ置く
+                // 「まだ弾いていない」と「そもそも無い」を同じ見た目にすると、
+                // 弾き残しが数えられない(どちらも同じ空白に見える)。
                 if (v === null || v === undefined || isNaN(v)) {
-                  return <div key={pc} style={{ height: MATRIX_CELL_H }} />;
+                  return matrix.inRange?.[oct + ":" + pc]
+                    ? <div key={pc} style={{ height: MATRIX_CELL_H, borderRadius: "var(--r-xs)", border: "1px solid var(--c-line)" }} />
+                    : <div key={pc} style={{ height: MATRIX_CELL_H }} />;
                 }
                 const label = matrixCellText(v);
                 // 帯の判定も色の段も、**画面に出す綴りから読み直した数**で決める。
@@ -12245,8 +12181,10 @@ function PracticeCalendarCard({ sessions, reeds, totalSessionCount, onOpenSessio
   );
 }
 
-function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, range, totalSessionCount, onOpenSession, onOpenAllSessions }) {
-  // 【N-11】楽器種別・期間のセレクタは子タブ行の右端(MyDataScopePicker)。状態は AnalysisLabView。
+function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions }) {
+  // 【D-9z 2026/08/25 本人指示】楽器種別・期間のセレクタは**指標タブの行の右端**へ下りた
+  // (本人「このセクタは mydata にしか影響しないのに、mydata・分析と同じ位置にあるのが違和感」)。
+  // 状態は従来どおり AnalysisLabView が持ち、setter をここまで引き回している。
   // 【D-1】母集団の規則は myDataOwnSessions の1箇所(カレンダーと共有する)。
   const allMySessions = myDataOwnSessions(sessions, saxType, dataSax);
 
@@ -12272,14 +12210,20 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   const [cardMetric, setCardMetric] = useState(MY_DATA_CARD_METRICS[0]);
   const chartMetric = MY_DATA_METRICS.find((m) => m.key === cardMetric) ?? MY_DATA_METRICS[0];
 
-  // 【D-1】比較対象。**上下2枚のマトリクスで共通**。選べなくなった値が選ばれたまま残らない
-  // ように、状態そのものではなく myDataCompareFallback を通した値を全員が使う。
+  // 【D-9 §1】式の2つの系列。選べなくなった値が選ばれたまま残らないように、
+  // 状態そのものではなく myDataSeriesFallback を通した組を**全員が使う**。
   const hasIdeal = !!selectedIdeal;
-  // 【D-7】既定は指標ごとに違う(ピッチは ±0 / 他は目安)。初期値も既定から引く。
-  const [compareRaw, setCompareRaw] = useState(() => myDataCompareDefault(MY_DATA_CARD_METRICS[0], !!selectedIdeal));
-  const compare = myDataCompareFallback(compareRaw, chartMetric.key, hasIdeal);
-  const compareOptions = myDataCompareTargets(chartMetric.key, hasIdeal);
-  const compareName = MY_DATA_COMPARE_TARGETS.find((t) => t.key === compare)?.label ?? "";
+  const [pairRaw, setPairRaw] = useState(MY_DATA_SERIES_DEFAULT);
+  const pair = myDataSeriesFallback(pairRaw, chartMetric.key, hasIdeal);
+  // どちらのチップを押しているか(null = 閉じている)。選択肢は既存の DataOptionSheet で出す。
+  const [sheetSide, setSheetSide] = useState(null);
+  const setSeriesAt = (side, key) => setPairRaw((prev) => {
+    const next = myDataSeriesFallback(prev, chartMetric.key, hasIdeal).slice();
+    next[side] = key;
+    // 反対側が同じ値になることは選択肢から消してあるので起きないが、
+    // 落とし先の規則(myDataSeriesFallback)を必ず通して**左右が同じ**を構造的に潰す。
+    return myDataSeriesFallback(side === 0 ? [key, next[1]] : [next[0], key], chartMetric.key, hasIdeal);
+  });
 
   // 【D-1】**フラジオは含めない**(本人指示「mydata のカードのこのグラフにはフラジオまで
   // 入れなくていい(他は入れる)」。折れ線の後継であるマトリクスがそのまま引き継ぐ)。
@@ -12289,85 +12233,95 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   const noteCount = noteAxisCount(dataSax, false) ?? 0;
   const periodByIdx = noteValuesByIdx(periodFrames, chartMetric.key, noteCount, dataSax, tuningHz);
   const dayByIdx = noteValuesByIdx(day.frames, chartMetric.key, noteCount, dataSax, tuningHz);
-  const targetByIdx = compareTargetByIdx(compare, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
-  // 【D-7】窓型が描く数。**同じ引き算**を1関数から引く(窓型は4指標とも差分)。
-  const dayDiff = noteDiffByIdx(dayByIdx, targetByIdx, noteCount);
-  const periodDiff = noteDiffByIdx(periodByIdx, targetByIdx, noteCount);
-  // 【D-8】折れ線が描く数。ピッチだけ差分、他は実数(上の myDataLineIsDiff が決める)。
-  const lineIsDiff = myDataLineIsDiff(chartMetric.key);
-  const lineDay = lineIsDiff ? dayDiff : dayByIdx;
-  const linePeriod = lineIsDiff ? periodDiff : periodByIdx;
-  // 実数のときだけ比較対象を破線で重ねる(差分のときは 0 の線がその役目をしている)。
-  // ただし比較対象が「自分の平均」のときは**下の系列そのもの**なので重ねない
-  // (同じ線を2本描くことになる)。
-  const lineRef = lineIsDiff || compare === MY_DATA_COMPARE_TARGETS[0].key ? null : targetByIdx;
-  const upper = buildNoteMatrix(dayByIdx, targetByIdx, noteCount, dataSax, tuningHz);
-  const lower = buildNoteMatrix(periodByIdx, targetByIdx, noteCount, dataSax, tuningHz);
-  // 【D-1 / D1-SPEC 4.3】下のブロックを畳む条件。**正典の記述からは意図的に外している**。
-  // README は「比較対象 = ±0 のときだけ折りたたむ」と書くが、±0 のときは
-  // 上=その日の絶対値 / 下=期間平均の絶対値 で重複していない。実際に退化するのは
-  // **比較対象 = 自分の平均**で、下は「期間平均 − 期間平均」なので全セルが構造的に 0 になる。
-  const showLower = compare !== MY_DATA_COMPARE_TARGETS[0].key;
+  // 【D-9 §1】式の左右。**同じ1関数**から引く(左右で母集団の作り方が違う、を作らない)。
+  const seriesA = myDataSeriesByIdx(pair[0], dayByIdx, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
+  const seriesB = myDataSeriesByIdx(pair[1], dayByIdx, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
+  // 【D-9 §4】窓型は**1枚**。描くのは「1本目 − 2本目」だけ(引き算は buildNoteMatrix が1箇所で持つ)。
+  const matrix = buildNoteMatrix(seriesA, seriesB, noteCount, dataSax, tuningHz);
+  // 【D-9u】中央線。折れ線に**描いている2本の値**だけから出す(母集団は myDataCenterValue に閉じる)。
+  const centerAt = myDataCenterValue(chartMetric.key, [seriesA, seriesB]);
 
   return (
     <>
       {/* 【D-5 2026/08/23 本人指示・凍結仕様 design/D5-SPEC.md】
-          指標タブと比較対象を**マトリクスと同じカードの中へ**入れた。
+          指標タブと式を**マトリクス/折れ線と同じカードの中へ**入れてある。
           本人の実機指摘2つへの同時の答え:
             ・「添付画像の赤く囲った部分が無駄な余白すぎる」(上部に 44pt の行が3つ積まれていた)
             ・「2つの種類のタブが同じ見た目で存在していてわかりにくい」
           → 外に残るのは**子タブ(My Data / 分析)だけ**。指標タブはカードの中に入るので、
             「外＝画面の切替 / 中＝このカードの中身の切替」が箱で読み分けられる。
-          マトリクス2枚も**同じカード**に収める(タブがどこまで効くかを箱が示す)。 */}
-      {/* 【D-8】案1。子タブと指標タブの間に**罫を引かない**(本人指示)。
-          .surf-rule .card は上辺に罫を持つので、既存の例外クラス .no-top-rule で外す
-          (「直前に別の区切りがある箇所だけ」という既存の使い方に合う。ここでは
-          子タブの見出しが区切りそのものになっている)。 */}
-      <div className="card no-top-rule">
-        {/* 指標タブ。My Data・セッション詳細・リード詳細・リード比較で**同じ部品**。 */}
+          【D-8】子タブと指標タブの間に**罫を引かない**(本人指示)。.surf-rule .card は上辺に
+          罫を持つので、既存の例外クラス .no-top-rule で外す(「直前に別の区切りがある箇所だけ」
+          という既存の使い方に合う。ここでは 22px の子タブの見出しが区切りそのもの)。
+          【D-9z2 2026/08/25 本人指示】「不自然に上部があくのは不自然にならないように上部に
+          寄せてください」。カードの上余白を 16 → 8 に詰める。**.card にインラインで padding を
+          書かない**(index.css が名指しで禁じている)ので、.no-top-rule と同じ手で別クラスにする。 */}
+      <div className="card no-top-rule card-tight-top">
+        {/* 指標タブ。My Data・セッション詳細・リード詳細・リード比較で**同じ部品**。
+            【D-9y 2026/08/25 本人指示】「指標タブの下の罫は両方外して」→ bordered を渡さない
+            (上の罫は .no-top-rule が、下の罫はこれで消える)。
+            【D-9z】集計範囲セレクタ(楽器種別 ▾ · 期間 ▾)は**この行の右端**に相乗りする。 */}
         <MetricUnderlineTabs
           order={MY_DATA_CARD_METRICS} metrics={MY_DATA_METRICS}
           value={cardMetric} onChange={setCardMetric}
-          halfGap={DETAIL_TAB_HALF_GAP_PX} bordered
-        />
+          halfGap={DETAIL_TAB_HALF_GAP_PX}
+        >
+          <MyDataScopePicker
+            dataSax={dataSax} setDataSax={setDataSax}
+            range={range} setRange={setRange}
+          />
+        </MetricUnderlineTabs>
 
-        {/* 【D-1】比較対象チップ。**上下2枚のマトリクスで共通**。押せない選択肢は列に出さない
-            (目安が未設定なら「目安」ごと消える。±0 は平均差分のときだけ増える)。 */}
-        {/* 【D-7 2026/08/23 本人指示】「比較対象」というラベルは**削除した**(本人「わざわざ比較対象と
-            書かなくてもわかるので比較対象というテキストも削除」)。PIVOT の「条件」ラベルも
-            まったく同じ体裁・同じ役割だったので**同時に**消してある。
-            空いた右端に見せ方の切替(アイコン2つ)を置く。**行を増やさない**ので縦幅は変わらない。 */}
-        {/* 【D-8】本人「相変わらず比較対象の縦幅が過剰に大きい」。
-            チップ自体は **44pt が §5 の床**なので削れない。削れるのは上下の余白で、
-            実測 64px = 44(チップ) + 20(余白) だった。余白を 20 → 8 にして 52px にする。
-            これ以上は §5 の例外を作ることになるので、ここで止める。 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 0 var(--sp-2)" }}>
-          <div style={{ display: "flex", gap: "var(--sp-1)", minWidth: 0, flexWrap: "wrap" }}>
-            {compareOptions.map((t) => {
-              const sel = compare === t.key;
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setCompareRaw(t.key)}
-                  aria-pressed={sel}
-                  /* 【型】比較対象は**状態を持つ**もの(選択中が切り替わる)なので **A型 .ctl-state**。
-                     地は透明・枠は --c-line-strong・選択中は枠が --c-accent になる
-                     (状態は枠線の色だけで返し、地は足さない)。
-                     角丸(--r-sm)も地も枠も**クラスが持つ**ので、ここでインラインに書かない。 */
-                  className="sans ctl-state"
-                  style={{
-                    minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
-                    padding: "0 13px", cursor: "pointer",
-                    fontSize: "var(--fs-xs)", fontWeight: 600,
-                    color: sel ? "var(--c-accent)" : "var(--c-ink-2)",
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+        {/* 【D-9 §1〜§3 2026/08/25 本人指示】比較は**2つの系列を選ぶ式**。
+            折れ線は「× = 2本を重ねる」、窓型は「ー = 引き算」で、記号だけが変わる。
+            【§2】凡例は撤去し、**チップの枠が系列の色を持つ**(本人「凡例は消してチップの枠を
+            その該当の折れ線と同じ色にして」)。色は SERIES_STYLES から引くので、
+            チップと折れ線が食い違いようがない。窓型には系列の線が無いので枠は --c-line-strong。
+            【§3】この行だけ §5(44pt)の例外。見た目は 20px・当たり判定は行の高さいっぱい。 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", height: MY_DATA_EXPR_ROW_H }}>
+          {[0, 1].map((side) => {
+            const seriesKey = pair[side];
+            // 折れ線のときだけ枠が系列色。**この2つの綴りは SERIES_STYLES[0] / [1] の色と
+            // 一致していなければならない**(検査 27.4c が突き合わせる)。
+            // 【なぜ変数から引かないか】操作するものの枠は**文字列リテラル**で書く決まり
+            // (§6.3 の走査。変数やテンプレートリテラルに逃がすと枠の有無が静的に読めなくなる)で、
+            // かつインライン style で CSS カスタムプロパティを定義することも禁じている。
+            // 両方を満たす書き方はリテラルの三項だけなので、**食い違いは検査で塞ぐ**。
+            return (
+              <button
+                key={side}
+                type="button"
+                onClick={() => setSheetSide(side)}
+                aria-expanded={sheetSide === side}
+                aria-label={`${side + 1}本目の系列を選ぶ`}
+                className="sans"
+                style={{
+                  height: MY_DATA_EXPR_ROW_H, display: "inline-flex", alignItems: "center",
+                  padding: 0, background: "none", border: "none", cursor: "pointer",
+                }}
+              >
+                <span style={{
+                  display: "inline-flex", alignItems: "center", height: MY_DATA_EXPR_CHIP_H,
+                  padding: "0 13px", borderRadius: "var(--r-sm)",
+                  /* 【作法】枠の値は**文字列リテラル**で書く(§6.3 の走査が「操作の枠は静的に
+                     読める」ことを要求している)。色だけをカスタムプロパティで差し込めば、
+                     系列の色は SERIES_STYLES の1箇所のままで、枠の宣言は読めるまま。 */
+                  background: "transparent",
+                  border: view !== "line" ? "1px solid var(--c-line-strong)"
+                    : (side === 0 ? "1px solid var(--c-accent)" : "1px solid var(--c-accent-mid)"),
+                  fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-2)",
+                }}>
+                  {myDataSeriesLabel(seriesKey, day.label)}
+                </span>
+              </button>
+            );
+          }).flatMap((node, i) => (i === 0
+            ? [node, (
+              <span key="op" aria-hidden="true" style={{ fontSize: "var(--fs-md)", lineHeight: 1, color: "var(--c-ink-3)", flexShrink: 0 }}>
+                {MY_DATA_EXPR_OPERATORS[view]}
+              </span>
+            )]
+            : [node]))}
           <ViewToggle value={view} onChange={setView} />
         </div>
 
@@ -12378,55 +12332,44 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           </div>
         )}
 
-        {/* 【D-7 2026/08/23 本人指示】折れ線と窓型は**同じ数(実測 − 比較対象)**を描く。
-            折れ線は2本を1枚に重ねるので、窓型で2枚に分かれるぶんより背が低い。
-            差分なので縦軸は 0 中心(zeroCentered)で、「合っている」幅は 0 の周りの帯
-            (bandAbs)として塗る — 窓型の灰と**同じ意味・同じトークン**。 */}
+        {/* 【D-9 §1】折れ線は2本を**そのまま重ねる**(引き算しない)。窓型はその2本を引く。
+            どちらも母集団は同じ2つの系列なので、切り替えても見ているものは変わらない。 */}
         {view === "line" ? (
-          /* 【D-8】軸ラベルは**プロットに重ねる**(axisOverlay)。左に列を作らないので
-             横幅を1pxも食わない。実測で 347px 中 55px(16%)を取り戻す。
-             凡例(legend)は系列の style から色を引くので、線と食い違いようがない。 */
           <NoteAxisLineChart
-            plain legend axisOverlay
+            myData
             label={chartMetric.label} unit={chartMetric.unit} metricKey={chartMetric.key}
             series={[
-              { id: "day", label: day.label, style: SERIES_STYLES[0], byIdx: lineDay },
-              ...(showLower ? [{ id: "period", label: rangeLabel + "の平均", style: SERIES_STYLES[1], byIdx: linePeriod }] : []),
+              { id: "a", label: myDataSeriesLabel(pair[0], day.label), style: SERIES_STYLES[0], byIdx: seriesA },
+              { id: "b", label: myDataSeriesLabel(pair[1], day.label), style: SERIES_STYLES[1], byIdx: seriesB },
             ]}
             saxType={dataSax} tuningHz={tuningHz}
             fmt={chartMetric.fmt}
             includeAltissimo={false}
-            zeroCentered={lineIsDiff}
-            bandAbs={lineIsDiff ? matrixBand(chartMetric.key, upper.maxAbs) : null}
-            refByIdx={lineRef} refLabel={compareName}
+            centerAt={centerAt}
             selectedIdeal={null} idealKey={null}
           />
         ) : (
-          <>
-        <NoteMatrixBlock
-          title="今日の自分"
-          sub={day.label + " − " + compareName}
-          metricKey={chartMetric.key}
-          matrix={upper}
-        />
-
-        {showLower && (
-          <div style={{ marginTop: "var(--sp-3)", paddingTop: "var(--sp-3)", borderTop: "1px solid var(--c-line)" }}>
-            <NoteMatrixBlock
-              title="いつもの自分"
-              sub={rangeLabel + "の平均 − " + compareName}
-              metricKey={chartMetric.key}
-              matrix={lower}
-            />
-          </div>
-        )}
-          </>
+          <NoteMatrixBlock metricKey={chartMetric.key} matrix={matrix} />
         )}
 
         {/* 【D-8 2026/08/23 本人指示で削除】「0の線が目安〜〜とかのテキストも不要」。
-            読み方の1行は**丸ごと外した**。代わりに折れ線は凡例が系列に名前を出し、
-            窓型は8段の色そのものが向きと程度を示す。**帯(灰)は残っている**(本人裁定)。 */}
+            読み方の1行は**丸ごと外した**。窓型は8段の色そのものが向きと程度を示し、
+            折れ線は中央線1本(D-9u)が基準を示す。 */}
       </div>
+
+      {/* 【D-9 §1】系列を選ぶシート。**式の左右で同じ部品**を使い、見出し(1本目 / 2本目)だけが違う。
+          もう一方で選ばれている系列は**選択肢から消える**ので、左右が同じ値になる操作が存在しない。 */}
+      {sheetSide !== null && (
+        <DataOptionSheet
+          ariaLabel={`${sheetSide + 1}本目の系列`}
+          title={`${sheetSide + 1}本目`}
+          items={myDataSeriesOptions(chartMetric.key, hasIdeal, pair[sheetSide === 0 ? 1 : 0])
+            .map((o) => ({ key: o.key, label: myDataSeriesSheetLabel(o.key, day.label) }))}
+          value={pair[sheetSide]}
+          onPick={(k) => { setSeriesAt(sheetSide, k); setSheetSide(null); }}
+          onClose={() => setSheetSide(null)}
+        />
+      )}
 
       <PracticeCalendarCard
         sessions={allMySessions}
@@ -12754,32 +12697,16 @@ function AnalysisLabView(props) {
           当たり判定だけ広げる: 行の gap を 0 にして左右に 18/2 = 9px の padding を入れる
           (隣り合う文字の間は 9+9 = 18 のまま)。先頭が 9px 右へずれるぶんは行の marginLeft で戻す。
           右端(正典の margin-left:auto)が「…」。 */}
+      {/* 【D-9z / D-9r 2026/08/25 本人指示】この行は**素のテキスト2つだけ**になった。
+          N-11 で右端に相乗りしていた集計範囲セレクタは My Data の指標タブの行へ下り
+          (本人「このセクタは mydata にしか影響しない」)、F-108 で「…」が空になって消えたのと
+          合わせて、右端は**両タブとも空**。おかげで dataSubTab === "mydata" の分岐が1つ消えた
+          (My Data のときだけ右端に何かが生えている、という非対称が無くなった)。 */}
       <SubTabs
         items={[{ key: "mydata", label: "My Data" }, { key: "analysis", label: "分析" }]}
         value={dataSubTab}
         onChange={(k) => { if (listMode) exitSelectionMode(); setDataSubTab(k); }}
-      >
-        {/* 【N-11 2026/08/17 本人指示】子タブ行の右端(正典 案P の .top .sel)に
-            **楽器種別 ▾ · 期間 ▾** を置く。以前は子タブ行の下に専用の1行を敷いていて、
-            そこが「不自然に空いた帯」に見えていた(本人指示の1項目め)。
-            選択モード中は同じ場所を出口(キャンセル)と一手(削除)が使うので出さない
-            — モード中に集計範囲を変える操作は要らないため、場所を奪い合わない。 */}
-        {/* 【D-1 2026/08/22】選択モードは**別画面(AllSessionsPage)でしか始まらない**ので、
-            この行が描かれている間 listMode は必ず null。ガードは到達しないので外した
-            (残すと「モード中に何かが起きる場所」に見えるが、実際には何も起きない)。 */}
-        {dataSubTab === "mydata" && (
-          <MyDataScopePicker
-            dataSax={dataSax} setDataSax={setDataSax}
-            range={dataRange} setRange={setDataRange}
-          />
-        )}
-        {/* 【F-108 2026/08/17 本人指示】子タブ行の右端から「…」を**外した**。
-            中身(セッションを選んで削除)は一覧の見出しの「選択」ひとつに入った。
-            【D-1 2026/08/22】その一覧が別画面(AllSessionsPage)へ移ったので、
-            選択モードの出口(キャンセル)と一手(削除)も**一覧と一緒にそちらへ移した**。
-            この行には子タブ2つと集計範囲セレクタだけが残る
-            (モードは一覧の画面でしか始まらないので、ここに出口を置く必要が無くなった)。 */}
-      </SubTabs>
+      />
 
       {/* 【N-11】bleed: グラフカードが左右の余白を食い破れるよう、viewport の切り取り線だけを
           本文の左右余白ぶん外へ出す(ページの幅と溝は 1px も変えない。SwipePager の解説を見ること)。 */}
@@ -12790,7 +12717,8 @@ function AnalysisLabView(props) {
       <MyDataPage
         sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
         saxType={saxType} tuningHz={tuningHz}
-        dataSax={dataSax} dataRange={dataRange}
+        dataSax={dataSax} setDataSax={setDataSax}
+        dataRange={dataRange} setDataRange={setDataRange}
         onOpenSession={setSelectedSessionId}
         onOpenAllSessions={() => setAllSessionsOpen(true)}
         pageActive={dataSubTab === "mydata"}
@@ -12806,15 +12734,14 @@ function AnalysisLabView(props) {
           ・機能は1つも落とさない: 条件追加/削除・12次元・値チップ・音域帯まとめ選択・
             日付/日数範囲・既定フィルタ・軸セレクタ3枚・測度7種・折れ線・設定のタブまたぎ保持 */}
       <div>
-        {/* 【F-99 2026/08/17 本人指示】N-9 で消した表題と説明を**書き直して**復活。
-            本人の意図: 「分析は自分で集計軸を選んで初めて機能するページ。最初にユーザーに
-            アクションしてもらう必要があるので一定の説明が必要。PIVOT の文字があれば Excel も
-            想起できる」。説明は N-9 で消した長文を戻すのではなく、1行の簡潔な文に書き直した。
-            表題の文字組み(15px / --c-accent / 700)と説明(12px / --c-ink-3)は旧実装と同じ値
-            (箱 .card は N-9 どおり復活させない。白地に直接置く)。 */}
-        <div className="sans" style={{ fontSize: 15, color: "var(--c-accent)", fontWeight: 700, marginBottom: 4 }}>
-          PIVOT
-        </div>
+        {/* 【F-99 2026/08/17 本人指示】N-9 で消した表題と説明を**書き直して**復活させた。
+            本人の意図:「分析は自分で集計軸を選んで初めて機能するページ。最初にユーザーに
+            アクションしてもらう必要があるので一定の説明が必要」。説明の1行はその意図のまま残す。
+            【D-9r 2026/08/25 本人指示で表題だけ撤回】「PIVOT の文字ごと削除してその分上に
+            詰めましょう」。F-99 のもう一方の理由「PIVOT の文字があれば Excel も想起できる」は
+            **本人の裁定で上書きされた**。表題の行(15px + 余白4 = 19px)が丸ごと消え、
+            見出しは子タブの「分析」(22px)1つだけになる(D-8a の「見出しが2つに見える」が消える)。
+            **この墓碑を消さないこと** ── 消すと次に触る人が 15px の表題を戻す。 */}
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginBottom: 12 }}>
           条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します
         </div>
@@ -13309,7 +13236,9 @@ function AllSessionsPage({
 // (セッション一覧・絞り込み・選択削除は AllSessionsPage へ移した)。
 function MyDataPage({
   sessions, reeds, selectedIdeal, saxType, tuningHz,
-  dataSax, dataRange,
+  // 【D-9z】集計範囲は AnalysisLabView が持ったまま、セレクタだけが My Data の中へ下りた。
+  // setter をここで受けて MyDataSection へ渡す(状態の置き場は変えない)。
+  dataSax, setDataSax, dataRange, setDataRange,
   onOpenSession, onOpenAllSessions,
   // 【N-11】浮かせるボタン(取り込み)は body へ portal で出るので、
   // 「今どのページか」を知らないと隣のページ(分析)でも出たままになる。
@@ -13329,7 +13258,8 @@ function MyDataPage({
       <MyDataSection
         sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
         saxType={saxType} tuningHz={tuningHz}
-        dataSax={dataSax} range={dataRange}
+        dataSax={dataSax} setDataSax={setDataSax}
+        range={dataRange} setRange={setDataRange}
         totalSessionCount={sessions.length}
         onOpenSession={onOpenSession}
         onOpenAllSessions={onOpenAllSessions}
