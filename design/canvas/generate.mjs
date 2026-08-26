@@ -708,3 +708,48 @@ ${rows}
   writeFileSync(OUT + "Centroid.dc.html", dcFile(body));
   console.log("D-9 Centroid 中央線=" + Math.round(L.center) + "Hz（その指標の平均）ticks=" + L.tickTexts.join("/"));
 }
+
+// ---- AnalysisTop.dc.html : D-9r 分析(PIVOT)タブの上部 -------------------
+// 集計範囲セレクタが子タブ行から抜けたあと、その空きをどうするか。
+// **案R = 表題「PIVOT」をその空きへ移す。** D-8a「PIVOT が2つ目の見出しに見える」も同時に解ける。
+{
+  const subTab = (analysisSel, right) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+            <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">My Data</div>
+            <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">分析</div>
+            ${right}
+          </div>`;
+  const pivotTitle = `<div style="font-size: 15px; color: var(--c-accent); font-weight: 700; margin-bottom: 4px">PIVOT</div>`;
+  const desc = `<div style="font-size: 12px; color: var(--c-ink-3); line-height: 1.6; margin-bottom: 12px">条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します</div>`;
+  const condRow = `<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 0 4px">
+            <div style="display: inline-flex; align-items: center; padding: 3px 10px; font-size: 11px; font-weight: 600; color: var(--c-accent); background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; line-height: 1.4">楽器 = Alto</div>
+            <div style="display: inline-flex; align-items: center; padding: 3px 10px; font-size: 11px; color: var(--c-ink-2); background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; line-height: 1.4">＋ 条件</div>
+          </div>`;
+  const ghost = `<div style="margin-top: 12px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; opacity: .5">
+${Array.from({ length: 12 }, (_, i) => `            <div style="height: 25px; border-radius: 4px; background: ${i % 5 === 0 ? "var(--c-div-6)" : i % 3 === 0 ? "var(--c-div-3)" : "var(--c-sunk)"}"></div>`).join("\n")}
+          </div>`;
+  const block = (title, note, inner, h) => `<div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); margin-bottom: 2px">${title}</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 8px; line-height: 1.5">${note}</div>
+          <div style="border: 1px dashed var(--c-line-strong); border-radius: 8px; padding: 0 14px 12px; background: var(--c-bg)">
+${inner}
+          </div>
+          <div style="font-size: 10px; color: var(--c-ink-3); font-family: var(--font-num); margin-top: 4px; text-align: right">上部 ${h}px</div>
+        </div>`;
+
+  const body = `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">D-9r ─ 分析タブの上部</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">集計範囲セレクタが子タブ行から抜けたあと、右端が空く。</div>
+      <div style="display: flex; flex-direction: column; gap: 20px">
+${block("そのまま（空けたまま）", "子タブ行の右端が空く。表題「PIVOT」は 22px の見出しの下に残るので、<b>見出しが2つ続いて見える</b>（D-8a の指摘そのもの）。",
+    `            ${subTab(true, "")}\n            <div style="padding-top: 8px">${pivotTitle}${desc}${condRow}${ghost}</div>`, 63)}
+${block("案R ─ 「PIVOT」を空いた右端へ", "セレクタがいた場所に名前が入る。<b>見出しは「分析」1つだけ</b>になり、表題の行（15px + 余白4）が丸ごと消えて <b>19px 縮む</b>。「PIVOT の文字があれば Excel も想起できる」（F-99）は名前が残るので保たれる。",
+    `            ${subTab(true, '<div style="margin-left: auto; font-size: 12px; color: var(--c-accent); font-weight: 700; flex-shrink: 0">PIVOT</div>')}\n            <div style="padding-top: 8px">${desc}${condRow}${ghost}</div>`, 44)}
+      </div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        文字組みは <span style="font-family: var(--font-num)">15px / --c-accent / 700</span> → <span style="font-family: var(--font-num)">12px / --c-accent / 700</span>。<br>
+        大きさだけ落として色は残す ─ 12px は集計範囲セレクタと同じ段なので、<b>右端の作法がそのまま引き継がれる</b>。新しい値は使っていない。
+      </div>
+    </div>`;
+  writeFileSync(OUT + "AnalysisTop.dc.html", dcFile(body));
+  console.log("AnalysisTop D-9r 案R（PIVOT を右端へ / 上部 63 → 44px）");
+}
