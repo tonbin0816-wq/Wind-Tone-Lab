@@ -38,11 +38,22 @@ const formatSignedCents = (v) => {
 const roundInt = (v) => Math.round(v).toString();
 
 // ---- NoteAxisLineChart の L( ) をそのまま再現 ---------------------------
-function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H }) {
+// 【D-9u 2026/08/25 本人指示】「平均差分以外はその項目の平均を中央線にして同様に」
+//   ・平均差分 … 中央線 = 0（従来どおり）
+//   ・HNR / 重心 / 音量 … 中央線 = **その指標で描いている全値の平均**
+// どちらも中央線をまん中に置いて上下対称のドメインにする（＝「同様に」）。
+// こうすると上下の目盛線が無くても、中央線1本が基準として必ず残る。
+function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H, meanCentered = false }) {
   const all = [...vals.flat().filter((v) => v !== null), ...(refVals ? refVals.filter((v) => v !== null) : [])];
-  let lo, hi;
-  if (zeroCentered) { hi = Math.max(...all.map(Math.abs)) || 1; lo = -hi; }
+  let lo, hi, center;
+  if (zeroCentered) { center = 0; hi = Math.max(...all.map(Math.abs)) || 1; lo = -hi; }
+  else if (meanCentered) {
+    center = all.reduce((a, v) => a + v, 0) / all.length;
+    const dev = Math.max(...all.map((v) => Math.abs(v - center))) || 1;
+    hi = center + dev; lo = center - dev;
+  }
   else {
+    center = null;
     const mn = Math.min(...all), mx = Math.max(...all);
     const pad = (mx - mn) * 0.12 || Math.abs(mx) * 0.1 || 1;
     lo = mn - pad; hi = mx + pad;
@@ -59,13 +70,13 @@ function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H }) {
   const need = maxLblW + SVG_SP2;
   const labelStep = [1, 2, 3, 4, 6, 12].find((s) => s * colStep >= need) ?? 12;
   const ebIdx = LABELS.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
-  const center = (N - 1) / 2;
-  const midEb = ebIdx.reduce((b, i) => (Math.abs(i - center) < Math.abs(b - center) ? i : b), ebIdx[0]);
+  const axisCenter = (N - 1) / 2;
+  const midEb = ebIdx.reduce((b, i) => (Math.abs(i - axisCenter) < Math.abs(b - axisCenter) ? i : b), ebIdx[0]);
   const dotR = Math.max(1.5, Math.min(3, colStep * 0.3));
   const labelY = PAD_TOP + plotH + SVG_SP2 + Math.round(FS * 0.8);
   const yAt = (v) => PAD_TOP + plotH - ((v - lo) / rng) * plotH;
   return {
-    lo, hi, FS, plotH, tickVals, tickTexts, dotR, labelY, midEb, labelStep,
+    lo, hi, center, FS, plotH, tickVals, tickTexts, dotR, labelY, midEb, labelStep,
     H: labelY + SVG_SP1,
     xAt: (i) => x0 + i * colStep,
     yAt,
@@ -99,8 +110,9 @@ function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = t
       p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
     }
   }
-  if (zeroCentered) {
-    p.push(`<line x1="0" y1="${r2(L.yAt(0))}" x2="${W}" y2="${r2(L.yAt(0))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
+  // 【D-9u】中央線は1本だけ。平均差分は 0、他3指標はその指標の平均
+  if (L.center !== null && L.center !== undefined) {
+    p.push(`<line x1="0" y1="${r2(L.yAt(L.center))}" x2="${W}" y2="${r2(L.yAt(L.center))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
   }
   p.push(`<line x1="${r2(L.xAt(L.midEb))}" y1="${PAD_TOP}" x2="${r2(L.xAt(L.midEb))}" y2="${PAD_TOP + L.plotH}" stroke-width="1" style="stroke: var(--c-line)" />`);
   // 目盛の文字は折れ線の上・白い縁つき(D-8 の axisOverlay)
@@ -675,4 +687,24 @@ ${rows}
   ].join("\n        "));
   writeFileSync(OUT + "Windows.dc.html", dcFile(body));
   console.log("D-9 Windows 1枚 + 案D（音域外は窓なし / 未演奏は枠）");
+}
+
+// ---- Centroid.dc.html（D-9）: 重心 × 折れ線（中央線 = その指標の平均） ----
+{
+  const series = [
+    { id: "day", label: D9_SERIES[0].label, color: D9_SERIES[0].color, width: 2, byIdx: cenDay },
+    { id: "period", label: D9_SERIES[1].label, color: D9_SERIES[1].color, width: 2, byIdx: cenPeriod },
+  ];
+  // 【D-9u】0 中心ではないので、**その指標の平均**を中央線にして上下対称にする。
+  // 【D-9 §6】比較対象の破線(refByIdx)は撤去。目安を見たいときは**式の片側で選ぶ**
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: false, meanCentered: true, fmt: roundInt, plotH: 170 });
+  const body = d9Page([
+    d9MetricTabs("重心"),
+    d9FormulaRow(d9Chip(D9_SERIES[0].label, D9_SERIES[0].color), "×", d9Chip(D9_SERIES[1].label, D9_SERIES[1].color), "line"),
+    `<div>
+          ${chartSvg({ series, L, zeroCentered: false, edgeGridLines: false })}
+        </div>`,
+  ].join("\n        "));
+  writeFileSync(OUT + "Centroid.dc.html", dcFile(body));
+  console.log("D-9 Centroid 中央線=" + Math.round(L.center) + "Hz（その指標の平均）ticks=" + L.tickTexts.join("/"));
 }

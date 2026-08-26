@@ -1,23 +1,21 @@
 {
   "pages": [
     { "id": "page-1", "name": "D-9 反映" },
-    { "id": "page-2", "name": "現状（D-8 のまま）" },
-    { "id": "page-3", "name": "検討した案" }
+    { "id": "page-2", "name": "検討した案" }
   ],
   "artboards": [
-    { "file": "Main.dc.html",     "page": "page-1", "x": 0,   "y": 0, "w": 375, "h": 380, "title": "平均差分 × 折れ線" },
-    { "file": "Windows.dc.html",  "page": "page-1", "x": 455, "y": 0, "w": 375, "h": 380, "title": "平均差分 ー 窓型" },
+    { "file": "Main.dc.html",     "page": "page-1", "x": 0,   "y": 0, "w": 375, "h": 380, "title": "平均差分 × 折れ線（中央線 = 0）" },
+    { "file": "Centroid.dc.html", "page": "page-1", "x": 455, "y": 0, "w": 375, "h": 380, "title": "重心 × 折れ線（中央線 = 平均）" },
+    { "file": "Windows.dc.html",  "page": "page-1", "x": 910, "y": 0, "w": 375, "h": 380, "title": "平均差分 ー 窓型" },
 
-    { "file": "Centroid.dc.html", "page": "page-2", "x": 0,   "y": 0, "w": 375, "h": 340, "title": "重心 × 折れ線（未着手）" },
-
-    { "file": "StackA.dc.html",   "page": "page-3", "x": 0,    "y": 0, "w": 420, "h": 480, "title": "案A 効き目（不採用）" },
-    { "file": "PlanA.dc.html",    "page": "page-3", "x": 500,  "y": 0, "w": 375, "h": 290, "title": "案A 統合後（不採用）" },
-    { "file": "CompareB.dc.html", "page": "page-3", "x": 955,  "y": 0, "w": 375, "h": 375, "title": "案B 子タブの濃さ（不採用）" },
-    { "file": "PlanD.dc.html",    "page": "page-3", "x": 1410, "y": 0, "w": 375, "h": 365, "title": "案D 空セル（採用・D-9 に同梱）" }
+    { "file": "StackA.dc.html",   "page": "page-2", "x": 0,    "y": 0, "w": 420, "h": 480, "title": "案A 効き目（不採用）" },
+    { "file": "PlanA.dc.html",    "page": "page-2", "x": 500,  "y": 0, "w": 375, "h": 290, "title": "案A 統合後（不採用）" },
+    { "file": "CompareB.dc.html", "page": "page-2", "x": 955,  "y": 0, "w": 375, "h": 375, "title": "案B 子タブの濃さ（不採用）" },
+    { "file": "PlanD.dc.html",    "page": "page-2", "x": 1410, "y": 0, "w": 375, "h": 365, "title": "案D 空セル（採用・D-9 に同梱）" }
   ],
   "annotations": [
-    { "id": "d9", "page": "page-1", "x": 0, "y": -180, "w": 700, "text": "D-9 の裁定を全部当てた版（凍結仕様 design/D9-SPEC.md）。位置ズレを直し、実寸で組み直しました。\n式のチップ / 凡例を撤去して枠が系列色 / 指標タブの罫なし / 集計範囲セレクタを指標タブの行へ / 上部を詰めた / 折れ線は上下の目盛線と帯なし・plotH 170 / 窓型は1枚 + 案D。\nまだ実装には入れていません。この絵が正しければ src/App.jsx へ写します。" },
-    { "id": "left", "page": "page-2", "x": 0, "y": -130, "w": 520, "text": "重心 × 折れ線。D-8 のまま手を入れていません。\n他の3指標（HNR / 重心 / 音量）は実数 + 破線で、D-9 の式をどう当てるかがまだ決まっていません。" }
+    { "id": "d9", "page": "page-1", "x": 0, "y": -200, "w": 760, "text": "D-9 の裁定を全部当てた版（凍結仕様 design/D9-SPEC.md）。実寸で組み直しています。\n式のチップ / 凡例を撤去して枠が系列色 / 指標タブの罫なし / 集計範囲セレクタを指標タブの行へ / 上部を詰めた（グラフの上端 y=180→131）/ 上下の目盛線なし・帯なし・plotH 170 / 窓型は1枚 + 案D。\n\nD-9u = 中央線は必ず1本。平均差分は 0、他3指標は「その指標の平均」を中央に置いて上下対称にする。重心の絵で 1577Hz がその線です。\nまだ実装には入れていません。この絵でよければ src/App.jsx へ写します。" },
+    { "id": "rejected", "page": "page-2", "x": 0, "y": -140, "w": 640, "text": "案A（比較対象の行を畳む）と案B（子タブの濃さ）は不採用。案D（空セルを2つに分ける）は採用され、D-9 の窓型に同梱済み。\n記録として残しています。" }
   ],
   "launch": { "view": "canvas", "page": "page-1" }
 }
