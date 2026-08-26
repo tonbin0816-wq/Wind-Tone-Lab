@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --r-xs: 4px; --r-sm: 8px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9;
+      --c-rule: #E1E6EC; --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-line: #B9C9E4;
+      --c-on-accent: #FFFFFF;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      /* 【2026/08/26】モックの中で var() は書かれていたのに**未定義だった**4つを足した。
+         未定義のカスタムプロパティは transparent 扱いになるので、カレンダーの
+         薄い段(--c-accent-tint)が消えていた。値は src/index.css から写している。 */
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --c-ink-4: #A6AEBA; --c-accent-tint: #EAEFF5; --c-danger: #DC2626;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px">
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">My Data</div>
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">分析</div>
+      </div>
+      <div style="padding-top: 8px"><div style="font-size: 12px; color: var(--c-ink-3); line-height: 1.6; padding: 0 4px 8px">抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します</div>
+      <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 16px">
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; height: 30px">
+          <span style="display: inline-flex; align-items: center; height: 30px">
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; font-weight: 600; color: var(--c-accent); background: var(--c-accent-tint); border-radius: 999px; line-height: 1.4">楽器 = Alto</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; height: 30px">
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; color: var(--c-ink-2); border: 1px dashed var(--c-line-strong); border-radius: 999px; line-height: 1.4">＋ 条件</span>
+          </span>
+          <span style="margin-left: auto; display: inline-flex; align-items: center; height: 30px; font-size: 10px; color: var(--c-accent)">編集</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; min-height: 30px"><span style="display: inline-flex; align-items: baseline; gap: 5px; ">
+            <span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">縦軸</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">音名 ▾</span>
+          </span><span style="display: inline-flex; align-items: baseline; gap: 5px; ">
+            <span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">横軸</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">平均差分 ▾</span>
+          </span><span style="display: inline-flex; align-items: baseline; gap: 5px; flex: 1; min-width: 0;">
+            <span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">分析軸</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">リード ▾</span>
+          </span></div>
+      </div>
+      <div style="height: 12px"></div>
+      <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 16px">
+        <svg width="315" height="225" viewBox="0 0 315 225" style="display: block">
+          <line x1="179.5" y1="0" x2="179.5" y2="225" stroke-width="1" style="stroke: var(--c-line-strong)" />
+          <text x="38" y="16.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">C4</text>
+          <text x="38" y="41.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">D4</text>
+          <text x="38" y="66.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E4</text>
+          <text x="38" y="91.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">F4</text>
+          <text x="38" y="116.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G4</text>
+          <text x="38" y="141.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A4</text>
+          <text x="38" y="166.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">B4</text>
+          <text x="38" y="191.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">C5</text>
+          <text x="38" y="216.5" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">D5</text>
+          <polyline fill="none" points="193.05,12.5 174.08,37.5 157.82,62.5 179.5,87.5 206.6,112.5 184.92,137.5 165.95,162.5 146.98,187.5 163.24,212.5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
+          <polyline fill="none" points="138.85,12.5 152.4,37.5 184.92,62.5 201.18,87.5 179.5,112.5 163.24,137.5 179.5,162.5 195.76,187.5 206.6,212.5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)" />
+        </svg>
+      </div></div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行と軸の行を <b>30px</b> に詰める / 「編集」を 10px。<br><b>減った縦幅</b>: 軸のセレクタが 77 → <b>30px</b>、カード全体で 80px。<br><b>代償</b>: 44pt を割る行が2つ増える(チップ行・軸の行)。§5 の例外を<b>My Data の式の行に加えてもう2つ</b>作ることになるので、DESIGN-SYSTEM に明記が要る。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>
+    </div>
+</x-dc>
+</body>
+</html>

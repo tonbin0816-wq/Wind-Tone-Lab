@@ -23,6 +23,11 @@
       --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
       --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
       --c-quiet: #C7CFD9;
+      /* 【2026/08/26】モックの中で var() は書かれていたのに**未定義だった**4つを足した。
+         未定義のカスタムプロパティは transparent 扱いになるので、カレンダーの
+         薄い段(--c-accent-tint)が消えていた。値は src/index.css から写している。 */
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --c-ink-4: #A6AEBA; --c-accent-tint: #EAEFF5; --c-danger: #DC2626;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }

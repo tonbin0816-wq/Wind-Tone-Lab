@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --r-xs: 4px; --r-sm: 8px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9;
+      --c-rule: #E1E6EC; --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-line: #B9C9E4;
+      --c-on-accent: #FFFFFF;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      /* 【2026/08/26】モックの中で var() は書かれていたのに**未定義だった**4つを足した。
+         未定義のカスタムプロパティは transparent 扱いになるので、カレンダーの
+         薄い段(--c-accent-tint)が消えていた。値は src/index.css から写している。 */
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --c-ink-4: #A6AEBA; --c-accent-tint: #EAEFF5; --c-danger: #DC2626;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<div style="width: 375px; background: var(--c-sunk); padding: 14px 14px 18px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); padding: 0 2px 4px">式の行 ─ いまの形からのマイナーチェンジ</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); line-height: 1.6; padding: 0 2px 12px">ゼロベースの3案(C1〜C3)は取り下げ。<b>変えるのは1案につき1点だけ</b>にしてあるので、効いた点がそのまま分かります。行の高さ 35px・ピル 20px・色は系列と対応、はどの案も据え置き。</div>
+      <div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: var(--c-ink-3); padding: 0 2px 6px">いまの形(比較用)</div>
+        <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 14px">
+        <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          <span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">8/24</span>
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">×</span>
+          <span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent-mid); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">my平均</span>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div><svg width="287" height="44" viewBox="0 0 287 44" style="display: block; margin-top: 8px">
+          <polyline fill="none" points="0,22 26.09,32.53 52.18,39.08 78.27,39.17 104.36,32.77 130.45,22.3 156.55,11.71 182.64,5.01 208.73,4.74 234.82,10.99 260.91,21.4 287,32.04" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
+          <polyline fill="none" points="0,38.04 26.09,39.79 52.18,34.81 78.27,24.98 104.36,14.03 130.45,6.1 156.55,4.17 182.64,8.99 208.73,18.72 234.82,29.7 260.91,37.76 287,39.87" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)" />
+        </svg>
+      </div>
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0">枠が系列の色、地は透明、記号は 16px。<b>引っかかりの候補</b>: ①押せる印が無い ②枠だけの箱が入力欄に見える ③色が「枠」にしか出ていないので、線との対応が一拍遅れる。下の折れ線と見比べてください。</div>
+      </div>
+      <div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); padding: 0 2px 6px">案M1 ▾ を足す</div>
+        <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 14px">
+        <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          <span style="display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 9px 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">8/24<span style="font-size: 9px; color: var(--c-line-strong)">▾</span></span>
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">×</span>
+          <span style="display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 9px 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent-mid); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">my平均<span style="font-size: 9px; color: var(--c-line-strong)">▾</span></span>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div>
+      </div>
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0"><b>変えた1点</b>: ピルの右に 9px の ▾。<b>押せることが分かる</b>のが唯一の狙いで、他は1pxも変えていない。いちばん小さい変更。</div>
+      </div>
+      <div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); padding: 0 2px 6px">案M2 枠をやめて地を敷き、色は文字が持つ</div>
+        <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 14px">
+        <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          <span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: var(--c-sunk); font-size: 12px; font-weight: 600; color: var(--c-accent)">8/24</span>
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">×</span>
+          <span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: var(--c-sunk); font-size: 12px; font-weight: 600; color: var(--c-accent-mid)">my平均</span>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div>
+      </div>
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0"><b>変えた1点</b>: 枠 → 地(--c-sunk)。色は**文字**へ移した。<b>入力欄に見える原因(枠だけの箱)が消え</b>、押せる面に見える。文字が系列色になるので、線との対応もむしろ強い。</div>
+      </div>
+      <div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); padding: 0 2px 6px">案M3 枠は共通、色は先頭の丸が持つ</div>
+        <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 14px">
+        <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 12px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-line-strong); font-size: 12px; font-weight: 600; color: var(--c-ink-2)"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent); flex-shrink: 0"></span>8/24</span>
+          <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3); flex-shrink: 0">×</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 12px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-line-strong); font-size: 12px; font-weight: 600; color: var(--c-ink-2)"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent-mid); flex-shrink: 0"></span>my平均</span>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div>
+      </div>
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0"><b>変えた1点</b>: 枠を共通の --c-line-strong にして、色を <b>6px の丸</b>へ移した。枠=「選ぶ器」/ 丸=「どの線か」と役割が分かれる。凡例の丸と同じ読み方になる。</div>
+      </div>
+      <div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: var(--c-ink); padding: 0 2px 6px">案M4 余白と記号を詰める</div>
+        <div style="background: var(--c-surface); border-radius: 16px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 14px">
+        <div style="display: flex; align-items: center; gap: 6px; height: 35px">
+          <span style="display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">8/24</span>
+          <span style="font-size: 13px; line-height: 1; color: var(--c-line-strong); flex-shrink: 0">×</span>
+          <span style="display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-accent-mid); font-size: 12px; font-weight: 600; color: var(--c-ink-2)">my平均</span>
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div>
+      </div>
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0"><b>変えた1点</b>: ピルを 20→22px・左右の余白 13→10px、記号を 16→13px の --c-line-strong、間隔 8→6px。<b>横に間延びした感じ</b>が引っかかりの正体なら、これがいちばん効く。</div>
+      </div>
+      <div style="margin-top: 4px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>窓型のとき</b>: どの案も色を持たせない(M2 の文字は --c-ink-2 / M3 の丸は出さない / M1・M4 の枠は --c-line-strong)。窓型には対応する線が無いためです。<br><b>混ぜられます</b>: M1 の ▾ は M2・M3・M4 のどれにも足せます(足すと押せる印と、選んだ形の両方が揃う)。</div>
+    </div>
+</x-dc>
+</body>
+</html>

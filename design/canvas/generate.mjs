@@ -1,5 +1,7 @@
 import { writeFileSync } from "node:fs";
-const OUT = "/home/user/Wind-Tone-Lab/design/canvas/";
+import { fileURLToPath } from "node:url";
+// このファイルの隣へ書き出す(前は Linux の絶対パスが埋まっていて、他の環境で動かなかった)。
+const OUT = fileURLToPath(new URL("./", import.meta.url));
 // 【D-9 2026/08/25】Main / Windows は**本人がキャンバス上で直接いじった**ものが正になった。
 // 既定では上書きしない。D-8 当時の写しを作り直したいときだけ --regen-baseline を付ける。
 const REGEN_BASELINE = process.argv.includes("--regen-baseline");
@@ -43,7 +45,7 @@ const roundInt = (v) => Math.round(v).toString();
 //   ・HNR / 重心 / 音量 … 中央線 = **その指標で描いている全値の平均**
 // どちらも中央線をまん中に置いて上下対称のドメインにする（＝「同様に」）。
 // こうすると上下の目盛線が無くても、中央線1本が基準として必ず残る。
-function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H, meanCentered = false }) {
+function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H, meanCentered = false, width = W }) {
   const all = [...vals.flat().filter((v) => v !== null), ...(refVals ? refVals.filter((v) => v !== null) : [])];
   let lo, hi, center;
   if (zeroCentered) { center = 0; hi = Math.max(...all.map(Math.abs)) || 1; lo = -hi; }
@@ -65,7 +67,7 @@ function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H, meanCentered
   const maxLblW = Math.ceil(Math.max(...LABELS.map((s) => textPx(s))));
   const halfLbl = Math.ceil(maxLblW / 2) + SVG_SP1;
   const x0 = SVG_SP2 + halfLbl;                    // axisOverlay → AXW = 0
-  const x1 = Math.max(x0 + 1, W - SVG_SP2 - halfLbl);
+  const x1 = Math.max(x0 + 1, width - SVG_SP2 - halfLbl);
   const colStep = (x1 - x0) / (N - 1);
   const need = maxLblW + SVG_SP2;
   const labelStep = [1, 2, 3, 4, 6, 12].find((s) => s * colStep >= need) ?? 12;
@@ -98,21 +100,22 @@ const segsOf = (byIdx, L) => {
 };
 const r2 = (n) => Math.round(n * 100) / 100;
 
-function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = true }) {
+function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = true, width = W }) {
   const p = [];
-  p.push(`<svg width="${W}" height="${L.H}" viewBox="0 0 ${W} ${L.H}" style="display: block">`);
+  const W2 = width;
+  p.push(`<svg width="${W2}" height="${L.H}" viewBox="0 0 ${W2} ${L.H}" style="display: block">`);
   if (zeroCentered && bandAbs > 0) {
     const yTop = L.yAt(Math.min(bandAbs, L.hi)), yBot = L.yAt(Math.max(-bandAbs, L.lo));
-    p.push(`<rect x="0" y="${r2(yTop)}" width="${W}" height="${r2(yBot - yTop)}" stroke="none" style="fill: var(--c-quiet); opacity: ${CHART_OK_BAND_OPACITY}" />`);
+    p.push(`<rect x="0" y="${r2(yTop)}" width="${W2}" height="${r2(yBot - yTop)}" stroke="none" style="fill: var(--c-quiet); opacity: ${CHART_OK_BAND_OPACITY}" />`);
   }
   if (edgeGridLines) {
     for (const v of L.tickVals) {
-      p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
+      p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W2}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
     }
   }
   // 【D-9u】中央線は1本だけ。平均差分は 0、他3指標はその指標の平均
   if (L.center !== null && L.center !== undefined) {
-    p.push(`<line x1="0" y1="${r2(L.yAt(L.center))}" x2="${W}" y2="${r2(L.yAt(L.center))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
+    p.push(`<line x1="0" y1="${r2(L.yAt(L.center))}" x2="${W2}" y2="${r2(L.yAt(L.center))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
   }
   p.push(`<line x1="${r2(L.xAt(L.midEb))}" y1="${PAD_TOP}" x2="${r2(L.xAt(L.midEb))}" y2="${PAD_TOP + L.plotH}" stroke-width="1" style="stroke: var(--c-line)" />`);
   // 目盛の文字は折れ線の上・白い縁つき(D-8 の axisOverlay)
@@ -160,6 +163,11 @@ const TOKENS = `
       --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
       --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
       --c-quiet: #C7CFD9;
+      /* 【2026/08/26】モックの中で var() は書かれていたのに**未定義だった**4つを足した。
+         未定義のカスタムプロパティは transparent 扱いになるので、カレンダーの
+         薄い段(--c-accent-tint)が消えていた。値は src/index.css から写している。 */
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --c-ink-4: #A6AEBA; --c-accent-tint: #EAEFF5; --c-danger: #DC2626;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
@@ -917,13 +925,13 @@ const rFormula = (l, sign, rr, view = "line") => `<div style="display: flex; ali
         ${d9Chip(rr, D9_SERIES[1].color)}
         ${d9Toggle(view)}
       </div>`;
-function rChart(plotH = 170) {
+function rChart(plotH = 170, width = W) {
   const series = [
     { id: "day", label: "8/24", color: D9_SERIES[0].color, width: 2, byIdx: pitchDay },
     { id: "period", label: "my平均", color: D9_SERIES[1].color, width: 2, byIdx: pitchPeriod },
   ];
-  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH });
-  return chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false });
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH, width });
+  return chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false, width });
 }
 const rPage = (inner, note) => `<div style="width: 375px; background: var(--c-bg); padding: 0 14px 20px; box-sizing: border-box">
       ${inner}
@@ -1040,4 +1048,350 @@ ${chap("積み重ね", "練習した日と、その量")}
   writeFileSync(OUT + "R4Quiet.dc.html", dcFile(rPage(inner,
     "<b>案4 静かな章立て。</b>行を詰めるのをやめ、<b>28px の余白と 18px の見出し</b>で3つの章に割る。<br>読ませる順が視覚的に立つ代わりに<b>縦は伸びる</b>。「育てる × 静けさ」(design/DESIGN.md)にいちばん近いのはこれ。")));
   console.log("R4 Quiet   静かな章立て");
+}
+
+
+// ========================================================================
+// 【S 2026/08/26 本人指示】My Data / 分析タブのレイアウト刷新案。
+// 一次: 「総計測時間・回数を先頭 → 次にカレンダー(よりカレンダーらしく)」「レイアウトは一から」
+// 二次: 「むやみに線をひくのやめて」「カード化とサイズ感を参考画像へ」「日付は元の丸に戻して」
+// 三次(裁定): **My Data は S1、分析は A1 を採用**。
+//   ・「白いカードがある方が機械感が強くて少しうるさくなるが、mydata はラボ的に使ってほしい
+//     側面があるので、その表現としてはあり」= **カードの文法を採用**
+//   ・その日のセッションは**常時表示をやめ、日付を押したら開く**(折れ線のカードを下へ押し出す)。
+//     他をタップすると閉じる。**最大3件、それ以上はスクロール**
+//   ・式のチップ(比較対象の選択)は**ゼロベースで作り直す**(下の Chips.dc.html に4案)
+//
+// 【体系に持ち込む変更 ─ 採用済み】
+//   1. 面の作法: D-7 の「白地 + 罫1本」→ **薄い地 + 白いカード**(本人裁定で採用)
+//   2. 影のトークンが体系に無い。ここでは2段の影を使っている
+//   3. カレンダーのマスを 38 → 44pt(§5.1 の例外が要らなくなる)
+// ========================================================================
+
+const S_SHADOW = "0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06)";
+const sCard = (inner, pad = 16) => `<div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: ${pad}px">
+        ${inner}
+      </div>`;
+const sEyebrow = (t) => `<div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">${t}</div>`;
+const sNum = "font-family: var(--font-num); font-weight: 600; color: var(--c-ink); letter-spacing: -.02em";
+const sSectionHead = (t, right) => `<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px 8px">
+        ${t ? `<span style="font-size: 15px; font-weight: 600; color: var(--c-ink)">${t}</span>` : ""}
+        ${right ? `<span style="font-size: 11px; color: var(--c-ink-3); flex-shrink: 0">${right}</span>` : ""}
+      </div>`;
+
+// ---- サマリー -----------------------------------------------------------
+// S1(採用): 本人が綴りを「累計 / 計測時間 / 計測回数 / 計測音」へ直した
+function sStatsThree() {
+  const cell = (v, u, l) => `          <div style="flex: 1; min-width: 0">
+            <div style="${sNum}; font-size: 26px; line-height: 1.1; white-space: nowrap">${v}<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">${u}</span></div>
+            <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 3px">${l}</div>
+          </div>`;
+  return sCard(`${sEyebrow("累計")}
+        <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 10px">
+${cell("12.5", "時間", "計測時間")}
+${cell("46", "回", "計測回数")}
+${cell("3,120", "音", "計測音")}
+        </div>`);
+}
+// S2 / S3 は本人が綴りを元へ戻したので、そのまま(S1 の語彙を波及させない)
+function sStatsHero() {
+  return sCard(`${sEyebrow("これまでの練習")}
+        <div style="display: flex; align-items: baseline; gap: 6px; margin-top: 6px">
+          <span style="${sNum}; font-size: 46px; line-height: 1">12.5</span>
+          <span style="font-size: 15px; color: var(--c-ink-3)">時間</span>
+        </div>
+        <div style="font-size: 13px; color: var(--c-ink-2); margin-top: 8px">46 セッション · 3,120 音</div>`);
+}
+function sStatsTwoTier() {
+  return sCard(`<div style="display: flex; align-items: center; gap: 8px">
+          ${sEyebrow("この1ヶ月")}
+          <span style="margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; color: var(--c-ink-3)">Alto ▾</span>
+          <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
+          <span style="display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 10px">
+          <span style="${sNum}; font-size: 26px; line-height: 1.1; white-space: nowrap">3.7<span style="font-size: 13px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">時間</span></span>
+          <span style="font-size: 13px; color: var(--c-ink-2)">12 セッション</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px">
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">全期間</span>
+          <span style="font-size: 12px; color: var(--c-ink-2); margin-left: auto">46 セッション · 12.5 時間 · 3,120 音</span>
+        </div>`);
+}
+
+// ---- カレンダー ---------------------------------------------------------
+// 練習量は**丸の濃さ**(現行 CALENDAR_FILLS の4段)。マスは 44pt。
+// 【S1・本人の手直し】月見出しは **yyyy/m**、合計はその**右・下揃え**。
+//   本人は `position: relative; left: -25px` で寄せていたが、**見た目だけのズラし**なので
+//   月の綴りが伸びると重なり得る。baseline で並べる形に置き換えた
+//   (文字の大きさが違っても足元が1本に揃い、箱が動くので重ならない)。
+const S_CAL_H = 44, S_CAL_DOT = 34;
+const S_FILLS = ["transparent", "var(--c-accent-tint)", "var(--c-accent-line)", "var(--c-accent-mid)", "var(--c-accent)"];
+const sCalInk = (lv) => (lv >= 3 ? "var(--c-on-accent)" : lv > 0 ? "var(--c-ink)" : "var(--c-ink-3)");
+function sCalendarCard({ month = "2026年8月", metaBeside = false, sel = 24 } = {}) {
+  const firstDow = 6, days = 31, today = 26;
+  const levels = { 3:1, 5:2, 6:1, 8:3, 10:1, 12:2, 13:1, 15:4, 17:1, 19:2, 20:3, 22:1, 24:4, 26:2, 27:1, 29:1 };
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+  const body = cells.map((d) => {
+    if (d === null) return `          <div style="height: ${S_CAL_H}px"></div>`;
+    const lv = levels[d] ?? 0;
+    const isSel = sel !== null && d === sel, isToday = d === today;
+    const bg = isSel ? "var(--c-accent)" : S_FILLS[lv];
+    const ink = isSel ? "var(--c-on-accent)" : sCalInk(lv);
+    const ring = isToday && !isSel ? " box-shadow: inset 0 0 0 1.5px var(--c-accent);" : "";
+    return `          <div style="height: ${S_CAL_H}px; display: flex; align-items: center; justify-content: center">
+            <span style="width: ${S_CAL_DOT}px; height: ${S_CAL_DOT}px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${bg};${ring} color: ${ink}; font-family: var(--font-num); font-size: 13px; font-weight: ${isSel || isToday ? 600 : 400}">${d}</span>
+          </div>`;
+  }).join("\n");
+  // 【本人指示】合計は月見出しの**右・下揃え**。baseline で揃えるので、
+  // 文字の大きさが違っても足元が1本に揃い、月の綴りが伸びても**重ならない**
+  // (見た目のズラし position:left は使わない)。
+  const head = metaBeside
+    ? `<div style="display: flex; align-items: baseline; gap: 10px; min-width: 0">
+            <div style="font-size: 17px; font-weight: 600; color: var(--c-ink); letter-spacing: -.01em">${month}</div>
+            <div style="font-size: 11px; color: var(--c-ink-3); white-space: nowrap">3.7 時間 · 16 日</div>
+          </div>`
+    : `<div style="min-width: 0">
+            <div style="font-size: 17px; font-weight: 600; color: var(--c-ink); letter-spacing: -.01em">${month}</div>
+            <div style="font-size: 11px; color: var(--c-ink-3); margin-top: 2px">3.7 時間 · 16 日</div>
+          </div>`;
+  return sCard(`<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+          ${head}
+          <div style="display: flex; align-items: center; flex-shrink: 0; margin-right: -8px">
+            <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; color: var(--c-ink-3)">‹</span>
+            <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; color: var(--c-ink-3)">›</span>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); font-size: 11px; color: var(--c-ink-3); text-align: center; margin-top: 8px">
+${["日","月","火","水","木","金","土"].map((w) => `          <span>${w}</span>`).join("\n")}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 4px">
+${body}
+        </div>`);
+}
+
+// ---- セッション(参考画像のタスクカード: 左に色の細い帯) --------------------
+const S_ROW_H = 64;   // 1件ぶんの高さ(カード 54 + 下の余白 8 + 影の逃げ 2)
+const sRowCard = (inner, mb = 8) => `<div style="display: flex; align-items: stretch; gap: 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; padding: 10px 14px; min-height: 44px; margin-bottom: ${mb}px">${inner}</div>`;
+const S_SESSIONS = [
+  ["19:42", "自分 · Alto · Vandoren-3 #1", "21.7秒", "var(--c-accent)"],
+  ["18:05", "自分 · Alto · Vandoren-3 #1", "1分04秒", "var(--c-accent-mid)"],
+  ["12:30", "自分 · Alto · Vandoren-3 #2", "48.2秒", "var(--c-accent-mid)"],
+  ["09:15", "自分 · Alto · Rico-3 #4", "2分11秒", "var(--c-accent-line)"],
+];
+const sSessionRow = ([t, m, d, c]) => sRowCard(`
+          <span style="width: 3px; border-radius: 2px; background: ${c}; flex-shrink: 0"></span>
+          <span style="min-width: 0; display: flex; flex-direction: column; justify-content: center">
+            <span style="font-size: 14px; font-weight: 600; color: var(--c-ink)">${t}</span>
+            <span style="font-size: 11px; color: var(--c-ink-3); margin-top: 2px">${m}</span>
+          </span>
+          <span style="margin-left: auto; display: flex; align-items: center; font-family: var(--font-num); font-size: 12px; color: var(--c-ink-3); flex-shrink: 0">${d}</span>
+        `);
+const sAllSessions = () => sRowCard(`
+          <span style="display: flex; align-items: center; font-size: 13px; color: var(--c-accent)">すべてのセッション 128 件</span>
+          <span style="margin-left: auto; display: flex; align-items: center; font-size: 17px; color: var(--c-line-strong)">›</span>
+        `, 0);
+
+// 【本人指示】最大3件。3件を超えるぶんは**この枠の中でスクロール**する。
+// 枠の高さは 3件ぶんで固定し、4件目の頭が見えるようにはしない(件数は上の「n 件」が言う)。
+function sDayPanel(count = 4) {
+  const rows = S_SESSIONS.slice(0, count).map(sSessionRow).join("\n      ");
+  const scroll = count > 3;
+  // 【本人がキャンバスで削除】件数の行(「4 件」)も外した。S1 で日付の見出しを消したのと同じ扱いで、
+  // **開いた枠の中はセッションのカードだけ**になる(参考画像のタスク一覧と同じ形)。
+  return `<div style="${scroll ? `max-height: ${S_ROW_H * 3}px; overflow-y: auto; -webkit-overflow-scrolling: touch;` : ""} padding: 0 2px">
+      ${rows}
+      </div>`;
+}
+
+const sIdealNote = `<div style="font-size: 11px; color: var(--c-ink-3); padding-top: 10px">目安未設定</div>`;
+// 集計範囲セレクタ。S1 は本人が 10px に落としている
+const sScope = (fs = 12) => `<div style="margin-left: auto; display: flex; align-items: center; flex-shrink: 0">
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: ${fs}px; color: var(--c-ink-3)">Alto ▾</span>
+          <span style="font-size: ${fs}px; color: var(--c-ink-3); white-space: pre"> · </span>
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: ${fs}px; color: var(--c-ink-3)">1ヶ月 ▾</span>
+        </div>`;
+const sTrendCard = (scopeFs = 12, formula = null) => sCard([
+  rMetricTabs("平均差分", scopeFs ? sScope(scopeFs) : ""),
+  formula || rFormula("8/24", "×", "my平均"),
+  `<div>${rChart(170, 375 - 14 * 2 - 16 * 2)}</div>`,
+  sIdealNote,
+].join("\n        "));
+
+const sGap = `<div style="height: 12px"></div>`;
+const sChapter = (t) => `<div style="font-size: 15px; font-weight: 600; color: var(--c-ink); padding: 0 4px 8px">${t}</div>`;
+const sPage = (inner, note) => `<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+      ${rSubTab()}
+      <div style="padding-top: 8px">
+        ${inner}
+      </div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">${note}</div>
+    </div>`;
+
+// ---- S1(採用) 閉じた状態: 日付を押していないので、セッションは出ていない --------
+{
+  const inner = [sStatsThree(), sGap, sCalendarCard({ month: "2026/8", metaBeside: true, sel: null }), sGap, sAllSessions(), sGap, sTrendCard(10)].join("\n        ");
+  writeFileSync(OUT + "S1.dc.html", dcFile(sPage(inner, `<b>採用案の既定の姿</b>(日付を押していない状態)。<br>本人指示で<b>その日のセッションは常時表示をやめた</b>ので、ここには出ていない ── カレンダーのすぐ下は「すべてのセッション」、その下が折れ線。<br><b>カレンダーの月見出し</b>は yyyy/m。合計(3.7 時間 · 16 日)は月見出しの<b>右・下揃え</b>(baseline)。文字の大きさが違っても足元が1本に揃い、<b>月の綴りが伸びても重ならない</b>(見た目のズラしを使っていないため)。<br>日付を押した状態は右の「S1 日付を押した状態」。`)));
+  console.log("S1      採用案・閉じた状態");
+}
+
+// ---- S1open: 日付を押した状態 ------------------------------------------
+{
+  const inner = [
+    sStatsThree(), sGap,
+    sCalendarCard({ month: "2026/8", metaBeside: true, sel: 24 }),
+    sGap,
+    sDayPanel(4),
+    sGap,
+    sAllSessions(), sGap,
+    sTrendCard(10),
+  ].join("\n        ");
+  writeFileSync(OUT + "S1open.dc.html", dcFile(sPage(inner, `<b>8/24 を押した状態。</b>カレンダーと「すべてのセッション」の<b>間に</b>その日のセッションが開き、<b>下のカード(すべてのセッション・折れ線)がそのぶん下へ押し出される</b>。<br><b>動き</b>: 開くときは高さ 0 → 実寸へ(200ms・ease-out)、閉じるときは逆。押した日付は紺の塗りになる。<b>他の場所をタップすると閉じる</b>(カレンダーの外側・同じ日付をもう一度・別の日付を押せばその日に切り替わる)。<br><b>最大3件</b>。4件目からは<b>この枠の中でスクロール</b>する(枠の高さは3件ぶんで固定)。件数は右上の「4 件」が言う。<br>この絵は4件のうち3件ぶんが見えている状態。`)));
+  console.log("S1open  採用案・日付を押した状態(3件 + スクロール)");
+}
+
+// ---- S2 / S3(本人が綴りを戻した版のまま) --------------------------------
+{
+  const inner = [sStatsHero(), sGap, sCalendarCard(), sGap, sSectionHead("8月24日 のセッション", "2 件"), S_SESSIONS.slice(0, 2).map(sSessionRow).join("\n      "), sAllSessions(), sGap, sTrendCard(12)].join("\n        ");
+  writeFileSync(OUT + "S2.dc.html", dcFile(sPage(inner, `<b>不採用</b>(本人裁定で S1 を採用)。記録として残す。<br>積み上げの中で<b>いちばん効く1つ(総時間)だけ</b>を大きく出す案。`)));
+  console.log("S2      (不採用・記録)");
+}
+{
+  const inner = [sStatsTwoTier(), sGap, sCalendarCard(), sGap, sSectionHead("8月24日 のセッション", "2 件"), S_SESSIONS.slice(0, 2).map(sSessionRow).join("\n      "), sAllSessions(), sGap, sChapter("音の傾向"), sTrendCard(0)].join("\n        ");
+  writeFileSync(OUT + "S3.dc.html", dcFile(sPage(inner, `<b>不採用</b>(本人裁定で S1 を採用)。記録として残す。<br>「この1ヶ月」を主役にして、集計範囲のセレクタを<b>それが効く数字の隣</b>に置いた案。`)));
+  console.log("S3      (不採用・記録)");
+}
+
+// ---- 式の行: いまの形からのマイナーチェンジ(Chips.dc.html) ----------------
+// 本人「C1・C2・C3 はいずれもいまいち。**今のデザインをベースにマイナーチェンジ**で良い案を」。
+// いまの形 = 高さ 20px のピル2つ(枠が系列の色) + 記号、行の高さ 35px。
+// 4案とも**変えるのは1点だけ**にしてある(何が効いたのかが分かるように)。
+function chipRow(chips, opts = {}) {
+  const { op = "×", opFs = 16, opColor = "var(--c-ink-3)", gap = 8, h = 35 } = opts;
+  return `<div style="display: flex; align-items: center; gap: ${gap}px; height: ${h}px">
+          ${chips[0]}
+          <span style="font-size: ${opFs}px; line-height: 1; color: ${opColor}; flex-shrink: 0">${op}</span>
+          ${chips[1]}
+          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: ${h}px; min-width: ${h}px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: ${h}px; min-width: ${h}px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+        </div>`;
+}
+// いまの形のピル
+const pillNow = (label, color) => `<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid ${color}; font-size: 12px; font-weight: 600; color: var(--c-ink-2)">${label}</span>`;
+// M1: ▾ を足すだけ
+const pillCaret = (label, color) => `<span style="display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 9px 0 13px; border-radius: var(--r-sm); background: transparent; border: 1px solid ${color}; font-size: 12px; font-weight: 600; color: var(--c-ink-2)">${label}<span style="font-size: 9px; color: var(--c-line-strong)">▾</span></span>`;
+// M2: 枠をやめて地を敷く。色は**文字**が持つ
+const pillGround = (label, color) => `<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; border-radius: var(--r-sm); background: var(--c-sunk); font-size: 12px; font-weight: 600; color: ${color}">${label}</span>`;
+// M3: 枠は共通の --c-line-strong。色は**先頭の丸**が持つ
+const pillDot = (label, color) => `<span style="display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 12px; border-radius: var(--r-sm); background: transparent; border: 1px solid var(--c-line-strong); font-size: 12px; font-weight: 600; color: var(--c-ink-2)"><span style="width: 6px; height: 6px; border-radius: 50%; background: ${color}; flex-shrink: 0"></span>${label}</span>`;
+// M4: 記号と余白を詰める(ピルは 22px、padding 10、gap 6、記号は小さく薄く)
+const pillTight = (label, color) => `<span style="display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: var(--r-sm); background: transparent; border: 1px solid ${color}; font-size: 12px; font-weight: 600; color: var(--c-ink-2)">${label}</span>`;
+
+const chipMiniChart = (h = 44) => {
+  const w = 315 - 28;
+  const pts = (o) => Array.from({ length: 12 }, (_, i) => `${r2((i / 11) * w)},${r2(h / 2 + Math.sin(i / 1.6 + o) * (h / 2 - 4))}`).join(" ");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display: block; margin-top: 8px">
+          <polyline fill="none" points="${pts(0)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
+          <polyline fill="none" points="${pts(1.1)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)" />
+        </svg>`;
+};
+function chipSample(title, body, note, dim) {
+  return `<div style="margin-bottom: 14px">
+        <div style="font-size: 12px; font-weight: 600; color: ${dim ? "var(--c-ink-3)" : "var(--c-ink)"}; padding: 0 2px 6px">${title}</div>
+        ${sCard(body, 14)}
+        <div style="font-size: 10.5px; color: var(--c-ink-3); line-height: 1.5; padding: 6px 2px 0">${note}</div>
+      </div>`;
+}
+{
+  const A = "var(--c-accent)", B = "var(--c-accent-mid)";
+  const now  = chipRow([pillNow("8/24", A), pillNow("my平均", B)]) + chipMiniChart();
+  const m1   = chipRow([pillCaret("8/24", A), pillCaret("my平均", B)]);
+  const m2   = chipRow([pillGround("8/24", A), pillGround("my平均", B)]);
+  const m3   = chipRow([pillDot("8/24", A), pillDot("my平均", B)]);
+  const m4   = chipRow([pillTight("8/24", A), pillTight("my平均", B)], { opFs: 13, opColor: "var(--c-line-strong)", gap: 6 });
+  const body = `<div style="width: 375px; background: var(--c-sunk); padding: 14px 14px 18px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); padding: 0 2px 4px">式の行 ─ いまの形からのマイナーチェンジ</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); line-height: 1.6; padding: 0 2px 12px">ゼロベースの3案(C1〜C3)は取り下げ。<b>変えるのは1案につき1点だけ</b>にしてあるので、効いた点がそのまま分かります。行の高さ 35px・ピル 20px・色は系列と対応、はどの案も据え置き。</div>
+      ${chipSample("いまの形(比較用)", now, "枠が系列の色、地は透明、記号は 16px。<b>引っかかりの候補</b>: ①押せる印が無い ②枠だけの箱が入力欄に見える ③色が「枠」にしか出ていないので、線との対応が一拍遅れる。下の折れ線と見比べてください。", true)}
+      ${chipSample("案M1 ▾ を足す", m1, "<b>変えた1点</b>: ピルの右に 9px の ▾。<b>押せることが分かる</b>のが唯一の狙いで、他は1pxも変えていない。いちばん小さい変更。")}
+      ${chipSample("案M2 枠をやめて地を敷き、色は文字が持つ", m2, "<b>変えた1点</b>: 枠 → 地(--c-sunk)。色は**文字**へ移した。<b>入力欄に見える原因(枠だけの箱)が消え</b>、押せる面に見える。文字が系列色になるので、線との対応もむしろ強い。")}
+      ${chipSample("案M3 枠は共通、色は先頭の丸が持つ", m3, "<b>変えた1点</b>: 枠を共通の --c-line-strong にして、色を <b>6px の丸</b>へ移した。枠=「選ぶ器」/ 丸=「どの線か」と役割が分かれる。凡例の丸と同じ読み方になる。")}
+      ${chipSample("案M4 余白と記号を詰める", m4, "<b>変えた1点</b>: ピルを 20→22px・左右の余白 13→10px、記号を 16→13px の --c-line-strong、間隔 8→6px。<b>横に間延びした感じ</b>が引っかかりの正体なら、これがいちばん効く。")}
+      <div style="margin-top: 4px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>窓型のとき</b>: どの案も色を持たせない(M2 の文字は --c-ink-2 / M3 の丸は出さない / M1・M4 の枠は --c-line-strong)。窓型には対応する線が無いためです。<br><b>混ぜられます</b>: M1 の ▾ は M2・M3・M4 のどれにも足せます(足すと押せる印と、選んだ形の両方が揃う)。</div>
+    </div>`;
+  writeFileSync(OUT + "Chips.dc.html", dcFile(body));
+  console.log("Chips   式の行 マイナーチェンジ4案");
+}
+
+// ---- 分析タブ(A1 採用。本人の手直しを写す) -------------------------------
+const aSubTab = `<div style="display: flex; align-items: center; gap: 0; margin-left: -9px">
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">My Data</div>
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">分析</div>
+      </div>`;
+// 【本人の手直し】「条件」→「**抽出条件**」
+const aDesc = `<div style="font-size: 12px; color: var(--c-ink-3); line-height: 1.6; padding: 0 4px 8px">抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します</div>`;
+// 【本人の手直し】チップ行 30px / 「編集」10px / 軸の行 30px / カード全体 80px
+const aChips = `<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; height: 30px">
+          <span style="display: inline-flex; align-items: center; height: 30px">
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; font-weight: 600; color: var(--c-accent); background: var(--c-accent-tint); border-radius: 999px; line-height: 1.4">楽器 = Alto</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; height: 30px">
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; color: var(--c-ink-2); border: 1px dashed var(--c-line-strong); border-radius: 999px; line-height: 1.4">＋ 条件</span>
+          </span>
+          <span style="margin-left: auto; display: inline-flex; align-items: center; height: 30px; font-size: 10px; color: var(--c-accent)">編集</span>
+        </div>`;
+function aChart() {
+  const rows = 9, w = 347 - 32 - 44, h = 25;
+  const series = [
+    { c: "var(--c-accent)", d: [0.55, 0.48, 0.42, 0.5, 0.6, 0.52, 0.45, 0.38, 0.44] },
+    { c: "var(--c-accent-mid)", d: [0.35, 0.4, 0.52, 0.58, 0.5, 0.44, 0.5, 0.56, 0.6] },
+  ];
+  const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5"];
+  const lines = series.map((s) => `<polyline fill="none" points="${s.d.map((v, i) => `${r2(44 + v * w)},${r2(i * h + h / 2)}`).join(" ")}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: ${s.c}" />`).join("\n          ");
+  const labels = notes.map((n, i) => `<text x="38" y="${r2(i * h + h / 2 + 4)}" font-size="11" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-3)">${n}</text>`).join("\n          ");
+  return `<svg width="${347 - 32}" height="${rows * h}" viewBox="0 0 ${347 - 32} ${rows * h}" style="display: block">
+          <line x1="${r2(44 + w / 2)}" y1="0" x2="${r2(44 + w / 2)}" y2="${rows * h}" stroke-width="1" style="stroke: var(--c-line-strong)" />
+          ${labels}
+          ${lines}
+        </svg>`;
+}
+const aSel = (label, value, wide) => `<span style="display: inline-flex; align-items: baseline; gap: 5px; ${wide ? "flex: 1; min-width: 0;" : ""}">
+            <span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">${label}</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${value} ▾</span>
+          </span>`;
+{
+  const inner = `${aDesc}
+      <div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: 16px">
+        ${aChips}
+        <div style="display: flex; align-items: center; gap: 10px; min-height: 30px">${aSel("縦軸", "音名")}${aSel("横軸", "平均差分")}${aSel("分析軸", "リード", true)}</div>
+      </div>
+      ${sGap}
+      ${sCard(aChart())}`;
+  writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+      ${aSubTab}
+      <div style="padding-top: 8px">${inner}</div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行と軸の行を <b>30px</b> に詰める / 「編集」を 10px。<br><b>減った縦幅</b>: 軸のセレクタが 77 → <b>30px</b>、カード全体で 80px。<br><b>代償</b>: 44pt を割る行が2つ増える(チップ行・軸の行)。§5 の例外を<b>My Data の式の行に加えてもう2つ</b>作ることになるので、DESIGN-SYSTEM に明記が要る。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>
+    </div>`));
+  console.log("A1      分析: 採用案(本人の手直し込み)");
+}
+{
+  const inner = `${aDesc}
+      ${sCard(`${aChips}
+        <div style="display: flex; align-items: center; gap: 10px; min-height: 30px"><span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">軸</span>
+          <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">音名 × 平均差分(¢) / リード</span>
+          <span style="margin-left: auto; font-size: 15px; color: var(--c-line-strong)">▾</span>
+        </div>`)}
+      ${sGap}
+      ${sCard(aChart())}`;
+  writeFileSync(OUT + "A2.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+      ${aSubTab}
+      <div style="padding-top: 8px">${inner}</div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>不採用</b>(本人裁定で A1 を採用)。記録として残す。<br>3つの軸を1行に畳んで、押すとシートで選ぶ案。</div>
+    </div>`));
+  console.log("A2      (不採用・記録)");
 }
