@@ -1,0 +1,319 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --r-xs: 4px; --r-sm: 8px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9;
+      --c-rule: #E1E6EC; --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-line: #B9C9E4;
+      --c-on-accent: #FFFFFF;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<div style="width: 375px; background: var(--c-bg); padding: 0 14px 20px; box-sizing: border-box">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px">
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">分析</div>
+        <div style="margin-left: auto; display: flex; align-items: center; flex-shrink: 0">
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">Alto ▾</span>
+          <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</span>
+        </div>
+      </div>
+      <div style="padding: 0 0 4px">
+        <div style="margin-top: 28px">
+          <div style="font-size: 18px; font-weight: 600; color: var(--c-ink); letter-spacing: .02em">今日の音程</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-top: 3px">8月24日 · 2セッション · 音名ごとの平均差分</div>
+        </div>
+        <div style="margin-top: 12px">
+          <div style="display: flex; align-items: center; gap: 8px; height: 35px">
+        <div style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-accent); border-radius: 8px; color: var(--c-ink-2)">8/24</div>
+        <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3)">×</span>
+        <div style="display: inline-flex; align-items: center; height: 20px; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-accent-mid); border-radius: 8px; color: var(--c-ink-2)">my平均</div>
+        <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
+            <div style="height: 35px; min-width: 35px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          </div>
+      </div>
+          <div><svg width="347" height="220" viewBox="0 0 347 220" style="display: block">
+          <line x1="0" y1="103" x2="347" y2="103" stroke-width="1" style="stroke: var(--c-line-strong)" />
+          <line x1="154.69" y1="8" x2="154.69" y2="198" stroke-width="1" style="stroke: var(--c-line)" />
+          <text x="8" y="10" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">+8.4</text>
+          <text x="8" y="99" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">0.0</text>
+          <text x="8" y="194" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">-8.4</text>
+          <polyline fill="none" points="23,198 32.41,171.99 41.81,157.29" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
+          <polyline fill="none" points="60.63,139.19 70.03,124.49 79.44,109.79 88.84,93.95 98.25,87.17 107.66,73.6 117.06,67.94 126.47,82.64 135.88,98.48 145.28,115.44 154.69,130.14 164.09,143.71 173.5,134.67 182.91,116.57 192.31,96.21 201.72,79.25 211.13,60.02 220.53,44.19 229.94,30.62 239.34,22.7 248.75,32.88 258.16,48.71 267.56,67.94 276.97,87.17 286.38,112.05 295.78,132.4 305.19,158.42 314.59,179.9" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
+          <circle cx="23" cy="198" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="32.41" cy="171.99" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="41.81" cy="157.29" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="60.63" cy="139.19" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="70.03" cy="124.49" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="79.44" cy="109.79" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="88.84" cy="93.95" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="98.25" cy="87.17" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="107.66" cy="73.6" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="117.06" cy="67.94" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="126.47" cy="82.64" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="135.88" cy="98.48" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="145.28" cy="115.44" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="154.69" cy="130.14" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="164.09" cy="143.71" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="173.5" cy="134.67" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="182.91" cy="116.57" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="192.31" cy="96.21" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="201.72" cy="79.25" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="211.13" cy="60.02" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="220.53" cy="44.19" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="229.94" cy="30.62" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="239.34" cy="22.7" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="248.75" cy="32.88" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="258.16" cy="48.71" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="267.56" cy="67.94" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="276.97" cy="87.17" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="286.38" cy="112.05" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="295.78" cy="132.4" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="305.19" cy="158.42" r="2.82" style="fill: var(--c-accent)" />
+          <circle cx="314.59" cy="179.9" r="2.82" style="fill: var(--c-accent)" />
+          <polyline fill="none" points="23,161.81 32.41,152.76 41.81,143.71 51.22,135.8 60.63,126.75 70.03,118.83 79.44,110.92 88.84,100.74 98.25,92.82 107.66,84.9 117.06,80.38 126.47,86.04 135.88,96.21 145.28,107.52 154.69,117.7 164.09,125.62 173.5,121.1 182.91,110.92 192.31,98.48 201.72,86.04 211.13,73.6 220.53,64.55 229.94,56.63 239.34,52.11 248.75,58.89 258.16,69.07 267.56,81.51 276.97,93.95 286.38,108.65 295.78,122.23 305.19,139.19 314.59,152.76 324,160.68" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)" />
+          <circle cx="23" cy="161.81" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="32.41" cy="152.76" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="41.81" cy="143.71" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="51.22" cy="135.8" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="60.63" cy="126.75" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="70.03" cy="118.83" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="79.44" cy="110.92" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="88.84" cy="100.74" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="98.25" cy="92.82" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="107.66" cy="84.9" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="117.06" cy="80.38" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="126.47" cy="86.04" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="135.88" cy="96.21" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="145.28" cy="107.52" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="154.69" cy="117.7" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="164.09" cy="125.62" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="173.5" cy="121.1" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="182.91" cy="110.92" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="192.31" cy="98.48" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="201.72" cy="86.04" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="211.13" cy="73.6" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="220.53" cy="64.55" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="229.94" cy="56.63" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="239.34" cy="52.11" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="248.75" cy="58.89" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="258.16" cy="69.07" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="267.56" cy="81.51" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="276.97" cy="93.95" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="286.38" cy="108.65" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="295.78" cy="122.23" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="305.19" cy="139.19" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="314.59" cy="152.76" r="2.82" style="fill: var(--c-accent-mid)" />
+          <circle cx="324" cy="160.68" r="2.82" style="fill: var(--c-accent-mid)" />
+          <text x="41.81" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭3</text>
+          <text x="79.44" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G3</text>
+          <text x="117.06" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">B3</text>
+          <text x="154.69" y="216" font-size="12" font-weight="700" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-accent)">E♭4</text>
+          <text x="192.31" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G4</text>
+          <text x="229.94" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">B4</text>
+          <text x="267.56" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭5</text>
+          <text x="305.19" y="216" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G5</text>
+          </svg></div>
+        </div>
+        <div style="margin-top: 28px">
+          <div style="font-size: 18px; font-weight: 600; color: var(--c-ink); letter-spacing: .02em">指標を変える</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-top: 3px">同じ音名軸で、別の物差しに切り替える</div>
+        </div>
+        <div style="margin-top: 8px"><div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
+        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+          <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">平均差分</span>
+        </div>
+        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+          <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink-3);">HNR</span>
+        </div>
+        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+          <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink-3);">重心</span>
+        </div>
+        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+          <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink-3);">音量</span>
+        </div>
+        
+      </div></div>
+        <div style="margin-top: 28px">
+          <div style="font-size: 18px; font-weight: 600; color: var(--c-ink); letter-spacing: .02em">積み重ね</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-top: 3px">練習した日と、その量</div>
+        </div>
+        <div style="margin-top: 12px"><div style="padding: 0">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+            <div style="min-width: 0">
+              <div style="font-size: 12px; font-weight: 600; color: var(--c-ink)">2026年8月</div>
+              <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 2px">16日 · 3時間42分</div>
+            </div>
+            <div style="display: flex; align-items: center; flex-shrink: 0">
+              <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: var(--c-ink-3)">‹</span>
+              <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: var(--c-ink-3)">›</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; font-size: 10px; color: var(--c-ink-3); text-align: center; margin-top: 6px">
+            <span>日</span>
+            <span>月</span>
+            <span>火</span>
+            <span>水</span>
+            <span>木</span>
+            <span>金</span>
+            <span>土</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px">
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">1</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">2</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">3</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">4</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-line); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">5</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">6</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">7</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-mid); color: var(--c-on-accent); font-family: var(--font-num); font-size: 12px;">8</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">9</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">10</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">11</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-line); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">12</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">13</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">14</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent); color: var(--c-on-accent); font-family: var(--font-num); font-size: 12px;">15</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">16</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">17</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">18</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-line); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">19</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-mid); color: var(--c-on-accent); font-family: var(--font-num); font-size: 12px;">20</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">21</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">22</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">23</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent); color: var(--c-on-accent); font-family: var(--font-num); font-size: 12px; box-shadow: 0 0 0 2px var(--c-ink);">24</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">25</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-line); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">26</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">27</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">28</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-accent-tint); color: var(--c-ink); font-family: var(--font-num); font-size: 12px;">29</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">30</span>
+            </div>
+            <div style="height: 38px; display: flex; align-items: center; justify-content: center">
+              <span style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--c-ink-3); font-family: var(--font-num); font-size: 12px;">31</span>
+            </div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+            <div style="height: 38px"></div>
+          </div>
+          <div style="margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--c-line)">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px">
+              <span style="font-size: 12px; font-weight: 600; color: var(--c-ink)">8月24日 のセッション</span>
+              <span style="font-size: 11px; color: var(--c-ink-3); flex-shrink: 0">2 件</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px">
+              <span style="min-width: 0">
+                <span style="display: block; font-size: 13px; color: var(--c-ink)">19:42</span>
+                <span style="display: block; font-size: 10px; color: var(--c-ink-3); margin-top: 2px">自分 · Alto · Vandoren-3 #1</span>
+              </span>
+              <span style="font-family: var(--font-num); font-size: 12px; color: var(--c-ink-3); flex-shrink: 0">21.7秒</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px">
+              <span style="min-width: 0">
+                <span style="display: block; font-size: 13px; color: var(--c-ink)">18:05</span>
+                <span style="display: block; font-size: 10px; color: var(--c-ink-3); margin-top: 2px">自分 · Alto · Vandoren-3 #1</span>
+              </span>
+              <span style="font-family: var(--font-num); font-size: 12px; color: var(--c-ink-3); flex-shrink: 0">1分04秒</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; border-top: 1px solid var(--c-line); margin-top: 4px">
+            <span style="font-size: 12px; color: var(--c-accent)">すべてのセッション 128 件</span>
+            <span style="font-size: 15px; color: var(--c-line-strong)">›</span>
+          </div>
+        </div></div>
+      </div>
+      <div style="margin-top: 20px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>案4 静かな章立て。</b>行を詰めるのをやめ、<b>28px の余白と 18px の見出し</b>で3つの章に割る。<br>読ませる順が視覚的に立つ代わりに<b>縦は伸びる</b>。「育てる × 静けさ」(design/DESIGN.md)にいちばん近いのはこれ。</div>
+    </div>
+</x-dc>
+</body>
+</html>

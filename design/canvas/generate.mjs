@@ -742,16 +742,17 @@ ${inner}
       <div style="display: flex; flex-direction: column; gap: 20px">
 ${block("そのまま（空けたまま）", "子タブ行の右端が空く。表題「PIVOT」は 22px の見出しの下に残るので、<b>見出しが2つ続いて見える</b>（D-8a の指摘そのもの）。",
     `            ${subTab(true, "")}\n            <div style="padding-top: 8px">${pivotTitle}${desc}${condRow}${ghost}</div>`, 63)}
-${block("案R ─ 「PIVOT」を空いた右端へ", "セレクタがいた場所に名前が入る。<b>見出しは「分析」1つだけ</b>になり、表題の行（15px + 余白4）が丸ごと消えて <b>19px 縮む</b>。「PIVOT の文字があれば Excel も想起できる」（F-99）は名前が残るので保たれる。",
-    `            ${subTab(true, '<div style="margin-left: auto; font-size: 12px; color: var(--c-accent); font-weight: 700; flex-shrink: 0">PIVOT</div>')}\n            <div style="padding-top: 8px">${desc}${condRow}${ghost}</div>`, 44)}
+${block("最終 ─ 「PIVOT」を文字ごと削除", "本人裁定「PIVOT の文字ごと削除してその分上に詰めましょう」。表題の行（15px + 余白4）が丸ごと消えて <b>19px 縮む</b>。見出しは子タブの「分析」1つだけ。<b>子タブ行の右端は両タブとも空</b>になるので、<code>dataSubTab === \"mydata\"</code> の分岐が本当に1つ消える。",
+    `            ${subTab(true, "")}\n            <div style="padding-top: 8px">${desc}${condRow}${ghost}</div>`, 44)}
       </div>
       <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
-        文字組みは <span style="font-family: var(--font-num)">15px / --c-accent / 700</span> → <span style="font-family: var(--font-num)">12px / --c-accent / 700</span>。<br>
-        大きさだけ落として色は残す ─ 12px は集計範囲セレクタと同じ段なので、<b>右端の作法がそのまま引き継がれる</b>。新しい値は使っていない。
+        F-99 で「PIVOT の文字があれば Excel も想起できる」と言って復活させた表題を、<b>本人の裁定で消す</b>。<br>
+        完了記録に「D-9r で消した」と書かないと、次に触る人が 15px の表題を戻す。<br>
+        説明の2行は F-99 の意図どおり<b>残す</b>。
       </div>
     </div>`;
   writeFileSync(OUT + "AnalysisTop.dc.html", dcFile(body));
-  console.log("AnalysisTop D-9r 案R（PIVOT を右端へ / 上部 63 → 44px）");
+  console.log("AnalysisTop D-9r 最終（PIVOT を文字ごと削除 / 上部 63 → 44px）");
 }
 
 // ---- 練習カレンダー（src/App.jsx の PracticeCalendarCard から写した） -----
@@ -879,4 +880,164 @@ ${opts.join("\n")}
     </div>`;
   writeFileSync(OUT + "Sheet.dc.html", dcFile(body));
   console.log("Sheet   左右で選択肢が変わる規則");
+}
+
+// ========================================================================
+// 【R 2026/08/25 本人指示】My Data のレイアウトを一から設計し直す方向案。
+// 「見せ方とか機能は今のままでいいんだが、デザイン性がなく『見たい画面』になってない」
+// 「折れ線グラフ→カレンダーの順じゃなくてもいい。レイアウトは一から設計して問題ない」
+// **機能は1つも足していない。並び順と組み方だけが違う4案。**
+// ========================================================================
+
+// 小さな折れ線(スパークライン)。案3 のタイルが使う
+function spark(vals, w, h, color) {
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = (mx - mn) || 1;
+  const pts = vals.map((v, i) => `${r2((i / (vals.length - 1)) * w)},${r2(h - ((v - mn) / rng) * h)}`).join(" ");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display: block"><polyline fill="none" points="${pts}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" style="stroke: ${color}" /></svg>`;
+}
+const rSubTab = (right = "") => `<div style="display: flex; align-items: center; gap: 0; margin-left: -9px">
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
+        <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">分析</div>
+        ${right}
+      </div>`;
+const rScope = `<div style="margin-left: auto; display: flex; align-items: center; flex-shrink: 0">
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">Alto ▾</span>
+          <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
+          <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</span>
+        </div>`;
+const rMetricTabs = (sel, right) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
+${["平均差分", "HNR", "重心", "音量"].map((t) => `        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+          <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === sel ? "var(--c-ink)" : "var(--c-ink-3)"};${t === sel ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
+        </div>`).join("\n")}
+        ${right || ""}
+      </div>`;
+const rFormula = (l, sign, rr, view = "line") => `<div style="display: flex; align-items: center; gap: 8px; height: 35px">
+        ${d9Chip(l, D9_SERIES[0].color)}
+        <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3)">${sign}</span>
+        ${d9Chip(rr, D9_SERIES[1].color)}
+        ${d9Toggle(view)}
+      </div>`;
+function rChart(plotH = 170) {
+  const series = [
+    { id: "day", label: "8/24", color: D9_SERIES[0].color, width: 2, byIdx: pitchDay },
+    { id: "period", label: "my平均", color: D9_SERIES[1].color, width: 2, byIdx: pitchPeriod },
+  ];
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH });
+  return chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false });
+}
+const rPage = (inner, note) => `<div style="width: 375px; background: var(--c-bg); padding: 0 14px 20px; box-sizing: border-box">
+      ${inner}
+      <div style="margin-top: 20px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">${note}</div>
+    </div>`;
+
+// ---- 案1 Hero : 要約が先。数字で答えを出す ------------------------------
+{
+  const inner = `${rSubTab()}
+      <div style="padding: 4px 0 20px">
+        <div style="font-size: 12px; color: var(--c-ink-3); letter-spacing: .04em">8月24日 土</div>
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 6px">
+          <span style="font-family: var(--font-num); font-size: 46px; font-weight: 600; color: var(--c-ink); line-height: 1">+2.4</span>
+          <span style="font-size: 15px; color: var(--c-ink-3)">¢</span>
+          <span style="margin-left: auto; font-size: 12px; color: var(--c-ink-2); text-align: right; line-height: 1.5">いつもより<br><b style="color: var(--c-ink)">1.2¢ 高い</b></span>
+        </div>
+        <div style="margin-top: 10px; display: flex; gap: 14px; font-size: 11px; color: var(--c-ink-3)">
+          <span>2 セッション</span><span>1分26秒</span><span>21 音</span>
+        </div>
+      </div>
+      <div style="border-top: 1px solid var(--c-rule); padding: 8px 0 16px">
+        ${rMetricTabs("平均差分", rScope)}
+        ${rFormula("8/24", "×", "my平均")}
+        <div>${rChart(150)}</div>
+      </div>
+      ${calendarCard()}`;
+  writeFileSync(OUT + "R1Hero.dc.html", dcFile(rPage(inner,
+    "<b>案1 要約が先。</b>開いた瞬間に「今日どうだったか」が数字で返る。グラフは答えの<b>裏取り</b>になる。<br>足した機能はゼロ ─ 大きな数字は選んでいる指標の当日平均、右はその指標の期間平均との差。どちらも既にある値。")));
+  console.log("R1 Hero    要約が先");
+}
+
+// ---- 案2 ByDay : 時間が先。日を選んでからグラフ ---------------------------
+{
+  const inner = `${rSubTab(rScope)}
+      <div style="padding: 4px 0 0">
+        ${calendarCard().replace('margin-top: 12px; padding: 16px 0; border-top: 1px solid var(--c-rule)', 'padding: 0')}
+      </div>`;
+  // カレンダーの下半分(セッション一覧)は差し替えて、選んだ日のグラフを置く
+  const cal = calendarCard();
+  const head = cal.slice(0, cal.indexOf('<div style="margin-top: 16px; padding-top: 13px'));
+  const inner2 = `${rSubTab(rScope)}
+      <div style="padding: 4px 0 0">
+        ${head.replace('margin-top: 12px; padding: 16px 0; border-top: 1px solid var(--c-rule)', 'padding: 0')}
+        </div>
+      </div>
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--c-rule)">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <span style="font-size: 18px; font-weight: 600; color: var(--c-ink)">8月24日</span>
+          <span style="font-size: 11px; color: var(--c-ink-3)">2 件 · 1分26秒</span>
+        </div>
+        ${rMetricTabs("平均差分", "")}
+        ${rFormula("8/24", "×", "my平均")}
+        <div>${rChart(150)}</div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; border-top: 1px solid var(--c-line); margin-top: 12px">
+        <span style="font-size: 12px; color: var(--c-accent)">すべてのセッション 128 件</span>
+        <span style="font-size: 15px; color: var(--c-line-strong)">›</span>
+      </div>`;
+  writeFileSync(OUT + "R2ByDay.dc.html", dcFile(rPage(inner2,
+    "<b>案2 時間が先。</b>カレンダーを頭に出して「いつの話か」を先に決める。式の「8/24」が<b>自明になる</b>のが効き目。<br>日を押すと下のグラフが差し替わる ─ 今のカレンダーが既に持っている挙動をそのまま使う。")));
+  console.log("R2 ByDay   時間が先");
+}
+
+// ---- 案3 Tiles : 指標が先。4つを横に並べて関係を見せる --------------------
+{
+  const tiles = [
+    { l: "平均差分", v: "+2.4", u: "¢", d: pitchDay, sel: true },
+    { l: "HNR", v: "17.2", u: "dB", d: [12,13,15,14,16,17,17.2,16.8], sel: false },
+    { l: "重心", v: "1580", u: "Hz", d: [1400,1450,1520,1490,1550,1600,1580,1560], sel: false },
+    { l: "音量", v: "-18.4", u: "dB", d: [-22,-21,-20,-19,-18,-18.5,-18.4,-19], sel: false },
+  ];
+  const tileHtml = tiles.map((t) => `          <div style="padding: 8px 8px 6px; border-radius: 8px; background: ${t.sel ? "var(--c-accent-tint)" : "transparent"}; border: 1px solid ${t.sel ? "var(--c-accent)" : "var(--c-line)"}">
+            <div style="font-size: 10px; color: ${t.sel ? "var(--c-accent)" : "var(--c-ink-3)"}; font-weight: 600">${t.l}</div>
+            <div style="display: flex; align-items: baseline; gap: 2px; margin-top: 2px">
+              <span style="font-family: var(--font-num); font-size: 15px; font-weight: 600; color: var(--c-ink)">${t.v}</span>
+              <span style="font-size: 10px; color: var(--c-ink-3)">${t.u}</span>
+            </div>
+            <div style="margin-top: 4px">${spark(Array.isArray(t.d) ? t.d : Object.values(t.d).filter((v) => v !== null), 66, 16, t.sel ? "var(--c-accent)" : "var(--c-accent-line)")}</div>
+          </div>`).join("\n");
+  const inner = `${rSubTab(rScope)}
+      <div style="padding: 4px 0 0">
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px">
+${tileHtml}
+        </div>
+        <div style="margin-top: 16px">
+          ${rFormula("8/24", "×", "my平均")}
+          <div>${rChart(170)}</div>
+        </div>
+      </div>
+      ${calendarCard()}`;
+  writeFileSync(OUT + "R3Tiles.dc.html", dcFile(rPage(inner,
+    "<b>案3 指標が先。</b>4指標をタイルで横に並べ、押したものだけが下で大きく開く。<b>4つの関係が一目で見える</b>のが効き目 ─ いまはタブを押さないと他の3つが分からない。<br>指標タブの行が消えるので、行が1本減る。")));
+  console.log("R3 Tiles   指標が先");
+}
+
+// ---- 案4 Quiet : 静かな章立て。余白と見出しで読ませる ---------------------
+{
+  const chap = (t, sub) => `        <div style="margin-top: 28px">
+          <div style="font-size: 18px; font-weight: 600; color: var(--c-ink); letter-spacing: .02em">${t}</div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-top: 3px">${sub}</div>
+        </div>`;
+  const inner = `${rSubTab(rScope)}
+      <div style="padding: 0 0 4px">
+${chap("今日の音程", "8月24日 · 2セッション · 音名ごとの平均差分")}
+        <div style="margin-top: 12px">
+          ${rFormula("8/24", "×", "my平均")}
+          <div>${rChart(190)}</div>
+        </div>
+${chap("指標を変える", "同じ音名軸で、別の物差しに切り替える")}
+        <div style="margin-top: 8px">${rMetricTabs("平均差分", "")}</div>
+${chap("積み重ね", "練習した日と、その量")}
+        <div style="margin-top: 12px">${calendarCard().replace('margin-top: 12px; padding: 16px 0; border-top: 1px solid var(--c-rule)', 'padding: 0')}</div>
+      </div>`;
+  writeFileSync(OUT + "R4Quiet.dc.html", dcFile(rPage(inner,
+    "<b>案4 静かな章立て。</b>行を詰めるのをやめ、<b>28px の余白と 18px の見出し</b>で3つの章に割る。<br>読ませる順が視覚的に立つ代わりに<b>縦は伸びる</b>。「育てる × 静けさ」(design/DESIGN.md)にいちばん近いのはこれ。")));
+  console.log("R4 Quiet   静かな章立て");
 }
