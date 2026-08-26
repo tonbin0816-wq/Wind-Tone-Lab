@@ -753,3 +753,130 @@ ${block("案R ─ 「PIVOT」を空いた右端へ", "セレクタがいた場�
   writeFileSync(OUT + "AnalysisTop.dc.html", dcFile(body));
   console.log("AnalysisTop D-9r 案R（PIVOT を右端へ / 上部 63 → 44px）");
 }
+
+// ---- 練習カレンダー（src/App.jsx の PracticeCalendarCard から写した） -----
+const CALENDAR_CELL_H = 38, CALENDAR_DOT = 28;
+const CALENDAR_FILLS = ["transparent", "var(--c-accent-tint)", "var(--c-accent-line)", "var(--c-accent-mid)", "var(--c-accent)"];
+const calendarInk = (lv) => (lv >= 3 ? "var(--c-on-accent)" : "var(--c-ink)");
+function calendarCard() {
+  // 2026年8月。1日は土曜（曜日は日曜始まり）
+  const firstDow = 6, days = 31;
+  const levels = { 3:1, 5:2, 6:1, 8:3, 10:1, 12:2, 13:1, 15:4, 17:1, 19:2, 20:3, 22:1, 24:4, 26:2, 27:1, 29:1 };
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+  const cellHtml = cells.map((d, i) => {
+    if (d === null) return `            <div style="height: ${CALENDAR_CELL_H}px"></div>`;
+    const lv = levels[d] ?? 0;
+    const sel = d === 24;
+    return `            <div style="height: ${CALENDAR_CELL_H}px; display: flex; align-items: center; justify-content: center">
+              <span style="width: ${CALENDAR_DOT}px; height: ${CALENDAR_DOT}px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: ${CALENDAR_FILLS[lv]}; color: ${lv > 0 ? calendarInk(lv) : "var(--c-ink-3)"}; font-family: var(--font-num); font-size: 12px;${sel ? " box-shadow: 0 0 0 2px var(--c-ink);" : ""}">${d}</span>
+            </div>`;
+  }).join("\n");
+  return `<div style="margin-top: 12px; padding: 16px 0; border-top: 1px solid var(--c-rule)">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+            <div style="min-width: 0">
+              <div style="font-size: 12px; font-weight: 600; color: var(--c-ink)">2026年8月</div>
+              <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 2px">16日 · 3時間42分</div>
+            </div>
+            <div style="display: flex; align-items: center; flex-shrink: 0">
+              <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: var(--c-ink-3)">‹</span>
+              <span style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; color: var(--c-ink-3)">›</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; font-size: 10px; color: var(--c-ink-3); text-align: center; margin-top: 6px">
+${["日","月","火","水","木","金","土"].map((w) => `            <span>${w}</span>`).join("\n")}
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px">
+${cellHtml}
+          </div>
+          <div style="margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--c-line)">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px">
+              <span style="font-size: 12px; font-weight: 600; color: var(--c-ink)">8月24日 のセッション</span>
+              <span style="font-size: 11px; color: var(--c-ink-3); flex-shrink: 0">2 件</span>
+            </div>
+${[["19:42","自分 · Alto · Vandoren-3 #1","21.7秒"],["18:05","自分 · Alto · Vandoren-3 #1","1分04秒"]].map(([t,m,d]) => `            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px">
+              <span style="min-width: 0">
+                <span style="display: block; font-size: 13px; color: var(--c-ink)">${t}</span>
+                <span style="display: block; font-size: 10px; color: var(--c-ink-3); margin-top: 2px">${m}</span>
+              </span>
+              <span style="font-family: var(--font-num); font-size: 12px; color: var(--c-ink-3); flex-shrink: 0">${d}</span>
+            </div>`).join("\n")}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; border-top: 1px solid var(--c-line); margin-top: 4px">
+            <span style="font-size: 12px; color: var(--c-accent)">すべてのセッション 128 件</span>
+            <span style="font-size: 15px; color: var(--c-line-strong)">›</span>
+          </div>
+        </div>`;
+}
+
+// ---- Full.dc.html : My Data の1画面ぶん（折り返し線つき） ----------------
+{
+  const series = [
+    { id: "day", label: D9_SERIES[0].label, color: D9_SERIES[0].color, width: 2, byIdx: pitchDay },
+    { id: "period", label: D9_SERIES[1].label, color: D9_SERIES[1].color, width: 2, byIdx: pitchPeriod },
+  ];
+  const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH: 170 });
+  const inner = [
+    d9MetricTabs("平均差分"),
+    d9FormulaRow(d9Chip(D9_SERIES[0].label, D9_SERIES[0].color), "×", d9Chip(D9_SERIES[1].label, D9_SERIES[1].color), "line"),
+    `<div>
+          ${chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false })}
+        </div>`,
+    calendarCard(),
+  ].join("\n        ");
+  const body = `<div style="width: 375px; background: var(--c-bg); box-sizing: border-box; position: relative">
+      <div style="padding: 0 14px">
+        ${d9SubTabRow()}
+        <div style="padding: 8px 0 16px">
+          ${inner}
+        </div>
+      </div>
+      <div style="position: absolute; left: 0; top: 731px; width: 375px; border-top: 1px dashed var(--c-danger)"></div>
+      <div style="position: absolute; right: 6px; top: 712px; font-size: 10px; color: var(--c-danger); background: var(--c-bg); padding: 2px 4px; border-radius: 4px">ここまでが1画面（812 − ナビ47 − セーフエリア34 = 731）</div>
+      <div style="position: absolute; left: 0; top: 812px; width: 375px; border-top: 1px dashed var(--c-line-strong)"></div>
+    </div>`;
+  writeFileSync(OUT + "Full.dc.html", dcFile(body));
+  console.log("Full    1画面ぶん（折り返し線 731px）");
+}
+
+// ---- Sheet.dc.html : 系列を選ぶシート（左右で選択肢が変わる） -------------
+{
+  const opt = (label, state) => {
+    const bg = state === "sel" ? "var(--c-accent-tint)" : "transparent";
+    const col = state === "sel" ? "var(--c-accent)" : state === "gone" ? "var(--c-ink-4)" : "var(--c-ink)";
+    const strike = state === "gone" ? " text-decoration: line-through;" : "";
+    return `            <div style="min-height: 44px; display: flex; align-items: center; padding: 0 14px; font-size: 15px; background: ${bg}; color: ${col};${strike} border-radius: 8px">${label}${state === "sel" ? '<span style="margin-left: auto; font-size: 13px">✓</span>' : ""}</div>`;
+  };
+  const sheet = (title, opts) => `<div style="border: 1px solid var(--c-line-strong); border-radius: 16px; padding: 12px; background: var(--c-surface)">
+          <div style="font-size: 12px; font-weight: 600; color: var(--c-ink-3); padding: 0 2px 8px">${title}</div>
+${opts.join("\n")}
+        </div>`;
+  const body = `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
+      <div style="font-size: 15px; font-weight: 600; color: var(--c-ink); margin-bottom: 4px">系列を選ぶ ─ 左右で同じものは選べない</div>
+      <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 16px; line-height: 1.5">本人指示「一方で選ばれているものはそもそももう一方の選択肢から削除するように」。<br>押せない選択肢を出さない（F-77 と同じ手）。</div>
+      <div style="display: flex; align-items: center; gap: 8px; height: 35px; margin-bottom: 14px">
+        ${d9Chip(D9_SERIES[0].label, D9_SERIES[0].color)}
+        <span style="font-size: 16px; line-height: 1; color: var(--c-ink-3)">×</span>
+        ${d9Chip(D9_SERIES[1].label, D9_SERIES[1].color)}
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 6px">左（8/24）を押したとき ─ <b style="color: var(--c-ink)">my平均が消える</b></div>
+          ${sheet("1本目", [opt("8/24（その日）", "sel"), opt("my平均", "gone"), opt("目安", ""), opt("±0", "")])}
+        </div>
+        <div>
+          <div style="font-size: 11px; color: var(--c-ink-3); margin-bottom: 6px">右（my平均）を押したとき ─ <b style="color: var(--c-ink)">8/24 が消える</b></div>
+          ${sheet("2本目", [opt("8/24（その日）", "gone"), opt("my平均", "sel"), opt("目安", ""), opt("±0", "")])}
+        </div>
+      </div>
+      <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
+        取り消し線は<b>説明のための印</b>で、実装では<b>行ごと出さない</b>。<br>
+        「±0」は平均差分のときだけ出る（既存の <span style="font-family: var(--font-num)">pitchOnly</span> の規則）。<br>
+        目安が未設定なら「目安」も出ない（既存の規則）。
+      </div>
+    </div>`;
+  writeFileSync(OUT + "Sheet.dc.html", dcFile(body));
+  console.log("Sheet   左右で選択肢が変わる規則");
+}
