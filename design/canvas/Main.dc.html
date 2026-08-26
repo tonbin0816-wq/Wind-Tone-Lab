@@ -29,18 +29,18 @@
     a { color: var(--c-accent); } a:hover { color: #123A70; }
   </style>
 </helmet>
-<div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
+<div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box; position: absolute; left: -7px; top: -6px">
       <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 4px">
         <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 22px; color: var(--c-ink); font-weight: 600; line-height: 1.2">My Data</div>
         <div style="min-height: 44px; padding: 0 9px; display: flex; align-items: center; font-size: 15px; color: var(--c-ink-3); font-weight: 400; line-height: 1.2">分析</div>
         <div style="margin-left: auto; display: flex; align-items: center">
-          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3)">Alto ▾</div>
+          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3); position: relative; top: 65px">Alto ▾</div>
           <span style="font-size: 12px; color: var(--c-ink-3); white-space: pre"> · </span>
-          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</div>
+          <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; font-size: 12px; color: var(--c-ink-3); position: relative; top: 65px">1ヶ月 ▾</div>
         </div>
       </div>
       <div style="padding: 16px 0; background: transparent; border: 0; border-radius: 0">
-        <div style="display: flex; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line)">
+        <div style="display: flex; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line); border-style: none">
           <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">平均差分</span>
           </div>
@@ -54,99 +54,99 @@
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--c-ink-3);">音量</span>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 9px; padding: 0 0 8px">
+        
+        <div style="display: flex; align-items: center; gap: 9px; padding: 0 0 8px; position: relative; height: 35px">
           <div style="display: flex; gap: 4px; min-width: 0; flex-wrap: wrap">
-            <div style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2)">自分の平均</div>
-            <div style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2)">目安</div>
-            <div style="min-height: 44px; display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-accent); border-radius: 8px; color: var(--c-accent)">±0</div>
+            
+            <div style="display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-line-strong); border-radius: 8px; color: var(--c-ink-2); flex-direction: row; height: 20px; width: 75px; text-align: right">8/24</div>
+            
           </div>
-          <div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
-            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg></div>
-            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg></div>
+          <div style="display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--c-accent); border-radius: 8px; color: var(--c-accent); position: relative; width: 75px; height: 21px; left: 25px">my平均</div><div style="display: flex; gap: 2px; margin-left: auto; flex-shrink: 0">
+            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+            <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18M15 3v18M3 9h18M3 15h18"></path></svg></div>
           </div>
-        </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px; color: var(--c-ink-2); margin-bottom: 5px">
-          <span style="display: inline-flex; align-items: center; gap: 5px"><span style="width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; background: var(--c-accent)"></span>8/24</span>
-          <span style="display: inline-flex; align-items: center; gap: 5px"><span style="width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; background: var(--c-accent-mid)"></span>1ヶ月の平均</span>
+        <div style="font-size: 16px; line-height: 1; position: absolute; left: 85px; top: 6px">×</div></div><div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 10.5px; color: var(--c-ink-2); margin-bottom: 5px">
+          
+          
         </div>
         <div>
-          <svg width="347" height="124" viewBox="0 0 347 124" style="display: block">
-          <rect x="0" y="43.81" width="347" height="22.38" stroke="none" style="fill: var(--c-quiet); opacity: 0.28" />
-          <line x1="0" y1="8" x2="347" y2="8" stroke-width="1" style="stroke: var(--c-line)" />
-          <line x1="0" y1="55" x2="347" y2="55" stroke-width="1" style="stroke: var(--c-line)" />
-          <line x1="0" y1="102" x2="347" y2="102" stroke-width="1" style="stroke: var(--c-line)" />
-          <line x1="0" y1="55" x2="347" y2="55" stroke-width="1" style="stroke: var(--c-line-strong)" />
-          <line x1="154.69" y1="8" x2="154.69" y2="102" stroke-width="1" style="stroke: var(--c-line)" />
+          <svg width="347" height="124" viewBox="0 0 347 124" style="display: block; height: 200px">
+          
+          <line x1="0" y1="8" x2="347" y2="8" stroke-width="1" style="stroke: var(--c-line)"></line>
+          <line x1="0" y1="55" x2="347" y2="55" stroke-width="1" style="stroke: var(--c-line)"></line>
+          <line x1="0" y1="102" x2="347" y2="102" stroke-width="1" style="stroke: var(--c-line)"></line>
+          <line x1="0" y1="55" x2="347" y2="55" stroke-width="1" style="stroke: var(--c-line-strong)"></line>
+          <line x1="154.69" y1="8" x2="154.69" y2="102" stroke-width="1" style="stroke: var(--c-line)"></line>
           <text x="8" y="10" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">+8.4</text>
           <text x="8" y="51" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">0.0</text>
           <text x="8" y="98" font-size="12" text-anchor="start" font-family="var(--font-num)" style="fill: var(--c-ink-3); paint-order: stroke; stroke: var(--c-surface); stroke-width: 3px; stroke-linejoin: round">-8.4</text>
-          <polyline fill="none" points="23,102 32.41,89.13 41.81,81.86" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
-          <polyline fill="none" points="60.63,72.9 70.03,65.63 79.44,58.36 88.84,50.52 98.25,47.17 107.66,40.45 117.06,37.65 126.47,44.93 135.88,52.76 145.28,61.15 154.69,68.43 164.09,75.14 173.5,70.67 182.91,61.71 192.31,51.64 201.72,43.25 211.13,33.74 220.53,25.9 229.94,19.19 239.34,15.27 248.75,20.31 258.16,28.14 267.56,37.65 276.97,47.17 286.38,59.48 295.78,69.55 305.19,82.42 314.59,93.05" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)" />
-          <circle cx="23" cy="102" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="32.41" cy="89.13" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="41.81" cy="81.86" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="60.63" cy="72.9" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="70.03" cy="65.63" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="79.44" cy="58.36" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="88.84" cy="50.52" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="98.25" cy="47.17" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="107.66" cy="40.45" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="117.06" cy="37.65" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="126.47" cy="44.93" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="135.88" cy="52.76" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="145.28" cy="61.15" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="154.69" cy="68.43" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="164.09" cy="75.14" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="173.5" cy="70.67" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="182.91" cy="61.71" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="192.31" cy="51.64" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="201.72" cy="43.25" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="211.13" cy="33.74" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="220.53" cy="25.9" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="229.94" cy="19.19" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="239.34" cy="15.27" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="248.75" cy="20.31" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="258.16" cy="28.14" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="267.56" cy="37.65" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="276.97" cy="47.17" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="286.38" cy="59.48" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="295.78" cy="69.55" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="305.19" cy="82.42" r="2.82" style="fill: var(--c-accent)" />
-          <circle cx="314.59" cy="93.05" r="2.82" style="fill: var(--c-accent)" />
-          <polyline fill="none" points="23,84.1 32.41,79.62 41.81,75.14 51.22,71.23 60.63,66.75 70.03,62.83 79.44,58.92 88.84,53.88 98.25,49.96 107.66,46.05 117.06,43.81 126.47,46.61 135.88,51.64 145.28,57.24 154.69,62.27 164.09,66.19 173.5,63.95 182.91,58.92 192.31,52.76 201.72,46.61 211.13,40.45 220.53,35.98 229.94,32.06 239.34,29.82 248.75,33.18 258.16,38.21 267.56,44.37 276.97,50.52 286.38,57.8 295.78,64.51 305.19,72.9 314.59,79.62 324,83.54" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)" />
-          <circle cx="23" cy="84.1" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="32.41" cy="79.62" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="41.81" cy="75.14" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="51.22" cy="71.23" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="60.63" cy="66.75" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="70.03" cy="62.83" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="79.44" cy="58.92" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="88.84" cy="53.88" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="98.25" cy="49.96" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="107.66" cy="46.05" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="117.06" cy="43.81" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="126.47" cy="46.61" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="135.88" cy="51.64" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="145.28" cy="57.24" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="154.69" cy="62.27" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="164.09" cy="66.19" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="173.5" cy="63.95" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="182.91" cy="58.92" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="192.31" cy="52.76" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="201.72" cy="46.61" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="211.13" cy="40.45" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="220.53" cy="35.98" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="229.94" cy="32.06" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="239.34" cy="29.82" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="248.75" cy="33.18" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="258.16" cy="38.21" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="267.56" cy="44.37" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="276.97" cy="50.52" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="286.38" cy="57.8" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="295.78" cy="64.51" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="305.19" cy="72.9" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="314.59" cy="79.62" r="2.82" style="fill: var(--c-accent-mid)" />
-          <circle cx="324" cy="83.54" r="2.82" style="fill: var(--c-accent-mid)" />
+          <polyline fill="none" points="23,102 32.41,89.13 41.81,81.86" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)"></polyline>
+          <polyline fill="none" points="60.63,72.9 70.03,65.63 79.44,58.36 88.84,50.52 98.25,47.17 107.66,40.45 117.06,37.65 126.47,44.93 135.88,52.76 145.28,61.15 154.69,68.43 164.09,75.14 173.5,70.67 182.91,61.71 192.31,51.64 201.72,43.25 211.13,33.74 220.53,25.9 229.94,19.19 239.34,15.27 248.75,20.31 258.16,28.14 267.56,37.65 276.97,47.17 286.38,59.48 295.78,69.55 305.19,82.42 314.59,93.05" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent)"></polyline>
+          <circle cx="23" cy="102" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="32.41" cy="89.13" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="41.81" cy="81.86" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="60.63" cy="72.9" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="70.03" cy="65.63" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="79.44" cy="58.36" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="88.84" cy="50.52" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="98.25" cy="47.17" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="107.66" cy="40.45" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="117.06" cy="37.65" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="126.47" cy="44.93" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="135.88" cy="52.76" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="145.28" cy="61.15" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="154.69" cy="68.43" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="164.09" cy="75.14" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="173.5" cy="70.67" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="182.91" cy="61.71" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="192.31" cy="51.64" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="201.72" cy="43.25" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="211.13" cy="33.74" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="220.53" cy="25.9" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="229.94" cy="19.19" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="239.34" cy="15.27" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="248.75" cy="20.31" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="258.16" cy="28.14" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="267.56" cy="37.65" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="276.97" cy="47.17" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="286.38" cy="59.48" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="295.78" cy="69.55" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="305.19" cy="82.42" r="2.82" style="fill: var(--c-accent)"></circle>
+          <circle cx="314.59" cy="93.05" r="2.82" style="fill: var(--c-accent)"></circle>
+          <polyline fill="none" points="23,84.1 32.41,79.62 41.81,75.14 51.22,71.23 60.63,66.75 70.03,62.83 79.44,58.92 88.84,53.88 98.25,49.96 107.66,46.05 117.06,43.81 126.47,46.61 135.88,51.64 145.28,57.24 154.69,62.27 164.09,66.19 173.5,63.95 182.91,58.92 192.31,52.76 201.72,46.61 211.13,40.45 220.53,35.98 229.94,32.06 239.34,29.82 248.75,33.18 258.16,38.21 267.56,44.37 276.97,50.52 286.38,57.8 295.78,64.51 305.19,72.9 314.59,79.62 324,83.54" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: var(--c-accent-mid)"></polyline>
+          <circle cx="23" cy="84.1" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="32.41" cy="79.62" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="41.81" cy="75.14" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="51.22" cy="71.23" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="60.63" cy="66.75" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="70.03" cy="62.83" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="79.44" cy="58.92" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="88.84" cy="53.88" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="98.25" cy="49.96" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="107.66" cy="46.05" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="117.06" cy="43.81" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="126.47" cy="46.61" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="135.88" cy="51.64" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="145.28" cy="57.24" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="154.69" cy="62.27" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="164.09" cy="66.19" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="173.5" cy="63.95" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="182.91" cy="58.92" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="192.31" cy="52.76" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="201.72" cy="46.61" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="211.13" cy="40.45" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="220.53" cy="35.98" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="229.94" cy="32.06" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="239.34" cy="29.82" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="248.75" cy="33.18" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="258.16" cy="38.21" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="267.56" cy="44.37" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="276.97" cy="50.52" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="286.38" cy="57.8" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="295.78" cy="64.51" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="305.19" cy="72.9" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="314.59" cy="79.62" r="2.82" style="fill: var(--c-accent-mid)"></circle>
+          <circle cx="324" cy="83.54" r="2.82" style="fill: var(--c-accent-mid)"></circle>
           <text x="41.81" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭3</text>
           <text x="79.44" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G3</text>
           <text x="117.06" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">B3</text>

@@ -1,5 +1,9 @@
 import { writeFileSync } from "node:fs";
 const OUT = "/home/user/Wind-Tone-Lab/design/canvas/";
+// 【D-9 2026/08/25】Main / Windows は**本人がキャンバス上で直接いじった**ものが正になった。
+// 既定では上書きしない。D-8 当時の写しを作り直したいときだけ --regen-baseline を付ける。
+const REGEN_BASELINE = process.argv.includes("--regen-baseline");
+const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html"].includes(name);
 
 // ---- src/App.jsx から写した定数 ----------------------------------------
 const NOTE_NAMES = ["C","C♯","D","E♭","E","F","F♯","G","G♯","A","B♭","B"];
@@ -245,7 +249,7 @@ const cenRef = mk([ 880,960,1040,1120,1200,1280,1360,1440,1520,1600,1670,1740,18
           ${chartSvg({ series, L, zeroCentered: true, bandAbs: RING_IN_TUNE_CENTS })}
         </div>`,
   ].join("\n        "));
-  writeFileSync(OUT + "Main.dc.html", dcFile(body));
+  if (guard("Main.dc.html")) writeFileSync(OUT + "Main.dc.html", dcFile(body)); else console.log("skip Main.dc.html (本人の修正が正)");
   console.log("Main   H=" + L.H + " ticks=" + L.tickTexts.join("/") + " labelStep=" + L.labelStep + " midEb=" + L.midEb);
 }
 
@@ -354,7 +358,7 @@ ${rows}
           ${matrixBlock("いつもの自分", "1ヶ月の平均 − ±0", lower)}
         </div>`,
   ].join("\n        "));
-  writeFileSync(OUT + "Windows.dc.html", dcFile(body));
+  if (guard("Windows.dc.html")) writeFileSync(OUT + "Windows.dc.html", dcFile(body)); else console.log("skip Windows.dc.html (本人の修正が正)");
   console.log("Windows octaves=" + upper.octaves.join(",") + " maxAbs=" + upper.maxAbs + " cells=" + upper.count);
 }
 
