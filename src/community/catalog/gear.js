@@ -149,6 +149,10 @@ export const MOUTHPIECE_CATALOG = {
       "HR* Custom Dark 7*",
       "HR* Custom Dark 8",
       "HR* Custom Dark 8*",
+      // 以下 DV / DV NY / DV HR / JET / Super Jet の各6件は、研究md 2.3節が
+      // 「6〜8*(テナー定番7*/8*)」と範囲表記している箇所を、同md 2.1節の
+      // 「*=半段階」規則に基づいて 6, 6*, 7, 7*, 8, 8* の6段階に展開したもの。
+      // 研究mdに個別列挙されている型番の逐語転記ではない点に注意。
       "DV 6",
       "DV 6*",
       "DV 7",
@@ -179,6 +183,8 @@ export const MOUTHPIECE_CATALOG = {
       "Super Jet 7*",
       "Super Jet 8",
       "Super Jet 8*",
+      // GIANT は研究mdが「6*(.095)/7*(.105)/8(.110)/8*(.115)、Garzone版は9*/10*も」
+      // と個別列挙している行の逐語転記(範囲展開ではない)。
       "GIANT 6*",
       "GIANT 7*",
       "GIANT 8",
