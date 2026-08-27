@@ -15,11 +15,23 @@ export function startYearOptions(now = new Date()) {
   return out;
 }
 
+// ニックネームは既定で公開されるため、表示偽装に使える不可視・双方向制御文字を明示的に拒否する。
+// \p{Cf}(書式文字カテゴリ)を一括拒否すると絵文字が壊れる(ZWJ=U+200D は絵文字合成に必須、
+// 異体字セレクタ=U+FE0E/U+FE0F は絵文字の表示形指定に必須)ため、それらは拒否リストから除外している。
+// 拒否対象:
+//   - \p{Cc}: C0/C1 制御文字全般(従来の \r\n\t を含む)
+//   - U+200B (ゼロ幅スペース), U+200C (ゼロ幅非接合子)
+//   - U+200E, U+200F (左横書き/右横書きマーク)
+//   - U+202A-U+202E (双方向埋め込み・上書き。U+202E は表示順反転による偽装に使われる)
+//   - U+2066-U+2069 (双方向分離)
+//   - U+FEFF (ゼロ幅ノーブレークスペース / BOM)
+const FORBIDDEN_CHARS = /\p{Cc}|[\u200B\u200C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/u;
+
 export function validateNickname(raw) {
   const value = String(raw ?? "").trim();
   if (value.length === 0) return { error: "ニックネームを入力してください" };
   if ([...value].length > 20) return { error: "ニックネームは20文字までです" };
-  if (/[\r\n\t]/.test(value)) return { error: "使えない文字が含まれています" };
+  if (FORBIDDEN_CHARS.test(value)) return { error: "使えない文字が含まれています" };
   const ng = findNgWord(value);
   if (ng) return { error: "このニックネームは使用できません" };
   return { value };
