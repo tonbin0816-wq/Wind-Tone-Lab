@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      // 公開プロフィールは誰でも読める。非公開は本人のみ(spec: 非公開でも復元用にクラウド保存する)
+      allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
+      allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nickname','saxType','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() > 0
+        && request.resource.data.nickname.size() <= 80  // バイト長。文字数20の実強制はクライアント(NG検証のサーバ側強制は計画5)
+        && request.resource.data.isPublic is bool
+        && request.resource.data.ageConfirmed == true;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{document=**} { allow read, write: if false; } // 未定義コレクションは全拒否
+  }
+}
