@@ -6,11 +6,28 @@ service cloud.firestore {
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
       allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
       allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['nickname','saxType','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.keys().hasOnly(['nickname','saxType','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
-        && request.resource.data.nickname.size() <= 80  // バイト長。文字数20の実強制はクライアント(NG検証のサーバ側強制は計画5)
+        // size() は UTF-8 のバイト長。クライアントの上限20コードポイントに対し、
+        // 1コードポイント最大4バイトなので 80 が厳密な最悪値の上界になる
+        && request.resource.data.nickname.size() <= 80
+        && request.resource.data.saxType in ['soprano','alto','tenor','baritone']
+        && request.resource.data.position is string
+        && request.resource.data.position.size() <= 60
+        && request.resource.data.startYear is int
+        && request.resource.data.startYear >= 1900
+        && request.resource.data.startYear <= 2200
+        && request.resource.data.genres is list && request.resource.data.genres.size() <= 8
+        && request.resource.data.ensembles is list && request.resource.data.ensembles.size() <= 8
+        && request.resource.data.places is list && request.resource.data.places.size() <= 8
+        && request.resource.data.gear is map
+        && request.resource.data.gear.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel'])
+        && request.resource.data.deviceClass in ['ios','android','pc']
+        && request.resource.data.updatedAt is string
         && request.resource.data.isPublic is bool
+        // 年齢は自己申告であり検証ではない。13歳未満の利用を規約で禁じるための同意記録
         && request.resource.data.ageConfirmed == true;
       allow delete: if request.auth != null && request.auth.uid == uid;
     }
