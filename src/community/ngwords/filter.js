@@ -13,14 +13,11 @@ const JA_WORDS = ja.words.map(toEntry).filter((w) => w.compact.length >= 2);
 
 const EN_ENTRIES = en.entries.map((e) => ({
   words: e.words.map(toEntry).filter((w) => w.compact.length >= 3),
-  // en.jsonのexceptionsは"cath*"のようにワイルドカード"*"付きの語形のまま生成されている。
-  // 照合は部分一致のため"*"を含んだままでは絶対にヒットせず、Scunthorpe対策が機能しない。
-  // そのため"*"を除去してから正規化する(コントローラ裁定)。
-  // *除去後に1〜2文字まで短くなった例外(例: "co*" -> "co")は、あらゆる箇所に部分一致してしまい
-  // 過剰保護の温床になるため、NGワードリスト本体の短語フィルタ(en>=3)と同じ閾値で足切りする。
-  exceptions: e.exceptions
-    .map((ex) => compactForFilter(ex.replace(/\*/g, "")))
-    .filter((ex) => ex.length >= 3),
+  // en.jsonのexceptionsの"*"は「区切り記法」ではなく「ヒットしたNGワードが入る位置」を示すプレースホルダ。
+  // 例: bugger の例外 "de*" は de+bugger="debugger"、arse の例外 "co*" は co+arse="coarse" を意味する。
+  // そのためロード時点で"*"を除去/展開することはできない(展開にはヒットした語そのものが要る)。
+  // ここではcompactForFilterだけ通して"*"を温存し、実際の展開はfindNgWord内でヒット語ごとに行う。
+  exceptionTemplates: e.exceptions.map((ex) => compactForFilter(ex)),
 }));
 
 export function findNgWord(nickname) {
@@ -35,12 +32,15 @@ export function findNgWord(nickname) {
   for (const e of EN_ENTRIES) {
     const hit = e.words.find((w) => compact.includes(w.compact) || leetCompact.includes(w.compact));
     if (!hit) continue;
+    // 例外は"*"をヒットした語(hit.compact)で置換して完全形に展開してから照合する。
     // NGワード自体がleet経由(leetCompact)でヒットする場合(例: "c4th4rse" -> leetCompactで"arse"にヒット)、
-    // 例外もleetCompact側で見ないと保護が効かない(compactは"c4th4rse"のままで"cath"を含まない)。
+    // 例外もleetCompact側で見ないと保護が効かない(compactは"c4th4rse"のままで展開形"catharse"を含まない)。
     // そのためcompact/leetCompactの両方を例外側でも見る。
-    // (normalizeForFilterの結果=normは、exが常にcompactForFilterを通っていて区切り文字を含み得ないため
-    //  compactでの判定が常に上位互換になり不要だったので使わない)
-    if (e.exceptions.some((ex) => compact.includes(ex) || leetCompact.includes(ex))) continue;
+    const excepted = e.exceptionTemplates.some((tpl) => {
+      const full = tpl.includes("*") ? tpl.replace(/\*/g, hit.compact) : tpl;
+      return compact.includes(full) || leetCompact.includes(full);
+    });
+    if (excepted) continue;
     return hit.original;
   }
   return null;
