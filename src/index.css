@@ -386,12 +386,61 @@ body {
   padding: 10px 14px;
   box-shadow: var(--shadow-row);
 }
-/* 【D-10 §4】日付を押すと開く枠の動き。高さの数値は JSX が実測して持ち、
+/* 【D-10 §4 / D-11 §1】日付を押すと開く枠の動き。高さの数値は JSX が実測して持ち、
    ここは**時間と曲線だけ**を持つ(prefers-reduced-motion をここ1箇所で尊重できる)。
-   overflow:hidden と height は JSX 側のインライン style(.card ではないので作法に触れない)。 */
-.day-panel { transition: height 200ms ease-out; }
+   overflow:hidden と height は JSX 側のインライン style(.card ではないので作法に触れない)。
+
+   【D-11 §1 本人指示】「日付を押したときの開き方が全くスムーズではないのでもっとぬるっと」。
+   直したのは3つ。**インライン style に時間・曲線・遅延を1つも書かない**(この節が唯一の持ち主)。
+     (a) 描く日の更新が1フレーム遅れていた ── App.jsx 側で toggleDay が
+         openDayKey と shownDayKey を**同じ更新で**書くようにした(useEffect を削除)
+     (b) 開閉を**非対称**にした。開く 320ms / 閉じる 240ms。
+         曲線 cubic-bezier(0.32, 0.72, 0, 1) は立ち上がりが速く終わりが長く効く
+     (c) 中身(.day-panel-inner)も動かす。箱だけが伸びると「マスクで刈り取っている」ように
+         見えるのが硬さの正体。開くとき opacity 0→1 / translateY(-8px)→none を 220ms・**60ms 遅らせて**
+         (箱が先に開き、中身があとから収まる)、閉じるときは 140ms・遅延なし(中身が先に消える)
+   【D-11 §1(d) は実装していない。統括の判断待ち】凍結仕様は**レイヤ昇格ヒント**(高さ)と
+   `contain: layout paint` も足すよう指示していたが、**当てていない**。理由は2つ:
+     1. **そのヒントのプロパティはアプリ全体で禁止されている**(F-106。
+        `design/F106-SPEC.md:23` が contain / content-visibility / そのヒント / transform を
+        「iOS の再ペイント取りこぼしの典型要因」として名指ししている。
+        `scripts/pitch-test.mjs` の 30.1「アプリ全体で1つも使っていない」がこれを固定している)。
+        F-106 は**実機でしか出なかったバグ**で、恒久的なレイヤ昇格を外して直したもの。
+        この枠の中には `overflowY: auto` のスクロールコンテナがあり、F106-SPEC が
+        名指ししている形そのもの
+     2. 凍結仕様が挙げた理由(「下の折れ線の SVG が毎フレーム再レイアウトされるのを抑える」)は
+        `contain: layout` では**達成できない**。layout containment が切るのは
+        「中の変化が外へ伝わる経路」で、ここで毎フレーム外を動かしているのは
+        **枠の高さそのもの**(= 下のカードを押し出すという意図した挙動)。
+        `contain: paint` の効果も `overflow: hidden` と重複する
+   Chrome 375×812 では `contain: layout paint` を当てても描画は壊れなかった(押し出し 204px を実測)。
+   だが F-106 の教訓どおり**この類は Chrome で判定できない**ので、当てないほうへ倒した。 */
+.day-panel {
+  transition: height 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.day-panel.is-open { transition: height 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.day-panel-inner {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 140ms cubic-bezier(0.32, 0.72, 0, 1),
+              transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.day-panel.is-open .day-panel-inner {
+  opacity: 1;
+  transform: none;
+  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms,
+              transform 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms;
+}
+/* 動きを減らす設定では **(b)(c) で足したものも含めて全部**止める。
+   .day-panel-inner を opacity: 1 / transform: none に戻すのが要 ──
+   止めるだけだと「中身が opacity 0 のまま残る」事故になる。 */
 @media (prefers-reduced-motion: reduce) {
-  .day-panel { transition: none; }
+  .day-panel, .day-panel.is-open { transition: none; }
+  .day-panel-inner, .day-panel.is-open .day-panel-inner {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------------

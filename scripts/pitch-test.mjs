@@ -431,6 +431,22 @@ function check(label, cond, detail = "") {
   else { fail++; failures.push(`${label}${detail ? " — " + detail : ""}`); }
 }
 
+// 【D-13】ソースから組み立てた関数の**呼び出し**を包む共通の口。
+// `new Function(...)` の**構築**だけを try で包んでも、組み上がった関数が
+// 拾い落とした局所定義を参照していれば **呼び出したときに** ReferenceError が投げられる。
+// 包まないとハーネスごと落ちて PASS/FAIL の集計行すら出ない(この罠は :4257 にも書いてある)。
+// 例外は投げ直さず「値」として持ち帰り、呼び手の check を必ず偽にする。
+// **例外を偽値でも真値でも返さない**のが肝。偽値で返すと「〜を引かない」と主張する検査が
+// 例外で黙って通り、真値で返すと「〜を引く」と主張する検査が例外で黙って通る(罠5)。
+// 呼び手は必ず `.ok` を条件に入れ、`.err` を detail に出すこと。
+function runFn(f, ...args) {
+  if (typeof f !== "function") return { ok: false, v: undefined, err: "関数として組み立てられていない" };
+  try { return { ok: true, v: f(...args), err: "" }; }
+  catch (e) { return { ok: false, v: undefined, err: String((e && e.message) || e) }; }
+}
+// runFn の結果を detail に出すための綴り(例外なら何が投げられたかが出る)。
+const shownOf = (r) => (r.ok ? String(r.v) : `例外(${r.err})`);
+
 const SR = 48000, BUF = 8192;
 // サックス様の波形合成(8倍音・振幅1/h・位相ばらし)。ampFnで倍音バランスを変えられる。
 function synthTone(f0, { ampFn = (h) => 1 / h, harmonics = 8, noise = 0, sampleRate = SR, len = BUF } = {}) {
@@ -5907,16 +5923,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         want !== null && norm(cssVar("--shadow-row")) === norm(want),
         `いま ${cssVar("--shadow-row")} / 正典 ${want}`);
     }
-    // 【D-10 §4】日付を押すと開く枠の動き。時間と曲線は CSS 側に1箇所。
-    // **prefers-reduced-motion: reduce で止まること**まで見る(§6.1.5 の趣旨)。
+    // 【D-10 §4 → D-11 §1 で書き換え】日付を押すと開く枠の動き。時間と曲線は CSS 側。
+    // **時間・曲線・遅延そのものは検証33 が DESIGN-SYSTEM §1.11 の表と突き合わせる**
+    // (ここに数値を書くと、表と実装のどちらが正しいかを言えない2つ目の正典ができる)。
+    // ここが持つのは「時間と曲線を持つのは .day-panel の系統だけ」という**置き場所**の主張。
     {
-      const panel = cssBlock(".day-panel");
-      check("D-10 §4: 開閉の動きは 200ms / ease-out(.day-panel が1箇所で持つ)",
-        /\.day-panel\s*\{\s*transition:\s*height\s+200ms\s+ease-out;\s*\}/.test(css), String(panel));
+      // cssBlock は**最後の**規則を返すので、@media の中の `transition: none` を拾う。
+      // ここは地の `.day-panel { … }`(= @media の外)を名指しで見る。
+      const panel = (/\.day-panel\s*\{\s*transition:\s*height\s+([^;]+);\s*\}/.exec(css) || [])[1] || null;
+      check("D-10 §4: 開閉の動きは .day-panel が持つ(高さの transition が CSS 側にある)",
+        panel !== null, panel || String(cssBlock(".day-panel")));
       const reduced = /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g;
       let hit = false, mm;
       while ((mm = reduced.exec(css)) !== null) {
-        if (/\.day-panel\s*\{[^}]*transition:\s*none/.test(mm[1])) hit = true;
+        if (/\.day-panel[^{}]*\{[^}]*transition:\s*none/.test(mm[1])) hit = true;
       }
       check("D-10 §4: 動きを減らす設定では開閉を動かさない(prefers-reduced-motion: reduce)", hit);
     }
@@ -6774,8 +6794,63 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       /hi = center \+ half;/.test(chart) && /lo = center - half;/.test(chart));
     check("ゼロ除算だけ避ける(実測が全て中央値のとき半幅を1にフォールバック)",
       /const half = maxDev \|\| 1;/.test(chart));
-    check("平均差分は centerAt を渡さなくても 0 中心(他画面の既定が変わっていない)",
-      /: \(metricKey === "pitchCentsSigned" \? 0 : null\);/.test(chart));
+    // 【D-12 2026/08/27 検査名の是正 + 実行での検証へ】前版はここで
+    //   「平均差分は centerAt を渡さなくても 0 中心(**他画面の既定が変わっていない**)」
+    // と名乗りながら、実際に見ていたのは**ドメイン計算1行の綴り**だけだった。
+    // そのせいで D-9 が「線を引く条件」を `center !== null` へ広げた退行(他3画面に
+    // --c-line-strong の水平線が1本増えた)が素通りした(罠1「検査名は実際に検証している
+    // 内容しか名乗らない」/ 罠2「純関数を守っても配線が無防備なら意味がない」)。
+    //
+    // ここは**縦のスケール(ドメイン)だけ**を名乗り、綴りではなく**実行**で確かめる。
+    // **線を引くかどうか**は別の話なので 27.9 D-9x が別に持つ。
+    {
+      // 中心を決める式と、lo / hi を決めるブロックをソースから取り出して**関数として実行する**。
+      const centerExpr = (/const center = ([\s\S]*?);\r?\n/.exec(chart) || [])[1];
+      const domainSrc = (/let lo, hi, rng;[\s\S]*?\r?\n {2}\}\r?\n/.exec(chart) || [])[0];
+      check("6.7 D-12: 中心の式と縦のスケールのブロックを取り出せている(空回りしていない)",
+        !!centerExpr && !!domainSrc && /hi =/.test(domainSrc) && /lo =/.test(domainSrc),
+        `${String(centerExpr).slice(0, 40)} / ${String(domainSrc).length}文字`);
+      const centerOf = new Function("centerAt", "metricKey", `return (${centerExpr});`);
+      const domainOf = new Function("center", "allVals", "minV", "maxV",
+        `${domainSrc} return { lo, hi, rng };`);
+      // (1) 中心の既定。**他画面(centerAt を渡さない)**でも平均差分だけは 0。
+      check("6.7 平均差分は centerAt を渡さなくても中心が 0・他の指標は中心を持たない",
+        centerOf(null, "pitchCentsSigned") === 0
+        && centerOf(null, "hnrDb") === null
+        && centerOf(null, "spectralCentroidHz") === null
+        && centerOf(undefined, "volumeDb") === null
+        && centerOf(42, "hnrDb") === 42 && centerOf(0, "hnrDb") === 0,
+        `${centerOf(null, "pitchCentsSigned")} / ${centerOf(null, "hnrDb")} / ${centerOf(42, "hnrDb")}`);
+      // (2) 他画面の平均差分の縦のスケールが **D-8(3d46f1c^)と同じ**であること。
+      //     D-8 は hi = max|v| / lo = -hi。期待値はここで手計算した数を書く
+      //     (実装の式を写すと恒真になる。罠3)。値 -3 / 12 / 5 → hi 12 / lo -12。
+      {
+        const d = domainOf(centerOf(null, "pitchCentsSigned"), [-3, 12, 5], -3, 12);
+        check("6.7 D-12: 他画面の平均差分は hi=+最大絶対値 / lo=−最大絶対値(D-8 から不変)",
+          d.hi === 12 && d.lo === -12 && d.rng === 24, `hi=${d.hi} lo=${d.lo} rng=${d.rng}`);
+      }
+      // (3) 他画面の残り3指標は「最小〜最大に 12% の余白」の従来どおり(D-8 から不変)。
+      //     10〜20 → pad = 10 × 0.12 = 1.2 → lo 8.8 / hi 21.2。
+      {
+        const d = domainOf(centerOf(null, "hnrDb"), [10, 20], 10, 20);
+        check("6.7 D-12: 他画面の残り3指標は最小〜最大に 12% の余白(D-8 から不変)",
+          Math.abs(d.lo - 8.8) < 1e-9 && Math.abs(d.hi - 21.2) < 1e-9,
+          `lo=${d.lo} hi=${d.hi}`);
+      }
+      // (4) 中心を持つとき(My Data)は**中心が絵の中央に来る**。80〜130 で中心 100 なら
+      //     いちばん遠いのが 30 なので lo 70 / hi 130、中間の目盛は 100。
+      {
+        const d = domainOf(centerOf(100, "hnrDb"), [80, 130], 80, 130);
+        check("6.7 D-9u: 中心を渡すと上下対称になり、中間の目盛が中心そのものになる",
+          d.lo === 70 && d.hi === 130 && (d.hi + d.lo) / 2 === 100, `lo=${d.lo} hi=${d.hi}`);
+      }
+      // (5) 実測が全て中心と同じでも潰れない(半幅 1 へ逃がす)。5 だけ → lo 4 / hi 6。
+      {
+        const d = domainOf(centerOf(5, "hnrDb"), [5, 5], 5, 5);
+        check("6.7 D-9u: 実測が全て中心と同じでもドメインが潰れない(半幅 1 へ逃がす)",
+          d.lo === 4 && d.hi === 6 && d.rng === 2, `lo=${d.lo} hi=${d.hi}`);
+      }
+    }
     // ここが今回の指示の芯。ミラー描画の痕跡(2本目のポリライン・負値の作成・分岐フラグ)が
     // 1つでも残っていたら、線が2本に戻り得るということなので落とす。
     // **「綴りが無いこと」を見る検査は codeOf() を通す**(このファイル冒頭の規約)。
@@ -13838,6 +13913,19 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         && /padding: `0 \$\{SUBTAB_HALF_GAP_PX\}px`/.test(sub));
       check("子タブの当たり判定は 44px 以上(§5)",
         /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(sub));
+      // 【D-12 2026/08/27 新設】D9-SPEC §7「上部の詰め方」で削った 12px のうち、
+      // **子タブ行の下の余白 4 → 0** を誰も見張っていなかった(4 に戻す変異が
+      // D-9 ツリー・HEAD ツリーの両方で生存)。もう半分だった「カードの上余白 16 → 8」は
+      // D-10 で My Data がカードの作法へ移り .card-tight-top ごと消えている
+      // (その不在は「D-10: .card-tight-top は定義ごと消えている」が別に持つ)ので、
+      // **この検査が守るのは 4px のほうだけ**。
+      // 錨は**行そのものの style**(部品のどこかに 0 があれば通る形にしない)。
+      const rowStyle = (/style=\{\{([^}]*)\}\}/.exec(sub) || [])[1];
+      check("D-12 健全性: 子タブ行の style を切り出せている(空回りしていない)",
+        !!rowStyle && /display: "flex"/.test(rowStyle), String(rowStyle).replace(/\s+/g, " "));
+      check("D-9z2: 子タブ行は下の余白を持たない(marginBottom 0。上部を 4px 詰めた側)",
+        !!rowStyle && /\bmarginBottom: 0\b/.test(rowStyle),
+        String(rowStyle).replace(/\s+/g, " "));
     }
     // 【定義の言い換えを書かない】SUBTAB_HALF_GAP_PX は SUBTAB_GAP_PX / 2 と
     // 定義されているので、`HALF * 2 === GAP` は**恒等的に真**で何も守らない
@@ -15151,10 +15239,62 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // 【D-9 §4 案D 2026/08/25 本人指示】空のセルは**音域の内外で描き分ける**。
     // 純関数(inRange)を守っても、描画側が読まなければ画面は変わらない(罠2)ので、
     // **呼び出しに隣接する綴り**で固定する。
-    check("27.7 D-9 案D: 空セルは音域の内外で描き分ける(呼び出しに隣接)",
-      /matrix\.inRange\?\.\[oct \+ ":" \+ pc\]/.test(matrixCard)
-      && /borderRadius: "var\(--r-xs\)", border: "1px solid var\(--c-line\)" \}\} \/>/.test(matrixCard)
-      && /: <div key=\{pc\} style=\{\{ height: MATRIX_CELL_H \}\} \/>/.test(matrixCard));
+    // 【D-12 2026/08/27 書き換え】前版はこの3つの**綴りが在ること**しか見ていなかった。
+    // そのため `matrix.inRange?.[…]` を `… && false` にする変異が**両ツリーで生存**した
+    // ── 未演奏の窓の枠が全部消えて「音域外」と同じ空白になる(§4 案D と D-9s §10 の裁定が
+    // 丸ごと死ぬ)のに、綴りは3つとも残るので検査は通った。
+    // ここからは**枝の効果**で見る。空セルの三項演算子をソースから切り出し、
+    //   (1) 条件を **buildNoteMatrix の実際の出力**に対して実行し、
+    //   (2) 真の枝と偽の枝が**実際に違う見た目**(枠の有無)であることを確かめる。
+    {
+      // 空セルの三項演算子を切り出す。条件の識別子には依存しない(綴りを釘付けしない)。
+      const m = /return ([^\n]+?)\s*\r?\n?\s*\? (<div [^\n]*?\/>)\s*\r?\n?\s*: (<div [^\n]*?\/>);/.exec(matrixCard);
+      check("27.7 D-12: 空セルの分岐をソースから切り出せている(空回りしていない)",
+        !!m, m ? m[1].trim() : matrixCard.slice(matrixCard.indexOf("inRange") - 60, matrixCard.indexOf("inRange") + 120).replace(/\s+/g, " "));
+      if (m) {
+        const [, condSrc, whenTrue, whenFalse] = m;
+        // (2) 分岐先が**実際に違う**こと。真=枠つき / 偽=枠なし。
+        //     どちらも高さは持つ(段の高さが崩れない)。
+        check("27.7 D-9 案D: 真の枝は枠つき・偽の枝は枠なしで、見た目が実際に違う",
+          /border: "1px solid var\(--c-line\)"/.test(whenTrue)
+          && !/border:/.test(whenFalse)
+          && whenTrue.includes("height: MATRIX_CELL_H") && whenFalse.includes("height: MATRIX_CELL_H"),
+          `真=${whenTrue} / 偽=${whenFalse}`);
+        // (1) 条件を **実際の matrix** に対して実行する。
+        //     音域内で未演奏 → 真(枠を置く) / 音域外 → 偽(窓を置かない)。
+        const mk = new Function(`${extractConst("NOTE_NAMES")}
+          ${extractFunction("parseNoteLabel")}
+          let LABELS = [];
+          const concertNoteLabelOf = (i) => LABELS[i] ?? null;
+          ${extractFunction("buildNoteMatrix")}
+          return (labels, v, t, n) => { LABELS = labels; return buildNoteMatrix(v, t, n, null, null); };`)();
+        // C3 / D3 / E3 の3音だけが軸にあり、値が読めるのは C3 だけ。
+        const matrix = mk(["C3", "D3", "E3"], { 0: 5, 1: null, 2: 7 }, { 0: 1, 1: 1, 2: undefined }, 3);
+        let cond = null;
+        try { cond = new Function("matrix", "oct", "pc", `return (${condSrc.trim()});`); } catch { cond = null; }
+        // 【D-13】構築の try だけでは足りない。condSrc が matrix/oct/pc 以外の識別子を
+        // 参照していれば **呼び出したときに** ReferenceError が投げられ、素で呼ぶと
+        // ハーネスごと落ちて集計行すら出ない(:4257 と同じ罠)。runFn 越しに呼ぶ。
+        const gate7 = runFn(cond, matrix, 3, "D");
+        check("27.7 D-12: 空セルの条件を実行できる形にできている(空回りしていない)",
+          typeof cond === "function" && gate7.ok, `${condSrc.trim()} / 実行=${shownOf(gate7)}`);
+        if (typeof cond === "function") {
+          const cD = runFn(cond, matrix, 3, "D"), cE = runFn(cond, matrix, 3, "E");
+          check("27.7 D-9 案D: 音域の中で値が読めない窓は**枠つきの枝**へ行く(まだ弾いていない)",
+            cD.ok && !!cD.v && cE.ok && !!cE.v,
+            `D=${shownOf(cD)} E=${shownOf(cE)}`);
+          // **例外は「枠なしの枝へ行く」の根拠にしない**(.ok を条件に入れてある。罠5)。
+          const cF = runFn(cond, matrix, 3, "F"), cC4 = runFn(cond, matrix, 4, "C"), cGs = runFn(cond, matrix, 3, "G♯");
+          check("27.7 D-9 案D: 音域の外(そもそも軸に無い音)は**枠なしの枝**へ行く(窓を置かない)",
+            cF.ok && !cF.v && cC4.ok && !cC4.v && cGs.ok && !cGs.v,
+            `F=${shownOf(cF)} C4=${shownOf(cC4)} G♯=${shownOf(cGs)}`);
+          // 【D-9s §10】枠の濃さは --c-line のまま(本人裁定「いまは上げない」)。
+          check("27.7 D-9s §10: 未演奏の窓の枠は --c-line のまま(--c-line-strong へ上げていない)",
+            /border: "1px solid var\(--c-line\)"/.test(whenTrue)
+            && !/--c-line-strong/.test(whenTrue), whenTrue);
+        }
+      }
+    }
     check("27.7 D-8: 帯も段も画面に出す綴りから読み直す(丸めと食い違わせない)",
       /const label = matrixCellText\(v\);/.test(matrixCard)
       && /matrixCellPaint\(Number\(label\), band, matrix\.maxAbs\)/.test(matrixCard)
@@ -15313,9 +15453,99 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /overlay[\s\S]{0,40}\? \{ fill: "var\(--c-ink-4\)", stroke: "var\(--c-surface\)", strokeWidth: 3, paintOrder: "stroke" \}[\s\S]{0,40}: \{ fill: "var\(--c-ink-4\)" \}/.test(srcOfFn(src, "NoteAxisLineChart")));
     // 【変異試験 M14 で生存 → 足した】中央線を描かない変異が通っていた
     // (ドメインの計算と目盛の文字だけを見ていて、**線そのもの**を見ていなかった)。
-    // D-9u の芯は「中央線は必ず1本ある」なので、**描画そのもの**を綴りで固定する。
-    check("27.9 D-9u: 中央線を必ず1本引く(上下の目盛線を消しても基準が消えない)",
-      /\{center !== null && \([\s\S]{0,20}<line x1=\{L\.gridX0\} y1=\{L\.yAt\(center\)\} x2=\{W\} y2=\{L\.yAt\(center\)\} strokeWidth="1" style=\{\{ stroke: "var\(--c-line-strong\)" \}\} \/>/.test(srcOfFn(src, "NoteAxisLineChart")));
+    // 【D-12 2026/08/27 書き換え】前版は `{center !== null && (` を**綴りで釘付け**していた。
+    // そのため「My Data だけに戻す」という**正しい修正のほうが落ちる**状態になっており
+    // (罠4)、同時に D-9 が持ち込んだ退行 ── 他3画面(リード比較 ReedCompareTab /
+    // セッション詳細・リード個体詳細 MetricTabCard)の平均差分に --c-line-strong の
+    // 水平線が1本増えた ── を**検査のほうが固定していた**。
+    //
+    // ここからは**枝の効果**で見る。JSX は評価できないので、
+    //   (1) --c-line-strong を持つ <line> をソースから拾い(1本だけであること)、
+    //   (2) その線に**隣接する** guard の式を読み(罠2: 錨は呼び出しに隣接する綴り)、
+    //   (3) guard が参照している局所定義ごと**関数として実行**する。
+    // こうすると `myData &&` の付け外しも `&& false` も効果で落ち、
+    // 変数名を変える・属性を足す・宣言順を入れ替える、といった無関係な書き換えでは落ちない。
+    {
+      const chartSrc = srcOfFn(src, "NoteAxisLineChart");
+      const strong = (chartSrc.match(/<line [\s\S]*?\/>/g) || [])
+        .filter((t) => t.includes("var(--c-line-strong)"));
+      check("27.9 D-9u: 中央線の <line> は部品の中に1本だけ(引く条件を2箇所に持たない)",
+        strong.length === 1, `${strong.length}本`);
+      const tag = strong.length === 1 ? strong[0] : "";
+      const before = tag ? chartSrc.slice(Math.max(0, chartSrc.indexOf(tag) - 300), chartSrc.indexOf(tag)) : "";
+      // 線の直前の `{ …式… && (` を丸ごと取る(識別子1つに限定しない ─ 限定すると
+      // `myData && center !== null` のような別の正しい書き方を落とす)。
+      const guardExpr = (/\{([^{}]+?) && \(\s*$/.exec(before) || [])[1];
+      check("27.9 D-9u: 中央線を引く条件は線に隣接して1つだけ書かれている",
+        !!guardExpr, before.replace(/\s+/g, " ").slice(-70));
+      // 線は端から端まで水平で、y は guard と同じ材料から引く。
+      // 属性の**並び**には依存しない(順を入れ替えただけで落ちる検査にしない)。
+      const yArg = (/y1=\{L\.yAt\(([\w$.]+)\)\}/.exec(tag) || [])[1];
+      check("27.9 D-9u: 中央線は端から端まで水平で、上下端が同じ値から出る",
+        !!yArg && tag.includes(`y2={L.yAt(${yArg})}`)
+        && tag.includes("x1={L.gridX0}") && tag.includes("x2={W}")
+        && !!guardExpr && guardExpr.includes(yArg),
+        tag.replace(/\s+/g, " "));
+      // guard の式を、それが参照している局所 const ごと**実行できる形**に組み直す。
+      const declOfLocal = (n) => {
+        const m = new RegExp(`\\r?\\n\\s*const ${n} = ([\\s\\S]*?);\\r?\\n`).exec(chartSrc);
+        return m ? `const ${n} = ${m[1]};` : null;
+      };
+      const OUTER = ["myData", "centerAt", "metricKey"];
+      const names = [...new Set(["center", ...(guardExpr || "").match(/[A-Za-z_$][\w$]*/g) || []])]
+        .filter((n) => !OUTER.includes(n) && declOfLocal(n))
+        .sort((a, b) => chartSrc.indexOf(`const ${a} = `) - chartSrc.indexOf(`const ${b} = `));
+      // JSX の `{式 && (<line/>)}` は**式が真のときだけ線を描く**。
+      // 「描くか」は guard の真偽そのもの、「どこに描くか」は y の材料(yArg)を実行して読む。
+      // guard を書き換えずに評価するので、`centerLineAt !== null` でも
+      // `myData && center !== null` でも同じように判定できる。
+      const evalIn = (expr) => {
+        try {
+          const fn = new Function(...OUTER, `${names.map(declOfLocal).join("\n")}\nreturn (${expr});`);
+          return (myData, metricKey, centerAt = null) => fn(myData, centerAt, metricKey);
+        } catch { return null; }
+      };
+      const drawsLine = guardExpr ? evalIn(guardExpr) : null;
+      const lineAt = yArg ? evalIn(yArg) : null;
+      // 【D-13】ここから下は **runFn 越しにしか呼ばない**。evalIn の try は
+      // `new Function(...)` の構築しか包んでいないので、declOfLocal が局所定義を
+      // 拾い落とすと **呼び出したときに** ReferenceError が投げられる。素で呼ぶと
+      // ハーネスごと落ちて PASS/FAIL の集計行すら出ない(:4257 と同じ罠)。
+      const gate = runFn(drawsLine, true, "pitchCentsSigned", 0);
+      check("27.9 D-12: 中央線の guard と位置を実行できる形に組み直せている(空回りしていない)",
+        typeof drawsLine === "function" && typeof lineAt === "function"
+        && gate.ok && gate.v === true,
+        `${names.join(",")} / ${String(guardExpr)} / ${String(yArg)} / 実行=${shownOf(gate)}`);
+      if (typeof drawsLine === "function" && typeof lineAt === "function") {
+        // (a) 【D-9 §8】My Data は4指標とも中央線が1本、位置は centerAt そのもの。
+        const my = [["pitchCentsSigned", 0], ["hnrDb", 12.5], ["spectralCentroidHz", 1577], ["volumeDb", -18]];
+        const myR = my.map(([k, c]) => ({ k, c, d: runFn(drawsLine, true, k, c), y: runFn(lineAt, true, k, c) }));
+        check("27.9 D-9u: My Data は4指標とも中央線を1本引く(位置は centerAt そのもの)",
+          myR.every((r) => r.d.ok && r.d.v === true && r.y.ok && r.y.v === r.c),
+          myR.map((r) => `${r.k}:${shownOf(r.d)}@${shownOf(r.y)}`).join(" "));
+        const d0 = runFn(drawsLine, true, "pitchCentsSigned");
+        const y0 = runFn(lineAt, true, "pitchCentsSigned");
+        check("27.9 D-9u: My Data は centerAt が無くても平均差分の中央線が消えない(0 に引く)",
+          d0.ok && d0.v === true && y0.ok && y0.v === 0,
+          `${shownOf(d0)}@${shownOf(y0)}`);
+        // (b) 【D-9x / D-12 の退行修正】**他の3画面には引かない**。
+        //     myData を渡さない呼び手(リード比較 ReedCompareTab /
+        //     セッション詳細・リード個体詳細 MetricTabCard)は centerAt も渡さない。
+        //     **例外は「引かない」の根拠にしない**(r.ok を条件に入れてある。罠5)。
+        for (const k of ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"]) {
+          const r = runFn(drawsLine, false, k);
+          check(`27.9 D-9x: 他3画面(myData を渡さない)の${k}には --c-line-strong の水平線を引かない`,
+            r.ok && (r.v === false || r.v === null || r.v === undefined),
+            shownOf(r));
+        }
+      }
+      // (c) 【罠2】その「引かない」が成り立つのは**呼び手が myData を渡さないから**。
+      //     渡し手が1つ(My Data)だけであることを配線の側でも固定する。
+      //     件数を1に釘付けしてよいのは、**その1がD-9x の不変条件そのもの**だから(罠4)。
+      check("27.9 D-9x: myData プリセットを渡す呼び手は1つだけ(他画面へ広げない)",
+        (codeOf(src).match(/<NoteAxisLineChart\s*\r?\n\s*myData\b/g) || []).length === 1,
+        `myData を渡す呼び手 ${(codeOf(src).match(/<NoteAxisLineChart\s*\r?\n\s*myData\b/g) || []).length} / 呼び手 ${(codeOf(src).match(/<NoteAxisLineChart/g) || []).length}`);
+    }
     // 【D-9v 2026/08/25 本人指示】上下の目盛線は引かない。**目盛の文字は残す**。
     check("27.9 D-9v: My Data では上下の水平線を引かず、目盛の文字だけ残す",
       /\{!myData && \(\s*\r?\n\s*<line x1=\{L\.gridX0\}/.test(srcOfFn(src, "NoteAxisLineChart"))
@@ -15351,7 +15581,9 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     const at = (needle) => code.indexOf(needle);
     const iStock = at(">累計<");
     const iCal = at("<PracticeCalendarCard");
-    const iDay = at('className="day-panel"');
+    // 【D-11 §1】枠のクラスは開いているときだけ is-open が付く形になったので、
+    // 位置の錨も `ref={dayPanelRef}`(開閉で綴りが変わらない側)へ移した。
+    const iDay = at("ref={dayPanelRef}");
     const iAll = at("onClick={onOpenAllSessions}");
     const iChart = at("<MetricUnderlineTabs");
     check("27.10 D-10 §2: 並びは 累計 → カレンダー → 開いた日 → すべてのセッション → 音の傾向",
@@ -15374,8 +15606,12 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // (3) 日付を押すと開く。**配線**を見る(純関数だけ守っても意味がない。罠2)。
     check("27.10 D-10 §4: 既定は閉じている(開いている日は null から始まる)",
       /const \[openDayKey, setOpenDayKey\] = useState\(null\);/.test(myDataSection));
+    // 【D-11 §1(a) で書き換え】toggleDay は shownDayKey も同じ更新で書くようになった。
+    // ここが見るのは**開閉の規則そのもの**(同じ日 → null / 別の日 → その日)。
+    // 「同じ更新で書く」ことは検証33.5 が別に持つ。
     check("27.10 D-10 §4: 同じ日をもう一度押すと閉じ、別の日を押すと切り替わる(閉じない)",
-      /const toggleDay = \(key\) => setOpenDayKey\(\(prev\) => \(prev === key \? null : key\)\);/.test(myDataSection));
+      /const (\w+) = openDayKey === key \? null : key;/.test(myDataSection)
+      && new RegExp(`setOpenDayKey\\(${(/const (\w+) = openDayKey === key \? null : key;/.exec(myDataSection) || [, " "])[1]}\\);`).test(myDataSection));
     check("27.10 D-10 §4: その配線がカレンダーへ渡っている(押す側と開く側がつながっている)",
       /onToggleDay=\{toggleDay\}/.test(myDataSection) && /openDayKey=\{openDayKey\}/.test(myDataSection)
       && /onClick=\{\(\) => onToggleDay\(c\.key\)\}/.test(calCard));
@@ -15404,9 +15640,12 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /useLayoutEffect\(\(\) => \{\s*\r?\n\s*const el = dayInnerRef\.current;\s*\r?\n\s*setDayPanelH\(el \? el\.scrollHeight : 0\);/.test(myDataSection)
       && /height: openDayKey === null \? 0 : dayPanelH/.test(myDataSection));
     // 閉じる間も中身を描き続ける(開いた日を消すと同時に中身が消え、動きが走らない)。
+    // 【D-11 §1(a) で書き換え】「開くときだけ描く日を書き換える」規則は useEffect から
+    // toggleDay の中へ移った(描画のあとに走る useEffect が1フレームの跳ねを作っていた)。
+    // 主張は同じ ── **閉じるときは描く日を残す**。
     check("27.10 D-10 §4: 閉じる動きの間も中身を描き続ける(描く日は開いている日と別に持つ)",
       /const \[shownDayKey, setShownDayKey\] = useState\(null\);/.test(myDataSection)
-      && /if \(openDayKey !== null\) setShownDayKey\(openDayKey\);/.test(myDataSection));
+      && /if \(\w+ !== null\) setShownDayKey\(\w+\);/.test(myDataSection));
     // (6) セッション1件の小カード。左の帯は**意味を持たない**(統括の裁定 §8(2))。
     check("27.10 D-10 §3: セッション1件は小カード(.rowcard)で、左の帯は全件同じ色",
       /className="rowcard sans"/.test(srcOfFn(src, "DaySessionRow"))
@@ -15655,8 +15894,36 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.2 D-10: 分析子タブに罫は1本も無い(群はカードが作る)",
     (codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 0,
     `${(codeOf(lab29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 D-10: 操作はカード1枚(条件チップの行 + 軸の行)",
-    /<div className="card">\s*\r?\n[\s\S]{0,900}?minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*\{pivotFilters\.map\(/.test(lab29));
+  // 【F-120(b) 2026/08/27】この検査は「条件チップの行 + 軸の行」と名乗りながら、
+  // 正規表現が `<div className="card">` → minHeight: ANALYSIS_ROW_H → pivotFilters.map( までしか
+  // 見ておらず、**軸の行が同じカードの中にあることを1文字も見ていなかった**(罠1: 検査名の言い過ぎ)。
+  // 名前を削るのではなく、名前どおりの検証を入れる ── **<div> の入れ子を数えて**
+  // 操作カードの範囲を求め、その範囲に両方の行の綴りがあることを見る。
+  //   ・開きタグの綴りは `<div className="card"` まで(属性が増えても追随する)
+  //   ・自己終了タグ(`<div ... />`)は深さに数えない
+  //   ・**パースが外れたら黙って通る**ことがないよう、求めた範囲の直後が
+  //     「12px の余白」の綴りであることを別の check で突き合わせる(下の 29.2 F-120 健全性)
+  const opsCardBlock = (() => {
+    const open = lab29.indexOf('<div className="card"');
+    if (open < 0) return null;
+    let depth = 0;
+    for (const m of lab29.matchAll(/<div\b[^>]*?(\/)?>|<\/div>/g)) {
+      if (m.index < open) continue;
+      if (m[0] === "</div>") { depth -= 1; if (depth === 0) return { text: lab29.slice(open, m.index), end: m.index }; }
+      else if (!m[1]) depth += 1;
+    }
+    return null;
+  })();
+  check("29.2 F-120 健全性: 操作カードの範囲を入れ子から求められ、その直後が「12px の余白」である",
+    opsCardBlock !== null && /^<\/div>\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<div style=\{\{ height: 12 \}\} \/>/
+      .test(lab29.slice(opsCardBlock.end)),
+    opsCardBlock === null ? "範囲を取れなかった" : JSON.stringify(lab29.slice(opsCardBlock.end, opsCardBlock.end + 24)));
+  check("29.2 D-10/F-120: 条件チップの行と軸の行が**同じ1枚のカードの中**にある(入れ子を数えて確かめた)",
+    opsCardBlock !== null
+    && /minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*\{pivotFilters\.map\(/.test(opsCardBlock.text)
+    && /gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text),
+    opsCardBlock === null ? "範囲を取れなかった"
+      : `チップの行 ${/\{pivotFilters\.map\(/.test(opsCardBlock.text)} / 軸の行 ${/gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text)}`);
   check("29.2 D-10: グラフもカード1枚(隣接: 直後に空状態の分岐)",
     /<div className="card">\s*\r?\n\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
   check("29.2 D-10: 操作のカードとグラフのカードの間は 12px の余白(罫ではない)",
@@ -15700,7 +15967,15 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.3 PlainSelect は値を <span> が描き、select へ value/onChange をそのまま渡す",
     /\{text\}<\/span>/.test(ps29) && /value=\{value\}/.test(ps29) && /onChange=\{onChange\}/.test(ps29)
     && /\{children\}/.test(ps29));
-  check("29.3 PlainSelect の当たり判定は 44px(§5)", /minHeight: "var\(--tap-min\)"/.test(ps29));
+  // 【F-120(a) 2026/08/27】以前はここが minHeight しか見ておらず、**横 44pt を消しても緑のまま**
+  // だった(§5 は 44×44 の両方を要求している)。縦横の両方を、**同じ <label> の開きタグの中**で見る。
+  // label の開きタグに閉じるのは、どこか別の要素に minWidth があるだけで通る形を避けるため。
+  {
+    const labelTag = (ps29.match(/<label style=\{\{[^]*?\}\}>/) || [""])[0];
+    check("29.3 PlainSelect の当たり判定は縦横とも 44px(§5。label の開きタグの中で両方を見る)",
+      /minHeight: "var\(--tap-min\)"/.test(labelTag) && /minWidth: "var\(--tap-min\)"/.test(labelTag),
+      `minHeight ${/minHeight: "var\(--tap-min\)"/.test(labelTag)} / minWidth ${/minWidth: "var\(--tap-min\)"/.test(labelTag)}`);
+  }
   // F-72 の bare と同じ縛り: select は枠全体に重なり、color: transparent で消す(opacity は使わない)
   check("29.3 PlainSelect の select は枠全体に重なる(absolute / 左上0 / 幅高さ100%)",
     /position: "absolute", left: 0, top: 0, width: "100%", height: "100%"/.test(ps29));
@@ -16435,6 +16710,214 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
     const lk = new Function(`${extractFunction("localDayKey")} return localDayKey;`)();
     check("32.6 N-5b: ローカル深夜0時台の保存値は、その日の暦日として表示される",
       lk(new Date(2026, 7, 14, 0, 55)) === "2026-08-14", lk(new Date(2026, 7, 14, 0, 55)));
+  }
+
+  // --- 32.7 【F-119】条件編集の `input[type=date]` がカードからはみ出さない -----------
+  // 【罠15】ネイティブ部品の**固有幅は端末で違う**(Chrome 111.33px / iOS Safari は別の値)。
+  // だから「何px 縮める」という直し方をしてはいけない(F-39 / F-41 で3周外している)。
+  // **この節が名乗れないこと**: iOS Safari ではみ出さないこと。Chrome の実測は根拠にならない。
+  // **この節が名乗れること**: 直し方が**寸法に依存していない**形になっていること ──
+  //   px を1つも持たない / 縮められる / 器の幅で頭打ち / 入らなければ折り返す。
+  // これが揃っていれば固有幅がいくつでもはみ出しようがない、という構造の主張。
+  {
+    const fit = new Function(`${extractConst("DATE_INPUT_FIT")} return DATE_INPUT_FIT;`)();
+    const isPct = (v) => /^\d+(\.\d+)?%$/.test(String(v));
+    check("32.7 F-119: 日付入力の寸法の規則を読めている(空回りしていない)",
+      fit && typeof fit === "object" && Object.keys(fit).length > 0, JSON.stringify(fit));
+    check("32.7 F-119: その規則は px の数値を1つも持たない(端末ごとに違う固有幅を当てにしない)",
+      Object.values(fit).every((v) => (typeof v === "number" ? v === 0 : isPct(v))), JSON.stringify(fit));
+    check("32.7 F-119: 日付入力は縮められる(flex の自動最小を外す minWidth: 0 がある)",
+      fit.minWidth === 0, String(fit.minWidth));
+    check("32.7 F-119: 日付入力は器の幅で頭打ちになる(maxWidth は器に対する割合で 100% 以下)",
+      isPct(fit.maxWidth) && parseFloat(fit.maxWidth) <= 100, String(fit.maxWidth));
+    check("32.7 F-119: 2つの日付入力が同じ1つの規則を使う(片方だけ直す事故を作らない)",
+      (lab32.match(/type="date"\s*\r?\n\s*style=\{DATE_INPUT_FIT\}/g) || []).length === 2,
+      `${(lab32.match(/type="date"/g) || []).length}個中 ${(lab32.match(/style=\{DATE_INPUT_FIT\}/g) || []).length}個`);
+    {
+      const row = (/filterKind === "dateRange" \? \(\s*\r?\n\s*<div className="sans" style=\{\{([^}]*)\}\}>/.exec(lab32) || [])[1];
+      check("32.7 F-119: 日付の行は折り返せる(2つ並べて入らないときに横へ押し出さない)",
+        row != null && /flexWrap: "wrap"/.test(row), row == null ? "行を取れなかった" : row.replace(/\s+/g, " "));
+    }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証33: D-11 §1 日付を押して開く枠の動き
+// ============================================================
+// 【2026/08/27 本人指示】「日付を押したときの開き方が全くスムーズではないのでもっとぬるっと」。
+//
+// **この節が名乗れないこと**(罠1):
+//   ・「ぬるっと感じる」かどうか。**体感は検査では守れない**。本人の実機確認が唯一のゲート
+//   ・アニメーションが毎フレーム滑らかに補間されること。Browser ペインが非表示だと
+//     トランジションは進行しない(罠10)ので、そもそも測れていない
+// **この節が名乗れること**: 時間・曲線・遅延の値が DESIGN-SYSTEM §1.11 の表と一致すること、
+//   動きを減らす設定で全部止まり中身が見える状態へ戻ること、
+//   描く日の更新が1フレーム遅れる作り(useEffect)に戻っていないこと。
+//
+// 【罠3】期待値は**実装の外**から読む。DESIGN-SYSTEM.md §1.11 の表を読んで
+// src/index.css と突き合わせる。数値をこのファイルに直書きしていないので、
+// 表と実装が食い違えば落ちる(定数の定義を言い換える恒真の検査にならない)。
+console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動き ==========");
+{
+  const cssD11 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const dsD11 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const myD11 = srcOfFn(src, "MyDataSection");
+
+  // --- 33.0 正典(DESIGN-SYSTEM §1.11 の表)を読む ------------------------------
+  const canonRows = (() => {
+    const i = dsD11.indexOf("### 1.11 動きの時間と曲線");
+    if (i < 0) return [];
+    const sec = dsD11.slice(i, dsD11.indexOf("\n## ", i) < 0 ? undefined : dsD11.indexOf("\n## ", i));
+    return sec.split("\n")
+      .filter((l) => l.trim().startsWith("|") && /`\d+ms`/.test(l))
+      .map((l) => {
+        const c = l.split("|").map((x) => x.trim().replace(/^`|`$/g, ""));
+        return { move: c[1], dur: c[2], curve: c[3], delay: c[4], owner: c[5] };
+      });
+  })();
+  check("33.0 DESIGN-SYSTEM §1.11 の表から4つの動きを読めている(空回りしていない)",
+    canonRows.length === 4 && canonRows.every((r) => r.owner.startsWith(".day-panel")),
+    canonRows.map((r) => `${r.owner}=${r.dur}/${r.delay}`).join(" ") || "0行");
+
+  // --- CSS を読む道具。@media の中と外を混ぜない ------------------------------
+  // 先に @media ブロックを**波括弧を数えて**切り出し、地の規則から取り除く。
+  // (最初の一致だけを見る方式だと、末尾に同じセレクタを足すだけで作法を反転できてしまう)
+  const cutAtRules = (text) => {
+    const blocks = [];
+    let out = "";
+    for (let i = 0; i < text.length;) {
+      if (text.startsWith("@media", i)) {
+        const open = text.indexOf("{", i);
+        let d = 0, j = open;
+        for (; j < text.length; j++) { if (text[j] === "{") d++; else if (text[j] === "}") { d--; if (d === 0) break; } }
+        blocks.push({ cond: text.slice(i, open).trim(), body: text.slice(open + 1, j) });
+        i = j + 1;
+      } else { out += text[i]; i++; }
+    }
+    return { plain: out, blocks };
+  };
+  const rulesOf = (text) => {
+    const out = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(text)) !== null) out.push({ sel: m[1].trim().replace(/\s+/g, " "), body: m[2].trim() });
+    return out;
+  };
+  const noComment = cssD11.replace(/\/\*[\s\S]*?\*\//g, "");
+  const { plain: cssPlain, blocks: atBlocks } = cutAtRules(noComment);
+  const plainRules = rulesOf(cssPlain);
+
+  // transition の値を「property / 曲線 / 時間 / 遅延」へ分解する。
+  // cubic-bezier(...) の中にもコンマがあるので、**括弧の深さ0のコンマだけ**で切る。
+  const splitTop = (s) => {
+    const out = []; let d = 0, cur = "";
+    for (const ch of s) {
+      if (ch === "(") d++; else if (ch === ")") d--;
+      if (ch === "," && d === 0) { out.push(cur.trim()); cur = ""; } else cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  };
+  const toMs = (t) => (t == null ? null : (t.endsWith("ms") ? parseFloat(t) : parseFloat(t) * 1000));
+  const parsePart = (part) => {
+    const curve = (part.match(/cubic-bezier\([^)]*\)|ease-in-out|ease-out|ease-in|linear|ease|steps\([^)]*\)/) || [])[0] || null;
+    const rest = part.replace(/cubic-bezier\([^)]*\)|steps\([^)]*\)/, " ");
+    const times = [...rest.matchAll(/(?:^|\s)(\d*\.?\d+m?s)(?=\s|$)/g)].map((m) => m[1]);
+    return { prop: rest.trim().split(/\s+/)[0], curve: curve && curve.replace(/\s+/g, " "), dur: toMs(times[0]), delay: toMs(times[1] ?? "0ms") };
+  };
+  const transitionOf = (sel) => {
+    const hits = plainRules.filter((r) => r.sel === sel);
+    if (hits.length !== 1) return { error: `地の規則が ${hits.length} 個` };
+    const v = (hits[0].body.match(/(?:^|;)\s*transition\s*:\s*([^;]+)/) || [])[1];
+    return v ? { parts: splitTop(v).map(parsePart) } : { error: "transition 宣言が無い" };
+  };
+
+  // --- 33.1 表の4行が、そのまま index.css の値になっている --------------------
+  for (const row of canonRows) {
+    const got = transitionOf(row.owner);
+    const want = { dur: toMs(row.dur), delay: toMs(row.delay), curve: row.curve.replace(/\s+/g, " ") };
+    const ok = !got.error && got.parts.length > 0
+      && got.parts.every((p) => p.dur === want.dur && p.delay === want.delay && p.curve === want.curve);
+    check(`33.1 §1.11「${row.move}」の時間・曲線・遅延が ${row.owner} と一致する(表から読んだ値で照合)`,
+      ok, got.error || got.parts.map((p) => `${p.prop} ${p.dur}ms ${p.curve} +${p.delay}ms`).join(" / "));
+  }
+  // 表と実装が**別々の値を持っている**こと自体も見る。開閉が同じ時間なら §1.11 の
+  // 「開閉は非対称にする」が空文になるので、そこは表の中身どうしで確かめる。
+  {
+    const open = canonRows.find((r) => r.owner === ".day-panel.is-open");
+    const close = canonRows.find((r) => r.owner === ".day-panel");
+    check("33.1 §1.11 の作法1「開閉は非対称」が表の上で成立している(開く > 閉じる)",
+      !!open && !!close && toMs(open.dur) > toMs(close.dur),
+      open && close ? `開 ${open.dur} / 閉 ${close.dur}` : "行が無い");
+  }
+
+  // --- 33.2 中身の閉じ側の姿勢(§1.11 作法4) ------------------------------------
+  {
+    const inner = plainRules.filter((r) => r.sel === ".day-panel-inner");
+    const body = inner.length === 1 ? inner[0].body : "";
+    check("33.2 閉じているときの中身は opacity: 0 / transform: translateY(-8px)",
+      inner.length === 1 && /opacity:\s*0\s*;/.test(body) && /transform:\s*translateY\(-8px\)\s*;/.test(body),
+      `${inner.length}規則 ${body.replace(/\s+/g, " ").slice(0, 90)}`);
+    const openInner = plainRules.filter((r) => r.sel === ".day-panel.is-open .day-panel-inner");
+    check("33.2 開いているときの中身は opacity: 1 / transform: none",
+      openInner.length === 1 && /opacity:\s*1\s*;/.test(openInner[0].body) && /transform:\s*none\s*;/.test(openInner[0].body),
+      `${openInner.length}規則`);
+  }
+
+  // --- 33.3 動きを減らす設定(§1.11 作法5) --------------------------------------
+  // **止めるだけでは足りない。** 中身を opacity: 1 / transform: none へ戻さないと
+  // 「中身が透明のまま残る」事故になる。両方を見る。
+  {
+    const rm = atBlocks.filter((b) => /prefers-reduced-motion:\s*reduce/.test(b.cond) && /\.day-panel/.test(b.body));
+    const rmRules = rm.flatMap((b) => rulesOf(b.body));
+    const stops = (selPart) => rmRules.some((r) => r.sel.split(",").map((s) => s.trim()).includes(selPart) && /transition:\s*none/.test(r.body));
+    const restores = rmRules.some((r) => r.sel.split(",").map((s) => s.trim()).includes(".day-panel-inner")
+      && /opacity:\s*1/.test(r.body) && /transform:\s*none/.test(r.body));
+    for (const sel of [".day-panel", ".day-panel.is-open", ".day-panel-inner", ".day-panel.is-open .day-panel-inner"]) {
+      check(`33.3 prefers-reduced-motion: reduce が ${sel} の動きを止めている`, stops(sel),
+        rmRules.map((r) => r.sel).join(" | ") || "規則が無い");
+    }
+    check("33.3 動きを止めるだけでなく、中身を opacity: 1 / transform: none へ戻している(透明のまま残さない)",
+      restores);
+  }
+
+  // --- 33.4 時間・曲線・遅延をインライン style に持たせていない ------------------
+  // §1.11 作法2。インラインに書くと @media 1箇所で尊重できなくなる。
+  {
+    const jsx = myD11.slice(myD11.indexOf('ref={dayPanelRef}'));
+    const tail = jsx.slice(0, jsx.indexOf("</div>"));
+    check("33.4 枠の JSX に時間・曲線が1つも書かれていない(持ち主は index.css だけ)",
+      !/cubic-bezier|\d+ms|transition/.test(tail), tail.replace(/\s+/g, " ").slice(0, 120));
+    check("33.4 枠は開いているときだけ is-open が付く(開閉の出し分けはクラス)",
+      /className=\{openDayKey === null \? "day-panel" : "day-panel is-open"\}/.test(myD11));
+    check("33.4 中身の包みは .day-panel-inner を名乗る(CSS の宛先がある)",
+      /ref=\{dayInnerRef\} className="day-panel-inner"/.test(myD11));
+  }
+
+  // --- 33.5 描く日の更新が1フレーム遅れる作りに戻っていない ---------------------
+  // 【D-11 §1(a)】useEffect は**描画のあと**に走るので、別の日を押すと
+  // 「前の日の高さ・前の日の中身」が1フレームだけ描かれてから目的の高さへ動いた(= 跳ね)。
+  // toggleDay が openDayKey と shownDayKey を**同じ更新で**書けば、続く useLayoutEffect
+  // (描画の**前**に走る)が同じコミットの中で高さを測り直すので、最初のフレームがもう正しい。
+  {
+    const toggle = (myD11.match(/const toggleDay = \(key\) => \{[\s\S]*?\n  \};/) || [""])[0];
+    // 【変数名は問わない】`next` という綴りを縛ると、名前を変えただけで落ちる検査になる。
+    // setOpenDayKey に渡している識別子を読み取り、**同じ識別子**が
+    // setShownDayKey にも渡っていることを見る。
+    const v = (/setOpenDayKey\(\s*([A-Za-z_$][\w$]*)\s*\)/.exec(toggle) || [])[1] || null;
+    check("33.5 toggleDay が openDayKey と shownDayKey を同じ関数の中で、同じ値から書く",
+      v !== null && new RegExp(`setShownDayKey\\(\\s*${v}\\s*\\)`).test(toggle)
+      && new RegExp(`const ${v} = openDayKey === key \\? null : key;`).test(toggle),
+      toggle.replace(/\s+/g, " ").slice(0, 160) || "toggleDay を取れなかった");
+    check("33.5 閉じるときは shownDayKey を残す(畳む動きの間も中身を描き続ける)",
+      v !== null && new RegExp(`if \\(${v} !== null\\) setShownDayKey\\(${v}\\);`).test(toggle),
+      toggle.replace(/\s+/g, " ").slice(0, 160));
+    check("33.5 shownDayKey を useEffect で追いかける作りに戻っていない(1フレーム遅れの原因)",
+      !/useEffect\(\(\) => \{[^}]*setShownDayKey/.test(codeOf(myD11)),
+      (codeOf(myD11).match(/useEffect\(\(\) => \{[^}]*setShownDayKey/g) || []).length + "箇所");
+    check("33.5 高さの実測は useLayoutEffect のまま(描画の前に走る。ここが同期再描画の要)",
+      /useLayoutEffect\(\(\) => \{\s*const el = dayInnerRef\.current;\s*setDayPanelH\(el \? el\.scrollHeight : 0\);/.test(myD11));
   }
   console.log("  -> done");
 }

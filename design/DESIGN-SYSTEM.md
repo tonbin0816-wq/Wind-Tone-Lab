@@ -192,6 +192,148 @@
 
 ---
 
+### 1.11 動きの時間と曲線（2026/08/27 本人指示・D-11 §1）
+
+**これまで体系に「動き」の節が無かった。** 時間と曲線が App.jsx と index.css に散らばっていて、
+どれが規範でどれが場当たりか読めなかった。ここが**開閉の動きの唯一の答え**。
+
+本人の言葉:「日付を押したときの開き方が全くスムーズではないのでもっと**ぬるっと**動くように」。
+
+| 動き | 時間 | 曲線 | 遅延 | 持ち主（CSS） |
+|---|---|---|---|---|
+| 枠を開く（高さ） | `320ms` | `cubic-bezier(0.32, 0.72, 0, 1)` | `0ms` | `.day-panel.is-open` |
+| 枠を閉じる（高さ） | `240ms` | `cubic-bezier(0.32, 0.72, 0, 1)` | `0ms` | `.day-panel` |
+| 中身が現れる（opacity / transform） | `220ms` | `cubic-bezier(0.32, 0.72, 0, 1)` | `60ms` | `.day-panel.is-open .day-panel-inner` |
+| 中身が消える（opacity / transform） | `140ms` | `cubic-bezier(0.32, 0.72, 0, 1)` | `0ms` | `.day-panel-inner` |
+
+**この表の値は `scripts/pitch-test.mjs`（検証33）がこのファイルから読んで
+`src/index.css` と突き合わせる。** 数値をテストに直書きしていないので、
+値を変えるときは**この表を直せば検査もそれに追随する**（表と実装が食い違ったら落ちる）。
+
+#### 作法（ここから外れるものを足さない）
+
+1. **開閉は非対称にする。** 開くほうを長く、閉じるほうを短く。
+   閉じる動きは「もう見終わったもの」なので待たせない。
+   **範囲（2026/08/27 追記）: これは `.day-panel`（日付を押して開く枠）1つで採った値であって、
+   体系の作法として検証してはいない。** 非対称にしたこと自体も 320/240 という比も、
+   本人の実機で「ぬるっと」の判定を受けていない（下の「実機待ち」）。
+   他の開閉（シート・アコーディオン・ダイアログ）へ広げるときは、
+   **その部品で採り直す**こと。1つの部品・実機未確認から体系の作法を断定して外した前科がある
+   （F-39。この規範文書は同じ型の失敗を通算3回している）
+2. **時間・曲線・遅延はインライン style に書かない。** CSS のクラスが持つ。
+   そうしないと `prefers-reduced-motion: reduce` を1箇所で尊重できない
+3. **中身も動かす。** 器の高さだけを動かすと「箱がマスクで刈り取っている」ように見え、
+   それが「硬い」の正体だった。中身は器より**遅れて現れ、先に消える**
+4. **中身の閉じ側の初期姿勢は `translateY(-8px)`。** 開くとこれが `none` へ戻る
+5. `prefers-reduced-motion: reduce` では **上の4行すべてを止め、
+   中身を `opacity: 1` / `transform: none` へ戻す**。止めるだけだと
+   「中身が透明のまま残る」事故になる
+
+#### 実測できた事実（Chrome 375×812・dev server）
+
+- `.day-panel` の computed `transition` は 閉 `height 0.24s cubic-bezier(0.32, 0.72, 0, 1)` /
+  開 `height 0.32s cubic-bezier(0.32, 0.72, 0, 1)`
+- `.day-panel-inner` の computed `transition` は 閉 `opacity 0.14s …, transform 0.14s …`（遅延 0s）/
+  開 `opacity 0.22s … 0.06s, transform 0.22s … 0.06s`
+- 閉じているときの `.day-panel-inner` は `opacity: 0` / `transform: matrix(1, 0, 0, 1, 0, -8)`
+- 枠を開くと「すべてのセッション」の `top` が 548.6 → 752.6 = 枠の高さ 204px ぶん動き、
+  閉じると 548.6 へ戻る（下のカードの押し出しは壊れていない）
+
+#### `will-change` は付けない / `contain` も入れなかった（2026/08/27）
+
+D-11 の凍結仕様は `.day-panel` に `will-change: height` と `contain: layout paint` を
+足すよう指示していたが、**どちらも当てていない**。ただし
+**2つの理由はまったく別物**で、一方だけが規範による禁止である。
+
+##### (a) `will-change` — アプリ全体で禁止（規範。ここは初版のまま正しい）
+
+`scripts/pitch-test.mjs:16214`
+「30.1 F-106: アプリ全体で will-change を1つも使っていない」が固定している。
+F-106 は**実機でしか出なかったバグ**で、恒久的なレイヤ昇格を外して直したもの。
+`.day-panel` の中には `overflowY: auto` + `WebkitOverflowScrolling: "touch"` の
+スクロールコンテナがある（`src/App.jsx:12416`）。
+
+##### (b) `contain` — **方針としては禁止されていない**（2026/08/27 訂正）
+
+**この節の初版は「`contain` / `content-visibility` / `transform` も F106-SPEC が名指しし、
+`30.1 F-106` がこれを固定している。実際に当てたらこの検査が落ちた」と書いていた。
+これは事実と違う。** コードで確かめた結果:
+
+- `contain` / `content-visibility` / `transform` を見ている検査は
+  `scripts/pitch-test.mjs:16206` の**1つだけ**。その走査対象 `listCss`（`:16202`）は
+  `/(\.slist[\w.-]*(?:\s+\.[\w-]+)?)\s*\{([^}]*)\}/g` ── **`.slist*` セレクタだけ**で、
+  `.day-panel` も `.day-panel-inner` も対象外
+- `design/F106-SPEC.md:23` の原文も
+  「**一覧の行やスクロールコンテナに**使っている箇所があれば外す」であって、アプリ全体の禁止ではない
+- **実測**（この worktree の複製ツリー・`node scripts/pitch-test.mjs`。基準は PASS 6742 / FAIL 0）:
+
+  | `.day-panel` に足したもの | FAIL | 落ちた検査 |
+  |---|---|---|
+  | 何も足さない（基準） | 0 | ── |
+  | `will-change: height` | 2 | `D-10 §4: 開閉の動きは .day-panel が持つ` ＋ `30.1 F-106`（app-wide） |
+  | `contain: layout paint` | **1** | `D-10 §4` **のみ**（F-106 は1件も落ちない） |
+  | `position: relative`（まったく無害な1宣言） | **1** | `D-10 §4` **のみ** |
+
+  その1件は `scripts/pitch-test.mjs:5933` の
+  `/\.day-panel\s*\{\s*transition:\s*height\s+([^;]+);\s*\}/` ──
+  **`.day-panel { }` の中身が `transition:` 1宣言ちょうどでないと外れる**正規表現で、
+  主張しているのは「時間と曲線の**置き場所**」であって F-106 の方針ではない。
+  無害な `position: relative` でも同じ1件が落ちる（起票済み: BACKLOG「D-12c」）
+
+**`contain` を入れなかった理由**（成立するのはこの2つだけ）:
+
+1. `contain: layout` が切るのは要素の**内部**レイアウトの独立性であって、
+   要素自身の使用高さが親のフローに与える影響は切らない。凍結仕様が挙げた
+   「下の折れ線 SVG が毎フレーム再レイアウトされるのを抑える」は達成できない
+   ── ここで毎フレーム外を動かしているのは**枠の高さそのもの**（＝下のカードを
+   押し出すという意図した挙動）で、これが切れたらむしろ壊れる。
+   `contain: paint` の効果は既にある `overflow: hidden` と重複する
+2. `contain: layout` / `paint` は **`position: absolute` / `fixed` の子孫に対する
+   新しい包含ブロックと、新しい stacking context** を作る
+   （MDN `contain`: "Using `layout`, `paint`, `strict` or `content` values for this
+   property creates: 1. A new containing block … 2. A new stacking context.
+   3. A new block formatting context."）。この枠の中には `PlainSelect` の
+   `position: absolute` があり、アプリは fixed の portal（浮かせるボタン）も使うので
+   巻き込む余地がある
+
+Chrome では `contain: layout paint` を当てても描画は壊れなかった（押し出し 204px を実測）が、
+**この類は Chrome で判定できない**（罠15）ので、当てないほうへ倒した。**統括の判断待ち**（D-11a）。
+
+##### (c) `transform` は禁止対象ではない（同じ周に足している。2026/08/27 追記）
+
+D-11 §1(c) で **`.day-panel-inner { transform: translateY(-8px); }` を新設した**
+（`src/index.css:424`）。上の (b) の引用リストに載っている綴りだが、**禁止対象ではない**:
+
+- app-wide で禁じられているのは `will-change` だけ（`:16214`）。`transform` を見ている検査は
+  `.slist*` だけを走査する `:16206` の1つで、`.day-panel-inner` は対象外
+- App.jsx には `transform:` が **13箇所**あり、`SwipePager` の track は
+  **このスクロールコンテナの祖先で、既に非 `none` の transform を持って本番稼働中**
+  （`src/App.jsx:241` / `:309`。式は `swipePagerTrackTransform` 1つに閉じてある）
+- `scripts/pitch-test.mjs:5028-5030` も
+  「transform も will-change も `position: fixed` の子孫の包含ブロックを作る。
+  **『静止時は transform を消す』だけでは足りず、will-change を一切使わないこと**」と
+  両者を**意図的に区別**している
+- **F-106 で外したのは `will-change` であって `transform` ではない**
+
+#### 実機待ち（Chrome では判定できない）
+
+- **`.day-panel-inner` の `transform`（`translateY(-8px)` ⇄ `none`）が
+  iOS Safari で再ペイントを取りこぼさないか。** この要素は
+  `WebkitOverflowScrolling: "touch"` のスクロールコンテナ（`src/App.jsx:12416`）の
+  **直接の親**で、F-106 と同じ領域にあたる。Chrome で「壊れなかった」ことは
+  合格の根拠にしない（罠15）。本人の実機確認が唯一のゲート
+
+- **「ぬるっと感じるか」そのもの。** これは検査でも Chrome の実測でも守れない。
+  本人の実機確認が唯一のゲート（LOOP.md ⑥）
+- **アニメーションが実際に滑らかに走る様子。** Browser ペインが非表示のとき
+  トランジションは進行しない（罠10）。上の値は computed style として確かめたもので、
+  「毎フレーム滑らかに補間された」ことは確かめていない
+- `prefers-reduced-motion: reduce` の**実環境**での挙動。上の作法5は
+  `@media` を剥がして同じ宣言を当てた実測（枠が即座に 204px になり、
+  中身は `opacity: 1`）まで確かめてあるが、実際に設定を有効にした端末では見ていない
+
+---
+
 ## 2. 角丸
 
 現状 **19値・105箇所**。5段に畳む。

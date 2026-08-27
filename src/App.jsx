@@ -9988,6 +9988,17 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   const center = centerAt !== null && centerAt !== undefined
     ? centerAt
     : (metricKey === "pitchCentsSigned" ? 0 : null);
+  // 【D-12 2026/08/27 本番で見えていた退行の修正】**中央線を引くのは My Data だけ**
+  // (D9-SPEC §7 の D-9x「他の3画面は mydata だけ別の文法でいいです」)。
+  // D-9 が zeroCentered(真偽) を centerAt(値) へ作り替えたとき、線を引く条件を
+  // `center !== null` にしたため、centerAt を渡さない他3画面
+  // (リード比較 ReedCompareTab / セッション詳細・リード個体詳細 MetricTabCard)でも
+  // metricKey === "pitchCentsSigned" というだけで --c-line-strong の線が1本増えていた
+  // (実測: 水平線が3本 → 4本)。
+  // **ドメインを中心の周りで対称にすること**(平均差分は D-8 から 0 中心で不変)と、
+  // **中央線を引くこと**は別の話なので、上の center はドメイン用のまま残し、
+  // 描く線だけをここで My Data に閉じる。読み手が「どちらの話か」を名前で見分けられる形にする。
+  const centerLineAt = myData ? center : null;
   let lo, hi, rng;
   if (center !== null) {
     const maxDev = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v - center))) : 0;
@@ -10129,11 +10140,15 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
               ))}
               {/* (【D-9 §5 2026/08/25 本人指示】折れ線の「合っている」帯はここで塗っていた。
                   **出さない**(本人確認済み「人間の感覚的に食い違いません」)。窓型の灰は残る。) */}
-              {/* 【D-9u】中央線。**必ず1本**引く(上下の目盛線を消しても基準が消えないのはこの線のため)。
-                  色は従来の 0 線と同じ --c-line-strong で、平均差分では 0、他3指標では
-                  その指標で描いている全値の平均(呼び出し側が centerAt で渡す)。 */}
-              {center !== null && (
-                <line x1={L.gridX0} y1={L.yAt(center)} x2={W} y2={L.yAt(center)} strokeWidth="1" style={{ stroke: "var(--c-line-strong)" }} />
+              {/* 【D-9u】中央線。My Data では**必ず1本**引く(上下の目盛線を消しても基準が
+                  消えないのはこの線のため)。色は従来の 0 線と同じ --c-line-strong で、
+                  平均差分では 0、他3指標ではその指標で描いている全値の平均(呼び出し側が
+                  centerAt で渡す)。
+                  【D-12】**他の3画面には引かない**(D-9x)。判定は centerLineAt が持つ
+                  ── `center !== null` は「ドメインが対称かどうか」であって
+                  「線を引くかどうか」ではない(この取り違えが D-9 の退行の原因)。 */}
+              {centerLineAt !== null && (
+                <line x1={L.gridX0} y1={L.yAt(centerLineAt)} x2={W} y2={L.yAt(centerLineAt)} strokeWidth="1" style={{ stroke: "var(--c-line-strong)" }} />
               )}
               {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする)。 */}
               {midEbIdx !== null && (
@@ -10822,6 +10837,16 @@ const PIVOT_CHIP_VALUES_MAX = 2;
 // この定数の読み手は条件チップの行だけになった。
 const ANALYSIS_ROW_H = 30;
 
+// 【F-119 2026/08/27】`input[type=date]` を**器より広くなれない**ようにする1組。
+// 症状は「分析タブの条件編集を開くと操作カードが 24px はみ出す」だったが、
+// **24 という数値は直し方の根拠にしていない**(罠15: ネイティブ部品の固有幅は
+// iOS Safari と Chrome で違う。F-39 / F-41 で3周外している)。
+//   ・minWidth: 0   … flex item の自動最小(= 固有幅)を外す。これが無いと
+//                     `flex: 0 1 auto` でも min-width:auto が床になって縮まない
+//   ・maxWidth: 100% … 固有幅がいくつでも器(= 親の flex コンテナ)の幅で頭打ちになる
+// **px の新しい数値を1つも持たない**ので、実機の固有幅が Chrome と違っても成立する。
+const DATE_INPUT_FIT = { minWidth: 0, maxWidth: "100%" };
+
 
 
 // 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】正典 = design/dc-mydata-redesign.html
@@ -11502,7 +11527,8 @@ const CALENDAR_DOT = 34;
 //     実測の1件は **55px**(行 47px + 下の余白 8px)。192px は「3件 + 4件目の頭が 27px 覗く」。
 //     本人裁定は「このまま」── 頭が覗くことで**続きがあると分かる**ので、意図として残す。
 //   ・4件目からは枠の中でスクロール(件数で切らない = 開いた日の記録は全部そこにある)
-//   ・開閉は 200ms / ease-out。時間と曲線は index.css の .day-panel が持つ
+//   ・開閉は**非対称**(D-11 §1: 開く 320ms / 閉じる 240ms、曲線は共通)。
+//     時間・曲線・遅延はすべて index.css の .day-panel / .day-panel-inner が持つ
 //     (prefers-reduced-motion をここ1箇所で尊重するため)
 const MY_DATA_DAY_PANEL_MAX_H = 192;
 // 秒 → 「9.4」。小数1桁の規則をここ1箇所に閉じる(myDataStockTexts とカレンダーの合計時間が共有)。
@@ -12285,7 +12311,6 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   // (開いた日を消すと同時に中身が消え、高さのトランジションが走らない)。
   const [openDayKey, setOpenDayKey] = useState(null);
   const [shownDayKey, setShownDayKey] = useState(null);
-  useEffect(() => { if (openDayKey !== null) setShownDayKey(openDayKey); }, [openDayKey]);
   const calendarGridRef = useRef(null);
   const dayPanelRef = useRef(null);
   const dayInnerRef = useRef(null);
@@ -12299,7 +12324,20 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
     const el = dayInnerRef.current;
     setDayPanelH(el ? el.scrollHeight : 0);
   }, [shownDayKey, daySessions.length]);
-  const toggleDay = (key) => setOpenDayKey((prev) => (prev === key ? null : key));
+  // 【D-11 §1(a) 本人指示「もっとぬるっと」】**描く日は開く日と同じ更新で書く。**
+  // 以前は `useEffect(() => setShownDayKey(openDayKey), [openDayKey])` だったが、
+  // useEffect は**描画のあと**に走るので、
+  //   ・押してから動き出すまで描画2回ぶん待つ(反応が鈍い)
+  //   ・別の日を押すと、**前の日の高さ・前の日の中身が1フレームだけ描かれてから**
+  //     目的の高さへ動く(dayPanelH に前の日の実測値が残っているため = 跳ね)
+  // 同じ更新で書けば、続く useLayoutEffect(描画の**前**に走る)が同じコミットの中で
+  // 高さを測り直すので、**最初に描かれるフレームがもう正しい高さ・正しい中身**になる。
+  // **閉じるときは shownDayKey を残す**(畳む動きの間も中身を描き続ける必要がある)。
+  const toggleDay = (key) => {
+    const next = openDayKey === key ? null : key;
+    setOpenDayKey(next);
+    if (next !== null) setShownDayKey(next);
+  };
   // 除くのは「カレンダーのマス」と「開いた枠の中」の2つだけ。**stopPropagation は使わない**
   // (伝播を止める作りは、document まで届くことに依存している既存の仕組みを壊しうる)。
   const closeDayIfOutside = (e) => {
@@ -12363,11 +12401,18 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
 
       {/* 【D-10 §3 / §4】その日のセッション。**日付を押したときだけ**開き、
           下のカード(すべてのセッション・音の傾向)を下へ押し出す。
-          高さ 0 ⇄ 実測値を 200ms / ease-out で動かす(時間と曲線は index.css の .day-panel。
+          高さ 0 ⇄ 実測値を動かす。**時間・曲線・遅延は index.css の .day-panel が持つ**
+          (開く 320ms / 閉じる 240ms の出し分けは `is-open` クラスで。インラインには書かない。
           prefers-reduced-motion: reduce のときは動かさず即座に切り替わる)。
-          枠は 192px で頭打ちにして、4件目からは**枠の中でスクロール**する。 */}
-      <div ref={dayPanelRef} className="day-panel" style={{ overflow: "hidden", height: openDayKey === null ? 0 : dayPanelH }}>
-        <div ref={dayInnerRef} style={{ paddingTop: 12 }}>
+          枠は 192px で頭打ちにして、4件目からは**枠の中でスクロール**する。
+          【D-11 §1(c)】中身(.day-panel-inner)も遅れて動く。箱だけが伸びると
+          「マスクで刈り取っている」ように見えるのが硬さの正体だった。 */}
+      <div
+        ref={dayPanelRef}
+        className={openDayKey === null ? "day-panel" : "day-panel is-open"}
+        style={{ overflow: "hidden", height: openDayKey === null ? 0 : dayPanelH }}
+      >
+        <div ref={dayInnerRef} className="day-panel-inner" style={{ paddingTop: 12 }}>
           <div style={{ maxHeight: MY_DATA_DAY_PANEL_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 2px" }}>
             {daySessions.map((s) => (
               <DaySessionRow key={s.id} session={s} reeds={reeds} onOpen={onOpenSession} />
@@ -12999,17 +13044,27 @@ function AnalysisLabView(props) {
                     </PlainSelect>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
                       {dim?.filterKind === "dateRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266" }}>
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "#435266" }}>
                           {/* 【N-5b / 罠14】表示は localDayKey(ローカル暦日)。toISOString の UTC 暦日を
                               使うと JST では常に1日前が出る(保存値は正しいのに入力欄だけずれる)。 */}
+                          {/* 【F-119 2026/08/27】`input[type=date]` の**固有幅**は端末で違う
+                              (Chrome 111.33px。iOS Safari は別の値。罠15 / F-39・F-41 と同じ型)。
+                              なので「何px 縮める」ではなく**器より広くなれない形**にする:
+                                ・DATE_INPUT_FIT の minWidth: 0 … flex item の自動最小(= 固有幅)を外して
+                                  縮められるようにする。これが無いと flex: 0 1 auto でも縮まない
+                                ・maxWidth: "100%" … 固有幅がいくつでも器の幅で頭打ちにする
+                                ・行の flexWrap: "wrap" … 2つ並べて入らないときは折り返す
+                              **固有幅の数値に一切依存しない**ので、実機で値が違っても破綻しない。 */}
                           <input
                             type="date"
+                            style={DATE_INPUT_FIT}
                             value={flt.rangeMin ? localDayKey(new Date(flt.rangeMin)) : ""}
                             onChange={(e) => updateFilter({ rangeMin: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
                           />
                           <span>〜</span>
                           <input
                             type="date"
+                            style={DATE_INPUT_FIT}
                             value={flt.rangeMax ? localDayKey(new Date(flt.rangeMax)) : ""}
                             onChange={(e) => updateFilter({ rangeMax: e.target.value ? new Date(e.target.value).setHours(0, 0, 0, 0) : null })}
                           />
