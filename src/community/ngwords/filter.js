@@ -1,4 +1,4 @@
-import { normalizeForFilter, compactForFilter, leetForFilter } from "./normalize.js";
+import { compactForFilter, leetForFilter } from "./normalize.js";
 import ja from "./generated/ja.json";
 import en from "./generated/en.json";
 
@@ -16,15 +16,16 @@ const EN_ENTRIES = en.entries.map((e) => ({
   // en.jsonのexceptionsは"cath*"のようにワイルドカード"*"付きの語形のまま生成されている。
   // 照合は部分一致のため"*"を含んだままでは絶対にヒットせず、Scunthorpe対策が機能しない。
   // そのため"*"を除去してから正規化する(コントローラ裁定)。
+  // *除去後に1〜2文字まで短くなった例外(例: "co*" -> "co")は、あらゆる箇所に部分一致してしまい
+  // 過剰保護の温床になるため、NGワードリスト本体の短語フィルタ(en>=3)と同じ閾値で足切りする。
   exceptions: e.exceptions
     .map((ex) => compactForFilter(ex.replace(/\*/g, "")))
-    .filter((ex) => ex.length > 0),
+    .filter((ex) => ex.length >= 3),
 }));
 
 export function findNgWord(nickname) {
-  const norm = normalizeForFilter(nickname);
   const compact = compactForFilter(nickname);
-  // leetはnormalizeForFilterから分離されたため、ここで候補として素の形とleet変換後の形の両方を照合する
+  // leetはnormalizeForFilterから分離されたため、ここで候補としてleet変換後の形も照合する
   // (normalizeForFilterはleet変換を適用しないため、「f3ck」のような偽装を弾くにはここで明示的に適用する必要がある)。
   const leetCompact = leetForFilter(compact);
 
@@ -34,7 +35,12 @@ export function findNgWord(nickname) {
   for (const e of EN_ENTRIES) {
     const hit = e.words.find((w) => compact.includes(w.compact) || leetCompact.includes(w.compact));
     if (!hit) continue;
-    if (e.exceptions.some((ex) => norm.includes(ex) || compact.includes(ex))) continue;
+    // NGワード自体がleet経由(leetCompact)でヒットする場合(例: "c4th4rse" -> leetCompactで"arse"にヒット)、
+    // 例外もleetCompact側で見ないと保護が効かない(compactは"c4th4rse"のままで"cath"を含まない)。
+    // そのためcompact/leetCompactの両方を例外側でも見る。
+    // (normalizeForFilterの結果=normは、exが常にcompactForFilterを通っていて区切り文字を含み得ないため
+    //  compactでの判定が常に上位互換になり不要だったので使わない)
+    if (e.exceptions.some((ex) => compact.includes(ex) || leetCompact.includes(ex))) continue;
     return hit.original;
   }
   return null;

@@ -40,4 +40,13 @@ describe("findNgWord", () => {
     expect(findNgWord("xxarsexx")).not.toBeNull(); // 保護なしのarseは弾かれる
     expect(findNgWord("catharse")).toBeNull(); // cath*由来の保護で通る
   });
+  it("leet経由でヒットした場合も例外が効く(c4th4rse -> leet変換後にarseへヒットするがcath*で保護される)", async () => {
+    const en = (await import("./generated/en.json")).default;
+    const arse = en.entries.find((e) => e.words.includes("arse"));
+    expect(arse).toBeTruthy();
+    expect(arse.exceptions).toContain("cath*");
+    // compact自体("c4th4rse")は"arse"を含まないが、leet変換後("catharse")は"arse"を含みヒットする。
+    // 例外ガードがleet変換後の形を見ていないと、この場合だけ保護が効かず過剰ブロックになってしまう。
+    expect(findNgWord("c4th4rse")).toBeNull();
+  });
 });
