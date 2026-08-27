@@ -1,6 +1,75 @@
 import { describe, it, expect } from "vitest";
 import { findNgWord } from "./filter.js";
 
+// ------------------------------------------------------------------
+// 受け入れ基準(最終レビューで確定した表)。
+// 上流リストは語境界照合を前提に作られているため、全語を部分一致させると
+// bass / Classic / Passion のような普通のニックネームが弾かれてしまう。
+// filter.js は severity で照合の強さを2段階に分けてこれを解いている。
+// この2つの配列が、その解が守るべき境界そのものである。
+// ------------------------------------------------------------------
+const MUST_ACCEPT = [
+  // en severity 1 の "ass" が内部に出る一般語
+  "bass", "brass", "Bassoon", "Classic", "classical", "Passion", "Grass",
+  // ja の除外語 "SM" が内部に出る一般語
+  "Smile", "smile442", "jasmine", "Sax_Smith",
+  // ja の除外語 "イク" / "カス"(compact でひらがなに統一される)が内部に出る名前
+  "いくみ", "カスミ", "かすみ", "ゆういく", "たいくつ",
+  // 素の日本語・英語のニックネーム
+  "さっくす太郎", "AltoLove442",
+  // 上流 exceptions のワイルドカード展開で守られる語(過去ラウンドの回帰防止)
+  "coarse", "hoarse", "debugger", "c4th4rse",
+];
+
+const MUST_REJECT = [
+  "fuck", // 素の強い語
+  "xxfuckxx", // 語の内部への埋め込み
+  "f-u-c-k", // 区切りによる偽装
+  "b17ch", // leet による偽装
+  "coolarse", // 例外の断片("co")だけでは守られない
+  "前後ちんこ前後", // ja の実語を前後で挟んだもの
+];
+
+describe("findNgWord 受け入れ基準", () => {
+  it.each(MUST_ACCEPT)("%s は通す", (nickname) => {
+    expect(findNgWord(nickname)).toBeNull();
+  });
+  it.each(MUST_REJECT)("%s は弾く", (nickname) => {
+    expect(findNgWord(nickname)).not.toBeNull();
+  });
+});
+
+describe("severity による照合の強さの切り替え", () => {
+  it("severity 1 の語は語境界でしか当たらない(ass)", async () => {
+    const en = (await import("./generated/en.json")).default;
+    const ass = en.entries.find((e) => e.words.includes("ass"));
+    expect(ass).toBeTruthy();
+    expect(ass.severity).toBe(1);
+    // 上流は境界照合前提なので exceptions が空。だからこそ部分一致してはいけない。
+    expect(ass.exceptions).toHaveLength(0);
+    expect(findNgWord("bass")).toBeNull(); // 語の内部 → 通す
+    expect(findNgWord("ass")).toBe("ass"); // 単独 → 弾く
+    expect(findNgWord("sax ass")).toBe("ass"); // 空白の後 → 境界なので弾く
+    expect(findNgWord("sax_ass")).toBe("ass"); // アンダースコアも境界
+  });
+  it("severity 2 以上の語は部分一致で当たる(arse)", async () => {
+    const en = (await import("./generated/en.json")).default;
+    const arse = en.entries.find((e) => e.words.includes("arse"));
+    expect(arse.severity).toBeGreaterThanOrEqual(2);
+    expect(findNgWord("coolarse")).toBe("arse"); // 語の内部でも弾く
+  });
+  it("生成側が severity を落としていない", async () => {
+    const en = (await import("./generated/en.json")).default;
+    expect(en.entries.every((e) => Number.isInteger(e.severity))).toBe(true);
+  });
+  it("生成側が誤爆源の短い ja 項目を除外している", async () => {
+    const ja = (await import("./generated/ja.json")).default;
+    for (const w of ["SM", "3P", "NTR", "SOD", "イク", "カス"]) {
+      expect(ja.words).not.toContain(w);
+    }
+  });
+});
+
 describe("findNgWord", () => {
   it("普通のニックネームは通す", () => {
     expect(findNgWord("さっくす太郎")).toBeNull();

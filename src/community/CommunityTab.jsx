@@ -27,11 +27,16 @@ const SAX_LABELS = { soprano: "ソプラノ", alto: "アルト", tenor: "テナ�
 const NET_ERROR = "通信に失敗しました。電波の良いところでもう一度お試しください";
 const SAVE_ERROR = "保存に失敗しました。電波の良いところでもう一度お試しください";
 const TOGGLE_ERROR = "公開設定を変更できませんでした。電波の良いところでもう一度お試しください";
-// 【削除だけ文言が違う理由】accountRepo.deleteAccount は Firestore のプロフィールを
-// 消してから auth ユーザーを消すので、途中で失敗すると「プロフィールだけ消えた」状態が残る。
-// もう一度押せば deleteDoc(存在しない doc でも成功する)→ deleteUser と進んで完了できるので、
-// 「やり直せる」ことを文言で明示する。黙って失敗させない。
-const DELETE_ERROR = "削除に失敗しました。プロフィールだけが先に消えている場合があります。もう一度「アカウントを削除」を押してください";
+// 【削除の文言は「実際に起きたこと」に合わせる】
+// accountRepo.deleteAccount が例外を投げるのは deleteDoc が失敗したときだけで、
+// そのときはまだ何も消えていない。だから「押し直せば完了できる」と言い切ってよい。
+// (deleteUser の失敗は accountRepo 側でサインアウトに落とし込んでいる。匿名ユーザーは
+//  再認証できないので、押し直しを促すと永久に失敗し続ける行き止まりになるため。)
+const DELETE_ERROR = "削除できませんでした。まだ何も消えていません。電波の良いところでもう一度「アカウントを削除」を押してください";
+// deleteUser だけが失敗した場合(auth/requires-recent-login など)。データは消えている。
+// 「消えていない」と誤解させないよう、消えたものと残ったものを分けて言う。
+const DELETE_PARTIAL_NOTICE =
+  "サーバー上のプロフィールは削除しました。この端末に残っていた匿名のログイン情報だけは取り消せなかったため、サインアウトしました。あなたのデータはもう残っていません。";
 
 export default function CommunityTab() {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
@@ -39,6 +44,8 @@ export default function CommunityTab() {
   const [profile, setProfile] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // 削除の結果、未参加へ戻ったときに一度だけ出す説明(DELETE_PARTIAL_NOTICE)。
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -92,10 +99,12 @@ export default function CommunityTab() {
   if (phase === "notJoined") {
     return (
       <JoinIntro
+        notice={notice}
         onJoin={async () => {
           // ここで初めて匿名アカウントが作られる。9項目を埋めきってから
           // 「圏外でした」と分かるより、押した瞬間に失敗を見せたほうが親切。
           try {
+            setNotice(null);
             await ensureUid();
             setPhase("form");
           } catch (e) {
@@ -136,8 +145,12 @@ export default function CommunityTab() {
         setProfile({ ...profile, isPublic: v });
       }}
       onDelete={async () => {
-        await deleteAccount(); // 同上
-        setProfile(null); setUid(null); setPhase("notJoined");
+        // 例外が出るのは deleteDoc が失敗したときだけ(= まだ何も消えていない)。ProfileView が文言を出す。
+        const r = await deleteAccount();
+        setProfile(null); setUid(null);
+        // 資格情報まで消せたかどうかで、未参加画面に出す説明を切り替える。
+        setNotice(r?.credentialRemoved === false ? DELETE_PARTIAL_NOTICE : null);
+        setPhase("notJoined");
       }}
     />
   );
@@ -178,7 +191,7 @@ function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
 }
 
-function JoinIntro({ onJoin }) {
+function JoinIntro({ onJoin, notice = null }) {
   const [busy, setBusy] = useState(false);
   const join = async () => {
     if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
@@ -188,9 +201,16 @@ function JoinIntro({ onJoin }) {
   return (
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>コミュニティ</div>
+      {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
       <div style={bodyStyle}>
         他の奏者の目安・機材・練習量を見られるようになります。参加すると匿名のアカウントが作られます。
         メールアドレスなどの個人情報は収集しません。
+      </div>
+      {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
+          アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
+          「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
+      <div style={noteStyle}>
+        匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
       </div>
       <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
@@ -436,8 +456,11 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
       <GearPicker
         label="楽器" ariaPrefix="楽器"
+        /* 【「選ばなければその他」とは書かない】未選択(null)と「その他」は別の値として
+           保存されるようになった(profile.js / gear.js)。ここで嘘の案内をすると、
+           自分では何も選んでいない人が「その他を選んだ」と思い込む。 */
         note={saxType
-          ? "型番かメーカー名で探せます。選ばなければ「その他」として登録されます"
+          ? "型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
           : "カタログは楽器種別ごとに分かれています。先に楽器種別を選んでください"}
         value={instrument} onPick={setInstrument}
         disabled={!saxType}
@@ -447,7 +470,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
       <GearPicker
         label="マウスピース" ariaPrefix="マウスピース"
-        note="型番かメーカー名で探せます。選ばなければ「その他」として登録されます"
+        note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
         value={mouthpiece} onPick={setMouthpiece}
         runSearch={(q) => searchMouthpieces(q)}
         placeholder="例: S80 C* / メイヤー"

@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { validateNickname, buildProfileDoc, detectDeviceClass, POSITIONS, SAX_TYPES } from "./profile.js";
+import { readFileSync } from "node:fs";
+import {
+  validateNickname,
+  buildProfileDoc,
+  detectDeviceClass,
+  POSITIONS,
+  SAX_TYPES,
+  GENRES,
+  ENSEMBLES,
+  PLACES,
+} from "./profile.js";
+import { OTHER_BRAND } from "./catalog/gear.js";
 
 const base = {
   nickname: "さっくす太郎",
@@ -88,6 +99,49 @@ describe("buildProfileDoc", () => {
     expect(r.doc).not.toHaveProperty("evilKey");
     expect(r.doc.gear).not.toHaveProperty("evilKey");
   });
+  // 【未選択と「その他」を潰さない】計画4の機材シェア円グラフはこの欄をそのまま読む。
+  // 一度 null を "その他" に寄せて書き込むと、書き込んだ後からは区別を復元できない。
+  it("機材を選ばなかった場合は null のまま保存される(その他に寄せない)", () => {
+    const r = buildProfileDoc(
+      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null } },
+      new Date("2026-08-27")
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null });
+  });
+  it("gear キーごと省略しても null で保存される", () => {
+    const { gear, ...rest } = base;
+    const r = buildProfileDoc(rest, new Date("2026-08-27"));
+    expect(r.error).toBeUndefined();
+    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null });
+  });
+  it("明示的に「その他」を選んだ場合は文字列で保存される", () => {
+    const r = buildProfileDoc(
+      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null } },
+      new Date("2026-08-27")
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.doc.gear).toEqual({ instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null });
+  });
+  it("未選択と「その他」は保存後のドキュメント上で区別できる", () => {
+    const unselected = buildProfileDoc(
+      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null } },
+      new Date("2026-08-27")
+    ).doc;
+    const other = buildProfileDoc(
+      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null } },
+      new Date("2026-08-27")
+    ).doc;
+    expect(unselected.gear.instrumentBrand).toBeNull();
+    expect(other.gear.instrumentBrand).toBe(OTHER_BRAND);
+    expect(unselected.gear).not.toEqual(other.gear);
+  });
+  it("ブランドだけ null でモデルを渡す不整合は弾く", () => {
+    expect(
+      buildProfileDoc({ ...base, gear: { ...base.gear, instrumentBrand: null } })
+    ).toHaveProperty("error");
+  });
+
   it("isPublic を省略すると既定で true になる", () => {
     const { isPublic, ...rest } = base;
     const r = buildProfileDoc(rest, new Date("2026-08-27"));
@@ -96,6 +150,39 @@ describe("buildProfileDoc", () => {
   it("isPublic: false を渡すと false になる", () => {
     const r = buildProfileDoc({ ...base, isPublic: false }, new Date("2026-08-27"));
     expect(r.doc.isPublic).toBe(false);
+  });
+});
+
+// 計画1に Cloud Functions は無く、サーバ側の検査は firestore.rules しかない。
+// ルール側は同じ列挙を手で書き写して持っているので、片方だけ直されると
+// 「アプリでは選べるのに保存できない」または「ルールが自由文を通す」のどちらかが起きる。
+// 写しである以上、食い違いをテストで検出できる状態にしておく。
+describe("firestore.rules との同期", () => {
+  const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
+  const asRulesList = (arr) => "[" + arr.map((s) => `'${s}'`).join(",") + "]";
+
+  it("position の列挙がルールと一致する", () => {
+    expect(rules).toContain(`request.resource.data.position in ${asRulesList(POSITIONS)}`);
+  });
+  it("genres / ensembles / places の列挙がルールと一致する", () => {
+    expect(rules).toContain(`request.resource.data.genres.hasOnly(${asRulesList(GENRES)})`);
+    expect(rules).toContain(`request.resource.data.ensembles.hasOnly(${asRulesList(ENSEMBLES)})`);
+    expect(rules).toContain(`request.resource.data.places.hasOnly(${asRulesList(PLACES)})`);
+  });
+  it("saxType の列挙がルールと一致する", () => {
+    expect(rules).toContain(`request.resource.data.saxType in ${asRulesList(SAX_TYPES)}`);
+  });
+  it("gear の4つの値すべてに string-or-null の型検査がある", () => {
+    for (const key of ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel"]) {
+      expect(rules).toContain(`request.resource.data.gear.${key} == null`);
+      expect(rules).toContain(`request.resource.data.gear.${key} is string`);
+      expect(rules).toContain(`request.resource.data.gear.${key}.size() <= 60`);
+    }
+  });
+  it("互いを指す注意書きが両側にある", () => {
+    expect(rules).toContain("src/community/profile.js");
+    const profileSrc = readFileSync(new URL("./profile.js", import.meta.url), "utf8");
+    expect(profileSrc).toContain("firestore.rules");
   });
 });
 

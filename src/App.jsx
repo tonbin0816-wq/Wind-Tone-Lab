@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, lazy, Suspense, Component } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
@@ -8,6 +8,49 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Act
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
 const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
+
+// コミュニティタブの読み込み中/読み込み失敗の見た目。CommunityTab 内部の Centered と
+// 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
+const communityFallbackStyle = {
+  padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)",
+  fontSize: "var(--fs-sm)", lineHeight: 1.7,
+};
+
+// 【アプリ全体の白画面を防ぐための境界】
+// 遅延読み込みの chunk は、再デプロイ後に古いタブが開いたままだとハッシュごと消えていて
+// import() が reject する。React の既定の挙動は「ルートまで巻き戻す」なので、境界が無いと
+// **開いてすらいないタブのせいで、計測タブで録音中の人がアプリごと画面を失う**。
+// 設計書 §10 の「既存タブには手を触れない」を守るには、ここで必ず受け止める必要がある。
+class CommunityErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="sans" style={communityFallbackStyle}>
+        <div>コミュニティを読み込めませんでした。アプリを更新すると直ることがあります。</div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="sans"
+          style={{
+            marginTop: "var(--sp-4)", minHeight: "var(--tap-min)", padding: "0 var(--sp-5)",
+            borderRadius: "var(--r-pill)", border: "none",
+            background: "var(--c-sunken)", color: "var(--c-ink-2)",
+            fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          再読み込み
+        </button>
+      </div>
+    );
+  }
+}
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
 // あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
@@ -3907,9 +3950,11 @@ export default function WindToneLabPhaseMode() {
            SwipePager / SwipeBackArea はリード/データタブの**中**で使われており、
            このタブはどちらの子孫でもない。 */
         <div className="surf-rule">
-        <Suspense fallback={null}>
-          <CommunityTab />
-        </Suspense>
+        <CommunityErrorBoundary>
+          <Suspense fallback={<div className="sans" style={communityFallbackStyle}>読み込み中…</div>}>
+            <CommunityTab />
+          </Suspense>
+        </CommunityErrorBoundary>
         </div>
       )}
 

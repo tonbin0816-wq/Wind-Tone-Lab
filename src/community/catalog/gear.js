@@ -61,6 +61,32 @@ export const INSTRUMENT_CATALOG = {
   },
 };
 
+// ------------------------------------------------------------------
+// 【決定の記録】マウスピースの「開き(facing / tip opening)」は独立した項目にしない。
+//
+// 設計書 §4.1 は「マウスピース開き」をプロフィールの項目として挙げており、計画 Task 4 の
+// インタフェースにも任意項目 `facings` が宣言されていたが、実装では使わなかった。
+// 実際の格納形は、開きを **モデル名の文字列に畳み込んだもの** である:
+//
+//   "S80 C*" / "Meyer 6M" / "Tone Edge 7*" / "V16 A7" / "GIANT 8*"
+//     → 開きは型番の一部として文字列の中に入っている(取り出すには解析が要る)
+//
+// この畳み込みで **開きが完全に失われる** のが以下:
+//
+//   Selmer "Concept" / "Soloist"     … 開きの表記を持たない単一項目にした
+//   Guardala "MB II"                 … 同上
+//   Theo Wanne 全モデル(DURGA/SHIVA/GAIA/AMBIKA/…)
+//                                    … 実機は 5〜9 相当の開きが選べるが、
+//                                       カタログはモデル名までしか持っていない
+//
+// 畳み込みを選んだ理由: 開きの刻み方はブランドごとにばらばら(数字+*、数字のみ、
+// .095 のような実寸)で、共通の選択肢集合が作れない。モデルごとに候補を持つと
+// カタログが数倍に膨らむ割に、v1 の用途(機材シェアの円グラフ)はブランド粒度で足りる。
+//
+// **次の計画への申し送り**: 開きを本当に項目として持つなら、(a) モデル名から開きを
+// 剥がす、(b) モデルごとの開き候補表を足す、の両方が要る。既存プロフィールの
+// モデル文字列は開き込みなので、移行時に解析が必要になる。ここで黙って足してはいけない。
+// ------------------------------------------------------------------
 export const MOUTHPIECE_CATALOG = {
   Selmer: {
     models: [
@@ -234,17 +260,62 @@ export const MOUTHPIECE_CATALOG = {
   },
 };
 
+// ------------------------------------------------------------------
+// ブランド名のカタカナ別名。
+//
+// カタログのブランド名はすべてラテン文字だが、主要な利用者(学校・アマチュアの
+// 日本人奏者)は検索欄に「ヤマハ」「メイヤー」「セルマー」と打つ。別名が無いと
+// 候補が0件になり、実在の機材を持っている人まで「カタログに無い(その他)」へ
+// 流れて機材データが失われる。フォームのプレースホルダ(CommunityTab.jsx)が
+// まさにカタカナを例示しているので、無いままでは案内が嘘になる。
+//
+// キーは各カタログのブランドキーと**完全に一致**させること。
+// YAMAHA(本体)と Yamaha(マウスピース)、Selmer Paris(本体)と Selmer
+// (マウスピース)は別キーなので、両方に別名が要る。
+// 半角カナ("ﾔﾏﾊ")は norm() の NFKC が全角カナに畳むので、ここには全角だけ置けばよい。
+// ------------------------------------------------------------------
+export const BRAND_ALIASES = {
+  // 本体(INSTRUMENT_CATALOG)
+  YAMAHA: ["ヤマハ"],
+  "Selmer Paris": ["セルマー", "セルマーパリ"],
+  Yanagisawa: ["ヤナギサワ", "柳澤", "柳沢"],
+  Cannonball: ["キャノンボール"],
+  "P. Mauriat": ["ピーモーリア", "モーリア"],
+  Keilwerth: ["カイルヴェルト", "カイルベルト"],
+  Jupiter: ["ジュピター"],
+  Antigua: ["アンティグア"],
+  // マウスピース(MOUTHPIECE_CATALOG)
+  Selmer: ["セルマー"],
+  Vandoren: ["バンドーレン"],
+  Meyer: ["メイヤー"],
+  "Otto Link": ["オットーリンク", "オットリンク"],
+  JodyJazz: ["ジョディジャズ"],
+  "D'Addario": ["ダダリオ"],
+  Yamaha: ["ヤマハ"],
+  Dukoff: ["デュコフ"],
+  Guardala: ["ガーデラ", "グアルダーラ"],
+  "Claude Lakey": ["クロードレイキー"],
+  Beechler: ["ビーチラー"],
+  "Theo Wanne": ["セオワニ", "テオワニ"],
+};
+
 // 検索正規化: 全角→半角・大文字→小文字(NFKC)、空白・ハイフンを除去。
-// 例: "ｙａｓ６２" -> "yas62", "YAS-62" -> "yas62"
+// 例: "ｙａｓ６２" -> "yas62", "YAS-62" -> "yas62", "ﾔﾏﾊ" -> "ヤマハ"
+// (半角カナ→全角カナ、半角の濁点の合成も NFKC がやる)
 const norm = (s) => String(s ?? "").normalize("NFKC").toLowerCase().replace(/[\s\-]/g, "");
+
+// ブランド名そのものと、カタカナ別名のどちらでも引けるようにする。
+const brandMatches = (brand, q) =>
+  norm(brand).includes(q) || (BRAND_ALIASES[brand] ?? []).some((alias) => norm(alias).includes(q));
 
 export function searchInstrumentModels(query, saxType) {
   const q = norm(query);
   if (!q) return [];
   const out = [];
   for (const [brand, byType] of Object.entries(INSTRUMENT_CATALOG)) {
+    const brandHit = brandMatches(brand, q);
     for (const model of byType[saxType] ?? []) {
-      if (norm(model).includes(q) || norm(brand).includes(q)) out.push({ brand, model });
+      if (norm(model).includes(q) || brandHit) out.push({ brand, model });
     }
   }
   return out;
@@ -255,19 +326,28 @@ export function searchMouthpieces(query) {
   if (!q) return [];
   const out = [];
   for (const [brand, { models }] of Object.entries(MOUTHPIECE_CATALOG)) {
+    const brandHit = brandMatches(brand, q);
     for (const model of models) {
-      if (norm(model).includes(q) || norm(brand).includes(q)) out.push({ brand, model });
+      if (norm(model).includes(q) || brandHit) out.push({ brand, model });
     }
   }
   return out;
 }
 
+// 【未選択(null/null)と「その他」を同じ値に潰さない】
+// 機材欄を飛ばした人と、「カタログに無い(その他)」を自分で選んだ人は別の情報である。
+// 計画4の機材シェア円グラフはこの欄をそのまま読むので、片方に寄せると母数が壊れ、
+// しかも書き込み済みのプロフィールからは後で復元できない。
+// したがって「未選択」は brand も model も null という正当な状態として通す。
+// (Firestore ルール側も gear の各値に null を許してある。)
 export function isValidInstrument(brand, model, saxType) {
-  if (brand === OTHER_BRAND) return model === null;
+  if (brand === null && model === null) return true; // 未選択
+  if (brand === OTHER_BRAND) return model === null; // 明示的に選ばれた「その他」
   return (INSTRUMENT_CATALOG[brand]?.[saxType] ?? []).includes(model);
 }
 
 export function isValidMouthpiece(brand, model) {
-  if (brand === OTHER_BRAND) return model === null;
+  if (brand === null && model === null) return true; // 未選択
+  if (brand === OTHER_BRAND) return model === null; // 明示的に選ばれた「その他」
   return (MOUTHPIECE_CATALOG[brand]?.models ?? []).includes(model);
 }

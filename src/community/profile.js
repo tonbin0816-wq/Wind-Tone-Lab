@@ -1,7 +1,14 @@
 import { findNgWord } from "./ngwords/filter.js";
-import { isValidInstrument, isValidMouthpiece, OTHER_BRAND } from "./catalog/gear.js";
+import { isValidInstrument, isValidMouthpiece } from "./catalog/gear.js";
 
-// spec §4.1 の選択肢。文言を変えるときは設計書も直すこと
+// spec §4.1 の選択肢。文言を変えるときは設計書も直すこと。
+//
+// 【firestore.rules に同じ列挙の写しがある】計画1に Cloud Functions は無いので、
+// サーバ側でこれを検査できる場所はセキュリティルールしかない。ルール側が「文字列」までしか
+// 見ないと、生SDKを叩く相手が position などに自由文を入れられてしまい、
+// 設計書 §8.1 の「通報の対象はニックネームだけ」が崩れる。
+// **ここを足し引きしたら firestore.rules の該当行も必ず直すこと**(逆も同じ)。
+// 食い違いは profile.test.js の「Firestore ルールの列挙と一致する」が検出する。
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
 export const POSITIONS = ["中学吹奏楽部", "高校吹奏楽部", "大学吹奏楽・サークル", "音大生", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
@@ -56,9 +63,14 @@ export function buildProfileDoc(input, now = new Date()) {
   }
   if (input.ageConfirmed !== true) return { error: "13歳以上であることの確認が必要です" };
   const g = input.gear ?? {};
-  const instBrand = g.instrumentBrand ?? OTHER_BRAND;
+  // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と、「カタログに無い(その他)」を
+  // 自分で選んだ人(OTHER_BRAND)は別の情報である。ここで ?? OTHER_BRAND に潰すと、
+  // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
+  // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
+  // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
+  const instBrand = g.instrumentBrand ?? null;
   const instModel = g.instrumentModel ?? null;
-  const mpBrand = g.mpBrand ?? OTHER_BRAND;
+  const mpBrand = g.mpBrand ?? null;
   const mpModel = g.mpModel ?? null;
   if (!isValidInstrument(instBrand, instModel, input.saxType)) return { error: "楽器がカタログにありません" };
   if (!isValidMouthpiece(mpBrand, mpModel)) return { error: "マウスピースがカタログにありません" };

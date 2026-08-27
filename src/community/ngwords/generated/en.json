@@ -10,7 +10,8 @@
     "one jar one man",
     "one man one jar"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -20,14 +21,16 @@
     "one cup two girls",
     "two girls one cup"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "acrotomophile",
     "acrotomophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -38,56 +41,65 @@
     "massive cock",
     "throbbing cock"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "alabama hot pocket"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "alabama tuna melt"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "alaskan pipeline"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "algophile",
     "algophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "anal"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "anal assassin"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "anal astronaut"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "anilingus"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -101,7 +113,8 @@
     "pand*es",
     "tet*",
     "tet*es"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
@@ -109,14 +122,16 @@
     "ape-shit",
     "apeshit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "apotemnophile",
     "apotemnophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -132,40 +147,46 @@
     "m*illes",
     "p*",
     "s*n"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "arsehole",
     "asshole"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ass"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "arse bandit",
     "ass bandit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "auto erotic",
     "autoerotic"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "babeland"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -175,7 +196,8 @@
     "ball batter",
     "ball gravy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -183,78 +205,90 @@
     "ball-gag",
     "ballgag"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ball kicking",
     "ball-kicking"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ball licking",
     "ball-licking"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ball sack"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ball sucking",
     "ball-sucking"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ballcuzi"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bang bros",
     "bangbros"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bang bus",
     "bangbus"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bareback"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "barely legal"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "bastard"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bastinado"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -263,13 +297,15 @@
     "battyboi",
     "battyboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bdsm"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -277,13 +313,15 @@
     "bean-flicker",
     "beanflicker"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bean queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -293,7 +331,8 @@
    "exceptions": [
     "*ies",
     "*y"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -301,19 +340,22 @@
     "beestiality",
     "bestiality"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "beaver cleaver"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "beaver lips"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -321,13 +363,15 @@
    ],
    "exceptions": [
     "*en"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "bellesa"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -340,7 +384,8 @@
     "*vex",
     "*vexities",
     "*vexity"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -349,32 +394,37 @@
     "big knockers",
     "big tits"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "birdlock"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bitch",
     "bitches"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bloody"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "blow your load"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -382,26 +432,30 @@
     "blow-job",
     "blowjob"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "blue waffle",
     "bluewaffle"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "blumpkin"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bollocks"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
@@ -409,7 +463,8 @@
     "bone-smuggler",
     "bonesmuggler"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -417,7 +472,8 @@
     "raging boner",
     "throbbing boner"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -426,26 +482,30 @@
    "exceptions": [
     "*ird",
     "*oo"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "booty buffer",
     "booty-buffer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "booty call"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "boston george"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -453,7 +513,8 @@
    ],
    "exceptions": [
     "*troke"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
@@ -461,21 +522,24 @@
     "brown-piper",
     "brownpiper"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "brown shower",
     "brown showers"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "brownie king",
     "brownie queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -483,14 +547,16 @@
     "buddha-head",
     "buddhahead"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bufter",
     "bufty"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -499,26 +565,30 @@
    "exceptions": [
     "de*",
     "hum*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "bukkake"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bulldyke"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bullet vibe",
     "bullet vibrator"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -526,7 +596,8 @@
     "bull-shit",
     "bullshit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -534,7 +605,8 @@
     "bum-chum",
     "bumchum"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -542,7 +614,8 @@
     "bum-driller",
     "bumdriller"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -553,14 +626,16 @@
     "butt-boy",
     "buttboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bum pilot",
     "butt pilot"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -569,7 +644,8 @@
     "butt pirate",
     "butt-pirate"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -578,7 +654,8 @@
     "butt rider",
     "buttrider"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -589,21 +666,24 @@
     "butt-robber",
     "buttrobber"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bum rustler",
     "butt rustler"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "bumhole engineer",
     "butthole engineer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -612,46 +692,53 @@
     "cameljockey",
     "cameljockies"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "camel toe"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "canadian porch swing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "carpet muncher",
     "carpetmuncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cheese eating surrender monkey",
     "cheese-eating surrender monkey"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "chi chi man",
     "chi-chi man"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "chicken queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -660,14 +747,16 @@
     "chinaman",
     "chinamen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "ching chong",
     "ching-chong"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -684,21 +773,24 @@
     "*ing",
     "pa*o",
     "pa*os"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "chocolate rosebud",
     "chocolate rosebuds"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cholerophile",
     "cholerophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -709,58 +801,67 @@
     "*ian",
     "*ie",
     "*y"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "cialis"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "circle-jerk",
     "circlejerk"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cishet"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cissie",
     "cissy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "claustrophile",
     "claustrophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cleveland accordion"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cleveland hot waffle"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cleveland steamer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -786,26 +887,30 @@
     "pa*axels",
     "pro*ic",
     "pro*ics"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "clitoris"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "clover clamp",
     "clover clamps"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "clunge"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -813,7 +918,8 @@
     "cluster-fuck",
     "clusterfuck"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -976,33 +1082,38 @@
     "weather*s",
     "wood*",
     "wood*s"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "cockpipe cosmonaut"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cockstruction worker"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "coimetrophile",
     "coimetrophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "collared",
     "collaring"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1023,7 +1134,8 @@
     "*hound",
     "* skin",
     "*skin"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -1031,19 +1143,22 @@
     "coprophile",
     "coprophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cornhole"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "crafty butcher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1056,26 +1171,30 @@
     "*ulent",
     "*ulous",
     "s*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "cream-pie",
     "creampie"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cum"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cumming"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1084,13 +1203,15 @@
     "cumshot",
     "cumshots"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "cunnilingus"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1101,7 +1222,8 @@
    ],
    "exceptions": [
     "s*horpe"
-   ]
+   ],
+   "severity": 4
   },
   {
    "words": [
@@ -1109,7 +1231,8 @@
     "cunt-boy",
     "cuntboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1117,13 +1240,15 @@
     "curry-muncher",
     "currymuncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "damn"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
@@ -1132,20 +1257,23 @@
     "darkies",
     "darky"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "date rape",
     "daterape"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "ddlg"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1153,14 +1281,16 @@
     "deep-throat",
     "deepthroat"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dendrophile",
     "dendrophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1173,7 +1303,8 @@
     "bene*",
     "me*",
     "zad*"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
@@ -1181,46 +1312,53 @@
     "dick-girl",
     "dickgirl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dildo",
     "dildos"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dingleberries",
     "dingleberry"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "dipsea"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dirty pillows"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dirty sanchez"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dishabiliophile",
     "dishabiliophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1232,7 +1370,8 @@
     "doggy-style",
     "doggystyle"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1240,19 +1379,22 @@
     "dog-shit",
     "dogshit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "dolcett"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "domination"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1260,38 +1402,44 @@
     "domme",
     "dommes"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "donkey punch"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "donut muncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "donut puncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "double penetration",
     "dp action"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dry hump"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1300,13 +1448,15 @@
     "dune coon",
     "dune-coon"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "dutch rudder"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1316,21 +1466,24 @@
     "van*",
     "van*d",
     "van*s"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "dystychiphile",
     "dystychiphilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "edge play",
     "edgeplay"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1339,21 +1492,24 @@
     "ejaculating",
     "ejaculation"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "electro-play",
     "electroplay"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "emetophile",
     "emetophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1376,20 +1532,23 @@
     "t*",
     "warr*",
     "wh*"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "eskimo trebuchet"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "eye-tie",
     "eyetie"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -1402,7 +1561,8 @@
     "ser*es",
     "whar*e",
     "whar*es"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -1410,40 +1570,46 @@
     "fag-bomb",
     "fagbomb"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "faggot",
     "fagot"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "felch",
     "felching"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "fellating",
     "fellatio"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "female squirting"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "figging"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1451,14 +1617,16 @@
     "fingerbang",
     "fingerbanging"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "fingered",
     "fingering"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1466,14 +1634,16 @@
     "finoccio",
     "finochio"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "fisted",
     "fisting"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1481,13 +1651,15 @@
     "foot-job",
     "footjob"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "french rudder"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1495,21 +1667,24 @@
     "frog-eater",
     "frogeater"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "frolic me",
     "frolicme"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "frottage",
     "frotting"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1521,28 +1696,32 @@
     "fucking",
     "fucks"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "fuckhead",
     "fuckheads"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "fucktard",
     "fucktards"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "fuckwad",
     "fuckwads"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -1551,7 +1730,8 @@
     "fuckwit",
     "fuckwits"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -1559,77 +1739,89 @@
     "fudge-packer",
     "fudgepacker"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "futanari"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "g-spot"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gang bang",
     "gangbang"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gay sex"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gaysian"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "genitals"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "genitorture"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gerontophile",
     "gerontophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gin jockey",
     "gin jocky"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "girl on top"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "goatcx",
     "goatse"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -1640,14 +1832,16 @@
     "goddamn",
     "goddamned"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "go-kun",
     "gokkun"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1656,14 +1850,16 @@
     "yellow shower",
     "yellow showers"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "golliwog",
     "gollywog"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -1678,45 +1874,52 @@
     "gobblede*s",
     "gobbledy*",
     "gobbledy*s"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "goregasm"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "greaseball"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "gray queen",
     "grey queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "grope"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "group sex"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "gym bunny",
     "gymbunny"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1724,7 +1927,8 @@
     "haji",
     "hajji"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -1732,7 +1936,8 @@
     "hand-job",
     "handjob"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1751,7 +1956,8 @@
     "ec*e",
     "p*",
     "s*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
@@ -1761,26 +1967,30 @@
     "diat*s",
     "endot*s",
     "homeot*s"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "hickory switch"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "hippophile",
     "hippophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "homoerotic"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1789,13 +1999,15 @@
     "honkies",
     "honky"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "horny"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1803,25 +2015,29 @@
     "horse-shit",
     "horseshit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "hot carl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "hot richard"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "humping"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1833,40 +2049,46 @@
     "prings*ella",
     "t*r",
     "t*st"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "impact play",
     "impact-play"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "incest"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "intercourse"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "jack off",
     "jack-off"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "jail bait",
     "jailbait"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -1900,27 +2122,31 @@
     "ca*uts",
     "jipi*a",
     "jipi*as"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "jelly donut"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "jerk off",
     "jerk-off"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "jerk mate",
     "jerkmate"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1928,69 +2154,80 @@
    ],
    "exceptions": [
     "be*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "jesus christ"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "jigaboo",
     "jiggerboo"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "jizz"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "juggs"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "jungle bunny",
     "junglebunny"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "kennebunkport surprise"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "kentucky klondike"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "kentucky tractor puller"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "kike"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "kinbaku"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -1998,13 +2235,15 @@
     "kitty-puncher",
     "kittypuncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "knobbing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2014,14 +2253,16 @@
    "exceptions": [
     "sauer*s",
     "sauer*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "kynophile",
     "kynophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2029,32 +2270,37 @@
     "lady-boy",
     "ladyboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "leather restraint"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "leather straight jacket"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "lemon party",
     "lemonparty"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "leningrad steamer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2064,7 +2310,8 @@
     "*s",
     "b*k",
     "b*ks"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -2092,58 +2339,67 @@
     "who*mely",
     "who*meness",
     "who*menesses"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "lezzie",
     "lezzies"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "light in the fedora"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "light in the loafers"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "light in the pants"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "limp wristed",
     "limp-wristed"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "literotica"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "lovemaking"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "male squirting",
     "male-squirting"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2154,33 +2410,38 @@
     "masturbating",
     "masturbation"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "mayonnaise monkey",
     "mayonnaise monkies"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "mdlb"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "meat masseuse"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "meat spin",
     "meatspin"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -2189,38 +2450,44 @@
     "menages a trois",
     "menages-a-trois"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "menophile",
     "menophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "mexican pancake"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "milwaukee blizzard"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "missionary position"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "mississippi birdbath"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2228,7 +2495,8 @@
     "mr. hands",
     "mrhands"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -2236,7 +2504,8 @@
     "muff-diver",
     "muffdiver"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2245,38 +2514,44 @@
     "muffdiver",
     "muffdiving"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "muscle mary"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "mvtube"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "nambla"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "necrophile",
     "necrophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "negro"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -2284,13 +2559,15 @@
     "neo-nazi",
     "neonazi"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "nigerian hurricane"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2299,40 +2576,46 @@
     "niggs",
     "nignog"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "nigger"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "nipple clamp",
     "nipple clamps"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "nipple",
     "nipples"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "nude",
     "nudity"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "nutten"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2343,32 +2626,37 @@
     "nymphomania",
     "nymphomaniac"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "octopussy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "oklahomo"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "omorashi"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "only fans",
     "onlyfans"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2376,7 +2664,8 @@
     "orgasmic",
     "orgasms"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2385,14 +2674,16 @@
     "pedophile",
     "pedophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pain slut",
     "painslut"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2400,32 +2691,37 @@
    ],
    "exceptions": [
     "*hi"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "panamanian petting zoo"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pansy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "panties"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "parthenophile",
     "parthenophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2434,13 +2730,15 @@
     "pedo bear",
     "pedobear"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "pegging"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2448,7 +2746,8 @@
    ],
    "exceptions": [
     "top*h"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
@@ -2456,7 +2755,8 @@
     "peter-puffer",
     "peterpuffer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2464,65 +2764,75 @@
     "petrol-sniffer",
     "petrolsniffer"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "phagophile",
     "phagophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "piece of shit",
     "pieces of shit"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "pikey",
     "pikeys"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "piss off"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "piss pig",
     "pisspig"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "pissed off"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "pissing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "playboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pleasure chest"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2531,14 +2841,16 @@
     "pnigophile",
     "pnigophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "poinephile",
     "poinephilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2546,7 +2858,8 @@
     "pony-boy",
     "ponyboy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2554,14 +2867,16 @@
     "pony-girl",
     "ponygirl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pony-play",
     "ponyplay"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2583,7 +2898,8 @@
     "s*ing",
     "s*s",
     "s*y"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -2640,21 +2956,24 @@
     "teas*fuls",
     "teas*s",
     "teas*sful"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "poop chute",
     "poopchute"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "porn hub",
     "pornhub"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2664,45 +2983,52 @@
     "pornography",
     "pornos"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "potato queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "prince albert piercing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "proctophile",
     "proctophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pubes"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "punani",
     "punany"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "pussy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2710,20 +3036,23 @@
     "pussy-puncher",
     "pussypuncher"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "queaf",
     "queef"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "quim"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2732,85 +3061,98 @@
     "raghead",
     "ragheads"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ramen yarmulke"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rape"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "raping",
     "rapist"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "rectum"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "retard",
     "retarded"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "reverse cowgirl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rhabdophile",
     "rhabdophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rhypophile",
     "rhypophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rice queen"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rimjob",
     "rimming"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "ring raider",
     "ringraider"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "rusty trombone"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2818,33 +3160,38 @@
     "sand-nigger",
     "sandnigger"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "santorum"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "scatophile",
     "scatophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "schlong",
     "shlong"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "scissoring"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2913,34 +3260,39 @@
     "subba*ts",
     "ver*",
     "warehou*"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "seplophile",
     "seplophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "sex"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "shaved beaver",
     "shaved pussy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "sheep shagger",
     "sheepshagger"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -2948,13 +3300,15 @@
     "she-male",
     "shemale"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "shibari"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -2965,51 +3319,59 @@
     "mi*",
     "*tah",
     "*tim"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "shit head",
     "shithead"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "shitty"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "shota"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "shrimping"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "sissy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "skeet"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "skittle harvest",
     "skittles harvest"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3017,31 +3379,36 @@
     "slant-eye",
     "slanteye"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "snatch"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "snowballing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "sod off"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "sodding"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
@@ -3050,19 +3417,22 @@
     "sodomize",
     "sodomy"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "spastic"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "spearchucker"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3163,13 +3533,15 @@
     "su*iousness",
     "tran*uous",
     "unsu*ious"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "spicy gringo"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3177,40 +3549,46 @@
     "splooge moose",
     "spooge"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "spunk"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "strap on",
     "strap-on"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "strap-on",
     "strapon"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "strappado"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "swamp guinea",
     "swamp-guinea"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3218,27 +3596,31 @@
     "svastika",
     "swastika"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "switch hitter"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "t-girl",
     "tgirl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "taphephile",
     "taphephilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3247,32 +3629,37 @@
     "tea-bagged",
     "tea-bagging"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "thanatophile",
     "thanatophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "threesome"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "throating"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "thumbzilla"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3280,7 +3667,8 @@
     "timber-nigger",
     "timbernigger"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -3290,26 +3678,30 @@
     "bush*",
     "pas*",
     "tom*"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "titties",
     "titty"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "topless"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "tosser"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -3317,41 +3709,47 @@
     "towel-head",
     "towelhead"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "trannie",
     "tranny"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "transbian"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "traumatophile",
     "traumatophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "tribadism",
     "tribbing"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "tub girl",
     "tubgirl"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
@@ -3363,7 +3761,8 @@
     "ou*ch",
     "sal*er",
     "wris*ch"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
@@ -3380,71 +3779,82 @@
     "*ling",
     "*lings",
     "*ly"
-   ]
+   ],
+   "severity": 3
   },
   {
    "words": [
     "urethra play"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "urophile",
     "urophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "vagina"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "mound of venus",
     "venus mound"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 1
   },
   {
    "words": [
     "viagra"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "vibrator"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "violet wand"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "vorarephile",
     "vorarephilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "voyeurweb"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "wagon burner",
     "wagon-burner"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
@@ -3453,26 +3863,30 @@
    "exceptions": [
     "s*",
     "t*"
-   ]
+   ],
+   "severity": 2
   },
   {
    "words": [
     "wanker"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "wax play",
     "wax-play"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "wet dream"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3480,7 +3894,8 @@
     "wet-back",
     "wetback"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3488,13 +3903,15 @@
     "white-power",
     "whitepower"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "whore"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3502,13 +3919,15 @@
     "wigga",
     "wigger"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "wiitwd"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3524,68 +3943,79 @@
     "polli*s",
     "polly*",
     "polly*s"
-   ]
+   ],
+   "severity": 1
   },
   {
    "words": [
     "wolfbagging"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "worldsex"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "wrapping men"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "wrinkled starfish"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "xhamster"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "xnxx"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "xtube"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "xvideos"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
     "xxx"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 2
   },
   {
    "words": [
     "xyrophile",
     "xyrophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3593,7 +4023,8 @@
     "zipper-head",
     "zipperhead"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   },
   {
    "words": [
@@ -3601,14 +4032,16 @@
     "zippo-cat",
     "zippocat"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 4
   },
   {
    "words": [
     "zoophile",
     "zoophilia"
    ],
-   "exceptions": []
+   "exceptions": [],
+   "severity": 3
   }
  ]
 }
