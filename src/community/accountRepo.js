@@ -9,6 +9,16 @@ function currentUser() {
   });
 }
 
+// 現在のサインイン状態を返すだけ。**アカウントは作らない。**
+// コミュニティタブを開いただけで signInAnonymously が走ると、参加の説明文
+// (「参加すると匿名のアカウントが作られます」)を読んでいる時点で既にアカウントが
+// 存在することになり、覗いて去った人にもアカウントが残る。
+// タブの初期表示はこちらを使い、ensureSignedIn は参加を押してから呼ぶ。
+export async function getSignedInUid() {
+  const user = await currentUser();
+  return user ? user.uid : null;
+}
+
 export async function ensureSignedIn() {
   const { auth } = getFirebase();
   const existing = await currentUser();

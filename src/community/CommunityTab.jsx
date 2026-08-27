@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
+import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, startYearOptions } from "./profile.js";
 import { searchInstrumentModels, searchMouthpieces, OTHER_BRAND } from "./catalog/gear.js";
 
@@ -45,8 +45,14 @@ export default function CommunityTab() {
     setPhase("loading");
     (async () => {
       try {
-        const id = await ensureSignedIn();
+        // 【ここで ensureSignedIn を呼ばない】呼ぶと「参加すると匿名のアカウントが
+        // 作られます」という説明を読んでいる時点で既にアカウントが存在してしまい、
+        // 覗いて去っただけの人にもアカウントが残る。同意より先に作らない。
+        // 既にサインイン済みの端末では getSignedInUid が既存の uid を返すので、
+        // 2回目以降の体験は変わらない(匿名セッションは端末に永続する)。
+        const id = await getSignedInUid();
         if (!alive) return;
+        if (!id) { setPhase("notJoined"); return; } // まだ誰でもない。作らずに説明だけ出す
         setUid(id);
         const p = await loadProfile(id);
         if (!alive) return;
@@ -59,10 +65,12 @@ export default function CommunityTab() {
     return () => { alive = false; };
   }, [reloadKey]);
 
-  // 【uid を遅延で取り直す】アカウント削除の直後は uid が null になる。
-  // ここで即座に signInAnonymously し直すと「消したのに新しいアカウントができる」ので、
-  // 実際に保存する瞬間まで待つ。骨格のまま saveProfile(null, doc) を呼ぶと
-  // Firestore の doc パスが壊れるので、この1段は落とせない。
+  // 【匿名アカウントを作る唯一の場所】呼ばれるのは (a) 参加ボタン (b) 保存の直前 の2つだけ。
+  // どちらも利用者が「参加する」と決めたあとなので、説明文と実態がずれない。
+  // アカウント削除の直後は uid が null に戻るが、そこで即座にサインインし直すと
+  // 「消したのに新しいアカウントができる」ので、次に参加を押すまで作らない。
+  // (b) が要るのは、削除 → 参加 の流れで骨格のまま saveProfile(null, doc) を呼ぶと
+  // Firestore の doc パスが壊れるため。(a) があっても保険として残す(冪等)。
   const ensureUid = async () => {
     if (uid) return uid;
     const id = await ensureSignedIn();
@@ -81,7 +89,23 @@ export default function CommunityTab() {
       </Centered>
     );
   }
-  if (phase === "notJoined") return <JoinIntro onJoin={() => setPhase("form")} />;
+  if (phase === "notJoined") {
+    return (
+      <JoinIntro
+        onJoin={async () => {
+          // ここで初めて匿名アカウントが作られる。9項目を埋めきってから
+          // 「圏外でした」と分かるより、押した瞬間に失敗を見せたほうが親切。
+          try {
+            await ensureUid();
+            setPhase("form");
+          } catch (e) {
+            setErrorMsg(NET_ERROR);
+            setPhase("error");
+          }
+        }}
+      />
+    );
+  }
   if (phase === "form") {
     return (
       <ProfileForm
@@ -155,6 +179,12 @@ function Centered({ children }) {
 }
 
 function JoinIntro({ onJoin }) {
+  const [busy, setBusy] = useState(false);
+  const join = async () => {
+    if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
+    setBusy(true);
+    try { await onJoin(); } finally { setBusy(false); }
+  };
   return (
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>コミュニティ</div>
@@ -162,8 +192,8 @@ function JoinIntro({ onJoin }) {
         他の奏者の目安・機材・練習量を見られるようになります。参加すると匿名のアカウントが作られます。
         メールアドレスなどの個人情報は収集しません。
       </div>
-      <button type="button" onClick={onJoin} className="sans" style={primaryButtonStyle}>
-        参加してプロフィールを作る
+      <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
+        {busy ? "準備中…" : "参加してプロフィールを作る"}
       </button>
     </div>
   );
@@ -240,9 +270,13 @@ function gearLabel(v) {
   return v.model ? `${v.brand} ${v.model}` : v.brand;
 }
 
-function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPrefix }) {
+// disabled: 検索してもカタログを引けない状態(楽器種別が未選択のとき)。
+// searchInstrumentModels(q, "") は必ず空を返すので、打てるままにしておくと
+// 「カタログに自分の楽器があるのに、候補が出ないので『その他』で登録する」人が出る。
+// 引けないなら打たせない。
+function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPrefix, disabled = false }) {
   const [query, setQuery] = useState("");
-  const results = query.trim() ? runSearch(query).slice(0, 10) : [];
+  const results = !disabled && query.trim() ? runSearch(query).slice(0, 10) : [];
 
   if (value) {
     return (
@@ -278,7 +312,8 @@ function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPr
       <input
         type="search" value={query} onChange={(e) => setQuery(e.target.value)}
         placeholder={placeholder} aria-label={`${ariaPrefix}を検索`}
-        className="sans" style={controlStyle}
+        disabled={disabled}
+        className="sans" style={{ ...controlStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "auto" }}
       />
       {results.length > 0 && (
         <div style={{ display: "grid", gap: 0 }}>
@@ -338,28 +373,36 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     if (busy) return;
     setBusy(true);
     setError(null);
-    const msg = await onSubmit({
-      nickname,
-      saxType,
-      position,
-      startYear,
-      genres,
-      ensembles,
-      places,
-      ageConfirmed,
-      // 【編集のときに公開設定を巻き戻さない】buildProfileDoc の既定は「公開」なので、
-      // 非公開にしていた人が編集しただけで公開に戻ってしまう。元の値を持ち回す。
-      isPublic: initial ? initial.isPublic !== false : true,
-      gear: {
-        instrumentBrand: instrument?.brand ?? null,
-        instrumentModel: instrument?.model ?? null,
-        mpBrand: mouthpiece?.brand ?? null,
-        mpModel: mouthpiece?.model ?? null,
-      },
-    });
-    // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
-    setError(msg);
-    setBusy(false);
+    // 【try/finally が要る理由】onSubmit が万一 reject すると busy が true のまま固まり、
+    // 保存ボタンが永久に無効化される。初回登録には「やめる」が無いので、
+    // タブの中で唯一の行き止まりになる。いまは親が全て catch しているので保険。
+    try {
+      const msg = await onSubmit({
+        nickname,
+        saxType,
+        position,
+        startYear,
+        genres,
+        ensembles,
+        places,
+        ageConfirmed,
+        // 【編集のときに公開設定を巻き戻さない】buildProfileDoc の既定は「公開」なので、
+        // 非公開にしていた人が編集しただけで公開に戻ってしまう。元の値を持ち回す。
+        isPublic: initial ? initial.isPublic !== false : true,
+        gear: {
+          instrumentBrand: instrument?.brand ?? null,
+          instrumentModel: instrument?.model ?? null,
+          mpBrand: mouthpiece?.brand ?? null,
+          mpModel: mouthpiece?.model ?? null,
+        },
+      });
+      // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
+      setError(msg);
+    } catch (e) {
+      setError(SAVE_ERROR);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -393,8 +436,11 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
       <GearPicker
         label="楽器" ariaPrefix="楽器"
-        note="型番かメーカー名で探せます。選ばなければ「その他」として登録されます"
+        note={saxType
+          ? "型番かメーカー名で探せます。選ばなければ「その他」として登録されます"
+          : "カタログは楽器種別ごとに分かれています。先に楽器種別を選んでください"}
         value={instrument} onPick={setInstrument}
+        disabled={!saxType}
         runSearch={(q) => searchInstrumentModels(q, saxType)}
         placeholder={saxType ? "例: YAS-62 / ヤマハ" : "先に楽器種別を選んでください"}
       />
