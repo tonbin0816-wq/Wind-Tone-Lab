@@ -1,9 +1,13 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
 // 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity } from "lucide-react";
+
+// コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
+// firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
+const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
 // あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
@@ -3892,6 +3896,22 @@ export default function WindToneLabPhaseMode() {
         />
         </div>
       )}
+      {topTab === "community" && (
+        /* 他の3タブと同じ「罫の作法」の中に置く(面の作法はアプリ全体で1つ)。
+           下端の逃げ(下部固定ナビのぶん)は .app-root の padding-bottom:
+           var(--page-bottom-gap) が既に持っているので、ここでは足さない。
+           ページはドキュメントごと縦に伸びて縦スクロールするため、
+           長いフォームの末尾(保存するボタン)もナビの下に隠れない。
+           【data-noswipe は不要】上部タブの切替はスワイプではなく BottomNav の
+           タップだけ(setTopTab の呼び手は handleNavTap とリードの「測定」導線の2つ)。
+           SwipePager / SwipeBackArea はリード/データタブの**中**で使われており、
+           このタブはどちらの子孫でもない。 */
+        <div className="surf-rule">
+        <Suspense fallback={null}>
+          <CommunityTab />
+        </Suspense>
+        </div>
+      )}
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
@@ -3938,6 +3958,18 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       icon: (c) => (
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
           <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
+        </svg>
+      ),
+    },
+    {
+      // 人が2人並ぶピクトグラム(手前の1人が大きく、奥にもう1人)。
+      key: "community", label: "コミュニティ",
+      icon: (c) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="8" r="3.2" />
+          <path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20" />
+          <circle cx="17" cy="9" r="2.4" />
+          <path d="M15.5 13.6 Q20.5 13.6 20.5 18" />
         </svg>
       ),
     },
