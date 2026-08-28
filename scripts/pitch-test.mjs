@@ -2094,7 +2094,17 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     // 到達している間はズレの帯を描かない(±1¢ の帯は線幅より短く、全周の帯と重なって
     // 12時に継ぎ目として見えるため)。走りが全周を覆うので情報も失われない。
     check("到達している間はズレの帯を描かない",
-      /const arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);/.test(ringCode));
+      /let arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);/.test(ringCode));
+    // 【D-19b で const → let になった】診断の「環の帯」スイッチが**空にすることだけ**できる。
+    // arcD への代入がこの2つ以外に増えると、到達中に帯が復活する経路が生まれる。
+    {
+      const asg = (ringCode.match(/arcD = [^\n]*/g) || []);
+      const allowed = asg.filter((a) =>
+        /^arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);$/.test(a)
+        || /^arcD = "";$/.test(a));
+      check("ズレの帯へ入れてよいのは「式の値」か「空文字」だけ(空にする以外の代入を増やさない)",
+        asg.length >= 2 && asg.length === allowed.length, asg.join(" | "));
+    }
     check("グラデーションはユーザー座標系(弦を軸にする)",
       linear.every((blk) => /gradientUnits="userSpaceOnUse"/.test(blk)));
   }
@@ -2867,14 +2877,20 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   //     文字・色・到達判定の三者が食い違っていた。
   check("D-15: セント値の文字は平滑後の exact から出す(環・色・到達判定と同じ変数)",
     /const centsShown = Math\.round\(exact\);/.test(ringCode)
-    && /\{sounding \? `\$\{centsShown > 0 \? "\+" : ""\}\$\{centsShown\}¢` : ""\}/.test(ringCode));
+    && /\{sounding && textOn \? `\$\{centsShown > 0 \? "\+" : ""\}\$\{centsShown\}¢` : ""\}/.test(ringCode));
+  // 【D-19b で textOn が入った】これは**診断の「音名」スイッチだけ**を表す変数。
+  // ここに別の条件が混ざると、普段の画面で文字が消える経路ができてしまう。
+  check("文字を出す条件に混ぜてよいのは診断のスイッチだけ(textOn は他の条件を持たない)",
+    /const textOn = !\(dRingOn && !METRO_DIAG\.drawText\);/.test(ringCode)
+    && (ringCode.match(/const textOn = [^\n]*/g) || []).length === 1,
+    (ringCode.match(/const textOn = [^\n]*/g) || ["無し"]).join(" | "));
   check("D-15: セント値の文字に生値(centsOffset)を使っていない",
     !/centsShown[\s\S]*?\{sounding \? `\$\{centsOffset/.test(ringCode)
     && !/\$\{centsOffset\}¢/.test(ringCode),
     (ringCode.match(/\$\{centsOffset\}¢/g) || []).join(" ") || "0件");
   // 文字の色・到達の呼吸も同じ値の系統から出ていること(三者が1つの値に揃っている)。
   check("D-15: セント値の色は環と同じ color(pitchBarColorRGB(exact) 由来)、呼吸は inTune",
-    /color: sounding \? color : "var\(--c-ink-3\)"/.test(ringCode)
+    /color: sounding && textOn \? color : "var\(--c-ink-3\)"/.test(ringCode)
     && /const \[r, g, b\] = pitchBarColorRGB\(exact\);/.test(ringCode)
     && /const inTune = sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
   // centsFn(t[ms]) → 生のセント値。戻り値: 外れている連続時間の一覧と、走った回数。
@@ -18182,6 +18198,426 @@ console.log("\n========== 検証36: D-18b メトロノームの診断(計器) ==
     (measCode.match(/<MetroDiagPanel\b/g) || []).length === 1
     && /\{metroDiagOpen && \(\s*\r?\n\s*<MetroDiagPanel /.test(measCode),
     (measCode.match(/[^\n]*<MetroDiagPanel[^\n]*/g) || ["無し"]).join(" | ").trim());
+
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証37: D-19 「1フレームの内訳」を測る計器
+//
+// **この節が名乗れる範囲**: 要約の算術(合計・回数・パーセンタイル・二重に数えないこと)と、
+// 仕掛けた側の配線(枝の中にしかない・閉じたら捨てる・板の切替で計測がやり直しにならない)。
+// **名乗れない範囲**: 実機で何 ms 出るか。Chrome の Browser ペインでは rAF が1回も
+// 発火しない(罠10)ので、この計器が値を出すところは**実機でしか確かめられない**。
+// ============================================================
+console.log("\n========== 検証37: D-19 1フレームの内訳を測る計器 ==========");
+{
+  const measSrc37 = srcOfFn(src, "MeasureView");
+  const measCode37 = codeOf(measSrc37);
+  const ringSrc37 = srcOfFn(src, "PitchRing");
+  const ringCode37 = codeOf(ringSrc37);
+  const diagSrc37 = srcOfFn(src, "MetroDiagPanel");
+  const diagCode37 = codeOf(diagSrc37);
+  // マイク解析の tick は useCallback の中なので srcOfFn では取れない。
+  // **同名の tick が2つある**(オフライン解析側にもある)ので、末尾の綴りから後ろ向きに探す。
+  const tickSrc37 = (() => {
+    const j = src.indexOf("tickRef.current = tick;");
+    const i = j > 0 ? src.lastIndexOf("const tick = () => {", j) : -1;
+    return i >= 0 && j > i ? src.slice(i, j) : "";
+  })();
+  const tickCode37 = codeOf(tickSrc37);
+
+  check("37.0 計測ビュー / 環 / 診断の板 / 解析tick の4つを切り出せている(空回りしていない)",
+    measSrc37.length > 400 && ringSrc37.length > 400 && diagSrc37.length > 400 && tickSrc37.length > 400,
+    `計測=${measSrc37.length} 環=${ringSrc37.length} 板=${diagSrc37.length} tick=${tickSrc37.length}`);
+
+  // --- 37.1 枠(slot)の算術 ------------------------------------------------------------
+  const slotR = runFn(() => new Function(`${extractFunction("metroDiagMakeRing")}
+    ${extractFunction("metroDiagRingPush")}
+    ${extractFunction("metroDiagRingValues")}
+    ${extractFunction("metroDiagPercentile")}
+    ${extractFunction("metroDiagMakeSlot")}
+    ${extractFunction("metroDiagSlotAdd")}
+    ${extractFunction("metroDiagSlotSummary")}
+    return { make: metroDiagMakeSlot, add: metroDiagSlotAdd, sum: metroDiagSlotSummary };`)());
+  const slot = slotR.ok ? slotR.v : null;
+  {
+    const g = runFn(() => {
+      const s = slot.make(4);
+      slot.add(s, 2);
+      return slot.sum(s, 1);
+    });
+    check("37.1 枠の3関数を組み立てて実行できている(空回りしていない)",
+      !!slot && g.ok && g.v && g.v.n === 1 && g.v.sum === 2,
+      slotR.ok ? JSON.stringify(g.v ?? null) : `組み立て失敗(${slotR.err})`);
+  }
+  if (slot) {
+    // **合計と回数はリングの長さに縛られない。** リングは p50/p95 のための直近だけ。
+    // ここが「リングから合計を出す」実装だと 3+4+5=12 になり、この検査が落ちる。
+    const r = runFn(() => {
+      const s = slot.make(3);
+      for (let i = 1; i <= 5; i++) slot.add(s, i);
+      return slot.sum(s, 5);
+    });
+    check("37.1 合計と回数は**通算**(リングに残っている直近だけで割らない)",
+      r.ok && r.v.n === 5 && r.v.sum === 15 && Math.abs(r.v.msPerSec - 3) < 1e-12
+      && Math.abs(r.v.perSec - 1) < 1e-12,
+      r.ok ? JSON.stringify(r.v) : shownOf(r));
+    // p50/p95 は**リングに残っている直近から**出す(合計とは出どころが違う)。
+    check("37.1 p50/p95 はリングに残っている直近の標本から出す(通算からではない)",
+      r.ok && r.v.p50 === 4 && r.v.p95 === 5, r.ok ? `p50=${r.v.p50} p95=${r.v.p95}` : shownOf(r));
+    // 数でないものは数えない(1回でも混ざると合計が NaN になり、以降ずっと読めなくなる)。
+    const bad = runFn(() => {
+      const s = slot.make(4);
+      slot.add(s, 1); slot.add(s, NaN); slot.add(s, Infinity); slot.add(s, undefined); slot.add(s, 3);
+      return slot.sum(s, 2);
+    });
+    check("37.1 NaN・無限大・値なしは数えない(1回混ざっただけで合計が読めなくならない)",
+      bad.ok && bad.v.n === 2 && bad.v.sum === 4, bad.ok ? JSON.stringify(bad.v) : shownOf(bad));
+    // 経過が 0 のときは 0 ではなく null。0 を「その処理に時間を使っていない」と読み違えない。
+    const z = runFn(() => {
+      const s = slot.make(4);
+      slot.add(s, 7);
+      return slot.sum(s, 0);
+    });
+    check("37.1 経過が 0 のときの ms/秒・回/秒 は 0 ではなく null(「使っていない」と読み違えない)",
+      z.ok && z.v.msPerSec === null && z.v.perSec === null && z.v.sum === 7,
+      z.ok ? JSON.stringify(z.v) : shownOf(z));
+    const nul = runFn(() => slot.sum(null, 1));
+    check("37.1 枠が無いときは例外を投げず null を返す", nul.ok && nul.v === null, shownOf(nul));
+  }
+
+  // --- 37.2 内訳の合計は**入れ子を二重に数えない** ------------------------------------
+  // ここがこの節でいちばん大事。解析 tick の中で測った3つ(ピッチ検出・音色FFT・中央値)を
+  // 足すと、tick 全体と重なって合計が水増しされ、**「差」が消えてしまう**。
+  const bdR = runFn(() => new Function(`${extractFunction("metroDiagSumPerSec")}
+    ${extractFunction("metroDiagBreakdown")}
+    return { sum: metroDiagSumPerSec, bd: metroDiagBreakdown };`)());
+  const bdF = bdR.ok ? bdR.v : null;
+  {
+    const g = runFn(() => bdF.sum([1, 2]));
+    check("37.2 合計の2関数を組み立てて実行できている(空回りしていない)",
+      !!bdF && g.ok && g.v === 3, bdR.ok ? shownOf(g) : `組み立て失敗(${bdR.err})`);
+  }
+  if (bdF) {
+    const a = runFn(bdF.sum, [1, null, 2, undefined, NaN]);
+    const b = runFn(bdF.sum, [null, null]);
+    const c = runFn(bdF.sum, []);
+    const d = runFn(bdF.sum, null);
+    check("37.2 合計は値のあるものだけを足し、1つも無ければ 0 ではなく null",
+      a.ok && a.v === 3 && b.ok && b.v === null && c.ok && c.v === null && d.ok && d.v === null,
+      `${shownOf(a)} / ${shownOf(b)} / ${shownOf(c)} / ${shownOf(d)}`);
+    // **入れ子の3つ(7+2+1=10)を足すと 29 になる**ように値を選んである。
+    // 正しい合計は tickAll 10 + viewRender 4 + ringRender 3 + ringRaf 2 = 19。
+    const snap = {
+      frames: 100, elapsed: 2, gapP50: 20,
+      slots: {
+        tickAll: { msPerSec: 10 }, pitch: { msPerSec: 7 }, timbre: { msPerSec: 2 }, disp: { msPerSec: 1 },
+        viewRender: { msPerSec: 4 }, ringRender: { msPerSec: 3 }, ringRaf: { msPerSec: 2 },
+      },
+    };
+    const r = runFn(bdF.bd, snap);
+    check("37.2 合計に足すのは入れ子の**親だけ**(tick の内側を足して二重に数えない)",
+      r.ok && r.v && r.v.totalPerSec === 19,
+      r.ok ? `合計=${r.v && r.v.totalPerSec}(期待 19。入れ子まで足すと 29)` : shownOf(r));
+    check("37.2 1枚あたりは「合計 × 経過 ÷ 枚数」、差は「実間隔 − 1枚あたり」",
+      r.ok && Math.abs(r.v.perFrame - 0.38) < 1e-9 && Math.abs(r.v.diff - 19.62) < 1e-9,
+      r.ok ? `1枚=${r.v.perFrame} 差=${r.v.diff}` : shownOf(r));
+    // 枚数も経過も無い最初の1秒で例外を投げない(板が出た瞬間に画面ごと落ちない)。
+    const e1 = runFn(bdF.bd, null);
+    const e2 = runFn(bdF.bd, { frames: 0, elapsed: 0, gapP50: null, slots: { tickAll: null } });
+    check("37.2 値がまだ無いときは例外を投げず、差も 0 ではなく null",
+      e1.ok && e1.v === null && e2.ok && e2.v && e2.v.diff === null && e2.v.totalPerSec === null,
+      `${shownOf(e1)} / ${e2.ok ? JSON.stringify(e2.v) : shownOf(e2)}`);
+  }
+
+  // --- 37.3 観測だけ: 測る側は診断が閉じているとき時刻も読まない(罠2 の配線) ----------
+  // 時刻を取るのは必ず三項の形。**先に読んでから捨てる**書き方が1つでもあれば落ちる。
+  const t0All = (src.match(/const d\w+T0 = /g) || []).length;
+  const t0Guarded = (src.match(/const d\w+T0 = (?:dOn|dRingOn|dViewOn)(?: && \w+)? \? performance\.now\(\) : 0;/g) || []).length;
+  check("37.3 内訳の時刻取得はすべて「開いているときだけ読む」形(閉じていれば時刻を読まない)",
+    t0All > 0 && t0All === t0Guarded, `全${t0All}件 / 枝の中${t0Guarded}件`);
+  // 足す側も全部、開いているときの枝の中にしかない(定義の1件だけが呼び出しではない)。
+  const addAll = (src.match(/metroDiagSlotAdd\(/g) || []).length;
+  const addGuarded = (src.match(/if \((?:dOn|dRingOn|dViewOn|METRO_DIAG\.on)(?: && \w+)?\) metroDiagSlotAdd\(/g) || []).length;
+  check("37.3 内訳を足す呼び出しはすべて枝の中にある(定義1件を除いた全部)",
+    addAll > 1 && addAll - 1 === addGuarded, `定義+呼び出し=${addAll}件 / 枝の中=${addGuarded}件`);
+  // 解析 tick は **METRO_DIAG.on を1回だけ読む**。途中で開閉されると t0 の無い引き算が起きる。
+  check("37.3 解析 tick は診断の真偽値を1回だけ読み、以降はその控えを使う(途中で開閉されても壊れない)",
+    tickCode37.length > 400 && (tickCode37.match(/METRO_DIAG\.on/g) || []).length === 1
+    && /const dOn = METRO_DIAG\.on;/.test(tickCode37),
+    (tickCode37.match(/[^\n]*METRO_DIAG\.on[^\n]*/g) || ["無し"]).join(" | ").trim());
+  // 走り・光の書き換えの数え上げも枝の中だけ(閉じているときは数えない)。
+  // 【D-19b で形が2つになった】走りは1行の `if (…) …;`、光は
+  // `if (METRO_DIAG.on) { … }` の中(スイッチの書き分けと同じ枝に入れたため)。
+  // **どちらの形でもよいが、枝の外に1件でも出たら落ちる**ように数える。
+  {
+    const wAll = (ringCode37.match(/METRO_DIAG\.\w+Writes \+= 1;/g) || []).length;
+    const wInline = (ringCode37.match(/if \(METRO_DIAG\.on\) METRO_DIAG\.\w+Writes \+= 1;/g) || []).length;
+    // `if (METRO_DIAG.on) {` 〜 対になる `} else {` の中にあるもの。
+    const i = ringCode37.indexOf("if (METRO_DIAG.on) {");
+    const j = i >= 0 ? ringCode37.indexOf("} else {", i) : -1;
+    const inBlock = i >= 0 && j > i
+      ? (ringCode37.slice(i, j).match(/METRO_DIAG\.\w+Writes \+= 1;/g) || []).length : 0;
+    check("37.3 書き換えの数え上げも診断が開いているときの枝の中にしかない",
+      wAll >= 2 && wAll === wInline + inBlock,
+      `全${wAll}件 / 1行の枝${wInline}件 / ブロックの枝${inBlock}件`);
+  }
+
+  // --- 37.4 返す木を1文字も変えていない ------------------------------------------------
+  // 本文の時間を測るために木を変数へ置いたが、**返すのはその木そのもの**。
+  check("37.4 環は組み立てた木をそのまま返す(計上してから同じ木を返している)",
+    (ringSrc37.match(/const dRingTree = \(/g) || []).length === 1
+    && (ringSrc37.match(/return dRingTree;/g) || []).length === 1
+    && /if \(dRingOn\) metroDiagSlotAdd\(METRO_DIAG\.ringRender, performance\.now\(\) - dRingT0\);\s*\r?\n\s*return dRingTree;/.test(ringSrc37),
+    (ringSrc37.match(/[^\n]*dRingTree[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 160));
+  check("37.4 計測ビューは組み立てた木をそのまま返す(計上してから同じ木を返している)",
+    (measSrc37.match(/const dViewTree = \(/g) || []).length === 1
+    && (measSrc37.match(/return dViewTree;/g) || []).length === 1
+    && /if \(dViewOn\) metroDiagSlotAdd\(METRO_DIAG\.viewRender, performance\.now\(\) - dViewT0\);\s*\r?\n\s*return dViewTree;/.test(measSrc37),
+    (measSrc37.match(/[^\n]*dViewTree[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 160));
+
+  // --- 37.5 枠が置きっぱなしにならない(埋める・見せる・閉じたら捨てる) ----------------
+  const slotNames = [...src.matchAll(/^ {2}(\w+): metroDiagMakeSlot\(/gm)].map((m) => m[1]);
+  check("37.5 内訳の枠を数え上げられている(空回りしていない)", slotNames.length >= 4, slotNames.join(" "));
+  {
+    const notFilled = slotNames.filter((n) => !src.includes(`metroDiagSlotAdd(METRO_DIAG.${n},`));
+    const notShown = slotNames.filter((n) => !src.includes(`metroDiagSlotSummary(METRO_DIAG.${n},`));
+    const notReset = slotNames.filter((n) => !src.includes(`this.${n} = metroDiagMakeSlot(`));
+    check("37.5 すべての枠に**入れる場所**がある(読み手ゼロ・書き手ゼロの枠を作らない)",
+      notFilled.length === 0, `入れていない: ${notFilled.join(" ")}`);
+    // 【名乗りを狭める】これは「要約に入る」までしか言えない。**板に行があるか**は
+    // 下の 37.6 で別に見る(要約に入れただけで行を消す変異が、ここでは素通りした)。
+    check("37.5 すべての枠が要約に入る(集めたのに要約から落ちている枠を作らない)",
+      notShown.length === 0, `要約に入れていない: ${notShown.join(" ")}`);
+    check("37.5 すべての枠が reset() で作り直される(閉じたら集めた値を捨てる)",
+      notReset.length === 0, `捨てていない: ${notReset.join(" ")}`);
+  }
+  {
+    // 回数の数え上げと⑥の刻みも、閉じたら捨てる。
+    const resetSrc = (() => {
+      const i = src.indexOf("  reset() {");
+      const j = src.indexOf("  },\n};", i);
+      return i >= 0 && j > i ? src.slice(i, j) : "";
+    })();
+    check("37.5 reset() を切り出せている(空回りしていない)", resetSrc.length > 200, `${resetSrc.length}文字`);
+    check("37.5 書き換えの回数と計器の時計の刻みも閉じたら捨てる",
+      /this\.runWrites = 0;/.test(resetSrc) && /this\.glowWrites = 0;/.test(resetSrc)
+      && /this\.perfMinDt = null;/.test(resetSrc),
+      resetSrc.replace(/\s+/g, " ").slice(0, 200));
+  }
+  // p50/p95 のための標本は①の記録より短い ── 1秒に1回の要約で7本並べ替えるので、
+  // ここが①と同じ長さだと**要約そのものが絵を1枚落とす**(測ることが対象を重くする)。
+  {
+    const capSlot = Number((/const METRO_DIAG_SLOT_CAP = (\d+);/.exec(src) || [])[1]);
+    const capGap = Number((/const METRO_DIAG_CAP = (\d+);/.exec(src) || [])[1]);
+    check("37.5 内訳の標本は①の記録より短い(1秒ごとの要約が重くならない長さ)",
+      Number.isFinite(capSlot) && Number.isFinite(capGap) && capSlot > 0 && capSlot < capGap,
+      `内訳=${capSlot} / ①=${capGap}`);
+  }
+
+  // --- 37.6 板: ①〜⑤ は残り、内訳は2枚目にある ---------------------------------------
+  {
+    const mStart = diagSrc37.indexOf('{page === "main" && (<>');
+    const bStart = diagSrc37.indexOf('{page === "breakdown" && (<>');
+    check("37.6 板は2枚(①〜⑤ の枝と内訳の枝)に分かれている",
+      mStart > 0 && bStart > mStart, `main=${mStart} breakdown=${bStart}`);
+    if (mStart > 0 && bStart > mStart) {
+      const mainPart = diagSrc37.slice(mStart, bStart);
+      const bPart = diagSrc37.slice(bStart);
+      // ①〜⑤ は**残す**(本人が前の2枚と見比べるため)。1つでも消えたら落ちる。
+      // **丸数字だけを探さない** ── 下の「読み方」にも ①〜⑤ が出てくるので、
+      // 行が消えても素通りしてしまう(実際にこの形で書いて素通りした)。**行の見出しの綴り**を探す。
+      // 【D-19b で行が2つ減った】③に経過と枚数をたたみ、⑤と⑥を1行にまとめた
+      // (スイッチの行 44px を足しても板が振り子を覆わないようにするため)。
+      // **①〜⑥ の値は1つも消していない**ので、ここは見出しの綴りだけを追う。
+      const mainLabels = ["① 絵の間隔", "② tick 1回", "③ 描画 / 経過 / 絵", "④ out / base", "⑤⑥ 音時計 / 計器の刻み"];
+      const missing = mainLabels.filter((n) => !mainPart.includes(n));
+      check("37.6 ①〜⑥ の行は1枚目に全部残っている(前の2枚と見比べられる)",
+        missing.length === 0, `欠けている: ${missing.join(" / ")}`);
+      // 見出しをまとめただけで**値を落としていない**こと。①〜⑥ が読む7つの値を綴りで数える。
+      const mainValues = ["s?.gapP50", "s?.gapP95", "s?.gapP99", "s.over16", "s.over33", "s?.tickP50",
+        "s?.tickP95", "s.renders / s.elapsed", "s?.elapsed", "s.frames", "s?.outputLatency",
+        "s?.baseLatency", "s?.sampleRate", "s?.ctxMinDt", "s?.perfMinDt"];
+      const lostValues = mainValues.filter((v) => !mainPart.includes(v));
+      check("37.6 行をまとめても①〜⑥ の値は1つも落ちていない",
+        lostValues.length === 0, `落ちた値: ${lostValues.join(" / ")}`);
+      // 内訳の行は2枚目の枝の中にしかない。
+      const rowsOutside = [...diagSrc37.matchAll(/\{slotRow\(/g)].filter((m) => m.index < bStart);
+      check("37.6 内訳の行は2枚目の枝の中にしかない(1枚目に混ざって溢れない)",
+        [...bPart.matchAll(/\{slotRow\(/g)].length >= 4 && rowsOutside.length === 0,
+        `2枚目=${[...bPart.matchAll(/\{slotRow\(/g)].length}行 / 枝の外=${rowsOutside.length}行`);
+      // **集めた枠には必ず行がある。** 要約に入れただけで行を書き忘れると、
+      // 集めているのに本人のスクリーンショットに出ない(行を消す変異がここで落ちる)。
+      const shownKeys = new Set([...bPart.matchAll(/\{slotRow\("[^"]*", "(\w+)"\)\}/g)].map((m) => m[1]));
+      const noRow = slotNames.filter((n) => !shownKeys.has(n));
+      check("37.6 集めている枠には2枚目に必ず行がある(集めたのに写らない枠を作らない)",
+        shownKeys.size >= 4 && noRow.length === 0, `行が無い: ${noRow.join(" ")}`);
+      // 「差」は2枚目に必ず出す ── 差が大きいことこそが結論になるので、隠すと計器の意味が無い。
+      check("37.6 2枚目は「実間隔 − 測れた合計」を出す(測れていない時間を隠さない)",
+        /実間隔 − 測れた合計/.test(bPart) && /metroDiagNum\(bd\?\.diff, 2\)/.test(bPart),
+        (bPart.match(/[^\n]*bd\?\.diff[^\n]*/g) || ["無し"]).join(" ").trim().slice(0, 160));
+    }
+  }
+  // 板を切り替えても集め直しにならない ── 集める側(rAF・タイマ)の依存に page が入っていない。
+  {
+    const deps = (diagCode37.match(/\}, \[[^\]]*\]\);/g) || []);
+    check("37.6 集める側の依存は getMetroCtx だけ(1枚目↔2枚目の切替で計測がやり直しにならない)",
+      deps.length === 1 && deps[0] === "}, [getMetroCtx]);", deps.join(" ") || "見つからない");
+  }
+  // ⑥ 計器の時計の刻みは、⑤ と同じ純関数で、rAF の中で測る。
+  {
+    const loopBody37 = (() => {
+      const i = diagCode37.indexOf("const loop = () => {");
+      const j = diagCode37.indexOf("raf = requestAnimationFrame(loop);", i + 1);
+      return i >= 0 && j > i ? diagCode37.slice(i, j) : "";
+    })();
+    check("37.6 ⑥ 計器の時計の刻みは⑤と同じ純関数で rAF の中から測る",
+      loopBody37.length > 100
+      && /METRO_DIAG\.perfMinDt = metroDiagMinPositive\(METRO_DIAG\.perfMinDt, now, performance\.now\(\)\);/.test(loopBody37),
+      (loopBody37.match(/[^\n]*perfMinDt[^\n]*/g) || ["無し"]).join(" ").trim().slice(0, 160));
+  }
+
+  // --- 37.7 D-19b 容疑者を1つずつ止めるスイッチ ---------------------------------------
+  // **観測だけだった計器に、初めて「挙動を止める」枝が入った。** ここが緩いと普段使いへ漏れる
+  // (押したまま閉じる / 閉じているのにスイッチを読む / 描画でなく計算まで止める)。
+  {
+    // (1) 既定と後片付け ── **実際にオブジェクトを組み立てて確かめる**(綴りの照合ではない)。
+    const diagObjR = runFn(() => new Function(`${extractFunction("metroDiagMakeRing")}
+      ${extractFunction("metroDiagMakeSlot")}
+      ${extractConst("METRO_DIAG_CAP")}
+      ${extractConst("METRO_DIAG_SLOT_CAP")}
+      ${extractConst("METRO_DIAG")}
+      return METRO_DIAG;`)());
+    // スイッチの名前は**2つの独立した出どころから**数え、突き合わせる。
+    // 【一度これで穴を空けた】置き場所の側だけを `: true,` で数えると、
+    // **既定を false に書き換える変異が「そのスイッチは存在しない」ことになって素通りする**
+    // (検査が「調べたい値」で調べる対象を選んでいた。罠3 と同じ形)。
+    // 置き場所は値を問わずに数え(true でも false でも拾う)、板のボタンと集合で照合する。
+    const fromObj = [...src.matchAll(/^ {2}(draw\w+|run\w+): (?:true|false),/gm)].map((m) => m[1]);
+    const fromBtn = [...diagSrc37.matchAll(/\{stopBtn\("(\w+)", "[^"]*"\)\}/g)].map((m) => m[1]);
+    const stopFields = [...new Set([...fromObj, ...fromBtn])];
+    const D = diagObjR.ok ? diagObjR.v : null;
+    check("37.7 METRO_DIAG を組み立てて、止めるスイッチを数え上げられている(空回りしていない)",
+      !!D && stopFields.length >= 3,
+      diagObjR.ok ? stopFields.join(" ") : `組み立て失敗(${diagObjR.err})`);
+    check("37.7 置き場所のスイッチと板のボタンが1対1(片方だけ増減させられない)",
+      fromObj.length >= 3 && fromObj.length === fromBtn.length
+      && fromObj.every((f) => fromBtn.includes(f)),
+      `置き場所=${fromObj.join(" ")} / ボタン=${fromBtn.join(" ")}`);
+    if (D && stopFields.length >= 3) {
+      const notDefault = stopFields.filter((f) => D[f] !== true);
+      check("37.7 スイッチの既定はすべて「描く」(誰も押していないときは今までと同じ挙動)",
+        notDefault.length === 0, `既定が true でない: ${notDefault.join(" ")}`);
+      // **押したまま閉じても残らない。** reset() は板を開くときと閉じるときの両方で呼ばれる。
+      const r = runFn(() => {
+        for (const f of stopFields) D[f] = false;
+        D.reset();
+        return stopFields.filter((f) => D[f] !== true);
+      });
+      check("37.7 全部押した状態から reset() を通すと、すべて「描く」に戻る(閉じたら残らない)",
+        r.ok && r.v.length === 0, r.ok ? `戻らなかった: ${r.v.join(" ")}` : shownOf(r));
+    }
+    // 板を閉じるときに reset() を通ること(通さないと上の性質が働かない)。
+    const cleanup37 = (() => {
+      const i = diagCode37.indexOf("return () => {");
+      const j = diagCode37.indexOf("};", i + 1);
+      return i >= 0 && j > i ? diagCode37.slice(i, j) : "";
+    })();
+    check("37.7 板を閉じるときに reset() を通る(スイッチを戻す唯一の経路)",
+      cleanup37.length > 40 && /METRO_DIAG\.reset\(\);/.test(cleanup37),
+      cleanup37.replace(/\s+/g, " ").slice(0, 160));
+
+    // (2) **閉じているときはスイッチの真偽を1回も読まない。**
+    // 見るのは毎フレーム通る3つの本体(解析tick / 環 / 計測ビュー)。許す形は2つだけ:
+    //   ・既に読んである局所の真偽値の右 … `(dOn|dRingOn|dViewOn) && !METRO_DIAG.<スイッチ>`
+    //   ・`if (METRO_DIAG.on) {` の中で書き分ける三項 … `METRO_DIAG.<スイッチ> ? … : …`
+    // **この検査が名乗れるのはここまで**で、「1命令も増えない」ではない
+    // (既に読んである局所変数の分岐1つは増える。増えないのは三項で書いた光だけ)。
+    if (stopFields.length >= 3) {
+      const alt = stopFields.join("|");
+      const hotPaths = [["解析tick", tickCode37], ["環", ringCode37], ["計測ビュー", measCode37]];
+      const bad37 = [];
+      let seen37 = 0;
+      for (const [name, body] of hotPaths) {
+        for (const line of body.split("\n")) {
+          const n = (line.match(new RegExp(`METRO_DIAG\\.(?:${alt})`, "g")) || []).length;
+          if (n === 0) continue;
+          seen37 += n;
+          const ok = (line.match(new RegExp(
+            `(?:dOn|dRingOn|dViewOn) && !METRO_DIAG\\.(?:${alt})|METRO_DIAG\\.(?:${alt}) \\? `, "g")) || []).length;
+          if (ok !== n) bad37.push(`${name}: ${line.trim().slice(0, 80)}`);
+        }
+      }
+      check("37.7 毎フレーム通る本体でスイッチを読む箇所を見つけられている(空回りしていない)",
+        seen37 >= 3, `${seen37}箇所`);
+      check("37.7 スイッチの真偽は「診断が開いている」と分かった後でしか読まない(閉じていれば読まない)",
+        bad37.length === 0, bad37.join(" / "));
+    }
+    // 三項で書き分けている箇所は、**`if (METRO_DIAG.on) {` の中**にあること
+    // (上の検査は行の形しか見ないので、置き場所はここで別に見る)。
+    if (stopFields.length >= 3) {
+      const alt2 = stopFields.join("|");
+      const tern = new RegExp(`METRO_DIAG\\.(?:${alt2}) \\? `, "g");
+      const i = ringCode37.indexOf("if (METRO_DIAG.on) {");
+      const j = i >= 0 ? ringCode37.indexOf("} else {", i) : -1;
+      const inner = i >= 0 && j > i ? ringCode37.slice(i, j) : "";
+      const all = (ringCode37.match(tern) || []).length;
+      const inside = (inner.match(tern) || []).length;
+      check("37.7 三項で書き分けているスイッチは、1つ残らず METRO_DIAG.on の枝の中にある",
+        all >= 1 && all === inside, `全${all}件 / 枝の中${inside}件`);
+    }
+
+    // (3) **止めるのは描く依頼だけ。値の計算とチューナーの判定は1文字も触っていない。**
+    {
+      const calcLines = [
+        ["環: 光の明るさの計算", ringCode37, "const op = ringGlowOpacity("],
+        ["環: 帯のグラデーション", ringCode37, "const barStops = ringGradientStops("],
+        ["環: 表示するセント値", ringCode37, "const centsShown = "],
+        ["環: 合った判定", ringCode37, "const inTune = "],
+        ["tick: 発音中の判定", tickCode37, "soundingRef.current = "],
+        ["tick: 音色を測ってよいかの判定", tickCode37, "const timbreMeasurable = "],
+        ["tick: 音色FFT の間引きの時計", tickCode37, "disp.lastComputeMs = nowPerfMs;"],
+      ];
+      const dirty = calcLines.filter(([, body, needle]) => {
+        const line = body.split("\n").find((l) => l.includes(needle));
+        return line === undefined || /METRO_DIAG|metroDiag/.test(line);
+      });
+      check("37.7 値の計算とチューナーの判定の行に、診断の綴りが1つも入っていない",
+        dirty.length === 0, dirty.map(([n]) => n).join(" / ") || "0件");
+    }
+    // 音色は「呼ばない」だけ。**間引きの時計は止める判断より前で進めてある**ので、
+    // 押して戻しても 66ms 間隔そのものは動かない。
+    {
+      const a = tickCode37.indexOf("disp.lastComputeMs = nowPerfMs;");
+      const b = tickCode37.indexOf("!METRO_DIAG.runTimbre");
+      check("37.7 音色の間引きの時計は、止める判断より前で進めてある(押しても間隔が伸びない)",
+        a > 0 && b > a, `時計=${a} 止める判断=${b}`);
+    }
+
+    // (4) スイッチは板の中にしかなく、**全部が押せる**(集めているのに押せないものが無い)。
+    if (stopFields.length >= 3) {
+      const btnKeys = new Set([...diagSrc37.matchAll(/\{stopBtn\("(\w+)", "[^"]*"\)\}/g)].map((m) => m[1]));
+      const noBtn = stopFields.filter((f) => !btnKeys.has(f));
+      check("37.7 スイッチはすべてボタンになっている(止められるのに押せないものが無い)",
+        btnKeys.size >= 3 && noBtn.length === 0, `ボタンが無い: ${noBtn.join(" ")}`);
+      check("37.7 スイッチのボタンは診断の板の中にしかない(普段の画面に出ない)",
+        (measCode37.match(/stopBtn\(/g) || []).length === 0,
+        `板の外に ${(measCode37.match(/stopBtn\(/g) || []).length} 件`);
+      // 押した状態が見て分かること(§6.7 A型 = 枠線の色が返す)。
+      check("37.7 押した状態は枠線の色で返る(A型 .ctl-state + aria-pressed)",
+        /className="sans ctl-state ctl-pill"/.test(diagSrc37)
+        && /aria-pressed=\{!drawing\}/.test(diagSrc37),
+        (diagSrc37.match(/[^\n]*aria-pressed=\{[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 160));
+      // ③ を**スイッチと同じ行に**再掲する(押した直後に数字で確かめられる)。
+      const rowStart = diagSrc37.indexOf('{stopBtn("drawGlow"');
+      const rowEnd = diagSrc37.indexOf("</div>", rowStart);
+      const btnRow = rowStart > 0 && rowEnd > rowStart ? diagSrc37.slice(rowStart, rowEnd) : "";
+      check("37.7 ③(1秒あたりの描画)がスイッチと同じ行に再掲されている",
+        btnRow.length > 60 && btnRow.includes("③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒"),
+        btnRow.replace(/\s+/g, " ").slice(0, 200) || "行を切り出せない");
+    }
+  }
 
   console.log("  -> done");
 }

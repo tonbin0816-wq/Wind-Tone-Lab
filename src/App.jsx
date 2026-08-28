@@ -3128,6 +3128,11 @@ export default function WindToneLabPhaseMode() {
         // 間に合わず古いtickが1回だけ走ってしまうことがあり、そのままだと閉じたコンテキストを見て
         // 復旧を要求したり、二重にループを回し続けたりする。現行世代でなければ次を予約せず静かに終わる。
         if (tickRef.current !== tick) return;
+        // 【D-19】診断の内訳。**この tick の中では METRO_DIAG.on をここで1回だけ読む**
+        // ── 途中で開閉されると t0 を取っていないのに引き算してしまう(巨大な値が混ざる)。
+        // 診断が閉じているときの費用は、この真偽値1つの読み取りだけ(時刻も読まない)。
+        const dOn = METRO_DIAG.on;
+        const dTickT0 = dOn ? performance.now() : 0;
         // tick本体はtry/finallyで包み、1フレームで例外が出ても必ず次フレームを予約して
         // ループが永久停止しない(＝メーターやグラフが固まらない)ようにする。以前は末尾の
         // requestAnimationFrameに到達しないと二度と更新されず、途中で止まる不具合につながっていた。
@@ -3194,7 +3199,10 @@ export default function WindToneLabPhaseMode() {
         // clarity(周期の明瞭度)が低いもの=ブレスや空調などの非周期ノイズはここで排除する。
         // 楽器音域(minFreq/maxFreq)を渡し、音域外の幻の高音(倍音の誤検出)を拾わないようにする。
         const { minFreq: pmn, maxFreq: pmx } = pitchBoundsRef.current;
+        // 【D-19】ピッチ検出は**鳴っていなくても毎フレーム走る**(比較の土台になる区間)。
+        const dPitchT0 = dOn ? performance.now() : 0;
         const mpm = detectPitchMPM(timeBuf, sampleRate, pmn, pmx);
+        if (dOn) metroDiagSlotAdd(METRO_DIAG.pitch, performance.now() - dPitchT0);
         const f0 = mpm && mpm.clarity >= PITCH_CLARITY_MIN ? mpm.freq : null;
 
         let levels = [];
@@ -3266,8 +3274,19 @@ export default function WindToneLabPhaseMode() {
         // ピッチ検出(メーターの要)は毎フレーム走らせたまま、音色だけ負荷を落とす。
         if (timbreMeasurable && nowPerfMs - disp.lastComputeMs >= TIMBRE_COMPUTE_MS) {
           disp.lastComputeMs = nowPerfMs;
-          const settled = nowPerfMs - disp.changedMs >= TIMBRE_SETTLE_MS;
+          let settled = nowPerfMs - disp.changedMs >= TIMBRE_SETTLE_MS;
+          // 【D-19b】診断の「音色」を止めている間は 8192点FFT を呼ばない。
+          // 左の dOn は tick の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
+          // METRO_DIAG.runTimbre を1回も読まない**(&& の左で止まる)。
+          // **間引きの時計(disp.lastComputeMs)は上で既に進めてあるので、
+          //   止めても再開しても 66ms 間隔そのものは変わらない。**
+          // 止めている間、重心・HNR・倍音は「測れなかった」ときと同じ道を通って
+          // 600ms 後に「—」へ落ちる(**新しい落ち方を作っていない**)。
+          if (dOn && !METRO_DIAG.runTimbre) settled = false;
+          // 【D-19】音色FFT。**実際に計算した回だけ**数える(settled でない回は 0ms を積まない)。
+          const dTimbreT0 = dOn && settled ? performance.now() : 0;
           const tm = settled ? computeTimbreMetrics(timeBuf, sampleRate, f0, NUM_HARMONICS) : null;
+          if (dOn && settled) metroDiagSlotAdd(METRO_DIAG.timbre, performance.now() - dTimbreT0);
           if (tm) {
             const maxMag = Math.max(...tm.harmonics.map((l) => l.mag), 1e-6);
             disp.lastCentroid = tm.centroidHz;
@@ -3287,6 +3306,9 @@ export default function WindToneLabPhaseMode() {
           hnr = disp.lastHnr;
           levels = disp.lastLevels;
         }
+        // 【D-19】音色の**表示値づくり**。鳴っている間は毎フレーム
+        // 中央値を10回とり倍音8本を作り直す(鳴っていないときは空にして返すだけ)。
+        const dDispT0 = dOn ? performance.now() : 0;
         const holdActive = disp.centroid.length > 0 && nowPerfMs - disp.validMs <= DISPLAY_HOLD_MS;
         if (holdActive) {
           setCentroidHz(median(disp.centroid));
@@ -3304,6 +3326,7 @@ export default function WindToneLabPhaseMode() {
           setHarmonicLevels([]);
           setHnrDb(null);
         }
+        if (dOn) metroDiagSlotAdd(METRO_DIAG.disp, performance.now() - dDispT0);
 
 
         // --- 100ms周期でフレームを蓄積(録音ボタンでisRecordingがtrueの間だけ) ---
@@ -3449,6 +3472,9 @@ export default function WindToneLabPhaseMode() {
         }
         } catch { /* 1フレームの失敗ではループを止めない(次フレームで回復) */ }
         finally {
+          // 【D-19】解析 tick 1回ぶんの所要時間。**次フレームの予約より前**に閉じる
+          // (予約そのものはこの tick の仕事ではない)。例外で抜けた回も同じように数える。
+          if (dOn) metroDiagSlotAdd(METRO_DIAG.tickAll, performance.now() - dTickT0);
           rafRef.current = requestAnimationFrame(tick);
         }
       };
@@ -5273,6 +5299,10 @@ function metroBeatDotR(isCurrent) {
 // 正典 design/north-star-measure.html の「メトロノーム中」がその形(環と共存)。
 // diameter: 環の実寸(直径)。音名のサイズはこれに比例させる(DESIGN-SYSTEM §4.2)。
 function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
+  // 【D-19】環の**本文**の所要時間。React が DOM へ反映する時間は入らない
+  // (要素を作り終えるまで)。診断が閉じているときの費用は真偽値1つの読み取り。
+  const dRingOn = METRO_DIAG.on;
+  const dRingT0 = dRingOn ? performance.now() : 0;
   const sounding = !!note;
   const rawExact = note ? Math.max(-RING_MAX_CENTS, Math.min(RING_MAX_CENTS, note.centsExact ?? centsOffset)) : 0;
 
@@ -5320,8 +5350,13 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
   // 【音が入っていないときは文字を出さない】以前は "—" を置いていたが、待っている状態は
   // 環のトラックだけで読める。文字で説明しない(DESIGN-SYSTEM §6.1)。
-  const noteLetter = sounding ? note.name.charAt(0) : "";
-  const accidental = sounding ? note.name.slice(1) : "";
+  // 【D-19b】診断の「文字」を止めている間は音名もセントも出さない。
+  // **centsShown も color も上でそのまま計算されている**(止めたのは出す依頼だけ)。
+  // 箱の高さ(noteBoxH / NOTE_CENTS_PX + 4)は文字の有無で変わらないので、
+  // 止めても**環の内側の寸法は1pxも動かない**(§6.1.5 と同じ理由)。
+  const textOn = !(dRingOn && !METRO_DIAG.drawText);
+  const noteLetter = sounding && textOn ? note.name.charAt(0) : "";
+  const accidental = sounding && textOn ? note.name.slice(1) : "";
   // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
   // これを明示しないと、文字が無いときに行の高さが0になり、環の内側の寸法が状態で変わる。
   // 行送りは正典の .note の line-height:1 に合わせる(以前は 0.82 で詰めていた)。
@@ -5331,7 +5366,12 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
   // 到達している間は全周を走る帯がここを覆うので描かない(±2¢ の帯は弧長10.4で線幅14より短い)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
-  const arcD = (inTune || Math.abs(deg) < 1) ? "" : ringArcD(0, deg);
+  let arcD = (inTune || Math.abs(deg) < 1) ? "" : ringArcD(0, deg);
+  // 【D-19b】診断の「帯」を止めている間は弧を描かない。**deg も色も barStops も
+  // 上でそのまま計算されている**(止めたのは描く依頼だけ)。
+  // 左の dRingOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
+  // METRO_DIAG.drawBar を1回も読まない**(&& の左で止まる)。
+  if (dRingOn && !METRO_DIAG.drawBar) arcD = "";
   // 帯の色は「先端からの絶対弧長」で決める(帯の長さでは割らない)。ストップの位置は
   // 弧を弦へ射影して求める(線形グラデーションの軸は弦なので、等間隔に置くと色がずれる)。
   const barStops = ringGradientStops(0, deg);
@@ -5384,6 +5424,9 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       const key = p <= 0 ? "off" : `${p.toFixed(4)}|${base.join(",")}`;
       if (key !== lastKey) {
         lastKey = key;
+        // 【D-19】走りの弧を書き換えたフレーム数。**書き換えた回数**であって、
+        // ブラウザがそれを描き直すのに掛けた時間ではない(そちらは JS からは測れない)。
+        if (METRO_DIAG.on) METRO_DIAG.runWrites += 1;
         const spread = 180 * p;
         for (let k = 0; k < 2; k++) {
           const path = runPathRefs.current[k];
@@ -5423,14 +5466,35 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 減衰のストップも粒も静的なので作り直さない。
       const glow = glowGroupRef.current;
       const op = ringGlowOpacity(raw, breath, liveRef.current.glowCents).toFixed(4);
-      if (glow && op !== lastGlow) { glow.setAttribute("opacity", op); lastGlow = op; }
+      if (glow && op !== lastGlow) {
+        lastGlow = op;
+        // 【D-19】外周の光の明るさを書き換えたフレーム数。**音が入っていないときは
+        // glowCents が NaN → 不透明度が 0 のまま変わらないのでここを通らない**。
+        // つまりこの回数が「鳴ると増える描き直しの依頼」そのもの。
+        if (METRO_DIAG.on) {
+          METRO_DIAG.glowWrites += 1;
+          // 【D-19b】「光」を止めている間は **0 を書く**(明るさを凍結するのではなく消す)。
+          // 凍らせただけでは、入れ子マスクと feTurbulence を含む面がそこに在り続けて
+          // 重なった物が動くたびに描き直される ── **消して初めて容疑が晴れる**。
+          // 同じ "0" を書き続けても、値が変わらない setAttribute は描き直しを起こさない。
+          // ringGlowOpacity の計算(op)は上でそのまま走っている(**止めたのは書き込みだけ**)。
+          glow.setAttribute("opacity", METRO_DIAG.drawGlow ? op : "0");
+        } else {
+          glow.setAttribute("opacity", op);
+        }
+      }
+      // 【D-19】環の rAF 1回ぶんの所要時間。**属性を書いた時間までしか入らない**
+      // (それを反映する描き直しの時間は、内訳に入らず「差」として出る)。
+      if (METRO_DIAG.on) metroDiagSlotAdd(METRO_DIAG.ringRaf, performance.now() - now);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return (
+  // 【D-19】返す木を一度変数へ置くのは、**組み立て終わりの時刻を取るため**だけ。
+  // 中身も返す値も1文字も変えていない(下の return がそのまま同じ木を返す)。
+  const dRingTree = (
     /* 【pointerEvents: none】環は読む物で、押す物を1つも持たない(拍の要素は出て行った)。
        ここを既定のままにすると、position:relative の箱が 330×330 の当たり判定として
        背面レイヤ(A-1)の上に乗り、環の上と内側の余白でタップが死ぬ。実測で確認して直した。
@@ -5613,7 +5677,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           display: "flex", alignItems: "baseline", justifyContent: "center",
           width: "100%", height: noteBoxH,
           lineHeight: NOTE_LINE_H, fontFamily: "var(--font-serif)",
-          color: sounding ? "var(--c-ink)" : "var(--c-disabled)",
+          color: sounding && textOn ? "var(--c-ink)" : "var(--c-disabled)",
         }}>
           {/* 音名の文字。横幅は scaleX で明示指定する(F-77 で復活。書体既定のままにしない) */}
           <span style={{
@@ -5629,7 +5693,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           )}
           {/* オクターブ数字は正典 .note .oct の実寸(44px)。色も .oct と同じ薄い紺。 */}
           <span style={{ fontSize: NOTE_OCT_PX, color: "var(--c-accent-dim)", marginLeft: 3 }}>
-            {sounding ? note.octave : ""}
+            {sounding && textOn ? note.octave : ""}
           </span>
         </div>
         {/* セント値。色は環と同じ pitchBarColorRGB() の連続補間で、閾値のベタ判定は混ぜない
@@ -5644,14 +5708,16 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
           textAlign: "center",
           fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
-          letterSpacing: "0.02em", color: sounding ? color : "var(--c-ink-3)",
+          letterSpacing: "0.02em", color: sounding && textOn ? color : "var(--c-ink-3)",
           animation: inTune ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
         }}>
-          {sounding ? `${centsShown > 0 ? "+" : ""}${centsShown}¢` : ""}
+          {sounding && textOn ? `${centsShown > 0 ? "+" : ""}${centsShown}¢` : ""}
         </div>
       </div>
     </div>
   );
+  if (dRingOn) metroDiagSlotAdd(METRO_DIAG.ringRender, performance.now() - dRingT0);
+  return dRingTree;
 }
 
 // ============================================================
@@ -5919,6 +5985,65 @@ function metroDiagCountOver(samples, ms) {
   return n;
 }
 
+// ============================================================
+// 【D-19】1フレームの**内訳**を測るための枠(slot)。
+//
+// **なぜ「合計」を主役にするか**: 本人の実機(iOS Safari)が返した①の値は
+// 17.0 / 18.0 / 34.0 / 25.0 / 90.0 / 92.0 ms と**すべて整数**だった。
+// Safari の performance.now() は 1ms に丸められている(実際の刻みは⑥で測る)。
+// したがって 1ms を切る処理の p50/p95 は 0 か 1 にしかならず、**1回ぶんの値は読めない**。
+// 一方で**合計は偏らない**: 丸めの位相が一様なら floor(b)−floor(a) の期待値は b−a に等しく、
+// N 回足した誤差は √N×0.5ms 程度(1800枚で 21ms ≒ 0.7ms/秒)。
+// だから「1秒あたり何 ms その処理に居たか」を主役にし、p50/p95 は参考として添える。
+//
+// 合計と回数は**通算**(リングの長さに縛られない)。p50/p95 に使う標本だけ
+// 直近 METRO_DIAG_SLOT_CAP 件のリングに置く ── 要約は1秒に1回しか作らないが、
+// そこで 3600 件を7本並べ替えると**その1回が絵を1枚落とす**(測ることが対象を重くする)。
+function metroDiagMakeSlot(cap) {
+  return { n: 0, sum: 0, ring: metroDiagMakeRing(cap) };
+}
+// 1回ぶんを足す。**確保はしない**(リングは作成時に1回だけ取ってある)。
+function metroDiagSlotAdd(s, ms) {
+  if (!s || !Number.isFinite(ms)) return;
+  s.n += 1;
+  s.sum += ms;
+  metroDiagRingPush(s.ring, ms);
+}
+// 表示用の要約。**1秒に1回しか呼ばない**。
+// msPerSec = 1秒あたりその処理に居た時間 / perSec = 1秒あたりの回数。
+// 経過が 0 のときは 0 ではなく null(0 を「使っていない」と読み違えない)。
+function metroDiagSlotSummary(s, elapsedSec) {
+  if (!s) return null;
+  // **ここで1回だけ並べ替える。** metroDiagPercentile は自分でも並べ替えるが、
+  // 既に整列した配列に対しては V8/JSC の TimSort が一走査で終わるので、
+  // p50 と p95 の2回ぶんが実質1回になる(実測 1.77ms → 1.14ms / 7枠・1秒あたり)。
+  // 並べ替えるのは**ここで作ったばかりの配列**なので、生の記録は壊さない。
+  const vals = metroDiagRingValues(s.ring).sort((x, y) => x - y);
+  const ok = typeof elapsedSec === "number" && elapsedSec > 0;
+  return {
+    n: s.n,
+    sum: s.sum,
+    msPerSec: ok ? s.sum / elapsedSec : null,
+    perSec: ok ? s.n / elapsedSec : null,
+    p50: metroDiagPercentile(vals, 0.5),
+    p95: metroDiagPercentile(vals, 0.95),
+  };
+}
+// 内訳の合計(ms/秒)。**入れ子になっている枠は渡さない側の責任**
+// ── 解析 tick の中で測った枠(ピッチ検出・音色FFT・中央値)を足すと二重に数える。
+// null(まだ値が無い)は 0 として足さず、**1つでも値があれば数を返す**。
+// どれも null なら null(0 を「仕事が無い」と読み違えない)。
+function metroDiagSumPerSec(list) {
+  if (!Array.isArray(list)) return null;
+  let sum = 0;
+  let any = false;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i];
+    if (typeof v === "number" && Number.isFinite(v)) { sum += v; any = true; }
+  }
+  return any ? sum : null;
+}
+
 // ⑤ 連続して読んだ ctx.currentTime の差の**最小正値**（= 主スレッドから見た量子化幅）。
 // **0 と負は数えない**: 0 は「同じ量子の中でもう一度読んだ」、負は時計の作り直しで、
 // どちらも「刻みの細かさ」ではない。前回値が無いとき(最初の1回)も何も更新しない。
@@ -5936,6 +6061,9 @@ const METRO_DIAG_FRAME_MS = 16.7;
 const METRO_DIAG_FRAME2_MS = 33;
 // リングの長さ。60fps なら 60 秒ぶん(本人に頼むのは30秒なので余裕がある)。
 const METRO_DIAG_CAP = 3600;
+// 【D-19】内訳の枠が p50/p95 のために持つ標本の数。**合計と回数はここに縛られない**(通算)。
+// 512 なら 60fps で直近 8.5 秒。要約(1秒に1回)での並べ替えを軽く保つための長さ。
+const METRO_DIAG_SLOT_CAP = 512;
 
 // 診断が集めるものの置き場。**モジュールに1つだけ**持つ ── 仕掛ける側
 // (setInterval のタイマ・MeasureView のレンダー)まで prop を通すと、
@@ -5948,6 +6076,40 @@ const METRO_DIAG = {
   frames: 0,                                  // rAF が回った回数(通算)
   ctxMinDt: null,                             // 連続する ctx.currentTime の差分の最小正値(秒)
   t0: 0,                                      // 開いた時刻(performance.now)
+  // 【D-19】1フレームの内訳。**入れ子の関係を名前で持つ**:
+  //   tickAll = マイク解析の rAF 1回まるごと
+  //     ├ pitch  = detectPitchMPM(毎フレーム。鳴っていなくても走る)
+  //     ├ timbre = computeTimbreMetrics(8192点FFT。**鳴っているときだけ**・66ms 間隔)
+  //     └ disp   = 音色の表示値づくり(中央値×10 + 倍音8本の作り直し)
+  //   viewRender = MeasureView の**本文**(React が DOM へ反映する時間は入らない)
+  //   ringRender = PitchRing の**本文**(同上)
+  //   ringRaf    = PitchRing の rAF(走りの60ストップ書き換えと光の明るさ)
+  tickAll: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  pitch: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  timbre: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  disp: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  viewRender: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  ringRender: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  ringRaf: metroDiagMakeSlot(METRO_DIAG_SLOT_CAP),
+  // 【D-19】**JS では測れない仕事の引き金**を回数で数える。
+  // どちらも「その属性を書き換えた＝ブラウザに描き直しを頼んだ」フレーム数で、
+  // 描き直しそのものの時間は上のどの枠にも入らない(だから差として出る)。
+  runWrites: 0,                               // 走りの弧(左右の60ストップ+2本のd)を書き換えたフレーム数
+  glowWrites: 0,                              // 外周の光の明るさ(opacity)を書き換えたフレーム数
+  perfMinDt: null,                            // ⑥ performance.now() を続けて2回読んだ差の最小正値(ms)
+  // 【D-19b】容疑者を1つずつ止めるスイッチ。**既定はすべて true(＝いまと同じ挙動)**。
+  // 差から推測する代わりに、**吹きながら押して滑らかになるか**で1回で切り分けるための物。
+  //
+  // **止めるのは描画の依頼だけ。** 値の計算・ピッチ判定・メトロノームには一切触れない
+  // (例: 光は opacity に 0 を書くだけで、glowCents も ringGlowOpacity も走ったまま)。
+  // **止めた状態は正しい表示ではない**(光が消える・帯が出ない・音名が出ない)。計器なのでそれでよい。
+  //
+  // 【読まれる場所】**すべて「診断が開いている」と分かっている枝の中**に置く。
+  // 閉じているときにこの4つの真偽値を読む場所は1つも無い(検査 37.7 が綴りで固定している)。
+  drawGlow: true,                             // 外周の光の明るさを書くか(F。第一容疑)
+  drawBar: true,                              // ズレの帯(弧)を描くか(D)
+  drawText: true,                             // 音名・セントの文字を出すか(G)
+  runTimbre: true,                            // 音色の 8192点FFT を回すか(B)
   reset() {
     this.rafGaps = metroDiagMakeRing(METRO_DIAG_CAP);
     this.tickMs = metroDiagMakeRing(METRO_DIAG_CAP);
@@ -5955,6 +6117,22 @@ const METRO_DIAG = {
     this.frames = 0;
     this.ctxMinDt = null;
     this.t0 = 0;
+    this.tickAll = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.pitch = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.timbre = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.disp = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.viewRender = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.ringRender = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.ringRaf = metroDiagMakeSlot(METRO_DIAG_SLOT_CAP);
+    this.runWrites = 0;
+    this.glowWrites = 0;
+    this.perfMinDt = null;
+    // 【D-19b】**閉じたら必ず全部 on に戻す。** reset() は板を開いたときと閉じたときの
+    // 両方で呼ばれるので、押したまま閉じてもトグルが残らない。
+    this.drawGlow = true;
+    this.drawBar = true;
+    this.drawText = true;
+    this.runTimbre = true;
   },
 };
 
@@ -5987,7 +6165,36 @@ function metroDiagSnapshot(ctx, nowMs) {
     baseLatency: ctx && typeof ctx.baseLatency === "number" ? ctx.baseLatency : null,
     sampleRate: ctx && typeof ctx.sampleRate === "number" ? ctx.sampleRate : null,
     ctxMinDt: METRO_DIAG.ctxMinDt,
+    // 【D-19】内訳。**足すのは入れ子の親だけ**(tickAll / viewRender / ringRender / ringRaf)。
+    // ピッチ検出・音色FFT・中央値は tickAll の中で測っているので合計には入れない。
+    slots: {
+      tickAll: metroDiagSlotSummary(METRO_DIAG.tickAll, elapsed),
+      pitch: metroDiagSlotSummary(METRO_DIAG.pitch, elapsed),
+      timbre: metroDiagSlotSummary(METRO_DIAG.timbre, elapsed),
+      disp: metroDiagSlotSummary(METRO_DIAG.disp, elapsed),
+      viewRender: metroDiagSlotSummary(METRO_DIAG.viewRender, elapsed),
+      ringRender: metroDiagSlotSummary(METRO_DIAG.ringRender, elapsed),
+      ringRaf: metroDiagSlotSummary(METRO_DIAG.ringRaf, elapsed),
+    },
+    runWrites: METRO_DIAG.runWrites,
+    glowWrites: METRO_DIAG.glowWrites,
+    perfMinDt: METRO_DIAG.perfMinDt,
   };
+}
+
+// 【D-19】内訳の合計(ms/秒)と、1枚あたりの「実間隔 − 測れた時間」。
+// **差は「測れていない仕事」だけではない**: 何もしていない待ち時間も含む。
+// だから差そのものではなく、**吹く/吹かないで差がどれだけ増えるか**を読む。
+// 引数は metroDiagSnapshot が返した要約そのもの。値が足りなければ null を返す。
+function metroDiagBreakdown(s) {
+  if (!s || !s.slots) return null;
+  const g = (k) => (s.slots[k] ? s.slots[k].msPerSec : null);
+  const totalPerSec = metroDiagSumPerSec([g("tickAll"), g("viewRender"), g("ringRender"), g("ringRaf")]);
+  const perFrame = (s.frames > 0 && typeof totalPerSec === "number" && s.elapsed > 0)
+    ? (totalPerSec * s.elapsed) / s.frames : null;
+  const gap = typeof s.gapP50 === "number" ? s.gapP50 : null;
+  const diff = (typeof perFrame === "number" && typeof gap === "number") ? gap - perFrame : null;
+  return { totalPerSec, perFrame, gap, diff };
 }
 
 // 数字の出し方。値が無いときは 0 ではなく「—」(0 と読み違えない)。
@@ -6012,6 +6219,10 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       if (last) metroDiagRingPush(METRO_DIAG.rafGaps, now - last);
       last = now;
       METRO_DIAG.frames += 1;
+      // 【D-19】⑥ この計器の時計そのものの刻み。**続けて2回読んだ差の最小正値**。
+      // これが 1ms なら、内訳の p50/p95 は 0 か 1 にしか出ない ── 読むのは ms/秒 のほう。
+      // ⑤(音時計)と同じ純関数を使う。1フレームに performance.now() を1回だけ増やす。
+      METRO_DIAG.perfMinDt = metroDiagMinPositive(METRO_DIAG.perfMinDt, now, performance.now());
       // 音声時計は**主スレッドから見える刻み**を知りたいので、rAF の頻度で読む。
       const ctx = getMetroCtx ? getMetroCtx() : null;
       if (ctx) {
@@ -6041,10 +6252,65 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
   // テンポ操作行の下端が y=535、下部ナビの上端が y=765(Chrome 375×812 の実測)。
   // ここを超えると**振り子そのものを覆う**ので、覆った状態で測った値になってしまう。
   // だから項目は詰めて書き、意味は下の「読み方」1つにまとめてある。
+  // 【D-19】①〜⑤ と内訳は**縦に並べると必ず溢れる**ので2枚に分けた。
+  // 集める側(rAF・タイマ)はどちらを見ていても回り続ける ── この state は
+  // 上の useEffect の依存に入っていないので、**切り替えても計測はやり直しにならない**。
+  const [page, setPage] = useState("main");
+  // 【D-19b】容疑者を1つずつ止めるスイッチ。**画面の見た目のためだけの控え**で、
+  // 実際に読まれるのは METRO_DIAG 側(rAF とレンダーはこの state を見ない)。
+  // 既定はすべて「描く」。**板を閉じると METRO_DIAG.reset() が全部 true に戻す**ので、
+  // 押したまま閉じてもトグルは残らない。
+  const [draw, setDraw] = useState({ drawGlow: true, drawBar: true, drawText: true, runTimbre: true });
   const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--sp-2)", lineHeight: 1.35 };
   const hint = { fontSize: 10, color: "var(--c-ink-3)", lineHeight: 1.35 };
   const val = { fontVariantNumeric: "tabular-nums", color: "var(--c-ink)", fontSize: 12.5, whiteSpace: "nowrap" };
   const key = { color: "var(--c-ink-2)", fontSize: 11, flexShrink: 0 };
+  // 【D-19】内訳の表。5列(区間 / ms per sec / 回 per sec / p50 / p95)。
+  // 数字は等幅(tabular-nums)で右詰め。375px でも折り返さない幅に収める。
+  const bd = metroDiagBreakdown(s);
+  const trow = { display: "flex", alignItems: "baseline", lineHeight: 1.2 };
+  const tname = { flex: "1 1 auto", minWidth: 0, color: "var(--c-ink-2)", fontSize: 10.5, whiteSpace: "nowrap", overflow: "hidden" };
+  const tnum = { width: 46, flexShrink: 0, textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 11, color: "var(--c-ink)", whiteSpace: "nowrap" };
+  const thead = { ...tnum, fontSize: 9.5, color: "var(--c-ink-3)" };
+  // 表の下の3行(合計・差・書き換え)。①〜⑤ の行より詰める ── 2枚目は行数が多く、
+  // **溢れると振り子を覆う**(覆った状態で測った値になってしまう)。
+  const srow = { ...row, lineHeight: 1.2 };
+  const sval = { ...val, fontSize: 11.5 };
+  const skey = { ...key, fontSize: 10.5 };
+  // 【D-19b】止めるスイッチ1つ。**押した状態＝止めている**を枠線の色で返す
+  // (§6.7 の A型 .ctl-state。状態を持つ操作なので枠線を使う)。
+  const stopBtn = (field, label) => {
+    const drawing = draw[field];
+    return (
+      <button
+        key={field} type="button"
+        onClick={() => {
+          METRO_DIAG[field] = !METRO_DIAG[field];
+          setDraw((d) => ({ ...d, [field]: METRO_DIAG[field] }));
+        }}
+        aria-pressed={!drawing}
+        aria-label={drawing ? `${label}を止める` : `${label}を元に戻す`}
+        className="sans ctl-state ctl-pill"
+        style={{
+          minHeight: "var(--tap-min)", padding: "0 10px", cursor: "pointer",
+          fontSize: 11, lineHeight: 1.2, color: drawing ? "var(--c-ink-2)" : "var(--c-accent)",
+        }}
+      >{label}</button>
+    );
+  };
+  // 1行ぶん。sum が null(まだ値なし)なら「—」。
+  const slotRow = (label, k) => {
+    const v = s && s.slots ? s.slots[k] : null;
+    return (
+      <div style={trow} key={k}>
+        <span style={tname}>{label}</span>
+        <span style={{ ...tnum, fontWeight: 700 }}>{metroDiagNum(v?.msPerSec, 1)}</span>
+        <span style={tnum}>{metroDiagNum(v?.perSec, 1)}</span>
+        <span style={tnum}>{metroDiagNum(v?.p50, 1)}</span>
+        <span style={tnum}>{metroDiagNum(v?.p95, 1)}</span>
+      </div>
+    );
+  };
   return (
     <div
       role="region" aria-label="メトロノームの診断"
@@ -6060,36 +6326,94 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
     >
       <div style={{ ...row, alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: "var(--c-ink)" }}>
-          診断（計器。恒久の機能ではありません）
+          診断（計器・恒久の機能ではありません）
         </span>
         {/* 【§6.7 の芯2】枠線を持つ操作は状態を持つ物だけ。ここは状態を持たない一手なので
-            B型(.ctl-plain .ctl-pill = 枠線なし・地は --c-sunken)の見本どおりに書く。 */}
-        <button type="button" onClick={onClose} aria-label="診断を閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
-          <span className="ctl-plain ctl-pill" style={{ padding: "6px 12px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>閉じる</span>
-        </button>
+            B型(.ctl-plain .ctl-pill = 枠線なし・地は --c-sunken)の見本どおりに書く。
+            【D-19】1枚目/2枚目の入れ替えも同じ形。**計測はやり直しにならない**。 */}
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button
+            type="button" onClick={() => setPage((p) => (p === "main" ? "breakdown" : "main"))}
+            aria-label={page === "main" ? "内訳を見る" : "①〜⑤に戻る"} className="sans" style={{ ...TAP_BUTTON_RESET }}
+          >
+            <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>
+              {page === "main" ? "内訳→" : "←①〜⑤"}
+            </span>
+          </button>
+          <button type="button" onClick={onClose} aria-label="診断を閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
+            <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>閉じる</span>
+          </button>
+        </div>
       </div>
 
+      {page === "main" && (<>
+      {/* 【D-19b】容疑者を止めるスイッチ。**吹きながら押して、滑らかになるかで切り分ける**。
+          差から推測しなくてよいように、③(1秒あたりの描画)を右にそのまま出しておく
+          ── 押した直後にここが 30 → 60 へ動けば、それが答えになる。
+          押した状態(＝止めている)は §6.7 A型の枠線の色が返す。 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "1px 0" }}>
+        {stopBtn("drawGlow", "外周の光")}
+        {stopBtn("drawBar", "環の帯")}
+        {stopBtn("drawText", "音名")}
+        {stopBtn("runTimbre", "音色FFT")}
+        <span style={{ ...val, fontSize: 11.5, fontWeight: 700, marginLeft: "auto" }}>
+          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
+        </span>
+      </div>
       <div style={row}><span style={key}>① 絵の間隔 p50/95/99</span>
         <span style={val}>{metroDiagNum(s?.gapP50, 1)} / {metroDiagNum(s?.gapP95, 1)} / {metroDiagNum(s?.gapP99, 1)} ms</span></div>
       <div style={row}><span style={key}>　16.7超 / 33超</span>
         <span style={val}>{s ? s.over16 : "—"} / {s ? s.over33 : "—"} 回（{s ? s.gapN : 0}枚中）</span></div>
       <div style={row}><span style={key}>② tick 1回 p50/95</span>
         <span style={val}>{metroDiagNum(s?.tickP50, 2)} / {metroDiagNum(s?.tickP95, 2)} ms（{s ? s.tickN : 0}回）</span></div>
-      <div style={row}><span style={key}>③ 1秒あたりのレンダー</span>
-        <span style={val}>{metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回</span></div>
+      <div style={row}><span style={key}>③ 描画 / 経過 / 絵</span>
+        <span style={val}>{metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒 ・ {metroDiagNum(s?.elapsed, 1)} 秒 ・ {s ? s.frames : 0} 枚</span></div>
       <div style={row}><span style={key}>④ out / base / 標本化</span>
         <span style={val}>{metroDiagNum(s?.outputLatency, 4)} / {metroDiagNum(s?.baseLatency, 4)} s ・ {metroDiagNum(s?.sampleRate, 0)} Hz</span></div>
-      <div style={row}><span style={key}>⑤ 音時計の刻み（最小）</span>
-        <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)} s</span></div>
-      <div style={row}><span style={key}>　経過 / 絵</span>
-        <span style={val}>{metroDiagNum(s?.elapsed, 1)} 秒 / {s ? s.frames : 0} 枚</span></div>
+      {/* 【D-19】⑥ この計器の時計の刻み。内訳の p50/p95 をどこまで信じてよいかがここで決まる。
+          ⑤(音時計)と1行にまとめてあるのは、スイッチの行を足しても板が振り子を覆わないため。 */}
+      <div style={row}><span style={key}>⑤⑥ 音時計 / 計器の刻み</span>
+        <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)} s / {metroDiagNum(s?.perfMinDt, 3)} ms</span></div>
 
       {/* 【数値の意味を画面に添える】本人は解釈を知らないので、読み方をここに置く。 */}
-      <div style={{ ...hint, marginTop: 3 }}>
-        読み方：①16.7超が多い＝絵が飛んでいる ／ ②大きいほど詰まらせている ／
-        ③60 に近いほど描けている ／ ④out が大きいほど音が遅れる ／ ⑤大きいほど時刻が粗い。
-        「—」＝まだ値なし（④⑤は鳴らすと出ます）。30秒ほど動かして1枚撮ってください。
+      <div style={{ ...hint, marginTop: 2 }}>
+        <b>吹きながら上のボタンを押す。</b>③が上がって滑らかになったら、それが原因です
+        （止めている間は表示が欠けます。<b>閉じれば全部戻ります</b>）。
+        ①16.7超が多い＝絵が飛んでいる／②大きいほど詰まらせている／③60 に近いほど描けている／
+        ④out が大きいほど音が遅れる／⑤⑥時刻の粗さ（⑥1.000 なら内訳の p50/p95 は 0か1）。
       </div>
+      </>)}
+
+      {page === "breakdown" && (<>
+      {/* 【D-19】1フレームの内訳。**ms/秒 が主役**（1秒のうち何 ms その処理に居たか）。
+          p50/p95 は1回ぶんの値だが、⑥の刻みが 1ms なら 0か1 にしか出ない。 */}
+      <div style={trow}>
+        <span style={{ ...tname, color: "var(--c-ink-3)", fontSize: 9.5 }}>区間</span>
+        <span style={thead}>ms/秒</span><span style={thead}>回/秒</span>
+        <span style={thead}>p50</span><span style={thead}>p95</span>
+      </div>
+      {slotRow("解析tick 全体", "tickAll")}
+      {slotRow("├ ピッチ検出", "pitch")}
+      {slotRow("├ 音色FFT ★", "timbre")}
+      {slotRow("└ 中央値・表示", "disp")}
+      {slotRow("画面 render", "viewRender")}
+      {slotRow("環 render", "ringRender")}
+      {slotRow("環 rAF（走り・光）", "ringRaf")}
+      <div style={{ height: 1, background: "var(--c-line)", margin: "2px 0" }} />
+      <div style={srow}><span style={skey}>測れた合計</span>
+        <span style={sval}>{metroDiagNum(bd?.totalPerSec, 1)} ms/秒 ＝ 1枚 {metroDiagNum(bd?.perFrame, 2)} ms</span></div>
+      <div style={srow}><span style={skey}>実間隔 − 測れた合計</span>
+        <span style={sval}>{metroDiagNum(bd?.gap, 1)} − {metroDiagNum(bd?.perFrame, 2)} ＝ <b>{metroDiagNum(bd?.diff, 2)}</b> ms</span></div>
+      <div style={srow}><span style={skey}>書換 走り / 光</span>
+        <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)} 回/秒</span></div>
+
+      <div style={{ ...hint, marginTop: 2 }}>
+        読み方：<b>ms/秒</b>＝1秒でその処理に居た時間（★は鳴る時だけ）。├└ は tick の内側なので
+        合計に足していません。合計に<b>入らない</b>のは、画面への反映・レイアウト・描画・GC。
+        <b>差が大きいほど原因はそちら側</b>（待ち時間も含むので吹く／吹かないの2枚で比べてください）。
+        書換＝環が描き直しを頼んだ回数。
+      </div>
+      </>)}
     </div>
   );
 }
@@ -6125,6 +6449,10 @@ function MeasureView(props) {
   // (閉じているときの費用は真偽値1つの判定。値も貯めない)。
   // レンダー本体の副作用だが、この画面は元から平滑をレンダー本体で進めている(D-15 §1(B))。
   if (METRO_DIAG.on) METRO_DIAG.renders += 1;
+  // 【D-19】この画面の**本文**の所要時間。子(PitchRing・MetroPendulum…)の本文は
+  // 別の枠で数えるので二重には入らない。**React が DOM へ反映する時間は入らない**。
+  const dViewOn = METRO_DIAG.on;
+  const dViewT0 = dViewOn ? performance.now() : 0;
 
   // 【D-18b】診断の入口。**画面に入口の部品を置かない**(置くと普段の画面が1px変わる)ので、
   // URL の # だけで開く: https://wind-tone-lab.vercel.app/#metro-diag
@@ -6481,7 +6809,9 @@ function MeasureView(props) {
     return () => clearInterval(id);
   }, [isRecording]);
 
-  return (
+  // 【D-19】返す木を一度変数へ置くのは、**組み立て終わりの時刻を取るため**だけ。
+  // 中身も返す値も1文字も変えていない(下の return がそのまま同じ木を返す)。
+  const dViewTree = (
     <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 【縦構造】DESIGN-SYSTEM §6.1.5「レイアウトの安定」。
           画面ぶんの高さ(measureMinH)を持つ枠を1枚だけ敷き、その中を
@@ -7319,6 +7649,8 @@ function MeasureView(props) {
 
     </div>
   );
+  if (dViewOn) metroDiagSlotAdd(METRO_DIAG.viewRender, performance.now() - dViewT0);
+  return dViewTree;
 }
 
 // フレーズのタイムライン+ドリルダウン表示。**呼び出しはセッション詳細の1箇所だけ**
