@@ -202,7 +202,7 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 
 .you{background:var(--card); border-radius:var(--r); box-shadow:var(--s-lift); margin-top:2px}
 .you .rk{padding:15px 18px}
-.badge{font-size:10px; font-weight:700; color:var(--on); background:var(--ac);
+.badge{font-size:10px; font-weight:700; color:var(--ac); background:var(--ac-tint);
   border-radius:999px; padding:2px 8px; margin-left:7px; vertical-align:1px}
 
 /* ドーナツ */
@@ -742,19 +742,18 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <div class="tab on">機材</div><div class="tab">マイページ</div>
       </div>
       <div class="body">
-        <div class="pills"><div class="pill on">全員</div><div class="pill">高校吹奏楽部</div><div class="pill">音大生</div></div>
-
         <div class="card">
           <p class="hd">リード</p>
           <div class="donut">
             <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="リードの割合">
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#EEF1F8" stroke-width="15"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="105 140" transform="rotate(-90 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="66 179" transform="rotate(66 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="44 201" transform="rotate(166 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
+                stroke-dasharray="103 142" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
+                stroke-dasharray="65 180" transform="rotate(65 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
+                stroke-dasharray="42 203" transform="rotate(163 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
+                stroke-dasharray="29 216" transform="rotate(226 50 50)"/>
             </svg>
             <div class="lgd">
               <div><span class="sw" style="background:#174585"></span>青箱<b>43%</b></div>
@@ -769,13 +768,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           <p class="hd">楽器</p>
           <div class="donut">
             <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="楽器の割合">
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#EEF1F8" stroke-width="15"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="122 123" transform="rotate(-90 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="58 187" transform="rotate(92 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15" stroke-linecap="round"
-                stroke-dasharray="39 206" transform="rotate(178 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
+                stroke-dasharray="120 125" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
+                stroke-dasharray="57 188" transform="rotate(91 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
+                stroke-dasharray="38 207" transform="rotate(177 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
+                stroke-dasharray="24 221" transform="rotate(234 50 50)"/>
             </svg>
             <div class="lgd">
               <div><span class="sw" style="background:#174585"></span>YAMAHA<b>50%</b></div>
@@ -790,18 +790,15 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           <p class="hd">よくある組み合わせ</p>
           <div class="card flush">
             <div class="row">
-              <div class="m"><div class="kit" style="margin:0">
-                <span class="kv">YAS-62</span><span class="kv">S80 C*</span><span class="kv">青箱</span></div></div>
+              <div class="m"><div class="nm" style="font-size:14px">YAS-62 ／ S80 C* ／ 青箱</div></div>
               <div class="cnt"><b>86</b><span>票</span></div>
             </div>
             <div class="row">
-              <div class="m"><div class="kit" style="margin:0">
-                <span class="kv">YAS-875EX</span><span class="kv">S90 180</span><span class="kv">V21</span></div></div>
+              <div class="m"><div class="nm" style="font-size:14px">YAS-875EX ／ S90 180 ／ V21</div></div>
               <div class="cnt"><b>51</b><span>票</span></div>
             </div>
             <div class="row">
-              <div class="m"><div class="kit" style="margin:0">
-                <span class="kv">Series II</span><span class="kv">Meyer 6M</span><span class="kv">Java</span></div></div>
+              <div class="m"><div class="nm" style="font-size:14px">Series II ／ Meyer 6M ／ Java</div></div>
               <div class="cnt"><b>34</b><span>票</span></div>
             </div>
           </div>
@@ -829,13 +826,6 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <p>
           「高校吹奏楽部に多い」のような添え書きは載せない。
           <b>立場のピルで絞れば同じことが自分で分かる</b>ので、アプリが要約して言う必要がない。
-        </p>
-      </div>
-      <div class="note">
-        <h3>組み合わせも小片で揃える</h3>
-        <p>
-          一覧と同じ<b>楽器・マウスピース・リードの3小片</b>にすると、上の一覧から目を移しても
-          読み方が変わらない。
         </p>
       </div>
     </div>
