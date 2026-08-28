@@ -99,6 +99,9 @@ const code = [
   extractConst("NOTE_SWITCH_CENTS"),
   extractConst("PITCH_OUTLIER_CENTS"),
   extractFunction("fftRadix2"),
+  // 【D-15 §2(G)】detectPitchMPM が使い回す作業用配列の入れ物。
+  // 抽出し忘れると detectPitchMPM が ReferenceError で落ちる(=ハーネスごと止まる)。
+  extractConst("MPM_SCRATCH"),
   extractFunction("detectPitchMPM"),
   extractFunction("computeTimbreMetrics"),
   extractFunction("frameWeight"),
@@ -120,6 +123,8 @@ const code = [
   extractConst("RING_MAX_CENTS"),
   extractConst("RING_SWEEP_DEG"),
   extractConst("RING_IN_TUNE_CENTS"),
+  // 【D-15 §1(B)】平滑の時定数(ms)。正典は DESIGN-SYSTEM §1.11 の表(検証33 が突き合わせる)。
+  extractConst("RING_SMOOTH_TAU_MS"),
   extractConst("RING_VB"),
   extractConst("RING_CX"),
   extractConst("RING_CY"),
@@ -368,6 +373,7 @@ const api = new Function(`${code}
            NOTE_NAMES, NOTE_NAMES_SHARP, LOW_BB_WRITTEN_MIDI, TRANSPOSITION_SEMITONES, A4_MIDI, PITCH_CLARITY_MIN,
            TIMBRE_SUSTAIN_MS, NOTE_SWITCH_CENTS, PITCH_OUTLIER_CENTS, FINGERING_MATCH_MAX_CENTS, SAX_CONCERT_RANGE,
            METRO_TEMPO_MIN, METRO_TEMPO_MAX, RING_MAX_CENTS, RING_SWEEP_DEG, RING_IN_TUNE_CENTS,
+           RING_SMOOTH_TAU_MS,
            RING_VB, RING_CX, RING_CY, RING_R, RING_SW, ringArcD,
            srgbToLinear, linearToSrgb, rgbToOklab, oklabToRgb, oklabToOklch, oklchToOklab,
            mixOklchRGB, pitchBarColorRGB, RING_RAMP_REF, RING_RAMP_STOPS,
@@ -553,7 +559,10 @@ console.log("=== 検証3b: 実音表示(記音ではなく実音) ===");
     if (!entry) { check(`実音 ${expectPc}`, false, "テーブルに音がない"); continue; }
     const r = api.detectPitchMPM(synthTone(entry.soundingFreqHz), SR);
     const meter = r ? api.freqToNote(r.freq, 442) : null;               // メーター実音
-    const written = api.findClosestFingering(r.freq, table)?.writtenLabel; // 記音
+    // 【D-17 §3】1行上は `r ?` で守っているのに、ここだけ裸で `r.freq` を読んでいた。
+    // 検出が null を返すと **TypeError でハーネスごと落ちて集計行すら出ない**(:4257)。
+    // 実測: `im.fill(0)` を消す変異でここが落ち、FAIL が1件も数えられなかった。
+    const written = r ? api.findClosestFingering(r.freq, table)?.writtenLabel : null; // 記音
     // 実音の音名クラスが期待どおり(E♭/B♭)で、記音(C/G)とは異なること
     check(`実音表示 記音${entry.writtenLabel}→実音${expectPc}`,
       meter && meter.name === expectPc && written && written[0] !== expectPc[0],
@@ -660,6 +669,135 @@ console.log("=== 検証7: 実行速度(1回あたり<8ms) ===");
   const per = (performance.now() - t0) / N;
   console.log(`  detectPitchMPM: ${per.toFixed(2)} ms/回`);
   check("速度(60fps耐性)", per < 8, `${per.toFixed(2)}ms`);
+
+  // --- 【D-15 §2(G)】1フレームの解析が作業用配列を**1本も確保しない** -------------
+  // 【なぜ数えるのか】heapUsed では測れない(TypedArray の実体は外部メモリで、
+  // GC がループ中に走るので増分が当てにならない。実測で 29 バイト/回 という
+  // 意味のない値が出た)。**Float64Array のコンストラクタごと差し替えて数える。**
+  // 【この検査が名乗れること】detectPitchMPM の中で `new Float64Array` が
+  // 2回目以降の呼び出しで走らないこと。**GC が止まらないことの証明ではない**
+  // (実機の停止時間は測れていない。罠15)。
+  {
+    const stat = { calls: 0, bytes: 0 };
+    class CountingF64 extends Float64Array {
+      constructor(a) { super(a); stat.calls++; stat.bytes += this.byteLength; }
+    }
+    const r = runFn(() => new Function("Float64Array", `${extractFunction("fftRadix2")}
+${extractConst("MPM_SCRATCH")}
+${extractFunction("detectPitchMPM")}
+return detectPitchMPM;`)(CountingF64));
+    check("(G) 確保を数えるための組み立てに成功している(空回りでない)", r.ok, r.ok ? "" : String(r.err));
+    if (r.ok) {
+      const fn = r.v;
+      const warm = runFn(fn, buf, SR);
+      check("(G) 差し替えたコンストラクタでも従来どおり検出できている(空回りでない)",
+        warm.ok && warm.v && Math.abs(warm.v.freq - 220) < 1, warm.ok ? String(warm.v && warm.v.freq) : String(warm.err));
+      const firstCalls = stat.calls;
+      stat.calls = 0; stat.bytes = 0;
+      const F = 60;                                   // 60fps の1秒ぶん
+      for (let i = 0; i < F; i++) runFn(fn, buf, SR);
+      console.log(`  作業用配列の確保: 初回 ${firstCalls} 本 → 2回目以降 ${F} フレームで ${stat.calls} 本 / ${stat.bytes} バイト`);
+      check("(G) 初回だけは作業用配列を作る(使い回す入れ物が実際に埋まっている)",
+        firstCalls >= 4, `${firstCalls}本`);
+      check("(G) 2回目以降の解析は Float64Array を1本も確保しない",
+        stat.calls === 0 && stat.bytes === 0, `${stat.calls}本 / ${stat.bytes}バイト`);
+    }
+  }
+
+  // --- 【D-15 §2(G)】使い回しの残骸が結果を変えない（呼ぶ順に依存しない） -----------
+  // 【なぜ必要か】(G) は「確保をやめるだけ」で値を1bitも変えない、が前提。
+  // 前フレームの残骸が混ざる形の壊し方は、**確保の本数を数える検査では捕まらない**。
+  // ここでは同じ関数を2つ組み立て、片方は使い回しを重ね、もう片方は**1回ごとに
+  // 作り直した(＝残骸ゼロの)入れ物**で同じ呼び出しを1回だけする。
+  // 結果を丸めずに Float64 のビット列で突き合わせる(期待値を実装の外＝
+  // 「同じ入力なら同じ値」という性質から取る。定数の言い換えではない)。
+  // 音域(minFreq/maxFreq)を毎回変えるのが肝で、作業用配列の**使う長さが変わる**。
+  {
+    const mkSrc = `${extractFunction("fftRadix2")}
+${extractConst("MPM_SCRATCH")}
+${extractFunction("detectPitchMPM")}
+return detectPitchMPM;`;
+    const mk = () => runFn(() => new Function(mkSrc)());
+    const shared = mk();
+    check("(G) 突き合わせ用に detectPitchMPM を組み立てられている(空回りでない)",
+      shared.ok, shared.ok ? "" : String(shared.err));
+    if (shared.ok) {
+      const bits = (x) => Buffer.from(new Float64Array([x]).buffer).toString("hex");
+      const shot = (r) => (r.ok ? (r.v === null ? "null" : `${bits(r.v.freq)}|${bits(r.v.clarity)}`) : `例外(${r.err})`);
+      // 呼び出しの並び。**音域(minFreq)を毎回変える**のが肝で、作業用配列の
+      // 「使う長さ」maxLag = ceil(SR/minFreq) が呼ぶたびに動く。
+      // 【最後の4本が本命】minFreq を基音ちょうどに寄せると、選ばれるピーク T が
+      // maxLag に届き、**nsdf[T+1] = nsdf[maxLag+1]** を読む。ここは書かれない添字なので、
+      // 前の「広い音域」の呼び出しの残骸がそのまま補間に混ざる。
+      // (この並びを入れる前は nsdf のゼロ埋めを落とす変異が**生き残っていた**。実測で確認)
+      const seq = [];
+      for (const [f0, mn] of [[110, 40], [220, 55], [440, 100], [330, 60], [880, 55], [110, 40]]) {
+        seq.push([synthTone(f0), mn, 1500]);
+      }
+      seq.push([synthVibrato(330), 40, 1500]);
+      for (const f0 of [73.42, 130.81, 174.61, 329.63]) {
+        seq.push([synthTone(f0), 40, 1500]);   // 遠い添字を先に汚す
+        seq.push([synthTone(f0), f0, 1500]);   // T が maxLag に届く呼び方
+      }
+      const diffs = [];
+      let detected = 0;
+      for (let i = 0; i < seq.length; i++) {
+        const [w, mn, mx] = seq[i];
+        const a = runFn(shared.v, w, SR, mn, mx);          // 使い回しを重ねた側
+        // 残骸ゼロの入れ物で**この1回だけ**呼ぶ。これが「毎回確保していた頃」と同じ状態。
+        // 【前置きを再現しないこと】同じ並びを流し直すと、壊れた実装どうしを比べることになり
+        // 恒真になる。比較の相手は必ず「履歴を持たない側」でなければ意味がない。
+        const fresh = mk();
+        const b = fresh.ok ? runFn(fresh.v, w, SR, mn, mx) : { ok: false, err: "組み立て失敗" };
+        if (a.ok && a.v) detected++;
+        if (shot(a) !== shot(b)) diffs.push(`#${i} ${mn}-${mx}Hz: ${shot(a)} ≠ ${shot(b)}`);
+      }
+      check("(G) 呼び出しを重ねても検出できている(空回りでない)",
+        detected >= seq.length - 2, `${detected}/${seq.length} 回`);
+      check("(G) 使い回した側と作り直した側で結果が1bitも違わない(残骸が混ざっていない)",
+        diffs.length === 0, diffs.slice(0, 3).join(" | ") || "0件");
+    }
+
+    // --- 【D-17 §3】山探索が「必ず前へ進む」形であること ---------------------------
+    // 【なぜ必要か】外側の while (t <= maxLag) は、内側のどちらかが t を進めることに
+    // 寿命を預けている。飛ばす側を `nsdf[t] <= 0` と書くと **NaN のとき両方 false** で
+    // t が1つも進まず、**永久ループ**になる。(G) で作業用配列を使い回しにしたので、
+    // 埋め直しを1つ落とすだけでこの状態に入れる(実測: `im.fill(0)` を消すと
+    // このハーネスが 90 秒で終わらず、PASS/FAIL の集計行が1行も出ない = :4257 が禁じた壊れ方)。
+    // 【この検査が名乗れないこと】守っているのは「t が必ず進む」ことだけで、
+    // 埋め直しが落ちたときに**正しい値が出る**ことは守っていない(そちらは上の差分試験)。
+    const mpmSrc = codeOf(extractFunction("detectPitchMPM"));
+    const advancing = /while \(t <= maxLag && !\(nsdf\[t\] > 0\)\) t\+\+;/.test(mpmSrc);
+    check("(G) 山探索の飛ばし側は「正でない」で書かれている(NaN でも t が必ず進む形)",
+      advancing, (mpmSrc.match(/while \(t <= maxLag[^\n]*/g) || []).join(" / ") || "走査不能");
+    // 実際に NaN を通して**返ってくる**ことまで見る。ただし上が偽のときは回さない
+    // ── 回すと永久ループでハーネスごと止まり、集計行すら出なくなる(:4257)。
+    if (advancing) {
+      const probe = runFn(() => new Function(`${extractFunction("fftRadix2")}
+${extractConst("MPM_SCRATCH")}
+${extractFunction("detectPitchMPM")}
+return { detect: detectPitchMPM, scratch: MPM_SCRATCH };`)());
+      if (!probe.ok) {
+        check("(G) NaN 混じりの作業用配列でも返ってくる(山探索が止まらない)", false, `組み立て失敗(${probe.err})`);
+      } else {
+        // まず正常に1回呼んで入れ物を確保させる。
+        const warm = runFn(probe.v.detect, synthTone(220), SR, 55, 1200);
+        // 「re の埋め直しが落ちた」状態をそのまま作る: fill を無効にした同じ長さの入れ物を
+        // NaN で満たして差し替える。実装は W 未満だけ書き直すので W..N-1 が NaN のまま残り、
+        // FFT を通って nsdf[t] が NaN になる(= 使い回しの残骸が発散したときと同じ形)。
+        const N = probe.v.scratch.re ? probe.v.scratch.re.length : 0;
+        const poisoned = Object.assign(new Array(N).fill(NaN), { fill() { return this; } });
+        probe.v.scratch.re = poisoned;
+        const r = runFn(probe.v.detect, synthTone(220), SR, 55, 1200);
+        check("(G) NaN 混じりの作業用配列でも返ってくる(山探索が止まらない)",
+          warm.ok && !!warm.v && N > 0 && r.ok,
+          `暖機 ${warm.ok ? (warm.v ? warm.v.freq.toFixed(2) + "Hz" : "null") : "例外"} / N=${N} / 汚染後 ${shownOf(r)}`);
+      }
+    } else {
+      check("(G) NaN 混じりの作業用配列でも返ってくる(山探索が止まらない)",
+        false, "飛ばし側が「必ず進む」形でないので回していない(回すと永久ループでハーネスごと止まる)");
+    }
+  }
 }
 
 // ============================================================
@@ -2685,21 +2823,60 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   //
   // 【F-47 で前提が動いた】判定線が ±1 → ±2 になったので、ここの実測値はすべて取り直した。
   //   ・揺らしは**判定線に対する相対量**なので、振幅を RING_IN_TUNE_CENTS 倍にすると
-  //     外れ時間は ±1 のときと完全に一致する(267/333/650/0 ms)。EMA が線形で判定が
+  //     外れ時間は ±1 のときと完全に一致する。EMA が線形で判定が
   //     しきい値比較なので、系は判定線に対してスケール不変。
   //   ・一方「+15¢へ外して戻す」は絶対量なので不変ではない。EMA の戻り尾が
   //     15¢→1¢ の 278ms から 15¢→2¢ の 200ms に**縮む**。
-  //   ・結果、1200 の根拠だった「650ms 保持の外れ(928ms)は 900 では抑制を抜ける」は
-  //     成立しなくなった(±2 では 850ms なので 900 でも抑制される)。ただし掃引すると
-  //     900 は保持 690ms から、1200 は保持 990ms から走り直すので、**1200 のほうが
-  //     厳しい**ことと「生の外れが 800ms までは走らず 1000ms 以上で走る」という
-  //     選定時の性質は保たれている。定数は変えていない。
+  //   ・結果、当時の抑制値(1200)の根拠だった「650ms 保持の外れ(928ms)は 900 では
+  //     抑制を抜ける」は成立しなくなった(±2 では 850ms なので 900 でも抑制される)。
+  //     根拠は事例ではなく**掃引の境目**で置き直した(下の (2))。
   //
-  // 実コンポーネントの平滑と判定:
-  //   smoothRef.val += (raw - smoothRef.val) * 0.15   (60fps・音名が変わらない間)
+  // 【D-17・本人裁定 2026/08/28】τ = 102.55 → 60ms（「円が遅い」への対応。中間の選択肢）。
+  //   **τ と RING_RUN_REARM_MS は対で動く。** 抑制は「**平滑後の**値が判定線の外にあった
+  //   連続時間」を見ているので、生の音程が戻ってから平滑が判定線に入るまでの尾
+  //   ── **τ × ln(15/2) = 2.0149 τ** ── がそのまま外れ時間に足される。
+  //   τ を下げると尾が縮むので、抑制も同じだけ縮めないと下の (2) の2件が落ちる。
+  //   実測: 抑制 1200 のまま τ=99 以下にすると落ちる / τ=60 では抑制 917〜1116ms が緑。
+  //   採った 1110 は「走り直しの境目 990ms」を D-16 以前から**1ms も動かさない**値。
+  //   **値の持ち主は design/DESIGN-SYSTEM.md §1.11 ただ1箇所**で、下の 34.1 がそこから読む。
+  //
+  // 実コンポーネントの平滑と判定(【D-15 §1(B)】時間ベースへ移した):
+  //   smoothRef.val += (raw - smoothRef.val) * (1 - exp(-Δt / RING_SMOOTH_TAU_MS))
   //   inTune = |val| <= RING_IN_TUNE_CENTS
-  const EMA_ALPHA = 0.15, FPS = 60;
-  check("平滑の係数はソースどおり 0.15", /smoothRef\.current\.val \+= \(rawExact - smoothRef\.current\.val\) \* 0\.15;/.test(ringCode));
+  // D-15 以前は「1レンダーにつき α = 0.15」の固定係数だった(= 平滑が**レンダー回数**で進む)。
+  // このシミュレータは 60fps 固定なので、そのときの α を τ から導いて使う。
+  // **α を直書きしない**ので、τ を変えれば下の期待値も一緒に動く(罠3)。
+  const FPS = 60;
+  // 【D-17】走り直しの境目（画面に出る側の性質）の唯一の答えは §1.11。実装の外から読む。
+  const dsRing = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const EMA_ALPHA = 1 - Math.exp(-(1000 / FPS) / api.RING_SMOOTH_TAU_MS);
+  console.log(`  平滑: τ=${api.RING_SMOOTH_TAU_MS}ms → 60fps 相当の α=${EMA_ALPHA.toFixed(6)}`);
+  // (a) 係数が経過時間から作られていること。**フレーム番号でも固定値でもない**。
+  check("平滑の係数は Δt から作る(α = 1 − exp(−Δt/τ))",
+    /smoothRef\.current\.val \+= \(rawExact - smoothRef\.current\.val\) \* \(1 - Math\.exp\(-dtMs \/ RING_SMOOTH_TAU_MS\)\);/.test(ringCode));
+  check("Δt は performance.now() の差分から取る(レンダー回数で進めていない)",
+    /const nowMs = performance\.now\(\);/.test(ringCode)
+    && /const dtMs = Math\.max\(0, nowMs - smoothRef\.current\.t\);/.test(ringCode)
+    && /smoothRef\.current\.t = nowMs;/.test(ringCode));
+  // (b) 固定係数へ戻す変異を撃つ。ringCode は codeOf 済みなので、経緯をコメントに
+  //     書き残しても落ちない(罠9 / 「綴りの不在」を見る検査の作法)。
+  check("平滑に固定係数(* 0.15)が1つも残っていない",
+    !/\* 0\.15\b/.test(ringCode), (ringCode.match(/\* 0\.15\b/g) || []).join(" ") || "0件");
+  // (c) 【D-15 §1(A)】画面に出す数字も環と同じ値から出す。
+  //     以前は prop の centsOffset(平滑なしの生値)をそのまま文字にしていて、
+  //     文字・色・到達判定の三者が食い違っていた。
+  check("D-15: セント値の文字は平滑後の exact から出す(環・色・到達判定と同じ変数)",
+    /const centsShown = Math\.round\(exact\);/.test(ringCode)
+    && /\{sounding \? `\$\{centsShown > 0 \? "\+" : ""\}\$\{centsShown\}¢` : ""\}/.test(ringCode));
+  check("D-15: セント値の文字に生値(centsOffset)を使っていない",
+    !/centsShown[\s\S]*?\{sounding \? `\$\{centsOffset/.test(ringCode)
+    && !/\$\{centsOffset\}¢/.test(ringCode),
+    (ringCode.match(/\$\{centsOffset\}¢/g) || []).join(" ") || "0件");
+  // 文字の色・到達の呼吸も同じ値の系統から出ていること(三者が1つの値に揃っている)。
+  check("D-15: セント値の色は環と同じ color(pitchBarColorRGB(exact) 由来)、呼吸は inTune",
+    /color: sounding \? color : "var\(--c-ink-3\)"/.test(ringCode)
+    && /const \[r, g, b\] = pitchBarColorRGB\(exact\);/.test(ringCode)
+    && /const inTune = sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
   // centsFn(t[ms]) → 生のセント値。戻り値: 外れている連続時間の一覧と、走った回数。
   function simulateRing(centsFn, seconds, rearmMs = api.RING_RUN_REARM_MS) {
     const dt = 1000 / FPS;
@@ -2780,8 +2957,9 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       + ` / 800ms→${e800.maxOut.toFixed(0)}ms / 1000ms→${e1000.maxOut.toFixed(0)}ms`
       + ` (EMA の戻り尾 ${tail.toFixed(0)}ms)`);
     // 戻り尾は理論値と突き合わせる(数値の直書きにしない)。
-    // 15¢ から判定線まで 0.15/フレームで減衰: n = ln(判定線/15) / ln(1-0.15) フレーム。
-    check("EMA の戻り尾は理論値(ln(判定線/15)/ln(0.85) フレーム)と一致する", (() => {
+    // 15¢ から判定線まで α/フレームで減衰: n = ln(判定線/15) / ln(1-α) フレーム。
+    // 【D-15】α は τ から導いた値(上を参照)。式の形は時間ベースにしても変わらない。
+    check("EMA の戻り尾は理論値(ln(判定線/15)/ln(1−α) フレーム)と一致する", (() => {
       const frames = Math.log(api.RING_IN_TUNE_CENTS / 15) / Math.log(1 - EMA_ALPHA);
       return Math.abs(tail - frames * (1000 / FPS)) < 1000 / FPS + 10;
     })(), (() => {
@@ -2792,27 +2970,48 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       Math.abs(e800.maxOut - (800 + tail)) <= 1000 / FPS + 1e-6
       && Math.abs(e1000.maxOut - (1000 + tail)) <= 1000 / FPS + 1e-6,
       `800ms→${e800.maxOut.toFixed(0)}ms / 1000ms→${e1000.maxOut.toFixed(0)}ms (尾 ${tail.toFixed(0)}ms)`);
-    // 【F-47 で更新】判定線が ±1 のときは「650ms 保持(外れ928ms)が 900 では抜ける」が
-    // 1200 の直接の根拠だった。±2 では戻り尾が縮んで 850ms になり、その事例では 900 でも
-    // 抑制される。根拠は事例ではなく**掃引の境目**で置き直す: 走り直しに必要な保持時間を
-    // 掃引で求め、1200 が 900 より厳しいことと、選定時の性質(800ms までは走らず
-    // 1000ms 以上で走る)が保たれていることを見る。
+    // 【F-47 で更新 / D-17 で綴りを追随】判定線が ±1 のときは「650ms 保持(外れ928ms)が
+    // 900 では抜ける」が抑制の直接の根拠だった。±2 では戻り尾が縮んで 850ms になり、
+    // その事例では 900 でも抑制される。根拠は事例ではなく**掃引の境目**で置き直す:
+    // 走り直しに必要な保持時間を掃引で求め、いまの抑制が 900 より厳しいことと、
+    // 選定時の性質(800ms までは走らず 1000ms 以上で走る)が保たれていることを見る。
+    // **数値を綴りに焼かない**(旧名は抑制の値を焼いた綴りで、D-17 で 1110 になった瞬間に嘘になった)。
     const firstRerunHold = (rearm) => {
       for (let hold = 0; hold <= 2000; hold += 10) if (excursion(hold, rearm).runs === 2) return hold;
       return null;
     };
-    const h900 = firstRerunHold(900), h1200 = firstRerunHold(api.RING_RUN_REARM_MS);
-    console.log(`  走り直しに必要な保持時間(掃引): 抑制900ms→${h900}ms / 抑制${api.RING_RUN_REARM_MS}ms→${h1200}ms`);
-    check("1200 は 900 より厳しい(同じ外し方でも走り直さない領域が広い)",
-      h900 !== null && h1200 !== null && h1200 > h900, `900→${h900}ms / 1200→${h1200}ms`);
+    const h900 = firstRerunHold(900), hNow = firstRerunHold(api.RING_RUN_REARM_MS);
+    console.log(`  走り直しに必要な保持時間(掃引): 抑制900ms→${h900}ms / 抑制${api.RING_RUN_REARM_MS}ms→${hNow}ms`);
+    check("いまの抑制は 900ms より厳しい(同じ外し方でも走り直さない領域が広い)",
+      h900 !== null && hNow !== null && hNow > h900,
+      `900→${h900}ms / ${api.RING_RUN_REARM_MS}→${hNow}ms`);
     check("走り直しの境目は「生の外れ 800ms は走らず 1000ms は走る」の間にある",
-      h1200 > 800 && h1200 <= 1000, `${h1200}ms`);
-    check("1200 なら生の外れ 800ms までは走り直さない",
+      hNow > 800 && hNow <= 1000, `${hNow}ms`);
+    check("いまの抑制なら生の外れ 800ms までは走り直さない",
       e650.runs === 1 && e800.runs === 1, `650ms:${e650.runs}回 / 800ms:${e800.runs}回`);
-    check("1200 でも生の外れ 1000ms 以上なら走り直す(離れて戻ったことは伝える)",
+    check("いまの抑制でも生の外れ 1000ms 以上なら走り直す(離れて戻ったことは伝える)",
       e1000.runs === 2, `${e1000.runs}回`);
+    // 【D-17・τ と抑制を対に縛る本体】走り直しの境目は「**生の音程**が何 ms 外れて戻ると
+    // 走りが再生され直すか」＝画面に出る側の性質で、**§1.11 が値を持つ**（実装に対応する
+    // 定数は無い。τ と抑制の2つから決まる）。ここは**掃引した実測**とそれを突き合わせる。
+    //
+    // これが対を守る仕組み: τ を動かすと EMA の尾（τ·ln(15/判定線)）が動き、境目 = 抑制 − 尾 が
+    // ずれる。**抑制を一緒に動かして境目を戻さない限りここが落ちる。** 逆も同じ。
+    // 期待値は実装の定数からの逆算ではなく**規範に書かれた別の数**なので恒真ではない（罠3）。
+    //
+    // 【前版の失敗を残す】D-17 の初版はここを「境目 == ceil((抑制 − 尾)/10)*10」と書いた。
+    // 尾は連続時間の理論値なのに、掃引は 10ms 格子・シミュレータは 16.67ms フレームで
+    // 量子化されている。τ=60 では偶然一致したが、**τ=80/抑制=1140 という正当な組で
+    // 誤って赤になった**（掃引 990 / 理論の格子 980）。**「たまたま合う式」を検査にしない。**
+    {
+      const mh = /\*\*走り直しの境目 = `([\d.]+)ms`\*\*/.exec(dsRing);
+      check("D-17: DESIGN-SYSTEM §1.11 から走り直しの境目を読めている(空回りしていない)",
+        !!mh, mh ? `${mh[1]}ms` : "節または行が見つからない");
+      check("D-17: 掃引した走り直しの境目は §1.11 の値と一致する(τ と抑制は対で選ぶ)",
+        !!mh && hNow === parseFloat(mh[1]),
+        `掃引 ${hNow}ms / 規範 ${mh ? mh[1] : "?"}ms（τ=${api.RING_SMOOTH_TAU_MS} / 抑制=${api.RING_RUN_REARM_MS}）`);
+    }
   }
-  check("RING_RUN_REARM_MS は 1200", api.RING_RUN_REARM_MS === 1200, String(api.RING_RUN_REARM_MS));
   {
     const INIT = { runFrom: null, outSince: -Infinity };
     // 初回の到達は必ず走る(進捗0から)
@@ -5759,11 +5958,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 【D-7 2026/08/23 本人指示で書き換え】面の作法は**罫の1つだけ**になった(沈める作法は使い手ゼロ → 定義ごと削除)。
     // 【D-10 2026/08/26 本人裁定で再び2つ】罫(計測 / リード / セッション詳細 / すべてのセッション)と
     // カード(My Data / 分析タブ)。**入れ子にしない**ので、どちらが勝つかは行の順序に依存しない。
-    const expectCard = [".card", ".surf-rule .card", ".surf-card .card"];
+    // 【D-15 §3】累計カードだけ地を濃紺にする例外(.surf-card .card.card-accent)。
+    // **地しか持たない**ことは 16b(下)が名指しで見る。ここは集合に入れるだけ。
+    const expectCard = [".card", ".surf-rule .card", ".surf-card .card", ".surf-card .card.card-accent"];
     const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
     // カードの作法が持つもの: 地そのもの(.surf-card)と、小さいカード(.rowcard)。
-    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .rowcard"];
+    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .rowcard"];
     const expectRowCard  = [".surf-card .rowcard"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
@@ -6171,6 +6372,40 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       /if \(selectedSession\) \{[\s\S]{0,600}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{\(\) => setSelectedSessionId\(null\)\}>\s*\r?\n\s*<SessionDetailView/.test(lab));
     check("D-10: すべてのセッションも罫の作法(.surf-rule)のまま",
       /if \(allSessionsOpen\) \{[\s\S]{0,700}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{closeAllSessions\}>\s*\r?\n\s*<AllSessionsPage/.test(lab));
+
+    // --- 【D-14 2026/08/27 本人指示】一覧は**先頭から**始まる ---------------------
+    // 本人「すべてのセッションを mydata 画面で下にスクロールした状態で開くと、
+    // セッション一覧も下の方から始まるので、開いたら一番上が開かれるように」。
+    // 早期 return で同じ document を描き替えるだけなので、window のスクロール位置は
+    // そのまま引き継がれる。**開くときに先頭へ送る**のと**戻るときに元へ戻す**は対。
+    //
+    // **この節が名乗れないこと**(罠1): 実機で先頭が見えること。ここは配線しか見ていない
+    // (Chrome 375×812 の実測は D-14 の完了記録に置いた)。
+    {
+      const open = (/const openAllSessions = \(\) => \{[\s\S]*?\n  \};/.exec(lab) || [""])[0];
+      // 控える → 先頭へ送る → 開く。**この順**でないと、控える前に 0 で潰れる。
+      check("D-14: 一覧を開く手は「控える → 先頭へ送る → 開く」の順で書かれている",
+        /(\w+)\.current = window\.scrollY;\s*\r?\n\s*window\.scrollTo\(0, 0\);\s*\r?\n\s*setAllSessionsOpen\(true\);/.test(open),
+        open.replace(/\s+/g, " ").slice(0, 160) || "openAllSessions を取れなかった");
+      // 入口はこの1本に寄っている(直に setAllSessionsOpen(true) を書く経路を残さない)。
+      check("D-14: 一覧を開く経路は1本だけ(素の setAllSessionsOpen(true) を別に持たない)",
+        /onOpenAllSessions=\{openAllSessions\}/.test(lab)
+        && (codeOf(lab).match(/setAllSessionsOpen\(true\)/g) || []).length === 1,
+        `${(codeOf(lab).match(/setAllSessionsOpen\(true\)/g) || []).length}箇所`);
+      // **戻ったときに先頭へ飛ばさない。** 控えた位置へ戻す(これが無いと別の不満になる)。
+      // 使う ref は開く手が控えたものと**同じ**でなければ意味がない ── 綴りを突き合わせる。
+      const ref = (/(\w+)\.current = window\.scrollY;/.exec(open) || [])[1] || null;
+      const eff = (/useEffect\(\(\) => \{\s*\r?\n\s*if \(allSessionsOpen\) return;[\s\S]*?\}, \[allSessionsOpen\]\);/.exec(lab) || [""])[0];
+      check("D-14: My Data へ戻ったときは控えた位置へ戻す(先頭に飛ばさない)",
+        ref !== null && eff.length > 0
+        && new RegExp(`const y = ${ref}\\.current;`).test(eff)
+        && /if \(y > 0\) requestAnimationFrame\(\(\) => window\.scrollTo\(0, y\)\);/.test(eff),
+        eff.replace(/\s+/g, " ").slice(0, 200) || "復元の効果を取れなかった");
+      // 一覧 → セッション詳細 → 一覧の往復では走らない(allSessionsOpen が true のまま)。
+      // 依存が [allSessionsOpen] であることがその保証。
+      check("D-14: 復元は allSessionsOpen が落ちたときだけ走る(一覧⇄詳細の往復で位置を奪わない)",
+        /if \(allSessionsOpen\) return;/.test(eff) && /\}, \[allSessionsOpen\]\);/.test(eff));
+    }
   }
   check("D-7: surf-sunk を名乗る要素はもうどこにも無い",
     !/className="surf-sunk"/.test(src));
@@ -6259,7 +6494,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // .card の開きタグを切り出し、その style に地・枠・padding が無いことを見る。
       const bad = [];
       for (const b of bodies) {
-        for (const m of b.body.matchAll(/<div className="card"([^>]*)>/g)) {
+        for (const m of b.body.matchAll(/<div className="card(?: [a-z-]+)*"([^>]*)>/g)) {
           if (/background|border(?!Radius)|padding/i.test(m[1])) bad.push(`${b.n}: ${m[1].replace(/\s+/g, " ").slice(0, 90)}`);
         }
       }
@@ -6538,7 +6773,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       const body = bodyOf(name);
       check(`D-4: ${name} はカードで群を作る(正典 #15a)`,
         /className="card"/.test(body), (body.match(/className="[^"]*"/g) || []).join(" / ").slice(0, 120));
-      const bad = [...body.matchAll(/<div className="card"([^>]*)>/g)]
+      const bad = [...body.matchAll(/<div className="card(?: [a-z-]+)*"([^>]*)>/g)]
         .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
       check(`D-4: ${name} の .card にインラインの地・枠・padding が無い(作法を殺していない)`,
         bad.length === 0, bad.map((m) => m[1].replace(/\s+/g, " ").slice(0, 80)).join(" | ") || "0件");
@@ -12129,8 +12364,12 @@ let METRO_SIGS_ALL = [];
         `${(mpSrc.match(/right: `calc\(50% \+ \$\{rowWCss \/ 2\}px \+ var\(--sp-3\) \* \$\{METRO_SCALE\}\)`/g) || []).length}箇所(押せる版・押せない版の2つ)`);
       // 呼び出し側: 計測タブだけが渡す。行き先はテンポ拍子シート。
       const mv = code.slice(code.indexOf("function MeasureView"));
+      // 【D-15 §2(H) で綴りが変わった】無名関数を直接渡すと MetroPendulumMemo の memo が
+      // 毎レンダー素通りになるので、useCallback で固めた openTempoSheet を渡す形にした。
+      // 見ているのは「渡す口が1つあり、その中身がテンポ拍子シートを開く」の2段。
       check("F-91: 計測タブは onOpenSheet でテンポ拍子シートを開く",
-        /onOpenSheet=\{\(\) => setTempoSheetOpen\(true\)\}/.test(mv));
+        /onOpenSheet=\{openTempoSheet\}/.test(mv)
+        && /const openTempoSheet = useCallback\(\(\) => setTempoSheetOpen\(true\), \[\]\);/.test(mv));
       check("F-91: テンポ数値(♩=n)からの入口も残っている",
         /aria-label="テンポと拍子" aria-expanded=\{tempoSheetOpen\}/.test(mv));
     }
@@ -14266,8 +14505,16 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       check("26.3 D-1: 取り込みの語は浮かせるボタンが持つ(見出しの行には無い)",
         /label=\{isAnalyzingUpload \? "解析中…" : "録音を取り込む"\}/.test(myDataPage)
         && !/取り込み/.test(allSessionsPage), ops.join(" / "));
-      check("26.3 D-1: 選択の語は一覧の画面のヘッダーが持つ",
-        ops.includes("選択") && allSessionsPage.includes("選択"), ops.join(" / "));
+      // 【D-14 2026/08/27 本人指示で書き換え】本人「すべてのセッションの『選択』は
+      // 削除機能しかないのでゴミ箱アイコン(これにはカードとか無駄につけない)に変更」。
+      // **語が消えたので「語がある」という主張は成り立たない。** 正典 案K の .ops に
+      // 「選択」が居ることは正典の事実として残るので、そこは読めることだけを言い、
+      // 実装側は「入口が同じ画面にあり、言葉は aria-label が運ぶ」へ主張を移す。
+      check("26.3 D-14: 正典(案K)の .ops に「選択」の語が読める(正典の側は変わっていない)",
+        ops.includes("選択"), ops.join(" / "));
+      check("26.3 D-14: 実装からは「選択」の語が消えた(ゴミ箱アイコンへ。本人指示)",
+        !/選択/.test(codeOf(allSessionsPage).replace(/aria-label="[^"]*"/g, "")),
+        (codeOf(allSessionsPage).match(/.{0,24}選択.{0,24}/g) || []).join(" | "));
       check("26.3 N-10: 塗りの「録音をアップロード」ボタンは形言語ごと置き換わった(案K に塗りは無い)",
         !codeOf(allSessionsPage).includes("録音をアップロード")
         && !/background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(codeOf(allSessionsPage)));
@@ -14275,18 +14522,47 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       // 【審査で訂正 2026/08/17】初版は style の式をそのまま錨にしていたため、
       // §5 を満たすための minWidth を足すと**この検査が落ちる**形になっていた
       // (「正しい修正を落とす検査」= 罠4)。錨は呼び出し・文言・入口だけにする。
-      // 【D-1 2026/08/22】「選択」は一覧の画面のヘッダー行(戻る導線の隣)へ移った。
+      // 【D-1 2026/08/22】入口は一覧の画面のヘッダー行(戻る導線の隣)へ移った。
       // 入口を呼ぶこと・一覧と同じ画面にあることは不変。
-      check("26.3 F-108: 「選択」は一覧の画面にあり、選択モードの入口を呼ぶ",
-        /onClick=\{onStartSelect\}[\s\S]{0,300}?選択\s*\r?\n\s*<\/button>/.test(allSessionsPage));
-      // 「選択」は F-108 の当の操作。**当たり判定は縦だけでなく横も 44pt**(§5「例外なし」)。
-      // TAP_BUTTON_RESET は minHeight しか持たないので、短い文言だと横が 24px まで痩せる(実測)。
-      check("26.3 F-108: 「選択」の当たり判定は縦横とも --tap-min(§5。短い文言で横が痩せない)",
-        /onClick=\{onStartSelect\}[^>]*minWidth: "var\(--tap-min\)"/.test(allSessionsPage)
-        && /onClick=\{onStartSelect\}[^>]*justifyContent: "center"/.test(allSessionsPage));
-      check("26.3 F-108: セッションが0件・モード中は「選択」を出さない(押せない入口を作らない)",
-        /\{sessions\.length > 0 && !listMode && \(/.test(allSessionsPage)
-        && /\{sessions\.length > 0 && !listMode && \([\s\S]{0,400}?<button onClick=\{onStartSelect\}/.test(allSessionsPage));
+      // 【D-14 2026/08/27】中身が「選択」の2文字から Trash2 のアイコンへ変わった。
+      // 【D-14 の変異試験 N3 で直した】初版は `<button` と `onClick={onStartSelect}` の
+      // **隣接**を要求していたため、`type="button"` のような**正しい属性を1つ足すだけで
+      // 3件落ちた**(罠4「正しい修正を落とす検査」)。錨は「onClick から前後へ辿って開きタグと
+      // 閉じタグを取る」形に変え、属性の並び順・数に依らないようにする。
+      {
+        const at = allSessionsPage.indexOf("onClick={onStartSelect}");
+        const bOpen = at < 0 ? -1 : allSessionsPage.lastIndexOf("<button", at);
+        const bEnd = at < 0 ? -1 : allSessionsPage.indexOf("</button>", at);
+        const entry = bOpen >= 0 && bEnd > bOpen ? allSessionsPage.slice(bOpen, bEnd + "</button>".length) : "";
+        check("26.3 D-14: 削除の入口の開きタグと閉じタグを取れている(空回りしていない)",
+          entry.length > 0 && entry.includes("onClick={onStartSelect}"), `${entry.length}文字`);
+        check("26.3 D-14: 削除の入口は一覧の画面にあり、中身はゴミ箱アイコンだけ",
+          /<Trash2 size=\{\d+\} strokeWidth=\{[\d.]+\} aria-hidden="true" \/>\s*\r?\n\s*<\/button>$/.test(entry),
+          entry.replace(/\s+/g, " ").slice(-120));
+        // 【D-14 本人「これにはカードとか無駄につけない」】装飾を1つも持たない。
+        // **入口(この操作)と一手(DeleteActionButton)の塗りの規則を混ぜない**という
+        // D-5 からの区別も、ここが崩れると消える。
+        check("26.3 D-14: ゴミ箱の入口は枠・地・ピルを1つも持たない(本人「カードとか無駄につけない」)",
+          entry.length > 0
+          && !/ctl-plain|ctl-pill|ctl-danger/.test(entry)
+          && !/border(?!Radius)|background:|boxShadow/.test(entry),
+          entry.replace(/\s+/g, " ").slice(0, 200) || "入口を取れなかった");
+        // 文字が消えた = 読み上げの手掛かりが aria-label しか無い。**空文字でも通らない**形で見る。
+        check("26.3 D-14: 文字が消えたぶん aria-label が言葉を運ぶ(アイコンだけにしない)",
+          /aria-label="([^"]{4,})"/.test(entry) && /aria-hidden="true"/.test(entry),
+          (/aria-label="([^"]*)"/.exec(entry) || [, "無し"])[1]);
+        // 当たり判定は §5「例外なし」。**当たり判定は縦だけでなく横も 44pt**。
+        // TAP_BUTTON_RESET は minHeight しか持たないので、中身が小さいと横が痩せる(実測)。
+        // アイコン1つになって見た目はさらに小さくなったので、ここは前より効いている。
+        check("26.3 F-108: 削除の入口の当たり判定は縦横とも --tap-min(§5。中身が小さくても横が痩せない)",
+          /minWidth: "var\(--tap-min\)"/.test(entry) && /justifyContent: "center"/.test(entry),
+          entry.replace(/\s+/g, " ").slice(0, 200));
+        // 0件・モード中は出さない。**開きタグの直前**が条件式であることで見る
+        // (条件式そのものが別の場所にあっても通る、という穴を作らない)。
+        check("26.3 F-108: セッションが0件・モード中は入口を出さない(押せない入口を作らない)",
+          bOpen >= 0 && /\{sessions\.length > 0 && !listMode && \(\s*\r?\n\s*$/.test(allSessionsPage.slice(0, bOpen)),
+          JSON.stringify(allSessionsPage.slice(Math.max(0, bOpen - 60), bOpen)));
+      }
     }
   }
 
@@ -14801,7 +15077,7 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     }
     {
       // 【D-9 §1】系列 → 音ごとの値。**左右のチップが同じこの1関数から引く**ので、
-      // 4つの系列すべてがここで固定されていれば式の左右で母集団が食い違わない。
+      // 系列すべてがここで固定されていれば式の左右で母集団が食い違わない。
       const day = { 0: 9, 1: 8 };
       const period = { 0: 3, 1: 4 };
       const ideal = { notes: { 0: { pitchCentsSigned: 2, centroidHz: 900 }, 1: {} } };
@@ -14810,8 +15086,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
         f("day") === day, JSON.stringify(f("day")));
       check("27.3 D-9: my平均は期間平均をそのまま返す(別の集計を作らない)",
         f("period") === period, JSON.stringify(f("period")));
-      check("27.3 D-9: ±0 は全音 0",
-        JSON.stringify(f("zero")) === '{"0":0,"1":0}');
+      // 【D-14 2026/08/27 本人指示】`±0` の枝は系列ごと消えた。**「全音 0 を返す」を
+      // 主張していた検査を、「全音 0 を返す枝がもう無い」へ裏返す。**
+      // 落ちてくる先は my平均(未知のキーは末尾の return periodByIdx)なので、
+      // 「0 で埋めた別物」を返していないことを 0 でない実測値で確かめる。
+      check('27.4 D-14: 系列 "zero" の枝はもう無い(全音 0 の定数系列を作らない)',
+        f("zero") === period && !/seriesKey === "zero"/.test(codeOf(src)),
+        JSON.stringify(f("zero")));
       check("27.3 D-9: 目安は音ごとの理想値。持たない音は入れない(その音は描かない)",
         JSON.stringify(f("reference")) === '{"0":2}');
       check("27.3 D-9: 目安の重心は centroidHz を引く(綴りの対応づけを通す)",
@@ -14821,8 +15102,17 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
 
   // --- 27.4 式の2つの系列 ─ 選択肢と落とし先(実行で検証) --------------------------
   // 【D-9 §1 2026/08/25 本人指示】比較対象を「1つ選ぶ」から**2つの系列を選ぶ式**へ。
-  // 本人指示は3つ: ①候補は その日 / my平均 / 目安 / ±0 ②一方で選ばれている系列は
-  // もう一方の選択肢から消す ③(既存の規則)押せない選択肢は出さない。
+  // 本人指示は3つ: ①候補は その日 / my平均 / 目安(【D-14】`±0` を削除)②一方で選ばれている
+  // 系列はもう一方の選択肢から消す ③(既存の規則)押せない選択肢は出さない。
+  //
+  // 【D-14 2026/08/27 本人指示で書き換えた3点】本人「±0 はグラフの軸にあるので選択肢から削除」
+  // 「8/26（その日）の（その日）は不要なので削除」。
+  //   ・候補は3つになり、`pitchOnly`(平均差分のときだけ出す)の枝は規則ごと消えた
+  //   ・`myDataSeriesOptions` / `myDataSeriesFallback` から `metricKey` の受け口が消えた
+  //     (読む理由が無くなったため)。**引数の数が減っている**ので、旧い呼び方のまま残った
+  //     検査は「hasIdeal に指標名の文字列(真値)が入る」形で**黙って通る**恐れがある。
+  //     hasIdeal = false のときに「目安」が消えることを対で見て、そこを塞ぐ
+  //   ・シート専用の綴り `myDataSeriesSheetLabel` は関数ごと畳んだ
   {
     const api = new Function(`${extractConst("MY_DATA_SERIES")}
       ${extractConst("MY_DATA_SERIES_DEFAULT")}
@@ -14830,67 +15120,91 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       ${extractFunction("myDataSeriesOptions")}
       ${extractFunction("myDataSeriesFallback")}
       ${extractFunction("myDataSeriesLabel")}
-      ${extractFunction("myDataSeriesSheetLabel")}
-      return { myDataSeriesOptions, myDataSeriesFallback, myDataSeriesLabel, myDataSeriesSheetLabel,
+      return { myDataSeriesOptions, myDataSeriesFallback, myDataSeriesLabel,
                MY_DATA_SERIES, MY_DATA_SERIES_DEFAULT, MY_DATA_SIGNED_METRIC };`)();
-    const keys = (m, hi, taken) => api.myDataSeriesOptions(m, hi, taken ?? null).map((t) => t.key).join(",");
-    check("27.4 D-9: 候補は その日 / my平均 / 目安 / ±0 の4つ",
-      api.MY_DATA_SERIES.map((x) => x.key).join(",") === "day,period,reference,zero",
+    const keys = (hi, taken) => api.myDataSeriesOptions(hi, taken ?? null).map((t) => t.key).join(",");
+    check("27.4 D-14: 候補は その日 / my平均 / 目安 の3つ(±0 は本人指示で削除)",
+      api.MY_DATA_SERIES.map((x) => x.key).join(",") === "day,period,reference",
       api.MY_DATA_SERIES.map((x) => x.key).join(","));
-    check("27.4 D-9: 平均差分のときだけ ±0 が列に増える",
-      keys("pitchCentsSigned", true) === "day,period,reference,zero"
-      && keys("hnrDb", true) === "day,period,reference",
-      `${keys("pitchCentsSigned", true)} / ${keys("hnrDb", true)}`);
+    // 【D-14】「±0 は平均差分のときだけ」という規則そのものが消えた。**規則が消えたことを
+    // 主張する**: 候補の並びが指標に依らない ── どころか、指標を受け取る口が無い。
+    check("27.4 D-14: 選択肢は指標を見ない(±0 と一緒に pitchOnly の規則ごと消えた)",
+      api.myDataSeriesOptions.length === 2
+      && !/pitchOnly/.test(codeOf(src))
+      && !api.MY_DATA_SERIES.some((t) => "pitchOnly" in t),
+      `引数 ${api.myDataSeriesOptions.length}個 / pitchOnly ${(codeOf(src).match(/pitchOnly/g) || []).length}箇所`);
     check("27.4 D-9: 目安が未設定なら「目安」を列に出さない(押せない選択肢を作らない。F-77)",
-      keys("pitchCentsSigned", false) === "day,period,zero" && keys("hnrDb", false) === "day,period",
-      `${keys("pitchCentsSigned", false)} / ${keys("hnrDb", false)}`);
+      keys(true) === "day,period,reference" && keys(false) === "day,period",
+      `${keys(true)} / ${keys(false)}`);
     // 【本人指示】「左右で同じものを選べないように、一方で選ばれているものはそもそも
     // もう一方の選択肢から削除するようにして」。
     check("27.4 D-9: もう一方で選ばれている系列は選択肢から消える",
-      keys("pitchCentsSigned", true, "day") === "period,reference,zero"
-      && keys("pitchCentsSigned", true, "zero") === "day,period,reference",
-      `${keys("pitchCentsSigned", true, "day")} / ${keys("pitchCentsSigned", true, "zero")}`);
+      keys(true, "day") === "period,reference"
+      && keys(true, "reference") === "day,period",
+      `${keys(true, "day")} / ${keys(true, "reference")}`);
     check("27.4 D-9: その日と my平均はどの条件でも残る(列が空にならない)",
-      ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"].every((m) =>
-        [true, false].every((hi) => keys(m, hi).startsWith("day,period"))));
+      [true, false].every((hi) => keys(hi).startsWith("day,period")));
     // 既定と落とし先
     check("27.4 D-9: 式の既定は その日 × my平均",
       api.MY_DATA_SERIES_DEFAULT.join(",") === "day,period", api.MY_DATA_SERIES_DEFAULT.join(","));
     check("27.4 D-9: 選べる組はそのまま残る(勝手に落とさない)",
-      api.myDataSeriesFallback(["zero", "period"], "pitchCentsSigned", true).join(",") === "zero,period"
-      && api.myDataSeriesFallback(["reference", "day"], "volumeDb", true).join(",") === "reference,day");
+      api.myDataSeriesFallback(["reference", "period"], true).join(",") === "reference,period"
+      && api.myDataSeriesFallback(["reference", "day"], true).join(",") === "reference,day");
     check("27.4 D-9: 選べなくなった系列は既定の並びの中で空いているものへ落ちる",
-      api.myDataSeriesFallback(["zero", "period"], "hnrDb", true).join(",") === "day,period"
-      && api.myDataSeriesFallback(["day", "reference"], "hnrDb", false).join(",") === "day,period",
-      `${api.myDataSeriesFallback(["zero", "period"], "hnrDb", true).join(",")} / ${api.myDataSeriesFallback(["day", "reference"], "hnrDb", false).join(",")}`);
+      api.myDataSeriesFallback(["reference", "period"], false).join(",") === "day,period"
+      && api.myDataSeriesFallback(["day", "reference"], false).join(",") === "day,period",
+      `${api.myDataSeriesFallback(["reference", "period"], false).join(",")} / ${api.myDataSeriesFallback(["day", "reference"], false).join(",")}`);
+    // 【D-14】**もう選べないキーが状態に残っていても落ちない**。組は永続化していない(検査 27.5)
+    // ので "zero" が復元されることは無いはずだが、**落とし先の規則そのものが未知のキーを
+    // 受け止められること**は、その前提とは別に成り立っていなければならない。
+    check('27.4 D-14: もう存在しない系列("zero")が組に入っていても、選べる組へ落ちる',
+      api.myDataSeriesFallback(["zero", "period"], true).join(",") === "day,period"
+      && api.myDataSeriesFallback(["zero", "zero"], false).join(",") === "day,period",
+      `${api.myDataSeriesFallback(["zero", "period"], true).join(",")} / ${api.myDataSeriesFallback(["zero", "zero"], false).join(",")}`);
     // **左右が同じ値になる組は作れない**(選択肢から消す規則と、落とし先の規則の両方で塞ぐ)。
     check("27.4 D-9: 同じ系列を左右に置いた組は必ず別の組へ落ちる",
-      [["day", "day"], ["period", "period"], ["zero", "zero"]].every((pr) => {
-        const out = api.myDataSeriesFallback(pr, "pitchCentsSigned", true);
+      [["day", "day"], ["period", "period"], ["reference", "reference"]].every((pr) => {
+        const out = api.myDataSeriesFallback(pr, true);
         return out[0] !== out[1] && out[0] !== null && out[1] !== null;
       }));
-    check("27.4 D-9: どの指標・どの目安の有無でも、落とし先は必ずその場で選べる組になる",
-      ["pitchCentsSigned", "hnrDb", "spectralCentroidHz", "volumeDb"].every((m) =>
-        [true, false].every((hi) =>
-          [["zero", "reference"], ["reference", "zero"], ["day", "day"], [null, null]].every((pr) => {
-            const out = api.myDataSeriesFallback(pr, m, hi);
-            const avail = api.myDataSeriesOptions(m, hi, null).map((t) => t.key);
-            return avail.includes(out[0]) && avail.includes(out[1]) && out[0] !== out[1];
-          }))));
-    check("27.4 D-9: ±0 が付くのは MY_DATA_SIGNED_METRIC の1箇所で決まる(綴りを2箇所に持たない)",
-      api.MY_DATA_SIGNED_METRIC === "pitchCentsSigned"
-      && api.MY_DATA_SERIES.filter((t) => t.pitchOnly).length === 1);
-    // 綴り: その日だけ中身が日付。シートでは役目を添える(日付だけでは何の系列か読めない)。
+    check("27.4 D-9: どの目安の有無でも、落とし先は必ずその場で選べる組になる",
+      [true, false].every((hi) =>
+        [["zero", "reference"], ["reference", "zero"], ["day", "day"], [null, null]].every((pr) => {
+          const out = api.myDataSeriesFallback(pr, hi);
+          const avail = api.myDataSeriesOptions(hi, null).map((t) => t.key);
+          return avail.includes(out[0]) && avail.includes(out[1]) && out[0] !== out[1];
+        })));
+    // 【D-14】MY_DATA_SIGNED_METRIC は**残る**。読み手が ±0 から中央線へ移っただけで、
+    // 「平均差分だけは中央線が絶対の 0 / 他は描いている値の平均」という規則は生きている。
+    // **定義を言い換えるのではなく、その規則を実行で**確かめる(平均差分は母集団に依らず 0、
+    // 他の指標は母集団の平均 = 5 と 9 の平均 7)。定数を消すと myDataCenterValue が
+    // 組み立たず runFn が ok:false を返すので、ここが落ちる。
+    {
+      const center = new Function(`${extractConst("MY_DATA_SIGNED_METRIC")}
+        ${extractFunction("myDataCenterValue")} return myDataCenterValue;`)();
+      const r0 = runFn(center, api.MY_DATA_SIGNED_METRIC, [{ 0: 5 }, { 0: 9 }]);
+      const r1 = runFn(center, "hnrDb", [{ 0: 5 }, { 0: 9 }]);
+      check("27.4 D-14: MY_DATA_SIGNED_METRIC の読み手は中央線へ移った(±0 と一緒に消していない)",
+        r0.ok && r0.v === 0 && r1.ok && r1.v === 7,
+        `${shownOf(r0)} / ${shownOf(r1)}`);
+    }
+    // 綴り: その日だけ中身が日付。
+    // 【D-14 本人指示】シート専用の綴り(「8/24（その日）」)は**やめた**ので、
+    // チップとシートの行は**同じ1関数**から出る。関数が2つに割れたら落ちる形で縛る。
     check("27.4 D-9: その日のチップは日付そのもの / 他は固定の綴り",
       api.myDataSeriesLabel("day", "8/24") === "8/24"
       && api.myDataSeriesLabel("period", "8/24") === "my平均"
-      && api.myDataSeriesLabel("zero", "8/24") === "±0"
       && api.myDataSeriesLabel("reference", "8/24") === "目安",
       `${api.myDataSeriesLabel("day", "8/24")} / ${api.myDataSeriesLabel("period", "8/24")}`);
-    check("27.4 D-9: シートの行はその日だけ役目を添える(「8/24（その日）」)",
-      api.myDataSeriesSheetLabel("day", "8/24") === "8/24（その日）"
-      && api.myDataSeriesSheetLabel("period", "8/24") === "my平均",
-      api.myDataSeriesSheetLabel("day", "8/24"));
+    check("27.4 D-14: シートの行にも「（その日）」を添えない(本人指示。綴りはチップと同じ1関数)",
+      api.myDataSeriesLabel("day", "8/26") === "8/26"
+      // 【罠9 / LOOP.md】「綴りが無いこと」は **codeOf() を通してから**見る。
+      // 通さないと、経緯をコメントに書き残しただけで落ちる。
+      && !/（その日）/.test(codeOf(src))
+      && !/myDataSeriesSheetLabel/.test(codeOf(src)),
+      `${api.myDataSeriesLabel("day", "8/26")} / 「（その日）」${(codeOf(src).match(/（その日）/g) || []).length}箇所`);
+    check("27.4 D-14: 「±0」という綴りはもう画面に出ない(本人指示で選択肢ごと削除)",
+      !/±0/.test(codeOf(src)), (codeOf(src).match(/.{0,20}±0.{0,20}/g) || []).join(" | "));
     // 本人指示の綴り「自分の平均 → my平均」。**画面に出る文字**を綴りで固定する(罠6)。
     check("27.4 D-9: 「自分の平均」という綴りはもう画面に出ない(本人指示で my平均 へ)",
       !/自分の平均/.test(codeOf(src)), "");
@@ -15000,7 +15314,7 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.4c 同じ役割の「条件」ラベル(PIVOT)も同時に消えている",
       !/>条件</.test(codeOf(src)));
     check("27.4c D-9: それでも系列は**選べる**(ラベルだけを消したのであって機能は残っている)",
-      /myDataSeriesOptions\(chartMetric\.key, hasIdeal, pair\[sheetSide === 0 \? 1 : 0\]\)/.test(myDataSection)
+      /myDataSeriesOptions\(hasIdeal, pair\[sheetSide === 0 \? 1 : 0\]\)/.test(myDataSection)
       && /setSeriesAt\(sheetSide, k\)/.test(myDataSection));
     check("27.4c それでも PIVOT の**条件チップ**は残っている(ラベルだけを消した)",
       /pivotFilters\.map\(/.test(srcOfFn(src, "AnalysisLabView")));
@@ -15220,7 +15534,7 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       && (codeOf(myDataSection).match(/buildNoteMatrix\(/g) || []).length === 1,
       `${(codeOf(myDataSection).match(/buildNoteMatrix\(/g) || []).length}箇所`);
     check("27.7 D-9: 選べない系列が選ばれたまま残らない(状態そのものではなく落とし先を使う)",
-      /const pair = myDataSeriesFallback\(pairRaw, chartMetric\.key, hasIdeal\);/.test(myDataSection)
+      /const pair = myDataSeriesFallback\(pairRaw, hasIdeal\);/.test(myDataSection)
       // 描画側は pairRaw を直接読まない。生の状態が出てよいのは
       // **宣言**と**落とし先へ渡す1箇所**の2つだけ(setter は setPairRaw で別の綴り)。
       && (codeOf(myDataSection).match(/pairRaw/g) || []).length === 2,
@@ -15615,12 +15929,42 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.10 D-10 §4: その配線がカレンダーへ渡っている(押す側と開く側がつながっている)",
       /onToggleDay=\{toggleDay\}/.test(myDataSection) && /openDayKey=\{openDayKey\}/.test(myDataSection)
       && /onClick=\{\(\) => onToggleDay\(c\.key\)\}/.test(calCard));
-    // 閉じる3つ目: My Data の他の場所。**除くのはマスと枠の中だけ**。
+    // 閉じる3つ目: My Data の他の場所。**除くのは押せる日と枠の中だけ**。
     // stopPropagation は使わない(伝播に依存している既存の仕組みを壊しうる。罠8 / F-59 の周辺)。
-    check("27.10 D-10 §4: 他の場所を押すと閉じる(除くのはカレンダーのマスと開いた枠の中だけ)",
-      /if \(calendarGridRef\.current && calendarGridRef\.current\.contains\(t\)\) return;/.test(myDataSection)
-      && /if \(dayPanelRef\.current && dayPanelRef\.current\.contains\(t\)\) return;/.test(myDataSection)
-      && /<div onClick=\{closeDayIfOutside\}/.test(myDataSection));
+    //
+    // 【D-14 2026/08/27 本人指示で書き換え】以前はカレンダーの grid 全体(ref.contains)を
+    // 除いていた。本人「カレンダーの有効ではない日付(セッションがない)を押しても閉じるように。
+    // カレンダーが画面に占める割合が大きいので、カレンダーを丸ごとタップしても閉じないように
+    // すると、どこをタップしても閉じる感覚がなくなるから」。
+    // **この節が名乗れないこと**(罠1): 実際に押したときに閉じるかどうか。ここが見るのは
+    // 「除外の宛先が押せる日のボタン**だけ**である」という配線で、実際の開閉は
+    // Browser ペインの実測(D-14 の完了記録)が受け持つ。
+    {
+      const attr = (/const CALENDAR_DAY_ATTR = "([^"]+)";/.exec(src) || [])[1] || null;
+      check("27.10 D-14: 押せる日の目印は定数1つで決まる(描く側と閉じる側が別の綴りを持たない)",
+        attr !== null, `CALENDAR_DAY_ATTR=${attr}`);
+      check("27.10 D-14: 他の場所を押すと閉じる(除くのは押せる日と開いた枠の中だけ)",
+        attr !== null
+        && /if \(t\?\.closest\?\.\(`\[\$\{CALENDAR_DAY_ATTR\}\]`\)\) return;/.test(myDataSection)
+        && /if \(dayPanelRef\.current && dayPanelRef\.current\.contains\(t\)\) return;/.test(myDataSection)
+        && /<div onClick=\{closeDayIfOutside\}/.test(myDataSection)
+        // 除外は**2つだけ**。3つ目の `return;` を足せば落ちる。
+        && (codeOf(/const closeDayIfOutside = \(e\) => \{[\s\S]*?\n  \};/.exec(myDataSection)?.[0] || "")
+            .match(/return;/g) || []).length === 3,
+        (/const closeDayIfOutside = \(e\) => \{[\s\S]*?\n  \};/.exec(myDataSection)?.[0] || "取れなかった")
+          .replace(/\s+/g, " ").slice(0, 200));
+      // 目印を持つのは**記録のある日のボタンだけ**。記録が0件の日の <div> や空白のマスに
+      // 付いたら、その日を押しても閉じなくなる(本人指示の逆)。
+      check("27.10 D-14: 目印を持つのは記録のある日のボタン1箇所だけ(記録の無い日・空白のマスは持たない)",
+        attr !== null
+        && (codeOf(calCard).match(/CALENDAR_DAY_ATTR/g) || []).length === 1
+        && /onClick=\{\(\) => onToggleDay\(c\.key\)\}[\s\S]{0,400}?\{\.\.\.\{ \[CALENDAR_DAY_ATTR\]: "" \}\}/.test(calCard),
+        `${(codeOf(calCard).match(/CALENDAR_DAY_ATTR/g) || []).length}箇所`);
+      // 【本人指示の当の変更】マス目の器(grid)を丸ごと除く作りへ戻していない。
+      check("27.10 D-14: カレンダーのマス目全体を除く作り(grid の ref.contains)へ戻っていない",
+        !/calendarGridRef/.test(code) && !/gridRef/.test(codeOf(calCard)),
+        (code.match(/calendarGridRef/g) || []).length + "箇所");
+    }
     check("27.10 D-10 §4: 閉じる判定に stopPropagation を使っていない",
       !/stopPropagation/.test(code) && !/stopPropagation/.test(codeOf(calCard)));
     // (4) 最大3件とスクロール。上限 192px は凍結仕様 §4 / 正典 S1open.dc.html の max-height。
@@ -15690,10 +16034,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.10 D-10 §2.3: すべてのセッションの行は小カード(.rowcard)",
       /className="rowcard sans"[\s\S]{0,400}?すべてのセッション \{totalSessionCount\} 件/.test(myDataSection));
     // (8) 累計の数字は 26px・字間 −.02em(§4.4「24px以上の数値」)。単位だけ字間を 0 に戻す。
+    // 【D-15 §3 で色だけ変わった】地が濃紺になったので、数字は --c-on-accent、
+    // 単位とラベルは --c-on-accent-dim。**寸法・字間は1つも変えていない**ので
+    // そこは従来のまま見る(色を変えたぶんだけ期待値を動かした)。
     check("27.10 D-10 §2.1: 累計の数字は 26px / --font-num / 字間 −.02em(§4.4)",
-      /fontFamily: "var\(--font-num\)", fontWeight: 600, color: "var\(--c-ink\)", letterSpacing: "-\.02em", fontSize: 26/.test(myDataSection));
+      /fontFamily: "var\(--font-num\)", fontWeight: 600, color: "var\(--c-on-accent\)", letterSpacing: "-\.02em", fontSize: 26/.test(myDataSection));
     check("27.10 D-10 §2.1: 単位は 12px で字間を 0 に戻す(小さい字を詰めない)",
-      /fontSize: 12, fontWeight: 400, color: "var\(--c-ink-3\)", marginLeft: 2, letterSpacing: 0/.test(myDataSection));
+      /fontSize: 12, fontWeight: 400, color: "var\(--c-on-accent-dim\)", marginLeft: 2, letterSpacing: 0/.test(myDataSection));
   }
   console.log("  -> done");
 }
@@ -15787,7 +16134,7 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     // 綴りの数ではなく **day.label を通していること**で縛る。
     check("28.2 D-9: 直近日のラベルは式のチップ・シートの行・系列名になる(「今日」と偽らない)",
       /myDataSeriesLabel\(seriesKey, day\.label\)/.test(myDataSection)
-      && /myDataSeriesSheetLabel\(o\.key, day\.label\)/.test(myDataSection)
+      && /label: myDataSeriesLabel\(o\.key, day\.label\)/.test(myDataSection)
       && /label: myDataSeriesLabel\(pair\[0\], day\.label\)/.test(myDataSection)
       && (codeOf(myDataSection).match(/day\.label/g) || []).length >= 4,
       `day.label ${(codeOf(myDataSection).match(/day\.label/g) || []).length}回`);
@@ -15920,7 +16267,9 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     opsCardBlock === null ? "範囲を取れなかった" : JSON.stringify(lab29.slice(opsCardBlock.end, opsCardBlock.end + 24)));
   check("29.2 D-10/F-120: 条件チップの行と軸の行が**同じ1枚のカードの中**にある(入れ子を数えて確かめた)",
     opsCardBlock !== null
-    && /minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*\{pivotFilters\.map\(/.test(opsCardBlock.text)
+    // 【D-14】行の直後に JSX の注釈が入り得る(チップが開閉を兼ねるようになった経緯を書いた)。
+    // 注釈1つだけを挟むのを許す ── 他の要素が入れば落ちる(隣接の主張は残る)。
+    && /minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*(\{\/\*[\s\S]*?\*\/\}\s*)?\{pivotFilters\.map\(/.test(opsCardBlock.text)
     && /gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text),
     opsCardBlock === null ? "範囲を取れなかった"
       : `チップの行 ${/\{pivotFilters\.map\(/.test(opsCardBlock.text)} / 軸の行 ${/gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text)}`);
@@ -15942,7 +16291,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     (det29.match(/className="card"/g) || []).length === 2 && /<MetricTabCard/.test(det29),
     `.card ${(det29.match(/className="card"/g) || []).length}枚 + MetricTabCard`);
   {
-    const bad = [...det29.matchAll(/<div className="card"([^>]*)>/g)]
+    const bad = [...det29.matchAll(/<div className="card(?: [a-z-]+)*"([^>]*)>/g)]
       .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
     check("29.2 D-3: .card にインラインの地・枠・padding が無い(作法を殺していない)",
       bad.length === 0, bad.map((m) => m[1].replace(/\s+/g, " ").slice(0, 80)).join(" | ") || "0件");
@@ -16547,12 +16896,18 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
         new RegExp(`background: "var\\(--c-accent-tint\\)", border: "1px solid transparent",\\s*\\r?\\n\\s*borderRadius: "var\\(--r-pill\\)", padding: "${chipA1[1]}",\\s*\\r?\\n\\s*fontSize: ${chipA1[2]}, fontWeight: ${chipA1[3]}, color: "var\\(--c-accent\\)"`).test(lab32)
         && /--r-pill:\s*999px/.test(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")),
         (lab32.match(/borderRadius: "var\(--r-[a-z]+\)", padding: "4px 11px"/g) || []).join(" | "));
-      // 「編集」は 10px / --c-accent(本人がキャンバスで縮小した)。
+      // 【D-14 2026/08/27 本人指示で書き換え】本人「条件の箇所にある編集を削除」。
+      // 正典 A1 は今も「編集」を 10px / --c-accent で持っているが、**実装は本人指示で
+      // 撤去した**ので、ここは「正典と同じ寸法である」ではなく
+      // **「正典にある語が実装から消えている」**を主張へ反転する(正典より本人指示が上位)。
       const editA1 = /font-size: (\d+)px; color: var\(--c-accent\)">編集</.exec(a1) || [];
-      check("32.1 D-10: 「編集」の大きさと色は正典と同じ(10px / --c-accent)",
-        editA1[1] === "10"
-        && new RegExp(`fontSize: ${editA1[1]}, color: "var\\(--c-accent\\)"`).test(lab32),
-        `正典=${editA1[1]}px`);
+      check("32.1 D-14: 正典 A1 の「編集」を読めている(空回りしていない)",
+        editA1[1] === "10", `正典=${editA1[1]}px`);
+      check("32.1 D-14: 実装の条件行から「編集 / 閉じる」の語が消えている(本人指示)",
+        !/>編集</.test(codeOf(lab32)) && !/編集/.test(codeOf(lab32).slice(
+          codeOf(lab32).indexOf("pivotFilters.map("),
+          codeOf(lab32).indexOf("pivotFilters.length === 0"))),
+        (codeOf(lab32).match(/.{0,20}編集.{0,20}/g) || []).join(" | "));
       // 説明の綴り。「条件」→「抽出条件」(本人がキャンバスで直した語)。
       check("32.1 D-10: 説明の綴りは正典 A1 と同じ(「抽出条件・…」)",
         a1.includes("抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します")
@@ -16672,8 +17027,20 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
     check("32.5 チップの文字は pivotFilterChipText の1箇所から出る(畳み方を2箇所に書かない)",
       /pivotFilterChipText\(flt, PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === flt\.dimKey\)\)/.test(lab32)
       && (codeOf(lab32).match(/pivotFilterChipText\(/g) || []).length === 1);
-    check("32.5 チップを押すと編集が開く(行き止まりを作らない)",
-      /onClick=\{\(\) => setFilterEditorOpen\(true\)\}/.test(lab32));
+    // 【D-14 2026/08/27 本人指示で書き換え】行の右端の「編集 / 閉じる」を消したので、
+    // **開く手も閉じる手もチップが持つ**しかない。開くだけだと編集を畳めなくなる
+    // (機能は減らさない、が本人の決定)。
+    check("32.5 D-14: チップを押すと編集が開き、もう一度押すと閉じる(閉じる手を失っていない)",
+      /onClick=\{\(\) => setFilterEditorOpen\(\(v\) => !v\)\}/.test(lab32)
+      // 開きっぱなしにする形(true 固定)へ戻していない。
+      && !/setFilterEditorOpen\(true\)\}/.test(lab32),
+      (lab32.match(/setFilterEditorOpen\([^)]*\)/g) || []).join(" | "));
+    // 条件の**値を変える経路**が消えていないこと。「編集」を消したのは入口の見た目の話で、
+    // 12次元の選択・値チップ・範囲入力・条件の削除は編集の中にそのまま残っている。
+    check("32.5 D-14: 条件の値を変える手段は残っている(次元の選択・範囲入力・条件の削除)",
+      /ariaLabel="絞り込む次元"/.test(lab32)
+      && /aria-label="このフィルターを削除"/.test(lab32)
+      && /style=\{DATE_INPUT_FIT\}/.test(lab32));
     // 【D-5 2026/08/23 本人指示で書き換え】本人「絞り込みで追加できる条件が音名だけなのでそれ以外も
     // 元の通り追加」。実際には次元は変えられたが、「＋」が**必ず音名を足す**うえに
     // 変え方が畳んだ編集の中に隠れていたので、音名しか足せないように見えていた。
@@ -16776,9 +17143,22 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
         return { move: c[1], dur: c[2], curve: c[3], delay: c[4], owner: c[5] };
       });
   })();
-  check("33.0 DESIGN-SYSTEM §1.11 の表から4つの動きを読めている(空回りしていない)",
-    canonRows.length === 4 && canonRows.every((r) => r.owner.startsWith(".day-panel")),
+  // 【D-14 で行が増えた】表は `.day-panel`(枠) と `.sheet-*`(下端シート) の2群を持つ。
+  // **群ごとに読む宣言が違う**: 枠は transition、シートは animation
+  // (§1.11「シートは transition ではなく animation」。理由は D-11 の1フレーム遅れ)。
+  // 行の総数は釘付けしない(罠4)。枠の4行は「開/閉 × 器/中身」で**それ自体が不変条件**なので
+  // ここだけ数を言う。
+  const panelRows = canonRows.filter((r) => r.owner.startsWith(".day-panel"));
+  const sheetRows = canonRows.filter((r) => r.owner.startsWith(".sheet-"));
+  check("33.0 DESIGN-SYSTEM §1.11 の表から枠の4つの動きを読めている(空回りしていない)",
+    panelRows.length === 4,
     canonRows.map((r) => `${r.owner}=${r.dur}/${r.delay}`).join(" ") || "0行");
+  check("33.0 D-14: 表にシートの行があり、枠と同じ4列(時間・曲線・遅延・持ち主)で読めている",
+    sheetRows.length > 0 && sheetRows.every((r) => /^\d+ms$/.test(r.dur) && /^cubic-bezier\(/.test(r.curve) && /^\d+ms$/.test(r.delay)),
+    sheetRows.map((r) => `${r.owner}=${r.dur}/${r.curve}/${r.delay}`).join(" ") || "0行");
+  check("33.0 §1.11 の表に、持ち主の分からない行が1つも無い(枠でもシートでもない行を足していない)",
+    canonRows.length === panelRows.length + sheetRows.length,
+    canonRows.filter((r) => !panelRows.includes(r) && !sheetRows.includes(r)).map((r) => r.owner).join(" "));
 
   // --- CSS を読む道具。@media の中と外を混ぜない ------------------------------
   // 先に @media ブロックを**波括弧を数えて**切り出し、地の規則から取り除く。
@@ -16826,15 +17206,18 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
     const times = [...rest.matchAll(/(?:^|\s)(\d*\.?\d+m?s)(?=\s|$)/g)].map((m) => m[1]);
     return { prop: rest.trim().split(/\s+/)[0], curve: curve && curve.replace(/\s+/g, " "), dur: toMs(times[0]), delay: toMs(times[1] ?? "0ms") };
   };
-  const transitionOf = (sel) => {
+  // 【D-14】読む宣言名を引数にした(枠は transition / シートは animation)。
+  // 名前を変えただけで、地の規則が1つであることを要求する性質は前のまま。
+  const declOf = (sel, prop) => {
     const hits = plainRules.filter((r) => r.sel === sel);
     if (hits.length !== 1) return { error: `地の規則が ${hits.length} 個` };
-    const v = (hits[0].body.match(/(?:^|;)\s*transition\s*:\s*([^;]+)/) || [])[1];
-    return v ? { parts: splitTop(v).map(parsePart) } : { error: "transition 宣言が無い" };
+    const v = (hits[0].body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`)) || [])[1];
+    return v ? { parts: splitTop(v).map(parsePart) } : { error: `${prop} 宣言が無い` };
   };
+  const transitionOf = (sel) => declOf(sel, "transition");
 
-  // --- 33.1 表の4行が、そのまま index.css の値になっている --------------------
-  for (const row of canonRows) {
+  // --- 33.1 表の枠4行が、そのまま index.css の値になっている ------------------
+  for (const row of panelRows) {
     const got = transitionOf(row.owner);
     const want = { dur: toMs(row.dur), delay: toMs(row.delay), curve: row.curve.replace(/\s+/g, " ") };
     const ok = !got.error && got.parts.length > 0
@@ -16919,6 +17302,668 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
     check("33.5 高さの実測は useLayoutEffect のまま(描画の前に走る。ここが同期再描画の要)",
       /useLayoutEffect\(\(\) => \{\s*const el = dayInnerRef\.current;\s*setDayPanelH\(el \? el\.scrollHeight : 0\);/.test(myD11));
   }
+
+  // --- 33.6 D-14 §6 下端シートが下から出る動き --------------------------------
+  // 【2026/08/27 本人指示】「選択肢が下から出てくる挙動ももっとスムーズに出てくるように変更」。
+  //
+  // **この節が名乗れないこと**(罠1):
+  //   ・「スムーズに感じる」かどうか。360ms という値が本人の実機で正しいかは**判定不能**
+  //   ・実際に補間が走ること。Browser ペインが非表示だとアニメーションは進まない(罠10)
+  //   ・**BottomSheet 以外の4枚のシート**(テンポ拍子 / リードの操作 / リード番号 / 箱を編集)。
+  //     そちらは動きを持たないままで、ここは1文字も見ていない(BACKLOG D-14a)
+  // **この節が名乗れること**: 時間・曲線・遅延が §1.11 の表と一致すること、
+  //   持ち主が CSS のクラスであってインライン style ではないこと、
+  //   動きを減らす設定で止まること、**塗り(fill-mode)を残していない**こと、
+  //   出現を transition で書き直して1フレーム遅れの作り(rAF や強制リフロー)へ
+  //   戻していないこと。
+  {
+    const bs = srcOfFn(src, "BottomSheet");
+    check("33.6 BottomSheet を走査できている(空回りしていない)", bs.length > 600, `${bs.length}文字`);
+    for (const row of sheetRows) {
+      const got = declOf(row.owner, "animation");
+      const want = { dur: toMs(row.dur), delay: toMs(row.delay), curve: row.curve.replace(/\s+/g, " ") };
+      const ok = !got.error && got.parts.length === 1
+        && got.parts.every((p) => p.dur === want.dur && p.delay === want.delay && p.curve === want.curve);
+      check(`33.6 §1.11「${row.move}」の時間・曲線・遅延が ${row.owner} と一致する(表から読んだ値で照合)`,
+        ok, got.error || got.parts.map((p) => `${p.prop} ${p.dur}ms ${p.curve} +${p.delay}ms`).join(" / "));
+      // 走り終わったあとに姿勢を残さない(§6.3「静止時に transform を残さない」)。
+      // fill-mode を足すと、シートの中から開く全画面ピッカーが position: fixed の
+      // 包含ブロックに閉じ込められる。**綴りの集合**で見る(both / forwards / backwards)。
+      const body = (plainRules.filter((r) => r.sel === row.owner)[0] || {}).body || "";
+      check(`33.6 ${row.owner} は塗り(fill-mode)を持たない(静止時に姿勢を残さない)`,
+        !/\b(both|forwards|backwards)\b/.test(body) && !/animation-fill-mode/.test(body),
+        body.replace(/\s+/g, " ").slice(0, 100));
+      // 【F-106】アプリ全体で will-change は使わない。30.1 は CSS 全体を見るが、
+      // 動きを足した当のセレクタでも名指しで見る(この行だけ足すのを見逃さない)。
+      check(`33.6 ${row.owner} は will-change を持たない(F-106)`, !/will-change/.test(body));
+      // 動きの宛先(@keyframes)が実在する。名前だけあって定義が無いと**何も動かない**のに
+      // 上の値の照合は通ってしまう(綴りだけの検査になる)。
+      const kf = (/animation:\s*([A-Za-z_][\w-]*)/.exec(body) || [])[1] || null;
+      check(`33.6 ${row.owner} が名指しする @keyframes が定義されている(名前だけ書いていない)`,
+        kf !== null && new RegExp(`@keyframes\\s+${kf}\\s*\\{`).test(noComment), `名前=${kf}`);
+    }
+    // 動きを減らす設定。**戻す先は素の姿勢**なので、止めるだけでよい
+    // (.day-panel と違い、閉じ側の姿勢を地の CSS が持っていない)。
+    {
+      const rm = atBlocks.filter((b) => /prefers-reduced-motion:\s*reduce/.test(b.cond) && /\.sheet-/.test(b.body));
+      const rmRules = rm.flatMap((b) => rulesOf(b.body));
+      for (const row of sheetRows) {
+        check(`33.6 prefers-reduced-motion: reduce が ${row.owner} の動きを止めている`,
+          rmRules.some((r) => r.sel.split(",").map((s) => s.trim()).includes(row.owner)
+            && /animation:\s*none/.test(r.body)),
+          rmRules.map((r) => r.sel).join(" | ") || "規則が無い");
+      }
+      // 地の CSS がシートに閉じ側の姿勢を持っていないこと(持つと、止めた瞬間に
+      // 「画面外に居るまま動かないシート」になる ── .day-panel-inner の透明のまま残る事故と同型)。
+      for (const row of sheetRows) {
+        const body = (plainRules.filter((r) => r.sel === row.owner)[0] || {}).body || "";
+        check(`33.6 ${row.owner} の地の規則は animation 1宣言だけ(閉じ側の姿勢を地に置かない)`,
+          body.split(";").map((s) => s.trim()).filter(Boolean).length === 1,
+          body.replace(/\s+/g, " ").slice(0, 100));
+      }
+    }
+    // §1.11 作法2。時間・曲線をインラインに書くと @media 1箇所で尊重できない。
+    check("33.6 BottomSheet の JSX に時間・曲線が1つも書かれていない(持ち主は index.css だけ)",
+      !/cubic-bezier|\d+ms|animation|transition/.test(codeOf(bs)),
+      codeOf(bs).replace(/\s+/g, " ").slice(0, 140));
+    // 宛先のクラスが両方とも付いている(CSS だけ書いて当て忘れると、何も動かないのに
+    // 上の値の照合は全部通る)。**暗幕とカードは別の役**なので両方名指しする。
+    for (const cls of sheetRows.map((r) => r.owner.replace(/^\./, ""))) {
+      check(`33.6 JSX の宛先 className="${cls}" が BottomSheet にある(CSS の書き逃げにしない)`,
+        new RegExp(`className="${cls}"`).test(bs));
+    }
+    // 【D-11 §1(a) の教訓】出現を「もう1回描いてから姿勢を変える」形で書き直していない。
+    // その形は rAF / setTimeout / 強制リフロー / マウント後にクラスを足す state を必ず伴う。
+    check("33.6 D-11 の教訓: 出現に1フレーム遅れの作り(rAF・二度描き)を持ち込んでいない",
+      !/requestAnimationFrame|setTimeout|offsetHeight|useState\(false\)/.test(codeOf(bs)),
+      codeOf(bs).replace(/\s+/g, " ").slice(0, 140));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証34: D-15（計測タブの2つの遅れ / 累計カードの色 / シートの動きを5枚へ）
+//
+// 【この節が名乗れないこと】ここで書くのは**綴りと値**だけ。
+//   ・「円が数値に追いつくように見えるか」「振り子が滑らかに見えるか」
+//     — 検査でも Chrome でも守れない。本人の実機確認が唯一のゲート（罠1 / 罠15）
+//   ・「GC が止まらなくなった」「メインスレッドが詰まらなくなった」
+//     — 実機の停止時間は1度も測れていない。ここが見るのは「確保が0本」までで、
+//       それが体感の改善につながったかは**判定不能・実機待ち**
+//   ・出現アニメーションが実際に走る様子（罠10: ペインが非表示だと進まない）
+// ============================================================
+console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カードの色 / シート5枚 ==========");
+{
+  const cssD15 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const dsD15 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const codeD15 = codeOf(src);
+
+  // --- 34.1 平滑の時定数は DESIGN-SYSTEM §1.11 が持つ（実装の外から読む・罠3） ----
+  {
+    const sec = (() => {
+      const i = dsD15.indexOf("#### チューナーの環の平滑");
+      if (i < 0) return "";
+      const j = dsD15.indexOf("\n#### ", i + 1);
+      return dsD15.slice(i, j < 0 ? undefined : j);
+    })();
+    const m = /\*\*時定数 τ = `([\d.]+)ms`\*\*/.exec(sec);
+    check("34.1 DESIGN-SYSTEM §1.11 から平滑の時定数を読めている(空回りしていない)",
+      !!m, m ? `${m[1]}ms` : "節または行が見つからない");
+    check("34.1 実装の RING_SMOOTH_TAU_MS は §1.11 の値と一致する",
+      !!m && api.RING_SMOOTH_TAU_MS === parseFloat(m[1]),
+      `実装 ${api.RING_SMOOTH_TAU_MS} / 規範 ${m ? m[1] : "?"}`);
+    // 【D-17】抑制も同じ節が持つ。**数値を2箇所に持たない**ので、旧
+    // `check("RING_RUN_REARM_MS は 1200", … === 1200)`（実装の値をテストに直書き）は撤去した。
+    const mr = /\*\*再走行の抑制 = `([\d.]+)ms`\*\*/.exec(sec);
+    check("34.1 DESIGN-SYSTEM §1.11 から再走行の抑制を読めている(空回りしていない)",
+      !!mr, mr ? `${mr[1]}ms` : "行が見つからない");
+    check("34.1 実装の RING_RUN_REARM_MS は §1.11 の値と一致する",
+      !!mr && api.RING_RUN_REARM_MS === parseFloat(mr[1]),
+      `実装 ${api.RING_RUN_REARM_MS} / 規範 ${mr ? mr[1] : "?"}`);
+    // 【D-17・これが対を守る本体】§1.11 の2つの値だけで成立条件を確かめる。
+    // 尾 = τ·ln(15/判定線)。抑制がこの窓を外れると、下の検証21 の
+    // 「走り直しの境目」2件が落ちる ── その**前に**ここが規範の段で落ちる。
+    // 期待値は実装の定数ではなく**規範に書かれた2つの数**から作るので、
+    // 片方だけ動かせば必ず割れる（両方を辻褄が合うように動かさない限り通らない）。
+    {
+      const tauDocC = m ? parseFloat(m[1]) : NaN, reDocC = mr ? parseFloat(mr[1]) : NaN;
+      const tailC = tauDocC * Math.log(15 / api.RING_IN_TUNE_CENTS);
+      check("34.1 §1.11 の τ と抑制は対として成立している(抑制 ∈ (800+尾, 1000+尾]、尾 = τ·ln(15/判定線))",
+        Number.isFinite(tauDocC) && Number.isFinite(reDocC)
+        && reDocC > 800 + tailC && reDocC <= 1000 + tailC,
+        `τ=${tauDocC} 尾=${tailC.toFixed(1)}ms → 窓 (${(800 + tailC).toFixed(1)}, ${(1000 + tailC).toFixed(1)}] / 抑制=${reDocC}`);
+    }
+    // 【D-17 で差し替えた】前版は
+    //   check("τ は「60fps で従来の α=0.15 と同じ」を満たす(見た目の速さを変えていない)")
+    // だった。これは D-15 の τ=102.55 が「**見た目を変えない**ための値」だったときの主張で、
+    // **本人裁定（2026/08/28）で τ を 60ms へ下げた時点で守るべき性質でなくなった**
+    // （いま 60fps の α は 0.2425）。持ち越すと「速くするな」を検査で固定してしまう。
+    //
+    // 代わりに、τ が**下限より上**であることを見る。下限は「速い揺らし（判定線の1.2倍/3Hz）を
+    // EMA が吸収して一度も外れない」で、これより速いと環がビブラートに追従してガタつく。
+    // **判定は 60fps で実際に EMA を回して出す**（37.9 という数値を書き写さない）。
+    // 検証21 が同じ性質をシミュレータ側で見ているが、あちらは「いまの τ で緑か」、
+    // ここは「**τ の値そのものが下限より上か**」を規範の隣で言う。
+    check("34.1 τ は「速い揺らし(判定線の1.2倍/3Hz)を吸収する」下限より上にある(速い微振動を吸収する)", (() => {
+      const dt = 1000 / 60, a = 1 - Math.exp(-dt / api.RING_SMOOTH_TAU_MS);
+      const amp = 1.2 * api.RING_IN_TUNE_CENTS;
+      let v = 0, worst = 0;
+      for (let i = 0; i * dt <= 8000; i++) {
+        const t = i * dt;
+        v += (amp * Math.sin((2 * Math.PI * 3 * t) / 1000) - v) * a;
+        worst = Math.max(worst, Math.abs(v));
+      }
+      return worst <= api.RING_IN_TUNE_CENTS;
+    })(), (() => {
+      const dt = 1000 / 60, a = 1 - Math.exp(-dt / api.RING_SMOOTH_TAU_MS);
+      let v = 0, worst = 0;
+      for (let i = 0; i * dt <= 8000; i++) {
+        const t = i * dt;
+        v += (1.2 * api.RING_IN_TUNE_CENTS * Math.sin((2 * Math.PI * 3 * t) / 1000) - v) * a;
+        worst = Math.max(worst, Math.abs(v));
+      }
+      return `τ=${api.RING_SMOOTH_TAU_MS}ms で平滑後の山 ${worst.toFixed(3)}¢ / 判定線 ${api.RING_IN_TUNE_CENTS}¢`;
+    })());
+    // 【D-17 §1 で書き直した】前版は
+    //   const at = (ms) => 1 - Math.exp(-ms / api.RING_SMOOTH_TAU_MS);
+    //   at(τ) === 1 - Math.exp(-1) ?
+    // と書いていた。at は**この検査ファイルの中で定義した関数**で、しかも
+    // at(τ) = 1 − exp(−τ/τ) は **τ の値に依らない恒等式**。審査役が τ を
+    // 0.001 / 1 / 102.55 / 500 / 1,000,000 に振ってもすべて true になることを実測した
+    // (0 のときだけ false)。**実装について何も主張していない**(罠3)。
+    //
+    // 直し方: 期待値の側ではなく**回す側**を実装から取り出す。
+    // 実装の更新文そのもの1行を new Function で組み立て、時間軸は**規範(§1.11)の τ**で刻む。
+    // これで次の変異が KILL される: 係数を固定値に戻す / dtMs との割り算を掛け算にする /
+    // 指数の符号を反転する / 更新文を消す / **App.jsx の τ だけ動かす**。
+    const ringSrc34 = codeOf(srcOfFn(src, "PitchRing"));
+    const stepSrc = (ringSrc34.match(/smoothRef\.current\.val \+= [^;]*;/) || [""])[0];
+    check("34.1 平滑の更新文を実装から1文だけ取り出せている(空回りしていない)",
+      /smoothRef\.current\.val \+=/.test(stepSrc), stepSrc.replace(/\s+/g, " ") || "取り出せない");
+    // 構築も包む(D-13a: 裸の new Function は外れるとハーネスごと落ちる)。
+    const stepFn = (() => {
+      try {
+        return new Function("RING_SMOOTH_TAU_MS", "smoothRef", "rawExact", "dtMs",
+          `${stepSrc}\nreturn smoothRef.current.val;`);
+      } catch { return null; }
+    })();
+    // 値0から目標1へ、実装の更新文だけで totalMs を steps 歩に割って進めた到達率。
+    const advance = (totalMs, steps) => {
+      const smoothRef = { current: { val: 0, t: 0, semi: 0 } };
+      let last = { ok: false, v: undefined, err: "組み立てられていない" };
+      for (let i = 0; i < steps; i++) {
+        last = runFn(stepFn, api.RING_SMOOTH_TAU_MS, smoothRef, 1, totalMs / steps);
+        if (!last.ok) return last;
+      }
+      return last;
+    };
+    {
+      // 時間軸は**規範の τ**(実装の外)。実装の τ がずれると 63.2% に着かない。
+      const tauDoc = m ? parseFloat(m[1]) : NaN;
+      const r1 = advance(tauDoc, 512), r3 = advance(3 * tauDoc, 1536);
+      check("34.1 実装の更新文に §1.11 の τ ぶんの時間を通すと 63.2% / 3τ で 95.0% に達する",
+        r1.ok && r3.ok
+        && Math.abs(r1.v - (1 - Math.exp(-1))) < 1e-9
+        && Math.abs(r3.v - (1 - Math.exp(-3))) < 1e-9,
+        `τ(規範)=${m ? m[1] : "?"}ms → ${shownOf(r1)} / 3τ → ${shownOf(r3)}`);
+      // 【D-15 §1(B) の主張そのもの】同じ経過時間なら**歩数(=レンダー回数)に依らない**。
+      // 固定係数(* 0.15)へ戻すと 1歩 0.15 / 100歩 ≒ 1.0 で大きく割れる。
+      const a1 = advance(100, 1), a100 = advance(100, 100);
+      check("34.1 同じ経過時間なら歩数によらず同じ値になる(レンダー回数ではなく時間で進む)",
+        a1.ok && a100.ok && Math.abs(a1.v - a100.v) < 1e-9,
+        `1歩=${shownOf(a1)} / 100歩=${shownOf(a100)}`);
+    }
+    // 【D-17 で言い直した】前版は「勝手に動かさない」の綴りを見ていたが、
+    // **本人裁定で動かした**ので、その綴りはもう規範に無い。いま固定したいのは
+    // (1) 体感は実機でしか判定できないこと (2) **τ と抑制が対である**という関係が
+    // 節に書き残されていること ── 次に触る人が τ だけ動かして詰まらないため。
+    check("34.1 §1.11 に「実機待ち」と「τ と抑制は対」が書いてある(次に触る人への引き継ぎ)",
+      /実機待ち/.test(sec) && /対で動く/.test(sec) && /本人裁定/.test(sec),
+      [/実機待ち/, /対で動く/, /本人裁定/].map((r) => `${r.source}:${r.test(sec)}`).join(" "));
+  }
+
+  // --- 34.2 (F) 走りのストップを React が毎フレーム書いていない -------------------
+  // 【なぜ効くか】走りの弧は左右2本 × RING_RAMP_STOPS(30) = 60個の <stop> を持ち、
+  // rAF が offset と stop-color を直接書く。JSX 側に状態で変わる値を置くと、
+  // **走りが出ていない間も毎フレーム 60個の属性を作り直す**（純粋な無駄）。
+  {
+    const ring = codeOf(srcOfFn(src, "PitchRing"));
+    const runBlock = (() => {
+      const i = ring.indexOf("runGradIds.map(");
+      if (i < 0) return "";
+      const j = ring.indexOf("</linearGradient>", i);
+      return j < 0 ? "" : ring.slice(i, j);
+    })();
+    check("34.2 (F) 走りのグラデーションの塊を切り出せている(空回りしていない)",
+      runBlock.includes("<stop") && runBlock.includes("RING_RAMP_STOPS"), `${runBlock.length}文字`);
+    check("34.2 (F) 走りの <stop> に状態で変わる値を1つも置いていない(式の埋め込みが無い)",
+      runBlock.length > 0 && !/stopColor=\{/.test(runBlock),
+      (runBlock.match(/stopColor=[^\s/>]*/g) || []).join(" "));
+    check("34.2 (F) 走りの <stop> の色は静的なトークン(--c-good)",
+      /stopColor="var\(--c-good\)"/.test(runBlock));
+    // offset は i から決まる定数式で、状態に依存しない（ここは従来のまま＝変えていない）。
+    check("34.2 (F) 走りの <stop> の offset は添字だけから決まる(状態に依存しない)",
+      /offset=\{\(i \/ \(RING_RAMP_STOPS - 1\)\)\.toFixed\(5\)\}/.test(runBlock));
+    // 色を塗る役は rAF 側にある（JSX から外したぶんが宙に浮いていないこと）。
+    check("34.2 (F) 走りの色は rAF が stop-color を直接書いて付ける(役が消えていない)",
+      /el\.setAttribute\("stop-color", `rgb\(\$\{c\[0\]\},\$\{c\[1\]\},\$\{c\[2\]\}\)`\);/.test(ring));
+  }
+
+  // --- 34.3 (H) 振り子は memo で切る / 環は切らない -------------------------------
+  // 【この検査が名乗れないこと】「再レンダーが実際に減った」ことは測っていない
+  // （Node に React は無い）。見ているのは**memo が効く形になっているか**だけ。
+  {
+    check("34.3 (H) MetroPendulum は memo で包んだ別名を持つ",
+      /const MetroPendulumMemo = memo\(MetroPendulum\);/.test(codeD15));
+    check("34.3 (H) memo は react から import している",
+      /import \{[^}]*\bmemo\b[^}]*\} from "react";/.test(codeD15));
+    const mv = codeD15.slice(codeD15.indexOf("function MeasureView"));
+    check("34.3 (H) 計測タブが描くのは memo 版だけ(素の MetroPendulum を直接描いていない)",
+      /<MetroPendulumMemo\b/.test(mv) && !/<MetroPendulum\s/.test(mv) && !/<MetroPendulum>/.test(mv),
+      (mv.match(/<MetroPendulum\w*/g) || []).join(" "));
+    // memo は props の参照が変われば素通りする。**渡す props が全部安定であること**まで見る。
+    const tag = (mv.match(/<MetroPendulumMemo[\s\S]*?\/>/) || [""])[0];
+    check("34.3 (H) 振り子へ渡す props の中に無名関数・オブジェクト・配列リテラルが1つも無い",
+      tag.length > 0 && !/=\{\s*(\(|function\b|\{|\[)/.test(tag),
+      tag.replace(/\s+/g, " ").slice(0, 160));
+    check("34.3 (H) 関数の props は useCallback で固めてある(毎レンダー作り直していない)",
+      /const getMetroBeatDur = useCallback\(/.test(codeD15)
+      && /const getMetroPhase = useCallback\(/.test(codeD15)
+      && /const openTempoSheet = useCallback\(\(\) => setTempoSheetOpen\(true\), \[\]\);/.test(codeD15));
+    // 【凍結仕様】PitchRing には掛けない（note / centsOffset が毎フレーム変わるので
+    // 比較のぶん仕事が増えるだけ）。memo を広げる変異をここで撃つ。
+    check("34.3 (H) PitchRing には memo を掛けていない(毎フレーム props が変わるので効かない)",
+      !/memo\(PitchRing\)/.test(codeD15), (codeD15.match(/memo\(\w+\)/g) || []).join(" "));
+  }
+
+  // --- 34.4 §4 シートは5枚とも同じ出方をする ------------------------------------
+  // 【集合で縛る】枚数は釘付けしない（罠4）。「正典 .sheet の角丸を持つカードは
+  // 1枚残らず .sheet-card を名乗る」「暗幕も同じ数だけある」を見る。
+  {
+    const cards = [];
+    const re = /borderRadius: "28px 28px 0 0"/g;
+    let m;
+    while ((m = re.exec(codeD15)) !== null) {
+      cards.push(codeD15.slice(codeD15.lastIndexOf("<div", m.index), m.index));
+    }
+    check("34.4 正典 .sheet の角丸を持つカードを5枚以上走査できている(空回りしていない)",
+      cards.length >= 5, `${cards.length}枚`);
+    const without = cards.filter((t) => !/className="sheet-card"/.test(t));
+    check("34.4 §4: 角丸 28px のシートは1枚残らず .sheet-card を名乗る(出方が1枚だけ違う状態を残さない)",
+      without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 80)).join(" || ") || "0枚");
+    const scrims = (codeD15.match(/className="sheet-scrim"/g) || []).length;
+    const cardCls = (codeD15.match(/className="sheet-card"/g) || []).length;
+    check("34.4 §4: 暗幕とカードは対で付いている(数が一致する)",
+      scrims === cardCls && scrims === cards.length, `暗幕 ${scrims} / カード ${cardCls} / シート ${cards.length}`);
+    // 動きの持ち主は index.css だけ（§1.11 作法2）。JSX に時間・曲線を書かない。
+    const inlineMotion = cards.filter((t) => /cubic-bezier|\d+ms|animation:/.test(t));
+    check("34.4 §4: シートの開きタグに時間・曲線を1つも書いていない(持ち主は index.css)",
+      inlineMotion.length === 0, inlineMotion.length + "枚");
+    // 名指しで、当てた4枚がそれぞれ実在すること（集合の性質だけだと1枚消しても緑になる）。
+    for (const [label, needle] of [
+      ["テンポと拍子(計測タブ)", /aria-label="テンポと拍子"[\s\S]{0,400}?className="sheet-scrim"/],
+      ["リードの操作", /aria-label="リードの操作"[\s\S]{0,400}?className="sheet-scrim"/],
+      ["リード番号を変更", /aria-label="リード番号を変更"[\s\S]{0,400}?className="sheet-scrim"/],
+      ["追加 / 箱を編集", /aria-label=\{isEdit \? "箱を編集" : "リードを追加"\}[\s\S]{0,400}?className="sheet-scrim"/],
+    ]) {
+      check(`34.4 §4: 暗幕の動きが実際に当たっている: ${label}`, needle.test(codeD15));
+    }
+  }
+
+  // --- 34.5 §3 累計カードだけ地が濃紺 -------------------------------------------
+  {
+    const noC = cssD15.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...noC.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((r) => ({ sel: r[1].split(";").pop().trim().replace(/\s+/g, " "), body: r[2] }))
+      .filter((r) => r.sel === ".surf-card .card.card-accent");
+    check("34.5 §3: 地の規則 .surf-card .card.card-accent が1つだけある(後勝ちの上書きが無い)",
+      rules.length === 1, `${rules.length}回`);
+    const body = rules.length === 1 ? rules[0].body : "";
+    const decls = body.split(";").map((s) => s.trim()).filter(Boolean).map((s) => s.split(":")[0].trim());
+    check("34.5 §3: 変えるのは地だけ(影・角丸・padding を上書きしていない)",
+      decls.length === 1 && decls[0] === "background", decls.join(" ") || "0宣言");
+    check("34.5 §3: 地は --c-accent(新しい色相を体系に増やしていない)",
+      /background:\s*var\(--c-accent\)\s*;/.test(body), body.replace(/\s+/g, " ").trim());
+    // 名乗る側は My Data の累計カード**1枚だけ**。
+    const accCards = (codeD15.match(/className="card card-accent"/g) || []).length;
+    check("34.5 §3: card-accent を名乗るカードはアプリ全体で1枚だけ",
+      accCards === 1 && (codeD15.match(/card-accent/g) || []).length === 1, `${accCards}枚`);
+    check("34.5 §3: その1枚は My Data の「累計」カード",
+      /<div className="card card-accent" style=\{\{ marginTop: 0 \}\}>\s*\r?\n[\s\S]{0,300}?>累計<\/div>/.test(codeD15));
+    // 文字色はトークンで書く。インラインに白の直値を散らさない。
+    const stockCard = (() => {
+      const i = codeD15.indexOf('className="card card-accent"');
+      return i < 0 ? "" : codeD15.slice(i, codeD15.indexOf("<PracticeCalendarCard", i));
+    })();
+    check("34.5 §3: 累計カードの中に色の直値(#fff / white / rgb())が1つも無い",
+      stockCard.length > 0 && !/#[0-9a-fA-F]{3,8}\b|["']white["']|rgba?\(/.test(stockCard),
+      (stockCard.match(/#[0-9a-fA-F]{3,8}\b|["']white["']|rgba?\([^)]*\)/g) || []).join(" ") || "0件");
+    check("34.5 §3: 累計カードの文字は --c-on-accent / --c-on-accent-dim だけを使う",
+      stockCard.length > 0
+      && (stockCard.match(/color: "var\(--[a-z-]+\)"/g) || []).every((s) => /--c-on-accent(-dim)?\)/.test(s)),
+      (stockCard.match(/color: "var\(--[a-z-]+\)"/g) || []).join(" "));
+    // --- コントラスト比を**計算して**確かめる（値を書き写した期待値にしない） ---
+    // WCAG 2.x の相対輝度 → (L1+0.05)/(L2+0.05)。地も文字も index.css のトークンから読む。
+    const hexOf = (name) => {
+      const all = [...noC.matchAll(new RegExp(`${name}\\s*:\\s*([^;]+);`, "g"))].map((x) => x[1].trim());
+      return all.length ? all[all.length - 1] : null;
+    };
+    const lum = (hex) => {
+      const h = String(hex).replace("#", "");
+      const ch = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+      return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    };
+    const ratio = (a, b) => {
+      const la = lum(a), lb = lum(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    };
+    const bg = hexOf("--c-accent"), ink = hexOf("--c-on-accent"), dim = hexOf("--c-on-accent-dim");
+    check("34.5 §3: 3つのトークンを index.css から読めている(空回りしていない)",
+      /^#[0-9A-Fa-f]{6}$/.test(String(bg)) && /^#[0-9A-Fa-f]{6}$/.test(String(ink)) && /^#[0-9A-Fa-f]{6}$/.test(String(dim)),
+      `${bg} / ${ink} / ${dim}`);
+    const rMain = ratio(ink, bg), rDim = ratio(dim, bg);
+    console.log(`  累計カードのコントラスト比(実測・WCAG 2.x): 主 ${rMain.toFixed(2)}:1 / 副次 ${rDim.toFixed(2)}:1`);
+    check("34.5 §3: 主の文字は濃紺の上で AA(4.5:1)を満たす", rMain >= 4.5, `${rMain.toFixed(2)}:1`);
+    check("34.5 §3: 副次の文字(ラベル・単位)も AA(4.5:1)を満たす", rDim >= 4.5, `${rDim.toFixed(2)}:1`);
+    check("34.5 §3: 副次は主より弱い(階層が付いている。同じ色で塗り潰していない)",
+      rDim < rMain, `主 ${rMain.toFixed(2)} / 副次 ${rDim.toFixed(2)}`);
+    // 規範側の表と突き合わせる（実装と文書が食い違ったら落ちる）。
+    const dsRow = /\|\s*`--c-on-accent-dim`\s*\|\s*`(#[0-9A-Fa-f]{6})`/.exec(dsD15);
+    check("34.5 §3: DESIGN-SYSTEM §1.4 の表と index.css の値が一致する",
+      !!dsRow && String(dim).toUpperCase() === dsRow[1].toUpperCase(),
+      `規範 ${dsRow ? dsRow[1] : "行なし"} / 実装 ${dim}`);
+    // 体系の中で1段暗い --c-accent-dim を使っていたら AA に届かない、という判断の裏取り。
+    check("34.5 §3: --c-accent-dim を副次に使わない判断は数値の裏がある(4.5 未満)",
+      ratio(hexOf("--c-accent-dim"), bg) < 4.5, `${ratio(hexOf("--c-accent-dim"), bg).toFixed(2)}:1`);
+    // 【罠7】規範に**書いてある比の数字**そのものも、ここで計算し直して突き合わせる。
+    // (書き写した数字が間違っていても誰も気付かない、という形を残さない。
+    //  D-15 の実装役は実際に手計算を外して 17.96 / 5.50 / 4.26 と書き、ここで直った。)
+    for (const [tok, want] of [["--c-on-accent", ink], ["--c-on-accent-dim", dim]]) {
+      const row = new RegExp(`\\|\\s*\`${tok}\`\\s*\\|[^|]*\\|[^|]*\\|\\s*\\*\\*([\\d.]+):1\\*\\*`).exec(dsD15);
+      check(`34.5 §3: §1.4 の表が書いている ${tok} のコントラスト比は計算値と一致する`,
+        !!row && Math.abs(parseFloat(row[1]) - ratio(want, bg)) < 0.01,
+        `規範 ${row ? row[1] : "行なし"} / 計算 ${ratio(want, bg).toFixed(2)}`);
+    }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 【D-16 2026/08/28 本人裁定・凍結仕様 design/D16-SPEC.md】
+// My Data の折れ線を「線 + 面」へ（案4）。
+//
+// **この節が守れること**:
+//   ・太さ 2.4 / 1.6 と不透明度 0.28 が **DESIGN-SYSTEM §1.8a（実装の外）から読めている**こと
+//   ・My Data では点(<circle>)を描かず、1本目=線のみ / 2本目=面+細線 になること
+//   ・**他の3画面には面も細線も出さず、点は残る**こと(D-9 の退行と同じ型を二度やらない)
+//   ・面と線の割り当てが**側だけ**で決まること(データを見る経路が存在しないこと)
+//   ・面の底に渡している値が中央線 centerLineAt であること
+//   ・JSX の**並び**が §3 の重なり(面 → 罫 → 中央線 → 2本目 → 1本目)になっていること
+//
+// **この節が守れないこと（名乗らない）**:
+//   ・面が実機で見えるか / 濃すぎないか / 「スマートに見えるか」(罠15。実機待ち)
+//   ・**描画そのもの**。ハーネスは JSX を評価しない(罠9)ので、ここが見ているのは
+//     「純関数の枝の効果」と「呼び出しに隣接する綴り」まで。実際の <path> の形は
+//     Browser ペインの実測(D-16 の完了記録)が根拠で、この節の根拠ではない
+// ============================================================
+console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ==========");
+{
+  const cssD16 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const dsD16 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const chartD16 = srcOfFn(src, "NoteAxisLineChart");
+  const chartCodeD16 = codeOf(chartD16);
+  // 実装から取り出した値。**構築も runFn 越し**にして、extractConst が外れたときに
+  // ハーネスごと落ちない形にする(:4257 / D-13a)。外れたら下の検査が全部落ちる。
+  const valsR = runFn(() => new Function(`${extractConst("MY_DATA_LINE_W")}
+    ${extractConst("MY_DATA_AREA_LINE_W")}
+    ${extractConst("SERIES_STYLES")}
+    return { MY_DATA_LINE_W, MY_DATA_AREA_LINE_W, SERIES_STYLES };`)());
+  const d16 = valsR.ok ? valsR.v : { MY_DATA_LINE_W: null, MY_DATA_AREA_LINE_W: null, SERIES_STYLES: [] };
+  check("35.0 実装から太さ2つと SERIES_STYLES を取り出せている(空回りしていない)",
+    valsR.ok && typeof d16.MY_DATA_LINE_W === "number" && typeof d16.MY_DATA_AREA_LINE_W === "number"
+    && Array.isArray(d16.SERIES_STYLES) && d16.SERIES_STYLES.length === 6,
+    valsR.ok ? `${d16.MY_DATA_LINE_W}/${d16.MY_DATA_AREA_LINE_W}/${d16.SERIES_STYLES.length}` : `例外(${valsR.err})`);
+
+  // --- 35.1 値は DESIGN-SYSTEM §1.8a が持つ（実装の外から読む・罠3）-----------------
+  // 定数の定義を言い換えた検査にしないため、期待値は**規範の文書**から取る。
+  // 規範とコードのどちらを片方だけ動かしても落ちる形にしておく。
+  const secD16 = (() => {
+    const i = dsD16.indexOf("### 1.8a My Data の折れ線は");
+    if (i < 0) return "";
+    const j = dsD16.indexOf("\n### ", i + 1);
+    return dsD16.slice(i, j < 0 ? undefined : j);
+  })();
+  const rowVal = (label) => {
+    const m = new RegExp(`\\|\\s*${label}[^|]*\\|([^|]*)\\|`).exec(secD16);
+    return m ? m[1] : "";
+  };
+  const wantLine = parseFloat((/`([\d.]+)px`/.exec(rowVal("1本目（左）")) || [])[1]);
+  const wantArea = parseFloat((/`([\d.]+)px`/.exec(rowVal("2本目（右）")) || [])[1]);
+  const wantOpacity = parseFloat((/`--o-chart-area`\s*=\s*`([\d.]+)`/.exec(rowVal("面の塗り")) || [])[1]);
+  check("35.1 DESIGN-SYSTEM §1.8a から太さ2つと不透明度を読めている(空回りしていない)",
+    Number.isFinite(wantLine) && Number.isFinite(wantArea) && Number.isFinite(wantOpacity)
+    && wantLine !== wantArea,
+    `1本目=${wantLine} 2本目=${wantArea} 面=${wantOpacity}`);
+  check("35.1 実装の太さ2つは §1.8a の表と一致する",
+    d16.MY_DATA_LINE_W === wantLine && d16.MY_DATA_AREA_LINE_W === wantArea,
+    `実装 ${d16.MY_DATA_LINE_W}/${d16.MY_DATA_AREA_LINE_W} 規範 ${wantLine}/${wantArea}`);
+  {
+    // index.css のトークン値。**--o-chart-area は「1回しか定義されない」を 30 の節が別に見ている**。
+    const got = (/--o-chart-area:\s*([^;]+);/.exec(cssD16) || [])[1];
+    check("35.1 index.css の --o-chart-area は §1.8a の不透明度と一致する",
+      !!got && parseFloat(got) === wantOpacity, `index.css=${String(got).trim()} 規範=${wantOpacity}`);
+  }
+  {
+    // 規範が「面の色は §1.7 の2段目」と言っている。**その主張を系列スタイルの側から確かめる**
+    // (色の綴りを検査に書き写すと、系列色を変えたときに検査だけ生き残る)。
+    check("35.1 §1.8a が言う「面は §1.7 の2段目の不透明度違い」は SERIES_STYLES と一致する",
+      /--c-accent-mid/.test(rowVal("2本目（右）"))
+      && d16.SERIES_STYLES[1].color === "var(--c-accent-mid)"
+      && /--c-accent`?/.test(rowVal("1本目（左）"))
+      && d16.SERIES_STYLES[0].color === "var(--c-accent)",
+      `${d16.SERIES_STYLES[0].color} / ${d16.SERIES_STYLES[1].color}`);
+  }
+
+  // --- 35.2 描き方の枝を**実行して**確かめる（綴りではなく効果で見る）----------------
+  // 【D-13】組み立ても呼び出しも runFn 越しにしか触らない。extractFunction が外れたときに
+  // ハーネスごと落ちて集計行すら出ない、という壊れ方をさせない(:4257 の罠)。
+  const drawR = runFn(() => new Function(`${extractConst("MY_DATA_LINE_W")}
+    ${extractConst("MY_DATA_AREA_LINE_W")}
+    ${extractFunction("noteAxisLineDraw")}
+    return noteAxisLineDraw;`)());
+  const draw = drawR.ok ? drawR.v : null;
+  {
+    const gate = runFn(draw, 0, true);
+    check("35.2 noteAxisLineDraw を組み立てて実行できている(空回りしていない)",
+      typeof draw === "function" && gate.ok && gate.v && typeof gate.v === "object",
+      drawR.ok ? shownOf(gate) : `組み立て失敗(${drawR.err})`);
+  }
+  if (typeof draw === "function") {
+    const a = runFn(draw, 0, true);   // My Data の1本目(左)
+    const b = runFn(draw, 1, true);   // My Data の2本目(右)
+    check("35.2 My Data の1本目は「線のみ・2.4px・round」で点を描かない",
+      a.ok && a.v.area === false && a.v.width === wantLine && a.v.dot === false && a.v.round === true,
+      shownOf(a) + JSON.stringify(a.v ?? null));
+    check("35.2 My Data の2本目は「面あり・1.6px」で点を描かない",
+      b.ok && b.v.area === true && b.v.width === wantArea && b.v.dot === false,
+      shownOf(b) + JSON.stringify(b.v ?? null));
+    // 【D-9 の退行と同じ型を二度やらない】他の3画面は myData を渡さない。
+    // **例外を「出していない」の根拠にしない**(r.ok を必ず条件に入れる。罠5)。
+    // 添字は 0 だけでなく SERIES_STYLES の段数ぶん当てる(リード比較は最大6系列)。
+    {
+      const rs = d16.SERIES_STYLES.map((_, i) => ({ i, r: runFn(draw, i, false) }));
+      check("35.2 D16 §6: 他3画面(myData を渡さない)は全系列で面を出さず、点を残し、太さは系列スタイルのまま",
+        rs.every((x) => x.r.ok && x.r.v.area === false && x.r.v.dot === true
+          && x.r.v.width === null && x.r.v.round === false),
+        rs.map((x) => `${x.i}:${x.r.ok ? JSON.stringify(x.r.v) : shownOf(x.r)}`).join(" "));
+    }
+    // 【D16-SPEC §4】面と線の割り当ては**側**で決まる。
+    // 「入れ替えれば入れ替わる」を、左右2つの返り値が食い違うことで見る。
+    check("35.2 D16 §4: 左右で面と線が入れ替わる(2本とも面/2本とも線 にならない)",
+      a.ok && b.ok && a.v.area !== b.v.area && a.v.width !== b.v.width,
+      `${JSON.stringify(a.v ?? null)} vs ${JSON.stringify(b.v ?? null)}`);
+  }
+  // 【D16-SPEC §4】**データを見る経路が存在しない**ことを引数の側で固定する。
+  // (上の枝の検査は「いまのデータで正しい」までしか言えない。連続性で決める実装は
+  //  必ず byIdx / seg を受け取るので、受け口が2つだけであることが効く。)
+  check("35.2 D16 §4: noteAxisLineDraw の受け口は「側」と myData の2つだけ(データを渡す口が無い)",
+    /function noteAxisLineDraw\(seriesIndex, myData\) \{/.test(src));
+
+  // --- 35.3 描く順（重なり）。JSX は書いた順に上へ重なる -----------------------------
+  // 【D16-SPEC §3】面 → 目盛の罫 → 中央線 → 2本目の線 → 1本目の線。
+  // 位置は「並び」でしか決まらないので、ここは綴りの**順序**を見る(値ではない)。
+  {
+    const iArea = chartCodeD16.indexOf("noteAxisAreaPath(seg");
+    const iTick = chartCodeD16.indexOf("{L.tickVals.map(");
+    const iCenter = chartCodeD16.indexOf("y1={L.yAt(centerLineAt)}");
+    const iSeries = chartCodeD16.indexOf("{seriesRenderOrder.map(");
+    check("35.3 D16 §3: 面は目盛の罫より先(=下)に描かれている",
+      iArea >= 0 && iTick >= 0 && iArea < iTick, `面=${iArea} 罫=${iTick}`);
+    check("35.3 D16 §3: 面は中央線より先(=下)に描かれている",
+      iArea >= 0 && iCenter >= 0 && iArea < iCenter, `面=${iArea} 中央線=${iCenter}`);
+    check("35.3 D16 §3: 折れ線は面・中央線より後(=上)に描かれている",
+      iSeries >= 0 && iCenter >= 0 && iArea < iSeries && iCenter < iSeries,
+      `面=${iArea} 中央線=${iCenter} 線=${iSeries}`);
+  }
+  // 1本目が**いちばん上**。並べ替えの規則そのものを実行して確かめる。
+  {
+    const orderR = runFn(() => new Function(`${extractFunction("noteAxisRenderOrder")}
+      return noteAxisRenderOrder;`)());
+    const order = orderR.ok ? orderR.v : null;
+    const my = runFn(order, 2, true);
+    const other = runFn(order, 6, false);
+    check("35.3 D16 §3: My Data は 2本目 → 1本目 の順に描く(1本目が最上)",
+      typeof order === "function" && my.ok && JSON.stringify(my.v) === "[1,0]", shownOf(my));
+    check("35.3 D16 §3: 他3画面の重なりは従来のまま(0,1,2… の順)",
+      other.ok && JSON.stringify(other.v) === "[0,1,2,3,4,5]", shownOf(other));
+    check("35.3 描く順を作っているのは noteAxisRenderOrder ただ1つ(配線の側の錨)",
+      /const seriesRenderOrder = noteAxisRenderOrder\(seriesData\.length, myData\);/.test(chartD16));
+  }
+
+  // --- 35.4 面の底は中央線 -----------------------------------------------------------
+  // (a) 純関数として: 底の y は**引数から**来て、途中の点はそのまま残る。
+  {
+    const pathR = runFn(() => new Function(`${extractFunction("noteAxisAreaPath")}
+      return noteAxisAreaPath;`)());
+    const areaPath = pathR.ok ? pathR.v : null;
+    const d = runFn(areaPath, ["10,20", "30,5"], 77);
+    check("35.4 D16 §2: 面は底(baseY)から始まり底で閉じ、間の点をそのまま通る",
+      d.ok && d.v === "M10,77 L10,20 L30,5 L30,77 Z", shownOf(d));
+    // 別の底を渡せば別の底になる(底が定数に焼き付いていない)。
+    const d2 = runFn(areaPath, ["10,20", "30,5"], -4);
+    check("35.4 D16 §2: 底は渡した値そのもの(0 に焼き付いていない)",
+      d2.ok && d2.v === "M10,-4 L10,20 L30,5 L30,-4 Z", shownOf(d2));
+    const d0 = runFn(areaPath, [], 5);
+    check("35.4 空の区間では面を作らない(null)", d0.ok && d0.v === null, shownOf(d0));
+  }
+  // (b) 配線として: 呼び出しに**隣接する綴り**で、渡している底が中央線であることを固定する
+  //     (罠2。純関数だけ守っても、呼び手が 0 を渡していたら意味がない)。
+  check("35.4 D16 §2: 面の底に渡しているのは中央線 centerLineAt の y(0 ではない)",
+    /noteAxisAreaPath\(seg, L\.yAt\(centerLineAt\)\)/.test(chartD16));
+  // (c) その centerLineAt は `myData ? center : null`(27.9 が別に固定している)。
+  //     面を描く枝がその1つの判定から出ていることを、隣接する綴りで見る
+  //     ── 「面を出すか」と「中央線を引くか」を2箇所で決めない、が D-9 の退行への答え。
+  check("35.4 D16 §6: 面を描く枝は中央線と同じ判定(centerLineAt)から出ている",
+    /\{centerLineAt !== null && seriesData\.map\(\(s, si\) => \{/.test(chartD16)
+    && /if \(!noteAxisLineDraw\(si, myData\)\.area\) return null;/.test(chartD16));
+
+  // --- 35.6 【D-16a 統括裁定】1点だけの区間が消えない -------------------------------
+  // **この節が守れないこと**: 「画素が実際に出ること」。ハーネスは SVG を描かないので、
+  // ここが見ているのは「1点の区間が polyline ではない経路へ行く」という**枝の効果**と、
+  // 呼び出しに隣接する綴りまで。**実際にインクが出ることは Browser ペインの
+  // ラスタライズ実測だけが根拠**(前 255,255,255 → 後 23,69,133。D-16a の完了記録)。
+  {
+    const shapeR = runFn(() => new Function(`${extractFunction("noteAxisSegmentShape")}
+      return noteAxisSegmentShape;`)());
+    const dotR2 = runFn(() => new Function(`${extractFunction("noteAxisDotPath")}
+      return noteAxisDotPath;`)());
+    const shape = shapeR.ok ? shapeR.v : null;
+    const dotPath = dotR2.ok ? dotR2.v : null;
+    const g1 = runFn(shape, ["10,20"], true);
+    check("35.6 noteAxisSegmentShape / noteAxisDotPath を組み立てて実行できている(空回りしていない)",
+      typeof shape === "function" && typeof dotPath === "function" && g1.ok,
+      shapeR.ok ? shownOf(g1) : `組み立て失敗(${shapeR.err})`);
+    if (typeof shape === "function") {
+      const one = runFn(shape, ["10,20"], true);
+      const two = runFn(shape, ["10,20", "30,5"], true);
+      const many = runFn(shape, ["10,20", "30,5", "40,9"], true);
+      check("35.6 My Data の1点だけの区間は polyline ではない経路(path)へ行く",
+        one.ok && one.v === "path", shownOf(one));
+      // **2点以上は1mmも変えない**(統括の禁止事項)。
+      check("35.6 2点以上の区間は従来どおり polyline のまま",
+        two.ok && two.v === "polyline" && many.ok && many.v === "polyline",
+        `${shownOf(two)} / ${shownOf(many)}`);
+      // **他の3画面へは波及させない**(あちらは <circle> が今も出ているので消えない)。
+      // 例外を「行かない」の根拠にしない(r.ok を条件に入れる。罠5)。
+      for (const seg of [["10,20"], ["10,20", "30,5"]]) {
+        const r = runFn(shape, seg, false);
+        check(`35.6 D16 §6: 他3画面は ${seg.length} 点でも polyline のまま(<path> を足さない)`,
+          r.ok && r.v === "polyline", shownOf(r));
+      }
+      const empty = runFn(shape, [], true);
+      check("35.6 空の区間は path へ行かない", empty.ok && empty.v === "polyline", shownOf(empty));
+    }
+    if (typeof dotPath === "function") {
+      // 長さゼロの部分パス。**同じ座標を2度**書くことがキャップに丸を打たせる条件。
+      const d = runFn(dotPath, ["12.5,34.25"]);
+      check("35.6 1点の d は同じ座標へ長さゼロの線を引く(M x,y L x,y)",
+        d.ok && d.v === "M12.5,34.25 L12.5,34.25", shownOf(d));
+      const d2 = runFn(dotPath, ["10,20", "30,5"]);
+      const d0 = runFn(dotPath, []);
+      check("35.6 1点でない区間には d を作らない(null)",
+        d2.ok && d2.v === null && d0.ok && d0.v === null, `${shownOf(d2)} / ${shownOf(d0)}`);
+    }
+    // 配線(罠2)。**丸の直径は線の太さそのもの**で、新しい半径を発明していない。
+    // キャップは系列の round 指定に依らず必ず round ── 長さゼロの部分パスは
+    // round のときだけ描かれるので、これは見た目の選択ではなく描かせるための仕組み。
+    const recvW = (/const (\w+) = noteAxisLineDraw\(si, myData\);/.exec(chartD16) || [])[1];
+    check("35.6 1点の区間は noteAxisSegmentShape の判定で <path> へ分岐している",
+      /\{segmentsFor\(s\.byIdx\)\.map\(\(seg, k\) => \(noteAxisSegmentShape\(seg, myData\) === "path" \? \(/.test(chartD16));
+    check("35.6 D16a: 丸の直径は線の太さそのもの(新しい半径を発明していない)",
+      !!recvW && chartD16.includes(`<path key={k} fill="none" d={noteAxisDotPath(seg)} strokeWidth={${recvW}.width ?? st.width}`),
+      (chartD16.match(/<path key=\{k\} fill="none"[^/]*/) || [""])[0].replace(/\s+/g, " "));
+    check("35.6 D16a: 1点の <path> のキャップは常に round(長さゼロは round でしか描かれない)",
+      /d=\{noteAxisDotPath\(seg\)\}[\s\S]{0,120}?strokeLinecap="round"/.test(chartD16));
+  }
+
+  // --- 35.5 配線: 折れ線が noteAxisLineDraw の返り値を実際に使っている --------------
+  // 【罠2】純関数の枝をいくら実行しても、JSX がその返り値を読んでいなければ何も守れない。
+  // ここは**呼び出しに隣接する綴り**で、点の有無・太さ・round が同じ1つの返り値から
+  // 出ていることを固定する。**受け皿の名前は源から読む**ので、局所変数を改名しても落ちない
+  // (改名で落ちる検査は正しい修正まで止める。KILL されては困る変異)。
+  {
+    const recv = (/const (\w+) = noteAxisLineDraw\(si, myData\);/.exec(chartD16) || [])[1];
+    check("35.5 折れ線は noteAxisLineDraw(si, myData) の返り値を受けている(空回りしていない)",
+      !!recv, chartD16.match(/noteAxisLineDraw\([^)]*\)/g)?.join(" | ") ?? "呼び出しなし");
+    if (recv) {
+      check("35.5 D16 §1: 系列の点は返り値の dot の枝の中にしかない",
+        new RegExp(`\\{${recv}\\.dot && Object\\.entries\\(s\\.byIdx\\)\\.map\\(\\(\\[idx, v\\]\\) => \\(\\s*\\r?\\n\\s*<circle `).test(chartD16));
+      check("35.5 D16 §1: 線の太さは返り値から引き、無ければ系列スタイルへ落ちる",
+        new RegExp(`strokeWidth=\\{${recv}\\.width \\?\\? st\\.width\\}`).test(chartD16));
+      check("35.5 D16 §1: round も同じ返り値から引く(1本目だけに効く)",
+        new RegExp(`strokeLinejoin=\\{${recv}\\.round \\? "round" : undefined\\}`).test(chartD16)
+        && new RegExp(`strokeLinecap=\\{${recv}\\.round \\? "round" : undefined\\}`).test(chartD16));
+    }
+  }
+  // 面の色は**系列の色そのもの**。rgba を書かない・新しい色相を足さない(§1.8a)。
+  // 宣言の**並び**には依存しない(順を入れ替えただけで落ちる検査にしない)。
+  {
+    const areaStyle = (/<g key=\{`area-\$\{s\.id \?\? si\}`\} style=\{\{([^}]*)\}\}/.exec(chartD16) || [])[1];
+    check("35.5 D16 §1: 面の塗りは系列の色そのもので、濃さはトークン1つから引く",
+      !!areaStyle && /(^|[\s,])fill:\s*st\.color(\s*,|\s*$)/.test(areaStyle)
+      && /(^|[\s,])fillOpacity:\s*CHART_AREA_OPACITY_VAR(\s*,|\s*$)/.test(areaStyle)
+      && /const CHART_AREA_OPACITY_VAR = "var\(--o-chart-area\)";/.test(src),
+      String(areaStyle));
+  }
+  check("35.5 D16 §1: グラフ部品に rgba\\(\\) の直書きが無い(色をインラインで散らしていない)",
+    !/rgba\(/.test(chartCodeD16));
+  // 点の半径 dotR は**残っている**。読み手は他3画面の系列の点と、目安(破線)の白丸の2つ。
+  // 「読み手ゼロの定義を残さない」に反していないことを、読み手の数で見る。
+  check("35.5 dotR は読み手が残っているので定義も残る(他3画面の点 + 目安の白丸)",
+    (chartCodeD16.match(/r=\{L\.dotR\}/g) || []).length === 2
+    && /const dotR = Math\.max\(/.test(chartD16));
+
   console.log("  -> done");
 }
 

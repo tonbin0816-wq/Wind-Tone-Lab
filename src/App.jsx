@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
@@ -1199,6 +1199,15 @@ function theoreticalHarmonicsFromTarget(targetHz, count) {
 // FFT自己相関でO(N logN)に抑える。clarity(0..1)は音の周期性の明瞭度で、
 // ブレスや空調のような非周期ノイズの排除(楽器音判定)にも使う。
 // ============================================================
+// 【D-15 §2(G)】detectPitchMPM が**毎回**確保していた作業用の Float64Array を使い回す入れ物。
+// 実測 166.8KB/回(re 65,536 + im 65,536 + sq 32,776 + nsdf 7,000 バイト@48kHz・minFreq 55)。
+// ライブ計測は 60fps で呼ぶので 9.8MB/秒のゴミになり、GC の断続的な停止(特に iOS Safari)を招く。
+// F-104 が timeBuf / gate にやったのと同じ手で、**確保をやめるだけ**。
+// 中身は使う前に必ず埋め直す(re/im は fill(0)、sq は [0] を 0 に、nsdf は使う範囲を fill(0))ので、
+// **同じ入力に対して出る値は 1bit も変わらない**(D-15 で全ビット突き合わせて確認済み)。
+// 窓長が変わったときだけ作り直す(F-104 と同じ「長さが違えば作り直す」形)。
+const MPM_SCRATCH = { re: null, im: null, sq: null, nsdf: null };
+
 function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
   const W = 4096;  // 解析窓(約85ms@48kHz。バリトン最低音73Hzでも6周期以上入る)
   const N = 8192;  // ゼロ埋めFFTサイズ(円状自己相関→線形自己相関化)
@@ -1210,8 +1219,13 @@ function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
   for (let i = 0; i < W; i++) mean += timeBuf[offset + i];
   mean /= W;
 
-  const re = new Float64Array(N);
-  const im = new Float64Array(N);
+  const sc = MPM_SCRATCH;
+  if (!sc.re || sc.re.length !== N) { sc.re = new Float64Array(N); sc.im = new Float64Array(N); }
+  if (!sc.sq || sc.sq.length !== W + 1) { sc.sq = new Float64Array(W + 1); sc.nsdf = new Float64Array(W + 1); }
+  // 【必ずゼロ埋めする】re は W 以降のゼロ埋め部分が、im は全体が「0 で始まること」を
+  // fftRadix2 が前提にしている。使い回しでここを落とすと前フレームの残骸が混ざる。
+  const re = sc.re; re.fill(0);
+  const im = sc.im; im.fill(0);
   for (let i = 0; i < W; i++) re[i] = timeBuf[offset + i] - mean;
   fftRadix2(re, im);
   // パワースペクトル(実偶関数)を再度FFTすると実数の自己相関×Nが得られる
@@ -1222,14 +1236,20 @@ function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
   if (r0 <= 1e-12) return null; // 完全な無音
 
   // m(τ) = Σ(x[j]² + x[j+τ]²) を累積和で O(1) 参照できるようにする
-  const sq = new Float64Array(W + 1);
+  // sq[0] だけは下の累積和が書かないので 0 に戻しておく(1..W は全部上書きされる)。
+  // 【正直に書く】いまの実装では index 0 に書く経路が1つも無いので、この一行は
+  // **観測できる違いを生まない**(変異試験でも KILL されなかった)。累積和の起点が
+  // 動いたときに黙って壊れないための belt であって、検査に守られてはいない。
+  const sq = sc.sq; sq[0] = 0;
   for (let i = 0; i < W; i++) { const v = timeBuf[offset + i] - mean; sq[i + 1] = sq[i] + v * v; }
 
   const maxLag = Math.min(W - 1, Math.ceil(sampleRate / minFreq));
   // NSDFはτ=2から計算する。探索をminLag(最高周波数の周期)から始めると、高音では
   // 最初の真のピークがτ=0の自明な正区間と地続きになって「正区間スキップ」に飲み込まれ、
   // 2倍周期(1オクターブ下)を拾ってしまう。τ=2起点ならτ=0のローブを正しく通過できる。
-  const nsdf = new Float64Array(maxLag + 2);
+  // 使う範囲(0..maxLag+1)だけ 0 へ戻す。t=0,1 と maxLag+1 は書かれないまま読まれる
+  // (τ=0 近傍の正区間の走査と、ピークの放物線補間 nsdf[T+1])。
+  const nsdf = sc.nsdf; nsdf.fill(0, 0, maxLag + 2);
   for (let t = 2; t <= maxLag; t++) {
     const rt = re[t] / N;
     const mt = (sq[W - t] - sq[0]) + (sq[W] - sq[t]);
@@ -1240,8 +1260,22 @@ function detectPitchMPM(timeBuf, sampleRate, minFreq = 55, maxFreq = 1200) {
   const peaks = [];
   let t = 2;
   while (t <= maxLag && nsdf[t] > 0) t++; // τ=0近傍の自明な正区間を飛ばす
+  // 【D-17 §3・重要】外側のループは「内側のどちらかが必ず t を進める」ことに寿命を預けている。
+  // 飛ばす側を `nsdf[t] <= 0` と書くと、**NaN のとき `<= 0` も `> 0` も false** になり、
+  // 内側2つがどちらも回らないまま外側だけが永久に回る(= 実機のタブが固まる)。
+  // ライブ計測はこれを毎フレーム呼ぶので、固まったら操作を受け付けなくなる。
+  // 【誰が NaN を入れ得るか】D-15 §2(G) で作業用配列を使い回しにした結果、
+  // 上の re / im / nsdf の埋め直しを1つでも落とすと、2回目以降の呼び出しで
+  // 前フレームの残骸が発散して nsdf[t] が NaN になる(D-17 で実測: `im.fill(0)` を
+  // 消すと `node scripts/pitch-test.mjs` が 90 秒で終わらず、PASS/FAIL の集計行が1行も出ない)。
+  // (G) の前は毎回 new Float64Array だったのでこの状態は構造的に起こり得なかった。
+  // `scripts/pitch-test.mjs:4257` が「集計行すら出ない壊れ方」を名指しで禁じているが、
+  // それは検査ハーネス側の話だった。**いまは製品コード側からも入り得る状態**なので、
+  // 「必ず進む」形をここで構造的に保証する。
+  // 【値は変えない】NaN を含まない入力では `!(nsdf[t] > 0)` は `nsdf[t] <= 0` と完全に同値。
+  // (D-17 の差分試験「(G) 使い回した側と作り直した側で結果が1bitも違わない」で確認済み)
   while (t <= maxLag) {
-    while (t <= maxLag && nsdf[t] <= 0) t++;
+    while (t <= maxLag && !(nsdf[t] > 0)) t++; // 非正 **または NaN** を飛ばす(必ず1つ進む)
     let peakT = -1, peakV = 0;
     while (t <= maxLag && nsdf[t] > 0) {
       if (nsdf[t] > peakV) { peakV = nsdf[t]; peakT = t; }
@@ -4553,6 +4587,24 @@ const RING_SWEEP_DEG = 110;    // ±RING_MAX_CENTS を割り当てる角度(上�
 // 【この定数を見ている箇所】(1) 到達の判定 inTune = 走りの発火・帯の抑制・セント値の呼吸
 // (2) 外周の光の「合った」側の境界(RING_GLOW_NEAR_CENTS までの帯の起点)。他に閾値の直書きは無い。
 const RING_IN_TUNE_CENTS = 2;
+// 【D-15 §1(B)】生のピッチを落ち着かせる指数移動平均の**時定数**(ミリ秒)。
+// 係数は α = 1 − exp(−Δt / RING_SMOOTH_TAU_MS) として**経過時間から毎回作る**。
+// 以前は「1レンダーにつき α = 0.15」の固定係数で、平滑が時間ではなく
+// **レンダー回数**で進んでいた(画面が重い端末・低電力モードほど環が遅れる)。
+// 値の唯一の答えは design/DESIGN-SYSTEM.md §1.11「チューナーの環の平滑」で、
+// 検査(検証34)がそこから読んでこの定数と突き合わせる。
+//
+// 【D-17・本人裁定 2026/08/28「中間：約四割速く」】102.55 → 60 へ下げた。
+// 本人の言葉は「円が遅い」(D-15 §2)。90%収束 236ms → 138ms。
+// D-15 の 102.55 は「60fps で従来の固定係数 0.15 と一致する」= **見た目を変えない**ための値で、
+// 本人の不満そのものには応えていなかった。**もう 0.15 とは一致しない**(60fps で α=0.2425)。
+//
+// 【重要・τ だけを動かさないこと】この τ は下の RING_RUN_REARM_MS と**対**で成立している。
+// 生の音程が判定線へ戻るまでの EMA の尾は **τ × ln(15/2) = 2.0149 τ**(15¢ → 判定線 2¢)で、
+// 走り直しの抑制はこの尾を含んだ「外れている時間」を見ている。τ を動かすと尾が動き、
+// 「生の外れ 800ms までは走らず 1000ms 以上で走る」という抑制側の性質が崩れる。
+// **片方だけ動かすと検査「走り直しの境目」が落ちる。** 詳細は §1.11。
+const RING_SMOOTH_TAU_MS = 60;
 // 【撤去】RING_MARKER_MIN_GAP_PX(ピッチマーカーと拍の要素の最小距離)。
 // N-4b で拍の描画を環の外へ出したため、環の中に「拍の要素」が1つも無くなり、
 // 距離を測る相手がいなくなった。**環はピッチ専用**という、より強い形で置き換わっている。
@@ -4857,30 +4909,42 @@ function ringGradientStops(from, to) {
 const RING_RUN_MS = 640;         // 12時→6時に走り切るまで
 // 外れた状態がこれだけ続くまで走り直さない。
 //
-// 【根拠(実コンポーネントと同じ EMA=0.15/フレームを60fpsで駆動して実測)】
-// 数値は F-47 で判定線を ±1 → ±2 に広げたあとに取り直したもの。
+// 【根拠(実コンポーネントと同じ EMA を 60fps で駆動して実測)】
+// 数値は F-47 で判定線を ±1 → ±2 に広げたあとに取り直し、**D-17 で τ=60ms にして取り直した**もの
+// (D-15 以前は「1レンダーにつき α=0.15」の固定係数、D-15〜D-16 は τ=102.55ms だった)。
 // (1) 判定線の上でごく短く揺らしたときの「inTune が偽である連続時間」。
 //     揺らしは判定線に対する相対量なので、振幅は判定線の倍数で置く
 //     (EMA は線形・判定はしきい値比較なので、この系は判定線に対してスケール不変。
 //      ±1 のときの実測値と完全に一致する):
 //       振幅3.0倍/1.5Hz → 交差47回・最長 267ms
-//       振幅1.6倍/0.8Hz → 交差25回・最長 333ms
+//       振幅1.6倍/0.8Hz → 交差25回・最長 350ms   (τ=102.55 のときは 333ms)
 //       振幅2.0倍/0.5Hz → 交差16回・最長 650ms
-//       振幅1.2倍/3Hz   → 交差0回(EMAが吸収して一度も外れない)
+//       振幅1.2倍/3Hz   → 交差0回(EMAが吸収して一度も外れない。τ の下限はここで決まる)
 //     つまり**揺らしだけなら最長でも 650ms** で、0.9〜1.0秒には届かない。
 // (2) 0.9秒を超えるのは揺らしではなく「一度はっきり外して戻す」場合。
 //     生の音程を +15¢ に保持してから戻すと、EMA が 15¢→判定線まで戻るぶんが尾として
-//     足される。判定線が ±2 になって尾は 278ms → **200ms** に縮んだので、
-//     650ms 保持での外れ時間は 928ms → **850ms**。
+//     足される。尾は **τ × ln(15/2) = 2.0149 τ**(判定線 ±2・15¢ からの戻り)で、
+//     判定線 ±1→±2 で 278ms → 200ms、**D-17 の τ=60 で 117ms**(実測)。
+//     650ms 保持での外れ時間は 928 → 850 → **767ms** と縮んできた。
+//     **抑制の値はこの尾ぶんだけ一緒に動かす**(下の D-17 の段)。
 //
-// 【1200 の位置づけ(F-47 で根拠を置き直した)】
+// 【この値の位置づけ(F-47 で根拠を置き直し、D-17 で τ と対にした)】
 // ±1 のときは「650ms 保持の外れ(928ms)が 900 では抑制を抜ける」ことが直接の根拠だった。
 // ±2 では 850ms なので、その事例では 900 でも抑制される。根拠は事例ではなく掃引の境目で持つ:
-//   ・抑制 900ms は保持 690ms から、抑制 1200ms は保持 990ms から走り直す
-//   ・つまり 1200 のほうが厳しく、「生の外れが 800ms までは走らず 1000ms 以上で走る」
-//     という選定時の性質はそのまま保たれている
+//   ・抑制 900ms は保持 690ms から走り直す
+//   ・いまの値は保持 **990ms** から走り直す ＝ こちらのほうが厳しい
+//   ・「生の外れが 800ms までは走らず 1000ms 以上で走る」という選定時の性質を保つ
 // 「一瞬ぶれただけ」と「一度離れて戻ってきた」の境目がこの位置に来る。
-const RING_RUN_REARM_MS = 1200;
+//
+// 【D-17】1200 → 1110。**上の RING_SMOOTH_TAU_MS を 102.55 → 60 にしたことへの追随**であって、
+// 走り直しの見え方を変える意図ではない。EMA の尾 2.0149 τ が 206.6ms → 120.9ms に縮んだので、
+// 同じ「生の外れ」で同じ判断をするには抑制も 85.7ms ぶん縮める必要がある。
+//   ・**走り直しの境目(生の外れ)は 990ms のまま1ms も動いていない**(掃引で実測)
+//   ・τ=60 で緑になる抑制の窓は 917〜1116ms。1110 はその中の「境目 990ms」の台地
+//     (1101〜1116)の中央寄りで、10ms 刻みの丸い値。**窓の端だから採ったのではない**
+// 値の唯一の答えは design/DESIGN-SYSTEM.md §1.11 で、検査(検証34)がそこから読む。
+// **τ とこの値は対で動く。片方だけ動かすと「走り直しの境目」の検査が落ちる。**
+const RING_RUN_REARM_MS = 1110;
 const RING_BREATH_MS = 2600;     // 呼吸の周期
 const RING_BREATH_RISE = 0.50;   // 周期のうち上りに使う割合
 const RING_GLOW_AMP = 0.90;      // 光の最大の強さ(時間方向。呼吸と走りの立ち上がりに掛かる)
@@ -5215,16 +5279,29 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 生のピッチはフレーム毎に細かく揺れるため指数移動平均で落ち着かせる。ただし音名(半音)が
   // 変わった瞬間はcentsExactが大きく飛ぶのでスナップして平滑をやり直す
   // (隣の音へ不自然にスウィープしない)。
-  const smoothRef = useRef({ semi: null, val: 0 });
+  // 【D-15 §1(B)】係数は**経過時間から作る**(α = 1 − exp(−Δt/τ))。レンダー回数では進めない。
+  // 副次的な効果として、StrictMode の二重レンダーでも Δt≒0 なので2度目はほとんど進まない
+  // (以前は 1コミットあたり 0.15 を2回進み、開発の見え方が本番の約2倍速かった)。
+  const smoothRef = useRef({ semi: null, val: 0, t: 0 });
   let exact = rawExact;
   if (sounding) {
     const semi = Math.round(note.midi);
-    if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact };
-    else smoothRef.current.val += (rawExact - smoothRef.current.val) * 0.15;
+    const nowMs = performance.now();
+    if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact, t: nowMs };
+    else {
+      const dtMs = Math.max(0, nowMs - smoothRef.current.t);
+      smoothRef.current.val += (rawExact - smoothRef.current.val) * (1 - Math.exp(-dtMs / RING_SMOOTH_TAU_MS));
+      smoothRef.current.t = nowMs;
+    }
     exact = smoothRef.current.val;
   } else {
-    smoothRef.current = { semi: null, val: 0 };
+    smoothRef.current = { semi: null, val: 0, t: 0 };
   }
+  // 【D-15 §1(A)】画面に出す整数のセント値。**環と同じ `exact` から出す**。
+  // 以前は prop の centsOffset(= Math.round(note.centsExact)。平滑なしの生値)を
+  // そのまま文字にしていたため、文字だけが環・色・到達判定と別の値で動いていた。
+  // 丸めはここだけ(0.1¢ 表示にはしない。§6.1「文字を読ませない」/ 数字を落ち着かせる意図)。
+  const centsShown = Math.round(exact);
 
   // viewBoxは300固定。実寸は幅に追従させる(上限が diameter)。
   const VB = RING_VB, CX = RING_CX, CY = RING_CY, R = RING_R, SW = RING_SW;
@@ -5391,10 +5468,15 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               ref={(el) => { runGradRefs.current[k] = el; }}
               x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={sx.toFixed(2)} y2={sy.toFixed(2)}
             >
+              {/* 【D-15 §2(F)】ここに**状態で変わる値を置かない**。走りの色は上の rAF が
+                  ストップ60個(左右×30)へ直接書く。以前は stopColor={color} と書いていたため、
+                  React が**走りが出ていないときも毎フレーム60個の属性を作り直していた**
+                  (走りの弧は d="" のあいだ描かれないので、この初期値は画面に出たことがない)。
+                  静的な値は「走りが出るのは合ったときだけ」なので機能色の緑を置く。 */}
               {Array.from({ length: RING_RAMP_STOPS }).map((_, i) => (
                 <stop
                   key={i} ref={(el) => { runStopRefs.current[k][i] = el; }}
-                  offset={(i / (RING_RAMP_STOPS - 1)).toFixed(5)} stopColor={color}
+                  offset={(i / (RING_RAMP_STOPS - 1)).toFixed(5)} stopColor="var(--c-good)"
                 />
               ))}
             </linearGradient>
@@ -5565,7 +5647,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           letterSpacing: "0.02em", color: sounding ? color : "var(--c-ink-3)",
           animation: inTune ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
         }}>
-          {sounding ? `${centsOffset > 0 ? "+" : ""}${centsOffset}¢` : ""}
+          {sounding ? `${centsShown > 0 ? "+" : ""}${centsShown}¢` : ""}
         </div>
       </div>
     </div>
@@ -5772,6 +5854,14 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
     </div>
   );
 }
+// 【D-15 §2(H)】計測タブは音量・音名を毎フレーム state に書くので MeasureView が 60fps で
+// 再レンダーされる。振り子は**自分の中の rAF だけで動く**部品で、props が変わらない限り
+// 再レンダーしても出力は 1px も変わらない。ここで切ると、その毎フレームの差分計算が消える。
+// **PitchRing には掛けない**: あちらは note / centsOffset が毎フレーム変わるので
+// 比較のぶんだけ仕事が増える(D-15 の凍結仕様どおり)。
+// 呼び出し側の props はすべて安定していること(getBeatPhase / getBeatDur は useCallback([])、
+// onOpenSheet は openTempoSheet。**ここが1つでも毎回作り直されると memo は素通りになる**)。
+const MetroPendulumMemo = memo(MetroPendulum);
 
 // ============================================================
 // 計測ビュー(単音・フレーズ統合)
@@ -5860,6 +5950,9 @@ function MeasureView(props) {
   // 【F-90】テンポ拍子シートを下スワイプで閉じる。フックは条件付きで呼べないので、
   // シートが出ていない間も常に呼ぶ(ref が付く先が無いだけで何も起きない)。
   const tempoSheetDismiss = useSheetDismiss(() => setTempoSheetOpen(false));
+  // 【D-15 §2(H)】振り子へ渡す口。**毎レンダー作り直すと MetroPendulumMemo が素通りになる**
+  // (props の1つでも参照が変わると memo は再レンダーする)。ここだけ useCallback で固定する。
+  const openTempoSheet = useCallback(() => setTempoSheetOpen(true), []);
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
   // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
@@ -6401,15 +6494,16 @@ function MeasureView(props) {
         /* 【F-95a】振り子〜テンポ行の縦の間隔も一式と同じ倍率で開く。
            marginTop(環との間)は拡大の対象外なので基準値のまま。 */
         <div style={{ marginTop: "var(--sp-2)", display: "flex", flexDirection: "column", alignItems: "center", gap: `calc(var(--sp-2) * ${METRO_SCALE})` }}>
-          <MetroPendulum
+          <MetroPendulumMemo
             getBeatPhase={getMetroPhase}
             getBeatDur={getMetroBeatDur}
             beatsPerMeasure={metroBeatsPerMeasure}
             accentOn={metroAccent}
             sig={metroSig}
             /* 【F-91】拍子表示・拍の●からもテンポ拍子シートを開く。
-                テンポ数値(♩=n)からの入口(下の <button>)はそのまま残す。 */
-            onOpenSheet={() => setTempoSheetOpen(true)}
+                テンポ数値(♩=n)からの入口(下の <button>)はそのまま残す。
+                【D-15 §2(H)】無名関数を直接書かない(memo が素通りになる)。 */
+            onOpenSheet={openTempoSheet}
           />
           {/* テンポ行。押せる物(− / ♩=n / ＋)があるので背面レイヤより手前(zIndex 1)。
               【審査①の修正】ただし**箱そのものは当たり判定を持たない**(.tap-through)。
@@ -6721,6 +6815,9 @@ function MeasureView(props) {
         <div
           role="dialog" aria-modal="true" aria-label="テンポと拍子"
           onClick={() => setTempoSheetOpen(false)}
+          /* 【D-15 §4】出るときの動きは5枚のシートで揃える(§1.11)。
+             時間・曲線は index.css の .sheet-scrim / .sheet-card だけが持つ。 */
+          className="sheet-scrim"
           style={{
             position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
             display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
@@ -6731,6 +6828,7 @@ function MeasureView(props) {
                 ジェスチャーを始めない(useSheetDismiss の除外に input が入っている)。 */
             ref={tempoSheetDismiss.ref} {...tempoSheetDismiss.handlers}
             onClick={(e) => e.stopPropagation()}
+            className="sheet-card"
             /* 寸法は正典 .sheet をそのまま: border-radius 28px 28px 0 0 / padding 14px 24px 40px。
                下端だけ env(safe-area-inset-bottom) を足す(モックは静的なので安全域を持たないが、
                シートは下部ナビを覆うので実機ではホームインジケータに文字が乗る)。
@@ -8539,6 +8637,7 @@ function ReedMoreMenu({ onClose, onPick }) {
       role="dialog" aria-modal="true" aria-label="リードの操作"
       onClick={onClose}
       data-noswipe
+      className="sheet-scrim"
       style={{
         position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
         display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
@@ -8548,6 +8647,7 @@ function ReedMoreMenu({ onClose, onPick }) {
         ref={dismiss.ref} {...dismiss.handlers}
         onClick={(e) => e.stopPropagation()}
         data-noswipe
+        className="sheet-card"
         style={{
           width: "100%", maxWidth: 900, background: "var(--c-surface)",
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
@@ -8600,6 +8700,7 @@ function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
       role="dialog" aria-modal="true" aria-label="リード番号を変更"
       onClick={close}
       data-noswipe
+      className="sheet-scrim"
       style={{
         position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
         display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
@@ -8609,6 +8710,7 @@ function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
         ref={dismiss.ref} {...dismiss.handlers}
         onClick={(e) => e.stopPropagation()}
         data-noswipe
+        className="sheet-card"
         style={{
           width: "100%", maxWidth: 900, background: "var(--c-surface)",
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
@@ -8847,6 +8949,7 @@ function ReedBoxSheet({
         role="dialog" aria-modal="true" aria-label={isEdit ? "箱を編集" : "リードを追加"}
         onClick={onClose}
         data-noswipe
+        className="sheet-scrim"
         style={{
           position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
           display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
@@ -8856,6 +8959,7 @@ function ReedBoxSheet({
           ref={dismiss.ref} {...dismissHandlers}
           onClick={(e) => e.stopPropagation()}
           data-noswipe
+          className="sheet-card"
           style={{
             width: "100%", maxWidth: 900, background: "var(--c-surface)",
             borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
@@ -9569,6 +9673,79 @@ const SERIES_STYLES = [
   { color: "var(--c-accent-line)", width: 3, dash: "4 3" },
 ];
 
+// 【D-16 2026/08/28 本人裁定・凍結仕様 design/D16-SPEC.md】My Data の折れ線は「線 + 面」。
+// 2本を**形の種類**(線 / 面)で見分けるので、点(<circle>)を1つも描かなくてよくなり、
+// 色相を離す必要も無くなった(D16-SPEC §0)。値の唯一の答えは DESIGN-SYSTEM §1.8a の表。
+// **SERIES_STYLES の width(2 / 3px)は触らない。** あれはリード比較・リード個体詳細・
+// セッション詳細・評価の推移・分析タブが共有していて、変えると5箇所に波及する。
+const MY_DATA_LINE_W = 2.4;        // 1本目(左) = 線のみ
+const MY_DATA_AREA_LINE_W = 1.6;   // 2本目(右) = 面の上に乗る細い線
+
+// 面の濃さ。**色は系列の色(--c-accent-mid)そのまま**で、濃さだけをトークンで持つ
+// (rgba をインラインで散らさず、体系に新しい色相も増やさない。D16-SPEC §1)。
+// 値は index.css の --o-chart-area ただ1つ。SVG の fill-opacity は style 経由なら var() が解ける。
+const CHART_AREA_OPACITY_VAR = "var(--o-chart-area)";
+
+// 【D-16 §1/§4】折れ線1本の描き方を **側(seriesIndex)** だけで決める。
+// データが連続かどうかでは決めない ── D-14 で左右が自動入れ替わるようになったので、
+// 連続性で決めると「どちらが面になるか」がデータ次第で変わり、同じ操作の結果が予測できなくなる。
+// 側で固定すれば、入れ替えれば見た目も入れ替わる(操作と結果が1対1)。
+// **myData でなければ面も細線も出さない**(他の3画面は D-8 からの見た目のまま。D16-SPEC §6)。
+// width: null = 系列スタイル(SERIES_STYLES)の太さをそのまま使う、の意。
+// 【実測・注意】round が効くのは**2点以上つながっている区間の端と角だけ**。
+// 点が1つだけの `<polyline>` は round を付けても Chrome では描画されない
+// (同じ座標を `<path d="M x,y L x,y">` にすると描かれる。DESIGN-SYSTEM §1.8a に実測を記録)。
+// つまり孤立した音は**線の側でも消える**。裁定待ちの積み残しで、ここでは戻していない。
+function noteAxisLineDraw(seriesIndex, myData) {
+  if (!myData) return { area: false, width: null, dot: true, round: false };
+  if (seriesIndex === 0) return { area: false, width: MY_DATA_LINE_W, dot: false, round: true };
+  return { area: true, width: MY_DATA_AREA_LINE_W, dot: false, round: false };
+}
+
+// 【D-16 §3】線を描く順(先に描いたものが下)。My Data だけ逆順にして **1本目を最上**に置く
+// ── 飛び飛びの側が「図」、連続の側が「地」という役割分担が案4 の芯。
+// 他の3画面は 0,1,2… の従来どおり(D-8 からの重なりを変えない)。
+function noteAxisRenderOrder(count, myData) {
+  const order = [];
+  for (let i = 0; i < count; i++) order.push(i);
+  return myData ? order.reverse() : order;
+}
+
+// 【D-16a 2026/08/28 統括裁定】区間1つの描き方を決める。返り値は "path" か "polyline"。
+// **1点だけの区間は `<polyline>` では描かれない。** Chrome で実測(SVG をデータ URI にして
+// canvas へラスタライズし中心画素を読んだ):
+//   <polyline points="30,60" stroke-width="20" stroke-linecap="round"> … 255(地のまま)
+//   <path d="M30,60 L30,60"  stroke-width="20" stroke-linecap="round"> … 0(描かれる)
+// 折れ線の役目は「何を吹いたか」を見せることなので、孤立しているという理由だけで
+// 測った値が消えるのは正しさの問題(統括裁定)。**丸の直径は線の太さそのもの**で、
+// 新しい半径は発明しない ── 「線が1点に縮んだもの」として読める。
+// **2点以上の区間は1mmも変えない**(従来どおり `<polyline>`)。
+// **My Data だけ。** 他の3画面は点(<circle>)を今も描いているので消えず、
+// ここで <path> を足すと D-8 からの見た目が変わる(D16-SPEC §6 / D-9 の退行の型)。
+function noteAxisSegmentShape(seg, myData) {
+  return (myData && seg && seg.length === 1) ? "path" : "polyline";
+}
+
+// 【D-16a】1点だけの区間の d。同じ座標へ長さゼロの線を引く。
+// これを描かせているのは `stroke-linecap: round` ── 長さゼロの部分パスは
+// キャップが round のときだけ描かれる(butt では 2点以上と同じく何も出ない)。
+// だから**この <path> のキャップは系列の round 指定に依らず必ず round**にする
+// (見た目の好みではなく、描かせるための仕組み)。
+function noteAxisDotPath(seg) {
+  if (!seg || seg.length !== 1) return null;
+  return `M${seg[0]} L${seg[0]}`;
+}
+
+// 【D-16 §2】面の d。**底は中央線(baseY)**で、0 では固定しない
+// (平均差分は中央 = 0 だが、HNR / 重心 / 音量は「その指標で描いている全値の平均」が中央。D-9 §8)。
+// seg は segmentsFor が返す "x,y" の配列(欠けた音で切れた連続区間1つ)。
+// 1点だけの区間は幅ゼロの面になり画面には出ない(点を撤去した帰結。D16-SPEC §0)。
+function noteAxisAreaPath(seg, baseY) {
+  if (!seg || seg.length === 0) return null;
+  const xOf = (p) => String(p).split(",")[0];
+  return `M${xOf(seg[0])},${baseY} L${seg.join(" L")} L${xOf(seg[seg.length - 1])},${baseY} Z`;
+}
+
 // 理想値(目安)の線。DESIGN-SYSTEM §1.7 が --c-ink-3 を理想値の破線に予約しているので、
 // 系列がこの色を取らないようにここで1箇所に定義しておく。破線パターンは §1.8 の "4 3"。
 const IDEAL_LINE_STYLE = { color: "var(--c-ink-3)", width: 2, dash: "4 3" };
@@ -9900,7 +10077,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 // (【D-9 2026/08/26】N-11 で足した axisOverlay = 縦軸の目盛ラベルをプロットに重ねる受け口は
 //  myData プリセットに畳んだ。渡し手は My Data だけだったので、受け口としては残さない。)
 // ・series[].byIdx … 音ごとの値を**そのまま**渡す(frames から数え直さない)。D-7 で足した受け口。
-//   My Data は系列そのものを選ばせる(目安・±0 は frames を持たない)ので、この経路で渡す。
+//   My Data は系列そのものを選ばせる(目安は frames を持たない)ので、この経路で渡す。
 //
 // 【D-9 2026/08/25 本人指示・凍結仕様 design/D9-SPEC.md】My Data だけ別の文法になった
 // (本人裁定 D-9x「他の3画面は My Data だけ別の文法でいい」)。受け口を1つずつ足すと
@@ -10096,6 +10273,11 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     return segs;
   };
 
+  // 【D-16 §3】線を描く順(先に描いたものが下)。並べ替えるのは**描く順だけ**で、
+  // noteAxisLineDraw に渡す添字は元のまま ── あれは「側」なので、
+  // 一緒に入れ替えると「どちらが面か」までデータの並びで動いてしまう(§4)。
+  const seriesRenderOrder = noteAxisRenderOrder(seriesData.length, myData);
+
   // 凡例のリード名は縦軸ラベルと同じ規則で畳む(fitLabel を共有)。
   const legendMax = Math.round(W * 0.42);
   const legendPad = L ? L.AXW : 0;
@@ -10114,6 +10296,23 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
         <div ref={boxRef}>
           {L && (
             <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
+              {/* 【D-16 §3】重なりの順は **面 → 目盛の罫 → 中央線 → 2本目の線 → 1本目の線**。
+                  面をいちばん下に置くのは、不透明度 0.28 の面に中央線が沈むと
+                  §2 で面の底に選んだ基準そのものが読めなくなるため。
+                  底(baseY)は中央線 centerLineAt ── **これが null の画面には面が出ない**ので、
+                  面が My Data に閉じていることと中央線が My Data に閉じていること(D-12)が
+                  同じ1つの判定から出る。どちらを描くかを2箇所で決めない。 */}
+              {centerLineAt !== null && seriesData.map((s, si) => {
+                if (!noteAxisLineDraw(si, myData).area) return null;
+                const st = s.style || SERIES_STYLES[0];
+                return (
+                  <g key={`area-${s.id ?? si}`} style={{ fill: st.color, fillOpacity: CHART_AREA_OPACITY_VAR }}>
+                    {segmentsFor(s.byIdx).map((seg, k) => (
+                      <path key={k} d={noteAxisAreaPath(seg, L.yAt(centerLineAt))} stroke="none" />
+                    ))}
+                  </g>
+                );
+              })}
               {/* 縦軸(値)の目盛: 上端・中間・下端。
                   【D-9v 2026/08/25 本人指示】My Data では**上下の水平線を引かない**
                   (本人「+8.4とマイナス8.4を示す線も不要」)。**目盛の文字は残す**ので
@@ -10165,15 +10364,29 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                   ))}
                 </g>
               )}
-              {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない */}
-              {seriesData.map((s, si) => {
+              {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない。
+                  【D-16 §3】My Data だけ **1本目がいちばん上**(飛び飛びの側が「図」、
+                  連続の側が「地」という役割分担が案4 の芯)。JSX は書いた順に上へ重なるので、
+                  My Data のときだけ後ろから描く。他の3画面は従来どおり 0,1,2… の順。
+                  【D-16 §1】点(<circle>)は My Data では描かない。他の3画面は D-8 のまま残す。 */}
+              {seriesRenderOrder.map((si) => {
+                const s = seriesData[si];
                 const st = s.style || SERIES_STYLES[0];
+                const draw = noteAxisLineDraw(si, myData);
                 return (
                   <g key={s.id ?? si} style={{ stroke: st.color, fill: st.color }}>
-                    {segmentsFor(s.byIdx).map((seg, k) => (
-                      <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
-                    ))}
-                    {Object.entries(s.byIdx).map(([idx, v]) => (
+                    {segmentsFor(s.byIdx).map((seg, k) => (noteAxisSegmentShape(seg, myData) === "path" ? (
+                      /* 【D-16a】1点だけの区間。<polyline> だと描かれないので、同じ座標へ
+                         長さゼロの <path> を引き、round のキャップに**線と同じ直径**の丸を打たせる。
+                         破線(dash)は長さゼロの部分パスに意味を持たないので渡さない。 */
+                      <path key={k} fill="none" d={noteAxisDotPath(seg)} strokeWidth={draw.width ?? st.width}
+                        strokeLinejoin="round" strokeLinecap="round" />
+                    ) : (
+                      <polyline key={k} fill="none" strokeWidth={draw.width ?? st.width} strokeDasharray={st.dash || undefined}
+                        strokeLinejoin={draw.round ? "round" : undefined} strokeLinecap={draw.round ? "round" : undefined}
+                        points={seg.join(" ")} />
+                    )))}
+                    {draw.dot && Object.entries(s.byIdx).map(([idx, v]) => (
                       <circle key={idx} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
                     ))}
                   </g>
@@ -11151,50 +11364,56 @@ function myDataStockTexts(stock) {
 // **2つの系列をそれぞれ選ぶ式**になった。本人「8/24×my平均のように2本の数値を
 // 選択可能にして、グラフを一つに固定しています」。
 //     折れ線   [ 8/24 ] × [ my平均 ]   ← 2本を**重ねる**
-//     窓型     [ my平均 ] ー [ ±0 ]     ← **引き算**
+//     窓型     [ 8/24 ] ー [ my平均 ]   ← **引き算**
 // 記号の使い分けは意図的(本人確認済み)。同じ2つの系列を、折れ線は重ねて・窓型は引いて見せる。
 // 「自分の平均」は本人指示で **my平均** になった。その日(day)のラベルだけは中身が日付
 // (「今日」/「8/24」)なので、myDataTodayOrLatestFrames の label を呼び出し側から渡す。
+// 【D-14 2026/08/27 本人指示】**候補から `±0` を削除した**。本人「±0 はグラフの軸にあるので
+// 選択肢から削除」── 折れ線は中央線(myDataCenterValue が平均差分では 0 を返す)を必ず1本描くので、
+// 「±0 という系列」は軸と同じものを二度描いていた。`pitchOnly`(平均差分のときだけ出す)の枝も
+// これで読み手ゼロになったので**規則ごと削除**した。
+// (`MY_DATA_SIGNED_METRIC` は残る ── 中央線 myDataCenterValue が今も読んでいる。)
 const MY_DATA_SERIES = [
   { key: "day", label: null },              // ラベルは日付そのもの(下の myDataSeriesLabel)
   { key: "period", label: "my平均" },
   { key: "reference", label: "目安" },
-  { key: "zero", label: "±0", pitchOnly: true },
 ];
 // 式の既定。**1本目 = その日 / 2本目 = my平均**(正典 Main.dc.html / Centroid.dc.html の状態)。
 const MY_DATA_SERIES_DEFAULT = ["day", "period"];
-// 平均差分のキー。「±0 が出るのはこの指標だけ」という規則を綴りで2箇所に持たないための1箇所。
+// 平均差分のキー。中央線が「その指標の平均」ではなく**絶対の 0** になるのはこの指標だけ、
+// という規則を綴りで2箇所に持たないための1箇所(読み手は myDataCenterValue)。
 const MY_DATA_SIGNED_METRIC = "pitchCentsSigned";
 
-// チップに出す綴り。その日だけ日付が入る。
+// チップにもシートの行にも出す綴り。その日だけ日付が入る。
+// 【D-14 2026/08/27 本人指示】シート専用の綴り(`8/26（その日）`)は**やめた**。本人
+// 「8/26（その日）の（その日）は不要なので削除」。役目を添えなくなった結果、シートの行と
+// チップの綴りが同じになったので、**myDataSeriesSheetLabel は関数ごと畳んでこの1つに寄せた**
+// (同じ結果を返す関数を2つ残さない)。
 function myDataSeriesLabel(key, dayLabel) {
   if (key === "day") return dayLabel;
   return MY_DATA_SERIES.find((x) => x.key === key)?.label ?? "";
 }
-// 選択肢の行に出す綴り。**その日だけ**「8/24（その日）」と役目を添える
-// (日付だけだと、それが何の系列なのかがシートの中で読めない)。
-function myDataSeriesSheetLabel(key, dayLabel) {
-  return key === "day" ? `${dayLabel}（その日）` : myDataSeriesLabel(key, dayLabel);
-}
-// 片側の選択肢。**押せない選択肢を出さない**(F-77 の罠)の適用が3つある:
-//   ・±0 は平均差分のときだけ
+// 片側の選択肢。**押せない選択肢を出さない**(F-77 の罠)の適用が2つある:
 //   ・目安は理想値プロファイルがあるときだけ
 //   ・【D-9 §1 本人指示】**もう一方で選ばれている系列は列から消す**
 //     (「左右で同じものを選べないように、一方で選ばれているものはそもそも
 //       もう一方の選択肢から削除するようにして」)
-function myDataSeriesOptions(metricKey, hasIdeal, taken) {
+// (【D-14】`±0` を消したので「平均差分のときだけ出す」枝も一緒に消えた。
+//  枝が消えたことで **`metricKey` を読む理由も消えた**ので、受け口ごと落としてある
+//  ── 無視する引数を残すと「選択肢は指標で変わる」という嘘の契約が残る。
+//  同じ理由で myDataSeriesFallback からも落とした。)
+function myDataSeriesOptions(hasIdeal, taken) {
   return MY_DATA_SERIES.filter((x) => {
-    if (x.pitchOnly && metricKey !== MY_DATA_SIGNED_METRIC) return false;
     if (x.key === "reference" && !hasIdeal) return false;
     if (taken !== null && taken !== undefined && x.key === taken) return false;
     return true;
   });
 }
-// 選べなくなった系列が選ばれたまま残らないようにする(指標を平均差分から動かすと ±0 が消え、
-// 目安を消すと目安が消える)。落とし先は**既定の並び → 残りの並び**の順で最初に空いているもの。
+// 選べなくなった系列が選ばれたまま残らないようにする(目安を消すと目安が消える)。
+// 落とし先は**既定の並び → 残りの並び**の順で最初に空いているもの。
 // 左右が同じ値になることは、2本目を決めるときに1本目を taken に渡すことで**構造的に**防ぐ。
-function myDataSeriesFallback(pair, metricKey, hasIdeal) {
-  const all = myDataSeriesOptions(metricKey, hasIdeal, null).map((x) => x.key);
+function myDataSeriesFallback(pair, hasIdeal) {
+  const all = myDataSeriesOptions(hasIdeal, null).map((x) => x.key);
   const pick = (want, taken) => (all.includes(want) && want !== taken
     ? want
     : (MY_DATA_SERIES_DEFAULT.concat(all).find((k) => all.includes(k) && k !== taken) ?? null));
@@ -11278,16 +11497,12 @@ function noteValuesByIdx(frames, metricKey, count, saxType, tuningHz) {
 //   その日(day)     … 当日(データが無ければ直近の記録日)の音ごとの値
 //   my平均(period)  … 選択期間の平均
 //   目安(reference) … getNoteIdeal(選択中の理想値プロファイル)
-//   ±0(zero)       … 定数 0(平均差分のときだけ選べる)
 // **左右どちらのチップも同じこの1関数から引く**(片側だけ別の作り方になると、
 // 式の左右で母集団が違う、という読めない絵になる)。
+// (【D-14 2026/08/27 本人指示】`±0`(全音 0 の定数系列)の枝は、系列そのものが
+//  選択肢から消えたので**読み手ゼロになり削除**した。)
 function myDataSeriesByIdx(seriesKey, dayByIdx, periodByIdx, selectedIdeal, metricKey, count) {
   if (seriesKey === "day") return dayByIdx || {};
-  if (seriesKey === "zero") {
-    const m = {};
-    for (let i = 0; i < count; i++) m[i] = 0;
-    return m;
-  }
   if (seriesKey === "reference") {
     const groupKey = noteGroupKeyOf(metricKey);
     const m = {};
@@ -11520,6 +11735,11 @@ function calendarMonthLabel(year, month) { return `${year}/${month + 1}`; }
 // (DESIGN-SYSTEM §5.1 は削除済み)。
 const CALENDAR_CELL_H = 44;
 const CALENDAR_DOT = 34;
+// 【D-14 2026/08/27 本人指示】「押せる日」の目印。**閉じる判定の除外はこの1つだけ**で、
+// マス目全体(grid)ではない。カレンダーを描く側(PracticeCalendarCard)と、外を押したら閉じる
+// 側(MyDataSection の closeDayIfOutside)の**両方がこの1つの綴りを使う**ので、
+// 片方だけ書き換えて判定がすり抜ける形にならない。
+const CALENDAR_DAY_ATTR = "data-calendar-day";
 // 【D-10 §4 本人指示】日付を押すと開くセッションの枠。
 // 本人「最大3件まで表示で3件以上はスクロール」。
 //   ・枠の高さの上限は **192px**(正典 S1open.dc.html の max-height)。
@@ -11767,6 +11987,9 @@ function BottomSheet({ ariaLabel, onClose, children }) {
       role="dialog" aria-modal="true" aria-label={ariaLabel}
       onClick={onClose}
       data-noswipe
+      /* 【D-14 §6】出るときの動き。**時間・曲線は index.css の .sheet-scrim / .sheet-card
+         だけが持つ**(インラインに書くと prefers-reduced-motion を1箇所で尊重できない)。 */
+      className="sheet-scrim"
       style={{
         position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
         display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
@@ -11776,6 +11999,7 @@ function BottomSheet({ ariaLabel, onClose, children }) {
         ref={dismiss.ref} {...dismiss.handlers}
         onClick={(e) => e.stopPropagation()}
         data-noswipe
+        className="sheet-card"
         style={{
           width: "100%", maxWidth: 900, background: "var(--c-surface)",
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
@@ -12098,7 +12322,7 @@ function NoteMatrixBlock({ metricKey, matrix }) {
 //   ・**この部品はカレンダーだけを描く。** セッション一覧と「すべてのセッション」は
 //     カードの外へ出て、一覧は「日付を押したときだけ」開く(§3 / §4。持ち主は MyDataSection)
 // 選ばれている日・開閉の状態は**呼び出し側が持つ**(開いた枠がこのカードの外にあるため)。
-function PracticeCalendarCard({ sessions, openDayKey, onToggleDay, gridRef }) {
+function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
   const now = new Date();
   const [ym, setYm] = useState(() => ({ year: now.getFullYear(), month: now.getMonth() }));
   const cells = calendarMonthDays(sessions, ym.year, ym.month);
@@ -12148,10 +12372,12 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay, gridRef }) {
       >
         {CALENDAR_WEEK_LABELS.map((w) => <span key={w}>{w}</span>)}
       </div>
-      {/* 【D-10 §4】この grid の中のタップだけは「他の場所」に数えない(押した日が閉じてしまう)。
-          判定は呼び出し側が ref の contains で行う ─ stopPropagation は使わない
+      {/* 【D-10 §4 / D-14 で範囲を狭めた】「他の場所」に数えないのは**押せる日のボタンだけ**。
+          以前はこの grid 全体を除いていたが、本人指示で**記録の無い日・空白のマス・曜日の見出しは
+          押したら閉じる**へ変えた(カレンダーが画面の大半を占めるため)。
+          判定は呼び出し側が CALENDAR_DAY_ATTR の closest で行う ─ stopPropagation は使わない
           (伝播を止める作りは、document まで届くことに依存している既存の仕組みを壊しうる)。 */}
-      <div ref={gridRef} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, marginTop: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, marginTop: 4 }}>
         {cells.map((c, i) => {
           if (!c) return <div key={`x${i}`} style={{ height: CALENDAR_CELL_H }} />;
           const level = calendarLevel(c.minutes, maxMinutes, c.count);
@@ -12190,6 +12416,9 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay, gridRef }) {
               onClick={() => onToggleDay(c.key)}
               aria-expanded={isSel}
               aria-label={`${c.day}日 ${c.count}件のセッション`}
+              /* 【D-14】閉じる判定の唯一の除外印。**押せる日だけ**が持つ
+                 (記録の無い日は上の <div> なので、押すと枠が閉じる)。 */
+              {...{ [CALENDAR_DAY_ATTR]: "" }}
               style={{
                 /* 見た目の丸(34px)より広い 44px の当たり判定。§5 の例外はもう無い。 */
                 height: CALENDAR_CELL_H, padding: 0, cursor: "pointer",
@@ -12292,15 +12521,15 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   // 状態そのものではなく myDataSeriesFallback を通した組を**全員が使う**。
   const hasIdeal = !!selectedIdeal;
   const [pairRaw, setPairRaw] = useState(MY_DATA_SERIES_DEFAULT);
-  const pair = myDataSeriesFallback(pairRaw, chartMetric.key, hasIdeal);
+  const pair = myDataSeriesFallback(pairRaw, hasIdeal);
   // どちらのチップを押しているか(null = 閉じている)。選択肢は既存の DataOptionSheet で出す。
   const [sheetSide, setSheetSide] = useState(null);
   const setSeriesAt = (side, key) => setPairRaw((prev) => {
-    const next = myDataSeriesFallback(prev, chartMetric.key, hasIdeal).slice();
+    const next = myDataSeriesFallback(prev, hasIdeal).slice();
     next[side] = key;
     // 反対側が同じ値になることは選択肢から消してあるので起きないが、
     // 落とし先の規則(myDataSeriesFallback)を必ず通して**左右が同じ**を構造的に潰す。
-    return myDataSeriesFallback(side === 0 ? [key, next[1]] : [next[0], key], chartMetric.key, hasIdeal);
+    return myDataSeriesFallback(side === 0 ? [key, next[1]] : [next[0], key], hasIdeal);
   });
 
   // 【D-10 §4 本人指示】日付を押すと、カレンダーカードと「すべてのセッション」の間に
@@ -12311,7 +12540,6 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   // (開いた日を消すと同時に中身が消え、高さのトランジションが走らない)。
   const [openDayKey, setOpenDayKey] = useState(null);
   const [shownDayKey, setShownDayKey] = useState(null);
-  const calendarGridRef = useRef(null);
   const dayPanelRef = useRef(null);
   const dayInnerRef = useRef(null);
   const [dayPanelH, setDayPanelH] = useState(0);
@@ -12338,12 +12566,24 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
     setOpenDayKey(next);
     if (next !== null) setShownDayKey(next);
   };
-  // 除くのは「カレンダーのマス」と「開いた枠の中」の2つだけ。**stopPropagation は使わない**
-  // (伝播を止める作りは、document まで届くことに依存している既存の仕組みを壊しうる)。
+  // 除くのは「**押せる日**(記録のある日のボタン)」と「開いた枠の中」の2つだけ。
+  // **stopPropagation は使わない**(伝播を止める作りは、document まで届くことに
+  // 依存している既存の仕組みを壊しうる)。
+  //
+  // 【D-14 2026/08/27 本人指示】以前は**カレンダーのマス目全体**(grid の ref.contains)を
+  // 除いていた。本人「カレンダーが画面に占める割合が大きいので、カレンダーを丸ごとタップしても
+  // 閉じないようにすると、どこをタップしても閉じる感覚がなくなる」。
+  // そこで除外を**押せる日のボタンだけ**へ狭めた。押せる日を除くのは体感の話ではなく
+  // **構造上の必然**で、除かないと onToggleDay が書いた openDayKey を、同じイベントで
+  // 続けて走るこのハンドラが null で上書きしてしまう(別の日への切り替えができなくなる)。
+  //   ・記録の無い日 / 空白のマス / 曜日の見出し … 押しても何も起きない場所なので**閉じる**
+  //   ・月送りの ‹ › … **閉じる**(D-10 からの挙動を変えていない)。月を動かすと
+  //     開いている日はもう画面に無いのに、下の枠だけが前の月の日を出したまま残る。
+  //     「月から離れる = その日から離れる」で揃えるほうが読める
   const closeDayIfOutside = (e) => {
     if (openDayKey === null) return;
     const t = e.target;
-    if (calendarGridRef.current && calendarGridRef.current.contains(t)) return;
+    if (t?.closest?.(`[${CALENDAR_DAY_ATTR}]`)) return;
     if (dayPanelRef.current && dayPanelRef.current.contains(t)) return;
     setOpenDayKey(null);
   };
@@ -12371,8 +12611,11 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           値は既存の myDataStockTexts(myDataStock(...)) から引く(作り方を増やさない)。
           【作法】.card の style は**オブジェクトリテラル直書き**にする(変数で渡すと
           検査が中身を読めず、地・枠・padding をインラインで殺していないことを確かめられない)。 */}
-      <div className="card" style={{ marginTop: 0 }}>
-        <div className="sans" style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>累計</div>
+      {/* 【D-15 §3 本人裁定(案A)】このカードだけ地が濃紺(--c-accent)。地は index.css の
+          .surf-card .card.card-accent が持ち、影・角丸・padding は他のカードと同じまま。
+          文字は白(--c-on-accent)、ラベルと単位は淡い青(--c-on-accent-dim)。 */}
+      <div className="card card-accent" style={{ marginTop: 0 }}>
+        <div className="sans" style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-on-accent-dim)" }}>累計</div>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 10 }}>
           {[
             { key: "hours", value: stock.hours, unit: "時間", label: "計測時間" },
@@ -12382,11 +12625,11 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
             <div key={z.key} style={{ flex: 1, minWidth: 0 }}>
               {/* 26px は §4.4 の「24px以上の数値」に当たるので字間は −.02em。
                   単位だけは 12px なので字間を 0 に戻す(小さい字を詰めると潰れる)。 */}
-              <div style={{ fontFamily: "var(--font-num)", fontWeight: 600, color: "var(--c-ink)", letterSpacing: "-.02em", fontSize: 26, lineHeight: 1.1, whiteSpace: "nowrap" }}>
+              <div style={{ fontFamily: "var(--font-num)", fontWeight: 600, color: "var(--c-on-accent)", letterSpacing: "-.02em", fontSize: 26, lineHeight: 1.1, whiteSpace: "nowrap" }}>
                 {z.value}
-                <span className="sans" style={{ fontSize: 12, fontWeight: 400, color: "var(--c-ink-3)", marginLeft: 2, letterSpacing: 0 }}>{z.unit}</span>
+                <span className="sans" style={{ fontSize: 12, fontWeight: 400, color: "var(--c-on-accent-dim)", marginLeft: 2, letterSpacing: 0 }}>{z.unit}</span>
               </div>
-              <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", marginTop: 3 }}>{z.label}</div>
+              <div className="sans" style={{ fontSize: 10, color: "var(--c-on-accent-dim)", marginTop: 3 }}>{z.label}</div>
             </div>
           ))}
         </div>
@@ -12396,7 +12639,6 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
         sessions={allMySessions}
         openDayKey={openDayKey}
         onToggleDay={toggleDay}
-        gridRef={calendarGridRef}
       />
 
       {/* 【D-10 §3 / §4】その日のセッション。**日付を押したときだけ**開き、
@@ -12549,8 +12791,8 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
         <DataOptionSheet
           ariaLabel={`${sheetSide + 1}本目の系列`}
           title={`${sheetSide + 1}本目`}
-          items={myDataSeriesOptions(chartMetric.key, hasIdeal, pair[sheetSide === 0 ? 1 : 0])
-            .map((o) => ({ key: o.key, label: myDataSeriesSheetLabel(o.key, day.label) }))}
+          items={myDataSeriesOptions(hasIdeal, pair[sheetSide === 0 ? 1 : 0])
+            .map((o) => ({ key: o.key, label: myDataSeriesLabel(o.key, day.label) }))}
           value={pair[sheetSide]}
           onPick={(k) => { setSeriesAt(sheetSide, k); setSheetSide(null); }}
           onClose={() => setSheetSide(null)}
@@ -12711,6 +12953,29 @@ function AnalysisLabView(props) {
   // 正典 #8a どおり**別画面**になった。入口は My Data のカレンダー最下行「すべてのセッション n 件 ›」
   // ただ1つ。セッション詳細と同じく早期 return で開くので、子タブ行も SwipePager も出ない。
   const [allSessionsOpen, setAllSessionsOpen] = useState(false);
+  // 【D-14 2026/08/27 本人指示】本人「すべてのセッションを mydata 画面で下にスクロールした
+  // 状態で開くと、セッション一覧も下の方から始まるので、開いたら一番上が開かれるように」。
+  // 別画面といっても**早期 return で同じ document を描き替えるだけ**なので、
+  // window のスクロール位置はそのまま引き継がれる ── これが「下の方から始まる」の正体。
+  // **開くときに先頭へ送り、戻るときに元へ戻す**の2つで対にする(先頭へ送るだけだと、
+  // 戻ったときに My Data が先頭に飛ぶという別の不満になる)。作りはリードタブの
+  // listScrollYRef(`src/App.jsx` の ReedsTab)と同じ:
+  //   ・控えるのは**入口の1箇所**。開く前に控えて、先に 0 へ送る(0 なので描画後の高さに依らない)
+  //   ・戻すのは allSessionsOpen が false へ落ちた**あと**。復帰後の描画が済んでから
+  //     動かす必要があるので requestAnimationFrame を1つ挟む
+  // 一覧から**セッション詳細**へ入って戻る往復では allSessionsOpen が true のままなので、
+  // この効果は走らない(一覧の位置は保たれる)。
+  const myDataScrollYRef = useRef(0);
+  const openAllSessions = () => {
+    myDataScrollYRef.current = window.scrollY;
+    window.scrollTo(0, 0);
+    setAllSessionsOpen(true);
+  };
+  useEffect(() => {
+    if (allSessionsOpen) return;           // My Data へ戻ったときだけ復元する
+    const y = myDataScrollYRef.current;
+    if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+  }, [allSessionsOpen]);
   // 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】条件の編集(12次元・値チップ・
   // 音域帯まとめ選択・日付/日数範囲・条件の削除)は**畳んである**。正典 #13a が条件を
   // チップ1行に畳んでいるため。チップか「＋」を押すと開く。**機能は1つも落としていない。**
@@ -12911,7 +13176,7 @@ function AnalysisLabView(props) {
         dataSax={dataSax} setDataSax={setDataSax}
         dataRange={dataRange} setDataRange={setDataRange}
         onOpenSession={setSelectedSessionId}
-        onOpenAllSessions={() => setAllSessionsOpen(true)}
+        onOpenAllSessions={openAllSessions}
         pageActive={dataSubTab === "mydata"}
         handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
       />
@@ -12949,9 +13214,14 @@ function AnalysisLabView(props) {
             チップの文字は pivotFilterChipText の1箇所(値の畳み方を2箇所に書かない)。
             【型】チップは地だけ / 「＋」は破線の枠だけ。**同じ物に枠と違う地を両方与えない**(芯1)。 */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minHeight: ANALYSIS_ROW_H }}>
+          {/* 【D-14 2026/08/27 本人指示】チップは押すと編集が**開き、もう一度押すと閉じる**。
+              本人指示で行の右端にあった「編集 / 閉じる」を消したので、**開く手も閉じる手も
+              チップが持つ**しかない(消す前は チップ=開くだけ / 右端の語=開閉のトグル だった)。
+              条件の値を変える経路・条件を消す経路は**1つも減っていない** ── どちらも
+              編集の中にあり、その編集はチップから開ける。 */}
           {pivotFilters.map((flt, i) => (
             <button
-              key={i} type="button" onClick={() => setFilterEditorOpen(true)}
+              key={i} type="button" onClick={() => setFilterEditorOpen((v) => !v)}
               aria-expanded={filterEditorOpen}
               className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: 0, minHeight: ANALYSIS_ROW_H }}
             >
@@ -12988,17 +13258,9 @@ function AnalysisLabView(props) {
               fontSize: 11, color: "var(--c-ink-2)", lineHeight: 1.4,
             }}>＋</span>
           </button>
-          {pivotFilters.length > 0 && (
-            <button
-              type="button" onClick={() => setFilterEditorOpen((v) => !v)}
-              aria-expanded={filterEditorOpen}
-              /* 【D-10 §7】「編集」は 10px / --c-accent(本人がキャンバスで縮小した)。
-                 チップ(11px)より小さくして、条件そのものより一段引いた操作として読ませる。 */
-              className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", minHeight: ANALYSIS_ROW_H, justifyContent: "center", marginLeft: "auto", fontSize: 10, color: "var(--c-accent)" }}
-            >
-              {filterEditorOpen ? "閉じる" : "編集"}
-            </button>
-          )}
+          {/* (【D-14 2026/08/27 本人指示】ここに「編集 / 閉じる」の語があったが、本人
+              「条件の箇所にある編集を削除」で撤去した。開閉はチップが兼ねる（上の注釈）。
+              正典 A1 の 10px / --c-accent という寸法も、持ち主が居なくなったので消えている。) */}
         </div>
         {pivotFilters.length === 0 && (
           <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 0 8px" }}>条件なし（全データを集計）</div>
@@ -13349,11 +13611,28 @@ function AllSessionsPage({
           すべてのセッション <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{sessionFilterActive ? `${filteredSessions.length}/${sessions.length}` : sessions.length}</span>
         </div>
         {/* 選ぶ対象が無い(0件)ときとモード中は入口を出さない(押せない入口を作らない。F-77)。
-            TAP_BUTTON_RESET は minHeight しか持たないので、「選択」の2文字だと横が 24px まで
-            痩せて §5(44×44・例外なし)を割る(N-11 の実測)。横も明示して確保する。 */}
+            TAP_BUTTON_RESET は minHeight しか持たないので、中身が小さいと横が痩せて
+            §5(44×44・例外なし)を割る(N-11 の実測)。横も明示して確保する。
+            【D-14 2026/08/27 本人指示】本人「すべてのセッションの『選択』は削除機能しかないので
+            ゴミ箱アイコン(これにはカードとか無駄につけない)に変更」。
+              ・**装飾を持たせない** ── `.ctl-plain` / `.ctl-pill` / 枠 / 地を1つも当てない。
+                塗りのピルを持つのは**実際に消える一手**(DeleteActionButton)だけ、という
+                D-5 からの塗りの規則をここで崩さないためでもある(これは入口であって一手ではない)
+              ・字が消えるので **aria-label が唯一の手掛かり**。必ず言葉で置く
+              ・アイコンは他の3箇所と同じ lucide の Trash2 を、**同じ綴り**
+                (`size={14} strokeWidth={1.9}`)で使う。**新しい大きさを発明しない**
+                ── DESIGN-SYSTEM にアイコン寸法の段は無く、App.jsx の先例は 12 と 14 の2つだけ。
+                地を持たないぶん大きくしたくなるが、**実際に消える一手(DeleteActionButton)より
+                入口が大きい**のは序列が逆になる。裸で 14 が小さすぎるなら段を作る話なので、
+                そのときは DESIGN-SYSTEM に足してから変えること */}
         {sessions.length > 0 && !listMode && (
-          <button onClick={onStartSelect} className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-ink-2)" }}>
-            選択
+          <button
+            onClick={onStartSelect}
+            aria-label="セッションを選んで削除"
+            className="sans"
+            style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-ink-2)" }}
+          >
+            <Trash2 size={14} strokeWidth={1.9} aria-hidden="true" />
           </button>
         )}
       </div>

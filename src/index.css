@@ -96,6 +96,23 @@
   /* 濃い面(--c-accent 等)の上に乗る文字・アイコン。--c-surface と値は同じだが役割が違う。
      面の色と面の上の文字色を同じトークンで兼ねると、片方だけ変えたいときに必ず破綻する。 */
   --c-on-accent:  #FFFFFF;
+  /* 【D-15 §3】濃い面(--c-accent)の上に乗る**副次の**文字(ラベル・単位)。
+     白の主文字と差を付けつつ、濃紺の上で読める明度に置く。
+     **新しい色相を体系に増やさない**ため、値は既存の --c-accent-line と同じ #B9C9E4。
+     役割が違うので別トークンにする(--c-on-accent と --c-surface が同値でも分けてあるのと同じ)。
+     コントラスト比(WCAG 2.x の式で計算): #B9C9E4 on #174585 = 5.63:1(AA 通常文字 4.5 を満たす)。
+     体系内の1段暗い --c-accent-dim(#9DB3CC)は同じ地で 4.38:1 で AA に届かないので使わない。
+     この2つの数字は pitch-test.mjs の検証34.5 がここのトークンから計算し直して確かめている。 */
+  --c-on-accent-dim: #B9C9E4;
+
+  /* 【D-16 2026/08/28 本人裁定・design/D16-SPEC.md §1】My Data の折れ線の「面」の濃さ。
+     **色は塗らない。** 面は 2本目の系列色(--c-accent-mid)をそのまま使い、ここが持つのは
+     濃さ(fill-opacity)だけ ── 新しい色相を体系に増やさず、rgba() をインラインに散らさない
+     ための置き場所。SVG の fill-opacity は style 属性経由なら var() が解ける
+     (presentation 属性では解けない。DESIGN-SYSTEM §1.9 の但し書きと同じ理由)。
+     値の唯一の答えは DESIGN-SYSTEM §1.8a の表。**濃すぎないかは実機でしか判定できない**
+     (Chrome の実測を合格根拠にしない。D16-SPEC §7)。 */
+  --o-chart-area: 0.28;
 
   /* ピッチ判定色。pitchBarColorRGB() と同じ意味を持つ機能色で、装飾都合で変えない。
      0¢=緑 / 13¢=橙 / 30¢以上=赤 */
@@ -376,6 +393,12 @@ body {
   padding: var(--sp-4);
   box-shadow: var(--shadow-card);
 }
+/* 【D-15 §3 本人裁定(案A)】My Data の**累計カード1枚だけ**を濃紺のベタ塗りにする。
+   本人「画面にメリハリがないので累計のカードだけ違う色にしてみて」。
+   **変えるのは地だけ。** 影・角丸・padding は上の .surf-card .card がそのまま持つ
+   (ここで上書きすると「他のカードと同じ」が崩れ、2つ目の寸法の正典ができる)。
+   文字色はインラインに #fff を散らさず --c-on-accent / --c-on-accent-dim を使う。 */
+.surf-card .card.card-accent { background: var(--c-accent); }
 /* 小さいカード(セッション1件 / すべてのセッション)。角丸 12 / 内側 10px 14px。
    .card と別のクラスにするのは、**同じ .card に2つの寸法を持たせない**ため
    (インライン style で padding を書くと作法が丸ごと効かなくなる)。 */
@@ -441,6 +464,54 @@ body {
     transform: none;
     transition: none;
   }
+}
+
+/* 【D-14 §6 2026/08/27 本人指示】下端から出るシート(BottomSheet)の出方。
+   本人「選択肢が下から出てくる挙動ももっとスムーズに出てくるように変更」。
+
+   **直す前は動きが1つも無かった**(createPortal で描かれた瞬間に完成形が出る)。
+   「もっとスムーズ」の下限が「瞬間表示」だったので、まず動きを与えるところから始める。
+
+   【transition ではなく animation を使う理由 ── D-11 で分かった構造の問題】
+   D-11 の(a)は「描く中身の更新が1フレーム遅れると、動き出しが鈍く見え、前の状態へ跳ねる」
+   だった。**出現の動きを transition で書くと、この1フレーム遅れが構造的に避けられない**:
+   閉じた姿勢で1度描いてから開いた姿勢へ書き換える必要があり、そのためには
+   rAF なり強制リフローなりで「描画をもう1回」挟むことになる。
+   `@keyframes` は**最初に描かれるフレームから**走るので、その2度描きが要らない。
+   ゆえにシートは animation で書く。**時間・曲線はここが唯一の持ち主**
+   (インライン style には1つも書かない ── prefers-reduced-motion をここ1箇所で尊重するため)。
+
+   【時間と曲線の採り方(DESIGN-SYSTEM §1.11 の表に行を足してある)】
+     ・曲線は `.day-panel` と**同じ** cubic-bezier(0.32, 0.72, 0, 1)。本人が「スムーズに
+       開くようになった」と言ったのはこの曲線の感触なので、感触を運ぶ側は写す
+     ・時間は **360ms**。`.day-panel` の 320ms を**そのまま写していない** ── §1.11 の作法1 が
+       「320/240 は .day-panel 1つで採った値であって体系の作法ではない」と範囲を切っており、
+       下から出るシートは移動距離が長い(枠は 204px 前後、シートは自分の高さぶん = 数百px)。
+       ただし距離に比例させると 500ms を超えて鈍くなるので、比例はさせず**1段だけ長く**した。
+       **この 360ms は本人の実機で「スムーズ」の判定を受けていない**(実機待ち)
+     ・**塗り(fill-mode)は付けない。** 走り終わったら transform が消えるので、静止時に
+       transform を残さない(§6.3)。シートの中から開く全画面ピッカーが
+       position: fixed の包含ブロックに閉じ込められる事故を作らない
+   【`will-change` は付けない】F-106。アプリ全体の禁止(pitch-test 30.1)。 */
+@keyframes sheet-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheet-card-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.sheet-scrim {
+  animation: sheet-scrim-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet-card {
+  animation: sheet-card-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* 動きを減らす設定では止める。**中身を戻す必要はない** ── .day-panel と違って
+   静止時の姿勢(opacity: 1 / transform なし)は素の状態そのもので、
+   閉じ側の姿勢を CSS で持っていないため(keyframes の from は走らなければ効かない)。 */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-scrim, .sheet-card { animation: none; }
 }
 
 /* ------------------------------------------------------------------
