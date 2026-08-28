@@ -1645,6 +1645,86 @@ function matchFingering(prevEntry, f0, fingeringTable) {
   return m;
 }
 
+// ============================================================
+// 【D-21】「中身が同じなら、同じものを渡す」── React へ渡す値の同一性判定
+//
+// 出どころ: 本人の実機。D-20 のスイッチを **振り子を目で見ながら** 1つずつ押した結果、
+// **「表示値づくり(runDisplayValues)を押すとスムーズになった。ほかは変わらない」**。
+// このとき ①の rAF の間隔(p50)は **17ms のまま1つも動かなかった** ──
+// つまり **rAF の間隔は滑らかさの指標ではない**(JS は 17ms ごとに呼ばれ続けているのに、
+// 画面の更新が間に合っていない)。JS の処理時間でもない(1秒のうち 22.1ms = 2.2%)。
+// 効いたのは「毎フレーム React に値を渡すのをやめる」ことだけだった。
+//
+// そこで、**値が実際に変わっていないときは新しい identity を作らない**。
+// どの判定も「その値が画面に与える影響の粒度」で決めてあり、
+// **同じと判定された瞬間に画面へ出る文字・寸法は1つも変わらない**。
+// **計測ロジック・記録される値・判定は1ビットも変えていない**(変えたのは
+// React へ値を渡す頻度だけ)。
+//
+// ★ ピッチ(setPitch)はここに入れない。環の追従(D-17a の τ=60ms の平滑)の元になる値で、
+//   更新頻度を落とすと環が鈍る。したがって鳴っている間は毎フレーム1回の更新が残る。
+// ============================================================
+
+// 素朴な浅い突き合わせ。**キーの集合まで見る**ので、項目が増えたときに
+// 「見ていない項目が変わったのに同じと判定する」穴が開かない(浅い比較の取り違えが
+// この周でいちばん危ない ── 画面が更新されなくなる)。
+function sameShallowForDisplay(a, b) {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!Object.is(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+// 音量(dB)。画面に出るのは MeasureView の MetricCard「音量」の `volumeDb.toFixed(1)` **1箇所だけ**。
+// **出る文字列そのものを突き合わせる**ので、同じと判定した瞬間に画面の文字が変わり得ない
+// (丸め方の取り違えが構造的に起こらない)。桁が食い違えば検査39が落ちる。
+// 録音フレームに入る音量は tick の局所変数 vDb のほうで、この状態ではない。
+function sameVolumeDbForDisplay(prev, next) {
+  if (Object.is(prev, next)) return true;
+  if (typeof prev !== "number" || typeof next !== "number") return false;
+  return prev.toFixed(1) === next.toFixed(1);
+}
+
+// 倍音8本の表示値。画面に出るのは各本の n(ラベル)と norm(棒の高さ norm*100 %)。
+// **丸めずに全キーを突き合わせる**(中央値は音色FFTの 66ms 間隔でしか動かないので、
+// 間の3〜4フレームは完全に同じ値が出てくる ── そこを渡さない)。
+function sameHarmonicLevelsForDisplay(prev, next) {
+  if (Object.is(prev, next)) return true;
+  if (!Array.isArray(prev) || !Array.isArray(next)) return false;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    if (!sameShallowForDisplay(prev[i], next[i])) return false;
+  }
+  return true;
+}
+
+// 運指。**画面が読むのは matchedFingering?.semitoneIndex ただ1つ**
+// (MeasureView の currentNoteIdeal。ほかに読み手は無い)。
+// centsError だけは毎フレーム変わる連続値で、画面にも記録にも出ない
+// (記録が使うのは tick の局所変数 matchedFinger のほうで、この状態ではない)。
+// なので centsError **だけ**を同一性から外し、残りの**全キー**を突き合わせる。
+// ★ 同じと判定した回は前の object をそのまま返すので、**この状態に残る centsError は
+//   その運指へ切り替わった時点の値で固まる**。この状態から centsError を読んではいけない
+//   (読む必要が出たら、この関数ごと見直すこと)。
+const FINGERING_DISPLAY_VOLATILE_KEYS = ["centsError"];
+function sameFingeringForDisplay(prev, next) {
+  if (Object.is(prev, next)) return true;
+  if (!prev || !next || typeof prev !== "object" || typeof next !== "object") return false;
+  const ka = Object.keys(prev).filter((k) => !FINGERING_DISPLAY_VOLATILE_KEYS.includes(k));
+  const kb = Object.keys(next).filter((k) => !FINGERING_DISPLAY_VOLATILE_KEYS.includes(k));
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!Object.prototype.hasOwnProperty.call(next, k)) return false;
+    if (!Object.is(prev[k], next[k])) return false;
+  }
+  return true;
+}
+
 // RBJ Audio-EQ-Cookbook のバンドパス(ピーク0dB)を1回通すIIRフィルタ。
 // Web AudioのBiquadFilterNode(type:"bandpass")と同じ伝達関数で、アップロード解析の
 // ノイズゲート判定にライブ計測(バンドパス→gateAnalyser)と同一の帯域限定音量を使うためのもの。
@@ -3169,7 +3249,11 @@ export default function WindToneLabPhaseMode() {
         for (let i = 0; i < timeBuf.length; i++) ss += timeBuf[i] * timeBuf[i];
         const rms = Math.sqrt(ss / timeBuf.length);
         const vDb = 20 * Math.log10(rms + 1e-10);
-        setVolumeDb(vDb);
+        // 【D-21】画面に出る文字(小数1桁)が変わらない限り、新しい値を渡さない。
+        // ここは **sounding の枝の外**で、鳴っていなくても毎フレーム呼ばれていた
+        // ── 静かにしている間の毎フレームのレンダーは、これと下の空配列が作っていた。
+        // 録音フレームに入るのは局所変数 vDb のほう(下の :volumeDb)なので、記録は無傷。
+        setVolumeDb((prev) => (sameVolumeDbForDisplay(prev, vDb) ? prev : vDb));
 
         // 【無音ウォッチドッグ】トラックがliveでも、バッファが全ゼロ(=-200dB近傍)のまま
         // 一定時間続いたらストリームは死んでいる。判定は純関数に切り出してテストしている。
@@ -3248,7 +3332,9 @@ export default function WindToneLabPhaseMode() {
           // 半音境界のヒステリシスと範囲外リジェクトを含む共通判定(オフライン解析と同一)
           matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current);
           lastFingerRef.current = matchedFinger;
-          if (!dMakeOff) setMatchedFingering(matchedFinger);
+          // 【D-21】運指は音が変わらない限り同じ。なのに findClosestFingering が
+          // 毎フレーム `{...entry, centsError}` を作るので、毎フレーム別の object になっていた。
+          if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));
         } else {
           // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
           setPitch(null);
@@ -3335,14 +3421,18 @@ export default function WindToneLabPhaseMode() {
             const dispHarm = Array.from({ length: NUM_HARMONICS }, (_, i) => ({
               n: i + 1, norm: median(disp.harmonics.map((h) => h[i] ?? 0)) ?? 0,
             }));
-            setHarmonicLevels(dispHarm);
+            // 【D-21】中央値は音色FFTの 66ms 間隔でしか動かない。中身が同じ回は
+            // 前の配列をそのまま返し、新しい identity を作らない。
+            setHarmonicLevels((prev) => (sameHarmonicLevelsForDisplay(prev, dispHarm) ? prev : dispHarm));
           }
         } else {
           // しばらく測れていない(無音・弱音が続いた)ならバッファを空にして「—」に戻す
           disp.centroid = []; disp.hnr = []; disp.harmonics = [];
           disp.lastCentroid = null; disp.lastHnr = null; disp.lastLevels = [];
           setCentroidHz(null);
-          setHarmonicLevels([]);
+          // 【D-21】ここは**鳴っていない間ずっと毎フレーム**通る。空配列を毎回作ると
+          // 中身が同じでも identity が変わり、静かにしている間じゅう画面が作り直されていた。
+          setHarmonicLevels((prev) => (Array.isArray(prev) && prev.length === 0 ? prev : []));
           setHnrDb(null);
         }
         if (dOn) metroDiagSlotAdd(METRO_DIAG.disp, performance.now() - dDispT0);
@@ -6590,7 +6680,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       <div style={{ ...hint, marginTop: 2 }}>
         ①で「表示の側」と出たときに、ここを1つずつ押して絞ります（1つ押す→戻す→次）。
         <b>詳細カードは閉じている間は描かれていない</b>ので、そのボタンは詳細を開いてから押してください。
-        音量(dB)の数字は鳴っていなくても毎フレーム動くので、①でも止まりません。
+        音量(dB)の数字は鳴っていなくても動くので、①でも止まりません。
         走り・呼吸は<b>合ったとき</b>だけ出るので、0¢に合わせながら押してください。
       </div>
       </>)}
@@ -6656,8 +6746,11 @@ function MeasureView(props) {
   //
   // **止まらないもの(意図どおり)**:
   //   ・メトロノームの振り子と拍の● … 観測対象なので止めない
-  //   ・音量(dB)の数字 … これは鳴っていなくても毎フレーム更新される値で、
-  //     「鳴ると増えるもの」ではない(setVolumeDb は sounding の枝の外。:3163)
+  //   ・音量(dB)の数字 … これは鳴っていなくても更新される値で、
+  //     「鳴ると増えるもの」ではない(setVolumeDb は sounding の枝の外)。
+  //     【D-21 で変わった点】以前は毎フレーム渡していたが、いまは
+  //     **画面に出る小数1桁が変わったときだけ**渡す(sameVolumeDbForDisplay)。
+  //     ①で止まらないことは変わらない
   //
   // 左の dViewOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
   // スイッチの真偽値を1つも読まない**(&& の左で止まる)。

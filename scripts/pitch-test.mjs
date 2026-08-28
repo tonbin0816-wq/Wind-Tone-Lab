@@ -18777,16 +18777,20 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
       const i = tickCode38.indexOf("if (sounding) {");
       const j = i >= 0 ? tickCode38.indexOf("} else {", i) : -1;
       const blk = i >= 0 && j > i ? tickCode38.slice(i, j).replace(/\s+/g, " ").trim() : "";
+      // 【D-21 で setMatchedFingering の渡し方だけが変わった】渡すのは
+      // 「中身が同じなら前の object」。**分岐する setter が2つであることも、
+      // 運指の判定が分岐の外にあることも変わっていない**(形の主張はそのまま)。
       const want = "if (sounding) { if (!dMakeOff) setPitch(f0); "
         + "matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current); "
-        + "lastFingerRef.current = matchedFinger; if (!dMakeOff) setMatchedFingering(matchedFinger);";
+        + "lastFingerRef.current = matchedFinger; "
+        + "if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));";
       check("38.5 発音中の枝は setter 2つだけが分岐する形のまま(運指の判定は分岐の外)",
         blk === want, blk.slice(0, 260) || "枝を切り出せない");
     }
     // 止めているのは「React へ渡す所」だけであること。
     check("38.5 止めているのは表示値を渡す所だけ(setter の手前で分ける)",
       tickCode38.includes("if (!dMakeOff) setPitch(f0);")
-      && tickCode38.includes("if (!dMakeOff) setMatchedFingering(matchedFinger);")
+      && tickCode38.includes("if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));")
       && /if \(holdActive\) \{\s*\r?\n\s*if \(!dMakeOff\) \{/.test(tickCode38),
       (tickCode38.match(/[^\n]*dMakeOff[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
     // 走りは「広がりを0にして消す」。**弧の形の式(180×p)には触っていない**。
@@ -18822,7 +18826,9 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
       /詳細カードは閉じている間は描かれていない/.test(diagSrc38),
       (diagSrc38.match(/[^\n]*詳細カード[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
     check("38.6 音量の数字は①でも止まらない、と板に書いてある",
-      /音量\(dB\)の数字は鳴っていなくても毎フレーム動くので、①でも止まりません/.test(diagSrc38),
+      // 【D-21】「毎フレーム」は落とした。音量は画面に出る小数1桁が変わったときだけ渡すようになり、
+      // 板の文が実装より先を主張しないようにした(①で止まらないことは変わらない)。
+      /音量\(dB\)の数字は鳴っていなくても動くので、①でも止まりません/.test(diagSrc38),
       (diagSrc38.match(/[^\n]*音量\(dB\)[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
     // (3) 効かなかったときに次に見る数字への案内。
     check("38.6 ①が効かなかったら内訳の「差」を見る、と1枚目に書いてある",
@@ -18951,6 +18957,236 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
         /metroDiagSoundingNow\(s\?\.soundingSince\)/.test(mainPart),
         (mainPart.match(/[^\n]*soundingSince[^\n]*/g) || ["無し"]).join(" ").trim().slice(0, 160));
     }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証39: D-21 「中身が同じなら、同じものを渡す」(毎フレームの状態更新の間引き)
+//
+// 出どころ: 本人の実機。D-20 のスイッチを **振り子を目で見ながら** 1つずつ押し、
+// **「表示値づくり(runDisplayValues)を押すとスムーズになった。ほかは変わらない」**。
+// このとき ①の rAF の間隔(p50)は **17ms のまま1つも動かなかった** ──
+// **rAF の間隔は滑らかさの指標ではない**(JS は呼ばれ続けているのに画面が追い付いていない)。
+//
+// **この節が名乗れる範囲**:
+//   ・同一性の判定が「画面に出る値」の粒度と食い違っていないこと
+//     (同じと判定した瞬間に、画面へ出る文字・寸法が変わり得ないこと)
+//   ・違う値をちゃんと「違う」と判定すること ── **画面が固まる事故を捕まえる**
+//   ・毎フレーム新しい identity を作っていた4箇所が、判定を通してから渡す形になっていること
+//   ・**ピッチだけは間引いていない**こと(環の追従 D-17a τ=60ms を鈍らせない)
+// **名乗れない範囲**: 実機で滑らかになるかどうか。ここで測れるのは
+//   「React へ値を渡す回数が減った」ことまでで、**目で見た滑らかさは実機でしか分からない**。
+//   Chrome では tick そのものが1度も走らない(マイクが無い。罠10)。
+// ============================================================
+console.log("\n========== 検証39: D-21 中身が同じなら同じものを渡す ==========");
+{
+  const measSrc39 = srcOfFn(src, "MeasureView");
+  const tickSrc39 = (() => {
+    const j = src.indexOf("tickRef.current = tick;");
+    const i = j > 0 ? src.lastIndexOf("const tick = () => {", j) : -1;
+    return i >= 0 && j > i ? src.slice(i, j) : "";
+  })();
+  const tickCode39 = codeOf(tickSrc39);
+
+  const built39 = runFn(() => new Function(`
+    ${extractFunction("sameShallowForDisplay")}
+    ${extractFunction("sameVolumeDbForDisplay")}
+    ${extractFunction("sameHarmonicLevelsForDisplay")}
+    ${extractConst("FINGERING_DISPLAY_VOLATILE_KEYS")}
+    ${extractFunction("sameFingeringForDisplay")}
+    return { sameShallowForDisplay, sameVolumeDbForDisplay,
+             sameHarmonicLevelsForDisplay, sameFingeringForDisplay };`)());
+  const F39 = built39.ok ? built39.v : null;
+  // 空回り防止: 組み上がった関数が本当に動くところまで確かめてから先へ進む。
+  const smoke39 = runFn(() => F39.sameVolumeDbForDisplay(-30.04, -30.041) === true
+    && F39.sameVolumeDbForDisplay(-30.04, -30.16) === false);
+  check("39.0 同一性の判定を App.jsx から組み立てて実行できている(空回りしていない)",
+    !!F39 && smoke39.ok && smoke39.v === true,
+    built39.ok ? shownOf(smoke39) : `組み立て失敗(${built39.err})`);
+
+  if (F39) {
+    const { sameVolumeDbForDisplay: sameVol, sameHarmonicLevelsForDisplay: sameHarm,
+            sameFingeringForDisplay: sameFing } = F39;
+
+    // --- 39.1 音量 ── 判定の粒度は「画面に出る桁」と一致していなければならない --------
+    // 画面より粗く見れば表示が固まり、細かく見れば間引きが効かない。
+    // **桁は画面(MeasureView の MetricCard)から読む**。判定側の桁と突き合わせる。
+    const volShownM = /value=\{volumeDb\.toFixed\((\d+)\)\}/.exec(measSrc39);
+    const volCmpM = /return prev\.toFixed\((\d+)\) === next\.toFixed\((\d+)\);/
+      .exec(extractFunction("sameVolumeDbForDisplay"));
+    check("39.1 音量の同一性は、画面に出る桁とまったく同じ桁で見ている",
+      !!volShownM && !!volCmpM && volCmpM[1] === volCmpM[2] && volShownM[1] === volCmpM[1],
+      `画面=${volShownM ? volShownM[1] : "見つからない"} / 判定=${volCmpM ? volCmpM[1] : "見つからない"}`);
+    const volDigits = volShownM ? Number(volShownM[1]) : NaN;
+    const showVol = (v) => v.toFixed(volDigits);
+
+    // 「同じと判定する ⇔ 画面の文字が一致する」を総当りで確かめる。
+    // 期待値は**画面側の綴りから作った showVol** で、判定側の式を書き写していない。
+    {
+      const pairs = [];
+      for (let a = -70; a <= -10; a += 0.0173) {
+        for (const d of [0, 0.004, 0.02, 0.049, 0.051, 0.11, 1.3]) pairs.push([a, a + d]);
+      }
+      const bad = pairs.filter(([a, b]) => sameVol(a, b) !== (showVol(a) === showVol(b)));
+      const differing = pairs.filter(([a, b]) => showVol(a) !== showVol(b)).length;
+      check("39.1 音量: 同じと判定するのは画面の文字が一致するときだけ(総当り)",
+        Number.isFinite(volDigits) && bad.length === 0 && differing > 1000 && pairs.length > 20000,
+        `食い違い=${bad.length}件 / 文字が違う組=${differing}件 / 総数=${pairs.length}組`);
+    }
+    check("39.1 音量: 数でないものが混ざったら別物として扱う(黙って同じにしない)",
+      sameVol(null, -30) === false && sameVol(-30, null) === false
+      && sameVol(undefined, -30) === false && sameVol("-30.0", -30) === false
+      && sameVol(null, null) === true,
+      `${sameVol(null, -30)} / ${sameVol(-30, null)} / ${sameVol("-30.0", -30)} / ${sameVol(null, null)}`);
+
+    // --- 39.2 倍音8本 ── 全キーを見る(一部しか見ないと画面が更新されなくなる) --------
+    const mkHarm = (f = () => 0) => Array.from({ length: 8 }, (_, i) => ({ n: i + 1, norm: 1 / (i + 1) + f(i) }));
+    {
+      const a = mkHarm(), b = mkHarm();
+      check("39.2 倍音: 別インスタンスでも中身が同じなら「同じ」",
+        a !== b && sameHarm(a, b) === true, `別物=${a !== b} / 判定=${sameHarm(a, b)}`);
+      // **1本ずつ**動かして、8本すべてが同一性に効いていることを確かめる
+      // (先頭だけ・一部だけ見る比較はここで落ちる)。
+      const missed = [];
+      for (let k = 0; k < 8; k++) {
+        const c = mkHarm((i) => (i === k ? 1e-9 : 0));
+        if (sameHarm(a, c) !== false) missed.push(k + 1);
+      }
+      check("39.2 倍音: 8本のうちどの1本が動いても「違う」(見ていない本が無い)",
+        missed.length === 0, missed.length ? `見落とし=${missed.join(",")}倍` : "8本すべて効いている");
+      const nChanged = a.map((h, i) => (i === 3 ? { n: 99, norm: h.norm } : h));
+      const shorter = a.slice(0, 7);
+      const extraKey = a.map((h, i) => (i === 2 ? { ...h, note: "x" } : h));
+      check("39.2 倍音: 本数・次数・キーの増減も「違う」として扱う",
+        sameHarm(a, nChanged) === false && sameHarm(a, shorter) === false
+        && sameHarm(a, extraKey) === false && sameHarm(a, "harm") === false,
+        `次数=${sameHarm(a, nChanged)} / 本数=${sameHarm(a, shorter)} / キー増=${sameHarm(a, extraKey)}`);
+      check("39.2 倍音: 空配列どうしは「同じ」/ 空と1件は「違う」(鳴っていない間の作り直しを止める根拠)",
+        sameHarm([], []) === true && sameHarm([], [{ n: 1, norm: 0 }]) === false,
+        `${sameHarm([], [])} / ${sameHarm([], [{ n: 1, norm: 0 }])}`);
+    }
+
+    // --- 39.3 運指 ── centsError **だけ**を外す。それ以外の全キーは見る ---------------
+    {
+      const table39 = api.buildFingeringTable("alto", 442, 30);
+      const e0 = table39[10];
+      const a = api.matchFingering(null, e0.soundingFreqHz * Math.pow(2, 3 / 1200), table39);
+      const b = api.matchFingering(a, e0.soundingFreqHz * Math.pow(2, 9 / 1200), table39);
+      const c = api.matchFingering(null, table39[11].soundingFreqHz, table39);
+      check("39.3 運指は毎フレーム別の object になっていた(だから同一性の判定が要る)",
+        !!a && !!b && a !== b && a.semitoneIndex === b.semitoneIndex && a.centsError !== b.centsError,
+        `別物=${a !== b} / 音名=${a && a.semitoneIndex}vs${b && b.semitoneIndex} / ¢=${a && a.centsError.toFixed(3)}vs${b && b.centsError.toFixed(3)}`);
+      check("39.3 同じ運指の間は「同じ」(画面が読むのは semitoneIndex だけ)",
+        sameFing(a, b) === true, String(sameFing(a, b)));
+      check("39.3 隣の音へ移ったら「違う」(音名が変わるのに画面が固まらない)",
+        !!c && a.semitoneIndex !== c.semitoneIndex && sameFing(a, c) === false,
+        `${a && a.semitoneIndex} → ${c && c.semitoneIndex} / 判定=${sameFing(a, c)}`);
+      // centsError 以外のキーは1つでも動けば「違う」。**外しているのは centsError だけ**。
+      const keys39 = Object.keys(a).filter((k) => k !== "centsError");
+      const leaked = keys39.filter((k) => sameFing(a, { ...a, [k]: "★" }) !== false);
+      check("39.3 運指: centsError 以外のキーはどれが動いても「違う」(外しているのは1つだけ)",
+        keys39.length >= 3 && leaked.length === 0,
+        `見ているキー=${keys39.join(",")} / 見落とし=${leaked.join(",") || "無し"}`);
+      check("39.3 運指: 片方だけ null / キーの増減も「違う」。両方 null は「同じ」",
+        sameFing(null, a) === false && sameFing(a, null) === false && sameFing(null, null) === true
+        && sameFing(a, { ...a, extra: 1 }) === false,
+        `${sameFing(null, a)} / ${sameFing(a, null)} / ${sameFing(null, null)} / ${sameFing(a, { ...a, extra: 1 })}`);
+    }
+
+    // --- 39.4 置換等価性 ── 同じ入力を流して、素朴な列と間引いた列を突き合わせる -------
+    // **これが「常に同じと返す」変異を殺す本体**: 中身が変わった瞬間を取りこぼすと、
+    // 画面に出る値が素朴な列とずれて落ちる。
+    // 逆に「常に違うと返す」変異は、下の「回数が減っている」で落ちる。
+    {
+      const table39 = api.buildFingeringTable("alto", 442, 30);
+      const SILENT = 60, TOTAL = 240, NOTE_SWITCH = 150, TIMBRE_EVERY = 4; // 4フレーム≒66ms
+      const frames39 = [];
+      let harmSrc = null, prevEntry = null;
+      for (let i = 0; i < TOTAL; i++) {
+        const sounding = i >= SILENT;
+        const vol = (sounding ? -20 : -70) + Math.sin(i * 0.37) * 0.9 + Math.sin(i * 1.7) * 0.02;
+        if (sounding && (i - SILENT) % TIMBRE_EVERY === 0) {
+          harmSrc = Array.from({ length: 8 }, (_, k) => ({ n: k + 1, norm: (1 / (k + 1)) * (1 + 0.03 * Math.sin(i * 0.11 + k)) }));
+        }
+        let fing = null;
+        if (sounding) {
+          const baseHz = (i < NOTE_SWITCH ? table39[10] : table39[11]).soundingFreqHz;
+          fing = api.matchFingering(prevEntry, baseHz * Math.pow(2, (Math.sin(i * 0.29) * 6) / 1200), table39);
+          prevEntry = fing;
+        } else prevEntry = null;
+        // **毎フレーム新しい配列/新しい object**(直す前の tick がしていたとおり)。
+        frames39.push({ vol, harm: sounding && harmSrc ? harmSrc.map((h) => ({ ...h })) : [], fing });
+      }
+      const showHarm = (arr) => Array.from({ length: 8 }, (_, k) => {
+        const m = arr.find((h) => h.n === k + 1);
+        return m ? `${m.norm * 100}%` : "0%";
+      }).join("|");
+      const showFing = (f) => String((f && f.semitoneIndex) != null ? f.semitoneIndex : "—");
+      const naive = { vol: -100, harm: [], fing: null };
+      const dedup = { vol: -100, harm: [], fing: null };
+      const wN = { vol: 0, harm: 0, fing: 0 }, wD = { vol: 0, harm: 0, fing: 0 };
+      const wNsilent = { harm: 0 }, wDsilent = { harm: 0 };
+      const shownN = [], shownD = [];
+      frames39.forEach((fr, i) => {
+        // 素朴(直す前): 毎フレームそのまま渡す
+        if (!Object.is(naive.vol, fr.vol)) wN.vol++;
+        if (!Object.is(naive.harm, fr.harm)) { wN.harm++; if (i < SILENT) wNsilent.harm++; }
+        if (!Object.is(naive.fing, fr.fing)) wN.fing++;
+        naive.vol = fr.vol; naive.harm = fr.harm; naive.fing = fr.fing;
+        // 間引き(直した後): App.jsx の判定をそのまま通す
+        const v2 = sameVol(dedup.vol, fr.vol) ? dedup.vol : fr.vol;
+        const h2 = sameHarm(dedup.harm, fr.harm) ? dedup.harm : fr.harm;
+        const f2 = sameFing(dedup.fing, fr.fing) ? dedup.fing : fr.fing;
+        if (!Object.is(dedup.vol, v2)) wD.vol++;
+        if (!Object.is(dedup.harm, h2)) { wD.harm++; if (i < SILENT) wDsilent.harm++; }
+        if (!Object.is(dedup.fing, f2)) wD.fing++;
+        dedup.vol = v2; dedup.harm = h2; dedup.fing = f2;
+        shownN.push(`${showVol(naive.vol)} / ${showHarm(naive.harm)} / ${showFing(naive.fing)}`);
+        shownD.push(`${showVol(dedup.vol)} / ${showHarm(dedup.harm)} / ${showFing(dedup.fing)}`);
+      });
+      const firstDiff = shownN.findIndex((s, i) => s !== shownD[i]);
+      // 空回り防止: 素朴な列の中で表示が実際に何度も変わっていること(変わらない列なら比較に意味が無い)。
+      const movedN = shownN.filter((s, i) => i > 0 && s !== shownN[i - 1]).length;
+      check("39.4 間引いても画面に出る値は1フレームも変わらない(240フレーム・音量/倍音8本/音名)",
+        Number.isFinite(volDigits) && firstDiff === -1 && movedN > 30,
+        firstDiff === -1 ? `240フレーム一致 / 表示が動いた回数=${movedN}`
+          : `${firstDiff}フレーム目 素朴=${shownN[firstDiff]} / 間引き=${shownD[firstDiff]}`);
+      const totalN = wN.vol + wN.harm + wN.fing, totalD = wD.vol + wD.harm + wD.fing;
+      check("39.4 状態更新の回数は実際に減っている(素朴 > 間引き)",
+        totalD < totalN && totalN > 0,
+        `素朴=${totalN}回(音量${wN.vol}/倍音${wN.harm}/運指${wN.fing}) → `
+        + `間引き=${totalD}回(音量${wD.vol}/倍音${wD.harm}/運指${wD.fing}) / 240フレーム`);
+      check("39.4 鳴っていない間、倍音の空配列は1度も渡らない(毎フレーム作り直していた側は渡る)",
+        wDsilent.harm === 0 && wNsilent.harm >= SILENT - 1,
+        `素朴=${wNsilent.harm}回 / 間引き=${wDsilent.harm}回(無音${SILENT}フレーム)`);
+      check("39.4 運指は音が変わった回数までしか渡らない(毎フレーム渡していた側と桁が違う)",
+        wD.fing < wN.fing && wD.fing <= 8 && wN.fing >= TOTAL - SILENT,
+        `素朴=${wN.fing}回 / 間引き=${wD.fing}回`);
+    }
+  }
+
+  // --- 39.5 配線 ── 純関数を守っても、呼び出しが無ければ意味がない(罠2) --------------
+  {
+    const wires39 = [
+      ["音量", "setVolumeDb((prev) => (sameVolumeDbForDisplay(prev, vDb) ? prev : vDb));"],
+      ["運指", "if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));"],
+      ["倍音(鳴っている間)", "setHarmonicLevels((prev) => (sameHarmonicLevelsForDisplay(prev, dispHarm) ? prev : dispHarm));"],
+      ["倍音(鳴っていない間)", "setHarmonicLevels((prev) => (Array.isArray(prev) && prev.length === 0 ? prev : []));"],
+    ];
+    const notWired = wires39.filter(([, line]) => !tickCode39.includes(line)).map(([n]) => n);
+    check("39.5 毎フレーム新しい identity を作っていた4箇所は、判定を通してから渡している",
+      tickCode39.length > 400 && notWired.length === 0,
+      notWired.length ? `通っていない: ${notWired.join(" / ")}` : `tick=${tickCode39.length}字`);
+    // **ピッチは間引かない。** 環の追従(D-17a の τ=60ms の平滑)の元になる値で、
+    // 更新頻度を落とすと環が鈍る。間引きの形が setPitch に付いたらここで落ちる。
+    check("39.5 ピッチだけは間引いていない(環の追従を鈍らせない)",
+      tickCode39.includes("if (!dMakeOff) setPitch(f0);") && !/setPitch\(\s*\(prev\)/.test(tickCode39),
+      (tickCode39.match(/[^\n]*setPitch\([^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
+    // 記録に入る値は状態ではなく tick の局所変数のまま(間引きは記録に届かない)。
+    check("39.5 録音フレームに入る音量・運指は局所変数のまま(間引きは記録に届かない)",
+      tickCode39.includes("volumeDb: vDb,") && tickCode39.includes("semitoneIndex: matchedFinger?.semitoneIndex ?? null,"),
+      (tickCode39.match(/[^\n]*volumeDb: [^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 160));
   }
   console.log("  -> done");
 }
