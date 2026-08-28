@@ -10,7 +10,7 @@ import { isValidInstrument, isValidMouthpiece } from "./catalog/gear.js";
 // **ここを足し引きしたら firestore.rules の該当行も必ず直すこと**(逆も同じ)。
 // 食い違いは profile.test.js の「Firestore ルールの列挙と一致する」が検出する。
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
-export const POSITIONS = ["中学吹奏楽部", "高校吹奏楽部", "大学吹奏楽・サークル", "音大生", "社会人", "講師・プロ", "独学"];
+export const POSITIONS = ["学生", "音大生", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
 export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外"];

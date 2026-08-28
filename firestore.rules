@@ -23,7 +23,7 @@ service cloud.firestore {
         // 自由入力はニックネーム1つだけ、を型で担保するために列挙で固定する。
         // **profile.js 側の定数を足し引きしたら、必ずここも直すこと**(逆も同じ)。
         // 同期は src/community/profile.test.js の「Firestore ルールの列挙と一致する」で検査している。
-        && request.resource.data.position in ['中学吹奏楽部','高校吹奏楽部','大学吹奏楽・サークル','音大生','社会人','講師・プロ','独学']
+        && request.resource.data.position in ['学生','音大生','社会人','講師・プロ','独学']
         && request.resource.data.startYear is int
         && request.resource.data.startYear >= 1900
         && request.resource.data.startYear <= 2200
