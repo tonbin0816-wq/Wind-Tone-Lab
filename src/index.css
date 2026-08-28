@@ -105,14 +105,10 @@
      この2つの数字は pitch-test.mjs の検証34.5 がここのトークンから計算し直して確かめている。 */
   --c-on-accent-dim: #B9C9E4;
 
-  /* 【D-16 2026/08/28 本人裁定・design/D16-SPEC.md §1】My Data の折れ線の「面」の濃さ。
-     **色は塗らない。** 面は 2本目の系列色(--c-accent-mid)をそのまま使い、ここが持つのは
-     濃さ(fill-opacity)だけ ── 新しい色相を体系に増やさず、rgba() をインラインに散らさない
-     ための置き場所。SVG の fill-opacity は style 属性経由なら var() が解ける
-     (presentation 属性では解けない。DESIGN-SYSTEM §1.9 の但し書きと同じ理由)。
-     値の唯一の答えは DESIGN-SYSTEM §1.8a の表。**濃すぎないかは実機でしか判定できない**
-     (Chrome の実測を合格根拠にしない。D16-SPEC §7)。 */
-  --o-chart-area: 0.28;
+  /* (【D-18 2026/08/28 本人裁定】ここに My Data の折れ線の「面」の濃さ
+     "--o-chart-area" = 0.28 があった。本人が実機で面を却下したので、
+     読み手(App.jsx の面の <path>)と一緒に定義ごと削除した。
+     経緯は design/D16-SPEC.md の「却下」の記録と DESIGN-SYSTEM §1.8a へ。) */
 
   /* ピッチ判定色。pitchBarColorRGB() と同じ意味を持つ機能色で、装飾都合で変えない。
      0¢=緑 / 13¢=橙 / 30¢以上=赤 */

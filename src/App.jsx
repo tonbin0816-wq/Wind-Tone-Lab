@@ -5864,6 +5864,237 @@ function MetroPendulum({ getBeatPhase, getBeatDur, beatsPerMeasure = 0, accentOn
 const MetroPendulumMemo = memo(MetroPendulum);
 
 // ============================================================
+// 【D-18b 2026/08/28 統括指示】メトロノームの診断 ── **原因を特定するための計器**
+//
+// **恒久的な機能ではない。** D-15 の (F)(G)(H) は「メインスレッドを軽くする」手当てで、
+// **原因を絞れないまま**当てたら本人の実機で効かなかった。推測で4周目に入らないために、
+// 本人が実機で30秒動かしてスクリーンショットを1枚撮れば原因が1つに絞れる形にする。
+// **原因が確定したら外すか残すかは本人が決める**(起票 D-18b)。
+//
+// **測ることが測る対象を重くしてはいけない**ので、次の3つを守っている:
+//   ・既定では動かない。`METRO_DIAG.on` が false のあいだ、仕掛けた側の費用は
+//     **真偽値1つの判定**だけで、値も貯めない
+//   ・貯めるのは**固定長のリングバッファ**(Float64Array)。毎フレームの配列成長も
+//     splice も起きない ── 貯め方そのものが GC を呼ぶと、測りたい詰まりを自分で作る
+//   ・**描画は1秒に1回**。rAF の中では ref/リングに書くだけで、レンダーを起こさない
+//
+// **Chrome の Browser ペインでは rAF が1回も発火しない**(罠10)ので、ここが出す数値が
+// 実機で何を指すかは**実機でしか確かめられない**。Chrome の実測を合格根拠にしない。
+// ============================================================
+
+// 固定長リングバッファ。**push で1バイトも確保しない**(Float64Array を最初に1回だけ取る)。
+function metroDiagMakeRing(cap) {
+  const n = Math.max(1, Math.floor(cap));
+  return { buf: new Float64Array(n), cap: n, len: 0, head: 0 };
+}
+function metroDiagRingPush(r, v) {
+  if (!r) return;
+  r.buf[r.head] = v;
+  r.head = (r.head + 1) % r.cap;
+  if (r.len < r.cap) r.len += 1;
+}
+// 古い順の配列にして返す(要約のときだけ1回作る。毎フレームは作らない)。
+function metroDiagRingValues(r) {
+  if (!r || r.len === 0) return [];
+  const out = new Array(r.len);
+  const start = (r.head - r.len + r.cap * 2) % r.cap;
+  for (let i = 0; i < r.len; i++) out[i] = r.buf[(start + i) % r.cap];
+  return out;
+}
+
+// パーセンタイル。**入力を書き換えない**(コピーしてから並べ替える)。
+// 空のときは 0 ではなく null ── 0 を返すと「速い」と読めてしまう。
+// p は 0〜1。最近傍順位法(ceil(p×n) 番目、1 始まり)。
+function metroDiagPercentile(samples, p) {
+  if (!Array.isArray(samples) || samples.length === 0) return null;
+  const a = samples.slice().sort((x, y) => x - y);
+  const i = Math.min(a.length - 1, Math.max(0, Math.ceil(p * a.length) - 1));
+  return a[i];
+}
+// しきい値を**超えた**回数(等しいものは数えない)。
+function metroDiagCountOver(samples, ms) {
+  if (!Array.isArray(samples)) return 0;
+  let n = 0;
+  for (let i = 0; i < samples.length; i++) if (samples[i] > ms) n += 1;
+  return n;
+}
+
+// ⑤ 連続して読んだ ctx.currentTime の差の**最小正値**（= 主スレッドから見た量子化幅）。
+// **0 と負は数えない**: 0 は「同じ量子の中でもう一度読んだ」、負は時計の作り直しで、
+// どちらも「刻みの細かさ」ではない。前回値が無いとき(最初の1回)も何も更新しない。
+// rAF の中から毎フレーム呼ぶので、**状態を持たず前の最小値を引数で受け渡す**。
+function metroDiagMinPositive(prevMin, prev, cur) {
+  if (prev === null || !Number.isFinite(prev) || !Number.isFinite(cur)) return prevMin;
+  const d = cur - prev;
+  if (!(d > 0)) return prevMin;
+  return (prevMin === null || d < prevMin) ? d : prevMin;
+}
+
+// 60fps の1フレーム(ms)。**これを超えた回数 = 絵が1枚飛んだ回数**の目安。
+const METRO_DIAG_FRAME_MS = 16.7;
+// その倍。**2枚以上飛んだ回数**。
+const METRO_DIAG_FRAME2_MS = 33;
+// リングの長さ。60fps なら 60 秒ぶん(本人に頼むのは30秒なので余裕がある)。
+const METRO_DIAG_CAP = 3600;
+
+// 診断が集めるものの置き場。**モジュールに1つだけ**持つ ── 仕掛ける側
+// (setInterval のタイマ・MeasureView のレンダー)まで prop を通すと、
+// 通した先の再レンダーの条件が変わってしまい「観測だけ」でなくなる。
+const METRO_DIAG = {
+  on: false,                                  // **既定は false。** 本人が開いたときだけ true
+  rafGaps: metroDiagMakeRing(METRO_DIAG_CAP), // rAF の実間隔(ms)
+  tickMs: metroDiagMakeRing(METRO_DIAG_CAP),  // tick 1回の所要時間(ms)
+  renders: 0,                                 // MeasureView が描き直された回数(通算)
+  frames: 0,                                  // rAF が回った回数(通算)
+  ctxMinDt: null,                             // 連続する ctx.currentTime の差分の最小正値(秒)
+  t0: 0,                                      // 開いた時刻(performance.now)
+  reset() {
+    this.rafGaps = metroDiagMakeRing(METRO_DIAG_CAP);
+    this.tickMs = metroDiagMakeRing(METRO_DIAG_CAP);
+    this.renders = 0;
+    this.frames = 0;
+    this.ctxMinDt = null;
+    this.t0 = 0;
+  },
+};
+
+// URL の # から「診断を開くか」を決める。**既定では出さない**ので、
+// 入口はここ1箇所だけ ── 画面に入口の部品を置くと、普段の画面が1px変わる。
+// `#metro-diag` のときだけ真。`#` だけ・空・他の値はすべて偽。
+function metroDiagWantedFromHash(hash) {
+  return String(hash || "").replace(/^#/, "").trim().toLowerCase() === "metro-diag";
+}
+
+// 表示用の要約を1つ作る。**1秒に1回しか呼ばない**(rAF の中では呼ばない)。
+function metroDiagSnapshot(ctx, nowMs) {
+  const gaps = metroDiagRingValues(METRO_DIAG.rafGaps);
+  const ticks = metroDiagRingValues(METRO_DIAG.tickMs);
+  const elapsed = METRO_DIAG.t0 ? (nowMs - METRO_DIAG.t0) / 1000 : 0;
+  return {
+    elapsed,
+    frames: METRO_DIAG.frames,
+    renders: METRO_DIAG.renders,
+    gapN: gaps.length,
+    gapP50: metroDiagPercentile(gaps, 0.5),
+    gapP95: metroDiagPercentile(gaps, 0.95),
+    gapP99: metroDiagPercentile(gaps, 0.99),
+    over16: metroDiagCountOver(gaps, METRO_DIAG_FRAME_MS),
+    over33: metroDiagCountOver(gaps, METRO_DIAG_FRAME2_MS),
+    tickN: ticks.length,
+    tickP50: metroDiagPercentile(ticks, 0.5),
+    tickP95: metroDiagPercentile(ticks, 0.95),
+    outputLatency: ctx && typeof ctx.outputLatency === "number" ? ctx.outputLatency : null,
+    baseLatency: ctx && typeof ctx.baseLatency === "number" ? ctx.baseLatency : null,
+    sampleRate: ctx && typeof ctx.sampleRate === "number" ? ctx.sampleRate : null,
+    ctxMinDt: METRO_DIAG.ctxMinDt,
+  };
+}
+
+// 数字の出し方。値が無いときは 0 ではなく「—」(0 と読み違えない)。
+function metroDiagNum(v, digits) {
+  return (typeof v === "number" && Number.isFinite(v)) ? v.toFixed(digits) : "—";
+}
+
+// 診断の板。**画面の流れに入らない**(position: fixed) ── 計測タブの縦の余りは
+// メトロノームを開いた状態で 2px しかない(BACKLOG F-3)ので、流れに置くと必ず何かが動く。
+// 下部ナビのすぐ上に浮かせ、**上半分(環・振り子・テンポ行 = 開始/停止のタップ帯)は塞がない**。
+function MetroDiagPanel({ getMetroCtx, onClose }) {
+  const [snap, setSnap] = useState(null);
+  useEffect(() => {
+    METRO_DIAG.reset();
+    METRO_DIAG.t0 = performance.now();
+    METRO_DIAG.on = true;
+    let raf = 0;
+    let last = 0;
+    let lastCtxT = null;
+    const loop = () => {
+      const now = performance.now();
+      if (last) metroDiagRingPush(METRO_DIAG.rafGaps, now - last);
+      last = now;
+      METRO_DIAG.frames += 1;
+      // 音声時計は**主スレッドから見える刻み**を知りたいので、rAF の頻度で読む。
+      const ctx = getMetroCtx ? getMetroCtx() : null;
+      if (ctx) {
+        const t = ctx.currentTime;
+        METRO_DIAG.ctxMinDt = metroDiagMinPositive(METRO_DIAG.ctxMinDt, lastCtxT, t);
+        lastCtxT = t;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    // **表示は1秒に1回だけ。** ヒストグラムの更新でレンダーを起こさない。
+    const timer = setInterval(() => {
+      setSnap(metroDiagSnapshot(getMetroCtx ? getMetroCtx() : null, performance.now()));
+    }, 1000);
+    setSnap(metroDiagSnapshot(getMetroCtx ? getMetroCtx() : null, performance.now()));
+    // 【閉じたら完全に止まる】rAF もタイマも畳み、集めた値も捨てて on を false へ戻す。
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(timer);
+      METRO_DIAG.on = false;
+      METRO_DIAG.reset();
+    };
+  }, [getMetroCtx]);
+
+  const s = snap;
+  // 【縦は 230px しか無い】計測タブは**メトロノームを開いた状態**で
+  // テンポ操作行の下端が y=535、下部ナビの上端が y=765(Chrome 375×812 の実測)。
+  // ここを超えると**振り子そのものを覆う**ので、覆った状態で測った値になってしまう。
+  // だから項目は詰めて書き、意味は下の「読み方」1つにまとめてある。
+  const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--sp-2)", lineHeight: 1.35 };
+  const hint = { fontSize: 10, color: "var(--c-ink-3)", lineHeight: 1.35 };
+  const val = { fontVariantNumeric: "tabular-nums", color: "var(--c-ink)", fontSize: 12.5, whiteSpace: "nowrap" };
+  const key = { color: "var(--c-ink-2)", fontSize: 11, flexShrink: 0 };
+  return (
+    <div
+      role="region" aria-label="メトロノームの診断"
+      data-noswipe
+      style={{
+        position: "fixed", left: 0, right: 0, bottom: "var(--page-bottom-gap)", zIndex: 50,
+        background: "var(--c-surface)", borderTop: "1px solid var(--c-line)",
+        boxShadow: "0 -6px 16px rgba(18,31,50,0.08)",
+        padding: "var(--sp-1) var(--sp-3) var(--sp-2)",
+        maxHeight: "38vh", overflowY: "auto",
+        fontFamily: "var(--font-num)",
+      }}
+    >
+      <div style={{ ...row, alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--c-ink)" }}>
+          診断（計器。恒久の機能ではありません）
+        </span>
+        {/* 【§6.7 の芯2】枠線を持つ操作は状態を持つ物だけ。ここは状態を持たない一手なので
+            B型(.ctl-plain .ctl-pill = 枠線なし・地は --c-sunken)の見本どおりに書く。 */}
+        <button type="button" onClick={onClose} aria-label="診断を閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
+          <span className="ctl-plain ctl-pill" style={{ padding: "6px 12px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>閉じる</span>
+        </button>
+      </div>
+
+      <div style={row}><span style={key}>① 絵の間隔 p50/95/99</span>
+        <span style={val}>{metroDiagNum(s?.gapP50, 1)} / {metroDiagNum(s?.gapP95, 1)} / {metroDiagNum(s?.gapP99, 1)} ms</span></div>
+      <div style={row}><span style={key}>　16.7超 / 33超</span>
+        <span style={val}>{s ? s.over16 : "—"} / {s ? s.over33 : "—"} 回（{s ? s.gapN : 0}枚中）</span></div>
+      <div style={row}><span style={key}>② tick 1回 p50/95</span>
+        <span style={val}>{metroDiagNum(s?.tickP50, 2)} / {metroDiagNum(s?.tickP95, 2)} ms（{s ? s.tickN : 0}回）</span></div>
+      <div style={row}><span style={key}>③ 1秒あたりのレンダー</span>
+        <span style={val}>{metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回</span></div>
+      <div style={row}><span style={key}>④ out / base / 標本化</span>
+        <span style={val}>{metroDiagNum(s?.outputLatency, 4)} / {metroDiagNum(s?.baseLatency, 4)} s ・ {metroDiagNum(s?.sampleRate, 0)} Hz</span></div>
+      <div style={row}><span style={key}>⑤ 音時計の刻み（最小）</span>
+        <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)} s</span></div>
+      <div style={row}><span style={key}>　経過 / 絵</span>
+        <span style={val}>{metroDiagNum(s?.elapsed, 1)} 秒 / {s ? s.frames : 0} 枚</span></div>
+
+      {/* 【数値の意味を画面に添える】本人は解釈を知らないので、読み方をここに置く。 */}
+      <div style={{ ...hint, marginTop: 3 }}>
+        読み方：①16.7超が多い＝絵が飛んでいる ／ ②大きいほど詰まらせている ／
+        ③60 に近いほど描けている ／ ④out が大きいほど音が遅れる ／ ⑤大きいほど時刻が粗い。
+        「—」＝まだ値なし（④⑤は鳴らすと出ます）。30秒ほど動かして1枚撮ってください。
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // 計測ビュー(単音・フレーズ統合)
 //
 // 単音/フレーズはモードとして分けず、1つの録音フローで扱う。
@@ -5889,6 +6120,26 @@ function MeasureView(props) {
     // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
     // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
   } = props;
+
+  // 【D-18b】診断の③「1秒あたりのレンダー回数」。**診断を開いている間だけ数える**
+  // (閉じているときの費用は真偽値1つの判定。値も貯めない)。
+  // レンダー本体の副作用だが、この画面は元から平滑をレンダー本体で進めている(D-15 §1(B))。
+  if (METRO_DIAG.on) METRO_DIAG.renders += 1;
+
+  // 【D-18b】診断の入口。**画面に入口の部品を置かない**(置くと普段の画面が1px変わる)ので、
+  // URL の # だけで開く: https://wind-tone-lab.vercel.app/#metro-diag
+  // 閉じるときは # も消すので、読み込み直しても開き直さない。
+  const [metroDiagOpen, setMetroDiagOpen] = useState(
+    () => (typeof window !== "undefined" ? metroDiagWantedFromHash(window.location.hash) : false));
+  useEffect(() => {
+    const onHash = () => setMetroDiagOpen(metroDiagWantedFromHash(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const closeMetroDiag = useCallback(() => {
+    setMetroDiagOpen(false);
+    try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* noop */ }
+  }, []);
 
   const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
   // 理想値は音(運指)ごとに持つため、今演奏している音に対応する理想値を都度引く
@@ -6091,6 +6342,20 @@ function MeasureView(props) {
     }
   }, [scheduledClicksRef, metroBarPerfTimesRef]);
 
+  // 【D-18b】診断の②「tick 1回の所要時間」。**metroSchedulerTick 本体は1文字も触っていない**
+  // ── ここで包むだけにしてある。診断が閉じているときは真偽値1つを見てそのまま呼ぶ
+  // (時刻も読まない・値も貯めない)。setInterval に渡すのはこちら。
+  const metroSchedulerTickTimed = useCallback(() => {
+    if (!METRO_DIAG.on) { metroSchedulerTick(); return; }
+    const t0 = performance.now();
+    metroSchedulerTick();
+    metroDiagRingPush(METRO_DIAG.tickMs, performance.now() - t0);
+  }, [metroSchedulerTick]);
+
+  // 【D-18b】診断の④⑤が読む音声時計。**診断が持つのは読む口だけ**で、
+  // 生成も破棄も startMetronome / stopMetronome のまま(触っていない)。
+  const getMetroCtx = useCallback(() => metroCtxRef.current, []);
+
   const startMetronome = useCallback(() => {
     metroGenRef.current++; // 進行中の古い状態を無効化する
     // 出力用AudioContextはマイクの解析用とは分けて持つ(ライフサイクルを絡めないため)。
@@ -6123,8 +6388,10 @@ function MeasureView(props) {
     setMetronomeOn(true);
     requestWakeLock(); // 練習中に画面が消えないように(録音時と同じ)
     if (metroTimerRef.current) clearInterval(metroTimerRef.current);
-    metroTimerRef.current = setInterval(metroSchedulerTick, 25);
-  }, [metroSchedulerTick, metroActiveRef, requestWakeLock]);
+    /* 【D-18b】渡すのは診断で包んだほう。中身は metroSchedulerTick そのままで、
+       診断が閉じていれば真偽値1つを見て素通りする(25ms ごとの呼び出し1段ぶんだけ増える)。 */
+    metroTimerRef.current = setInterval(metroSchedulerTickTimed, 25);
+  }, [metroSchedulerTickTimed, metroActiveRef, requestWakeLock]);
 
   const stopMetronome = useCallback(() => {
     metroGenRef.current++; // resume()待ち中の古いSTART呼び出しがあれば無効化する
@@ -7041,6 +7308,13 @@ function MeasureView(props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 【D-18b】メトロノームの診断。**既定では出さない**(URL の # が metro-diag のときだけ)。
+          出しても画面の流れには入らない(position: fixed)ので、閉じているときの
+          この画面は1pxも変わらない。閉じる/タブを離れると unmount され、rAF も止まる。 */}
+      {metroDiagOpen && (
+        <MetroDiagPanel getMetroCtx={getMetroCtx} onClose={closeMetroDiag} />
       )}
 
     </div>
@@ -9673,37 +9947,41 @@ const SERIES_STYLES = [
   { color: "var(--c-accent-line)", width: 3, dash: "4 3" },
 ];
 
-// 【D-16 2026/08/28 本人裁定・凍結仕様 design/D16-SPEC.md】My Data の折れ線は「線 + 面」。
-// 2本を**形の種類**(線 / 面)で見分けるので、点(<circle>)を1つも描かなくてよくなり、
-// 色相を離す必要も無くなった(D16-SPEC §0)。値の唯一の答えは DESIGN-SYSTEM §1.8a の表。
-// **SERIES_STYLES の width(2 / 3px)は触らない。** あれはリード比較・リード個体詳細・
-// セッション詳細・評価の推移・分析タブが共有していて、変えると5箇所に波及する。
-const MY_DATA_LINE_W = 2.4;        // 1本目(左) = 線のみ
-const MY_DATA_AREA_LINE_W = 1.6;   // 2本目(右) = 面の上に乗る細い線
-
-// 面の濃さ。**色は系列の色(--c-accent-mid)そのまま**で、濃さだけをトークンで持つ
-// (rgba をインラインで散らさず、体系に新しい色相も増やさない。D16-SPEC §1)。
-// 値は index.css の --o-chart-area ただ1つ。SVG の fill-opacity は style 経由なら var() が解ける。
-const CHART_AREA_OPACITY_VAR = "var(--o-chart-area)";
-
-// 【D-16 §1/§4】折れ線1本の描き方を **側(seriesIndex)** だけで決める。
-// データが連続かどうかでは決めない ── D-14 で左右が自動入れ替わるようになったので、
-// 連続性で決めると「どちらが面になるか」がデータ次第で変わり、同じ操作の結果が予測できなくなる。
-// 側で固定すれば、入れ替えれば見た目も入れ替わる(操作と結果が1対1)。
-// **myData でなければ面も細線も出さない**(他の3画面は D-8 からの見た目のまま。D16-SPEC §6)。
-// width: null = 系列スタイル(SERIES_STYLES)の太さをそのまま使う、の意。
+// 【D-18 2026/08/28 本人裁定】**面は却下された。** D-16 で入れた「線 + 面」(案4)のうち
+// 面だけを撤去し、モックの案2「点を全部消して線だけ」に戻す。本人の実機の言葉:
+//   「面が意外と見づらい。サンプルみたいに規則性のある曲線とかだと見やすかったが、
+//     実データでみるとかなりギザギザになるのが現実でそうなると見づらい、面は却下で
+//     次にひかえてるデザイン刷新の一部として再考しよう」
+// 面と一緒に消えたもの: --o-chart-area / CHART_AREA_OPACITY_VAR / noteAxisAreaPath /
+// MY_DATA_LINE_W(2.4) / MY_DATA_AREA_LINE_W(1.6)。
+// **太さは SERIES_STYLES の 2px へ戻した。** 1.6px は「面があるから細くてよい」という
+// 前提の値で、面が無くなれば前提ごと消える(新しい px を発明しない。D-18 統括裁定)。
+// **残したもの**: 点(<circle>)を描かないこと(本人の最初の不満)と、
+// 孤立した1音の <path>(これが無いと吹いた音が画面から消える。D-16a。面とは無関係)。
+// 【D-16 §1/§4 から引き継ぎ】折れ線1本の描き方は **側(seriesIndex)** だけで決める。
+// データが連続かどうかでは決めない ── D-14 で左右が自動入れ替わるので、連続性で決めると
+// 見え方がデータ次第で変わり、同じ操作の結果が予測できなくなる。
+// **myData でなければ点を残す**(他の3画面は D-8 からの見た目のまま。D16-SPEC §6)。
+// 【D-18 で太さの受け口(width)を外した】面が無くなって2本とも SERIES_STYLES の太さに
+// 戻ったので、`draw.width ?? st.width` の左辺が全経路で null になり読み手が消えた。
+// 描画側は st.width を直に読む。
 // 【実測・注意】round が効くのは**2点以上つながっている区間の端と角だけ**。
 // 点が1つだけの `<polyline>` は round を付けても Chrome では描画されない
 // (同じ座標を `<path d="M x,y L x,y">` にすると描かれる。DESIGN-SYSTEM §1.8a に実測を記録)。
-// つまり孤立した音は**線の側でも消える**。裁定待ちの積み残しで、ここでは戻していない。
+// だから孤立音は noteAxisSegmentShape / noteAxisDotPath の側で拾う。
 function noteAxisLineDraw(seriesIndex, myData) {
-  if (!myData) return { area: false, width: null, dot: true, round: false };
-  if (seriesIndex === 0) return { area: false, width: MY_DATA_LINE_W, dot: false, round: true };
-  return { area: true, width: MY_DATA_AREA_LINE_W, dot: false, round: false };
+  if (!myData) return { dot: true, round: false };
+  return { dot: false, round: seriesIndex === 0 };
 }
 
-// 【D-16 §3】線を描く順(先に描いたものが下)。My Data だけ逆順にして **1本目を最上**に置く
-// ── 飛び飛びの側が「図」、連続の側が「地」という役割分担が案4 の芯。
+// 【D-16 §3 → D-18 で理由を置き換え】線を描く順(先に描いたものが下)。
+// My Data だけ逆順にして **1本目を最上**に置く。
+// D-16 の理由(飛び飛びの側が「図」、面の側が「地」)は面と一緒に消えたが、
+// **別の理由が残るので順は変えない**: 1本目は SERIES_STYLES[0] = --c-accent(濃紺)、
+// 2本目は SERIES_STYLES[1] = --c-accent-mid(淡い紺)で固定されており
+// (src/App.jsx の My Data の呼び出し。左右を入れ替えても style の割り当ては側のまま)、
+// 自然順にすると**淡いほうが濃いほうの上に乗って、先に選んだ側が重なる区間で隠れる**。
+// 2本が長く並走する組み合わせ(目安 × my平均 など)で効く。
 // 他の3画面は 0,1,2… の従来どおり(D-8 からの重なりを変えない)。
 function noteAxisRenderOrder(count, myData) {
   const order = [];
@@ -9736,15 +10014,9 @@ function noteAxisDotPath(seg) {
   return `M${seg[0]} L${seg[0]}`;
 }
 
-// 【D-16 §2】面の d。**底は中央線(baseY)**で、0 では固定しない
-// (平均差分は中央 = 0 だが、HNR / 重心 / 音量は「その指標で描いている全値の平均」が中央。D-9 §8)。
-// seg は segmentsFor が返す "x,y" の配列(欠けた音で切れた連続区間1つ)。
-// 1点だけの区間は幅ゼロの面になり画面には出ない(点を撤去した帰結。D16-SPEC §0)。
-function noteAxisAreaPath(seg, baseY) {
-  if (!seg || seg.length === 0) return null;
-  const xOf = (p) => String(p).split(",")[0];
-  return `M${xOf(seg[0])},${baseY} L${seg.join(" L")} L${xOf(seg[seg.length - 1])},${baseY} Z`;
-}
+// (【D-18 2026/08/28 本人裁定】ここに noteAxisAreaPath = 面の d を作る関数があった。
+//  本人が面を却下したので、呼び手と一緒に定義ごと削除した。使い手の無い定義を残さない。
+//  面の底を中央線にしていた理由(D-16 §2)は design/D16-SPEC.md の「却下」の記録に残っている。)
 
 // 理想値(目安)の線。DESIGN-SYSTEM §1.7 が --c-ink-3 を理想値の破線に予約しているので、
 // 系列がこの色を取らないようにここで1箇所に定義しておく。破線パターンは §1.8 の "4 3"。
@@ -10296,23 +10568,9 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
         <div ref={boxRef}>
           {L && (
             <svg width={W} height={L.H} viewBox={`0 0 ${W} ${L.H}`} style={{ display: "block" }}>
-              {/* 【D-16 §3】重なりの順は **面 → 目盛の罫 → 中央線 → 2本目の線 → 1本目の線**。
-                  面をいちばん下に置くのは、不透明度 0.28 の面に中央線が沈むと
-                  §2 で面の底に選んだ基準そのものが読めなくなるため。
-                  底(baseY)は中央線 centerLineAt ── **これが null の画面には面が出ない**ので、
-                  面が My Data に閉じていることと中央線が My Data に閉じていること(D-12)が
-                  同じ1つの判定から出る。どちらを描くかを2箇所で決めない。 */}
-              {centerLineAt !== null && seriesData.map((s, si) => {
-                if (!noteAxisLineDraw(si, myData).area) return null;
-                const st = s.style || SERIES_STYLES[0];
-                return (
-                  <g key={`area-${s.id ?? si}`} style={{ fill: st.color, fillOpacity: CHART_AREA_OPACITY_VAR }}>
-                    {segmentsFor(s.byIdx).map((seg, k) => (
-                      <path key={k} d={noteAxisAreaPath(seg, L.yAt(centerLineAt))} stroke="none" />
-                    ))}
-                  </g>
-                );
-              })}
+              {/* 【D-18 2026/08/28 本人裁定】ここに面(fill-opacity 0.28 の <path>)を描く <g> があった。
+                  本人が実機で「実データでみるとかなりギザギザになる…面は却下」と判断したので撤去した。
+                  残る重なりの順は **目盛の罫 → 中央線 → 2本目の線 → 1本目の線**。 */}
               {/* 縦軸(値)の目盛: 上端・中間・下端。
                   【D-9v 2026/08/25 本人指示】My Data では**上下の水平線を引かない**
                   (本人「+8.4とマイナス8.4を示す線も不要」)。**目盛の文字は残す**ので
@@ -10365,9 +10623,9 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                 </g>
               )}
               {/* 系列は紺の明度段階と線種で識別する(§1.7)。機能色は使わない。
-                  【D-16 §3】My Data だけ **1本目がいちばん上**(飛び飛びの側が「図」、
-                  連続の側が「地」という役割分担が案4 の芯)。JSX は書いた順に上へ重なるので、
-                  My Data のときだけ後ろから描く。他の3画面は従来どおり 0,1,2… の順。
+                  【D-16 §3 / D-18】My Data だけ **1本目がいちばん上**。JSX は書いた順に上へ
+                  重なるので、My Data のときだけ後ろから描く。理由は noteAxisRenderOrder の
+                  コメント(濃紺の1本目を淡い2本目に隠させない)。他の3画面は 0,1,2… の順。
                   【D-16 §1】点(<circle>)は My Data では描かない。他の3画面は D-8 のまま残す。 */}
               {seriesRenderOrder.map((si) => {
                 const s = seriesData[si];
@@ -10378,11 +10636,13 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
                     {segmentsFor(s.byIdx).map((seg, k) => (noteAxisSegmentShape(seg, myData) === "path" ? (
                       /* 【D-16a】1点だけの区間。<polyline> だと描かれないので、同じ座標へ
                          長さゼロの <path> を引き、round のキャップに**線と同じ直径**の丸を打たせる。
-                         破線(dash)は長さゼロの部分パスに意味を持たないので渡さない。 */
-                      <path key={k} fill="none" d={noteAxisDotPath(seg)} strokeWidth={draw.width ?? st.width}
+                         破線(dash)は長さゼロの部分パスに意味を持たないので渡さない。
+                         【D-18】太さは <polyline> と**同じ式**(st.width)。面が消えて My Data の
+                         太さが SERIES_STYLES に戻ったので、太さの受け口(draw.width)は無くなった。 */
+                      <path key={k} fill="none" d={noteAxisDotPath(seg)} strokeWidth={st.width}
                         strokeLinejoin="round" strokeLinecap="round" />
                     ) : (
-                      <polyline key={k} fill="none" strokeWidth={draw.width ?? st.width} strokeDasharray={st.dash || undefined}
+                      <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined}
                         strokeLinejoin={draw.round ? "round" : undefined} strokeLinecap={draw.round ? "round" : undefined}
                         points={seg.join(" ")} />
                     )))}

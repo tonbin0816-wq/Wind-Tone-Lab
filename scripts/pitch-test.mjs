@@ -17690,87 +17690,97 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
 }
 
 // ============================================================
-// 【D-16 2026/08/28 本人裁定・凍結仕様 design/D16-SPEC.md】
-// My Data の折れ線を「線 + 面」へ（案4）。
+// 【D-18 2026/08/28 本人裁定】My Data の折れ線から**面を撤去**した。
+// D-16（案4 = 線 + 面）のうち、**面だけが本人の実機確認で却下された**:
+//   「実データでみるとかなりギザギザになるのが現実でそうなると見づらい、面は却下」
+// この節は D-16 が置いた検証35 を書き換えたもの。**点を撤去したことと、孤立した1音の
+// <path>（D-16a）は残った**ので、そこを守る検査はそのまま持ち越している。
 //
 // **この節が守れること**:
-//   ・太さ 2.4 / 1.6 と不透明度 0.28 が **DESIGN-SYSTEM §1.8a（実装の外）から読めている**こと
-//   ・My Data では点(<circle>)を描かず、1本目=線のみ / 2本目=面+細線 になること
-//   ・**他の3画面には面も細線も出さず、点は残る**こと(D-9 の退行と同じ型を二度やらない)
-//   ・面と線の割り当てが**側だけ**で決まること(データを見る経路が存在しないこと)
-//   ・面の底に渡している値が中央線 centerLineAt であること
-//   ・JSX の**並び**が §3 の重なり(面 → 罫 → 中央線 → 2本目 → 1本目)になっていること
+//   ・My Data では点(<circle>)を描かないこと
+//   ・面が**残っていない**こと（index.css のトークン / 定義そのもの / 描画側の綴り の3箇所）
+//   ・My Data 専用の太さを持たず、線の太さが SERIES_STYLES から来ること
+//   ・**他の3画面には点が残る**こと（D-9 の退行と同じ型を二度やらない）
+//   ・JSX の並びが「目盛の罫 → 中央線 → 折れ線」になっていること
+//   ・1本目を最上に置く並べ替えが noteAxisRenderOrder ただ1つから出ること
+//   ・§1.7 の色の段と §1.8 の太さが **DESIGN-SYSTEM（実装の外）から読めて**いて実装と一致すること
 //
 // **この節が守れないこと（名乗らない）**:
-//   ・面が実機で見えるか / 濃すぎないか / 「スマートに見えるか」(罠15。実機待ち)
-//   ・**描画そのもの**。ハーネスは JSX を評価しない(罠9)ので、ここが見ているのは
+//   ・面を外した折れ線が実機で読みやすいか / 「スマートに見えるか」（罠15。実機待ち）
+//   ・**描画そのもの**。ハーネスは JSX を評価しない（罠9）ので、ここが見ているのは
 //     「純関数の枝の効果」と「呼び出しに隣接する綴り」まで。実際の <path> の形は
-//     Browser ペインの実測(D-16 の完了記録)が根拠で、この節の根拠ではない
+//     Browser ペインの実測（D-18 の完了記録）が根拠で、この節の根拠ではない
 // ============================================================
-console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ==========");
+console.log("\n========== 検証35: D-18 My Data の折れ線＝点も面も無い線だけ ==========");
 {
   const cssD16 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
   const dsD16 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
   const chartD16 = srcOfFn(src, "NoteAxisLineChart");
   const chartCodeD16 = codeOf(chartD16);
-  // 実装から取り出した値。**構築も runFn 越し**にして、extractConst が外れたときに
+  // 実装から取り出す値。**構築も runFn 越し**にして、extractConst が外れたときに
   // ハーネスごと落ちない形にする(:4257 / D-13a)。外れたら下の検査が全部落ちる。
-  const valsR = runFn(() => new Function(`${extractConst("MY_DATA_LINE_W")}
-    ${extractConst("MY_DATA_AREA_LINE_W")}
-    ${extractConst("SERIES_STYLES")}
-    return { MY_DATA_LINE_W, MY_DATA_AREA_LINE_W, SERIES_STYLES };`)());
-  const d16 = valsR.ok ? valsR.v : { MY_DATA_LINE_W: null, MY_DATA_AREA_LINE_W: null, SERIES_STYLES: [] };
-  check("35.0 実装から太さ2つと SERIES_STYLES を取り出せている(空回りしていない)",
-    valsR.ok && typeof d16.MY_DATA_LINE_W === "number" && typeof d16.MY_DATA_AREA_LINE_W === "number"
-    && Array.isArray(d16.SERIES_STYLES) && d16.SERIES_STYLES.length === 6,
-    valsR.ok ? `${d16.MY_DATA_LINE_W}/${d16.MY_DATA_AREA_LINE_W}/${d16.SERIES_STYLES.length}` : `例外(${valsR.err})`);
+  const valsR = runFn(() => new Function(`${extractConst("SERIES_STYLES")}
+    return { SERIES_STYLES };`)());
+  const d16 = valsR.ok ? valsR.v : { SERIES_STYLES: [] };
+  check("35.0 実装から SERIES_STYLES を取り出せている(空回りしていない)",
+    valsR.ok && Array.isArray(d16.SERIES_STYLES) && d16.SERIES_STYLES.length === 6,
+    valsR.ok ? `${d16.SERIES_STYLES.length}段` : `例外(${valsR.err})`);
 
   // --- 35.1 値は DESIGN-SYSTEM §1.8a が持つ（実装の外から読む・罠3）-----------------
-  // 定数の定義を言い換えた検査にしないため、期待値は**規範の文書**から取る。
-  // 規範とコードのどちらを片方だけ動かしても落ちる形にしておく。
   const secD16 = (() => {
     const i = dsD16.indexOf("### 1.8a My Data の折れ線は");
     if (i < 0) return "";
     const j = dsD16.indexOf("\n### ", i + 1);
     return dsD16.slice(i, j < 0 ? undefined : j);
   })();
+  // 行頭の **強調** を許して表の1行の値を取る。
   const rowVal = (label) => {
-    const m = new RegExp(`\\|\\s*${label}[^|]*\\|([^|]*)\\|`).exec(secD16);
+    const m = new RegExp(`\\|\\s*\\**\\s*${label}[^|]*\\|([^|]*)\\|`).exec(secD16);
     return m ? m[1] : "";
   };
-  const wantLine = parseFloat((/`([\d.]+)px`/.exec(rowVal("1本目（左）")) || [])[1]);
-  const wantArea = parseFloat((/`([\d.]+)px`/.exec(rowVal("2本目（右）")) || [])[1]);
-  const wantOpacity = parseFloat((/`--o-chart-area`\s*=\s*`([\d.]+)`/.exec(rowVal("面の塗り")) || [])[1]);
-  check("35.1 DESIGN-SYSTEM §1.8a から太さ2つと不透明度を読めている(空回りしていない)",
-    Number.isFinite(wantLine) && Number.isFinite(wantArea) && Number.isFinite(wantOpacity)
-    && wantLine !== wantArea,
-    `1本目=${wantLine} 2本目=${wantArea} 面=${wantOpacity}`);
-  check("35.1 実装の太さ2つは §1.8a の表と一致する",
-    d16.MY_DATA_LINE_W === wantLine && d16.MY_DATA_AREA_LINE_W === wantArea,
-    `実装 ${d16.MY_DATA_LINE_W}/${d16.MY_DATA_AREA_LINE_W} 規範 ${wantLine}/${wantArea}`);
+  const rowW = rowVal("線の太さ");
+  const rowColor = rowVal("色");
+  const wantW = parseFloat((/`([\d.]+)px`/.exec(rowW) || [])[1]);
+  const saysNoArea = /描かない/.test(rowVal("面（塗り）"));
+  const saysNoDot = /描かない/.test(rowVal("点（"));
+  check("35.1 DESIGN-SYSTEM §1.8a から太さ・色の段・「描かない」を読めている(空回りしていない)",
+    Number.isFinite(wantW) && /SERIES_STYLES/.test(rowW)
+    && /1段目 `--c-accent`/.test(rowColor) && /2段目 `--c-accent-mid`/.test(rowColor)
+    && saysNoArea && saysNoDot,
+    `太さ=${wantW} 面=${saysNoArea} 点=${saysNoDot} 色="${rowColor.trim()}"`);
+  // 規範が「My Data 専用の太さは持たず §1.8 の系列の値」と言っている。**その主張を実装の側から確かめる**。
+  check("35.1 D-18: 系列の1段目・2段目の太さは §1.8a が指す値と一致する",
+    Number.isFinite(wantW) && d16.SERIES_STYLES.length > 1
+    && d16.SERIES_STYLES[0].width === wantW && d16.SERIES_STYLES[1].width === wantW,
+    `実装 ${d16.SERIES_STYLES[0]?.width}/${d16.SERIES_STYLES[1]?.width} 規範 ${wantW}`);
+  // 色の綴りを検査に書き写さず、規範の文と系列スタイルを突き合わせる。
+  check("35.1 §1.8a が言う色の段は SERIES_STYLES と一致する",
+    d16.SERIES_STYLES.length > 1
+    && d16.SERIES_STYLES[0].color === "var(--c-accent)"
+    && d16.SERIES_STYLES[1].color === "var(--c-accent-mid)"
+    && /1段目 `--c-accent`/.test(rowColor) && /2段目 `--c-accent-mid`/.test(rowColor),
+    `${d16.SERIES_STYLES[0]?.color} / ${d16.SERIES_STYLES[1]?.color}`);
   {
-    // index.css のトークン値。**--o-chart-area は「1回しか定義されない」を 30 の節が別に見ている**。
-    const got = (/--o-chart-area:\s*([^;]+);/.exec(cssD16) || [])[1];
-    check("35.1 index.css の --o-chart-area は §1.8a の不透明度と一致する",
-      !!got && parseFloat(got) === wantOpacity, `index.css=${String(got).trim()} 規範=${wantOpacity}`);
+    // 面の濃さのトークンは**宣言ごと**消えている。コメントは除いてから見る
+    // (経緯をコメントに書き残しただけで落ちる検査にしない。罠9 と同じ理由)。
+    const cssNoComment = cssD16.replace(/\/\*[\s\S]*?\*\//g, "");
+    check("35.1 D-18: index.css に面の濃さのトークンの宣言が無い(コメントは除いて見る)",
+      !/--o-chart-area\s*:/.test(cssNoComment),
+      (/--o-chart-area[^\n]*/.exec(cssNoComment) || ["宣言なし"])[0].trim());
   }
-  {
-    // 規範が「面の色は §1.7 の2段目」と言っている。**その主張を系列スタイルの側から確かめる**
-    // (色の綴りを検査に書き写すと、系列色を変えたときに検査だけ生き残る)。
-    check("35.1 §1.8a が言う「面は §1.7 の2段目の不透明度違い」は SERIES_STYLES と一致する",
-      /--c-accent-mid/.test(rowVal("2本目（右）"))
-      && d16.SERIES_STYLES[1].color === "var(--c-accent-mid)"
-      && /--c-accent`?/.test(rowVal("1本目（左）"))
-      && d16.SERIES_STYLES[0].color === "var(--c-accent)",
-      `${d16.SERIES_STYLES[0].color} / ${d16.SERIES_STYLES[1].color}`);
-  }
+  // 面のために作った定義は**読み手ゼロ**になったので消えている。
+  // 行頭(列0)の宣言だけを見るので、経緯を // コメントに書き残しても落ちない。
+  check("35.1 D-18: 面のための定義(面の d / 濃さの受け口 / My Data 専用の太さ2つ)の宣言が1つも残っていない",
+    !/^function noteAxisAreaPath\b/m.test(src)
+    && !/^const CHART_AREA_OPACITY_VAR\b/m.test(src)
+    && !/^const MY_DATA_LINE_W\b/m.test(src)
+    && !/^const MY_DATA_AREA_LINE_W\b/m.test(src),
+    (src.match(/^(function noteAxisAreaPath|const CHART_AREA_OPACITY_VAR|const MY_DATA_(AREA_)?LINE_W)\b/gm) || ["残っていない"]).join(" "));
 
   // --- 35.2 描き方の枝を**実行して**確かめる（綴りではなく効果で見る）----------------
   // 【D-13】組み立ても呼び出しも runFn 越しにしか触らない。extractFunction が外れたときに
   // ハーネスごと落ちて集計行すら出ない、という壊れ方をさせない(:4257 の罠)。
-  const drawR = runFn(() => new Function(`${extractConst("MY_DATA_LINE_W")}
-    ${extractConst("MY_DATA_AREA_LINE_W")}
-    ${extractFunction("noteAxisLineDraw")}
+  const drawR = runFn(() => new Function(`${extractFunction("noteAxisLineDraw")}
     return noteAxisLineDraw;`)());
   const draw = drawR.ok ? drawR.v : null;
   {
@@ -17782,50 +17792,52 @@ console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ======
   if (typeof draw === "function") {
     const a = runFn(draw, 0, true);   // My Data の1本目(左)
     const b = runFn(draw, 1, true);   // My Data の2本目(右)
-    check("35.2 My Data の1本目は「線のみ・2.4px・round」で点を描かない",
-      a.ok && a.v.area === false && a.v.width === wantLine && a.v.dot === false && a.v.round === true,
-      shownOf(a) + JSON.stringify(a.v ?? null));
-    check("35.2 My Data の2本目は「面あり・1.6px」で点を描かない",
-      b.ok && b.v.area === true && b.v.width === wantArea && b.v.dot === false,
-      shownOf(b) + JSON.stringify(b.v ?? null));
+    check("35.2 My Data は2本とも点(<circle>)を描かない",
+      a.ok && b.ok && a.v.dot === false && b.v.dot === false,
+      `${JSON.stringify(a.v ?? null)} vs ${JSON.stringify(b.v ?? null)}`);
+    // 【D-16 §4 の名残】側だけで決まることを、左右で返り値が食い違うことで見る。
+    check("35.2 My Data の round は1本目だけに付く(側で決まる)",
+      a.ok && b.ok && a.v.round === true && b.v.round === false,
+      `${JSON.stringify(a.v ?? null)} vs ${JSON.stringify(b.v ?? null)}`);
+    // 【D-18】My Data 専用の太さも面の枝も**受け口ごと**無い。
+    // (面が消えて太さが SERIES_STYLES に戻ったので、両方とも読み手がゼロになった。)
+    check("35.2 D-18: 返り値に太さの受け口も面の枝も無い(My Data 専用の太さを持たない)",
+      a.ok && b.ok
+      && !("width" in a.v) && !("area" in a.v)
+      && !("width" in b.v) && !("area" in b.v),
+      `${Object.keys(a.v ?? {}).join(",")} / ${Object.keys(b.v ?? {}).join(",")}`);
     // 【D-9 の退行と同じ型を二度やらない】他の3画面は myData を渡さない。
     // **例外を「出していない」の根拠にしない**(r.ok を必ず条件に入れる。罠5)。
     // 添字は 0 だけでなく SERIES_STYLES の段数ぶん当てる(リード比較は最大6系列)。
     {
       const rs = d16.SERIES_STYLES.map((_, i) => ({ i, r: runFn(draw, i, false) }));
-      check("35.2 D16 §6: 他3画面(myData を渡さない)は全系列で面を出さず、点を残し、太さは系列スタイルのまま",
-        rs.every((x) => x.r.ok && x.r.v.area === false && x.r.v.dot === true
-          && x.r.v.width === null && x.r.v.round === false),
+      check("35.2 D16 §6: 他3画面(myData を渡さない)は全系列で点を残し、round も付かない",
+        rs.length === 6 && rs.every((x) => x.r.ok && x.r.v.dot === true && x.r.v.round === false),
         rs.map((x) => `${x.i}:${x.r.ok ? JSON.stringify(x.r.v) : shownOf(x.r)}`).join(" "));
     }
-    // 【D16-SPEC §4】面と線の割り当ては**側**で決まる。
-    // 「入れ替えれば入れ替わる」を、左右2つの返り値が食い違うことで見る。
-    check("35.2 D16 §4: 左右で面と線が入れ替わる(2本とも面/2本とも線 にならない)",
-      a.ok && b.ok && a.v.area !== b.v.area && a.v.width !== b.v.width,
-      `${JSON.stringify(a.v ?? null)} vs ${JSON.stringify(b.v ?? null)}`);
   }
-  // 【D16-SPEC §4】**データを見る経路が存在しない**ことを引数の側で固定する。
-  // (上の枝の検査は「いまのデータで正しい」までしか言えない。連続性で決める実装は
+  // 【D-16 §4】**データを見る経路が存在しない**ことを引数の側で固定する。
+  // (上の枝の検査は「いまのデータで正しい」までしか言えない。データで決める実装は
   //  必ず byIdx / seg を受け取るので、受け口が2つだけであることが効く。)
   check("35.2 D16 §4: noteAxisLineDraw の受け口は「側」と myData の2つだけ(データを渡す口が無い)",
     /function noteAxisLineDraw\(seriesIndex, myData\) \{/.test(src));
 
   // --- 35.3 描く順（重なり）。JSX は書いた順に上へ重なる -----------------------------
-  // 【D16-SPEC §3】面 → 目盛の罫 → 中央線 → 2本目の線 → 1本目の線。
+  // 【D-18】面が消えたので、残る順は **目盛の罫 → 中央線 → 折れ線**。
   // 位置は「並び」でしか決まらないので、ここは綴りの**順序**を見る(値ではない)。
   {
-    const iArea = chartCodeD16.indexOf("noteAxisAreaPath(seg");
     const iTick = chartCodeD16.indexOf("{L.tickVals.map(");
     const iCenter = chartCodeD16.indexOf("y1={L.yAt(centerLineAt)}");
     const iSeries = chartCodeD16.indexOf("{seriesRenderOrder.map(");
-    check("35.3 D16 §3: 面は目盛の罫より先(=下)に描かれている",
-      iArea >= 0 && iTick >= 0 && iArea < iTick, `面=${iArea} 罫=${iTick}`);
-    check("35.3 D16 §3: 面は中央線より先(=下)に描かれている",
-      iArea >= 0 && iCenter >= 0 && iArea < iCenter, `面=${iArea} 中央線=${iCenter}`);
-    check("35.3 D16 §3: 折れ線は面・中央線より後(=上)に描かれている",
-      iSeries >= 0 && iCenter >= 0 && iArea < iSeries && iCenter < iSeries,
-      `面=${iArea} 中央線=${iCenter} 線=${iSeries}`);
+    check("35.3 D-18: 折れ線は目盛の罫・中央線より後(=上)に描かれている",
+      iTick >= 0 && iCenter >= 0 && iSeries >= 0 && iTick < iSeries && iCenter < iSeries,
+      `罫=${iTick} 中央線=${iCenter} 線=${iSeries}`);
   }
+  // 【D-18】**面がグラフ部品に1枚も残っていない。** 綴りで「無いこと」を主張するので
+  // codeOf() を通した本文だけを見る(経緯をコメントに書き残して落ちる形にしない。罠9)。
+  check("35.3 D-18: グラフ部品に面の塗りが残っていない(fillOpacity も 面の d を作る呼び出しも無い)",
+    !/fillOpacity/.test(chartCodeD16) && !/noteAxisAreaPath/.test(chartCodeD16),
+    (chartCodeD16.match(/fillOpacity|noteAxisAreaPath/g) || ["残っていない"]).join(" "));
   // 1本目が**いちばん上**。並べ替えの規則そのものを実行して確かめる。
   {
     const orderR = runFn(() => new Function(`${extractFunction("noteAxisRenderOrder")}
@@ -17833,40 +17845,13 @@ console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ======
     const order = orderR.ok ? orderR.v : null;
     const my = runFn(order, 2, true);
     const other = runFn(order, 6, false);
-    check("35.3 D16 §3: My Data は 2本目 → 1本目 の順に描く(1本目が最上)",
+    check("35.3 My Data は 2本目 → 1本目 の順に描く(1本目が最上)",
       typeof order === "function" && my.ok && JSON.stringify(my.v) === "[1,0]", shownOf(my));
-    check("35.3 D16 §3: 他3画面の重なりは従来のまま(0,1,2… の順)",
+    check("35.3 他3画面の重なりは従来のまま(0,1,2… の順)",
       other.ok && JSON.stringify(other.v) === "[0,1,2,3,4,5]", shownOf(other));
     check("35.3 描く順を作っているのは noteAxisRenderOrder ただ1つ(配線の側の錨)",
       /const seriesRenderOrder = noteAxisRenderOrder\(seriesData\.length, myData\);/.test(chartD16));
   }
-
-  // --- 35.4 面の底は中央線 -----------------------------------------------------------
-  // (a) 純関数として: 底の y は**引数から**来て、途中の点はそのまま残る。
-  {
-    const pathR = runFn(() => new Function(`${extractFunction("noteAxisAreaPath")}
-      return noteAxisAreaPath;`)());
-    const areaPath = pathR.ok ? pathR.v : null;
-    const d = runFn(areaPath, ["10,20", "30,5"], 77);
-    check("35.4 D16 §2: 面は底(baseY)から始まり底で閉じ、間の点をそのまま通る",
-      d.ok && d.v === "M10,77 L10,20 L30,5 L30,77 Z", shownOf(d));
-    // 別の底を渡せば別の底になる(底が定数に焼き付いていない)。
-    const d2 = runFn(areaPath, ["10,20", "30,5"], -4);
-    check("35.4 D16 §2: 底は渡した値そのもの(0 に焼き付いていない)",
-      d2.ok && d2.v === "M10,-4 L10,20 L30,5 L30,-4 Z", shownOf(d2));
-    const d0 = runFn(areaPath, [], 5);
-    check("35.4 空の区間では面を作らない(null)", d0.ok && d0.v === null, shownOf(d0));
-  }
-  // (b) 配線として: 呼び出しに**隣接する綴り**で、渡している底が中央線であることを固定する
-  //     (罠2。純関数だけ守っても、呼び手が 0 を渡していたら意味がない)。
-  check("35.4 D16 §2: 面の底に渡しているのは中央線 centerLineAt の y(0 ではない)",
-    /noteAxisAreaPath\(seg, L\.yAt\(centerLineAt\)\)/.test(chartD16));
-  // (c) その centerLineAt は `myData ? center : null`(27.9 が別に固定している)。
-  //     面を描く枝がその1つの判定から出ていることを、隣接する綴りで見る
-  //     ── 「面を出すか」と「中央線を引くか」を2箇所で決めない、が D-9 の退行への答え。
-  check("35.4 D16 §6: 面を描く枝は中央線と同じ判定(centerLineAt)から出ている",
-    /\{centerLineAt !== null && seriesData\.map\(\(s, si\) => \{/.test(chartD16)
-    && /if \(!noteAxisLineDraw\(si, myData\)\.area\) return null;/.test(chartD16));
 
   // --- 35.6 【D-16a 統括裁定】1点だけの区間が消えない -------------------------------
   // **この節が守れないこと**: 「画素が実際に出ること」。ハーネスは SVG を描かないので、
@@ -17917,19 +17902,19 @@ console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ======
     // 配線(罠2)。**丸の直径は線の太さそのもの**で、新しい半径を発明していない。
     // キャップは系列の round 指定に依らず必ず round ── 長さゼロの部分パスは
     // round のときだけ描かれるので、これは見た目の選択ではなく描かせるための仕組み。
-    const recvW = (/const (\w+) = noteAxisLineDraw\(si, myData\);/.exec(chartD16) || [])[1];
     check("35.6 1点の区間は noteAxisSegmentShape の判定で <path> へ分岐している",
       /\{segmentsFor\(s\.byIdx\)\.map\(\(seg, k\) => \(noteAxisSegmentShape\(seg, myData\) === "path" \? \(/.test(chartD16));
-    check("35.6 D16a: 丸の直径は線の太さそのもの(新しい半径を発明していない)",
-      !!recvW && chartD16.includes(`<path key={k} fill="none" d={noteAxisDotPath(seg)} strokeWidth={${recvW}.width ?? st.width}`),
-      (chartD16.match(/<path key=\{k\} fill="none"[^/]*/) || [""])[0].replace(/\s+/g, " "));
+    check("35.6 D16a/D-18: 丸の直径は線の太さそのもの(<path> と <polyline> が同じ st.width を読む)",
+      /<path key=\{k\} fill="none" d=\{noteAxisDotPath\(seg\)\} strokeWidth=\{st\.width\}/.test(chartD16)
+      && /<polyline key=\{k\} fill="none" strokeWidth=\{st\.width\}/.test(chartD16),
+      (chartD16.match(/strokeWidth=\{[^}]*\}/g) || []).join(" "));
     check("35.6 D16a: 1点の <path> のキャップは常に round(長さゼロは round でしか描かれない)",
-      /d=\{noteAxisDotPath\(seg\)\}[\s\S]{0,120}?strokeLinecap="round"/.test(chartD16));
+      /d=\{noteAxisDotPath\(seg\)\}[\s\S]{0,200}?strokeLinecap="round"/.test(chartD16));
   }
 
   // --- 35.5 配線: 折れ線が noteAxisLineDraw の返り値を実際に使っている --------------
   // 【罠2】純関数の枝をいくら実行しても、JSX がその返り値を読んでいなければ何も守れない。
-  // ここは**呼び出しに隣接する綴り**で、点の有無・太さ・round が同じ1つの返り値から
+  // ここは**呼び出しに隣接する綴り**で、点の有無と round が同じ1つの返り値から
   // 出ていることを固定する。**受け皿の名前は源から読む**ので、局所変数を改名しても落ちない
   // (改名で落ちる検査は正しい修正まで止める。KILL されては困る変異)。
   {
@@ -17939,22 +17924,10 @@ console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ======
     if (recv) {
       check("35.5 D16 §1: 系列の点は返り値の dot の枝の中にしかない",
         new RegExp(`\\{${recv}\\.dot && Object\\.entries\\(s\\.byIdx\\)\\.map\\(\\(\\[idx, v\\]\\) => \\(\\s*\\r?\\n\\s*<circle `).test(chartD16));
-      check("35.5 D16 §1: 線の太さは返り値から引き、無ければ系列スタイルへ落ちる",
-        new RegExp(`strokeWidth=\\{${recv}\\.width \\?\\? st\\.width\\}`).test(chartD16));
       check("35.5 D16 §1: round も同じ返り値から引く(1本目だけに効く)",
         new RegExp(`strokeLinejoin=\\{${recv}\\.round \\? "round" : undefined\\}`).test(chartD16)
         && new RegExp(`strokeLinecap=\\{${recv}\\.round \\? "round" : undefined\\}`).test(chartD16));
     }
-  }
-  // 面の色は**系列の色そのもの**。rgba を書かない・新しい色相を足さない(§1.8a)。
-  // 宣言の**並び**には依存しない(順を入れ替えただけで落ちる検査にしない)。
-  {
-    const areaStyle = (/<g key=\{`area-\$\{s\.id \?\? si\}`\} style=\{\{([^}]*)\}\}/.exec(chartD16) || [])[1];
-    check("35.5 D16 §1: 面の塗りは系列の色そのもので、濃さはトークン1つから引く",
-      !!areaStyle && /(^|[\s,])fill:\s*st\.color(\s*,|\s*$)/.test(areaStyle)
-      && /(^|[\s,])fillOpacity:\s*CHART_AREA_OPACITY_VAR(\s*,|\s*$)/.test(areaStyle)
-      && /const CHART_AREA_OPACITY_VAR = "var\(--o-chart-area\)";/.test(src),
-      String(areaStyle));
   }
   check("35.5 D16 §1: グラフ部品に rgba\\(\\) の直書きが無い(色をインラインで散らしていない)",
     !/rgba\(/.test(chartCodeD16));
@@ -17963,6 +17936,252 @@ console.log("\n========== 検証35: D-16 My Data の折れ線＝線＋面 ======
   check("35.5 dotR は読み手が残っているので定義も残る(他3画面の点 + 目安の白丸)",
     (chartCodeD16.match(/r=\{L\.dotR\}/g) || []).length === 2
     && /const dotR = Math\.max\(/.test(chartD16));
+
+  console.log("  -> done");
+}
+
+// ============================================================
+// 【D-18b 2026/08/28 統括指示】メトロノームの診断（原因を特定するための計器）。
+//
+// **この節が守れること**:
+//   ・既定では動かないこと（入口は # ただ1つで、`#metro-diag` 以外はすべて偽）
+//   ・要約の純関数（パーセンタイル / しきい値超えの数 / リングバッファ）が正しいこと
+//   ・**metroSchedulerTick の本体に診断の綴りが1つも無い**こと（包んだだけで触っていない）
+//   ・診断が閉じているとき、包んだ側が時刻も読まず値も貯めないこと（枝の綴り）
+//   ・**rAF の中で表示を更新しない**こと（レンダーを起こさない）と、更新が1秒に1回以下であること
+//   ・閉じたら rAF もタイマも畳み、`on` を false へ戻すこと
+//   ・板が画面の流れに入らないこと（position: fixed）
+//
+// **この節が守れないこと（名乗らない）**:
+//   ・**数値が実機で何を指すか。** Chrome の Browser ペインでは rAF が1回も発火しない（罠10）ので、
+//     ①絵の間隔・⑤音時計の刻みは**この環境では1つも測れない**。実機待ち
+//   ・「診断を出したことで重くなっていないか」そのもの（実機でしか測れない）
+//   ・**描画そのもの**。ハーネスは JSX を評価しない（罠9）
+// ============================================================
+console.log("\n========== 検証36: D-18b メトロノームの診断(計器) ==========");
+{
+  const diagSrc = srcOfFn(src, "MetroDiagPanel");
+  const diagCode = codeOf(diagSrc);
+  const measSrc = srcOfFn(src, "MeasureView");
+  const measCode = codeOf(measSrc);
+  // metroSchedulerTick は useCallback の中なので srcOfFn では取れない。綴りで挟んで切り出す。
+  const tickSrc = (() => {
+    const i = src.indexOf("const metroSchedulerTick = useCallback(");
+    const j = src.indexOf("}, [scheduledClicksRef, metroBarPerfTimesRef]);", i);
+    return i >= 0 && j > i ? src.slice(i, j) : "";
+  })();
+  const timedSrc = (() => {
+    const i = src.indexOf("const metroSchedulerTickTimed = useCallback(");
+    const j = src.indexOf("}, [metroSchedulerTick]);", i);
+    return i >= 0 && j > i ? src.slice(i, j) : "";
+  })();
+
+  // --- 36.0 切り出しが空回りしていないこと ------------------------------------------
+  check("36.0 診断の板 / 計測ビュー / tick 本体 / 包んだ側 の4つを切り出せている(空回りしていない)",
+    diagSrc.length > 400 && measSrc.length > 400 && tickSrc.length > 400 && timedSrc.length > 40,
+    `板=${diagSrc.length} 計測=${measSrc.length} tick=${tickSrc.length} 包み=${timedSrc.length}`);
+
+  // --- 36.1 既定では動かない（入口） --------------------------------------------------
+  const hashR = runFn(() => new Function(`${extractFunction("metroDiagWantedFromHash")}
+    return metroDiagWantedFromHash;`)());
+  const wanted = hashR.ok ? hashR.v : null;
+  {
+    const g = runFn(wanted, "#metro-diag");
+    check("36.1 metroDiagWantedFromHash を組み立てて実行できている(空回りしていない)",
+      typeof wanted === "function" && g.ok && g.v === true,
+      hashR.ok ? shownOf(g) : `組み立て失敗(${hashR.err})`);
+  }
+  if (typeof wanted === "function") {
+    // **開くのは1つの綴りだけ。** それ以外(空・# だけ・別の値・前後に何か付いた形)は全部偽。
+    const cases = [
+      ["", false], ["#", false], ["#metro-diag", true], ["metro-diag", true],
+      ["#METRO-DIAG", true], ["#Metro-Diag", true],
+      ["#metro-diag2", false], ["#xmetro-diag", false], ["#diag", false],
+      ["#/data", false], ["#metro", false],
+    ];
+    const bad = cases.map(([h, want]) => ({ h, want, r: runFn(wanted, h) }))
+      .filter((x) => !(x.r.ok && x.r.v === x.want));
+    check("36.1 診断は #metro-diag のときだけ開く(空・# だけ・別の値・前後に付いた形はすべて開かない)",
+      bad.length === 0, bad.map((x) => `${JSON.stringify(x.h)}→${x.r.ok ? x.r.v : shownOf(x.r)}(期待 ${x.want})`).join(" "));
+    // 値が無いときに例外を投げない(入口が壊れて画面ごと落ちない)。
+    const n1 = runFn(wanted, null); const n2 = runFn(wanted, undefined);
+    check("36.1 hash が null / undefined でも例外を投げず偽を返す",
+      n1.ok && n1.v === false && n2.ok && n2.v === false, `${shownOf(n1)} / ${shownOf(n2)}`);
+  }
+  // 既定は false。**この1文字が true になると、誰も開いていないのに集め始める。**
+  check("36.1 METRO_DIAG の既定は on: false(誰も開いていないときは動かない)",
+    /const METRO_DIAG = \{\s*\r?\n\s*on: false,/.test(src),
+    (/const METRO_DIAG = \{[\s\S]{0,60}/.exec(src) || [""])[0].replace(/\s+/g, " "));
+
+  // --- 36.2 要約の純関数 --------------------------------------------------------------
+  const pctR = runFn(() => new Function(`${extractFunction("metroDiagPercentile")}
+    return metroDiagPercentile;`)());
+  const overR = runFn(() => new Function(`${extractFunction("metroDiagCountOver")}
+    return metroDiagCountOver;`)());
+  const pct = pctR.ok ? pctR.v : null;
+  const over = overR.ok ? overR.v : null;
+  {
+    const g = runFn(pct, [3, 1, 2], 0.5);
+    check("36.2 metroDiagPercentile / metroDiagCountOver を組み立てて実行できている(空回りしていない)",
+      typeof pct === "function" && typeof over === "function" && g.ok && g.v === 2,
+      pctR.ok ? shownOf(g) : `組み立て失敗(${pctR.err})`);
+  }
+  if (typeof pct === "function") {
+    // 1〜100 の並べ替え済みでない入力。最近傍順位法なら p50=50 / p95=95 / p99=99。
+    const src100 = [];
+    for (let i = 100; i >= 1; i--) src100.push(i);
+    const p50 = runFn(pct, src100, 0.5), p95 = runFn(pct, src100, 0.95), p99 = runFn(pct, src100, 0.99);
+    check("36.2 パーセンタイルは並べ替えていない入力でも順位どおりに出る(p50/p95/p99 = 50/95/99)",
+      p50.ok && p50.v === 50 && p95.ok && p95.v === 95 && p99.ok && p99.v === 99,
+      `${shownOf(p50)} / ${shownOf(p95)} / ${shownOf(p99)}`);
+    // **入力を書き換えない。** 集めた順で持っている生の記録を、要約が並べ替えて壊さないこと。
+    // 【この検査は一度落とし穴に落ちた】上の p50/p95/p99 で使った配列を使い回すと、
+    // **控えを取る前に既に並べ替えられている**ので、その場で並べ替える実装でも通ってしまう
+    // (変異 M21 が生き残った)。**まだ一度も渡していない配列**をここで作る。
+    const raw = [5, 1, 4, 2, 3];
+    const keep = raw.slice();
+    runFn(pct, raw, 0.5);
+    check("36.2 パーセンタイルは入力の配列を書き換えない(生の記録を壊さない)",
+      raw.length === keep.length && raw.every((v, i) => v === keep[i]),
+      `呼び出し後 ${raw.join(",")}`);
+    // 空は 0 ではなく null。0 を返すと「間隔が 0ms = 速い」と読めてしまう。
+    const e1 = runFn(pct, [], 0.5), e2 = runFn(pct, null, 0.5);
+    check("36.2 値がまだ無いときは 0 ではなく null(0 を「速い」と読み違えない)",
+      e1.ok && e1.v === null && e2.ok && e2.v === null, `${shownOf(e1)} / ${shownOf(e2)}`);
+  }
+  if (typeof over === "function") {
+    // **超えた**回数(等しいものは数えない)。境目の値をそのまま入れて確かめる。
+    const a = runFn(over, [16.6, 16.7, 16.8, 33, 33.1, 100], 16.7);
+    const b = runFn(over, [16.6, 16.7, 16.8, 33, 33.1, 100], 33);
+    check("36.2 しきい値を「超えた」回数だけ数える(等しい値は数えない)",
+      a.ok && a.v === 4 && b.ok && b.v === 2, `16.7超=${shownOf(a)} 33超=${shownOf(b)}`);
+    const z = runFn(over, null, 16.7);
+    check("36.2 値がまだ無いときの回数は 0", z.ok && z.v === 0, shownOf(z));
+  }
+
+  // ⑤ 音時計の刻み。**rAF の中で回る計算はここだけが純関数**なので、ここで確かめる。
+  // (①絵の間隔と⑤の実際の値は Chrome の Browser ペインでは rAF が発火せず1つも出ない＝罠10。
+  //  この節が名乗れるのは「式が正しい」までで、**実機で何が出るかは実機待ち**。)
+  const minPosR = runFn(() => new Function(`${extractFunction("metroDiagMinPositive")}
+    return metroDiagMinPositive;`)());
+  const minPos = minPosR.ok ? minPosR.v : null;
+  {
+    const g = runFn(minPos, null, 1, 1.5);
+    check("36.2 metroDiagMinPositive を組み立てて実行できている(空回りしていない)",
+      typeof minPos === "function" && g.ok && g.v === 0.5,
+      minPosR.ok ? shownOf(g) : `組み立て失敗(${minPosR.err})`);
+  }
+  if (typeof minPos === "function") {
+    const cases = [
+      // 【値は 2 の冪だけを使う】1.005 - 1 のような十進の差は
+      // 0.004999999999999893 になり、期待値と厳密比較できない(一度これで落とした)。
+      [[null, null, 5], null, "前回値が無い最初の1回は何も更新しない"],
+      [[0.5, 1, 1.75], 0.5, "大きい差では最小値を置き換えない"],
+      [[0.5, 1, 1.25], 0.25, "より小さい正の差なら置き換える"],
+      [[0.5, 1, 1], 0.5, "差 0(同じ量子をもう一度読んだ)は数えない"],
+      [[0.5, 5, 1], 0.5, "負の差(時計の作り直し)は数えない"],
+      [[null, 1, 1], null, "最初の1回が差 0 でも 0 を最小値にしない"],
+      [[null, NaN, 1], null, "NaN は数えない"],
+    ];
+    const bad = cases.map(([args, want, why]) => ({ why, want, r: runFn(minPos, ...args) }))
+      .filter((x) => !(x.r.ok && x.r.v === x.want));
+    check("36.2 音時計の刻みは**正の差の最小**だけを取る(0・負・NaN・最初の1回は数えない)",
+      bad.length === 0, bad.map((x) => `${x.why}→${x.r.ok ? x.r.v : shownOf(x.r)}(期待 ${x.want})`).join(" / "));
+  }
+
+  // --- 36.3 リングバッファ（貯め方そのものが GC を呼ばないこと） ----------------------
+  const ringR = runFn(() => new Function(`${extractFunction("metroDiagMakeRing")}
+    ${extractFunction("metroDiagRingPush")}
+    ${extractFunction("metroDiagRingValues")}
+    return { make: metroDiagMakeRing, push: metroDiagRingPush, values: metroDiagRingValues };`)());
+  const ring = ringR.ok ? ringR.v : null;
+  {
+    const g = runFn(() => {
+      const r = ring.make(3);
+      ring.push(r, 1);
+      return ring.values(r);
+    });
+    check("36.3 リングバッファ3つを組み立てて実行できている(空回りしていない)",
+      !!ring && g.ok && JSON.stringify(g.v) === "[1]", ringR.ok ? shownOf(g) : `組み立て失敗(${ringR.err})`);
+  }
+  if (ring) {
+    const r1 = runFn(() => {
+      const r = ring.make(3);
+      const buf0 = r.buf;
+      for (let i = 1; i <= 5; i++) ring.push(r, i);
+      return { vals: ring.values(r), len: r.len, cap: r.cap, sameBuf: r.buf === buf0, isF64: r.buf instanceof Float64Array };
+    });
+    check("36.3 長さを超えたら古いものから捨て、**入れ物は作り直さない**(毎フレームの確保が無い)",
+      r1.ok && JSON.stringify(r1.v.vals) === "[3,4,5]" && r1.v.len === 3 && r1.v.cap === 3
+      && r1.v.sameBuf === true && r1.v.isF64 === true, shownOf(r1) + JSON.stringify(r1.v ?? null));
+    const r2 = runFn(() => ring.values(ring.make(4)));
+    check("36.3 何も入っていないリングは空の配列を返す", r2.ok && JSON.stringify(r2.v) === "[]", shownOf(r2));
+  }
+
+  // --- 36.4 観測だけで挙動を変えていない（配線の綴り。罠2）----------------------------
+  // **metroSchedulerTick の本体は1文字も触っていない。** 本体に診断の綴りが1つでもあれば、
+  // 「包んだだけ」という主張が偽になる。
+  check("36.4 metroSchedulerTick の本体に診断の綴りが1つも無い(本体を触っていない)",
+    tickSrc.length > 0 && !/METRO_DIAG|metroDiag/.test(tickSrc),
+    (tickSrc.match(/METRO_DIAG[^\s;]*|metroDiag\w*/g) || ["無し"]).join(" "));
+  // 包んだ側は、診断が閉じていれば**時刻も読まない・値も貯めない**でそのまま呼ぶ。
+  check("36.4 診断が閉じているとき、包んだ側は時刻も読まずに tick をそのまま呼んで戻る",
+    /if \(!METRO_DIAG\.on\) \{ metroSchedulerTick\(\); return; \}/.test(timedSrc)
+    && timedSrc.indexOf("performance.now()") > timedSrc.indexOf("if (!METRO_DIAG.on)"),
+    timedSrc.replace(/\s+/g, " ").slice(0, 160));
+  // setInterval に渡っているのは包んだほう(渡し忘れると②が永遠に 0 回のまま)。
+  check("36.4 25ms のタイマに渡しているのは包んだほう(metroSchedulerTickTimed)",
+    /setInterval\(metroSchedulerTickTimed, 25\)/.test(measCode),
+    (measCode.match(/setInterval\(metroScheduler\w+, \d+\)/g) || ["見つからない"]).join(" "));
+  // レンダー回数の計上は **on の枝の中だけ**。枝を外すと、閉じていても数え続ける。
+  check("36.4 レンダー回数の計上は METRO_DIAG.on の枝の中にしかない",
+    (measCode.match(/METRO_DIAG\.renders/g) || []).length === 1
+    && /if \(METRO_DIAG\.on\) METRO_DIAG\.renders \+= 1;/.test(measCode),
+    (measCode.match(/[^\n]*METRO_DIAG\.renders[^\n]*/g) || ["無し"]).join(" | ").trim());
+
+  // --- 36.5 測ることが測る対象を重くしない -------------------------------------------
+  const loopBody = (() => {
+    const i = diagCode.indexOf("const loop = () => {");
+    const j = diagCode.indexOf("raf = requestAnimationFrame(loop);", i + 1);
+    return i >= 0 && j > i ? diagCode.slice(i, j) : "";
+  })();
+  check("36.5 rAF のループ本体を切り出せている(空回りしていない)",
+    loopBody.length > 100, `${loopBody.length}文字`);
+  check("36.5 rAF の中では表示を更新しない(setSnap を呼ばない = レンダーを起こさない)",
+    loopBody.length > 100 && !/setSnap|setState/.test(loopBody),
+    (loopBody.match(/set\w+\(/g) || ["無し"]).join(" "));
+  {
+    // **表示の更新は1秒に1回以下。** 値は「1000 以上」であることだけを要求する
+    // (定数を書き写した検査にしない。速める変異は落ち、遅くする変更は通る)。
+    const ms = Number((/setInterval\(\(\) => \{[\s\S]*?\}, (\d+)\);/.exec(diagCode) || [])[1]);
+    check("36.5 表示の更新は1秒に1回以下(ヒストグラムの更新でレンダーを起こさない)",
+      Number.isFinite(ms) && ms >= 1000, `${ms}ms`);
+  }
+
+  // --- 36.6 閉じたら完全に止まる ------------------------------------------------------
+  const cleanup = (() => {
+    const i = diagCode.indexOf("return () => {");
+    const j = diagCode.indexOf("};", i + 1);
+    return i >= 0 && j > i ? diagCode.slice(i, j) : "";
+  })();
+  check("36.6 後片付けを切り出せている(空回りしていない)", cleanup.length > 40, `${cleanup.length}文字`);
+  check("36.6 閉じたら rAF もタイマも畳み、on を false へ戻す(回し続けない)",
+    /cancelAnimationFrame\(raf\)/.test(cleanup)
+    && /clearInterval\(timer\)/.test(cleanup)
+    && /METRO_DIAG\.on = false;/.test(cleanup),
+    cleanup.replace(/\s+/g, " ").slice(0, 200));
+
+  // --- 36.7 普段の画面に入らない ------------------------------------------------------
+  // 板は **position: fixed** で流れに入らない。計測タブの縦の余りはメトロノームを開いた
+  // 状態で 2px しかない(BACKLOG F-3)ので、流れに置くと必ず何かが動く。
+  check("36.7 診断の板は画面の流れに入らない(position: fixed)",
+    /position: "fixed", left: 0, right: 0, bottom: "var\(--page-bottom-gap\)"/.test(diagSrc),
+    (diagSrc.match(/position: "\w+"/g) || ["無し"]).join(" "));
+  // 板は metroDiagOpen の枝の中にしかない(閉じているときは DOM に1つも出ない)。
+  check("36.7 板は metroDiagOpen の枝の中にしか置かれていない",
+    (measCode.match(/<MetroDiagPanel\b/g) || []).length === 1
+    && /\{metroDiagOpen && \(\s*\r?\n\s*<MetroDiagPanel /.test(measCode),
+    (measCode.match(/[^\n]*<MetroDiagPanel[^\n]*/g) || ["無し"]).join(" | ").trim());
 
   console.log("  -> done");
 }
