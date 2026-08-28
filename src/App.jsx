@@ -3133,6 +3133,15 @@ export default function WindToneLabPhaseMode() {
         // 診断が閉じているときの費用は、この真偽値1つの読み取りだけ(時刻も読まない)。
         const dOn = METRO_DIAG.on;
         const dTickT0 = dOn ? performance.now() : 0;
+        // 【D-20】「表示値づくり」を止めるスイッチ(表 A・C)。止めるのは
+        // **React へ渡す値を作る所だけ** ── setPitch / setMatchedFingering と、
+        // 中央値10回＋倍音8本の作り直し。**matchFingering そのものは止めない**:
+        // あれは半音境界のヒステリシス(lastFingerRef)と録音フレームの
+        // matchedWrittenNote を作る**計測ロジック**で、止めると記録が変わる
+        // (この周の条件「計測ロジック・判定・値の計算を1ビットも変えない」に反する)。
+        // 左の dOn は tick の先頭で1回だけ読んだ局所変数なので、閉じているときは
+        // METRO_DIAG.runDisplayValues を1回も読まない(&& の左で止まる)。
+        const dMakeOff = dOn && !METRO_DIAG.runDisplayValues;
         // tick本体はtry/finallyで包み、1フレームで例外が出ても必ず次フレームを予約して
         // ループが永久停止しない(＝メーターやグラフが固まらない)ようにする。以前は末尾の
         // requestAnimationFrameに到達しないと二度と更新されず、途中で止まる不具合につながっていた。
@@ -3233,12 +3242,13 @@ export default function WindToneLabPhaseMode() {
         const pitchCentsUnified = noteNow ? noteNow.centsExact : null;
 
         if (sounding) {
-          setPitch(f0);
+          // 【D-20】止めているのは**画面へ渡す値の更新だけ**(下の matchFingering は走る)。
+          if (!dMakeOff) setPitch(f0);
           // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)。
           // 半音境界のヒステリシスと範囲外リジェクトを含む共通判定(オフライン解析と同一)
           matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current);
           lastFingerRef.current = matchedFinger;
-          setMatchedFingering(matchedFinger);
+          if (!dMakeOff) setMatchedFingering(matchedFinger);
         } else {
           // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
           setPitch(null);
@@ -3263,6 +3273,10 @@ export default function WindToneLabPhaseMode() {
         const TIMBRE_SETTLE_MS = 140;  // 音替わり直後この間は遷移フレームを表示に取り込まない
         const TIMBRE_COMPUTE_MS = 66;  // 音色FFT(重い)は毎フレームではなくこの間隔で間引く(メーターの追従はピッチのみで足り、CPU負荷を大きく下げる)
         const nowPerfMs = performance.now();
+        // 【D-20b】⑦ 鳴っていた割合。**判定は上でそのまま行われていて、ここは読むだけ**。
+        // 時計を新しく読まないよう、既にある nowPerfMs をそのまま控える。
+        // 左の dOn は tick の先頭で1回だけ読んだ局所変数(閉じているときは真偽1つの判定)。
+        if (dOn && sounding) { METRO_DIAG.soundingN += 1; METRO_DIAG.soundingAt = nowPerfMs; }
         const noteKey = matchedFinger?.semitoneIndex ?? (sounding ? "unknown" : null);
         if (noteKey !== disp.lastNote) {
           disp.lastNote = noteKey;
@@ -3311,13 +3325,18 @@ export default function WindToneLabPhaseMode() {
         const dDispT0 = dOn ? performance.now() : 0;
         const holdActive = disp.centroid.length > 0 && nowPerfMs - disp.validMs <= DISPLAY_HOLD_MS;
         if (holdActive) {
-          setCentroidHz(median(disp.centroid));
-          setHnrDb(median(disp.hnr));
-          // 倍音は次数ごとに中央値をとる
-          const dispHarm = Array.from({ length: NUM_HARMONICS }, (_, i) => ({
-            n: i + 1, norm: median(disp.harmonics.map((h) => h[i] ?? 0)) ?? 0,
-          }));
-          setHarmonicLevels(dispHarm);
+          // 【D-20】止めている間はここを丸ごと飛ばす(中央値10回＋倍音8本の作り直しと3つの setter)。
+          // **holdActive の判定も disp のバッファも1文字も変えていない**ので、
+          // 録音フレームが使う値(上の disp.lastCentroid など)は止めても同じまま。
+          if (!dMakeOff) {
+            setCentroidHz(median(disp.centroid));
+            setHnrDb(median(disp.hnr));
+            // 倍音は次数ごとに中央値をとる
+            const dispHarm = Array.from({ length: NUM_HARMONICS }, (_, i) => ({
+              n: i + 1, norm: median(disp.harmonics.map((h) => h[i] ?? 0)) ?? 0,
+            }));
+            setHarmonicLevels(dispHarm);
+          }
         } else {
           // しばらく測れていない(無音・弱音が続いた)ならバッファを空にして「—」に戻す
           disp.centroid = []; disp.hnr = []; disp.harmonics = [];
@@ -5355,6 +5374,12 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 箱の高さ(noteBoxH / NOTE_CENTS_PX + 4)は文字の有無で変わらないので、
   // 止めても**環の内側の寸法は1pxも動かない**(§6.1.5 と同じ理由)。
   const textOn = !(dRingOn && !METRO_DIAG.drawText);
+  // 【D-20】到達している間の**呼吸**(CSS アニメーション)。D-19b は「音名」を止めても
+  // 空の箱で回り続けると自分で報告していた(懸念2)ので、別のスイッチとして外に出した。
+  // **inTune の判定も色も上でそのまま計算されている**(止めたのはアニメーションの依頼だけ)。
+  // 透明度だけのアニメーションなので、掛けても外しても**寸法は1pxも動かない**(§6.1.5)。
+  const breathOn = !(dRingOn && !METRO_DIAG.drawBreath);
+  const breathing = inTune && breathOn;
   const noteLetter = sounding && textOn ? note.name.charAt(0) : "";
   const accidental = sounding && textOn ? note.name.slice(1) : "";
   // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
@@ -5410,6 +5435,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
     let lastBase = "";
     const loop = () => {
       const now = performance.now();
+      // 【D-20】この rAF の中では診断の真偽値を**ここで1回だけ読む**(解析 tick と同じ作法。
+      // 途中で開閉されても、1フレームの中で判断が食い違わない)。
+      // **本文の dRingOn は使えない**: この関数は useEffect(…, []) の中で1回だけ作られるので、
+      // 外の局所変数を掴むと初回レンダーの値(ほぼ必ず false)で固まる。
+      const dRafOn = METRO_DIAG.on;
       const reduce = reduceMotion.matches;
       const st = ringRunState(runStateRef.current, liveRef.current.inTune, now);
       runStateRef.current = st;
@@ -5426,8 +5456,13 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
         lastKey = key;
         // 【D-19】走りの弧を書き換えたフレーム数。**書き換えた回数**であって、
         // ブラウザがそれを描き直すのに掛けた時間ではない(そちらは JS からは測れない)。
-        if (METRO_DIAG.on) METRO_DIAG.runWrites += 1;
-        const spread = 180 * p;
+        if (dRafOn) METRO_DIAG.runWrites += 1;
+        // 【D-20】「走り」を止めている間は**広がりを 0 にする** ── 下の for が
+        // `d=""` を書いて弧を消す(凍らせるのではなく消す。光と同じ理由)。
+        // **st も p も raw も上でそのまま計算されている**(止めたのは描く依頼だけ)。
+        // 同じ "" を書き続けても、値が変わらない setAttribute は描き直しを起こさない。
+        const runOff = dRafOn && !METRO_DIAG.drawRun;
+        const spread = runOff ? 0 : 180 * p;
         for (let k = 0; k < 2; k++) {
           const path = runPathRefs.current[k];
           const grad = runGradRefs.current[k];
@@ -5471,7 +5506,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
         // 【D-19】外周の光の明るさを書き換えたフレーム数。**音が入っていないときは
         // glowCents が NaN → 不透明度が 0 のまま変わらないのでここを通らない**。
         // つまりこの回数が「鳴ると増える描き直しの依頼」そのもの。
-        if (METRO_DIAG.on) {
+        if (dRafOn) {
           METRO_DIAG.glowWrites += 1;
           // 【D-19b】「光」を止めている間は **0 を書く**(明るさを凍結するのではなく消す)。
           // 凍らせただけでは、入れ子マスクと feTurbulence を含む面がそこに在り続けて
@@ -5485,7 +5520,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       }
       // 【D-19】環の rAF 1回ぶんの所要時間。**属性を書いた時間までしか入らない**
       // (それを反映する描き直しの時間は、内訳に入らず「差」として出る)。
-      if (METRO_DIAG.on) metroDiagSlotAdd(METRO_DIAG.ringRaf, performance.now() - now);
+      if (dRafOn) metroDiagSlotAdd(METRO_DIAG.ringRaf, performance.now() - now);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -5704,12 +5739,12 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             文字がある時の行の高さ・幅は環の内寸いっぱい)は残し、音の有無で環の内側の寸法が
             変わらないようにする(DESIGN-SYSTEM §6.1.5)。 */}
         {/* 【N-4c】サイズと間隔は正典 .cents の実寸(21px / margin-top 10px)。 */}
-        <div className={`sans${inTune ? " ficus-breathe" : ""}`} style={{
+        <div className={`sans${breathing ? " ficus-breathe" : ""}`} style={{
           marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
           textAlign: "center",
           fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
           letterSpacing: "0.02em", color: sounding && textOn ? color : "var(--c-ink-3)",
-          animation: inTune ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
+          animation: breathing ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
         }}>
           {sounding && textOn ? `${centsShown > 0 ? "+" : ""}${centsShown}¢` : ""}
         </div>
@@ -6097,6 +6132,12 @@ const METRO_DIAG = {
   runWrites: 0,                               // 走りの弧(左右の60ストップ+2本のd)を書き換えたフレーム数
   glowWrites: 0,                              // 外周の光の明るさ(opacity)を書き換えたフレーム数
   perfMinDt: null,                            // ⑥ performance.now() を続けて2回読んだ差の最小正値(ms)
+  // 【D-20b】⑦ **測っている間、どれだけ鳴っていたか。**
+  // 実機の1枚目は「音色FFT 2.3回/秒」(連続で吹いていれば15回/秒前後)で、
+  // **測定時間の大半は吹いていなかった**ことが後から分かった ── 通算の平均が薄まると、
+  // 「問題が起きている最中の値」ではなくなる。本人が撮る前に自分で確かめられるようにする。
+  soundingN: 0,                               // sounding が真だった解析 tick の回数(通算)
+  soundingAt: 0,                              // 最後に sounding が真だった時刻(performance.now)。0 = 一度も無い
   // 【D-19b】容疑者を1つずつ止めるスイッチ。**既定はすべて true(＝いまと同じ挙動)**。
   // 差から推測する代わりに、**吹きながら押して滑らかになるか**で1回で切り分けるための物。
   //
@@ -6105,12 +6146,30 @@ const METRO_DIAG = {
   // **止めた状態は正しい表示ではない**(光が消える・帯が出ない・音名が出ない)。計器なのでそれでよい。
   //
   // 【読まれる場所】**すべて「診断が開いている」と分かっている枝の中**に置く。
-  // 閉じているときにこの4つの真偽値を読む場所は1つも無い(検査 37.7 が綴りで固定している)。
-  drawGlow: true,                             // 外周の光の明るさを書くか(F。第一容疑)
+  // 閉じているときにこの真偽値を読む場所は1つも無い(検査 37.7 が綴りで固定している)。
+  //
+  // 【名前の約束】スイッチは必ず `draw…`(描く依頼を出すか) か `run…`(計算を回すか) で始める。
+  // 検査 37.7 はこの綴りで置き場所の一覧を作り、板のボタンの一覧と**集合で**突き合わせる
+  // ── どちらか片方だけ増減させると落ちる。別の接頭辞を付けると一覧から漏れて、
+  // 「ボタンはあるのに置き場所が無い」側で落ちる(黙って素通りはしない)。
+  //
+  // 【D-20 ここが芯】`drawSounding` だけは**まとめて**止める大きなスイッチ。
+  // D-19b の4つ(光・帯・音名・音色FFT)を全部押しても実機で何も変わらなかったので、
+  // 容疑者を1つずつ足すのをやめ、「**表示だけ、鳴っていない扱いにする**」で二分する。
+  // 押して 60fps に戻る → 原因は表示の側 / 戻らない → 表示ではない。
+  drawSounding: true,                         // 【D-20 最優先】鳴っているときの表示を出すか(A〜G をまとめて)
+  drawGlow: true,                             // 外周の光の明るさを書くか(F)
   drawBar: true,                              // ズレの帯(弧)を描くか(D)
   drawText: true,                             // 音名・セントの文字を出すか(G)
+  drawRun: true,                              // 【D-20】到達の走り(左右60ストップ+2本のd)を描くか(E)
+  drawBreath: true,                           // 【D-20】到達したセント値の呼吸(CSSアニメーション)を掛けるか
+  drawDetail: true,                           // 【D-20】詳細カードの中身(倍音8本・重心・HNR)を出すか
   runTimbre: true,                            // 音色の 8192点FFT を回すか(B)
-  reset() {
+  runDisplayValues: true,                     // 【D-20】表示値づくり(setPitch/中央値10回/倍音8本)を回すか(A・C)
+  // 【D-20b】**測った物だけを捨てる。** 板の「測り直し」から呼ぶので、
+  // ここでスイッチに触ってはいけない ── 止めたまま測り直せることがこのボタンの目的。
+  // 通算の合計・回数・リング・経過の起点(t0)・書き換えの回数を**全部**ゼロに戻す。
+  resetCounters() {
     this.rafGaps = metroDiagMakeRing(METRO_DIAG_CAP);
     this.tickMs = metroDiagMakeRing(METRO_DIAG_CAP);
     this.renders = 0;
@@ -6127,14 +6186,30 @@ const METRO_DIAG = {
     this.runWrites = 0;
     this.glowWrites = 0;
     this.perfMinDt = null;
+    this.soundingN = 0;
+    this.soundingAt = 0;
+  },
+  reset() {
+    this.resetCounters();
     // 【D-19b】**閉じたら必ず全部 on に戻す。** reset() は板を開いたときと閉じたときの
     // 両方で呼ばれるので、押したまま閉じてもトグルが残らない。
+    this.drawSounding = true;
     this.drawGlow = true;
     this.drawBar = true;
     this.drawText = true;
+    this.drawRun = true;
+    this.drawBreath = true;
+    this.drawDetail = true;
     this.runTimbre = true;
+    this.runDisplayValues = true;
   },
 };
+
+// 【D-20】スイッチを押している間に「毎フレーム同じ物を渡す」ための空の一覧。
+// **毎回 [] を新しく作ると参照が毎フレーム変わる**ので、React が下流を作り直す
+// ── 止めたはずの側で仕事が増えては、切り分けにならない。モジュールに1つだけ持つ。
+// 中身を書き換える読み手が現れたら壊れるが、今の読み手は find / map / slice だけ。
+const METRO_DIAG_NO_ITEMS = [];
 
 // URL の # から「診断を開くか」を決める。**既定では出さない**ので、
 // 入口はここ1箇所だけ ── 画面に入口の部品を置くと、普段の画面が1px変わる。
@@ -6179,7 +6254,19 @@ function metroDiagSnapshot(ctx, nowMs) {
     runWrites: METRO_DIAG.runWrites,
     glowWrites: METRO_DIAG.glowWrites,
     perfMinDt: METRO_DIAG.perfMinDt,
+    // 【D-20b】⑦ 鳴っていた割合と、「いま鳴っているか」。
+    // soundingSince は最後に音が入ってからの経過(ms)。一度も無ければ null。
+    soundingShare: metroDiagSoundingShare(METRO_DIAG.soundingN, METRO_DIAG.tickAll ? METRO_DIAG.tickAll.n : 0),
+    soundingSince: METRO_DIAG.soundingAt > 0 ? nowMs - METRO_DIAG.soundingAt : null,
   };
+}
+
+// 「いま鳴っているか」の判定。最後に音が入ってからの経過(ms)で決める。
+// **1秒に1回しか板を描き直さない**ので、窓は1枚ぶんより広く取る(狭いと、
+// 吹いていても更新のたびに消えて点滅して見える)。null(一度も鳴っていない)は false。
+const METRO_DIAG_SOUNDING_WINDOW_MS = 700;
+function metroDiagSoundingNow(sinceMs) {
+  return typeof sinceMs === "number" && Number.isFinite(sinceMs) && sinceMs <= METRO_DIAG_SOUNDING_WINDOW_MS;
 }
 
 // 【D-19】内訳の合計(ms/秒)と、1枚あたりの「実間隔 − 測れた時間」。
@@ -6197,6 +6284,15 @@ function metroDiagBreakdown(s) {
   return { totalPerSec, perFrame, gap, diff };
 }
 
+// 【D-20b】⑦ 鳴っていた割合(0〜1)。**分母は解析 tick の回数**で、「音が入っていた回 ÷ 全部の回」。
+// tick が1回も回っていなければ 0 ではなく null ── 0 を「一度も鳴らなかった」と読み違えない。
+// 分子が分母を超えることは無いはずだが、越えても 1 で頭打ちにはしない
+// (壊れていることが数字に出たほうがよい)。
+function metroDiagSoundingShare(soundingN, tickN) {
+  if (!Number.isFinite(soundingN) || !Number.isFinite(tickN) || !(tickN > 0)) return null;
+  return soundingN / tickN;
+}
+
 // 数字の出し方。値が無いときは 0 ではなく「—」(0 と読み違えない)。
 function metroDiagNum(v, digits) {
   return (typeof v === "number" && Number.isFinite(v)) ? v.toFixed(digits) : "—";
@@ -6207,17 +6303,20 @@ function metroDiagNum(v, digits) {
 // 下部ナビのすぐ上に浮かせ、**上半分(環・振り子・テンポ行 = 開始/停止のタップ帯)は塞がない**。
 function MetroDiagPanel({ getMetroCtx, onClose }) {
   const [snap, setSnap] = useState(null);
+  // 【D-20b】rAF が持ち越す前回値。**「測り直し」からも捨てられるように ref にしてある**
+  // ── 効果の中の局所変数のままだと、測り直した最初の1枚だけが
+  // 「押す前から押した後まで」の間隔として①に混ざる。
+  const clockRef = useRef({ last: 0, lastCtxT: null });
   useEffect(() => {
     METRO_DIAG.reset();
     METRO_DIAG.t0 = performance.now();
     METRO_DIAG.on = true;
     let raf = 0;
-    let last = 0;
-    let lastCtxT = null;
     const loop = () => {
       const now = performance.now();
-      if (last) metroDiagRingPush(METRO_DIAG.rafGaps, now - last);
-      last = now;
+      const ck = clockRef.current;
+      if (ck.last) metroDiagRingPush(METRO_DIAG.rafGaps, now - ck.last);
+      ck.last = now;
       METRO_DIAG.frames += 1;
       // 【D-19】⑥ この計器の時計そのものの刻み。**続けて2回読んだ差の最小正値**。
       // これが 1ms なら、内訳の p50/p95 は 0 か 1 にしか出ない ── 読むのは ms/秒 のほう。
@@ -6227,8 +6326,8 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       const ctx = getMetroCtx ? getMetroCtx() : null;
       if (ctx) {
         const t = ctx.currentTime;
-        METRO_DIAG.ctxMinDt = metroDiagMinPositive(METRO_DIAG.ctxMinDt, lastCtxT, t);
-        lastCtxT = t;
+        METRO_DIAG.ctxMinDt = metroDiagMinPositive(METRO_DIAG.ctxMinDt, ck.lastCtxT, t);
+        ck.lastCtxT = t;
       }
       raf = requestAnimationFrame(loop);
     };
@@ -6247,6 +6346,18 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
     };
   }, [getMetroCtx]);
 
+  // 【D-20b】(A) 測り直し。**吹き始めてから押して、吹き続けたまま30秒**が取れるようにする。
+  // 通算の平均は「吹く前の静かな時間」で薄まるので、押した瞬間からの数字でないと
+  // 「問題が起きている最中」を見たことにならない(実機の1枚目がまさにそれだった)。
+  // **スイッチ(描画を止めるもの)には触らない** ── 止めたまま測り直せることが目的。
+  // useCallback にしないのは、集める側の依存([getMetroCtx] 1つ)を増やさないため。
+  const resetCounts = () => {
+    METRO_DIAG.resetCounters();
+    METRO_DIAG.t0 = performance.now();
+    clockRef.current = { last: 0, lastCtxT: null };
+    setSnap(metroDiagSnapshot(getMetroCtx ? getMetroCtx() : null, performance.now()));
+  };
+
   const s = snap;
   // 【縦は 230px しか無い】計測タブは**メトロノームを開いた状態**で
   // テンポ操作行の下端が y=535、下部ナビの上端が y=765(Chrome 375×812 の実測)。
@@ -6260,7 +6371,11 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
   // 実際に読まれるのは METRO_DIAG 側(rAF とレンダーはこの state を見ない)。
   // 既定はすべて「描く」。**板を閉じると METRO_DIAG.reset() が全部 true に戻す**ので、
   // 押したまま閉じてもトグルは残らない。
-  const [draw, setDraw] = useState({ drawGlow: true, drawBar: true, drawText: true, runTimbre: true });
+  // 【D-20】9つに増えた。**既定はすべて「描く / 回す」**。
+  const [draw, setDraw] = useState({
+    drawSounding: true, drawGlow: true, drawBar: true, drawText: true,
+    drawRun: true, drawBreath: true, drawDetail: true, runTimbre: true, runDisplayValues: true,
+  });
   const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--sp-2)", lineHeight: 1.35 };
   const hint = { fontSize: 10, color: "var(--c-ink-3)", lineHeight: 1.35 };
   const val = { fontVariantNumeric: "tabular-nums", color: "var(--c-ink)", fontSize: 12.5, whiteSpace: "nowrap" };
@@ -6279,7 +6394,10 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
   const skey = { ...key, fontSize: 10.5 };
   // 【D-19b】止めるスイッチ1つ。**押した状態＝止めている**を枠線の色で返す
   // (§6.7 の A型 .ctl-state。状態を持つ操作なので枠線を使う)。
-  const stopBtn = (field, label) => {
+  // 【D-20】big=true は (1) の芯のスイッチ用。**本人が最初に押すものが一目で分かる**ように
+  // 幅を余りいっぱいまで伸ばし、文字を大きく太くする。押した状態の返し方(A型の枠線の色 +
+  // aria-pressed)は他と同じ ── 見た目だけが違う。
+  const stopBtn = (field, label, big = false) => {
     const drawing = draw[field];
     return (
       <button
@@ -6293,7 +6411,9 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
         className="sans ctl-state ctl-pill"
         style={{
           minHeight: "var(--tap-min)", padding: "0 10px", cursor: "pointer",
-          fontSize: 11, lineHeight: 1.2, color: drawing ? "var(--c-ink-2)" : "var(--c-accent)",
+          fontSize: big ? 13 : 11, fontWeight: big ? 700 : 400,
+          flex: big ? "1 1 auto" : "0 0 auto", minWidth: 0,
+          lineHeight: 1.2, color: drawing ? "var(--c-ink-2)" : "var(--c-accent)",
         }}
       >{label}</button>
     );
@@ -6325,19 +6445,30 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       }}
     >
       <div style={{ ...row, alignItems: "center" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--c-ink)" }}>
-          診断（計器・恒久の機能ではありません）
+        {/* 【D-20b】見出しを短くした。**「測り直し」を同じ行に入れて 375px に収めるため**
+            (3つのピルと見出しで 375 を超えると折り返して板が1行ぶん高くなり、
+             テンポ操作行を覆う)。恒久の機能でないことは BACKLOG D-18b が持っている。 */}
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--c-ink)", flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
+          診断（計器）
         </span>
         {/* 【§6.7 の芯2】枠線を持つ操作は状態を持つ物だけ。ここは状態を持たない一手なので
             B型(.ctl-plain .ctl-pill = 枠線なし・地は --c-sunken)の見本どおりに書く。
             【D-19】1枚目/2枚目の入れ替えも同じ形。**計測はやり直しにならない**。 */}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          {/* 【D-20b】(A) 測り直し。**見出しの行に置いたので3枚どこからでも押せる**。
+              スイッチは押したまま残る(触っていない)。 */}
           <button
-            type="button" onClick={() => setPage((p) => (p === "main" ? "breakdown" : "main"))}
-            aria-label={page === "main" ? "内訳を見る" : "①〜⑤に戻る"} className="sans" style={{ ...TAP_BUTTON_RESET }}
+            type="button" onClick={resetCounts}
+            aria-label="計測をやり直す（止めているスイッチはそのまま）" className="sans" style={{ ...TAP_BUTTON_RESET }}
+          >
+            <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>測り直し</span>
+          </button>
+          <button
+            type="button" onClick={() => setPage((p) => (p === "breakdown" ? "main" : "breakdown"))}
+            aria-label={page === "breakdown" ? "①〜⑥に戻る" : "内訳を見る"} className="sans" style={{ ...TAP_BUTTON_RESET }}
           >
             <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>
-              {page === "main" ? "内訳→" : "←①〜⑤"}
+              {page === "breakdown" ? "←①〜⑥" : "内訳→"}
             </span>
           </button>
           <button type="button" onClick={onClose} aria-label="診断を閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
@@ -6351,12 +6482,18 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           差から推測しなくてよいように、③(1秒あたりの描画)を右にそのまま出しておく
           ── 押した直後にここが 30 → 60 へ動けば、それが答えになる。
           押した状態(＝止めている)は §6.7 A型の枠線の色が返す。 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "1px 0" }}>
-        {stopBtn("drawGlow", "外周の光")}
-        {stopBtn("drawBar", "環の帯")}
-        {stopBtn("drawText", "音名")}
-        {stopBtn("runTimbre", "音色FFT")}
-        <span style={{ ...val, fontSize: 11.5, fontWeight: 700, marginLeft: "auto" }}>
+      {/* 【D-20】**最初に押すのはこれ1つ。** D-19b の4つを全部押しても実機が変わらなかったので、
+          容疑者を足すのをやめ、表示の側を丸ごと1回で潰して二分する。
+          他の8つは「他を止める→」の中(1枚目の高さを増やさないため、板を差し替える形にした)。 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {stopBtn("drawSounding", "① 鳴っていない表示にする", true)}
+        <button
+          type="button" onClick={() => setPage("switches")}
+          aria-label="他のスイッチを見る" className="sans" style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
+        >
+          <span className="ctl-plain ctl-pill" style={{ padding: "6px 8px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>他8つ→</span>
+        </button>
+        <span style={{ ...val, fontSize: 11.5, fontWeight: 700, flexShrink: 0 }}>
           ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
         </span>
       </div>
@@ -6374,13 +6511,22 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           ⑤(音時計)と1行にまとめてあるのは、スイッチの行を足しても板が振り子を覆わないため。 */}
       <div style={row}><span style={key}>⑤⑥ 音時計 / 計器の刻み</span>
         <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)} s / {metroDiagNum(s?.perfMinDt, 3)} ms</span></div>
+      {/* 【D-20b】⑦ 測っている間どれだけ鳴っていたか。**これが低いと数字が薄まっている**
+          ── 実機の1枚目は音色FFT が 2.3回/秒 しか無く、大半は吹いていない時間だった。
+          右端の●で「いま音が入っているか」も返す(吹きながら板を見て確かめられる)。 */}
+      <div style={row}><span style={key}>⑦ 鳴っていた割合 / いま</span>
+        <span style={val}>
+          {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)} % ・{" "}
+          {metroDiagSoundingNow(s?.soundingSince) ? "● 鳴っている" : "― 無音"}
+        </span></div>
 
-      {/* 【数値の意味を画面に添える】本人は解釈を知らないので、読み方をここに置く。 */}
+      {/* 【数値の意味を画面に添える】本人は解釈を知らないので、読み方をここに置く。
+          【D-20b】板が伸びるとテンポの −/♩/＋ を覆う量が増えるので、**行数で書く量を決める**。
+          ②④⑤⑥ の読み方は D-19 の板から落とした(値は残っている。読み方は BACKLOG にある)。 */}
       <div style={{ ...hint, marginTop: 2 }}>
-        <b>吹きながら上のボタンを押す。</b>③が上がって滑らかになったら、それが原因です
-        （止めている間は表示が欠けます。<b>閉じれば全部戻ります</b>）。
-        ①16.7超が多い＝絵が飛んでいる／②大きいほど詰まらせている／③60 に近いほど描けている／
-        ④out が大きいほど音が遅れる／⑤⑥時刻の粗さ（⑥1.000 なら内訳の p50/p95 は 0か1）。
+        <b>吹き始めたら「測り直し」→そのまま30秒</b>（⑦が高いほど濃い数字）。
+        <b>①</b>を押して③が上がれば原因は<b>表示の側</b>、変わらなければ<b>表示ではない</b>
+        （次は「内訳→」の<b>差</b>）。①16.7超＝絵が飛んだ数。<b>閉じれば全部戻ります</b>。
       </div>
       </>)}
 
@@ -6404,14 +6550,48 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
         <span style={sval}>{metroDiagNum(bd?.totalPerSec, 1)} ms/秒 ＝ 1枚 {metroDiagNum(bd?.perFrame, 2)} ms</span></div>
       <div style={srow}><span style={skey}>実間隔 − 測れた合計</span>
         <span style={sval}>{metroDiagNum(bd?.gap, 1)} − {metroDiagNum(bd?.perFrame, 2)} ＝ <b>{metroDiagNum(bd?.diff, 2)}</b> ms</span></div>
-      <div style={srow}><span style={skey}>書換 走り / 光</span>
-        <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)} 回/秒</span></div>
+      {/* 【D-20b】⑦ をこの板にも出す。**この板を撮ってもらうので、
+          「その数字がどれだけ濃いか」が同じ写真に写っていないと読めない。** */}
+      <div style={srow}><span style={skey}>書換 走り / 光 ・ ⑦鳴</span>
+        <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)} 回/秒 ・ {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)} %</span></div>
 
       <div style={{ ...hint, marginTop: 2 }}>
         読み方：<b>ms/秒</b>＝1秒でその処理に居た時間（★は鳴る時だけ）。├└ は tick の内側なので
         合計に足していません。合計に<b>入らない</b>のは、画面への反映・レイアウト・描画・GC。
-        <b>差が大きいほど原因はそちら側</b>（待ち時間も含むので吹く／吹かないの2枚で比べてください）。
-        書換＝環が描き直しを頼んだ回数。
+        <b>差が大きいほど原因はそちら側</b>（待ち時間も含む）。<b>⑦鳴が低いと全部が薄まります</b>。
+      </div>
+      </>)}
+
+      {/* 【D-20】3枚目: ①が「表示の側」と答えたときに、**どの表示か**を1つずつ絞るための8つ。
+          1枚目に並べると板が伸びてテンポ操作行を覆う(＝覆った状態で測った値になる)ので、
+          差し替える形にした。③はここにも出す ── 押した直後に数字で確かめられるように。 */}
+      {page === "switches" && (<>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "1px 0" }}>
+        <button
+          type="button" onClick={() => setPage("main")}
+          aria-label="①〜⑥に戻る" className="sans" style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
+        >
+          <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>←①〜⑥</span>
+        </button>
+        <span style={{ ...val, fontSize: 11.5, fontWeight: 700, marginLeft: "auto" }}>
+          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "1px 0" }}>
+        {stopBtn("drawGlow", "外周の光")}
+        {stopBtn("drawBar", "環の帯")}
+        {stopBtn("drawText", "音名")}
+        {stopBtn("drawRun", "走り")}
+        {stopBtn("drawBreath", "呼吸")}
+        {stopBtn("drawDetail", "詳細カード")}
+        {stopBtn("runTimbre", "音色FFT")}
+        {stopBtn("runDisplayValues", "表示値づくり")}
+      </div>
+      <div style={{ ...hint, marginTop: 2 }}>
+        ①で「表示の側」と出たときに、ここを1つずつ押して絞ります（1つ押す→戻す→次）。
+        <b>詳細カードは閉じている間は描かれていない</b>ので、そのボタンは詳細を開いてから押してください。
+        音量(dB)の数字は鳴っていなくても毎フレーム動くので、①でも止まりません。
+        走り・呼吸は<b>合ったとき</b>だけ出るので、0¢に合わせながら押してください。
       </div>
       </>)}
     </div>
@@ -6429,10 +6609,11 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
 // ============================================================
 function MeasureView(props) {
   const {
-    isRecording, toggleRecording, note, centsOffset,
-    harmonicLevels, showIdeal, setShowIdeal,
-    selectedIdeal, volumeDb, centroidHz, hnrDb, saxType, setSaxType, temperature, setTemperature,
-    tuningHz, setTuningHz, matchedFingering,
+    isRecording, toggleRecording, note: notePassed, centsOffset: centsOffsetPassed,
+    harmonicLevels: harmonicLevelsPassed, showIdeal, setShowIdeal,
+    selectedIdeal, volumeDb, centroidHz: centroidHzPassed, hnrDb: hnrDbPassed,
+    saxType, setSaxType, temperature, setTemperature,
+    tuningHz, setTuningHz, matchedFingering: matchedFingeringPassed,
     idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfile, NUM_HARMONICS,
     reeds, selectedReedId, setSelectedReedId,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
@@ -6453,6 +6634,44 @@ function MeasureView(props) {
   // 別の枠で数えるので二重には入らない。**React が DOM へ反映する時間は入らない**。
   const dViewOn = METRO_DIAG.on;
   const dViewT0 = dViewOn ? performance.now() : 0;
+
+  // ============================================================
+  // 【D-20】(1) **表示だけ、鳴っていない扱いにする**大きなスイッチ。
+  //
+  // D-19b の4つ(外周の光 / 環の帯 / 音名 / 音色FFT)を本人が吹きながら全部押しても
+  // 実機のフレームレートは 30.6 のままだった。容疑者を1つずつ足すのをやめ、
+  // **表示の側を丸ごと1回で潰して二分する**のがこの周の芯。
+  //
+  // ここが「1箇所で全部」になるのは、**鳴っているかどうかで変わる表示の入口が
+  // この画面へ渡る prop に全部集まっている**ため:
+  //   note / centsOffset … 環(帯・走り・光・音名・セント・呼吸)のすべての元。
+  //                        PitchRing の `sounding` は `!!note` だけで決まる(:5306)
+  //   matchedFingering  … 詳細カードの「目安」(currentNoteIdeal)の元。他に読み手は無い
+  //   harmonicLevels / centroidHz / hnrDb … 詳細カードの倍音8本・重心・HNR
+  //   liveFrames / phraseFrames … 「これまでの音」の折れ線(下の PitchDeviationLine)
+  //
+  // **解析は1つも止めない。** detectPitchMPM も computeTimbreMetrics も、値の計算も
+  // setPitch も走ったまま ── 変えているのは「その値を画面へ渡すかどうか」だけ。
+  // したがって押して滑らかになれば原因は**表示の側**、変わらなければ**表示ではない**。
+  //
+  // **止まらないもの(意図どおり)**:
+  //   ・メトロノームの振り子と拍の● … 観測対象なので止めない
+  //   ・音量(dB)の数字 … これは鳴っていなくても毎フレーム更新される値で、
+  //     「鳴ると増えるもの」ではない(setVolumeDb は sounding の枝の外。:3163)
+  //
+  // 左の dViewOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
+  // スイッチの真偽値を1つも読まない**(&& の左で止まる)。
+  const dHideSound = dViewOn && !METRO_DIAG.drawSounding;
+  // (2) 詳細カードの中身だけを止める枝。**開いているときにしか描かれていない**ので、
+  // 閉じたまま押しても何も変わらない(板にそう書いてある)。
+  const dHideDetail = dViewOn && !METRO_DIAG.drawDetail;
+  const dHideTimbreRows = dHideSound || dHideDetail;
+  const note = dHideSound ? null : notePassed;
+  const centsOffset = dHideSound ? 0 : centsOffsetPassed;
+  const matchedFingering = dHideSound ? null : matchedFingeringPassed;
+  const harmonicLevels = dHideTimbreRows ? METRO_DIAG_NO_ITEMS : harmonicLevelsPassed;
+  const centroidHz = dHideTimbreRows ? null : centroidHzPassed;
+  const hnrDb = dHideTimbreRows ? null : hnrDbPassed;
 
   // 【D-18b】診断の入口。**画面に入口の部品を置かない**(置くと普段の画面が1px変わる)ので、
   // URL の # だけで開く: https://wind-tone-lab.vercel.app/#metro-diag
@@ -7150,9 +7369,15 @@ function MeasureView(props) {
           出す/出さないで設計言語が割れないようにする。
           【メトロノームを開いている間は隠す】環を330px固定にしたぶんの縦スペースをここから
           捻出する。メトロノーム使用中はリズムに集中していて、ピッチの履歴は合間に読むもの。 */}
+      {/* 【D-20】(1) のスイッチを押している間は空の履歴を渡す(＝中央0¢の静止した線)。
+          **メトロノームを開いている間はこの折れ線がそもそも描かれない**(上の !showMetroPanel)
+          ので、本人が測っている状態では効きも費用も 0 だが、
+          「鳴っているときに変わる表示」を1つでも外に残さないためにここも下に入れる。
+          鳴っていない実際の状態は「pitchHz が null のフレームが並んだ履歴」なので、
+          空の履歴は**それと同じではない**(静止する点は同じで、より強く止まる)。 */}
       {!showMetroPanel && (
       <div style={{ marginTop: 6 }}>
-        <PitchDeviationLine frames={isRecording ? phraseFrames : liveFrames} quiet />
+        <PitchDeviationLine frames={dHideSound ? METRO_DIAG_NO_ITEMS : (isRecording ? phraseFrames : liveFrames)} quiet />
       </div>
       )}
 
