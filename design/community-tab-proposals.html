@@ -8,14 +8,15 @@
   仕様: docs/superpowers/specs/2026-08-27-community-tab-design.md
   計画: docs/superpowers/plans/2026-08-27-community-plan-1-auth-profile.md
 
-  紺のパレットは design/DESIGN-SYSTEM.md のまま。作法だけカードへ入れ替えている。
-  本書に無く追加が必要なトークン: 影2段 / 角丸22px / 順位の3色(金銀銅) / アイコンの背景色10色。
-  カード作法は §6.6 の「タブごとに決める」表へコミュニティの行を足す前提（本人承認済み）。
-  既存3タブは罫(.surf-rule)のまま。詳細は本文 08 節。
+  地・カード・小カード・影・角丸は DESIGN-SYSTEM.md のカードの作法（§6.6 .surf-card）の実値。
+    地 --c-sunk #F6F7F9 / カード --r-lg 16 + --sp-4 / 小カード --r-md 12 / --shadow-card
+    罫は1本も引かない（§6.6）。この案も行の区切り線を持たない。
+  追加が要るトークンは2群だけ:「順位の3色」と「アイコンの背景色10色」。
+    文面は design/DESIGN-SYSTEM-community-addendum.md に用意してある。
+  §6.6 の表に「コミュニティ＝カード」の行を足す裁定も同ファイル（本人承認済み）。
 
-  アイコン: Phosphor Icons の fill ウェイト（MIT・商用利用可）
-    https://phosphoricons.com / https://github.com/phosphor-icons/core
-    パスは SVG スプライトに埋め込み済み。実行時の外部読み込みは無い。
+  アイコン: Phosphor Icons の fill ウェイト（MIT・商用利用可）24種で確定。
+    https://phosphoricons.com  パスはスプライトに埋め込み済み。実行時の外部読み込みは無い。
   数字に Instrument Serif は使わない（本人指示・2026-08-28）。
   日本語の折り返しは word-break:auto-phrase で文節に揃えている。
 -->
@@ -56,13 +57,13 @@
 /* ═══ 端末の中身 = アプリの色。常にライト ═══════════════════ */
 .scr{
   --i:#101C2E; --i2:#435266; --i3:#8D95A1; --i4:#AEB6C2;
-  --card:#FFFFFF; --gr:#E9EDF8; --ln:#E4E9F3;
+  --card:#FFFFFF; --gr:#F6F7F9; --ln:#E4E9F3;
   --ac:#174585; --ac-mid:#7FA0CE; --ac-line:#B9C9E4; --ac-tint:#DCE5F5;
   --dp:#0E2044; --on:#FFFFFF; --dg:#C2352C;
   --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
-  --r:22px; --r-in:15px;
-  --s:0 1px 2px rgba(16,32,68,.05), 0 8px 20px -8px rgba(16,32,68,.16);
-  --s-lift:0 2px 5px rgba(16,32,68,.06), 0 16px 34px -12px rgba(16,32,68,.26);
+  --r:16px; --r-in:12px;
+  --s:0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06);
+  --s-sheet:0 -4px 28px rgba(18,31,50,.20);
 }
 
 *{box-sizing:border-box}
@@ -136,15 +137,15 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .pills{display:flex; gap:8px; flex-wrap:wrap}
 .pill{font-size:12.5px; color:var(--i2); background:var(--card); border-radius:999px;
   padding:8px 14px; white-space:nowrap; box-shadow:var(--s)}
-.pill.on{color:var(--on); background:var(--ac); font-weight:700; box-shadow:var(--s-lift)}
+.pill.on{color:var(--on); background:var(--ac); font-weight:700; box-shadow:var(--s)}
 
 .card{background:var(--card); border-radius:var(--r); box-shadow:var(--s); padding:18px}
-.card.flush{padding:0}
+.stack{display:flex; flex-direction:column; gap:8px}
 .hd{font-size:11.5px; font-weight:700; color:var(--i3); letter-spacing:.08em; margin:0 0 12px}
 
 /* 濃紺の面 */
-.deep{background:var(--dp); border-radius:var(--r); padding:20px; color:var(--on);
-  position:relative; overflow:hidden; box-shadow:var(--s-lift)}
+.deep{background:var(--dp); border-radius:var(--r); padding:16px; color:var(--on);
+  position:relative; overflow:hidden; box-shadow:var(--s)}
 .deep::after{content:""; position:absolute; right:-70px; top:-90px; width:220px; height:220px;
   border-radius:50%; background:radial-gradient(circle, rgba(127,160,206,.30), transparent 68%)}
 .deep .k{font-size:10.5px; letter-spacing:.12em; color:#9DB3CC; font-weight:700; position:relative}
@@ -161,8 +162,8 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .av.l{width:56px; height:56px} .av.l svg{width:30px; height:30px}
 
 /* 行 */
-.row{display:flex; gap:13px; align-items:center; padding:15px 18px}
-.row + .row{border-top:1px solid var(--ln)}
+.row{display:flex; gap:13px; align-items:center; background:var(--card);
+  border-radius:var(--r-in); padding:10px 14px; box-shadow:var(--s)}
 .row .m{flex:1; min-width:0}
 .nm{font-size:15px; font-weight:700; letter-spacing:.01em}
 .sub{font-size:11.5px; color:var(--i3); margin-top:3px}
@@ -176,7 +177,7 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .top3{display:flex; flex-direction:column; gap:10px}
 .t3{display:flex; gap:14px; align-items:center; padding:15px 18px; border-radius:var(--r);
   background:var(--card); box-shadow:var(--s)}
-.t3.n1{background:var(--dp); color:var(--on); padding:19px 18px; box-shadow:var(--s-lift)}
+.t3.n1{background:var(--dp); color:var(--on); padding:16px; box-shadow:var(--s)}
 .t3 .p{font-size:15px; font-weight:700; width:16px; text-align:center; flex:none;
   font-variant-numeric:tabular-nums; color:var(--silver)}
 .t3.n1 .p{color:var(--gold); font-size:17px} .t3.n3 .p{color:var(--bronze)}
@@ -192,15 +193,15 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .t3 .v i{font-style:normal; font-size:11px; font-weight:400; color:var(--i3); margin-left:3px}
 .t3.n1 .v i{color:#B9C9E4}
 
-.rk{display:flex; gap:13px; align-items:center; padding:13px 18px}
-.rk + .rk{border-top:1px solid var(--ln)}
+.rk{display:flex; gap:13px; align-items:center; background:var(--card);
+  border-radius:var(--r-in); padding:10px 14px; box-shadow:var(--s)}
 .rk .p{font-size:13px; color:var(--i3); width:16px; text-align:center; font-variant-numeric:tabular-nums; flex:none}
 .rk .who{flex:1; font-size:14px; min-width:0}
 .rk .who span{display:block; font-size:10.5px; color:var(--i3); margin-top:2px}
 .rk .v{font-size:17px; font-weight:700; font-variant-numeric:tabular-nums}
 .rk .v i{font-style:normal; font-size:10.5px; font-weight:400; color:var(--i3); margin-left:3px}
 
-.you{background:var(--card); border-radius:var(--r); box-shadow:var(--s-lift); margin-top:2px}
+.you{background:var(--card); border-radius:var(--r); box-shadow:var(--s); margin-top:2px}
 .you .rk{padding:15px 18px}
 .badge{font-size:10px; font-weight:700; color:var(--ac); background:var(--ac-tint);
   border-radius:999px; padding:2px 8px; margin-left:7px; vertical-align:1px}
@@ -218,7 +219,7 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .inp.ph{color:var(--i4)}
 .hint{font-size:11.5px; color:var(--i3); margin-top:8px; line-height:1.75}
 .btn{background:var(--ac); color:var(--on); border-radius:999px; padding:15px; text-align:center;
-  font-size:14.5px; font-weight:700; box-shadow:var(--s-lift)}
+  font-size:14.5px; font-weight:700; box-shadow:var(--s)}
 .btn.gh{background:var(--card); color:var(--ac); box-shadow:var(--s)}
 .btn.dg{background:var(--card); color:var(--dg); box-shadow:var(--s)}
 .ck{display:flex; gap:11px; align-items:center; font-size:13.5px; color:var(--i2)}
@@ -233,11 +234,11 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 
 /* ボトムシート */
 .veil{position:absolute; inset:0; background:rgba(14,32,68,.44); display:flex; align-items:flex-end}
-.sheet{background:var(--card); border-radius:28px 28px 0 0; width:100%; padding:12px 20px 26px;
+.sheet{background:var(--card); border-radius:28px 28px 0 0; width:100%; padding:12px 20px 26px; box-shadow:var(--s-sheet);
   display:flex; flex-direction:column; gap:16px}
 .grab{width:38px; height:4px; border-radius:999px; background:var(--ln); margin:0 auto 4px}
 .st{display:flex; justify-content:space-between; align-items:baseline; padding:13px 0}
-.st + .st{border-top:1px solid var(--ln)}
+.st + .st{border-top:1px solid var(--ln)}  /* シートは作法の外(モーダル) */
 .st .k{font-size:12.5px; color:var(--i3)}
 .st .v{font-size:14px; font-weight:700}
 .st .v.big{font-size:20px; font-variant-numeric:tabular-nums}
@@ -247,7 +248,7 @@ h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); 
 .grid6{display:grid; grid-template-columns:repeat(6,1fr); gap:11px}
 .pk{aspect-ratio:1; border-radius:50%; background:var(--gr); display:flex; align-items:center; justify-content:center}
 .pk svg{width:21px; height:21px; fill:var(--i3)}
-.pk.on{background:var(--a,#174585); box-shadow:var(--s-lift)}
+.pk.on{background:var(--a,#174585); box-shadow:var(--s)}
 .pk.on svg{fill:#fff}
 .grid10{display:grid; grid-template-columns:repeat(10,1fr); gap:8px}
 .sc{aspect-ratio:1; border-radius:50%; background:var(--a)}
@@ -335,7 +336,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   <h1>他の奏者の目安を、自分の目安にする</h1>
   <p class="lede">
     4つ目のタブの画面案。既存の紺のパレットはそのままに、面の作法だけをカードへ入れ替えている。
-    色・余白・書体の根拠はすべて <code>design/DESIGN-SYSTEM.md</code>。
+    地・カード・影・角丸は <code>design/DESIGN-SYSTEM.md</code> のカードの作法（§6.6）の実値。値を発明したのは順位の3色とアイコンの背景色だけ。
   </p>
   <ul class="legend">
     <li><span class="tag t-built">実装済み</span> 動作確認まで完了</li>
@@ -377,7 +378,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
         <div>
           <p class="hd">個人の目安</p>
-          <div class="card flush">
+          <div class="stack">
             <div class="row">
               <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
               <div class="m">
@@ -597,7 +598,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           </div>
         </div>
 
-        <div class="card flush">
+        <div class="stack">
           <div class="rk"><div class="p">4</div>
             <div class="av s" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
             <div class="who">ハルカ<span>学生 ・ 歴2年</span></div><div class="v">22<i>日</i></div></div>
@@ -788,7 +789,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
         <div>
           <p class="hd">よくある組み合わせ</p>
-          <div class="card flush">
+          <div class="stack">
             <div class="row">
               <div class="m"><div class="nm" style="font-size:14px">YAS-62 ／ S80 C* ／ 青箱</div></div>
               <div class="cnt"><b>86</b><span>票</span></div>
@@ -1023,92 +1024,76 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 <section>
   <div class="sec-head">
     <span class="sec-num">08</span>
-    <h2>衝突した既存ルール</h2>
+    <h2>デザイン体系との関係</h2>
   </div>
   <p class="sec-sub">
-    この作法を採るために無視した規定。影響の大きい順。実装前に
-    <code>DESIGN-SYSTEM.md</code> を改訂して辻褄を合わせる必要がある。
+    この案は <code>design/DESIGN-SYSTEM.md</code> の <b>カードの作法（§6.6 <code>.surf-card</code>）</b>を
+    そのまま使っている。値を発明した箇所は2つだけ。
   </p>
 
   <div class="rules">
+    <div class="rule">
+      <div class="top"><h3>体系に既にあり、そのまま使ったもの</h3><span class="src">追加不要</span></div>
+      <dl>
+        <dt>地</dt><dd><code>--c-sunk</code> <code>#F6F7F9</code>（§1.2）。左右端まで届かせる</dd>
+        <dt>カード</dt><dd><code>--c-surface</code> ／ 角丸 <code>--r-lg</code> 16px ／ 余白 <code>--sp-4</code> 16px ／ <code>--shadow-card</code>（§6.6）</dd>
+        <dt>小カード</dt><dd><code>.rowcard</code> 相当。角丸 <code>--r-md</code> 12px ／ 余白 10px 14px ／ <code>--shadow-row</code></dd>
+        <dt>影</dt><dd><code>--shadow-card</code> <code>0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06)</code>（§1.10）</dd>
+        <dt>罫</dt><dd><b>1本も引かない。</b>群はカードと余白だけが切る（§6.6）。この案も行の区切り線を持たない</dd>
+      </dl>
+    </div>
+
     <div class="rule hot">
-      <div class="top">
-        <h3>背景色を多用すると画面全体が重く見えるのでやめて</h3>
-        <span class="src">§6.6 ／ 2026-08-23 本人裁定 D-7</span>
-      </div>
+      <div class="top"><h3>順位の3色（金・銀・銅）</h3><span class="src">新規トークン ／ §1.5・§1.7 に抵触</span></div>
       <dl>
-        <dt>衝突</dt>
-        <dd>この裁定は「カード化が必要なのは整理できていない証拠」という読みで、
-          My Data とカレンダーからグレーのカードを剥がしたもの。<b>この案は全面カード＋淡い地</b>で、真逆にあたる。</dd>
+        <dt>問題</dt>
+        <dd>体系は<b>機能色（緑=合っている／橙／赤）とグレーを系列識別に流用することを禁じている</b>。
+          順位を表す色は紺の明度段階では代用できず、パレットに無い第3の色系統になる。</dd>
         <dt>提案</dt>
-        <dd><b>タブ単位で作法を分ける。</b>既存3タブは罫のまま、コミュニティだけカード。
-          §6.6 の表は元々「タブごとに決める」形なので、行を1つ足せば矛盾しない（本人承認済み）。</dd>
+        <dd><code>--c-rank-1</code> <code>#C79A3E</code> ／ <code>--c-rank-2</code> <code>#9BA6B4</code> ／
+          <code>--c-rank-3</code> <code>#A9743E</code> を<b>順位専用</b>として追加し、
+          系列識別にも機能色にも流用しないという条件を付ける。使うのはアイコンの環と順位の数字だけ。</dd>
+      </dl>
+    </div>
+
+    <div class="rule hot">
+      <div class="top"><h3>アイコンの背景色 10色</h3><span class="src">新規トークン ／ §1 全体</span></div>
+      <dl>
+        <dt>問題</dt>
+        <dd>アプリの色は紺一系統。アイコンを選べるようにすると<b>10色の第4の色系統</b>が要る。</dd>
+        <dt>提案</dt>
+        <dd><code>--c-avatar-1</code>〜<code>-10</code> として追加し、他への流用を禁じる。
+          機能色と見分けがつくよう<b>全て彩度を落としてある</b>（緑は <code>#2F6F5E</code>、
+          橙は <code>#9A6B2F</code>、赤は <code>#A8543C</code>）。白抜きのアイコンが乗るので明度も揃えてある。</dd>
       </dl>
     </div>
 
     <div class="rule">
-      <div class="top"><h3>面（カード）は1画面に1枚まで</h3><span class="src">§6.0 囲いの序列</span></div>
+      <div class="top"><h3>カードの作法をこの画面にも広げる</h3><span class="src">§6.6 ／ 本人の裁定が要る</span></div>
       <dl>
-        <dt>衝突</dt><dd>一覧をカードで並べられない。</dd>
-        <dt>提案</dt><dd>上と同じくタブ限定の例外として明文化する（本人が不要と判断済み）。</dd>
+        <dt>状況</dt>
+        <dd>§6.6 は「範囲はこの2画面（My Data・分析タブ）まで。<b>他の画面へ広げるときは、また本人の裁定が要る</b>」
+          と明記している。D-7 の「カード化は整理できていない証拠」は D-10 で撤回済みなので、
+          <b>作法そのものへの抵触は無い</b>。必要なのは範囲を広げる裁定だけ。</dd>
+        <dt>提案</dt>
+        <dd>§6.6 の表に <b>コミュニティ ＝ カード</b> の行を足す（本人承認済み・2026-08-28）。
+          既存の計測・リード・セッション詳細は罫のまま。</dd>
       </dl>
     </div>
 
     <div class="rule">
-      <div class="top"><h3>枠線は状態を持つものにだけ使う</h3><span class="src">§6.7 A型・B型</span></div>
+      <div class="top"><h3>守ったので追加が要らなかったもの</h3><span class="src">記録</span></div>
       <dl>
-        <dt>衝突</dt><dd>「枠線があるものは状態を持っている」という読み手への約束。カードは状態を持たないのに面を持つ。</dd>
-        <dt>提案</dt><dd><b>枠線は一切使わず、影だけで浮かせた。</b>約束は破っていない。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3>影の規定が存在しない</h3><span class="src">§1〜§6 全体</span></div>
-      <dl>
-        <dt>衝突</dt><dd>白地＋罫を前提に組まれているため、影のトークンが1つも無い。</dd>
-        <dt>提案</dt><dd>2段の影を<b>2トークン</b>で新設する（通常と、浮かせたいもの）。値は本書へ逆輸入する。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3>角丸は 4 / 8 / 12 / 16 / pill の5段</h3><span class="src">§2</span></div>
-      <dl>
-        <dt>衝突</dt><dd>この案のカードは22px。16pxでは参考にした柔らかさが出ない。</dd>
-        <dt>提案</dt><dd><b>22px を6段目として足す。</b>「ここに無い値を発明しない」規則があるので、勝手に使わず追記する。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3><code>--c-accent</code> はアクション専用</h3><span class="src">§1.4</span></div>
-      <dl>
-        <dt>衝突</dt><dd>1位のカードと平均のカードは押せる物ではないが濃い面を持つ。</dd>
-        <dt>提案</dt><dd>これらには <code>--c-accent</code> ではなく<b>より深い紺 #0E2044 を新設</b>して使い分けた。
-          アクション専用の約束は温存できる。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3>機能色・グレーを系列識別に使わない</h3><span class="src">§1.5 ／ §1.7</span></div>
-      <dl>
-        <dt>衝突</dt><dd>順位の金・銀・銅は<b>パレットに無い第3の色系統</b>。割合は紺の段階で足りるが、順位の色は代わりが無い。</dd>
-        <dt>提案</dt><dd>金銀銅を<b>順位専用の3色</b>として追加し、系列識別にも機能色にも流用しないと条件を付ける。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3>アイコンの背景色10色がパレットに無い</h3><span class="src">§1 全体</span></div>
-      <dl>
-        <dt>衝突</dt><dd>アプリの色は紺一系統。アイコンを選べるようにすると<b>10色の第4の色系統</b>が要る。</dd>
-        <dt>提案</dt><dd><b>アイコンの背景色専用</b>として追加し、他への流用を禁じる。
-          機能色（緑=合っている・橙・赤）と見分けがつくよう全て彩度を落としてある。</dd>
-      </dl>
-    </div>
-
-    <div class="rule">
-      <div class="top"><h3>下部タブはアイコンのみ</h3><span class="src">§6.0 部品の統一</span></div>
-      <dl>
-        <dt>衝突</dt><dd>参考にした画面はアイコン＋文字ラベル。</dd>
-        <dt>提案</dt><dd><b>アイコンのみを維持した。</b>ここだけ変えると既存3タブと不揃いになり、影響が4タブ全部に及ぶため。</dd>
+        <dt>濃い面</dt>
+        <dd><code>--c-accent</code> はアクション専用（§1.4）なので、1位のカードと平均のカードには使わず
+          <b>より深い紺 #0E2044 を別に置いた</b>。押せる物の色を薄めずに済む。</dd>
+        <dt>割合の色</dt>
+        <dd>円グラフは<b>紺の明度段階だけ</b>で作った（§1.7）。緑・橙・赤は使っていない。</dd>
+        <dt>下部タブ</dt>
+        <dd>参考にした画面はアイコン＋文字だが、<b>アイコンのみを維持</b>した（§6.0）。
+          ここだけ変えると影響が4タブ全部に及ぶ。</dd>
+        <dt>角丸</dt>
+        <dd>当初 22px にしていたが、体系の <code>--r-lg</code> 16px に合わせた。<b>6段目の追加は不要になった。</b></dd>
       </dl>
     </div>
   </div>
@@ -1137,13 +1122,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>順位と目安の公開は分けない</h3>
       <p>非公開にした人は順位にも出ない。</p></div></div>
-    <div class="dec"><span class="mark todo">要決定</span><div>
-      <h3>アイコンの絵柄24種を確定する</h3>
-      <p>この案の24種でよいか。Phosphor には他にも多数あるので、食べ物・乗り物・天体などへの差し替えも可能。</p></div></div>
-    <div class="dec"><span class="mark todo">要決定</span><div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>アイコンの絵柄はこの24種で確定</h3>
+      <p>Phosphor Icons の塗りウェイト。実装時もこの一覧をそのまま使う。</p></div></div>
+    <div class="dec"><span class="mark todo">要作業</span><div>
       <h3>DESIGN-SYSTEM への追記</h3>
-      <p>足りないトークンは4つ。<b>影2段・角丸22px・順位の3色・アイコンの背景色10色</b>。
-        「ここに無い値を発明しない」規則があるので、実装前に書き込む。</p></div></div>
+      <p>追加が要るのは<b>順位の3色</b>と<b>アイコンの背景色10色</b>の2つだけ。影・角丸・カード作法は
+        体系に既にあるものをそのまま使った。§6.6 の表に「コミュニティ＝カード」の行も足す。
+        文面は <code>design/DESIGN-SYSTEM-community-addendum.md</code> に用意してある。</p></div></div>
   </div>
 
   <p class="foot">
