@@ -2087,20 +2087,25 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       /el\.setAttribute\("offset", list\[i\]\.offset\.toFixed\(5\)\);/.test(ringCode)
       && /el\.setAttribute\("stop-color", `rgb\(\$\{c\[0\]\},\$\{c\[1\]\},\$\{c\[2\]\}\)`\);/.test(ringCode));
     // ズレの帯のグラデーションの軸は「根元(12時)→先端(現在位置)」の弦。
+    // 【D-22】先端側は据え置きの箱(bar)を通るようになった。**箱に入る値は mx/my のまま**
+    // なので、帯が出ているフレームの軸は1つも変わっていない。両方を名指しで縛る。
     check("ズレの帯のグラデーションの軸は根元→先端の弦",
-      /x1=\{sx\.toFixed\(2\)\} y1=\{sy\.toFixed\(2\)\} x2=\{mx\.toFixed\(2\)\} y2=\{my\.toFixed\(2\)\}/.test(ringCode)
+      /x1=\{sx\.toFixed\(2\)\} y1=\{sy\.toFixed\(2\)\} x2=\{bar\.x2\.toFixed\(2\)\} y2=\{bar\.y2\.toFixed\(2\)\}/.test(ringCode)
+      && /x2: mx, y2: my \}/.test(ringCode)
       && /const \[sx, sy\] = ringPoint\(0, R, CX, CY\);/.test(ringCode)
       && /const \[mx, my\] = ringPoint\(deg, R, CX, CY\);/.test(ringCode));
     // 到達している間はズレの帯を描かない(±1¢ の帯は線幅より短く、全周の帯と重なって
     // 12時に継ぎ目として見えるため)。走りが全周を覆うので情報も失われない。
+    // 【D-22】条件は純関数 ringBarLive へ出した(据え置きの判断と**同じ1つの条件**を使うため)。
     check("到達している間はズレの帯を描かない",
-      /let arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);/.test(ringCode));
+      /const barLive = ringBarLive\(inTune, deg\);/.test(ringCode)
+      && /let arcD = barLive \? ringArcD\(0, deg\) : "";/.test(ringCode));
     // 【D-19b で const → let になった】診断の「環の帯」スイッチが**空にすることだけ**できる。
     // arcD への代入がこの2つ以外に増えると、到達中に帯が復活する経路が生まれる。
     {
       const asg = (ringCode.match(/arcD = [^\n]*/g) || []);
       const allowed = asg.filter((a) =>
-        /^arcD = \(inTune \|\| Math\.abs\(deg\) < 1\) \? "" : ringArcD\(0, deg\);$/.test(a)
+        /^arcD = barLive \? ringArcD\(0, deg\) : "";$/.test(a)
         || /^arcD = "";$/.test(a));
       check("ズレの帯へ入れてよいのは「式の値」か「空文字」だけ(空にする以外の代入を増やさない)",
         asg.length >= 2 && asg.length === allowed.length, asg.join(" | "));
@@ -2140,10 +2145,12 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       return paths.length > 0 && paths.every((t) => !/stroke=/.test(t) || /stroke=\{`url\(#/.test(t));
     })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/stroke=\{[^}]*\}/.exec(t) || [""])[0]).join(" | "));
     check("ズレの帯のストップの色は各ストップの弧長 s から引く(先端一色にしない)",
-      /const c = ringRampRGB\(\[r, g, b\], st\.s\);/.test(ringCode));
-    check("ズレの帯のストップは barStops をそのまま並べる",
-      /\{barStops\.map\(\(st, i\) => \{/.test(ringCode)
-      && /const barStops = ringGradientStops\(0, deg\);/.test(ringCode));
+      /const c = ringRampRGB\(bar\.base, st\.s\);/.test(ringCode));
+    // 【D-22】並べる元は据え置きの箱(bar.stops)。**箱に入る値は ringGradientStops(0, deg) と
+    // [r, g, b] のまま**なので、帯が出ているフレームのストップは1つも変わっていない。
+    check("ズレの帯のストップは据え置きの箱をそのまま並べ、箱には生の値が入る",
+      /\{bar\.stops\.map\(\(st, i\) => \{/.test(ringCode)
+      && /\{ stops: ringGradientStops\(0, deg\), base: \[r, g, b\], x2: mx, y2: my \};/.test(ringCode));
     // (b) 描画の条件。false に潰すと帯そのものが消える。
     check("ズレの帯は「音が鳴っていて arcD がある」ときに描く",
       /\{sounding && arcD && \(/.test(ringCode));
@@ -18524,6 +18531,22 @@ console.log("\n========== 検証37: D-19 1フレームの内訳を測る計器 =
       fromObj.length >= 3 && fromObj.length === fromBtn.length
       && fromObj.every((f) => fromBtn.includes(f)),
       `置き場所=${fromObj.join(" ")} / ボタン=${fromBtn.join(" ")}`);
+    // 【D-22c で危うく踏んだ】板は押した見た目を `draw` の控えから描く(`stopBtn` の
+    // `const drawing = draw[field];`)。控えに無いスイッチは `undefined` になり、
+    // **誰も押していないのに「押した」色で出る**。置き場所と集合で照合する。
+    {
+      const drawInit = (() => {
+        const i = src.indexOf("const [draw, setDraw] = useState({");
+        const j = i >= 0 ? src.indexOf("});", i) : -1;
+        return i >= 0 && j > i ? src.slice(i, j) : "";
+      })();
+      const fromDraw = [...drawInit.matchAll(/(draw\w+|run\w+): (?:true|false)/g)].map((m) => m[1]);
+      const missing = fromObj.filter((f) => !fromDraw.includes(f));
+      const extra = fromDraw.filter((f) => !fromObj.includes(f));
+      check("37.7 板が押した見た目を描く控えは、置き場所のスイッチと過不足なく同じ顔ぶれ",
+        drawInit.length > 40 && fromObj.length >= 3 && missing.length === 0 && extra.length === 0,
+        `控えに無い=${missing.join(" ") || "無し"} / 置き場所に無い=${extra.join(" ") || "無し"}`);
+    }
     if (D && stopFields.length >= 3) {
       const notDefault = stopFields.filter((f) => D[f] !== true);
       check("37.7 スイッチの既定はすべて「描く」(誰も押していないときは今までと同じ挙動)",
@@ -18600,7 +18623,10 @@ console.log("\n========== 検証37: D-19 1フレームの内訳を測る計器 =
     {
       const calcLines = [
         ["環: 光の明るさの計算", ringCode37, "const op = ringGlowOpacity("],
-        ["環: 帯のグラデーション", ringCode37, "const barStops = ringGradientStops("],
+        ["環: 帯のグラデーション", ringCode37, "stops: ringGradientStops("],
+        // 【D-22】帯を据え置いてよいかの判定。ここに診断の綴りが混ざると、D-19b の
+        // 「環の帯」スイッチが**塗りだけを外した比較**でなくなる(グラデーションまで止まる)。
+        ["環: 帯が出ているかの判定", ringCode37, "const barLive = "],
         ["環: 表示するセント値", ringCode37, "const centsShown = "],
         ["環: 合った判定", ringCode37, "const inTune = "],
         ["tick: 発音中の判定", tickCode37, "soundingRef.current = "],
@@ -19187,6 +19213,268 @@ console.log("\n========== 検証39: D-21 中身が同じなら同じものを渡
     check("39.5 録音フレームに入る音量・運指は局所変数のまま(間引きは記録に届かない)",
       tickCode39.includes("volumeDb: vDb,") && tickCode39.includes("semitoneIndex: matchedFinger?.semitoneIndex ?? null,"),
       (tickCode39.match(/[^\n]*volumeDb: [^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 160));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証40: D-22 帯のグラデーションを「読み手が1つも居ないフレーム」は据え置く
+//
+// 出どころ: 本人の実機。**①「鳴っていない表示にする」でも滑らかになった**
+// (D-21 の完了記録は「①は変わらない」と書いているが、これは統括が本人の報告を
+//  読み違えたもの)。① と「表示値づくり」の共通点は**状態更新の本数**ではなく
+// ── D-21 で 1フレームあたり 3.00本 → 1.18本 にしても実機は変わらなかった ──
+// **画面へ渡る値が凍ること**だった。
+//
+// 環の中で「① でだけ凍り、個別のスイッチでは凍らない」ものが1つある:
+// **帯の <linearGradient> の 30個の <stop>**。D-19b の「環の帯」のスイッチは
+// `arcD` を空にする(=塗りを外す)だけで、ストップは今までどおり毎フレーム書かれていた。
+//
+// **この節が名乗れる範囲**:
+//   ・帯が出ているフレームでは、グラデーションに出る値が据え置きの前後で1つも変わらないこと
+//   ・帯が出ていないフレームでは、書き換えが1つも起きないこと
+//   ・据え置きが「凍って動かなくなる」側へ倒れていないこと(出ているフレームは必ず作り直す)
+// **名乗れない範囲**:
+//   ・実機で滑らかになるかどうか。ここで数えられるのは属性の書き換え回数まで
+//     (Chrome ではマイクが無く、環が動くところを1度も見られない。罠10)
+//   ・**帯が出ているフレームの書き換えは1つも減っていない。** 減らすには
+//     ストップの置き方を変えるしかなく、それは色が変わる(BACKLOG D-22「残っていること」)
+// ============================================================
+console.log("\n========== 検証40: D-22 帯のグラデーションの据え置き ==========");
+{
+  const ringSrc40 = srcOfFn(src, "PitchRing");
+  const ringCode40 = codeOf(ringSrc40);
+  const built40 = runFn(() => new Function(`
+    ${extractConst("RING_CX")}
+    ${extractConst("RING_CY")}
+    ${extractConst("RING_R")}
+    ${extractConst("RING_MAX_CENTS")}
+    ${extractConst("RING_IN_TUNE_CENTS")}
+    ${extractConst("RING_SWEEP_DEG")}
+    ${extractConst("RING_SMOOTH_TAU_MS")}
+    ${extractConst("RING_RAMP_REF")}
+    ${extractConst("RING_RAMP_STOPS")}
+    ${extractFunction("srgbToLinear")}
+    ${extractFunction("linearToSrgb")}
+    ${extractFunction("rgbToOklab")}
+    ${extractFunction("oklabToRgb")}
+    ${extractFunction("oklabToOklch")}
+    ${extractFunction("oklchToOklab")}
+    ${extractFunction("mixOklchRGB")}
+    ${extractFunction("pitchBarColorRGB")}
+    ${extractFunction("ringPoint")}
+    ${extractFunction("ringSmoothstep")}
+    ${extractFunction("ringTuneRGB")}
+    ${extractFunction("ringRampRGB")}
+    ${extractFunction("ringGradientStops")}
+    ${extractFunction("ringBarLive")}
+    ${extractFunction("ringBarGradNeedsRebuild")}
+    return { ringBarLive, ringBarGradNeedsRebuild, ringGradientStops, ringRampRGB,
+             pitchBarColorRGB, ringPoint,
+             RING_MAX_CENTS, RING_SWEEP_DEG, RING_R, RING_CX, RING_CY,
+             RING_IN_TUNE_CENTS, RING_SMOOTH_TAU_MS, RING_RAMP_STOPS };`)());
+  const F40 = built40.ok ? built40.v : null;
+  // 空回り防止: 組み上がった関数が本当に動くところまで確かめてから先へ進む。
+  const smoke40 = runFn(() => F40.ringBarLive(false, 30) === true
+    && F40.ringGradientStops(0, 30).length === F40.RING_RAMP_STOPS
+    && F40.ringRampRGB([22, 163, 74], 0).length === 3);
+  check("40.0 帯の判定と色づくりを App.jsx から組み立てて実行できている(空回りしていない)",
+    !!F40 && smoke40.ok && smoke40.v === true,
+    built40.ok ? shownOf(smoke40) : `組み立て失敗(${built40.err})`);
+
+  if (F40) {
+    const { ringBarLive, ringBarGradNeedsRebuild, ringGradientStops, ringRampRGB,
+            pitchBarColorRGB, ringPoint,
+            RING_MAX_CENTS, RING_SWEEP_DEG, RING_R, RING_CX, RING_CY,
+            RING_IN_TUNE_CENTS, RING_SMOOTH_TAU_MS } = F40;
+
+    // --- 40.1 帯を描くかどうかの条件 ------------------------------------------
+    // 期待値は**実装の式ではなく、設計の言葉**から書く(罠3):
+    //   「到達している間は全周を走る帯が覆うので描かない」
+    //   「1°未満は点にしかならないので描かない」
+    {
+      const cases40 = [
+        ["到達中は描かない(大きくずれた角度でも)", [true, 40], false],
+        ["到達中は描かない(0°でも)", [true, 0], false],
+        ["1°未満は描かない(+)", [false, 0.99], false],
+        ["1°未満は描かない(−)", [false, -0.99], false],
+        ["1°ちょうどから描く(+)", [false, 1], true],
+        ["1°ちょうどから描く(−)", [false, -1], true],
+        ["外れていれば描く", [false, 80], true],
+      ];
+      const bad = cases40.filter(([, args, want]) => runFn(ringBarLive, ...args).v !== want)
+        .map(([n]) => n);
+      check("40.1 帯を描く条件は「到達していない」かつ「1°以上ずれている」の2つだけ",
+        bad.length === 0, bad.length ? `合わない: ${bad.join(" / ")}` : `${cases40.length}通り一致`);
+    }
+
+    // --- 40.2 据え置いてよいのはどのフレームか --------------------------------
+    // **「出ているのに据え置く」へ倒れると帯が凍る。** その変異をここで殺す。
+    {
+      const cases40b = [
+        ["出ているフレームは必ず作り直す(前の物があっても)", [true, true], true],
+        ["出ているフレームは必ず作り直す(前の物が無ければなおさら)", [true, false], true],
+        ["出ていないフレームは据え置く", [false, true], false],
+        ["初回だけは据え置く物が無いので作る", [false, false], true],
+      ];
+      const bad = cases40b.filter(([, args, want]) => runFn(ringBarGradNeedsRebuild, ...args).v !== want)
+        .map(([n]) => n);
+      check("40.2 据え置いてよいのは「帯が出ていない」かつ「前に作った物がある」ときだけ",
+        bad.length === 0, bad.length ? `合わない: ${bad.join(" / ")}` : `${cases40b.length}通り一致`);
+    }
+
+    // --- 40.3 置換等価性 ── 同じ系列を流し、据え置き前後で属性を突き合わせる ----
+    // 480フレーム(60fps 相当・8秒)。外れたまま揺れる → 合わせて保つ → また外す。
+    // 平滑は環の本体と同じ 1 − exp(−Δt/τ)(D-15 §1(B))。
+    {
+      const TOTAL40 = 480, DT40 = 1000 / 60;
+      const rawAt40 = (i) => {
+        const t = i * DT40;
+        if (i < 160) return 14 + 4 * Math.sin(t / 90);
+        if (i < 320) return 0.4 * Math.sin(t / 120);
+        return -9 - 5 * Math.sin(t / 70);
+      };
+      // 1フレームぶんの「グラデーションに出る値」。x1/y1(根元=12時)は動かないので入れない。
+      const attrsOf40 = (deg) => {
+        const base = pitchBarColorRGB((deg / RING_SWEEP_DEG) * RING_MAX_CENTS);
+        const [mx, my] = ringPoint(deg, RING_R, RING_CX, RING_CY);
+        const a = { x2: mx.toFixed(2), y2: my.toFixed(2) };
+        const list = ringGradientStops(0, deg);
+        for (let i = 0; i < list.length; i++) {
+          const c = ringRampRGB(base, list[i].s);
+          a[`off${i}`] = list[i].offset.toFixed(5);
+          a[`col${i}`] = `rgb(${c[0]},${c[1]},${c[2]})`;
+        }
+        return a;
+      };
+      const writesOf40 = (prev, next) => (prev === null ? Object.keys(next).length
+        : Object.keys(next).filter((k) => next[k] !== prev[k]).length);
+
+      let sm40 = rawAt40(0);
+      let naivePrev = null, heldPrev = null, held40 = null;
+      let nLive = 0, nIdle = 0, mismatch = -1, movedNaive = 0;
+      const w40 = { naiveAll: 0, heldAll: 0, naiveIdle: 0, heldIdle: 0, naiveLive: 0, heldLive: 0 };
+      for (let i = 0; i < TOTAL40; i++) {
+        sm40 += (rawAt40(i) - sm40) * (1 - Math.exp(-DT40 / RING_SMOOTH_TAU_MS));
+        const deg = (sm40 / RING_MAX_CENTS) * RING_SWEEP_DEG;
+        const live = ringBarLive(Math.abs(sm40) <= RING_IN_TUNE_CENTS, deg);
+        // 素朴(D-22 の前): 毎フレーム作り直す
+        const naive = attrsOf40(deg);
+        // 据え置き(D-22 の後): 判定を通ったときだけ作り直す
+        if (ringBarGradNeedsRebuild(live, held40 !== null)) held40 = attrsOf40(deg);
+        // **判定が「常に据え置く」へ倒れると held40 は null のまま**。ここで落ちると
+        // ハーネスごと死んで集計行すら出ない(D-13 の罠)ので、空の箱として数え続け、
+        // 下の突き合わせで「食い違い」として必ず落とす。
+        const heldNow40 = held40 || {};
+        const wN = writesOf40(naivePrev, naive), wH = writesOf40(heldPrev, heldNow40);
+        w40.naiveAll += wN; w40.heldAll += wH;
+        if (live) { nLive++; w40.naiveLive += wN; w40.heldLive += wH; }
+        else { nIdle++; w40.naiveIdle += wN; w40.heldIdle += wH; }
+        if (naivePrev && wN > 0) movedNaive++;
+        // **帯が出ているフレームでは、据え置きの前後で1つも違ってはいけない。**
+        if (live && mismatch < 0
+          && Object.keys(naive).some((k) => naive[k] !== heldNow40[k])) mismatch = i;
+        naivePrev = naive; heldPrev = heldNow40;
+      }
+      check("40.3 帯が出ているフレームでは、グラデーションに出る値が据え置きの前後で1つも変わらない",
+        mismatch < 0 && nLive > 100 && movedNaive > 100,
+        mismatch < 0 ? `出ている${nLive}フレーム一致 / 素朴側で値が動いたフレーム=${movedNaive}`
+          : `${mismatch}フレーム目で食い違い`);
+      check("40.3 帯が出ていないフレームでは、グラデーションの書き換えが1つも起きない",
+        w40.heldIdle === 0 && nIdle > 100 && w40.naiveIdle > 0,
+        `出ていない${nIdle}フレーム: 素朴=${w40.naiveIdle}回 → 据え置き=${w40.heldIdle}回`);
+      check("40.3 全体の書き換え回数は実際に減っている(素朴 > 据え置き)",
+        w40.heldAll < w40.naiveAll && w40.naiveAll > 0,
+        `素朴=${w40.naiveAll}回 → 据え置き=${w40.heldAll}回 / ${TOTAL40}フレーム`
+        + ` (出ている${nLive}フレーム: ${w40.naiveLive}→${w40.heldLive} ── ここは減らない)`);
+    }
+
+    // --- 40.4 配線 ── 純関数を守っても、呼び出しが無ければ意味がない(罠2) ------
+    check("40.4 据え置きの判断は ringBarGradNeedsRebuild を通し、作り直すときだけ箱に書く",
+      /const barHeldRef = useRef\(null\);/.test(ringCode40)
+      && /if \(ringBarGradNeedsRebuild\(barLive && !dRampOff, !!barHeldRef\.current\)\) \{/.test(ringCode40)
+      && /barHeldRef\.current = \{ stops: ringGradientStops\(0, deg\), base: \[r, g, b\], x2: mx, y2: my \};/.test(ringCode40)
+      && /const bar = barHeldRef\.current;/.test(ringCode40),
+      (ringCode40.match(/[^\n]*barHeldRef[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
+    check("40.4 帯の <path> と据え置きは、同じ1つの条件(barLive)から出る",
+      /const barLive = ringBarLive\(inTune, deg\);/.test(ringCode40)
+      && /let arcD = barLive \? ringArcD\(0, deg\) : "";/.test(ringCode40),
+      (ringCode40.match(/[^\n]*barLive[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
+    // --- 40.5 D-22c 診断のスイッチ「帯の色目盛を止める」 ----------------------
+    // **これは犯人を確定するための計器。** D-22 で消せたのは「帯が出ていない間」だけで、
+    // 出ている間の 57回/フレームは手つかず。それを押して 0 にしたときに本人の目で
+    // 振り子が滑らかになるかを見る ── そこで初めて「帯が犯人」と言える。
+    // **押している間は色が現在のズレと合わなくなる**(凍るので)。計器なのでそれでよい。
+    {
+      // 押している間は、帯が出ていても作り直さない ＝ 据え置きの判定へ渡る第1引数が偽になる。
+      const off = runFn(() => ringBarGradNeedsRebuild(true && !true, true)).v;
+      const on = runFn(() => ringBarGradNeedsRebuild(true && !false, true)).v;
+      check("40.5 スイッチを押すと、帯が出ていても作り直さない(押していなければ作り直す)",
+        off === false && on === true, `押した=${off} / 押していない=${on}`);
+
+      // 実測: 同じ480フレームの系列を、押していない状態と押した状態で流して数える。
+      const TOTAL45 = 480, DT45 = 1000 / 60;
+      const rawAt45 = (i) => {
+        const t = i * DT45;
+        // **わざと外したまま**の系列(帯がずっと出ている状態)。押す実験と同じ条件。
+        return -11 - 5 * Math.sin(t / 70);
+      };
+      const attrsOf45 = (deg) => {
+        const base = pitchBarColorRGB((deg / RING_SWEEP_DEG) * RING_MAX_CENTS);
+        const [mx, my] = ringPoint(deg, RING_R, RING_CX, RING_CY);
+        const a = { x2: mx.toFixed(2), y2: my.toFixed(2) };
+        const list = ringGradientStops(0, deg);
+        for (let i = 0; i < list.length; i++) {
+          const c = ringRampRGB(base, list[i].s);
+          a[`off${i}`] = list[i].offset.toFixed(5);
+          a[`col${i}`] = `rgb(${c[0]},${c[1]},${c[2]})`;
+        }
+        return a;
+      };
+      const runSeries45 = (rampOff) => {
+        let sm = rawAt45(0), prev = null, held = null, writes = 0, firstWrites = 0, live = 0;
+        for (let i = 0; i < TOTAL45; i++) {
+          sm += (rawAt45(i) - sm) * (1 - Math.exp(-DT45 / RING_SMOOTH_TAU_MS));
+          const deg = (sm / RING_MAX_CENTS) * RING_SWEEP_DEG;
+          const barLive = ringBarLive(Math.abs(sm) <= RING_IN_TUNE_CENTS, deg);
+          if (barLive) live++;
+          if (ringBarGradNeedsRebuild(barLive && !rampOff, held !== null)) held = attrsOf45(deg);
+          const cur = held || {};
+          const w = prev === null ? Object.keys(cur).length
+            : Object.keys(cur).filter((k) => cur[k] !== prev[k]).length;
+          if (i === 0) firstWrites = w; else writes += w;
+          prev = cur;
+        }
+        return { writes, firstWrites, live };
+      };
+      const r45on = runSeries45(false), r45off = runSeries45(true);
+      check("40.5 押している間、帯のグラデーションの書き換えは2フレーム目以降1つも起きない",
+        r45off.writes === 0 && r45on.writes > 0 && r45off.live > 400 && r45on.live === r45off.live,
+        `帯が出ている${r45on.live}/${TOTAL45}フレーム: 押していない=${r45on.writes}回`
+        + `(1フレームあたり ${(r45on.writes / (TOTAL45 - 1)).toFixed(2)}) → 押した=${r45off.writes}回`
+        + ` (最初の1フレームだけ ${r45off.firstWrites} 回)`);
+      // **「環の帯」とは別物。** あちらは弧(塗り)だけを消し、グラデーションは書かれ続ける。
+      // 混同されると実験が壊れるので、2つのスイッチが別々に在ることを縛る。
+      check("40.5 「環の帯」と「帯の色目盛」は別々のスイッチとして在る",
+        /^ {2}drawBar: true,/m.test(src) && /^ {2}drawBarRamp: true,/m.test(src)
+        && /\{stopBtn\("drawBar", "環の帯"\)\}/.test(src)
+        && /\{stopBtn\("drawBarRamp", "帯の色目盛"\)\}/.test(src),
+        (src.match(/\{stopBtn\("drawBar\w*", "[^"]*"\)\}/g) || ["無し"]).join(" / "));
+      check("40.5 スイッチは診断が開いていると分かった後でしか読まず、据え置きの判断だけに掛かる",
+        /const dRampOff = dRingOn && !METRO_DIAG\.drawBarRamp;/.test(ringCode40)
+        && (ringCode40.match(/METRO_DIAG\.drawBarRamp/g) || []).length === 1
+        && /ringBarGradNeedsRebuild\(barLive && !dRampOff,/.test(ringCode40),
+        (ringCode40.match(/[^\n]*dRampOff[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
+    }
+
+    // 【据え置きが画面に出ない根拠そのもの】このグラデーションの読み手は帯の <path> 1本だけ。
+    // 読み手が増えたら「出ていないフレームは据え置いてよい」が成り立たなくなるので、
+    // **件数そのものが不変条件**(罠4 が許す唯一の形)。JSX を見るので codeOf は通さない(罠9)。
+    check("40.4 帯のグラデーションを読むのは帯の <path> ただ1本だけ",
+      (ringSrc40.match(/url\(#\$\{barGradId\}\)/g) || []).length === 1
+      && (ringSrc40.match(/barGradId/g) || []).length === 3
+      && /stroke=\{`url\(#\$\{barGradId\}\)`\} strokeWidth=\{SW\}/.test(ringSrc40.replace(/\s*\n\s*/g, " ")),
+      `barGradId の出現=${(ringSrc40.match(/barGradId/g) || []).length}箇所`);
   }
   console.log("  -> done");
 }

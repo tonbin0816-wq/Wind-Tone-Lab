@@ -5029,6 +5029,23 @@ function ringGradientStops(from, to) {
   return out;
 }
 
+// 帯の弧が**普段の画面に**出ているか。到達している間は全周を走る帯が覆うので描かず、
+// ズレが小さいうちは点にしかならないので描かない(下の PitchRing の arcD と同じ条件)。
+// 診断のスイッチはここでは見ない ── D-19b の「帯」は *塗りだけ* を外す比較なので、
+// あのスイッチでグラデーションまで止めるとあちらの意味が変わる。
+function ringBarLive(inTune, deg) {
+  return !inTune && Math.abs(deg) >= 1;
+}
+
+// 帯のグラデーションを作り直すか、前のまま据え置くか。
+// **この <linearGradient> を読むのは帯の <path> ただ1つ**で、その path は
+// barLive が偽のあいだ木に無い。だから出ていないフレームは据え置いても画面に1pxも出ない。
+// **出ているフレームでは必ず作り直す**(据え置くと帯の色と軸が凍る)。
+// 初回だけは held が無いので、出ていなくても1度作る。
+function ringBarGradNeedsRebuild(barLive, hasHeld) {
+  return barLive || !hasHeld;
+}
+
 // ============================================================
 // 到達の演出(走り + 外側だけの呼吸)。
 //
@@ -5481,15 +5498,36 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
   // 到達している間は全周を走る帯がここを覆うので描かない(±2¢ の帯は弧長10.4で線幅14より短い)。
   const [sx, sy] = ringPoint(0, R, CX, CY);
-  let arcD = (inTune || Math.abs(deg) < 1) ? "" : ringArcD(0, deg);
-  // 【D-19b】診断の「帯」を止めている間は弧を描かない。**deg も色も barStops も
-  // 上でそのまま計算されている**(止めたのは描く依頼だけ)。
+  const barLive = ringBarLive(inTune, deg);
+  let arcD = barLive ? ringArcD(0, deg) : "";
+  // 【D-19b】診断の「帯」を止めている間は弧を描かない。**deg も色も帯のグラデーションも
+  // 上でそのまま計算されている**(止めたのは描く依頼だけ)。だから barLive はこの行より
+  // 上で決めてある ── ここで下げると「塗りだけを外した比較」でなくなる。
   // 左の dRingOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
   // METRO_DIAG.drawBar を1回も読まない**(&& の左で止まる)。
   if (dRingOn && !METRO_DIAG.drawBar) arcD = "";
   // 帯の色は「先端からの絶対弧長」で決める(帯の長さでは割らない)。ストップの位置は
   // 弧を弦へ射影して求める(線形グラデーションの軸は弦なので、等間隔に置くと色がずれる)。
-  const barStops = ringGradientStops(0, deg);
+  //
+  // 【D-22】**帯が出ていないフレームは、グラデーションを前に作ったまま据え置く。**
+  // 据え置かないと、合っている間(帯が消えている間)も 30個の <stop> の offset と
+  // stop-color が毎フレーム書き換わる ── 読み手が1つも無いのに。
+  // D-19b で「帯」を止めても実機が変わらなかったのは、止めたのが**塗りだけ**で
+  // こちらの書き換えが残っていたためで、**帯のグラデーションはまだ疑いが晴れていない**。
+  // 出ているフレームでは必ず作り直すので、帯そのものは1フレームも鈍らない。
+  // 【D-22c】診断の「帯の色目盛」を止めている間は、**帯が出ていても作り直さない**。
+  // 30個の <stop> と軸が押した時点のまま凍る(＝この30個の書き換えが 0 になる)。
+  // 弧の長さ・位置(arcD)と音名・セントはそのまま動くので、**色だけが現在のズレと
+  // 合わなくなる** ── 計器なので押している間の見た目が変でよい(板に断り書きがある)。
+  // **deg も色も barLive も上でそのまま計算されている**(止めたのは作り直す依頼だけ)。
+  // 左の dRingOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
+  // METRO_DIAG.drawBarRamp を1回も読まない**(&& の左で止まる)。
+  const dRampOff = dRingOn && !METRO_DIAG.drawBarRamp;
+  const barHeldRef = useRef(null);
+  if (ringBarGradNeedsRebuild(barLive && !dRampOff, !!barHeldRef.current)) {
+    barHeldRef.current = { stops: ringGradientStops(0, deg), base: [r, g, b], x2: mx, y2: my };
+  }
+  const bar = barHeldRef.current;
   // SVGのid衝突を避ける(同じ画面に環が2つ出ても混ざらないように)。
   // useId() の返り値はコロンを含むので url(#...) に使えるよう落とす。
   const uid = useId().replace(/:/g, "");
@@ -5643,10 +5681,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               【stop-opacity は1つも書かない】根元が透けると下地が出る。不透明度は常に1。 */}
           <linearGradient
             id={barGradId} gradientUnits="userSpaceOnUse"
-            x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={mx.toFixed(2)} y2={my.toFixed(2)}
+            x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={bar.x2.toFixed(2)} y2={bar.y2.toFixed(2)}
           >
-            {barStops.map((st, i) => {
-              const c = ringRampRGB([r, g, b], st.s);
+            {bar.stops.map((st, i) => {
+              const c = ringRampRGB(bar.base, st.s);
               return <stop key={i} offset={st.offset.toFixed(5)} stopColor={`rgb(${c[0]},${c[1]},${c[2]})`} />;
             })}
           </linearGradient>
@@ -6250,6 +6288,12 @@ const METRO_DIAG = {
   drawSounding: true,                         // 【D-20 最優先】鳴っているときの表示を出すか(A〜G をまとめて)
   drawGlow: true,                             // 外周の光の明るさを書くか(F)
   drawBar: true,                              // ズレの帯(弧)を描くか(D)
+  // 【D-22c】**「環の帯」とは別物。** あちらは弧(塗り)だけを消し、グラデーションは
+  // 今までどおり毎フレーム書かれる。こちらは逆で、**弧はそのまま出したまま、
+  // 30個の <stop> と軸の書き換えだけを 0 にする**(押した時点の色に凍らせる)。
+  // D-22 で「帯が出ていないフレーム」は 0 にできたが、**出ている間の 57回/フレームは
+  // まだ手つかず**で、それが犯人かどうかを本人が目で判定するための最後のスイッチ。
+  drawBarRamp: true,                          // 【D-22c】帯の色目盛(30ストップ)を書き換えるか
   drawText: true,                             // 音名・セントの文字を出すか(G)
   drawRun: true,                              // 【D-20】到達の走り(左右60ストップ+2本のd)を描くか(E)
   drawBreath: true,                           // 【D-20】到達したセント値の呼吸(CSSアニメーション)を掛けるか
@@ -6286,6 +6330,7 @@ const METRO_DIAG = {
     this.drawSounding = true;
     this.drawGlow = true;
     this.drawBar = true;
+    this.drawBarRamp = true;
     this.drawText = true;
     this.drawRun = true;
     this.drawBreath = true;
@@ -6462,8 +6507,11 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
   // 既定はすべて「描く」。**板を閉じると METRO_DIAG.reset() が全部 true に戻す**ので、
   // 押したまま閉じてもトグルは残らない。
   // 【D-20】9つに増えた。**既定はすべて「描く / 回す」**。
+  // **METRO_DIAG のスイッチと過不足なく同じ顔ぶれにすること。** 抜けると
+  // stopBtn の `draw[field]` が undefined になり、**押していないのに押した色**で出る
+  // (D-22c で drawBarRamp を足したとき実際にそうなりかけた)。検査37.7 が集合で照合する。
   const [draw, setDraw] = useState({
-    drawSounding: true, drawGlow: true, drawBar: true, drawText: true,
+    drawSounding: true, drawGlow: true, drawBar: true, drawBarRamp: true, drawText: true,
     drawRun: true, drawBreath: true, drawDetail: true, runTimbre: true, runDisplayValues: true,
   });
   const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--sp-2)", lineHeight: 1.35 };
@@ -6574,14 +6622,16 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           押した状態(＝止めている)は §6.7 A型の枠線の色が返す。 */}
       {/* 【D-20】**最初に押すのはこれ1つ。** D-19b の4つを全部押しても実機が変わらなかったので、
           容疑者を足すのをやめ、表示の側を丸ごと1回で潰して二分する。
-          他の8つは「他を止める→」の中(1枚目の高さを増やさないため、板を差し替える形にした)。 */}
+          残りは「他◯つ→」の中(1枚目の高さを増やさないため、板を差し替える形にした)。
+          **数は draw の控えから作る** ── 文言に数を書くとスイッチを足したとき陳腐化する
+          (D-22c で9つ目を足すまで「他8つ→」と書いてあった)。 */}
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {stopBtn("drawSounding", "① 鳴っていない表示にする", true)}
         <button
           type="button" onClick={() => setPage("switches")}
           aria-label="他のスイッチを見る" className="sans" style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}
         >
-          <span className="ctl-plain ctl-pill" style={{ padding: "6px 8px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>他8つ→</span>
+          <span className="ctl-plain ctl-pill" style={{ padding: "6px 8px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>他{Object.keys(draw).length - 1}つ→</span>
         </button>
         <span style={{ ...val, fontSize: 11.5, fontWeight: 700, flexShrink: 0 }}>
           ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
@@ -6670,6 +6720,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "1px 0" }}>
         {stopBtn("drawGlow", "外周の光")}
         {stopBtn("drawBar", "環の帯")}
+        {stopBtn("drawBarRamp", "帯の色目盛")}
         {stopBtn("drawText", "音名")}
         {stopBtn("drawRun", "走り")}
         {stopBtn("drawBreath", "呼吸")}
@@ -6682,6 +6733,8 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
         <b>詳細カードは閉じている間は描かれていない</b>ので、そのボタンは詳細を開いてから押してください。
         音量(dB)の数字は鳴っていなくても動くので、①でも止まりません。
         走り・呼吸は<b>合ったとき</b>だけ出るので、0¢に合わせながら押してください。
+        <b>帯の色目盛</b>は「環の帯」と別物＝弧は出したまま色だけ凍ります。
+        <b>わざと少し外したまま</b>押してください。
       </div>
       </>)}
     </div>
