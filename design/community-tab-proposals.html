@@ -4,232 +4,299 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--
-  コミュニティタブ 画面草案（2026-08-28）
+  コミュニティタブ 画面案（2026-08-28）
   仕様: docs/superpowers/specs/2026-08-27-community-tab-design.md
   計画: docs/superpowers/plans/2026-08-27-community-plan-1-auth-profile.md
 
-  色は design/DESIGN-SYSTEM.md の紺のパレットから引いている。
-  ただし「影 / 角丸20px / 順位の3色(金銀銅) / アイコンの背景色10色」は本書に無く、追加が必要。
-  カード作法は §6.6 の「タブごとに決める」表へコミュニティの行を足す前提（本人承認済み・2026-08-28）。
-  既存3タブは罫(.surf-rule)のまま。
+  紺のパレットは design/DESIGN-SYSTEM.md のまま。作法だけカードへ入れ替えている。
+  本書に無く追加が必要なトークン: 影2段 / 角丸22px / 順位の3色(金銀銅) / アイコンの背景色10色。
+  カード作法は §6.6 の「タブごとに決める」表へコミュニティの行を足す前提（本人承認済み）。
+  既存3タブは罫(.surf-rule)のまま。詳細は本文 08 節。
 
-  アイコン: Phosphor Icons の fill ウェイト（MIT ライセンス・商用利用可）
+  アイコン: Phosphor Icons の fill ウェイト（MIT・商用利用可）
     https://phosphoricons.com / https://github.com/phosphor-icons/core
-    24種のパスは上記から取得して SVG スプライトに埋め込んである（実行時の外部読み込みなし）。
-    塗りつぶしを選んだのは、38px の円の中で線画だと弱く見えるため。
-    道具の絵（マイク・メーター・方位磁石）は「自分の印にしたくならない」として外した。
-
-  数字は Instrument Serif を使わない（本人指示・2026-08-28）。
+    パスは SVG スプライトに埋め込み済み。実行時の外部読み込みは無い。
+  数字に Instrument Serif は使わない（本人指示・2026-08-28）。
+  日本語の折り返しは word-break:auto-phrase で文節に揃えている。
 -->
 <title>コミュニティタブ草案</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap">
 <style>
-  :root{
-    --doc-bg:#EFF2F7; --doc-panel:#FFFFFF; --doc-ink:#121F32; --doc-ink-2:#4A5567;
-    --doc-ink-3:#89919F; --doc-line:#DEE3EB; --doc-accent:#174585;
-    --doc-warn:#B4232A; --doc-warn-bg:#FCEFEF;
-    --doc-built:#16A34A; --doc-built-bg:#E8F6ED;
-    --doc-draft:#8D95A1; --doc-draft-bg:#EAEDF2;
-    --serif:"Instrument Serif",Georgia,serif;
-    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
-  }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      --doc-bg:#0C1117; --doc-panel:#141B24; --doc-ink:#E9EDF3; --doc-ink-2:#AEB8C6;
-      --doc-ink-3:#7E8897; --doc-line:#222C38; --doc-accent:#93B5E3;
-      --doc-warn:#F2969B; --doc-warn-bg:#2C1719;
-      --doc-built:#4ADE80; --doc-built-bg:#153020;
-      --doc-draft:#7E8897; --doc-draft-bg:#1D242E;
-    }
-  }
-  :root[data-theme="dark"]{
-    --doc-bg:#0C1117; --doc-panel:#141B24; --doc-ink:#E9EDF3; --doc-ink-2:#AEB8C6;
-    --doc-ink-3:#7E8897; --doc-line:#222C38; --doc-accent:#93B5E3;
-    --doc-warn:#F2969B; --doc-warn-bg:#2C1719;
-    --doc-built:#4ADE80; --doc-built-bg:#153020;
-    --doc-draft:#7E8897; --doc-draft-bg:#1D242E;
-  }
+/* ═══ 草案ページ自身のトークン ═══════════════════════════════ */
+:root{
+  --bg:#E9EDF8; --panel:#FFFFFF; --ink:#101C2E; --ink-2:#4A5771; --ink-3:#8B95A9;
+  --line:#D8DEEC; --accent:#174585; --deep:#0E2044; --tint:#DCE5F5;
+  --alert:#A32B33; --alert-bg:#FBEDEE;
+  --ok:#166C46; --ok-bg:#E4F1EA;
+  --mute:#7C879C; --mute-bg:#E3E8F2;
+  --serif:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --sh-1:0 1px 2px rgba(16,32,68,.05), 0 8px 20px -8px rgba(16,32,68,.14);
+  --sh-2:0 2px 4px rgba(16,32,68,.05), 0 18px 40px -14px rgba(16,32,68,.22);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0B0F17; --panel:#131A26; --ink:#E7ECF5; --ink-2:#AAB6C9; --ink-3:#7A8598;
+  --line:#212B3B; --accent:#8FB3E6; --deep:#050A14; --tint:#1A2334;
+  --alert:#F0989D; --alert-bg:#2B1518; --ok:#6FD3A2; --ok-bg:#10281D;
+  --mute:#7A8598; --mute-bg:#1B2331;
+  --sh-1:0 1px 2px rgba(0,0,0,.4), 0 8px 20px -8px rgba(0,0,0,.6);
+  --sh-2:0 2px 4px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.7);
+}}
+:root[data-theme="dark"]{
+  --bg:#0B0F17; --panel:#131A26; --ink:#E7ECF5; --ink-2:#AAB6C9; --ink-3:#7A8598;
+  --line:#212B3B; --accent:#8FB3E6; --deep:#050A14; --tint:#1A2334;
+  --alert:#F0989D; --alert-bg:#2B1518; --ok:#6FD3A2; --ok-bg:#10281D;
+  --mute:#7A8598; --mute-bg:#1B2331;
+  --sh-1:0 1px 2px rgba(0,0,0,.4), 0 8px 20px -8px rgba(0,0,0,.6);
+  --sh-2:0 2px 4px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.7);
+}
 
-  /* 端末の中身はアプリの色で固定(ライト) */
-  .scr{
-    --ink:#121F32; --ink-2:#435266; --ink-3:#8D95A1; --ink-4:#A6AEBA;
-    --card:#FFFFFF; --ground:#F4F6FA; --line:#E7EBF1;
-    --accent:#174585; --accent-mid:#7FA0CE; --accent-line:#B9C9E4; --accent-tint:#EAEFF5;
-    --deep:#0F2038; --on-dark:#FFFFFF; --danger:#DC2626;
-    --gold:#D9A441; --silver:#A9B3BF; --bronze:#B07A42;
-    --r-card:20px; --r-in:14px;
-    --sh:0 1px 2px rgba(15,32,56,.05), 0 6px 18px rgba(15,32,56,.07);
-  }
+/* ═══ 端末の中身 = アプリの色。常にライト ═══════════════════ */
+.scr{
+  --i:#101C2E; --i2:#435266; --i3:#8D95A1; --i4:#AEB6C2;
+  --card:#FFFFFF; --gr:#E9EDF8; --ln:#E4E9F3;
+  --ac:#174585; --ac-mid:#7FA0CE; --ac-line:#B9C9E4; --ac-tint:#DCE5F5;
+  --dp:#0E2044; --on:#FFFFFF; --dg:#C2352C;
+  --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
+  --r:22px; --r-in:15px;
+  --s:0 1px 2px rgba(16,32,68,.05), 0 8px 20px -8px rgba(16,32,68,.16);
+  --s-lift:0 2px 5px rgba(16,32,68,.06), 0 16px 34px -12px rgba(16,32,68,.26);
+}
 
-  *{box-sizing:border-box}
-  body{
-    margin:0; background:var(--doc-bg); color:var(--doc-ink);
-    font-family:var(--sans); font-size:15px; line-height:1.75; -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:1180px; margin:0 auto; padding:56px 24px 96px}
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+  font-size:15px; line-height:1.85; -webkit-font-smoothing:antialiased;}
+/* 日本語を文節で折る（不自然な改行の防止） */
+p,li,td,th,.jp{word-break:auto-phrase; line-break:strict; overflow-wrap:anywhere}
 
-  .eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--doc-ink-3); margin:0 0 10px}
-  h1{font-family:var(--serif); font-weight:400; font-size:clamp(34px,5vw,52px); line-height:1.15; margin:0 0 14px; text-wrap:balance}
-  .lede{font-size:17px; color:var(--doc-ink-2); max-width:62ch; margin:0 0 10px}
-  .meta{font-size:13px; color:var(--doc-ink-3); margin:0}
-  h2{font-family:var(--serif); font-weight:400; font-size:30px; line-height:1.25; margin:0}
-  h3{font-size:14px; font-weight:700; margin:0 0 6px; color:var(--doc-ink)}
-  .rule{height:1px; background:var(--doc-line); border:0; margin:56px 0 0}
-  section{padding-top:40px}
-  .sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px}
-  .sec-sub{font-size:15px; color:var(--doc-ink-2); max-width:64ch; margin:0 0 26px}
+.wrap{max-width:1140px; margin:0 auto; padding:0 24px 120px}
 
-  .tag{display:inline-block; font-size:11px; font-weight:700; letter-spacing:.06em; padding:3px 9px; border-radius:999px; white-space:nowrap}
-  .tag-built{color:var(--doc-built); background:var(--doc-built-bg)}
-  .tag-draft{color:var(--doc-draft); background:var(--doc-draft-bg)}
-  .tag-new{color:var(--doc-warn); background:var(--doc-warn-bg)}
+/* ─── 見出し ─── */
+.masthead{padding:88px 0 0}
+.kicker{display:inline-flex; align-items:center; gap:9px; font-size:11.5px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 18px}
+.kicker::before{content:""; width:26px; height:1px; background:var(--ink-3)}
+h1{font-family:var(--serif); font-weight:400; font-size:clamp(40px,6.2vw,68px); line-height:1.06;
+  margin:0 0 22px; letter-spacing:.005em; max-width:16ch}
+.lede{font-size:17.5px; line-height:1.9; color:var(--ink-2); max-width:54ch; margin:0}
 
-  .split{display:grid; grid-template-columns:375px minmax(0,1fr); gap:44px; align-items:start}
-  @media (max-width:900px){.split{grid-template-columns:1fr; gap:28px}}
-  .notes{display:flex; flex-direction:column; gap:22px; padding-top:4px}
-  .note p{margin:0; color:var(--doc-ink-2); font-size:14.5px}
-  .note p + p{margin-top:8px}
-  .note b{color:var(--doc-ink)}
-  .why{border-left:2px solid var(--doc-accent); padding:2px 0 2px 14px; color:var(--doc-ink-2); font-size:14px}
-  .warnbox{border-left:2px solid var(--doc-warn); padding:2px 0 2px 14px; color:var(--doc-ink-2); font-size:14px}
+.legend{display:flex; gap:20px; flex-wrap:wrap; margin:34px 0 0; padding:0; list-style:none}
+.legend li{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2)}
 
-  .phone{width:375px; max-width:100%; border:1px solid var(--doc-line); border-radius:16px; overflow:hidden;
-    box-shadow:0 1px 2px rgba(18,31,50,.05), 0 14px 36px rgba(18,31,50,.09)}
-  .scr{font-family:var(--sans); color:var(--ink); background:var(--ground); display:flex; flex-direction:column; min-height:640px; position:relative}
-  .scr.short{min-height:auto}
-  .body{flex:1; padding:12px 14px 14px; display:flex; flex-direction:column; gap:12px}
+.tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.09em;
+  padding:4px 10px; border-radius:999px; white-space:nowrap}
+.t-built{color:var(--ok); background:var(--ok-bg)}
+.t-draft{color:var(--mute); background:var(--mute-bg)}
+.t-new{color:var(--alert); background:var(--alert-bg)}
 
-  .top{display:flex; align-items:center; justify-content:space-between; padding:14px 16px 8px; background:var(--ground)}
-  .top .t{font-size:17px; font-weight:700}
-  .top .r{font-size:12.5px; color:var(--ink-3)}
+/* ─── セクション ─── */
+section{padding:96px 0 0}
+.sec-num{font-family:var(--serif); font-size:15px; color:var(--accent); letter-spacing:.04em}
+.sec-head{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:0 0 10px}
+h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); line-height:1.2; margin:0}
+.sec-sub{font-size:15.5px; color:var(--ink-2); max-width:56ch; margin:0 0 40px}
 
-  .subtabs{display:flex; gap:16px; padding:0 16px; background:var(--ground); overflow:hidden}
-  .subtab{font-size:14px; color:var(--ink-3); padding-bottom:8px; white-space:nowrap; border-bottom:2px solid transparent}
-  .subtab.on{color:var(--ink); font-weight:700; border-bottom-color:var(--ink)}
+.split{display:grid; grid-template-columns:375px minmax(0,1fr); gap:56px; align-items:start}
+@media (max-width:920px){.split{grid-template-columns:1fr; gap:32px}}
 
-  .pills{display:flex; gap:7px; flex-wrap:wrap}
-  .pill{font-size:12.5px; color:var(--ink-2); background:var(--card); border-radius:999px; padding:7px 13px; white-space:nowrap; box-shadow:var(--sh)}
-  .pill.on{color:var(--on-dark); background:var(--accent); font-weight:700}
+/* ─── 注記 ─── */
+.notes{display:flex; flex-direction:column; gap:0; max-width:46ch}
+.note{padding:22px 0; border-top:1px solid var(--line)}
+.note:first-child{border-top:0; padding-top:4px}
+.note h3{font-size:13px; font-weight:700; margin:0 0 8px; letter-spacing:.02em}
+.note p{margin:0; color:var(--ink-2); font-size:14.5px; line-height:1.85}
+.note p + p{margin-top:10px}
+.note b{color:var(--ink); font-weight:700}
+.flag{display:flex; gap:12px; padding:16px 18px; border-radius:14px; background:var(--tint);
+  font-size:14px; color:var(--ink-2); line-height:1.8; margin-top:22px}
+.flag::before{content:""; width:2px; background:var(--accent); border-radius:2px; flex:none}
 
-  .card{background:var(--card); border-radius:var(--r-card); box-shadow:var(--sh); padding:14px}
-  .card.tight{padding:0}
+/* ─── 端末 ─── */
+.phone{width:375px; max-width:100%; border-radius:30px; overflow:hidden; box-shadow:var(--sh-2);
+  background:#E9EDF8; position:sticky; top:32px}
+@media (max-width:920px){.phone{position:static}}
+.scr{font-family:var(--sans); color:var(--i); background:var(--gr);
+  display:flex; flex-direction:column; min-height:672px; position:relative}
+.scr.auto{min-height:0}
+.body{flex:1; padding:14px 16px 18px; display:flex; flex-direction:column; gap:14px}
 
-  .hero{background:var(--deep); border-radius:var(--r-card); padding:16px; color:var(--on-dark); position:relative; overflow:hidden}
-  .hero::after{content:""; position:absolute; right:-46px; top:-56px; width:170px; height:170px; border-radius:50%; background:rgba(127,160,206,.16)}
-  .hero .lbl{font-size:11px; letter-spacing:.09em; color:#9DB3CC; font-weight:700}
-  .hero .ttl{font-size:19px; font-weight:700; margin-top:4px; position:relative}
-  .hero .sub{font-size:12px; color:#B9C9E4; margin-top:6px; position:relative}
-  .hero .go{margin-top:12px; background:rgba(255,255,255,.13); border-radius:999px; padding:9px; text-align:center; font-size:13px; font-weight:700; position:relative}
+.bar{display:flex; align-items:center; justify-content:space-between; padding:20px 18px 12px}
+.bar h4{margin:0; font-size:20px; font-weight:700; letter-spacing:.01em}
+.chip{font-size:12px; font-weight:700; color:var(--ac); background:var(--card);
+  padding:7px 13px; border-radius:999px; box-shadow:var(--s)}
 
-  .av{width:38px; height:38px; border-radius:50%; background:var(--a,#174585); flex:none;
-    display:flex; align-items:center; justify-content:center}
-  .av svg{width:21px; height:21px; fill:#fff}
-  .av.s{width:30px; height:30px}
-  .av.s svg{width:17px; height:17px}
-  .av.lg{width:64px; height:64px}
-  .av.lg svg{width:34px; height:34px}
+.tabs{display:flex; gap:20px; padding:0 18px 2px}
+.tab{font-size:14px; color:var(--i3); padding-bottom:10px; position:relative; white-space:nowrap}
+.tab.on{color:var(--i); font-weight:700}
+.tab.on::after{content:""; position:absolute; left:0; right:0; bottom:0; height:2.5px;
+  background:var(--ac); border-radius:2px}
 
-  /* アイコン選択 */
-  .picker{display:grid; grid-template-columns:repeat(6,1fr); gap:9px}
-  .pk{aspect-ratio:1; border-radius:50%; background:var(--ground); display:flex; align-items:center; justify-content:center}
-  .pk svg{width:21px; height:21px; fill:var(--ink-3)}
-  .pk.on{background:var(--a,#174585)}
-  .pk.on svg{fill:#fff}
-  .swatches{display:grid; grid-template-columns:repeat(10,1fr); gap:7px}
-  .sc{aspect-ratio:1; border-radius:50%; background:var(--a)}
-  .sc.on{box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--ink)}
+.pills{display:flex; gap:8px; flex-wrap:wrap}
+.pill{font-size:12.5px; color:var(--i2); background:var(--card); border-radius:999px;
+  padding:8px 14px; white-space:nowrap; box-shadow:var(--s)}
+.pill.on{color:var(--on); background:var(--ac); font-weight:700; box-shadow:var(--s-lift)}
 
-  .row{display:flex; gap:11px; align-items:center; padding:12px 14px}
-  .row + .row{border-top:1px solid var(--line)}
-  .row .main{flex:1; min-width:0}
-  .nm{font-size:14.5px; font-weight:700}
-  .at{font-size:11.5px; color:var(--ink-3); margin-top:2px; line-height:1.6}
-  .gr{font-size:11.5px; color:var(--ink-2); margin-top:2px; line-height:1.6}
-  .vote{text-align:right; white-space:nowrap}
-  .vote .n{font-size:19px; font-weight:700; line-height:1; color:var(--accent); font-variant-numeric:tabular-nums}
-  .vote .u{font-size:10px; color:var(--ink-3); display:block; margin-top:2px}
-  .hd{font-size:12px; font-weight:700; color:var(--ink-3); letter-spacing:.05em; padding:0 2px}
+.card{background:var(--card); border-radius:var(--r); box-shadow:var(--s); padding:18px}
+.card.flush{padding:0}
+.hd{font-size:11.5px; font-weight:700; color:var(--i3); letter-spacing:.08em; margin:0 0 12px}
 
-  /* 上位3件: 縦積み・カードは1件ずつ独立・アイコンに順位色の環 */
-  .top3{display:flex; flex-direction:column; gap:9px}
-  .t3{display:flex; gap:13px; align-items:center; padding:13px 15px; border-radius:var(--r-card);
-    background:var(--card); box-shadow:var(--sh)}
-  .t3.first{background:var(--deep); color:var(--on-dark); padding:17px 15px}
-  .t3 .rank{font-size:23px; line-height:1; width:18px; text-align:center;
-    color:var(--ink-3); font-variant-numeric:tabular-nums; flex:none}
-  .t3.first .rank{font-size:30px; color:var(--gold)}
-  .t3.second .rank{color:var(--silver)} .t3.third .rank{color:var(--bronze)}
-  .t3 .av{box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--silver)}
-  .t3.first .av{width:46px; height:46px; box-shadow:0 0 0 2px var(--deep), 0 0 0 4px var(--gold)}
-  .t3.first .av svg{width:25px; height:25px}
-  .t3.third .av{box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--bronze)}
-  .t3 .who{flex:1; min-width:0; font-size:15px; font-weight:700}
-  .t3 .who span{display:block; font-size:11px; font-weight:400; color:var(--ink-3); margin-top:2px}
-  .t3.first .who{font-size:16.5px} .t3.first .who span{color:#B9C9E4}
-  .t3 .val{font-size:24px; line-height:1; font-variant-numeric:tabular-nums; flex:none}
-  .t3.first .val{font-size:31px}
-  .t3 .val em{font-style:normal; font-family:var(--sans); font-size:11px; color:var(--ink-3); margin-left:2px}
-  .t3.first .val em{color:#B9C9E4}
+/* 濃紺の面 */
+.deep{background:var(--dp); border-radius:var(--r); padding:20px; color:var(--on);
+  position:relative; overflow:hidden; box-shadow:var(--s-lift)}
+.deep::after{content:""; position:absolute; right:-70px; top:-90px; width:220px; height:220px;
+  border-radius:50%; background:radial-gradient(circle, rgba(127,160,206,.30), transparent 68%)}
+.deep .k{font-size:10.5px; letter-spacing:.12em; color:#9DB3CC; font-weight:700; position:relative}
+.deep .t{font-size:20px; font-weight:700; margin-top:6px; position:relative; letter-spacing:.01em}
+.deep .m{font-size:12.5px; color:#B9C9E4; margin-top:8px; position:relative}
+.deep .go{margin-top:16px; background:rgba(255,255,255,.14); border-radius:999px; padding:11px;
+  text-align:center; font-size:13.5px; font-weight:700; position:relative}
 
-  .rk{display:flex; gap:11px; align-items:center; padding:11px 14px}
-  .rk + .rk{border-top:1px solid var(--line)}
-  .rk .pos{font-size:17px; color:var(--ink-3); width:20px; text-align:center; font-variant-numeric:tabular-nums; flex:none}
-  .rk .who{flex:1; font-size:14px; min-width:0}
-  .rk .who span{display:block; font-size:10.5px; color:var(--ink-3); margin-top:1px}
-  .rk .val{font-size:20px; font-variant-numeric:tabular-nums}
-  .rk .val em{font-style:normal; font-family:var(--sans); font-size:10.5px; color:var(--ink-3); margin-left:2px}
+/* アイコン */
+.av{width:40px; height:40px; border-radius:50%; background:var(--a,#174585); flex:none;
+  display:flex; align-items:center; justify-content:center}
+.av svg{width:22px; height:22px; fill:#fff}
+.av.s{width:32px; height:32px} .av.s svg{width:18px; height:18px}
+.av.l{width:56px; height:56px} .av.l svg{width:30px; height:30px}
 
-  .mine{position:sticky; bottom:0; background:var(--card); border-radius:var(--r-card);
-    box-shadow:0 -2px 14px rgba(15,32,56,.10); padding:2px 0; margin-top:4px}
-  .badge{font-size:10px; font-weight:700; color:var(--accent); background:var(--accent-tint); border-radius:999px; padding:2px 7px; margin-left:6px}
+/* 行 */
+.row{display:flex; gap:13px; align-items:center; padding:15px 18px}
+.row + .row{border-top:1px solid var(--ln)}
+.row .m{flex:1; min-width:0}
+.nm{font-size:15px; font-weight:700; letter-spacing:.01em}
+.sub{font-size:11.5px; color:var(--i3); margin-top:3px}
+.kit{display:flex; gap:5px; flex-wrap:wrap; margin-top:7px}
+.kv{font-size:10.5px; color:var(--i2); background:var(--gr); border-radius:6px; padding:3px 7px}
+.cnt{text-align:right; white-space:nowrap; flex:none}
+.cnt b{display:block; font-size:19px; font-weight:700; color:var(--ac); font-variant-numeric:tabular-nums; line-height:1}
+.cnt span{font-size:10px; color:var(--i3); display:block; margin-top:4px}
 
-  .lg{display:flex; flex-direction:column; gap:6px; font-size:11.5px; flex:1; min-width:0}
-  .lg div{display:flex; align-items:center; gap:6px; color:var(--ink-2)}
-  .sw{width:9px; height:9px; border-radius:2px; flex:none}
-  .lg b{margin-left:auto; font-size:13.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums}
+/* 上位3件 */
+.top3{display:flex; flex-direction:column; gap:10px}
+.t3{display:flex; gap:14px; align-items:center; padding:15px 18px; border-radius:var(--r);
+  background:var(--card); box-shadow:var(--s)}
+.t3.n1{background:var(--dp); color:var(--on); padding:19px 18px; box-shadow:var(--s-lift)}
+.t3 .p{font-size:15px; font-weight:700; width:16px; text-align:center; flex:none;
+  font-variant-numeric:tabular-nums; color:var(--silver)}
+.t3.n1 .p{color:var(--gold); font-size:17px} .t3.n3 .p{color:var(--bronze)}
+.t3 .av{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--silver)}
+.t3.n1 .av{width:48px; height:48px; box-shadow:0 0 0 2.5px var(--dp), 0 0 0 5px var(--gold)}
+.t3.n1 .av svg{width:26px; height:26px}
+.t3.n3 .av{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--bronze)}
+.t3 .who{flex:1; min-width:0; font-size:15px; font-weight:700}
+.t3 .who span{display:block; font-size:11px; font-weight:400; color:var(--i3); margin-top:3px}
+.t3.n1 .who{font-size:17px} .t3.n1 .who span{color:#B9C9E4}
+.t3 .v{font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; flex:none; letter-spacing:-.01em}
+.t3.n1 .v{font-size:26px}
+.t3 .v i{font-style:normal; font-size:11px; font-weight:400; color:var(--i3); margin-left:3px}
+.t3.n1 .v i{color:#B9C9E4}
 
-  .fld{font-size:11.5px; color:var(--ink-3); margin-bottom:4px}
-  .inp{background:var(--ground); border-radius:12px; padding:10px 12px; font-size:13.5px; color:var(--ink)}
-  .inp.ph{color:var(--ink-4)}
-  .hint{font-size:11px; color:var(--ink-3); margin-top:4px; line-height:1.6}
-  .btn{background:var(--accent); color:var(--on-dark); border-radius:999px; padding:13px; text-align:center; font-size:14px; font-weight:700}
-  .btn.ghost{background:var(--card); color:var(--accent); box-shadow:var(--sh)}
-  .btn.warn{background:var(--card); color:var(--danger); box-shadow:var(--sh)}
-  .ck{display:flex; gap:8px; align-items:center; font-size:13px; color:var(--ink-2)}
-  .ckbox{width:17px; height:17px; border:1px solid var(--ink-3); border-radius:5px; flex:none}
+.rk{display:flex; gap:13px; align-items:center; padding:13px 18px}
+.rk + .rk{border-top:1px solid var(--ln)}
+.rk .p{font-size:13px; color:var(--i3); width:16px; text-align:center; font-variant-numeric:tabular-nums; flex:none}
+.rk .who{flex:1; font-size:14px; min-width:0}
+.rk .who span{display:block; font-size:10.5px; color:var(--i3); margin-top:2px}
+.rk .v{font-size:17px; font-weight:700; font-variant-numeric:tabular-nums}
+.rk .v i{font-style:normal; font-size:10.5px; font-weight:400; color:var(--i3); margin-left:3px}
 
-  .nav{display:flex; background:var(--card); padding:8px 0 10px; border-top:1px solid var(--line)}
-  .nav div{flex:1; display:flex; justify-content:center}
-  .nav svg{width:25px; height:25px}
+.you{background:var(--card); border-radius:var(--r); box-shadow:var(--s-lift); margin-top:2px}
+.you .rk{padding:15px 18px}
+.badge{font-size:10px; font-weight:700; color:var(--on); background:var(--ac);
+  border-radius:999px; padding:2px 8px; margin-left:7px; vertical-align:1px}
 
-  /* ボトムシート */
-  .sheetwrap{position:absolute; inset:0; background:rgba(15,32,56,.42); display:flex; align-items:flex-end}
-  .sheet{background:var(--card); border-radius:24px 24px 0 0; width:100%; padding:18px 18px 22px; display:flex; flex-direction:column; gap:14px}
-  .sheet .x{align-self:flex-end; width:28px; height:28px; border-radius:50%; background:var(--ground); color:var(--ink-3); display:flex; align-items:center; justify-content:center; font-size:14px}
-  .stat{display:flex; justify-content:space-between; align-items:baseline; padding:11px 0}
-  .stat + .stat{border-top:1px solid var(--line)}
-  .stat .k{font-size:12.5px; color:var(--ink-3)}
-  .stat .v{font-size:22px; font-variant-numeric:tabular-nums}
+/* ドーナツ */
+.donut{display:flex; gap:20px; align-items:center}
+.lgd{display:flex; flex-direction:column; gap:9px; font-size:12px; flex:1; min-width:0}
+.lgd div{display:flex; align-items:center; gap:8px; color:var(--i2)}
+.sw{width:10px; height:10px; border-radius:3px; flex:none}
+.lgd b{margin-left:auto; font-size:13px; font-weight:700; color:var(--i); font-variant-numeric:tabular-nums}
 
-  .trio{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:20px}
-  .trio .phone{width:100%}
-  .trio .scr{min-height:auto}
-  .cap{font-size:12px; color:var(--doc-ink-3); margin:9px 0 0; text-align:center}
+/* フォーム */
+.fld{font-size:11.5px; color:var(--i3); margin-bottom:7px}
+.inp{background:var(--gr); border-radius:13px; padding:13px 14px; font-size:14px; color:var(--i)}
+.inp.ph{color:var(--i4)}
+.hint{font-size:11.5px; color:var(--i3); margin-top:8px; line-height:1.75}
+.btn{background:var(--ac); color:var(--on); border-radius:999px; padding:15px; text-align:center;
+  font-size:14.5px; font-weight:700; box-shadow:var(--s-lift)}
+.btn.gh{background:var(--card); color:var(--ac); box-shadow:var(--s)}
+.btn.dg{background:var(--card); color:var(--dg); box-shadow:var(--s)}
+.ck{display:flex; gap:11px; align-items:center; font-size:13.5px; color:var(--i2)}
+.box{width:19px; height:19px; border:1.5px solid var(--i3); border-radius:6px; flex:none}
+.tog{width:44px; height:26px; border-radius:999px; background:var(--ac); flex:none; position:relative}
+.tog::after{content:""; position:absolute; top:3px; right:3px; width:20px; height:20px;
+  border-radius:50%; background:#fff}
 
-  table{width:100%; border-collapse:collapse; font-size:14px; margin-top:10px}
-  th,td{text-align:left; padding:11px 12px 11px 0; border-bottom:1px solid var(--doc-line); vertical-align:top}
-  th{font-size:12px; letter-spacing:.05em; color:var(--doc-ink-3); font-weight:700}
-  td b{color:var(--doc-ink)}
-  .tblwrap{overflow-x:auto}
+.nav{display:flex; background:var(--card); padding:11px 0 13px; box-shadow:0 -1px 0 var(--ln)}
+.nav div{flex:1; display:flex; justify-content:center}
+.nav svg{width:25px; height:25px}
 
-  .q > div{padding:18px 0; border-top:1px solid var(--doc-line)}
-  .q > div:first-child{border-top:0}
-  .q p{margin:6px 0 0; color:var(--doc-ink-2); font-size:14.5px}
-  .qn{font-weight:700; font-size:14px; color:var(--doc-accent); margin-right:8px}
-  .foot{margin-top:56px; padding-top:22px; border-top:1px solid var(--doc-line); font-size:13px; color:var(--doc-ink-3)}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+/* ボトムシート */
+.veil{position:absolute; inset:0; background:rgba(14,32,68,.44); display:flex; align-items:flex-end}
+.sheet{background:var(--card); border-radius:28px 28px 0 0; width:100%; padding:12px 20px 26px;
+  display:flex; flex-direction:column; gap:16px}
+.grab{width:38px; height:4px; border-radius:999px; background:var(--ln); margin:0 auto 4px}
+.st{display:flex; justify-content:space-between; align-items:baseline; padding:13px 0}
+.st + .st{border-top:1px solid var(--ln)}
+.st .k{font-size:12.5px; color:var(--i3)}
+.st .v{font-size:14px; font-weight:700}
+.st .v.big{font-size:20px; font-variant-numeric:tabular-nums}
+.st .v.big i{font-style:normal; font-size:11px; font-weight:400; color:var(--i3); margin-left:3px}
+
+/* 選択 */
+.grid6{display:grid; grid-template-columns:repeat(6,1fr); gap:11px}
+.pk{aspect-ratio:1; border-radius:50%; background:var(--gr); display:flex; align-items:center; justify-content:center}
+.pk svg{width:21px; height:21px; fill:var(--i3)}
+.pk.on{background:var(--a,#174585); box-shadow:var(--s-lift)}
+.pk.on svg{fill:#fff}
+.grid10{display:grid; grid-template-columns:repeat(10,1fr); gap:8px}
+.sc{aspect-ratio:1; border-radius:50%; background:var(--a)}
+.sc.on{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--i)}
+
+/* 3枚並べ */
+.trio{display:grid; grid-template-columns:repeat(auto-fit,minmax(268px,1fr)); gap:26px}
+.trio .phone{width:100%; position:static}
+.trio .scr{min-height:0}
+.cap{font-size:12.5px; color:var(--ink-3); margin:14px 0 0; text-align:center}
+
+/* 衝突ルール */
+.rules{display:grid; gap:14px; margin-top:8px}
+.rule{background:var(--panel); border-radius:18px; padding:22px 24px; box-shadow:var(--sh-1)}
+.rule.hot{background:var(--alert-bg)}
+.rule .top{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:10px}
+.rule h3{font-size:15px; font-weight:700; margin:0}
+.rule .src{font-size:11.5px; color:var(--ink-3)}
+.rule dl{margin:0; display:grid; grid-template-columns:5.5em 1fr; gap:6px 16px; font-size:14px}
+@media (max-width:560px){.rule dl{grid-template-columns:1fr; gap:2px 0}}
+.rule dt{color:var(--ink-3); font-size:12px; padding-top:4px}
+.rule dd{margin:0; color:var(--ink-2); line-height:1.8}
+.rule dd b{color:var(--ink)}
+
+/* 決定事項 */
+.decs{margin-top:8px}
+.dec{display:grid; grid-template-columns:auto 1fr; gap:0 18px; padding:20px 0; border-top:1px solid var(--line)}
+.dec:first-child{border-top:0}
+.mark{font-size:10.5px; font-weight:700; letter-spacing:.08em; padding:4px 10px; border-radius:999px;
+  height:fit-content; white-space:nowrap}
+.mark.done{color:var(--ok); background:var(--ok-bg)}
+.mark.todo{color:var(--alert); background:var(--alert-bg)}
+.dec h3{margin:0 0 6px; font-size:15px; font-weight:700}
+.dec p{margin:0; color:var(--ink-2); font-size:14.5px}
+
+.foot{margin-top:96px; padding-top:26px; border-top:1px solid var(--line);
+  font-size:13px; color:var(--ink-3); max-width:62ch}
+code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
+
+/* 署名要素: 平行移動のアニメーション */
+.shifted{transform:translateX(28px); opacity:.45}
+.shift-run .shifted{transform:translateX(0); opacity:1;
+  transition:transform 1.15s cubic-bezier(.22,.9,.28,1) .25s, opacity .8s ease .25s}
+.shift-run .ghost{opacity:0; transition:opacity .7s ease .1s}
+@media (prefers-reduced-motion:reduce){
+  .shifted{transform:none; opacity:1} .ghost{display:none}
+  .shift-run .shifted{transition:none}
+}
+:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
 </style>
 </head>
 <body>
@@ -263,784 +330,854 @@
 
 <div class="wrap">
 
-  <p class="eyebrow">Ficus / コミュニティ</p>
-  <h1>4つ目のタブの中身</h1>
+<header class="masthead">
+  <p class="kicker">Ficus / コミュニティ</p>
+  <h1>他の奏者の目安を、自分の目安にする</h1>
   <p class="lede">
-    参考にもらった画像の方向(カード・表彰台・ボトムシート)で組み直したもの。
-    色は自作アプリの紺をそのまま使い、形の作法だけ入れ替えている。
+    4つ目のタブの画面案。既存の紺のパレットはそのままに、面の作法だけをカードへ入れ替えている。
+    色・余白・書体の根拠はすべて <code>design/DESIGN-SYSTEM.md</code>。
   </p>
-  <p class="meta">
-    <span class="tag tag-built">実装済み</span> は動作確認まで終わっているもの、
-    <span class="tag tag-draft">草案</span> はこれから作るもの、
-    <span class="tag tag-new">新規</span> は今回の参考画像から足したもの。
+  <ul class="legend">
+    <li><span class="tag t-built">実装済み</span> 動作確認まで完了</li>
+    <li><span class="tag t-draft">草案</span> これから作る</li>
+    <li><span class="tag t-new">新規</span> 今回足した画面</li>
+  </ul>
+</header>
+
+<!-- ═══ 1 目安をさがす ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2>目安をさがす</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    この機能の主役。属性で絞り込んで、他の奏者の目安を自分のアプリに取り込む。
   </p>
 
-  <hr class="rule">
-
-  <!-- ============ 障害になるルール ============ -->
-  <section>
-    <div class="sec-head"><h2>先に: 障害になった既存ルール</h2></div>
-    <p class="sec-sub">
-      指示どおり一旦無視して作った。無視した規定は以下。上ほど影響が大きい。
-    </p>
-    <div class="tblwrap">
-    <table>
-      <tr><th style="width:30%">規定</th><th style="width:34%">何と衝突したか</th><th>提案</th></tr>
-      <tr>
-        <td><b>「背景色を多用すると画面全体が重く見えるのでやめて」</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§6.6 / 2026-08-23 本人裁定 D-7</span></td>
-        <td>この裁定は「カード化が必要なのは整理できていない証拠」という読みで、My Data とカレンダーの
-          グレーのカードを剥がしたもの。<b>参考画像は全面カード＋灰色の地</b>で、真逆にあたる。</td>
-        <td><b>タブ単位で作法を分ける</b>。既存3タブは罫のまま、コミュニティだけカード。
-          §6.6 の表は元々「タブごとに決める」形なので、行を1つ足せば矛盾しない。</td>
-      </tr>
-      <tr>
-        <td><b>面(カード)は1画面に1枚まで</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§6.0 囲いの序列</span></td>
-        <td>一覧をカードで並べられない。</td>
-        <td><b>今回あなたが不要と判断済み。</b>上と同じくタブ限定の例外として明文化する。</td>
-      </tr>
-      <tr>
-        <td><b>枠線は状態を持つものにだけ</b> / <b>枠線と地の色を両方与えない</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§6.7 A型・B型</span></td>
-        <td>「枠線があるものは状態を持っている」という読み手への約束。カードは状態を持たないのに面を持つ。</td>
-        <td><b>枠線は使わず影だけで浮かせた。</b>約束は破っていない(枠線を持つのは今も状態を持つ物だけ)。</td>
-      </tr>
-      <tr>
-        <td><b>影の規定が存在しない</b></td>
-        <td>デザインシステムに影のトークンが1つも無い。白地＋罫を前提に組まれているため。</td>
-        <td><b>2段の影を1トークンで新設</b>する必要がある(<code>--sh</code>)。値は本書へ逆輸入する。</td>
-      </tr>
-      <tr>
-        <td><b>角丸は 4 / 8 / 12 / 16 / pill の5段</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§2</span></td>
-        <td>参考画像のカードは 20〜28px 相当。16px では参考画像の柔らかさが出ない。</td>
-        <td><b>20px を6段目として足す。</b>「ここに無い値を発明しない」規則があるので、勝手に使わず追記する。</td>
-      </tr>
-      <tr>
-        <td><b><code>--c-accent</code> はアクション専用</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§1.4</span></td>
-        <td>表彰台とコホート平均は押せる物ではないが濃い面を持つ。既にデータタブのヒーロー1枚だけ例外が認められている。</td>
-        <td>表彰台は <code>--c-accent</code> ではなく<b>より深い紺(#0F2038)を新設</b>して使い分けた。
-          アクション専用の約束は温存できる。</td>
-      </tr>
-      <tr>
-        <td><b>機能色・グレーを系列識別に使わない</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§1.5 / §1.7</span></td>
-        <td>表彰台の金・銀・銅は<b>パレットに無い第3の色系統</b>。円グラフは紺の明度段階で足りるが、順位の色は代わりが無い。</td>
-        <td>金銀銅を<b>「順位専用の3色」として明示的に追加</b>する。系列識別にも機能色にも流用しない、と条件を付ける。</td>
-      </tr>
-      <tr>
-        <td><b>アイコンの背景色10色がパレットに無い</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§1 全体</span></td>
-        <td>アプリの色は紺一系統。アイコンを選べるようにすると<b>10色の第4の色系統</b>が要る。</td>
-        <td><b>「アイコンの背景色専用」として追加</b>し、他への流用を禁じる。機能色(緑=合っている・橙・赤)と
-          見分けがつくよう全て彩度を落としてある。</td>
-      </tr>
-      <tr>
-        <td><b>下部タブはアイコンのみ</b><br>
-          <span style="color:var(--doc-ink-3);font-size:12.5px">§6.0 部品の統一</span></td>
-        <td>参考画像(GENTI)は<b>アイコン＋文字ラベル</b>。</td>
-        <td><b>アイコンのみを維持した。</b>ここだけ変えると既存3タブと不揃いになり、影響が4タブ全部に及ぶため。</td>
-      </tr>
-    </table>
-    </div>
-    <div class="warnbox" style="margin-top:20px">
-      <b>一番重いのは1行目です。</b>これはデザインシステムの規定というより、
-      あなた自身が2026/08/23に下した裁定(「カード化は整理できていない証拠」)で、
-      それに従って My Data とカレンダーからカードを剥がした実装変更が既に入っています。
-      コミュニティだけカードにすると、<b>同じアプリの中で2つの作法が併存</b>することになります。
-      タブ単位で分ける案なら筋は通りますが、あなたの明示的な承認が要る変更です。
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <!-- ============ ① 目安をさがす ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>① 目安をさがす</h2><span class="tag tag-draft">草案</span>
-    </div>
-    <p class="sec-sub">この機能の主役。属性で絞り込んで、他の奏者の目安を自分のアプリに取り込む。</p>
-
-    <div class="split">
-      <div class="phone"><div class="scr">
-        <div class="top"><div class="t">コミュニティ</div><div class="r">アルト ▾</div></div>
-        <div class="subtabs">
-          <div class="subtab on">目安</div><div class="subtab">ランキング</div>
-          <div class="subtab">機材</div><div class="subtab">マイページ</div>
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>コミュニティ</h4><div class="chip">アルト</div></div>
+      <div class="tabs">
+        <div class="tab on">目安</div><div class="tab">順位</div>
+        <div class="tab">機材</div><div class="tab">マイページ</div>
+      </div>
+      <div class="body">
+        <div class="pills">
+          <div class="pill on">高校吹奏楽部</div><div class="pill">歴 3〜10年</div>
+          <div class="pill">ジャンル</div><div class="pill">編成</div>
         </div>
-        <div class="body">
-          <div class="pills">
-            <div class="pill on">高校吹奏楽部 ▾</div><div class="pill">歴 3〜10年 ▾</div>
-            <div class="pill">ジャンル ▾</div><div class="pill">編成 ▾</div>
-          </div>
 
-          <div class="hero">
-            <div class="lbl">みんなの平均</div>
-            <div class="ttl">高校吹奏楽部・アルト</div>
-            <div class="sub">42人の目安を平均 ／ 収録 18音</div>
-            <div class="go">この平均を見る</div>
-          </div>
+        <div class="deep">
+          <div class="k">みんなの平均</div>
+          <div class="t">高校吹奏楽部・アルト</div>
+          <div class="m">42人の目安を平均 ／ 収録 18音</div>
+          <div class="go">この平均を見る</div>
+        </div>
 
-          <div class="hd">個人の目安</div>
-          <div class="card tight">
+        <div>
+          <p class="hd">個人の目安</p>
+          <div class="card flush">
             <div class="row">
               <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-              <div class="main">
+              <div class="m">
                 <div class="nm">まつり</div>
-                <div class="at">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽</div>
-                <div class="gr">YAS-62 ／ S80 C* ／ 青箱 3 (12日目)</div>
+                <div class="sub">高校吹奏楽部 ・ 歴3年</div>
+                <div class="kit"><span class="kv">YAS-62</span><span class="kv">S80 C*</span><span class="kv">青箱 3</span></div>
               </div>
-              <div class="vote"><span class="n">38</span><span class="u">採用</span></div>
+              <div class="cnt"><b>38</b><span>採用</span></div>
             </div>
             <div class="row">
               <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
-              <div class="main">
+              <div class="m">
                 <div class="nm">アオイ</div>
-                <div class="at">音大生 ・ 歴9年 ・ クラシック</div>
-                <div class="gr">YAS-875EX ／ S90 180 ／ V21 3½ (5日目)</div>
+                <div class="sub">音大生 ・ 歴9年</div>
+                <div class="kit"><span class="kv">YAS-875EX</span><span class="kv">S90 180</span><span class="kv">V21 3½</span></div>
               </div>
-              <div class="vote"><span class="n">24</span><span class="u">採用</span></div>
+              <div class="cnt"><b>24</b><span>採用</span></div>
             </div>
             <div class="row">
-              <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-music-notes"/></svg></div>
-              <div class="main">
+              <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
+              <div class="m">
                 <div class="nm">こんぶ</div>
-                <div class="at">社会人 ・ 歴15年 ・ ジャズ</div>
-                <div class="gr">Series II ／ Meyer 6M ／ Java 2½ (23日目)</div>
+                <div class="sub">社会人 ・ 歴15年</div>
+                <div class="kit"><span class="kv">Series II</span><span class="kv">Meyer 6M</span><span class="kv">Java 2½</span></div>
               </div>
-              <div class="vote"><span class="n">11</span><span class="u">採用</span></div>
+              <div class="cnt"><b>11</b><span>採用</span></div>
             </div>
             <div class="row">
               <div class="av" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
-              <div class="main">
+              <div class="m">
                 <div class="nm">ハルカ</div>
-                <div class="at">高校吹奏楽部 ・ 歴2年 ・ 吹奏楽</div>
-                <div class="gr">YAS-280 ／ Yamaha 4C ／ 青箱 2½ (31日目)</div>
+                <div class="sub">高校吹奏楽部 ・ 歴2年</div>
+                <div class="kit"><span class="kv">YAS-280</span><span class="kv">Yamaha 4C</span><span class="kv">青箱 2½</span></div>
               </div>
-              <div class="vote"><span class="n">6</span><span class="u">採用</span></div>
+              <div class="cnt"><b>6</b><span>採用</span></div>
             </div>
           </div>
-        </div>
-        <div class="nav">
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
-        </div>
-      </div></div>
-
-      <div class="notes">
-        <div class="note">
-          <h3>アイコンは用意した絵から選ぶ</h3>
-          <p>
-            写真アップロードではなく、<b>アプリが持っている絵と背景色の組み合わせ</b>。
-            見た目の密度は写真と変わらず、モデレーション・費用・他人の顔・位置情報の問題が
-            まとめて発生しない。詳しくは次の節。
-          </p>
-        </div>
-        <div class="note">
-          <h3>楽器歴は上限と下限で絞る</h3>
-          <p>
-            ご指示どおり。ピルには「歴 3〜10年」のように<b>選んだ範囲がそのまま出る</b>ようにした。
-            データは開始年で持っているので、範囲はいくらでも切れる。
-          </p>
-        </div>
-        <div class="why">
-          楽器種別のフィルタはピルに置かず、右上に常時表示にした。
-          <b>目安は同じ楽器種別としか比べられない</b>ので、外せる物として並べると
-          「アルトの人がテナーの目安を取り込む」という意味を成さない操作を誘う。
         </div>
       </div>
-    </div>
-  </section>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
 
-  <hr class="rule">
-
-  <!-- ============ アイコン選択 ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>①-2 　アイコンを選ぶ</h2><span class="tag tag-new">新規</span>
-    </div>
-    <p class="sec-sub">
-      絵と背景色の組み合わせで自分のアイコンを作る。写真は使わない。
-    </p>
-
-    <div class="split">
-      <div class="phone"><div class="scr short">
-        <div class="top"><div class="t">アイコン</div></div>
-        <div class="body" style="gap:14px">
-          <div class="card">
-            <div class="hd" style="padding:0 0 10px">一覧での見え方</div>
-            <div style="display:flex; gap:11px; align-items:center">
-              <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-              <div style="flex:1; min-width:0">
-                <div class="nm">まつり</div>
-                <div class="at">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="hd" style="padding:0 0 10px">絵</div>
-            <div class="picker">
-              <div class="pk on" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-              <div class="pk"><svg><use href="#ic-dog"/></svg></div>
-              <div class="pk"><svg><use href="#ic-bird"/></svg></div>
-              <div class="pk"><svg><use href="#ic-rabbit"/></svg></div>
-              <div class="pk"><svg><use href="#ic-butterfly"/></svg></div>
-              <div class="pk"><svg><use href="#ic-fish"/></svg></div>
-              <div class="pk"><svg><use href="#ic-flower-lotus"/></svg></div>
-              <div class="pk"><svg><use href="#ic-leaf"/></svg></div>
-              <div class="pk"><svg><use href="#ic-star"/></svg></div>
-              <div class="pk"><svg><use href="#ic-heart"/></svg></div>
-              <div class="pk"><svg><use href="#ic-moon-stars"/></svg></div>
-              <div class="pk"><svg><use href="#ic-sun"/></svg></div>
-              <div class="pk"><svg><use href="#ic-rainbow"/></svg></div>
-              <div class="pk"><svg><use href="#ic-fire"/></svg></div>
-              <div class="pk"><svg><use href="#ic-sparkle"/></svg></div>
-              <div class="pk"><svg><use href="#ic-crown-simple"/></svg></div>
-              <div class="pk"><svg><use href="#ic-diamond"/></svg></div>
-              <div class="pk"><svg><use href="#ic-ghost"/></svg></div>
-              <div class="pk"><svg><use href="#ic-music-notes"/></svg></div>
-              <div class="pk"><svg><use href="#ic-guitar"/></svg></div>
-              <div class="pk"><svg><use href="#ic-tree"/></svg></div>
-              <div class="pk"><svg><use href="#ic-snowflake"/></svg></div>
-              <div class="pk"><svg><use href="#ic-cloud"/></svg></div>
-              <div class="pk"><svg><use href="#ic-paw-print"/></svg></div>
-            </div>
-            <div class="hint">Phosphor Icons から24種（MIT・商用利用可）</div>
-          </div>
-
-          <div class="card">
-            <div class="hd" style="padding:0 0 10px">背景の色</div>
-            <div class="swatches">
-              <div class="sc" style="--a:#174585"></div>
-              <div class="sc" style="--a:#3E6E8E"></div>
-              <div class="sc on" style="--a:#2F6F5E"></div>
-              <div class="sc" style="--a:#6B7A3F"></div>
-              <div class="sc" style="--a:#9A6B2F"></div>
-              <div class="sc" style="--a:#A8543C"></div>
-              <div class="sc" style="--a:#7D4A6B"></div>
-              <div class="sc" style="--a:#5B5FA3"></div>
-              <div class="sc" style="--a:#4A5567"></div>
-              <div class="sc" style="--a:#2C3542"></div>
-            </div>
-          </div>
-
-          <div class="btn">決定</div>
-        </div>
-      </div></div>
-
-      <div class="notes">
-        <div class="note">
-          <h3>24種 × 10色 = 240通り</h3>
-          <p>
-            「自分のアイコン」として成立する数がある。しかも
-            <b>Phosphor Icons</b>(MIT・商用利用可)の<b>塗りつぶし</b>の絵柄。
-            猫・犬・鳥・うさぎ・蝶・魚・花・葉・星・ハート・月・太陽・虹・炎・王冠・宝石・
-            おばけ・音符・ギター…と、<b>人が自分の印にしたくなるもの</b>で揃えた。
-            道具の絵(マイク・メーター・方位磁石)は外している。
-          </p>
-        </div>
-        <div class="note">
-          <h3>写真にしなかった理由（費用ではない）</h3>
-          <p>
-            費用はほぼ問題にならない。1000人でも保存は30MB程度で、無料枠に対して誤差。
-            実装も1日仕事。<b>本当の障害はモデレーションと法的リスクの3点</b>:
-          </p>
-          <p>
-            ① 未成年が使うアプリで画像投稿を開くと<b>児童ポルノのリスク</b>が発生する。
-            「不快な投稿」とは法的なカテゴリが違う。
-            ② <b>他人の顔が写り込む</b>。吹奏楽部の集合写真をアイコンにするのは普通に起きるが、
-            設計書の「他人のデータを勝手に上げない」原則と正面から衝突する。
-            ③ <b>写真のEXIFに位置情報が入っている</b>。学生がスマホの写真をそのまま上げると
-            学校の場所が漏れる。
-          </p>
-        </div>
-        <div class="why">
-          写真は後から足せる。データの持ち方を「アイコンの種類＋色」から
-          「アイコンの種類＋色 または 画像URL」に広げるだけなので、
-          <b>今の構造を壊さずに計画5(通報・法務)とセットで判断できる</b>。
-          そのときは画像判定API(1000枚200円程度)・EXIF除去・規約の条項が必要になる。
-        </div>
+    <div class="notes">
+      <div class="note">
+        <h3>平均を先頭に固定する</h3>
+        <p>
+          知らない他人を1人だけ選ぶのは、選ぶ側に抵抗がある。条件に合う人たちの平均なら、
+          個人の癖に引きずられず、選ぶ負担もない。<b>この画面で唯一の濃い面</b>にして、
+          迷ったらここ、と分かるようにしている。
+        </p>
+      </div>
+      <div class="note">
+        <h3>機材は3つの小片に分ける</h3>
+        <p>
+          「YAS-62 ／ S80 C* ／ 青箱 3」と1行で書くと、どこまでが楽器でどこからがリードか読み取れない。
+          <b>楽器・マウスピース・リードを別々の小片</b>にすると、
+          縦に並んだときに同じ位置で比較できる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>楽器種別はフィルタに置かない</h3>
+        <p>
+          右上に固定表示にした。<b>目安は同じ楽器種別としか比べられない</b>ので、
+          外せるフィルタとして並べると「アルトの人がテナーの目安を取り込む」という
+          意味を成さない操作を誘ってしまう。
+        </p>
+      </div>
+      <div class="flag">
+        絞り込みの結果が0件になることは普通に起きる。そのときは
+        「条件に合う人がまだいません」ではなく、<b>どの条件を外せば見つかるかを示す</b>。
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <hr class="rule">
+<!-- ═══ 2 平行移動 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2>目安を重ねて取り込む</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    録音環境の差を打ち消すため、相手の線を自分の位置まで平行移動してから重ねる。
+    この機能の理屈がそのまま画になる、一番大事な画面。
+  </p>
 
-  <!-- ============ ② ランキング ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>② ランキング</h2><span class="tag tag-draft">草案</span>
-    </div>
-    <p class="sec-sub">参考画像(GENTI)の表彰台をいちばん強く取り入れたところ。</p>
-
-    <div class="split">
-      <div class="phone"><div class="scr">
-        <div class="top"><div class="t">ランキング</div><div class="r">今月 ▾</div></div>
-        <div class="subtabs">
-          <div class="subtab">目安</div><div class="subtab on">ランキング</div>
-          <div class="subtab">機材</div><div class="subtab">マイページ</div>
-        </div>
-        <div class="body">
-          <div class="pills">
-            <div class="pill on">練習日数</div><div class="pill">練習時間</div><div class="pill">採用数</div>
-          </div>
-
-          <div class="top3">
-            <div class="t3 first">
-              <div class="rank">1</div>
-              <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-              <div class="who">まつり<span>高校吹奏楽部 ・ 歴3年</span></div>
-              <div class="val">29<em>日</em></div>
-            </div>
-            <div class="t3 second">
-              <div class="rank">2</div>
-              <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
-              <div class="who">アオイ<span>音大生 ・ 歴9年</span></div>
-              <div class="val">27<em>日</em></div>
-            </div>
-            <div class="t3 third">
-              <div class="rank">3</div>
-              <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-music-notes"/></svg></div>
-              <div class="who">こんぶ<span>社会人 ・ 歴15年</span></div>
-              <div class="val">24<em>日</em></div>
-            </div>
-          </div>
-
-          <div class="card tight">
-            <div class="rk"><div class="pos">4</div><div class="av s" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
-              <div class="who">ハルカ<span>高校吹奏楽部 ・ 歴2年</span></div><div class="val">22<em>日</em></div></div>
-            <div class="rk"><div class="pos">5</div><div class="av s" style="--a:#3E6E8E"><svg><use href="#ic-fish"/></svg></div>
-              <div class="who">みなと<span>大学吹奏楽 ・ 歴6年</span></div><div class="val">21<em>日</em></div></div>
-            <div class="rk"><div class="pos">6</div><div class="av s" style="--a:#7D4A6B"><svg><use href="#ic-heart"/></svg></div>
-              <div class="who">そら<span>社会人 ・ 歴8年</span></div><div class="val">19<em>日</em></div></div>
-            <div class="rk"><div class="pos">7</div><div class="av s" style="--a:#6B7A3F"><svg><use href="#ic-sun"/></svg></div>
-              <div class="who">りん<span>中学吹奏楽部 ・ 歴1年</span></div><div class="val">18<em>日</em></div></div>
-          </div>
-
-          <div class="mine">
-            <div class="rk"><div class="pos">12</div><div class="av s" style="--a:#174585"><svg><use href="#ic-star"/></svg></div>
-              <div class="who">あなた<span class="badge" style="display:inline-block;margin:0">あなた</span></div>
-              <div class="val">16<em>日</em></div></div>
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>まつり の目安</h4><div class="chip">アルト</div></div>
+      <div class="body">
+        <div class="card" id="shiftcard">
+          <p class="hd">スペクトル重心（音ごと）</p>
+          <svg viewBox="0 0 320 226" style="width:100%;height:auto" role="img"
+               aria-label="音名ごとのスペクトル重心を、自分と相手で重ねた折れ線グラフ">
+            <g font-size="11" fill="#8D95A1" font-family="-apple-system,sans-serif">
+              <text x="0" y="26">低ド</text><text x="0" y="66">レ</text><text x="0" y="106">ミ</text>
+              <text x="0" y="146">ソ</text><text x="0" y="186">高ド</text><text x="0" y="218">高ソ</text>
+            </g>
+            <g stroke="#EEF1F8" stroke-width="1">
+              <line x1="44" y1="12" x2="44" y2="218"/><line x1="112" y1="12" x2="112" y2="218"/>
+              <line x1="180" y1="12" x2="180" y2="218"/><line x1="248" y1="12" x2="248" y2="218"/>
+              <line x1="314" y1="12" x2="314" y2="218"/>
+            </g>
+            <polyline class="ghost" points="124,22 152,62 192,102 224,142 274,182 242,214" fill="none"
+              stroke="#C9D3E4" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline class="shifted" points="96,22 124,62 164,102 196,142 246,182 214,214" fill="none"
+              stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline points="70,22 110,62 158,102 206,142 280,182 258,214" fill="none"
+              stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
+            <g fill="#174585">
+              <circle cx="70" cy="22" r="3.2"/><circle cx="110" cy="62" r="3.2"/><circle cx="158" cy="102" r="3.2"/>
+              <circle cx="206" cy="142" r="3.2"/><circle cx="280" cy="182" r="3.2"/><circle cx="258" cy="214" r="3.2"/>
+            </g>
+          </svg>
+          <div style="display:flex;gap:18px;font-size:11.5px;color:#435266;margin-top:12px">
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:2.5px;background:#174585;display:inline-block"></span>自分</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:0;border-top:2px dashed #8D95A1;display:inline-block"></span>まつり</span>
           </div>
         </div>
-        <div class="nav">
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
-        </div>
-      </div></div>
 
-      <div class="notes">
-        <div class="note">
-          <h3>表彰台をやめて、上位3件も縦に積んだ</h3>
-          <p>
-            参考画像の横並びの表彰台はそのままだと引き写しになる。<b>順位は全部縦一列</b>にして、
-            上位3件だけ<b>1件ずつ独立したカード</b>に切り出し、アイコンに<b>順位色の環</b>を回した。
-            強さの順は「カードが独立している → 環の色 → 数字の大きさ」で付いていて、
-            台の高さに頼っていない。
+        <div class="card" style="background:var(--ac-tint);box-shadow:none">
+          <p style="margin:0;font-size:13px;color:#1D3355;line-height:1.85">
+            マイクの距離や部屋の響きで、値は全体が一律にずれる。そのずれを取り除いてから重ねているので、
+            読むのは<b>線の形</b>であって、上下の位置ではない。
           </p>
         </div>
-        <div class="note">
-          <h3>1位だけ深い紺で塗る</h3>
-          <p>
-            参考画像は黒。黒はこのアプリのパレットに無い色で、入れると
-            「紺のアプリに黒が1箇所だけある」状態になる。<b>紺をさらに沈めた #0F2038</b> を新設した。
-            塗るのは1位のカードだけなので、「1画面に山は1つ」の作法も保てている。
-          </p>
-        </div>
-        <div class="note">
-          <h3>自分の行は下端に貼り付ける</h3>
-          <p>
-            参考画像と同じ。<b>圏外(12位)でもスクロールに関係なく常に見える。</b>
-            上位者だけの画面は大多数にとって自分と無関係になる。
-          </p>
-        </div>
-        <div class="note">
-          <h3>王冠やメダルの絵文字は使わない</h3>
-          <p>
-            絵文字は端末ごとに絵柄が変わるので、iPhone と Android で見た目が別物になる。
-            <b>順位色は環と数字の色だけで表す</b>ので、そもそも絵が要らない。
-          </p>
-        </div>
-        <div class="why">
-          指標は<b>練習日数・練習時間・採用数の3つだけ</b>。計測回数とアプリ稼働時間は落としてある
-          (短い録音の連打と、開いて放置するだけで伸びるため)。
-        </div>
+
+        <div class="btn">この目安を取り込む</div>
+        <p class="hint" style="text-align:center;margin:0">
+          計測タブの目安に「取り込んだ目安（高校吹奏楽部・アルト）」として追加されます
+        </p>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>薄い線が、動いて重なる</h3>
+        <p>
+          画面に入ると、相手の生の値（薄い線）が自分の位置まで<b>滑って揃う</b>。
+          文章で説明するより、この0.1秒のほうが仕組みが伝わる。
+          動きを止める設定の人には、揃った後の状態だけを見せる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>縦軸に音名、横軸に値</h3>
+        <p>
+          音ごとの比較が主役なので、<b>1本の平均値には決して潰さない</b>。
+          破線は既存の計測タブが目安に使っている色をそのまま引いているので、
+          読み方を学び直す必要がない。
+        </p>
+      </div>
+      <div class="note">
+        <h3>解釈の文は置かない</h3>
+        <p>
+          「低いドが暗い」のような言い換えは載せない。どの音がどれだけ違うかはグラフが示しており、
+          そこから何を直すかは吹いている本人が決めること。
+          <b>アプリが判定を代わりに言うと、外れたときに信用を失う。</b>
+        </p>
+      </div>
+      <div class="flag">
+        音量とHNRの絶対値は出さない。マイクの距離と入力ゲインに支配されていて、
+        他人の値に意味がないため。共有するのはピッチ・倍音構成・重心・HNRの<b>形</b>だけ。
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <hr class="rule">
+<!-- ═══ 3 順位 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">03</span>
+    <h2>練習量の順位</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    上位3件だけカードを独立させ、アイコンに順位の環を回す。台の高さには頼らない。
+  </p>
 
-  <!-- ============ ③ ユーザー詳細 ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>③ 人をタップしたとき</h2><span class="tag tag-new">新規</span>
-    </div>
-    <p class="sec-sub">
-      参考画像5枚目から。ボトムシートで相手の要約を出し、そこに通報を置く。
-      通報は App Store の審査要件でいずれ必要になるので、置き場所が決まるのは前進。
-    </p>
-
-    <div class="split">
-      <div class="phone"><div class="scr">
-        <div class="top" style="opacity:.35"><div class="t">ランキング</div><div class="r">今月 ▾</div></div>
-        <div class="subtabs" style="opacity:.35">
-          <div class="subtab">目安</div><div class="subtab on">ランキング</div>
-          <div class="subtab">機材</div><div class="subtab">マイページ</div>
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>順位</h4><div class="chip">今月</div></div>
+      <div class="tabs">
+        <div class="tab">目安</div><div class="tab on">順位</div>
+        <div class="tab">機材</div><div class="tab">マイページ</div>
+      </div>
+      <div class="body">
+        <div class="pills">
+          <div class="pill on">練習日数</div><div class="pill">練習時間</div><div class="pill">採用数</div>
         </div>
-        <div class="body" style="opacity:.35">
-          <div class="pills"><div class="pill on">練習日数</div><div class="pill">練習時間</div><div class="pill">採用数</div></div>
-          <div class="hero" style="height:150px"></div>
-          <div class="card" style="height:90px"></div>
-        </div>
-        <div class="sheetwrap">
-          <div class="sheet">
-            <div class="x">✕</div>
-            <div style="display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:-14px">
-              <div class="av lg" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-              <div style="font-size:18px; font-weight:700">まつり</div>
-              <div class="at" style="text-align:center">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽 ・ 学校の音楽室</div>
-            </div>
-            <div>
-              <div class="stat"><div class="k">使用楽器</div><div style="font-size:13.5px">YAS-62</div></div>
-              <div class="stat"><div class="k">マウスピース</div><div style="font-size:13.5px">Selmer S80 C*</div></div>
-              <div class="stat"><div class="k">リード</div><div style="font-size:13.5px">青箱 3（12日目）</div></div>
-              <div class="stat"><div class="k">今月の練習日数</div><div class="v">29<em style="font-style:normal;font-family:var(--sans);font-size:11px;color:var(--ink-3)"> 日</em></div></div>
-              <div class="stat"><div class="k">目安の採用数</div><div class="v">38<em style="font-style:normal;font-family:var(--sans);font-size:11px;color:var(--ink-3)"> 人</em></div></div>
-            </div>
-            <div class="btn">この人の目安を見る</div>
-            <div class="btn warn">このユーザーを通報</div>
+
+        <div class="top3">
+          <div class="t3 n1">
+            <div class="p">1</div>
+            <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div class="who">まつり<span>高校吹奏楽部 ・ 歴3年</span></div>
+            <div class="v">29<i>日</i></div>
+          </div>
+          <div class="t3 n2">
+            <div class="p">2</div>
+            <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
+            <div class="who">アオイ<span>音大生 ・ 歴9年</span></div>
+            <div class="v">27<i>日</i></div>
+          </div>
+          <div class="t3 n3">
+            <div class="p">3</div>
+            <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
+            <div class="who">こんぶ<span>社会人 ・ 歴15年</span></div>
+            <div class="v">24<i>日</i></div>
           </div>
         </div>
-      </div></div>
 
-      <div class="notes">
-        <div class="note">
-          <h3>通報の置き場所が決まった</h3>
-          <p>
-            App Store のガイドライン1.2は、ユーザー生成コンテンツがあるアプリに
-            <b>フィルタ・通報・ブロック・連絡先公開の4点セット</b>を要求する。
-            これまで「通報はどこに置くのか」が宙に浮いていたが、この画面で解決する。
-          </p>
+        <div class="card flush">
+          <div class="rk"><div class="p">4</div>
+            <div class="av s" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
+            <div class="who">ハルカ<span>高校吹奏楽部 ・ 歴2年</span></div><div class="v">22<i>日</i></div></div>
+          <div class="rk"><div class="p">5</div>
+            <div class="av s" style="--a:#3E6E8E"><svg><use href="#ic-fish"/></svg></div>
+            <div class="who">みなと<span>大学吹奏楽 ・ 歴6年</span></div><div class="v">21<i>日</i></div></div>
+          <div class="rk"><div class="p">6</div>
+            <div class="av s" style="--a:#7D4A6B"><svg><use href="#ic-heart"/></svg></div>
+            <div class="who">そら<span>社会人 ・ 歴8年</span></div><div class="v">19<i>日</i></div></div>
+          <div class="rk"><div class="p">7</div>
+            <div class="av s" style="--a:#6B7A3F"><svg><use href="#ic-leaf"/></svg></div>
+            <div class="who">りん<span>中学吹奏楽部 ・ 歴1年</span></div><div class="v">18<i>日</i></div></div>
         </div>
-        <div class="note">
-          <h3>通報の対象はニックネームだけ</h3>
-          <p>
-            他の項目は全部プルダウンから選ばせているので、<b>不適切な文字列が入り得るのは名前だけ</b>。
-            だから通報を受けたら自動で非公開にする処理が成立し、人が24時間張り付く必要がなくなる。
-            この設計がここで効いてくる。
-          </p>
-        </div>
-        <div class="why">
-          ブロック(この人を一覧から隠す)も同じシートに置くことになる。草案では省いてあるが、
-          審査要件なので実装時には必要。
+
+        <div class="you">
+          <div class="rk"><div class="p">12</div>
+            <div class="av s" style="--a:#174585"><svg><use href="#ic-rabbit"/></svg></div>
+            <div class="who">ゆう<span class="badge">あなた</span></div><div class="v">16<i>日</i></div></div>
         </div>
       </div>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>自分の行は下端に貼り付ける</h3>
+        <p>
+          12位でもスクロールに関係なく常に見える。<b>上位者だけの画面は、大多数にとって
+          自分と無関係な画面になる。</b>
+        </p>
+      </div>
+      <div class="note">
+        <h3>1位だけ濃紺で塗る</h3>
+        <p>
+          横並びの台をやめ、順位は全部縦一列にした。強さの順は
+          <b>カードの独立 → 環の色 → 数字の大きさ</b>で付いている。
+          塗るのは1位だけなので「1画面に山は1つ」の作法も保てる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>数えるのは日数と時間だけ</h3>
+        <p>
+          計測回数とアプリ稼働時間は指標から外した。短い録音の連打と、開いて放置するだけで
+          伸びてしまうため。日数は<b>「5分以上サックスを鳴らした日」</b>で数える。
+        </p>
+      </div>
+      <div class="flag">
+        チューナーやメトロノームとして使っている時間も練習に入る。計測タブにいる間はマイクが
+        動いているので、<b>録音していなくても鳴っていた時間は取れる</b>。
+      </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <hr class="rule">
+<!-- ═══ 4 人を見る ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">04</span>
+    <h2>人をタップしたとき</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">
+    相手の要約をシートで出し、そこに通報を置く。App Store の審査要件で必要になる導線。
+  </p>
 
-  <!-- ============ ④ 目安の詳細 ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>④ 目安の中身を見て取り込む</h2><span class="tag tag-draft">草案</span>
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar" style="opacity:.3"><h4>順位</h4><div class="chip">今月</div></div>
+      <div class="tabs" style="opacity:.3">
+        <div class="tab">目安</div><div class="tab on">順位</div>
+        <div class="tab">機材</div><div class="tab">マイページ</div>
+      </div>
+      <div class="body" style="opacity:.3">
+        <div class="pills"><div class="pill on">練習日数</div><div class="pill">練習時間</div><div class="pill">採用数</div></div>
+        <div class="deep" style="height:96px"></div>
+        <div class="card" style="height:76px"></div>
+      </div>
+      <div class="veil">
+        <div class="sheet">
+          <div class="grab"></div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:10px">
+            <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div style="font-size:19px; font-weight:700">まつり</div>
+            <div class="sub" style="text-align:center;margin:0">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽 ・ 学校の音楽室</div>
+          </div>
+          <div>
+            <div class="st"><div class="k">楽器</div><div class="v">YAS-62</div></div>
+            <div class="st"><div class="k">マウスピース</div><div class="v">Selmer S80 C*</div></div>
+            <div class="st"><div class="k">リード</div><div class="v">青箱 3（12日目）</div></div>
+            <div class="st"><div class="k">今月の練習日数</div><div class="v big">29<i>日</i></div></div>
+            <div class="st"><div class="k">目安の採用数</div><div class="v big">38<i>人</i></div></div>
+          </div>
+          <div class="btn">この人の目安を見る</div>
+          <div class="btn dg">このユーザーを通報</div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>通報の置き場所が決まった</h3>
+        <p>
+          審査ガイドライン1.2は、ユーザー生成コンテンツを含むアプリに
+          <b>フィルタ・通報・ブロック・連絡先公開の4点</b>を求める。
+          これまで通報の置き場所が宙に浮いていたが、この画面で解決する。
+        </p>
+      </div>
+      <div class="note">
+        <h3>通報の対象はニックネームだけ</h3>
+        <p>
+          他の項目は全部プルダウンから選ばせているので、不適切な文字列が入り得るのは名前だけ。
+          だから<b>通報を受けたら自動で非公開にする</b>処理が成立し、人が24時間張り付く必要がなくなる。
+          設計の効き目がここで出る。
+        </p>
+      </div>
+      <div class="flag">
+        ブロック（この人を一覧から隠す）も同じシートに入る。草案では省いてあるが、審査要件なので実装時には必要。
+      </div>
     </div>
-    <p class="sec-sub">「平行移動して形を比べる」を実際に見せる画面。ここだけはカードより中身が主役になる。</p>
+  </div>
+</section>
 
-    <div class="split">
-      <div class="phone"><div class="scr">
-        <div class="top"><div class="t">◀ まつり の目安</div></div>
-        <div class="body">
-          <div class="card">
-            <div class="hd" style="padding:0">スペクトル重心（音ごと）</div>
-            <svg viewBox="0 0 330 210" style="width:100%;height:auto;margin-top:8px" role="img" aria-label="音名ごとのスペクトル重心を自分と相手で重ねた折れ線グラフ">
-              <g font-size="11" fill="#8D95A1" font-family="-apple-system,sans-serif">
-                <text x="0" y="24">低ド</text><text x="0" y="60">レ</text><text x="0" y="96">ミ</text>
-                <text x="0" y="132">ソ</text><text x="0" y="168">高ド</text><text x="0" y="200">高ソ</text>
-              </g>
-              <g stroke="#EEF1F6" stroke-width="1">
-                <line x1="42" y1="10" x2="42" y2="200"/><line x1="112" y1="10" x2="112" y2="200"/>
-                <line x1="182" y1="10" x2="182" y2="200"/><line x1="252" y1="10" x2="252" y2="200"/>
-                <line x1="322" y1="10" x2="322" y2="200"/>
-              </g>
-              <polyline points="96,20 126,56 168,92 202,128 254,164 220,196" fill="none"
-                stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
-              <polyline points="70,20 110,56 162,92 208,128 278,164 260,196" fill="none"
-                stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
-              <g fill="#174585">
-                <circle cx="70" cy="20" r="3"/><circle cx="110" cy="56" r="3"/><circle cx="162" cy="92" r="3"/>
-                <circle cx="208" cy="128" r="3"/><circle cx="278" cy="164" r="3"/><circle cx="260" cy="196" r="3"/>
-              </g>
+<!-- ═══ 5 機材 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">05</span>
+    <h2>みんなの機材</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">誰が何を使っているか。割合と、組み合わせの票数。</p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>みんなの機材</h4><div class="chip">アルト</div></div>
+      <div class="tabs">
+        <div class="tab">目安</div><div class="tab">順位</div>
+        <div class="tab on">機材</div><div class="tab">マイページ</div>
+      </div>
+      <div class="body">
+        <div class="pills"><div class="pill on">全員</div><div class="pill">高校吹奏楽部</div><div class="pill">音大生</div></div>
+
+        <div class="card">
+          <p class="hd">リード</p>
+          <div class="donut">
+            <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="リードの割合">
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#EEF1F8" stroke-width="15"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="105 140" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="66 179" transform="rotate(66 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="44 201" transform="rotate(166 50 50)"/>
             </svg>
-            <div style="display:flex;gap:16px;font-size:11.5px;color:#435266;margin-top:6px">
-              <span style="display:flex;align-items:center;gap:5px">
-                <span style="width:16px;height:2px;background:#174585;display:inline-block"></span>自分</span>
-              <span style="display:flex;align-items:center;gap:5px">
-                <span style="width:16px;height:0;border-top:2px dashed #8D95A1;display:inline-block"></span>まつり（位置を合わせた後）</span>
+            <div class="lgd">
+              <div><span class="sw" style="background:#174585"></span>青箱<b>43%</b></div>
+              <div><span class="sw" style="background:#7FA0CE"></span>V21<b>27%</b></div>
+              <div><span class="sw" style="background:#B9C9E4"></span>Java<b>18%</b></div>
+              <div><span class="sw" style="background:#EEF1F8"></span>その他<b>12%</b></div>
             </div>
           </div>
+        </div>
 
-          <div class="card" style="background:var(--accent-tint)">
-            <div style="font-size:12.5px;color:#243B5C;line-height:1.8">
-              録音環境の違いを打ち消すため、相手の線を自分の位置まで<b>平行移動</b>してから重ねています。
-              比べているのは<b>線の形</b>で、絶対値の差ではありません。
+        <div class="card">
+          <p class="hd">楽器</p>
+          <div class="donut">
+            <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="楽器の割合">
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#EEF1F8" stroke-width="15"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="122 123" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="58 187" transform="rotate(92 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15" stroke-linecap="round"
+                stroke-dasharray="39 206" transform="rotate(178 50 50)"/>
+            </svg>
+            <div class="lgd">
+              <div><span class="sw" style="background:#174585"></span>YAMAHA<b>50%</b></div>
+              <div><span class="sw" style="background:#7FA0CE"></span>Selmer<b>24%</b></div>
+              <div><span class="sw" style="background:#B9C9E4"></span>Yanagisawa<b>16%</b></div>
+              <div><span class="sw" style="background:#EEF1F8"></span>その他<b>10%</b></div>
             </div>
           </div>
+        </div>
 
-          <div class="btn">この目安を取り込む</div>
-          <div class="hint" style="text-align:center">
-            取り込むと計測タブの目安に追加されます。名前は残さず「取り込んだ目安」として保存されます。
+        <div>
+          <p class="hd">よくある組み合わせ</p>
+          <div class="card flush">
+            <div class="row">
+              <div class="m"><div class="kit" style="margin:0">
+                <span class="kv">YAS-62</span><span class="kv">S80 C*</span><span class="kv">青箱</span></div></div>
+              <div class="cnt"><b>86</b><span>票</span></div>
+            </div>
+            <div class="row">
+              <div class="m"><div class="kit" style="margin:0">
+                <span class="kv">YAS-875EX</span><span class="kv">S90 180</span><span class="kv">V21</span></div></div>
+              <div class="cnt"><b>51</b><span>票</span></div>
+            </div>
+            <div class="row">
+              <div class="m"><div class="kit" style="margin:0">
+                <span class="kv">Series II</span><span class="kv">Meyer 6M</span><span class="kv">Java</span></div></div>
+              <div class="cnt"><b>34</b><span>票</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>色は紺の明度段階だけ</h3>
+        <p>
+          緑・橙・赤は「音程が合っている / 外れている」という意味を持っている色なので、
+          割合の一切れに使うと意味が濁る。<b>紺3段＋灰</b>で足りる範囲に項目を絞り、
+          残りは「その他」へ落とす。
+        </p>
+      </div>
+      <div class="note">
+        <h3>票数だけを出す</h3>
+        <p>
+          「高校吹奏楽部に多い」のような添え書きは載せない。
+          <b>立場のピルで絞れば同じことが自分で分かる</b>ので、アプリが要約して言う必要がない。
+        </p>
+      </div>
+      <div class="note">
+        <h3>組み合わせも小片で揃える</h3>
+        <p>
+          一覧と同じ<b>楽器・マウスピース・リードの3小片</b>にすると、上の一覧から目を移しても
+          読み方が変わらない。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 6 アイコン ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">06</span>
+    <h2>アイコンを選ぶ</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">絵と背景色の組み合わせで自分の印を作る。写真は使わない。</p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>アイコン</h4></div>
+      <div class="body">
+        <div class="card">
+          <p class="hd">一覧での見え方</p>
+          <div style="display:flex; gap:13px; align-items:center">
+            <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div style="flex:1; min-width:0">
+              <div class="nm">まつり</div>
+              <div class="sub">高校吹奏楽部 ・ 歴3年</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="hd">絵</p>
+          <div class="grid6">
+            <div class="pk on" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div class="pk"><svg><use href="#ic-dog"/></svg></div>
+            <div class="pk"><svg><use href="#ic-bird"/></svg></div>
+            <div class="pk"><svg><use href="#ic-rabbit"/></svg></div>
+            <div class="pk"><svg><use href="#ic-butterfly"/></svg></div>
+            <div class="pk"><svg><use href="#ic-fish"/></svg></div>
+            <div class="pk"><svg><use href="#ic-flower-lotus"/></svg></div>
+            <div class="pk"><svg><use href="#ic-leaf"/></svg></div>
+            <div class="pk"><svg><use href="#ic-star"/></svg></div>
+            <div class="pk"><svg><use href="#ic-heart"/></svg></div>
+            <div class="pk"><svg><use href="#ic-moon-stars"/></svg></div>
+            <div class="pk"><svg><use href="#ic-sun"/></svg></div>
+            <div class="pk"><svg><use href="#ic-rainbow"/></svg></div>
+            <div class="pk"><svg><use href="#ic-fire"/></svg></div>
+            <div class="pk"><svg><use href="#ic-sparkle"/></svg></div>
+            <div class="pk"><svg><use href="#ic-crown-simple"/></svg></div>
+            <div class="pk"><svg><use href="#ic-diamond"/></svg></div>
+            <div class="pk"><svg><use href="#ic-ghost"/></svg></div>
+            <div class="pk"><svg><use href="#ic-music-notes"/></svg></div>
+            <div class="pk"><svg><use href="#ic-guitar"/></svg></div>
+            <div class="pk"><svg><use href="#ic-tree"/></svg></div>
+            <div class="pk"><svg><use href="#ic-snowflake"/></svg></div>
+            <div class="pk"><svg><use href="#ic-cloud"/></svg></div>
+            <div class="pk"><svg><use href="#ic-paw-print"/></svg></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="hd">背景の色</p>
+          <div class="grid10">
+            <div class="sc" style="--a:#174585"></div><div class="sc" style="--a:#3E6E8E"></div>
+            <div class="sc on" style="--a:#2F6F5E"></div><div class="sc" style="--a:#6B7A3F"></div>
+            <div class="sc" style="--a:#9A6B2F"></div><div class="sc" style="--a:#A8543C"></div>
+            <div class="sc" style="--a:#7D4A6B"></div><div class="sc" style="--a:#5B5FA3"></div>
+            <div class="sc" style="--a:#4A5567"></div><div class="sc" style="--a:#2C3542"></div>
+          </div>
+        </div>
+
+        <div class="btn">決定</div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>24種 × 10色 = 240通り</h3>
+        <p>
+          Phosphor Icons（MIT・商用利用可）の<b>塗りつぶし</b>の絵柄。
+          猫・犬・鳥・うさぎ・蝶・魚・花・葉・星・ハート・月・太陽・虹・炎・王冠・宝石・
+          おばけ・音符・ギターなど、<b>人が自分の印にしたくなるもの</b>で揃えた。
+          道具の絵（マイク・メーター・方位磁石）は外している。
+        </p>
+      </div>
+      <div class="note">
+        <h3>線画ではなく塗りにした理由</h3>
+        <p>
+          40pxの円の中では線画は細すぎて弱い。塗りにすると、一覧に縦に並んだときに
+          <b>誰の行かを絵の形だけで拾える</b>ようになる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>写真にしなかった理由（費用ではない）</h3>
+        <p>
+          費用はほぼ問題にならない。1000人でも保存は30MB程度で、無料枠に対して誤差。実装も1日仕事。
+          <b>本当の障害は3つ</b>。
+        </p>
+        <p>
+          未成年が使うアプリで画像投稿を開くと<b>児童ポルノのリスク</b>が生じる。これは「不快な投稿」とは
+          法的なカテゴリが違う。写真には<b>他人の顔が写り込む</b> — 部活の集合写真をアイコンにするのは
+          普通に起きるが、「他人のデータを勝手に上げない」原則と正面から衝突する。そして
+          <b>EXIFに位置情報が入っている</b> — 学生がスマホの写真をそのまま上げると学校の場所が漏れる。
+        </p>
+      </div>
+      <div class="flag">
+        写真は後から足せる。持ち方を「絵の種類＋色」から「絵の種類＋色 <b>または</b> 画像URL」に
+        広げるだけなので、今の構造を壊さずに計画5（通報・法務）とセットで判断できる。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 7 マイページ ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">07</span>
+    <h2>マイページ</h2>
+    <span class="tag t-built">実装済み</span>
+  </div>
+  <p class="sec-sub">
+    参加 → 登録 → 表示・削除の3状態。動作確認まで完了している。
+    下はカード作法に合わせて描き直した姿で、実装は現状まだ罫のまま。
+  </p>
+
+  <div class="trio">
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:22px 16px">
+          <div class="card">
+            <div style="font-size:17px;font-weight:700">コミュニティ</div>
+            <p style="font-size:13.5px;color:var(--i2);line-height:1.85;margin:10px 0 0">
+              他の奏者の目安・機材・練習量を見られるようになります。参加すると匿名のアカウントが作られます。
+              メールアドレスなどの個人情報は集めません。
+            </p>
+            <p class="hint">
+              匿名アカウントはこの端末に紐づきます。機種変更やアプリの削除で失われます。
+            </p>
+          </div>
+          <div class="btn">参加してプロフィールを作る</div>
+        </div>
+      </div></div>
+      <p class="cap">参加前（アカウントはまだ作られない）</p>
+    </div>
+
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:18px 16px">
+          <div class="card">
+            <div class="fld">ニックネーム</div>
+            <div class="inp">まつり</div>
+            <p class="hint">ニックネームは他の利用者に公開されます。本名は使わないでください</p>
+          </div>
+          <div class="card" style="display:flex;flex-direction:column;gap:16px">
+            <div><div class="fld">楽器種別</div><div class="inp">アルト</div></div>
+            <div><div class="fld">楽器</div><div class="inp ph">例: YAS-62</div></div>
+            <div><div class="fld">立場</div><div class="inp">高校吹奏楽部</div></div>
+          </div>
+          <div class="card"><div class="ck"><div class="box"></div>13歳以上です</div></div>
+          <div class="btn">保存する</div>
+        </div>
+      </div></div>
+      <p class="cap">登録フォーム（自由入力はニックネームだけ）</p>
+    </div>
+
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:18px 16px">
+          <div class="card" style="display:flex;gap:14px;align-items:center">
+            <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div><div class="nm" style="font-size:17px">まつり</div>
+              <div class="sub">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽</div></div>
+          </div>
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px">
+            <div><div style="font-size:14px;font-weight:700">公開する</div>
+              <p class="hint" style="margin-top:4px">ONにすると他の利用者から見えます</p></div>
+            <div class="tog"></div>
+          </div>
+          <div class="btn gh">編集</div>
+          <div class="card">
+            <p class="hint" style="margin:0 0 14px">
+              アカウントを削除すると、サーバー上のプロフィールは完全に消えます。
+              この端末の計測データは消えません。
+            </p>
+            <div style="text-align:center;font-size:13.5px;font-weight:700;color:var(--dg)">アカウントを削除</div>
           </div>
         </div>
       </div></div>
+      <p class="cap">プロフィール（公開切替・編集・削除）</p>
+    </div>
+  </div>
+</section>
 
-      <div class="notes">
-        <div class="note">
-          <h3>取り込んだ目安は匿名化する</h3>
-          <p>
-            ご指示どおり。相手の名前は残さず「取り込んだ目安（高校吹奏楽部・アルト）」のような
-            属性だけの名前で保存する。
-          </p>
-        </div>
-        <div class="note">
-          <h3>法的な問題は無い。むしろ匿名化のほうが安全</h3>
-          <p>
-            相手が自分の意思で公開した数値を、あなたの端末に写しとして持つだけなので、
-            そもそも問題になりにくい。そのうえで<b>名前を落とすと「個人に紐づくデータ」ですらなくなる</b>ので、
-            相手がアカウントを削除したときに「自分のデータを消せ」と言われる余地も消える。
-          </p>
-          <p>
-            名前を残す設計だと、相手が削除した後もあなたの端末に相手の名前が残り続ける。
-            <b>削除したのに名前が残るのは、説明が要る状態</b>になる。匿名化はその問題を発生前に消している。
-          </p>
-        </div>
-        <div class="why">
-          代わりに失うのは「誰の目安だったか」の手がかり。同じ人の目安を複数取り込むと区別しにくくなるので、
-          属性＋取り込んだ日付を名前に入れる必要がある。
-        </div>
+<!-- ═══ 8 ルール ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">08</span>
+    <h2>衝突した既存ルール</h2>
+  </div>
+  <p class="sec-sub">
+    この作法を採るために無視した規定。影響の大きい順。実装前に
+    <code>DESIGN-SYSTEM.md</code> を改訂して辻褄を合わせる必要がある。
+  </p>
+
+  <div class="rules">
+    <div class="rule hot">
+      <div class="top">
+        <h3>背景色を多用すると画面全体が重く見えるのでやめて</h3>
+        <span class="src">§6.6 ／ 2026-08-23 本人裁定 D-7</span>
       </div>
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <!-- ============ ⑤ みんなの機材 ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>⑤ みんなの機材</h2><span class="tag tag-draft">草案</span>
-    </div>
-    <p class="sec-sub">誰が何を使っているか。円グラフと、組み合わせの票数。</p>
-
-    <div class="split">
-      <div class="phone"><div class="scr">
-        <div class="top"><div class="t">みんなの機材</div><div class="r">アルト ▾</div></div>
-        <div class="subtabs">
-          <div class="subtab">目安</div><div class="subtab">ランキング</div>
-          <div class="subtab on">機材</div><div class="subtab">マイページ</div>
-        </div>
-        <div class="body">
-          <div class="card">
-            <div class="hd" style="padding:0">リード</div>
-            <div style="display:flex;gap:16px;align-items:center;margin-top:10px">
-              <svg viewBox="0 0 100 100" style="width:100px;height:100px;flex:none" role="img" aria-label="リードのシェアを表す円グラフ">
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#174585" stroke-width="19" stroke-dasharray="103 136" transform="rotate(-90 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#7FA0CE" stroke-width="19" stroke-dasharray="65 174" transform="rotate(65 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#B9C9E4" stroke-width="19" stroke-dasharray="42 197" transform="rotate(163 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#E1E6EE" stroke-width="19" stroke-dasharray="29 210" transform="rotate(226 50 50)"/>
-              </svg>
-              <div class="lg">
-                <div><span class="sw" style="background:#174585"></span>青箱<b>43%</b></div>
-                <div><span class="sw" style="background:#7FA0CE"></span>V21<b>27%</b></div>
-                <div><span class="sw" style="background:#B9C9E4"></span>Java<b>18%</b></div>
-                <div><span class="sw" style="background:#E1E6EE"></span>その他<b>12%</b></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="hd" style="padding:0">楽器</div>
-            <div style="display:flex;gap:16px;align-items:center;margin-top:10px">
-              <svg viewBox="0 0 100 100" style="width:100px;height:100px;flex:none" role="img" aria-label="楽器のシェアを表す円グラフ">
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#174585" stroke-width="19" stroke-dasharray="120 119" transform="rotate(-90 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#7FA0CE" stroke-width="19" stroke-dasharray="57 182" transform="rotate(91 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#B9C9E4" stroke-width="19" stroke-dasharray="38 201" transform="rotate(177 50 50)"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#E1E6EE" stroke-width="19" stroke-dasharray="24 215" transform="rotate(234 50 50)"/>
-              </svg>
-              <div class="lg">
-                <div><span class="sw" style="background:#174585"></span>YAMAHA<b>50%</b></div>
-                <div><span class="sw" style="background:#7FA0CE"></span>Selmer<b>24%</b></div>
-                <div><span class="sw" style="background:#B9C9E4"></span>Yanagisawa<b>16%</b></div>
-                <div><span class="sw" style="background:#E1E6EE"></span>その他<b>10%</b></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="hd">よくある組み合わせ</div>
-          <div class="card tight">
-            <div class="row">
-              <div class="main"><div style="font-size:13.5px;font-weight:700">YAS-62 ／ S80 C* ／ 青箱</div></div>
-              <div class="vote"><span class="n">86</span><span class="u">票</span></div>
-            </div>
-            <div class="row">
-              <div class="main"><div style="font-size:13.5px;font-weight:700">YAS-875EX ／ S90 180 ／ V21</div></div>
-              <div class="vote"><span class="n">51</span><span class="u">票</span></div>
-            </div>
-            <div class="row">
-              <div class="main"><div style="font-size:13.5px;font-weight:700">Series II ／ Meyer 6M ／ Java</div></div>
-              <div class="vote"><span class="n">34</span><span class="u">票</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="nav">
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
-          <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
-        </div>
-      </div></div>
-
-      <div class="notes">
-        <div class="note">
-          <h3>円グラフの色は紺の明度段階だけ</h3>
-          <p>
-            ここは既存ルールを守った。<b>緑・橙・赤は「音程が合っている / 外れている」という意味</b>を
-            持っているので、円グラフの一切れに使うと意味が濁る。紺4段で足りる範囲に絞り、残りは「その他」へ。
-          </p>
-        </div>
-        <div class="note">
-          <h3>票数だけを出す</h3>
-          <p>
-            「高校吹奏楽部に多い」のような添え書きは<b>載せない</b>。
-            立場で絞り込めば同じことが自分で分かるので、アプリが要約して言う必要がない。
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <!-- ============ ⑥ マイプロフィール ============ -->
-  <section>
-    <div class="sec-head">
-      <h2>⑥ マイプロフィール</h2><span class="tag tag-built">実装済み</span>
-    </div>
-    <p class="sec-sub">
-      ここだけは既に動いている。参加 → 登録 → 表示・削除の3状態。
-      下は<b>今回のカード作法に合わせて描き直した姿</b>で、実装は現状まだ罫のまま。
-    </p>
-
-    <div class="trio">
-      <div>
-        <div class="phone"><div class="scr short">
-          <div class="body" style="gap:12px;padding:18px 14px">
-            <div class="card">
-              <div style="font-size:16px;font-weight:700">コミュニティ</div>
-              <div style="font-size:13px;color:var(--ink-2);line-height:1.8;margin-top:8px">
-                他の奏者の目安・機材・練習量を見られるようになります。参加すると匿名のアカウントが作られます。
-                メールアドレスなどの個人情報は収集しません。
-              </div>
-              <div class="hint">匿名アカウントはこの端末に紐づきます。機種変更やアプリの削除で失われます。</div>
-            </div>
-            <div class="btn">参加してプロフィールを作る</div>
-          </div>
-        </div></div>
-        <p class="cap">参加前（アカウントはまだ作られない）</p>
-      </div>
-
-      <div>
-        <div class="phone"><div class="scr short">
-          <div class="body" style="gap:12px;padding:16px 14px">
-            <div class="card">
-              <div class="fld">ニックネーム</div>
-              <div class="inp">まつり</div>
-              <div class="hint">ニックネームは他の利用者に公開されます。本名は使わないでください</div>
-            </div>
-            <div class="card">
-              <div class="fld">楽器種別</div><div class="inp">アルト ▾</div>
-              <div class="fld" style="margin-top:12px">楽器</div><div class="inp ph">例: YAS-62</div>
-              <div class="fld" style="margin-top:12px">立場</div><div class="inp">高校吹奏楽部 ▾</div>
-            </div>
-            <div class="card"><div class="ck"><div class="ckbox"></div>13歳以上です</div></div>
-            <div class="btn">保存する</div>
-          </div>
-        </div></div>
-        <p class="cap">登録フォーム（自由入力はニックネームだけ）</p>
-      </div>
-
-      <div>
-        <div class="phone"><div class="scr short">
-          <div class="body" style="gap:12px;padding:16px 14px">
-            <div class="card" style="display:flex;gap:12px;align-items:center">
-              <div class="av" style="--a:#2F6F5E;width:48px;height:48px"><svg style="width:26px;height:26px"><use href="#ic-cat"/></svg></div>
-              <div><div class="nm" style="font-size:16px">まつり</div>
-                <div class="at">高校吹奏楽部 ・ 歴3年 ・ 吹奏楽</div></div>
-            </div>
-            <div class="card">
-              <div style="display:flex;justify-content:space-between;align-items:center">
-                <div><div style="font-size:13.5px">公開する</div>
-                  <div class="hint" style="margin-top:2px">ONにすると他の利用者から見えます</div></div>
-                <div style="width:40px;height:23px;border-radius:999px;background:var(--accent);flex:none;position:relative">
-                  <div style="width:19px;height:19px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px"></div>
-                </div>
-              </div>
-            </div>
-            <div class="btn ghost">編集</div>
-            <div class="card">
-              <div class="hint" style="margin-bottom:10px">
-                アカウントを削除すると、サーバー上のプロフィールは完全に消えます。
-                この端末の計測データは消えません。
-              </div>
-              <div style="text-align:center;font-size:13px;color:var(--danger)">アカウントを削除</div>
-            </div>
-          </div>
-        </div></div>
-        <p class="cap">プロフィール（公開切替・編集・削除）</p>
-      </div>
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <section>
-    <div class="sec-head"><h2>決まったこと / 残っていること</h2></div>
-    <div class="q">
-      <div><h3><span class="qn">済</span>子タブは4つのまま</h3>
-        <p>375px幅で余白がほぼ無いが、気にならないとの判断。</p></div>
-      <div><h3><span class="qn">済</span>楽器歴は上限と下限で絞る</h3>
-        <p>ピルに選んだ範囲がそのまま出る（「歴 3〜10年」）。帯を固定せず自由に決められる。</p></div>
-      <div><h3><span class="qn">済</span>取り込んだ目安は匿名化する</h3>
-        <p>法的にも匿名化のほうが安全。詳細は④の右側。</p></div>
-      <div><h3><span class="qn">済</span>ランキングと目安公開は分けない</h3>
-        <p>非公開にした人はランキングにも出ない。</p></div>
-      <div><h3><span class="qn">済</span>コミュニティタブはカード作法にする</h3>
-        <p>既存3タブは罫のまま。§6.6 の表に行を1つ足して、タブ単位で作法を分ける形に改訂する。</p></div>
-      <div><h3><span class="qn">済</span>アイコンはプリセットから選ぶ</h3>
-        <p>写真アップロードは計画5とセットで別途判断。今の構造のまま後から足せる。</p></div>
-      <div><h3><span class="qn">要</span>アイコンの絵柄24種を決める</h3>
-        <p>草案では12種。実装前に絵柄の一覧を確定させる必要がある。
-          描き手が要るなら、既存の下部ナビのアイコンと同じ線の太さ・角の丸めで揃えること。</p></div>
-      <div><h3><span class="qn">要</span>デザインシステムへの追記</h3>
-        <p>今回足りないと分かったトークンは4つ。<b>影・角丸20px・順位の3色(金銀銅)・アイコンの背景色10色</b>。
-          「ここに無い値を発明しない」という規則があるので、実装前に
-          <code>DESIGN-SYSTEM.md</code> へ書き込む。</p></div>
+      <dl>
+        <dt>衝突</dt>
+        <dd>この裁定は「カード化が必要なのは整理できていない証拠」という読みで、
+          My Data とカレンダーからグレーのカードを剥がしたもの。<b>この案は全面カード＋淡い地</b>で、真逆にあたる。</dd>
+        <dt>提案</dt>
+        <dd><b>タブ単位で作法を分ける。</b>既存3タブは罫のまま、コミュニティだけカード。
+          §6.6 の表は元々「タブごとに決める」形なので、行を1つ足せば矛盾しない（本人承認済み）。</dd>
+      </dl>
     </div>
 
-    <p class="foot">
-      色は <code>design/DESIGN-SYSTEM.md</code> の紺のパレットをそのまま使用。
-      形の作法(カード・影・角丸20px・順位色)は今回追加が必要なもの。
-      画面に出てくる人名・数値はすべて草案用の作り物。
-    </p>
-  </section>
+    <div class="rule">
+      <div class="top"><h3>面（カード）は1画面に1枚まで</h3><span class="src">§6.0 囲いの序列</span></div>
+      <dl>
+        <dt>衝突</dt><dd>一覧をカードで並べられない。</dd>
+        <dt>提案</dt><dd>上と同じくタブ限定の例外として明文化する（本人が不要と判断済み）。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>枠線は状態を持つものにだけ使う</h3><span class="src">§6.7 A型・B型</span></div>
+      <dl>
+        <dt>衝突</dt><dd>「枠線があるものは状態を持っている」という読み手への約束。カードは状態を持たないのに面を持つ。</dd>
+        <dt>提案</dt><dd><b>枠線は一切使わず、影だけで浮かせた。</b>約束は破っていない。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>影の規定が存在しない</h3><span class="src">§1〜§6 全体</span></div>
+      <dl>
+        <dt>衝突</dt><dd>白地＋罫を前提に組まれているため、影のトークンが1つも無い。</dd>
+        <dt>提案</dt><dd>2段の影を<b>2トークン</b>で新設する（通常と、浮かせたいもの）。値は本書へ逆輸入する。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>角丸は 4 / 8 / 12 / 16 / pill の5段</h3><span class="src">§2</span></div>
+      <dl>
+        <dt>衝突</dt><dd>この案のカードは22px。16pxでは参考にした柔らかさが出ない。</dd>
+        <dt>提案</dt><dd><b>22px を6段目として足す。</b>「ここに無い値を発明しない」規則があるので、勝手に使わず追記する。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3><code>--c-accent</code> はアクション専用</h3><span class="src">§1.4</span></div>
+      <dl>
+        <dt>衝突</dt><dd>1位のカードと平均のカードは押せる物ではないが濃い面を持つ。</dd>
+        <dt>提案</dt><dd>これらには <code>--c-accent</code> ではなく<b>より深い紺 #0E2044 を新設</b>して使い分けた。
+          アクション専用の約束は温存できる。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>機能色・グレーを系列識別に使わない</h3><span class="src">§1.5 ／ §1.7</span></div>
+      <dl>
+        <dt>衝突</dt><dd>順位の金・銀・銅は<b>パレットに無い第3の色系統</b>。割合は紺の段階で足りるが、順位の色は代わりが無い。</dd>
+        <dt>提案</dt><dd>金銀銅を<b>順位専用の3色</b>として追加し、系列識別にも機能色にも流用しないと条件を付ける。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>アイコンの背景色10色がパレットに無い</h3><span class="src">§1 全体</span></div>
+      <dl>
+        <dt>衝突</dt><dd>アプリの色は紺一系統。アイコンを選べるようにすると<b>10色の第4の色系統</b>が要る。</dd>
+        <dt>提案</dt><dd><b>アイコンの背景色専用</b>として追加し、他への流用を禁じる。
+          機能色（緑=合っている・橙・赤）と見分けがつくよう全て彩度を落としてある。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>下部タブはアイコンのみ</h3><span class="src">§6.0 部品の統一</span></div>
+      <dl>
+        <dt>衝突</dt><dd>参考にした画面はアイコン＋文字ラベル。</dd>
+        <dt>提案</dt><dd><b>アイコンのみを維持した。</b>ここだけ変えると既存3タブと不揃いになり、影響が4タブ全部に及ぶため。</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 9 決定 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">09</span>
+    <h2>決まったこと / 残っていること</h2>
+  </div>
+
+  <div class="decs">
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>コミュニティタブはカード作法にする</h3>
+      <p>既存3タブは罫のまま。§6.6 の表に行を足して、タブ単位で作法を分ける形に改訂する。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>アイコンはプリセットから選ぶ</h3>
+      <p>写真アップロードは計画5とセットで別途判断。今の構造のまま後から足せる。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>楽器歴は上限と下限で絞る</h3>
+      <p>ピルに選んだ範囲がそのまま出る。データは開始年で持っているので範囲は自由に切れる。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>取り込んだ目安は匿名化する</h3>
+      <p>相手が削除した後も名前が残る状態を作らずに済む。属性と取り込んだ日付で区別する。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>順位と目安の公開は分けない</h3>
+      <p>非公開にした人は順位にも出ない。</p></div></div>
+    <div class="dec"><span class="mark todo">要決定</span><div>
+      <h3>アイコンの絵柄24種を確定する</h3>
+      <p>この案の24種でよいか。Phosphor には他にも多数あるので、食べ物・乗り物・天体などへの差し替えも可能。</p></div></div>
+    <div class="dec"><span class="mark todo">要決定</span><div>
+      <h3>DESIGN-SYSTEM への追記</h3>
+      <p>足りないトークンは4つ。<b>影2段・角丸22px・順位の3色・アイコンの背景色10色</b>。
+        「ここに無い値を発明しない」規則があるので、実装前に書き込む。</p></div></div>
+  </div>
+
+  <p class="foot">
+    アイコンは Phosphor Icons（MIT・商用利用可）を SVG スプライトに埋め込んでいる。実行時の外部読み込みは無い。
+    画面に出てくる人名・数値はすべて草案用の作り物。
+  </p>
+</section>
 
 </div>
+
+<script>
+  // 署名要素: 「平行移動して重ねる」を、画面に入ったときに一度だけ見せる
+  var card = document.getElementById('shiftcard');
+  if (card) {
+    if (!('IntersectionObserver' in window)) { card.classList.add('shift-run'); }
+    else {
+      var io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('shift-run'); io.unobserve(e.target); }
+        });
+      }, { threshold: 0.45 });
+      io.observe(card);
+    }
+  }
+</script>
 </body>
 </html>
