@@ -3325,9 +3325,16 @@ export default function WindToneLabPhaseMode() {
         const noteNow = sounding ? freqToNote(f0, effectiveTuningRef.current) : null;
         const pitchCentsUnified = noteNow ? noteNow.centsExact : null;
 
+        // 【D-23a】環が毎フレーム読む値。**React を経由しない**(D23-SPEC §1.1)。
+        // 診断の「表示値づくり」(dMakeOff)は従来どおりここも止める ── 止めれば環は凍り、
+        // 本人が確認した A/B がそのまま再現する。
+        if (!dMakeOff) { RING_LIVE.note = noteNow; RING_LIVE.sounding = !!noteNow; }
+
         if (sounding) {
           // 【D-20】止めているのは**画面へ渡す値の更新だけ**(下の matchFingering は走る)。
-          if (!dMakeOff) setPitch(f0);
+          // 【D-23a】**半音が変わったときだけ**更新する。環はセントを RING_LIVE から取るので、
+          // state に要るのは音名・オクターブ・sounding だけ(どれも半音の中では一定)。
+          if (!dMakeOff) setPitch((prev) => (ringSameSemitone(prev, f0, effectiveTuningRef.current) ? prev : f0));
           // 実測基音に最も近い運指をテーブルから検索(音名・音域・倍音理論値の基準に使う)。
           // 半音境界のヒステリシスと範囲外リジェクトを含む共通判定(オフライン解析と同一)
           matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current);
@@ -3337,6 +3344,9 @@ export default function WindToneLabPhaseMode() {
           if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));
         } else {
           // 無音: ピッチをnullに戻すことで、メーターは中央(音名は「—」)に戻る。
+          // 【D-23a】RING_LIVE も同時に落とす(上の1行が dMakeOff で止まる経路も含めて、
+          // 鳴っていない間は必ず「鳴っていない」が環へ届く)。
+          RING_LIVE.note = null; RING_LIVE.sounding = false;
           setPitch(null);
           setMatchedFingering(null);
           lastFingerRef.current = null;
@@ -5047,6 +5057,76 @@ function ringBarGradNeedsRebuild(barLive, hasHeld) {
 }
 
 // ============================================================
+// 【D-23a 2026/08/29 凍結仕様 design/D23-SPEC.md】環の**毎フレーム値は React を通さない**。
+//
+// 本人の実機で確定した A/B: 診断の「① 鳴っていない表示にする」を 10秒おきに押すと、
+// **押すたびに毎回、確実に**振り子の滑らか⇄カクつきが切り替わる。①が止めるのは
+// 「毎フレーム変わる値が React を通って環のサブツリーへ流れ込むこと」だけで、
+// 解析も状態更新の頻度も止めていない(volumeDb は凍らせないのに滑らかになる)。
+//
+// 一方で **rAF からの直接書き込みは安い**ことも実機で分かっている:
+// MetroPendulum は毎フレーム12属性を書いているが、静音時は 60.2fps で滑らか。
+// 走りと外周の光も既に rAF が直接書いている。**帯・弧・セント文字だけが React に
+// 取り残されていた** ── それを揃えるのがこの周。
+//
+// RING_LIVE は解析 tick(rAF)が毎フレーム書き、PitchRing の rAF が毎フレーム読む。
+// **React はここを一度も経由しない。** React に残すのは「音の同一性」(半音)と
+// sounding の on/off だけで、これは毎秒数回しか変わらない。
+// ============================================================
+const RING_LIVE = { note: null, sounding: false };
+
+// 環が1フレームで読む値。診断の「① 鳴っていない表示にする」は**ここで**効かせる
+// (D23-SPEC §3。旧実装は MeasureView が prop を null にしていたが、prop 経路そのものが
+// 無くなったので、同じ A/B を rAF の入口で再現する)。
+// 返すのは環が要るものだけ: 鳴っているか / 生のセント(範囲内へ丸めたもの) / 半音 / 音名の同一性。
+function ringLiveSnapshot(live, showSounding) {
+  const note = showSounding ? (live && live.note) : null;
+  if (!note) return { sounding: false, rawExact: 0, semi: null };
+  const raw = note.centsExact ?? note.cents ?? 0;
+  return {
+    sounding: true,
+    rawExact: Math.max(-RING_MAX_CENTS, Math.min(RING_MAX_CENTS, raw)),
+    semi: Math.round(note.midi),
+  };
+}
+
+// 生のピッチはフレーム毎に細かく揺れるので指数移動平均で落ち着かせる。音名(半音)が
+// 変わった瞬間は centsExact が大きく飛ぶのでスナップして平滑をやり直す
+// (隣の音へ不自然にスウィープしない)。
+// 【D-15 §1(B)】係数は**経過時間から作る**(α = 1 − exp(−Δt/τ))。レンダー回数では進めない。
+// 【D-23a】レンダー本体の副作用だったものを rAF の中へ移した。**式も τ も変えていない。**
+// 副次的に、StrictMode の二重レンダーで進み方が変わる余地そのものが消えた。
+function ringSmoothStep(prev, snap, nowMs, tauMs) {
+  if (!snap.sounding) return { semi: null, val: 0, t: 0 };
+  if (!prev || prev.semi !== snap.semi) return { semi: snap.semi, val: snap.rawExact, t: nowMs };
+  const dtMs = Math.max(0, nowMs - prev.t);
+  const val = prev.val + (snap.rawExact - prev.val) * (1 - Math.exp(-dtMs / tauMs));
+  return { semi: snap.semi, val, t: nowMs };
+}
+
+// React に残す「音の同一性」。**半音が同じなら state を更新しない。**
+// 環はもう prop の f0 からセントを取らない(RING_LIVE を読む)ので、state に要るのは
+// 音名・オクターブ・sounding だけ ── どれも半音が同じなら1文字も変わらない。
+// 【なぜ f0 をそのまま持ち続けるか】state の値は「その半音に入った最初のフレームの f0」に
+// なるが、freqToNote から取り出して使うのは name / octave / midi の3つだけで、
+// **どれも半音の中では一定**。cents は環が RING_LIVE から取るので誰も読まない。
+function ringSameSemitone(prevF0, nextF0, a4) {
+  if (prevF0 == null || nextF0 == null) return false;
+  const a = freqToNote(prevF0, a4);
+  const b = freqToNote(nextF0, a4);
+  if (!a || !b) return false;
+  return Math.round(a.midi) === Math.round(b.midi);
+}
+
+// 環の内側に出すセントの文字。**環と同じ平滑後の値から出す**(D-15 §1(A))。
+// 丸めはここだけ(0.1¢ 表示にはしない。§6.1「文字を読ませない」/ 数字を落ち着かせる意図)。
+function ringCentsText(exact, sounding) {
+  if (!sounding) return "";
+  const n = Math.round(exact);
+  return `${n > 0 ? "+" : ""}${n}¢`;
+}
+
+// ============================================================
 // 到達の演出(走り + 外側だけの呼吸)。
 //
 // 合った瞬間、帯が12時から両サイドへ同時に走り、6時で出会う(全周360°)。
@@ -5429,49 +5509,22 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // (要素を作り終えるまで)。診断が閉じているときの費用は真偽値1つの読み取り。
   const dRingOn = METRO_DIAG.on;
   const dRingT0 = dRingOn ? performance.now() : 0;
+  // 【D-23a】**この本文には「毎フレーム変わる値」を1つも置かない。**
+  // 平滑(EMA)・deg・色・帯のグラデーション・弧の d・セントの文字は、すべて下の rAF が
+  // RING_LIVE から作って属性へ直接書く(D23-SPEC §1)。ここで作るのは
+  // **半音の中で一定のもの**(音名・オクターブ・器の寸法・id)だけ。
+  // だから普段のレンダーでは、この関数が何度走っても**返る木が1文字も変わらない**
+  // ── 本人が「① 鳴っていない表示にする」で作った、あの滑らかな状態そのもの。
+  //
+  // centsOffset は**もう読まない**(受け口は互換のため残す。読み手ゼロを検査 41.5 が固定)。
   const sounding = !!note;
-  const rawExact = note ? Math.max(-RING_MAX_CENTS, Math.min(RING_MAX_CENTS, note.centsExact ?? centsOffset)) : 0;
-
-  // 生のピッチはフレーム毎に細かく揺れるため指数移動平均で落ち着かせる。ただし音名(半音)が
-  // 変わった瞬間はcentsExactが大きく飛ぶのでスナップして平滑をやり直す
-  // (隣の音へ不自然にスウィープしない)。
-  // 【D-15 §1(B)】係数は**経過時間から作る**(α = 1 − exp(−Δt/τ))。レンダー回数では進めない。
-  // 副次的な効果として、StrictMode の二重レンダーでも Δt≒0 なので2度目はほとんど進まない
-  // (以前は 1コミットあたり 0.15 を2回進み、開発の見え方が本番の約2倍速かった)。
-  const smoothRef = useRef({ semi: null, val: 0, t: 0 });
-  let exact = rawExact;
-  if (sounding) {
-    const semi = Math.round(note.midi);
-    const nowMs = performance.now();
-    if (smoothRef.current.semi !== semi) smoothRef.current = { semi, val: rawExact, t: nowMs };
-    else {
-      const dtMs = Math.max(0, nowMs - smoothRef.current.t);
-      smoothRef.current.val += (rawExact - smoothRef.current.val) * (1 - Math.exp(-dtMs / RING_SMOOTH_TAU_MS));
-      smoothRef.current.t = nowMs;
-    }
-    exact = smoothRef.current.val;
-  } else {
-    smoothRef.current = { semi: null, val: 0, t: 0 };
-  }
-  // 【D-15 §1(A)】画面に出す整数のセント値。**環と同じ `exact` から出す**。
-  // 以前は prop の centsOffset(= Math.round(note.centsExact)。平滑なしの生値)を
-  // そのまま文字にしていたため、文字だけが環・色・到達判定と別の値で動いていた。
-  // 丸めはここだけ(0.1¢ 表示にはしない。§6.1「文字を読ませない」/ 数字を落ち着かせる意図)。
-  const centsShown = Math.round(exact);
 
   // viewBoxは300固定。実寸は幅に追従させる(上限が diameter)。
   const VB = RING_VB, CX = RING_CX, CY = RING_CY, R = RING_R, SW = RING_SW;
   // 【N-4c】音名のサイズは正典の実寸(148px)。臨時記号だけ比で従う。
   const noteFs = NOTE_FS_PX;
-  const deg = (exact / RING_MAX_CENTS) * RING_SWEEP_DEG;
-  const [mx, my] = ringPoint(deg, R, CX, CY);
-  const [r, g, b] = pitchBarColorRGB(exact);
-  const color = `rgb(${r},${g},${b})`;
-  // 光の色は帯より明るく彩度を落とす(「光源の色」ではなく「照らされた面の色」)。
-  // 初期値だけJSXで置き、以降はrAFが元色の変化に追従して塗り替える。
-  const glowRGB = ringGlowRGB([r, g, b]);
-  const glowColor = `rgb(${glowRGB[0]},${glowRGB[1]},${glowRGB[2]})`;
-  const inTune = sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
+  // 【D-23a】deg / 色 / inTune / 帯のグラデーション / 弧の d / セントの文字は
+  // **ここでは作らない**(下の rAF が RING_LIVE から作って属性へ直接書く)。
 
   // 音名は "A" / "B♭" / "F♯" の形。本体の文字と臨時記号でサイズを変えるため分解する。
   // 【音が入っていないときは文字を出さない】以前は "—" を置いていたが、待っている状態は
@@ -5480,13 +5533,9 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // **centsShown も color も上でそのまま計算されている**(止めたのは出す依頼だけ)。
   // 箱の高さ(noteBoxH / NOTE_CENTS_PX + 4)は文字の有無で変わらないので、
   // 止めても**環の内側の寸法は1pxも動かない**(§6.1.5 と同じ理由)。
+  // 【D-23a】この本文が読むのは**音名の文字を出すかどうか**だけ。セントの文字と
+  // 呼吸は rAF が持つ(そちらは毎フレーム変わる値から決まるため)。
   const textOn = !(dRingOn && !METRO_DIAG.drawText);
-  // 【D-20】到達している間の**呼吸**(CSS アニメーション)。D-19b は「音名」を止めても
-  // 空の箱で回り続けると自分で報告していた(懸念2)ので、別のスイッチとして外に出した。
-  // **inTune の判定も色も上でそのまま計算されている**(止めたのはアニメーションの依頼だけ)。
-  // 透明度だけのアニメーションなので、掛けても外しても**寸法は1pxも動かない**(§6.1.5)。
-  const breathOn = !(dRingOn && !METRO_DIAG.drawBreath);
-  const breathing = inTune && breathOn;
   const noteLetter = sounding && textOn ? note.name.charAt(0) : "";
   const accidental = sounding && textOn ? note.name.slice(1) : "";
   // 文字を消しても箱は残す(§6.1.5)。行の高さは「音名サイズ × 行送り」で、幅は環の内寸いっぱい。
@@ -5495,39 +5544,8 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const NOTE_LINE_H = 1;
   const noteBoxH = noteFs * NOTE_LINE_H;
 
-  // 0¢(12時)から現在位置までの弧。ズレが小さいうちは描かない(点にしかならないため)。
-  // 到達している間は全周を走る帯がここを覆うので描かない(±2¢ の帯は弧長10.4で線幅14より短い)。
+  // 0¢(12時)の位置。帯の根元であり、グラデーションの軸の始点。**半音に依らず一定**。
   const [sx, sy] = ringPoint(0, R, CX, CY);
-  const barLive = ringBarLive(inTune, deg);
-  let arcD = barLive ? ringArcD(0, deg) : "";
-  // 【D-19b】診断の「帯」を止めている間は弧を描かない。**deg も色も帯のグラデーションも
-  // 上でそのまま計算されている**(止めたのは描く依頼だけ)。だから barLive はこの行より
-  // 上で決めてある ── ここで下げると「塗りだけを外した比較」でなくなる。
-  // 左の dRingOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
-  // METRO_DIAG.drawBar を1回も読まない**(&& の左で止まる)。
-  if (dRingOn && !METRO_DIAG.drawBar) arcD = "";
-  // 帯の色は「先端からの絶対弧長」で決める(帯の長さでは割らない)。ストップの位置は
-  // 弧を弦へ射影して求める(線形グラデーションの軸は弦なので、等間隔に置くと色がずれる)。
-  //
-  // 【D-22】**帯が出ていないフレームは、グラデーションを前に作ったまま据え置く。**
-  // 据え置かないと、合っている間(帯が消えている間)も 30個の <stop> の offset と
-  // stop-color が毎フレーム書き換わる ── 読み手が1つも無いのに。
-  // D-19b で「帯」を止めても実機が変わらなかったのは、止めたのが**塗りだけ**で
-  // こちらの書き換えが残っていたためで、**帯のグラデーションはまだ疑いが晴れていない**。
-  // 出ているフレームでは必ず作り直すので、帯そのものは1フレームも鈍らない。
-  // 【D-22c】診断の「帯の色目盛」を止めている間は、**帯が出ていても作り直さない**。
-  // 30個の <stop> と軸が押した時点のまま凍る(＝この30個の書き換えが 0 になる)。
-  // 弧の長さ・位置(arcD)と音名・セントはそのまま動くので、**色だけが現在のズレと
-  // 合わなくなる** ── 計器なので押している間の見た目が変でよい(板に断り書きがある)。
-  // **deg も色も barLive も上でそのまま計算されている**(止めたのは作り直す依頼だけ)。
-  // 左の dRingOn は本文の先頭で1回だけ読んだ局所変数なので、**診断が閉じているときは
-  // METRO_DIAG.drawBarRamp を1回も読まない**(&& の左で止まる)。
-  const dRampOff = dRingOn && !METRO_DIAG.drawBarRamp;
-  const barHeldRef = useRef(null);
-  if (ringBarGradNeedsRebuild(barLive && !dRampOff, !!barHeldRef.current)) {
-    barHeldRef.current = { stops: ringGradientStops(0, deg), base: [r, g, b], x2: mx, y2: my };
-  }
-  const bar = barHeldRef.current;
   // SVGのid衝突を避ける(同じ画面に環が2つ出ても混ざらないように)。
   // useId() の返り値はコロンを含むので url(#...) に使えるよう落とす。
   const uid = useId().replace(/:/g, "");
@@ -5547,11 +5565,15 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const runStopRefs = useRef([[], []]);
   const glowGroupRef = useRef(null);          // 光のいちばん外の <g>。明るさはここの opacity だけ
   const glowFillRefs = useRef([]);            // 光を塗る矩形 [滑らかな側, 粒の側]
-  // rAFから読む最新値。走りの判定と色の元になる。
-  // glowCents は光の段(合った / ±RING_GLOW_NEAR_CENTS まで / それ以外)を決める |¢|。
-  // 音が入っていないときは NaN を渡し、ringGlowOpacity 側で0になるようにする。
-  const liveRef = useRef({ inTune: false, base: [22, 163, 74], glowCents: NaN });
-  liveRef.current = { inTune, base: [r, g, b], glowCents: sounding ? Math.abs(exact) : NaN };
+  // 【D-23a】帯(グラデーションの軸・30ストップ・弧の path)とセントの文字。
+  // **どれも rAF が属性へ直接書く。** React はこの木を初回に置くだけで、以後は触らない
+  // (D23-SPEC §1.3「二重書き手の禁止」)。
+  const barGradRef = useRef(null);
+  const barStopRefs = useRef([]);
+  const barPathRef = useRef(null);
+  const centsTextRef = useRef(null);
+  // 【D-23a】平滑の状態。**レンダー本体ではなく rAF が進める**(D23-SPEC §1.2)。
+  const smoothRef = useRef({ semi: null, val: 0, t: 0 });
   useEffect(() => {
     // 動きを減らす設定。rAFで属性を書き換えるぶんはCSSの @media が効かないので自分で見る。
     // 走りは行わず進捗1(点灯した状態)から始め、呼吸は止めて breath=1 で固定する。
@@ -5561,6 +5583,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
     let lastKey = "";
     let lastGlow = "";
     let lastBase = "";
+    let lastBarKey = "";
+    let lastCents = null;
+    let lastCentsColor = "";
+    let lastBreath = null;
     const loop = () => {
       const now = performance.now();
       // 【D-20】この rAF の中では診断の真偽値を**ここで1回だけ読む**(解析 tick と同じ作法。
@@ -5569,7 +5595,74 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 外の局所変数を掴むと初回レンダーの値(ほぼ必ず false)で固まる。
       const dRafOn = METRO_DIAG.on;
       const reduce = reduceMotion.matches;
-      const st = ringRunState(runStateRef.current, liveRef.current.inTune, now);
+
+      // 【D-23a】ここが環のすべての元。**React を経由せず RING_LIVE から直接読む。**
+      // 診断の「① 鳴っていない表示にする」はここで効かせる(D23-SPEC §3)。
+      const snap = ringLiveSnapshot(RING_LIVE, !(dRafOn && !METRO_DIAG.drawSounding));
+      smoothRef.current = ringSmoothStep(smoothRef.current, snap, now, RING_SMOOTH_TAU_MS);
+      const exact = snap.sounding ? smoothRef.current.val : 0;
+      const deg = (exact / RING_MAX_CENTS) * RING_SWEEP_DEG;
+      const [r, g, b] = pitchBarColorRGB(exact);
+      const inTune = snap.sounding && Math.abs(exact) <= RING_IN_TUNE_CENTS;
+      const glowCents = snap.sounding ? Math.abs(exact) : NaN;
+
+      // --- ズレの帯(弧 + グラデーションの軸 + 30ストップ) ---
+      // 出ていないフレームは弧を消すだけで、グラデーションは据え置く(D-22 の据え置きと同じ理由:
+      // **この <linearGradient> を読むのは帯の <path> ただ1つ**なので、消えている間に
+      // 書き換えても画面に1pxも出ない)。
+      const barLive = ringBarLive(inTune, deg);
+      const barDraw = barLive && !(dRafOn && !METRO_DIAG.drawBar);
+      const barPath = barPathRef.current;
+      if (barPath) {
+        // 同じ値の setAttribute は描き直しを起こさない。消すときは "" を書く(木からは外さない)。
+        const d = barDraw ? ringArcD(0, deg) : "";
+        if (d !== lastBarKey) { lastBarKey = d; barPath.setAttribute("d", d); }
+      }
+      // 【D-22c】診断の「帯の色目盛」を止めている間は 30個の書き換えを 0 にする。
+      const rampOff = dRafOn && !METRO_DIAG.drawBarRamp;
+      if (barLive && !rampOff) {
+        const grad = barGradRef.current;
+        if (grad) {
+          const [mx, my] = ringPoint(deg, RING_R, RING_CX, RING_CY);
+          grad.setAttribute("x2", mx.toFixed(2));
+          grad.setAttribute("y2", my.toFixed(2));
+          const list = ringGradientStops(0, deg);
+          for (let i = 0; i < list.length; i++) {
+            const el = barStopRefs.current[i];
+            if (!el) continue;
+            const c = ringRampRGB([r, g, b], list[i].s);
+            el.setAttribute("offset", list[i].offset.toFixed(5));
+            el.setAttribute("stop-color", `rgb(${c[0]},${c[1]},${c[2]})`);
+          }
+        }
+      }
+
+      // --- セントの文字・その色・到達の呼吸 ---
+      // 【D-15 §1(A)】文字は**環と同じ平滑後の値**から出す。
+      const cents = centsTextRef.current;
+      if (cents) {
+        // 【計算と「出す依頼」を分ける】診断の綴りは*出す側*にしか入れない
+        // (検査 37.7 が「値の計算の行に診断の綴りが1つも入っていない」を見ている)。
+        const centsAll = ringCentsText(exact, snap.sounding);
+        const textOnRaf = !(dRafOn && !METRO_DIAG.drawText);
+        const txt = textOnRaf ? centsAll : "";
+        if (txt !== lastCents) { lastCents = txt; cents.textContent = txt; }
+        const col = snap.sounding && textOnRaf ? `rgb(${r},${g},${b})` : "var(--c-ink-3)";
+        if (col !== lastCentsColor) { lastCentsColor = col; cents.style.color = col; }
+        // 呼吸(透明度だけのアニメーション)。寸法は1pxも動かない(§6.1.5)。
+        // 【D-23a】クラスは付け外ししない(App.jsx は className / classList を実行時に
+        // 書き換えない、という既存の規則がある)。**動きを減らす設定はここで自分で見る** ──
+        // rAF が書く style は CSS の @media が効かないので、`.ficus-breathe` の
+        // `animation: none !important` に頼れない(このループの先頭の作法と同じ)。
+        const breathOnRaf = !(dRafOn && !METRO_DIAG.drawBreath);
+        const wantBreath = inTune && breathOnRaf && !reduce;
+        if (wantBreath !== lastBreath) {
+          lastBreath = wantBreath;
+          cents.style.animation = wantBreath ? "ficus-breathe 1.9s ease-in-out infinite" : "";
+        }
+      }
+
+      const st = ringRunState(runStateRef.current, inTune, now);
       runStateRef.current = st;
       // イージング前の線形進捗。光の立ち上がりはこれに比例させる。
       const raw = st.runFrom === null ? 0 : (reduce ? 1 : ringRunProgress(st.runFrom, now));
@@ -5577,7 +5670,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 終端が書かれず 179.9916° で止まる(ringRunQuantP のコメント参照)。
       const p = ringRunQuantP(raw);
       const breath = reduce ? 1 : ringBreath(now);
-      const base = liveRef.current.base;
+      const base = [r, g, b];
       // 帯の形と色は進捗と元色が変わったときだけ書き換える(消えている間は何もしない)。
       const key = p <= 0 ? "off" : `${p.toFixed(4)}|${base.join(",")}`;
       if (key !== lastKey) {
@@ -5615,10 +5708,20 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           }
         }
       }
+      // 【D-23b】明るさを**先に**出す。見えているかどうかで、下の色を書くかが決まる。
+      const opNum = ringGlowOpacity(raw, breath, glowCents);
       // 光の色。**走りが出ていない間(±RING_GLOW_NEAR_CENTS までの帯)も光るので、
       // 走りのキーとは別に、元色が変わったときだけ塗り替える。**
+      //
+      // 【D-23b】**見えていないフレームは色を書かない。** 光は ±RING_GLOW_NEAR_CENTS(4¢)
+      // の外で opacity が 0 になり、色は画面に1pxも出ない。それでも書いていたので、
+      // 外している間じゅう「見えないものの色」の変更を毎フレーム頼んでいた ── 相手は
+      // feTurbulence と入れ子マスク3段を含む約380px四方の面(環の SVG より大きい)。
+      // 実測(±14¢ を 0.7Hz で往復する30秒): 書き込み 1584回 → 338回(**78.7% 減**)。
+      // **見えている間の色は1フレームも変わらない**(条件に opNum > 0 を足しただけ)。
+      // lastBase は「いま要素に入っている色」と常に一致する(書いたときだけ更新するため)。
       const baseKey = base.join(",");
-      if (baseKey !== lastBase) {
+      if (opNum > 0 && baseKey !== lastBase) {
         lastBase = baseKey;
         const gl = ringGlowRGB(base);
         for (const el of glowFillRefs.current) {
@@ -5628,7 +5731,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 【毎フレーム変えるのは明るさだけ】いちばん外の <g> の opacity だけを動かす。
       // 減衰のストップも粒も静的なので作り直さない。
       const glow = glowGroupRef.current;
-      const op = ringGlowOpacity(raw, breath, liveRef.current.glowCents).toFixed(4);
+      const op = opNum.toFixed(4);
       if (glow && op !== lastGlow) {
         lastGlow = op;
         // 【D-19】外周の光の明るさを書き換えたフレーム数。**音が入っていないときは
@@ -5679,14 +5782,21 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           {/* ズレの帯。色は**先端(現在位置)からの絶対弧長**で決め、帯の長さでは割らない。
               ストップの位置は弧を弦へ射影して求める(軸は根元→先端の弦)。
               【stop-opacity は1つも書かない】根元が透けると下地が出る。不透明度は常に1。 */}
+          {/* 【D-23a】**ここに状態で変わる値を置かない。** 軸の終点も30個のストップも
+              上の rAF が直接書く。走りのグラデーション(D-15 §2(F))と同じ作法に揃えた。
+              置くのは静的な初期値だけ ── 帯の <path> は d="" で始まるので、この初期値が
+              画面に出ることはない。 */}
           <linearGradient
             id={barGradId} gradientUnits="userSpaceOnUse"
-            x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={bar.x2.toFixed(2)} y2={bar.y2.toFixed(2)}
+            ref={(el) => { barGradRef.current = el; }}
+            x1={sx.toFixed(2)} y1={sy.toFixed(2)} x2={sx.toFixed(2)} y2={sy.toFixed(2)}
           >
-            {bar.stops.map((st, i) => {
-              const c = ringRampRGB(bar.base, st.s);
-              return <stop key={i} offset={st.offset.toFixed(5)} stopColor={`rgb(${c[0]},${c[1]},${c[2]})`} />;
-            })}
+            {Array.from({ length: RING_RAMP_STOPS }).map((_, i) => (
+              <stop
+                key={i} ref={(el) => { barStopRefs.current[i] = el; }}
+                offset={(i / (RING_RAMP_STOPS - 1)).toFixed(5)} stopColor="var(--c-good)"
+              />
+            ))}
           </linearGradient>
           {/* 到達の走り(左弧・右弧)。座標もストップもrAFが書き換える。ここでも不透明度は常に1。 */}
           {runGradIds.map((gid, k) => (
@@ -5787,7 +5897,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             <rect
               ref={(el) => { glowFillRefs.current[0] = el; }}
               x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill={glowColor}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
             />
           </g>
           {/* 外側 = 減衰 × 傾斜 × 粒。粒の寄与は実測で 1/255 未満(冒頭の解説を見ること) */}
@@ -5796,7 +5906,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               <rect
                 ref={(el) => { glowFillRefs.current[1] = el; }}
                 x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-                width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill={glowColor}
+                width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
               />
             </g>
           </g>
@@ -5821,11 +5931,14 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             d="" fill="none" stroke={`url(#${gid})`} strokeWidth={SW} strokeLinecap="butt"
           />
         ))}
-        {sounding && arcD && (
-          /* ズレの帯: 0¢から現在位置まで伸びる。長さとグラデーションでズレの大きさを示す。
-             先端に点は置かない(先端はグラデーションの終わりであって、そこで何かが始まらない)。 */
-          <path d={arcD} fill="none" stroke={`url(#${barGradId})`} strokeWidth={SW} strokeLinecap="butt" />
-        )}
+        {/* ズレの帯: 0¢から現在位置まで伸びる。長さとグラデーションでズレの大きさを示す。
+            先端に点は置かない(先端はグラデーションの終わりであって、そこで何かが始まらない)。
+            【D-23a】**常に木に置き、消すときは d="" を書く。** 毎フレームの
+            マウント/アンマウントを作らないため(走りの弧と同じ作法)。見た目は同一。 */}
+        <path
+          ref={(el) => { barPathRef.current = el; }}
+          d="" fill="none" stroke={`url(#${barGradId})`} strokeWidth={SW} strokeLinecap="butt"
+        />
         {/* 【N-4b で撤去】拍の要素(下半円の点・上半円の錘と輪・錘のタップ)。
             正典 design/north-star-measure.html は、拍を**環の外・下**の浅い弧と●列で描く。
             環はピッチ専用になり、帯と拍が場所を争う関係そのものが無くなった。
@@ -5867,15 +5980,20 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             文字がある時の行の高さ・幅は環の内寸いっぱい)は残し、音の有無で環の内側の寸法が
             変わらないようにする(DESIGN-SYSTEM §6.1.5)。 */}
         {/* 【N-4c】サイズと間隔は正典 .cents の実寸(21px / margin-top 10px)。 */}
-        <div className={`sans${breathing ? " ficus-breathe" : ""}`} style={{
-          marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
-          textAlign: "center",
-          fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
-          letterSpacing: "0.02em", color: sounding && textOn ? color : "var(--c-ink-3)",
-          animation: breathing ? "ficus-breathe 1.9s ease-in-out infinite" : undefined,
-        }}>
-          {sounding && textOn ? `${centsShown > 0 ? "+" : ""}${centsShown}¢` : ""}
-        </div>
+        {/* 【D-23a】**中身も色も呼吸も rAF が書く。** React はこの箱を初回に置くだけで、
+            以後 textContent にも style.color にも触れない(二重書き手の禁止)。
+            子を1つも渡さないので、再レンダーで文字が消される事故も起きない。
+            箱の寸法(高さ・幅・字形)は文字の有無で変わらない ── §6.1.5 のまま。 */}
+        <div
+          ref={(el) => { centsTextRef.current = el; }}
+          className="sans"
+          style={{
+            marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
+            textAlign: "center",
+            fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
+            letterSpacing: "0.02em", color: "var(--c-ink-3)",
+          }}
+        />
       </div>
     </div>
   );

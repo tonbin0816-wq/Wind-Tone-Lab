@@ -182,6 +182,11 @@ const code = [
   extractFunction("ringGlowOpacity"),
   extractFunction("ringGlowRGB"),
   extractFunction("ringRunState"),
+  // 【D-23】環の毎フレーム値を React の外へ出したときの純関数(凍結仕様 design/D23-SPEC.md)
+  extractFunction("ringLiveSnapshot"),
+  extractFunction("ringSmoothStep"),
+  extractFunction("ringCentsText"),
+  extractFunction("ringSameSemitone"),
   // メトロノーム(N-4b: 環の外・下に「浅い弧+点」と「拍の●列」)
   extractConst("RING_PEND_SWING_DEG"),
   // 【F-95a/F-95b】拡大率は基準値より先に読む(下の派生 *_CSS が参照する)。
@@ -385,6 +390,7 @@ const api = new Function(`${code}
            ringGlowAlphaAt, ringGlowRampAt, ringGlowStops,
            RING_GLOW_FALLOFF_STOPS, RING_GLOW_GRAINY_STOPS, RING_GLOW_SMOOTH_STOPS,
            ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowRGB, ringRunState,
+           ringLiveSnapshot, ringSmoothStep, ringCentsText, ringSameSemitone,
            RING_PEND_SWING_DEG,
            METRO_ARC_W, METRO_ARC_H, METRO_ARC_P0, METRO_ARC_C, METRO_ARC_P2, METRO_ARC_SW,
            METRO_DOT_R, METRO_DOT_HEAD_SCALE, METRO_ARC_PX_PER_DEG,
@@ -2089,26 +2095,31 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     // ズレの帯のグラデーションの軸は「根元(12時)→先端(現在位置)」の弦。
     // 【D-22】先端側は据え置きの箱(bar)を通るようになった。**箱に入る値は mx/my のまま**
     // なので、帯が出ているフレームの軸は1つも変わっていない。両方を名指しで縛る。
+    // 【D-23a】終点は rAF が属性へ直接書く。始点(根元=12時)は半音に依らず一定なので JSX が持つ。
     check("ズレの帯のグラデーションの軸は根元→先端の弦",
-      /x1=\{sx\.toFixed\(2\)\} y1=\{sy\.toFixed\(2\)\} x2=\{bar\.x2\.toFixed\(2\)\} y2=\{bar\.y2\.toFixed\(2\)\}/.test(ringCode)
-      && /x2: mx, y2: my \}/.test(ringCode)
-      && /const \[sx, sy\] = ringPoint\(0, R, CX, CY\);/.test(ringCode)
-      && /const \[mx, my\] = ringPoint\(deg, R, CX, CY\);/.test(ringCode));
+      /const \[sx, sy\] = ringPoint\(0, R, CX, CY\);/.test(ringCode)
+      && /x1=\{sx\.toFixed\(2\)\} y1=\{sy\.toFixed\(2\)\}/.test(ringCode)
+      && /const \[mx, my\] = ringPoint\(deg, RING_R, RING_CX, RING_CY\);/.test(ringCode)
+      && /grad\.setAttribute\("x2", mx\.toFixed\(2\)\);/.test(ringCode)
+      && /grad\.setAttribute\("y2", my\.toFixed\(2\)\);/.test(ringCode));
     // 到達している間はズレの帯を描かない(±1¢ の帯は線幅より短く、全周の帯と重なって
     // 12時に継ぎ目として見えるため)。走りが全周を覆うので情報も失われない。
     // 【D-22】条件は純関数 ringBarLive へ出した(据え置きの判断と**同じ1つの条件**を使うため)。
     check("到達している間はズレの帯を描かない",
       /const barLive = ringBarLive\(inTune, deg\);/.test(ringCode)
-      && /let arcD = barLive \? ringArcD\(0, deg\) : "";/.test(ringCode));
+      && /const d = barDraw \? ringArcD\(0, deg\) : "";/.test(ringCode));
     // 【D-19b で const → let になった】診断の「環の帯」スイッチが**空にすることだけ**できる。
     // arcD への代入がこの2つ以外に増えると、到達中に帯が復活する経路が生まれる。
+    // 【D-23a】弧は rAF が属性へ直接書く。**書き込みは1箇所だけ**で、値は三項の
+    // 「式の値」か「空文字」のどちらか。ここが増えると到達中に帯が復活する経路が生まれる。
     {
-      const asg = (ringCode.match(/arcD = [^\n]*/g) || []);
-      const allowed = asg.filter((a) =>
-        /^arcD = barLive \? ringArcD\(0, deg\) : "";$/.test(a)
-        || /^arcD = "";$/.test(a));
+      const w = (ringCode.match(/barPath\.setAttribute\("d", [^;]*;/g) || []);
+      const arc = (ringCode.match(/ringArcD\(0, deg\)/g) || []);
       check("ズレの帯へ入れてよいのは「式の値」か「空文字」だけ(空にする以外の代入を増やさない)",
-        asg.length >= 2 && asg.length === allowed.length, asg.join(" | "));
+        w.length === 1 && /^barPath\.setAttribute\("d", d\);$/.test(w[0].trim())
+        && arc.length === 1
+        && /const d = barDraw \? ringArcD\(0, deg\) : "";/.test(ringCode),
+        `${w.join(" | ")} / ringArcD ${arc.length}箇所`);
     }
     check("グラデーションはユーザー座標系(弦を軸にする)",
       linear.every((blk) => /gradientUnits="userSpaceOnUse"/.test(blk)));
@@ -2136,8 +2147,8 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     const flat = svg.replace(/\s*\n\s*/g, " ");
     // (a) 帯・走りの色は必ずグラデーションから引く。単色に置き換えるとランプが死ぬ。
     check("ズレの帯の stroke はズレの帯のグラデーション",
-      /<path d=\{arcD\} fill="none" stroke=\{`url\(#\$\{barGradId\}\)`\} strokeWidth=\{SW\} strokeLinecap="butt" \/>/.test(flat),
-      (flat.match(/<path d=\{arcD\}[^/]*\/>/) || [""])[0].slice(0, 120));
+      /d="" fill="none" stroke=\{`url\(#\$\{barGradId\}\)`\} strokeWidth=\{SW\} strokeLinecap="butt"/.test(flat),
+      (flat.match(/<path ref=\{\(el\) => \{ barPathRef[\s\S]*?\/>/) || [""])[0].slice(0, 150));
     check("走りの弧の stroke は走りのグラデーション(左右それぞれの id)",
       /d="" fill="none" stroke=\{`url\(#\$\{gid\}\)`\} strokeWidth=\{SW\} strokeLinecap="butt"/.test(flat));
     check("stroke に単色を直接入れている path が無い(必ず url(#…) を通す)", (() => {
@@ -2145,15 +2156,20 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       return paths.length > 0 && paths.every((t) => !/stroke=/.test(t) || /stroke=\{`url\(#/.test(t));
     })(), (flat.match(/<path[\s\S]*?\/>/g) || []).map((t) => (/stroke=\{[^}]*\}/.exec(t) || [""])[0]).join(" | "));
     check("ズレの帯のストップの色は各ストップの弧長 s から引く(先端一色にしない)",
-      /const c = ringRampRGB\(bar\.base, st\.s\);/.test(ringCode));
-    // 【D-22】並べる元は据え置きの箱(bar.stops)。**箱に入る値は ringGradientStops(0, deg) と
-    // [r, g, b] のまま**なので、帯が出ているフレームのストップは1つも変わっていない。
-    check("ズレの帯のストップは据え置きの箱をそのまま並べ、箱には生の値が入る",
-      /\{bar\.stops\.map\(\(st, i\) => \{/.test(ringCode)
-      && /\{ stops: ringGradientStops\(0, deg\), base: \[r, g, b\], x2: mx, y2: my \};/.test(ringCode));
+      /const c = ringRampRGB\(\[r, g, b\], list\[i\]\.s\);/.test(ringCode));
+    // 【D-23a】据え置きの箱は無くなった(帯は React を通らない)。主張を
+    // 「**rAF が弧長から作って30個の <stop> へ書く**」へ置き換える。JSX が置くのは
+    // 静的な初期値と ref だけで、帯の <path> は d="" で始まるので画面には出ない。
+    check("ズレの帯のストップは rAF が弧長から作って30個へ書く",
+      /const list = ringGradientStops\(0, deg\);/.test(ringCode)
+      && /const el = barStopRefs\.current\[i\];/.test(ringCode)
+      && /ref=\{\(el\) => \{ barStopRefs\.current\[i\] = el; \}\}/.test(ringCode));
     // (b) 描画の条件。false に潰すと帯そのものが消える。
-    check("ズレの帯は「音が鳴っていて arcD がある」ときに描く",
-      /\{sounding && arcD && \(/.test(ringCode));
+    // 【D-23a】帯の <path> は**常に木にある**(毎フレームのマウント/アンマウントを作らない)。
+    // 消すときは d="" を書くので、条件は barDraw ただ1つ。
+    check("ズレの帯は常に木にあり、描くかどうかは barDraw が決める",
+      /const barDraw = barLive && !\(dRafOn && !METRO_DIAG\.drawBar\);/.test(ringCode)
+      && !/\{sounding && arcD && \(/.test(ringCode));
     // 【N-4b】環は**ピッチ専用**になった(拍は環の外・下の MetroPendulum が描く)。
     // 以前ここは「拍の要素は getBeatPhase が渡されたときだけ描く」だった。
     // 主張を「環の中に拍の描画が1つも無い」へ**強めて**置き換える。
@@ -2187,7 +2203,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       const order = [
         flat.indexOf("<g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`}"),
         flat.indexOf('d="" fill="none" stroke={`url(#${gid})`}'),
-        flat.indexOf("<path d={arcD}"),
+        flat.indexOf("stroke={`url(#${barGradId})`}"),
       ];
       return order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1]));
     })());
@@ -2233,8 +2249,11 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   check("閾値と比較する到達の判定は ringCode 内で1箇所だけ(閾値の二重定義が無い)",
     (ringCode.match(/Math\.abs\(exact\) <=/g) || []).length === 1,
     `Math.abs(exact) <= が ${(ringCode.match(/Math\.abs\(exact\) <=/g) || []).length}箇所`);
+  // 【D-23a】liveRef は無くなった(rAF が RING_LIVE から直接作る)。主張は同じで、
+  // 「**到達判定は1つの const を作ってそのまま渡す**(別式に置き換えない)」。
   check("rAF に渡す到達判定は const inTune をそのまま渡す(別式に置き換えない)",
-    /liveRef\.current = \{ inTune, base: \[r, g, b\], glowCents: sounding \? Math\.abs\(exact\) : NaN \};/.test(ringCode));
+    /const inTune = snap\.sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode)
+    && /const st = ringRunState\(runStateRef\.current, inTune, now\);/.test(ringCode));
   check("光の段の切り分けは rAF の中ではなく純関数 ringGlowOpacity に閉じている",
     !/RING_GLOW_NEAR_CENTS/.test(ringCode)
     && /return RING_GLOW_AMP \* \(\(RING_GLOW_NEAR_CENTS - ac\) \/ \(RING_GLOW_NEAR_CENTS - RING_IN_TUNE_CENTS\)\);/
@@ -2245,7 +2264,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   // ------------------------------------------------------------------
   check("RING_IN_TUNE_CENTS は 2", api.RING_IN_TUNE_CENTS === 2, String(api.RING_IN_TUNE_CENTS));
   check("判定に使う定数は RING_IN_TUNE_CENTS だけ(閾値の直書きが無い)",
-    /const inTune = sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
+    /const inTune = snap\.sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
   // ±2¢ の帯は線幅より短いので、到達中に帯を消しても「消えた」ようには見えない。
   // (帯を消す条件が inTune なので、閾値を広げすぎると消える帯が目に付くようになる)
   check("±RING_IN_TUNE_CENTS の帯の弧長は線幅より短い", (() => {
@@ -2871,22 +2890,34 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   const EMA_ALPHA = 1 - Math.exp(-(1000 / FPS) / api.RING_SMOOTH_TAU_MS);
   console.log(`  平滑: τ=${api.RING_SMOOTH_TAU_MS}ms → 60fps 相当の α=${EMA_ALPHA.toFixed(6)}`);
   // (a) 係数が経過時間から作られていること。**フレーム番号でも固定値でもない**。
+  // 【D-23a】平滑は純関数 ringSmoothStep へ出し、**レンダー本体ではなく rAF が進める**。
+  // 式も τ も1文字も変えていない(D23-SPEC §1.2)。
+  const smoothStepCode = codeOf(srcOfFn(src, "ringSmoothStep"));
   check("平滑の係数は Δt から作る(α = 1 − exp(−Δt/τ))",
-    /smoothRef\.current\.val \+= \(rawExact - smoothRef\.current\.val\) \* \(1 - Math\.exp\(-dtMs \/ RING_SMOOTH_TAU_MS\)\);/.test(ringCode));
+    /const val = prev\.val \+ \(snap\.rawExact - prev\.val\) \* \(1 - Math\.exp\(-dtMs \/ tauMs\)\);/.test(smoothStepCode));
   check("Δt は performance.now() の差分から取る(レンダー回数で進めていない)",
-    /const nowMs = performance\.now\(\);/.test(ringCode)
-    && /const dtMs = Math\.max\(0, nowMs - smoothRef\.current\.t\);/.test(ringCode)
-    && /smoothRef\.current\.t = nowMs;/.test(ringCode));
+    /const dtMs = Math\.max\(0, nowMs - prev\.t\);/.test(smoothStepCode)
+    && /const now = performance\.now\(\);/.test(ringCode)
+    && /smoothRef\.current = ringSmoothStep\(smoothRef\.current, snap, now, RING_SMOOTH_TAU_MS\);/.test(ringCode));
+  // 【D-23a】**平滑をレンダー本体に戻さない。** 戻すと StrictMode の二重実行で進み方が
+  // 変わり、開発と本番で環の速さが食い違う(D-15 §1(B) で一度潰した穴)。
+  check("平滑はレンダー本体ではなく rAF が進める(本体に更新文が無い)",
+    !/smoothRef\.current\.val \+=/.test(ringCode),
+    (ringCode.match(/smoothRef\.current\.val \+=/g) || []).join(" ") || "0件");
   // (b) 固定係数へ戻す変異を撃つ。ringCode は codeOf 済みなので、経緯をコメントに
   //     書き残しても落ちない(罠9 / 「綴りの不在」を見る検査の作法)。
   check("平滑に固定係数(* 0.15)が1つも残っていない",
-    !/\* 0\.15\b/.test(ringCode), (ringCode.match(/\* 0\.15\b/g) || []).join(" ") || "0件");
+    !/\* 0\.15\b/.test(ringCode) && !/\* 0\.15\b/.test(smoothStepCode),
+    ((ringCode + smoothStepCode).match(/\* 0\.15\b/g) || []).join(" ") || "0件");
   // (c) 【D-15 §1(A)】画面に出す数字も環と同じ値から出す。
   //     以前は prop の centsOffset(平滑なしの生値)をそのまま文字にしていて、
   //     文字・色・到達判定の三者が食い違っていた。
+  // 【D-23a】文字も rAF が書く。丸めは純関数 ringCentsText の中1箇所だけ。
   check("D-15: セント値の文字は平滑後の exact から出す(環・色・到達判定と同じ変数)",
-    /const centsShown = Math\.round\(exact\);/.test(ringCode)
-    && /\{sounding && textOn \? `\$\{centsShown > 0 \? "\+" : ""\}\$\{centsShown\}¢` : ""\}/.test(ringCode));
+    /const centsAll = ringCentsText\(exact, snap\.sounding\);/.test(ringCode)
+    && /const txt = textOnRaf \? centsAll : "";/.test(ringCode)
+    && /const n = Math\.round\(exact\);/.test(codeOf(srcOfFn(src, "ringCentsText")))
+    && /cents\.textContent = txt;/.test(ringCode));
   // 【D-19b で textOn が入った】これは**診断の「音名」スイッチだけ**を表す変数。
   // ここに別の条件が混ざると、普段の画面で文字が消える経路ができてしまう。
   check("文字を出す条件に混ぜてよいのは診断のスイッチだけ(textOn は他の条件を持たない)",
@@ -2898,10 +2929,12 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     && !/\$\{centsOffset\}¢/.test(ringCode),
     (ringCode.match(/\$\{centsOffset\}¢/g) || []).join(" ") || "0件");
   // 文字の色・到達の呼吸も同じ値の系統から出ていること(三者が1つの値に揃っている)。
+  // 【D-23a】色も呼吸も rAF が書く。**元は環とまったく同じ [r, g, b] と inTune**。
   check("D-15: セント値の色は環と同じ color(pitchBarColorRGB(exact) 由来)、呼吸は inTune",
-    /color: sounding && textOn \? color : "var\(--c-ink-3\)"/.test(ringCode)
+    /const col = snap\.sounding && textOnRaf \? `rgb\(\$\{r\},\$\{g\},\$\{b\}\)` : "var\(--c-ink-3\)";/.test(ringCode)
+    && /cents\.style\.color = col;/.test(ringCode)
     && /const \[r, g, b\] = pitchBarColorRGB\(exact\);/.test(ringCode)
-    && /const inTune = sounding && Math\.abs\(exact\) <= RING_IN_TUNE_CENTS;/.test(ringCode));
+    && /const wantBreath = inTune && breathOnRaf && !reduce;/.test(ringCode));
   // centsFn(t[ms]) → 生のセント値。戻り値: 外れている連続時間の一覧と、走った回数。
   function simulateRing(centsFn, seconds, rearmMs = api.RING_RUN_REARM_MS) {
     const dt = 1000 / FPS;
@@ -3094,7 +3127,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       && api.ringRunState({}, true, 5000).runFrom === 5000);
     // 抑制の判定はコンポーネントの中ではなく純関数に置く(ハーネスから見えるように)
     check("再走行の抑制はコンポーネント内の if ではなく純関数",
-      /const st = ringRunState\(runStateRef\.current, liveRef\.current\.inTune, now\);/.test(ringCode)
+      /const st = ringRunState\(runStateRef\.current, inTune, now\);/.test(ringCode)
       && !/RING_RUN_REARM_MS/.test(ringCode));
   }
 
@@ -3112,12 +3145,21 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   //     純関数のテストを一切壊さずに減速設定で光を完全に消せた。)
   check("ringGlowOpacity の係数の和は1(進捗1・呼吸1で AMP ちょうど)",
     api.ringGlowOpacity(1, 1, 0) === api.RING_GLOW_AMP, String(api.ringGlowOpacity(1, 1, 0)));
+  // 【D-23b】明るさの式は opNum へ移した(見えているかで色を書くか決めるため、先に要る)。
+  // **式そのものは1文字も変えていない。** reduce の分岐を挟まないことを両方の行で見る。
   check("減速設定でも光は消えない(不透明度の式に reduce の分岐を挟まない)", (() => {
-    const m = /const op = [^\n]*/.exec(ringCode);
-    if (!m) return false;
-    return m[0].trim() === "const op = ringGlowOpacity(raw, breath, liveRef.current.glowCents).toFixed(4);"
-      && !/reduce/.test(m[0]);
-  })(), (/const op = [^\n]*/.exec(ringCode) || [""])[0].trim());
+    const m = /const opNum = [^\n]*/.exec(ringCode);
+    const t = /const op = [^\n]*/.exec(ringCode);
+    if (!m || !t) return false;
+    return m[0].trim() === "const opNum = ringGlowOpacity(raw, breath, glowCents);"
+      && t[0].trim() === "const op = opNum.toFixed(4);"
+      && !/reduce/.test(m[0]) && !/reduce/.test(t[0]);
+  })(), `${(/const opNum = [^\n]*/.exec(ringCode) || [""])[0].trim()} | ${(/const op = [^\n]*/.exec(ringCode) || [""])[0].trim()}`);
+  // 【D-23b】見えていないフレームは光の色を書かない(opacity 0 なので画面に1pxも出ない)。
+  // 相手は feTurbulence と入れ子マスクを含む約380px四方の面。**外すと毎フレーム書きに戻る。**
+  check("D-23b: 光の色は見えているフレームだけ書く(opacity 0 のとき書きに行かない)",
+    /if \(opNum > 0 && baseKey !== lastBase\) \{/.test(ringCode),
+    (ringCode.match(/[^\n]*baseKey !== lastBase[^\n]*/g) || ["無し"]).join(" | ").trim());
   check("減速設定の分岐は raw と breath の2箇所だけ(rAFループ内)",
     (ringCode.match(/reduce \?/g) || []).length === 2,
     `${(ringCode.match(/reduce \?/g) || []).length}箇所`);
@@ -17501,24 +17543,26 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
     // 実装の更新文そのもの1行を new Function で組み立て、時間軸は**規範(§1.11)の τ**で刻む。
     // これで次の変異が KILL される: 係数を固定値に戻す / dtMs との割り算を掛け算にする /
     // 指数の符号を反転する / 更新文を消す / **App.jsx の τ だけ動かす**。
-    const ringSrc34 = codeOf(srcOfFn(src, "PitchRing"));
-    const stepSrc = (ringSrc34.match(/smoothRef\.current\.val \+= [^;]*;/) || [""])[0];
+    // 【D-23a】平滑は純関数 ringSmoothStep へ出た(レンダー本体ではなく rAF が進める)。
+    // **取り出す1文も、回し方も、期待値も変えていない** ── 取り出し元だけが変わった。
+    const stepSrc34 = codeOf(srcOfFn(src, "ringSmoothStep"));
+    const stepSrc = (stepSrc34.match(/const val = prev\.val \+ [^;]*;/) || [""])[0];
     check("34.1 平滑の更新文を実装から1文だけ取り出せている(空回りしていない)",
-      /smoothRef\.current\.val \+=/.test(stepSrc), stepSrc.replace(/\s+/g, " ") || "取り出せない");
+      /const val = prev\.val \+ /.test(stepSrc), stepSrc.replace(/\s+/g, " ") || "取り出せない");
     // 構築も包む(D-13a: 裸の new Function は外れるとハーネスごと落ちる)。
     const stepFn = (() => {
       try {
-        return new Function("RING_SMOOTH_TAU_MS", "smoothRef", "rawExact", "dtMs",
-          `${stepSrc}\nreturn smoothRef.current.val;`);
+        return new Function("tauMs", "prev", "snap", "dtMs", `${stepSrc}\nreturn val;`);
       } catch { return null; }
     })();
     // 値0から目標1へ、実装の更新文だけで totalMs を steps 歩に割って進めた到達率。
     const advance = (totalMs, steps) => {
-      const smoothRef = { current: { val: 0, t: 0, semi: 0 } };
+      let val = 0;
       let last = { ok: false, v: undefined, err: "組み立てられていない" };
       for (let i = 0; i < steps; i++) {
-        last = runFn(stepFn, api.RING_SMOOTH_TAU_MS, smoothRef, 1, totalMs / steps);
+        last = runFn(stepFn, api.RING_SMOOTH_TAU_MS, { val }, { rawExact: 1 }, totalMs / steps);
         if (!last.ok) return last;
+        val = last.v;
       }
       return last;
     };
@@ -18622,12 +18666,12 @@ console.log("\n========== 検証37: D-19 1フレームの内訳を測る計器 =
     // (3) **止めるのは描く依頼だけ。値の計算とチューナーの判定は1文字も触っていない。**
     {
       const calcLines = [
-        ["環: 光の明るさの計算", ringCode37, "const op = ringGlowOpacity("],
-        ["環: 帯のグラデーション", ringCode37, "stops: ringGradientStops("],
+        ["環: 光の明るさの計算", ringCode37, "const opNum = ringGlowOpacity("],
+        ["環: 帯のグラデーション", ringCode37, "const list = ringGradientStops("],
         // 【D-22】帯を据え置いてよいかの判定。ここに診断の綴りが混ざると、D-19b の
         // 「環の帯」スイッチが**塗りだけを外した比較**でなくなる(グラデーションまで止まる)。
         ["環: 帯が出ているかの判定", ringCode37, "const barLive = "],
-        ["環: 表示するセント値", ringCode37, "const centsShown = "],
+        ["環: 表示するセント値", ringCode37, "const centsAll = ringCentsText("],
         ["環: 合った判定", ringCode37, "const inTune = "],
         ["tick: 発音中の判定", tickCode37, "soundingRef.current = "],
         ["tick: 音色を測ってよいかの判定", tickCode37, "const timbreMeasurable = "],
@@ -18771,11 +18815,16 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
   {
     const breathLines = (ringCode38.match(/[^\n]*ficus-breathe[^\n]*/g) || []);
     const byInTune = breathLines.filter((l) => /\binTune\b/.test(l) && !/\bbreathing\b/.test(l));
-    check("38.4 到達の呼吸はクラスと animation の両方が同じ判定(breathing)を見る",
-      /const breathOn = !\(dRingOn && !METRO_DIAG\.drawBreath\);/.test(ringCode38)
-      && /const breathing = inTune && breathOn;/.test(ringCode38)
-      && breathLines.length >= 2 && byInTune.length === 0,
-      `ficus-breathe の行=${breathLines.length}件 / inTune のまま=${byInTune.length}件`);
+    // 【D-23a】クラスの付け外しは無くなった(App.jsx は className / classList を実行時に
+    // 書き換えない、という既存の規則がある)。呼吸は rAF の**1つの判定**から出る。
+    // 止め忘れる「片方」が構造として無くなったので、主張を
+    // 「判定は1つ / ficus-breathe の綴りは1箇所 / 動きを減らす設定を自分で見ている」へ。
+    check("38.4 到達の呼吸は rAF の1つの判定から出る(止め忘れる片方が無い)",
+      /const breathOnRaf = !\(dRafOn && !METRO_DIAG\.drawBreath\);/.test(ringCode38)
+      && /const wantBreath = inTune && breathOnRaf && !reduce;/.test(ringCode38)
+      && breathLines.length === 1
+      && !/classList/.test(ringCode38),
+      `ficus-breathe の行=${breathLines.length}件 / byInTune=${byInTune.length}件`);
   }
 
   // --- 38.5 止めたのは描く依頼だけ。計測ロジックは1文字も触っていない ------------------
@@ -18806,7 +18855,8 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
       // 【D-21 で setMatchedFingering の渡し方だけが変わった】渡すのは
       // 「中身が同じなら前の object」。**分岐する setter が2つであることも、
       // 運指の判定が分岐の外にあることも変わっていない**(形の主張はそのまま)。
-      const want = "if (sounding) { if (!dMakeOff) setPitch(f0); "
+      const want = "if (sounding) { if (!dMakeOff) setPitch((prev) => "
+        + "(ringSameSemitone(prev, f0, effectiveTuningRef.current) ? prev : f0)); "
         + "matchedFinger = matchFingering(lastFingerRef.current, f0, fingeringTableRef.current); "
         + "lastFingerRef.current = matchedFinger; "
         + "if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));";
@@ -18815,7 +18865,8 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
     }
     // 止めているのは「React へ渡す所」だけであること。
     check("38.5 止めているのは表示値を渡す所だけ(setter の手前で分ける)",
-      tickCode38.includes("if (!dMakeOff) setPitch(f0);")
+      tickCode38.includes("if (!dMakeOff) { RING_LIVE.note = noteNow; RING_LIVE.sounding = !!noteNow; }")
+      && tickCode38.includes("if (!dMakeOff) setPitch((prev) => (ringSameSemitone(prev, f0, effectiveTuningRef.current) ? prev : f0));")
       && tickCode38.includes("if (!dMakeOff) setMatchedFingering((prev) => (sameFingeringForDisplay(prev, matchedFinger) ? prev : matchedFinger));")
       && /if \(holdActive\) \{\s*\r?\n\s*if \(!dMakeOff\) \{/.test(tickCode38),
       (tickCode38.match(/[^\n]*dMakeOff[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
@@ -19204,10 +19255,15 @@ console.log("\n========== 検証39: D-21 中身が同じなら同じものを渡
     check("39.5 毎フレーム新しい identity を作っていた4箇所は、判定を通してから渡している",
       tickCode39.length > 400 && notWired.length === 0,
       notWired.length ? `通っていない: ${notWired.join(" / ")}` : `tick=${tickCode39.length}字`);
-    // **ピッチは間引かない。** 環の追従(D-17a の τ=60ms の平滑)の元になる値で、
-    // 更新頻度を落とすと環が鈍る。間引きの形が setPitch に付いたらここで落ちる。
-    check("39.5 ピッチだけは間引いていない(環の追従を鈍らせない)",
-      tickCode39.includes("if (!dMakeOff) setPitch(f0);") && !/setPitch\(\s*\(prev\)/.test(tickCode39),
+    // 【D-23a で前提が変わった】環はもう state の pitch を読まない(RING_LIVE を読む)。
+    // **間引いてはいけないのは RING_LIVE のほう** ── ここが鈍ると環の追従(τ=60ms)が鈍る。
+    // state の pitch は音名・オクターブにしか使われないので、半音単位で十分。
+    check("39.5 環へ渡す値は間引かない(RING_LIVE は毎フレーム書く)",
+      tickCode39.includes("if (!dMakeOff) { RING_LIVE.note = noteNow; RING_LIVE.sounding = !!noteNow; }")
+      && !/RING_LIVE\.note = [^;\n]*\?[^;\n]*:/.test(tickCode39),
+      (tickCode39.match(/[^\n]*RING_LIVE[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
+    check("39.5 state の pitch は半音が変わったときだけ更新する(環はこれを読まない)",
+      tickCode39.includes("setPitch((prev) => (ringSameSemitone(prev, f0, effectiveTuningRef.current) ? prev : f0));"),
       (tickCode39.match(/[^\n]*setPitch\([^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
     // 記録に入る値は状態ではなく tick の局所変数のまま(間引きは記録に届かない)。
     check("39.5 録音フレームに入る音量・運指は局所変数のまま(間引きは記録に届かない)",
@@ -19390,15 +19446,18 @@ console.log("\n========== 検証40: D-22 帯のグラデーションの据え置
     }
 
     // --- 40.4 配線 ── 純関数を守っても、呼び出しが無ければ意味がない(罠2) ------
-    check("40.4 据え置きの判断は ringBarGradNeedsRebuild を通し、作り直すときだけ箱に書く",
-      /const barHeldRef = useRef\(null\);/.test(ringCode40)
-      && /if \(ringBarGradNeedsRebuild\(barLive && !dRampOff, !!barHeldRef\.current\)\) \{/.test(ringCode40)
-      && /barHeldRef\.current = \{ stops: ringGradientStops\(0, deg\), base: \[r, g, b\], x2: mx, y2: my \};/.test(ringCode40)
-      && /const bar = barHeldRef\.current;/.test(ringCode40),
-      (ringCode40.match(/[^\n]*barHeldRef[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
-    check("40.4 帯の <path> と据え置きは、同じ1つの条件(barLive)から出る",
+    // 【D-23a で据え置きの箱は無くなった】帯は React を通らず rAF が属性へ直接書く。
+    // 「出ていないフレームは書き換えない」という**主張はそのまま**で、実現の形だけが
+    // 「箱に据え置く」→「そのフレームは書きに行かない」へ変わった。
+    check("40.4 グラデーションを書き換えるのは帯が出ているフレームだけ",
+      /if \(barLive && !rampOff\) \{/.test(ringCode40)
+      && /const grad = barGradRef\.current;/.test(ringCode40)
+      && !/barHeldRef/.test(ringCode40),
+      (ringCode40.match(/[^\n]*barGradRef[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
+    check("40.4 帯の <path> と色目盛は、同じ1つの条件(barLive)から出る",
       /const barLive = ringBarLive\(inTune, deg\);/.test(ringCode40)
-      && /let arcD = barLive \? ringArcD\(0, deg\) : "";/.test(ringCode40),
+      && /const barDraw = barLive && !\(dRafOn && !METRO_DIAG\.drawBar\);/.test(ringCode40)
+      && /if \(barLive && !rampOff\) \{/.test(ringCode40),
       (ringCode40.match(/[^\n]*barLive[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 240));
     // --- 40.5 D-22c 診断のスイッチ「帯の色目盛を止める」 ----------------------
     // **これは犯人を確定するための計器。** D-22 で消せたのは「帯が出ていない間」だけで、
@@ -19460,11 +19519,11 @@ console.log("\n========== 検証40: D-22 帯のグラデーションの据え置
         && /\{stopBtn\("drawBar", "環の帯"\)\}/.test(src)
         && /\{stopBtn\("drawBarRamp", "帯の色目盛"\)\}/.test(src),
         (src.match(/\{stopBtn\("drawBar\w*", "[^"]*"\)\}/g) || ["無し"]).join(" / "));
-      check("40.5 スイッチは診断が開いていると分かった後でしか読まず、据え置きの判断だけに掛かる",
-        /const dRampOff = dRingOn && !METRO_DIAG\.drawBarRamp;/.test(ringCode40)
+      check("40.5 スイッチは診断が開いていると分かった後でしか読まず、色目盛の書き換えだけに掛かる",
+        /const rampOff = dRafOn && !METRO_DIAG\.drawBarRamp;/.test(ringCode40)
         && (ringCode40.match(/METRO_DIAG\.drawBarRamp/g) || []).length === 1
-        && /ringBarGradNeedsRebuild\(barLive && !dRampOff,/.test(ringCode40),
-        (ringCode40.match(/[^\n]*dRampOff[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
+        && /if \(barLive && !rampOff\) \{/.test(ringCode40),
+        (ringCode40.match(/[^\n]*rampOff[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
     }
 
     // 【据え置きが画面に出ない根拠そのもの】このグラデーションの読み手は帯の <path> 1本だけ。
@@ -19476,6 +19535,150 @@ console.log("\n========== 検証40: D-22 帯のグラデーションの据え置
       && /stroke=\{`url\(#\$\{barGradId\}\)`\} strokeWidth=\{SW\}/.test(ringSrc40.replace(/\s*\n\s*/g, " ")),
       `barGradId の出現=${(ringSrc40.match(/barGradId/g) || []).length}箇所`);
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証41: D-23 環の毎フレーム値を React の外へ(凍結仕様 design/D23-SPEC.md)
+//
+// 出どころ: 本人の実機。**①「鳴っていない表示にする」を10秒おきに押すと、押すたびに
+// 毎回、確実に**振り子の滑らか⇄カクつきが切り替わる。①が止めるのは
+// 「毎フレーム変わる値が React を通って環のサブツリーへ流れ込むこと」だけで、
+// 解析も状態更新の頻度も止めていない(volumeDb は凍らせないのに滑らかになる)。
+//
+// D-15〜D-22c で試して**すべて効かなかった**もの: 解析を軽くする / 走りの <stop> を静的化 /
+// memo / 状態更新を 3.00→1.18本 / 帯の弧を消す / 帯の色目盛30個を止める / 音名 / 呼吸 /
+// 詳細カード / 音色FFT / 外周の光の明るさ。**回数でも本数でも塗りでもなかった。**
+//
+// この節が守るのは D23-SPEC の3点:
+//   §1.1 React に残すのは「音の同一性」だけ。毎フレーム値は RING_LIVE が運ぶ
+//   §1.2 平滑(EMA)は rAF が進める(レンダー本体の副作用にしない)
+//   §1.3 **二重書き手の禁止** ── 同じ属性を React と rAF の両方が書かない
+// ============================================================
+console.log("\n========== 検証41: D-23 環の毎フレーム値を React の外へ ==========");
+{
+  const ringCode41 = codeOf(srcOfFn(src, "PitchRing"));
+  const tickCode41 = codeOf(srcOfFn(src, "WindToneLabPhaseMode"));
+
+  // --- 41.1 ringLiveSnapshot: 環が1フレームで読む値 ---------------------------
+  {
+    const snap = api.ringLiveSnapshot;
+    const note = (cents, midi) => ({ centsExact: cents, midi });
+    check("41.1 鳴っていなければ sounding=false・rawExact=0・semi=null",
+      JSON.stringify(snap({ note: null, sounding: false }, true))
+        === JSON.stringify({ sounding: false, rawExact: 0, semi: null }));
+    // ①「鳴っていない表示にする」は**ここで**効く(D23-SPEC §3)。
+    check("41.1 ①を押している間は、鳴っていても「鳴っていない」を返す",
+      snap({ note: note(7, 69), sounding: true }, false).sounding === false);
+    check("41.1 生のセントは ±RING_MAX_CENTS へ丸める(環の外へ出さない)",
+      snap({ note: note(999, 69) }, true).rawExact === api.RING_MAX_CENTS
+      && snap({ note: note(-999, 69) }, true).rawExact === -api.RING_MAX_CENTS);
+    check("41.1 半音は midi の丸め(音名が変わった瞬間に平滑をやり直す元)",
+      snap({ note: note(0, 68.6) }, true).semi === 69
+      && snap({ note: note(0, 69.4) }, true).semi === 69);
+  }
+
+  // --- 41.2 ringSmoothStep: 平滑は純関数。式も τ も D-15 のまま ----------------
+  {
+    const step = api.ringSmoothStep;
+    const on = (raw, semi) => ({ sounding: true, rawExact: raw, semi });
+    check("41.2 鳴っていなければ状態をゼロへ戻す",
+      JSON.stringify(step({ semi: 5, val: 9, t: 100 }, { sounding: false }, 200, 60))
+        === JSON.stringify({ semi: null, val: 0, t: 0 }));
+    check("41.2 半音が変わった瞬間はスナップする(隣の音へスウィープしない)",
+      step({ semi: 60, val: -20, t: 0 }, on(9, 61), 100, 60).val === 9);
+    // τ ぶんの時間で 63.2%(1 − e⁻¹)。**期待値は式ではなく指数の定義から出す。**
+    {
+      const tau = api.RING_SMOOTH_TAU_MS;
+      const r = step({ semi: 60, val: 0, t: 0 }, on(1, 60), tau, tau);
+      check("41.2 同じ半音なら Δt から作った係数で進む(τ で 63.2%)",
+        Math.abs(r.val - (1 - Math.exp(-1))) < 1e-12, String(r.val));
+      const half = step({ semi: 60, val: 0, t: 0 }, on(1, 60), tau / 2, tau);
+      check("41.2 Δt が半分なら進み方も指数どおり(フレーム数では進めていない)",
+        Math.abs(half.val - (1 - Math.exp(-0.5))) < 1e-12, String(half.val));
+    }
+    check("41.2 時刻が巻き戻っても負の Δt にしない",
+      step({ semi: 60, val: 0.5, t: 500 }, on(1, 60), 100, 60).val === 0.5);
+  }
+
+  // --- 41.3 ringCentsText: 文字は環と同じ値から。丸めはここ1箇所 ---------------
+  check("41.3 セントの文字は符号つきの整数(鳴っていなければ空)",
+    api.ringCentsText(3.4, true) === "+3¢"
+    && api.ringCentsText(-3.4, true) === "-3¢"
+    && api.ringCentsText(0.2, true) === "0¢"
+    && api.ringCentsText(9, false) === "");
+
+  // --- 41.4 ringSameSemitone: React に残す「音の同一性」 ----------------------
+  check("41.4 同じ半音なら同じと答え、隣の半音なら違うと答える",
+    api.ringSameSemitone(440, 442, 440) === true
+    && api.ringSameSemitone(440, 466.16, 440) === false
+    && api.ringSameSemitone(null, 440, 440) === false
+    && api.ringSameSemitone(440, null, 440) === false);
+
+  // --- 41.5 環の本文に毎フレーム値が1つも無い(D23-SPEC §1.1) ------------------
+  // ここが崩れると、①で滑らかになった状態が普段の画面に戻らない。
+  {
+    const perFrame = [
+      ["平滑後の値", /\bconst exact = /],
+      ["角度", /\bconst deg = /],
+      ["色", /const \[r, g, b\] = pitchBarColorRGB\(/],
+      ["合った判定", /\bconst inTune = /],
+      ["帯の弧", /\bconst arcD\b/],
+      ["セントの整数", /\bconst centsShown\b/],
+      ["光の色", /\bconst glowColor\b/],
+    ];
+    // 本文 = PitchRing のうち rAF のループより前(= React が毎レンダー走らせる所)。
+    const bodyEnd = ringCode41.indexOf("const loop = () =>");
+    const body41 = bodyEnd > 0 ? ringCode41.slice(0, bodyEnd) : ringCode41;
+    const leaked = perFrame.filter(([, re]) => re.test(body41)).map(([n]) => n);
+    check("41.5 環の本文に毎フレーム変わる値が1つも無い(rAF が持つ)",
+      bodyEnd > 0 && leaked.length === 0, leaked.join(" / ") || "0件");
+    // prop の centsOffset は受け口だけ残して**読み手ゼロ**。読むと React 経由が復活する。
+    check("41.5 本文は prop の centsOffset を読まない(受け口は互換のため残す)",
+      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL \}\)/.test(ringCode41)
+      && (ringCode41.match(/\bcentsOffset\b/g) || []).length === 1,
+      `centsOffset の出現=${(ringCode41.match(/\bcentsOffset\b/g) || []).length}箇所`);
+  }
+
+  // --- 41.6 二重書き手の禁止(D23-SPEC §1.3) ----------------------------------
+  // 同じ属性を React と rAF の両方が書くと、React の再レンダーが rAF の書いた値を
+  // 上書きして「毎フレーム React 経由」に戻る ── まさに今回の原因そのもの。
+  {
+    const svg41 = ringCode41.slice(ringCode41.indexOf("<svg"), ringCode41.indexOf("</svg>"));
+    const flat41 = svg41.replace(/\s*\n\s*/g, " ");
+    const dyn = [
+      ["帯の弧の d", /\sd=\{/],
+      ["帯のストップの色", /stopColor=\{`rgb\(/],
+      ["光の塗り", /fill=\{glowColor\}/],
+      ["グラデーションの終点", /x2=\{(mx|bar\.x2)/],
+    ];
+    const bad = dyn.filter(([, re]) => re.test(flat41)).map(([n]) => n);
+    check("41.6 React は環の毎フレーム属性を1つも書かない(rAF 単独)",
+      bad.length === 0, bad.join(" / ") || "0件");
+    // rAF が書く先の ref が全部繋がっていること(罠2: 純関数を守っても配線が無ければ意味がない)。
+    const wires41 = ["barGradRef", "barStopRefs", "barPathRef", "centsTextRef"];
+    const notWired41 = wires41.filter((w) => !(new RegExp(`ref=\\{\\(el\\) => \\{ ${w}`).test(ringCode41)));
+    check("41.6 rAF が書く先の ref は4つとも JSX に繋がっている",
+      notWired41.length === 0, notWired41.join(" / ") || "4つとも配線済み");
+    // セントの箱は React が子を1つも渡さない(渡すと再レンダーで文字が消える)。
+    // 子を渡すと、再レンダーのたびに rAF が書いた文字が消される(D23-SPEC §1.3)。
+    check("41.6 セントの箱は React が子を持たない(rAF の textContent を消さない)",
+      /ref=\{\(el\) => \{ centsTextRef\.current = el; \}\}/.test(ringCode41)
+      && !/\$\{centsShown/.test(ringCode41)
+      && !/color: sounding && textOn \? color/.test(ringCode41),
+      (ringCode41.match(/[^\n]*centsShown[^\n]*/g) || ["centsShown は0件"]).join(" | ").slice(0, 120));
+  }
+
+  // --- 41.7 配線: tick が RING_LIVE を書き、rAF がそれを読む ------------------
+  check("41.7 tick は毎フレーム RING_LIVE を書く(React を経由しない)",
+    /RING_LIVE\.note = noteNow; RING_LIVE\.sounding = !!noteNow;/.test(tickCode41)
+    && /RING_LIVE\.note = null; RING_LIVE\.sounding = false;/.test(tickCode41),
+    (tickCode41.match(/[^\n]*RING_LIVE[^\n]*/g) || ["無し"]).join(" | ").trim().slice(0, 200));
+  check("41.7 環の rAF は RING_LIVE から読む(prop からではない)",
+    /const snap = ringLiveSnapshot\(RING_LIVE, !\(dRafOn && !METRO_DIAG\.drawSounding\)\);/.test(ringCode41));
+  check("41.7 平滑は rAF が進める(レンダー本体の副作用にしない)",
+    /smoothRef\.current = ringSmoothStep\(smoothRef\.current, snap, now, RING_SMOOTH_TAU_MS\);/.test(ringCode41)
+    && !/smoothRef\.current = \{ semi/.test(ringCode41.slice(0, ringCode41.indexOf("const loop = () =>"))));
   console.log("  -> done");
 }
 
