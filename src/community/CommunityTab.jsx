@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, startYearOptions } from "./profile.js";
-import { searchInstrumentModels, searchMouthpieces, OTHER_BRAND } from "./catalog/gear.js";
+import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -380,6 +380,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   const [places, setPlaces] = useState(initial?.places ?? []);
   const [instrument, setInstrument] = useState(g.instrumentBrand ? { brand: g.instrumentBrand, model: g.instrumentModel ?? null } : null);
   const [mouthpiece, setMouthpiece] = useState(g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null);
+  const [ligature, setLigature] = useState(g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null);
   const [ageConfirmed, setAgeConfirmed] = useState(initial?.ageConfirmed === true);
   // 【モジュール直下で作らない】このアプリは PWA として何日も開きっぱなしになりうる。
   // 読み込み時に一度だけ年の一覧を作ると年をまたいだとき新年が選べない。フォームを開くたびに作る。
@@ -414,6 +415,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           instrumentModel: instrument?.model ?? null,
           mpBrand: mouthpiece?.brand ?? null,
           mpModel: mouthpiece?.model ?? null,
+          ligBrand: ligature?.brand ?? null,
+          ligModel: ligature?.model ?? null,
         },
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
@@ -476,8 +479,16 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         placeholder="例: S80 C* / メイヤー"
       />
 
-      <Field label="立場">
-        <select value={position} onChange={(e) => setPosition(e.target.value)} aria-label="立場" className="sans" style={controlStyle}>
+      <GearPicker
+        label="リガチャー" ariaPrefix="リガチャー"
+        note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+        value={ligature} onPick={setLigature}
+        runSearch={(q) => searchLigatures(q)}
+        placeholder="例: Dark / ロブナー"
+      />
+
+      <Field label="属性">
+        <select value={position} onChange={(e) => setPosition(e.target.value)} aria-label="属性" className="sans" style={controlStyle}>
           <option value="">選んでください</option>
           {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
@@ -576,7 +587,8 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         <Row label="楽器種別" value={SAX_LABELS[profile?.saxType] ?? "—"} />
         <Row label="楽器" value={gearLabel({ brand: gear.instrumentBrand, model: gear.instrumentModel })} />
         <Row label="マウスピース" value={gearLabel({ brand: gear.mpBrand, model: gear.mpModel })} />
-        <Row label="立場" value={profile?.position ?? "—"} />
+        <Row label="リガチャー" value={gearLabel({ brand: gear.ligBrand, model: gear.ligModel })} />
+        <Row label="属性" value={profile?.position ?? "—"} />
         <Row label="演奏開始年" value={profile?.startYear ? `${profile.startYear}年` : "—"} />
         <Row label="ジャンル" value={listOrDash(profile?.genres)} />
         <Row label="編成" value={listOrDash(profile?.ensembles)} />

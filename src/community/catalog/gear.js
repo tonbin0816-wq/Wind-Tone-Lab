@@ -1,5 +1,7 @@
-// 機材カタログ(サックス本体・マウスピース)と部分一致検索。
-// データ出典: docs/superpowers/research/2026-08-27-gear-catalog.md
+// 機材カタログ(サックス本体・マウスピース・リガチャー)と部分一致検索。
+// データ出典:
+//   本体・マウスピース … docs/superpowers/research/2026-08-27-gear-catalog.md
+//   リガチャー         … docs/superpowers/research/2026-08-29-ligature-catalog.md
 // 確認記号 ◎(一次情報)/○(販売店・専門メディア) の型番のみを転記している。
 // △(一般知識・未個別確認)の型番は収録していない。
 
@@ -297,6 +299,29 @@ export const BRAND_ALIASES = {
   "Claude Lakey": ["クロードレイキー"],
   Beechler: ["ビーチラー"],
   "Theo Wanne": ["セオワニ", "テオワニ"],
+  // リガチャー(LIGATURE_CATALOG)
+  // 既存キーと同名のブランド(Vandoren / Selmer / Yamaha / JodyJazz / Theo Wanne /
+  // Yanagisawa / D'Addario)は上の別名をそのまま共有する。ここには足さない。
+  Rovner: ["ロブナー", "ロヴナー"],
+  BG: ["ビージー", "ベーゲー"],
+  Silverstein: ["シルバースタイン", "シルヴァスタイン"],
+  Ishimori: ["イシモリ", "石森", "ウッドストーン", "ウッドストン"],
+  Harrison: ["ハリソン"],
+  // 「ç」は NFKC で「c」に畳まれないので、アクセント無しの綴りも別名で持たせる。
+  // これが無いと "francois" と打った人が0件になる。
+  "François Louis": ["フランソワルイ", "フランソワルイス", "Francois Louis"],
+  "Marc Jean": ["マークジャン", "マルクジャン"],
+  Bois: ["ボワ", "ボア"],
+  Ligaphone: ["リガフォン", "リガフォーン"],
+  Winslow: ["ウィンスロー", "ウインスロー"],
+  SAXXAS: ["サクサス", "サクザス"],
+  Oleg: ["オレグ"],
+  Brancher: ["ブランシェ", "ブランチャー"],
+  "JLV Sound": ["ジェイエルヴィ", "ジェイエルブイ"],
+  // 「ú」も NFKC で「u」にならないので、アクセント無しの綴りを別名に入れる。
+  "Bambú": ["バンブー", "Bambu"],
+  Gottsu: ["ゴッツ"],
+  AIZEN: ["アイゼン"],
 };
 
 // 検索正規化: 全角→半角・大文字→小文字(NFKC)、空白・ハイフンを除去。
@@ -358,9 +383,154 @@ export function isValidMouthpiece(brand, model) {
 // 楽器・マウスピースと同じく「ブランド → モデル」を部分一致で選ばせる。
 // 自由入力を確定させないことで、モデレーション対象を増やさない方針は同じ。
 // カタログの出どころは docs/superpowers/research/2026-08-29-ligature-catalog.md。
-// **中身は調査結果からの転記待ち。器だけ先に置いてある。**
+// 同レポートの ◎(一次情報)/○(販売店・専門メディア)の行だけを転記した。
+// △(未裏取り)は収録しない ─ 具体的には Rovner "Legacy" と、Harrison オリジナルの
+// サイズ記号 A1 / S1 / T / TD / TO の2件(レポート §2 の△一覧はこの2件のみ)。
+//
+// 【サイズを持たない】レポート §「サイズ体系についての前提」のとおり、リガチャーは
+// モデル名と管(soprano/alto/tenor/baritone)が別軸で、同じモデル名が全管にまたがる。
+// よって models[] はモデル名だけを持ち、管もサイズ記号も畳み込まない。
+// 例外は下の Selmer / Yamaha(理由は各ブランドのコメント参照)。
+//
+// 【生産終了品も残す】Bois と Winslow(SAXXAS の前身)は販売店表記・フォーラムで
+// 製造終了とされる(レポート §4)。それでも中古で使っている人がいるので、楽器本体の
+// カタログが YAS-23 のような旧モデルを含めているのと同じ扱いで残す。
 export const LIGATURE_CATALOG = {
-  /* 調査レポートの ◎○ 行から転記する */
+  Rovner: {
+    // 型番は「接頭辞(モデル)+サイズ記号」。接頭辞だけがモデル名にあたる。
+    models: [
+      "Dark",
+      "Light",
+      "MKIII",
+      "Star Series",
+      "Versa",
+      "Versa-X",
+      "LGX",
+      "Platinum",
+      "Platinum Gold",
+      "Van Gogh",
+      // "Legacy" は△(公式の製品ページを確認できず)。収録しない。
+    ],
+  },
+  Vandoren: {
+    models: ["Optimum", "M|O", "Leather", "Klassik", "Carbon", "Masters（旧）"],
+  },
+  // ------------------------------------------------------------------
+  // Selmer / Yamaha は**愛称つきモデル名を持たない**(レポート §4)。部品番号
+  // (YAC-1607, M404)か「メタルマウスピース用」のような管別・用途別の一般名しかない。
+  // 他ブランドと同じようにラテン文字の型番だけを並べると、日本語で検索する利用者が
+  // 自分の持ち物を見つけられず「その他」へ流れて機材データが失われる。
+  // そこでモデル名の末尾に日本語の補足を括弧で付け、**表示名と検索キーを兼ねさせる**。
+  // norm() の NFKC が全角括弧を半角に畳むので、全角/半角どちらで打っても当たる。
+  // ------------------------------------------------------------------
+  // ブランドキーは MOUTHPIECE_CATALOG と同じ "Selmer"(本体側の "Selmer Paris" とは別キー)。
+  Selmer: {
+    models: [
+      "FIBRA Ligature（フィブラ）",
+      "標準リガチャー（ラバーマウスピース用）",
+      "メタルマウスピース用リガチャー（アルト・テナー用）",
+      "メタルマウスピース用リガチャー ゴールド（テナー用）",
+      "M404（テナー・メタルマウスピース用）",
+      "Tribute（2nd Gen M404・テナー用）",
+    ],
+  },
+  BG: {
+    models: [
+      "Standard（布＋ラバープレート）",
+      "Super Revelation",
+      "Revelation Silver",
+      "Revelation Jazz",
+      "Standard Jazz",
+      "Revelation Silver Jazz",
+      "FLEX",
+      "Tradition",
+      "Duo",
+      "Universal Jazz",
+    ],
+  },
+  Silverstein: {
+    // 世代(Gen.4/5/6)とサイズ番号(05〜11)は更新が速いので持たない(レポート §1.5 の推奨)。
+    // ALTA は同社の合成リードでリガチャーではないため入れない。
+    models: ["Original", "CRYO4", "QUATTRO", "HEXA", "ESTRO"],
+  },
+  Ishimori: {
+    models: [
+      "Wood Stone スタンダード（逆締）",
+      "Wood Stone AMIME（順締）",
+      "Wood Stone KODAMA I（逆締）",
+      "Wood Stone KODAMA II（逆締）",
+      "Wood Stone CLASSIC",
+    ],
+  },
+  Harrison: {
+    // オリジナルは創業者死去で製造終了、現行は日本製復刻。両方を選べるようにする。
+    // サイズ記号(A2/A3/S2/B.S. は○、A1/S1/T/TD/TO は△)はモデル名に畳み込まない。
+    models: ["Harrison（オリジナル・ヴィンテージ）", "Harrison（日本製復刻）"],
+  },
+  "François Louis": {
+    models: ["Ultimate", "Pure Brass", "Basic"],
+  },
+  "Theo Wanne": {
+    models: ["Enlightened Ligature", "Liberty Ligature"],
+  },
+  JodyJazz: {
+    models: ["POWER RING Ligature", "Ring Ligature（旧）"],
+  },
+  "Marc Jean": {
+    // 仏ではなくカナダ・ケベックの工房(レポート §4)。公式ページが取得できず
+    // Model 701/800/850 は未確認のため入れない。
+    models: ["Generation II（Model 700 系）", "Evolution 4"],
+  },
+  Bois: {
+    models: ["Classique（リング型）"],
+  },
+  Yamaha: {
+    // 公式に単体ページが無く、YAC-#### / WF###### の部品番号で流通する。
+    // レポートの表は1行(対応=ソプラノ〜バリトン)だが、部品番号が管ごとに違う以上
+    // 利用者は「アルト用」で探す。よって 対応 列の管を1モデルずつに開き、
+    // 唯一裏取りできた部品番号(アルト用 YAC-1607)だけを名前に添えた。
+    // 他の管の部品番号は出典が無いので**書かない**(でっち上げない)。
+    models: [
+      "標準リガチャー（ソプラノ用）",
+      "標準リガチャー（アルト用・YAC-1607）",
+      "標準リガチャー（テナー用）",
+      "標準リガチャー（バリトン用）",
+    ],
+  },
+  Ligaphone: {
+    models: ["UNIVERSAL", "CL.AS"],
+  },
+  Winslow: {
+    // 製造終了とされるが中古が主戦場のため残す。番号(#8, #16N…)が対応MPを表す。
+    models: ["Winslow Ligature（番号サイズ体系 #8 / #16N ほか）"],
+  },
+  SAXXAS: {
+    models: ["SAXXAS Ligature"],
+  },
+  Oleg: {
+    models: ["Olegature"],
+  },
+  Brancher: {
+    models: ["Brancher セミリジッド（semi-rigid）", "Brancher メタル（ワイヤー式）"],
+  },
+  Yanagisawa: {
+    models: ["Yany Ligature"],
+  },
+  "D'Addario": {
+    models: ["H-Ligature", "Rico Ligature"],
+  },
+  "JLV Sound": {
+    models: ["JLV Ligature"],
+  },
+  "Bambú": {
+    models: ["Bambú 手織りリガチャー（Hand Woven / Braided）", "Bambú NOVA"],
+  },
+  Gottsu: {
+    models: ["Gottsu Signature", "Gottsu Copper Signature", "Gottsu SV950 Signature"],
+  },
+  AIZEN: {
+    models: ["AIZEN フリーダムリガチャー（Freedom Ligature）"],
+  },
 };
 
 export function searchLigatures(query) {
