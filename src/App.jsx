@@ -5198,15 +5198,20 @@ const RING_GLOW_AMP = 0.90;      // 光の最大の強さ(時間方向。呼吸�
 //   つまり**移植の欠陥ではなく、本人が選定した試作そのものが最初から粒を出していない**。
 //   いま見えている質感は下の減衰カーブが作っており、粒の寄与は 8bit の量子化より下にある。
 //
-//   【粒を効かせたくなったときに知っておくこと・実測】粒の機構(RING_GLOW_GRAIN_* と外側の
-//   入れ子)は本人の要望の経緯があるので残してあるが、**下の定数を動かすだけでは点かない**:
-//     ・grainLo 0.30 → 0.00(範囲を最大に開く)でも粒の寄与は 0.972 → **0.972** で不変。
-//       このつまみはマスク全体を暗くして光を薄くするだけで、ばらつきの上限は
-//       falloff(r)×ramp(r) に縛られたまま
-//     ・rampPow 1.8 → 0.6 でも 0.958/255 で不変。0.2 まで振ると 2.068/255(なお不可視)だが、
+//   【粒は撤去した(D-23c 2026/08/29)】上の実測どおり**画面に出ていなかった**うえに、
+//   **この光でいちばん高くつく部品**だった(約380px四方に掛かる feTurbulence + マスク1枚)。
+//   本人の実機で切り分けが着いた:
+//     ・±RING_GLOW_NEAR_CENTS(4¢)の**外**は D-23b で色の書き込みを止めて**滑らかになった**
+//     ・**内側**(＝光が見えている範囲)だけ**カクついたまま**だった
+//   つまり残っていたコストは「光が見えている間の描き直し」そのもの。撤去後の見え方は
+//   **「粒を1に固定した場合」と同じ**で、その差は実測 0.972/255 = 8bit の量子化より下。
+//
+//   【また粒を入れたくなったら】定数を戻すだけでは点かない(実測):
+//     ・grainLo 0.30 → 0.00 でも寄与は 0.972 → **0.972** で不変
+//     ・rampPow 1.8 → 0.6 でも 0.958/255。0.2 まで振ると 2.068/255(なお不可視)だが、
 //       **光そのものが明るくなる**(r=150 の画素 235 → 241)ので「粒だけを強くする」操作にならない
-//   効かせるには `falloff × ramp` という掛け算の**構造**を変える必要がある
-//   (例: 粒を外側の傾斜だけでなく減衰マスク側へ掛ける)。つまみ探しで時間を溶かさないこと。
+//   効かせるには `falloff × ramp` という掛け算の**構造**を変える必要がある。
+//   そして**構造を変えると、この周で直したカクつきが戻る**ことを先に確かめること。
 //   **「外へ行くほど粒に分解して散る」と書かないこと**(実際には見えていない。F-37 と同種の負債になる)。
 //
 // 【要点1: 光の最大は環の外縁(RING_GLOW_EDGE_R)に置く】
@@ -5245,15 +5250,13 @@ const RING_GLOW_EDGE_R = RING_R + RING_SW / 2;      // 光の最大の位置 = �
 const RING_GLOW_RISE_R = RING_GLOW_EDGE_R - 0.7 * RING_SW;
 const RING_GLOW_R_MAX = 190 * (RING_VB / 300);      // 光が届く半径(ここで値も傾きも0)
 const RING_GLOW_DECAY = 2.3;                        // 裾の伸び(小さいほど遠くまで)
-// 粒まわりの3つは「粒の強さのつまみ」に見えるが、**動かしても粒は点かない**
-// (grainLo を 0.30→0.00 に振り切っても寄与は 0.972→0.972 で不変)。
-// 効かせるには掛け算の構造ごと変える必要がある。冒頭の【粒を効かせたくなったときに
-// 知っておくこと・実測】を必ず読むこと。
-const RING_GLOW_RAMP_POW = 1.8;                     // 粒が効き始める急さ(実測では粒の強さを変えられない)
-const RING_GLOW_GRAIN_LO = 0.30;                    // 粒の明るさの下限(実測では効かない。上の注意書きを見ること)
-const RING_GLOW_GRAIN_HI = 1.00;                    // 粒の明るさの上限
+// 【D-23c 2026/08/29】粒(feTurbulence)を**撤去した**。RING_GLOW_GRAIN_LO / _HI /
+// RING_GLOW_SEED は読み手ゼロになったので定義ごと消してある。撤去の根拠と経緯は
+// 冒頭の【粒は撤去した】を読むこと(**実測で 0.972/255 = 8bit の量子化より下**だった)。
+// 外側の傾斜(RING_GLOW_RAMP_POW / GRAINY_STOPS)は**残す** ── 粒が無くなっても
+// 「外へ行くほど薄くなる」形そのものは減衰と傾斜の掛け算が作っている。
+const RING_GLOW_RAMP_POW = 1.8;                     // 外側の傾斜の急さ
 const RING_GLOW_STEPS = 44;                         // 減衰・傾斜を近似するストップの段数
-const RING_GLOW_SEED = 6;                           // 粒(feTurbulence)の種。案③のもの
 // ストップを刻み始める半径。立ち上がりの開始より内側なら値は0のままなのでどこでもよいが、
 // 環のトラックの内縁に合わせて「トラックの下から刻み始める」形にする。
 const RING_GLOW_STOP_R0 = RING_R - RING_SW / 2;
@@ -5555,7 +5558,6 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const glowFalloffId = `ring-glow-falloff-${uid}`;
   const glowSmoothId = `ring-glow-smooth-${uid}`;
   const glowGrainyId = `ring-glow-grainy-${uid}`;
-  const glowNoiseId = `ring-glow-noise-${uid}`;
 
   // --- 到達の演出(走り + 外側だけの呼吸) ---
   // 走りは640ms、呼吸は2.6秒周期で続くため、Reactの再レンダーを挟まずrAFで書き換える。
@@ -5863,29 +5865,13 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               fill={`url(#${glowSmoothId})`}
             />
           </mask>
-          {/* 粒そのもの。マスクとして使うので輝度がそのまま光の濃淡になる。
-              feComponentTransfer で明るさの幅を grainLo〜grainHi に収め、
-              **alpha は slope 0 / intercept 1 で不透明に固定する**(穴を空けない)。 */}
-          <filter id={glowNoiseId} x="-20%" y="-20%" width="140%" height="140%">
-            <feTurbulence
-              type="fractalNoise" baseFrequency="0.9" numOctaves="2"
-              seed={RING_GLOW_SEED} stitchTiles="stitch"
-            />
-            <feColorMatrix type="saturate" values="0" />
-            <feComponentTransfer>
-              <feFuncR type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
-              <feFuncG type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
-              <feFuncB type="linear" slope={RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO} intercept={RING_GLOW_GRAIN_LO} />
-              <feFuncA type="linear" slope="0" intercept="1" />
-            </feComponentTransfer>
-          </filter>
-          <mask id={`${glowNoiseId}-m`}>
-            <rect
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
-              filter={`url(#${glowNoiseId})`}
-            />
-          </mask>
+          {/* 【D-23c】粒(feTurbulence)のフィルタとそのマスクはここにあったが、撤去した。
+              **画面に出ていなかった**(粒を1に固定した場合との最大画素差 0.972/255 =
+              8bit の量子化より下)うえに、この光でいちばん高くつく部品だった。
+              本人の実機: 光が見えない ±RING_GLOW_NEAR_CENTS の外は D-23b で書き込みを
+              止めて滑らかになったが、**光が見えている内側だけカクついたまま**だった。
+              つまり残っていたコストは「光が見えている間の描き直し」で、その最大の要因が
+              約380px四方に掛かるこのフィルタ。冒頭の【粒は撤去した】を読むこと。 */}
         </defs>
         {/* 外周の光。帯より奥に敷く。**mix-blend-mode は一切使わず、マスクの入れ子
             (=掛け算)だけ**で作る(ブレンドが効かない環境で全面が染まった経緯がある)。
@@ -5900,15 +5886,14 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
             />
           </g>
-          {/* 外側 = 減衰 × 傾斜 × 粒。粒の寄与は実測で 1/255 未満(冒頭の解説を見ること) */}
+          {/* 外側 = 減衰 × 傾斜。【D-23c】粒の <g> を1枚外した(粒は画面に出ていなかった)。
+              **見た目は「粒を1に固定した場合」と同じ** ── その差は実測 0.972/255。 */}
           <g mask={`url(#${glowGrainyId}-m)`}>
-            <g mask={`url(#${glowNoiseId}-m)`}>
-              <rect
-                ref={(el) => { glowFillRefs.current[1] = el; }}
-                x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-                width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
-              />
-            </g>
+            <rect
+              ref={(el) => { glowFillRefs.current[1] = el; }}
+              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
+            />
           </g>
         </g>
         {/* 【N-4a で撤去】環のトラック(常に全周の円)。本人指示「チューナーの円環の枠は要らない」。

@@ -162,10 +162,7 @@ const code = [
   extractConst("RING_GLOW_R_MAX"),
   extractConst("RING_GLOW_DECAY"),
   extractConst("RING_GLOW_RAMP_POW"),
-  extractConst("RING_GLOW_GRAIN_LO"),
-  extractConst("RING_GLOW_GRAIN_HI"),
-  extractConst("RING_GLOW_STEPS"),
-  extractConst("RING_GLOW_SEED"),
+    extractConst("RING_GLOW_STEPS"),
   extractConst("RING_GLOW_STOP_R0"),
   extractConst("RING_GLOW_RECT_MIN"),
   extractConst("RING_GLOW_RECT_SIZE"),
@@ -385,8 +382,8 @@ const api = new Function(`${code}
            ringSmoothstep, ringTuneRGB, ringRampRGB, ringGradientStops,
            RING_RUN_MS, RING_RUN_REARM_MS, RING_BREATH_MS, RING_BREATH_RISE,
            RING_GLOW_AMP, RING_GLOW_NEAR_CENTS, RING_GLOW_PEAK, RING_GLOW_EDGE_R, RING_GLOW_RISE_R,
-           RING_GLOW_R_MAX, RING_GLOW_DECAY, RING_GLOW_RAMP_POW, RING_GLOW_GRAIN_LO, RING_GLOW_GRAIN_HI,
-           RING_GLOW_STEPS, RING_GLOW_SEED, RING_GLOW_STOP_R0, RING_GLOW_RECT_MIN, RING_GLOW_RECT_SIZE,
+           RING_GLOW_R_MAX, RING_GLOW_DECAY, RING_GLOW_RAMP_POW,
+           RING_GLOW_STEPS, RING_GLOW_STOP_R0, RING_GLOW_RECT_MIN, RING_GLOW_RECT_SIZE,
            ringGlowAlphaAt, ringGlowRampAt, ringGlowStops,
            RING_GLOW_FALLOFF_STOPS, RING_GLOW_GRAINY_STOPS, RING_GLOW_SMOOTH_STOPS,
            ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowRGB, ringRunState,
@@ -2715,8 +2712,14 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       /<g ref=\{glowGroupRef\} mask=\{`url\(#\$\{glowFalloffId\}-m\)`\} opacity="0">/.test(flatRing));
     check("内側は 減衰 × (1-傾斜) の滑らかな光",
       /<g mask=\{`url\(#\$\{glowSmoothId\}-m\)`\}> <rect/.test(flatRing));
-    check("外側は 減衰 × 傾斜 × 粒 の入れ子(掛け算で粒に分解する)",
-      /<g mask=\{`url\(#\$\{glowGrainyId\}-m\)`\}> <g mask=\{`url\(#\$\{glowNoiseId\}-m\)`\}> <rect/.test(flatRing));
+    // 【D-23c】粒(feTurbulence)は撤去した。**画面に出ていなかった**(粒を1に固定した場合との
+    // 最大画素差 0.972/255 = 8bit の量子化より下)うえ、この光でいちばん高くつく部品だった。
+    // 本人の実機で、光が見えない ±4¢ の外は滑らかになり**内側だけカクついたまま**だったので、
+    // 残っていたコストは「光が見えている間の描き直し」= このフィルタだと分かった。
+    // **戻すときは、この周で直したカクつきが戻らないかを先に確かめること。**
+    check("外側は 減衰 × 傾斜 の入れ子(粒の <g> は撤去した)",
+      /<g mask=\{`url\(#\$\{glowGrainyId\}-m\)`\}> <rect/.test(flatRing)
+      && !/glowNoiseId/.test(ringCode));
     // 【N-4a】終端の目印だったトラックを撤去したので、次の兄弟=走り(runGradIds の path)を
     // 境界に使う。主張は変えていない: 2枚の光がどちらも減衰マスクの <g> の内側で閉じていること。
     check("光の <g> は減衰マスクの中で閉じる(2枚の光がどちらも減衰の内側にある)", (() => {
@@ -2726,31 +2729,26 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       const afterGlow = flatRing.indexOf('d="" fill="none" stroke={`url(#${gid})`}');
       return open >= 0 && smooth > open && grainy > smooth && afterGlow > grainy;
     })());
-    // 粒そのもの。fractalNoise / 彩度0 / 明るさの幅 / **alpha は不透明に固定**。
+    // 【D-23c】環は SVG フィルタを1つも持たない。**ここが増えると、光が見えている間の
+    // 描き直しが一気に高くなる**(粒を戻した瞬間にカクつきが戻る)。定数の読み手も消す。
     const filt = (ringCode.match(/<filter[\s\S]*?<\/filter>/g) || []);
-    check("粒のフィルタは1つだけ", filt.length === 1, `${filt.length}個`);
-    const f0 = (filt[0] || "").replace(/\s*\n\s*/g, " ");
-    check("粒は fractalNoise(baseFrequency 0.9 / numOctaves 2 / stitch)",
-      /<feTurbulence type="fractalNoise" baseFrequency="0\.9" numOctaves="2" seed=\{RING_GLOW_SEED\} stitchTiles="stitch" \/>/.test(f0));
-    check("粒は彩度0(色を持たせない。マスクの輝度だけを使う)",
-      /<feColorMatrix type="saturate" values="0" \/>/.test(f0));
-    check("粒の明るさの幅は grainLo〜grainHi", (() => {
-      const slope = api.RING_GLOW_GRAIN_HI - api.RING_GLOW_GRAIN_LO;
-      const n = (f0.match(/type="linear" slope=\{RING_GLOW_GRAIN_HI - RING_GLOW_GRAIN_LO\} intercept=\{RING_GLOW_GRAIN_LO\}/g) || []).length;
-      return n === 3 && Math.abs(slope - 0.70) < 1e-12 && api.RING_GLOW_GRAIN_LO === 0.30 && api.RING_GLOW_GRAIN_HI === 1.00;
-    })(), `RGB3本 / 幅 ${(api.RING_GLOW_GRAIN_HI - api.RING_GLOW_GRAIN_LO).toFixed(2)}`);
-    // ここが抜けると粒がマスクに**穴**を空け、光が斑に消える(不透明に固定するのが要点)。
-    check("粒の alpha は slope 0 / intercept 1 で不透明に固定する",
-      /<feFuncA type="linear" slope="0" intercept="1" \/>/.test(f0));
-    // マスクは4枚(減衰 / 傾斜 / 1-傾斜 / 粒)。それぞれ矩形1枚だけを持つ。
+    check("環は SVG フィルタを1つも持たない(粒は D-23c で撤去)",
+      filt.length === 0 && !/feTurbulence|feColorMatrix|feComponentTransfer/.test(ringCode),
+      `${filt.length}個`);
+    check("粒の定数は読み手ごと消えている(つまみだけ残さない)",
+      !/RING_GLOW_GRAIN_LO|RING_GLOW_GRAIN_HI|RING_GLOW_SEED/.test(codeOf(src)),
+      (codeOf(src).match(/RING_GLOW_(GRAIN_LO|GRAIN_HI|SEED)/g) || []).join(" ") || "0件");
+    // マスクは3枚(減衰 / 傾斜 / 1-傾斜)。それぞれ矩形1枚だけを持つ。
     const masks = (ringCode.match(/<mask[\s\S]*?<\/mask>/g) || []);
-    check("マスクは4枚(減衰 / 傾斜 / 1-傾斜 / 粒)", masks.length === 4, `${masks.length}枚`);
+    check("マスクは3枚(減衰 / 傾斜 / 1-傾斜)", masks.length === 3, `${masks.length}枚`);
     check("radialGradient は3つ(減衰 / 傾斜 / 1-傾斜)",
       (ringCode.match(/<radialGradient[\s\S]*?<\/radialGradient>/g) || []).length === 3);
     check("3つのグラデーションはユーザー座標系・環と同心・半径は RING_GLOW_R_MAX",
       (ringCode.match(/gradientUnits="userSpaceOnUse" cx=\{CX\} cy=\{CY\} r=\{RING_GLOW_R_MAX\}/g) || []).length === 3);
+    // 【D-23c】粒のマスクが1枚減ったので 6 → 5(マスク3枚 + 光を塗る矩形2枚)。
     check("マスクの矩形はどれも光を塗る矩形と同じ大きさ",
-      (ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length === 6);
+      (ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length === 5,
+      `${(ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length}箇所`);
     // 毎フレーム変えるのは明るさだけ。ノイズや減衰ストップを作り直すと重い。
     check("rAF が触るのはいちばん外の <g> の opacity だけ(ストップは作り直さない)",
       /glow\.setAttribute\("opacity", op\)/.test(ringCode)
