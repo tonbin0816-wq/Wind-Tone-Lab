@@ -5565,7 +5565,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const runPathRefs = useRef([null, null]);   // [左弧, 右弧]
   const runGradRefs = useRef([null, null]);
   const runStopRefs = useRef([[], []]);
-  const glowGroupRef = useRef(null);          // 光のいちばん外の <g>。明るさはここの opacity だけ
+  const glowGroupRef = useRef(null);          // 光のいちばん外の <g>。**明るさの段**はここの opacity
+  // 【D-23d】呼吸は CSS のキーフレームが持つ内側の <g>。JS は animation を付け外しするだけで、
+  // **合った状態を保っている間の書き込みが 0 回**になる(明るさの段は走りが終われば一定)。
+  const glowBreathRef = useRef(null);
   const glowFillRefs = useRef([]);            // 光を塗る矩形 [滑らかな側, 粒の側]
   // 【D-23a】帯(グラデーションの軸・30ストップ・弧の path)とセントの文字。
   // **どれも rAF が属性へ直接書く。** React はこの木を初回に置くだけで、以後は触らない
@@ -5584,6 +5587,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
     let raf;
     let lastKey = "";
     let lastGlow = "";
+    let lastGlowBreath = null;
     let lastBase = "";
     let lastBarKey = "";
     let lastCents = null;
@@ -5671,7 +5675,9 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 【p は量子化後の値】キー(小数4桁)と描画に使う値を同一にする。分けると
       // 終端が書かれず 179.9916° で止まる(ringRunQuantP のコメント参照)。
       const p = ringRunQuantP(raw);
-      const breath = reduce ? 1 : ringBreath(now);
+      // 【D-23d】呼吸の値はここでは要らなくなった(CSS のキーフレームが持つ)。
+      // `ringBreath` は**曲線の唯一の答え**として残る ── 上の @keyframes は
+      // この関数を 2.5% 刻みで写したもので、検査 42.1 が両者を突き合わせている。
       const base = [r, g, b];
       // 帯の形と色は進捗と元色が変わったときだけ書き換える(消えている間は何もしない)。
       const key = p <= 0 ? "off" : `${p.toFixed(4)}|${base.join(",")}`;
@@ -5711,7 +5717,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
         }
       }
       // 【D-23b】明るさを**先に**出す。見えているかどうかで、下の色を書くかが決まる。
-      const opNum = ringGlowOpacity(raw, breath, glowCents);
+      // 【D-23d】ここで出すのは**呼吸を掛ける前の「段」**。breath=1 を渡すと
+      // ringGlowOpacity は AMP×進捗(合った側) / 段の値(近い側) をそのまま返すので、
+      // **式は1文字も変えずに**「呼吸ぬきの明るさ」が取れる。呼吸は CSS が掛ける
+      // (合成の不透明度 = 外の <g> × 内の <g> なので、掛け算の形も同じ)。
+      const opNum = ringGlowOpacity(raw, 1, glowCents);
       // 光の色。**走りが出ていない間(±RING_GLOW_NEAR_CENTS までの帯)も光るので、
       // 走りのキーとは別に、元色が変わったときだけ塗り替える。**
       //
@@ -5750,6 +5760,15 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
         } else {
           glow.setAttribute("opacity", op);
         }
+      }
+      // 【D-23d】呼吸は「合った」ときだけ。近い側(2〜4¢)は段の値だけで呼吸しない。
+      // 動きを減らす設定でも掛けない(**光そのものは消さない** ── F-47 の裁定は不変)。
+      const wantGlowBreath = inTune && !reduce;
+      const gb = glowBreathRef.current;
+      if (gb && wantGlowBreath !== lastGlowBreath) {
+        lastGlowBreath = wantGlowBreath;
+        gb.style.animation = wantGlowBreath
+          ? `ficus-ring-breathe ${RING_BREATH_MS}ms linear infinite` : "";
       }
       // 【D-19】環の rAF 1回ぶんの所要時間。**属性を書いた時間までしか入らない**
       // (それを反映する描き直しの時間は、内訳に入らず「差」として出る)。
@@ -5878,6 +5897,10 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             いちばん外の減衰マスクが常に掛かるので、環の外側の届く範囲を超えて漏れない。
             明るさは rAF がこの <g> の opacity だけを書き換える。 */}
         <g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`} opacity="0">
+        {/* 【D-23d】呼吸だけを持つ <g>。合成の不透明度 = 外(明るさの段) × 内(呼吸)。
+            **CSS のキーフレームが動かすので、JS は毎フレーム何も書かない。**
+            マスクも塗りも持たないので、寸法にも見え方にも影響しない(透明度の掛け算だけ)。 */}
+        <g ref={glowBreathRef}>
           {/* 内側 = 減衰 × (1-傾斜) … 滑らかな光 */}
           <g mask={`url(#${glowSmoothId}-m)`}>
             <rect
@@ -5895,6 +5918,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
             />
           </g>
+        </g>
         </g>
         {/* 【N-4a で撤去】環のトラック(常に全周の円)。本人指示「チューナーの円環の枠は要らない」。
             DESIGN-SYSTEM §6.0「説明を消して形に語らせる」: 枠は「帯がここを通ります」という

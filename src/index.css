@@ -265,6 +265,60 @@ body {
   50%      { opacity: 1; }
 }
 
+/* 【D-23d 2026/08/29】外周の光の呼吸。**JS から毎フレーム opacity を書かない**ため、
+   同じ曲線を CSS のキーフレームで置く。値は App.jsx の ringBreath()
+   （周期 RING_BREATH_MS=2600ms / 上り RING_BREATH_RISE=0.50 / smoothstep）を
+   2.5% 刻みで写した折れ線で、最大誤差 0.001176 = 0.300/255（8bit の量子化より下）。
+   **ここを手で書き換えないこと** ── 検査が ringBreath() と突き合わせている。
+
+   なぜ CSS か: 本人の実機で「±4¢ の外は滑らかになったが内側は若干カクつく」。
+   内側＝光が見えている範囲だけ、明るさを毎フレーム書いていた。呼吸を CSS へ移すと、
+   合った状態を保っている間の書き込みが **0 回**になる（明るさの段は rAF が持つが、
+   走りが終われば一定なので書かない）。 */
+@keyframes ficus-ring-breathe {
+  0% { opacity: 0.3400; }
+  2.5% { opacity: 0.3448; }
+  5% { opacity: 0.3585; }
+  7.5% { opacity: 0.3801; }
+  10% { opacity: 0.4086; }
+  12.5% { opacity: 0.4431; }
+  15% { opacity: 0.4826; }
+  17.5% { opacity: 0.5260; }
+  20% { opacity: 0.5723; }
+  22.5% { opacity: 0.6207; }
+  25% { opacity: 0.6700; }
+  27.5% { opacity: 0.7193; }
+  30% { opacity: 0.7677; }
+  32.5% { opacity: 0.8140; }
+  35% { opacity: 0.8574; }
+  37.5% { opacity: 0.8969; }
+  40% { opacity: 0.9314; }
+  42.5% { opacity: 0.9599; }
+  45% { opacity: 0.9815; }
+  47.5% { opacity: 0.9952; }
+  50% { opacity: 1.0000; }
+  52.5% { opacity: 0.9952; }
+  55% { opacity: 0.9815; }
+  57.5% { opacity: 0.9599; }
+  60% { opacity: 0.9314; }
+  62.5% { opacity: 0.8969; }
+  65% { opacity: 0.8574; }
+  67.5% { opacity: 0.8140; }
+  70% { opacity: 0.7677; }
+  72.5% { opacity: 0.7193; }
+  75% { opacity: 0.6700; }
+  77.5% { opacity: 0.6207; }
+  80% { opacity: 0.5723; }
+  82.5% { opacity: 0.5260; }
+  85% { opacity: 0.4826; }
+  87.5% { opacity: 0.4431; }
+  90% { opacity: 0.4086; }
+  92.5% { opacity: 0.3801; }
+  95% { opacity: 0.3585; }
+  97.5% { opacity: 0.3448; }
+  100% { opacity: 0.3400; }
+}
+
 /* 動きを減らす設定の端末では、呼吸も点滅も止めて静止した状態で見せる */
 @media (prefers-reduced-motion: reduce) {
   .ficus-breathe, .ficus-pulse { animation: none !important; }

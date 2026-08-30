@@ -3133,7 +3133,11 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   // D-5. 動きを減らす設定 — 走らず点灯・呼吸は止める・**光は消さない**。
   // ------------------------------------------------------------------
   check("減速設定では進捗1(点灯)から始める", /const raw = st\.runFrom === null \? 0 : \(reduce \? 1 : ringRunProgress\(st\.runFrom, now\)\);/.test(ringCode));
-  check("減速設定では呼吸を止めて breath=1 に固定する", /const breath = reduce \? 1 : ringBreath\(now\);/.test(ringCode));
+  // 【D-23d】呼吸は CSS のキーフレームへ移った。**止め方も CSS ではなく JS が握る**
+  // (rAF が書く style は @media が効かないため。このループの他の作法と同じ)。
+  check("減速設定では呼吸を掛けない(光そのものは消さない)",
+    /const wantGlowBreath = inTune && !reduce;/.test(ringCode)
+    && !/const breath = /.test(ringCode));
   // 【この2つは別のことを見ている】
   //  ・下の1本目は ringGlowOpacity の係数の和が1であること(= 進捗1・呼吸1 で AMP)。
   //    reduce には一切触れない。名乗りを式に合わせてある。
@@ -3149,7 +3153,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     const m = /const opNum = [^\n]*/.exec(ringCode);
     const t = /const op = [^\n]*/.exec(ringCode);
     if (!m || !t) return false;
-    return m[0].trim() === "const opNum = ringGlowOpacity(raw, breath, glowCents);"
+    return m[0].trim() === "const opNum = ringGlowOpacity(raw, 1, glowCents);"
       && t[0].trim() === "const op = opNum.toFixed(4);"
       && !/reduce/.test(m[0]) && !/reduce/.test(t[0]);
   })(), `${(/const opNum = [^\n]*/.exec(ringCode) || [""])[0].trim()} | ${(/const op = [^\n]*/.exec(ringCode) || [""])[0].trim()}`);
@@ -3158,9 +3162,16 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   check("D-23b: 光の色は見えているフレームだけ書く(opacity 0 のとき書きに行かない)",
     /if \(opNum > 0 && baseKey !== lastBase\) \{/.test(ringCode),
     (ringCode.match(/[^\n]*baseKey !== lastBase[^\n]*/g) || ["無し"]).join(" | ").trim());
-  check("減速設定の分岐は raw と breath の2箇所だけ(rAFループ内)",
-    (ringCode.match(/reduce \?/g) || []).length === 2,
-    `${(ringCode.match(/reduce \?/g) || []).length}箇所`);
+  // 【D-23d】減速の分岐は「走りの進捗」の三項1つ + 「呼吸を掛けるか」の1つ。
+  // **不透明度の式には reduce を混ぜない**(混ぜると減速設定で光が消える)。
+  // 呼吸は2つある(セントの文字 D-23a / 外周の光 D-23d)。どちらも「掛けるか」の判定に
+  // だけ reduce を混ぜ、**不透明度の式そのものには混ぜない**(混ぜると減速設定で光が消える)。
+  check("減速設定の分岐は走りの進捗と2つの呼吸の3箇所だけ(rAFループ内)",
+    (ringCode.match(/reduce \?/g) || []).length === 1
+    && (ringCode.match(/!reduce\b/g) || []).length === 2
+    && /const wantBreath = inTune && breathOnRaf && !reduce;/.test(ringCode)
+    && /const wantGlowBreath = inTune && !reduce;/.test(ringCode),
+    `三項 ${(ringCode.match(/reduce \?/g) || []).length}箇所 / 否定 ${(ringCode.match(/!reduce\b/g) || []).length}箇所`);
   // 減速設定の経路を、実装の3行と同じ順で組み立てて評価する。
   check("減速設定の経路をたどると光は最大の明るさで灯る", (() => {
     const reduce = true;
@@ -19677,6 +19688,85 @@ console.log("\n========== 検証41: D-23 環の毎フレーム値を React の�
   check("41.7 平滑は rAF が進める(レンダー本体の副作用にしない)",
     /smoothRef\.current = ringSmoothStep\(smoothRef\.current, snap, now, RING_SMOOTH_TAU_MS\);/.test(ringCode41)
     && !/smoothRef\.current = \{ semi/.test(ringCode41.slice(0, ringCode41.indexOf("const loop = () =>"))));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証42: D-23d 外周の光の呼吸を CSS のキーフレームへ移した
+//
+// 出どころ: 本人の実機。D-23c のあと「**若干カクつく**」。±4¢ の内側＝光が見えている
+// 範囲だけ、明るさ(opacity)を**毎フレーム書いていた**のが残っていた。
+// 呼吸は 2600ms の決まった往復なので、CSS のキーフレームに任せれば JS の書き込みが 0 になる。
+//
+// **合成の不透明度 = 外の <g>(明るさの段) × 内の <g>(呼吸)。**
+// 外は `ringGlowOpacity(raw, 1, ac)` ── breath=1 を渡すと呼吸を掛ける前の段がそのまま出る
+// ので、**式は1文字も変えていない**。
+// ============================================================
+console.log("\n========== 検証42: D-23d 光の呼吸を CSS へ ==========");
+{
+  const ringCode42 = codeOf(srcOfFn(src, "PitchRing"));
+  const css42 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+
+  // --- 42.1 CSS のキーフレームは ringBreath() を写したものか --------------------
+  // **ここが要**: 曲線の唯一の答えは App.jsx の ringBreath()。CSS を手で書き換えると
+  // 呼吸の形だけが静かにずれる ── それを許さない。
+  {
+    const blk = (/@keyframes ficus-ring-breathe \{([\s\S]*?)\n\}/.exec(css42) || [])[1] || "";
+    const stops = [...blk.matchAll(/([\d.]+)%\s*\{\s*opacity:\s*([\d.]+);\s*\}/g)]
+      .map((m) => [parseFloat(m[1]) / 100, parseFloat(m[2])]);
+    check("42.1 光の呼吸のキーフレームが CSS にある(2.5% 刻み・41点)",
+      stops.length === 41 && stops[0][0] === 0 && stops[stops.length - 1][0] === 1,
+      `${stops.length}点`);
+    // 期待値は**実装の ringBreath から**出す(定数の言い換えではない。罠3)。
+    let worst = 0;
+    for (const [u, v] of stops) {
+      const want = 0.34 + 0.66 * api.ringBreath(u * api.RING_BREATH_MS);
+      worst = Math.max(worst, Math.abs(v - want));
+    }
+    check("42.1 キーフレームの各点は ringBreath() と一致する(CSS を手で書き換えていない)",
+      stops.length > 0 && worst < 5e-5, `最大の食い違い ${worst.toFixed(6)}`);
+    // 折れ線で近似したときの最大誤差が 8bit の量子化より下であること。
+    let lin = 0;
+    for (let i = 0; i <= 4000; i++) {
+      const u = i / 4000;
+      let k = 0;
+      while (k + 1 < stops.length && stops[k + 1][0] < u) k++;
+      const [a, fa] = stops[k], [b, fb] = stops[Math.min(k + 1, stops.length - 1)];
+      const t = b > a ? (u - a) / (b - a) : 0;
+      const got = fa + (fb - fa) * t;
+      lin = Math.max(lin, Math.abs(got - (0.34 + 0.66 * api.ringBreath(u * api.RING_BREATH_MS))));
+    }
+    check("42.1 折れ線で近似した誤差は 8bit の量子化より下(見た目が変わらない)",
+      lin * 255 < 1, `${(lin * 255).toFixed(3)}/255`);
+  }
+
+  // --- 42.2 JS は毎フレーム呼吸を書かない ------------------------------------
+  check("42.2 明るさは呼吸を掛ける前の段だけを出す(breath に 1 を渡す)",
+    /const opNum = ringGlowOpacity\(raw, 1, glowCents\);/.test(ringCode42));
+  check("42.2 rAF は毎フレーム ringBreath を呼ばない(CSS が持つ)",
+    !/ringBreath\(/.test(ringCode42),
+    (ringCode42.match(/ringBreath\([^)]*\)/g) || []).join(" ") || "0件");
+  // 付け外しは「合った」ときだけ。動きを減らす設定では掛けない(**光そのものは消さない**)。
+  check("42.2 呼吸を掛けるのは合ったときだけ(近い側は段の値だけ)",
+    /const wantGlowBreath = inTune && !reduce;/.test(ringCode42));
+  check("42.2 呼吸の付け外しは値が変わったときだけ(毎フレーム書かない)",
+    /if \(gb && wantGlowBreath !== lastGlowBreath\) \{/.test(ringCode42));
+  check("42.2 掛けるのは CSS のキーフレーム(周期は RING_BREATH_MS から引く)",
+    /ficus-ring-breathe \$\{RING_BREATH_MS\}ms linear infinite/.test(ringCode42));
+
+  // --- 42.3 配線: 呼吸の <g> は外(段)の内側にあり、マスクも塗りも持たない ------
+  {
+    const flat42 = ringCode42.slice(ringCode42.indexOf("<svg"), ringCode42.indexOf("</svg>"))
+      .replace(/\s*\n\s*/g, " ");
+    const outer = flat42.indexOf('<g ref={glowGroupRef}');
+    const inner = flat42.indexOf('<g ref={glowBreathRef}>');
+    const smooth = flat42.indexOf('<g mask={`url(#${glowSmoothId}-m)`}>');
+    check("42.3 呼吸の <g> は明るさの段の内側・2枚の光の外側にある",
+      outer >= 0 && inner > outer && smooth > inner);
+    // マスクや塗りを持たせると、掛け算の形が変わって見え方が動く。
+    check("42.3 呼吸の <g> は透明度だけを持つ(マスクも塗りも持たない)",
+      /<g ref=\{glowBreathRef\}>/.test(flat42));
+  }
   console.log("  -> done");
 }
 
