@@ -318,6 +318,24 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   .shift-run .shifted{transition:none}
 }
 :focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+
+/* 条件で絞り込む行（検索欄と同じ形。押すとシートで選ぶ） */
+.filterline{display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--card); border-radius:999px; padding:11px 16px; box-shadow:var(--s); font-size:13px}
+.filterline .lb{color:var(--i2)}
+.filterline .n{font-size:11.5px; color:var(--i3)}
+
+/* 母集団の軸を選ぶ */
+.axis{display:flex; flex-direction:column; gap:14px}
+.axisrow{display:flex; align-items:baseline; gap:12px}
+.axisrow .lb{font-size:11.5px; color:var(--i3); width:52px; flex:none}
+.axisrow .vals{display:flex; gap:6px; flex-wrap:wrap; flex:1}
+.chipx{font-size:12px; color:var(--i2); background:var(--gr); border-radius:999px; padding:6px 12px}
+.chipx.on{background:var(--ac); color:var(--on); font-weight:700}
+.chipx.lock{background:transparent; color:var(--i3); padding-left:0}
+
+/* 注意書き。カードにせず、地の上に小さく置く */
+.aside{font-size:11.5px; color:var(--i3); line-height:1.75; padding:0 2px}
 </style>
 </head>
 <body>
@@ -365,7 +383,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </ul>
 </header>
 
-<!-- ═══ 1 目安をさがす ═══ -->
+<!-- S01 -->
 <section>
   <div class="sec-head">
     <span class="sec-num">01</span>
@@ -373,8 +391,8 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     <span class="tag t-draft">草案</span>
   </div>
   <p class="sec-sub">
-    この機能の主役。楽器種別 × ジャンル × 属性で母集団を選び、その平均か、
-    そこに属する個人の目安を自分に取り込む。
+    この機能の主役。<b>条件を選ぶ場所は1つだけ</b>にして、母集団の平均と、
+    そこに属する個人の目安を同じ条件で並べる。
   </p>
 
   <div class="split">
@@ -386,15 +404,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <div class="tab">シェア</div>
         <div class="tab">マイページ</div>
       </div>
-      <div class="condbar">
-        <span class="cond fixed">Alto</span><span class="sep">・</span>
-        <span class="cond">クラシック</span><span class="sep">・</span>
-        <span class="cond">学生</span>
-      </div>
       <div class="body">
         <div class="deep">
           <div class="k">みんなの平均</div>
-          <div class="t">クラシック × 学生</div>
+          <div class="t">Alto × クラシック × 学生</div>
           <div class="m">42人の目安を平均</div>
         </div>
 
@@ -403,8 +416,9 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           ニックネームで探す
         </div>
 
-        <div class="pills">
-          <div class="pill">編成</div><div class="pill">練習場所</div><div class="pill">歴</div>
+        <div class="filterline">
+          <span class="lb">条件で絞り込む</span>
+          <span class="n">クラシック ・ 学生 ・ 他2件　▾</span>
         </div>
 
         <div class="stack">
@@ -412,7 +426,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
             <div class="m">
               <div class="nm">まつり</div>
-              <div class="sub">歴3年 ・ 吹奏楽</div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
               <div class="kit"><span class="kv">YAS-62</span><span class="kv">S80 C*</span><span class="kv">Traditional 3</span></div>
             </div>
             <div class="cnt"><b>38</b><span>採用</span></div>
@@ -421,7 +435,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
             <div class="m">
               <div class="nm">アオイ</div>
-              <div class="sub">歴9年 ・ オーケストラ</div>
+              <div class="sub">学生（音大） ・ 歴9年 ・ クラシック</div>
               <div class="kit"><span class="kv">YAS-875EX</span><span class="kv">S90 180</span><span class="kv">V21 3&frac12;</span></div>
             </div>
             <div class="cnt"><b>24</b><span>採用</span></div>
@@ -430,7 +444,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
             <div class="m">
               <div class="nm">こんぶ</div>
-              <div class="sub">歴15年 ・ アンサンブル</div>
+              <div class="sub">社会人 ・ 歴15年 ・ クラシック</div>
               <div class="kit"><span class="kv">Series II</span><span class="kv">S80 D</span><span class="kv">V21 3</span></div>
             </div>
             <div class="cnt"><b>11</b><span>採用</span></div>
@@ -439,7 +453,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
             <div class="m">
               <div class="nm">ハルカ</div>
-              <div class="sub">歴2年 ・ 吹奏楽</div>
+              <div class="sub">学生 ・ 歴2年 ・ クラシック</div>
               <div class="kit"><span class="kv">YAS-280</span><span class="kv">Yamaha 4C</span><span class="kv">Traditional 2&frac12;</span></div>
             </div>
             <div class="cnt"><b>6</b><span>採用</span></div>
@@ -456,27 +470,27 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
     <div class="notes">
       <div class="note">
-        <h3>上の条件が、下の一覧も決める</h3>
+        <h3>条件を選ぶ場所を1つに畳んだ</h3>
         <p>
-          条件行の <b>Alto × クラシック × 学生</b> は、平均カードの母集団であると同時に
-          <b>個人一覧の絞り込みでもある</b>。上下が別々に効くと、平均と一覧が食い違って
-          「この平均は誰の平均なのか」が読めなくなる。
+          前の案は、平均カードの上に条件行があり、下にも絞り込みのピルが並んでいた。
+          <b>同じ粒度の条件が平均を挟んで2箇所にある</b>ので、どちらが何に効くのか読めない。
+          この案では選ぶ場所は「条件で絞り込む」の1行だけにして、
+          平均の母集団は次の画面（02）で選ぶ。
         </p>
       </div>
       <div class="note">
-        <h3>楽器種別は条件行に置き、外せない</h3>
+        <h3>平均カードは表示に徹する</h3>
         <p>
-          目安は同じ楽器種別としか比べられない。ピルに混ぜると外せる物に見えるので、
-          <b>▾ を持たない固定の表示</b>にして先頭に置いた。平均カードから楽器名が消えたのも
-          この行に出ているため（同じことを二度書かない）。
+          カードに出るのは<b>楽器 × ジャンル × 属性</b>の3つ。ここは選ぶ場所ではなく、
+          「いま何の平均を見ているか」の表示。タップすると母集団を選ぶ画面へ移る。
         </p>
       </div>
       <div class="note">
-        <h3>母集団は3つまで掛けられる</h3>
+        <h3>ニックネーム検索は絞り込みと別に置く</h3>
         <p>
-          全属性を掛けると約5万通りになるが、<b>楽器 × ジャンル × 属性なら180通り</b>で、
-          日次の事前計算が現実的な範囲に収まる。5人に満たない組み合わせは、
-          軸を1つ落とした平均へ自動で降りる。
+          特定の人を探す操作は、条件で母集団を狭める操作とは目的が違う。
+          <b>知っている人を1人見つけたい</b>のか、<b>条件に合う人を見比べたい</b>のか。
+          混ぜると、どちらのつもりで触ったのか分からなくなる。
         </p>
       </div>
       <div class="flag">
@@ -487,10 +501,127 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 2 平行移動 ═══ -->
+<!-- S02 -->
 <section>
   <div class="sec-head">
     <span class="sec-num">02</span>
+    <h2>みんなの平均</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">
+    平均カードをタップした先。ここが<b>母集団を選ぶ唯一の場所</b>。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>みんなの平均</h4></div>
+      <div class="body">
+        <div class="card">
+          <div class="axis">
+            <div class="axisrow">
+              <span class="lb">楽器</span>
+              <span class="vals"><span class="chipx lock">Alto（自分と同じ）</span></span>
+            </div>
+            <div class="axisrow">
+              <span class="lb">ジャンル</span>
+              <span class="vals">
+                <span class="chipx on">クラシック</span><span class="chipx">ジャズ</span>
+                <span class="chipx">ポップス</span><span class="chipx">指定しない</span>
+              </span>
+            </div>
+            <div class="axisrow">
+              <span class="lb">属性</span>
+              <span class="vals">
+                <span class="chipx on">学生</span><span class="chipx">学生（音大）</span>
+                <span class="chipx">社会人</span><span class="chipx">講師・プロ</span>
+                <span class="chipx">独学</span><span class="chipx">指定しない</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="deep" style="padding:16px">
+          <div class="k">この条件の母集団</div>
+          <div class="t" style="font-size:17px">Alto × クラシック × 学生</div>
+          <div class="m">42人 ／ 収録 18音</div>
+        </div>
+
+        <div class="mtabs">
+          <div class="mtab">音程</div>
+          <div class="mtab on">重心</div>
+          <div class="mtab">HNR</div>
+        </div>
+
+        <div class="card">
+          <svg viewBox="0 0 320 176" style="width:100%;height:auto" role="img"
+               aria-label="母集団の平均と自分を重ねた折れ線グラフ">
+            <g stroke="#EEF1F8" stroke-width="1">
+              <line x1="30" y1="14" x2="312" y2="14"/><line x1="30" y1="54" x2="312" y2="54"/>
+              <line x1="30" y1="94" x2="312" y2="94"/><line x1="30" y1="128" x2="312" y2="128"/>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="end">
+              <text x="24" y="18">2600</text><text x="24" y="58">2200</text>
+              <text x="24" y="98">1800</text><text x="24" y="132">1400</text>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="middle">
+              <text x="46" y="152">低ド</text><text x="99" y="152">レ</text><text x="152" y="152">ミ</text>
+              <text x="205" y="152">ソ</text><text x="258" y="152">高ド</text><text x="300" y="152">高ソ</text>
+            </g>
+            <polyline points="46,108 99,92 152,84 205,98 258,80 300,94" fill="none"
+              stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline points="46,124 99,98 152,80 205,104 258,68 300,90" fill="none"
+              stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
+            <g fill="#174585">
+              <circle cx="46" cy="124" r="3.2"/><circle cx="99" cy="98" r="3.2"/><circle cx="152" cy="80" r="3.2"/>
+              <circle cx="205" cy="104" r="3.2"/><circle cx="258" cy="68" r="3.2"/><circle cx="300" cy="90" r="3.2"/>
+            </g>
+          </svg>
+          <div style="display:flex;gap:18px;font-size:11.5px;color:#435266;margin-top:10px">
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:2.5px;background:#174585;display:inline-block"></span>自分</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:0;border-top:2px dashed #8D95A1;display:inline-block"></span>この条件の平均</span>
+          </div>
+        </div>
+
+        <p class="aside">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較</p>
+
+        <div class="btn">目安に設定</div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>3つの軸をここで選ぶ</h3>
+        <p>
+          楽器種別は<b>自分と同じで固定</b>（目安は同じ楽器種別としか比べられない）。
+          ジャンルと属性は選べて、どちらも「指定しない」を持つ。
+          軸を落とすほど母数が増え、平均は安定するが自分に近い集団ではなくなる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>3つまで掛けられる</h3>
+        <p>
+          全属性を掛けると約5万通りになるが、<b>楽器 × ジャンル × 属性なら180通り</b>で、
+          日次の事前計算が現実的な範囲に収まる。5人に満たない組み合わせは
+          「指定しない」に自動で降り、そう表示する。
+        </p>
+      </div>
+      <div class="note">
+        <h3>個人の目安と同じ形で見せる</h3>
+        <p>
+          指標のタブも折れ線も、次の画面（03）の個人の目安とまったく同じ作り。
+          <b>平均も1人ぶんの目安として扱える</b>ので、見方を2つ覚える必要がない。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S03 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">03</span>
     <h2>目安を重ねて設定する</h2>
     <span class="tag t-draft">草案</span>
   </div>
@@ -503,7 +634,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
       <div class="bar"><h4>まつり の目安</h4></div>
       <div class="condbar">
         <span class="cond fixed">Alto</span><span class="sep">・</span>
-        <span class="cond fixed">学生 ・ 歴3年 ・ 吹奏楽</span>
+        <span class="cond fixed">学生 ・ 歴3年 ・ クラシック</span>
       </div>
       <div class="body">
         <div class="mtabs">
@@ -513,29 +644,29 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         </div>
 
         <div class="card" id="shiftcard">
-          <svg viewBox="0 0 320 190" style="width:100%;height:auto" role="img"
+          <svg viewBox="0 0 320 176" style="width:100%;height:auto" role="img"
                aria-label="音名ごとのスペクトル重心を、自分と相手で重ねた折れ線グラフ">
             <g stroke="#EEF1F8" stroke-width="1">
-              <line x1="30" y1="16" x2="312" y2="16"/><line x1="30" y1="56" x2="312" y2="56"/>
-              <line x1="30" y1="96" x2="312" y2="96"/><line x1="30" y1="136" x2="312" y2="136"/>
+              <line x1="30" y1="14" x2="312" y2="14"/><line x1="30" y1="54" x2="312" y2="54"/>
+              <line x1="30" y1="94" x2="312" y2="94"/><line x1="30" y1="128" x2="312" y2="128"/>
             </g>
             <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="end">
-              <text x="24" y="20">2600</text><text x="24" y="60">2200</text>
-              <text x="24" y="100">1800</text><text x="24" y="140">1400</text>
+              <text x="24" y="18">2600</text><text x="24" y="58">2200</text>
+              <text x="24" y="98">1800</text><text x="24" y="132">1400</text>
             </g>
             <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="middle">
-              <text x="46" y="162">低ド</text><text x="99" y="162">レ</text><text x="152" y="162">ミ</text>
-              <text x="205" y="162">ソ</text><text x="258" y="162">高ド</text><text x="300" y="162">高ソ</text>
+              <text x="46" y="152">低ド</text><text x="99" y="152">レ</text><text x="152" y="152">ミ</text>
+              <text x="205" y="152">ソ</text><text x="258" y="152">高ド</text><text x="300" y="152">高ソ</text>
             </g>
-            <polyline class="ghost" points="46,44 99,26 152,20 205,34 258,18 300,30" fill="none"
+            <polyline class="ghost" points="46,42 99,24 152,18 205,32 258,16 300,28" fill="none"
               stroke="#C9D3E4" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
-            <polyline class="shifted" points="46,116 99,98 152,92 205,106 258,90 300,102" fill="none"
+            <polyline class="shifted" points="46,108 99,90 152,84 205,98 258,82 300,94" fill="none"
               stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
-            <polyline points="46,132 99,104 152,86 205,112 258,74 300,96" fill="none"
+            <polyline points="46,124 99,98 152,80 205,104 258,68 300,90" fill="none"
               stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
             <g fill="#174585">
-              <circle cx="46" cy="132" r="3.2"/><circle cx="99" cy="104" r="3.2"/><circle cx="152" cy="86" r="3.2"/>
-              <circle cx="205" cy="112" r="3.2"/><circle cx="258" cy="74" r="3.2"/><circle cx="300" cy="96" r="3.2"/>
+              <circle cx="46" cy="124" r="3.2"/><circle cx="99" cy="98" r="3.2"/><circle cx="152" cy="80" r="3.2"/>
+              <circle cx="205" cy="104" r="3.2"/><circle cx="258" cy="68" r="3.2"/><circle cx="300" cy="90" r="3.2"/>
             </g>
           </svg>
           <div style="display:flex;gap:18px;font-size:11.5px;color:#435266;margin-top:10px">
@@ -546,11 +677,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           </div>
         </div>
 
-        <div class="card" style="background:var(--ac-tint);box-shadow:none">
-          <p style="margin:0;font-size:13px;color:#1D3355;line-height:1.85">
-            計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較
-          </p>
-        </div>
+        <p class="aside">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較</p>
 
         <div class="btn">目安に設定</div>
       </div>
@@ -566,17 +693,17 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         </p>
       </div>
       <div class="note">
+        <h3>注意書きはカードにしない</h3>
+        <p>
+          前の案は色付きのカードに入れていたが、<b>読ませたいのはグラフであって注意書きではない</b>。
+          地の上に小さく置くだけにして、視線の順番を戻した。
+        </p>
+      </div>
+      <div class="note">
         <h3>グラフの向きは既存に揃える</h3>
         <p>
           <b>横軸が音名</b>。計測タブや My Data の折れ線と同じ向きなので、
           この画面のために読み方を覚え直す必要がない。
-        </p>
-      </div>
-      <div class="note">
-        <h3>指標は3つを切り替える</h3>
-        <p>
-          <b>音程 / 重心 / HNR</b>。倍音構成は1音につき8本の棒グラフになり、
-          折れ線の3つとは形が別物なので、この切り替えには混ぜない。
         </p>
       </div>
       <div class="note">
@@ -595,10 +722,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 3 順位 ═══ -->
+<!-- S04 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">03</span>
+    <span class="sec-num">04</span>
     <h2>順位</h2>
     <span class="tag t-draft">草案</span>
   </div>
@@ -617,7 +744,8 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
       </div>
       <div class="condbar">
         <span class="cond">練習日数</span><span class="sep">・</span>
-        <span class="cond">今月</span>
+        <span class="cond">今月</span><span class="sep">・</span>
+        <span class="cond">学生</span>
       </div>
       <div class="body">
         <div class="top3">
@@ -629,31 +757,31 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           </div>
           <div class="t3 n2">
             <div class="p">2</div>
-            <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
-            <div class="who">アオイ<span>学生（音大） ・ 歴9年 ・ クラシック</span></div>
+            <div class="av" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
+            <div class="who">ハルカ<span>学生 ・ 歴2年 ・ クラシック</span></div>
             <div class="v">27<i>日</i></div>
           </div>
           <div class="t3 n3">
             <div class="p">3</div>
-            <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
-            <div class="who">こんぶ<span>社会人 ・ 歴15年 ・ ジャズ</span></div>
+            <div class="av" style="--a:#3E6E8E"><svg><use href="#ic-fish"/></svg></div>
+            <div class="who">みなと<span>学生 ・ 歴6年 ・ ポップス</span></div>
             <div class="v">24<i>日</i></div>
           </div>
         </div>
 
         <div class="stack">
           <div class="rk"><div class="p">4</div>
-            <div class="av s" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
-            <div class="who">ハルカ<span>学生 ・ 歴2年 ・ クラシック</span></div><div class="v">22<i>日</i></div></div>
-          <div class="rk"><div class="p">5</div>
-            <div class="av s" style="--a:#3E6E8E"><svg><use href="#ic-fish"/></svg></div>
-            <div class="who">みなと<span>学生 ・ 歴6年 ・ ポップス</span></div><div class="v">21<i>日</i></div></div>
-          <div class="rk"><div class="p">6</div>
-            <div class="av s" style="--a:#7D4A6B"><svg><use href="#ic-heart"/></svg></div>
-            <div class="who">そら<span>社会人 ・ 歴8年 ・ ジャズ</span></div><div class="v">19<i>日</i></div></div>
-          <div class="rk"><div class="p">7</div>
             <div class="av s" style="--a:#6B7A3F"><svg><use href="#ic-leaf"/></svg></div>
-            <div class="who">りん<span>学生 ・ 歴1年 ・ クラシック</span></div><div class="v">18<i>日</i></div></div>
+            <div class="who">りん<span>学生 ・ 歴1年 ・ クラシック</span></div><div class="v">22<i>日</i></div></div>
+          <div class="rk"><div class="p">5</div>
+            <div class="av s" style="--a:#7D4A6B"><svg><use href="#ic-heart"/></svg></div>
+            <div class="who">そら<span>学生 ・ 歴4年 ・ ジャズ</span></div><div class="v">21<i>日</i></div></div>
+          <div class="rk"><div class="p">6</div>
+            <div class="av s" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
+            <div class="who">かえで<span>学生 ・ 歴7年 ・ クラシック</span></div><div class="v">19<i>日</i></div></div>
+          <div class="rk"><div class="p">7</div>
+            <div class="av s" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
+            <div class="who">つばさ<span>学生 ・ 歴2年 ・ ポップス</span></div><div class="v">18<i>日</i></div></div>
         </div>
 
         <div class="you">
@@ -673,6 +801,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
     <div class="notes">
       <div class="note">
+        <h3>属性でも順位を切れる</h3>
+        <p>
+          全体だけだと、始めたばかりの学生が講師・プロと同じ土俵に並ぶ。
+          <b>属性を選べば同じ立場の中での順位</b>になり、届く目標として読める。
+          条件行は 指標 ・ 期間 ・ 属性 の3つ。
+        </p>
+      </div>
+      <div class="note">
         <h3>期間は4段</h3>
         <p>
           <b>今週 / 今月 / 今年 / すべて</b>。始めたばかりの人は「今週」で上に出られるし、
@@ -684,14 +820,6 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <p>
           12位でもスクロールに関係なく常に見える。<b>上位者だけの画面は、大多数にとって
           自分と無関係な画面になる。</b>
-        </p>
-      </div>
-      <div class="note">
-        <h3>1位だけ濃紺で塗る</h3>
-        <p>
-          横並びの台をやめ、順位は全部縦一列にした。強さの順は
-          <b>カードの独立 → 環の色 → 数字の大きさ</b>で付いている。
-          塗るのは1位だけなので「1画面に山は1つ」の作法も保てる。
         </p>
       </div>
       <div class="note">
@@ -709,10 +837,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 4 人を見る ═══ -->
+<!-- S05 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">04</span>
+    <span class="sec-num">05</span>
     <h2>人をタップしたとき</h2>
     <span class="tag t-new">新規</span>
   </div>
@@ -763,7 +891,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="st"><div class="k">マウスピース</div><div class="v">Selmer S80 C*</div></div>
             <div class="st"><div class="k">リガチャー</div><div class="v">Rovner Dark</div></div>
             <div class="st"><div class="k">リード</div><div class="v">Traditional 3</div></div>
-            <div class="st"><div class="k">今月の練習日数</div><div class="v big">29<i>日</i></div></div>
+            <div class="st"><div class="k">練習日数</div><div class="v big">312<i>日</i></div></div>
             <div class="st"><div class="k">目安の採用数</div><div class="v big">38<i>人</i></div></div>
           </div>
 
@@ -774,6 +902,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     </div></div>
 
     <div class="notes">
+      <div class="note">
+        <h3>練習日数は累計で出す</h3>
+        <p>
+          順位は期間を切り替えて見るものだが、<b>人物の紹介として出すなら累計のほうが素性を表す</b>。
+          「今月29日」はその月がたまたま忙しくなかっただけかもしれないが、
+          「累計312日」はその人がどれだけ続けてきたかを示す。
+        </p>
+      </div>
       <div class="note">
         <h3>別画面へ移らずに形が見える</h3>
         <p>
@@ -790,13 +926,6 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           これまで通報の置き場所が宙に浮いていたが、この画面で解決する。
         </p>
       </div>
-      <div class="note">
-        <h3>通報の対象はニックネームだけ</h3>
-        <p>
-          他の項目は全部プルダウンとカタログから選ばせているので、不適切な文字列が入り得るのは名前だけ。
-          だから<b>通報を受けたら自動で非公開にする</b>処理が成立し、人が24時間張り付く必要がなくなる。
-        </p>
-      </div>
       <div class="flag">
         ブロック（この人を一覧から隠す）も同じシートに入る。草案では省いてあるが、審査要件なので実装時には必要。
       </div>
@@ -804,14 +933,16 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 5 機材 ═══ -->
+<!-- S06 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">05</span>
+    <span class="sec-num">06</span>
     <h2>シェア</h2>
     <span class="tag t-draft">草案</span>
   </div>
-  <p class="sec-sub">誰が何を使っているか。4つの割合と、人気の組み合わせ。</p>
+  <p class="sec-sub">
+    誰が何を使っているか。グラフは1つに絞り、タブで切り替える。
+  </p>
 
   <div class="split">
     <div class="phone"><div class="scr">
@@ -827,10 +958,16 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <span class="cond">Alto</span>
       </div>
       <div class="body">
+        <div class="mtabs">
+          <div class="mtab on">楽器</div>
+          <div class="mtab">マウスピース</div>
+          <div class="mtab">リガチャー</div>
+          <div class="mtab">リード</div>
+        </div>
+
         <div class="card">
-          <p class="hd">楽器</p>
           <div class="donut">
-            <svg viewBox="0 0 100 100" style="width:92px;height:92px;flex:none" role="img" aria-label="楽器の割合">
+            <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="楽器の割合">
               <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
                 stroke-dasharray="122 123" transform="rotate(-90 50 50)"/>
               <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
@@ -845,72 +982,6 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
               <div><span class="sw" style="background:#7FA0CE"></span>Selmer Paris<b>24%</b></div>
               <div><span class="sw" style="background:#B9C9E4"></span>Yanagisawa<b>16%</b></div>
               <div><span class="sw" style="background:#E1E6EE"></span>その他<b>10%</b></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <p class="hd">マウスピース</p>
-          <div class="donut">
-            <svg viewBox="0 0 100 100" style="width:92px;height:92px;flex:none" role="img" aria-label="マウスピースの割合">
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
-                stroke-dasharray="96 149" transform="rotate(-90 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
-                stroke-dasharray="71 174" transform="rotate(51 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
-                stroke-dasharray="46 199" transform="rotate(155 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
-                stroke-dasharray="30 215" transform="rotate(223 50 50)"/>
-            </svg>
-            <div class="lgd">
-              <div><span class="sw" style="background:#174585"></span>Selmer S80<b>39%</b></div>
-              <div><span class="sw" style="background:#7FA0CE"></span>Vandoren Optimum<b>29%</b></div>
-              <div><span class="sw" style="background:#B9C9E4"></span>Meyer<b>19%</b></div>
-              <div><span class="sw" style="background:#E1E6EE"></span>その他<b>13%</b></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <p class="hd">リガチャー</p>
-          <div class="donut">
-            <svg viewBox="0 0 100 100" style="width:92px;height:92px;flex:none" role="img" aria-label="リガチャーの割合">
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
-                stroke-dasharray="88 157" transform="rotate(-90 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
-                stroke-dasharray="76 169" transform="rotate(39 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
-                stroke-dasharray="51 194" transform="rotate(151 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
-                stroke-dasharray="28 217" transform="rotate(226 50 50)"/>
-            </svg>
-            <div class="lgd">
-              <div><span class="sw" style="background:#174585"></span>Rovner<b>36%</b></div>
-              <div><span class="sw" style="background:#7FA0CE"></span>Vandoren Optimum<b>31%</b></div>
-              <div><span class="sw" style="background:#B9C9E4"></span>BG Traditional<b>21%</b></div>
-              <div><span class="sw" style="background:#E1E6EE"></span>その他<b>12%</b></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <p class="hd">リード</p>
-          <div class="donut">
-            <svg viewBox="0 0 100 100" style="width:92px;height:92px;flex:none" role="img" aria-label="リードの割合">
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
-                stroke-dasharray="105 140" transform="rotate(-90 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
-                stroke-dasharray="66 179" transform="rotate(64 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
-                stroke-dasharray="44 201" transform="rotate(161 50 50)"/>
-              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
-                stroke-dasharray="29 216" transform="rotate(226 50 50)"/>
-            </svg>
-            <div class="lgd">
-              <div><span class="sw" style="background:#174585"></span>Traditional<b>43%</b></div>
-              <div><span class="sw" style="background:#7FA0CE"></span>V21<b>27%</b></div>
-              <div><span class="sw" style="background:#B9C9E4"></span>Java<b>18%</b></div>
-              <div><span class="sw" style="background:#E1E6EE"></span>その他<b>12%</b></div>
             </div>
           </div>
         </div>
@@ -948,7 +1019,15 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
     <div class="notes">
       <div class="note">
-        <h3>掛ける数を選べる</h3>
+        <h3>グラフは1つだけ出す</h3>
+        <p>
+          4種類を縦に積むと画面が長くなり、下の「人気の組み合わせ」まで届かない。
+          <b>楽器 / マウスピース / リガチャー / リード</b>をタブで切り替えれば、
+          比べたいものだけが常に同じ位置に出る。
+        </p>
+      </div>
+      <div class="note">
+        <h3>掛ける数も選べる</h3>
         <p>
           <b>2項目</b>＝マウスピース × リード、<b>3項目</b>＝楽器 × マウスピース × リード、
           <b>4項目</b>＝楽器 × マウスピース × リガチャー × リード。
@@ -964,21 +1043,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           残りは「その他」へ落とす。
         </p>
       </div>
-      <div class="note">
-        <h3>票数だけを出す</h3>
-        <p>
-          「学生に多い」のような添え書きは載せない。
-          <b>条件行のジャンルで絞れば同じことが自分で分かる</b>ので、アプリが要約して言う必要がない。
-        </p>
-      </div>
     </div>
   </div>
 </section>
 
-<!-- ═══ 6 アイコン ═══ -->
+<!-- S07 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">06</span>
+    <span class="sec-num">07</span>
     <h2>アイコンを選ぶ</h2>
     <span class="tag t-new">新規</span>
   </div>
@@ -994,7 +1066,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
             <div style="flex:1; min-width:0">
               <div class="nm">まつり</div>
-              <div class="sub">学生 ・ 歴3年</div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
             </div>
           </div>
         </div>
@@ -1002,41 +1074,47 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <div class="card">
           <p class="hd">絵</p>
           <div class="grid6">
-            <div class="pk on" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
-            <div class="pk"><svg><use href="#ic-dog"/></svg></div>
-            <div class="pk"><svg><use href="#ic-bird"/></svg></div>
-            <div class="pk"><svg><use href="#ic-rabbit"/></svg></div>
-            <div class="pk"><svg><use href="#ic-butterfly"/></svg></div>
-            <div class="pk"><svg><use href="#ic-fish"/></svg></div>
-            <div class="pk"><svg><use href="#ic-flower-lotus"/></svg></div>
-            <div class="pk"><svg><use href="#ic-leaf"/></svg></div>
-            <div class="pk"><svg><use href="#ic-star"/></svg></div>
-            <div class="pk"><svg><use href="#ic-heart"/></svg></div>
-            <div class="pk"><svg><use href="#ic-moon-stars"/></svg></div>
-            <div class="pk"><svg><use href="#ic-sun"/></svg></div>
-            <div class="pk"><svg><use href="#ic-rainbow"/></svg></div>
-            <div class="pk"><svg><use href="#ic-fire"/></svg></div>
-            <div class="pk"><svg><use href="#ic-sparkle"/></svg></div>
-            <div class="pk"><svg><use href="#ic-crown-simple"/></svg></div>
-            <div class="pk"><svg><use href="#ic-diamond"/></svg></div>
-            <div class="pk"><svg><use href="#ic-ghost"/></svg></div>
-            <div class="pk"><svg><use href="#ic-music-notes"/></svg></div>
-            <div class="pk"><svg><use href="#ic-guitar"/></svg></div>
-            <div class="pk"><svg><use href="#ic-tree"/></svg></div>
-            <div class="pk"><svg><use href="#ic-snowflake"/></svg></div>
-            <div class="pk"><svg><use href="#ic-cloud"/></svg></div>
-            <div class="pk"><svg><use href="#ic-paw-print"/></svg></div>
+              <div class="pk on" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+              <div class="pk"><svg><use href="#ic-dog"/></svg></div>
+              <div class="pk"><svg><use href="#ic-bird"/></svg></div>
+              <div class="pk"><svg><use href="#ic-rabbit"/></svg></div>
+              <div class="pk"><svg><use href="#ic-butterfly"/></svg></div>
+              <div class="pk"><svg><use href="#ic-fish"/></svg></div>
+              <div class="pk"><svg><use href="#ic-flower-lotus"/></svg></div>
+              <div class="pk"><svg><use href="#ic-leaf"/></svg></div>
+              <div class="pk"><svg><use href="#ic-star"/></svg></div>
+              <div class="pk"><svg><use href="#ic-heart"/></svg></div>
+              <div class="pk"><svg><use href="#ic-moon-stars"/></svg></div>
+              <div class="pk"><svg><use href="#ic-sun"/></svg></div>
+              <div class="pk"><svg><use href="#ic-rainbow"/></svg></div>
+              <div class="pk"><svg><use href="#ic-fire"/></svg></div>
+              <div class="pk"><svg><use href="#ic-sparkle"/></svg></div>
+              <div class="pk"><svg><use href="#ic-crown-simple"/></svg></div>
+              <div class="pk"><svg><use href="#ic-diamond"/></svg></div>
+              <div class="pk"><svg><use href="#ic-ghost"/></svg></div>
+              <div class="pk"><svg><use href="#ic-music-notes"/></svg></div>
+              <div class="pk"><svg><use href="#ic-guitar"/></svg></div>
+              <div class="pk"><svg><use href="#ic-tree"/></svg></div>
+              <div class="pk"><svg><use href="#ic-snowflake"/></svg></div>
+              <div class="pk"><svg><use href="#ic-cloud"/></svg></div>
+              <div class="pk"><svg><use href="#ic-paw-print"/></svg></div>
           </div>
+          <p class="hint">Phosphor Icons から24種（MIT・商用利用可）</p>
         </div>
 
         <div class="card">
           <p class="hd">背景の色</p>
           <div class="grid10">
-            <div class="sc" style="--a:#174585"></div><div class="sc" style="--a:#3E6E8E"></div>
-            <div class="sc on" style="--a:#2F6F5E"></div><div class="sc" style="--a:#6B7A3F"></div>
-            <div class="sc" style="--a:#9A6B2F"></div><div class="sc" style="--a:#A8543C"></div>
-            <div class="sc" style="--a:#7D4A6B"></div><div class="sc" style="--a:#5B5FA3"></div>
-            <div class="sc" style="--a:#4A5567"></div><div class="sc" style="--a:#2C3542"></div>
+              <div class="sc" style="--a:#174585"></div>
+              <div class="sc" style="--a:#3E6E8E"></div>
+              <div class="sc on" style="--a:#2F6F5E"></div>
+              <div class="sc" style="--a:#6B7A3F"></div>
+              <div class="sc" style="--a:#9A6B2F"></div>
+              <div class="sc" style="--a:#A8543C"></div>
+              <div class="sc" style="--a:#7D4A6B"></div>
+              <div class="sc" style="--a:#5B5FA3"></div>
+              <div class="sc" style="--a:#4A5567"></div>
+              <div class="sc" style="--a:#2C3542"></div>
           </div>
         </div>
 
@@ -1082,10 +1160,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 7 マイページ ═══ -->
+<!-- S08 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">07</span>
+    <span class="sec-num">08</span>
     <h2>マイページ</h2>
     <span class="tag t-built">実装済み</span>
   </div>
@@ -1127,7 +1205,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div><div class="fld">属性</div><div class="inp">学生　▾</div></div>
             <div><div class="fld">楽器</div><div class="inp ph">例: YAS-62</div></div>
             <div><div class="fld">マウスピース</div><div class="inp ph">例: S80 C*</div></div>
-            <div><div class="fld">リガチャー</div><div class="inp ph">例: Rovner Dark</div></div>
+            <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
           </div>
           <div class="card"><div class="ck"><div class="box"></div>13歳以上です</div></div>
           <div class="btn">保存する</div>
@@ -1146,7 +1224,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           </div>
           <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px">
             <div><div style="font-size:14px;font-weight:700">公開する</div>
-              <p class="hint" style="margin-top:4px">ONにすると他の利用者から見えます</p></div>
+              <p class="hint" style="margin-top:4px">既定は公開です。OFFにすると他の利用者から見えなくなります</p></div>
             <div class="tog"></div>
           </div>
           <div class="btn gh">編集</div>
@@ -1159,7 +1237,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           </div>
         </div>
       </div></div>
-      <p class="cap">プロフィール（公開切替・編集・削除）</p>
+      <p class="cap">プロフィール（公開が既定。切替・編集・削除）</p>
     </div>
   </div>
 </section>
@@ -1167,7 +1245,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 <!-- ═══ 8 ルール ═══ -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">08</span>
+    <span class="sec-num">09</span>
     <h2>デザイン体系との関係</h2>
   </div>
   <p class="sec-sub">
@@ -1243,32 +1321,37 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
   </div>
 </section>
 
-<!-- ═══ 9 決定 ═══ -->
+<!-- S10 -->
 <section>
   <div class="sec-head">
-    <span class="sec-num">09</span>
+    <span class="sec-num">10</span>
     <h2>決まったこと / 残っていること</h2>
   </div>
+  <p class="sec-sub"></p>
 
   <div class="decs">
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>条件を選ぶ場所は1つ</h3>
+      <p>データタブのトップは「条件で絞り込む」の1行だけ。母集団の3軸は
+        「みんなの平均」の画面で選ぶ。同じ粒度の条件が2箇所にある状態を解消した。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>母集団は 楽器 × ジャンル × 属性 の3軸</h3>
+      <p>180通り程度で事前計算が現実的。5人に満たない組み合わせは「指定しない」へ自動で降りる。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>子タブは データ / 順位 / シェア / マイページ</h3>
       <p>「目安」は機能の名前として画面の中に残し、タブの名前は中身を指す語にした。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
-      <h3>母集団は 楽器 × ジャンル × 属性 の3軸</h3>
-      <p>180通り程度で事前計算が現実的。5人に満たない組み合わせは軸を1つ落とした平均へ降りる。
-        上の条件行が下の個人一覧も絞る。</p></div></div>
+      <h3>順位は属性でも切れる</h3>
+      <p>条件行は 指標 ・ 期間 ・ 属性 の3つ。期間は 今週 / 今月 / 今年 / すべて。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>人物紹介の練習日数は累計</h3>
+      <p>順位は期間で切り替えるが、シートに出す数字は累計。その人がどれだけ続けてきたかを表す。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>シェアのグラフは1つ＋タブ切替</h3>
+      <p>楽器 / マウスピース / リガチャー / リード。縦に積むと下まで届かないため。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>楽器表記はアルファベット、製品名は正式名称</h3>
-      <p>Alto → Alto、Traditional → Traditional。カタログの表記と画面の表記を一致させる。</p></div></div>
-    <div class="dec"><span class="mark done">決定</span><div>
-      <h3>リガチャーを機材に加える</h3>
-      <p>楽器・マウスピースと同じく、部分一致で候補を出して選ばせる。
-        24ブランドのカタログを調査済み。シェア画面の割合も4種になる。</p></div></div>
-    <div class="dec"><span class="mark done">決定</span><div>
-      <h3>リードの使用日数は表示しない</h3>
-      <p>画面から消したので、公開データからも外した。画面に出ない値をサーバに置くと、
-        後から「なぜあるのか」が分からなくなる。</p></div></div>
+      <p>アルト → Alto、青箱 → Traditional。カタログの表記と画面の表記を一致させる。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>アイコンの絵柄はこの24種で確定</h3>
       <p>Phosphor Icons の塗りウェイト。実装時もこの一覧をそのまま使う。</p></div></div>
