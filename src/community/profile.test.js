@@ -103,33 +103,33 @@ describe("buildProfileDoc", () => {
   // 一度 null を "その他" に寄せて書き込むと、書き込んだ後からは区別を復元できない。
   it("機材を選ばなかった場合は null のまま保存される(その他に寄せない)", () => {
     const r = buildProfileDoc(
-      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null } },
+      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null } },
       new Date("2026-08-27")
     );
     expect(r.error).toBeUndefined();
-    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null });
+    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null });
   });
   it("gear キーごと省略しても null で保存される", () => {
     const { gear, ...rest } = base;
     const r = buildProfileDoc(rest, new Date("2026-08-27"));
     expect(r.error).toBeUndefined();
-    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null });
+    expect(r.doc.gear).toEqual({ instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null });
   });
   it("明示的に「その他」を選んだ場合は文字列で保存される", () => {
     const r = buildProfileDoc(
-      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null } },
+      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null } },
       new Date("2026-08-27")
     );
     expect(r.error).toBeUndefined();
-    expect(r.doc.gear).toEqual({ instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null });
+    expect(r.doc.gear).toEqual({ instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null });
   });
   it("未選択と「その他」は保存後のドキュメント上で区別できる", () => {
     const unselected = buildProfileDoc(
-      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null } },
+      { ...base, gear: { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null } },
       new Date("2026-08-27")
     ).doc;
     const other = buildProfileDoc(
-      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null } },
+      { ...base, gear: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null } },
       new Date("2026-08-27")
     ).doc;
     expect(unselected.gear.instrumentBrand).toBeNull();
@@ -172,8 +172,8 @@ describe("firestore.rules との同期", () => {
   it("saxType の列挙がルールと一致する", () => {
     expect(rules).toContain(`request.resource.data.saxType in ${asRulesList(SAX_TYPES)}`);
   });
-  it("gear の4つの値すべてに string-or-null の型検査がある", () => {
-    for (const key of ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel"]) {
+  it("gear の6つの値すべてに string-or-null の型検査がある", () => {
+    for (const key of ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel"]) {
       expect(rules).toContain(`request.resource.data.gear.${key} == null`);
       expect(rules).toContain(`request.resource.data.gear.${key} is string`);
       expect(rules).toContain(`request.resource.data.gear.${key}.size() <= 60`);

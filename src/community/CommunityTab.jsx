@@ -20,7 +20,7 @@ import { searchInstrumentModels, searchMouthpieces, OTHER_BRAND } from "./catalo
 // このタブの根がどちらになるかは App.jsx 側(Task 9)の話だから。
 // ------------------------------------------------------------------
 
-const SAX_LABELS = { soprano: "ソプラノ", alto: "アルト", tenor: "テナー", baritone: "バリトン" };
+const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
 
 // 通信系の失敗はどれも利用者にできることが同じ(電波の良いところでやり直す)なので、
 // 文言も1つにまとめる。原因の切り分け(権限/オフライン/期限切れ)を見せても操作は変わらない。
@@ -203,8 +203,8 @@ function JoinIntro({ onJoin, notice = null }) {
       <div style={titleStyle}>コミュニティ</div>
       {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
       <div style={bodyStyle}>
-        他の奏者の目安・機材・練習量を見られるようになります。参加すると匿名のアカウントが作られます。
-        メールアドレスなどの個人情報は収集しません。
+        参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
+        メールアドレスなどの個人情報は公表されません。
       </div>
       {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
           アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
@@ -429,7 +429,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>{initial ? "プロフィールを編集" : "プロフィールを作る"}</div>
 
-      <Field label="ニックネーム" note="ニックネームは他の利用者に公開されます。本名は使わないでください">
+      <Field label="ニックネーム" note="ニックネームは他の利用者に公開されます">
         <input
           type="text" value={nickname} maxLength={20}
           onChange={(e) => setNickname(e.target.value)}

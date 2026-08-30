@@ -351,3 +351,34 @@ export function isValidMouthpiece(brand, model) {
   if (brand === OTHER_BRAND) return model === null; // 明示的に選ばれた「その他」
   return (MOUTHPIECE_CATALOG[brand]?.models ?? []).includes(model);
 }
+
+// ─────────────────────────────────────────────────────────────
+// リガチャー（マウスピースにリードを固定する締具）
+//
+// 楽器・マウスピースと同じく「ブランド → モデル」を部分一致で選ばせる。
+// 自由入力を確定させないことで、モデレーション対象を増やさない方針は同じ。
+// カタログの出どころは docs/superpowers/research/2026-08-29-ligature-catalog.md。
+// **中身は調査結果からの転記待ち。器だけ先に置いてある。**
+export const LIGATURE_CATALOG = {
+  /* 調査レポートの ◎○ 行から転記する */
+};
+
+export function searchLigatures(query) {
+  const q = norm(query);
+  if (!q) return [];
+  const out = [];
+  for (const [brand, { models }] of Object.entries(LIGATURE_CATALOG)) {
+    const brandHit = brandMatches(brand, q);
+    for (const model of models) {
+      if (norm(model).includes(q) || brandHit) out.push({ brand, model });
+    }
+  }
+  return out;
+}
+
+export function isValidLigature(brand, model) {
+  if (brand === null && model === null) return true; // 未選択
+  if (brand === OTHER_BRAND) return model === null;  // 明示的に選ばれた「その他」
+  return (LIGATURE_CATALOG[brand]?.models ?? []).includes(model);
+}
+

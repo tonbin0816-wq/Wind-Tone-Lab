@@ -1,5 +1,5 @@
 import { findNgWord } from "./ngwords/filter.js";
-import { isValidInstrument, isValidMouthpiece } from "./catalog/gear.js";
+import { isValidInstrument, isValidMouthpiece, isValidLigature } from "./catalog/gear.js";
 
 // spec §4.1 の選択肢。文言を変えるときは設計書も直すこと。
 //
@@ -10,7 +10,7 @@ import { isValidInstrument, isValidMouthpiece } from "./catalog/gear.js";
 // **ここを足し引きしたら firestore.rules の該当行も必ず直すこと**(逆も同じ)。
 // 食い違いは profile.test.js の「Firestore ルールの列挙と一致する」が検出する。
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
-export const POSITIONS = ["学生", "音大生", "社会人", "講師・プロ", "独学"];
+export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
 export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外"];
@@ -56,7 +56,7 @@ export function buildProfileDoc(input, now = new Date()) {
   const nick = validateNickname(input.nickname);
   if (nick.error) return { error: nick.error };
   if (!SAX_TYPES.includes(input.saxType)) return { error: "楽器種別を選んでください" };
-  if (!POSITIONS.includes(input.position)) return { error: "立場を選んでください" };
+  if (!POSITIONS.includes(input.position)) return { error: "属性を選んでください" };
   const year = Number(input.startYear);
   if (!Number.isInteger(year) || year < now.getFullYear() - 80 || year > now.getFullYear()) {
     return { error: "演奏開始年が正しくありません" };
@@ -72,8 +72,11 @@ export function buildProfileDoc(input, now = new Date()) {
   const instModel = g.instrumentModel ?? null;
   const mpBrand = g.mpBrand ?? null;
   const mpModel = g.mpModel ?? null;
+  const ligBrand = g.ligBrand ?? null;
+  const ligModel = g.ligModel ?? null;
   if (!isValidInstrument(instBrand, instModel, input.saxType)) return { error: "楽器がカタログにありません" };
   if (!isValidMouthpiece(mpBrand, mpModel)) return { error: "マウスピースがカタログにありません" };
+  if (!isValidLigature(ligBrand, ligModel)) return { error: "リガチャーがカタログにありません" };
   return {
     doc: {
       nickname: nick.value,
@@ -83,7 +86,7 @@ export function buildProfileDoc(input, now = new Date()) {
       genres: pickAllowed(input.genres, GENRES),
       ensembles: pickAllowed(input.ensembles, ENSEMBLES),
       places: pickAllowed(input.places, PLACES),
-      gear: { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel },
+      gear: { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel },
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
       ageConfirmed: true,

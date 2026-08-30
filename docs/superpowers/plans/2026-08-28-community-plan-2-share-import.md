@@ -21,7 +21,7 @@
 - 公開できるのは **`performer` が「自分」のセッション由来の目安のみ**(spec §7.3)
 - `src/App.jsx` への変更は**この計画では一切行わない**(別セッションがデザイン改修中)
 - Firestore ルールは `users` と同じ厳格さ: `hasAll` + `hasOnly` + 全フィールドの型と選択肢を検査
-- 立場の選択肢は `学生 / 音大生 / 社会人 / 講師・プロ / 独学`(`profile.js` の `POSITIONS` が正)
+- 属性の選択肢は `学生 / 学生（音大） / 社会人 / 講師・プロ / 独学`(`profile.js` の `POSITIONS` が正)
 - コミットは各タスク末尾で必ず行う
 
 ## この計画に含まれないもの(後続計画)
@@ -252,7 +252,7 @@ git commit -m "コミュニティ計画2: 目安の平行移動の算術を追�
   - `MAX_PUBLISHED_NOTES = 40`
   - `buildIdealDoc(input, now?): { doc } | { error }`
     input: `{ uid, profileId, name, saxType, tuningHz, notes, sourceSessionCount, reed, performerIsSelf }`
-    doc keys(必ずこの12): `ownerUid, profileId, name, saxType, tuningHz, notes, noteKeys, sourceSessionCount, reedBrand, reedStrength, reedDays, updatedAt`
+    doc keys(必ずこの12): `ownerUid, profileId, name, saxType, tuningHz, notes, noteKeys, sourceSessionCount, reedBrand, reedStrength, updatedAt`
   - `sanitizeNotes(notes): object` — 共有してよい指標だけを残し、**volumeDb を必ず落とす**
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -271,7 +271,7 @@ const base = {
     4: { spectralCentroidHz: 2600, hnrDb: 20, pitchCentsSigned: 0, harmonics: [1, .6], volumeDb: -13 },
   },
   sourceSessionCount: 3,
-  reed: { brand: "青箱", strength: "3", startDate: "2026-08-16" },
+  reed: { brand: "Traditional", strength: "3" },
   performerIsSelf: true,
 };
 
@@ -293,10 +293,9 @@ describe("buildIdealDoc", () => {
     const r = buildIdealDoc(base, new Date("2026-08-28T00:00:00Z"));
     expect(Object.keys(r.doc).sort()).toEqual([
       "name", "noteKeys", "notes", "ownerUid", "profileId", "reedBrand",
-      "reedDays", "reedStrength", "saxType", "sourceSessionCount", "tuningHz", "updatedAt",
+      "reedStrength", "saxType", "sourceSessionCount", "tuningHz", "updatedAt",
     ]);
     expect(r.doc.noteKeys).toEqual(["0", "2", "4"]);
-    expect(r.doc.reedDays).toBe(12); // 08-16 から 08-28 まで
   });
   it("他人の演奏由来は公開できない", () => {
     expect(buildIdealDoc({ ...base, performerIsSelf: false }).error).toContain("自分の演奏");
@@ -321,7 +320,11 @@ describe("buildIdealDoc", () => {
   it("リードが無くても公開できる", () => {
     const r = buildIdealDoc({ ...base, reed: null });
     expect(r.doc.reedBrand).toBeNull();
-    expect(r.doc.reedDays).toBeNull();
+    expect(r.doc.reedStrength).toBeNull();
+  });
+  it("リードの使用日数は公開しない", () => {
+    const r = buildIdealDoc(base);
+    expect(r.doc.reedDays).toBeUndefined();
   });
 });
 ```
@@ -363,14 +366,6 @@ export function sanitizeNotes(notes) {
   return out;
 }
 
-function daysSince(startDate, now) {
-  if (!startDate) return null;
-  const s = new Date(startDate);
-  if (Number.isNaN(s.getTime())) return null;
-  const d = Math.floor((now - s) / 86400000);
-  return d >= 0 ? d : null;
-}
-
 export function buildIdealDoc(input, now = new Date()) {
   if (input?.performerIsSelf !== true) {
     return { error: "自分の演奏から作った目安だけを公開できます" };
@@ -403,8 +398,8 @@ export function buildIdealDoc(input, now = new Date()) {
       noteKeys,
       sourceSessionCount: num(input?.sourceSessionCount) ? input.sourceSessionCount : 1,
       reedBrand: reed?.brand ? String(reed.brand) : null,
+      // 使用日数は共有しない(2026-08-29 本人指示。画面から消したのでデータにも持たない)
       reedStrength: reed?.strength ? String(reed.strength) : null,
-      reedDays: daysSince(reed?.startDate, now),
       updatedAt: now.toISOString(),
     },
   };
@@ -458,8 +453,8 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
       allow create, update: if request.auth != null
         && request.auth.uid == request.resource.data.ownerUid
         && docId == request.auth.uid + "_" + request.resource.data.profileId
-        && request.resource.data.keys().hasAll(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','reedDays','updatedAt'])
-        && request.resource.data.keys().hasOnly(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','reedDays','updatedAt'])
+        && request.resource.data.keys().hasAll(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 120
@@ -476,7 +471,6 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
         && request.resource.data.sourceSessionCount <= 10000
         && (request.resource.data.reedBrand == null || (request.resource.data.reedBrand is string && request.resource.data.reedBrand.size() <= 60))
         && (request.resource.data.reedStrength == null || (request.resource.data.reedStrength is string && request.resource.data.reedStrength.size() <= 20))
-        && (request.resource.data.reedDays == null || (request.resource.data.reedDays is int && request.resource.data.reedDays >= 0 && request.resource.data.reedDays <= 3650))
         && request.resource.data.updatedAt is string;
       allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
     }
@@ -941,8 +935,8 @@ git commit -m "コミュニティ計画2: 取り込んだ目安の組み立て�
 
 `src/community/SearchIdealsView.jsx`。上から順に:
 
-1. 絞り込みのピル行 — 立場(`POSITIONS`)/ ジャンル / 編成 / 練習場所。押すとシートで複数選択
-2. 演奏開始年の範囲 — 「歴 3〜10年」の表記。内部では `startYearFrom`/`startYearTo` に変換
+1. 上部の条件行 — **楽器種別 ・ ジャンル ・ 属性** を「テキスト+▾」の1行で並べる(計測タブのヘッダと同じ形。カードにしない)。この3つがコホートの軸であり、下の個人一覧もこの条件に連動する
+2. 個人一覧側の追加の絞り込み — 編成 / 練習場所 / 演奏開始年の範囲(「歴 3〜10年」。内部では `startYearFrom`/`startYearTo`)/ **ユーザー名検索**
 3. 一覧 — 1行=1枚の小カード。アイコン・ニックネーム・属性・機材の小片3つ・採用数
 
 読み込みの流れ:
@@ -962,18 +956,17 @@ Task 8(計画3以降)で App.jsx から渡すまでは `[]` を既定にする�
 `myIdeals` が空のときは一覧を出さず、「まず自分の目安を作ってください」と案内する。
 
 0件のときの文言: `条件に合う人がまだいません` ではなく、**外すと見つかる条件を示す**:
-`いまの条件では見つかりません。「立場」を外すと ◯人 見つかります`(条件を1つずつ外して再計算する)
+`いまの条件では見つかりません。「属性」を外すと ◯人 見つかります`(条件を1つずつ外して再計算する)
 
 - [ ] **Step 2: 詳細画面を実装**
 
 `src/community/IdealDetailView.jsx`。上から:
 
 1. 相手の属性(ニックネーム・立場・歴・機材)
-2. **音名ごとの折れ線** — 縦軸に音名、横軸に値。自分は実線(`--c-accent`)、
+2. **音名ごとの折れ線** — **横軸に音名**(既存のグラフと同じ向き)。指標は音程 / 重心 / HNR をタブで切り替える。自分は実線(`--c-accent`)、
    相手は破線(`--c-ink-3`)。**破線は平行移動した後の値**。凡例に「自分」「(相手の名前)」
-3. 説明文: `マイクの距離や部屋の響きで、値は全体が一律にずれる。そのずれを取り除いてから重ねているので、読むのは線の形であって、上下の位置ではない。`
-4. `この目安を取り込む` ボタン
-5. 補足: `計測タブの目安に「取り込んだ目安（学生・2026/08/28）」として追加されます`
+3. 説明文: `計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較`
+4. `目安に設定` ボタン
 
 **解釈の文(「低いドが暗い」等)は置かない。** 設計書の決定事項。
 
@@ -986,7 +979,7 @@ onImport(built.profile);   // 親が既存の idealProfiles へ追加する
 
 - [ ] **Step 3: CommunityTab に子タブを足す**
 
-既存の `phase === "profile"` の表示を「マイページ」子タブに移し、「目安」子タブを足す。
+既存の `phase === "profile"` の表示を「マイページ」子タブに移し、「データ」子タブを足す。子タブは **データ / 順位 / シェア / マイページ** の4つ(順位とシェアは計画3・4で中身を入れる)。
 子タブの見た目は画面案の `.tabs`(文字タブ+選択中に下線)。
 プロフィール未登録のときは子タブを出さず、これまでどおり参加・登録の画面を出す。
 
