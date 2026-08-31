@@ -319,7 +319,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 }
 :focus-visible{outline:2px solid var(--accent); outline-offset:3px}
 
-/* 条件で絞り込む行（検索欄と同じ形。押すとシートで選ぶ） */
+/* さらに絞り込む行（検索欄と同じ形。押すとシートで選ぶ） */
 .filterline{display:flex; align-items:center; justify-content:space-between; gap:10px;
   background:var(--card); border-radius:999px; padding:11px 16px; box-shadow:var(--s); font-size:13px}
 .filterline .lb{color:var(--i2)}
@@ -333,6 +333,19 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 .chipx{font-size:12px; color:var(--i2); background:var(--gr); border-radius:999px; padding:6px 12px}
 .chipx.on{background:var(--ac); color:var(--on); font-weight:700}
 .chipx.lock{background:transparent; color:var(--i3); padding-left:0}
+
+/* 楽器種別の複数選択 */
+.saxpick{display:flex; gap:8px; flex-wrap:wrap}
+.saxopt{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--i2);
+  background:var(--gr); border-radius:999px; padding:8px 14px}
+.saxopt.on{background:var(--ac); color:var(--on); font-weight:700}
+.saxopt .bx{width:15px; height:15px; border-radius:4px; border:1.5px solid currentColor; flex:none}
+.saxopt.on .bx{background:currentColor}
+
+/* 楽器種別ごとの機材のまとまり */
+.gearset{border-radius:var(--r-in); background:var(--gr); padding:14px; display:flex;
+  flex-direction:column; gap:13px}
+.gearset .ttl{font-size:12px; font-weight:700; color:var(--ac); letter-spacing:.04em}
 
 /* 注意書き。カードにせず、地の上に小さく置く */
 .aside{font-size:11.5px; color:var(--i3); line-height:1.75; padding:0 2px}
@@ -405,20 +418,20 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <div class="tab">マイページ</div>
       </div>
       <div class="body">
-        <div class="deep">
-          <div class="k">みんなの平均</div>
-          <div class="t">Alto × クラシック × 学生</div>
-          <div class="m">42人の目安を平均</div>
-        </div>
-
         <div class="search">
           <svg viewBox="0 0 256 256"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
           ニックネームで探す
         </div>
 
+        <div class="deep">
+          <div class="k">抽出条件</div>
+          <div class="t">Alto × クラシック × 学生</div>
+          <div class="m">42人のデータ</div>
+        </div>
+
         <div class="filterline">
-          <span class="lb">条件で絞り込む</span>
-          <span class="n">クラシック ・ 学生 ・ 他2件　▾</span>
+          <span class="lb">さらに絞り込む</span>
+          <span class="n">編成 ・ 練習場所 ・ 歴　▾</span>
         </div>
 
         <div class="stack">
@@ -470,19 +483,20 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
     <div class="notes">
       <div class="note">
-        <h3>条件を選ぶ場所を1つに畳んだ</h3>
+        <h3>条件を2階建てにした</h3>
         <p>
           前の案は、平均カードの上に条件行があり、下にも絞り込みのピルが並んでいた。
           <b>同じ粒度の条件が平均を挟んで2箇所にある</b>ので、どちらが何に効くのか読めない。
-          この案では選ぶ場所は「条件で絞り込む」の1行だけにして、
-          平均の母集団は次の画面（02）で選ぶ。
+          この案では<b>抽出条件（楽器 × ジャンル × 属性）は次の画面で選び</b>、
+          トップの「さらに絞り込む」には<b>そこで設定していない条件だけ</b>を置く。
+          役割が階層で分かれるので、2つ並んでいても迷わない。
         </p>
       </div>
       <div class="note">
-        <h3>平均カードは表示に徹する</h3>
+        <h3>抽出条件のカードは表示に徹する</h3>
         <p>
           カードに出るのは<b>楽器 × ジャンル × 属性</b>の3つ。ここは選ぶ場所ではなく、
-          「いま何の平均を見ているか」の表示。タップすると母集団を選ぶ画面へ移る。
+          「いま何を抽出しているか」の表示。タップすると条件を選ぶ画面へ移る。
         </p>
       </div>
       <div class="note">
@@ -490,7 +504,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <p>
           特定の人を探す操作は、条件で母集団を狭める操作とは目的が違う。
           <b>知っている人を1人見つけたい</b>のか、<b>条件に合う人を見比べたい</b>のか。
-          混ぜると、どちらのつもりで触ったのか分からなくなる。
+          混ぜると、どちらのつもりで触ったのか分からなくなる。だから条件のどれよりも上に置いた。
         </p>
       </div>
       <div class="flag">
@@ -505,22 +519,25 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 <section>
   <div class="sec-head">
     <span class="sec-num">02</span>
-    <h2>みんなの平均</h2>
+    <h2>抽出条件を選ぶ</h2>
     <span class="tag t-new">新規</span>
   </div>
   <p class="sec-sub">
-    平均カードをタップした先。ここが<b>母集団を選ぶ唯一の場所</b>。
+    抽出条件のカードをタップした先。ここが<b>母集団を選ぶ唯一の場所</b>。
   </p>
 
   <div class="split">
     <div class="phone"><div class="scr">
-      <div class="bar"><h4>みんなの平均</h4></div>
+      <div class="bar"><h4>抽出条件</h4></div>
       <div class="body">
         <div class="card">
           <div class="axis">
             <div class="axisrow">
               <span class="lb">楽器</span>
-              <span class="vals"><span class="chipx lock">Alto（自分と同じ）</span></span>
+              <span class="vals">
+                <span class="chipx">Soprano</span><span class="chipx on">Alto</span>
+                <span class="chipx">Tenor</span><span class="chipx">Baritone</span>
+              </span>
             </div>
             <div class="axisrow">
               <span class="lb">ジャンル</span>
@@ -541,7 +558,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         </div>
 
         <div class="deep" style="padding:16px">
-          <div class="k">この条件の母集団</div>
+          <div class="k">この条件のデータ</div>
           <div class="t" style="font-size:17px">Alto × クラシック × 学生</div>
           <div class="m">42人 ／ 収録 18音</div>
         </div>
@@ -594,9 +611,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
       <div class="note">
         <h3>3つの軸をここで選ぶ</h3>
         <p>
-          楽器種別は<b>自分と同じで固定</b>（目安は同じ楽器種別としか比べられない）。
-          ジャンルと属性は選べて、どちらも「指定しない」を持つ。
-          軸を落とすほど母数が増え、平均は安定するが自分に近い集団ではなくなる。
+          楽器・ジャンル・属性の3つとも選べる。<b>1人が複数の楽器を吹く</b>ので、
+          楽器種別も固定にはできない（テナーの目安を見たい日もある）。
+          ジャンルと属性は「指定しない」を持ち、軸を落とすほど母数が増える。
+          平均は安定するが、自分に近い集団ではなくなる。
         </p>
       </div>
       <div class="note">
@@ -743,8 +761,8 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
         <div class="tab">マイページ</div>
       </div>
       <div class="condbar">
-        <span class="cond">練習日数</span><span class="sep">・</span>
-        <span class="cond">今月</span><span class="sep">・</span>
+        <span class="cond">練習日数</span>
+        <span class="cond">今月</span>
         <span class="cond">学生</span>
       </div>
       <div class="body">
@@ -865,6 +883,12 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
             <div style="font-size:19px; font-weight:700">まつり</div>
             <div class="sub" style="text-align:center;margin:0">学生 ・ 歴3年 ・ クラシック ・ 吹奏楽</div>
+            <div class="sub" style="text-align:center;margin:0">Alto ／ Tenor</div>
+          </div>
+
+          <div class="mtabs">
+            <div class="mtab on">Alto</div>
+            <div class="mtab">Tenor</div>
           </div>
 
           <div class="card" style="box-shadow:none; background:var(--gr); padding:14px">
@@ -902,6 +926,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     </div></div>
 
     <div class="notes">
+      <div class="note">
+        <h3>楽器種別ごとに切り替える</h3>
+        <p>
+          1人が複数の楽器を吹くので、<b>目安も機材も楽器種別ごとに別物</b>になる。
+          この人がどの楽器を持っているかは名前の下に出し、
+          グラフと機材の一覧はタブで切り替える。1種別しか持たない人にはタブを出さない。
+        </p>
+      </div>
       <div class="note">
         <h3>練習日数は累計で出す</h3>
         <p>
@@ -1168,7 +1200,7 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     <span class="tag t-built">実装済み</span>
   </div>
   <p class="sec-sub">
-    参加 → 登録 → 表示・削除の3状態。動作確認まで完了している。
+    参加 → 登録 → 表示・削除の3状態。<b>吹く楽器を複数選べ、選んだ数だけ機材の欄が出る。</b>
     下はカード作法に合わせて描き直した姿で、実装は現状まだ罫のまま。
   </p>
 
@@ -1201,17 +1233,37 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <p class="hint">ニックネームは他の利用者に公開されます</p>
           </div>
           <div class="card" style="display:flex;flex-direction:column;gap:16px">
-            <div><div class="fld">楽器種別</div><div class="inp">Alto　▾</div></div>
             <div><div class="fld">属性</div><div class="inp">学生　▾</div></div>
-            <div><div class="fld">楽器</div><div class="inp ph">例: YAS-62</div></div>
-            <div><div class="fld">マウスピース</div><div class="inp ph">例: S80 C*</div></div>
-            <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
+            <div>
+              <div class="fld">吹く楽器（複数選べます）</div>
+              <div class="saxpick">
+                <span class="saxopt"><span class="bx"></span>Soprano</span>
+                <span class="saxopt on"><span class="bx"></span>Alto</span>
+                <span class="saxopt on"><span class="bx"></span>Tenor</span>
+                <span class="saxopt"><span class="bx"></span>Baritone</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="display:flex;flex-direction:column;gap:14px">
+            <div class="gearset">
+              <div class="ttl">Alto の機材</div>
+              <div><div class="fld">楽器</div><div class="inp ph">例: YAS-62</div></div>
+              <div><div class="fld">マウスピース</div><div class="inp ph">例: S80 C*</div></div>
+              <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
+            </div>
+            <div class="gearset">
+              <div class="ttl">Tenor の機材</div>
+              <div><div class="fld">楽器</div><div class="inp ph">例: YTS-62</div></div>
+              <div><div class="fld">マウスピース</div><div class="inp ph">例: Otto Link 7*</div></div>
+              <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
+            </div>
           </div>
           <div class="card"><div class="ck"><div class="box"></div>13歳以上です</div></div>
           <div class="btn">保存する</div>
         </div>
       </div></div>
-      <p class="cap">登録フォーム（▾ はプルダウン、それ以外は部分一致で候補が出る）</p>
+      <p class="cap">登録フォーム（吹く楽器を選ぶと、その数だけ機材の欄が出る）</p>
     </div>
 
     <div>
@@ -1220,7 +1272,8 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
           <div class="card" style="display:flex;gap:14px;align-items:center">
             <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
             <div><div class="nm" style="font-size:17px">まつり</div>
-              <div class="sub">学生 ・ 歴3年 ・ クラシック</div></div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
+              <div class="sub">Alto ／ Tenor</div></div>
           </div>
           <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px">
             <div><div style="font-size:14px;font-weight:700">公開する</div>
@@ -1331,9 +1384,14 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
   <div class="decs">
     <div class="dec"><span class="mark done">決定</span><div>
-      <h3>条件を選ぶ場所は1つ</h3>
-      <p>データタブのトップは「条件で絞り込む」の1行だけ。母集団の3軸は
-        「みんなの平均」の画面で選ぶ。同じ粒度の条件が2箇所にある状態を解消した。</p></div></div>
+      <h3>1人が複数の楽器を持てる</h3>
+      <p>soprano / alto / tenor / baritone のうち吹くものを選び、<b>種別ごとに楽器・マウスピース・
+        リガチャーを1組ずつ</b>持つ。同じ種別を2本持つ人は稀なので1組でよい。
+        データも <code>saxTypes</code>（配列）と <code>gear</code>（種別をキーにした map）に変えた。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>条件は2階建て</h3>
+      <p>抽出条件（楽器 × ジャンル × 属性）は専用の画面で選び、トップの「さらに絞り込む」には
+        そこで設定していない条件だけを置く。役割が階層で分かれるので、2つ並んでいても迷わない。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>母集団は 楽器 × ジャンル × 属性 の3軸</h3>
       <p>180通り程度で事前計算が現実的。5人に満たない組み合わせは「指定しない」へ自動で降りる。</p></div></div>

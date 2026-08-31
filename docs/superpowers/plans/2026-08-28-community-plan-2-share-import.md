@@ -22,6 +22,8 @@
 - `src/App.jsx` への変更は**この計画では一切行わない**(別セッションがデザイン改修中)
 - Firestore ルールは `users` と同じ厳格さ: `hasAll` + `hasOnly` + 全フィールドの型と選択肢を検査
 - 属性の選択肢は `学生 / 学生（音大） / 社会人 / 講師・プロ / 独学`(`profile.js` の `POSITIONS` が正)
+- **プロフィールの楽器種別は `saxTypes`(配列)、機材は `gear`(種別をキーにした map)**。1人が複数の楽器を吹く。
+  一方**目安ドキュメント側の `saxType` は単数**(1つの目安は1つの楽器種別のもの)。混同しないこと
 - コミットは各タスク末尾で必ず行う
 
 ## この計画に含まれないもの(後続計画)
@@ -617,6 +619,9 @@ git commit -m "コミュニティ計画2: 目安の公開・検索・取得の�
 
 **Interfaces:**
 - Consumes: `commonNoteKeys`, `MIN_COMMON_NOTES`(Task 1)
+- 注: `filterIdeals` は所有者の属性で絞る。所有者は `saxTypes`(配列)を持つが、
+  目安側が単数 `saxType` を持ち Firestore の where で既に絞られているので、
+  **この関数は楽器種別を見ない**
 - Produces:
   - `EXPERIENCE_MIN = 1950`
   - `joinOwners(ideals, ownerMap): object[]` — 公開プロフィールを持たない所有者の目安は落とす
@@ -935,15 +940,18 @@ git commit -m "コミュニティ計画2: 取り込んだ目安の組み立て�
 
 `src/community/SearchIdealsView.jsx`。上から順に:
 
-1. 上部の条件行 — **楽器種別 ・ ジャンル ・ 属性** を「テキスト+▾」の1行で並べる(計測タブのヘッダと同じ形。カードにしない)。この3つがコホートの軸であり、下の個人一覧もこの条件に連動する
-2. 個人一覧側の追加の絞り込み — 編成 / 練習場所 / 演奏開始年の範囲(「歴 3〜10年」。内部では `startYearFrom`/`startYearTo`)/ **ユーザー名検索**
+1. 最上段に **ニックネーム検索**。特定の人を1人探す操作は、条件で母集団を狭める操作と目的が違うので、条件のどれよりも上に置く
+2. **抽出条件のカード** — 「Alto × クラシック × 学生」と「◯人のデータ」を出すだけの表示。タップすると条件を選ぶ画面へ移る。ここでは選ばせない
+3. **さらに絞り込む** の1行 — 抽出条件で設定していない条件だけ(編成 / 練習場所 / 演奏開始年の範囲。内部では `startYearFrom`/`startYearTo`)
+4. 個人一覧 — 1行=1枚の小カード
 3. 一覧 — 1行=1枚の小カード。アイコン・ニックネーム・属性・機材の小片3つ・採用数
 
 読み込みの流れ:
 ```js
 const uid = await getSignedInUid();
 const me = uid ? await loadProfile(uid) : null;
-const rows = await searchIdeals({ saxType: me.saxType });
+// 見たい楽器種別は画面で選ぶ。既定は me.saxTypes[0]
+const rows = await searchIdeals({ saxType: selectedSaxType });
 const owners = await loadOwnerProfiles(rows.map((r) => r.ownerUid));
 const joined = joinOwners(rows, owners).filter((r) => r.ownerUid !== uid);
 const usable = joined.filter((r) => hasEnoughOverlap(myIdealProfile, r));
@@ -980,6 +988,10 @@ onImport(built.profile);   // 親が既存の idealProfiles へ追加する
 - [ ] **Step 3: CommunityTab に子タブを足す**
 
 既存の `phase === "profile"` の表示を「マイページ」子タブに移し、「データ」子タブを足す。子タブは **データ / 順位 / シェア / マイページ** の4つ(順位とシェアは計画3・4で中身を入れる)。
+
+**抽出条件を選ぶ画面**(`SelectCohortView.jsx`)も作る。楽器種別 / ジャンル / 属性 の3軸を選ぶ。
+楽器種別の選択肢は**自分の `saxTypes` に限らず4種すべて**(他の楽器の平均を見たい場合があるため)。
+ジャンルと属性には「指定しない」を置く。
 子タブの見た目は画面案の `.tabs`(文字タブ+選択中に下線)。
 プロフィール未登録のときは子タブを出さず、これまでどおり参加・登録の画面を出す。
 

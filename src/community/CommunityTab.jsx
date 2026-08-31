@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, startYearOptions } from "./profile.js";
+import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
@@ -20,7 +20,8 @@ import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND
 // このタブの根がどちらになるかは App.jsx 側(Task 9)の話だから。
 // ------------------------------------------------------------------
 
-const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
+// SAX_LABELS は profile.js が持つ(機材の照合エラーが「どの楽器の話か」を言うために
+// あちら側でも要る)。写しを2つ置かない。
 
 // 通信系の失敗はどれも利用者にできることが同じ(電波の良いところでやり直す)なので、
 // 文言も1つにまとめる。原因の切り分け(権限/オフライン/期限切れ)を見せても操作は変わらない。
@@ -165,6 +166,9 @@ const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-
 const bodyStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", lineHeight: 1.7 };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
+// 楽器種別ごとの機材のまとまりの頭。項目の見出し(labelStyle)より一段濃いだけで、
+// 新しい寸法・色は作らない(--fs-sm と --c-ink はどちらも既存のトークン)。
+const gearHeadingStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", fontWeight: 700 };
 const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHeight: 1.6 };
 const controlStyle = { width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)" };
 
@@ -233,15 +237,18 @@ function Field({ label, note, children }) {
 // 複数選べる選択肢の並び。A型(枠 = --c-line-strong)。
 // 選択中は「枠を透明にして地だけで塗る」= §6.7 の芯1(枠と違う地を同時に持たない)を守る書き方。
 // 見た目・寸法は App.jsx の拍のグループ選択ピルと同値(新しい値を作らない)。
-function PillGroup({ options, selected, onToggle, ariaPrefix }) {
+// labelOf: 保存する値と画面に出す文字が違うとき(楽器種別は値 "alto" / 表示 "Alto")に渡す。
+// 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成・練習場所)は書き換え不要。
+function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}>
       {options.map((opt) => {
         const on = selected.includes(opt);
+        const text = labelOf(opt);
         return (
           <button
             key={opt} type="button" onClick={() => onToggle(opt)}
-            aria-pressed={on} aria-label={`${ariaPrefix} ${opt}`}
+            aria-pressed={on} aria-label={`${ariaPrefix} ${text}`}
             className="sans no-select"
             style={{
               minHeight: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
@@ -254,7 +261,7 @@ function PillGroup({ options, selected, onToggle, ariaPrefix }) {
               border: on ? "1px solid transparent" : "1px solid var(--c-line-strong)",
               background: on ? "var(--c-accent)" : "transparent",
               color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
-            }}>{opt}</span>
+            }}>{text}</span>
           </button>
         );
       })}
@@ -369,18 +376,34 @@ function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPr
 // ------------------------------------------------------------------
 // 登録フォーム。自由入力はニックネームだけ。他はすべて選択。
 // ------------------------------------------------------------------
+// 保存されている機材1組(6キー)を、画面が持つ形(3つの選択)へ開く。
+const gearEntryToPicks = (g = {}) => ({
+  instrument: g.instrumentBrand ? { brand: g.instrumentBrand, model: g.instrumentModel ?? null } : null,
+  mouthpiece: g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null,
+  ligature: g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null,
+});
+const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null };
+
 function ProfileForm({ initial, onSubmit, onCancel }) {
-  const g = initial?.gear ?? {};
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
-  const [saxType, setSaxType] = useState(initial?.saxType ?? "");
   const [position, setPosition] = useState(initial?.position ?? "");
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
   const [ensembles, setEnsembles] = useState(initial?.ensembles ?? []);
   const [places, setPlaces] = useState(initial?.places ?? []);
-  const [instrument, setInstrument] = useState(g.instrumentBrand ? { brand: g.instrumentBrand, model: g.instrumentModel ?? null } : null);
-  const [mouthpiece, setMouthpiece] = useState(g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null);
-  const [ligature, setLigature] = useState(g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null);
+  // 【楽器種別と機材を2つの state に分けない】掛け持ちの奏者が居るので楽器種別は複数だが、
+  // 「選んだ種別」と「その機材」を別々の state に持つと、両方を1つの操作で更新するときに
+  // 片方が古い値を読んで**キー集合がずれる**(gear.keys() ≠ saxTypes → 保存が弾かれる)。
+  // そこで持つのは機材の側だけにして、**選んだ種別はそのキーから導く**。
+  // 集合の一致が構造的に崩せなくなり、「外したら機材も捨てる」も delete 1つで済む。
+  const [gearPicks, setGearPicks] = useState(() => {
+    const src = initial?.gear ?? {};
+    const out = {};
+    for (const t of SAX_TYPES) if ((initial?.saxTypes ?? []).includes(t)) out[t] = gearEntryToPicks(src[t]);
+    return out;
+  });
+  // 値は SAX_TYPES の並び順(保存されている順に依らず、画面も doc も同じ並びになる)。
+  const saxTypes = SAX_TYPES.filter((t) => Object.prototype.hasOwnProperty.call(gearPicks, t));
   const [ageConfirmed, setAgeConfirmed] = useState(initial?.ageConfirmed === true);
   // 【モジュール直下で作らない】このアプリは PWA として何日も開きっぱなしになりうる。
   // 読み込み時に一度だけ年の一覧を作ると年をまたいだとき新年が選べない。フォームを開くたびに作る。
@@ -389,6 +412,18 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   const [busy, setBusy] = useState(false);
 
   const toggle = (list, setList) => (v) => setList(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
+  // 【外したら機材の入力状態も捨てる】キーを消すことが「種別を外す」ことそのものなので、
+  // 入力状態が取り残される経路が無い(残ると gear のキーが saxTypes より多くなり、
+  // buildProfileDoc と Firestore ルールの「完全一致」に弾かれて保存できなくなる。
+  // しかも弾かれる理由が画面に出ていない機材なので、利用者からは直しようがない)。
+  const toggleSaxType = (t) => {
+    setGearPicks((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, t)) { const next = { ...prev }; delete next[t]; return next; }
+      return { ...prev, [t]: EMPTY_PICKS };
+    });
+  };
+  const setPick = (t, slot, v) => setGearPicks((prev) => ({ ...prev, [t]: { ...(prev[t] ?? EMPTY_PICKS), [slot]: v } }));
 
   const submit = async () => {
     if (busy) return;
@@ -400,7 +435,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     try {
       const msg = await onSubmit({
         nickname,
-        saxType,
+        saxTypes,
         position,
         startYear,
         genres,
@@ -410,14 +445,18 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         // 【編集のときに公開設定を巻き戻さない】buildProfileDoc の既定は「公開」なので、
         // 非公開にしていた人が編集しただけで公開に戻ってしまう。元の値を持ち回す。
         isPublic: initial ? initial.isPublic !== false : true,
-        gear: {
-          instrumentBrand: instrument?.brand ?? null,
-          instrumentModel: instrument?.model ?? null,
-          mpBrand: mouthpiece?.brand ?? null,
-          mpModel: mouthpiece?.model ?? null,
-          ligBrand: ligature?.brand ?? null,
-          ligModel: ligature?.model ?? null,
-        },
+        // gear のキーは saxTypes からしか作らない。gearPicks に取り残しがあっても混ざらない。
+        gear: Object.fromEntries(saxTypes.map((t) => {
+          const p = gearPicks[t] ?? EMPTY_PICKS;
+          return [t, {
+            instrumentBrand: p.instrument?.brand ?? null,
+            instrumentModel: p.instrument?.model ?? null,
+            mpBrand: p.mouthpiece?.brand ?? null,
+            mpModel: p.mouthpiece?.model ?? null,
+            ligBrand: p.ligature?.brand ?? null,
+            ligModel: p.ligature?.model ?? null,
+          }];
+        })),
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
       setError(msg);
@@ -441,51 +480,50 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         />
       </Field>
 
-      <Field label="楽器種別">
-        <select
-          value={saxType} aria-label="楽器種別"
-          onChange={(e) => {
-            setSaxType(e.target.value);
-            // 種別が変わるとカタログの範囲も変わる(アルトの YAS-62 はテナーには無い)。
-            // 選び直させないと保存の瞬間に「楽器がカタログにありません」で弾かれる。
-            setInstrument(null);
-          }}
-          className="sans" style={controlStyle}
-        >
-          <option value="">選んでください</option>
-          {SAX_TYPES.map((t) => <option key={t} value={t}>{SAX_LABELS[t]}</option>)}
-        </select>
+      <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください。機材は選んだ楽器ごとに登録します">
+        <PillGroup
+          options={SAX_TYPES} selected={saxTypes} onToggle={toggleSaxType}
+          ariaPrefix="楽器種別" labelOf={(t) => SAX_LABELS[t]}
+        />
       </Field>
 
-      <GearPicker
-        label="楽器" ariaPrefix="楽器"
-        /* 【「選ばなければその他」とは書かない】未選択(null)と「その他」は別の値として
-           保存されるようになった(profile.js / gear.js)。ここで嘘の案内をすると、
-           自分では何も選んでいない人が「その他を選んだ」と思い込む。 */
-        note={saxType
-          ? "型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
-          : "カタログは楽器種別ごとに分かれています。先に楽器種別を選んでください"}
-        value={instrument} onPick={setInstrument}
-        disabled={!saxType}
-        runSearch={(q) => searchInstrumentModels(q, saxType)}
-        placeholder={saxType ? "例: YAS-62 / ヤマハ" : "先に楽器種別を選んでください"}
-      />
+      {saxTypes.length === 0 ? (
+        // カタログは楽器種別ごとに分かれているので、種別が決まるまで楽器は引けない。
+        // 引けない検索欄を出すより、何をすれば出るかだけを言う。
+        <div className="sans" style={noteStyle}>楽器種別を選ぶと、機材の欄が種別ごとに出ます</div>
+      ) : null}
 
-      <GearPicker
-        label="マウスピース" ariaPrefix="マウスピース"
-        note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
-        value={mouthpiece} onPick={setMouthpiece}
-        runSearch={(q) => searchMouthpieces(q)}
-        placeholder="例: S80 C* / メイヤー"
-      />
-
-      <GearPicker
-        label="リガチャー" ariaPrefix="リガチャー"
-        note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
-        value={ligature} onPick={setLigature}
-        runSearch={(q) => searchLigatures(q)}
-        placeholder="例: Dark / ロブナー"
-      />
+      {saxTypes.map((t) => (
+        <div key={t} style={{ display: "grid", gap: "var(--sp-4)" }}>
+          <div className="sans jp-label" style={gearHeadingStyle}>{SAX_LABELS[t]} の機材</div>
+          <GearPicker
+            label="楽器" ariaPrefix={`${SAX_LABELS[t]}の楽器`}
+            /* 【「選ばなければその他」とは書かない】未選択(null)と「その他」は別の値として
+               保存される(profile.js / gear.js)。ここで嘘の案内をすると、
+               自分では何も選んでいない人が「その他を選んだ」と思い込む。 */
+            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+            value={gearPicks[t]?.instrument ?? null} onPick={(v) => setPick(t, "instrument", v)}
+            /* カタログは種別ごとに分かれている(アルトの YAS-62 はテナーには無い)ので、
+               この欄の種別をそのまま渡す。渡し違えると保存の瞬間に弾かれる。 */
+            runSearch={(q) => searchInstrumentModels(q, t)}
+            placeholder="例: YAS-62 / ヤマハ"
+          />
+          <GearPicker
+            label="マウスピース" ariaPrefix={`${SAX_LABELS[t]}のマウスピース`}
+            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+            value={gearPicks[t]?.mouthpiece ?? null} onPick={(v) => setPick(t, "mouthpiece", v)}
+            runSearch={(q) => searchMouthpieces(q)}
+            placeholder="例: S80 C* / メイヤー"
+          />
+          <GearPicker
+            label="リガチャー" ariaPrefix={`${SAX_LABELS[t]}のリガチャー`}
+            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+            value={gearPicks[t]?.ligature ?? null} onPick={(v) => setPick(t, "ligature", v)}
+            runSearch={(q) => searchLigatures(q)}
+            placeholder="例: Dark / ロブナー"
+          />
+        </div>
+      ))}
 
       <Field label="属性">
         <select value={position} onChange={(e) => setPosition(e.target.value)} aria-label="属性" className="sans" style={controlStyle}>
@@ -547,6 +585,8 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const gear = profile?.gear ?? {};
+  // 表示順は SAX_TYPES の並びに揃える(保存されている配列の順に依らず同じ画面になる)。
+  const types = SAX_TYPES.filter((t) => (profile?.saxTypes ?? []).includes(t));
   const isPublic = profile?.isPublic !== false;
 
   const togglePublic = async (v) => {
@@ -584,10 +624,20 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
 
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
-        <Row label="楽器種別" value={SAX_LABELS[profile?.saxType] ?? "—"} />
-        <Row label="楽器" value={gearLabel({ brand: gear.instrumentBrand, model: gear.instrumentModel })} />
-        <Row label="マウスピース" value={gearLabel({ brand: gear.mpBrand, model: gear.mpModel })} />
-        <Row label="リガチャー" value={gearLabel({ brand: gear.ligBrand, model: gear.ligModel })} />
+        <Row label="楽器種別" value={types.length > 0 ? types.map((t) => SAX_LABELS[t]).join("・") : "—"} />
+        {/* 機材は楽器種別ごとに1組。どの楽器の機材かが分からないと読めないので、
+            種別の見出しを挟んでから3行を出す。 */}
+        {types.map((t) => {
+          const g = gear[t] ?? {};
+          return (
+            <React.Fragment key={t}>
+              <div className="sans jp-label" style={{ ...gearHeadingStyle, padding: "var(--sp-3) 0 var(--sp-1)" }}>{SAX_LABELS[t]}</div>
+              <Row label="楽器" value={gearLabel({ brand: g.instrumentBrand, model: g.instrumentModel })} />
+              <Row label="マウスピース" value={gearLabel({ brand: g.mpBrand, model: g.mpModel })} />
+              <Row label="リガチャー" value={gearLabel({ brand: g.ligBrand, model: g.ligModel })} />
+            </React.Fragment>
+          );
+        })}
         <Row label="属性" value={profile?.position ?? "—"} />
         <Row label="演奏開始年" value={profile?.startYear ? `${profile.startYear}年` : "—"} />
         <Row label="ジャンル" value={listOrDash(profile?.genres)} />

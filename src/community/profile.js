@@ -10,6 +10,9 @@ import { isValidInstrument, isValidMouthpiece, isValidLigature } from "./catalog
 // **ここを足し引きしたら firestore.rules の該当行も必ず直すこと**(逆も同じ)。
 // 食い違いは profile.test.js の「Firestore ルールの列挙と一致する」が検出する。
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
+// 画面に出す表示名。CommunityTab.jsx にも同じ地図があったが、機材の照合エラーが
+// 「どの楽器の話か」を言えないと直しようがないので、こちら(判断を持つ側)へ移して1つにした。
+export const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
 export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
@@ -52,41 +55,81 @@ export function detectDeviceClass(ua = (typeof navigator !== "undefined" ? navig
 
 const pickAllowed = (arr, allowed) => (Array.isArray(arr) ? arr.filter((v) => allowed.includes(v)) : []);
 
+// 【機材は楽器種別ごとに1組】サックス奏者は soprano / alto / tenor / baritone を
+// 掛け持ちすることがあり、持ち替えれば楽器もマウスピースもリガチャーも別物になる。
+// 同じ種別を2本持つ人は稀なので、1種別につき1組だけ持つ。
+//
+// 【gear のキー集合は saxTypes と完全に一致させる】多くても少なくてもエラーにする。
+//   ・多い(持っていない楽器の機材が入っている) … 集計(計画4の機材シェア)の母数が壊れる。
+//     「テナーを吹かない人のテナーのマウスピース」が票として数えられてしまう。
+//   ・少ない(選んだ楽器の欄が無い)             … 画面側の取りこぼし(チェックを入れたのに
+//     入力状態を作り忘れた等)を、保存が成立してから気付くことになる。
+// Firestore ルール側も hasOnly + hasAll で同じ完全一致を要求している。片側だけ緩めない。
+
 export function buildProfileDoc(input, now = new Date()) {
   const nick = validateNickname(input.nickname);
   if (nick.error) return { error: nick.error };
-  if (!SAX_TYPES.includes(input.saxType)) return { error: "楽器種別を選んでください" };
+
+  const types = input.saxTypes;
+  if (!Array.isArray(types) || types.length === 0) return { error: "楽器種別を選んでください" };
+  if (types.length > SAX_TYPES.length) return { error: "楽器種別は4つまでです" };
+  if (!types.every((t) => SAX_TYPES.includes(t))) return { error: "楽器種別を選んでください" };
+  // 重複を通すと「saxTypes の要素数」と「gear のキー数」が食い違ったまま
+  // hasOnly/hasAll(集合の検査)は通ってしまう。数の一致で完全一致を言えるようにここで潰す。
+  if (new Set(types).size !== types.length) return { error: "楽器種別が重複しています" };
+
   if (!POSITIONS.includes(input.position)) return { error: "属性を選んでください" };
   const year = Number(input.startYear);
   if (!Number.isInteger(year) || year < now.getFullYear() - 80 || year > now.getFullYear()) {
     return { error: "演奏開始年が正しくありません" };
   }
   if (input.ageConfirmed !== true) return { error: "13歳以上であることの確認が必要です" };
-  const g = input.gear ?? {};
-  // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と、「カタログに無い(その他)」を
-  // 自分で選んだ人(OTHER_BRAND)は別の情報である。ここで ?? OTHER_BRAND に潰すと、
-  // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
-  // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
-  // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
-  const instBrand = g.instrumentBrand ?? null;
-  const instModel = g.instrumentModel ?? null;
-  const mpBrand = g.mpBrand ?? null;
-  const mpModel = g.mpModel ?? null;
-  const ligBrand = g.ligBrand ?? null;
-  const ligModel = g.ligModel ?? null;
-  if (!isValidInstrument(instBrand, instModel, input.saxType)) return { error: "楽器がカタログにありません" };
-  if (!isValidMouthpiece(mpBrand, mpModel)) return { error: "マウスピースがカタログにありません" };
-  if (!isValidLigature(ligBrand, ligModel)) return { error: "リガチャーがカタログにありません" };
+
+  const gearIn = input.gear;
+  if (gearIn === null || typeof gearIn !== "object" || Array.isArray(gearIn)) {
+    return { error: "機材の指定が正しくありません" };
+  }
+  const gearKeys = Object.keys(gearIn);
+  if (gearKeys.length !== types.length || !types.every((t) => gearKeys.includes(t))) {
+    return { error: "選んだ楽器種別と機材の欄が一致していません" };
+  }
+
+  const gear = {};
+  for (const t of types) {
+    const g = gearIn[t];
+    if (g === null || typeof g !== "object" || Array.isArray(g)) {
+      return { error: `${SAX_LABELS[t]}の機材の指定が正しくありません` };
+    }
+    // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と、「カタログに無い(その他)」を
+    // 自分で選んだ人(OTHER_BRAND)は別の情報である。ここで ?? OTHER_BRAND に潰すと、
+    // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
+    // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
+    // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
+    const instBrand = g.instrumentBrand ?? null;
+    const instModel = g.instrumentModel ?? null;
+    const mpBrand = g.mpBrand ?? null;
+    const mpModel = g.mpModel ?? null;
+    const ligBrand = g.ligBrand ?? null;
+    const ligModel = g.ligModel ?? null;
+    // 【楽器だけは種別ごとに照合する】カタログは種別で分かれていて、アルトの YAS-62 は
+    // テナーには無い。第3引数にそのキーの種別を渡さないと、種別違いの型番が通ってしまう。
+    // マウスピースとリガチャーは種別を持たないカタログなので今までどおり2引数。
+    if (!isValidInstrument(instBrand, instModel, t)) return { error: `${SAX_LABELS[t]}の楽器がカタログにありません` };
+    if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
+    if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
+    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel };
+  }
+
   return {
     doc: {
       nickname: nick.value,
-      saxType: input.saxType,
+      saxTypes: [...types],
       position: input.position,
       startYear: year,
       genres: pickAllowed(input.genres, GENRES),
       ensembles: pickAllowed(input.ensembles, ENSEMBLES),
       places: pickAllowed(input.places, PLACES),
-      gear: { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel },
+      gear,
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
       ageConfirmed: true,
