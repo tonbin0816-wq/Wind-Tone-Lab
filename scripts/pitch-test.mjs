@@ -5,7 +5,21 @@
 //   2. 正しい音名が表示されるか(全サックス種別×全音×基準Hz438-444で記音ラベル一致)
 //   3. これまでの音(グラフ)にも同じ値が反映されるか(メーター¢とグラフ¢の完全一致)
 // 使い方: node scripts/pitch-test.mjs
-import { readFileSync } from "fs";
+import { readFileSync as _readFileSyncRaw } from "fs";
+
+// 【改行コードの正規化 2026-09-02】
+// この検査は App.jsx などをテキストとして読み、"\n}\n" のような目印で関数の範囲を
+// 切り出している。作業ツリーのファイルが CRLF だと目印が見つからず、切り出しが空になって
+// 検査が黙って素通りする(実測でデータタブ関連の14件が落ちていた。落ちるならまだよいが、
+// 条件しだいでは通ってしまう危険もある)。
+//
+// リポジトリ内(blob)は LF で、core.autocrlf=input なのでコミット時も LF に戻る。
+// だが作業ツリーのファイルは、編集に使った道具しだいで CRLF になりうる。
+// 読み込み側で1回だけ潰し、検査の中身を改行コードに依存させない。
+const readFileSync = (p, enc) => {
+  const s = _readFileSyncRaw(p, enc);
+  return typeof s === "string" ? s.replace(/\r\n/g, "\n") : s;
+};
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 // 【D-24a】makeup(振幅の戻し)の根拠を出す計算。**記録の数値を出すのと同じ1つの実装**を
