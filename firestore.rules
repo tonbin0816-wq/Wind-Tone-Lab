@@ -14,8 +14,10 @@ service cloud.firestore {
         // 1コードポイント最大4バイトなので 80 が厳密な最悪値の上界になる
         && request.resource.data.nickname.size() <= 80
         // 【楽器種別は複数】掛け持ちの奏者が居るので配列。1つ以上4つ以下、選択肢はこの4つだけ。
-        // 上限4は「同じ種別を2本持つ人は稀なので1種別1組」という決めから来ている
-        // (種別が4つしか無いので、5要素以上は必ず重複を含む)。
+        // 上限4は「同じ種別を2本持つ人は稀なので1種別1組」という決めから来ている。
+        // 【上限4は重複の検査ではない】種別は4つしか無いので5要素以上なら必ず重複を含むが、
+        // 逆は言えない。["alto","alto"] は2要素なのでこの上限を素通りする。
+        // 重複を実際に弾いているのは下の gear の要素数一致(「gear のキー数と一致」の行)。
         && request.resource.data.saxTypes is list
         && request.resource.data.saxTypes.size() >= 1
         && request.resource.data.saxTypes.size() <= 4
@@ -47,6 +49,13 @@ service cloud.firestore {
         && request.resource.data.gear is map
         && request.resource.data.gear.keys().hasOnly(request.resource.data.saxTypes)
         && request.resource.data.gear.keys().hasAll(request.resource.data.saxTypes)
+        // 【この1行が saxTypes の重複を弾く】hasOnly / hasAll は**集合**の検査なので、
+        // 重複した要素は集合に畳まれて素通りする。saxTypes: ['alto','alto'] と
+        // gear: {alto:{...}} は、集合としてはどちらも {alto} なので上の2行を両方通る。
+        // 要素数を突き合わせれば落ちる: saxTypes は2要素だが gear のキーは1つしかない。
+        // クライアント側(src/community/profile.js の buildProfileDoc)も同じ理由で重複を弾く。
+        // 片側だけ緩めない。
+        && request.resource.data.saxTypes.size() == request.resource.data.gear.keys().size()
         // 中身の検査。ルールにループが無いので4種別ぶん明示的に書く。
         // 形は「そのキーが在るなら中身を検査する」= 在らなければ真(存在の要否は上の
         // hasOnly/hasAll が決めており、ここは重ねて言わない)。

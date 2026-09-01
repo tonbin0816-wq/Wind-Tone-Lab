@@ -50,6 +50,60 @@ describe("validateNickname", () => {
     const nick = "太郎👨‍👩‍👧";
     expect(validateNickname(nick)).toEqual({ value: nick });
   });
+  // 【見えない名前は通報も同定もできない】設計書 §8.1 のモデレーション設計は
+  // 「自由入力はニックネーム1つだけ → 通報の対象もそれだけ → だから自動で非公開にできる」を
+  // 土台にしている。完全に見えないニックネームが登録できると、この土台が崩れる。
+  // 【1件ずつ独立の it にする】1つの it に7件並べると最初の1件で落ちた時点で
+  // 残りが評価されず、どの文字が素通りしているのか分からなくなる。
+  describe("不可視文字だけのニックネームを弾く", () => {
+    it("点字空白(U+2800)だけを弾く", () => {
+      expect(validateNickname("\u2800".repeat(3))).toHaveProperty("error");
+    });
+    it("ハングルフィラー(U+3164)だけを弾く", () => {
+      expect(validateNickname("\u3164".repeat(3))).toHaveProperty("error");
+    });
+    it("初声フィラー(U+115F)だけを弾く", () => {
+      expect(validateNickname("\u115F".repeat(3))).toHaveProperty("error");
+    });
+    it("モンゴル母音区切り(U+180E)だけを弾く", () => {
+      expect(validateNickname("\u180E".repeat(3))).toHaveProperty("error");
+    });
+    it("ZWJ(U+200D)だけを弾く", () => {
+      expect(validateNickname("\u200D".repeat(3))).toHaveProperty("error");
+    });
+    it("異体字セレクタ(U+FE0F)だけを弾く", () => {
+      expect(validateNickname("\uFE0F".repeat(3))).toHaveProperty("error");
+    });
+    it("結合文字(U+0301)だけを弾く", () => {
+      expect(validateNickname("\u0301".repeat(3))).toHaveProperty("error");
+    });
+    it("中声フィラー(U+1160)と半角ハングルフィラー(U+FFA0)も弾く", () => {
+      // U+3164 / U+FFA0 は NFKC で U+1160 に畳まれる。畳まれた先も可視に数えないこと。
+      expect(validateNickname("\u1160".repeat(3))).toHaveProperty("error");
+      expect(validateNickname("\uFFA0".repeat(3))).toHaveProperty("error");
+    });
+  });
+
+  // 上の検査で絵文字を巻き添えにしていないこと。絵文字本体は p{S} なので可視に数える。
+  describe("可視の文字が1つでもあれば受理する", () => {
+    it("かなと漢字だけの名前は受理する", () => {
+      expect(validateNickname("さっくす太郎")).toEqual({ value: "さっくす太郎" });
+    });
+    it("英数字だけの名前は受理する", () => {
+      expect(validateNickname("AltoLove442")).toEqual({ value: "AltoLove442" });
+    });
+    it("ZWJ 絵文字を含む名前は受理する", () => {
+      const nick = "太郎\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67";
+      expect(validateNickname(nick)).toEqual({ value: nick });
+    });
+    it("絵文字だけの名前は受理する", () => {
+      const nick = "\uD83C\uDFB7"; // 🎷
+      expect(validateNickname(nick)).toEqual({ value: nick });
+    });
+    it("不可視文字に可視の文字が1つ混じれば受理する", () => {
+      expect(validateNickname("\u2800A\u2800")).toEqual({ value: "\u2800A\u2800" });
+    });
+  });
   it("20コードポイントちょうどは受理する(サロゲートペア境界)", () => {
     const nick = "あ".repeat(19) + "😀"; // 19 + 1(絵文字はサロゲートペアだが1コードポイント) = 20
     expect([...nick].length).toBe(20);
@@ -336,6 +390,14 @@ describe("firestore.rules との同期", () => {
     expect(rules).toContain("request.resource.data.gear is map");
     expect(rules).toContain("request.resource.data.gear.keys().hasOnly(request.resource.data.saxTypes)");
     expect(rules).toContain("request.resource.data.gear.keys().hasAll(request.resource.data.saxTypes)");
+  });
+  it("saxTypes と gear のキーの要素数一致をルールが要求している(重複よけ)", () => {
+    // hasOnly / hasAll は集合の検査なので、saxTypes: ['alto','alto'] + gear: {alto:{}} は
+    // どちらも集合 {alto} になって素通りする。要素数の突き合わせだけが重複を落とす。
+    // クライアント側の不変条件(「同じ種別を2回選ぶと弾く」)と対になる行。
+    expect(rules).toContain(
+      "request.resource.data.saxTypes.size() == request.resource.data.gear.keys().size()"
+    );
   });
   it("4種別それぞれについて、機材の6キーと string-or-null の型検査がある", () => {
     for (const type of SAX_TYPES) {

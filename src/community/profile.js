@@ -37,11 +37,35 @@ export function startYearOptions(now = new Date()) {
 //   - U+FEFF (ゼロ幅ノーブレークスペース / BOM)
 const FORBIDDEN_CHARS = /\p{Cc}|[\u200B\u200C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/u;
 
+// 【拒否リストだけでは「完全に見えない名前」を止められない】上の拒否リストは
+// 「偽装に使える文字を列挙して弾く」形なので、列挙から漏れた不可視文字を並べただけの
+// ニックネーム(点字空白・ハングルフィラー・ZWJ だけ・結合文字だけ 等)が登録できてしまう。
+// 見えない名前は通報も同定もできないので、設計書 §8.1 のモデレーション設計
+// (「自由入力はニックネーム1つだけ → だから通報で自動的に非公開にできる」)が土台から崩れる。
+// そこで拒否リストは残したまま、**可視の文字が最低1つ含まれること**を別途要求する。
+// 判定は NFKC 正規化した後の文字列に対して行う(互換分解を持つ文字を分解後の姿で1度に扱う)。
+const VISIBLE_CATEGORY = /[\p{L}\p{N}\p{P}\p{S}]/u;
+// 【カテゴリ上は可視だが実際には何も描かれない文字】2026-08-30 実測。
+// VISIBLE_CATEGORY だけでは次の3つが「可視」として素通りする:
+//   U+2800 点字空白             … So(記号)なので \p{S} に当たる
+//   U+115F ハングル初声フィラー … Lo(文字)なので \p{L} に当たる
+//   U+1160 ハングル中声フィラー … 同上。U+3164(ハングルフィラー)と U+FFA0(半角ハングル
+//                                フィラー)は NFKC でここへ畳まれる
+// いずれも幅を持たない/空白として描かれるので、可視の数に入れない。
+// (U+3164 / U+FFA0 は NFKC 後には現れないが、綴りで分かるよう併記しておく。)
+const BLANK_LOOKING = /[\u115F\u1160\u2800\u3164\uFFA0]/u;
+
+function hasVisibleChar(value) {
+  return [...value.normalize("NFKC")].some((ch) => VISIBLE_CATEGORY.test(ch) && !BLANK_LOOKING.test(ch));
+}
+
 export function validateNickname(raw) {
   const value = String(raw ?? "").trim();
   if (value.length === 0) return { error: "ニックネームを入力してください" };
   if ([...value].length > 20) return { error: "ニックネームは20文字までです" };
   if (FORBIDDEN_CHARS.test(value)) return { error: "使えない文字が含まれています" };
+  // 絵文字本体は \p{S} なのでここを通る(ZWJ と異体字セレクタを許した上の判断は壊さない)。
+  if (!hasVisibleChar(value)) return { error: "表示される文字を1文字以上入れてください" };
   const ng = findNgWord(value);
   if (ng) return { error: "このニックネームは使用できません" };
   return { value };
