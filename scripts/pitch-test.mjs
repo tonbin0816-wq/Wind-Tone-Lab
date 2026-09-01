@@ -6602,17 +6602,21 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     (src.match(/<ReedsTab/g) || []).length === 1, `${(src.match(/<ReedsTab/g) || []).length}箇所`);
   // トークンで数える。`className="surf-rule wrap"` と書いても数から漏れない。
   {
-    // 【D-10 2026/08/26】作法を名乗る根は **5つ**になった:
+    // 【2026-09-02】コミュニティタブが加わり作法を名乗る根は **6つ** になった。
+    //   カードの根 = My Data / 分析 の1枚 + コミュニティの1枚。根拠は
+    //   design/DESIGN-SYSTEM-community-addendum.md の 2026/08/28 本人裁定
+    //   (範囲はコミュニティタブの全画面 / §6.6 の表に「コミュニティ = カード」を追記)。
+    // 【D-10 2026/08/26】それ以前は5つだった:
     //   罫(.surf-rule) … 計測 / リード / セッション詳細 / すべてのセッションの4つ
     //   カード(.surf-card) … My Data / 分析の1つ(2つの子タブを同じ根が包む)
     // データタブだけが画面ごとに分かれるので、タブの数とは一致しない。
     const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length
       + tagsWithClass("surf-card").length;
-    check("D-10: 作法を名乗る根は5箇所(罫4 + カード1)", roots === 5, `${roots}箇所`);
+    check("D-10: 作法を名乗る根は6箇所(罫4 + カード2)", roots === 6, `${roots}箇所`);
     check("D-10: 罫の根は4箇所(計測 / リード / セッション詳細 / すべてのセッション)",
       tagsWithClass("surf-rule").length === 4, `${tagsWithClass("surf-rule").length}箇所`);
-    check("D-10: カードの根は1箇所だけ(My Data / 分析を包む1枚)",
-      tagsWithClass("surf-card").length === 1, `${tagsWithClass("surf-card").length}箇所`);
+    check("D-10: カードの根は2箇所(My Data / 分析の1枚 + コミュニティの1枚)",
+      tagsWithClass("surf-card").length === 2, `${tagsWithClass("surf-card").length}箇所`);
   }
 
   // --- 6. .card / .tile にインラインで見た目を書いていないこと ----------

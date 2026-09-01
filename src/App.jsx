@@ -1,9 +1,56 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
 // 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity } from "lucide-react";
+
+// コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
+// firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
+const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
+
+// コミュニティタブの読み込み中/読み込み失敗の見た目。CommunityTab 内部の Centered と
+// 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
+const communityFallbackStyle = {
+  padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)",
+  fontSize: "var(--fs-sm)", lineHeight: 1.7,
+};
+
+// 【アプリ全体の白画面を防ぐための境界】
+// 遅延読み込みの chunk は、再デプロイ後に古いタブが開いたままだとハッシュごと消えていて
+// import() が reject する。React の既定の挙動は「ルートまで巻き戻す」なので、境界が無いと
+// **開いてすらいないタブのせいで、計測タブで録音中の人がアプリごと画面を失う**。
+// 設計書 §10 の「既存タブには手を触れない」を守るには、ここで必ず受け止める必要がある。
+class CommunityErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="sans" style={communityFallbackStyle}>
+        <div>コミュニティを読み込めませんでした。アプリを更新すると直ることがあります。</div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="sans"
+          style={{
+            marginTop: "var(--sp-4)", minHeight: "var(--tap-min)", padding: "0 var(--sp-5)",
+            borderRadius: "var(--r-pill)", border: "none",
+            background: "var(--c-sunken)", color: "var(--c-ink-2)",
+            fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          再読み込み
+        </button>
+      </div>
+    );
+  }
+}
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
 // あればそこはスワイプでスクロールしたい領域なので、タブ切替スワイプの発火を避ける。
@@ -4091,6 +4138,29 @@ export default function WindToneLabPhaseMode() {
           uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
         />
       )}
+      {topTab === "community" && (
+        /* 【カードの作法(.surf-card)】
+           design/DESIGN-SYSTEM-community-addendum.md の
+           「2026/08/28 本人裁定: コミュニティタブへ広げた。範囲はコミュニティタブの全画面」
+           および §6.6 の表の追記行「| コミュニティ(全画面) | カード | .surf-card |」で、
+           このタブの作法は**カード**に確定しており、2026-09-02 のマージでそのとおりにした。
+           罫(.surf-rule)へ戻さないこと。
+           下端の逃げ(下部固定ナビのぶん)は .app-root の padding-bottom:
+           var(--page-bottom-gap) が既に持っているので、ここでは足さない。
+           ページはドキュメントごと縦に伸びて縦スクロールするため、
+           長いフォームの末尾(保存するボタン)もナビの下に隠れない。
+           【data-noswipe は不要】上部タブの切替はスワイプではなく BottomNav の
+           タップだけ(setTopTab の呼び手は handleNavTap とリードの「測定」導線の2つ)。
+           SwipePager / SwipeBackArea はリード/データタブの**中**で使われており、
+           このタブはどちらの子孫でもない。 */
+        <div className="surf-card">
+        <CommunityErrorBoundary>
+          <Suspense fallback={<div className="sans" style={communityFallbackStyle}>読み込み中…</div>}>
+            <CommunityTab />
+          </Suspense>
+        </CommunityErrorBoundary>
+        </div>
+      )}
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
@@ -4137,6 +4207,18 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       icon: (c) => (
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
           <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
+        </svg>
+      ),
+    },
+    {
+      // 人が2人並ぶピクトグラム(手前の1人が大きく、奥にもう1人)。
+      key: "community", label: "コミュニティ",
+      icon: (c) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="8" r="3.2" />
+          <path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20" />
+          <circle cx="17" cy="9" r="2.4" />
+          <path d="M15.5 13.6 Q20.5 13.6 20.5 18" />
         </svg>
       ),
     },
