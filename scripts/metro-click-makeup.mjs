@@ -1,28 +1,33 @@
-// メトロノームのクリック音4種の **ピークとエネルギー** を計算で出す。
+// メトロノームのクリック音の **ピークとエネルギー** を計算で出す。
+// 【D-25】音は木の1種だけになったので、比べる相手は **変更前の木(5ab5206)** になった。
 //
 // なぜ要るか(D-24a 指摘6):
-//   D-24 の完了記録は makeup(振幅の戻し)の根拠として 8 個の数値を載せているが、
-//   「Node で RBJ 係数を再現して計算した」とあるだけで**スクリプトが残っていなかった**。
-//   次に触る人がその 8 個を検証も更新もできない(罠7: 測っていない数値を書かない)。
+//   makeup(振幅の戻し)の根拠として記録に数値を載せるなら、次に触る人がその数値を
+//   **検証も更新もできる**形で残しておかなければならない(罠7: 測っていない数値を書かない)。
 //
-// この計算の入力は **src/App.jsx だけ**。
-//   ・METRO_CLICK_SPECS / METRO_CLICK_VOL / getMetroClickBuffer / scheduleMetroClick /
-//     scheduleMetroClickAlt をソースから取り出してそのまま動かす
+// この計算の入力は **src/App.jsx と scripts/metro-click-before.mjs だけ**。
+//   ・METRO_CLICK_SPEC / METRO_CLICK_VOL / getMetroClickBuffer / getMetroMasterInput /
+//     scheduleMetroClick をソースから取り出してそのまま動かす
 //   ・値をここへ書き写さない(罠3: 実装と同じ式を書き直した検算は恒真になる)
 //   ・実装が実際に組み立てた graph(何を作り・どの値を設定し・どこへ繋いだか)を
 //     読んで、その通りにオフラインで信号を作る
+//   ・**変更前の木**は scripts/metro-click-before.mjs(5ab5206 からの逐語の標本)を駆動する
 //
 // 何を測っているか / 測っていないか:
 //   ・測っているのは **マスターチェーンに入る直前**の1回ぶんの波形。
-//     リミッター(閾値-3dB・比20)と masterGain 2.6 は通していない(仕様 §1.5 で触らない所)。
+//     リミッター(閾値-3dB・比20)と masterGain 2.6 は通していない(D-24 仕様 §1.5 で触らない所)。
 //   ・**実機で聴いた音ではない。** 端末・出力ルート(受話口/スピーカー)で聴感は変わる。
-//   ・雑音の3種(現行・木・鋭い)は Math.random に依存するので、**種を固定した疑似乱数で
-//     多数回引いて平均**する(1回の引きでは ±数%ばらつく)。電子は正弦波なので決定的。
+//     **高くなったか・鋭くなったかは、この数値では判定できない**(本人が実機で聴いて決める)。
+//   ・雑音に依存するので、**種を固定した疑似乱数で多数回引いて平均**する
+//     (1回の引きでは ±数%ばらつく)。
 //
-// 使い方: node scripts/metro-click-makeup.mjs [--draws 1000]
+// 使い方:
+//   node scripts/metro-click-makeup.mjs [--draws 1000]
+//   node scripts/metro-click-makeup.mjs --solve   ← 変更前の木とピークがそろう makeup を求める
 import { readFileSync } from "fs";
 import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, join } from "path";
+import { scheduleBeforeWood, BEFORE_WOOD_SPEC } from "./metro-click-before.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -64,16 +69,15 @@ function extractConst(name) {
 }
 
 const api = new Function(`${[
-  extractConst("METRO_CLICK_SOUNDS"),
   extractConst("METRO_CLICK_VOL"),
-  extractConst("METRO_CLICK_SPECS"),
-  extractFunction("metroClickSoundId"),
+  extractConst("METRO_CLICK_SPEC"),
   extractFunction("getMetroClickBuffer"),
   extractFunction("getMetroMasterInput"),
-  extractFunction("scheduleMetroClickAlt"),
   extractFunction("scheduleMetroClick"),
 ].join("\n\n")}
-  return { METRO_CLICK_SOUNDS, METRO_CLICK_SPECS, scheduleMetroClick };`)();
+  return { METRO_CLICK_SPEC, METRO_CLICK_VOL, scheduleMetroClick };`)();
+
+export const METRO_CLICK_SPEC = api.METRO_CLICK_SPEC;
 
 // ---- 種を固定した疑似乱数(mulberry32)。同じ種なら必ず同じ列が出る ------------
 export function mulberry32(seed) {
@@ -92,7 +96,8 @@ export function mulberry32(seed) {
 function makeGraphCtx() {
   const nodes = [];
   const mk = (kind) => {
-    const nd = { kind, id: nodes.length, out: null, events: [], startAt: null, stopAt: null };
+    const nd = { kind, id: nodes.length, out: null, events: [], startAt: null, stopAt: null,
+      startOffset: null, startDuration: null, loop: false };
     // 【D-24d】本物は connect(undefined) で TypeError。作り物が黙って受けると、
     // 繋がっていない配線を持つ実装を「鳴る」と描いてしまう(罠19)。
     nd.connect = (dst) => { if (!dst) throw new TypeError("connect: 繋ぎ先が無い"); nd.out = dst; };
@@ -115,7 +120,15 @@ function makeGraphCtx() {
     },
     createBufferSource() {
       const nd = mk("source"); nd.buffer = null;
-      nd.start = (t) => { nd.startAt = t; };
+      // 【D-25】本物の AudioBufferSourceNode は start(when, offset, duration) を取り、
+      // loop = true なら stop() されるまで鳴り続ける。作り物が第2・第3引数と loop を
+      // 捨てていたので、`src.start(t, 0.055)`(ほぼ無音)も `src.loop = true`(鳴り止まない)も
+      // **満額の波形**として描いていた(罠19: 作り物が本物より甘い)。
+      nd.start = (t, offset, duration) => {
+        nd.startAt = t;
+        nd.startOffset = offset === undefined ? null : offset;
+        nd.startDuration = duration === undefined ? null : duration;
+      };
       nd.stop = (t) => { nd.stopAt = t; };
       return nd;
     },
@@ -206,29 +219,38 @@ function envelopeAt(events, t) {
 
 // ---- 組み上がった graph を1回ぶんの波形に描く --------------------------------
 // 鎖は 音源 → (フィルタ) → ゲイン → リミッター。**リミッターの手前まで**を返す。
-export function renderClick(id, kind, rand) {
+// schedule は (ctx, t, kind) を取る予約関数 ── 現行の実装でも、変更前の標本でもよい。
+export function renderWith(schedule, kind, rand) {
   const ctx = makeGraphCtx();
   const origRandom = Math.random;
   Math.random = rand;
-  try { api.scheduleMetroClick(ctx, 0, kind, id); } finally { Math.random = origRandom; }
+  try { schedule(ctx, 0, kind); } finally { Math.random = origRandom; }
 
   const source = ctx.nodes.find((n) => n.kind === "source" || n.kind === "osc");
-  if (!source) throw new Error(`${id}/${kind}: 音源が見つからない`);
+  if (!source) throw new Error(`${kind}: 音源が見つからない`);
   // 【D-24b】**start() されていない音源は1サンプルも鳴らない。**
   // ここを持たずに `source.buffer` を無条件で読み `(source.startAt || 0)` で 0 扱いすると、
-  // `src.start(t);` / `osc.start(t);` を消した(= その音が**完全に無音**になる)実装を
-  // **満額の波形**として描いてしまう。作り物のモデルが本物より甘いと、この波形を読む
-  // 検査(43.1 の makeup)が嘘をつく。長さ 0 の波形はピークもエネルギーも 0 になる。
+  // `src.start(t);` を消した(= **完全な無音**になる)実装を**満額の波形**として描いてしまう。
+  // 作り物のモデルが本物より甘いと、この波形を読む検査が嘘をつく。
   if (source.startAt === null) return new Float64Array(0);
-  // 音源が動いている長さ: stop() があればそこまで、無ければバッファの最後まで
-  const dur = source.stopAt !== null ? source.stopAt - source.startAt
-    : source.buffer.duration;
+  // 音源が動いている長さ: stop() があればそこまで、
+  // 【D-25】start の第3引数(duration)があればそこまで、無ければバッファの残り(offset のぶん短い)。
+  // loop = true は stop() が無ければ**永久に鳴り続ける**ので、ここでは描けない
+  //(呼び手が「窓に収まらない」と判定する)。
+  const bufDur = source.kind === "source" ? source.buffer.duration : Infinity;
+  const offset = source.startOffset || 0;
+  const natural = source.loop ? Infinity : Math.max(0, bufDur - offset);
+  const byDuration = source.startDuration === null ? Infinity : source.startDuration;
+  const byStop = source.stopAt === null ? Infinity : source.stopAt - source.startAt;
+  const dur = Math.min(natural, byDuration, byStop);
+  if (!Number.isFinite(dur)) throw new Error(`${kind}: 音源が止まらない(loop で stop が無い)`);
   const n = Math.round(dur * SAMPLE_RATE);
 
   let x = new Float64Array(n);
   if (source.kind === "source") {
     const d = source.buffer.getChannelData(0);
-    for (let i = 0; i < n; i++) x[i] = d[i] || 0;
+    const off = Math.round(offset * SAMPLE_RATE);
+    for (let i = 0; i < n; i++) x[i] = d[off + i] || 0;
   } else {
     for (let i = 0; i < n; i++) x[i] = Math.sin((2 * Math.PI * source.freq * i) / SAMPLE_RATE);
   }
@@ -245,69 +267,88 @@ export function renderClick(id, kind, rand) {
     node = node.out;
   }
   // 【D-24c】**鎖がマスター(comp)にも出力にも届かないなら、その音はどこへも出ない = 無音。**
-  // `gain.connect(getMetroMasterInput(ctx))` を消す / 向きを逆にする(= 3種が完全な無音)を
-  // 素通りさせていた。startAt の番人(上)を足したときに、**その隣の同じ型の甘さ**を見落とした。
   // 罠19: 作り物は「本物ができないことをできてはいけない」。繋がっていない音は鳴らない。
   if (!node) return new Float64Array(0);   // マスターに届かない鎖はどこへも出ない = 無音
   return x;
 }
 
+// いまの実装(木1種)の1回ぶん。
+export function renderClick(kind, rand) { return renderWith(api.scheduleMetroClick, kind, rand); }
+// 変更前の木(5ab5206)の1回ぶん。**同じ描き手**で描くので、差は音の作りの差だけになる。
+export function renderBefore(kind, rand) { return renderWith(scheduleBeforeWood, kind, rand); }
+
 export function peakOf(x) { let m = 0; for (const v of x) m = Math.max(m, Math.abs(v)); return m; }
 export function energyOf(x) { let s = 0; for (const v of x) s += v * v; return Math.sqrt(s / SAMPLE_RATE); }
 
-// ---- 実行(このファイルを直接動かしたときだけ。検査ハーネスからは renderClick を使う) -----------------------------------------------------------------
+// 種を固定して draws 回引いた平均。
+function meanOver(render, kind, draws) {
+  let p = 0, e = 0;
+  const peaks = [];
+  for (let i = 0; i < draws; i++) {
+    const x = render(kind, mulberry32(0x9e3779b9 + i));
+    const pk = peakOf(x);
+    peaks.push(pk); p += pk; e += energyOf(x);
+  }
+  const mean = p / draws;
+  const sd = draws < 2 ? 0
+    : Math.sqrt(peaks.reduce((s, v) => s + (v - mean) ** 2, 0) / draws);
+  return { peak: mean, peakSd: sd, energy: e / draws };
+}
 
-// 検査43.1 はこのファイルの renderClick を読み込んで makeup が効いていることを見る。
-// import しただけで表が出ないよう、報告は直接起動したときだけに閉じる。
+// ---- 実行(このファイルを直接動かしたときだけ。検査ハーネスからは renderClick を使う) -----------
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const ids = api.METRO_CLICK_SOUNDS.map((s) => s.id);
-  // 雑音を使う音だけ多数回引く。正弦波(電子)は決定的なので1回で足りる。
-  const usesNoise = (id) => {
-    const sp = api.METRO_CLICK_SPECS[id];
-    return !sp || sp.src === "noise"; // 現行(表に無い)は雑音
-  };
-
+  const pad = (s, w) => String(s).padEnd(w);
   console.log(`サンプリング周波数 ${SAMPLE_RATE}Hz / 雑音の引き直し ${DRAWS}回(種は固定)`);
   console.log("測っているのは **マスターチェーンに入る直前**の1回ぶん(リミッターと gain 2.6 は通していない)\n");
 
-  const rows = [];
-  for (const id of ids) {
-    const draws = usesNoise(id) ? DRAWS : 1;
-    const peaks = [], energies = [];
-    for (let k = 0; k < draws; k++) {
-      const x = renderClick(id, "accent", mulberry32(0x9e3779b9 + k));
-      peaks.push(peakOf(x));
-      energies.push(energyOf(x));
-    }
-    const mean = (a) => a.reduce((p, c) => p + c, 0) / a.length;
-    const sd = (a) => {
-      if (a.length < 2) return 0;
-      const m = mean(a);
-      return Math.sqrt(a.reduce((p, c) => p + (c - m) ** 2, 0) / a.length);
+  const before = meanOver(renderBefore, "accent", DRAWS);
+  const now = meanOver(renderClick, "accent", DRAWS);
+
+  if (process.argv.includes("--solve")) {
+    // 【罠3 を避ける】makeup を「式で言い換えた値」にせず、**実際に鳴らして探す**。
+    //
+    // ピークは makeup にほぼ比例するが、**厳密には比例しない**。包絡が
+    //   setValueAtTime(vol, t) → exponentialRampToValueAtTime(0.0001, t + decay)
+    // という形で、**行き先の 0.0001 は vol によらず固定**なので、vol が大きいほど
+    // 減衰の傾きが急になる(ピークが立つ最初の数サンプルのあいだにも 1% ほど効く)。
+    // 1回の割り算で出すと 1% ずれるので、makeup を実際に差し替えながら二分探索する。
+    const cur = api.METRO_CLICK_SPEC.makeup;
+    const peakAt = (m) => {
+      api.METRO_CLICK_SPEC.makeup = m;
+      try { return meanOver(renderClick, "accent", DRAWS).peak; } finally { api.METRO_CLICK_SPEC.makeup = cur; }
     };
-    rows.push({ id, peak: mean(peaks), peakSd: sd(peaks), energy: mean(energies), energySd: sd(energies) });
-  }
+    let lo = 0.01, hi = 100;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (peakAt(mid) < before.peak) lo = mid; else hi = mid;
+    }
+    const want = (lo + hi) / 2;
+    console.log("【makeup を解く】変更前の木の accent のピークにそろえる(二分探索・実際に鳴らして比べる)");
+    console.log(`  変更前の木(${BEFORE_WOOD_SPEC.freq.accent}Hz / 減衰 ${BEFORE_WOOD_SPEC.decay * 1000}ms / Q ${BEFORE_WOOD_SPEC.q} / makeup ${BEFORE_WOOD_SPEC.makeup})`
+      + `  ピーク ${before.peak.toFixed(4)} ±${before.peakSd.toFixed(4)}`);
+    console.log(`  いまの木(${api.METRO_CLICK_SPEC.freq.accent}Hz / 減衰 ${api.METRO_CLICK_SPEC.decay * 1000}ms / Q ${api.METRO_CLICK_SPEC.q} / makeup ${cur})`
+      + `  ピーク ${now.peak.toFixed(4)} ±${now.peakSd.toFixed(4)}`);
+    console.log(`  → ピークがそろう makeup = **${want.toFixed(4)}**  (いま入っている ${cur} との比 ${(want / cur).toFixed(4)} 倍)`);
+    console.log(`  参考: makeup を 4.50 / 4.53 / 4.55 にしたときのピーク = `
+      + [4.50, 4.53, 4.55].map((m) => `${m}→${peakAt(m).toFixed(4)}`).join(" / "));
+  } else {
+    console.log(`${pad("accent", 14)}${pad("ピーク", 12)}${pad("(ばらつき)", 14)}エネルギー √(Σx²/SR)`);
+    for (const [name, r] of [["変更前の木", before], ["いまの木", now]]) {
+      console.log(`${pad(name, 14)}${pad(r.peak.toFixed(4), 12)}${pad("±" + r.peakSd.toFixed(4), 14)}${r.energy.toFixed(5)}`);
+    }
+    console.log(`\nピーク比(いま ÷ 変更前) = ${(now.peak / before.peak).toFixed(4)}`
+      + `  / エネルギー比 = ${(now.energy / before.energy).toFixed(4)}`);
+    console.log("  ※ エネルギーは減衰を 30ms → 18ms に詰めたぶん減る(狙いどおり)。");
+    console.log("  ※ **高くなったか・鋭くなったかは、この数値では判定できない**(実機で本人が聴く)。");
 
-  const pad = (s, w) => String(s).padEnd(w);
-  console.log(`${pad("accent", 10)}${pad("ピーク", 12)}${pad("(ばらつき)", 14)}${pad("エネルギー √(Σx²/SR)", 24)}(ばらつき)`);
-  for (const r of rows) {
-    console.log(`${pad(r.id, 10)}${pad(r.peak.toFixed(3), 12)}${pad("±" + r.peakSd.toFixed(3), 14)}`
-      + `${pad(r.energy.toFixed(5), 24)}±${r.energySd.toFixed(5)}`);
+    // 3段(accent / beat / sub)が実際に鳴ったときのピーク比。
+    // **ゲインの段の比(1.0 / 0.85 / 0.6)そのものではない** ── 段ごとに中心周波数が違い、
+    // 帯域幅も変わるので、そのぶんが掛かった「耳に届く側」の比になる。
+    console.log("\n3段の**鳴った波形の**ピーク比(accent を 1。段の音量 × 帯域幅の違い)");
+    for (const [name, render] of [["変更前の木", renderBefore], ["いまの木", renderClick]]) {
+      const p = ["accent", "beat", "sub"].map((k) => meanOver(render, k, DRAWS).peak);
+      console.log(`  ${pad(name, 14)}1 : ${(p[1] / p[0]).toFixed(3)} : ${(p[2] / p[0]).toFixed(3)}`);
+    }
   }
-
-  // 3段(accent / beat / sub)が実際に鳴ったときのピーク比。
-  // **ゲインの段の比(1.0 / 0.85 / 0.6)そのものではない** ── 段ごとに中心周波数が違い、
-  // 雑音の3種は帯域幅も変わるので、そのぶんが掛かった「耳に届く側」の比になる。
-  // ゲインの段が 1.0 / 0.85 / 0.6 のままであることは検査43.1 が graph から見ている。
-  console.log("\n3段の**鳴った波形の**ピーク比(accent を 1。段の音量 × 帯域幅の違い)");
-  for (const id of ids) {
-    const draws = usesNoise(id) ? DRAWS : 1;
-    const p = ["accent", "beat", "sub"].map((k) => {
-      let s = 0;
-      for (let i = 0; i < draws; i++) s += peakOf(renderClick(id, k, mulberry32(0x9e3779b9 + i)));
-      return s / draws;
-    });
-    console.log(`  ${pad(id, 10)}1 : ${(p[1] / p[0]).toFixed(3)} : ${(p[2] / p[0]).toFixed(3)}`);
-  }
-
 }

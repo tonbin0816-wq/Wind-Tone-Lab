@@ -2747,8 +2747,11 @@ function audioClockStalled(audioDeltaS, wallDeltaS) {
 }
 
 // 【D-24a】メトロノームの AudioContext を「作り直すべきか」の規則(純関数)。
-// startMetronome が中で直に書いている判断と**同じ式**をここに置き、試し鳴らし
-// (previewMetroClick)も必ずここを通す。
+// startMetronome が中で直に書いている判断と**同じ式**をここに置いてある。
+// 【D-25】唯一の呼び手だった試し鳴らし(previewMetroClick)は、クリック音の選択ごと
+// 削除された。**いまこの関数を呼ぶ本番コードは無い**(startMetronome は同じ式を
+// 自分の中に持っており、その本体は1文字も変えていない)。畳むかどうかは D-25 の
+// 担当範囲の外なので触らず、BACKLOG に起票してある。
 // 見るのは2つ:
 //   ① そもそも無い / state が "running" でない
 //   ② 【F-52】state は "running" なのに音声時計だけ止まっている
@@ -4608,121 +4611,56 @@ function getMetroMasterInput(ctx) {
 }
 
 // ============================================================
-// 【D-24 §1】クリック音は4種から選ぶ。
+// 【D-25 §1】クリック音は**木の1種だけ**。選ぶ口は無い。
 //
-// **現行(current)の音は1文字も書き換えていない**(下の scheduleMetroClick の本体がそれ)。
-// 良し悪しは Chrome では判定できないので、改善版は現行を差し替えるのではなく
-// **4種のうちの1つ**として並べ、本人が実機で A/B して既定を決める(仕様 §1.3)。
-// 既定は "current"。
+// D-24 は4種(現行・木・電子・鋭い)を並べ、本人に実機で A/B してもらうためのものだった。
+// **本人は木を選んだ**ので、選択・保存・試し鳴らし・音の振り分けをすべて畳んだ。
+// (IndexedDB に残る "metroClickSound" キーは消していない ── 本人の端末にある実データで、
+//  移行処理を書くほうが危険。読み手が居なくなった孤児キーは無害。)
+//
+// 【D-25】本人の指示は「木の音をベースにもう少し音を高く、鋭く」。
+// **変更前の木(5ab5206)から動かしたのは3つだけ**:
+//   ・中心周波数 1500 / 1100 / 850 → 2100 / 1550 / 1200 Hz(およそ1.4倍。
+//     D-24 の「現行」の音 2900/2000/1300 とは重ならない帯に置く)
+//   ・減衰 30ms → 18ms(「鋭く」= 尾を引かせない)
+//   ・makeup 5.0 → 4.53(中心周波数を上げると通過帯域幅 f/Q が広がって振幅が増え、
+//     減衰を詰めるとエネルギーが減る。**変更前の木と accent のピークがそろう**値を
+//     計算し直したもの ── scripts/metro-click-makeup.mjs --solve)
+// **Q は 8 のまま**。木の芯(音程感)を作っているのは Q なので、下げると別の音になる。
+// **3段の音量 1.0 / 0.85 / 0.6 も変えていない**(D-24 仕様 §1.2 が凍結)。
 //
 // 音の定数はこの表の中だけに閉じる ── DESIGN-SYSTEM のトークンではないので、
-// 体系(--sp-* 等)には1つも足していない(仕様 §1.2)。
-//
-// 3段(accent / beat / sub)の音量差は**現行と同じ 1.0 / 0.85 / 0.6 を出発点**にし、
-// そのうえで音ごとに中心周波数でも段を付ける(音程差 + 音量差の二段構え)。
-// makeup は「その音の作り方で失われる/増える振幅」を戻すためのもので、
-// **マスターの gain 2.6 とリミッターには触れていない**(仕様 §1.5)。
-// 値は Node で Web Audio 仕様の双二次係数を再現して求めた**計算値**であり、
-// 実機で聴いた結果ではない(どれが良い音かは実機待ち)。
-const METRO_CLICK_SOUNDS = [
-  { id: "current", label: "現行" },
-  { id: "wood", label: "木" },
-  { id: "electro", label: "電子" },
-  { id: "tick", label: "鋭い" },
-];
-// 3段の音量。現行の 1.0 / 0.85 / 0.6 と同じ比(現行側はこの定数を読まない ── あちらは
-// 1文字も触らないため、値が同じでも参照は分けたままにしてある)。
+// 体系(--sp-* 等)には1つも足していない。makeup は Node で Web Audio 仕様の双二次係数を
+// 再現して求めた**計算値**であり、実機で聴いた結果ではない ──
+// **高く・鋭くなったかは本人が実機で聴いて決める**(実装にも統括にも判定できない)。
+// **マスターの gain 2.6 とリミッターには触れていない**(D-24 仕様 §1.5)。
 const METRO_CLICK_VOL = { accent: 1.0, beat: 0.85, sub: 0.6 };
-// 現行以外の3種の作り。src: "noise"= getMetroClickBuffer の雑音 / "tone"= 正弦波。
-const METRO_CLICK_SPECS = {
-  // 【木】本物のメトロノームに近い、芯のあるコツッという音。
-  // Q を 1.6 → 8 に上げて雑音を狭帯域に絞ると音程感が立ち、減衰を 60ms → 30ms に詰めると
-  // 尾を引かない「コッ」になる。Q を5倍・中心周波数を下げたぶん通過帯域幅が約 1/5 になるので、
-  // 失う振幅を makeup 5.0 で戻す(計算値: accent のピークが現行 0.354 に対し 0.349)。
-  wood: { src: "noise", filter: "bandpass", q: 8, decay: 0.030, makeup: 5.0,
-    freq: { accent: 1500, beat: 1100, sub: 850 } },
-  // 【電子】いちばん埋もれないことを狙う。**倍音を1つも持たない正弦波**にして、
-  // サックスの倍音列と混ざらないようにする(雑音は帯域が広く、必ずどこかが重なる)。
-  // 帯域は耳の感度が最も高い 2〜5kHz。3段は A7 / E7 / A6 = オクターブ+5度で、
-  // 高さの差が「和音」として読める並びにした。頭の 2ms で立ち上げるのは、
-  // 正弦波を突然始めたときに出る広帯域のパチッ(=倍音)を作らないため。
-  // makeup 0.36 は**現行とピークを揃えた**値(計算値 0.355 対 0.354)。
-  // 45ms 鳴るぶんエネルギーは現行の約1.7倍になる ── これは「埋もれない」狙いのぶん。
-  electro: { src: "tone", attack: 0.002, decay: 0.045, makeup: 0.36,
-    freq: { accent: 3520, beat: 2637, sub: 1760 } },
-  // 【鋭いクリック】いちばん短い。音として聞くより「点」として感じるもの。
-  // ハイパスで高域だけを残し、減衰は 12ms(現行の 1/5)。音程感はほぼ無いので、
-  // 3段は遮断周波数の高さ(明るさ)と音量で付ける。
-  // makeup 0.5 は計算値でピーク 0.462(現行の1.30倍)・エネルギー 0.0064(同 0.80倍)。
-  tick: { src: "noise", filter: "highpass", q: 0.7, decay: 0.012, makeup: 0.5,
-    freq: { accent: 5000, beat: 4000, sub: 3200 } },
+const METRO_CLICK_SPEC = {
+  filter: "bandpass", q: 8, decay: 0.018, makeup: 4.53,
+  freq: { accent: 2100, beat: 1550, sub: 1200 },
 };
-// 保存値が壊れていても必ず 4種のどれかに落ちる(既定は現行)。
-function metroClickSoundId(id) {
-  return METRO_CLICK_SOUNDS.some((s) => s.id === id) ? id : "current";
-}
-// 【D-24b で削除】包絡の終わりを返す関数(旧 metroClickEnvelopeEnd / さらに旧 metroClickDur)は
-// **本番から一度も呼ばれず、検査だけが参照していた**ので消した。検査のためだけの関数を
-// 製品コードに置くと、次に読む人が「これは何のためにあるのか」を判断できない。
-// 包絡が終わる時刻も音源が止まる時刻も、検査43.2 は**組み上がった graph から読む**
-// (実装が実際に予約した時刻そのもの。表を書き写した値ではない)。
-//
-// 現行以外の3種を1回分スケジュールする。出力はマスターチェーン経由(現行と同じ)。
-function scheduleMetroClickAlt(ctx, t, kind, id) {
-  const spec = METRO_CLICK_SPECS[id];
-  if (!spec) return;
-  const step = METRO_CLICK_VOL[kind] ?? METRO_CLICK_VOL.sub;
-  const f = spec.freq[kind] ?? spec.freq.sub;
-  const vol = step * spec.makeup;
-  const gain = ctx.createGain();
-  if (spec.src === "tone") {
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = f;
-    // 0 から指数で立ち上げられないので 0.0001 から。attack のあとに同じ形で落とす。
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(vol, t + spec.attack);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + spec.attack + spec.decay);
-    osc.connect(gain);
-    osc.start(t);
-    osc.stop(t + spec.attack + spec.decay); // 明示的に止める(発振器は自分では終わらない)
-  } else {
-    const src = ctx.createBufferSource();
-    src.buffer = getMetroClickBuffer(ctx);
-    const filt = ctx.createBiquadFilter();
-    filt.type = spec.filter;
-    filt.frequency.value = f;
-    filt.Q.value = spec.q;
-    gain.gain.setValueAtTime(vol, t);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + spec.decay);
-    src.connect(filt);
-    filt.connect(gain);
-    src.start(t); // バッファ音源は末尾で自分で終わる
-  }
-  gain.connect(getMetroMasterInput(ctx));
-}
 
-// クリック音を1回分スケジュールする。白色雑音をバンドパスで整形した短いパーカッシブな
-// 「チッ」音(実物のメトロノームや電子ドラムのクリックに近い、はっきり抜ける音)。
-// アクセント/拍/分割で中心周波数と音量を変え、聴き分けやすくする。出力はマスターチェーン経由。
-// 【D-24】sound で音を選ぶ。**"current" のときの本体は D-23(b903df2)のまま1文字も変えていない。**
-function scheduleMetroClick(ctx, t, kind, sound) {
-  const id = metroClickSoundId(sound);
-  if (id !== "current") { scheduleMetroClickAlt(ctx, t, kind, id); return; }
+// クリック音を1回分スケジュールする。getMetroClickBuffer の白色雑音を Q=8 のバンドパスで
+// 狭く絞った、芯のある短い「コッ」。アクセント/拍/分割で中心周波数と音量を変え、
+// 聴き分けやすくする。出力はマスターチェーン経由(getMetroMasterInput)。
+// **予約の仕組み(LOOKAHEAD / setInterval 25ms / 時刻の計算)には触れていない。**
+function scheduleMetroClick(ctx, t, kind) {
+  const spec = METRO_CLICK_SPEC;
+  const f = spec.freq[kind] ?? spec.freq.sub;
+  const vol = (METRO_CLICK_VOL[kind] ?? METRO_CLICK_VOL.sub) * spec.makeup;
   const src = ctx.createBufferSource();
   src.buffer = getMetroClickBuffer(ctx);
-  const bp = ctx.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.frequency.value = kind === "accent" ? 2900 : kind === "beat" ? 2000 : 1300;
-  bp.Q.value = 1.6;
+  const filt = ctx.createBiquadFilter();
+  filt.type = spec.filter;
+  filt.frequency.value = f;
+  filt.Q.value = spec.q;
   const gain = ctx.createGain();
-  const vol = kind === "accent" ? 1.0 : kind === "beat" ? 0.85 : 0.6;
   gain.gain.setValueAtTime(vol, t);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + src.buffer.duration);
-  src.connect(bp);
-  bp.connect(gain);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + spec.decay);
+  src.connect(filt);
+  filt.connect(gain);
   gain.connect(getMetroMasterInput(ctx));
-  src.start(t);
+  src.start(t); // バッファ音源(60ms)は末尾で自分で終わる。除外の窓の後ろ 90ms に収まる
 }
 
 // メトロノームアイコン(本体の台形+振り子アーム)
@@ -5407,11 +5345,15 @@ const RING_GLOW_AMP = 0.90;      // 光の最大の強さ(時間方向。呼吸�
 // 【要点3: mix-blend-mode を一切使わない】試作の初版は粒をマスクの中で
 //   mix-blend-mode:multiply で重ねており、その指定がマスク内で効かない環境では
 //   ノイズが全面に加算されて**画面全体が緑になった**(本人報告)。
-//   現行はマスクの入れ子(=掛け算)だけで作る:
+//   ブレンドは今も1つも使わない。
+//   【D-26 2026/09/02】マスクの入れ子も**やめた**。D-23c まではこう作っていた:
 //       <g mask=減衰>                       ← 最外。ここが0なら何も描かれない
-//         <g mask=1-傾斜>       光 </g>      ← 内側: 滑らかな光
-//         <g mask=傾斜><g mask=粒> 光 </g></g> ← 外側(粒を掛ける。実測では 1/255 未満)
-//   減衰マスクが常に最外に掛かるので、どんな事情があっても環の外側へは漏れない。
+//         <g mask=1-傾斜>  光 </g>           ← 内側: 滑らかな光
+//         <g mask=傾斜>    光 </g>           ← 外側
+//   同じ色の面を2枚重ねているだけなので、合成後のアルファは閉じた式になる
+//   (ringGlowCombinedAt を見ること)。いまは**1枚の矩形 + 1本のグラデーション**。
+//   グラデーションは RING_GLOW_R_MAX で 0 に落ち、その外は pad で 0 のままなので、
+//   減衰マスクが無くても環の外側へは漏れない(検査が数値で見ている)。
 //
 // 【毎フレーム変えるのは明るさだけ】ストップも粒も静的に1度だけ作り、rAF は
 //   いちばん外の <g> の opacity だけを動かす(作り直すと重い)。
@@ -5441,7 +5383,8 @@ const RING_GLOW_STEPS = 44;                         // 減衰・傾斜を近似�
 // ストップを刻み始める半径。立ち上がりの開始より内側なら値は0のままなのでどこでもよいが、
 // 環のトラックの内縁に合わせて「トラックの下から刻み始める」形にする。
 const RING_GLOW_STOP_R0 = RING_R - RING_SW / 2;
-// 光を塗る矩形。マスクで削るための下地なので、光の届く範囲(半径190)を余裕をもって覆う。
+// 光を塗る矩形。**グラデーションで濃さが決まる下地なので**、光の届く範囲(半径190)を
+// 余裕をもって覆う。【D-26】以前は「マスクで削るための下地」だったが、マスクは撤去した。
 // 試作の {x:-80, y:-80, 460×460} をそのまま換算したもの。
 const RING_GLOW_RECT_MIN = -80 * (RING_VB / 300);
 const RING_GLOW_RECT_SIZE = 460 * (RING_VB / 300);
@@ -5475,10 +5418,28 @@ function ringGlowStops(fn) {
   return out;
 }
 
-// 3種のストップは静的。毎フレーム作り直さない(重い)。
-const RING_GLOW_FALLOFF_STOPS = ringGlowStops(ringGlowAlphaAt);
-const RING_GLOW_GRAINY_STOPS = ringGlowStops(ringGlowRampAt);
-const RING_GLOW_SMOOTH_STOPS = ringGlowStops((r) => 1 - ringGlowRampAt(r));
+// 【D-26 2026/09/02】マスク3枚の入れ子を**1本のグラデーションへ畳んだ**。
+// これまでの作りは <g mask=減衰><g 呼吸><g mask=1-傾斜>光</g><g mask=傾斜>光</g></g></g> で、
+// **同じ色の面を2枚重ねて、その上に減衰マスクを掛ける**ものだった。
+// 2枚は色が同じなので、重なった結果の**色は変わらず不透明度だけが合成される**:
+//   下(内側) a1 = 1-ramp / 上(外側) a2 = ramp を source-over で重ねる
+//   → a = a2 + a1·(1-a2) = ramp + (1-ramp)² = (1-ramp) + ramp²
+// これに減衰 ringGlowAlphaAt が掛かるので、最終的なアルファは閉じた式で書ける。
+// **どちらの純関数も1文字も変えていない**(掛け算の順序も同じ)。
+// マスクを1枚も使わない形にすると、明るさ(opacity)が変わるたびに CPU で焼き直していた
+// マスク付き部分木が無くなる ── D-26 の狙いはここ(仮説の確認は本人の実機。罠17)。
+function ringGlowCombinedAt(r) {
+  const ramp = ringGlowRampAt(r);
+  return ringGlowAlphaAt(r) * ((1 - ramp) + ramp * ramp);
+}
+
+// ストップは静的。毎フレーム作り直さない(重い)。
+// 【刻みの数は変えていない】RING_GLOW_STEPS = 44 は本人選定の試作(案③)がそのまま持っていた
+// 段数で、**変更前の3枚のマスクもこの同じ半径で刻んでいた**。同じ半径で刻むかぎり、
+// 折れ線の折れ目が両者で揃うので、畳んだ結果は変更前と 0.0366/255 しか違わない(実測)。
+// 段数を増やすと「連続な式」には近づくが、**変更前の見え方(=本人が選んだ見え方)からは
+// 2.3/255 遠ざかる** ── 見た目を変えないほうを採った(D26-SPEC §3 が §2.1 より強い)。
+const RING_GLOW_ALPHA_STOPS = ringGlowStops(ringGlowCombinedAt);
 
 // 走りのイージング: ease-out cubic。勢いよく出て6時へそっと着地する。
 function ringRunEase(p) {
@@ -5528,6 +5489,18 @@ function ringGlowOpacity(runRaw, breath, absCents) {
   if (!(ac <= RING_GLOW_NEAR_CENTS)) return 0;
   if (ac <= RING_IN_TUNE_CENTS) return RING_GLOW_AMP * runRaw * (0.34 + 0.66 * breath);
   return RING_GLOW_AMP * ((RING_GLOW_NEAR_CENTS - ac) / (RING_GLOW_NEAR_CENTS - RING_IN_TUNE_CENTS));
+}
+
+// 【D-26】明るさを DOM へ書くときの刻み。**画面は 8bit** なので、不透明度の差が
+// 1/255 より細かいと1pxも変わらない。以前は toFixed(4) = 1/10000 刻みで、
+// **目に見えない差のために書き込み(=描き直しの依頼)を起こしていた**。
+// 255段に丸めてから文字列にすると、同じ絵になるフレームでは値が変わらず、
+// `op !== lastGlow` の間引きがそのまま効く(間引きの形は D-23b/D-23d のまま)。
+// 丸めの誤差は最大 0.5/255 で、8bit の量子化より下。
+// 【桁は6桁】1段は 1/255 = 0.003922… なので、4桁だと**丸めた先が目盛から最大 0.51/255 ずれる**
+// (書き込みの回数は同じだが「8bit へ量子化した」と名乗れなくなる)。6桁なら目盛の上に乗る。
+function ringGlowQuant(v) {
+  return (Math.round(v * 255) / 255).toFixed(6);
 }
 
 // 光の色。帯より明るく彩度を落とす。「光源の色」ではなく「照らされた面の色」にするため。
@@ -5735,10 +5708,9 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   const uid = useId().replace(/:/g, "");
   const barGradId = `ring-bar-${uid}`;
   const runGradIds = [`ring-run-l-${uid}`, `ring-run-r-${uid}`];
-  // 外周の光。減衰・傾斜(内/外)・粒の4つのマスクを入れ子にする。
-  const glowFalloffId = `ring-glow-falloff-${uid}`;
-  const glowSmoothId = `ring-glow-smooth-${uid}`;
-  const glowGrainyId = `ring-glow-grainy-${uid}`;
+  // 外周の光。【D-26】マスクは1枚も使わない。減衰 × (内側 + 外側) を畳んだ
+  // 1本の radialGradient(ringGlowCombinedAt)だけで作る。
+  const glowGradId = `ring-glow-${uid}`;
 
   // --- 到達の演出(走り + 外側だけの呼吸) ---
   // 走りは640ms、呼吸は2.6秒周期で続くため、Reactの再レンダーを挟まずrAFで書き換える。
@@ -5750,7 +5722,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // 【D-23d】呼吸は CSS のキーフレームが持つ内側の <g>。JS は animation を付け外しするだけで、
   // **合った状態を保っている間の書き込みが 0 回**になる(明るさの段は走りが終われば一定)。
   const glowBreathRef = useRef(null);
-  const glowFillRefs = useRef([]);            // 光を塗る矩形 [滑らかな側, 粒の側]
+  // 【D-26】光の色。塗る面は1枚になったので、色は**グラデーションの color 1つ**へ書く
+  // (45個のストップへ書きに行かない)。ストップは stop-color:currentColor で
+  // グラデーションから継いだ色を読む。**書き手は rAF だけ**(React は静的な初期値を置くだけ)で、
+  // D-23a までの「矩形の fill を rAF が setAttribute で上書きする」形と同じ channel。
+  const glowGradRef = useRef(null);
   // 【D-23a】帯(グラデーションの軸・30ストップ・弧の path)とセントの文字。
   // **どれも rAF が属性へ直接書く。** React はこの木を初回に置くだけで、以後は触らない
   // (D23-SPEC §1.3「二重書き手の禁止」)。
@@ -5913,18 +5889,22 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
       // 実測(±14¢ を 0.7Hz で往復する30秒): 書き込み 1584回 → 338回(**78.7% 減**)。
       // **見えている間の色は1フレームも変わらない**(条件に opNum > 0 を足しただけ)。
       // lastBase は「いま要素に入っている色」と常に一致する(書いたときだけ更新するため)。
+      //
+      // 【D-26】書き先は**グラデーション1つの color** になった(ストップは currentColor を読む)。
+      // 塗る面が1枚になったので、以前の「矩形2枚の fill」より書き込みが1回減っている。
       const baseKey = base.join(",");
       if (opNum > 0 && baseKey !== lastBase) {
         lastBase = baseKey;
         const gl = ringGlowRGB(base);
-        for (const el of glowFillRefs.current) {
-          if (el) el.setAttribute("fill", `rgb(${gl[0]},${gl[1]},${gl[2]})`);
-        }
+        const gg = glowGradRef.current;
+        if (gg) gg.setAttribute("color", `rgb(${gl[0]},${gl[1]},${gl[2]})`);
       }
       // 【毎フレーム変えるのは明るさだけ】いちばん外の <g> の opacity だけを動かす。
-      // 減衰のストップも粒も静的なので作り直さない。
+      // グラデーションのストップは静的なので作り直さない。
+      // 【D-26】書く値は **8bit(255段)へ量子化**する。画面に出るのは 8bit なので、
+      // それより細かい差は1pxも変わらない ── 変わらない絵のために描き直しを頼まない。
       const glow = glowGroupRef.current;
-      const op = opNum.toFixed(4);
+      const op = ringGlowQuant(opNum);
       if (glow && op !== lastGlow) {
         lastGlow = op;
         // 【D-19】外周の光の明るさを書き換えたフレーム数。**音が入っていないときは
@@ -6020,51 +6000,21 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               ))}
             </linearGradient>
           ))}
-          {/* 外周の光(F-47)。減衰・傾斜・粒の3種のマスクを作る。すべて静的。
-              光の最大は環のトラックの外縁(RING_GLOW_EDGE_R)。立ち上がりはトラックの下に隠れる。 */}
+          {/* 外周の光(F-47)。【D-26】**マスクもフィルタも1枚も使わない。**
+              減衰 × (内側 + 外側) を畳んだ 1本の radialGradient(ringGlowCombinedAt)だけで作る。
+              光の最大は環のトラックの外縁(RING_GLOW_EDGE_R)。立ち上がりはトラックの下に隠れる。
+              半径は RING_GLOW_R_MAX。offset はその半径に対する割合なので、
+              **環の拡大率が変わってもそのまま付いてくる**(新しい寸法の定数を作っていない)。
+              色は rAF が color へ1回だけ書き、45個のストップは currentColor でそれを継ぐ
+              (既定は機能色の緑。この静的な初期値は D-23a までの矩形の fill と同じ役割)。 */}
           <radialGradient
-            id={glowFalloffId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
+            id={glowGradId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
+            ref={(el) => { glowGradRef.current = el; }} color="var(--c-good)"
           >
-            {RING_GLOW_FALLOFF_STOPS.map((st, i) => (
-              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
+            {RING_GLOW_ALPHA_STOPS.map((st, i) => (
+              <stop key={i} offset={st.offset.toFixed(4)} stopColor="currentColor" stopOpacity={st.value.toFixed(4)} />
             ))}
           </radialGradient>
-          <mask id={`${glowFalloffId}-m`}>
-            <rect
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
-              fill={`url(#${glowFalloffId})`}
-            />
-          </mask>
-          {/* 外へ行くほど粒に置き換えるための傾斜と、その逆(内側の滑らかな側) */}
-          <radialGradient
-            id={glowGrainyId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
-          >
-            {RING_GLOW_GRAINY_STOPS.map((st, i) => (
-              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
-            ))}
-          </radialGradient>
-          <mask id={`${glowGrainyId}-m`}>
-            <rect
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
-              fill={`url(#${glowGrainyId})`}
-            />
-          </mask>
-          <radialGradient
-            id={glowSmoothId} gradientUnits="userSpaceOnUse" cx={CX} cy={CY} r={RING_GLOW_R_MAX}
-          >
-            {RING_GLOW_SMOOTH_STOPS.map((st, i) => (
-              <stop key={i} offset={st.offset.toFixed(4)} stopColor="#fff" stopOpacity={st.value.toFixed(4)} />
-            ))}
-          </radialGradient>
-          <mask id={`${glowSmoothId}-m`}>
-            <rect
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
-              fill={`url(#${glowSmoothId})`}
-            />
-          </mask>
           {/* 【D-23c】粒(feTurbulence)のフィルタとそのマスクはここにあったが、撤去した。
               **画面に出ていなかった**(粒を1に固定した場合との最大画素差 0.972/255 =
               8bit の量子化より下)うえに、この光でいちばん高くつく部品だった。
@@ -6073,32 +6023,27 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
               つまり残っていたコストは「光が見えている間の描き直し」で、その最大の要因が
               約380px四方に掛かるこのフィルタ。冒頭の【粒は撤去した】を読むこと。 */}
         </defs>
-        {/* 外周の光。帯より奥に敷く。**mix-blend-mode は一切使わず、マスクの入れ子
-            (=掛け算)だけ**で作る(ブレンドが効かない環境で全面が染まった経緯がある)。
-            いちばん外の減衰マスクが常に掛かるので、環の外側の届く範囲を超えて漏れない。
+        {/* 外周の光。帯より奥に敷く。**mix-blend-mode は一切使わない**
+            (ブレンドが効かない環境で全面が染まった経緯がある)。
+            【D-26】以前はマスク3枚の入れ子(=掛け算)で作っていたが、**マスクは0枚になった**。
+            減衰・内側・外側を掛け合わせた形は ringGlowCombinedAt が閉じた式で持ち、
+            **1本のグラデーション**(RING_GLOW_ALPHA_STOPS)に畳んである。
+            環の外側の届く範囲を超えて漏れないことを担保するのは、**そのグラデーションの
+            最終停止点が 0 であること**(以前は「いちばん外の減衰マスク」がその役だった)。
             明るさは rAF がこの <g> の opacity だけを書き換える。 */}
-        <g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`} opacity="0">
+        <g ref={glowGroupRef} opacity="0">
         {/* 【D-23d】呼吸だけを持つ <g>。合成の不透明度 = 外(明るさの段) × 内(呼吸)。
             **CSS のキーフレームが動かすので、JS は毎フレーム何も書かない。**
             マスクも塗りも持たないので、寸法にも見え方にも影響しない(透明度の掛け算だけ)。 */}
         <g ref={glowBreathRef}>
-          {/* 内側 = 減衰 × (1-傾斜) … 滑らかな光 */}
-          <g mask={`url(#${glowSmoothId}-m)`}>
-            <rect
-              ref={(el) => { glowFillRefs.current[0] = el; }}
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
-            />
-          </g>
-          {/* 外側 = 減衰 × 傾斜。【D-23c】粒の <g> を1枚外した(粒は画面に出ていなかった)。
-              **見た目は「粒を1に固定した場合」と同じ** ── その差は実測 0.972/255。 */}
-          <g mask={`url(#${glowGrainyId}-m)`}>
-            <rect
-              ref={(el) => { glowFillRefs.current[1] = el; }}
-              x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
-              width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE} fill="var(--c-good)"
-            />
-          </g>
+          {/* 【D-26】光の面は**この1枚だけ**。減衰 × (内側 + 外側) は
+              ringGlowCombinedAt が畳んでグラデーションのストップに入っている。
+              大きさは変更前の2枚と同じ RING_GLOW_RECT_MIN / _SIZE。 */}
+          <rect
+            x={RING_GLOW_RECT_MIN} y={RING_GLOW_RECT_MIN}
+            width={RING_GLOW_RECT_SIZE} height={RING_GLOW_RECT_SIZE}
+            fill={`url(#${glowGradId})`}
+          />
         </g>
         </g>
         {/* 【N-4a で撤去】環のトラック(常に全周の円)。本人指示「チューナーの円環の枠は要らない」。
@@ -7191,9 +7136,6 @@ function MeasureView(props) {
   const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
   // 5/8・7/8のグループ分け(例:[3,2]/[2,2,3])。ユーザーが選べる。他の拍子はnull(自動)。
   const [metroGrouping, setMetroGrouping] = usePersistedState("metroGrouping", null);
-  // 【D-24 §1.4】クリック音の種類。**既定は現行**(本人が実機で A/B して決めるまで動かさない)。
-  // 保存は他のメトロノーム設定と同じ usePersistedState(IndexedDB)。新しい保存先は作らない。
-  const [metroClickSound, setMetroClickSound] = usePersistedState("metroClickSound", "current");
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
   // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
   // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
@@ -7256,7 +7198,6 @@ function MeasureView(props) {
   const metroSigRef = useRef(metroSig);
   const metroSubdivRef = useRef(metroSubdiv);
   const metroAccentRef = useRef(metroAccent);
-  const metroClickSoundRef = useRef(metroClickSound); // スケジューラは長寿命クロージャなのでrefから読む
   const metroGroupingRef = useRef(metroGrouping);
   // START呼び出しごとに増える世代番号。古いSTART呼び出し(resume()待ち中)がその間に
   // 発生したSTOPや別のSTARTより後から状態を書き換えてしまう競合を防ぐ(詳細は下記)。
@@ -7265,40 +7206,6 @@ function MeasureView(props) {
   useEffect(() => { metroSigRef.current = metroSig; }, [metroSig]);
   useEffect(() => { metroSubdivRef.current = metroSubdiv; }, [metroSubdiv]);
   useEffect(() => { metroAccentRef.current = metroAccent; }, [metroAccent]);
-  useEffect(() => { metroClickSoundRef.current = metroClickSound; }, [metroClickSound]);
-
-  // 【D-24 §1.4】選んだ瞬間にその音を1回だけ試し鳴らしする。**メトロノームが止まっていても鳴る。**
-  // スケジューラ(setInterval / LOOKAHEAD)には一切触らず、出口だけを本番と同じ
-  // scheduleMetroClick に通す。時計は同期的に用意する(await を挟むと iOS では
-  // ユーザー操作の権限が切れて鳴らない)。
-  // 【D-24a】作り直しの規則は **metroCtxNeedsRebuild ただ1つ**(START と同じ式)。
-  // 以前はここだけ `if (!ctx)` で、**state は "running" のまま時計が止まった ctx**
-  // (F-52。iOS でバックグラウンドから復帰した直後)を素通りさせていた。その ctx では
-  // ctx.currentTime + 0.02 が来ないので、押しても**無音**になる(§1.4 違反)。
-  // 【D-24b】**鳴っている間の ctx はスケジューラの持ち物**。ここで close() して差し替えると、
-  // metroNextTimeRef には古い時計の大きな値が残ったままになり、0 から始まる新しい時計が
-  // そこへ追いつくまで先読みの while が一度も真にならない ── **壊した ctx の生存時間ぶん
-  // 丸ごと無音**になる(振り子の基準 metroAnchorRef.time も同じ理由で固まる)。
-  // START は作り直した直後に metroNextTimeRef / metroAnchorRef / metroTickIndexRef を
-  // 張り直すので同じ問題を持たないが、試し鳴らしはそれをしてはいけない(予約の仕組みに
-  // 触らないため)。よって**作り直しが要るなら STOP→START が面倒を見る**。
-  // §1.4「押した瞬間に音が鳴って確かめられる」は音を選び比べる場面 ── つまり
-  // メトロノームが止まっているとき ── に効けばよい。鳴っている間は基準点も触らない。
-  const previewMetroClick = useCallback((id) => {
-    applyAudioSessionType();
-    let ctx = metroCtxRef.current;
-    const owned = metroOnRef.current && !!ctx; // 鳴っている間はスケジューラのもの
-    if (!owned && metroCtxNeedsRebuild(ctx, metroClockMarkRef.current, performance.now())) {
-      try { ctx?.close(); } catch { /* noop */ }
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      metroCtxRef.current = ctx;
-      // 作り直した時計を古い基準点と比べない(START と同じ扱い)。作り直さなかったときは
-      // 基準点を残す ── 次の START が F-52 の判定に使うため、ここで使い切らない。
-      metroClockMarkRef.current = null;
-    }
-    ctx.resume().catch(() => {});
-    scheduleMetroClick(ctx, ctx.currentTime + 0.02, "accent", id);
-  }, []);
 
   // 【D-24 §2】タップテンポ。**判定は performance.now() だけ**で行い、音の予約
   // (ctx.currentTime。量子化されている)には一切依存しない。押した瞬間に数える。
@@ -7403,7 +7310,7 @@ function MeasureView(props) {
       if (kind !== "silent") {
         // 【D-24】どの音で鳴らすかを渡すだけ。**予約の仕組み(LOOKAHEAD / 25ms / 時刻の計算)は
         //   1文字も変えていない**(仕様 §1.5)。
-        scheduleMetroClick(ctx, t, kind, metroClickSoundRef.current);
+        scheduleMetroClick(ctx, t, kind);
         // ライブ計測の除外判定用にクリック時刻をperformance.now()基準で記録する
         const perfT = performance.now() + (t - ctx.currentTime) * 1000;
         scheduledClicksRef.current.push(perfT);
@@ -8257,8 +8164,11 @@ function MeasureView(props) {
                 口コミ「タップから少し遅れて音が出るので、望むテンポをタップし辛い」に対して、
                 数える時刻も見た目の反応も**押した瞬間**に寄せる。時刻は performance.now() で、
                 音の予約(ctx.currentTime)には依存しない(§2.3)。
-                【何回叩けたかを出す】1回目は間隔が無いのでテンポは出ない。そのとき
-                「あと1回」と返し、2回目からは回数を出す(§2.3)。
+                【D-25 何回叩けたかを出す】本人の指示は「あと5回とかの表記ではなく
+                1/5、2/5 だけのシンプルな形」。分母は**満ちるまでのタップ回数**で、
+                間隔 TAP_TEMPO_INTERVALS 本 = 時刻 TAP_TEMPO_INTERVALS + 1 個(=5)。
+                **5 を直書きしない** ── 中央値を取る本数を変えたら分母も一緒に動く。
+                押す前(0回)と、2秒あいて測り直しになったときは**何も出さない**(§2.3)。
                 【見た目は B型】これは**状態を持たない普通のボタン**なので、
                 DESIGN-SYSTEM §6.7 の B型 = **枠線なし / 地は --c-sunken** で描く。
                 拍子・分割の .selpill(輪郭を持つ)を真似ると「枠線があるものは状態を持っている」
@@ -8286,7 +8196,7 @@ function MeasureView(props) {
                 }}>タップ</span>
               </button>
               <span className="sans" style={{ width: 56, fontSize: 12.5, color: "var(--c-ink-3)", lineHeight: 1.2 }}>
-                {tapCount === 0 ? "" : tapCount === 1 ? "あと1回" : `${tapCount}回`}
+                {tapCount === 0 ? "" : `${tapCount}/${TAP_TEMPO_INTERVALS + 1}`}
               </span>
             </div>
 
@@ -8395,39 +8305,6 @@ function MeasureView(props) {
               />
               小節アクセント
             </label>
-
-            {/* 【D-24 §1.4】クリック音の選択。4種を並べ、**押した瞬間にその音が1回鳴る**
-                (メトロノームが止まっていても)。既定は「現行」で、本人が実機で A/B して
-                決めるまで動かさない(§1.3)。選んだ値は他のメトロノーム設定と同じ
-                usePersistedState(IndexedDB)に入る ── 新しい保存先は作らない。
-                見出しの文字は小節アクセントの行と同じ 12.5px / --c-ink-2(新しい値を足さない)。
-                ピルの見た目は拍子・分割と同じ正典 .selpill(選択中は --c-accent の塗り)。 */}
-            <span className="sans no-select" style={{ alignSelf: "flex-start", marginTop: 14, fontSize: 12.5, color: "var(--c-ink-2)" }}>クリック音</span>
-            <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 7, marginTop: 7 }}>
-              {METRO_CLICK_SOUNDS.map((s) => {
-                const selected = metroClickSound === s.id;
-                return (
-                  <button
-                    key={s.id} type="button"
-                    onClick={() => { setMetroClickSound(s.id); previewMetroClick(s.id); }}
-                    aria-pressed={selected}
-                    aria-label={`クリック音 ${s.label}`}
-                    className="sans no-select"
-                    style={{
-                      minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
-                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                    }}>
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999,
-                      border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
-                      background: selected ? "var(--c-accent)" : "transparent",
-                      color: selected ? "var(--c-on-accent)" : "var(--c-ink-2)",
-                    }}>{s.label}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
       )}
@@ -12818,33 +12695,51 @@ function myDataSeriesLabel(key, dayLabel) {
   if (key === "day") return dayLabel;
   return MY_DATA_SERIES.find((x) => x.key === key)?.label ?? "";
 }
-// 片側の選択肢。**押せない選択肢を出さない**(F-77 の罠)の適用が2つある:
+// 片側の選択肢。**押せない選択肢を出さない**(F-77 の罠)の適用は1つだけ:
 //   ・目安は理想値プロファイルがあるときだけ
-//   ・【D-9 §1 本人指示】**もう一方で選ばれている系列は列から消す**
-//     (「左右で同じものを選べないように、一方で選ばれているものはそもそも
-//       もう一方の選択肢から削除するようにして」)
+//
+// 【D-27 2026/09/02 本人指示で方針が変わった】D-9 §1 では「もう一方で選ばれている系列は
+// 列から消す」だった(本人「左右で同じものを選べないように…もう一方の選択肢から削除する
+// ようにして」)。第9陣で本人「**一方選択中はもう一方に出ないことになっているせいで
+// サクッと入れ替えたいときに入れ替えができない**」。消す規則をやめ、**同じものを選んだら
+// 入れ替える**(myDataSeriesPick)。消すための taken は読み手ゼロになったので**受け口ごと
+// 落とした** ── 無視する引数を残すと「選択肢は相手側で変わる」という嘘の契約が残る
+// (D-14 で metricKey を同じ理由で落とした前例)。
 // (【D-14】`±0` を消したので「平均差分のときだけ出す」枝も一緒に消えた。
 //  枝が消えたことで **`metricKey` を読む理由も消えた**ので、受け口ごと落としてある
 //  ── 無視する引数を残すと「選択肢は指標で変わる」という嘘の契約が残る。
 //  同じ理由で myDataSeriesFallback からも落とした。)
-function myDataSeriesOptions(hasIdeal, taken) {
-  return MY_DATA_SERIES.filter((x) => {
-    if (x.key === "reference" && !hasIdeal) return false;
-    if (taken !== null && taken !== undefined && x.key === taken) return false;
-    return true;
-  });
+function myDataSeriesOptions(hasIdeal) {
+  return MY_DATA_SERIES.filter((x) => x.key !== "reference" || hasIdeal);
 }
 // 選べなくなった系列が選ばれたまま残らないようにする(目安を消すと目安が消える)。
 // 落とし先は**既定の並び → 残りの並び**の順で最初に空いているもの。
-// 左右が同じ値になることは、2本目を決めるときに1本目を taken に渡すことで**構造的に**防ぐ。
+// 【D-27】**左右が同じにならないことの唯一の答えはこの関数**になった(選択肢から消す規則を
+// やめたので、こちらが単独の番人)。myDataSeriesPick は必ずここを通す ── 規則を2箇所に
+// 持つと、片方だけ直したときに静かに食い違う(罠18)。
 function myDataSeriesFallback(pair, hasIdeal) {
-  const all = myDataSeriesOptions(hasIdeal, null).map((x) => x.key);
+  const all = myDataSeriesOptions(hasIdeal).map((x) => x.key);
   const pick = (want, taken) => (all.includes(want) && want !== taken
     ? want
     : (MY_DATA_SERIES_DEFAULT.concat(all).find((k) => all.includes(k) && k !== taken) ?? null));
   const a = pick(pair?.[0], null);
   return [a, pick(pair?.[1], a)];
 }
+
+// 【D-27】片側で系列を選んだときの新しい組。**もう一方で選ばれているものを選んだら入れ替える。**
+// D-9 の「選択肢から消す」をやめたので、同じものを選ぶ操作が存在するようになった。
+// そのとき反対側へ**元の値を渡す**ことで、2タップで左右が入れ替わる
+// (本人「サクッと入れ替えたいときに入れ替えができない」)。
+// 入り口も出口も myDataSeriesFallback を通す ── 左右が同じにならない規則はあれ1つ。
+function myDataSeriesPick(pair, side, key, hasIdeal) {
+  const cur = myDataSeriesFallback(pair, hasIdeal);
+  const other = side === 0 ? 1 : 0;
+  const next = cur.slice();
+  if (cur[other] === key) next[other] = cur[side];
+  next[side] = key;
+  return myDataSeriesFallback(next, hasIdeal);
+}
+
 
 // 【D-7 2026/08/23 本人指示】My Data の見せ方。本人「mydata は窓型と折れ線グラフ二つ選んで
 // 見れるように。デフォルトは折れ線グラフで」。**どちらも同じ2つの系列**を見る
@@ -13949,13 +13844,8 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
   const pair = myDataSeriesFallback(pairRaw, hasIdeal);
   // どちらのチップを押しているか(null = 閉じている)。選択肢は既存の DataOptionSheet で出す。
   const [sheetSide, setSheetSide] = useState(null);
-  const setSeriesAt = (side, key) => setPairRaw((prev) => {
-    const next = myDataSeriesFallback(prev, hasIdeal).slice();
-    next[side] = key;
-    // 反対側が同じ値になることは選択肢から消してあるので起きないが、
-    // 落とし先の規則(myDataSeriesFallback)を必ず通して**左右が同じ**を構造的に潰す。
-    return myDataSeriesFallback(side === 0 ? [key, next[1]] : [next[0], key], hasIdeal);
-  });
+  // 【D-27】決め方は純関数 myDataSeriesPick が持つ(入れ替えも落とし先もあちら側)。
+  const setSeriesAt = (side, key) => setPairRaw((prev) => myDataSeriesPick(prev, side, key, hasIdeal));
 
   // 【D-10 §4 本人指示】日付を押すと、カレンダーカードと「すべてのセッション」の間に
   // その日のセッションが開き、下のカードが下へ押し出される。**既定は閉じている。**
@@ -14211,12 +14101,13 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
       </div>
 
       {/* 【D-9 §1】系列を選ぶシート。**式の左右で同じ部品**を使い、見出し(1本目 / 2本目)だけが違う。
-          もう一方で選ばれている系列は**選択肢から消える**ので、左右が同じ値になる操作が存在しない。 */}
+          【D-27】候補は**常に全部**出す。もう一方で選ばれているものを選ぶと**入れ替わる**
+          (myDataSeriesPick)ので、左右が同じ値になる操作は依然として存在しない。 */}
       {sheetSide !== null && (
         <DataOptionSheet
           ariaLabel={`${sheetSide + 1}本目の系列`}
           title={`${sheetSide + 1}本目`}
-          items={myDataSeriesOptions(hasIdeal, pair[sheetSide === 0 ? 1 : 0])
+          items={myDataSeriesOptions(hasIdeal)
             .map((o) => ({ key: o.key, label: myDataSeriesLabel(o.key, day.label) }))}
           value={pair[sheetSide]}
           onPick={(k) => { setSeriesAt(sheetSide, k); setSheetSide(null); }}

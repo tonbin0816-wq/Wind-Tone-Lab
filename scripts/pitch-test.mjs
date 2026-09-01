@@ -8,9 +8,12 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-// 【D-24a】makeup(振幅の戻し)の根拠を出す計算。**記録の8個を出すのと同じ1つの実装**を
+// 【D-24a】makeup(振幅の戻し)の根拠を出す計算。**記録の数値を出すのと同じ1つの実装**を
 // 読み込んで検査でも使う(2つ持つと片方だけ古くなる)。読み込んだだけでは表は出ない。
-import { renderClick, peakOf, mulberry32 } from "./metro-click-makeup.mjs";
+// 【D-25】renderBefore は**変更前の木(5ab5206)**を同じ描き手で描くもの。
+// 「変わったのは狙った3つだけ」を、定数の言い換えではなく**両方を鳴らして**比べるために要る(罠16)。
+import { renderClick, renderBefore, peakOf, energyOf, mulberry32 } from "./metro-click-makeup.mjs";
+import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-before.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -172,14 +175,14 @@ const code = [
   extractFunction("ringGlowAlphaAt"),
   extractFunction("ringGlowRampAt"),
   extractFunction("ringGlowStops"),
-  extractConst("RING_GLOW_FALLOFF_STOPS"),
-  extractConst("RING_GLOW_GRAINY_STOPS"),
-  extractConst("RING_GLOW_SMOOTH_STOPS"),
+  extractFunction("ringGlowCombinedAt"),
+  extractConst("RING_GLOW_ALPHA_STOPS"),
   extractFunction("ringRunEase"),
   extractFunction("ringRunQuantP"),
   extractFunction("ringRunProgress"),
   extractFunction("ringBreath"),
   extractFunction("ringGlowOpacity"),
+  extractFunction("ringGlowQuant"),
   extractFunction("ringGlowRGB"),
   extractFunction("ringRunState"),
   // 【D-23】環の毎フレーム値を React の外へ出したときの純関数(凍結仕様 design/D23-SPEC.md)
@@ -364,11 +367,9 @@ const code = [
   extractConst("REC_STOP_PX"),
   extractConst("REC_STOP_R"),
   extractFunction("recInnerShape"),
-  // D-24: クリック音4種(現行 + 3種)と、タップテンポの純関数
-  extractConst("METRO_CLICK_SOUNDS"),
+  // D-25: クリック音は木の1種だけ。タップテンポの純関数
   extractConst("METRO_CLICK_VOL"),
-  extractConst("METRO_CLICK_SPECS"),
-  extractFunction("metroClickSoundId"),
+  extractConst("METRO_CLICK_SPEC"),
   // D-24a: 試し鳴らしと START が共有する「AudioContext を作り直すか」の規則(F-52)
   extractConst("AUDIO_CLOCK_STALL_MIN_WALL_S"),
   extractConst("AUDIO_CLOCK_STALL_RATIO"),
@@ -376,7 +377,6 @@ const code = [
   extractFunction("metroCtxNeedsRebuild"),
   extractFunction("getMetroClickBuffer"),
   extractFunction("getMetroMasterInput"),
-  extractFunction("scheduleMetroClickAlt"),
   extractFunction("scheduleMetroClick"),
   extractConst("TAP_TEMPO_RESET_MS"),
   extractConst("TAP_TEMPO_INTERVALS"),
@@ -409,8 +409,8 @@ const api = new Function(`${code}
            RING_GLOW_R_MAX, RING_GLOW_DECAY, RING_GLOW_RAMP_POW,
            RING_GLOW_STEPS, RING_GLOW_STOP_R0, RING_GLOW_RECT_MIN, RING_GLOW_RECT_SIZE,
            ringGlowAlphaAt, ringGlowRampAt, ringGlowStops,
-           RING_GLOW_FALLOFF_STOPS, RING_GLOW_GRAINY_STOPS, RING_GLOW_SMOOTH_STOPS,
-           ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowRGB, ringRunState,
+           ringGlowCombinedAt, RING_GLOW_ALPHA_STOPS,
+           ringRunEase, ringRunQuantP, ringRunProgress, ringBreath, ringGlowOpacity, ringGlowQuant, ringGlowRGB, ringRunState,
            ringLiveSnapshot, ringSmoothStep, ringCentsText, ringSameSemitone,
            RING_PEND_SWING_DEG,
            METRO_ARC_W, METRO_ARC_H, METRO_ARC_P0, METRO_ARC_C, METRO_ARC_P2, METRO_ARC_SW,
@@ -456,8 +456,8 @@ const api = new Function(`${code}
            sheetDismissShouldClose, sheetDismissInterrupted, sheetDismissShouldCapture,
            createSheetDismissGesture, sheetScrollTopAt,
            REC_BTN_D, REC_RING_SW, REC_RING_GAP, REC_STOP_PX, REC_STOP_R, recInnerShape,
-           METRO_CLICK_SOUNDS, METRO_CLICK_VOL, METRO_CLICK_SPECS, metroClickSoundId,
-           getMetroClickBuffer, getMetroMasterInput, scheduleMetroClickAlt, scheduleMetroClick,
+           METRO_CLICK_VOL, METRO_CLICK_SPEC,
+           getMetroClickBuffer, getMetroMasterInput, scheduleMetroClick,
            audioClockStalled, metroCtxNeedsRebuild,
            TAP_TEMPO_RESET_MS, TAP_TEMPO_INTERVALS, tapTempoPush, tapTempoFromTaps,
            tapTempoLiveCount, tapTempoResetInMs };`)();
@@ -2227,7 +2227,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     // 【N-4a】トラックを撤去したので重ね順から外した。残る4つの相対順は不変。
     check("重ね順は 光 → 走り → ズレの帯", (() => {
       const order = [
-        flat.indexOf("<g ref={glowGroupRef} mask={`url(#${glowFalloffId}-m)`}"),
+        flat.indexOf('<g ref={glowGroupRef} opacity="0">'),
         flat.indexOf('d="" fill="none" stroke={`url(#${gid})`}'),
         flat.indexOf("stroke={`url(#${barGradId})`}"),
       ];
@@ -2643,12 +2643,16 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       }
       return stops[stops.length - 1].value;
     };
+    // 【D-26】ストップの刻み方(ringGlowStops)は変えていない。減衰そのものを刻んだ列は
+    // もう DOM には出ないが、**刻みの機械が減衰カーブをきちんと近似すること**は
+    // 引き続き主張として要る(畳んだ列も同じ機械で作るため)。ここで作って確かめる。
+    const falloffStops = api.ringGlowStops(api.ringGlowAlphaAt);
     check("減衰のストップは RING_GLOW_STEPS+1 段(直線近似ではない)",
-      api.RING_GLOW_FALLOFF_STOPS.length === api.RING_GLOW_STEPS + 1 && api.RING_GLOW_STEPS >= 30,
-      `${api.RING_GLOW_FALLOFF_STOPS.length}段`);
+      falloffStops.length === api.RING_GLOW_STEPS + 1 && api.RING_GLOW_STEPS >= 30,
+      `${falloffStops.length}段`);
     check("ストップの offset は 0〜1 で非減少", (() => {
       let prev = -1;
-      for (const st of api.RING_GLOW_FALLOFF_STOPS) {
+      for (const st of api.RING_GLOW_ALPHA_STOPS) {
         if (!(st.offset >= 0 && st.offset <= 1)) return false;
         if (st.offset < prev - 1e-12) return false;
         prev = st.offset;
@@ -2656,33 +2660,75 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       return true;
     })());
     check("ストップの刻み始めはトラックの下(＝内側は必ず0から始まる)",
-      api.RING_GLOW_STOP_R0 <= api.RING_GLOW_RISE_R && api.RING_GLOW_FALLOFF_STOPS[0].value === 0,
+      api.RING_GLOW_STOP_R0 <= api.RING_GLOW_RISE_R && api.RING_GLOW_ALPHA_STOPS[0].value === 0,
       `刻み始め r=${api.RING_GLOW_STOP_R0}`);
     check("44段の近似は元の減衰カーブから peak の1.5%以上ずれない", (() => {
       let worst = 0;
       for (let r = api.RING_GLOW_STOP_R0; r <= api.RING_GLOW_R_MAX; r += 0.1) {
-        worst = Math.max(worst, Math.abs(interp(api.RING_GLOW_FALLOFF_STOPS, r) - api.ringGlowAlphaAt(r)));
+        worst = Math.max(worst, Math.abs(interp(falloffStops, r) - api.ringGlowAlphaAt(r)));
       }
       return worst < api.RING_GLOW_PEAK * 0.015;
     })(), (() => {
       let worst = 0;
       for (let r = api.RING_GLOW_STOP_R0; r <= api.RING_GLOW_R_MAX; r += 0.1) {
-        worst = Math.max(worst, Math.abs(interp(api.RING_GLOW_FALLOFF_STOPS, r) - api.ringGlowAlphaAt(r)));
+        worst = Math.max(worst, Math.abs(interp(falloffStops, r) - api.ringGlowAlphaAt(r)));
       }
       return `最大差 ${worst.toFixed(4)} (peak ${api.RING_GLOW_PEAK})`;
     })());
     check("実際に描かれる(ストップ補間後の)明るさも外縁でほぼ peak", (() => {
-      const v = interp(api.RING_GLOW_FALLOFF_STOPS, TRACK_OUT);
+      const v = interp(api.RING_GLOW_ALPHA_STOPS, TRACK_OUT);
       return v > api.RING_GLOW_PEAK * 0.97;
-    })(), `外縁での補間値 ${interp(api.RING_GLOW_FALLOFF_STOPS, TRACK_OUT).toFixed(4)}`);
-    check("内側と外側の傾斜マスクは足して1になる(掛け算で光が二重に濃くならない)", (() => {
-      for (let i = 0; i < api.RING_GLOW_SMOOTH_STOPS.length; i++) {
-        const s = api.RING_GLOW_SMOOTH_STOPS[i], g = api.RING_GLOW_GRAINY_STOPS[i];
-        if (Math.abs(s.offset - g.offset) > 1e-12) return false;
-        if (Math.abs(s.value + g.value - 1) > 1e-12) return false;
+    })(), `外縁での補間値 ${interp(api.RING_GLOW_ALPHA_STOPS, TRACK_OUT).toFixed(4)}`);
+    // ------------------------------------------------------------------
+    // 【D-26】畳んだアルファが「変更前の重ね方」と同じ形であること。
+    //
+    // 変更前は**同じ色の面を2枚**重ねていた: 下(内側)のアルファ a1 = 1-傾斜、
+    // 上(外側)のアルファ a2 = 傾斜。source-over は a = a2 + a1·(1-a2) なので、
+    // 期待値は**合成の規則から**組み立てる(実装の式 `(1-ramp)+ramp²` の書き写しではない)。
+    // 最後に減衰が掛かるのは、変更前に最外の減衰マスクが掛かっていたのと同じ。
+    // ------------------------------------------------------------------
+    check("畳んだアルファは「1-傾斜の面の上に傾斜の面を source-over」× 減衰と一致する", (() => {
+      for (let r = 0; r <= api.RING_GLOW_R_MAX + 20; r += 0.05) {
+        const a1 = 1 - api.ringGlowRampAt(r);       // 下(内側)の面
+        const a2 = api.ringGlowRampAt(r);           // 上(外側)の面
+        const want = api.ringGlowAlphaAt(r) * (a2 + a1 * (1 - a2));
+        if (Math.abs(api.ringGlowCombinedAt(r) - want) > 1e-12) return false;
       }
       return true;
+    })(), (() => {
+      let worst = 0;
+      for (let r = 0; r <= api.RING_GLOW_R_MAX + 20; r += 0.05) {
+        const a1 = 1 - api.ringGlowRampAt(r), a2 = api.ringGlowRampAt(r);
+        worst = Math.max(worst, Math.abs(api.ringGlowCombinedAt(r) - api.ringGlowAlphaAt(r) * (a2 + a1 * (1 - a2))));
+      }
+      return `最大の食い違い ${worst.toExponential(2)}`;
     })());
+    check("グラデーションのストップは、その半径での畳んだアルファそのもの(段数は問わない)", (() => {
+      const st = api.RING_GLOW_ALPHA_STOPS;
+      if (st.length < 2) return false;
+      for (const s of st) {
+        const r = s.offset * api.RING_GLOW_R_MAX;
+        const a1 = 1 - api.ringGlowRampAt(r), a2 = api.ringGlowRampAt(r);
+        if (Math.abs(s.value - api.ringGlowAlphaAt(r) * (a2 + a1 * (1 - a2))) > 1e-12) return false;
+      }
+      return true;
+    })(), `${api.RING_GLOW_ALPHA_STOPS.length}段`);
+    // 減衰マスクが無くなったので、「環の外へ漏れない」はグラデーションの端が持つ。
+    // 最後のストップが 0 で、その外は pad(最後の値の繰り返し)なので 0 のまま。
+    check("畳んだアルファは届く半径で 0 になり、その外も 0 のまま(減衰マスク無しでも漏れない)",
+      api.RING_GLOW_ALPHA_STOPS[api.RING_GLOW_ALPHA_STOPS.length - 1].value === 0
+      && Math.abs(api.RING_GLOW_ALPHA_STOPS[api.RING_GLOW_ALPHA_STOPS.length - 1].offset - 1) < 1e-12
+      && (() => {
+        for (let r = api.RING_GLOW_R_MAX; r <= api.RING_GLOW_R_MAX + 60; r += 0.5) {
+          if (api.ringGlowCombinedAt(r) !== 0) return false;
+        }
+        return true;
+      })(),
+      `端の値 ${api.RING_GLOW_ALPHA_STOPS[api.RING_GLOW_ALPHA_STOPS.length - 1].value}`);
+    check("畳んだアルファはトラックの内縁より内側で 0(音名の可読性は変わっていない)", (() => {
+      for (let r = 0; r <= TRACK_IN; r += 0.25) if (api.ringGlowCombinedAt(r) !== 0) return false;
+      return true;
+    })(), `内縁 ${TRACK_IN} での値 ${api.ringGlowCombinedAt(TRACK_IN)}`);
     // 実寸(CSS px)。光は環の外へ出るので SVG の overflow を切ってはいけない。
     {
       const px = (v) => v * (api.RING_D_FULL / api.RING_VB);
@@ -2736,27 +2782,35 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
       (ringCode.match(/mixBlendMode|mix-blend-mode/g) || []).join(",") || "");
     check("環のコードに blend / isolation の指定が無い",
       !/style=\{\{[^}]*blend/i.test(ringCode) && !/isolation/i.test(ringCode));
-    // 入れ子の形そのもの。いちばん外が減衰マスクで、内側が (1-傾斜) / 傾斜×粒 の2枚。
-    check("光は「減衰マスク」の <g> がいちばん外にある(ここが0なら何も描かれない)",
-      /<g ref=\{glowGroupRef\} mask=\{`url\(#\$\{glowFalloffId\}-m\)`\} opacity="0">/.test(flatRing));
-    check("内側は 減衰 × (1-傾斜) の滑らかな光",
-      /<g mask=\{`url\(#\$\{glowSmoothId\}-m\)`\}> <rect/.test(flatRing));
-    // 【D-23c】粒(feTurbulence)は撤去した。**画面に出ていなかった**(粒を1に固定した場合との
-    // 最大画素差 0.972/255 = 8bit の量子化より下)うえ、この光でいちばん高くつく部品だった。
-    // 本人の実機で、光が見えない ±4¢ の外は滑らかになり**内側だけカクついたまま**だったので、
-    // 残っていたコストは「光が見えている間の描き直し」= このフィルタだと分かった。
-    // **戻すときは、この周で直したカクつきが戻らないかを先に確かめること。**
-    check("外側は 減衰 × 傾斜 の入れ子(粒の <g> は撤去した)",
-      /<g mask=\{`url\(#\$\{glowGrainyId\}-m\)`\}> <rect/.test(flatRing)
-      && !/glowNoiseId/.test(ringCode));
+    // ------------------------------------------------------------------
+    // 【D-26 2026/09/02】**光からマスクとフィルタを1枚も残さず外した。**
+    //
+    // 出どころ: 本人の実機フィードバック第9陣「±4以内のメトロノームの挙動がまだ
+    // スムーズではない」。±4¢ の内側は光が見えている範囲＝明るさ(opacity)を
+    // 毎フレーム書いている範囲で、書き込みの起きる範囲と症状の範囲が一致していた。
+    // 相手は 460×460(SVG単位)のマスク3枚の入れ子。**マスクの掛かった部分木は
+    // 合成器に載らない**という仮説(D26-SPEC §1.3)に沿って、同じ絵になる
+    // 「1枚の矩形 + 1本のグラデーション」へ畳んだ。
+    //
+    // **ここが戻ると、狙った軽さも一緒に戻る。** 綴りではなく要素の有無で縛る。
+    // (カクつきが直ったかどうかは JS からは測れない ── 罠17。判定は本人の目だけ。)
+    // ------------------------------------------------------------------
+    check("光のいちばん外の <g> はマスクを持たない(明るさの段だけ)",
+      /<g ref=\{glowGroupRef\} opacity="0">/.test(flatRing)
+      && !/<g ref=\{glowGroupRef\}[^>]*mask=/.test(flatRing),
+      (flatRing.match(/<g ref=\{glowGroupRef\}[^>]*>/) || ["無し"])[0]);
+    check("光の面は矩形1枚で、畳んだグラデーションを塗る",
+      /<g ref=\{glowBreathRef\}> (?:\{\} )?<rect x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\} width=\{RING_GLOW_RECT_SIZE\} height=\{RING_GLOW_RECT_SIZE\} fill=\{`url\(#\$\{glowGradId\}\)`\} \/> <\/g>/
+        .test(flatRing),
+      (flatRing.match(/<g ref=\{glowBreathRef\}>[\s\S]{0,240}/) || ["無し"])[0]);
     // 【N-4a】終端の目印だったトラックを撤去したので、次の兄弟=走り(runGradIds の path)を
-    // 境界に使う。主張は変えていない: 2枚の光がどちらも減衰マスクの <g> の内側で閉じていること。
-    check("光の <g> は減衰マスクの中で閉じる(2枚の光がどちらも減衰の内側にある)", (() => {
+    // 境界に使う。主張は「光の面が明るさの段と呼吸の <g> の内側で閉じている」こと。
+    check("光の面は明るさの段 → 呼吸 の内側で閉じる(走りより手前に出ていない)", (() => {
       const open = flatRing.indexOf('<g ref={glowGroupRef}');
-      const smooth = flatRing.indexOf('<g mask={`url(#${glowSmoothId}-m)`}>');
-      const grainy = flatRing.indexOf('<g mask={`url(#${glowGrainyId}-m)`}>');
+      const breath = flatRing.indexOf('<g ref={glowBreathRef}>');
+      const rect = flatRing.indexOf('fill={`url(#${glowGradId})`}');
       const afterGlow = flatRing.indexOf('d="" fill="none" stroke={`url(#${gid})`}');
-      return open >= 0 && smooth > open && grainy > smooth && afterGlow > grainy;
+      return open >= 0 && breath > open && rect > breath && afterGlow > rect;
     })());
     // 【D-23c】環は SVG フィルタを1つも持たない。**ここが増えると、光が見えている間の
     // 描き直しが一気に高くなる**(粒を戻した瞬間にカクつきが戻る)。定数の読み手も消す。
@@ -2767,29 +2821,53 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     check("粒の定数は読み手ごと消えている(つまみだけ残さない)",
       !/RING_GLOW_GRAIN_LO|RING_GLOW_GRAIN_HI|RING_GLOW_SEED/.test(codeOf(src)),
       (codeOf(src).match(/RING_GLOW_(GRAIN_LO|GRAIN_HI|SEED)/g) || []).join(" ") || "0件");
-    // マスクは3枚(減衰 / 傾斜 / 1-傾斜)。それぞれ矩形1枚だけを持つ。
+    // 【D-26】マスクは0枚。**綴り(mask=)も要素(<mask>)も両方見る** ── 片方だけだと
+    // 「<mask> を defs へ移して mask= だけ残す」形が通ってしまう。
     const masks = (ringCode.match(/<mask[\s\S]*?<\/mask>/g) || []);
-    check("マスクは3枚(減衰 / 傾斜 / 1-傾斜)", masks.length === 3, `${masks.length}枚`);
-    check("radialGradient は3つ(減衰 / 傾斜 / 1-傾斜)",
-      (ringCode.match(/<radialGradient[\s\S]*?<\/radialGradient>/g) || []).length === 3);
-    check("3つのグラデーションはユーザー座標系・環と同心・半径は RING_GLOW_R_MAX",
-      (ringCode.match(/gradientUnits="userSpaceOnUse" cx=\{CX\} cy=\{CY\} r=\{RING_GLOW_R_MAX\}/g) || []).length === 3);
-    // 【D-23c】粒のマスクが1枚減ったので 6 → 5(マスク3枚 + 光を塗る矩形2枚)。
-    check("マスクの矩形はどれも光を塗る矩形と同じ大きさ",
-      (ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length === 5,
+    check("環は SVG マスクを1枚も持たない(D-26 で3枚 → 0枚)",
+      masks.length === 0 && !/\bmask=/.test(ringCode) && !/clipPath/.test(ringCode),
+      `<mask> ${masks.length}枚 / mask= ${(ringCode.match(/\bmask=/g) || []).length}箇所`);
+    check("radialGradient は1つ(畳んだアルファ)",
+      (ringCode.match(/<radialGradient[\s\S]*?<\/radialGradient>/g) || []).length === 1,
+      `${(ringCode.match(/<radialGradient[\s\S]*?<\/radialGradient>/g) || []).length}個`);
+    check("グラデーションはユーザー座標系・環と同心・半径は RING_GLOW_R_MAX",
+      (ringCode.match(/gradientUnits="userSpaceOnUse" cx=\{CX\} cy=\{CY\} r=\{RING_GLOW_R_MAX\}/g) || []).length === 1);
+    // 【D-26】光を塗る矩形は1枚だけ。位置も大きさも既存の定数から出す(新しい寸法を作らない)。
+    check("光を塗る矩形は1枚だけで、大きさは既存の定数から出す",
+      (ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length === 1,
       `${(ringCode.match(/x=\{RING_GLOW_RECT_MIN\} y=\{RING_GLOW_RECT_MIN\}/g) || []).length}箇所`);
-    // 毎フレーム変えるのは明るさだけ。ノイズや減衰ストップを作り直すと重い。
+    // 毎フレーム変えるのは明るさだけ。ストップを作り直すと重い。
+    // 【D-26】書く値は 8bit へ量子化した ringGlowQuant(opNum)。
     check("rAF が触るのはいちばん外の <g> の opacity だけ(ストップは作り直さない)",
       /glow\.setAttribute\("opacity", op\)/.test(ringCode)
       && !/setAttribute\("stop-opacity"/.test(ringCode)
       && !/ringGlowStops\(/.test(ringCode));
-    check("減衰・傾斜のストップはモジュール定数として1度だけ作る",
-      /const RING_GLOW_FALLOFF_STOPS = ringGlowStops\(ringGlowAlphaAt\);/.test(codeOf(src))
-      && /const RING_GLOW_GRAINY_STOPS = ringGlowStops\(ringGlowRampAt\);/.test(codeOf(src))
-      && /const RING_GLOW_SMOOTH_STOPS = ringGlowStops\(\(r\) => 1 - ringGlowRampAt\(r\)\);/.test(codeOf(src)));
-    check("光の色は元色が変わったときだけ塗り替える(走りの有無とは別のキー)",
-      /const baseKey = base\.join\(","\);/.test(ringCode)
-      && /el\.setAttribute\("fill", `rgb\(\$\{gl\[0\]\},\$\{gl\[1\]\},\$\{gl\[2\]\}\)`\)/.test(ringCode));
+    check("畳んだアルファのストップはモジュール定数として1度だけ作る",
+      /const RING_GLOW_ALPHA_STOPS = ringGlowStops\(ringGlowCombinedAt\);/.test(codeOf(src))
+      && !/RING_GLOW_FALLOFF_STOPS|RING_GLOW_GRAINY_STOPS|RING_GLOW_SMOOTH_STOPS/.test(codeOf(src)));
+    // 【D-26】色の書き先は**グラデーション1つのカスタムプロパティ**。
+    // ストップ45個へ書きに行く形になっていないことも同時に見る(そちらは毎フレーム走ると重い)。
+    // 【局所変数の名前では見ない】ここは「見えているフレームだけ、グラデーションの色を
+    // 1回書く」という主張。変数名を変えただけで落ちる検査にはしない(罠4 と同じ性質)。
+    // 見るのは**その枝の中身**: グラデーションの ref を読み、color を書いていること。
+    {
+      const i = ringCode.indexOf("if (opNum > 0 && baseKey !== lastBase) {");
+      const j = i >= 0 ? ringCode.indexOf("\n      }", i) : -1;
+      const branch = i >= 0 && j > i ? ringCode.slice(i, j) : "";
+      check("光の色は元色が変わったときだけ塗り替える(走りの有無とは別のキー)",
+        /const baseKey = base\.join\(","\);/.test(ringCode)
+        && branch.length > 60
+        && /glowGradRef\.current/.test(branch)
+        && /setAttribute\("color", `rgb\(\$\{gl\[0\]\},\$\{gl\[1\]\},\$\{gl\[2\]\}\)`\)/.test(branch)
+        && !/setAttribute\("stop-color"/.test(branch),
+        branch.replace(/\s+/g, " ").slice(0, 200));
+    }
+    // ストップは currentColor でグラデーションの color を継ぐ。**書き先は1つだけ**なので、
+    // 45個のストップへ毎回書きに行く形にはならない。静的な初期値は機能色の緑。
+    check("グラデーションのストップは currentColor でその色を継ぐ(既定は機能色の緑)",
+      /stopColor="currentColor"/.test(ringCode)
+      && (ringCode.match(/stopColor="currentColor"/g) || []).length === 1
+      && /ref=\{\(el\) => \{ glowGradRef\.current = el; \}\} color="var\(--c-good\)"/.test(ringCode));
   }
 
   // ------------------------------------------------------------------
@@ -3183,7 +3261,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     const t = /const op = [^\n]*/.exec(ringCode);
     if (!m || !t) return false;
     return m[0].trim() === "const opNum = ringGlowOpacity(raw, 1, glowCents);"
-      && t[0].trim() === "const op = opNum.toFixed(4);"
+      && t[0].trim() === "const op = ringGlowQuant(opNum);"
       && !/reduce/.test(m[0]) && !/reduce/.test(t[0]);
   })(), `${(/const opNum = [^\n]*/.exec(ringCode) || [""])[0].trim()} | ${(/const op = [^\n]*/.exec(ringCode) || [""])[0].trim()}`);
   // 【D-23b】見えていないフレームは光の色を書かない(opacity 0 なので画面に1pxも出ない)。
@@ -15224,29 +15302,72 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       ${extractConst("MY_DATA_SIGNED_METRIC")}
       ${extractFunction("myDataSeriesOptions")}
       ${extractFunction("myDataSeriesFallback")}
+      ${extractFunction("myDataSeriesPick")}
       ${extractFunction("myDataSeriesLabel")}
-      return { myDataSeriesOptions, myDataSeriesFallback, myDataSeriesLabel,
+      return { myDataSeriesOptions, myDataSeriesFallback, myDataSeriesPick, myDataSeriesLabel,
                MY_DATA_SERIES, MY_DATA_SERIES_DEFAULT, MY_DATA_SIGNED_METRIC };`)();
-    const keys = (hi, taken) => api.myDataSeriesOptions(hi, taken ?? null).map((t) => t.key).join(",");
+    const keys = (hi) => api.myDataSeriesOptions(hi).map((t) => t.key).join(",");
     check("27.4 D-14: 候補は その日 / my平均 / 目安 の3つ(±0 は本人指示で削除)",
       api.MY_DATA_SERIES.map((x) => x.key).join(",") === "day,period,reference",
       api.MY_DATA_SERIES.map((x) => x.key).join(","));
     // 【D-14】「±0 は平均差分のときだけ」という規則そのものが消えた。**規則が消えたことを
     // 主張する**: 候補の並びが指標に依らない ── どころか、指標を受け取る口が無い。
     check("27.4 D-14: 選択肢は指標を見ない(±0 と一緒に pitchOnly の規則ごと消えた)",
-      api.myDataSeriesOptions.length === 2
+      api.myDataSeriesOptions.length === 1
       && !/pitchOnly/.test(codeOf(src))
       && !api.MY_DATA_SERIES.some((t) => "pitchOnly" in t),
-      `引数 ${api.myDataSeriesOptions.length}個 / pitchOnly ${(codeOf(src).match(/pitchOnly/g) || []).length}箇所`);
+      `引数 ${api.myDataSeriesOptions.length}個(D-27 で taken を落として1個) / pitchOnly ${(codeOf(src).match(/pitchOnly/g) || []).length}箇所`);
     check("27.4 D-9: 目安が未設定なら「目安」を列に出さない(押せない選択肢を作らない。F-77)",
       keys(true) === "day,period,reference" && keys(false) === "day,period",
       `${keys(true)} / ${keys(false)}`);
-    // 【本人指示】「左右で同じものを選べないように、一方で選ばれているものはそもそも
-    // もう一方の選択肢から削除するようにして」。
-    check("27.4 D-9: もう一方で選ばれている系列は選択肢から消える",
-      keys(true, "day") === "period,reference"
-      && keys(true, "reference") === "day,period",
-      `${keys(true, "day")} / ${keys(true, "reference")}`);
+    // 【D-27 2026/09/02 本人指示で方針が変わった】D-9 の
+    // 「一方で選ばれているものはもう一方の選択肢から削除する」は**やめた**。
+    // 本人「一方選択中はもう一方に出ないことになっているせいで**サクッと入れ替えたいときに
+    // 入れ替えができない**」。ここは旧挙動を固定していた検査だったので、
+    // **消すのではなく「入れ替わる」を固定する検査へ置き換える**
+    // (正しい修正を止める検査を残さない ── 罠4)。
+    check("27.4 D-27: 候補は相手側で減らない(常に全部出る。入れ替えの口を塞がない)",
+      keys(true) === "day,period,reference" && keys(false) === "day,period",
+      `${keys(true)} / ${keys(false)}`);
+    // **入れ替えそのもの。** 純関数を実際に呼んで数値で確かめる(綴りでは見ない)。
+    {
+      const pick = (pr, side, key, hi = true) => api.myDataSeriesPick(pr, side, key, hi).join(",");
+      check("27.4 D-27: もう一方で選ばれているものを選ぶと**入れ替わる**",
+        pick(["day", "period"], 0, "period") === "period,day"
+        && pick(["day", "period"], 1, "day") === "period,day",
+        `${pick(["day", "period"], 0, "period")} / ${pick(["day", "period"], 1, "day")}`);
+      check("27.4 D-27: 相手と違うものを選んだら、相手はそのまま(入れ替えは同じものを選んだときだけ)",
+        pick(["day", "period"], 0, "reference") === "reference,period"
+        && pick(["day", "period"], 1, "reference") === "day,reference",
+        `${pick(["day", "period"], 0, "reference")} / ${pick(["day", "period"], 1, "reference")}`);
+      check("27.4 D-27: 同じものを選び直しても組は変わらない(自分自身は入れ替えにならない)",
+        pick(["day", "period"], 0, "day") === "day,period"
+        && pick(["day", "period"], 1, "period") === "day,period");
+      // **左右が同じになる操作は存在しない**。選択肢から消す規則を外したので、
+      // ここが唯一の番人になった ── 総当たりで確かめる。
+      const ALL = ["day", "period", "reference"];
+      check("27.4 D-27: どの組・どちら側・どの候補を選んでも、左右が同じにはならない",
+        [true, false].every((hi) => ALL.every((a) => ALL.every((b) => [0, 1].every((side) =>
+          ALL.every((k) => {
+            const out = api.myDataSeriesPick([a, b], side, k, hi);
+            return out[0] !== out[1] && out[0] !== null && out[1] !== null;
+          }))))));
+      // 目安が無いときに目安を選んでも、落とし先の規則が受け止める(例外にも空にもならない)。
+      check("27.4 D-27: 目安が未設定のまま目安を選んでも、選べる組へ落ちる",
+        pick(["day", "period"], 0, "reference", false) === "day,period",
+        pick(["day", "period"], 0, "reference", false));
+      // 【D-28】**入口も落とし先を通すこと。** 出口(返り値)だけを見ていたので、
+      // 1行目の `myDataSeriesFallback(pair, hasIdeal)` を `(pair || []).slice()` に変える
+      // 変異が PASS 7223 / FAIL 0 で素通りした(独立審査の実測)。
+      // 効くのは**組の生値と画面表示がずれている**とき ── 目安を選んだあとに理想値
+      // プロファイルが外れた場合などに実際に起こる。そのとき画面は「今日 × my平均」を
+      // 出しているのに、生値は ["reference","day"]。入口で落とし先を通さないと
+      // **画面で見えているものを選んでも何も起きない**(入れ替えが死ぬ)。
+      check("27.4 D-28: 生値が選べない組でも、画面に見えている側を選べば入れ替わる(入口も落とし先を通す)",
+        pick(["reference", "day"], 1, "day", false) === "period,day"
+        && pick(["day", "day"], 1, "day", true) === "period,day",
+        `${pick(["reference", "day"], 1, "day", false)} / ${pick(["day", "day"], 1, "day", true)}`);
+    }
     check("27.4 D-9: その日と my平均はどの条件でも残る(列が空にならない)",
       [true, false].every((hi) => keys(hi).startsWith("day,period")));
     // 既定と落とし先
@@ -15419,8 +15540,29 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.4c 同じ役割の「条件」ラベル(PIVOT)も同時に消えている",
       !/>条件</.test(codeOf(src)));
     check("27.4c D-9: それでも系列は**選べる**(ラベルだけを消したのであって機能は残っている)",
-      /myDataSeriesOptions\(hasIdeal, pair\[sheetSide === 0 \? 1 : 0\]\)/.test(myDataSection)
+      /myDataSeriesOptions\(hasIdeal\)/.test(myDataSection)
       && /setSeriesAt\(sheetSide, k\)/.test(myDataSection));
+    // 【D-28】**シートが候補を絞り込まないこと。**
+    // 以前の 27.4c は綴り `myDataSeriesOptions(hasIdeal)` の存在しか見ておらず、
+    //   items={myDataSeriesOptions(hasIdeal).filter((o) => o.key !== pair[sheetSide === 0 ? 1 : 0])
+    // という**後ろに足すだけ**の変異が PASS 7223 / FAIL 0 で素通りした(独立審査の実測)。
+    // これは本人が第9陣で苦情を言った状態そのもの(もう一方が出ない)を復活させる。
+    // 純関数の検査は全部緑のままなので、**配線を直接見るしかない**(罠2)。
+    // 診断の名詞は「**もう一方の値を見て絞り込む**」── その2つを名指しで禁じる(罠20)。
+    {
+      const m = /items=\{([\s\S]*?)\}\s*\n\s*value=\{pair\[sheetSide\]\}/.exec(myDataSection);
+      const expr = m ? m[1] : "";
+      check("27.4c D-28: シートに渡す候補の式が読める", expr.length > 0, expr.slice(0, 120));
+      check("27.4c D-28: シートは候補を絞り込まない(.filter を挟まない)",
+        expr.length > 0 && !/\.filter\(/.test(expr), expr.slice(0, 200));
+      check("27.4c D-28: シートはもう一方の側の値を見ない(pair[…] を参照しない)",
+        expr.length > 0 && !/pair\s*\[/.test(expr), expr.slice(0, 200));
+    }
+    // 【D-27】画面が**入れ替えの純関数を通す**こと。ここが外れると、入れ替えの検査が
+    // 全部緑のまま画面だけ旧挙動に戻る(罠2: 純関数を守っても配線が無防備なら意味がない)。
+    check("27.4c D-27: 系列を決めるのは myDataSeriesPick(画面に規則を書き写していない)",
+      /setPairRaw\(\(prev\) => myDataSeriesPick\(prev, side, key, hasIdeal\)\)/.test(myDataSection),
+      (myDataSection.match(/myDataSeriesPick\([^)]*\)/g) || []).join(" ") || "0件");
     check("27.4c それでも PIVOT の**条件チップ**は残っている(ラベルだけを消した)",
       /pivotFilters\.map\(/.test(srcOfFn(src, "AnalysisLabView")));
 
@@ -19789,9 +19931,11 @@ console.log("\n========== 検証42: D-23d 光の呼吸を CSS へ ==========");
       .replace(/\s*\n\s*/g, " ");
     const outer = flat42.indexOf('<g ref={glowGroupRef}');
     const inner = flat42.indexOf('<g ref={glowBreathRef}>');
-    const smooth = flat42.indexOf('<g mask={`url(#${glowSmoothId}-m)`}>');
-    check("42.3 呼吸の <g> は明るさの段の内側・2枚の光の外側にある",
-      outer >= 0 && inner > outer && smooth > inner);
+    // 【D-26】内側の2枚(マスク付き)は1枚の矩形になった。主張は変えていない:
+    // 呼吸の <g> は明るさの段の内側で、光の面の外側にある(掛け算の順序が同じ)。
+    const face = flat42.indexOf('fill={`url(#${glowGradId})`}');
+    check("42.3 呼吸の <g> は明るさの段の内側・光の面の外側にある",
+      outer >= 0 && inner > outer && face > inner);
     // マスクや塗りを持たせると、掛け算の形が変わって見え方が動く。
     check("42.3 呼吸の <g> は透明度だけを持つ(マスクも塗りも持たない)",
       /<g ref=\{glowBreathRef\}>/.test(flat42));
@@ -19799,12 +19943,21 @@ console.log("\n========== 検証42: D-23d 光の呼吸を CSS へ ==========");
   console.log("  -> done");
 }
 
-console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タップテンポ ==========");
+console.log("\n========== 検証43: D-25 クリック音は木の1種 / タップテンポ ==========");
 {
   // ============================================================
   // Web Audio の作り物。**何が作られ、どの値が設定され、どこへ繋がれたか**を
   // 順番どおりの文字列にして残す。実装の綴りではなく「組み上がる音の graph」を見るので、
   // 書き方を変えても値が同じなら通り、値が変われば必ず落ちる。
+  //
+  // 【D-25】作り物が本物より甘いと検査は嘘をつく(罠19)。6次審査が実測した
+  // **すり抜けた壊し方**は、どれも作り物が「本物の持ち物」を落としていたせいだった:
+  //   ・`src.loop = true` … 本物は stop() が無ければ**永久に鳴り続ける**。作り物は
+  //     loop を graph に1文字も残していなかった → 1拍ごとに音源が1本増えて数秒で飽和。
+  //   ・`src.start(t, 0.055)` / `src.start(t, 0, 0.002)` … 本物の
+  //     AudioBufferSourceNode.start は (when, offset, duration) を取る。作り物も
+  //     renderClick も第2・第3引数を捨てていた → 実測 −52.7dB / −2.1dB でも満額の波形。
+  // ここでは loop も start の全引数も**必ず graph に残す**。
   // ============================================================
   const r6 = (t) => Number(t.toFixed(6));
   function makeCtx(sampleRate = 48000, currentTime = 0) {
@@ -19826,9 +19979,8 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
         // 【D-24d】本物の Web Audio は connect(undefined) で TypeError を投げる。
         // ここで "destination" に化けさせていたため、**繋がっていない配線を
         // 「出口へ繋いだ」と記録**し、reachesOutput の12件が全部 PASS のまま
-        // 新3種が完全に鳴らない実装を通した(4次審査の実測)。
-        // 罠19 が名指しした `|| 0` と同じ「無いを有効な値に化けさせる」綴りを、
-        // **罠19 を書いた本人が新しい道具の唯一の入力に入れていた。**
+        // 音が完全に鳴らない実装を通した(4次審査の実測)。
+        // 罠19 が名指しした `|| 0` と同じ「無いを有効な値に化けさせる」綴り。
         if (!dst || !dst.__id) throw new TypeError(`connect: 繋ぎ先が無い(${id})`);
         log.push(`${id} -> ${dst.__id}`);
       } };
@@ -19848,8 +20000,21 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
       createBufferSource() {
         const nd = node("bufferSource");
         nd.buffer = null;
-        nd.start = (t) => log.push(`${nd.__id}.start(${r6(t)})`);
+        // 【D-25】start の第2引数(offset)・第3引数(duration)も残す。渡されたときだけ出す
+        // ので、正しい `start(t)` の graph は D-24 のときと1文字も変わらない。
+        nd.start = (t, offset, duration) => {
+          log.push(`${nd.__id}.start(${r6(t)})`);
+          if (offset !== undefined) log.push(`${nd.__id}.startOffset=${offset}`);
+          if (duration !== undefined) log.push(`${nd.__id}.startDuration=${duration}`);
+        };
         nd.stop = (t) => log.push(`${nd.__id}.stop(${r6(t)})`);
+        // 【D-25】loop も残す。本物は loop = true かつ stop() 無しで鳴り止まない。
+        let looping = false;
+        Object.defineProperty(nd, "loop", {
+          get() { return looping; },
+          set(v) { looping = v; log.push(`${nd.__id}.loop=${v}`); },
+          configurable: true,
+        });
         return nd;
       },
       createOscillator() {
@@ -19878,214 +20043,305 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
       },
     };
   }
-  // 雑音バッファの中身は Math.random に依存する。**包絡だけ**を見たいので固定値に差し替える
-  // (差し替えたら必ず戻す)。data[i] = 1 * decay になるので、data がそのまま包絡になる。
+  // 雑音バッファの中身は Math.random に依存する。**graph だけ**を見たいので固定値に差し替える
+  // (差し替えたら必ず戻す)。graph に標本の中身は現れないので、ここでの固定は graph を
+  // 決定的にするためだけのもの。
+  // **「中身が本当に雑音か」は、この固定を使わずに 43.0 が別に見る** ── D-24 までは
+  // Math.random = () => 1 に固定した観測しか無く、`data[i] = decay`(雑音が消えて直流パルスに
+  // なる = バンドパスの共振音「ピー」)が素通りしていた(6次審査の実測)。
   function withFixedRandom(fn) {
     const orig = Math.random;
     Math.random = () => 1;
     try { return fn(); } finally { Math.random = orig; }
   }
-  // 1回ぶんのクリックを組み立て、graph を1本の文字列にして返す
-  function graphOf(sound, kind, t = 0) {
+  // 1回ぶんのクリックを、渡した予約関数で組み立てて graph を1本の文字列にして返す。
+  // schedule は (ctx, t, kind) ── いまの実装でも、変更前の木の標本でもよい。
+  function graphWith(schedule, kind, t = 0) {
     return withFixedRandom(() => {
       const ctx = makeCtx();
-      const r = runFn(api.scheduleMetroClick, ctx, t, kind, sound);
+      const r = runFn(schedule, ctx, t, kind);
       if (!r.ok) return `例外(${r.err})`;
       return ctx.log.join("\n");
     });
   }
+  const graphOf = (kind, t = 0) => graphWith(api.scheduleMetroClick, kind, t);
+  const graphBefore = (kind, t = 0) => graphWith(scheduleBeforeWood, kind, t);
+  const KINDS = ["accent", "beat", "sub"];
 
-  // --- 43.0 現行の音は1つも変わっていない(A/B の基準が消えないこと。仕様 §1.3) -----
-  // 期待値は **D-23 = b903df2 の App.jsx を Node で駆動して得た graph** そのもの。
-  // 実装の綴りを写したのではなく、変更前のコードが「実際に作った音」を凍らせてある。
-  // ここが落ちたら、現行の音が動いたということ。
-  {
-    const GOLD_ACCENT = [
-      "createBuffer(1,2880)",
-      "biquad#2.type=bandpass",
-      "biquad#2.frequency=2900",
-      "biquad#2.Q=1.6",
-      "gain#3.gain.setValueAtTime(1,0)",
-      "gain#3.gain.expRamp(0.0001,0.06)",
-      "bufferSource#1 -> biquad#2",
-      "biquad#2 -> gain#3",
-      "comp#4.threshold=-3",
-      "comp#4.knee=0",
-      "comp#4.ratio=20",
-      "comp#4.attack=0.002",
-      "comp#4.release=0.05",
-      "gain#5.gain=2.6",
-      "comp#4 -> gain#5",
-      "gain#5 -> destination",
-      "gain#3 -> comp#4",
-      "bufferSource#1.start(0)",
-    ].join("\n");
-    const GOLD_BEAT = ["biquad#2.frequency=2000", "biquad#2.Q=1.6", "gain#3.gain.setValueAtTime(0.85,0)"];
-    const GOLD_SUB = ["biquad#2.frequency=1300", "biquad#2.Q=1.6", "gain#3.gain.setValueAtTime(0.6,0)"];
-    const gotAccent = graphOf("current", "accent");
-    check("43.0 現行(accent)の音の graph が D-23 と1文字も違わない", gotAccent === GOLD_ACCENT,
-      gotAccent === GOLD_ACCENT ? "" : gotAccent.slice(0, 500));
-    for (const [kind, want] of [["beat", GOLD_BEAT], ["sub", GOLD_SUB]]) {
-      const got = graphOf("current", kind);
-      check(`43.0 現行(${kind})の中心周波数・Q・音量が D-23 のまま`,
-        want.every((w) => got.includes(w)), got.slice(0, 300));
+  // graph を「音源から出口までの一本の鎖」として読み解く。節点の番号(#1/#2…)は
+  // ノードを作る順で決まるので、**番号には意味を持たせない**(変更前は createGain が先、
+  // いまは createBufferSource が先なので、同じ音でも番号は違う)。
+  const parseGraph = (g) => {
+    const lines = String(g).split("\n").filter(Boolean);
+    const edges = new Map();
+    const props = new Map();
+    let buffer = null;
+    for (const l of lines) {
+      let m = /^(\S+) -> (\S+)$/.exec(l);
+      if (m) { if (!edges.has(m[1])) edges.set(m[1], []); edges.get(m[1]).push(m[2]); continue; }
+      m = /^createBuffer\((\d+),(\d+)\)$/.exec(l);
+      if (m) { buffer = `createBuffer(${m[1]},${m[2]})`; continue; }
+      m = /^(\w+#\d+)\.(.+)$/.exec(l);
+      if (m) { if (!props.has(m[1])) props.set(m[1], []); props.get(m[1]).push(m[2]); }
     }
-    // sound を渡さない呼び方(既定)も現行と同じであること
-    check("43.0 sound を渡さなければ現行の音になる(既定は current)",
-      graphOf(undefined, "accent") === GOLD_ACCENT);
-    check("43.0 保存値が壊れていても現行に落ちる",
-      graphOf("こわれた値", "accent") === GOLD_ACCENT && api.metroClickSoundId(null) === "current"
-      && api.metroClickSoundId("wood") === "wood");
-    // 雑音バッファの包絡そのもの(60ms / exp(-i/(n*0.15)))も凍らせる
+    const sm = lines.map((l) => /^((?:bufferSource|oscillator)#\d+)\.start\(/.exec(l)).find(Boolean);
+    const chain = [];
+    const seen = new Set();
+    let cur = sm ? sm[1] : null;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      // 【罠4】節点ごとの設定は**並び順を持たない集合**として読む。宣言や設定の順を
+      // 入れ替えただけの書き換え(BiquadFilter の type / frequency / Q はどの順に入れても
+      // 同じ音になる)は正しい書き換えなので、ここで落としてはいけない。
+      chain.push({ kind: cur.replace(/#\d+$/, ""), props: (props.get(cur) || []).slice().sort() });
+      const outs = edges.get(cur) || [];
+      cur = outs.length === 1 ? outs[0] : null; // 枝分かれ・行き止まりは「一本の鎖」ではない
+    }
+    // 【罠4】**何も設定されていないゲインは素通し**(既定値 1)なので、鎖の意味を変えない。
+    // 経路に素通しのゲインを1段挟むのは正しい書き換えなので、ここで落としてはいけない
+    // (D-24d が「KILL されては困る変異」として実測している)。値を1つでも持つゲイン
+    // (クリックの音量・マスターの 2.6)は props を持つので残る。
+    const meaningful = chain.filter((c) => !(c.kind === "gain" && c.props.length === 0));
+    return { buffer, chain: meaningful, raw: chain };
+  };
+
+  // --- 43.0 【D-25】変更前の木(5ab5206)を実際に駆動して、変わったところだけを数える ----
+  // 罠16: 「狙いどおりの差だけ」を主張するなら**変更前を測る**。定数を書き写した期待値
+  // (2100/1500 = 1.4 など)は実装の言い換えにしかならない(罠3)ので、
+  // **変更前のコードそのもの**(scripts/metro-click-before.mjs = git show 5ab5206:src/App.jsx
+  // からの逐語の標本)を同じ作り物の上で走らせ、組み上がった graph 同士を突き合わせる。
+  {
+    const before = parseGraph(graphBefore("accent"));
+    const now = parseGraph(graphOf("accent"));
+    check("43.0 変更前の木も、いまの木も、同じ形の鎖を組む(音源→フィルタ→音量→リミッター→マスター→出口)",
+      before.chain.length === now.chain.length
+      && before.chain.every((c, i) => c.kind === now.chain[i].kind)
+      && now.chain.map((c) => c.kind).join(">") === "bufferSource>biquad>gain>comp>gain>destination",
+      `変更前 ${before.chain.map((c) => c.kind).join(">")} / いま ${now.chain.map((c) => c.kind).join(">")}`);
+    check("43.0 雑音バッファの作り方は変更前と同じ", before.buffer === now.buffer,
+      `変更前 ${before.buffer} / いま ${now.buffer}`);
+    // 鎖の各節点の設定を1つずつ突き合わせ、**食い違った項目だけ**を集める。
+    const diffs = [];
+    const okShape = before.chain.length === now.chain.length;
+    if (okShape) {
+      for (let i = 0; i < before.chain.length; i++) {
+        const a = before.chain[i].props, b = now.chain[i].props;
+        if (a.length !== b.length) { diffs.push({ i, a: a.join("|"), b: b.join("|") }); continue; }
+        for (let j = 0; j < a.length; j++) if (a[j] !== b[j]) diffs.push({ i, kind: before.chain[i].kind, a: a[j], b: b[j] });
+      }
+    }
+    // 動かしてよいのは**3つだけ**: 中心周波数 / 音量(makeup) / 包絡が落ちきる時刻(decay)。
+    const isFreq = (d) => d.kind === "biquad" && /^frequency=/.test(d.a) && /^frequency=/.test(d.b);
+    const isVol = (d) => d.kind === "gain" && /^gain\.setValueAtTime\(/.test(d.a) && /^gain\.setValueAtTime\(/.test(d.b);
+    const isDecay = (d) => d.kind === "gain" && /^gain\.expRamp\(0\.0001,/.test(d.a) && /^gain\.expRamp\(0\.0001,/.test(d.b);
+    check("43.0 変更前の木から動いたのは **中心周波数・音量(makeup)・減衰の3つだけ**",
+      okShape && diffs.length === 3 && diffs.filter(isFreq).length === 1
+      && diffs.filter(isVol).length === 1 && diffs.filter(isDecay).length === 1,
+      diffs.map((d) => `${d.kind || "?"}: ${d.a} → ${d.b}`).join(" / ") || "差分なし");
+    // 3段とも「高くなった」「鋭くなった」「Q は据え置き」。**両辺とも駆動した結果**から読む。
+    const numOf = (re, g) => { const m = re.exec(g); return m ? parseFloat(m[1]) : NaN; };
+    const freqOf = (g) => numOf(/biquad#\d+\.frequency=([\d.]+)/, g);
+    const qOf = (g) => numOf(/biquad#\d+\.Q=([\d.]+)/, g);
+    const envEndOf = (g) => {
+      const t = [...String(g).matchAll(/gain#\d+\.gain\.expRamp\(0\.0001,([\d.]+)\)/g)].map((m) => parseFloat(m[1]));
+      return t.length ? Math.max(...t) : NaN;
+    };
+    const volOf = (g) => numOf(/gain#\d+\.gain\.setValueAtTime\(([\d.]+),/, g);
+    for (const kind of KINDS) {
+      const b = graphBefore(kind), a = graphOf(kind);
+      check(`43.0 ${kind}: いまの木は変更前の木より**高い**(本人の指示「もう少し音を高く」)`,
+        freqOf(a) > freqOf(b), `変更前 ${freqOf(b)}Hz → いま ${freqOf(a)}Hz`);
+      check(`43.0 ${kind}: いまの木は変更前の木より**減衰が短い**(本人の指示「鋭く」)`,
+        envEndOf(a) < envEndOf(b), `変更前 ${(envEndOf(b) * 1000).toFixed(1)}ms → いま ${(envEndOf(a) * 1000).toFixed(1)}ms`);
+      check(`43.0 ${kind}: Q は変更前の木のまま(木の芯=音程感を作るのは Q。下げると別の音になる)`,
+        qOf(a) === qOf(b), `変更前 Q=${qOf(b)} / いま Q=${qOf(a)}`);
+    }
+    // 3段の音量比は変更前と同じ(makeup が変わっても**比**は動かない)
+    const ratio = (g3) => [g3[1] / g3[0], g3[2] / g3[0]];
+    const rb = ratio(KINDS.map((k) => volOf(graphBefore(k))));
+    const ra = ratio(KINDS.map((k) => volOf(graphOf(k))));
+    check("43.0 3段の音量比は変更前の木と同じ(1 : 0.85 : 0.6 は D-24 §1.2 が凍結)",
+      Math.abs(rb[0] - ra[0]) < 1e-9 && Math.abs(rb[1] - ra[1]) < 1e-9,
+      `変更前 1:${rb[0]}:${rb[1]} / いま 1:${ra[0]}:${ra[1]}`);
+    // 差分検出そのものの裏取り: 何も変えていない2つを比べたら差分は 0、
+    // 1つだけ変えたら 1 になること(自明に3を返す作りになっていないか)。
     {
-      const ctx = makeCtx();
-      const buf = withFixedRandom(() => runFn(api.getMetroClickBuffer, ctx).v);
-      const d = buf && buf.getChannelData(0);
-      const nSamp = Math.ceil(48000 * 0.06);
-      check("43.0 現行の雑音バッファは 60ms(=2880サンプル @48kHz)", !!d && d.length === nSamp,
-        d ? String(d.length) : "取れない");
-      const wantAt = (i) => Math.exp(-i / (nSamp * 0.15));
-      const worst = d ? Math.max(...[0, 100, 432, 1000, 2879].map((i) => Math.abs(d[i] - wantAt(i)))) : 1;
-      check("43.0 現行の雑音バッファの減衰は exp(-i/(n*0.15)) のまま", worst < 1e-6, String(worst));
+      const g = graphOf("accent");
+      const same = parseGraph(g), tweak = parseGraph(g.replace(/Q=([\d.]+)/, "Q=99"));
+      const cnt = (x, y) => {
+        let c = 0;
+        for (let i = 0; i < x.chain.length; i++) {
+          const p = x.chain[i].props, q = y.chain[i].props;
+          for (let j = 0; j < p.length; j++) if (p[j] !== q[j]) c++;
+        }
+        return c;
+      };
+      check("43.0 差分の数え方が本物(同じ graph なら 0 / Q だけ変えたら 1)",
+        cnt(same, same) === 0 && cnt(same, tweak) === 1, `${cnt(same, same)} / ${cnt(same, tweak)}`);
+      // 素通しのゲインを1段挟んでも鎖は同じと読むこと(罠4: 正しい書き換えを落とさない)。
+      // 値を持つゲインを挟んだら、そのときは必ず違うと読むこと。
+      {
+        const insert = (extra) => g.replace(/^(gain#\d+) -> (comp#\d+)$/m,
+          (mm, a, b) => `${a} -> gain#9\n${extra}gain#9 -> ${b}`);
+        const withNoop = parseGraph(insert(""));
+        const withReal = parseGraph(insert("gain#9.gain=0.5\n"));
+        const shape = (x) => x.chain.map((c) => c.kind).join(">");
+        check("43.0 鎖の読み方が本物(素通しのゲインは無視し、値を持つゲインは無視しない)",
+          shape(withNoop) === shape(same) && shape(withReal) !== shape(same),
+          `素通し ${shape(withNoop)} / 値あり ${shape(withReal)}`);
+        // 設定の**順番だけ**を入れ替えた graph は差分 0、値を1つ変えたら差分 1(罠4)。
+        const swapped = parseGraph(g.replace(
+          /^(biquad#\d+)\.type=(\w+)\n\1\.frequency=([\d.]+)\n\1\.Q=([\d.]+)$/m,
+          "$1.Q=$4\n$1.frequency=$3\n$1.type=$2"));
+        check("43.0 鎖の読み方が本物(設定の順を入れ替えただけなら差分は 0)",
+          cnt(same, swapped) === 0 && swapped.chain.length === same.chain.length,
+          `${cnt(same, swapped)}件`);
+      }
     }
   }
 
-  // --- 43.1 4種がある / 3段を持つ / 音ごとに段が付いている --------------------
-  const ALL_IDS = ["current", "wood", "electro", "tick"];
+  // --- 43.0 雑音バッファ(getMetroClickBuffer は D-24 仕様 §1.5 で触らない所) ---------
+  // 【D-25】D-24 までは Math.random = () => 1 に固定した観測しか無く、
+  // **「雑音であること」を一度も検証していなかった**。`data[i] = (Math.random()*2-1)*decay`
+  // を `data[i] = decay` にすると雑音が消えて**直流パルス**になり、Q=8 のバンドパスが
+  // 共振して「ピー」という別の音になる(6次審査の実測。current −5.7dB / tick −10.8dB)。
+  // f(1) = 1 を満たす細工はすべて固定乱数の観測を通ってしまう。
+  // ここは **実際の Math.random のまま**引いて、標本の散らばりを見る。
   {
-    const ids = api.METRO_CLICK_SOUNDS.map((s) => s.id);
-    check("43.1 クリック音は4種(現行 + 3種)", ids.length === 4 && ids[0] === "current", ids.join(","));
-    check("43.1 3種の狙い(木・電子・鋭い)がそろっている",
-      ids.includes("wood") && ids.includes("electro") && ids.includes("tick"), ids.join(","));
-    check("43.1 4種とも名前を持つ",
-      api.METRO_CLICK_SOUNDS.every((s) => typeof s.label === "string" && s.label.length > 0));
-    // 3段の音量比は現行と同じ 1.0 / 0.85 / 0.6 から出発している(仕様 §1.2)
-    check("43.1 新しい3種の段の音量は現行と同じ 1.0 / 0.85 / 0.6",
+    const ctx = makeCtx();
+    const buf = runFn(api.getMetroClickBuffer, ctx).v;   // 固定乱数を使わない
+    const d = buf && buf.getChannelData(0);
+    const nSamp = Math.ceil(48000 * 0.06);
+    check("43.0 雑音バッファは 60ms(=2880サンプル @48kHz)", !!d && d.length === nSamp,
+      d ? String(d.length) : "取れない");
+    // ① 符号が両方出る。直流パルスは正しか出ない(負の割合 0)。
+    //    白色雑音なら 2880 標本で負は約 50%(標準偏差 0.9pt)なので 30〜70% は 20σ 以上の余裕。
+    const neg = d ? [...d].filter((v) => v < 0).length / d.length : 0;
+    check("43.0 バッファは正負に散る(直流パルスではない)", neg > 0.3 && neg < 0.7,
+      `負の割合 ${(neg * 100).toFixed(1)}%`);
+    // ② 隣り合う標本に相関が無い(=白色)。包絡だけを持つ直流は隣と同じ値なので相関はほぼ 1。
+    const lag1 = (() => {
+      if (!d) return 1;
+      let num = 0, den = 0;
+      for (let i = 0; i < d.length - 1; i++) num += d[i] * d[i + 1];
+      for (let i = 0; i < d.length; i++) den += d[i] * d[i];
+      return den > 0 ? num / den : 1;
+    })();
+    check("43.0 隣り合う標本に相関が無い(白色雑音であって、包絡だけの直流ではない)",
+      Math.abs(lag1) < 0.3, `ラグ1の自己相関 ${lag1.toFixed(4)}`);
+    // 裏取り: 包絡だけを持つ直流(= data[i] = decay)を食わせたら、①②とも必ず落ちること。
+    {
+      const dc = new Float32Array(nSamp);
+      for (let i = 0; i < nSamp; i++) dc[i] = Math.exp(-i / (nSamp * 0.15));
+      const negDc = [...dc].filter((v) => v < 0).length / dc.length;
+      let num = 0, den = 0;
+      for (let i = 0; i < dc.length - 1; i++) num += dc[i] * dc[i + 1];
+      for (let i = 0; i < dc.length; i++) den += dc[i] * dc[i];
+      check("43.0 雑音の見方が本物(直流パルスを食わせたら、符号も相関も落ちる)",
+        !(negDc > 0.3 && negDc < 0.7) && !(Math.abs(num / den) < 0.3),
+        `負 ${(negDc * 100).toFixed(1)}% / 相関 ${(num / den).toFixed(4)}`);
+    }
+    // 包絡そのもの(exp(-i/(n*0.15)))は据え置き。こちらは固定乱数で見る(包絡だけを取り出すため)
+    {
+      const c2 = makeCtx();
+      const b2 = withFixedRandom(() => runFn(api.getMetroClickBuffer, c2).v);
+      const d2 = b2 && b2.getChannelData(0);
+      const wantAt = (i) => Math.exp(-i / (nSamp * 0.15));
+      const worst = d2 ? Math.max(...[0, 100, 432, 1000, 2879].map((i) => Math.abs(d2[i] - wantAt(i)))) : 1;
+      check("43.0 雑音バッファの減衰は exp(-i/(n*0.15)) のまま", worst < 1e-6, String(worst));
+    }
+  }
+
+  // --- 43.1 音は木の1種だけ / 表が音に届いている / 音源が本当に鳴る ----------------
+  {
+    check("43.1 クリック音の表は1つ(選ぶ口は無い)",
+      typeof api.METRO_CLICK_SPEC === "object" && api.METRO_CLICK_SPEC !== null
+      && !("METRO_CLICK_SPECS" in api) && !("METRO_CLICK_SOUNDS" in api),
+      JSON.stringify(api.METRO_CLICK_SPEC));
+    check("43.1 3段の音量は D-24 §1.2 が凍結した 1.0 / 0.85 / 0.6",
       api.METRO_CLICK_VOL.accent === 1.0 && api.METRO_CLICK_VOL.beat === 0.85 && api.METRO_CLICK_VOL.sub === 0.6,
       JSON.stringify(api.METRO_CLICK_VOL));
-    for (const id of ["wood", "electro", "tick"]) {
-      const sp = api.METRO_CLICK_SPECS[id];
-      const f = sp && sp.freq;
-      check(`43.1 ${id}: accent/beat/sub の3段すべてに周波数がある`,
-        !!f && [f.accent, f.beat, f.sub].every((x) => Number.isFinite(x) && x > 0), JSON.stringify(f));
-      check(`43.1 ${id}: 3段の高さが全部違う(段が音程でも読める)`,
-        !!f && new Set([f.accent, f.beat, f.sub]).size === 3, JSON.stringify(f));
-      check(`43.1 ${id}: 段が上ほど高い(accent > beat > sub)`,
-        !!f && f.accent > f.beat && f.beat > f.sub, JSON.stringify(f));
-      // 3段それぞれで実際に別の graph が組める(表だけ持っていて鳴らないものを作らない)
-      const gs = ["accent", "beat", "sub"].map((k) => graphOf(id, k));
-      check(`43.1 ${id}: 3段とも実際に音が組み立てられ、3つとも違う`,
-        gs.every((g) => g.length > 0 && !g.startsWith("例外")) && new Set(gs).size === 3,
-        gs.map((g) => g.slice(0, 60)).join(" | "));
+    check("43.1 3段とも周波数を持ち、上ほど高い(段が音程でも読める)",
+      KINDS.every((k) => Number.isFinite(api.METRO_CLICK_SPEC.freq[k]) && api.METRO_CLICK_SPEC.freq[k] > 0)
+      && api.METRO_CLICK_SPEC.freq.accent > api.METRO_CLICK_SPEC.freq.beat
+      && api.METRO_CLICK_SPEC.freq.beat > api.METRO_CLICK_SPEC.freq.sub,
+      JSON.stringify(api.METRO_CLICK_SPEC.freq));
+
+    // 【D-24a】**表ではなく音から読む。** 表が正しいのに音へ届いていない型の欠陥は
+    // 表だけ見る検査を素通りする(罠2)。左辺は graph(音)・右辺は表なので、
+    // 表を書き換えれば検査も追随する(罠3 ではない)。
+    // 【D-25】D-24e は freq しか照合しておらず、**q と decay は据え置きだった**ので、
+    // `filt.Q.value = spec.q / 2`(表は 8 のまま実際は Q=4・帯域幅2倍・+4.0dB)が
+    // 素通りした(6次審査の実測)。ここで q と decay にも広げる。
+    for (const kind of KINDS) {
+      const g = graphOf(kind);
+      const wantF = api.METRO_CLICK_SPEC.freq[kind];
+      const gotF = parseFloat((/biquad#\d+\.frequency=([\d.]+)/.exec(g) || [])[1]);
+      check(`43.1 ${kind}: 音の周波数は表の ${wantF}Hz そのもの(表が音に届いている)`,
+        gotF === wantF, `音 ${gotF} / 表 ${wantF}`);
+      const gotQ = parseFloat((/biquad#\d+\.Q=([\d.]+)/.exec(g) || [])[1]);
+      check(`43.1 ${kind}: 音の Q は表の ${api.METRO_CLICK_SPEC.q} そのもの(表が音に届いている)`,
+        gotQ === api.METRO_CLICK_SPEC.q, `音 ${gotQ} / 表 ${api.METRO_CLICK_SPEC.q}`);
+      const gotType = (/biquad#\d+\.type=(\w+)/.exec(g) || [])[1];
+      check(`43.1 ${kind}: フィルタの型は表の ${api.METRO_CLICK_SPEC.filter} そのもの`,
+        gotType === api.METRO_CLICK_SPEC.filter, `音 ${gotType} / 表 ${api.METRO_CLICK_SPEC.filter}`);
+      const T = 0.25;
+      const gt = graphOf(kind, T);
+      const end = parseFloat((/gain#\d+\.gain\.expRamp\(0\.0001,([\d.]+)\)/.exec(gt) || [])[1]);
+      check(`43.1 ${kind}: 包絡が落ちきるのは予約時刻 + 表の decay ${api.METRO_CLICK_SPEC.decay}s そのもの`,
+        Math.abs(end - (T + api.METRO_CLICK_SPEC.decay)) < 1e-9,
+        `音 ${end} / 表 ${T + api.METRO_CLICK_SPEC.decay}`);
     }
-    // 【D-24a】**表ではなく音から読む。** 上の検査は定数の表(METRO_CLICK_SPECS /
-    // METRO_CLICK_VOL)を読んでいるだけなので、「表は正しいのに、その表が音へ届いていない」
-    // 型の欠陥が素通りする(罠2)。実際、scheduleMetroClickAlt の
-    //   const step = METRO_CLICK_VOL[kind] ?? ...  →  = METRO_CLICK_VOL.accent;
-    //   const f = spec.freq[kind] ?? ...           →  = spec.freq.accent;
-    // という変異は D-24 の検査を素通りした(3段の音量差・音程差が全部消えても通った)。
-    // ここでは 4種 × 3段を実際に組み立て、**graph に現れた値だけ**を見る。
+
+    // 3段の音量比を**音から**読む。表の値ではなく graph に出た山の高さで見る。
     {
-      // その音のゲイン段が到達する山の高さ。setValueAtTime と expRamp の両方を見る
-      // (電子は 0.0001 から立ち上げるので setValueAtTime だけでは山が読めない)。
-      // マスターの gain 2.6 は `gain#N.gain=2.6` という別の形なので混ざらない。
       const peakGainOf = (g) => {
         const v = [...g.matchAll(/gain#\d+\.gain\.(?:setValueAtTime|expRamp)\(([\d.]+(?:e[+-]?\d+)?),/g)]
           .map((m) => parseFloat(m[1]));
         return v.length ? Math.max(...v) : NaN;
       };
-      // 段の高さ。雑音の3種はフィルタの中心/遮断、電子は発振器の周波数に現れる。
-      const freqOf = (g) => {
-        const m = /(?:biquad|oscillator)#\d+\.frequency=([\d.]+)/.exec(g);
-        return m ? parseFloat(m[1]) : NaN;
-      };
-      // 比の期待値は仕様 §1.2 が凍らせた 1.0 : 0.85 : 0.6。音ごとに makeup が掛かるので
-      // 絶対値ではなく**比**で見る(実装の定数を読み直さない ── 罠3)。
-      for (const id of ALL_IDS) {
-        const g = ["accent", "beat", "sub"].map((k) => graphOf(id, k));
-        const peak = g.map(peakGainOf);
-        const freq = g.map(freqOf);
-        const ok = Number.isFinite(peak[0]) && peak[0] > 0
-          && Math.abs(peak[1] / peak[0] - 0.85) < 1e-9 && Math.abs(peak[2] / peak[0] - 0.6) < 1e-9;
-        check(`43.1 ${id}: **音から読んだ**3段の音量比が 1.0 : 0.85 : 0.6`, ok,
-          `山 ${peak.join(" / ")} → 比 1 : ${peak[1] / peak[0]} : ${peak[2] / peak[0]}`);
-        check(`43.1 ${id}: **音から読んだ**3段の周波数が3つとも違う`,
-          freq.every((x) => Number.isFinite(x) && x > 0) && new Set(freq).size === 3,
-          freq.join(" / "));
-      }
-      // 【D-24b】**音源が実際に鳴り始めることを見る。** D-24a までの検査はゲイン値と
-      // 周波数しか読んでおらず、`src.start(t);` / `osc.start(t);` を丸ごと消す変異
-      // (= その音が**完全に無音**になる)が PASS 7162 / FAIL 0 で生き残った。
-      // 「表ではなく音から読む」と名乗る検査が、音が1つも出ない状態を通していた(罠1)。
-      // 4種 × 3段すべてについて、音源が **1つだけ**・**予約した時刻ちょうどに** start
-      // されることを graph から確かめる。
-      for (const id of ALL_IDS) {
-        for (const kind of ["accent", "beat", "sub"]) {
-          const T = 0.25; // 0 だと「時刻を渡し忘れて 0 になった」場合と見分けが付かない
-          const g = graphOf(id, kind, T);
-          const starts = [...g.matchAll(/(?:bufferSource|oscillator)#(\d+)\.start\(([^)]*)\)/g)];
-          check(`43.1 ${id}/${kind}: 音源が予約した時刻に start される(start を消せば完全な無音)`,
-            starts.length === 1 && parseFloat(starts[0][2]) === T,
-            `start ${starts.length}回 / ${starts.map((m) => m[0]).join(",") || "なし"}`);
-        }
-      }
+      const peak = KINDS.map((k) => peakGainOf(graphOf(k)));
+      check("43.1 **音から読んだ**3段の音量比が 1.0 : 0.85 : 0.6",
+        Number.isFinite(peak[0]) && peak[0] > 0
+        && Math.abs(peak[1] / peak[0] - 0.85) < 1e-9 && Math.abs(peak[2] / peak[0] - 0.6) < 1e-9,
+        `山 ${peak.join(" / ")} → 比 1 : ${peak[1] / peak[0]} : ${peak[2] / peak[0]}`);
+      check("43.1 **音から読んだ**3段の周波数が3つとも違う",
+        new Set(KINDS.map((k) => (/biquad#\d+\.frequency=([\d.]+)/.exec(graphOf(k)) || [])[1])).size === 3);
     }
-    // 【D-24a】makeup(振幅の戻し)が効いていること。graph の値だけを見ても、makeup を
-    // 落として音が 1/5 になった変異は素通りする(段の比は保たれるため)。ここは
-    // **波形を実際に描いて**、4種の accent のピークが現行と同じ桁にそろうことを見る。
-    // 描き手は scripts/metro-click-makeup.mjs ── 完了記録の8個を出すのと同じ1つの実装。
+
+    // 【D-24b】**音源が実際に鳴り始めることを見る。** `src.start(t)` を消すと完全な無音になる。
+    // 【D-25】あわせて **start の呼び方**も見る。本物の start は (when, offset, duration) を
+    // 取り、`start(t, 0.055)` は雑音バッファの頭 55ms を飛ばして残り 5ms だけを鳴らす
+    // (実測 −52.7dB = ほぼ無音)、`start(t, 0, 0.002)` は 2ms で切る(−2.1dB)。
+    // どちらも「時刻は正しい」ので、時刻だけを見る検査では捕まらない。
+    for (const kind of KINDS) {
+      const T = 0.25; // 0 だと「時刻を渡し忘れて 0 になった」場合と見分けが付かない
+      const g = graphOf(kind, T);
+      const starts = [...g.matchAll(/(?:bufferSource|oscillator)#(\d+)\.start\(([^)]*)\)/g)];
+      check(`43.1 ${kind}: 音源が予約した時刻に start される(start を消せば完全な無音)`,
+        starts.length === 1 && parseFloat(starts[0][2]) === T,
+        `start ${starts.length}回 / ${starts.map((m) => m[0]).join(",") || "なし"}`);
+      check(`43.1 ${kind}: start は時刻ひとつだけで呼ぶ(offset / duration を渡すと頭が飛ぶ・途中で切れる)`,
+        !/\.startOffset=/.test(g) && !/\.startDuration=/.test(g),
+        (/\.start(?:Offset|Duration)=.*/.exec(g) || [""])[0]);
+      check(`43.1 ${kind}: 音源は loop しない(loop すると stop が無いので永久に鳴り続ける)`,
+        !/\.loop=true/.test(g), (/\.loop=.*/.exec(g) || [""])[0]);
+    }
+    // 道具の裏取り: 作り物が loop と start の引数を本当に残すこと(残さなければ上の3件は
+    // 「見ていないから通る」だけになる。罠19)。
     {
-      const DRAWS = 32; // 雑音は引きごとにばらつくので、種を固定した複数回の平均で見る
-      // 【D-24b】**runFn で包む。** renderClick はソースから組み直した実装を実際に動かすので、
-      // 実装が例外を投げれば例外はここまで飛んでくる ── 素で呼んでいると FAIL ではなく
-      // **検査ハーネスごと異常終了**する(PASS/FAIL の集計行すら出ない)。指摘6 と同じ形の穴で、
-      // この周の変異試験で実際に踏んだ(音づくりを壊した変異が集計を消した)。
-      const meanPeak = (id) => runFn(() => {
-        let s = 0;
-        for (let i = 0; i < DRAWS; i++) s += peakOf(renderClick(id, "accent", mulberry32(0x9e3779b9 + i)));
-        return s / DRAWS;
-      });
-      const drawn = ALL_IDS.map(meanPeak);
-      const peaks = drawn.map((r) => (r.ok ? r.v : NaN));
-      const rel = peaks.map((p) => p / peaks[0]);
-      check("43.1 4種とも波形が描ける(音づくりが例外を投げない)",
-        drawn.every((r) => r.ok), drawn.map((r, i) => `${ALL_IDS[i]} ${shownOf(r)}`).join(" / "));
-      check("43.1 4種の accent のピークは現行の 0.5〜2.0 倍に収まる(makeup が効いている)",
-        drawn.every((r) => r.ok) && peaks[0] > 0 && rel.every((r) => r >= 0.5 && r <= 2.0),
-        ALL_IDS.map((id, i) => `${id} ${peaks[i].toFixed(3)}(×${rel[i].toFixed(2)})`).join(" / "));
+      const c = makeCtx();
+      const s = c.createBufferSource();
+      s.loop = true;
+      s.start(0.25, 0.055, 0.002);
+      const g = c.log.join("\n");
+      check("43.1 作り物は loop と start の第2・第3引数を graph に残す(本物が持つものを持つ)",
+        /\.loop=true/.test(g) && /\.startOffset=0\.055/.test(g) && /\.startDuration=0\.002/.test(g), g);
     }
-    // 4種の graph はすべて互いに違う(「名前だけ増やして中身は同じ」を許さない)
-    const all = ALL_IDS.map((id) => graphOf(id, "accent"));
-    check("43.1 4種の accent はすべて互いに違う音になる", new Set(all).size === 4);
-    // 電子だけが「倍音を持たない純音」= フィルタを通さない発振器であること
-    check("43.1 電子は正弦波(発振器)で、雑音もフィルタも通さない",
-      /oscillator#\d+\.type=sine/.test(all[2]) && !/biquad/.test(all[2]) && !/bufferSource/.test(all[2]),
-      all[2].slice(0, 200));
-    check("43.1 木は雑音+バンドパス / 鋭いは雑音+ハイパス",
-      /biquad#\d+\.type=bandpass/.test(all[1]) && /bufferSource/.test(all[1])
-      && /biquad#\d+\.type=highpass/.test(all[3]) && /bufferSource/.test(all[3]));
-    // 木は現行より Q が高い(音程感)。数はここで書き写さず、両方を graph から読んで比べる
-    {
-      const qOf = (g) => parseFloat((/biquad#\d+\.Q=([\d.]+)/.exec(g) || [])[1]);
-      check("43.1 木は現行よりQが高い(狭く絞って音程感を出す)", qOf(all[1]) > qOf(all[0]),
-        `木 Q=${qOf(all[1])} / 現行 Q=${qOf(all[0])}`);
-    }
-    // 発振器は自分で止まらないので stop が要る(止め忘れると鳴りっぱなしになる)
-    check("43.1 電子の発振器は必ず stop される", /oscillator#\d+\.stop\(/.test(all[2]), all[2].slice(0, 200));
-    // どの音もマスターチェーン(リミッター → gain 2.6 → 出力)を通る。§1.5 で触らないと決めた所
-    for (let i = 0; i < 4; i++) {
-      check(`43.1 ${ALL_IDS[i]} はマスターチェーンを組み立てる(gain 2.6・閾値-3・比20)`,
-        /comp#\d+\.threshold=-3/.test(all[i]) && /comp#\d+\.ratio=20/.test(all[i])
-        && /gain#\d+\.gain=2\.6/.test(all[i]) && / -> destination/.test(all[i]),
-        all[i].slice(0, 200));
-    }
-    // 【D-24c】**音源から出力まで、辺を辿って本当に繋がっているか。**
-    // 上の「マスターチェーンを通る」は getMetroMasterInput(ctx) を**呼びさえすれば**通る
-    // (リミッターと gain 2.6 の配線は関数の内側にあるため)。クリックの gain が
-    // **そこへ入る辺**は1件も見ていなかったので、`gain.connect(getMetroMasterInput(ctx))` を
-    // 消しても / 向きを逆にしても、3種が完全な無音のまま PASS していた(審査の実測)。
-    // ここは綴りではなく **graph の辺を辿って到達可能性**を見る ── 経路の形が変わっても
-    // 「音源の出力が最終的に destination へ届く」性質だけを守る(罠4: 箇所数を釘付けしない)。
+
+    // 【D-24c/d】**音源からマスターを経て出口まで、辺を辿って本当に繋がっているか。**
+    // 綴りではなく graph の辺の到達可能性で見る。状態は (節点, マスターを通ったか) の対で、
+    // 経路の形は縛らない(罠4)。マスターを迂回すると gain 2.6 とリミッターを通らない。
     {
       const reachesOutput = (g) => {
         const edges = new Map();
@@ -20093,17 +20349,10 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
           if (!edges.has(m[1])) edges.set(m[1], []);
           edges.get(m[1]).push(m[2]);
         }
-        const src = (/^((?:bufferSource|oscillator)#\d+)\.start\(/m.exec(g) || [])[1];
-        if (!src) return false; // 開始される音源が無い = そもそも鳴らない
-        // 【D-24d】**マスター(comp)を経由して**出口に届くことを見る。
-        // 終端を destination だけにしていたため、1種だけ `gain.connect(ctx.destination)` で
-        // マスターを迂回させても12件すべて PASS した(4次審査の実測)。迂回した音は
-        // master gain 2.6 を通らず **−8.3dB**・リミッターも通らない ── その1種だけ小さい
-        // 状態で A/B させれば、本人の「どれを既定にするか」の判断が丸ごと壊れる。
-        // 仕様 §1.5 が master gain 2.6 とリミッターを触ってはいけないものと名指ししている。
-        // 状態は (節点, マスターを通ったか) の対。経路の形は縛らない(罠4)。
-        const seen = new Set([`${src}|0`]);
-        const stack = [[src, false]];
+        const s = (/^((?:bufferSource|oscillator)#\d+)\.start\(/m.exec(g) || [])[1];
+        if (!s) return false; // 開始される音源が無い = そもそも鳴らない
+        const seen = new Set([`${s}|0`]);
+        const stack = [[s, false]];
         while (stack.length) {
           const [cur, viaComp] = stack.pop();
           if (cur === "destination" && viaComp) return true;
@@ -20115,34 +20364,32 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
         }
         return false;
       };
-      for (const id of ALL_IDS) {
-        for (const kind of ["accent", "beat", "sub"]) {
-          const g = graphOf(id, kind);
-          check(`43.1 ${id}/${kind}: 音源からマスターを経て出力まで辺が繋がっている(繋ぎ忘れ・逆向き・迂回を許さない)`,
-            reachesOutput(g), g.slice(0, 260));
-        }
+      for (const kind of KINDS) {
+        const g = graphOf(kind);
+        check(`43.1 ${kind}: 音源からマスターを経て出力まで辺が繋がっている(繋ぎ忘れ・逆向き・迂回を許さない)`,
+          reachesOutput(g), g.slice(0, 260));
       }
-      // この道具自体が本物であることの裏取り(自明に true を返す作りになっていないか)。
-      // 辺を1本抜いた graph / 向きを逆にした graph は、必ず「届かない」と判定されること。
-      const sample = graphOf("wood", "accent");
+      const sample = graphOf("accent");
       const cut = sample.split("\n").filter((l) => !/^gain#\d+ -> comp#\d+$/.test(l)).join("\n");
       const rev = sample.replace(/^(gain#\d+) -> (comp#\d+)$/m, "$2 -> $1");
-      // 【D-24d】マスターを迂回して出口へ直行する形も「届かない」と答えること。
       const bypass = sample.replace(/^(gain#\d+) -> comp#\d+$/m, "$1 -> destination");
       check("43.1 到達可能性の道具が本物(辺を1本抜く/逆向き/マスター迂回は「届かない」)",
         reachesOutput(sample) && !reachesOutput(cut) && !reachesOutput(rev) && !reachesOutput(bypass),
         `元 ${reachesOutput(sample)} / 抜き ${reachesOutput(cut)} / 逆 ${reachesOutput(rev)} / 迂回 ${reachesOutput(bypass)}`);
     }
+    // マスターチェーンの値(D-24 §1.5 で触らない所)が組み立てられていること
+    {
+      const g = graphOf("accent");
+      check("43.1 マスターチェーンを組み立てる(gain 2.6・閾値-3・比20)",
+        /comp#\d+\.threshold=-3/.test(g) && /comp#\d+\.ratio=20/.test(g)
+        && /gain#\d+\.gain=2\.6/.test(g) && / -> destination/.test(g), g.slice(0, 200));
+    }
+
     // 【D-24e】**音のすべての時刻が「予約した時刻 t」から測られていること。**
-    // graphOf は既定で t = 0 で組むため、`gain.gain.setValueAtTime(vol, t)` の t を
-    // **0 に置き換える**変異が全検査を素通りした(5次審査の実測)。そうすると音源は t 秒後に
-    // 鳴り始めるのに包絡は 0 秒付近で使い切られており、本物の OfflineAudioContext で
-    // **−80.0 dB = 事実上の無音**(審査役が実測)。**現行の音も含めて4種とも消える。**
-    // 43.0 の GOLD も 43.2 も t = 0 でしか観測していなかったので、A/B の基準そのものが無防備だった。
-    //
+    // t を 0 に固定する変異は、音源が t 秒後に鳴り始めるのに包絡は 0 秒付近で使い切られる
+    // 形になり、本物の OfflineAudioContext で **−80.0dB = 事実上の無音**(5次審査の実測)。
     // ここは**ずらし不変**で見る ── 同じ音を t=0 と t=T で組み、graph に出るすべての時刻が
-    // **ちょうど T だけずれる**こと。時刻の綴りも個数も縛らない(罠4)ので、包絡の形を
-    // 変えても壊れず、「t から測っていない」ときだけ落ちる。
+    // ちょうど T だけずれること。時刻の綴りも個数も縛らない(罠4)。
     {
       const T = 1.5;
       // **時刻を持つ呼び出しだけ**から取る。createBuffer(1,2880) の 2880 は
@@ -20150,109 +20397,89 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
       const timesOf = (g) => [...String(g).matchAll(
         /\.(?:setValueAtTime|expRamp|linRamp)\([^,]+,(-?[\d.]+(?:e[-+]?\d+)?)\)|\.(?:start|stop)\((-?[\d.]+(?:e[-+]?\d+)?)\)/g)]
         .map((m) => Number(m[1] !== undefined ? m[1] : m[2]));
-      for (const id of ALL_IDS) {
-        for (const kind of ["accent", "beat", "sub"]) {
-          const a = timesOf(graphOf(id, kind, 0));
-          const b = timesOf(graphOf(id, kind, T));
-          const ok = a.length > 0 && a.length === b.length
-            && a.every((v, i) => Math.abs(b[i] - (v + T)) < 1e-9);
-          check(`43.1 ${id}/${kind}: 音の時刻はすべて予約時刻から測る(t を 0 に固定すると無音)`,
-            ok, ok ? "" : `t=0 ${JSON.stringify(a)} / t=${T} ${JSON.stringify(b)}`);
-        }
+      for (const kind of KINDS) {
+        const a = timesOf(graphOf(kind, 0));
+        const b = timesOf(graphOf(kind, T));
+        const ok = a.length > 0 && a.length === b.length
+          && a.every((v, i) => Math.abs(b[i] - (v + T)) < 1e-9);
+        check(`43.1 ${kind}: 音の時刻はすべて予約時刻から測る(t を 0 に固定すると無音)`,
+          ok, ok ? "" : `t=0 ${JSON.stringify(a)} / t=${T} ${JSON.stringify(b)}`);
       }
-      // 道具の裏取り: 時刻を1つでも t から切り離した graph は、必ず落ちること。
-      const g0 = graphOf("wood", "accent", 0);
-      const gT = graphOf("wood", "accent", T).replace(/\.setValueAtTime\(([^,]+),[^)]+\)/, ".setValueAtTime($1,0)");
+      const g0 = graphOf("accent", 0);
+      const gT = graphOf("accent", T).replace(/\.setValueAtTime\(([^,]+),[^)]+\)/, ".setValueAtTime($1,0)");
       const A = timesOf(g0), B = timesOf(gT);
       check("43.1 ずらし不変の道具が本物(時刻を1つ t から切り離せば落ちる)",
         A.length === B.length && !A.every((v, i) => Math.abs(B[i] - (v + T)) < 1e-9));
     }
-    // 【D-24e】**表(METRO_CLICK_SPECS)の周波数が、そのまま音に届いていること。**
-    // これまでは「3段が互いに違う」しか見ておらず、`spec.freq[kind] / 4` のような変異
-    // (表も App.jsx のコメントも 3520/2637/1760 のまま、実際は 880/659/440 で鳴る)が
-    // 素通りした。正弦波はピークが周波数に依らないので makeup の帯も抜ける。
-    // 電子の狙いは §1.2「いちばん埋もれない」── 1/4 にすると狙いの真逆に落ちる。
-    // **左辺は graph(音)・右辺は表**なので、表を書き換えても検査は追随する(罠3 ではない)。
+
+    // 【D-24a / D-25】makeup(振幅の戻し)が効いていること。graph の値だけを見ても、
+    // makeup を落として音が小さくなった変異は素通りする(段の比は保たれるため)。
+    // ここは**波形を実際に描いて**、変更前の木と accent のピークがそろうことを見る。
+    // 描き手は scripts/metro-click-makeup.mjs ── 記録の数値を出すのと同じ1つの実装。
+    // **左辺はいまの実装を鳴らした値・右辺は変更前のコードを鳴らした値**なので、
+    // どちらも定数の言い換えではない(罠3)。
     {
-      const freqIn = (g) => {
-        const m = /(?:biquad|oscillator)#\d+\.frequency=([\d.]+)/.exec(g);
-        return m ? parseFloat(m[1]) : NaN;
-      };
-    for (const id of ALL_IDS.slice(1)) {
-      for (const kind of ["accent", "beat", "sub"]) {
-        const want = api.METRO_CLICK_SPECS[id].freq[kind];
-        const got = freqIn(graphOf(id, kind));
-        check(`43.1 ${id}/${kind}: 音の周波数は表の ${want}Hz そのもの(表が音に届いている)`,
-          got === want, `音 ${got} / 表 ${want}`);
-      }
-    }
-    }
-    // 【D-24e】**attack と decay が別々に音へ届いていること。**
-    // 43.2 は attack + decay の**和**しか見ていなかったので、電子の
-    // `t + spec.attack` / `t + spec.attack + spec.decay` を `t + spec.decay` /
-    // `t + spec.decay + spec.attack` に**入れ替える**変異が素通りした。
-    // 電子は「2ms で立ち上げ 45ms で減衰」から「45ms かけて立ち上がり 2ms で切れる」に化ける
-    // (App.jsx のコメント「頭の 2ms で立ち上げるのはパチッを作らないため」が嘘になる)。
-    // 表の値は1文字も変わらないので、直書きの検出では捕まらない。
-    {
-      const spec = api.METRO_CLICK_SPECS.electro;
-      const g = graphOf("electro", "accent");
-      const ramps = [...g.matchAll(/gain#\d+\.gain\.expRamp\(([\d.e+-]+),([\d.e+-]+)\)/g)]
-        .map((m) => ({ v: Number(m[1]), t: Number(m[2]) }));
-      check("43.2 電子は 立ち上げ→減衰 の順で、山は表の attack・谷は attack+decay に来る",
-        ramps.length === 2
-        && Math.abs(ramps[0].t - spec.attack) < 1e-12
-        && Math.abs(ramps[1].t - (spec.attack + spec.decay)) < 1e-12
-        && ramps[0].v > ramps[1].v,
-        JSON.stringify(ramps) + ` / 表 attack ${spec.attack} decay ${spec.decay}`);
+      const DRAWS = 32; // 雑音は引きごとにばらつくので、種を固定した複数回の平均で見る
+      // 【D-24b】**runFn で包む。** renderClick はソースから組み直した実装を実際に動かすので、
+      // 実装が例外を投げれば例外はここまで飛んでくる ── 素で呼んでいると FAIL ではなく
+      // **検査ハーネスごと異常終了**する(PASS/FAIL の集計行すら出ない)。
+      const mean = (render, kind, f) => runFn(() => {
+        let s = 0;
+        for (let i = 0; i < DRAWS; i++) s += f(render(kind, mulberry32(0x9e3779b9 + i)));
+        return s / DRAWS;
+      });
+      const pB = mean(renderBefore, "accent", peakOf), pN = mean(renderClick, "accent", peakOf);
+      const eB = mean(renderBefore, "accent", energyOf), eN = mean(renderClick, "accent", energyOf);
+      check("43.1 変更前の木も、いまの木も、波形が描ける(音づくりが例外を投げない・鳴り止まないものを作らない)",
+        pB.ok && pN.ok, `変更前 ${shownOf(pB)} / いま ${shownOf(pN)}`);
+      const rel = pB.ok && pN.ok && pB.v > 0 ? pN.v / pB.v : NaN;
+      check("43.1 accent のピークは変更前の木と ±5% 以内でそろう(makeup を計算し直した根拠)",
+        Number.isFinite(rel) && rel >= 0.95 && rel <= 1.05,
+        `変更前 ${pB.ok ? pB.v.toFixed(4) : "—"} / いま ${pN.ok ? pN.v.toFixed(4) : "—"} → 比 ${Number.isFinite(rel) ? rel.toFixed(4) : "—"}`);
+      // エネルギーは「鋭く」した分だけ減る。減衰 30ms → 18ms のぶんで、消えてはいない。
+      const eRel = eB.ok && eN.ok && eB.v > 0 ? eN.v / eB.v : NaN;
+      check("43.1 エネルギーは変更前の木の 0.70〜0.95 倍(減衰を詰めたぶん減る。無音にはならない)",
+        Number.isFinite(eRel) && eRel >= 0.70 && eRel <= 0.95,
+        `変更前 ${eB.ok ? eB.v.toFixed(5) : "—"} / いま ${eN.ok ? eN.v.toFixed(5) : "—"} → 比 ${Number.isFinite(eRel) ? eRel.toFixed(4) : "—"}`);
     }
   }
 
-  // --- 43.2 回り込みの除外の窓が動いていない / どの音も窓に収まる --------------
+  // --- 43.2 回り込みの除外の窓が動いていない / 音が窓に収まる ------------------
   {
     // 窓そのもの(前30ms〜後90ms)。**動かしていないこと**を既定引数で確かめる
     check("43.2 除外の窓は前30ms〜後90msのまま(既定引数)",
       api.isNearScheduledClick([1000], 970) === true && api.isNearScheduledClick([1000], 969.9) === false
       && api.isNearScheduledClick([1000], 1090) === true && api.isNearScheduledClick([1000], 1090.1) === false);
     // 【D-24a】窓に収まるかは**音源が動いている長さ**で見る(こちらが安全側)。
-    // 包絡は木 30ms / 鋭い 12ms で 0.0001 に達するが、その2種は getMetroClickBuffer の
-    // 60ms バッファを stop() せずに流しきるので、**音源は 60ms 動き続ける**。
-    // D-24 の記録は包絡の終わり(60/30/47/12ms)を「音源の長さ」と書いていた ── 数値の
-    // 意味が違っていたので D-24a で訂正した(実際は 現行60 / 木60 / 電子47 / 鋭い60)。
-    // graph から読む: stop(t) があればその t、無ければ createBuffer のサンプル数 ÷ SR。
-    for (const id of ALL_IDS) {
-      const g = graphOf(id, "accent", 0);
+    // 包絡は 18ms で 0.0001 に達するが、音源は 60ms のバッファを stop() せずに流しきる。
+    // 【D-25】**loop = true なら「止まらない」と答える。** D-24 までは stop( が無ければ
+    // バッファ長から逆算しており、`src.loop = true` を足して**永久に鳴り止まなくなった**
+    // 音源に「60.0ms」と答えて緑を返していた(6次審査の実測。罠1)。
+    const sourceEndOf = (g) => {
+      if (/\.loop=true/.test(g) && !/(?:bufferSource|oscillator)#\d+\.stop\(/.test(g)) return Infinity;
       const st = /(?:bufferSource|oscillator)#\d+\.stop\(([\d.]+)\)/.exec(g);
+      if (st) return parseFloat(st[1]);
       const buf = /createBuffer\(1,(\d+)\)/.exec(g);
-      const end = st ? parseFloat(st[1]) : (buf ? parseInt(buf[1], 10) / 48000 : NaN);
-      check(`43.2 ${id} の**音源**が止まるのは除外の窓の後ろ 90ms 以内`,
+      return buf ? parseInt(buf[1], 10) / 48000 : NaN;
+    };
+    for (const kind of KINDS) {
+      const end = sourceEndOf(graphOf(kind, 0));
+      check(`43.2 ${kind} の**音源**が止まるのは除外の窓の後ろ 90ms 以内`,
         Number.isFinite(end) && end > 0 && end * 1000 <= 90, `${(end * 1000).toFixed(1)}ms`);
     }
-    // 包絡の終わりも 90ms を超えない(音源より先に落ちきる側)。
-    // 【D-24b】以前は App.jsx の metroClickEnvelopeEnd を呼んでいたが、あの関数は
-    // **本番から一度も呼ばれず検査だけが参照していた**ので削除した(製品コードに検査専用の
-    // 関数を置くと、次に読む人がその存在理由を判断できない)。ここは**組み上がった graph に
-    // 現れる、ゲインが 0.0001 に達する時刻**を読む ── 実装が実際に予約した時刻そのもの。
+    check("43.2 窓の見方が本物(loop していて stop が無い音源は「止まらない」と答える)",
+      sourceEndOf(graphOf("accent", 0) + "\nbufferSource#1.loop=true") === Infinity
+      && Number.isFinite(sourceEndOf(graphOf("accent", 0) + "\nbufferSource#1.loop=true\nbufferSource#1.stop(0.05)")),
+      String(sourceEndOf(graphOf("accent", 0) + "\nbufferSource#1.loop=true")));
+    // 包絡の終わりも 90ms を超えない(音源より先に落ちきる側)
     const envEndOf = (g) => {
       const t = [...g.matchAll(/gain#\d+\.gain\.expRamp\(0\.0001,([\d.]+)\)/g)].map((m) => parseFloat(m[1]));
       return t.length ? Math.max(...t) : NaN;
     };
-    for (const id of ALL_IDS) {
-      const d = envEndOf(graphOf(id, "accent", 0));
-      check(`43.2 ${id} の包絡の終わりも除外の窓の後ろ 90ms 以内`,
+    for (const kind of KINDS) {
+      const d = envEndOf(graphOf(kind, 0));
+      check(`43.2 ${kind} の包絡の終わりも除外の窓の後ろ 90ms 以内`,
         Number.isFinite(d) && d > 0 && d * 1000 <= 90, `${(d * 1000).toFixed(1)}ms`);
-    }
-    check("43.2 現行の包絡の終わりは 60ms(雑音バッファの長さ)のまま",
-      envEndOf(graphOf("current", "accent", 0)) === 0.06,
-      String(envEndOf(graphOf("current", "accent", 0))));
-    // 表(METRO_CLICK_SPECS の attack + decay)が**音に届いている**こと。左辺は実装が
-    // 組み立てた graph から、右辺は表から ── 出どころの違う2つを突き合わせる。
-    for (const id of ["wood", "electro", "tick"]) {
-      const sp = api.METRO_CLICK_SPECS[id];
-      const want = (sp.attack || 0) + sp.decay;
-      const last = envEndOf(graphOf(id, "accent", 0));
-      check(`43.2 ${id} の包絡の終わりは表の attack + decay と一致する(表が音に届いている)`,
-        Math.abs(last - want) < 1e-9, `graph ${last} / 表 ${want}`);
     }
   }
 
@@ -20395,28 +20622,52 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
   // --- 43.4 配線(純関数を守っても、呼び方が違えば意味がない。罠2) --------------
   {
     const code43 = codeOf(src);
-    // スケジューラは「今選ばれている音」を渡している。予約の仕組み自体は触っていない
-    check("43.4 スケジューラは選ばれた音を渡してクリックを予約する",
-      /scheduleMetroClick\(ctx, t, kind, metroClickSoundRef\.current\);/.test(code43));
+    // スケジューラは音の種類を渡さない(1種しかない)。予約の仕組み自体は触っていない
+    check("43.4 スケジューラは kind までを渡してクリックを予約する(音の選択は渡さない)",
+      /scheduleMetroClick\(ctx, t, kind\);/.test(code43));
     check("43.4 予約の仕組み(LOOKAHEAD 0.12 / setInterval 25ms)は変わっていない",
       /const LOOKAHEAD = 0\.12;/.test(code43) && /setInterval\(metroSchedulerTickTimed, 25\)/.test(code43));
-    // 保存はアプリ既存の作法(usePersistedState = IndexedDB)。既定は現行
-    check("43.4 選んだ音は usePersistedState で保存し、既定は現行",
-      /usePersistedState\("metroClickSound", "current"\)/.test(code43));
-    check("43.4 スケジューラが読むのは ref(長寿命クロージャなので state を直接読まない)",
-      /const metroClickSoundRef = useRef\(metroClickSound\);/.test(code43)
-      && /metroClickSoundRef\.current = metroClickSound;/.test(code43));
+
+    // 【D-25 §1.1】クリック音の選択は**丸ごと**消えていること。
+    // 表・ディスパッチ・保存・ref・試し鳴らし・ピルのどれか1つでも残ると、
+    // 「1種に絞った」という前提が崩れる(死んだ分岐が次に読む人を迷わせる)。
+    for (const [name, re] of [
+      ["4種の一覧 METRO_CLICK_SOUNDS", /METRO_CLICK_SOUNDS/],
+      ["音の振り分け metroClickSoundId", /metroClickSoundId/],
+      ["別経路 scheduleMetroClickAlt", /scheduleMetroClickAlt/],
+      ["保存 usePersistedState(\"metroClickSound\")", /usePersistedState\("metroClickSound"/],
+      ["状態 metroClickSound", /\bmetroClickSound\b/],
+      ["ref metroClickSoundRef", /metroClickSoundRef/],
+      ["試し鳴らし previewMetroClick", /previewMetroClick/],
+      ["電子の作り(発振器)", /createOscillator/],
+    ]) {
+      check(`43.4 クリック音の選択の名残が無い: ${name}`, !re.test(code43),
+        (re.exec(code43) || [""])[0]);
+    }
+    // **IndexedDB のキーそのものは消していない**(本人の端末にある実データ。移行処理を
+    // 書くほうが危険で、読み手の居ない孤児キーは無害)。消す処理を足していないことを見る。
+    // 【D-28】以前はここが
+    //   !/deleteDatabase|\.clear\(\)/.test(code43) || !/metroClickSound/.test(src)
+    // だった。**右辺は「ソースのどこかに metroClickSound という綴りがあること」しか見ておらず、
+    // いまその綴りはコメント1箇所にしか残っていない**。次に誰かがそのコメントを整理すると
+    // 右辺が真になり、**この検査は無条件に通る**(そのとき本人のセッションごと DB を消す
+    // コードが緑で通る)。構造上失敗し得ないアサーションは検査ではない。
+    // **|| をやめ、アプリ全体の絶対の不変条件として書く**(実コードでの使用は現在0件)。
+    {
+      const all = codeOf(src);
+      check("43.4 アプリは IndexedDB を丸ごと消さない(deleteDatabase / .clear() を使わない)",
+        !/deleteDatabase|\.clear\(\)/.test(all),
+        (all.match(/deleteDatabase|\.clear\(\)/g) || []).join(" ") || "0件");
+    }
+
     // 【D-24e】**state を ref へ写す useEffect は、その state を依存に持つこと。**
     // 依存配列を [] にすると ref は初期値のまま凍る。usePersistedState は初期値で始まり
-    // IndexedDB からは**非同期で後から**入るので、`[metroClickSound]` → `[]` の変異では
-    // **ピルは「木」を選択表示し、試し鳴らしも木、しかし START すると現行が鳴り続ける**。
-    // 保存はされるので次回起動しても同じ ── **4種の A/B が原理的に不可能**になる
-    // (仕様 §3「選んだものが保存され、読み直しても残る」が意味を失う)。5次審査の実測で素通りした。
+    // IndexedDB からは**非同期で後から**入るので、`[]` にすると設定が永久に反映されない。
     // ここは1本を名指しせず、**この形の同期すべて**に効く規則として書く(罠4)。
     {
       const syncs = [...codeOf(code43).matchAll(
         /useEffect\(\(\) => \{\s*(\w+)Ref\.current = ([^;]+);\s*\}, \[([^\]]*)\]\);/g)];
-      check("43.4 state を ref へ写す useEffect が見つかる", syncs.length >= 5, `${syncs.length}本`);
+      check("43.4 state を ref へ写す useEffect が見つかる", syncs.length >= 4, `${syncs.length}本`);
       for (const m of syncs) {
         const [, refName, body, deps] = m;
         // 本体に出てくる識別子のうち、ref でも関数でもないもの = 読んでいる state
@@ -20436,136 +20687,6 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
         const dep = m[3].split(",").map((x) => x.trim()).filter(Boolean);
         check("43.4 依存の検査が本物(依存を空にした同期は「足りない」と判定する)",
           reads.some((r) => !dep.includes(r)));
-      }
-    }
-    // シートの中に4種のボタンがあり、押すと**保存と試し鳴らしの両方**が起きる
-    check("43.4 シートは METRO_CLICK_SOUNDS を並べる(表の外に音の名前を書き写していない)",
-      /METRO_CLICK_SOUNDS\.map\(\(s\) => \{/.test(code43));
-    check("43.4 押すと保存と試し鳴らしの両方が起きる",
-      /setMetroClickSound\(s\.id\); previewMetroClick\(s\.id\);/.test(code43));
-    check("43.4 選択中は aria-pressed で返る", /const selected = metroClickSound === s\.id;/.test(code43));
-    {
-      // previewMetroClick の中身だけを取り出して見る(useCallback なので関数抽出器が使えない)
-      const m = /const previewMetroClick = useCallback\(\(id\) => \{([\s\S]*?)\n  \}, \[\]\);/.exec(code43);
-      const body = m ? m[1] : "";
-      check("43.4 試し鳴らしの本体が読める", body.length > 0);
-      // 試し鳴らしは本番と同じ出口を通る(別の音づくりを2つ持たない)
-      check("43.4 試し鳴らしは本番と同じ scheduleMetroClick を通る",
-        /scheduleMetroClick\(ctx, ctx\.currentTime \+ 0\.02, "accent", id\);/.test(body), body.slice(0, 200));
-      // 【D-24a で禁止語を絞った / D-24b で名乗りを検証に合わせた】
-      // D-24a の名前は「(予約の仕組みに触らない)」と名乗っていたが、禁止語は
-      // setInterval / metroOnRef / metroNextTimeRef / metroTimerRef の**綴りだけ**で、
-      // 予約が寄って立つ **AudioContext そのものを作り直す**ことは見ていなかった。
-      // そのせいで「鳴っている最中の試し鳴らしが ctx を close() して差し替え、
-      // 古い時計基準の metroNextTimeRef に新しい時計が追いつくまで丸ごと無音になる」
-      // という退行を素通りさせた(罠1: 名乗りが検証を超えていた)。
-      // ここは**綴りで見られる範囲だけ**を名乗る ── タイマーを張らないこと、
-      // 予約の状態(次の時刻・通算拍・小節内位置・振り子の基準)へ**書き込まない**こと。
-      // metroOnRef は「今スケジューラが動いているか」を**読む**ためだけに使ってよい
-      // (読むだけでは何も起こらない)。作り直しの側は下の**振る舞いの検査**が見る。
-      check("43.4 試し鳴らしはタイマーを張らず、予約の状態を1つも書き換えない(綴りで見る)",
-        body.length > 0
-        && !/setInterval|setTimeout|metroTimerRef/.test(body)
-        && !/(metroNextTimeRef|metroTickIndexRef|metroGBeatRef|metroAnchorRef|metroOnRef)\.current\s*=[^=]/.test(body),
-        body.slice(0, 300));
-      // 【D-24a】時計の用意は START と同じ規則を通る(下の 43.5 が両者の一致を見る)
-      check("43.4 試し鳴らしの時計は metroCtxNeedsRebuild の規則を通る",
-        /metroCtxNeedsRebuild\(ctx, metroClockMarkRef\.current, performance\.now\(\)\)/.test(body)
-        && !/ctx\.state !== "running"/.test(body), body.slice(0, 300));
-
-      // 【D-24b】**振る舞いで見る。** 本体を作り物の依存の上で実際に走らせ、
-      // 「鳴っている最中は ctx を作り直さない」ことを確かめる(綴りの正規表現では、
-      // どんな条件で close() に入るかは分からない)。
-      // 退行の中身: メトロノームが鳴っている間に試し鳴らしが ctx を close() して差し替えると、
-      // スケジューラは毎tick ctx を読み直すのに metroNextTimeRef は古い時計の大きな値のまま
-      // 残るため、`metroNextTimeRef.current < ctx.currentTime + LOOKAHEAD` が
-      // **壊した ctx の生存時間ぶん**一度も真にならない(審査の実測で 5875ms 無音)。
-      // START は作り直した直後に予約を張り直すので同じ問題を持たない。
-      {
-        const NOW = 200000;
-        const mkCtx = (state, currentTime) => {
-          const c = { state, currentTime, closed: false, resumed: 0, fresh: false };
-          c.close = () => { c.closed = true; };
-          c.resume = () => { c.resumed++; return { catch: () => {} }; };
-          return c;
-        };
-        // 本体が参照する外側の名前をすべて引数で渡す(構築も呼び出しも runFn で包む)
-        const mkPreview = (d) => runFn(() => new Function(
-          "applyAudioSessionType", "metroCtxRef", "metroOnRef", "metroClockMarkRef",
-          "metroCtxNeedsRebuild", "scheduleMetroClick", "window", "performance",
-          `return (id) => {${body}};`)(
-          () => {}, d.ctxRef, d.onRef, d.markRef, api.metroCtxNeedsRebuild,
-          (c, t, kind, id) => d.calls.push({ c, t, kind, id }),
-          { AudioContext: function () { const c = mkCtx("running", 0); c.fresh = true; return c; } },
-          { now: () => NOW }));
-        // 場面を1つ作って試し鳴らしを1回走らせ、何が起きたかを返す
-        const runPreview = (on, ctx, mark) => {
-          const d = { ctxRef: { current: ctx }, onRef: { current: on },
-            markRef: { current: mark }, calls: [] };
-          const p = mkPreview(d);
-          const r = p.ok ? runFn(p.v, "wood") : p;
-          return { ok: r.ok, err: r.err || p.err, d, ctx };
-        };
-        const STALL = { audio: 100, wall: NOW - 5000 }; // 5秒たっても音声時計が進んでいない基準点
-
-        // ① 鳴っている最中に、割り込みで state が "suspended" になった ctx で押す
-        //    (iOS の通話 / Siri / 他アプリの音声フォーカス。visibilitychange は伴わない)
-        {
-          const live = mkCtx("suspended", 123.4);
-          const r = runPreview(true, live, STALL);
-          const kept = r.ok && r.d.ctxRef.current === live && live.closed === false;
-          check("43.4 鳴っている最中の試し鳴らしは ctx を作り直さない(close も差し替えもしない)",
-            kept, r.ok ? `差し替え ${r.d.ctxRef.current !== live} / close ${live.closed}` : `例外(${r.err})`);
-          check("43.4 鳴っている最中でも試し鳴らしは その ctx に1回**予約する**(鳴るかは実機待ち)",
-            r.ok && r.d.calls.length === 1 && r.d.calls[0].c === live && r.d.calls[0].id === "wood",
-            r.ok ? JSON.stringify(r.d.calls.map((x) => ({ same: x.c === live, id: x.id }))) : `例外(${r.err})`);
-          check("43.4 鳴っている最中は F-52 の基準点(metroClockMarkRef)も捨てない",
-            r.ok && r.d.markRef.current === STALL, r.ok ? String(r.d.markRef.current) : `例外(${r.err})`);
-        }
-        // ② 止まっているときは従来どおり ── 作り直しの規則を通る(§1.4 が効く場面)
-        {
-          const dead = mkCtx("suspended", 123.4);
-          const r = runPreview(false, dead, STALL);
-          check("43.4 止まっているときは作り直しの規則が効く(壊れた ctx は差し替える)",
-            r.ok && r.d.ctxRef.current !== dead && r.d.ctxRef.current.fresh === true
-            && dead.closed === true && r.d.markRef.current === null,
-            r.ok ? `差し替え ${r.d.ctxRef.current !== dead} / close ${dead.closed}` : `例外(${r.err})`);
-          // running で、5秒のあいだ音声時計も 5秒進んでいる = 健全(F-52 に当たらない)
-          const good = mkCtx("running", 8);
-          const r2 = runPreview(false, good, { audio: 3, wall: NOW - 5000 });
-          check("43.4 止まっていて ctx が健全なら作り直さない(押すたびに作り替えない)",
-            r2.ok && r2.d.ctxRef.current === good && good.closed === false && r2.d.calls.length === 1,
-            r2.ok ? `差し替え ${r2.d.ctxRef.current !== good} / close ${good.closed}` : `例外(${r2.err})`);
-        }
-        // ③ 鳴っている扱いでも ctx がまだ無ければ作る(例外で無音にならない)
-        {
-          const r = runPreview(true, null, null);
-          check("43.4 ctx がまだ無ければ作る(いまは到達しない守り。null に resume すると落ちるため)",
-            r.ok && !!r.d.ctxRef.current && r.d.ctxRef.current.fresh === true && r.d.calls.length === 1,
-            r.ok ? String(r.d.calls.length) : `例外(${r.err})`);
-        }
-        // 【D-24c】**作り直しの「あと」の後始末 ── resume() を必ず蹴ること。**
-        // iOS では new AudioContext() は "suspended" で始まり、**ユーザー操作の同期の中で
-        // resume() を蹴らないと二度と鳴らない**。作り直すかどうかの判断(上の6件)は固定したが、
-        // 判断のあとに必ずやることは1件も固定していなかったので、`ctx.resume()` を丸ごと
-        // 消しても PASS 7182 / FAIL 0 のまま通った(審査の実測)。罠18 の裏側。
-        // どの場面でも「予約する ctx はちょうど1回 resume されている」ことだけを見る
-        // (どこで蹴るかの綴りは縛らない ── 罠4)。
-        {
-          const cases = [
-            ["鳴っている最中(既存の ctx をそのまま使う)", () => runPreview(true, mkCtx("suspended", 123.4), STALL)],
-            ["止まっていて壊れている(作り直した新品)", () => runPreview(false, mkCtx("suspended", 123.4), STALL)],
-            ["止まっていて健全(既存の ctx を使い回す)", () => runPreview(false, mkCtx("running", 8), { audio: 3, wall: NOW - 5000 })],
-            ["ctx がまだ無い(作った新品)", () => runPreview(true, null, null)],
-          ];
-          for (const [name, run] of cases) {
-            const r = run();
-            const used = r.ok && r.d.calls.length === 1 ? r.d.calls[0].c : null;
-            check(`43.4 ${name}: 予約する ctx はちょうど1回 resume される(iOS はユーザー操作の同期の中でしか resume できない)`,
-              !!used && used.resumed === 1,
-              r.ok ? `予約 ${r.d.calls.length}件 / resume ${used ? used.resumed : "—"}` : `例外(${r.err})`);
-          }
-        }
       }
     }
     // タップテンポの配線: 押した瞬間に数える / performance.now() / 音の時計に依存しない
@@ -20605,7 +20726,6 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
       && /return clearTapResetTimer;/.test(code43)
       && /clearTimeout\(tapResetTimerRef\.current\); tapResetTimerRef\.current = null;/.test(code43));
     // 捨てる規則の数値を持つのは tapTempoPush の側だけ。表示側は**その関数に訊く**
-    // (2箇所に持つと、片方だけ直したときに画面が嘘をつく。それが D-24 の欠陥だった)
     {
       const dispSrc = [srcOfFn(src, "tapTempoLiveCount"), srcOfFn(src, "tapTempoResetInMs")]
         .map(codeOf).join("\n");
@@ -20616,9 +20736,36 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
     }
     check("43.4 タップは押した瞬間(onPointerDown)に数える(指を離すのを待たない)",
       /onPointerDown=\{onTapTempo\}/.test(code43) && !/onClick=\{onTapTempo\}/.test(code43));
-    check("43.4 1回目は『あと1回』、2回目からは回数が出る",
-      /tapCount === 0 \? "" : tapCount === 1 \? "あと1回" : `\$\{tapCount\}回`/.test(code43));
-    // 普段の画面に部品を増やしていない(§2.1)。タップもクリック音もシートの中だけ
+
+    // 【D-25 §2】表示は `1/5` `2/5` の形。本人の指示「あと5回とかの表記ではなく
+    // 1/5、2/5 だけのシンプルな形に変更」。
+    // 分母は **TAP_TEMPO_INTERVALS + 1**(間隔4本 = タップ5回で満ちる)。
+    // **5 を直書きしない** ── 中央値を取る本数を変えたら分母も一緒に動かなければ嘘になる。
+    {
+      const m = /\{tapCount === 0 \? "" : `([^`]*)`\}/.exec(code43);
+      const tpl = m ? m[1] : "";
+      check("43.4 タップの表示は分数ひとつ(『あと n 回』の文言を持たない)",
+        !!m && !/あと|回/.test(code43.slice(code43.indexOf("tapCount === 0"), code43.indexOf("tapCount === 0") + 200)),
+        tpl || "見つからない");
+      check("43.4 分子は今この瞬間の本数 tapCount", tpl.startsWith("${tapCount}/"), tpl);
+      check("43.4 分母は TAP_TEMPO_INTERVALS + 1(5 を直書きしていない)",
+        tpl === "${tapCount}/${TAP_TEMPO_INTERVALS + 1}", tpl);
+      check("43.4 押していないとき(0回)は何も出さない(叩く前の状態が分かる。§2.3)", !!m);
+      // 分子が分母を超えないことは tapTempoPush の切り詰めが保証する。**画面側では
+      // 押さえていない**ので、純関数の側で確かめる(表示に Math.min を置いていない)。
+      {
+        let taps = [];
+        let worst = 0;
+        for (let i = 0; i < 20; i++) {
+          taps = api.tapTempoPush(taps, i * 300);
+          worst = Math.max(worst, api.tapTempoLiveCount(taps, i * 300));
+        }
+        check("43.4 何回叩いても本数は分母(TAP_TEMPO_INTERVALS + 1)を超えない",
+          worst === api.TAP_TEMPO_INTERVALS + 1,
+          `20回叩いた最大 ${worst} / 分母 ${api.TAP_TEMPO_INTERVALS + 1}`);
+      }
+    }
+    // 普段の画面に部品を増やしていない(§2.1)。タップはシートの中だけ
     {
       const sheet = /\{tempoSheetOpen && \(([\s\S]*?)\n      \)\}/.exec(src);
       const sheetSrc = codeOf(sheet ? sheet[1] : "");
@@ -20626,18 +20773,19 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
       check("43.4 タップテンポはシートの中にだけある",
         (code43.match(/onPointerDown=\{onTapTempo\}/g) || []).length === 1
         && sheetSrc.includes("onPointerDown={onTapTempo}"));
-      check("43.4 クリック音の選択はシートの中にだけある",
-        (code43.match(/METRO_CLICK_SOUNDS\.map/g) || []).length === 1
-        && sheetSrc.includes("METRO_CLICK_SOUNDS.map"));
+      check("43.4 シートにクリック音の行は無い",
+        !/クリック音/.test(sheetSrc), (/クリック音.*/.exec(sheetSrc) || [""])[0]);
     }
   }
 
-  // --- 43.5 【D-24a】時計を作り直す規則が START と試し鳴らしで同じであること -------
-  // D-24 の試し鳴らしは `if (!ctx)` しか見ておらず、**state は "running" のまま時計だけ
-  // 止まった ctx**(F-52。iOS でバックグラウンドから復帰した直後)を素通りさせていた。
-  // その ctx では ctx.currentTime + 0.02 が来ないので、押しても無音になる(§1.4 違反)。
-  // ここでは綴りではなく **同じ入力を両方に流して、同じ判断が返ること**を見る。
-  // startMetronome の側は1文字も変えていないので、その本文から条件式を取り出して評価する。
+  // --- 43.5 START の中の「時計を作り直すか」の判断が動いていないこと ---------------
+  // 【D-24a】startMetronome が中で直に書いている条件と、純関数 metroCtxNeedsRebuild が
+  // **同じ入力で同じ判断を返す**ことを見る。
+  // 【D-25 の正直な但し書き】metroCtxNeedsRebuild の唯一の呼び手だった試し鳴らし
+  // (previewMetroClick)は、クリック音の選択ごと削除された。いまこの関数を呼ぶ本番コードは
+  // 無い(畳むかどうかは D-25 の担当範囲の外なので触らず、BACKLOG に起票してある)。
+  // したがってここが守っているのは **startMetronome の側の条件が動いていないこと**であって、
+  // 「規則が1箇所にある」ことではない。
   {
     const code45 = codeOf(src);
     const sm = /const startMetronome = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[metroSchedulerTickTimed, metroActiveRef, requestWakeLock\]\);/.exec(code45);
@@ -20678,24 +20826,156 @@ console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タ
         same === cases.length, diffs.join(" / "));
       check("43.5 その中には『ctx はあるのに作り直す』場面が含まれる(F-52 の枝が生きている)",
         f52 >= 3, `${f52}件`);
-      // 素朴な `if (!ctx)`(D-24 の試し鳴らしがやっていたこと)なら必ず食い違う場面がある
+      // 素朴な `if (!ctx)` なら必ず食い違う場面がある
       const naiveDiff = cases.filter(([, ctx, mark]) => api.metroCtxNeedsRebuild(ctx, mark, NOW) !== !ctx);
       check("43.5 `if (!ctx)` だけでは足りない(食い違う場面が実在する)",
         naiveDiff.length >= 3, `${naiveDiff.length}件`);
     }
-    // 【ここは十分条件ではない。正直に書く】START の側は1文字も変えていないので、
-    // 条件式そのものは **START の中と metroCtxNeedsRebuild の2箇所**にある。
-    // 「1箇所にまとめた」とは名乗れない。そのぶんを埋めているのが上の
-    // 「同じ入力で同じ判断が返る」検査で、片方だけ直せば必ず落ちる。
-    // ここで見るのは、**試し鳴らしが自前の条件を持たない**ことだけ。
-    // 【D-24b】試し鳴らしは「鳴っている間は作り直さない」という**追加の門**を1つ持つ
-    // (owned)。その門をくぐったあとの判断は共有の関数がすべて持つ ── 作り直しの規則そのものを
-    // 書き写していないことをここで見る(鳴っている間の振る舞いは 43.4 が実際に走らせて見る)。
-    // (門そのものの書き方は縛らない ── 順序を入れ替えただけの等価な書き換えで落とすと、
-    //  正しい修正を落とす検査になる。罠4)
-    check("43.5 試し鳴らしは作り直しの規則を書き写さず、共有の関数を呼ぶ",
-      /if \(!owned && metroCtxNeedsRebuild\(ctx, metroClockMarkRef\.current, performance\.now\(\)\)\) \{/.test(code45)
-      && /const owned = [^;\n]*metroOnRef\.current[^;\n]*;/.test(code45));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証44: D-26 外周の光を「1枚の面 + 1本のグラデーション」へ / 明るさを 8bit へ量子化
+//
+// 出どころ: 本人の実機フィードバック第9陣「±4以内のメトロノームの挙動がまだ
+// スムーズではない」。±4¢ の内側は**光が見えている＝明るさを毎フレーム書いている**範囲で、
+// 書き込みの起きる範囲と症状の範囲が一致していた(D26-SPEC §1)。
+//
+// **ここで守れないこと**: カクつきが直ったかどうか。JS からは style 再計算・ペイント・
+// 合成の費用が構造的に見えない(罠17)。**判定は本人の目だけ。**
+// ここで守れるのは「マスクとフィルタが0枚であること」「アルファの形が変わっていないこと」
+// 「明るさが 8bit へ量子化され、変わったときだけ書かれること」の3つ。
+// (構造とアルファの形は上の D-3c / D-3b の節が持つ。ここは量子化と入れ子の深さ。)
+// ============================================================
+console.log("\n========== 検証44: D-26 光からマスクを外す / 明るさの量子化 ==========");
+{
+  const ringCode44 = codeOf(srcOfFn(src, "PitchRing"));
+
+  // --- 44.1 ringGlowQuant: 画面に出る 8bit の刻みへ丸める ---------------------
+  // **期待値は「8bit の画面」という外の事実から出す**(実装の式の書き写しではない)。
+  // 丸めた値は 0〜255 の整数を 255 で割った数のどれかで、元の値との差は半段より小さい。
+  {
+    let notOnGrid = 0, worst = 0;
+    for (let i = 0; i <= 20000; i++) {
+      const v = i / 20000;                        // 0〜1 を細かく走査
+      const q = Number(api.ringGlowQuant(v));
+      const level = q * 255;
+      if (Math.abs(level - Math.round(level)) > 5e-4) notOnGrid++;   // toFixed(4) ぶんの余裕
+      worst = Math.max(worst, Math.abs(q - v));
+    }
+    check("44.1 量子化した明るさは 8bit の目盛(n/255)の上にしか乗らない",
+      notOnGrid === 0, `目盛から外れた点 ${notOnGrid}件`);
+    // 許容は「半段 + 文字列にするときの丸め」。toFixed(6) は最大 5e-7 ずらすので、
+    // 255段の目盛に直すと 255×5e-7 = 1.3e-4 段ぶんだけ半段を超え得る。
+    check("44.1 量子化の誤差は半段(0.5/255)より大きくならない(見た目が変わらない)",
+      worst * 255 <= 0.5 + 255 * 5e-7, `最大 ${(worst * 255).toFixed(4)}/255`);
+    check("44.1 端は端のまま(消えているものが点いたり、最大が欠けたりしない)",
+      Number(api.ringGlowQuant(0)) === 0 && Number(api.ringGlowQuant(1)) === 1,
+      `${api.ringGlowQuant(0)} / ${api.ringGlowQuant(1)}`);
+    check("44.1 単調(明るくしたのに暗くなる、が起きない)", (() => {
+      let prev = -1;
+      for (let i = 0; i <= 20000; i++) {
+        const q = Number(api.ringGlowQuant(i / 20000));
+        if (q < prev - 1e-12) return false;
+        prev = q;
+      }
+      return true;
+    })());
+    // 量子化していないと「同じ絵なのに違う文字列」が出る ── それがそのまま書き込みになる。
+    // **比較対象を測る**(罠16): 変更前の刻み(1/10000)と同じ入力で数える。
+    // 入力は ±14¢ を 0.7Hz で往復する30秒・60fps(D-23b が書き込みを測ったときと同じ掃引)。
+    {
+      // 走りが終わったあと(raw=1・呼吸は CSS)の1800フレーム = 60fps で30秒。
+      const countWrites = (fmt, gen) => {
+        let last = "", writes = 0;
+        for (let f = 0; f < 1800; f++) {
+          const cur = fmt(api.ringGlowOpacity(1, 1, gen(f)));
+          if (cur !== last) { last = cur; writes++; }
+        }
+        return writes;
+      };
+      const cases = [
+        ["±14¢ 0.7Hz(D-23b と同じ掃引)", (f) => Math.abs(14 * Math.sin(2 * Math.PI * 0.7 * f / 60))],
+        ["±3¢ 0.7Hz", (f) => Math.abs(3 * Math.sin(2 * Math.PI * 0.7 * f / 60))],
+        ["±3¢ 0.2Hz", (f) => Math.abs(3 * Math.sin(2 * Math.PI * 0.2 * f / 60))],
+        ["2.5〜3.5¢ 0.15Hz(近い側に留まる)", (f) => 3 + 0.5 * Math.sin(2 * Math.PI * 0.15 * f / 60)],
+        ["3¢ + ±0.02¢ の揺れ", (f) => 3 + 0.02 * Math.sin(2 * Math.PI * 3 * f / 60)],
+        ["0¢ を保つ(合っている)", () => 0],
+      ];
+      const rows = cases.map(([name, gen]) => {
+        const b = countWrites((v) => v.toFixed(4), gen);   // 変更前の刻み(1/10000)
+        const a = countWrites(api.ringGlowQuant, gen);     // D-26 の刻み(1/255)
+        return { name, b, a };
+      });
+      for (const r of rows) console.log(`  D-26 明るさの書き込み(1800フレーム) ${r.name}: ${r.b} → ${r.a}回`);
+      // (1) どの場面でも増えない。量子化は「同じ絵を二度頼まない」ための間引きなので、
+      //     1回でも増えるなら間引きになっていない。
+      check("44.1 量子化して書き込みが増える場面が1つも無い",
+        rows.every((r) => r.a <= r.b), rows.filter((r) => r.a > r.b).map((r) => r.name).join(" / ") || "0件");
+      // (2) 近い側(2〜4¢)に留まる場面では実際に半分近くまで減る。**ここが症状の出る範囲。**
+      const hold = rows.find((r) => r.name === "3¢ + ±0.02¢ の揺れ");
+      check("44.1 光が出たまま近い側に留まる場面では書き込みが3割以上減る",
+        hold.a <= hold.b * 0.7, `${hold.b} → ${hold.a}回`);
+      // (3) 合っている間はもともと0(D-23d)。量子化で壊していない。
+      const inTune = rows.find((r) => r.name === "0¢ を保つ(合っている)");
+      check("44.1 合った状態を保っている間の書き込みは初回の1回だけ(D-23d のまま)",
+        inTune.a === 1 && inTune.b === 1, `${inTune.b} → ${inTune.a}回`);
+    }
+  }
+
+  // --- 44.2 配線: rAF は量子化した値を書き、変わったときだけ書く ---------------
+  // (罠2: 純関数を守っても呼び出しが無防備なら意味がない。呼び出しに隣接する綴りで見る。)
+  check("44.2 rAF が書く明るさは ringGlowQuant を通した値",
+    /const op = ringGlowQuant\(opNum\);/.test(ringCode44)
+    && !/opNum\.toFixed\(/.test(ringCode44),
+    (ringCode44.match(/const op = [^\n]*/) || ["無し"])[0].trim());
+  check("44.2 明るさは値が変わったときだけ書く(間引きの形は D-23b/D-23d のまま)",
+    /if \(glow && op !== lastGlow\) \{/.test(ringCode44)
+    && /lastGlow = op;/.test(ringCode44));
+  check("44.2 量子化するのは書き込む値だけ(明るさの式そのものには触っていない)",
+    /const opNum = ringGlowOpacity\(raw, 1, glowCents\);/.test(ringCode44)
+    && !/ringGlowQuant\([^)]*\)[^\n]*ringGlowOpacity/.test(ringCode44));
+
+  // --- 44.3 入れ子は2段まで(掛け算の形は明るさ × 呼吸のまま) ------------------
+  // 光の <g> の内側に <g> が増えると、そのぶん合成の中間バッファが増える。
+  {
+    const flat44 = ringCode44.slice(ringCode44.indexOf("<svg"), ringCode44.indexOf("</svg>"))
+      .replace(/\s*\n\s*/g, " ");
+    const open = flat44.indexOf('<g ref={glowGroupRef}');
+    const end = flat44.indexOf('d="" fill="none" stroke={`url(#${gid})`}');
+    const seg = open >= 0 && end > open ? flat44.slice(open, end) : "";
+    const gOpens = (seg.match(/<g[\s>]/g) || []).length;
+    check("44.3 光の入れ子は <g> 2段まで(明るさの段 × 呼吸)",
+      seg.length > 60 && gOpens === 2, `<g> ${gOpens}枚`);
+    check("44.3 光の面は <rect> 1枚だけ(2枚重ねは畳んだ)",
+      (seg.match(/<rect[\s]/g) || []).length === 1,
+      `${(seg.match(/<rect[\s]/g) || []).length}枚`);
+    // F-106: 合成器に載せるために will-change を使わない(アプリ全体で禁止)。
+    check("44.3 光に will-change を足していない(F-106)",
+      !/will-change|willChange/.test(codeOf(src)),
+      (codeOf(src).match(/will-?[Cc]hange/g) || []).join(" ") || "0件");
+
+    // 【D-28】**停止点の値と位置が、そのまま DOM へ出ること。**
+    // 独立審査の実測: `stopOpacity={(st.value * 0.5).toFixed(4)}`(光が半分の明るさ)/
+    // `offset={(st.offset * 0.9).toFixed(4)}`(光が1割縮み、峰が環の内側へ寄る)/
+    // `st.value.toFixed(1)`(0.1刻み = 25.5/255 の縞)/ `.filter((_, i) => i % 2 === 0)`(45→23段)
+    // が**すべて PASS 7227 / FAIL 0 で素通り**した。**5ab5206 でも同じく素通りする既存の穴**だが、
+    // D-26 で光の形の唯一の持ち主がこの1本になったので、ここが抜けると光そのものが変わる。
+    // 診断の名詞は「**停止点の値と位置に手を入れない**」── 算術も間引きも名指しで禁じる(罠20)。
+    {
+      const m = /\{RING_GLOW_ALPHA_STOPS([\s\S]*?)\)\)\}/.exec(ringCode44);
+      const emit = m ? m[0] : "";
+      check("44.1 停止点を描き出す式が読める", emit.length > 0, emit.slice(0, 160));
+      check("44.1 停止点は間引かれずに全部出る(.filter / .slice を挟まない)",
+        emit.length > 0 && !/\.filter\(|\.slice\(/.test(emit), emit.slice(0, 200));
+      check("44.1 濃さは st.value をそのまま 4桁で出す(算術を挟まない)",
+        /stopOpacity=\{st\.value\.toFixed\(4\)\}/.test(emit),
+        (/stopOpacity=\{[^}]*\}/.exec(emit) || [""])[0]);
+      check("44.1 位置は st.offset をそのまま 4桁で出す(算術を挟まない)",
+        /offset=\{st\.offset\.toFixed\(4\)\}/.test(emit),
+        (/[^p]offset=\{[^}]*\}/.exec(emit) || [""])[0]);
+    }
   }
   console.log("  -> done");
 }
