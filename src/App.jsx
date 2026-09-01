@@ -2746,6 +2746,23 @@ function audioClockStalled(audioDeltaS, wallDeltaS) {
   return !(audioDeltaS >= wallDeltaS * AUDIO_CLOCK_STALL_RATIO);
 }
 
+// 【D-24a】メトロノームの AudioContext を「作り直すべきか」の規則(純関数)。
+// startMetronome が中で直に書いている判断と**同じ式**をここに置き、試し鳴らし
+// (previewMetroClick)も必ずここを通す。
+// 見るのは2つ:
+//   ① そもそも無い / state が "running" でない
+//   ② 【F-52】state は "running" なのに音声時計だけ止まっている
+//      (iOS でバックグラウンドから戻った直後。控えておいた基準点 mark と突き合わせる)
+// ②を見落とすと ctx.currentTime + 0.02 がいつまでも来ず、**押しても音が鳴らない**。
+// 引数: ctx / mark = { audio, wall } または null / nowMs = performance.now() のミリ秒。
+// **startMetronome の本体は1文字も変えていない**(予約の仕組みに触らないため)。
+// 両者が同じ判断をすることは検査43.5 が、同じ入力を両方に流して突き合わせて固定している。
+function metroCtxNeedsRebuild(ctx, mark, nowMs) {
+  const clockStalled = !!ctx && !!mark &&
+    audioClockStalled(ctx.currentTime - mark.audio, (nowMs - mark.wall) / 1000);
+  return !ctx || ctx.state !== "running" || clockStalled;
+}
+
 // マイクのトラックが実際に音を運べる状態か(純関数)。readyState が live でも、iOSは中断中に
 // muted=true のまま返すことがあるため両方を見る。muted が未実装の環境で誤って毎回取り直さないよう
 // 「muted が明示的に true のときだけ駄目」と判定する。
@@ -4416,6 +4433,72 @@ function clampMetroTempo(v) {
   return Math.max(METRO_TEMPO_MIN, Math.min(METRO_TEMPO_MAX, n));
 }
 
+// ============================================================
+// 【D-24 §2】タップテンポ。**純関数2つに閉じてある**(状態も時計も持たない)。
+// 呼び手が performance.now() のミリ秒を渡す。ctx.currentTime は使わない ──
+// 音声時計は量子化されており(実測 5.33〜10.67ms)、叩いた瞬間の時刻としては粗いため。
+// テンポの範囲は clampMetroTempo が唯一の答え(ここで min/max を書かない)。
+// ============================================================
+const TAP_TEMPO_RESET_MS = 2000;   // これ以上あくと、それまでの間隔を捨てて測り直す
+const TAP_TEMPO_INTERVALS = 4;     // 中央値を取る「直近の間隔」の本数
+
+// タップ時刻の列に1回ぶん足した新しい列を返す(元の配列は変えない)。
+// ・直前のタップから TAP_TEMPO_RESET_MS 以上あいていたら、それまでを捨てて1回目からやり直す
+// ・列は「間隔 TAP_TEMPO_INTERVALS 本ぶん」= 時刻 TAP_TEMPO_INTERVALS+1 個までに切り詰める
+function tapTempoPush(taps, nowMs) {
+  const prev = Array.isArray(taps) ? taps : [];
+  const last = prev.length ? prev[prev.length - 1] : null;
+  const kept = (last === null || nowMs - last <= TAP_TEMPO_RESET_MS) ? prev : [];
+  const next = kept.concat(nowMs);
+  const cap = TAP_TEMPO_INTERVALS + 1;
+  return next.length > cap ? next.slice(next.length - cap) : next;
+}
+
+// タップ時刻の列からテンポを出す。**2回目のタップから**値が出る(1回では間隔が無いので null)。
+// 直近 TAP_TEMPO_INTERVALS 本の間隔の**中央値**を使う。平均ではない ──
+// 1回のミスタップは「短い間隔」と「長い間隔」を1本ずつ作るので、平均だと必ず引きずられるが、
+// 中央値なら両端に散って真ん中は動かない。
+function tapTempoFromTaps(taps) {
+  const list = Array.isArray(taps) ? taps : [];
+  if (list.length < 2) return null;
+  const gaps = [];
+  for (let i = 1; i < list.length; i++) gaps.push(list[i] - list[i - 1]);
+  const use = gaps.slice(-TAP_TEMPO_INTERVALS).sort((a, b) => a - b);
+  const mid = use.length >> 1;
+  const med = use.length % 2 ? use[mid] : (use[mid - 1] + use[mid]) / 2;
+  if (!(med > 0)) return null;
+  return clampMetroTempo(60000 / med);
+}
+
+// 【D-24a §2.3】「**今この瞬間**、何回ぶんのタップが生きているか」。
+// 表示(「あと1回」/「n回」)はこの値だけを見る ── 叩いた回数をそのまま覚えておくと、
+// 2秒あいて捨てられたあとも古い回数を出し続け、**叩く前に状態を知る手段が無くなる**。
+// 捨てる規則そのものはここに書かない。tapTempoPush に「今この時刻で足したら、それまでの列は
+// 残るか」を訊く ── 捨てられていれば足した1個しか残らないので、そのときだけ 0 を返す。
+function tapTempoLiveCount(taps, nowMs) {
+  const list = Array.isArray(taps) ? taps : [];
+  if (!list.length) return 0;
+  return tapTempoPush(list, nowMs).length > 1 ? list.length : 0;
+}
+
+// 【D-24a §2.3】列が捨てられるまでの残り時間(ms)。表示を捨てられた瞬間に 0 へ戻すための待ち時間。
+// **閾値の数値をここに書き写さない** ── 捨てる規則の唯一の答えは tapTempoPush なので、
+// その関数に「この間隔なら捨てるか」を訊いて、捨て始める境界(整数ミリ秒)を二分探索で求める。
+// (規則を2箇所に持つと、片方だけ直したときに画面が嘘をつく。それが D-24 の欠陥だった)
+// 列が空なら待つものが無いので null。
+function tapTempoResetInMs(taps, nowMs) {
+  const list = Array.isArray(taps) ? taps : [];
+  if (!list.length) return null;
+  const alive = (gap) => tapTempoPush([0], gap).length > 1; // 間隔 gap は捨てられずに残るか
+  let lo = 0, hi = 1;
+  while (alive(hi) && hi < 1e7) { lo = hi; hi *= 2; }
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (alive(mid)) lo = mid; else hi = mid;
+  }
+  return list[list.length - 1] + lo - nowMs;
+}
+
 // "6/8"のような拍子文字列を{num, den}に分解する
 function parseMetroSig(sig) {
   const parts = String(sig).split("/");
@@ -4524,10 +4607,108 @@ function getMetroMasterInput(ctx) {
   return limiter;
 }
 
+// ============================================================
+// 【D-24 §1】クリック音は4種から選ぶ。
+//
+// **現行(current)の音は1文字も書き換えていない**(下の scheduleMetroClick の本体がそれ)。
+// 良し悪しは Chrome では判定できないので、改善版は現行を差し替えるのではなく
+// **4種のうちの1つ**として並べ、本人が実機で A/B して既定を決める(仕様 §1.3)。
+// 既定は "current"。
+//
+// 音の定数はこの表の中だけに閉じる ── DESIGN-SYSTEM のトークンではないので、
+// 体系(--sp-* 等)には1つも足していない(仕様 §1.2)。
+//
+// 3段(accent / beat / sub)の音量差は**現行と同じ 1.0 / 0.85 / 0.6 を出発点**にし、
+// そのうえで音ごとに中心周波数でも段を付ける(音程差 + 音量差の二段構え)。
+// makeup は「その音の作り方で失われる/増える振幅」を戻すためのもので、
+// **マスターの gain 2.6 とリミッターには触れていない**(仕様 §1.5)。
+// 値は Node で Web Audio 仕様の双二次係数を再現して求めた**計算値**であり、
+// 実機で聴いた結果ではない(どれが良い音かは実機待ち)。
+const METRO_CLICK_SOUNDS = [
+  { id: "current", label: "現行" },
+  { id: "wood", label: "木" },
+  { id: "electro", label: "電子" },
+  { id: "tick", label: "鋭い" },
+];
+// 3段の音量。現行の 1.0 / 0.85 / 0.6 と同じ比(現行側はこの定数を読まない ── あちらは
+// 1文字も触らないため、値が同じでも参照は分けたままにしてある)。
+const METRO_CLICK_VOL = { accent: 1.0, beat: 0.85, sub: 0.6 };
+// 現行以外の3種の作り。src: "noise"= getMetroClickBuffer の雑音 / "tone"= 正弦波。
+const METRO_CLICK_SPECS = {
+  // 【木】本物のメトロノームに近い、芯のあるコツッという音。
+  // Q を 1.6 → 8 に上げて雑音を狭帯域に絞ると音程感が立ち、減衰を 60ms → 30ms に詰めると
+  // 尾を引かない「コッ」になる。Q を5倍・中心周波数を下げたぶん通過帯域幅が約 1/5 になるので、
+  // 失う振幅を makeup 5.0 で戻す(計算値: accent のピークが現行 0.354 に対し 0.349)。
+  wood: { src: "noise", filter: "bandpass", q: 8, decay: 0.030, makeup: 5.0,
+    freq: { accent: 1500, beat: 1100, sub: 850 } },
+  // 【電子】いちばん埋もれないことを狙う。**倍音を1つも持たない正弦波**にして、
+  // サックスの倍音列と混ざらないようにする(雑音は帯域が広く、必ずどこかが重なる)。
+  // 帯域は耳の感度が最も高い 2〜5kHz。3段は A7 / E7 / A6 = オクターブ+5度で、
+  // 高さの差が「和音」として読める並びにした。頭の 2ms で立ち上げるのは、
+  // 正弦波を突然始めたときに出る広帯域のパチッ(=倍音)を作らないため。
+  // makeup 0.36 は**現行とピークを揃えた**値(計算値 0.355 対 0.354)。
+  // 45ms 鳴るぶんエネルギーは現行の約1.7倍になる ── これは「埋もれない」狙いのぶん。
+  electro: { src: "tone", attack: 0.002, decay: 0.045, makeup: 0.36,
+    freq: { accent: 3520, beat: 2637, sub: 1760 } },
+  // 【鋭いクリック】いちばん短い。音として聞くより「点」として感じるもの。
+  // ハイパスで高域だけを残し、減衰は 12ms(現行の 1/5)。音程感はほぼ無いので、
+  // 3段は遮断周波数の高さ(明るさ)と音量で付ける。
+  // makeup 0.5 は計算値でピーク 0.462(現行の1.30倍)・エネルギー 0.0064(同 0.80倍)。
+  tick: { src: "noise", filter: "highpass", q: 0.7, decay: 0.012, makeup: 0.5,
+    freq: { accent: 5000, beat: 4000, sub: 3200 } },
+};
+// 保存値が壊れていても必ず 4種のどれかに落ちる(既定は現行)。
+function metroClickSoundId(id) {
+  return METRO_CLICK_SOUNDS.some((s) => s.id === id) ? id : "current";
+}
+// 【D-24b で削除】包絡の終わりを返す関数(旧 metroClickEnvelopeEnd / さらに旧 metroClickDur)は
+// **本番から一度も呼ばれず、検査だけが参照していた**ので消した。検査のためだけの関数を
+// 製品コードに置くと、次に読む人が「これは何のためにあるのか」を判断できない。
+// 包絡が終わる時刻も音源が止まる時刻も、検査43.2 は**組み上がった graph から読む**
+// (実装が実際に予約した時刻そのもの。表を書き写した値ではない)。
+//
+// 現行以外の3種を1回分スケジュールする。出力はマスターチェーン経由(現行と同じ)。
+function scheduleMetroClickAlt(ctx, t, kind, id) {
+  const spec = METRO_CLICK_SPECS[id];
+  if (!spec) return;
+  const step = METRO_CLICK_VOL[kind] ?? METRO_CLICK_VOL.sub;
+  const f = spec.freq[kind] ?? spec.freq.sub;
+  const vol = step * spec.makeup;
+  const gain = ctx.createGain();
+  if (spec.src === "tone") {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = f;
+    // 0 から指数で立ち上げられないので 0.0001 から。attack のあとに同じ形で落とす。
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(vol, t + spec.attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + spec.attack + spec.decay);
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t + spec.attack + spec.decay); // 明示的に止める(発振器は自分では終わらない)
+  } else {
+    const src = ctx.createBufferSource();
+    src.buffer = getMetroClickBuffer(ctx);
+    const filt = ctx.createBiquadFilter();
+    filt.type = spec.filter;
+    filt.frequency.value = f;
+    filt.Q.value = spec.q;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + spec.decay);
+    src.connect(filt);
+    filt.connect(gain);
+    src.start(t); // バッファ音源は末尾で自分で終わる
+  }
+  gain.connect(getMetroMasterInput(ctx));
+}
+
 // クリック音を1回分スケジュールする。白色雑音をバンドパスで整形した短いパーカッシブな
 // 「チッ」音(実物のメトロノームや電子ドラムのクリックに近い、はっきり抜ける音)。
 // アクセント/拍/分割で中心周波数と音量を変え、聴き分けやすくする。出力はマスターチェーン経由。
-function scheduleMetroClick(ctx, t, kind) {
+// 【D-24】sound で音を選ぶ。**"current" のときの本体は D-23(b903df2)のまま1文字も変えていない。**
+function scheduleMetroClick(ctx, t, kind, sound) {
+  const id = metroClickSoundId(sound);
+  if (id !== "current") { scheduleMetroClickAlt(ctx, t, kind, id); return; }
   const src = ctx.createBufferSource();
   src.buffer = getMetroClickBuffer(ctx);
   const bp = ctx.createBiquadFilter();
@@ -7010,6 +7191,9 @@ function MeasureView(props) {
   const [metroAccent, setMetroAccent] = usePersistedState("metroAccent", true); // デフォルトON(OFFにしないと拍子が聴き分けられないため)
   // 5/8・7/8のグループ分け(例:[3,2]/[2,2,3])。ユーザーが選べる。他の拍子はnull(自動)。
   const [metroGrouping, setMetroGrouping] = usePersistedState("metroGrouping", null);
+  // 【D-24 §1.4】クリック音の種類。**既定は現行**(本人が実機で A/B して決めるまで動かさない)。
+  // 保存は他のメトロノーム設定と同じ usePersistedState(IndexedDB)。新しい保存先は作らない。
+  const [metroClickSound, setMetroClickSound] = usePersistedState("metroClickSound", "current");
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
   // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
   // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
@@ -7072,6 +7256,7 @@ function MeasureView(props) {
   const metroSigRef = useRef(metroSig);
   const metroSubdivRef = useRef(metroSubdiv);
   const metroAccentRef = useRef(metroAccent);
+  const metroClickSoundRef = useRef(metroClickSound); // スケジューラは長寿命クロージャなのでrefから読む
   const metroGroupingRef = useRef(metroGrouping);
   // START呼び出しごとに増える世代番号。古いSTART呼び出し(resume()待ち中)がその間に
   // 発生したSTOPや別のSTARTより後から状態を書き換えてしまう競合を防ぐ(詳細は下記)。
@@ -7080,6 +7265,81 @@ function MeasureView(props) {
   useEffect(() => { metroSigRef.current = metroSig; }, [metroSig]);
   useEffect(() => { metroSubdivRef.current = metroSubdiv; }, [metroSubdiv]);
   useEffect(() => { metroAccentRef.current = metroAccent; }, [metroAccent]);
+  useEffect(() => { metroClickSoundRef.current = metroClickSound; }, [metroClickSound]);
+
+  // 【D-24 §1.4】選んだ瞬間にその音を1回だけ試し鳴らしする。**メトロノームが止まっていても鳴る。**
+  // スケジューラ(setInterval / LOOKAHEAD)には一切触らず、出口だけを本番と同じ
+  // scheduleMetroClick に通す。時計は同期的に用意する(await を挟むと iOS では
+  // ユーザー操作の権限が切れて鳴らない)。
+  // 【D-24a】作り直しの規則は **metroCtxNeedsRebuild ただ1つ**(START と同じ式)。
+  // 以前はここだけ `if (!ctx)` で、**state は "running" のまま時計が止まった ctx**
+  // (F-52。iOS でバックグラウンドから復帰した直後)を素通りさせていた。その ctx では
+  // ctx.currentTime + 0.02 が来ないので、押しても**無音**になる(§1.4 違反)。
+  // 【D-24b】**鳴っている間の ctx はスケジューラの持ち物**。ここで close() して差し替えると、
+  // metroNextTimeRef には古い時計の大きな値が残ったままになり、0 から始まる新しい時計が
+  // そこへ追いつくまで先読みの while が一度も真にならない ── **壊した ctx の生存時間ぶん
+  // 丸ごと無音**になる(振り子の基準 metroAnchorRef.time も同じ理由で固まる)。
+  // START は作り直した直後に metroNextTimeRef / metroAnchorRef / metroTickIndexRef を
+  // 張り直すので同じ問題を持たないが、試し鳴らしはそれをしてはいけない(予約の仕組みに
+  // 触らないため)。よって**作り直しが要るなら STOP→START が面倒を見る**。
+  // §1.4「押した瞬間に音が鳴って確かめられる」は音を選び比べる場面 ── つまり
+  // メトロノームが止まっているとき ── に効けばよい。鳴っている間は基準点も触らない。
+  const previewMetroClick = useCallback((id) => {
+    applyAudioSessionType();
+    let ctx = metroCtxRef.current;
+    const owned = metroOnRef.current && !!ctx; // 鳴っている間はスケジューラのもの
+    if (!owned && metroCtxNeedsRebuild(ctx, metroClockMarkRef.current, performance.now())) {
+      try { ctx?.close(); } catch { /* noop */ }
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      metroCtxRef.current = ctx;
+      // 作り直した時計を古い基準点と比べない(START と同じ扱い)。作り直さなかったときは
+      // 基準点を残す ── 次の START が F-52 の判定に使うため、ここで使い切らない。
+      metroClockMarkRef.current = null;
+    }
+    ctx.resume().catch(() => {});
+    scheduleMetroClick(ctx, ctx.currentTime + 0.02, "accent", id);
+  }, []);
+
+  // 【D-24 §2】タップテンポ。**判定は performance.now() だけ**で行い、音の予約
+  // (ctx.currentTime。量子化されている)には一切依存しない。押した瞬間に数える。
+  // 中央値・2秒での測り直し・範囲は純関数 tapTempoPush / tapTempoFromTaps が持つ。
+  const tapTimesRef = useRef([]);
+  const [tapCount, setTapCount] = useState(0); // 何回叩けたかの表示用(§2.3)
+  // 【D-24a】表示は「時間の経過」を見る。**叩いた回数を覚えておくだけでは、2秒あいて
+  // 捨てられたあとも古い回数を出し続ける**(D-24 の欠陥。5回叩いて3秒放置すると
+  // 「5回」のままなのに、次の1回は1回目扱いになり、叩く前に状態を知る手段が無かった)。
+  // 生きている本数も待ち時間も tapTempoPush が答える(閾値をここに書き写さない)。
+  const tapResetTimerRef = useRef(null);
+  const clearTapResetTimer = useCallback(() => {
+    if (tapResetTimerRef.current) { clearTimeout(tapResetTimerRef.current); tapResetTimerRef.current = null; }
+  }, []);
+  // 今この瞬間の本数へ表示を合わせ、次に本数が変わる時刻へタイマーを張り直す。
+  // タイマーは**表示だけ**を動かす ── tapTimesRef には触らないので、叩き心地(§2.2 の
+  // 判定)はこの周の前とまったく同じ。
+  const syncTapCount = useCallback(() => {
+    clearTapResetTimer();
+    const now = performance.now();
+    const live = tapTempoLiveCount(tapTimesRef.current, now);
+    setTapCount(live);
+    if (live <= 0) return;
+    const wait = tapTempoResetInMs(tapTimesRef.current, now);
+    if (wait === null) return;
+    tapResetTimerRef.current = setTimeout(() => { tapResetTimerRef.current = null; syncTapCount(); }, Math.max(0, wait));
+  }, [clearTapResetTimer]);
+  const onTapTempo = useCallback(() => {
+    const next = tapTempoPush(tapTimesRef.current, performance.now());
+    tapTimesRef.current = next;
+    const bpm = tapTempoFromTaps(next);
+    if (bpm !== null) setMetroTempo(bpm);
+    syncTapCount();
+  }, [setMetroTempo, syncTapCount]);
+  // シートが開いている間だけタイマーを持つ。**閉じたとき・アンマウント時に必ず片付ける**
+  // (開き直したときは、その瞬間の本数へ合わせ直す)。
+  useEffect(() => {
+    if (!tempoSheetOpen) { clearTapResetTimer(); return undefined; }
+    syncTapCount();
+    return clearTapResetTimer;
+  }, [tempoSheetOpen, syncTapCount, clearTapResetTimer]);
   useEffect(() => { metroGroupingRef.current = metroGrouping; }, [metroGrouping]);
   // 拍子に応じてグループ分けを整える。5/8・7/8以外はnull(自動)、5/8・7/8は現在の選択が
   // 合計と合わなければ既定(5/8→[3,2] / 7/8→[3,2,2])に戻す(有効な選択は保持)。
@@ -7141,7 +7401,9 @@ function MeasureView(props) {
       }
 
       if (kind !== "silent") {
-        scheduleMetroClick(ctx, t, kind);
+        // 【D-24】どの音で鳴らすかを渡すだけ。**予約の仕組み(LOOKAHEAD / 25ms / 時刻の計算)は
+        //   1文字も変えていない**(仕様 §1.5)。
+        scheduleMetroClick(ctx, t, kind, metroClickSoundRef.current);
         // ライブ計測の除外判定用にクリック時刻をperformance.now()基準で記録する
         const perfT = performance.now() + (t - ctx.currentTime) * 1000;
         scheduledClicksRef.current.push(perfT);
@@ -7988,6 +8250,46 @@ function MeasureView(props) {
               >＋</button>
             </div>
 
+            {/* 【D-24 §2】タップテンポ。置き場所は「テンポの −/♩=n/＋ の直下」(§2.1)。
+                **普段の画面には部品を1つも増やさない**(計測タブは読む物で、押す物を足すと
+                A-1 の背面レイヤと当たり判定が争う)。
+                【押した瞬間に返す】onClick(=指を離したとき)ではなく **onPointerDown**。
+                口コミ「タップから少し遅れて音が出るので、望むテンポをタップし辛い」に対して、
+                数える時刻も見た目の反応も**押した瞬間**に寄せる。時刻は performance.now() で、
+                音の予約(ctx.currentTime)には依存しない(§2.3)。
+                【何回叩けたかを出す】1回目は間隔が無いのでテンポは出ない。そのとき
+                「あと1回」と返し、2回目からは回数を出す(§2.3)。
+                【見た目は B型】これは**状態を持たない普通のボタン**なので、
+                DESIGN-SYSTEM §6.7 の B型 = **枠線なし / 地は --c-sunken** で描く。
+                拍子・分割の .selpill(輪郭を持つ)を真似ると「枠線があるものは状態を持っている」
+                という読み手への約束が崩れる(検査17.10 の芯2 が実際にここで落ちた)。
+                当たり判定は外側の <button> が --tap-min を持つ(§5)。
+                回数の欄は幅を固定してある ── 文字が変わってもピルが動かないため(§6.1.5)。
+                左に同じ幅の空きを置いて、**ピル自身が数値の真下に来る**ようにしている
+                (右だけに欄を置くとピルが 28px 左へずれて、大きな数値と軸が合わない)。 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+              <span aria-hidden="true" style={{ width: 56, flexShrink: 0 }} />
+              <button
+                type="button"
+                onPointerDown={onTapTempo}
+                aria-label="タップでテンポを合わせる"
+                className="sans no-select"
+                style={{
+                  minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
+                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                }}
+              >
+                <span style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12.5, padding: "4px 11px", borderRadius: 999,
+                  background: "var(--c-sunken)", color: "var(--c-ink-2)",
+                }}>タップ</span>
+              </button>
+              <span className="sans" style={{ width: 56, fontSize: 12.5, color: "var(--c-ink-3)", lineHeight: 1.2 }}>
+                {tapCount === 0 ? "" : tapCount === 1 ? "あと1回" : `${tapCount}回`}
+              </span>
+            </div>
+
             {/* 拍子12種(1/4〜12/8)。正典 .selrow どおり**6個ずつ2行**、行の gap は 7、
                 1行目の上マージン 18 / 2行目 7。
                 【逸脱1 の撤回】見た目は正典 .selpill / .selpill.on をそのまま:
@@ -8093,6 +8395,39 @@ function MeasureView(props) {
               />
               小節アクセント
             </label>
+
+            {/* 【D-24 §1.4】クリック音の選択。4種を並べ、**押した瞬間にその音が1回鳴る**
+                (メトロノームが止まっていても)。既定は「現行」で、本人が実機で A/B して
+                決めるまで動かさない(§1.3)。選んだ値は他のメトロノーム設定と同じ
+                usePersistedState(IndexedDB)に入る ── 新しい保存先は作らない。
+                見出しの文字は小節アクセントの行と同じ 12.5px / --c-ink-2(新しい値を足さない)。
+                ピルの見た目は拍子・分割と同じ正典 .selpill(選択中は --c-accent の塗り)。 */}
+            <span className="sans no-select" style={{ alignSelf: "flex-start", marginTop: 14, fontSize: 12.5, color: "var(--c-ink-2)" }}>クリック音</span>
+            <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 7, marginTop: 7 }}>
+              {METRO_CLICK_SOUNDS.map((s) => {
+                const selected = metroClickSound === s.id;
+                return (
+                  <button
+                    key={s.id} type="button"
+                    onClick={() => { setMetroClickSound(s.id); previewMetroClick(s.id); }}
+                    aria-pressed={selected}
+                    aria-label={`クリック音 ${s.label}`}
+                    className="sans no-select"
+                    style={{
+                      minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    }}>
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999,
+                      border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+                      background: selected ? "var(--c-accent)" : "transparent",
+                      color: selected ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                    }}>{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

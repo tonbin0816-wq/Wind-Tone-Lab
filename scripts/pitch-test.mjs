@@ -8,6 +8,9 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+// 【D-24a】makeup(振幅の戻し)の根拠を出す計算。**記録の8個を出すのと同じ1つの実装**を
+// 読み込んで検査でも使う(2つ持つと片方だけ古くなる)。読み込んだだけでは表は出ない。
+import { renderClick, peakOf, mulberry32 } from "./metro-click-makeup.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -361,6 +364,27 @@ const code = [
   extractConst("REC_STOP_PX"),
   extractConst("REC_STOP_R"),
   extractFunction("recInnerShape"),
+  // D-24: クリック音4種(現行 + 3種)と、タップテンポの純関数
+  extractConst("METRO_CLICK_SOUNDS"),
+  extractConst("METRO_CLICK_VOL"),
+  extractConst("METRO_CLICK_SPECS"),
+  extractFunction("metroClickSoundId"),
+  // D-24a: 試し鳴らしと START が共有する「AudioContext を作り直すか」の規則(F-52)
+  extractConst("AUDIO_CLOCK_STALL_MIN_WALL_S"),
+  extractConst("AUDIO_CLOCK_STALL_RATIO"),
+  extractFunction("audioClockStalled"),
+  extractFunction("metroCtxNeedsRebuild"),
+  extractFunction("getMetroClickBuffer"),
+  extractFunction("getMetroMasterInput"),
+  extractFunction("scheduleMetroClickAlt"),
+  extractFunction("scheduleMetroClick"),
+  extractConst("TAP_TEMPO_RESET_MS"),
+  extractConst("TAP_TEMPO_INTERVALS"),
+  extractFunction("tapTempoPush"),
+  extractFunction("tapTempoFromTaps"),
+  // D-24a: 表示が「時間の経過」を見るための2つ(閾値は tapTempoPush 側にしか無い)
+  extractFunction("tapTempoLiveCount"),
+  extractFunction("tapTempoResetInMs"),
 ].join("\n\n");
 
 const api = new Function(`${code}
@@ -431,7 +455,12 @@ const api = new Function(`${code}
            sheetDismissThreshold, sheetDismissOffset, sheetDismissEndKind, sheetDismissSheetStyle,
            sheetDismissShouldClose, sheetDismissInterrupted, sheetDismissShouldCapture,
            createSheetDismissGesture, sheetScrollTopAt,
-           REC_BTN_D, REC_RING_SW, REC_RING_GAP, REC_STOP_PX, REC_STOP_R, recInnerShape };`)();
+           REC_BTN_D, REC_RING_SW, REC_RING_GAP, REC_STOP_PX, REC_STOP_R, recInnerShape,
+           METRO_CLICK_SOUNDS, METRO_CLICK_VOL, METRO_CLICK_SPECS, metroClickSoundId,
+           getMetroClickBuffer, getMetroMasterInput, scheduleMetroClickAlt, scheduleMetroClick,
+           audioClockStalled, metroCtxNeedsRebuild,
+           TAP_TEMPO_RESET_MS, TAP_TEMPO_INTERVALS, tapTempoPush, tapTempoFromTaps,
+           tapTempoLiveCount, tapTempoResetInMs };`)();
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -19766,6 +19795,907 @@ console.log("\n========== 検証42: D-23d 光の呼吸を CSS へ ==========");
     // マスクや塗りを持たせると、掛け算の形が変わって見え方が動く。
     check("42.3 呼吸の <g> は透明度だけを持つ(マスクも塗りも持たない)",
       /<g ref=\{glowBreathRef\}>/.test(flat42));
+  }
+  console.log("  -> done");
+}
+
+console.log("\n========== 検証43: D-24 クリック音の選択と改善 / タップテンポ ==========");
+{
+  // ============================================================
+  // Web Audio の作り物。**何が作られ、どの値が設定され、どこへ繋がれたか**を
+  // 順番どおりの文字列にして残す。実装の綴りではなく「組み上がる音の graph」を見るので、
+  // 書き方を変えても値が同じなら通り、値が変われば必ず落ちる。
+  // ============================================================
+  const r6 = (t) => Number(t.toFixed(6));
+  function makeCtx(sampleRate = 48000, currentTime = 0) {
+    const log = [];
+    let n = 0;
+    const param = (owner, name) => {
+      let v = 0;
+      return {
+        get value() { return v; },
+        set value(x) { v = x; log.push(`${owner}.${name}=${x}`); },
+        setValueAtTime(x, t) { log.push(`${owner}.${name}.setValueAtTime(${x},${r6(t)})`); return this; },
+        exponentialRampToValueAtTime(x, t) { log.push(`${owner}.${name}.expRamp(${x},${r6(t)})`); return this; },
+        linearRampToValueAtTime(x, t) { log.push(`${owner}.${name}.linRamp(${x},${r6(t)})`); return this; },
+      };
+    };
+    const node = (kind) => {
+      const id = `${kind}#${++n}`;
+      return { __id: id, connect(dst) {
+        // 【D-24d】本物の Web Audio は connect(undefined) で TypeError を投げる。
+        // ここで "destination" に化けさせていたため、**繋がっていない配線を
+        // 「出口へ繋いだ」と記録**し、reachesOutput の12件が全部 PASS のまま
+        // 新3種が完全に鳴らない実装を通した(4次審査の実測)。
+        // 罠19 が名指しした `|| 0` と同じ「無いを有効な値に化けさせる」綴りを、
+        // **罠19 を書いた本人が新しい道具の唯一の入力に入れていた。**
+        if (!dst || !dst.__id) throw new TypeError(`connect: 繋ぎ先が無い(${id})`);
+        log.push(`${id} -> ${dst.__id}`);
+      } };
+    };
+    const typed = (nd) => {
+      Object.defineProperty(nd, "type", { set(v) { log.push(`${nd.__id}.type=${v}`); }, configurable: true });
+      return nd;
+    };
+    return {
+      sampleRate, currentTime, log,
+      destination: { __id: "destination" },
+      createBuffer(ch, len) {
+        log.push(`createBuffer(${ch},${len})`);
+        const data = new Float32Array(len);
+        return { length: len, duration: len / sampleRate, numberOfChannels: ch, getChannelData: () => data };
+      },
+      createBufferSource() {
+        const nd = node("bufferSource");
+        nd.buffer = null;
+        nd.start = (t) => log.push(`${nd.__id}.start(${r6(t)})`);
+        nd.stop = (t) => log.push(`${nd.__id}.stop(${r6(t)})`);
+        return nd;
+      },
+      createOscillator() {
+        const nd = typed(node("oscillator"));
+        nd.frequency = param(nd.__id, "frequency");
+        nd.start = (t) => log.push(`${nd.__id}.start(${r6(t)})`);
+        nd.stop = (t) => log.push(`${nd.__id}.stop(${r6(t)})`);
+        return nd;
+      },
+      createBiquadFilter() {
+        const nd = typed(node("biquad"));
+        nd.frequency = param(nd.__id, "frequency");
+        nd.Q = param(nd.__id, "Q");
+        nd.gain = param(nd.__id, "gain");
+        return nd;
+      },
+      createGain() {
+        const nd = node("gain");
+        nd.gain = param(nd.__id, "gain");
+        return nd;
+      },
+      createDynamicsCompressor() {
+        const nd = node("comp");
+        for (const k of ["threshold", "knee", "ratio", "attack", "release"]) nd[k] = param(nd.__id, k);
+        return nd;
+      },
+    };
+  }
+  // 雑音バッファの中身は Math.random に依存する。**包絡だけ**を見たいので固定値に差し替える
+  // (差し替えたら必ず戻す)。data[i] = 1 * decay になるので、data がそのまま包絡になる。
+  function withFixedRandom(fn) {
+    const orig = Math.random;
+    Math.random = () => 1;
+    try { return fn(); } finally { Math.random = orig; }
+  }
+  // 1回ぶんのクリックを組み立て、graph を1本の文字列にして返す
+  function graphOf(sound, kind, t = 0) {
+    return withFixedRandom(() => {
+      const ctx = makeCtx();
+      const r = runFn(api.scheduleMetroClick, ctx, t, kind, sound);
+      if (!r.ok) return `例外(${r.err})`;
+      return ctx.log.join("\n");
+    });
+  }
+
+  // --- 43.0 現行の音は1つも変わっていない(A/B の基準が消えないこと。仕様 §1.3) -----
+  // 期待値は **D-23 = b903df2 の App.jsx を Node で駆動して得た graph** そのもの。
+  // 実装の綴りを写したのではなく、変更前のコードが「実際に作った音」を凍らせてある。
+  // ここが落ちたら、現行の音が動いたということ。
+  {
+    const GOLD_ACCENT = [
+      "createBuffer(1,2880)",
+      "biquad#2.type=bandpass",
+      "biquad#2.frequency=2900",
+      "biquad#2.Q=1.6",
+      "gain#3.gain.setValueAtTime(1,0)",
+      "gain#3.gain.expRamp(0.0001,0.06)",
+      "bufferSource#1 -> biquad#2",
+      "biquad#2 -> gain#3",
+      "comp#4.threshold=-3",
+      "comp#4.knee=0",
+      "comp#4.ratio=20",
+      "comp#4.attack=0.002",
+      "comp#4.release=0.05",
+      "gain#5.gain=2.6",
+      "comp#4 -> gain#5",
+      "gain#5 -> destination",
+      "gain#3 -> comp#4",
+      "bufferSource#1.start(0)",
+    ].join("\n");
+    const GOLD_BEAT = ["biquad#2.frequency=2000", "biquad#2.Q=1.6", "gain#3.gain.setValueAtTime(0.85,0)"];
+    const GOLD_SUB = ["biquad#2.frequency=1300", "biquad#2.Q=1.6", "gain#3.gain.setValueAtTime(0.6,0)"];
+    const gotAccent = graphOf("current", "accent");
+    check("43.0 現行(accent)の音の graph が D-23 と1文字も違わない", gotAccent === GOLD_ACCENT,
+      gotAccent === GOLD_ACCENT ? "" : gotAccent.slice(0, 500));
+    for (const [kind, want] of [["beat", GOLD_BEAT], ["sub", GOLD_SUB]]) {
+      const got = graphOf("current", kind);
+      check(`43.0 現行(${kind})の中心周波数・Q・音量が D-23 のまま`,
+        want.every((w) => got.includes(w)), got.slice(0, 300));
+    }
+    // sound を渡さない呼び方(既定)も現行と同じであること
+    check("43.0 sound を渡さなければ現行の音になる(既定は current)",
+      graphOf(undefined, "accent") === GOLD_ACCENT);
+    check("43.0 保存値が壊れていても現行に落ちる",
+      graphOf("こわれた値", "accent") === GOLD_ACCENT && api.metroClickSoundId(null) === "current"
+      && api.metroClickSoundId("wood") === "wood");
+    // 雑音バッファの包絡そのもの(60ms / exp(-i/(n*0.15)))も凍らせる
+    {
+      const ctx = makeCtx();
+      const buf = withFixedRandom(() => runFn(api.getMetroClickBuffer, ctx).v);
+      const d = buf && buf.getChannelData(0);
+      const nSamp = Math.ceil(48000 * 0.06);
+      check("43.0 現行の雑音バッファは 60ms(=2880サンプル @48kHz)", !!d && d.length === nSamp,
+        d ? String(d.length) : "取れない");
+      const wantAt = (i) => Math.exp(-i / (nSamp * 0.15));
+      const worst = d ? Math.max(...[0, 100, 432, 1000, 2879].map((i) => Math.abs(d[i] - wantAt(i)))) : 1;
+      check("43.0 現行の雑音バッファの減衰は exp(-i/(n*0.15)) のまま", worst < 1e-6, String(worst));
+    }
+  }
+
+  // --- 43.1 4種がある / 3段を持つ / 音ごとに段が付いている --------------------
+  const ALL_IDS = ["current", "wood", "electro", "tick"];
+  {
+    const ids = api.METRO_CLICK_SOUNDS.map((s) => s.id);
+    check("43.1 クリック音は4種(現行 + 3種)", ids.length === 4 && ids[0] === "current", ids.join(","));
+    check("43.1 3種の狙い(木・電子・鋭い)がそろっている",
+      ids.includes("wood") && ids.includes("electro") && ids.includes("tick"), ids.join(","));
+    check("43.1 4種とも名前を持つ",
+      api.METRO_CLICK_SOUNDS.every((s) => typeof s.label === "string" && s.label.length > 0));
+    // 3段の音量比は現行と同じ 1.0 / 0.85 / 0.6 から出発している(仕様 §1.2)
+    check("43.1 新しい3種の段の音量は現行と同じ 1.0 / 0.85 / 0.6",
+      api.METRO_CLICK_VOL.accent === 1.0 && api.METRO_CLICK_VOL.beat === 0.85 && api.METRO_CLICK_VOL.sub === 0.6,
+      JSON.stringify(api.METRO_CLICK_VOL));
+    for (const id of ["wood", "electro", "tick"]) {
+      const sp = api.METRO_CLICK_SPECS[id];
+      const f = sp && sp.freq;
+      check(`43.1 ${id}: accent/beat/sub の3段すべてに周波数がある`,
+        !!f && [f.accent, f.beat, f.sub].every((x) => Number.isFinite(x) && x > 0), JSON.stringify(f));
+      check(`43.1 ${id}: 3段の高さが全部違う(段が音程でも読める)`,
+        !!f && new Set([f.accent, f.beat, f.sub]).size === 3, JSON.stringify(f));
+      check(`43.1 ${id}: 段が上ほど高い(accent > beat > sub)`,
+        !!f && f.accent > f.beat && f.beat > f.sub, JSON.stringify(f));
+      // 3段それぞれで実際に別の graph が組める(表だけ持っていて鳴らないものを作らない)
+      const gs = ["accent", "beat", "sub"].map((k) => graphOf(id, k));
+      check(`43.1 ${id}: 3段とも実際に音が組み立てられ、3つとも違う`,
+        gs.every((g) => g.length > 0 && !g.startsWith("例外")) && new Set(gs).size === 3,
+        gs.map((g) => g.slice(0, 60)).join(" | "));
+    }
+    // 【D-24a】**表ではなく音から読む。** 上の検査は定数の表(METRO_CLICK_SPECS /
+    // METRO_CLICK_VOL)を読んでいるだけなので、「表は正しいのに、その表が音へ届いていない」
+    // 型の欠陥が素通りする(罠2)。実際、scheduleMetroClickAlt の
+    //   const step = METRO_CLICK_VOL[kind] ?? ...  →  = METRO_CLICK_VOL.accent;
+    //   const f = spec.freq[kind] ?? ...           →  = spec.freq.accent;
+    // という変異は D-24 の検査を素通りした(3段の音量差・音程差が全部消えても通った)。
+    // ここでは 4種 × 3段を実際に組み立て、**graph に現れた値だけ**を見る。
+    {
+      // その音のゲイン段が到達する山の高さ。setValueAtTime と expRamp の両方を見る
+      // (電子は 0.0001 から立ち上げるので setValueAtTime だけでは山が読めない)。
+      // マスターの gain 2.6 は `gain#N.gain=2.6` という別の形なので混ざらない。
+      const peakGainOf = (g) => {
+        const v = [...g.matchAll(/gain#\d+\.gain\.(?:setValueAtTime|expRamp)\(([\d.]+(?:e[+-]?\d+)?),/g)]
+          .map((m) => parseFloat(m[1]));
+        return v.length ? Math.max(...v) : NaN;
+      };
+      // 段の高さ。雑音の3種はフィルタの中心/遮断、電子は発振器の周波数に現れる。
+      const freqOf = (g) => {
+        const m = /(?:biquad|oscillator)#\d+\.frequency=([\d.]+)/.exec(g);
+        return m ? parseFloat(m[1]) : NaN;
+      };
+      // 比の期待値は仕様 §1.2 が凍らせた 1.0 : 0.85 : 0.6。音ごとに makeup が掛かるので
+      // 絶対値ではなく**比**で見る(実装の定数を読み直さない ── 罠3)。
+      for (const id of ALL_IDS) {
+        const g = ["accent", "beat", "sub"].map((k) => graphOf(id, k));
+        const peak = g.map(peakGainOf);
+        const freq = g.map(freqOf);
+        const ok = Number.isFinite(peak[0]) && peak[0] > 0
+          && Math.abs(peak[1] / peak[0] - 0.85) < 1e-9 && Math.abs(peak[2] / peak[0] - 0.6) < 1e-9;
+        check(`43.1 ${id}: **音から読んだ**3段の音量比が 1.0 : 0.85 : 0.6`, ok,
+          `山 ${peak.join(" / ")} → 比 1 : ${peak[1] / peak[0]} : ${peak[2] / peak[0]}`);
+        check(`43.1 ${id}: **音から読んだ**3段の周波数が3つとも違う`,
+          freq.every((x) => Number.isFinite(x) && x > 0) && new Set(freq).size === 3,
+          freq.join(" / "));
+      }
+      // 【D-24b】**音源が実際に鳴り始めることを見る。** D-24a までの検査はゲイン値と
+      // 周波数しか読んでおらず、`src.start(t);` / `osc.start(t);` を丸ごと消す変異
+      // (= その音が**完全に無音**になる)が PASS 7162 / FAIL 0 で生き残った。
+      // 「表ではなく音から読む」と名乗る検査が、音が1つも出ない状態を通していた(罠1)。
+      // 4種 × 3段すべてについて、音源が **1つだけ**・**予約した時刻ちょうどに** start
+      // されることを graph から確かめる。
+      for (const id of ALL_IDS) {
+        for (const kind of ["accent", "beat", "sub"]) {
+          const T = 0.25; // 0 だと「時刻を渡し忘れて 0 になった」場合と見分けが付かない
+          const g = graphOf(id, kind, T);
+          const starts = [...g.matchAll(/(?:bufferSource|oscillator)#(\d+)\.start\(([^)]*)\)/g)];
+          check(`43.1 ${id}/${kind}: 音源が予約した時刻に start される(start を消せば完全な無音)`,
+            starts.length === 1 && parseFloat(starts[0][2]) === T,
+            `start ${starts.length}回 / ${starts.map((m) => m[0]).join(",") || "なし"}`);
+        }
+      }
+    }
+    // 【D-24a】makeup(振幅の戻し)が効いていること。graph の値だけを見ても、makeup を
+    // 落として音が 1/5 になった変異は素通りする(段の比は保たれるため)。ここは
+    // **波形を実際に描いて**、4種の accent のピークが現行と同じ桁にそろうことを見る。
+    // 描き手は scripts/metro-click-makeup.mjs ── 完了記録の8個を出すのと同じ1つの実装。
+    {
+      const DRAWS = 32; // 雑音は引きごとにばらつくので、種を固定した複数回の平均で見る
+      // 【D-24b】**runFn で包む。** renderClick はソースから組み直した実装を実際に動かすので、
+      // 実装が例外を投げれば例外はここまで飛んでくる ── 素で呼んでいると FAIL ではなく
+      // **検査ハーネスごと異常終了**する(PASS/FAIL の集計行すら出ない)。指摘6 と同じ形の穴で、
+      // この周の変異試験で実際に踏んだ(音づくりを壊した変異が集計を消した)。
+      const meanPeak = (id) => runFn(() => {
+        let s = 0;
+        for (let i = 0; i < DRAWS; i++) s += peakOf(renderClick(id, "accent", mulberry32(0x9e3779b9 + i)));
+        return s / DRAWS;
+      });
+      const drawn = ALL_IDS.map(meanPeak);
+      const peaks = drawn.map((r) => (r.ok ? r.v : NaN));
+      const rel = peaks.map((p) => p / peaks[0]);
+      check("43.1 4種とも波形が描ける(音づくりが例外を投げない)",
+        drawn.every((r) => r.ok), drawn.map((r, i) => `${ALL_IDS[i]} ${shownOf(r)}`).join(" / "));
+      check("43.1 4種の accent のピークは現行の 0.5〜2.0 倍に収まる(makeup が効いている)",
+        drawn.every((r) => r.ok) && peaks[0] > 0 && rel.every((r) => r >= 0.5 && r <= 2.0),
+        ALL_IDS.map((id, i) => `${id} ${peaks[i].toFixed(3)}(×${rel[i].toFixed(2)})`).join(" / "));
+    }
+    // 4種の graph はすべて互いに違う(「名前だけ増やして中身は同じ」を許さない)
+    const all = ALL_IDS.map((id) => graphOf(id, "accent"));
+    check("43.1 4種の accent はすべて互いに違う音になる", new Set(all).size === 4);
+    // 電子だけが「倍音を持たない純音」= フィルタを通さない発振器であること
+    check("43.1 電子は正弦波(発振器)で、雑音もフィルタも通さない",
+      /oscillator#\d+\.type=sine/.test(all[2]) && !/biquad/.test(all[2]) && !/bufferSource/.test(all[2]),
+      all[2].slice(0, 200));
+    check("43.1 木は雑音+バンドパス / 鋭いは雑音+ハイパス",
+      /biquad#\d+\.type=bandpass/.test(all[1]) && /bufferSource/.test(all[1])
+      && /biquad#\d+\.type=highpass/.test(all[3]) && /bufferSource/.test(all[3]));
+    // 木は現行より Q が高い(音程感)。数はここで書き写さず、両方を graph から読んで比べる
+    {
+      const qOf = (g) => parseFloat((/biquad#\d+\.Q=([\d.]+)/.exec(g) || [])[1]);
+      check("43.1 木は現行よりQが高い(狭く絞って音程感を出す)", qOf(all[1]) > qOf(all[0]),
+        `木 Q=${qOf(all[1])} / 現行 Q=${qOf(all[0])}`);
+    }
+    // 発振器は自分で止まらないので stop が要る(止め忘れると鳴りっぱなしになる)
+    check("43.1 電子の発振器は必ず stop される", /oscillator#\d+\.stop\(/.test(all[2]), all[2].slice(0, 200));
+    // どの音もマスターチェーン(リミッター → gain 2.6 → 出力)を通る。§1.5 で触らないと決めた所
+    for (let i = 0; i < 4; i++) {
+      check(`43.1 ${ALL_IDS[i]} はマスターチェーンを組み立てる(gain 2.6・閾値-3・比20)`,
+        /comp#\d+\.threshold=-3/.test(all[i]) && /comp#\d+\.ratio=20/.test(all[i])
+        && /gain#\d+\.gain=2\.6/.test(all[i]) && / -> destination/.test(all[i]),
+        all[i].slice(0, 200));
+    }
+    // 【D-24c】**音源から出力まで、辺を辿って本当に繋がっているか。**
+    // 上の「マスターチェーンを通る」は getMetroMasterInput(ctx) を**呼びさえすれば**通る
+    // (リミッターと gain 2.6 の配線は関数の内側にあるため)。クリックの gain が
+    // **そこへ入る辺**は1件も見ていなかったので、`gain.connect(getMetroMasterInput(ctx))` を
+    // 消しても / 向きを逆にしても、3種が完全な無音のまま PASS していた(審査の実測)。
+    // ここは綴りではなく **graph の辺を辿って到達可能性**を見る ── 経路の形が変わっても
+    // 「音源の出力が最終的に destination へ届く」性質だけを守る(罠4: 箇所数を釘付けしない)。
+    {
+      const reachesOutput = (g) => {
+        const edges = new Map();
+        for (const m of String(g).matchAll(/^(\S+) -> (\S+)$/gm)) {
+          if (!edges.has(m[1])) edges.set(m[1], []);
+          edges.get(m[1]).push(m[2]);
+        }
+        const src = (/^((?:bufferSource|oscillator)#\d+)\.start\(/m.exec(g) || [])[1];
+        if (!src) return false; // 開始される音源が無い = そもそも鳴らない
+        // 【D-24d】**マスター(comp)を経由して**出口に届くことを見る。
+        // 終端を destination だけにしていたため、1種だけ `gain.connect(ctx.destination)` で
+        // マスターを迂回させても12件すべて PASS した(4次審査の実測)。迂回した音は
+        // master gain 2.6 を通らず **−8.3dB**・リミッターも通らない ── その1種だけ小さい
+        // 状態で A/B させれば、本人の「どれを既定にするか」の判断が丸ごと壊れる。
+        // 仕様 §1.5 が master gain 2.6 とリミッターを触ってはいけないものと名指ししている。
+        // 状態は (節点, マスターを通ったか) の対。経路の形は縛らない(罠4)。
+        const seen = new Set([`${src}|0`]);
+        const stack = [[src, false]];
+        while (stack.length) {
+          const [cur, viaComp] = stack.pop();
+          if (cur === "destination" && viaComp) return true;
+          for (const nxt of edges.get(cur) || []) {
+            const v = viaComp || /^comp#\d+$/.test(nxt);
+            const key = `${nxt}|${v ? 1 : 0}`;
+            if (!seen.has(key)) { seen.add(key); stack.push([nxt, v]); }
+          }
+        }
+        return false;
+      };
+      for (const id of ALL_IDS) {
+        for (const kind of ["accent", "beat", "sub"]) {
+          const g = graphOf(id, kind);
+          check(`43.1 ${id}/${kind}: 音源からマスターを経て出力まで辺が繋がっている(繋ぎ忘れ・逆向き・迂回を許さない)`,
+            reachesOutput(g), g.slice(0, 260));
+        }
+      }
+      // この道具自体が本物であることの裏取り(自明に true を返す作りになっていないか)。
+      // 辺を1本抜いた graph / 向きを逆にした graph は、必ず「届かない」と判定されること。
+      const sample = graphOf("wood", "accent");
+      const cut = sample.split("\n").filter((l) => !/^gain#\d+ -> comp#\d+$/.test(l)).join("\n");
+      const rev = sample.replace(/^(gain#\d+) -> (comp#\d+)$/m, "$2 -> $1");
+      // 【D-24d】マスターを迂回して出口へ直行する形も「届かない」と答えること。
+      const bypass = sample.replace(/^(gain#\d+) -> comp#\d+$/m, "$1 -> destination");
+      check("43.1 到達可能性の道具が本物(辺を1本抜く/逆向き/マスター迂回は「届かない」)",
+        reachesOutput(sample) && !reachesOutput(cut) && !reachesOutput(rev) && !reachesOutput(bypass),
+        `元 ${reachesOutput(sample)} / 抜き ${reachesOutput(cut)} / 逆 ${reachesOutput(rev)} / 迂回 ${reachesOutput(bypass)}`);
+    }
+    // 【D-24e】**音のすべての時刻が「予約した時刻 t」から測られていること。**
+    // graphOf は既定で t = 0 で組むため、`gain.gain.setValueAtTime(vol, t)` の t を
+    // **0 に置き換える**変異が全検査を素通りした(5次審査の実測)。そうすると音源は t 秒後に
+    // 鳴り始めるのに包絡は 0 秒付近で使い切られており、本物の OfflineAudioContext で
+    // **−80.0 dB = 事実上の無音**(審査役が実測)。**現行の音も含めて4種とも消える。**
+    // 43.0 の GOLD も 43.2 も t = 0 でしか観測していなかったので、A/B の基準そのものが無防備だった。
+    //
+    // ここは**ずらし不変**で見る ── 同じ音を t=0 と t=T で組み、graph に出るすべての時刻が
+    // **ちょうど T だけずれる**こと。時刻の綴りも個数も縛らない(罠4)ので、包絡の形を
+    // 変えても壊れず、「t から測っていない」ときだけ落ちる。
+    {
+      const T = 1.5;
+      // **時刻を持つ呼び出しだけ**から取る。createBuffer(1,2880) の 2880 は
+      // 標本数であって時刻ではないので、混ぜると常に落ちる検査になる。
+      const timesOf = (g) => [...String(g).matchAll(
+        /\.(?:setValueAtTime|expRamp|linRamp)\([^,]+,(-?[\d.]+(?:e[-+]?\d+)?)\)|\.(?:start|stop)\((-?[\d.]+(?:e[-+]?\d+)?)\)/g)]
+        .map((m) => Number(m[1] !== undefined ? m[1] : m[2]));
+      for (const id of ALL_IDS) {
+        for (const kind of ["accent", "beat", "sub"]) {
+          const a = timesOf(graphOf(id, kind, 0));
+          const b = timesOf(graphOf(id, kind, T));
+          const ok = a.length > 0 && a.length === b.length
+            && a.every((v, i) => Math.abs(b[i] - (v + T)) < 1e-9);
+          check(`43.1 ${id}/${kind}: 音の時刻はすべて予約時刻から測る(t を 0 に固定すると無音)`,
+            ok, ok ? "" : `t=0 ${JSON.stringify(a)} / t=${T} ${JSON.stringify(b)}`);
+        }
+      }
+      // 道具の裏取り: 時刻を1つでも t から切り離した graph は、必ず落ちること。
+      const g0 = graphOf("wood", "accent", 0);
+      const gT = graphOf("wood", "accent", T).replace(/\.setValueAtTime\(([^,]+),[^)]+\)/, ".setValueAtTime($1,0)");
+      const A = timesOf(g0), B = timesOf(gT);
+      check("43.1 ずらし不変の道具が本物(時刻を1つ t から切り離せば落ちる)",
+        A.length === B.length && !A.every((v, i) => Math.abs(B[i] - (v + T)) < 1e-9));
+    }
+    // 【D-24e】**表(METRO_CLICK_SPECS)の周波数が、そのまま音に届いていること。**
+    // これまでは「3段が互いに違う」しか見ておらず、`spec.freq[kind] / 4` のような変異
+    // (表も App.jsx のコメントも 3520/2637/1760 のまま、実際は 880/659/440 で鳴る)が
+    // 素通りした。正弦波はピークが周波数に依らないので makeup の帯も抜ける。
+    // 電子の狙いは §1.2「いちばん埋もれない」── 1/4 にすると狙いの真逆に落ちる。
+    // **左辺は graph(音)・右辺は表**なので、表を書き換えても検査は追随する(罠3 ではない)。
+    {
+      const freqIn = (g) => {
+        const m = /(?:biquad|oscillator)#\d+\.frequency=([\d.]+)/.exec(g);
+        return m ? parseFloat(m[1]) : NaN;
+      };
+    for (const id of ALL_IDS.slice(1)) {
+      for (const kind of ["accent", "beat", "sub"]) {
+        const want = api.METRO_CLICK_SPECS[id].freq[kind];
+        const got = freqIn(graphOf(id, kind));
+        check(`43.1 ${id}/${kind}: 音の周波数は表の ${want}Hz そのもの(表が音に届いている)`,
+          got === want, `音 ${got} / 表 ${want}`);
+      }
+    }
+    }
+    // 【D-24e】**attack と decay が別々に音へ届いていること。**
+    // 43.2 は attack + decay の**和**しか見ていなかったので、電子の
+    // `t + spec.attack` / `t + spec.attack + spec.decay` を `t + spec.decay` /
+    // `t + spec.decay + spec.attack` に**入れ替える**変異が素通りした。
+    // 電子は「2ms で立ち上げ 45ms で減衰」から「45ms かけて立ち上がり 2ms で切れる」に化ける
+    // (App.jsx のコメント「頭の 2ms で立ち上げるのはパチッを作らないため」が嘘になる)。
+    // 表の値は1文字も変わらないので、直書きの検出では捕まらない。
+    {
+      const spec = api.METRO_CLICK_SPECS.electro;
+      const g = graphOf("electro", "accent");
+      const ramps = [...g.matchAll(/gain#\d+\.gain\.expRamp\(([\d.e+-]+),([\d.e+-]+)\)/g)]
+        .map((m) => ({ v: Number(m[1]), t: Number(m[2]) }));
+      check("43.2 電子は 立ち上げ→減衰 の順で、山は表の attack・谷は attack+decay に来る",
+        ramps.length === 2
+        && Math.abs(ramps[0].t - spec.attack) < 1e-12
+        && Math.abs(ramps[1].t - (spec.attack + spec.decay)) < 1e-12
+        && ramps[0].v > ramps[1].v,
+        JSON.stringify(ramps) + ` / 表 attack ${spec.attack} decay ${spec.decay}`);
+    }
+  }
+
+  // --- 43.2 回り込みの除外の窓が動いていない / どの音も窓に収まる --------------
+  {
+    // 窓そのもの(前30ms〜後90ms)。**動かしていないこと**を既定引数で確かめる
+    check("43.2 除外の窓は前30ms〜後90msのまま(既定引数)",
+      api.isNearScheduledClick([1000], 970) === true && api.isNearScheduledClick([1000], 969.9) === false
+      && api.isNearScheduledClick([1000], 1090) === true && api.isNearScheduledClick([1000], 1090.1) === false);
+    // 【D-24a】窓に収まるかは**音源が動いている長さ**で見る(こちらが安全側)。
+    // 包絡は木 30ms / 鋭い 12ms で 0.0001 に達するが、その2種は getMetroClickBuffer の
+    // 60ms バッファを stop() せずに流しきるので、**音源は 60ms 動き続ける**。
+    // D-24 の記録は包絡の終わり(60/30/47/12ms)を「音源の長さ」と書いていた ── 数値の
+    // 意味が違っていたので D-24a で訂正した(実際は 現行60 / 木60 / 電子47 / 鋭い60)。
+    // graph から読む: stop(t) があればその t、無ければ createBuffer のサンプル数 ÷ SR。
+    for (const id of ALL_IDS) {
+      const g = graphOf(id, "accent", 0);
+      const st = /(?:bufferSource|oscillator)#\d+\.stop\(([\d.]+)\)/.exec(g);
+      const buf = /createBuffer\(1,(\d+)\)/.exec(g);
+      const end = st ? parseFloat(st[1]) : (buf ? parseInt(buf[1], 10) / 48000 : NaN);
+      check(`43.2 ${id} の**音源**が止まるのは除外の窓の後ろ 90ms 以内`,
+        Number.isFinite(end) && end > 0 && end * 1000 <= 90, `${(end * 1000).toFixed(1)}ms`);
+    }
+    // 包絡の終わりも 90ms を超えない(音源より先に落ちきる側)。
+    // 【D-24b】以前は App.jsx の metroClickEnvelopeEnd を呼んでいたが、あの関数は
+    // **本番から一度も呼ばれず検査だけが参照していた**ので削除した(製品コードに検査専用の
+    // 関数を置くと、次に読む人がその存在理由を判断できない)。ここは**組み上がった graph に
+    // 現れる、ゲインが 0.0001 に達する時刻**を読む ── 実装が実際に予約した時刻そのもの。
+    const envEndOf = (g) => {
+      const t = [...g.matchAll(/gain#\d+\.gain\.expRamp\(0\.0001,([\d.]+)\)/g)].map((m) => parseFloat(m[1]));
+      return t.length ? Math.max(...t) : NaN;
+    };
+    for (const id of ALL_IDS) {
+      const d = envEndOf(graphOf(id, "accent", 0));
+      check(`43.2 ${id} の包絡の終わりも除外の窓の後ろ 90ms 以内`,
+        Number.isFinite(d) && d > 0 && d * 1000 <= 90, `${(d * 1000).toFixed(1)}ms`);
+    }
+    check("43.2 現行の包絡の終わりは 60ms(雑音バッファの長さ)のまま",
+      envEndOf(graphOf("current", "accent", 0)) === 0.06,
+      String(envEndOf(graphOf("current", "accent", 0))));
+    // 表(METRO_CLICK_SPECS の attack + decay)が**音に届いている**こと。左辺は実装が
+    // 組み立てた graph から、右辺は表から ── 出どころの違う2つを突き合わせる。
+    for (const id of ["wood", "electro", "tick"]) {
+      const sp = api.METRO_CLICK_SPECS[id];
+      const want = (sp.attack || 0) + sp.decay;
+      const last = envEndOf(graphOf(id, "accent", 0));
+      check(`43.2 ${id} の包絡の終わりは表の attack + decay と一致する(表が音に届いている)`,
+        Math.abs(last - want) < 1e-9, `graph ${last} / 表 ${want}`);
+    }
+  }
+
+  // --- 43.3 タップテンポの純関数 --------------------------------------------
+  {
+    const push = (arr, t) => api.tapTempoPush(arr, t);
+    const bpm = (arr) => api.tapTempoFromTaps(arr);
+    // 2回目から出る(1回では間隔が無い)
+    check("43.3 1回のタップではテンポが出ない(null)", bpm(push([], 0)) === null, String(bpm(push([], 0))));
+    {
+      let a = push([], 0); a = push(a, 500);
+      check("43.3 2回目のタップからテンポが出る(500ms → ♩=120)", bpm(a) === 120, String(bpm(a)));
+    }
+    // 中央値であること。**平均だと別の値になる列**で見る(平均に書き換えると必ず落ちる)
+    {
+      // 間隔 500,500,100,500 → 中央値500(♩=120) / 平均400(♩=150)
+      let a = [];
+      for (const t of [0, 500, 1000, 1100, 1600]) a = push(a, t);
+      check("43.3 早く叩きすぎたミスタップ1回では動かない(♩=120)", bpm(a) === 120, String(bpm(a)));
+      check("43.3 (上の列は平均だと ♩=150 になる。平均に変えれば必ず落ちる)",
+        api.clampMetroTempo(60000 / 400) === 150);
+    }
+    {
+      // 間隔 500,500,500,1500 → 中央値500(♩=120) / 平均750(♩=80)
+      let a = [];
+      for (const t of [0, 500, 1000, 1500, 3000]) a = push(a, t);
+      check("43.3 叩き遅れたミスタップ1回でも動かない(♩=120)", bpm(a) === 120, String(bpm(a)));
+      check("43.3 (上の列は平均だと ♩=80 になる。平均に変えれば必ず落ちる)",
+        api.clampMetroTempo(60000 / 750) === 80);
+    }
+    // 直近4つの間隔だけを見る(それより古い間隔は効かない)
+    {
+      let a = [];
+      // 最初は 1000ms 間隔(♩=60)、そのあと 500ms 間隔(♩=120)を4本
+      for (const t of [0, 1000, 2000, 2500, 3000, 3500, 4000]) a = push(a, t);
+      check("43.3 直近4本の間隔だけを見る(古い 1000ms は効かない: ♩=120)", bpm(a) === 120, String(bpm(a)));
+      check("43.3 列は間隔4本ぶん(時刻5個)までに切り詰められる", a.length === api.TAP_TEMPO_INTERVALS + 1,
+        `${a.length}個`);
+      check("43.3 中央値を取る本数は TAP_TEMPO_INTERVALS = 4", api.TAP_TEMPO_INTERVALS === 4,
+        String(api.TAP_TEMPO_INTERVALS));
+    }
+    // 2秒で捨てる
+    {
+      let a = []; a = push(a, 0); a = push(a, 500); a = push(a, 1000);
+      const after = push(a, 1000 + api.TAP_TEMPO_RESET_MS + 1);
+      check("43.3 2秒より長くあくと、それまでの間隔を捨てて1回目からやり直す",
+        a.length === 3 && after.length === 1, `${a.length} → ${after.length}`);
+      check("43.3 測り直した直後はテンポが出ない(間隔が無い)", bpm(after) === null, String(bpm(after)));
+      const keep = push(a, 1000 + api.TAP_TEMPO_RESET_MS);
+      check("43.3 ちょうど2秒までは捨てない(境界)", keep.length === 4, `${keep.length}個`);
+      check("43.3 捨てる間隔は TAP_TEMPO_RESET_MS = 2000ms", api.TAP_TEMPO_RESET_MS === 2000,
+        String(api.TAP_TEMPO_RESET_MS));
+    }
+    // clampMetroTempo を通る(範囲の唯一の答え。直書きしていない)
+    {
+      let a = []; a = push(a, 0); a = push(a, 10);   // 10ms 間隔 = ♩=6000
+      check("43.3 速すぎるタップは clampMetroTempo の上限に収まる", bpm(a) === api.METRO_TEMPO_MAX, String(bpm(a)));
+      let b = []; b = push(b, 0); b = push(b, 1999); // ぎりぎり2秒未満
+      check("43.3 ぎりぎり2秒未満の遅いタップでも値が出る", bpm(b) === 30, String(bpm(b)));
+      // 下限は「2秒で捨てる」規則があるので通常のタップでは踏めない。関数を直接叩いて確かめる
+      check("43.3 遅すぎる列を直接渡せば下限に収まる", bpm([0, 10000]) === api.METRO_TEMPO_MIN,
+        String(bpm([0, 10000])));
+      check("43.3 テンポは必ず整数になる(clampMetroTempo が丸める)",
+        Number.isInteger(bpm([0, 333])) && bpm([0, 333]) === api.clampMetroTempo(60000 / 333),
+        String(bpm([0, 333])));
+    }
+    // 【D-24a】**経路**を振る舞いで固定する。上の検査は api.METRO_TEMPO_MIN/MAX との
+    // 値の一致しか見ておらず、`return Math.max(20, Math.min(300, Math.round(60000 / med)));`
+    // という直書きの変異を素通りさせた(範囲の唯一の答えが clampMetroTempo であることは、
+    // 同じ値になる別の式では守れない)。そこで tapTempoFromTaps を
+    // **差し替えた clampMetroTempo** の文脈で組み直し、出力が差し替えた側に従うことを見る。
+    {
+      // 【D-24b】**構築も呼び出しも runFn で包む**(D-13 の道具)。ここで組み直す
+      // tapTempoFromTaps に渡している文脈は clampMetroTempo と TAP_TEMPO_INTERVALS だけなので、
+      // 実装が他の定数を1つでも参照すると **呼び出したときに** ReferenceError が投げられる。
+      // 以前は素で呼んでいたため、`Math.max(METRO_TEMPO_MIN, ...)` という直書きの変異は
+      // FAIL ではなく**検査ハーネスごと異常終了**させた(PASS/FAIL の集計行すら出ない)。
+      const mkTapFrom = (clampFn) => runFn(() => new Function("clampMetroTempo",
+        `${extractConst("TAP_TEMPO_INTERVALS")}\n${srcOfFn(src, "tapTempoFromTaps")}\nreturn tapTempoFromTaps;`)(clampFn));
+      // (1) 受け取った値を包んで返すだけの番人。丸めも範囲も一切しないので、
+      //     実装側に範囲が直書きされていれば数値が返ってきて落ちる。
+      const seen = [];
+      const spy = mkTapFrom((v) => { seen.push(v); return `CLAMP(${v})`; });
+      check("43.3 差し替えた clampMetroTempo だけの文脈で tapTempoFromTaps が組み立てられる",
+        spy.ok, spy.err);
+      const got = runFn(spy.v, [0, 500]);
+      check("43.3 テンポは clampMetroTempo が返したものそのもの(直書きでは通らない)",
+        got.ok && got.v === "CLAMP(120)" && seen.length === 1,
+        `${shownOf(got)} / 呼び出し ${seen.length}回`);
+      // (2) 範囲そのものを差し替える。経路が clampMetroTempo なら出力も差し替えた範囲に従う。
+      const narrow = mkTapFrom((v) => Math.max(200, Math.min(210, Math.round(Number(v)))));
+      const lo = runFn(narrow.v, [0, 500]);   // 60000/500 = 120 → 差し替えた下限 200 へ
+      const hi = runFn(narrow.v, [0, 100]);   // 60000/100 = 600 → 差し替えた上限 210 へ
+      check("43.3 範囲は clampMetroTempo に従う(差し替えれば出力も変わる)",
+        lo.ok && hi.ok && lo.v === 200 && hi.v === 210, `${shownOf(lo)} / ${shownOf(hi)}`);
+    }
+    // 【D-24a §2.3】表示は「時間の経過」を見る。**叩いた回数をそのまま覚えておくと、
+    // 2秒あいて捨てられたあとも古い回数を出し続ける**(D-24 の欠陥。5回叩いて3秒放置すると
+    // 画面は「5回」のままなのに、次の1回は1回目扱いになっていた)。ここでは時刻を実際に
+    // 進めて、表示の元になる本数が捨てる規則と食い違わないことを見る。
+    {
+      const live = (arr, t) => api.tapTempoLiveCount(arr, t);
+      let a = [];
+      for (const t of [0, 500, 1000, 1500, 2000]) a = push(a, t); // 5回叩いた(♩=120)
+      check("43.3 叩いた直後の表示は 5回", live(a, 2000) === 5, String(live(a, 2000)));
+      check("43.3 1秒放置しても 5回のまま(まだ捨てられていない)", live(a, 3000) === 5, String(live(a, 3000)));
+      check("43.3 ちょうど2秒までは 5回のまま(境界。捨てる規則と同じ境界)",
+        live(a, 4000) === 5, String(live(a, 4000)));
+      check("43.3 2秒を少しでも超えたら 0 になる(境界)", live(a, 4000.1) === 0, String(live(a, 4000.1)));
+      check("43.3 3秒放置したら 0(D-24 はここで『5回』と嘘をついていた)",
+        live(a, 5000) === 0, String(live(a, 5000)));
+      // 表示 0 のあとに実際に叩くと、確かに1回目から数え直している(画面と中身が一致する)
+      const after = push(a, 5000);
+      check("43.3 放置後の1回は1回目から(表示 0 と食い違わない)",
+        after.length === 1 && live(after, 5000) === 1 && bpm(after) === null, String(after.length));
+      check("43.3 1回だけ叩いた直後の表示は 1回(『あと1回』)", live(push([], 0), 0) === 1);
+      check("43.3 まだ1回も叩いていなければ 0", live([], 0) === 0 && live(null, 0) === 0);
+      // 表示を戻すまでの待ち時間は、捨てる規則そのものと一致する
+      check("43.3 表示を戻すまでの残り時間は捨てる規則(TAP_TEMPO_RESET_MS)と一致する",
+        api.tapTempoResetInMs(a, 2000) === api.TAP_TEMPO_RESET_MS
+        && api.tapTempoResetInMs(a, 3000) === api.TAP_TEMPO_RESET_MS - 1000,
+        `${api.tapTempoResetInMs(a, 2000)} / ${api.tapTempoResetInMs(a, 3000)}`);
+      check("43.3 待ち時間ぶん進めるとちょうど 0 になる(タイマーが早すぎず遅すぎない)",
+        live(a, 2000 + api.tapTempoResetInMs(a, 2000) + 0.1) === 0
+        && live(a, 2000 + api.tapTempoResetInMs(a, 2000)) === 5);
+      check("43.3 列が空なら待つものが無い(null)", api.tapTempoResetInMs([], 0) === null);
+    }
+    // 壊れた入力で例外を投げない
+    check("43.3 壊れた入力でも落ちない",
+      bpm(null) === null && bpm([5]) === null && bpm([5, 5]) === null
+      && Array.isArray(api.tapTempoPush(null, 1)));
+    // 元の配列を書き換えない(参照を渡し回しても壊れない)
+    {
+      const a0 = [0, 500];
+      const a1 = push(a0, 1000);
+      check("43.3 tapTempoPush は元の配列を書き換えない", a0.length === 2 && a1.length === 3);
+    }
+  }
+
+  // --- 43.4 配線(純関数を守っても、呼び方が違えば意味がない。罠2) --------------
+  {
+    const code43 = codeOf(src);
+    // スケジューラは「今選ばれている音」を渡している。予約の仕組み自体は触っていない
+    check("43.4 スケジューラは選ばれた音を渡してクリックを予約する",
+      /scheduleMetroClick\(ctx, t, kind, metroClickSoundRef\.current\);/.test(code43));
+    check("43.4 予約の仕組み(LOOKAHEAD 0.12 / setInterval 25ms)は変わっていない",
+      /const LOOKAHEAD = 0\.12;/.test(code43) && /setInterval\(metroSchedulerTickTimed, 25\)/.test(code43));
+    // 保存はアプリ既存の作法(usePersistedState = IndexedDB)。既定は現行
+    check("43.4 選んだ音は usePersistedState で保存し、既定は現行",
+      /usePersistedState\("metroClickSound", "current"\)/.test(code43));
+    check("43.4 スケジューラが読むのは ref(長寿命クロージャなので state を直接読まない)",
+      /const metroClickSoundRef = useRef\(metroClickSound\);/.test(code43)
+      && /metroClickSoundRef\.current = metroClickSound;/.test(code43));
+    // 【D-24e】**state を ref へ写す useEffect は、その state を依存に持つこと。**
+    // 依存配列を [] にすると ref は初期値のまま凍る。usePersistedState は初期値で始まり
+    // IndexedDB からは**非同期で後から**入るので、`[metroClickSound]` → `[]` の変異では
+    // **ピルは「木」を選択表示し、試し鳴らしも木、しかし START すると現行が鳴り続ける**。
+    // 保存はされるので次回起動しても同じ ── **4種の A/B が原理的に不可能**になる
+    // (仕様 §3「選んだものが保存され、読み直しても残る」が意味を失う)。5次審査の実測で素通りした。
+    // ここは1本を名指しせず、**この形の同期すべて**に効く規則として書く(罠4)。
+    {
+      const syncs = [...codeOf(code43).matchAll(
+        /useEffect\(\(\) => \{\s*(\w+)Ref\.current = ([^;]+);\s*\}, \[([^\]]*)\]\);/g)];
+      check("43.4 state を ref へ写す useEffect が見つかる", syncs.length >= 5, `${syncs.length}本`);
+      for (const m of syncs) {
+        const [, refName, body, deps] = m;
+        // 本体に出てくる識別子のうち、ref でも関数でもないもの = 読んでいる state
+        const reads = [...new Set((body.match(/\b[A-Za-z_$][\w$]*\b/g) || [])
+          .filter((w) => !/Ref$|^current$/.test(w) && !/^(Math|Number|String|Boolean|JSON|Array|Object|true|false|null|undefined)$/.test(w)
+            && !new RegExp(`\\b${w}\\s*\\(`).test(body)))];
+        const dep = deps.split(",").map((x) => x.trim()).filter(Boolean);
+        const missing = reads.filter((r) => !dep.includes(r));
+        check(`43.4 ${refName}Ref への同期は、読んでいる state を依存に持つ([] にすると初期値で凍る)`,
+          missing.length === 0, `本体 ${JSON.stringify(reads)} / 依存 ${JSON.stringify(dep)}`);
+      }
+      // 道具の裏取り: 依存を空にした同期を食わせたら、必ず落ちること。
+      {
+        const fake = "useEffect(() => { fooRef.current = foo; }, []);";
+        const m = /useEffect\(\(\) => \{\s*(\w+)Ref\.current = ([^;]+);\s*\}, \[([^\]]*)\]\);/.exec(fake);
+        const reads = (m[2].match(/\b[A-Za-z_$][\w$]*\b/g) || []);
+        const dep = m[3].split(",").map((x) => x.trim()).filter(Boolean);
+        check("43.4 依存の検査が本物(依存を空にした同期は「足りない」と判定する)",
+          reads.some((r) => !dep.includes(r)));
+      }
+    }
+    // シートの中に4種のボタンがあり、押すと**保存と試し鳴らしの両方**が起きる
+    check("43.4 シートは METRO_CLICK_SOUNDS を並べる(表の外に音の名前を書き写していない)",
+      /METRO_CLICK_SOUNDS\.map\(\(s\) => \{/.test(code43));
+    check("43.4 押すと保存と試し鳴らしの両方が起きる",
+      /setMetroClickSound\(s\.id\); previewMetroClick\(s\.id\);/.test(code43));
+    check("43.4 選択中は aria-pressed で返る", /const selected = metroClickSound === s\.id;/.test(code43));
+    {
+      // previewMetroClick の中身だけを取り出して見る(useCallback なので関数抽出器が使えない)
+      const m = /const previewMetroClick = useCallback\(\(id\) => \{([\s\S]*?)\n  \}, \[\]\);/.exec(code43);
+      const body = m ? m[1] : "";
+      check("43.4 試し鳴らしの本体が読める", body.length > 0);
+      // 試し鳴らしは本番と同じ出口を通る(別の音づくりを2つ持たない)
+      check("43.4 試し鳴らしは本番と同じ scheduleMetroClick を通る",
+        /scheduleMetroClick\(ctx, ctx\.currentTime \+ 0\.02, "accent", id\);/.test(body), body.slice(0, 200));
+      // 【D-24a で禁止語を絞った / D-24b で名乗りを検証に合わせた】
+      // D-24a の名前は「(予約の仕組みに触らない)」と名乗っていたが、禁止語は
+      // setInterval / metroOnRef / metroNextTimeRef / metroTimerRef の**綴りだけ**で、
+      // 予約が寄って立つ **AudioContext そのものを作り直す**ことは見ていなかった。
+      // そのせいで「鳴っている最中の試し鳴らしが ctx を close() して差し替え、
+      // 古い時計基準の metroNextTimeRef に新しい時計が追いつくまで丸ごと無音になる」
+      // という退行を素通りさせた(罠1: 名乗りが検証を超えていた)。
+      // ここは**綴りで見られる範囲だけ**を名乗る ── タイマーを張らないこと、
+      // 予約の状態(次の時刻・通算拍・小節内位置・振り子の基準)へ**書き込まない**こと。
+      // metroOnRef は「今スケジューラが動いているか」を**読む**ためだけに使ってよい
+      // (読むだけでは何も起こらない)。作り直しの側は下の**振る舞いの検査**が見る。
+      check("43.4 試し鳴らしはタイマーを張らず、予約の状態を1つも書き換えない(綴りで見る)",
+        body.length > 0
+        && !/setInterval|setTimeout|metroTimerRef/.test(body)
+        && !/(metroNextTimeRef|metroTickIndexRef|metroGBeatRef|metroAnchorRef|metroOnRef)\.current\s*=[^=]/.test(body),
+        body.slice(0, 300));
+      // 【D-24a】時計の用意は START と同じ規則を通る(下の 43.5 が両者の一致を見る)
+      check("43.4 試し鳴らしの時計は metroCtxNeedsRebuild の規則を通る",
+        /metroCtxNeedsRebuild\(ctx, metroClockMarkRef\.current, performance\.now\(\)\)/.test(body)
+        && !/ctx\.state !== "running"/.test(body), body.slice(0, 300));
+
+      // 【D-24b】**振る舞いで見る。** 本体を作り物の依存の上で実際に走らせ、
+      // 「鳴っている最中は ctx を作り直さない」ことを確かめる(綴りの正規表現では、
+      // どんな条件で close() に入るかは分からない)。
+      // 退行の中身: メトロノームが鳴っている間に試し鳴らしが ctx を close() して差し替えると、
+      // スケジューラは毎tick ctx を読み直すのに metroNextTimeRef は古い時計の大きな値のまま
+      // 残るため、`metroNextTimeRef.current < ctx.currentTime + LOOKAHEAD` が
+      // **壊した ctx の生存時間ぶん**一度も真にならない(審査の実測で 5875ms 無音)。
+      // START は作り直した直後に予約を張り直すので同じ問題を持たない。
+      {
+        const NOW = 200000;
+        const mkCtx = (state, currentTime) => {
+          const c = { state, currentTime, closed: false, resumed: 0, fresh: false };
+          c.close = () => { c.closed = true; };
+          c.resume = () => { c.resumed++; return { catch: () => {} }; };
+          return c;
+        };
+        // 本体が参照する外側の名前をすべて引数で渡す(構築も呼び出しも runFn で包む)
+        const mkPreview = (d) => runFn(() => new Function(
+          "applyAudioSessionType", "metroCtxRef", "metroOnRef", "metroClockMarkRef",
+          "metroCtxNeedsRebuild", "scheduleMetroClick", "window", "performance",
+          `return (id) => {${body}};`)(
+          () => {}, d.ctxRef, d.onRef, d.markRef, api.metroCtxNeedsRebuild,
+          (c, t, kind, id) => d.calls.push({ c, t, kind, id }),
+          { AudioContext: function () { const c = mkCtx("running", 0); c.fresh = true; return c; } },
+          { now: () => NOW }));
+        // 場面を1つ作って試し鳴らしを1回走らせ、何が起きたかを返す
+        const runPreview = (on, ctx, mark) => {
+          const d = { ctxRef: { current: ctx }, onRef: { current: on },
+            markRef: { current: mark }, calls: [] };
+          const p = mkPreview(d);
+          const r = p.ok ? runFn(p.v, "wood") : p;
+          return { ok: r.ok, err: r.err || p.err, d, ctx };
+        };
+        const STALL = { audio: 100, wall: NOW - 5000 }; // 5秒たっても音声時計が進んでいない基準点
+
+        // ① 鳴っている最中に、割り込みで state が "suspended" になった ctx で押す
+        //    (iOS の通話 / Siri / 他アプリの音声フォーカス。visibilitychange は伴わない)
+        {
+          const live = mkCtx("suspended", 123.4);
+          const r = runPreview(true, live, STALL);
+          const kept = r.ok && r.d.ctxRef.current === live && live.closed === false;
+          check("43.4 鳴っている最中の試し鳴らしは ctx を作り直さない(close も差し替えもしない)",
+            kept, r.ok ? `差し替え ${r.d.ctxRef.current !== live} / close ${live.closed}` : `例外(${r.err})`);
+          check("43.4 鳴っている最中でも試し鳴らしは その ctx に1回**予約する**(鳴るかは実機待ち)",
+            r.ok && r.d.calls.length === 1 && r.d.calls[0].c === live && r.d.calls[0].id === "wood",
+            r.ok ? JSON.stringify(r.d.calls.map((x) => ({ same: x.c === live, id: x.id }))) : `例外(${r.err})`);
+          check("43.4 鳴っている最中は F-52 の基準点(metroClockMarkRef)も捨てない",
+            r.ok && r.d.markRef.current === STALL, r.ok ? String(r.d.markRef.current) : `例外(${r.err})`);
+        }
+        // ② 止まっているときは従来どおり ── 作り直しの規則を通る(§1.4 が効く場面)
+        {
+          const dead = mkCtx("suspended", 123.4);
+          const r = runPreview(false, dead, STALL);
+          check("43.4 止まっているときは作り直しの規則が効く(壊れた ctx は差し替える)",
+            r.ok && r.d.ctxRef.current !== dead && r.d.ctxRef.current.fresh === true
+            && dead.closed === true && r.d.markRef.current === null,
+            r.ok ? `差し替え ${r.d.ctxRef.current !== dead} / close ${dead.closed}` : `例外(${r.err})`);
+          // running で、5秒のあいだ音声時計も 5秒進んでいる = 健全(F-52 に当たらない)
+          const good = mkCtx("running", 8);
+          const r2 = runPreview(false, good, { audio: 3, wall: NOW - 5000 });
+          check("43.4 止まっていて ctx が健全なら作り直さない(押すたびに作り替えない)",
+            r2.ok && r2.d.ctxRef.current === good && good.closed === false && r2.d.calls.length === 1,
+            r2.ok ? `差し替え ${r2.d.ctxRef.current !== good} / close ${good.closed}` : `例外(${r2.err})`);
+        }
+        // ③ 鳴っている扱いでも ctx がまだ無ければ作る(例外で無音にならない)
+        {
+          const r = runPreview(true, null, null);
+          check("43.4 ctx がまだ無ければ作る(いまは到達しない守り。null に resume すると落ちるため)",
+            r.ok && !!r.d.ctxRef.current && r.d.ctxRef.current.fresh === true && r.d.calls.length === 1,
+            r.ok ? String(r.d.calls.length) : `例外(${r.err})`);
+        }
+        // 【D-24c】**作り直しの「あと」の後始末 ── resume() を必ず蹴ること。**
+        // iOS では new AudioContext() は "suspended" で始まり、**ユーザー操作の同期の中で
+        // resume() を蹴らないと二度と鳴らない**。作り直すかどうかの判断(上の6件)は固定したが、
+        // 判断のあとに必ずやることは1件も固定していなかったので、`ctx.resume()` を丸ごと
+        // 消しても PASS 7182 / FAIL 0 のまま通った(審査の実測)。罠18 の裏側。
+        // どの場面でも「予約する ctx はちょうど1回 resume されている」ことだけを見る
+        // (どこで蹴るかの綴りは縛らない ── 罠4)。
+        {
+          const cases = [
+            ["鳴っている最中(既存の ctx をそのまま使う)", () => runPreview(true, mkCtx("suspended", 123.4), STALL)],
+            ["止まっていて壊れている(作り直した新品)", () => runPreview(false, mkCtx("suspended", 123.4), STALL)],
+            ["止まっていて健全(既存の ctx を使い回す)", () => runPreview(false, mkCtx("running", 8), { audio: 3, wall: NOW - 5000 })],
+            ["ctx がまだ無い(作った新品)", () => runPreview(true, null, null)],
+          ];
+          for (const [name, run] of cases) {
+            const r = run();
+            const used = r.ok && r.d.calls.length === 1 ? r.d.calls[0].c : null;
+            check(`43.4 ${name}: 予約する ctx はちょうど1回 resume される(iOS はユーザー操作の同期の中でしか resume できない)`,
+              !!used && used.resumed === 1,
+              r.ok ? `予約 ${r.d.calls.length}件 / resume ${used ? used.resumed : "—"}` : `例外(${r.err})`);
+          }
+        }
+      }
+    }
+    // タップテンポの配線: 押した瞬間に数える / performance.now() / 音の時計に依存しない
+    {
+      const m = /const onTapTempo = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[setMetroTempo, syncTapCount\]\);/.exec(code43);
+      const body = m ? m[1] : "";
+      check("43.4 タップの本体が読める", body.length > 0);
+      check("43.4 タップの時刻は performance.now()(音の時計 ctx.currentTime を使わない)",
+        body.length > 0 && /tapTempoPush\(tapTimesRef\.current, performance\.now\(\)\)/.test(body)
+        && !/currentTime/.test(body), body.slice(0, 200));
+      check("43.4 テンポを出すのは純関数 tapTempoFromTaps(判定を画面側に書き写していない)",
+        /const bpm = tapTempoFromTaps\(next\);/.test(body));
+      check("43.4 テンポが出たときだけ書き込む(1回目で 120 に戻らない)",
+        /if \(bpm !== null\) setMetroTempo\(bpm\);/.test(body));
+      // 【D-24a】叩いた回数をそのまま画面へ流さない。表示は必ず「今この瞬間の本数」へ合わせ直す
+      check("43.4 表示は syncTapCount で今の本数へ合わせ直す(数えた回数をそのまま出さない)",
+        body.length > 0 && /syncTapCount\(\);/.test(body) && !/setTapCount\(/.test(body),
+        body.slice(0, 300));
+    }
+    // 【D-24a】表示側の本体。時間の経過を見る本数と、戻すまでの待ち時間の出どころを固定する
+    {
+      const m = /const syncTapCount = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[clearTapResetTimer\]\);/.exec(code43);
+      const body = m ? m[1] : "";
+      check("43.4 表示の本体が読める", body.length > 0);
+      check("43.4 表示の本数は tapTempoLiveCount(時間の経過を見る純関数)から出す",
+        body.length > 0 && /const live = tapTempoLiveCount\(tapTimesRef\.current, now\);/.test(body)
+        && /setTapCount\(live\);/.test(body), body.slice(0, 300));
+      check("43.4 表示を戻す待ち時間は tapTempoResetInMs から出す",
+        /const wait = tapTempoResetInMs\(tapTimesRef\.current, now\);/.test(body));
+      check("43.4 表示のタイマーは tapTimesRef を書き換えない(叩き心地はこの周の前と同じ)",
+        body.length > 0 && !/tapTimesRef\.current =/.test(body), body.slice(0, 300));
+      check("43.4 表示のタイマーは張り直す前に必ず片付ける(重ねて積まない)",
+        /clearTapResetTimer\(\);/.test(body));
+    }
+    check("43.4 表示のタイマーはシートを閉じたとき・アンマウント時に片付ける",
+      /if \(!tempoSheetOpen\) \{ clearTapResetTimer\(\); return undefined; \}/.test(code43)
+      && /return clearTapResetTimer;/.test(code43)
+      && /clearTimeout\(tapResetTimerRef\.current\); tapResetTimerRef\.current = null;/.test(code43));
+    // 捨てる規則の数値を持つのは tapTempoPush の側だけ。表示側は**その関数に訊く**
+    // (2箇所に持つと、片方だけ直したときに画面が嘘をつく。それが D-24 の欠陥だった)
+    {
+      const dispSrc = [srcOfFn(src, "tapTempoLiveCount"), srcOfFn(src, "tapTempoResetInMs")]
+        .map(codeOf).join("\n");
+      check("43.4 表示側は捨てる閾値を持たない(TAP_TEMPO_RESET_MS も 2000 も現れない)",
+        !/TAP_TEMPO_RESET_MS|2000/.test(dispSrc), dispSrc.slice(0, 200));
+      check("43.4 表示側は捨てる規則を tapTempoPush に訊く",
+        /tapTempoPush\(/.test(dispSrc));
+    }
+    check("43.4 タップは押した瞬間(onPointerDown)に数える(指を離すのを待たない)",
+      /onPointerDown=\{onTapTempo\}/.test(code43) && !/onClick=\{onTapTempo\}/.test(code43));
+    check("43.4 1回目は『あと1回』、2回目からは回数が出る",
+      /tapCount === 0 \? "" : tapCount === 1 \? "あと1回" : `\$\{tapCount\}回`/.test(code43));
+    // 普段の画面に部品を増やしていない(§2.1)。タップもクリック音もシートの中だけ
+    {
+      const sheet = /\{tempoSheetOpen && \(([\s\S]*?)\n      \)\}/.exec(src);
+      const sheetSrc = codeOf(sheet ? sheet[1] : "");
+      check("43.4 テンポシートの中身が読める", sheetSrc.length > 1000, `${sheetSrc.length}文字`);
+      check("43.4 タップテンポはシートの中にだけある",
+        (code43.match(/onPointerDown=\{onTapTempo\}/g) || []).length === 1
+        && sheetSrc.includes("onPointerDown={onTapTempo}"));
+      check("43.4 クリック音の選択はシートの中にだけある",
+        (code43.match(/METRO_CLICK_SOUNDS\.map/g) || []).length === 1
+        && sheetSrc.includes("METRO_CLICK_SOUNDS.map"));
+    }
+  }
+
+  // --- 43.5 【D-24a】時計を作り直す規則が START と試し鳴らしで同じであること -------
+  // D-24 の試し鳴らしは `if (!ctx)` しか見ておらず、**state は "running" のまま時計だけ
+  // 止まった ctx**(F-52。iOS でバックグラウンドから復帰した直後)を素通りさせていた。
+  // その ctx では ctx.currentTime + 0.02 が来ないので、押しても無音になる(§1.4 違反)。
+  // ここでは綴りではなく **同じ入力を両方に流して、同じ判断が返ること**を見る。
+  // startMetronome の側は1文字も変えていないので、その本文から条件式を取り出して評価する。
+  {
+    const code45 = codeOf(src);
+    const sm = /const startMetronome = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[metroSchedulerTickTimed, metroActiveRef, requestWakeLock\]\);/.exec(code45);
+    const startBody = sm ? sm[1] : "";
+    check("43.5 startMetronome の本体が読める", startBody.length > 0);
+    const rm = /const clockStalled = ([\s\S]*?);\n\s*if \((![\s\S]*?)\) \{/.exec(startBody);
+    check("43.5 START の中の『作り直すか』の条件が取り出せる", !!rm, startBody.slice(0, 200));
+    if (rm) {
+      // START が書いている式をそのまま関数にする(performance.now() は与えた時刻に差し替える)
+      const startRule = new Function("ctx", "mark", "nowMs", "audioClockStalled", `
+        const performance = { now: () => nowMs };
+        const clockStalled = ${rm[1]};
+        return !!(${rm[2]});
+      `);
+      const NOW = 100000;
+      // (音声時計, 実時計) の基準点。wall は NOW との差が「実時間の経過」になる
+      const cases = [
+        ["ctx がまだ無い", null, null],
+        ["running・基準点なし", { state: "running", currentTime: 5 }, null],
+        ["suspended・基準点なし", { state: "suspended", currentTime: 5 }, null],
+        ["closed・基準点なし", { state: "closed", currentTime: 5 }, null],
+        ["running・5秒で音声時計も5秒進んだ", { state: "running", currentTime: 8 }, { audio: 3, wall: NOW - 5000 }],
+        ["running・5秒たったのに音声時計は0.1秒(F-52)", { state: "running", currentTime: 3.1 }, { audio: 3, wall: NOW - 5000 }],
+        ["running・作り直した直後で音声時計が戻っている", { state: "running", currentTime: 0.2 }, { audio: 30, wall: NOW - 5000 }],
+        ["running・0.5秒しか経っていない(判定しない)", { state: "running", currentTime: 3 }, { audio: 3, wall: NOW - 500 }],
+        ["suspended・時計は進んでいる", { state: "suspended", currentTime: 8 }, { audio: 3, wall: NOW - 5000 }],
+      ];
+      let same = 0, f52 = 0;
+      const diffs = [];
+      for (const [name, ctx, mark] of cases) {
+        const a = startRule(ctx, mark, NOW, api.audioClockStalled);
+        const b = api.metroCtxNeedsRebuild(ctx, mark, NOW);
+        if (a === b) same++; else diffs.push(`${name}: START=${a} / 共有=${b}`);
+        // 「ctx が無いときだけ作り直す」という素朴な規則と食い違う場面(=F-52 の枝)
+        if (b && ctx) f52++;
+      }
+      check("43.5 START の判断と metroCtxNeedsRebuild の判断が全ての場面で一致する",
+        same === cases.length, diffs.join(" / "));
+      check("43.5 その中には『ctx はあるのに作り直す』場面が含まれる(F-52 の枝が生きている)",
+        f52 >= 3, `${f52}件`);
+      // 素朴な `if (!ctx)`(D-24 の試し鳴らしがやっていたこと)なら必ず食い違う場面がある
+      const naiveDiff = cases.filter(([, ctx, mark]) => api.metroCtxNeedsRebuild(ctx, mark, NOW) !== !ctx);
+      check("43.5 `if (!ctx)` だけでは足りない(食い違う場面が実在する)",
+        naiveDiff.length >= 3, `${naiveDiff.length}件`);
+    }
+    // 【ここは十分条件ではない。正直に書く】START の側は1文字も変えていないので、
+    // 条件式そのものは **START の中と metroCtxNeedsRebuild の2箇所**にある。
+    // 「1箇所にまとめた」とは名乗れない。そのぶんを埋めているのが上の
+    // 「同じ入力で同じ判断が返る」検査で、片方だけ直せば必ず落ちる。
+    // ここで見るのは、**試し鳴らしが自前の条件を持たない**ことだけ。
+    // 【D-24b】試し鳴らしは「鳴っている間は作り直さない」という**追加の門**を1つ持つ
+    // (owned)。その門をくぐったあとの判断は共有の関数がすべて持つ ── 作り直しの規則そのものを
+    // 書き写していないことをここで見る(鳴っている間の振る舞いは 43.4 が実際に走らせて見る)。
+    // (門そのものの書き方は縛らない ── 順序を入れ替えただけの等価な書き換えで落とすと、
+    //  正しい修正を落とす検査になる。罠4)
+    check("43.5 試し鳴らしは作り直しの規則を書き写さず、共有の関数を呼ぶ",
+      /if \(!owned && metroCtxNeedsRebuild\(ctx, metroClockMarkRef\.current, performance\.now\(\)\)\) \{/.test(code45)
+      && /const owned = [^;\n]*metroOnRef\.current[^;\n]*;/.test(code45));
   }
   console.log("  -> done");
 }
