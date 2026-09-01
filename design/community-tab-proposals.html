@@ -334,6 +334,13 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 .chipx.on{background:var(--ac); color:var(--on); font-weight:700}
 .chipx.lock{background:transparent; color:var(--i3); padding-left:0}
 
+/* 楽器種別のタブ（指標タブと二段になるので、こちらは下線式にして形を変える） */
+.saxtabs{display:flex; gap:18px; padding:0 2px; box-shadow:inset 0 -1px 0 var(--ln)}
+.saxtab{font-size:13.5px; color:var(--i3); padding-bottom:8px; position:relative; white-space:nowrap}
+.saxtab.on{color:var(--i); font-weight:700}
+.saxtab.on::after{content:""; position:absolute; left:0; right:0; bottom:0; height:2px;
+  background:var(--ac); border-radius:2px}
+
 /* 楽器種別の複数選択 */
 .saxpick{display:flex; gap:8px; flex-wrap:wrap}
 .saxopt{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--i2);
@@ -886,9 +893,15 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
             <div class="sub" style="text-align:center;margin:0">Alto ／ Tenor</div>
           </div>
 
+          <div class="saxtabs">
+            <div class="saxtab on">Alto</div>
+            <div class="saxtab">Tenor</div>
+          </div>
+
           <div class="mtabs">
-            <div class="mtab on">Alto</div>
-            <div class="mtab">Tenor</div>
+            <div class="mtab">音程</div>
+            <div class="mtab on">重心</div>
+            <div class="mtab">HNR</div>
           </div>
 
           <div class="card" style="box-shadow:none; background:var(--gr); padding:14px">
@@ -907,7 +920,6 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
               <polyline points="30,84 82,64 134,44 186,68 238,30 280,50" fill="none"
                 stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
             </svg>
-            <p class="hint" style="text-align:center;margin-top:8px">タップして音程・HNRも見る</p>
           </div>
 
           <div>
@@ -927,11 +939,13 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
 
     <div class="notes">
       <div class="note">
-        <h3>楽器種別ごとに切り替える</h3>
+        <h3>楽器 × 指標の二段で切り替える</h3>
         <p>
           1人が複数の楽器を吹くので、<b>目安も機材も楽器種別ごとに別物</b>になる。
-          この人がどの楽器を持っているかは名前の下に出し、
-          グラフと機材の一覧はタブで切り替える。1種別しか持たない人にはタブを出さない。
+          上段で楽器（Alto / Tenor）、下段で指標（音程 / 重心 / HNR）を選ぶ。
+          <b>タブが二段になるので形を変えてある</b> — 楽器は下線、指標は塗り。
+          同じ見た目を縦に2つ並べると、どちらがどちらを切り替えているのか読めない。
+          1種別しか持たない人には上段を出さない。
         </p>
       </div>
       <div class="note">
@@ -945,9 +959,9 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
       <div class="note">
         <h3>別画面へ移らずに形が見える</h3>
         <p>
-          「この人の目安を見る」を押させず、<b>シートの中に折れ線を出す</b>。
+          「この人の目安を見る」を押させず、<b>シートの中で指標まで切り替えられる</b>。
           順位を眺めていて気になった人がいたとき、往復せずにその場で判断できる。
-          指標を切り替えたくなったらグラフをタップして詳細へ移る。
+          このシートだけで「目安に設定」まで完結する。
         </p>
       </div>
       <div class="note">
@@ -1401,6 +1415,10 @@ code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>順位は属性でも切れる</h3>
       <p>条件行は 指標 ・ 期間 ・ 属性 の3つ。期間は 今週 / 今月 / 今年 / すべて。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>人物シートは楽器 × 指標の二段タブ</h3>
+      <p>相手が複数の楽器を吹く場合、上段で楽器、下段で指標を選ぶ。
+        タブが二段になるため、楽器は下線式・指標は塗り式と<b>形を変えて</b>見分けを付ける。</p></div></div>
     <div class="dec"><span class="mark done">決定</span><div>
       <h3>人物紹介の練習日数は累計</h3>
       <p>順位は期間で切り替えるが、シートに出す数字は累計。その人がどれだけ続けてきたかを表す。</p></div></div>
