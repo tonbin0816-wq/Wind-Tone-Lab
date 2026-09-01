@@ -24,6 +24,8 @@
 - 属性の選択肢は `学生 / 学生（音大） / 社会人 / 講師・プロ / 独学`(`profile.js` の `POSITIONS` が正)
 - **プロフィールの楽器種別は `saxTypes`(配列)、機材は `gear`(種別をキーにした map)**。1人が複数の楽器を吹く。
   一方**目安ドキュメント側の `saxType` は単数**(1つの目安は1つの楽器種別のもの)。混同しないこと
+- **非公開に切り替えたら、その人の `ideals` を削除する**(公開状態を `users` の1箇所に保つ。
+  読まれてはいけないものを置かない)
 - コミットは各タスク末尾で必ず行う
 
 ## この計画に含まれないもの(後続計画)
@@ -254,7 +256,8 @@ git commit -m "コミュニティ計画2: 目安の平行移動の算術を追�
   - `MAX_PUBLISHED_NOTES = 40`
   - `buildIdealDoc(input, now?): { doc } | { error }`
     input: `{ uid, profileId, name, saxType, tuningHz, notes, sourceSessionCount, reed, performerIsSelf }`
-    doc keys(必ずこの12): `ownerUid, profileId, name, saxType, tuningHz, notes, noteKeys, sourceSessionCount, reedBrand, reedStrength, updatedAt`
+    doc keys(必ずこの**11**): `ownerUid, profileId, name, saxType, tuningHz, notes, noteKeys, sourceSessionCount, reedBrand, reedStrength, updatedAt`
+    (`adoptionCount` は**この11に入らない**。理由と未決事項は本ファイル末尾の**未決事項1**を読むこと)
   - `sanitizeNotes(notes): object` — 共有してよい指標だけを残し、**volumeDb を必ず落とす**
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -291,12 +294,18 @@ describe("sanitizeNotes", () => {
 });
 
 describe("buildIdealDoc", () => {
-  it("正しい入力から12キーちょうどのドキュメントを作る", () => {
+  it("正しい入力から11キーちょうどのドキュメントを作る", () => {
     const r = buildIdealDoc(base, new Date("2026-08-28T00:00:00Z"));
+    // 【この期待値を「実装が返したキー」から作らないこと】
+    // Object.keys(r.doc) を両辺に使うと、実装が何を返しても通る検査になり何も守らない。
+    // 数(11)も並びも、ここに手で書いた列だけが正。
+    expect(Object.keys(r.doc)).toHaveLength(11);
     expect(Object.keys(r.doc).sort()).toEqual([
       "name", "noteKeys", "notes", "ownerUid", "profileId", "reedBrand",
       "reedStrength", "saxType", "sourceSessionCount", "tuningHz", "updatedAt",
     ]);
+    // adoptionCount は目安ドキュメントに含めない(末尾の未決事項1を参照)
+    expect(r.doc.adoptionCount).toBeUndefined();
     expect(r.doc.noteKeys).toEqual(["0", "2", "4"]);
   });
   it("他人の演奏由来は公開できない", () => {
@@ -400,7 +409,14 @@ export function buildIdealDoc(input, now = new Date()) {
       noteKeys,
       sourceSessionCount: num(input?.sourceSessionCount) ? input.sourceSessionCount : 1,
       reedBrand: reed?.brand ? String(reed.brand) : null,
-      // 使用日数は共有しない(2026-08-29 本人指示。画面から消したのでデータにも持たない)
+      // 使用日数(reedDays)は共有しない(2026-08-29 決定)。
+      // 【理由を「画面から消したから」と書かないこと】開封後日数はアプリに現存する
+      // (分析タブのピボット軸「開封後日数」・リード詳細の「開封 n日」)。消えていない。
+      // 共有しない本当の理由は、**他人のリードの使用日数が比較の役に立たない**こと。
+      // 目安は「その人の音がどうだったか」であり、リードの消耗は各自の吹き方と
+      // 保管環境の関数なので、他人の日数を見ても自分の何も決まらない。
+      // 一方で「◯月◯日に開けた箱を◯日使っている」は生活の粒度の情報であり、
+      // 公開する値としては要らない。値が要らない以上、持たない。
       reedStrength: reed?.strength ? String(reed.strength) : null,
       updatedAt: now.toISOString(),
     },
@@ -434,7 +450,7 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
 - Modify: `src/community/profile.test.js`(同期テストの拡張)
 
 **Interfaces:**
-- Consumes: `buildIdealDoc` の12キー(Task 2)、`SAX_TYPES`(profile.js)
+- Consumes: `buildIdealDoc` の11キー(Task 2)、`SAX_TYPES`(profile.js)
 - Produces: `ideals/{docId}` の読み書き規則
 
 **注意: `users` の既存の規則には一切触れない。**
@@ -449,9 +465,24 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
     // profile.js ↔ firestore.rules と同じく、片方だけ直すと本番の書き込みが全部失敗する。
     // 同期は src/community/profile.test.js の「firestore.rules との同期」で検査している。
     match /ideals/{docId} {
-      // 公開プロフィールを持つ人の目安は誰でも読める。所有者は常に読める。
-      allow get: if true;
+      // 【allow get: if true; にしない】目安ドキュメント自体は数値の塊だが、docId に
+      // ownerUid が入っており「この uid は目安を公開している」が誰にでも分かってしまう。
+      // 非公開にした人の目安まで単票で読めるのは、設計書 §5④ の
+      // 「OFF にすると他の利用者から見えなくなる」に反する。
+      // 所有者の users ドキュメントを引いて公開状態を確かめる。
+      // (rules の get() は1件につき1 read を消費する。単票取得は一覧より桁が少ないので許容する。)
+      allow get: if (request.auth != null && request.auth.uid == resource.data.ownerUid)
+        || get(/databases/$(database)/documents/users/$(resource.data.ownerUid)).data.isPublic == true;
+
+      // 【list は所有者の公開状態をサーバ側で見られない】上の get() は「返る1件ごと」に
+      // 評価できるが、list の規則はクエリそのものに対して評価されるため、
+      // resource.data.ownerUid を使った他コレクションの参照が書けない。
+      // いま非公開の人の目安を一覧から落としているのは **クライアント側の joinOwners だけ**
+      // であり、生SDKを叩く相手には効かない。**この穴は未解決**。
+      // 末尾の**未決事項2**に代案を書いた。
+      // limit 句は必須(下の users の項に理由を書いた)。
       allow list: if request.query.limit <= 50;
+
       allow create, update: if request.auth != null
         && request.auth.uid == request.resource.data.ownerUid
         && docId == request.auth.uid + "_" + request.resource.data.profileId
@@ -464,10 +495,34 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
         && request.resource.data.tuningHz is number
         && request.resource.data.tuningHz >= 400
         && request.resource.data.tuningHz <= 500
-        && request.resource.data.notes is map
+        // ---- notes / noteKeys の中身 ----
+        // 【`is map` / `is list` だけでは自由文字列の投入口になる】
+        // Global Constraint に書いた「users と同じ厳格さ」を満たすため、書ける範囲を全部書く。
+        // 1) 音名キーは半音インデックスの文字列。列挙で固定すれば**キー側の自由文字列は消える**。
+        //    0〜47 はサックスの実音域(約2.5オクターブ=31音)に余裕を持たせた範囲。
+        // 2) notes のキー集合と noteKeys を hasAll+hasOnly+要素数で完全一致させる。
+        //    これで「noteKeys に載っていない音が notes に紛れる」経路が閉じる。
+        // 3) 音の**数**の上限を notes 側にも掛ける(noteKeys だけ短く申告する抜けを塞ぐ)。
         && request.resource.data.noteKeys is list
         && request.resource.data.noteKeys.size() >= 3
         && request.resource.data.noteKeys.size() <= 40
+        && request.resource.data.noteKeys.hasOnly([
+             '0','1','2','3','4','5','6','7','8','9','10','11',
+             '12','13','14','15','16','17','18','19','20','21','22','23',
+             '24','25','26','27','28','29','30','31','32','33','34','35',
+             '36','37','38','39','40','41','42','43','44','45','46','47'])
+        && request.resource.data.notes is map
+        && request.resource.data.notes.keys().hasAll(request.resource.data.noteKeys)
+        && request.resource.data.notes.keys().hasOnly(request.resource.data.noteKeys)
+        && request.resource.data.notes.keys().size() == request.resource.data.noteKeys.size()
+        // 【ここから先は rules では書けない】各音の中身
+        // (spectralCentroidHz / hnrDb / pitchCentsSigned / harmonics)が
+        // **数値であること**は検査できない。rules に繰り返しが無く、map の値を1つずつ
+        // 見るには 48通りのキーを明示的に展開するしかないためである。
+        // いま値の型を保証しているのは `sanitizeNotes`(クライアント)だけ。
+        // **サーバ側は「数値であること」を強制していない。** 代案は末尾の
+        // 末尾の**未決事項3**に書いた。
+        // ---- ここまで ----
         && request.resource.data.sourceSessionCount is int
         && request.resource.data.sourceSessionCount >= 1
         && request.resource.data.sourceSessionCount <= 10000
@@ -478,10 +533,22 @@ git commit -m "コミュニティ計画2: 公開する目安ドキュメント�
     }
 ```
 
-さらに `users/{uid}` の `allow list: if false;` を次に差し替える(一覧の絞り込みに要る):
+さらに `users/{uid}` の `allow list: if false;` を次に差し替える(一覧に所有者の属性を出すのに要る):
 
 ```
-      allow list: if request.query.limit <= 50;
+      // 【条件が2つ要る。片方だけでは穴が開く】
+      // (1) resource.data.isPublic == true
+      //     **rules はフィルタではない。** 条件を書かずに list を開けると、
+      //     クエリが返し得るドキュメントに非公開のものが混ざるため、非公開プロフィールが
+      //     そのまま全世界に読める。設計書 §9.3 の「非公開でも他人に見えなくなるだけ」が崩れる。
+      //     この条件を書くと、Firestore は**クエリの制約と規則を突き合わせ**、
+      //     `where("isPublic","==",true)` を持たないクエリを実行前に拒否する。
+      //     したがって**クエリ側にも同じ where を書かなければ動かない**(Task 4 で書く)。
+      // (2) request.query.limit <= 50
+      //     limit 句の無いクエリはコレクション全体を返し得るので拒否される。
+      //     こちらも**クエリ側に limit() が必要**。
+      // https://firebase.google.com/docs/firestore/security/rules-query
+      allow list: if resource.data.isPublic == true && request.query.limit <= 50;
 ```
 
 - [ ] **Step 2: 同期テストを拡張**
@@ -539,7 +606,7 @@ git commit -m "コミュニティ計画2: Firestoreルールに ideals を追加
   - `unpublishIdeal(uid, profileId): Promise<void>`
   - `listMyIdeals(uid): Promise<object[]>`
   - `searchIdeals({ saxType, limit }): Promise<object[]>` — 自分の目安は除いて返す
-  - `loadOwnerProfiles(uids): Promise<Map<string, object>>` — 一覧に属性を出すため
+  - `loadOwnerProfiles(uids): Promise<Map<string, object>>` — 一覧に属性を出すため。**公開プロフィールだけが返る**(非公開はサーバ側で落ちる)
 
 **このタスクに単体テストは書かない。** Firebase SDK の薄い糊で、モックを組んでも
 モックの挙動を確かめるだけになる。検証は Task 7 の実機確認で行う。
@@ -584,18 +651,45 @@ export async function searchIdeals({ saxType, limit = 50 }) {
 }
 
 // uid の配列から公開プロフィールをまとめて引く。documentId() の in は1度に30件までなので分割する。
+//
+// 【where("isPublic","==",true) と limit(CHUNK) は、どちらも省くとクエリごと拒否される】
+// users の list 規則は `resource.data.isPublic == true && request.query.limit <= 50` である。
+// **Firestore の規則はフィルタではない**ので、規則に書いた条件はクエリ側の制約と
+// 突き合わされ、条件を満たすことがクエリの形から保証できないと**実行前に拒否**される。
+//   ・isPublic の where が無い  → 非公開ドキュメントを返し得るクエリなので拒否
+//   ・limit() が無い            → コレクション全体を返し得るクエリなので拒否
+// どちらも「0件が返る」ではなく **permission-denied** になる。
+// https://firebase.google.com/docs/firestore/security/rules-query
+//
+// limit の値は chunk の上限と同じ 30。`in` が最大30件なので返る件数は元々30以下であり、
+// 30 を渡しても結果は変わらない。規則の上限 50 の内側でもある。
+const OWNER_CHUNK = 30;
+
 export async function loadOwnerProfiles(uids) {
   const { db } = getFirebase();
   const uniq = [...new Set(uids)].filter(Boolean);
   const out = new Map();
-  for (let i = 0; i < uniq.length; i += 30) {
-    const chunk = uniq.slice(i, i + 30);
-    const snap = await getDocs(query(collection(db, "users"), where(documentId(), "in", chunk)));
+  for (let i = 0; i < uniq.length; i += OWNER_CHUNK) {
+    const chunk = uniq.slice(i, i + OWNER_CHUNK);
+    const snap = await getDocs(query(
+      collection(db, "users"),
+      where("isPublic", "==", true),
+      where(documentId(), "in", chunk),
+      qLimit(OWNER_CHUNK),
+    ));
     snap.docs.forEach((d) => out.set(d.id, d.data()));
   }
   return out;
 }
 ```
+
+> **非公開の所有者はここで落ちる。** `joinOwners`(Task 5)の `owner.isPublic === true` は
+> 二重の防壁として残す(サーバ側が正で、クライアント側は表示の保険)。片側だけ緩めない。
+>
+> **索引の確認が要る**: `isPublic` の等値 + `documentId()` の `in` という組み合わせは、
+> 単一フィールド索引(`isPublic` 昇順 + `__name__`)で足りるはずだが、実地で
+> `failed-precondition`(索引が要る)が返ることがある。返ったらコンソールが提示する
+> 複合索引をそのまま作る。**Task 7 Step 5 の実機確認までは「通る」と書かないこと。**
 
 - [ ] **Step 2: ビルドが通ることを確認**
 
@@ -637,10 +731,21 @@ git commit -m "コミュニティ計画2: 目安の公開・検索・取得の�
 import { describe, it, expect } from "vitest";
 import { joinOwners, filterIdeals, sortByAdoption, hasEnoughOverlap } from "./idealSearch.js";
 
+// 【これは users ドキュメント(所有者のプロフィール)であって、目安ドキュメントではない】
+// したがって楽器種別は**複数形の saxTypes(配列)**、機材は**種別をキーにした gear map**。
+// 単数の saxType や空の gear:{} を置くと、buildProfileDoc が実際に返す形と食い違い、
+// このテストは「本番に存在しない形」を守るだけの検査になる。
 const owner = (over) => ({
-  nickname: "n", saxType: "alto", position: "学生", startYear: 2020,
+  nickname: "n", saxTypes: ["alto"], position: "学生", startYear: 2020,
   genres: ["クラシック"], ensembles: ["吹奏楽"], places: ["自宅"],
-  deviceClass: "ios", isPublic: true, ageConfirmed: true, updatedAt: "", gear: {}, ...over,
+  gear: {
+    alto: {
+      instrumentBrand: "YAMAHA", instrumentModel: "YAS-62",
+      mpBrand: "Selmer", mpModel: "S80 C*",
+      ligBrand: null, ligModel: null,
+    },
+  },
+  deviceClass: "ios", isPublic: true, ageConfirmed: true, updatedAt: "", ...over,
 });
 const ideal = (uid, over) => ({ id: uid + "_p", ownerUid: uid, adoptionCount: 0, ...over });
 
@@ -662,11 +767,15 @@ describe("filterIdeals", () => {
     [ideal("a"), ideal("b"), ideal("c")],
     new Map([
       ["a", owner({ position: "学生", startYear: 2020, genres: ["クラシック"] })],
-      ["b", owner({ position: "音大生", startYear: 2010, genres: ["ジャズ"] })],
+      // POSITIONS に無い値(旧「音大生」等)を書かないこと。profile.js の POSITIONS が正。
+      ["b", owner({ position: "学生（音大）", startYear: 2010, genres: ["ジャズ"] })],
       ["c", owner({ position: "社会人", startYear: 2000, genres: ["クラシック", "ジャズ"] })],
     ]));
-  it("立場で絞る", () => {
-    expect(filterIdeals(rows, { positions: ["音大生"] }).map((r) => r.ownerUid)).toEqual(["b"]);
+  it("属性で絞る", () => {
+    expect(filterIdeals(rows, { positions: ["学生（音大）"] }).map((r) => r.ownerUid)).toEqual(["b"]);
+  });
+  it("「学生」で絞っても「学生（音大）」は混ざらない(完全一致であることの確認)", () => {
+    expect(filterIdeals(rows, { positions: ["学生"] }).map((r) => r.ownerUid)).toEqual(["a"]);
   });
   it("演奏開始年の範囲で絞る(上限と下限)", () => {
     expect(filterIdeals(rows, { startYearFrom: 2005, startYearTo: 2015 }).map((r) => r.ownerUid)).toEqual(["b"]);
@@ -931,7 +1040,8 @@ git commit -m "コミュニティ計画2: 取り込んだ目安の組み立て�
 
 **Interfaces:**
 - Consumes: Task 1〜6 のすべて、`loadProfile`/`getSignedInUid`(accountRepo.js)
-- Produces: `CommunityTab` に子タブ「目安」「マイページ」を持たせる
+- Produces: `CommunityTab` に子タブ **データ / 順位 / シェア / マイページ** の4つを持たせる
+  (設計書 §5。「目安」という子タブは無い。目安をさがす画面は**データ**の中身)
 
 **画面の作法は `design/community-tab-proposals.html` の 01・02 節に従う。**
 地は `--c-sunk`、カードは角丸16px+`--shadow-card`、**行の区切り線は引かない**(1行=1枚の小カード)。
@@ -943,8 +1053,7 @@ git commit -m "コミュニティ計画2: 取り込んだ目安の組み立て�
 1. 最上段に **ニックネーム検索**。特定の人を1人探す操作は、条件で母集団を狭める操作と目的が違うので、条件のどれよりも上に置く
 2. **抽出条件のカード** — 「Alto × クラシック × 学生」と「◯人のデータ」を出すだけの表示。タップすると条件を選ぶ画面へ移る。ここでは選ばせない
 3. **さらに絞り込む** の1行 — 抽出条件で設定していない条件だけ(編成 / 練習場所 / 演奏開始年の範囲。内部では `startYearFrom`/`startYearTo`)
-4. 個人一覧 — 1行=1枚の小カード
-3. 一覧 — 1行=1枚の小カード。アイコン・ニックネーム・属性・機材の小片3つ・採用数
+4. **個人一覧** — 1行=1枚の小カード。アイコン・ニックネーム・属性・機材の小片3つ・採用数
 
 読み込みの流れ:
 ```js
@@ -970,7 +1079,7 @@ Task 8(計画3以降)で App.jsx から渡すまでは `[]` を既定にする�
 
 `src/community/IdealDetailView.jsx`。上から:
 
-1. 相手の属性(ニックネーム・立場・歴・機材)
+1. 相手の情報(ニックネーム・属性・歴・機材)
 2. **音名ごとの折れ線** — **横軸に音名**(既存のグラフと同じ向き)。指標は音程 / 重心 / HNR をタブで切り替える。自分は実線(`--c-accent`)、
    相手は破線(`--c-ink-3`)。**破線は平行移動した後の値**。凡例に「自分」「(相手の名前)」
 3. 説明文: `計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較`
@@ -987,7 +1096,7 @@ onImport(built.profile);   // 親が既存の idealProfiles へ追加する
 
 - [ ] **Step 3: CommunityTab に子タブを足す**
 
-既存の `phase === "profile"` の表示を「マイページ」子タブに移し、「データ」子タブを足す。子タブは **データ / 順位 / シェア / マイページ** の4つ(順位とシェアは計画3・4で中身を入れる)。
+既存の `phase === "profile"` の表示を **マイページ** 子タブに移し、**データ** 子タブを足す。子タブは **データ / 順位 / シェア / マイページ** の4つ(順位とシェアは計画3・4で中身を入れる)。Step 1 の `SearchIdealsView` は**データ**の中身として置く。
 
 **抽出条件を選ぶ画面**(`SelectCohortView.jsx`)も作る。楽器種別 / ジャンル / 属性 の3軸を選ぶ。
 楽器種別の選択肢は**自分の `saxTypes` に限らず4種すべて**(他の楽器の平均を見たい場合があるため)。
@@ -1013,17 +1122,27 @@ Expected: すべて PASS
 
 `npm run dev` でプレビューを開き、順に確認:
 
-1. コミュニティタブに子タブ「目安」「マイページ」が出る
+1. コミュニティタブに子タブ **データ / 順位 / シェア / マイページ** の4つが出る
 2. マイページで自分の目安を公開ONにすると、Firebase コンソールの `ideals` に文書ができる
 3. 文書の中身に **`volumeDb` が1つも含まれていない**(コンソールで確認)
-4. 目安タブに自分以外の公開目安が並ぶ。**自分の目安は並ばない**
-5. 立場・ジャンルのピルで絞り込むと件数が変わる
+4. データタブに自分以外の公開目安が並ぶ。**自分の目安は並ばない**
+5. 属性・ジャンルのピルで絞り込むと件数が変わる
 6. 0件になる条件を選ぶと、外すと見つかる条件が案内される
 7. 1件タップ → 折れ線が2本出る。破線が実線の近くにある(平行移動が効いている証拠。
    **効いていないと破線が画面の端に寄る**)
 8. 取り込む → 計測タブの目安一覧に「取り込んだ目安（…）」が増える
 9. 取り込んだ目安を選ぶと、計測タブの比較が動く(破線と「目安: n」が出る)
 10. **既存3タブの表示・動作が変わっていない**
+11. **`loadOwnerProfiles` が拒否されないこと。** データタブを開いて一覧に属性(ニックネーム・
+    属性タグ)が出れば通っている。**属性だけが空で目安の行は出る**という見え方をしたら、
+    `users` の list が拒否されている(コンソールに `permission-denied` か
+    `failed-precondition`)。前者なら where/limit の抜け、後者なら索引の未作成。
+12. **非公開の人の目安が一覧に出ないこと。** 別アカウントで目安を公開 → その人の
+    プロフィールを非公開に切り替える → こちらの一覧から消える(消えるのは
+    `loadOwnerProfiles` が返さなくなるため)。
+    **ただしこれはクライアント経由の確認にすぎない。** 生SDKからの直読みは
+    末尾の**未決事項2**のとおり**塞げていない**。
+    ここで「守られている」と書かないこと
 
 - [ ] **Step 6: Commit**
 
@@ -1037,9 +1156,109 @@ git commit -m "コミュニティ計画2: 目安の検索・詳細・公開設�
 ## Self-Review 結果
 
 - **Spec coverage**: §3.2 指標ごとの扱い → Task 1(`SHIFTED_METRICS`/`COPIED_METRICS`)+ Task 2(`sanitizeNotes` が volumeDb を落とす)。§3.3 共通音名の中央値・3音未満は出さない → Task 1 + Task 5(`hasEnoughOverlap`)。§3.4 自分にデータが無い場合 → Task 1(`alignProfile` のエラー)+ Task 7 Step 1 の案内。§4.2 公開プロファイルの項目 → Task 2。§5① 絞り込みと一覧 → Task 5 + Task 7。§7.3 自分の演奏のみ公開 → Task 2(`performerIsSelf`)+ Task 7 Step 3。匿名化の決定 → Task 6。
-- **計画1のスコープ外**: コホート平均(§4.3)は計画4。採用数の増減(`adoptionCount`)を実際に書き込む処理は**集計が要るので計画3**。本計画では読むだけで、未設定なら0として扱う(`sortByAdoption` が `?? 0`)。
+- **本計画のスコープ外**: コホート平均(§4.3)は計画4。採用数(`adoptionCount`)を実際に書き込む処理は**集計が要るので計画3**。本計画では読むだけで、未設定なら0として扱う(`sortByAdoption` が `?? 0`)。**ただし「計画3でやる」で済む話ではない。**下の未決事項1を読むこと。
 - **Placeholder scan**: TBD なし。Task 4 と Task 7 に単体テストを置かない理由を明示済み。
-- **Type consistency**: `notes[key]` のキーは全タスクで文字列。`shiftedBy` のキーは `SHIFTED_METRICS` と同じ。`buildIdealDoc` の12キーと Task 3 のルールの一覧が一致(同期テストで固定)。
+- **Type consistency**: `notes[key]` のキーは全タスクで文字列。`shiftedBy` のキーは `SHIFTED_METRICS` と同じ。`buildIdealDoc` の**11キー**と Task 3 のルールの一覧が一致(同期テストで固定)。なお同期テストは**両辺とも11要素**なので「数が合っていること」は守らない。数は Task 2 の `toHaveLength(11)` が手書きの期待値として押さえている。
 - **既知の制約**: `searchIdeals` は最大50件を引いてクライアント側で絞る。公開目安が50件を超えると
   絞り込みの結果が偏る。**利用者が増えたら計画3の集計と合わせてサーバ側の絞り込みに移す**必要がある。
   この上限は Task 4 のコメントと Task 7 Step 5 の確認項目に反映済み。
+
+---
+
+## 未決事項(この計画では解いていない。着手前に決めること)
+
+### 未決事項1: `adoptionCount` の置き場所が決まっていない
+
+**何が起きているか。** 本計画は `adoptionCount` を**読む**(`sortByAdoption`、Task 5 の
+テスト fixture、一覧カードの「◯票」)。一方 Task 3 の `ideals` の規則は
+`keys().hasOnly([...11キー...])` で `adoptionCount` を**書き込み時に禁じている**。
+
+読むだけなら矛盾しないように見えるが、しない。計画3が集計で `adoptionCount` を
+書き込んだとして、**本人がクライアントから同じ目安を公開し直した瞬間に消える**。
+`publishIdeal` は `setDoc`(全置換)で 11キーの文書を書くからである。しかも
+`hasOnly` がある以上、クライアントは `adoptionCount` を書き戻すこともできない。
+結果、票数は「誰かが公開し直すたびに 0 に戻る」振る舞いになる。
+ランキング(設計書 §5②「目安採用数」)がこれに乗る以上、放置できない。
+
+**着手前に、次のどれかを選ぶこと。どれも本計画では実装しない。**
+
+- **案A: 採用数を別コレクションに出す。** `idealStats/{docId}` を作り、
+  `{ adoptionCount, updatedAt }` だけを置く。書けるのは Cloud Functions だけ
+  (`allow write: if false`、読みは誰でも)。`ideals` は 11キーのまま触らない。
+  - 利点: `setDoc` の全置換と衝突しない。権限の切り分けが素直
+  - 欠点: 一覧のたびに読み取りが倍になる。並べ替えのために2コレクションを突き合わせる
+- **案B: `ideals` に `adoptionCount` を持たせ、クライアントは `updateDoc` で書く。**
+  `hasOnly` に `adoptionCount` を足したうえで、規則で
+  「`request.resource.data.adoptionCount == resource.data.adoptionCount`
+  (= クライアントは既存値を変えられない)」を要求する。公開し直しは
+  `setDoc(..., { merge: true })` ではなく、11キーを名指しする `updateDoc` にする。
+  - 利点: 一覧の読み取りが1回で済む。`orderBy("adoptionCount")` がそのまま使える
+  - 欠点: 新規作成時だけ `adoptionCount == 0` を許す分岐が要る。
+    `publishIdeal` が全置換をやめるので、Task 4 の実装を書き換えることになる
+- **案C: 採用の事実を `adoptions/{uid}_{idealId}` として1件1文書で持ち、
+  数は集計側だけが持つ。** 目安ドキュメントには一切足さない。
+  - 利点: 誰が何を採用したかが残るので、重複採用を弾ける。取り消しも自然
+  - 欠点: 一覧の並べ替えに使うには結局どこかに数を持つ必要があり、案Aと合わせ技になる
+
+**決まるまで、一覧の「◯票」は 0 固定で出さないこと**(常に 0 が並ぶ画面は嘘になる)。
+未設定のあいだは票の表示自体を出さず、並べ替えは `updatedAt` の新しい順にしておく。
+
+### 決定事項: 非公開に切り替えたら、その人の `ideals` を削除する(2026-09-02 裁定)
+
+**何が問題だったか。** `users` の list は `resource.data.isPublic == true` で塞いだが、
+`ideals` の list は同じ手で塞げない。list の規則はクエリに対して評価されるため、
+返る1件ごとに所有者の `users` を `get()` することができないからである。
+クライアントの `joinOwners` が落としているだけでは、生SDKを叩く相手に効かない。
+**目安の中身は数値だが、`docId` から「この uid は目安を公開している」が漏れる。**
+
+**採る解: 非公開にしたら `ideals` から消す。**
+
+公開状態を持つ場所を `users` の1箇所に保ち、**そもそも読まれてはいけないものを置かない。**
+
+- `setProfilePublic(uid, false)` を呼ぶときに、同じ人の `ideals` を
+  `listMyIdeals(uid)` で引いて `unpublishIdeal` で全部消す
+- 再公開しても目安は自動では戻らない。マイページの公開トグルの近くに
+  「非公開にすると、公開中の目安も取り下げられます」と**事前に**書く
+- **目安そのものはローカル(IndexedDB)にあるので失われない。** 消えるのは公開の写しだけで、
+  再公開は同じ画面のトグルで済む
+
+**なぜ他の案を採らなかったか。**
+
+- **`ideals` に `ownerIsPublic` を持たせる案**: 公開状態が2箇所に散る。切り替えたときに
+  全 `ideals` を書き換える処理が要り、取りこぼすと**「非公開にしたのに漏れ続ける」**という
+  最悪の壊れ方をする。二重管理は必ずずれる
+- **Cloud Functions の集約索引から引く案**: 設計として正しい方向だが、計画2は無料枠で
+  完結させる約束(Global Constraints)なので、この計画には入らない。
+  **利用者が増えて50件の頭打ち(下記「既知の制約」)が問題になった時点で、計画3の集計と
+  一緒にこちらへ移す。** そのとき `ideals` の `list` は `allow list: if false` に戻す
+
+**この決定で変わること**: `ideals` のキーは **11 のまま**(増やさない)。
+Task 4 の `idealRepo.js` に「非公開化と同時に取り下げる」処理を足す。
+Task 7 のマイページに事前の注意書きを足す。
+
+### 未決事項3: `notes` の値の型がサーバ側で検査できない
+
+Task 3 のとおり、`noteKeys` の列挙・`notes` とのキー集合の一致・音数の上限までは
+規則で書けたが、**各音の中身(重心・HNR・音程・倍音構成)が数値であることは書けない**。
+規則に繰り返しが無く、map の値を1つずつ見るには 48通りのキーを明示的に展開するしかない。
+いま型を保証しているのは `sanitizeNotes`(クライアント)だけである。
+
+- **案A: 計画5(モデレーション)の Cloud Functions で、書き込みトリガに型検査を載せる。**
+  違反した文書はその場で削除する。規則は今のまま
+  - 利点: 繰り返しが書ける。NGワードのサーバ側強制と同じ場所に置ける
+  - 欠点: 書き込みが一度は成立する(事後削除)。計画5まで穴が開いたままになる
+- **案B: 48通りのキーを規則に展開する。**
+  `users` の `gear` を4種別ぶん展開したのと同じやり方
+  - 利点: 追加の基盤が要らない。書き込み時点で弾ける
+  - 欠点: 規則が数百行になる。半音インデックスの範囲を変えるたびに全部書き直す
+- **案C: `notes` を「音名の配列 + 指標ごとの数値配列」の平置きに変える。**
+  `noteKeys: ['0','2']`, `centroid: [1800,2100]`, `hnr: [...]` のように持つ
+  - 利点: `is list` と `size()` の一致までは規則で書ける
+  - 欠点: **要素が数値であることは結局書けない**(list の要素型を見る術が無い)ので、
+    穴は狭まるだけで塞がらない。既存の `notes[semitoneIndex]` からの変換も増える
+
+**現時点の被害の範囲**(判定不能ではなく、規則の文面から言えること): 文書全体は
+Firestore の 1 MiB 上限と音数40の上限に収まる。値は画面で数値としてしか読まれないため
+文字列が他人の画面に文言として出ることは無い(グラフが描けないだけ)。
+**それでも自由文字列がサーバに保存できる状態であることは変わらない。**
+設計書 §8.1 の「自由入力はニックネームだけ」は、この穴が開いている間は正確ではない。

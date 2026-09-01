@@ -1,5 +1,11 @@
 # コミュニティ機能 計画1: 認証とプロフィール基盤 Implementation Plan
 
+> **この計画は実行済み(2026-08-28 完了)。記録として残す。再実行してはならない。**
+> チェックボックスは当時の進行管理の跡であって、これから踏む手順ではない。
+> 本文のコードは**実装後に現物へ合わせて直してある**(2026-09-02 追随)。それでも
+> **値の唯一の答えは `src/community/` の現物と `firestore.rules`** であって、この文書ではない。
+> 食い違いを見つけたら現物を正として扱い、この文書を直すこと(逆をしない)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 4つ目のタブ「コミュニティ」の骨格を作り、匿名認証でアカウントを作成し、プロフィール(ニックネーム+プルダウン属性+機材)を登録・公開・削除できる状態にする。
@@ -15,7 +21,7 @@
 - UI文言はすべて日本語
 - 自由入力は「ニックネーム」のみ。他はすべて選択式(spec §4.1)
 - 収集しない: 本名・生年月日・学校名(spec §7)。年齢は「13歳以上です」チェックのみ
-- `src/App.jsx` への変更は BottomNav への項目追加とタブ本体のレンダ分岐のみ。**既存タブの見た目・ロジックに一切触れない**(spec §10)
+- `src/App.jsx` への変更は4箇所(import / lazy とエラー境界 / レンダ分岐 / BottomNav の項目)。**既存タブの見た目・ロジックに一切触れない**(spec §10)
 - Cloud Functions は使わない(この計画は無料 Spark プランで完結。NGワードのサーバ側強制は後続計画のモデレーション実装で行う。それまでの防壁はクライアント検証+Firestoreルールの形式チェック)
 - ローカル(IndexedDB)が正。クラウドは公開用の写し(spec §9.3)。この計画でクラウドに書くのはプロフィールのみ
 - コミットは各タスク末尾で必ず行う
@@ -354,7 +360,15 @@ git commit -m "コミュニティ計画1: NGワード判定を追加"
   - `OTHER_BRAND = "その他"` 定数
   - `searchInstrumentModels(query: string, saxType: string): { brand: string, model: string }[]`
   - `searchMouthpieces(query: string): { brand: string, model: string }[]`
-  - `isValidInstrument(brand, model, saxType): boolean` / `isValidMouthpiece(brand, model): boolean`(`その他` は model=null のみ許可)
+  - `isValidInstrument(brand, model, saxType): boolean` / `isValidMouthpiece(brand, model): boolean` / `isValidLigature(brand, model): boolean`(`その他` は model=null のみ許可)
+
+> ここでの `saxType`(単数)は**カタログ照合の引数**であって、プロフィールの項目名ではない。
+> カタログは楽器種別ごとに分かれており(Alto の YAS-62 は Tenor には無い)、1回の照合は
+> 必ず1種別に対して行う。プロフィール側の項目は複数形の `saxTypes`(配列)で、
+> 呼び出し側が種別ごとにこの関数を回す。混同しないこと。
+>
+> リガチャーのカタログ(`isValidLigature` / `LIGATURE_CATALOG`)は本計画の起草より後に
+> 足した。出典は `docs/superpowers/research/2026-08-29-ligature-catalog.md`。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -501,9 +515,9 @@ git commit -m "コミュニティ計画1: 機材カタログと部分一致検�
 - Test: `src/community/profile.test.js`
 
 **Interfaces:**
-- Consumes: `findNgWord`(Task 3)、`isValidInstrument` / `isValidMouthpiece` / `OTHER_BRAND`(Task 4)
+- Consumes: `findNgWord`(Task 3)、`isValidInstrument` / `isValidMouthpiece` / `isValidLigature`(Task 4)
 - Produces:
-  - 選択肢定数 `POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, startYearOptions(now): number[]`
+  - 選択肢定数 `POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions(now): number[]`
   - `validateNickname(raw): { value: string } | { error: string }`
   - `buildProfileDoc(input, now?): { doc: object } | { error: string }` — Firestore に書く形を返す
   - `detectDeviceClass(ua?): "ios" | "android" | "pc"`
@@ -518,7 +532,8 @@ import { validateNickname, buildProfileDoc, detectDeviceClass, POSITIONS, SAX_TY
 
 const base = {
   nickname: "さっくす太郎",
-  saxType: "alto",
+  // 楽器種別は複数。掛け持ちの奏者が居るので配列で持つ
+  saxTypes: ["alto"],
   position: "社会人",
   startYear: 2015,
   genres: ["クラシック"],
@@ -526,7 +541,14 @@ const base = {
   places: ["自宅"],
   ageConfirmed: true,
   isPublic: true,
-  gear: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*" },
+  // gear は「楽器種別をキーにした map」。キー集合は saxTypes と完全に一致させる
+  gear: {
+    alto: {
+      instrumentBrand: "YAMAHA", instrumentModel: "YAS-62",
+      mpBrand: "Selmer", mpModel: "S80 C*",
+      ligBrand: null, ligModel: null,
+    },
+  },
 };
 
 describe("validateNickname", () => {
@@ -552,7 +574,18 @@ describe("buildProfileDoc", () => {
     expect(buildProfileDoc({ ...base, position: "宇宙人" })).toHaveProperty("error");
     expect(buildProfileDoc({ ...base, startYear: 2199 })).toHaveProperty("error");
     expect(buildProfileDoc({ ...base, ageConfirmed: false })).toHaveProperty("error");
-    expect(buildProfileDoc({ ...base, gear: { ...base.gear, instrumentModel: "でたらめ" } })).toHaveProperty("error");
+    expect(buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, instrumentModel: "でたらめ" } } })).toHaveProperty("error");
+  });
+  it("gear のキー集合が saxTypes と完全に一致しないと弾く", () => {
+    // 少ない(選んだ楽器の欄が無い)
+    expect(buildProfileDoc({ ...base, saxTypes: ["alto", "tenor"] })).toHaveProperty("error");
+    // 多い(持っていない楽器の機材が入っている)
+    expect(buildProfileDoc({ ...base, gear: { ...base.gear, tenor: {} } })).toHaveProperty("error");
+  });
+  it("doc は単数の saxType を持たず、複数形の saxTypes だけを持つ", () => {
+    const r = buildProfileDoc(base, new Date("2026-08-27"));
+    expect(Object.keys(r.doc)).not.toContain("saxType");
+    expect(r.doc.saxTypes).toEqual(["alto"]);
   });
   it("複数選択は許可リスト外を黙って除外する", () => {
     const r = buildProfileDoc({ ...base, genres: ["クラシック", "演歌"] });
@@ -580,11 +613,18 @@ Expected: FAIL
 
 ```js
 import { findNgWord } from "./ngwords/filter.js";
-import { isValidInstrument, isValidMouthpiece, OTHER_BRAND } from "./catalog/gear.js";
+import { isValidInstrument, isValidMouthpiece, isValidLigature } from "./catalog/gear.js";
 
-// spec §4.1 の選択肢。文言を変えるときは設計書も直すこと
+// spec §4.1 の選択肢。文言を変えるときは設計書も firestore.rules も直すこと
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
-export const POSITIONS = ["中学吹奏楽部", "高校吹奏楽部", "大学吹奏楽・サークル", "音大生", "社会人", "講師・プロ", "独学"];
+// 画面に出す表示名。機材の照合エラーが「どの楽器の話か」を言えるように、
+// 判断を持つ側(profile.js)に置いて1つにする。CommunityTab.jsx 側に写しを作らない。
+export const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
+// 【学校段階を選択肢に置かない】spec §7.1(2026-08-28 変更)。「中学吹奏楽部」は
+// 公開プロフィール上で実質「私は12〜15歳です」と宣言することになり、未成年であることを
+// 不特定多数に晒す。進度は演奏開始年で足りるので、学校段階は捨てても失うものが無い。
+// **ここに中学/高校/大学の段階を復活させないこと。**
+export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
 export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外"];
@@ -617,30 +657,68 @@ const pickAllowed = (arr, allowed) => (Array.isArray(arr) ? arr.filter((v) => al
 export function buildProfileDoc(input, now = new Date()) {
   const nick = validateNickname(input.nickname);
   if (nick.error) return { error: nick.error };
-  if (!SAX_TYPES.includes(input.saxType)) return { error: "楽器種別を選んでください" };
-  if (!POSITIONS.includes(input.position)) return { error: "立場を選んでください" };
+
+  // 【楽器種別は複数】1人が soprano / alto / tenor / baritone を掛け持ちする(spec §4.1)。
+  const types = input.saxTypes;
+  if (!Array.isArray(types) || types.length === 0) return { error: "楽器種別を選んでください" };
+  if (types.length > SAX_TYPES.length) return { error: "楽器種別は4つまでです" };
+  if (!types.every((t) => SAX_TYPES.includes(t))) return { error: "楽器種別を選んでください" };
+  // 重複を通すと「saxTypes の要素数」と「gear のキー数」が食い違ったまま
+  // hasOnly/hasAll(集合の検査)は通ってしまう。数の一致で完全一致を言えるようにここで潰す。
+  if (new Set(types).size !== types.length) return { error: "楽器種別が重複しています" };
+
+  if (!POSITIONS.includes(input.position)) return { error: "属性を選んでください" };
   const year = Number(input.startYear);
   if (!Number.isInteger(year) || year < now.getFullYear() - 80 || year > now.getFullYear()) {
     return { error: "演奏開始年が正しくありません" };
   }
   if (input.ageConfirmed !== true) return { error: "13歳以上であることの確認が必要です" };
-  const g = input.gear ?? {};
-  const instBrand = g.instrumentBrand ?? OTHER_BRAND;
-  const instModel = g.instrumentModel ?? null;
-  const mpBrand = g.mpBrand ?? OTHER_BRAND;
-  const mpModel = g.mpModel ?? null;
-  if (!isValidInstrument(instBrand, instModel, input.saxType)) return { error: "楽器がカタログにありません" };
-  if (!isValidMouthpiece(mpBrand, mpModel)) return { error: "マウスピースがカタログにありません" };
+
+  // 【gear は楽器種別をキーにした map】1種別につき1組(楽器・マウスピース・リガチャーの6キー)。
+  // キー集合は saxTypes と**完全に一致**させる。多いと計画4の機材シェアの母数が壊れ
+  // (吹かない楽器の機材が票になる)、少ないと画面側の取りこぼしを保存後に知ることになる。
+  const gearIn = input.gear;
+  if (gearIn === null || typeof gearIn !== "object" || Array.isArray(gearIn)) {
+    return { error: "機材の指定が正しくありません" };
+  }
+  const gearKeys = Object.keys(gearIn);
+  if (gearKeys.length !== types.length || !types.every((t) => gearKeys.includes(t))) {
+    return { error: "選んだ楽器種別と機材の欄が一致していません" };
+  }
+
+  const gear = {};
+  for (const t of types) {
+    const g = gearIn[t];
+    if (g === null || typeof g !== "object" || Array.isArray(g)) {
+      return { error: `${SAX_LABELS[t]}の機材の指定が正しくありません` };
+    }
+    // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と「カタログに無い(その他)」を
+    // 自分で選んだ人は別の情報。?? OTHER_BRAND に潰すと計画4の円グラフから両者が
+    // 区別できなくなり、書き込み後は復元もできない。undefined は null に正規化するだけ。
+    const instBrand = g.instrumentBrand ?? null;
+    const instModel = g.instrumentModel ?? null;
+    const mpBrand = g.mpBrand ?? null;
+    const mpModel = g.mpModel ?? null;
+    const ligBrand = g.ligBrand ?? null;
+    const ligModel = g.ligModel ?? null;
+    // 楽器だけは種別ごとに照合する(カタログが種別で分かれているため第3引数が要る)。
+    // マウスピースとリガチャーのカタログは種別を持たないので2引数。
+    if (!isValidInstrument(instBrand, instModel, t)) return { error: `${SAX_LABELS[t]}の楽器がカタログにありません` };
+    if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
+    if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
+    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel };
+  }
+
   return {
     doc: {
       nickname: nick.value,
-      saxType: input.saxType,
+      saxTypes: [...types],
       position: input.position,
       startYear: year,
       genres: pickAllowed(input.genres, GENRES),
       ensembles: pickAllowed(input.ensembles, ENSEMBLES),
       places: pickAllowed(input.places, PLACES),
-      gear: { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel },
+      gear,
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
       ageConfirmed: true,
@@ -785,7 +863,10 @@ service cloud.firestore {
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
       allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['nickname','saxType','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        // キー集合は hasAll + hasOnly の両方で挟んで完全一致にする。
+        // 楽器種別は**複数形の saxTypes(配列)**。単数の saxType というキーは存在しない。
+        && request.resource.data.keys().hasAll(['nickname','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
         && request.resource.data.nickname.size() <= 80  // バイト長。文字数20の実強制はクライアント(NG検証のサーバ側強制は計画5)
@@ -797,6 +878,13 @@ service cloud.firestore {
   }
 }
 ```
+
+> **実際にデプロイされているルールは上より厳しい。現物は `firestore.rules` を読むこと。**
+> 実装時に、`position` / `genres` / `ensembles` / `places` の**選択肢そのものの列挙**、
+> `saxTypes` の要素数と選択肢、`gear` のキー集合(`saxTypes` と完全一致)と
+> 4種別ぶんの中身の型・長さ検査を足した。ここに写しを置くと二重管理になるので写さない。
+> `src/community/profile.js` の定数を足し引きしたら `firestore.rules` も必ず直すこと(逆も同じ)。
+> 食い違いは `src/community/profile.test.js` の「Firestore ルールの列挙と一致する」が検出する。
 
 - [ ] **Step 2: デプロイ**
 
@@ -839,10 +927,12 @@ git commit -m "コミュニティ計画1: Firestoreセキュリティルール�
 ```jsx
 import React, { useEffect, useState } from "react";
 import { ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, startYearOptions } from "./profile.js";
-import { searchInstrumentModels, searchMouthpieces, OTHER_BRAND, INSTRUMENT_CATALOG, MOUTHPIECE_CATALOG } from "./catalog/gear.js";
+import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
+import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND, INSTRUMENT_CATALOG, MOUTHPIECE_CATALOG } from "./catalog/gear.js";
 
-const SAX_LABELS = { soprano: "ソプラノ", alto: "アルト", tenor: "テナー", baritone: "バリトン" };
+// 【SAX_LABELS はここに定義しない】表示名は英語表記(Soprano / Alto / Tenor / Baritone)で、
+// 定義は profile.js 側にただ1つ置く。ここに写しを作ると、機材の照合エラーが
+// 「どの楽器の話か」を言えなくなる(判断を持つのは profile.js の側)。
 
 export default function CommunityTab() {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
@@ -921,10 +1011,11 @@ function JoinIntro({ onJoin }) {
 `ProfileForm` は次の要素を上から並べる(すべて `<select>`、ニックネームだけ `<input type="text" maxLength={20}>`):
 
 1. ニックネーム — 直下に注意書き `ニックネームは他の利用者に公開されます。本名は使わないでください`(12px, `var(--c-ink-3)`)
-2. 楽器種別(SAX_TYPES → SAX_LABELS)
-3. 楽器 — テキスト入力に打つと `searchInstrumentModels(query, saxType)` の結果を最大10件リスト表示し、タップで確定。確定後は「YAMAHA YAS-62 ✕」のチップ表示。見つからない場合のために `カタログに無い(その他)` ボタンを常に末尾に出す(選ぶと brand=その他, model=null)
-4. マウスピース — 同様に `searchMouthpieces(query)`
-5. 立場(POSITIONS) / 演奏開始年(startYearOptions()) / ジャンル(GENRES, チェックボックス複数) / 編成(ENSEMBLES, 複数) / 練習場所(PLACES, 複数)
+2. 楽器種別(SAX_TYPES → SAX_LABELS の英語表記)。**チェックボックスの複数選択**。掛け持ちの奏者が居るため単一選択にしない
+3. 機材 — **選んだ楽器種別ごとに1組**(楽器・マウスピース・リガチャーの6キー)を並べる。楽器はテキスト入力に打つと `searchInstrumentModels(query, その欄の楽器種別)` の結果を最大10件リスト表示し、タップで確定。確定後は「YAMAHA YAS-62 ✕」のチップ表示。見つからない場合のために `カタログに無い(その他)` ボタンを常に末尾に出す(選ぶと brand=その他, model=null)
+4. 同じ組の中で マウスピースは `searchMouthpieces(query)`、リガチャーは `searchLigatures(query)`(どちらも楽器種別を引数に取らない)
+   - **入力状態のキーは saxTypes からしか作らない。** チェックを外した種別の入力状態が残ると `gear` のキーが `saxTypes` より多くなり、保存が弾かれる
+5. 属性(POSITIONS) / 演奏開始年(startYearOptions()) / ジャンル(GENRES, チェックボックス複数) / 編成(ENSEMBLES, 複数) / 練習場所(PLACES, 複数)
 6. `☑ 13歳以上です`(必須チェック)
 7. 保存ボタン。`onSubmit` が返したエラー文字列を赤字(`#B4232A`)で表示
 
@@ -950,7 +1041,7 @@ git commit -m "コミュニティ計画1: コミュニティタブUI(参加・�
 ### Task 9: App.jsx への配線と実機フロー検証
 
 **Files:**
-- Modify: `src/App.jsx`(2箇所のみ: BottomNav の items 配列、タブ本体のレンダ分岐)
+- Modify: `src/App.jsx`(4箇所: react の import に `lazy, Suspense, Component` を足す / `lazy()` 定義とエラー境界クラス / `topTab === "community"` のレンダ分岐 / BottomNav の items 配列)
 
 **Interfaces:**
 - Consumes: `CommunityTab`(Task 8)
