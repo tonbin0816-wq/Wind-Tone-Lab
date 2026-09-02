@@ -284,6 +284,48 @@ function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v
 // 16px の四角い箱の見た目は App.jsx の reedCheckboxStyle が持っているが、あれは
 // App.jsx の内部関数なのでここからは引けない(import すると循環参照になる)。
 // ネイティブの checkbox を accentColor だけ紺に寄せて使う。当たり判定は label 側の 44px。
+// 公開の切替はスイッチ。**チェックボックスとは役割が違う。**
+// チェックボックスは「保存ボタンを押したときに効く申告」(この画面では「13歳以上です」)、
+// スイッチは「触った瞬間に効く設定」。公開の切替は押すとその場で Firestore へ書きに行くので、
+// 保存を待つ見た目にすると、切ったつもりで切れていない誤解を生む。
+// 寸法は design/community-tab-proposals.html の .tog に合わせた(軌道 44x26 / つまみ 20)。
+// 当たり判定は軌道ではなくボタン側の 44px 角で確保する(軌道は 26px しかなく単独では足りない)。
+function SwitchRow({ checked, onChange, disabled = false, label, note }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--sp-3)" }}>
+      <div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0 }}>
+        <div className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)" }}>{label}</div>
+        {note ? <div className="sans" style={noteStyle}>{note}</div> : null}
+      </div>
+      <button
+        type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className="no-select"
+        style={{
+          flex: "0 0 auto", width: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
+          background: "transparent", border: "none", cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <span style={{
+          display: "block", width: 44, height: 26, borderRadius: "var(--r-pill)", position: "relative",
+          // 【OFF の軌道に --c-line を使わない】あれは白地との差が 1.1:1 しかなく、
+          // 白いつまみが軌道に溶けて**OFF のときスイッチが消えて見える**。
+          // --c-line-strong(#C3CAD3 / 白地と 1.65:1)は設計システムが
+          // 「入力欄・丸ボタンの枠」に充てている段で、つまみの輪郭が出る。新しい値は作らない。
+          background: checked ? "var(--c-accent)" : "var(--c-line-strong)", transition: "background 120ms ease",
+        }}>
+          <span style={{
+            position: "absolute", top: 3, left: checked ? 21 : 3, width: 20, height: 20,
+            borderRadius: "50%", background: "#fff", transition: "left 120ms ease",
+            boxShadow: "0 1px 2px rgba(0,0,0,.2)",
+          }} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function CheckRow({ checked, onChange, children }) {
   return (
     <label className="sans no-select" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: "var(--sp-2)", fontSize: "var(--fs-sm)", color: "var(--c-ink)", cursor: "pointer" }}>
@@ -313,7 +355,7 @@ function gearLabel(v) {
 // searchInstrumentModels(q, "") は必ず空を返すので、打てるままにしておくと
 // 「カタログに自分の楽器があるのに、候補が出ないので『その他』で登録する」人が出る。
 // 引けないなら打たせない。
-function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPrefix, disabled = false }) {
+function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disabled = false }) {
   const [query, setQuery] = useState("");
   const results = !disabled && query.trim() ? runSearch(query).slice(0, 10) : [];
 
@@ -350,7 +392,7 @@ function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPr
     <Field label={label} note={note}>
       <input
         type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-        placeholder={placeholder} aria-label={`${ariaPrefix}を検索`}
+        aria-label={`${ariaPrefix}を検索`}
         disabled={disabled}
         className="sans" style={{ ...controlStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "auto" }}
       />
@@ -487,7 +529,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         <input
           type="text" value={nickname} maxLength={20}
           onChange={(e) => setNickname(e.target.value)}
-          placeholder="例: さくら" aria-label="ニックネーム"
+          aria-label="ニックネーム"
           className="sans" style={controlStyle}
         />
       </Field>
@@ -510,29 +552,25 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           <div className="sans jp-label" style={gearHeadingStyle}>{SAX_LABELS[t]} の機材</div>
           <GearPicker
             label="楽器" ariaPrefix={`${SAX_LABELS[t]}の楽器`}
-            /* 【「選ばなければその他」とは書かない】未選択(null)と「その他」は別の値として
-               保存される(profile.js / gear.js)。ここで嘘の案内をすると、
-               自分では何も選んでいない人が「その他を選んだ」と思い込む。 */
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+            /* 【2026-09-02 本人裁定で補助文を削除】以前ここには探し方と
+               「選ばなくても登録できます」が出ていた。後者は必須化で嘘になったので消し、
+               前者も併せて落とした。**代わりの案内を足さないこと。**
+               打つ手が分からない人の逃げ道は、常に見えている「カタログに無い(その他)」の
+               ボタンが担っている(下の runSearch の結果が0件でも消えない)。 */
             value={gearPicks[t]?.instrument ?? null} onPick={(v) => setPick(t, "instrument", v)}
             /* カタログは種別ごとに分かれている(アルトの YAS-62 はテナーには無い)ので、
                この欄の種別をそのまま渡す。渡し違えると保存の瞬間に弾かれる。 */
             runSearch={(q) => searchInstrumentModels(q, t)}
-            placeholder="例: YAS-62 / ヤマハ"
           />
           <GearPicker
             label="マウスピース" ariaPrefix={`${SAX_LABELS[t]}のマウスピース`}
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
             value={gearPicks[t]?.mouthpiece ?? null} onPick={(v) => setPick(t, "mouthpiece", v)}
             runSearch={(q) => searchMouthpieces(q)}
-            placeholder="例: S80 C* / メイヤー"
           />
           <GearPicker
             label="リガチャー" ariaPrefix={`${SAX_LABELS[t]}のリガチャー`}
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
             value={gearPicks[t]?.ligature ?? null} onPick={(v) => setPick(t, "ligature", v)}
             runSearch={(q) => searchLigatures(q)}
-            placeholder="例: Dark / ロブナー"
           />
         </div>
       ))}
@@ -657,10 +695,11 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         <Row label="練習場所" value={listOrDash(profile?.places)} />
       </div>
 
-      <div style={{ display: "grid", gap: "var(--sp-1)" }}>
-        <CheckRow checked={isPublic} onChange={togglePublic}>公開する</CheckRow>
-        <div className="sans" style={noteStyle}>ONにすると他の利用者から見えます</div>
-      </div>
+      <SwitchRow
+        checked={isPublic} onChange={togglePublic} disabled={busy}
+        label="公開する"
+        note="既定は公開です。OFFにすると他の利用者から見えなくなります"
+      />
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 

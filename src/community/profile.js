@@ -15,8 +15,11 @@ export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
 export const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
 export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
-export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
-export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外"];
+// 【「その他」を末尾に置く 2026-09-02】3つの多選択はすべて1つ以上必須にした。
+// 必須にする以上、当てはまらない人の逃げ道が要る。GENRES には元から在ったので
+// ENSEMBLES / PLACES にも足した。**firestore.rules の写しも同時に直すこと。**
+export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ", "その他"];
+export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外", "その他"];
 
 export function startYearOptions(now = new Date()) {
   const y = now.getFullYear();
@@ -129,6 +132,13 @@ export function buildProfileDoc(input, now = new Date()) {
     // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
     // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
     // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
+    //
+    // 【2026-09-02 本人裁定: 未選択のまま登録させない】該当が無ければ「その他」を選ぶ。
+    // **それでも上の「潰さない」は生きている。** この検査が効くのは*これから書く*
+    // ドキュメントだけで、(a) 既に null で保存された物は残り、(b) firestore.rules は
+    // null を許したままなので、生SDKからは今後も null が書ける。
+    // 読む側(計画4)は欠測を想定しなくてよくなったのではなく、
+    // 「新しく増えることはない」だけ。null を見たら「その他」ではなく欠測として扱うこと。
     const instBrand = g.instrumentBrand ?? null;
     const instModel = g.instrumentModel ?? null;
     const mpBrand = g.mpBrand ?? null;
@@ -138,11 +148,29 @@ export function buildProfileDoc(input, now = new Date()) {
     // 【楽器だけは種別ごとに照合する】カタログは種別で分かれていて、アルトの YAS-62 は
     // テナーには無い。第3引数にそのキーの種別を渡さないと、種別違いの型番が通ってしまう。
     // マウスピースとリガチャーは種別を持たないカタログなので今までどおり2引数。
+    // 「カタログに無い」より先に「選んでいない」を見る。順序を逆にすると、
+    // 何も選ばずに保存した人が「カタログにありません」と言われて探し直す羽目になる。
+    if (instBrand === null) return { error: `${SAX_LABELS[t]}の楽器を選んでください` };
+    if (mpBrand === null) return { error: `${SAX_LABELS[t]}のマウスピースを選んでください` };
+    if (ligBrand === null) return { error: `${SAX_LABELS[t]}のリガチャーを選んでください` };
     if (!isValidInstrument(instBrand, instModel, t)) return { error: `${SAX_LABELS[t]}の楽器がカタログにありません` };
     if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
     if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
     gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel };
   }
+
+  // 【2026-09-02 本人裁定: 多選択も1つ以上必須】このタブの用途は条件で絞り込んで
+  // 他人と比べることなので、空欄のままだと**どの絞り込みにも現れない**。
+  // 本人は登録できたつもりでいるのに誰からも見つからない、という一番わかりにくい壊れ方をする。
+  // 逃げ道として ENSEMBLES / PLACES にも「その他」を足してある(上の定義を参照)。
+  const genres = pickAllowed(input.genres, GENRES);
+  const ensembles = pickAllowed(input.ensembles, ENSEMBLES);
+  const places = pickAllowed(input.places, PLACES);
+  // pickAllowed は選択肢に無い値を捨てるので、「1つ以上渡したのに全部捨てられて空」も
+  // ここに落ちる。渡した数ではなく**残った数**を見るのが要点。
+  if (genres.length === 0) return { error: "ジャンルを1つ以上選んでください" };
+  if (ensembles.length === 0) return { error: "編成を1つ以上選んでください" };
+  if (places.length === 0) return { error: "練習場所を1つ以上選んでください" };
 
   return {
     doc: {
@@ -150,9 +178,9 @@ export function buildProfileDoc(input, now = new Date()) {
       saxTypes: [...types],
       position: input.position,
       startYear: year,
-      genres: pickAllowed(input.genres, GENRES),
-      ensembles: pickAllowed(input.ensembles, ENSEMBLES),
-      places: pickAllowed(input.places, PLACES),
+      genres,
+      ensembles,
+      places,
       gear,
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
