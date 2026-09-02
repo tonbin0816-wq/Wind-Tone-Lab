@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
-import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND } from "./catalog/gear.js";
+import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { AvatarSprite, Avatar } from "./icons.jsx";
+import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -47,7 +48,19 @@ const DELETE_ERROR = "削除できませんでした。まだ何も消えてい�
 const DELETE_PARTIAL_NOTICE =
   "サーバー上のプロフィールは削除しました。この端末に残っていた匿名のログイン情報だけは取り消せなかったため、サインアウトしました。あなたのデータはもう残っていません。";
 
+// 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
+// <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
+// どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
 export default function CommunityTab() {
+  return (
+    <>
+      <AvatarSprite />
+      <CommunityTabBody />
+    </>
+  );
+}
+
+function CommunityTabBody() {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -284,6 +297,108 @@ function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v
 // 16px の四角い箱の見た目は App.jsx の reedCheckboxStyle が持っているが、あれは
 // App.jsx の内部関数なのでここからは引けない(import すると循環参照になる)。
 // ネイティブの checkbox を accentColor だけ紺に寄せて使う。当たり判定は label 側の 44px。
+// 公開の切替はスイッチ。**チェックボックスとは役割が違う。**
+// チェックボックスは「保存ボタンを押したときに効く申告」(この画面では「13歳以上です」)、
+// スイッチは「触った瞬間に効く設定」。公開の切替は押すとその場で Firestore へ書きに行くので、
+// 保存を待つ見た目にすると、切ったつもりで切れていない誤解を生む。
+// 寸法は design/community-tab-proposals.html の .tog に合わせた(軌道 44x26 / つまみ 20)。
+// 当たり判定は軌道ではなくボタン側の 44px 角で確保する(軌道は 26px しかなく単独では足りない)。
+function SwitchRow({ checked, onChange, disabled = false, label, note }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--sp-3)" }}>
+      <div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0 }}>
+        <div className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)" }}>{label}</div>
+        {note ? <div className="sans" style={noteStyle}>{note}</div> : null}
+      </div>
+      <button
+        type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className="no-select"
+        style={{
+          flex: "0 0 auto", width: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
+          background: "transparent", border: "none", cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <span style={{
+          display: "block", width: 44, height: 26, borderRadius: "var(--r-pill)", position: "relative",
+          // 【OFF の軌道に --c-line を使わない】あれは白地との差が 1.1:1 しかなく、
+          // 白いつまみが軌道に溶けて**OFF のときスイッチが消えて見える**。
+          // --c-line-strong(#C3CAD3 / 白地と 1.65:1)は設計システムが
+          // 「入力欄・丸ボタンの枠」に充てている段で、つまみの輪郭が出る。新しい値は作らない。
+          background: checked ? "var(--c-accent)" : "var(--c-line-strong)", transition: "background 120ms ease",
+        }}>
+          <span style={{
+            position: "absolute", top: 3, left: checked ? 21 : 3, width: 20, height: 20,
+            borderRadius: "50%", background: "#fff", transition: "left 120ms ease",
+            boxShadow: "0 1px 2px rgba(0,0,0,.2)",
+          }} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// 絵柄と地の色を選ぶ。**上に実物大の1つを出す。**
+// 画面案の初期の版は上部の見本が横長で、実際にどう見えるか分からなかった
+// (2026-08-28 本人指摘)。選んだ結果そのものを、順位や一覧で出るのと同じ大きさで見せる。
+function AvatarPicker({ icon, color, onChange }) {
+  const cell = (selected) => ({
+    minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: selected ? "var(--c-accent-tint)" : "transparent",
+    border: "none", borderRadius: "var(--r-md)", cursor: "pointer",
+  });
+  return (
+    <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Avatar icon={icon} color={color} size={64} />
+      </div>
+
+      <div className="sans jp-label" style={labelStyle}>絵柄</div>
+      <div role="radiogroup" aria-label="アイコンの絵柄" style={{
+        display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "var(--sp-1)",
+      }}>
+        {AVATAR_ICONS.map((id) => (
+          <button
+            key={id} type="button" role="radio" aria-checked={id === icon}
+            aria-label={id.replace(/^ic-/, "")}
+            onClick={() => onChange({ icon: id, color })}
+            style={cell(id === icon)}
+          >
+            {/* 一覧の中は選択の判別が要るだけなので、地の色は付けず絵柄だけを出す。
+                地の色まで付けると24個ぶん色が散り、いま選んでいるものが埋もれる。 */}
+            <svg width={24} height={24} fill="var(--c-ink)" aria-hidden="true">
+              <use href={`#${id}`} />
+            </svg>
+          </button>
+        ))}
+      </div>
+
+      <div className="sans jp-label" style={labelStyle}>地の色</div>
+      <div role="radiogroup" aria-label="アイコンの地の色" style={{
+        display: "grid", gridTemplateColumns: "repeat(10, 1fr)", gap: "var(--sp-1)",
+      }}>
+        {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
+          <button
+            key={n} type="button" role="radio" aria-checked={n === color}
+            aria-label={`色 ${n}`}
+            onClick={() => onChange({ icon, color: n })}
+            style={cell(n === color)}
+          >
+            <span style={{
+              display: "block", width: 24, height: 24, borderRadius: "50%",
+              background: `var(--c-avatar-${n})`,
+              // 選択中は輪で示す。**地の色そのものを変えない** ── 見本と食い違う。
+              boxShadow: n === color ? "0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-accent)" : "none",
+            }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CheckRow({ checked, onChange, children }) {
   return (
     <label className="sans no-select" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: "var(--sp-2)", fontSize: "var(--fs-sm)", color: "var(--c-ink)", cursor: "pointer" }}>
@@ -313,7 +428,7 @@ function gearLabel(v) {
 // searchInstrumentModels(q, "") は必ず空を返すので、打てるままにしておくと
 // 「カタログに自分の楽器があるのに、候補が出ないので『その他』で登録する」人が出る。
 // 引けないなら打たせない。
-function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPrefix, disabled = false }) {
+function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disabled = false }) {
   const [query, setQuery] = useState("");
   const results = !disabled && query.trim() ? runSearch(query).slice(0, 10) : [];
 
@@ -350,7 +465,7 @@ function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPr
     <Field label={label} note={note}>
       <input
         type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-        placeholder={placeholder} aria-label={`${ariaPrefix}を検索`}
+        aria-label={`${ariaPrefix}を検索`}
         disabled={disabled}
         className="sans" style={{ ...controlStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "auto" }}
       />
@@ -389,15 +504,36 @@ function GearPicker({ label, note, value, onPick, runSearch, placeholder, ariaPr
 // 登録フォーム。自由入力はニックネームだけ。他はすべて選択。
 // ------------------------------------------------------------------
 // 保存されている機材1組(6キー)を、画面が持つ形(3つの選択)へ開く。
+// 【保存の形と画面の形の対応づけは、この2つの関数だけが持つ】
+// 機材の欄を1つ足すたびに、直す場所は (a) 読み込み (b) 空の初期値 (c) 書き出し の3つある。
+// 実際にリードを足したとき (b) と (c) を忘れ、**選んでも保存されない**状態になった。
+// 必須の欄でこれが起きると、利用者から見て「正しく選んでいるのに永久に登録できない」。
+// 対応づけを関数に閉じ込め、picksToGearEntry の出力が仕様の8キーと一致することを
+// community-form.test.js で検査している。
 const gearEntryToPicks = (g = {}) => ({
   instrument: g.instrumentBrand ? { brand: g.instrumentBrand, model: g.instrumentModel ?? null } : null,
   mouthpiece: g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null,
   ligature: g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null,
+  reed: g.reedBrand ? { brand: g.reedBrand, model: g.reedModel ?? null } : null,
 });
-const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null };
+export const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null, reed: null };
+export const picksToGearEntry = (p = EMPTY_PICKS) => ({
+  instrumentBrand: p.instrument?.brand ?? null,
+  instrumentModel: p.instrument?.model ?? null,
+  mpBrand: p.mouthpiece?.brand ?? null,
+  mpModel: p.mouthpiece?.model ?? null,
+  ligBrand: p.ligature?.brand ?? null,
+  ligModel: p.ligature?.model ?? null,
+  reedBrand: p.reed?.brand ?? null,
+  reedModel: p.reed?.model ?? null,
+});
 
 function ProfileForm({ initial, onSubmit, onCancel }) {
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
+  // 【既定を選んだ状態で出す】アイコンは必須なので、未選択で始めると
+  // 「何も触っていないのに保存できない」になる。初期値は一覧の先頭と色1。
+  const [icon, setIcon] = useState(initial?.icon ?? AVATAR_ICONS[0]);
+  const [iconColor, setIconColor] = useState(initial?.iconColor ?? AVATAR_COLOR_MIN);
   const [position, setPosition] = useState(initial?.position ?? "");
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
@@ -447,6 +583,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     try {
       const msg = await onSubmit({
         nickname,
+        icon,
+        iconColor,
         saxTypes,
         position,
         startYear,
@@ -459,15 +597,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         isPublic: initial ? initial.isPublic !== false : true,
         // gear のキーは saxTypes からしか作らない。gearPicks に取り残しがあっても混ざらない。
         gear: Object.fromEntries(saxTypes.map((t) => {
-          const p = gearPicks[t] ?? EMPTY_PICKS;
-          return [t, {
-            instrumentBrand: p.instrument?.brand ?? null,
-            instrumentModel: p.instrument?.model ?? null,
-            mpBrand: p.mouthpiece?.brand ?? null,
-            mpModel: p.mouthpiece?.model ?? null,
-            ligBrand: p.ligature?.brand ?? null,
-            ligModel: p.ligature?.model ?? null,
-          }];
+          return [t, picksToGearEntry(gearPicks[t])];
         })),
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
@@ -487,9 +617,13 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         <input
           type="text" value={nickname} maxLength={20}
           onChange={(e) => setNickname(e.target.value)}
-          placeholder="例: さくら" aria-label="ニックネーム"
+          aria-label="ニックネーム"
           className="sans" style={controlStyle}
         />
+      </Field>
+
+      <Field label="アイコン" note="順位や一覧であなたを表す絵柄です">
+        <AvatarPicker icon={icon} color={iconColor} onChange={(v) => { setIcon(v.icon); setIconColor(v.color); }} />
       </Field>
 
       <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください。機材は選んだ楽器ごとに登録します">
@@ -510,29 +644,32 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           <div className="sans jp-label" style={gearHeadingStyle}>{SAX_LABELS[t]} の機材</div>
           <GearPicker
             label="楽器" ariaPrefix={`${SAX_LABELS[t]}の楽器`}
-            /* 【「選ばなければその他」とは書かない】未選択(null)と「その他」は別の値として
-               保存される(profile.js / gear.js)。ここで嘘の案内をすると、
-               自分では何も選んでいない人が「その他を選んだ」と思い込む。 */
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
+            /* 【2026-09-02 本人裁定で補助文を削除】以前ここには探し方と
+               「選ばなくても登録できます」が出ていた。後者は必須化で嘘になったので消し、
+               前者も併せて落とした。**代わりの案内を足さないこと。**
+               打つ手が分からない人の逃げ道は、常に見えている「カタログに無い(その他)」の
+               ボタンが担っている(下の runSearch の結果が0件でも消えない)。 */
             value={gearPicks[t]?.instrument ?? null} onPick={(v) => setPick(t, "instrument", v)}
             /* カタログは種別ごとに分かれている(アルトの YAS-62 はテナーには無い)ので、
                この欄の種別をそのまま渡す。渡し違えると保存の瞬間に弾かれる。 */
             runSearch={(q) => searchInstrumentModels(q, t)}
-            placeholder="例: YAS-62 / ヤマハ"
           />
           <GearPicker
             label="マウスピース" ariaPrefix={`${SAX_LABELS[t]}のマウスピース`}
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
             value={gearPicks[t]?.mouthpiece ?? null} onPick={(v) => setPick(t, "mouthpiece", v)}
             runSearch={(q) => searchMouthpieces(q)}
-            placeholder="例: S80 C* / メイヤー"
           />
           <GearPicker
             label="リガチャー" ariaPrefix={`${SAX_LABELS[t]}のリガチャー`}
-            note="型番かメーカー名(カタカナ可)で探せます。選ばなくても登録できます"
             value={gearPicks[t]?.ligature ?? null} onPick={(v) => setPick(t, "ligature", v)}
             runSearch={(q) => searchLigatures(q)}
-            placeholder="例: Dark / ロブナー"
+          />
+          {/* 【リードに番手の欄を置かない】番手はリードタブ(App.jsx)が箱ごとに持っていて、
+              同じ銘柄でも日によって変わる。ここは機材の一覧なので銘柄だけを持つ。 */}
+          <GearPicker
+            label="リード" ariaPrefix={`${SAX_LABELS[t]}のリード`}
+            value={gearPicks[t]?.reed ?? null} onPick={(v) => setPick(t, "reed", v)}
+            runSearch={(q) => searchReeds(q)}
           />
         </div>
       ))}
@@ -634,6 +771,12 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>プロフィール</div>
 
+      {/* 名前より先にアイコンを出す。順位や一覧では絵柄で人を探すので、
+          自分がどう見えているかが最初に分かるようにする。 */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} size={64} />
+      </div>
+
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
         <Row label="楽器種別" value={types.length > 0 ? types.map((t) => SAX_LABELS[t]).join("・") : "—"} />
@@ -647,6 +790,7 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
               <Row label="楽器" value={gearLabel({ brand: g.instrumentBrand, model: g.instrumentModel })} />
               <Row label="マウスピース" value={gearLabel({ brand: g.mpBrand, model: g.mpModel })} />
               <Row label="リガチャー" value={gearLabel({ brand: g.ligBrand, model: g.ligModel })} />
+              <Row label="リード" value={gearLabel({ brand: g.reedBrand, model: g.reedModel })} />
             </React.Fragment>
           );
         })}
@@ -657,10 +801,11 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         <Row label="練習場所" value={listOrDash(profile?.places)} />
       </div>
 
-      <div style={{ display: "grid", gap: "var(--sp-1)" }}>
-        <CheckRow checked={isPublic} onChange={togglePublic}>公開する</CheckRow>
-        <div className="sans" style={noteStyle}>ONにすると他の利用者から見えます</div>
-      </div>
+      <SwitchRow
+        checked={isPublic} onChange={togglePublic} disabled={busy}
+        label="公開する"
+        note="既定は公開です。OFFにすると他の利用者から見えなくなります"
+      />
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 

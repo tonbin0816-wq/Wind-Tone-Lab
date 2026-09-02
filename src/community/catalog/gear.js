@@ -322,6 +322,20 @@ export const BRAND_ALIASES = {
   "Bambú": ["バンブー", "Bambu"],
   Gottsu: ["ゴッツ"],
   AIZEN: ["アイゼン"],
+  // リード(REED_CATALOG)
+  // 既存キーと同名のブランド(Vandoren / D'Addario / Silverstein)は上の別名を共有する。
+  // 「é」は NFKC で「e」に畳まれないので、アクセント無しの綴りも別名に入れる
+  // (これが無いと "legere" と打った人が0件になる)。
+  "Légère": ["レジェール", "レジェーレ", "Legere"],
+  Marca: ["マーカ", "マルカ"],
+  Rigotti: ["リゴッティ"],
+  Alexander: ["アレキサンダー", "アレクサンダー"],
+  Forestone: ["フォレストーン"],
+  Fiberreed: ["ファイバーリード"],
+  Fibracell: ["ファイブラセル", "フィブラセル"],
+  BARI: ["バリ"],
+  Gonzalez: ["ゴンザレス"],
+  Steuer: ["シュトイヤー", "ステューヤー"],
 };
 
 // 検索正規化: 全角→半角・大文字→小文字(NFKC)、空白・ハイフンを除去。
@@ -550,5 +564,87 @@ export function isValidLigature(brand, model) {
   if (brand === null && model === null) return true; // 未選択
   if (brand === OTHER_BRAND) return model === null;  // 明示的に選ばれた「その他」
   return (LIGATURE_CATALOG[brand]?.models ?? []).includes(model);
+}
+
+// ------------------------------------------------------------------
+// リード(REED_CATALOG)
+//
+// 【番手(3・3半 など)は持たない】この欄はプロフィールの機材、つまり
+// 「何を使っているか」であって「いまの1枚」ではない。番手はセッション側
+// (App.jsx の reeds)が持っており、そちらは同じ銘柄でも人や日で変わる。
+// ここに番手を入れると、同じ「Vandoren Traditional」使いが番手ぶんに割れて、
+// 機材シェアの内訳が実態より細かく散る。
+//
+// 【収録の基準は他の3カタログと同じ】製品ラインとして公式に確認できるものだけを入れ、
+// 怪しいものは**入れない**。過去に実在しない型番を書いて差し戻された経緯があるので、
+// 「たぶんある」で足さないこと。銘柄を増やすときは公式の製品ページを見てから。
+// ここに無い銘柄の人は「カタログに無い(その他)」を選ぶ。
+// ------------------------------------------------------------------
+export const REED_CATALOG = {
+  Vandoren: {
+    // 通称で呼ばれることが多いが、本人裁定により**正式名称で持つ**
+    // (青箱 = Traditional、緑箱 = Java、赤箱 = Java Red Cut)。
+    models: ["Traditional", "V16", "Java", "Java Red Cut", "ZZ", "V21"],
+  },
+  "D'Addario": {
+    // Rico は D'Addario の製品ラインであってブランドではない。
+    // App.jsx の INITIAL_REED_BRANDS は "Rico (D'Addario)" と持っているが、
+    // あちらは利用者が自分の箱を選ぶための一覧で、こちらは公開して数える用。
+    // **正式名称で揃える**(本人裁定)。
+    models: ["Rico", "Rico Royal", "La Voz", "Select Jazz", "Reserve", "Plasticover", "Hemke"],
+  },
+  "Légère": {
+    // 樹脂製。番手を持たない点は木製と同じ扱い。
+    models: ["Classic", "Signature", "Studio Cut", "American Cut"],
+  },
+  Marca: {
+    models: ["Superieure", "Excel", "Jazz", "Tradition", "American Vintage"],
+  },
+  Rigotti: {
+    models: ["Gold Jazz", "Gold Classic"],
+  },
+  Silverstein: {
+    models: ["AMBIPOLY Jazz", "AMBIPOLY Classic", "AMBIPOLY Studio"],
+  },
+  Alexander: {
+    models: ["Superial", "Superial DC", "NY", "Classique"],
+  },
+  Forestone: {
+    models: ["Traditional", "Black Bamboo", "White Bamboo", "Hinoki", "Rui"],
+  },
+  Fiberreed: {
+    models: ["Classic", "Hemp", "Carbon", "Copper Carbon", "Natural", "Onyx"],
+  },
+  Fibracell: {
+    models: ["Premier"],
+  },
+  BARI: {
+    models: ["Star", "Original"],
+  },
+  Gonzalez: {
+    models: ["Local 627", "Classic"],
+  },
+  Steuer: {
+    models: ["Classic", "Jazz", "Solist"],
+  },
+};
+
+export function searchReeds(query) {
+  const q = norm(query);
+  if (!q) return [];
+  const out = [];
+  for (const [brand, { models }] of Object.entries(REED_CATALOG)) {
+    const brandHit = brandMatches(brand, q);
+    for (const model of models) {
+      if (norm(model).includes(q) || brandHit) out.push({ brand, model });
+    }
+  }
+  return out;
+}
+
+export function isValidReed(brand, model) {
+  if (brand === null && model === null) return true; // 未選択
+  if (brand === OTHER_BRAND) return model === null;  // 明示的に選ばれた「その他」
+  return (REED_CATALOG[brand]?.models ?? []).includes(model);
 }
 

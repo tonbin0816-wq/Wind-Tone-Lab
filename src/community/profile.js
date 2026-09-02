@@ -1,5 +1,5 @@
 import { findNgWord } from "./ngwords/filter.js";
-import { isValidInstrument, isValidMouthpiece, isValidLigature } from "./catalog/gear.js";
+import { isValidInstrument, isValidMouthpiece, isValidLigature, isValidReed } from "./catalog/gear.js";
 
 // spec §4.1 の選択肢。文言を変えるときは設計書も直すこと。
 //
@@ -15,8 +15,49 @@ export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
 export const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
 export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
-export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ"];
-export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外"];
+// 【「その他」を末尾に置く 2026-09-02】3つの多選択はすべて1つ以上必須にした。
+// 必須にする以上、当てはまらない人の逃げ道が要る。GENRES には元から在ったので
+// ENSEMBLES / PLACES にも足した。**firestore.rules の写しも同時に直すこと。**
+export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ", "その他"];
+export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外", "その他"];
+
+// 【アイコンの絵柄。ここが「選べるもの」の正】絵の形は icons.jsx が持っている。
+// **片方だけ足さないこと。** ここにだけ足すと絵の無い識別子が保存でき、
+// 画面には色だけの丸が出る。icons.jsx にだけ足しても誰も選べない。
+// 食い違いは icons.test.js が検出する。firestore.rules にも同じ写しがある。
+export const AVATAR_ICONS = [
+  "ic-cat",
+  "ic-dog",
+  "ic-bird",
+  "ic-rabbit",
+  "ic-butterfly",
+  "ic-fish",
+  "ic-paw-print",
+  "ic-flower-lotus",
+  "ic-leaf",
+  "ic-tree",
+  "ic-star",
+  "ic-heart",
+  "ic-moon-stars",
+  "ic-sun",
+  "ic-cloud",
+  "ic-rainbow",
+  "ic-fire",
+  "ic-snowflake",
+  "ic-sparkle",
+  "ic-crown-simple",
+  "ic-diamond",
+  "ic-ghost",
+  "ic-music-notes",
+  "ic-guitar",
+];
+
+// 【地の色は番号で持つ。色そのものは保存しない】実値は index.css の
+// --c-avatar-1..10 にあり、後から色を調整しても保存済みのプロフィールを
+// 書き直さずに済む。16進数で保存すると、色を変えた瞬間に
+// 「古い色のまま固まった人」と「新しい色の人」が混在する。
+export const AVATAR_COLOR_MIN = 1;
+export const AVATAR_COLOR_MAX = 10;
 
 export function startYearOptions(now = new Date()) {
   const y = now.getFullYear();
@@ -109,6 +150,15 @@ export function buildProfileDoc(input, now = new Date()) {
   }
   if (input.ageConfirmed !== true) return { error: "13歳以上であることの確認が必要です" };
 
+  // アイコンは必須。画面側が既定を1つ選んだ状態で出すので、空で来るのは異常。
+  if (!AVATAR_ICONS.includes(input.icon)) return { error: "アイコンを選んでください" };
+  // 【Number.isInteger で見る】"3" のような文字列や 3.5 を通すと、
+  // ルール側の `is int` で弾かれて**保存の瞬間まで気づけない**。ここで同じ厳しさにする。
+  if (!Number.isInteger(input.iconColor)
+      || input.iconColor < AVATAR_COLOR_MIN || input.iconColor > AVATAR_COLOR_MAX) {
+    return { error: "アイコンの色を選んでください" };
+  }
+
   const gearIn = input.gear;
   if (gearIn === null || typeof gearIn !== "object" || Array.isArray(gearIn)) {
     return { error: "機材の指定が正しくありません" };
@@ -129,30 +179,63 @@ export function buildProfileDoc(input, now = new Date()) {
     // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
     // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
     // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
+    //
+    // 【2026-09-02 本人裁定: 未選択のまま登録させない】該当が無ければ「その他」を選ぶ。
+    // **それでも上の「潰さない」は生きている。** この検査が効くのは*これから書く*
+    // ドキュメントだけで、(a) 既に null で保存された物は残り、(b) firestore.rules は
+    // null を許したままなので、生SDKからは今後も null が書ける。
+    // 読む側(計画4)は欠測を想定しなくてよくなったのではなく、
+    // 「新しく増えることはない」だけ。null を見たら「その他」ではなく欠測として扱うこと。
     const instBrand = g.instrumentBrand ?? null;
     const instModel = g.instrumentModel ?? null;
     const mpBrand = g.mpBrand ?? null;
     const mpModel = g.mpModel ?? null;
     const ligBrand = g.ligBrand ?? null;
     const ligModel = g.ligModel ?? null;
+    // 【リードは番手を持たない】番手はセッション側(App.jsx の reeds)の情報で、
+    // 同じ銘柄でも日によって変わる。ここは「何を使っているか」だけを持つ。
+    const reedBrand = g.reedBrand ?? null;
+    const reedModel = g.reedModel ?? null;
     // 【楽器だけは種別ごとに照合する】カタログは種別で分かれていて、アルトの YAS-62 は
     // テナーには無い。第3引数にそのキーの種別を渡さないと、種別違いの型番が通ってしまう。
     // マウスピースとリガチャーは種別を持たないカタログなので今までどおり2引数。
+    // 「カタログに無い」より先に「選んでいない」を見る。順序を逆にすると、
+    // 何も選ばずに保存した人が「カタログにありません」と言われて探し直す羽目になる。
+    if (instBrand === null) return { error: `${SAX_LABELS[t]}の楽器を選んでください` };
+    if (mpBrand === null) return { error: `${SAX_LABELS[t]}のマウスピースを選んでください` };
+    if (ligBrand === null) return { error: `${SAX_LABELS[t]}のリガチャーを選んでください` };
+    if (reedBrand === null) return { error: `${SAX_LABELS[t]}のリードを選んでください` };
     if (!isValidInstrument(instBrand, instModel, t)) return { error: `${SAX_LABELS[t]}の楽器がカタログにありません` };
     if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
     if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
-    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel };
+    if (!isValidReed(reedBrand, reedModel)) return { error: `${SAX_LABELS[t]}のリードがカタログにありません` };
+    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel, reedBrand, reedModel };
   }
+
+  // 【2026-09-02 本人裁定: 多選択も1つ以上必須】このタブの用途は条件で絞り込んで
+  // 他人と比べることなので、空欄のままだと**どの絞り込みにも現れない**。
+  // 本人は登録できたつもりでいるのに誰からも見つからない、という一番わかりにくい壊れ方をする。
+  // 逃げ道として ENSEMBLES / PLACES にも「その他」を足してある(上の定義を参照)。
+  const genres = pickAllowed(input.genres, GENRES);
+  const ensembles = pickAllowed(input.ensembles, ENSEMBLES);
+  const places = pickAllowed(input.places, PLACES);
+  // pickAllowed は選択肢に無い値を捨てるので、「1つ以上渡したのに全部捨てられて空」も
+  // ここに落ちる。渡した数ではなく**残った数**を見るのが要点。
+  if (genres.length === 0) return { error: "ジャンルを1つ以上選んでください" };
+  if (ensembles.length === 0) return { error: "編成を1つ以上選んでください" };
+  if (places.length === 0) return { error: "練習場所を1つ以上選んでください" };
 
   return {
     doc: {
       nickname: nick.value,
+      icon: input.icon,
+      iconColor: input.iconColor,
       saxTypes: [...types],
       position: input.position,
       startYear: year,
-      genres: pickAllowed(input.genres, GENRES),
-      ensembles: pickAllowed(input.ensembles, ENSEMBLES),
-      places: pickAllowed(input.places, PLACES),
+      genres,
+      ensembles,
+      places,
       gear,
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
