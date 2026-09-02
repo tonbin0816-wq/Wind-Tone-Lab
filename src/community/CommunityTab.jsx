@@ -356,8 +356,13 @@ function AvatarPicker({ icon, color, onChange }) {
       </div>
 
       <div className="sans jp-label" style={labelStyle}>絵柄</div>
+      {/* 【列は minmax(0, 1fr) にする】`1fr` の最小値は auto なので、
+          中の当たり判定(44px)がそのまま列の下限になり、**格子が画面より広くなる**。
+          親は grid なので、広がった子は兄弟もろともページ全体を押し広げる
+          (実際にこれで色の行が476pxになり、375pxの画面でニックネーム欄まで画面外へ出た)。
+          minmax(0, ...) にすると列は0まで縮められるので、はみ出しがページに伝播しない。 */}
       <div role="radiogroup" aria-label="アイコンの絵柄" style={{
-        display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "var(--sp-1)",
+        display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: "var(--sp-1)",
       }}>
         {AVATAR_ICONS.map((id) => (
           <button
@@ -376,8 +381,12 @@ function AvatarPicker({ icon, color, onChange }) {
       </div>
 
       <div className="sans jp-label" style={labelStyle}>地の色</div>
+      {/* 【10色を1行に並べない】当たり判定は44px角を割れないので、10列だと
+          10*44 + 隙間9*4 = 476px 必要になる。375px の端末で使える幅は
+          375 - 左右の余白32 = 343px しかない。**5列2段にすると 5*44 + 4*4 = 236px で収まる。**
+          「列を狭くして1行に収める」は当たり判定を割るので採らない。 */}
       <div role="radiogroup" aria-label="アイコンの地の色" style={{
-        display: "grid", gridTemplateColumns: "repeat(10, 1fr)", gap: "var(--sp-1)",
+        display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
       }}>
         {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
           <button
