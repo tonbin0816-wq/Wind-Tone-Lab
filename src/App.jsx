@@ -2011,11 +2011,11 @@ function reedShortLabel(reed, reeds) {
 // 保存する単純な方式(このアプリの規模ではクエリ機能は不要なため)。
 // ============================================================
 const IDB_NAME = "windToneLabDB";
-const IDB_STORE = "kv";
-const SESSIONS_STORE = "sessions"; // セッションはレコード単位のストア(理由は下記usePersistedState/useSessionsStoreのコメント参照)
+export const IDB_STORE = "kv";
+export const SESSIONS_STORE = "sessions"; // セッションはレコード単位のストア(理由は下記usePersistedState/useSessionsStoreのコメント参照)
 const IDB_VERSION = 2;
 
-function openIdb() {
+export function openIdb() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexedDB unavailable")); return; }
     const req = indexedDB.open(IDB_NAME, IDB_VERSION);
