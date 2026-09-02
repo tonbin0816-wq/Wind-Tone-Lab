@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
 // 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
 import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity } from "lucide-react";
+import BackupPanel from "./backup/BackupPanel.jsx";
 
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
@@ -15151,6 +15152,10 @@ function MyDataPage({
         onOpenSession={onOpenSession}
         onOpenAllSessions={onOpenAllSessions}
       />
+
+      {/* 記録の保全: 書き出し・読み戻し・保存状態。**追加だけ**で、上の要素は1つも動かしていない。
+          クラウドには触れない(この端末のファイル1つで完結する)。器は .surf-card の作法の .card 1枚。 */}
+      <BackupPanel />
 
       {/* 【N-11】最下端に、浮かせるボタンの高さぶんの余白。最後の行がボタンの下に潜らない。 */}
       <FloatingActionSpacer />
