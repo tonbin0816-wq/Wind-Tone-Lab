@@ -21,6 +21,44 @@ export const GENRES = ["クラシック", "ジャズ", "ポップス", "その�
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ", "その他"];
 export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外", "その他"];
 
+// 【アイコンの絵柄。ここが「選べるもの」の正】絵の形は icons.jsx が持っている。
+// **片方だけ足さないこと。** ここにだけ足すと絵の無い識別子が保存でき、
+// 画面には色だけの丸が出る。icons.jsx にだけ足しても誰も選べない。
+// 食い違いは icons.test.js が検出する。firestore.rules にも同じ写しがある。
+export const AVATAR_ICONS = [
+  "ic-cat",
+  "ic-dog",
+  "ic-bird",
+  "ic-rabbit",
+  "ic-butterfly",
+  "ic-fish",
+  "ic-paw-print",
+  "ic-flower-lotus",
+  "ic-leaf",
+  "ic-tree",
+  "ic-star",
+  "ic-heart",
+  "ic-moon-stars",
+  "ic-sun",
+  "ic-cloud",
+  "ic-rainbow",
+  "ic-fire",
+  "ic-snowflake",
+  "ic-sparkle",
+  "ic-crown-simple",
+  "ic-diamond",
+  "ic-ghost",
+  "ic-music-notes",
+  "ic-guitar",
+];
+
+// 【地の色は番号で持つ。色そのものは保存しない】実値は index.css の
+// --c-avatar-1..10 にあり、後から色を調整しても保存済みのプロフィールを
+// 書き直さずに済む。16進数で保存すると、色を変えた瞬間に
+// 「古い色のまま固まった人」と「新しい色の人」が混在する。
+export const AVATAR_COLOR_MIN = 1;
+export const AVATAR_COLOR_MAX = 10;
+
 export function startYearOptions(now = new Date()) {
   const y = now.getFullYear();
   const out = [];
@@ -112,6 +150,15 @@ export function buildProfileDoc(input, now = new Date()) {
   }
   if (input.ageConfirmed !== true) return { error: "13歳以上であることの確認が必要です" };
 
+  // アイコンは必須。画面側が既定を1つ選んだ状態で出すので、空で来るのは異常。
+  if (!AVATAR_ICONS.includes(input.icon)) return { error: "アイコンを選んでください" };
+  // 【Number.isInteger で見る】"3" のような文字列や 3.5 を通すと、
+  // ルール側の `is int` で弾かれて**保存の瞬間まで気づけない**。ここで同じ厳しさにする。
+  if (!Number.isInteger(input.iconColor)
+      || input.iconColor < AVATAR_COLOR_MIN || input.iconColor > AVATAR_COLOR_MAX) {
+    return { error: "アイコンの色を選んでください" };
+  }
+
   const gearIn = input.gear;
   if (gearIn === null || typeof gearIn !== "object" || Array.isArray(gearIn)) {
     return { error: "機材の指定が正しくありません" };
@@ -181,6 +228,8 @@ export function buildProfileDoc(input, now = new Date()) {
   return {
     doc: {
       nickname: nick.value,
+      icon: input.icon,
+      iconColor: input.iconColor,
       saxTypes: [...types],
       position: input.position,
       startYear: year,

@@ -28,6 +28,9 @@ const ANY_GEAR = { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand:
 
 const base = {
   nickname: "さっくす太郎",
+  // アイコンは必須。画面側が既定を選んだ状態で出すので、空で来ることは無い。
+  icon: "ic-cat",
+  iconColor: 1,
   saxTypes: ["alto"],
   position: "社会人",
   startYear: 2015,
@@ -144,7 +147,10 @@ describe("buildProfileDoc", () => {
     const r = buildProfileDoc({ ...base, genres: ["クラシック", "演歌"] });
     expect(r.doc.genres).toEqual(["クラシック"]);
   });
-  it("doc のキー集合が Firestore ルール(Task 7)と一致する12キーに固定される", () => {
+  it("doc のキー集合が Firestore ルールと一致する14キーに固定される", () => {
+    // 2026-09-02: icon / iconColor を足して12→14。
+    // **この列を実装から作らないこと。**手で書いたこの列だけが正で、
+    // 数も綴りも firestore.rules の hasAll / hasOnly と一致していなければならない。
     const r = buildProfileDoc(base, new Date("2026-08-27"));
     expect(Object.keys(r.doc).sort()).toEqual(
       [
@@ -153,6 +159,8 @@ describe("buildProfileDoc", () => {
         "ensembles",
         "gear",
         "genres",
+        "icon",
+        "iconColor",
         "isPublic",
         "nickname",
         "places",
@@ -401,6 +409,34 @@ describe("buildProfileDoc", () => {
       expect(r.error).toBeUndefined();
       expect(r.doc.ensembles).toEqual(["その他"]);
       expect(r.doc.places).toEqual(["その他"]);
+    });
+  });
+
+  describe("アイコン", () => {
+    it("絵柄が未指定・一覧に無いものは弾く", () => {
+      const { icon, ...noIcon } = base;
+      expect(buildProfileDoc(noIcon)).toHaveProperty("error");
+      expect(buildProfileDoc({ ...base, icon: "ic-そんな絵柄は無い" })).toHaveProperty("error");
+      // 自由文を通すと、公開プロフィールに任意の文字列が載る経路が1つ増える
+      expect(buildProfileDoc({ ...base, icon: "<script>" })).toHaveProperty("error");
+    });
+    it("色は1..10の整数だけを通す", () => {
+      for (const bad of [0, 11, -1, 1.5, "1", null, undefined, NaN]) {
+        expect(buildProfileDoc({ ...base, iconColor: bad })).toHaveProperty("error");
+      }
+      for (const ok of [1, 5, 10]) {
+        expect(buildProfileDoc({ ...base, iconColor: ok }, new Date("2026-08-27")).error).toBeUndefined();
+      }
+    });
+    it('文字列の "3" を弾く(ルールの is int と同じ厳しさにする)', () => {
+      // ここが緩いと、保存の瞬間に permission-denied になるまで気づけない。
+      expect(buildProfileDoc({ ...base, iconColor: "3" })).toHaveProperty("error");
+    });
+    it("絵柄と色がそのまま保存される", () => {
+      const r = buildProfileDoc({ ...base, icon: "ic-fish", iconColor: 7 }, new Date("2026-08-27"));
+      expect(r.error).toBeUndefined();
+      expect(r.doc.icon).toBe("ic-fish");
+      expect(r.doc.iconColor).toBe(7);
     });
   });
 

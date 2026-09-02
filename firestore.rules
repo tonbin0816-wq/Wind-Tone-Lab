@@ -6,13 +6,21 @@ service cloud.firestore {
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
       allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasAll(['nickname','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
-        && request.resource.data.keys().hasOnly(['nickname','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
         // size() は UTF-8 のバイト長。クライアントの上限20コードポイントに対し、
         // 1コードポイント最大4バイトなので 80 が厳密な最悪値の上界になる
         && request.resource.data.nickname.size() <= 80
+        // 【アイコンは列挙で固定する】自由文を許すと、公開プロフィールに任意の文字列が
+        // 載る経路が1つ増える。設計書 §8.1 の「自由入力はニックネームだけ」を保つ。
+        // **src/community/profile.js の AVATAR_ICONS の写し。片方だけ直さないこと。**
+        && request.resource.data.icon in ['ic-cat','ic-dog','ic-bird','ic-rabbit','ic-butterfly','ic-fish','ic-paw-print','ic-flower-lotus','ic-leaf','ic-tree','ic-star','ic-heart','ic-moon-stars','ic-sun','ic-cloud','ic-rainbow','ic-fire','ic-snowflake','ic-sparkle','ic-crown-simple','ic-diamond','ic-ghost','ic-music-notes','ic-guitar']
+        // 色は番号。実値(16進数)は保存しないので、後から色を調整できる。
+        && request.resource.data.iconColor is int
+        && request.resource.data.iconColor >= 1
+        && request.resource.data.iconColor <= 10
         // 【楽器種別は複数】掛け持ちの奏者が居るので配列。1つ以上4つ以下、選択肢はこの4つだけ。
         // 上限4は「同じ種別を2本持つ人は稀なので1種別1組」という決めから来ている。
         // 【上限4は重複の検査ではない】種別は4つしか無いので5要素以上なら必ず重複を含むが、

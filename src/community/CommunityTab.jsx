@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
+import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { AvatarSprite, Avatar } from "./icons.jsx";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
@@ -47,7 +48,19 @@ const DELETE_ERROR = "削除できませんでした。まだ何も消えてい�
 const DELETE_PARTIAL_NOTICE =
   "サーバー上のプロフィールは削除しました。この端末に残っていた匿名のログイン情報だけは取り消せなかったため、サインアウトしました。あなたのデータはもう残っていません。";
 
+// 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
+// <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
+// どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
 export default function CommunityTab() {
+  return (
+    <>
+      <AvatarSprite />
+      <CommunityTabBody />
+    </>
+  );
+}
+
+function CommunityTabBody() {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -326,6 +339,66 @@ function SwitchRow({ checked, onChange, disabled = false, label, note }) {
   );
 }
 
+// 絵柄と地の色を選ぶ。**上に実物大の1つを出す。**
+// 画面案の初期の版は上部の見本が横長で、実際にどう見えるか分からなかった
+// (2026-08-28 本人指摘)。選んだ結果そのものを、順位や一覧で出るのと同じ大きさで見せる。
+function AvatarPicker({ icon, color, onChange }) {
+  const cell = (selected) => ({
+    minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: selected ? "var(--c-accent-tint)" : "transparent",
+    border: "none", borderRadius: "var(--r-md)", cursor: "pointer",
+  });
+  return (
+    <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Avatar icon={icon} color={color} size={64} />
+      </div>
+
+      <div className="sans jp-label" style={labelStyle}>絵柄</div>
+      <div role="radiogroup" aria-label="アイコンの絵柄" style={{
+        display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "var(--sp-1)",
+      }}>
+        {AVATAR_ICONS.map((id) => (
+          <button
+            key={id} type="button" role="radio" aria-checked={id === icon}
+            aria-label={id.replace(/^ic-/, "")}
+            onClick={() => onChange({ icon: id, color })}
+            style={cell(id === icon)}
+          >
+            {/* 一覧の中は選択の判別が要るだけなので、地の色は付けず絵柄だけを出す。
+                地の色まで付けると24個ぶん色が散り、いま選んでいるものが埋もれる。 */}
+            <svg width={24} height={24} fill="var(--c-ink)" aria-hidden="true">
+              <use href={`#${id}`} />
+            </svg>
+          </button>
+        ))}
+      </div>
+
+      <div className="sans jp-label" style={labelStyle}>地の色</div>
+      <div role="radiogroup" aria-label="アイコンの地の色" style={{
+        display: "grid", gridTemplateColumns: "repeat(10, 1fr)", gap: "var(--sp-1)",
+      }}>
+        {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
+          <button
+            key={n} type="button" role="radio" aria-checked={n === color}
+            aria-label={`色 ${n}`}
+            onClick={() => onChange({ icon, color: n })}
+            style={cell(n === color)}
+          >
+            <span style={{
+              display: "block", width: 24, height: 24, borderRadius: "50%",
+              background: `var(--c-avatar-${n})`,
+              // 選択中は輪で示す。**地の色そのものを変えない** ── 見本と食い違う。
+              boxShadow: n === color ? "0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-accent)" : "none",
+            }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CheckRow({ checked, onChange, children }) {
   return (
     <label className="sans no-select" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: "var(--sp-2)", fontSize: "var(--fs-sm)", color: "var(--c-ink)", cursor: "pointer" }}>
@@ -431,15 +504,36 @@ function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disable
 // 登録フォーム。自由入力はニックネームだけ。他はすべて選択。
 // ------------------------------------------------------------------
 // 保存されている機材1組(6キー)を、画面が持つ形(3つの選択)へ開く。
+// 【保存の形と画面の形の対応づけは、この2つの関数だけが持つ】
+// 機材の欄を1つ足すたびに、直す場所は (a) 読み込み (b) 空の初期値 (c) 書き出し の3つある。
+// 実際にリードを足したとき (b) と (c) を忘れ、**選んでも保存されない**状態になった。
+// 必須の欄でこれが起きると、利用者から見て「正しく選んでいるのに永久に登録できない」。
+// 対応づけを関数に閉じ込め、picksToGearEntry の出力が仕様の8キーと一致することを
+// community-form.test.js で検査している。
 const gearEntryToPicks = (g = {}) => ({
   instrument: g.instrumentBrand ? { brand: g.instrumentBrand, model: g.instrumentModel ?? null } : null,
   mouthpiece: g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null,
   ligature: g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null,
+  reed: g.reedBrand ? { brand: g.reedBrand, model: g.reedModel ?? null } : null,
 });
-const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null };
+export const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null, reed: null };
+export const picksToGearEntry = (p = EMPTY_PICKS) => ({
+  instrumentBrand: p.instrument?.brand ?? null,
+  instrumentModel: p.instrument?.model ?? null,
+  mpBrand: p.mouthpiece?.brand ?? null,
+  mpModel: p.mouthpiece?.model ?? null,
+  ligBrand: p.ligature?.brand ?? null,
+  ligModel: p.ligature?.model ?? null,
+  reedBrand: p.reed?.brand ?? null,
+  reedModel: p.reed?.model ?? null,
+});
 
 function ProfileForm({ initial, onSubmit, onCancel }) {
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
+  // 【既定を選んだ状態で出す】アイコンは必須なので、未選択で始めると
+  // 「何も触っていないのに保存できない」になる。初期値は一覧の先頭と色1。
+  const [icon, setIcon] = useState(initial?.icon ?? AVATAR_ICONS[0]);
+  const [iconColor, setIconColor] = useState(initial?.iconColor ?? AVATAR_COLOR_MIN);
   const [position, setPosition] = useState(initial?.position ?? "");
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
@@ -489,6 +583,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     try {
       const msg = await onSubmit({
         nickname,
+        icon,
+        iconColor,
         saxTypes,
         position,
         startYear,
@@ -501,15 +597,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         isPublic: initial ? initial.isPublic !== false : true,
         // gear のキーは saxTypes からしか作らない。gearPicks に取り残しがあっても混ざらない。
         gear: Object.fromEntries(saxTypes.map((t) => {
-          const p = gearPicks[t] ?? EMPTY_PICKS;
-          return [t, {
-            instrumentBrand: p.instrument?.brand ?? null,
-            instrumentModel: p.instrument?.model ?? null,
-            mpBrand: p.mouthpiece?.brand ?? null,
-            mpModel: p.mouthpiece?.model ?? null,
-            ligBrand: p.ligature?.brand ?? null,
-            ligModel: p.ligature?.model ?? null,
-          }];
+          return [t, picksToGearEntry(gearPicks[t])];
         })),
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
@@ -532,6 +620,10 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           aria-label="ニックネーム"
           className="sans" style={controlStyle}
         />
+      </Field>
+
+      <Field label="アイコン" note="順位や一覧であなたを表す絵柄です">
+        <AvatarPicker icon={icon} color={iconColor} onChange={(v) => { setIcon(v.icon); setIconColor(v.color); }} />
       </Field>
 
       <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください。機材は選んだ楽器ごとに登録します">
@@ -678,6 +770,12 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
   return (
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>プロフィール</div>
+
+      {/* 名前より先にアイコンを出す。順位や一覧では絵柄で人を探すので、
+          自分がどう見えているかが最初に分かるようにする。 */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} size={64} />
+      </div>
 
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
