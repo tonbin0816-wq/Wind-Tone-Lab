@@ -1,5 +1,5 @@
 import { findNgWord } from "./ngwords/filter.js";
-import { isValidInstrument, isValidMouthpiece, isValidLigature } from "./catalog/gear.js";
+import { isValidInstrument, isValidMouthpiece, isValidLigature, isValidReed } from "./catalog/gear.js";
 
 // spec §4.1 の選択肢。文言を変えるときは設計書も直すこと。
 //
@@ -145,6 +145,10 @@ export function buildProfileDoc(input, now = new Date()) {
     const mpModel = g.mpModel ?? null;
     const ligBrand = g.ligBrand ?? null;
     const ligModel = g.ligModel ?? null;
+    // 【リードは番手を持たない】番手はセッション側(App.jsx の reeds)の情報で、
+    // 同じ銘柄でも日によって変わる。ここは「何を使っているか」だけを持つ。
+    const reedBrand = g.reedBrand ?? null;
+    const reedModel = g.reedModel ?? null;
     // 【楽器だけは種別ごとに照合する】カタログは種別で分かれていて、アルトの YAS-62 は
     // テナーには無い。第3引数にそのキーの種別を渡さないと、種別違いの型番が通ってしまう。
     // マウスピースとリガチャーは種別を持たないカタログなので今までどおり2引数。
@@ -153,10 +157,12 @@ export function buildProfileDoc(input, now = new Date()) {
     if (instBrand === null) return { error: `${SAX_LABELS[t]}の楽器を選んでください` };
     if (mpBrand === null) return { error: `${SAX_LABELS[t]}のマウスピースを選んでください` };
     if (ligBrand === null) return { error: `${SAX_LABELS[t]}のリガチャーを選んでください` };
+    if (reedBrand === null) return { error: `${SAX_LABELS[t]}のリードを選んでください` };
     if (!isValidInstrument(instBrand, instModel, t)) return { error: `${SAX_LABELS[t]}の楽器がカタログにありません` };
     if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
     if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
-    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel };
+    if (!isValidReed(reedBrand, reedModel)) return { error: `${SAX_LABELS[t]}のリードがカタログにありません` };
+    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel, reedBrand, reedModel };
   }
 
   // 【2026-09-02 本人裁定: 多選択も1つ以上必須】このタブの用途は条件で絞り込んで

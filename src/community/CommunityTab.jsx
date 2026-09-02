@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
-import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND } from "./catalog/gear.js";
+import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -572,6 +572,13 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
             value={gearPicks[t]?.ligature ?? null} onPick={(v) => setPick(t, "ligature", v)}
             runSearch={(q) => searchLigatures(q)}
           />
+          {/* 【リードに番手の欄を置かない】番手はリードタブ(App.jsx)が箱ごとに持っていて、
+              同じ銘柄でも日によって変わる。ここは機材の一覧なので銘柄だけを持つ。 */}
+          <GearPicker
+            label="リード" ariaPrefix={`${SAX_LABELS[t]}のリード`}
+            value={gearPicks[t]?.reed ?? null} onPick={(v) => setPick(t, "reed", v)}
+            runSearch={(q) => searchReeds(q)}
+          />
         </div>
       ))}
 
@@ -685,6 +692,7 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
               <Row label="楽器" value={gearLabel({ brand: g.instrumentBrand, model: g.instrumentModel })} />
               <Row label="マウスピース" value={gearLabel({ brand: g.mpBrand, model: g.mpModel })} />
               <Row label="リガチャー" value={gearLabel({ brand: g.ligBrand, model: g.ligModel })} />
+              <Row label="リード" value={gearLabel({ brand: g.reedBrand, model: g.reedModel })} />
             </React.Fragment>
           );
         })}

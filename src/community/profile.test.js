@@ -12,17 +12,19 @@ import {
 } from "./profile.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
-// 【この6つは実装から import しない】機材1組の形は凍結された仕様であって、
+// 【この8つは実装から import しない】機材1組の形は凍結された仕様であって、
 // 実装が持っている定数ではない。実装側から引くと「実装が何を出そうと一致する」検査になる。
-const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel"];
+// 2026-09-02: リード(reedBrand / reedModel)を追加して6→8。番手は持たない
+// (番手はセッション側の情報で、同じ銘柄でも日によって変わるため)。
+const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel"];
 // 空の機材1組(何も選ばなかった状態)。必須化後は保存できない値だが、
 // 「弾かれること」を確かめるために必要なので残す。
-const NO_GEAR = { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null };
+const NO_GEAR = { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null, reedBrand: null, reedModel: null };
 // 埋まった機材1組。**機材以外を確かめる検査の穴埋め用。**
 // 全部「その他」にしてあるのは、これが**どの楽器種別でも通る唯一の値**だから。
 // カタログの型番は種別ごとに違う(YAS-62 は alto にしか無い)ので、実在の型番で埋めると
 // 種別を変えるたびに書き換えることになり、そのうち誰かが検査の主題ごと壊す。
-const ANY_GEAR = { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null };
+const ANY_GEAR = { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null, reedBrand: OTHER_BRAND, reedModel: null };
 
 const base = {
   nickname: "さっくす太郎",
@@ -36,7 +38,7 @@ const base = {
   isPublic: true,
   // 【リガチャーまで埋める】機材3欄は必須になったので、欠けていると base 自体が弾かれ、
   // 機材と無関係な検査まで巻き添えで落ちる。
-  gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark" } },
+  gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional" } },
 };
 
 describe("validateNickname", () => {
@@ -318,6 +320,17 @@ describe("buildProfileDoc", () => {
         buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, ligBrand: "Rovner", ligModel: "でたらめ" } } })
       ).toHaveProperty("error");
     });
+    it("リードがカタログに無いと弾く", () => {
+      expect(
+        buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, reedBrand: "Vandoren", reedModel: "青箱" } } })
+      ).toHaveProperty("error");
+    });
+    it("リードは正式名称で通る(通称は通らない)", () => {
+      // 本人裁定「製品名は正式名称」。青箱ではなく Traditional で登録される。
+      const r = buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, reedBrand: "Vandoren", reedModel: "Traditional" } } }, new Date("2026-08-27"));
+      expect(r.error).toBeUndefined();
+      expect(r.doc.gear.alto.reedModel).toBe("Traditional");
+    });
     it("エラー文言はどの楽器種別の話かを言う", () => {
       const r = withGear(["tenor"], { tenor: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62" } });
       expect(r.error).toContain("Tenor");
@@ -341,14 +354,15 @@ describe("buildProfileDoc", () => {
     expect(only("instrumentBrand")).toContain("楽器を選んでください");
     expect(only("mpBrand")).toContain("マウスピースを選んでください");
     expect(only("ligBrand")).toContain("リガチャーを選んでください");
+    expect(only("reedBrand")).toContain("リードを選んでください");
   });
   it("明示的に「その他」を選んだ場合は文字列で保存される", () => {
     const r = buildProfileDoc(
-      { ...base, gear: { alto: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null } } },
+      { ...base, gear: { alto: { ...ANY_GEAR } } },
       new Date("2026-08-27")
     );
     expect(r.error).toBeUndefined();
-    expect(r.doc.gear.alto).toEqual({ instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null });
+    expect(r.doc.gear.alto).toEqual(ANY_GEAR);
   });
   // 【必須化しても null は消えない】この検査を消さないこと。
   // 必須化が効くのは*これから書く*ドキュメントだけで、(a) 既に null で保存された物は残り、
@@ -356,7 +370,7 @@ describe("buildProfileDoc", () => {
   // 計画4の機材シェアは、null を「その他」の票に数えてはいけない。
   it("「その他」は null と同じ値にならない(読む側が欠測と区別できる)", () => {
     const other = buildProfileDoc(
-      { ...base, gear: { alto: { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null } } },
+      { ...base, gear: { alto: { ...ANY_GEAR } } },
       new Date("2026-08-27")
     ).doc;
     expect(other.gear.alto.instrumentBrand).toBe(OTHER_BRAND);
@@ -439,6 +453,16 @@ describe("firestore.rules との同期", () => {
     for (const line of keyListLines) {
       for (const k of docKeys) expect(line).toContain(`'${k}'`);
       expect(line).not.toContain("'saxType'");
+    }
+  });
+  it("gear 1組のキー列挙が4種別ぶんルールに在り、実装と同じ8キーである", () => {
+    // 【ここが食い違うと本番でしか壊れない】実装が8キーを書き、ルールが6キーしか許さないと、
+    // 保存の瞬間に permission-denied になる。しかも手元では起きない
+    // (手元にルールは無く、テストも通る)。実際に古いルールのまま配って踏んだ。
+    const list = "[" + GEAR_KEYS.map((k) => `'${k}'`).join(",") + "]";
+    for (const t of SAX_TYPES) {
+      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasAll(${list})`);
+      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasOnly(${list})`);
     }
   });
   it("gear のキー集合が saxTypes と完全一致であることをルールが要求している", () => {
