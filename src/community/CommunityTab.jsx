@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
+import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions } from "./profile.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND } from "./catalog/gear.js";
 
@@ -26,6 +27,13 @@ import { searchInstrumentModels, searchMouthpieces, searchLigatures, OTHER_BRAND
 // 通信系の失敗はどれも利用者にできることが同じ(電波の良いところでやり直す)なので、
 // 文言も1つにまとめる。原因の切り分け(権限/オフライン/期限切れ)を見せても操作は変わらない。
 const NET_ERROR = "通信に失敗しました。電波の良いところでもう一度お試しください";
+// 【設定の欠落は通信の失敗と分ける】接続設定が読み込めていない状態は待っても直らない。
+// 「電波の良いところで」と案内すると、利用者を無駄に待たせたうえ原因も伝わらない。
+// この配信をビルドした環境に VITE_FIREBASE_* が無いことが原因なので、
+// 利用者の操作では解決できない。そう分かる文言にする。
+const CONFIG_ERROR = "この配信ではコミュニティを利用できません（アプリの接続設定が読み込めていません）";
+// 失敗の種類で文言を選ぶ。ここ以外で NET_ERROR を直に使わない。
+const connectErrorOf = (e) => (e instanceof FirebaseConfigMissingError ? CONFIG_ERROR : NET_ERROR);
 const SAVE_ERROR = "保存に失敗しました。電波の良いところでもう一度お試しください";
 const TOGGLE_ERROR = "公開設定を変更できませんでした。電波の良いところでもう一度お試しください";
 // 【削除の文言は「実際に起きたこと」に合わせる】
@@ -67,7 +75,7 @@ export default function CommunityTab() {
         setProfile(p);
         setPhase(p ? "profile" : "notJoined");
       } catch (e) {
-        if (alive) { setErrorMsg(NET_ERROR); setPhase("error"); }
+        if (alive) { setErrorMsg(connectErrorOf(e)); setPhase("error"); }
       }
     })();
     return () => { alive = false; };
@@ -91,9 +99,13 @@ export default function CommunityTab() {
     return (
       <Centered>
         <div>{errorMsg}</div>
-        <button type="button" onClick={() => setReloadKey((k) => k + 1)} className="sans" style={{ ...secondaryButtonStyle, marginTop: "var(--sp-4)", width: "auto", padding: "0 var(--sp-5)" }}>
-          もう一度試す
-        </button>
+        {/* 【設定の欠落では再試行を出さない】押しても同じ結果にしかならないボタンは、
+            利用者に「自分の操作で直せる」と誤解させたうえで裏切る。通信の失敗のときだけ出す。 */}
+        {errorMsg !== CONFIG_ERROR && (
+          <button type="button" onClick={() => setReloadKey((k) => k + 1)} className="sans" style={{ ...secondaryButtonStyle, marginTop: "var(--sp-4)", width: "auto", padding: "0 var(--sp-5)" }}>
+            もう一度試す
+          </button>
+        )}
       </Centered>
     );
   }
@@ -109,7 +121,7 @@ export default function CommunityTab() {
             await ensureUid();
             setPhase("form");
           } catch (e) {
-            setErrorMsg(NET_ERROR);
+            setErrorMsg(connectErrorOf(e));
             setPhase("error");
           }
         }}
