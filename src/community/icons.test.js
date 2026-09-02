@@ -92,3 +92,57 @@ describe("画面の機材と保存の形の対応づけ", () => {
     expect(out.reedModel).toBeNull();
   });
 });
+
+// ------------------------------------------------------------------
+// 【この describe が塞いでいる穴】アイコンの選択欄を足したとき、色を10列で並べた。
+// 当たり判定は44px角を割れないので 10*44 + 隙間9*4 = 476px 必要になるが、
+// 375px の端末で使える幅は 375 - 左右の余白32 = 343px しかない。
+// 親が grid なので、はみ出した1行が**兄弟もろともページ全体を476pxへ広げ**、
+// ニックネーム欄まで画面外へ出た。
+//
+// 見た目の崩れは単体テストで直接は測れないが、**入るかどうかは算術で判る。**
+// 列数と当たり判定と隙間から必要幅を出し、いちばん狭い端末の幅と突き合わせる。
+// ------------------------------------------------------------------
+describe("アイコンの選択欄が狭い端末に収まる", () => {
+  const src = readSrc("./CommunityTab.jsx");
+  // 凍結された値。**実装から読まない** ── 実装が変えたら検査も変わるのでは何も守れない。
+  const TAP_MIN = 44;      // --tap-min: 当たり判定の下限。これを割る解は採らない
+  const GAP = 4;           // --sp-1
+  const PAGE_PADDING = 16; // --sp-4 が左右に1つずつ
+  const NARROWEST = 320;   // iPhone SE 相当。ここに入れば 375 にも入る
+  const available = NARROWEST - PAGE_PADDING * 2;
+  const needed = (cols) => cols * TAP_MIN + (cols - 1) * GAP;
+
+  const gridOf = (label) => {
+    const at = src.indexOf(`aria-label="${label}"`);
+    if (at < 0) throw new Error(`${label} が見つからない`);
+    const near = src.slice(at, at + 220);
+    const m = near.match(/gridTemplateColumns: "([^"]+)"/);
+    if (!m) throw new Error(`${label} の列指定が見つからない`);
+    return m[1];
+  };
+  const columnsOf = (label) => {
+    const spec = gridOf(label);
+    const m = spec.match(/^repeat\((\d+), minmax\(0, 1fr\)\)$/);
+    if (!m) throw new Error(`${label} の列指定が想定の形ではない: ${spec}`);
+    return Number(m[1]);
+  };
+
+  it("絵柄の格子が320pxの端末に収まる", () => {
+    expect(needed(columnsOf("アイコンの絵柄"))).toBeLessThanOrEqual(available);
+  });
+  it("地の色の格子が320pxの端末に収まる", () => {
+    expect(needed(columnsOf("アイコンの地の色"))).toBeLessThanOrEqual(available);
+  });
+  it("10色を1行に並べる形は入らない(この検査が効いていることの確認)", () => {
+    // 実際に踏んだ形。これが available 以下になるなら、上の2件は何も守っていない。
+    expect(needed(10)).toBeGreaterThan(available);
+  });
+  it("列は minmax(0, 1fr) で指定する(1fr だと中身の幅が列の下限になる)", () => {
+    // `repeat(N, 1fr)` は最小値が auto なので、中の44pxがそのまま列の下限になり、
+    // 縮まずにページを押し広げる。minmax(0, ...) なら0まで縮むので伝播しない。
+    for (const label of ["アイコンの絵柄", "アイコンの地の色"]) {
+      expect(gridOf(label)).toMatch(/^repeat\(\d+, minmax\(0, 1fr\)\)$/);
+    }
+  });
+});
