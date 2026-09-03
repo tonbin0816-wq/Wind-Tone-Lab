@@ -4157,7 +4157,10 @@ export default function WindToneLabPhaseMode() {
         <div className="surf-card">
         <CommunityErrorBoundary>
           <Suspense fallback={<div className="sans" style={communityFallbackStyle}>読み込み中…</div>}>
-            <CommunityTab />
+            {/* 【sessions を渡す】コミュニティは練習日数を公開するので、端末の中の
+                セッションが要る。ここには既に読み込み済みの配列があるので、
+                タブ側でもう一度 IndexedDB を開かせない。 */}
+            <CommunityTab sessions={sessions} />
           </Suspense>
         </CommunityErrorBoundary>
         </div>
