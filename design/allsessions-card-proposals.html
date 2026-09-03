@@ -1,0 +1,178 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>すべてのセッション をカードにする — 2案</title>
+<style>
+  :root{
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1;
+    --line:#E9ECF0; --line2:#C3CAD3; --rule:#E1E6EC;
+    --accent:#174585; --sunk:#F6F7F9; --sunken:#EEF1F4; --surface:#fff;
+    --sh-card:0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
+  header{padding:22px 16px 4px;max-width:1240px;margin:0 auto}
+  h1{font-size:18px;margin:0 0 10px}
+  h3{font-size:14px;margin:26px auto 6px;padding:0 16px;max-width:1240px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.85;margin:0 auto 6px;padding:0 16px;max-width:1240px}
+  b{color:var(--ink)} code{font-size:12px}
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap .ok{color:#1D6B4A;font-weight:600} .cap .ng{color:#B0433A;font-weight:600}
+
+  .phone{position:relative;width:375px;height:660px;border-radius:26px;overflow:hidden;
+    box-shadow:0 2px 14px rgba(20,30,50,.10);background:#fff}
+  .scr{position:absolute;inset:0 0 47px 0;overflow:hidden}
+  .nav{position:absolute;left:0;right:0;bottom:0;height:47px;border-top:1px solid var(--line);display:flex;background:#fff}
+  .nav div{flex:1;display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--ink3)}
+  .nav .on{color:var(--accent);font-weight:700}
+
+  .rule{background:#fff;padding:12px 14px 0;height:100%}
+  .cardsurf{background:var(--sunk);padding:12px 14px 0;height:100%}
+  .card{background:var(--surface);border-radius:16px;padding:16px;box-shadow:var(--sh-card)}
+  .card.tight{padding:4px 14px}
+  .rowcard{background:var(--surface);border-radius:12px;padding:10px 14px;box-shadow:var(--sh-card)}
+
+  .top{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--ink2)}
+  .shead{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+  .shead .t{font-size:13px;font-weight:600}
+  .pills{display:flex;gap:7px;margin-top:10px;margin-bottom:12px}
+  .pill{font-size:11.5px;color:var(--ink2);background:var(--sunken);border-radius:999px;padding:6px 12px}
+  .pill.clr{background:none;color:var(--accent);font-weight:600;padding-left:2px}
+
+  /* 行 */
+  .r{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);min-height:44px}
+  .r:last-child{border-bottom:0}
+  .r .cb{width:20px;height:20px;flex:0 0 20px}
+  .r .m{flex:1;min-width:0}
+  .r .d{display:block;font-size:13px;color:var(--ink)}
+  .r .s{display:block;font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .flat{display:flex;align-items:center;gap:10px;min-height:44px}
+  .flat .cb{width:20px;height:20px;flex:0 0 20px}
+  .flat .m{flex:1;min-width:0}
+  .flat .d{display:block;font-size:13px;color:var(--ink)}
+  .flat .s{display:block;font-size:11px;color:var(--ink3)}
+  .stack > * + *{margin-top:8px}
+  .num{font-variant-numeric:tabular-nums}
+  .trash{font-size:14px;color:var(--ink3)}
+</style>
+
+<header>
+<h1>「すべてのセッション」をカードにする — 2案</h1>
+<p class="lead">
+本人指示「<b>すべてのセッションもやって</b>」。<br>
+<b>先に訂正します。</b> 私は前のメッセージで「ここは既に小カード（<code>.rowcard</code>）の形をしているので、
+<b>地を沈めるだけで済みます</b>」と書きましたが、<b>間違いでした</b>。
+<code>.rowcard</code> を使っているのは <b>My Data 側の入口ボタン</b>で、この一覧の行は
+<code>.slist-row</code>（<b>行ごとに 1px の罫を持つ形</b>）です。
+つまり「地を沈めるだけ」では済まず、<b>罫をどうするかを決める必要があります</b>
+（カードの作法は<b>罫を1本も引かない</b>）。
+</p>
+<p class="lead" style="margin-top:8px">
+ここは <b>F-97 / F-106 で3周かけて固めた場所</b>です。守っている不変条件は
+「モードの切替は <code>.slist</code> に付く <code>.is-select</code> ただ1つ」「行ごとの更新ゼロ」
+「<b>モードの内外でレイアウトが 1px も動かない</b>」「行にもスクロールコンテナにも
+<code>contain</code> / <code>content-visibility</code> / <code>will-change</code> / <code>transform</code> を置かない」。
+<b>2案ともこれを1つも崩しません。</b>
+</p>
+</header>
+
+<div class="row">
+
+  <!-- 現状 -->
+  <div class="col">
+    <div class="tag"><span class="n">現状</span><span class="s">罫（<code>.surf-rule</code>）</span></div>
+    <div class="phone"><div class="scr"><div class="rule">
+      <div class="top"><span>‹ データ</span></div>
+      <div class="shead"><span class="t num">55件</span><span class="trash">🗑</span></div>
+      <div class="pills"><span class="pill">リード すべて ▾</span><span class="pill">奏者 すべて ▾</span><span class="pill clr">クリア</span></div>
+      <div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/26 14:32</span><span class="s">Vandoren-3 #1 · 自分 · 21.7秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/26 10:05</span><span class="s">Vandoren-3 #1 · 自分 · 18.2秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/25 21:40</span><span class="s">V16-3 #4 · 自分 · 12:24</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/25 09:12</span><span class="s">V16-3 #4 · 自分 · 33.0秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/24 19:58</span><span class="s">未紐付け · 自分 · 8.4秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/23 20:11</span><span class="s">Vandoren-3 #2 · 自分 · 24.9秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/23 07:45</span><span class="s">Vandoren-3 #2 · 自分 · 16.1秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/22 22:03</span><span class="s">V16-3 #4 · 自分 · 29.5秒</span></span></div>
+      </div>
+    </div></div>
+    <div class="nav"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap">罫が行ごとに1本。<span class="ng">55件だと線が55本</span>並ぶ。</p>
+  </div>
+
+  <!-- 案① -->
+  <div class="col">
+    <div class="tag"><span class="n">案①　一覧を1枚のカードに</span><span class="rec">推し</span><span class="s">行の作りは1px も変えない</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="top"><span>‹ データ</span></div>
+      <div class="shead"><span class="t num">55件</span><span class="trash">🗑</span></div>
+      <div class="pills"><span class="pill">リード すべて ▾</span><span class="pill">奏者 すべて ▾</span><span class="pill clr">クリア</span></div>
+      <div class="card tight">
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/26 14:32</span><span class="s">Vandoren-3 #1 · 自分 · 21.7秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/26 10:05</span><span class="s">Vandoren-3 #1 · 自分 · 18.2秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/25 21:40</span><span class="s">V16-3 #4 · 自分 · 12:24</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/25 09:12</span><span class="s">V16-3 #4 · 自分 · 33.0秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/24 19:58</span><span class="s">未紐付け · 自分 · 8.4秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/23 20:11</span><span class="s">Vandoren-3 #2 · 自分 · 24.9秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/23 07:45</span><span class="s">Vandoren-3 #2 · 自分 · 16.1秒</span></span></div>
+        <div class="r"><span class="cb"></span><span class="m"><span class="d num">8/22 22:03</span><span class="s">V16-3 #4 · 自分 · 29.5秒</span></span></div>
+      </div>
+    </div></div>
+    <div class="nav"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap"><span class="ok">一覧が「1つのまとまり」として立つ。</span>
+    見出し・絞り込みは地の上に残るので、<b>読む物（一覧）と操る物（絞り込み）が面で分かれる</b>。<br>
+    <span class="ok">行の作りを 1px も変えない</span>ので、F-97 / F-106 の3周ぶんに指1本触れない。<br>
+    <span class="ng">行の間の罫は残る。</span>カードの作法は「群の境界に罫を引かない」なので<b>群の中の
+    行区切りは矛盾しない</b>と読めますが、<b>厳密には作法の外</b>です（判断が要ります）。</p>
+  </div>
+
+  <!-- 案② -->
+  <div class="col">
+    <div class="tag"><span class="n">案②　行ごとに小カード</span><span class="s">My Data の「セッション1件」と同じ形</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="top"><span>‹ データ</span></div>
+      <div class="shead"><span class="t num">55件</span><span class="trash">🗑</span></div>
+      <div class="pills"><span class="pill">リード すべて ▾</span><span class="pill">奏者 すべて ▾</span><span class="pill clr">クリア</span></div>
+      <div class="stack">
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/26 14:32</span><span class="s">Vandoren-3 #1 · 自分 · 21.7秒</span></span></div></div>
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/26 10:05</span><span class="s">Vandoren-3 #1 · 自分 · 18.2秒</span></span></div></div>
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/25 21:40</span><span class="s">V16-3 #4 · 自分 · 12:24</span></span></div></div>
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/25 09:12</span><span class="s">V16-3 #4 · 自分 · 33.0秒</span></span></div></div>
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/24 19:58</span><span class="s">未紐付け · 自分 · 8.4秒</span></span></div></div>
+        <div class="rowcard"><div class="flat"><span class="cb"></span><span class="m"><span class="d num">8/23 20:11</span><span class="s">Vandoren-3 #2 · 自分 · 24.9秒</span></span></div></div>
+      </div>
+    </div></div>
+    <div class="nav"><div>計測</div><div>リード</div><div class="on">データ</div></div></div>
+    <p class="cap"><span class="ok">罫が1本も無くなる。</span>作法どおり。<b>My Data の「セッション1件」の入口と同じ形</b>なので、
+    一覧と入口の語彙が揃う。<br>
+    <span class="ng">1画面に入る件数が減る</span>（8件 → 6件）。55件だと<b>影が55枚</b>。<br>
+    <span class="ng">3周かけて固めた行の作りに手を入れる。</span>罫を外し、間を空け、器を1枚被せる
+    ── モードの内外でレイアウトが動かないことを<b>測り直す必要がある</b>。</p>
+  </div>
+
+</div>
+
+<h3>私の推し ── <b>案①</b></h3>
+<p class="lead">
+理由は2つ。<br>
+<b>1. 行に触らないから。</b> ここは F-97 で「モード切替で行が壊れる」を、F-106 で「iOS の再ペイント
+取りこぼし」を潰した場所です。<b>3周ぶんの不変条件に指1本触れずに済む</b>のは案①だけ。<br>
+<b>2. 見出しと絞り込みが地の上に残るから。</b> 「読む物（一覧）」と「操る物（絞り込み・選択）」が
+<b>面で分かれます</b>。案②だと絞り込みのピルと行のカードが同じ高さで並んで、境目が弱くなる。<br>
+<b>案② を選ぶ理由があるとすれば「罫を1本も引かない」を厳密に守ることです。</b>
+そこを重く見るなら案②で、そのときは<b>モードの内外でレイアウトが動かないことを測り直します</b>。
+</p>
+
+<h3>どちらでも変えないこと</h3>
+<p class="lead">
+・<b>モードの切替は <code>.is-select</code> ただ1つ</b>／行ごとの更新ゼロ／<b>レイアウト不動</b>（F-106）<br>
+・行にもスクロールコンテナにも <code>contain</code> / <code>content-visibility</code> / <code>will-change</code> / <code>transform</code> を置かない<br>
+・チェックボックスは<b>モード外でも場所を確保したまま</b>（<code>visibility:hidden</code>。<code>display:none</code> にしない）<br>
+・当たり判定 44px ／ 新しいトークンを作らない
+</p>

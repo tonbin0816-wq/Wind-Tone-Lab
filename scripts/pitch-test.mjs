@@ -4158,10 +4158,57 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
     // 【C-1】表示は1行。行全体が1つのタップ対象で、押すと1つのダイアログが開く
     {
       const fld = sourceOf("ReedScoreField");
-      check("評価表示は行全体が1つのボタン", /^function ReedScoreField[\s\S]*?return \(\s*<button/.test(fld));
-      check("ボタンは1つだけ(項目ごとのボタンに戻していない)",
+      // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.2 = モックの案G】
+      // 1つの <button> の中を3区画に割る形から、**小カード(.rowcard)3枚の横並び**へ移した。
+      // 器は行ではなく3枚になったので「行全体が1つのボタン」という主張は取り消す。
+      // **押したときの挙動(§6.4)は変えていない**ので、そちらは下で強く縛る。
+      check("D-29: 評価表示は3枚を並べる器(行そのものはボタンではない)",
+        /^function ReedScoreField[\s\S]*?return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div style=\{\{ display: "flex"/.test(fld),
+        fld.replace(/\s+/g, " ").slice(0, 120));
+      check("D-29: ボタンの綴りは1つだけ(3枚は同じ綴りを map で複製する。項目ごとに書き分けない)",
         (fld.match(/<button/g) || []).length === 1, `${(fld.match(/<button/g) || []).length}個`);
       check("押すと開くのは1つのダイアログ", (fld.match(/onClick=\{onOpen\}/g) || []).length === 1);
+      // 【D-29 §2.3】**3枚のどれを押しても同じ1つの口が開く。**
+      // 綴りが1つであることだけでは足りない ── `onClick={() => onOpen(it.key)}` のように
+      // 項目を渡す形にすると「項目ごとにフォーカスする」別の挙動になり得る。
+      // (a) onOpen を素で渡していること (b) それ以外の onClick が無いこと の2つで縛る。
+      check("D-29 §2.3: 押す先は onOpen そのもの(項目を渡す形に化けていない)",
+        /onClick=\{onOpen\}/.test(fld) && !/onClick=\{\(\)/.test(codeOf(fld)) && !/onClick=\{\(e/.test(codeOf(fld)),
+        (fld.match(/onClick=\{[^}]*\}/g) || []).join(" / "));
+      check("D-29 §2.3: onClick は map の中の1箇所だけ(枚数ぶん別の口を作っていない)",
+        (codeOf(fld).match(/onClick=/g) || []).length === 1,
+        `${(codeOf(fld).match(/onClick=/g) || []).length}箇所`);
+      // 【D-31 2026/09/03 統括裁定で書き換え】D-29 は3枚とも同じ文言
+      // 「総評・厚さ・バランスを編集」にしていたが、**タブストップが 1 → 3 に増えた**ので
+      // まったく同じ文言が3回続き、しかも aria-label は中身の読み上げを置き換えるため
+      // **値(4.0 / 3 / 3)が一度も読まれない**状態だった。カードごとの文言へ変えた。
+      // **押したときの行き先は3枚とも同じまま**(上の onOpen の3件が固定している。§6.4)。
+      // **局所変数の綴りは縛らない**(D-29b と同じ穴を新しく作らない)。見たいのは
+      // 「map の項目の label と値 text を、同じ1つの項目から取っている」という構造なので、
+      // 変数名は `\w+` で受け、**前後で同じ識別子**であることだけを後方参照で要求する。
+      check("D-31: 読み上げはカードごとに違い、項目名と値を含む(`${…label} ${…text}・評価を編集`)",
+        /aria-label=\{`\$\{(\w+)\.label\} \$\{\1\.text\}・評価を編集`\}/.test(fld)
+        && (codeOf(fld).match(/aria-label=/g) || []).length === 1,
+        (fld.match(/aria-label=[^\n]*/g) || []).join(" / "));
+      // **語彙を増やしていない**こと: 文言に使うのは reedScoreRowItems が既に返している
+      // label / text だけで、3枚ぶんの文字列をここに書き並べていない。
+      check("D-31: 3枚ぶんの文言を綴りで書き分けていない(新しい語彙を作らない)",
+        !/総評・厚さ・バランス/.test(codeOf(fld)) && (codeOf(fld).match(/aria-label=/g) || []).length === 1,
+        (codeOf(fld).match(/aria-label=[^\n]*/g) || []).join(" / "));
+      // 実際に**3枚とも違う文言になり、値が入る**ことを、純関数の返り値から組み立てて確かめる
+      // (綴りの正規表現だけだと「同じ文字列が3つ出る」形に化けても気付けない)。
+      {
+        const F = [
+          { key: "rating", label: "総評", value: 4 },
+          { key: "thickness", label: "厚さ", value: 3 },
+          { key: "balance", label: "バランス", value: 3 },
+        ];
+        const labels = api.reedScoreRowItems(F).map((it) => `${it.label} ${it.text}・評価を編集`);
+        check("D-31: 3枚の読み上げがそれぞれ違う(同じ文言が並ばない)",
+          new Set(labels).size === 3, labels.join(" / "));
+        check("D-31: 読み上げに値が入る(aria-label が中身の読み上げを置き換えても値が読まれる)",
+          labels.every((s, i) => s.includes(api.reedScoreText(F[i].key, F[i].value))), labels.join(" / "));
+      }
       // --- 「3つとも出る」を実行で数える ---
       // 以前はスタイル文字列の正規表現しか見ておらず、fields.slice(0,1).map(…)(総評だけ表示)
       // という1文字の変異が素通りした。行の中身を組み立てる部分を純関数 reedScoreRowItems に
@@ -4227,19 +4274,32 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       // **等幅・折り返さない・3項目とも出す・行のどこを押しても開く**は旧主張のまま残す。
       check("列は地を持たない(正典 .starrow に箱は無い)",
         !/className="ctl-plain"/.test(fld), (fld.match(/className="[^"]*"/g) || []).join(" / "));
-      check("外側のボタンも地を持たない", !/className="sans ctl-plain"/.test(fld) && /className="sans"/.test(fld),
+      // 【D-29 §2.2】3枚は**小カード(.rowcard)**。地・枠・角丸・padding・影の持ち主は
+      // index.css の `.surf-card .rowcard` ただ1つで、ここは名乗るだけ。
+      check("D-29 §2.2: 3枚は小カード(.rowcard)を名乗る",
+        (fld.match(/className="rowcard sans"/g) || []).length === 1,
         (fld.match(/className="[^"]*"/g) || []).join(" / "));
-      check("外側のボタンの地・枠は none(下の罫1本だけを持つ)",
-        /background: "none", border: "none", borderBottom: "1px solid var\(--c-line\)"/.test(fld));
-      // 【D-4 2026/08/22】正典が north-star-measure.html の .starrow から
-      // Design canon #15a の評価カードへ移った。上下の余白は 12px / 14px。
-      check("行の上下の余白は正典 #15a の評価カードと同じ", /padding: "12px 0 14px"/.test(fld));
-      check("列の間に隙間を作らない(正典 .starrow は gap を持たない)",
-        /flexWrap: "nowrap", gap: 0/.test(fld), (fld.match(/gap: [^,]*/g) || []).join(" / "));
-      check("gap は行の1つだけ(列の中にも隙間を作らない)",
+      check("D-29 §2.2: 大きいカード(.card)にしていない(寸法を2つ持たせない)",
+        !(fld.match(/className="[^"]*"/g) || []).some((s) => /"([^"]*)"/.exec(s)[1].trim().split(/\s+/).includes("card")),
+        (fld.match(/className="[^"]*"/g) || []).join(" / "));
+      // 【D-29 §2.4 / §6.6 が名指しで禁止】**.rowcard の寸法をインラインで上書きしない。**
+      // padding を1つでも書くと、その要素だけ作法(10px 14px)から外れる。
+      check("D-29 §2.4: .rowcard の padding をインラインで上書きしていない",
+        !/padding/i.test(codeOf(fld)),
+        (codeOf(fld).match(/padding[A-Za-z]*: [^,}]*/g) || []).join(" / ") || "0件");
+      check("D-29 §2.4: .rowcard の地・枠・角丸・影をインラインで上書きしていない",
+        !/(background|border|boxShadow)/i.test(codeOf(fld)),
+        (codeOf(fld).match(/(background|border|boxShadow)[A-Za-z]*: [^,}]*/g) || []).join(" / ") || "0件");
+      // 【D-29 §2.2】カードの作法は**罫を1本も引かない**(§6.6)。行の下にあった罫を外した。
+      check("D-29 §2.2: 点数の行に罫が1本も無い(borderBottom を外した)",
+        !/borderBottom/.test(codeOf(fld)) && !/--c-line\b/.test(codeOf(fld)) && !/--c-rule\b/.test(codeOf(fld)),
+        (codeOf(fld).match(/(borderBottom|--c-line|--c-rule)[^,}]*/g) || []).join(" / ") || "0件");
+      // 間は --sp-2(8px)。**新しい寸法を発明しない**(D29-SPEC §2.2「間は 8px」)。
+      check("D-29 §2.2: 3枚の間は --sp-2(トークンで書く。生の px を置かない)",
+        /flexWrap: "nowrap", gap: "var\(--sp-2\)"/.test(fld), (fld.match(/gap: [^,]*/g) || []).join(" / "));
+      check("gap は器の1つだけ(カードの中にも隙間を作らない)",
         (codeOf(fld).match(/gap:/g) || []).length === 1,
         `${(codeOf(fld).match(/gap:/g) || []).length}箇所`);
-      check("列は内側の余白を持たない", /padding: 0,/.test(fld));
       // 角丸・地をインラインで書き戻していない(型が効かなくなるのを防ぐ)。
       // borderRadius: 0 は「.card 等の角丸を持ち込まない」宣言なので除く。
       check("列に地・枠・角丸を書き足していない",
@@ -4252,10 +4312,17 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       check("各列は縦積み(flexDirection:column)", /flexDirection: "column"/.test(fld));
       // 【上下が入れ替わった】正典 .starrow は .v(値)が先で .l(ラベス)が後。
       // ソース上の**出現順**で見る(綴りだけでなく順序を縛る)。
-      check("列は数字が上・ラベルが下(正典 .starrow の .v → .l)",
-        fld.indexOf("{it.text}") !== -1 && fld.indexOf("{it.label}") !== -1
-        && fld.indexOf("{it.text}") < fld.indexOf("{it.label}"),
-        `値=${fld.indexOf("{it.text}")} / ラベル=${fld.indexOf("{it.label}")}`);
+      // 【D-31 2026/09/03】初版は `fld.indexOf("{it.text}")` という**素の綴り**で位置を取っていた。
+      // D-31 で aria-label が `` `${it.label} ${it.text}・評価を編集` `` になると、
+      // **テンプレートリテラルの中の `{it.label}` を「描かれるラベル」と誤認**して落ちた
+      // (正しい修正を落とす形 = 罠4)。**描画される子だけ**を見るように、
+      // 「`>` に続き `<` で終わる」= 要素の子である位置で錨止めする。
+      {
+        const iVal = fld.search(/>\s*\{it\.text\}\s*</);
+        const iLab = fld.search(/>\s*\{it\.label\}\s*</);
+        check("列は数字が上・ラベルが下(正典 .starrow の .v → .l)",
+          iVal !== -1 && iLab !== -1 && iVal < iLab, `値=${iVal} / ラベル=${iLab}`);
+      }
       check("行の高さは --tap-min 以上(値の有無で高さが変わらない)", /minHeight: "var\(--tap-min\)"/.test(fld));
       // 幅を食う文字(「・」)は描画しない。列ごとに幅が変わって等幅が崩れる。
       check("幅を食う区切り文字を描画しない",
@@ -6157,11 +6224,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // カード(My Data / 分析タブ)。**入れ子にしない**ので、どちらが勝つかは行の順序に依存しない。
     // 【D-15 §3】累計カードだけ地を濃紺にする例外(.surf-card .card.card-accent)。
     // **地しか持たない**ことは 16b(下)が名指しで見る。ここは集合に入れるだけ。
-    const expectCard = [".card", ".surf-rule .card", ".surf-card .card", ".surf-card .card.card-accent"];
+    // 【D-31 2026/09/03 統括裁定】一覧を包むカードの**上下の余白だけ**を変える例外
+    // (.surf-card .card.card-list)。**上下の padding しか持たない**ことは 34.6(下)が名指しで見る。
+    // ここは集合に入れるだけ。
+    const expectCard = [".card", ".surf-rule .card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list"];
     const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
     // カードの作法が持つもの: 地そのもの(.surf-card)と、小さいカード(.rowcard)。
-    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .rowcard"];
+    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .rowcard"];
     const expectRowCard  = [".surf-card .rowcard"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
@@ -6565,10 +6635,24 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     const lab = srcOfFn(src, "AnalysisLabView");
     check("D-10: My Data / 分析の本体はカードの作法(.surf-card)を名乗る",
       /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card">\s*\r?\n\s*<div style=\{\{ maxWidth: 900, margin: "0 auto" \}\}>/.test(lab));
-    check("D-10: セッション詳細は罫の作法(.surf-rule)のまま(1px も変えない)",
-      /if \(selectedSession\) \{[\s\S]{0,600}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{\(\) => setSelectedSessionId\(null\)\}>\s*\r?\n\s*<SessionDetailView/.test(lab));
-    check("D-10: すべてのセッションも罫の作法(.surf-rule)のまま",
-      /if \(allSessionsOpen\) \{[\s\S]{0,700}?<div className="surf-rule">\s*\r?\n\s*<SwipeBackArea onBack=\{closeAllSessions\}>\s*\r?\n\s*<AllSessionsPage/.test(lab));
+    // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
+    // セッション詳細を**カードの作法**へ移した。D-10 の「1px も変えない」凍結は
+    // 本人の「計測タブとリードタブの Top 画面以外は適切にカード使っていい」で解除された。
+    // **すべてのセッション(.slist)は罫のまま**なので、下の行と対で読むこと。
+    check("D-29 §1: セッション詳細はカードの作法(.surf-card)を名乗る",
+      /if \(selectedSession\) \{[\s\S]{0,900}?<div className="surf-card">\s*\r?\n\s*<SwipeBackArea onBack=\{\(\) => setSelectedSessionId\(null\)\}>\s*\r?\n\s*<SessionDetailView/.test(lab));
+    // 【D-30 2026/09/03 本人裁定・凍結仕様 design/D30-SPEC.md §2.1 = モック
+    //  design/allsessions-card-proposals.html の案①】本人「すべてのセッションもやって」
+    //  →「AとGが終わり次第案1ですすめて」。**すべてのセッションもカードの作法へ移った。**
+    //  D-10 / D-29 の「すべてのセッションは罫のまま」はここで終わり、
+    //  AnalysisLabView の3つの return は**3つとも .surf-card** になった。
+    //  一覧の行の罫(.slist-row の border-bottom)は残るが、それは**群の中の行区切り**であって
+    //  群の境界の罫ではない(D-30 本人裁定。DESIGN-SYSTEM §6.6 / index.css の .surf-card の節)。
+    check("D-30 §2.1: すべてのセッションはカードの作法(.surf-card)を名乗る(モックの案①)",
+      /if \(allSessionsOpen\) \{[\s\S]{0,900}?<div className="surf-card">\s*\r?\n\s*<SwipeBackArea onBack=\{closeAllSessions\}>\s*\r?\n\s*<AllSessionsPage/.test(lab));
+    // **罫へ戻す変異**はここでも落ちる(名乗りを消しただけの形も含めて塞ぐ)。
+    check("D-30 §2.1: すべてのセッションの return に .surf-rule は残っていない",
+      !/if \(allSessionsOpen\) \{[\s\S]{0,1200}?<div className="surf-rule"/.test(lab));
 
     // --- 【D-14 2026/08/27 本人指示】一覧は**先頭から**始まる ---------------------
     // 本人「すべてのセッションを mydata 画面で下にスクロールした状態で開くと、
@@ -6609,28 +6693,125 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // リードタブは子タブ(登録/比較)の溝と本体の2つを1つの根で包む。
   const reedsBlockIdx = src.indexOf('{topTab === "reeds" && (');
   const reedsBlock = reedsBlockIdx === -1 ? "" : src.slice(reedsBlockIdx, src.indexOf('{topTab === "measure" && ('));
-  check("リードタブの根は罫の作法(surf-rule)",
-    /\{topTab === "reeds" && \(\s*<div className="surf-rule">/.test(src));
-  check("ReedsTab(登録・比較・個別詳細のすべて)が罫の作法の根の中にある", reedsBlock.includes("<ReedsTab"));
+  // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.1】リードタブも
+  // **画面ごとに作法が違う**ようになったので、タブの根には作法のクラスを置かない。
+  // 置くと Top(罫)と個体詳細(カード)のどちらかが必ず入れ子になり、
+  // どちらが勝つかが index.css の行の順序に依存する(§6.6 が名指しした最悪の形)。
+  check("D-29 §2.1: リードタブの根には作法のクラスを置かない(画面ごとに違うため)",
+    /\{topTab === "reeds" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<ReedsTab/.test(src));
+  check("ReedsTab(登録・比較・個別詳細のすべて)がタブの分岐の中にある", reedsBlock.includes("<ReedsTab"));
+  {
+    // 2つの return がそれぞれ名乗ることを綴りで固定する。
+    // **Top が .surf-card に化ける変異**(本人が名指しで除外した画面が裏返る)はここで落ちる。
+    const tab = srcOfFn(src, "ReedsTab");
+    check("D-29 §2.1: リード個体詳細はカードの作法(.surf-card)を名乗る",
+      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+    // Top は if (evaluatingReed) の閉じ **より後ろ**の return。本人が名指しで除外した画面。
+    const topReturn = tab.slice(tab.indexOf("if (evaluatingReed)"));
+    check("D-29 §2.1: リードタブ Top は罫の作法(.surf-rule)のまま(本人が名指しで除外)",
+      /\n  return \(\s*\r?\n\s*<div className="surf-rule" style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(topReturn),
+      (topReturn.match(/\n  return \([\s\S]{0,120}/) || ["取れなかった"])[0].replace(/\s+/g, " "));
+    // 入れ子にしていないこと。ReedsTab の中で作法を名乗る要素は**2つだけ**で、
+    // しかも片方が他方の中に無い(早期 return と本 return は排他)。
+    const named = (tab.match(/className="surf-(card|rule)"/g) || []);
+    check("D-29 §2.1: ReedsTab が作法を名乗るのは2箇所だけ(カード1 + 罫1)",
+      named.length === 2 && named.filter((s) => /surf-card/.test(s)).length === 1
+      && named.filter((s) => /surf-rule/.test(s)).length === 1, named.join(" / "));
+  }
   check("ReedsTab の描画箇所は1つだけ(作法の外に置き去りにしていない)",
     (src.match(/<ReedsTab/g) || []).length === 1, `${(src.match(/<ReedsTab/g) || []).length}箇所`);
   // トークンで数える。`className="surf-rule wrap"` と書いても数から漏れない。
   {
-    // 【2026-09-02】コミュニティタブが加わり作法を名乗る根は **6つ** になった。
-    //   カードの根 = My Data / 分析 の1枚 + コミュニティの1枚。根拠は
-    //   design/DESIGN-SYSTEM-community-addendum.md の 2026/08/28 本人裁定
-    //   (範囲はコミュニティタブの全画面 / §6.6 の表に「コミュニティ = カード」を追記)。
-    // 【D-10 2026/08/26】それ以前は5つだった:
-    //   罫(.surf-rule) … 計測 / リード / セッション詳細 / すべてのセッションの4つ
-    //   カード(.surf-card) … My Data / 分析の1つ(2つの子タブを同じ根が包む)
-    // データタブだけが画面ごとに分かれるので、タブの数とは一致しない。
+    // 【統合 2026/09/03】作法を名乗る根は **7つ**(画面の数そのものなので件数で縛る):
+    //   罫(.surf-rule) … 計測タブ Top / リードタブ Top の2つ
+    //   カード(.surf-card) … My Data・分析(1枚が2子タブを包む)/ セッション詳細 /
+    //                        リード個体詳細 / すべてのセッション / コミュニティ の5つ
+    // タブの数とは一致しない ── データタブもリードタブも**画面ごと**に分かれるため。
+    //
+    // **出どころが2つある。片方だけを見て件数を直すと、もう片方が静かに壊れる**:
+    //   ・D-29 / D-30(2026/09/03 本人裁定)…「計測タブとリードタブの Top 画面以外は
+    //     適切にカード使っていい」→ セッション詳細 / リード個体詳細 / すべてのセッションが
+    //     罫 → カードへ(罫4 → 罫2 / カード1 → カード4)
+    //   ・コミュニティ(2026/08/28 本人裁定。design/DESIGN-SYSTEM-community-addendum.md)…
+    //     コミュニティタブの全画面がカード(カード +1)
+    // この2つは**別の周で並行して入り**、main で合流した。合流の時点で 2 + 5 = 7。
     const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length
       + tagsWithClass("surf-card").length;
-    check("D-10: 作法を名乗る根は6箇所(罫4 + カード2)", roots === 6, `${roots}箇所`);
-    check("D-10: 罫の根は4箇所(計測 / リード / セッション詳細 / すべてのセッション)",
-      tagsWithClass("surf-rule").length === 4, `${tagsWithClass("surf-rule").length}箇所`);
-    check("D-10: カードの根は2箇所(My Data / 分析の1枚 + コミュニティの1枚)",
-      tagsWithClass("surf-card").length === 2, `${tagsWithClass("surf-card").length}箇所`);
+    check("統合: 作法を名乗る根は7箇所(罫2 + カード5)", roots === 7, `${roots}箇所`);
+    // 【D-30 2026/09/03】すべてのセッションがカードへ移ったので **罫3 → 罫2 / カード3 → カード4**。
+    // 【コミュニティ 2026/08/28】さらにカードが1つ増えて **カード5 / 合計7**。
+    // **内訳の2本を必ず対で見る** ── 合計だけを見ていると
+    // 「罫とカードが入れ替わった」変異が丸ごと素通りする。
+    check("D-30: 罫の根は2箇所(計測タブ Top / リードタブ Top)",
+      tagsWithClass("surf-rule").length === 2, `${tagsWithClass("surf-rule").length}箇所`);
+    check("統合: カードの根は5箇所(My Data・分析 / セッション詳細 / リード個体詳細 / すべてのセッション / コミュニティ)",
+      tagsWithClass("surf-card").length === 5, `${tagsWithClass("surf-card").length}箇所`);
+    // 【§6.6 が名指しした最悪の形】.surf-card と .surf-rule の**入れ子**。
+    // 同じタグに両方付ける形は下の D-10 の検査が見ているが、**祖先と子孫**の入れ子は
+    // そちらでは捕まらない。入れ子は2通りの起き方をするので、両方を塞ぐ。
+    {
+      // (a) **同じ関数の中での入れ子。** 開きタグから対応する </div> までを
+      //     <div> / </div> の対応で数え、その範囲に別の名乗りが入らないことを見る
+      //     (インデントで数えると `<div className="surf-rule">` の直下に同じ深さで
+      //      子を書く既存の書き方を見落とす ── 実際にリードタブがその形だった)。
+      const marks = [];
+      const re = /className="surf-(card|rule)"/g;
+      let m;
+      while ((m = re.exec(src)) !== null) marks.push({ at: m.index, kind: m[1] });
+      const nests = [];
+      for (const a of marks) {
+        let depth = 0, end = src.length;
+        const tagRe = /<div\b|<\/div>/g;
+        tagRe.lastIndex = src.lastIndexOf("<div", a.at);
+        let t;
+        while ((t = tagRe.exec(src)) !== null) {
+          depth += t[0] === "</div>" ? -1 : 1;
+          if (depth === 0) { end = t.index; break; }
+        }
+        for (const b of marks) {
+          if (b !== a && b.at > a.at && b.at < end) nests.push(`${a.kind} ⊃ ${b.kind}`);
+        }
+      }
+      check("D-29 §6.6: 同じ関数の中で .surf-card と .surf-rule を入れ子にしていない",
+        nests.length === 0, nests.join(" | ") || "0件");
+      // (b) **関数をまたぐ入れ子。** タブの根に作法のクラスを置き、その中の部品が
+      //     自分でも名乗ると、綴りは離れているのに DOM では入れ子になる。
+      //     根に作法のクラスを持つのは**計測タブとコミュニティタブの2つ**なので、
+      //     **両方の中身**が1つも名乗らないことで塞ぐ(片方だけ見ていると、もう片方が
+      //     自分で名乗り始めたときに素通りする ── 合流のときに実際に起きかけた形)。
+      check("D-29 §6.6: 計測タブの中身(MeasureView)は作法のクラスを名乗らない(根と二重にならない)",
+        !/className="[^"]*surf-(card|rule)/.test(srcOfFn(src, "MeasureView")),
+        (srcOfFn(src, "MeasureView").match(/className="[^"]*surf-[^"]*"/g) || []).join(" / ") || "0件");
+      // コミュニティタブの中身は**別ファイル**にある。綴りが離れていても DOM では入れ子になるので、
+      // 同じ規則をそちらにも当てる(index.css を読むのと同じ作法でファイルを開く)。
+      {
+        const community = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+        check("§6.6: コミュニティタブの中身(CommunityTab.jsx)は作法のクラスを名乗らない(根と二重にならない)",
+          !/className="[^"]*surf-(card|rule)|surf-(card|rule)/.test(community),
+          (community.match(/surf-(card|rule)/g) || []).join(" / ") || "0件");
+      }
+      // (c) **名乗ってよい場所そのものを固定する。** 作法のクラスが現れる関数の集合を
+      //     綴りで縛る(件数ではなく「誰が持つか」。罠4)。ここに新しい関数が増えたら、
+      //     それは「どこかの画面が二重に名乗った」か「範囲が勝手に広がった」かのどちらか。
+      const owners = [];
+      for (const a of marks) {
+        const before = src.slice(0, a.at);
+        const i = before.lastIndexOf("\nfunction ");
+        const j = before.lastIndexOf("\nexport default function ");
+        const head = j > i ? before.slice(j) : before.slice(i);
+        owners.push(`${/function (\w+)/.exec(head)[1]}:${a.kind}`);
+      }
+      // 【D-30】AnalysisLabView の3つの return は**3つともカード**になった
+      // (My Data・分析 / セッション詳細 / すべてのセッション)。
+      // 【コミュニティ】アプリの根(WindToneLabPhaseMode)は**罫(計測タブ)とカード(コミュニティ)を
+      // 1つずつ**持つ。罫を名乗るのはそこと ReedsTab の Top の2つだけ。
+      check("統合: 作法のクラスを名乗るのは3関数だけ(アプリの根 / ReedsTab / AnalysisLabView)",
+        owners.sort().join(" ") === [
+          "AnalysisLabView:card", "AnalysisLabView:card", "AnalysisLabView:card",
+          "ReedsTab:card", "ReedsTab:rule",
+          "WindToneLabPhaseMode:rule", "WindToneLabPhaseMode:card",
+        ].sort().join(" "), owners.join(" "));
+    }
   }
 
   // --- 6. .card / .tile にインラインで見た目を書いていないこと ----------
@@ -6966,9 +7147,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     for (const name of ["ReedRegisterView", "ReedCompareTab", "ReedsTab"]) {
       const body = bodyOf(name);
       check(`${name} の本体を走査できている`, body.length > 400, `${body.length}文字`);
+      // 【D-29 2026/09/03】**トークンで見る。** `\b(card)\b` は "surf-card" の中の
+      // "card" にも当たるので、面の作法のクラスを名乗っただけで落ちていた
+      // (tagsWithClass と同じ「className を空白で割ってトークン一致」に揃える)。
+      const classTokens = (body.match(/className="([^"]*)"/g) || [])
+        .map((s) => /"([^"]*)"/.exec(s)[1].trim().split(/\s+/));
+      const boxed = classTokens.filter((t) => t.includes("card") || t.includes("tile") || t.includes("tile-row"));
       check(`${name} に .card / .tile は1つも無い(正典の囲いは余白と罫1本だけ)`,
-        !/className="[^"]*\b(card|tile|tile-row)\b[^"]*"/.test(body),
-        (body.match(/className="[^"]*"/g) || []).filter((s) => /\b(card|tile|tile-row)\b/.test(s)).join(" / ") || "0件");
+        boxed.length === 0, boxed.map((t) => t.join(" ")).join(" / ") || "0件");
     }
     for (const name of ["ReedEvaluationDetail", "ReedScoreHistoryChart"]) {
       const body = bodyOf(name);
@@ -9310,6 +9496,34 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           /fontSize: "var\(--fs-sm\)"/.test(met) && !/--fs-lg|--fs-md/.test(met));
         check("D-6: 見分けは大きさが担う。子タブは下線を持たない(下線は指標タブの印)",
           !/boxShadow/.test(sub) && /boxShadow: sel \? "inset 0 -2px 0 0 var\(--c-ink\)"/.test(met));
+        // --- 【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】指標タブの下の罫 -----------
+        // カードの作法は罫を1本も引かない(§6.6)。D-29 でセッション詳細とリード個体詳細が
+        // カードへ移った結果、**同じ部品なのにカードの画面どうしで罫の有無が割れていた**
+        // (My Data は D-9y の本人指示で元から渡していない)。その割れを閉じる。
+        //   ・`MetricTabCard`(セッション詳細 + リード個体詳細の共有部品)は **渡さない**
+        //   ・**リード比較(ReedCompareTab = 罫の作法)は持ったまま** ── 別の呼び出しなので
+        //     巻き込まれない。「bordered は罫の作法の画面が渡す」という読み方に揃う
+        //   ・引数 `bordered` そのものは残す(読み手がゼロにならない)
+        // **選択中のタブの下線(上の boxShadow)は選択の合図であって罫ではない。**
+        // ここでは触っていないことを、すぐ上の D-6 の検査が引き続き見ている。
+        {
+          const callIn = (fn) => (/<MetricUnderlineTabs[\s\S]*?\/>/.exec(srcOfFn(src, fn)) || [""])[0];
+          const mtc = callIn("MetricTabCard");
+          const cmp = callIn("ReedCompareTab");
+          check("D-30 §7.2 健全性: 2つの呼び出し(指標グラフカード / リード比較)を取れている",
+            mtc.length > 0 && cmp.length > 0, `MetricTabCard ${mtc.length}字 / ReedCompareTab ${cmp.length}字`);
+          check("D-30 §7.2: 指標グラフカード(カードの作法の2画面)は bordered を渡さない",
+            mtc.length > 0 && !/\bbordered\b/.test(mtc), mtc.replace(/\s+/g, " "));
+          check("D-30 §7.2: リード比較(罫の作法)は bordered を持ったまま(巻き込まれていない)",
+            /\bbordered\b/.test(cmp), cmp.replace(/\s+/g, " "));
+          // 渡し手はアプリ全体で**この1箇所だけ**。My Data(D-9y)も渡していない。
+          check("D-30 §7.2: bordered を渡す呼び出しは1箇所だけ(リード比較)",
+            (codeOf(src).match(/\bbordered\b/g) || []).length === 3,
+            `${(codeOf(src).match(/\bbordered\b/g) || []).length}箇所(引数の宣言 + 使用 + 呼び出し1)`);
+          check("D-30 §7.2: bordered の引数そのものは残っている(罫の作法の画面が使う)",
+            /bordered = false/.test(met)
+            && /borderBottom: bordered \? "1px solid var\(--c-line\)" : "none"/.test(met));
+        }
         check("D-6: 子タブも選択中だけ濃い太字(正典 .subtabs .on の芯は不変)",
           /color: sel \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(sub)
           && /fontWeight: sel \? 600 : 400/.test(sub));
@@ -14339,8 +14553,17 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       /\{reedsSubTab === "register" && \(/.test(tab));
     check("モード中は「…」の代わりにキャンセルと実行が出る", /\{listMode === null \? \(/.test(tab));
     // 個体詳細も一覧・比較と同じ左右の余白の中に置く(詳細だけ 14px になっていた実測を潰した)
+    // 【D-29 2026/09/03】個体詳細がカードの作法へ移り、地を画面の端まで届かせるために
+    // `.surf-card` が1枚外側に増えた。**左右の余白は内側の div が持つ**(値は不変)。
+    // `.surf-card` 自身に paddingLeft をインラインで書くと、index.css の
+    // padding-left: var(--page-pad-left) を殺して中身が 4px 外へずれる ── その形を禁じる。
     check("個体詳細も同じ左右の余白の枠の中にある",
-      /if \(evaluatingReed\) \{\s*\r?\n\s*return \(\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+    check("D-29: .surf-card 自身に左右の padding をインラインで書いていない(地の式を殺さない)",
+      !/<div className="surf-card"[^>]*padding/.test(tab),
+      (tab.match(/<div className="surf-card"[^>]*>/g) || []).join(" / "));
+    // (左右の余白の値そのものは 13259〜13265 が正典 .rlist と突き合わせている。
+    //  D-29 では1px も変えていないので、ここで書き直さない ── 罠3。)
     // 子タブの当たり判定(§5)。**見た目の間隔を変えずに**広げてあること
     check("子タブの文字の間隔は正典 .subtabs の gap と同じ",
       api.SUBTAB_GAP_PX === parseFloat(declOf(mockCss, ".subtabs", "gap")),
@@ -14691,6 +14914,128 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.3 D-1: 専用ページでは is-full が高さ制限を外す(別セレクタで上書き。1セレクタ1規則)",
       /\.slist\.is-full \{[^}]*overflow-y:\s*visible\s*;[^}]*max-height:\s*none\s*;/.test(cssIdx)
       && /className=\{listMode \? "slist is-full is-select" : "slist is-full"\}/.test(allSessionsPage));
+
+    // --- 26.3d 【D-30 2026/09/03 本人裁定・凍結仕様 design/D30-SPEC.md §2 = モックの案①】-----
+    // 本人「すべてのセッションもやって」→ モック allsessions-card-proposals.html を見て
+    // 「AとGが終わり次第案1ですすめて」。案①は **一覧だけを .card 1枚に入れ、
+    // 見出しと絞り込みは地の上に残す**(読む物と操る物を面で分ける)形。
+    //
+    // **この節が名乗れないこと**(罠1): 実機での見え方(地とカードの ΔL* 2.79 / 行が 32px 狭く
+    // なったときの副次行の切れ方 / 55件のスクロールの感触)。ここは綴りと CSS しか見ていない。
+    {
+      // 面の名乗りそのものは 16 節(D-30 §2.1)が見ている。ここは**中の器の置き方**を見る。
+      // (a) .card の直下が一覧であること = 一覧はカードの中にある(隣接で錨止め)
+      // 【D-31】カードは `card card-list` を名乗る(上下の余白だけ 4px にする例外)。
+      // **クラスが増えても隣接の主張は変わらない**ので、後ろに続くクラスを許す綴りで見る
+      // (綴りを1つずつ足すと、次に例外クラスが増えるたびにここが落ちる。罠4)。
+      check("26.3d D-30 §2.2: 一覧(.slist is-full)は .card 1枚のすぐ内側にある(案①)",
+        /<div className="card(?: [a-z-]+)*">\s*\r?\n\s*<div className=\{listMode \? "slist is-full is-select" : "slist is-full"\}>/.test(allSessionsPage),
+        (allSessionsPage.match(/<div className="card[^"]*">[\s\S]{0,80}/) || ["カードが無い"])[0].replace(/\s+/g, " "));
+      // (b) この画面のカードは**1枚だけ**。見出しや絞り込みを別のカードに入れる変異はここで落ちる。
+      {
+        const cards = allSessionsPage.match(/className="card(?: [a-z-]+)*"/g) || [];
+        check("26.3d D-30 §2.2: すべてのセッションのカードは1枚だけ(見出し・絞り込みに器を増やさない)",
+          cards.length === 1, `${cards.length}枚: ${cards.join(" / ")}`);
+      }
+      // (c) **カードの中に入っているのは一覧だけ。** <div> の入れ子を数えて範囲を求め、
+      //     見出し(件数・ゴミ箱)・絞り込み(ピル・クリア)・戻る導線が**その外**にあることを見る。
+      //     ここが案①の芯 ── 綴りの隣接((a))だけだと、カードを上へ広げて見出しごと
+      //     包む変異が (a) の直後の1行しか見ていないぶん素通りし得る。
+      {
+        // 【D-31】クラスが増えた(`card card-list`)ので、綴りの完全一致では取れなくなる。
+        // 開きタグを**正規表現で**探し、後ろに続くクラスを許す(罠4「正しい修正を落とす検査」)。
+        const open = (() => { const m = /<div className="card(?: [a-z-]+)*"/.exec(allSessionsPage); return m ? m.index : -1; })();
+        let inCard = null;
+        if (open >= 0) {
+          let depth = 0;
+          for (const m of allSessionsPage.slice(open).matchAll(/<div\b[^>]*?(\/)?>|<\/div>/g)) {
+            if (m[0] === "</div>") { depth -= 1; if (depth === 0) { inCard = allSessionsPage.slice(open, open + m.index); break; } }
+            else if (!m[1]) depth += 1;
+          }
+        }
+        check("26.3d D-30 健全性: 一覧を包む .card の範囲を入れ子から求められている(空回りしていない)",
+          inCard !== null && inCard.includes('className={listMode ? "slist is-full is-select" : "slist is-full"}'),
+          inCard === null ? "範囲を取れなかった" : `${inCard.length}文字`);
+        const outside = [
+          ["戻る導線(‹ My Data)", /onClick=\{onBack\}/],
+          ["見出しの語", /すべてのセッション/],
+          ["選択の入口(ゴミ箱)", /onClick=\{onStartSelect\}/],
+          ["絞り込みピル", /\{filterPill\(/],
+          ["クリア", /onClick=\{clearSessionFilters\}/],
+        ].filter(([, re]) => inCard !== null && re.test(inCard)).map(([n]) => n);
+        check("26.3d D-30 §2.2: カードの中にあるのは一覧だけ(見出し・絞り込み・戻る導線は地の上に残す)",
+          inCard !== null && outside.length === 0, outside.join(" / ") || "0件");
+        // (d) **`.card` の寸法をインラインで上書きしない**(§2.4 が名指しで禁じている)。
+        //     上書きすると、その要素だけ作法(角丸16 / padding 16 / --shadow-card)から外れる。
+        //     あわせて §3 の禁じ手(contain / content-visibility / will-change / transform)も
+        //     **この .card に**置いていないことを、同じ開きタグの中で見る。
+        const cardTag = (allSessionsPage.match(/<div className="card(?: [a-z-]+)*"([^>]*)>/) || [, ""])[1] || "";
+        check("26.3d D-30 §2.4: 一覧のカードは寸法をインラインで上書きしない(地・枠・padding・角丸・影)",
+          !/background|border|padding|borderRadius|boxShadow/i.test(cardTag), JSON.stringify(cardTag) || "属性なし");
+        check("26.3d D-30 §3: 一覧のカードに contain / content-visibility / will-change / transform を置かない",
+          !/contain|contentVisibility|content-visibility|willChange|will-change|transform/i.test(cardTag),
+          JSON.stringify(cardTag) || "属性なし");
+      }
+      // (e) **行の作りは 1px も変えない。** 唯一の例外が「最後の行の罫だけ消す」。
+      //     `.slist-row` の border-bottom を触る規則が **2つだけ**(定義本体と :last-child)で
+      //     あることを、セレクタの綴りごと突き合わせる ── 「全部の行から罫を消す」変異
+      //     (`.slist.is-full .slist-row { border-bottom: 0 }`)はここで落ちる。
+      {
+        const noComment = cssIdx.replace(/\/\*[\s\S]*?\*\//g, "");
+        const rowRules = [...noComment.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+          .map((m) => ({ sel: m[1].split(";").pop().trim().replace(/\s+/g, " "), body: m[2] }))
+          .filter((r) => /\.slist-row/.test(r.sel) && /border-bottom/.test(r.body));
+        // **書かれた順では見ない。** 上書きが効く根拠は詳細度 (0,4,0) > (0,1,0) であって
+        // 行の順序ではないので、順序を要件にすると「正しい並べ替え」を落とす(罠4)。
+        // 見るのは「どのセレクタが罫に触っているか」という集合そのもの。
+        const base = rowRules.find((r) => r.sel === ".slist-row");
+        const last = rowRules.find((r) => r.sel === ".slist.is-full .slist-row:last-child");
+        check("26.3d D-30 §2.3: .slist-row の罫に触る規則は2つだけ(定義本体 + 最後の1行)",
+          rowRules.length === 2 && base !== undefined && last !== undefined
+          && /border-bottom:\s*1px solid var\(--c-line\)\s*;/.test(base.body)
+          && /border-bottom:\s*0\s*;/.test(last.body),
+          rowRules.map((r) => `${r.sel} => ${r.body.replace(/\s+/g, " ").trim()}`).join(" | ") || "0件");
+        // 上書きは**詳細度の高い別セレクタ**で行い、`.slist-row` の定義そのものは触らない
+        // (index.css の「1セレクタ1規則」の芯。すぐ上の `.slist.is-full` が既に同じ手)。
+        check("26.3d D-30 §2.3: .slist-row の定義は1回しか書かれていない(末尾追記で作法を反転させない)",
+          (noComment.match(/(?:^|[};])\s*\.slist-row\s*\{/g) || []).length === 1,
+          `${(noComment.match(/(?:^|[};])\s*\.slist-row\s*\{/g) || []).length}回`);
+        // §3 の禁じ手は**行にもスクロールコンテナにも**置かない(iOS の再ペイント取りこぼし)。
+        const slistCss = noComment.slice(noComment.indexOf(".slist {"), noComment.indexOf(".slist-sub {"));
+        check("26.3d D-30 §3: .slist / .slist-row の CSS に contain / content-visibility / will-change / transform が無い",
+          slistCss.length > 200 && !/contain\s*:|content-visibility|will-change|transform\s*:/.test(slistCss),
+          `${slistCss.length}字 / ${(slistCss.match(/contain\s*:|content-visibility|will-change|transform\s*:/g) || []).join(" ") || "0件"}`);
+        // チェックボックスは **visibility: hidden のまま**(display:none / opacity:0 にしない)。
+        // 場所を確保したままにするのが F-106 のレイアウト不動の芯。
+        check("26.3d F-106: チェックボックスはモード外でも場所を確保する(visibility: hidden。display/opacity にしない)",
+          /\.slist-check \{[^}]*visibility:\s*hidden\s*;/.test(noComment)
+          && !/\.slist-check \{[^}]*display:\s*none/.test(noComment)
+          && !/\.slist-check \{[^}]*opacity:\s*0/.test(noComment)
+          && /\.slist\.is-select \.slist-check \{[^}]*visibility:\s*visible\s*;/.test(noComment));
+      }
+      // (f) **F-106 の芯: 行は listMode を見ない。** 見てよいのは「行タップの行き先」だけで、
+      //     class も style も構造もモードで変わらない(モードの切替は `.is-select` ただ1つ)。
+      //     ここが崩れると、モードの内外でレイアウトが動く道が開く。
+      {
+        const at = allSessionsPage.indexOf("key={s.id}");
+        const rowOpen = at < 0 ? -1 : allSessionsPage.lastIndexOf("<div", at);
+        const rowEnd = at < 0 ? -1 : allSessionsPage.indexOf("</div>", at);
+        const row = rowOpen >= 0 && rowEnd > rowOpen ? allSessionsPage.slice(rowOpen, rowEnd) : "";
+        check("26.3d D-30 健全性: 一覧の行の開きタグ〜閉じタグを取れている(空回りしていない)",
+          row.includes('className="sans slist-row"') && row.includes('className="slist-check"'),
+          `${row.length}文字`);
+        check("26.3d F-106: 行が listMode を見るのは「タップの行き先」の1箇所だけ",
+          (row.match(/listMode/g) || []).length === 1
+          && /onClick=\{\(\) => \(listMode \? toggleSessionSelected\(s\.id\) : onOpenSession\(s\.id\)\)\}/.test(row),
+          `${(row.match(/listMode/g) || []).length}箇所`);
+        check("26.3d F-106: 行の class は静的な文字列(モードで class を足し引きしない)",
+          /className="sans slist-row"/.test(row) && !/className=\{/.test(row),
+          (row.match(/className=[^\s]*/g) || []).join(" / "));
+        check("26.3d F-106: 行の開きタグに style 属性を置かない(寸法は index.css が持つ)",
+          rowOpen >= 0 && !/ style=\{/.test(allSessionsPage.slice(rowOpen, allSessionsPage.indexOf(">", rowOpen))),
+          allSessionsPage.slice(rowOpen, allSessionsPage.indexOf(">", rowOpen) + 1).replace(/\s+/g, " "));
+      }
+    }
     // 【N-10 / F-108】見出しの右は正典 案K の .ops =「↥ 取り込み」「選択」の2つ。
     {
       const opsBlock = /<span class="ops">([\s\S]*?)<\/span><\/div>/.exec(kBlock)
@@ -16567,11 +16912,45 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.2 D-5: 音階ごとの平均の表は画面ごと無い(列を絞る話ではなく表が消えた)",
     !/>目安との差<\/th>/.test(det29) && !/<th/.test(codeOf(det29)),
     `th ${(codeOf(det29).match(/<th/g) || []).length}個`);
-  check("29.2 タイムラインの罫は2本(タイムライン / ドリルダウン)",
-    (codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 2,
+  // 【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】タイムラインの上辺の罫を**外した**。
+  // N-9 のコメント自身が「計測/リード/My Data と同じ文法」= 罫の作法のための罫だと書いており、
+  // D-29 でセッション詳細がカードの作法へ移った時点で §6.6(カードは罫を1本も引かない)と
+  // 矛盾していた。**この部品の使い手はセッション詳細1箇所だけ**なので他画面に波及しない。
+  //
+  // 【D-31 2026/09/03 統括裁定】D-30 は上辺の1本しか外さず、**ドリルダウン**(`selectedFrame`
+  // を選んだときだけ現れる群)の上辺が残っていた。D-30 §7.1 の呼び出し元の表がこの1本を
+  // **数え漏らし**、§7.2 が「両方とも外す。結果、罫0本になる」と断言していた
+  // (「既定では見えない」は完了条件の言い換えにならない ── 本人は実機でタイムラインを触る)。
+  // **D-31 でこの1本も外した。PhraseTimeline の罫は 0本。**
+  check("29.2 D-31: PhraseTimeline に --c-rule の横線が1本も無い(ドリルダウンの分も外した)",
+    (codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length === 0,
     `${(codeOf(pt29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
-  check("29.2 ドリルダウンの群が罫を持つ(隣接: selectedFrame の分岐の直下)",
-    /\{selectedFrame && \(\s*<div style=\{\{ borderTop: "1px solid var\(--c-rule\)", padding: "10px 0" \}\}>/.test(pt29));
+  // 綴りを1つ塞いだだけにならないよう、**罫になり得る宣言の集合**で見る
+  // (borderBottom / --c-line / 直値の #E1E6EC などで書き直す変異もここで落ちる)。
+  {
+    const lines = (codeOf(pt29).match(/border(?:Top|Bottom)\s*:\s*"[^"]*"/g) || [])
+      .filter((s) => !/:\s*"(0|none)"/.test(s));
+    check("29.2 D-31: PhraseTimeline は borderTop / borderBottom の横線を1本も持たない(綴りを変えても通らない)",
+      lines.length === 0, lines.join(" | ") || "0本");
+  }
+  // 罫を外しても**余白は 1px も動かしていない**こと(群の間隔まで一緒に動くのを防ぐ)。
+  // 隣接で見る ── タイムラインの見出し「タイムライン」を持つ群の開きタグそのもの。
+  check("29.2 D-30 §7.2: タイムラインの群は罫を持たず、余白(10px 0 / 下 10)はそのまま",
+    /<div style=\{\{ padding: "10px 0", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "#435266", marginBottom: 8 \}\}>/.test(pt29));
+  // 【D-31】切れ目は**余白だけ**で作る。ドリルダウンの群の開きタグを隣接で錨止めし、
+  // 「罫が無い」ことと「余白が残っている」ことを同時に見る(罫だけ外して余白まで
+  // 落とすと、タイムライン本体と地続きになる)。
+  check("29.2 D-31: ドリルダウンの群は罫を持たず、余白 10px 0 だけで切る(隣接: selectedFrame の分岐の直下)",
+    /\{selectedFrame && \(\s*<div style=\{\{ padding: "10px 0" \}\}>/.test(pt29));
+  // **新しい寸法を作っていない**こと: ドリルダウンの上下の余白は、すぐ上の群と**同じ値**。
+  // 期待値を "10px" と書き写すと恒真になるので、**上の群の padding から読んで**突き合わせる。
+  {
+    const above = /<div style=\{\{ padding: "([^"]+)", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "#435266", marginBottom: 8 \}\}>/.exec(pt29);
+    const drill = /\{selectedFrame && \(\s*<div style=\{\{ padding: "([^"]+)" \}\}>/.exec(pt29);
+    check("29.2 D-31: ドリルダウンの余白は、すぐ上の群の padding と同じ値(新しい寸法を作っていない)",
+      above !== null && drill !== null && above[1] === drill[1],
+      `上の群 ${above ? above[1] : "取れず"} / ドリルダウン ${drill ? drill[1] : "取れず"}`);
+  }
   // 【D-3】戻る導線と見出しの間にも罫は無い(共通部品 DetailHeader が余白だけで分ける)。
   check("29.2 D-3: 戻る導線と見出しの間に罫を引いていない",
     !/borderBottom/.test(codeOf(srcOfFn(src, "DetailHeader"))));
@@ -16811,14 +17190,51 @@ console.log("\n========== 検証30: 実機フィードバック(F-97〜F-104 / F
         on !== null && /visibility:\s*visible\s*;/.test(on[1]) && /pointer-events:\s*auto\s*;/.test(on[1])
         && !/(width|height|display|margin|padding|flex|opacity)\s*:/.test(on[1]),
         on ? on[1].replace(/\s+/g, " ").trim() : "規則が無い");
-      // (f) 一覧の行・スクロールコンテナに合成レイヤ系のプロパティを置かない
-      const listRules = [".slist ", ".slist{", ".slist ", ".slist-row", ".slist-check", ".slist-main", ".slist-date", ".slist-sub"];
-      const listCss = [...css30.matchAll(/(\.slist[\w.-]*(?:\s+\.[\w-]+)?)\s*\{([^}]*)\}/g)];
-      check("30.1 F-106: 一覧の CSS 規則を走査できている(空回りしていない)",
-        listCss.length >= 5 && listRules.length > 0, `${listCss.length}規則`);
-      const layered = listCss.filter(([, , body]) => /contain\s*:|content-visibility\s*:|will-change\s*:|transform\s*:/.test(body));
-      check("30.1 F-106: 一覧の行にもスクロールコンテナにも contain / content-visibility / will-change / transform が無い",
-        layered.length === 0, layered.map((m) => m[1]).join(",") || "0件");
+      // (f) 一覧の行・スクロールコンテナ・**かぶせたカード**に合成レイヤ系のプロパティを置かない
+      //
+      // 【D-31 2026/09/03 統括裁定で走査を広げた ── D-30 が自分で作った穴】
+      // D-30 §3 は不変条件を「**今回かぶせる .card にも置かない**」まで広げたのに、
+      // 新設した検査 26.3d は**開きタグのインライン属性の文字列しか見ておらず**、
+      // ここ(30.1)の走査対象は `.slist` 系のセレクタに閉じていた。結果、**CSS に1行足す経路**が
+      // 素通りした(実測。PASS 7263 / FAIL 0 のまま4本とも生存):
+      //     .surf-card .card { contain: layout paint; }
+      //     .surf-card .card { content-visibility: auto; }
+      //     .surf-card .card { transform: translateZ(0); }
+      //     .card { padding: var(--sp-4); contain: layout paint; }
+      // (will-change だけは下の「アプリ全体で1つも使っていない」が拾って FAIL 1 になっていた。)
+      // **同じ型の失敗が src/index.css:717-726 に F-83 として文章で残っている** ──
+      // 「JSX のインライン style を見る検査を足したが、CSS 側に1行足す経路が素通りした」。
+      //
+      // 走査は**クラスのトークン**で決める(綴りの列挙にしない)。対象は
+      //   ・一覧(`slist` で始まるクラス。行・スクロールコンテナ・チェックボックス…)
+      //   ・面の作法のカード(`card` / `card-*` / `rowcard` / `surf-card`)
+      // `sheet-card` のような**別物の -card** は入れない(トークンの完全一致 + `card-` 接頭辞)。
+      //
+      // **この検査が名乗れないこと**(罠1): これは「iOS で再ペイントを取りこぼさない」ことの
+      // 証明ではない(F-106 の症状は Chrome で一度も再現していない)。固定できるのは
+      // 「恒久的なレイヤ昇格を CSS からも JSX からも書けない」という構造だけ。
+      const GUARDED = (tok) =>
+        /^slist/.test(tok) || tok === "card" || tok === "rowcard" || tok === "surf-card"
+        || tok.startsWith("card-") || tok.startsWith("rowcard-");
+      const LAYER_RE = /(?:^|[;{])\s*(contain|content-visibility|will-change|transform)\s*:/;
+      // コメントを剥がしてから規則へ分解する(経緯を書いたコメントの中の語を宣言と誤認しない)。
+      const cssNoComment30 = css30.replace(/\/\*[\s\S]*?\*\//g, "");
+      const allRules30 = [...cssNoComment30.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .map((m) => ({ sel: m[1].split(";").pop().trim().replace(/\s+/g, " "), body: m[2] }))
+        .filter((r) => r.sel && !r.sel.startsWith("@") && !/^\d+%/.test(r.sel) && r.sel !== "from" && r.sel !== "to");
+      const guardedRules30 = allRules30.filter((r) =>
+        (r.sel.match(/\.[A-Za-z][\w-]*/g) || []).some((c) => GUARDED(c.slice(1))));
+      // 空回り防止: 一覧の規則もカードの規則も**両方**掴めていること(片方だけだと穴が残る)。
+      const gSels = guardedRules30.map((r) => r.sel);
+      check("30.1 F-106 健全性: 一覧とカードの CSS 規則を両方走査できている(空回りしていない)",
+        guardedRules30.length >= 12
+        && gSels.some((s) => s === ".slist-row") && gSels.some((s) => s === ".surf-card .card")
+        && gSels.some((s) => s === ".card") && gSels.some((s) => s === ".surf-card .rowcard"),
+        `${guardedRules30.length}規則: ${gSels.join(" | ")}`);
+      const layered = guardedRules30.filter((r) => LAYER_RE.test(";" + r.body));
+      check("30.1 F-106: 一覧の行・スクロールコンテナ・カード(.card / .rowcard / .surf-card)の CSS に contain / content-visibility / will-change / transform が無い",
+        layered.length === 0,
+        layered.map((r) => `${r.sel} => ${r.body.replace(/\s+/g, " ").trim()}`).join(" | ") || "0件");
     }
     // (g) 祖先(SwipePager の track)からも will-change を外した。
     //     一覧のスクロールコンテナは SwipePager の子孫にあり、恒久的なレイヤ昇格は
@@ -17952,6 +18368,66 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
         !!row && Math.abs(parseFloat(row[1]) - ratio(want, bg)) < 0.01,
         `規範 ${row ? row[1] : "行なし"} / 計算 ${ratio(want, bg).toFixed(2)}`);
     }
+  }
+
+  // --- 34.6 【D-31 2026/09/03 統括裁定】一覧のカードだけ上下の余白が 4px ------------
+  // 本人が選定したモック(design/allsessions-card-proposals.html の案①)は
+  // `.card.tight { padding: 4px 14px }`。素の .card(16px)で出していたため、実測で
+  // **先頭行の上と最終行の下が +12px ずつ厚かった**。
+  //
+  // **統括の裁定はモックの値そのままではない**: 左右はモックの 14px を採らず --sp-4(16px)。
+  // 14px は --page-side-pad(ページの左右余白)の値で、カードの内側の余白としては意味が違う。
+  // 左右を他のカードに揃えれば横位置が揃い、モックとの差は 2px に収まる。
+  // (モックは統括が描いたもので、D-10 のように本人がキャンバスで決めた値ではない ──
+  //  「体系の外だが本人の決定」として逆輸入する対象ではない。)
+  //
+  // **期待値の取り方(罠3)**: 上下は**モックの HTML から読む**、左右は**`.surf-card .card` の
+  // 宣言から読む**。どちらも index.css の `.card-list` の式を書き写していないので、
+  // 値を変える変異はここで落ちる。
+  {
+    const noC = cssD15.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rulesOf = (sel) => [...noC.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((r) => ({ sel: r[1].split(";").pop().trim().replace(/\s+/g, " "), body: r[2] }))
+      .filter((r) => r.sel === sel);
+    const listRule = rulesOf(".surf-card .card.card-list");
+    check("34.6 D-31: 規則 .surf-card .card.card-list が1つだけある(後勝ちの上書きが無い)",
+      listRule.length === 1, `${listRule.length}回`);
+    const body = listRule.length === 1 ? listRule[0].body : "";
+    const names = body.split(";").map((s) => s.trim()).filter(Boolean).map((s) => s.split(":")[0].trim());
+    check("34.6 D-31: 変えるのは余白だけ(地・影・角丸・枠を上書きしていない)",
+      names.length === 1 && names[0] === "padding", names.join(" ") || "0宣言");
+    const pad = (/padding:\s*([^;]+)/.exec(body) || [, ""])[1].trim().split(/\s+/);
+    check("34.6 D-31: padding は「上下 / 左右」の2値で書く(4辺を別々に持たない)",
+      pad.length === 2, pad.join(" ") || "読めず");
+    // --- 上下: モック(正典)の `.card.tight` の**縦の値**と、トークンの実値を突き合わせる ---
+    {
+      const mock = readFileSync(join(__dirname, "..", "design", "allsessions-card-proposals.html"), "utf8");
+      const tight = /\.card\.tight\s*\{\s*padding:\s*([^;}]+)[;}]/.exec(mock);
+      check("34.6 D-31 健全性: モック(案①)から .card.tight の padding を読めている",
+        tight !== null, tight ? tight[1].trim() : "読めず");
+      const wantV = tight ? tight[1].trim().split(/\s+/)[0] : null;   // "4px"
+      const tokenV = (/--sp-1:\s*([^;]+);/.exec(noC) || [, ""])[1].trim();
+      check("34.6 D-31: 上下の余白はモックの縦の値と同じ(トークン --sp-1 で書く。直値を置かない)",
+        pad[0] === "var(--sp-1)" && tokenV === wantV,
+        `実装 ${pad[0]} / --sp-1 = ${tokenV} / モックの縦 ${wantV}`);
+    }
+    // --- 左右: **他のカードと同じ**。`.surf-card .card` の padding から読む(書き写さない) ---
+    {
+      const base = rulesOf(".surf-card .card");
+      const basePad = base.length === 1 ? (/padding:\s*([^;]+)/.exec(base[0].body) || [, ""])[1].trim() : null;
+      check("34.6 D-31 健全性: .surf-card .card の padding を読めている", basePad !== null && basePad !== "", String(basePad));
+      check("34.6 D-31: 左右は他のカードと同じ(モックの 14px = --page-side-pad は採らない)",
+        pad[1] === basePad, `実装 ${pad[1]} / 他のカード ${basePad}`);
+      // 左右を変えていない = 行の x と幅・副次行の幅が D-30 のまま、という主張の根拠。
+      check("34.6 D-31: 左右にページの余白トークン(--page-side-pad / --page-pad-*)を持ち込んでいない",
+        !/page-(side-)?pad/.test(body), body.replace(/\s+/g, " ").trim());
+    }
+    // 名乗る側は**すべてのセッションの一覧を包むカード1枚だけ**。
+    const listCards = (codeD15.match(/className="card card-list"/g) || []).length;
+    check("34.6 D-31: card-list を名乗るカードはアプリ全体で1枚だけ",
+      listCards === 1 && (codeD15.match(/card-list/g) || []).length === 1, `${listCards}枚`);
+    check("34.6 D-31: その1枚は「すべてのセッション」の一覧を包むカード",
+      /<div className="card card-list">\s*\r?\n\s*<div className=\{listMode \? "slist is-full is-select" : "slist is-full"\}>/.test(codeD15));
   }
   console.log("  -> done");
 }

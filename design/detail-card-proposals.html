@@ -1,0 +1,665 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>個別セッション / 個別リード をカードにする — 案</title>
+<style>
+  :root{
+    /* 値はすべて src/index.css のトークンそのもの。新しい色・寸法は1つも作っていない */
+    --ink:#121F32; --ink2:#435266; --ink3:#8D95A1; --ink4:#A6AEBA;
+    --line:#E9ECF0; --line2:#C3CAD3; --rule:#E1E6EC;
+    --accent:#174585; --accent-mid:#7FA0CE; --accent-line:#B9C9E4; --accent-tint:#EAEFF5;
+    --on-accent:#FFFFFF; --on-accent-dim:#B9C9E4;
+    --sunk:#F6F7F9; --sunken:#EEF1F4; --surface:#FFFFFF;
+    --good:#16A34A;
+    --sh-card:0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:22px 16px 4px;max-width:1240px;margin:0 auto}
+  h1{font-size:18px;margin:0 0 10px}
+  h2.sec{font-size:15px;margin:34px auto 2px;padding:0 16px;max-width:1240px}
+  h3{font-size:14px;margin:26px auto 6px;padding:0 16px;max-width:1240px}
+  .lead{font-size:13px;color:var(--ink2);line-height:1.85;margin:0 auto 6px;padding:0 16px;max-width:1240px}
+  b{color:var(--ink)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;justify-content:center;padding:16px 12px 8px}
+  .col{width:375px;max-width:100%}
+  .tag{display:flex;align-items:baseline;gap:8px;margin:0 0 8px 2px;flex-wrap:wrap}
+  .tag .n{font-size:15px;font-weight:700}
+  .tag .s{font-size:12px;color:var(--ink3)}
+  .tag .rec{font-size:11px;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-weight:700}
+  .cap{font-size:12px;color:var(--ink2);line-height:1.85;margin:10px 2px 0}
+  .cap .ok{color:#1D6B4A;font-weight:600}
+  .cap .ng{color:#B0433A;font-weight:600}
+
+  /* ---- 端末の枠 ---- */
+  .phone{position:relative;width:375px;height:700px;border-radius:26px;overflow:hidden;
+    box-shadow:0 2px 14px rgba(20,30,50,.10);background:#fff}
+  .scr{position:absolute;inset:0 0 47px 0;overflow:hidden}
+  .nav{position:absolute;left:0;right:0;bottom:0;height:47px;border-top:1px solid var(--line);
+    display:flex;background:#fff}
+  .nav div{flex:1;display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--ink3)}
+  .nav .on{color:var(--accent);font-weight:700}
+
+  /* ---- 面の作法 ---- */
+  .rule{background:#fff;padding:12px 14px 0}          /* 罫（いまの姿） */
+  .cardsurf{background:var(--sunk);padding:12px 14px 0;height:100%}  /* カード（.surf-card） */
+  .card{background:var(--surface);border-radius:16px;padding:16px;box-shadow:var(--sh-card)}
+  .card + .card{margin-top:12px}
+  .card.acc{background:var(--accent)}
+  .rowcard{background:var(--surface);border-radius:12px;padding:10px 14px;box-shadow:var(--sh-card)}
+  .rulecard{border-top:1px solid var(--rule);padding:14px 0 0;margin-top:14px}
+  .rulecard.first{border-top:0;margin-top:0;padding-top:0}
+
+  /* ---- 部品 ---- */
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:2px}
+  .back{font-size:12px;color:var(--ink2)}
+  .acts{display:flex;gap:14px;font-size:11.5px;color:var(--accent);font-weight:600}
+  .ttl{display:flex;align-items:baseline;gap:8px;margin-top:6px}
+  .ttl .d{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .ttl .t{font-size:12px;color:var(--ink3)}
+  .meta{font-size:11.5px;color:var(--ink3);margin-top:5px;line-height:1.6}
+  .eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--ink3)}
+  .eyebrow.out{padding:0 4px 7px}
+  .tabs{display:flex;gap:16px;font-size:12.5px;color:var(--ink3);padding-bottom:12px}
+  .tabs .on{color:var(--ink);font-weight:700;box-shadow:inset 0 -2px 0 var(--accent);padding-bottom:3px}
+  .memo{font-size:12.5px;color:var(--ink2);line-height:1.75}
+  .memo.ph{color:var(--ink4)}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* 点数の3列 */
+  .scores{display:flex}
+  .scores > div{flex:1;text-align:center}
+  .scores .lb{font-size:10.5px;color:var(--ink3);letter-spacing:.06em}
+  .scores .v{font-size:26px;font-weight:700;margin-top:2px}
+  .scores .v s{font-size:12px;font-weight:600;color:var(--ink3);text-decoration:none;margin-left:1px}
+  .acc .scores .lb{color:var(--on-accent-dim)}
+  .acc .scores .v{color:var(--on-accent)}
+  .acc .scores .v s{color:var(--on-accent-dim)}
+  .acc .eyebrow{color:var(--on-accent-dim)}
+  .acc .ttl .d{color:var(--on-accent)}
+  .acc .ttl .t,.acc .meta{color:var(--on-accent-dim)}
+
+  .fab{position:absolute;right:14px;bottom:61px;height:44px;padding:0 18px;border-radius:999px;
+    background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;
+    box-shadow:0 4px 14px rgba(18,31,50,.18)}
+  .note{font-size:11px;color:var(--ink3);margin-top:9px}
+</style>
+
+<header>
+<h1>個別セッション / 個別リード を「カード」の作法へ — 案</h1>
+<p class="lead">
+本人指示「<b>mydata タブで複数カードを解禁したので、個別セッションとか個別リードとかそういうところにもカード化して見やすくしたい。
+計測タブとリードタブの Top 画面以外は適切にカード使っていい</b>」。<br>
+<code>DESIGN-SYSTEM.md §6.6</code> は「カードの作法は My Data と分析タブの2画面まで。<b>他の画面へ広げるときは、また本人の裁定が要る</b>」と
+書いてあり、<b>この指示がその裁定</b>にあたります。範囲は「計測タブ Top・リードタブ Top を除く全部」。<br>
+値はすべて <code>src/index.css</code> のトークンそのままで、<b>新しい色も寸法も1つも作っていません</b>
+（地 <code>--c-sunk</code> / カード 角丸16・内側16・<code>--shadow-card</code> / カードの間 12px / <b>罫は1本も引かない</b>）。
+</p>
+<p class="lead" style="margin-top:8px">
+<b>いちばん左が「いまの姿（罫）」</b>です。まずそれと見比べてください。
+</p>
+</header>
+
+<!-- ===================== ① セッション詳細 ===================== -->
+<h2 class="sec">① 個別セッション（現状 + 4案）</h2>
+<p class="lead">中身は4つ：<b>見出し</b>（日付・時刻・奏者/楽器/リード/長さ・目安にする・編集）／<b>指標グラフ</b>（タブ4つ）／<b>録音</b>（タイムライン）／<b>メモ</b>。</p>
+
+<div class="row">
+
+  <!-- 現状 -->
+  <div class="col">
+    <div class="tag"><span class="n">現状</span><span class="s">罫（<code>.surf-rule</code>）</span></div>
+    <div class="phone"><div class="scr"><div class="rule">
+      <div class="hdr"><div class="back">‹ 一覧</div><div class="acts"><span>★ 目安にする</span><span>編集</span></div></div>
+      <div class="ttl"><span class="d num">8/26</span><span class="t num">14:32</span></div>
+      <div class="meta">自分 · Alto · Vandoren-3 #1 · <span class="num">21.7</span>秒</div>
+
+      <div class="rulecard">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="343" height="112" viewBox="0 0 343 112">
+          <line x1="0" y1="56" x2="343" y2="56" stroke="#C3CAD3" stroke-width="1"/>
+          <line x1="0" y1="28" x2="343" y2="28" stroke="#E9ECF0"/><line x1="0" y1="84" x2="343" y2="84" stroke="#E9ECF0"/>
+          <path d="M20,44 L100,62 L180,38 L260,70 L330,50" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M20,52 L330,52" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="rulecard">
+        <div class="eyebrow" style="padding-bottom:10px">録音</div>
+        <svg width="343" height="60" viewBox="0 0 343 60">
+          <g fill="#B9C9E4">
+            <rect x="6" y="22" width="3" height="16" rx="1.5"/><rect x="14" y="14" width="3" height="32" rx="1.5"/>
+            <rect x="22" y="10" width="3" height="40" rx="1.5"/><rect x="30" y="18" width="3" height="24" rx="1.5"/>
+            <rect x="38" y="24" width="3" height="12" rx="1.5"/>
+            <rect x="80" y="16" width="3" height="28" rx="1.5"/><rect x="88" y="8" width="3" height="44" rx="1.5"/>
+            <rect x="96" y="12" width="3" height="36" rx="1.5"/><rect x="104" y="20" width="3" height="20" rx="1.5"/>
+            <rect x="150" y="20" width="3" height="20" rx="1.5"/><rect x="158" y="11" width="3" height="38" rx="1.5"/>
+            <rect x="166" y="16" width="3" height="28" rx="1.5"/><rect x="174" y="24" width="3" height="12" rx="1.5"/>
+            <rect x="228" y="18" width="3" height="24" rx="1.5"/><rect x="236" y="9" width="3" height="42" rx="1.5"/>
+            <rect x="244" y="14" width="3" height="32" rx="1.5"/><rect x="252" y="22" width="3" height="16" rx="1.5"/>
+            <rect x="300" y="21" width="3" height="18" rx="1.5"/><rect x="308" y="13" width="3" height="34" rx="1.5"/>
+            <rect x="316" y="19" width="3" height="22" rx="1.5"/>
+          </g>
+          <g fill="#174585"><rect x="6" y="54" width="38" height="3" rx="1.5"/><rect x="80" y="54" width="30" height="3" rx="1.5"/>
+            <rect x="150" y="54" width="28" height="3" rx="1.5"/><rect x="228" y="54" width="28" height="3" rx="1.5"/></g>
+        </svg>
+        <div class="meta" style="margin-top:6px">検出 <span class="num">4</span>音 · 平均アタック <span class="num">164</span>ms</div>
+      </div>
+
+      <div class="rulecard">
+        <div class="memo ph">メモ</div>
+      </div>
+    </div></div>
+    <div class="nav"><div class="on">計測</div><div>リード</div><div>データ</div></div></div>
+    <p class="cap">罫が3本。<span class="ng">群の切れ目が細い線1本だけ</span>なので、スクロールすると「どこまでが録音の話か」が読み取りにくい。</p>
+  </div>
+
+  <!-- 案A -->
+  <div class="col">
+    <div class="tag"><span class="n">案A　素直に移す</span><span class="s">罫 → カード。並びは1つも変えない</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div><div class="acts"><span>★ 目安にする</span><span>編集</span></div></div>
+      <div class="ttl"><span class="d num">8/26</span><span class="t num">14:32</span></div>
+      <div class="meta" style="margin-bottom:12px">自分 · Alto · Vandoren-3 #1 · <span class="num">21.7</span>秒</div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="104" viewBox="0 0 311 104">
+          <line x1="0" y1="52" x2="311" y2="52" stroke="#C3CAD3"/>
+          <line x1="0" y1="26" x2="311" y2="26" stroke="#E9ECF0"/><line x1="0" y1="78" x2="311" y2="78" stroke="#E9ECF0"/>
+          <path d="M16,40 L90,58 L162,34 L236,66 L298,46" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow" style="padding-bottom:10px">録音</div>
+        <svg width="311" height="58" viewBox="0 0 311 58">
+          <g fill="#B9C9E4">
+            <rect x="4" y="21" width="3" height="16" rx="1.5"/><rect x="12" y="13" width="3" height="32" rx="1.5"/>
+            <rect x="20" y="9" width="3" height="40" rx="1.5"/><rect x="28" y="17" width="3" height="24" rx="1.5"/>
+            <rect x="72" y="15" width="3" height="28" rx="1.5"/><rect x="80" y="7" width="3" height="44" rx="1.5"/>
+            <rect x="88" y="11" width="3" height="36" rx="1.5"/>
+            <rect x="136" y="19" width="3" height="20" rx="1.5"/><rect x="144" y="10" width="3" height="38" rx="1.5"/>
+            <rect x="152" y="15" width="3" height="28" rx="1.5"/>
+            <rect x="206" y="17" width="3" height="24" rx="1.5"/><rect x="214" y="8" width="3" height="42" rx="1.5"/>
+            <rect x="222" y="13" width="3" height="32" rx="1.5"/>
+            <rect x="272" y="20" width="3" height="18" rx="1.5"/><rect x="280" y="12" width="3" height="34" rx="1.5"/>
+          </g>
+          <g fill="#174585"><rect x="4" y="52" width="34" height="3" rx="1.5"/><rect x="72" y="52" width="26" height="3" rx="1.5"/>
+            <rect x="136" y="52" width="26" height="3" rx="1.5"/><rect x="206" y="52" width="26" height="3" rx="1.5"/></g>
+        </svg>
+        <div class="meta" style="margin-top:6px">検出 <span class="num">4</span>音 · 平均アタック <span class="num">164</span>ms</div>
+      </div>
+
+      <div class="card"><div class="memo ph">メモ</div></div>
+    </div></div>
+    <div class="nav"><div class="on">計測</div><div>リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">切れ目がはっきりする。</span>変更が小さく、戻すのも簡単。<br>
+    <span class="ng">主役が無い。</span>3枚が同じ重さで並ぶので、開いた瞬間に目が行く先が決まらない。</p>
+  </div>
+
+  <!-- 案B -->
+  <div class="col">
+    <div class="tag"><span class="n">案B　見出しも濃紺のカードに</span><span class="rec">推し</span><span class="s">My Data の累計カードと同じ手</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div><div class="acts"><span>★ 目安にする</span><span>編集</span></div></div>
+      <div class="card acc" style="margin-top:8px">
+        <div class="ttl" style="margin-top:0"><span class="d num">8/26</span><span class="t num">14:32</span></div>
+        <div class="meta" style="margin-top:6px">自分 · Alto · Vandoren-3 #1 · <span class="num">21.7</span>秒</div>
+      </div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="104" viewBox="0 0 311 104">
+          <line x1="0" y1="52" x2="311" y2="52" stroke="#C3CAD3"/>
+          <line x1="0" y1="26" x2="311" y2="26" stroke="#E9ECF0"/><line x1="0" y1="78" x2="311" y2="78" stroke="#E9ECF0"/>
+          <path d="M16,40 L90,58 L162,34 L236,66 L298,46" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow" style="padding-bottom:10px">録音</div>
+        <svg width="311" height="58" viewBox="0 0 311 58">
+          <g fill="#B9C9E4">
+            <rect x="4" y="21" width="3" height="16" rx="1.5"/><rect x="12" y="13" width="3" height="32" rx="1.5"/>
+            <rect x="20" y="9" width="3" height="40" rx="1.5"/><rect x="28" y="17" width="3" height="24" rx="1.5"/>
+            <rect x="72" y="15" width="3" height="28" rx="1.5"/><rect x="80" y="7" width="3" height="44" rx="1.5"/>
+            <rect x="88" y="11" width="3" height="36" rx="1.5"/>
+            <rect x="136" y="19" width="3" height="20" rx="1.5"/><rect x="144" y="10" width="3" height="38" rx="1.5"/>
+            <rect x="152" y="15" width="3" height="28" rx="1.5"/>
+            <rect x="206" y="17" width="3" height="24" rx="1.5"/><rect x="214" y="8" width="3" height="42" rx="1.5"/>
+            <rect x="222" y="13" width="3" height="32" rx="1.5"/>
+          </g>
+          <g fill="#174585"><rect x="4" y="52" width="34" height="3" rx="1.5"/><rect x="72" y="52" width="26" height="3" rx="1.5"/>
+            <rect x="136" y="52" width="26" height="3" rx="1.5"/><rect x="206" y="52" width="26" height="3" rx="1.5"/></g>
+        </svg>
+        <div class="meta" style="margin-top:6px">検出 <span class="num">4</span>音 · 平均アタック <span class="num">164</span>ms</div>
+      </div>
+
+      <div class="card"><div class="memo ph">メモ</div></div>
+    </div></div>
+    <div class="nav"><div class="on">計測</div><div>リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">開いた瞬間に「これは 8/26 14:32 の記録」が立つ。</span>
+    一覧から飛んできた文脈にそのまま答える。My Data の累計カードと同じ手なので<b>体系が増えない</b>
+    （<code>.card.card-accent</code> は既にある）。<br>
+    <span class="ng">濃紺が画面に2箇所（見出し + 下のナビ）</span>になるので、うるさく感じたら案A。</p>
+  </div>
+
+</div>
+
+<div class="row">
+
+  <!-- 案C -->
+  <div class="col">
+    <div class="tag"><span class="n">案C　見出しをカードの外へ</span><span class="s">カードは中身だけを持つ</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div><div class="acts"><span>★ 目安にする</span><span>編集</span></div></div>
+      <div class="ttl"><span class="d num">8/26</span><span class="t num">14:32</span></div>
+      <div class="meta" style="margin-bottom:14px">自分 · Alto · Vandoren-3 #1 · <span class="num">21.7</span>秒</div>
+
+      <div class="eyebrow out">指標</div>
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="104" viewBox="0 0 311 104">
+          <line x1="0" y1="52" x2="311" y2="52" stroke="#C3CAD3"/>
+          <line x1="0" y1="26" x2="311" y2="26" stroke="#E9ECF0"/><line x1="0" y1="78" x2="311" y2="78" stroke="#E9ECF0"/>
+          <path d="M16,40 L90,58 L162,34 L236,66 L298,46" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="eyebrow out" style="padding-top:14px">録音</div>
+      <div class="card" style="margin-top:0">
+        <svg width="311" height="58" viewBox="0 0 311 58">
+          <g fill="#B9C9E4">
+            <rect x="4" y="21" width="3" height="16" rx="1.5"/><rect x="12" y="13" width="3" height="32" rx="1.5"/>
+            <rect x="20" y="9" width="3" height="40" rx="1.5"/><rect x="28" y="17" width="3" height="24" rx="1.5"/>
+            <rect x="72" y="15" width="3" height="28" rx="1.5"/><rect x="80" y="7" width="3" height="44" rx="1.5"/>
+            <rect x="88" y="11" width="3" height="36" rx="1.5"/>
+            <rect x="136" y="19" width="3" height="20" rx="1.5"/><rect x="144" y="10" width="3" height="38" rx="1.5"/>
+            <rect x="152" y="15" width="3" height="28" rx="1.5"/>
+            <rect x="206" y="17" width="3" height="24" rx="1.5"/><rect x="214" y="8" width="3" height="42" rx="1.5"/>
+            <rect x="222" y="13" width="3" height="32" rx="1.5"/>
+          </g>
+          <g fill="#174585"><rect x="4" y="52" width="34" height="3" rx="1.5"/><rect x="72" y="52" width="26" height="3" rx="1.5"/>
+            <rect x="136" y="52" width="26" height="3" rx="1.5"/><rect x="206" y="52" width="26" height="3" rx="1.5"/></g>
+        </svg>
+        <div class="meta" style="margin-top:6px">検出 <span class="num">4</span>音 · 平均アタック <span class="num">164</span>ms</div>
+      </div>
+
+      <div class="eyebrow out" style="padding-top:14px">メモ</div>
+      <div class="card" style="margin-top:0"><div class="memo ph">（未記入）</div></div>
+    </div></div>
+    <div class="nav"><div class="on">計測</div><div>リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">「何の話か」がカードの外で読めるので、カードの中は中身だけになる。</span>
+    指標カードにも名前が付き、3枚の粒が揃う。<br>
+    <span class="ng">縦に伸びる。</span>見出しのぶん1枚あたり約 21px 増える。</p>
+  </div>
+
+  <!-- 案D -->
+  <div class="col">
+    <div class="tag"><span class="n">案D　まとめて2枚に</span><span class="s">指標と録音は「同じ録音の話」</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div><div class="acts"><span>★ 目安にする</span><span>編集</span></div></div>
+      <div class="ttl"><span class="d num">8/26</span><span class="t num">14:32</span></div>
+      <div class="meta" style="margin-bottom:12px">自分 · Alto · Vandoren-3 #1 · <span class="num">21.7</span>秒</div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="104" viewBox="0 0 311 104">
+          <line x1="0" y1="52" x2="311" y2="52" stroke="#C3CAD3"/>
+          <line x1="0" y1="26" x2="311" y2="26" stroke="#E9ECF0"/><line x1="0" y1="78" x2="311" y2="78" stroke="#E9ECF0"/>
+          <path d="M16,40 L90,58 L162,34 L236,66 L298,46" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px;padding-bottom:14px">F4　G4　A4　B♭4　C5</div>
+
+        <svg width="311" height="58" viewBox="0 0 311 58">
+          <g fill="#B9C9E4">
+            <rect x="4" y="21" width="3" height="16" rx="1.5"/><rect x="12" y="13" width="3" height="32" rx="1.5"/>
+            <rect x="20" y="9" width="3" height="40" rx="1.5"/><rect x="28" y="17" width="3" height="24" rx="1.5"/>
+            <rect x="72" y="15" width="3" height="28" rx="1.5"/><rect x="80" y="7" width="3" height="44" rx="1.5"/>
+            <rect x="88" y="11" width="3" height="36" rx="1.5"/>
+            <rect x="136" y="19" width="3" height="20" rx="1.5"/><rect x="144" y="10" width="3" height="38" rx="1.5"/>
+            <rect x="152" y="15" width="3" height="28" rx="1.5"/>
+            <rect x="206" y="17" width="3" height="24" rx="1.5"/><rect x="214" y="8" width="3" height="42" rx="1.5"/>
+            <rect x="222" y="13" width="3" height="32" rx="1.5"/>
+          </g>
+          <g fill="#174585"><rect x="4" y="52" width="34" height="3" rx="1.5"/><rect x="72" y="52" width="26" height="3" rx="1.5"/>
+            <rect x="136" y="52" width="26" height="3" rx="1.5"/><rect x="206" y="52" width="26" height="3" rx="1.5"/></g>
+        </svg>
+        <div class="meta" style="margin-top:6px">検出 <span class="num">4</span>音 · 平均アタック <span class="num">164</span>ms</div>
+      </div>
+
+      <div class="card"><div class="memo ph">メモ</div></div>
+    </div></div>
+    <div class="nav"><div class="on">計測</div><div>リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">カードが2枚だけ。</span>「箱が要るのは整理できていない証拠」（D-7 の本人の言葉）にいちばん近い。<br>
+    <span class="ng">1枚が長い。</span>指標のタブを切り替えたとき、下の録音まで一緒に動いて見える。</p>
+  </div>
+
+  <div class="col">
+    <div class="tag"><span class="n">並べて比べる</span><span class="s">4案の「枚数」と「主役」</span></div>
+    <div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--sunken);font-weight:700;padding:9px 12px">
+        <span>案</span><span>カードの枚数</span><span>主役</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>現状（罫）</span><span>—（罫3本）</span><span class="ng">無し</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>A 素直</span><span>3枚</span><span class="ng">無し</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span><b>B 濃紺の見出し</b></span><span>4枚</span><span class="ok">日時</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>C 見出しを外へ</span><span>3枚</span><span class="ng">無し（粒は揃う）</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>D まとめる</span><span>2枚</span><span>指標</span></div>
+    </div>
+    <p class="cap" style="margin-top:14px">
+      <b>案は組み合わせられます。</b> たとえば「B の濃紺の見出し + C の外出し見出し」も成立します
+      （縦に伸びるので、まず片方ずつ見てください）。
+    </p>
+  </div>
+
+</div>
+
+<!-- ===================== ② リード詳細 ===================== -->
+<h2 class="sec">② 個別リード（現状 + 3案）</h2>
+<p class="lead">中身は4つ：<b>見出し</b>（銘柄・番号・開封/日数/セッション数）／<b>評価</b>（総評・厚さ・バランスの3列 + メモ）／<b>指標グラフ</b>／<b>評価の推移</b>。右下に「計測」が浮いています。</p>
+
+<div class="row">
+
+  <!-- 現状 -->
+  <div class="col">
+    <div class="tag"><span class="n">現状</span><span class="s">罫（<code>.surf-rule</code>）</span></div>
+    <div class="phone"><div class="scr"><div class="rule">
+      <div class="hdr"><div class="back">‹ 一覧</div></div>
+      <div class="ttl"><span class="d">Vandoren 3</span><span class="t num">#1</span></div>
+      <div class="meta">開封 <span class="num">6/10</span> · <span class="num">74</span>日 · <span class="num">4</span> セッション</div>
+
+      <div class="rulecard">
+        <div class="scores">
+          <div><div class="lb">総評</div><div class="v num">4.0<s>/5</s></div></div>
+          <div><div class="lb">厚さ</div><div class="v num">3<s>/5</s></div></div>
+          <div><div class="lb">バランス</div><div class="v num">4<s>/5</s></div></div>
+        </div>
+        <div class="memo" style="margin-top:12px">2週目から鳴りが安定。高音が少し重い。</div>
+      </div>
+
+      <div class="rulecard">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="343" height="104" viewBox="0 0 343 104">
+          <line x1="0" y1="52" x2="343" y2="52" stroke="#C3CAD3"/>
+          <line x1="0" y1="26" x2="343" y2="26" stroke="#E9ECF0"/><line x1="0" y1="78" x2="343" y2="78" stroke="#E9ECF0"/>
+          <path d="M18,46 L98,60 L178,36 L258,64 L330,44" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M18,50 L330,50" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="rulecard">
+        <div class="eyebrow" style="padding-bottom:10px">評価の推移</div>
+        <svg width="343" height="76" viewBox="0 0 343 76">
+          <line x1="0" y1="8" x2="343" y2="8" stroke="#E9ECF0"/><line x1="0" y1="34" x2="343" y2="34" stroke="#E9ECF0"/>
+          <line x1="0" y1="60" x2="343" y2="60" stroke="#E9ECF0"/>
+          <path d="M20,44 L120,30 L220,22 L320,18" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M20,54 L120,46 L220,44 L320,40" fill="none" stroke="#7FA0CE" stroke-width="1.8"/>
+          <path d="M20,34 L120,36 L220,28 L320,26" fill="none" stroke="#B9C9E4" stroke-width="1.8"/>
+        </svg>
+      </div>
+    </div></div>
+    <div class="fab">＋ 計測</div>
+    <div class="nav"><div>計測</div><div class="on">リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ng">点数と、その下のメモ・グラフが同じ重さ</span>で並ぶ。「このリードは結局どうなのか」が一目で立たない。</p>
+  </div>
+
+  <!-- 案E -->
+  <div class="col">
+    <div class="tag"><span class="n">案E　素直に移す</span><span class="s">罫 → カード。並びは変えない</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div></div>
+      <div class="ttl"><span class="d">Vandoren 3</span><span class="t num">#1</span></div>
+      <div class="meta" style="margin-bottom:12px">開封 <span class="num">6/10</span> · <span class="num">74</span>日 · <span class="num">4</span> セッション</div>
+
+      <div class="card">
+        <div class="scores">
+          <div><div class="lb">総評</div><div class="v num">4.0<s>/5</s></div></div>
+          <div><div class="lb">厚さ</div><div class="v num">3<s>/5</s></div></div>
+          <div><div class="lb">バランス</div><div class="v num">4<s>/5</s></div></div>
+        </div>
+        <div class="memo" style="margin-top:12px">2週目から鳴りが安定。高音が少し重い。</div>
+      </div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="100" viewBox="0 0 311 100">
+          <line x1="0" y1="50" x2="311" y2="50" stroke="#C3CAD3"/>
+          <line x1="0" y1="25" x2="311" y2="25" stroke="#E9ECF0"/><line x1="0" y1="75" x2="311" y2="75" stroke="#E9ECF0"/>
+          <path d="M16,44 L90,58 L162,34 L236,62 L298,42" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow" style="padding-bottom:10px">評価の推移</div>
+        <svg width="311" height="72" viewBox="0 0 311 72">
+          <line x1="0" y1="8" x2="311" y2="8" stroke="#E9ECF0"/><line x1="0" y1="32" x2="311" y2="32" stroke="#E9ECF0"/>
+          <line x1="0" y1="56" x2="311" y2="56" stroke="#E9ECF0"/>
+          <path d="M18,42 L110,28 L200,20 L292,16" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M18,52 L110,44 L200,42 L292,38" fill="none" stroke="#7FA0CE" stroke-width="1.8"/>
+          <path d="M18,32 L110,34 L200,26 L292,24" fill="none" stroke="#B9C9E4" stroke-width="1.8"/>
+        </svg>
+      </div>
+    </div></div>
+    <div class="fab">＋ 計測</div>
+    <div class="nav"><div>計測</div><div class="on">リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">切れ目がはっきりする。</span>セッション詳細の案A と同じ考え方なので、2画面の作法が揃う。<br>
+    <span class="ng">主役はまだ無い。</span></p>
+  </div>
+
+  <!-- 案F -->
+  <div class="col">
+    <div class="tag"><span class="n">案F　点数を濃紺のカードに</span><span class="rec">推し</span><span class="s">リードの答えは点数</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div></div>
+      <div class="ttl"><span class="d">Vandoren 3</span><span class="t num">#1</span></div>
+      <div class="meta" style="margin-bottom:12px">開封 <span class="num">6/10</span> · <span class="num">74</span>日 · <span class="num">4</span> セッション</div>
+
+      <div class="card acc">
+        <div class="scores">
+          <div><div class="lb">総評</div><div class="v num">4.0<s>/5</s></div></div>
+          <div><div class="lb">厚さ</div><div class="v num">3<s>/5</s></div></div>
+          <div><div class="lb">バランス</div><div class="v num">4<s>/5</s></div></div>
+        </div>
+      </div>
+
+      <div class="card"><div class="memo">2週目から鳴りが安定。高音が少し重い。</div></div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="100" viewBox="0 0 311 100">
+          <line x1="0" y1="50" x2="311" y2="50" stroke="#C3CAD3"/>
+          <line x1="0" y1="25" x2="311" y2="25" stroke="#E9ECF0"/><line x1="0" y1="75" x2="311" y2="75" stroke="#E9ECF0"/>
+          <path d="M16,44 L90,58 L162,34 L236,62 L298,42" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow" style="padding-bottom:10px">評価の推移</div>
+        <svg width="311" height="72" viewBox="0 0 311 72">
+          <line x1="0" y1="8" x2="311" y2="8" stroke="#E9ECF0"/><line x1="0" y1="32" x2="311" y2="32" stroke="#E9ECF0"/>
+          <line x1="0" y1="56" x2="311" y2="56" stroke="#E9ECF0"/>
+          <path d="M18,42 L110,28 L200,20 L292,16" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M18,52 L110,44 L200,42 L292,38" fill="none" stroke="#7FA0CE" stroke-width="1.8"/>
+          <path d="M18,32 L110,34 L200,26 L292,24" fill="none" stroke="#B9C9E4" stroke-width="1.8"/>
+        </svg>
+      </div>
+    </div></div>
+    <div class="fab">＋ 計測</div>
+    <div class="nav"><div>計測</div><div class="on">リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">開いた瞬間に点数が立つ。</span>リードの画面で知りたいのは「このリードは当たりか」。
+    メモが別カードに出るので<b>書く場所としても分かりやすくなる</b>。<br>
+    <span class="ng">カードが4枚に増える。</span>点数を押すとダイヤルが開く動きは今のまま。</p>
+  </div>
+
+</div>
+
+<div class="row">
+
+  <!-- 案G -->
+  <div class="col">
+    <div class="tag"><span class="n">案G　点数を小カード3枚に</span><span class="s">数字が独立して読める</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div></div>
+      <div class="ttl"><span class="d">Vandoren 3</span><span class="t num">#1</span></div>
+      <div class="meta" style="margin-bottom:12px">開封 <span class="num">6/10</span> · <span class="num">74</span>日 · <span class="num">4</span> セッション</div>
+
+      <div style="display:flex;gap:8px">
+        <div class="rowcard" style="flex:1;text-align:center;padding:12px 6px">
+          <div class="lb" style="font-size:10.5px;color:var(--ink3);letter-spacing:.06em">総評</div>
+          <div class="num" style="font-size:24px;font-weight:700;margin-top:2px">4.0</div></div>
+        <div class="rowcard" style="flex:1;text-align:center;padding:12px 6px">
+          <div class="lb" style="font-size:10.5px;color:var(--ink3);letter-spacing:.06em">厚さ</div>
+          <div class="num" style="font-size:24px;font-weight:700;margin-top:2px">3</div></div>
+        <div class="rowcard" style="flex:1;text-align:center;padding:12px 6px">
+          <div class="lb" style="font-size:10.5px;color:var(--ink3);letter-spacing:.06em">バランス</div>
+          <div class="num" style="font-size:24px;font-weight:700;margin-top:2px">4</div></div>
+      </div>
+
+      <div class="card" style="margin-top:12px"><div class="memo">2週目から鳴りが安定。高音が少し重い。</div></div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="100" viewBox="0 0 311 100">
+          <line x1="0" y1="50" x2="311" y2="50" stroke="#C3CAD3"/>
+          <line x1="0" y1="25" x2="311" y2="25" stroke="#E9ECF0"/><line x1="0" y1="75" x2="311" y2="75" stroke="#E9ECF0"/>
+          <path d="M16,44 L90,58 L162,34 L236,62 L298,42" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow" style="padding-bottom:10px">評価の推移</div>
+        <svg width="311" height="72" viewBox="0 0 311 72">
+          <line x1="0" y1="8" x2="311" y2="8" stroke="#E9ECF0"/><line x1="0" y1="32" x2="311" y2="32" stroke="#E9ECF0"/>
+          <path d="M18,42 L110,28 L200,20 L292,16" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M18,52 L110,44 L200,42 L292,38" fill="none" stroke="#7FA0CE" stroke-width="1.8"/>
+        </svg>
+      </div>
+    </div></div>
+    <div class="fab">＋ 計測</div>
+    <div class="nav"><div>計測</div><div class="on">リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">3つの数字がそれぞれ独立して読める。</span>小カード（<code>.rowcard</code>）は体系にもう在る。<br>
+    <span class="ng">押す物が3つに割れる。</span>いまは「行のどこを押しても3列ダイヤルが1回で開く」（§6.4）ので、
+    <b>その1回で開く挙動をどう保つかを決める必要がある</b>。</p>
+  </div>
+
+  <!-- 案H -->
+  <div class="col">
+    <div class="tag"><span class="n">案H　評価をまとめて1枚に</span><span class="s">点数と推移は「同じ評価の話」</span></div>
+    <div class="phone"><div class="scr"><div class="cardsurf">
+      <div class="hdr"><div class="back">‹ 一覧</div></div>
+      <div class="ttl"><span class="d">Vandoren 3</span><span class="t num">#1</span></div>
+      <div class="meta" style="margin-bottom:12px">開封 <span class="num">6/10</span> · <span class="num">74</span>日 · <span class="num">4</span> セッション</div>
+
+      <div class="card">
+        <div class="scores">
+          <div><div class="lb">総評</div><div class="v num">4.0<s>/5</s></div></div>
+          <div><div class="lb">厚さ</div><div class="v num">3<s>/5</s></div></div>
+          <div><div class="lb">バランス</div><div class="v num">4<s>/5</s></div></div>
+        </div>
+        <svg width="311" height="66" viewBox="0 0 311 66" style="margin-top:14px">
+          <line x1="0" y1="6" x2="311" y2="6" stroke="#E9ECF0"/><line x1="0" y1="30" x2="311" y2="30" stroke="#E9ECF0"/>
+          <line x1="0" y1="54" x2="311" y2="54" stroke="#E9ECF0"/>
+          <path d="M18,40 L110,26 L200,18 L292,14" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M18,50 L110,42 L200,40 L292,36" fill="none" stroke="#7FA0CE" stroke-width="1.8"/>
+          <path d="M18,30 L110,32 L200,24 L292,22" fill="none" stroke="#B9C9E4" stroke-width="1.8"/>
+        </svg>
+        <div class="memo" style="margin-top:12px">2週目から鳴りが安定。高音が少し重い。</div>
+      </div>
+
+      <div class="card">
+        <div class="tabs"><span class="on">平均差分</span><span>HNR</span><span>重心</span><span>音量</span></div>
+        <svg width="311" height="100" viewBox="0 0 311 100">
+          <line x1="0" y1="50" x2="311" y2="50" stroke="#C3CAD3"/>
+          <line x1="0" y1="25" x2="311" y2="25" stroke="#E9ECF0"/><line x1="0" y1="75" x2="311" y2="75" stroke="#E9ECF0"/>
+          <path d="M16,44 L90,58 L162,34 L236,62 L298,42" fill="none" stroke="#174585" stroke-width="2"/>
+          <path d="M16,48 L298,48" fill="none" stroke="#B9C9E4" stroke-width="1.5" stroke-dasharray="4 4"/>
+        </svg>
+        <div class="meta" style="margin-top:4px">F4　G4　A4　B♭4　C5</div>
+      </div>
+    </div></div>
+    <div class="fab">＋ 計測</div>
+    <div class="nav"><div>計測</div><div class="on">リード</div><div>データ</div></div></div>
+    <p class="cap"><span class="ok">カードが2枚だけ。「評価」と「音」で綺麗に割れる。</span><br>
+    <span class="ng">点数のすぐ下に線が3本入る</span>ので、点数の読みやすさは案F に劣る。</p>
+  </div>
+
+  <div class="col">
+    <div class="tag"><span class="n">並べて比べる</span><span class="s">3案の「枚数」と「主役」</span></div>
+    <div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--sunken);font-weight:700;padding:9px 12px">
+        <span>案</span><span>カードの枚数</span><span>主役</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>現状（罫）</span><span>—（罫3本）</span><span class="ng">無し</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>E 素直</span><span>3枚</span><span class="ng">無し</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span><b>F 濃紺の点数</b></span><span>4枚</span><span class="ok">点数</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>G 小カード3枚</span><span>3枚 + 小3枚</span><span>点数</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 12px;border-top:1px solid var(--line)">
+        <span>H まとめる</span><span>2枚</span><span>評価</span></div>
+    </div>
+    <p class="cap" style="margin-top:14px">
+      <b>セッション詳細と揃えるのが自然です。</b> A↔E / B↔F / D↔H が対応します
+      （2画面は指標グラフが<b>完全に同じ部品</b>なので、作法がずれると同じ部品が違う見え方になります）。
+    </p>
+  </div>
+
+</div>
+
+<h2 class="sec">選び方 — 私の推し</h2>
+<p class="lead">
+<b>セッション詳細は 案B、リード詳細は 案F</b> を推します。理由は同じで、<b>その画面の「答え」を1枚だけ濃紺にする</b>から。<br>
+・セッション詳細で知りたいのは「これはいつの、何の記録か」→ <b>日時</b><br>
+・リード詳細で知りたいのは「このリードは当たりか」→ <b>点数</b><br>
+My Data で累計カードを濃紺にしたのと<b>同じ手</b>なので、体系に新しいものが増えません（<code>.card.card-accent</code> は既にあります）。<br>
+<b>濃紺が重いと感じたら 案A / 案E</b>（素直に移すだけ）。カードは付くので、いまより確実に読みやすくなります。
+</p>
+
+<h3>決めてほしいこと（3つ）</h3>
+<p class="lead">
+<b>1. どの案にするか。</b> セッション詳細とリード詳細で別々に選んで構いません（A↔E のように揃えるほうが自然ですが）。<br>
+<b>2. 「すべてのセッション」もカードにするか。</b> 指示の範囲（計測タブ Top・リードタブ Top 以外）に入りますが、
+名指しされていないので勝手には触りません。ここは既に小カード（<code>.rowcard</code>）の形をしているので、<b>地を沈めるだけ</b>で済みます。<br>
+<b>3. 計測タブの「詳細」（倍音構成・重心などが出る所）はどうするか。</b> ここも Top ではないのでカードにできますが、
+<b>音が鳴っている間に毎フレーム描き替わる場所</b>なので、影と角丸が増えるぶん描き直しが重くなる可能性があります。
+±4¢ のカクつきをようやく潰したばかりなので、<b>ここだけは後回しにする</b>ことを推します。
+</p>
+
+<h3>この案で守っていること</h3>
+<p class="lead">
+・新しい色・寸法を1つも作っていない（すべて <code>src/index.css</code> のトークン）<br>
+・カードの作法どおり<b>罫を1本も引いていない</b>（群はカードと 12px の余白だけが切る）<br>
+・<code>.surf-card</code> と <code>.surf-rule</code> を<b>入れ子にしない</b>（§6.6 が「いちばん壊れやすい形」と名指ししている）<br>
+・押す物は 44px（案G だけ、3列ダイヤルが1回で開く挙動をどう保つかが未決）
+</p>
+
+<h3>このモックで<b>確かめられないこと</b></h3>
+<p class="lead">
+・<b>実機での見え方。</b> 影の濃さと地の差（ΔL* 2.79）は、Chrome と iPhone で見え方が変わります<br>
+・<b>あなたの実データでの縦の長さ。</b> ここは「セッション 21.7秒・検出4音」「リード 4セッション」で描いています。
+セッション数の多いリードでは推移のグラフが密になります<br>
+・<b>スクロールしたときの感触。</b> カードは切れ目がはっきりする代わりに、影のぶん<b>下へ流れる勢いが弱く</b>感じられることがあります
+</p>

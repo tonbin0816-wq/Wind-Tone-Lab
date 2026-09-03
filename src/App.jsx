@@ -4017,8 +4017,11 @@ export default function WindToneLabPhaseMode() {
 
       {/* アプリ名ヘッダーは削除(Claude Designに準拠。タブ切替は画面下部の固定ナビ=BottomNavに集約)。 */}
 
-      {/* 【面の作法】タブの根に作法のクラスを1つだけ付ける(DESIGN-SYSTEM §6 / index.css)。
-          【D-7 2026/08/23 本人指示】**3タブとも罫(surf-rule)**になった。
+      {/* 【面の作法】作法のクラスは DESIGN-SYSTEM §6.6 / index.css が決める。
+          【D-7 2026/08/23 本人指示】いったん**3タブとも罫(surf-rule)**になった。
+          【D-10 2026/08/26】データタブが画面ごとに分かれ、
+          【D-29 2026/09/03】リードタブも画面ごとに分かれたので、
+          **根に作法のクラスを1つ付けるのは計測タブだけ**になった(他は各 return が名乗る)。
           以前はデータタブだけ「沈める(surf-sunk)」で、理由は「ピボット表など密度が高く、
           群の境界を余白や罫だけでは示せない」だった。本人の裁定でこれは**取り消し**:
           「整理されていないからカード化する必要に陥っているだけ」。
@@ -4030,7 +4033,14 @@ export default function WindToneLabPhaseMode() {
           右端の「…」が登録一覧の削除モード・開封日の編集を開く。溝つきのセグメントコントロールは
           正典に無いので撤去した。**データタブの子タブ行(AnalysisLabView 側)には触っていない。** */}
       {topTab === "reeds" && (
-        <div className="surf-rule">
+        /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.1】リードタブも
+           **画面ごとに作法が違う**ようになったので、ここに作法のクラスを置かない。
+           本人「計測タブとリードタブの Top 画面以外は適切にカード使っていい」。
+             リードタブ Top(登録 / 比較) … 罫(.surf-rule)  ← 本人が名指しで除外。1px も変えない
+             リード個体詳細              … カード(.surf-card) ← D-29 で反転
+           作法のクラスは ReedsTab の**2つの return がそれぞれ名乗る**(データタブと同じ手)。
+           ここで1つ被せてしまうと .surf-card と .surf-rule が入れ子になり、
+           どちらが勝つかが index.css の行の順序に依存する(いちばん壊れやすい形。§6.6)。 */
         <ReedsTab
           key={`reeds-${navNonce}`}
           reeds={reeds} setReeds={setReeds}
@@ -4040,7 +4050,6 @@ export default function WindToneLabPhaseMode() {
           compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
         />
-        </div>
       )}
 
       {/* 計測タブでのみ発生しうるエラー(マイク接続・アップロード解析)のため、他タブでは表示しない。
@@ -4116,8 +4125,12 @@ export default function WindToneLabPhaseMode() {
            本人「白いカードがある方が機械感が強くて、少しうるさくなりますが、mydata は
            ラボ的に使ってほしい側面があるのでその表現としてはありと考えて採用です」。
              My Data / 分析      … カード(.surf-card)    ← D-10 で反転
-             セッション詳細 / すべてのセッション … 罫(.surf-rule) ← D-7 のまま(1px も変えない)
-           作法のクラスは AnalysisLabView の**3つの return がそれぞれ名乗る**。
+             セッション詳細      … カード(.surf-card)    ← D-29 で反転
+             すべてのセッション  … カード(.surf-card)    ← D-30 で反転
+           **いまは3つとも同じ作法だが、それでもここに1つ被せない。** 被せると
+           .surf-card の入れ子(同じ詳細度の重複)になり、次に1画面だけ罫へ戻すときに
+           必ず入れ子の形へ戻る。作法のクラスは AnalysisLabView の
+           **3つの return がそれぞれ名乗る**。
            ここで1つ被せてしまうと .surf-card と .surf-rule が入れ子になり、
            どちらが勝つかが index.css の行の順序に依存する(いちばん壊れやすい形)。 */
         <AnalysisLabView
@@ -8571,8 +8584,14 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           正典 #14b も同じ判断(「タブと重複するので廃止」)。
           これで消えたのは 目安基準の色分け / 別セッション整列 / 音量・重心・HNR の時間変化 の3つ。
           残りの中身(スクラブ・小節線・ドリルダウン・検出ノートとアタック)は1つも変えていない。 */}
-      {/* タイムライン。【N-9】カードの箱 → 白地+上辺の罫1本(計測/リード/My Data と同じ文法) */}
-      <div style={{ borderTop: "1px solid var(--c-rule)", padding: "10px 0", marginBottom: 10 }}>
+      {/* タイムライン。【N-9】カードの箱 → 白地+上辺の罫1本(計測/リード/My Data と同じ文法)
+          【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】その上辺の罫を**外した**。
+          N-9 のコメント自身が「計測/リード/My Data と同じ文法」= **罫の作法のための罫**だと
+          書いており、D-29 でセッション詳細がカードの作法へ移った時点で矛盾していた
+          (カードの作法は罫を1本も引かない。§6.6)。この部品の使い手は
+          **セッション詳細ただ1箇所**(:15236)なので、他の画面へは波及しない。
+          余白(padding / marginBottom)は 1px も変えない ── 変えると群の間隔が動く。 */}
+      <div style={{ padding: "10px 0", marginBottom: 10 }}>
         <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 8 }}>
           {/* 【F-98 2026/08/17 本人指示】「— ピッチ一致度で色分け（…基準）」の解説は削除。
               色分けの基準はすぐ上の「基準」セレクタが状態として示している(二度言いだった)。
@@ -8649,9 +8668,19 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
       {/* ドリルダウン: 選択フレームの詳細。
           【N-9 2026/08/16 本人指示】カードと .tile の箱を廃止し、リード個体詳細の .numrow と
           同じ「枠も地も持たない数字の列」にする(寸法は BARE_ROW_STYLES.numrow から引く。
-          数値を写さない)。一致度の機能色は数値の色が担う(従来の MetricCard と同じ考え)。 */}
+          数値を写さない)。一致度の機能色は数値の色が担う(従来の MetricCard と同じ考え)。
+          【D-31 2026/09/03 統括裁定・凍結仕様 design/D31-SPEC 相当(BACKLOG の D-31 の記録)】
+          ここにあった上辺の罫(borderTop: 1px solid var(--c-rule))を**外した**。
+          D-30 §7.1 の呼び出し元の表がこの1本を数え漏らし、§7.2 が「両方とも外す。結果、
+          罫0本になる」と断言していたが、**フレームを選ぶと 1本出る**(実測)。
+          「既定では見えない」は「罫が1本も無い」の言い換えにならない(本人は実機で
+          タイムラインを触る)。すぐ上のタイムライン本体と同じく罫の作法のための罫で、
+          この部品の使い手は**セッション詳細ただ1箇所**(<PhraseTimeline の呼び出しは1つだけ)
+          なので他の画面へは波及しない。
+          **切れ目は余白だけで作る。** padding は上の群と同じ "10px 0" のまま
+          (新しい寸法を作らない)。 */}
       {selectedFrame && (
-        <div style={{ borderTop: "1px solid var(--c-rule)", padding: "10px 0" }}>
+        <div style={{ padding: "10px 0" }}>
           <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
             t = {selectedFrame.t.toFixed(2)}s の詳細
           </div>
@@ -9101,11 +9130,11 @@ function reedScoreRowItems(fields) {
   }));
 }
 
-// 通常時の評価表示。**総評 / 厚さ / バランスを1行に横並び**にし、行のどこを押しても
+// 通常時の評価表示。**総評 / 厚さ / バランスを1行に横並び**にし、どこを押しても
 // 同じ1つのダイアログが開く(本人指示: 「同列に横一列にしてタップすると…一度で三つとも」。
 // DESIGN-SYSTEM §6.4)。各列は**見出しの下に数字**を積む(本人指示)。
 // 3列は flex:1 1 0 + minWidth:0 で**等幅**にする。
-// 行全体が1つのタップ対象。値が入っても未評価でも高さは変わらない(§6.1.5)。
+// 3枚それぞれがタップ対象で、onOpen は3枚とも同じ1つ。値が入っても未評価でも高さは変わらない(§6.1.5)。
 // ★は出さない(本人指示: 「厚さは星不要」)。
 // 中身は reedScoreRowItems の返り値をそのまま並べる。ここで slice / filter しない。
 //
@@ -9125,42 +9154,57 @@ function reedScoreRowItems(fields) {
 // 【N-5】見た目を正典 .starrow に揃えた。**箱(B型 .ctl-plain の地)は持たない**:
 //   行 = padding 16px 0 + 下に罫1本 / 列 = flex:1 の中央揃え
 //   値 = 23px / 600(.starrow .v) / ラベル = 11px --ink3 で**値の下**(.starrow .l)
+// 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.2 = モックの案G】
+// リード個体詳細がカードの作法へ移ったので、この3区画を**小カード(.rowcard)3枚**にした。
+//  - 行の下にあった borderBottom は**外した**。カードの作法は罫を1本も引かない(§6.6)。
+//  - 器は §6.7 の B型(.ctl-plain)ではなく §6.6 の小カード。この画面では
+//    「点数の3枚」が群そのもの(モック案G が .rowcard を名指ししている)。
+//  - **寸法をインラインで上書きしない**(§6.6 が名指しで禁止)。padding 10px 14px /
+//    角丸 --r-md / 影 --shadow-row は index.css の .surf-card .rowcard だけが持つ。
+//  - 数字が上・ラベルが下の順番と、色(--c-accent / --c-ink-3)・大きさ(--fs-2xl / --fs-xs)は
+//    1つも変えていない。
 // 【本人の旧指示との差】F-65 の「見出しの下に数字」「地はそのまま」は、正典では
 // 逆順(数字の下に見出し)・地なしになっている。DESIGN-SYSTEM §6.0 が
 // 「モックと本書の既存規定が食い違う場合は無条件でモックが勝つ」と定めているので正典に寄せた。
 // 未評価の色分け(--c-accent / --c-ink-3)は残す(値の有無が読めなくなるため)。
 function ReedScoreField({ fields, onOpen }) {
   return (
-    <button
-      type="button" onClick={onOpen} className="sans"
-      aria-label="総評・厚さ・バランスを編集"
-      style={{
-        display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: 0,
-        width: "100%", minHeight: "var(--tap-min)", padding: "12px 0 14px",
-        /* 【D-4 2026/08/22】群はカード(.card)が作るので、この行の下の罫は外した
-           (正典 #15a は評価カードの中で 3カラムとメモ行を薄い罫1本で分ける)。 */
-        background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
-        borderRadius: 0, cursor: "pointer",
-      }}
-    >
+    /* 【D-29】3枚を横に並べる器。間は --sp-2(8px)。**罫は1本も引かない**(カードの作法)。 */
+    <div style={{ display: "flex", alignItems: "stretch", flexWrap: "nowrap", gap: "var(--sp-2)" }}>
       {reedScoreRowItems(fields).map((it) => (
-        <span
+        /* 【D-29】1枚1枚が小カード(.rowcard)で、**同時に当たり判定そのもの**。
+            地・枠・角丸・padding・影は index.css の .surf-card .rowcard が持つので、
+            ここには1つも書かない(インラインで書くとその1枚だけ作法から外れる。§6.6)。
+            **onOpen は3枚とも同じ。** どれを押しても同じ3列ダイヤルが1回で開く(§6.4)。
+            【D-31 2026/09/03 統括裁定】読み上げを**カードごとの文言**にした。
+            D-29 は3枚とも `総評・厚さ・バランスを編集` の1つの文言にしたが、タブストップが
+            1 → 3 に増えたので**まったく同じ文言が3回続き**、しかも aria-label は中身の
+            読み上げを置き換えるので**値(4.0 / 3 / 3)が一度も読まれない**状態だった。
+            `${it.label} ${it.text}・評価を編集`(例「総評 4.0・評価を編集」)にすれば、
+            3枚が区別でき、値も読まれる。**新しい語彙は要らない**(it.label / it.text は
+            reedScoreRowItems が既に持っている)。
+            **押したときの行き先は3枚とも同じまま**(1つの3列ダイヤル。§6.4 は保つ)。 */
+        <button
           key={it.key}
+          type="button" onClick={onOpen} className="rowcard sans"
+          aria-label={`${it.label} ${it.text}・評価を編集`}
           style={{
-            flex: "1 1 0", minWidth: 0,
+            flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            padding: 0,
+            cursor: "pointer",
           }}
         >
           {/* 【D-5 2026/08/23 本人指示】セリフ体をやめて元の字送りへ(本人「リードの個別ページも同様」)。
-              大きさは正典 #15a の 30px を体系の --fs-2xl(28px)へ写像したまま。変えたのは書体だけ。 */}
+              大きさは正典 #15a の 30px を体系の --fs-2xl(28px)へ写像したまま。変えたのは書体だけ。
+              【D-29】**数字が上・ラベルが下の順番は変えない。** モック(案G)はラベルを上に
+              描いているが、あれは統括の作画ミスであって提案ではない(D29-SPEC §2.2)。 */}
           <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-2xl)", fontWeight: 600, lineHeight: 1, color: it.rated ? "var(--c-accent)" : "var(--c-ink-3)" }}>
             {it.text}
           </span>
           <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: 3 }}>{it.label}</span>
-        </span>
+        </button>
       ))}
-    </button>
+    </div>
   );
 }
 
@@ -9907,7 +9951,14 @@ function ReedsTab(props) {
   // **詳細だけ枠の外に出さない**: 早期 return を枠の内側に畳んであるのはそのため
   // (以前ここで早期 return していたときは、詳細だけ左右が 14px になっていた)。
   if (evaluatingReed) {
+    /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.1】個体詳細だけ
+       **カードの作法**(薄い地 --c-sunk + 白いカード + 影)。Top(登録 / 比較)は罫のまま。
+       地は .surf-card が .app-root の左右 padding を打ち消して画面の端まで届かせるので、
+       **正典 .rlist の左右 24px(= app-root の 14 + 差分 10)は内側の div が持つ**。
+       .surf-card 自身に padding をインラインで書くと padding-left/right を殺してしまい、
+       地は端まで届いても中身が 4px 外へずれる。 */
     return (
+      <div className="surf-card">
       <div style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
         <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
           <ReedEvaluationDetail
@@ -9918,11 +9969,14 @@ function ReedsTab(props) {
           />
         </SwipeBackArea>
       </div>
+      </div>
     );
   }
 
+  /* 【D-29】Top(登録 / 比較)は**罫の作法のまま**(本人が名指しで除外。1px も変えない)。
+     根の包みから外した作法のクラスを、この return が自分で名乗る。 */
   return (
-    <div style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
+    <div className="surf-rule" style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
       {/* 正典 .subtabs: 素のテキスト2つ(13px)を gap 18 で並べ、選択中だけ --c-ink の太字。
           溝(地 --c-sunken の segmented control)は正典に無いので撤去した。
           【タップ領域(§5)の作り方】「登録」「比較」は実測 26px しかないので、
@@ -12070,11 +12124,13 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
         meta={meta}
       />
 
-      {/* 評価カード(正典 #15a): 3カラムの数値 + その下にメモ行。
-          行のどこを押しても3列ダイヤルが1回で開く(§6.4)。 */}
-      <div className="card">
-        <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
-        {/* メモの形は MemoField の1箇所(セッション詳細と同じ)。 */}
+      {/* 【D-29 = モックの案G】点数は**小カード3枚**。どれを押しても3列ダイヤルが1回で開く(§6.4)。
+          以前は3カラムとメモを1枚の .card が包み、間を罫1本で分けていたが、
+          カードの作法は罫を1本も引かない(§6.6)ので、群はカードと余白だけで分ける。 */}
+      <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
+
+      {/* メモは独立したカードへ出した。形は MemoField の1箇所(セッション詳細と同じ)。 */}
+      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
         <MemoField value={memoDraft} onChange={setMemoDraft} onBlur={commitMemo} />
       </div>
 
@@ -13354,10 +13410,18 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
     /* 【作法】.card の style は**オブジェクトリテラル直書き**にする(変数で渡すと
        検査が中身を読めず、地・枠・padding をインラインで殺していないことを確かめられない)。 */
     <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+      {/* 【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】`bordered` を**渡さない**。
+          この部品の使い手はセッション詳細とリード個体詳細で、D-29 で**両方カードの作法**へ
+          移った。カードの作法は罫を1本も引かない(§6.6)。My Data は D-9y の本人指示
+          「指標タブの下の罫は両方外して」で元から渡しておらず、同じ部品なのに
+          カードの画面どうしで罫の有無が割れていた ── その割れをここで閉じる。
+          **リード比較(:11355)は別の呼び出しなので巻き込まれない**(罫の作法のまま
+          `bordered` を持つ)。`MetricUnderlineTabs` の `bordered` 引数そのものは残す。
+          **選択中のタブの下線(boxShadow の inset)は選択の合図であって罫ではない。触らない。** */}
       <MetricUnderlineTabs
         order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
         value={m.key} onChange={onMetricChange}
-        halfGap={DETAIL_TAB_HALF_GAP_PX} bordered
+        halfGap={DETAIL_TAB_HALF_GAP_PX}
       />
       {/* 【D-7】ここに大きい数字(--fs-hero)と標準偏差があったが、本人指示で削除した。
           単位・小数の書式(m.fmt / m.unit)はグラフの軸が今も使うので語彙の側は触っていない。 */}
@@ -14398,11 +14462,16 @@ function AnalysisLabView(props) {
 
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
   if (selectedSession) {
-    /* 【D-10 2026/08/26】セッション詳細は**罫の作法のまま**(D10-SPEC §0 A が
-       「計測タブ・リードタブ・セッション詳細・リード個体詳細は1pxも変えない」と定めている)。
-       データタブの根から作法のクラスを外したので、この画面が自分で名乗る。 */
+    /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
+       セッション詳細を**カードの作法**へ移した。D-10 の「セッション詳細とリード個体詳細は
+       1px も変えない」という凍結は、本人の「計測タブとリードタブの Top 画面以外は
+       適切にカード使っていい」でこの2画面について解除された。
+       **これだけで中の .card 3枚(指標グラフ / 録音 / メモ)が白いカードになる。**
+       見出し(DetailHeader)は .card の外にあるので、そのまま沈めた地の上に載る(案A の姿)。
+       【D-30】すべてのセッションもカードへ移ったが、根には作法のクラスを置かない
+       (被せると .surf-card の入れ子になる。下の allSessionsOpen の return を見ること)。 */
     return (
-      <div className="surf-rule">
+      <div className="surf-card">
       <SwipeBackArea onBack={() => setSelectedSessionId(null)}>
         <SessionDetailView
           session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
@@ -14447,10 +14516,18 @@ function AnalysisLabView(props) {
   // 一覧を離れるときは必ず選択モードも畳む(モードだけが画面の外で生き残らない)。
   if (allSessionsOpen) {
     const closeAllSessions = () => { exitSelectionMode(); setAllSessionsOpen(false); };
-    /* 【D-10 2026/08/26】全件一覧も**罫の作法のまま**。F-97 / F-106 で3周かけた
-       .slist の見た目を、この周の作法の反転に巻き込まない。 */
+    /* 【D-30 2026/09/03 本人裁定・凍結仕様 design/D30-SPEC.md §2.1 = モックの案①】
+       本人「すべてのセッションもやって」→ モック allsessions-card-proposals.html の
+       **案①(一覧を1枚のカードに入れ、行の作りは 1px も変えない)**を選定した。
+       ここを .surf-card にすると、下の AllSessionsPage が一覧を包む .card 1枚だけが
+       白いカードになる(見出しと絞り込みは .card の外なので、沈めた地の上に残る)。
+       **F-97 / F-106 で3周かけた .slist / .slist-row の作りには指1本触れていない**
+       ── 例外は「一覧の最後の行の罫を消す」(index.css の
+       `.slist.is-full .slist-row:last-child`)の1つだけ。
+       §6.6 の「カードの作法は罫を1本も引かない」は**群の境界の罫**を指しており、
+       群の中の行区切りはこの限りではない(D-30 本人裁定。DESIGN-SYSTEM §6.6)。 */
     return (
-      <div className="surf-rule">
+      <div className="surf-card">
       <SwipeBackArea onBack={closeAllSessions}>
         <AllSessionsPage
           sessions={sessions} reeds={reeds}
@@ -15065,7 +15142,22 @@ function AllSessionsPage({
            **一覧の行にもこのスクロールコンテナにも `contain` /
            `content-visibility` / `will-change` / `transform` は置かない。**
            【D-1】`is-full` は**静的なクラス**(専用ページなので高さ制限 190px を外す)。
-           モードで切り替わるクラスは今も `.is-select` ただ1つ。 */
+           モードで切り替わるクラスは今も `.is-select` ただ1つ。
+           【D-30 2026/09/03 本人裁定・凍結仕様 design/D30-SPEC.md §2.2 = モックの案①】
+           一覧だけを **.card 1枚**で包む。見出し(件数・ゴミ箱)と絞り込み(ピル・クリア)は
+           **カードに入れない** ── 読む物(一覧)と操る物(絞り込み・選択)を面で分けるのが案①。
+           .card の寸法(角丸16 / padding 16 / --shadow-card)は index.css の
+           `.surf-card .card` が持つ。**インラインの padding で上書きしない**(§2.4。
+           上書きすると、その要素だけ作法から外れる)。行の幅が 347 → 315px になるのは
+           承知のうえ(D30-SPEC §2.4)。**この .card に contain / content-visibility /
+           will-change / transform を置かない**(F-106 の不変条件。iOS の再ペイント取りこぼし)。
+           【D-31 2026/09/03 統括裁定】**.card-list を足した。** 本人が選定したモック(案①)の
+           カードは `padding: 4px 14px` で、素の .card(16px)だと**先頭行の上と最終行の下が
+           +12px ずつ厚い**(実測)。index.css の `.surf-card .card.card-list` が
+           **上下だけ --sp-1(4px)** にする ── 左右は他のカードと同じ --sp-4(16px)のままなので、
+           行の x と幅・副次行の幅は D-30 のまま(30 / 315 / 281)。
+           **ここには相変わらず何も書かない**(インラインで上書きしないのが §2.4)。 */
+        <div className="card card-list">
         <div className={listMode ? "slist is-full is-select" : "slist is-full"}>
           {filteredSessions.map((s) => {
             const reed = reeds.find((r) => r.id === s.reedId) || null;
@@ -15093,6 +15185,7 @@ function AllSessionsPage({
               </div>
             );
           })}
+        </div>
         </div>
       )}
 
