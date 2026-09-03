@@ -3,7 +3,7 @@ import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePub
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
-import { RankScreen, ShareScreen, DataScreen, usePublicUsers } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals } from "./idealRepo.js";
 import { buildIdealProfileFromSessions } from "../App.jsx";
 import { publishStats } from "./directory.js";
@@ -98,6 +98,9 @@ function SubTabs({ value, onChange }) {
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
 function JoinedView({ profile, uid, sessions, tuningHz, onEdit, onTogglePublic, onDelete }) {
   const [tab, setTab] = useState("data");
+  // タップされた人。**子タブとは別に持つ** ── 開いたまま子タブを切り替えられると、
+  // 下の画面が変わったのに上に別人の紹介が乗っている、という状態になる。
+  const [person, setPerson] = useState(null);
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
   const dir = usePublicUsers();
@@ -158,16 +161,24 @@ function JoinedView({ profile, uid, sessions, tuningHz, onEdit, onTogglePublic, 
     }
     if (dir.phase === "loading") return <Centered>読み込み中…</Centered>;
     if (dir.phase === "error") return <Centered>{dir.error}</Centered>;
-    if (tab === "rank") return <RankScreen users={dir.users} myUid={uid} />;
+    if (tab === "rank") return <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />;
     if (tab === "share") return <ShareScreen users={dir.users} />;
     if (ideals === null) return <Centered>読み込み中…</Centered>;
-    return <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} />;
+    return <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />;
   };
 
   return (
     <div>
-      <SubTabs value={tab} onChange={setTab} />
+      <SubTabs value={tab} onChange={(t) => { setPerson(null); setTab(t); }} />
       {body()}
+      {person ? (
+        <PersonSheet
+          person={person}
+          ideals={ideals ?? []}
+          myIdeals={myIdeals}
+          onClose={() => setPerson(null)}
+        />
+      ) : null}
     </div>
   );
 }
