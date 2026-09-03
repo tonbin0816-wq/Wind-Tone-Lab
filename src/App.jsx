@@ -4177,7 +4177,7 @@ export default function WindToneLabPhaseMode() {
                 平均する。合わせる基準が自分の目安なので、これが無いと平均は出せない。
                 いま選んでいる目安をそのまま渡す(選んでいなければ null で、
                 画面側が「自分の計測がまだありません」と案内する)。 */}
-            <CommunityTab sessions={sessions} myIdealProfile={selectedIdeal} />
+            <CommunityTab sessions={sessions} tuningHz={tuningHz} />
           </Suspense>
         </CommunityErrorBoundary>
         </div>
@@ -11053,7 +11053,10 @@ function buildIdealProfileFromSession(session, name, NUM_HARMONICS = 8, tuningHz
 // 「どのセッション由来か」の記録(sourceKind / sourceSessionIds)だけにする。
 // sourceSessionIds は F-67 の「理想値設定中」の判定に使う。**古いプロファイルは
 // このフィールドを持たない**ので、読む側は必ず Array.isArray() で確かめること。
-function buildIdealProfileFromSessions(sessionList, name, NUM_HARMONICS = 8, tuningHz = null, sourceKind = "session") {
+// 【export 済み】コミュニティが「楽器種別ごとの自分の平均」を作るのに使う。
+// **公開する目安と、計測タブに出る目安を同じ計算で作るため。**
+// ここで別の計算を書くと、自分の画面に出ている値と公開した値が食い違う。
+export function buildIdealProfileFromSessions(sessionList, name, NUM_HARMONICS = 8, tuningHz = null, sourceKind = "session") {
   const list = (sessionList || []).filter(Boolean);
   const noteGroups = groupFramesByNoteAcrossSessions(
     list.map((s) => s.frames || []), NUM_HARMONICS, list[0]?.saxType ?? null, tuningHz);

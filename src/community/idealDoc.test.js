@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
-import { buildIdealDoc, sanitizeNotes, sanitizeIncomingNotes, MAX_PUBLISHED_NOTES, MIN_PUBLISHED_NOTES, MAX_IDEAL_NAME, MAX_NOTE_KEY } from "./idealDoc.js";
+import {
+  buildIdealDoc, sanitizeNotes, sanitizeIncomingNotes, selectOwnSessions, isSelfSession,
+  MAX_PUBLISHED_NOTES, MIN_PUBLISHED_NOTES, MAX_NOTE_KEY,
+} from "./idealDoc.js";
 
-// 【この11キーは実装から import しない】公開ドキュメントの形は凍結された仕様で、
+// 【この7キーは実装から import しない】公開ドキュメントの形は凍結された仕様で、
 // firestore.rules の hasAll / hasOnly と一致していなければならない。
-const DOC_KEYS = ["ownerUid", "profileId", "name", "saxType", "tuningHz", "notes", "noteKeys",
-  "sourceSessionCount", "reedBrand", "reedStrength", "updatedAt"];
+// 2026-09-03: 目安は「楽器種別ごとに1つ」に変わり、選んで公開するものではなくなった。
+// これに伴い profileId / name / reedBrand / reedStrength が消えて 11→7 キー。
+// **name が無いことで、公開される自由入力がニックネームだけになった。**
+const DOC_KEYS = ["ownerUid", "saxType", "tuningHz", "notes", "noteKeys", "sourceSessionCount", "updatedAt"];
 
 // App.jsx の目安が持っている形(綴りが公開側と違うことに注意)
 const localNote = (c, h, p = 0) => ({
@@ -16,9 +21,9 @@ const localNote = (c, h, p = 0) => ({
 });
 
 const base = {
-  ownerUid: "uid1", profileId: "p1", name: "いつもの音", saxType: "alto", tuningHz: 442,
+  ownerUid: "uid1", saxType: "alto", tuningHz: 442,
   notes: { 0: localNote(1200, 10), 2: localNote(1600, 12), 4: localNote(2000, 14) },
-  sourceSessionCount: 5, reedBrand: "Vandoren", reedStrength: "3.0", performerIsSelf: true,
+  sourceSessionCount: 5,
 };
 
 describe("sanitizeNotes", () => {
@@ -60,16 +65,60 @@ describe("sanitizeNotes", () => {
   });
 });
 
+describe("selectOwnSessions", () => {
+  // 【ここが「他人の演奏を公開しない」を守っている唯一の場所】
+  // 先生や友人の音を録ったセッションは performer に名前が入っているので落ちる。
+  const s = (over) => ({ saxType: "alto", frames: [{}], ...over });
+  it("performer が未設定・「自分」のセッションだけを選ぶ", () => {
+    const list = [
+      s({ id: "a" }),                        // 未設定 = 自分
+      s({ id: "b", performer: "自分" }),
+      s({ id: "c", performer: "" }),         // 空も既定値なので自分
+      s({ id: "d", performer: "先生" }),     // ← 他人。落とす
+      s({ id: "e", performer: "友人A" }),    // ← 他人。落とす
+    ];
+    expect(selectOwnSessions(list, "alto").map((x) => x.id)).toEqual(["a", "b", "c"]);
+  });
+  it("楽器種別が違うセッションは選ばない", () => {
+    const list = [s({ id: "a" }), s({ id: "b", saxType: "tenor" })];
+    expect(selectOwnSessions(list, "alto").map((x) => x.id)).toEqual(["a"]);
+  });
+  it("フレームが無いセッションは選ばない(平均が作れない)", () => {
+    const list = [s({ id: "a" }), s({ id: "b", frames: [] }), s({ id: "c", frames: undefined })];
+    expect(selectOwnSessions(list, "alto").map((x) => x.id)).toEqual(["a"]);
+  });
+  it("壊れた入力でも落ちない", () => {
+    expect(selectOwnSessions(null, "alto")).toEqual([]);
+    expect(selectOwnSessions([null, undefined], "alto")).toEqual([]);
+  });
+  it("isSelfSession の判定が単体でも正しい", () => {
+    expect(isSelfSession({})).toBe(true);
+    expect(isSelfSession({ performer: "自分" })).toBe(true);
+    expect(isSelfSession({ performer: "先生" })).toBe(false);
+    expect(isSelfSession(null)).toBe(true); // 既定値として扱う
+  });
+});
+
 describe("buildIdealDoc", () => {
-  it("正しい入力から11キーちょうどのドキュメントを作る", () => {
+  it("正しい入力から7キーちょうどのドキュメントを作る", () => {
     // 【この期待値を実装が返したキーから作らないこと】
     // Object.keys(r.doc) を両辺に使うと、実装が何を返しても通る検査になる。
     const r = buildIdealDoc(base, new Date("2026-08-28T00:00:00Z"));
     expect(r.error).toBeUndefined();
     expect(Object.keys(r.doc).sort()).toEqual([...DOC_KEYS].sort());
-    expect(Object.keys(r.doc)).toHaveLength(11);
+    expect(Object.keys(r.doc)).toHaveLength(7);
     expect(r.doc.noteKeys).toEqual(["0", "2", "4"]);
     expect(r.doc.updatedAt).toBe("2026-08-28T00:00:00.000Z");
+  });
+  it("名前を持たない(公開される自由入力をニックネームだけに保つ)", () => {
+    const r = buildIdealDoc({ ...base, name: "勝手な名前" }, new Date("2026-08-28"));
+    expect(r.doc.name).toBeUndefined();
+    // 渡されても写さない。写すと hasOnly に弾かれて保存できなくなる。
+    expect(Object.keys(r.doc)).not.toContain("name");
+  });
+  it("リードを持たない(平均は複数のセッションにまたがるので1本に決まらない)", () => {
+    const r = buildIdealDoc({ ...base, reedBrand: "Vandoren" }, new Date("2026-08-28"));
+    expect(Object.keys(r.doc)).not.toContain("reedBrand");
   });
   it("noteKeys と notes のキーが必ず一致する", () => {
     const r = buildIdealDoc(base, new Date("2026-08-28"));
@@ -80,11 +129,10 @@ describe("buildIdealDoc", () => {
     const r = buildIdealDoc({ ...base, notes }, new Date("2026-08-28"));
     expect(r.doc.noteKeys).toEqual(["1", "2", "10"]);
   });
-
-  it("他人の演奏は公開させない", () => {
-    // 録られた本人の同意がないまま音が世界中に出るのを防ぐ(設計書 §7)
-    expect(buildIdealDoc({ ...base, performerIsSelf: false }).error).toContain("自分の演奏");
-    expect(buildIdealDoc({ ...base, performerIsSelf: undefined }).error).toContain("自分の演奏");
+  it("音名キーが範囲外のものは落とす", () => {
+    const notes = { 0: localNote(1, 1), 2: localNote(2, 2), 4: localNote(3, 3), 99: localNote(4, 4) };
+    const r = buildIdealDoc({ ...base, notes }, new Date("2026-08-28"));
+    expect(r.doc.noteKeys).toEqual(["0", "2", "4"]);
   });
   it("音が3音に足りなければ弾く", () => {
     const few = { ...base, notes: { 0: localNote(1200, 10), 2: localNote(1600, 12) } };
@@ -97,21 +145,10 @@ describe("buildIdealDoc", () => {
   });
   it("楽器種別が選択肢外なら弾く", () => {
     expect(buildIdealDoc({ ...base, saxType: "bass" }).error).toContain("楽器種別");
-  });
-  it("名前が空・長すぎ・NGワードなら弾く", () => {
-    expect(buildIdealDoc({ ...base, name: "" })).toHaveProperty("error");
-    expect(buildIdealDoc({ ...base, name: "   " })).toHaveProperty("error");
-    expect(buildIdealDoc({ ...base, name: "あ".repeat(MAX_IDEAL_NAME + 1) })).toHaveProperty("error");
-    // 【名前も自由入力なので必ずNG検査を通す】飛ばすと公開される自由文が2つになり、
-    // 「通報の対象はニックネームだけ」という前提が崩れる。
-    expect(buildIdealDoc({ ...base, name: "xxfuckxx" })).toHaveProperty("error");
-  });
-  it("前後の空白を落として保存する", () => {
-    const r = buildIdealDoc({ ...base, name: "  いい音  " }, new Date("2026-08-28"));
-    expect(r.doc.name).toBe("いい音");
+    expect(buildIdealDoc({ ...base, saxType: undefined }).error).toContain("楽器種別");
   });
   it("基準ピッチが範囲外なら弾く", () => {
-    for (const bad of [379, 501, "442", null, NaN]) {
+    for (const bad of [399, 501, "442", null, NaN]) {
       expect(buildIdealDoc({ ...base, tuningHz: bad })).toHaveProperty("error");
     }
   });
@@ -119,15 +156,6 @@ describe("buildIdealDoc", () => {
     for (const bad of [0, -1, 1.5, "5", null]) {
       expect(buildIdealDoc({ ...base, sourceSessionCount: bad })).toHaveProperty("error");
     }
-  });
-  it("リードは未設定でもよいが、壊れた値は弾く", () => {
-    const none = buildIdealDoc({ ...base, reedBrand: null, reedStrength: null }, new Date("2026-08-28"));
-    expect(none.error).toBeUndefined();
-    expect(none.doc.reedBrand).toBeNull();
-    const blank = buildIdealDoc({ ...base, reedBrand: "  " }, new Date("2026-08-28"));
-    expect(blank.doc.reedBrand).toBeNull(); // 空白だけは未設定として扱う
-    expect(buildIdealDoc({ ...base, reedBrand: 12345 })).toHaveProperty("error");
-    expect(buildIdealDoc({ ...base, reedBrand: "あ".repeat(61) })).toHaveProperty("error");
   });
   it("公開したドキュメントに音量が残らない", () => {
     const r = buildIdealDoc(base, new Date("2026-08-28"));
@@ -150,8 +178,7 @@ describe("sanitizeIncomingNotes", () => {
     expect(out["4"]).toEqual({ spectralCentroidHz: 2000, hnrDb: 14 });
   });
   it("両方の指標が壊れている音は丸ごと落とす", () => {
-    const out = sanitizeIncomingNotes({ 0: { spectralCentroidHz: "x", hnrDb: {} } });
-    expect(out).toEqual({});
+    expect(sanitizeIncomingNotes({ 0: { spectralCentroidHz: "x", hnrDb: {} } })).toEqual({});
   });
   it("知らない項目は通さない(注入の入口を作らない)", () => {
     const out = sanitizeIncomingNotes({ 0: { spectralCentroidHz: 1, hnrDb: 2, script: "<img>" } });
@@ -165,37 +192,41 @@ describe("sanitizeIncomingNotes", () => {
 
 describe("firestore.rules との同期", () => {
   const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
+  const idealsBlock = rules.slice(rules.indexOf("match /ideals/"));
 
-  it("11キーの列挙がルールと一致する", () => {
-    // 【食い違うと本番でしか壊れない】実装が11キーを書き、ルールが違う集合を許すと、
+  it("7キーの列挙がルールと一致する", () => {
+    // 【食い違うと本番でしか壊れない】実装が7キーを書き、ルールが違う集合を許すと、
     // 公開の瞬間に permission-denied になる。手元にルールは無いので気づけない。
     const list = "[" + DOC_KEYS.map((k) => `'${k}'`).join(",") + "]";
-    expect(rules).toContain(`request.resource.data.keys().hasAll(${list})`);
-    expect(rules).toContain(`request.resource.data.keys().hasOnly(${list})`);
+    expect(idealsBlock).toContain(`request.resource.data.keys().hasAll(${list})`);
+    expect(idealsBlock).toContain(`request.resource.data.keys().hasOnly(${list})`);
+  });
+  it("消した項目がルールにも残っていない", () => {
+    // name / profileId / reed* を検査する行が残っていると、
+    // 「実装は送らないのにルールは要求する」= 何も保存できない状態になりうる。
+    for (const gone of ["profileId", "reedBrand", "reedStrength"]) {
+      expect(idealsBlock).not.toContain(`request.resource.data.${gone}`);
+    }
+    expect(idealsBlock).not.toContain("request.resource.data.name");
+  });
+  it("docId が uid_saxType であることをルールが要求している", () => {
+    // これが無いと、他人の uid を名乗るドキュメントを別のIDで作れる。
+    // また、同じ人が同じ種別で複数持てるようになり「種別ごとに1つ」が崩れる。
+    expect(idealsBlock).toContain('docId == request.auth.uid + "_" + request.resource.data.saxType');
   });
   it("音の数の上限が実装と一致する", () => {
-    // ここが実装40・ルール30のようにずれると、31音の目安が「保存を押した瞬間だけ失敗」する。
-    expect(rules).toContain(`request.resource.data.noteKeys.size() <= ${MAX_PUBLISHED_NOTES}`);
-    expect(rules).toContain(`request.resource.data.noteKeys.size() >= ${MIN_PUBLISHED_NOTES}`);
+    expect(idealsBlock).toContain(`request.resource.data.noteKeys.size() <= ${MAX_PUBLISHED_NOTES}`);
+    expect(idealsBlock).toContain(`request.resource.data.noteKeys.size() >= ${MIN_PUBLISHED_NOTES}`);
   });
   it("音名キーの範囲が実装と一致する", () => {
-    for (let n = 0; n <= MAX_NOTE_KEY; n++) expect(rules).toContain(`'${n}'`);
-    expect(rules).not.toContain(`'${MAX_NOTE_KEY + 1}',`);
+    for (let n = 0; n <= MAX_NOTE_KEY; n++) expect(idealsBlock).toContain(`'${n}'`);
+    expect(idealsBlock).not.toContain(`'${MAX_NOTE_KEY + 1}',`);
   });
   it("基準ピッチの範囲が実装と一致する", () => {
-    expect(rules).toContain("request.resource.data.tuningHz >= 400");
-    expect(rules).toContain("request.resource.data.tuningHz <= 500");
-  });
-  it("名前のバイト長の上限が、実装の文字数上限と辻褄が合う", () => {
-    // ルールの size() は UTF-8 のバイト長。1文字最大4バイトなので、
-    // 文字数の上限 x 4 が厳密な最悪値の上界になる。
-    expect(rules).toContain(`request.resource.data.name.size() <= ${MAX_IDEAL_NAME * 4}`);
-  });
-  it("docId が uid_profileId であることをルールが要求している", () => {
-    // これが無いと、他人の uid を名乗るドキュメントを別のIDで作れる
-    expect(rules).toContain('docId == request.auth.uid + "_" + request.resource.data.profileId');
+    expect(idealsBlock).toContain("request.resource.data.tuningHz >= 400");
+    expect(idealsBlock).toContain("request.resource.data.tuningHz <= 500");
   });
   it("単票の読み取りが所有者の公開状態を見ている", () => {
-    expect(rules).toContain("get(/databases/$(database)/documents/users/$(resource.data.ownerUid)).data.isPublic == true");
+    expect(idealsBlock).toContain("get(/databases/$(database)/documents/users/$(resource.data.ownerUid)).data.isPublic == true");
   });
 });

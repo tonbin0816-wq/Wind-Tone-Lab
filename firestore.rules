@@ -191,13 +191,16 @@ service cloud.firestore {
 
       allow create, update: if request.auth != null
         && request.auth.uid == request.resource.data.ownerUid
-        && docId == request.auth.uid + "_" + request.resource.data.profileId
-        && request.resource.data.keys().hasAll(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
-        && request.resource.data.keys().hasOnly(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        // size() は UTF-8 のバイト長。クライアントの上限30コードポイント x 最大4バイト = 120。
-        && request.resource.data.name.size() <= 120
+        // 【docId を uid_saxType に固定する】目安は楽器種別ごとに1つなので、
+        // 同じ人が同じ種別で2つ持つことはありえない。IDで一意にしておけば、
+        // 出し直しは上書きになり、古い目安が残らない。
+        // これが無いと、他人の uid を名乗るドキュメントを別のIDで作れる。
+        && docId == request.auth.uid + "_" + request.resource.data.saxType
+        && request.resource.data.keys().hasAll(['ownerUid','saxType','tuningHz','notes','noteKeys','sourceSessionCount','updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid','saxType','tuningHz','notes','noteKeys','sourceSessionCount','updatedAt'])
+        // 【名前を持たない】目安は楽器種別ごとに1つで、「Alto の平均」以外に呼び名が無い。
+        // 名前が無いことで、**公開される自由入力がニックネームだけ**になり、
+        // 設計書 §8.1(通報の対象はニックネームだけ)がそのまま保たれる。
         && request.resource.data.saxType in ['soprano','alto','tenor','baritone']
         && request.resource.data.tuningHz is number
         && request.resource.data.tuningHz >= 400
@@ -229,8 +232,8 @@ service cloud.firestore {
         && request.resource.data.sourceSessionCount is int
         && request.resource.data.sourceSessionCount >= 1
         && request.resource.data.sourceSessionCount <= 10000
-        && (request.resource.data.reedBrand == null || (request.resource.data.reedBrand is string && request.resource.data.reedBrand.size() <= 60))
-        && (request.resource.data.reedStrength == null || (request.resource.data.reedStrength is string && request.resource.data.reedStrength.size() <= 10))
+        // 【リードを持たない】平均は複数のセッションにまたがるので1本に決まらない。
+        // 使っているリードはプロフィールの機材(gear)が持っている。
         && request.resource.data.updatedAt is string;
 
       allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
