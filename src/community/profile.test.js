@@ -478,12 +478,19 @@ describe("firestore.rules との同期", () => {
   });
   it("ドキュメント直下のキー集合が saxTypes を含み、単数の saxType を含まない", () => {
     // 'saxTypes' は 'saxType' を部分文字列として含むので、閉じ引用符まで見て区別する
-    expect(rules).toContain("'saxTypes'");
-    expect(rules).not.toContain("'saxType'");
+    // 【users の中だけを見る】ideals は目安1つにつき楽器種別が1つなので、
+    // あちらは 'saxType'(単数)を正当に持つ。ファイル全体で禁じると ideals を
+    // 足した瞬間に落ち、しかも「users が壊れた」ように見えて原因を誤らせる。
+    const usersBlock = rules.slice(rules.indexOf("match /users/"), rules.indexOf("match /ideals/"));
+    expect(usersBlock.length).toBeGreaterThan(1000); // 切り出しが空でないこと
+    expect(usersBlock).toContain("'saxTypes'");
+    expect(usersBlock).not.toContain("'saxType'");
     // ドキュメント直下のキー集合を並べている行は hasAll と hasOnly の2本。
     // (gear の中の `...gear.keys()` はこの綴りを含まないので拾われない。)
     // 2本という数はここでは不変条件そのもの ─ 片方だけだと余りか欠けのどちらかを見逃す。
-    const keyListLines = rules.split(/\r?\n/).filter((l) => l.includes("request.resource.data.keys()"));
+    // 【users の中だけを数える】ideals にも同じ綴りの行が2本あるので、
+    // ファイル全体で数えると4本になり、この不変条件の意味が変わる。
+    const keyListLines = usersBlock.split(/\r?\n/).filter((l) => l.includes("request.resource.data.keys()"));
     expect(keyListLines).toHaveLength(2);
     const docKeys = Object.keys(buildProfileDoc(base, new Date("2026-08-27")).doc);
     for (const line of keyListLines) {

@@ -3,7 +3,8 @@ import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePub
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
-import { RankScreen, ShareScreen, usePublicUsers } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, usePublicUsers } from "./screens.jsx";
+import { listIdeals } from "./idealRepo.js";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -54,11 +55,11 @@ const DELETE_PARTIAL_NOTICE =
 // 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
 // <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
 // どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
-export default function CommunityTab({ sessions }) {
+export default function CommunityTab({ sessions, myIdealProfile }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} />
+      <CommunityTabBody sessions={sessions} myIdealProfile={myIdealProfile} />
     </>
   );
 }
@@ -94,11 +95,26 @@ function SubTabs({ value, onChange }) {
 }
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, onEdit, onTogglePublic, onDelete }) {
+function JoinedView({ profile, uid, sessions, myIdealProfile, onEdit, onTogglePublic, onDelete }) {
   const [tab, setTab] = useState("data");
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
   const dir = usePublicUsers();
+  // 目安も1度だけ読む。データタブを開くまで読まないのではなく、
+  // 公開ユーザーと同じ1回で済ませる(タブを行き来しても読み直さない)。
+  const [ideals, setIdeals] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await listIdeals();
+        if (alive) setIdeals(list);
+      } catch (e) {
+        if (alive) setIdeals([]); // 読めなくても順位とシェアは見せる
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // 【練習日数はタブを開いたときに1度だけ書く】練習のたびには書かない。
   // 書き込み回数が無駄に増えるだけで、順位は開いて見るものなので即時性が要らない。
@@ -128,16 +144,8 @@ function JoinedView({ profile, uid, sessions, onEdit, onTogglePublic, onDelete }
     if (dir.phase === "error") return <Centered>{dir.error}</Centered>;
     if (tab === "rank") return <RankScreen users={dir.users} myUid={uid} />;
     if (tab === "share") return <ShareScreen users={dir.users} />;
-    // データ(コホート平均と個人の目安)は計画2の ideals に乗るので、まだ作っていない。
-    // **空の画面を出して「壊れている」と思わせないこと。**
-    return (
-      <div className="sans" style={{ padding: "var(--sp-4)", display: "grid", gap: "var(--sp-2)" }}>
-        <div style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)" }}>音のデータの比較はまだ作っていません</div>
-        <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 }}>
-          いまは「順位」と「シェア」が見られます。
-        </div>
-      </div>
-    );
+    if (ideals === null) return <Centered>読み込み中…</Centered>;
+    return <DataScreen users={dir.users} ideals={ideals} myProfile={myIdealProfile} myUid={uid} />;
   };
 
   return (
@@ -148,7 +156,7 @@ function JoinedView({ profile, uid, sessions, onEdit, onTogglePublic, onDelete }
   );
 }
 
-function CommunityTabBody({ sessions }) {
+function CommunityTabBody({ sessions, myIdealProfile }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -255,6 +263,7 @@ function CommunityTabBody({ sessions }) {
       profile={profile}
       uid={uid}
       sessions={sessions}
+      myIdealProfile={myIdealProfile}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
