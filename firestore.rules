@@ -171,6 +171,71 @@ service cloud.firestore {
         && request.resource.data.ageConfirmed == true;
       allow delete: if request.auth != null && request.auth.uid == uid;
     }
+
+    // ================================================================
+    // ideals: 公開された目安。docId は "<uid>_<profileId>"。
+    // ================================================================
+    match /ideals/{docId} {
+      // 【単票は所有者の公開状態を見る】非公開にした人の目安まで読めるのは
+      // 「OFF にすると他の利用者から見えなくなる」に反する。
+      // get() は1件につき1 read を消費するが、単票取得は一覧より桁が少ないので許容する。
+      allow get: if (request.auth != null && request.auth.uid == resource.data.ownerUid)
+        || get(/databases/$(database)/documents/users/$(resource.data.ownerUid)).data.isPublic == true;
+
+      // 【list では所有者の公開状態を見られない】list の規則はクエリそのものに対して
+      // 評価されるため、resource.data.ownerUid を使った他コレクションの参照が書けない。
+      // **そこで「非公開にしたら ideals から消す」という設計にしてある**
+      // (accountRepo の setProfilePublic が取り下げる)。
+      // 公開状態を持つ場所を users の1箇所に保ち、読まれてはいけないものをそもそも置かない。
+      allow list: if request.query.limit <= 50;
+
+      allow create, update: if request.auth != null
+        && request.auth.uid == request.resource.data.ownerUid
+        && docId == request.auth.uid + "_" + request.resource.data.profileId
+        && request.resource.data.keys().hasAll(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid','profileId','name','saxType','tuningHz','notes','noteKeys','sourceSessionCount','reedBrand','reedStrength','updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        // size() は UTF-8 のバイト長。クライアントの上限30コードポイント x 最大4バイト = 120。
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.saxType in ['soprano','alto','tenor','baritone']
+        && request.resource.data.tuningHz is number
+        && request.resource.data.tuningHz >= 400
+        && request.resource.data.tuningHz <= 500
+        // ---- notes / noteKeys ----
+        // 【音名キーを列挙で固定する】キー側の自由文字列を消すため。
+        // **上限40は src/community/idealDoc.js の MAX_PUBLISHED_NOTES の写し。**
+        // 片方だけ緩めると、クライアントは通してルールが弾き、保存の瞬間にだけ失敗する。
+        // キーの範囲(0..47)と個数の上限(40)は別物 ── キーは飛び飛びに使われる。
+        && request.resource.data.noteKeys is list
+        && request.resource.data.noteKeys.size() >= 3
+        && request.resource.data.noteKeys.size() <= 40
+        && request.resource.data.noteKeys.hasOnly([
+             '0','1','2','3','4','5','6','7','8','9','10','11',
+             '12','13','14','15','16','17','18','19','20','21','22','23',
+             '24','25','26','27','28','29','30','31','32','33','34','35',
+             '36','37','38','39','40','41','42','43','44','45','46','47'])
+        && request.resource.data.notes is map
+        && request.resource.data.notes.keys().hasAll(request.resource.data.noteKeys)
+        && request.resource.data.notes.keys().hasOnly(request.resource.data.noteKeys)
+        && request.resource.data.notes.keys().size() == request.resource.data.noteKeys.size()
+        // 【ここから先はルールでは書けない】各音の中身(spectralCentroidHz / hnrDb /
+        // pitchCentsSigned / harmonics)が**数値であること**は検査できない。
+        // ルールに繰り返しが無く、map の値を1つずつ見るには48通りを展開するしかない。
+        // Cloud Functions も使わない方針(設計書の決定1)なので、書き込みは塞げない。
+        // **読む側で守る** ── idealDoc.js の sanitizeIncomingNotes が、
+        // 画面に出す前に数値でない値を落とす。壊れた値は Firestore に残るが、
+        // 他人の画面を壊すことは防げる。これが Cloud Functions 無しで到達できる上限。
+        && request.resource.data.sourceSessionCount is int
+        && request.resource.data.sourceSessionCount >= 1
+        && request.resource.data.sourceSessionCount <= 10000
+        && (request.resource.data.reedBrand == null || (request.resource.data.reedBrand is string && request.resource.data.reedBrand.size() <= 60))
+        && (request.resource.data.reedStrength == null || (request.resource.data.reedStrength is string && request.resource.data.reedStrength.size() <= 10))
+        && request.resource.data.updatedAt is string;
+
+      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
+    }
+
     match /{document=**} { allow read, write: if false; } // 未定義コレクションは全拒否
   }
 }

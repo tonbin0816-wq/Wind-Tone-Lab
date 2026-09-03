@@ -4173,7 +4173,11 @@ export default function WindToneLabPhaseMode() {
             {/* 【sessions を渡す】コミュニティは練習日数を公開するので、端末の中の
                 セッションが要る。ここには既に読み込み済みの配列があるので、
                 タブ側でもう一度 IndexedDB を開かせない。 */}
-            <CommunityTab sessions={sessions} />
+            {/* 【myIdealProfile を渡す】コホート平均は「他人の音を自分に合わせてから」
+                平均する。合わせる基準が自分の目安なので、これが無いと平均は出せない。
+                いま選んでいる目安をそのまま渡す(選んでいなければ null で、
+                画面側が「自分の計測がまだありません」と案内する)。 */}
+            <CommunityTab sessions={sessions} myIdealProfile={selectedIdeal} />
           </Suspense>
         </CommunityErrorBoundary>
         </div>
