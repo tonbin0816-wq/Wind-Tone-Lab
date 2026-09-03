@@ -1,9 +1,18 @@
-import { findNgWord } from "./ngwords/filter.js";
 import { SAX_TYPES } from "./profile.js";
 import { SHIFTED_METRICS, COPIED_METRICS } from "./align.js";
 
 // ------------------------------------------------------------------
 // 公開する目安ドキュメントの組み立て。
+//
+// 【目安は「選んで公開するもの」ではない】その人の**楽器種別ごとの平均**が
+// 1つあるだけで、どれを出すかという選択は無い(2026-09-03 本人裁定)。
+// したがって:
+//   - ドキュメントは楽器種別ごとに1つ。docId は "<uid>_<saxType>"
+//   - 名前を持たない。「Alto の平均」以外に呼び名が無いので、付ける意味が無い
+//   - **名前が無いことで、公開される自由入力がニックネームだけになる。**
+//     設計書 §8.1(通報の対象はニックネームだけ)がそのまま保たれる
+//   - リードも持たない。平均は複数のセッションにまたがるので、1本に決まらない
+//     (使っているリードはプロフィールの機材が持っている)
 //
 // 【ここが「端末から出ていくもの」の唯一の入口】共有してよい指標だけを写し、
 // それ以外は**書き写さないことで**落とす(消すのではなく、拾わない)。
@@ -17,6 +26,7 @@ export const SHARED_METRICS = [...SHIFTED_METRICS, ...COPIED_METRICS];
 // 公開側は spectralCentroidHz / harmonics で持つ(align.js の綴り)。
 // **対応づけはこの表だけが持つ。** 綴りが揃っていないことに気づかず片方だけ直すと、
 // 「値が全部 undefined の目安」が公開されて、誰の画面にも線が出ない。
+// (実際に一度これを踏んだ。境界では必ず sanitizeNotes を通すこと。)
 const LOCAL_TO_SHARED = {
   centroidHz: "spectralCentroidHz",
   hnrDb: "hnrDb",
@@ -34,7 +44,6 @@ export const MAX_PUBLISHED_NOTES = 40;
 export const MAX_NOTE_KEY = 47;
 // これ未満だと平行移動の基準が立たない(align.js の MIN_COMMON_NOTES と同じ理由)
 export const MIN_PUBLISHED_NOTES = 3;
-export const MAX_IDEAL_NAME = 30;
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
 
@@ -67,33 +76,17 @@ export function sanitizeNotes(notes) {
 }
 
 /**
- * @param input {
- *   ownerUid, profileId, name, saxType, tuningHz, notes(ローカルの形),
- *   sourceSessionCount, reedBrand, reedStrength, performerIsSelf
- * }
+ * @param input { ownerUid, saxType, tuningHz, notes(ローカルの形), sourceSessionCount }
+ *
+ * 【performerIsSelf を引数に取らない】呼ぶ側が「自分のセッションだけ」を選んで
+ * 平均を作る責任を負う(publishMyIdeals がそれをしている)。
+ * ここで真偽値を1つ受け取る形にすると、呼ぶ側が true を渡すだけで通ってしまい、
+ * 検査しているつもりで何も検査していないことになる。
  */
 export function buildIdealDoc(input, now = new Date()) {
   if (typeof input?.ownerUid !== "string" || input.ownerUid.length === 0) {
     return { error: "アカウントが見つかりません" };
   }
-  if (typeof input?.profileId !== "string" || input.profileId.length === 0) {
-    return { error: "目安が見つかりません" };
-  }
-  // 【自分の演奏だけを公開させる】他人の演奏を録って公開されると、
-  // 録られた本人の同意がないまま音が世界中に出る。設計書 §7。
-  if (input.performerIsSelf !== true) {
-    return { error: "自分の演奏の目安だけを公開できます" };
-  }
-
-  const name = typeof input.name === "string" ? input.name.trim() : "";
-  if (name.length === 0) return { error: "目安の名前を入れてください" };
-  if ([...name].length > MAX_IDEAL_NAME) return { error: `目安の名前は${MAX_IDEAL_NAME}文字までです` };
-  // 【名前は自由入力なので必ず通す】ニックネームと同じ扱い。
-  // ここを飛ばすと、公開プロフィールに載る自由文が2つになり、
-  // 設計書 §8.1 の「通報の対象はニックネームだけ」が崩れる。
-  const ng = findNgWord(name);
-  if (ng) return { error: "目安の名前に使えない言葉が含まれています" };
-
   if (!SAX_TYPES.includes(input.saxType)) return { error: "楽器種別が正しくありません" };
 
   // 【範囲は firestore.rules と同じにする】ここを広げるとクライアントは通して
@@ -121,32 +114,14 @@ export function buildIdealDoc(input, now = new Date()) {
     return { error: "もとにした録音の数が正しくありません" };
   }
 
-  // リードは「その目安を録ったときのリード」。無くてもよい(未設定の人がいる)。
-  const str = (v, max) => {
-    if (v === null || v === undefined) return null;
-    if (typeof v !== "string") return undefined; // 異常
-    const t = v.trim();
-    if (t.length === 0) return null;
-    return t.length <= max ? t : undefined;
-  };
-  const reedBrand = str(input.reedBrand, 60);
-  const reedStrength = str(input.reedStrength, 10);
-  if (reedBrand === undefined || reedStrength === undefined) {
-    return { error: "リードの情報が正しくありません" };
-  }
-
   return {
     doc: {
       ownerUid: input.ownerUid,
-      profileId: input.profileId,
-      name,
       saxType: input.saxType,
       tuningHz,
       notes,
       noteKeys,
       sourceSessionCount: count,
-      reedBrand,
-      reedStrength,
       updatedAt: now.toISOString(),
     },
   };
@@ -177,4 +152,21 @@ export function sanitizeIncomingNotes(notes) {
     out[key] = kept;
   }
   return out;
+}
+
+// 【自分の演奏の印】App.jsx の performer は既定が "自分" で、他人には名前が入る。
+// 未設定(空・undefined)も「自分」として扱う ── 既定値なので。
+export const SELF_PERFORMER = "自分";
+export const isSelfSession = (s) => ((s?.performer ?? "") || SELF_PERFORMER) === SELF_PERFORMER;
+
+/**
+ * 公開する対象のセッションを選ぶ。
+ *
+ * 【ここが「他人の演奏を公開しない」を守っている唯一の場所】
+ * 先生や友人の音を録ったセッションは performer に名前が入っているので落ちる。
+ * 録られた本人の同意がないまま音が世界中に出るのを防ぐ(設計書 §7)。
+ */
+export function selectOwnSessions(sessions, saxType) {
+  return (sessions ?? []).filter(
+    (s) => s && isSelfSession(s) && s.saxType === saxType && (s.frames?.length ?? 0) > 0);
 }

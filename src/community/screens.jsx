@@ -372,19 +372,21 @@ function Legend({ series }) {
   );
 }
 
-export function DataScreen({ users, ideals, myProfile, myUid }) {
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes }) {
+  // 【楽器種別は必ず1つに決める】アルトとテナーの重心を混ぜた平均は誰の目安にもならない。
+  // 条件行の「すべて」を使わず、機材シェアと同じく専用の選択肢を持つ。
+  // 既定は自分が登録している最初の種別(登録が無ければアルト)。
+  const [saxType, setSaxType] = useState(() => (saxTypes ?? [])[0] ?? "alto");
   const [filter, setFilter] = useState(EMPTY_FILTER);
   const [metric, setMetric] = useState("spectralCentroidHz");
 
-  const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
+  const shown = useMemo(() => filterUsers(users, { ...filter, saxType: ANY }), [users, filter]);
   // 【条件で絞った人の目安だけを使う】上のカードと下の一覧が同じ母集団になる。
-  const pairs = useMemo(() => {
-    const joined = joinOwners(ideals, shown);
-    // 楽器種別の絞り込みは目安そのものにも効かせる。
-    // 掛け持ちの人はアルトとテナーの両方の目安を持ちうるので、
-    // 所有者で絞るだけでは別の楽器の目安が混ざる。
-    return filter.saxType === ANY ? joined : joined.filter((p) => p.ideal.saxType === filter.saxType);
-  }, [ideals, shown, filter.saxType]);
+  // 目安そのものの種別でも絞る ── 掛け持ちの人はアルトとテナーの両方を持つので、
+  // 所有者で絞るだけでは別の楽器の目安が混ざる。
+  const pairs = useMemo(
+    () => joinOwners(ideals, shown).filter((p) => p.ideal.saxType === saxType),
+    [ideals, shown, saxType]);
 
   const others = useMemo(() => pairs.filter((p) => p.ideal.ownerUid !== myUid).map((p) => p.ideal), [pairs, myUid]);
 
@@ -392,7 +394,8 @@ export function DataScreen({ users, ideals, myProfile, myUid }) {
   // 読んできた他人の目安は公開の形(spectralCentroidHz / harmonics)。
   // 変換せずに渡すと共通音が1つも見つからず、**常に「重なっている音が足りません」**になる。
   // 実際にこれを踏んだ。sanitizeNotes が対応表を持っているので、それを通す。
-  const mineShared = useMemo(() => ({ notes: sanitizeNotes(myProfile?.notes) }), [myProfile]);
+  const mineShared = useMemo(
+    () => ({ notes: sanitizeNotes(myIdeals?.[saxType]?.notes) }), [myIdeals, saxType]);
   const avg = useMemo(() => cohortAverage(mineShared, others), [mineShared, others]);
 
   const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
@@ -423,7 +426,19 @@ export function DataScreen({ users, ideals, myProfile, myUid }) {
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={filter} onChange={setFilter} />
+      <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
+
+      <div role="radiogroup" aria-label="目安の楽器種別" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+        {SAX_TYPES.map((t) => (
+          <button key={t} type="button" role="radio" aria-checked={t === saxType} onClick={() => setSaxType(t)} className="sans"
+                  style={{
+                    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
+                    background: t === saxType ? "var(--c-accent)" : "var(--c-sunken)",
+                    color: t === saxType ? "var(--c-on-accent)" : "var(--c-ink-2)",
+                    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+                  }}>{SAX_LABELS[t]}</button>
+        ))}
+      </div>
 
       <div role="radiogroup" aria-label="見る指標" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
         {METRICS.map((x) => (
@@ -453,7 +468,7 @@ export function DataScreen({ users, ideals, myProfile, myUid }) {
         </div>
       )}
 
-      <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>この条件の人の目安</div>
+      <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>この条件の人</div>
       {pairs.length === 0 ? (
         <Empty>{isFiltered(filter) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
       ) : (
@@ -462,12 +477,14 @@ export function DataScreen({ users, ideals, myProfile, myUid }) {
             <div key={ideal.id} style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
               <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} size={34} />
               <div style={{ flex: "1 1 0", minWidth: 0 }}>
+                {/* 【目安に名前は無い】種別ごとに1つなので、人の名前で示すのが自然。
+                    公開される自由入力をニックネームだけに保つためでもある。 */}
                 <div className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {ideal.name}
+                  {owner.nickname}
                   {ideal.ownerUid === myUid ? <span className="sans" style={{ marginLeft: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-accent)" }}>あなた</span> : null}
                 </div>
                 <div className="sans" style={noteStyle}>
-                  {owner.nickname} ・ {SAX_LABELS[ideal.saxType] ?? ideal.saxType} ・ {ideal.noteKeys?.length ?? 0}音
+                  {SAX_LABELS[ideal.saxType] ?? ideal.saxType} ・ {ideal.noteKeys?.length ?? 0}音 ・ 録音{ideal.sourceSessionCount ?? "—"}回
                 </div>
               </div>
             </div>
