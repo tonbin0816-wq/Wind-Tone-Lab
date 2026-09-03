@@ -5,7 +5,21 @@
 //   2. 正しい音名が表示されるか(全サックス種別×全音×基準Hz438-444で記音ラベル一致)
 //   3. これまでの音(グラフ)にも同じ値が反映されるか(メーター¢とグラフ¢の完全一致)
 // 使い方: node scripts/pitch-test.mjs
-import { readFileSync } from "fs";
+import { readFileSync as _readFileSyncRaw } from "fs";
+
+// 【改行コードの正規化 2026-09-02】
+// この検査は App.jsx などをテキストとして読み、"\n}\n" のような目印で関数の範囲を
+// 切り出している。作業ツリーのファイルが CRLF だと目印が見つからず、切り出しが空になって
+// 検査が黙って素通りする(実測でデータタブ関連の14件が落ちていた。落ちるならまだよいが、
+// 条件しだいでは通ってしまう危険もある)。
+//
+// リポジトリ内(blob)は LF で、core.autocrlf=input なのでコミット時も LF に戻る。
+// だが作業ツリーのファイルは、編集に使った道具しだいで CRLF になりうる。
+// 読み込み側で1回だけ潰し、検査の中身を改行コードに依存させない。
+const readFileSync = (p, enc) => {
+  const s = _readFileSyncRaw(p, enc);
+  return typeof s === "string" ? s.replace(/\r\n/g, "\n") : s;
+};
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 // 【D-24a】makeup(振幅の戻し)の根拠を出す計算。**記録の数値を出すのと同じ1つの実装**を
@@ -6708,21 +6722,30 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     (src.match(/<ReedsTab/g) || []).length === 1, `${(src.match(/<ReedsTab/g) || []).length}箇所`);
   // トークンで数える。`className="surf-rule wrap"` と書いても数から漏れない。
   {
-    // 【D-29 2026/09/03】作法を名乗る根は **6つ**になった(画面の数そのものなので件数で縛る):
-    //   罫(.surf-rule) … 計測タブ / リードタブ Top / すべてのセッション の3つ
+    // 【統合 2026/09/03】作法を名乗る根は **7つ**(画面の数そのものなので件数で縛る):
+    //   罫(.surf-rule) … 計測タブ Top / リードタブ Top の2つ
     //   カード(.surf-card) … My Data・分析(1枚が2子タブを包む)/ セッション詳細 /
-    //                        リード個体詳細 の3つ
+    //                        リード個体詳細 / すべてのセッション / コミュニティ の5つ
     // タブの数とは一致しない ── データタブもリードタブも**画面ごと**に分かれるため。
+    //
+    // **出どころが2つある。片方だけを見て件数を直すと、もう片方が静かに壊れる**:
+    //   ・D-29 / D-30(2026/09/03 本人裁定)…「計測タブとリードタブの Top 画面以外は
+    //     適切にカード使っていい」→ セッション詳細 / リード個体詳細 / すべてのセッションが
+    //     罫 → カードへ(罫4 → 罫2 / カード1 → カード4)
+    //   ・コミュニティ(2026/08/28 本人裁定。design/DESIGN-SYSTEM-community-addendum.md)…
+    //     コミュニティタブの全画面がカード(カード +1)
+    // この2つは**別の周で並行して入り**、main で合流した。合流の時点で 2 + 5 = 7。
     const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length
       + tagsWithClass("surf-card").length;
-    check("D-29: 作法を名乗る根は6箇所(罫3 + カード3)", roots === 6, `${roots}箇所`);
+    check("統合: 作法を名乗る根は7箇所(罫2 + カード5)", roots === 7, `${roots}箇所`);
     // 【D-30 2026/09/03】すべてのセッションがカードへ移ったので **罫3 → 罫2 / カード3 → カード4**。
-    // 合計 6 は変わらない(画面の数は増えていない)ので、**内訳の2本を必ず対で見る**
-    // ── 合計だけを見ていると「罫とカードが入れ替わった」変異が丸ごと素通りする。
+    // 【コミュニティ 2026/08/28】さらにカードが1つ増えて **カード5 / 合計7**。
+    // **内訳の2本を必ず対で見る** ── 合計だけを見ていると
+    // 「罫とカードが入れ替わった」変異が丸ごと素通りする。
     check("D-30: 罫の根は2箇所(計測タブ Top / リードタブ Top)",
       tagsWithClass("surf-rule").length === 2, `${tagsWithClass("surf-rule").length}箇所`);
-    check("D-30: カードの根は4箇所(My Data・分析 / セッション詳細 / リード個体詳細 / すべてのセッション)",
-      tagsWithClass("surf-card").length === 4, `${tagsWithClass("surf-card").length}箇所`);
+    check("統合: カードの根は5箇所(My Data・分析 / セッション詳細 / リード個体詳細 / すべてのセッション / コミュニティ)",
+      tagsWithClass("surf-card").length === 5, `${tagsWithClass("surf-card").length}箇所`);
     // 【§6.6 が名指しした最悪の形】.surf-card と .surf-rule の**入れ子**。
     // 同じタグに両方付ける形は下の D-10 の検査が見ているが、**祖先と子孫**の入れ子は
     // そちらでは捕まらない。入れ子は2通りの起き方をするので、両方を塞ぐ。
@@ -6753,11 +6776,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         nests.length === 0, nests.join(" | ") || "0件");
       // (b) **関数をまたぐ入れ子。** タブの根に作法のクラスを置き、その中の部品が
       //     自分でも名乗ると、綴りは離れているのに DOM では入れ子になる。
-      //     いま根に作法のクラスを持つのは**計測タブだけ**なので、
-      //     その中身(MeasureView)が1つも名乗らないことで塞ぐ。
+      //     根に作法のクラスを持つのは**計測タブとコミュニティタブの2つ**なので、
+      //     **両方の中身**が1つも名乗らないことで塞ぐ(片方だけ見ていると、もう片方が
+      //     自分で名乗り始めたときに素通りする ── 合流のときに実際に起きかけた形)。
       check("D-29 §6.6: 計測タブの中身(MeasureView)は作法のクラスを名乗らない(根と二重にならない)",
         !/className="[^"]*surf-(card|rule)/.test(srcOfFn(src, "MeasureView")),
         (srcOfFn(src, "MeasureView").match(/className="[^"]*surf-[^"]*"/g) || []).join(" / ") || "0件");
+      // コミュニティタブの中身は**別ファイル**にある。綴りが離れていても DOM では入れ子になるので、
+      // 同じ規則をそちらにも当てる(index.css を読むのと同じ作法でファイルを開く)。
+      {
+        const community = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+        check("§6.6: コミュニティタブの中身(CommunityTab.jsx)は作法のクラスを名乗らない(根と二重にならない)",
+          !/className="[^"]*surf-(card|rule)|surf-(card|rule)/.test(community),
+          (community.match(/surf-(card|rule)/g) || []).join(" / ") || "0件");
+      }
       // (c) **名乗ってよい場所そのものを固定する。** 作法のクラスが現れる関数の集合を
       //     綴りで縛る(件数ではなく「誰が持つか」。罠4)。ここに新しい関数が増えたら、
       //     それは「どこかの画面が二重に名乗った」か「範囲が勝手に広がった」かのどちらか。
@@ -6770,12 +6802,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         owners.push(`${/function (\w+)/.exec(head)[1]}:${a.kind}`);
       }
       // 【D-30】AnalysisLabView の3つの return は**3つともカード**になった
-      // (My Data・分析 / セッション詳細 / すべてのセッション)。罫を名乗るのは
-      // アプリの根(計測タブ)と ReedsTab の Top の2つだけ。
-      check("D-30: 作法のクラスを名乗るのは3関数だけ(アプリの根=計測 / ReedsTab / AnalysisLabView)",
+      // (My Data・分析 / セッション詳細 / すべてのセッション)。
+      // 【コミュニティ】アプリの根(WindToneLabPhaseMode)は**罫(計測タブ)とカード(コミュニティ)を
+      // 1つずつ**持つ。罫を名乗るのはそこと ReedsTab の Top の2つだけ。
+      check("統合: 作法のクラスを名乗るのは3関数だけ(アプリの根 / ReedsTab / AnalysisLabView)",
         owners.sort().join(" ") === [
           "AnalysisLabView:card", "AnalysisLabView:card", "AnalysisLabView:card",
-          "ReedsTab:card", "ReedsTab:rule", "WindToneLabPhaseMode:rule",
+          "ReedsTab:card", "ReedsTab:rule",
+          "WindToneLabPhaseMode:rule", "WindToneLabPhaseMode:card",
         ].sort().join(" "), owners.join(" "));
     }
   }

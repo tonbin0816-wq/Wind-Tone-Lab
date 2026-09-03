@@ -1,0 +1,138 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      // 公開プロフィールは誰でも読める。非公開は本人のみ(spec: 非公開でも復元用にクラウド保存する)
+      allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
+      allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() > 0
+        // size() は UTF-8 のバイト長。クライアントの上限20コードポイントに対し、
+        // 1コードポイント最大4バイトなので 80 が厳密な最悪値の上界になる
+        && request.resource.data.nickname.size() <= 80
+        // 【アイコンは列挙で固定する】自由文を許すと、公開プロフィールに任意の文字列が
+        // 載る経路が1つ増える。設計書 §8.1 の「自由入力はニックネームだけ」を保つ。
+        // **src/community/profile.js の AVATAR_ICONS の写し。片方だけ直さないこと。**
+        && request.resource.data.icon in ['ic-cat','ic-dog','ic-bird','ic-rabbit','ic-butterfly','ic-fish','ic-paw-print','ic-flower-lotus','ic-leaf','ic-tree','ic-star','ic-heart','ic-moon-stars','ic-sun','ic-cloud','ic-rainbow','ic-fire','ic-snowflake','ic-sparkle','ic-crown-simple','ic-diamond','ic-ghost','ic-music-notes','ic-guitar']
+        // 色は番号。実値(16進数)は保存しないので、後から色を調整できる。
+        && request.resource.data.iconColor is int
+        && request.resource.data.iconColor >= 1
+        && request.resource.data.iconColor <= 10
+        // 【楽器種別は複数】掛け持ちの奏者が居るので配列。1つ以上4つ以下、選択肢はこの4つだけ。
+        // 上限4は「同じ種別を2本持つ人は稀なので1種別1組」という決めから来ている。
+        // 【上限4は重複の検査ではない】種別は4つしか無いので5要素以上なら必ず重複を含むが、
+        // 逆は言えない。["alto","alto"] は2要素なのでこの上限を素通りする。
+        // 重複を実際に弾いているのは下の gear の要素数一致(「gear のキー数と一致」の行)。
+        && request.resource.data.saxTypes is list
+        && request.resource.data.saxTypes.size() >= 1
+        && request.resource.data.saxTypes.size() <= 4
+        && request.resource.data.saxTypes.hasOnly(['soprano','alto','tenor','baritone'])
+        // ---- ここから position / genres / ensembles / places の選択肢 ----
+        // 【src/community/profile.js の POSITIONS / GENRES / ENSEMBLES / PLACES の写し】
+        // 計画1に Cloud Functions は無いので、このルールが唯一のサーバ側の検査である。
+        // 「文字列で60字以内」までしか見ないと、生SDKを叩く相手が position に中傷を入れて
+        // 世界中から読めるプロフィールに載せられてしまい、設計書 §8.1 の
+        // 「通報の対象はニックネームだけ」という性質(= 自動モデレーションが成立する根拠)が崩れる。
+        // 自由入力はニックネーム1つだけ、を型で担保するために列挙で固定する。
+        // **profile.js 側の定数を足し引きしたら、必ずここも直すこと**(逆も同じ)。
+        // 同期は src/community/profile.test.js の「Firestore ルールの列挙と一致する」で検査している。
+        && request.resource.data.position in ['学生','学生（音大）','社会人','講師・プロ','独学']
+        && request.resource.data.startYear is int
+        && request.resource.data.startYear >= 1900
+        && request.resource.data.startYear <= 2200
+        && request.resource.data.genres is list && request.resource.data.genres.size() <= 8
+        && request.resource.data.genres.hasOnly(['クラシック','ジャズ','ポップス','その他'])
+        && request.resource.data.ensembles is list && request.resource.data.ensembles.size() <= 8
+        && request.resource.data.ensembles.hasOnly(['ソロ','アンサンブル','ビッグバンド','吹奏楽','オーケストラ','その他'])
+        && request.resource.data.places is list && request.resource.data.places.size() <= 8
+        && request.resource.data.places.hasOnly(['自宅','学校の音楽室','個人練習室','スタジオ','カラオケ','屋外','その他'])
+        // 【ルールは上位集合のまま置く 2026-09-02】クライアントは機材の未選択を禁じ、
+        // genres / ensembles / places に1つ以上を要求するようになったが、
+        // ルール側は空配列も gear の null も**許したままにしてある**。
+        // ルールの役目は「他人に害を与える書き込み」を止めることで、列挙の固定と
+        // 自由文の排除がそれにあたる。一方「空欄で登録させない」は本人のデータの
+        // 質の話であり、空で書いて困るのは書いた本人だけ(誰の絞り込みにも出ない)。
+        // ここを締めると、締めるたびに**手作業でのルール再公開**が要る。
+        // 対価に見合わないので上位集合で置く。読む側は空と null を想定し続けること。
+        // ---- ここまで ----
+        // ---- gear ----
+        // 【gear は楽器種別をキーにした map】1種別につき機材1組(楽器・マウスピース・リガチャー)。
+        // キー集合は saxTypes と**完全に一致**させる。hasOnly だけだと欠けを、hasAll だけだと
+        // 余りを見逃す。余り(持っていない楽器の機材)を通すと計画4の機材シェアの母数が壊れる。
+        && request.resource.data.gear is map
+        && request.resource.data.gear.keys().hasOnly(request.resource.data.saxTypes)
+        && request.resource.data.gear.keys().hasAll(request.resource.data.saxTypes)
+        // 【この1行が saxTypes の重複を弾く】hasOnly / hasAll は**集合**の検査なので、
+        // 重複した要素は集合に畳まれて素通りする。saxTypes: ['alto','alto'] と
+        // gear: {alto:{...}} は、集合としてはどちらも {alto} なので上の2行を両方通る。
+        // 要素数を突き合わせれば落ちる: saxTypes は2要素だが gear のキーは1つしかない。
+        // クライアント側(src/community/profile.js の buildProfileDoc)も同じ理由で重複を弾く。
+        // 片側だけ緩めない。
+        && request.resource.data.saxTypes.size() == request.resource.data.gear.keys().size()
+        // 中身の検査。ルールにループが無いので4種別ぶん明示的に書く。
+        // 形は「そのキーが在るなら中身を検査する」= 在らなければ真(存在の要否は上の
+        // hasOnly/hasAll が決めており、ここは重ねて言わない)。
+        // gear の中身も自由入力の入口になりうるので型と長さを見る。
+        // null は「未選択」を表す正当な値なので許す(「その他」= 文字列 とは別物。gear.js 参照)。
+        // 60 は position に合わせた上界。カタログの型番はどれもこれより十分短い。
+        && (!request.resource.data.gear.keys().hasAny(['soprano']) || (
+             request.resource.data.gear.soprano.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.soprano.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && (request.resource.data.gear.soprano.instrumentBrand == null || (request.resource.data.gear.soprano.instrumentBrand is string && request.resource.data.gear.soprano.instrumentBrand.size() <= 60))
+          && (request.resource.data.gear.soprano.instrumentModel == null || (request.resource.data.gear.soprano.instrumentModel is string && request.resource.data.gear.soprano.instrumentModel.size() <= 60))
+          && (request.resource.data.gear.soprano.mpBrand == null || (request.resource.data.gear.soprano.mpBrand is string && request.resource.data.gear.soprano.mpBrand.size() <= 60))
+          && (request.resource.data.gear.soprano.mpModel == null || (request.resource.data.gear.soprano.mpModel is string && request.resource.data.gear.soprano.mpModel.size() <= 60))
+          && (request.resource.data.gear.soprano.ligBrand == null || (request.resource.data.gear.soprano.ligBrand is string && request.resource.data.gear.soprano.ligBrand.size() <= 60))
+          && (request.resource.data.gear.soprano.ligModel == null || (request.resource.data.gear.soprano.ligModel is string && request.resource.data.gear.soprano.ligModel.size() <= 60))
+          && (request.resource.data.gear.soprano.reedBrand == null || (request.resource.data.gear.soprano.reedBrand is string && request.resource.data.gear.soprano.reedBrand.size() <= 60))
+          && (request.resource.data.gear.soprano.reedModel == null || (request.resource.data.gear.soprano.reedModel is string && request.resource.data.gear.soprano.reedModel.size() <= 60))
+           ))
+        && (!request.resource.data.gear.keys().hasAny(['alto']) || (
+             request.resource.data.gear.alto.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.alto.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && (request.resource.data.gear.alto.instrumentBrand == null || (request.resource.data.gear.alto.instrumentBrand is string && request.resource.data.gear.alto.instrumentBrand.size() <= 60))
+          && (request.resource.data.gear.alto.instrumentModel == null || (request.resource.data.gear.alto.instrumentModel is string && request.resource.data.gear.alto.instrumentModel.size() <= 60))
+          && (request.resource.data.gear.alto.mpBrand == null || (request.resource.data.gear.alto.mpBrand is string && request.resource.data.gear.alto.mpBrand.size() <= 60))
+          && (request.resource.data.gear.alto.mpModel == null || (request.resource.data.gear.alto.mpModel is string && request.resource.data.gear.alto.mpModel.size() <= 60))
+          && (request.resource.data.gear.alto.ligBrand == null || (request.resource.data.gear.alto.ligBrand is string && request.resource.data.gear.alto.ligBrand.size() <= 60))
+          && (request.resource.data.gear.alto.ligModel == null || (request.resource.data.gear.alto.ligModel is string && request.resource.data.gear.alto.ligModel.size() <= 60))
+          && (request.resource.data.gear.alto.reedBrand == null || (request.resource.data.gear.alto.reedBrand is string && request.resource.data.gear.alto.reedBrand.size() <= 60))
+          && (request.resource.data.gear.alto.reedModel == null || (request.resource.data.gear.alto.reedModel is string && request.resource.data.gear.alto.reedModel.size() <= 60))
+           ))
+        && (!request.resource.data.gear.keys().hasAny(['tenor']) || (
+             request.resource.data.gear.tenor.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.tenor.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && (request.resource.data.gear.tenor.instrumentBrand == null || (request.resource.data.gear.tenor.instrumentBrand is string && request.resource.data.gear.tenor.instrumentBrand.size() <= 60))
+          && (request.resource.data.gear.tenor.instrumentModel == null || (request.resource.data.gear.tenor.instrumentModel is string && request.resource.data.gear.tenor.instrumentModel.size() <= 60))
+          && (request.resource.data.gear.tenor.mpBrand == null || (request.resource.data.gear.tenor.mpBrand is string && request.resource.data.gear.tenor.mpBrand.size() <= 60))
+          && (request.resource.data.gear.tenor.mpModel == null || (request.resource.data.gear.tenor.mpModel is string && request.resource.data.gear.tenor.mpModel.size() <= 60))
+          && (request.resource.data.gear.tenor.ligBrand == null || (request.resource.data.gear.tenor.ligBrand is string && request.resource.data.gear.tenor.ligBrand.size() <= 60))
+          && (request.resource.data.gear.tenor.ligModel == null || (request.resource.data.gear.tenor.ligModel is string && request.resource.data.gear.tenor.ligModel.size() <= 60))
+          && (request.resource.data.gear.tenor.reedBrand == null || (request.resource.data.gear.tenor.reedBrand is string && request.resource.data.gear.tenor.reedBrand.size() <= 60))
+          && (request.resource.data.gear.tenor.reedModel == null || (request.resource.data.gear.tenor.reedModel is string && request.resource.data.gear.tenor.reedModel.size() <= 60))
+           ))
+        && (!request.resource.data.gear.keys().hasAny(['baritone']) || (
+             request.resource.data.gear.baritone.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.baritone.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && (request.resource.data.gear.baritone.instrumentBrand == null || (request.resource.data.gear.baritone.instrumentBrand is string && request.resource.data.gear.baritone.instrumentBrand.size() <= 60))
+          && (request.resource.data.gear.baritone.instrumentModel == null || (request.resource.data.gear.baritone.instrumentModel is string && request.resource.data.gear.baritone.instrumentModel.size() <= 60))
+          && (request.resource.data.gear.baritone.mpBrand == null || (request.resource.data.gear.baritone.mpBrand is string && request.resource.data.gear.baritone.mpBrand.size() <= 60))
+          && (request.resource.data.gear.baritone.mpModel == null || (request.resource.data.gear.baritone.mpModel is string && request.resource.data.gear.baritone.mpModel.size() <= 60))
+          && (request.resource.data.gear.baritone.ligBrand == null || (request.resource.data.gear.baritone.ligBrand is string && request.resource.data.gear.baritone.ligBrand.size() <= 60))
+          && (request.resource.data.gear.baritone.ligModel == null || (request.resource.data.gear.baritone.ligModel is string && request.resource.data.gear.baritone.ligModel.size() <= 60))
+          && (request.resource.data.gear.baritone.reedBrand == null || (request.resource.data.gear.baritone.reedBrand is string && request.resource.data.gear.baritone.reedBrand.size() <= 60))
+          && (request.resource.data.gear.baritone.reedModel == null || (request.resource.data.gear.baritone.reedModel is string && request.resource.data.gear.baritone.reedModel.size() <= 60))
+           ))
+        && request.resource.data.deviceClass in ['ios','android','pc']
+        && request.resource.data.updatedAt is string
+        && request.resource.data.isPublic is bool
+        // 年齢は自己申告であり検証ではない。13歳未満の利用を規約で禁じるための同意記録
+        && request.resource.data.ageConfirmed == true;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{document=**} { allow read, write: if false; } // 未定義コレクションは全拒否
+  }
+}

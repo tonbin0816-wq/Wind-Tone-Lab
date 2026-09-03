@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  コミュニティタブ 画面案（2026-08-28）
+  仕様: docs/superpowers/specs/2026-08-27-community-tab-design.md
+  計画: docs/superpowers/plans/2026-08-27-community-plan-1-auth-profile.md
+
+  地・カード・小カード・影・角丸は DESIGN-SYSTEM.md のカードの作法（§6.6 .surf-card）の実値。
+    地 --c-sunk #F6F7F9 / カード --r-lg 16 + --sp-4 / 小カード --r-md 12 / --shadow-card
+    罫は1本も引かない（§6.6）。この案も行の区切り線を持たない。
+  追加が要るトークンは2群だけ:「順位の3色」と「アイコンの背景色10色」。
+    文面は design/DESIGN-SYSTEM-community-addendum.md に用意してある。
+  §6.6 の表に「コミュニティ＝カード」の行を足す裁定も同ファイル（本人承認済み）。
+
+  アイコン: Phosphor Icons の fill ウェイト（MIT・商用利用可）24種で確定。
+    https://phosphoricons.com  パスはスプライトに埋め込み済み。実行時の外部読み込みは無い。
+  数字に Instrument Serif は使わない（本人指示・2026-08-28）。
+  日本語の折り返しは word-break:auto-phrase で文節に揃えている。
+-->
+<title>コミュニティタブ草案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap">
+<style>
+/* ═══ 草案ページ自身のトークン ═══════════════════════════════ */
+:root{
+  --bg:#E9EDF8; --panel:#FFFFFF; --ink:#101C2E; --ink-2:#4A5771; --ink-3:#8B95A9;
+  --line:#D8DEEC; --accent:#174585; --deep:#0E2044; --tint:#DCE5F5;
+  --alert:#A32B33; --alert-bg:#FBEDEE;
+  --ok:#166C46; --ok-bg:#E4F1EA;
+  --mute:#7C879C; --mute-bg:#E3E8F2;
+  --serif:"Instrument Serif",Georgia,"Times New Roman",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --sh-1:0 1px 2px rgba(16,32,68,.05), 0 8px 20px -8px rgba(16,32,68,.14);
+  --sh-2:0 2px 4px rgba(16,32,68,.05), 0 18px 40px -14px rgba(16,32,68,.22);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0B0F17; --panel:#131A26; --ink:#E7ECF5; --ink-2:#AAB6C9; --ink-3:#7A8598;
+  --line:#212B3B; --accent:#8FB3E6; --deep:#050A14; --tint:#1A2334;
+  --alert:#F0989D; --alert-bg:#2B1518; --ok:#6FD3A2; --ok-bg:#10281D;
+  --mute:#7A8598; --mute-bg:#1B2331;
+  --sh-1:0 1px 2px rgba(0,0,0,.4), 0 8px 20px -8px rgba(0,0,0,.6);
+  --sh-2:0 2px 4px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.7);
+}}
+:root[data-theme="dark"]{
+  --bg:#0B0F17; --panel:#131A26; --ink:#E7ECF5; --ink-2:#AAB6C9; --ink-3:#7A8598;
+  --line:#212B3B; --accent:#8FB3E6; --deep:#050A14; --tint:#1A2334;
+  --alert:#F0989D; --alert-bg:#2B1518; --ok:#6FD3A2; --ok-bg:#10281D;
+  --mute:#7A8598; --mute-bg:#1B2331;
+  --sh-1:0 1px 2px rgba(0,0,0,.4), 0 8px 20px -8px rgba(0,0,0,.6);
+  --sh-2:0 2px 4px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.7);
+}
+
+/* ═══ 端末の中身 = アプリの色。常にライト ═══════════════════ */
+.scr{
+  --i:#101C2E; --i2:#435266; --i3:#8D95A1; --i4:#AEB6C2;
+  --card:#FFFFFF; --gr:#F6F7F9; --ln:#E4E9F3;
+  --ac:#174585; --ac-mid:#7FA0CE; --ac-line:#B9C9E4; --ac-tint:#DCE5F5;
+  --dp:#0E2044; --on:#FFFFFF; --dg:#C2352C;
+  --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
+  --r:16px; --r-in:12px;
+  --s:0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06);
+  --s-sheet:0 -4px 28px rgba(18,31,50,.20);
+}
+
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+  font-size:15px; line-height:1.85; -webkit-font-smoothing:antialiased;}
+/* 日本語を文節で折る（不自然な改行の防止） */
+p,li,td,th,.jp{word-break:auto-phrase; line-break:strict; overflow-wrap:anywhere}
+
+.wrap{max-width:1140px; margin:0 auto; padding:0 24px 120px}
+
+/* ─── 見出し ─── */
+.masthead{padding:88px 0 0}
+.kicker{display:inline-flex; align-items:center; gap:9px; font-size:11.5px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 18px}
+.kicker::before{content:""; width:26px; height:1px; background:var(--ink-3)}
+h1{font-family:var(--serif); font-weight:400; font-size:clamp(40px,6.2vw,68px); line-height:1.06;
+  margin:0 0 22px; letter-spacing:.005em; max-width:16ch}
+.lede{font-size:17.5px; line-height:1.9; color:var(--ink-2); max-width:54ch; margin:0}
+
+.legend{display:flex; gap:20px; flex-wrap:wrap; margin:34px 0 0; padding:0; list-style:none}
+.legend li{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2)}
+
+.tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.09em;
+  padding:4px 10px; border-radius:999px; white-space:nowrap}
+.t-built{color:var(--ok); background:var(--ok-bg)}
+.t-draft{color:var(--mute); background:var(--mute-bg)}
+.t-new{color:var(--alert); background:var(--alert-bg)}
+
+/* ─── セクション ─── */
+section{padding:96px 0 0}
+.sec-num{font-family:var(--serif); font-size:15px; color:var(--accent); letter-spacing:.04em}
+.sec-head{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:0 0 10px}
+h2{font-family:var(--serif); font-weight:400; font-size:clamp(28px,3.4vw,38px); line-height:1.2; margin:0}
+.sec-sub{font-size:15.5px; color:var(--ink-2); max-width:56ch; margin:0 0 40px}
+
+.split{display:grid; grid-template-columns:375px minmax(0,1fr); gap:56px; align-items:start}
+@media (max-width:920px){.split{grid-template-columns:1fr; gap:32px}}
+
+/* ─── 注記 ─── */
+.notes{display:flex; flex-direction:column; gap:0; max-width:46ch}
+.note{padding:22px 0; border-top:1px solid var(--line)}
+.note:first-child{border-top:0; padding-top:4px}
+.note h3{font-size:13px; font-weight:700; margin:0 0 8px; letter-spacing:.02em}
+.note p{margin:0; color:var(--ink-2); font-size:14.5px; line-height:1.85}
+.note p + p{margin-top:10px}
+.note b{color:var(--ink); font-weight:700}
+.flag{display:flex; gap:12px; padding:16px 18px; border-radius:14px; background:var(--tint);
+  font-size:14px; color:var(--ink-2); line-height:1.8; margin-top:22px}
+.flag::before{content:""; width:2px; background:var(--accent); border-radius:2px; flex:none}
+
+/* ─── 端末 ─── */
+.phone{width:375px; max-width:100%; border-radius:30px; overflow:hidden; box-shadow:var(--sh-2);
+  background:#E9EDF8; position:sticky; top:32px}
+@media (max-width:920px){.phone{position:static}}
+.scr{font-family:var(--sans); color:var(--i); background:var(--gr);
+  display:flex; flex-direction:column; min-height:672px; position:relative}
+.scr.auto{min-height:0}
+.body{flex:1; padding:14px 16px 18px; display:flex; flex-direction:column; gap:14px}
+
+.bar{display:flex; align-items:center; justify-content:space-between; padding:20px 18px 12px}
+.bar h4{margin:0; font-size:20px; font-weight:700; letter-spacing:.01em}
+.chip{font-size:12px; font-weight:700; color:var(--ac); background:var(--card);
+  padding:7px 13px; border-radius:999px; box-shadow:var(--s)}
+
+.tabs{display:flex; gap:20px; padding:0 18px 2px}
+.tab{font-size:14px; color:var(--i3); padding-bottom:10px; position:relative; white-space:nowrap}
+.tab.on{color:var(--i); font-weight:700}
+.tab.on::after{content:""; position:absolute; left:0; right:0; bottom:0; height:2.5px;
+  background:var(--ac); border-radius:2px}
+
+.pills{display:flex; gap:8px; flex-wrap:wrap}
+.pill{font-size:12.5px; color:var(--i2); background:var(--card); border-radius:999px;
+  padding:8px 14px; white-space:nowrap; box-shadow:var(--s)}
+.pill.on{color:var(--on); background:var(--ac); font-weight:700; box-shadow:var(--s)}
+
+.card{background:var(--card); border-radius:var(--r); box-shadow:var(--s); padding:18px}
+.stack{display:flex; flex-direction:column; gap:8px}
+.hd{font-size:11.5px; font-weight:700; color:var(--i3); letter-spacing:.08em; margin:0 0 12px}
+
+/* 濃紺の面 */
+.deep{background:var(--dp); border-radius:var(--r); padding:16px; color:var(--on);
+  position:relative; overflow:hidden; box-shadow:var(--s)}
+.deep::after{content:""; position:absolute; right:-70px; top:-90px; width:220px; height:220px;
+  border-radius:50%; background:radial-gradient(circle, rgba(127,160,206,.30), transparent 68%)}
+.deep .k{font-size:10.5px; letter-spacing:.12em; color:#9DB3CC; font-weight:700; position:relative}
+.deep .t{font-size:20px; font-weight:700; margin-top:6px; position:relative; letter-spacing:.01em}
+.deep .m{font-size:12.5px; color:#B9C9E4; margin-top:8px; position:relative}
+.deep .go{margin-top:16px; background:rgba(255,255,255,.14); border-radius:999px; padding:11px;
+  text-align:center; font-size:13.5px; font-weight:700; position:relative}
+
+/* アイコン */
+.av{width:40px; height:40px; border-radius:50%; background:var(--a,#174585); flex:none;
+  display:flex; align-items:center; justify-content:center}
+.av svg{width:22px; height:22px; fill:#fff}
+.av.s{width:32px; height:32px} .av.s svg{width:18px; height:18px}
+.av.l{width:56px; height:56px} .av.l svg{width:30px; height:30px}
+
+/* 行 */
+.row{display:flex; gap:13px; align-items:center; background:var(--card);
+  border-radius:var(--r-in); padding:10px 14px; box-shadow:var(--s)}
+.row .m{flex:1; min-width:0}
+.nm{font-size:15px; font-weight:700; letter-spacing:.01em}
+.sub{font-size:11.5px; color:var(--i3); margin-top:3px}
+.kit{display:flex; gap:5px; flex-wrap:wrap; margin-top:7px}
+.kv{font-size:10.5px; color:var(--i2); background:var(--gr); border-radius:6px; padding:3px 7px}
+.cnt{text-align:right; white-space:nowrap; flex:none}
+.cnt b{display:block; font-size:19px; font-weight:700; color:var(--ac); font-variant-numeric:tabular-nums; line-height:1}
+.cnt span{font-size:10px; color:var(--i3); display:block; margin-top:4px}
+
+/* 上位3件 */
+.top3{display:flex; flex-direction:column; gap:10px}
+.t3{display:flex; gap:14px; align-items:center; padding:15px 18px; border-radius:var(--r);
+  background:var(--card); box-shadow:var(--s)}
+.t3.n1{background:var(--dp); color:var(--on); padding:16px; box-shadow:var(--s)}
+.t3 .p{font-size:15px; font-weight:700; width:16px; text-align:center; flex:none;
+  font-variant-numeric:tabular-nums; color:var(--silver)}
+.t3.n1 .p{color:var(--gold); font-size:17px} .t3.n3 .p{color:var(--bronze)}
+.t3 .av{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--silver)}
+.t3.n1 .av{width:48px; height:48px; box-shadow:0 0 0 2.5px var(--dp), 0 0 0 5px var(--gold)}
+.t3.n1 .av svg{width:26px; height:26px}
+.t3.n3 .av{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--bronze)}
+.t3 .who{flex:1; min-width:0; font-size:15px; font-weight:700}
+.t3 .who span{display:block; font-size:11px; font-weight:400; color:var(--i3); margin-top:3px}
+.t3.n1 .who{font-size:17px} .t3.n1 .who span{color:#B9C9E4}
+.t3 .v{font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; flex:none; letter-spacing:-.01em}
+.t3.n1 .v{font-size:26px}
+.t3 .v i{font-style:normal; font-size:11px; font-weight:400; color:var(--i3); margin-left:3px}
+.t3.n1 .v i{color:#B9C9E4}
+
+.rk{display:flex; gap:13px; align-items:center; background:var(--card);
+  border-radius:var(--r-in); padding:10px 14px; box-shadow:var(--s)}
+.rk .p{font-size:13px; color:var(--i3); width:16px; text-align:center; font-variant-numeric:tabular-nums; flex:none}
+.rk .who{flex:1; font-size:14px; min-width:0}
+.rk .who span{display:block; font-size:10.5px; color:var(--i3); margin-top:2px}
+.rk .v{font-size:17px; font-weight:700; font-variant-numeric:tabular-nums}
+.rk .v i{font-style:normal; font-size:10.5px; font-weight:400; color:var(--i3); margin-left:3px}
+
+.you{background:var(--card); border-radius:var(--r); box-shadow:var(--s); margin-top:2px}
+.you .rk{padding:15px 18px}
+.badge{font-size:10px; font-weight:700; color:var(--ac); background:var(--ac-tint);
+  border-radius:999px; padding:2px 8px; margin-left:7px; vertical-align:1px}
+
+/* ドーナツ */
+.donut{display:flex; gap:20px; align-items:center}
+.lgd{display:flex; flex-direction:column; gap:9px; font-size:12px; flex:1; min-width:0}
+.lgd div{display:flex; align-items:center; gap:8px; color:var(--i2)}
+.sw{width:10px; height:10px; border-radius:3px; flex:none}
+.lgd b{margin-left:auto; font-size:13px; font-weight:700; color:var(--i); font-variant-numeric:tabular-nums}
+
+/* フォーム */
+.fld{font-size:11.5px; color:var(--i3); margin-bottom:7px}
+.inp{background:var(--gr); border-radius:13px; padding:13px 14px; font-size:14px; color:var(--i)}
+.inp.ph{color:var(--i4)}
+.hint{font-size:11.5px; color:var(--i3); margin-top:8px; line-height:1.75}
+.btn{background:var(--ac); color:var(--on); border-radius:999px; padding:15px; text-align:center;
+  font-size:14.5px; font-weight:700; box-shadow:var(--s)}
+.btn.gh{background:var(--card); color:var(--ac); box-shadow:var(--s)}
+.btn.dg{background:var(--card); color:var(--dg); box-shadow:var(--s)}
+.ck{display:flex; gap:11px; align-items:center; font-size:13.5px; color:var(--i2)}
+.box{width:19px; height:19px; border:1.5px solid var(--i3); border-radius:6px; flex:none}
+.tog{width:44px; height:26px; border-radius:999px; background:var(--ac); flex:none; position:relative}
+.tog::after{content:""; position:absolute; top:3px; right:3px; width:20px; height:20px;
+  border-radius:50%; background:#fff}
+
+.nav{display:flex; background:var(--card); padding:11px 0 13px; box-shadow:0 -1px 0 var(--ln)}
+.nav div{flex:1; display:flex; justify-content:center}
+.nav svg{width:25px; height:25px}
+
+/* ボトムシート */
+.veil{position:absolute; inset:0; background:rgba(14,32,68,.44); display:flex; align-items:flex-end}
+.sheet{background:var(--card); border-radius:28px 28px 0 0; width:100%; padding:12px 20px 26px; box-shadow:var(--s-sheet);
+  display:flex; flex-direction:column; gap:16px}
+.grab{width:38px; height:4px; border-radius:999px; background:var(--ln); margin:0 auto 4px}
+.st{display:flex; justify-content:space-between; align-items:baseline; padding:13px 0}
+.st + .st{border-top:1px solid var(--ln)}  /* シートは作法の外(モーダル) */
+.st .k{font-size:12.5px; color:var(--i3)}
+.st .v{font-size:14px; font-weight:700}
+.st .v.big{font-size:20px; font-variant-numeric:tabular-nums}
+.st .v.big i{font-style:normal; font-size:11px; font-weight:400; color:var(--i3); margin-left:3px}
+
+/* 選択 */
+.grid6{display:grid; grid-template-columns:repeat(6,1fr); gap:11px}
+.pk{aspect-ratio:1; border-radius:50%; background:var(--gr); display:flex; align-items:center; justify-content:center}
+.pk svg{width:21px; height:21px; fill:var(--i3)}
+.pk.on{background:var(--a,#174585); box-shadow:var(--s)}
+.pk.on svg{fill:#fff}
+.grid10{display:grid; grid-template-columns:repeat(10,1fr); gap:8px}
+.sc{aspect-ratio:1; border-radius:50%; background:var(--a)}
+.sc.on{box-shadow:0 0 0 2.5px var(--card), 0 0 0 5px var(--i)}
+
+/* 3枚並べ */
+.trio{display:grid; grid-template-columns:repeat(auto-fit,minmax(268px,1fr)); gap:26px}
+.trio .phone{width:100%; position:static}
+.trio .scr{min-height:0}
+.cap{font-size:12.5px; color:var(--ink-3); margin:14px 0 0; text-align:center}
+
+/* 衝突ルール */
+.rules{display:grid; gap:14px; margin-top:8px}
+.rule{background:var(--panel); border-radius:18px; padding:22px 24px; box-shadow:var(--sh-1)}
+.rule.hot{background:var(--alert-bg)}
+.rule .top{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:10px}
+.rule h3{font-size:15px; font-weight:700; margin:0}
+.rule .src{font-size:11.5px; color:var(--ink-3)}
+.rule dl{margin:0; display:grid; grid-template-columns:5.5em 1fr; gap:6px 16px; font-size:14px}
+@media (max-width:560px){.rule dl{grid-template-columns:1fr; gap:2px 0}}
+.rule dt{color:var(--ink-3); font-size:12px; padding-top:4px}
+.rule dd{margin:0; color:var(--ink-2); line-height:1.8}
+.rule dd b{color:var(--ink)}
+
+/* 決定事項 */
+.decs{margin-top:8px}
+.dec{display:grid; grid-template-columns:auto 1fr; gap:0 18px; padding:20px 0; border-top:1px solid var(--line)}
+.dec:first-child{border-top:0}
+.mark{font-size:10.5px; font-weight:700; letter-spacing:.08em; padding:4px 10px; border-radius:999px;
+  height:fit-content; white-space:nowrap}
+.mark.done{color:var(--ok); background:var(--ok-bg)}
+.mark.todo{color:var(--alert); background:var(--alert-bg)}
+.dec h3{margin:0 0 6px; font-size:15px; font-weight:700}
+.dec p{margin:0; color:var(--ink-2); font-size:14.5px}
+
+.foot{margin-top:96px; padding-top:26px; border-top:1px solid var(--line);
+  font-size:13px; color:var(--ink-3); max-width:62ch}
+code{font-size:.9em; background:var(--tint); padding:1px 5px; border-radius:4px}
+
+
+/* 上部の条件行。カードにせず、計測タブのヘッダと同じ「テキスト+▾」の1行 */
+.condbar{display:flex; align-items:center; gap:9px; padding:2px 18px 10px;
+  font-size:13.5px; color:var(--i2); flex-wrap:wrap}
+.cond{display:inline-flex; align-items:center; gap:4px; white-space:nowrap; font-weight:700; color:var(--i)}
+.cond::after{content:"▾"; font-size:9px; color:var(--i3); font-weight:400}
+.cond.fixed{color:var(--i2); font-weight:400}
+.cond.fixed::after{content:""}
+.condbar .sep{color:var(--i4); font-size:11px}
+
+/* 指標の切り替え */
+.mtabs{display:flex; gap:3px; background:var(--gr); border-radius:999px; padding:3px}
+.mtab{flex:1; text-align:center; font-size:12.5px; padding:7px 0; border-radius:999px; color:var(--i3)}
+.mtab.on{background:var(--card); color:var(--i); font-weight:700; box-shadow:var(--s)}
+
+/* 検索欄 */
+.search{display:flex; align-items:center; gap:9px; background:var(--card); border-radius:999px;
+  padding:11px 15px; box-shadow:var(--s); font-size:13px; color:var(--i4)}
+.search svg{width:15px; height:15px; fill:var(--i3); flex:none}
+
+/* 署名要素: 平行移動のアニメーション */
+.shifted{transform:translateX(28px); opacity:.45}
+.shift-run .shifted{transform:translateX(0); opacity:1;
+  transition:transform 1.15s cubic-bezier(.22,.9,.28,1) .25s, opacity .8s ease .25s}
+.shift-run .ghost{opacity:0; transition:opacity .7s ease .1s}
+@media (prefers-reduced-motion:reduce){
+  .shifted{transform:none; opacity:1} .ghost{display:none}
+  .shift-run .shifted{transition:none}
+}
+:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+
+/* さらに絞り込む行（検索欄と同じ形。押すとシートで選ぶ） */
+.filterline{display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--card); border-radius:999px; padding:11px 16px; box-shadow:var(--s); font-size:13px}
+.filterline .lb{color:var(--i2)}
+.filterline .n{font-size:11.5px; color:var(--i3)}
+
+/* 母集団の軸を選ぶ */
+.axis{display:flex; flex-direction:column; gap:14px}
+.axisrow{display:flex; align-items:baseline; gap:12px}
+.axisrow .lb{font-size:11.5px; color:var(--i3); width:52px; flex:none}
+.axisrow .vals{display:flex; gap:6px; flex-wrap:wrap; flex:1}
+.chipx{font-size:12px; color:var(--i2); background:var(--gr); border-radius:999px; padding:6px 12px}
+.chipx.on{background:var(--ac); color:var(--on); font-weight:700}
+.chipx.lock{background:transparent; color:var(--i3); padding-left:0}
+
+/* 楽器種別のタブ（指標タブと二段になるので、こちらは下線式にして形を変える） */
+.saxtabs{display:flex; gap:18px; padding:0 2px; box-shadow:inset 0 -1px 0 var(--ln)}
+.saxtab{font-size:13.5px; color:var(--i3); padding-bottom:8px; position:relative; white-space:nowrap}
+.saxtab.on{color:var(--i); font-weight:700}
+.saxtab.on::after{content:""; position:absolute; left:0; right:0; bottom:0; height:2px;
+  background:var(--ac); border-radius:2px}
+
+/* 楽器種別の複数選択 */
+.saxpick{display:flex; gap:8px; flex-wrap:wrap}
+.saxopt{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--i2);
+  background:var(--gr); border-radius:999px; padding:8px 14px}
+.saxopt.on{background:var(--ac); color:var(--on); font-weight:700}
+.saxopt .bx{width:15px; height:15px; border-radius:4px; border:1.5px solid currentColor; flex:none}
+.saxopt.on .bx{background:currentColor}
+
+/* 楽器種別ごとの機材のまとまり */
+.gearset{border-radius:var(--r-in); background:var(--gr); padding:14px; display:flex;
+  flex-direction:column; gap:13px}
+.gearset .ttl{font-size:12px; font-weight:700; color:var(--ac); letter-spacing:.04em}
+
+/* 注意書き。カードにせず、地の上に小さく置く */
+.aside{font-size:11.5px; color:var(--i3); line-height:1.75; padding:0 2px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <!-- Phosphor Icons / fill (MIT, 商用利用可) https://phosphoricons.com -->
+  <symbol id="ic-cat" viewBox="0 0 256 256"><path d="M222.83,33.54a16,16,0,0,0-18.14,3.15c-.14.14-.26.27-.38.41L187.05,57A111.28,111.28,0,0,0,69,57L51.69,37.1c-.12-.14-.24-.27-.38-.41a16,16,0,0,0-18.14-3.15A16.4,16.4,0,0,0,24,48.46V136c0,49,40.06,89.63,91.56,95.32a4,4,0,0,0,4.44-4v-32l-13.42-13.43a8.22,8.22,0,0,1-.41-11.37,8,8,0,0,1,11.49-.18L128,180.68l10.34-10.35a8,8,0,0,1,11.49.18,8.22,8.22,0,0,1-.41,11.37L136,195.31v32a4,4,0,0,0,4.44,4C191.94,225.62,232,185,232,136V48.46A16.4,16.4,0,0,0,222.83,33.54ZM84,152a12,12,0,1,1,12-12A12,12,0,0,1,84,152Zm20-64a8,8,0,1,1-16,0V69a8,8,0,0,1,16,0Zm32,0a8,8,0,1,1-16,0V64a8,8,0,0,1,16,0Zm16,0V69a8,8,0,0,1,16,0V88a8,8,0,1,1-16,0Zm20,64a12,12,0,1,1,12-12A12,12,0,0,1,172,152Z"/></symbol>
+  <symbol id="ic-dog" viewBox="0 0 256 256"><path d="M239.71,125l-16.42-88a16,16,0,0,0-19.61-12.58l-.31.09L150.85,40h-45.7L52.63,24.56l-.31-.09A16,16,0,0,0,32.71,37.05L16.29,125a15.77,15.77,0,0,0,9.12,17.52A16.26,16.26,0,0,0,32.12,144,15.48,15.48,0,0,0,40,141.84V184a40,40,0,0,0,40,40h96a40,40,0,0,0,40-40V141.85a15.5,15.5,0,0,0,7.87,2.16,16.31,16.31,0,0,0,6.72-1.47A15.77,15.77,0,0,0,239.71,125ZM176,208H136V195.31l13.66-13.65a8,8,0,0,0-11.32-11.32L128,180.69l-10.34-10.35a8,8,0,0,0-11.32,11.32L120,195.31V208H80a24,24,0,0,1-24-24V123.11L107.93,56h40.14L200,123.11V184A24,24,0,0,1,176,208Zm-72-68a12,12,0,1,1-12-12A12,12,0,0,1,104,140Zm72,0a12,12,0,1,1-12-12A12,12,0,0,1,176,140Z"/></symbol>
+  <symbol id="ic-bird" viewBox="0 0 256 256"><path d="M236.44,73.34,213.21,57.86A60,60,0,0,0,156,16h-.29C122.79,16.16,96,43.47,96,76.89V96.63L11.63,197.88l-.1.12A16,16,0,0,0,24,224h88A104.11,104.11,0,0,0,216,120V100.28l20.44-13.62a8,8,0,0,0,0-13.32ZM126.15,133.12l-60,72a8,8,0,1,1-12.29-10.24l60-72a8,8,0,1,1,12.29,10.24ZM164,80a12,12,0,1,1,12-12A12,12,0,0,1,164,80Z"/></symbol>
+  <symbol id="ic-rabbit" viewBox="0 0 256 256"><path d="M199.28,149.8A71.58,71.58,0,0,0,193,129c19-37.94,30.45-88.28,17.34-110A22,22,0,0,0,190.94,8c-14.12,0-26,11.89-36.44,36.36-6.22,14.62-10.85,31.32-14,44.74a71.8,71.8,0,0,0-25,0c-3.13-13.42-7.76-30.12-14-44.74C91.1,19.89,79.18,8,65.06,8A22,22,0,0,0,45.64,19.08C32.53,40.76,44,91.1,63,129a71.58,71.58,0,0,0-6.26,20.76A52,52,0,1,0,128,225.52l-21.12-19.37a8,8,0,1,1,10.24-12.3L128,202.9l10.88-9.05a8,8,0,0,1,10.24,12.3L128,225.52a52,52,0,1,0,71.28-75.72Zm-126-36.53A218.45,218.45,0,0,1,58.4,67.08c-3.49-18.13-3.15-33,.93-39.72A6,6,0,0,1,65.06,24c6.61,0,14.52,9.7,21.72,26.62,5.93,13.94,10.35,30.12,13.33,43a71.72,71.72,0,0,0-26.88,19.64ZM100,176a12,12,0,1,1,12-12A12,12,0,0,1,100,176Zm56,0a12,12,0,1,1,12-12A12,12,0,0,1,156,176Zm20.55-69.17a71.89,71.89,0,0,0-20.66-13.2c3-12.89,7.4-29.07,13.33-43C176.42,33.7,184.33,24,190.94,24a6,6,0,0,1,5.73,3.36c4.08,6.74,4.42,21.59.93,39.72a218.45,218.45,0,0,1-14.83,46.19A72.6,72.6,0,0,0,176.55,106.83Z"/></symbol>
+  <symbol id="ic-butterfly" viewBox="0 0 256 256"><path d="M128,100.17a108.42,108.42,0,0,0-8-12.64V56a8,8,0,0,1,16,0V87.53A108.42,108.42,0,0,0,128,100.17ZM232.7,50.48C229,45.7,221.84,40,209,40c-16.85,0-38.46,11.28-57.81,30.16A140.07,140.07,0,0,0,136,87.53V180a8,8,0,0,1-16,0V87.53a140.07,140.07,0,0,0-15.15-17.37C85.49,51.28,63.88,40,47,40,34.16,40,27,45.7,23.3,50.48c-6.82,8.77-12.18,24.08-.21,71.2,6.05,23.83,19.51,33,30.63,36.42A44,44,0,0,0,128,205.27a44,44,0,0,0,74.28-47.17c11.12-3.4,24.57-12.59,30.63-36.42C239.63,95.24,244.85,66.1,232.7,50.48Z"/></symbol>
+  <symbol id="ic-fish" viewBox="0 0 256 256"><path d="M168,76a12,12,0,1,1-12-12A12,12,0,0,1,168,76Zm48.72,67.64c-19.37,34.9-55.44,53.76-107.24,56.1l-22,51.41A8,8,0,0,1,80.1,256l-.51,0a8,8,0,0,1-7.19-5.78L57.6,198.39,5.8,183.56a8,8,0,0,1-1-15.05l51.41-22c2.35-51.78,21.21-87.84,56.09-107.22,24.75-13.74,52.74-15.84,71.88-15.18,18.64.64,36,4.27,38.86,6a8,8,0,0,1,2.83,2.83c1.69,2.85,5.33,20.21,6,38.85C232.55,90.89,230.46,118.89,216.72,143.64Zm-4.3-100.07c-14.15-3-64.1-11-100.3,14.75a81.21,81.21,0,0,0-16,15.07,36,36,0,0,0,39.35,38.44,8,8,0,0,1,8.73,8.73,36,36,0,0,0,38.47,39.34,80.81,80.81,0,0,0,15-16C223.42,107.73,215.42,57.74,212.42,43.57Z"/></symbol>
+  <symbol id="ic-paw-print" viewBox="0 0 256 256"><path d="M240,108a28,28,0,1,1-28-28A28,28,0,0,1,240,108ZM72,108a28,28,0,1,0-28,28A28,28,0,0,0,72,108ZM92,88A28,28,0,1,0,64,60,28,28,0,0,0,92,88Zm72,0a28,28,0,1,0-28-28A28,28,0,0,0,164,88Zm23.12,60.86a35.3,35.3,0,0,1-16.87-21.14,44,44,0,0,0-84.5,0A35.25,35.25,0,0,1,69,148.82,40,40,0,0,0,88,224a39.48,39.48,0,0,0,15.52-3.13,64.09,64.09,0,0,1,48.87,0,40,40,0,0,0,34.73-72Z"/></symbol>
+  <symbol id="ic-flower-lotus" viewBox="0 0 256 256"><path d="M245.83,121.63a15.53,15.53,0,0,0-9.52-7.33,73.55,73.55,0,0,0-22.17-2.22c4-19.85,1-35.55-2-44.86a16.17,16.17,0,0,0-18.8-10.88,85.53,85.53,0,0,0-28.55,12.12,94.58,94.58,0,0,0-27.11-33.25,16.05,16.05,0,0,0-19.26,0A94.58,94.58,0,0,0,91.26,68.46,85.53,85.53,0,0,0,62.71,56.34,16.14,16.14,0,0,0,43.92,67.22c-3,9.31-6,25-2.06,44.86a73.55,73.55,0,0,0-22.17,2.22,15.53,15.53,0,0,0-9.52,7.33,16,16,0,0,0-1.6,12.26c3.39,12.58,13.8,36.49,45.33,55.33S113.13,208,128.05,208s42.67,0,74-18.78c31.53-18.84,41.94-42.75,45.33-55.33A16,16,0,0,0,245.83,121.63ZM62.1,175.49C35.47,159.57,26.82,140.05,24,129.7a59.61,59.61,0,0,1,22.5-1.17,129.08,129.08,0,0,0,9.15,19.41,142.28,142.28,0,0,0,34,39.56A114.92,114.92,0,0,1,62.1,175.49ZM128,190.4c-9.33-6.94-32-28.23-32-71.23C96,76.7,118.38,55.24,128,48c9.62,7.26,32,28.72,32,71.19C160,162.17,137.33,183.46,128,190.4Zm104-60.68c-2.77,10.24-11.4,29.81-38.09,45.77a114.92,114.92,0,0,1-27.55,12,142.28,142.28,0,0,0,34-39.56,129.08,129.08,0,0,0,9.15-19.41A59.69,59.69,0,0,1,232,129.71Z"/></symbol>
+  <symbol id="ic-leaf" viewBox="0 0 256 256"><path d="M223.45,40.07a8,8,0,0,0-7.52-7.52C139.8,28.08,78.82,51,52.82,94a87.09,87.09,0,0,0-12.76,49A101.72,101.72,0,0,0,46.7,175.2a4,4,0,0,0,6.61,1.43l85-86.3a8,8,0,0,1,11.32,11.32L56.74,195.94,42.55,210.13a8.2,8.2,0,0,0-.6,11.1,8,8,0,0,0,11.71.43l16.79-16.79c14.14,6.84,28.41,10.57,42.56,11.07q1.67.06,3.33.06A86.93,86.93,0,0,0,162,203.18C205,177.18,227.93,116.21,223.45,40.07Z"/></symbol>
+  <symbol id="ic-tree" viewBox="0 0 256 256"><path d="M128,187.85a72.44,72.44,0,0,0,8,4.62V232a8,8,0,0,1-16,0V192.47A72.44,72.44,0,0,0,128,187.85ZM198.1,62.59a76,76,0,0,0-140.2,0A71.71,71.71,0,0,0,16,127.8C15.9,166,48,199,86.14,200A72.22,72.22,0,0,0,120,192.47V156.94L76.42,135.16a8,8,0,1,1,7.16-14.32L120,139.06V88a8,8,0,0,1,16,0v27.06l36.42-18.22a8,8,0,1,1,7.16,14.32L136,132.94v59.53A72.17,72.17,0,0,0,168,200l1.82,0C208,199,240.11,166,240,127.8A71.71,71.71,0,0,0,198.1,62.59Z"/></symbol>
+  <symbol id="ic-star" viewBox="0 0 256 256"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></symbol>
+  <symbol id="ic-heart" viewBox="0 0 256 256"><path d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"/></symbol>
+  <symbol id="ic-moon-stars" viewBox="0 0 256 256"><path d="M240,96a8,8,0,0,1-8,8H216v16a8,8,0,0,1-16,0V104H184a8,8,0,0,1,0-16h16V72a8,8,0,0,1,16,0V88h16A8,8,0,0,1,240,96ZM144,56h8v8a8,8,0,0,0,16,0V56h8a8,8,0,0,0,0-16h-8V32a8,8,0,0,0-16,0v8h-8a8,8,0,0,0,0,16Zm65.14,94.33A88.07,88.07,0,0,1,105.67,46.86a8,8,0,0,0-10.6-9.06A96,96,0,1,0,218.2,160.93a8,8,0,0,0-9.06-10.6Z"/></symbol>
+  <symbol id="ic-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="ic-cloud" viewBox="0 0 256 256"><path d="M160.06,40A88.1,88.1,0,0,0,81.29,88.67h0A87.48,87.48,0,0,0,72,127.73,8.18,8.18,0,0,1,64.57,136,8,8,0,0,1,56,128a103.66,103.66,0,0,1,5.34-32.92,4,4,0,0,0-4.75-5.18A64.09,64.09,0,0,0,8,152c0,35.19,29.75,64,65,64H160a88.09,88.09,0,0,0,87.93-91.48C246.11,77.54,207.07,40,160.06,40Z"/></symbol>
+  <symbol id="ic-rainbow" viewBox="0 0 256 256"><path d="M128,48A120.13,120.13,0,0,0,8,168v16a8,8,0,0,0,8,8H240a8,8,0,0,0,8-8V168A120.13,120.13,0,0,0,128,48Zm32,128a8,8,0,0,1-8-8,24,24,0,0,0-48,0,8,8,0,0,1-16,0,40,40,0,0,1,80,0A8,8,0,0,1,160,176Zm32,0a8,8,0,0,1-8-8,56,56,0,0,0-112,0,8,8,0,0,1-16,0,72,72,0,0,1,144,0A8,8,0,0,1,192,176Zm32,0a8,8,0,0,1-8-8,88,88,0,0,0-176,0,8,8,0,0,1-16,0,104,104,0,0,1,208,0A8,8,0,0,1,224,176Z"/></symbol>
+  <symbol id="ic-fire" viewBox="0 0 256 256"><path d="M143.38,17.85a8,8,0,0,0-12.63,3.41l-22,60.41L84.59,58.26a8,8,0,0,0-11.93.89C51,87.53,40,116.08,40,144a88,88,0,0,0,176,0C216,84.55,165.21,36,143.38,17.85Zm40.51,135.49a57.6,57.6,0,0,1-46.56,46.55A7.65,7.65,0,0,1,136,200a8,8,0,0,1-1.32-15.89c16.57-2.79,30.63-16.85,33.44-33.45a8,8,0,0,1,15.78,2.68Z"/></symbol>
+  <symbol id="ic-snowflake" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm42.37,119.22,18.94-6.76a8,8,0,1,1,5.38,15.08l-15.48,5.52,4.52,16.87a8,8,0,0,1-5.66,9.8A8.23,8.23,0,0,1,176,184a8,8,0,0,1-7.73-5.93l-5.57-20.8L136,141.86v30.83l13.66,13.65a8,8,0,0,1-11.32,11.32L128,187.31l-10.34,10.35a8,8,0,0,1-11.32-11.32L120,172.69V141.86L93.3,157.27l-5.57,20.8A8,8,0,0,1,80,184a8.23,8.23,0,0,1-2.07-.27,8,8,0,0,1-5.66-9.8l4.52-16.87-15.48-5.52a8,8,0,0,1,5.38-15.08l18.94,6.76L112,128,85.63,112.78l-18.94,6.76A8.18,8.18,0,0,1,64,120a8,8,0,0,1-2.69-15.54l15.48-5.52L72.27,82.07a8,8,0,0,1,15.46-4.14l5.57,20.8L120,114.14V83.31L106.34,69.66a8,8,0,0,1,11.32-11.32L128,68.69l10.34-10.35a8,8,0,0,1,11.32,11.32L136,83.31v30.83l26.7-15.41,5.57-20.8a8,8,0,0,1,15.46,4.14l-4.52,16.87,15.48,5.52A8,8,0,0,1,192,120a8.18,8.18,0,0,1-2.69-.46l-18.94-6.76L144,128Z"/></symbol>
+  <symbol id="ic-sparkle" viewBox="0 0 256 256"><path d="M208,144a15.78,15.78,0,0,1-10.42,14.94L146,178l-19,51.62a15.92,15.92,0,0,1-29.88,0L78,178l-51.62-19a15.92,15.92,0,0,1,0-29.88L78,110l19-51.62a15.92,15.92,0,0,1,29.88,0L146,110l51.62,19A15.78,15.78,0,0,1,208,144ZM152,48h16V64a8,8,0,0,0,16,0V48h16a8,8,0,0,0,0-16H184V16a8,8,0,0,0-16,0V32H152a8,8,0,0,0,0,16Zm88,32h-8V72a8,8,0,0,0-16,0v8h-8a8,8,0,0,0,0,16h8v8a8,8,0,0,0,16,0V96h8a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="ic-crown-simple" viewBox="0 0 256 256"><path d="M239.75,90.81c0,.11,0,.21-.07.32L217,195a16,16,0,0,1-15.72,13H54.71A16,16,0,0,1,39,195L16.32,91.13c0-.11-.05-.21-.07-.32A16,16,0,0,1,44,77.39l33.67,36.29,35.8-80.29a1,1,0,0,0,0-.1,16,16,0,0,1,29.06,0,1,1,0,0,0,0,.1l35.8,80.29L212,77.39a16,16,0,0,1,27.71,13.42Z"/></symbol>
+  <symbol id="ic-diamond" viewBox="0 0 256 256"><path d="M240,128a15.85,15.85,0,0,1-4.67,11.28l-96.05,96.06a16,16,0,0,1-22.56,0h0l-96-96.06a16,16,0,0,1,0-22.56l96.05-96.06a16,16,0,0,1,22.56,0l96.05,96.06A15.85,15.85,0,0,1,240,128Z"/></symbol>
+  <symbol id="ic-ghost" viewBox="0 0 256 256"><path d="M128,24a96.11,96.11,0,0,0-96,96v96a8,8,0,0,0,13.07,6.19l24.26-19.85L93.6,222.19a8,8,0,0,0,10.13,0L128,202.34l24.27,19.85a8,8,0,0,0,10.13,0l24.27-19.85,24.26,19.85A8,8,0,0,0,224,216V120A96.11,96.11,0,0,0,128,24ZM100,128a12,12,0,1,1,12-12A12,12,0,0,1,100,128Zm56,0a12,12,0,1,1,12-12A12,12,0,0,1,156,128Z"/></symbol>
+  <symbol id="ic-music-notes" viewBox="0 0 256 256"><path d="M212.92,17.71a7.89,7.89,0,0,0-6.86-1.46l-128,32A8,8,0,0,0,72,56V166.1A36,36,0,1,0,88,196V102.25l112-28V134.1A36,36,0,1,0,216,164V24A8,8,0,0,0,212.92,17.71Z"/></symbol>
+  <symbol id="ic-guitar" viewBox="0 0 256 256"><path d="M249.66,46.34l-40-40a8,8,0,0,0-11.32,11.32L200.69,20,140.52,80.16C117.73,68.3,92.21,69.29,76.75,84.74a42.27,42.27,0,0,0-9.39,14.37A8.24,8.24,0,0,1,59.81,104c-14.59.49-27.26,5.72-36.65,15.11C11.08,131.22,6,148.6,8.74,168.07,11.4,186.7,21.07,205.15,36,220s33.34,24.56,52,27.22A71.13,71.13,0,0,0,98.1,248c15.32,0,28.83-5.23,38.76-15.16,9.39-9.39,14.62-22.06,15.11-36.65a8.24,8.24,0,0,1,4.92-7.55,42.22,42.22,0,0,0,14.37-9.39c15.45-15.46,16.44-41,4.58-63.77L236,55.31l2.34,2.35a8,8,0,0,0,11.32-11.32Zm-156,159.31a8,8,0,0,1-11.31,0l-32-32a8,8,0,0,1,11.32-11.31l32,32A8,8,0,0,1,93.66,205.65Zm42.14-45.86a28,28,0,1,1,0-39.59A28,28,0,0,1,135.8,159.79Zm31.06-58a86.94,86.94,0,0,0-6-6.68,85.23,85.23,0,0,0-6.69-6L176,67.31,188.69,80ZM200,68.68,187.32,56,212,31.31,224.69,44Z"/></symbol>
+</defs></svg>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="kicker">Ficus / コミュニティ</p>
+  <h1>他の奏者のデータを、自分の目安にする</h1>
+  <p class="lede">
+    4つ目のタブ「コミュニティ」の画面案。子タブは データ / 順位 / シェア / マイページ の4つ。
+    地・カード・影・角丸は <code>design/DESIGN-SYSTEM.md</code> のカードの作法（§6.6）の実値。値を発明したのは順位の3色とアイコンの背景色だけ。
+  </p>
+  <ul class="legend">
+    <li><span class="tag t-built">実装済み</span> 動作確認まで完了</li>
+    <li><span class="tag t-draft">草案</span> これから作る</li>
+    <li><span class="tag t-new">新規</span> 今回足した画面</li>
+  </ul>
+</header>
+
+<!-- S01 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2>データ</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    この機能の主役。<b>条件を選ぶ場所は1つだけ</b>にして、母集団の平均と、
+    そこに属する個人の目安を同じ条件で並べる。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>コミュニティ</h4></div>
+      <div class="tabs">
+        <div class="tab on">データ</div>
+        <div class="tab">順位</div>
+        <div class="tab">シェア</div>
+        <div class="tab">マイページ</div>
+      </div>
+      <div class="body">
+        <div class="search">
+          <svg viewBox="0 0 256 256"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>
+          ニックネームで探す
+        </div>
+
+        <div class="deep">
+          <div class="k">抽出条件</div>
+          <div class="t">Alto × クラシック × 学生</div>
+          <div class="m">42人のデータ</div>
+        </div>
+
+        <div class="filterline">
+          <span class="lb">さらに絞り込む</span>
+          <span class="n">編成 ・ 練習場所 ・ 歴　▾</span>
+        </div>
+
+        <div class="stack">
+          <div class="row">
+            <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div class="m">
+              <div class="nm">まつり</div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
+              <div class="kit"><span class="kv">YAS-62</span><span class="kv">S80 C*</span><span class="kv">Traditional 3</span></div>
+            </div>
+            <div class="cnt"><b>38</b><span>採用</span></div>
+          </div>
+          <div class="row">
+            <div class="av" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
+            <div class="m">
+              <div class="nm">アオイ</div>
+              <div class="sub">学生（音大） ・ 歴9年 ・ クラシック</div>
+              <div class="kit"><span class="kv">YAS-875EX</span><span class="kv">S90 180</span><span class="kv">V21 3&frac12;</span></div>
+            </div>
+            <div class="cnt"><b>24</b><span>採用</span></div>
+          </div>
+          <div class="row">
+            <div class="av" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
+            <div class="m">
+              <div class="nm">こんぶ</div>
+              <div class="sub">社会人 ・ 歴15年 ・ クラシック</div>
+              <div class="kit"><span class="kv">Series II</span><span class="kv">S80 D</span><span class="kv">V21 3</span></div>
+            </div>
+            <div class="cnt"><b>11</b><span>採用</span></div>
+          </div>
+          <div class="row">
+            <div class="av" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
+            <div class="m">
+              <div class="nm">ハルカ</div>
+              <div class="sub">学生 ・ 歴2年 ・ クラシック</div>
+              <div class="kit"><span class="kv">YAS-280</span><span class="kv">Yamaha 4C</span><span class="kv">Traditional 2&frac12;</span></div>
+            </div>
+            <div class="cnt"><b>6</b><span>採用</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>条件を2階建てにした</h3>
+        <p>
+          前の案は、平均カードの上に条件行があり、下にも絞り込みのピルが並んでいた。
+          <b>同じ粒度の条件が平均を挟んで2箇所にある</b>ので、どちらが何に効くのか読めない。
+          この案では<b>抽出条件（楽器 × ジャンル × 属性）は次の画面で選び</b>、
+          トップの「さらに絞り込む」には<b>そこで設定していない条件だけ</b>を置く。
+          役割が階層で分かれるので、2つ並んでいても迷わない。
+        </p>
+      </div>
+      <div class="note">
+        <h3>抽出条件のカードは表示に徹する</h3>
+        <p>
+          カードに出るのは<b>楽器 × ジャンル × 属性</b>の3つ。ここは選ぶ場所ではなく、
+          「いま何を抽出しているか」の表示。タップすると条件を選ぶ画面へ移る。
+        </p>
+      </div>
+      <div class="note">
+        <h3>ニックネーム検索は絞り込みと別に置く</h3>
+        <p>
+          特定の人を探す操作は、条件で母集団を狭める操作とは目的が違う。
+          <b>知っている人を1人見つけたい</b>のか、<b>条件に合う人を見比べたい</b>のか。
+          混ぜると、どちらのつもりで触ったのか分からなくなる。だから条件のどれよりも上に置いた。
+        </p>
+      </div>
+      <div class="flag">
+        絞り込みが0件になることは普通に起きる。そのときは「見つかりません」で終わらせず、
+        <b>どの条件を外せば何人見つかるか</b>を示す。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S02 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2>抽出条件を選ぶ</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">
+    抽出条件のカードをタップした先。ここが<b>母集団を選ぶ唯一の場所</b>。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>抽出条件</h4></div>
+      <div class="body">
+        <div class="card">
+          <div class="axis">
+            <div class="axisrow">
+              <span class="lb">楽器</span>
+              <span class="vals">
+                <span class="chipx">Soprano</span><span class="chipx on">Alto</span>
+                <span class="chipx">Tenor</span><span class="chipx">Baritone</span>
+              </span>
+            </div>
+            <div class="axisrow">
+              <span class="lb">ジャンル</span>
+              <span class="vals">
+                <span class="chipx on">クラシック</span><span class="chipx">ジャズ</span>
+                <span class="chipx">ポップス</span><span class="chipx">指定しない</span>
+              </span>
+            </div>
+            <div class="axisrow">
+              <span class="lb">属性</span>
+              <span class="vals">
+                <span class="chipx on">学生</span><span class="chipx">学生（音大）</span>
+                <span class="chipx">社会人</span><span class="chipx">講師・プロ</span>
+                <span class="chipx">独学</span><span class="chipx">指定しない</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="deep" style="padding:16px">
+          <div class="k">この条件のデータ</div>
+          <div class="t" style="font-size:17px">Alto × クラシック × 学生</div>
+          <div class="m">42人 ／ 収録 18音</div>
+        </div>
+
+        <div class="mtabs">
+          <div class="mtab">音程</div>
+          <div class="mtab on">重心</div>
+          <div class="mtab">HNR</div>
+        </div>
+
+        <div class="card">
+          <svg viewBox="0 0 320 176" style="width:100%;height:auto" role="img"
+               aria-label="母集団の平均と自分を重ねた折れ線グラフ">
+            <g stroke="#EEF1F8" stroke-width="1">
+              <line x1="30" y1="14" x2="312" y2="14"/><line x1="30" y1="54" x2="312" y2="54"/>
+              <line x1="30" y1="94" x2="312" y2="94"/><line x1="30" y1="128" x2="312" y2="128"/>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="end">
+              <text x="24" y="18">2600</text><text x="24" y="58">2200</text>
+              <text x="24" y="98">1800</text><text x="24" y="132">1400</text>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="middle">
+              <text x="46" y="152">低ド</text><text x="99" y="152">レ</text><text x="152" y="152">ミ</text>
+              <text x="205" y="152">ソ</text><text x="258" y="152">高ド</text><text x="300" y="152">高ソ</text>
+            </g>
+            <polyline points="46,108 99,92 152,84 205,98 258,80 300,94" fill="none"
+              stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline points="46,124 99,98 152,80 205,104 258,68 300,90" fill="none"
+              stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
+            <g fill="#174585">
+              <circle cx="46" cy="124" r="3.2"/><circle cx="99" cy="98" r="3.2"/><circle cx="152" cy="80" r="3.2"/>
+              <circle cx="205" cy="104" r="3.2"/><circle cx="258" cy="68" r="3.2"/><circle cx="300" cy="90" r="3.2"/>
+            </g>
+          </svg>
+          <div style="display:flex;gap:18px;font-size:11.5px;color:#435266;margin-top:10px">
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:2.5px;background:#174585;display:inline-block"></span>自分</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:0;border-top:2px dashed #8D95A1;display:inline-block"></span>この条件の平均</span>
+          </div>
+        </div>
+
+        <p class="aside">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較</p>
+
+        <div class="btn">目安に設定</div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>3つの軸をここで選ぶ</h3>
+        <p>
+          楽器・ジャンル・属性の3つとも選べる。<b>1人が複数の楽器を吹く</b>ので、
+          楽器種別も固定にはできない（テナーの目安を見たい日もある）。
+          ジャンルと属性は「指定しない」を持ち、軸を落とすほど母数が増える。
+          平均は安定するが、自分に近い集団ではなくなる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>3つまで掛けられる</h3>
+        <p>
+          全属性を掛けると約5万通りになるが、<b>楽器 × ジャンル × 属性なら180通り</b>で、
+          日次の事前計算が現実的な範囲に収まる。5人に満たない組み合わせは
+          「指定しない」に自動で降り、そう表示する。
+        </p>
+      </div>
+      <div class="note">
+        <h3>個人の目安と同じ形で見せる</h3>
+        <p>
+          指標のタブも折れ線も、次の画面（03）の個人の目安とまったく同じ作り。
+          <b>平均も1人ぶんの目安として扱える</b>ので、見方を2つ覚える必要がない。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S03 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">03</span>
+    <h2>目安を重ねて設定する</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    計測環境の差を打ち消してから重ねる。この機能の理屈がそのまま画になる、一番大事な画面。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>まつり の目安</h4></div>
+      <div class="condbar">
+        <span class="cond fixed">Alto</span><span class="sep">・</span>
+        <span class="cond fixed">学生 ・ 歴3年 ・ クラシック</span>
+      </div>
+      <div class="body">
+        <div class="mtabs">
+          <div class="mtab">音程</div>
+          <div class="mtab on">重心</div>
+          <div class="mtab">HNR</div>
+        </div>
+
+        <div class="card" id="shiftcard">
+          <svg viewBox="0 0 320 176" style="width:100%;height:auto" role="img"
+               aria-label="音名ごとのスペクトル重心を、自分と相手で重ねた折れ線グラフ">
+            <g stroke="#EEF1F8" stroke-width="1">
+              <line x1="30" y1="14" x2="312" y2="14"/><line x1="30" y1="54" x2="312" y2="54"/>
+              <line x1="30" y1="94" x2="312" y2="94"/><line x1="30" y1="128" x2="312" y2="128"/>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="end">
+              <text x="24" y="18">2600</text><text x="24" y="58">2200</text>
+              <text x="24" y="98">1800</text><text x="24" y="132">1400</text>
+            </g>
+            <g font-size="10.5" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="middle">
+              <text x="46" y="152">低ド</text><text x="99" y="152">レ</text><text x="152" y="152">ミ</text>
+              <text x="205" y="152">ソ</text><text x="258" y="152">高ド</text><text x="300" y="152">高ソ</text>
+            </g>
+            <polyline class="ghost" points="46,42 99,24 152,18 205,32 258,16 300,28" fill="none"
+              stroke="#C9D3E4" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline class="shifted" points="46,108 99,90 152,84 205,98 258,82 300,94" fill="none"
+              stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+            <polyline points="46,124 99,98 152,80 205,104 258,68 300,90" fill="none"
+              stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
+            <g fill="#174585">
+              <circle cx="46" cy="124" r="3.2"/><circle cx="99" cy="98" r="3.2"/><circle cx="152" cy="80" r="3.2"/>
+              <circle cx="205" cy="104" r="3.2"/><circle cx="258" cy="68" r="3.2"/><circle cx="300" cy="90" r="3.2"/>
+            </g>
+          </svg>
+          <div style="display:flex;gap:18px;font-size:11.5px;color:#435266;margin-top:10px">
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:2.5px;background:#174585;display:inline-block"></span>自分</span>
+            <span style="display:flex;align-items:center;gap:6px">
+              <span style="width:17px;height:0;border-top:2px dashed #8D95A1;display:inline-block"></span>まつり</span>
+          </div>
+        </div>
+
+        <p class="aside">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較</p>
+
+        <div class="btn">目安に設定</div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>薄い線が、動いて重なる</h3>
+        <p>
+          画面に入ると、相手の生の値（薄い線）が自分の位置まで<b>滑って揃う</b>。
+          文章で説明するより、この0.1秒のほうが仕組みが伝わる。
+          動きを止める設定の人には、揃った後の状態だけを見せる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>注意書きはカードにしない</h3>
+        <p>
+          前の案は色付きのカードに入れていたが、<b>読ませたいのはグラフであって注意書きではない</b>。
+          地の上に小さく置くだけにして、視線の順番を戻した。
+        </p>
+      </div>
+      <div class="note">
+        <h3>グラフの向きは既存に揃える</h3>
+        <p>
+          <b>横軸が音名</b>。計測タブや My Data の折れ線と同じ向きなので、
+          この画面のために読み方を覚え直す必要がない。
+        </p>
+      </div>
+      <div class="note">
+        <h3>解釈の文は置かない</h3>
+        <p>
+          「低いドが暗い」のような言い換えは載せない。どの音がどれだけ違うかはグラフが示しており、
+          そこから何を直すかは吹いている本人が決めること。
+          <b>アプリが判定を代わりに言うと、外れたときに信用を失う。</b>
+        </p>
+      </div>
+      <div class="flag">
+        音量は共有しない。マイクの距離と入力ゲインに支配されていて、他人の値に意味がないため。
+        共有するのはピッチ・倍音構成・重心・HNRの<b>形</b>だけ。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S04 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">04</span>
+    <h2>順位</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    上位3件だけカードを独立させ、アイコンに順位の環を回す。台の高さには頼らない。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>順位</h4></div>
+      <div class="tabs">
+        <div class="tab">データ</div>
+        <div class="tab on">順位</div>
+        <div class="tab">シェア</div>
+        <div class="tab">マイページ</div>
+      </div>
+      <div class="condbar">
+        <span class="cond">練習日数</span>
+        <span class="cond">今月</span>
+        <span class="cond">学生</span>
+      </div>
+      <div class="body">
+        <div class="top3">
+          <div class="t3 n1">
+            <div class="p">1</div>
+            <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div class="who">まつり<span>学生 ・ 歴3年 ・ クラシック</span></div>
+            <div class="v">29<i>日</i></div>
+          </div>
+          <div class="t3 n2">
+            <div class="p">2</div>
+            <div class="av" style="--a:#A8543C"><svg><use href="#ic-star"/></svg></div>
+            <div class="who">ハルカ<span>学生 ・ 歴2年 ・ クラシック</span></div>
+            <div class="v">27<i>日</i></div>
+          </div>
+          <div class="t3 n3">
+            <div class="p">3</div>
+            <div class="av" style="--a:#3E6E8E"><svg><use href="#ic-fish"/></svg></div>
+            <div class="who">みなと<span>学生 ・ 歴6年 ・ ポップス</span></div>
+            <div class="v">24<i>日</i></div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="rk"><div class="p">4</div>
+            <div class="av s" style="--a:#6B7A3F"><svg><use href="#ic-leaf"/></svg></div>
+            <div class="who">りん<span>学生 ・ 歴1年 ・ クラシック</span></div><div class="v">22<i>日</i></div></div>
+          <div class="rk"><div class="p">5</div>
+            <div class="av s" style="--a:#7D4A6B"><svg><use href="#ic-heart"/></svg></div>
+            <div class="who">そら<span>学生 ・ 歴4年 ・ ジャズ</span></div><div class="v">21<i>日</i></div></div>
+          <div class="rk"><div class="p">6</div>
+            <div class="av s" style="--a:#5B5FA3"><svg><use href="#ic-music-notes"/></svg></div>
+            <div class="who">かえで<span>学生 ・ 歴7年 ・ クラシック</span></div><div class="v">19<i>日</i></div></div>
+          <div class="rk"><div class="p">7</div>
+            <div class="av s" style="--a:#9A6B2F"><svg><use href="#ic-guitar"/></svg></div>
+            <div class="who">つばさ<span>学生 ・ 歴2年 ・ ポップス</span></div><div class="v">18<i>日</i></div></div>
+        </div>
+
+        <div class="you">
+          <div class="rk"><div class="p">12</div>
+            <div class="av s" style="--a:#174585"><svg><use href="#ic-rabbit"/></svg></div>
+            <div class="who">ゆう<span class="badge">あなた</span></div>
+            <div class="v">16<i>日</i></div></div>
+        </div>
+      </div>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>属性でも順位を切れる</h3>
+        <p>
+          全体だけだと、始めたばかりの学生が講師・プロと同じ土俵に並ぶ。
+          <b>属性を選べば同じ立場の中での順位</b>になり、届く目標として読める。
+          条件行は 指標 ・ 期間 ・ 属性 の3つ。
+        </p>
+      </div>
+      <div class="note">
+        <h3>期間は4段</h3>
+        <p>
+          <b>今週 / 今月 / 今年 / すべて</b>。始めたばかりの人は「今週」で上に出られるし、
+          長く続けている人は「すべて」で積み上げが見える。どちらの励みも残す。
+        </p>
+      </div>
+      <div class="note">
+        <h3>自分の行は下端に貼り付ける</h3>
+        <p>
+          12位でもスクロールに関係なく常に見える。<b>上位者だけの画面は、大多数にとって
+          自分と無関係な画面になる。</b>
+        </p>
+      </div>
+      <div class="note">
+        <h3>数えるのは日数と時間だけ</h3>
+        <p>
+          計測回数とアプリ稼働時間は指標から外した。短い録音の連打と、開いて放置するだけで
+          伸びてしまうため。日数は<b>「5分以上サックスを鳴らした日」</b>で数える。
+        </p>
+      </div>
+      <div class="flag">
+        チューナーやメトロノームとして使っている時間も練習に入る。計測タブにいる間はマイクが
+        動いているので、<b>録音していなくても鳴っていた時間は取れる</b>。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S05 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">05</span>
+    <h2>人をタップしたとき</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">
+    相手の要約と目安をシートで出す。別画面へ移らずにここで形が見える。通報もここに置く。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar" style="opacity:.3"><h4>順位</h4></div>
+      <div class="condbar" style="opacity:.3">
+        <span class="cond">練習日数</span><span class="sep">・</span><span class="cond">今月</span>
+      </div>
+      <div class="body" style="opacity:.3">
+        <div class="deep" style="height:80px"></div>
+        <div class="card" style="height:64px"></div>
+      </div>
+      <div class="veil">
+        <div class="sheet">
+          <div class="grab"></div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:10px">
+            <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div style="font-size:19px; font-weight:700">まつり</div>
+            <div class="sub" style="text-align:center;margin:0">学生 ・ 歴3年 ・ クラシック ・ 吹奏楽</div>
+            <div class="sub" style="text-align:center;margin:0">Alto ／ Tenor</div>
+          </div>
+
+          <div class="saxtabs">
+            <div class="saxtab on">Alto</div>
+            <div class="saxtab">Tenor</div>
+          </div>
+
+          <div class="mtabs">
+            <div class="mtab">音程</div>
+            <div class="mtab on">重心</div>
+            <div class="mtab">HNR</div>
+          </div>
+
+          <div class="card" style="box-shadow:none; background:var(--gr); padding:14px">
+            <svg viewBox="0 0 300 120" style="width:100%;height:auto" role="img"
+                 aria-label="この人の目安と自分を重ねた折れ線">
+              <g stroke="#E2E7F0" stroke-width="1">
+                <line x1="8" y1="14" x2="292" y2="14"/><line x1="8" y1="54" x2="292" y2="54"/>
+                <line x1="8" y1="94" x2="292" y2="94"/>
+              </g>
+              <g font-size="10" fill="#8D95A1" font-family="-apple-system,sans-serif" text-anchor="middle">
+                <text x="30" y="114">低ド</text><text x="82" y="114">レ</text><text x="134" y="114">ミ</text>
+                <text x="186" y="114">ソ</text><text x="238" y="114">高ド</text><text x="280" y="114">高ソ</text>
+              </g>
+              <polyline points="30,72 82,58 134,50 186,62 238,44 280,56" fill="none"
+                stroke="#8D95A1" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+              <polyline points="30,84 82,64 134,44 186,68 238,30 280,50" fill="none"
+                stroke="#174585" stroke-width="2.5" stroke-linejoin="round"/>
+            </svg>
+          </div>
+
+          <div>
+            <div class="st"><div class="k">楽器</div><div class="v">YAS-62</div></div>
+            <div class="st"><div class="k">マウスピース</div><div class="v">Selmer S80 C*</div></div>
+            <div class="st"><div class="k">リガチャー</div><div class="v">Rovner Dark</div></div>
+            <div class="st"><div class="k">リード</div><div class="v">Traditional 3</div></div>
+            <div class="st"><div class="k">練習日数</div><div class="v big">312<i>日</i></div></div>
+            <div class="st"><div class="k">目安の採用数</div><div class="v big">38<i>人</i></div></div>
+          </div>
+
+          <div class="btn">目安に設定</div>
+          <div class="btn dg">このユーザーを通報</div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>楽器 × 指標の二段で切り替える</h3>
+        <p>
+          1人が複数の楽器を吹くので、<b>目安も機材も楽器種別ごとに別物</b>になる。
+          上段で楽器（Alto / Tenor）、下段で指標（音程 / 重心 / HNR）を選ぶ。
+          <b>タブが二段になるので形を変えてある</b> — 楽器は下線、指標は塗り。
+          同じ見た目を縦に2つ並べると、どちらがどちらを切り替えているのか読めない。
+          1種別しか持たない人には上段を出さない。
+        </p>
+      </div>
+      <div class="note">
+        <h3>練習日数は累計で出す</h3>
+        <p>
+          順位は期間を切り替えて見るものだが、<b>人物の紹介として出すなら累計のほうが素性を表す</b>。
+          「今月29日」はその月がたまたま忙しくなかっただけかもしれないが、
+          「累計312日」はその人がどれだけ続けてきたかを示す。
+        </p>
+      </div>
+      <div class="note">
+        <h3>別画面へ移らずに形が見える</h3>
+        <p>
+          「この人の目安を見る」を押させず、<b>シートの中で指標まで切り替えられる</b>。
+          順位を眺めていて気になった人がいたとき、往復せずにその場で判断できる。
+          このシートだけで「目安に設定」まで完結する。
+        </p>
+      </div>
+      <div class="note">
+        <h3>通報の置き場所が決まった</h3>
+        <p>
+          審査ガイドライン1.2は、ユーザー生成コンテンツを含むアプリに
+          <b>フィルタ・通報・ブロック・連絡先公開の4点</b>を求める。
+          これまで通報の置き場所が宙に浮いていたが、この画面で解決する。
+        </p>
+      </div>
+      <div class="flag">
+        ブロック（この人を一覧から隠す）も同じシートに入る。草案では省いてあるが、審査要件なので実装時には必要。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S06 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">06</span>
+    <h2>シェア</h2>
+    <span class="tag t-draft">草案</span>
+  </div>
+  <p class="sec-sub">
+    誰が何を使っているか。グラフは1つに絞り、タブで切り替える。
+  </p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>シェア</h4></div>
+      <div class="tabs">
+        <div class="tab">データ</div>
+        <div class="tab">順位</div>
+        <div class="tab on">シェア</div>
+        <div class="tab">マイページ</div>
+      </div>
+      <div class="condbar">
+        <span class="cond">クラシック</span><span class="sep">・</span>
+        <span class="cond">Alto</span>
+      </div>
+      <div class="body">
+        <div class="mtabs">
+          <div class="mtab on">楽器</div>
+          <div class="mtab">マウスピース</div>
+          <div class="mtab">リガチャー</div>
+          <div class="mtab">リード</div>
+        </div>
+
+        <div class="card">
+          <div class="donut">
+            <svg viewBox="0 0 100 100" style="width:104px;height:104px;flex:none" role="img" aria-label="楽器の割合">
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#174585" stroke-width="15"
+                stroke-dasharray="122 123" transform="rotate(-90 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#7FA0CE" stroke-width="15"
+                stroke-dasharray="58 187" transform="rotate(92 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#B9C9E4" stroke-width="15"
+                stroke-dasharray="39 206" transform="rotate(178 50 50)"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="#E1E6EE" stroke-width="15"
+                stroke-dasharray="24 221" transform="rotate(234 50 50)"/>
+            </svg>
+            <div class="lgd">
+              <div><span class="sw" style="background:#174585"></span>YAMAHA<b>50%</b></div>
+              <div><span class="sw" style="background:#7FA0CE"></span>Selmer Paris<b>24%</b></div>
+              <div><span class="sw" style="background:#B9C9E4"></span>Yanagisawa<b>16%</b></div>
+              <div><span class="sw" style="background:#E1E6EE"></span>その他<b>10%</b></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p class="hd">人気の組み合わせ</p>
+          <div class="mtabs" style="margin-bottom:10px">
+            <div class="mtab">2項目</div>
+            <div class="mtab on">3項目</div>
+            <div class="mtab">4項目</div>
+          </div>
+          <div class="stack">
+            <div class="row">
+              <div class="m"><div class="nm" style="font-size:13.5px">YAS-62 ／ S80 C* ／ Traditional</div></div>
+              <div class="cnt"><b>86</b><span>票</span></div>
+            </div>
+            <div class="row">
+              <div class="m"><div class="nm" style="font-size:13.5px">YAS-875EX ／ S90 180 ／ V21</div></div>
+              <div class="cnt"><b>51</b><span>票</span></div>
+            </div>
+            <div class="row">
+              <div class="m"><div class="nm" style="font-size:13.5px">Series II ／ Meyer 6M ／ Java</div></div>
+              <div class="cnt"><b>34</b><span>票</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nav">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17 16.5 9.5"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"/><line x1="9" y1="14" x2="15" y2="14"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"/><line x1="12" y1="20" x2="12" y2="7"/><line x1="17" y1="20" x2="17" y2="11"/></svg></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.6 Q20.5 13.6 20.5 18"/></svg></div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>グラフは1つだけ出す</h3>
+        <p>
+          4種類を縦に積むと画面が長くなり、下の「人気の組み合わせ」まで届かない。
+          <b>楽器 / マウスピース / リガチャー / リード</b>をタブで切り替えれば、
+          比べたいものだけが常に同じ位置に出る。
+        </p>
+      </div>
+      <div class="note">
+        <h3>掛ける数も選べる</h3>
+        <p>
+          <b>2項目</b>＝マウスピース × リード、<b>3項目</b>＝楽器 × マウスピース × リード、
+          <b>4項目</b>＝楽器 × マウスピース × リガチャー × リード。
+          掛ける数を増やすほど票は散るので、<b>母数が薄いときは2項目に落として読む</b>という
+          使い方ができる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>色は紺の明度段階だけ</h3>
+        <p>
+          緑・橙・赤は「音程が合っている / 外れている」という意味を持っている色なので、
+          割合の一切れに使うと意味が濁る。<b>紺3段＋灰</b>で足りる範囲に項目を絞り、
+          残りは「その他」へ落とす。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S07 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">07</span>
+    <h2>アイコンを選ぶ</h2>
+    <span class="tag t-new">新規</span>
+  </div>
+  <p class="sec-sub">絵と背景色の組み合わせで自分の印を作る。写真は使わない。</p>
+
+  <div class="split">
+    <div class="phone"><div class="scr">
+      <div class="bar"><h4>アイコン</h4></div>
+      <div class="body">
+        <div class="card">
+          <p class="hd">一覧での見え方</p>
+          <div style="display:flex; gap:13px; align-items:center">
+            <div class="av" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div style="flex:1; min-width:0">
+              <div class="nm">まつり</div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="hd">絵</p>
+          <div class="grid6">
+              <div class="pk on" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+              <div class="pk"><svg><use href="#ic-dog"/></svg></div>
+              <div class="pk"><svg><use href="#ic-bird"/></svg></div>
+              <div class="pk"><svg><use href="#ic-rabbit"/></svg></div>
+              <div class="pk"><svg><use href="#ic-butterfly"/></svg></div>
+              <div class="pk"><svg><use href="#ic-fish"/></svg></div>
+              <div class="pk"><svg><use href="#ic-flower-lotus"/></svg></div>
+              <div class="pk"><svg><use href="#ic-leaf"/></svg></div>
+              <div class="pk"><svg><use href="#ic-star"/></svg></div>
+              <div class="pk"><svg><use href="#ic-heart"/></svg></div>
+              <div class="pk"><svg><use href="#ic-moon-stars"/></svg></div>
+              <div class="pk"><svg><use href="#ic-sun"/></svg></div>
+              <div class="pk"><svg><use href="#ic-rainbow"/></svg></div>
+              <div class="pk"><svg><use href="#ic-fire"/></svg></div>
+              <div class="pk"><svg><use href="#ic-sparkle"/></svg></div>
+              <div class="pk"><svg><use href="#ic-crown-simple"/></svg></div>
+              <div class="pk"><svg><use href="#ic-diamond"/></svg></div>
+              <div class="pk"><svg><use href="#ic-ghost"/></svg></div>
+              <div class="pk"><svg><use href="#ic-music-notes"/></svg></div>
+              <div class="pk"><svg><use href="#ic-guitar"/></svg></div>
+              <div class="pk"><svg><use href="#ic-tree"/></svg></div>
+              <div class="pk"><svg><use href="#ic-snowflake"/></svg></div>
+              <div class="pk"><svg><use href="#ic-cloud"/></svg></div>
+              <div class="pk"><svg><use href="#ic-paw-print"/></svg></div>
+          </div>
+          <p class="hint">Phosphor Icons から24種（MIT・商用利用可）</p>
+        </div>
+
+        <div class="card">
+          <p class="hd">背景の色</p>
+          <div class="grid10">
+              <div class="sc" style="--a:#174585"></div>
+              <div class="sc" style="--a:#3E6E8E"></div>
+              <div class="sc on" style="--a:#2F6F5E"></div>
+              <div class="sc" style="--a:#6B7A3F"></div>
+              <div class="sc" style="--a:#9A6B2F"></div>
+              <div class="sc" style="--a:#A8543C"></div>
+              <div class="sc" style="--a:#7D4A6B"></div>
+              <div class="sc" style="--a:#5B5FA3"></div>
+              <div class="sc" style="--a:#4A5567"></div>
+              <div class="sc" style="--a:#2C3542"></div>
+          </div>
+        </div>
+
+        <div class="btn">決定</div>
+      </div>
+    </div></div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>24種 × 10色 = 240通り</h3>
+        <p>
+          Phosphor Icons（MIT・商用利用可）の<b>塗りつぶし</b>の絵柄。
+          猫・犬・鳥・うさぎ・蝶・魚・花・葉・星・ハート・月・太陽・虹・炎・王冠・宝石・
+          おばけ・音符・ギターなど、<b>人が自分の印にしたくなるもの</b>で揃えた。
+          道具の絵（マイク・メーター・方位磁石）は外している。
+        </p>
+      </div>
+      <div class="note">
+        <h3>線画ではなく塗りにした理由</h3>
+        <p>
+          40pxの円の中では線画は細すぎて弱い。塗りにすると、一覧に縦に並んだときに
+          <b>誰の行かを絵の形だけで拾える</b>ようになる。
+        </p>
+      </div>
+      <div class="note">
+        <h3>写真にしなかった理由（費用ではない）</h3>
+        <p>
+          費用はほぼ問題にならない。1000人でも保存は30MB程度で、無料枠に対して誤差。実装も1日仕事。
+          <b>本当の障害は3つ</b>。
+        </p>
+        <p>
+          未成年が使うアプリで画像投稿を開くと<b>児童ポルノのリスク</b>が生じる。これは「不快な投稿」とは
+          法的なカテゴリが違う。写真には<b>他人の顔が写り込む</b> — 部活の集合写真をアイコンにするのは
+          普通に起きるが、「他人のデータを勝手に上げない」原則と正面から衝突する。そして
+          <b>EXIFに位置情報が入っている</b> — 学生がスマホの写真をそのまま上げると学校の場所が漏れる。
+        </p>
+      </div>
+      <div class="flag">
+        写真は後から足せる。持ち方を「絵の種類＋色」から「絵の種類＋色 <b>または</b> 画像URL」に
+        広げるだけなので、今の構造を壊さずに計画5（通報・法務）とセットで判断できる。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- S08 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">08</span>
+    <h2>マイページ</h2>
+    <span class="tag t-built">実装済み</span>
+  </div>
+  <p class="sec-sub">
+    参加 → 登録 → 表示・削除の3状態。<b>吹く楽器を複数選べ、選んだ数だけ機材の欄が出る。</b>
+    下はカード作法に合わせて描き直した姿で、実装は現状まだ罫のまま。
+  </p>
+
+  <div class="trio">
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:22px 16px">
+          <div class="card">
+            <div style="font-size:17px;font-weight:700">コミュニティ</div>
+            <p style="font-size:13.5px;color:var(--i2);line-height:1.85;margin:10px 0 0">
+              参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
+              メールアドレスなどの個人情報は公表されません。
+            </p>
+            <p class="hint">
+              匿名アカウントはこの端末に紐づきます。機種変更やアプリの削除で失われます。
+            </p>
+          </div>
+          <div class="btn">参加してプロフィールを作る</div>
+        </div>
+      </div></div>
+      <p class="cap">参加前（アカウントはまだ作られない）</p>
+    </div>
+
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:18px 16px">
+          <div class="card">
+            <div class="fld">ニックネーム</div>
+            <div class="inp">まつり</div>
+            <p class="hint">ニックネームは他の利用者に公開されます</p>
+          </div>
+          <div class="card" style="display:flex;flex-direction:column;gap:16px">
+            <div><div class="fld">属性</div><div class="inp">学生　▾</div></div>
+            <div>
+              <div class="fld">吹く楽器（複数選べます）</div>
+              <div class="saxpick">
+                <span class="saxopt"><span class="bx"></span>Soprano</span>
+                <span class="saxopt on"><span class="bx"></span>Alto</span>
+                <span class="saxopt on"><span class="bx"></span>Tenor</span>
+                <span class="saxopt"><span class="bx"></span>Baritone</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="display:flex;flex-direction:column;gap:14px">
+            <div class="gearset">
+              <div class="ttl">Alto の機材</div>
+              <div><div class="fld">楽器</div><div class="inp ph">例: YAS-62</div></div>
+              <div><div class="fld">マウスピース</div><div class="inp ph">例: S80 C*</div></div>
+              <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
+            </div>
+            <div class="gearset">
+              <div class="ttl">Tenor の機材</div>
+              <div><div class="fld">楽器</div><div class="inp ph">例: YTS-62</div></div>
+              <div><div class="fld">マウスピース</div><div class="inp ph">例: Otto Link 7*</div></div>
+              <div><div class="fld">リガチャー</div><div class="inp ph">例: Dark / ロブナー</div></div>
+            </div>
+          </div>
+          <div class="card"><div class="ck"><div class="box"></div>13歳以上です</div></div>
+          <div class="btn">保存する</div>
+        </div>
+      </div></div>
+      <p class="cap">登録フォーム（吹く楽器を選ぶと、その数だけ機材の欄が出る）</p>
+    </div>
+
+    <div>
+      <div class="phone"><div class="scr auto">
+        <div class="body" style="padding:18px 16px">
+          <div class="card" style="display:flex;gap:14px;align-items:center">
+            <div class="av l" style="--a:#2F6F5E"><svg><use href="#ic-cat"/></svg></div>
+            <div><div class="nm" style="font-size:17px">まつり</div>
+              <div class="sub">学生 ・ 歴3年 ・ クラシック</div>
+              <div class="sub">Alto ／ Tenor</div></div>
+          </div>
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px">
+            <div><div style="font-size:14px;font-weight:700">公開する</div>
+              <p class="hint" style="margin-top:4px">既定は公開です。OFFにすると他の利用者から見えなくなります</p></div>
+            <div class="tog"></div>
+          </div>
+          <div class="btn gh">編集</div>
+          <div class="card">
+            <div style="text-align:center;font-size:13.5px;font-weight:700;color:var(--dg)">アカウントを削除</div>
+            <p class="hint" style="margin:12px 0 0">
+              アカウントを削除すると、サーバー上のプロフィールは完全に消えます。
+              この端末の計測データは消えません。
+            </p>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">プロフィール（公開が既定。切替・編集・削除）</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 8 ルール ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">09</span>
+    <h2>デザイン体系との関係</h2>
+  </div>
+  <p class="sec-sub">
+    この案は <code>design/DESIGN-SYSTEM.md</code> の <b>カードの作法（§6.6 <code>.surf-card</code>）</b>を
+    そのまま使っている。値を発明した箇所は2つだけ。
+  </p>
+
+  <div class="rules">
+    <div class="rule">
+      <div class="top"><h3>体系に既にあり、そのまま使ったもの</h3><span class="src">追加不要</span></div>
+      <dl>
+        <dt>地</dt><dd><code>--c-sunk</code> <code>#F6F7F9</code>（§1.2）。左右端まで届かせる</dd>
+        <dt>カード</dt><dd><code>--c-surface</code> ／ 角丸 <code>--r-lg</code> 16px ／ 余白 <code>--sp-4</code> 16px ／ <code>--shadow-card</code>（§6.6）</dd>
+        <dt>小カード</dt><dd><code>.rowcard</code> 相当。角丸 <code>--r-md</code> 12px ／ 余白 10px 14px ／ <code>--shadow-row</code></dd>
+        <dt>影</dt><dd><code>--shadow-card</code> <code>0 1px 2px rgba(18,31,50,.04), 0 6px 16px rgba(18,31,50,.06)</code>（§1.10）</dd>
+        <dt>罫</dt><dd><b>1本も引かない。</b>群はカードと余白だけが切る（§6.6）。この案も行の区切り線を持たない</dd>
+      </dl>
+    </div>
+
+    <div class="rule hot">
+      <div class="top"><h3>順位の3色（金・銀・銅）</h3><span class="src">新規トークン ／ §1.5・§1.7 に抵触</span></div>
+      <dl>
+        <dt>問題</dt>
+        <dd>体系は<b>機能色（緑=合っている／橙／赤）とグレーを系列識別に流用することを禁じている</b>。
+          順位を表す色は紺の明度段階では代用できず、パレットに無い第3の色系統になる。</dd>
+        <dt>提案</dt>
+        <dd><code>--c-rank-1</code> <code>#C79A3E</code> ／ <code>--c-rank-2</code> <code>#9BA6B4</code> ／
+          <code>--c-rank-3</code> <code>#A9743E</code> を<b>順位専用</b>として追加し、
+          系列識別にも機能色にも流用しないという条件を付ける。使うのはアイコンの環と順位の数字だけ。</dd>
+      </dl>
+    </div>
+
+    <div class="rule hot">
+      <div class="top"><h3>アイコンの背景色 10色</h3><span class="src">新規トークン ／ §1 全体</span></div>
+      <dl>
+        <dt>問題</dt>
+        <dd>アプリの色は紺一系統。アイコンを選べるようにすると<b>10色の第4の色系統</b>が要る。</dd>
+        <dt>提案</dt>
+        <dd><code>--c-avatar-1</code>〜<code>-10</code> として追加し、他への流用を禁じる。
+          機能色と見分けがつくよう<b>全て彩度を落としてある</b>（緑は <code>#2F6F5E</code>、
+          橙は <code>#9A6B2F</code>、赤は <code>#A8543C</code>）。白抜きのアイコンが乗るので明度も揃えてある。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>カードの作法をこの画面にも広げる</h3><span class="src">§6.6 ／ 本人の裁定が要る</span></div>
+      <dl>
+        <dt>状況</dt>
+        <dd>§6.6 は「範囲はこの2画面（My Data・分析タブ）まで。<b>他の画面へ広げるときは、また本人の裁定が要る</b>」
+          と明記している。D-7 の「カード化は整理できていない証拠」は D-10 で撤回済みなので、
+          <b>作法そのものへの抵触は無い</b>。必要なのは範囲を広げる裁定だけ。</dd>
+        <dt>提案</dt>
+        <dd>§6.6 の表に <b>コミュニティ ＝ カード</b> の行を足す（本人承認済み・2026-08-28）。
+          既存の計測・リード・セッション詳細は罫のまま。</dd>
+      </dl>
+    </div>
+
+    <div class="rule">
+      <div class="top"><h3>守ったので追加が要らなかったもの</h3><span class="src">記録</span></div>
+      <dl>
+        <dt>濃い面</dt>
+        <dd><code>--c-accent</code> はアクション専用（§1.4）なので、1位のカードと平均のカードには使わず
+          <b>より深い紺 #0E2044 を別に置いた</b>。押せる物の色を薄めずに済む。</dd>
+        <dt>割合の色</dt>
+        <dd>円グラフは<b>紺の明度段階だけ</b>で作った（§1.7）。緑・橙・赤は使っていない。</dd>
+        <dt>下部タブ</dt>
+        <dd>参考にした画面はアイコン＋文字だが、<b>アイコンのみを維持</b>した（§6.0）。
+          ここだけ変えると影響が4タブ全部に及ぶ。</dd>
+        <dt>角丸</dt>
+        <dd>当初 22px にしていたが、体系の <code>--r-lg</code> 16px に合わせた。<b>6段目の追加は不要になった。</b></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- S10 -->
+<section>
+  <div class="sec-head">
+    <span class="sec-num">10</span>
+    <h2>決まったこと / 残っていること</h2>
+  </div>
+  <p class="sec-sub"></p>
+
+  <div class="decs">
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>1人が複数の楽器を持てる</h3>
+      <p>soprano / alto / tenor / baritone のうち吹くものを選び、<b>種別ごとに楽器・マウスピース・
+        リガチャーを1組ずつ</b>持つ。同じ種別を2本持つ人は稀なので1組でよい。
+        データも <code>saxTypes</code>（配列）と <code>gear</code>（種別をキーにした map）に変えた。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>条件は2階建て</h3>
+      <p>抽出条件（楽器 × ジャンル × 属性）は専用の画面で選び、トップの「さらに絞り込む」には
+        そこで設定していない条件だけを置く。役割が階層で分かれるので、2つ並んでいても迷わない。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>母集団は 楽器 × ジャンル × 属性 の3軸</h3>
+      <p>180通り程度で事前計算が現実的。5人に満たない組み合わせは「指定しない」へ自動で降りる。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>子タブは データ / 順位 / シェア / マイページ</h3>
+      <p>「目安」は機能の名前として画面の中に残し、タブの名前は中身を指す語にした。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>順位は属性でも切れる</h3>
+      <p>条件行は 指標 ・ 期間 ・ 属性 の3つ。期間は 今週 / 今月 / 今年 / すべて。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>人物シートは楽器 × 指標の二段タブ</h3>
+      <p>相手が複数の楽器を吹く場合、上段で楽器、下段で指標を選ぶ。
+        タブが二段になるため、楽器は下線式・指標は塗り式と<b>形を変えて</b>見分けを付ける。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>人物紹介の練習日数は累計</h3>
+      <p>順位は期間で切り替えるが、シートに出す数字は累計。その人がどれだけ続けてきたかを表す。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>シェアのグラフは1つ＋タブ切替</h3>
+      <p>楽器 / マウスピース / リガチャー / リード。縦に積むと下まで届かないため。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>楽器表記はアルファベット、製品名は正式名称</h3>
+      <p>アルト → Alto、青箱 → Traditional。カタログの表記と画面の表記を一致させる。</p></div></div>
+    <div class="dec"><span class="mark done">決定</span><div>
+      <h3>アイコンの絵柄はこの24種で確定</h3>
+      <p>Phosphor Icons の塗りウェイト。実装時もこの一覧をそのまま使う。</p></div></div>
+    <div class="dec"><span class="mark todo">要作業</span><div>
+      <h3>DESIGN-SYSTEM への追記</h3>
+      <p>追加が要るのは<b>順位の3色</b>と<b>アイコンの背景色10色</b>の2つだけ。影・角丸・カード作法は
+        体系に既にあるものをそのまま使った。§6.6 の表に「コミュニティ＝カード」の行も足す。
+        文面は <code>design/DESIGN-SYSTEM-community-addendum.md</code> に用意してある。</p></div></div>
+    <div class="dec"><span class="mark todo">要作業</span><div>
+      <h3>Firestore ルールの再デプロイ</h3>
+      <p>属性の選択肢と機材のキーが変わったので、実装に入る前にコンソールで貼り替えが要る。</p></div></div>
+  </div>
+
+  <p class="foot">
+    地・カード・影・角丸は <code>design/DESIGN-SYSTEM.md</code> のカードの作法（§6.6）の実値。
+    値を発明したのは順位の3色とアイコンの背景色だけ。
+    アイコンは Phosphor Icons（MIT・商用利用可）を SVG スプライトに埋め込んでいる。実行時の外部読み込みは無い。
+    画面に出てくる人名・数値はすべて草案用の作り物。
+  </p>
+</section>
+
+</div>
+
+<script>
+  // 署名要素: 「平行移動して重ねる」を、画面に入ったときに一度だけ見せる
+  var card = document.getElementById('shiftcard');
+  if (card) {
+    if (!('IntersectionObserver' in window)) { card.classList.add('shift-run'); }
+    else {
+      var io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('shift-run'); io.unobserve(e.target); }
+        });
+      }, { threshold: 0.45 });
+      io.observe(card);
+    }
+  }
+</script>
+</body>
+</html>
