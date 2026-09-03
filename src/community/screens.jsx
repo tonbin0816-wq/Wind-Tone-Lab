@@ -4,7 +4,7 @@ import { listPublicUsers, filterUsers, isFiltered, ANY, DIRECTORY_LIMIT } from "
 import { rankByPractice, findMyRank, tallyGear, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
-import { cohortAverage } from "./align.js";
+import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
@@ -108,9 +108,16 @@ function whoLine(u) {
   return parts.join(" ・ ");
 }
 
-function RankRow({ row, big = false, mine = false }) {
+function RankRow({ row, big = false, mine = false, onTap }) {
   return (
-    <div style={{
+    <div
+      role={onTap ? "button" : undefined}
+      tabIndex={onTap ? 0 : undefined}
+      onClick={onTap}
+      onKeyDown={onTap ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } } : undefined}
+      aria-label={onTap ? `${row.nickname} の詳細を見る` : undefined}
+      style={{
+      cursor: onTap ? "pointer" : "default",
       display: "flex", alignItems: "center", gap: "var(--sp-3)",
       padding: big ? "var(--sp-3)" : "var(--sp-2) var(--sp-3)",
       background: big || mine ? "var(--c-surface)" : "transparent",
@@ -137,7 +144,7 @@ function RankRow({ row, big = false, mine = false }) {
   );
 }
 
-export function RankScreen({ users, myUid }) {
+export function RankScreen({ users, myUid, onOpenPerson }) {
   const [filter, setFilter] = useState(EMPTY_FILTER);
   const [period, setPeriod] = useState("month");
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
@@ -174,10 +181,10 @@ export function RankScreen({ users, myUid }) {
         <>
           {/* 上位3件だけカードを独立させる。台の高さには頼らない */}
           <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-            {ranked.slice(0, 3).map((r) => <RankRow key={r.uid} row={r} big mine={r.uid === myUid} />)}
+            {ranked.slice(0, 3).map((r) => <RankRow key={r.uid} row={r} big mine={r.uid === myUid} onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />)}
           </div>
           <div style={{ display: "grid", gap: "var(--sp-1)" }}>
-            {ranked.slice(3).map((r) => <RankRow key={r.uid} row={r} mine={r.uid === myUid} />)}
+            {ranked.slice(3).map((r) => <RankRow key={r.uid} row={r} mine={r.uid === myUid} onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />)}
           </div>
         </>
       )}
@@ -372,7 +379,7 @@ function Legend({ series }) {
   );
 }
 
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes }) {
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson }) {
   // 【楽器種別は必ず1つに決める】アルトとテナーの重心を混ぜた平均は誰の目安にもならない。
   // 条件行の「すべて」を使わず、機材シェアと同じく専用の選択肢を持つ。
   // 既定は自分が登録している最初の種別(登録が無ければアルト)。
@@ -474,7 +481,13 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes }) {
       ) : (
         <div style={{ display: "grid", gap: "var(--sp-1)" }}>
           {pairs.map(({ ideal, owner }) => (
-            <div key={ideal.id} style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
+            <div key={ideal.id}
+                 role={onOpenPerson ? "button" : undefined}
+                 tabIndex={onOpenPerson ? 0 : undefined}
+                 onClick={onOpenPerson ? () => onOpenPerson(owner) : undefined}
+                 onKeyDown={onOpenPerson ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPerson(owner); } } : undefined}
+                 aria-label={onOpenPerson ? `${owner.nickname} の詳細を見る` : undefined}
+                 style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)", cursor: onOpenPerson ? "pointer" : "default" }}>
               <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} size={34} />
               <div style={{ flex: "1 1 0", minWidth: 0 }}>
                 {/* 【目安に名前は無い】種別ごとに1つなので、人の名前で示すのが自然。
@@ -493,6 +506,175 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes }) {
       )}
 
       <CapNotice count={users.length} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// 人をタップしたときの画面。
+//
+// 【1枚に全部出す】以前の案は「この人の目安を見る」を押させていたが、
+// 順位を眺めていて気になった人が居たとき、往復せずにその場で判断できるほうがよい
+// (2026-08-28 本人裁定)。機材も指標も同じ画面に置く。
+//
+// 【練習日数は累計を出す】順位は期間を切り替えて見るものだが、
+// 人物の紹介として出すなら累計のほうが素性を表す。
+// ------------------------------------------------------------------
+function GearLine({ label, brand, model }) {
+  const v = brand === null || brand === undefined ? "未選択"
+    : brand === OTHER_BRAND ? "その他"
+    : model ? `${brand} ${model}` : brand;
+  return (
+    <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "baseline", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
+      <div className="sans jp-label" style={{ ...labelStyle, flex: "0 0 7em" }}>{label}</div>
+      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: "1 1 0", minWidth: 0 }}>{v}</div>
+    </div>
+  );
+}
+
+export function PersonSheet({ person, ideals, myIdeals, onClose }) {
+  // その人が登録している種別のうち、目安か機材があるものだけをタブに出す。
+  // 「タブはあるのに中身が何も無い」を作らない。
+  const types = useMemo(() => {
+    const has = new Set();
+    for (const t of person?.saxTypes ?? []) {
+      if (person?.gear?.[t]) has.add(t);
+    }
+    for (const i of ideals ?? []) if (i.ownerUid === person?.uid) has.add(i.saxType);
+    return SAX_TYPES.filter((t) => has.has(t));
+  }, [person, ideals]);
+
+  const [saxType, setSaxType] = useState(() => types[0] ?? "alto");
+  const [metric, setMetric] = useState("spectralCentroidHz");
+  useEffect(() => { if (types.length > 0 && !types.includes(saxType)) setSaxType(types[0]); }, [types, saxType]);
+
+  const theirIdeal = useMemo(
+    () => (ideals ?? []).find((i) => i.ownerUid === person?.uid && i.saxType === saxType) ?? null,
+    [ideals, person, saxType]);
+
+  const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
+
+  // 【この人だけを自分に合わせる】コホート平均と同じ算術を使う。
+  // 自分の目安が無い種別では合わせられないので、そのときは相手の線だけを出さず、
+  // なぜ出ないのかを言う(絶対値だけ出すと環境の差を実力の差と読ませてしまう)。
+  const chart = useMemo(() => {
+    if (!theirIdeal) return null;
+    const mineLocal = myIdeals?.[saxType];
+    const mineShared = { notes: sanitizeNotes(mineLocal?.notes) };
+    const aligned = alignProfile(mineShared, { notes: theirIdeal.notes });
+    if (aligned.error) return { error: aligned.error };
+    const keys = Object.keys(aligned.notes).sort((a, b) => Number(a) - Number(b));
+    const theirValues = {}; const mineValues = {};
+    for (const k of keys) {
+      const tv = aligned.notes[k]?.[m.key];
+      if (typeof tv === "number") theirValues[k] = tv;
+      const mv = mineShared.notes?.[k]?.[m.key];
+      if (typeof mv === "number") mineValues[k] = mv;
+    }
+    return {
+      keys,
+      series: [
+        { label: person?.nickname ?? "この人", values: theirValues, color: "var(--c-accent)" },
+        { label: "自分", values: mineValues, color: "var(--c-ink-2)", dash: "4 3" },
+      ],
+    };
+  }, [theirIdeal, myIdeals, saxType, m.key, person]);
+
+  if (!person) return null;
+  const g = person.gear?.[saxType] ?? null;
+  const days = person.stats?.daysAll;
+
+  const tabStyle = (on) => ({
+    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
+    background: on ? "var(--c-accent)" : "var(--c-sunken)",
+    color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
+    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+  });
+
+  return (
+    <div role="dialog" aria-label={`${person.nickname} の詳細`}
+         style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--c-app, #F6F7F9)", overflowY: "auto" }}>
+      <div style={{ ...pageStyle, paddingBottom: "var(--sp-6, 40px)" }}>
+        <button type="button" onClick={onClose} className="sans" aria-label="閉じる"
+                style={{ justifySelf: "start", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
+                         border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
+                         color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
+          ← 戻る
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+          <Avatar icon={person.icon ?? AVATAR_ICONS[0]} color={person.iconColor ?? AVATAR_COLOR_MIN} size={56} />
+          <div style={{ minWidth: 0 }}>
+            <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
+            <div className="sans" style={noteStyle}>{whoLine(person)}</div>
+          </div>
+        </div>
+
+        {/* 【累計で出す】期間つきの数字は順位の画面のもの。紹介としては累計が素性を表す。 */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-2)" }}>
+          <div className="sans jp-label" style={labelStyle}>練習日数</div>
+          <div className="sans" style={{ fontSize: "var(--fs-lg, 22px)", fontWeight: 700, color: "var(--c-ink)" }}>
+            {Number.isInteger(days) ? days : "—"}
+            <span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>日</span>
+          </div>
+        </div>
+
+        {types.length === 0 ? (
+          <Empty>この人はまだ機材も目安も公開していません</Empty>
+        ) : (
+          <>
+            <div role="radiogroup" aria-label="楽器種別"
+                 style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(types.length, 1)}, minmax(0, 1fr))`, gap: "var(--sp-1)" }}>
+              {types.map((t) => (
+                <button key={t} type="button" role="radio" aria-checked={t === saxType}
+                        onClick={() => setSaxType(t)} className="sans" style={tabStyle(t === saxType)}>
+                  {SAX_LABELS[t]}
+                </button>
+              ))}
+            </div>
+
+            <div className="sans jp-label" style={labelStyle}>機材</div>
+            {g ? (
+              <div>
+                <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
+                <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
+                <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
+                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} />
+              </div>
+            ) : <Empty>この楽器の機材は登録されていません</Empty>}
+
+            <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>音のデータ</div>
+            {!theirIdeal ? (
+              <Empty>この楽器の目安はまだ公開されていません</Empty>
+            ) : (
+              <>
+                <div role="radiogroup" aria-label="見る指標"
+                     style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+                  {METRICS.map((x) => (
+                    <button key={x.key} type="button" role="radio" aria-checked={x.key === metric}
+                            onClick={() => setMetric(x.key)} className="sans" style={tabStyle(x.key === metric)}>
+                      {x.label}
+                    </button>
+                  ))}
+                </div>
+                {chart?.error ? (
+                  // 【合わせられないときに絶対値を出さない】環境の差を実力の差と読ませてしまう。
+                  <Empty>{chart.error}</Empty>
+                ) : chart ? (
+                  <>
+                    <div className="sans" style={noteStyle}>{m.label}({m.unit}) ・ 録音{theirIdeal.sourceSessionCount ?? "—"}回</div>
+                    <LineChart keys={chart.keys} series={chart.series} digits={m.digits} />
+                    <Legend series={chart.series} />
+                    <div className="sans" style={noteStyle}>
+                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
+                    </div>
+                  </>
+                ) : null}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
