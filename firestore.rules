@@ -4,10 +4,20 @@ service cloud.firestore {
     match /users/{uid} {
       // 公開プロフィールは誰でも読める。非公開は本人のみ(spec: 非公開でも復元用にクラウド保存する)
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
-      allow list: if false; // 一覧APIは計画2まで封鎖(公開一覧の設計とセットで開ける)
+      // 【一覧は「公開している人だけが返る」形で開ける】
+      // rules は絞り込みではない。list は**返る1件ごとに**評価されるので、
+      // 非公開の人が1件でも当たるとクエリ全体が失敗する。したがってクライアントは
+      // 必ず where("isPublic","==",true) を付けねばならず、
+      // **付け忘れは「非公開の人が漏れる」ではなく「全件失敗」になる。** そう設計している。
+      //
+      // limit の上限は50。limit 句の無いクエリはコレクション全体を返しうるので拒否する。
+      // 50 という値の根拠と、公開ユーザーが50人を超えたときに何が壊れるかは
+      // docs/superpowers/specs/2026-09-02-community-screens-design.md の決定1-b にある。
+      // **40人に達したらあの節を読み直すこと。**
+      allow list: if resource.data.isPublic == true && request.query.limit <= 50;
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
-        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
         // size() は UTF-8 のバイト長。クライアントの上限20コードポイントに対し、
@@ -126,6 +136,34 @@ service cloud.firestore {
           && (request.resource.data.gear.baritone.reedBrand == null || (request.resource.data.gear.baritone.reedBrand is string && request.resource.data.gear.baritone.reedBrand.size() <= 60))
           && (request.resource.data.gear.baritone.reedModel == null || (request.resource.data.gear.baritone.reedModel is string && request.resource.data.gear.baritone.reedModel.size() <= 60))
            ))
+        // ---- stats(練習日数) ----
+        // 【この値は本人のクライアントが書く。改ざんは防げない】
+        // ローカルのセッションはサーバに無いので、その数が本物かはここでは判定できない。
+        // 生の SDK を叩ける人は好きな数を書ける。**上限は改ざん対策ではなく、
+        // 桁違いの数字で画面が壊れることを防ぐためのもの。**
+        // 期間つきの3つは定義上の最大値(週7日・月31日・年366日)で、
+        // それを超える値は改ざん以前に「ありえない」ので弾く。
+        // **src/community/stats.js の STATS_MAX / STATS_KEYS の写し。片方だけ直さないこと。**
+        && request.resource.data.stats is map
+        && request.resource.data.stats.keys().hasAll(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
+        && request.resource.data.stats.keys().hasOnly(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
+        && request.resource.data.stats.daysThisWeek is int
+        && request.resource.data.stats.daysThisWeek >= 0
+        && request.resource.data.stats.daysThisWeek <= 7
+        && request.resource.data.stats.daysThisMonth is int
+        && request.resource.data.stats.daysThisMonth >= 0
+        && request.resource.data.stats.daysThisMonth <= 31
+        && request.resource.data.stats.daysThisYear is int
+        && request.resource.data.stats.daysThisYear >= 0
+        && request.resource.data.stats.daysThisYear <= 366
+        && request.resource.data.stats.daysAll is int
+        && request.resource.data.stats.daysAll >= 0
+        && request.resource.data.stats.daysAll <= 36500
+        // computedAt は「いつ数えた値か」。読む側がこれを見て、期間外の古い値を捨てる
+        // (先月の成績で今月の順位に並ぶのを防ぐ)。時刻としての正しさは検査できない。
+        && request.resource.data.stats.computedAt is string
+        && request.resource.data.stats.computedAt.size() <= 40
+        // ---- ここまで ----
         && request.resource.data.deviceClass in ['ios','android','pc']
         && request.resource.data.updatedAt is string
         && request.resource.data.isPublic is bool
