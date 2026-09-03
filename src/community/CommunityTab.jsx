@@ -3,6 +3,9 @@ import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePub
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
+import { RankScreen, ShareScreen, usePublicUsers } from "./screens.jsx";
+import { publishStats } from "./directory.js";
+import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
 
 // ------------------------------------------------------------------
@@ -51,16 +54,101 @@ const DELETE_PARTIAL_NOTICE =
 // 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
 // <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
 // どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
-export default function CommunityTab() {
+export default function CommunityTab({ sessions }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody />
+      <CommunityTabBody sessions={sessions} />
     </>
   );
 }
 
-function CommunityTabBody() {
+// 子タブ。マイページは「自分のこと」、他の3つは「他人のこと」。
+const SUB_TABS = [
+  { key: "data", label: "データ" },
+  { key: "rank", label: "順位" },
+  { key: "share", label: "シェア" },
+  { key: "me", label: "マイページ" },
+];
+
+function SubTabs({ value, onChange }) {
+  return (
+    <div role="tablist" aria-label="コミュニティの表示" style={{
+      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+      gap: "var(--sp-1)", padding: "var(--sp-3) var(--sp-4) 0",
+    }}>
+      {SUB_TABS.map((t) => (
+        <button
+          key={t.key} type="button" role="tab" aria-selected={t.key === value}
+          onClick={() => onChange(t.key)} className="sans no-select"
+          style={{
+            minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
+            background: t.key === value ? "var(--c-accent)" : "transparent",
+            color: t.key === value ? "var(--c-on-accent)" : "var(--c-ink-2)",
+            fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+          }}
+        >{t.label}</button>
+      ))}
+    </div>
+  );
+}
+
+// 参加済みの人に見せる画面。子タブで4つを切り替える。
+function JoinedView({ profile, uid, sessions, onEdit, onTogglePublic, onDelete }) {
+  const [tab, setTab] = useState("data");
+  // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
+  // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
+  const dir = usePublicUsers();
+
+  // 【練習日数はタブを開いたときに1度だけ書く】練習のたびには書かない。
+  // 書き込み回数が無駄に増えるだけで、順位は開いて見るものなので即時性が要らない。
+  //
+  // **失敗しても黙って諦める。** これは本人の操作ではなく副次的な更新なので、
+  // 順位が1日古いだけの話に対してエラーを出しても、利用者にできることが無い。
+  // (プロフィールの保存は本人の操作なので、あちらは必ず文言を出す。)
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    (async () => {
+      try {
+        const stats = computePracticeStats(sessions ?? []);
+        if (alive) await publishStats(uid, stats);
+      } catch (e) { /* 順位が古いままになるだけ。利用者に見せる意味が無い */ }
+    })();
+    return () => { alive = false; };
+    // sessions を依存に入れない ── 録音のたびに書き直すことになる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
+
+  const body = () => {
+    if (tab === "me") {
+      return <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={onTogglePublic} onDelete={onDelete} />;
+    }
+    if (dir.phase === "loading") return <Centered>読み込み中…</Centered>;
+    if (dir.phase === "error") return <Centered>{dir.error}</Centered>;
+    if (tab === "rank") return <RankScreen users={dir.users} myUid={uid} />;
+    if (tab === "share") return <ShareScreen users={dir.users} />;
+    // データ(コホート平均と個人の目安)は計画2の ideals に乗るので、まだ作っていない。
+    // **空の画面を出して「壊れている」と思わせないこと。**
+    return (
+      <div className="sans" style={{ padding: "var(--sp-4)", display: "grid", gap: "var(--sp-2)" }}>
+        <div style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)" }}>音のデータの比較はまだ作っていません</div>
+        <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 }}>
+          いまは「順位」と「シェア」が見られます。
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <SubTabs value={tab} onChange={setTab} />
+      {body()}
+    </div>
+  );
+}
+
+function CommunityTabBody({ sessions }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -163,8 +251,10 @@ function CommunityTabBody() {
     );
   }
   return (
-    <ProfileView
+    <JoinedView
       profile={profile}
+      uid={uid}
+      sessions={sessions}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
