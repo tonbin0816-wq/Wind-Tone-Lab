@@ -9,6 +9,9 @@ import BackupPanel from "./backup/BackupPanel.jsx";
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
 const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
+// 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
+// 画面本体は lazy のままにして、初回の読み込みを重くしない。
+import { buildAdoptedProfile } from "./community/idealDoc.js";
 
 // コミュニティタブの読み込み中/読み込み失敗の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -4177,7 +4180,27 @@ export default function WindToneLabPhaseMode() {
                 平均する。合わせる基準が自分の目安なので、これが無いと平均は出せない。
                 いま選んでいる目安をそのまま渡す(選んでいなければ null で、
                 画面側が「自分の計測がまだありません」と案内する)。 */}
-            <CommunityTab sessions={sessions} tuningHz={tuningHz} />
+            {/* 【取り込みは App.jsx が受ける】目安の一覧は App.jsx の state なので、
+                コミュニティ側から直接は触らせない。あちらは「合わせた結果」を渡すだけで、
+                保存と選択はここが行う。 */}
+            <CommunityTab
+              sessions={sessions} tuningHz={tuningHz}
+              onAdoptIdeal={({ aligned, theirIdeal, nickname }) => {
+                // 【ピッチの目標は自分の運指表から作る】相手の絶対周波数をそのまま
+                // 目標にすると、調弦(442/440)の違いぶんだけ常にずれて出る。
+                // 相手の楽器種別の理論周波数を、**自分の基準ピッチで**引いて渡す。
+                const table = buildFingeringTable(theirIdeal.saxType, effectiveTuningHz, null);
+                const baseFreqOf = (semitoneIndex) =>
+                  table.find((t) => t.semitoneIndex === semitoneIndex)?.soundingFreqHz ?? null;
+                const r = buildAdoptedProfile({ aligned, theirIdeal, nickname, id: generateId(), baseFreqOf });
+                if (r.error) return r;
+                setIdealProfiles((prev) => [...prev, r.profile]);
+                // 取り込んだらそのまま選ぶ。設定したのに選ばれていないと、
+                // 計測タブへ戻って「変わっていない」と思われる。
+                setSelectedIdealId(r.profile.id);
+                return { ok: true };
+              }}
+            />
           </Suspense>
         </CommunityErrorBoundary>
         </div>
