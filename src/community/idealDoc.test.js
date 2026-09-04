@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import {
   buildIdealDoc, sanitizeNotes, sanitizeIncomingNotes, selectOwnSessions, isSelfSession,
   MAX_PUBLISHED_NOTES, MIN_PUBLISHED_NOTES, MAX_NOTE_KEY,
+  toLocalNotes, buildAdoptedProfile, ADOPTED_SOURCE,
 } from "./idealDoc.js";
 
 // 【この7キーは実装から import しない】公開ドキュメントの形は凍結された仕様で、
@@ -228,5 +229,123 @@ describe("firestore.rules との同期", () => {
   });
   it("単票の読み取りが所有者の公開状態を見ている", () => {
     expect(idealsBlock).toContain("get(/databases/$(database)/documents/users/$(resource.data.ownerUid)).data.isPublic == true");
+  });
+});
+
+describe("取り込み(他人の目安を自分の目安にする)", () => {
+  const shared = (c, h, p) => ({ spectralCentroidHz: c, hnrDb: h, pitchCentsSigned: p, harmonics: [1, 0.5, 0.25] });
+  const aligned = { notes: { 0: shared(1300, 11, -1), 2: shared(1600, 12, 3), 4: shared(2100, 15, 6) } };
+  const theirIdeal = { saxType: "tenor", ownerUid: "u1" };
+
+  it("公開の綴りをローカルの綴りへ戻す", () => {
+    // spectralCentroidHz → centroidHz / harmonics → harmonicsProfile
+    // ここがずれると、取り込んだ目安が App.jsx から読めず、計測タブで何も比較できない。
+    const out = toLocalNotes(aligned.notes);
+    expect(out["0"].centroidHz).toBe(1300);
+    // 倍音構成は [{n, norm}] へ戻る(計測タブが h.norm と読むため)
+    expect(out["0"].harmonicsProfile).toEqual([{ n: 1, norm: 1 }, { n: 2, norm: 0.5 }, { n: 3, norm: 0.25 }]);
+    expect(out["0"].hnrDb).toBe(11);
+    expect(out["0"].spectralCentroidHz).toBeUndefined();
+    expect(out["0"].harmonics).toBeUndefined();
+  });
+  it("半音インデックスを数値で持たせる", () => {
+    expect(toLocalNotes(aligned.notes)["4"].semitoneIndex).toBe(4);
+  });
+  it("倍音構成の配列を共有しない(元を書き換えても取り込み側が変わらない)", () => {
+    const src = { 0: shared(1, 2, 3) };
+    const out = toLocalNotes(src);
+    src[0].harmonics.push(999);
+    expect(out["0"].harmonicsProfile).toHaveLength(3); // map で作り直しているので影響を受けない
+  });
+  it("音量は復元されない(そもそも共有していない)", () => {
+    const withVol = { 0: { ...shared(1, 2, 3), volumeDb: -12 } };
+    const out = toLocalNotes(withVol);
+    expect(out["0"].volumeDb).toBeUndefined();
+  });
+
+  it("取り込んだ目安は誰のものか分かる名前を持つ", () => {
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "まつり", id: "x1", now: new Date("2026-09-04") });
+    expect(r.error).toBeUndefined();
+    expect(r.profile.name).toContain("まつり");
+    expect(r.profile.id).toBe("x1");
+    expect(r.profile.saxType).toBe("tenor");
+  });
+  it("由来を community にし、セッションの由来を空にする", () => {
+    // 【ここが空でないと、関係の無いセッションが「目安設定中」と表示される】
+    // 取り込んだ目安は自分の録音から作ったものではない。
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "まつり", id: "x1" });
+    expect(r.profile.sourceKind).toBe(ADOPTED_SOURCE);
+    expect(r.profile.sourceKind).not.toBe("session");
+    expect(r.profile.sourceKind).not.toBe("performer");
+    expect(r.profile.sourceSessionIds).toEqual([]);
+  });
+  it("App.jsx が読む形(notes[半音インデックス])になっている", () => {
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "まつり", id: "x1" });
+    expect(Object.keys(r.profile.notes).sort()).toEqual(["0", "2", "4"]);
+    expect(r.profile.notes["2"].centroidHz).toBe(1600);
+  });
+  it("取り込める音が無ければエラーを返す(空の目安を作らない)", () => {
+    expect(buildAdoptedProfile({ aligned: { notes: {} }, theirIdeal, nickname: "x", id: "y" })).toHaveProperty("error");
+    expect(buildAdoptedProfile({ aligned: null, theirIdeal, nickname: "x", id: "y" })).toHaveProperty("error");
+  });
+});
+
+describe("倍音構成の形(出す側と取り込む側)", () => {
+  // 【一度これを踏んだ】ローカルの harmonicsProfile は [{n, norm}] のオブジェクト配列。
+  // 数値配列を期待して弾いていたため、**倍音構成が一度も公開されていなかった。**
+  // エラーにならず黙って消えるので、画面を見ても気づけない。
+  const objArr = [{ n: 1, norm: 0.8 }, { n: 2, norm: 0.4 }, { n: 3, norm: 0.2 }];
+
+  it("出すときは norm だけの数値配列にする", () => {
+    const out = sanitizeNotes({ 0: { centroidHz: 1200, hnrDb: 10, harmonicsProfile: objArr } });
+    expect(out["0"].harmonics).toEqual([0.8, 0.4, 0.2]);
+  });
+  it("数値配列がそのまま来ても受ける(取り込んだ目安を出し直す経路)", () => {
+    const out = sanitizeNotes({ 0: { centroidHz: 1200, hnrDb: 10, harmonicsProfile: [0.8, 0.4] } });
+    expect(out["0"].harmonics).toEqual([0.8, 0.4]);
+  });
+  it("norm が数値でない要素が混ざれば丸ごと落とす", () => {
+    const bad = sanitizeNotes({ 0: { centroidHz: 1, hnrDb: 2, harmonicsProfile: [{ n: 1, norm: "x" }] } });
+    expect(bad["0"].harmonics).toBeUndefined();
+  });
+  it("取り込むときは [{n, norm}] へ戻す", () => {
+    // 【戻さないと計測タブで NaN になる】あちらは harmonicsProfile.map((h) => h.norm) と書いている。
+    const local = toLocalNotes({ 0: { spectralCentroidHz: 1, hnrDb: 2, harmonics: [0.8, 0.4, 0.2] } });
+    expect(local["0"].harmonicsProfile).toEqual([{ n: 1, norm: 0.8 }, { n: 2, norm: 0.4 }, { n: 3, norm: 0.2 }]);
+    // 計測タブと同じ読み方で数値になること
+    expect(local["0"].harmonicsProfile.map((h) => h.norm)).toEqual([0.8, 0.4, 0.2]);
+  });
+  it("出して取り込むと元の形に戻る", () => {
+    const shared = sanitizeNotes({ 0: { centroidHz: 1200, hnrDb: 10, harmonicsProfile: objArr } });
+    const back = toLocalNotes(shared);
+    expect(back["0"].harmonicsProfile).toEqual(objArr);
+  });
+});
+
+describe("取り込んだ目安のピッチ目標", () => {
+  const aligned = { notes: {
+    0: { spectralCentroidHz: 1300, hnrDb: 11, pitchCentsSigned: 0 },
+    2: { spectralCentroidHz: 1600, hnrDb: 12, pitchCentsSigned: 12 },
+    4: { spectralCentroidHz: 2100, hnrDb: 15, pitchCentsSigned: -12 },
+  } };
+  const theirIdeal = { saxType: "alto", ownerUid: "u1" };
+  // 自分の基準ピッチでの理論周波数(半音インデックス→Hz)
+  const baseFreqOf = (i) => ({ 0: 200, 2: 400, 4: 800 }[i] ?? null);
+
+  it("相手のずれ(セント)を自分の理論周波数に当てて作る", () => {
+    // 【相手の Hz をそのまま使わない】調弦が違うと常にずれて出る。
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "x", id: "y", baseFreqOf });
+    expect(r.profile.notes["0"].pitchHz).toBeCloseTo(200, 6);        // ずれ0 → 理論値そのもの
+    expect(r.profile.notes["2"].pitchHz).toBeCloseTo(400 * Math.pow(2, 12 / 1200), 6);  // +12¢
+    expect(r.profile.notes["4"].pitchHz).toBeCloseTo(800 * Math.pow(2, -12 / 1200), 6); // -12¢
+  });
+  it("理論周波数を引けない音には pitchHz を作らない", () => {
+    // でたらめな Hz を入れると、合っているのに「ずれている」と出続ける。
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "x", id: "y", baseFreqOf: () => null });
+    for (const n of Object.values(r.profile.notes)) expect(n.pitchHz).toBeUndefined();
+  });
+  it("baseFreqOf を渡さなければ pitchHz は入らない", () => {
+    const r = buildAdoptedProfile({ aligned, theirIdeal, nickname: "x", id: "y" });
+    expect(r.profile.notes["0"].pitchHz).toBeUndefined();
   });
 });

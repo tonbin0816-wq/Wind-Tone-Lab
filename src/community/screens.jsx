@@ -6,7 +6,7 @@ import { PERIODS, PERIOD_LABEL } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
-import { sanitizeNotes } from "./idealDoc.js";
+import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
 
 // ------------------------------------------------------------------
@@ -532,7 +532,8 @@ function GearLine({ label, brand, model }) {
   );
 }
 
-export function PersonSheet({ person, ideals, myIdeals, onClose }) {
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
+  const [adopted, setAdopted] = useState(null);
   // その人が登録している種別のうち、目安か機材があるものだけをタブに出す。
   // 「タブはあるのに中身が何も無い」を作らない。
   const types = useMemo(() => {
@@ -557,11 +558,17 @@ export function PersonSheet({ person, ideals, myIdeals, onClose }) {
   // 【この人だけを自分に合わせる】コホート平均と同じ算術を使う。
   // 自分の目安が無い種別では合わせられないので、そのときは相手の線だけを出さず、
   // なぜ出ないのかを言う(絶対値だけ出すと環境の差を実力の差と読ませてしまう)。
-  const chart = useMemo(() => {
+  // 【合わせた結果を1度だけ作る】グラフにも取り込みにも同じものを使う。
+  // 別々に計算すると、画面に出ている線と取り込まれる値が食い違いうる。
+  const aligned = useMemo(() => {
     if (!theirIdeal) return null;
-    const mineLocal = myIdeals?.[saxType];
-    const mineShared = { notes: sanitizeNotes(mineLocal?.notes) };
-    const aligned = alignProfile(mineShared, { notes: theirIdeal.notes });
+    const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
+    return alignProfile(mineShared, { notes: theirIdeal.notes });
+  }, [theirIdeal, myIdeals, saxType]);
+
+  const chart = useMemo(() => {
+    if (!theirIdeal || !aligned) return null;
+    const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
     if (aligned.error) return { error: aligned.error };
     const keys = Object.keys(aligned.notes).sort((a, b) => Number(a) - Number(b));
     const theirValues = {}; const mineValues = {};
@@ -578,7 +585,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose }) {
         { label: "自分", values: mineValues, color: "var(--c-ink-2)", dash: "4 3" },
       ],
     };
-  }, [theirIdeal, myIdeals, saxType, m.key, person]);
+  }, [theirIdeal, aligned, myIdeals, saxType, m.key, person]);
 
   if (!person) return null;
   const g = person.gear?.[saxType] ?? null;
@@ -668,6 +675,31 @@ export function PersonSheet({ person, ideals, myIdeals, onClose }) {
                     <div className="sans" style={noteStyle}>
                       計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
                     </div>
+                    {/* 【取り込むのは「合わせたあとの値」】相手の生の値を目標にすると、
+                        環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか
+                        分からなくなる。上のグラフに出ている線がそのまま目安になる。 */}
+                    {onAdopt ? (
+                      <button
+                        type="button" className="sans"
+                        onClick={() => {
+                          const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
+                          setAdopted(r?.error ? { error: r.error } : { ok: true });
+                        }}
+                        style={{
+                          minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
+                          background: "var(--c-accent)", color: "var(--c-on-accent)",
+                          fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
+                        }}
+                      >目安に設定</button>
+                    ) : null}
+                    {adopted?.ok ? (
+                      <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>
+                        目安に設定しました。計測タブで比べられます
+                      </div>
+                    ) : null}
+                    {adopted?.error ? (
+                      <div className="sans" role="alert" style={{ ...noteStyle, color: "var(--c-bad)" }}>{adopted.error}</div>
+                    ) : null}
                   </>
                 ) : null}
               </>

@@ -47,6 +47,15 @@ export const MIN_PUBLISHED_NOTES = 3;
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
 
+// ローカルの倍音構成 [{n, norm}] → 公開用の数値配列。数値配列がそのまま来ても受ける
+// (取り込んだ目安をもう一度公開する経路があるため)。形が違えば null を返す。
+function toNorms(v) {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  if (v.every(num)) return v.slice();
+  const norms = v.map((h) => (h && num(h.norm) ? h.norm : null));
+  return norms.every((x) => x !== null) ? norms : null;
+}
+
 /**
  * 共有してよい指標だけを残す。**volumeDb を必ず落とす。**
  *
@@ -61,9 +70,14 @@ export function sanitizeNotes(notes) {
     for (const [localKey, sharedKey] of Object.entries(LOCAL_TO_SHARED)) {
       const v = note[localKey];
       if (sharedKey === "harmonics") {
-        // 倍音構成は数値の配列。中身まで数値であることを見る
-        // (ルールでは中身の型を書けないので、ここが唯一の砦。設計書の宿題2)。
-        if (Array.isArray(v) && v.length > 0 && v.every(num)) kept[sharedKey] = v.slice();
+        // 【ローカルは [{n:1, norm:0.8}, ...] のオブジェクト配列】公開側は norm だけの
+        // 数値配列にする。n は添字+1 でしかなく、送る意味が無い。
+        //
+        // 【一度これを踏んだ】数値配列を期待して v.every(num) で見ていたため、
+        // オブジェクト配列が毎回落ち、**倍音構成が一度も公開されていなかった。**
+        // エラーにならず黙って消えるので、画面を見ても気づけない。
+        const norms = toNorms(v);
+        if (norms) kept[sharedKey] = norms;
       } else if (num(v)) {
         kept[sharedKey] = v;
       }
@@ -169,4 +183,102 @@ export const isSelfSession = (s) => ((s?.performer ?? "") || SELF_PERFORMER) ===
 export function selectOwnSessions(sessions, saxType) {
   return (sessions ?? []).filter(
     (s) => s && isSelfSession(s) && s.saxType === saxType && (s.frames?.length ?? 0) > 0);
+}
+
+// ------------------------------------------------------------------
+// 取り込み: 他人の目安を、自分の目安として使える形へ戻す。
+// ------------------------------------------------------------------
+
+// 公開の綴り → ローカル(App.jsx)の綴り。LOCAL_TO_SHARED の逆写像を**手で書く**。
+// 自動で反転させると、片方向にしか無い項目が出たときに黙って落ちる。
+const SHARED_TO_LOCAL = {
+  spectralCentroidHz: "centroidHz",
+  hnrDb: "hnrDb",
+  pitchCentsSigned: "pitchCentsSigned",
+  harmonics: "harmonicsProfile",
+};
+
+/**
+ * 平行移動済みの notes を、App.jsx が読める形へ戻す。
+ *
+ * 【音量は復元しない(できない)】そもそも共有していないので、
+ * 取り込んだ目安に音量の目標は入らない。**それが正しい。**
+ * 音量は環境で決まる値で、他人の値を目標にする意味が無い。
+ */
+export function toLocalNotes(sharedNotes) {
+  const out = {};
+  for (const [key, note] of Object.entries(sharedNotes ?? {})) {
+    if (!note || typeof note !== "object") continue;
+    const local = {};
+    for (const [sharedKey, localKey] of Object.entries(SHARED_TO_LOCAL)) {
+      const v = note[sharedKey];
+      if (v === undefined) continue;
+      if (sharedKey === "harmonics") {
+        // 【形を戻さないと計測タブで NaN になる】あちらは harmonicsProfile.map((h) => h.norm)
+        // と書いており、数値の配列を渡すと h.norm が undefined になって音色一致度が壊れる。
+        if (!Array.isArray(v)) continue;
+        local[localKey] = v.map((norm, i) => ({ n: i + 1, norm }));
+      } else {
+        local[localKey] = v;
+      }
+    }
+    // 半音インデックスは App.jsx 側でも数値として持っている
+    const n = Number(key);
+    if (Number.isInteger(n)) local.semitoneIndex = n;
+    if (Object.keys(local).length > 0) out[key] = local;
+  }
+  return out;
+}
+
+// 取り込んだ目安であることの印。App.jsx の sourceKind に入る。
+// **"session" / "performer" と区別する** ── 由来が自分の録音ではないので、
+// 「目安設定中」のセッション判定(sourceSessionIds)に混ぜてはいけない。
+export const ADOPTED_SOURCE = "community";
+
+/**
+ * 他人の目安を取り込んだ、ローカルの目安プロファイルを作る。
+ *
+ * @param aligned alignProfile の結果(自分に合わせ済みの notes)
+ * @param theirIdeal 公開ドキュメント(saxType を取る)
+ * @param nickname 相手のニックネーム。名前に使う
+ * @param id 新しい目安の id(App.jsx の generateId で作って渡す)
+ */
+export function buildAdoptedProfile({ aligned, theirIdeal, nickname, id, baseFreqOf = null, now = new Date() }) {
+  const notes = toLocalNotes(aligned?.notes);
+  if (Object.keys(notes).length === 0) return { error: "取り込める音がありませんでした" };
+
+  // 【ピッチの目標は自分の基準で作り直す】計測タブは noteIdeal.pitchHz(絶対周波数)を
+  // 見て「合っているか」を出す。だが共有しているのは pitchCentsSigned(理論値からのずれ)で、
+  // 相手の絶対周波数ではない ── 相手が442Hz、自分が440Hzかもしれないので、
+  // **相手の Hz をそのまま目標にすると調弦の違いのぶんだけ常にずれる。**
+  // 「相手と同じだけ理論値から外して吹く」が正しい目標なので、
+  // 自分の基準ピッチでの理論周波数に、相手のずれ(セント)を当てて作る。
+  //
+  // baseFreqOf を渡さない呼び出し(テスト等)では pitchHz を作らない。
+  // **無いなら無いままにする** ── でたらめな Hz を入れると、
+  // 音程が合っているのに「ずれている」と出続ける。
+  if (typeof baseFreqOf === "function") {
+    for (const [key, note] of Object.entries(notes)) {
+      const cents = note.pitchCentsSigned;
+      if (typeof cents !== "number" || !Number.isFinite(cents)) continue;
+      const base = baseFreqOf(Number(key));
+      if (typeof base !== "number" || !Number.isFinite(base) || base <= 0) continue;
+      note.pitchHz = base * Math.pow(2, cents / 1200);
+    }
+  }
+  return {
+    profile: {
+      id,
+      // 【誰の目安かが分かる名前にする】取り込んだあと一覧に並ぶので、
+      // 「目安」だけでは自分で録ったものと見分けが付かない。
+      name: `${nickname} さんの目安`,
+      saxType: theirIdeal?.saxType ?? null,
+      recordedAt: now.toISOString(),
+      notes,
+      sourceKind: ADOPTED_SOURCE,
+      // 【自分のセッションから作ったものではないので空にする】
+      // ここに何か入れると、関係の無いセッションが「目安設定中」と表示される。
+      sourceSessionIds: [],
+    },
+  };
 }

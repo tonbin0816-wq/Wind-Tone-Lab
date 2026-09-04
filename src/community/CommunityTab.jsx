@@ -56,11 +56,11 @@ const DELETE_PARTIAL_NOTICE =
 // 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
 // <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
 // どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
-export default function CommunityTab({ sessions, tuningHz }) {
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} />
     </>
   );
 }
@@ -96,7 +96,7 @@ function SubTabs({ value, onChange }) {
 }
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, tuningHz, onEdit, onTogglePublic, onDelete }) {
+function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onDelete }) {
   const [tab, setTab] = useState("data");
   // タップされた人。**子タブとは別に持つ** ── 開いたまま子タブを切り替えられると、
   // 下の画面が変わったのに上に別人の紹介が乗っている、という状態になる。
@@ -176,6 +176,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onEdit, onTogglePublic, 
           person={person}
           ideals={ideals ?? []}
           myIdeals={myIdeals}
+          onAdopt={onAdoptIdeal}
           onClose={() => setPerson(null)}
         />
       ) : null}
@@ -183,7 +184,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onEdit, onTogglePublic, 
   );
 }
 
-function CommunityTabBody({ sessions, tuningHz }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -291,6 +292,7 @@ function CommunityTabBody({ sessions, tuningHz }) {
       uid={uid}
       sessions={sessions}
       tuningHz={tuningHz}
+      onAdoptIdeal={onAdoptIdeal}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
