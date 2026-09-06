@@ -514,7 +514,30 @@ describe("firestore.rules との同期", () => {
     expect(lines).toHaveLength(2);
     expect(lines.find((l) => l.includes("hasAll("))).not.toContain("'places'");
     expect(lines.find((l) => l.includes("hasOnly("))).toContain("'places'");
-    expect(usersBlock).toContain("request.resource.data.places is list");
+  });
+
+  // 【この検査が塞いでいる穴 ── 2026/09/07】
+  // hasAll から外したキーの型検査を、囲わずに置いたままにすると
+  // **書き込みが全部拒否される。**ドキュメントに無いキーをそのまま見た式は真にならず、
+  // && の連鎖ごと落ちるため(`null is map` も `null is list` も偽)。
+  // 実際に stats でこれをやって、プロフィールの保存が拒否される状態を作った。
+  //
+  // 「その綴りが在るか」を見るだけでは何も守れない ── 正しく直しても部分文字列は
+  // 残るので通ってしまう。**囲いの有無そのもの**を見る。
+  it("hasAll に無い任意のキーは、型検査を「在るなら見る」で囲ってある", () => {
+    const usersBlock = rules.slice(rules.indexOf("match /users/"), rules.indexOf("match /ideals/"));
+    const hasAllLine = usersBlock.split(/\r?\n/).find((l) => l.includes("request.resource.data.keys().hasAll("));
+    const required = new Set([...hasAllLine.matchAll(/'([^']+)'/g)].map((m) => m[1]));
+    // 直下のキーのうち、必須でないもの = 囲いが要るもの
+    for (const key of ["places", "stats"]) {
+      expect(required.has(key)).toBe(false);            // 必須にはしない(初回保存が弾かれる)
+      expect(usersBlock).toContain(`!('${key}' in request.resource.data)`); // 囲ってある
+    }
+  });
+  it("gear の中の任意のキー(番手)も囲ってある", () => {
+    for (const type of SAX_TYPES) {
+      expect(rules).toContain(`!('reedStrength' in request.resource.data.gear.${type})`);
+    }
   });
   it("saxTypes の列挙がルールと一致する", () => {
     expect(rules).toContain("request.resource.data.saxTypes is list");

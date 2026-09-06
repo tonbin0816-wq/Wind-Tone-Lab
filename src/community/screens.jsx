@@ -536,8 +536,8 @@ export function ShareScreen({ users, saxTypes }) {
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-2) 0 var(--sp-1)" }}>
               <PieChart items={items} onPick={drill ? undefined : setDrill}
                 label={drill
-                  ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}${shownTotal}人の型番の内訳`
-                  : `${SAX_LABELS[saxType]} を吹く${shownTotal}人の${SLOT_LABEL[slot]}のメーカーの内訳`} />
+                  ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}を使う${shownTotal}人の、型番の内訳`
+                  : `${SAX_LABELS[saxType]} を吹く${shownTotal}人の、${SLOT_LABEL[slot]}のメーカーの内訳`} />
               <PieLegend items={items} onPick={drill ? undefined : setDrill} />
             </div>
             <div className="sans" style={bodyNoteStyle}>
@@ -1024,7 +1024,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
             <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>楽器の組</div>
             {/* 種別の選択は表と共有する。1枚のシートなので状態を2つ持たない。 */}
             {types.length === 0 ? (
-              <Empty>この人はまだ何も公開していません</Empty>
+              /* 直前で属性・ジャンル・編成を出しているので「何も公開していません」は嘘 */
+              <Empty>楽器の組は登録されていません</Empty>
             ) : (
               <>
                 <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
@@ -1064,15 +1065,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
               ))}
             </div>
 
-              {g ? (
-              <div>
-                <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
-                <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
-                <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
-                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
-              </div>
-            ) : <Empty>この楽器の登録はまだありません</Empty>}
-
+            {/* 【楽器の組は表に出さない 2026/09/07】裏(プロフィール)が持っている。
+                同じ4行を2箇所に置くと、片方だけ直る事故が起きる。
+                表は「音のデータ」だけを見せる画面にする。 */}
             <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>音のデータ</div>
             {!theirIdeal ? (
               <Empty>この楽器の目安はまだ公開されていません</Empty>

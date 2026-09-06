@@ -82,8 +82,8 @@ export const INSTRUMENT_CATALOG = {
   // MKX は生産終了だが残す ── 吹いている人が居るので、選べないと「その他」へ流れる。
   Keilwerth: {
     soprano: ["SX90 1300", "SX90 Shadow (JK1301)", "ST 1100"],
-    alto: ["SX90R 2400", "SX90R Shadow (2401)", "100th Anniversary SX90R", "ST110", "SX90R", "MKX"],
-    tenor: ["SX90R 3400", "SX90R Shadow (3401)", "100th Anniversary SX90R", "ST110", "SX90R", "MKX"],
+    alto: ["SX90R 2400", "SX90R Shadow (2401)", "100th Anniversary SX90R", "ST110", "MKX"],
+    tenor: ["SX90R 3400", "SX90R Shadow (3401)", "100th Anniversary SX90R", "ST110", "MKX"],
     baritone: ["SX90 4300", "SX90R Shadow (4411)"],
   },
   Jupiter: {
@@ -481,9 +481,57 @@ export function searchMouthpieces(query) {
 // しかも書き込み済みのプロフィールからは後で復元できない。
 // したがって「未選択」は brand も model も null という正当な状態として通す。
 // (Firestore ルール側も gear の各値に null を許してある。)
+
+// ------------------------------------------------------------------
+// 【消した選択肢を、保存済みの値としては通し続ける】2026/09/07
+//
+// カタログから型番を消すと、**その値を保存している人はプロフィールを編集できなくなる。**
+// isValid* は保存の瞬間に保存済みの値も検査するので、「カタログにありません」で
+// 弾かれ、選び直す以外に道が無くなる。しかも本人は何も変えていないのに起きる。
+//
+// そこで、消した綴りをここに置いて**検査だけは通す**。
+// 検索(searchXxx)はカタログしか見ないので、この一覧は選択肢には出ない。
+// つまり「新しく選ぶことはできないが、既に選んでいる人はそのまま保存できる」。
+//
+// **消すときは必ずここへ移す。**黙って消さない。
+// 移行処理(保存済みの値を書き換える)は書かない ── 他人のドキュメントを
+// こちらの都合で書き換えないため。次にその人が選び直せば自然に消える。
+// ------------------------------------------------------------------
+const LEGACY_MODELS = {
+  instrument: {
+    // b418055 で型番の綴りを整理したときに消えたもの
+    Jupiter: ["JAS1100 (JAS1100SG等)", "JTS1100 (JTS1100SG等)"],
+    // "SX90R" は "SX90R 2400"(アルト) / "SX90R 3400"(テナー) に分かれた。
+    // 同じ楽器が2つの選択肢に並ぶと票が割れて内訳が読めなくなるので、素の綴りは選択肢から外した。
+    Keilwerth: ["SX90R", "SX90R Shadow"],
+  },
+  ligature: {
+    // 1d4042c で「型番に説明を混ぜない」「楽器種別で割らない」に直したときに消えたもの
+    Yamaha: ["標準リガチャー（ソプラノ用）", "標準リガチャー（アルト用・YAC-1607）",
+             "標準リガチャー（テナー用）", "標準リガチャー（バリトン用）"],
+    Selmer: ["FIBRA Ligature（フィブラ）", "標準リガチャー（ラバーマウスピース用）",
+             "メタルマウスピース用リガチャー（アルト・テナー用）",
+             "メタルマウスピース用リガチャー ゴールド（テナー用）",
+             "M404（テナー・メタルマウスピース用）", "Tribute（2nd Gen M404・テナー用）"],
+    Vandoren: ["Masters（旧）"],
+    BG: ["Standard（布＋ラバープレート）"],
+    Ishimori: ["Wood Stone スタンダード（逆締）", "Wood Stone AMIME（順締）",
+               "Wood Stone KODAMA I（逆締）", "Wood Stone KODAMA II（逆締）"],
+    JodyJazz: ["Ring Ligature（旧）"],
+    "Marc Jean": ["Generation II（Model 700 系）"],
+    Bois: ["Classique（リング型）"],
+    Winslow: ["Winslow Ligature（番号サイズ体系 #8 / #16N ほか）"],
+    Brancher: ["Brancher セミリジッド（semi-rigid）", "Brancher メタル（ワイヤー式）"],
+    "Bambú": ["Bambú 手織りリガチャー（Hand Woven / Braided）"],
+    AIZEN: ["AIZEN フリーダムリガチャー（Freedom Ligature）"],
+  },
+};
+const isLegacy = (kind, brand, model) => (LEGACY_MODELS[kind]?.[brand] ?? []).includes(model);
+
 export function isValidInstrument(brand, model, saxType) {
   if (brand === null && model === null) return true; // 未選択
   if (brand === OTHER_BRAND) return model === null; // 明示的に選ばれた「その他」
+  if (isLegacy("instrument", brand, model)) return true; // 消した綴りを保存済みの値として通す
   return (INSTRUMENT_CATALOG[brand]?.[saxType] ?? []).includes(model);
 }
 
@@ -670,6 +718,7 @@ export function searchLigatures(query) {
 export function isValidLigature(brand, model) {
   if (brand === null && model === null) return true; // 未選択
   if (brand === OTHER_BRAND) return model === null;  // 明示的に選ばれた「その他」
+  if (isLegacy("ligature", brand, model)) return true; // 消した綴りを保存済みの値として通す
   return (LIGATURE_CATALOG[brand]?.models ?? []).includes(model);
 }
 

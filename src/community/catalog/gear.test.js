@@ -212,3 +212,43 @@ describe("LIGATURE_CATALOG の中身", () => {
     expect(LIGATURE_CATALOG.Ishimori.models).toContain("Wood Stone AMIME");
   });
 });
+
+// ------------------------------------------------------------------
+// 【消した選択肢を保存済みの値として通す仕組み】2026/09/07
+//
+// カタログから型番を消すと、その値を保存している人は**自分は何も変えていないのに**
+// プロフィールを編集できなくなる(isValid* が保存の瞬間に既存の値も検査するため)。
+// LEGACY_MODELS はその逃げ道で、**検査だけ通し、選択肢には出さない**。
+// この検査が落ちたら、誰かのプロフィールが保存できなくなっている。
+// ------------------------------------------------------------------
+describe("消した型番の後方互換", () => {
+  const cases = [
+    ["Keilwerth", "SX90R", "alto"],                          // SX90R 2400 に分かれた
+    ["Keilwerth", "SX90R Shadow", "tenor"],                  // SX90R Shadow (3401) に分かれた
+    ["Jupiter", "JAS1100 (JAS1100SG等)", "alto"],            // 括弧の説明を落とした
+  ];
+  for (const [brand, model, type] of cases) {
+    it(`楽器: 保存済みの「${brand} ${model}」は今も保存できる`, () => {
+      expect(isValidInstrument(brand, model, type)).toBe(true);
+    });
+  }
+  const ligCases = [
+    ["Yamaha", "標準リガチャー（アルト用・YAC-1607）"],       // 楽器種別で割れていたのを畳んだ
+    ["Selmer", "M404（テナー・メタルマウスピース用）"],        // 括弧の説明を落とした
+    ["Ishimori", "Wood Stone KODAMA I（逆締）"],              // 注記を落とした
+    ["Vandoren", "Masters（旧）"],
+  ];
+  for (const [brand, model] of ligCases) {
+    it(`リガチャー: 保存済みの「${brand} ${model}」は今も保存できる`, () => {
+      expect(isValidLigature(brand, model)).toBe(true);
+    });
+  }
+  it("消した綴りは選択肢には出ない(新しく選べるのは今の綴りだけ)", () => {
+    expect(searchInstrumentModels("SX90R", "alto").map((x) => x.model)).not.toContain("SX90R");
+    expect(searchLigatures("標準リガチャー").map((x) => x.model)).not.toContain("標準リガチャー（アルト用・YAC-1607）");
+  });
+  it("でたらめな型番は今までどおり弾く(逃げ道が穴になっていない)", () => {
+    expect(isValidInstrument("Keilwerth", "SX90ZZZ", "alto")).toBe(false);
+    expect(isValidLigature("Yamaha", "存在しないリガチャー")).toBe(false);
+  });
+});

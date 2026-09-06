@@ -67,8 +67,13 @@ service cloud.firestore {
         && request.resource.data.genres.hasOnly(['クラシック','ジャズ','ポップス','その他'])
         && request.resource.data.ensembles is list && request.resource.data.ensembles.size() <= 8
         && request.resource.data.ensembles.hasOnly(['ソロ','アンサンブル','ビッグバンド','吹奏楽','オーケストラ','その他'])
-        && request.resource.data.places is list && request.resource.data.places.size() <= 8
-        && request.resource.data.places.hasOnly(['自宅','学校の音楽室','個人練習室','スタジオ','カラオケ','屋外','その他'])
+        // places は 2026/09/06 に廃止した。新しいドキュメントは持たないので、
+        // 「在るなら中身を見る」で囲む。既存のドキュメントの値は今までどおり検査する。
+        && (!('places' in request.resource.data) || (
+             request.resource.data.places is list
+          && request.resource.data.places.size() <= 8
+          && request.resource.data.places.hasOnly(['自宅','学校の音楽室','個人練習室','スタジオ','カラオケ','屋外','その他'])
+           ))
         // 【ルールは上位集合のまま置く 2026-09-02】クライアントは楽器の組の未選択を禁じ、
         // genres / ensembles に1つ以上を要求するようになったが、
         // ルール側は空配列も gear の null も**許したままにしてある**。
@@ -99,6 +104,14 @@ service cloud.firestore {
         // null は「未選択」を表す正当な値なので許す(「その他」= 文字列 とは別物。gear.js 参照)。
         // 60 は position に合わせた上界。カタログの型番はどれもこれより十分短い。
         //
+        // 【任意のキーは必ず「在るなら見る」の形で囲む ── 2026/09/07】
+        // ドキュメントに無いキーをそのまま見ると、**その式が真にならず条件の連鎖ごと
+        // 落ちて書き込みが拒否される。**(未定義への参照がエラーになるか null になるかに
+        // 関わらず、`null is map` も `null is list` も偽なので結果は同じ。)
+        // hasAll から外したキーは、型検査の側も同時に囲まないと意味が無い。
+        // **これを忘れて、プロフィールの保存が全部拒否される状態を1度作った。**
+        // 囲い方は下の gear と同じ `!(...在るか...) || (...中身の検査...)`。
+        //
         // 【reedStrength は hasOnly にだけ足す。hasAll には足さない】2026/09/06。
         // create / update は**更新後のドキュメント全体**に hasAll を当てる。番手を持たない
         // 既存の利用者が公開スイッチや練習日数を updateDoc すると、更新後の doc に
@@ -116,7 +129,9 @@ service cloud.firestore {
           && (request.resource.data.gear.soprano.ligModel == null || (request.resource.data.gear.soprano.ligModel is string && request.resource.data.gear.soprano.ligModel.size() <= 60))
           && (request.resource.data.gear.soprano.reedBrand == null || (request.resource.data.gear.soprano.reedBrand is string && request.resource.data.gear.soprano.reedBrand.size() <= 60))
           && (request.resource.data.gear.soprano.reedModel == null || (request.resource.data.gear.soprano.reedModel is string && request.resource.data.gear.soprano.reedModel.size() <= 60))
-          && (request.resource.data.gear.soprano.reedStrength == null || request.resource.data.gear.soprano.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
+          && (!('reedStrength' in request.resource.data.gear.soprano)
+              || request.resource.data.gear.soprano.reedStrength == null
+              || request.resource.data.gear.soprano.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['alto']) || (
              request.resource.data.gear.alto.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
@@ -129,7 +144,9 @@ service cloud.firestore {
           && (request.resource.data.gear.alto.ligModel == null || (request.resource.data.gear.alto.ligModel is string && request.resource.data.gear.alto.ligModel.size() <= 60))
           && (request.resource.data.gear.alto.reedBrand == null || (request.resource.data.gear.alto.reedBrand is string && request.resource.data.gear.alto.reedBrand.size() <= 60))
           && (request.resource.data.gear.alto.reedModel == null || (request.resource.data.gear.alto.reedModel is string && request.resource.data.gear.alto.reedModel.size() <= 60))
-          && (request.resource.data.gear.alto.reedStrength == null || request.resource.data.gear.alto.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
+          && (!('reedStrength' in request.resource.data.gear.alto)
+              || request.resource.data.gear.alto.reedStrength == null
+              || request.resource.data.gear.alto.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['tenor']) || (
              request.resource.data.gear.tenor.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
@@ -142,7 +159,9 @@ service cloud.firestore {
           && (request.resource.data.gear.tenor.ligModel == null || (request.resource.data.gear.tenor.ligModel is string && request.resource.data.gear.tenor.ligModel.size() <= 60))
           && (request.resource.data.gear.tenor.reedBrand == null || (request.resource.data.gear.tenor.reedBrand is string && request.resource.data.gear.tenor.reedBrand.size() <= 60))
           && (request.resource.data.gear.tenor.reedModel == null || (request.resource.data.gear.tenor.reedModel is string && request.resource.data.gear.tenor.reedModel.size() <= 60))
-          && (request.resource.data.gear.tenor.reedStrength == null || request.resource.data.gear.tenor.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
+          && (!('reedStrength' in request.resource.data.gear.tenor)
+              || request.resource.data.gear.tenor.reedStrength == null
+              || request.resource.data.gear.tenor.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['baritone']) || (
              request.resource.data.gear.baritone.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
@@ -155,7 +174,9 @@ service cloud.firestore {
           && (request.resource.data.gear.baritone.ligModel == null || (request.resource.data.gear.baritone.ligModel is string && request.resource.data.gear.baritone.ligModel.size() <= 60))
           && (request.resource.data.gear.baritone.reedBrand == null || (request.resource.data.gear.baritone.reedBrand is string && request.resource.data.gear.baritone.reedBrand.size() <= 60))
           && (request.resource.data.gear.baritone.reedModel == null || (request.resource.data.gear.baritone.reedModel is string && request.resource.data.gear.baritone.reedModel.size() <= 60))
-          && (request.resource.data.gear.baritone.reedStrength == null || request.resource.data.gear.baritone.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
+          && (!('reedStrength' in request.resource.data.gear.baritone)
+              || request.resource.data.gear.baritone.reedStrength == null
+              || request.resource.data.gear.baritone.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         // ---- stats(練習日数) ----
         // 【この値は本人のクライアントが書く。改ざんは防げない】
@@ -165,25 +186,29 @@ service cloud.firestore {
         // 期間つきの3つは定義上の最大値(週7日・月31日・年366日)で、
         // それを超える値は改ざん以前に「ありえない」ので弾く。
         // **src/community/stats.js の STATS_MAX / STATS_KEYS の写し。片方だけ直さないこと。**
-        && request.resource.data.stats is map
-        && request.resource.data.stats.keys().hasAll(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
-        && request.resource.data.stats.keys().hasOnly(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
-        && request.resource.data.stats.daysThisWeek is int
-        && request.resource.data.stats.daysThisWeek >= 0
-        && request.resource.data.stats.daysThisWeek <= 7
-        && request.resource.data.stats.daysThisMonth is int
-        && request.resource.data.stats.daysThisMonth >= 0
-        && request.resource.data.stats.daysThisMonth <= 31
-        && request.resource.data.stats.daysThisYear is int
-        && request.resource.data.stats.daysThisYear >= 0
-        && request.resource.data.stats.daysThisYear <= 366
-        && request.resource.data.stats.daysAll is int
-        && request.resource.data.stats.daysAll >= 0
-        && request.resource.data.stats.daysAll <= 36500
+        // stats はプロフィールの保存時には無い(練習日数はタブを開いたときに
+        // 別の updateDoc で後から足す)。だから「在るなら中身を見る」で囲む。
+        && (!('stats' in request.resource.data) || (
+             request.resource.data.stats is map
+          && request.resource.data.stats.keys().hasAll(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
+          && request.resource.data.stats.keys().hasOnly(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
+          && request.resource.data.stats.daysThisWeek is int
+          && request.resource.data.stats.daysThisWeek >= 0
+          && request.resource.data.stats.daysThisWeek <= 7
+          && request.resource.data.stats.daysThisMonth is int
+          && request.resource.data.stats.daysThisMonth >= 0
+          && request.resource.data.stats.daysThisMonth <= 31
+          && request.resource.data.stats.daysThisYear is int
+          && request.resource.data.stats.daysThisYear >= 0
+          && request.resource.data.stats.daysThisYear <= 366
+          && request.resource.data.stats.daysAll is int
+          && request.resource.data.stats.daysAll >= 0
+          && request.resource.data.stats.daysAll <= 36500
         // computedAt は「いつ数えた値か」。読む側がこれを見て、期間外の古い値を捨てる
         // (先月の成績で今月の順位に並ぶのを防ぐ)。時刻としての正しさは検査できない。
-        && request.resource.data.stats.computedAt is string
-        && request.resource.data.stats.computedAt.size() <= 40
+          && request.resource.data.stats.computedAt is string
+          && request.resource.data.stats.computedAt.size() <= 40
+           ))
         // ---- ここまで ----
         && request.resource.data.deviceClass in ['ios','android','pc']
         && request.resource.data.updatedAt is string
