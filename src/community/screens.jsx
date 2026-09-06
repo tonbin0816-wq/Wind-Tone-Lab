@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN } from "./profile.js";
-import { listPublicUsers, filterUsers, isFiltered, ANY, DIRECTORY_LIMIT } from "./directory.js";
+import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 import { rankByPractice, findMyRank, tallyGear, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
@@ -115,7 +115,10 @@ function Chip({ on, onClick, children, grow = false, ariaLabel }) {
 //
 // 【native の select を透明で重ねる】iOS の選択UIをそのまま使える。
 // 見た目のピルは aria-hidden にして、読み上げは select が担う。
-function FilterPill({ label, value, options, labelOf, onChange }) {
+// allowAny=false のとき「すべて」は出さない。シェアとデータは楽器種別ごとに
+// 1組を数える画面で、種別が決まらないと何の内訳なのか言えないため(争点B)。
+function FilterPill({ label, value, options, labelOf, onChange, allowAny = true }) {
+  // 「すべて」が無いピルは常に値を持つので、常に「選んでいる」濃さで出る。
   const on = value !== ANY;
   return (
     <span style={{
@@ -129,7 +132,7 @@ function FilterPill({ label, value, options, labelOf, onChange }) {
           position: "absolute", inset: 0, width: "100%", height: "100%",
           opacity: 0, border: "none", cursor: "pointer", WebkitAppearance: "none", appearance: "none",
         }}>
-        <option value={ANY}>{label}（すべて）</option>
+        {allowAny ? <option value={ANY}>{label}（すべて）</option> : null}
         {options.map((v) => <option key={v} value={v}>{labelOf ? labelOf(v) : v}</option>)}
       </select>
       <span aria-hidden="true" className="sans" style={{
@@ -150,10 +153,10 @@ function FilterPill({ label, value, options, labelOf, onChange }) {
   );
 }
 
-export function FilterRow({ value, onChange }) {
+export function FilterRow({ value, onChange, saxAny = true }) {
   return (
     <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-      <FilterPill label="楽器" value={value.saxType} options={SAX_TYPES}
+      <FilterPill label="楽器" value={value.saxType} options={SAX_TYPES} allowAny={saxAny}
         labelOf={(t) => SAX_LABELS[t]} onChange={(v) => onChange({ ...value, saxType: v })} />
       <FilterPill label="ジャンル" value={value.genre} options={GENRES}
         onChange={(v) => onChange({ ...value, genre: v })} />
@@ -440,27 +443,24 @@ function PieLegend({ items, restCount }) {
   );
 }
 
-export function ShareScreen({ users }) {
-  const [filter, setFilter] = useState(EMPTY_FILTER);
-  // 【楽器種別は必ず1つに決める】gear は種別ごとに1組なので、
-  // 種別が決まらないと何の内訳なのか言えない。条件行の「すべて」とは別に既定を持つ。
-  const [saxType, setSaxType] = useState("alto");
+export function ShareScreen({ users, saxTypes }) {
+  // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
+  // 内訳は種別ごとに1組を数えるので、この画面の楽器ピルには「すべて」が無い(争点B)。
+  // 4種別ぶんを合算すると、アルトのマウスピースとテナーのマウスピースが同じ票に
+  // 入って内訳として嘘になる。既定は自分が登録している最初の種別。
+  const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }));
   const [slot, setSlot] = useState("instrument");
   const [depth, setDepth] = useState(2);
+  const saxType = filter.saxType;
 
-  const shown = useMemo(() => filterUsers(users, { ...filter, saxType: ANY }), [users, filter]);
+  const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
   const gear = useMemo(() => tallyGear(shown, saxType), [shown, saxType]);
   const combos = useMemo(() => tallyCombos(shown, saxType, depth), [shown, saxType, depth]);
   const items = gear.slots[slot] ?? [];
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
-      <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
-        {SAX_TYPES.map((t) => (
-          <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
-        ))}
-      </div>
+      <FilterRow value={filter} onChange={setFilter} saxAny={false} />
 
       {gear.total === 0 ? (
         <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
@@ -484,13 +484,35 @@ export function ShareScreen({ users }) {
 
           <div style={cardStyle}>
             <div className="sans jp-label" style={{ ...eyebrowStyle, marginBottom: 10 }}>人気の組み合わせ</div>
-            <div role="radiogroup" aria-label="組み合わせの項目数" style={{ display: "flex", gap: "var(--sp-1)" }}>
-              {Object.keys(COMBO_SLOTS).map((d) => (
-                <Chip key={d} on={Number(d) === depth} grow onClick={() => setDepth(Number(d))}>{d}項目</Chip>
-              ))}
-            </div>
-            <div className="sans" style={{ ...noteStyle, padding: "var(--sp-2) 0 2px" }}>
-              {COMBO_SLOTS[depth].map((x) => SLOT_LABEL[x]).join(" × ")}
+            {/* 【候補が3つしかないので、開かずに比較できる形で全部出す】2026/09/06 本人指示。
+                「2項目 / 3項目 / 4項目」という数の表示をやめ、中身をそのまま行にした。
+                形は計測タブの目安一覧と同じ A型の行 ── 選択は枠と文字の色だけで返し、
+                地を塗らない(§6.7)。当たり判定 44 / 見えるボックス 36。
+                行の縦 gap は 0(44−36 の 8px が見た目の間隔になる)。 */}
+            <div role="radiogroup" aria-label="組み合わせ" style={{ display: "grid", gap: 0 }}>
+              {Object.keys(COMBO_SLOTS).map((d) => {
+                const on = Number(d) === depth;
+                const text = COMBO_SLOTS[d].map((x) => SLOT_LABEL[x]).join(" × ");
+                return (
+                  <button
+                    key={d} type="button" role="radio" aria-checked={on}
+                    onClick={() => setDepth(Number(d))} className="sans no-select"
+                    style={{
+                      minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
+                      display: "flex", alignItems: "center", cursor: "pointer",
+                    }}
+                  >
+                    <span style={{
+                      display: "flex", alignItems: "center", width: "100%", minWidth: 0,
+                      minHeight: 36, padding: "0 12px", boxSizing: "border-box",
+                      borderRadius: "var(--r-sm)",
+                      border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+                      color: on ? "var(--c-accent)" : "var(--c-ink-2)",
+                      fontSize: "var(--fs-sm)", fontWeight: 600, textAlign: "left",
+                    }}>{text}</span>
+                  </button>
+                );
+              })}
             </div>
             {combos.total === 0 ? (
               <Empty>4つすべてを登録している人がまだいません</Empty>
@@ -546,12 +568,23 @@ const noteLabel = (key) => {
 };
 
 // 折れ線を1枚のSVGで描く。**横軸は音名**(他の画面と同じ向き)。
-function LineChart({ keys, series, digits }) {
+//
+// 【centerAt】その値を中心にした対称の縦軸にし、中心線を1本引く。
+// 音程は「0 からどれだけ外れているか」を読む指標なので、min/max で枠を決めると
+// 0 が枠の外に出ることすらあり、上か下かが読めない(2026/09/06 本人指示)。
+// App.jsx の My Data(NoteAxisLineChart)が既に同じ形を持つので、それに揃える。
+function LineChart({ keys, series, digits, centerAt = null }) {
   const W = 320, H = 160, PAD_L = 40, PAD_B = 22, PAD_T = 10, PAD_R = 8;
   const all = series.flatMap((s) => keys.map((k) => s.values[k]).filter((v) => typeof v === "number"));
   if (all.length === 0) return null;
   let lo = Math.min(...all), hi = Math.max(...all);
-  if (lo === hi) { lo -= 1; hi += 1; } // 全部同じ値のとき0で割らない
+  if (typeof centerAt === "number") {
+    // 中心からの最大の外れ幅で対称にする。全値が中心のときは 0 で割らないよう 1 を置く。
+    const half = Math.max(...all.map((v) => Math.abs(v - centerAt))) || 1;
+    lo = centerAt - half; hi = centerAt + half;
+  } else if (lo === hi) { lo -= 1; hi += 1; } // 全部同じ値のとき0で割らない
+  // 目盛は上下2本。中心があるときは中心も加えて3本。
+  const ticks = typeof centerAt === "number" ? [hi, centerAt, lo] : [hi, lo];
   const x = (i) => PAD_L + (keys.length === 1 ? (W - PAD_L - PAD_R) / 2 : (i * (W - PAD_L - PAD_R)) / (keys.length - 1));
   const y = (v) => PAD_T + (1 - (v - lo) / (hi - lo)) * (H - PAD_T - PAD_B);
 
@@ -559,10 +592,13 @@ function LineChart({ keys, series, digits }) {
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
          aria-label={`音名ごとの比較。横軸は音名、縦軸は値(${lo.toFixed(digits)}〜${hi.toFixed(digits)})`}
          style={{ display: "block", overflow: "visible" }}>
-      {/* 目盛りは上下2本だけ。線の形を読む画面なので、罫で埋めない */}
-      {[hi, lo].map((v, i) => (
+      {/* 目盛りは上下2本だけ。線の形を読む画面なので、罫で埋めない。
+          中心線(±0)だけは --c-line-strong の実線で一段濃くする ── App.jsx の
+          My Data の中央線と同じ(DESIGN-SYSTEM §1.8)。 */}
+      {ticks.map((v, i) => (
         <g key={i}>
-          <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)} stroke="var(--c-line)" strokeWidth="1" />
+          <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)}
+                stroke={v === centerAt ? "var(--c-line-strong)" : "var(--c-line)"} strokeWidth="1" />
           <text x={PAD_L - 6} y={y(v) + 4} textAnchor="end" fontSize="9" fill="var(--c-ink-3)" className="sans">
             {v.toFixed(digits)}
           </text>
@@ -605,14 +641,14 @@ function Legend({ series }) {
 }
 
 export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson }) {
-  // 【楽器種別は必ず1つに決める】アルトとテナーの重心を混ぜた平均は誰の目安にもならない。
-  // 条件行の「すべて」を使わず、シェアと同じく専用の選択肢を持つ。
-  // 既定は自分が登録している最初の種別(登録が無ければアルト)。
-  const [saxType, setSaxType] = useState(() => (saxTypes ?? [])[0] ?? "alto");
-  const [filter, setFilter] = useState(EMPTY_FILTER);
+  // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
+  // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
+  // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
+  const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }));
   const [metric, setMetric] = useState("spectralCentroidHz");
+  const saxType = filter.saxType;
 
-  const shown = useMemo(() => filterUsers(users, { ...filter, saxType: ANY }), [users, filter]);
+  const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
   // 【条件で絞った人の目安だけを使う】上のカードと下の一覧が同じ母集団になる。
   // 目安そのものの種別でも絞る ── 掛け持ちの人はアルトとテナーの両方を持つので、
   // 所有者で絞るだけでは別の楽器の目安が混ざる。
@@ -658,13 +694,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
-
-      <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
-        {SAX_TYPES.map((t) => (
-          <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
-        ))}
-      </div>
+      <FilterRow value={filter} onChange={setFilter} saxAny={false} />
 
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
@@ -684,7 +714,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           <Empty>{avg.error}</Empty>
         ) : (
           <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-            {chart ? <LineChart keys={chart.keys} series={chart.series} digits={m.digits} /> : <Empty>この指標のデータがありません</Empty>}
+            {chart ? <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
+                                       centerAt={m.key === "pitchCentsSigned" ? 0 : null} /> : <Empty>この指標のデータがありません</Empty>}
             {chart ? <Legend series={chart.series} /> : null}
             {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
                 「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
@@ -696,8 +727,11 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
       </div>
 
       <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>この条件の人</div>
+      {/* 【楽器種別は絞り込みに数えない】この画面の楽器ピルには「すべて」が無く、
+          常に1つ選ばれている。数えると必ず「絞り込み中」になり、
+          「まだ誰もいない」のか「条件で外れた」のかを言い分けられなくなる。 */}
       {pairs.length === 0 ? (
-        <Empty>{isFiltered(filter) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
+        <Empty>{isFilteredBy(filter, ["genre", "position"]) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
       ) : (
         <div style={cardListStyle}>
           {pairs.map(({ ideal, owner }, i, arr) => (
@@ -882,7 +916,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                 ) : chart ? (
                   <>
                     <div className="sans" style={noteStyle}>{m.label}({m.unit})　録音{theirIdeal.sourceSessionCount ?? "—"}回</div>
-                    <LineChart keys={chart.keys} series={chart.series} digits={m.digits} />
+                    <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
+                               centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
                     <Legend series={chart.series} />
                     <div className="sans" style={noteStyle}>
                       計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています

@@ -5,7 +5,7 @@ import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_L
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals } from "./idealRepo.js";
-import { buildIdealProfileFromSessions } from "../App.jsx";
+import { buildIdealProfileFromSessions, SubTabs, SwipePager } from "../App.jsx";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -73,34 +73,6 @@ const SUB_TABS = [
   { key: "me", label: "マイページ" },
 ];
 
-function SubTabs({ value, onChange }) {
-  return (
-    /* 【セグメンテッドコントロール】§6.7 の意図した例外4。
-       溝(--c-sunken)の中で選択中だけが白く浮く。枠線は持たない。
-       状態を**地**で返すので A型ではないが、枠線を持たないので芯には反しない。 */
-    <div role="tablist" aria-label="コミュニティの表示" style={{
-      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 0,
-      background: "var(--c-sunken)", borderRadius: "var(--r-md)", padding: 3,
-      margin: "var(--page-pad) var(--page-pad) 0",
-    }}>
-      {SUB_TABS.map((t) => (
-        <button
-          key={t.key} type="button" role="tab" aria-selected={t.key === value}
-          onClick={() => onChange(t.key)} className="sans no-select"
-          style={{
-            minHeight: 38, border: "none", borderRadius: "var(--r-sm)",
-            background: t.key === value ? "var(--c-surface)" : "transparent",
-            boxShadow: t.key === value ? "0 1px 2px rgba(18, 31, 50, .08)" : "none",
-            color: t.key === value ? "var(--c-ink)" : "var(--c-ink-3)",
-            fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-            transition: "background 180ms cubic-bezier(0.32, 0.72, 0, 1)",
-          }}
-        >{t.label}</button>
-      ))}
-    </div>
-  );
-}
-
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
 function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onDelete }) {
   const [tab, setTab] = useState("data");
@@ -161,22 +133,36 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
-  const body = () => {
-    if (tab === "me") {
-      return <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={onTogglePublic} onDelete={onDelete} />;
-    }
-    if (dir.phase === "loading") return <Centered>読み込み中…</Centered>;
-    if (dir.phase === "error") return <Centered>{dir.error}</Centered>;
-    if (tab === "rank") return <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />;
-    if (tab === "share") return <ShareScreen users={dir.users} />;
-    if (ideals === null) return <Centered>読み込み中…</Centered>;
-    return <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />;
-  };
+  // 【4ページを同時に持つので、読み込み中の告知はページごとに出す】
+  // 横スワイプは4枚を並べて動かす作法なので、body() の早期 return
+  // (「読み込み中なら1枚だけ返す」)は使えない。
+  const dirGate = dir.phase === "loading" ? <Centered>読み込み中…</Centered>
+    : dir.phase === "error" ? <Centered>{dir.error}</Centered> : null;
+
+  const index = Math.max(0, SUB_TABS.findIndex((x) => x.key === tab));
+  // 子タブを動かしたら人物紹介は閉じる(下の画面が別人のものに変わるため)
+  const go = (k) => { setPerson(null); setTab(k); };
 
   return (
     <div>
-      <SubTabs value={tab} onChange={(t) => { setPerson(null); setTab(t); }} />
-      {body()}
+      {/* 【子タブは計測・リード・My Data と同じ見出し型】2026/09/06 本人指示。
+          行の左端を本文の左端に揃えるため padding: 0 var(--sp-4) の箱で包む
+          (各ページの pageStyle が同じ padding を持つ)。 */}
+      <div style={{ padding: "0 var(--sp-4)" }}>
+        <SubTabs items={SUB_TABS} value={tab} onChange={go} />
+      </div>
+      {/* 【bleed は渡さない】コミュニティのカードは左右の余白を食い破らない。 */}
+      <SwipePager index={index} onIndexChange={(i) => go(SUB_TABS[i].key)}>
+        {dirGate ?? (ideals === null ? <Centered>読み込み中…</Centered> : (
+          <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />
+        ))}
+        {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
+        {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
+        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={onTogglePublic} onDelete={onDelete} />
+      </SwipePager>
+      {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
+          transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
+          (DESIGN-SYSTEM §6.3 が名指しで警告している事故)。 */}
       {person ? (
         <PersonSheet
           person={person}

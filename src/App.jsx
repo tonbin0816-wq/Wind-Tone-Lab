@@ -269,7 +269,10 @@ function swipePagerInterrupted(eventType, tileDragActive) {
 // 対で当てると、ページの中身が左右の余白を食い破って画面の端まで描けるようになる
 // (グラフカードの「画面いっぱい」。これが無いと viewport の overflow:hidden が食い破りを切る)。
 // **既定 false = 既存の呼び出し側(リードタブ)は 1px も変わらない。**
-function SwipePager({ index, onIndexChange, bleed = false, children }) {
+// 【export する理由】コミュニティの子タブも同じ作法で動かす(2026/09/06 本人指示)。
+// 別ファイルへ切り出さない ── pitch-test が App.jsx の中からこの関数の本体を
+// 綴りで切り出して、しきい値や軸判定を固定している。移すとその検査が空回りする。
+export function SwipePager({ index, onIndexChange, bleed = false, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
   const viewportRef = useRef(null);
@@ -13329,7 +13332,8 @@ function ViewToggle({ value, onChange }) {
 //  集計範囲セレクタが指標タブの行へ下りて(D-9z)渡し手がゼロになったので削除した。
 //  副産物として**子タブ行は両タブとも「素のテキスト2つだけ」**になり、
 //  dataSubTab === "mydata" の分岐が1つ消えている。)
-function SubTabs({ items, value, onChange }) {
+// 【export する理由】SwipePager と同じ。子タブの作法はアプリ内で1つだけ。
+export function SubTabs({ items, value, onChange }) {
   return (
     <div
       className="sans"

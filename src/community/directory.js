@@ -79,3 +79,14 @@ export function filterUsers(users, { saxType = ANY, genre = ANY, position = ANY 
 export function isFiltered({ saxType = ANY, genre = ANY, position = ANY } = {}) {
   return saxType !== ANY || genre !== ANY || position !== ANY;
 }
+
+/**
+ * 指定した鍵だけを見て、絞り込みが効いているかを返す。
+ *
+ * 【何のためにあるか】シェアとデータの画面では楽器種別に「すべて」が無く、
+ * 常に1つ選ばれている(2026/09/06)。isFiltered をそのまま使うと必ず true になり、
+ * 「まだ誰も公開していない」のか「条件で外れた」のかを言い分けられなくなる。
+ */
+export function isFilteredBy(filter, keys) {
+  return keys.some((k) => (filter?.[k] ?? ANY) !== ANY);
+}
