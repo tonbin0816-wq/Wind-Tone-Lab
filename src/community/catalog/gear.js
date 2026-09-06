@@ -66,22 +66,41 @@ export const INSTRUMENT_CATALOG = {
     tenor: ["T5", "Vintage Reborn Tenor"],
     baritone: ["B5"],
   },
+  // 【2026/09/06 に4社ぶん埋めた】ソプラノとバリトンがどこも空だった。
+  // どれもメーカー公式の製品一覧で現行を確認してから足している。
+  // 仕上げ違い(ゴールドラッカー/シルバープレート等)は畳む ── 同じ楽器なので、
+  // 分けると選ぶ人が「自分のはどれか」を色で悩むことになる。
   "P. Mauriat": {
-    alto: ["PMXA-67R", "System 76 (2nd Edition)", "Le Bravo (200)"],
-    tenor: ["System 76", "Master 97", "Le Bravo 200"],
+    soprano: ["System-76(II) Soprano", "System-76(II) Curved Soprano", "Master 97 Soprano",
+              "PMSS-601", "PMSS-185", "Le Bravo 200"],
+    alto: ["PMXA-67R", "PMXA-67RX", "PMSA-600 Venus", "Master 97", "System 76 (2nd Edition)", "Le Bravo (200)"],
+    tenor: ["PMXT-66R", "PMXT-66RX", "PMST-600 Venus", "Master 97", "System 76", "Le Bravo 200"],
+    baritone: ["PMB-300", "PMB-301", "PMB-302", "PMB-500BX", "PMB-185", "Le Bravo 200"],
   },
+  // 【R はロールドトーンホールの意味】公式のソプラノは SX90 のみで、
+  // トーンホールは drawn。**SX90R のソプラノは存在しない**ので足さない。
+  // MKX は生産終了だが残す ── 吹いている人が居るので、選べないと「その他」へ流れる。
   Keilwerth: {
-    alto: ["SX90R", "MKX"],
-    tenor: ["SX90R", "SX90R Shadow", "MKX"],
+    soprano: ["SX90 1300", "SX90 Shadow (JK1301)", "ST 1100"],
+    alto: ["SX90R 2400", "SX90R Shadow (2401)", "100th Anniversary SX90R", "ST110", "SX90R", "MKX"],
+    tenor: ["SX90R 3400", "SX90R Shadow (3401)", "100th Anniversary SX90R", "ST110", "SX90R", "MKX"],
+    baritone: ["SX90 4300", "SX90R Shadow (4411)"],
   },
   Jupiter: {
-    alto: ["JAS700", "JAS1100 (JAS1100SG等)"],
-    tenor: ["JTS700", "JTS1100 (JTS1100SG等)"],
+    soprano: ["JSS1100SG", "JSS1100", "JSS1000"],
+    alto: ["JAS1150", "JAS1100", "JAS700", "JAS510", "JAS500"],
+    tenor: ["JTS1100", "JTS700", "JTS500"],
+    baritone: ["JBS1100SG", "JBS1100", "JBS1000"],
   },
+  // 【Antigua だけ確度が一段低い】公式サイトが 403 で読めず、日本の正規輸入元
+  // (野中貿易)の一覧と米国の大手販売店で裏を取った。輸入元が現行として載せている
+  // ものを主に入れてある。AS4240 / TS4240 は現行では 4248 に替わっている可能性が
+  // 高いが、吹いている人が居るので両方残す。
   Antigua: {
-    alto: ["AS3100", "AS4240 (PowerBell)"],
-    tenor: ["TS4240 (PowerBell)"],
-    baritone: ["BS4240 (PowerBell)"],
+    soprano: ["SS4290 (PowerBell)", "SS6200 (ProOne)", "SS3286", "SS3282"],
+    alto: ["AS4248 (PowerBell)", "AS4240 (PowerBell)", "AS6200 (ProOne)", "AS5200", "AS3108", "AS3100"],
+    tenor: ["TS4248 (PowerBell)", "TS4240 (PowerBell)", "TS6200 (ProOne)", "TS5200", "TS3108"],
+    baritone: ["BS4240 (PowerBell)", "BS6200 (ProOne)", "BS3220"],
   },
 };
 
