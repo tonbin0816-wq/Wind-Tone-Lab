@@ -2,6 +2,7 @@ import { collection, deleteDoc, doc, getDocs, limit as qLimit, query, setDoc, wh
 import { getFirebase } from "./firebaseClient.js";
 import { buildIdealDoc, sanitizeIncomingNotes, selectOwnSessions } from "./idealDoc.js";
 import { DIRECTORY_LIMIT } from "./directory.js";
+import { SAX_TYPES } from "./profile.js";
 
 // docId は "<uid>_<saxType>"。ルールがこの綴りを要求している
 // (要求しないと、他人の uid を名乗るドキュメントを別のIDで作れる)。
@@ -20,6 +21,17 @@ export async function publishIdeal(input, now = new Date()) {
 export async function unpublishIdeal(uid, saxType) {
   const { db } = getFirebase();
   await deleteDoc(doc(db, "ideals", idealId(uid, saxType)));
+}
+
+/**
+ * その人の目安を4種別ぶんまとめて取り下げる。
+ *
+ * 【先に一覧を読まない】存在しないドキュメントの deleteDoc は Firestore では
+ * 成功扱い(no-op)なので、listMyIdeals で確かめると読み取りが1回増えるだけ。
+ * 呼ぶのは (a) 公開スイッチを OFF にしたとき (b) アカウントを削除するときの2つ。
+ */
+export async function unpublishAllIdeals(uid) {
+  await Promise.all(SAX_TYPES.map((t) => unpublishIdeal(uid, t)));
 }
 
 /** 自分が公開している目安の一覧。 */
@@ -55,7 +67,8 @@ export async function listIdeals({ saxType = null, max = DIRECTORY_LIMIT } = {})
  * クエリそのものに対して評価されるので、所有者の公開状態をサーバ側では見られない。
  * **そこで「非公開にしたら ideals から消す」という設計にしてある**
  * (公開状態を持つ場所を users の1箇所に保ち、読まれてはいけないものを置かない)。
- * ここで落としているのは、消し漏れた場合の二重の備え。
+ * 取り下げを実際に呼ぶのは画面側(CommunityTab の公開スイッチ)と deleteAccount で、
+ * どちらも unpublishAllIdeals を通る。ここで落としているのは、消し漏れた場合の二重の備え。
  */
 export function joinOwners(ideals, users) {
   const byUid = new Map((users ?? []).map((u) => [u.uid, u]));

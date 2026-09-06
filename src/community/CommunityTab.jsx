@@ -4,7 +4,7 @@ import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
-import { listIdeals, buildMyIdeals, publishMyIdeals } from "./idealRepo.js";
+import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills } from "../App.jsx";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
@@ -122,8 +122,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       // 【目安も同じ機会に公開する】目安は「選んで出すもの」ではなく、
       // 登録した楽器種別ごとの自分の平均が1つあるだけ(2026-09-03 本人裁定)。
       // したがって公開ボタンは無く、練習日数と同じくタブを開いたときに更新する。
+      // 【非公開の人の目安は出し直さない】ここに公開状態の判定が無いと、
+      // 公開スイッチを OFF にした人がタブを開くたびに目安が復活する。
       try {
-        if (alive && Array.isArray(profile?.saxTypes)) {
+        if (alive && profile?.isPublic !== false && Array.isArray(profile?.saxTypes)) {
           await publishMyIdeals(uid, myIdeals);
         }
       } catch (e) { /* 同上。1種別も出せなくても他の画面は見られる */ }
@@ -138,6 +140,28 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // (「読み込み中なら1枚だけ返す」)は使えない。
   const dirGate = dir.phase === "loading" ? <Centered>読み込み中…</Centered>
     : dir.phase === "error" ? <Centered>{dir.error}</Centered> : null;
+
+  // 【公開スイッチはその場で反映する】サーバへは書くが**読み直さない**
+  // (読み取り回数は費用そのもの)。自分の行だけ手元の配列で差し引く。
+  // ここに置いてあるのは、差し引く相手(dir.users / ideals / myIdeals)を
+  // 持っているのがこの階層だけだから。users への書き込みは親(onTogglePublic)。
+  const togglePublic = async (v) => {
+    await onTogglePublic(v);            // users.isPublic を書き、profile を更新する
+    if (v) await publishMyIdeals(uid, myIdeals);
+    else await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
+    dir.setUsers((prev) => {
+      const rest = prev.filter((u) => u.uid !== uid);
+      if (!v) return rest;
+      // 【stats を落とさない】rankByPractice は u.stats を要求する。
+      // 元の行が持っていた練習日数を捨てると、公開に戻した瞬間だけ順位から消える。
+      const mine = prev.find((u) => u.uid === uid);
+      return [...rest, { uid, ...profile, isPublic: true, stats: mine?.stats ?? computePracticeStats(sessions ?? []) }];
+    });
+    setIdeals((prev) => {
+      const rest = (prev ?? []).filter((x) => x.ownerUid !== uid);
+      return v ? [...rest, ...Object.values(myIdeals ?? {})] : rest;
+    });
+  };
 
   const index = Math.max(0, SUB_TABS.findIndex((x) => x.key === tab));
   // 子タブを動かしたら人物紹介は閉じる(下の画面が別人のものに変わるため)
@@ -158,7 +182,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
-        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={onTogglePublic} onDelete={onDelete} />
+        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -962,7 +986,7 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
       <SwitchRow
         checked={isPublic} onChange={togglePublic} disabled={busy}
         label="公開する"
-        note="既定は公開です。OFFにすると他の利用者から見えなくなります"
+        note="プロフィールと奏者が「自分」のデータが公開されます"
       />
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
@@ -979,9 +1003,10 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
+        {/* 【端末内のデータのことはここで言わない】押す直前の確認ダイアログが
+            「この端末の計測データは消えません」を引き続き言う。 */}
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 }}>
-          アカウントを削除すると、サーバー上のプロフィールと匿名アカウントが完全に消えます。
-          この端末に保存されている計測データは消えません。
+          サーバー上のプロフィールと匿名アカウントが完全に消えます
         </div>
       </div>
     </div>

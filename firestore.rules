@@ -196,7 +196,8 @@ service cloud.firestore {
       // 【list では所有者の公開状態を見られない】list の規則はクエリそのものに対して
       // 評価されるため、resource.data.ownerUid を使った他コレクションの参照が書けない。
       // **そこで「非公開にしたら ideals から消す」という設計にしてある**
-      // (accountRepo の setProfilePublic が取り下げる)。
+      // (公開スイッチを OFF にしたときと、アカウントを削除したときに
+      //  idealRepo の unpublishAllIdeals が4種別ぶんまとめて取り下げる)。
       // 公開状態を持つ場所を users の1箇所に保ち、読まれてはいけないものをそもそも置かない。
       allow list: if request.query.limit <= 50;
 

@@ -1,6 +1,7 @@
 import { signInAnonymously, onAuthStateChanged, deleteUser, signOut } from "firebase/auth";
 import { doc, setDoc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { getFirebase } from "./firebaseClient.js";
+import { unpublishAllIdeals } from "./idealRepo.js";
 
 function currentUser() {
   const { auth } = getFirebase();
@@ -62,6 +63,13 @@ export async function deleteAccount() {
   const { auth } = getFirebase();
   const user = await currentUser();
   if (!user) return { credentialRemoved: true };
+  // 【目安を先に消す】画面は「サーバー上のプロフィールと匿名アカウントが完全に消えます」
+  // と言っている。users だけ消して ideals/{uid}_{種別} を残すと、その言葉が嘘になる。
+  // 順序が deleteDoc(users) より前なのは deleteUser の前後と同じ理由 ── ideals の
+  // 削除規則も request.auth.uid == resource.data.ownerUid を要求するので、
+  // 資格情報を失った後では二度と消せない。ここが失敗したら users も消さずに
+  // 例外を投げる(「まだ何も消えていない」という案内が嘘にならない)。
+  await unpublishAllIdeals(user.uid);
   await deleteDoc(userRef(user.uid)); // ここが失敗したら何も消えていないので例外はそのまま投げる
   try {
     await deleteUser(user);

@@ -185,6 +185,10 @@ function Empty({ children }) {
 // 公開ユーザーを1度だけ読んで使い回す。
 // 【画面を切り替えるたびに読み直さない】読み取り回数は費用そのもので、
 // 利用者数の2乗で増える(設計書の決定1-b)。同じ50件を何度も読む理由が無い。
+//
+// 【setUsers を返す理由】自分が公開/非公開を切り替えたとき、サーバへは書くが
+// **読み直さない**。他人の変更まで即時に追う必要は無いので、自分の行だけ
+// 手元の配列で差し引く(2026/09/06 本人指摘「非公開にしてもその場で反映されない」)。
 export function usePublicUsers() {
   const [state, setState] = useState({ phase: "loading", users: [], error: null });
   useEffect(() => {
@@ -199,7 +203,9 @@ export function usePublicUsers() {
     })();
     return () => { alive = false; };
   }, []);
-  return state;
+  // 読み込み中/失敗中は phase を保ったまま配列だけ差し替える(phase を書き換えない)
+  const setUsers = (fn) => setState((s) => ({ ...s, users: typeof fn === "function" ? fn(s.users) : fn }));
+  return { ...state, setUsers };
 }
 
 // ------------------------------------------------------------------
