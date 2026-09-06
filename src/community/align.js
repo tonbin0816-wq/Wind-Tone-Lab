@@ -98,14 +98,22 @@ export function cohortAverage(mine, others) {
     if (r.error) continue;
     usable.push(r.notes);
   }
-  if (usable.length === 0) {
-    // 自分の計測が無いのか、誰とも重ならないのかを言い分ける。
-    // どちらも「出ない」だが、利用者がすべきことが違う。
-    const first = alignProfile(mine, (others ?? [])[0] ?? { notes: {} });
-    return { error: first.error ?? "比べられる人がまだいません" };
-  }
+  // 【不足の理由を言い分ける。同じ文言に潰さないこと】
+  // 「音が重ならない」と「人数が足りない」は別の話で、利用者がすべきことも違う。
+  // 人数不足の文言を音の不足に流用すると、待っていれば出ると誤解させる嘘になる。
   if (usable.length < MIN_COHORT) {
-    return { error: `この条件に合う人が ${MIN_COHORT} 人に足りません` };
+    const list = others ?? [];
+    // ① 相手はいるのに一人も合わせられなかった → 音の話(自分の計測が無い場合もここに入る)
+    if (usable.length === 0 && list.length > 0) {
+      const first = alignProfile(mine, list[0]);
+      if (first.error) return { error: first.error };
+    }
+    // ② 相手が一人もいないときも、自分の計測が無いならそちらを先に言う
+    if (Object.keys(mine?.notes ?? {}).length === 0) {
+      return { error: alignProfile(mine, { notes: {} }).error };
+    }
+    // ③ 純粋に人数が足りない。〇 は「あと何人で出せるか」
+    return { error: `あと${MIN_COHORT - usable.length}人のデータが必要です。みなさまのデータをお待ちしています...` };
   }
 
   const sums = {}; // notes[key][metric] = { sum, n }

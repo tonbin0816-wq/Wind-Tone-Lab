@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rankByPractice, findMyRank, tallyGear, tallyCombos, gearKey, UNSET, GEAR_SLOTS } from "./aggregate.js";
+import { rankByPractice, findMyRank, tallyGear, tallyCombos, gearKey, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
 import { filterUsers, isFiltered, ANY } from "./directory.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
@@ -169,6 +169,91 @@ describe("tallyGear", () => {
     const r = tallyGear([], "alto");
     expect(r.total).toBe(0);
     expect(r.slots.reed).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------
+// 内訳の2段(メーカー → 型番)。既存の gearKey / tallyGear は壊さずに足した経路。
+// ------------------------------------------------------------------
+describe("tallyGearByBrand / tallyGearModels", () => {
+  const g = (over) => ({ instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0", ...over });
+
+  it("1段目はメーカーだけで数える(型番でも番手でも割らない)", () => {
+    const users = [
+      person("a", { gear: { alto: g() } }),                                    // YAMAHA YAS-62
+      person("b", { gear: { alto: g({ instrumentModel: "YAS-875EX" }) } }),    // YAMAHA 別型番
+      person("c", { gear: { alto: g({ instrumentBrand: "Selmer", instrumentModel: "Serie III" }) } }),
+    ];
+    const r = tallyGearByBrand(users, "alto");
+    expect(r.total).toBe(3);
+    expect(r.slots.instrument).toEqual([
+      { key: "YAMAHA", count: 2, ratio: 2 / 3 },
+      { key: "Selmer", count: 1, ratio: 1 / 3 },
+    ]);
+    // リードも番手で割らない(1段目では 3.0 と 3.25 が同じ Vandoren の票)
+    const reeds = tallyGearByBrand([
+      person("a", { gear: { alto: g() } }),
+      person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
+    ], "alto").slots.reed;
+    expect(reeds).toEqual([{ key: "Vandoren", count: 2, ratio: 1 }]);
+    // 【対比】既存の1段の集計は今までどおり型番と番手で割れたまま(壊していない)
+    expect(tallyGear(users, "alto").slots.instrument.map((x) => x.key).sort())
+      .toEqual(["Selmer Serie III", "YAMAHA YAS-62", "YAMAHA YAS-875EX"]);
+  });
+
+  it("2段目はそのメーカーを選んだ人だけを母数に、型番で数える(リードは番手まで)", () => {
+    const users = [
+      person("a", { gear: { alto: g() } }),
+      person("b", { gear: { alto: g({ instrumentModel: "YAS-875EX" }) } }),
+      person("c", { gear: { alto: g({ instrumentModel: "YAS-875EX" }) } }),
+      person("d", { gear: { alto: g({ instrumentBrand: "Selmer", instrumentModel: "Serie III" }) } }),
+    ];
+    const r = tallyGearModels(users, "alto", "instrument", "YAMAHA");
+    // Selmer の人は母数に入らない。全体4人ではなく YAMAHA の3人が分母
+    expect(r.total).toBe(3);
+    expect(r.items).toEqual([
+      { key: "YAS-875EX", count: 2, ratio: 2 / 3 },
+      { key: "YAS-62", count: 1, ratio: 1 / 3 },
+    ]);
+    // 鍵は銘柄を除いた型番。銘柄を繰り返さない
+    expect(r.items.map((x) => x.key)).not.toContain("YAMAHA YAS-62");
+    // リードは番手まで出す
+    const reed = tallyGearModels([
+      person("a", { gear: { alto: g() } }),
+      person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
+    ], "alto", "reed", "Vandoren");
+    expect(reed.items.map((x) => x.key).sort()).toEqual(["Traditional 3.0", "Traditional 3.25"]);
+    // 銘柄はあるが型番が無いドキュメントは「未選択」として数える(勝手に埋めない)
+    const noModel = tallyGearModels(
+      [person("a", { gear: { alto: g({ instrumentModel: null }) } })], "alto", "instrument", "YAMAHA");
+    expect(noModel.items).toEqual([{ key: UNSET, count: 1, ratio: 1 }]);
+  });
+
+  // 【画面のタップ可否はこの1つの関数で決まる】円グラフも凡例も isDrillable を見る。
+  it("「その他」と「未選択」は掘り下げの対象にならない(タップさせない)", () => {
+    expect(isDrillable(OTHER_BRAND)).toBe(false);
+    expect(isDrillable(UNSET)).toBe(false);
+    expect(isDrillable(null)).toBe(false);
+    expect(isDrillable(undefined)).toBe(false);
+    expect(isDrillable("YAMAHA")).toBe(true);
+    // 押されても何も出せない、が集計側でも一貫している
+    const users = [
+      person("a", { gear: { alto: g({ instrumentBrand: OTHER_BRAND, instrumentModel: null }) } }),
+      person("b", { gear: { alto: g({ instrumentBrand: OTHER_BRAND, instrumentModel: "自作" }) } }),
+      person("c", { gear: { alto: g({ instrumentBrand: null, instrumentModel: null }) } }),
+    ];
+    expect(tallyGearModels(users, "alto", "instrument", OTHER_BRAND)).toEqual({ total: 0, items: [] });
+    expect(tallyGearModels(users, "alto", "instrument", UNSET)).toEqual({ total: 0, items: [] });
+    // 1段目では「その他」と「未選択」は別々の票のまま残る(混ぜない)
+    const keys = tallyGearByBrand(users, "alto").slots.instrument.map((x) => x.key);
+    expect(keys).toContain(OTHER_BRAND);
+    expect(keys).toContain(UNSET);
+  });
+
+  it("誰も居なければ 0 で返る(0除算しない)", () => {
+    expect(tallyGearByBrand([], "alto")).toEqual({ total: 0, slots: { instrument: [], mouthpiece: [], ligature: [], reed: [] } });
+    expect(tallyGearModels([], "alto", "instrument", "YAMAHA")).toEqual({ total: 0, items: [] });
+    expect(tallyGearModels([], "alto", "存在しない項目", "YAMAHA")).toEqual({ total: 0, items: [] });
   });
 });
 

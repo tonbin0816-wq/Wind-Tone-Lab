@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
-import { rankByPractice, findMyRank, tallyGear, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
+import { rankByPractice, findMyRank, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
@@ -320,7 +320,9 @@ function RankRow({ row, big = false, mine = false, onTap }) {
 
 export function RankScreen({ users, myUid, onOpenPerson }) {
   const [filter, setFilter] = useState(EMPTY_FILTER);
-  const [period, setPeriod] = useState("month");
+  // 【既定は「すべて」】2026/09/06 本人指示。人数が少ないうちは期間で切ると
+  // 一覧が空になりやすく、まず全体が見えたほうがよい。
+  const [period, setPeriod] = useState("all");
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
   const ranked = useMemo(() => rankByPractice(shown, period), [shown, period]);
   const mine = findMyRank(ranked, myUid);
@@ -406,32 +408,46 @@ function arcPath(fromRatio, toRatio) {
   return `M${PIE_C},${PIE_C} L${sx.toFixed(1)},${sy.toFixed(1)} A${PIE_R},${PIE_R} 0 ${large} 1 ${ex.toFixed(1)},${ey.toFixed(1)} Z`;
 }
 
-function PieChart({ items, label }) {
+// 【掘り下げられる区画だけがタップできる】判定は aggregate.js の isDrillable ひとつに寄せる。
+// 「その他」はカタログ外で割れないので、円でも凡例でもタップ対象にしない。
+const pickable = (onPick, item) => Boolean(onPick && item && isDrillable(item.key));
+
+function PieChart({ items, label, onPick }) {
   const top = items.slice(0, 3);
   const restRatio = Math.max(0, 1 - top.reduce((a, x) => a + x.ratio, 0));
   const slices = [];
   let acc = 0;
-  top.forEach((x, i) => { slices.push({ from: acc, to: acc + x.ratio, fill: PIE_COLORS[i] }); acc += x.ratio; });
-  if (restRatio > 0.0001) slices.push({ from: acc, to: 1, fill: PIE_REST });
+  top.forEach((x, i) => { slices.push({ from: acc, to: acc + x.ratio, fill: PIE_COLORS[i], item: x }); acc += x.ratio; });
+  if (restRatio > 0.0001) slices.push({ from: acc, to: 1, fill: PIE_REST, item: null });
   const whole = slices.length === 1;
+  const tap = (item) => (pickable(onPick, item) ? {
+    role: "button", tabIndex: 0, style: { cursor: "pointer" },
+    onClick: () => onPick(item.key),
+    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(item.key); } },
+    "aria-label": `${gearLabelOf(item.key)} の内訳を見る`,
+  } : {});
   return (
     <svg width="120" height="120" viewBox="0 0 120 120" style={{ flex: "none" }} role="img" aria-label={label}>
       {whole
-        ? <circle cx={PIE_C} cy={PIE_C} r={PIE_R} fill={slices[0].fill} />
+        ? <circle cx={PIE_C} cy={PIE_C} r={PIE_R} fill={slices[0].fill} {...tap(slices[0].item)} />
         : slices.map((sl, i) => {
             const d = arcPath(sl.from, sl.to);
-            return d ? <path key={i} d={d} fill={sl.fill} /> : null;
+            return d ? <path key={i} d={d} fill={sl.fill} {...tap(sl.item)} /> : null;
           })}
     </svg>
   );
 }
 
-function PieLegend({ items, restCount }) {
+// 【凡例も同じタップ先を持つ】円の区画は割合が小さいと細くなり、44px を保証できない。
+// 凡例の行を当たり判定 44px にして、**箱ではなく中身を小さいまま**にする(§5 / Chip と同じ手)。
+// 行どうしの gap は 0 ── 44px と文字の高さの差がそのまま間隔になる。
+function PieLegend({ items, onPick }) {
   const top = items.slice(0, 3);
   const rest = items.slice(3);
   const restRatio = rest.reduce((a, x) => a + x.ratio, 0);
-  const row = (color, text, pct, muted) => (
-    <div key={text} style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+  const rowStyle = { display: "flex", alignItems: "center", gap: 7, minWidth: 0, minHeight: "var(--tap-min)" };
+  const inner = (color, text, pct, muted) => (
+    <>
       <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flex: "none" }} />
       <span className="sans" style={{
         fontSize: "var(--fs-xs)", color: muted ? "var(--c-ink-3)" : "var(--c-ink)",
@@ -440,12 +456,23 @@ function PieLegend({ items, restCount }) {
       <span className="sans" style={{
         ...noteStyle, flex: "none", marginLeft: "auto", fontFamily: "var(--font-num)",
       }}>{Math.round(pct * 100)}%</span>
-    </div>
+    </>
+  );
+  const row = (color, text, pct, muted, item) => (
+    pickable(onPick, item) ? (
+      <button key={text} type="button" className="sans" onClick={() => onPick(item.key)}
+        aria-label={`${text} の内訳を見る`}
+        style={{ ...rowStyle, width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer" }}>
+        {inner(color, text, pct, muted)}
+      </button>
+    ) : (
+      <div key={text} style={rowStyle}>{inner(color, text, pct, muted)}</div>
+    )
   );
   return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
-      {top.map((x, i) => row(PIE_COLORS[i], gearLabelOf(x.key), x.ratio, false))}
-      {rest.length > 0 ? row(PIE_REST, `ほか${rest.length}種類`, restRatio, true) : null}
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
+      {top.map((x, i) => row(PIE_COLORS[i], gearLabelOf(x.key), x.ratio, false, x))}
+      {rest.length > 0 ? row(PIE_REST, `ほか${rest.length}種類`, restRatio, true, null) : null}
     </div>
   );
 }
@@ -458,16 +485,25 @@ export function ShareScreen({ users, saxTypes }) {
   const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }));
   const [slot, setSlot] = useState("instrument");
   const [depth, setDepth] = useState(2);
+  // 【内訳は2段】1段目はメーカーだけで数え、メーカーを選ぶと2段目(型番)に降りる。
+  // drill が null なら1段目。項目や条件が変わったら畳む ── 別の項目のメーカーの
+  // 内訳を出したままにすると、何の内訳なのか言えなくなる。
+  const [drill, setDrill] = useState(null);
   const saxType = filter.saxType;
 
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
-  const gear = useMemo(() => tallyGear(shown, saxType), [shown, saxType]);
+  const gear = useMemo(() => tallyGearByBrand(shown, saxType), [shown, saxType]);
+  const models = useMemo(
+    () => (drill ? tallyGearModels(shown, saxType, slot, drill) : null),
+    [shown, saxType, slot, drill]);
   const combos = useMemo(() => tallyCombos(shown, saxType, depth), [shown, saxType, depth]);
-  const items = gear.slots[slot] ?? [];
+  const items = models ? models.items : (gear.slots[slot] ?? []);
+  // 2段目の母数は「そのメーカーを選んでいる人」。円と n が同じ母数を指す。
+  const shownTotal = models ? models.total : gear.total;
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={filter} onChange={setFilter} saxAny={false} />
+      <FilterRow value={filter} onChange={(v) => { setFilter(v); setDrill(null); }} saxAny={false} />
 
       {gear.total === 0 ? (
         <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
@@ -477,15 +513,35 @@ export function ShareScreen({ users, saxTypes }) {
             {/* 【見出しを置かない】本人指示。何の内訳かは下のタブがそのまま言っている
                 (§6.0「説明を消して形に語らせる」) */}
             <UnderlineTabs
-              label="見る項目" value={slot} onChange={setSlot}
+              label="見る項目" value={slot} onChange={(k) => { setSlot(k); setDrill(null); }}
               items={GEAR_SLOTS.map((k) => ({ key: k, label: SLOT_LABEL[k] }))}
             />
+            {/* 【2段目にいることを名乗り、1段目に戻る一手を必ず置く】
+                表記は人物紹介の戻ると同じ `< 行き先`。 */}
+            {drill ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", paddingTop: "var(--sp-2)" }}>
+                <button type="button" className="sans" onClick={() => setDrill(null)}
+                        aria-label="メーカーの内訳に戻る"
+                        style={{ flex: "none", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
+                                 border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
+                                 color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
+                  {"< メーカー"}
+                </button>
+                <span className="sans" style={{
+                  minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)",
+                }}>{gearLabelOf(drill)}</span>
+              </div>
+            ) : null}
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-2) 0 var(--sp-1)" }}>
-              <PieChart items={items} label={`${SAX_LABELS[saxType]} を吹く${gear.total}人の${SLOT_LABEL[slot]}の内訳`} />
-              <PieLegend items={items} />
+              <PieChart items={items} onPick={drill ? undefined : setDrill}
+                label={drill
+                  ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}${shownTotal}人の型番の内訳`
+                  : `${SAX_LABELS[saxType]} を吹く${shownTotal}人の${SLOT_LABEL[slot]}のメーカーの内訳`} />
+              <PieLegend items={items} onPick={drill ? undefined : setDrill} />
             </div>
             <div className="sans" style={bodyNoteStyle}>
-              {SAX_LABELS[saxType]} を吹く<span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{gear.total}</span>人
+              n = <span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{shownTotal}</span>人
             </div>
           </div>
 
@@ -580,6 +636,21 @@ const noteLabel = (key) => {
 // 音程は「0 からどれだけ外れているか」を読む指標なので、min/max で枠を決めると
 // 0 が枠の外に出ることすらあり、上か下かが読めない(2026/09/06 本人指示)。
 // App.jsx の My Data(NoteAxisLineChart)が既に同じ形を持つので、それに揃える。
+//
+// 【横軸のラベルを間引く規則】音数が増えると 9px の音名が隣と重なって読めなくなる。
+// 規則はこの1つだけ ── **表示するラベルは最大 MAX_X_LABELS 個。等間隔に選び、
+// 両端(最初と最後の音)は必ず出す。** 点と線は全部の音を描いたまま、
+// 文字だけを間引く(形を読む画面なので、線を間引いてはいけない)。
+const MAX_X_LABELS = 7;
+function xLabelIndexes(n) {
+  const set = new Set();
+  if (n <= 0) return set;
+  if (n <= MAX_X_LABELS) { for (let i = 0; i < n; i++) set.add(i); return set; }
+  // 0 と n-1 を含む等間隔の MAX_X_LABELS 点。丸めても両端は必ず入る。
+  for (let j = 0; j < MAX_X_LABELS; j++) set.add(Math.round((j * (n - 1)) / (MAX_X_LABELS - 1)));
+  return set;
+}
+
 function LineChart({ keys, series, digits, centerAt = null }) {
   const W = 320, H = 160, PAD_L = 40, PAD_B = 22, PAD_T = 10, PAD_R = 8;
   const all = series.flatMap((s) => keys.map((k) => s.values[k]).filter((v) => typeof v === "number"));
@@ -594,6 +665,7 @@ function LineChart({ keys, series, digits, centerAt = null }) {
   const ticks = typeof centerAt === "number" ? [hi, centerAt, lo] : [hi, lo];
   const x = (i) => PAD_L + (keys.length === 1 ? (W - PAD_L - PAD_R) / 2 : (i * (W - PAD_L - PAD_R)) / (keys.length - 1));
   const y = (v) => PAD_T + (1 - (v - lo) / (hi - lo)) * (H - PAD_T - PAD_B);
+  const xLabels = xLabelIndexes(keys.length);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
@@ -611,11 +683,11 @@ function LineChart({ keys, series, digits, centerAt = null }) {
           </text>
         </g>
       ))}
-      {keys.map((k, i) => (
+      {keys.map((k, i) => (xLabels.has(i) ? (
         <text key={k} x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--c-ink-3)" className="sans">
           {noteLabel(k)}
         </text>
-      ))}
+      ) : null))}
       {series.map((s) => {
         const pts = keys.map((k, i) => (typeof s.values[k] === "number" ? `${x(i)},${y(s.values[k])}` : null)).filter(Boolean);
         if (pts.length === 0) return null;
@@ -733,7 +805,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
         )}
       </div>
 
-      <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>この条件の人</div>
+      {/* 【見出しを置かない】2026/09/06 本人指示。下の一覧が自分で名乗るので要らない
+          (§6.0「説明を消して形に語らせる」) */}
       {/* 【楽器種別は絞り込みに数えない】この画面の楽器ピルには「すべて」が無く、
           常に1つ選ばれている。数えると必ず「絞り込み中」になり、
           「まだ誰もいない」のか「条件で外れた」のかを言い分けられなくなる。 */}
@@ -791,6 +864,14 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
 // 【練習日数は累計を出す】順位は期間を切り替えて見るものだが、
 // 人物の紹介として出すなら累計のほうが素性を表す。
 // ------------------------------------------------------------------
+// 項目行の作法。**罫はこの1本だけ**(群の中の行区切り。D-30 本人裁定)。
+const infoRowStyle = {
+  display: "flex", gap: "var(--sp-3)", alignItems: "baseline",
+  padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)",
+};
+const infoLabelStyle = { ...labelStyle, flex: "0 0 7em" };
+const infoValueStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: "1 1 0", minWidth: 0 };
+
 // strength はリードのときだけ渡す。番手を持たない古いドキュメントもあるので、
 // 無ければ何も足さない(ルールが null を許している)。
 function GearLine({ label, brand, model, strength = null }) {
@@ -799,9 +880,9 @@ function GearLine({ label, brand, model, strength = null }) {
     : brand === OTHER_BRAND ? "その他"
     : model ? `${brand} ${model}` : brand;
   return (
-    <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "baseline", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
-      <div className="sans jp-label" style={{ ...labelStyle, flex: "0 0 7em" }}>{label}</div>
-      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: "1 1 0", minWidth: 0 }}>
+    <div style={infoRowStyle}>
+      <div className="sans jp-label" style={infoLabelStyle}>{label}</div>
+      <div className="sans" style={infoValueStyle}>
         {v}
         {/* 番手は数値なので --font-num(§4.3) */}
         {has && strength ? <span style={{ fontFamily: "var(--font-num)" }}> {strength}</span> : null}
@@ -810,8 +891,26 @@ function GearLine({ label, brand, model, strength = null }) {
   );
 }
 
+// プロフィールの1行。値が無ければ「—」。
+// 【中黒を使わない】複数値の区切りは記号ではなく余白(WhoLine と同じ。§6.0)。
+function InfoLine({ label, value }) {
+  const list = Array.isArray(value) ? value.filter(Boolean) : null;
+  const empty = list ? list.length === 0 : (value === null || value === undefined || value === "");
+  return (
+    <div style={infoRowStyle}>
+      <div className="sans jp-label" style={infoLabelStyle}>{label}</div>
+      <div className="sans" style={{ ...infoValueStyle, display: "flex", flexWrap: "wrap", gap: 9 }}>
+        {empty ? "—" : list ? list.map((v) => <span key={v}>{v}</span>) : value}
+      </div>
+    </div>
+  );
+}
+
 export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
   const [adopted, setAdopted] = useState(null);
+  // 【表と裏で1枚】新しい画面の作法を増やさない(2026/09/06 本人指示)。
+  // 表 = 音のデータ / 裏 = プロフィール。行き来は上部の1つのボタンだけが担う。
+  const [side, setSide] = useState("data");
   // その人が登録している種別のうち、目安か楽器の組があるものだけをタブに出す。
   // 「タブはあるのに中身が何も無い」を作らない。
   const types = useMemo(() => {
@@ -874,21 +973,78 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
     <div role="dialog" aria-label={`${person.nickname} の詳細`}
          style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--c-bg)", overflowY: "auto" }}>
       <div style={{ ...pageStyle, paddingBottom: "var(--sp-6, 40px)" }}>
-        <button type="button" onClick={onClose} className="sans" aria-label="閉じる"
+        {/* 【行き先を名乗る戻る】表記は `< 一覧`(2026/09/06 本人指定)。
+            裏(プロフィール)にいるときは行き先が変わるので、同じ形で行き先だけ差し替える。
+            寸法・色は変えない。 */}
+        <button type="button" className="sans"
+                onClick={() => (side === "profile" ? setSide("data") : onClose())}
+                aria-label={side === "profile" ? "音のデータに戻る" : "一覧に戻る"}
                 style={{ justifySelf: "start", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
                          border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
                          color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
-          ← 戻る
+          {side === "profile" ? "< 音のデータ" : "< 一覧"}
         </button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+        {/* 【名前の行がプロフィールの入口】表では押せる。行の高さは 56px のアイコンで
+            決まるので当たり判定は足りている(箱を大きくしていない)。
+            押せることは右端の山形だけで返す ── 地も枠も足さない(§6.7)。 */}
+        <div {...(side === "data" ? {
+               role: "button", tabIndex: 0,
+               onClick: () => setSide("profile"),
+               onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSide("profile"); } },
+               "aria-label": `${person.nickname} のプロフィールを見る`,
+             } : {})}
+             style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)",
+                      cursor: side === "data" ? "pointer" : "default" }}>
           <Avatar icon={person.icon ?? AVATAR_ICONS[0]} color={person.iconColor ?? AVATAR_COLOR_MIN} size={56} />
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: "1 1 0" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
             <WhoLine u={person} />
           </div>
+          {side === "data" ? (
+            <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true"
+                 style={{ flex: "none", color: "var(--c-ink-3)" }}>
+              <path d="M4 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : null}
         </div>
 
+        {side === "profile" ? (
+          <>
+            <div>
+              <InfoLine label="属性" value={person.position} />
+              {/* 年は数値なので --font-num(§4.3) */}
+              <InfoLine label="演奏開始年" value={Number.isInteger(person.startYear)
+                ? <><span style={{ fontFamily: "var(--font-num)" }}>{person.startYear}</span>年</>
+                : null} />
+              <InfoLine label="ジャンル" value={person.genres} />
+              <InfoLine label="編成" value={person.ensembles} />
+            </div>
+
+            <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>楽器の組</div>
+            {/* 種別の選択は表と共有する。1枚のシートなので状態を2つ持たない。 */}
+            {types.length === 0 ? (
+              <Empty>この人はまだ何も公開していません</Empty>
+            ) : (
+              <>
+                <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
+                  {types.map((t) => (
+                    <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
+                  ))}
+                </div>
+                {g ? (
+                  <div>
+                    <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
+                    <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
+                    <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
+                    <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
+                  </div>
+                ) : <Empty>この楽器の登録はまだありません</Empty>}
+              </>
+            )}
+          </>
+        ) : (
+          <>
         {/* 【累計で出す】期間つきの数字は順位の画面のもの。紹介としては累計が素性を表す。 */}
         <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-2)" }}>
           <div className="sans jp-label" style={labelStyle}>練習日数</div>
@@ -965,6 +1121,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                 ) : null}
               </>
             )}
+          </>
+        )}
           </>
         )}
       </div>

@@ -121,8 +121,28 @@ describe("cohortAverage", () => {
   it("3人に足りなければ平均を出さない", () => {
     // 少数の平均は個人の特定に近づき、平均として意味も無い
     expect(MIN_COHORT).toBe(3);
-    expect(cohortAverage(mine, [a, b]).error).toContain("3");
     expect(cohortAverage(mine, [a, b]).notes).toBeUndefined();
+  });
+
+  // 【不足の理由で文言を出し分ける】人数と共通音は別の話。同じ文言に潰すと嘘になる。
+  it("人数が足りないときは「あと〇人」を出し、〇は足りない人数そのもの", () => {
+    // 2人しか合わせられない → あと1人
+    const two = cohortAverage(mine, [a, b]);
+    expect(two.error).toBe("あと1人のデータが必要です。みなさまのデータをお待ちしています...");
+    // 1人だけ → あと2人 / 誰もいない → あと3人。数が人数に連動していることを確かめる
+    expect(cohortAverage(mine, [a]).error).toBe("あと2人のデータが必要です。みなさまのデータをお待ちしています...");
+    expect(cohortAverage(mine, []).error).toBe("あと3人のデータが必要です。みなさまのデータをお待ちしています...");
+    // 音の話に化けていないこと
+    expect(two.error).not.toContain("重なっている音");
+  });
+
+  it("共通音が足りないときは人数の文言を出さない(待っても出ると誤解させない)", () => {
+    // 3人いる。人数は足りているのに、全員2音しか重ならないので出せない。
+    const few = (c0, h0) => ({ notes: { 0: note(c0, h0), 2: note(c0 + 300, h0 + 1) } });
+    const r = cohortAverage(mine, [few(1800, 16), few(1900, 17), few(1700, 15)]);
+    expect(r.error).toBe(`重なっている音が ${MIN_COMMON_NOTES} 音に足りません`);
+    expect(r.error).not.toContain("お待ちしています");
+    expect(r.notes).toBeUndefined();
   });
   it("自分の計測が無いときと、誰とも重ならないときで文言が違う", () => {
     // どちらも「出ない」だが、利用者がすべきことが違う

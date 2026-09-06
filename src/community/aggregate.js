@@ -113,6 +113,91 @@ export function tallyGear(users, saxType) {
   return { total, slots: out };
 }
 
+// ============ 内訳を2段にする(メーカー段 → 型番段) ============
+//
+// 【既存の gearKey を壊さないこと】gearKey は「銘柄 型番 番手」を1つの鍵にする関数で、
+// tallyGear と tallyCombos の両方が使っている。2段の内訳はそこに手を入れず**別に足す**。
+// 1段目は型番で割らないので、メーカーの人気がそのまま読める。
+
+/** メーカー段の鍵。型番でも番手でも割らない。 */
+export function brandKey(brand) {
+  if (brand === null || brand === undefined) return UNSET;
+  return brand; // OTHER_BRAND もそのまま1票(下の段では割れない)
+}
+
+/**
+ * 型番段の鍵。**銘柄を除いた「型番」**。リードだけ番手まで付ける
+ * (2026/09/06 本人指示「リードは型番段で番手まで出してよい」)。
+ * 銘柄は選んだが型番が無いドキュメントは「未選択」として数える ── 勝手に埋めない。
+ */
+export function modelKey(model, extra) {
+  if (model === null || model === undefined || model === "") return UNSET;
+  return extra ? `${model} ${extra}` : model;
+}
+
+/**
+ * その鍵を「掘り下げられるか」。**円グラフのタップ可否はこの1つの関数で決める。**
+ * ・「その他」はカタログ外なので、割っても読めるものにならない(gearKey と同じ理屈)
+ * ・「未選択」は割る中身が無い
+ */
+export function isDrillable(key) {
+  return key !== UNSET && key !== OTHER_BRAND && key !== null && key !== undefined;
+}
+
+/**
+ * 1段目。楽器種別を選んで、**メーカーだけ**で内訳を数える。
+ * @returns { total, slots: { [slot]: [{ key, count, ratio }] } }
+ */
+export function tallyGearByBrand(users, saxType) {
+  const counters = {};
+  for (const slot of GEAR_SLOTS) counters[slot] = new Map();
+  let total = 0;
+
+  for (const u of users ?? []) {
+    const g = u?.gear?.[saxType];
+    if (!g) continue; // その種別を吹かない人
+    total++;
+    for (const [slot, [bKey]] of Object.entries(SLOTS)) {
+      const k = brandKey(g[bKey]);
+      counters[slot].set(k, (counters[slot].get(k) ?? 0) + 1);
+    }
+  }
+
+  const out = {};
+  for (const slot of GEAR_SLOTS) {
+    out[slot] = [...counters[slot].entries()]
+      .map(([key, count]) => ({ key, count, ratio: total > 0 ? count / total : 0 }))
+      .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key));
+  }
+  return { total, slots: out };
+}
+
+/**
+ * 2段目。**そのメーカーを選んでいる人だけ**を母数にして、型番で数える。
+ * 割合はメーカー内の割合(全体の割合ではない)。
+ * 掘り下げられない鍵(その他 / 未選択)は空を返す ── isDrillable と同じ線で切る。
+ * @returns { total, items: [{ key, count, ratio }] }
+ */
+export function tallyGearModels(users, saxType, slot, brand) {
+  const cols = SLOTS[slot];
+  if (!cols || !isDrillable(brand)) return { total: 0, items: [] };
+  const [bKey, mKey, xKey] = cols;
+  const counter = new Map();
+  let total = 0;
+  for (const u of users ?? []) {
+    const g = u?.gear?.[saxType];
+    if (!g) continue;
+    if (g[bKey] !== brand) continue;
+    total++;
+    const k = modelKey(g[mKey], xKey ? g[xKey] : undefined);
+    counter.set(k, (counter.get(k) ?? 0) + 1);
+  }
+  const items = [...counter.entries()]
+    .map(([key, count]) => ({ key, count, ratio: total > 0 ? count / total : 0 }))
+    .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key));
+  return { total, items };
+}
+
 /**
  * 人気の組み合わせ。
  * @param depth 2 = マウスピース×リード / 3 = 楽器×マウスピース×リード /
