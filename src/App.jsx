@@ -1020,10 +1020,10 @@ function speedOfSound(tempC) {
 // gateBandpassHz: ノイズゲート判定用バンドパスの中心周波数。楽器の基音域の中心付近に
 // 合わせる(バリトンの最低音域65〜100Hzは500Hz中心だと減衰し、ppの低音を拾い損ねるため)。
 const SAX_PRESETS = {
-  soprano: { label: "Soprano", effectiveLengthCm: 73.3, bellRadiusCm: 0.6, gateBandpassHz: 650 },
-  alto: { label: "Alto", effectiveLengthCm: 123.4, bellRadiusCm: 0.8, gateBandpassHz: 500 },
-  tenor: { label: "Tenor", effectiveLengthCm: 164.8, bellRadiusCm: 1.0, gateBandpassHz: 400 },
-  baritone: { label: "Baritone", effectiveLengthCm: 261.7, bellRadiusCm: 1.3, gateBandpassHz: 300 },
+  soprano: { label: "S.Sax", effectiveLengthCm: 73.3, bellRadiusCm: 0.6, gateBandpassHz: 650 },
+  alto: { label: "A.Sax", effectiveLengthCm: 123.4, bellRadiusCm: 0.8, gateBandpassHz: 500 },
+  tenor: { label: "T.Sax", effectiveLengthCm: 164.8, bellRadiusCm: 1.0, gateBandpassHz: 400 },
+  baritone: { label: "B.Sax", effectiveLengthCm: 261.7, bellRadiusCm: 1.3, gateBandpassHz: 300 },
 };
 
 function conicalTubeHarmonics(effectiveLengthCm, bellRadiusCm, tempC, count) {
@@ -1097,8 +1097,8 @@ function writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz) {
 // 楽器種別ごとの実音(コンサートピッチ)の音域(MIDIノート番号, 両端含む)。
 // 【F-103 2026/08/17 本人指示】フラジオ(アルティッシモ)対応: 上限を通常の最高音
 // (記音F♯6 = High F♯キー)から**長3度(+4半音)上**の記音B♭6まで拡張する。
-// 運指範囲は全機種共通で記音B♭3(58)〜B♭6(94)の37音。下限は不変。
-// 各機種の移調量を足した実音がこの範囲になる:
+// 運指範囲は全種別共通で記音B♭3(58)〜B♭6(94)の37音。下限は不変。
+// 各種別の移調量を足した実音がこの範囲になる:
 //   ソプラノ: A♭3(56)〜A♭6(92) / アルト: D♭3(49)〜D♭6(85)
 //   テナー:   A♭2(44)〜A♭5(80) / バリトン: D♭2(37)〜D♭5(73)
 // (通常運指の最高音は従来どおり 92-4 / 85-4 / 80-4 / 73-4 の位置。+4の帯がフラジオ域)
@@ -1378,7 +1378,7 @@ function freqToBin(freq, sampleRate, fftSize) {
 //  4. HNRの倍音帯域が固定±15Hzで、ビブラート時に上位倍音(第8倍音は±20¢で±40Hz
 //     動く)が帯域から外れ「ノイズ」側に計上され、HNRが不当に下がる
 //  5. HNR・重心とも全帯域(〜24kHz)を対象にしており、マイクのヒスや低域ランブルが
-//     値を左右する(奏者ではなく機材・部屋を測ってしまう)
+//     値を左右する(奏者ではなく楽器や部屋を測ってしまう)
 //
 // 本実装は時間波形の直近W=8192サンプルからHann窓つきFFTで毎回独立に計算する。
 // 平滑ゼロ・ライブとアップロード解析で完全に同一の計算になる。
@@ -12327,7 +12327,7 @@ const PIVOT_DIMENSIONS = [
   },
 ];
 
-// PIVOTの集計条件の既定値。他機種のデータが混ざると平均が意味を失うため、初期状態で
+// PIVOTの集計条件の既定値。他の楽器種別のデータが混ざると平均が意味を失うため、初期状態で
 // 「サックス種別=今の楽器」を1つ入れておく(不要なら × で消せる)。
 // 【F-59】状態を親へ持ち上げたので、既定値の生成をここに切り出して**使う時点の saxType**で
 // 評価できるようにした(親の useState 初期化子で評価すると、IndexedDB からの楽器種別の復元より
@@ -14427,7 +14427,7 @@ function AnalysisLabView(props) {
   // 既定値と永続化の規則は N7-SPEC 1 のまま(楽器=計測タブの選択・非永続 / 期間=永続)。
   const [dataSax, setDataSax] = useState(saxType);
   const [dataRange, setDataRange] = usePersistedState("myDataRange", "1m");
-  // 集計対象抽出: [{dimKey, values: string[]}]。他機種のデータが混ざると平均が意味を失うため、
+  // 集計対象抽出: [{dimKey, values: string[]}]。他の楽器種別のデータが混ざると平均が意味を失うため、
   // 初期状態で「サックス種別=今の楽器」を入れておく(不要なら×で消せる)。
   // 親が持つ値が null(まだ本人が触っていない)のときだけ、**このレンダー時点の** saxType から
   // 既定値を作る(親のuseState初期化子で作ると、IndexedDBからの復元前の値で固定されてしまう)。

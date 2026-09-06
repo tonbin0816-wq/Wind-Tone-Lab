@@ -370,7 +370,7 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
 }
 
 // ------------------------------------------------------------------
-// シェア(機材の内訳)
+// シェア(楽器の組の内訳)
 // ------------------------------------------------------------------
 // 【円グラフ】設計書 §5③。系列は §1.7 の紺の3段まで ── 段は3つしか無く、
 // 4つ目に色を与えると必ずグレーか重複になる(§1.7「色を足すのではなく表示を絞る」)。
@@ -601,7 +601,7 @@ function Legend({ series }) {
 
 export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson }) {
   // 【楽器種別は必ず1つに決める】アルトとテナーの重心を混ぜた平均は誰の目安にもならない。
-  // 条件行の「すべて」を使わず、機材シェアと同じく専用の選択肢を持つ。
+  // 条件行の「すべて」を使わず、シェアと同じく専用の選択肢を持つ。
   // 既定は自分が登録している最初の種別(登録が無ければアルト)。
   const [saxType, setSaxType] = useState(() => (saxTypes ?? [])[0] ?? "alto");
   const [filter, setFilter] = useState(EMPTY_FILTER);
@@ -740,7 +740,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
 //
 // 【1枚に全部出す】以前の案は「この人の目安を見る」を押させていたが、
 // 順位を眺めていて気になった人が居たとき、往復せずにその場で判断できるほうがよい
-// (2026-08-28 本人裁定)。機材も指標も同じ画面に置く。
+// (2026-08-28 本人裁定)。楽器の組も指標も同じ画面に置く。
 //
 // 【練習日数は累計を出す】順位は期間を切り替えて見るものだが、
 // 人物の紹介として出すなら累計のほうが素性を表す。
@@ -759,7 +759,7 @@ function GearLine({ label, brand, model }) {
 
 export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
   const [adopted, setAdopted] = useState(null);
-  // その人が登録している種別のうち、目安か機材があるものだけをタブに出す。
+  // その人が登録している種別のうち、目安か楽器の組があるものだけをタブに出す。
   // 「タブはあるのに中身が何も無い」を作らない。
   const types = useMemo(() => {
     const has = new Set();
@@ -846,7 +846,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
         </div>
 
         {types.length === 0 ? (
-          <Empty>この人はまだ機材も目安も公開していません</Empty>
+          <Empty>この人はまだ何も公開していません</Empty>
         ) : (
           <>
             <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
@@ -855,15 +855,14 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
               ))}
             </div>
 
-            <div className="sans jp-label" style={labelStyle}>機材</div>
-            {g ? (
+              {g ? (
               <div>
                 <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
                 <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
                 <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
                 <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} />
               </div>
-            ) : <Empty>この楽器の機材は登録されていません</Empty>}
+            ) : <Empty>この楽器の登録はまだありません</Empty>}
 
             <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>音のデータ</div>
             {!theirIdeal ? (

@@ -7529,7 +7529,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   //     チューニング基準)は別概念なので対象外**。「基準」は比較基準の意味(「絶対値基準」等)で
   //     正当に残るため綴り0件は固定できない。代わりに(a)「理想」の0件と、(b)機械置換の
   //     事故形「目安ピッチ」が現れないことを固定する。
-  // (2) サックス種別の label は英語表記(Alto / Tenor / Soprano / Baritone)。
+  // (2) サックス種別の label は略号表記(S.Sax / A.Sax / T.Sax / B.Sax。2026/09/06 本人指示)。
   //     保存データが参照するのは key の方なので、key は英小文字のまま変えない。
   // (3) 表示用の日付は formatYmd の1関数に寄せ、yyyy/mm/dd(ゼロ埋め)に統一。
   //     時刻が付く場所は { time: true } で yyyy/mm/dd hh:mm。
@@ -7550,10 +7550,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       /目安/.test(codeOf(srcOfFn(src, "NoteAxisLineChart"))));
     check("「基準ピッチ」を機械置換した事故形「目安ピッチ」が現れていない",
       !liveSrc.includes("目安ピッチ"));
-    // (2) サックス種別の英語表記。key(保存データが参照)はそのまま、label だけ英語
+    // (2) サックス種別の略号表記。key(保存データが参照)はそのまま、label だけ変える
     {
       const presets = new Function(`${extractConst("SAX_PRESETS")} return SAX_PRESETS;`)();
-      const want = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
+      const want = { soprano: "S.Sax", alto: "A.Sax", tenor: "T.Sax", baritone: "B.Sax" };
       check("SAX_PRESETS の key は英小文字のまま過不足なし(保存データの互換)",
         JSON.stringify(Object.keys(presets).sort()) === JSON.stringify(Object.keys(want).sort()),
         Object.keys(presets).join(","));

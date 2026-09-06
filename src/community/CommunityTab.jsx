@@ -27,7 +27,7 @@ import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds
 // このタブの根がどちらになるかは App.jsx 側(Task 9)の話だから。
 // ------------------------------------------------------------------
 
-// SAX_LABELS は profile.js が持つ(機材の照合エラーが「どの楽器の話か」を言うために
+// SAX_LABELS は profile.js が持つ(楽器の照合エラーが「どの楽器の話か」を言うために
 // あちら側でも要る)。写しを2つ置かない。
 
 // 通信系の失敗はどれも利用者にできることが同じ(電波の良いところでやり直す)なので、
@@ -325,7 +325,7 @@ const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-
 const bodyStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", lineHeight: 1.7 };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
-// 楽器種別ごとの機材のまとまりの頭。項目の見出し(labelStyle)より一段濃いだけで、
+// 楽器種別ごとの楽器の組のまとまりの頭。項目の見出し(labelStyle)より一段濃いだけで、
 // 新しい寸法・色は作らない(--fs-sm と --c-ink はどちらも既存のトークン)。
 const gearHeadingStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", fontWeight: 700 };
 const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHeight: 1.6 };
@@ -562,7 +562,7 @@ function CheckRow({ checked, onChange, children }) {
 }
 
 // ------------------------------------------------------------------
-// 機材の選び方。**自由入力は確定できない。**
+// 楽器の組の選び方。**自由入力は確定できない。**
 // 検索欄に打った文字はカタログを絞るためだけに使い、値にはならない。
 // 確定できるのは (a) 候補リストの1件 (b)「カタログに無い(その他)」の2通りだけなので、
 // 打った文字がそのまま保存される経路が構造的に存在しない。
@@ -653,9 +653,9 @@ function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disable
 // ------------------------------------------------------------------
 // 登録フォーム。自由入力はニックネームだけ。他はすべて選択。
 // ------------------------------------------------------------------
-// 保存されている機材1組(6キー)を、画面が持つ形(3つの選択)へ開く。
+// 保存されている楽器の組(6キー)を、画面が持つ形(3つの選択)へ開く。
 // 【保存の形と画面の形の対応づけは、この2つの関数だけが持つ】
-// 機材の欄を1つ足すたびに、直す場所は (a) 読み込み (b) 空の初期値 (c) 書き出し の3つある。
+// 楽器の組の欄を1つ足すたびに、直す場所は (a) 読み込み (b) 空の初期値 (c) 書き出し の3つある。
 // 実際にリードを足したとき (b) と (c) を忘れ、**選んでも保存されない**状態になった。
 // 必須の欄でこれが起きると、利用者から見て「正しく選んでいるのに永久に登録できない」。
 // 対応づけを関数に閉じ込め、picksToGearEntry の出力が仕様の8キーと一致することを
@@ -689,11 +689,11 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   const [genres, setGenres] = useState(initial?.genres ?? []);
   const [ensembles, setEnsembles] = useState(initial?.ensembles ?? []);
   const [places, setPlaces] = useState(initial?.places ?? []);
-  // 【楽器種別と機材を2つの state に分けない】掛け持ちの奏者が居るので楽器種別は複数だが、
-  // 「選んだ種別」と「その機材」を別々の state に持つと、両方を1つの操作で更新するときに
+  // 【楽器種別と楽器の組を2つの state に分けない】掛け持ちの奏者が居るので楽器種別は複数だが、
+  // 「選んだ種別」と「その楽器の組」を別々の state に持つと、両方を1つの操作で更新するときに
   // 片方が古い値を読んで**キー集合がずれる**(gear.keys() ≠ saxTypes → 保存が弾かれる)。
-  // そこで持つのは機材の側だけにして、**選んだ種別はそのキーから導く**。
-  // 集合の一致が構造的に崩せなくなり、「外したら機材も捨てる」も delete 1つで済む。
+  // そこで持つのは楽器の組の側だけにして、**選んだ種別はそのキーから導く**。
+  // 集合の一致が構造的に崩せなくなり、「外したら楽器の組も捨てる」も delete 1つで済む。
   const [gearPicks, setGearPicks] = useState(() => {
     const src = initial?.gear ?? {};
     const out = {};
@@ -711,10 +711,10 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
   const toggle = (list, setList) => (v) => setList(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
-  // 【外したら機材の入力状態も捨てる】キーを消すことが「種別を外す」ことそのものなので、
+  // 【外したら楽器の組の入力状態も捨てる】キーを消すことが「種別を外す」ことそのものなので、
   // 入力状態が取り残される経路が無い(残ると gear のキーが saxTypes より多くなり、
   // buildProfileDoc と Firestore ルールの「完全一致」に弾かれて保存できなくなる。
-  // しかも弾かれる理由が画面に出ていない機材なので、利用者からは直しようがない)。
+  // しかも弾かれる理由が画面に出ていない楽器の組なので、利用者からは直しようがない)。
   const toggleSaxType = (t) => {
     setGearPicks((prev) => {
       if (Object.prototype.hasOwnProperty.call(prev, t)) { const next = { ...prev }; delete next[t]; return next; }
@@ -815,7 +815,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
             runSearch={(q) => searchLigatures(q)}
           />
           {/* 【リードに番手の欄を置かない】番手はリードタブ(App.jsx)が箱ごとに持っていて、
-              同じ銘柄でも日によって変わる。ここは機材の一覧なので銘柄だけを持つ。 */}
+              同じ銘柄でも日によって変わる。ここは楽器の組の一覧なので銘柄だけを持つ。 */}
           <GearPicker
             label="リード" ariaPrefix={`${SAX_LABELS[t]}のリード`}
             value={gearPicks[t]?.reed ?? null} onPick={(v) => setPick(t, "reed", v)}
@@ -930,7 +930,7 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
         <Row label="楽器種別" value={types.length > 0 ? types.map((t) => SAX_LABELS[t]).join("・") : "—"} />
-        {/* 機材は楽器種別ごとに1組。どの楽器の機材かが分からないと読めないので、
+        {/* 楽器の組は楽器種別ごとに1組。どの楽器の楽器の組かが分からないと読めないので、
             種別の見出しを挟んでから3行を出す。 */}
         {types.map((t) => {
           const g = gear[t] ?? {};

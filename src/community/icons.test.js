@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { EMPTY_PICKS, picksToGearEntry } from "./CommunityTab.jsx";
 
-// 【この2つは実装から import しない】機材1組の形と、選べる絵柄の数は凍結された仕様。
+// 【この2つは実装から import しない】楽器の組の形と、選べる絵柄の数は凍結された仕様。
 // 実装から引くと「実装が何を出そうと一致する」検査になり、何も守らない。
 const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel"];
 const ICON_COUNT = 24;
@@ -54,7 +54,7 @@ describe("アイコンの地の色", () => {
 });
 
 // ------------------------------------------------------------------
-// 【この describe が塞いでいる穴】機材の欄を1つ足すとき、直す場所は3つある:
+// 【この describe が塞いでいる穴】楽器の組の欄を1つ足すとき、直す場所は3つある:
 //   (a) 保存済みの値を画面の形へ読む gearEntryToPicks
 //   (b) 空の初期値 EMPTY_PICKS
 //   (c) 画面の値を保存の形へ書き出す picksToGearEntry
@@ -62,7 +62,7 @@ describe("アイコンの地の色", () => {
 // 直接ドキュメントを渡すので**全部通ったまま**で、画面からだけ保存できない状態だった。
 // しかもリードは必須なので、利用者から見ると「正しく選んでいるのに永久に登録できない」。
 // ------------------------------------------------------------------
-describe("画面の機材と保存の形の対応づけ", () => {
+describe("画面の楽器の組と保存の形の対応づけ", () => {
   it("書き出しの結果は仕様の8キーちょうど(数も綴りも)", () => {
     expect(Object.keys(picksToGearEntry(EMPTY_PICKS)).sort()).toEqual([...GEAR_KEYS].sort());
   });

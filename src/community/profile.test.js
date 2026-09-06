@@ -6,21 +6,22 @@ import {
   detectDeviceClass,
   POSITIONS,
   SAX_TYPES,
+  SAX_LABELS,
   GENRES,
   ENSEMBLES,
   PLACES,
 } from "./profile.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
-// 【この8つは実装から import しない】機材1組の形は凍結された仕様であって、
+// 【この8つは実装から import しない】楽器の組の形は凍結された仕様であって、
 // 実装が持っている定数ではない。実装側から引くと「実装が何を出そうと一致する」検査になる。
 // 2026-09-02: リード(reedBrand / reedModel)を追加して6→8。番手は持たない
 // (番手はセッション側の情報で、同じ銘柄でも日によって変わるため)。
 const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel"];
-// 空の機材1組(何も選ばなかった状態)。必須化後は保存できない値だが、
+// 空の楽器の組(何も選ばなかった状態)。必須化後は保存できない値だが、
 // 「弾かれること」を確かめるために必要なので残す。
 const NO_GEAR = { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null, reedBrand: null, reedModel: null };
-// 埋まった機材1組。**機材以外を確かめる検査の穴埋め用。**
+// 埋まった楽器の組。**楽器の組以外を確かめる検査の穴埋め用。**
 // 全部「その他」にしてあるのは、これが**どの楽器種別でも通る唯一の値**だから。
 // カタログの型番は種別ごとに違う(YAS-62 は alto にしか無い)ので、実在の型番で埋めると
 // 種別を変えるたびに書き換えることになり、そのうち誰かが検査の主題ごと壊す。
@@ -39,8 +40,8 @@ const base = {
   places: ["自宅"],
   ageConfirmed: true,
   isPublic: true,
-  // 【リガチャーまで埋める】機材3欄は必須になったので、欠けていると base 自体が弾かれ、
-  // 機材と無関係な検査まで巻き添えで落ちる。
+  // 【リガチャーまで埋める】楽器の組の3欄は必須になったので、欠けていると base 自体が弾かれ、
+  // 楽器の組と無関係な検査まで巻き添えで落ちる。
   gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional" } },
 };
 
@@ -230,7 +231,7 @@ describe("buildProfileDoc", () => {
 
   // ---- gear のキー集合は saxTypes と完全一致 ----
   describe("gear のキー集合", () => {
-    it("saxTypes より多いキーがあると弾く(持っていない楽器の機材)", () => {
+    it("saxTypes より多いキーがあると弾く(持っていない楽器の楽器の組)", () => {
       expect(
         buildProfileDoc({ ...base, saxTypes: ["alto"], gear: { alto: base.gear.alto, tenor: {} } })
       ).toHaveProperty("error");
@@ -253,7 +254,7 @@ describe("buildProfileDoc", () => {
       expect(buildProfileDoc({ ...base, gear: [base.gear.alto] })).toHaveProperty("error");
       expect(buildProfileDoc({ ...base, gear: { alto: "YAS-62" } })).toHaveProperty("error");
     });
-    it("2種別ぶんの機材を入れた正常系: gear が2キーを持ち、それぞれ6キーを持つ", () => {
+    it("2種別ぶんの楽器の組を入れた正常系: gear が2キーを持ち、それぞれ6キーを持つ", () => {
       const r = buildProfileDoc(
         {
           ...base,
@@ -284,7 +285,7 @@ describe("buildProfileDoc", () => {
   // 「種別を無視して照合している」実装ならこの2組のどちらかが必ず落ちる。
   describe("楽器の妥当性は種別ごとに判定される", () => {
     // 【渡された欄以外は埋めてから検査する】この describe の主題は
-    // 「楽器の型番が種別ごとに照合されるか」。機材3欄が必須になったので、埋めずに渡すと
+    // 「楽器の型番が種別ごとに照合されるか」。楽器の組の3欄が必須になったので、埋めずに渡すと
     // **マウスピース未選択で先に落ちて**、楽器の照合を一度も通らないまま
     // 「弾かれた」ことになる。検査は緑のままなのに、確かめたい仕組みは一切動いていない
     // ——という一番たちの悪い形になるので、ここで穴を埋める。
@@ -339,14 +340,28 @@ describe("buildProfileDoc", () => {
       expect(r.error).toBeUndefined();
       expect(r.doc.gear.alto.reedModel).toBe("Traditional");
     });
+    // 【表示名は2箇所にある】App.jsx の SAX_PRESETS[*].label(計測タブ側)と
+    // profile.js の SAX_LABELS(コミュニティ側)。片方だけ直すと同じ楽器が
+    // 画面ごとに別名で出る。App.jsx は import できない(巨大で副作用がある)ので、
+    // pitch-test と同じく綴りを正規表現で読んで突き合わせる。
+    it("SAX_LABELS は App.jsx の SAX_PRESETS の label と同じ4語", () => {
+      const src = readFileSync(new URL("../App.jsx", import.meta.url), "utf8");
+      const body = src.slice(src.indexOf("const SAX_PRESETS = {"));
+      const found = {};
+      const end = body.indexOf("\n};");
+      for (const [, key, label] of body.slice(0, end).matchAll(/(\w+): \{ label: "([^"]+)"/g)) {
+        found[key] = label;
+      }
+      expect(found).toEqual(SAX_LABELS);
+    });
     it("エラー文言はどの楽器種別の話かを言う", () => {
       const r = withGear(["tenor"], { tenor: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62" } });
-      expect(r.error).toContain("Tenor");
+      expect(r.error).toContain("T.Sax");
     });
   });
 
-  // 【2026-09-02 本人裁定】機材3欄は未選択で登録できない。該当が無ければ「その他」を選ぶ。
-  it("機材を1つも選ばないと弾かれる", () => {
+  // 【2026-09-02 本人裁定】楽器の組の3欄は未選択で登録できない。該当が無ければ「その他」を選ぶ。
+  it("楽器の組を1つも選ばないと弾かれる", () => {
     const r = buildProfileDoc({ ...base, gear: { alto: { ...NO_GEAR } } }, new Date("2026-08-27"));
     expect(r.error).toBeTruthy();
   });
@@ -375,7 +390,7 @@ describe("buildProfileDoc", () => {
   // 【必須化しても null は消えない】この検査を消さないこと。
   // 必須化が効くのは*これから書く*ドキュメントだけで、(a) 既に null で保存された物は残り、
   // (b) firestore.rules は null を許したままなので生SDKからは書ける。
-  // 計画4の機材シェアは、null を「その他」の票に数えてはいけない。
+  // 計画4のシェアは、null を「その他」の票に数えてはいけない。
   it("「その他」は null と同じ値にならない(読む側が欠測と区別できる)", () => {
     const other = buildProfileDoc(
       { ...base, gear: { alto: { ...ANY_GEAR } } },
@@ -521,7 +536,7 @@ describe("firestore.rules との同期", () => {
       "request.resource.data.saxTypes.size() == request.resource.data.gear.keys().size()"
     );
   });
-  it("4種別それぞれについて、機材の6キーと string-or-null の型検査がある", () => {
+  it("4種別それぞれについて、楽器の組の6キーと string-or-null の型検査がある", () => {
     for (const type of SAX_TYPES) {
       const p = `request.resource.data.gear.${type}`;
       // 「そのキーが在るなら中身を検査する」形の入口

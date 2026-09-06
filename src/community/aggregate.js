@@ -2,7 +2,7 @@ import { OTHER_BRAND } from "./catalog/gear.js";
 import { PERIOD_FIELD, isStatsFresh } from "./stats.js";
 
 // ------------------------------------------------------------------
-// 順位と機材の内訳。**どちらも公開ユーザーの配列を受け取って数えるだけの純粋な関数。**
+// 順位と楽器の組の内訳。**どちらも公開ユーザーの配列を受け取って数えるだけの純粋な関数。**
 // 通信はしない(directory.js の仕事)ので、そのまま検査できる。
 // ------------------------------------------------------------------
 
@@ -50,10 +50,10 @@ export function findMyRank(ranked, uid) {
   return (ranked ?? []).find((r) => r.uid === uid) ?? null;
 }
 
-// ============ 機材の内訳 ============
+// ============ 楽器の組の内訳 ============
 
 // 未選択を表す印。**「その他」とは別物として数える。**
-// 2026-09-02 に機材は必須になったが、それ以前のドキュメントと、ルールを直接叩いた
+// 2026-09-02 に楽器の組は必須になったが、それ以前のドキュメントと、ルールを直接叩いた
 // 書き込みには null が残る。未選択を「その他」に混ぜると内訳が実態より「その他」に寄る。
 export const UNSET = "__unset__";
 
@@ -66,7 +66,7 @@ const SLOTS = {
 export const GEAR_SLOTS = Object.keys(SLOTS);
 export const SLOT_LABEL = { instrument: "楽器", mouthpiece: "マウスピース", ligature: "リガチャー", reed: "リード" };
 
-/** 機材1つを数えるための鍵。null は UNSET、その他は OTHER_BRAND のまま。 */
+/** 楽器の組1つを数えるための鍵。null は UNSET、その他は OTHER_BRAND のまま。 */
 export function gearKey(brand, model) {
   if (brand === null || brand === undefined) return UNSET;
   if (brand === OTHER_BRAND) return OTHER_BRAND;
@@ -74,7 +74,7 @@ export function gearKey(brand, model) {
 }
 
 /**
- * 選んだ楽器種別について、機材の内訳を数える。
+ * 選んだ楽器種別について、楽器の組の内訳を数える。
  * @returns { [slot]: [{ key, count, ratio }] } count の多い順
  */
 export function tallyGear(users, saxType) {

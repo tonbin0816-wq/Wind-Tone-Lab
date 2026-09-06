@@ -10,9 +10,11 @@ import { isValidInstrument, isValidMouthpiece, isValidLigature, isValidReed } fr
 // **ここを足し引きしたら firestore.rules の該当行も必ず直すこと**(逆も同じ)。
 // 食い違いは profile.test.js の「Firestore ルールの列挙と一致する」が検出する。
 export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
-// 画面に出す表示名。CommunityTab.jsx にも同じ地図があったが、機材の照合エラーが
+// 画面に出す表示名。CommunityTab.jsx にも同じ地図があったが、楽器の組の照合エラーが
 // 「どの楽器の話か」を言えないと直しようがないので、こちら(判断を持つ側)へ移して1つにした。
-export const SAX_LABELS = { soprano: "Soprano", alto: "Alto", tenor: "Tenor", baritone: "Baritone" };
+// 【綴りは App.jsx の SAX_PRESETS[*].label と同じ4語に揃える】片方だけ直すと、
+// 計測タブとコミュニティで同じ楽器が別名で出る。profile.test.js が両方を突き合わせる。
+export const SAX_LABELS = { soprano: "S.Sax", alto: "A.Sax", tenor: "T.Sax", baritone: "B.Sax" };
 export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 // 【「その他」を末尾に置く 2026-09-02】3つの多選択はすべて1つ以上必須にした。
@@ -120,12 +122,18 @@ export function detectDeviceClass(ua = (typeof navigator !== "undefined" ? navig
 
 const pickAllowed = (arr, allowed) => (Array.isArray(arr) ? arr.filter((v) => allowed.includes(v)) : []);
 
-// 【機材は楽器種別ごとに1組】サックス奏者は soprano / alto / tenor / baritone を
+// 【`gear` = 楽器・マウスピース・リガチャー・リードの1組。改名しない】
+// 利用者に見せる文字では「機材」「機種」と呼ばず、必ず個別の名前で呼ぶ(本人指示)。
+// ただし `gear` は Firestore の保存キーであり、rules も保存済みドキュメントも
+// この綴りを参照している。識別子を変えると既存の doc が読めなくなるので変えない。
+// 以下、コード内の識別子 gear / gearKey / GEAR_SLOTS 等はすべてこの1組を指す。
+//
+// 【楽器の組は楽器種別ごとに1組】サックス奏者は soprano / alto / tenor / baritone を
 // 掛け持ちすることがあり、持ち替えれば楽器もマウスピースもリガチャーも別物になる。
 // 同じ種別を2本持つ人は稀なので、1種別につき1組だけ持つ。
 //
 // 【gear のキー集合は saxTypes と完全に一致させる】多くても少なくてもエラーにする。
-//   ・多い(持っていない楽器の機材が入っている) … 集計(計画4の機材シェア)の母数が壊れる。
+//   ・多い(持っていない楽器の楽器の組が入っている) … 集計(計画4のシェア)の母数が壊れる。
 //     「テナーを吹かない人のテナーのマウスピース」が票として数えられてしまう。
 //   ・少ない(選んだ楽器の欄が無い)             … 画面側の取りこぼし(チェックを入れたのに
 //     入力状態を作り忘れた等)を、保存が成立してから気付くことになる。
@@ -174,9 +182,9 @@ export function buildProfileDoc(input, now = new Date()) {
     if (g === null || typeof g !== "object" || Array.isArray(g)) {
       return { error: `${SAX_LABELS[t]}の入力が正しくありません` };
     }
-    // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と、「カタログに無い(その他)」を
+    // 【未選択を「その他」に寄せない】楽器の組欄を飛ばした人(null)と、「カタログに無い(その他)」を
     // 自分で選んだ人(OTHER_BRAND)は別の情報である。ここで ?? OTHER_BRAND に潰すと、
-    // 計画4の機材シェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
+    // 計画4のシェア円グラフから見て両者が区別できなくなり、しかも書き込み済みの
     // ドキュメントからは後で復元できない(欠測が「その他」の票として数えられてしまう)。
     // undefined は null に正規化するだけにとどめる。妥当性は gear.js が判定する。
     //
