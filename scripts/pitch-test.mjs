@@ -6347,8 +6347,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 地。ページの地そのものなので、**画面の左右端まで**届かせる必要がある
     // (本文の余白 14px の中で止めると白い縁が残り、地に見えない)。
     // 打ち消しと足し戻しは .app-root の padding と**同じトークン**で書く。
-    check("D-10: カードの作法の地は --c-sunk(薄い地)",
-      decl(surfCard, "background") === "var(--c-sunk)", String(decl(surfCard, "background")));
+    // 【2026/09/06 本人指示で白へ】「My Data とコミュニティの背景を計測タブ・
+    // リードタブに揃える」。地は白になり、カードの浮きは影だけが担う。
+    // 宣言を**消していない**ことも一緒に見る(消すと作法の根でなくなる)。
+    check("D-10: カードの作法の地は --c-bg(計測・リードと同じ白)",
+      decl(surfCard, "background") === "var(--c-bg)", String(decl(surfCard, "background")));
     check("D-10: 地は .app-root の左右 padding を同じトークンで打ち消して画面の端まで届く",
       decl(surfCard, "margin-left") === "calc(-1 * var(--page-pad-left))"
       && decl(surfCard, "margin-right") === "calc(-1 * var(--page-pad-right))"
@@ -6732,7 +6735,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     //   ・D-29 / D-30(2026/09/03 本人裁定)…「計測タブとリードタブの Top 画面以外は
     //     適切にカード使っていい」→ セッション詳細 / リード個体詳細 / すべてのセッションが
     //     罫 → カードへ(罫4 → 罫2 / カード1 → カード4)
-    //   ・コミュニティ(2026/08/28 本人裁定。design/DESIGN-SYSTEM-community-addendum.md)…
+    //   ・コミュニティ(2026/08/28 本人裁定。DESIGN-SYSTEM §6.6 の表。2026/09/06 に貼り込み済み)…
     //     コミュニティタブの全画面がカード(カード +1)
     // この2つは**別の周で並行して入り**、main で合流した。合流の時点で 2 + 5 = 7。
     const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length

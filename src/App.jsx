@@ -4157,9 +4157,8 @@ export default function WindToneLabPhaseMode() {
       )}
       {topTab === "community" && (
         /* 【カードの作法(.surf-card)】
-           design/DESIGN-SYSTEM-community-addendum.md の
-           「2026/08/28 本人裁定: コミュニティタブへ広げた。範囲はコミュニティタブの全画面」
-           および §6.6 の表の追記行「| コミュニティ(全画面) | カード | .surf-card |」で、
+           DESIGN-SYSTEM §6.6 の表の
+           「| コミュニティタブ(全画面) | カード | .surf-card |」の行で、
            このタブの作法は**カード**に確定しており、2026-09-02 のマージでそのとおりにした。
            罫(.surf-rule)へ戻さないこと。
            下端の逃げ(下部固定ナビのぶん)は .app-root の padding-bottom:
@@ -9979,7 +9978,8 @@ function ReedsTab(props) {
   // (以前ここで早期 return していたときは、詳細だけ左右が 14px になっていた)。
   if (evaluatingReed) {
     /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.1】個体詳細だけ
-       **カードの作法**(薄い地 --c-sunk + 白いカード + 影)。Top(登録 / 比較)は罫のまま。
+       **カードの作法**(白い地 + 白いカード + 影)。Top(登録 / 比較)は罫のまま。
+   【2026/09/06 本人指示】地は --c-sunk から --c-bg へ。浮きは影だけが担う。
        地は .surf-card が .app-root の左右 padding を打ち消して画面の端まで届かせるので、
        **正典 .rlist の左右 24px(= app-root の 14 + 差分 10)は内側の div が持つ**。
        .surf-card 自身に padding をインラインで書くと padding-left/right を殺してしまい、
@@ -14582,7 +14582,7 @@ function AnalysisLabView(props) {
 
   return (
     /* 【D-10 2026/08/26 本人裁定・凍結仕様 design/D10-SPEC.md §0 A / §1】
-       My Data と分析タブは**カードの作法**(薄い地 --c-sunk + 白いカード + 影)。
+       My Data と分析タブは**カードの作法**(白い地 + 白いカード + 影。2026/09/06 に地が白へ)。
        地は .surf-card がページの左右端まで届かせる(index.css)ので、
        中身を包む幅の制限(maxWidth)は**内側の1枚**に持たせる
        (地に maxWidth を持たせると、広い画面で地だけが中央に浮いた帯になる)。 */

@@ -59,7 +59,7 @@ export function Avatar({ icon, color, size = 40 }) {
       }}
     >
       {/* 絵柄は地に対して白。地の10色は白との比 4.5:1 以上を実測してある
-          (design/DESIGN-SYSTEM-community-addendum.md)。色を足すときも同じ下限を守ること。 */}
+          (DESIGN-SYSTEM §1.6a)。色を足すときも同じ下限を守ること。 */}
       <svg width={size * 0.6} height={size * 0.6} fill="#fff" aria-hidden="true">
         <use href={`#${icon}`} />
       </svg>

@@ -320,7 +320,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
 // ------------------------------------------------------------------
 
-const pageStyle = { padding: "var(--sp-4)", display: "grid", gap: "var(--sp-4)" };
+/* 【minmax(0, 1fr) を外さないこと】grid の子の min-width は既定 auto なので、
+   中の長い文字(型番・銘柄)が列そのものを押し広げ、**ページ全体の X 軸がずれる**。
+   凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
+   実測: 375px 幅でカードが 619.7px まで広がった。minmax(0, 1fr) で 315px に収まる。
+   同じ事故がアイコンの色の格子でも起きている(CommunityTab.jsx の格子のコメント)。 */
+const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" };
 const bodyStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", lineHeight: 1.7 };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };

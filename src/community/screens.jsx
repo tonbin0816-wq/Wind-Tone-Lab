@@ -12,7 +12,12 @@ import { Avatar } from "./icons.jsx";
 // ------------------------------------------------------------------
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
 // ------------------------------------------------------------------
-const pageStyle = { padding: "var(--sp-4)", display: "grid", gap: "var(--sp-4)" };
+/* 【minmax(0, 1fr) を外さないこと】grid の子の min-width は既定 auto なので、
+   中の長い文字(型番・銘柄)が列そのものを押し広げ、**ページ全体の X 軸がずれる**。
+   凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
+   実測: 375px 幅でカードが 619.7px まで広がった。minmax(0, 1fr) で 315px に収まる。
+   同じ事故がアイコンの色の格子でも起きている(CommunityTab.jsx の格子のコメント)。 */
+const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
 // 【カードの作法】§6.6。地は --c-sunk(CommunityTab の根が持つ)、この上に白いカードを浮かせる。
@@ -819,7 +824,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
 
   return (
     <div role="dialog" aria-label={`${person.nickname} の詳細`}
-         style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--c-app, #F6F7F9)", overflowY: "auto" }}>
+         style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--c-bg)", overflowY: "auto" }}>
       <div style={{ ...pageStyle, paddingBottom: "var(--sp-6, 40px)" }}>
         <button type="button" onClick={onClose} className="sans" aria-label="閉じる"
                 style={{ justifySelf: "start", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
