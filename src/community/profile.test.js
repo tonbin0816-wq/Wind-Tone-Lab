@@ -10,7 +10,6 @@ import {
   REED_STRENGTHS,
   GENRES,
   ENSEMBLES,
-  PLACES,
 } from "./profile.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
@@ -44,7 +43,6 @@ const base = {
   startYear: 2015,
   genres: ["クラシック"],
   ensembles: ["吹奏楽"],
-  places: ["自宅"],
   ageConfirmed: true,
   isPublic: true,
   // 【リガチャーまで埋める】楽器の組の3欄は必須になったので、欠けていると base 自体が弾かれ、
@@ -155,8 +153,9 @@ describe("buildProfileDoc", () => {
     const r = buildProfileDoc({ ...base, genres: ["クラシック", "演歌"] });
     expect(r.doc.genres).toEqual(["クラシック"]);
   });
-  it("doc のキー集合が Firestore ルールと一致する14キーに固定される", () => {
+  it("doc のキー集合が Firestore ルールと一致する13キーに固定される", () => {
     // 2026-09-02: icon / iconColor を足して12→14。
+    // 2026-09-06: 練習場所(places)を廃止して14→13。
     // **この列を実装から作らないこと。**手で書いたこの列だけが正で、
     // 数も綴りも firestore.rules の hasAll / hasOnly と一致していなければならない。
     const r = buildProfileDoc(base, new Date("2026-08-27"));
@@ -171,7 +170,6 @@ describe("buildProfileDoc", () => {
         "iconColor",
         "isPublic",
         "nickname",
-        "places",
         "position",
         "saxTypes",
         "startYear",
@@ -431,9 +429,10 @@ describe("buildProfileDoc", () => {
     ).toHaveProperty("error");
   });
 
-  // 【2026-09-02 本人裁定】ジャンル・編成・練習場所も1つ以上必須。
+  // 【2026-09-02 本人裁定】ジャンル・編成も1つ以上必須。
+  // (練習場所は 2026-09-06 に概念ごと廃止した。)
   describe("多選択は1つ以上必須", () => {
-    for (const k of ["genres", "ensembles", "places"]) {
+    for (const k of ["genres", "ensembles"]) {
       it(`${k} が空だと弾かれる`, () => {
         expect(buildProfileDoc({ ...base, [k]: [] }, new Date("2026-08-27"))).toHaveProperty("error");
       });
@@ -443,12 +442,11 @@ describe("buildProfileDoc", () => {
         expect(buildProfileDoc({ ...base, [k]: ["ありえない値"] }, new Date("2026-08-27"))).toHaveProperty("error");
       });
     }
-    it("編成と練習場所にも「その他」があり、それだけで登録できる", () => {
+    it("編成にも「その他」があり、それだけで登録できる", () => {
       // 必須にする以上、当てはまらない人の逃げ道が要る。逃げ道が無い必須化は嘘の申告を生む。
-      const r = buildProfileDoc({ ...base, ensembles: ["その他"], places: ["その他"] }, new Date("2026-08-27"));
+      const r = buildProfileDoc({ ...base, ensembles: ["その他"] }, new Date("2026-08-27"));
       expect(r.error).toBeUndefined();
       expect(r.doc.ensembles).toEqual(["その他"]);
-      expect(r.doc.places).toEqual(["その他"]);
     });
   });
 
@@ -502,10 +500,21 @@ describe("firestore.rules との同期", () => {
   it("position の列挙がルールと一致する", () => {
     expect(rules).toContain(`request.resource.data.position in ${asRulesList(POSITIONS)}`);
   });
-  it("genres / ensembles / places の列挙がルールと一致する", () => {
+  it("genres / ensembles の列挙がルールと一致する", () => {
     expect(rules).toContain(`request.resource.data.genres.hasOnly(${asRulesList(GENRES)})`);
     expect(rules).toContain(`request.resource.data.ensembles.hasOnly(${asRulesList(ENSEMBLES)})`);
-    expect(rules).toContain(`request.resource.data.places.hasOnly(${asRulesList(PLACES)})`);
+  });
+  // 【練習場所は廃止したが、ルールの列挙は残す】既に保存されているドキュメントには
+  // places が残っている。hasOnly から外すと、その人の updateDoc(公開スイッチ・練習日数)が
+  // 「知らないキーがある」で弾かれる。逆に hasAll に置いたままでも弾かれるので、
+  // **hasOnly と型検査にだけ在る**という形が正しい。
+  it("廃止した places はルールの hasOnly にだけ在り、hasAll には無い", () => {
+    const usersBlock = rules.slice(rules.indexOf("match /users/"), rules.indexOf("match /ideals/"));
+    const lines = usersBlock.split(/\r?\n/).filter((l) => l.includes("request.resource.data.keys()"));
+    expect(lines).toHaveLength(2);
+    expect(lines.find((l) => l.includes("hasAll("))).not.toContain("'places'");
+    expect(lines.find((l) => l.includes("hasOnly("))).toContain("'places'");
+    expect(usersBlock).toContain("request.resource.data.places is list");
   });
   it("saxTypes の列挙がルールと一致する", () => {
     expect(rules).toContain("request.resource.data.saxTypes is list");

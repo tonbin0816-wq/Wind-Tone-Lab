@@ -32,7 +32,7 @@ describe("アイコンの絵柄", () => {
   });
 });
 
-describe("アイコンの地の色", () => {
+describe("アイコンの背景", () => {
   const css = readSrc("../index.css");
   it("色は1から10の番号で、10色とも index.css に実値がある", () => {
     expect(AVATAR_COLOR_MIN).toBe(1);
@@ -135,8 +135,8 @@ describe("アイコンの選択欄が狭い端末に収まる", () => {
   it("絵柄の格子が320pxの端末に収まる", () => {
     expect(needed(columnsOf("アイコンの絵柄"))).toBeLessThanOrEqual(available);
   });
-  it("地の色の格子が320pxの端末に収まる", () => {
-    expect(needed(columnsOf("アイコンの地の色"))).toBeLessThanOrEqual(available);
+  it("背景色の格子が320pxの端末に収まる", () => {
+    expect(needed(columnsOf("アイコンの背景"))).toBeLessThanOrEqual(available);
   });
   it("10色を1行に並べる形は入らない(この検査が効いていることの確認)", () => {
     // 実際に踏んだ形。これが available 以下になるなら、上の2件は何も守っていない。
@@ -145,7 +145,7 @@ describe("アイコンの選択欄が狭い端末に収まる", () => {
   it("列は minmax(0, 1fr) で指定する(1fr だと中身の幅が列の下限になる)", () => {
     // `repeat(N, 1fr)` は最小値が auto なので、中の44pxがそのまま列の下限になり、
     // 縮まずにページを押し広げる。minmax(0, ...) なら0まで縮むので伝播しない。
-    for (const label of ["アイコンの絵柄", "アイコンの地の色"]) {
+    for (const label of ["アイコンの絵柄", "アイコンの背景"]) {
       expect(gridOf(label)).toMatch(/^repeat\(\d+, minmax\(0, 1fr\)\)$/);
     }
   });

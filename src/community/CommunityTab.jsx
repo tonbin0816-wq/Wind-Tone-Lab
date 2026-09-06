@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
@@ -424,7 +424,7 @@ function Field({ label, note, children }) {
 // 選択中は「枠を透明にして地だけで塗る」= §6.7 の芯1(枠と違う地を同時に持たない)を守る書き方。
 // 見た目・寸法は App.jsx の拍のグループ選択ピルと同値(新しい値を作らない)。
 // labelOf: 保存する値と画面に出す文字が違うとき(楽器種別は値 "alto" / 表示 "A.Sax")に渡す。
-// 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成・練習場所)は書き換え不要。
+// 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成)は書き換え不要。
 function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v }) {
   return (
     /* 【行間は 0 でよい】ボタンが 44px、中の見えるピルが 30px なので、
@@ -548,12 +548,12 @@ function AvatarPicker({ icon, color, onChange }) {
         ))}
       </div>
 
-      <div className="sans jp-label" style={labelStyle}>地の色</div>
+      <div className="sans jp-label" style={labelStyle}>背景</div>
       {/* 【10色を1行に並べない】当たり判定は44px角を割れないので、10列だと
           10*44 + 隙間9*4 = 476px 必要になる。375px の端末で使える幅は
           375 - 左右の余白32 = 343px しかない。**5列2段にすると 5*44 + 4*4 = 236px で収まる。**
           「列を狭くして1行に収める」は当たり判定を割るので採らない。 */}
-      <div role="radiogroup" aria-label="アイコンの地の色" style={{
+      <div role="radiogroup" aria-label="アイコンの背景" style={{
         display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
       }}>
         {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
@@ -727,7 +727,6 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
   const [ensembles, setEnsembles] = useState(initial?.ensembles ?? []);
-  const [places, setPlaces] = useState(initial?.places ?? []);
   // 【楽器種別と楽器の組を2つの state に分けない】掛け持ちの奏者が居るので楽器種別は複数だが、
   // 「選んだ種別」と「その楽器の組」を別々の state に持つと、両方を1つの操作で更新するときに
   // 片方が古い値を読んで**キー集合がずれる**(gear.keys() ≠ saxTypes → 保存が弾かれる)。
@@ -779,7 +778,6 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         startYear,
         genres,
         ensembles,
-        places,
         ageConfirmed,
         // 【編集のときに公開設定を巻き戻さない】buildProfileDoc の既定は「公開」なので、
         // 非公開にしていた人が編集しただけで公開に戻ってしまう。元の値を持ち回す。
@@ -811,11 +809,11 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         />
       </Field>
 
-      <Field label="アイコン" note="順位や一覧であなたを表す絵柄です">
+      <Field label="アイコン">
         <AvatarPicker icon={icon} color={iconColor} onChange={(v) => { setIcon(v.icon); setIconColor(v.color); }} />
       </Field>
 
-      <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください">
+      <Field label="楽器種別(複数選択可)">
         <PillGroup
           options={SAX_TYPES} selected={saxTypes} onToggle={toggleSaxType}
           ariaPrefix="楽器種別" labelOf={(t) => SAX_LABELS[t]}
@@ -870,36 +868,33 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
       <Field label="属性">
         <select value={position} onChange={(e) => setPosition(e.target.value)} aria-label="属性" className="sans" style={controlStyle}>
-          <option value="">選んでください</option>
+          <option value="">選択</option>
           {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </Field>
 
       <Field label="演奏開始年">
         <select value={startYear} onChange={(e) => setStartYear(e.target.value)} aria-label="演奏開始年" className="sans" style={controlStyle}>
-          <option value="">選んでください</option>
+          <option value="">選択</option>
           {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
         </select>
       </Field>
 
-      <Field label="ジャンル(複数選べます)">
+      <Field label="ジャンル(複数選択可)">
         <PillGroup options={GENRES} selected={genres} onToggle={toggle(genres, setGenres)} ariaPrefix="ジャンル" />
       </Field>
 
-      <Field label="編成(複数選べます)">
+      <Field label="編成(複数選択可)">
         <PillGroup options={ENSEMBLES} selected={ensembles} onToggle={toggle(ensembles, setEnsembles)} ariaPrefix="編成" />
       </Field>
 
-      <Field label="練習場所(複数選べます)">
-        <PillGroup options={PLACES} selected={places} onToggle={toggle(places, setPlaces)} ariaPrefix="練習場所" />
-      </Field>
 
       <CheckRow checked={ageConfirmed} onChange={setAgeConfirmed}>13歳以上です</CheckRow>
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 
       <button type="button" onClick={submit} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
-        {busy ? "保存中…" : "保存する"}
+        {busy ? "保存中…" : "作成"}
       </button>
       {onCancel ? (
         <button type="button" onClick={onCancel} disabled={busy} className="sans" style={secondaryButtonStyle}>
@@ -996,7 +991,6 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         <Row label="演奏開始年" value={profile?.startYear ? `${profile.startYear}年` : "—"} />
         <Row label="ジャンル" value={listOrDash(profile?.genres)} />
         <Row label="編成" value={listOrDash(profile?.ensembles)} />
-        <Row label="練習場所" value={listOrDash(profile?.places)} />
       </div>
 
       <SwitchRow

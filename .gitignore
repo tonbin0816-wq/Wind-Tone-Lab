@@ -34,3 +34,5 @@ design/canvas/ficus-my-data.html
 
 # Firebase の接続設定。コミットしないこと
 .env.local
+
+.vercel

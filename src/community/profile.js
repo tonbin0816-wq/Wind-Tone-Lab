@@ -28,9 +28,12 @@ export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師�
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 // 【「その他」を末尾に置く 2026-09-02】3つの多選択はすべて1つ以上必須にした。
 // 必須にする以上、当てはまらない人の逃げ道が要る。GENRES には元から在ったので
-// ENSEMBLES / PLACES にも足した。**firestore.rules の写しも同時に直すこと。**
+// ENSEMBLES にも足した。**firestore.rules の写しも同時に直すこと。**
 export const ENSEMBLES = ["ソロ", "アンサンブル", "ビッグバンド", "吹奏楽", "オーケストラ", "その他"];
-export const PLACES = ["自宅", "学校の音楽室", "個人練習室", "スタジオ", "カラオケ", "屋外", "その他"];
+// 【練習場所は 2026/09/06 本人指示でアプリから廃止】選択肢ごと消した。
+// 既存のドキュメントには places が残るが、読む側はどこも見ていない。
+// firestore.rules は places を hasOnly に残したまま hasAll から外してある
+// (残っている doc への updateDoc を弾かないため)。
 
 // 【アイコンの絵柄。ここが「選べるもの」の正】絵の形は icons.jsx が持っている。
 // **片方だけ足さないこと。** ここにだけ足すと絵の無い識別子が保存でき、
@@ -236,15 +239,13 @@ export function buildProfileDoc(input, now = new Date()) {
   // 【2026-09-02 本人裁定: 多選択も1つ以上必須】このタブの用途は条件で絞り込んで
   // 他人と比べることなので、空欄のままだと**どの絞り込みにも現れない**。
   // 本人は登録できたつもりでいるのに誰からも見つからない、という一番わかりにくい壊れ方をする。
-  // 逃げ道として ENSEMBLES / PLACES にも「その他」を足してある(上の定義を参照)。
+  // 逃げ道として ENSEMBLES にも「その他」を足してある(上の定義を参照)。
   const genres = pickAllowed(input.genres, GENRES);
   const ensembles = pickAllowed(input.ensembles, ENSEMBLES);
-  const places = pickAllowed(input.places, PLACES);
   // pickAllowed は選択肢に無い値を捨てるので、「1つ以上渡したのに全部捨てられて空」も
   // ここに落ちる。渡した数ではなく**残った数**を見るのが要点。
   if (genres.length === 0) return { error: "ジャンルを1つ以上選んでください" };
   if (ensembles.length === 0) return { error: "編成を1つ以上選んでください" };
-  if (places.length === 0) return { error: "練習場所を1つ以上選んでください" };
 
   return {
     doc: {
@@ -256,7 +257,6 @@ export function buildProfileDoc(input, now = new Date()) {
       startYear: year,
       genres,
       ensembles,
-      places,
       gear,
       deviceClass: detectDeviceClass(),
       isPublic: input.isPublic !== false, // 既定は公開(spec 決定事項)
