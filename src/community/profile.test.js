@@ -537,6 +537,13 @@ describe("firestore.rules との同期", () => {
       for (const k of docKeys) expect(line).toContain(`'${k}'`);
       expect(line).not.toContain("'saxType'");
     }
+    // 【逆向きも見る】上のループは「doc の全キーがルールに在る」しか見ていない。
+    // ルールが doc に無いキーを hasAll で**要求**していると、保存が丸ごと弾かれる。
+    // 実際に stats がこれで、初回のプロフィール保存が本番でだけ失敗する状態だった
+    // (2026/09/06 に発見)。stats は後から updateDoc で足すので hasAll に入れない。
+    const hasAllLine = keyListLines.find((l) => l.includes("hasAll("));
+    const required = [...hasAllLine.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect([...required].sort()).toEqual([...docKeys].sort());
   });
   it("gear 1組のキー列挙が4種別ぶんルールに在り、実装と同じ8キーである", () => {
     // 【ここが食い違うと本番でしか壊れない】実装が8キーを書き、ルールが6キーしか許さないと、

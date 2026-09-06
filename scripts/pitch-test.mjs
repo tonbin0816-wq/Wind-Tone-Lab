@@ -1175,7 +1175,7 @@ console.log("=== 検証16: 音域制限・オクターブ誤検出の棄却 ==="
 {
   // 各楽器の音域(SAX_CONCERT_RANGE)と、buildFingeringTableの実音が一致すること
   // 【F-103 2026/08/17 本人指示】フラジオ対応で上限を通常の最高音(記音F♯6 = High F♯キー)から
-  // **長3度(+4半音)上**の記音B♭6へ拡張。運指範囲は全機種共通で記音B♭3〜B♭6の37音。
+  // **長3度(+4半音)上**の記音B♭6へ拡張。運指範囲は全種別共通で記音B♭3〜B♭6の37音。
   // 下限は不変。期待値は「F-95 までの最高音 +4半音」を独立に書き下したもの:
   //   soprano E6+4=A♭6 / alto A5+4=D♭6 / tenor E5+4=A♭5 / baritone A4+4=D♭5
   const expect = {
@@ -8818,9 +8818,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         ["2.0", "2.5", "3.0", "3.5", "4.0"].every((s) => api.REED_STRENGTHS.includes(s)));
       check("シートは REED_STRENGTHS をそのまま並べる(選択肢を作り直していない)",
         /REED_STRENGTHS\.map\(\(s\) => \(/.test(src));
-      check("番手のピル行は1つの部品(追加シート・箱の編集・プロフィールが同じ見た目を使う)",
-        /export function ReedStrengthPills\(/.test(src)
-        && (src.match(/<ReedStrengthPills /g) || []).length >= 1);
+      // 【App.jsx だけを見ても足りない】この検査が守りたいのは「3箇所が同じ部品を使う」
+      // ことなので、コミュニティ側の呼び手も一緒に見る。src(App.jsx)だけを見ていると、
+      // プロフィールの番手の欄を丸ごと消しても通ってしまう。
+      {
+        const communitySrc = readFileSync(
+          join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+        check("番手のピル行は1つの部品(綴りを3箇所に写していない)",
+          /export function ReedStrengthPills\(/.test(src)
+          && !/REED_STRENGTHS\.map/.test(codeOf(communitySrc)));
+        check("番手のピル行の呼び手は リード追加シート と プロフィール の2ファイル",
+          (src.match(/<ReedStrengthPills /g) || []).length === 1
+          && (communitySrc.match(/<ReedStrengthPills /g) || []).length === 1,
+          `App ${(src.match(/<ReedStrengthPills /g) || []).length} / community ${(communitySrc.match(/<ReedStrengthPills /g) || []).length}`);
+      }
       // --- 開封日は「箱を追加した**ローカル暦日**」------------------------------
       // 【この検査の前身が「正しい修正をすると落ちる検査」だった】N-5 の初版は
       //   /const startDate = new Date\(\)\.toISOString\(\)\.slice\(0, 10\);/
@@ -11661,8 +11672,8 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         if (nApi.concertNoteLabelOf(i, sax, TUNE) !== midiLabel(r.lowMidi + i)) ok = false;
       }
     }
-    check("21.2 4機種すべてで実音ラベルが各機種の音域(lowMidi+i)と一致する", ok);
-    // メモ化が楽器種別ごとに分かれていること(1つのテーブルを使い回すと全機種同じ音名になる)
+    check("21.2 4種別すべてで実音ラベルが各種別の音域(lowMidi+i)と一致する", ok);
+    // メモ化が楽器種別ごとに分かれていること(1つのテーブルを使い回すと全種別同じ音名になる)
     const pairs = [[10, "alto", "tenor"], [32, "alto", "tenor"], [0, "soprano", "baritone"]];
     check("21.2 同じ semitoneIndex でも楽器種別が違えば別の音名になる(メモ化が種別で分かれている)",
       pairs.every(([i, a, b]) => nApi.concertNoteLabelOf(i, a, TUNE) !== nApi.concertNoteLabelOf(i, b, TUNE)),
@@ -11702,7 +11713,7 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
 
     const fwc = nApi.buildFramesWithContext([altoSession, tenorSession], []);
     const pivot = nApi.buildPivot(fwc, ctx, "note", "none", "volume", []);
-    check("21.3 PIVOTの音名次元も1機種につき1行(実測の誤ラベルで行が割れない)",
+    check("21.3 PIVOTの音名次元も1種別につき1行(実測の誤ラベルで行が割れない)",
       pivot.rowKeys.length === 2 && !pivot.rowKeys.includes(NEIGHBOR), `rowKeys=${pivot.rowKeys.join(",")}`);
     check("21.3 PIVOTはアルトとテナーを**それぞれの実音**で別の行にする(記音だと同じ行に潰れる)",
       pivot.rowKeys.includes(ALTO_SI10) && pivot.rowKeys.includes(TENOR_SI10) &&

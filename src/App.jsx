@@ -1848,9 +1848,11 @@ const REGISTER_BAND_LABELS = { low: "低音域", mid: "中音域", high: "高音
 // 番手9種(2.0〜4.0 の 0.25 刻み)。正典 .selrow / .selpill
 // (12.5px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
 // 見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。
-export function ReedStrengthPills({ value, onChange }) {
+// marginTop は呼び手が決める(リードの追加シートは 12、ラベル付きの欄の中では 0)。
+// 部品に埋めると、置く場所ごとに違ってよい値が1つに固定される。
+export function ReedStrengthPills({ value, onChange, marginTop = 12 }) {
   return (
-    <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop: 12 }}>
+    <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop }}>
       {REED_STRENGTHS.map((s) => (
         <button key={s} type="button" onClick={() => onChange(s)}
           aria-pressed={value === s}

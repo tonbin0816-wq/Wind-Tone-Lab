@@ -36,7 +36,7 @@ describe("searchMouthpieces", () => {
 describe("カタカナ別名での検索", () => {
   // フォームのプレースホルダが「例: YAS-62 / ヤマハ」「例: S80 C* / メイヤー」と
   // カタカナを例示している。別名が無いと案内どおりに打った人が0件になり、
-  // 「カタログに無い(その他)」へ流れて実在の機材データが失われる。
+  // 「カタログに無い(その他)」へ流れて実在の製品のデータが失われる。
   it("本体をカタカナのブランド名で引ける", () => {
     expect(searchInstrumentModels("ヤマハ", "alto").some((h) => h.brand === "YAMAHA")).toBe(true);
     expect(searchInstrumentModels("セルマー", "alto").some((h) => h.brand === "Selmer Paris")).toBe(true);

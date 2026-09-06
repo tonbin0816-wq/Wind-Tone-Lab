@@ -20,7 +20,8 @@ import { Avatar } from "./icons.jsx";
 const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
-// 【カードの作法】§6.6。地は --c-sunk(CommunityTab の根が持つ)、この上に白いカードを浮かせる。
+// 【カードの作法】§6.6。地は白(CommunityTab の根 .surf-card が持つ。2026/09/06 に
+// --c-sunk から白へ)。カードの浮きは影だけが担うので、影を外すと群が読めなくなる。
 // 群の境界の罫は1本も引かない。群はカードと 12px の余白だけが切る。
 const cardStyle = {
   background: "var(--c-surface)", borderRadius: "var(--r-lg)",

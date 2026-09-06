@@ -43,11 +43,13 @@ const connectErrorOf = (e) => (e instanceof FirebaseConfigMissingError ? CONFIG_
 const SAVE_ERROR = "保存に失敗しました。電波の良いところでもう一度お試しください";
 const TOGGLE_ERROR = "公開設定を変更できませんでした。電波の良いところでもう一度お試しください";
 // 【削除の文言は「実際に起きたこと」に合わせる】
-// accountRepo.deleteAccount が例外を投げるのは deleteDoc が失敗したときだけで、
-// そのときはまだ何も消えていない。だから「押し直せば完了できる」と言い切ってよい。
+// 【「まだ何も消えていません」とは言えない 2026/09/06】deleteAccount は目安を4件消して
+// からプロフィールを消すようになった(そうしないと画面の「完全に消えます」が嘘になる)ので、
+// 途中で失敗すると**一部だけ消えている**ことがある。言えるのは「押し直せば続きから
+// 完了できる」ことだけ ── 存在しないドキュメントの削除は何もしないので、何度押しても壊れない。
 // (deleteUser の失敗は accountRepo 側でサインアウトに落とし込んでいる。匿名ユーザーは
 //  再認証できないので、押し直しを促すと永久に失敗し続ける行き止まりになるため。)
-const DELETE_ERROR = "削除できませんでした。まだ何も消えていません。電波の良いところでもう一度「アカウントを削除」を押してください";
+const DELETE_ERROR = "削除を最後まで終えられませんでした。電波の良いところでもう一度「アカウントを削除」を押してください。途中まで消えていても、押し直せば続きから完了できます";
 // deleteUser だけが失敗した場合(auth/requires-recent-login など)。データは消えている。
 // 「消えていない」と誤解させないよう、消えたものと残ったものを分けて言う。
 const DELETE_PARTIAL_NOTICE =
@@ -145,10 +147,18 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // (読み取り回数は費用そのもの)。自分の行だけ手元の配列で差し引く。
   // ここに置いてあるのは、差し引く相手(dir.users / ideals / myIdeals)を
   // 持っているのがこの階層だけだから。users への書き込みは親(onTogglePublic)。
+  //
+  // 【順序】非公開にするときは**先に目安を消してから** users を書く。逆にすると、
+  // 目安の削除に失敗したときに「非公開なのに音のデータがサーバに残る」状態になり、
+  // しかも画面は「変更できませんでした」と言う(利用者には直しようがない)。この順なら、
+  // 最初の一手で失敗した時点では**まだ何も変わっていない**ので、その文言が正しい。
+  // 2手目が失敗しても残るのは「公開のままだが目安が無い」だけで、次にタブを開いた
+  // ときの effect が出し直す。
   const togglePublic = async (v) => {
-    await onTogglePublic(v);            // users.isPublic を書き、profile を更新する
-    if (v) await publishMyIdeals(uid, myIdeals);
-    else await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
+    if (!v) await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
+    await onTogglePublic(v);               // users.isPublic を書き、profile を更新する
+    // 【一覧の差し引きは users を書いた直後】ここから先で失敗しても、
+    // 一覧は users.isPublic(見え方の唯一の正)と一致した状態で残る。
     dir.setUsers((prev) => {
       const rest = prev.filter((u) => u.uid !== uid);
       if (!v) return rest;
@@ -161,6 +171,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       const rest = (prev ?? []).filter((x) => x.ownerUid !== uid);
       return v ? [...rest, ...Object.values(myIdeals ?? {})] : rest;
     });
+    if (v) await publishMyIdeals(uid, myIdeals);
   };
 
   const index = Math.max(0, SUB_TABS.findIndex((x) => x.key === tab));
@@ -315,7 +326,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
         setProfile({ ...profile, isPublic: v });
       }}
       onDelete={async () => {
-        // 例外が出るのは deleteDoc が失敗したときだけ(= まだ何も消えていない)。ProfileView が文言を出す。
+        // 例外が出るのは削除の途中で失敗したとき。一部だけ消えていることがあるので、
+        // ProfileView は「押し直せば続きから完了できる」と言う(DELETE_ERROR)。
         const r = await deleteAccount();
         setProfile(null); setUid(null);
         // 資格情報まで消せたかどうかで、未参加画面に出す説明を切り替える。
@@ -411,7 +423,7 @@ function Field({ label, note, children }) {
 // 複数選べる選択肢の並び。A型(枠 = --c-line-strong)。
 // 選択中は「枠を透明にして地だけで塗る」= §6.7 の芯1(枠と違う地を同時に持たない)を守る書き方。
 // 見た目・寸法は App.jsx の拍のグループ選択ピルと同値(新しい値を作らない)。
-// labelOf: 保存する値と画面に出す文字が違うとき(楽器種別は値 "alto" / 表示 "Alto")に渡す。
+// labelOf: 保存する値と画面に出す文字が違うとき(楽器種別は値 "alto" / 表示 "A.Sax")に渡す。
 // 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成・練習場所)は書き換え不要。
 function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v }) {
   return (
@@ -850,7 +862,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
               リードタブ(App.jsx)の箱は1枚ごとの番手を持つが、ここが持つのは
               「普段使っている番手」1つ。見た目の部品は App.jsx から借りて1つにする。 */}
           <Field label="リードの番手">
-            <ReedStrengthPills value={gearPicks[t]?.reedStrength ?? null}
+            <ReedStrengthPills value={gearPicks[t]?.reedStrength ?? null} marginTop={0}
                                onChange={(v) => setPick(t, "reedStrength", v)} />
           </Field>
         </div>
@@ -926,7 +938,11 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
     try {
       await onTogglePublic(v);
     } catch (e) {
-      // profile.isPublic は成功したときしか動かないので、チェックの見た目は自動で元に戻る
+      // 【スイッチの見た目は profile.isPublic が決める】users を書く前に失敗したときは
+      // 元の位置に戻り、この文言(「変更できませんでした」)と一致する。
+      // users を書いた後に失敗しうるのは「公開に戻したが目安を出し直せなかった」場合だけで、
+      // そのときスイッチは新しい位置のまま ── 公開設定そのものは変わっているのでそれが正しい。
+      // 目安は次にタブを開いたときの effect が出し直す。
       setError(TOGGLE_ERROR);
     } finally {
       setBusy(false);

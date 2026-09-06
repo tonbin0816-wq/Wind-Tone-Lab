@@ -16,7 +16,11 @@ service cloud.firestore {
       // **40人に達したらあの節を読み直すこと。**
       allow list: if resource.data.isPublic == true && request.query.limit <= 50;
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        // 【stats は hasAll に入れない】プロフィールの初回保存(buildProfileDoc の 14 キー)は
+        // stats を持たない。練習日数はタブを開いたときに別の updateDoc で後から足す。
+        // hasAll に入れると**新規登録がその場で弾かれる**(2026/09/06 に発見)。
+        // hasOnly には残すので、勝手なキーが増えることは今までどおり止まる。
+        && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
@@ -210,7 +214,7 @@ service cloud.firestore {
         && docId == request.auth.uid + "_" + request.resource.data.saxType
         && request.resource.data.keys().hasAll(['ownerUid','saxType','tuningHz','notes','noteKeys','sourceSessionCount','updatedAt'])
         && request.resource.data.keys().hasOnly(['ownerUid','saxType','tuningHz','notes','noteKeys','sourceSessionCount','updatedAt'])
-        // 【名前を持たない】目安は楽器種別ごとに1つで、「Alto の平均」以外に呼び名が無い。
+        // 【名前を持たない】目安は楽器種別ごとに1つで、「A.Sax の平均」以外に呼び名が無い。
         // 名前が無いことで、**公開される自由入力がニックネームだけ**になり、
         // 設計書 §8.1(通報の対象はニックネームだけ)がそのまま保たれる。
         && request.resource.data.saxType in ['soprano','alto','tenor','baritone']
