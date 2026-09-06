@@ -28,9 +28,31 @@ export const INSTRUMENT_CATALOG = {
     tenor: ["YTS-280", "YTS-480", "YTS-62", "YTS-82Z", "YTS-875EX"],
     baritone: ["YBS-62"],
   },
+  // 【ソプラノとバリトンを 2026/09/06 に追加】利用者が「ソプラノに Selmer が出ない」と
+  // 報告した。公式の一覧(selmer.fr の soprano / baryton コレクション)では、
+  // どちらも Super Action 80 Series II と Series III の2機種。
+  //
+  // 【Mark VI / Mark VII は生産終了だが必ず載せる】この欄が答えるのは
+  // 「いま何を吹いているか」であって「いま何が売られているか」ではない。
+  // Mark VI(1954-)は世界で最も吹かれている個体の1つで、これが無いと
+  // 相当数の奏者が自分の楽器を選べず「その他」へ流れる。
+  // 公式の History Notes に系譜がある(Balanced Action → Super Action[通称 Super
+  // Balanced Action] → Mark VI → Mark VII → Super Action 80 → Series II)。
+  // **種別は公式の記述どおりに分ける。**
+  //   ・Mark VII は**アルトとテナーだけ**(公式が「ソプラノ・バリトンは公式には
+  //     存在しない。50本未満の刻印個体は中身が Mark VI」と明記している)
+  //   ・Balanced Action のソプラノは公式が「ほぼ存在しない」と言うので載せない
+  //   ・Mark VI は4種別すべてに在る
   "Selmer Paris": {
-    alto: ["Axos", "Signature", "Supreme", "Series II (SA80II)", "Series III", "Reference 54"],
-    tenor: ["Supreme", "Signature", "Series II (SA80II)", "Series III", "Reference 36", "Reference 54"],
+    // 【Axos / Signature / Supreme / Reference はソプラノとバリトンに存在しない】
+    // 公式のコレクションページはソプラノもバリトンも2機種だけ。無いものを足さない。
+    soprano: ["Series II (SA80II)", "Series III", "Super Action 80", "Super Balanced Action", "Mark VI"],
+    alto: ["Axos", "Signature", "Supreme", "Series II (SA80II)", "Series III", "Reference 54",
+           "Super Action 80", "Mark VII", "Mark VI", "Super Balanced Action", "Balanced Action"],
+    tenor: ["Axos", "Signature", "Supreme", "Series II (SA80II)", "Series III", "Reference 36", "Reference 54",
+            "Super Action 80", "Mark VII", "Mark VI", "Super Balanced Action", "Balanced Action"],
+    baritone: ["Series II (SA80II)", "Series III", "Super Action 80", "Mark VI",
+               "Super Balanced Action", "Balanced Action"],
   },
   Yanagisawa: {
     soprano: ["S-WO1", "S-WO2", "S-WO10", "S-WO20", "S-WO37"],
@@ -108,9 +130,20 @@ export const MOUTHPIECE_CATALOG = {
   },
   Vandoren: {
     models: [
+      // Optimum はソプラノ SL / アルト AL / テナー TL / バリトン BL の
+      // 各 3/4/5 で計12型番(公式に個別ページがある)。以前はアルトの3つしか無かった。
+      "Optimum SL3",
+      "Optimum SL4",
+      "Optimum SL5",
       "Optimum AL3",
       "Optimum AL4",
       "Optimum AL5",
+      "Optimum TL3",
+      "Optimum TL4",
+      "Optimum TL5",
+      "Optimum BL3",
+      "Optimum BL4",
+      "Optimum BL5",
       "V5 S15",
       "V5 S25",
       "V5 S27",
@@ -238,6 +271,31 @@ export const MOUTHPIECE_CATALOG = {
   },
   Beechler: {
     models: ["S5", "S6S", "S7", "S8", "M7", "M8"],
+  },
+  // 【AIZEN と Gottsu を 2026/09/06 に追加】どちらも日本でよく使われるのに、
+  // リガチャーの一覧には居てマウスピースの一覧に居なかった。
+  // 収録したのはメーカー公式(sax.co.jp / gottsu-japan.com)で確認できた製品ラインだけ。
+  // **開き(5 / 6 / 7☆ など)は型番に畳まない。** 開きの体系はメーカーごとに違い
+  // (Gottsu は 1/1000 インチの数値、AIZEN は数字と☆)、畳むと選択肢が数十倍に増えて
+  // 探せなくなる。この欄が答えるのは「何を使っているか」で、開きまでは要らない。
+  AIZEN: {
+    models: ["LS", "SO", "GR", "NY", "JazzMaster", "Tenor Metal JazzMaster", "ZERO", "クロガネ"],
+  },
+  Gottsu: {
+    models: [
+      "Sepia Tone",
+      "Sepia Tone VI",
+      "Sepia Tone VI Marble",
+      "Sepia Tone VI Custom",
+      "Signature Sepia Tone Vintage",
+      "Jazz Solist",
+      "Sepia Tone Jazz Metal",
+      "Signature Sepia Tone Jazz Metal",
+      "Sepia Tone Master",
+      "Sepia Tone Double Ring",
+      "Metal HL",
+      "Sepia Tone Bebop",
+    ],
   },
   "Theo Wanne": {
     models: [
@@ -593,7 +651,10 @@ export const REED_CATALOG = {
   Vandoren: {
     // 通称で呼ばれることが多いが、本人裁定により**正式名称で持つ**
     // (青箱 = Traditional、緑箱 = Java、赤箱 = Java Red Cut)。
-    models: ["Traditional", "V16", "Java", "Java Red Cut", "ZZ", "V21"],
+    // 公式(vandoren.fr のサックス用リード一覧)の現行8ライン。
+    // V12 と Juno が抜けていた。なお「56 rue Lepic」はクラリネット用で、
+    // サックス用には存在しない(2026/09/06 に公式で確認)。
+    models: ["Traditional", "V12", "V16", "Java", "Java Red Cut", "ZZ", "V21", "Juno"],
   },
   "D'Addario": {
     // Rico は D'Addario の製品ラインであってブランドではない。
