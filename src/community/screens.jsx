@@ -15,11 +15,83 @@ import { Avatar } from "./icons.jsx";
 const pageStyle = { padding: "var(--sp-4)", display: "grid", gap: "var(--sp-4)" };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
-const selectStyle = {
-  minHeight: "var(--tap-min)", width: "100%", padding: "0 var(--sp-2)", boxSizing: "border-box",
-  borderRadius: "var(--r-xs)", border: "1px solid var(--c-line-strong)",
-  background: "var(--c-surface)", color: "var(--c-ink)", fontSize: "var(--fs-sm)",
+// 【カードの作法】§6.6。地は --c-sunk(CommunityTab の根が持つ)、この上に白いカードを浮かせる。
+// 群の境界の罫は1本も引かない。群はカードと 12px の余白だけが切る。
+const cardStyle = {
+  background: "var(--c-surface)", borderRadius: "var(--r-lg)",
+  padding: "var(--sp-4)", boxShadow: "var(--shadow-card)",
 };
+// 一覧を包むカードだけ上下を詰める(D-31 の .card-list と同じ手。左右は --sp-4 のまま)
+const cardListStyle = { ...cardStyle, padding: "var(--sp-1) var(--sp-4)" };
+const rowcardStyle = {
+  background: "var(--c-surface)", borderRadius: "var(--r-md)",
+  padding: "10px 14px", boxShadow: "var(--shadow-row)",
+};
+// 【読ませる文章は --c-ink-2】§1.1「--c-ink-3 は約3.0:1。読ませたい文章には使わない。
+// 軸目盛や区切り記号まで」。noteStyle は数値の添え物用、bodyNoteStyle は文章用。
+const bodyNoteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 };
+// 10px は §6.6「D-10 の実寸」表の eyebrow(10px / 600 / .08em / --c-ink-3)。体系が持つ値。
+const eyebrowStyle = { fontSize: 10, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" };
+
+// ------------------------------------------------------------------
+// 指標の切替は**下線タブ**。現行アプリの MetricUnderlineTabs(App.jsx)と同じ作り。
+// 当たり判定 44px / 見えるのは 26px の文字と下線だけ / 選択は inset 0 -2px。
+// **カードの作法では下の罫を引かない**(D-30 §7.2「bordered を渡さない」)。
+// 本人指示「現行アプリと同じ機能は現行に揃える」。
+// ------------------------------------------------------------------
+function UnderlineTabs({ items, value, onChange, label }) {
+  return (
+    <div className="sans" role="tablist" aria-label={label}
+      style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -10, flexWrap: "wrap" }}>
+      {items.map((it) => {
+        const sel = it.key === value;
+        return (
+          <button key={it.key} type="button" role="tab" aria-selected={sel}
+            onClick={() => onChange(it.key)} className="sans"
+            style={{
+              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: "0 10px", background: "none", border: "none", cursor: "pointer",
+            }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 2px",
+              fontSize: "var(--fs-sm)", fontWeight: 600,
+              color: sel ? "var(--c-ink)" : "var(--c-ink-3)",
+              boxShadow: sel ? "inset 0 -2px 0 0 var(--c-ink)" : "none",
+            }}>{it.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// 選択チップ。**当たり判定 44px / 見えるピルは 30px**。
+// 本人指摘「44ptの決まりはあるが明らかに大きすぎる」への答えで、
+// 箱ではなく中身を小さくする(§5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+// 先例: §5.1 My Data の式の行 20px / §5.2 分析タブのチップ 30px。
+// ------------------------------------------------------------------
+function Chip({ on, onClick, children, grow = false, ariaLabel }) {
+  return (
+    <button type="button" role="radio" aria-checked={on} aria-label={ariaLabel}
+      onClick={onClick} className="sans"
+      style={{
+        minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
+        justifyContent: "center", padding: 0, border: "none", background: "none",
+        cursor: "pointer", flex: grow ? "1 1 0" : "0 0 auto", minWidth: 0,
+      }}>
+      <span style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
+        border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+        color: on ? "var(--c-accent)" : "var(--c-ink-2)",
+        fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
+        width: grow ? "100%" : "auto", boxSizing: "border-box",
+      }}>{children}</span>
+    </button>
+  );
+}
 
 // ------------------------------------------------------------------
 // 条件行。**3画面が同じ部品を同じ位置(上部1行)に置く。**
@@ -28,23 +100,60 @@ const selectStyle = {
 // 複数選択にはしない ── 「クラシック または ジャズ」の平均は誰の目安にもならない。
 // カードで囲まない(2026-08-28 本人裁定)。
 // ------------------------------------------------------------------
-export function FilterRow({ value, onChange }) {
-  const set = (k) => (e) => onChange({ ...value, [k]: e.target.value });
-  const opt = (list) => list.map((v) => <option key={v} value={v}>{v}</option>);
+// 【1つの条件ピル】§6.7 の B型(枠線なし・地は --c-sunken)。
+// **ON の合図に地を足さない**(§6.7)。選んだかどうかは**文字の濃さ**で返す。
+//
+// 【項目名を欄の中に出さない】3等分で1つ 110px しかなく、「ジャンル」を固定幅で置くと
+// 値に 27px しか残らず「ジ…」になる(実測)。唯一の情報である値を削って
+// ラベルを守るのは順序が逆。未選択のときは項目名が薄い文字で入り、選ぶと値に置き換わる。
+// 並びは常に 楽器 / ジャンル / 属性 で固定なので、どの枠かは位置で分かる。
+//
+// 【native の select を透明で重ねる】iOS の選択UIをそのまま使える。
+// 見た目のピルは aria-hidden にして、読み上げは select が担う。
+function FilterPill({ label, value, options, labelOf, onChange }) {
+  const on = value !== ANY;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-2)" }}>
-      <select aria-label="楽器種別で絞り込む" value={value.saxType} onChange={set("saxType")} className="sans" style={selectStyle}>
-        <option value={ANY}>楽器：すべて</option>
-        {SAX_TYPES.map((t) => <option key={t} value={t}>{SAX_LABELS[t]}</option>)}
+    <span style={{
+      flex: "1 1 0", minWidth: 0, position: "relative", display: "flex",
+      alignItems: "center", justifyContent: "center", minHeight: "var(--tap-min)",
+    }}>
+      <select
+        aria-label={`${label}で絞り込む`} value={value}
+        onChange={(e) => onChange(e.target.value)} className="sans"
+        style={{
+          position: "absolute", inset: 0, width: "100%", height: "100%",
+          opacity: 0, border: "none", cursor: "pointer", WebkitAppearance: "none", appearance: "none",
+        }}>
+        <option value={ANY}>{label}（すべて）</option>
+        {options.map((v) => <option key={v} value={v}>{labelOf ? labelOf(v) : v}</option>)}
       </select>
-      <select aria-label="ジャンルで絞り込む" value={value.genre} onChange={set("genre")} className="sans" style={selectStyle}>
-        <option value={ANY}>ジャンル：すべて</option>
-        {opt(GENRES)}
-      </select>
-      <select aria-label="属性で絞り込む" value={value.position} onChange={set("position")} className="sans" style={selectStyle}>
-        <option value={ANY}>属性：すべて</option>
-        {opt(POSITIONS)}
-      </select>
+      <span aria-hidden="true" className="sans" style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+        width: "100%", minWidth: 0, minHeight: 34, padding: "0 10px", boxSizing: "border-box",
+        background: "var(--c-sunken)", borderRadius: "var(--r-pill)",
+        fontSize: "var(--fs-xs)", fontWeight: on ? 700 : 600,
+        color: on ? "var(--c-ink)" : "var(--c-ink-3)", whiteSpace: "nowrap", overflow: "hidden",
+      }}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {on ? (labelOf ? labelOf(value) : value) : label}
+        </span>
+        <svg width="7" height="7" viewBox="0 0 10 10" style={{ flex: "none", opacity: .55 }} aria-hidden="true">
+          <path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </span>
+  );
+}
+
+export function FilterRow({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+      <FilterPill label="楽器" value={value.saxType} options={SAX_TYPES}
+        labelOf={(t) => SAX_LABELS[t]} onChange={(v) => onChange({ ...value, saxType: v })} />
+      <FilterPill label="ジャンル" value={value.genre} options={GENRES}
+        onChange={(v) => onChange({ ...value, genre: v })} />
+      <FilterPill label="属性" value={value.position} options={POSITIONS}
+        onChange={(v) => onChange({ ...value, position: v })} />
     </div>
   );
 }
@@ -57,9 +166,7 @@ export const EMPTY_FILTER = { saxType: ANY, genre: ANY, position: ANY };
 function CapNotice({ count }) {
   if (count < DIRECTORY_LIMIT) return null;
   return (
-    <div className="sans" role="note" style={noteStyle}>
-      上位{DIRECTORY_LIMIT}人ぶんの集計です。全員ぶんではありません
-    </div>
+    <div className="sans" role="note" style={bodyNoteStyle}>上位{DIRECTORY_LIMIT}人</div>
   );
 }
 
@@ -98,47 +205,99 @@ function yearsOf(startYear) {
   return y >= 0 ? y : null;
 }
 
-// 「学生 ・ 歴3年 ・ クラシック」。読めない区画は丸ごと省く。
-function whoLine(u) {
+// 「学生  歴3年  クラシック」。読めない区画は丸ごと省く。
+// 【中黒を使わない】本人指示。区切りは記号ではなく**余白**で作る
+// (§6.0 囲いの序列「1. 余白で分ける」)。並びの gap がそのまま区切りになる。
+function whoParts(u) {
   const parts = [];
   if (u.position) parts.push(u.position);
   const y = yearsOf(u.startYear);
   if (y !== null) parts.push(`歴${y}年`);
   if (Array.isArray(u.genres) && u.genres[0]) parts.push(u.genres[0]);
-  return parts.join(" ・ ");
+  return parts;
 }
 
-function RankRow({ row, big = false, mine = false, onTap }) {
+function WhoLine({ u }) {
+  const parts = whoParts(u);
+  if (parts.length === 0) return null;
   return (
-    <div
-      role={onTap ? "button" : undefined}
-      tabIndex={onTap ? 0 : undefined}
-      onClick={onTap}
-      onKeyDown={onTap ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } } : undefined}
-      aria-label={onTap ? `${row.nickname} の詳細を見る` : undefined}
-      style={{
+    <span className="sans" style={{
+      display: "flex", gap: 9, minWidth: 0, overflow: "hidden",
+      fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: 2,
+    }}>
+      {parts.map((p, i) => (
+        <span key={p} style={i === parts.length - 1
+          ? { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+          : { flex: "none", whiteSpace: "nowrap" }}>{p}</span>
+      ))}
+    </span>
+  );
+}
+
+// 【札を名前の中に入れない】名前は ellipsis なので、中に置くと長いニックネーム
+// (上限20文字)で札が真っ先に削られる。自分を見分ける唯一の手がかりなので、
+// 名前とは別の項目にして削られないようにする。
+// **紺を使わない**(§1.4「押せる／選ばれている物にだけ」)。本人が差し戻した
+// 「青いバー」と同じ轍を踏まない。
+function NameLine({ nickname, mine, size }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <span className="sans" style={{
+        flex: "0 1 auto", fontSize: size ?? "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)",
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+      }}>{nickname}</span>
+      {mine ? (
+        <span className="sans" style={{
+          flex: "none", fontSize: "var(--fs-xs)", fontWeight: 700, color: "var(--c-ink-2)",
+          background: "var(--c-sunken)", borderRadius: "var(--r-xs)", padding: "1px 6px",
+        }}>あなた</span>
+      ) : null}
+    </span>
+  );
+}
+
+// 順位の色。**面を塗らず、アイコンの環の線と順位の数字にだけ使う**(追記1 厳守事項)。
+// 4位以下には色を与えない。金属質の光沢もグラデーションも使わない。
+const RANK_COLOR = { 1: "var(--c-rank-1)", 2: "var(--c-rank-2)", 3: "var(--c-rank-3)" };
+
+function RankRow({ row, big = false, mine = false, onTap }) {
+  const rankColor = RANK_COLOR[row.rank] ?? null;
+  const tap = onTap ? {
+    role: "button", tabIndex: 0, onClick: onTap,
+    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } },
+    "aria-label": `${row.nickname} の詳細を見る`,
+  } : {};
+  return (
+    <div {...tap} style={{
       cursor: onTap ? "pointer" : "default",
       display: "flex", alignItems: "center", gap: "var(--sp-3)",
-      padding: big ? "var(--sp-3)" : "var(--sp-2) var(--sp-3)",
-      background: big || mine ? "var(--c-surface)" : "transparent",
-      borderRadius: big || mine ? "var(--r-lg)" : 0,
-      boxShadow: big ? "var(--shadow-card)" : "none",
-      border: mine ? "1px solid var(--c-accent-line)" : "none",
+      // 上位3件だけカードを独立させる。**台の高さには頼らない**(本人指示「丸パクリ過ぎる」)
+      ...(big ? cardStyle : { padding: "11px 2px", minHeight: 47 }),
     }}>
       <div className="sans" style={{
-        flex: "0 0 1.6em", textAlign: "center", fontWeight: 700,
-        fontSize: big ? "var(--fs-md)" : "var(--fs-sm)", color: "var(--c-ink-2)",
+        flex: "0 0 1.6em", textAlign: "center", fontWeight: 700, letterSpacing: "-.02em",
+        fontFamily: "var(--font-num)",
+        fontSize: big ? "var(--fs-md)" : "var(--fs-sm)",
+        color: rankColor ?? "var(--c-ink-3)",
       }}>{row.rank}</div>
-      <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} size={big ? 44 : 34} />
+      {/* 環は面ではなく線。アイコンの外側に出す */}
+      <span style={{
+        position: "relative", display: "inline-flex", flex: "none",
+        borderRadius: "50%",
+        boxShadow: rankColor ? `0 0 0 2px ${rankColor}` : "none",
+        margin: rankColor ? 2 : 0,
+      }}>
+        <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} size={big ? 44 : 34} />
+      </span>
       <div style={{ flex: "1 1 0", minWidth: 0 }}>
-        <div className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {row.nickname}
-          {mine ? <span className="sans" style={{ marginLeft: "var(--sp-2)", fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-accent)" }}>あなた</span> : null}
-        </div>
-        <div className="sans" style={noteStyle}>{whoLine(row)}</div>
+        <NameLine nickname={row.nickname} mine={mine} size={big ? "var(--fs-md)" : undefined} />
+        <WhoLine u={row} />
       </div>
-      <div className="sans" style={{ flex: "0 0 auto", fontWeight: 700, fontSize: big ? "var(--fs-md)" : "var(--fs-sm)", color: "var(--c-ink)" }}>
-        {row.days}<span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>日</span>
+      <div className="sans" style={{
+        flex: "0 0 auto", fontWeight: 700, fontFamily: "var(--font-num)", letterSpacing: "-.02em",
+        fontSize: big ? "var(--fs-xl)" : "var(--fs-md)", color: "var(--c-ink)",
+      }}>
+        {row.days}<span style={{ fontFamily: "var(--font-jp)", fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>日</span>
       </div>
     </div>
   );
@@ -154,22 +313,16 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
   return (
     <div style={pageStyle}>
       <FilterRow value={filter} onChange={setFilter} />
-      <div role="radiogroup" aria-label="期間" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+      {/* 期間は状態を持つので A型のチップ。当たり判定44px / 見た目30px */}
+      <div role="radiogroup" aria-label="期間" style={{ display: "flex", gap: "var(--sp-1)" }}>
         {PERIODS.map((p) => (
-          <button
-            key={p} type="button" role="radio" aria-checked={p === period}
-            onClick={() => setPeriod(p)} className="sans"
-            style={{
-              minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-              background: p === period ? "var(--c-accent)" : "var(--c-sunken)",
-              color: p === period ? "var(--c-on-accent)" : "var(--c-ink-2)",
-              fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-            }}
-          >{PERIOD_LABEL[p]}</button>
+          <Chip key={p} on={p === period} grow onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</Chip>
         ))}
       </div>
 
-      <div className="sans" style={noteStyle}>練習日数 ・ {PERIOD_LABEL[period]}</div>
+      <div className="sans" style={{ ...bodyNoteStyle, display: "flex", gap: 9 }}>
+        <span>練習日数</span><span>{PERIOD_LABEL[period]}</span>
+      </div>
 
       {ranked.length === 0 ? (
         <Empty>
@@ -179,22 +332,32 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
         </Empty>
       ) : (
         <>
-          {/* 上位3件だけカードを独立させる。台の高さには頼らない */}
-          <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-            {ranked.slice(0, 3).map((r) => <RankRow key={r.uid} row={r} big mine={r.uid === myUid} onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />)}
+          {/* 上位3件はカードが独立する */}
+          <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+            {ranked.slice(0, 3).map((r) => (
+              <RankRow key={r.uid} row={r} big mine={r.uid === myUid}
+                onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />
+            ))}
           </div>
-          <div style={{ display: "grid", gap: "var(--sp-1)" }}>
-            {ranked.slice(3).map((r) => <RankRow key={r.uid} row={r} mine={r.uid === myUid} onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />)}
-          </div>
+          {/* 4位以下は1つの群に畳む。**群の中の行区切りの罫は引いてよい**(D-30 本人裁定) */}
+          {ranked.length > 3 ? (
+            <div style={cardListStyle}>
+              {ranked.slice(3).map((r, i, arr) => (
+                <div key={r.uid} style={{ borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)" }}>
+                  <RankRow row={r} mine={r.uid === myUid}
+                    onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />
+                </div>
+              ))}
+            </div>
+          ) : null}
         </>
       )}
 
-      {/* 【圏外でも自分は必ず見える】一覧に自分が出ていないときだけ、下に自分の行を置く。
-          出ていない理由は2つ(順位に入っているが画面外 / そもそも並んでいない)で、
-          後者は「その期間に練習していない」か「絞り込みから外れている」。
-          どちらなのかを言い分ける。 */}
+      {/* 【圏外でも自分は必ず見える】一覧に自分が出ていないときだけ、下に自分を置く。
+          出ていない理由は「その期間に練習していない」か「絞り込みから外れている」の2つで、
+          どちらなのかを言い分ける ── 「出ない」だけでは直しようがない。 */}
       {myUid && !mine ? (
-        <div className="sans" style={{ ...noteStyle, paddingTop: "var(--sp-2)", borderTop: "1px solid var(--c-line)" }}>
+        <div className="sans" style={{ ...rowcardStyle, ...bodyNoteStyle }}>
           {isFiltered(filter)
             ? "あなたはいまの絞り込みに含まれていません"
             : `あなたは${PERIOD_LABEL[period]}の記録がまだありません`}
@@ -209,24 +372,72 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
 // ------------------------------------------------------------------
 // シェア(機材の内訳)
 // ------------------------------------------------------------------
-function Bar({ label, count, ratio }) {
-  const pct = Math.round(ratio * 100);
+// 【円グラフ】設計書 §5③。系列は §1.7 の紺の3段まで ── 段は3つしか無く、
+// 4つ目に色を与えると必ずグレーか重複になる(§1.7「色を足すのではなく表示を絞る」)。
+// 残りは系列ではないので、色ではなく**沈めた面**で「その他」を表す。
+const PIE_COLORS = ["var(--c-accent)", "var(--c-accent-mid)", "var(--c-accent-line)"];
+const PIE_REST = "var(--c-sunken)";
+const PIE_R = 54, PIE_C = 60;
+
+function arcPath(fromRatio, toRatio) {
+  const pt = (r) => {
+    const a = r * 2 * Math.PI - Math.PI / 2;
+    return [PIE_C + PIE_R * Math.cos(a), PIE_C + PIE_R * Math.sin(a)];
+  };
+  // 1周まるごとは円弧では描けない(始点と終点が同じ点になる)ので円で描く
+  if (toRatio - fromRatio >= 0.9999) return null;
+  const [sx, sy] = pt(fromRatio), [ex, ey] = pt(toRatio);
+  const large = toRatio - fromRatio > 0.5 ? 1 : 0;
+  return `M${PIE_C},${PIE_C} L${sx.toFixed(1)},${sy.toFixed(1)} A${PIE_R},${PIE_R} 0 ${large} 1 ${ex.toFixed(1)},${ey.toFixed(1)} Z`;
+}
+
+function PieChart({ items, label }) {
+  const top = items.slice(0, 3);
+  const restRatio = Math.max(0, 1 - top.reduce((a, x) => a + x.ratio, 0));
+  const slices = [];
+  let acc = 0;
+  top.forEach((x, i) => { slices.push({ from: acc, to: acc + x.ratio, fill: PIE_COLORS[i] }); acc += x.ratio; });
+  if (restRatio > 0.0001) slices.push({ from: acc, to: 1, fill: PIE_REST });
+  const whole = slices.length === 1;
   return (
-    <div style={{ display: "grid", gap: "var(--sp-1)", padding: "var(--sp-1) 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)" }}>
-        <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
-        <div className="sans" style={{ ...noteStyle, flex: "0 0 auto" }}>{count}人 ・ {pct}%</div>
-      </div>
-      <div style={{ height: 6, borderRadius: "var(--r-pill)", background: "var(--c-sunken)", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: "var(--c-accent)" }} />
-      </div>
+    <svg width="120" height="120" viewBox="0 0 120 120" style={{ flex: "none" }} role="img" aria-label={label}>
+      {whole
+        ? <circle cx={PIE_C} cy={PIE_C} r={PIE_R} fill={slices[0].fill} />
+        : slices.map((sl, i) => {
+            const d = arcPath(sl.from, sl.to);
+            return d ? <path key={i} d={d} fill={sl.fill} /> : null;
+          })}
+    </svg>
+  );
+}
+
+function PieLegend({ items, restCount }) {
+  const top = items.slice(0, 3);
+  const rest = items.slice(3);
+  const restRatio = rest.reduce((a, x) => a + x.ratio, 0);
+  const row = (color, text, pct, muted) => (
+    <div key={text} style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+      <span style={{ width: 9, height: 9, borderRadius: 2, background: color, flex: "none" }} />
+      <span className="sans" style={{
+        fontSize: "var(--fs-xs)", color: muted ? "var(--c-ink-3)" : "var(--c-ink)",
+        minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>{text}</span>
+      <span className="sans" style={{
+        ...noteStyle, flex: "none", marginLeft: "auto", fontFamily: "var(--font-num)",
+      }}>{Math.round(pct * 100)}%</span>
+    </div>
+  );
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+      {top.map((x, i) => row(PIE_COLORS[i], gearLabelOf(x.key), x.ratio, false))}
+      {rest.length > 0 ? row(PIE_REST, `ほか${rest.length}種類`, restRatio, true) : null}
     </div>
   );
 }
 
 export function ShareScreen({ users }) {
   const [filter, setFilter] = useState(EMPTY_FILTER);
-  // 【機材は楽器種別を必ず1つに決める】gear は種別ごとに1組なので、
+  // 【楽器種別は必ず1つに決める】gear は種別ごとに1組なので、
   // 種別が決まらないと何の内訳なのか言えない。条件行の「すべて」とは別に既定を持つ。
   const [saxType, setSaxType] = useState("alto");
   const [slot, setSlot] = useState("instrument");
@@ -235,22 +446,14 @@ export function ShareScreen({ users }) {
   const shown = useMemo(() => filterUsers(users, { ...filter, saxType: ANY }), [users, filter]);
   const gear = useMemo(() => tallyGear(shown, saxType), [shown, saxType]);
   const combos = useMemo(() => tallyCombos(shown, saxType, depth), [shown, saxType, depth]);
-
-  const tab = (on) => ({
-    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-    background: on ? "var(--c-accent)" : "var(--c-sunken)",
-    color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
-    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-  });
+  const items = gear.slots[slot] ?? [];
 
   return (
     <div style={pageStyle}>
       <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
-      <div role="radiogroup" aria-label="機材の楽器種別" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+      <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
         {SAX_TYPES.map((t) => (
-          <button key={t} type="button" role="radio" aria-checked={t === saxType} onClick={() => setSaxType(t)} className="sans" style={tab(t === saxType)}>
-            {SAX_LABELS[t]}
-          </button>
+          <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
         ))}
       </div>
 
@@ -258,39 +461,56 @@ export function ShareScreen({ users }) {
         <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
       ) : (
         <>
-          <div className="sans" style={noteStyle}>{SAX_LABELS[saxType]} を吹く {gear.total}人のデータ</div>
+          <div style={cardStyle}>
+            {/* 【見出しを置かない】本人指示。何の内訳かは下のタブがそのまま言っている
+                (§6.0「説明を消して形に語らせる」) */}
+            <UnderlineTabs
+              label="見る項目" value={slot} onChange={setSlot}
+              items={GEAR_SLOTS.map((k) => ({ key: k, label: SLOT_LABEL[k] }))}
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-2) 0 var(--sp-1)" }}>
+              <PieChart items={items} label={`${SAX_LABELS[saxType]} を吹く${gear.total}人の${SLOT_LABEL[slot]}の内訳`} />
+              <PieLegend items={items} />
+            </div>
+            <div className="sans" style={bodyNoteStyle}>
+              {SAX_LABELS[saxType]} を吹く<span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{gear.total}</span>人
+            </div>
+          </div>
 
-          <div role="radiogroup" aria-label="機材の種類" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
-            {GEAR_SLOTS.map((s) => (
-              <button key={s} type="button" role="radio" aria-checked={s === slot} onClick={() => setSlot(s)} className="sans" style={tab(s === slot)}>
-                {SLOT_LABEL[s]}
-              </button>
-            ))}
-          </div>
-          <div>
-            {gear.slots[slot].map((x) => <Bar key={x.key} label={gearLabelOf(x.key)} count={x.count} ratio={x.ratio} />)}
-          </div>
-
-          <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>人気の組み合わせ</div>
-          <div role="radiogroup" aria-label="組み合わせの項目数" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
-            {Object.keys(COMBO_SLOTS).map((d) => (
-              <button key={d} type="button" role="radio" aria-checked={Number(d) === depth} onClick={() => setDepth(Number(d))} className="sans" style={tab(Number(d) === depth)}>
-                {d}項目
-              </button>
-            ))}
-          </div>
-          <div className="sans" style={noteStyle}>
-            {COMBO_SLOTS[depth].map((s) => SLOT_LABEL[s]).join(" × ")}
-          </div>
-          {combos.total === 0 ? (
-            <Empty>機材をすべて登録している人がまだいません</Empty>
-          ) : (
-            <div>
-              {combos.combos.slice(0, 10).map((c) => (
-                <Bar key={c.key} label={c.parts.map(gearLabelOf).join(" / ")} count={c.count} ratio={c.ratio} />
+          <div style={cardStyle}>
+            <div className="sans jp-label" style={{ ...eyebrowStyle, marginBottom: 10 }}>人気の組み合わせ</div>
+            <div role="radiogroup" aria-label="組み合わせの項目数" style={{ display: "flex", gap: "var(--sp-1)" }}>
+              {Object.keys(COMBO_SLOTS).map((d) => (
+                <Chip key={d} on={Number(d) === depth} grow onClick={() => setDepth(Number(d))}>{d}項目</Chip>
               ))}
             </div>
-          )}
+            <div className="sans" style={{ ...noteStyle, padding: "var(--sp-2) 0 2px" }}>
+              {COMBO_SLOTS[depth].map((x) => SLOT_LABEL[x]).join(" × ")}
+            </div>
+            {combos.total === 0 ? (
+              <Empty>4つすべてを登録している人がまだいません</Empty>
+            ) : (
+              <div>
+                {combos.combos.slice(0, 5).map((c, i) => {
+                  const pct = Math.round(c.ratio * 100);
+                  return (
+                    <div key={c.key} style={{ padding: "7px 0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+                        <span className="sans" style={{
+                          fontSize: "var(--fs-sm)", color: "var(--c-ink)", minWidth: 0,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>{c.parts.map(gearLabelOf).join(" / ")}</span>
+                        <span className="sans" style={{ ...noteStyle, flex: "none", fontFamily: "var(--font-num)" }}>{c.count}人</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: "var(--r-pill)", background: "var(--c-sunken)", marginTop: 5, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: PIE_COLORS[Math.min(i, 2)] }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -435,70 +655,75 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     <div style={pageStyle}>
       <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
 
-      <div role="radiogroup" aria-label="目安の楽器種別" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+      <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
         {SAX_TYPES.map((t) => (
-          <button key={t} type="button" role="radio" aria-checked={t === saxType} onClick={() => setSaxType(t)} className="sans"
-                  style={{
-                    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-                    background: t === saxType ? "var(--c-accent)" : "var(--c-sunken)",
-                    color: t === saxType ? "var(--c-on-accent)" : "var(--c-ink-2)",
-                    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-                  }}>{SAX_LABELS[t]}</button>
+          <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
         ))}
       </div>
 
-      <div role="radiogroup" aria-label="見る指標" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
-        {METRICS.map((x) => (
-          <button key={x.key} type="button" role="radio" aria-checked={x.key === metric}
-                  onClick={() => setMetric(x.key)} className="sans"
-                  style={{
-                    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-                    background: x.key === metric ? "var(--c-accent)" : "var(--c-sunken)",
-                    color: x.key === metric ? "var(--c-on-accent)" : "var(--c-ink-2)",
-                    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-                  }}>{x.label}</button>
-        ))}
-      </div>
-
-      {avg.error ? (
-        <Empty>{avg.error}</Empty>
-      ) : (
-        <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-          <div className="sans" style={noteStyle}>{avg.count}人のデータ ・ {m.label}({m.unit})</div>
-          {chart ? <LineChart keys={chart.keys} series={chart.series} digits={m.digits} /> : <Empty>この指標のデータがありません</Empty>}
-          {chart ? <Legend series={chart.series} /> : null}
-          {/* 【この注意書きを消さないこと】平行移動を知らずにこのグラフを見ると、
-              「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
-          <div className="sans" style={noteStyle}>
-            計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
-          </div>
+      <div style={cardStyle}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+          <div className="sans jp-label" style={eyebrowStyle}>みんなの平均</div>
+          {avg.error ? null : (
+            <div className="sans" style={noteStyle}>
+              目安を公開している<span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{avg.count}</span>人
+            </div>
+          )}
         </div>
-      )}
+        {/* 指標の切替は現行アプリと同じ下線タブ(本人指示) */}
+        <div style={{ margin: "10px 0 2px" }}>
+          <UnderlineTabs label="見る指標" value={metric} onChange={setMetric}
+            items={METRICS.map((x) => ({ key: x.key, label: x.label }))} />
+        </div>
+        {avg.error ? (
+          <Empty>{avg.error}</Empty>
+        ) : (
+          <div style={{ display: "grid", gap: "var(--sp-2)" }}>
+            {chart ? <LineChart keys={chart.keys} series={chart.series} digits={m.digits} /> : <Empty>この指標のデータがありません</Empty>}
+            {chart ? <Legend series={chart.series} /> : null}
+            {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
+                「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
+            <div className="sans" style={bodyNoteStyle}>
+              計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>この条件の人</div>
       {pairs.length === 0 ? (
         <Empty>{isFiltered(filter) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
       ) : (
-        <div style={{ display: "grid", gap: "var(--sp-1)" }}>
-          {pairs.map(({ ideal, owner }) => (
+        <div style={cardListStyle}>
+          {pairs.map(({ ideal, owner }, i, arr) => (
             <div key={ideal.id}
                  role={onOpenPerson ? "button" : undefined}
                  tabIndex={onOpenPerson ? 0 : undefined}
                  onClick={onOpenPerson ? () => onOpenPerson(owner) : undefined}
                  onKeyDown={onOpenPerson ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPerson(owner); } } : undefined}
                  aria-label={onOpenPerson ? `${owner.nickname} の詳細を見る` : undefined}
-                 style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)", cursor: onOpenPerson ? "pointer" : "default" }}>
+                 style={{
+                   display: "flex", alignItems: "center", gap: "var(--sp-3)",
+                   padding: "11px 2px", minHeight: 47,
+                   // 【群の中の行区切りの罫は引いてよい】D-30 本人裁定。最後の行だけ消す
+                   borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)",
+                   cursor: onOpenPerson ? "pointer" : "default",
+                 }}>
               <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} size={34} />
               <div style={{ flex: "1 1 0", minWidth: 0 }}>
                 {/* 【目安に名前は無い】種別ごとに1つなので、人の名前で示すのが自然。
                     公開される自由入力をニックネームだけに保つためでもある。 */}
-                <div className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {owner.nickname}
-                  {ideal.ownerUid === myUid ? <span className="sans" style={{ marginLeft: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-accent)" }}>あなた</span> : null}
-                </div>
-                <div className="sans" style={noteStyle}>
-                  {SAX_LABELS[ideal.saxType] ?? ideal.saxType} ・ {ideal.noteKeys?.length ?? 0}音 ・ 録音{ideal.sourceSessionCount ?? "—"}回
-                </div>
+                <NameLine nickname={owner.nickname} mine={ideal.ownerUid === myUid} />
+                <WhoLine u={owner} />
+              </div>
+              {/* 【右端は録音回数】いくつの録音から作られた目安かは、
+                  その線をどれだけ信じてよいかの目安になる。
+                  折れ線を 56px で置いても形は読み取れない(本人指摘)。 */}
+              <div className="sans" style={{ flex: "none", textAlign: "right" }}>
+                <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>
+                  {ideal.sourceSessionCount ?? "—"}
+                </span>
+                <span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>回</span>
               </div>
             </div>
           ))}
@@ -591,12 +816,6 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
   const g = person.gear?.[saxType] ?? null;
   const days = person.stats?.daysAll;
 
-  const tabStyle = (on) => ({
-    minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-    background: on ? "var(--c-accent)" : "var(--c-sunken)",
-    color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
-    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-  });
 
   return (
     <div role="dialog" aria-label={`${person.nickname} の詳細`}
@@ -613,7 +832,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
           <Avatar icon={person.icon ?? AVATAR_ICONS[0]} color={person.iconColor ?? AVATAR_COLOR_MIN} size={56} />
           <div style={{ minWidth: 0 }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
-            <div className="sans" style={noteStyle}>{whoLine(person)}</div>
+            <WhoLine u={person} />
           </div>
         </div>
 
@@ -630,13 +849,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
           <Empty>この人はまだ機材も目安も公開していません</Empty>
         ) : (
           <>
-            <div role="radiogroup" aria-label="楽器種別"
-                 style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(types.length, 1)}, minmax(0, 1fr))`, gap: "var(--sp-1)" }}>
+            <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
               {types.map((t) => (
-                <button key={t} type="button" role="radio" aria-checked={t === saxType}
-                        onClick={() => setSaxType(t)} className="sans" style={tabStyle(t === saxType)}>
-                  {SAX_LABELS[t]}
-                </button>
+                <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
               ))}
             </div>
 
@@ -655,21 +870,14 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
               <Empty>この楽器の目安はまだ公開されていません</Empty>
             ) : (
               <>
-                <div role="radiogroup" aria-label="見る指標"
-                     style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
-                  {METRICS.map((x) => (
-                    <button key={x.key} type="button" role="radio" aria-checked={x.key === metric}
-                            onClick={() => setMetric(x.key)} className="sans" style={tabStyle(x.key === metric)}>
-                      {x.label}
-                    </button>
-                  ))}
-                </div>
+                <UnderlineTabs label="見る指標" value={metric} onChange={setMetric}
+                  items={METRICS.map((x) => ({ key: x.key, label: x.label }))} />
                 {chart?.error ? (
                   // 【合わせられないときに絶対値を出さない】環境の差を実力の差と読ませてしまう。
                   <Empty>{chart.error}</Empty>
                 ) : chart ? (
                   <>
-                    <div className="sans" style={noteStyle}>{m.label}({m.unit}) ・ 録音{theirIdeal.sourceSessionCount ?? "—"}回</div>
+                    <div className="sans" style={noteStyle}>{m.label}({m.unit})　録音{theirIdeal.sourceSessionCount ?? "—"}回</div>
                     <LineChart keys={chart.keys} series={chart.series} digits={m.digits} />
                     <Legend series={chart.series} />
                     <div className="sans" style={noteStyle}>
