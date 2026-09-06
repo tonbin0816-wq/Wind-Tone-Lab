@@ -102,6 +102,29 @@ export const INSTRUMENT_CATALOG = {
     tenor: ["TS4248 (PowerBell)", "TS4240 (PowerBell)", "TS6200 (ProOne)", "TS5200", "TS3108"],
     baritone: ["BS4240 (PowerBell)", "BS6200 (ProOne)", "BS3220"],
   },
+  // 【Buffet Crampon 2026/09/07 追加】本人「ユーザーは結構いる」。
+  //
+  // 現行(公式の一覧。北米・欧州の両方で同じ):
+  //   アルト 100 Series / 400 Series / Prodige / Senzo
+  //   テナー 100 Series / 400 Series
+  //   バリトン 400 Series
+  //   **ソプラノの現行は無い。Senzo もアルトだけ。**無いものを足さない。
+  // 仕上げ違い(varnish / brushed / red copper / silver)は畳む ── 同じ楽器なので。
+  //
+  // 歴代機。この欄が答えるのは「いま何を吹いているか」なので、Selmer の Mark VI と
+  // 同じ理由で載せる。1950年代の Dynaction、1957年の Super Dynaction、1973年の
+  // S シリーズ(S1 / S2 / S3)は、いまも中古で普通に吹かれている。
+  //   ・**Super Dynaction は4種別すべて**実物の記録がある
+  //   ・**S1 はソプラノとアルトの実物の記録がある。**テナーとバリトンは実物の記録を
+  //     確認できていないが、S1/S2/S3 は同じ本体の等級違いとして説明されているので
+  //     その family として並べた。**ここだけ確度が一段低い**
+  //   ・Prestige は S1 / S3 の銅ボディ版(別のモデル名ではなく仕様違い)なので載せない
+  "Buffet Crampon": {
+    soprano: ["S1", "Super Dynaction"],
+    alto: ["Senzo", "Prodige", "400 Series", "100 Series", "S1", "S2", "S3", "Super Dynaction", "Dynaction"],
+    tenor: ["400 Series", "100 Series", "S1", "S2", "S3", "Super Dynaction", "Dynaction"],
+    baritone: ["400 Series", "Super Dynaction"],
+  },
 };
 
 // ------------------------------------------------------------------
@@ -363,6 +386,8 @@ export const BRAND_ALIASES = {
   Keilwerth: ["カイルヴェルト", "カイルベルト"],
   Jupiter: ["ジュピター"],
   Antigua: ["アンティグア"],
+  // 「クランポン」だけで呼ぶ人が多いので単独でも当たるようにする
+  "Buffet Crampon": ["ビュッフェクランポン", "クランポン", "ビュッフェ", "バフェクランポン"],
   // マウスピース(MOUTHPIECE_CATALOG)
   Selmer: ["セルマー"],
   Vandoren: ["バンドーレン"],
