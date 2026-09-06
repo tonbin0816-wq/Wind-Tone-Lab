@@ -75,19 +75,25 @@ const SUB_TABS = [
 
 function SubTabs({ value, onChange }) {
   return (
+    /* 【セグメンテッドコントロール】§6.7 の意図した例外4。
+       溝(--c-sunken)の中で選択中だけが白く浮く。枠線は持たない。
+       状態を**地**で返すので A型ではないが、枠線を持たないので芯には反しない。 */
     <div role="tablist" aria-label="コミュニティの表示" style={{
-      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-      gap: "var(--sp-1)", padding: "var(--sp-3) var(--sp-4) 0",
+      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 0,
+      background: "var(--c-sunken)", borderRadius: "var(--r-md)", padding: 3,
+      margin: "var(--page-pad) var(--page-pad) 0",
     }}>
       {SUB_TABS.map((t) => (
         <button
           key={t.key} type="button" role="tab" aria-selected={t.key === value}
           onClick={() => onChange(t.key)} className="sans no-select"
           style={{
-            minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-            background: t.key === value ? "var(--c-accent)" : "transparent",
-            color: t.key === value ? "var(--c-on-accent)" : "var(--c-ink-2)",
+            minHeight: 38, border: "none", borderRadius: "var(--r-sm)",
+            background: t.key === value ? "var(--c-surface)" : "transparent",
+            boxShadow: t.key === value ? "0 1px 2px rgba(18, 31, 50, .08)" : "none",
+            color: t.key === value ? "var(--c-ink)" : "var(--c-ink-3)",
             fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+            transition: "background 180ms cubic-bezier(0.32, 0.72, 0, 1)",
           }}
         >{t.label}</button>
       ))}
@@ -394,7 +400,10 @@ function Field({ label, note, children }) {
 // 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成・練習場所)は書き換え不要。
 function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}>
+    /* 【行間は 0 でよい】ボタンが 44px、中の見えるピルが 30px なので、
+       ボタン自体が上下 7px ずつの余白を持っている。ここに縦の gap を足すと
+       見た目の間隔が 52px になり、本人指摘の「明らかに大きすぎる」に戻る。 */
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "0 var(--sp-1)" }}>
       {options.map((opt) => {
         const on = selected.includes(opt);
         const text = labelOf(opt);
@@ -408,12 +417,16 @@ function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v
               display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
             }}
           >
+            {/* 【A型: ON は枠線の色だけ】§6.7「ON の合図に地を足さないこと」。
+               地を足すと「枠線＋違う地」になり、規則そのものを破る。
+               見た目は 30px、当たり判定は上のボタンの 44px（§5「見た目の大きさは変えない。
+               当たり判定だけ広げる」を、箱ではなく中身を小さくする形で満たす）。 */}
             <span style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: "var(--fs-sm)", padding: "var(--sp-1) var(--sp-3)", borderRadius: "var(--r-pill)",
-              border: on ? "1px solid transparent" : "1px solid var(--c-line-strong)",
-              background: on ? "var(--c-accent)" : "transparent",
-              color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
+              minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
+              border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+              color: on ? "var(--c-accent)" : "var(--c-ink-2)",
+              fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
             }}>{text}</span>
           </button>
         );
@@ -950,14 +963,18 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         編集
       </button>
 
+      {/* 【説明はボタンの下】本人指示で上下を反転した。
+          押す前に読ませるのではなく、**押そうとした手が止まる位置**に置く。
+          読ませる文章なので --c-ink-3 ではなく --c-ink-2（§1.1「約3.0:1。
+          読ませたい文章には使わない」）。 */}
       <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
-        <div className="sans" style={noteStyle}>
-          アカウントを削除すると、サーバー上のプロフィールと匿名アカウントが完全に消えます。
-          この端末に保存されている計測データは消えません。
-        </div>
         <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 }}>
+          アカウントを削除すると、サーバー上のプロフィールと匿名アカウントが完全に消えます。
+          この端末に保存されている計測データは消えません。
+        </div>
       </div>
     </div>
   );
