@@ -763,7 +763,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         <AvatarPicker icon={icon} color={iconColor} onChange={(v) => { setIcon(v.icon); setIconColor(v.color); }} />
       </Field>
 
-      <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください。機材は選んだ楽器ごとに登録します">
+      <Field label="楽器種別(複数選べます)" note="吹く楽器をすべて選んでください">
         <PillGroup
           options={SAX_TYPES} selected={saxTypes} onToggle={toggleSaxType}
           ariaPrefix="楽器種別" labelOf={(t) => SAX_LABELS[t]}
@@ -773,12 +773,12 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
       {saxTypes.length === 0 ? (
         // カタログは楽器種別ごとに分かれているので、種別が決まるまで楽器は引けない。
         // 引けない検索欄を出すより、何をすれば出るかだけを言う。
-        <div className="sans" style={noteStyle}>楽器種別を選ぶと、機材の欄が種別ごとに出ます</div>
+        <div className="sans" style={noteStyle}>楽器種別を選ぶと、種別ごとに入力欄が出ます</div>
       ) : null}
 
       {saxTypes.map((t) => (
         <div key={t} style={{ display: "grid", gap: "var(--sp-4)" }}>
-          <div className="sans jp-label" style={gearHeadingStyle}>{SAX_LABELS[t]} の機材</div>
+          <div className="sans jp-label" style={gearHeadingStyle}>{SAX_LABELS[t]}</div>
           <GearPicker
             label="楽器" ariaPrefix={`${SAX_LABELS[t]}の楽器`}
             /* 【2026-09-02 本人裁定で補助文を削除】以前ここには探し方と

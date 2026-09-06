@@ -161,18 +161,18 @@ export function buildProfileDoc(input, now = new Date()) {
 
   const gearIn = input.gear;
   if (gearIn === null || typeof gearIn !== "object" || Array.isArray(gearIn)) {
-    return { error: "機材の指定が正しくありません" };
+    return { error: "入力の形が正しくありません" };
   }
   const gearKeys = Object.keys(gearIn);
   if (gearKeys.length !== types.length || !types.every((t) => gearKeys.includes(t))) {
-    return { error: "選んだ楽器種別と機材の欄が一致していません" };
+    return { error: "選んだ楽器種別と入力欄が一致していません" };
   }
 
   const gear = {};
   for (const t of types) {
     const g = gearIn[t];
     if (g === null || typeof g !== "object" || Array.isArray(g)) {
-      return { error: `${SAX_LABELS[t]}の機材の指定が正しくありません` };
+      return { error: `${SAX_LABELS[t]}の入力が正しくありません` };
     }
     // 【未選択を「その他」に寄せない】機材欄を飛ばした人(null)と、「カタログに無い(その他)」を
     // 自分で選んだ人(OTHER_BRAND)は別の情報である。ここで ?? OTHER_BRAND に潰すと、

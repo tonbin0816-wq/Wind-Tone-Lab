@@ -246,7 +246,7 @@ export function ShareScreen({ users }) {
   return (
     <div style={pageStyle}>
       <FilterRow value={{ ...filter, saxType: ANY }} onChange={(v) => setFilter({ ...v, saxType: ANY })} />
-      <div role="radiogroup" aria-label="機材の楽器種別" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+      <div role="radiogroup" aria-label="楽器種別" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
         {SAX_TYPES.map((t) => (
           <button key={t} type="button" role="radio" aria-checked={t === saxType} onClick={() => setSaxType(t)} className="sans" style={tab(t === saxType)}>
             {SAX_LABELS[t]}
@@ -260,7 +260,7 @@ export function ShareScreen({ users }) {
         <>
           <div className="sans" style={noteStyle}>{SAX_LABELS[saxType]} を吹く {gear.total}人のデータ</div>
 
-          <div role="radiogroup" aria-label="機材の種類" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
+          <div role="radiogroup" aria-label="見る項目" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--sp-1)" }}>
             {GEAR_SLOTS.map((s) => (
               <button key={s} type="button" role="radio" aria-checked={s === slot} onClick={() => setSlot(s)} className="sans" style={tab(s === slot)}>
                 {SLOT_LABEL[s]}
