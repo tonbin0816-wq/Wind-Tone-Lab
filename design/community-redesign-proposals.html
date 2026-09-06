@@ -55,6 +55,9 @@
 *{box-sizing:border-box}
 body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
   letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+/* 【文節で折る】和文が「線 / の形」のように語の途中で折れると読みにくい。
+   auto-phrase は文節の切れ目を選んで折る（対応していない環境では既定の折り方に戻るだけ） */
+.ph, .ph *{word-break:auto-phrase;line-break:strict;overflow-wrap:anywhere}
 .doc{max-width:1500px;margin:0 auto;padding:40px 24px 80px}
 .doc h1{font-size:26px;font-weight:700;margin:0 0 6px;letter-spacing:-.01em}
 .doc .lede{font-size:14px;color:var(--c-ink-2);line-height:1.85;max-width:760px;margin:0 0 28px}
@@ -183,10 +186,30 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
 .inp.ph-{color:var(--c-ink-3)}
 
 /* 状態を持つもの = A型（枠線 --c-line-strong / ON は枠線の色だけ --c-accent） */
-.chip-a{min-height:34px;display:inline-flex;align-items:center;padding:0 13px;
-  border:1px solid var(--c-line-strong);border-radius:var(--r-pill);background:transparent;
-  font-family:inherit;font-size:var(--fs-xs);font-weight:600;color:var(--c-ink-2);cursor:pointer}
-.chip-a.on{border-color:var(--c-accent);color:var(--c-accent)}
+/* 【指標の切替は下線タブ】現行アプリの MetricUnderlineTabs（App.jsx:13377）と同じ作り。
+   当たり判定は 44px、見えるのは 26px の文字と下線だけ。選択は
+   boxShadow: inset 0 -2px 0 0 var(--c-ink)。**カードの作法では下の罫を引かない**
+   （D-30 §7.2「bordered を渡さない」）。同じ機能は現行アプリに揃える（本人指示） */
+.mtabs{display:flex;align-items:center;gap:0;margin-left:-10px}
+.mtabs button{min-height:var(--tap-min);min-width:var(--tap-min);display:inline-flex;
+  align-items:center;justify-content:center;padding:0 10px;background:none;border:0;
+  font-family:inherit;cursor:pointer}
+.mtabs button > span{display:inline-flex;align-items:center;min-height:26px;padding:0 2px;
+  font-size:var(--fs-sm);font-weight:600;color:var(--c-ink-3)}
+.mtabs button[aria-pressed="true"] > span{color:var(--c-ink);box-shadow:inset 0 -2px 0 0 var(--c-ink)}
+
+/* 【選択チップは当たり判定44px・見た目30px】§5「見た目の大きさは変えない。当たり判定だけ広げる」を
+   現行アプリと同じ形で満たす: ボタンが 44px、中の見えるピルが 30px。
+   **本人指摘「44ptの決まりはあるが明らかに大きすぎる」への答え。**
+   44px の箱を並べると行が厚くなるので、箱ではなく中身を小さくする
+   （§5.1 My Data の式の行 20px、§5.2 分析タブのチップ 30px と同じ考え） */
+.chip-a{min-height:var(--tap-min);display:inline-flex;align-items:center;justify-content:center;
+  padding:0;border:0;background:none;font-family:inherit;cursor:pointer}
+.chip-a > span{display:inline-flex;align-items:center;justify-content:center;min-height:30px;
+  padding:0 13px;border:1px solid var(--c-line-strong);border-radius:var(--r-pill);
+  font-size:var(--fs-xs);font-weight:600;color:var(--c-ink-2);white-space:nowrap}
+.chip-a.on > span{border-color:var(--c-accent);color:var(--c-accent)}
+.chip-a[style*="flex:1"] > span{width:100%}
 
 /* §5「最小 44x44。例外なし」/「見た目の大きさは変えない。当たり判定だけ広げる」
    見た目 34px のピルと 38px の子タブに、疑似要素で 44px の当たり判定を被せる。
@@ -210,8 +233,10 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
    祖先の重なり順に依存し、器を1つ足すたびに壊れる（実測で3回踏んだ）。
    縦を詰めろと言われたのは**条件行だけ**で、フォームにその制約は無い。
    ここは判定を広げるのではなく、最初から 44px にするのが正しい。 */
-.chips{display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-1)}
-.chips .chip-a{min-height:var(--tap-min)}
+/* 【行間は0でよい】ボタンが 44px、中の見えるピルが 30px なので、
+   ボタン自体が上下 7px ずつの余白を持っている。ここに gap を足すと
+   見た目のピルの間隔が 44+8=52px になり、本人指摘の「明らかに大きすぎる」に戻る */
+.chips{display:flex;flex-wrap:wrap;gap:0 var(--sp-1)}
 .chips .chip-a::after{display:none}
 
 .row{display:flex;align-items:center;gap:var(--sp-3)}
@@ -275,11 +300,11 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
 
 <h1>コミュニティタブ 再設計</h1>
 <p class="lede">
-  9画面を同時に設計した。<b>署名は「音のかたち」の折れ線</b>で、
-  一覧の 56px・平均の全幅・人物紹介の全幅という3つの寸法で同じモチーフを繰り返す。
-  このアプリの芯は「絶対値は環境で一律にずれるので、揃えてから形で比べる」という一点にある。
-  順位表は世の中に無数にあるが、<b>人の一覧に音のかたちが並ぶ画面はこのアプリにしか無い</b>。
-  そこを見せ場にした。  <b>色・角丸・文字サイズ・影・書体</b>は <code>design/DESIGN-SYSTEM.md</code> のトークンから引いている
+  10画面を同時に設計した。<b>署名は「重ねた折れ線」</b> ── 自分の破線と相手の実線が、
+  平行移動で揃えたうえで重なる瞬間だけを見せ場にする。
+  このアプリの芯は「絶対値は環境で一律にずれるので、揃えてから形で比べる」という一点にあり、
+  <b>その芯が目に見えるのはこの重なりだけ</b>だから、比較が起きる2画面（データ・人物紹介）に集中させ、
+  それ以外の画面からは折れ線を外した（一覧の 56px では形が読み取れず情報にならない、という本人指摘による）。  <b>色・角丸・文字サイズ・影・書体</b>は <code>design/DESIGN-SYSTEM.md</code> のトークンから引いている
   （実測で体系外は0件）。余白のリテラルは部品の内側にいくつかあり、そこは §3 の管轄外。
 </p>
 
@@ -294,19 +319,22 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
 <tr><td>条件行はカードではなく横長・縦幅は半分（本人指示）</td><td>ピル3つを1行。高さ <b>34px</b>（旧モックの抽出条件カードは実測 125.5px）。当たり判定だけ 44px</td></tr>
 <tr><td>選択・フィルタ・切替は同じ形のピル、差は ▾（§6.0）</td><td>条件は ▾ 付き（開く）＝ B型の地。期間・指標は ▾ 無し＝ A型の枠線。<b>形が2種あるのは §6.7 の型が違うため</b>で、▾ だけの差ではない</td></tr>
 <tr><td>Instrument Serif は音名とリード番号だけ（§4.3）</td><td><b>このタブでは1文字も使わない</b>。数値と音名軸は <code>--font-num</code>（本人指摘「日付の数字のフォントやめて」）</td></tr>
-<tr><td>タップ 44×44 例外なし（§5）</td><td>条件ピル・子タブは見た目 34/38px のまま疑似要素で 44px。<b>フォームのチップは実寸 44px</b>（判定を広げると祖先の重なり順に依存して壊れるため）。✕ と13歳確認も 44px</td></tr>
+<tr><td>タップ 44×44 例外なし（§5）</td><td><b>箱ではなく中身を小さくする</b>：ボタンは 44px、見えるピルは 30px、下線タブの文字は 26px。現行アプリの <code>MetricUnderlineTabs</code> と同じ手。条件ピル・子タブは疑似要素で 44px。✕ と13歳確認も 44px</td></tr>
 <tr><td>系列色は紺の明度段階＋線種、理想値の破線は <code>--c-ink-3</code> 予約（§1.7）</td><td>相手＝<code>--c-accent</code> 実線 2px / 自分＝<code>--c-ink-3</code> 破線 <code>4 3</code>。機能色は1度も使っていない</td></tr>
 <tr><td>順位の色は環と数字だけ・面を塗らない・絵文字禁止（追記1）</td><td>アイコンの外側に 2px の環、順位数字の文字色。4位以下は <code>--c-ink-3</code></td></tr>
+<tr><td><b>現行アプリと同じ機能は現行に揃える</b>（本人指示）</td><td>指標の切替は <code>MetricUnderlineTabs</code>（App.jsx:13377）と同じ下線タブ。当たり判定 44px・見た目 26px・選択は <code>inset 0 -2px 0 0 var(--c-ink)</code>。カードの作法なので<b>下の罫は引かない</b>（D-30 §7.2）</td></tr>
 <tr><td>1画面に山は1つ（§6.0）</td><td>データ＝重なった折れ線 / 順位＝1位のカード / シェア＝内訳の1本目 / 人物＝アイコンと折れ線</td></tr>
 <tr><td>説明を消して形に語らせる（§6.0）</td><td>「収録18音」「この平均を見る」を削除（本人指示）。カードを押せば開く</td></tr>
 <tr><td>楽器は英語表記・製品名は正式名称（本人指示）</td><td>Alto / Tenor、Vandoren Traditional（青箱と書かない）</td></tr>
 </table>
 
-<h2>署名 ─ 「音のかたち」を3つの寸法で繰り返す</h2>
+<h2>署名 ─ 重ねた折れ線</h2>
 <p>
-  同じ部品を大きさだけ変えて使う。<b>一覧では相手の線だけ</b>（1本にして行を静かに保つ）、
-  <b>平均と人物紹介では自分の破線を重ねる</b>。重なった瞬間だけが「揃えて比べた」ことの証拠なので、
-  そこにだけ2本目を出す。Chanel の規則どおり、行からは1つ外した。
+  <b>自分の破線と相手の実線が重なっている</b>ことが、この機能の説明そのものになる。
+  平行移動を知らない人でも、2本が同じ土俵に乗っていることは形で分かる。
+  出すのは<b>比較が起きる2画面だけ</b>（データの平均・人物紹介）。
+  一覧や順位には出さない ── 小さく置いても形が読めず、装飾になるため。
+  Chanel の規則どおり、置ける場所から2つ外した。
 </p>
 
 <h2>9画面</h2>
@@ -380,8 +408,8 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
         <div class="eyebrow">みんなの平均</div>
         <div class="note">目安を公開している<span class="num">31</span>人</div>
       </div>
-      <div class="periodrow" style="display:flex;gap:var(--sp-1);margin:10px 0 12px">
-        <button class="chip-a on">重心</button><button class="chip-a">HNR</button><button class="chip-a">音程</button>
+      <div class="mtabs" role="tablist" aria-label="指標">
+        <button aria-pressed="true"><span>重心</span></button><button aria-pressed="false"><span>HNR</span></button><button aria-pressed="false"><span>音程</span></button>
       </div>
       <svg viewBox="0 0 322 138" width="100%" style="display:block" aria-label="音名ごとの重心。横軸は音名">
         <line x1="50" x2="310" y1="16" y2="16" stroke="var(--c-line)" stroke-width="1"/>
@@ -411,17 +439,17 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
       <div class="lrow">
         <span class="av" style="width:34px;height:34px;background:var(--c-avatar-3)"><svg width="20" height="20"><use href="#ic-cat"/></svg></span>
         <span class="who"><span class="nm">まつり</span><span class="sub"><span>学生</span><span>歴3年</span><span>クラシック</span></span></span>
-        <svg width="56" height="18" aria-hidden="true"><polyline points="2,14 10,11 18,12 26,7 34,9 42,4 54,3" fill="none" stroke="var(--c-accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span style="text-align:right;flex:none"><span class="num" style="font-size:var(--fs-md);font-weight:700">12</span><span class="note" style="font-weight:600">人が設定</span></span>
       </div>
       <div class="lrow">
         <span class="av" style="width:34px;height:34px;background:var(--c-avatar-6)"><svg width="20" height="20"><use href="#ic-star"/></svg></span>
         <span class="who"><span class="nm">ハルカ</span><span class="sub"><span>学生</span><span>歴2年</span><span>クラシック</span></span></span>
-        <svg width="56" height="18" aria-hidden="true"><polyline points="2,6 10,9 18,7 26,12 34,10 42,14 54,13" fill="none" stroke="var(--c-accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span style="text-align:right;flex:none"><span class="num" style="font-size:var(--fs-md);font-weight:700">7</span><span class="note" style="font-weight:600">人が設定</span></span>
       </div>
       <div class="lrow">
         <span class="av" style="width:34px;height:34px;background:var(--c-avatar-1)"><svg width="20" height="20"><use href="#ic-rabbit"/></svg></span>
         <span class="who"><span class="nmrow"><span class="nm">ゆう</span><span class="you">あなた</span></span><span class="sub"><span>社会人</span><span>歴4年</span><span>ジャズ</span></span></span>
-        <svg width="56" height="18" aria-hidden="true"><polyline points="2,13 10,10 18,11 26,8 34,7 42,5 54,4" fill="none" stroke="var(--c-ink-3)" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/></svg>
+        <span style="text-align:right;flex:none"><span class="num" style="font-size:var(--fs-md);font-weight:700">3</span><span class="note" style="font-weight:600">人が設定</span></span>
       </div>
     </div>
   </div></div>
@@ -433,8 +461,9 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
   </div>
 </div>
 <div class="cap"><b>上下を同じ条件行が絞る。</b>「同じ粒度の条件抽出が2つある」という指摘は、条件行を1つにして解いた。
-一覧の右端に<b>音のかたちを 56px で置く</b> ── 名前と属性だけの行では、音のアプリである理由が消える。
-自分の行は破線（グラフの凡例と同じ意味）で、<b>青いバーにしない</b>。</div>
+一覧の右端は<b>採用件数</b>（本人指示）── 56px の折れ線では形が読み取れず、情報にならなかった。
+「何人がこの人を目安にしたか」なら、その人を見に行く理由になる。
+指標の切替は<b>現行アプリと同じ下線タブ</b>（当たり判定44px・見た目26px）。</div>
 </div>
 
 <!-- ============ 3. 順位 ============ -->
@@ -448,10 +477,10 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
   </div>
   <div class="scroll"><div class="pg" style="padding-top:var(--sp-2)">
     <div class="periodrow" style="display:flex;gap:var(--sp-1)">
-      <button class="chip-a" style="flex:1;justify-content:center">今週</button>
-      <button class="chip-a on" style="flex:1;justify-content:center">今月</button>
-      <button class="chip-a" style="flex:1;justify-content:center">今年</button>
-      <button class="chip-a" style="flex:1;justify-content:center">すべて</button>
+      <button class="chip-a" style="flex:1;justify-content:center"><span>今週</span></button>
+      <button class="chip-a on" style="flex:1;justify-content:center"><span>今月</span></button>
+      <button class="chip-a" style="flex:1;justify-content:center"><span>今年</span></button>
+      <button class="chip-a" style="flex:1;justify-content:center"><span>すべて</span></button>
     </div>
     <div class="note" style="padding:2px 2px 0;color:var(--c-ink-2)">練習日数<span style="display:inline-block;width:9px"></span>今月</div>
 
@@ -527,10 +556,10 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
         <div class="note">Alto を吹く<span class="num">38</span>人</div>
       </div>
       <div class="periodrow" style="display:flex;gap:var(--sp-1);margin:10px 0 4px">
-        <button class="chip-a on" style="flex:1;justify-content:center">楽器</button>
-        <button class="chip-a" style="flex:1;justify-content:center">マウスピース</button>
-        <button class="chip-a" style="flex:1;justify-content:center">リガチャー</button>
-        <button class="chip-a" style="flex:1;justify-content:center">リード</button>
+        <button class="chip-a on" style="flex:1;justify-content:center"><span>楽器</span></button>
+        <button class="chip-a" style="flex:1;justify-content:center"><span>マウスピース</span></button>
+        <button class="chip-a" style="flex:1;justify-content:center"><span>リガチャー</span></button>
+        <button class="chip-a" style="flex:1;justify-content:center"><span>リード</span></button>
       </div>
       <div style="margin-top:10px">
         <div style="padding:7px 0">
@@ -555,9 +584,9 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
     <div class="card">
       <div class="eyebrow" style="margin-bottom:10px">人気の組み合わせ</div>
       <div class="periodrow" style="display:flex;gap:var(--sp-1);margin-bottom:4px">
-        <button class="chip-a on" style="flex:1;justify-content:center">2項目</button>
-        <button class="chip-a" style="flex:1;justify-content:center">3項目</button>
-        <button class="chip-a" style="flex:1;justify-content:center">4項目</button>
+        <button class="chip-a on" style="flex:1;justify-content:center"><span>2項目</span></button>
+        <button class="chip-a" style="flex:1;justify-content:center"><span>3項目</span></button>
+        <button class="chip-a" style="flex:1;justify-content:center"><span>4項目</span></button>
       </div>
       <div class="note" style="padding:6px 0 2px">マウスピース × リード</div>
       <div style="padding:7px 0">
@@ -588,7 +617,7 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
 <div class="item"><div class="tag">05 ─ 人をタップしたとき</div>
 <div class="ph">
   <div class="scroll"><div class="pg" style="padding-top:var(--sp-3)">
-    <button class="chip-a" style="align-self:flex-start;border-color:transparent;background:var(--c-sunken);padding:0 14px">← 戻る</button>
+    <button class="chip-a" style="align-self:flex-start;border-color:transparent;background:var(--c-sunken);padding:0 14px"><span>← 戻る</span></button>
     <div class="card">
       <div class="row" style="gap:var(--sp-3)">
         <span class="av" style="width:56px;height:56px;background:var(--c-avatar-3)"><svg width="33" height="33"><use href="#ic-cat"/></svg></span>
@@ -603,13 +632,13 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
       </div>
     </div>
     <div class="periodrow" style="display:flex;gap:var(--sp-1)">
-      <button class="chip-a on" style="flex:1;justify-content:center">Alto</button>
-      <button class="chip-a" style="flex:1;justify-content:center">Tenor</button>
+      <button class="chip-a on" style="flex:1;justify-content:center"><span>Alto</span></button>
+      <button class="chip-a" style="flex:1;justify-content:center"><span>Tenor</span></button>
     </div>
     <div class="card">
       <div class="eyebrow" style="margin-bottom:8px">音のかたち</div>
-      <div class="periodrow" style="display:flex;gap:var(--sp-1);margin-bottom:10px">
-        <button class="chip-a on">重心</button><button class="chip-a">HNR</button><button class="chip-a">音程</button>
+      <div class="mtabs" role="tablist" aria-label="指標">
+        <button aria-pressed="true"><span>重心</span></button><button aria-pressed="false"><span>HNR</span></button><button aria-pressed="false"><span>音程</span></button>
       </div>
       <svg viewBox="0 0 322 134" width="100%" style="display:block" aria-label="音名ごとの重心">
         <line x1="50" x2="310" y1="14" y2="14" stroke="var(--c-line)" stroke-width="1"/>
@@ -719,8 +748,8 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
     <div class="card">
       <div class="lbl" style="margin-bottom:8px">楽器種別（複数選べます）</div>
       <div class="chips">
-        <button class="chip-a">Soprano</button><button class="chip-a on">Alto</button>
-        <button class="chip-a">Tenor</button><button class="chip-a">Baritone</button>
+        <button class="chip-a"><span>Soprano</span></button><button class="chip-a on"><span>Alto</span></button>
+        <button class="chip-a"><span>Tenor</span></button><button class="chip-a"><span>Baritone</span></button>
       </div>
 
     </div>
@@ -799,24 +828,24 @@ body{margin:0;background:#EDEFF2;font-family:var(--font-jp);color:var(--c-ink);
       <div>
         <div class="lbl" style="margin-bottom:8px">ジャンル（複数選べます）</div>
         <div class="chips">
-          <button class="chip-a on">クラシック</button><button class="chip-a">ジャズ</button>
-          <button class="chip-a">ポップス</button><button class="chip-a">その他</button>
+          <button class="chip-a on"><span>クラシック</span></button><button class="chip-a"><span>ジャズ</span></button>
+          <button class="chip-a"><span>ポップス</span></button><button class="chip-a"><span>その他</span></button>
         </div>
       </div>
       <div>
         <div class="lbl" style="margin-bottom:8px">編成（複数選べます）</div>
         <div class="chips">
-          <button class="chip-a">ソロ</button><button class="chip-a">アンサンブル</button>
-          <button class="chip-a">ビッグバンド</button><button class="chip-a on">吹奏楽</button>
-          <button class="chip-a">オーケストラ</button><button class="chip-a">その他</button>
+          <button class="chip-a"><span>ソロ</span></button><button class="chip-a"><span>アンサンブル</span></button>
+          <button class="chip-a"><span>ビッグバンド</span></button><button class="chip-a on"><span>吹奏楽</span></button>
+          <button class="chip-a"><span>オーケストラ</span></button><button class="chip-a"><span>その他</span></button>
         </div>
       </div>
       <div>
         <div class="lbl" style="margin-bottom:8px">練習場所（複数選べます）</div>
         <div class="chips">
-          <button class="chip-a on">自宅</button><button class="chip-a">学校の音楽室</button>
-          <button class="chip-a">個人練習室</button><button class="chip-a">スタジオ</button>
-          <button class="chip-a">カラオケ</button><button class="chip-a">屋外</button><button class="chip-a">その他</button>
+          <button class="chip-a on"><span>自宅</span></button><button class="chip-a"><span>学校の音楽室</span></button>
+          <button class="chip-a"><span>個人練習室</span></button><button class="chip-a"><span>スタジオ</span></button>
+          <button class="chip-a"><span>カラオケ</span></button><button class="chip-a"><span>屋外</span></button><button class="chip-a"><span>その他</span></button>
         </div>
       </div>
     </div>
