@@ -114,17 +114,12 @@ describe("searchLigatures", () => {
     expect(searchLigatures("bambu").some((h) => h.brand === "Bambú")).toBe(true);
   });
 
-  // Selmer / Yamaha は愛称モデル名を持たず、部品番号か管別の一般名しかない。
-  // 日本語の補足を括弧で付けてあるので、日本語の語で当たること自体が要件。
+  // Selmer / Yamaha は愛称モデル名を持たず、日本語の一般名がそのままモデル名。
+  // 日本語の語で当たること自体が要件(ラテン文字だけにすると日本語で探す人が0件になる)。
   it("Selmer / Yamaha のリガチャーが日本語の語で当たる", () => {
     expect(searchLigatures("標準リガチャー").some((h) => h.brand === "Selmer")).toBe(true);
     expect(searchLigatures("標準リガチャー").some((h) => h.brand === "Yamaha")).toBe(true);
     expect(searchLigatures("メタルマウスピース用").some((h) => h.brand === "Selmer")).toBe(true);
-    // 管で探す人が多いので「アルト用」でも当たること
-    expect(searchLigatures("アルト用").some((h) => h.brand === "Yamaha")).toBe(true);
-  });
-  it("Yamaha の部品番号でも当たる", () => {
-    expect(searchLigatures("YAC-1607").some((h) => h.brand === "Yamaha")).toBe(true);
   });
 });
 
@@ -180,5 +175,40 @@ describe("LIGATURE_CATALOG の中身", () => {
   it("別名の付いていないブランドが残っていない", () => {
     const missing = Object.keys(LIGATURE_CATALOG).filter((b) => !(BRAND_ALIASES[b]?.length > 0));
     expect(missing).toEqual([]);
+  });
+
+  // ------------------------------------------------------------------
+  // 【2026/09/06 本人指摘】リガチャーの選択肢が細かすぎた。以下2つは、その
+  // 細かさが戻ってこないための番人。どちらも「モデル名の文字列」だけを見る。
+  // ------------------------------------------------------------------
+  it("モデル名を楽器種別で割っていない", () => {
+    // リガチャーの欄は楽器種別ごとに1つずつ出る(CommunityTab.jsx の saxTypes.map の中)ので、
+    // 種別は選ぶ前から決まっている。モデル名に「アルト用」等を入れると、
+    // 必ず的外れになる選択肢が3件ぶん増えるだけになる。
+    const split = [];
+    for (const [brand, { models }] of Object.entries(LIGATURE_CATALOG)) {
+      for (const m of models) {
+        if (/(ソプラノ|アルト|テナー|バリトン|soprano|alto|tenor|baritone)/i.test(m)) split.push(brand + " / " + m);
+      }
+    }
+    expect(split).toEqual([]);
+  });
+  it("モデル名に締め方・サイズ体系・素材の注記が混ざっていない", () => {
+    // 逆締/順締の**区別**は残す(Ishimori の KODAMA と AMIME は別の製品名)。
+    // 落とすのは製品名ではない注記のほう。
+    const annotated = [];
+    for (const [brand, { models }] of Object.entries(LIGATURE_CATALOG)) {
+      for (const m of models) {
+        if (/(逆締|順締|サイズ体系|手織り|布＋|リング型|Braided|ワイヤー式|（旧）|（.*用）)/i.test(m)) {
+          annotated.push(brand + " / " + m);
+        }
+      }
+    }
+    expect(annotated).toEqual([]);
+  });
+  it("逆締と順締の区別そのものは残っている", () => {
+    // 注記を落としても、製品名が別なので区別は残る。
+    expect(LIGATURE_CATALOG.Ishimori.models).toContain("Wood Stone KODAMA I");
+    expect(LIGATURE_CATALOG.Ishimori.models).toContain("Wood Stone AMIME");
   });
 });

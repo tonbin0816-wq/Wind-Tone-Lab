@@ -5,7 +5,10 @@ import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, s
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
-import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills } from "../App.jsx";
+import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills, useSheetDismiss } from "../App.jsx";
+// 【アカウント引継の中身は My Data の「記録の保存」そのもの】写しを作らない。
+// 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を1つ増やすだけ。
+import BackupPanel from "../backup/BackupPanel.jsx";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -42,6 +45,17 @@ const CONFIG_ERROR = "この配信ではコミュニティを利用できませ�
 const connectErrorOf = (e) => (e instanceof FirebaseConfigMissingError ? CONFIG_ERROR : NET_ERROR);
 const SAVE_ERROR = "保存に失敗しました。電波の良いところでもう一度お試しください";
 const TOGGLE_ERROR = "公開設定を変更できませんでした。電波の良いところでもう一度お試しください";
+// 【サーバーに拒まれたのは通信の失敗ではない】2026/09/06。
+// Firestore の permission-denied を「電波の良いところで」と案内すると、
+// 電波は良いのに何度やっても同じ所で失敗する行き止まりになる(実際に起きた)。
+// これが出るのは**公開されているセキュリティルールと、アプリが書こうとする形が
+// 食い違っているとき**で、利用者の操作では直せない。原因が伝わる文言にし、
+// 直せる人(開発者)が見て分かるように理由もそのまま出す。
+const RULE_ERROR = "サーバーに保存を拒まれました。アプリの更新をお待ちください（電波の問題ではありません）";
+const isPermissionDenied = (e) =>
+  e?.code === "permission-denied" || /permission[- ]denied|insufficient permissions/i.test(String(e?.message ?? ""));
+const saveErrorOf = (e) => (isPermissionDenied(e) ? RULE_ERROR : SAVE_ERROR);
+const toggleErrorOf = (e) => (isPermissionDenied(e) ? RULE_ERROR : TOGGLE_ERROR);
 // 【削除の文言は「実際に起きたこと」に合わせる】
 // 【「まだ何も消えていません」とは言えない 2026/09/06】deleteAccount は目安を4件消して
 // からプロフィールを消すようになった(そうしないと画面の「完全に消えます」が嘘になる)ので、
@@ -81,6 +95,9 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // タップされた人。**子タブとは別に持つ** ── 開いたまま子タブを切り替えられると、
   // 下の画面が変わったのに上に別人の紹介が乗っている、という状態になる。
   const [person, setPerson] = useState(null);
+  // アカウント引継のシート。**人物紹介と同じ理由で SwipePager の外に置く**ので、
+  // 開いているかどうかもここが持つ(ProfileView からは開く合図だけ受ける)。
+  const [backup, setBackup] = useState(false);
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
   const dir = usePublicUsers();
@@ -193,7 +210,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
-        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} />
+        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -207,6 +224,60 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
           onClose={() => setPerson(null)}
         />
       ) : null}
+      {/* 【アカウント引継も SwipePager の外】上の人物紹介と同じ理由。
+          中に入れると track の transform が position: fixed の包含ブロックになる。
+          ここは根(App.jsx 側)の作法のクラスの中なので、中の .card は
+          そのままカードとして描かれる(portal で body へ出すとその継承が切れる)。 */}
+      {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
+    </div>
+  );
+}
+
+// 【アカウント引継】プロフィールの一番下から開く。中身は My Data の「記録の保存」を
+// **そのまま**出すだけで、このファイルは器(暗幕・カード・つまみ)しか持たない。
+// 器の作法は App.jsx のシート(リードの「…」など)と同値 ── 暗幕 rgba(15,23,42,0.28) /
+// 角丸 28px 28px 0 0 / つまみ 36×4 / 影・時間・曲線は index.css の
+// .sheet-scrim / .sheet-card。**新しい濃さ・寸法を発明しない。**
+export function BackupSheet({ onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const dismiss = useSheetDismiss(onClose);   // 下スワイプで閉じる(F-88 と同じ作法)
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label="アカウント引継"
+      onClick={onClose}
+      data-noswipe
+      className="sheet-scrim"
+      style={{
+        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
+      }}
+    >
+      <div
+        ref={dismiss.ref} {...dismiss.handlers}
+        onClick={(e) => e.stopPropagation()}
+        data-noswipe
+        className="sheet-card"
+        style={{
+          width: "100%", maxWidth: 900, background: "var(--c-surface)",
+          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        }}
+      >
+        {/* 【つまみは箱を大きくしない】見えるのは 36×4 の棒だけで、
+            当たり判定は var(--tap-min) の透明なボタンが持つ(Chip と同じ解き方)。 */}
+        <button
+          onClick={onClose} aria-label="閉じる" className="no-select"
+          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
+        >
+          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
+        </button>
+        <BackupPanel />
+      </div>
     </div>
   );
 }
@@ -304,7 +375,11 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
             const id = await ensureUid();
             await saveProfile(id, r.doc);
           } catch (e) {
-            return SAVE_ERROR; // 黙って失敗させない。フォームは開いたままにして再送できるようにする
+            // 黙って失敗させない。フォームは開いたままにして再送できるようにする。
+            // 【原因を握りつぶさない】ルールに拒まれたのか通信が切れたのかは
+            // 利用者にとっても開発者にとっても別の話なので、コンソールにも残す。
+            console.error("[community] プロフィールの保存に失敗", e?.code, e);
+            return saveErrorOf(e);
           }
           setProfile(r.doc);
           setPhase("profile");
@@ -790,7 +865,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
       setError(msg);
     } catch (e) {
-      setError(SAVE_ERROR);
+      console.error("[community] プロフィールの保存に失敗", e?.code, e);
+      setError(saveErrorOf(e));
     } finally {
       setBusy(false);
     }
@@ -919,7 +995,7 @@ function Row({ label, value }) {
 
 const listOrDash = (a) => (Array.isArray(a) && a.length > 0 ? a.join("・") : "—");
 
-function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const gear = profile?.gear ?? {};
@@ -938,7 +1014,8 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
       // users を書いた後に失敗しうるのは「公開に戻したが目安を出し直せなかった」場合だけで、
       // そのときスイッチは新しい位置のまま ── 公開設定そのものは変わっているのでそれが正しい。
       // 目安は次にタブを開いたときの effect が出し直す。
-      setError(TOGGLE_ERROR);
+      console.error("[community] 公開設定の変更に失敗", e?.code, e);
+      setError(toggleErrorOf(e));
     } finally {
       setBusy(false);
     }
@@ -947,8 +1024,10 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
   const remove = async () => {
     if (busy) return;
     // 【この一手で消えるものと消えないものを、押す前に言い切る】
-    // 計測データは端末内にあり、このアカウントとは別物。混同したまま消させない。
-    const ok = window.confirm("アカウントとサーバー上のプロフィールを完全に削除します。この端末の計測データは消えません。よろしいですか？");
+    // 端末の中の記録(計測・リード・目安)はこのアカウントとは別物。混同したまま消させない。
+    // 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文をここへ移した。
+    // 読ませたいのは「押そうとした瞬間」だけで、それ以外の時は画面の文字を減らす。
+    const ok = window.confirm("コミュニティのアカウントを完全に削除します。この端末の記録は残ります。");
     if (!ok) return;
     setBusy(true); setError(null);
     try {
@@ -962,7 +1041,8 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
 
   return (
     <div className="sans" style={pageStyle}>
-      <div style={titleStyle}>プロフィール</div>
+      {/* 【見出しは置かない 2026/09/06 本人指示】子タブの「マイページ」が既に
+          どこに居るかを言っている。同じことを2度言わない(説明は減らす方向)。 */}
 
       {/* 名前より先にアイコンを出す。順位や一覧では絵柄で人を探すので、
           自分がどう見えているかが最初に分かるようにする。 */}
@@ -995,8 +1075,8 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
 
       <SwitchRow
         checked={isPublic} onChange={togglePublic} disabled={busy}
-        label="公開する"
-        note="プロフィールと奏者が「自分」のデータが公開されます"
+        label="公開"
+        note="プロフィールと奏者：自分のデータが公開されます"
       />
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
@@ -1005,19 +1085,19 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
         編集
       </button>
 
-      {/* 【説明はボタンの下】本人指示で上下を反転した。
-          押す前に読ませるのではなく、**押そうとした手が止まる位置**に置く。
-          読ませる文章なので --c-ink-3 ではなく --c-ink-2（§1.1「約3.0:1。
-          読ませたい文章には使わない」）。 */}
-      <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+      {/* 【アカウント引継】「編集」と同じ体裁(secondaryButtonStyle)の一手を1つ増やすだけ。
+          説明は付けない ── 押せば中身が出るものに、押す前の説明は要らない。
+          並びは「アカウントを削除」より上。**破壊的な一手が最後**という並びを崩さない。 */}
+      <button type="button" onClick={onOpenBackup} disabled={busy} className="sans" style={secondaryButtonStyle}>
+        アカウント引継
+      </button>
+
+      {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
+          削除ボタンの確認(remove の window.confirm)へ移した。 */}
+      <div style={{ display: "grid", marginTop: "var(--sp-4)" }}>
         <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
-        {/* 【端末内のデータのことはここで言わない】押す直前の確認ダイアログが
-            「この端末の計測データは消えません」を引き続き言う。 */}
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 }}>
-          サーバー上のプロフィールと匿名アカウントが完全に消えます
-        </div>
       </div>
     </div>
   );

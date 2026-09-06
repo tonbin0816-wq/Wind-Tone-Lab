@@ -801,7 +801,7 @@ function createSheetDismissGesture(io) {
 // 呼ばないと、ブラウザがページの縦スクロールを引き取ってジェスチャーごと死ぬ。
 // **掴むまでは preventDefault してはいけない**(iOS は最初の touchmove で止められると
 // そのジェスチャー全体をスクロールしなくなり、シート内の縦スクロールが死ぬ)。
-function useSheetDismiss(onClose) {
+export function useSheetDismiss(onClose) {
   const ref = useRef(null);
   const settleTimer = useRef(null);
   const onCloseRef = useRef(onClose);
