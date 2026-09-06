@@ -88,9 +88,16 @@ service cloud.firestore {
         // gear の中身も自由入力の入口になりうるので型と長さを見る。
         // null は「未選択」を表す正当な値なので許す(「その他」= 文字列 とは別物。gear.js 参照)。
         // 60 は position に合わせた上界。カタログの型番はどれもこれより十分短い。
+        //
+        // 【reedStrength は hasOnly にだけ足す。hasAll には足さない】2026/09/06。
+        // create / update は**更新後のドキュメント全体**に hasAll を当てる。番手を持たない
+        // 既存の利用者が公開スイッチや練習日数を updateDoc すると、更新後の doc に
+        // reedStrength が無いという理由で弾かれ、プロフィールを保存し直すまで
+        // 順位も公開設定も止まる。クライアント(buildProfileDoc)が必須にしているので、
+        // これから書かれる doc には必ず入る。ルールは上位集合のまま置く。
         && (!request.resource.data.gear.keys().hasAny(['soprano']) || (
              request.resource.data.gear.soprano.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.soprano.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.soprano.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
           && (request.resource.data.gear.soprano.instrumentBrand == null || (request.resource.data.gear.soprano.instrumentBrand is string && request.resource.data.gear.soprano.instrumentBrand.size() <= 60))
           && (request.resource.data.gear.soprano.instrumentModel == null || (request.resource.data.gear.soprano.instrumentModel is string && request.resource.data.gear.soprano.instrumentModel.size() <= 60))
           && (request.resource.data.gear.soprano.mpBrand == null || (request.resource.data.gear.soprano.mpBrand is string && request.resource.data.gear.soprano.mpBrand.size() <= 60))
@@ -99,10 +106,11 @@ service cloud.firestore {
           && (request.resource.data.gear.soprano.ligModel == null || (request.resource.data.gear.soprano.ligModel is string && request.resource.data.gear.soprano.ligModel.size() <= 60))
           && (request.resource.data.gear.soprano.reedBrand == null || (request.resource.data.gear.soprano.reedBrand is string && request.resource.data.gear.soprano.reedBrand.size() <= 60))
           && (request.resource.data.gear.soprano.reedModel == null || (request.resource.data.gear.soprano.reedModel is string && request.resource.data.gear.soprano.reedModel.size() <= 60))
+          && (request.resource.data.gear.soprano.reedStrength == null || request.resource.data.gear.soprano.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['alto']) || (
              request.resource.data.gear.alto.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.alto.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.alto.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
           && (request.resource.data.gear.alto.instrumentBrand == null || (request.resource.data.gear.alto.instrumentBrand is string && request.resource.data.gear.alto.instrumentBrand.size() <= 60))
           && (request.resource.data.gear.alto.instrumentModel == null || (request.resource.data.gear.alto.instrumentModel is string && request.resource.data.gear.alto.instrumentModel.size() <= 60))
           && (request.resource.data.gear.alto.mpBrand == null || (request.resource.data.gear.alto.mpBrand is string && request.resource.data.gear.alto.mpBrand.size() <= 60))
@@ -111,10 +119,11 @@ service cloud.firestore {
           && (request.resource.data.gear.alto.ligModel == null || (request.resource.data.gear.alto.ligModel is string && request.resource.data.gear.alto.ligModel.size() <= 60))
           && (request.resource.data.gear.alto.reedBrand == null || (request.resource.data.gear.alto.reedBrand is string && request.resource.data.gear.alto.reedBrand.size() <= 60))
           && (request.resource.data.gear.alto.reedModel == null || (request.resource.data.gear.alto.reedModel is string && request.resource.data.gear.alto.reedModel.size() <= 60))
+          && (request.resource.data.gear.alto.reedStrength == null || request.resource.data.gear.alto.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['tenor']) || (
              request.resource.data.gear.tenor.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.tenor.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.tenor.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
           && (request.resource.data.gear.tenor.instrumentBrand == null || (request.resource.data.gear.tenor.instrumentBrand is string && request.resource.data.gear.tenor.instrumentBrand.size() <= 60))
           && (request.resource.data.gear.tenor.instrumentModel == null || (request.resource.data.gear.tenor.instrumentModel is string && request.resource.data.gear.tenor.instrumentModel.size() <= 60))
           && (request.resource.data.gear.tenor.mpBrand == null || (request.resource.data.gear.tenor.mpBrand is string && request.resource.data.gear.tenor.mpBrand.size() <= 60))
@@ -123,10 +132,11 @@ service cloud.firestore {
           && (request.resource.data.gear.tenor.ligModel == null || (request.resource.data.gear.tenor.ligModel is string && request.resource.data.gear.tenor.ligModel.size() <= 60))
           && (request.resource.data.gear.tenor.reedBrand == null || (request.resource.data.gear.tenor.reedBrand is string && request.resource.data.gear.tenor.reedBrand.size() <= 60))
           && (request.resource.data.gear.tenor.reedModel == null || (request.resource.data.gear.tenor.reedModel is string && request.resource.data.gear.tenor.reedModel.size() <= 60))
+          && (request.resource.data.gear.tenor.reedStrength == null || request.resource.data.gear.tenor.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         && (!request.resource.data.gear.keys().hasAny(['baritone']) || (
              request.resource.data.gear.baritone.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.baritone.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+          && request.resource.data.gear.baritone.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
           && (request.resource.data.gear.baritone.instrumentBrand == null || (request.resource.data.gear.baritone.instrumentBrand is string && request.resource.data.gear.baritone.instrumentBrand.size() <= 60))
           && (request.resource.data.gear.baritone.instrumentModel == null || (request.resource.data.gear.baritone.instrumentModel is string && request.resource.data.gear.baritone.instrumentModel.size() <= 60))
           && (request.resource.data.gear.baritone.mpBrand == null || (request.resource.data.gear.baritone.mpBrand is string && request.resource.data.gear.baritone.mpBrand.size() <= 60))
@@ -135,6 +145,7 @@ service cloud.firestore {
           && (request.resource.data.gear.baritone.ligModel == null || (request.resource.data.gear.baritone.ligModel is string && request.resource.data.gear.baritone.ligModel.size() <= 60))
           && (request.resource.data.gear.baritone.reedBrand == null || (request.resource.data.gear.baritone.reedBrand is string && request.resource.data.gear.baritone.reedBrand.size() <= 60))
           && (request.resource.data.gear.baritone.reedModel == null || (request.resource.data.gear.baritone.reedModel is string && request.resource.data.gear.baritone.reedModel.size() <= 60))
+          && (request.resource.data.gear.baritone.reedStrength == null || request.resource.data.gear.baritone.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
            ))
         // ---- stats(練習日数) ----
         // 【この値は本人のクライアントが書く。改ざんは防げない】

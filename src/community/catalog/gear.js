@@ -1,4 +1,4 @@
-// 機材カタログ(サックス本体・マウスピース・リガチャー)と部分一致検索。
+// 楽器・マウスピース・リガチャー・リードのカタログと部分一致検索。
 // データ出典:
 //   本体・マウスピース … docs/superpowers/research/2026-08-27-gear-catalog.md
 //   リガチャー         … docs/superpowers/research/2026-08-29-ligature-catalog.md

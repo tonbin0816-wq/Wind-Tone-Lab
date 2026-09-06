@@ -107,7 +107,28 @@ describe("filterUsers", () => {
 });
 
 describe("tallyGear", () => {
-  const g = (over) => ({ instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", ...over });
+  const g = (over) => ({ instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0", ...over });
+
+  // 【2026/09/06 本人裁定「含める」】同じ銘柄でも番手が違えば別の票にする。
+  it("リードは番手まで含めて数える(同じ銘柄でも番手が違えば別の票)", () => {
+    const r = tallyGear([
+      person("a", { gear: { alto: g() } }),
+      person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
+    ], "alto");
+    expect(r.slots.reed.map((x) => x.key).sort())
+      .toEqual(["Vandoren Traditional 3.0", "Vandoren Traditional 3.25"]);
+  });
+  it("番手を持たない古いドキュメントは番手なしの票になる(勝手に埋めない)", () => {
+    const r = tallyGear([person("a", { gear: { alto: g({ reedStrength: null }) } })], "alto");
+    expect(r.slots.reed[0].key).toBe("Vandoren Traditional");
+  });
+  it("「その他」は番手が付いても「その他」のまま(カタログ外を細かく割らない)", () => {
+    const r = tallyGear([person("a", { gear: { alto: g({ reedBrand: OTHER_BRAND, reedModel: null }) } })], "alto");
+    expect(r.slots.reed[0].key).toBe(OTHER_BRAND);
+  });
+  it("リード以外は番手を鍵に混ぜない", () => {
+    expect(gearKey("YAMAHA", "YAS-62")).toBe("YAMAHA YAS-62");
+  });
 
   it("4種すべての内訳を、多い順に数える", () => {
     const r = tallyGear([

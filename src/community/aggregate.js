@@ -57,20 +57,31 @@ export function findMyRank(ranked, uid) {
 // 書き込みには null が残る。未選択を「その他」に混ぜると内訳が実態より「その他」に寄る。
 export const UNSET = "__unset__";
 
+// 3つ目の要素は「銘柄・型番に続けて数える値」。リードだけが番手を持つ。
 const SLOTS = {
   instrument: ["instrumentBrand", "instrumentModel"],
   mouthpiece: ["mpBrand", "mpModel"],
   ligature: ["ligBrand", "ligModel"],
-  reed: ["reedBrand", "reedModel"],
+  reed: ["reedBrand", "reedModel", "reedStrength"],
 };
 export const GEAR_SLOTS = Object.keys(SLOTS);
 export const SLOT_LABEL = { instrument: "楽器", mouthpiece: "マウスピース", ligature: "リガチャー", reed: "リード" };
 
-/** 楽器の組1つを数えるための鍵。null は UNSET、その他は OTHER_BRAND のまま。 */
-export function gearKey(brand, model) {
+/**
+ * 楽器の組1つを数えるための鍵。null は UNSET、その他は OTHER_BRAND のまま。
+ *
+ * 【extra は番手(リードのみ) 2026/09/06 本人裁定「含める」】
+ * 「Vandoren Traditional」と「Vandoren Traditional 3.0」を別の票にする。
+ * ・「その他」は番手が付いても「その他」のまま ── 型番でまとめないのと同じ理屈で、
+ *   カタログ外を細かく割っても読めるものにならない。
+ * ・番手を持たない古いドキュメント(ルールが null を許している)は番手なしの票になる。
+ *   同じリードでも保存し直すまで別の票に見えるが、勝手に「3.0 だろう」と埋めるよりよい。
+ */
+export function gearKey(brand, model, extra) {
   if (brand === null || brand === undefined) return UNSET;
   if (brand === OTHER_BRAND) return OTHER_BRAND;
-  return model ? `${brand} ${model}` : brand;
+  const base = model ? `${brand} ${model}` : brand;
+  return extra ? `${base} ${extra}` : base;
 }
 
 /**
@@ -86,8 +97,8 @@ export function tallyGear(users, saxType) {
     const g = u?.gear?.[saxType];
     if (!g) continue; // その種別を吹かない人
     total++;
-    for (const [slot, [bKey, mKey]] of Object.entries(SLOTS)) {
-      const k = gearKey(g[bKey], g[mKey]);
+    for (const [slot, [bKey, mKey, xKey]] of Object.entries(SLOTS)) {
+      const k = gearKey(g[bKey], g[mKey], xKey ? g[xKey] : undefined);
       counters[slot].set(k, (counters[slot].get(k) ?? 0) + 1);
     }
   }
@@ -122,8 +133,8 @@ export function tallyCombos(users, saxType, depth) {
     const g = u?.gear?.[saxType];
     if (!g) continue;
     const parts = slots.map((slot) => {
-      const [bKey, mKey] = SLOTS[slot];
-      return gearKey(g[bKey], g[mKey]);
+      const [bKey, mKey, xKey] = SLOTS[slot];
+      return gearKey(g[bKey], g[mKey], xKey ? g[xKey] : undefined);
     });
     // 【1つでも未選択なら組み合わせに数えない】未選択を含む組は
     // 「その組み合わせを使っている人」を表さない。人気の組み合わせとしては嘘になる。

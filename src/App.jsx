@@ -12,6 +12,10 @@ const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
 // 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
 // 画面本体は lazy のままにして、初回の読み込みを重くしない。
 import { buildAdoptedProfile } from "./community/idealDoc.js";
+// 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
+// profile.js は firebase を読まない(カタログとNGワードだけ)ので、
+// ここから import しても計測タブの起動が重くならない。
+import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
 
 // コミュニティタブの読み込み中/読み込み失敗の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -1833,16 +1837,49 @@ function registerBand(semitoneIndex, lowMax = 20, midMax = 32) {
 
 const REGISTER_BAND_LABELS = { low: "低音域", mid: "中音域", high: "高音域", unknown: "不明" };
 
+// 【番手のピル行を1つの部品にする】リードの追加シート・箱の編集・コミュニティの
+// プロフィールの3箇所が同じ見た目で番手を選ぶ。綴りを3つに散らすと、次に刻みや
+// 見た目を変えるときに必ず1箇所だけ取り残される(本人の方針「現行のアプリと同じ
+// 機能は現行のアプリに揃えて」)。
+//
+// 番手9種(2.0〜4.0 の 0.25 刻み)。正典 .selrow / .selpill
+// (12.5px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
+// 見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。
+export function ReedStrengthPills({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop: 12 }}>
+      {REED_STRENGTHS.map((s) => (
+        <button key={s} type="button" onClick={() => onChange(s)}
+          aria-pressed={value === s}
+          aria-label={`番手 ${s}`}
+          className="no-select"
+          style={{
+            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0,
+            background: "transparent", border: "none",
+            display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+          }}>
+          <span style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+            border: value === s ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+            background: value === s ? "var(--c-accent)" : "transparent",
+            color: value === s ? "var(--c-on-accent)" : "var(--c-ink-2)",
+          }}>{s}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ============================================================
 // リード登録用マスタデータ
 // 銘柄: 初期リスト(一般的なメーカー) + ユーザーが自由入力した銘柄を自動追加
-// 番手: 2.0〜4.0を0.5刻み
+// 番手: 2.0〜4.0を0.25刻み(正は src/community/profile.js。ここでは持たない)
 // ============================================================
 const INITIAL_REED_BRANDS = [
   "Vandoren", "Rico (D'Addario)", "Légère", "Marca", "Rigotti", "Silverstein", "Alexander",
 ];
 
-const REED_STRENGTHS = ["2.0", "2.5", "3.0", "3.5", "4.0"];
 
 const REED_BOX_SIZE = 10; // リード1箱あたりの枚数
 
@@ -10490,29 +10527,7 @@ function ReedBoxSheet({
             />
           )}
 
-          {/* 番手5種。正典 .selrow / .selpill(12.5px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
-              見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。 */}
-          <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop: 12 }}>
-            {REED_STRENGTHS.map((s) => (
-              <button key={s} onClick={() => setStrength(s)}
-                aria-pressed={strength === s}
-                aria-label={`番手 ${s}`}
-                className="no-select"
-                style={{
-                  minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0,
-                  background: "transparent", border: "none",
-                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                }}>
-                <span style={{
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
-                  border: strength === s ? "1px solid transparent" : "1px solid var(--c-line-strong)",
-                  background: strength === s ? "var(--c-accent)" : "transparent",
-                  color: strength === s ? "var(--c-on-accent)" : "var(--c-ink-2)",
-                }}>{s}</span>
-              </button>
-            ))}
-          </div>
+          <ReedStrengthPills value={strength} onChange={setStrength} />
 
           {/* 枚数 1〜10。正典は −/数値/＋ を gap 26 で並べ、数値は 26px の太字。
               ± の反応領域の幅は正典 .pmt の基準値 METRO_PM_W(72)。
@@ -10615,7 +10630,7 @@ function ReedRegisterView(props) {
   const [addOpen, setAddOpen] = useState(false);
   const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
   const [customBrand, setCustomBrand] = useState("");
-  const [newStrength, setNewStrength] = useState(REED_STRENGTHS[2]); // 初期値3.0
+  const [newStrength, setNewStrength] = useState(REED_STRENGTH_DEFAULT); // 初期値3.0
   const [addCount, setAddCount] = useState(REED_ADD_COUNT_MAX);      // 既定は箱ぶん(10枚)
 
   // ユーザーが自由入力した銘柄を選択肢に自動追加(初期リスト+動的追加分)
@@ -10634,7 +10649,7 @@ function ReedRegisterView(props) {
   const [editBoxKey, setEditBoxKey] = useState(null);
   const [editBrand, setEditBrand] = useState("");
   const [editCustomBrand, setEditCustomBrand] = useState("");
-  const [editStrength, setEditStrength] = useState(REED_STRENGTHS[2]);
+  const [editStrength, setEditStrength] = useState(REED_STRENGTH_DEFAULT);
   const [editStartDate, setEditStartDate] = useState("");
   const editGroup = reedGroups.find((g) => g.key === editBoxKey) || null;
   const openBoxEdit = (g) => {

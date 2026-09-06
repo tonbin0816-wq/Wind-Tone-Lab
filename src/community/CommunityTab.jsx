@@ -5,7 +5,7 @@ import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, PLACES, SAX_TYPES, SAX_L
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals } from "./idealRepo.js";
-import { buildIdealProfileFromSessions, SubTabs, SwipePager } from "../App.jsx";
+import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills } from "../App.jsx";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -565,6 +565,14 @@ function gearLabel(v) {
   return v.model ? `${v.brand} ${v.model}` : v.brand;
 }
 
+// リードだけは番手が続く。番手を持たない古いドキュメントは銘柄・型番だけで出す
+// (ルールが null を許しているので、保存し直すまで番手の無い人がいる)。
+function reedLabel(g = {}) {
+  const base = gearLabel({ brand: g.reedBrand, model: g.reedModel });
+  if (!g.reedBrand || !g.reedStrength) return base;
+  return `${base} ${g.reedStrength}`;
+}
+
 // disabled: 検索してもカタログを引けない状態(楽器種別が未選択のとき)。
 // searchInstrumentModels(q, "") は必ず空を返すので、打てるままにしておくと
 // 「カタログに自分の楽器があるのに、候補が出ないので『その他』で登録する」人が出る。
@@ -656,8 +664,11 @@ const gearEntryToPicks = (g = {}) => ({
   mouthpiece: g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null,
   ligature: g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null,
   reed: g.reedBrand ? { brand: g.reedBrand, model: g.reedModel ?? null } : null,
+  // 番手は銘柄と別の欄。GearPicker の value の形({brand, model})を変えないため、
+  // reed の中に入れず並べて持つ。
+  reedStrength: g.reedStrength ?? null,
 });
-export const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null, reed: null };
+export const EMPTY_PICKS = { instrument: null, mouthpiece: null, ligature: null, reed: null, reedStrength: null };
 export const picksToGearEntry = (p = EMPTY_PICKS) => ({
   instrumentBrand: p.instrument?.brand ?? null,
   instrumentModel: p.instrument?.model ?? null,
@@ -667,6 +678,7 @@ export const picksToGearEntry = (p = EMPTY_PICKS) => ({
   ligModel: p.ligature?.model ?? null,
   reedBrand: p.reed?.brand ?? null,
   reedModel: p.reed?.model ?? null,
+  reedStrength: p.reedStrength ?? null,
 });
 
 function ProfileForm({ initial, onSubmit, onCancel }) {
@@ -805,13 +817,18 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
             value={gearPicks[t]?.ligature ?? null} onPick={(v) => setPick(t, "ligature", v)}
             runSearch={(q) => searchLigatures(q)}
           />
-          {/* 【リードに番手の欄を置かない】番手はリードタブ(App.jsx)が箱ごとに持っていて、
-              同じ銘柄でも日によって変わる。ここは楽器の組の一覧なので銘柄だけを持つ。 */}
           <GearPicker
             label="リード" ariaPrefix={`${SAX_LABELS[t]}のリード`}
             value={gearPicks[t]?.reed ?? null} onPick={(v) => setPick(t, "reed", v)}
             runSearch={(q) => searchReeds(q)}
           />
+          {/* 【番手はリードタブと同じピル行】2026/09/06 本人指示で追加。
+              リードタブ(App.jsx)の箱は1枚ごとの番手を持つが、ここが持つのは
+              「普段使っている番手」1つ。見た目の部品は App.jsx から借りて1つにする。 */}
+          <Field label="リードの番手">
+            <ReedStrengthPills value={gearPicks[t]?.reedStrength ?? null}
+                               onChange={(v) => setPick(t, "reedStrength", v)} />
+          </Field>
         </div>
       ))}
 
@@ -931,7 +948,7 @@ function ProfileView({ profile, onEdit, onTogglePublic, onDelete }) {
               <Row label="楽器" value={gearLabel({ brand: g.instrumentBrand, model: g.instrumentModel })} />
               <Row label="マウスピース" value={gearLabel({ brand: g.mpBrand, model: g.mpModel })} />
               <Row label="リガチャー" value={gearLabel({ brand: g.ligBrand, model: g.ligModel })} />
-              <Row label="リード" value={gearLabel({ brand: g.reedBrand, model: g.reedModel })} />
+              <Row label="リード" value={reedLabel(g)} />
             </React.Fragment>
           );
         })}

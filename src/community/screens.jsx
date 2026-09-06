@@ -784,14 +784,21 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
 // 【練習日数は累計を出す】順位は期間を切り替えて見るものだが、
 // 人物の紹介として出すなら累計のほうが素性を表す。
 // ------------------------------------------------------------------
-function GearLine({ label, brand, model }) {
-  const v = brand === null || brand === undefined ? "未選択"
+// strength はリードのときだけ渡す。番手を持たない古いドキュメントもあるので、
+// 無ければ何も足さない(ルールが null を許している)。
+function GearLine({ label, brand, model, strength = null }) {
+  const has = brand !== null && brand !== undefined;
+  const v = !has ? "未選択"
     : brand === OTHER_BRAND ? "その他"
     : model ? `${brand} ${model}` : brand;
   return (
     <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "baseline", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
       <div className="sans jp-label" style={{ ...labelStyle, flex: "0 0 7em" }}>{label}</div>
-      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: "1 1 0", minWidth: 0 }}>{v}</div>
+      <div className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: "1 1 0", minWidth: 0 }}>
+        {v}
+        {/* 番手は数値なので --font-num(§4.3) */}
+        {has && strength ? <span style={{ fontFamily: "var(--font-num)" }}> {strength}</span> : null}
+      </div>
     </div>
   );
 }
@@ -899,7 +906,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                 <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
                 <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
                 <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
-                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} />
+                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
               </div>
             ) : <Empty>この楽器の登録はまだありません</Empty>}
 

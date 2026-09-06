@@ -5,7 +5,8 @@ import { EMPTY_PICKS, picksToGearEntry } from "./CommunityTab.jsx";
 
 // 【この2つは実装から import しない】楽器の組の形と、選べる絵柄の数は凍結された仕様。
 // 実装から引くと「実装が何を出そうと一致する」検査になり、何も守らない。
-const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel"];
+// 2026/09/06: リードの番手(reedStrength)を追加して 8 → 9。
+const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel", "reedStrength"];
 const ICON_COUNT = 24;
 
 const readSrc = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -63,27 +64,30 @@ describe("アイコンの地の色", () => {
 // しかもリードは必須なので、利用者から見ると「正しく選んでいるのに永久に登録できない」。
 // ------------------------------------------------------------------
 describe("画面の楽器の組と保存の形の対応づけ", () => {
-  it("書き出しの結果は仕様の8キーちょうど(数も綴りも)", () => {
+  it("書き出しの結果は仕様の9キーちょうど(数も綴りも)", () => {
     expect(Object.keys(picksToGearEntry(EMPTY_PICKS)).sort()).toEqual([...GEAR_KEYS].sort());
   });
-  it("空の初期値は8欄すべてを持ち、すべて null になる", () => {
+  it("空の初期値は9欄すべてを持ち、すべて null になる", () => {
     // EMPTY_PICKS に欄が足りないと、その欄は「選んでも保存されない」。
     const out = picksToGearEntry(EMPTY_PICKS);
     for (const k of GEAR_KEYS) expect(out[k]).toBeNull();
-    expect(Object.keys(EMPTY_PICKS).sort()).toEqual(["instrument", "ligature", "mouthpiece", "reed"]);
+    // 番手は GearPicker の value({brand, model})の形を変えないよう、reed の中ではなく並べて持つ。
+    expect(Object.keys(EMPTY_PICKS).sort()).toEqual(["instrument", "ligature", "mouthpiece", "reed", "reedStrength"]);
   });
-  it("選んだ4つがそれぞれ対応する2キーへ落ちる", () => {
+  it("選んだ4つと番手がそれぞれ対応するキーへ落ちる", () => {
     const out = picksToGearEntry({
       instrument: { brand: "YAMAHA", model: "YAS-62" },
       mouthpiece: { brand: "Selmer", model: "S80 C*" },
       ligature: { brand: "Rovner", model: "Dark" },
       reed: { brand: "Vandoren", model: "Traditional" },
+      reedStrength: "3.25",
     });
     expect(out).toEqual({
       instrumentBrand: "YAMAHA", instrumentModel: "YAS-62",
       mpBrand: "Selmer", mpModel: "S80 C*",
       ligBrand: "Rovner", ligModel: "Dark",
       reedBrand: "Vandoren", reedModel: "Traditional",
+      reedStrength: "3.25",
     });
   });
   it("型番の無い「その他」は brand だけが入り model は null になる", () => {

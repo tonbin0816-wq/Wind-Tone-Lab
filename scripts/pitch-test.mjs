@@ -31,6 +31,9 @@ import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
+// 【リードの番手の正は community/profile.js】綴りを2箇所に持たないため、
+// App.jsx は import して使うだけになった。切り出す先もそちらに合わせる。
+const profileSrc = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
 
 // コメントを外した「実際に動く側」だけを返す。「○○は使わない」「【削除済み】○○」という
 // 記録をコメントに書くと、その綴りが本文に現れて「○○が無いこと」の検査が落ちる。
@@ -50,25 +53,25 @@ function extractFunction(name) {
   }
   throw new Error(`function ${name}: unbalanced braces`);
 }
-function extractConst(name) {
-  const re = new RegExp(`const ${name} = `);
-  const m = re.exec(src);
+function extractConst(name, text = src) {
+  const re = new RegExp(`(?:export )?const ${name} = `);
+  const m = re.exec(text);
   if (!m) throw new Error(`const ${name} not found`);
   const start = m.index;
-  const eq = src.indexOf("=", start);
+  const eq = text.indexOf("=", start);
   let i = eq + 1;
-  while (src[i] === " ") i++;
-  if (src[i] === "{" || src[i] === "[") {
-    const open = src[i], close = open === "{" ? "}" : "]";
+  while (text[i] === " ") i++;
+  if (text[i] === "{" || text[i] === "[") {
+    const open = text[i], close = open === "{" ? "}" : "]";
     let depth = 0;
-    for (; i < src.length; i++) {
-      if (src[i] === open) depth++;
-      else if (src[i] === close) { depth--; if (depth === 0) { i++; break; } }
+    for (; i < text.length; i++) {
+      if (text[i] === open) depth++;
+      else if (text[i] === close) { depth--; if (depth === 0) { i++; break; } }
     }
-    return src.slice(start, i) + ";";
+    return text.slice(start, i) + ";";
   }
-  const end = src.indexOf(";", start);
-  return src.slice(start, end + 1);
+  const end = text.indexOf(";", start);
+  return text.slice(start, end + 1);
 }
 
 // 関数の本体を**そのままの文字列で**取り出す(eval はしない。ソース照合専用)。
@@ -320,7 +323,8 @@ const code = [
   // REED_BOX_SIZE は REED_ADD_COUNT_MAX の定義が参照するので**先に**並べる
   // (この配列の順序がそのまま評価順になる)。
   extractConst("REED_BOX_SIZE"),
-  extractConst("REED_STRENGTHS"),
+  // export 付きで切り出されるので、new Function に食わせる前に外す
+  extractConst("REED_STRENGTHS", profileSrc).replace(/^export /, ""),
   extractConst("REED_ADD_COUNT_MIN"),
   extractConst("REED_ADD_COUNT_MAX"),
   extractConst("REED_BRAND_CUSTOM"),
@@ -8368,6 +8372,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           const defs = new Set();
           for (const m of codeKeep.matchAll(/\b(?:const|let|var)\s+([^\n;]*)/g))
             for (const d of m[1].matchAll(/(?<![\w$])([A-Z][A-Z0-9_]*)\s*=(?!=)/g)) defs.add(d[1]);
+          // 【import した定数も「定義がある」に数える】綴りを2箇所に持たないため、
+          // REED_STRENGTHS のように正を別ファイルへ移した定数がある。移した先を
+          // 見に行かないと「参照はあるのに定義が無い」に見えてしまう。
+          for (const m of codeKeep.matchAll(/^import\s*\{([^}]*)\}\s*from/gm))
+            for (const d of m[1].matchAll(/(?<![\w$])([A-Z][A-Z0-9_]{2,})(?![\w$])/g)) defs.add(d[1]);
           // 走査が空回りしていないことの下限(定数を全部消して「0件だから合格」を作らせない)
           check("App.jsx の SCREAMING_CASE 定数を走査できている", defs.size >= 150, `${defs.size}個`);
           // (1) 定義があるのに参照0件 = 死んだ定数。**除外は0件**(現状すべて参照されている)。
@@ -8797,10 +8806,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(src));
       check("自由入力した銘柄は候補に自動追加される(重複は避ける)",
         /if \(newBrand === REED_BRAND_CUSTOM && !brandOptions\.includes\(brand\)\) \{\s*setExtraBrands/.test(src));
-      check("番手は5種のまま", api.REED_STRENGTHS.length === 5 && api.REED_STRENGTHS.join(",") === "2.0,2.5,3.0,3.5,4.0",
+      // 【2026/09/06 本人指示】2.0〜4.0 の 0.25 刻み。旧5値の上位集合なので、
+      // 保存済みの箱の strength(文字列)は1件も書き換えなくてよい。
+      check("番手は9種(2.0〜4.0 の 0.25 刻み)",
+        api.REED_STRENGTHS.length === 9
+        && api.REED_STRENGTHS.join(",") === "2.0,2.25,2.5,2.75,3.0,3.25,3.5,3.75,4.0",
         api.REED_STRENGTHS.join(","));
+      check("旧5種は新しい並びに全部残っている(保存済みの番手が読めなくならない)",
+        ["2.0", "2.5", "3.0", "3.5", "4.0"].every((s) => api.REED_STRENGTHS.includes(s)));
       check("シートは REED_STRENGTHS をそのまま並べる(選択肢を作り直していない)",
         /REED_STRENGTHS\.map\(\(s\) => \(/.test(src));
+      check("番手のピル行は1つの部品(追加シート・箱の編集・プロフィールが同じ見た目を使う)",
+        /export function ReedStrengthPills\(/.test(src)
+        && (src.match(/<ReedStrengthPills /g) || []).length >= 1);
       // --- 開封日は「箱を追加した**ローカル暦日**」------------------------------
       // 【この検査の前身が「正しい修正をすると落ちる検査」だった】N-5 の初版は
       //   /const startDate = new Date\(\)\.toISOString\(\)\.slice\(0, 10\);/

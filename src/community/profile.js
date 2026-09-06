@@ -15,6 +15,15 @@ export const SAX_TYPES = ["soprano", "alto", "tenor", "baritone"];
 // 【綴りは App.jsx の SAX_PRESETS[*].label と同じ4語に揃える】片方だけ直すと、
 // 計測タブとコミュニティで同じ楽器が別名で出る。profile.test.js が両方を突き合わせる。
 export const SAX_LABELS = { soprano: "S.Sax", alto: "A.Sax", tenor: "T.Sax", baritone: "B.Sax" };
+// 【リードの番手。2.0〜4.0 の 0.25 刻み(2026/09/06 本人指示)】
+// 正をここに置き、App.jsx が import する。firestore.rules の列挙との突き合わせを
+// profile.test.js が行うので、そのテストから読める場所に1つだけ持つ。
+// 【旧5値の上位集合】"2.0" "2.5" "3.0" "3.5" "4.0" はそのまま残っているので、
+// 保存済みの箱の strength(文字列)は1件も書き換えなくてよい。
+export const REED_STRENGTHS = ["2.0", "2.25", "2.5", "2.75", "3.0", "3.25", "3.5", "3.75", "4.0"];
+// 既定は 3.0(配列の5番目)。刻みを変えたら必ずここも見直すこと。
+export const REED_STRENGTH_DEFAULT = "3.0";
+
 export const POSITIONS = ["学生", "学生（音大）", "社会人", "講師・プロ", "独学"];
 export const GENRES = ["クラシック", "ジャズ", "ポップス", "その他"];
 // 【「その他」を末尾に置く 2026-09-02】3つの多選択はすべて1つ以上必須にした。
@@ -200,10 +209,11 @@ export function buildProfileDoc(input, now = new Date()) {
     const mpModel = g.mpModel ?? null;
     const ligBrand = g.ligBrand ?? null;
     const ligModel = g.ligModel ?? null;
-    // 【リードは番手を持たない】番手はセッション側(App.jsx の reeds)の情報で、
-    // 同じ銘柄でも日によって変わる。ここは「何を使っているか」だけを持つ。
+    // 【リードは番手も持つ(2026/09/06 本人指示)】セッション側(App.jsx の reeds)は
+    // 1枚ごとの番手を持つが、ここが持つのは「普段使っている番手」1つ。
     const reedBrand = g.reedBrand ?? null;
     const reedModel = g.reedModel ?? null;
+    const reedStrength = g.reedStrength ?? null;
     // 【楽器だけは種別ごとに照合する】カタログは種別で分かれていて、アルトの YAS-62 は
     // テナーには無い。第3引数にそのキーの種別を渡さないと、種別違いの型番が通ってしまう。
     // マウスピースとリガチャーは種別を持たないカタログなので今までどおり2引数。
@@ -217,7 +227,10 @@ export function buildProfileDoc(input, now = new Date()) {
     if (!isValidMouthpiece(mpBrand, mpModel)) return { error: `${SAX_LABELS[t]}のマウスピースがカタログにありません` };
     if (!isValidLigature(ligBrand, ligModel)) return { error: `${SAX_LABELS[t]}のリガチャーがカタログにありません` };
     if (!isValidReed(reedBrand, reedModel)) return { error: `${SAX_LABELS[t]}のリードがカタログにありません` };
-    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel, reedBrand, reedModel };
+    // 番手も必須。列挙にない値は弾く(自由入力の入口を作らない)。
+    if (reedStrength === null) return { error: `${SAX_LABELS[t]}のリードの番手を選んでください` };
+    if (!REED_STRENGTHS.includes(reedStrength)) return { error: `${SAX_LABELS[t]}のリードの番手が正しくありません` };
+    gear[t] = { instrumentBrand: instBrand, instrumentModel: instModel, mpBrand, mpModel, ligBrand, ligModel, reedBrand, reedModel, reedStrength };
   }
 
   // 【2026-09-02 本人裁定: 多選択も1つ以上必須】このタブの用途は条件で絞り込んで

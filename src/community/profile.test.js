@@ -7,25 +7,32 @@ import {
   POSITIONS,
   SAX_TYPES,
   SAX_LABELS,
+  REED_STRENGTHS,
   GENRES,
   ENSEMBLES,
   PLACES,
 } from "./profile.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
-// 【この8つは実装から import しない】楽器の組の形は凍結された仕様であって、
+// 【この9つは実装から import しない】楽器の組の形は凍結された仕様であって、
 // 実装が持っている定数ではない。実装側から引くと「実装が何を出そうと一致する」検査になる。
-// 2026-09-02: リード(reedBrand / reedModel)を追加して6→8。番手は持たない
-// (番手はセッション側の情報で、同じ銘柄でも日によって変わるため)。
-const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel"];
+// 2026-09-02: リード(reedBrand / reedModel)を追加して6→8。
+// 2026-09-06: リードの番手(reedStrength)を追加して8→9。
+const GEAR_KEYS = ["instrumentBrand", "instrumentModel", "mpBrand", "mpModel", "ligBrand", "ligModel", "reedBrand", "reedModel", "reedStrength"];
+// 【ルールの hasAll は8キーのまま】番手を hasAll に足すと、番手を持たない既存の
+// ドキュメントへの updateDoc(公開スイッチ・練習日数)が更新後の doc の検査で全部
+// 弾かれる。ルールは上位集合のまま置き、必須はクライアント(buildProfileDoc)が担う。
+const GEAR_KEYS_REQUIRED = GEAR_KEYS.filter((k) => k !== "reedStrength");
+// 番手だけは列挙で固定する(自由文の入口を作らない)ので、文字列長の検査を持たない。
+const GEAR_KEYS_STRING = GEAR_KEYS_REQUIRED;
 // 空の楽器の組(何も選ばなかった状態)。必須化後は保存できない値だが、
 // 「弾かれること」を確かめるために必要なので残す。
-const NO_GEAR = { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null, reedBrand: null, reedModel: null };
+const NO_GEAR = { instrumentBrand: null, instrumentModel: null, mpBrand: null, mpModel: null, ligBrand: null, ligModel: null, reedBrand: null, reedModel: null, reedStrength: null };
 // 埋まった楽器の組。**楽器の組以外を確かめる検査の穴埋め用。**
 // 全部「その他」にしてあるのは、これが**どの楽器種別でも通る唯一の値**だから。
 // カタログの型番は種別ごとに違う(YAS-62 は alto にしか無い)ので、実在の型番で埋めると
 // 種別を変えるたびに書き換えることになり、そのうち誰かが検査の主題ごと壊す。
-const ANY_GEAR = { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null, reedBrand: OTHER_BRAND, reedModel: null };
+const ANY_GEAR = { instrumentBrand: OTHER_BRAND, instrumentModel: null, mpBrand: OTHER_BRAND, mpModel: null, ligBrand: OTHER_BRAND, ligModel: null, reedBrand: OTHER_BRAND, reedModel: null, reedStrength: "3.0" };
 
 const base = {
   nickname: "さっくす太郎",
@@ -42,7 +49,7 @@ const base = {
   isPublic: true,
   // 【リガチャーまで埋める】楽器の組の3欄は必須になったので、欠けていると base 自体が弾かれ、
   // 楽器の組と無関係な検査まで巻き添えで落ちる。
-  gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional" } },
+  gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0" } },
 };
 
 describe("validateNickname", () => {
@@ -354,6 +361,24 @@ describe("buildProfileDoc", () => {
       }
       expect(found).toEqual(SAX_LABELS);
     });
+    // 【番手 2026/09/06 本人指示】リードタブと同じ 2.0〜4.0 の 0.25 刻みで9種。
+    it("番手は 2.0〜4.0 の 0.25 刻みで9種、旧5値をすべて含む", () => {
+      expect(REED_STRENGTHS).toEqual(["2.0", "2.25", "2.5", "2.75", "3.0", "3.25", "3.5", "3.75", "4.0"]);
+      for (const s of ["2.0", "2.5", "3.0", "3.5", "4.0"]) expect(REED_STRENGTHS).toContain(s);
+    });
+    it("番手を選ばないと弾かれる", () => {
+      const r = buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, reedStrength: null } } }, new Date("2026-08-27"));
+      expect(r.error).toContain("番手");
+    });
+    it("列挙にない番手は弾く(自由入力の入口を作らない)", () => {
+      const r = buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, reedStrength: "3.1" } } }, new Date("2026-08-27"));
+      expect(r.error).toBeTruthy();
+    });
+    it("番手はそのまま doc に入る", () => {
+      const r = buildProfileDoc({ ...base, gear: { alto: { ...base.gear.alto, reedStrength: "2.75" } } }, new Date("2026-08-27"));
+      expect(r.error).toBeUndefined();
+      expect(r.doc.gear.alto.reedStrength).toBe("2.75");
+    });
     it("エラー文言はどの楽器種別の話かを言う", () => {
       const r = withGear(["tenor"], { tenor: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62" } });
       expect(r.error).toContain("T.Sax");
@@ -517,10 +542,10 @@ describe("firestore.rules との同期", () => {
     // 【ここが食い違うと本番でしか壊れない】実装が8キーを書き、ルールが6キーしか許さないと、
     // 保存の瞬間に permission-denied になる。しかも手元では起きない
     // (手元にルールは無く、テストも通る)。実際に古いルールのまま配って踏んだ。
-    const list = "[" + GEAR_KEYS.map((k) => `'${k}'`).join(",") + "]";
+    const listOf = (ks) => "[" + ks.map((k) => `'${k}'`).join(",") + "]";
     for (const t of SAX_TYPES) {
-      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasAll(${list})`);
-      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasOnly(${list})`);
+      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasAll(${listOf(GEAR_KEYS_REQUIRED)})`);
+      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasOnly(${listOf(GEAR_KEYS)})`);
     }
   });
   it("gear のキー集合が saxTypes と完全一致であることをルールが要求している", () => {
@@ -536,18 +561,21 @@ describe("firestore.rules との同期", () => {
       "request.resource.data.saxTypes.size() == request.resource.data.gear.keys().size()"
     );
   });
-  it("4種別それぞれについて、楽器の組の6キーと string-or-null の型検査がある", () => {
+  it("4種別それぞれについて、楽器の組のキーと string-or-null の型検査がある", () => {
     for (const type of SAX_TYPES) {
       const p = `request.resource.data.gear.${type}`;
       // 「そのキーが在るなら中身を検査する」形の入口
       expect(rules).toContain(`!request.resource.data.gear.keys().hasAny(['${type}'])`);
-      expect(rules).toContain(`${p}.keys().hasAll(${asRulesList(GEAR_KEYS)})`);
+      expect(rules).toContain(`${p}.keys().hasAll(${asRulesList(GEAR_KEYS_REQUIRED)})`);
       expect(rules).toContain(`${p}.keys().hasOnly(${asRulesList(GEAR_KEYS)})`);
-      for (const key of GEAR_KEYS) {
+      for (const key of GEAR_KEYS_STRING) {
         expect(rules).toContain(`${p}.${key} == null`);
         expect(rules).toContain(`${p}.${key} is string`);
         expect(rules).toContain(`${p}.${key}.size() <= 60`);
       }
+      // 番手は長さではなく列挙で固定する。自由文が1文字でも入る余地を残さない。
+      expect(rules).toContain(`${p}.reedStrength == null`);
+      expect(rules).toContain(`${p}.reedStrength in [${REED_STRENGTHS.map((s) => `'${s}'`).join(",")}]`);
     }
   });
   it("互いを指す注意書きが両側にある", () => {
