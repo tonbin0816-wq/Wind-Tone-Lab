@@ -139,3 +139,46 @@ export function cohortAverage(mine, others) {
   }
   return { notes, count: usable.length };
 }
+
+// ------------------------------------------------------------------
+// 端末の中で使う平行移動(2026/09/06 本人指示)
+//
+// 本人の言葉:「HNR・重心・音量の『揃えて線の形で比較』の仕組みを、コミュニティ
+// タブ以外でも採用。この場合、自分の平均に、目安に設定しているものが揃えられる」。
+// つまり **動かすのは目安の側**、基準は **自分の平均**。
+//
+// 【上の共有用と何が違うか】
+// ・綴りがローカルのもの(centroidHz。公開側は spectralCentroidHz)。
+// ・**音量も動かす。** 共有では音量を写さないが、それは「他人の環境の絶対値は
+//   目標にならない」からで、自分の端末の中で日をまたいだ自分の目安と合わせるのは
+//   まさにマイク距離とゲインのずれを消す操作。重心・HNR と同じ理屈が当たる。
+// ・**合わせられなくてもエラーにしない。** 端末内の目安は自分の録音から作ったもの
+//   (環境がほぼ同じ)か、取り込み時点で平行移動済みのものなので、動かせなくても
+//   絶対値の比較が壊れていない。共有のように「出さない」にする理由が無い。
+// ------------------------------------------------------------------
+export const LOCAL_SHIFTED_METRICS = ["centroidHz", "hnrDb", "volumeDb"];
+
+/**
+ * 目安 ideal を、自分の平均 mine に合わせて平行移動した写しを返す。
+ * ピッチと倍音構成は動かさない(環境非依存 / 音の中での比率)ので、写すだけ。
+ * **保存はしない。** 呼ぶ側が表示のたびに導く。
+ */
+export function alignIdealToMine(ideal, mine) {
+  if (!ideal) return null;
+  const shiftedBy = {};
+  for (const metric of LOCAL_SHIFTED_METRICS) {
+    const off = alignOffset(mine, ideal, metric);
+    if (off !== null) shiftedBy[metric] = off;
+  }
+  // 1つも合わせられない(共通音が足りない・自分の平均が無い)ならそのまま使う
+  if (Object.keys(shiftedBy).length === 0) return ideal;
+  const notes = {};
+  for (const [key, src] of Object.entries(ideal.notes ?? {})) {
+    const out = { ...src };
+    for (const metric of LOCAL_SHIFTED_METRICS) {
+      if (num(src?.[metric]) && shiftedBy[metric] !== undefined) out[metric] = src[metric] + shiftedBy[metric];
+    }
+    notes[key] = out;
+  }
+  return { ...ideal, notes, alignedTo: shiftedBy };
+}

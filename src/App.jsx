@@ -12,6 +12,9 @@ const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
 // 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
 // 画面本体は lazy のままにして、初回の読み込みを重くしない。
 import { buildAdoptedProfile } from "./community/idealDoc.js";
+// 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
+// firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
+import { alignIdealToMine } from "./community/align.js";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3082,7 +3085,27 @@ export default function WindToneLabPhaseMode() {
   // 倍音パターン比較の基準として使うと精度が低くなるのが理由。
   // ピッチ一致度のみ、理論値(運指テーブル)・理想値の両方を基準として選べる。
 
-  const selectedIdeal = idealProfiles.find((p) => p.id === selectedIdealId) || null;
+  const selectedIdealRaw = idealProfiles.find((p) => p.id === selectedIdealId) || null;
+  // 【目安は自分の平均に揃えてから使う 2026/09/06 本人指示】
+  // 「HNR・重心・音量の『揃えて線の形で比較』の仕組みを、コミュニティタブ以外でも採用。
+  //  この場合、自分の平均に、目安に設定しているものが揃えられる」。
+  //
+  // 重心・HNR・音量の絶対値は、マイクの距離・入力ゲイン・部屋の響きで一律にずれる。
+  // 揃えずに重ねると全音で「足りない」と出続け、どの音を直せばいいか分からない。
+  // 共通する音の中央値を合わせてから重ねると、残るのは音ごとの形の差だけになる。
+  //
+  // 【ここ1箇所でやる理由】selectedIdeal は音色一致度・計測タブの「目安: n」・
+  // PhraseTimeline・セッション詳細の破線が**同じ値**を読む。グラフだけ動かすと、
+  // 破線の高さと「目安: n Hz」の数字が食い違う。下流は1行も変えない。
+  //
+  // 【保存しない】idealProfiles(IndexedDB)には生の値が残る。表示のたびに導く。
+  const myAverageForIdeal = useMemo(() => {
+    if (!selectedIdealRaw) return null; // 目安が無いときは重い集計を回さない
+    const own = myDataOwnSessions(sessions, saxType, selectedIdealRaw.saxType ?? saxType);
+    return own.length ? buildIdealProfileFromSessions(own, "", 8, tuningHz * Math.pow(2, instrumentOffsetCents / 1200)) : null;
+  }, [selectedIdealRaw, sessions, saxType, tuningHz, instrumentOffsetCents]);
+  const selectedIdeal = useMemo(
+    () => alignIdealToMine(selectedIdealRaw, myAverageForIdeal), [selectedIdealRaw, myAverageForIdeal]);
 
   // マイクは計測タブ滞在中ずっと繋ぎっぱなしにする(録音の開始/停止では繋ぎ直さない)ため、
   // tick()は長寿命のクロージャになる。設定変更(サックス種別・基準ピッチ・気温・理想値等)を

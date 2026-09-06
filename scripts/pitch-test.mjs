@@ -28,6 +28,8 @@ import { dirname, join } from "path";
 // 「変わったのは狙った3つだけ」を、定数の言い換えではなく**両方を鳴らして**比べるために要る(罠16)。
 import { renderClick, renderBefore, peakOf, energyOf, mulberry32 } from "./metro-click-makeup.mjs";
 import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-before.mjs";
+// 目安を自分の平均へ揃える純関数。App.jsx が使うのと同じ実装を検査でも使う。
+import { alignIdealToMine } from "../src/community/align.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -13297,8 +13299,14 @@ let METRO_SIGS_ALL = [];
     // 解除後は「目安未設定」の表示に戻る = selectedIdeal / currentNoteIdeal が null になり、
     // 比較の破線と「目安: n」が消える。**表示側に分岐を足していない**ことを綴りで確かめる
     // (selectedIdealId から selectedIdeal を引く1本道が保たれていること)。
+    // 【2026/09/06】目安は自分の平均に平行移動してから使うようになったので、
+    // 引く行(selectedIdealRaw)と揃える行(selectedIdeal)の2段になった。
+    // 見ているのは「1本道であること」なので、両方の綴りを固定する。
     check("F-76: 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)",
-      /const selectedIdeal = idealProfiles\.find\(\(p\) => p\.id === selectedIdealId\) \|\| null;/.test(code));
+      /const selectedIdealRaw = idealProfiles\.find\(\(p\) => p\.id === selectedIdealId\) \|\| null;/.test(code)
+      && /alignIdealToMine\(selectedIdealRaw, myAverageForIdeal\)/.test(code));
+    check("F-76: 目安が無ければ揃えた結果も null(平行移動が null を作り出さない)",
+      alignIdealToMine(null, { notes: { 60: { centroidHz: 1000 } } }) === null);
     check("F-76: 「目安: n」は selectedIdeal が無ければ(未選択)に落ちる",
       /目安\{selectedIdeal \? `: \$\{selectedIdeal\.name\}` : "\(未選択\)"\}/.test(code));
     check("F-76: 比較の破線は目安が無ければ出ない(showIdealBar が currentNoteIdeal を要求する)",

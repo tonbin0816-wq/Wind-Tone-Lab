@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { commonNoteKeys, medianOf, alignOffset, alignProfile, cohortAverage, MIN_COMMON_NOTES, MIN_COHORT } from "./align.js";
+import { commonNoteKeys, medianOf, alignOffset, alignProfile, cohortAverage, alignIdealToMine, MIN_COMMON_NOTES, MIN_COHORT } from "./align.js";
 
 // notes[semitoneIndex] の最小形。実際のプロファイルはもっと持つが、
 // 平行移動が見るのはここに書いた4つだけ。
@@ -138,5 +138,71 @@ describe("cohortAverage", () => {
     const withVol = (o) => ({ notes: Object.fromEntries(Object.entries(o.notes).map(([k, v]) => [k, { ...v, volumeDb: -12 }])) });
     const r = cohortAverage(mine, [withVol(a), withVol(b), withVol(c)]);
     expect(Object.keys(r.notes["0"])).not.toContain("volumeDb");
+  });
+});
+
+// ------------------------------------------------------------------
+// 端末の中の平行移動(目安を自分の平均へ揃える)
+// ------------------------------------------------------------------
+describe("alignIdealToMine", () => {
+  const p = (notes) => ({ id: "x", name: "目安", notes });
+  // 共通音は3音以上ないと基準が立たない(MIN_COMMON_NOTES)
+  const mine = p({
+    60: { centroidHz: 1200, hnrDb: 20, volumeDb: -18, pitchCentsSigned: 3 },
+    62: { centroidHz: 1300, hnrDb: 21, volumeDb: -17, pitchCentsSigned: -2 },
+    64: { centroidHz: 1400, hnrDb: 22, volumeDb: -16, pitchCentsSigned: 1 },
+  });
+
+  it("目安が無ければ null(平行移動が値を作り出さない)", () => {
+    expect(alignIdealToMine(null, mine)).toBeNull();
+  });
+
+  it("重心・HNR・音量を、共通音の中央値の差だけ動かす", () => {
+    const ideal = p({
+      60: { centroidHz: 1000, hnrDb: 15, volumeDb: -28 },
+      62: { centroidHz: 1100, hnrDb: 16, volumeDb: -27 },
+      64: { centroidHz: 1150, hnrDb: 18, volumeDb: -26 },
+    });
+    const out = alignIdealToMine(ideal, mine);
+    // 中央値: 自分 1300 / 目安 1100 → +200
+    expect(out.notes[60].centroidHz).toBe(1200);
+    expect(out.notes[64].centroidHz).toBe(1350); // 形は保たれる(1150 → 1350)
+    // 中央値: 自分 21 / 目安 16 → +5
+    expect(out.notes[64].hnrDb).toBe(23);
+    // 中央値: 自分 -17 / 目安 -27 → +10。**音量も動かす**(端末内の比較なので)
+    expect(out.notes[60].volumeDb).toBe(-18);
+    expect(out.alignedTo).toEqual({ centroidHz: 200, hnrDb: 5, volumeDb: 10 });
+  });
+
+  it("ピッチと倍音構成は動かさない(環境非依存 / 音の中での比率)", () => {
+    const ideal = p({
+      60: { centroidHz: 1000, pitchCentsSigned: -9, harmonicsProfile: [{ n: 1, norm: 1 }] },
+      62: { centroidHz: 1100, pitchCentsSigned: 4 },
+      64: { centroidHz: 1150, pitchCentsSigned: 0 },
+    });
+    const out = alignIdealToMine(ideal, mine);
+    expect(out.notes[60].pitchCentsSigned).toBe(-9);
+    expect(out.notes[60].harmonicsProfile).toEqual([{ n: 1, norm: 1 }]);
+  });
+
+  it("共通音が足りないときはエラーにせず、そのまま返す", () => {
+    // 端末内の目安は自分の録音か取り込み時に揃え済みなので、絶対値の比較が壊れていない。
+    const ideal = p({ 60: { centroidHz: 1000 }, 62: { centroidHz: 1100 } });
+    const out = alignIdealToMine(ideal, mine);
+    expect(out).toBe(ideal);
+  });
+
+  it("自分の平均がまだ無いときもそのまま返す", () => {
+    const ideal = p({ 60: { centroidHz: 1000 }, 62: { centroidHz: 1100 }, 64: { centroidHz: 1150 } });
+    expect(alignIdealToMine(ideal, null)).toBe(ideal);
+  });
+
+  it("音量だけ持つ目安は音量だけが動く(取り込んだ目安のように欠けた指標があっても落ちない)", () => {
+    const ideal = p({
+      60: { volumeDb: -28 }, 62: { volumeDb: -27 }, 64: { volumeDb: -26 },
+    });
+    const out = alignIdealToMine(ideal, mine);
+    expect(out.alignedTo).toEqual({ volumeDb: 10 });
+    expect(out.notes[62].volumeDb).toBe(-17);
   });
 });
