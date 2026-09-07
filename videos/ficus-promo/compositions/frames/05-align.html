@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1920">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
+  body { font-family:"Noto Sans JP", sans-serif; }
+  /* トークンは frame.md のまま。新しい色を作らない */
+  :root {
+    --bg:#FFFFFF; --primary:#174585; --text:#121F32; --muted:#435266; --light:#8D95A1;
+    --card-bg:rgba(23,69,133,0.04); --border:rgba(23,69,133,0.20); --rule:#E1E6EC;
+    --mid:#7FA0CE; --faint:#B9C9E4; --sunken:#EEF1F4;
+    --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
+  }
+  .clip { position:absolute; inset:0; }
+  /* 【地は clip の層に置く】#root に background を置くと窓に閉じられ、黒地が出る */
+  .ground { background:var(--bg); }
+  .pad { padding:0 96px; }
+  .num { font-family:"Instrument Serif", serif; }
+  .jp { font-family:"Noto Sans JP", sans-serif; }
+  .eyebrow { font-size:30px; letter-spacing:.14em; color:var(--primary); font-weight:600; }
+  .h1 { font-size:96px; line-height:1.18; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .h2 { font-size:66px; line-height:1.28; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .body { font-size:38px; line-height:1.7; color:var(--muted); word-break:auto-phrase; }
+  .note { font-size:30px; line-height:1.6; color:var(--light); }
+  .card { background:var(--card-bg); border:1.5px solid var(--border); border-radius:14px; }
+  /* 下描きであることの印。仕上げでは消える */
+  .sketch { outline:2px dashed rgba(23,69,133,.28); outline-offset:6px; }
+  .sketch-tag { position:absolute; top:40px; left:96px; font-size:24px; letter-spacing:.12em;
+                color:var(--light); font-weight:600; }
+</style>
+</head>
+<body>
+<div data-hf-id="hf-n6e9" id="root" data-composition-id="05-align" data-start="0" data-duration="7" data-width="1080" data-height="1920">
+  <div data-hf-id="hf-lux7" id="f05-align-ground" class="clip ground" data-start="0" data-duration="7"></div>
+  <div data-hf-id="hf-ggkf" id="f05-align-scene" class="clip" data-start="0" data-duration="7">
+    <div data-hf-id="hf-gur0" class="sketch-tag">SKETCH / F5 揃えて比べる</div>
+
+    <div data-hf-id="hf-aiui" class="pad" style="position:absolute; top:300px; left:0; right:0;">
+      <div data-hf-id="hf-e7rt" class="eyebrow">COMMUNITY / DATA</div>
+      <div data-hf-id="hf-qqf3" class="h2" style="margin-top:30px;">環境のちがいを消して、<br data-hf-id="hf-x5px">形で比べる。</div>
+    </div>
+    <div data-hf-id="hf-o0ys" class="pad sketch" style="position:absolute; top:780px; left:0; right:0;">
+      <svg data-hf-id="hf-awg7" viewBox="0 0 888 520" width="100%" style="display:block;">
+        <line data-hf-id="hf-6ugj" x1="60" y1="70" x2="860" y2="70" stroke="var(--rule)" stroke-width="2" />
+        <line data-hf-id="hf-lbbp" x1="60" y1="450" x2="860" y2="450" stroke="var(--rule)" stroke-width="2" />
+        <polyline data-hf-id="hf-mepc" points="60,180 220,140 380,205 540,155 700,195 860,150" fill="none" stroke="var(--primary)" stroke-width="7" stroke-linejoin="round" />
+        <polyline data-hf-id="hf-booy" points="60,390 220,352 380,412 540,362 700,404 860,358" fill="none" stroke="var(--mid)" stroke-width="7" stroke-linejoin="round" stroke-dasharray="14 10" />
+        <text data-hf-id="hf-ot9k" x="56" y="500" font-size="26" fill="var(--light)">F</text>
+        <text data-hf-id="hf-ljzj" x="836" y="500" font-size="26" fill="var(--light)">A</text>
+      </svg>
+      <div data-hf-id="hf-56hq" class="note" style="margin-top:30px;">
+        <span data-hf-id="hf-n0xc" style="color:var(--primary); font-weight:700;">自分</span>
+        <span data-hf-id="hf-oofz" style="color:var(--mid); font-weight:700; margin-left:28px;">他の奏者</span>
+        <span data-hf-id="hf-pwlq" style="margin-left:28px;">揃えると形の差だけが残る</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+  window.__timelines = window.__timelines || {};
+  window.__timelines["05-align"] = gsap.timeline({ paused: true });
+</script>
+</body>
+</html>

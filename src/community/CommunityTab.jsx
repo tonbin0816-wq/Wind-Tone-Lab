@@ -90,8 +90,10 @@ const SUB_TABS = [
 ];
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onDelete }) {
-  const [tab, setTab] = useState("data");
+function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onDelete, initialTab = "data" }) {
+  // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
+  // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
+  const [tab, setTab] = useState(initialTab);
   // タップされた人。**子タブとは別に持つ** ── 開いたまま子タブを切り替えられると、
   // 下の画面が変わったのに上に別人の紹介が乗っている、という状態になる。
   const [person, setPerson] = useState(null);
@@ -290,6 +292,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
   const [reloadKey, setReloadKey] = useState(0);
   // 削除の結果、未参加へ戻ったときに一度だけ出す説明(DELETE_PARTIAL_NOTICE)。
   const [notice, setNotice] = useState(null);
+  // 【編集から戻ったときに開く子タブ】プロフィールの編集は**マイページから開く**ので、
+  // 保存しても「やめる」でも、出てきた場所へ戻すのが道理(2026/09/07 本人指示)。
+  // 素直に書くと必ずデータタブに戻る ── フォームと JoinedView は別の要素なので、
+  // 行き来のたびに JoinedView が作り直され、子タブの状態が初期値に戻るため。
+  // 初回の作成だけは "data" のまま(作ったばかりの自分の欄より、まず中身を見せる)。
+  const [landTab, setLandTab] = useState("data");
 
   useEffect(() => {
     let alive = true;
@@ -367,7 +375,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
     return (
       <ProfileForm
         initial={profile}
-        onCancel={profile ? () => setPhase("profile") : null}
+        onCancel={profile ? () => { setLandTab("me"); setPhase("profile"); } : null}
         onSubmit={async (input) => {
           const r = buildProfileDoc(input);
           if (r.error) return r.error; // フォーム側がエラー文言を表示する
@@ -381,6 +389,10 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
             console.error("[community] プロフィールの保存に失敗", e?.code, e);
             return saveErrorOf(e);
           }
+          // 編集(既にプロフィールがある)ならマイページへ、初回の作成ならデータへ。
+          // 削除して入り直した場合は profile が null に戻っているので、
+          // 前回の "me" が残ったまま新しい人をマイページに落とすことはない。
+          setLandTab(profile ? "me" : "data");
           setProfile(r.doc);
           setPhase("profile");
           return null;
@@ -395,6 +407,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
       sessions={sessions}
       tuningHz={tuningHz}
       onAdoptIdeal={onAdoptIdeal}
+      initialTab={landTab}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す

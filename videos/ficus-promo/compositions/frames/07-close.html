@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1920">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
+  body { font-family:"Noto Sans JP", sans-serif; }
+  /* トークンは frame.md のまま。新しい色を作らない */
+  :root {
+    --bg:#FFFFFF; --primary:#174585; --text:#121F32; --muted:#435266; --light:#8D95A1;
+    --card-bg:rgba(23,69,133,0.04); --border:rgba(23,69,133,0.20); --rule:#E1E6EC;
+    --mid:#7FA0CE; --faint:#B9C9E4; --sunken:#EEF1F4;
+    --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
+  }
+  .clip { position:absolute; inset:0; }
+  /* 【地は clip の層に置く】#root に background を置くと窓に閉じられ、黒地が出る */
+  .ground { background:var(--bg); }
+  .pad { padding:0 96px; }
+  .num { font-family:"Instrument Serif", serif; }
+  .jp { font-family:"Noto Sans JP", sans-serif; }
+  .eyebrow { font-size:30px; letter-spacing:.14em; color:var(--primary); font-weight:600; }
+  .h1 { font-size:96px; line-height:1.18; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .h2 { font-size:66px; line-height:1.28; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .body { font-size:38px; line-height:1.7; color:var(--muted); word-break:auto-phrase; }
+  .note { font-size:30px; line-height:1.6; color:var(--light); }
+  .card { background:var(--card-bg); border:1.5px solid var(--border); border-radius:14px; }
+  /* 下描きであることの印。仕上げでは消える */
+  .sketch { outline:2px dashed rgba(23,69,133,.28); outline-offset:6px; }
+  .sketch-tag { position:absolute; top:40px; left:96px; font-size:24px; letter-spacing:.12em;
+                color:var(--light); font-weight:600; }
+</style>
+</head>
+<body>
+<div data-hf-id="hf-s2dm" id="root" data-composition-id="07-close" data-start="0" data-duration="5" data-width="1080" data-height="1920">
+  <div data-hf-id="hf-ftju" id="f07-close-ground" class="clip ground" data-start="0" data-duration="5"></div>
+  <div data-hf-id="hf-3ea4" id="f07-close-scene" class="clip" data-start="0" data-duration="5">
+    <div data-hf-id="hf-kbzo" class="sketch-tag">SKETCH / F7 締め</div>
+
+    <div data-hf-id="hf-m47a" style="position:absolute; inset:0; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; gap:30px;">
+      <div data-hf-id="hf-22vx" class="num" style="font-size:180px; color:var(--primary); letter-spacing:-.02em;
+           line-height:1;">Ficus</div>
+      <div data-hf-id="hf-zdik" style="font-size:42px; color:var(--muted);">サックス練習支援アプリ</div>
+      <div data-hf-id="hf-t8je" class="note sketch" style="margin-top:70px; font-size:34px; color:var(--primary);">
+        wind-tone-lab.vercel.app
+      </div>
+    </div>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+  window.__timelines = window.__timelines || {};
+  window.__timelines["07-close"] = gsap.timeline({ paused: true });
+</script>
+</body>
+</html>

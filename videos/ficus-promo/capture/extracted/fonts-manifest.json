@@ -1,0 +1,73 @@
+{
+  "files": [
+    {
+      "file": "jizBRFtNs2ka5fXjeivQ4LroWlx-6zsTjnTLgNuZ5w.woff2",
+      "family": "Instrument Serif",
+      "rawFamily": "Instrument Serif",
+      "subfamily": "Regular",
+      "postscript": "InstrumentSerif-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "jizBRFtNs2ka5fXjeivQ4LroWlx-6zUTjnTLgNs.woff2",
+      "family": "Instrument Serif",
+      "rawFamily": "Instrument Serif",
+      "subfamily": "Regular",
+      "postscript": "InstrumentSerif-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjgn7Motmp5r61.woff2",
+      "family": "Instrument Serif",
+      "rawFamily": "Instrument Serif",
+      "subfamily": "Italic",
+      "postscript": "InstrumentSerif-Italic",
+      "weight": 400,
+      "style": "italic",
+      "variationAxes": [],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjjH7Motmp5g.woff2",
+      "family": "Instrument Serif",
+      "rawFamily": "Instrument Serif",
+      "subfamily": "Italic",
+      "postscript": "InstrumentSerif-Italic",
+      "weight": 400,
+      "style": "italic",
+      "variationAxes": [],
+      "identified": true,
+      "isIcon": false
+    }
+  ],
+  "families": [
+    {
+      "family": "Instrument Serif",
+      "weights": [
+        400
+      ],
+      "variable": false,
+      "fileCount": 4,
+      "files": [
+        "jizBRFtNs2ka5fXjeivQ4LroWlx-6zUTjnTLgNs.woff2",
+        "jizBRFtNs2ka5fXjeivQ4LroWlx-6zsTjnTLgNuZ5w.woff2",
+        "jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjgn7Motmp5r61.woff2",
+        "jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjjH7Motmp5g.woff2"
+      ]
+    }
+  ],
+  "unidentified": [],
+  "meta": {
+    "generatedAt": "2026-09-06T06:00:22.543Z",
+    "tool": "fontkit"
+  }
+}

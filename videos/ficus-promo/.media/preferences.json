@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "preferences": {
+    "destination": {
+      "value": "shorts",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T05:59:45.527Z"
+    },
+    "aspect": {
+      "value": "1080x1920",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T05:59:45.632Z"
+    },
+    "language": {
+      "value": "ja",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T05:59:45.745Z"
+    },
+    "flow": {
+      "value": "automation",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T05:59:45.851Z"
+    },
+    "storyboard": {
+      "value": "yes",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T05:59:45.960Z"
+    },
+    "style_preset.product-launch-video": {
+      "value": "blue-professional",
+      "confirmed_in": [
+        "ficus-promo"
+      ],
+      "updated_at": "2026-09-06T06:02:10.243Z"
+    }
+  },
+  "sightings": {}
+}

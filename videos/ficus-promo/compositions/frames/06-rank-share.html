@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1920">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1080px; height:1920px; overflow:hidden; background:#000; }
+  body { font-family:"Noto Sans JP", sans-serif; }
+  /* トークンは frame.md のまま。新しい色を作らない */
+  :root {
+    --bg:#FFFFFF; --primary:#174585; --text:#121F32; --muted:#435266; --light:#8D95A1;
+    --card-bg:rgba(23,69,133,0.04); --border:rgba(23,69,133,0.20); --rule:#E1E6EC;
+    --mid:#7FA0CE; --faint:#B9C9E4; --sunken:#EEF1F4;
+    --gold:#C79A3E; --silver:#9BA6B4; --bronze:#A9743E;
+  }
+  .clip { position:absolute; inset:0; }
+  /* 【地は clip の層に置く】#root に background を置くと窓に閉じられ、黒地が出る */
+  .ground { background:var(--bg); }
+  .pad { padding:0 96px; }
+  .num { font-family:"Instrument Serif", serif; }
+  .jp { font-family:"Noto Sans JP", sans-serif; }
+  .eyebrow { font-size:30px; letter-spacing:.14em; color:var(--primary); font-weight:600; }
+  .h1 { font-size:96px; line-height:1.18; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .h2 { font-size:66px; line-height:1.28; color:var(--text); font-weight:700;
+        letter-spacing:-.02em; word-break:auto-phrase; }
+  .body { font-size:38px; line-height:1.7; color:var(--muted); word-break:auto-phrase; }
+  .note { font-size:30px; line-height:1.6; color:var(--light); }
+  .card { background:var(--card-bg); border:1.5px solid var(--border); border-radius:14px; }
+  /* 下描きであることの印。仕上げでは消える */
+  .sketch { outline:2px dashed rgba(23,69,133,.28); outline-offset:6px; }
+  .sketch-tag { position:absolute; top:40px; left:96px; font-size:24px; letter-spacing:.12em;
+                color:var(--light); font-weight:600; }
+</style>
+</head>
+<body>
+<div data-hf-id="hf-xlck" id="root" data-composition-id="06-rank-share" data-start="0" data-duration="6" data-width="1080" data-height="1920">
+  <div data-hf-id="hf-9kkg" id="f06-rank-share-ground" class="clip ground" data-start="0" data-duration="6"></div>
+  <div data-hf-id="hf-rz7w" id="f06-rank-share-scene" class="clip" data-start="0" data-duration="6">
+    <div data-hf-id="hf-sip7" class="sketch-tag">SKETCH / F6 順位とシェア</div>
+
+    <div data-hf-id="hf-vhfo" class="pad" style="position:absolute; top:250px; left:0; right:0;">
+      <div data-hf-id="hf-3wbt" class="eyebrow">COMMUNITY / RANK + SHARE</div>
+      <div data-hf-id="hf-j78v" class="h2" style="margin-top:30px;">続けた日数も、<br data-hf-id="hf-x5px">使っているものも。</div>
+    </div>
+    <div data-hf-id="hf-16e4" class="pad sketch" style="position:absolute; top:700px; left:0; right:0;">
+<div data-hf-id="hf-4ucl" style="display:flex; align-items:center; gap:30px; padding:26px 8px; border-bottom:1.5px solid var(--rule);"><div data-hf-id="hf-xqcl" class="num" style="width:60px; font-size:56px; color:var(--gold);">1</div><div data-hf-id="hf-vwk6" style="width:86px; height:86px; border-radius:50%; background:var(--card-bg); box-shadow:0 0 0 4px var(--gold);"></div><div data-hf-id="hf-7uvw" style="flex:1 1 0; min-width:0; font-size:40px; color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">さっくす太郎</div><div data-hf-id="hf-tfbv" class="num" style="font-size:56px; color:var(--text);">27<span data-hf-id="hf-q783" class="jp" style="font-size:30px; color:var(--light);">日</span></div></div><div data-hf-id="hf-4m49" style="display:flex; align-items:center; gap:30px; padding:26px 8px; border-bottom:1.5px solid var(--rule);"><div data-hf-id="hf-0l2r" class="num" style="width:60px; font-size:56px; color:var(--silver);">2</div><div data-hf-id="hf-6dqr" style="width:86px; height:86px; border-radius:50%; background:var(--card-bg); box-shadow:0 0 0 4px var(--silver);"></div><div data-hf-id="hf-z0ff" style="flex:1 1 0; min-width:0; font-size:40px; color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Kei</div><div data-hf-id="hf-smpt" class="num" style="font-size:56px; color:var(--text);">25<span data-hf-id="hf-p8c3" class="jp" style="font-size:30px; color:var(--light);">日</span></div></div><div data-hf-id="hf-5t1c" style="display:flex; align-items:center; gap:30px; padding:26px 8px; border-bottom:1.5px solid var(--rule);"><div data-hf-id="hf-6tl5" class="num" style="width:60px; font-size:56px; color:var(--bronze);">3</div><div data-hf-id="hf-n5c0" style="width:86px; height:86px; border-radius:50%; background:var(--card-bg); box-shadow:0 0 0 4px var(--bronze);"></div><div data-hf-id="hf-3c98" style="flex:1 1 0; min-width:0; font-size:40px; color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">あおい</div><div data-hf-id="hf-s8es" class="num" style="font-size:56px; color:var(--text);">22<span data-hf-id="hf-ou12" class="jp" style="font-size:30px; color:var(--light);">日</span></div></div>
+    </div>
+    <div data-hf-id="hf-hbb1" class="pad sketch" style="position:absolute; top:1320px; left:0; right:0;
+         display:flex; align-items:center; gap:56px;">
+      <svg data-hf-id="hf-he02" viewBox="0 0 220 220" width="360" height="360" style="flex:none;">
+        <circle data-hf-id="hf-34vt" cx="110" cy="110" r="100" fill="var(--sunken)" />
+        <path data-hf-id="hf-qh1k" d="M110,110 L110,10 A100,100 0 0,1 205,140 Z" fill="var(--primary)" />
+        <path data-hf-id="hf-kp05" d="M110,110 L205,140 A100,100 0 0,1 96,209 Z" fill="var(--mid)" />
+        <path data-hf-id="hf-29lw" d="M110,110 L96,209 A100,100 0 0,1 25,55 Z" fill="var(--faint)" />
+      </svg>
+      <div data-hf-id="hf-2dwn" style="flex:1 1 0; min-width:0;">
+        <div data-hf-id="hf-e812" style="font-size:38px; color:var(--text); font-weight:600;">マウスピース</div>
+        <div data-hf-id="hf-k0rs" class="note" style="margin-top:12px;">Selmer S80 C*</div>
+        <div data-hf-id="hf-kpgs" class="note">Meyer MR-404</div>
+        <div data-hf-id="hf-9b4q" class="note">ほか</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+  window.__timelines = window.__timelines || {};
+  window.__timelines["06-rank-share"] = gsap.timeline({ paused: true });
+</script>
+</body>
+</html>

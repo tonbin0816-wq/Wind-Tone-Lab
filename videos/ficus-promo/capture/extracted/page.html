@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<style type="text/css" data-vite-dev-id="C:/Users/tonbi/.claude/sessions/Wind-Tone-Lab/.claude/worktrees/view-other-user-data-ebb07d/src/index.css">:root {
+  /* 和文本文: OS標準を最優先。iPhoneではヒラギノが当たる */
+  --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+             "Hiragino Kaku Gothic ProN", "BIZ UDPGothic",
+             "Noto Sans JP", sans-serif;
+  /* 数値・英字: システムフォント(iPhone本番ではSF Pro)。本人選定(F-43・2026-08-04、
+     比較ページの候補2)。以前のSpace Groteskは癖の強い幾何学系で「いびつ」との本人評、
+     かつwebfontなので読み込み遅延もあった。システムフォントは取得ゼロ・OSと同じ端正さ。
+     等幅数字(tabular-nums)はbody側で全体に適用する(下の宣言を見ること)。 */
+  --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* 音名・リード番号: Instrument Serif(本人選定で継続。読み込みはindex.htmlのlinkが担う) */
+  --font-serif: "Instrument Serif", serif;
+
+  /* サイズスケール(px): 9〜10.5pxの細かい刻みを廃止し、この7段に統一する */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-hero: 46px;
+
+  /* 角丸(DESIGN-SYSTEM §2)。19値・105箇所をこの5段に畳む。
+     カード=--r-lg / カード内のブロック=--r-md / 入力欄・select=--r-xs / ピル=--r-pill。
+     円は 50% のまま(段には含めない)。 */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  /* 余白(DESIGN-SYSTEM §3)。gapは既に4/6/8/10/12でほぼ揃っているので、
+     これを正としてpadding/marginも同じ段に寄せる。カード内側は --sp-4。 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* タップ領域の最小値(DESIGN-SYSTEM §5)。見た目の大きさは変えず当たり判定だけ広げる。 */
+  --tap-min: 44px;
+
+  /* ------------------------------------------------------------------
+     色トークン。App.jsxは色をhex直書きで持っているため、方針どおり
+     「画面ごとに、その画面で使う分だけ」ここへ寄せていく。
+     現在の適用範囲: 計測タブの演奏中サーフェス(PitchRing とその周辺)。
+     一括置換はしない(検証できない変更を増やさないため)。
+     ------------------------------------------------------------------ */
+  /* 【D-10 2026/08/26 で書き換え / D-29・D-30 2026/09/03 で更新】**地は画面ごとに違う。**
+     罫の作法(.surf-rule = 計測タブ Top / リードタブ Top)は地が白、
+     カードの作法(.surf-card = My Data / 分析タブ / セッション詳細 / リード個体詳細 /
+     すべてのセッション / コミュニティタブ)**も地は白**(2026/09/06 本人指示)。
+     群のまとめ方は下の「面の作法」が画面ごとに決める(DESIGN-SYSTEM §6.6)。
+     N-4 で地を白にしたときの理由(以前の地 #F6F7F9 は白カードとの差が L* で 2.79 しかなく、
+     群の境界を担えていなかった)は両方の作法に当たる。カードの作法は群の境界を
+     **影と角丸**で作るので、地と同色でも成立する。 */
+  --c-bg:         #FFFFFF; /* ページ背景 */
+  --c-surface:    #FFFFFF; /* 面。沈めた面の上に置く白い要素(タイル等) */
+  /* 沈めた面。My Data のマトリクスの帯・PIVOT の面と、全画面の入力欄の地。
+     **カードの作法の地ではない**(2026/09/06 に地は白へ)。
+     **旧来の地 #F6F7F9 をそのまま流用する。** 一度 #F7F9FB を指定したが、白地との差が
+     ΔL* 2.17 で、旧来の「白カード vs 地 #F6F7F9」の 2.79 より**弱くなっていた**。
+     データタブは群の境界をこの面だけで作るので、弱めるのは筋が悪い。
+     #F6F7F9 に戻すと 2.79 を回復し、入力欄は以前と同じ見え方になる(前も白の上の #F6F7F9)。 */
+  --c-sunk:       #F6F7F9;
+  /* もう1段沈めた面(DESIGN-SYSTEM §1.2)。白地との差は 1.1337:1 / ΔL* 5.00。
+     これまで index.css に定義が無く、§1.2 の段がひとつ欠けていた(F-30 の回収)。
+     用途は「くぼみ」＝**枠線を持たない操作対象の地**(下の B型 .ctl-plain と入力欄)。
+     --c-sunk(1.0719:1 / ΔL* 2.79)ではなくこちらを使う理由:
+     枠線(--c-line-strong = 白地と 1.6523:1 / ΔL* 18.96)を外すと、地の差だけが
+     「ここは触れる」の唯一の信号になる。--c-sunk はその信号の ΔL* を 2.79 まで落とすが、
+     --c-sunken なら 5.00 で 1.79倍を保てる。体系内の既存の段なので新しい値は発明していない。 */
+  --c-sunken:     #EEF1F4;
+  /* 罫。白地で群の境界を担う唯一の線なので --c-line(#E9ECF0)より少しだけ強い。
+     白地とのコントラスト比 1.2551:1 / ΔL* 8.92(審査役が独立に計算した実測値)。
+     旧来いちばん強かった信号(カード枠 #E9ECF0 vs 地 #F6F7F9 = ΔL* 3.93)の 2.3倍。
+     ただし WCAG 1.4.11 の 3:1 には届かない。1m先で足りなければ、体系内で上げられる
+     次の段は --c-line-strong(1.6523:1 / ΔL* 18.96)。新しい値を発明しないこと。 */
+  --c-rule:       #E1E6EC;
+  --c-ink:        #121F32; /* 最濃テキスト */
+  --c-ink-2:      #435266; /* 副テキスト */
+  --c-ink-3:      #8D95A1; /* ミュートテキスト */
+  --c-ink-4:      #A6AEBA; /* 最薄。装飾専用(白背景で約2.2:1)。軸目盛まで、本文には使わない */
+  --c-line:       #E9ECF0; /* 罫線・トラック */
+  --c-line-strong:#C3CAD3; /* 中間の罫線(入力欄・丸ボタンの枠) */
+  --c-accent:     #174585; /* プライマリ紺 */
+  --c-accent-mid: #7FA0CE; /* 紺の中間(系列色の第2段) */
+  --c-accent-dim: #9DB3CC; /* 紺の薄い方(オクターブ数字など) */
+  --c-accent-line:#B9C9E4; /* 紺系の罫線・系列色の第3段 */
+  --c-accent-tint:#EAEFF5; /* 選択状態の背景 */
+
+  /* 順位の色(金・銀・銅)。**順位以外に使わない。**
+     系列識別(§1.7)にも機能色(§1.5)にも流用しない。
+     使ってよいのは**アイコンの環の線と、順位の数字の文字色**の2つだけで、面を塗らない。
+     4位以下には色を与えない(--c-ink-3 の数字のまま)。色が付くのは3つまで。
+     金属質の光沢・グラデーションは使わない。単色で足りる。
+     王冠やメダルの絵文字は使わない ── 端末ごとに絵柄が変わり、
+     iPhone と Android で同じ画面が別物に見える。 */
+  --c-rank-1:     #C79A3E; /* 1位 */
+  --c-rank-2:     #9BA6B4; /* 2位 */
+  --c-rank-3:     #A9743E; /* 3位 */
+
+  /* アイコンの地(10色)。**アイコンの円の塗り以外に使わない。**
+     系列識別にも機能色にも流用しない。
+     全て彩度を落としてある ── 機能色(--c-good #16A34A / --c-warn #D97706 /
+     --c-bad #DC2626)と見分けが付かなくなるのを避けるため。
+     白抜きの絵柄が乗るので、**10色とも白に対して 4.5:1 以上**を保つこと。
+     括弧内は対 #FFFFFF の実測値(2026-08-28)。
+     最も余裕が無いのは --c-avatar-5(4.65)と --c-avatar-4(4.69)。**この2色は明るくしない。** */
+  --c-avatar-1:   #174585; /* 9.43 */
+  --c-avatar-2:   #3E6E8E; /* 5.49 */
+  --c-avatar-3:   #2F6F5E; /* 5.91 */
+  --c-avatar-4:   #6B7A3F; /* 4.69 */
+  --c-avatar-5:   #9A6B2F; /* 4.65 */
+  --c-avatar-6:   #A8543C; /* 5.25 */
+  --c-avatar-7:   #7D4A6B; /* 6.85 */
+  --c-avatar-8:   #5B5FA3; /* 5.82 */
+  --c-avatar-9:   #4A5567; /* 7.54 */
+  --c-avatar-10:  #2C3542; /* 12.39 */
+  --c-disabled:   #B7BFC9; /* 無音時の音名 */
+  /* 停止・削除・録音中(破壊的/中断の操作)。--c-bad と同値だが意味が別。
+     --c-bad は「音程が大きく外れている」という計測結果の機能色で、
+     STOPや削除に流用すると意味が混ざる(DESIGN-SYSTEM §1.5 / §1.6)。 */
+  --c-danger:     #DC2626;
+  /* 濃い面(--c-accent 等)の上に乗る文字・アイコン。--c-surface と値は同じだが役割が違う。
+     面の色と面の上の文字色を同じトークンで兼ねると、片方だけ変えたいときに必ず破綻する。 */
+  --c-on-accent:  #FFFFFF;
+  /* 【D-15 §3】濃い面(--c-accent)の上に乗る**副次の**文字(ラベル・単位)。
+     白の主文字と差を付けつつ、濃紺の上で読める明度に置く。
+     **新しい色相を体系に増やさない**ため、値は既存の --c-accent-line と同じ #B9C9E4。
+     役割が違うので別トークンにする(--c-on-accent と --c-surface が同値でも分けてあるのと同じ)。
+     コントラスト比(WCAG 2.x の式で計算): #B9C9E4 on #174585 = 5.63:1(AA 通常文字 4.5 を満たす)。
+     体系内の1段暗い --c-accent-dim(#9DB3CC)は同じ地で 4.38:1 で AA に届かないので使わない。
+     この2つの数字は pitch-test.mjs の検証34.5 がここのトークンから計算し直して確かめている。 */
+  --c-on-accent-dim: #B9C9E4;
+
+  /* (【D-18 2026/08/28 本人裁定】ここに My Data の折れ線の「面」の濃さ
+     "--o-chart-area" = 0.28 があった。本人が実機で面を却下したので、
+     読み手(App.jsx の面の <path>)と一緒に定義ごと削除した。
+     経緯は design/D16-SPEC.md の「却下」の記録と DESIGN-SYSTEM §1.8a へ。) */
+
+  /* ピッチ判定色。pitchBarColorRGB() と同じ意味を持つ機能色で、装飾都合で変えない。
+     0¢=緑 / 13¢=橙 / 30¢以上=赤 */
+  --c-good:       #16A34A;
+  --c-warn:       #D97706;
+  --c-bad:        #DC2626;
+
+  /* 【D-5 2026/08/23 本人指示・凍結仕様 design/D5-SPEC.md】比較対象より高い/低い。
+     **D-1 の発散カラースケール(--c-div-1..8)は廃止した。** 本人の実機指摘:
+     「色だとどちらが高い低いか想像しづらく、グラデーションもどれくらい高いかの程度が読みにくい」。
+     マトリクスは**窓の中の棒の長さ**で程度を示す形に変わり、色は**方向の補助**だけになったので、
+     8段は要らなくなり2色に減った(凡例の8段バーも画面ごと消えた)。
+     見た目の出どころは design/mydata-cell-proposals.html の案B1。
+     --c-below は --c-accent と同値だが**意味が別**なので別のトークンにする
+     (--c-danger と --c-bad が同値でも別なのと同じ扱い。片方だけ変えたいときに必ず破綻する)。 */
+  /* 【D-8 2026/08/23 本人指示で復元】発散カラースケール(8段)。
+     **D-5 で一度廃止し、D-8 で戻した。** 経緯を残す:
+       D-1 正典 #9b から取り込む → D-5 本人「色だとどっちが高い低いか想像しづらく、
+       グラデーションもどれくらい高いかの程度が読みにくい」で廃止 → D-6 で棒 → 塗りの高さ →
+       D-8 本人「窓枠表示は当初のこの案を採用して」で**8段の色に戻った**。
+     戻したとき D-5 の指摘が再発しないよう、**±帯(--c-quiet)を重ねたまま**にしてある:
+     「ほぼ合っている窓」は色の段に乗せず灰へ引っ込めるので、色で読むのは**外れた窓だけ**になる。
+     値の出どころは design/dc-mydata-redesign.html の #9b 区画の凡例バー8段そのもの
+     (git 947b42c から復元。--c-good 等と同じ**機能色**の扱いで装飾都合で変えない)。
+     **青の半分を既存の紺ランプで代用しない。** --c-accent(#174585, 相対輝度 0.0289)は
+     金の端 --c-div-8(#B5891C, 0.2780)よりずっと暗く、半分だけ差し替えると
+     左右の視覚的重みが釣り合わなくなる(=同じ大きさのズレが符号によって違う強さに見える)。
+     中央(4-5)ほど淡い。段の決め方は App.jsx の divergingStep ただ1箇所。 */
+  --c-div-1:      #43719F;
+  --c-div-2:      #658BB1;
+  --c-div-3:      #89A6C3;
+  --c-div-4:      #B3C6D9;
+  --c-div-5:      #E2D0A3;
+  --c-div-6:      #D1B570;
+  --c-div-7:      #C39F45;
+  --c-div-8:      #B5891C;
+
+  /* 【D-8 2026/08/23 削除】--c-above / --c-below(高い=金 / 低い=紺 の2色)。
+     D-5 で8段のスケールを廃止したときに入れたが、D-8 で本人が「窓枠表示は当初のこの案を
+     採用して」と8段へ戻したので**読み手がゼロ**になった。値は上の --c-div-8 / --c-accent と
+     同じなので情報も失われない(git d91a1df 以降に定義がある)。 */
+  /* 【D-6 2026/08/23 本人指示】「±2以内は色を目立たな色にして、ずれているところに目が行くように」。
+     帯の中(＝合っている)の窓の塗り。**高い/低いのどちらでもない**ことを示すので、
+     金でも紺でもない中立の灰。--c-line-strong と同値だが**意味が別**なので別トークンにする
+     (罫線の濃さを触ったときに「合っている」の色まで動くのを防ぐ)。 */
+  --c-quiet:      #C7CFD9; /* 帯の中 = 合っている(高い/低いを主張しない) */
+
+  /* 【D-10 2026/08/26 本人裁定・凍結仕様 design/D10-SPEC.md §0 B / §1】影。
+     **体系にはこれまで影のトークンが1つも無かった**(モーダルの影だけが App.jsx に
+     直書きされていた)。My Data / 分析タブが「薄い地 + 白いカード」の作法へ戻ったので、
+     カードを地から浮かせる影が要る。値の出どころは本人が Claude Design キャンバスで
+     直接いじった design/canvas/S1.dc.html / A1.dc.html の box-shadow そのもの。
+     2段に分けるのは**役割が違う**からで、現時点では同値。
+     片方だけ調整できるように名前を分けておく(--c-danger と --c-bad と同じ扱い)。
+       --shadow-card … 大きいカード(累計・カレンダー・音の傾向・分析の2枚)
+       --shadow-row  … 小さいカード(セッション1件・すべてのセッション) */
+  --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+  --shadow-row:  0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+
+  /* ------------------------------------------------------------------
+     レイアウト定数。
+     --nav-h は下部固定ナビ(BottomNav)の高さ = borderTop 1px + 中身 46px。
+     ページ下端の余白は必ず calc(var(--nav-h) + env(safe-area-inset-bottom)) を使う。
+     以前は 72px の直書きが2箇所に複製されており、iPhone 12〜15 の PWA
+     (env(safe-area-inset-bottom)=34px) では実効ナビ高 81px に対して 72px しか
+     空けておらず、コンテンツ末尾の 9px がナビの下に隠れていた。
+     逆にノッチ無し端末(inset=0)では 25px の余分な空白が出ていた。
+     ------------------------------------------------------------------ */
+  --nav-h: 47px;
+  --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+
+  /* 【N-11 2026/08/17 本人指示】本文の左右余白。**値の唯一の答えはここ**。
+     `.app-root` の左右 padding がこの2つを使い、
+     ・グラフカードが「左右の余白を食い破って画面いっぱい」に伸びる負マージン
+     ・右下に浮かせるボタンの右端(本文の左右余白と揃える)
+     も同じ2つから引く。以前は `calc(14px + env(safe-area-inset-left))` という**式ごと**
+     App.jsx の複数箇所に写されており、片方だけ直す事故の形が並んでいた。
+     安全域(env)を左右で別々に持つのは、横向きのノッチで左右の値が違うため。 */
+  --page-side-pad: 14px;
+  --page-pad-left:  calc(var(--page-side-pad) + env(safe-area-inset-left));
+  --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
+}
+
+/* ラバーバンドスクロールで body の地色が見えるため、ページ背景と同色を敷く。
+   これが無いと iOS で上下に引っ張ったときだけ純白が露出する。 */
+html, body {
+  background-color: var(--c-bg);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+}
+
+/* 【F-92】タップした場所が四角いグレーで塗られる挙動を消す(本人指示・実機 2026/08/15
+   「タップしたところがタップ判定？で四角くグレーになる仕様を削除」)。
+   これは iOS Safari / Android Chrome が押下中の要素へ自動で敷く
+   `-webkit-tap-highlight-color` の既定色(半透明の黒)で、**要素の角丸を無視した四角**で出る。
+   角丸のピル・円形の録音ボタン・素のテキストの上に四角い灰色が乗るので、
+   静けさ(DESIGN.md)とも角丸の体系(§2)とも噛み合わない。
+
+   【html に1回だけ書く理由】この property は**継承する**ので、ルートに置けば
+   :root 以下すべて(将来足す要素も含む)に効く。要素ごと・クラスごとに足すと必ず漏れる
+   (.no-select を作ったときと同じ判断。index.css 内の該当コメント参照)。
+   `* { }` にしないのは、継承で足りるものをセレクタ総当たりで書かないため。
+
+   【押下の手応えについて】現在このファイルには `:active` の規則が1つも無く、
+   押している間の見た目を持つ要素はアプリ内に存在しない(`.ctl-state` の枠色は
+   aria-pressed / aria-expanded = **状態**であって押下中の表示ではない)。
+   したがってこの1行は「唯一の押下フィードバックを消す」ことになる。
+   代わりの手応えを足すには新しい色・不透明度・時間を決める必要があり、
+   それは DESIGN-SYSTEM に無い値の発明になるので**ここでは足さない**。
+   判断は本人・統括に委ねる(実装報告に明記)。 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* アプリのルート。iOS Safari の 100vh は**アドレスバーを含む高さ**を返すため、可視領域より
+   大きい min-height が敷かれ、詳細を閉じた素の状態でも常にアドレスバーぶんだけ縦スクロール
+   できてしまう(実機で計測タブ・リードタブの両方で報告された)。可視領域に追従する dvh を使う。
+   1行目の 100vh は dvh 未対応環境のフォールバック(後勝ちなので対応環境では dvh が効く)。 */
+.app-root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font-jp);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 等幅数字(F-43・本人選定の候補2)。計測アプリなので、値が変わっても数字の幅が
+     揺れない(桁が縦に揃う)ことを全体の既定にする。数字のグリフ選択だけに効き、
+     和文や英字の字形・字間には影響しない。SVGの<text>にも継承される。 */
+  font-variant-numeric: tabular-nums;
+}
+
+/* 録音中インジケータの点滅。App.jsx が animation:pulse を参照していたが
+   キーフレーム自体がどこにも無く、これまで点滅していなかった。 */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+
+/* 音程が合っている間、環がゆっくり呼吸する(合った=到達を、文字を読ませずに伝えるため)。
+   透明度だけを動かし、位置・大きさは変えない(計測値の読み取りを妨げない)。 */
+@keyframes ficus-breathe {
+  0%, 100% { opacity: 0.62; }
+  50%      { opacity: 1; }
+}
+
+/* 【D-23d 2026/08/29】外周の光の呼吸。**JS から毎フレーム opacity を書かない**ため、
+   同じ曲線を CSS のキーフレームで置く。値は App.jsx の ringBreath()
+   （周期 RING_BREATH_MS=2600ms / 上り RING_BREATH_RISE=0.50 / smoothstep）を
+   2.5% 刻みで写した折れ線で、最大誤差 0.001176 = 0.300/255（8bit の量子化より下）。
+   **ここを手で書き換えないこと** ── 検査が ringBreath() と突き合わせている。
+
+   なぜ CSS か: 本人の実機で「±4¢ の外は滑らかになったが内側は若干カクつく」。
+   内側＝光が見えている範囲だけ、明るさを毎フレーム書いていた。呼吸を CSS へ移すと、
+   合った状態を保っている間の書き込みが **0 回**になる（明るさの段は rAF が持つが、
+   走りが終われば一定なので書かない）。 */
+@keyframes ficus-ring-breathe {
+  0% { opacity: 0.3400; }
+  2.5% { opacity: 0.3448; }
+  5% { opacity: 0.3585; }
+  7.5% { opacity: 0.3801; }
+  10% { opacity: 0.4086; }
+  12.5% { opacity: 0.4431; }
+  15% { opacity: 0.4826; }
+  17.5% { opacity: 0.5260; }
+  20% { opacity: 0.5723; }
+  22.5% { opacity: 0.6207; }
+  25% { opacity: 0.6700; }
+  27.5% { opacity: 0.7193; }
+  30% { opacity: 0.7677; }
+  32.5% { opacity: 0.8140; }
+  35% { opacity: 0.8574; }
+  37.5% { opacity: 0.8969; }
+  40% { opacity: 0.9314; }
+  42.5% { opacity: 0.9599; }
+  45% { opacity: 0.9815; }
+  47.5% { opacity: 0.9952; }
+  50% { opacity: 1.0000; }
+  52.5% { opacity: 0.9952; }
+  55% { opacity: 0.9815; }
+  57.5% { opacity: 0.9599; }
+  60% { opacity: 0.9314; }
+  62.5% { opacity: 0.8969; }
+  65% { opacity: 0.8574; }
+  67.5% { opacity: 0.8140; }
+  70% { opacity: 0.7677; }
+  72.5% { opacity: 0.7193; }
+  75% { opacity: 0.6700; }
+  77.5% { opacity: 0.6207; }
+  80% { opacity: 0.5723; }
+  82.5% { opacity: 0.5260; }
+  85% { opacity: 0.4826; }
+  87.5% { opacity: 0.4431; }
+  90% { opacity: 0.4086; }
+  92.5% { opacity: 0.3801; }
+  95% { opacity: 0.3585; }
+  97.5% { opacity: 0.3448; }
+  100% { opacity: 0.3400; }
+}
+
+/* 動きを減らす設定の端末では、呼吸も点滅も止めて静止した状態で見せる */
+@media (prefers-reduced-motion: reduce) {
+  .ficus-breathe, .ficus-pulse { animation: none !important; }
+}
+
+/* ------------------------------------------------------------------
+   面の作法(DESIGN-SYSTEM §6.6)。**地も作法も「画面ごと」に決まる。**
+   （〜D-7 は「地は白で全タブ共通 / 作法はタブの根に付ける」だった。
+     D-10 でどちらも成り立たなくなったので、この見出しごと書き換えてある。）
+
+     .surf-rule = 罫    地は白。箱を消し、上辺の罫1本で群を分ける
+                        (計測タブ Top / リードタブ Top)
+     .surf-card = カード 地は白(--c-bg)。その上に白いカードを影で浮かせ、罫は1本も引かない
+                        (2026/09/06 本人指示で地を --c-sunk から白へ。浮きは影だけが担う)
+                        (My Data / 分析タブ。2026/08/26 本人裁定・D-10。
+                         セッション詳細 / リード個体詳細。2026/09/03 本人裁定・D-29。
+                         すべてのセッション。2026/09/03 本人裁定・D-30 = モックの案①)
+
+   **この2つを入れ子にしないこと。** `.surf-rule .card` と `.surf-card .card` は
+   どちらも詳細度 (0,2,0) なので、入れ子にすると**どちらが勝つかがこのファイルの行の順序**で
+   決まる ＝ いちばん壊れやすい形になる。データタブもリードタブも根に作法を置かず、
+   AnalysisLabView の3つ / ReedsTab の2つの return がそれぞれ名乗る(App.jsx)。
+   根に作法のクラスを持つのは**計測タブだけ**。
+
+   画面の根に付けるので、中のカードは「自分がどの作法の中にいるか」で見た目が決まる。
+   共有部品(PhraseTimeline・MetricCard 等)を分岐なしで両方に置ける。
+
+   【いちばん壊れやすいところ】その1: インライン style
+   .card / .tile にインラインで background / border / padding を書くと、
+   インライン style はクラスより強いので作法が丸ごと効かなくなる。書かないこと。
+   **個別プロパティも同じ**(backgroundColor / borderWidth / borderTop / paddingLeft …)。
+
+   【いちばん壊れやすいところ】その2: このファイルの末尾への追記
+   CSS は後に書いたほうが勝つので、下の規則と同じセレクタをこのファイルの
+   どこかにもう一度書くと、作法が丸ごと反転する。**1セレクタ1規則**を守ること。
+
+   scripts/pitch-test.mjs の「16. 面の作法」が、この2つを
+   (1) 接頭辞での走査 (2) 規則の重複禁止 + 後勝ちの読み取り で検査している。
+   ------------------------------------------------------------------ */
+.card { padding: var(--sp-4); }
+.tile { padding: var(--sp-3); }
+.tile-row { gap: var(--sp-2); }
+
+/* 罫: 箱を消して罫1本にする。左右の padding も落として地に直接置く */
+.surf-rule .card {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--c-rule);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+/* 直前に別の区切り(子タブの溝・「一覧に戻る」ボタン)がある2箇所だけの特例。
+   .card 自体には触れず、別のクラス名で border-top だけを後勝ちさせる
+   (.surf-rule .card と同じ詳細度(0,2,0)。後に書けば border-top だけが上書きされる。
+   他のプロパティ(背景・padding 等)は .surf-rule .card のまま生きる)。
+   乱用しないこと(本人指示の2箇所だけ: リード登録カード / リード個別詳細の識別情報カード)。 */
+.surf-rule .no-top-rule { border-top: none; }
+/* (【D-10 2026/08/26】.surf-rule .card-tight-top = My Data の先頭カードの上余白を
+   8px に詰める特例はここにあった。My Data がカードの作法(.surf-card)へ移り、
+   先頭が「累計カード」に変わって**読み手がゼロ**になったので定義ごと落とした。) */
+/* 沈める: 地は白のまま、面だけ沈める。枠は透明(場所だけ確保して線は見せない) */
+/* 【D-7 2026/08/23 本人指示で削除】沈める作法の .card。
+   データタブが罫の作法へ移り、**使い手がゼロ**になったので定義ごと落とした
+   (読み手ゼロの規則を残さない)。面の作法はアプリ全体で「罫」の1つだけになった。 */
+
+/* カードの中に並ぶ小さい面(指標のタイル等) */
+.surf-rule .tile {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--c-rule);
+  border-radius: 0;
+  /* 罫を自分の枠の外(1px左)へ出す。下の .tile-row の overflow が行頭の1本だけを落とす */
+  margin-left: -1px;
+}
+/* 【D-7】沈める作法の .tile も同じ理由で削除(使い手ゼロ)。 */
+
+/* 行の先頭のタイルには左罫を付けない(列の左端に罫が出ると囲みに見える)。
+   :nth-child で数える方法は採らない。タイルが1つでも全幅に広がると
+   (TappableMetricCard を開くと gridColumn:1/-1 になる)行頭の位置が1つずれ、
+   以降の行の先頭に罫が出てしまうため。ここでは**位置そのもの**で決める:
+   罫はタイルの左端に付け(上の margin-left:-1px)、行の左端に来た罫だけを
+   容器の overflow:hidden が落とす。どの行も左端は容器の左端なので、
+   列数・全幅タイルの有無・折り返しに関係なく成立する。
+   容器を左右へ --sp-3 はみ出させ、タイルの padding と相殺することで、
+   1列目の中身がカードの左端(=地の左端)にちょうど揃う。 */
+.surf-rule .tile-row {
+  gap: 0;
+  margin-left: calc(-1 * var(--sp-3));
+  margin-right: calc(-1 * var(--sp-3));
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------
+   【D-10 2026/08/26 本人裁定・凍結仕様 design/D10-SPEC.md §0 A / §1】
+   カード(.surf-card) ── 白い地の上に白いカードを影だけで浮かせる。
+   (2026/09/06 本人指示で地が --c-sunk から白になった。適用は7画面。)
+
+   本人「白いカードがある方が機械感が強くて、少しうるさくなりますが、
+   mydata はラボ的に使ってほしい側面があるのでその表現としてはありと考えて採用です」
+   本人「むやみに線をひくのやめて。このあたりの線はなくてもデザインで改善できるはず」
+
+   D-7 で全タブを「罫」1つに畳んだが、**My Data と分析タブについてだけ反転**した。
+   【D-29 2026/09/03 本人裁定・design/D29-SPEC.md】本人「計測タブとリードタブの Top 画面以外は
+   適切にカード使っていい」で、**セッション詳細とリード個体詳細もこちらへ移った**
+   (D-10 の「この4画面は 1px も変えない」という凍結は、この2画面について解除された。
+    計測タブ Top とリードタブ Top の凍結は生きている ── 本人が名指しで除外した)。
+   【D-30 2026/09/03 本人裁定・design/D30-SPEC.md】**すべてのセッションもこちらへ移った**
+   (モックの案① = 一覧を .card 1枚に入れ、行の作りは 1px も変えない)。
+   .surf-card と .surf-rule は**入れ子にしない**。リードタブの Top は
+   .surf-rule を自分で名乗り、データタブの3つの return は3つとも .surf-card を名乗る(App.jsx)。
+   入れ子にすると同じ詳細度 (0,2,0) 同士のカスケードで、どちらの作法が勝つかが
+   index.css の**行の順序**に依存する = いちばん壊れやすい形になる。
+
+   群の境界はカードと 12px の余白だけが作る。**罫は1本も引かない。**
+   【D-30 本人裁定】ここで引かないのは**群の境界の罫**。**群の中の行区切りの罫は
+   この限りではない** ── すべてのセッションの一覧は「1つの群」で、その中の行を分ける
+   1px(.slist-row の border-bottom)は群の境界ではない(DESIGN-SYSTEM §6.6)。
+   ------------------------------------------------------------------ */
+.surf-card {
+  /* 【地は白 2026/09/06 本人指示】「My Data とコミュニティの背景を計測タブ・リード
+     タブに揃える」。計測・リードの根(.surf-rule)の地は --c-bg なので、カードの作法も
+     地を白にする。**カードの浮きは影(--shadow-card)だけが担う。**
+     枠線を足して縁を作ってはいけない(§6.7 枠線は状態を持つものだけ)。
+     縁が読めないときは --shadow-card / --shadow-row のアルファを1段上げる。
+     宣言そのものは消さない ── .surf-card が作法の根であることを、
+     地を持っているという形で示している(pitch-test が宣言の存在を見る)。 */
+  background: var(--c-bg);
+  /* 地は画面の端まで届かせる(ページの地なので、左右 14px の余白の中で止めると
+     白い縁が残って「地」に見えない)。式は .app-root の padding と**同じトークン**を
+     符号だけ変えて書く(別管理にしない。SwipePager の bleed と同じ手)。 */
+  margin-left: calc(-1 * var(--page-pad-left));
+  margin-right: calc(-1 * var(--page-pad-right));
+  padding-left: var(--page-pad-left);
+  padding-right: var(--page-pad-right);
+}
+/* 大きいカード。角丸 16 / 内側 16 / 影は --shadow-card。 */
+.surf-card .card {
+  background: var(--c-surface);
+  border: 0;
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  box-shadow: var(--shadow-card);
+}
+/* 【D-15 §3 本人裁定(案A)】My Data の**累計カード1枚だけ**を濃紺のベタ塗りにする。
+   本人「画面にメリハリがないので累計のカードだけ違う色にしてみて」。
+   **変えるのは地だけ。** 影・角丸・padding は上の .surf-card .card がそのまま持つ
+   (ここで上書きすると「他のカードと同じ」が崩れ、2つ目の寸法の正典ができる)。
+   文字色はインラインに #fff を散らさず --c-on-accent / --c-on-accent-dim を使う。 */
+.surf-card .card.card-accent { background: var(--c-accent); }
+/* 【D-31 2026/09/03 統括裁定】一覧を1枚に入れるカード(すべてのセッション)の**上下の余白だけ**を
+   --sp-1(4px)にする。本人が選定したモック(design/allsessions-card-proposals.html の案①)は
+   `.card.tight { padding: 4px 14px }` で、素の 16px だと**先頭行の上と最終行の下が +12px ずつ
+   厚い**(実測)。上下の 12px が本人の見た目に効く差なので、そこだけを直す。
+   **左右はモックの 14px を採らない。** 14px は --page-side-pad(ページの左右余白)の値で、
+   カードの内側の余白としては意味が違う。左右を --sp-4 に揃えれば他のカードと横位置が揃い、
+   モックとの差は 2px に収まる(モックは統括が描いたもので、D-10 のように本人がキャンバスで
+   決めた値ではない ── 「体系の外だが本人の決定」として逆輸入する対象ではない)。
+   **変えるのは上下の余白だけ。** 影・角丸・地は上の .surf-card .card がそのまま持つ
+   (すぐ上の .card-accent が「変えるのは地だけ」なのと同じ形)。
+   §6.6 が禁じているのは**インライン**での上書きであって、**別クラスで1プロパティだけ
+   後勝ちさせる**のはこの体系の正規の手(.surf-card .card.card-accent /
+   .surf-rule .no-top-rule が既に同じ形)。 */
+.surf-card .card.card-list { padding: var(--sp-1) var(--sp-4); }
+/* 小さいカード(セッション1件 / すべてのセッション)。角丸 12 / 内側 10px 14px。
+   .card と別のクラスにするのは、**同じ .card に2つの寸法を持たせない**ため
+   (インライン style で padding を書くと作法が丸ごと効かなくなる)。 */
+.surf-card .rowcard {
+  background: var(--c-surface);
+  border: 0;
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-row);
+}
+/* 【D-10 §4 / D-11 §1】日付を押すと開く枠の動き。高さの数値は JSX が実測して持ち、
+   ここは**時間と曲線だけ**を持つ(prefers-reduced-motion をここ1箇所で尊重できる)。
+   overflow:hidden と height は JSX 側のインライン style(.card ではないので作法に触れない)。
+
+   【D-11 §1 本人指示】「日付を押したときの開き方が全くスムーズではないのでもっとぬるっと」。
+   直したのは3つ。**インライン style に時間・曲線・遅延を1つも書かない**(この節が唯一の持ち主)。
+     (a) 描く日の更新が1フレーム遅れていた ── App.jsx 側で toggleDay が
+         openDayKey と shownDayKey を**同じ更新で**書くようにした(useEffect を削除)
+     (b) 開閉を**非対称**にした。開く 320ms / 閉じる 240ms。
+         曲線 cubic-bezier(0.32, 0.72, 0, 1) は立ち上がりが速く終わりが長く効く
+     (c) 中身(.day-panel-inner)も動かす。箱だけが伸びると「マスクで刈り取っている」ように
+         見えるのが硬さの正体。開くとき opacity 0→1 / translateY(-8px)→none を 220ms・**60ms 遅らせて**
+         (箱が先に開き、中身があとから収まる)、閉じるときは 140ms・遅延なし(中身が先に消える)
+   【D-11 §1(d) は実装していない。統括の判断待ち】凍結仕様は**レイヤ昇格ヒント**(高さ)と
+   `contain: layout paint` も足すよう指示していたが、**当てていない**。理由は2つ:
+     1. **そのヒントのプロパティはアプリ全体で禁止されている**(F-106。
+        `design/F106-SPEC.md:23` が contain / content-visibility / そのヒント / transform を
+        「iOS の再ペイント取りこぼしの典型要因」として名指ししている。
+        `scripts/pitch-test.mjs` の 30.1「アプリ全体で1つも使っていない」がこれを固定している)。
+        F-106 は**実機でしか出なかったバグ**で、恒久的なレイヤ昇格を外して直したもの。
+        この枠の中には `overflowY: auto` のスクロールコンテナがあり、F106-SPEC が
+        名指ししている形そのもの
+     2. 凍結仕様が挙げた理由(「下の折れ線の SVG が毎フレーム再レイアウトされるのを抑える」)は
+        `contain: layout` では**達成できない**。layout containment が切るのは
+        「中の変化が外へ伝わる経路」で、ここで毎フレーム外を動かしているのは
+        **枠の高さそのもの**(= 下のカードを押し出すという意図した挙動)。
+        `contain: paint` の効果も `overflow: hidden` と重複する
+   Chrome 375×812 では `contain: layout paint` を当てても描画は壊れなかった(押し出し 204px を実測)。
+   だが F-106 の教訓どおり**この類は Chrome で判定できない**ので、当てないほうへ倒した。 */
+.day-panel {
+  transition: height 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.day-panel.is-open { transition: height 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.day-panel-inner {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 140ms cubic-bezier(0.32, 0.72, 0, 1),
+              transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.day-panel.is-open .day-panel-inner {
+  opacity: 1;
+  transform: none;
+  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms,
+              transform 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms;
+}
+/* 動きを減らす設定では **(b)(c) で足したものも含めて全部**止める。
+   .day-panel-inner を opacity: 1 / transform: none に戻すのが要 ──
+   止めるだけだと「中身が opacity 0 のまま残る」事故になる。 */
+@media (prefers-reduced-motion: reduce) {
+  .day-panel, .day-panel.is-open { transition: none; }
+  .day-panel-inner, .day-panel.is-open .day-panel-inner {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* 【D-14 §6 2026/08/27 本人指示】下端から出るシート(BottomSheet)の出方。
+   本人「選択肢が下から出てくる挙動ももっとスムーズに出てくるように変更」。
+
+   **直す前は動きが1つも無かった**(createPortal で描かれた瞬間に完成形が出る)。
+   「もっとスムーズ」の下限が「瞬間表示」だったので、まず動きを与えるところから始める。
+
+   【transition ではなく animation を使う理由 ── D-11 で分かった構造の問題】
+   D-11 の(a)は「描く中身の更新が1フレーム遅れると、動き出しが鈍く見え、前の状態へ跳ねる」
+   だった。**出現の動きを transition で書くと、この1フレーム遅れが構造的に避けられない**:
+   閉じた姿勢で1度描いてから開いた姿勢へ書き換える必要があり、そのためには
+   rAF なり強制リフローなりで「描画をもう1回」挟むことになる。
+   `@keyframes` は**最初に描かれるフレームから**走るので、その2度描きが要らない。
+   ゆえにシートは animation で書く。**時間・曲線はここが唯一の持ち主**
+   (インライン style には1つも書かない ── prefers-reduced-motion をここ1箇所で尊重するため)。
+
+   【時間と曲線の採り方(DESIGN-SYSTEM §1.11 の表に行を足してある)】
+     ・曲線は `.day-panel` と**同じ** cubic-bezier(0.32, 0.72, 0, 1)。本人が「スムーズに
+       開くようになった」と言ったのはこの曲線の感触なので、感触を運ぶ側は写す
+     ・時間は **360ms**。`.day-panel` の 320ms を**そのまま写していない** ── §1.11 の作法1 が
+       「320/240 は .day-panel 1つで採った値であって体系の作法ではない」と範囲を切っており、
+       下から出るシートは移動距離が長い(枠は 204px 前後、シートは自分の高さぶん = 数百px)。
+       ただし距離に比例させると 500ms を超えて鈍くなるので、比例はさせず**1段だけ長く**した。
+       **この 360ms は本人の実機で「スムーズ」の判定を受けていない**(実機待ち)
+     ・**塗り(fill-mode)は付けない。** 走り終わったら transform が消えるので、静止時に
+       transform を残さない(§6.3)。シートの中から開く全画面ピッカーが
+       position: fixed の包含ブロックに閉じ込められる事故を作らない
+   【`will-change` は付けない】F-106。アプリ全体の禁止(pitch-test 30.1)。 */
+@keyframes sheet-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheet-card-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.sheet-scrim {
+  animation: sheet-scrim-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet-card {
+  animation: sheet-card-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* 動きを減らす設定では止める。**中身を戻す必要はない** ── .day-panel と違って
+   静止時の姿勢(opacity: 1 / transform なし)は素の状態そのもので、
+   閉じ側の姿勢を CSS で持っていないため(keyframes の from は走らなければ効かない)。 */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-scrim, .sheet-card { animation: none; }
+}
+
+/* ------------------------------------------------------------------
+   操作するものの型(A型 / B型)。本人指示(2026-08-03):
+     「銘柄、番手、使用開始日のどれも枠線をつけていますが、枠線は重くなるので不要です」
+     「背景と同じ色で枠線をつけるか、違う色で枠線をつかないかに統一してください」
+     「メトロノームアイコンは on off の違いが分かったほうがいいので枠線があっていいです」
+
+   **同じ物に「枠線」と「違う地」を両方与えない。** どちらか一方で足りるものを
+   両方やると重くなり、そのうえ「枠線が何を意味するのか」が読めなくなる。
+   枠線は**状態を持つものにだけ**使う。
+
+     A型 .ctl-state — 枠線 --c-line-strong / 地は透明(＝背景と同色)
+                      on-off・開閉・選択中が切り替わる**状態を持つもの**。
+                      状態は**枠線の色**で返す(ON = --c-accent)。地は足さない。
+     B型 .ctl-plain — 枠線なし / 地は --c-sunken
+                      入力欄・選択欄・普通のボタンなど**状態を持たないもの**。
+
+   これで「枠線があるものは状態を持っている」が読み手への約束になる。
+   これが統一の芯なので、scripts/pitch-test.mjs の「17. 操作するものの型」が
+   **同じ型が枠線と地を両方持たないこと**を規則そのものから検査している。
+
+   DESIGN-SYSTEM §1.3 の --c-line-strong は「入力欄の枠」ではなく
+   「**A型＝状態を持つものの枠**」になる。入力欄は B型(枠なし)。 */
+.ctl-state { background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-sm); }
+/* 状態は枠線の色だけで返す(地は足さない)。aria-pressed=トグル / aria-expanded=開閉 */
+.ctl-state[aria-pressed="true"], .ctl-state[aria-expanded="true"] { border-color: var(--c-accent); }
+.ctl-plain { background: var(--c-sunken); border: 0; border-radius: var(--r-xs); }
+/* ピル形が要る A型/B型だけに足す。角丸だけを差し替えるので後ろに置く */
+.ctl-pill { border-radius: var(--r-pill); }
+/* 大きな操作ブロック(録音とアップロードの対)だけに足す。相方の録音ボタンが
+   --r-lg(16px) を持つため、型の既定(--r-xs)のままだと対の角丸が割れる。
+   .ctl-pill と同じく**角丸だけ**を差し替える(地・枠は型が持つ)。 */
+.ctl-lg { border-radius: var(--r-lg); }
+
+/* 破壊的な一手(押せば**実際に消える**削除)だけが持つ塗り。
+   塗りは体系の中で既に「主要動作の合図」として使っている語彙(まとめて追加 =
+   --c-accent の塗り + --c-on-accent の文字)なので、**本当に消える一手にだけ**
+   危険色の塗りを許すのは一貫する。白 on #DC2626 = 4.8281:1 で WCAG AA(4.5:1)を満たす。
+   **枠は持たない**ので芯1(枠 ∧ 違う地)・芯2(枠は状態を持つものだけ)に反しない。
+   角丸は B型(.ctl-plain / .ctl-pill)が決める。ここは地と文字色だけを持つ。
+
+   data-armed="true" = 押せば実際に消える(1件以上選択済み)。
+   0件選択のときは何も消えないので B型の地のまま・文字は --c-ink-3。
+   「削除モードに入る入口」はまだ破壊が起きないので、この塗りを持たない(中立の --c-ink-2)。
+   詳細度は .ctl-danger[data-armed="true"] が 0,2,0 で .ctl-plain(0,1,0)に確実に勝つ。 */
+.ctl-danger { color: var(--c-ink-3); }
+.ctl-danger[data-armed="true"] { background: var(--c-danger); color: var(--c-on-accent); }
+
+/* 入力欄は「群」ではなく「操作するもの」。状態を持たないので **B型**。
+   地は --c-sunken だけで「ここは触れる」を担う(枠線は付けない)。
+   type を列挙するのは range / checkbox / file を UA 描画のままにするため。
+
+   【枠を 0 にせず「1px solid transparent」で残す理由】DESIGN-SYSTEM §6.1.5
+   「既にあった要素は1pxも動かない」。入力欄の枠を 0 にすると高さも幅も 2px 縮み、
+   計測タブのリード選択ピル(中身が select 2つ)が 2px 縮んで**環が 2px 上がる**。
+   場所だけ確保して線を見せない(.surf-sunk .card と同じ手)。
+   .ctl-plain 側は元から枠を持たない要素に付けるので border: 0 で外形が変わらない。 */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="search"],
+select,
+textarea {
+  background: var(--c-sunken);
+  color: var(--c-ink);
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+}
+
+/* プレースホルダーは「読ませる」目的のガイドなので、装飾専用の --c-ink-4 ではなく
+   --c-ink-3 を使う(DESIGN-SYSTEM §1.1)。opacity:1 は Firefox 等がデフォルトで
+   placeholder に opacity を掛ける対策。既存の入力欄のプレースホルダー(銘柄の
+   カスタム入力欄など)にも同じ見た目が適用されるようになるが、統一として問題ない。 */
+::placeholder { color: var(--c-ink-3); opacity: 1; }
+
+/* 長押しでテキスト選択(と iOS のコールアウト)を出さない操作要素に付ける(F-49)。
+   本人指示: 「メトロノームのプラスマイナスとボタンが長押しでテキスト選択の判定になる」
+   「テンポタップ時も選択判定になる」「登録済みリードを並び替えで長押しするとテキスト選択になる」。
+   いずれも**押す/掴む**ための要素で、中の文字を選ばせたい場面が無い。
+   【インラインで個別に足さない理由】対象が9箇所あり、次に操作要素を足す人が漏らす。
+   クラス1つにして className で付ける。
+   【入力欄には付けない】input / select / textarea に効かせると値を選択・コピーできなくなる。
+   このクラスは既存のどのセレクタにも触れないので、面の作法(§6.6)・操作の型(§6.7)には影響しない。 */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 【A-1 メトロノームは画面のどこをタップしても開始/停止する】
+   計測タブの背面に敷いた透明なレイヤの「上」に置かれる、**並べるだけの箱**に付ける。
+   箱そのものは当たり判定を持たず、中の操作要素だけが受け取るので、
+   操作要素の上ではその要素の機能が勝ち、それ以外の余白ではレイヤが受け取る。
+   これを付けないと、位置指定の箱(環・振り子・上部設定行など)が透明な板として
+   レイヤを覆い、画面の大半でタップが死ぬ(375×812 の elementFromPoint で実測して直した)。
+   **地・枠・角丸・余白を一切持たない**ので、面の作法(§6.6)にも操作の型(§6.7)にも触れない。
+   レイアウトにも影響しない(pointer-events は寸法を変えない。§6.1.5)。
+
+   【input / select / textarea をこのセレクタに書かない】入力欄の共通規則は
+   index.css に**1つだけ**という縛りがあり(pitch-test「入力欄の規則は index.css に1つだけ」)、
+   ここに要素セレクタで足すと2つ目の規則として数えられて縛りが壊れる。
+   入力欄を含む枠(奏者セレクタ・リード選択ピル)は、JSX 側で pointerEvents: "auto" を書く。 */
+.tap-through { pointer-events: none; }
+.tap-through button { pointer-events: auto; }
+
+/* 【N-5】リード登録一覧の 5×2 タイル(正典 design/north-star-measure.html の .rgrid / .tile)。
+   記録の量を4段の「濃さ」で返す: ret(何も記録が無い) → 既定(評価だけ) → data(測定データあり)。
+   sel は「計測タブで選んでいる1枚」/ 削除モード中は「削除に選んだ枚」。
+
+   【地と枠をここに置く理由】同じ要素にインラインで「見える枠」と「違う地」を同時に書くと
+   §6.7 の芯1(枠 ∧ 違う地 を同じ状態で持たない)に触れる。**選択中は枠を透明にして地だけで塗る**
+   ことで芯1を守る(テンポシートの選択ピルと同じ書き方。背景は枠の下まで塗られるので
+   描画はモックと同一)。クラス名に "tile" というトークンを含めていないのは、
+   面の作法の .tile(index.css の .surf-* が持つ)と取り違えないため。
+
+   **このクラスは地・枠・角丸・文字色だけを持つ。** 寸法(aspect-ratio / font-size)と
+   ドラッグ中の transform は呼び出し側(ReedTileGrid)が持つ。 */
+.reedtile { background: transparent; border: 1.2px solid var(--c-line-strong); border-radius: 12px; color: var(--c-ink-2); }
+.reedtile[data-tone="ret"] { border-color: var(--c-line); color: var(--c-line-strong); }
+.reedtile[data-tone="data"] { border-color: var(--c-ink-3); color: var(--c-ink); }
+.reedtile[data-tone="sel"] { background: var(--c-accent); border-color: transparent; color: var(--c-on-accent); font-weight: 600; }
+/* 正典 .tile.drag: 浮き上がり + 影 + 枠が紺。持ち上がったことが動かす前から分かる */
+.reedtile[data-drag="true"] { border-color: var(--c-accent); box-shadow: 0 10px 22px rgba(20, 30, 50, 0.22); }
+
+/* 【F-80 / F-82】文字そのものをタップさせるとき、**見た目を1pxも変えずに**当たり判定だけ
+   44pt へ広げる(DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+   疑似要素はレイアウトに参加しないので、行の高さも文字の位置も動かない
+   (パディングや min-height で広げると箱の見出しの行が 20px → 44px に伸びてしまう)。
+   **付ける要素は overflow を切ってはいけない。** 切るとこの疑似要素ごと切られて
+   当たり判定が文字の高さまで縮む。切り取り(ellipsis)は内側の子に持たせる。
+   このクラスは当たり判定だけを持つ: 地・枠・角丸・余白・文字色は一切持たない。
+
+   【F-83】この規則は長らく**コメントで禁じているだけ**で、破っても誰も気付かなかった。
+   審査役が銘柄ボタンに overflow:hidden を足す変異を撃つと検査は PASS 5885 / FAIL 0 のまま
+   通り、実ブラウザ(375×812)で当たり判定が **44px → 15px** に落ちた(統括が測り直した実測。
+   `elementFromPoint` を整数グリッドで1px刻みに走査。前報の 43px/16px は中心が x.5 に乗って
+   いた分解能の誤りで、審査役が撤回済み)。JSX のインライン style を見る検査を足したが、
+   **CSS 側に `.rname { overflow: hidden; }` を1行足す経路が素通り**し、同じ 15px になった。
+   → 検査で見張るのをやめ、**構造的に起こり得なくする**。`!important` は作法として重いが、
+   ここでは**インラインの style に勝つ**ために必要(素の宣言ではインラインに負ける)。
+   切り取りが要るときは内側の子に持たせる、という上の規定と同じことを機械に強制させている。
+   なお現在この要素で切り取っている箇所は無い(銘柄は内側の <span> が ellipsis を持つ)ので、
+   見た目は 1px も変わらない。
+   **封じられるのは「この要素自身の、!important でない overflow」だけ。**
+   `contain: paint` / `clip-path` / **祖先**の overflow でも疑似要素は切られる(審査役の実測で
+   いずれも 44px → 15px)。いまアプリ内に該当は0箇所で、検査もそこは範囲外と名乗っている。 */
+.taptext { position: relative; overflow: visible !important; }
+.taptext::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: var(--tap-min); }
+
+/* 和文ラベル・小さめの本文(〜13px)用: 既定字間だと詰まって見えるため少し広げる */
+.jp-label { letter-spacing: 0.02em; }
+/* 大きな数値(24px以上、ヒーロー・音名セント)用: 数字は既定だと間延びするため詰める */
+.num-tight { letter-spacing: -0.02em; }
+
+/* ------------------------------------------------------------------
+   【F-106 2026/08/17 本人指示・凍結仕様 design/F106-SPEC.md】
+   セッション一覧の「選択(削除)モード」。**モードは祖先クラス1つだけで表現する。**
+
+   経緯: 削除モードに入ると **iPhone で先頭行だけチェックボックスが出ず**、
+   その行をタップするとチェックが日付に重なる(＝先頭行だけモード切替時の
+   レイアウト更新が反映されていない)。
+   F-97 の対処(常設 checkbox + 行ごとの `display` 切替)でも実機では直らなかった。
+   Chrome では一度も再現していないので、iOS Safari のレイアウト/ペイントの
+   取りこぼしとして扱う。
+
+   方針(F106-SPEC の「方針転換」):
+   ・チェックボックスは**常に DOM にあり、常にレイアウトに参加する**
+     (`display` も `visibility` も切り替えない。行の字下げはモードに関係なく常時入る)
+   ・モードの切替は **`.slist` に付く `.is-select` ただ1つ**。祖先のクラス変更は
+     subtree 全体の style 再計算を必ず伴うので、行ごとの取りこぼしが構造的に起きない
+   ・行の寸法・字下げも**行ごとの style ではなくこの CSS** が与える
+     (JSX 側の行には style 属性そのものを置かない)
+   ・モード外で見えない/触れないのは `opacity: 0` + `pointer-events: none` だけ。
+     **レイアウトは 1px も動かさない**(モード内外で行の高さも字下げも同じ)
+   ・`contain` / `content-visibility` / `will-change` / `transform` は
+     一覧の行にもスクロールコンテナにも置かない(iOS の再ペイント取りこぼしの典型要因)
+
+   ※ モード外でも 20px のチェックボックスが場所を取るので、**モード外の行の
+      見た目は F-97 以前と変わる**(日付が常に 32px 字下げされる)。
+      F106-SPEC の「見た目より、モードで壊れないことを優先する」という判断に従う。 */
+.slist { overflow-y: auto; max-height: 190px; }
+/* 【D-1 2026/08/22 本人指示・凍結仕様 design/D1-SPEC.md】一覧が専用ページ
+   (AllSessionsPage)へ移ったので、そこでは高さ制限を外して画面ぶん使う。
+   **`is-full` は静的なクラス**(その画面では常に付く)。モードで切り替わるクラスは
+   今も `.is-select` ただ1つで、F-106 の不変条件(祖先クラス1つで切替・行ごとの更新ゼロ・
+   レイアウト不動)は1つも崩れていない。
+   `.slist` と同じ宣言をこのファイルにもう一度書くのではなく、詳細度の高い別セレクタで
+   上書きする(index.css の「1セレクタ1規則」の芯を守る)。 */
+.slist.is-full { overflow-y: visible; max-height: none; }
+/* 【D-30 2026/09/03 本人裁定・凍結仕様 design/D30-SPEC.md §2.3 = モックの案①】
+   専用ページの一覧は **.card 1枚**に入った(App.jsx の AllSessionsPage)。
+   カードの下端のすぐ内側に罫が1本残ると「消し忘れ」に見えるので、**最後の行の罫だけ**消す。
+   これが D-30 で行に入れた**唯一の**変更 ── gap / padding / border-bottom / min-height /
+   .slist-check / .slist-main / .slist-date / .slist-sub は 1px も動かしていない。
+   `.slist-row` の定義そのものは触らず、詳細度の高い別セレクタ (0,4,0) で上書きする
+   (index.css の「1セレクタ1規則」の芯。すぐ上の `.slist.is-full` が既に同じ手)。
+   `.slist` の使い手は AllSessionsPage の1箇所(必ず `is-full` 付き)なので、この綴りで曖昧さは無い。 */
+.slist.is-full .slist-row:last-child { border-bottom: 0; }
+.slist-row {
+  display: flex;
+  align-items: center;
+  /* gap / padding / border-bottom は正典 north-star-measure.html の .srow のまま
+     (N-6 から 1px も動かしていない。インライン style から CSS へ移しただけ)。 */
+  gap: 10px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--c-line);
+  min-height: var(--tap-min);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.slist-check {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin: 0;
+  cursor: pointer;
+  /* モード外: 見えない・触れない・**読み上げとフォーカス順からも外す**。
+     **場所は常に確保したまま**(visibility はレイアウトを 1px も動かさない)。
+     【審査で訂正 2026/08/17】初版は F106-SPEC の名指しに従って opacity:0 にしていたが、
+     opacity は描画とタップしか殺さないので、モード外の 14個のチェックボックスが
+     読み上げとフォーカス順に残っていた(実測: ページの tabbable 36個中14個が不可視の
+     チェックボックス。F-97 の display:none には無かった劣化)。
+     visibility は display と違い**レイアウトを動かさない**ので、F-106 の不変条件
+     (祖先クラス1つで切替・行ごとの更新ゼロ・レイアウト不動)を1つも崩さずに劣化だけ消える。
+     仕様側(F106-SPEC)が visibility を display と同列に禁じていたのが誤りだった。 */
+  visibility: hidden;
+  pointer-events: none;
+}
+.slist.is-select .slist-check { visibility: visible; pointer-events: auto; }
+.slist-main { flex: 1; min-width: 0; }
+.slist-date { display: block; font-size: var(--fs-sm); color: var(--c-ink); }
+.slist-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--c-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
+<style>/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(assets/fonts/jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjgn7Motmp5r61.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(assets/fonts/jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjjH7Motmp5g.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(assets/fonts/jizBRFtNs2ka5fXjeivQ4LroWlx-6zsTjnTLgNuZ5w.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(assets/fonts/jizBRFtNs2ka5fXjeivQ4LroWlx-6zUTjnTLgNs.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;</script>
+<script type="module" src="/@vite/client"></script>
+</head>
+<body>
+
+    <div id="root"><div class="app-root" style="background: var(--c-bg); color: var(--c-ink); font-family: var(--font-jp); padding: calc(16px + env(safe-area-inset-top)) var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left); box-sizing: border-box;"><style>
+        /* 【F-43・2026-08-04】webfontの@importをここから撤去した。
+           - JetBrains Mono: 参照0件の死蔵だった(P2-1)
+           - Noto Sans JP: 本番のiPhoneでは --font-jp 先頭のヒラギノが必ず当たり1グリフも使われない
+           - Space Grotesk: 本人選定により数字・英字はシステムフォント(SF Pro)+tabular-numsへ移行
+           - Instrument Serif(音名の主役書体・本人選定で継続): JSバンドル評価後に読み込みが始まる
+             @import だと初回表示で音名がFOUTするため、index.html の preconnect+link に移した。
+           ここに@importを書き戻さないこと。 */
+        * { box-sizing: border-box; }
+        .sans { font-family: var(--font-jp); }
+        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
+        input[type=range] { accent-color: #174585; }
+        /* 地・枠・角丸は index.css の入力欄の規則(--c-sunk / --c-line-strong / --r-xs)が持つ。
+           ここは select 固有の詰めと書体だけ(色を二重管理すると必ず片方が腐る)。 */
+        select { padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
+        /* (【D-2 2026/08/22】ピボットの軸セレクタ select.pivot-axis-select はここにあったが、
+           正典 #13a の3カラムカードで**共有部品 PlainSelect(素のテキスト + ▾)へ寄せた**ので
+           使い手が1つも無くなった。読み手ゼロの規則を残さない。) */
+      </style><div role="dialog" aria-modal="true" aria-label="エラー" style="position: fixed; inset: 0px; z-index: 60; background: rgba(15, 23, 42, 0.28); display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-top: ; padding-right: ; padding-bottom: calc(var(--page-bottom-gap) + var(--sp-4)); padding-left: ;"><div style="width: 100%; max-width: 900px; background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: rgba(15, 23, 42, 0.18) 0px 8px 24px;"><div class="sans" style="font-size: var(--fs-md); font-weight: 700; color: var(--c-danger);">マイクにアクセスできませんでした</div></div></div><div class="surf-rule"><div style="max-width: 900px; margin: 0px auto;"><div style="position: relative; display: flex; flex-direction: column; min-height: 891px;"><div style="flex-shrink: 0;"><div class="tap-through" style="position: relative; z-index: 1; opacity: 1; display: flex; align-items: center; gap: 8px; margin-bottom: var(--sp-1);"><div style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column; gap: 2px;"><div class="sans" style="font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto;"><label for="measure-performer-select" style="pointer-events: auto; position: relative; display: inline-flex; align-items: center; height: 28px; flex-shrink: 0; cursor: pointer;"><span style="color: var(--c-ink); white-space: nowrap; min-width: 0px; overflow: hidden; text-overflow: ellipsis;">自分</span><span aria-hidden="true" style="font-size: 10px; color: var(--c-ink-3); margin-left: var(--sp-1); flex-shrink: 0; line-height: 1;">▾</span><select id="measure-performer-select" style="pointer-events: auto; position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; padding: 0px; color: transparent; background: none; appearance: none; cursor: pointer;"><option value="自分">自分</option><option value="__add__">＋ 名前を入力...</option></select></label><button style="background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; color: rgb(141, 149, 161); cursor: pointer; padding: 4px; font-size: 12px;">A.Sax<span aria-hidden="true" style="font-size: 10px; color: var(--c-ink-3); margin-left: var(--sp-1); flex-shrink: 0; line-height: 1;">▾</span></button><span style="color: rgb(141, 149, 161);">·</span><button style="background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; color: rgb(141, 149, 161); cursor: pointer; padding: 4px; font-size: 12px;">442Hz<span aria-hidden="true" style="font-size: 10px; color: var(--c-ink-3); margin-left: var(--sp-1); flex-shrink: 0; line-height: 1;">▾</span></button></div><div class="sans" style="font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto;"><label for="measure-reed-box" style="pointer-events: auto; display: flex; align-items: center; gap: 0px; padding: 2px 4px 2px 10px; flex-shrink: 0; cursor: pointer;"><span style="width: 6px; height: 6px; border-radius: 50%; background: rgb(195, 202, 211); flex-shrink: 0; margin-right: 2px;"></span><span style="position: relative; display: inline-flex; align-items: center; height: 26px; max-width: 110px; overflow: hidden;"><span style="color: rgb(67, 82, 102); font-weight: 400; white-space: nowrap; min-width: 0px; overflow: hidden; text-overflow: ellipsis;">リードを選択</span><select id="measure-reed-box" style="pointer-events: auto; position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; padding: 0px; color: transparent; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; appearance: none; cursor: pointer;"><option value="">リードを選択</option></select></span><span style="position: relative; display: inline-flex; align-items: center; height: 26px; max-width: 60px; margin-left: var(--sp-1); overflow: hidden;"><span style="color: rgb(195, 202, 211); white-space: nowrap; min-width: 0px; overflow: hidden; text-overflow: ellipsis;">—</span><select disabled="" style="pointer-events: auto; position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; padding: 0px; color: transparent; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; appearance: none; cursor: default;"><option value="">—</option></select></span><span aria-hidden="true" style="font-size: 10px; color: var(--c-ink-3); margin-left: var(--sp-1); flex-shrink: 0; line-height: 1;">▾</span></label></div></div><button aria-label="メトロノーム" aria-pressed="false" style="display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: 56px; cursor: pointer; flex-shrink: 0; background: transparent; border: 1px solid transparent; padding: 0px;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3 L14.5 3 L19 21 L5 21 Z"></path><line x1="12" y1="17.5" x2="16.2" y2="7.5"></line><circle cx="16.6" cy="6.5" r="1.4" fill="#8D95A1" stroke="none"></circle></svg></button></div><div class="sans" style="font-size: 12px; color: rgb(141, 149, 161); margin-bottom: var(--sp-1);">「リード」タブでリードを登録できます</div></div><div style="position: relative; flex-shrink: 0;"><div style="flex-shrink: 0;"><div style="width: 100%; max-width: 330px; margin: 0px auto; position: relative; pointer-events: none;"><svg viewBox="0 0 300 300" aria-hidden="true" style="display: block; width: 100%; height: auto; overflow: visible; pointer-events: none;"><defs><linearGradient id="ring-bar-r1" gradientUnits="userSpaceOnUse" x1="150.00" y1="14.00" x2="150.00" y2="14.00"><stop offset="0.00000" stop-color="var(--c-good)"></stop><stop offset="0.03448" stop-color="var(--c-good)"></stop><stop offset="0.06897" stop-color="var(--c-good)"></stop><stop offset="0.10345" stop-color="var(--c-good)"></stop><stop offset="0.13793" stop-color="var(--c-good)"></stop><stop offset="0.17241" stop-color="var(--c-good)"></stop><stop offset="0.20690" stop-color="var(--c-good)"></stop><stop offset="0.24138" stop-color="var(--c-good)"></stop><stop offset="0.27586" stop-color="var(--c-good)"></stop><stop offset="0.31034" stop-color="var(--c-good)"></stop><stop offset="0.34483" stop-color="var(--c-good)"></stop><stop offset="0.37931" stop-color="var(--c-good)"></stop><stop offset="0.41379" stop-color="var(--c-good)"></stop><stop offset="0.44828" stop-color="var(--c-good)"></stop><stop offset="0.48276" stop-color="var(--c-good)"></stop><stop offset="0.51724" stop-color="var(--c-good)"></stop><stop offset="0.55172" stop-color="var(--c-good)"></stop><stop offset="0.58621" stop-color="var(--c-good)"></stop><stop offset="0.62069" stop-color="var(--c-good)"></stop><stop offset="0.65517" stop-color="var(--c-good)"></stop><stop offset="0.68966" stop-color="var(--c-good)"></stop><stop offset="0.72414" stop-color="var(--c-good)"></stop><stop offset="0.75862" stop-color="var(--c-good)"></stop><stop offset="0.79310" stop-color="var(--c-good)"></stop><stop offset="0.82759" stop-color="var(--c-good)"></stop><stop offset="0.86207" stop-color="var(--c-good)"></stop><stop offset="0.89655" stop-color="var(--c-good)"></stop><stop offset="0.93103" stop-color="var(--c-good)"></stop><stop offset="0.96552" stop-color="var(--c-good)"></stop><stop offset="1.00000" stop-color="var(--c-good)"></stop></linearGradient><linearGradient id="ring-run-l-r1" gradientUnits="userSpaceOnUse" x1="150.00" y1="14.00" x2="150.00" y2="14.00"><stop offset="0.00000" stop-color="var(--c-good)"></stop><stop offset="0.03448" stop-color="var(--c-good)"></stop><stop offset="0.06897" stop-color="var(--c-good)"></stop><stop offset="0.10345" stop-color="var(--c-good)"></stop><stop offset="0.13793" stop-color="var(--c-good)"></stop><stop offset="0.17241" stop-color="var(--c-good)"></stop><stop offset="0.20690" stop-color="var(--c-good)"></stop><stop offset="0.24138" stop-color="var(--c-good)"></stop><stop offset="0.27586" stop-color="var(--c-good)"></stop><stop offset="0.31034" stop-color="var(--c-good)"></stop><stop offset="0.34483" stop-color="var(--c-good)"></stop><stop offset="0.37931" stop-color="var(--c-good)"></stop><stop offset="0.41379" stop-color="var(--c-good)"></stop><stop offset="0.44828" stop-color="var(--c-good)"></stop><stop offset="0.48276" stop-color="var(--c-good)"></stop><stop offset="0.51724" stop-color="var(--c-good)"></stop><stop offset="0.55172" stop-color="var(--c-good)"></stop><stop offset="0.58621" stop-color="var(--c-good)"></stop><stop offset="0.62069" stop-color="var(--c-good)"></stop><stop offset="0.65517" stop-color="var(--c-good)"></stop><stop offset="0.68966" stop-color="var(--c-good)"></stop><stop offset="0.72414" stop-color="var(--c-good)"></stop><stop offset="0.75862" stop-color="var(--c-good)"></stop><stop offset="0.79310" stop-color="var(--c-good)"></stop><stop offset="0.82759" stop-color="var(--c-good)"></stop><stop offset="0.86207" stop-color="var(--c-good)"></stop><stop offset="0.89655" stop-color="var(--c-good)"></stop><stop offset="0.93103" stop-color="var(--c-good)"></stop><stop offset="0.96552" stop-color="var(--c-good)"></stop><stop offset="1.00000" stop-color="var(--c-good)"></stop></linearGradient><linearGradient id="ring-run-r-r1" gradientUnits="userSpaceOnUse" x1="150.00" y1="14.00" x2="150.00" y2="14.00"><stop offset="0.00000" stop-color="var(--c-good)"></stop><stop offset="0.03448" stop-color="var(--c-good)"></stop><stop offset="0.06897" stop-color="var(--c-good)"></stop><stop offset="0.10345" stop-color="var(--c-good)"></stop><stop offset="0.13793" stop-color="var(--c-good)"></stop><stop offset="0.17241" stop-color="var(--c-good)"></stop><stop offset="0.20690" stop-color="var(--c-good)"></stop><stop offset="0.24138" stop-color="var(--c-good)"></stop><stop offset="0.27586" stop-color="var(--c-good)"></stop><stop offset="0.31034" stop-color="var(--c-good)"></stop><stop offset="0.34483" stop-color="var(--c-good)"></stop><stop offset="0.37931" stop-color="var(--c-good)"></stop><stop offset="0.41379" stop-color="var(--c-good)"></stop><stop offset="0.44828" stop-color="var(--c-good)"></stop><stop offset="0.48276" stop-color="var(--c-good)"></stop><stop offset="0.51724" stop-color="var(--c-good)"></stop><stop offset="0.55172" stop-color="var(--c-good)"></stop><stop offset="0.58621" stop-color="var(--c-good)"></stop><stop offset="0.62069" stop-color="var(--c-good)"></stop><stop offset="0.65517" stop-color="var(--c-good)"></stop><stop offset="0.68966" stop-color="var(--c-good)"></stop><stop offset="0.72414" stop-color="var(--c-good)"></stop><stop offset="0.75862" stop-color="var(--c-good)"></stop><stop offset="0.79310" stop-color="var(--c-good)"></stop><stop offset="0.82759" stop-color="var(--c-good)"></stop><stop offset="0.86207" stop-color="var(--c-good)"></stop><stop offset="0.89655" stop-color="var(--c-good)"></stop><stop offset="0.93103" stop-color="var(--c-good)"></stop><stop offset="0.96552" stop-color="var(--c-good)"></stop><stop offset="1.00000" stop-color="var(--c-good)"></stop></linearGradient><radialGradient id="ring-glow-r1" gradientUnits="userSpaceOnUse" cx="150" cy="150" r="190" color="var(--c-good)"><stop offset="0.6789" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.6862" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.6935" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.7008" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.7081" stop-color="currentColor" stop-opacity="0.0339"></stop><stop offset="0.7154" stop-color="currentColor" stop-opacity="0.1253"></stop><stop offset="0.7227" stop-color="currentColor" stop-opacity="0.2517"></stop><stop offset="0.7300" stop-color="currentColor" stop-opacity="0.3908"></stop><stop offset="0.7373" stop-color="currentColor" stop-opacity="0.5201"></stop><stop offset="0.7446" stop-color="currentColor" stop-opacity="0.6171"></stop><stop offset="0.7519" stop-color="currentColor" stop-opacity="0.6596"></stop><stop offset="0.7592" stop-color="currentColor" stop-opacity="0.5718"></stop><stop offset="0.7665" stop-color="currentColor" stop-opacity="0.4852"></stop><stop offset="0.7738" stop-color="currentColor" stop-opacity="0.4095"></stop><stop offset="0.7811" stop-color="currentColor" stop-opacity="0.3440"></stop><stop offset="0.7884" stop-color="currentColor" stop-opacity="0.2874"></stop><stop offset="0.7957" stop-color="currentColor" stop-opacity="0.2389"></stop><stop offset="0.8030" stop-color="currentColor" stop-opacity="0.1975"></stop><stop offset="0.8103" stop-color="currentColor" stop-opacity="0.1624"></stop><stop offset="0.8176" stop-color="currentColor" stop-opacity="0.1328"></stop><stop offset="0.8249" stop-color="currentColor" stop-opacity="0.1080"></stop><stop offset="0.8322" stop-color="currentColor" stop-opacity="0.0873"></stop><stop offset="0.8395" stop-color="currentColor" stop-opacity="0.0701"></stop><stop offset="0.8468" stop-color="currentColor" stop-opacity="0.0559"></stop><stop offset="0.8541" stop-color="currentColor" stop-opacity="0.0443"></stop><stop offset="0.8614" stop-color="currentColor" stop-opacity="0.0348"></stop><stop offset="0.8687" stop-color="currentColor" stop-opacity="0.0272"></stop><stop offset="0.8760" stop-color="currentColor" stop-opacity="0.0210"></stop><stop offset="0.8833" stop-color="currentColor" stop-opacity="0.0161"></stop><stop offset="0.8906" stop-color="currentColor" stop-opacity="0.0123"></stop><stop offset="0.8978" stop-color="currentColor" stop-opacity="0.0092"></stop><stop offset="0.9051" stop-color="currentColor" stop-opacity="0.0068"></stop><stop offset="0.9124" stop-color="currentColor" stop-opacity="0.0050"></stop><stop offset="0.9197" stop-color="currentColor" stop-opacity="0.0036"></stop><stop offset="0.9270" stop-color="currentColor" stop-opacity="0.0025"></stop><stop offset="0.9343" stop-color="currentColor" stop-opacity="0.0017"></stop><stop offset="0.9416" stop-color="currentColor" stop-opacity="0.0011"></stop><stop offset="0.9489" stop-color="currentColor" stop-opacity="0.0007"></stop><stop offset="0.9562" stop-color="currentColor" stop-opacity="0.0004"></stop><stop offset="0.9635" stop-color="currentColor" stop-opacity="0.0002"></stop><stop offset="0.9708" stop-color="currentColor" stop-opacity="0.0001"></stop><stop offset="0.9781" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.9854" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="0.9927" stop-color="currentColor" stop-opacity="0.0000"></stop><stop offset="1.0000" stop-color="currentColor" stop-opacity="0.0000"></stop></radialGradient></defs><g opacity="0.000000"><g><rect x="-80" y="-80" width="460" height="460" fill="url(#ring-glow-r1)"></rect></g></g><path d="" fill="none" stroke="url(#ring-run-l-r1)" stroke-width="14" stroke-linecap="butt"></path><path d="" fill="none" stroke="url(#ring-run-r-r1)" stroke-width="14" stroke-linecap="butt"></path><path d="" fill="none" stroke="url(#ring-bar-r1)" stroke-width="14" stroke-linecap="butt"></path></svg><div style="position: absolute; inset: 0px; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;"><div style="display: flex; align-items: baseline; justify-content: center; width: 100%; height: 148px; line-height: 1; font-family: var(--font-serif); color: var(--c-disabled);"><span style="font-size: 148px; display: inline-block; transform: scaleX(1.3); transform-origin: center bottom; margin: 0px 0.06855em;"></span><span style="font-size: 44px; color: var(--c-accent-dim); margin-left: 3px;"></span></div><div class="sans" style="margin-top: 10px; width: 100%; height: 25px; text-align: center; font-family: var(--font-num); font-size: 21px; font-weight: 700; letter-spacing: 0.02em; color: var(--c-ink-3);"></div></div></div></div><div style="display: flex; flex-direction: column;"><div style="margin-top: 6px;"><div style="padding: 10px 0px 0px; opacity: 0.72;"><div style="display: flex;"><div style="position: relative; flex: 1 1 0%; min-width: 0px;"><svg width="100%" height="84" viewBox="0 0 600 84" preserveAspectRatio="none" style="display: block;"><line x1="0" y1="42" x2="600" y2="42" stroke="#DDE2E8" stroke-width="1"></line></svg></div></div></div></div></div></div><div style="flex: 1 1 auto; min-height: 0px;"></div><div class="tap-through" style="position: relative; z-index: 1; flex-shrink: 0;"><div style="display: flex; justify-content: center; padding: 12px 0px 4px;"><button aria-label="録音する" aria-pressed="false" class="sans" style="width: 68px; height: 68px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--c-surface); border: 4px solid var(--c-line-strong); padding: 0px; cursor: pointer;"><span style="width: 54px; height: 54px; border-radius: 27px; background: var(--c-danger); display: inline-block;"></span></button></div><div class="sans" style="height: 19px; margin-top: var(--sp-1); display: flex; align-items: center; justify-content: center; gap: 6px; font-family: var(--font-num); font-size: 12px; color: var(--c-ink-3);"></div><div style="display: flex; justify-content: center; margin-top: 10px;"><button aria-label="詳細を見る" aria-expanded="false" style="width: 200px; max-width: 72%; padding: 9px 0px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent;"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down "><path d="m6 9 6 6 6-6"></path></svg></button></div></div></div></div></div><div style="position: fixed; bottom: 0px; left: 0px; right: 0px; z-index: 30; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(12px); border-top: 1px solid rgb(236, 238, 241); padding-bottom: env(safe-area-inset-bottom); opacity: 1;"><div style="max-width: 480px; margin: 0px auto; height: 46px; display: flex; padding: 6px 20px 8px;"><button aria-label="計測" class="sans" style="flex: 1 1 0%; display: flex; align-items: center; justify-content: center; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; cursor: pointer; color: rgb(23, 69, 133);"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#174585" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 15 A8 8 0 0 1 20 15"></path><line x1="12" y1="15" x2="15" y2="9"></line><circle cx="12" cy="15" r="1.4" fill="#174585" stroke="none"></circle></svg></button><button aria-label="リード" class="sans" style="flex: 1 1 0%; display: flex; align-items: center; justify-content: center; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; cursor: pointer; color: rgb(141, 149, 161);"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z"></path><line x1="9" y1="14" x2="15" y2="14"></line></svg></button><button aria-label="データ" class="sans" style="flex: 1 1 0%; display: flex; align-items: center; justify-content: center; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; cursor: pointer; color: rgb(141, 149, 161);"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round"><line x1="7" y1="20" x2="7" y2="13"></line><line x1="12" y1="20" x2="12" y2="7"></line><line x1="17" y1="20" x2="17" y2="11"></line></svg></button><button aria-label="コミュニティ" class="sans" style="flex: 1 1 0%; display: flex; align-items: center; justify-content: center; background: none; border-width: medium; border-style: none; border-color: currentcolor; border-image: none; cursor: pointer; color: rgb(141, 149, 161);"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8D95A1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20"></path><circle cx="17" cy="9" r="2.4"></circle><path d="M15.5 13.6 Q20.5 13.6 20.5 18"></path></svg></button></div></div></div></div>
+    <script type="module" src="/src/main.jsx?t=1788672859271"></script>
+  
+
+
+</body>
+</html>
