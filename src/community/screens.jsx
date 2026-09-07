@@ -519,6 +519,19 @@ export function ShareScreen({ users, saxTypes }) {
     () => (drill ? tallyGearModels(shown, saxType, slot, drill) : null),
     [shown, saxType, slot, drill]);
   const combos = useMemo(() => tallyCombos(shown, saxType, depth), [shown, saxType, depth]);
+  // 【出す5件だけ、型番で書けるかを確かめてから決める】
+  // 型番だけの綴りは短いが、別のメーカーが同じ型番を使っていると**見た目が同じで
+  // 人数だけ違う行**ができる。5件の中で綴りがぶつかったら、その場合だけ
+  // メーカー名を含む元の綴りへ戻す(切れるが、嘘にはならない)。
+  const shownCombos = useMemo(() => {
+    const top = combos.combos.slice(0, 5);
+    const short = top.map((c) => (c.labels ?? c.parts).map(gearLabelOf));
+    const collides = new Set(short.map((l) => l.join(" / "))).size < short.length;
+    return top.map((c, i) => ({
+      combo: c,
+      labels: collides ? c.parts.map(gearLabelOf) : short[i],
+    }));
+  }, [combos]);
   const items = models ? models.items : (gear.slots[slot] ?? []);
   // 2段目の母数は「そのメーカーを選んでいる人」。円と n が同じ母数を指す。
   const shownTotal = models ? models.total : gear.total;
@@ -604,15 +617,25 @@ export function ShareScreen({ users, saxTypes }) {
               <Empty>4つすべてを登録している人がまだいません</Empty>
             ) : (
               <div>
-                {combos.combos.slice(0, 5).map((c, i) => {
+                {shownCombos.map(({ combo: c, labels }, i) => {
                   const pct = Math.round(c.ratio * 100);
                   return (
                     <div key={c.key} style={{ padding: "7px 0" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--sp-2)" }}>
+                        {/* 【区切りは記号ではなく余白】中黒も「/」も使わない(§6.0 囲いの序列
+                            「1. 余白で分ける」。WhoLine と同じ作法)。あふれたときに
+                            省略記号になるのは**最後の1つだけ**で、手前の項目は削られない。
+                            改行はしない ── 1件1行という形が崩れると5件の比較ができなくなる。 */}
                         <span className="sans" style={{
-                          fontSize: "var(--fs-sm)", color: "var(--c-ink)", minWidth: 0,
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        }}>{c.parts.map(gearLabelOf).join(" / ")}</span>
+                          display: "flex", gap: 9, minWidth: 0, overflow: "hidden",
+                          fontSize: "var(--fs-sm)", color: "var(--c-ink)",
+                        }}>
+                          {labels.map((t, j) => (
+                            <span key={j} style={j === labels.length - 1
+                              ? { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+                              : { flex: "none", whiteSpace: "nowrap" }}>{t}</span>
+                          ))}
+                        </span>
                         <span className="sans" style={{ ...noteStyle, flex: "none", fontFamily: "var(--font-num)" }}>{c.count}人</span>
                       </div>
                       <div style={{ height: 6, borderRadius: "var(--r-pill)", background: "var(--c-sunken)", marginTop: 5, overflow: "hidden" }}>

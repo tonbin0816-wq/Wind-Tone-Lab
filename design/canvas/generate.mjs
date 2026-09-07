@@ -6,9 +6,7 @@ const OUT = fileURLToPath(new URL("./", import.meta.url));
 // 【D-9 2026/08/25】Main / Windows は**本人がキャンバス上で直接いじった**ものが正になった。
 // 既定では上書きしない。D-8 当時の写しを作り直したいときだけ --regen-baseline を付ける。
 const REGEN_BASELINE = process.argv.includes("--regen-baseline");
-// 【A1 も 2026/09/07 に加えた】公開中のキャンバスから取り出したら、本人の手直しが
-// 入っていた(実測: 本文が 9.3K → 7.7K)。生成し直すとその手直しが消える。
-const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html", "A1.dc.html"].includes(name);
+const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html"].includes(name);
 // 【D-9】この下の Main / Windows は D-8 当時の写し。ファイルの末尾で D-9 版が上書きする。
 
 // ---- src/App.jsx から写した定数 ----------------------------------------
@@ -1341,7 +1339,7 @@ const aSel = (label, value) => `<div style="min-width: 0">
       </div>
       ${sGap}
       ${sCard(aChart())}`;
-  if (guard("A1.dc.html")) writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+  writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
       ${aSubTab}
       <div style="padding-top: 8px">${inner}</div>
       <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行を <b>30px</b> に詰める / 「編集」を 10px。<br>【<b>2026/08/26 本人裁定・D-10c</b>】軸の行は「ラベル 値 ▾」の1行をやめ、<b>ラベルを値の上に積む</b>形へ戻した。器は<b>3カラムの等幅グリッド</b>(gap 8px / 各セル min-width: 0)で、行は <b>44px</b>(--tap-min)。<br><b>狙い</b>: 値に列の幅をまるごと使わせて、長い選択肢を見分けられるようにする。幅の下限(min-width)で解こうとした案は<b>撤回</b> ── CSS の min-width は無条件の床なので、自然幅が下限に満たないアイテムを押し広げ、<b>幅が余っていた組にまで不足を作る</b>(1文字も切れない組が 18/30 → 4/30)。<br><b>代償と見返り</b>: 行が 30 → 44px(+14px)。そのかわり §5(44pt)を割る例外は<b>条件チップの行の1つだけ</b>になる。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>

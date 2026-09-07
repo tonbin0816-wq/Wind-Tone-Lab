@@ -85,6 +85,27 @@ export function gearKey(brand, model, extra) {
 }
 
 /**
+ * **画面に出す綴り。数えるための鍵(gearKey)とは別物。**
+ *
+ * 型番があれば型番だけを返す。メーカー名を繰り返さない理由は2つ:
+ * ・どの枠が何かは、すぐ上で選んでいる「楽器 × マウスピース × リード」が既に言っている
+ *   (同じことを2度言わない。§6.0)
+ * ・375px に鍵の綴りは入らない。2026/09/07 の実測で、人気の組み合わせは
+ *   **5行すべてが切れて**いた(使える幅 285px に対し 410〜461px 必要)。
+ *   メーカー名を落とすと 2項目・3項目は収まる(4項目だけは 370px で最後が省略記号)。
+ *
+ * 型番を持たないもの(メーカーだけ登録・「その他」・未選択)は今までどおりの綴り。
+ * 番手は型番の一部として残す ── 番手を含めて別の票にしているので、消すと
+ * 「同じ名前で人数の違う行」ができる。
+ */
+export function gearDisplay(brand, model, extra) {
+  if (brand === null || brand === undefined) return UNSET;
+  if (brand === OTHER_BRAND) return OTHER_BRAND;
+  const base = model || brand;
+  return extra ? `${base} ${extra}` : base;
+}
+
+/**
  * 選んだ楽器種別について、楽器の組の内訳を数える。
  * @returns { [slot]: [{ key, count, ratio }] } count の多い順
  */
@@ -224,9 +245,15 @@ export function tallyCombos(users, saxType, depth) {
     // 【1つでも未選択なら組み合わせに数えない】未選択を含む組は
     // 「その組み合わせを使っている人」を表さない。人気の組み合わせとしては嘘になる。
     if (parts.includes(UNSET)) continue;
+    // 画面に出す綴り。**数えるのは parts のまま** ── labels で数えると、
+    // 別のメーカーが同じ型番を使っていたときに票が1つに混ざる。
+    const labels = slots.map((slot) => {
+      const [bKey, mKey, xKey] = SLOTS[slot];
+      return gearDisplay(g[bKey], g[mKey], xKey ? g[xKey] : undefined);
+    });
     total++;
     const key = parts.join(" / ");
-    const cur = counter.get(key) ?? { key, parts, count: 0 };
+    const cur = counter.get(key) ?? { key, parts, labels, count: 0 };
     cur.count++;
     counter.set(key, cur);
   }

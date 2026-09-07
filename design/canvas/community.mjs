@@ -693,6 +693,84 @@ ${combos.map((c, i) => `          <div style="padding: 7px 0">
       </div>`);
 }
 
+// =========================================================================
+// 順位カードに色を入れる案(2026/09/08 本人の問い「カードに色つけたりするのはあかんすか？」)
+//
+// 禁じているのは DESIGN-SYSTEM §1.5a の厳守事項:
+//   「使ってよいのは**アイコンの環の線と、順位の数字の文字色**の2つだけ。面を塗らない」
+//   「金属質の光沢・グラデーションは使わない。単色で足りる」
+// これは 2026/08/28 に本人が決めた規則なので、本人が変えられる。
+// ぶつかる先は2つ:
+//   ・§1.4 色の付いた面は「押せる/選ばれている」の合図。順位カードは全部押せるので、
+//     1位だけ塗ると「1位が選択中」に読める
+//   ・§6.6 面の作法。地は白で、浮きは影だけが担う。色地を足すと面の意味が2種類になる
+// どちらも「淡い地」なら回避できる可能性があるので、2案を実寸で出す。
+// =========================================================================
+
+// 案A: カードの地を順位の色の淡い段にする。文字は --c-ink に戻すので、
+// 現状の弱点(1位 2.59:1 / 2位 2.47:1)は**色を濃くしなくても消える**。
+// 淡い段は各色を白に 12% 混ぜた値。新しい色相は増えていない。
+const RANK_TINT = ["#F8F3E8", "#F3F4F6", "#F5EEE8"];
+
+function rankRowTint(p, rank) {
+  const c = RANK_COLOR[rank - 1];
+  const first = rank === 1;
+  const av = first ? 56 : 44;
+  return `<div style="display: flex; align-items: center; gap: var(--sp-3); background: ${RANK_TINT[rank - 1]}; border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)">
+            <div style="flex: 0 0 34px; text-align: center; font-weight: 700; letter-spacing: -.02em; ${NUM}; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; line-height: 1; color: var(--c-ink)">${rank}</div>
+            <span style="position: relative; display: inline-flex; flex: none; border-radius: 50%; box-shadow: 0 0 0 3px ${c}; margin: 3px">${avatar(p.icon, p.color, av)}</span>
+            <div style="flex: 1 1 0; min-width: 0">
+              ${nameLine(p.nick, p.mine, first ? "var(--fs-lg)" : "var(--fs-md)")}
+              ${whoLine(p.who)}
+            </div>
+            <div style="flex: 0 0 auto; font-weight: 700; ${NUM}; letter-spacing: -.02em; line-height: 1; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; color: var(--c-ink)">${p.days}<span style="font-family: var(--font-jp); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
+          </div>`;
+}
+
+// 案B: 地は白のまま、**左端に 4px の帯**だけ順位の色にする。
+// §6.6(地は白・浮きは影)を割らずに済む。数字は --c-ink。
+function rankRowEdge(p, rank) {
+  const c = RANK_COLOR[rank - 1];
+  const first = rank === 1;
+  const av = first ? 56 : 44;
+  return `<div style="display: flex; align-items: stretch; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); overflow: hidden">
+            <span style="flex: 0 0 4px; background: ${c}"></span>
+            <div style="flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4)">
+              <div style="flex: 0 0 34px; text-align: center; font-weight: 700; letter-spacing: -.02em; ${NUM}; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; line-height: 1; color: var(--c-ink)">${rank}</div>
+              <span style="position: relative; display: inline-flex; flex: none; border-radius: 50%; box-shadow: 0 0 0 3px ${c}; margin: 3px">${avatar(p.icon, p.color, av)}</span>
+              <div style="flex: 1 1 0; min-width: 0">
+                ${nameLine(p.nick, p.mine, first ? "var(--fs-lg)" : "var(--fs-md)")}
+                ${whoLine(p.who)}
+              </div>
+              <div style="flex: 0 0 auto; font-weight: 700; ${NUM}; letter-spacing: -.02em; line-height: 1; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; color: var(--c-ink)">${p.days}<span style="font-family: var(--font-jp); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
+            </div>
+          </div>`;
+}
+
+function rankScreenWith(rowFn) {
+  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rowFn(p, i + 1)}`);
+  const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
+  const chips = ["今週", "今月", "今年", "すべて"].map((t) => chip(t, t === "すべて"));
+  return screen("rank", `${filterRow(null, null, null)}
+
+      <div style="display: flex; gap: var(--sp-1)">
+${chips.join("\n")}
+      </div>
+
+      <div style="${BODY_NOTE}; display: flex; gap: 9px"><span>練習日数</span><span>すべて</span></div>
+
+      <div style="display: grid; gap: var(--sp-3)">
+${top.join("\n")}
+      </div>
+
+      <div style="${CARD_LIST}">
+${rest.join("\n")}
+      </div>`);
+}
+
+const buildRankTint = () => rankScreenWith(rankRowTint);
+const buildRankEdge = () => rankScreenWith(rankRowEdge);
+
 // ---- 書き出し -----------------------------------------------------------
 const FILES = [
   ["CommData.dc.html", buildData, "データ"],
@@ -704,6 +782,8 @@ const FILES = [
   ["CommDataB.dc.html", buildDataB, "改善案 データ(線に名前)"],
   ["CommRankB.dc.html", buildRankB, "改善案 順位(上位3位)"],
   ["CommShareB.dc.html", buildShareB, "改善案 シェア(型番だけ)"],
+  ["CommRankTint.dc.html", buildRankTint, "順位案A 淡い地"],
+  ["CommRankEdge.dc.html", buildRankEdge, "順位案B 左の帯"],
 ];
 
 for (const [name, build, label] of FILES) {

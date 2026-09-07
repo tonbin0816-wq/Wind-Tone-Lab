@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rankByPractice, findMyRank, tallyGear, tallyCombos, gearKey, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
+import { rankByPractice, findMyRank, tallyGear, tallyCombos, gearKey, gearDisplay, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
 import { filterUsers, isFiltered, ANY } from "./directory.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
@@ -280,5 +280,44 @@ describe("tallyCombos", () => {
   });
   it("知らない段数では空を返す", () => {
     expect(tallyCombos([person("a")], "alto", 5)).toEqual({ total: 0, combos: [] });
+  });
+
+  // 【画面に出す綴りは型番だけ】375px に鍵の綴りが入らないため(2026/09/07 本人採用)。
+  // **数えるのは今までどおり parts** ── labels で数えると、別のメーカーが
+  // 同じ型番を使っていたときに票が1つに混ざる。
+  it("labels は型番だけを持ち、parts は鍵のまま", () => {
+    const r = tallyCombos([person("a", { gear: { alto: g() } })], "alto", 3);
+    expect(r.combos[0].labels).toEqual(["YAS-62", "S80 C*", "Traditional"]);
+    expect(r.combos[0].parts).toEqual(["YAMAHA YAS-62", "Selmer S80 C*", "Vandoren Traditional"]);
+  });
+  it("リードの番手は型番に残る", () => {
+    const r = tallyCombos([person("a", { gear: { alto: g({ reedStrength: "3.0" }) } })], "alto", 2);
+    expect(r.combos[0].labels).toEqual(["S80 C*", "Traditional 3.0"]);
+  });
+  it("型番を持たないものはメーカー名のまま", () => {
+    const r = tallyCombos([person("a", { gear: { alto: g({ ligBrand: "BG", ligModel: null }) } })], "alto", 4);
+    expect(r.combos[0].labels[2]).toBe("BG");
+  });
+  it("型番が同じでもメーカーが違えば別の票になる", () => {
+    // 綴りは同じ "4C" でも、数えるのは "YAMAHA 4C" と "Selmer 4C" の2票
+    const r = tallyCombos([
+      person("a", { gear: { alto: g({ mpBrand: "YAMAHA", mpModel: "4C" }) } }),
+      person("b", { gear: { alto: g({ mpBrand: "Selmer", mpModel: "4C" }) } }),
+    ], "alto", 2);
+    expect(r.combos.map((c) => c.count)).toEqual([1, 1]);
+    expect(r.combos.map((c) => c.labels[0])).toEqual(["4C", "4C"]);
+  });
+});
+
+describe("gearDisplay", () => {
+  it("型番があれば型番だけ・無ければメーカー名", () => {
+    expect(gearDisplay("YAMAHA", "YAS-62")).toBe("YAS-62");
+    expect(gearDisplay("BG", null)).toBe("BG");
+    expect(gearDisplay("Vandoren", "Traditional", "3.0")).toBe("Traditional 3.0");
+  });
+  it("未選択と「その他」は印のまま返す(画面側が綴りに直す)", () => {
+    expect(gearDisplay(null, null)).toBe(UNSET);
+    expect(gearDisplay(undefined, "何か")).toBe(UNSET);
+    expect(gearDisplay(OTHER_BRAND, "何か", "3.0")).toBe(OTHER_BRAND);
   });
 });
