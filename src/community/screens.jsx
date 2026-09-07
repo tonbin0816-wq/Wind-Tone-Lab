@@ -441,7 +441,10 @@ function PieChart({ items, label, onPick }) {
 // 【凡例も同じタップ先を持つ】円の区画は割合が小さいと細くなり、44px を保証できない。
 // 凡例の行を当たり判定 44px にして、**箱ではなく中身を小さいまま**にする(§5 / Chip と同じ手)。
 // 行どうしの gap は 0 ── 44px と文字の高さの差がそのまま間隔になる。
-function PieLegend({ items, onPick }) {
+// showRest: 「ほか〇種類」を開いた状態。開くと4位以下も行として並び、
+// 押せるものは押せる ── 円は3区画までしか持てないので、**4位以下への入り口は
+// 凡例が担う。**色は増やさない(§1.7「色を足すのではなく表示を絞る」)。
+function PieLegend({ items, onPick, showRest = false, onToggleRest }) {
   const top = items.slice(0, 3);
   const rest = items.slice(3);
   const restRatio = rest.reduce((a, x) => a + x.ratio, 0);
@@ -469,10 +472,25 @@ function PieLegend({ items, onPick }) {
       <div key={text} style={rowStyle}>{inner(color, text, pct, muted)}</div>
     )
   );
+  // 「ほか〇種類」の行。開閉できるときはボタンにする。
+  const restRow = () => {
+    const label = showRest ? `ほか${rest.length}種類を閉じる` : `ほか${rest.length}種類`;
+    if (!onToggleRest) return row(PIE_REST, label, restRatio, true, null);
+    return (
+      <button key="rest" type="button" className="sans" onClick={onToggleRest}
+        aria-expanded={showRest} aria-label={showRest ? "ほかのメーカーを閉じる" : `ほか${rest.length}種類のメーカーを見る`}
+        style={{ ...rowStyle, width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer" }}>
+        {inner(PIE_REST, label, restRatio, true)}
+      </button>
+    );
+  };
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
       {top.map((x, i) => row(PIE_COLORS[i], gearLabelOf(x.key), x.ratio, false, x))}
-      {rest.length > 0 ? row(PIE_REST, `ほか${rest.length}種類`, restRatio, true, null) : null}
+      {rest.length > 0 ? restRow() : null}
+      {/* 開いた4位以下。円には区画が無いので、色は「その他」の沈めた面のまま。
+          ここが唯一の入り口なので、押せるものは押せるようにする。 */}
+      {showRest ? rest.map((x) => row(PIE_REST, gearLabelOf(x.key), x.ratio, true, x)) : null}
     </div>
   );
 }
@@ -489,6 +507,10 @@ export function ShareScreen({ users, saxTypes }) {
   // drill が null なら1段目。項目や条件が変わったら畳む ── 別の項目のメーカーの
   // 内訳を出したままにすると、何の内訳なのか言えなくなる。
   const [drill, setDrill] = useState(null);
+  // 【4位以下のメーカーへの入り口】円は3区画までしか持てない(§1.7 の系列は紺の3段。
+  // 4つ目に色を与えると必ずグレーか重複になる)。そこで色は増やさず、
+  // 凡例の「ほか〇種類」を押したら残りを行で並べる。全部のメーカーに手が届く。
+  const [showRest, setShowRest] = useState(false);
   const saxType = filter.saxType;
 
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
@@ -503,7 +525,7 @@ export function ShareScreen({ users, saxTypes }) {
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={filter} onChange={(v) => { setFilter(v); setDrill(null); }} saxAny={false} />
+      <FilterRow value={filter} onChange={(v) => { setFilter(v); setDrill(null); setShowRest(false); }} saxAny={false} />
 
       {gear.total === 0 ? (
         <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
@@ -513,14 +535,14 @@ export function ShareScreen({ users, saxTypes }) {
             {/* 【見出しを置かない】本人指示。何の内訳かは下のタブがそのまま言っている
                 (§6.0「説明を消して形に語らせる」) */}
             <UnderlineTabs
-              label="見る項目" value={slot} onChange={(k) => { setSlot(k); setDrill(null); }}
+              label="見る項目" value={slot} onChange={(k) => { setSlot(k); setDrill(null); setShowRest(false); }}
               items={GEAR_SLOTS.map((k) => ({ key: k, label: SLOT_LABEL[k] }))}
             />
             {/* 【2段目にいることを名乗り、1段目に戻る一手を必ず置く】
                 表記は人物紹介の戻ると同じ `< 行き先`。 */}
             {drill ? (
               <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", paddingTop: "var(--sp-2)" }}>
-                <button type="button" className="sans" onClick={() => setDrill(null)}
+                <button type="button" className="sans" onClick={() => { setDrill(null); setShowRest(false); }}
                         aria-label="メーカーの内訳に戻る"
                         style={{ flex: "none", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
                                  border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
@@ -538,7 +560,8 @@ export function ShareScreen({ users, saxTypes }) {
                 label={drill
                   ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}を使う${shownTotal}人の、型番の内訳`
                   : `${SAX_LABELS[saxType]} を吹く${shownTotal}人の、${SLOT_LABEL[slot]}のメーカーの内訳`} />
-              <PieLegend items={items} onPick={drill ? undefined : setDrill} />
+              <PieLegend items={items} onPick={drill ? undefined : setDrill}
+                showRest={showRest} onToggleRest={drill ? undefined : () => setShowRest((v) => !v)} />
             </div>
             <div className="sans" style={bodyNoteStyle}>
               n = <span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{shownTotal}</span>人
