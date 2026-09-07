@@ -1,11 +1,14 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { TOKENS, dcFile } from "./tokens.mjs";
 // このファイルの隣へ書き出す(前は Linux の絶対パスが埋まっていて、他の環境で動かなかった)。
 const OUT = fileURLToPath(new URL("./", import.meta.url));
 // 【D-9 2026/08/25】Main / Windows は**本人がキャンバス上で直接いじった**ものが正になった。
 // 既定では上書きしない。D-8 当時の写しを作り直したいときだけ --regen-baseline を付ける。
 const REGEN_BASELINE = process.argv.includes("--regen-baseline");
-const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html"].includes(name);
+// 【A1 も 2026/09/07 に加えた】公開中のキャンバスから取り出したら、本人の手直しが
+// 入っていた(実測: 本文が 9.3K → 7.7K)。生成し直すとその手直しが消える。
+const guard = (name) => REGEN_BASELINE || !["Main.dc.html", "Windows.dc.html", "A1.dc.html"].includes(name);
 // 【D-9】この下の Main / Windows は D-8 当時の写し。ファイルの末尾で D-9 版が上書きする。
 
 // ---- src/App.jsx から写した定数 ----------------------------------------
@@ -147,31 +150,8 @@ function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = t
 }
 
 // ---- 画面の骨格 ---------------------------------------------------------
-const TOKENS = `
-    :root {
-      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
-      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
-      --r-xs: 4px; --r-sm: 8px;
-      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
-      --tap-min: 44px;
-      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9;
-      --c-rule: #E1E6EC; --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1;
-      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
-      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-line: #B9C9E4;
-      --c-on-accent: #FFFFFF;
-      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
-      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
-      --c-quiet: #C7CFD9;
-      /* 【2026/08/26】モックの中で var() は書かれていたのに**未定義だった**4つを足した。
-         未定義のカスタムプロパティは transparent 扱いになるので、カレンダーの
-         薄い段(--c-accent-tint)が消えていた。値は src/index.css から写している。 */
-      --fs-2xl: 28px; --fs-hero: 46px;
-      --c-ink-4: #A6AEBA; --c-accent-tint: #EAEFF5; --c-danger: #DC2626;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
-    a { color: var(--c-accent); } a:hover { color: #123A70; }`;
+// トークンと .dc.html の外枠は tokens.mjs が持つ(コミュニティの生成器と共有)。
+// **写しを2つ作らない** ── 片方だけ直すと、未定義のトークンが transparent になって黙って消える。
 
 // 子タブ行(SubTabs): marginLeft -9 / marginBottom 4 / 文字 22 と 15
 function subTabRow() {
@@ -229,25 +209,6 @@ function page(inner) {
     </div>`;
 }
 
-function dcFile(body) {
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <script src="./support.js"></script>
-</head>
-<body>
-<x-dc>
-<helmet>
-  <style>${TOKENS}
-  </style>
-</helmet>
-${body}
-</x-dc>
-</body>
-</html>
-`;
-}
 
 // ---- データ(見た目を確かめるための値。実データではない) -----------------
 const mk = (arr) => { const o = {}; arr.forEach((v, i) => { o[i] = v; }); return o; };
@@ -1380,7 +1341,7 @@ const aSel = (label, value) => `<div style="min-width: 0">
       </div>
       ${sGap}
       ${sCard(aChart())}`;
-  writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
+  if (guard("A1.dc.html")) writeFileSync(OUT + "A1.dc.html", dcFile(`<div style="width: 375px; background: var(--c-sunk); padding: 0 14px 18px; box-sizing: border-box">
       ${aSubTab}
       <div style="padding-top: 8px">${inner}</div>
       <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>採用案</b>。本人の手直しを反映: 「条件」→<b>「抽出条件」</b> / チップの行を <b>30px</b> に詰める / 「編集」を 10px。<br>【<b>2026/08/26 本人裁定・D-10c</b>】軸の行は「ラベル 値 ▾」の1行をやめ、<b>ラベルを値の上に積む</b>形へ戻した。器は<b>3カラムの等幅グリッド</b>(gap 8px / 各セル min-width: 0)で、行は <b>44px</b>(--tap-min)。<br><b>狙い</b>: 値に列の幅をまるごと使わせて、長い選択肢を見分けられるようにする。幅の下限(min-width)で解こうとした案は<b>撤回</b> ── CSS の min-width は無条件の床なので、自然幅が下限に満たないアイテムを押し広げ、<b>幅が余っていた組にまで不足を作る</b>(1文字も切れない組が 18/30 → 4/30)。<br><b>代償と見返り</b>: 行が 30 → 44px(+14px)。そのかわり §5(44pt)を割る例外は<b>条件チップの行の1つだけ</b>になる。<br><b>脚注</b>: 「637 音 · 26 セッション · 0.2 時間」は My Data の先頭へ移すので、この画面からは消える。</div>

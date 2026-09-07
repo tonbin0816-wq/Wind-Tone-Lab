@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+      <symbol id="ic-cat" viewBox="0 0 256 256"><path d="M222.83,33.54a16,16,0,0,0-18.14,3.15c-.14.14-.26.27-.38.41L187.05,57A111.28,111.28,0,0,0,69,57L51.69,37.1c-.12-.14-.24-.27-.38-.41a16,16,0,0,0-18.14-3.15A16.4,16.4,0,0,0,24,48.46V136c0,49,40.06,89.63,91.56,95.32a4,4,0,0,0,4.44-4v-32l-13.42-13.43a8.22,8.22,0,0,1-.41-11.37,8,8,0,0,1,11.49-.18L128,180.68l10.34-10.35a8,8,0,0,1,11.49.18,8.22,8.22,0,0,1-.41,11.37L136,195.31v32a4,4,0,0,0,4.44,4C191.94,225.62,232,185,232,136V48.46A16.4,16.4,0,0,0,222.83,33.54ZM84,152a12,12,0,1,1,12-12A12,12,0,0,1,84,152Zm20-64a8,8,0,1,1-16,0V69a8,8,0,0,1,16,0Zm32,0a8,8,0,1,1-16,0V64a8,8,0,0,1,16,0Zm16,0V69a8,8,0,0,1,16,0V88a8,8,0,1,1-16,0Zm20,64a12,12,0,1,1,12-12A12,12,0,0,1,172,152Z"/></symbol>
+    </defs>
+  </svg>
+  <div style="width: 375px; background: var(--c-bg)">
+    <div style="padding: var(--sp-4); padding-bottom: var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+      <div style="justify-self: start; min-height: 44px; padding: 0 var(--sp-3); border: none; border-radius: var(--r-md); background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center">&lt; 一覧</div>
+
+      <div style="display: flex; align-items: center; gap: var(--sp-3)">
+        <span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 56px; height: 56px; border-radius: 50%; background: var(--c-avatar-1)"><svg width="33.6" height="33.6" fill="#fff" aria-hidden="true"><use href="#ic-cat" /></svg></span>
+        <div style="min-width: 0; flex: 1 1 0">
+          <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">しろねこ</div>
+          <span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 2px"><span style="flex: none; white-space: nowrap">学生</span><span style="flex: none; white-space: nowrap">歴3年</span><span style="flex: none; white-space: nowrap">クラシック</span></span>
+        </div>
+        <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M4 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </div>
+
+      <div style="display: flex; align-items: baseline; gap: var(--sp-2)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">練習日数</div>
+        <div style="font-size: var(--fs-lg); font-weight: 700; color: var(--c-ink)">142<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
+      </div>
+
+      <div style="display: flex; gap: var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">A.Sax</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">T.Sax</span>
+        </span>
+      </div>
+
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; padding-top: var(--sp-3)">音のデータ</div>
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">HNR</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">音程</span>
+          </div>
+        </div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">重心(Hz)　録音38回</div>
+      <svg viewBox="0 0 320 160" width="100%" role="img" style="display: block; overflow: visible">
+              <line x1="40" x2="312" y1="10.0" y2="10.0" stroke="var(--c-line)" stroke-width="1" />
+              <text x="34" y="14.0" text-anchor="end" font-size="9" fill="var(--c-ink-3)">2098</text>
+              <line x1="40" x2="312" y1="138.0" y2="138.0" stroke="var(--c-line)" stroke-width="1" />
+              <text x="34" y="142.0" text-anchor="end" font-size="9" fill="var(--c-ink-3)">712</text>
+              <text x="40.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">A#3</text>
+              <text x="88.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">C#4</text>
+              <text x="136.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">E4</text>
+              <text x="184.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">G4</text>
+              <text x="216.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">A4</text>
+              <text x="264.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">C5</text>
+              <text x="312.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">D#5</text>
+              <polyline points="40.0,130.8 56.0,125.2 72.0,119.0 88.0,111.2 104.0,101.1 120.0,92.2 136.0,84.8 152.0,79.6 168.0,76.1 184.0,73.4 200.0,69.8 216.0,65.0 232.0,58.7 248.0,50.9 264.0,42.3 280.0,34.2 296.0,28.1 312.0,23.9" fill="none" stroke="var(--c-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+              <circle cx="40.0" cy="130.8" r="2.5" fill="var(--c-accent)" />
+              <circle cx="56.0" cy="125.2" r="2.5" fill="var(--c-accent)" />
+              <circle cx="72.0" cy="119.0" r="2.5" fill="var(--c-accent)" />
+              <circle cx="88.0" cy="111.2" r="2.5" fill="var(--c-accent)" />
+              <circle cx="104.0" cy="101.1" r="2.5" fill="var(--c-accent)" />
+              <circle cx="120.0" cy="92.2" r="2.5" fill="var(--c-accent)" />
+              <circle cx="136.0" cy="84.8" r="2.5" fill="var(--c-accent)" />
+              <circle cx="152.0" cy="79.6" r="2.5" fill="var(--c-accent)" />
+              <circle cx="168.0" cy="76.1" r="2.5" fill="var(--c-accent)" />
+              <circle cx="184.0" cy="73.4" r="2.5" fill="var(--c-accent)" />
+              <circle cx="200.0" cy="69.8" r="2.5" fill="var(--c-accent)" />
+              <circle cx="216.0" cy="65.0" r="2.5" fill="var(--c-accent)" />
+              <circle cx="232.0" cy="58.7" r="2.5" fill="var(--c-accent)" />
+              <circle cx="248.0" cy="50.9" r="2.5" fill="var(--c-accent)" />
+              <circle cx="264.0" cy="42.3" r="2.5" fill="var(--c-accent)" />
+              <circle cx="280.0" cy="34.2" r="2.5" fill="var(--c-accent)" />
+              <circle cx="296.0" cy="28.1" r="2.5" fill="var(--c-accent)" />
+              <circle cx="312.0" cy="23.9" r="2.5" fill="var(--c-accent)" />
+              <polyline points="40.0,138.0 56.0,130.3 72.0,120.5 88.0,114.4 104.0,110.5 120.0,107.5 136.0,105.8 152.0,103.3 168.0,98.5 184.0,88.1 200.0,77.0 216.0,65.4 232.0,53.6 248.0,42.9 264.0,33.1 280.0,23.3 296.0,15.7 312.0,10.0" fill="none" stroke="var(--c-ink-2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 3" />
+              <circle cx="40.0" cy="138.0" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="56.0" cy="130.3" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="72.0" cy="120.5" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="88.0" cy="114.4" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="104.0" cy="110.5" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="120.0" cy="107.5" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="136.0" cy="105.8" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="152.0" cy="103.3" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="168.0" cy="98.5" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="184.0" cy="88.1" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="200.0" cy="77.0" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="216.0" cy="65.4" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="232.0" cy="53.6" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="248.0" cy="42.9" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="264.0" cy="33.1" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="280.0" cy="23.3" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="296.0" cy="15.7" r="2.5" fill="var(--c-ink-2)" />
+              <circle cx="312.0" cy="10.0" r="2.5" fill="var(--c-ink-2)" />
+            </svg>
+      <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><span style="width: 14px; height: 3px; border-radius: 2px; background: var(--c-accent); flex: 0 0 auto"></span><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">しろねこ</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><span style="width: 14px; height: 3px; border-radius: 2px; background: var(--c-ink-2); flex: 0 0 auto"></span><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています</div>
+      <div style="min-height: 44px; border: none; border-radius: var(--r-md); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">目安に設定</div>
+    </div>
+  </div>
+</x-dc>
+</body>
+</html>

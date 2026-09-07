@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+      <symbol id="ic-star" viewBox="0 0 256 256"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></symbol>
+    </defs>
+  </svg>
+  <div style="width: 375px; background: var(--c-bg)">
+    <div style="padding: 0 var(--sp-4)">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">データ</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">順位</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">シェア</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">マイページ</div>
+      </div>
+    </div>
+    <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+      <div style="display: flex; justify-content: center"><span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 64px; height: 64px; border-radius: 50%; background: var(--c-avatar-8)"><svg width="38.4" height="38.4" fill="#fff" aria-hidden="true"><use href="#ic-star" /></svg></span></div>
+
+      <div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">ニックネーム</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">tone-lab</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器種別</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">A.Sax・T.Sax</div>
+        </div>
+        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">A.Sax</div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">YAMAHA YAS-875EX</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">マウスピース</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Selmer Paris S90 190</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リガチャー</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">BG Tradition</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リード</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Vandoren Traditional <span style="font-family: var(--font-num)">3.0</span></div>
+        </div>
+        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">T.Sax</div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Selmer Paris Mark VI</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">マウスピース</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Otto Link Tone Edge</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リガチャー</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">未選択</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リード</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Vandoren Java <span style="font-family: var(--font-num)">2.5</span></div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">属性</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">講師・プロ</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">演奏開始年</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0"><span style="font-family: var(--font-num)">2006</span>年</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">ジャンル</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">ジャズ・ポップス</div>
+        </div>
+        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">編成</div>
+          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">ソロ・ビッグバンド</div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3)">
+        <div style="display: grid; gap: var(--sp-1); min-width: 0">
+          <div style="font-size: var(--fs-sm); font-weight: 700; color: var(--c-ink)">公開</div>
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">プロフィールと奏者：自分のデータが公開されます</div>
+        </div>
+        <span style="flex: 0 0 auto; width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center">
+          <span style="display: block; width: 44px; height: 26px; border-radius: var(--r-pill); position: relative; background: var(--c-accent)">
+            <span style="position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2)"></span>
+          </span>
+        </span>
+      </div>
+
+      <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-md); font-weight: 600; display: flex; align-items: center; justify-content: center">編集</div>
+      <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-md); font-weight: 600; display: flex; align-items: center; justify-content: center">アカウント引継</div>
+
+      <div style="display: grid; margin-top: var(--sp-4)">
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-danger); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">アカウントを削除</div>
+      </div>
+    </div>
+  </div>
+</x-dc>
+</body>
+</html>

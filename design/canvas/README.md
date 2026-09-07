@@ -1,35 +1,56 @@
-# Claude Design キャンバス(My Data)
+# Claude Design キャンバス(Ficus 画面カタログ)
 
-**本人が pptx のように直接いじるための実寸モック。** D-8 直後の `src/App.jsx` の
-「現状」を写したもので、**提案ではない**。
+**本人が pptx のように直接いじるための実寸モック。**`src/` の「現状」を写したもので、
+**提案ではない**。いずれも 375px 幅 = 実機幅。
 
 - 公開先: https://claude.ai/code/artifact/9cee0670-3053-4e82-aa82-6f08a9a1134b
-- **ページ1「現状」** 3枚(いずれも 375px 幅 = 実機幅。左右余白 14px を引いた本文幅 347px):
-  - `Main.dc.html` … 平均差分 × 折れ線(0中心 + 「合っている」帯 + 凡例 + 重ねた軸ラベル)
-  - `Centroid.dc.html` … 重心 × 折れ線(実数 + 比較対象の破線)
-  - `Windows.dc.html` … 平均差分 × 窓型(8段の発散スケール + 帯の灰 + 2枚)
-- **ページ2「改善案」** 4枚。**まだ正典ではない**。本人が決めるための絵:
-  - `StackA.dc.html` … 案A の効き目。上部の積み上げを実寸で並べる(現状 y=180 / 案 y=128)
-  - `PlanA.dc.html` … 案A を実寸の画面で(比較対象を指標タブの行へ畳む)
-  - `CompareB.dc.html` … 案B 子タブ非選択の色 `--c-ink-3` → `--c-ink-2`
-  - `PlanD.dc.html` … 案D 窓型の空セルを「音域外」と「まだ吹いていない」に分ける
 - `canvas.json` … 配置・ページ・付箋
+
+## 面(ページ)
+
+| ページ | 中身 |
+|---|---|
+| レイアウトの方向案 | My Data の初期4案(R1〜R4) |
+| D-9 反映 | My Data の現状(Full / Main / Centroid / Windows)と分析タブ上部・系列シート |
+| 検討した案 | 不採用の記録(StackA / PlanA / CompareB / PlanD) |
+| レイアウト刷新案 | S1・S1open・S2・S3・A1・A2・Chips |
+| **コミュニティ** | **データ / 順位 / シェア / マイページ / 人をタップ(表・裏)** |
+
+My Data 側の本文幅は 347px(375 − 左右余白 14px)。コミュニティ側は 343px
+(375 − 左右余白 `--sp-4` = 16px)。**同じ 375px でも余白が違うのは実装がそうだから**で、
+揃えてはいけない(揃えるなら先に実装を揃える)。
 
 ## 作り直し方
 
 ```bash
-node design/canvas/generate.mjs      # .dc.html を書き出す
+node design/canvas/generate.mjs      # My Data 系の .dc.html
+node design/canvas/community.mjs     # コミュニティ系の .dc.html
 ```
 
-幾何(`layout()`)は `NoteAxisLineChart` の `L()` を、色と段は
-`divergingStep` / `matrixCellPaint` を写している。**App.jsx を直したら
-generate.mjs も追随させること**(数値の唯一の答えは App.jsx 側)。
+トークンと `.dc.html` の外枠は `tokens.mjs` が持つ(両方の生成器が読む)。
+**写しを2つ作らない** ── 未定義のカスタムプロパティは transparent 扱いで黙って消えるので、
+片方だけ直すと色が抜ける事故になる(過去に1度起こしている)。
 
-`ficus-my-data.html`(エディタ同梱・約2MB)は成果物なので **git に入れない**
-(`.gitignore` 済み)。`design` スキルの `seed-canvas.mjs` で作り直す。
+- `generate.mjs` の幾何(`layout()`)は `NoteAxisLineChart` の `L()` を、色と段は
+  `divergingStep` / `matrixCellPaint` を写している。**App.jsx を直したら追随させること**。
+- `community.mjs` は `src/community/screens.jsx` と `CommunityTab.jsx` を写している。
+  折れ線は `LineChart`、円は `PieChart` の `arcPath` をそのまま移した。
+  アイコンの絵柄は `icons.jsx` から**その場で抜いて**埋めるので、貼り直す必要は無い。
+  **数値の唯一の答えは実装側**。
+
+### 本人がキャンバス上で直したものは上書きしない
+
+`Main.dc.html` / `Windows.dc.html` / `A1.dc.html` は本人の手直しが正なので、
+`generate.mjs` は既定で書き換えない(`--regen-baseline` を付けたときだけ作り直す)。
+**公開中のキャンバスを取り込んでから触ること** ── 手順は `design` スキルの
+`seed-canvas.mjs --extract` で、取り出した中身を編集して再び種として渡す。
+リポジトリの `.dc.html` を直に種にすると、本人の手直しが消える。
+
+`ficus-screens.html`(エディタ同梱・約2.6MB)は成果物なので **git に入れない**。
 
 ## 入っていないもの
 
 - **練習カレンダー**(`PracticeCalendarCard`)。D-1c(マスが正典の 34px ではなく 44px)は
-  別件で実機待ちのため、この3枚には含めていない
-- 数値は**ダミー**。実データではないので、値そのものを読み取らないこと
+  別件で実機待ち
+- コミュニティの**参加前の画面**(`JoinIntro`)と**プロフィール作成フォーム**(`ProfileForm`)
+- 数値と人名は**ダミー**。実データではないので、値そのものを読み取らないこと

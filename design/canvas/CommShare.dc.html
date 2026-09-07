@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+
+    </defs>
+  </svg>
+  <div style="width: 375px; background: var(--c-bg)">
+    <div style="padding: 0 var(--sp-4)">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">データ</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">順位</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">シェア</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">マイページ</div>
+      </div>
+    </div>
+    <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+      <div style="display: flex; gap: var(--sp-2)">
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">A.Sax</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">ジャンル</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">属性</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+      </div>
+
+      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)">
+        <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">楽器</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">マウスピース</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">リガチャー</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">リード</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-2) 0 var(--sp-1)">
+          <svg width="120" height="120" viewBox="0 0 120 120" style="flex: none" role="img">
+              <path d="M60,60 L60.0,6.0 A54,54 0 0 1 86.0,107.3 Z" fill="var(--c-accent)" />
+              <path d="M60,60 L86.0,107.3 A54,54 0 0 1 9.8,79.9 Z" fill="var(--c-accent-mid)" />
+              <path d="M60,60 L9.8,79.9 A54,54 0 0 1 20.6,23.0 Z" fill="var(--c-accent-line)" />
+              <path d="M60,60 L20.6,23.0 A54,54 0 0 1 60.0,6.0 Z" fill="var(--c-sunken)" />
+            </svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0">
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 44px">
+                <span style="width: 9px; height: 9px; border-radius: 2px; background: var(--c-accent); flex: none"></span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">YAMAHA</span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; margin-left: auto; font-family: var(--font-num)">42%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 44px">
+                <span style="width: 9px; height: 9px; border-radius: 2px; background: var(--c-accent-mid); flex: none"></span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Selmer Paris</span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; margin-left: auto; font-family: var(--font-num)">27%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 44px">
+                <span style="width: 9px; height: 9px; border-radius: 2px; background: var(--c-accent-line); flex: none"></span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Yanagisawa</span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; margin-left: auto; font-family: var(--font-num)">18%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 44px">
+                <span style="width: 9px; height: 9px; border-radius: 2px; background: var(--c-sunken); flex: none"></span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">ほか3種類</span>
+                <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; margin-left: auto; font-family: var(--font-num)">13%</span>
+              </div>
+            </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.8">n = <span style="font-family: var(--font-num); font-weight: 700">24</span>人</div>
+      </div>
+
+      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 10px">人気の組み合わせ</div>
+        <div style="display: grid; gap: 0">
+          <div style="min-height: 44px; padding: 0; display: flex; align-items: center">
+            <span style="display: flex; align-items: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; text-align: left">マウスピース × リード</span>
+          </div>
+          <div style="min-height: 44px; padding: 0; display: flex; align-items: center">
+            <span style="display: flex; align-items: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-sm); font-weight: 600; text-align: left">楽器 × マウスピース × リード</span>
+          </div>
+          <div style="min-height: 44px; padding: 0; display: flex; align-items: center">
+            <span style="display: flex; align-items: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; text-align: left">楽器 × マウスピース × リガチャー × リード</span>
+          </div>
+        </div>
+        <div>
+          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
+              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">YAMAHA YAS-62 / Selmer S90 190 / Vandoren Traditional 3.0</span>
+              <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; font-family: var(--font-num)">5人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: 42%; height: 100%; background: var(--c-accent)"></div>
+            </div>
+          </div>
+          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
+              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Selmer Paris Mark VI / Meyer 5MM / D'Addario Select Jazz 3M</span>
+              <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; font-family: var(--font-num)">3人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: 25%; height: 100%; background: var(--c-accent-mid)"></div>
+            </div>
+          </div>
+          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
+              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Yanagisawa A-WO10 / Selmer Concept / Vandoren V16 3.0</span>
+              <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; font-family: var(--font-num)">2人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: 17%; height: 100%; background: var(--c-accent-line)"></div>
+            </div>
+          </div>
+          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
+              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">YAMAHA YAS-875EX / Otto Link Tone Edge / Vandoren Java 2.5</span>
+              <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; font-family: var(--font-num)">1人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: 8%; height: 100%; background: var(--c-accent-line)"></div>
+            </div>
+          </div>
+          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
+              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Buffet Crampon Senzo / YAMAHA 4C / Vandoren V12 3.5</span>
+              <span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; flex: none; font-family: var(--font-num)">1人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: 8%; height: 100%; background: var(--c-accent-line)"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</x-dc>
+</body>
+</html>
