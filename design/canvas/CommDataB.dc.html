@@ -1,0 +1,205 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+      <symbol id="ic-cat" viewBox="0 0 256 256"><path d="M222.83,33.54a16,16,0,0,0-18.14,3.15c-.14.14-.26.27-.38.41L187.05,57A111.28,111.28,0,0,0,69,57L51.69,37.1c-.12-.14-.24-.27-.38-.41a16,16,0,0,0-18.14-3.15A16.4,16.4,0,0,0,24,48.46V136c0,49,40.06,89.63,91.56,95.32a4,4,0,0,0,4.44-4v-32l-13.42-13.43a8.22,8.22,0,0,1-.41-11.37,8,8,0,0,1,11.49-.18L128,180.68l10.34-10.35a8,8,0,0,1,11.49.18,8.22,8.22,0,0,1-.41,11.37L136,195.31v32a4,4,0,0,0,4.44,4C191.94,225.62,232,185,232,136V48.46A16.4,16.4,0,0,0,222.83,33.54ZM84,152a12,12,0,1,1,12-12A12,12,0,0,1,84,152Zm20-64a8,8,0,1,1-16,0V69a8,8,0,0,1,16,0Zm32,0a8,8,0,1,1-16,0V64a8,8,0,0,1,16,0Zm16,0V69a8,8,0,0,1,16,0V88a8,8,0,1,1-16,0Zm20,64a12,12,0,1,1,12-12A12,12,0,0,1,172,152Z"/></symbol>
+      <symbol id="ic-music-notes" viewBox="0 0 256 256"><path d="M212.92,17.71a7.89,7.89,0,0,0-6.86-1.46l-128,32A8,8,0,0,0,72,56V166.1A36,36,0,1,0,88,196V102.25l112-28V134.1A36,36,0,1,0,216,164V24A8,8,0,0,0,212.92,17.71Z"/></symbol>
+      <symbol id="ic-leaf" viewBox="0 0 256 256"><path d="M223.45,40.07a8,8,0,0,0-7.52-7.52C139.8,28.08,78.82,51,52.82,94a87.09,87.09,0,0,0-12.76,49A101.72,101.72,0,0,0,46.7,175.2a4,4,0,0,0,6.61,1.43l85-86.3a8,8,0,0,1,11.32,11.32L56.74,195.94,42.55,210.13a8.2,8.2,0,0,0-.6,11.1,8,8,0,0,0,11.71.43l16.79-16.79c14.14,6.84,28.41,10.57,42.56,11.07q1.67.06,3.33.06A86.93,86.93,0,0,0,162,203.18C205,177.18,227.93,116.21,223.45,40.07Z"/></symbol>
+      <symbol id="ic-star" viewBox="0 0 256 256"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></symbol>
+    </defs>
+  </svg>
+  <div style="width: 375px; background: var(--c-bg)">
+    <div style="padding: 0 var(--sp-4)">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">データ</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">順位</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">シェア</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">マイページ</div>
+      </div>
+    </div>
+    <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+      <div style="display: flex; gap: var(--sp-2)">
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">A.Sax</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">ジャンル</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">属性</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+      </div>
+
+      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)">
+          <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">みんなの平均</div>
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">目安を公開している<span style="font-family: var(--font-num); font-weight: 700">12</span>人</div>
+        </div>
+        <div style="margin: 10px 0 2px">
+          <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">HNR</span>
+          </div>
+          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">音程</span>
+          </div>
+        </div>
+        </div>
+        <div style="display: grid; gap: var(--sp-2)">
+          <svg viewBox="0 0 320 160" width="100%" role="img" style="display: block; overflow: visible">
+              <line x1="40" x2="258" y1="10.0" y2="10.0" stroke="var(--c-line)" stroke-width="1" />
+              <text x="34" y="14.0" text-anchor="end" font-size="9" fill="var(--c-ink-3)">2098</text>
+              <line x1="40" x2="258" y1="138.0" y2="138.0" stroke="var(--c-line)" stroke-width="1" />
+              <text x="34" y="142.0" text-anchor="end" font-size="9" fill="var(--c-ink-3)">712</text>
+              <text x="40.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">A#3</text>
+              <text x="78.5" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">C#4</text>
+              <text x="116.9" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">E4</text>
+              <text x="155.4" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">G4</text>
+              <text x="181.1" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">A4</text>
+              <text x="219.5" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">C5</text>
+              <text x="258.0" y="154" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">D#5</text>
+              <polyline points="40.0,135.2 52.8,129.3 65.6,122.7 78.5,116.6 91.3,109.5 104.1,102.4 116.9,95.5 129.8,87.6 142.6,80.8 155.4,73.6 168.2,66.5 181.1,60.4 193.9,53.5 206.7,46.9 219.5,40.8 232.4,34.7 245.2,29.3 258.0,24.4" fill="none" stroke="var(--c-accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+              <circle cx="40.0" cy="135.2" r="2.5" fill="var(--c-accent)" />
+              <circle cx="52.8" cy="129.3" r="2.5" fill="var(--c-accent)" />
+              <circle cx="65.6" cy="122.7" r="2.5" fill="var(--c-accent)" />
+              <circle cx="78.5" cy="116.6" r="2.5" fill="var(--c-accent)" />
+              <circle cx="91.3" cy="109.5" r="2.5" fill="var(--c-accent)" />
+              <circle cx="104.1" cy="102.4" r="2.5" fill="var(--c-accent)" />
+              <circle cx="116.9" cy="95.5" r="2.5" fill="var(--c-accent)" />
+              <circle cx="129.8" cy="87.6" r="2.5" fill="var(--c-accent)" />
+              <circle cx="142.6" cy="80.8" r="2.5" fill="var(--c-accent)" />
+              <circle cx="155.4" cy="73.6" r="2.5" fill="var(--c-accent)" />
+              <circle cx="168.2" cy="66.5" r="2.5" fill="var(--c-accent)" />
+              <circle cx="181.1" cy="60.4" r="2.5" fill="var(--c-accent)" />
+              <circle cx="193.9" cy="53.5" r="2.5" fill="var(--c-accent)" />
+              <circle cx="206.7" cy="46.9" r="2.5" fill="var(--c-accent)" />
+              <circle cx="219.5" cy="40.8" r="2.5" fill="var(--c-accent)" />
+              <circle cx="232.4" cy="34.7" r="2.5" fill="var(--c-accent)" />
+              <circle cx="245.2" cy="29.3" r="2.5" fill="var(--c-accent)" />
+              <circle cx="258.0" cy="24.4" r="2.5" fill="var(--c-accent)" />
+              <polyline points="40.0,138.0 52.8,130.3 65.6,120.5 78.5,114.4 91.3,110.5 104.1,107.5 116.9,105.8 129.8,103.3 142.6,98.5 155.4,88.1 168.2,77.0 181.1,65.4 193.9,53.6 206.7,42.9 219.5,33.1 232.4,23.3 245.2,15.7 258.0,10.0" fill="none" stroke="var(--c-ink-3)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 3" />
+              <circle cx="40.0" cy="138.0" r="2" fill="var(--c-ink-3)" />
+              <circle cx="52.8" cy="130.3" r="2" fill="var(--c-ink-3)" />
+              <circle cx="65.6" cy="120.5" r="2" fill="var(--c-ink-3)" />
+              <circle cx="78.5" cy="114.4" r="2" fill="var(--c-ink-3)" />
+              <circle cx="91.3" cy="110.5" r="2" fill="var(--c-ink-3)" />
+              <circle cx="104.1" cy="107.5" r="2" fill="var(--c-ink-3)" />
+              <circle cx="116.9" cy="105.8" r="2" fill="var(--c-ink-3)" />
+              <circle cx="129.8" cy="103.3" r="2" fill="var(--c-ink-3)" />
+              <circle cx="142.6" cy="98.5" r="2" fill="var(--c-ink-3)" />
+              <circle cx="155.4" cy="88.1" r="2" fill="var(--c-ink-3)" />
+              <circle cx="168.2" cy="77.0" r="2" fill="var(--c-ink-3)" />
+              <circle cx="181.1" cy="65.4" r="2" fill="var(--c-ink-3)" />
+              <circle cx="193.9" cy="53.6" r="2" fill="var(--c-ink-3)" />
+              <circle cx="206.7" cy="42.9" r="2" fill="var(--c-ink-3)" />
+              <circle cx="219.5" cy="33.1" r="2" fill="var(--c-ink-3)" />
+              <circle cx="232.4" cy="23.3" r="2" fill="var(--c-ink-3)" />
+              <circle cx="245.2" cy="15.7" r="2" fill="var(--c-ink-3)" />
+              <circle cx="258.0" cy="10.0" r="2" fill="var(--c-ink-3)" />
+              <text x="264.0" y="13.5" font-size="10" font-weight="700" fill="var(--c-ink-2)">自分</text>
+              <text x="264.0" y="27.9" font-size="10" font-weight="700" fill="var(--c-accent)">みんな</text>
+            </svg>
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.8">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています</div>
+        </div>
+      </div>
+
+      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-1) var(--sp-4); box-shadow: var(--shadow-card)">
+          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: 1px solid var(--c-line)">
+            <span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: var(--c-avatar-1)"><svg width="20.4" height="20.4" fill="#fff" aria-hidden="true"><use href="#ic-cat" /></svg></span>
+            <div style="flex: 1 1 0; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+              <span style="flex: 0 1 auto; font-size: var(--fs-sm); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">しろねこ</span>
+            </span>
+              <span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 2px"><span style="flex: none; white-space: nowrap">学生</span><span style="flex: none; white-space: nowrap">歴3年</span><span style="flex: none; white-space: nowrap">クラシック</span></span>
+            </div>
+            <div style="flex: none; text-align: right"><span style="font-family: var(--font-num); font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">38</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: 1px solid var(--c-line)">
+            <span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: var(--c-avatar-6)"><svg width="20.4" height="20.4" fill="#fff" aria-hidden="true"><use href="#ic-music-notes" /></svg></span>
+            <div style="flex: 1 1 0; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+              <span style="flex: 0 1 auto; font-size: var(--fs-sm); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Reedman</span>
+            </span>
+              <span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 2px"><span style="flex: none; white-space: nowrap">社会人</span><span style="flex: none; white-space: nowrap">歴12年</span><span style="flex: none; white-space: nowrap">ジャズ</span></span>
+            </div>
+            <div style="flex: none; text-align: right"><span style="font-family: var(--font-num); font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">26</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: 1px solid var(--c-line)">
+            <span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: var(--c-avatar-3)"><svg width="20.4" height="20.4" fill="#fff" aria-hidden="true"><use href="#ic-leaf" /></svg></span>
+            <div style="flex: 1 1 0; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+              <span style="flex: 0 1 auto; font-size: var(--fs-sm); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">あおば</span>
+            </span>
+              <span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 2px"><span style="flex: none; white-space: nowrap">学生（音大）</span><span style="flex: none; white-space: nowrap">歴7年</span><span style="flex: none; white-space: nowrap">クラシック</span></span>
+            </div>
+            <div style="flex: none; text-align: right"><span style="font-family: var(--font-num); font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">31</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: none">
+            <span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: var(--c-avatar-8)"><svg width="20.4" height="20.4" fill="#fff" aria-hidden="true"><use href="#ic-star" /></svg></span>
+            <div style="flex: 1 1 0; min-width: 0">
+              <span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+              <span style="flex: 0 1 auto; font-size: var(--fs-sm); font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">tone-lab</span><span style="flex: none; font-size: var(--fs-xs); font-weight: 700; color: var(--c-ink-2); background: var(--c-sunken); border-radius: var(--r-xs); padding: 1px 6px">あなた</span>
+            </span>
+              <span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 2px"><span style="flex: none; white-space: nowrap">講師・プロ</span><span style="flex: none; white-space: nowrap">歴20年</span><span style="flex: none; white-space: nowrap">ジャズ</span></span>
+            </div>
+            <div style="flex: none; text-align: right"><span style="font-family: var(--font-num); font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">44</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>
+      </div>
+    </div>
+  </div>
+</x-dc>
+</body>
+</html>

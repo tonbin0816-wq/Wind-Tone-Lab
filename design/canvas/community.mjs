@@ -115,7 +115,7 @@ function nameLine(nick, mine, size = "var(--fs-sm)") {
 }
 
 // ---- LineChart(screens.jsx の写し) --------------------------------------
-const CH_W = 320, CH_H = 160, PAD_L = 40, PAD_B = 22, PAD_T = 10, PAD_R = 8;
+const CH_W = 320, CH_H = 160, PAD_L = 40, PAD_B = 22, PAD_T = 10;
 const MAX_X_LABELS = 7;
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const noteLabel = (k) => NOTE_NAMES[((k % 12) + 12) % 12] + (Math.floor(k / 12) + 1);
@@ -128,7 +128,15 @@ function xLabelIndexes(n) {
   return set;
 }
 
-function lineChart({ keys, series, digits, centerAt = null }) {
+// endLabels: 線の右端に名前を置く。凡例を往復せずにどちらの線か分かるようにするため
+// (§6.0「説明を消して形に語らせる」)。名前のぶん右の余白を広げる。
+// 端の値が近いと札が重なるので、12px 以内なら上下へ振り分ける。
+function lineChart({ keys, series, digits, centerAt = null, endLabels = false }) {
+  const PAD_R = endLabels ? 62 : 8;
+  return lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R });
+}
+
+function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R }) {
   const all = series.flatMap((s) => keys.map((k) => s.values[k]).filter((v) => typeof v === "number"));
   let lo = Math.min(...all), hi = Math.max(...all);
   if (typeof centerAt === "number") {
@@ -150,12 +158,28 @@ function lineChart({ keys, series, digits, centerAt = null }) {
     if (!xl.has(i)) return;
     p.push(`  <text x="${x(i).toFixed(1)}" y="${CH_H - 6}" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">${noteLabel(k)}</text>`);
   });
+  const ends = [];
   for (const s of series) {
     const pts = keys.map((k, i) => (typeof s.values[k] === "number" ? `${x(i).toFixed(1)},${y(s.values[k]).toFixed(1)}` : null)).filter(Boolean);
-    p.push(`  <polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""} />`);
+    const w = s.width ?? 2;
+    p.push(`  <polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""} />`);
     for (const pt of pts) {
       const [px, py] = pt.split(",");
-      p.push(`  <circle cx="${px}" cy="${py}" r="2.5" fill="${s.color}" />`);
+      p.push(`  <circle cx="${px}" cy="${py}" r="${s.dot ?? 2.5}" fill="${s.color}" />`);
+    }
+    const last = pts[pts.length - 1];
+    if (last) ends.push({ s, ex: Number(last.split(",")[0]), ey: Number(last.split(",")[1]) });
+  }
+  if (endLabels && ends.length > 0) {
+    // 近すぎる札は上下へ振り分ける。**線そのものは動かさない。**
+    ends.sort((a, b) => a.ey - b.ey);
+    for (let i = 1; i < ends.length; i++) {
+      if (ends[i].ey - ends[i - 1].ey < 12) ends[i].ey = ends[i - 1].ey + 12;
+    }
+    for (const e of ends) {
+      // 【札の色は線の色と別】線は薄くてよいが、**文字は読める濃さが要る**
+      // (§1.1「--c-ink-3 は約3.0:1。読ませたい文章には使わない」)。
+      p.push(`  <text x="${(e.ex + 6).toFixed(1)}" y="${(e.ey + 3.5).toFixed(1)}" font-size="10" font-weight="700" fill="${e.s.labelColor ?? e.s.color}">${e.s.label}</text>`);
     }
   }
   p.push(`</svg>`);
@@ -506,6 +530,169 @@ ${gear("リード", 'Vandoren Traditional <span style="' + NUM + '">2.5</span>')
       </div>`);
 }
 
+// =========================================================================
+// 改善案(2026/09/07 本人指摘の3点)。**ここから下は現状ではない。**
+//   1. データ … どちらの線を見ればいいのかぱっと見で分からない
+//   2. 順位 … 上位3位が目立たない
+//   3. シェア … 組み合わせの文字が切れて読めない(改行はしない)
+// =========================================================================
+
+// 案1: 線に名前を直接置き、太さと濃さで主従を付ける。
+//   ・みんなの平均 … --c-accent / 2.5px / 実線 ── この画面の主役
+//   ・自分 … --c-ink-3 / 1.8px / 破線 ── 比較対象。My Data の破線と同じ作法
+//   ・凡例は**やめる**。名前が線の端に付いていれば往復が要らない(§6.0)
+//   【色は足していない】§1.7「系列は紺の3段まで/色を足すのではなく表示を絞る」。
+//   紺(--c-accent)と灰(--c-ink-3)はどちらも既存の段。
+function buildDataB() {
+  const series = [
+    { label: "みんな", values: asVals(centroidAvg), color: "var(--c-accent)", width: 2.5, dot: 2.5 },
+    { label: "自分", values: asVals(centroidMine), color: "var(--c-ink-3)", labelColor: "var(--c-ink-2)", width: 1.8, dash: "4 3", dot: 2 },
+  ];
+  const rows = PEOPLE.slice(0, 4).map((p, i, arr) => `          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">
+            ${avatar(p.icon, p.color, 34)}
+            <div style="flex: 1 1 0; min-width: 0">
+              ${nameLine(p.nick, p.mine)}
+              ${whoLine(p.who)}
+            </div>
+            <div style="flex: none; text-align: right"><span style="${NUM}; font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">${p.rec}</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>`);
+
+  return screen("data", `${filterRow("A.Sax", null, null)}
+
+      <div style="${CARD}">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)">
+          <div style="${EYEBROW}">みんなの平均</div>
+          <div style="${NOTE}">目安を公開している<span style="${NUM}; font-weight: 700">12</span>人</div>
+        </div>
+        <div style="margin: 10px 0 2px">
+          ${underlineTabs(["重心", "HNR", "音程"], "重心")}
+        </div>
+        <div style="display: grid; gap: var(--sp-2)">
+          ${lineChart({ keys: KEYS, series, digits: 0, endLabels: true })}
+          <div style="${BODY_NOTE}">${ALIGN_NOTE}</div>
+        </div>
+      </div>
+
+      <div style="${CARD_LIST}">
+${rows.join("\n")}
+      </div>`);
+}
+
+// 案2: 上位3位は**大きさと余白だけ**で立たせる。
+//   【塗らない・光らせない・台に載せない】追記1 厳守事項と本人指示(「丸パクリ過ぎる」)。
+//   増やしたのは寸法だけ: 順位の数字 15 → 28px / 1位のアイコン 44 → 56 /
+//   名前 15 → 18px(1位) / 日数 22 → 28px(1位) / 環 2 → 3px。
+//   **色は1つも足していない。**
+// 【順位の色を2つだけ濃くした案】本人裁定待ち。
+// 実測(白地との比): 1位 #C79A3E = 2.59:1 / 2位 #9BA6B4 = 2.47:1 / 3位 #A9743E = 4.00:1。
+// 大きな文字(18.66px以上の太字)の下限は 3:1 なので、**字を大きくしても 1位と 2位は薄いまま**で、
+// 「目立たせて」に反する。色相は変えず明度だけ落として下限を越えさせる:
+//   1位 #C79A3E → #A97F23 (3.65:1) / 2位 #9BA6B4 → #7C8794 (3.65:1) / 3位はそのまま。
+// 色は**増えていない**(3段のまま)。却下なら RANK_COLOR をそのまま使う。
+const RANK_COLOR_B = ["#A97F23", "#7C8794", "var(--c-rank-3)"];
+
+function rankRowB(p, rank) {
+  const c = RANK_COLOR_B[rank - 1];
+  const first = rank === 1;
+  const av = first ? 56 : 44;
+  return `<div style="display: flex; align-items: center; gap: var(--sp-3); ${CARD}">
+            <div style="flex: 0 0 34px; text-align: center; font-weight: 700; letter-spacing: -.02em; ${NUM}; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; line-height: 1; color: ${c}">${rank}</div>
+            <span style="position: relative; display: inline-flex; flex: none; border-radius: 50%; box-shadow: 0 0 0 3px ${c}; margin: 3px">${avatar(p.icon, p.color, av)}</span>
+            <div style="flex: 1 1 0; min-width: 0">
+              ${nameLine(p.nick, p.mine, first ? "var(--fs-lg)" : "var(--fs-md)")}
+              ${whoLine(p.who)}
+            </div>
+            <div style="flex: 0 0 auto; font-weight: 700; ${NUM}; letter-spacing: -.02em; line-height: 1; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; color: var(--c-ink)">${p.days}<span style="font-family: var(--font-jp); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
+          </div>`;
+}
+
+function buildRankB() {
+  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRowB(p, i + 1)}`);
+  const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
+  const chips = ["今週", "今月", "今年", "すべて"].map((t) => chip(t, t === "すべて"));
+
+  return screen("rank", `${filterRow(null, null, null)}
+
+      <div style="display: flex; gap: var(--sp-1)">
+${chips.join("\n")}
+      </div>
+
+      <div style="${BODY_NOTE}; display: flex; gap: 9px"><span>練習日数</span><span>すべて</span></div>
+
+      <div style="display: grid; gap: var(--sp-3)">
+${top.join("\n")}
+      </div>
+
+      <div style="${CARD_LIST}">
+${rest.join("\n")}
+      </div>`);
+}
+
+// 案3: 組み合わせは**型番だけ**にして、区切りを余白にする。
+//   ・メーカー名を落とす … どの枠がどの項目かは、すぐ上で選んでいる
+//     「楽器 × マウスピース × リード」が既に言っている(同じことを2度言わない)。
+//     型番の無いものだけメーカー名で出す。
+//   ・区切りは " / " をやめて**余白**(§6.0 囲いの序列「1. 余白で分ける」。
+//     中黒を使わない WhoLine と同じ作法)。
+//   ・それでもあふれるとき(4項目)は**最後の1つだけ**が省略記号になる。
+//     改行はしない ── 1件1行という形が崩れると、5件の比較ができなくなる。
+function comboLine(parts) {
+  return `<span style="display: flex; gap: 9px; min-width: 0; overflow: hidden; font-size: var(--fs-sm); color: var(--c-ink)">${parts
+    .map((t, i) => (i === parts.length - 1
+      ? `<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">${t}</span>`
+      : `<span style="flex: none; white-space: nowrap">${t}</span>`)).join("")}</span>`;
+}
+
+function buildShareB() {
+  const makers = [
+    { key: "YAMAHA", ratio: 0.42 }, { key: "Selmer Paris", ratio: 0.27 },
+    { key: "Yanagisawa", ratio: 0.18 }, { key: "Buffet Crampon", ratio: 0.07 },
+    { key: "Keilwerth", ratio: 0.04 }, { key: "その他", ratio: 0.02 },
+  ];
+  // 型番だけ。型番を持たないもの(「その他」など)はメーカー名のまま出す。
+  const combos = [
+    { parts: ["YAS-62", "S90 190", "Traditional 3.0"], n: 5, pct: 42 },
+    { parts: ["Mark VI", "5MM", "Select Jazz 3M"], n: 3, pct: 25 },
+    { parts: ["A-WO10", "Concept", "V16 3.0"], n: 2, pct: 17 },
+    { parts: ["YAS-875EX", "Tone Edge", "Java 2.5"], n: 1, pct: 8 },
+    { parts: ["Senzo", "4C", "V12 3.5"], n: 1, pct: 8 },
+  ];
+  const depthRow = (text, on) => `          <div style="min-height: 44px; padding: 0; display: flex; align-items: center">
+            <span style="display: flex; align-items: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm); border: 1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}; color: ${on ? "var(--c-accent)" : "var(--c-ink-2)"}; font-size: var(--fs-sm); font-weight: 600; text-align: left">${text}</span>
+          </div>`;
+
+  return screen("share", `${filterRow("A.Sax", null, null)}
+
+      <div style="${CARD}">
+        ${underlineTabs(["楽器", "マウスピース", "リガチャー", "リード"], "楽器")}
+        <div style="display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-2) 0 var(--sp-1)">
+          ${pie(makers)}
+          ${pieLegend(makers)}
+        </div>
+        <div style="${BODY_NOTE}">n = <span style="${NUM}; font-weight: 700">24</span>人</div>
+      </div>
+
+      <div style="${CARD}">
+        <div style="${EYEBROW}; margin-bottom: 10px">人気の組み合わせ</div>
+        <div style="display: grid; gap: 0">
+${depthRow("マウスピース × リード", false)}
+${depthRow("楽器 × マウスピース × リード", true)}
+${depthRow("楽器 × マウスピース × リガチャー × リード", false)}
+        </div>
+        <div>
+${combos.map((c, i) => `          <div style="padding: 7px 0">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2)">
+              ${comboLine(c.parts)}
+              <span style="${NOTE}; flex: none; ${NUM}">${c.n}人</span>
+            </div>
+            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
+              <div style="width: ${c.pct}%; height: 100%; background: ${PIE_COLORS[Math.min(i, 2)]}"></div>
+            </div>
+          </div>`).join("\n")}
+        </div>
+      </div>`);
+}
+
 // ---- 書き出し -----------------------------------------------------------
 const FILES = [
   ["CommData.dc.html", buildData, "データ"],
@@ -514,6 +701,9 @@ const FILES = [
   ["CommMyPage.dc.html", buildMyPage, "マイページ"],
   ["CommPerson.dc.html", buildPerson, "人をタップ(表 音のデータ)"],
   ["CommPersonBack.dc.html", buildPersonBack, "人をタップ(裏 プロフィール)"],
+  ["CommDataB.dc.html", buildDataB, "改善案 データ(線に名前)"],
+  ["CommRankB.dc.html", buildRankB, "改善案 順位(上位3位)"],
+  ["CommShareB.dc.html", buildShareB, "改善案 シェア(型番だけ)"],
 ];
 
 for (const [name, build, label] of FILES) {
