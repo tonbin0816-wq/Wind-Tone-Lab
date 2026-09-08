@@ -8729,12 +8729,14 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
                 const nm = f.concertNote || f.matchedWrittenNote || null;
                 if (nm && nm !== curName) {
                   const x = i * 6;
-                  if (x - lastX >= 22) { labels.push({ name: nm, x }); lastX = x; }
+        // 【2026/09/08】音名を 11px から --fs-xs(12px)へ上げたぶん、閾値も上げる。
+        // 実測: var(--font-num) 12px の "A#3" は 22.3px 幅。22 のままだと隣と触れる。
+                  if (x - lastX >= 26) { labels.push({ name: nm, x }); lastX = x; }
                   curName = nm;
                 } else if (!nm) curName = null;
               });
               return labels.map((l, k) => (
-                <text key={k} x={l.x} y={9} fontSize="11" fontWeight="700" fill="var(--c-accent)" fontFamily="var(--font-num)">{l.name}</text>
+                <text key={k} x={l.x} y={9} fontSize="var(--fs-xs)" fontWeight="700" fill="var(--c-accent)" fontFamily="var(--font-num)">{l.name}</text>
               ));
             })()}
             {frames.map((f, i) => {
@@ -10194,7 +10196,7 @@ function ReedMoreMenu({ onClose, onPick }) {
             style={{
               minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
               background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
-              padding: 0, cursor: "pointer", fontSize: 14, color: "var(--c-ink)", textAlign: "left",
+              padding: 0, cursor: "pointer", fontSize: "var(--fs-md)", color: "var(--c-ink)", textAlign: "left",
             }}
           >
             {it.label}
@@ -10214,7 +10216,7 @@ function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
   const close = () => { onCommit(draft); onClose(); };
   return (
     <BottomSheet ariaLabel="リード番号を変更" onClose={close}>
-        <div className="sans" style={{ fontSize: 14, color: "var(--c-ink)", marginBottom: 12 }}>
+        <div className="sans" style={{ fontSize: "var(--fs-md)", color: "var(--c-ink)", marginBottom: 12 }}>
           {reedLabel(reed, reeds)} の番号
         </div>
         <input
@@ -10429,7 +10431,7 @@ function ReedBoxSheet({
       <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
           {/* 正典ミニの見出し「追加」(11px / --ink3)。編集のときは「箱を編集」 */}
-          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
 
           {/* 銘柄。正典は「太字の値 + ▾」の1行(padding 8px 0 / 下に罫1本 / 14px)。 */}
           <button
@@ -10440,7 +10442,7 @@ function ReedBoxSheet({
               display: "flex", justifyContent: "space-between", alignItems: "center",
               padding: "8px 0", minHeight: "var(--tap-min)",
               border: "none", borderBottom: "1px solid var(--c-line)",
-              background: "none", cursor: "pointer", fontSize: 14, color: "var(--c-ink)", width: "100%",
+              background: "none", cursor: "pointer", fontSize: "var(--fs-md)", color: "var(--c-ink)", width: "100%",
             }}
           >
             <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -10489,7 +10491,7 @@ function ReedBoxSheet({
                 /* appearance / maxWidth / lineHeight / overflow の4点は、N-5 まで
                    「…」の中にあった同じ欄が持っていた手当てを**1つも下げずに**引き継いだもの
                    (理由は §6.9 の検査のコメント。iOS Safari の固有幅・縦位置・内部UIのはみ出し)。 */
-                style={{ ...REED_FORM_CONTROL_STYLE, flex: 1, fontSize: 14, WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
+                style={{ ...REED_FORM_CONTROL_STYLE, flex: 1, fontSize: "var(--fs-md)", WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
               />
             </div>
           )}
@@ -10501,13 +10503,13 @@ function ReedBoxSheet({
             <button
               onClick={() => setCount((v) => clampReedAddCount(v - 1))}
               aria-label="枚数を減らす" className="no-select"
-              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: "var(--fs-xl)", fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >−</button>
             <span aria-live="polite" style={{ fontSize: 26, fontWeight: 600, fontFamily: "var(--font-num)", minWidth: 44, textAlign: "center" }}>{count}</span>
             <button
               onClick={() => setCount((v) => clampReedAddCount(v + 1))}
               aria-label="枚数を増やす" className="no-select"
-              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: 20, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
+              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: "var(--fs-xl)", fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >＋</button>
           </div>
           )}
@@ -10789,7 +10791,7 @@ function ReedRegisterView(props) {
            無くなったので定義ごと削除した。) */}
 
       {anyReorderable && listMode === null && (
-        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
           長押ししてスライドすると並び替えられます・タップで詳細
         </div>
       )}
@@ -10798,7 +10800,7 @@ function ReedRegisterView(props) {
           変更の確定はシートを閉じたとき(値が変わったときだけ書き込む=個別ページの
           commitPosition と同じ判定)。 */}
       {listMode === "numberEdit" && (
-        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
           番号を変更するリードをタップ
         </div>
       )}
@@ -11383,11 +11385,11 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
           <div key={g.key} style={{ padding: "16px 0 4px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
               {/* 正典の比較画面の見出しは .rname の 13.5px(一覧の 15px より一段小さい) */}
-              <span className="sans" style={{ fontSize: 13.5, fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{g.strength}</span>
               </span>
               {selectedInBox > 0 && (
-                <span className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", flexShrink: 0 }}>{selectedInBox}枚選択中</span>
+                <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{selectedInBox}枚選択中</span>
               )}
             </div>
             {/* 正典 .selrow / .selpill。選択中は紺の塗り + 線種見本。
@@ -11924,8 +11926,8 @@ function ReedScoreHistoryChart({ reed }) {
        見出しの右に「n 回の評価」を置く。空状態の文言は現行のまま2種とも残す。 */
     <div className="card" style={{ marginTop: "var(--sp-3)" }}>
       <div className="sans" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 6 }}>
-        <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>評価の推移</span>
-        {n > 0 && <span style={{ fontSize: 11, color: "var(--c-ink-3)", flexShrink: 0 }}>{n} 回の評価</span>}
+        <span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>評価の推移</span>
+        {n > 0 && <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{n} 回の評価</span>}
       </div>
       {n === 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-2)" }}>まだ記録がありません</div>
@@ -11967,7 +11969,7 @@ function ReedScoreHistoryChart({ reed }) {
       )}
       {n > 0 && (
         /* 正典の凡例は 10.5px。線種見本(SeriesSwatch)は現行のまま残す(色だけでは実線/破線が伝わらない) */
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: "var(--sp-2)", fontSize: 10.5, color: "var(--c-ink-3)" }}>
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>
           {series.map((s) => (
             <span key={s.key} style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }} title={s.label}>
               <SeriesSwatch style={s.style} />
@@ -11986,7 +11988,7 @@ function ReedScoreHistoryChart({ reed }) {
           厚さ・バランスが最初の記録より後から始まっているときだけ出す。
           日付の書き方は横軸のラベルと同じ1箇所(reedScoreDateLabel)から引く。 */}
       {lateStart && (
-        <div className="sans" style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--c-line)", fontSize: 10.5, color: "var(--c-ink-3)" }}>
+        <div className="sans" style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--c-line)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>
           厚さ・バランスは {lateStart} の記録から
         </div>
       )}
@@ -12627,7 +12629,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 2px 12px" }}>
           <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "8px 13px", maxHeight: 96, overflowY: "auto" }}>
             {shownKeys.map((ck, ci) => (
-              <span key={ck} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--c-ink-2)" }}>
+              <span key={ck} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>
                 <SeriesSwatch style={styleAt(ci)} width={12} />
                 {fitLabel(ck, LABEL_MAX, SVG_FS_XS)}
               </span>
@@ -13497,7 +13499,7 @@ function DataOptionSheet({ ariaLabel, title = null, items, value, onPick, onClos
           style={{
             minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
             background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
-            padding: 0, cursor: "pointer", fontSize: 14, textAlign: "left",
+            padding: 0, cursor: "pointer", fontSize: "var(--fs-md)", textAlign: "left",
             color: value !== undefined && value === it.key ? "var(--c-accent)" : "var(--c-ink)",
             fontWeight: value !== undefined && value === it.key ? 600 : 400,
           }}
@@ -13786,7 +13788,7 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
         minWidth: "var(--tap-min)", minHeight: "var(--tap-min)",
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         background: "none", border: "none", padding: 0, cursor: "pointer",
-        fontSize: 17, color: "var(--c-ink-3)",
+        fontSize: "var(--fs-lg)", color: "var(--c-ink-3)",
       }}
     >
       {label}
@@ -13801,10 +13803,10 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
           ズラしで寄せると、月の綴りが伸びたときに重なる。 */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-          <div className="sans" style={{ fontSize: 17, fontWeight: 600, color: "var(--c-ink)", letterSpacing: "-.01em" }}>
+          <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, color: "var(--c-ink)", letterSpacing: "-.01em" }}>
             {calendarMonthLabel(ym.year, ym.month)}
           </div>
-          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>
             <b style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{hoursText(totals.seconds)}</b> 時間 · {totals.activeDays} 日
           </div>
         </div>
@@ -13815,7 +13817,7 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
       </div>
       <div
         className="sans"
-        style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", fontSize: 11, color: "var(--c-ink-3)", textAlign: "center", marginTop: 8 }}
+        style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginTop: 8 }}
       >
         {CALENDAR_WEEK_LABELS.map((w) => <span key={w}>{w}</span>)}
       </div>
@@ -13913,8 +13915,8 @@ function DaySessionRow({ session, reeds, onOpen }) {
     >
       <span aria-hidden="true" style={{ width: 3, borderRadius: 2, background: "var(--c-accent-mid)", flexShrink: 0 }} />
       <span style={{ minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--c-ink)" }}>{formatYmd(session.recordedAt, { timeOnly: true })}</span>
-        <span style={{ fontSize: 11, color: "var(--c-ink-3)", marginTop: 2 }}>{meta}</span>
+        <span style={{ fontSize: "var(--fs-md)", fontWeight: 600, color: "var(--c-ink)" }}>{formatYmd(session.recordedAt, { timeOnly: true })}</span>
+        <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginTop: 2 }}>{meta}</span>
       </span>
       <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0 }}>
         {sessionDurationLabel(session) ?? ""}
@@ -14118,7 +14120,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
         }}
       >
         <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>すべてのセッション {totalSessionCount} 件</span>
-        <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: 17, color: "var(--c-line-strong)" }}>›</span>
+        <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: "var(--fs-lg)", color: "var(--c-line-strong)" }}>›</span>
       </button>
 
       {/* 【D-10 §6】音の傾向カード。指標タブ + 式の行 + 折れ線/窓型 + 目安の告知が1枚に入る。
@@ -14223,7 +14225,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
             比較対象の列から「目安」が消えることの説明も兼ねる)。
             【D-10 §6】置き場所は**カードの中の最下段**へ移した。 */}
         {!selectedIdeal && (
-          <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", paddingTop: 10 }}>目安未設定</div>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 10 }}>目安未設定</div>
         )}
       </div>
 
@@ -14571,11 +14573,11 @@ function AnalysisLabView(props) {
               <div style={{ pointerEvents: "auto", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
                 {/* 【N-6】正典 mini「読み込み中」: 11px --ink3 の見出し + **3px の細い横棒** + 右に %。
                     棒の地は正典どおりヘアラインのトークン(--c-line)。8px の太い棒より静か。 */}
-                <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 8 }}>読み込み中</div>
+                <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 8 }}>読み込み中</div>
                 <div style={{ background: "var(--c-line)", borderRadius: 2, height: 3, overflow: "hidden" }}>
                   <div style={{ width: `${Math.round(uploadProgress * 100)}%`, height: "100%", background: "var(--c-accent)", borderRadius: 2, transition: "width 0.2s linear" }} />
                 </div>
-                <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "var(--c-ink-3)", textAlign: "right", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
+                <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "right", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
               </div>
             )}
             {!isAnalyzingUpload && lastUploadedSession && (
@@ -14681,6 +14683,8 @@ function AnalysisLabView(props) {
               aria-expanded={filterEditorOpen}
               className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: 0, minHeight: ANALYSIS_ROW_H }}
             >
+              {/* 【文字の 11px は正典が指定している】検査が design/canvas/A1.dc.html から読んで
+                  突き合わせている。§4.1 の7段(12px)と食い違うが、正典が勝つ(本人の決め)。 */}
               <span style={{
                 display: "inline-flex", alignItems: "center", maxWidth: 160,
                 background: "var(--c-accent-tint)", border: "1px solid transparent",
@@ -14711,7 +14715,7 @@ function AnalysisLabView(props) {
               display: "inline-flex", alignItems: "center",
               background: "transparent", border: "1px dashed var(--c-line-strong)",
               borderRadius: "var(--r-pill)", padding: "4px 11px",
-              fontSize: 11, color: "var(--c-ink-2)", lineHeight: 1.4,
+              fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.4,
             }}>＋</span>
           </button>
           {/* (【D-14 2026/08/27 本人指示】ここに「編集 / 閉じる」の語があったが、本人
@@ -15327,7 +15331,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
             <button
               type="button" onClick={() => setEditOpen(true)} aria-expanded={editOpen}
               className="sans"
-              style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-accent)", fontWeight: 600, fontSize: 11.5 }}
+              style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-accent)", fontWeight: 600, fontSize: "var(--fs-xs)" }}
             >
               編集
             </button>
@@ -15352,7 +15356,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           (正典 #14b の「検出 4音 · 平均アタック 164ms」と同じ内容。綴りを2箇所に持たない)。 */}
       {frames.length > 0 && (
         <div className="card" style={{ marginTop: "var(--sp-3)" }}>
-          <div className="sans" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)", paddingBottom: 10 }}>録音</div>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)", paddingBottom: 10 }}>録音</div>
           <PhraseTimeline
             frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
             NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
