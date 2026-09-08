@@ -2697,7 +2697,7 @@ function analyzeMediaFile(file, opts) {
     };
     const fail = (message) => { cleanup(); reject(new Error(message)); };
 
-    mediaEl.onerror = () => fail("この形式のファイルは読み込めませんでした（動画の場合、コーデック非対応の可能性があります）");
+    mediaEl.onerror = () => fail("この形式のファイルは読み込めませんでした(動画の場合、コーデック非対応の可能性があります)");
 
     // メタデータがいつまでも来ない(コンテナを解釈できない等)場合の見張り
     timers.push(setTimeout(() => { if (!finished && mediaEl.readyState === 0) fail("ファイルの読み込みがタイムアウトしました"); }, 20000));
@@ -7035,7 +7035,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
             (3つのピルと見出しで 375 を超えると折り返して板が1行ぶん高くなり、
              テンポ操作行を覆う)。恒久の機能でないことは BACKLOG D-18b が持っている。 */}
         <span style={{ fontSize: 11, fontWeight: 600, color: "var(--c-ink)", flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
-          診断（計器）
+          診断(計器)
         </span>
         {/* 【§6.7 の芯2】枠線を持つ操作は状態を持つ物だけ。ここは状態を持たない一手なので
             B型(.ctl-plain .ctl-pill = 枠線なし・地は --c-sunken)の見本どおりに書く。
@@ -7045,7 +7045,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
               スイッチは押したまま残る(触っていない)。 */}
           <button
             type="button" onClick={resetCounts}
-            aria-label="計測をやり直す（止めているスイッチはそのまま）" className="sans" style={{ ...TAP_BUTTON_RESET }}
+            aria-label="測り直し(止めているスイッチはそのまま)" className="sans" style={{ ...TAP_BUTTON_RESET }}
           >
             <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>測り直し</span>
           </button>
@@ -7057,7 +7057,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
               {page === "breakdown" ? "←①〜⑥" : "内訳→"}
             </span>
           </button>
-          <button type="button" onClick={onClose} aria-label="診断を閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
+          <button type="button" onClick={onClose} aria-label="閉じる" className="sans" style={{ ...TAP_BUTTON_RESET }}>
             <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>閉じる</span>
           </button>
         </div>
@@ -7082,29 +7082,29 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           <span className="ctl-plain ctl-pill" style={{ padding: "6px 8px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>他{Object.keys(draw).length - 1}つ→</span>
         </button>
         <span style={{ ...val, fontSize: 11.5, fontWeight: 700, flexShrink: 0 }}>
-          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
+          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)}回/秒
         </span>
       </div>
       <div style={row}><span style={key}>① 絵の間隔 p50/95/99</span>
-        <span style={val}>{metroDiagNum(s?.gapP50, 1)} / {metroDiagNum(s?.gapP95, 1)} / {metroDiagNum(s?.gapP99, 1)} ms</span></div>
+        <span style={val}>{metroDiagNum(s?.gapP50, 1)} / {metroDiagNum(s?.gapP95, 1)} / {metroDiagNum(s?.gapP99, 1)}ms</span></div>
       <div style={row}><span style={key}>　16.7超 / 33超</span>
-        <span style={val}>{s ? s.over16 : "—"} / {s ? s.over33 : "—"} 回（{s ? s.gapN : 0}枚中）</span></div>
+        <span style={val}>{s ? s.over16 : "—"} / {s ? s.over33 : "—"}回({s ? s.gapN : 0}枚中)</span></div>
       <div style={row}><span style={key}>② tick 1回 p50/95</span>
-        <span style={val}>{metroDiagNum(s?.tickP50, 2)} / {metroDiagNum(s?.tickP95, 2)} ms（{s ? s.tickN : 0}回）</span></div>
+        <span style={val}>{metroDiagNum(s?.tickP50, 2)} / {metroDiagNum(s?.tickP95, 2)}ms({s ? s.tickN : 0}回)</span></div>
       <div style={row}><span style={key}>③ 描画 / 経過 / 絵</span>
-        <span style={val}>{metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒 ・ {metroDiagNum(s?.elapsed, 1)} 秒 ・ {s ? s.frames : 0} 枚</span></div>
+        <span style={val}>{metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)}回/秒 ・ {metroDiagNum(s?.elapsed, 1)}秒 ・ {s ? s.frames : 0}枚</span></div>
       <div style={row}><span style={key}>④ out / base / 標本化</span>
-        <span style={val}>{metroDiagNum(s?.outputLatency, 4)} / {metroDiagNum(s?.baseLatency, 4)} s ・ {metroDiagNum(s?.sampleRate, 0)} Hz</span></div>
+        <span style={val}>{metroDiagNum(s?.outputLatency, 4)} / {metroDiagNum(s?.baseLatency, 4)}s ・ {metroDiagNum(s?.sampleRate, 0)}Hz</span></div>
       {/* 【D-19】⑥ この計器の時計の刻み。内訳の p50/p95 をどこまで信じてよいかがここで決まる。
           ⑤(音時計)と1行にまとめてあるのは、スイッチの行を足しても板が振り子を覆わないため。 */}
       <div style={row}><span style={key}>⑤⑥ 音時計 / 計器の刻み</span>
-        <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)} s / {metroDiagNum(s?.perfMinDt, 3)} ms</span></div>
+        <span style={val}>{metroDiagNum(s?.ctxMinDt, 5)}s / {metroDiagNum(s?.perfMinDt, 3)}ms</span></div>
       {/* 【D-20b】⑦ 測っている間どれだけ鳴っていたか。**これが低いと数字が薄まっている**
           ── 実機の1枚目は音色FFT が 2.3回/秒 しか無く、大半は吹いていない時間だった。
           右端の●で「いま音が入っているか」も返す(吹きながら板を見て確かめられる)。 */}
       <div style={row}><span style={key}>⑦ 鳴っていた割合 / いま</span>
         <span style={val}>
-          {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)} % ・{" "}
+          {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)}% ・{" "}
           {metroDiagSoundingNow(s?.soundingSince) ? "● 鳴っている" : "― 無音"}
         </span></div>
 
@@ -7112,9 +7112,9 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           【D-20b】板が伸びるとテンポの −/♩/＋ を覆う量が増えるので、**行数で書く量を決める**。
           ②④⑤⑥ の読み方は D-19 の板から落とした(値は残っている。読み方は BACKLOG にある)。 */}
       <div style={{ ...hint, marginTop: 2 }}>
-        <b>吹き始めたら「測り直し」→そのまま30秒</b>（⑦が高いほど濃い数字）。
+        <b>吹き始めたら「測り直し」→そのまま30秒</b>(⑦が高いほど濃い数字)。
         <b>①</b>を押して③が上がれば原因は<b>表示の側</b>、変わらなければ<b>表示ではない</b>
-        （次は「内訳→」の<b>差</b>）。①16.7超＝絵が飛んだ数。<b>閉じれば全部戻ります</b>。
+        (次は「内訳→」の<b>差</b>)。①16.7超＝絵が飛んだ数。<b>閉じれば全部戻ります</b>。
       </div>
       </>)}
 
@@ -7132,21 +7132,21 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
       {slotRow("└ 中央値・表示", "disp")}
       {slotRow("画面 render", "viewRender")}
       {slotRow("環 render", "ringRender")}
-      {slotRow("環 rAF（走り・光）", "ringRaf")}
+      {slotRow("環 rAF(走り・光)", "ringRaf")}
       <div style={{ height: 1, background: "var(--c-line)", margin: "2px 0" }} />
       <div style={srow}><span style={skey}>測れた合計</span>
-        <span style={sval}>{metroDiagNum(bd?.totalPerSec, 1)} ms/秒 ＝ 1枚 {metroDiagNum(bd?.perFrame, 2)} ms</span></div>
+        <span style={sval}>{metroDiagNum(bd?.totalPerSec, 1)}ms/秒 ＝ 1枚 {metroDiagNum(bd?.perFrame, 2)}ms</span></div>
       <div style={srow}><span style={skey}>実間隔 − 測れた合計</span>
-        <span style={sval}>{metroDiagNum(bd?.gap, 1)} − {metroDiagNum(bd?.perFrame, 2)} ＝ <b>{metroDiagNum(bd?.diff, 2)}</b> ms</span></div>
+        <span style={sval}>{metroDiagNum(bd?.gap, 1)} − {metroDiagNum(bd?.perFrame, 2)} ＝ <b>{metroDiagNum(bd?.diff, 2)}</b>ms</span></div>
       {/* 【D-20b】⑦ をこの板にも出す。**この板を撮ってもらうので、
           「その数字がどれだけ濃いか」が同じ写真に写っていないと読めない。** */}
       <div style={srow}><span style={skey}>書換 走り / 光 ・ ⑦鳴</span>
-        <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)} 回/秒 ・ {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)} %</span></div>
+        <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)}回/秒 ・ {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)}%</span></div>
 
       <div style={{ ...hint, marginTop: 2 }}>
-        読み方：<b>ms/秒</b>＝1秒でその処理に居た時間（★は鳴る時だけ）。├└ は tick の内側なので
+        読み方：<b>ms/秒</b>＝1秒でその処理に居た時間(★は鳴る時だけ)。├└ は tick の内側なので
         合計に足していません。合計に<b>入らない</b>のは、画面への反映・レイアウト・描画・GC。
-        <b>差が大きいほど原因はそちら側</b>（待ち時間も含む）。<b>⑦鳴が低いと全部が薄まります</b>。
+        <b>差が大きいほど原因はそちら側</b>(待ち時間も含む)。<b>⑦鳴が低いと全部が薄まります</b>。
       </div>
       </>)}
 
@@ -7162,7 +7162,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
           <span className="ctl-plain ctl-pill" style={{ padding: "6px 10px", color: "var(--c-ink-2)", fontSize: 11, lineHeight: 1.2 }}>←①〜⑥</span>
         </button>
         <span style={{ ...val, fontSize: 11.5, fontWeight: 700, marginLeft: "auto" }}>
-          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒
+          ③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)}回/秒
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "1px 0" }}>
@@ -7177,7 +7177,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
         {stopBtn("runDisplayValues", "表示値づくり")}
       </div>
       <div style={{ ...hint, marginTop: 2 }}>
-        ①で「表示の側」と出たときに、ここを1つずつ押して絞ります（1つ押す→戻す→次）。
+        ①で「表示の側」と出たときに、ここを1つずつ押して絞ります(1つ押す→戻す→次)。
         <b>詳細カードは閉じている間は描かれていない</b>ので、そのボタンは詳細を開いてから押してください。
         音量(dB)の数字は鳴っていなくても動くので、①でも止まりません。
         走り・呼吸は<b>合ったとき</b>だけ出るので、0¢に合わせながら押してください。
@@ -8125,7 +8125,7 @@ function MeasureView(props) {
               本人の実機指示が正典より上位(F-77 と同じ扱い)。 */}
           <div className="card no-top-rule">
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "var(--c-ink)" }}>倍音構成（実測 / 目安）</span>
+              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "var(--c-ink)" }}>倍音構成(実測 / 目安)</span>
               <div className="sans" style={{ display: "flex", gap: 10, fontSize: 12, color: "var(--c-ink-2)" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 目安</label>
               </div>
@@ -8160,9 +8160,9 @@ function MeasureView(props) {
 
             <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginTop: 16 }}>
               {/* 値・単位・目安行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
-              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`目安: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)} dB` : "— dB"}`} />
-              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`目安: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)} Hz` : "— Hz"}`} />
-              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`目安: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
+              <MetricCard label="音量" value={volumeDb.toFixed(1)} unit="dB" sub={`目安: ${currentNoteIdeal?.volumeDb != null ? `${currentNoteIdeal.volumeDb.toFixed(1)}dB` : "—dB"}`} />
+              <MetricCard label="スペクトル重心" value={centroidHz != null ? String(Math.round(centroidHz)) : "—"} unit="Hz" sub={`目安: ${currentNoteIdeal?.centroidHz != null ? `${Math.round(currentNoteIdeal.centroidHz)}Hz` : "—Hz"}`} />
+              <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`目安: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)}dB` : "—dB"}`} />
             </div>
 
             <div style={{ height: 1, background: "var(--c-sunken)", margin: "18px 0 14px" }} />
@@ -8175,7 +8175,7 @@ function MeasureView(props) {
                 onChange={(e) => setNoiseGateDb(Number(e.target.value))}
                 style={{ flex: 1, accentColor: "var(--c-accent)" }}
               />
-              <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "var(--c-accent)", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
+              <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "var(--c-accent)", width: 62, textAlign: "right" }}>{noiseGateDb}dB</span>
             </div>
 
             {/* 端末がAGC等を無効化できなかった場合の警告(iOS Safari等で発生しうる) */}
@@ -8254,7 +8254,7 @@ function MeasureView(props) {
         <ScrollPicker
           options={TUNING_HZ_OPTIONS} value={tuningHz}
           onChange={setTuningHz} onClose={() => setOpenPicker(null)}
-          labelFn={(hz) => `${hz} Hz`}
+          labelFn={(hz) => `${hz}Hz`}
         />
       )}
       {openPicker === "sax" && (
@@ -8793,8 +8793,8 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             // 【D-5】比較対象は目安だけになったので、読めないときの理由も1つだけ。
             const noTargetLabel = "この音の目安が未登録";
             const cells = [
-              { label: "ピッチ一致度", value: `${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`, sub: selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)} Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—", color: scoreToColor(getMatchScore(selectedFrame, "pitch")) },
-              { label: "音色一致度(目安基準)", value: target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—", sub: target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel, color: target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined },
+              { label: "ピッチ一致度", value: `${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`, sub: selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)}Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—", color: scoreToColor(getMatchScore(selectedFrame, "pitch")) },
+              { label: "音色一致度(目安)", value: target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—", sub: target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel, color: target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined },
             ];
             return (
               <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 12 }}>
@@ -8810,8 +8810,8 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           })()}
 
           <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
-            <span>音量: {selectedFrame.volumeDb?.toFixed(1)} dB</span>
-            <span>HNR: {selectedFrame.hnrDb?.toFixed(1) ?? "—"} dB</span>
+            <span>音量: {selectedFrame.volumeDb?.toFixed(1)}dB</span>
+            <span>HNR: {selectedFrame.hnrDb?.toFixed(1) ?? "—"}dB</span>
           </div>
         </div>
       )}
@@ -10039,7 +10039,7 @@ function ReedsTab(props) {
     if (selectedBoxKeys.size === 0) return;
     const targetGroups = reedGroups.filter((g) => selectedBoxKeys.has(g.key));
     const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
-    if (!window.confirm(`選択した${targetGroups.length}箱（${ids.length}枚）を削除しますか？(元に戻せません)`)) return;
+    if (!window.confirm(`選択した${targetGroups.length}箱(${ids.length}枚)を削除しますか？(元に戻せません)`)) return;
     deleteReeds(ids);
     exitMode();
   };
@@ -11432,7 +11432,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
         <div style={{ paddingTop: 18 }}>
           {hiddenCount > 0 && (
             <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginBottom: 12 }}>
-              選択中{selectedItems.length}枚のうち先頭6枚を表示しています（見分けのつく系列は6本まで）。残り{hiddenCount}枚は選択を外すと入れ替わります
+              選択中{selectedItems.length}枚のうち先頭6枚を表示しています(見分けのつく系列は6本まで)。残り{hiddenCount}枚は選択を外すと入れ替わります。
             </div>
           )}
           {/* 全指標(音量・平均差分・HNR・スペクトル重心)を音名ごとの折れ線で比較(横軸=音名, 縦軸=値) */}
@@ -11718,7 +11718,7 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   return (
     // plain(N-7)のときは下余白も持たない(行の余白は正典 .mrow の padding が持つ)
     <div style={{ marginBottom: plainLayout ? 0 : 18 }}>
-      {!plainLayout && <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
+      {!plainLayout && <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: 6 }}>{label}{unit ? `(${unit})` : ""}</div>}
       {/* (【D-9 2026/08/26】D-8 で足した凡例はここにあった。本人指示「凡例は消して
           チップの枠をその該当の折れ線と同じ色にして」で、**チップの枠**が名前と色の
           対応を引き取ったので撤去した。色を系列の style から引く規則はチップ側が継いでいる。) */}
@@ -11927,7 +11927,7 @@ function ReedScoreHistoryChart({ reed }) {
     <div className="card" style={{ marginTop: "var(--sp-3)" }}>
       <div className="sans" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 6 }}>
         <span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>評価の推移</span>
-        {n > 0 && <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{n} 回の評価</span>}
+        {n > 0 && <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{n}回の評価</span>}
       </div>
       {n === 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-2)" }}>まだ記録がありません</div>
@@ -12641,9 +12641,13 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
         </div>
       )}
       <div ref={boxRef}>{body}</div>
+      {/* 【2026/09/09 UNIFY-AUDIT A21】数えているのは pivotCol の値であって**リードではない**。
+          PIVOT_DIMENSIONS は音名・奏者・メモ等12種で、リードはそのうち3つだけ。
+          だから 11435 の「枚」(あちらは selectedItems = リード個体)とは揃わない。
+          同じ文の中に既にある「系列は6本まで」に合わせて「本」。新しい語は作っていない。 */}
       {body && hiddenCount > 0 && (
         <div className="sans" style={{ marginTop: 6, fontSize: 12, color: "var(--c-ink-3)" }}>
-          残り{hiddenCount}件は表示していません（見分けのつく系列は6本まで）。フィルターで絞ると全部見えます
+          残り{hiddenCount}本は表示していません(見分けのつく系列は6本まで)。フィルターで絞ると全部見えます。
         </div>
       )}
     </div>
@@ -13165,6 +13169,9 @@ function calendarInk(level) { return level >= 3 ? "var(--c-on-accent)" : "var(--
 // 正典は design/canvas/S1.dc.html の「2026/8」。見出しの綴りをここ1箇所に閉じる。
 // (§6.0 の表記規則「日付は yyyy/mm/dd」は**日付**の綴りで、月見出しは別。
 //  ゼロ埋めしないのは本人がキャンバスでそう書いたため。)
+// 【2026/09/09 UNIFY-AUDIT A11 の再確認】「日付書式が4通り」の指摘を受けて見直したが、
+//  ここは凍結仕様 D10-SPEC §2.2 が名指しで yyyy/m を持つ**例外**なので直さない
+//  (0埋めすると正典 design/canvas/S1.dc.html の「2026/8」と食い違う)。
 function calendarMonthLabel(year, month) { return `${year}/${month + 1}`; }
 // 【D-5】マスの当たり判定(§5 は例外なし)と、その中に描く丸の大きさ。
 // 丸をマスより小さくすることで、**見た目は普通の暦のまま**当たり判定を満たす。
@@ -13807,7 +13814,7 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
             {calendarMonthLabel(ym.year, ym.month)}
           </div>
           <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>
-            <b style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{hoursText(totals.seconds)}</b> 時間 · {totals.activeDays} 日
+            <b style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{hoursText(totals.seconds)}</b>時間 · {totals.activeDays}日
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginRight: -8 }}>
@@ -14723,7 +14730,7 @@ function AnalysisLabView(props) {
               正典 A1 の 10px / --c-accent という寸法も、持ち主が居なくなったので消えている。) */}
         </div>
         {pivotFilters.length === 0 && (
-          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 0 8px" }}>条件なし（全データを集計）</div>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 0 8px" }}>条件なし(全データを集計)</div>
         )}
 
         {/* 集計対象抽出(フィルター)の編集。**中身は N-9 から 1つも変えていない**(置き場所と
@@ -14732,7 +14739,7 @@ function AnalysisLabView(props) {
         {filterEditorOpen && (
         <div style={{ padding: "6px 0 12px" }}>
           {pivotFilters.length === 0 ? (
-            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>フィルターなし（全データを集計）</div>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>フィルターなし(全データを集計)</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {pivotFilters.map((flt, i) => {
@@ -14896,9 +14903,9 @@ function AnalysisLabView(props) {
               value: pivotMetric, onChange: (e) => setPivotMetric(e.target.value),
               options: PIVOT_MEASURES.map((m) => ({ v: m.key, l: m.label })) },
             { key: "col", label: "分析軸", aria: "分析軸(色で分ける単位)を選ぶ",
-              text: pivotCol === "none" ? "なし（全体）" : (PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label ?? pivotCol),
+              text: pivotCol === "none" ? "なし(全体)" : (PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label ?? pivotCol),
               value: pivotCol, onChange: (e) => setPivotCol(e.target.value),
-              options: [{ v: "none", l: "なし（全体）" }, ...PIVOT_DIMENSIONS.map((d) => ({ v: d.key, l: d.label }))] },
+              options: [{ v: "none", l: "なし(全体)" }, ...PIVOT_DIMENSIONS.map((d) => ({ v: d.key, l: d.label }))] },
           ].map((z) => (
             /* 【D-5 2026/08/23 本人指示】「並べる軸、数値、分け方の縦幅が無駄に大きい」。
                小さいラベルを**セレクタと同じ <label> の中**へ入れると、ラベルも押せて
@@ -15080,7 +15087,7 @@ function AllSessionsPage({
         {sessions.length > 0 && !listMode && (
           <button
             onClick={onStartSelect}
-            aria-label="セッションを選んで削除"
+            aria-label="削除するセッションを選ぶ"
             className="sans"
             style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-ink-2)" }}
           >

@@ -93,7 +93,7 @@ export default function BackupPanel() {
       const incomingCount = checked.data.counts?.sessions ?? checked.data.sessions.length;
       const ok = window.confirm(
         `このファイルには 計測${jpNum(incomingCount)}件が入っています。\n`
-        + `いまの記録(${jpNum(currentCount)} 回)はすべて置き換わります。よろしいですか？(元に戻せません)`
+        + `いまの記録(${jpNum(currentCount)}回)はすべて置き換わります。よろしいですか？(元に戻せません)`
       );
       if (!ok) return;
 

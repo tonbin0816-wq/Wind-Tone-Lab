@@ -40,7 +40,7 @@ const NET_ERROR = "通信に失敗しました。電波の良いところでも�
 // 「電波の良いところで」と案内すると、利用者を無駄に待たせたうえ原因も伝わらない。
 // この配信をビルドした環境に VITE_FIREBASE_* が無いことが原因なので、
 // 利用者の操作では解決できない。そう分かる文言にする。
-const CONFIG_ERROR = "この配信ではコミュニティを利用できません（アプリの接続設定が読み込めていません）";
+const CONFIG_ERROR = "この配信ではコミュニティを利用できません(アプリの接続設定が読み込めていません)";
 // 失敗の種類で文言を選ぶ。ここ以外で NET_ERROR を直に使わない。
 const connectErrorOf = (e) => (e instanceof FirebaseConfigMissingError ? CONFIG_ERROR : NET_ERROR);
 const SAVE_ERROR = "保存に失敗しました。電波の良いところでもう一度お試しください";
@@ -51,7 +51,7 @@ const TOGGLE_ERROR = "公開設定を変更できませんでした。電波の�
 // これが出るのは**公開されているセキュリティルールと、アプリが書こうとする形が
 // 食い違っているとき**で、利用者の操作では直せない。原因が伝わる文言にし、
 // 直せる人(開発者)が見て分かるように理由もそのまま出す。
-const RULE_ERROR = "サーバーに保存を拒まれました。アプリの更新をお待ちください（電波の問題ではありません）";
+const RULE_ERROR = "サーバーに保存を拒まれました。アプリの更新をお待ちください(電波の問題ではありません)";
 const isPermissionDenied = (e) =>
   e?.code === "permission-denied" || /permission[- ]denied|insufficient permissions/i.test(String(e?.message ?? ""));
 const saveErrorOf = (e) => (isPermissionDenied(e) ? RULE_ERROR : SAVE_ERROR);

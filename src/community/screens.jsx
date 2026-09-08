@@ -133,7 +133,7 @@ function FilterPill({ label, value, options, labelOf, onChange, allowAny = true 
           position: "absolute", inset: 0, width: "100%", height: "100%",
           opacity: 0, border: "none", cursor: "pointer", WebkitAppearance: "none", appearance: "none",
         }}>
-        {allowAny ? <option value={ANY}>{label}（すべて）</option> : null}
+        {allowAny ? <option value={ANY}>{label}(すべて)</option> : null}
         {options.map((v) => <option key={v} value={v}>{labelOf ? labelOf(v) : v}</option>)}
       </select>
       <span aria-hidden="true" className="sans" style={{
@@ -872,7 +872,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
             {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
                 「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
             <div className="sans" style={bodyNoteStyle}>
-              計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
+              計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
             </div>
           </div>
         )}
@@ -1156,7 +1156,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                                centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
                     <Legend series={chart.series} />
                     <div className="sans" style={noteStyle}>
-                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています
+                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
                     </div>
                     {/* 【取り込むのは「合わせたあとの値」】相手の生の値を目標にすると、
                         環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか

@@ -17110,7 +17110,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["日付範囲の入力", /rangeMin: e\.target\.value \? new Date\(e\.target\.value\)\.setHours\(0, 0, 0, 0\) : null/],
       ["日数範囲の入力", /日目 〜/],
       ["測度の切替", /PIVOT_MEASURES\.map/],
-      ["指標(色分け)の切替", /なし（全体）/],
+      ["指標(色分け)の切替", /なし\(全体\)/],
       // 【D-2】3枚の <select> は PlainSelect へ寄せたので、配線の綴りが onChange だけになった
       ["並べる軸の切替", /onChange: \(e\) => setPivotRow\(e\.target\.value\)/],
       ["数値の切替", /onChange: \(e\) => setPivotMetric\(e\.target\.value\)/],
@@ -19447,7 +19447,7 @@ console.log("\n========== 検証37: D-19 1フレームの内訳を測る計器 =
       const rowEnd = diagSrc37.indexOf("</div>", rowStart);
       const btnRow = rowStart > 0 && rowEnd > rowStart ? diagSrc37.slice(rowStart, rowEnd) : "";
       check("37.7 ③(1秒あたりの描画)がスイッチと同じ行に再掲されている",
-        btnRow.length > 60 && btnRow.includes("③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)} 回/秒"),
+        btnRow.length > 60 && btnRow.includes("③ {metroDiagNum(s && s.elapsed > 0 ? s.renders / s.elapsed : null, 1)}回/秒"),
         btnRow.replace(/\s+/g, " ").slice(0, 200) || "行を切り出せない");
     }
   }
