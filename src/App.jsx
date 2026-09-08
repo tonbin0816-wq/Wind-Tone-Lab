@@ -10505,7 +10505,7 @@ function ReedBoxSheet({
               aria-label="枚数を減らす" className="no-select"
               style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: "var(--fs-xl)", fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >−</button>
-            <span aria-live="polite" style={{ fontSize: 26, fontWeight: 600, fontFamily: "var(--font-num)", minWidth: 44, textAlign: "center" }}>{count}</span>
+            <span aria-live="polite" style={{ fontSize: "var(--fs-2xl)", fontWeight: 600, fontFamily: "var(--font-num)", minWidth: 44, textAlign: "center" }}>{count}</span>
             <button
               onClick={() => setCount((v) => clampReedAddCount(v + 1))}
               aria-label="枚数を増やす" className="no-select"
@@ -11473,7 +11473,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               );
             })}
           </div>
-          <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", paddingTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>
             {items.map((it) => <span key={it.label}>{it.label}: {it.frameCount}フレーム</span>)}
           </div>
         </div>
@@ -12637,7 +12637,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
           </div>
           {/* 単位。指標の定義(PIVOT_MEASURES)の label の括弧の中から引く(綴りを2箇所に置かない)。
               名前そのものは上の「数値」セレクタが出しているので、ここは単位だけ。 */}
-          <span className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", flexShrink: 0 }}>{pivotUnitOf(metricDef)}</span>
+          <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{pivotUnitOf(metricDef)}</span>
         </div>
       )}
       <div ref={boxRef}>{body}</div>
@@ -13695,7 +13695,7 @@ function NoteMatrixBlock({ metricKey, matrix }) {
       {/* そのマトリクスの実測レンジ。色の段を引く maxAbs と**同じ matrix から出す**
           (「いちばん濃い窓がいくつか」を読み手が数字で確かめられるようにする)。 */}
       <div style={{ display: "flex", justifyContent: "flex-end", paddingBottom: "var(--sp-2)" }}>
-        <span style={{ fontFamily: "var(--font-num)", fontSize: 10, color: "var(--c-ink-3)" }}>
+        <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>
           {matrixRangeText(matrix)}
         </span>
       </div>
@@ -13705,7 +13705,7 @@ function NoteMatrixBlock({ metricKey, matrix }) {
           {matrix.octaves.map((oct) => (
             <span
               key={oct}
-              style={{ height: MATRIX_CELL_H, display: "flex", alignItems: "center", fontFamily: "var(--font-num)", fontSize: 10, color: "var(--c-ink-3)" }}
+              style={{ height: MATRIX_CELL_H, display: "flex", alignItems: "center", fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}
             >
               {oct}
             </span>
@@ -13714,7 +13714,7 @@ function NoteMatrixBlock({ metricKey, matrix }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: MATRIX_GRID_GAP, marginBottom: MATRIX_GRID_GAP }}>
             {NOTE_NAMES.map((pc) => (
-              <span key={pc} className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", textAlign: "center", overflow: "hidden" }}>{pc}</span>
+              <span key={pc} className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", overflow: "hidden" }}>{pc}</span>
             ))}
           </div>
           {matrix.octaves.map((oct) => (
@@ -14059,7 +14059,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           .surf-card .card.card-accent が持ち、影・角丸・padding は他のカードと同じまま。
           文字は白(--c-on-accent)、ラベルと単位は淡い青(--c-on-accent-dim)。 */}
       <div className="card card-accent" style={{ marginTop: 0 }}>
-        <div className="sans" style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-on-accent-dim)" }}>累計</div>
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-on-accent-dim)" }}>累計</div>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 10 }}>
           {[
             { key: "hours", value: stock.hours, unit: "時間", label: "計測時間" },
@@ -14073,7 +14073,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
                 {z.value}
                 <span className="sans" style={{ fontSize: 12, fontWeight: 400, color: "var(--c-on-accent-dim)", marginLeft: 2, letterSpacing: 0 }}>{z.unit}</span>
               </div>
-              <div className="sans" style={{ fontSize: 10, color: "var(--c-on-accent-dim)", marginTop: 3 }}>{z.label}</div>
+              <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-on-accent-dim)", marginTop: 3 }}>{z.label}</div>
             </div>
           ))}
         </div>
@@ -14585,7 +14585,7 @@ function AnalysisLabView(props) {
                 {/* 【N-6】正典 mini の「解析が完了しました」(12.5px)。
                     色は素の --c-ink。--c-good は §1.5 の機能色(音程が合っている)なので、
                     解析の完了という別の意味に流用しない。 */}
-                <span className="sans" style={{ fontSize: 12.5, color: "var(--c-ink)", flex: 1 }}>解析が完了しました</span>
+                <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink)", flex: 1 }}>解析が完了しました</span>
                 <SetAsIdealButton tapMin session={lastUploadedSession} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
                 {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
                     見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
