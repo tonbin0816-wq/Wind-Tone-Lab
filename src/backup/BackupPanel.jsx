@@ -63,7 +63,7 @@ export default function BackupPanel() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setNotice(`${jpNum(snapshot.counts.sessions)} 回の計測を ${name} に書き出しました`);
+      setNotice(`計測${jpNum(snapshot.counts.sessions)}件を ${name} に書き出しました`);
     } catch {
       setFailure("書き出せませんでした。ブラウザの設定でこの端末の保存領域が使えない可能性があります");
     } finally {
@@ -92,7 +92,7 @@ export default function BackupPanel() {
       const currentCount = current.sessions.length;
       const incomingCount = checked.data.counts?.sessions ?? checked.data.sessions.length;
       const ok = window.confirm(
-        `このファイルには ${jpNum(incomingCount)} 回の計測が入っています。\n`
+        `このファイルには 計測${jpNum(incomingCount)}件が入っています。\n`
         + `いまの記録(${jpNum(currentCount)} 回)はすべて置き換わります。よろしいですか？(元に戻せません)`
       );
       if (!ok) return;

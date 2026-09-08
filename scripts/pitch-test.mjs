@@ -7300,8 +7300,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       /key: "pitchCentsSigned"/.test(reedCompare) && !/key: "pitchCents",/.test(reedCompare));
     // 【2026-08-15】fmt の綴りを写すのをやめ、共有の書式 formatSignedCents を使っていることで見る
     // (書式の中身は「0 に符号を付けない」も含めて §6.7 で挙動として固定した)。
-    check("REED_COMPARE_METRICS のピッチのラベルは「平均差分」(N-2 表記統一)・fmtは共有の書式",
-      /label: "平均差分", unit: "¢", fmt: formatSignedCents/.test(reedCompare));
+    check("REED_COMPARE_METRICS のピッチのラベルは「音程」(2026/09/09 本人裁定。N-2 の「平均差分」を上書き)・fmtは共有の書式",
+      /label: "音程", unit: "¢", fmt: formatSignedCents/.test(reedCompare));
     // 【N-6】ラベルは**正典(design/north-star-measure.html)の文言に固定**する。
     // 「スペクトル重心」のまま長らく正典(「重心」)とずれていたのに、**どの検査も落ちなかった**
     // (統括が N-6 の実測で気付いた)。正典と表示文言のずれは、値の検査では捕まらない。
@@ -7405,8 +7405,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 【平均差分】行の列には出ないが、ヒーローのグラフの軸見出しと読み上げ名そのもの。
         // REED_COMPARE_METRICS 側には同じ検査があるのに、こちらには無く、
         // 「平均差分」→「総評」(語彙の**中**の語)への変異が生存した(審査役が実証)。
-        check("N-6: MY_DATA_METRICS のピッチのラベルも「平均差分」(N-2 表記統一)",
-          labelFor("pitchCentsSigned") === "平均差分", String(labelFor("pitchCentsSigned")));
+        check("N-6: MY_DATA_METRICS のピッチのラベルも「音程」(2026/09/09 本人裁定。N-2 の「平均差分」を上書き)",
+          labelFor("pitchCentsSigned") === "音程", String(labelFor("pitchCentsSigned")));
       }
     }
     check("旧SESSION_METRICS(符号付き差し替え版)は廃止され、配列は1つに統合されている(F-46)",
@@ -7556,7 +7556,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // だけが持っていた綴りなので、表と一緒に画面から消えた。語を消したのではなく
     // **置き場所ごと消えた**ので、この集合からは外し、代わりに「目安そのものは
     // グラフで読める」ことを下で固定する。
-    for (const kept of ["目安に設定", "目安設定中", "目安未設定"]) {
+    for (const kept of ["目安に設定", "目安設定中", "—"]) {
       check(`新表記「${kept}」が動く側のソースに存在する(統一先が消えていない)`,
         liveSrc.includes(kept));
     }
@@ -11950,7 +11950,7 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       check("D-3: 1行メタは 奏者 · 楽器 · リード · 長さ の順で、読めない区画を落とす",
         /const meta = \[\s*\r?\n\s*session\.performer \|\| "自分",[\s\S]{0,400}?\]\.filter\(Boolean\);/.test(detail)
         && /SAX_PRESETS\[session\.saxType\]\?\.label/.test(detail)
-        && /reedShortLabel\(reed, reeds\) \?\? "未紐付け"/.test(detail)
+        && /reedShortLabel\(reed, reeds\) \?\? "—"/.test(detail)
         && /sessionDurationLabel\(session\)/.test(detail));
       check("D-3: 1行メタは読み取り専用(編集は「編集」からシートへ)",
         /onClick=\{\(\) => setEditOpen\(true\)\}/.test(detail)
@@ -12428,7 +12428,7 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
     check("F-68: 2択は A型(.ctl-state)で、選択中を aria-pressed で返す",
       /className="sans ctl-state"[\s\S]{0,120}aria-pressed=\{scope === o\.key\}/.test(btn));
     check("F-68: 選択肢に対象件数を添える",
-      /\{o\.count\}セッション/.test(btn));
+      /計測\{o\.count\}件/.test(btn));
     check("F-68: 件数は selectPerformerSessions から出す(画面側で数え直さない)",
       /selectPerformerSessions\(sessions, session\)\.length/.test(btnCode));
     check("F-68: 保存は選んだ対象(scope)を渡す", /onSave\(session, trimmed, scope\)/.test(btnCode));
@@ -13315,7 +13315,7 @@ let METRO_SIGS_ALL = [];
       next("A", "A") === null, String(next("A", "A")));
     check("F-76: 別の行をタップしたときは解除ではなく乗り換え(従来の挙動を壊さない)",
       next("B", "A") === "A", String(next("B", "A")));
-    // 解除後は「目安未設定」の表示に戻る = selectedIdeal / currentNoteIdeal が null になり、
+    // 解除後は「—」の表示に戻る = selectedIdeal / currentNoteIdeal が null になり、
     // 比較の破線と「目安: n」が消える。**表示側に分岐を足していない**ことを綴りで確かめる
     // (selectedIdealId から selectedIdeal を引く1本道が保たれていること)。
     // 【2026/09/06】目安は自分の平均に平行移動してから使うようになったので、
@@ -13569,7 +13569,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         ["銘柄", /\{g\.brand\}/],
         ["番手", /\{g\.strength\}/],
         ["平均★", /★\{avgRating\.toFixed\(1\)\}/],
-        ["開封日", /formatYmd\(g\.startDate\) \?\? "開封日 未設定"/],
+        ["開封日", /formatYmd\(g\.startDate\) \?\? "—"/],
       ];
       for (const [label, re] of shown) check(`箱見出しに ${label} が出る`, re.test(head), label);
       // 枚数(g.members.length)は出さない = タイルを数えれば分かる(正典の判断)
@@ -14421,14 +14421,14 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("D-4: 1行メタは reedDetailMetaParts が組み立てる(区切りは画面が打つ)",
       /const meta = reedDetailMetaParts\(reed\.startDate, usageDays\(new Date\(\), reed\.startDate\), reedSessions\.length\);/.test(detail));
     check("D-4: 正典 #15a の並び(開封日 → 日数 → セッション数)",
-      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · ") === "開封 2026/06/10 · 74日 · 4 セッション",
+      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · ") === "開封 2026/06/10 · 74日 · 計測4件",
       api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · "));
-    check("D-4: セッションが0件なら「未測定」",
-      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · 未測定",
+    check("D-4: セッションが0件なら「—」",
+      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · —",
       api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · "));
     check("D-4: 開封日が未設定なら開封の区画も日数の区画も出さない(穴を作らない)",
-      api.reedDetailMetaParts(null, null, 3).join(" · ") === "3 セッション"
-      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "未測定",
+      api.reedDetailMetaParts(null, null, 3).join(" · ") === "計測3件"
+      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "—",
       `${api.reedDetailMetaParts(null, null, 3).join(" · ")} / ${api.reedDetailMetaParts(null, null, 0).join(" · ")}`);
     check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
       !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
@@ -14952,7 +14952,7 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       /\.slist-row \{[^}]*min-height:\s*var\(--tap-min\)\s*;/.test(cssIdx));
     // 副次行「V16-3 #4 · 自分 · 12:24」。**読めない区画は丸ごと省く**
     check("26.3 副次行はリード短縮形・奏者・録音時間を余白でつなぎ、欠測は区画ごと省く",
-      /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(allSessionsPage)
+      /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "—", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(allSessionsPage)
       && /\{subParts\.map\(\(t, i\) => <span key=\{i\}>\{t\}<\/span>\)\}/.test(allSessionsPage)
       && !/[·・]/.test(codeOf(allSessionsPage)));
     check("26.3 ピッチの差分は行から出さない(本人指示)",
@@ -15198,7 +15198,7 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     ];
     check("26.5 「V16-3 #2」の形(短縮は shortBoxLabel・番号は reedPosition)",
       rs(reeds[1], reeds) === "V16-3 #2", String(rs(reeds[1], reeds)));
-    check("26.5 リードが無ければ null(呼び出し側が「未紐付け」に振り替える)", rs(null, reeds) === null);
+    check("26.5 リードが無ければ null(呼び出し側が「—」に振り替える)", rs(null, reeds) === null);
   }
 
   // --- 26.6 【F-108 2026/08/17 本人指示で反転】子タブ行の「…」の廃止 ------------------
@@ -15280,7 +15280,7 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       // 【N-7 本人指示による書き換え】音名軸グラフの入口は TappableMetricCard(タップ切り替え)
       // から常時表示の NoteAxisLineChart へ移った。機能(音名ごとの内訳)は消えていない。
 
-      ["目安未設定の告知", /目安未設定/],
+      ["—の告知", /—/],
       ["期間に記録が無いときの文言", /この期間の「自分」のセッションはありません/],
       ["記録が無いときの文言", /まだ記録がありません/],
       ["条件に合わないときの文言", /条件に合うセッションがありません/],
@@ -16312,10 +16312,10 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.7 D-10: 蓄積量は My Data の先頭へ移った(分析タブの脚注は消えている)",
       /const stock = myDataStockTexts\(myDataStock\(allMySessions\)\);/.test(myDataSection)
       && !/myDataStock/.test(codeOf(lab27)));
-    check("27.7 D-10: 累計の綴りは「累計 / 計測時間 / 計測回数 / 計測音」(本人がキャンバスで直した語)",
+    check("27.7 D-10: 累計の綴りは「累計 / 計測時間 / 計測件数 / 計測音」(本人がキャンバスで直した語)",
       /}}>累計<\/div>/.test(myDataSection)
       && /unit: "時間", label: "計測時間"/.test(myDataSection)
-      && /unit: "回", label: "計測回数"/.test(myDataSection)
+      && /unit: "件", label: "計測件数"/.test(myDataSection)
       && /unit: "音", label: "計測音"/.test(myDataSection));
     check("27.7 D-10: 累計の3つの数字は stock の3つをそのまま並べる(数の作り方を増やさない)",
       /value: stock\.hours/.test(myDataSection) && /value: stock\.sessions/.test(myDataSection)
@@ -16678,12 +16678,12 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       // (c) だからこの行に奏者を出さない
       check("27.10 D-10b: その日のセッションの行は奏者を出さない(母集団が自分だけなので情報を運ばない)",
         !/performer/.test(rowSrc), (rowSrc.match(/.{0,40}performer.{0,40}/) || [""])[0]);
-      check("27.10 D-10b: メタはリードだけ。読めなければ「未紐付け」(D-5 の規則は不変)",
-        /const meta = reedShortLabel\(reed, reeds\) \?\? "未紐付け";/.test(srcOfFn(src, "DaySessionRow")));
+      check("27.10 D-10b: メタはリードだけ。読めなければ「—」(D-5 の規則は不変)",
+        /const meta = reedShortLabel\(reed, reeds\) \?\? "—";/.test(srcOfFn(src, "DaySessionRow")));
       // (d) **「すべてのセッション」の行は触っていない** ── あちらは全奏者が出る画面なので
       //     奏者が情報になる。同じ綴りに見えても母集団が違う、を検査でも分ける。
       check("27.10 D-10b: すべてのセッションの行は奏者を出したまま(母集団が違うので巻き添えにしない)",
-        /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]/.test(srcOfFn(src, "AllSessionsPage")));
+        /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "—", s\.performer \|\| null, dur\]/.test(srcOfFn(src, "AllSessionsPage")));
       check("27.10 D-10b: その画面の母集団は絞っていない全セッション(奏者が情報になる)",
         /<AllSessionsPage\s*\r?\n\s*sessions=\{sessions\} reeds=\{reeds\}/.test(srcOfFn(src, "AnalysisLabView")));
     }
@@ -16692,7 +16692,7 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       && !/formatMonthDay/.test(code));
     // (7) すべてのセッションも小カード。入口は1つだけ(27.7 が数えている)。
     check("27.10 D-10 §2.3: すべてのセッションの行は小カード(.rowcard)",
-      /className="rowcard sans"[\s\S]{0,400}?すべてのセッション \{totalSessionCount\} 件/.test(myDataSection));
+      /className="rowcard sans"[\s\S]{0,400}?すべての計測 \{totalSessionCount\}件/.test(myDataSection));
     // (8) 累計の数字は 26px・字間 −.02em(§4.4「24px以上の数値」)。単位だけ字間を 0 に戻す。
     // 【D-15 §3 で色だけ変わった】地が濃紺になったので、数字は --c-on-accent、
     // 単位とラベルは --c-on-accent-dim。**寸法・字間は1つも変えていない**ので
@@ -17072,7 +17072,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     /type="range"/.test(pt29) && /barlineXs\.map/.test(pt29) && /setSelectedFrameIdx\(i\)/.test(pt29));
   // 【D-3】編集シートへ移った。渡し方(値と onChange をそのまま)は変わっていない。
   check("29.3 D-3: リード紐付けは編集シートで onSetReedId に配線され、表示値はリードの表記そのもの",
-    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "未紐付け"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(e\) => onSetReedId\(e\.target\.value \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
+    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "—"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(e\) => onSetReedId\(e\.target\.value \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
     && /onSetReedId=\{setSessionReedId\}/.test(det29));
   check("29.3 PIVOT の次元セレクタは dimKey を書き換え、値の選択をリセットする(機能は従来のまま)",
     /text=\{dim\?\.label \?\? flt\.dimKey\}\s*\r?\n\s*value=\{flt\.dimKey\}\s*\r?\n\s*onChange=\{\(e\) => setPivotFilters\(\(prev\) => prev\.map\(\(p, j\) => \(j === i \? \{ dimKey: e\.target\.value, values: \[\], rangeMin: null, rangeMax: null \}/.test(lab29));

@@ -41,8 +41,8 @@ const formatSignedCents = (v) => {
 const roundInt = (v) => Math.round(v).toString();
 
 // ---- NoteAxisLineChart の L( ) をそのまま再現 ---------------------------
-// 【D-9u 2026/08/25 本人指示】「平均差分以外はその項目の平均を中央線にして同様に」
-//   ・平均差分 … 中央線 = 0（従来どおり）
+// 【D-9u 2026/08/25 本人指示】「音程以外はその項目の平均を中央線にして同様に」
+//   ・音程 … 中央線 = 0（従来どおり）
 //   ・HNR / 重心 / 音量 … 中央線 = **その指標で描いている全値の平均**
 // どちらも中央線をまん中に置いて上下対称のドメインにする（＝「同様に」）。
 // こうすると上下の目盛線が無くても、中央線1本が基準として必ず残る。
@@ -114,7 +114,7 @@ function chartSvg({ series, L, zeroCentered, bandAbs, refVals, edgeGridLines = t
       p.push(`<line x1="0" y1="${r2(L.yAt(v))}" x2="${W2}" y2="${r2(L.yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
     }
   }
-  // 【D-9u】中央線は1本だけ。平均差分は 0、他3指標はその指標の平均
+  // 【D-9u】中央線は1本だけ。音程は 0、他3指標はその指標の平均
   if (L.center !== null && L.center !== undefined) {
     p.push(`<line x1="0" y1="${r2(L.yAt(L.center))}" x2="${W2}" y2="${r2(L.yAt(L.center))}" stroke-width="1" style="stroke: var(--c-line-strong)" />`);
   }
@@ -166,7 +166,7 @@ function subTabRow() {
 
 // 指標タブ(MetricUnderlineTabs bordered): marginLeft -8 / 下辺に罫 / 文字 13
 function metricTabs(sel) {
-  const items = ["平均差分", "HNR", "重心", "音量"];
+  const items = ["音程", "HNR", "重心", "音量"];
   return `<div style="display: flex; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line)">
 ${items.map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === sel ? "var(--c-ink)" : "var(--c-ink-3)"};${t === sel ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
@@ -216,7 +216,7 @@ const cenDay = mk([ 690,760,840,null,930,1010,1090,1180,1260,1340,1420,1490,1560
 const cenPeriod = mk([ 640,700,780,850,920,990,1060,1140,1210,1280,1350,1410,1480,1550,1610,1680,1740,1810,1870,1930,1990,2040,2090,2120,2080,2010,1940,1860,1770,1670,1560,1450,1340 ]);
 const cenRef = mk([ 880,960,1040,1120,1200,1280,1360,1440,1520,1600,1670,1740,1810,1880,1950,2010,2070,2130,2190,2250,2300,2350,2400,2430,2400,2340,2270,2190,2100,2000,1890,1780,1670 ]);
 
-// ---- Main.dc.html : 平均差分 × 折れ線(0中心 + 帯) ------------------------
+// ---- Main.dc.html : 音程 × 折れ線(0中心 + 帯) ------------------------
 {
   const series = [
     { id: "day", label: "8/24", color: "var(--c-accent)", width: 2, byIdx: pitchDay },
@@ -224,7 +224,7 @@ const cenRef = mk([ 880,960,1040,1120,1200,1280,1360,1440,1520,1600,1670,1740,18
   ];
   const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents });
   const body = page([
-    metricTabs("平均差分"),
+    metricTabs("音程"),
     compareRow(["自分の平均", "目安", "±0"], "±0", "line"),
     legendRow(series, null),
     `<div>
@@ -254,7 +254,7 @@ const cenRef = mk([ 880,960,1040,1120,1200,1280,1360,1440,1520,1600,1670,1740,18
   console.log("Centroid H=" + L.H + " ticks=" + L.tickTexts.join("/"));
 }
 
-// ---- Windows.dc.html : 平均差分 × 窓型(8段の発散スケール + 帯の灰) ------
+// ---- Windows.dc.html : 音程 × 窓型(8段の発散スケール + 帯の灰) ------
 const matrixCellText = (v) => { const r = Math.round(v); return r > 0 ? "+" + r : String(r); };
 const divergingStep = (v, maxAbs) => {
   if (!(maxAbs > 0)) return v < 0 ? 4 : 5;
@@ -284,7 +284,7 @@ function buildMatrix(byIdx) {
 }
 
 function matrixBlock(title, sub, m) {
-  const band = RING_IN_TUNE_CENTS;                    // 平均差分は絶対値の帯
+  const band = RING_IN_TUNE_CENTS;                    // 音程は絶対値の帯
   const texts = [];
   for (const oct of m.octaves) for (const pc of NOTE_NAMES) {
     const v = m.byKey[oct + ":" + pc];
@@ -333,7 +333,7 @@ ${rows}
 {
   const upper = buildMatrix(pitchDay), lower = buildMatrix(pitchPeriod);
   const body = page([
-    metricTabs("平均差分"),
+    metricTabs("音程"),
     compareRow(["自分の平均", "目安", "±0"], "±0", "matrix"),
     matrixBlock("今日の自分", "8/24 − ±0", upper),
     `<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--c-line)">
@@ -400,8 +400,8 @@ ${blocks.join("\n")}
     : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${on ? "var(--c-accent)" : "var(--c-ink-3)"}" stroke-width="${on ? 2.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></svg>`;
   // 指標タブの行に、比較対象(既存の DataOptionSheet を開く「素のテキスト + ▾」)と切替を同居させる
   const mergedRow = `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px; border-bottom: 1px solid var(--c-line)">
-${["平均差分", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === "平均差分" ? "var(--c-ink)" : "var(--c-ink-3)"};${t === "平均差分" ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
+${["音程", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === "音程" ? "var(--c-ink)" : "var(--c-ink-3)"};${t === "音程" ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
           </div>`).join("\n")}
           <div style="margin-left: auto; display: flex; align-items: center; flex-shrink: 0">
             <div style="min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-end; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--c-accent)">±0 ▾</div>
@@ -545,7 +545,7 @@ const d9SubTabRow = () => `<div style="display: flex; align-items: center; gap: 
 
 // 【D-9y】指標タブの下の罫は**両方外す**(本人裁定)
 const d9MetricTabs = (sel) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
-${["平均差分", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+${["音程", "HNR", "重心", "音量"].map((t) => `          <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === sel ? "var(--c-ink)" : "var(--c-ink-3)"};${t === sel ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
           </div>`).join("\n")}
           ${d9ScopePicker()}
@@ -576,7 +576,7 @@ const d9Page = (inner) => `<div style="width: 375px; background: var(--c-bg); pa
       </div>
     </div>`;
 
-// ---- Main.dc.html（D-9）: 平均差分 × 折れ線 ------------------------------
+// ---- Main.dc.html（D-9）: 音程 × 折れ線 ------------------------------
 {
   const series = [
     { id: "day", label: D9_SERIES[0].label, color: D9_SERIES[0].color, width: 2, byIdx: pitchDay },
@@ -585,7 +585,7 @@ const d9Page = (inner) => `<div style="width: 375px; background: var(--c-bg); pa
   // 【D-9w】plotH 94 → 170。「4指標が縦に積まれるため」という 94 の理由はタブ化で既に古い
   const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH: 170 });
   const body = d9Page([
-    d9MetricTabs("平均差分"),
+    d9MetricTabs("音程"),
     d9FormulaRow(d9Chip(D9_SERIES[0].label, D9_SERIES[0].color), "×", d9Chip(D9_SERIES[1].label, D9_SERIES[1].color), "line"),
     `<div>
           ${chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false })}
@@ -595,7 +595,7 @@ const d9Page = (inner) => `<div style="width: 375px; background: var(--c-bg); pa
   console.log("D-9 Main   plotH=170 H=" + L.H + " ticks=" + L.tickTexts.join("/") + "（上下の目盛線なし・帯なし）");
 }
 
-// ---- Windows.dc.html（D-9）: 平均差分 × 窓型（1枚 + 案D） ---------------
+// ---- Windows.dc.html（D-9）: 音程 × 窓型（1枚 + 案D） ---------------
 {
   const inRangeHigh = LOW_MIDI + N - 1;
   const inRange = (oct, pcIdx) => { const midi = (oct + 1) * 12 + pcIdx; return midi >= LOW_MIDI && midi <= inRangeHigh; };
@@ -648,7 +648,7 @@ ${rows}
         </div>`;
   // 【D-9】窓型は「系列」ではなく「引かれる数 ー 引く数」なので、枠に系列色を持たせない
   const body = d9Page([
-    d9MetricTabs("平均差分"),
+    d9MetricTabs("音程"),
     d9FormulaRow(d9Chip("my平均", "var(--c-line-strong)"), "ー", d9Chip("±0", "var(--c-line-strong)"), "matrix"),
     matrix,
   ].join("\n        "));
@@ -787,7 +787,7 @@ ${[["19:42","自分 · Alto · Vandoren-3 #1","21.7秒"],["18:05","自分 · Alt
   ];
   const L = layout({ vals: series.map((s) => Object.values(s.byIdx)), zeroCentered: true, fmt: formatSignedCents, plotH: 170 });
   const inner = [
-    d9MetricTabs("平均差分"),
+    d9MetricTabs("音程"),
     d9FormulaRow(d9Chip(D9_SERIES[0].label, D9_SERIES[0].color), "×", d9Chip(D9_SERIES[1].label, D9_SERIES[1].color), "line"),
     `<div>
           ${chartSvg({ series, L, zeroCentered: true, bandAbs: null, edgeGridLines: false })}
@@ -841,7 +841,7 @@ ${opts.join("\n")}
       </div>
       <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-sunk); border-radius: 8px; font-size: 11px; color: var(--c-ink-2); line-height: 1.6">
         取り消し線は<b>説明のための印</b>で、実装では<b>行ごと出さない</b>。<br>
-        「±0」は平均差分のときだけ出る（既存の <span style="font-family: var(--font-num)">pitchOnly</span> の規則）。<br>
+        「±0」は音程のときだけ出る（既存の <span style="font-family: var(--font-num)">pitchOnly</span> の規則）。<br>
         目安が未設定なら「目安」も出ない（既存の規則）。
       </div>
     </div>`;
@@ -873,7 +873,7 @@ const rScope = `<div style="margin-left: auto; display: flex; align-items: cente
           <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--c-ink-3)">1ヶ月 ▾</span>
         </div>`;
 const rMetricTabs = (sel, right) => `<div style="display: flex; align-items: center; gap: 0; margin-left: -8px">
-${["平均差分", "HNR", "重心", "音量"].map((t) => `        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
+${["音程", "HNR", "重心", "音量"].map((t) => `        <div style="min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center">
           <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: 13px; font-weight: 600; color: ${t === sel ? "var(--c-ink)" : "var(--c-ink-3)"};${t === sel ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
         </div>`).join("\n")}
         ${right || ""}
@@ -912,7 +912,7 @@ const rPage = (inner, note) => `<div style="width: 375px; background: var(--c-bg
         </div>
       </div>
       <div style="border-top: 1px solid var(--c-rule); padding: 8px 0 16px">
-        ${rMetricTabs("平均差分", rScope)}
+        ${rMetricTabs("音程", rScope)}
         ${rFormula("8/24", "×", "my平均")}
         <div>${rChart(150)}</div>
       </div>
@@ -941,7 +941,7 @@ const rPage = (inner, note) => `<div style="width: 375px; background: var(--c-bg
           <span style="font-size: 18px; font-weight: 600; color: var(--c-ink)">8月24日</span>
           <span style="font-size: 11px; color: var(--c-ink-3)">2 件 · 1分26秒</span>
         </div>
-        ${rMetricTabs("平均差分", "")}
+        ${rMetricTabs("音程", "")}
         ${rFormula("8/24", "×", "my平均")}
         <div>${rChart(150)}</div>
       </div>
@@ -957,7 +957,7 @@ const rPage = (inner, note) => `<div style="width: 375px; background: var(--c-bg
 // ---- 案3 Tiles : 指標が先。4つを横に並べて関係を見せる --------------------
 {
   const tiles = [
-    { l: "平均差分", v: "+2.4", u: "¢", d: pitchDay, sel: true },
+    { l: "音程", v: "+2.4", u: "¢", d: pitchDay, sel: true },
     { l: "HNR", v: "17.2", u: "dB", d: [12,13,15,14,16,17,17.2,16.8], sel: false },
     { l: "重心", v: "1580", u: "Hz", d: [1400,1450,1520,1490,1550,1600,1580,1560], sel: false },
     { l: "音量", v: "-18.4", u: "dB", d: [-22,-21,-20,-19,-18,-18.5,-18.4,-19], sel: false },
@@ -994,13 +994,13 @@ ${tileHtml}
         </div>`;
   const inner = `${rSubTab(rScope)}
       <div style="padding: 0 0 4px">
-${chap("今日の音程", "8月24日 · 2セッション · 音名ごとの平均差分")}
+${chap("今日の音程", "8月24日 · 2セッション · 音名ごとの音程")}
         <div style="margin-top: 12px">
           ${rFormula("8/24", "×", "my平均")}
           <div>${rChart(190)}</div>
         </div>
 ${chap("指標を変える", "同じ音名軸で、別の物差しに切り替える")}
-        <div style="margin-top: 8px">${rMetricTabs("平均差分", "")}</div>
+        <div style="margin-top: 8px">${rMetricTabs("音程", "")}</div>
 ${chap("積み重ね", "練習した日と、その量")}
         <div style="margin-top: 12px">${calendarCard().replace('margin-top: 12px; padding: 16px 0; border-top: 1px solid var(--c-rule)', 'padding: 0')}</div>
       </div>`;
@@ -1039,7 +1039,7 @@ const sSectionHead = (t, right) => `<div style="display: flex; align-items: base
       </div>`;
 
 // ---- サマリー -----------------------------------------------------------
-// S1(採用): 本人が綴りを「累計 / 計測時間 / 計測回数 / 計測音」へ直した
+// S1(採用): 本人が綴りを「累計 / 計測時間 / 計測件数 / 計測音」へ直した
 function sStatsThree() {
   const cell = (v, u, l) => `          <div style="flex: 1; min-width: 0">
             <div style="${sNum}; font-size: 26px; line-height: 1.1; white-space: nowrap">${v}<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">${u}</span></div>
@@ -1048,7 +1048,7 @@ function sStatsThree() {
   return sCard(`${sEyebrow("累計")}
         <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 10px">
 ${cell("12.5", "時間", "計測時間")}
-${cell("46", "回", "計測回数")}
+${cell("46", "回", "計測件数")}
 ${cell("3,120", "音", "計測音")}
         </div>`);
 }
@@ -1174,7 +1174,7 @@ const sScope = (fs = 12) => `<div style="margin-left: auto; display: flex; align
           <span style="min-height: 44px; display: inline-flex; align-items: center; font-size: ${fs}px; color: var(--c-ink-3)">1ヶ月 ▾</span>
         </div>`;
 const sTrendCard = (scopeFs = 12, formula = null) => sCard([
-  rMetricTabs("平均差分", scopeFs ? sScope(scopeFs) : ""),
+  rMetricTabs("音程", scopeFs ? sScope(scopeFs) : ""),
   formula || rFormula("8/24", "×", "my平均"),
   `<div>${rChart(170, 375 - 14 * 2 - 16 * 2)}</div>`,
   sIdealNote,
@@ -1335,7 +1335,7 @@ const aSel = (label, value) => `<div style="min-width: 0">
   const inner = `${aDesc}
       <div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: 16px">
         ${aChips}
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px">${aSel("縦軸", "音名")}${aSel("横軸", "平均差分")}${aSel("分析軸", "リード")}</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px">${aSel("縦軸", "音名")}${aSel("横軸", "音程")}${aSel("分析軸", "リード")}</div>
       </div>
       ${sGap}
       ${sCard(aChart())}`;
@@ -1350,7 +1350,7 @@ const aSel = (label, value) => `<div style="min-width: 0">
   const inner = `${aDesc}
       ${sCard(`${aChips}
         <div style="display: flex; align-items: center; gap: 10px; min-height: 30px"><span style="font-size: 10px; color: var(--c-ink-3); flex-shrink: 0">軸</span>
-          <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">音名 × 平均差分(¢) / リード</span>
+          <span style="font-size: 13px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">音名 × 音程(¢) / リード</span>
           <span style="margin-left: auto; font-size: 15px; color: var(--c-line-strong)">▾</span>
         </div>`)}
       ${sGap}

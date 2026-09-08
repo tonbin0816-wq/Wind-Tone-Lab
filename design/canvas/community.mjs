@@ -449,7 +449,7 @@ ${chip("T.Sax", false)}
 
       <div style="${LABEL}; padding-top: var(--sp-3)">音のデータ</div>
       ${underlineTabs(["重心", "HNR", "音程"], "重心")}
-      <div style="${NOTE}">重心(Hz)　録音${p.rec}回</div>
+      <div style="${NOTE}">重心(Hz)　計測${p.rec}件</div>
       ${lineChart({ keys: KEYS, series, digits: 0 })}
       ${legend(series)}
       <div style="${NOTE}">${ALIGN_NOTE}</div>

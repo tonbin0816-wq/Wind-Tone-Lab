@@ -9419,7 +9419,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
                   }}
                 >
                   <span>{o.label}</span>
-                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>{o.count}セッション</span>
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>計測{o.count}件</span>
                 </button>
               ))}
             </div>
@@ -10369,7 +10369,7 @@ function reedDetailMetaParts(startDate, days, sessionCount) {
   return [
     startDate ? `開封 ${formatYmd(startDate)}` : null,
     days ? `${days}日` : null,
-    sessionCount > 0 ? `${sessionCount} セッション` : "未測定",
+    sessionCount > 0 ? `計測${sessionCount}件` : "—",
   ].filter(Boolean);
 }
 
@@ -10702,7 +10702,7 @@ function ReedRegisterView(props) {
           const nameInner = (
             <>{g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span></>
           );
-          const dateText = formatYmd(g.startDate) ?? "開封日 未設定";
+          const dateText = formatYmd(g.startDate) ?? "—";
           const heading = (
             <>
               {/* 正典 .rname: 15px / 600。番手は <i>(--ink3 / 400 / 斜体にしない)。
@@ -11328,7 +11328,7 @@ const REED_COMPARE_METRICS = [
   { key: "spectralCentroidHz", label: "重心", unit: "Hz", fmt: (v) => Math.round(v).toString() },
   { key: "volumeDb", label: "音量", unit: "dB", fmt: (v) => v.toFixed(1) },
   // sub は副次テキストの導出(F-66)。平均差分(ピッチ)だけが持つ。カード側は m.sub?.(metrics) を渡す
-  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
+  { key: "pitchCentsSigned", label: "音程", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
 // (【D-5 2026/08/23 本人指示】REED_COMPARE_CHART_KEYS = 比較タブに並べる4グラフの順番は
@@ -12223,20 +12223,20 @@ const PIVOT_DIMENSIONS = [
   },
   {
     key: "reed", label: "リード(個体)",
-    getValue: (f, ctx) => (f.reed ? reedLabel(f.reed, ctx.reeds) : "未紐付け"),
+    getValue: (f, ctx) => (f.reed ? reedLabel(f.reed, ctx.reeds) : "—"),
   },
   {
     key: "brand", label: "リード銘柄",
-    getValue: (f) => f.reed?.brand ?? "未紐付け",
+    getValue: (f) => f.reed?.brand ?? "—",
   },
   {
     key: "strength", label: "リード番手",
-    getValue: (f) => (f.reed ? String(f.reed.strength) : "未紐付け"),
+    getValue: (f) => (f.reed ? String(f.reed.strength) : "—"),
     getSort: (f) => (f.reed ? parseFloat(f.reed.strength) : 999),
   },
   {
     key: "rating", label: "リード主観評価",
-    getValue: (f) => (f.reed ? (f.reed.rating ? `★${f.reed.rating}` : "未評価") : "未紐付け"),
+    getValue: (f) => (f.reed ? (f.reed.rating ? `★${f.reed.rating}` : "—") : "—"),
     getSort: (f) => (f.reed ? (f.reed.rating ?? 0) : -1),
   },
   {
@@ -12272,7 +12272,7 @@ const PIVOT_DIMENSIONS = [
   },
   {
     key: "memo", label: "メモ",
-    getValue: (f) => f.memo || "（メモなし）",
+    getValue: (f) => f.memo || "—",
   },
 ];
 
@@ -12297,7 +12297,7 @@ const PIVOT_MEASURES = [
   // 【F-45】ラベルに続きデータ側もF-44/F-46と同じゲート(_pitchGateOk。framesWithContextで
   // セッション単位にselectPitchAggregationFramesを通して付与)を通す。ゲート非通過フレームは
   // nullを返し、buildPivotの「値がnullなら集計から除外」に乗せる(buildPivot自体は無変更)。
-  { key: "pitchCents", label: "平均差分(¢)", getValue: (f) => (f._pitchGateOk ? f.pitchCents : null), fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
+  { key: "pitchCents", label: "音程(¢)", getValue: (f) => (f._pitchGateOk ? f.pitchCents : null), fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1), color: pitchCellColor },
   { key: "pitchHz", label: "ピッチ(Hz)", getValue: (f) => f.pitchHz, fmt: (v) => v.toFixed(1) },
   { key: "volume", label: "音量(dB)", getValue: (f) => f.volumeDb, fmt: (v) => v.toFixed(1) },
   { key: "lowHarm", label: "倍音強度(低次1-4)", getValue: (f) => (timbreSustained(f) ? harmonicSliceMean(f, 0, 4) : null), fmt: (v) => (v * 100).toFixed(0) },
@@ -12673,7 +12673,7 @@ const MY_DATA_METRICS = [
   // 【N-8 2026/08/16 本人指示】その常時表示のピッチ折れ線は、単独のカード(.pitchcard)ごと廃止し、
   // **ヒーロー(紺のカード)の中**へ移った(旧スパークラインの場所)。fmt はここが唯一の答えのまま。
   // sub は副次テキストの導出(F-66)。この指標だけが持つ
-  { key: "pitchCentsSigned", label: "平均差分", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
+  { key: "pitchCentsSigned", label: "音程", unit: "¢", fmt: formatSignedCents, sub: pitchSpreadSub },
 ];
 
 // (【N-8 2026/08/16 本人指示】idealAvgForFrames(目安の加重平均。Δ の導出)はここにあったが、
@@ -12690,7 +12690,7 @@ const MY_DATA_RANGES = [
   { key: "1y", label: "1年" },
   { key: "3y", label: "3年" },
   { key: "5y", label: "5年" },
-  { key: "all", label: "全期間" },
+  { key: "all", label: "すべて" },
 ];
 
 function getMyDataRangeBounds(rangeKey, now) {
@@ -13553,10 +13553,10 @@ function SessionEditSheet({
       {row("リード", (
         <PlainSelect
           ariaLabel="紐付けるリード"
-          text={reed ? reedLabel(reed, reeds) : "未紐付け"}
+          text={reed ? reedLabel(reed, reeds) : "—"}
           value={reedId || ""} onChange={(e) => onSetReedId(e.target.value || null)}
         >
-          <option value="">未紐付け</option>
+          <option value="">—</option>
           {reeds.map((r) => (<option key={r.id} value={r.id}>{reedLabel(r, reeds)}</option>))}
         </PlainSelect>
       ))}
@@ -13864,7 +13864,7 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
               type="button"
               onClick={() => onToggleDay(c.key)}
               aria-expanded={isSel}
-              aria-label={`${c.day}日 ${c.count}件のセッション`}
+              aria-label={`${c.day}日 計測${c.count}件`}
               /* 【D-14】閉じる判定の唯一の除外印。**押せる日だけ**が持つ
                  (記録の無い日は上の <div> なので、押すと枠が閉じる)。 */
               {...{ [CALENDAR_DAY_ATTR]: "" }}
@@ -13901,7 +13901,7 @@ function DaySessionRow({ session, reeds, onOpen }) {
   // 奏者が情報になる。同じ綴りに見えても母集団が違う。
   // 読めない区画は**丸ごと省く**(「—:—」のような穴を作らない)という D-5 の規則はそのまま:
   // リードが無ければ「未紐付け」。
-  const meta = reedShortLabel(reed, reeds) ?? "未紐付け";
+  const meta = reedShortLabel(reed, reeds) ?? "—";
   return (
     <button
       type="button"
@@ -14063,7 +14063,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 10 }}>
           {[
             { key: "hours", value: stock.hours, unit: "時間", label: "計測時間" },
-            { key: "sessions", value: stock.sessions, unit: "回", label: "計測回数" },
+            { key: "sessions", value: stock.sessions, unit: "件", label: "計測件数" },
             { key: "notes", value: stock.notes, unit: "音", label: "計測音" },
           ].map((z) => (
             <div key={z.key} style={{ flex: 1, minWidth: 0 }}>
@@ -14119,7 +14119,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           cursor: "pointer", textAlign: "left",
         }}
       >
-        <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>すべてのセッション {totalSessionCount} 件</span>
+        <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>すべての計測 {totalSessionCount}件</span>
         <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: "var(--fs-lg)", color: "var(--c-line-strong)" }}>›</span>
       </button>
 
@@ -14225,7 +14225,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
             比較対象の列から「目安」が消えることの説明も兼ねる)。
             【D-10 §6】置き場所は**カードの中の最下段**へ移した。 */}
         {!selectedIdeal && (
-          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 10 }}>目安未設定</div>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 10 }}>—</div>
         )}
       </div>
 
@@ -15136,7 +15136,7 @@ function AllSessionsPage({
             const reed = reeds.find((r) => r.id === s.reedId) || null;
             const dur = sessionDurationLabel(s);
             // 副次行「V16-3 #4 · 自分 · 12:24」。読めない区画は**丸ごと省く**。
-            const subParts = [reedShortLabel(reed, reeds) ?? "未紐付け", s.performer || null, dur].filter(Boolean);
+            const subParts = [reedShortLabel(reed, reeds) ?? "—", s.performer || null, dur].filter(Boolean);
             return (
               <div
                 key={s.id}
@@ -15314,7 +15314,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
   const meta = [
     session.performer || "自分",
     SAX_PRESETS[session.saxType]?.label ?? session.saxType,
-    reedShortLabel(reed, reeds) ?? "未紐付け",
+    reedShortLabel(reed, reeds) ?? "—",
     sessionDurationLabel(session),
     session.source === "upload" ? session.sourceFileName : null,
   ].filter(Boolean);

@@ -142,7 +142,7 @@ function memoField(text) {
 const SESSION_W = 315; // 375 − 14×2 − 16×2
 
 function buildSession({ fit = false, missOnly = false } = {}) {
-  // 平均差分(¢)。フラジオ域は吹いていないので欠測にする(区間が切れることを見せる)
+  // 音程(¢)。フラジオ域は吹いていないので欠測にする(区間が切れることを見せる)
   const vals = [-9.2, -7.8, -6.1, -5.4, -3.9, -2.6, -1.4, -0.2, 0.9, 1.8, 2.4, 1.6, 0.5, -0.9, -2.1, -3.4, -2.7, -1.3,
     0.4, 1.9, 3.2, 4.6, 5.8, 6.4, 5.5, 4.1, 2.6, 1.1, -0.7, -2.4, -4.6, -6.5, -8.1, null, null, null, null];
   const ideal = [-6.4, -5.6, -4.7, -3.9, -3.0, -2.2, -1.3, -0.5, 0.4, 1.2, 1.7, 1.2, 0.4, -0.5, -1.3, -2.2, -1.7, -0.8,
@@ -192,7 +192,7 @@ function buildSession({ fit = false, missOnly = false } = {}) {
       })}
 
       <div style="${CARD}; margin-top: var(--sp-3)">
-        ${metricTabs(["平均差分", "HNR", "重心", "音量"], "平均差分")}
+        ${metricTabs(["音程", "HNR", "重心", "音量"], "音程")}
         <div style="margin-bottom: 0">
           ${svg}
         </div>
@@ -328,7 +328,7 @@ ${score("3", "バランス")}
       </div>
 
       <div style="${CARD}; margin-top: var(--sp-3)">
-        ${metricTabs(["平均差分", "HNR", "重心", "音量"], "HNR")}
+        ${metricTabs(["音程", "HNR", "重心", "音量"], "HNR")}
         <div style="margin-bottom: 0">
           ${svg}
         </div>

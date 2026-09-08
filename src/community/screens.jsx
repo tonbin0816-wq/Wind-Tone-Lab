@@ -212,7 +212,7 @@ export function usePublicUsers() {
 // ------------------------------------------------------------------
 // 順位
 // ------------------------------------------------------------------
-const gearLabelOf = (key) => (key === UNSET ? "未選択" : key === OTHER_BRAND ? "その他" : key);
+const gearLabelOf = (key) => (key === UNSET ? "—" : key === OTHER_BRAND ? "その他" : key);
 
 function yearsOf(startYear) {
   if (!Number.isInteger(startYear)) return null;
@@ -949,7 +949,7 @@ const infoValueStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: 
 // 無ければ何も足さない(ルールが null を許している)。
 function GearLine({ label, brand, model, strength = null }) {
   const has = brand !== null && brand !== undefined;
-  const v = !has ? "未選択"
+  const v = !has ? "—"
     : brand === OTHER_BRAND ? "その他"
     : model ? `${brand} ${model}` : brand;
   return (
@@ -1151,7 +1151,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                   <Empty>{chart.error}</Empty>
                 ) : chart ? (
                   <>
-                    <div className="sans" style={noteStyle}>{m.label}({m.unit})　録音{theirIdeal.sourceSessionCount ?? "—"}回</div>
+                    <div className="sans" style={noteStyle}>{m.label}({m.unit})　計測{theirIdeal.sourceSessionCount ?? "—"}件</div>
                     <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
                                centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
                     <Legend series={chart.series} />

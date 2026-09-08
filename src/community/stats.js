@@ -114,7 +114,11 @@ export const PERIOD_FIELD = {
   year: "daysThisYear",
   all: "daysAll",
 };
-export const PERIOD_LABEL = { week: "今週", month: "今月", year: "今年", all: "すべて" };
+// 【2026/09/09 本人裁定】語は My Data の期間セレクタに揃える(今週 -> 1週間 等)。
+// **数え方は暦のまま**(週は startOfWeek から / 月は1日から / 年は1/1から)。
+// My Data 側は「直近N日」のローリングなので、**同じ語で数え方が違う**。
+// どちらへ揃えるかは別途の裁定が要る(design/UNIFY-AUDIT.md A25)。
+export const PERIOD_LABEL = { week: "1週間", month: "1ヶ月", year: "1年", all: "すべて" };
 export const PERIODS = ["week", "month", "year", "all"];
 
 /** 保存前の形の検査。ルールの `is int` と同じ厳しさにする。 */

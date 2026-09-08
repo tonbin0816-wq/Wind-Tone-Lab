@@ -691,7 +691,7 @@ function CheckRow({ checked, onChange, children }) {
 //  ここは「押せないようにする」担当で、正しさの最終判断はあちら。)
 // ------------------------------------------------------------------
 function gearLabel(v) {
-  if (!v || !v.brand) return "未選択";
+  if (!v || !v.brand) return "—";
   return v.model ? `${v.brand} ${v.model}` : v.brand;
 }
 
