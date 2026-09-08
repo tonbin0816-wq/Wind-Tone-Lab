@@ -8694,7 +8694,12 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             // 画面に「平均アタック NaNms」と出る(実際に出た)。数として使える値だけを取る。
             const attacks = noteEvents.map((e) => e.attackTimeMs).filter((v) => Number.isFinite(v));
             const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
-            return <span style={{ marginLeft: 8 }}>｜ 検出ノート {noteEvents.length}{avg !== null ? ` ・ 平均アタック ${avg}ms` : ""}</span>;
+            return (
+          <span style={{ marginLeft: 8, display: "inline-flex", flexWrap: "wrap", gap: 9 }}>
+            <span>｜ 検出ノート {noteEvents.length}</span>
+            {avg !== null ? <span>平均アタック {avg}ms</span> : null}
+          </span>
+        );
           })()}
         </div>
         <div ref={timelineScrollRef} style={{ overflowX: "auto" }}>
@@ -11567,8 +11572,8 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               );
             })}
           </div>
-          <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", paddingTop: 8 }}>
-            {items.map((it) => `${it.label}: ${it.frameCount}フレーム`).join(" ・ ")}
+          <div className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", paddingTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>
+            {items.map((it) => <span key={it.label}>{it.label}: {it.frameCount}フレーム</span>)}
           </div>
         </div>
       )}
@@ -13750,12 +13755,11 @@ function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) 
         {titleSuffix ? <span className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink-3)" }}>{titleSuffix}</span> : null}
       </div>
       {/* 1行メタ。読めない区画は**丸ごと省く**(呼び出し側が filter(Boolean) 済みの配列を渡す)。 */}
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", flexWrap: "wrap" }}>
+      // 【区切りは記号ではなく余白 2026/09/08 本人裁定「中黒は廃止」】
+      // §6.0 囲いの序列「1. 余白で分ける」。幅は WhoLine と同じ 9px に揃える。
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 5, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", flexWrap: "wrap" }}>
         {meta.map((t, i) => (
-          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-            {i > 0 && <span aria-hidden="true" style={{ color: "var(--c-line-strong)" }}>·</span>}
-            <span>{t}</span>
-          </span>
+          <span key={i}>{t}</span>
         ))}
       </div>
     </div>
@@ -15253,7 +15257,9 @@ function AllSessionsPage({
                 />
                 <span className="slist-main">
                   <span className="slist-date">{formatYmd(s.recordedAt, { time: true })}</span>
-                  <span className="slist-sub">{subParts.join(" · ")}</span>
+                  <span className="slist-sub" style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+                    {subParts.map((t, i) => <span key={i}>{t}</span>)}
+                  </span>
                 </span>
                 {s.source === "upload" && <FileAudio size={12} strokeWidth={1.8} style={{ color: "var(--c-ink-3)", flexShrink: 0 }} />}
               </div>

@@ -131,8 +131,8 @@ export default function BackupPanel() {
       </div>
 
       {(storageLine || persistenceLine) && (
-        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 8 }}>
-          {[storageLine, persistenceLine].filter(Boolean).join(" · ")}
+        <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>
+          {[storageLine, persistenceLine].filter(Boolean).map((t, i) => <span key={i}>{t}</span>)}
         </div>
       )}
 

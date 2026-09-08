@@ -1006,7 +1006,12 @@ function Row({ label, value }) {
   );
 }
 
-const listOrDash = (a) => (Array.isArray(a) && a.length > 0 ? a.join("・") : "—");
+// 【区切りは記号ではなく余白 2026/09/08 本人裁定「中黒は廃止」】
+// §6.0 囲いの序列「1. 余白で分ける」。幅は WhoLine と同じ 9px に揃える。
+// WhoLine(screens.jsx)は前から余白だったのに、ここだけ中黒のままだった。
+const listOrDash = (a) => (Array.isArray(a) && a.length > 0
+  ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
+  : "—");
 
 export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup }) {
   const [error, setError] = useState(null);
@@ -1065,7 +1070,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
 
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
-        <Row label="楽器種別" value={types.length > 0 ? types.map((t) => SAX_LABELS[t]).join("・") : "—"} />
+        <Row label="楽器種別" value={listOrDash(types.map((t) => SAX_LABELS[t]))} />
         {/* 楽器の組は楽器種別ごとに1組。どの楽器の楽器の組かが分からないと読めないので、
             種別の見出しを挟んでから3行を出す。 */}
         {types.map((t) => {

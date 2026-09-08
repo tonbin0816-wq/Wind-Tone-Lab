@@ -11952,9 +11952,12 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         && /<SessionEditSheet/.test(detail));
       check("D-3: 編集シートは日付・奏者・リードの3つとも持つ(5行から1つも減っていない)",
         ["日付", "奏者", "リード"].every((n) => new RegExp(`row\\("${n}"`).test(srcOfFn(src, "SessionEditSheet"))));
-      check("D-3: 区切りの「·」は DetailHeader が1箇所で描く(綴りを画面ごとに写さない)",
-        /color: "var\(--c-line-strong\)" \}\}>·<\/span>/.test(srcOfFn(src, "DetailHeader"))
-        && !/·/.test(codeOf(detail)));
+      // 【2026/09/08 本人裁定「中黒は廃止」】区切りは記号ではなく余白(§6.0 囲いの序列)。
+      // **守る中身は同じ** ── 区切りの綴りを画面ごとに写させない。今は「1つも描かない」で見る。
+      check("D-3: 区切りは余白。DetailHeader も画面側も中黒を1つも描かない",
+        !/[·・]/.test(codeOf(srcOfFn(src, "DetailHeader")))
+        && /<span key=\{i\}>\{t\}<\/span>/.test(srcOfFn(src, "DetailHeader"))
+        && !/[·・]/.test(codeOf(detail)));
       // 旧実装(3つを1つの横並びに押し込む)が戻っていないこと
       check("F-98: 奏者・リード・楽器の横一列(overflowX:auto)の行が残っていない",
         !/flexWrap: "nowrap", overflowX: "auto"/.test(detail));
@@ -14573,7 +14576,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("6本超過の告知は現行のまま", cmp.includes("先頭6枚を表示しています"));
     check("★一覧は正典どおり文字で書く(星の絵を使わない)",
       /★\$\{avg\.toFixed\(1\)\}/.test(cmp) && !/<StarRating/.test(cmp));
-    check("フレーム数の脚注は現行のまま", /\$\{it\.frameCount\}フレーム/.test(cmp));
+    check("フレーム数の脚注は現行のまま(区切りは余白)",
+      /\{it\.frameCount\}フレーム/.test(cmp) && !/[·・]/.test(codeOf(cmp)));
     check("空状態は2種とも残っている(リード未登録 / 未選択)",
       cmp.includes("比較するリードがありません") && cmp.includes("リードを選択すると比較グラフが表示されます"));
     check("フレーム数はモジュールの frameCountFor を使う(同じ集計を2箇所に書かない)",
@@ -14942,9 +14946,10 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.3 一覧の行の当たり判定も 44pt(§5。F-106 で CSS へ移った)",
       /\.slist-row \{[^}]*min-height:\s*var\(--tap-min\)\s*;/.test(cssIdx));
     // 副次行「V16-3 #4 · 自分 · 12:24」。**読めない区画は丸ごと省く**
-    check("26.3 副次行はリード短縮形・奏者・録音時間を「 · 」でつなぎ、欠測は区画ごと省く",
+    check("26.3 副次行はリード短縮形・奏者・録音時間を余白でつなぎ、欠測は区画ごと省く",
       /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "未紐付け", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(allSessionsPage)
-      && /\{subParts\.join\(" · "\)\}/.test(allSessionsPage));
+      && /\{subParts\.map\(\(t, i\) => <span key=\{i\}>\{t\}<\/span>\)\}/.test(allSessionsPage)
+      && !/[·・]/.test(codeOf(allSessionsPage)));
     check("26.3 ピッチの差分は行から出さない(本人指示)",
       !/pitchCents/.test(codeOf(allSessionsPage)));
     // 【D-1 2026/08/22】一覧が専用ページへ移ったので、その画面では静的なクラス is-full で
@@ -17057,7 +17062,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     /const attacks = noteEvents\.map\(\(e\) => e\.attackTimeMs\)\.filter\(\(v\) => Number\.isFinite\(v\)\);/.test(pt29));
   check("29.3 D-5: 使える値が1つも無ければ平均そのものを出さない(0ms と嘘をつかない)",
     /const avg = attacks\.length \? Math\.round\(attacks\.reduce\(\(a, b\) => a \+ b, 0\) \/ attacks\.length\) : null;/.test(pt29)
-    && /avg !== null \? \` ・ 平均アタック \$\{avg\}ms\` : ""/.test(pt29));
+    && /avg !== null \? <span>平均アタック \{avg\}ms<\/span> : null/.test(pt29));
   check("29.3 D-5: タイムライン本体(スクラブ・小節線・ドリルダウン)は残っている",
     /type="range"/.test(pt29) && /barlineXs\.map/.test(pt29) && /setSelectedFrameIdx\(i\)/.test(pt29));
   // 【D-3】編集シートへ移った。渡し方(値と onChange をそのまま)は変わっていない。
