@@ -49,7 +49,10 @@
       <symbol id="ic-star" viewBox="0 0 256 256"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></symbol>
     </defs>
   </svg>
-  <div style="width: 375px; background: var(--c-bg)">
+  <!-- 【実測 2026/09/09】app-root と .surf-card が左右 14px を持つ(--page-side-pad)。
+       その中で pageStyle が さらに --sp-4 を足すので、カードの左端は 14+16=30、
+       カードの中の文字は 14+16+16=46。**子タブの文字は 30** なので 16px ずれている。 -->
+  <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
     <div style="padding: 0 var(--sp-4)">
       <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
         <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">データ</div>

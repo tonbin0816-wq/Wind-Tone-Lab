@@ -198,7 +198,10 @@ const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、
 // ---- 画面の外枠 ---------------------------------------------------------
 function screen(sel, inner) {
   return `${sprite()}
-  <div style="width: 375px; background: var(--c-bg)">
+  <!-- 【実測 2026/09/09】app-root と .surf-card が左右 14px を持つ(--page-side-pad)。
+       その中で pageStyle が さらに --sp-4 を足すので、カードの左端は 14+16=30、
+       カードの中の文字は 14+16+16=46。**子タブの文字は 30** なので 16px ずれている。 -->
+  <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
     <div style="padding: 0 var(--sp-4)">
       ${subTabs(sel)}
     </div>
@@ -408,7 +411,7 @@ const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0 var(--sp-3);
 
 function personShell(inner) {
   return `${sprite()}
-  <div style="width: 375px; background: var(--c-bg)">
+  <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
     <div style="padding: var(--sp-4); padding-bottom: var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
       ${inner}
     </div>

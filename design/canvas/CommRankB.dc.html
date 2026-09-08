@@ -53,7 +53,10 @@
       <symbol id="ic-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
     </defs>
   </svg>
-  <div style="width: 375px; background: var(--c-bg)">
+  <!-- 【実測 2026/09/09】app-root と .surf-card が左右 14px を持つ(--page-side-pad)。
+       その中で pageStyle が さらに --sp-4 を足すので、カードの左端は 14+16=30、
+       カードの中の文字は 14+16+16=46。**子タブの文字は 30** なので 16px ずれている。 -->
+  <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
     <div style="padding: 0 var(--sp-4)">
       <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
         <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">データ</div>
