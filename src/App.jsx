@@ -12178,7 +12178,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <DetailHeader
         onBack={onBack}
-        backLabel="‹ 一覧"
+        backLabel="< 一覧"
         actions={null}
         title={shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
         titleSuffix={(
@@ -13724,26 +13724,26 @@ function DeleteActionButton({ count, ariaLabel, onClick }) {
 // 【D-3】画面の上に置く「見出し + 1行メタ」。正典 #14b / #15a が**同じ形**を持つので部品にする。
 //   左上に戻る導線、右上に一手(0〜2個)、その下にセリフの見出し(+ 添え字)、その下に1行メタ。
 // 区切りの「·」は --c-line-strong(正典 #C2C9D4 の写像)。
+// 【戻るの見た目は1箇所 2026/09/08 本人裁定「戻る記号は見た目まで統一」】
+// §6.7 の B型(枠を持たない操作対象。枠なし + 沈めた地)。表記は `< 行き先`(2026/09/06 本人指定)。
+// **月送りの ‹ › は揃えない** ── 戻る導線ではなく別の機能なので(本人裁定)。
+//
+// 以前ここは地を持たない文字ボタン(--c-accent / 13px)で、コミュニティ側だけが
+// 塗りのピルだった。作法が2つある状態を畳んだもので、寸法はコミュニティ側から取っている。
+// **地と padding を自分で持つので、行を左へ食い出させる必要が無い**(食い出しは親に
+// 切られて当たり判定が減る。実測 50.27px の見た目に対し実効 43px しか無かった)。
+export const BACK_BUTTON_STYLE = {
+  minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
+  display: "inline-flex", alignItems: "center", justifySelf: "start",
+  border: "none", borderRadius: "var(--r-md)",
+  background: "var(--c-sunken)", color: "var(--c-ink-2)",
+  fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+};
 function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {
   return (
     <div style={{ paddingBottom: "var(--sp-3)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <button
-          type="button" onClick={onBack} className="sans"
-          style={{
-            /* 【当たり判定 §5・実測で直した】初版は行を左へ食い出させて(marginLeft: -8)
-               文字を本文の左端に揃えていたが、**親が食い出しを切る画面があり**
-               (リード個体詳細は左右に padding を持つ容器の中)、
-               左の 8px が当たり判定から消えて実効 43px しか無かった
-               (Browser pane 375×812 の実測: 見た目 50.27px / 実効 43px)。
-               食い出しをやめ、**右側にだけ余白を足す**形にすれば、文字は左端に揃ったまま
-               当たり判定が切られない。 */
-            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-            padding: `0 ${DETAIL_TAB_HALF_GAP_PX}px 0 0`,
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 13, color: "var(--c-accent)", textAlign: "left",
-          }}
-        >
+        <button type="button" onClick={onBack} className="sans" style={BACK_BUTTON_STYLE}>
           {backLabel}
         </button>
         {actions ? <div style={{ display: "flex", alignItems: "center", gap: 14 }}>{actions}</div> : null}
@@ -15133,17 +15133,9 @@ function AllSessionsPage({
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 戻る導線 + モードの出口/一手。正典 #14b の「‹ 一覧」と同じ作法(左に戻る、右に一手)。
           選択モード中は「選択」を出さない(入口と出口が同時に並ばない)。 */}
-      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: -SUBTAB_HALF_GAP_PX }}>
-        <button
-          type="button" onClick={onBack} className="sans"
-          style={{
-            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-            padding: `0 ${SUBTAB_HALF_GAP_PX}px`,
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 13, color: "var(--c-accent)",
-          }}
-        >
-          ‹ My Data
+      <div className="sans" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button type="button" onClick={onBack} className="sans" style={BACK_BUTTON_STYLE}>
+          {"< My Data"}
         </button>
         {/* 【F-108 の芯】「選択」は**一覧の見出しと同じ行**に置く(下の .shead の行)。
             この行に残すのは戻る導線と、モード中の出口(キャンセル)・一手(削除)だけ。 */}
@@ -15428,7 +15420,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <DetailHeader
         onBack={onBack}
-        backLabel="‹ 一覧"
+        backLabel="< 一覧"
         actions={(
           <>
             <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />

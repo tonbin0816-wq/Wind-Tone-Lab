@@ -14339,8 +14339,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     const detail = srcOfFn(src, "ReedEvaluationDetail");
     check("個体詳細を走査できている", detail.length > 3000, `${detail.length}文字`);
     // 【D-4】戻る導線は共通部品 DetailHeader が描く(セッション詳細と同じ形)。
-    check("「‹ 一覧」で一覧へ戻れる",
-      /backLabel="‹ 一覧"/.test(detail) && /onBack=\{onBack\}/.test(detail)
+    check("「< 一覧」で一覧へ戻れる(見た目は BACK_BUTTON_STYLE の1箇所)",
+      /backLabel="< 一覧"/.test(detail) && /onBack={onBack}/.test(detail)
       && /onClick=\{onBack\}/.test(srcOfFn(src, "DetailHeader")));
     check("見出しは shortBoxLabel(V16-3 の形)", /shortBoxLabel\(reed\.brand, reed\.strength, reeds\.map\(\(r\) => r\.brand\)\)/.test(detail));
     check("#番号は自由入力(空で自動採番の値が placeholder に出る)",

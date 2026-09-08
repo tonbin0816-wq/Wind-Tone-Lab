@@ -30,19 +30,22 @@ const textPx = (s, fs = 12) => {
   return w;
 };
 
-// DetailHeader(App.jsx 13722〜)
+// 戻るの見た目。実装の BACK_BUTTON_STYLE(App.jsx)の写し。§6.7 B型・表記は「< 行き先」。
+const BACK_BTN = "min-height: 44px; padding: 0 var(--sp-3); display: inline-flex; align-items: center; border: none; border-radius: var(--r-md); background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600";
+
+// DetailHeader(App.jsx)
 function detailHeader({ backLabel, actions = "", title, titleSuffix = "", meta }) {
   return `<div style="padding-bottom: var(--sp-3)">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
-          <div style="min-height: 44px; min-width: 44px; padding: 0 8px 0 0; display: flex; align-items: center; font-size: 13px; color: var(--c-accent); text-align: left">${backLabel}</div>
+          <div style="${BACK_BTN}">${backLabel}</div>
           ${actions ? `<div style="display: flex; align-items: center; gap: 14px">${actions}</div>` : ""}
         </div>
         <div style="display: flex; align-items: baseline; gap: 9px; margin-top: 6px; flex-wrap: wrap">
           <span style="${NUM}; font-size: var(--fs-2xl); font-weight: 600; letter-spacing: -.01em; color: var(--c-ink)">${title}</span>
           ${titleSuffix ? `<span style="font-size: var(--fs-sm); color: var(--c-ink-3)">${titleSuffix}</span>` : ""}
         </div>
-        <div style="display: flex; align-items: center; gap: 7px; margin-top: 5px; font-size: var(--fs-xs); color: var(--c-ink-2); flex-wrap: wrap">
-${meta.map((t, i) => `          <span style="display: inline-flex; align-items: center; gap: 7px">${i > 0 ? `<span style="color: var(--c-line-strong)">·</span>` : ""}<span>${t}</span></span>`).join("\n")}
+        <div style="display: flex; align-items: center; gap: 9px; margin-top: 5px; font-size: var(--fs-xs); color: var(--c-ink-2); flex-wrap: wrap">
+${meta.map((t, i) => `          <span style="display: inline-flex; align-items: center; gap: 7px"><span>${t}</span></span>`).join("\n")}
         </div>
       </div>`;
 }
@@ -180,7 +183,7 @@ function buildSession({ fit = false, missOnly = false } = {}) {
 
   return `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
       ${detailHeader({
-        backLabel: "‹ 一覧",
+        backLabel: "&lt; 一覧",
         actions: `<span style="background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-pill); font-size: var(--fs-xs); padding: 5px 10px; color: var(--c-accent); font-weight: 600; flex-shrink: 0; white-space: nowrap">★ 目安に設定</span>
             <span style="min-height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11.5px; color: var(--c-accent); font-weight: 600">編集</span>`,
         title: "9/6",
@@ -202,7 +205,7 @@ function buildSession({ fit = false, missOnly = false } = {}) {
       <div style="${CARD}; margin-top: var(--sp-3)">
         <div style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); padding-bottom: 10px">録音</div>
         <div style="padding: 10px 0; margin-bottom: 10px">
-          <div style="font-size: 12px; color: #435266; margin-bottom: 8px">タイムライン<span style="margin-left: 8px">｜ 検出ノート 5 ・ 平均アタック 164ms</span></div>
+          <div style="font-size: 12px; color: #435266; margin-bottom: 8px">タイムライン<span style="margin-left: 8px; display: inline-flex; flex-wrap: wrap; gap: 9px"><span>｜ 検出ノート 5</span><span>平均アタック 164ms</span></span></div>
           <div style="${fit ? "" : "overflow-x: auto"}">
             <svg width="${TL_W.toFixed(0)}" height="120" style="display: block">
     <line x1="${(25 * STEP).toFixed(1)}" x2="${(25 * STEP).toFixed(1)}" y1="0" y2="108" stroke="#C3CAD3" stroke-width="1" />
@@ -308,7 +311,7 @@ function buildReed({ readable = false } = {}) {
   return `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box; position: relative">
       <div style="padding-left: 10px; padding-right: 10px">
       ${detailHeader({
-        backLabel: "‹ 一覧",
+        backLabel: "&lt; 一覧",
         title: "Vandoren-3",
         titleSuffix: `<span style="display: inline-flex; align-items: center; color: var(--c-ink-3)"><span>#</span><span style="width: 46px; min-height: 44px; display: inline-flex; align-items: center; font-size: 15px; font-weight: 600; color: var(--c-ink-3)">1</span></span>`,
         meta: ["開封 2026/08/02", "36日", "6 セッション"],

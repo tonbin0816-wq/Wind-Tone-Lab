@@ -8,6 +8,9 @@ import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
+// 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
+// CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
+import { BACK_BUTTON_STYLE } from "../App.jsx";
 
 // ------------------------------------------------------------------
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
@@ -586,9 +589,7 @@ export function ShareScreen({ users, saxTypes }) {
               <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", paddingTop: "var(--sp-2)" }}>
                 <button type="button" className="sans" onClick={() => { setDrill(null); setShowRest(false); }}
                         aria-label="メーカーの内訳に戻る"
-                        style={{ flex: "none", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
-                                 border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
-                                 color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
+                        style={{ ...BACK_BUTTON_STYLE, flex: "none" }}>
                   {"< メーカー"}
                 </button>
                 <span className="sans" style={{
@@ -1054,9 +1055,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
         <button type="button" className="sans"
                 onClick={() => (side === "profile" ? setSide("data") : onClose())}
                 aria-label={side === "profile" ? "音のデータに戻る" : "一覧に戻る"}
-                style={{ justifySelf: "start", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
-                         border: "none", borderRadius: "var(--r-md)", background: "var(--c-sunken)",
-                         color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
+                style={BACK_BUTTON_STYLE}>
           {side === "profile" ? "< 音のデータ" : "< 一覧"}
         </button>
 
