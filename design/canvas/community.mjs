@@ -131,12 +131,12 @@ function xLabelIndexes(n) {
 // endLabels: 線の右端に名前を置く。凡例を往復せずにどちらの線か分かるようにするため
 // (§6.0「説明を消して形に語らせる」)。名前のぶん右の余白を広げる。
 // 端の値が近いと札が重なるので、12px 以内なら上下へ振り分ける。
-function lineChart({ keys, series, digits, centerAt = null, endLabels = false }) {
+function lineChart({ keys, series, digits, centerAt = null, endLabels = false, H = CH_H }) {
   const PAD_R = endLabels ? 62 : 8;
-  return lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R });
+  return lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R, H });
 }
 
-function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R }) {
+function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R, H = CH_H }) {
   const all = series.flatMap((s) => keys.map((k) => s.values[k]).filter((v) => typeof v === "number"));
   let lo = Math.min(...all), hi = Math.max(...all);
   if (typeof centerAt === "number") {
@@ -145,10 +145,10 @@ function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R }) {
   } else if (lo === hi) { lo -= 1; hi += 1; }
   const ticks = typeof centerAt === "number" ? [hi, centerAt, lo] : [hi, lo];
   const x = (i) => PAD_L + (keys.length === 1 ? (CH_W - PAD_L - PAD_R) / 2 : (i * (CH_W - PAD_L - PAD_R)) / (keys.length - 1));
-  const y = (v) => PAD_T + (1 - (v - lo) / (hi - lo)) * (CH_H - PAD_T - PAD_B);
+  const y = (v) => PAD_T + (1 - (v - lo) / (hi - lo)) * (H - PAD_T - PAD_B);
   const xl = xLabelIndexes(keys.length);
   const p = [];
-  p.push(`<svg viewBox="0 0 ${CH_W} ${CH_H}" width="100%" role="img" style="display: block; overflow: visible">`);
+  p.push(`<svg viewBox="0 0 ${CH_W} ${H}" width="100%" role="img" style="display: block; overflow: visible">`);
   for (const v of ticks) {
     const stroke = v === centerAt ? "var(--c-line-strong)" : "var(--c-line)";
     p.push(`  <line x1="${PAD_L}" x2="${CH_W - PAD_R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${stroke}" stroke-width="1" />`);
@@ -156,7 +156,7 @@ function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R }) {
   }
   keys.forEach((k, i) => {
     if (!xl.has(i)) return;
-    p.push(`  <text x="${x(i).toFixed(1)}" y="${CH_H - 6}" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">${noteLabel(k)}</text>`);
+    p.push(`  <text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--c-ink-3)">${noteLabel(k)}</text>`);
   });
   const ends = [];
   for (const s of series) {
@@ -283,8 +283,10 @@ function rankRow(p, rank, big) {
           </div>`;
 }
 
+// 【上位3件は案B(左の帯)】2026/09/08 本人裁定で実装済み。ここは現状の写しなので、
+// 実装(screens.jsx の RankRow)と同じ形にしてある。
 function buildRank() {
-  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRow(p, i + 1, true)}`);
+  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRowEdge(p, i + 1)}`);
   const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
   const chips = ["今週", "今月", "今年", "すべて"].map((t) => chip(t, t === "すべて"));
 
@@ -348,55 +350,6 @@ function pieLegend(items) {
   return `<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0">
 ${out.join("\n")}
             </div>`;
-}
-
-function buildShare() {
-  const makers = [
-    { key: "YAMAHA", ratio: 0.42 }, { key: "Selmer Paris", ratio: 0.27 },
-    { key: "Yanagisawa", ratio: 0.18 }, { key: "Buffet Crampon", ratio: 0.07 },
-    { key: "Keilwerth", ratio: 0.04 }, { key: "その他", ratio: 0.02 },
-  ];
-  const combos = [
-    { parts: "YAMAHA YAS-62 / Selmer S90 190 / Vandoren Traditional 3.0", n: 5, pct: 42 },
-    { parts: "Selmer Paris Mark VI / Meyer 5MM / D'Addario Select Jazz 3M", n: 3, pct: 25 },
-    { parts: "Yanagisawa A-WO10 / Selmer Concept / Vandoren V16 3.0", n: 2, pct: 17 },
-    { parts: "YAMAHA YAS-875EX / Otto Link Tone Edge / Vandoren Java 2.5", n: 1, pct: 8 },
-    { parts: "Buffet Crampon Senzo / YAMAHA 4C / Vandoren V12 3.5", n: 1, pct: 8 },
-  ];
-  const depthRow = (text, on) => `          <div style="min-height: 44px; padding: 0; display: flex; align-items: center">
-            <span style="display: flex; align-items: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm); border: 1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}; color: ${on ? "var(--c-accent)" : "var(--c-ink-2)"}; font-size: var(--fs-sm); font-weight: 600; text-align: left">${text}</span>
-          </div>`;
-
-  return screen("share", `${filterRow("A.Sax", null, null)}
-
-      <div style="${CARD}">
-        ${underlineTabs(["楽器", "マウスピース", "リガチャー", "リード"], "楽器")}
-        <div style="display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-2) 0 var(--sp-1)">
-          ${pie(makers)}
-          ${pieLegend(makers)}
-        </div>
-        <div style="${BODY_NOTE}">n = <span style="${NUM}; font-weight: 700">24</span>人</div>
-      </div>
-
-      <div style="${CARD}">
-        <div style="${EYEBROW}; margin-bottom: 10px">人気の組み合わせ</div>
-        <div style="display: grid; gap: 0">
-${depthRow("マウスピース × リード", false)}
-${depthRow("楽器 × マウスピース × リード", true)}
-${depthRow("楽器 × マウスピース × リガチャー × リード", false)}
-        </div>
-        <div>
-${combos.map((c, i) => `          <div style="padding: 7px 0">
-            <div style="display: flex; justify-content: space-between; gap: var(--sp-2)">
-              <span style="font-size: var(--fs-sm); color: var(--c-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">${c.parts}</span>
-              <span style="${NOTE}; flex: none; ${NUM}">${c.n}人</span>
-            </div>
-            <div style="height: 6px; border-radius: var(--r-pill); background: var(--c-sunken); margin-top: 5px; overflow: hidden">
-              <div style="width: ${c.pct}%; height: 100%; background: ${PIE_COLORS[Math.min(i, 2)]}"></div>
-            </div>
-          </div>`).join("\n")}
-        </div>
-      </div>`);
 }
 
 // ---- マイページ ---------------------------------------------------------
@@ -643,7 +596,9 @@ function comboLine(parts) {
       : `<span style="flex: none; white-space: nowrap">${t}</span>`)).join("")}</span>`;
 }
 
-function buildShareB() {
+// 【組み合わせは型番だけ】2026/09/08 本人裁定で実装済み(aggregate.js の gearDisplay)。
+// ここは現状の写し。区切りは中黒でも / でもなく余白(§6.0)。
+function buildShare() {
   const makers = [
     { key: "YAMAHA", ratio: 0.42 }, { key: "Selmer Paris", ratio: 0.27 },
     { key: "Yanagisawa", ratio: 0.18 }, { key: "Buffet Crampon", ratio: 0.07 },
@@ -771,6 +726,72 @@ ${rest.join("\n")}
 const buildRankTint = () => rankScreenWith(rankRowTint);
 const buildRankEdge = () => rankScreenWith(rankRowEdge);
 
+// =========================================================================
+// データ 改善案(2026/09/08 本人指示「下のユーザー一覧はあくまでサブなので
+// 上のグラフが目立つようにして」)
+//
+// どちらも **色は足していない**。効かせているのは §6.0「囲いの序列」だけ:
+//   1. 余白で分ける → 2. 罫で分ける → 3. 面で分ける → 4. カードにする
+// 一覧を1段下げれば、上のカードは何もしなくても相対的に立つ。
+// =========================================================================
+
+const dataRows = (opts) => PEOPLE.slice(0, 4).map((p, i, arr) => `          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: ${opts.pad}; min-height: ${opts.minH}px; border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">
+            ${avatar(p.icon, p.color, opts.av)}
+            <div style="flex: 1 1 0; min-width: 0">
+              ${nameLine(p.nick, p.mine)}${opts.who ? `\n              ${whoLine(p.who)}` : ""}
+            </div>
+            <div style="flex: none; text-align: right"><span style="${NUM}; font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">${p.rec}</span><span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">回</span></div>
+          </div>`).join("\n");
+
+function dataScreen({ chartH, listWrap, rows, note }) {
+  const series = [
+    { label: "みんなの平均", values: asVals(centroidAvg), color: "var(--c-accent)" },
+    { label: "自分", values: asVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
+  ];
+  return screen("data", `${filterRow("A.Sax", null, null)}
+
+      <div style="${CARD}">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)">
+          <div style="${EYEBROW}">みんなの平均</div>
+          <div style="${NOTE}">目安を公開している<span style="${NUM}; font-weight: 700">12</span>人</div>
+        </div>
+        <div style="margin: 10px 0 2px">
+          ${underlineTabs(["重心", "HNR", "音程"], "重心")}
+        </div>
+        <div style="display: grid; gap: var(--sp-2)">
+          ${lineChart({ keys: KEYS, series, digits: 0, H: chartH })}
+          ${legend(series)}
+          <div style="${BODY_NOTE}">${ALIGN_NOTE}</div>
+        </div>
+      </div>
+
+      ${note}
+      <div style="${listWrap}">
+${rows}
+      </div>`);
+}
+
+// 案C: **一覧の面をやめる。** 浮いているカードを画面で1枚だけにする。
+// グラフの縦は 160 → 210(表示 155 → 204px)。一覧は地のまま、行の区切りの罫だけ残す。
+// 一覧の上に「目安を公開している人」の見出しを置く ── 面が無くなるぶん、
+// 何の一覧なのかを言葉が引き受ける。
+const buildDataC = () => dataScreen({
+  chartH: 210,
+  note: `<div style="${EYEBROW}; margin-bottom: -8px">目安を公開している人</div>`,
+  listWrap: "padding: 0 2px",
+  rows: dataRows({ pad: "9px 0", minH: 42, av: 28, who: true }),
+});
+
+// 案D: **一覧をカードのまま1行に詰める。** 属性の行(WhoLine)を落として名前と回数だけにする。
+// 面の序列は変えないが、一覧の高さが 200 → 132px になり、グラフが画面の主役になる。
+// 落とした属性は、その人を押せば人物紹介で読める。
+const buildDataD = () => dataScreen({
+  chartH: 210,
+  note: "",
+  listWrap: CARD_LIST,
+  rows: dataRows({ pad: "8px 2px", minH: 40, av: 28, who: false }),
+});
+
 // ---- 書き出し -----------------------------------------------------------
 const FILES = [
   ["CommData.dc.html", buildData, "データ"],
@@ -781,9 +802,9 @@ const FILES = [
   ["CommPersonBack.dc.html", buildPersonBack, "人をタップ(裏 プロフィール)"],
   ["CommDataB.dc.html", buildDataB, "改善案 データ(線に名前)"],
   ["CommRankB.dc.html", buildRankB, "改善案 順位(上位3位)"],
-  ["CommShareB.dc.html", buildShareB, "改善案 シェア(型番だけ)"],
   ["CommRankTint.dc.html", buildRankTint, "順位案A 淡い地"],
-  ["CommRankEdge.dc.html", buildRankEdge, "順位案B 左の帯"],
+  ["CommDataC.dc.html", buildDataC, "データ案C 一覧の面をやめる"],
+  ["CommDataD.dc.html", buildDataD, "データ案D 一覧を1行に"],
 ];
 
 for (const [name, build, label] of FILES) {

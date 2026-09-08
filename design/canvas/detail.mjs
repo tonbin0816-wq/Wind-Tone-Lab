@@ -138,7 +138,7 @@ function memoField(text) {
 // ---- セッション個別 -----------------------------------------------------
 const SESSION_W = 315; // 375 − 14×2 − 16×2
 
-function buildSession() {
+function buildSession({ fit = false, missOnly = false } = {}) {
   // 平均差分(¢)。フラジオ域は吹いていないので欠測にする(区間が切れることを見せる)
   const vals = [-9.2, -7.8, -6.1, -5.4, -3.9, -2.6, -1.4, -0.2, 0.9, 1.8, 2.4, 1.6, 0.5, -0.9, -2.1, -3.4, -2.7, -1.3,
     0.4, 1.9, 3.2, 4.6, 5.8, 6.4, 5.5, 4.1, 2.6, 1.1, -0.7, -2.4, -4.6, -6.5, -8.1, null, null, null, null];
@@ -149,19 +149,34 @@ function buildSession() {
     fmt: (v) => (Math.abs(v) < 0.05 ? "0.0" : v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)),
   });
 
-  // PhraseTimeline: 幅は max(600, フレーム数 × 6) の**実寸**。カード幅に追従せず横スクロールする
+  // PhraseTimeline。
+  //   現状(fit=false) … 幅は max(600, フレーム数 × 6) の**実寸**。カード幅に追従せず横スクロールする
+  //   案E(fit=true)  … 幅をカードに合わせ、**録音の全体が1画面に収まる**ようにする
   const FRAMES = 100;
+  const STEP = fit ? SESSION_W / (FRAMES - 1) : 6;
+  const TL_W = fit ? SESSION_W : Math.max(600, FRAMES * 6);
+  const BAR_W = Math.max(2, STEP - 1);
   const pitch = Array.from({ length: FRAMES }, (_, i) => {
     const base = 40 + 42 * Math.sin(i / 9) + 10 * Math.sin(i / 2.3);
     return i > 22 && i < 27 ? null : base;
   });
   const minV = Math.min(...pitch.filter((v) => v !== null)), maxV = Math.max(...pitch.filter((v) => v !== null));
   const py = (v) => (v === null ? 100 : 100 - ((v - minV) / (maxV - minV)) * 90);
-  const pts = pitch.map((v, i) => `${i * 6},${py(v).toFixed(1)}`).join(" ");
+  const pts = pitch.map((v, i) => `${(i * STEP).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+  // 一致度の帯。
+  //   現状 … 発音している全フレームを緑/橙/赤で塗る(大半が緑になる)
+  //   案E … **外れているところだけ**塗る。合っているフレームは軌道の灰のまま。
+  //          §1.5「機能色は少なく」── 緑が9割を占める帯は「合っている」ことに面積を
+  //          使いすぎていて、本当に見たい赤と橙が埋もれる。
   const score = (i) => (i > 22 && i < 27 ? "#C3CAD3" : i % 17 < 3 ? "#D97706" : i % 29 === 0 ? "#DC2626" : "#16A34A");
-  const bars = Array.from({ length: FRAMES }, (_, i) => `    <rect x="${i * 6}" y="110" width="5" height="8" fill="${score(i)}" />`).join("\n");
+  const barFill = (i) => {
+    const c = score(i);
+    if (!missOnly) return c;
+    return c === "#16A34A" ? "var(--c-line)" : c;
+  };
+  const bars = Array.from({ length: FRAMES }, (_, i) => `    <rect x="${(i * STEP).toFixed(1)}" y="110" width="${BAR_W.toFixed(1)}" height="8" fill="${barFill(i)}" />`).join("\n");
   const noteLabels = [[3, "C4"], [21, "E♭4"], [45, "G4"], [72, "B♭4"], [93, "E♭5"]]
-    .map(([i, t]) => `    <text x="${i * 6}" y="9" font-size="11" font-weight="700" fill="#174585" font-family="var(--font-num)">${t}</text>`).join("\n");
+    .map(([i, t]) => `    <text x="${(i * STEP).toFixed(1)}" y="9" font-size="11" font-weight="700" fill="#174585" font-family="var(--font-num)">${t}</text>`).join("\n");
 
   return `<div style="width: 375px; background: var(--c-bg); padding: 16px 14px; box-sizing: border-box">
       ${detailHeader({
@@ -188,15 +203,14 @@ function buildSession() {
         <div style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); padding-bottom: 10px">録音</div>
         <div style="padding: 10px 0; margin-bottom: 10px">
           <div style="font-size: 12px; color: #435266; margin-bottom: 8px">タイムライン<span style="margin-left: 8px">｜ 検出ノート 5 ・ 平均アタック 164ms</span></div>
-          <!-- 【幅はカードに追従しない】max(600, フレーム数×6) の実寸で、はみ出したぶんは横スクロール -->
-          <div style="overflow-x: auto">
-            <svg width="600" height="120" style="display: block">
-    <line x1="150" x2="150" y1="0" y2="108" stroke="#C3CAD3" stroke-width="1" />
-    <line x1="330" x2="330" y1="0" y2="108" stroke="#C3CAD3" stroke-width="1" />
+          <div style="${fit ? "" : "overflow-x: auto"}">
+            <svg width="${TL_W.toFixed(0)}" height="120" style="display: block">
+    <line x1="${(25 * STEP).toFixed(1)}" x2="${(25 * STEP).toFixed(1)}" y1="0" y2="108" stroke="#C3CAD3" stroke-width="1" />
+    <line x1="${(55 * STEP).toFixed(1)}" x2="${(55 * STEP).toFixed(1)}" y1="0" y2="108" stroke="#C3CAD3" stroke-width="1" />
 ${noteLabels}
     <polyline points="${pts}" fill="none" stroke="#174585" stroke-width="1.5" />
 ${bars}
-    <line x1="272.5" x2="272.5" y1="0" y2="118" stroke="#121F32" stroke-width="1" stroke-dasharray="2,2" />
+    <line x1="${(45 * STEP + STEP / 2).toFixed(1)}" x2="${(45 * STEP + STEP / 2).toFixed(1)}" y1="0" y2="118" stroke="#121F32" stroke-width="1" stroke-dasharray="2,2" />
             </svg>
           </div>
           <div style="width: 100%; margin-top: 8px; height: 4px; border-radius: 2px; background: var(--c-line-strong); position: relative">
@@ -235,7 +249,7 @@ ${bars}
 // ---- リード個体 ---------------------------------------------------------
 const REED_W = 295; // 375 − 14×2 − 10×2 − 16×2
 
-function buildReed() {
+function buildReed({ readable = false } = {}) {
   const vals = [11.4, 12.8, 13.6, 14.9, 16.2, 17.4, 18.1, 19.6, 20.4, 21.2, 21.9, 22.4, 22.8, 23.1, 22.7, 22.2, 21.6, 20.9,
     20.2, 19.4, 18.7, 18.1, 17.4, 16.8, 16.1, 15.4, 14.6, 13.9, 13.1, 12.4, 11.6, 10.8, 10.1, null, null, null, null];
   const ideal = [12.8, 13.9, 14.8, 15.9, 17.0, 18.0, 18.8, 19.9, 20.6, 21.3, 21.9, 22.3, 22.6, 22.8, 22.5, 22.1, 21.6, 21.0,
@@ -272,7 +286,11 @@ function buildReed() {
     hp.push(`  <line x1="${hAXW.toFixed(1)}" x2="${REED_W}" y1="${hyAt(v).toFixed(1)}" y2="${hyAt(v).toFixed(1)}" stroke="var(--c-line)" stroke-width="1" />`);
     hp.push(`  <text x="${(hAXW - 12).toFixed(1)}" y="${(hyAt(v) + 4).toFixed(1)}" text-anchor="end" font-size="12" font-family="var(--font-num)" fill="var(--c-ink-4)">${v}</text>`);
   }
-  const SERIES = [["a", "var(--c-accent)", 2], ["b", "var(--c-accent-mid)", 2], ["c", "var(--c-accent-line)", 3]];
+  // 【3系列目が読めない】--c-accent-line(#B9C9E4)は白地で 1.69:1。情報を運ぶ線の下限
+  // 3:1 に遠く届かない。案E では --c-ink-3(#8D95A1 = 3.03:1)へ落とす。
+  // データ画面が「自分」を --c-ink-2 で描いているのと同じ手で、色は増えない。
+  const SERIES = [["a", "var(--c-accent)", 2], ["b", "var(--c-accent-mid)", 2],
+    ["c", readable ? "var(--c-ink-3)" : "var(--c-accent-line)", readable ? 2 : 3]];
   for (const [k, color, w] of SERIES) {
     const seg = [];
     let cur = [];
@@ -326,9 +344,9 @@ ${score("3", "バランス")}
         <div style="display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: var(--sp-2); font-size: 10.5px; color: var(--c-ink-3)">
           <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch("var(--c-accent)", 2, null)}総評</span>
           <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch("var(--c-accent-mid)", 2, null)}厚さ</span>
-          <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch("var(--c-accent-line)", 3, null)}バランス</span>
+          <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch(readable ? "var(--c-ink-3)" : "var(--c-accent-line)", readable ? 2 : 3, null)}バランス</span>
         </div>
-        <div style="margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--c-line); font-size: 10.5px; color: var(--c-ink-3)">厚さ・バランスは 8/9 の記録から</div>
+        <div style="${readable ? "margin-top: var(--sp-3)" : "margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--c-line)"}; font-size: 10.5px; color: var(--c-ink-3)">厚さ・バランスは 8/9 の記録から</div>
       </div>
 
       <div style="height: 68px"></div>
@@ -342,8 +360,10 @@ ${score("3", "バランス")}
 }
 
 for (const [name, build, label] of [
-  ["SessionDetail.dc.html", buildSession, "セッション個別"],
-  ["ReedDetail.dc.html", buildReed, "リード個体"],
+  ["SessionDetail.dc.html", () => buildSession(), "セッション個別"],
+  ["ReedDetail.dc.html", () => buildReed(), "リード個体"],
+  ["SessionDetailE.dc.html", () => buildSession({ fit: true, missOnly: true }), "案E セッション(全体が1画面/外れだけ塗る)"],
+  ["ReedDetailE.dc.html", () => buildReed({ readable: true }), "案E リード(3系列目を読める濃さ/罫をやめる)"],
 ]) {
   writeFileSync(OUT + name, dcFile(build()));
   console.log(`${name.padEnd(24)} ${label}`);

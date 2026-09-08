@@ -282,38 +282,67 @@ function RankRow({ row, big = false, mine = false, onTap }) {
     onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } },
     "aria-label": `${row.nickname} の詳細を見る`,
   } : {};
-  return (
-    <div {...tap} style={{
-      cursor: onTap ? "pointer" : "default",
-      display: "flex", alignItems: "center", gap: "var(--sp-3)",
-      // 上位3件だけカードを独立させる。**台の高さには頼らない**(本人指示「丸パクリ過ぎる」)
-      ...(big ? cardStyle : { padding: "11px 2px", minHeight: 47 }),
-    }}>
+  // 【上位3件は大きさと帯で立てる 2026/09/08 本人裁定「案B」】
+  // ・順位の色は**左端の 4px の帯と環の線**が持つ。**面は白のまま**(§6.6 を割らない)
+  // ・順位の数字は --c-ink に戻した。金 2.59:1 / 銀 2.47:1 は大きな文字の下限 3:1 に
+  //   届いておらず、字を大きくしても薄いままだったため(実測)
+  // ・1位だけもう一段大きい。**台の高さには頼らない**(本人指示「丸パクリ過ぎる」)
+  const first = big && row.rank === 1;
+  const inner = (
+    <>
       <div className="sans" style={{
-        flex: "0 0 1.6em", textAlign: "center", fontWeight: 700, letterSpacing: "-.02em",
-        fontFamily: "var(--font-num)",
-        fontSize: big ? "var(--fs-md)" : "var(--fs-sm)",
-        color: rankColor ?? "var(--c-ink-3)",
+        flex: big ? "0 0 34px" : "0 0 1.6em", textAlign: "center", fontWeight: 700,
+        letterSpacing: "-.02em", fontFamily: "var(--font-num)", lineHeight: big ? 1 : undefined,
+        fontSize: big ? (first ? "var(--fs-2xl)" : "var(--fs-xl)") : "var(--fs-sm)",
+        color: big ? "var(--c-ink)" : "var(--c-ink-3)",
       }}>{row.rank}</div>
       {/* 環は面ではなく線。アイコンの外側に出す */}
       <span style={{
-        position: "relative", display: "inline-flex", flex: "none",
-        borderRadius: "50%",
-        boxShadow: rankColor ? `0 0 0 2px ${rankColor}` : "none",
-        margin: rankColor ? 2 : 0,
+        position: "relative", display: "inline-flex", flex: "none", borderRadius: "50%",
+        boxShadow: big && rankColor ? `0 0 0 3px ${rankColor}` : "none",
+        margin: big && rankColor ? 3 : 0,
       }}>
-        <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} size={big ? 44 : 34} />
+        <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN}
+                size={first ? 56 : big ? 44 : 34} />
       </span>
       <div style={{ flex: "1 1 0", minWidth: 0 }}>
-        <NameLine nickname={row.nickname} mine={mine} size={big ? "var(--fs-md)" : undefined} />
+        <NameLine nickname={row.nickname} mine={mine}
+                  size={first ? "var(--fs-lg)" : big ? "var(--fs-md)" : undefined} />
         <WhoLine u={row} />
       </div>
       <div className="sans" style={{
         flex: "0 0 auto", fontWeight: 700, fontFamily: "var(--font-num)", letterSpacing: "-.02em",
-        fontSize: big ? "var(--fs-xl)" : "var(--fs-md)", color: "var(--c-ink)",
+        lineHeight: big ? 1 : undefined,
+        fontSize: big ? (first ? "var(--fs-2xl)" : "var(--fs-xl)") : "var(--fs-md)",
+        color: "var(--c-ink)",
       }}>
         {row.days}<span style={{ fontFamily: "var(--font-jp)", fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>日</span>
       </div>
+    </>
+  );
+  if (!big) {
+    return (
+      <div {...tap} style={{
+        cursor: onTap ? "pointer" : "default",
+        display: "flex", alignItems: "center", gap: "var(--sp-3)",
+        padding: "11px 2px", minHeight: 47,
+      }}>{inner}</div>
+    );
+  }
+  return (
+    <div {...tap} style={{
+      cursor: onTap ? "pointer" : "default",
+      display: "flex", alignItems: "stretch",
+      background: "var(--c-surface)", borderRadius: "var(--r-lg)",
+      boxShadow: "var(--shadow-card)",
+      // 帯を丸に沿わせるために切る。**カードの角を残したまま帯を端まで届かせる唯一の手**
+      overflow: "hidden",
+    }}>
+      <span aria-hidden="true" style={{ flex: "0 0 4px", background: rankColor ?? "transparent" }} />
+      <div style={{
+        flex: "1 1 0", minWidth: 0, display: "flex", alignItems: "center",
+        gap: "var(--sp-3)", padding: "var(--sp-4)",
+      }}>{inner}</div>
     </div>
   );
 }
