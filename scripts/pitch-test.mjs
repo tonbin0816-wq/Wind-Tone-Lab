@@ -5704,20 +5704,25 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
       // 下端に密着するカードだけ。**下端寄せのカードすべてではない**。
       // 意図的に外してあるのは「エラー」「この録音を保存しますか？」「目安に設定」の3枚で、
       // これらは角丸 --r-lg の四方囲みで、つまみも持たない別の部品(判断は BACKLOG F-88 に記録)。
-      check("正典 .sheet の角丸を持つカードを4枚以上走査できている",
-        sheetCards.length >= 4, `${sheetCards.length}枚`);
+      // 【2026/09/08 写しを畳んだ】器は4枚あったが、3枚は BottomSheet へ寄せた。
+      // 残る2枚(テンポと拍子 / BackupSheet)には残る理由がある(34.4 のコメント)。
+      check("正典 .sheet の角丸を持つカードを2枚以上走査できている",
+        sheetCards.length >= 2, `${sheetCards.length}枚`);
       const without = sheetCards.filter((t) => !/dismiss/i.test(t));
       check("正典 .sheet の角丸を持つカードは、1枚残らず下スワイプの配線を持つ",
         without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 90)).join(" || ") || "0枚");
       // 呼び出し側の綴りも codeOf 済みで数える(コメントの言及で水増しされない)。
       check("下スワイプの配線は useSheetDismiss 1本に寄っている(シートごとに書き分けていない)",
         /function useSheetDismiss\(/.test(codeSrc)
-        && (codeSrc.match(/useSheetDismiss\(/g) || []).length >= 5,
+        && (codeSrc.match(/useSheetDismiss\(/g) || []).length >= 3,
         `useSheetDismiss( の出現 ${(codeSrc.match(/useSheetDismiss\(/g) || []).length}回(定義1 + 呼び出し)`);
       // 名指しで4枚を確かめる。集合の性質だけだと「シートを1枚消して緑にする」が通る。
       for (const [label, needle] of [
         ["テンポ拍子(計測タブ)", /ref=\{tempoSheetDismiss\.ref\} \{\.\.\.tempoSheetDismiss\.handlers\}/],
-        ["リード追加・箱を編集", /ref=\{dismiss\.ref\} \{\.\.\.dismissHandlers\}/],
+        // リード追加・箱を編集は BottomSheet へ畳んだ(2026/09/08)。**回避策ごと消えた** ──
+        // ScrollPicker を portal にしたので「ピッカーを開いている間は配線を外す」が要らない。
+        ["リード追加・箱を編集(BottomSheet 経由)", /<BottomSheet ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/],
+        ["ピッカーは portal(回避策が要らない根拠)", /return createPortal\(/],
         ["リード/データの「…」・データの絞り込み", /ref=\{dismiss\.ref\} \{\.\.\.dismiss\.handlers\}/],
       ]) {
         check(`下スワイプの配線が実際に書かれている: ${label}`, needle.test(codeSrc), String(needle));
@@ -6796,8 +6801,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       {
         const community = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
         check("§6.6: コミュニティタブの中身(CommunityTab.jsx)は作法のクラスを名乗らない(根と二重にならない)",
-          !/className="[^"]*surf-(card|rule)|surf-(card|rule)/.test(community),
-          (community.match(/surf-(card|rule)/g) || []).join(" / ") || "0件");
+          !/className="[^"]*surf-(card|rule)|surf-(card|rule)/.test(codeOf(community)),
+          (codeOf(community).match(/surf-(card|rule)/g) || []).join(" / ") || "0件");
       }
       // (c) **名乗ってよい場所そのものを固定する。** 作法のクラスが現れる関数の集合を
       //     綴りで縛る(件数ではなく「誰が持つか」。罠4)。ここに新しい関数が増えたら、
@@ -18314,8 +18319,12 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
     while ((m = re.exec(codeD15)) !== null) {
       cards.push(codeD15.slice(codeD15.lastIndexOf("<div", m.index), m.index));
     }
-    check("34.4 正典 .sheet の角丸を持つカードを5枚以上走査できている(空回りしていない)",
-      cards.length >= 5, `${cards.length}枚`);
+    // 【2026/09/08 写しを畳んだ】器は5枚あったが、うち3枚(リードの操作 / リード番号を変更 /
+    // 追加・箱を編集)は BottomSheet へ畳んだ。残る2枚には残る理由がある:
+    //   ・テンポと拍子 … カードの alignItems が center(他は stretch)
+    //   ・BackupSheet  … portal で body へ出すと .surf-card の外になり .card が効かない
+    check("34.4 正典 .sheet の角丸を持つカードを2枚以上走査できている(空回りしていない)",
+      cards.length >= 2, `${cards.length}枚`);
     const without = cards.filter((t) => !/className="sheet-card"/.test(t));
     check("34.4 §4: 角丸 28px のシートは1枚残らず .sheet-card を名乗る(出方が1枚だけ違う状態を残さない)",
       without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 80)).join(" || ") || "0枚");
@@ -18325,14 +18334,20 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
       scrims === cardCls && scrims === cards.length, `暗幕 ${scrims} / カード ${cardCls} / シート ${cards.length}`);
     // 動きの持ち主は index.css だけ（§1.11 作法2）。JSX に時間・曲線を書かない。
     const inlineMotion = cards.filter((t) => /cubic-bezier|\d+ms|animation:/.test(t));
+    // 畳んだ3枚の根拠。BottomSheet が暗幕とカードの class を1箇所で持つ。
+    check("34.4 §4: BottomSheet 自身が暗幕とカードの class を持つ(畳んだ3枚はここから受け取る)",
+      /className="sheet-scrim"/.test(srcOfFn(src, "BottomSheet"))
+      && /className="sheet-card"/.test(srcOfFn(src, "BottomSheet")));
     check("34.4 §4: シートの開きタグに時間・曲線を1つも書いていない(持ち主は index.css)",
       inlineMotion.length === 0, inlineMotion.length + "枚");
     // 名指しで、当てた4枚がそれぞれ実在すること（集合の性質だけだと1枚消しても緑になる）。
     for (const [label, needle] of [
       ["テンポと拍子(計測タブ)", /aria-label="テンポと拍子"[\s\S]{0,400}?className="sheet-scrim"/],
-      ["リードの操作", /aria-label="リードの操作"[\s\S]{0,400}?className="sheet-scrim"/],
-      ["リード番号を変更", /aria-label="リード番号を変更"[\s\S]{0,400}?className="sheet-scrim"/],
-      ["追加 / 箱を編集", /aria-label=\{isEdit \? "箱を編集" : "リードを追加"\}[\s\S]{0,400}?className="sheet-scrim"/],
+      // 畳んだ3枚は <BottomSheet ariaLabel=...> に渡す形になった。暗幕の class は
+      // BottomSheet が1箇所で持つ(すぐ下の「BottomSheet 自身が暗幕を持つ」で見る)。
+      ["リードの操作", /<BottomSheet ariaLabel="リードの操作"/],
+      ["リード番号を変更", /<BottomSheet ariaLabel="リード番号を変更"/],
+      ["追加 / 箱を編集", /<BottomSheet ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/],
     ]) {
       check(`34.4 §4: 暗幕の動きが実際に当たっている: ${label}`, needle.test(codeD15));
     }

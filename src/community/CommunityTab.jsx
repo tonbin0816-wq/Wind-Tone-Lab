@@ -267,6 +267,12 @@ export function BackupSheet({ onClose }) {
           width: "100%", maxWidth: 900, background: "var(--c-surface)",
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
           padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
+          /* 【写しに欠けていた守り 2026/09/08】App.jsx の BottomSheet は最初からこれを持つ。
+             ここは器を写したときに落ちていた ── 中身が画面を越えると、下端に貼り付く作りなので
+             **上の項目が画面外へ出て届かなくなる**。値は BottomSheet と同じで、新しい割合は作らない。
+             (**この器だけは BottomSheet に畳めない。** portal で body へ出すと .surf-card の外に
+              なり、中の BackupPanel の .card がカードとして描かれなくなる。すぐ上の注記のとおり。) */
+          maxHeight: "calc(100dvh - var(--nav-h))", overflowY: "auto",
           display: "flex", flexDirection: "column", alignItems: "stretch",
         }}
       >

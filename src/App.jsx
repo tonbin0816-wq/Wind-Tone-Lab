@@ -4403,7 +4403,11 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
     }, 130);
   };
 
-  return (
+  // 【portal にする 2026/09/08 本人裁定「部品写しはいいと思う方を採用」】
+  // シートの中から開くので、シートに transform が残っていると position:fixed の基準が
+  // シートになる(§6.3)。body へ出せば基準は必ず画面になり、呼び出し側の回避策
+  // (ReedBoxSheet が持っていた「ピッカーを開いている間は下スワイプの配線を外す」)が要らなくなる。
+  return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
@@ -4434,7 +4438,8 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
         {/* 中央行のハイライト帯(選択中の値がここに来る) */}
         <div style={{ position: "absolute", top: ROW_H, left: 0, right: 0, height: ROW_H, borderTop: "1px solid #E9ECF0", borderBottom: "1px solid #E9ECF0", background: "rgba(37,99,235,0.05)", pointerEvents: "none" }} />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -10179,41 +10184,8 @@ const REED_MORE_ITEMS = [
   { mode: "numberEdit", label: "リード番号を変更" },
 ];
 function ReedMoreMenu({ onClose, onPick }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const dismiss = useSheetDismiss(onClose);   // 【F-88】下スワイプで閉じる
-  return createPortal(
-    <div
-      role="dialog" aria-modal="true" aria-label="リードの操作"
-      onClick={onClose}
-      data-noswipe
-      className="sheet-scrim"
-      style={{
-        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-      }}
-    >
-      <div
-        ref={dismiss.ref} {...dismiss.handlers}
-        onClick={(e) => e.stopPropagation()}
-        data-noswipe
-        className="sheet-card"
-        style={{
-          width: "100%", maxWidth: 900, background: "var(--c-surface)",
-          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
-          display: "flex", flexDirection: "column", alignItems: "stretch",
-        }}
-      >
-        <button
-          onClick={onClose} aria-label="閉じる" className="no-select"
-          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-        >
-          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
-        </button>
+  return (
+    <BottomSheet ariaLabel="リードの操作" onClose={onClose}>
         {REED_MORE_ITEMS.map((it) => (
           <button
             key={it.mode}
@@ -10228,9 +10200,7 @@ function ReedMoreMenu({ onClose, onPick }) {
             {it.label}
           </button>
         ))}
-      </div>
-    </div>,
-    document.body,
+    </BottomSheet>
   );
 }
 
@@ -10242,41 +10212,8 @@ function ReedMoreMenu({ onClose, onPick }) {
 function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
   const [draft, setDraft] = useState(String(reedPosition(reed, reeds) ?? ""));
   const close = () => { onCommit(draft); onClose(); };
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") close(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-  const dismiss = useSheetDismiss(close);   // 下スワイプで閉じる(F-88 と同じ作法)
-  return createPortal(
-    <div
-      role="dialog" aria-modal="true" aria-label="リード番号を変更"
-      onClick={close}
-      data-noswipe
-      className="sheet-scrim"
-      style={{
-        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-      }}
-    >
-      <div
-        ref={dismiss.ref} {...dismiss.handlers}
-        onClick={(e) => e.stopPropagation()}
-        data-noswipe
-        className="sheet-card"
-        style={{
-          width: "100%", maxWidth: 900, background: "var(--c-surface)",
-          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
-          display: "flex", flexDirection: "column", alignItems: "stretch",
-        }}
-      >
-        <button
-          onClick={close} aria-label="閉じる" className="no-select"
-          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-        >
-          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
-        </button>
+  return (
+    <BottomSheet ariaLabel="リード番号を変更" onClose={close}>
         <div className="sans" style={{ fontSize: 14, color: "var(--c-ink)", marginBottom: 12 }}>
           {reedLabel(reed, reeds)} の番号
         </div>
@@ -10287,9 +10224,7 @@ function ReedNumberSheet({ reed, reeds, onCommit, onClose }) {
           className="sans"
           style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 15 }}
         />
-      </div>
-    </div>,
-    document.body,
+    </BottomSheet>
   );
 }
 
@@ -10477,11 +10412,6 @@ function ReedBoxSheet({
   strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   const isEdit = mode === "edit";
   const isCustom = brand === REED_BRAND_CUSTOM;
   // 押しても何も起きない一手を作らない(§6.1.5)。実行側(registerReeds / applyBoxEdit)は
@@ -10494,38 +10424,9 @@ function ReedBoxSheet({
   //  残っているとそのピッカーの position:fixed の基準がシートになる。§6.3。
   //  ドラッグ後 SWIPE_BACK_SETTLE_MS で transform は消えるが、消える前にピッカーを
   //  開けてしまう経路を残さない)。
-  const dismiss = useSheetDismiss(onClose);
-  const dismissHandlers = brandPickerOpen ? null : dismiss.handlers;
-  return createPortal(
+  return (
     <>
-      <div
-        role="dialog" aria-modal="true" aria-label={isEdit ? "箱を編集" : "リードを追加"}
-        onClick={onClose}
-        data-noswipe
-        className="sheet-scrim"
-        style={{
-          position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-          display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-        }}
-      >
-        <div
-          ref={dismiss.ref} {...dismissHandlers}
-          onClick={(e) => e.stopPropagation()}
-          data-noswipe
-          className="sheet-card"
-          style={{
-            width: "100%", maxWidth: 900, background: "var(--c-surface)",
-            borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-            padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
-            display: "flex", flexDirection: "column", alignItems: "stretch",
-          }}
-        >
-          <button
-            onClick={onClose} aria-label="閉じる" className="no-select"
-            style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-          >
-            <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
-          </button>
+      <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
           {/* 正典ミニの見出し「追加」(11px / --ink3)。編集のときは「箱を編集」 */}
           <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
@@ -10630,8 +10531,7 @@ function ReedBoxSheet({
               }}>{reedSheetButtonLabel(mode, count)}</span>
             </button>
           </div>
-        </div>
-      </div>
+      </BottomSheet>
       {/* 銘柄のピッカーはシートの**外**に出す(z-index はシートと同じ層の上)。
           シートの中に置くと、暗幕がシートの中に閉じて背面がタップできてしまう(F-73 と同型の罠)。 */}
       {brandPickerOpen && (
@@ -10643,8 +10543,7 @@ function ReedBoxSheet({
           labelFn={(v) => (v === REED_BRAND_CUSTOM ? REED_BRAND_CUSTOM_LABEL : v)}
         />
       )}
-    </>,
-    document.body,
+    </>
   );
 }
 

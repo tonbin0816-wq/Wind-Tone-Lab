@@ -23,19 +23,16 @@ import { BACK_BUTTON_STYLE } from "../App.jsx";
 const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
-// 【カードの作法】§6.6。地は白(CommunityTab の根 .surf-card が持つ。2026/09/06 に
-// --c-sunk から白へ)。カードの浮きは影だけが担うので、影を外すと群が読めなくなる。
-// 群の境界の罫は1本も引かない。群はカードと 12px の余白だけが切る。
-const cardStyle = {
-  background: "var(--c-surface)", borderRadius: "var(--r-lg)",
-  padding: "var(--sp-4)", boxShadow: "var(--shadow-card)",
-};
-// 一覧を包むカードだけ上下を詰める(D-31 の .card-list と同じ手。左右は --sp-4 のまま)
-const cardListStyle = { ...cardStyle, padding: "var(--sp-1) var(--sp-4)" };
-const rowcardStyle = {
-  background: "var(--c-surface)", borderRadius: "var(--r-md)",
-  padding: "10px 14px", boxShadow: "var(--shadow-row)",
-};
+// 【カードの作法】§6.6。地は白・浮きは影だけ・群の境界の罫は1本も引かない。
+//
+// 【寸法は index.css がただ1箇所で持つ 2026/09/08 本人裁定「部品写しはいいと思う方を採用」】
+// ここには前まで cardStyle / cardListStyle / rowcardStyle という**同じ3値の写し**が
+// あった。CSS の .surf-card .card を直してもコミュニティのカードは変わらない状態だった。
+// コミュニティは CommunityTab の根が .surf-card の中にあるので、クラスがそのまま効く:
+//   .card       … 角丸 --r-lg / 内側 --sp-4 / --shadow-card
+//   .card-list  … 一覧を包むときだけ上下を --sp-1 に詰める(左右はそのまま)
+//   .rowcard    … 角丸 --r-md / 内側 10px 14px / --shadow-row
+// **padding をインラインで上書きしないこと**(§6.6。上書きすると検査が中身を読めなくなる)。
 // 【読ませる文章は --c-ink-2】§1.1「--c-ink-3 は約3.0:1。読ませたい文章には使わない。
 // 軸目盛や区切り記号まで」。noteStyle は数値の添え物用、bodyNoteStyle は文章用。
 const bodyNoteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 };
@@ -390,7 +387,7 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
           </div>
           {/* 4位以下は1つの群に畳む。**群の中の行区切りの罫は引いてよい**(D-30 本人裁定) */}
           {ranked.length > 3 ? (
-            <div style={cardListStyle}>
+            <div className="card card-list">
               {ranked.slice(3).map((r, i, arr) => (
                 <div key={r.uid} style={{ borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)" }}>
                   <RankRow row={r} mine={r.uid === myUid}
@@ -406,7 +403,7 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
           出ていない理由は「その期間に練習していない」か「絞り込みから外れている」の2つで、
           どちらなのかを言い分ける ── 「出ない」だけでは直しようがない。 */}
       {myUid && !mine ? (
-        <div className="sans" style={{ ...rowcardStyle, ...bodyNoteStyle }}>
+        <div className="sans rowcard" style={bodyNoteStyle}>
           {isFiltered(filter)
             ? "あなたはいまの絞り込みに含まれていません"
             : `あなたは${PERIOD_LABEL[period]}の記録がまだありません`}
@@ -576,7 +573,7 @@ export function ShareScreen({ users, saxTypes }) {
         <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
       ) : (
         <>
-          <div style={cardStyle}>
+          <div className="card">
             {/* 【見出しを置かない】本人指示。何の内訳かは下のタブがそのまま言っている
                 (§6.0「説明を消して形に語らせる」) */}
             <UnderlineTabs
@@ -611,7 +608,7 @@ export function ShareScreen({ users, saxTypes }) {
             </div>
           </div>
 
-          <div style={cardStyle}>
+          <div className="card">
             <div className="sans jp-label" style={{ ...eyebrowStyle, marginBottom: 10 }}>人気の組み合わせ</div>
             {/* 【候補が3つしかないので、開かずに比較できる形で全部出す】2026/09/06 本人指示。
                 「2項目 / 3項目 / 4項目」という数の表示をやめ、中身をそのまま行にした。
@@ -851,7 +848,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     <div style={pageStyle}>
       <FilterRow value={filter} onChange={setFilter} saxAny={false} />
 
-      <div style={cardStyle}>
+      <div className="card">
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
           <div className="sans jp-label" style={eyebrowStyle}>みんなの平均</div>
           {avg.error ? null : (
@@ -889,7 +886,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
       {pairs.length === 0 ? (
         <Empty>{isFilteredBy(filter, ["genre", "position"]) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
       ) : (
-        <div style={cardListStyle}>
+        <div className="card card-list">
           {pairs.map(({ ideal, owner }, i, arr) => (
             <div key={ideal.id}
                  role={onOpenPerson ? "button" : undefined}
