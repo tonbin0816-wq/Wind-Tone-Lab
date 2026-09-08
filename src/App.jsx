@@ -4073,8 +4073,8 @@ export default function WindToneLabPhaseMode() {
            ここに@importを書き戻さないこと。 */
         * { box-sizing: border-box; }
         .sans { font-family: var(--font-jp); }
-        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #174585; outline-offset: 2px; }
-        input[type=range] { accent-color: #174585; }
+        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+        input[type=range] { accent-color: var(--c-accent); }
         /* 地・枠・角丸は index.css の入力欄の規則(--c-sunk / --c-line-strong / --r-xs)が持つ。
            ここは select 固有の詰めと書体だけ(色を二重管理すると必ず片方が腐る)。 */
         select { padding:6px 8px; font-family: var(--font-jp); font-size:var(--fs-xs); }
@@ -4346,7 +4346,7 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       <div style={{ maxWidth: 480, margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
         {items.map((t) => {
           const active = topTab === t.key;
-          const color = active ? "#174585" : "#8D95A1";
+          const color = active ? "var(--c-accent)" : "var(--c-ink-3)";
           return (
             <button
               key={t.key}
@@ -4407,7 +4407,7 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ position: "relative", width: 140, background: "#FFFFFF", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.18)", overflow: "hidden" }}
+        style={{ position: "relative", width: 140, background: "var(--c-surface)", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.18)", overflow: "hidden" }}
       >
         <div
           ref={containerRef}
@@ -4423,7 +4423,7 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
                 height: ROW_H, display: "flex", alignItems: "center", justifyContent: "center",
                 scrollSnapAlign: "center", fontSize: 15,
                 fontWeight: o === value ? 700 : 400,
-                color: o === value ? "#174585" : "#121F32",
+                color: o === value ? "var(--c-accent)" : "var(--c-ink)",
               }}
             >
               {labelFn ? labelFn(o) : o}
@@ -4554,7 +4554,7 @@ function PitchDeviationLine({ frames, quiet = false }) {
     if (pct - lastPct >= 9) { labels.push({ name: r.name, pct }); lastPct = pct; }
   }
 
-  const axisLabel = { position: "absolute", right: 4, fontSize: 12, color: "#A6AEBA", whiteSpace: "nowrap" };
+  const axisLabel = { position: "absolute", right: 4, fontSize: 12, color: "var(--c-ink-4)", whiteSpace: "nowrap" };
 
   return (
     <div style={{ padding: quiet ? "10px 0 0" : "18px 0 0", opacity: quiet ? 0.72 : 1 }}>
@@ -4575,8 +4575,8 @@ function PitchDeviationLine({ frames, quiet = false }) {
             {/* 【N-4a で撤去】±10¢ の良好ゾーンの帯。本人判定「真ん中の緑の帯は役目を
                 果たしていない」。DESIGN-SYSTEM §6.0「説明を消して形に語らせる」に従い、
                 残すのは 0¢ の基準線と音名ラベルだけ。ゾーンの範囲は環の色が返している。 */}
-            <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#DDE2E8" strokeWidth="1" />
-            {points && <polyline fill="none" stroke="#8D95A1" strokeWidth="2.5"
+            <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="var(--c-line-strong)" strokeWidth="1" />
+            {points && <polyline fill="none" stroke="var(--c-ink-3)" strokeWidth="2.5"
               strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"
               points={points} />}
           </svg>
@@ -4586,7 +4586,7 @@ function PitchDeviationLine({ frames, quiet = false }) {
               className="sans"
               style={{
                 position: "absolute", top: 0, left: `${Math.max(2, Math.min(94, l.pct))}%`, transform: "translateX(-50%)",
-                fontSize: 12, fontWeight: 700, color: "#174585", background: "rgba(246,247,249,.85)",
+                fontSize: 12, fontWeight: 700, color: "var(--c-accent)", background: "rgba(246,247,249,.85)",
                 padding: "1px 5px", borderRadius: 6, whiteSpace: "nowrap", pointerEvents: "none",
               }}
             >
@@ -4871,7 +4871,7 @@ function MetronomeIcon({ color, size = 20 }) {
 // 【N-4b】3連符は「3」の**文字を書かない**(本人指示。正典のシートも数字を持たない)。
 // 旗を1本の桁でつないだ8分音符×3 = 3連符、という譜面そのものの形で見せる。
 // 2つ(♫)・4つ(♬)との違いは音符の数と桁の本数で読める。
-function SubdivNoteIcon({ value, size = 22, color = "#174585" }) {
+function SubdivNoteIcon({ value, size = 22, color = "var(--c-accent)" }) {
   const cfg = {
     1: { n: 1, beams: 0 },
     2: { n: 2, beams: 1 },
@@ -7704,9 +7704,9 @@ function MeasureView(props) {
           />
           {/* 【F-72】地も枠も元から持たない素のテキスト。**足したのは ▾ だけ**
               (正典 .set1 の「Alto ▾」「442Hz ▾」)。▾ はボタンの中に入れるので穴にならない。 */}
-          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
-          <span style={{ color: "#8D95A1" }}>·</span>
-          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz<PickChevron /></button>
+          <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
+          <span style={{ color: "var(--c-ink-3)" }}>·</span>
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz<PickChevron /></button>
         </div>
         {/* 2行目 = リード。 */}
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
@@ -7759,7 +7759,7 @@ function MeasureView(props) {
               **option の綴りは1箇所(下の配列)に集約**し、見えているテキストと <option> の
               両方をそこから作る(2箇所に書くと必ず片方が腐る)。 */}
           <label htmlFor="measure-reed-box" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0, padding: "2px 4px 2px 10px", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "#174585" : "#C3CAD3", flexShrink: 0, marginRight: 2 }} />
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "var(--c-accent)" : "var(--c-line-strong)", flexShrink: 0, marginRight: 2 }} />
             {/* 【overflow は箱と値の両方に要る】maxWidth は**幅の上限**でしかない。
                 値を <span> に描かせる形では、上限を超えた文字は箱の外へそのまま描かれる
                 (素の <select> はコントロールの箱が値をクリップしてくれていた。
@@ -7767,7 +7767,7 @@ function MeasureView(props) {
                  隣の #3 に 56.4px 重なった)。銘柄の最後の語が衝突すると shortBoxLabel が
                 フル銘柄へ戻す仕様なので、この長さは実在しうる。 */}
             <span style={{ position: "relative", display: "inline-flex", alignItems: "center", height: TOPSET_REED_SELECT_H_PX, maxWidth: 110, overflow: "hidden" }}>
-              <span style={{ color: selectedReedId ? "var(--c-ink)" : "#435266", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: selectedReedId ? "var(--c-ink)" : "var(--c-ink-2)", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                 {(reedBoxOptions.find((o) => o.value === (selectedBoxKey || "")) || reedBoxOptions[0]).label}
               </span>
               <select
@@ -7784,7 +7784,7 @@ function MeasureView(props) {
                 正典 .reedchip の半角空白1つに当たる。--sp-1(4px)より広げないこと
                 (43.3px 空いて「V16-3 #4」が1つの塊に読めなくなったのが差し戻しの理由)。 */}
             <span style={{ position: "relative", display: "inline-flex", alignItems: "center", height: TOPSET_REED_SELECT_H_PX, maxWidth: 60, marginLeft: "var(--sp-1)", overflow: "hidden" }}>
-              <span style={{ color: selectedReedId ? "var(--c-ink-2)" : "#C3CAD3", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: selectedReedId ? "var(--c-ink-2)" : "var(--c-line-strong)", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                 {(reedMemberOptions.find((o) => o.value === (selectedReedId || "")) || reedMemberOptions[0]).label}
               </span>
               <select
@@ -7846,11 +7846,11 @@ function MeasureView(props) {
         >
           {/* 色は hex のまま。SVG のプレゼンテーション属性(stroke/fill)は var() を
               解決しない環境があるため(DESIGN-SYSTEM §1.9)。#174585=--c-accent / #8D95A1=--c-ink-3。 */}
-          <MetronomeIcon color={showMetroPanel ? "#174585" : "#8D95A1"} size={26} />
+          <MetronomeIcon color={showMetroPanel ? "var(--c-accent)" : "var(--c-ink-3)"} size={26} />
         </button>
       </div>
       {(!reeds || reeds.length === 0) && (
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
       )}
 
       {/* 【C-1 で移設】隠しファイル入力とアップロードのボタン・告知はデータタブへ移した。
@@ -8095,8 +8095,8 @@ function MeasureView(props) {
           style={{ width: 200, maxWidth: "72%", padding: "9px 0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "1px solid transparent" }}
         >
           {detailOpen
-            ? <ChevronUp size={24} color="#174585" strokeWidth={2.5} />
-            : <ChevronDown size={24} color="#174585" strokeWidth={2.5} />}
+            ? <ChevronUp size={24} color="var(--c-accent)" strokeWidth={2.5} />
+            : <ChevronDown size={24} color="var(--c-accent)" strokeWidth={2.5} />}
         </button>
       </div>
       </div>
@@ -8120,8 +8120,8 @@ function MeasureView(props) {
               本人の実機指示が正典より上位(F-77 と同じ扱い)。 */}
           <div className="card no-top-rule">
             <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "#121F32" }}>倍音構成（実測 / 目安）</span>
-              <div className="sans" style={{ display: "flex", gap: 10, fontSize: 12, color: "#435266" }}>
+              <span className="sans" style={{ fontSize: 13, fontWeight: 700, color: "var(--c-ink)" }}>倍音構成（実測 / 目安）</span>
+              <div className="sans" style={{ display: "flex", gap: 10, fontSize: 12, color: "var(--c-ink-2)" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={showIdeal} onChange={(e) => setShowIdeal(e.target.checked)} /> 目安</label>
               </div>
             </div>
@@ -8136,22 +8136,22 @@ function MeasureView(props) {
                 return (
                   <div key={n} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                     <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2, position: "relative" }}>
-                      <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "#174585" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
+                      <div style={{ width: "38%", height: `${measuredHeight}%`, background: measured ? "var(--c-accent)" : "transparent", borderRadius: "3px 3px 0 0", minHeight: measured ? 3 : 0, transition: "height 0.1s ease-out" }} />
                       {/* 理想バーの枠(28%)は常に確保する。理想が出ている時と出ていない時で
                           実測バーの横位置が動かないようにするため、非表示時も同じ幅の空スロットを残す。 */}
                       <div style={{ width: "28%", height: showIdealBar ? `${idealHeight}%` : 0, border: showIdealBar ? "1.5px dashed #8D95A1" : "none", borderBottom: "none", borderRadius: "3px 3px 0 0", minHeight: showIdealBar ? 3 : 0, opacity: 0.85, boxSizing: "border-box" }} />
                     </div>
-                    <div className="sans" style={{ fontSize: 12, color: "#435266", marginTop: 4 }}>{n}倍</div>
+                    <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginTop: 4 }}>{n}倍</div>
                   </div>
                 );
               })}
             </div>
-            <div className="sans" style={{ fontSize: 12, color: "#435266", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "#174585", borderRadius: 2, display: "inline-block" }} />実測</span>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, background: "var(--c-accent)", borderRadius: 2, display: "inline-block" }} />実測</span>
               <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, border: "1.5px dashed #8D95A1", borderRadius: 2, display: "inline-block" }} />目安{selectedIdeal ? `: ${selectedIdeal.name}` : "(未選択)"}</span>
             </div>
 
-            <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 16px" }} />
+            <div style={{ height: 1, background: "var(--c-sunken)", margin: "18px 0 16px" }} />
 
             <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginTop: 16 }}>
               {/* 値・単位・目安行は常に同じ形で描画し、測れない瞬間も「—」で行をキープする(ガタつき防止) */}
@@ -8160,22 +8160,22 @@ function MeasureView(props) {
               <MetricCard label="HNR" value={hnrDb !== null ? hnrDb.toFixed(1) : "—"} unit="dB" sub={`目安: ${currentNoteIdeal?.hnrDb != null ? `${currentNoteIdeal.hnrDb.toFixed(1)} dB` : "— dB"}`} />
             </div>
 
-            <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
+            <div style={{ height: 1, background: "var(--c-sunken)", margin: "18px 0 14px" }} />
 
             {/* 計測下限dB: バンドパス後の音量がこの値以下なら無音とみなす(旧称ノイズゲート)。 */}
-            <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>計測下限dB</div>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>計測下限dB</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input
                 type="range" min="-80" max="-20" step="1" value={noiseGateDb}
                 onChange={(e) => setNoiseGateDb(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#174585" }}
+                style={{ flex: 1, accentColor: "var(--c-accent)" }}
               />
-              <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "#174585", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
+              <span style={{ fontFamily: "var(--font-num)", fontSize: 13, fontWeight: 700, color: "var(--c-accent)", width: 62, textAlign: "right" }}>{noiseGateDb} dB</span>
             </div>
 
             {/* 端末がAGC等を無効化できなかった場合の警告(iOS Safari等で発生しうる) */}
             {micProcessingWarning && (
-              <div className="sans" style={{ marginTop: 10, padding: "8px 10px", background: "#FDF0E1", border: "1px solid #F0D9B8", borderRadius: 8, fontSize: 12, color: "#8A5A00", lineHeight: 1.6 }}>
+              <div className="sans" style={{ marginTop: 10, padding: "8px 10px", background: "var(--c-warn-bg)", borderRadius: "var(--r-sm)", fontSize: "var(--fs-xs)", color: "var(--c-ink)", lineHeight: 1.6 }}>
                 {micProcessingWarning}
               </div>
             )}
@@ -8184,8 +8184,8 @@ function MeasureView(props) {
                 計測下限dBの下に置き、詳細を閉じると一緒に隠れる。 */}
             {idealProfiles.length > 0 && (
               <>
-                <div style={{ height: 1, background: "#EEF1F4", margin: "18px 0 14px" }} />
-                <div className="sans" style={{ fontSize: 12, color: "#121F32", fontWeight: 700, marginBottom: 8 }}>目安</div>
+                <div style={{ height: 1, background: "var(--c-sunken)", margin: "18px 0 14px" }} />
+                <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>目安</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {idealProfiles.map((p) => (
                     /* 【A型 = index.css の .ctl-state】選択中/非選択という**状態を持つ**ので枠線を使う。
@@ -8211,8 +8211,8 @@ function MeasureView(props) {
                       aria-pressed={selectedIdealId === p.id}
                       className="ctl-state"
                       style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", cursor: "pointer" }}>
-                      <div className="sans" style={{ fontSize: 12, color: selectedIdealId === p.id ? "#174585" : "#121F32" }}>{p.name}<span style={{ fontSize: 12, color: "#435266", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
-                      <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "#435266", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
+                      <div className="sans" style={{ fontSize: 12, color: selectedIdealId === p.id ? "var(--c-accent)" : "var(--c-ink)" }}>{p.name}<span style={{ fontSize: 12, color: "var(--c-ink-2)", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span></div>
+                      <button onClick={(e) => { e.stopPropagation(); deleteIdealProfile(p.id); }} style={{ background: "none", border: "none", color: "var(--c-ink-2)", cursor: "pointer", padding: 4 }}><Trash2 size={12} /></button>
                     </div>
                   ))}
                 </div>
@@ -8445,7 +8445,7 @@ function MeasureView(props) {
                       border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
                       background: selected ? "var(--c-accent)" : "transparent",
                     }}>
-                      <SubdivNoteIcon value={s.icon ?? s.value} size={26} color={selected ? "#FFFFFF" : "#435266"} />
+                      <SubdivNoteIcon value={s.icon ?? s.value} size={26} color={selected ? "var(--c-on-accent)" : "var(--c-ink-2)"} />
                     </span>
                   </button>
                 );
@@ -8683,7 +8683,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           **セッション詳細ただ1箇所**(:15236)なので、他の画面へは波及しない。
           余白(padding / marginBottom)は 1px も変えない ── 変えると群の間隔が動く。 */}
       <div style={{ padding: "10px 0", marginBottom: 10 }}>
-        <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 8 }}>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginBottom: 8 }}>
           {/* 【F-98 2026/08/17 本人指示】「— ピッチ一致度で色分け（…基準）」の解説は削除。
               色分けの基準はすぐ上の「基準」セレクタが状態として示している(二度言いだった)。
               検出ノート数・平均アタックは解説ではなくデータなので残す。 */}
@@ -8701,10 +8701,10 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           <svg width={Math.max(600, frames.length * 6)} height="120" style={{ display: "block" }}>
             {/* 小節線(メトロノームのアクセント=小節頭。折れ線より先に描いて背面に置く) */}
             {barlineXs.map((x, k) => (
-              <line key={`bar-${k}`} x1={x} y1={0} x2={x} y2={108} stroke="#C3CAD3" strokeWidth="1" />
+              <line key={`bar-${k}`} x1={x} y1={0} x2={x} y2={108} stroke="var(--c-line-strong)" strokeWidth="1" />
             ))}
             <polyline
-              fill="none" stroke="#174585" strokeWidth="1.5"
+              fill="none" stroke="var(--c-accent)" strokeWidth="1.5"
               points={frames.map((f, i) => {
                 const v = getMetricValue(f);
                 const y = v !== null && v !== undefined && !isNaN(v) ? 100 - ((v - minV) / range) * 90 : 100;
@@ -8724,14 +8724,14 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
                 } else if (!nm) curName = null;
               });
               return labels.map((l, k) => (
-                <text key={k} x={l.x} y={9} fontSize="11" fontWeight="700" fill="#174585" fontFamily="var(--font-num)">{l.name}</text>
+                <text key={k} x={l.x} y={9} fontSize="11" fontWeight="700" fill="var(--c-accent)" fontFamily="var(--font-num)">{l.name}</text>
               ));
             })()}
             {frames.map((f, i) => {
               // 無音・測定外(ピッチ未検出)のフレームは一致度が定義できないためグレーにする
               // (以前はスコア0扱いで赤く表示され、測定できていない区間が「大きく外れている」ように見えていた)。
               const sounding = f.pitchHz != null && !isNaN(f.pitchHz);
-              const color = sounding ? scoreToColor(getMatchScore(f, "pitch")) : "#C3CAD3";
+              const color = sounding ? scoreToColor(getMatchScore(f, "pitch")) : "var(--c-line-strong)";
               return (
                 <rect key={i} x={i * 6} y={110} width={5} height={8} fill={color}
                   onClick={() => setSelectedFrameIdx(i)}
@@ -8740,7 +8740,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
               );
             })}
             {selectedFrameIdx !== null && (
-              <line x1={selectedFrameIdx * 6 + 2.5} y1={0} x2={selectedFrameIdx * 6 + 2.5} y2={118} stroke="#121F32" strokeWidth="1" strokeDasharray="2,2" />
+              <line x1={selectedFrameIdx * 6 + 2.5} y1={0} x2={selectedFrameIdx * 6 + 2.5} y2={118} stroke="var(--c-ink)" strokeWidth="1" strokeDasharray="2,2" />
             )}
           </svg>
         </div>
@@ -8750,7 +8750,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           onChange={(e) => setSelectedFrameIdx(Number(e.target.value))}
           style={{ width: "100%", marginTop: 8 }}
         />
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1", display: "flex", justifyContent: "space-between" }}>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", display: "flex", justifyContent: "space-between" }}>
           <span>0s</span>
           <span>{frames[frames.length - 1]?.t.toFixed(1)}s</span>
         </div>
@@ -8772,7 +8772,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           (新しい寸法を作らない)。 */}
       {selectedFrame && (
         <div style={{ padding: "10px 0" }}>
-          <div className="sans" style={{ fontSize: 12, color: "#435266", marginBottom: 10 }}>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginBottom: 10 }}>
             t = {selectedFrame.t.toFixed(2)}s の詳細
           </div>
 
@@ -8797,7 +8797,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             );
           })()}
 
-          <div className="sans" style={{ fontSize: 12, color: "#435266", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span>音量: {selectedFrame.volumeDb?.toFixed(1)} dB</span>
             <span>HNR: {selectedFrame.hnrDb?.toFixed(1) ?? "—"} dB</span>
           </div>
@@ -9483,8 +9483,8 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
           className="sans"
           style={{ padding: "5px 8px", fontSize: 12, width: 110 }}
         />
-        <button onClick={confirmAdd} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "#174585", color: "var(--c-on-accent)", cursor: "pointer" }}>追加</button>
-        <button onClick={() => { setIsAdding(false); setAddingName(""); }} style={{ background: "none", border: "none", color: "#8D95A1", cursor: "pointer", fontSize: 12 }}>×</button>
+        <button onClick={confirmAdd} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", cursor: "pointer" }}>追加</button>
+        <button onClick={() => { setIsAdding(false); setAddingName(""); }} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", fontSize: 12 }}>×</button>
       </div>
     );
   }
@@ -9931,14 +9931,14 @@ function MetricCard({ label, value, unit, sub, accentColor }) {
     // accentColor(一致度の機能色)は枠ではなく**数値の色**が担う。枠に出すには
     // インラインで border を書くしかなく、それをやると作法ごと効かなくなるため。
     <div className="tile">
-      <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, marginTop: 2, color: accentColor || "#121F32", whiteSpace: "nowrap", height: 28, lineHeight: "28px", overflow: "hidden" }}>
+      <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-num)", fontSize: 22, fontWeight: 600, marginTop: 2, color: accentColor || "var(--c-ink)", whiteSpace: "nowrap", height: 28, lineHeight: "28px", overflow: "hidden" }}>
         {value}
-        {unit && <span className="sans" style={{ fontSize: 12, color: "#8D95A1", marginLeft: 3, fontWeight: 400 }}>{unit}</span>}
+        {unit && <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginLeft: 3, fontWeight: 400 }}>{unit}</span>}
       </div>
       {/* subは常に高さを確保して描画する(値が出たり消えたりで行がガタつかないように)。
           内容が無い時も空行として場所だけ残す。 */}
-      <div className="sans" style={{ fontSize: 12, color: "#174585", marginTop: 2, height: 15, lineHeight: "15px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub ?? " "}</div>
+      <div className="sans" style={{ fontSize: 12, color: "var(--c-accent)", marginTop: 2, height: 15, lineHeight: "15px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub ?? " "}</div>
     </div>
   );
 }
@@ -11812,12 +11812,12 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   return (
     // plain(N-7)のときは下余白も持たない(行の余白は正典 .mrow の padding が持つ)
     <div style={{ marginBottom: plainLayout ? 0 : 18 }}>
-      {!plainLayout && <div className="sans" style={{ fontSize: 12, color: "#8D95A1", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
+      {!plainLayout && <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: 6 }}>{label}{unit ? `（${unit}）` : ""}</div>}
       {/* (【D-9 2026/08/26】D-8 で足した凡例はここにあった。本人指示「凡例は消して
           チップの枠をその該当の折れ線と同じ色にして」で、**チップの枠**が名前と色の
           対応を引き取ったので撤去した。色を系列の style から引く規則はチップ側が継いでいる。) */}
       {!hasData ? (
-        <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>この音域のデータがまだありません</div>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>この音域のデータがまだありません</div>
       ) : (
         // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るのでちらつきは出ない
         <div ref={boxRef}>
@@ -11915,14 +11915,14 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
         </div>
       )}
       {idealByIdx && hasData && (
-        <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
+        <div className="sans" style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "var(--c-ink-2)", paddingLeft: legendPad }}>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={seriesData[0]?.style || SERIES_STYLES[0]} />実測</span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><SeriesSwatch style={IDEAL_LINE_STYLE} />目安</span>
           {idealDiffText && <span style={{ color: "var(--c-accent)" }}>{idealDiffText}</span>}
         </div>
       )}
       {!plainLayout && series.length > 1 && (
-        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: 6, fontSize: 12, color: "#435266", paddingLeft: legendPad }}>
+        <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", marginTop: 6, fontSize: 12, color: "var(--c-ink-2)", paddingLeft: legendPad }}>
           {series.map((s, si) => (
             <span key={s.id ?? si} style={{ display: "flex", alignItems: "center", gap: 4 }} title={s.label}>
               <SeriesSwatch style={s.style || SERIES_STYLES[si % SERIES_STYLES.length]} />
@@ -12258,9 +12258,9 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
 // ピッチ偏差セルの色分け(絶対値: <10¢緑 / <25¢アンバー / それ以上赤)
 function pitchCellColor(cents) {
   const a = Math.abs(cents);
-  if (a < 10) return "#16A34A";
-  if (a < 25) return "#D97706";
-  return "#DC2626";
+  if (a < 10) return "var(--c-good)";
+  if (a < 25) return "var(--c-warn)";
+  return "var(--c-bad)";
 }
 
 function usageDays(recordedAt, startDate) {
@@ -14825,7 +14825,7 @@ function AnalysisLabView(props) {
         {filterEditorOpen && (
         <div style={{ padding: "6px 0 12px" }}>
           {pivotFilters.length === 0 ? (
-            <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>フィルターなし（全データを集計）</div>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>フィルターなし（全データを集計）</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {pivotFilters.map((flt, i) => {
@@ -14839,7 +14839,7 @@ function AnalysisLabView(props) {
                       onClick={() => setPivotFilters((prev) => prev.filter((_, j) => j !== i))}
                       aria-label="このフィルターを削除"
                       style={{
-                        background: "none", border: "none", color: "#8D95A1", cursor: "pointer",
+                        background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer",
                         fontSize: 13, flexShrink: 0, padding: 0,
                         minWidth: "var(--tap-min)", minHeight: "var(--tap-min)",
                         display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -14859,7 +14859,7 @@ function AnalysisLabView(props) {
                     </PlainSelect>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 180 }}>
                       {dim?.filterKind === "dateRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "#435266" }}>
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "var(--c-ink-2)" }}>
                           {/* 【N-5b / 罠14】表示は localDayKey(ローカル暦日)。toISOString の UTC 暦日を
                               使うと JST では常に1日前が出る(保存値は正しいのに入力欄だけずれる)。 */}
                           {/* 【F-119 2026/08/27】`input[type=date]` の**固有幅**は端末で違う
@@ -14885,7 +14885,7 @@ function AnalysisLabView(props) {
                           />
                         </div>
                       ) : dim?.filterKind === "numberRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#435266" }}>
+                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--c-ink-2)" }}>
                           <input
                             type="number" min={1} placeholder="最小" value={flt.rangeMin ?? ""}
                             onChange={(e) => updateFilter({ rangeMin: e.target.value === "" ? null : Number(e.target.value) })}
@@ -14935,7 +14935,7 @@ function AnalysisLabView(props) {
                             {(() => {
                               const options = pivotDimensionValues(framesWithContext, pivotCtx, flt.dimKey);
                               return options.length === 0 ? (
-                                <span className="sans" style={{ fontSize: 12, color: "#8D95A1", padding: "4px 0" }}>該当する値がありません</span>
+                                <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "4px 0" }}>該当する値がありません</span>
                               ) : options.map((v) => {
                                 const selected = flt.values.includes(v);
                                 return (
@@ -15015,7 +15015,7 @@ function AnalysisLabView(props) {
             【D-10 §7】器は**カード1枚**。上辺の罫は消えた(群の境界はカードの縁が担う)。 */}
         <div className="card">
           {pivot.rowKeys.length === 0 ? (
-            <div className="sans" style={{ fontSize: 12, color: "#8D95A1" }}>
+            <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>
               この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに折れ線が育ちます
             </div>
           ) : (

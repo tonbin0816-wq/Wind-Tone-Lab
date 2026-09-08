@@ -7927,8 +7927,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("メトロノームのボタンは ON/OFF を aria-pressed で持つ",
         /aria-pressed=\{showMetroPanel\}/.test(tag));
       // 枠を消したので、ON/OFF の唯一の視覚的な合図は**アイコンの色**。ここが消えたら状態が読めない。
-      check("F-75: ON/OFF はアイコンの色が返す(--c-accent #174585 / --c-ink-3 #8D95A1)",
-        /<MetronomeIcon color=\{showMetroPanel \? "#174585" : "#8D95A1"\}/.test(code),
+      check("F-75: ON/OFF はアイコンの色が返す(--c-accent / --c-ink-3)",
+        /<MetronomeIcon color=\{showMetroPanel \? "var\(--c-accent\)" : "var\(--c-ink-3\)"\}/.test(code),
         (code.match(/<MetronomeIcon[^/]*/) || [""])[0].replace(/\s+/g, " ").slice(0, 160));
       // 旧実装(枠 + 地の両方)が残っていないこと
       check("メトロノームの旧実装(枠と地を両方持つ)が残っていない",
@@ -13208,8 +13208,8 @@ let METRO_SIGS_ALL = [];
     check("リード表記は箱と個体を隙間なく並べる(V16-3 #4 を1つの塊として読ませる)",
       /<label htmlFor="measure-reed-box" style=\{\{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0,/.test(code));
     check("リード表記の色は箱=--c-ink / 個体=--c-ink-2(--c-accent はアクション専用・§1.4)",
-      /color: selectedReedId \? "var\(--c-ink\)" : "#435266"/.test(code) &&
-      /color: selectedReedId \? "var\(--c-ink-2\)" : "#C3CAD3"/.test(code));
+      /color: selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)"/.test(code) &&
+      /color: selectedReedId \? "var\(--c-ink-2\)" : "var\(--c-line-strong\)"/.test(code));
     // 詳細カードは下端のシェブロンで開閉(現行踏襲)。
     check("詳細カードはシェブロンのトグルで開閉する", /aria-expanded=\{detailOpen\}/.test(code));
   }
@@ -13284,7 +13284,7 @@ let METRO_SIGS_ALL = [];
       /border: selected \? "1px solid transparent" : "1px solid var\(--c-line-strong\)"/.test(sheet)
       && /background: selected \? "var\(--c-accent\)" : "transparent"/.test(sheet));
     check("分割の選択中は音符が白抜きになる(塗りの上に乗るので)",
-      /color=\{selected \? "#FFFFFF" : "#435266"\}/.test(sheet));
+      /color=\{selected \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)"\}/.test(sheet));
     // 選択中のピルが「枠と違う地」を同時に持たないこと(描画は正典と同一・構造だけ保つ)
     check("選択中のピルの枠は transparent(描画は正典と同一・枠と地を両方持たない構造を保つ)",
       (sheet.match(/"1px solid transparent"/g) || []).length >= 3, "拍子 / 分割 / 拍グループ");
@@ -16976,7 +16976,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // 罫を外しても**余白は 1px も動かしていない**こと(群の間隔まで一緒に動くのを防ぐ)。
   // 隣接で見る ── タイムラインの見出し「タイムライン」を持つ群の開きタグそのもの。
   check("29.2 D-30 §7.2: タイムラインの群は罫を持たず、余白(10px 0 / 下 10)はそのまま",
-    /<div style=\{\{ padding: "10px 0", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "#435266", marginBottom: 8 \}\}>/.test(pt29));
+    /<div style=\{\{ padding: "10px 0", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-2\)", marginBottom: 8 \}\}>/.test(pt29));
   // 【D-31】切れ目は**余白だけ**で作る。ドリルダウンの群の開きタグを隣接で錨止めし、
   // 「罫が無い」ことと「余白が残っている」ことを同時に見る(罫だけ外して余白まで
   // 落とすと、タイムライン本体と地続きになる)。
@@ -16985,7 +16985,7 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // **新しい寸法を作っていない**こと: ドリルダウンの上下の余白は、すぐ上の群と**同じ値**。
   // 期待値を "10px" と書き写すと恒真になるので、**上の群の padding から読んで**突き合わせる。
   {
-    const above = /<div style=\{\{ padding: "([^"]+)", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "#435266", marginBottom: 8 \}\}>/.exec(pt29);
+    const above = /<div style=\{\{ padding: "([^"]+)", marginBottom: 10 \}\}>\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-2\)", marginBottom: 8 \}\}>/.exec(pt29);
     const drill = /\{selectedFrame && \(\s*<div style=\{\{ padding: "([^"]+)" \}\}>/.exec(pt29);
     check("29.2 D-31: ドリルダウンの余白は、すぐ上の群の padding と同じ値(新しい寸法を作っていない)",
       above !== null && drill !== null && above[1] === drill[1],
