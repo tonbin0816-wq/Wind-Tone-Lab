@@ -10,7 +10,8 @@ import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
-import { BACK_BUTTON_STYLE } from "../App.jsx";
+// シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
+import { BACK_BUTTON_STYLE, BottomSheet } from "../App.jsx";
 
 // ------------------------------------------------------------------
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
@@ -20,7 +21,11 @@ import { BACK_BUTTON_STYLE } from "../App.jsx";
    凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
    実測: 375px 幅でカードが 619.7px まで広がった。minmax(0, 1fr) で 315px に収まる。
    同じ事故がアイコンの色の格子でも起きている(CommunityTab.jsx の格子のコメント)。 */
-const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
+// 【B10 2026/09/09 本人裁定「30に寄せる」】左右は .app-root の 14px だけにする。
+// ここに --sp-4 を足すと**打ち消しではなく上乗せ**になり、カードの中の文字が
+// 14+16+16 = 46px と、My Data 側の 30px より 16px 右へずれる(ブラウザ実測)。
+// 縦の --sp-4 と カード間の gap はそのまま。
+const pageStyle = { padding: "var(--sp-4) 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
 // 【カードの作法】§6.6。地は白・浮きは影だけ・群の境界の罫は1本も引かない。
@@ -1043,8 +1048,17 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
 
 
   return (
-    <div role="dialog" aria-label={`${person.nickname} の詳細`}
-         style={{ position: "fixed", inset: 0, zIndex: 40, background: "var(--c-bg)", overflowY: "auto" }}>
+    // 【C-16 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
+    // ここは以前**全画面・暗幕なし・重なり順 40・角丸なし**で、閉じ方は左上のボタン1つ
+    // だけだった。アプリで唯一この作法だったので、器を BottomSheet に畳んだ。
+    // 重なり順も 60 に揃い、閉じ方が つまみ / 暗幕タップ / 下スワイプ / Escape の4つに増える。
+    // **左上のボタンは消さない。**
+    //   ・`< 音のデータ` は**閉じる操作ではない** ── 裏(プロフィール)から表(音のデータ)へ
+    //     戻る**シートの中の移動**で、シートの閉じ方では代替できない。
+    //   ・`< 一覧` は同じ形・同じ位置で行き先だけ差し替えたものなので、片方だけ消せない。
+    // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
+    // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
+    <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
       <div style={{ ...pageStyle, paddingBottom: "var(--sp-6, 40px)" }}>
         {/* 【行き先を名乗る戻る】表記は `< 一覧`(2026/09/06 本人指定)。
             裏(プロフィール)にいるときは行き先が変わるので、同じ形で行き先だけ差し替える。
@@ -1192,6 +1206,6 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
           </>
         )}
       </div>
-    </div>
+    </BottomSheet>
   );
 }

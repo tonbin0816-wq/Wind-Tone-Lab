@@ -4409,13 +4409,28 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
     // 項目4/5 + §6.1.5: 編集UIは fixed のモーダルで、暗幕・影は既存モーダルと同値
     {
       const ed = sourceOf("ReedScoreEditor");
-      check("編集ダイアログは position:fixed(流れから外す)", /position: "fixed"/.test(ed));
-      check("暗幕は既存モーダルと同値", ed.includes('background: "rgba(15,23,42,0.28)"'));
-      check("影は既存モーダルと同値", ed.includes('boxShadow: "0 8px 24px rgba(15,23,42,0.18)"'));
-      check("カードの角丸は --r-lg", ed.includes('borderRadius: "var(--r-lg)"'));
-      // 暗幕(role="dialog" の容器)自身が onClose を持つこと。完了ボタンにも同じ属性があるので、
+      // 【2026/09/09 本人裁定「シートは①(下寄せ+つまみ)に統一」で見る先を移した】
+      // 以前ここは ReedScoreEditor が**自前で**暗幕・影・fixed・角丸を持つことを見ていた。
+      // いまその4つは BottomSheet(アプリ唯一のシートの器)の持ち物なので、
+      // 「自前で持たないこと」+「器がその値を持つこと」の2段で見る。
+      // **緩めていない** ── 変異試験で確かめること(器の値を変えると下の3件が落ちる)。
+      const bs = sourceOf("BottomSheet");
+      check("評価は自前の器を持たず BottomSheet を使う",
+        /<BottomSheet ariaLabel="評価を編集" onClose=\{onClose\}>/.test(ed)
+        && !ed.includes('background: "rgba(15,23,42,0.28)"'),
+        ed.includes('background: "rgba(15,23,42,0.28)"') ? "自前の暗幕が残っている" : "");
+      check("器は position:fixed(流れから外す)", /position: "fixed"/.test(bs));
+      check("器の暗幕は既存モーダルと同値", bs.includes('background: "rgba(15,23,42,0.28)"'));
+      check("器の影は既存モーダルと同値", bs.includes('boxShadow: "0 8px 24px rgba(15,23,42,0.18)"'));
+      // 角丸は --r-lg の四方囲みではなく、正典 .sheet の「上だけ 28px」。
+      // ①へ統一したのだから、ここが --r-lg に戻ったら裁定に反する。
+      check("器の角丸は正典 .sheet と同じ 28px 28px 0 0", bs.includes('borderRadius: "28px 28px 0 0"'));
+      // 暗幕(role="dialog" の容器)自身が onClose を持つこと。中のボタンにも同じ属性があるので、
       // 単に onClick={onClose} を探すと暗幕から外しても気づけない
-      check("暗幕自身のタップで閉じる", /role="dialog"[\s\S]{0,120}?onClick=\{onClose\}[\s\S]{0,80}?position: "fixed"/.test(ed));
+      // コメントを剥がしてから見る。器の暗幕には D-14 の長い注記が挟まっていて、
+      // 生のまま見ると「間に何文字あるか」がコメントの長さで決まってしまう。
+      // 剥がせば、注記の中の position: "fixed" という綴りで通ってしまう穴も同時に塞がる。
+      check("器の暗幕自身のタップで閉じる", /role="dialog"[\s\S]{0,120}?onClick=\{onClose\}[\s\S]{0,200}?position: "fixed"/.test(codeOf(bs)));
       check("完了ボタンは --tap-min 以上", /minHeight: "var\(--tap-min\)"/.test(ed));
       // 暗幕・影の値がアプリ全体で1種類であること(新しい濃さを発明していない)
       const scrimVals = new Set(src.match(/background: "rgba\(15,\s*23,\s*42,\s*[\d.]+\)"/g) || []);
@@ -4424,7 +4439,11 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       const shadows = (src.match(/boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) || []).length;
       check("暗幕の値はアプリ内で1種類", scrimVals.size === 1, `${scrimVals.size}種 / ${scrims}箇所`);
       check("モーダルの影の値はアプリ内で1種類", shadowVals.size === 1, `${shadowVals.size}種 / ${shadows}箇所`);
-      check("その1種類を3箇所以上(ScrollPicker/保存確認/評価編集)が共有している", scrims >= 3 && shadows >= 3, `暗幕${scrims} / 影${shadows}`);
+      // 【2026/09/09】共有する顔ぶれが変わった。シート5枚は BottomSheet 1つに畳まれたので、
+      // 直書きの残りは「器 / ScrollPicker / エラー告知 / 保存確認 / テンポと拍子」。
+      // **テンポと拍子は既に①の形をしている**ので、次の1周で器へ畳める候補
+      // (design/UNIFY-AUDIT.md の C14 に記録)。
+      check("その1種類を3箇所以上(器/ScrollPicker/保存確認 ほか)が共有している", scrims >= 3 && shadows >= 3, `暗幕${scrims} / 影${shadows}`);
       // --- 【C-2】3項目3列。1回開けば3つとも回せる(生年月日ピッカー方式) ---
       check("ダイヤルは fields を map して並べる(1項目1ダイアログに戻していない)",
         /fields\.map\(\(f\) => \(/.test(ed));
@@ -4439,9 +4458,14 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
       check("ダイヤルには項目キーを渡す", /itemKey=\{f\.key\}/.test(ed));
       check("「完了」ボタンは1つだけ", (ed.match(/完了/g) || []).length === 1);
       // 【C-4】暗幕・パネル・3列・完了ボタンの data-noswipe。列の1つでも外すと落ちる
-      check("data-noswipe は暗幕・パネル・列・完了ボタンの4箇所",
-        (ed.match(/data-noswipe(?=[\s/>=])/g) || []).length === 4,
+      // 【2026/09/09】暗幕とパネルの2記述は BottomSheet へ移った。ここに残るのは列と完了の2記述。
+      // 器の側にも同じ2つが要るので、両方を数える(合計は畳む前と同じ4記述)。
+      check("data-noswipe は評価シート側に列・完了ボタンの2箇所",
+        (ed.match(/data-noswipe(?=[\s/>=])/g) || []).length === 2,
         `${(ed.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
+      check("data-noswipe は器の側に暗幕・パネルの2箇所",
+        (bs.match(/data-noswipe(?=[\s/>=])/g) || []).length === 2,
+        `${(bs.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
       check("列の data-noswipe は map の中(=3列すべてに付く)",
         /fields\.map\(\(f\) => \([\s\S]{0,200}?<div key=\{f\.key\} data-noswipe/.test(ed));
       // will-change は transform と同じく position:fixed の子孫の包含ブロックを作る。
@@ -5546,16 +5570,21 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
   // 評価ダイアログは SwipeBackArea の木の外(document.body)に出す。中に置くと祖先の
   // transform が包含ブロックになり、暗幕が画面全体を覆えなくなる(審査役の実測: 44,65,347x700)。
   const editor = sourceOf("ReedScoreEditor");
-  check("評価ダイアログは document.body へポータルする",
-    /return createPortal\(/.test(editor) && /\bdocument\.body,\s*\);\s*$/.test(editor.trim().replace(/\}$/, "").trim()));
+  // 【2026/09/09 本人裁定で器を BottomSheet に畳んだ】ポータルするのは器の役目になった。
+  // **理由は変わっていない**(祖先の transform が包含ブロックになり暗幕が画面全体を覆えない)ので、
+  // 見る先だけを器へ移す。評価シートが自前で portal を持ち直したらそれも異常なので両方見る。
+  const editorShell = sourceOf("BottomSheet");
+  check("シートの器は document.body へポータルする",
+    /return createPortal\(/.test(editorShell) && /document\.body/.test(editorShell));
+  check("評価シートは自前でポータルし直していない", !/createPortal\(/.test(editor));
   check("createPortal を react-dom から import している", /import \{ createPortal \} from "react-dom";/.test(src));
-  // 数えるのは「暗幕 / パネル / 列(map の中の1記述が3列ぶん) / 完了ボタン」の4記述。
-  // 4という数はこの4記述であって「4つの要素」ではない(列は描画上3つになる)。
+  // 数えるのは「列(map の中の1記述が3列ぶん) / 完了ボタン」の2記述。
+  // 2という数はこの2記述であって「2つの要素」ではない(列は描画上3つになる)。
   // 属性としての出現だけを数える(コメント中の "data-noswipe:" は後続が : なので当たらない)。
-  check("暗幕・パネル・列・完了ボタンの4記述が data-noswipe を持つ(列は map の中なので3列すべてに付く)",
-    (editor.match(/data-noswipe(?=[\s/>=])/g) || []).length === 4, `${(editor.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
+  check("列・完了ボタンの2記述が data-noswipe を持つ(列は map の中なので3列すべてに付く)",
+    (editor.match(/data-noswipe(?=[\s/>=])/g) || []).length === 2, `${(editor.match(/data-noswipe(?=[\s/>=])/g) || []).length}箇所`);
   check("暗幕は画面全体(position:fixed / inset:0)のまま",
-    editor.includes('position: "fixed", inset: 0, zIndex: 60'));
+    editorShell.includes('position: "fixed", inset: 0, zIndex: 60'));
 
   // 呼び出し側: リード詳細だけが onForward を持つ
   const reedsTab = sourceOf("ReedsTab");
@@ -6800,9 +6829,18 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 同じ規則をそちらにも当てる(index.css を読むのと同じ作法でファイルを開く)。
       {
         const community = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
-        check("§6.6: コミュニティタブの中身(CommunityTab.jsx)は作法のクラスを名乗らない(根と二重にならない)",
-          !/className="[^"]*surf-(card|rule)|surf-(card|rule)/.test(codeOf(community)),
-          (codeOf(community).match(/surf-(card|rule)/g) || []).join(" / ") || "0件");
+        // 【2026/09/09 例外を1つ開けた】BackupSheet は BottomSheet(document.body へ portal)の
+        // 中身なので、**コミュニティの根の外に出る**。根の .surf-card の子孫にならないため、
+        // 中の .card(index.css の `.surf-card .card`)が寸法を失う。だから中身を
+        // .surf-card で包む必要がある。**この検査が防ぎたい事故(根との二重の入れ子)は
+        // 起きない** ── portal 先が body なので入れ子になりようがない。
+        // 例外は BackupSheet の1つだけに縛る(数と場所の両方を見る)。
+        const commCode = codeOf(community);
+        const surfHits = commCode.match(/surf-(card|rule)/g) || [];
+        check("§6.6: コミュニティタブの中身(CommunityTab.jsx)が作法のクラスを名乗るのは BackupSheet の1件だけ",
+          surfHits.length === 1
+          && /BottomSheet[\s\S]{0,400}?className="surf-card"/.test(commCode),
+          surfHits.join(" / ") || "0件");
       }
       // (c) **名乗ってよい場所そのものを固定する。** 作法のクラスが現れる関数の集合を
       //     綴りで縛る(件数ではなく「誰が持つか」。罠4)。ここに新しい関数が増えたら、
@@ -12399,8 +12437,10 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
     })();
     const btnCode = codeOf(btn);
 
+    // 【2026/09/09】createPortal は BottomSheet の持ち物になったので、ここでは
+    // 「シートとして出す」= BottomSheet を使うことで見る(インライン方式に戻っていないこと)。
     check("F-67: その場で入力欄に化けるインライン方式(isNaming)は残っていない",
-      !/isNaming/.test(btnCode) && /createPortal\(/.test(btnCode), "");
+      !/isNaming/.test(btnCode) && /<BottomSheet /.test(btnCode), "");
     check("F-67: ボタンは A型(.ctl-state)で、状態を aria-pressed で返す",
       /className="sans ctl-state ctl-pill"/.test(btn) && /aria-pressed=\{isSet\}/.test(btn));
     check("F-67: B型(.ctl-plain)の地はボタン自身には残っていない(型の二重取りをしない)",
@@ -12484,16 +12524,22 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
         "justifyContent", "alignItems", "padding", "paddingBottom"]
         .map((k) => `${k}=${m[k] ?? "無し"}`).join(" | ");
     };
-    // 【N-2 表記統一】ダイアログの aria-label は「理想値に設定」→「目安に設定」になった
-    const mine = keyDecls(dialogStyle("目安に設定"));
+    // 【2026/09/09 本人裁定「シートは①に統一」でこの3枚組は2枚組になった】
+    // 以前ここは「目安に設定 / 保存確認 / マイク許可エラー」の3枚が**同じ四方囲みの器**を
+    // 持つことを見ていた。目安に設定はシート側(BottomSheet)へ移ったので、
+    //   - 目安に設定 … 器を自前で持たず BottomSheet を使うこと
+    //   - 残る2枚   … 互いに同じ宣言のままであること
+    // の2段で見る。**どちらも緩めていない**(器を自前で持ち直したら1つ目が落ちる)。
+    check("F-67: 目安に設定は自前の器を持たず BottomSheet を使う",
+      /<BottomSheet ariaLabel="目安に設定"/.test(btnCode)
+      && !btnCode.includes('background: "rgba(15,23,42,0.28)"'),
+      btnCode.includes('background: "rgba(15,23,42,0.28)"') ? "自前の暗幕が残っている" : "");
     const pending = keyDecls(dialogStyle("この録音を保存しますか？"));
     const micErr = keyDecls(dialogStyle("エラー"));
-    check("F-67: ポップアップの暗幕は保存確認モーダルと同じ宣言(位置・色・下寄せ・余白)",
-      mine === pending, `目安=[${mine}] 保存確認=[${pending}]`);
-    check("F-67: マイク許可エラーのモーダルとも同じ宣言(体裁は1つに揃える)",
-      mine === micErr, `目安=[${mine}] エラー=[${micErr}]`);
+    check("F-67: 保存確認とマイク許可エラーは同じ宣言(四方囲みの体裁は1つに揃える)",
+      pending === micErr, `保存確認=[${pending}] エラー=[${micErr}]`);
     check("F-67: 下寄せ(justifyContent: flex-end)である(計測タブと同じ理由で中央寄せにしない)",
-      /flex-end/.test(mine), mine);
+      /flex-end/.test(pending), pending);
     // カード側(白い面)も同じ体裁であること
     const cardOf = (label) => {
       const i = src.indexOf(`aria-label="${label}"`);
@@ -12506,9 +12552,9 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       }
       return src.slice(c, j + 1).replace(/\s+/g, " ");
     };
-    check("F-67: ポップアップのカードは保存確認モーダルのカードと同じ宣言",
-      cardOf("目安に設定") !== "無し" && cardOf("目安に設定") === cardOf("この録音を保存しますか？"),
-      `${cardOf("目安に設定")}`);
+    check("F-67: 四方囲みの2枚(保存確認 / エラー)のカードは同じ宣言",
+      cardOf("この録音を保存しますか？") !== "無し" && cardOf("この録音を保存しますか？") === cardOf("エラー"),
+      `${cardOf("この録音を保存しますか？")}`);
   }
   console.log("  -> done");
 }

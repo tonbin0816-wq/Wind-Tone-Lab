@@ -47,7 +47,7 @@ ${pad("リードタブ", 14, 10, "REED_LIST_EXTRA_PAD_PX = 24 − 14 で +10px�
       <div style="height: 14px"></div>
 ${pad("コミュニティタブ", 14, 16, "pageStyle が --sp-4 を足す。本文 315px")}
       <div style="padding: 16px 14px 0">
-        <div style="${NOTE}"><b>ついでに見つかったずれ</b> ── コミュニティは<b>子タブの文字が 30px、カードの文字が 46px</b>で、同じタブの中で 16px ずれている。</div>
+        <div style="${NOTE}"><b>子タブとカードの 16px は「ずれ」ではない。</b> コミュニティは子タブの文字が 30・カードの文字が 46 だが、My Data も 14 と 30 で<b>同じ 16px 差</b>。これはカード自身の余白で、どの画面にもある。コミュニティは<b>塊ごと 16px 右にある</b>だけ。</div>
       </div>
     </div>`;
 

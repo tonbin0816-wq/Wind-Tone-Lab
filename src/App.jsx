@@ -9154,65 +9154,49 @@ function RatingDial({ itemKey, value, onChange }) {
   );
 }
 
-// 評価を編集するダイアログ。**過渡的な告知は流れから外す**(DESIGN-SYSTEM §6.1.5)ため
-// position:fixed で浮かせる。インラインで開くと下の要素が押し下げられる。
-// 暗幕の色・不透明度・カードの影は ScrollPicker / 保存確認ダイアログと同値
-// (rgba(15,23,42,0.28) / 0 8px 24px rgba(15,23,42,0.18))。新しい濃さを発明しない。
-// 破棄されて困る情報は無いので、保存確認と違い**背景タップで閉じてよい**。
-// 【document.body へポータルする理由】position:fixed の基準(包含ブロック)は、祖先に
-// transform / will-change / filter があるとその祖先に移る。この画面は SwipeBackArea の
-// 子孫で、スワイプ中は祖先に transform が乗る。DOM上そのまま置くと暗幕が画面全体ではなく
-// 祖先の矩形(0,0,375x812 → 44,65,347x700)になり、下部ナビが触れてしまう(審査役の実測)。
-// ポータルで木の外に出せば、祖先の transform と無関係に常に画面全体を覆う。
+// 評価を編集するシート。**過渡的な告知は流れから外す**(DESIGN-SYSTEM §6.1.5)ため
+// 浮かせる。インラインで開くと下の要素が押し下げられる。
+//
+// 【C-15 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
+// ここは以前**画面の中央**に出る自前の器(暗幕 div + カード div + Escape の useEffect)
+// だった。同じ役目のシートが「下寄せ+つまみ」「下寄せ・つまみ無し」「中央」の3通りに
+// 割れていたので、器を BottomSheet ただ1つに畳んだ。**この関数はもう器を持たない**
+// ── 暗幕の濃さ・カードの角丸・影・position:fixed・createPortal・Escape の購読は
+// すべて BottomSheet が唯一の持ち主で、値は1つも変えていない。
+// ポータル先が document.body であることも BottomSheet 側の性質として残る
+// (祖先の transform / will-change が position:fixed の包含ブロックを奪う事故を避ける。
+//  この画面は SwipeBackArea の子孫で、スワイプ中は祖先に transform が乗る)。
+// 閉じ方は4つに増えた: つまみ / 暗幕タップ / 下スワイプ / Escape。
+// **中身は1つも変えていない**(見出し「評価」・3列のダイヤル・「完了」1つ)。
 //
 // 【3項目3列】生年月日ピッカーと同じで、1回開けば総評・厚さ・バランスの3つとも回せる
 // (本人指示: 「タップすると生年月日みたいに一度で三つともダイヤルでるように」)。
 // 列の並びは表示(ReedScoreField)と同じ 総評 / 厚さ / バランス。
-// 寸法(375px実機): 暗幕の padding --sp-4 → パネル343、パネルの padding --sp-4 → 内側311、
-// 3列 + gap --sp-2×2 = (311-16)/3 = 98.33px/列。完了ボタンは幅いっぱい(311×44)。
-// 「完了」は1つだけ。背景タップでも閉じる。確定(履歴への記録)は閉じたとき1回。
+// 寸法(375px実機): BottomSheet のカードは幅いっぱい、その padding 24px → 内側327、
+// 3列 + gap --sp-2×2 = (327-16)/3 = 103.67px/列。完了ボタンは幅いっぱい(327×44)。
+// 「完了」は1つだけ。確定(履歴への記録)は閉じたとき1回。
 function ReedScoreEditor({ fields, onClose }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return createPortal(
-    <div
-      role="dialog" aria-modal="true" aria-label="評価を編集"
-      onClick={onClose}
-      data-noswipe
-      style={{
-        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-4)",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        data-noswipe
-        style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}
-      >
-        <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>評価</div>
-        {/* 3列は折り返さない。flexWrap は初期値と同じ nowrap だが、明示して要件にする */}
-        <div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
-          {fields.map((f) => (
-            // data-noswipe: 縦スクロールする列。付けないと横スワイプと喧嘩する
-            <div key={f.key} data-noswipe style={{ flex: "1 1 0", minWidth: 0 }}>
-              <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginBottom: "var(--sp-1)" }}>{f.label}</div>
-              <RatingDial itemKey={f.key} value={f.value} onChange={f.set} />
-            </div>
-          ))}
-        </div>
-        <button
-          type="button" onClick={onClose} className="sans"
-          data-noswipe
-          style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer" }}
-        >
-          完了
-        </button>
+  return (
+    <BottomSheet ariaLabel="評価を編集" onClose={onClose}>
+      <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>評価</div>
+      {/* 3列は折り返さない。flexWrap は初期値と同じ nowrap だが、明示して要件にする */}
+      <div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+        {fields.map((f) => (
+          // data-noswipe: 縦スクロールする列。付けないと横スワイプと喧嘩する
+          <div key={f.key} data-noswipe style={{ flex: "1 1 0", minWidth: 0 }}>
+            <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginBottom: "var(--sp-1)" }}>{f.label}</div>
+            <RatingDial itemKey={f.key} value={f.value} onChange={f.set} />
+          </div>
+        ))}
       </div>
-    </div>,
-    document.body,
+      <button
+        type="button" onClick={onClose} className="sans"
+        data-noswipe
+        style={{ width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer" }}
+      >
+        完了
+      </button>
+    </BottomSheet>
   );
 }
 
@@ -9318,10 +9302,10 @@ function ReedScoreField({ fields, onOpen }) {
 // tapMin: 当たり判定を --tap-min(44px) 以上にする(既定は従来どおり。分析タブ側は変えない)。
 // 計測タブの「解析が完了しました」告知は浮かせた告知の中に入るため、ここだけ44pt化する。
 //
-// 【F-67】名前の入力はポップアップ(下寄せの暗幕モーダル)に移した。
+// 【F-67】名前の入力はシート(下端から出る)に移した。
 // 以前はこの場で入力欄+保存+×に化けており、押した瞬間に日付欄の隣の要素が入れ替わって
 // 行の中身が動いていた(DESIGN-SYSTEM §6.1.5「何かを開いても既にあった要素は1pxも動かない」に反する)。
-// モーダルは position:fixed でレイアウトの流れから外れるので、押しても周囲は動かない。
+// シートは position:fixed でレイアウトの流れから外れるので、押しても周囲は動かない。
 //
 // 【F-67 型の変更 B型 → A型】このボタンは「理想値設定中 / 未設定」という**状態を持つ**ように
 // なったので、§6.7 の A型(.ctl-state = 枠線 --c-line-strong / 地は透明、ON は枠線の色だけ
@@ -9333,12 +9317,8 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
   const [name, setName] = useState("");
   const [scope, setScope] = useState("session"); // "session" | "performer"(F-68)
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e) => { if (e.key === "Escape") setIsOpen(false); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen]);
+  // 【C-15 / D-6 2026/09/09 本人裁定】Escape の購読は BottomSheet が唯一の持ち主。
+  // ここにあった自前の useEffect は同じことを二重にやっていたので消した。
 
   const frames = session?.frames || [];
   if (frames.length === 0) return null;
@@ -9380,79 +9360,70 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
             文字数が変わるとボタンの幅が変わり、右寄せの行で左端が動く */}
         {isSet ? "★ 目安設定中" : "★ 目安に設定"}
       </button>
-      {isOpen && createPortal(
-        // 体裁は pendingSession の保存確認・マイク許可エラーと同じ(暗幕 rgba(15,23,42,0.28) /
-        // zIndex 60 / 下寄せ / カードは --c-surface + --r-lg + 影)。新しい濃さを発明しない。
-        // 【document.body へポータルする理由】position:fixed の基準は祖先に transform があると
-        // そちらへ移る。この画面は SwipeBackArea の子孫で、スワイプ中は祖先に transform が乗る
-        // (ReedScoreEditor と同じ理由)。
-        // 【stopPropagation を使わない】暗幕とカードの当たりは e.target === e.currentTarget で
-        // 見分ける。伝播を止めると、document に張られた復旧用のジェスチャー監視まで殺してしまう。
-        <div
-          role="dialog" aria-modal="true" aria-label="目安に設定"
-          data-noswipe
-          onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
-          style={{
-            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-            padding: "var(--sp-4)",
-            paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
-          }}
-        >
-          <div data-noswipe style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-            <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>目安に設定</div>
-            {/* 【F-68】対象の2択。選択中かどうかという**状態を持つ**ので A型(.ctl-state)。
-                状態は枠線の色だけで返す(地は足さない)。件数はそれぞれの選択肢に添える。 */}
-            <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-3)" }}>
-              {scopeOptions.map((o) => (
-                <button
-                  key={o.key}
-                  onClick={() => setScope(o.key)}
-                  className="sans ctl-state"
-                  aria-pressed={scope === o.key}
-                  style={{
-                    flex: 1, minWidth: 0, minHeight: "var(--tap-min)", padding: "var(--sp-2)",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    gap: "var(--sp-1)", cursor: "pointer",
-                    color: scope === o.key ? "var(--c-accent)" : "var(--c-ink-2)",
-                    fontSize: "var(--fs-sm)", fontWeight: 600,
-                  }}
-                >
-                  <span>{o.label}</span>
-                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>計測{o.count}件</span>
-                </button>
-              ))}
-            </div>
-            <input
-              type="text" placeholder="目安の名前" value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
-              className="sans"
-              style={{ width: "100%", marginTop: "var(--sp-3)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-md)" }}
-            />
-            <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
-              {/* B型 = .ctl-plain + .ctl-pill。キャンセルは状態を持たない普通のボタン */}
+      {isOpen && (
+        // 【C-14 / C-15 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
+        // ここは以前**下寄せだがつまみの無い**自前の器(暗幕 div + カード div + createPortal +
+        // Escape の useEffect)だった。器を BottomSheet ただ1つに畳んだので、
+        // 暗幕の濃さ・カードの影・zIndex・ポータル先(document.body)・Escape の購読は
+        // すべて BottomSheet が持つ。値は1つも変えていない。
+        // (ポータルが要る理由も BottomSheet 側の性質として残る: この画面は SwipeBackArea の
+        //  子孫で、スワイプ中は祖先に transform が乗り position:fixed の基準を奪うため。)
+        // 暗幕タップの見分けも BottomSheet の作法に従う(暗幕は onClick、カードは
+        // stopPropagation)。**閉じ方は つまみ / 暗幕タップ / 下スワイプ / Escape の4つ**に増えたが、
+        // **「キャンセル」ボタンは残す** ── 明示的な出口で、ジェスチャーを知らない人の唯一の道。
+        // **中身は1つも変えていない**(見出し・2択・名前欄・キャンセル/保存)。
+        <BottomSheet ariaLabel="目安に設定" onClose={() => setIsOpen(false)}>
+          <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>目安に設定</div>
+          {/* 【F-68】対象の2択。選択中かどうかという**状態を持つ**ので A型(.ctl-state)。
+              状態は枠線の色だけで返す(地は足さない)。件数はそれぞれの選択肢に添える。 */}
+          <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-3)" }}>
+            {scopeOptions.map((o) => (
               <button
-                onClick={() => setIsOpen(false)}
-                className="sans ctl-plain ctl-pill"
-                style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+                key={o.key}
+                onClick={() => setScope(o.key)}
+                className="sans ctl-state"
+                aria-pressed={scope === o.key}
+                style={{
+                  flex: 1, minWidth: 0, minHeight: "var(--tap-min)", padding: "var(--sp-2)",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: "var(--sp-1)", cursor: "pointer",
+                  color: scope === o.key ? "var(--c-accent)" : "var(--c-ink-2)",
+                  fontSize: "var(--fs-sm)", fontWeight: 600,
+                }}
               >
-                キャンセル
+                <span>{o.label}</span>
+                <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>計測{o.count}件</span>
               </button>
-              {/* 塗りの強調ボタン(§6.7 の意図した例外5)。名前が空のときは押しても何も起きない
-                  ので disabled にする(§6.1.5「押しても何も起きない」を作らない)。 */}
-              <button
-                onClick={confirm}
-                disabled={!name.trim()}
-                className="sans"
-                style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", opacity: name.trim() ? 1 : 0.45 }}
-              >
-                保存
-              </button>
-            </div>
+            ))}
           </div>
-        </div>,
-        document.body
+          <input
+            type="text" placeholder="目安の名前" value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
+            className="sans"
+            style={{ width: "100%", marginTop: "var(--sp-3)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-md)" }}
+          />
+          <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
+            {/* B型 = .ctl-plain + .ctl-pill。キャンセルは状態を持たない普通のボタン */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="sans ctl-plain ctl-pill"
+              style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+            >
+              キャンセル
+            </button>
+            {/* 塗りの強調ボタン(§6.7 の意図した例外5)。名前が空のときは押しても何も起きない
+                ので disabled にする(§6.1.5「押しても何も起きない」を作らない)。 */}
+            <button
+              onClick={confirm}
+              disabled={!name.trim()}
+              className="sans"
+              style={{ flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", opacity: name.trim() ? 1 : 0.45 }}
+            >
+              保存
+            </button>
+          </div>
+        </BottomSheet>
       )}
     </>
   );
@@ -13430,7 +13401,20 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
 // Escape で閉じる・上限は画面高 − ナビ)。**作法を2箇所に書かないための抽出**で、
 // 中身は呼び出し側が渡す。N-6 の DataOptionSheet が持っていた枠をそのまま外に出しただけで、
 // 濃さ・角丸・影・上限の値は**1つも変えていない**。
-function BottomSheet({ ariaLabel, onClose, children }) {
+//
+// 【C-14 / C-15 / C-16 / D-6 2026/09/09 本人裁定】「シートは①(下寄せ + つまみ)に統一する」。
+// これで**アプリ唯一のシートの器**になった。畳んだのは4つ:
+//   ・ReedScoreEditor(中央に出ていた)
+//   ・SetAsIdealButton の名前入力(下寄せ・つまみ無し)
+//   ・BackupSheet(この器を別実装で写していた / CommunityTab.jsx)
+//   ・PersonSheet(全画面・暗幕なし・zIndex 40 / community/screens.jsx)
+// **シートの暗幕の値を直書きするのはここ1箇所だけ**にする(綴りを2箇所に置かないため、
+// この注記にも値そのものは書かない)。
+// 呼び出し側が自前の暗幕・角丸・影・Escape を持ったら、それは畳み忘れ。
+// **community 配下(CommunityTab.jsx / screens.jsx)から使うので export する。**
+// (この注記に `community` + スラッシュ + アスタリスク のような綴りを書かないこと。
+//  検査の codeOf() がそれをブロックコメントの開始と読み、下の実装を丸ごと消す。)
+export function BottomSheet({ ariaLabel, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -13662,9 +13646,12 @@ function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) 
         <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-2xl)", fontWeight: 600, letterSpacing: "-.01em", color: "var(--c-ink)" }}>{title}</span>
         {titleSuffix ? <span className="sans" style={{ fontSize: "var(--fs-sm)", color: "var(--c-ink-3)" }}>{titleSuffix}</span> : null}
       </div>
-      {/* 1行メタ。読めない区画は**丸ごと省く**(呼び出し側が filter(Boolean) 済みの配列を渡す)。 */}
-      // 【区切りは記号ではなく余白 2026/09/08 本人裁定「中黒は廃止」】
-      // §6.0 囲いの序列「1. 余白で分ける」。幅は WhoLine と同じ 9px に揃える。
+      {/* 1行メタ。読めない区画は**丸ごと省く**(呼び出し側が filter(Boolean) 済みの配列を渡す)。
+          【区切りは記号ではなく余白 2026/09/08 本人裁定「中黒は廃止」】
+          §6.0 囲いの序列「1. 余白で分ける」。幅は WhoLine と同じ 9px に揃える。
+          【2026/09/09 事故】この3行は `//` で書かれていて **JSX の子として画面に出ていた**。
+          JSX の中では `//` はコメントにならない。検査 7287 件は全部緑のままだったので、
+          「緑=文言が正しい」ではないことの実例。 */}
       <div className="sans" style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 5, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", flexWrap: "wrap" }}>
         {meta.map((t, i) => (
           <span key={i}>{t}</span>

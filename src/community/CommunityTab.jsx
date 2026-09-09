@@ -5,7 +5,9 @@ import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, s
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
-import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills, useSheetDismiss } from "../App.jsx";
+// 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
+// (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
+import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills, BottomSheet } from "../App.jsx";
 // 【アカウント引継の中身は My Data の「記録の保存」そのもの】写しを作らない。
 // 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を1つ増やすだけ。
 import BackupPanel from "../backup/BackupPanel.jsx";
@@ -200,11 +202,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   return (
     <div>
       {/* 【子タブは計測・リード・My Data と同じ見出し型】2026/09/06 本人指示。
-          行の左端を本文の左端に揃えるため padding: 0 var(--sp-4) の箱で包む
-          (各ページの pageStyle が同じ padding を持つ)。 */}
-      <div style={{ padding: "0 var(--sp-4)" }}>
-        <SubTabs items={SUB_TABS} value={tab} onChange={go} />
-      </div>
+          【B10 2026/09/09】以前はここを padding: 0 var(--sp-4) で包んで本文の左端に
+          合わせていたが、その本文が 14px へ動いた(pageStyle 参照)ので包みは要らない。
+          My Data 側の SubTabs も包み無しで .app-root の 14px に居る。 */}
+      <SubTabs items={SUB_TABS} value={tab} onChange={go} />
       {/* 【bleed は渡さない】コミュニティのカードは左右の余白を食い破らない。 */}
       <SwipePager index={index} onIndexChange={(i) => go(SUB_TABS[i].key)}>
         {dirGate ?? (ideals === null ? <Centered>読み込み中…</Centered> : (
@@ -216,7 +217,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
-          (DESIGN-SYSTEM §6.3 が名指しで警告している事故)。 */}
+          (DESIGN-SYSTEM §6.3 が名指しで警告している事故)。
+          【2026/09/09】中身は BottomSheet になり document.body へポータルされるので
+          包含ブロックの事故そのものは器の側で防がれるが、**兄弟のまま置く**
+          ── ポータルするかどうかは器の都合で、呼び出し側がそれに寄りかからない。 */}
       {person ? (
         <PersonSheet
           person={person}
@@ -228,65 +232,38 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       ) : null}
       {/* 【アカウント引継も SwipePager の外】上の人物紹介と同じ理由。
           中に入れると track の transform が position: fixed の包含ブロックになる。
-          ここは根(App.jsx 側)の作法のクラスの中なので、中の .card は
-          そのままカードとして描かれる(portal で body へ出すとその継承が切れる)。 */}
+          【2026/09/09】BottomSheet へ畳んだので body へポータルされる。作法のクラスの
+          継承は切れるが、BackupSheet 自身が中身を `.surf-card` で包んで連れて行くので
+          中の .card はそのままカードとして描かれる(BackupSheet の注記を参照)。 */}
       {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
     </div>
   );
 }
 
 // 【アカウント引継】プロフィールの一番下から開く。中身は My Data の「記録の保存」を
-// **そのまま**出すだけで、このファイルは器(暗幕・カード・つまみ)しか持たない。
-// 器の作法は App.jsx のシート(リードの「…」など)と同値 ── 暗幕 rgba(15,23,42,0.28) /
-// 角丸 28px 28px 0 0 / つまみ 36×4 / 影・時間・曲線は index.css の
-// .sheet-scrim / .sheet-card。**新しい濃さ・寸法を発明しない。**
+// **そのまま**出すだけで、このファイルは器を1つも持たない。
+//
+// 【C-14 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
+// ここは以前 App.jsx の BottomSheet を**別実装で写して**いた(暗幕・角丸 28 / つまみ 36×4 /
+// 影 / maxHeight / Escape の useEffect / useSheetDismiss を自分で持っていた)。
+// 写しをやめて BottomSheet ただ1つに畳んだので、この関数は中身しか持たない。
+//
+// 【畳めなかった理由と、その解き方】以前ここには「この器だけは BottomSheet に畳めない。
+// portal で body へ出すと .surf-card の外になり、中の BackupPanel の .card が
+// カードとして描かれなくなる」と書いてあった。事実は正しい ── `.card` の寸法は
+// index.css が `.surf-card .card` として持っており、document.body へ出すと
+// `.surf-card` の子孫でなくなって寸法が丸ごと効かなくなる。
+// **解き方: 中身を `.surf-card` の div で包む。** 作法の根を中身と一緒に連れて行けば、
+// ポータル先がどこでも `.surf-card .card` は成立する。`.surf-card` の地は --c-bg で
+// シートのカードの --c-surface と同じ #FFFFFF なので、地の見え方は変わらない
+// (`.surf-card` が持つ左右の負マージンぶん白が食い出すが、色が同じなので見えない)。
 export function BackupSheet({ onClose }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const dismiss = useSheetDismiss(onClose);   // 下スワイプで閉じる(F-88 と同じ作法)
   return (
-    <div
-      role="dialog" aria-modal="true" aria-label="アカウント引継"
-      onClick={onClose}
-      data-noswipe
-      className="sheet-scrim"
-      style={{
-        position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-        display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-      }}
-    >
-      <div
-        ref={dismiss.ref} {...dismiss.handlers}
-        onClick={(e) => e.stopPropagation()}
-        data-noswipe
-        className="sheet-card"
-        style={{
-          width: "100%", maxWidth: 900, background: "var(--c-surface)",
-          borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-          padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
-          /* 【写しに欠けていた守り 2026/09/08】App.jsx の BottomSheet は最初からこれを持つ。
-             ここは器を写したときに落ちていた ── 中身が画面を越えると、下端に貼り付く作りなので
-             **上の項目が画面外へ出て届かなくなる**。値は BottomSheet と同じで、新しい割合は作らない。
-             (**この器だけは BottomSheet に畳めない。** portal で body へ出すと .surf-card の外に
-              なり、中の BackupPanel の .card がカードとして描かれなくなる。すぐ上の注記のとおり。) */
-          maxHeight: "calc(100dvh - var(--nav-h))", overflowY: "auto",
-          display: "flex", flexDirection: "column", alignItems: "stretch",
-        }}
-      >
-        {/* 【つまみは箱を大きくしない】見えるのは 36×4 の棒だけで、
-            当たり判定は var(--tap-min) の透明なボタンが持つ(Chip と同じ解き方)。 */}
-        <button
-          onClick={onClose} aria-label="閉じる" className="no-select"
-          style={{ width: "var(--tap-min)", height: "var(--tap-min)", alignSelf: "center", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-        >
-          <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
-        </button>
+    <BottomSheet ariaLabel="アカウント引継" onClose={onClose}>
+      <div className="surf-card">
         <BackupPanel />
       </div>
-    </div>
+    </BottomSheet>
   );
 }
 
@@ -441,7 +418,11 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
    凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
    実測: 375px 幅でカードが 619.7px まで広がった。minmax(0, 1fr) で 315px に収まる。
    同じ事故がアイコンの色の格子でも起きている(CommunityTab.jsx の格子のコメント)。 */
-const pageStyle = { padding: "var(--sp-4)", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
+// 【B10 2026/09/09 本人裁定「30に寄せる」】左右は .app-root の 14px だけにする。
+// ここに --sp-4 を足すと**打ち消しではなく上乗せ**になり、カードの中の文字が
+// 14+16+16 = 46px と、My Data 側の 30px より 16px 右へずれる(ブラウザ実測)。
+// 縦の --sp-4 と カード間の gap はそのまま。
+const pageStyle = { padding: "var(--sp-4) 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
 const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" };
 const bodyStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", lineHeight: 1.7 };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
