@@ -5729,21 +5729,27 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
       // 下端に密着するカードだけ。**下端寄せのカードすべてではない**。
       // 意図的に外してあるのは「エラー」「この録音を保存しますか？」「目安に設定」の3枚で、
       // これらは角丸 --r-lg の四方囲みで、つまみも持たない別の部品(判断は BACKLOG F-88 に記録)。
-      // 【2026/09/08 写しを畳んだ】器は4枚あったが、3枚は BottomSheet へ寄せた。
-      // 残る2枚(テンポと拍子 / BackupSheet)には残る理由がある(34.4 のコメント)。
-      check("正典 .sheet の角丸を持つカードを2枚以上走査できている",
-        sheetCards.length >= 2, `${sheetCards.length}枚`);
+      // 【2026/09/09 写しが全部なくなった】2026/09/08 に4枚→2枚、本人裁定
+      // 「シートは①に統一」で残る2枚(テンポと拍子 / BackupSheet)も畳み、**器はちょうど1枚**。
+      // 「2枚以上」から「ちょうど1枚」へ変えたのは緩めるためではない ──
+      // **写しが1枚でも増えたら落ちる**ので、こちらのほうが強い。
+      check("正典 .sheet の角丸を持つカードはちょうど1枚(器は BottomSheet だけ)",
+        sheetCards.length === 1, `${sheetCards.length}枚`);
       const without = sheetCards.filter((t) => !/dismiss/i.test(t));
       check("正典 .sheet の角丸を持つカードは、1枚残らず下スワイプの配線を持つ",
         without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 90)).join(" || ") || "0枚");
       // 呼び出し側の綴りも codeOf 済みで数える(コメントの言及で水増しされない)。
+      // 【2026/09/09】呼び出しは BottomSheet の中の1つだけになった(定義1 + 呼び出し1 = 2)。
+      // **増えたら落ちる**ようにしておく ── 3つ目が生えたら、それはどこかが器を写した合図。
       check("下スワイプの配線は useSheetDismiss 1本に寄っている(シートごとに書き分けていない)",
         /function useSheetDismiss\(/.test(codeSrc)
-        && (codeSrc.match(/useSheetDismiss\(/g) || []).length >= 3,
-        `useSheetDismiss( の出現 ${(codeSrc.match(/useSheetDismiss\(/g) || []).length}回(定義1 + 呼び出し)`);
+        && (codeSrc.match(/useSheetDismiss\(/g) || []).length === 2,
+        `useSheetDismiss( の出現 ${(codeSrc.match(/useSheetDismiss\(/g) || []).length}回(定義1 + 呼び出し1)`);
       // 名指しで4枚を確かめる。集合の性質だけだと「シートを1枚消して緑にする」が通る。
       for (const [label, needle] of [
-        ["テンポ拍子(計測タブ)", /ref=\{tempoSheetDismiss\.ref\} \{\.\.\.tempoSheetDismiss\.handlers\}/],
+        // 【2026/09/09】テンポと拍子も BottomSheet へ畳んだので、自前の配線は無くなった。
+        // 名指しで見るのは「器を使っていること」に変わる。
+        ["テンポ拍子(計測タブ / BottomSheet 経由)", /<BottomSheet ariaLabel="テンポと拍子"/],
         // リード追加・箱を編集は BottomSheet へ畳んだ(2026/09/08)。**回避策ごと消えた** ──
         // ScrollPicker を portal にしたので「ピッカーを開いている間は配線を外す」が要らない。
         ["リード追加・箱を編集(BottomSheet 経由)", /<BottomSheet ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/],
@@ -11193,8 +11199,12 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       }
     }
     // モーダル類はさらに上(z-index 60)。レイヤに吸われない。
+    // 【2026/09/09】器を BottomSheet へ畳んだので、重なり順は器が持つ。
+    // 見るのは2段: テンポが器を使っていること + その器が 60 であること。
+    // (器が 60 でなくなれば全シートが背面レイヤに吸われるので、こちらのほうが広く守る)
     check("A-1: テンポシートは z-index 60(背面レイヤに吸われない)",
-      /aria-label="テンポと拍子"[\s\S]{0,400}?zIndex: 60/.test(code20));
+      /<BottomSheet ariaLabel="テンポと拍子"/.test(code20)
+      && /zIndex: 60/.test(srcOfFn(src, "BottomSheet")));
 
     // 【375×812 の実測で見つけて直した穴】前面に上げた箱は、位置指定された透明な板として
     // レイヤを覆う。箱そのものが当たり判定を持つと、その中の**余白**でタップが死ぬ
@@ -12582,7 +12592,10 @@ let METRO_SIGS_ALL = [];
   const codeSafe = src
     .replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//g, (m, a) => a + blank(m.slice(a.length)))
     .replace(/(^|\n)([ \t]*)(\/\/[^\n]*)/g, (m, a, b, c) => a + b + blank(c));
-  const sheetStart = code.indexOf('aria-label="テンポと拍子"', code.indexOf('role="dialog" aria-modal="true" aria-label="テンポと拍子"'));
+  // 【2026/09/09】器を BottomSheet へ畳んだので、綴りが aria-label= から ariaLabel= の
+  // **prop** へ変わった。ここから切り出すのは**中身**(拍子12種・分割・アクセント)で、
+  // 器の性質(角丸・padding・つまみ・暗幕・重なり順)は BottomSheet 側で見る。
+  const sheetStart = code.indexOf('<BottomSheet ariaLabel="テンポと拍子"');
   const sheet = sheetStart === -1 ? "" : code.slice(sheetStart, code.indexOf("録音停止後: この録音を", sheetStart));
   check("テンポシートのブロックを走査できている", sheet !== "" && sheet.length > 500, `${sheet.length}文字`);
 
@@ -13324,7 +13337,9 @@ let METRO_SIGS_ALL = [];
     // **つまみから marginBottom を消しても他所の一致で通ってしまった**(SURVIVE)。
     // つまみのタグに限定して見る。
     check("つまみは正典 .handle の 36×4 / 下マージン 12",
-      /aria-label="閉じる"[\s\S]{0,220}?height: "var\(--tap-min\)", marginBottom: 12,/.test(sheet)
+      // 【2026/09/09】器を BottomSheet へ畳んだ。器は alignItems: "stretch" なので、
+      // つまみは自分で alignSelf: "center" を持つ(畳む前はカードが center だったので不要だった)。
+      /aria-label="閉じる"[\s\S]{0,220}?height: "var\(--tap-min\)", alignSelf: "center", marginBottom: 12,/.test(sheet)
       && /width: 36, height: 4, borderRadius: 2/.test(sheet),
       (sheet.match(/aria-label="閉じる"[\s\S]{0,220}/) || [""])[0].replace(/\s+/g, " ").slice(0, 200));
     check("大きな ± の行の gap は正典 .bpmrow の 30", /justifyContent: "center", gap: 30 \}\}/.test(sheet));
@@ -18406,8 +18421,10 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
     // 追加・箱を編集)は BottomSheet へ畳んだ。残る2枚には残る理由がある:
     //   ・テンポと拍子 … カードの alignItems が center(他は stretch)
     //   ・BackupSheet  … portal で body へ出すと .surf-card の外になり .card が効かない
-    check("34.4 正典 .sheet の角丸を持つカードを2枚以上走査できている(空回りしていない)",
-      cards.length >= 2, `${cards.length}枚`);
+    // 【2026/09/09 本人裁定で写しが全部なくなった】器はちょうど1枚(BottomSheet)。
+    // 「2枚以上」から「ちょうど1枚」へ。**写しが1枚でも増えたら落ちる**ので緩んでいない。
+    check("34.4 正典 .sheet の角丸を持つカードはちょうど1枚(空回りしていない)",
+      cards.length === 1, `${cards.length}枚`);
     const without = cards.filter((t) => !/className="sheet-card"/.test(t));
     check("34.4 §4: 角丸 28px のシートは1枚残らず .sheet-card を名乗る(出方が1枚だけ違う状態を残さない)",
       without.length === 0, without.map((t) => t.replace(/\s+/g, " ").slice(0, 80)).join(" || ") || "0枚");
@@ -18425,9 +18442,9 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
       inlineMotion.length === 0, inlineMotion.length + "枚");
     // 名指しで、当てた4枚がそれぞれ実在すること（集合の性質だけだと1枚消しても緑になる）。
     for (const [label, needle] of [
-      ["テンポと拍子(計測タブ)", /aria-label="テンポと拍子"[\s\S]{0,400}?className="sheet-scrim"/],
-      // 畳んだ3枚は <BottomSheet ariaLabel=...> に渡す形になった。暗幕の class は
-      // BottomSheet が1箇所で持つ(すぐ下の「BottomSheet 自身が暗幕を持つ」で見る)。
+      // 【2026/09/09】テンポと拍子も BottomSheet へ畳んだので、**4枚とも**同じ形になった。
+      // 暗幕の class は BottomSheet が1箇所で持つ(すぐ下の「BottomSheet 自身が暗幕を持つ」で見る)。
+      ["テンポと拍子(計測タブ)", /<BottomSheet ariaLabel="テンポと拍子"/],
       ["リードの操作", /<BottomSheet ariaLabel="リードの操作"/],
       ["リード番号を変更", /<BottomSheet ariaLabel="リード番号を変更"/],
       ["追加 / 箱を編集", /<BottomSheet ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/],

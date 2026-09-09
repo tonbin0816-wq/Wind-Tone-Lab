@@ -7341,7 +7341,6 @@ function MeasureView(props) {
   const [tempoSheetOpen, setTempoSheetOpen] = useState(false);
   // 【F-90】テンポ拍子シートを下スワイプで閉じる。フックは条件付きで呼べないので、
   // シートが出ていない間も常に呼ぶ(ref が付く先が無いだけで何も起きない)。
-  const tempoSheetDismiss = useSheetDismiss(() => setTempoSheetOpen(false));
   // 【D-15 §2(H)】振り子へ渡す口。**毎レンダー作り直すと MetroPendulumMemo が素通りになる**
   // (props の1つでも参照が変わると memo は再レンダーする)。ここだけ useCallback で固定する。
   const openTempoSheet = useCallback(() => setTempoSheetOpen(true), []);
@@ -8273,44 +8272,20 @@ function MeasureView(props) {
           暗幕の色・カードの影は ScrollPicker / 保存確認と同値(新しい濃さを発明しない)。
           背景タップで閉じる。z-index 60 なので A-1 の背面レイヤには絶対に届かない。 */}
       {tempoSheetOpen && (
-        <div
-          role="dialog" aria-modal="true" aria-label="テンポと拍子"
-          onClick={() => setTempoSheetOpen(false)}
-          /* 【D-15 §4】出るときの動きは5枚のシートで揃える(§1.11)。
-             時間・曲線は index.css の .sheet-scrim / .sheet-card だけが持つ。 */
-          className="sheet-scrim"
-          style={{
-            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
-            display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
-          }}
-        >
-          <div
-            /* 【F-90】下スワイプで閉じる。テンポの直接入力(<input type=number>)の上では
-                ジェスチャーを始めない(useSheetDismiss の除外に input が入っている)。 */
-            ref={tempoSheetDismiss.ref} {...tempoSheetDismiss.handlers}
-            onClick={(e) => e.stopPropagation()}
-            className="sheet-card"
-            /* 寸法は正典 .sheet をそのまま: border-radius 28px 28px 0 0 / padding 14px 24px 40px。
-               下端だけ env(safe-area-inset-bottom) を足す(モックは静的なので安全域を持たないが、
-               シートは下部ナビを覆うので実機ではホームインジケータに文字が乗る)。
-               Chrome では inset=0 なので 40px ちょうど = モックと同値。 */
-            style={{
-              width: "100%", maxWidth: 900, background: "var(--c-surface)",
-              borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-              padding: "14px 24px",
-              paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
-              display: "flex", flexDirection: "column", alignItems: "center",
-            }}
-          >
-            {/* つまみ。ここをタップしても閉じる(背景タップと同じ動作を明示的に持たせる)。
-                見た目は 36×4 の棒のまま、当たり判定だけ --tap-min 角にする(DESIGN-SYSTEM §5)。 */}
-            <button
-              onClick={() => setTempoSheetOpen(false)} aria-label="閉じる" className="no-select"
-              style={{ width: "var(--tap-min)", height: "var(--tap-min)", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-            >
-              {/* 正典 .handle: 36×4 / border-radius 2px(4px高の棒なので --r-pill と同じ見え方) */}
-              <span style={{ width: 36, height: 4, borderRadius: 2, background: "var(--c-line-strong)", display: "block" }} />
-            </button>
+        // 【C-14 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」の最後の1枚】
+        // ここは BottomSheet の**完全な写し**だった(角丸・影・暗幕・重なり順・つまみ・
+        // 下スワイプ・padding まで同値)。器を1つに畳んだので写しは全部なくなった。
+        // 畳んで変わったのは3つ、いずれも良くなる方向:
+        //   ・document.body へ portal される(祖先の transform に暗幕を奪われない)
+        //   ・上限(画面高 − ナビ)と overflowY: auto が付く。**この板は縦に長いので、
+        //     小さい端末では今まで下端が画面の外へ出ていた**
+        //   ・Escape で閉じられる
+        // 【F-90 は BottomSheet 側に残る】テンポの直接入力(<input type=number>)の上で
+        // ジェスチャーを始めないのは useSheetDismiss 自身の除外なので、器が変わっても効く。
+        <BottomSheet ariaLabel="テンポと拍子" onClose={() => setTempoSheetOpen(false)}>
+          {/* 中身は横中央寄せ。器(BottomSheet)は alignItems: "stretch" なので、
+              以前カードが持っていた "center" をこの包みへ移した(見た目は不変)。 */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
 
             {/* 大きな − / 数値 / ＋。数値のタップで直接入力に切り替わる(現行の機能を維持)。
                 【逸脱2/3 の撤回】正典 .bpmrow / .pm / .bpmbig をそのまま:
@@ -8503,7 +8478,7 @@ function MeasureView(props) {
               小節アクセント
             </label>
           </div>
-        </div>
+        </BottomSheet>
       )}
 
       {/* 録音停止後: この録音を「登録」(セッションとして保存)するか「取り直し」(破棄)するか選ぶ。
