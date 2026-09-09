@@ -1176,18 +1176,31 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
                         環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか
                         分からなくなる。上のグラフに出ている線がそのまま目安になる。 */}
                     {onAdopt ? (
-                      <button
-                        type="button" className="sans"
-                        onClick={() => {
-                          const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
-                          setAdopted(r?.error ? { error: r.error } : { ok: true });
-                        }}
-                        style={{
-                          minHeight: "var(--tap-min)", border: "none", borderRadius: "var(--r-md)",
-                          background: "var(--c-accent)", color: "var(--c-on-accent)",
-                          fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
-                        }}
-                      >目安に設定</button>
+                      /* 面の右下に貼り付ける器。地はシートと同じ --c-surface で、
+                         下の内容が透けないようにする(新しい濃さを作らない)。
+                         zIndex は**この容器の中だけ**の話なので 1 で足りる。 */
+                      <div style={{
+                        position: "sticky", bottom: 0, zIndex: 1,
+                        display: "flex", justifyContent: "flex-end",
+                        background: "var(--c-surface)", padding: "var(--sp-2) 0",
+                      }}>
+                        <button
+                          type="button" className="sans"
+                          onClick={() => {
+                            const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
+                            setAdopted(r?.error ? { error: r.error } : { ok: true });
+                          }}
+                          style={{
+                            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+                            padding: "0 var(--sp-5)", border: "none",
+                            borderRadius: "var(--r-pill)",
+                            background: "var(--c-accent)", color: "var(--c-on-accent)",
+                            fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
+                            boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+                            cursor: "pointer",
+                          }}
+                        >目安に設定</button>
+                      </div>
                     ) : null}
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>

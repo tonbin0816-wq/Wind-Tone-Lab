@@ -2,6 +2,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>北極星モック 完全版 — 現行Ficus全機能を収容</title>
 <style>
+  /* 【2026/09/09 本人裁定・B10「案ア」】.rlist / .subtabs の左右を 24px → 14px。
+     この絵を描いた時点(2026/08)はリードタブだけ 24px だったが、その後 My Data・分析・
+     詳細2画面・コミュニティはすべて 14px(--page-side-pad)で動いてきた。
+     24px は「リードタブだけの例外」になっていたので、**絵のほうを実装に追従させた**。
+     通常は逆(実装を絵に合わせる。§6.0「見た目はモックが唯一の正典」)。 */
   :root{
     --ink:#1A2433; --ink2:#5A6675; --ink3:#98A1AC; --line:#E8EBEF; --line2:#C9CFD8;
     --accent:#174585; --dim:#9DB3CC; --tint:#EAEFF5; --sunken:#F1F3F6;
@@ -42,7 +47,7 @@
     border-top:1px solid var(--line);padding-bottom:14px;background:#fff}
   .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
   .tab.on{color:var(--ink);font-weight:600}
-  .subtabs{position:absolute;top:52px;left:0;right:0;display:flex;gap:18px;padding:0 24px;
+  .subtabs{position:absolute;top:52px;left:0;right:0;display:flex;gap:18px;padding:0 14px;
     font-size:13px;color:var(--ink3)}
   .subtabs .on{color:var(--ink);font-weight:600}
   .backrow{position:absolute;top:52px;left:0;right:0;padding:0 20px;display:flex;
@@ -109,7 +114,7 @@
   .profrow.sel{color:var(--accent);font-weight:600}
 
   /* ---- リード ---- */
-  .rlist{position:absolute;top:96px;left:0;right:0;bottom:76px;padding:0 24px;overflow:hidden}
+  .rlist{position:absolute;top:96px;left:0;right:0;bottom:76px;padding:0 14px;overflow:hidden}
   .rgroup{padding:20px 0 24px;border-bottom:1px solid var(--line)}
   .rhead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
   .rname{font-size:15px;font-weight:600}

@@ -9338,7 +9338,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin, fl
   };
 
   const scopeOptions = [
-    { key: "session", label: "このセッション", count: 1 },
+    { key: "session", label: "この計測", count: 1 },
     { key: "performer", label: "この奏者の平均", count: performerCount },
   ];
 
@@ -9568,11 +9568,13 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
 // 対応する CSS クラス: .rlist / .rgroup / .rhead / .rname / .rmeta / .rgrid / .tile /
 //                      .addrow / .addbtn / .starrow / .memoline / .bigbtn / .numrow
 // ============================================================================
-// 正典 .rlist / .subtabs の左右 padding。.app-root が既に 14px 持っているので、
-// リードタブの中身には**差分だけ**を足す(app-root 側は他タブと共有なので触らない)。
-const REED_APP_SIDE_PAD_PX = 14;  // .app-root の左右 padding(安全域 env() は別に足される)
-const REED_SIDE_PAD_PX = 24;      // 正典 .rlist / .subtabs
-const REED_LIST_EXTRA_PAD_PX = REED_SIDE_PAD_PX - REED_APP_SIDE_PAD_PX;
+// 【B10 2026/09/09 本人裁定「案ア」】リードタブの左右余白の定数は**3つとも消えた**。
+// 以前は正典 .rlist / .subtabs が 24px を指定していて、.app-root が既に持つ 14px との
+// 差分 10px を内側の div が足す、という仕掛けがあった(REED_SIDE_PAD_PX /
+// REED_APP_SIDE_PAD_PX / REED_LIST_EXTRA_PAD_PX と包みの div 2枚)。
+// 正典を 14px に書き換えたので、.app-root の 14px だけで正典どおりになり、全部要らなくなった。
+// **左右余白の唯一の答えは index.css の --page-side-pad。**リードタブは自前の値を持たない
+// (タイルの幅が 44px を割らないかの検査も、そこから引いている)。
 
 const REED_GRID_COLS = 5;         // 正典 .rgrid grid-template-columns: repeat(5,1fr)
 const REED_GRID_GAP_PX = 10;      // 正典 .rgrid gap
@@ -10045,13 +10047,13 @@ function ReedsTab(props) {
     /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.1】個体詳細だけ
        **カードの作法**(白い地 + 白いカード + 影)。Top(登録 / 比較)は罫のまま。
    【2026/09/06 本人指示】地は --c-sunk から --c-bg へ。浮きは影だけが担う。
-       地は .surf-card が .app-root の左右 padding を打ち消して画面の端まで届かせるので、
-       **正典 .rlist の左右 24px(= app-root の 14 + 差分 10)は内側の div が持つ**。
-       .surf-card 自身に padding をインラインで書くと padding-left/right を殺してしまい、
-       地は端まで届いても中身が 4px 外へずれる。 */
+       地は .surf-card が .app-root の左右 padding を打ち消して画面の端まで届かせる。
+       【B10 2026/09/09】以前はここに差分 10px を足す div が挟まっていたが、
+       正典が 14px になったので **.app-root の 14px だけで正典どおり**になり、包みごと消えた。
+       (.surf-card 自身に padding をインラインで書いてはいけない点は変わらない ──
+        padding-left/right を殺してしまい、地は端まで届いても中身が 4px 外へずれる) */
     return (
       <div className="surf-card">
-      <div style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
         <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
           <ReedEvaluationDetail
             reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
@@ -10061,14 +10063,14 @@ function ReedsTab(props) {
           />
         </SwipeBackArea>
       </div>
-      </div>
     );
   }
 
   /* 【D-29】Top(登録 / 比較)は**罫の作法のまま**(本人が名指しで除外。1px も変えない)。
-     根の包みから外した作法のクラスを、この return が自分で名乗る。 */
+     根の包みから外した作法のクラスを、この return が自分で名乗る。
+     【B10 2026/09/09】左右の差分 10px はここからも消えた(正典が 14px になった)。 */
   return (
-    <div className="surf-rule" style={{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX }}>
+    <div className="surf-rule">
       {/* 正典 .subtabs: 素のテキスト2つ(13px)を gap 18 で並べ、選択中だけ --c-ink の太字。
           溝(地 --c-sunken の segmented control)は正典に無いので撤去した。
           【タップ領域(§5)の作り方】「登録」「比較」は実測 26px しかないので、
@@ -14495,7 +14497,7 @@ function AnalysisLabView(props) {
 
   const confirmBatchDeleteSessions = () => {
     if (selectedForDelete.size === 0) return;
-    if (!window.confirm(`選択した${selectedForDelete.size}件のセッションを削除しますか？(元に戻せません)`)) return;
+    if (!window.confirm(`選択した計測${selectedForDelete.size}件を削除しますか？(元に戻せません)`)) return;
     deleteSessions([...selectedForDelete]);
     exitSelectionMode();
   };
@@ -15060,7 +15062,7 @@ function AllSessionsPage({
             </button>
             <DeleteActionButton
               count={selectedForDelete.size}
-              ariaLabel={selectedForDelete.size > 0 ? `選んだ${selectedForDelete.size}件のセッションを削除` : "セッションを削除"}
+              ariaLabel={selectedForDelete.size > 0 ? `選んだ計測${selectedForDelete.size}件を削除` : "計測を削除"}
               onClick={onConfirmDelete}
             />
           </div>
@@ -15071,7 +15073,7 @@ function AllSessionsPage({
           (N-6 から 1px も動かしていない。置き場所が別画面へ移っただけ)。 */}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "16px 2px 10px" }}>
         <div className="sans" style={{ fontSize: 13, fontWeight: 600, color: "var(--c-ink)" }}>
-          すべてのセッション <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{sessionFilterActive ? `${filteredSessions.length}/${sessions.length}` : sessions.length}</span>
+          すべての計測 <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{sessionFilterActive ? `${filteredSessions.length}/${sessions.length}` : sessions.length}</span>
         </div>
         {/* 選ぶ対象が無い(0件)ときとモード中は入口を出さない(押せない入口を作らない。F-77)。
             TAP_BUTTON_RESET は minHeight しか持たないので、中身が小さいと横が痩せて
@@ -15091,7 +15093,7 @@ function AllSessionsPage({
         {sessions.length > 0 && !listMode && (
           <button
             onClick={onStartSelect}
-            aria-label="削除するセッションを選ぶ"
+            aria-label="削除する計測を選ぶ"
             className="sans"
             style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-ink-2)" }}
           >
@@ -15158,7 +15160,7 @@ function AllSessionsPage({
                   type="checkbox" checked={selectedForDelete.has(s.id)}
                   onChange={() => toggleSessionSelected(s.id)}
                   onClick={(e) => e.stopPropagation()}
-                  aria-label="このセッションを選ぶ"
+                  aria-label="この計測を選ぶ"
                   className="slist-check"
                 />
                 <span className="slist-main">

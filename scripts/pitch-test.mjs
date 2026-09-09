@@ -307,9 +307,6 @@ const code = [
   extractFunction("reedScoreDateLabel"),
   extractFunction("reedScoreRowItems"),
   // 【N-5】リードタブを正典どおりにするための純関数と実寸。
-  extractConst("REED_APP_SIDE_PAD_PX"),
-  extractConst("REED_SIDE_PAD_PX"),
-  extractConst("REED_LIST_EXTRA_PAD_PX"),
   extractConst("REED_GRID_COLS"),
   extractConst("REED_GRID_GAP_PX"),
   extractConst("REED_TILE_FS_PX"),
@@ -448,8 +445,7 @@ const api = new Function(`${code}
            REED_RATING_STEP, REED_RATING_STEPS_N, RATING_DIAL_RATING_ORDER, RATING_DIAL_VISIBLE,
            RATING_DIAL_ORDER, RATING_DIAL_ITEM_H, REED_SCORE_PLOT_H,
            RATING_DIAL_UNRATED, RATING_DIAL_ORDER_WITH_UNRATED, RATING_DIAL_RATING_ORDER_WITH_UNRATED,
-           REED_APP_SIDE_PAD_PX, REED_SIDE_PAD_PX, REED_LIST_EXTRA_PAD_PX,
-           REED_GRID_COLS, REED_GRID_GAP_PX, REED_TILE_FS_PX,
+                    REED_GRID_COLS, REED_GRID_GAP_PX, REED_TILE_FS_PX,
            REED_HEAD_MB_PX, REED_GROUP_PAD_TOP_PX, REED_GROUP_PAD_BOTTOM_PX,
            SUBTAB_GAP_PX, SUBTAB_HALF_GAP_PX, REED_NUMROW_MIN_PX,
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
@@ -6748,11 +6744,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // **Top が .surf-card に化ける変異**(本人が名指しで除外した画面が裏返る)はここで落ちる。
     const tab = srcOfFn(src, "ReedsTab");
     check("D-29 §2.1: リード個体詳細はカードの作法(.surf-card)を名乗る",
-      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<SwipeBackArea /.test(tab));
     // Top は if (evaluatingReed) の閉じ **より後ろ**の return。本人が名指しで除外した画面。
     const topReturn = tab.slice(tab.indexOf("if (evaluatingReed)"));
     check("D-29 §2.1: リードタブ Top は罫の作法(.surf-rule)のまま(本人が名指しで除外)",
-      /\n  return \(\s*\r?\n\s*<div className="surf-rule" style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(topReturn),
+      /\n  return \(\s*\r?\n\s*<div className="surf-rule">/.test(topReturn),
       (topReturn.match(/\n  return \([\s\S]{0,120}/) || ["取れなかった"])[0].replace(/\s+/g, " "));
     // 入れ子にしていないこと。ReedsTab の中で作法を名乗る要素は**2つだけ**で、
     // しかも片方が他方の中に無い(早期 return と本 return は排他)。
@@ -12100,11 +12096,13 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       // 【罠9】ariaLabel の中身はテンプレート文字列なので波括弧を含む。
       // [^}]* で刈ると 0 件になり「空回りしたのに通る」検査になる。**場面の綴りそのもの**で数える。
       {
-        const scenes = ["件のセッションを削除", "箱を削除", "枚を削除"].filter((w) => codeOf(src).includes(w));
+        // 【2026/09/09】画面の語が「セッション」→「計測」になり、数の形も A12 の
+        // 「計測◯件」へ揃った(件のセッションを削除 → 計測${n}件を削除)。
+        const scenes = ["件を削除", "箱を削除", "枚を削除"].filter((w) => codeOf(src).includes(w));
         check("D-5: 読み上げは件数つきの言葉で3つの場面ぶん出す(アイコンだけでは何が消えるか分からない)",
           scenes.length === 3, scenes.join(" / ") || "0箇所");
         check("D-5: 0件のときも何が消えるかを名指しする(無言のゴミ箱にしない)",
-          ["セッションを削除", "箱を削除", "リードを削除"].every((w) => codeOf(src).includes(w)));
+          ["計測を削除", "箱を削除", "リードを削除"].every((w) => codeOf(src).includes(w)));
       }
       const dataDel = del;
       // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)      // N-6: 実際に消える一手だけが危険色の塗りを持つ(0件選択のときは B型の地のまま)
@@ -12465,8 +12463,8 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
         [...restOf(m[1]), ...restOf(m[2])].every((c) => c.charCodeAt(0) > 0x2000),
         m ? `頭="${head}" / "${m[1]}" / "${m[2]}"` : "");
     }
-    check("F-68: ポップアップに2択(このセッション / この奏者の平均)がある",
-      /key: "session", label: "このセッション"/.test(btn) &&
+    check("F-68: ポップアップに2択(この計測 / この奏者の平均)がある",
+      /key: "session", label: "この計測"/.test(btn) &&
       /key: "performer", label: "この奏者の平均"/.test(btn));
     check("F-68: 2択は A型(.ctl-state)で、選択中を aria-pressed で返す",
       /className="sans ctl-state"[\s\S]{0,120}aria-pressed=\{scope === o\.key\}/.test(btn));
@@ -13201,12 +13199,13 @@ let METRO_SIGS_ALL = [];
       // 【N-11】.ops に残るのは「選択」1つだけになったので、間に <div> は1つも入らない。
       // 【D-1】見出しは別画面の「すべてのセッション n」になった。構造の主張は不変。
       const bi = dv.indexOf("onClick={onStartSelect}");
-      const hi = dv.indexOf("すべてのセッション <span");
+      // 【2026/09/09】見出しの語が「すべてのセッション」→「すべての計測」になった。
+      const hi = dv.indexOf("すべての計測 <span");
       const btnStart = bi === -1 ? -1 : dv.lastIndexOf("<button", bi);
       const headClose = hi === -1 ? -1 : dv.indexOf("</div>", hi);
       const between = hi !== -1 && headClose !== -1 && btnStart > headClose
         ? dv.slice(headClose, btnStart) : null;
-      check("選択は「セッション」の見出しと同じ容器(.shead の行)にいる",
+      check("選択は「すべての計測」の見出しと同じ容器(.shead の行)にいる",
         between !== null && (between.match(/<div\b/g) || []).length === 0,
         between === null ? `見出し ${hi} / ボタン ${btnStart}` : (between.match(/<div\b/g) || []).join(","));
     }
@@ -13444,6 +13443,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     return v;
   };
   const mockCss = parseCss((mock.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]);
+  // 【B10 2026/09/09】本文の左右余白は index.css の --page-side-pad が唯一の答え。
+  // リードタブが自前の定数を持つのをやめたので、幅の計算はここから引く。
+  const PAGE_SIDE_PAD = parseFloat((/--page-side-pad:\s*(\d+(?:\.\d+)?)px/.exec(cssN5) || [])[1]);
   const appCss = parseCss(cssN5);
 
   // 正典側の走査が空回りしていないこと(空回りすると以降が全部「一致」になる)
@@ -13482,25 +13484,39 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 375px でタイルが 44px を割らない(§5 は機能側の規定として有効)。
     // 幅 = (画面375 - 左右padding - gap×4) / 5
     {
-      const inner = 375 - api.REED_SIDE_PAD_PX * 2;
+      const inner = 375 - PAGE_SIDE_PAD * 2;
       const tile = (inner - api.REED_GRID_GAP_PX * (api.REED_GRID_COLS - 1)) / api.REED_GRID_COLS;
       check("375px でタイルの1辺は 44px 以上(§5)", tile >= 44, `${tile.toFixed(2)}px`);
-      check("左右の padding は正典 .rlist と同じ 24px",
-        api.REED_SIDE_PAD_PX === parseFloat((declOf(mockCss, ".rlist", "padding") || "").split(/\s+/)[1]),
-        `実装=${api.REED_SIDE_PAD_PX} / 正典=${declOf(mockCss, ".rlist", "padding")}`);
-      // .app-root が既に持っている 14px との差分だけを足している(二重に足していない)
-      check("リードタブが足す左右の padding は 24 − 14 = 10",
-        api.REED_LIST_EXTRA_PAD_PX === api.REED_SIDE_PAD_PX - api.REED_APP_SIDE_PAD_PX
-        && api.REED_LIST_EXTRA_PAD_PX === 10, `${api.REED_LIST_EXTRA_PAD_PX}px`);
+      // 【B10 2026/09/09 本人裁定「案ア」で 24 → 14】期待値は書き写さず**正典から読む**
+      // (これは元からそう)。変わったのは正典の側の値。
+      check("左右の padding は正典 .rlist と同じ",
+        PAGE_SIDE_PAD === parseFloat((declOf(mockCss, ".rlist", "padding") || "").split(/\s+/)[1]),
+        `--page-side-pad=${PAGE_SIDE_PAD} / 正典=${declOf(mockCss, ".rlist", "padding")}`);
+      // 正典の .subtabs も同じ値であること。**この2つが揃っていないと、
+      // 子タブの行だけが一覧より内側に入る**(正典を書き換えたとき片方だけ直す事故を塞ぐ)。
+      check("正典の .subtabs も .rlist と同じ左右 padding",
+        (declOf(mockCss, ".subtabs", "padding") || "").split(/\s+/)[1]
+        === (declOf(mockCss, ".rlist", "padding") || "").split(/\s+/)[1],
+        `.subtabs=${declOf(mockCss, ".subtabs", "padding")} / .rlist=${declOf(mockCss, ".rlist", "padding")}`);
+      // 【B10 の本題】差分を足す仕掛けが**消えていること**。以前は app-root の 14 に
+      // 10 を足す div が2枚あった。復活したらリードタブだけまた内側へ寄る。
+      // **綴りの不在を見る検査なので codeOf を通す**(この場の作法)。
+      // 通さないと「もう消えた」と書いた説明のコメント自身を拾ってしまう。
+      check("B10: リードタブは左右の差分を足していない(包みの div も定数も無い)",
+        !/REED_LIST_EXTRA_PAD_PX|REED_APP_SIDE_PAD_PX/.test(codeOf(src)),
+        (codeOf(src).match(/REED_LIST_EXTRA_PAD_PX|REED_APP_SIDE_PAD_PX/g) || []).length + "件");
       // 【N-11 2026/08/17 本人指示で錨が変わった】左右の余白は index.css のトークン
       // --page-side-pad が**唯一の答え**になった(グラフカードの食い破りと浮かせるボタンの
       // 右端が同じ値から引くため)。値は 14px のまま = **計算値は 1px も動いていない**。
       // 期待値は実装の外(index.css)から読み、リードタブ側の 14 と一致することまで見る。
       {
         const pagePad = (/--page-side-pad:\s*(\d+(?:\.\d+)?)px/.exec(cssN5) || [])[1];
+        // 【B10 2026/09/09】リードタブが「引く値」を持たなくなったので、
+        // 突き合わせる相手を正典と同じ REED_SIDE_PAD_PX にした。
+        // **正典 = 実装 = --page-side-pad の3つが1つの値**であることをここで閉じる。
         check("N-11: 本文の左右余白は index.css の --page-side-pad が唯一の答え",
-          pagePad !== undefined && parseFloat(pagePad) === api.REED_APP_SIDE_PAD_PX,
-          `--page-side-pad=${pagePad} / リードタブが引く値=${api.REED_APP_SIDE_PAD_PX}`);
+          pagePad !== undefined && parseFloat(pagePad) === PAGE_SIDE_PAD,
+          `--page-side-pad=${pagePad} / 幅の計算に使った値=${PAGE_SIDE_PAD}`);
         check("N-11: .app-root はその左右トークンをそのまま使う(式を写していない)",
           /padding: "calc\(16px \+ env\(safe-area-inset-top\)\) var\(--page-pad-right\) var\(--page-bottom-gap\) var\(--page-pad-left\)"/.test(src));
         check("N-11: 左右トークンは 14px + 安全域(左右で別々の env を持つ)",
@@ -14558,8 +14574,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         /flex: "1 1 0", minWidth: REED_NUMROW_MIN_PX/.test(numrow));
       check("その最小幅は4列でも1行に収まる値(正典 .numrow 由来の 60px のまま)",
         api.REED_NUMROW_MIN_PX > 0
-        && api.REED_NUMROW_MIN_PX * 4 <= 375 - api.REED_SIDE_PAD_PX * 2,
-        `${api.REED_NUMROW_MIN_PX}×4 = ${api.REED_NUMROW_MIN_PX * 4} / 使える幅 ${375 - api.REED_SIDE_PAD_PX * 2}`);
+        && api.REED_NUMROW_MIN_PX * 4 <= 375 - PAGE_SIDE_PAD * 2,
+        `${api.REED_NUMROW_MIN_PX}×4 = ${api.REED_NUMROW_MIN_PX * 4} / 使える幅 ${375 - PAGE_SIDE_PAD * 2}`);
       // 【定義の言い換えを書かない】「3×min + 行幅 > 行幅」は min > 0 なら**恒等的に真**で、
       // 何も守らない。守るべきは「0 ではないこと」そのもの(0 に戻すと同じ行で潰れる)。
       check("その最小幅は 0 ではない(0 だと列が同じ行で潰れる)",
@@ -14657,10 +14673,12 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 個体詳細も一覧・比較と同じ左右の余白の中に置く(詳細だけ 14px になっていた実測を潰した)
     // 【D-29 2026/09/03】個体詳細がカードの作法へ移り、地を画面の端まで届かせるために
     // `.surf-card` が1枚外側に増えた。**左右の余白は内側の div が持つ**(値は不変)。
+    // 【B10 2026/09/09 本人裁定「案ア」】正典が 24px → 14px になり、差分を足す内側の div は
+    // **不要になって消えた**。いまは `.surf-card` の直下が SwipeBackArea。
     // `.surf-card` 自身に paddingLeft をインラインで書くと、index.css の
-    // padding-left: var(--page-pad-left) を殺して中身が 4px 外へずれる ── その形を禁じる。
-    check("個体詳細も同じ左右の余白の枠の中にある",
-      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<div style=\{\{ paddingLeft: REED_LIST_EXTRA_PAD_PX, paddingRight: REED_LIST_EXTRA_PAD_PX \}\}>/.test(tab));
+    // padding-left: var(--page-pad-left) を殺して中身が 4px 外へずれる ── その禁止は不変。
+    check("個体詳細も同じ左右の余白の枠の中にある(差分を足す包みは無い)",
+      /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<SwipeBackArea /.test(tab));
     check("D-29: .surf-card 自身に左右の padding をインラインで書いていない(地の式を殺さない)",
       !/<div className="surf-card"[^>]*padding/.test(tab),
       (tab.match(/<div className="surf-card"[^>]*>/g) || []).join(" / "));
