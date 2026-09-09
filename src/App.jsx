@@ -9312,7 +9312,7 @@ function ReedScoreField({ fields, onOpen }) {
 // --c-accent)が該当する。B型(.ctl-plain = 枠なし・地 --c-sunken)のままだと、状態を返せるのは
 // 地か文字だけになり「枠線があるものは状態を持っている」という読み手への約束から外れる。
 // ON の合図に地は足さない(足すと A型が「枠線+違う地」になり規則そのものを破る)。
-function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) {
+function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin, floating = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [scope, setScope] = useState("session"); // "session" | "performer"(F-68)
@@ -9342,8 +9342,26 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
     { key: "performer", label: "この奏者の平均", count: performerCount },
   ];
 
+  // 和文5文字ぶんで揃えてある(目安に設定 / 目安設定中)。
+  // 文字数が変わるとボタンの幅が変わり、右寄せの行で左端が動く。
+  const triggerLabel = isSet ? "★ 目安設定中" : "★ 目安に設定";
+
   return (
     <>
+      {/* 【D-7 2026/09/09 本人裁定「主要動作はすべて右下に浮かせる」】
+          セッション個別詳細では、この入口は**ヘッダの右ではなく右下のフロート**になった
+          (リード個体詳細の「計測」と同じ部品・同じ位置・同じ影)。
+          呼び出し側が floating を渡したときだけ浮かせる ── アップロード直後の告知
+          (14583)はページの流れの中に居る一時的な行で、そこに浮かせる場所が無いため。 */}
+      {floating ? (
+        <FloatingAction
+          label={triggerLabel}
+          /* aria は表示の語そのまま(A17/A18 2026/09/09 本人裁定)。状態は語が持っている
+             ので、aria-pressed が無くても「設定中」かどうかは読み上げで分かる。 */
+          ariaLabel={triggerLabel}
+          onClick={() => setIsOpen(true)}
+        />
+      ) : (
       <button
         onClick={() => setIsOpen(true)}
         className="sans ctl-state ctl-pill"
@@ -9356,10 +9374,9 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin }) 
           flexShrink: 0, whiteSpace: "nowrap",
         }}
       >
-        {/* 和文5文字ぶんで揃えてある(目安に設定 / 目安設定中)。
-            文字数が変わるとボタンの幅が変わり、右寄せの行で左端が動く */}
-        {isSet ? "★ 目安設定中" : "★ 目安に設定"}
+        {triggerLabel}
       </button>
+      )}
       {isOpen && (
         // 【C-14 / C-15 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
         // ここは以前**下寄せだがつまみの無い**自前の器(暗幕 div + カード div + createPortal +
@@ -15318,9 +15335,13 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       <DetailHeader
         onBack={onBack}
         backLabel="< 一覧"
+        /* 【D-7 2026/09/09】「★ 目安に設定」はヘッダ右から右下のフロートへ下りた(下の
+           <SetAsIdealButton float ... />)。**「編集」はヘッダに残す**: D7 が数えていたのは
+           各画面の「主要動作」1つで、リード個体詳細=計測 / セッション個別詳細=目安に設定 /
+           人物紹介=目安に設定 の3つ。「編集」は属性を直す別の系統の操作で、これも浮かせると
+           1画面に2つ浮くことになり、他のどの画面にも無い形を新しく作ってしまう。 */
         actions={(
           <>
-            <SetAsIdealButton session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
             {/* 正典 #14b: 属性は読み取り専用の1行にして、編集はここからシートへ送る。 */}
             <button
               type="button" onClick={() => setEditOpen(true)} aria-expanded={editOpen}
@@ -15335,6 +15356,9 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
         titleSuffix={formatYmd(session.recordedAt, { timeOnly: true })}
         meta={meta}
       />
+      {/* 浮かせるボタンと対で、本文の末尾にボタンの高さぶんの余白を置く
+          (片方だけだと最下段がボタンの下に潜る)。置き場は末尾なので下の方にある。 */}
+      <SetAsIdealButton floating session={session} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
 
       {/* 指標グラフカード。リード詳細(#15a)と**完全に同じ部品**(正典の要求)。 */}
       {frames.length > 0 && (
@@ -15377,6 +15401,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           onClose={() => setEditOpen(false)}
         />
       )}
+      <FloatingActionSpacer />
     </div>
   );
 }

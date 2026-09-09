@@ -12448,7 +12448,10 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
     // ラベルは「押す前後で行の中身が動かない」ために**同じ文字数**で組む(全角のみ)。
     // 文字数を数えるのはソースから取り出した実際の文字列であって、書き写した定数ではない。
     {
-      const m = /\{isSet \? "([^"]+)" : "([^"]+)"\}/.exec(btn);
+      // 【2026/09/09】D-7 でこの入口は右下のフロートにもなった。ラベルは2つの姿
+      // (フロート / ヘッダのボタン)で共有するため定数 triggerLabel に切り出されたので、
+      // JSX の中括弧を前提にしない。**見ている中身は同じ**(2つの綴りを取り出して幅を比べる)。
+      const m = /\bisSet \? "([^"]+)" : "([^"]+)"/.exec(btn);
       const a = m ? [...m[1]] : [], b = m ? [...m[2]] : [];
       check("F-67: 設定中/未設定のラベルは同じ文字数(幅が変わるとボタンの左端が動く)",
         m !== null && a.length === b.length && a.length > 0,
@@ -13741,8 +13744,12 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       !/REED_ADDROW_PAD_TOP_PX/.test(codeOf(src)) && !codeOf(src).includes("＋ 追加"),
       (codeOf(src).match(/＋ 追加|REED_ADDROW_PAD_TOP_PX/g) || []).length + "件");
     // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
+    // 【D-7 2026/09/09 本人裁定「主要動作はすべて右下に浮かせる」で 3 → 4】
+    // セッション個別詳細の「★ 目安に設定」がヘッダ右から下りてきて4つ目。
+    // ここの本題は**リードの追加の入口が1つであること**なので、総数が増えても
+    // 下2つの綴り(＋ リードを追加 / setAddOpen)が本題を守っている。
     check("F-111: 追加の入口は右下に浮かせるボタン1つ(リード0枚の空状態でも出す)",
-      (codeOf(src).match(/<FloatingAction\b/g) || []).length === 3
+      (codeOf(src).match(/<FloatingAction\b/g) || []).length === 4
       && /<FloatingAction\s*\r?\n\s*label="＋ リードを追加"/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b/g) || []).length}箇所`);
@@ -17450,11 +17457,21 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       && (src.match(/^function FloatingActionSpacer\(/gm) || []).length === 1,
       `${(src.match(/^function FloatingAction\(/gm) || []).length}個`);
     // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
-    check("31.4 使い手は3画面(My Data の取り込み / リードタブの追加 / 個体詳細の計測)だけ",
-      (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 3
+    // 【D-7 2026/09/09 本人裁定「主要動作はすべて右下に浮かせる」で 3 → 4】
+    // 4つ目はセッション個別詳細の「★ 目安に設定」。以前はヘッダの右に居た。
+    // **数だけでなく誰が使うかを綴りで縛る**(件数だけだと、どこかが勝手に4つ目を
+    // 名乗っても気づけない。罠4と同じ考え方)。
+    check("31.4 使い手は4画面(My Data の取り込み / リードタブの追加 / 個体詳細の計測 / セッション詳細の目安に設定)だけ",
+      (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 4
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => uploadInputRef\.current\?\.click\(\)\}/.test(codeOf(src))
-      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src))
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setIsOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length}箇所`);
+    // D-7 の本題: セッション個別詳細のヘッダ右に目安の入口が**戻っていない**こと。
+    // 浮かせた側(floating)が在ることと、ヘッダ側に無いことの両方を見る。
+    check("31.4 D-7: セッション個別詳細の目安の入口はヘッダ右ではなく右下",
+      /<SetAsIdealButton floating /.test(codeOf(src))
+      && !/actions=\{\(\s*<>\s*<SetAsIdealButton/.test(codeOf(src)));
     // 正典 案P / 案D の .fab は同じ形(高さ44・ピル・紺地・白文字・影)
     check("31.4 正典(案P)の .fab の高さは 44(§5 と同値)",
       parseFloat(pDecl(".fab", "height")) === 44, String(pDecl(".fab", "height")));
@@ -17489,11 +17506,13 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
     check("31.4 余白の高さはボタンの高さ + 上下の間隔(直書きの数値を作らない)",
       /const FLOAT_ACTION_SPACER_H = `calc\(var\(--tap-min\) \+ \$\{FLOAT_ACTION_GAP\} \+ \$\{FLOAT_ACTION_GAP\}\)`;/.test(src)
       && /height: FLOAT_ACTION_SPACER_H/.test(src));
-    check("31.4 3画面とも中身の下に余白を置いている(1つでも欠けるとそこだけ最下行が隠れる)",
-      (codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length === 3
+    check("31.4 4画面とも中身の下に余白を置いている(1つでも欠けるとそこだけ最下行が隠れる)",
+      (codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length === 4
       && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "MyDataPage")))
       && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedRegisterView")))
-      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedEvaluationDetail"))),
+      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "ReedEvaluationDetail")))
+      // 【D-7 2026/09/09 で4画面目】セッション個別詳細。浮かせたら必ず余白も対で置く。
+      && /<FloatingActionSpacer \/>/.test(codeOf(srcOfFn(src, "SessionDetailView"))),
       `${(codeOf(src).match(/<FloatingActionSpacer \/>/g) || []).length}箇所`);
     // 隣のページ(分析 / 比較)を見ている間は出さない(portal なので自分では判断できない)
     check("31.4 どちらの呼び出しも「今このページか」を条件に持つ(隣のページで出したままにしない)",
