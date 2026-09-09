@@ -7140,7 +7140,7 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
         <span style={sval}>{metroDiagNum(bd?.gap, 1)} − {metroDiagNum(bd?.perFrame, 2)} ＝ <b>{metroDiagNum(bd?.diff, 2)}</b>ms</span></div>
       {/* 【D-20b】⑦ をこの板にも出す。**この板を撮ってもらうので、
           「その数字がどれだけ濃いか」が同じ写真に写っていないと読めない。** */}
-      <div style={srow}><span style={skey}>書換 走り / 光 ・ ⑦鳴</span>
+      <div style={srow}><span style={skey}>書換 走り / 光 / ⑦鳴</span>
         <span style={sval}>{metroDiagNum(s && s.elapsed > 0 ? s.runWrites / s.elapsed : null, 1)} / {metroDiagNum(s && s.elapsed > 0 ? s.glowWrites / s.elapsed : null, 1)}回/秒 ・ {metroDiagNum(s && s.soundingShare != null ? s.soundingShare * 100 : null, 0)}%</span></div>
 
       <div style={{ ...hint, marginTop: 2 }}>
@@ -7710,7 +7710,9 @@ function MeasureView(props) {
           {/* 【F-72】地も枠も元から持たない素のテキスト。**足したのは ▾ だけ**
               (正典 .set1 の「Alto ▾」「442Hz ▾」)。▾ はボタンの中に入れるので穴にならない。 */}
           <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: 4, fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
-          <span style={{ color: "var(--c-ink-3)" }}>·</span>
+          {/* 【A1 2026/09/08 本人裁定「中黒は廃止」】ここは `·` の span だった。
+              区切りは記号ではなく余白。幅は DetailHeader の1行メタと同じ 9px。 */}
+          <span aria-hidden="true" style={{ width: 9, flexShrink: 0 }} />
           <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: 4, fontSize: 12 }}>{tuningHz}Hz<PickChevron /></button>
         </div>
         {/* 2行目 = リード。 */}
@@ -13819,8 +13821,11 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
           <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, color: "var(--c-ink)", letterSpacing: "-.01em" }}>
             {calendarMonthLabel(ym.year, ym.month)}
           </div>
-          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>
-            <b style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{hoursText(totals.seconds)}</b>時間 · {totals.activeDays}日
+          {/* 【A1 2026/09/08 本人裁定「中黒は廃止」】「◯時間 · ◯日」の `·` を余白へ。
+              幅は DetailHeader の1行メタと同じ 9px。区画は2つとも単位まで含めて1区画。 */}
+          <div className="sans" style={{ display: "flex", alignItems: "baseline", gap: 9, fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>
+            <span><b style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{hoursText(totals.seconds)}</b>時間</span>
+            <span>{totals.activeDays}日</span>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginRight: -8 }}>
@@ -14296,7 +14301,9 @@ function MyDataScopePicker({ dataSax, setDataSax, range, setRange }) {
         >
           {SAX_PRESETS[dataSax]?.label} ▾
         </button>
-        <span className="sans" aria-hidden="true" style={{ fontSize: MY_DATA_SCOPE_FS, color: "var(--c-ink-3)", whiteSpace: "pre" }}> · </span>
+        {/* 【A1 2026/09/08 本人裁定「中黒は廃止」】ここは ` · ` の span だった。
+            区切りは記号ではなく余白。幅は DetailHeader の1行メタと同じ 9px。 */}
+        <span aria-hidden="true" style={{ width: 9, flexShrink: 0 }} />
         <button
           onClick={() => setRangeSheetOpen(true)}
           aria-expanded={rangeSheetOpen}

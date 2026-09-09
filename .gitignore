@@ -36,3 +36,6 @@ design/canvas/ficus-my-data.html
 .env.local
 
 .vercel
+
+# HyperFrames の生成物(作り直せるので git に入れない)
+videos/*/.thumbnails/

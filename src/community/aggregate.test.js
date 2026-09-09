@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rankByPractice, findMyRank, tallyGear, tallyCombos, gearKey, gearDisplay, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
+import { rankByPractice, findMyRank, tallyCombos, gearKey, gearDisplay, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
 import { filterUsers, isFiltered, ANY } from "./directory.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
@@ -106,72 +106,6 @@ describe("filterUsers", () => {
   });
 });
 
-describe("tallyGear", () => {
-  const g = (over) => ({ instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0", ...over });
-
-  // 【2026/09/06 本人裁定「含める」】同じ銘柄でも番手が違えば別の票にする。
-  it("リードは番手まで含めて数える(同じ銘柄でも番手が違えば別の票)", () => {
-    const r = tallyGear([
-      person("a", { gear: { alto: g() } }),
-      person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
-    ], "alto");
-    expect(r.slots.reed.map((x) => x.key).sort())
-      .toEqual(["Vandoren Traditional 3.0", "Vandoren Traditional 3.25"]);
-  });
-  it("番手を持たない古いドキュメントは番手なしの票になる(勝手に埋めない)", () => {
-    const r = tallyGear([person("a", { gear: { alto: g({ reedStrength: null }) } })], "alto");
-    expect(r.slots.reed[0].key).toBe("Vandoren Traditional");
-  });
-  it("「その他」は番手が付いても「その他」のまま(カタログ外を細かく割らない)", () => {
-    const r = tallyGear([person("a", { gear: { alto: g({ reedBrand: OTHER_BRAND, reedModel: null }) } })], "alto");
-    expect(r.slots.reed[0].key).toBe(OTHER_BRAND);
-  });
-  it("リード以外は番手を鍵に混ぜない", () => {
-    expect(gearKey("YAMAHA", "YAS-62")).toBe("YAMAHA YAS-62");
-  });
-
-  it("4種すべての内訳を、多い順に数える", () => {
-    const r = tallyGear([
-      person("a", { gear: { alto: g() } }),
-      person("b", { gear: { alto: g() } }),
-      person("c", { gear: { alto: g({ mpBrand: "Meyer", mpModel: "MR-404" }) } }),
-    ], "alto");
-    expect(r.total).toBe(3);
-    expect(Object.keys(r.slots).sort()).toEqual([...GEAR_SLOTS].sort());
-    expect(r.slots.instrument[0]).toMatchObject({ key: "YAMAHA YAS-62", count: 3, ratio: 1 });
-    expect(r.slots.mouthpiece.map((x) => x.count)).toEqual([2, 1]);
-  });
-  it("その種別を吹かない人は母数に入らない", () => {
-    const r = tallyGear([person("a", { gear: { alto: g() } }), person("b", { gear: { tenor: g() } })], "alto");
-    expect(r.total).toBe(1);
-  });
-
-  // ここが一番間違えやすい
-  it("未選択(null)と「その他」を別々に数える", () => {
-    const r = tallyGear([
-      person("未選択", { gear: { alto: g({ reedBrand: null, reedModel: null }) } }),
-      person("その他", { gear: { alto: g({ reedBrand: OTHER_BRAND, reedModel: null }) } }),
-    ], "alto");
-    const keys = r.slots.reed.map((x) => x.key);
-    expect(keys).toContain(UNSET);
-    expect(keys).toContain(OTHER_BRAND);
-    expect(UNSET).not.toBe(OTHER_BRAND);
-    // 混ぜると内訳が実態より「その他」に寄る
-    expect(r.slots.reed.find((x) => x.key === OTHER_BRAND).count).toBe(1);
-  });
-  it("型番の無い銘柄は銘柄だけを鍵にする", () => {
-    expect(gearKey("YAMAHA", null)).toBe("YAMAHA");
-    expect(gearKey("YAMAHA", "YAS-62")).toBe("YAMAHA YAS-62");
-    expect(gearKey(null, null)).toBe(UNSET);
-    expect(gearKey(undefined, undefined)).toBe(UNSET);
-  });
-  it("誰も居なければ 0 で返る(0除算しない)", () => {
-    const r = tallyGear([], "alto");
-    expect(r.total).toBe(0);
-    expect(r.slots.reed).toEqual([]);
-  });
-});
-
 // ------------------------------------------------------------------
 // 内訳の2段(メーカー → 型番)。既存の gearKey / tallyGear は壊さずに足した経路。
 // ------------------------------------------------------------------
@@ -196,9 +130,8 @@ describe("tallyGearByBrand / tallyGearModels", () => {
       person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
     ], "alto").slots.reed;
     expect(reeds).toEqual([{ key: "Vandoren", count: 2, ratio: 1 }]);
-    // 【対比】既存の1段の集計は今までどおり型番と番手で割れたまま(壊していない)
-    expect(tallyGear(users, "alto").slots.instrument.map((x) => x.key).sort())
-      .toEqual(["Selmer Serie III", "YAMAHA YAS-62", "YAMAHA YAS-875EX"]);
+    // 【2026/09/09】ここには「1段版(tallyGear)は今までどおり型番と番手で割れたまま」という
+    // 対比があったが、その1段版が死んだコードになって撤去されたので対比も落とした。
   });
 
   it("2段目はそのメーカーを選んだ人だけを母数に、型番で数える(リードは番手まで)", () => {

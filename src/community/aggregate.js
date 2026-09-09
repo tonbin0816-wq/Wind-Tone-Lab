@@ -105,39 +105,13 @@ export function gearDisplay(brand, model, extra) {
   return extra ? `${base} ${extra}` : base;
 }
 
-/**
- * 選んだ楽器種別について、楽器の組の内訳を数える。
- * @returns { [slot]: [{ key, count, ratio }] } count の多い順
- */
-export function tallyGear(users, saxType) {
-  const counters = {};
-  for (const slot of GEAR_SLOTS) counters[slot] = new Map();
-  let total = 0;
-
-  for (const u of users ?? []) {
-    const g = u?.gear?.[saxType];
-    if (!g) continue; // その種別を吹かない人
-    total++;
-    for (const [slot, [bKey, mKey, xKey]] of Object.entries(SLOTS)) {
-      const k = gearKey(g[bKey], g[mKey], xKey ? g[xKey] : undefined);
-      counters[slot].set(k, (counters[slot].get(k) ?? 0) + 1);
-    }
-  }
-
-  const out = {};
-  for (const slot of GEAR_SLOTS) {
-    out[slot] = [...counters[slot].entries()]
-      .map(([key, count]) => ({ key, count, ratio: total > 0 ? count / total : 0 }))
-      // 同数のときは鍵で決着させる。並べ替えが安定しないと、見るたび順が変わる。
-      .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key));
-  }
-  return { total, slots: out };
-}
-
 // ============ 内訳を2段にする(メーカー段 → 型番段) ============
 //
-// 【既存の gearKey を壊さないこと】gearKey は「銘柄 型番 番手」を1つの鍵にする関数で、
-// tallyGear と tallyCombos の両方が使っている。2段の内訳はそこに手を入れず**別に足す**。
+// 【既存の gearKey を壊さないこと】gearKey は「銘柄 型番 番手」を1つの鍵にする関数。
+// 2段の内訳はそこに手を入れず**別に足した**。
+// 【2026/09/09】かつてここには1段版の `tallyGear` があり、この2つが gearKey を共有していた。
+// 画面が2段へ移ったあと `tallyGear` はどこからも呼ばれない残骸になったので撤去した
+// (呼んでいたのは自分の試験だけだった)。いまの読み手は tallyCombos とこの下の2つ。
 // 1段目は型番で割らないので、メーカーの人気がそのまま読める。
 
 /** メーカー段の鍵。型番でも番手でも割らない。 */
