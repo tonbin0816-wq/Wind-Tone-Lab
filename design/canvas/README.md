@@ -15,7 +15,7 @@
 | 検討した案 | 不採用の記録(StackA / PlanA / CompareB / PlanD) |
 | レイアウト刷新案 | S1・S1open・S2・S3・A1・A2・Chips |
 | **コミュニティ** | **データ / 順位 / シェア / マイページ / 人をタップ(表・裏)** |
-| **統一の比較** | **UnifyPad / UnifySheet / UnifyAction ── 裁定のために「いま何種類あるか」を並べた絵** |
+| **統一の比較** | **UnifyPad / UnifySheet / UnifyAction / RankColor ── 裁定のために「いま何種類あるか」を並べた絵** |
 
 本文幅は3種類ある。いずれも **`app-root` の左右 14px の内側**にさらに足す形なので、
 実測(2026/09/09・375px 実機幅)はこうなる:
@@ -38,6 +38,7 @@
 node design/canvas/generate.mjs      # My Data 系の .dc.html
 node design/canvas/community.mjs     # コミュニティ系の .dc.html
 node design/canvas/unify.mjs         # 統一の比較(Unify*.dc.html)
+node design/canvas/rankcolor.mjs     # 順位色のコントラスト(RankColor.dc.html)
 ```
 
 トークンと `.dc.html` の外枠は `tokens.mjs` が持つ(両方の生成器が読む)。

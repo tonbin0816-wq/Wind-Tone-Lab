@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<div style="width: 375px; background: var(--c-bg); padding: 14px; box-sizing: border-box">
+      <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">順位色のコントラスト</div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6; margin: 4px 0 6px">色が乗るのは<b>環3px と カード左端の帯4px の2つだけ</b>で、順位の数字は <code>--c-ink</code>（白地に 16.1:1）。<b>文字はもう問題ない</b> ── 残っているのは非文字の部品で、WCAG 1.4.11 が求めるのは <b>3:1</b>（4.5:1 は文字の基準なのでここには掛からない）。</div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6; margin-bottom: 14px">比の数字はこのページを作るときに計算した実測値。色相と彩度は変えず、<b>明度だけ</b>下げてある。</div>
+      <div style="margin-bottom: 22px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">現状</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #C79A3E"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="width: 56px; height: 56px; border-radius: 999px; background: var(--c-avatar-1); box-shadow: 0 0 0 3px #C79A3E; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #9BA6B4"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-3); box-shadow: 0 0 0 3px #9BA6B4; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #A9743E"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-5); box-shadow: 0 0 0 3px #A9743E; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #C79A3E; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-bad)">2.59:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#C79A3E</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #9BA6B4; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-bad)">2.47:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#9BA6B4</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #A9743E; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">4.00:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#A9743E</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6">1位と2位が 3:1 に届かない。3位だけ 4.00:1 で、<b>3色の重さが揃っていない</b>のも今のまま。</div>
+      </div>
+      <div style="margin-bottom: 22px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">案B 3:1 ちょうど</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #B88E39"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="width: 56px; height: 56px; border-radius: 999px; background: var(--c-avatar-1); box-shadow: 0 0 0 3px #B88E39; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #8C95A2"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-3); box-shadow: 0 0 0 3px #8C95A2; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #A9743E"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-5); box-shadow: 0 0 0 3px #A9743E; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #B88E39; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">3.01:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#B88E39</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #8C95A2; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">3.03:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#8C95A2</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #A9743E; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">4.00:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#A9743E</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6">1位と2位だけを 3:1 に乗せる最小の変更。<b>見た目の変化がいちばん小さい</b>が、余裕は 0.01。ブラウザの色管理で丸められると割り込みうる。</div>
+      </div>
+      <div style="margin-bottom: 22px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">案C 3色とも 4:1</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #9C7931"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="width: 56px; height: 56px; border-radius: 999px; background: var(--c-avatar-1); box-shadow: 0 0 0 3px #9C7931; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #77808B"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-3); box-shadow: 0 0 0 3px #77808B; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #A8733E"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="width: 34px; height: 34px; border-radius: 999px; background: var(--c-avatar-5); box-shadow: 0 0 0 3px #A8733E; flex-shrink: 0"></span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #9C7931; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">4.04:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#9C7931</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #77808B; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">4.00:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#77808B</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #A8733E; margin-bottom: 4px"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good)">4.05:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#A8733E</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6">いま唯一基準を満たしている<b>3位(4.00:1)に他の2色を合わせる</b>。3色の重さが揃い、余裕もできる。そのぶん金と銀は現状よりはっきり暗くなる。</div>
+      </div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6"><b>色を変えない道もある。</b> 順位は数字でも読めるので「色だけが頼り」ではない。1.4.11 は「情報を伝える非文字」に掛かるので、色を<b>装飾</b>と割り切るなら現状維持も筋は通る。ただし 3位だけ基準を満たしている今の状態は、どちらの理屈でも説明しにくい。</div>
+    </div>
+</x-dc>
+</body>
+</html>
