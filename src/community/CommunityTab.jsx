@@ -18,6 +18,10 @@ import BackupPanel from "../backup/BackupPanel.jsx";
 import { publishStats } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
+// 【読み込み中の絵 2026/09/10 本人指示】App.jsx の Suspense と同じ要素を使う。
+// 待ちは chunk → アカウント確認 → 名簿 と続くが、要素が入れ替わっても
+// 数字が巻き戻らないよう、進捗の帳簿は React の外(loadProgress.js)にある。
+import LoadingFicus from "./LoadingFicus.jsx";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -183,7 +187,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // 【4ページを同時に持つので、読み込み中の告知はページごとに出す】
   // 横スワイプは4枚を並べて動かす作法なので、body() の早期 return
   // (「読み込み中なら1枚だけ返す」)は使えない。
-  const dirGate = dir.phase === "loading" ? <Centered>読み込み中…</Centered>
+  const dirGate = dir.phase === "loading" ? <LoadingFicus step="list" />
     : dir.phase === "error" ? <Centered>{dir.error}</Centered> : null;
 
   // 【公開スイッチはその場で反映する】サーバへは書くが**読み直さない**
@@ -230,7 +234,9 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       <SubTabs items={SUB_TABS} value={tab} onChange={go} />
       {/* 【bleed は渡さない】コミュニティのカードは左右の余白を食い破らない。 */}
       <SwipePager index={index} onIndexChange={(i) => go(SUB_TABS[i].key)}>
-        {dirGate ?? (ideals === null ? <Centered>読み込み中…</Centered> : (
+        {/* 【step を渡さない】目安の一覧は名簿と並行に走る。段階を足すと、
+            先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
+        {dirGate ?? (ideals === null ? <LoadingFicus /> : (
           <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
@@ -349,7 +355,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
     return id;
   };
 
-  if (phase === "loading") return <Centered>読み込み中…</Centered>;
+  if (phase === "loading") return <LoadingFicus step="account" />;
   if (phase === "error") {
     return (
       <Centered>
