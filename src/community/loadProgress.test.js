@@ -98,9 +98,8 @@ describe("読み込みの%(2026/09/10 本人指示)", () => {
 });
 
 describe("ficus の育ち方(2026/09/10 本人指示・写真の株)", () => {
-  it("0% でも鉢は見えている(絵が空にならない)", () => {
+  it("0% では株がまだ何も出ていない", () => {
     const g = ficusGrowth(0);
-    expect(g.pot).toBeGreaterThan(0);
     expect(g.trunk).toBe(0);
     expect(g.tiers.every((t) => t.branch === 0 && t.leaves === 0)).toBe(true);
   });
@@ -109,7 +108,6 @@ describe("ficus の育ち方(2026/09/10 本人指示・写真の株)", () => {
   // ここで完成しないと、育ちきった株は**一度も画面に出ない**。
   it("99% で株が完成する(%の頭打ちと揃える)", () => {
     const g = ficusGrowth(0.99);
-    expect(g.pot).toBe(1);
     expect(g.trunk).toBe(1);
     for (const [i, t] of g.tiers.entries()) {
       expect(t.branch, `${i}段目の枝`).toBe(1);
@@ -122,9 +120,7 @@ describe("ficus の育ち方(2026/09/10 本人指示・写真の株)", () => {
     let prev = ficusGrowth(0);
     for (let p = 0.005; p <= 1.0001; p += 0.005) {
       const g = ficusGrowth(p);
-      for (const k of ["pot", "trunk"]) {
-        expect(g[k], `${k} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev[k] - 1e-12);
-      }
+      expect(g.trunk, `幹 at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev.trunk - 1e-12);
       g.tiers.forEach((t, i) => {
         expect(t.branch, `枝${i} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev.tiers[i].branch - 1e-12);
         expect(t.leaves, `葉${i} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev.tiers[i].leaves - 1e-12);
@@ -255,5 +251,36 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
   // 色は必ずトークンから引く(DESIGN-SYSTEM §1)。hex 直書きを増やさない。
   it("色を直書きしない", () => {
     expect(FICUS).not.toMatch(/#[0-9A-Fa-f]{3,8}\b/);
+  });
+
+  // 【2026/09/11 本人指示「アイコンは単色で」】色は1つだけ。
+  // 淡い段を足すと、小さく出したとき色の数だけが目に付いて姿が読めない。
+  it("絵は色を1つしか使わない", () => {
+    // 色の名前を書いてよい場所は INK ただ1つ。絵の側は INK を指すだけ。
+    expect(FICUS).toMatch(/const INK = "var\(--c-accent\)";/);
+    const used = [...FICUS.matchAll(/var\(--c-[a-z0-9-]+\)/g)].map((m) => m[0]);
+    const uniq = [...new Set(used)].sort();
+    // 出てよいのはこの3つだけ:
+    //   --c-accent = INK(唯一のインク)
+    //   --c-bg     = **葉と葉のあいだの隙間**。塗りではなく「地が透けている幅」で、
+    //                これが無いと 27 枚が一つの塊に潰れる(実際にそうなった)
+    //   --c-ink-3  = 絵ではなく、下に出る%の文字色(アプリの副文字と同じ)
+    expect(uniq, `使っている色: ${uniq.join(" ")}`)
+      .toEqual(["var(--c-accent)", "var(--c-bg)", "var(--c-ink-3)"]);
+    expect(used.filter((c) => c === "var(--c-accent)").length, "INK 以外で色を名指ししている").toBe(1);
+    // 隙間は葉にだけ。幹や鉢に地の色を回すと、そこが「2色目」に見え始める。
+    expect(used.filter((c) => c === "var(--c-bg)").length, "地の色を葉以外にも使っている").toBe(1);
+    const draw = FICUS.slice(FICUS.indexOf("export function FicusMark"));
+    expect(draw).not.toMatch(/var\(--c-/);
+    // 【透かすのも「2色目」】opacity で濃淡を作らない。Leaf は FicusMark より
+    // 前に居るので、ここは**ファイル全体**を見ること(切り出すと素通りする)。
+    const code = FICUS.split(NL).filter((l) => !l.trim().startsWith("//")).join(NL);
+    expect(code).not.toMatch(/opacity/);
+  });
+
+  // 【鉢は塗らない】単色のまま実物の白い鉢を出すための唯一の手。
+  // 塗ると株と一体の塊になり、鉢なのか土なのか読めなくなる。
+  it("鉢は輪郭で描く", () => {
+    expect(FICUS).toMatch(/fill="none" stroke=\{INK} strokeWidth="2\.4"/);
   });
 });
