@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
-import { AvatarSprite, Avatar } from "./icons.jsx";
+import { AvatarSprite, Avatar, RowChevron } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
@@ -235,7 +235,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
-        <ProfileView flaggedMe={flaggedMe} profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -1020,6 +1020,37 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 // ------------------------------------------------------------------
 // プロフィール表示。登録内容の一覧 + 公開トグル + 編集 + アカウント削除。
 // ------------------------------------------------------------------
+// 【押すと別の場所へ行く行 2026-09-10】参考にした他アプリの設定画面に寄せた形。
+// Row(ラベルと値)とは役目が違う ── こちらは**押せる**。
+// 地も枠も足さず、押せることは右端の山形だけで返す(§6.7)。
+// 幅いっぱいが当たりになるので、横に並べた文字のリンクより押し分けやすい(§5)。
+function NavRow({ label, href, sub = null, external = false, last = false }) {
+  return (
+    <a
+      href={href}
+      {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+      className="sans"
+      style={{
+        display: "flex", alignItems: "center", gap: "var(--sp-3)",
+        minHeight: "var(--tap-min)", padding: "var(--sp-2) var(--sp-4)",
+        borderBottom: last ? "none" : "1px solid var(--c-line)",
+        color: "var(--c-ink)", fontSize: "var(--fs-sm)", fontWeight: 600,
+        // 【下線を消す】これは文章の中のリンクではなく**行**。押せることは
+        // 右端の山形だけで返す(§6.7)ので、下線は二重の印になる。
+        textDecoration: "none",
+      }}
+    >
+      <span style={{ flex: "1 1 0", minWidth: 0 }}>
+        {label}
+        {/* 【アドレスも出す】mailto を開けない端末(メールアプリを入れていない)でも
+            写して使える形が要る。 */}
+        {sub ? <span className="sans" style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>{sub}</span> : null}
+      </span>
+      <RowChevron />
+    </a>
+  );
+}
+
 function Row({ label, value }) {
   return (
     <div style={{ display: "flex", gap: "var(--sp-3)", alignItems: "baseline", padding: "var(--sp-2) 0", borderBottom: "1px solid var(--c-line)" }}>
@@ -1036,7 +1067,7 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false, uid = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const gear = profile?.gear ?? {};
@@ -1152,29 +1183,32 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
         アカウント引継
       </button>
 
-      {/* 【計画5 2026-09-10】お問い合わせと法務文書。
-          **「アカウントを削除」より上**に置く ── 破壊的な一手が最後、という並びを崩さない。
-          通報で隠された人が「急ぐ場合は下の連絡先へ」で辿り着く先でもあるので、
+      {/* 【計画5 2026-09-10 / 参考にした他アプリの設定画面に寄せた 2026-09-10】
+          お問い合わせと法務文書。**「アカウントを削除」より上**に置く ──
+          破壊的な一手が最後、という並びを崩さない。
+          通報で隠された人が「お急ぎの場合は…」で辿り着く先でもあるので、
           告知(このページの一番上)と同じページの中に無いと導線が切れる。
-          型は B型の素のリンク。地も枠も足さない(§6.7) ── 押すのは外(メール・別ページ)で、
-          この画面で何かが起きるわけではない。 */}
-      <div className="sans" style={{
-        display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-3)",
-        marginTop: "var(--sp-5)", fontSize: "var(--fs-sm)",
-      }}>
-        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--c-accent)", fontWeight: 600, minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
-          お問い合わせ
-        </a>
-        <a href={PRIVACY_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-ink-2)", minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
-          プライバシーポリシー
-        </a>
-        <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-ink-2)", minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
-          利用規約
-        </a>
+          【素のリンクを並べるのをやめた】以前は文字のリンク3つを横に並べていたが、
+          横に並ぶぶん**1つあたりの当たりが狭く**、押し分けにくかった。
+          行にすれば幅いっぱいが当たりになる(§5)。押せることは右端の山形だけで返す(§6.7)。 */}
+      <div className="card" style={{ padding: 0, marginTop: "var(--sp-4)" }}>
+        <NavRow label="お問い合わせ" href={`mailto:${SUPPORT_EMAIL}`} sub={SUPPORT_EMAIL} />
+        <NavRow label="利用規約" href={TERMS_URL} external />
+        <NavRow label="プライバシーポリシー" href={PRIVACY_URL} external last />
       </div>
-      {/* アドレスそのものも書いておく。mailto が開けない端末(メールアプリを入れていない)
-          でも、写して使える形が要る。 */}
-      <div className="sans" style={{ ...noteStyle, marginTop: "calc(var(--sp-2) * -1)" }}>{SUPPORT_EMAIL}</div>
+
+      {/* 【匿名アカウントの識別子を出す 2026-09-10】
+          **これが無いと問い合わせが成立しない。** このアプリのアカウントは匿名で、
+          名前もメールアドレスも運営者側に無い。「通報されたので確認してほしい」と
+          連絡が来ても、運営者は**その人をコンソールで見つけられない**。
+          利用者が自分の識別子を写して送れる形が要る(参考にした他アプリも設定の末尾に出していた)。
+          読ませる文章ではないので --c-ink-3。 */}
+      {uid ? (
+        <div className="sans" style={{
+          fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center",
+          wordBreak: "break-all", marginTop: "var(--sp-2)",
+        }}>{uid}</div>
+      ) : null}
 
       {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
           削除ボタンの確認(remove の window.confirm)へ移した。 */}

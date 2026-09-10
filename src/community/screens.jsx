@@ -7,7 +7,7 @@ import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
-import { Avatar } from "./icons.jsx";
+import { Avatar, RowChevron } from "./icons.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
@@ -1104,10 +1104,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             <WhoLine u={person} />
           </div>
           {side === "data" ? (
-            <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true"
-                 style={{ flex: "none", color: "var(--c-ink-3)" }}>
-              <path d="M4 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <RowChevron />
           ) : null}
         </div>
 

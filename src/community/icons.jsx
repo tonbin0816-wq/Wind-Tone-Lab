@@ -66,3 +66,16 @@ export function Avatar({ icon, color, size = 40 }) {
     </span>
   );
 }
+
+// 【行の右端の山形 2026-09-10】「押すと別の場所へ行く」を返す印。
+// 人物紹介(screens.jsx の名前の行)が持っていた絵柄をここへ出して、
+// マイページの案内の行と**同じ1つ**にした。写しを2つ置かない。
+// 【地も枠も足さない §6.7】押せることはこの山形だけで返す。
+export function RowChevron({ size = 8 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden="true"
+         style={{ flex: "none", color: "var(--c-ink-3)" }}>
+      <path d="M4 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
