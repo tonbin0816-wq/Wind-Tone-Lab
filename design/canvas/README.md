@@ -39,6 +39,7 @@ node design/canvas/generate.mjs      # My Data 系の .dc.html
 node design/canvas/community.mjs     # コミュニティ系の .dc.html
 node design/canvas/unify.mjs         # 統一の比較(Unify*.dc.html)
 node design/canvas/rankcolor.mjs     # 順位色のコントラスト(RankColor.dc.html)
+node design/canvas/rankshine.mjs     # 順位色 金と銅を離して光らせる(RankShine.dc.html)
 ```
 
 トークンと `.dc.html` の外枠は `tokens.mjs` が持つ(両方の生成器が読む)。

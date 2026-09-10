@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<style>
+    /* 【割合の効く範囲は 0%〜100% ── 実測で踏んだ】背景位置の割合は
+       「画像の x% の点を、器の x% の点に合わせる」という意味なので、
+       画像が器の3倍なら 0% で左端そろえ・100% で右端そろえ。**その外を指定すると
+       繰り返しの模様が出るだけで、光の帯は窓を通らない。**
+       最初 220% → -120% と書いて、動いてはいるのに何も光らなかった。 */
+    @keyframes ficus-shine-x { 0% { background-position: 0% 0; } 55%, 100% { background-position: 100% 0; } }
+    /* 帯は幅 4px の縦長。横に掃いても一度に1色しか出ないので、**縦に掃く**。 */
+    @keyframes ficus-shine-y { 0% { background-position: 0 0%; } 55%, 100% { background-position: 0 100%; } }
+    /* 【動きを止める設定を尊重する】§1.11 の作法。止めたら光の山の位置で固定する
+       (真っ黒や真っ平らにしない ── 色そのものは動きと無関係に成立している)。 */
+    @media (prefers-reduced-motion: reduce) {
+      .shine-x, .shine-y, .once-x, .once-y {
+        animation: none !important; background-position: 50% 50% !important;
+      }
+      .ring-spin, .ring-spin-once { animation: none !important; }
+    }
+    /* 伸ばす指定(background-size)は**インライン側**が持つ。ここに書くと
+       インラインの背景指定に打ち消される。class は動きだけを持つ。 */
+    /* 【環は回す ── 実測で踏んだ】環は 3px の縁しか見えない。横に掃く光は
+       **真ん中(= アバターの裏)を通る**ので、縁には base しか出ず何も光らなかった。
+       円には円の掃き方が要る: 角度で色が変わる conic-gradient を敷いて、
+       **その層だけを回す**(アバターは別の層に置くので一緒に回らない)。 */
+    @keyframes ficus-spin { to { transform: rotate(360deg); } }
+    .ring-spin { animation: ficus-spin 3.6s linear infinite; }
+    .ring-spin-once { animation: ficus-spin 1.8s ease-out 1 both; }
+    .shine-x { animation: ficus-shine-x 3.4s ease-in-out infinite; }
+    .shine-y { animation: ficus-shine-y 3.4s ease-in-out infinite; }
+    .once-x { animation: ficus-shine-x 1.6s ease-out 1 both; }
+    .once-y { animation: ficus-shine-y 1.6s ease-out 1 both; }</style>
+    <div style="width: 375px; background: var(--c-bg); padding: 14px; box-sizing: border-box">
+      <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">順位色 ── 金と銅を離して、金を光らせる</div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6; margin: 4px 0 6px"><b>金と銅が近いのは明度を下げたから。</b> 金は暗くすると茶色へ向かうので、基準を満たそうとするほど銅に寄る。現状も案Cも<b>色相差は 10°</b>しかない。</div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6; margin-bottom: 14px">そこで2つ足した ── <b>銅を赤銅へ寄せて色相を 22° に開く</b>／<b>金だけを光らせて色以外の手がかりを1つ増やす</b>。比の数字はこのページを作るときに計算した実測値。</div>
+
+      <div style="margin-bottom: 24px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">案F 色を離すだけ(動かない)</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #B08A2E"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="position: relative; width: 62px; height: 62px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #B08A2E"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-1)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #77808B"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #77808B"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-3)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #9A5330"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #9A5330"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-5)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #B08A2E"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">3.22:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#B08A2E</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #77808B"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">4.00:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#77808B</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background: #9A5330"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">5.75:1</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#9A5330</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6">銅を赤銅へ。金 3.22:1 / 銀 4.00:1 / 銅 5.75:1 で<b>3色とも基準を満たす</b>。色相差は 10° → 22°。<b>動きを足さなくても、これだけで金と銅は見分けられる。</b></div>
+      </div>
+
+      <div style="margin-bottom: 24px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">案G 金がゆっくり光り続ける</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span class="shine-y" style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background-image: linear-gradient(185deg, #896C24 0%, #896C24 30%, #B08A2E 50%, #896C24 70%, #896C24 100%); background-size: 100% 300%"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="position: relative; width: 62px; height: 62px; flex-shrink: 0; display: inline-block">
+            <span class="ring-spin" style="position: absolute; inset: 0; border-radius: 999px; background: conic-gradient(from 0deg, #896C24 0deg, #B08A2E 40deg, #896C24 110deg, #896C24 180deg, #B08A2E 220deg, #896C24 290deg, #896C24 360deg)"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-1)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #77808B"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #77808B"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-3)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #9A5330"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #9A5330"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-5)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #896C24 0%, #896C24 30%, #B08A2E 50%, #896C24 70%, #896C24 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">3.22:1 〜 4.96</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#B08A2E / #896C24</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #5D646C 0%, #5D646C 30%, #77808B 50%, #5D646C 70%, #5D646C 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">4.00:1 〜 5.99</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#77808B / #5D646C</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #784125 0%, #784125 30%, #9A5330 50%, #784125 70%, #784125 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">5.75:1 〜 8.13</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#9A5330 / #784125</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6"><b>光る = 明るくなるので、素直にやると基準を割る</b>(よくある明るい金 #E3C874 は 1.64:1)。そこで<b>土台を暗くして、光の山を 3.22:1 に着地させた</b> ── いちばん明るい瞬間でも 3:1 を保つ。上の数字は「山 〜 土台」。<br>動きは背景の位置を送るだけで、要素の形は変わらない。<b>3.4秒のうち動くのは半分強で、残りは止まっている</b>(順位表は読む画面なので、目が引かれ続けると数字が読みにくい)。</div>
+      </div>
+
+      <div style="margin-bottom: 24px">
+        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); margin-bottom: 6px">案H 開いたときに1回だけ光る</div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span class="once-y" style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background-image: linear-gradient(185deg, #896C24 0%, #896C24 30%, #B08A2E 50%, #896C24 70%, #896C24 100%); background-size: 100% 300%"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">1</span>
+          <span style="position: relative; width: 62px; height: 62px; flex-shrink: 0; display: inline-block">
+            <span class="ring-spin-once" style="position: absolute; inset: 0; border-radius: 999px; background: conic-gradient(from 0deg, #896C24 0deg, #B08A2E 40deg, #896C24 110deg, #896C24 180deg, #B08A2E 220deg, #896C24 290deg, #896C24 360deg)"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-1)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--c-ink)">たけし</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-2xl); color: var(--c-ink)">24<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #77808B"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">2</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #77808B"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-3)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">みさき</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">21<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="position: relative; overflow: hidden; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); padding: 10px 14px; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: 8px">
+          <span  style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #9A5330"></span>
+          <span style="width: 22px; text-align: center; flex-shrink: 0; font-family: var(--font-num); font-weight: 700; font-size: var(--fs-md); color: var(--c-ink)">3</span>
+          <span style="position: relative; width: 40px; height: 40px; flex-shrink: 0; display: inline-block">
+            <span  style="position: absolute; inset: 0; border-radius: 999px; background: #9A5330"></span>
+            <span style="position: absolute; inset: 3px; border-radius: 999px; background: var(--c-avatar-5)"></span>
+          </span>
+          <span style="flex: 1 1 0; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink)">ゆうと</span>
+          <span style="font-family: var(--font-num); font-weight: 700; font-size: var(--fs-lg); color: var(--c-ink)">19<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></span>
+        </div>
+        <div style="display: flex; gap: 8px; margin: 10px 0 6px">
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #896C24 0%, #896C24 30%, #B08A2E 50%, #896C24 70%, #896C24 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">3.22:1 〜 4.96</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#B08A2E / #896C24</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #5D646C 0%, #5D646C 30%, #77808B 50%, #5D646C 70%, #5D646C 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">4.00:1 〜 5.99</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#77808B / #5D646C</div>
+          </div>
+          <div style="flex: 1 1 0; text-align: center">
+            <div style="height: 26px; border-radius: var(--r-sm); background-image: linear-gradient(100deg, #784125 0%, #784125 30%, #9A5330 50%, #784125 70%, #784125 100%); background-size: 300% 100%"></div>
+            <div style="font-family: var(--font-num); font-size: 11px; font-weight: 700; color: var(--c-good); margin-top: 4px">5.75:1 〜 8.13</div>
+            <div style="font-size: 9px; color: var(--c-ink-3)">#9A5330 / #784125</div>
+          </div>
+        </div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6">同じ光を<b>1回で終わらせる</b>形。開いた瞬間に「1位はここ」と目を向けさせて、あとは静かになる。<br><b>このページを読み込み直すともう一度見られる。</b></div>
+      </div>
+
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.6"><b>動きを止めている端末では光らない。</b> OS の「視差効果を減らす」を入れている人には <code>prefers-reduced-motion</code> が届くので、その場合は光の山の位置で止める(色そのものは動きと無関係に成立しているので、止めても3色は見分けられる)。</div>
+    </div>
+</x-dc>
+</body>
+</html>
