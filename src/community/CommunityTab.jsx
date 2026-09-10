@@ -6,6 +6,8 @@ import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
+// 【計画5 2026-09-10】運営者への連絡先と法務文書。綴りの写しを作らない。
+import { SUPPORT_EMAIL, PRIVACY_URL, TERMS_URL } from "../support.js";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
@@ -503,6 +505,13 @@ function JoinIntro({ onJoin, notice = null }) {
           「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
       <div style={noteStyle}>
         匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
+      </div>
+      {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
+          **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
+      <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+        <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-accent)" }}>利用規約</a>
+        <a href={PRIVACY_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-accent)" }}>プライバシーポリシー</a>
+        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--c-accent)" }}>お問い合わせ</a>
       </div>
       <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
@@ -1079,8 +1088,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
           プロフィールを見に来ただけの人が気づかずに閉じる。
           地は --c-warn-bg(§1.5 が名前を与えている警告の面)。危険色は使わない ──
           本人が何かを失ったわけではなく、確認待ちの状態にすぎない。
-          【連絡先の一文はまだ無い】アドレスが決まっていないため(計画5 §4)。
-          決まったら「急ぐ場合は下の連絡先へ」を足す。 */}
+          【連絡先へ送る 2026-09-10】設計書 §8.1 追記1「黙って消さない」の要点は、
+          消された側に**道を残す**こと。行き先はこのページの下にある。 */}
       {flaggedMe ? (
         <div role="status" style={{
           background: "var(--c-warn-bg)", borderRadius: "var(--r-md)",
@@ -1089,6 +1098,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
         }}>
           通報があったため、あなたのプロフィールは一時的に他の人から見えなくなっています。
           運営が内容を確認し、問題がなければ元に戻します。
+          お急ぎの場合は、このページ下部の「お問い合わせ」からご連絡ください。
         </div>
       ) : null}
       {/* 【見出しは置かない 2026/09/06 本人指示】子タブの「マイページ」が既に
@@ -1141,6 +1151,30 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
       <button type="button" onClick={onOpenBackup} disabled={busy} className="sans" style={secondaryButtonStyle}>
         アカウント引継
       </button>
+
+      {/* 【計画5 2026-09-10】お問い合わせと法務文書。
+          **「アカウントを削除」より上**に置く ── 破壊的な一手が最後、という並びを崩さない。
+          通報で隠された人が「急ぐ場合は下の連絡先へ」で辿り着く先でもあるので、
+          告知(このページの一番上)と同じページの中に無いと導線が切れる。
+          型は B型の素のリンク。地も枠も足さない(§6.7) ── 押すのは外(メール・別ページ)で、
+          この画面で何かが起きるわけではない。 */}
+      <div className="sans" style={{
+        display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-3)",
+        marginTop: "var(--sp-5)", fontSize: "var(--fs-sm)",
+      }}>
+        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--c-accent)", fontWeight: 600, minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
+          お問い合わせ
+        </a>
+        <a href={PRIVACY_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-ink-2)", minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
+          プライバシーポリシー
+        </a>
+        <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-ink-2)", minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center" }}>
+          利用規約
+        </a>
+      </div>
+      {/* アドレスそのものも書いておく。mailto が開けない端末(メールアプリを入れていない)
+          でも、写して使える形が要る。 */}
+      <div className="sans" style={{ ...noteStyle, marginTop: "calc(var(--sp-2) * -1)" }}>{SUPPORT_EMAIL}</div>
 
       {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
           削除ボタンの確認(remove の window.confirm)へ移した。 */}

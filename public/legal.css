@@ -1,0 +1,30 @@
+/* プライバシーポリシーと利用規約で共有する体裁。
+   【アプリのトークンを写さない】この2枚はアプリの外(ブラウザで直接開く静的ページ)で、
+   index.css を読み込まない。写しを作るとどちらかだけ古くなるので、
+   **ここは独立した素の文書として組む**。色は本文と補助の2色だけ。 */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 24px 18px 64px;
+  max-width: 720px;
+  margin-inline: auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+  line-height: 1.9;
+  color: #121f32;
+  background: #fff;
+  -webkit-text-size-adjust: 100%;
+}
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid #e9ecf0; }
+p, li { font-size: 14px; }
+ul { padding-left: 1.3em; }
+li { margin-bottom: 4px; }
+a { color: #174585; }
+.updated { font-size: 12px; color: #8d95a1; margin: 0 0 8px; }
+.lead { font-size: 14px; color: #435266; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+th, td { border: 1px solid #e9ecf0; padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #f6f7f9; font-weight: 600; white-space: nowrap; }
+.back { display: inline-block; margin-top: 40px; font-size: 14px; }
