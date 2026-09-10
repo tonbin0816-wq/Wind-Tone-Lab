@@ -14507,12 +14507,13 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("D-4: 正典 #15a の並び(開封日 → 日数 → セッション数)",
       api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · ") === "開封 2026/06/10 · 74日 · 計測4件",
       api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · "));
-    check("D-4: セッションが0件なら「—」",
-      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · —",
+    // 【2026/09/10 本人裁定】0件は値であって欠落ではない。「—」ではなく「計測0件」。
+    check("D-4: セッションが0件なら「計測0件」(0 は値。「—」にしない)",
+      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · 計測0件",
       api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · "));
     check("D-4: 開封日が未設定なら開封の区画も日数の区画も出さない(穴を作らない)",
       api.reedDetailMetaParts(null, null, 3).join(" · ") === "計測3件"
-      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "—",
+      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "計測0件",
       `${api.reedDetailMetaParts(null, null, 3).join(" · ")} / ${api.reedDetailMetaParts(null, null, 0).join(" · ")}`);
     check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
       !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
