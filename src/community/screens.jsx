@@ -12,6 +12,9 @@ import { Avatar } from "./icons.jsx";
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
 import { BACK_BUTTON_STYLE, BottomSheet } from "../App.jsx";
+// 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
+import { hideFlagged, REPORT_REASONS } from "./report.js";
+import { listFlaggedUids, reportUser } from "./reportRepo.js";
 
 // ------------------------------------------------------------------
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
@@ -195,20 +198,30 @@ function Empty({ children }) {
 // 【setUsers を返す理由】自分が公開/非公開を切り替えたとき、サーバへは書くが
 // **読み直さない**。他人の変更まで即時に追う必要は無いので、自分の行だけ
 // 手元の配列で差し引く(2026/09/06 本人指摘「非公開にしてもその場で反映されない」)。
-export function usePublicUsers() {
-  const [state, setState] = useState({ phase: "loading", users: [], error: null });
+export function usePublicUsers(myUid = null) {
+  const [state, setState] = useState({ phase: "loading", users: [], error: null, flagged: new Set() });
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const users = await listPublicUsers();
-        if (alive) setState({ phase: "ready", users, error: null });
+        // 【計画5 2026-09-10】通報された人をここで落とす。**この1箇所だけ**でよい ──
+        // 順位もシェアもデータも、みんなこの users を受け取って数える。
+        // 落としてから数えるので、母数からも消える。
+        //
+        // 【flags が読めなくても一覧は出す】通報の名簿が読めないのは通信の問題であって、
+        // そのために「みんなのデータ」自体を出さないのは割に合わない。
+        // 隠すべき人が出てしまうが、それは通信が復旧するまでの間だけ。
+        const [users, flagged] = await Promise.all([
+          listPublicUsers(),
+          listFlaggedUids().catch(() => new Set()),
+        ]);
+        if (alive) setState({ phase: "ready", users: hideFlagged(users, flagged, myUid), error: null, flagged });
       } catch (e) {
-        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした" });
+        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした", flagged: new Set() });
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [myUid]);
   // 読み込み中/失敗中は phase を保ったまま配列だけ差し替える(phase を書き換えない)
   const setUsers = (fn) => setState((s) => ({ ...s, users: typeof fn === "function" ? fn(s.users) : fn }));
   return { ...state, setUsers };
@@ -984,8 +997,12 @@ function InfoLine({ label, value }) {
   );
 }
 
-export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported }) {
   const [adopted, setAdopted] = useState(null);
+  // 【計画5 2026-09-10】通報。開いているか / 選んだ理由 / 送った結果。
+  // シートの上にシートを重ねない ── 人物紹介を閉じてから通報のシートを出す。
+  const [reporting, setReporting] = useState(false);
+  const [reportState, setReportState] = useState(null);
   // 【表と裏で1枚】新しい画面の作法を増やさない(2026/09/06 本人指示)。
   // 表 = 音のデータ / 裏 = プロフィール。行き来は上部の1つのボタンだけが担う。
   const [side, setSide] = useState("data");
@@ -1218,6 +1235,103 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt }) {
         )}
           </>
         )}
+      {/* 【計画5 2026-09-10 通報の入口】
+          並びの一番下に置く。**この画面の主要動作ではない**ので、右下に浮かせる
+          「目安に設定」(D-7)とは別の系統として、本文の流れの末尾に地味に置く。
+          自分自身は通報できない(ルールも同じ条件を持つ)ので、自分の紹介では出さない。
+          型は B型の素のボタン(§6.7)。危険色は使わない ── 押した先で理由を選ぶので、
+          ここはまだ何も起きない一手である。 */}
+      {person?.uid && myUid && person.uid !== myUid ? (
+        <div style={{ marginTop: "var(--sp-6)", paddingTop: "var(--sp-4)", borderTop: "1px solid var(--c-line)" }}>
+          <button
+            type="button" className="sans ctl-plain ctl-pill"
+            onClick={() => { setReportState(null); setReporting(true); }}
+            style={{ minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}
+          >
+            この人を通報
+          </button>
+        </div>
+      ) : null}
+      </div>
+      {reporting ? (
+        <ReportSheet
+          nickname={person?.nickname}
+          onClose={() => setReporting(false)}
+          onSubmit={async (reason) => {
+            try {
+              await reportUser({ targetUid: person.uid, reporterUid: myUid, reason });
+              setReporting(false);
+              setReportState({ ok: true });
+              // 一覧から即座に消す。読み直さずに呼び出し側へ知らせる
+              // (読み直すと 50 件ぶんの読み取りが1回増える)。
+              onReported?.(person.uid);
+            } catch (e) {
+              setReportState({ error: "通報を送れませんでした。電波の良いところでもう一度お試しください" });
+            }
+          }}
+        />
+      ) : null}
+      {reportState?.ok ? (
+        <div className="sans" role="status" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-accent)" }}>
+          通報しました。この人はすぐに一覧から見えなくなります
+        </div>
+      ) : null}
+      {reportState?.error ? (
+        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{reportState.error}</div>
+      ) : null}
+    </BottomSheet>
+  );
+}
+
+// ------------------------------------------------------------------
+// 通報のシート(計画5 2026-09-10)
+//
+// 【自由記述を置かない】理由は列挙(REPORT_REASONS)から選ぶだけ。
+// 設計書 §8.1 の「自由入力はニックネームだけ」を1つも崩さない
+// (その前提の上に、通報の自動処理が成立している)。
+// 【器は BottomSheet】シートの器はアプリで1つ(§4.5)。
+// ------------------------------------------------------------------
+function ReportSheet({ nickname, onClose, onSubmit }) {
+  const [reason, setReason] = useState(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <BottomSheet ariaLabel="この人を通報" onClose={onClose}>
+      <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>通報</div>
+      <div className="sans" style={{ ...noteStyle, marginTop: "var(--sp-2)" }}>
+        {nickname ? `${nickname} さんを通報します。` : "この人を通報します。"}
+        通報するとその人はすぐに一覧から見えなくなり、運営が内容を確認します。
+      </div>
+      {/* 理由は A型(選択中かどうかという状態を持つ)。状態は枠の色だけで返す。 */}
+      <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+        {REPORT_REASONS.map((r) => (
+          <button
+            key={r} type="button" className="sans ctl-state" aria-pressed={reason === r}
+            onClick={() => setReason(r)}
+            style={{
+              minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", textAlign: "left",
+              color: reason === r ? "var(--c-accent)" : "var(--c-ink-2)",
+              fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
+            }}
+          >{r}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-5)" }}>
+        <button
+          type="button" onClick={onClose} className="sans ctl-plain ctl-pill"
+          style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+        >やめる</button>
+        {/* 【危険色にしない】消えるのは相手であって、押した本人のデータではない。
+            §1.5 の危険色は「自分のものが戻らなくなる」一手のために取ってある。 */}
+        <button
+          type="button" disabled={!reason || busy}
+          onClick={async () => { setBusy(true); await onSubmit(reason); setBusy(false); }}
+          className="sans"
+          style={{
+            flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
+            background: "var(--c-accent)", color: "var(--c-on-accent)",
+            fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", opacity: reason && !busy ? 1 : 0.45,
+          }}
+        >{busy ? "送信中…" : "通報する"}</button>
       </div>
     </BottomSheet>
   );

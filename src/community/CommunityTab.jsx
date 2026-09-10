@@ -4,6 +4,8 @@ import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
+// 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
+import { isFlagged } from "./reportRepo.js";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
@@ -104,7 +106,25 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   const [backup, setBackup] = useState(false);
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
-  const dir = usePublicUsers();
+  // 【計画5 2026-09-10】myUid を渡す ── 通報された人を落とすときに
+  // **自分だけは残す**ため(黙って消さない。理由はマイページの告知で伝える)。
+  const dir = usePublicUsers(uid);
+
+  // 自分が通報で隠れているか。**一覧の結果からは判定しない** ── 一覧は上限50で
+  // 切れるので、切れた先に自分が居ると本人にだけ何も知らせないまま隠れてしまう。
+  // 1 read 増やして確実に見る(reportRepo.isFlagged のコメントも参照)。
+  const [flaggedMe, setFlaggedMe] = useState(false);
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    (async () => {
+      try {
+        const v = await isFlagged(uid);
+        if (alive) setFlaggedMe(v);
+      } catch (e) { /* 読めなければ告知を出さないだけ。順位や一覧は今までどおり出る */ }
+    })();
+    return () => { alive = false; };
+  }, [uid]);
 
   // 【自分の目安を種別ごとに作る】公開するものと、データ画面で自分の線として
   // 描くものは**同じ値**にする。別々に作ると、公開した値と画面の値が食い違う。
@@ -213,7 +233,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
-        <ProfileView profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        <ProfileView flaggedMe={flaggedMe} profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -228,6 +248,13 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
           myIdeals={myIdeals}
           onAdopt={onAdoptIdeal}
           onClose={() => setPerson(null)}
+          myUid={uid}
+          onReported={(targetUid) => {
+            // 【読み直さない】50件ぶんの読み取りを1回増やさずに、手元の配列から落とす。
+            // 目安も一緒に落とす ── データタブの線が通報した相手のまま残らないように。
+            dir.setUsers((prev) => prev.filter((u) => u.uid !== targetUid));
+            setIdeals((prev) => (prev ?? []).filter((i) => i.ownerUid !== targetUid));
+          }}
         />
       ) : null}
       {/* 【アカウント引継も SwipePager の外】上の人物紹介と同じ理由。
@@ -1000,7 +1027,7 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const gear = profile?.gear ?? {};
@@ -1046,6 +1073,24 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
 
   return (
     <div className="sans" style={pageStyle}>
+
+      {/* 【計画5 2026-09-10】通報で隠れているときの告知。
+          設計書 §8.1 の追記1「黙って消さない」。**一番上に置く** ── 下に置くと、
+          プロフィールを見に来ただけの人が気づかずに閉じる。
+          地は --c-warn-bg(§1.5 が名前を与えている警告の面)。危険色は使わない ──
+          本人が何かを失ったわけではなく、確認待ちの状態にすぎない。
+          【連絡先の一文はまだ無い】アドレスが決まっていないため(計画5 §4)。
+          決まったら「急ぐ場合は下の連絡先へ」を足す。 */}
+      {flaggedMe ? (
+        <div role="status" style={{
+          background: "var(--c-warn-bg)", borderRadius: "var(--r-md)",
+          padding: "var(--sp-3) var(--sp-4)", fontSize: "var(--fs-sm)",
+          color: "var(--c-ink)", lineHeight: 1.7,
+        }}>
+          通報があったため、あなたのプロフィールは一時的に他の人から見えなくなっています。
+          運営が内容を確認し、問題がなければ元に戻します。
+        </div>
+      ) : null}
       {/* 【見出しは置かない 2026/09/06 本人指示】子タブの「マイページ」が既に
           どこに居るかを言っている。同じことを2度言わない(説明は減らす方向)。 */}
 

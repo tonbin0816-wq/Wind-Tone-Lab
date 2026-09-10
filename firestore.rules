@@ -1,6 +1,23 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ================================================================
+    // 【計画5 モデレーション 2026-09-10】
+    // BAN された端末は「書けない」。**読めなくはしない**(読みを止めても
+    // 本人の端末に残っている記録は消えないので、止める意味が無い)。
+    //
+    // 【rules の中の exists() は読みの規則を通らない】banned はクライアントから
+    // 読めない設定にしてあるが、ここからは参照できる。1回につき1 read を消費する。
+    // 書き込みは稀(プロフィールの保存・目安の公開・通報)なので許容する。
+    //
+    // 【banned を置くのは運営者。コンソールから手で置く】匿名認証では運営者の uid が
+    // 端末に紐づいており、機種変更で変わる。ルールに運営者を名指しすると、その日から
+    // 運営操作ができなくなる。**コンソールはルールを通らない**ので、そこで足りる。
+    // ================================================================
+    function notBanned() {
+      return !exists(/databases/$(database)/documents/banned/$(request.auth.uid));
+    }
     match /users/{uid} {
       // 公開プロフィールは誰でも読める。非公開は本人のみ(spec: 非公開でも復元用にクラウド保存する)
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
@@ -16,6 +33,7 @@ service cloud.firestore {
       // **40人に達したらあの節を読み直すこと。**
       allow list: if resource.data.isPublic == true && request.query.limit <= 50;
       allow create, update: if request.auth != null && request.auth.uid == uid
+        && notBanned()
         // 【stats は hasAll に入れない】プロフィールの初回保存(buildProfileDoc の 14 キー)は
         // stats を持たない。練習日数はタブを開いたときに別の updateDoc で後から足す。
         // hasAll に入れると**新規登録がその場で弾かれる**(2026/09/06 に発見)。
@@ -237,6 +255,7 @@ service cloud.firestore {
       allow list: if request.query.limit <= 50;
 
       allow create, update: if request.auth != null
+        && notBanned()
         && request.auth.uid == request.resource.data.ownerUid
         // 【docId を uid_saxType に固定する】目安は楽器種別ごとに1つなので、
         // 同じ人が同じ種別で2つ持つことはありえない。IDで一意にしておけば、
@@ -285,6 +304,71 @@ service cloud.firestore {
 
       allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
     }
+
+    // ================================================================
+    // 【計画5 モデレーション 2026-09-10】通報 → 自動非公開
+    //
+    // 【なぜ「読む側が隠す」形なのか】通報者は相手の users/{uid} を書けない
+    // (上の規則: 本人のみ)。だから「通報したら相手の isPublic を false にする」は
+    // **書けない**。Cloud Functions も使わない(2026-09-02 設計書の決定1: Blaze が要る)。
+    // そこで通報を別の集合に置き、**一覧を読む側がそれを見て当該 uid を落とす**。
+    // 反映は即時なので、ガイドライン 1.2 の "timely responses" を人手なしで満たす。
+    //
+    // 【弱点を承知で採る】通報1件で他人を隠せる。設計書 §8.1 の追記が挙げた3つの対策
+    // (本人に知らせる / 運営が戻す / 通報者を数える)を、この形は全部持てる。
+    // ================================================================
+
+    // flags: 「いま隠されている人」の名簿。**誰でも読める**(読む側が隠すために要る)。
+    // 【通報者を入れない】ここは全員から読めるので、入れると「誰が誰を通報したか」が
+    // 世界中に見える。監査に要る情報は下の reports 側が持つ(あちらは読めない)。
+    match /flags/{targetUid} {
+      allow get: if true;
+      allow list: if request.query.limit <= 50;
+      // create と update の両方を許す。2人目以降の通報は同じ docId への上書きになる。
+      // 中身は createdAt だけなので、上書きされて失うものが無い。
+      allow create, update: if request.auth != null
+        && notBanned()
+        // 【自分は通報できない】自分に flag を立てられると、
+        // 「わざと隠れてから何かする」という筋の悪い経路が1つ増える。
+        && request.auth.uid != targetUid
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdAt.size() <= 40;
+      // 【消せるのは運営者だけ】ここを開けると、通報された本人が自分で解除できる。
+      // コンソールはルールを通らないので、運営者はこの規則に関わらず消せる。
+      allow delete: if false;
+    }
+
+    // reports: 監査の記録。**クライアントからは読めない**(誰が通報したかを隠すため)。
+    // 運営者はコンソールで読む。docId を target_reporter に固定してあるので、
+    // 同じ人が同じ相手を二重に通報しても1件しか残らない。
+    match /reports/{reportId} {
+      allow read: if false;
+      // 【create だけ】update を許すと、後から理由や時刻を書き換えられる。
+      // 二重通報は create が「既に在る」で落ちる ── 呼ぶ側はそれを想定して握る。
+      allow create: if request.auth != null
+        && notBanned()
+        && reportId == request.resource.data.targetUid + "_" + request.auth.uid
+        && request.auth.uid == request.resource.data.reporterUid
+        && request.resource.data.targetUid != request.auth.uid
+        && request.resource.data.keys().hasAll(['targetUid','reporterUid','reason','createdAt','status'])
+        && request.resource.data.keys().hasOnly(['targetUid','reporterUid','reason','createdAt','status'])
+        && request.resource.data.targetUid is string
+        && request.resource.data.targetUid.size() <= 128
+        // 【理由は列挙で固定する】自由記述を許すと、公開はされないとはいえ
+        // 「自由入力はニックネームだけ」という §8.1 の設計が1つ崩れる。
+        // **src/community/report.js の REPORT_REASONS の写し。片方だけ直さないこと。**
+        && request.resource.data.reason in ['不適切なニックネーム','なりすまし','その他']
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdAt.size() <= 40
+        && request.resource.data.status == 'open';
+      allow update, delete: if false;
+    }
+
+    // banned: 運営者がコンソールで置く。クライアントからは読み書きできない。
+    // 上の notBanned() が rules の中から exists() で見るだけ
+    // (rules の exists() はこの規則を通らない)。
+    match /banned/{uid} { allow read, write: if false; }
 
     match /{document=**} { allow read, write: if false; } // 未定義コレクションは全拒否
   }
