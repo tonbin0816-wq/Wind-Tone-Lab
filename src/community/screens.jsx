@@ -289,8 +289,13 @@ function NameLine({ nickname, mine, size }) {
   );
 }
 
-// 順位の色。**面を塗らず、アイコンの環の線と順位の数字にだけ使う**(追記1 厳守事項)。
-// 4位以下には色を与えない。金属質の光沢もグラデーションも使わない。
+// 順位の色。**面を塗らず、アイコンの環の線と左端の帯にだけ使う**(追記1 厳守事項)。
+// 4位以下には色を与えない。
+//
+// 【1位だけ光る 2026/09/10 本人裁定「案G」】色相を離したうえで、
+// 色以外の手がかりをもう1つ足す。**光の値・時間・曲線は index.css だけが持つ**(§1.11) ──
+// ここは class を名乗るだけで、色も秒数も書かない。
+// 2位・3位は光らせない(1位を立てるための光なので、全員光ると意味が消える)。
 const RANK_COLOR = { 1: "var(--c-rank-1)", 2: "var(--c-rank-2)", 3: "var(--c-rank-3)" };
 
 function RankRow({ row, big = false, mine = false, onTap }) {
@@ -314,15 +319,32 @@ function RankRow({ row, big = false, mine = false, onTap }) {
         fontSize: big ? (first ? "var(--fs-2xl)" : "var(--fs-xl)") : "var(--fs-sm)",
         color: big ? "var(--c-ink)" : "var(--c-ink-3)",
       }}>{row.rank}</div>
-      {/* 環は面ではなく線。アイコンの外側に出す */}
-      <span style={{
-        position: "relative", display: "inline-flex", flex: "none", borderRadius: "50%",
-        boxShadow: big && rankColor ? `0 0 0 3px ${rankColor}` : "none",
-        margin: big && rankColor ? 3 : 0,
-      }}>
-        <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN}
-                size={first ? 56 : big ? 44 : 34} />
-      </span>
+      {/* 環は面ではなく線。アイコンの外側に出す。
+          【1位だけ層を分ける】光る環は conic-gradient なので box-shadow では描けない。
+          色の層を 3px 大きく敷き、その上にアイコンを重ねる ──
+          **回すのは色の層だけ**なのでアイコンは回らない。
+          2位・3位と4位以下は今までどおり box-shadow の1枚で描く(形は変えない)。 */}
+      {first ? (
+        <span style={{
+          position: "relative", flex: "none", display: "inline-block",
+          width: 56 + 6, height: 56 + 6, margin: 3,
+        }}>
+          <span aria-hidden="true" className="rank-shine-ring"
+                style={{ position: "absolute", inset: 0, borderRadius: "50%" }} />
+          <span style={{ position: "absolute", inset: 3, borderRadius: "50%", display: "inline-flex" }}>
+            <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} size={56} />
+          </span>
+        </span>
+      ) : (
+        <span style={{
+          position: "relative", display: "inline-flex", flex: "none", borderRadius: "50%",
+          boxShadow: big && rankColor ? `0 0 0 3px ${rankColor}` : "none",
+          margin: big && rankColor ? 3 : 0,
+        }}>
+          <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN}
+                  size={big ? 44 : 34} />
+        </span>
+      )}
       <div style={{ flex: "1 1 0", minWidth: 0 }}>
         <NameLine nickname={row.nickname} mine={mine}
                   size={first ? "var(--fs-lg)" : big ? "var(--fs-md)" : undefined} />
@@ -356,7 +378,12 @@ function RankRow({ row, big = false, mine = false, onTap }) {
       // 帯を丸に沿わせるために切る。**カードの角を残したまま帯を端まで届かせる唯一の手**
       overflow: "hidden",
     }}>
-      <span aria-hidden="true" style={{ flex: "0 0 4px", background: rankColor ?? "transparent" }} />
+      {/* 【1位の帯だけ光る】class は動きと gradient を持つ。
+          **background の短縮形をここに書かない** ── 短縮形は background-size を
+          auto へ戻すので、index.css 側の「3倍に伸ばす」が打ち消される(モックで踏んだ)。 */}
+      <span aria-hidden="true"
+            className={first ? "rank-shine-bar" : undefined}
+            style={first ? { flex: "0 0 4px" } : { flex: "0 0 4px", background: rankColor ?? "transparent" }} />
       <div style={{
         flex: "1 1 0", minWidth: 0, display: "flex", alignItems: "center",
         gap: "var(--sp-3)", padding: "var(--sp-4)",
