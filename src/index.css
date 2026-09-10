@@ -370,8 +370,9 @@ body {
    ficusGrowth() が持つ ── ここが持つのは「段階の待ちが長引いたときに、
    止まって見えない」ための揺れだけ。§1.11 のとおり秒数と曲線は index.css に置く。
 
-   軸は株元。葉は傾き -18° を掛けたあとの位置にあり、茎の根元は viewBox 座標で
-   (36.8, 89.7) に来る。ここを葉の側に置くと、根ごと動く不自然な揺れになる。
+   軸は**土の高さ**(viewBox 座標で 26, 94)。鉢はこの要素の外に置いてあるので
+   揺れない ── 鉢まで一緒に揺れると床ごと動いて見える。軸を株の上のほうに
+   置くと、根が動く不自然な揺れになる。
    transform-box を書いているのは既定値がブラウザで割れているため
    (古い Safari は border-box を採る)。書けば viewBox 座標で読まれる。 */
 @keyframes ficus-grow-sway {
@@ -380,7 +381,7 @@ body {
 }
 .ficus-grow {
   transform-box: view-box;
-  transform-origin: 36.8px 89.7px;
+  transform-origin: 26px 94px;
   animation: ficus-grow-sway 4.6s ease-in-out infinite;
 }
 

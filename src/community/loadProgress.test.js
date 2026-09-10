@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beginLoad, loadPercent, loadFloor, ficusGrowth, resetLoadProgress } from "./loadProgress.js";
+import { TIERS, TRUNK_D, VIEW_W, VIEW_H } from "./LoadingFicus.jsx";
 
 const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
+const NL = String.fromCharCode(10); // 検査の中で改行を書くと、この行自体が壊れる
 
 beforeEach(() => resetLoadProgress());
 
@@ -95,59 +97,110 @@ describe("読み込みの%(2026/09/10 本人指示)", () => {
   });
 });
 
-describe("ficus の育ち方", () => {
-  it("0% でも茎だけは見えている(絵が抜けて見えない)", () => {
+describe("ficus の育ち方(2026/09/10 本人指示・写真の株)", () => {
+  it("0% でも鉢は見えている(絵が空にならない)", () => {
     const g = ficusGrowth(0);
-    expect(g.stem).toBeGreaterThan(0);
-    expect(g.bladeX).toBeGreaterThan(0); // scale(0) は描画が消える
-    expect(g.bladeY).toBeGreaterThan(0);
+    expect(g.pot).toBeGreaterThan(0);
+    expect(g.trunk).toBe(0);
+    expect(g.tiers.every((t) => t.branch === 0 && t.leaves === 0)).toBe(true);
   });
 
   // 実際に出しうる最大は 99%(100% は「終わった」の意味なので出さない)。
-  // ここで完成しないと、葉が完成した姿は**一度も画面に出ない**。
-  it("99% で葉が完成する(%の頭打ちと揃える)", () => {
+  // ここで完成しないと、育ちきった株は**一度も画面に出ない**。
+  it("99% で株が完成する(%の頭打ちと揃える)", () => {
     const g = ficusGrowth(0.99);
-    expect(g.midrib).toBe(1);
-    expect(g.veins).toEqual([1, 1, 1, 1]);
+    expect(g.pot).toBe(1);
+    expect(g.trunk).toBe(1);
+    for (const [i, t] of g.tiers.entries()) {
+      expect(t.branch, `${i}段目の枝`).toBe(1);
+      expect(t.leaves, `${i}段目の葉`).toBe(1);
+    }
   });
 
-  // 100% で public/icon.svg の葉と同じ姿になる = すべての部品が引き終わる。
-  it("100% で葉が完成する", () => {
-    const g = ficusGrowth(1);
-    expect(g.stem).toBe(1);
-    expect(g.bladeX).toBe(1);
-    expect(g.bladeY).toBe(1);
-    expect(g.midrib).toBe(1);
-    expect(g.veins).toEqual([1, 1, 1, 1]);
-  });
-
-  // 進捗が戻らない以上、葉も縮まないこと。縮むと「読み込みが戻った」に見える。
-  it("進むほど育つ(どの部品も縮まない)", () => {
+  // 進捗が戻らない以上、株も縮まないこと。縮むと「読み込みが戻った」に見える。
+  it("進むほど育つ(どこも縮まない)", () => {
     let prev = ficusGrowth(0);
-    for (let p = 0.01; p <= 1.0001; p += 0.01) {
+    for (let p = 0.005; p <= 1.0001; p += 0.005) {
       const g = ficusGrowth(p);
-      for (const k of ["stem", "bladeX", "bladeY", "midrib"]) {
-        expect(g[k], `${k} at ${p.toFixed(2)}`).toBeGreaterThanOrEqual(prev[k] - 1e-12);
+      for (const k of ["pot", "trunk"]) {
+        expect(g[k], `${k} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev[k] - 1e-12);
       }
-      g.veins.forEach((v, i) => expect(v, `vein${i} at ${p.toFixed(2)}`).toBeGreaterThanOrEqual(prev.veins[i] - 1e-12));
+      g.tiers.forEach((t, i) => {
+        expect(t.branch, `枝${i} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev.tiers[i].branch - 1e-12);
+        expect(t.leaves, `葉${i} at ${p.toFixed(3)}`).toBeGreaterThanOrEqual(prev.tiers[i].leaves - 1e-12);
+      });
       prev = g;
     }
   });
 
-  // 側脈は根元から先端へ**1対ずつ**。同時に4対出ると「育つ」に見えない。
-  it("側脈は根元から順に引かれる", () => {
-    const g = ficusGrowth(0.8);
-    expect(g.veins[0]).toBe(1);
-    expect(g.veins[1]).toBeGreaterThan(0);
-    expect(g.veins[1]).toBeLessThan(1);
-    expect(g.veins[2]).toBe(0);
-    expect(g.veins[3]).toBe(0);
+  // 【本人の指示そのもの】「ロードが進むたびにこの巻いている幹が伸びていく」。
+  // 房が幹より先に出ると、**枝が宙に浮く**。
+  it("房は下から順に、幹が伸びた分だけ開く", () => {
+    const g = ficusGrowth(0.55);
+    expect(g.trunk).toBeGreaterThan(0.5);
+    expect(g.tiers[0].leaves).toBe(1);
+    expect(g.tiers[1].leaves).toBeGreaterThan(0);
+    expect(g.tiers[1].leaves).toBeLessThan(1);
+    expect(g.tiers[2].leaves).toBe(0);
+    expect(g.tiers[3].leaves).toBe(0);
+  });
+
+  it("幹が伸びきってから樹冠が開く", () => {
+    const g = ficusGrowth(0.72);
+    expect(g.trunk).toBe(1);
+    expect(g.tiers[3].leaves).toBe(0);
   });
 
   it("範囲外は端に丸める", () => {
-    expect(ficusGrowth(-1).midrib).toBe(0);
-    expect(ficusGrowth(9).midrib).toBe(1);
-    expect(ficusGrowth(undefined).stem).toBeCloseTo(0.15, 10);
+    expect(ficusGrowth(-1).trunk).toBe(0);
+    expect(ficusGrowth(9).trunk).toBe(1);
+    expect(ficusGrowth(undefined).trunk).toBe(0);
+  });
+});
+
+// 【枠から出ていないか】樹冠を枠の外へ出しかけた(葉の先が上で切れる)。
+// 絵では気づきにくいので、葉の外接矩形をここで計算して確かめる。
+describe("絵が枠に収まっている", () => {
+  // 傾いた楕円の外接矩形。半径 len/2 が葉の向き、half がそれと直角。
+  const bbox = ([x, y, deg, len, half]) => {
+    const a = (deg * Math.PI) / 180, c = Math.cos(a), s2 = Math.sin(a);
+    const cx = x + (len / 2) * c, cy = y + (len / 2) * s2;
+    const ex = Math.hypot((len / 2) * c, half * s2);
+    const ey = Math.hypot((len / 2) * s2, half * c);
+    return [cx - ex, cy - ey, cx + ex, cy + ey];
+  };
+
+  it("葉はどれも枠の中にある", () => {
+    for (const [ti, tier] of TIERS.entries()) {
+      for (const [li, leaf] of tier.leaves.entries()) {
+        const [x0, y0, x1, y1] = bbox(leaf);
+        const where = `${ti}段目の${li}枚目 [${x0.toFixed(1)}, ${y0.toFixed(1)}, ${x1.toFixed(1)}, ${y1.toFixed(1)}]`;
+        expect(x0, where).toBeGreaterThanOrEqual(0);
+        expect(y0, where).toBeGreaterThanOrEqual(0);
+        expect(x1, where).toBeLessThanOrEqual(VIEW_W);
+        expect(y1, where).toBeLessThanOrEqual(VIEW_H);
+      }
+    }
+  });
+
+  // 房の数が育ちの段取りと合っていないと、g.tiers[ti] が undefined になって落ちる。
+  it("房の数が育ちの段取りと一致する", () => {
+    expect(TIERS.length).toBe(ficusGrowth(1).tiers.length);
+  });
+
+  // 葉は必ず枝の上か幹の先端から出る。離れて置くと**宙に浮いた葉**になる。
+  // 幹の先端は TRUNK_D の最後の2つの数(綴りを2箇所に持たない)。
+  it("葉は必ず枝か幹の先端から出ている", () => {
+    const tip = TRUNK_D.trim().split(/[\s,]+/).slice(-2).map(Number);
+    for (const [ti, tier] of TIERS.entries()) {
+      const anchors = [tip, ...tier.branches.flatMap(([ax, ay, bx, by]) => [[ax, ay], [bx, by]])];
+      for (const [li, leaf] of tier.leaves.entries()) {
+        const [x, y] = leaf;
+        const d = Math.min(...anchors.map(([ax, ay]) => Math.hypot(ax - x, ay - y)));
+        expect(d, `${ti}段目の${li}枚目 (${x}, ${y}) がどの枝からも ${d.toFixed(1)} 離れている`)
+          .toBeLessThan(6);
+      }
+    }
   });
 });
 
@@ -179,15 +232,24 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
     expect(hit.join("")).toMatch(/animation: none/);
   });
 
-  // 【脈は葉身の中だけ】icon.svg は脈を**地と同じ紺**で描いているので、
-  // 葉からはみ出した分は地に溶けて見えない。白地のこちらでそのまま写すと
-  // 葉の外に線が突き出る(実際に描いて気づいた)。切り抜きを外さないこと。
-  it("脈を葉身で切り抜いている", () => {
-    expect(FICUS).toMatch(/<clipPath id=\{clipId\}><path d=\{BLADE_D} \/><\/clipPath>/);
-    expect(FICUS).toMatch(/<g clipPath=\{`url\(#\$\{clipId}\)`}>/);
-    // 輪郭の綴りは1つ。塗りと切り抜きが別々の d を持つと、片方だけ直る。
-    expect((FICUS.match(/d=\{BLADE_D}/g) || []).length).toBe(2);
-    expect(FICUS).not.toMatch(/Q 46 38\.35[\s\S]*Q 46 38\.35/);
+  // 【長さ 0 の枝を描かない】丸い先端は長さ 0 の破線も**点として描く**ので、
+  // 素直に書くと株が伸びる前に枝の根元へ点が5つ浮かぶ(実際に出た)。
+  it("伸びていない幹・枝は描かない", () => {
+    expect(FICUS).toMatch(/function Stem\(\{ d, width, len \}\)/);
+    expect(FICUS).toMatch(/if \(len <= 0\.001\) return null;/);
+    const code = FICUS.split(NL).filter((l) => !l.trim().startsWith("//")).join(NL);
+    // 幹も枝も Stem を通す。<path> で直に描くと、この番人を素通りする。
+    expect(code).not.toMatch(/<path d=\{TRUNK_D}/);
+    expect((code.match(/strokeDasharray=/g) || []).length, "破線を書く場所は Stem の中だけ").toBe(1);
+    expect((code.match(/<Stem /g) || []).length).toBe(3);
+  });
+
+  // 【伸びは dashoffset ではなく dasharray で書く】「見せる長さ」をそのまま
+  // 書けるので読み違えようがない。offset は「隠す長さ」なので符号を間違えやすい。
+  it("幹も枝も dasharray で伸ばす", () => {
+    const code = FICUS.split(NL).filter((l) => !l.trim().startsWith("//")).join(NL);
+    expect(code).not.toMatch(/strokeDashoffset/);
+    expect(code).toMatch(/strokeDasharray=\{grownDash\(len\)}/);
   });
 
   // 色は必ずトークンから引く(DESIGN-SYSTEM §1)。hex 直書きを増やさない。
