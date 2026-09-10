@@ -28,6 +28,12 @@ export async function unpublishIdeal(uid, saxType) {
  *
  * 【先に一覧を読まない】存在しないドキュメントの deleteDoc は Firestore では
  * 成功扱い(no-op)なので、listMyIdeals で確かめると読み取りが1回増えるだけ。
+ *
+ * 【ただし規則は評価される 2026/09/10】no-op なのは**操作の意味論**の話。
+ * セキュリティ規則は存在しないドキュメントにも当たり、そのとき `resource` は null なので
+ * `resource.data.ownerUid` を見る式はエラーになって拒否される。
+ * firestore.rules 側を存在ガードで囲んで直した。**ここを読んで「だから安全」と
+ * 判断しないこと** ── 安全なのは規則が「無い場合」を先に通しているからである。
  * 呼ぶのは (a) 公開スイッチを OFF にしたとき (b) アカウントを削除するときの2つ。
  */
 export async function unpublishAllIdeals(uid) {

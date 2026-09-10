@@ -3,8 +3,7 @@ import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
 // 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
-import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity } from "lucide-react";
-import BackupPanel from "./backup/BackupPanel.jsx";
+import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity, Plus } from "lucide-react";
 
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
@@ -10281,7 +10280,13 @@ const FLOAT_ACTION_GAP = "var(--sp-3)";
 // これが無いと最下行がボタンの下に潜る(案D の弱点として正典自身が書いている
 // 「最下段のタイルに少し重なる(下に余白を確保して回避)」)。
 const FLOAT_ACTION_SPACER_H = `calc(var(--tap-min) + ${FLOAT_ACTION_GAP} + ${FLOAT_ACTION_GAP})`;
+// 【2026/09/10 本人指示】label を渡さなければ**絵柄だけの丸**になる。
+// (「リードを追加」「録音を取り込む」は語を落として絵柄1つにした。)
+// **新しい値を発明しない** ── 直径は §5 の --tap-min、丸みは --r-pill(縦横が同じなので円)、
+// 地・影・右下の位置は語つきのときと1つも変えていない。
+// 語を渡す形も残す(「計測」「★ 目安に設定」は語がないと何の一手か分からない)。
 function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null }) {
+  const iconOnly = !label;
   return createPortal(
     <button
       type="button"
@@ -10297,7 +10302,8 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
         bottom: `calc(var(--page-bottom-gap) + ${FLOAT_ACTION_GAP})`,
         minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "var(--sp-1)",
-        padding: "0 var(--sp-5)", borderRadius: "var(--r-pill)", border: "none",
+        // 絵柄だけのときは左右の padding を落とす。縦横が --tap-min で揃うので --r-pill が円になる。
+        padding: iconOnly ? 0 : "0 var(--sp-5)", borderRadius: "var(--r-pill)", border: "none",
         background: disabled ? "var(--c-disabled)" : "var(--c-accent)",
         color: "var(--c-on-accent)",
         fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
@@ -10380,7 +10386,7 @@ function clampReedAddCount(n) {
 // 銘柄・番手・開封日はどれも箱のキー(銘柄|番手|開封日)なので、編集は3つを1枚のシートで扱う。
 function ReedBoxSheet({
   brandOptions, brand, setBrand, customBrand, setCustomBrand,
-  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, mode = "add",
+  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   const isEdit = mode === "edit";
@@ -10502,6 +10508,31 @@ function ReedBoxSheet({
               }}>{reedSheetButtonLabel(mode, count)}</span>
             </button>
           </div>
+          {/* 【2026/09/10 本人指示】箱ごと消す一手。**編集のときだけ**出す
+              (追加の途中に消すものは無い)。
+              【一番下に置く】破壊的な一手は最後、という並びを崩さない
+              (マイページの「アカウントを削除」と同じ考え方)。
+              型は B型 + 危険色(.ctl-danger)。**塗りにしない** ── 塗りの強調は
+              「その画面で一番やってほしい一手」のために取ってあり、これは違う。 */}
+          {isEdit && onDelete ? (
+            <button
+              type="button" onClick={onDelete}
+              className="sans"
+              /* 【.ctl-danger は使わない】あの綴りは「選んだぶんを消す」共通部品ひとつだけの
+                 ものになっていて、選択数に応じて data-armed で塗りが点く仕掛けを持つ。
+                 ここは常に1箱なので点滅する印が要らず、写すと錨が壊れる。
+                 代わりに**コミュニティの「アカウントを削除」と同じ作法**(塗りの危険色を
+                 トークンで置く)に揃える ── 面の一番下に置く破壊的な一手、という役目が同じ。 */
+              style={{
+                width: "100%", minHeight: "var(--tap-min)", marginTop: "var(--sp-4)",
+                borderRadius: "var(--r-pill)", border: "none",
+                background: "var(--c-danger)", color: "var(--c-on-accent)",
+                fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              この箱を削除
+            </button>
+          ) : null}
       </BottomSheet>
       {/* 銘柄のピッカーはシートの**外**に出す(z-index はシートと同じ層の上)。
           シートの中に置くと、暗幕がシートの中に閉じて背面がタップできてしまう(F-73 と同型の罠)。 */}
@@ -10634,6 +10665,18 @@ function ReedRegisterView(props) {
       setExtraBrands((prev) => [...prev, brand]);
     }
     updateGroup(editGroup, { brand, strength: editStrength, startDate: editStartDate });
+    setEditBoxKey(null);
+  };
+
+  // 【2026/09/10 本人指示】箱の編集シートから、その箱ごと消せるようにする。
+  // 【既にある「箱を選んで削除」を置き換えない】あちらは複数の箱をまとめて消す一手で、
+  // こちらは**いま開いている1箱**。消す中身も文言の形も同じ(枚数を必ず言う)。
+  // 実際に消すのは同じ deleteReeds ── 消し方を2つ持たない。
+  const deleteEditingBox = () => {
+    if (!editGroup) return;
+    const ids = editGroup.members.map((m) => m.id);
+    if (!window.confirm(`この箱(${ids.length}枚)を削除しますか？(元に戻せません)`)) return;
+    deleteReeds(ids);
     setEditBoxKey(null);
   };
 
@@ -10776,13 +10819,15 @@ function ReedRegisterView(props) {
 
       {/* 【F-111】一覧の下に、浮かせるボタンの高さぶんの余白。最下段のタイルに重ならない。 */}
       <FloatingActionSpacer />
-      {/* 【F-111 2026/08/17 本人指示・正典 案D】「＋ リードを追加」を右下に浮かせる。
+      {/* 【F-111 2026/08/17 本人指示・正典 案D】追加の入口を右下に浮かせる。
           子タブが「登録」のときだけ出す(「比較」の画面に追加の入口は無い)。
-          **リードが0枚でも出す**(空状態からの唯一の入口)。 */}
+          **リードが0枚でも出す**(空状態からの唯一の入口)。
+          【2026/09/10 本人指示】語を落として**＋だけ**にした。何が増えるかは
+          この画面(リードの一覧)が言っているので、語は読み上げ(aria)だけが持つ。 */}
       {pageActive && (
         <FloatingAction
-          label="＋ リードを追加"
           ariaLabel="リードを追加"
+          icon={<Plus size={20} strokeWidth={2.5} />}
           onClick={() => setAddOpen(true)}
         />
       )}
@@ -10826,6 +10871,7 @@ function ReedRegisterView(props) {
           strength={editStrength} setStrength={setEditStrength}
           startDate={editStartDate} setStartDate={setEditStartDate}
           onAdd={applyBoxEdit}
+          onDelete={deleteEditingBox}
           onClose={() => setEditBoxKey(null)}
         />
       )}
@@ -15223,18 +15269,19 @@ function MyDataPage({
 
       {/* 記録の保全: 書き出し・読み戻し・保存状態。**追加だけ**で、上の要素は1つも動かしていない。
           クラウドには触れない(この端末のファイル1つで完結する)。器は .surf-card の作法の .card 1枚。 */}
-      <BackupPanel />
-
       {/* 【N-11】最下端に、浮かせるボタンの高さぶんの余白。最後の行がボタンの下に潜らない。 */}
       <FloatingActionSpacer />
       {/* 【N-11 2026/08/17 本人指示】「↥ 録音を取り込む」を右下に浮かせる。
           押すと同じ uploadInputRef の隠しファイル入力を開く(機能は 1つも変わっていない)。
-          解析中は押せない(disabled)。進捗・完了通知は従来どおり画面上端に浮く。 */}
+          解析中は押せない(disabled)。進捗・完了通知は従来どおり画面上端に浮く。
+          【2026/09/10 本人指示】語を落として**絵柄だけ**にした。
+          ただし解析中は語を出す ── 「いま何が起きているか」は絵柄では言えないので、
+          そこだけは語が要る(押せない状態の理由が分からないボタンを作らない)。 */}
       {pageActive && (
         <FloatingAction
-          label={isAnalyzingUpload ? "解析中…" : "録音を取り込む"}
+          label={isAnalyzingUpload ? "解析中…" : null}
           ariaLabel="録音ファイルを取り込む"
-          icon={<Upload size={14} />}
+          icon={<Upload size={isAnalyzingUpload ? 14 : 20} />}
           disabled={isAnalyzingUpload}
           onClick={() => uploadInputRef.current?.click()}
         />

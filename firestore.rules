@@ -302,7 +302,19 @@ service cloud.firestore {
         // 使っているリードはプロフィールの楽器の組(gear)が持っている。
         && request.resource.data.updatedAt is string;
 
-      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerUid;
+      // 【存在しないドキュメントの削除で拒否されない 2026/09/10】
+      // unpublishAllIdeals は**4種別すべて**を消しに行く(持っていない種別の消し残りを
+      // 作らないため)。A.Sax しか持っていない人なら3件は存在しないドキュメントで、
+      // そのとき `resource` は null。**`resource.data.ownerUid` はエラーになり拒否される。**
+      // deleteDoc 自体が no-op なのは操作の意味論の話で、**規則は評価される**。
+      //
+      // これで「非公開にする」と「アカウントを削除する」の両方が
+      // permission-denied で落ちていた(本人の実機で発覚)。5.1.1(v) にも関わる。
+      // 【同じ形の罠は2度目】1度目は任意キーの型検査を存在ガードで囲み忘れて
+      // プロフィールの保存が全滅した件(2026/09/07)。**「無いかもしれないもの」を
+      // 見る式は、必ず「無い場合」を先に通すこと。**
+      allow delete: if request.auth != null
+        && (resource == null || request.auth.uid == resource.data.ownerUid);
     }
 
     // ================================================================

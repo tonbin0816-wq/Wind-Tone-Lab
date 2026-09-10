@@ -121,6 +121,21 @@ describe("firestore.rules(通報まわり)", () => {
     expect(reports).toMatch(/targetUid != request\.auth\.uid/);
   });
 
+  // 【存在ガードの検査 2026/09/10】この形の罠は2度目(1度目は任意キーの型検査)。
+  // 「無いかもしれないもの」を見る式は、必ず「無い場合」を先に通す。
+  it("存在しないドキュメントの削除で拒否されない(ideals)", () => {
+    const ideals = RULES_CODE.slice(RULES_CODE.indexOf("match /ideals/"));
+    const del = ideals.slice(ideals.indexOf("allow delete:"));
+    expect(del).toMatch(/resource == null \|\| request\.auth\.uid == resource\.data\.ownerUid/);
+  });
+
+  // flags の1件読みは「まだ通報されていない = ドキュメントが無い」が普通の状態。
+  // resource を見る式にすると、その普通の状態で拒否される。
+  it("flags の1件読みは resource を見ない(無いのが普通の状態)", () => {
+    const flags = RULES_CODE.slice(RULES_CODE.indexOf("match /flags/"), RULES_CODE.indexOf("match /reports/"));
+    expect(flags).toMatch(/allow get: if true;/);
+  });
+
   it("banned はクライアントから読み書きできない", () => {
     expect(RULES).toMatch(/match \/banned\/\{uid\} \{ allow read, write: if false; \}/);
   });

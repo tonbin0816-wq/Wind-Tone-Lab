@@ -8694,7 +8694,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("一覧を描く関数を走査できている(空回りしていない)",
           // 【F-111 2026/08/17】錨だった「＋ 追加」は浮かせるボタンへ移ったので、
           // 同じ関数の中にある新しい入口の綴りへ錨を移した。
-          reg.length > 4000 && /＋ リードを追加/.test(reg), `${reg.length}文字`);
+          // 【2026/09/10 本人指示】その入口が**絵柄だけ**になり語が消えたので、
+          // 錨を読み上げの語(aria)へ移す。**画面に出ない語だが、入口はここにある**。
+          reg.length > 4000 && /ariaLabel="リードを追加"/.test(reg), `${reg.length}文字`);
         check("N-5: 一覧(ReedRegisterView)に「登録済みリード」の見出しが無い",
           !/登録済みリード/.test(reg), (reg.match(/登録済みリード[^\n]{0,20}/g) || []).join(" / ") || "0件");
         check("N-5: 一覧に枚数(総数・箱の枚数)を描画していない",
@@ -8768,9 +8770,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         !/id="reed-brand-select"/.test(codeR) && !/id="reed-strength-select"/.test(codeR));
       // 【F-111 2026/08/17 本人指示】入口の文言が「＋ 追加」→「＋ リードを追加」になり、
       // 置き場所も一覧末尾から右下の浮かせるボタンへ移った。**入口が1つ**という芯は不変。
-      check("F-111: 追加の入口は「＋ リードを追加」1つだけ(旧「＋ 追加」は残っていない)",
-        (codeR.match(/＋ リードを追加/g) || []).length === 1 && !codeR.includes("＋ 追加"),
-        `${(codeR.match(/＋ リードを追加/g) || []).length}箇所 / 旧綴り ${(codeR.match(/＋ 追加/g) || []).length}箇所`);
+      // 【2026/09/10 本人指示】語を落として絵柄(＋)だけにした。**芯は今も不変**なので、
+      // 数えるものを読み上げの語へ移し、**画面に出る語が戻っていないこと**も併せて見る。
+      check("F-111: 追加の入口は1つだけ(絵柄のみ。旧綴りは残っていない)",
+        (codeR.match(/ariaLabel="リードを追加"/g) || []).length === 1
+        && !codeR.includes("＋ 追加") && !codeR.includes("＋ リードを追加"),
+        `${(codeR.match(/ariaLabel="リードを追加"/g) || []).length}箇所 / 旧綴り ${(codeR.match(/＋ 追加|＋ リードを追加/g) || []).length}箇所`);
+      // 絵柄だけの形になっていること(語を戻す変異はここでも落ちる)
+      check("F-111: 追加の入口は絵柄だけ(label を渡していない)",
+        /<FloatingAction\s*\r?\n\s*ariaLabel="リードを追加"\s*\r?\n\s*icon=\{<Plus /.test(codeR));
       // 追加ボタンの文言は枚数で変わる(純関数なので実行で数える)
       check("枚数1なら「1枚を追加」", api.reedAddButtonLabel(1) === "1枚を追加", api.reedAddButtonLabel(1));
       check("枚数2以上なら「n枚の箱を追加」",
@@ -13781,7 +13789,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 下2つの綴り(＋ リードを追加 / setAddOpen)が本題を守っている。
     check("F-111: 追加の入口は右下に浮かせるボタン1つ(リード0枚の空状態でも出す)",
       (codeOf(src).match(/<FloatingAction\b/g) || []).length === 4
-      && /<FloatingAction\s*\r?\n\s*label="＋ リードを追加"/.test(codeOf(src))
+      // 【2026/09/10 本人指示】語を落として絵柄(＋)だけになった。
+      && /<FloatingAction\s*\r?\n\s*ariaLabel="リードを追加"/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b/g) || []).length}箇所`);
     // 「リードが0枚のとき出さない」条件を**付けていない**こと(空状態からの唯一の入口)
@@ -15185,8 +15194,12 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       // (N-11)、**一覧は別画面へ**(D-1)移った。残るのは「選択」1語で、それは別画面の
       // ヘッダーに居る。2語が同じ行に並ぶという主張はもう成り立たないので、
       // 「取り込みは浮かせるボタンが持つ」「選択は一覧の画面が持つ」の2つに割る。
-      check("26.3 D-1: 取り込みの語は浮かせるボタンが持つ(見出しの行には無い)",
-        /label=\{isAnalyzingUpload \? "解析中…" : "録音を取り込む"\}/.test(myDataPage)
+      // 【2026/09/10 本人指示】語を落として絵柄(↥)だけにした。
+      // **ただし解析中だけは語を出す** ── 押せない理由が絵柄では言えないため。
+      // だから見るのは「読み上げの語を持つ」と「解析中の語を残している」の2つ。
+      check("26.3 D-1: 取り込みの入口は浮かせるボタンが持つ(見出しの行には無い)",
+        /ariaLabel="録音ファイルを取り込む"/.test(myDataPage)
+        && /label=\{isAnalyzingUpload \? "解析中…" : null\}/.test(myDataPage)
         && !/取り込み/.test(allSessionsPage), ops.join(" / "));
       // 【D-14 2026/08/27 本人指示で書き換え】本人「すべてのセッションの『選択』は
       // 削除機能しかないのでゴミ箱アイコン(これにはカードとか無駄につけない)に変更」。
