@@ -1246,13 +1246,28 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
   // ------------------------------------------------------------------
   // メトロノーム(E案): 上半円=振り子(予測) / 下半円=拍の点(今が何拍目か)
   // ------------------------------------------------------------------
-  // 振り子: 位相→角度の写像。拍の瞬間(位相が整数)にちょうど両端へ達する。
+  // 振り子: 位相→角度の写像。
+  // 【2026/09/10 本人指示で半拍ずらした】音の予約時刻がそのまま振り子の錨なので、
+  // **音が鳴る瞬間の位相はちょうど整数**。以前は cos(π*整数)= ±1 で、
+  // **音は振り子が端に居るときに鳴っていた**(端は振り子が留まる所で、目が「拍だ」と
+  // 読むのは速く通り過ぎる中央のほう → 音が先行して感じる)。
+  // sin にして、**拍の瞬間 = 中央**にした。端は拍と拍の中間(裏)。
   check("停止中(null)は静止した振り子と同じ12時(0°)", api.ringPendDeg(null) === 0);
-  check("拍の瞬間に振れの端へ達する(0拍=右端 / 1拍=左端 / 2拍=右端)",
-    Math.abs(api.ringPendDeg(0) - api.RING_PEND_SWING_DEG) < 1e-9
-    && Math.abs(api.ringPendDeg(1) + api.RING_PEND_SWING_DEG) < 1e-9
-    && Math.abs(api.ringPendDeg(2) - api.RING_PEND_SWING_DEG) < 1e-9,
+  check("拍の瞬間は振れの中央(= 音が鳴るのは中央を通るとき)",
+    Math.abs(api.ringPendDeg(0)) < 1e-9
+    && Math.abs(api.ringPendDeg(1)) < 1e-9
+    && Math.abs(api.ringPendDeg(2)) < 1e-9,
     `${api.ringPendDeg(0)},${api.ringPendDeg(1)}`);
+  // 端に来るのは拍の**あいだ**。ここが 0 になったら振り子が振れていない。
+  check("振れの端は拍と拍の中間(0.5拍=右端 / 1.5拍=左端)",
+    Math.abs(api.ringPendDeg(0.5) - api.RING_PEND_SWING_DEG) < 1e-9
+    && Math.abs(api.ringPendDeg(1.5) + api.RING_PEND_SWING_DEG) < 1e-9,
+    `${api.ringPendDeg(0.5)},${api.ringPendDeg(1.5)}`);
+  // 往復の速さは変えていない(cos と sin は角振動数が同じ)。
+  // 停止後の戻り(F-51)が ω = π/beatDur を引いているので、ここが変わると戻りも狂う。
+  check("片道1拍で1往復(周期は2拍のまま)",
+    Math.abs(api.ringPendDeg(0.25) - api.ringPendDeg(2.25)) < 1e-9
+    && Math.abs(api.ringPendDeg(0.25) + api.ringPendDeg(1.25)) < 1e-9);
   check("振れ角を超えない(全位相で |deg| <= 振れ角)", (() => {
     for (let p = 0; p <= 8; p += 0.001) if (Math.abs(api.ringPendDeg(p)) > api.RING_PEND_SWING_DEG + 1e-9) return false;
     return true;
@@ -1280,10 +1295,16 @@ console.log("=== 検証17: メトロノームのクリック近傍判定・テ�
     check("点は弧の左端から右端まで使い切る",
       Math.abs(minX - api.METRO_ARC_P0[0]) < 1e-9 && Math.abs(maxX - api.METRO_ARC_P2[0]) < 1e-9,
       `x ${minX.toFixed(3)}〜${maxX.toFixed(3)} / 弧 ${api.METRO_ARC_P0[0]}〜${api.METRO_ARC_P2[0]}`);
-    // 拍の瞬間(位相が整数)にちょうど端にいる = 「点が往復し端で拍」
-    check("拍の瞬間に点が弧の端にいる(0拍=右端 / 1拍=左端)",
-      Math.abs(api.metroArcPoint(api.metroPendT(api.ringPendDeg(0)))[0] - api.METRO_ARC_P2[0]) < 1e-9
-      && Math.abs(api.metroArcPoint(api.metroPendT(api.ringPendDeg(1)))[0] - api.METRO_ARC_P0[0]) < 1e-9);
+    // 【2026/09/10 本人指示】拍の瞬間(位相が整数)は弧の**中央**。
+    // 端に来るのは拍のあいだ(0.5拍 = 右端 / 1.5拍 = 左端)。
+    const arcX = (p) => api.metroArcPoint(api.metroPendT(api.ringPendDeg(p)))[0];
+    const arcMid = (api.METRO_ARC_P0[0] + api.METRO_ARC_P2[0]) / 2;
+    check("拍の瞬間に点が弧の中央にいる(= 音が鳴るのは中央を通るとき)",
+      Math.abs(arcX(0) - arcMid) < 1e-9 && Math.abs(arcX(1) - arcMid) < 1e-9,
+      `${arcX(0).toFixed(4)} / 中央 ${arcMid.toFixed(4)}`);
+    check("弧の端に来るのは拍と拍の中間(0.5拍=右端 / 1.5拍=左端)",
+      Math.abs(arcX(0.5) - api.METRO_ARC_P2[0]) < 1e-9
+      && Math.abs(arcX(1.5) - api.METRO_ARC_P0[0]) < 1e-9);
     // 停止中(角度0)は弧の中央。戻りは角度が0へ減衰するので、中央へ戻ることと同義。
     check("停止中は弧の中央に止まる", Math.abs(api.metroPendT(0) - 0.5) < 1e-12);
     // 弧は「浅い」= 制御点が高さの中にあり、たわみが弧の横幅よりずっと小さい。
