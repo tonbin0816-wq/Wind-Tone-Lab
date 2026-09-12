@@ -179,6 +179,16 @@ describe("絵が枠に収まっている", () => {
     }
   });
 
+  // 【1つの房は3枚まで 2026/09/12 本人指示】27枚は「葉の数が多すぎる」。
+  // 房を濃くするのではなく、足したくなったら**房を1つ足す**。
+  // 3枚は「左右へ開いて、間から幹が見える」限界の枚数でもある。
+  it("1つの房に葉は3枚まで", () => {
+    for (const [ti, tier] of TIERS.entries()) {
+      expect(tier.leaves.length, `${ti}段目が ${tier.leaves.length} 枚`).toBeLessThanOrEqual(3);
+      expect(tier.leaves.length, `${ti}段目が空`).toBeGreaterThan(0);
+    }
+  });
+
   // 房の数が育ちの段取りと合っていないと、g.tiers[ti] が undefined になって落ちる。
   it("房の数が育ちの段取りと一致する", () => {
     expect(TIERS.length).toBe(ficusGrowth(1).tiers.length);
@@ -256,18 +266,18 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
   // 【2026/09/11 本人指示「アイコンは単色で」】色は1つだけ。
   // 淡い段を足すと、小さく出したとき色の数だけが目に付いて姿が読めない。
   it("絵は色を1つしか使わない", () => {
-    // 色の名前を書いてよい場所は INK ただ1つ。絵の側は INK を指すだけ。
-    expect(FICUS).toMatch(/const INK = "var\(--c-accent\)";/);
+    // 【2026/09/12 本人指示】絵は**%の数字と同じ色**。待っているあいだの絵が、
+    // 待つことより目立ってはいけない。色の名前を書いてよい場所は INK ただ1つ。
+    expect(FICUS).toMatch(/const INK = "var\(--c-ink-3\)";/);
     const used = [...FICUS.matchAll(/var\(--c-[a-z0-9-]+\)/g)].map((m) => m[0]);
     const uniq = [...new Set(used)].sort();
-    // 出てよいのはこの3つだけ:
-    //   --c-accent = INK(唯一のインク)
-    //   --c-bg     = **葉と葉のあいだの隙間**。塗りではなく「地が透けている幅」で、
-    //                これが無いと 27 枚が一つの塊に潰れる(実際にそうなった)
-    //   --c-ink-3  = 絵ではなく、下に出る%の文字色(アプリの副文字と同じ)
-    expect(uniq, `使っている色: ${uniq.join(" ")}`)
-      .toEqual(["var(--c-accent)", "var(--c-bg)", "var(--c-ink-3)"]);
-    expect(used.filter((c) => c === "var(--c-accent)").length, "INK 以外で色を名指ししている").toBe(1);
+    // 出てよいのはこの2つだけ:
+    //   --c-ink-3 = INK(唯一のインク)と、下に出る%の文字色。**同じ色**なので1つ
+    //   --c-bg    = **葉と葉のあいだの隙間**。塗りではなく「地が透けている幅」で、
+    //               これが無いと房の3枚が根元で融けて一塊になる(実際にそうなった)
+    expect(uniq, `使っている色: ${uniq.join(" ")}`).toEqual(["var(--c-bg)", "var(--c-ink-3)"]);
+    // INK の定義と%の文字色の2箇所だけ。絵の中で色を名指ししない。
+    expect(used.filter((c) => c === "var(--c-ink-3)").length, "INK 以外で色を名指ししている").toBe(2);
     // 隙間は葉にだけ。幹や鉢に地の色を回すと、そこが「2色目」に見え始める。
     expect(used.filter((c) => c === "var(--c-bg)").length, "地の色を葉以外にも使っている").toBe(1);
     const draw = FICUS.slice(FICUS.indexOf("export function FicusMark"));
