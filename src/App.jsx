@@ -14,11 +14,11 @@ import { buildAdoptedProfile } from "./community/idealDoc.js";
 // 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
 // firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
 import { alignIdealToMine } from "./community/align.js";
-// 【読み込み中の絵 2026/09/10】ficus が読み込みに合わせて育つ。
+// 【読み込み中の絵 2026/09/10 → 09/13】読み込みに合わせて輪が埋まる。
 // **この要素は firebase を import しない**(待たせている当のものを、待つ画面が
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
 // community/loadProgress.js(純粋な計算)だけ。
-import LoadingFicus from "./community/LoadingFicus.jsx";
+import LoadingRing from "./community/LoadingRing.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -26,7 +26,7 @@ import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
-// 読み込み中はこれではなく LoadingFicus(育つ ficus と%)が出る。
+// 読み込み中はこれではなく LoadingRing(埋まる輪と%)が出る。
 const communityFallbackStyle = {
   padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)",
   fontSize: "var(--fs-sm)", lineHeight: 1.7,
@@ -4241,12 +4241,12 @@ export default function WindToneLabPhaseMode() {
            このタブはどちらの子孫でもない。 */
         <div className="surf-card">
         <CommunityErrorBoundary>
-          {/* 【読み込み中は ficus が育つ 2026/09/10 本人指示】数秒の待ちが
+          {/* 【読み込み中は輪が埋まる 2026/09/10 → 09/13 本人指示】数秒の待ちが
               「飽きない」ようにする。step="chunk" はこの待ちが**この画面の
               コードを取ってくる段階**だと進捗の帳簿に伝えるためのもので、
               続きの段階(アカウント確認・名簿)はコミュニティタブ側が伝える。
               段階をまたいでも数字が巻き戻らないよう、帳簿は React の外にある。 */}
-          <Suspense fallback={<LoadingFicus step="chunk" />}>
+          <Suspense fallback={<LoadingRing step="chunk" />}>
             {/* 【sessions を渡す】コミュニティは練習日数を公開するので、端末の中の
                 セッションが要る。ここには既に読み込み済みの配列があるので、
                 タブ側でもう一度 IndexedDB を開かせない。 */}
