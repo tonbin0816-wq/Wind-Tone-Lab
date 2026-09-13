@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beginLoad, loadPercent, loadFloor, ficusGrowth, resetLoadProgress } from "./loadProgress.js";
-import { TIERS, TRUNK_D, VIEW_W, VIEW_H } from "./LoadingFicus.jsx";
+import { TIERS, TRUNK_D, VIEW_W, VIEW_H, SOIL_Y, LEAVES_PER_TIER, tierLeaves } from "./LoadingFicus.jsx";
 
 const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
 const NL = String.fromCharCode(10); // 検査の中で改行を書くと、この行自体が壊れる
+const FICUS = read("./LoadingFicus.jsx");
+const CSS = read("../index.css");
 
 beforeEach(() => resetLoadProgress());
 
@@ -166,27 +168,53 @@ describe("絵が枠に収まっている", () => {
     return [cx - ex, cy - ey, cx + ex, cy + ey];
   };
 
-  it("葉はどれも枠の中にある", () => {
-    for (const [ti, tier] of TIERS.entries()) {
-      for (const [li, leaf] of tier.leaves.entries()) {
-        const [x0, y0, x1, y1] = bbox(leaf);
-        const where = `${ti}段目の${li}枚目 [${x0.toFixed(1)}, ${y0.toFixed(1)}, ${x1.toFixed(1)}, ${y1.toFixed(1)}]`;
-        expect(x0, where).toBeGreaterThanOrEqual(0);
-        expect(y0, where).toBeGreaterThanOrEqual(0);
-        expect(x1, where).toBeLessThanOrEqual(VIEW_W);
-        expect(y1, where).toBeLessThanOrEqual(VIEW_H);
+  // 【枚数を変えても枠に収まること】葉は枚数から組み立てるので、1房を何枚に
+  // しても端の葉が枠から出てはいけない。房の開きに上限(FAN_MAX_DEG)を置いて
+  // あるのはこのため ── 上限が無いと、枚数を増やしたとき端の葉が真下を向いて
+  // 鉢へ突っ込む。1〜5枚まで全部を確かめる。
+  it("葉はどれも枠の中にある(1〜5枚のどれでも)", () => {
+    for (let n = 1; n <= 5; n++) {
+      for (const [ti, tier] of TIERS.entries()) {
+        for (const [li, leaf] of tierLeaves(tier.branch, n).entries()) {
+          const [x0, y0, x1, y1] = bbox(leaf);
+          const where = `${n}枚 / ${ti}段目の${li}枚目 [${x0.toFixed(1)}, ${y0.toFixed(1)}, ${x1.toFixed(1)}, ${y1.toFixed(1)}]`;
+          expect(x0, where).toBeGreaterThanOrEqual(0);
+          expect(y0, where).toBeGreaterThanOrEqual(0);
+          expect(x1, where).toBeLessThanOrEqual(VIEW_W);
+          // 【土より下へ垂れない】下は切り抜きで消えるので、はみ出すと葉が欠ける。
+          expect(y1, where).toBeLessThanOrEqual(SOIL_Y);
+        }
       }
     }
   });
 
   // 【1つの房は3枚まで 2026/09/12 本人指示】27枚は「葉の数が多すぎる」。
-  // 房を濃くするのではなく、足したくなったら**房を1つ足す**。
+  // 房を濃くするのではなく、足したくなったら**房を1つ足す**(TIERS に1行)。
   // 3枚は「左右へ開いて、間から幹が見える」限界の枚数でもある。
   it("1つの房に葉は3枚まで", () => {
-    for (const [ti, tier] of TIERS.entries()) {
-      expect(tier.leaves.length, `${ti}段目が ${tier.leaves.length} 枚`).toBeLessThanOrEqual(3);
-      expect(tier.leaves.length, `${ti}段目が空`).toBeGreaterThan(0);
+    expect(LEAVES_PER_TIER).toBeLessThanOrEqual(3);
+    expect(LEAVES_PER_TIER).toBeGreaterThan(0);
+    for (const tier of TIERS) {
+      expect(tierLeaves(tier.branch).length).toBe(LEAVES_PER_TIER);
     }
+  });
+
+  // 【房の開きには上限がある】枚数を増やしても扇が回りきらないこと。
+  // 上限が無いと、枚数を上げたとき端の葉が真下や真上を向いて、房が
+  // 「扇」ではなく「花火」になる(枠に収まるかどうかとは別の話)。
+  it("房の開きは 110°を超えない", () => {
+    for (const n of [2, 3, 5, 8]) {
+      const angles = tierLeaves(TIERS[0].branch, n).map((l) => l[2]);
+      const width = Math.max(...angles) - Math.min(...angles);
+      expect(width, `${n}枚で ${width.toFixed(0)}°`).toBeLessThanOrEqual(110.0001);
+    }
+  });
+
+  // 【枚数は1箇所で決める】房ごとに枚数を書けるようにすると、また房が濃くなる。
+  it("葉の座標を手で置いていない", () => {
+    const table = FICUS.slice(FICUS.indexOf("export const TIERS"), FICUS.indexOf("export const LEAVES_PER_TIER"));
+    expect(table).not.toMatch(/leaves:/);
+    expect(table.match(/branch: \[/g).length).toBe(TIERS.length);
   });
 
   // 房の数が育ちの段取りと合っていないと、g.tiers[ti] が undefined になって落ちる。
@@ -194,25 +222,28 @@ describe("絵が枠に収まっている", () => {
     expect(TIERS.length).toBe(ficusGrowth(1).tiers.length);
   });
 
-  // 葉は必ず枝の上か幹の先端から出る。離れて置くと**宙に浮いた葉**になる。
-  // 幹の先端は TRUNK_D の最後の2つの数(綴りを2箇所に持たない)。
-  it("葉は必ず枝か幹の先端から出ている", () => {
-    const tip = TRUNK_D.trim().split(/[\s,]+/).slice(-2).map(Number);
-    for (const [ti, tier] of TIERS.entries()) {
-      const anchors = [tip, ...tier.branches.flatMap(([ax, ay, bx, by]) => [[ax, ay], [bx, by]])];
-      for (const [li, leaf] of tier.leaves.entries()) {
-        const [x, y] = leaf;
-        const d = Math.min(...anchors.map(([ax, ay]) => Math.hypot(ax - x, ay - y)));
-        expect(d, `${ti}段目の${li}枚目 (${x}, ${y}) がどの枝からも ${d.toFixed(1)} 離れている`)
-          .toBeLessThan(6);
-      }
+  // 【房は左右交互に出す】同じ側へ続けて出すと株が片側へ傾いて見える。
+  // いちばん上も「片側へ出る房」(2026/09/13 本人指示で上・左・右の放射をやめた)。
+  it("房は左右交互に出る", () => {
+    const side = TIERS.map(({ branch: [ax, , bx] }) => Math.sign(bx - ax));
+    expect(side.every((v) => v !== 0), "真上か真下へ出る枝がある").toBe(true);
+    for (let i = 1; i < side.length; i++) {
+      expect(side[i], `${i}段目が ${i - 1}段目と同じ側`).not.toBe(side[i - 1]);
     }
+  });
+
+  // 【株は土の高さで切る】鉢は塗らない輪郭なので、切らないと幹の丸い先端が
+  // 空の鉢の中に浮いて見える(本人評「下の幹が鉢よりも前に出ているように見える」)。
+  // 鉢を**株より後に**描くのも同じ理由 ── 先に描くと口の罫を幹が跨ぐ。
+  it("株を土の高さで切り、鉢を後に描く", () => {
+    expect(FICUS).toContain('<rect x="0" y="0" width={VIEW_W} height={SOIL_Y} />');
+    expect(FICUS).toContain("<g clipPath={`url(#${clipId})`}>");
+    expect(FICUS.indexOf("d={POT_D}"), "鉢が株より先に描かれている")
+      .toBeGreaterThan(FICUS.indexOf("clipPath={`url"));
   });
 });
 
 describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
-  const FICUS = read("./LoadingFicus.jsx");
-  const CSS = read("../index.css");
 
   // 【待つ画面が、待たせている当のものを読み込んではいけない】
   // App.jsx の Suspense の fallback がこの要素を描くので、ここが firebase を
@@ -222,20 +253,21 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
     expect(imports.sort()).toEqual(["./loadProgress.js", "react"]);
   });
 
-  // 揺れ(待ちが長引いたときに止まって見えないための動き)は index.css だけが持つ。
-  it("揺れの秒数と曲線は index.css にある", () => {
-    expect(CSS).toMatch(/@keyframes ficus-grow-sway/);
-    expect(CSS).toMatch(/\.ficus-grow\s*\{[\s\S]*?animation: ficus-grow-sway/);
-    const code = FICUS.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
-    expect(code).not.toMatch(/animation:/);
-    expect(code).toMatch(/className="ficus-grow"/);
-  });
-
-  it("動きを減らす設定で揺れを止める", () => {
-    const blocks = CSS.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g) || [];
-    const hit = blocks.filter((b) => /\.ficus-grow\b/.test(b));
-    expect(hit.length, "揺れを止める指定が無い").toBeGreaterThan(0);
-    expect(hit.join("")).toMatch(/animation: none/);
+  // 【この絵は CSS の動きを1つも持たない 2026/09/13 本人指示】
+  // 以前は株元を軸にした揺れ(ficus-grow-sway)を index.css に置いていたが、
+  // 「左右に揺れるアニメーションを削除」で外した。**動くのは育つ株と数字だけ。**
+  // ここが緩むと、また「止まって見えないから」と揺れが戻ってくる。
+  it("揺れは残っていない", () => {
+    // 【コメントを剥がしてから数える】外した理由を index.css に書き残してあり、
+    // その説明文の中に綴りが出てくる。生のまま探すと**説明そのものを数える**
+    // (この罠は pitch-test の codeOf() と firestore.rules で既に2度踏んでいる)。
+    const css = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).not.toMatch(/@keyframes ficus-grow-sway/);
+    expect(css).not.toMatch(/\.ficus-grow\s*\{/);
+    const code = FICUS.split(NL).filter((l) => !l.trim().startsWith("//")).join(NL);
+    expect(code).not.toMatch(/ficus-grow/);
+    expect(code).not.toMatch(/animation/);
+    expect(code).not.toMatch(/@keyframes/);
   });
 
   // 【長さ 0 の枝を描かない】丸い先端は長さ 0 の破線も**点として描く**ので、
@@ -280,7 +312,9 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
     expect(used.filter((c) => c === "var(--c-ink-3)").length, "INK 以外で色を名指ししている").toBe(2);
     // 隙間は葉にだけ。幹や鉢に地の色を回すと、そこが「2色目」に見え始める。
     expect(used.filter((c) => c === "var(--c-bg)").length, "地の色を葉以外にも使っている").toBe(1);
-    const draw = FICUS.slice(FICUS.indexOf("export function FicusMark"));
+    // 絵は FicusMark ただ1つ。%の数字を持つ LoadingFicus はその後ろなので外す。
+    const draw = FICUS.slice(FICUS.indexOf("export function FicusMark"),
+      FICUS.indexOf("export default function LoadingFicus"));
     expect(draw).not.toMatch(/var\(--c-/);
     // 【透かすのも「2色目」】opacity で濃淡を作らない。Leaf は FicusMark より
     // 前に居るので、ここは**ファイル全体**を見ること(切り出すと素通りする)。

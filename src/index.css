@@ -365,31 +365,18 @@ body {
   100% { opacity: 0.3400; }
 }
 
-/* 【コミュニティの読み込み中 2026/09/10 本人指示】ficus(アプリの印)が読み込みに
-   合わせて育つ。**育ち方は進捗の関数**なので community/loadProgress.js の
-   ficusGrowth() が持つ ── ここが持つのは「段階の待ちが長引いたときに、
-   止まって見えない」ための揺れだけ。§1.11 のとおり秒数と曲線は index.css に置く。
-
-   軸は**土の高さ**(viewBox 座標で 29, 77)。鉢はこの要素の外に置いてあるので
-   揺れない ── 鉢まで一緒に揺れると床ごと動いて見える。軸を株の上のほうに
-   置くと、根が動く不自然な揺れになる。
-   transform-box を書いているのは既定値がブラウザで割れているため
-   (古い Safari は border-box を採る)。書けば viewBox 座標で読まれる。 */
-@keyframes ficus-grow-sway {
-  0%, 100% { transform: rotate(-1.6deg); }
-  50%      { transform: rotate(1.6deg); }
-}
-.ficus-grow {
-  transform-box: view-box;
-  transform-origin: 29px 77px;
-  animation: ficus-grow-sway 4.6s ease-in-out infinite;
-}
+/* 【読み込みの ficus に動きは無い 2026/09/13 本人指示】
+   以前ここに @keyframes ficus-grow-sway と .ficus-grow(株元を軸に ±1.6° の
+   揺れ)を置いていたが、本人指示「左右に揺れるアニメーションを削除」で外した。
+   **待っているあいだ動くものは、育つ株と%の数字だけ**でよい ── 揺れは
+   「止まって見えない」ための保険だったが、株が進捗どおり伸び続けるので要らない。
+   絵の持ち主は src/community/LoadingFicus.jsx(CSS の動きを1つも持たない)。 */
 
 /* 動きを減らす設定の端末では、呼吸も点滅も止めて静止した状態で見せる。
-   読み込みの ficus は**揺れだけ**を止める ── 育つこと自体は進捗の表示なので、
-   止めると何も分からなくなる(内挿を止める判断は LoadingFicus 側が持つ)。 */
+   読み込みの ficus はここに出てこない ── CSS の動きを1つも持たないため
+   (内挿を止める判断は LoadingFicus 側が自分で matchMedia を見て行う)。 */
 @media (prefers-reduced-motion: reduce) {
-  .ficus-breathe, .ficus-pulse, .ficus-grow { animation: none !important; }
+  .ficus-breathe, .ficus-pulse { animation: none !important; }
 }
 
 /* ------------------------------------------------------------------
