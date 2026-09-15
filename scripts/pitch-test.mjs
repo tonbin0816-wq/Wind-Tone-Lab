@@ -9696,9 +9696,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("D-5: リードの削除は箱・個体の両方の場面で読み上げを出し分ける(片方を落としていない)",
         /selectedBoxKeys\.size > 0 \? `選んだ\$\{selectedBoxKeys\.size\}箱を削除` : "箱を削除"/.test(src)
         && /selectedMemberIds\.size > 0 \? `選んだ\$\{selectedMemberIds\.size\}枚を削除` : "リードを削除"/.test(src));
-      check("N-5: リードの削除はどちらの場面も window.confirm を通る(現行のまま)",
-        /confirmBoxDelete = \(\) => \{[\s\S]{0,400}?window\.confirm\(/.test(src)
-        && /confirmMemberDelete = \(\) => \{[\s\S]{0,300}?window\.confirm\(/.test(src));
+      // 【B-2 2026-09-15 本人裁定で錨が動いた】確認の窓(window.confirm)はやめ、
+      // **押した瞬間に消して帯で「元に戻す」**になった。主張は緩めない ──
+      // 「どちらの場面も**同じ一手**を通る」ことを、通る先の名前で見る。
+      check("B-2: リードの削除はどちらの場面も deleteReedsWithUndo を通る(消し方を2つ持たない)",
+        /confirmBoxDelete = \(\) => \{[\s\S]{0,500}?deleteReedsWithUndo\(/.test(src)
+        && /confirmMemberDelete = \(\) => \{[\s\S]{0,500}?deleteReedsWithUndo\(/.test(src));
       check("N-5: 削除したリードに紐づくセッションは紐付けだけ解除する(セッションは消さない)",
         /updateSessions\(\(prev\) => prev\.map\(\(s\) => \(idSet\.has\(s\.reedId\) \? \{ \.\.\.s, reedId: null, linkedAt: null \} : s\)\)\)/.test(src));
       // 地・文字色をインラインで書くとクラスより強くなり、この型が丸ごと効かなくなる。
@@ -12519,9 +12522,13 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       /const targets = scope === "performer" \? selectPerformerSessions\(sessions, sessionLike\) : \[sessionLike\];/.test(src));
     check("F-68: 生成はその対象一式を渡す(1セッションに縮めない)",
       /buildIdealProfileFromSessions\(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope\)/.test(src));
-    check("F-67: 呼び出し元は2箇所ともセッション・一覧・選択中の理想値を渡す",
-      (src.match(/<SetAsIdealButton[^>]*session=\{[^}]+\} sessions=\{sessions\} selectedIdeal=\{selectedIdeal\}/g) || []).length === 2,
-      `${(src.match(/<SetAsIdealButton/g) || []).length}箇所`);
+    // 【B-1 2026-09-15 本人裁定で1箇所になった】データタブ上端の完了カードごと帯へ寄せたので、
+    // 「★ 目安に設定」の呼び出し元は**セッション詳細の1つだけ**。
+    // 数を緩めるのではなく**新しい数で固定する**(2つに戻ると落ちる)。
+    check("F-67: 呼び出し元はセッション詳細の1箇所で、セッション・一覧・選択中の理想値を渡す",
+      (src.match(/<SetAsIdealButton[^>]*session=\{[^}]+\} sessions=\{sessions\} selectedIdeal=\{selectedIdeal\}/g) || []).length === 1
+      && (codeOf(src).match(/<SetAsIdealButton/g) || []).length === 1,
+      `${(codeOf(src).match(/<SetAsIdealButton/g) || []).length}箇所(コメントを剥がして数える)`);
     // マージ(同名の理想値に積み上げる既存の挙動)でも由来を失わない
     check("F-67: 同名マージで由来(sourceSessionIds)を積む",
       /sourceSessionIds: \[\.\.\.new Set\(\[\.\.\.\(existing\.sourceSessionIds \|\| \[\]\), \.\.\.newProfile\.sourceSessionIds\]\)\]/.test(src));
@@ -13211,14 +13218,28 @@ let METRO_SIGS_ALL = [];
       ["隠しファイル入力", /type="file" accept="audio\/\*,video\/\*"/],
       ["アップロードの実行", /handleUploadFile\(f\)/],
       ["解析の進捗バー", /Math\.round\(uploadProgress \* 100\)/],
-      // 【N-6】文言は正典 mini の「解析が完了しました」(告知はデータタブ上端にしか出ないので
-      // 「アップロードの」は言わなくても通じる。本人指示「長い説明文を書くな」)
-      ["完了通知", /解析が完了しました/],
-      ["「★ 目安に設定」", /<SetAsIdealButton tapMin session=\{lastUploadedSession\}/],
       ["自動再生ブロック時の「解析を開始」", /解析を開始/],
     ]) {
       check(`データタブにアップロードの${label}がある`, re.test(dv), "");
     }
+    // 【B-1 2026-09-15 本人裁定】**完了の告知だけ**がデータタブ上端から
+    // 下部ナビの直上の帯(ActionNotice)へ移った。進捗は動かしていない。
+    // 文言は正典 mini の「解析が完了しました」のまま。
+    check("B-1: 解析の完了の告知はデータタブ上端に残っていない(帯へ寄せた)",
+      !/解析が完了しました/.test(dv), (dv.match(/解析が完了しました/) || [""])[0]);
+    check("B-1: 解析の完了は帯で言う(文言は据え置き)",
+      /showNotice\(\{[\s\S]{0,20}?text: "解析が完了しました",/.test(code),
+      (/text: "解析が完了しました"[\s\S]{0,40}/.exec(code) || [""])[0].replace(/\s+/g, " "));
+    check("B-1: 帯の一手は「開く」で、その計測の詳細へ入る",
+      /text: "解析が完了しました",[\s\S]{0,160}?actionLabel: "開く",[\s\S]{0,120}?onAction: \(\) => openSessionFromNotice\(session\.id\),/.test(code));
+    // 【機能を落としていないこと】「★ 目安に設定」は**開いた先**(セッション詳細)に在る。
+    check("B-1: 「★ 目安に設定」は開いた先(セッション詳細)に在る",
+      /<SetAsIdealButton floating session=\{session\} sessions=\{sessions\} selectedIdeal=\{selectedIdeal\} onSave=\{promoteSessionToIdeal\} \/>/
+        .test(codeOf(srcOfFn(src, "SessionDetailView"))));
+    // 進捗バーは1px も動かしていない(帯へ寄せたのは完了の告知だけ)。
+    check("B-1: 解析の進捗は今も上端に浮く(帯へ移していない)",
+      /\{isAnalyzingUpload && \(/.test(dv) && /読み込み中/.test(dv));
+
     // (c) 取り込みの入口。
     // 【N-10 2026/08/17】正典 案K の .shead .ops = 素のテキスト2つ(「↥ 取り込み」「選択」)。
     // 【N-11 2026/08/17 本人指示で書き換え】本人「取り込みが目立たない」→ **右下に浮かせる
@@ -13258,8 +13279,12 @@ let METRO_SIGS_ALL = [];
     // ジェスチャー経路は計測タブ限定なので、データタブで出すと嘘の案内になる。
     check("エラーモーダルはデータタブでも出る(アップロードのエラーの出口)",
       /\{errorMsg && \(topTab === "measure" \|\| \(topTab === "analysis" && !ERROR_MEASURE_ONLY\.includes\(errorMsg\)\)\) && \(/.test(code));
+    // 【便B の手直し2 2026-09-15 統括裁定で中身が増えた】マイク拒否の案内も
+    // 「設定 › Ficus › マイク を「許可」にすると**計測できます**」と計測の話しかしないので、
+    // データタブで出すと計測する場所がそこに無い。集合に足して計測タブ限定にした。
     check("計測タブ限定の案内の集合(ERROR_MEASURE_ONLY)が定義されている",
-      /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG\];/.test(code));
+      /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG, MIC_DENIED_MSG\];/.test(code),
+      (/const ERROR_MEASURE_ONLY[^\n]*/.exec(code) || [""])[0]);
     // 【本体】「画面をタップしてください」と指示するメッセージは、その指示が効くタブでしか出さない。
     // 出し分けの式とジェスチャー経路のタブ条件を**両方ソースから取り出して**突き合わせる
     // (どちらか片方を変えたら落ちる)。
@@ -15417,11 +15442,15 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       ["アップロード", /handleUploadFile/],
       ["アップロード由来の印", /<FileAudio/],
       ["セッション詳細への遷移", /onOpenSession\(s\.id\)/],
-      ["目安に設定", /<SetAsIdealButton/],
     ];
     for (const [label, re] of want) {
       check(`26.7 ${label} が残っている`, re.test(all), "");
     }
+    // 【B-1 2026-09-15 本人裁定で置き場が移った】「★ 目安に設定」はデータタブ上端の
+    // 完了カードに居たが、そのカードごと帯へ寄せたので**セッション詳細**の1つだけになった。
+    // 機能は落ちていない ── 確認先を新しい置き場へ向け直す(消さない)。
+    check("26.7 目安に設定 が残っている(セッション詳細)",
+      /<SetAsIdealButton/.test(codeOf(srcOfFn(src, "SessionDetailView"))));
     // 期間の絞り込みは「いつからいつまで」の自由な範囲のまま(固定の候補に置き換えていない)
     check("26.7 D-5: 期間の絞り込みは画面から消えている(date 入力も状態も残っていない)",
       (allSessionsPage.match(/<input type="date"/g) || []).length === 0
@@ -21821,9 +21850,16 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     check("45 A-5 再試行ボタンは伝播を止めない(stopPropagation を書かない)",
       seg.length > 0 && !/stopPropagation/.test(seg));
   }
-  // ERROR_MEASURE_ONLY の仕組みは触っていない(他のタブの出し分けを変えない)。
-  check("45 A-5 ERROR_MEASURE_ONLY は MIC_RECOVER_FAILED_MSG のまま",
-    /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG\];/.test(appCode));
+  // 【便B の手直し2 2026-09-15 統括裁定】マイク拒否も計測タブ限定にした。
+  // 本文が「…にすると計測できます」と計測の話しかしないので、データタブで出すと
+  // 指示に従える場所がその画面に無い(A-5 が MIC_RECOVER_FAILED_MSG で通った道と同じ)。
+  check("45 A-5 マイク拒否の案内は計測タブ限定の集合に入っている",
+    /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG, MIC_DENIED_MSG\];/.test(appCode),
+    (/const ERROR_MEASURE_ONLY[^\n]*/.exec(appCode) || [""])[0]);
+  // 定数の並び順まで見る: MIC_DENIED_MSG は配列より**前**に無いと宣言前参照で落ちる。
+  check("45 A-5 MIC_DENIED_MSG は ERROR_MEASURE_ONLY より前で宣言している",
+    appCode.indexOf("const MIC_DENIED_MSG = ") < appCode.indexOf("const ERROR_MEASURE_ONLY = ")
+    && appCode.indexOf("const MIC_DENIED_MSG = ") > 0);
 
   // --- A-6 / T2・T3: コミュニティの0件 -------------------------------------
   // **部品は1つ。** 3画面に写しを作ると、同じ0件が3通りの挙動をする画面ができる。
@@ -21855,9 +21891,21 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
   check("45 A-6 シェア・データの画面: 楽器は絞り込みに数えない",
     countOf(screensCode, '<Empty onClear={isFilteredBy(filter, ["genre", "position"])') === 2,
     `${countOf(screensCode, '<Empty onClear={isFilteredBy(filter, ["genre", "position"])')}件`);
-  check("45 A-6 戻す先の楽器はその画面の既定(ANY を入れない)",
-    countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }') === 4,
-    `${countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }')}件`);
+  // 【2026-09-15 統括裁定で戻す先を直した】「条件を外す」は**いま見ている楽器を保つ**。
+  // 画面の既定(saxTypes[0])へ戻すと、押していない条件まで動く ── 0件の文が
+  // 「テナー を吹く人はまだいません」と言っているのに、押すとアルトの画面になる。
+  // 画面をひらいたときの既定(useState の初期値)は saxTypes[0] のまま(2箇所)。
+  check("45 A-6 戻す先の楽器はいま見ている楽器を保つ(ANY も既定も入れない)",
+    countOf(screensCode, "{ ...EMPTY_FILTER, saxType: filter.saxType }") === 2
+    && countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }') === 2,
+    `保つ${countOf(screensCode, "{ ...EMPTY_FILTER, saxType: filter.saxType }")}件 / 既定${countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }')}件`);
+  // 既定の2件が「画面を開いたときの初期値」であること(戻す先に紛れ込んでいない)。
+  check("45 A-6 画面の既定は useState の初期値の側にだけ在る",
+    countOf(screensCode, 'useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }))') === 2,
+    `${countOf(screensCode, 'useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }))')}件`);
+  // 順位の画面は従来どおり全部そのまま外す(楽器ピルに「すべて」が在る画面)。
+  check("45 A-6 順位の画面の戻す先は EMPTY_FILTER のまま",
+    /<Empty onClear=\{isFiltered\(filter\) \? \(\) => setFilter\(EMPTY_FILTER\) : null\}>/.test(screensCode));
   // 条件名を文に入れる。「この条件」としか言えない文は、何を外せばよいかを言っていない。
   check("45 A-6 条件名を組み立てる綴りは1つ(filterTerms)",
     countOf(screensCode, "function filterTerms(") === 1
@@ -21878,6 +21926,341 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     countOf(screensCode, "この条件に合う人がまだいません") === 0
     && countOf(screensCode, "この条件に合う目安がまだありません") === 0
     && countOf(screensCode, "この条件で ") === 0);
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証46: 便B(デザインブック採用分) ── 通知の帯と削除の作り替え
+//
+// 出どころ: docs/superpowers/plans/2026-09-15-designbook-adoption.md 便B
+// (B-0 帯の部品 / B-1 T6・T8・R6 / B-2 T7→R8 / B-3 T7 アカウント削除。2026-09-15 本人裁定)。
+//
+// **ここで守れること**: 綴りが在る/無いこと、配線(どの関数がどれを呼ぶか)、部品が1つで
+// あること、そして**退避の置き場の振る舞い**(createNoticeStash を実際に動かす)。
+// **守れないこと**: 帯が実機で下部ナビの上に載って見えるか、220ms の感触、
+// 秒数が実際に1秒ごとに減って見えるか。それは本人の目と実機だけが判る。
+//
+// 【綴りを数える検査はコメントを剥がしてから】この節は全部 codeOf() を通してから見る。
+// ============================================================
+console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
+{
+  const appCode = codeOf(src);
+  const commSrc = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const commCode = codeOf(commSrc);
+  const cssSrc = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const countOf = (hay, needle) => hay.split(needle).length - 1;
+
+  // --- B-0 / 帯の部品 ------------------------------------------------------
+  // **部品は1つ。** 写しを作ると、同じ合図が2箇所から重なって出る。
+  check("46 B-0 ActionNotice の定義は1つだけ",
+    countOf(appCode, "function ActionNotice(") === 1,
+    `${countOf(appCode, "function ActionNotice(")}件`);
+  check("46 B-0 描いているのは App の根の1箇所だけ",
+    countOf(appCode, "<ActionNotice ") === 1,
+    `${countOf(appCode, "<ActionNotice ")}件`);
+  {
+    // 帯の本体だけを切り出して見る(関数の外の綴りを拾わない)。
+    const at = appCode.indexOf("function ActionNotice(");
+    const seg = at >= 0 ? appCode.slice(at, appCode.indexOf("\n}\n", at) + 3) : "";
+    check("46 B-0 帯の本体を切り出せている", seg.length > 800, `${seg.length}文字`);
+    // 【上端に出さない】R6「操作の隣」。下部ナビの直上に固定する。
+    check("46 B-0 画面に固定する(position: fixed)", /position: "fixed"/.test(seg));
+    check("46 B-0 上端には出さない(top を持たない)", !/\btop:/.test(seg),
+      (/\btop:[^,]*/.exec(seg) || [""])[0]);
+    check("46 B-0 下部ナビの直上に置く",
+      /bottom: "calc\(var\(--page-bottom-gap\) \+ var\(--sp-3\)\)"/.test(seg));
+    check("46 B-0 左右はページの余白と同じ式",
+      /left: "var\(--page-pad-left\)", right: "var\(--page-pad-right\)"/.test(seg));
+    // 【読み上げ】数字が変わる要素に role="status" を付けると1秒ごとに読み上げる。
+    check('46 B-0 role="status" は付けない', !/role="status"/.test(seg));
+    check('46 B-0 aria-live="polite" は帯の文だけに付ける',
+      countOf(seg, 'aria-live="polite"') === 1
+      && /<span className="sans" aria-live="polite"[\s\S]{0,200}\{notice\.text\}<\/span>/.test(seg),
+      `${countOf(seg, 'aria-live="polite"')}件`);
+    check("46 B-0 残り秒数は読み上げない(aria-hidden)",
+      /<span aria-hidden="true"[^>]*tabular-nums[\s\S]{0,120}\{left\}<\/span>/.test(seg),
+      (/\{left\}<\/span>/.exec(seg) || [""])[0]);
+    check("46 B-0 残り秒数は Math.ceil(残り/1000) を1秒ごとに描き直す",
+      /Math\.ceil\(\(notice\.expiresAt - now\) \/ 1000\)/.test(seg)
+      && /setInterval\(\(\) => setNow\(Date\.now\(\)\), 1000\)/.test(seg));
+    // 影は既存の値だけを使う(新しい影を作らない)。
+    check("46 B-0 影は既存の値(0 8px 24px rgba(15,23,42,0.18))",
+      /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(seg));
+    check("46 B-0 面は --c-surface / 角丸は --r-md",
+      /background: "var\(--c-surface\)", borderRadius: "var\(--r-md\)"/.test(seg));
+    // ✓ は機能色 --c-good(§1.5)。新しい色を作らない。
+    check("46 B-0 ✓ は --c-good", /color: "var\(--c-good\)"/.test(seg));
+    // **出現の時間は JS が持たない。** index.css の .action-notice が1箇所で持つ
+    // (便C で --d-base のトークンへ差し替える)。
+    check("46 B-0 帯の見た目の時間を JS に直書きしない",
+      !/\d+ms/.test(seg), (/\d+ms/.exec(seg) || [""])[0]);
+  }
+  // 待つ長さ(5秒)は「見た目の曲線」ではないので JS が持つ。1箇所だけ。
+  check("46 B-0 帯が出ている長さは JS の定数1つ",
+    countOf(appCode, "const NOTICE_MS = 5000;") === 1
+    && countOf(appCode, "NOTICE_MS") === 3,   // 定義 + 期限の計算 + 退避に預ける長さ
+    `定義${countOf(appCode, "const NOTICE_MS = 5000;")} / 参照${countOf(appCode, "NOTICE_MS")}`);
+  // 出現・消失の時間は CSS 側に**1つの値**として置く(便C の差し替え先)。
+  check("46 B-0 出現の時間は index.css に1箇所(220ms)",
+    countOf(cssSrc, "--action-notice-d: 220ms;") === 1
+    && countOf(cssSrc, "var(--action-notice-d)") === 2,
+    `定義${countOf(cssSrc, "--action-notice-d: 220ms;")} / 参照${countOf(cssSrc, "var(--action-notice-d)")}`);
+  check("46 B-0 曲線は既存のもの(.day-panel / .sheet-card と同じ)",
+    /\.action-notice \{[\s\S]{0,200}cubic-bezier\(0\.32, 0\.72, 0, 1\)/.test(cssSrc));
+  check("46 B-0 動きを減らす設定では動かさない",
+    /\.action-notice, \.action-notice\.is-leaving \{ animation: none; \}/.test(cssSrc));
+  check("46 B-0 動きが止まる環境では「消える動き」を挟まずに外す(帯が残らない)",
+    /if \(prefersReducedMotion\(\)\) \{ setNotice\(null\); return; \}/.test(appCode));
+  // **積まない。** 新しい合図は前を置き換える(配列に積む形にしない)。
+  check("46 B-0 帯は1つ。新しい合図は前を置き換える",
+    /const \[notice, setNotice\] = useState\(null\);/.test(appCode)
+    && !/setNotice\(\(prev\) => \[\.\.\.prev/.test(appCode));
+
+  // --- B-0 / 退避の置き場を**実際に動かす** --------------------------------
+  // 綴りだけでは「5秒で捨てる」「次が来たら捨てる」は守れない。純関数に切り出して動かす。
+  {
+    const built = runFn(() => new Function(`${extractFunction("createNoticeStash")}
+      return createNoticeStash;`)());
+    check("46 B-0 退避の置き場(createNoticeStash)を組み立てられる", built.ok, built.err);
+    if (built.ok) {
+      const makeStash = built.v;
+      // 偽の時計。実時間を待たずに「5秒後」を作る。
+      const mkClock = () => {
+        let at = 0, id = 0;
+        const jobs = new Map();
+        return {
+          timers: {
+            set: (fn, ms) => { id += 1; jobs.set(id, { at: at + ms, fn }); return id; },
+            clear: (k) => { jobs.delete(k); },
+          },
+          tick(ms) {
+            at += ms;
+            for (const [k, j] of [...jobs.entries()]) {
+              if (j.at <= at) { jobs.delete(k); j.fn(); }
+            }
+          },
+        };
+      };
+      // (1) 「元に戻す」= 取り出して手放す。二度押しても二度は戻らない。
+      {
+        const c = mkClock();
+        const st = makeStash(c.timers);
+        let n = 0;
+        st.hold(() => { n += 1; }, 5000, () => {});
+        const r1 = st.take();
+        if (typeof r1 === "function") r1();
+        const r2 = st.take();
+        check("46 B-0 退避は取り出せて、取り出したら手放す",
+          typeof r1 === "function" && n === 1 && r2 === null && st.has() === false,
+          `戻した回数=${n} / 2回目=${r2}`);
+      }
+      // (2) 5秒で退避を捨てる(=本当に消える)。同時に「畳んで」と伝える。
+      {
+        const c = mkClock();
+        const st = makeStash(c.timers);
+        let expired = 0;
+        st.hold(() => {}, 5000, () => { expired += 1; });
+        c.tick(4999);
+        const beforeHas = st.has();
+        c.tick(1);
+        check("46 B-0 5秒で退避を捨てる(それまでは持っている)",
+          beforeHas === true && st.has() === false && st.take() === null && expired === 1,
+          `5秒前=${beforeHas} / 5秒後=${st.has()} / 畳む合図=${expired}`);
+      }
+      // (3) 次の削除が来たら、前の退避も**前のタイマーも**その時点で捨てる。
+      //     前のタイマーが生き残ると、新しい退避が古い期限で消える。
+      {
+        const c = mkClock();
+        const st = makeStash(c.timers);
+        let first = 0, second = 0, expiredFirst = 0;
+        st.hold(() => { first += 1; }, 5000, () => { expiredFirst += 1; });
+        c.tick(3000);
+        st.hold(() => { second += 1; }, 5000, () => {});
+        c.tick(2500);                       // ここで「最初の5秒」が来る
+        const r = st.take();
+        if (typeof r === "function") r();
+        check("46 B-0 次の合図が来たら前の退避もタイマーも捨てる",
+          first === 0 && second === 1 && expiredFirst === 0,
+          `前の退避=${first} / 今の退避=${second} / 前の期限=${expiredFirst}`);
+      }
+      // (4) 退避の無い合図(保存の帯)でも、5秒で畳む合図は来る。
+      {
+        const c = mkClock();
+        const st = makeStash(c.timers);
+        let expired = 0;
+        st.hold(null, 5000, () => { expired += 1; });
+        check("46 B-0 退避の無い合図では何も抱えない", st.has() === false);
+        c.tick(5000);
+        check("46 B-0 退避が無くても5秒で畳む", expired === 1, `${expired}回`);
+      }
+    }
+  }
+  // 配線: 押したら退避を**取り出して呼ぶ**。呼ばなければ「元に戻す」は嘘になる。
+  check("46 B-0 帯の操作は退避を取り出して呼ぶ",
+    /const restore = stash\.take\(\);\s*if \(restore\) restore\(\);/.test(appCode),
+    (/const restore = stash\.take\(\);[\s\S]{0,80}/.exec(appCode) || [""])[0].replace(/\s+/g, " "));
+  check("46 B-0 帯を畳むときは退避を捨てる",
+    /const hideNotice = useCallback\(\(\) => \{\s*stash\.drop\(\);/.test(appCode));
+  check("46 B-0 5秒の期限は showNotice が退避と一緒に預ける",
+    /stash\.hold\(next\.undo \|\| null, NOTICE_MS, fadeOut\);/.test(appCode));
+
+  // --- B-1 / T6・T8・R6 保存と解析完了の合図 -------------------------------
+  {
+    const at = appCode.indexOf("const registerPendingSession = useCallback(");
+    const seg = at >= 0 ? appCode.slice(at, at + 900) : "";
+    check("46 B-1 登録の直後に帯を出す", /showNotice\(\{/.test(seg));
+    // 時刻の書式は formatYmd 1箇所のまま(新しい書式関数を作らない)。
+    check("46 B-1 文言は recordedAt の HH:mm + 「の計測を保存しました」",
+      /text: `\$\{formatYmd\(pendingSession\.recordedAt, \{ timeOnly: true \}\)\} の計測を保存しました`/.test(seg),
+      (/text: `[^`]*`/.exec(seg) || [""])[0]);
+    check("46 B-1 ✓ を出す合図である(done)", /done: true,/.test(seg));
+    check("46 B-1 一手は「開く」で、その計測の詳細へ入る",
+      /actionLabel: "開く",/.test(seg)
+      && /onAction: \(\) => openSessionFromNotice\(pendingSession\.id\),/.test(seg));
+  }
+  // 「開く」の行き先は**データタブの中の state**。根は id を渡すだけにする。
+  check("46 B-1 「開く」はデータタブへ移り、開く計測の id を渡す",
+    /const openSessionFromNotice = useCallback\(\(id\) => \{\s*setOpenSessionRequest\(id\);\s*setTopTab\("analysis"\);/.test(appCode));
+  check("46 B-1 受けた側は詳細を開き、依頼を必ず畳む",
+    /if \(!openSessionRequest\) return;\s*setSelectedSessionId\(openSessionRequest\);\s*onOpenSessionRequestDone\(\);/.test(appCode));
+  // 【罠】この effect は早期 return より前に無いと hooks の並びが画面ごとに変わる。
+  check("46 B-1 「開く」の effect は早期 return より前に在る",
+    appCode.indexOf("if (!openSessionRequest) return;") > 0
+    && appCode.indexOf("if (!openSessionRequest) return;") < appCode.indexOf("  if (selectedSession) {"));
+
+  // --- B-2 / T7→R8 リード・計測の削除 --------------------------------------
+  // **確認の窓はもう無い。** 押した瞬間に消し、5秒だけ戻せる。
+  check("46 B-2 window.confirm は App.jsx に1件も無い",
+    countOf(appCode, "window.confirm(") === 0,
+    `${countOf(appCode, "window.confirm(")}件`);
+  check("46 B-2 「元に戻せません」の断り書きも残っていない",
+    countOf(appCode, "元に戻せません") === 0,
+    `${countOf(appCode, "元に戻せません")}件`);
+  check("46 B-2 帯の一手は「元に戻す」(リード・計測の2箇所)",
+    countOf(appCode, 'actionLabel: "元に戻す",') === 2,
+    `${countOf(appCode, 'actionLabel: "元に戻す",')}件`);
+  {
+    const at = appCode.indexOf("const deleteReedsWithUndo = (ids, label) => {");
+    const seg = at >= 0 ? appCode.slice(at, at + 1200) : "";
+    check("46 B-2 リードの削除の一手を切り出せている", seg.length > 400, `${seg.length}文字`);
+    // 【消す前に控える】消したあとの state からは元の値を読めない。
+    check("46 B-2 消す前にリード本体を控える",
+      /const removedReeds = reeds\.filter\(\(r\) => idSet\.has\(r\.id\)\);/.test(seg));
+    check("46 B-2 消す前に外れる紐付き(reedId / linkedAt)も控える",
+      /\.map\(\(s\) => \(\{ id: s\.id, reedId: s\.reedId, linkedAt: s\.linkedAt \}\)\);/.test(seg));
+    check("46 B-2 控えてから消す(順番を逆にしない)",
+      seg.indexOf("const removedReeds") < seg.indexOf("deleteReeds(ids);")
+      && seg.indexOf("const unlinked") < seg.indexOf("deleteReeds(ids);"));
+    check("46 B-2 文言は「{対象名}を削除しました」",
+      /text: `\$\{label\}を削除しました`,/.test(seg));
+    // 【新しい永続化を作らない】戻すのは既にある2つの口だけ。
+    check("46 B-2 戻し方はリード本体(setReeds)と紐付き(updateSessions)の2つだけ",
+      /setReeds\(\(prev\) => \[\.\.\.prev, \.\.\.removedReeds\]\);/.test(seg)
+      && /updateSessions\(\(prev\) => prev\.map\(/.test(seg));
+    check("46 B-2 戻す紐付きは控えた値(null に潰さない)",
+      /reedId: byId\.get\(s\.id\)\.reedId, linkedAt: byId\.get\(s\.id\)\.linkedAt/.test(seg));
+  }
+  // 呼び手は3つ(箱を選んで削除 / 枚を選んで削除 / 箱の編集シートの「この箱を削除」)。
+  // **どれも同じ一手**を通る ── 消し方を2つ持つと、片方だけ戻せない削除ができる。
+  check("46 B-2 リードの削除は3つの場面とも同じ一手を通る(消し方を2つ持たない)",
+    countOf(appCode, "deleteReedsWithUndo(") === 3,
+    `${countOf(appCode, "deleteReedsWithUndo(")}件`);
+  // 箱の編集シートは ReedsTab の入れ子ではないので、渡されていないと押した瞬間に落ちる
+  // (便A までは `deleteReeds` を渡されないまま名前で呼んでいて、実際に落ちていた)。
+  check("46 B-2 箱の編集シートへ削除の一手を渡している",
+    /deleteReedsWithUndo=\{deleteReedsWithUndo\}/.test(appCode)
+    && /^\s*deleteReedsWithUndo,$/m.test(appCode));
+  // 選択モードは従来どおり抜ける(モードだけが画面の外で生き残らない)。
+  check("46 B-2 箱・枚の削除のあとは選択モードを抜ける",
+    /deleteReedsWithUndo\(ids, deletedReedsLabel\(targetGroups, ids\.length, targetGroups\.length\)\);\s*exitMode\(\);/.test(appCode)
+    && /deleteReedsWithUndo\(ids, deletedReedsLabel\(targetGroups, ids\.length, 0\)\);\s*exitMode\(\);/.test(appCode));
+  // 対象名。「削除しました」だけでは、取り消すかどうかを決められない。
+  {
+    const built = runFn(() => new Function(`${extractFunction("deletedReedsLabel")}
+      return deletedReedsLabel;`)());
+    check("46 B-2 対象名を作る純関数を組み立てられる", built.ok, built.err);
+    if (built.ok) {
+      const f = built.v;
+      const g1 = { brand: "Vandoren V16", strength: "3.0" };
+      const g2 = { brand: "Select Jazz", strength: "3S" };
+      check("46 B-2 銘柄が1つなら名前で呼ぶ(箱)",
+        f([g1, g1], 6, 2) === "Vandoren V16 3.0 の2箱(6枚)", String(f([g1, g1], 6, 2)));
+      check("46 B-2 銘柄がまたがるときは数だけで言う",
+        f([g1, g2], 6, 2) === "2箱(6枚)", String(f([g1, g2], 6, 2)));
+      check("46 B-2 枚を消したときは箱の数を言わない",
+        f([g1], 3, 0) === "Vandoren V16 3.0 の3枚", String(f([g1], 3, 0)));
+    }
+  }
+  {
+    const at = appCode.indexOf("const confirmBatchDeleteSessions = () => {");
+    const seg = at >= 0 ? appCode.slice(at, at + 900) : "";
+    check("46 B-2 計測の削除の一手を切り出せている", seg.length > 300, `${seg.length}文字`);
+    check("46 B-2 消す前に計測そのものを控える",
+      /const removed = sessions\.filter\(\(s\) => idSet\.has\(s\.id\)\);/.test(seg)
+      && seg.indexOf("const removed") < seg.indexOf("deleteSessions(ids);"));
+    check("46 B-2 文言に件数を入れる", /text: `計測 \$\{ids\.length\}件を削除しました`,/.test(seg));
+    check("46 B-2 戻すのは控えた計測(restoreSessions)",
+      /undo: \(\) => restoreSessions\(removed\),/.test(seg));
+    check("46 B-2 削除のあとは選択モードを抜ける", /exitSelectionMode\(\);/.test(seg));
+  }
+  // 【新しい永続化を作らない】戻し口は addSession と同じ2つ(state + IndexedDB)。
+  check("46 B-2 計測の戻し口は state と IndexedDB の2つだけ",
+    /const restoreSessions = useCallback\(\(list\) => \{[\s\S]{0,260}?setSessionsState\(\(prev\) => \[\.\.\.prev, \.\.\.list\]\);\s*idbPutSessions\(list\);/.test(appCode));
+
+  // --- B-3 / T7 アカウント削除のシート -------------------------------------
+  check("46 B-3 window.confirm は CommunityTab.jsx に1件も無い",
+    countOf(commCode, "window.confirm(") === 0,
+    `${countOf(commCode, "window.confirm(")}件`);
+  {
+    const at = commCode.indexOf('<BottomSheet ariaLabel="アカウントを削除しますか"');
+    const seg = at >= 0 ? commCode.slice(at, commCode.indexOf("</BottomSheet>", at) + 14) : "";
+    check("46 B-3 削除の確認はシート1枚(器は BottomSheet)", seg.length > 500, `${seg.length}文字`);
+    check("46 B-3 見出しは「アカウントを削除しますか」", /アカウントを削除しますか<\/div>/.test(seg));
+    // 3つの行。**「消える」と「外から見えなくなる」を言い分ける。**
+    check("46 B-3 消えるもの: ニックネームとプロフィール",
+      /<Row label="消えるもの" value=\{`ニックネーム「\$\{profile\?\.nickname \?\? "—"\}」・プロフィール`\} \/>/.test(seg));
+    check("46 B-3 外から見えなくなるもの: 公開している目安 n件",
+      /<Row label="外から見えなくなるもの" value=\{`公開している目安 \$\{publicIdealCount\}件`\} \/>/.test(seg));
+    // n = 0 のときは行ごと出さない(0件と書かない)。
+    check("46 B-3 公開している目安が0件ならその行を出さない",
+      /\{publicIdealCount > 0 \? \(/.test(seg) && /\) : null\}/.test(seg));
+    check("46 B-3 残るもの: この端末の記録",
+      /<Row label="残るもの" value="この端末の計測・リード・目安の記録" \/>/.test(seg));
+    // 【本人裁定】「戻せるか」の行は置かない。
+    check("46 B-3 「戻せ」の語をシートに置かない",
+      countOf(seg, "戻せ") === 0, `${countOf(seg, "戻せ")}件`);
+    check("46 B-3 補助文は削除以外の道を1行だけ",
+      /外部公開を停止したい場合は、削除せずに非公開にできます/.test(seg));
+    // ボタン2つ(縦)。すでに非公開なら「非公開にする」は出さない。
+    check("46 B-3 「非公開にする」は公開中のときだけ出す",
+      /\{isPublic \? \(\s*<button type="button" onClick=\{goPrivate\}[\s\S]{0,200}非公開にする/.test(seg),
+      (/\{isPublic \?[\s\S]{0,120}/.exec(seg) || [""])[0].replace(/\s+/g, " "));
+    check("46 B-3 「非公開にする」は B型(secondaryButtonStyle)",
+      /onClick=\{goPrivate\}[\s\S]{0,160}style=\{secondaryButtonStyle\}/.test(seg));
+    check("46 B-3 「アカウントを削除する」は塗りの危険色",
+      /onClick=\{remove\}[\s\S]{0,200}\{ \.\.\.dangerButtonStyle, opacity: busy \? 0\.6 : 1 \}[\s\S]{0,120}アカウントを削除する/.test(seg));
+    // 失敗の文言はシートの中(押したボタンの隣)に出す。
+    check("46 B-3 DELETE_ERROR はシートの中に出る",
+      /\{error \? <div className="sans" role="alert" style=\{errorStyle\}>\{error\}<\/div> : null\}/.test(seg));
+  }
+  // 【一手を2つ持たない】「非公開にする」は公開スイッチと同じ道を通る。
+  check("46 B-3 「非公開にする」は公開スイッチと同じ一手(onTogglePublic(false))",
+    /const goPrivate = async \(\) => \{\s*await togglePublic\(false\);\s*setDeleteOpen\(false\);\s*\};/.test(commCode),
+    (/const goPrivate[\s\S]{0,140}/.exec(commCode) || [""])[0].replace(/\s+/g, " "));
+  check("46 B-3 togglePublic は親の onTogglePublic を呼ぶ(別の道を作っていない)",
+    /const togglePublic = async \(v\) => \{[\s\S]{0,260}?await onTogglePublic\(v\);/.test(commCode));
+  check("46 B-3 危険色は --c-danger(新しい色を作っていない)",
+    /const dangerButtonStyle = \{[\s\S]{0,200}background: "var\(--c-danger\)"/.test(commCode));
+  // 公開している目安の数は myIdeals から。持っているのは JoinedView なので prop で渡す。
+  check("46 B-3 公開している目安の数は myIdeals の鍵の数",
+    /const publicIdealCount = Object\.keys\(myIdeals \?\? \{\}\)\.length;/.test(commCode));
+  check("46 B-3 myIdeals は JoinedView から ProfileView へ渡している",
+    /<ProfileView flaggedMe=\{flaggedMe\} uid=\{uid\} profile=\{profile\} myIdeals=\{myIdeals\}/.test(commCode));
+  check("46 B-3 ProfileView は myIdeals を受け取る",
+    /export function ProfileView\(\{[^}]*myIdeals = null \}\)/.test(commCode));
+  // 削除ボタンはシートを開くだけ(押した瞬間に消さない)。
+  check("46 B-3 一覧の「アカウントを削除」はシートを開くだけ",
+    /onClick=\{\(\) => setDeleteOpen\(true\)\}[\s\S]{0,200}アカウントを削除\s*<\/button>/.test(commCode));
   console.log("  -> done");
 }
 

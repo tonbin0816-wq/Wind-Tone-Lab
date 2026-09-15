@@ -697,6 +697,38 @@ body {
 }
 
 /* ------------------------------------------------------------------
+   【B-0 2026-09-15 本人裁定】操作の合図の帯(App.jsx の ActionNotice)の出入りの動き。
+
+   **時間はこの1箇所だけが持つ**(App.jsx はミリ秒を1つも書かない)。
+   便C で「動きの時間」を3段のトークンにしたら、ここの 220ms を var(--d-base) に
+   差し替える ── 差し替え先が1箇所で済むように、値をローカルの変数に逃がしてある
+   (:root には置かない。:root は便C が書き換える場所)。
+   帯が**出ている長さ**(5秒)は見た目の曲線ではなく「待つ長さ」なので、
+   ここではなく App.jsx の NOTICE_MS が持つ(loadProgress.js の τ と同じ理由)。
+
+   消える側は fill-mode: forwards。走り終わった姿(透明)のまま animationend を待って
+   React が外す。動きを減らす設定のときは animation ごと止まるので、
+   **React 側が「消える動き」を挟まずに即座に外す**(App.jsx prefersReducedMotion)。 */
+@keyframes action-notice-in {
+  from { opacity: 0; transform: translateY(var(--sp-2)); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes action-notice-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+.action-notice {
+  --action-notice-d: 220ms;
+  animation: action-notice-in var(--action-notice-d) cubic-bezier(0.32, 0.72, 0, 1);
+}
+.action-notice.is-leaving {
+  animation: action-notice-out var(--action-notice-d) cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-notice, .action-notice.is-leaving { animation: none; }
+}
+
+/* ------------------------------------------------------------------
    操作するものの型(A型 / B型)。本人指示(2026-08-03):
      「銘柄、番手、使用開始日のどれも枠線をつけていますが、枠線は重くなるので不要です」
      「背景と同じ色で枠線をつけるか、違う色で枠線をつかないかに統一してください」

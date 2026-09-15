@@ -241,7 +241,9 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         ))}
         {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
-        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
+            公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
+        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -1106,9 +1108,12 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false, uid = null }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // 【B-3 / T7 2026-09-15 本人裁定】削除の確認は window.confirm ではなくシート1枚。
+  // 確認の文には**何が消えて何が残るか**が要り、confirm は1行しか持てない。
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const gear = profile?.gear ?? {};
   // 表示順は SAX_TYPES の並びに揃える(保存されている配列の順に依らず同じ画面になる)。
   const types = SAX_TYPES.filter((t) => (profile?.saxTypes ?? []).includes(t));
@@ -1132,14 +1137,10 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
     }
   };
 
+  // 【B-3】消えるもの・外から見えなくなるもの・残るものは**シートが**言い切る。
+  // ここは「押されたら消す」だけ(確認は器の側が済ませている)。
   const remove = async () => {
     if (busy) return;
-    // 【この一手で消えるものと消えないものを、押す前に言い切る】
-    // 端末の中の記録(計測・リード・目安)はこのアカウントとは別物。混同したまま消させない。
-    // 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文をここへ移した。
-    // 読ませたいのは「押そうとした瞬間」だけで、それ以外の時は画面の文字を減らす。
-    const ok = window.confirm("コミュニティのアカウントを完全に削除します。この端末の記録は残ります。");
-    if (!ok) return;
     setBusy(true); setError(null);
     try {
       await onDelete();
@@ -1149,6 +1150,16 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
     }
     // 成功時はこの要素ごと消えるので busy は戻さない(戻す先が無い)
   };
+
+  // 【B-3】「非公開にする」= 公開スイッチを切るのと**同じ一手**。別の道を作らない。
+  // 目安の公開の取り消しまで togglePublic(→ onTogglePublic)が引き受ける。
+  const goPrivate = async () => {
+    await togglePublic(false);
+    setDeleteOpen(false);
+  };
+  // 外から見えなくなるもの。目安の**本体はこの端末**にあり、消えるのは
+  // サーバーの公開コピーだけ(accountRepo の unpublishAllIdeals)。「消える」と書かない。
+  const publicIdealCount = Object.keys(myIdeals ?? {}).length;
 
   return (
     <div className="sans" style={pageStyle}>
@@ -1209,7 +1220,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
         note="プロフィールと奏者：自分のデータが公開されます"
       />
 
-      {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
+      {/* 【B-3】削除のシートを開いている間は、まとめの側に出さない
+          ── DELETE_ERROR はシートの中(押したボタンの隣)に出す。 */}
+      {error && !deleteOpen ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 
       <button type="button" onClick={onEdit} disabled={busy} className="sans" style={secondaryButtonStyle}>
         編集
@@ -1250,12 +1263,44 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
       ) : null}
 
       {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
-          削除ボタンの確認(remove の window.confirm)へ移した。 */}
+          削除の確認へ移した(2026-09-15 にその確認がシートになった)。 */}
       <div style={{ display: "grid", marginTop: "var(--sp-4)" }}>
-        <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
+        <button type="button" onClick={() => setDeleteOpen(true)} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
       </div>
+
+      {/* 【B-3 / T7 2026-09-15 本人裁定】削除の確認。器はアプリで1つの BottomSheet。
+          【「戻せるか」の行は置かない】本人裁定。戻せないことは「消えるもの」の行が
+          既に言っており、もう一度言うと読む量だけが増える。
+          【「消える」と「見えなくなる」を言い分ける】目安の本体はこの端末にあり、
+          サーバーの公開コピーだけが消える。まとめて「消える」と書かない。 */}
+      {deleteOpen ? (
+        <BottomSheet ariaLabel="アカウントを削除しますか" onClose={() => setDeleteOpen(false)}>
+          <div className="sans" style={{ ...titleStyle, marginBottom: "var(--sp-2)" }}>アカウントを削除しますか</div>
+          <Row label="消えるもの" value={`ニックネーム「${profile?.nickname ?? "—"}」・プロフィール`} />
+          {publicIdealCount > 0 ? (
+            <Row label="外から見えなくなるもの" value={`公開している目安 ${publicIdealCount}件`} />
+          ) : null}
+          <Row label="残るもの" value="この端末の計測・リード・目安の記録" />
+          {/* 区切り(Row の罫)の下に、削除以外の道を1行だけ。 */}
+          <div className="sans" style={{ ...noteStyle, padding: "var(--sp-3) 0" }}>
+            外部公開を停止したい場合は、削除せずに非公開にできます
+          </div>
+          {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
+          <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-2)" }}>
+            {/* 【すでに非公開なら出さない】押しても何も変わらない一手を並べない。 */}
+            {isPublic ? (
+              <button type="button" onClick={goPrivate} disabled={busy} className="sans" style={secondaryButtonStyle}>
+                非公開にする
+              </button>
+            ) : null}
+            <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
+              アカウントを削除する
+            </button>
+          </div>
+        </BottomSheet>
+      ) : null}
     </div>
   );
 }

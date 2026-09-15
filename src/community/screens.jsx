@@ -648,10 +648,12 @@ export function ShareScreen({ users, saxTypes }) {
       {gear.total === 0 ? (
         /* 【楽器種別は絞り込みに数えない】この画面の楽器ピルには「すべて」が無く、常に1つ
            選ばれている(データ画面と同じ規則)。数えると必ず「絞り込み中」になる。
-           「条件を外す」で戻す先も、楽器だけはこの画面の既定(saxTypes[0])に置く ──
-           ANY はこのピルの選択肢に無いので、入れると値の無いピルができる。 */
+           【2026-09-15 統括裁定で「戻す先」を直した】「条件を外す」は**いま見ている楽器を保つ**。
+           以前は画面の既定(saxTypes[0])へ戻していたが、それは押していない条件まで動かす
+           ── 0件の文が「{ジャンル} × {属性}で、テナー を吹く人はまだいません」と言っているのに、
+           押すとアルトの画面になる。ANY は入れない(このピルの選択肢に無く、値の無いピルができる)。 */
         <Empty onClear={isFilteredBy(filter, ["genre", "position"])
-                          ? () => { setFilter({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }); setDrill(null); setShowRest(false); }
+                          ? () => { setFilter({ ...EMPTY_FILTER, saxType: filter.saxType }); setDrill(null); setShowRest(false); }
                           : null}>
           {isFilteredBy(filter, ["genre", "position"])
             ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、${SAX_LABELS[saxType]} を吹く人はまだいません`
@@ -968,10 +970,12 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           (§6.0「説明を消して形に語らせる」) */}
       {/* 【楽器種別は絞り込みに数えない】この画面の楽器ピルには「すべて」が無く、
           常に1つ選ばれている。数えると必ず「絞り込み中」になり、
-          「まだ誰もいない」のか「条件で外れた」のかを言い分けられなくなる。 */}
+          「まだ誰もいない」のか「条件で外れた」のかを言い分けられなくなる。
+          【2026-09-15 統括裁定】「条件を外す」は**いま見ている楽器を保つ**
+          (シェア画面と同じ。理由はあちらの注記)。 */}
       {pairs.length === 0 ? (
         <Empty onClear={isFilteredBy(filter, ["genre", "position"])
-                          ? () => setFilter({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" })
+                          ? () => setFilter({ ...EMPTY_FILTER, saxType: filter.saxType })
                           : null}>
           {isFilteredBy(filter, ["genre", "position"])
             ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、公開されている目安はまだありません`

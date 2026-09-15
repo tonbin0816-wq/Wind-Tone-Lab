@@ -1925,6 +1925,18 @@ function groupReeds(reeds) {
   return Object.values(groups).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
 }
 
+// 【B-2 / T7→R8 2026-09-15 本人裁定】削除の帯が言う「消したものの名前」。
+// 帯は「何を消したか」を必ず言う ── 「削除しました」だけでは、取り消すかどうかを
+// 決められない。銘柄が1つに収まるならその名で呼び、またがるときは数だけで言う。
+// 箱の呼び名は一覧の見出しと同じ綴り(`${brand} ${strength}`)にする。
+//   ・箱を消した: 「Vandoren V16 3.0 の2箱(6枚)」 / 銘柄が複数なら「2箱(6枚)」
+//   ・枚を消した: 「Vandoren V16 3.0 の3枚」     / 銘柄が複数なら「3枚」
+function deletedReedsLabel(groups, count, boxCount) {
+  const names = [...new Set((groups || []).map((g) => `${g.brand} ${g.strength}`))];
+  const head = names.length === 1 ? `${names[0]} の` : "";
+  return boxCount > 0 ? `${head}${boxCount}箱(${count}枚)` : `${head}${count}枚`;
+}
+
 function reedPosition(reed, reeds) {
   if (reed.boxNumber) return reed.boxNumber; // 手動で編集された番号があれば自動採番より優先する
   const key = reedGroupKey(reed);
@@ -2243,7 +2255,18 @@ function useSessionsStore() {
     idbDeleteSessions(ids);
   }, []);
 
-  return [sessions, addSession, updateSessions, deleteSessions];
+  // 【B-2 / T7→R8 2026-09-15 本人裁定】削除の「元に戻す」で戻す口。
+  // deleteSessions は idbDeleteSessions を即時に呼ぶので、戻すには
+  // **addSession と同じ2つ**(state へ足す + IndexedDB へ書き戻す)を通すしかない。
+  // 新しい永続化は1つも作っていない ── addSession を複数件にしただけ。
+  // 一覧はどこも recordedAt で並べ替えてから描くので、末尾へ足しても並びは戻る。
+  const restoreSessions = useCallback((list) => {
+    if (!list || list.length === 0) return;
+    setSessionsState((prev) => [...prev, ...list]);
+    idbPutSessions(list);
+  }, []);
+
+  return [sessions, addSession, updateSessions, deleteSessions, restoreSessions];
 }
 
 // ============================================================
@@ -2794,20 +2817,25 @@ const MIC_RECOVER_COOLDOWN_MS = 5000;
 const MIC_RETRY_TAP_COOLDOWN_MS = 1000;
 // 復旧に失敗したときにユーザーへ出す文言(タップで再試行できることを明示する)
 const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした。画面をタップしてください";
+// 【A-5 / T5 2026-09-15 本人裁定】マイクの許可が下りていないときの案内。
+// errorMsg は**文字列1本**の state なので、他のエラーと同じ器に入れたまま
+// 「この綴りのときだけ3行構成で描く」という形で構造を持たせる(描画側の判定は
+// この定数との一致だけ)。
+// 見出しの文だけを state に置き、本文と操作は描画側が持つ ── 文字列の中に
+// 改行や印を詰め込むと、他のエラーと同じ経路を通るたびに崩れる。
+// **ERROR_MEASURE_ONLY より前に置く**: 下の配列がこの定数を読むので、
+// 順序を入れ替えると宣言前参照で読み込みごと落ちる。
+const MIC_DENIED_MSG = "マイクの使用が許可されていません";
+// 本文。**アプリとして配る前提の経路**を書く(本人裁定)。Safari の経路は書かない。
+const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
 // **計測タブでしか意味を持たない案内**。「画面をタップしてください」に応えるジェスチャー経路は
 // 計測タブ限定(onGesture の topTab !== "measure" で return)なので、他のタブで出すと
 // 指示どおりタップしても何も起きない。エラーモーダルはこの集合だけをタブで出し分ける。
 // アップロード由来のエラー(無音ファイル等)はここに入れない=データタブでも出る。
-const ERROR_MEASURE_ONLY = [MIC_RECOVER_FAILED_MSG];
-// 【A-5 / T5 2026-09-15 本人裁定】マイクの許可が下りていないときの案内。
-// errorMsg は**文字列1本**の state なので、他のエラーと同じ器に入れたまま
-// 「この綴りのときだけ3行構成で描く」という形で構造を持たせる(描画側の判定は
-// この定数との一致だけ。ERROR_MEASURE_ONLY の仕組みには手を入れていない)。
-// 見出しの文だけを state に置き、本文と操作は描画側が持つ ── 文字列の中に
-// 改行や印を詰め込むと、他のエラーと同じ経路を通るたびに崩れる。
-const MIC_DENIED_MSG = "マイクの使用が許可されていません";
-// 本文。**アプリとして配る前提の経路**を書く(本人裁定)。Safari の経路は書かない。
-const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
+// 【便B の手直し2 2026-09-15 統括裁定】マイク拒否もここへ入れた。本文が
+// 「設定 › Ficus › マイク を「許可」にすると計測できます」と**計測の話しかしない**ので、
+// データタブで出すと「計測できます」と言われても計測する場所がそこに無い。
+const ERROR_MEASURE_ONLY = [MIC_RECOVER_FAILED_MSG, MIC_DENIED_MSG];
 
 // iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)側に回すため、メトロノームが極端に
 // 小さく聞こえる。setSinkId は iOS Safari 未実装、AVAudioSessionCategoryOptionDefaultToSpeaker は
@@ -2934,6 +2962,167 @@ async function recoverAudioContext(ctx, createCtx) {
 }
 
 // ============================================================
+// 【B-0 / R6 2026-09-15 本人裁定】操作の合図の帯(ActionNotice)
+//
+// 出どころ: docs/superpowers/plans/2026-09-15-designbook-adoption.md 便B。
+// 「保存した」「削除した」を**操作の隣**で返す1枚。App の根に**1つだけ**置く。
+// ・積まない。新しい合図が来たら前のを置き換える(出し先が1つだから守れる)
+// ・時間は index.css ではなく**ここ**が持つ。見た目の曲線ではなく「待つ長さ」なので
+//   DESIGN-SYSTEM §1.11(動きの時間)の対象外 ── community/loadProgress.js の τ と同じ理由
+// ・出現の動きの時間だけは CSS(.action-notice)が1箇所で持つ。
+//   prefers-reduced-motion を1箇所で尊重するため(index.css .sheet-card と同じ作法)
+// ============================================================
+// 帯が出ている長さ。削除の「元に戻す」はこの秒数を数えて消える。
+const NOTICE_MS = 5000;
+
+// 動きを減らす設定か。未対応の環境では「動かす」側に倒す(既定の見た目を変えない)。
+function prefersReducedMotion() {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  catch { return false; }
+}
+
+// 【B-2 / R8】削除の退避(元に戻す一手)と、帯を畳むタイマーの置き場。
+// **React の state に置かない** ── 5秒後のタイマーが古い closure を掴み、
+// 捨てたはずの退避を戻してしまう(この案件で実際に踏んだ罠)。
+// 退避は**1つだけ**。次の合図が来たら前の退避はその時点で捨てる(積まない)。
+// timers を差し替えられるようにしてあるのは、偽の時計で検証するため。
+function createNoticeStash(timers) {
+  const set = (timers && timers.set) || ((fn, ms) => setTimeout(fn, ms));
+  const clear = (timers && timers.clear) || ((id) => clearTimeout(id));
+  let held = null;
+  let timer = null;
+  const stopTimer = () => { if (timer !== null) { clear(timer); timer = null; } };
+  return {
+    // 退避を預け、ms 後に「本当に消えた」ことにする。前の退避とタイマーは必ず先に捨てる。
+    hold(restore, ms, onExpire) {
+      stopTimer();
+      held = typeof restore === "function" ? restore : null;
+      timer = set(() => { timer = null; held = null; if (onExpire) onExpire(); }, ms);
+    },
+    // 退避を取り出して手放す。二度押しても二度は戻らない。
+    take() { stopTimer(); const r = held; held = null; return r; },
+    // 退避を捨てる(画面から外すとき)。
+    drop() { stopTimer(); held = null; },
+    has() { return held !== null; },
+  };
+}
+
+// 帯の中身を1つだけ持つ。App の根で1度だけ呼ぶ。
+function useActionNoticeStore() {
+  const [notice, setNotice] = useState(null);
+  const stashRef = useRef(null);
+  if (stashRef.current === null) stashRef.current = createNoticeStash();
+  const stash = stashRef.current;
+
+  // 消える動きへ入る。**動きを減らす設定では挟まずに即座に外す** ── CSS 側で
+  // animation が止まると animationend が飛ばず、待つと帯が残り続けるため。
+  const fadeOut = useCallback(() => {
+    if (prefersReducedMotion()) { setNotice(null); return; }
+    setNotice((prev) => (prev ? { ...prev, leaving: true } : null));
+  }, []);
+
+  // 画面から外す。**退避もここで捨てる**(5秒で消えた=本当に消えた)。
+  const hideNotice = useCallback(() => {
+    stash.drop();
+    fadeOut();
+  }, [stash, fadeOut]);
+
+  const showNotice = useCallback((next) => {
+    // 【積まない】前の退避はこの時点で捨てる。hold が前のタイマーごと捨てる。
+    setNotice({
+      seq: Date.now(),
+      text: next.text,
+      actionLabel: next.actionLabel || null,
+      onAction: next.onAction || null,
+      done: next.done === true,          // 左に ✓ を出すか(保存・完了の合図だけ)
+      countdown: typeof next.undo === "function",
+      expiresAt: Date.now() + NOTICE_MS,
+      leaving: false,
+    });
+    stash.hold(next.undo || null, NOTICE_MS, fadeOut);
+  }, [stash, fadeOut]);
+
+  // 帯の操作を押したとき。退避があれば**それを戻す**のが先で、無ければ普通の一手。
+  const runNoticeAction = useCallback((n) => {
+    const restore = stash.take();
+    if (restore) restore();
+    else if (n && n.onAction) n.onAction();
+    hideNotice();
+  }, [stash, hideNotice]);
+
+  // 消える動きが終わったら外す。出現の動きでも animationend は飛ぶので、
+  // 畳んでいるときだけ外す。
+  const finishLeave = useCallback(() => setNotice((prev) => (prev && prev.leaving ? null : prev)), []);
+
+  useEffect(() => () => stash.drop(), [stash]);
+
+  return { notice, showNotice, runNoticeAction, finishLeave };
+}
+
+// 帯そのもの。**App の根のここ1箇所でしか描かない。**
+// 【SwipePager の中に入れないこと】transform を持つ祖先は position:fixed の包含ブロックに
+// なるので、帯が画面ではなくページャの中に貼り付く(人物紹介で踏んだ)。
+// 【上端に出さない】R6「操作の隣」。録音ボタンも浮かせるボタンも下にあるので、
+// 下部ナビの直上に置く(top は1つも持たない)。
+// 【読み上げ】文だけ aria-live="polite"。残り秒数に role="status" を付けると
+// 1秒ごとに読み上げるので aria-hidden にする。
+function ActionNotice({ notice, onAction, onLeaveEnd }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!notice || !notice.countdown || notice.leaving) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [notice]);
+  if (!notice) return null;
+  const left = Math.max(0, Math.ceil((notice.expiresAt - now) / 1000));
+  return (
+    <div
+      style={{
+        position: "fixed", zIndex: 50,
+        bottom: "calc(var(--page-bottom-gap) + var(--sp-3))",
+        left: "var(--page-pad-left)", right: "var(--page-pad-right)",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        className={notice.leaving ? "action-notice is-leaving" : "action-notice"}
+        onAnimationEnd={onLeaveEnd}
+        style={{
+          pointerEvents: "auto", maxWidth: 900, margin: "0 auto",
+          display: "flex", alignItems: "center", gap: "var(--sp-3)",
+          padding: "var(--sp-3) var(--sp-4)",
+          background: "var(--c-surface)", borderRadius: "var(--r-md)",
+          boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+        }}
+      >
+        {notice.done ? (
+          <span aria-hidden="true" style={{ color: "var(--c-good)", fontSize: "var(--fs-sm)", fontWeight: 700, flexShrink: 0 }}>✓</span>
+        ) : null}
+        <span className="sans" aria-live="polite" style={{ flex: 1, minWidth: 0, fontSize: "var(--fs-sm)", color: "var(--c-ink)" }}>{notice.text}</span>
+        {notice.actionLabel ? (
+          <button
+            type="button"
+            onClick={() => onAction(notice)}
+            className="sans"
+            style={{
+              flexShrink: 0, minHeight: "var(--tap-min)", padding: "0 var(--sp-2)",
+              background: "none", border: "none", cursor: "pointer",
+              color: "var(--c-accent)", fontSize: "var(--fs-sm)", fontWeight: 700,
+            }}
+          >
+            {notice.actionLabel}
+            {notice.countdown ? (
+              <span aria-hidden="true" style={{ fontFamily: "var(--font-num)", fontVariantNumeric: "tabular-nums", marginLeft: "var(--sp-1)" }}>{left}</span>
+            ) : null}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
@@ -2949,6 +3138,18 @@ export default function WindToneLabPhaseMode() {
     setTopTab(key);
     setNavNonce((n) => n + 1);
   }, []);
+  // 【B-0 2026-09-15 本人裁定】操作の合図の帯。**App の根に1つだけ。**
+  // 子から呼べるよう showNotice をそのまま props で配る(帯の実体は増やさない)。
+  const { notice, showNotice, runNoticeAction, finishLeave } = useActionNoticeStore();
+  // 【B-1】帯の「開く」で計測の詳細へ行く。開いている計測(selectedSessionId)は
+  // データタブの中の state なので、根からは**開きたい id を渡すだけ**にして、
+  // 実際に開くのはあちら側(AnalysisLabView の effect)に任せる。
+  const [openSessionRequest, setOpenSessionRequest] = useState(null);
+  const openSessionFromNotice = useCallback((id) => {
+    setOpenSessionRequest(id);
+    setTopTab("analysis");
+  }, []);
+  const clearOpenSessionRequest = useCallback(() => setOpenSessionRequest(null), []);
   const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
   // 【F-59 本人指示】「pivotの集計条件や選択軸はページを移動して戻ってきても内容がキープ」。
   // AnalysisLabView は (a) タブを離れるとアンマウントされ (b) 下部ナビのタップごとに
@@ -3009,7 +3210,7 @@ export default function WindToneLabPhaseMode() {
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
   const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
-  const [sessions, addSession, updateSessions, deleteSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
+  const [sessions, addSession, updateSessions, deleteSessions, restoreSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
   const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
 
   // --- 奏者(演奏者)管理 ---
@@ -3022,7 +3223,12 @@ export default function WindToneLabPhaseMode() {
   const isAnalyzingUploadRef = useRef(false); // 可視状態復帰時のWake Lock再取得判定に使う
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadNeedsTap, setUploadNeedsTap] = useState(null); // 自動再生ブロック時の再開関数(タップで呼ぶ)
-  const [lastUploadedSession, setLastUploadedSession] = useState(null); // 解析完了直後に「目安に設定」を出すため
+  // 【B-1 2026-09-15 本人裁定】解析の完了は**帯**(ActionNotice)へ寄せた。
+  // データタブ上端に浮いていた完了カード(「解析が完了しました」+ ★目安に設定 + ×)は
+  // 帯1枚に置き換わり、この state は読み手がゼロになったので畳んだ。
+  // 「★ 目安に設定」は帯の「開く」で入る**計測の詳細**(SessionDetailView の
+  // 浮かせる SetAsIdealButton)にそのまま在る ── 一手も落としていない。
+  // **進捗バー(uploadProgress)は動かしていない。** あれは操作の場所の中にある。
 
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -3196,11 +3402,21 @@ export default function WindToneLabPhaseMode() {
   }, []);
 
   const registerPendingSession = useCallback(() => {
-    if (pendingSession) addSession(pendingSession);
+    if (pendingSession) {
+      addSession(pendingSession);
+      // 【B-1 / T6・T8・R6 2026-09-15 本人裁定】保存したことを**操作の隣**で返す。
+      // 時刻は recordedAt の HH:mm(書式の綴りは formatYmd 1箇所のまま)。
+      showNotice({
+        text: `${formatYmd(pendingSession.recordedAt, { timeOnly: true })} の計測を保存しました`,
+        done: true,
+        actionLabel: "開く",
+        onAction: () => openSessionFromNotice(pendingSession.id),
+      });
+    }
     setPendingSession(null);
     setPhraseFrames([]);
     phraseFramesRef.current = [];
-  }, [pendingSession, addSession]);
+  }, [pendingSession, addSession, showNotice, openSessionFromNotice]);
   const discardPendingSession = useCallback(() => {
     setPendingSession(null);
     setPhraseFrames([]);
@@ -3776,7 +3992,6 @@ export default function WindToneLabPhaseMode() {
       if (!ok) return;
     }
     setPendingSession(null); // 新規録音を始めるので前回の候補は破棄
-    setLastUploadedSession(null); // 前回の「解析が完了しました」表示も消す
     phraseStartTimeRef.current = performance.now();
     recStartPerfRef.current = phraseStartTimeRef.current; // 小節線を録音相対秒に変換する基準
     metroBarPerfTimesRef.current = []; // 今回の録音ぶんの小節頭を貯め直す
@@ -3978,7 +4193,6 @@ export default function WindToneLabPhaseMode() {
   const handleUploadFile = useCallback(async (file) => {
     if (!file || isAnalyzingUpload) return;
     setErrorMsg("");
-    setLastUploadedSession(null); // 前回の「解析が完了しました」表示を消してから始める
     setIsAnalyzingUpload(true);
     isAnalyzingUploadRef.current = true;
     setUploadProgress(0);
@@ -4044,7 +4258,13 @@ export default function WindToneLabPhaseMode() {
           noteEvents,
         };
         addSession(session);
-        setLastUploadedSession(session);
+        // 【B-1】完了の合図は帯1枚。**進捗バーはそのまま**(それは操作の場所の中にある)。
+        showNotice({
+          text: "解析が完了しました",
+          done: true,
+          actionLabel: "開く",
+          onAction: () => openSessionFromNotice(session.id),
+        });
       } else {
         setErrorMsg("アップロードした音声から有効な音が検出できませんでした");
       }
@@ -4057,7 +4277,7 @@ export default function WindToneLabPhaseMode() {
       setUploadNeedsTap(null);
       if (!isRecordingRef.current) releaseWakeLock(); // 録音中でなければスリープ抑止を解除
     }
-  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb, requestWakeLock, releaseWakeLock]);
+  }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb, requestWakeLock, releaseWakeLock, showNotice, openSessionFromNotice]);
 
   const deleteIdealProfile = (id) => {
     setIdealProfiles((prev) => prev.filter((p) => p.id !== id));
@@ -4131,6 +4351,7 @@ export default function WindToneLabPhaseMode() {
           selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
           compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
+          showNotice={showNotice}
         />
       )}
 
@@ -4239,7 +4460,7 @@ export default function WindToneLabPhaseMode() {
           sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
           promoteSessionToIdeal={promoteSessionToIdeal}
           NUM_HARMONICS={NUM_HARMONICS}
-          updateSessions={updateSessions} deleteSessions={deleteSessions}
+          updateSessions={updateSessions} deleteSessions={deleteSessions} restoreSessions={restoreSessions}
           performers={performers} setPerformers={setPerformers}
           saxType={saxType} tuningHz={effectiveTuningHz}
           pivotRow={pivotRow} setPivotRow={setPivotRow}
@@ -4249,8 +4470,10 @@ export default function WindToneLabPhaseMode() {
           /* 【C-1/C-2 で移設】録音のアップロードはデータタブで完結させる(正典)。
              解析処理・エラーモーダルの配線はそのまま流用し、入口と告知だけを移した。 */
           handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
-          uploadProgress={uploadProgress} lastUploadedSession={lastUploadedSession} setLastUploadedSession={setLastUploadedSession}
+          uploadProgress={uploadProgress}
           uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
+          showNotice={showNotice}
+          openSessionRequest={openSessionRequest} onOpenSessionRequestDone={clearOpenSessionRequest}
         />
       )}
       {topTab === "community" && (
@@ -4307,6 +4530,13 @@ export default function WindToneLabPhaseMode() {
         </CommunityErrorBoundary>
         </div>
       )}
+
+      {/* 【B-0 2026-09-15 本人裁定】操作の合図の帯。**描くのはこの1箇所だけ。**
+          ここ(根)に置くのは、下部ナビの直上に画面ごと固定するため ── SwipePager や
+          .surf-card の中に入れると、transform を持つ祖先が position:fixed の
+          包含ブロックになり、帯がその箱の中に貼り付く(人物紹介で踏んだ)。
+          タブを移っても時間は止まらない(この要素はタブの外に居るので消えない)。 */}
+      <ActionNotice notice={notice} onAction={runNoticeAction} onLeaveEnd={finishLeave} />
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
@@ -10022,6 +10252,8 @@ function ReedsTab(props) {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
     selectedIdeal, saxType, tuningHz, compareReedIds, setCompareReedIds,
     reedsSubTab, setReedsSubTab, selectedReedId,
+    // 【B-2】削除の合図を出す口。帯そのものは App の根にあり、ここは呼ぶだけ。
+    showNotice,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
   // 展開中の箱は詳細を開いている間もここで保持する。ReedRegisterView側のstateにすると
@@ -10049,12 +10281,39 @@ function ReedsTab(props) {
 
   const reedGroups = groupReeds(reeds);
 
-  // 削除は**現行のまま**: window.confirm で1度だけ確かめ、消したリードに紐づいていた
-  // セッションは reedId / linkedAt を落として紐付けだけ解除する(セッション自体は消さない)。
+  // 消したリードに紐づいていたセッションは reedId / linkedAt を落として
+  // 紐付けだけ解除する(セッション自体は消さない)。
   const deleteReeds = (ids) => {
     const idSet = new Set(ids);
     setReeds((prev) => prev.filter((r) => !idSet.has(r.id)));
     updateSessions((prev) => prev.map((s) => (idSet.has(s.reedId) ? { ...s, reedId: null, linkedAt: null } : s)));
+  };
+
+  // 【B-2 / T7→R8 2026-09-15 本人裁定】確認を訊かずに**押した瞬間に消し**、
+  // 帯で「元に戻す」を5秒だけ出す。
+  // 【新しい永続化を作らない】戻し方は既にある2つの口だけ:
+  //   ・リードそのもの … setReeds(usePersistedState)へ退避を足し戻す
+  //   ・紐付き         … updateSessions で reedId / linkedAt を元の値へ戻す
+  // 退避は showNotice が抱える(App の根の ref)。5秒で捨て、次の削除が来たらその時点で捨てる。
+  const deleteReedsWithUndo = (ids, label) => {
+    const idSet = new Set(ids);
+    // 【消す前に控える】消したあとの state からは、もう元の値を読めない。
+    const removedReeds = reeds.filter((r) => idSet.has(r.id));
+    const unlinked = sessions
+      .filter((s) => idSet.has(s.reedId))
+      .map((s) => ({ id: s.id, reedId: s.reedId, linkedAt: s.linkedAt }));
+    deleteReeds(ids);
+    showNotice({
+      text: `${label}を削除しました`,
+      actionLabel: "元に戻す",
+      undo: () => {
+        setReeds((prev) => [...prev, ...removedReeds]);
+        const byId = new Map(unlinked.map((u) => [u.id, u]));
+        updateSessions((prev) => prev.map((s) => (byId.has(s.id)
+          ? { ...s, reedId: byId.get(s.id).reedId, linkedAt: byId.get(s.id).linkedAt }
+          : s)));
+      },
+    });
   };
 
   const exitMode = () => {
@@ -10082,15 +10341,16 @@ function ReedsTab(props) {
     if (selectedBoxKeys.size === 0) return;
     const targetGroups = reedGroups.filter((g) => selectedBoxKeys.has(g.key));
     const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
-    if (!window.confirm(`選択した${targetGroups.length}箱(${ids.length}枚)を削除しますか？(元に戻せません)`)) return;
-    deleteReeds(ids);
-    exitMode();
+    deleteReedsWithUndo(ids, deletedReedsLabel(targetGroups, ids.length, targetGroups.length));
+    exitMode();   // 選択モードは従来どおり抜ける
   };
   const confirmMemberDelete = () => {
     if (selectedMemberIds.size === 0) return;
-    if (!window.confirm(`選択した${selectedMemberIds.size}枚を削除しますか？(元に戻せません)`)) return;
-    deleteReeds([...selectedMemberIds]);
-    exitMode();
+    const ids = [...selectedMemberIds];
+    const idSet = new Set(ids);
+    const targetGroups = reedGroups.filter((g) => g.members.some((m) => idSet.has(m.id)));
+    deleteReedsWithUndo(ids, deletedReedsLabel(targetGroups, ids.length, 0));
+    exitMode();   // 選択モードは従来どおり抜ける
   };
 
   // 左右の余白は一覧・個体詳細・比較で同じ(正典 .rlist の 24px)。
@@ -10194,6 +10454,11 @@ function ReedsTab(props) {
           selectedBoxKeys={selectedBoxKeys} toggleBoxSelected={toggleBoxSelected}
           selectedMemberIds={selectedMemberIds} toggleMemberSelected={toggleMemberSelected}
           pageActive={reedsSubTab === "register"}
+          /* 【B-2 で判った取りこぼし】箱の編集シートの「この箱を削除」は、ReedsTab の
+             deleteReeds を**渡されないまま**名前で呼んでいた(ReedRegisterView は
+             ReedsTab の入れ子ではないので、押すと ReferenceError で何も消えなかった)。
+             削除の一手を1つに畳むついでに、ここで渡して繋ぐ。 */
+          deleteReedsWithUndo={deleteReedsWithUndo}
         />
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
@@ -10633,6 +10898,8 @@ function ReedRegisterView(props) {
     // 【F-111】浮かせるボタンは body へ portal で出るので、SwipePager の「今どのページか」を
     // 知らないと**隣のページ(比較)を見ている間も出たままになる**。呼び出し側が渡す。
     pageActive,
+    // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
+    deleteReedsWithUndo,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -10752,8 +11019,7 @@ function ReedRegisterView(props) {
   const deleteEditingBox = () => {
     if (!editGroup) return;
     const ids = editGroup.members.map((m) => m.id);
-    if (!window.confirm(`この箱(${ids.length}枚)を削除しますか？(元に戻せません)`)) return;
-    deleteReeds(ids);
+    deleteReedsWithUndo(ids, deletedReedsLabel([editGroup], ids.length, 1));
     setEditBoxKey(null);
   };
 
@@ -14477,13 +14743,15 @@ function AnalysisLabView(props) {
   const {
     sessions, reeds, selectedIdeal, promoteSessionToIdeal,
     NUM_HARMONICS,
-    updateSessions, deleteSessions, performers, setPerformers,
+    updateSessions, deleteSessions, restoreSessions, performers, setPerformers,
     saxType, tuningHz,
+    // 【B-0 / B-1】操作の合図の帯。出し先は App の根に1つだけで、ここは呼ぶだけ。
+    showNotice, openSessionRequest, onOpenSessionRequestDone,
     // 【F-59】選択軸・集計条件は親が持つ(タブ移動・下部ナビの再マウントをまたいで保持する)。
     pivotRow, setPivotRow, pivotCol, setPivotCol, pivotMetric, setPivotMetric,
     pivotFilters: pivotFiltersRaw, setPivotFilters: setPivotFiltersRaw,
     // 【C-1/C-2 で移設】録音のアップロード。解析処理そのもの(handleUploadFile)は親のまま。
-    handleUploadFile, isAnalyzingUpload, uploadProgress, lastUploadedSession, setLastUploadedSession,
+    handleUploadFile, isAnalyzingUpload, uploadProgress,
     uploadNeedsTap, setUploadNeedsTap,
   } = props;
 
@@ -14541,6 +14809,16 @@ function AnalysisLabView(props) {
     const y = myDataScrollYRef.current;
     if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [allSessionsOpen]);
+  // 【B-1 2026-09-15 本人裁定】帯の「開く」から来た「この計測を開いて」。
+  // 根は id を渡すだけで、実際に開くのはここ(selectedSessionId を持つのはこの画面)。
+  // 開いたら根の依頼は必ず畳む ── 畳まないと詳細を閉じた瞬間に開き直す。
+  // 【早期 return より前に置くこと】この下にはセッション詳細・全件一覧の
+  // 早期 return が2つあるので、後ろに置くと hooks の並びが画面ごとに変わる。
+  useEffect(() => {
+    if (!openSessionRequest) return;
+    setSelectedSessionId(openSessionRequest);
+    onOpenSessionRequestDone();
+  }, [openSessionRequest, onOpenSessionRequestDone]);
   // 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】条件の編集(12次元・値チップ・
   // 音域帯まとめ選択・日付/日数範囲・条件の削除)は**畳んである**。正典 #13a が条件を
   // チップ1行に畳んでいるため。チップか「＋」を押すと開く。**機能は1つも落としていない。**
@@ -14602,12 +14880,23 @@ function AnalysisLabView(props) {
     setListMode(SESSION_SELECT_MODE);
   };
 
+  // 【B-2 / T7→R8 2026-09-15 本人裁定】確認を訊かずに押した瞬間に消し、
+  // 帯で「元に戻す」を5秒だけ出す。退避(消した計測そのもの)は帯が抱える。
   const confirmBatchDeleteSessions = () => {
     if (selectedForDelete.size === 0) return;
-    if (!window.confirm(`選択した計測${selectedForDelete.size}件を削除しますか？(元に戻せません)`)) return;
-    deleteSessions([...selectedForDelete]);
-    exitSelectionMode();
+    const ids = [...selectedForDelete];
+    const idSet = new Set(ids);
+    // 【消す前に控える】消したあとの sessions からはもう読めない。
+    const removed = sessions.filter((s) => idSet.has(s.id));
+    deleteSessions(ids);
+    showNotice({
+      text: `計測 ${ids.length}件を削除しました`,
+      actionLabel: "元に戻す",
+      undo: () => restoreSessions(removed),
+    });
+    exitSelectionMode();   // 選択モードは従来どおり抜ける
   };
+
 
   // 【D-1 2026/08/22 本人指示・凍結仕様 design/D1-SPEC.md】全件一覧ページ。
   // **セッション詳細の判定より後**に置く: 一覧から1件開いたときは詳細が勝ち、
@@ -14663,7 +14952,7 @@ function AnalysisLabView(props) {
           レイアウトの流れから外す(position:fixed)ので、出ても下の一覧は1pxも動かない
           (DESIGN-SYSTEM §6.1.5)。座標はルートの padding と同じ式。
           容器は pointerEvents:none、カードだけ auto(告知が無い領域の操作を殺さない)。 */}
-      {(isAnalyzingUpload || lastUploadedSession) && (
+      {isAnalyzingUpload && (
         <div
           style={{
             position: "fixed", zIndex: 40,
@@ -14700,27 +14989,9 @@ function AnalysisLabView(props) {
                 <div className="sans" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "right", marginTop: 4 }}>{Math.round(uploadProgress * 100)}%</div>
               </div>
             )}
-            {!isAnalyzingUpload && lastUploadedSession && (
-              <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)", padding: "var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-                {/* 【N-6】正典 mini の「解析が完了しました」(12.5px)。
-                    色は素の --c-ink。--c-good は §1.5 の機能色(音程が合っている)なので、
-                    解析の完了という別の意味に流用しない。 */}
-                <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink)", flex: 1 }}>解析が完了しました</span>
-                <SetAsIdealButton tapMin session={lastUploadedSession} sessions={sessions} selectedIdeal={selectedIdeal} onSave={promoteSessionToIdeal} />
-                {/* タップで表示を閉じる(録音・再アップロード等の他アクションでも自動で消える)。
-                    見た目の丸は22pxのまま、当たり判定だけ --tap-min に広げる(DESIGN-SYSTEM §5)。 */}
-                <button
-                  onClick={() => setLastUploadedSession(null)}
-                  className="sans"
-                  aria-label="閉じる"
-                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "var(--tap-min)", height: "var(--tap-min)", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}
-                >
-                  {/* B型 = .ctl-plain + .ctl-pill。閉じるは状態を持たないので枠線を外し、
-                      地(--c-sunken)だけにする。22×22 は明示 + border-box なので外形は動かない。 */}
-                  <span className="ctl-plain ctl-pill" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1 }}>×</span>
-                </button>
-              </div>
-            )}
+            {/* 【B-1 2026-09-15 本人裁定】ここに在った**完了の告知**(「解析が完了しました」+
+                ★目安に設定 + ×)は、下部ナビの直上の帯(ActionNotice)へ寄せた。
+                残るのは**過渡的な進捗**だけ ── 進捗は操作の場所の中にある物なので動かさない。 */}
           </div>
         </div>
       )}
