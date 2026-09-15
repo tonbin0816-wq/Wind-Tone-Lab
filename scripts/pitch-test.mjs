@@ -6427,7 +6427,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     check("D-10: カードは罫を1本も持たない(border-top / border-bottom を宣言していない)",
       declList(cardCard).every((d) => !/^border-(top|bottom|left|right)/.test(d.name)),
       declList(cardCard).map((d) => d.name).join(" "));
-    check("D-10: カードの角丸は --r-lg(16px)", decl(cardCard, "border-radius") === "var(--r-lg)", String(decl(cardCard, "border-radius")));
+    // 【便C 2026/09/15】--r-lg は3段への**別名**になった(--r-2 = 12px)。
+    // 名前で書く作法は変わらない。実値が正典と一致することは下の「便C」の節が見る。
+    check("D-10: カードの角丸は --r-lg(移行中の別名 → --r-2 = 12px)",
+      decl(cardCard, "border-radius") === "var(--r-lg)", String(decl(cardCard, "border-radius")));
     check("D-10: カードの内側余白は --sp-4(16px)", decl(cardCard, "padding") === "var(--sp-4)", String(decl(cardCard, "padding")));
     check("D-10: カードは --shadow-card で浮く(影を直値で書かない)",
       decl(cardCard, "box-shadow") === "var(--shadow-card)", String(decl(cardCard, "box-shadow")));
@@ -6456,6 +6459,51 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("D-10: --shadow-row も同じ値から始まる(役割が違うので名前だけ分けてある)",
         want !== null && norm(cssVar("--shadow-row")) === norm(want),
         `いま ${cssVar("--shadow-row")} / 正典 ${want}`);
+
+      // --- 【便C 2026/09/15】角丸・余白・行間の段 ------------------------------
+      // 角丸は 5段 → **3段**(--r-1 / --r-2 / --r-full)になり、旧名は移行中の別名になった。
+      // カードの 16px は正典 design/canvas/*.dc.html が持っていた寸法なので、
+      // **正典のほうを 12px へ書き換えた**(§6.0 の逆向き。前例は B10 案ア)。
+      // ここは「--r-lg を辿った実値が正典と一致する」を見る ── 片方だけ戻すと落ちる。
+      {
+        const resolveVar = (name, depth = 0) => {
+          const v = cssVar(name);
+          if (v === null || depth > 4) return v;
+          const m2 = /^var\((--[\w-]+)\)$/.exec(String(v).trim());
+          return m2 ? resolveVar(m2[1], depth + 1) : String(v).trim();
+        };
+        const wantR = (/border-radius:\s*(\d+)px;\s*box-shadow/.exec(s1) || [])[1];
+        check("便C: 正典 S1.dc.html からカードの角丸を読めている(空回りしていない)",
+          wantR === "12", `正典=${wantR}px`);
+        check("便C: --r-lg を辿った実値が正典 S1.dc.html のカードの角丸と一致する",
+          wantR !== undefined && resolveVar("--r-lg") === `${wantR}px`,
+          `--r-lg=${cssVar("--r-lg")} → ${resolveVar("--r-lg")} / 正典=${wantR}px`);
+        check("便C: 角丸の3段は --r-1 8px / --r-2 12px / --r-full 999px",
+          resolveVar("--r-1") === "8px" && resolveVar("--r-2") === "12px"
+          && resolveVar("--r-full") === "999px",
+          `${cssVar("--r-1")} / ${cssVar("--r-2")} / ${cssVar("--r-full")}`);
+        // 旧名は**別名だけ**。自前の値を持ち直したら段が2つに割れるので落とす。
+        for (const [alias, tier] of [["--r-xs", "--r-1"], ["--r-sm", "--r-1"],
+                                     ["--r-md", "--r-2"], ["--r-lg", "--r-2"],
+                                     ["--r-pill", "--r-full"]]) {
+          check(`便C: ${alias} は ${tier} を指す別名のまま(自前の値を持たない)`,
+            String(cssVar(alias)).trim() === `var(${tier})`, `${alias}=${cssVar(alias)}`);
+        }
+        // 余白は 7段 → **5段**。旧名2つは --sp-5 への別名。
+        for (const alias of ["--sp-6", "--sp-8"]) {
+          check(`便C: ${alias} は --sp-5 を指す別名(5段の外に値を持たない)`,
+            String(cssVar(alias)).trim() === "var(--sp-5)", `${alias}=${cssVar(alias)}`);
+        }
+        check("便C: 余白の5段は 4 / 8 / 12 / 16 / 20px",
+          ["--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5"]
+            .map((k) => resolveVar(k)).join(" ") === "4px 8px 12px 16px 20px",
+          ["--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5"].map((k) => cssVar(k)).join(" "));
+        // 行間の3段。**この便では置いただけ**(直書きの lineHeight は1つも置き換えていない)。
+        check("便C: 行間の3段が :root にある(--lh-tight 1.3 / --lh-base 1.6 / --lh-loose 1.75)",
+          resolveVar("--lh-tight") === "1.3" && resolveVar("--lh-base") === "1.6"
+          && resolveVar("--lh-loose") === "1.75",
+          `${cssVar("--lh-tight")} / ${cssVar("--lh-base")} / ${cssVar("--lh-loose")}`);
+      }
     }
     // 【D-10 §4 → D-11 §1 で書き換え】日付を押すと開く枠の動き。時間と曲線は CSS 側。
     // **時間・曲線・遅延そのものは検証33 が DESIGN-SYSTEM §1.11 の表と突き合わせる**
@@ -7828,7 +7876,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     check("B型は枠線を持たない(border: 0)", decl(plainBlock, "border") === "0", String(decl(plainBlock, "border")));
     // 角丸は型のスケール(§2)から引く。ピル形だけを後ろの .ctl-pill が差し替える。
     check("A型の角丸は --r-sm", decl(stateBlock, "border-radius") === "var(--r-sm)", String(decl(stateBlock, "border-radius")));
-    check("B型の角丸は --r-xs(入力欄のスケール)", decl(plainBlock, "border-radius") === "var(--r-xs)", String(decl(plainBlock, "border-radius")));
+    // 【便C 2026/09/15】--r-xs は 4px ではなく3段の --r-1(8px)を指す別名になった。
+  // 「入力欄と同じスケール」という主張はそのまま(下の 8597 が select と同じ名前であることを見る)。
+  check("B型の角丸は --r-xs(入力欄と同じ段 = --r-1 の 8px)",
+    decl(plainBlock, "border-radius") === "var(--r-xs)", String(decl(plainBlock, "border-radius")));
     check(".ctl-pill は角丸だけを差し替える(地・枠を持たない)",
       pillBlock !== null && decl(pillBlock, "border-radius") === "var(--r-pill)" &&
       declList(pillBlock).every((d) => d.name === "border-radius"),
@@ -8515,9 +8566,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("F-72: 楽器種別・基準ピッチは地も枠も持たないまま",
           /background: "none", border: "none"/.test(saxBtn) && /background: "none", border: "none"/.test(tunBtn));
       }
-      // ▾ の見た目は正典 .chev(10px / --ink3 の段)。**定数と実際の描画の両方**を見る。
+      // ▾ の見た目は正典 .chev(--ink3 の段)。**定数と実際の描画の両方**を見る。
+      // 【便C 2026/09/15】正典 .chev は 10px → 12px になった(利用者の画面の最小は --fs-xs)。
+      // 期待値は**正典から読む** ── ここに数値を書き写すと、片方だけ動かしても通ってしまう。
       {
-        check("F-72: ▾ の文字サイズは正典 .chev の 10px", /const PICK_CHEV_PX = 10;/.test(code),
+        const chevPx = (/\.chev\{[^}]*font-size:([\d.]+)px/.exec(
+          readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8")) || [])[1];
+        check("F-72: 正典 .chev の font-size を読めている(空回りしていない)",
+          chevPx === "12", `正典=${chevPx}px`);
+        check("F-72: ▾ の文字サイズは正典 .chev と同じ",
+          chevPx !== undefined && new RegExp(`const PICK_CHEV_PX = ${chevPx};`).test(code),
           (code.match(/const PICK_CHEV_PX = \d+/) || ["無し"])[0]);
         const fn = (code.match(/function PickChevron\(\)[\s\S]*?\n\}/) || [""])[0];
         check("F-72: ▾ は PICK_CHEV_PX と --c-ink-3 から描いている(定数だけ正しくて描画は別、を防ぐ)",
@@ -8591,8 +8649,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             `${(sheet.match(/<PickChevron \/>/g) || []).length}箇所`);
         }
       }
-      // 型のクラスの CSS 側は変えていない(リードタブ等で使い続けるため)。
-      check("B型(.ctl-plain)の角丸と入力欄の角丸は同じ規則から来ている(CSS 側は不変)",
+      // 型のクラスは名前で書く作法のまま(リードタブ等で使い続けるため)。
+      // 【便C 2026/09/15】--r-xs の**値**は 4px → 8px(3段の --r-1 への別名)になったが、
+      // 「B型と入力欄が同じ名前を引く」という主張は変わらない。
+      check("B型(.ctl-plain)の角丸と入力欄の角丸は同じ規則から来ている(名前が同じ)",
         decl(plainBlock, "border-radius") === decl(inputBlock, "border-radius") &&
         decl(plainBlock, "border-radius") === "var(--r-xs)",
         `.ctl-plain=${decl(plainBlock, "border-radius")} / select=${decl(inputBlock, "border-radius")}`);
@@ -12631,6 +12691,10 @@ let METRO_SIGS_ALL = [];
   // 【2026/09/09】器を BottomSheet へ畳んだので、綴りが aria-label= から ariaLabel= の
   // **prop** へ変わった。ここから切り出すのは**中身**(拍子12種・分割・アクセント)で、
   // 器の性質(角丸・padding・つまみ・暗幕・重なり順)は BottomSheet 側で見る。
+  // 【便C 2026/09/15】正典 .selpill / .ckrow が 12.5px → 12px になった。
+  // 期待値は**正典から読む**(実装から写した数値を書かない = 恒真の検査にしない)。
+  const mock24 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const mockFs24 = (sel) => (new RegExp(`\\${sel}\\{[^}]*font-size:([\\d.]+)px`).exec(mock24) || [])[1];
   const sheetStart = code.indexOf('<BottomSheet ariaLabel="テンポと拍子"');
   const sheet = sheetStart === -1 ? "" : code.slice(sheetStart, code.indexOf("録音停止後: この録音を", sheetStart));
   check("テンポシートのブロックを走査できている", sheet !== "" && sheet.length > 500, `${sheet.length}文字`);
@@ -12670,8 +12734,12 @@ let METRO_SIGS_ALL = [];
     check("拍子の選択中は --c-accent の塗り + 白文字(正典 .selpill.on)",
       /background: metroSig === sig \? "var\(--c-accent\)" : "transparent"/.test(sheet)
       && /color: metroSig === sig \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)"/.test(sheet));
-    check("拍子のピルの寸法は正典 .selpill(12.5px / padding 4px 11px / 角丸999)",
-      /fontSize: 12\.5, padding: "4px 11px", borderRadius: 999/.test(sheet));
+    check("正典 .selpill の font-size を読めている(空回りしていない)",
+      mockFs24(".selpill") === "12", `正典=${mockFs24(".selpill")}px`);
+    check("拍子のピルの寸法は正典 .selpill(文字は正典から / padding 4px 11px / 角丸999)",
+      mockFs24(".selpill") !== undefined
+      && new RegExp(`fontSize: ${mockFs24(".selpill")}, padding: "4px 11px", borderRadius: 999`).test(sheet),
+      `正典=${mockFs24(".selpill")}px`);
     check("拍子の行の gap は正典 .selrow の 7、上マージンは 18 / 7",
       /gap: 7, marginTop: ri === 0 \? 18 : 7/.test(sheet));
     // タップ領域 44 以上(§5 は §6.0 が「機能側の規定として引き続き有効」と明記した規定)。
@@ -12804,8 +12872,12 @@ let METRO_SIGS_ALL = [];
     check("小節アクセントの行は --tap-min 以上",
       /alignSelf: "flex-start", marginTop: 14, minHeight: "var\(--tap-min\)"/.test(sheet));
     // 見た目は正典 .ckrow / .ck: 行 12.5px・gap 8 / 箱 16px・紺の枠・チェック時は紺の塗り。
-    check("小節アクセントの行の寸法は正典 .ckrow(12.5px / gap 8 / marginTop 14)",
-      /marginTop: 14, minHeight: "var\(--tap-min\)", display: "flex", alignItems: "center", gap: 8, fontSize: 12\.5/.test(sheet));
+    check("正典 .ckrow の font-size を読めている(空回りしていない)",
+      mockFs24(".ckrow") === "12", `正典=${mockFs24(".ckrow")}px`);
+    check("小節アクセントの行の寸法は正典 .ckrow(文字は正典から / gap 8 / marginTop 14)",
+      mockFs24(".ckrow") !== undefined
+      && new RegExp(`marginTop: 14, minHeight: "var\\(--tap-min\\)", display: "flex", alignItems: "center", gap: 8, fontSize: ${mockFs24(".ckrow")}`).test(sheet),
+      `正典=${mockFs24(".ckrow")}px`);
     check("チェックの箱は正典 .ck(16px・未チェックは紺の枠)",
       /reedCheckboxStyle\(metroAccent, 16, CHECKBOX_OFF_ACCENT_IMG\)/.test(sheet));
     check("未チェックの絵は紺(--c-accent #174585)の 1.5px 枠で地を持たない(正典 .ck)",
@@ -14512,8 +14584,10 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       const memo = srcOfFn(src, "MemoField");
       check("メモは編集できる(placeholder 「タップして入力」)",
         /placeholder="タップして入力"/.test(memo) && /onBlur=\{onBlur\}/.test(memo));
+      // 【便C 2026/09/15】ラベルは 10.5px → 12px(--fs-xs)。D-5 本人指示の 10.5 は
+      // 「利用者の画面の最小は 12px」の裁定で畳んだ(§4.1)。正典には寸法が無い箇所。
       check("D-5: メモはラベルが上・本文が下の全幅(右寄せをやめて左詰めにした)",
-        /<span style=\{\{ display: "block", fontSize: 10.5, color: "var\(--c-ink-3\)", marginBottom: 3 \}\}>メモ<\/span>/.test(memo)
+        /<span style=\{\{ display: "block", fontSize: 12, color: "var\(--c-ink-3\)", marginBottom: 3 \}\}>メモ<\/span>/.test(memo)
         && !/textAlign: "right"/.test(memo));
       check("D-5: 改行が入力できる(1行の input ではなく textarea)",
         /<textarea/.test(memo) && !/<input/.test(memo));
@@ -14707,9 +14781,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       !/var\(--fs-hero\)/.test(cmp));
     check("D-5: 読み手ゼロになった REED_COMPARE_CHART_KEYS は定義ごと消えている",
       !/const REED_COMPARE_CHART_KEYS/.test(src));
-    check("個体チップは正典 .selpill の寸法(12.5px / padding 4px 11px / 角丸999)",
-      parseFloat(declOf(mockCss, ".selpill", "font-size")) === 12.5
-      && /fontSize: 12\.5, padding: "4px 11px", borderRadius: 999/.test(cmp));
+    // 【便C 2026/09/15】正典 .selpill は 12.5px → 12px。期待値は正典から読む。
+    check("個体チップは正典 .selpill の寸法(文字は正典から / padding 4px 11px / 角丸999)",
+      parseFloat(declOf(mockCss, ".selpill", "font-size")) === 12
+      && new RegExp(`fontSize: ${parseFloat(declOf(mockCss, ".selpill", "font-size"))}, padding: "4px 11px", borderRadius: 999`).test(cmp),
+      `正典=${declOf(mockCss, ".selpill", "font-size")}`);
     check("選択中のチップは紺の塗り + 白文字(正典 .selpill.on)",
       /background: sel \? "var\(--c-accent\)" : "transparent"/.test(cmp)
       && /color: sel \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)"/.test(cmp));
@@ -16156,8 +16232,10 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       // 窓型には対応する線が無いので**丸を出さない**。枠と ▾ はそのまま。
       check("27.4c D-10 §5: 窓型のときは丸を出さない(対応する線が無いため)",
         /\{view === "line" && \(\s*\r?\n\s*<span aria-hidden="true" style=\{\{\s*\r?\n\s*width: 6, height: 6/.test(myDataSection));
-      check("27.4c D-10 §5: ピルの右に 9px の ▾(押せることを形で示す)",
-        /fontSize: 9, color: "var\(--c-line-strong\)", marginLeft: 5 \}\}>▾<\/span>/.test(myDataSection));
+      // 【便C 2026/09/15】9px → 12px(--fs-xs)。正典 north-star-measure.html の 9px も
+      // 同じ周で 12px にした(利用者の画面の最小は 12px。§4.1)。
+      check("27.4c D-10 §5: ピルの右に ▾(押せることを形で示す。文字は --fs-xs の 12px)",
+        /fontSize: 12, color: "var\(--c-line-strong\)", marginLeft: 5 \}\}>▾<\/span>/.test(myDataSection));
       check("27.4c D-10 §5: ピルの左右の余白は 0 9px 0 12px(丸のぶん左を広く取る)",
         /padding: "0 9px 0 12px", borderRadius: "var\(--r-sm\)"/.test(myDataSection));
       // 【D-10a 2026/08/26 審査の指摘で足した】記号(× / ー)の大きさ。
@@ -17672,6 +17750,16 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       String(api.PIVOT_ROW_H) === rowH && String(api.PIVOT_TICK_COUNT) === tickN
       && String(api.PIVOT_DOT_R) === dotR && String(api.PIVOT_DOT_RING) === dotRing,
       `${api.PIVOT_ROW_H} / ${api.PIVOT_TICK_COUNT} / ${api.PIVOT_DOT_R} / ${api.PIVOT_DOT_RING}`);
+    // 【便C 2026/09/15】角丸の旧名(--r-pill 等)は3段への**別名**になったので、
+    // `--r-pill: 999px` の綴りを直に見る形は使えない。:root を辿って実値まで解決する。
+    const resolveCssVarPx = (name, depth = 0) => {
+      const cssR = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+      const hits = [...cssR.matchAll(new RegExp(`${name}\\s*:\\s*([^;]+);`, "g"))].map((m) => m[1].trim());
+      const v = hits.length ? hits[hits.length - 1] : null;
+      if (v === null || depth > 4) return v;
+      const m2 = /^var\((--[\w-]+)\)$/.exec(v);
+      return m2 ? resolveCssVarPx(m2[1], depth + 1) : v;
+    };
     // 【D-10 2026/08/26 本人裁定で正典が移った】軸の行とチップの行の見た目の出どころは
     // dc-mydata-redesign #13a から **design/canvas/A1.dc.html**(本人がキャンバスで直した採用案)へ。
     // 期待値は**その正典から読む**(実装の値を書き写した期待値にすると恒真になる)。
@@ -17690,7 +17778,7 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       const axisValue = /font-size: (\d+)px; font-weight: (\d+); color: var\(--c-ink\); white-space: nowrap/.exec(a1) || [];
       check("32.1 D-10c: 正典 A1 から軸の行の実数を読めている(空回りしていない)",
         axisRow[1] === "1fr 1fr 1fr" && axisRow[2] === "8" && axisCell[1] === "0"
-        && axisItem[1] === "44" && axisLabel[1] === "10"
+        && axisItem[1] === "44" && axisLabel[1] === "12"
         && axisValue[1] === "12" && axisValue[2] === "600",
         `列=${axisRow[1]} gap=${axisRow[2]} セル下限=${axisCell[1]} 高さ=${axisItem[1]}`
         + ` ラベル=${axisLabel[1]} 値=${axisValue[1]}/${axisValue[2]}`);
@@ -17771,7 +17859,7 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
           && !/border/i.test(a1Axis) && !/border/i.test(implAxis),
           `正典 ${a1Axis.length}文字 / 実装 ${implAxis.length}文字`);
       }
-      check("32.1 D-10c: ラベルと値は正典と同じ大きさ(ラベル 10px / 値 12px・600)",
+      check("32.1 D-10c: ラベルと値は正典と同じ大きさ(値も寸法も正典 A1 から読む)",
         new RegExp(`fontSize: ${axisLabel[1]}, color: "var\\(--c-ink-3\\)"`).test(srcOfFn(src, "PlainSelect"))
         && new RegExp(`fontSize: ${axisValue[1]}, fontWeight: strong \\? ${axisValue[2]} : 400`).test(srcOfFn(src, "PlainSelect")),
         srcOfFn(src, "PlainSelect").replace(/\s+/g, " ").slice(0, 240));
@@ -17780,14 +17868,14 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       // 条件チップ。正典 A1 は **pill(999)**・11px・600・padding 4px 11px。
       const chipA1 = /padding: (\d+px \d+px); font-size: (\d+)px; font-weight: (\d+); color: var\(--c-accent\); background: var\(--c-accent-tint\); border-radius: (\d+)px/.exec(a1) || [];
       check("32.1 D-10: 正典 A1 から条件チップの寸法を読めている",
-        chipA1[1] === "4px 11px" && chipA1[2] === "11" && chipA1[3] === "600" && chipA1[4] === "999",
+        chipA1[1] === "4px 11px" && chipA1[2] === "12" && chipA1[3] === "600" && chipA1[4] === "999",
         `余白=${chipA1[1]} 文字=${chipA1[2]}/${chipA1[3]} 角丸=${chipA1[4]}`);
       // 【変異試験 M22 で生存 → 直した】角丸を lab32 のどこかで探すと、隣の「＋」の
       // --r-pill が拾われてチップだけを --r-sm へ戻す変異が通る。
       // **チップの style オブジェクトの中**で、地・角丸・余白・文字を一続きに見る。
       check("32.1 D-10: 条件チップは正典と同じ(角丸は体系の --r-pill = 999px へ写像)",
         new RegExp(`background: "var\\(--c-accent-tint\\)", border: "1px solid transparent",\\s*\\r?\\n\\s*borderRadius: "var\\(--r-pill\\)", padding: "${chipA1[1]}",\\s*\\r?\\n\\s*fontSize: ${chipA1[2]}, fontWeight: ${chipA1[3]}, color: "var\\(--c-accent\\)"`).test(lab32)
-        && /--r-pill:\s*999px/.test(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")),
+        && resolveCssVarPx("--r-pill") === "999px",
         (lab32.match(/borderRadius: "var\(--r-[a-z]+\)", padding: "4px 11px"/g) || []).join(" | "));
       // 【D-14 2026/08/27 本人指示で書き換え】本人「条件の箇所にある編集を削除」。
       // 正典 A1 は今も「編集」を 10px / --c-accent で持っているが、**実装は本人指示で
@@ -17795,7 +17883,7 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       // **「正典にある語が実装から消えている」**を主張へ反転する(正典より本人指示が上位)。
       const editA1 = /font-size: (\d+)px; color: var\(--c-accent\)">編集</.exec(a1) || [];
       check("32.1 D-14: 正典 A1 の「編集」を読めている(空回りしていない)",
-        editA1[1] === "10", `正典=${editA1[1]}px`);
+        editA1[1] === "12", `正典=${editA1[1]}px`);
       check("32.1 D-14: 実装の条件行から「編集 / 閉じる」の語が消えている(本人指示)",
         !/>編集</.test(codeOf(lab32)) && !/編集/.test(codeOf(lab32).slice(
           codeOf(lab32).indexOf("pivotFilters.map("),
@@ -18025,16 +18113,24 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
   const myD11 = srcOfFn(src, "MyDataSection");
 
   // --- 33.0 正典(DESIGN-SYSTEM §1.11 の表)を読む ------------------------------
+  // 【便C 2026/09/15 で列が1つ増えた】表は「動き | 段 | 時間 | 曲線 | 遅延 | 持ち主」の6列。
+  // 段(--d-fast / --d-base / --d-slow)は index.css の :root が持ち、持ち主の宣言は
+  // **生の ms ではなくその段を var() で参照する**。突き合わせは3段構えになった:
+  //   (a) 表の「段」が :root に定義され、その値が表の「時間」と一致する(33.0)
+  //   (b) 持ち主の宣言が var(--d-*) を参照していて、生の ms を書いていない(33.1 / 33.6)
+  //   (c) var を展開した値が表の時間・曲線・遅延と一致する(33.1 / 33.6。前からの主張)
+  // 【罠4】§1.11 には「段 | 値 | 使う場面」の3列の表も居る。行の選別を「ms を含む」だけに
+  // すると そちらまで拾って列がずれる。**曲線の列が cubic-bezier で始まる6列の行**だけを
+  // 取る。行の総数は釘付けしない。
   const canonRows = (() => {
     const i = dsD11.indexOf("### 1.11 動きの時間と曲線");
     if (i < 0) return [];
     const sec = dsD11.slice(i, dsD11.indexOf("\n## ", i) < 0 ? undefined : dsD11.indexOf("\n## ", i));
     return sec.split("\n")
-      .filter((l) => l.trim().startsWith("|") && /`\d+ms`/.test(l))
-      .map((l) => {
-        const c = l.split("|").map((x) => x.trim().replace(/^`|`$/g, ""));
-        return { move: c[1], dur: c[2], curve: c[3], delay: c[4], owner: c[5] };
-      });
+      .filter((l) => l.trim().startsWith("|"))
+      .map((l) => l.split("|").map((x) => x.trim().replace(/^`|`$/g, "")))
+      .filter((c) => c.length === 8 && /^cubic-bezier\(/.test(c[4]) && /^\d+ms$/.test(c[3]))
+      .map((c) => ({ move: c[1], token: c[2], dur: c[3], curve: c[4], delay: c[5], owner: c[6] }));
   })();
   // 【D-14 で行が増えた】表は `.day-panel`(枠) と `.sheet-*`(下端シート) の2群を持つ。
   // **群ごとに読む宣言が違う**: 枠は transition、シートは animation
@@ -18081,6 +18177,52 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
   const { plain: cssPlain, blocks: atBlocks } = cutAtRules(noComment);
   const plainRules = rulesOf(cssPlain);
 
+  // --- 33.0b 段の唯一の答えは index.css の :root(便C)-----------------------------
+  // ここで作る辞書は `var(--d-*)` の展開にも使う(下の declOf)。
+  const rootVars = {};
+  for (const r of plainRules.filter((r) => r.sel === ":root")) {
+    for (const d of r.body.split(";")) {
+      const m = /^\s*(--[\w-]+)\s*:\s*(.+)$/.exec(d);
+      if (m) rootVars[m[1]] = m[2].trim();
+    }
+  }
+  check("33.0 index.css の :root から動きの時間の3段を読めている(空回りしていない)",
+    ["--d-fast", "--d-base", "--d-slow"].every((k) => /^\d+ms$/.test(rootVars[k] || "")),
+    ["--d-fast", "--d-base", "--d-slow"].map((k) => `${k}=${rootVars[k]}`).join(" "));
+  for (const tok of [...new Set(canonRows.map((r) => r.token))]) {
+    const want = [...new Set(canonRows.filter((r) => r.token === tok).map((r) => r.dur))];
+    check(`33.0 §1.11 の段 ${tok} の値が index.css の :root と一致する(表が唯一の答え)`,
+      want.length === 1 && rootVars[tok] === want[0],
+      `表=${want.join("/")} / :root=${rootVars[tok]}`);
+  }
+  // 段は3つだけ。表が段の外(4つ目の段)を持ち出していないこと。
+  check("33.0 §1.11 の表が名乗る段は3つ(--d-fast / --d-base / --d-slow)の中だけ",
+    canonRows.length > 0 && canonRows.every((r) => ["--d-fast", "--d-base", "--d-slow"].includes(r.token)),
+    [...new Set(canonRows.map((r) => r.token))].join(" "));
+  // 【変異試験 M1 で生存 → 足した】§1.11 には「段 | 値 | 使う場面」の**3列の表**も居る。
+  // 6列の表だけを :root と突き合わせていたので、3列の表の値だけを書き換えても
+  // 1件も落ちなかった ＝ 読まれない2つ目の正典になっていた。ここも突き合わせる。
+  {
+    const i2 = dsD11.indexOf("### 1.11 動きの時間と曲線");
+    const sec2 = i2 < 0 ? "" : dsD11.slice(i2, dsD11.indexOf("\n## ", i2) < 0 ? undefined : dsD11.indexOf("\n## ", i2));
+    const tierRows = sec2.split("\n")
+      .filter((l) => l.trim().startsWith("|"))
+      .map((l) => l.split("|").map((x) => x.trim().replace(/^`|`$/g, "")))
+      .filter((c) => c.length === 5 && /^--d-\w+$/.test(c[1]) && /^\d+ms$/.test(c[2]))
+      .map((c) => ({ token: c[1], dur: c[2] }));
+    check("33.0 §1.11 の3段の表(段 | 値 | 使う場面)を読めている(空回りしていない)",
+      tierRows.length === 3, `${tierRows.length}行`);
+    for (const r of tierRows) {
+      check(`33.0 §1.11 の3段の表の ${r.token} が index.css の :root と一致する`,
+        rootVars[r.token] === r.dur, `表=${r.dur} / :root=${rootVars[r.token]}`);
+      const inTable = canonRows.filter((x) => x.token === r.token).map((x) => x.dur);
+      check(`33.0 §1.11 の3段の表と持ち主の表で ${r.token} の値が食い違っていない`,
+        inTable.length > 0 && inTable.every((d) => d === r.dur),
+        `3段の表=${r.dur} / 持ち主の表=${[...new Set(inTable)].join("/") || "行が無い"}`);
+    }
+  }
+  const expandVars = (v) => String(v).replace(/var\((--[\w-]+)\)/g, (m0, n) => rootVars[n] ?? m0);
+
   // transition の値を「property / 曲線 / 時間 / 遅延」へ分解する。
   // cubic-bezier(...) の中にもコンマがあるので、**括弧の深さ0のコンマだけ**で切る。
   const splitTop = (s) => {
@@ -18105,7 +18247,17 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
     const hits = plainRules.filter((r) => r.sel === sel);
     if (hits.length !== 1) return { error: `地の規則が ${hits.length} 個` };
     const v = (hits[0].body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`)) || [])[1];
-    return v ? { parts: splitTop(v).map(parsePart) } : { error: `${prop} 宣言が無い` };
+    // 【便C】値は `var(--d-*)` で書かれている。**展開してから**分解する
+    // (展開しないと時間が読めず、遅延の 60ms を時間と読み違える)。
+    return v ? { raw: v, parts: splitTop(expandVars(v)).map(parsePart) } : { error: `${prop} 宣言が無い` };
+  };
+  // 【便C】「段を参照していること」を値の一致とは**別に**見る。展開後の値だけを見ると、
+  // 段を迂回して生の ms を書き戻す変異が通ってしまう(トークンにした意味が消える)。
+  const usesToken = (got, row) => {
+    if (got.error) return false;
+    const parts = splitTop(got.raw);
+    const strayMs = (got.raw.match(/[\d.]+m?s/g) || []).filter((t) => t !== row.delay);
+    return parts.length > 0 && parts.every((p) => p.includes(`var(${row.token})`)) && strayMs.length === 0;
   };
   const transitionOf = (sel) => declOf(sel, "transition");
 
@@ -18117,6 +18269,8 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
       && got.parts.every((p) => p.dur === want.dur && p.delay === want.delay && p.curve === want.curve);
     check(`33.1 §1.11「${row.move}」の時間・曲線・遅延が ${row.owner} と一致する(表から読んだ値で照合)`,
       ok, got.error || got.parts.map((p) => `${p.prop} ${p.dur}ms ${p.curve} +${p.delay}ms`).join(" / "));
+    check(`33.1 §1.11「${row.move}」は ${row.owner} が段 ${row.token} を var() で引く(生の ms を書かない)`,
+      usesToken(got, row), got.error || got.raw);
   }
   // 表と実装が**別々の値を持っている**こと自体も見る。開閉が同じ時間なら §1.11 の
   // 「開閉は非対称にする」が空文になるので、そこは表の中身どうしで確かめる。
@@ -18219,6 +18373,8 @@ console.log("\n========== 検証33: D-11 §1 日付を押して開く枠の動�
         && got.parts.every((p) => p.dur === want.dur && p.delay === want.delay && p.curve === want.curve);
       check(`33.6 §1.11「${row.move}」の時間・曲線・遅延が ${row.owner} と一致する(表から読んだ値で照合)`,
         ok, got.error || got.parts.map((p) => `${p.prop} ${p.dur}ms ${p.curve} +${p.delay}ms`).join(" / "));
+      check(`33.6 §1.11「${row.move}」は ${row.owner} が段 ${row.token} を var() で引く(生の ms を書かない)`,
+        usesToken(got, row), got.error || got.raw);
       // 走り終わったあとに姿勢を残さない(§6.3「静止時に transform を残さない」)。
       // fill-mode を足すと、シートの中から開く全画面ピッカーが position: fixed の
       // 包含ブロックに閉じ込められる。**綴りの集合**で見る(both / forwards / backwards)。
@@ -21990,8 +22146,8 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       /background: "var\(--c-surface\)", borderRadius: "var\(--r-md\)"/.test(seg));
     // ✓ は機能色 --c-good(§1.5)。新しい色を作らない。
     check("46 B-0 ✓ は --c-good", /color: "var\(--c-good\)"/.test(seg));
-    // **出現の時間は JS が持たない。** index.css の .action-notice が1箇所で持つ
-    // (便C で --d-base のトークンへ差し替える)。
+    // **出現の時間は JS が持たない。** index.css の .action-notice が持つ
+    // (便C で --d-base のトークンへ差し替えた)。
     check("46 B-0 帯の見た目の時間を JS に直書きしない",
       !/\d+ms/.test(seg), (/\d+ms/.exec(seg) || [""])[0]);
   }
@@ -22000,11 +22156,16 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
     countOf(appCode, "const NOTICE_MS = 5000;") === 1
     && countOf(appCode, "NOTICE_MS") === 3,   // 定義 + 期限の計算 + 退避に預ける長さ
     `定義${countOf(appCode, "const NOTICE_MS = 5000;")} / 参照${countOf(appCode, "NOTICE_MS")}`);
-  // 出現・消失の時間は CSS 側に**1つの値**として置く(便C の差し替え先)。
-  check("46 B-0 出現の時間は index.css に1箇所(220ms)",
-    countOf(cssSrc, "--action-notice-d: 220ms;") === 1
-    && countOf(cssSrc, "var(--action-notice-d)") === 2,
-    `定義${countOf(cssSrc, "--action-notice-d: 220ms;")} / 参照${countOf(cssSrc, "var(--action-notice-d)")}`);
+  // 【便C 2026/09/15】便B のローカル変数 --action-notice-d(220ms)は**畳んだ**。
+  // 出入りは「操作への反応」なので §1.11 の3段に入る ── 出現・消失とも var(--d-base) を引く。
+  // 生の ms を書き戻す変異(トークンを迂回する)で落ちるよう、**綴りで**見る。
+  check("46 B-0 / C-1 帯の出入りは --d-base を引く(生の ms を書かない)",
+    countOf(cssSrc, "animation: action-notice-in var(--d-base) cubic-bezier(0.32, 0.72, 0, 1);") === 1
+    && countOf(cssSrc, "animation: action-notice-out var(--d-base) cubic-bezier(0.32, 0.72, 0, 1) forwards;") === 1
+    && countOf(cssSrc, "--action-notice-d") === 0,
+    `in=${countOf(cssSrc, "animation: action-notice-in var(--d-base) cubic-bezier(0.32, 0.72, 0, 1);")}`
+    + ` / out=${countOf(cssSrc, "animation: action-notice-out var(--d-base) cubic-bezier(0.32, 0.72, 0, 1) forwards;")}`
+    + ` / 旧ローカル変数=${countOf(cssSrc, "--action-notice-d")}`);
   check("46 B-0 曲線は既存のもの(.day-panel / .sheet-card と同じ)",
     /\.action-notice \{[\s\S]{0,200}cubic-bezier\(0\.32, 0\.72, 0, 1\)/.test(cssSrc));
   check("46 B-0 動きを減らす設定では動かさない",
@@ -22261,6 +22422,88 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
   // 削除ボタンはシートを開くだけ(押した瞬間に消さない)。
   check("46 B-3 一覧の「アカウントを削除」はシートを開くだけ",
     /onClick=\{\(\) => setDeleteOpen\(true\)\}[\s\S]{0,200}アカウントを削除\s*<\/button>/.test(commCode));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証47: 便C トークンと正典(4-1 動きの時間 / 2-1 文字サイズ / 2-2 角丸・余白)
+//
+// 【この節が名乗れないこと】(罠1)
+//   ・**見た目が良くなったか**。120/200/320ms が 140/220/240/360ms より良いか、
+//     カードの角丸 12px が 16px より良いかは、本人の実機でしか判定できない
+//   ・実際に何 px で描かれるか。ここが見るのは**宣言された値**だけ
+// 【この節が名乗れること】
+//   ・利用者の画面に出る文字の**直値**が 12px 未満を1つも持たないこと
+//   ・定数ごしに残っている 12px 未満が**既知の2箇所だけ**で、黙って増えていないこと
+//   ・index.css に畳んだはずの生の時間(360ms / 220ms / 240ms / 140ms)が残っていないこと
+//   ・呼び手ゼロになった prop(tapMin)が定義ごと消えていること
+// ============================================================
+console.log("\n========== 検証47: 便C トークンと正典 ==========");
+{
+  const cssC = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const cssCode = cssC.replace(/\/\*[\s\S]*?\*\//g, "");
+  const appCode47 = codeOf(src);
+
+  // --- 47.1 利用者の画面の最小は --fs-xs = 12px(§4.1)------------------------
+  // 【罠】コメントを剥がしてから数える。経緯を「12.5px だった」と書き残しただけで
+  // 落ちる検査にすると、記録が残せなくなる(L-01 と同じ型の事故)。
+  // 診断パネル(MetroDiagPanel)は利用者に出ないので対象外。**行ではなく関数の範囲**で切る。
+  {
+    const a = appCode47.indexOf("function MetroDiagPanel(");
+    const b = appCode47.indexOf("function MeasureView(");
+    check("47.1 MetroDiagPanel の範囲を切り出せている(空回りしていない)",
+      a >= 0 && b > a && b - a > 3000, `${a} → ${b}`);
+    const hits = [...appCode47.matchAll(/fontSize:\s*(9|9\.5|10|10\.5|11|11\.5|12\.5)\b/g)];
+    const outside = hits.filter((m) => !(m.index >= a && m.index < b));
+    check("47.1 利用者の画面に 12px 未満の直値が1つも無い(診断パネルの外に0件)",
+      outside.length === 0,
+      outside.map((m) => appCode47.slice(m.index - 40, m.index + 20).replace(/\s+/g, " ")).join(" | ")
+      || `診断パネルの中は ${hits.length - outside.length} 件(対象外)`);
+    check("47.1 診断パネルの中は対象外のまま(走査そのものが空回りしていない)",
+      hits.length - outside.length > 0, `${hits.length - outside.length}件`);
+  }
+
+  // --- 47.2 定数ごしに残っている 12px 未満は**既知の2箇所だけ** ----------------
+  // 47.1 は直値しか数えない。`fontSize: MY_DATA_SCOPE_FS` のように定数を経由すると
+  // 掛からないので、**残りの顔ぶれを釘付けする**(黙って増えない)。
+  // この2つは便C の凍結仕様の一覧に無く、それぞれ別の本人指示/正典が根拠なので据え置き:
+  //   ・MY_DATA_SCOPE_FS = 10   … D-10 §6(本人がキャンバスで縮小した)
+  //   ・BARE_ROW_STYLES.numrow  … 正典 .numrow .l / .numrow .b の 10.5px(検査が正典から読む)
+  {
+    const names = [...new Set([...appCode47.matchAll(/fontSize:\s*([A-Za-z_$][\w.$]*)/g)].map((m) => m[1]))];
+    const numOf = (n) => {
+      const m = new RegExp(`const ${n.replace(/[.$]/g, "\\$&")} = ([\\d.]+);`).exec(appCode47);
+      return m ? parseFloat(m[1]) : null;
+    };
+    const small = names.filter((n) => { const v = numOf(n); return v !== null && v < 12; });
+    check("47.2 定数ごしの 12px 未満は MY_DATA_SCOPE_FS ただ1つ(黙って増えていない)",
+      small.join(",") === "MY_DATA_SCOPE_FS", small.join(",") || "0件");
+    const rowStyles47 = new Function(`${extractConst("BARE_ROW_STYLES")} return BARE_ROW_STYLES;`)();
+    check("47.2 BARE_ROW_STYLES の 12px 未満は numrow の label / sub の2つだけ",
+      Object.entries(rowStyles47.numrow).filter(([, v]) => v < 12).map(([k]) => k).sort().join(",") === "label,sub",
+      JSON.stringify(rowStyles47.numrow));
+  }
+
+  // --- 47.3 畳んだはずの生の時間が index.css に残っていない --------------------
+  // 段(--d-fast / --d-base / --d-slow)そのものの定義だけが ms を持つ。
+  // 遅延の 60ms は表が持つ値なので対象外(§1.11 は遅延を変えていない)。
+  {
+    const stray = [...cssCode.matchAll(/\b(140|220|240|360)ms\b/g)].map((m) => m[0]);
+    check("47.3 index.css に 140 / 220 / 240 / 360ms が1つも残っていない(コメントを除く)",
+      stray.length === 0, stray.join(" ") || "0件");
+    const msDecls = [...cssCode.matchAll(/(--[\w-]+)\s*:\s*\d+ms\s*;/g)].map((m) => m[1]);
+    check("47.3 ms を値に持つトークンは3段だけ(4つ目の段を足していない)",
+      msDecls.sort().join(",") === "--d-base,--d-fast,--d-slow", msDecls.join(","));
+  }
+
+  // --- 47.4 掃除: 呼び手ゼロになった tapMin は定義ごと消えている ----------------
+  // 便B で「解析が完了しました」の告知が下端の帯になり、tapMin を渡す呼び手が0になった。
+  // **受け口も三項も消えている**ことを見る(前例: tallyGear の撤去)。
+  check("47.4 掃除: tapMin は受け口にも本体にも残っていない(死んだ枝を残さない)",
+    !/\btapMin\b/.test(appCode47), (appCode47.match(/\btapMin\b/g) || []).length + "箇所");
+  check("47.4 掃除: SetAsIdealButton の受け口から tapMin が消えている",
+    /function SetAsIdealButton\(\{ session, sessions, selectedIdeal, onSave, floating = false \}\)/.test(appCode47),
+    (/function SetAsIdealButton\([^)]*\)/.exec(appCode47) || ["無し"])[0]);
   console.log("  -> done");
 }
 

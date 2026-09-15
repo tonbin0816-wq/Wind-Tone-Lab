@@ -1851,7 +1851,8 @@ const REGISTER_BAND_LABELS = { low: "低音域", mid: "中音域", high: "高音
 // 機能は現行のアプリに揃えて」)。
 //
 // 番手9種(2.0〜4.0 の 0.25 刻み)。正典 .selrow / .selpill
-// (12.5px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
+// (12px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
+// 【便C 2026/09/15】.selpill は 12.5px → 12px(--fs-xs)。正典も同じ周で書き換えてある。
 // 見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。
 // marginTop は呼び手が決める(リードの追加シートは 12、ラベル付きの欄の中では 0)。
 // 部品に埋めると、置く場所ごとに違ってよい値が1つに固定される。
@@ -1870,7 +1871,7 @@ export function ReedStrengthPills({ value, onChange, marginTop = 12 }) {
           }}>
           <span style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+            fontSize: 12, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
             border: value === s ? "1px solid transparent" : "1px solid var(--c-line-strong)",
             background: value === s ? "var(--c-accent)" : "transparent",
             color: value === s ? "var(--c-on-accent)" : "var(--c-ink-2)",
@@ -4718,14 +4719,16 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn }) {
 // カード方式にしていない。モックに合わせて。モックどおり ▾ などがあれば
 // タップすれば選択肢が出るんだなと直感的に分かる」。
 // 地と枠を落とすと「ここは触れる」の信号が全部消えるので、その唯一の代わりがこれ。
-// 正典 design/north-star-measure.html の `.chev { color: var(--ink3); font-size: 10px }`
-// をそのまま採る(10px は正典の実寸。DESIGN-SYSTEM §6.0 でモックが見た目の唯一の正典)。
+// 正典 design/north-star-measure.html の `.chev { color: var(--ink3); font-size: 12px }`
+// をそのまま採る(DESIGN-SYSTEM §6.0 でモックが見た目の唯一の正典)。
+// 【便C 2026/09/15】正典の .chev は 10px → 12px(--fs-xs)になった ──
+// 「利用者の画面の最小は 12px」の裁定(§4.1)で、正典のほうを書き換えた。
 // 色はアプリの体系側の同じ役の段 --c-ink-3 を使う(正典 --ink3 #98A1AC の位置)。
 // 文字との間隔は正典が半角空白1つなので、体系内の最小段 --sp-1(4px)を当てる。
 //
 // **必ず「押せるもの」の中に置くこと。** <button> の中か、<select> を指す <label> の中。
 // 外に置くと、そこだけ当たり判定の穴になる(N-4 の罠1 と同じ形の事故になる)。
-const PICK_CHEV_PX = 10;       // 正典 .chev の font-size
+const PICK_CHEV_PX = 12;       // 正典 .chev の font-size
 function PickChevron() {
   return (
     <span aria-hidden="true" style={{
@@ -8658,11 +8661,11 @@ function MeasureView(props) {
               >
                 <span style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12.5, padding: "4px 11px", borderRadius: 999,
+                  fontSize: 12, padding: "4px 11px", borderRadius: 999,
                   background: "var(--c-sunken)", color: "var(--c-ink-2)",
                 }}>タップ</span>
               </button>
-              <span className="sans" style={{ width: 56, fontSize: 12.5, color: "var(--c-ink-3)", lineHeight: 1.2 }}>
+              <span className="sans" style={{ width: 56, fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.2 }}>
                 {tapCount === 0 ? "" : `${tapCount}/${TAP_TEMPO_INTERVALS + 1}`}
               </span>
             </div>
@@ -8692,7 +8695,7 @@ function MeasureView(props) {
                     }}>
                     <span style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                      fontSize: 12, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
                       border: metroSig === sig ? "1px solid transparent" : "1px solid var(--c-line-strong)",
                       background: metroSig === sig ? "var(--c-accent)" : "transparent",
                       color: metroSig === sig ? "var(--c-on-accent)" : "var(--c-ink-2)",
@@ -8748,7 +8751,7 @@ function MeasureView(props) {
                         }}>
                         <span style={{
                           display: "inline-flex", alignItems: "center", justifyContent: "center",
-                          fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                          fontSize: 12, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
                           border: selected ? "1px solid transparent" : "1px solid var(--c-line-strong)",
                           background: selected ? "var(--c-accent)" : "transparent",
                           color: selected ? "var(--c-on-accent)" : "var(--c-ink-2)",
@@ -8762,10 +8765,10 @@ function MeasureView(props) {
 
             {/* 小節アクセント(既定ON)。OFF にすると小節頭の強拍が鳴らず、
                 振り子の点の膨らみも出なくなる(鳴っていないものを見せない)。 */}
-            {/* 寸法・色は正典 .ckrow / .ck をそのまま: 行の上マージン 14 / gap 8 / 文字 12.5px /
+            {/* 寸法・色は正典 .ckrow / .ck をそのまま: 行の上マージン 14 / gap 8 / 文字 12px(便C で 12.5 から)/
                 箱は 16×16・角丸4・紺の 1.5px 枠、チェック時は紺の塗り + 白いチェック。
                 箱は 16px の絵のまま、当たり判定だけ 44×44 に広げる(reedCheckboxStyle。§5)。 */}
-            <label className="sans no-select" style={{ alignSelf: "flex-start", marginTop: 14, minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--c-ink-2)", cursor: "pointer" }}>
+            <label className="sans no-select" style={{ alignSelf: "flex-start", marginTop: 14, minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--c-ink-2)", cursor: "pointer" }}>
               <input
                 type="checkbox" checked={metroAccent} onChange={(e) => setMetroAccent(e.target.checked)}
                 style={reedCheckboxStyle(metroAccent, 16, CHECKBOX_OFF_ACCENT_IMG)}
@@ -8859,7 +8862,7 @@ function MeasureView(props) {
 // 幅の取り合いは3列を**等幅グリッド**にして構造ごと無くした(呼び出し側)。
 function PlainSelect({ text, value, onChange, children, ariaLabel, strong = false, caption = null }) {
   const captionNode = caption
-    ? <span className="sans" style={{ fontSize: 10, color: "var(--c-ink-3)", letterSpacing: ".02em", flexShrink: 0 }}>{caption}</span>
+    ? <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", letterSpacing: ".02em", flexShrink: 0 }}>{caption}</span>
     : null;
   const valueNode = (
     <span style={{ display: "inline-flex", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
@@ -9512,7 +9515,8 @@ function reedScoreRowItems(fields) {
 //    3枚が1枚に戻って見える。カード間にだけ --sp-2 を入れ、3枚の幅は等しいまま保つ。
 // 【N-5】見た目を正典 .starrow に揃えた。**箱(B型 .ctl-plain の地)は持たない**:
 //   行 = padding 16px 0 + 下に罫1本 / 列 = flex:1 の中央揃え
-//   値 = 23px / 600(.starrow .v) / ラベル = 11px --ink3 で**値の下**(.starrow .l)
+//   値 = 23px / 600(.starrow .v) / ラベル = --fs-xs --ink3 で**値の下**(.starrow .l。
+//   正典は便C で 11px → 12px になり、実装の --fs-xs と揃った)
 // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §2.2 = モックの案G】
 // リード個体詳細がカードの作法へ移ったので、この3区画を**小カード(.rowcard)3枚**にした。
 //  - 行の下にあった borderBottom は**外した**。カードの作法は罫を1本も引かない(§6.6)。
@@ -9571,8 +9575,10 @@ function ReedScoreField({ fields, onOpen }) {
 // 一度追加した名前はperformersに積み上がり、以後の選択肢として残り続ける。
 // セッション(またはライブ録音直後のフレーム列)を理想値プロファイルに設定するボタン。
 // onSave(session, name, scope) を呼び、実際のプロファイル生成は buildIdealProfileFromSessions が行う。
-// tapMin: 当たり判定を --tap-min(44px) 以上にする(既定は従来どおり。分析タブ側は変えない)。
-// 計測タブの「解析が完了しました」告知は浮かせた告知の中に入るため、ここだけ44pt化する。
+// 【2026/09/15・便C の掃除】prop `tapMin`(当たり判定を 44pt へ広げる枝)は**畳んだ**。
+// 唯一の読み手だった計測タブの「解析が完了しました」告知が、便B で下端の帯(ActionNotice)に
+// 変わって呼び手ゼロになったため。残っていた分岐は4つ(受け口・fontSize・minHeight・padding)。
+// 死んだコードは残さない(前例: tallyGear の撤去)。
 //
 // 【F-67】名前の入力はシート(下端から出る)に移した。
 // 以前はこの場で入力欄+保存+×に化けており、押した瞬間に日付欄の隣の要素が入れ替わって
@@ -9584,7 +9590,7 @@ function ReedScoreField({ fields, onOpen }) {
 // --c-accent)が該当する。B型(.ctl-plain = 枠なし・地 --c-sunken)のままだと、状態を返せるのは
 // 地か文字だけになり「枠線があるものは状態を持っている」という読み手への約束から外れる。
 // ON の合図に地は足さない(足すと A型が「枠線+違う地」になり規則そのものを破る)。
-function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin, floating = false }) {
+function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, floating = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [scope, setScope] = useState("session"); // "session" | "performer"(F-68)
@@ -9639,9 +9645,8 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin, fl
         className="sans ctl-state ctl-pill"
         aria-pressed={isSet}
         style={{
-          fontSize: tapMin ? "var(--fs-sm)" : "var(--fs-xs)",
-          minHeight: tapMin ? "var(--tap-min)" : undefined,
-          padding: tapMin ? "0 var(--sp-3)" : "5px 10px",
+          fontSize: "var(--fs-xs)",
+          padding: "5px 10px",
           color: "var(--c-accent)", cursor: "pointer", fontWeight: 600,
           flexShrink: 0, whiteSpace: "nowrap",
         }}
@@ -10705,7 +10710,8 @@ function reedAddButtonLabel(count) {
 function reedSheetButtonLabel(mode, count) {
   return mode === "edit" ? "この箱を変更" : reedAddButtonLabel(count);
 }
-// シートの見出し(11px / --ink3)とダイアログ名。綴りを2箇所に置かないためここへ集める。
+// シートの見出し(--fs-xs / --ink3。正典は便C で 11px → 12px)とダイアログ名。
+// 綴りを2箇所に置かないためここへ集める。
 function reedSheetTitle(mode) {
   return mode === "edit" ? "箱を編集" : "追加";
 }
@@ -10747,7 +10753,7 @@ function ReedBoxSheet({
     <>
       <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
-          {/* 正典ミニの見出し「追加」(11px / --ink3)。編集のときは「箱を編集」 */}
+          {/* 正典ミニの見出し「追加」(--fs-xs / --ink3。正典は便C で 11px → 12px)。編集のときは「箱を編集」 */}
           <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
 
           {/* 銘柄。正典は「太字の値 + ▾」の1行(padding 8px 0 / 下に罫1本 / 14px)。 */}
@@ -11701,7 +11707,7 @@ const REED_COMPARE_METRICS = [
 // --- 10.4(a): リード別比較(複数リードをグラフで視覚比較) ---
 //
 // 【N-5】正典 = design/north-star-measure.html の「比較」画面。
-//   箱ごとに .rname(13.5px)+「n枚選択中」(11px) の見出し → 個体チップの .selrow
+//   箱ごとに .rname(13.5px)+「n枚選択中」(--fs-xs。正典は便C で 11px → 12px) の見出し → 個体チップの .selrow
 //   選択中のチップには**系列の線種見本**が付く(色だけでは実線/破線が伝わらない)
 //   その下に4グラフ(音量 / 平均差分 / HNR / スペクトル重心)・★一覧・フレーム数脚注
 // 機能はすべて現行のまま(6本制限の告知・空状態2種・チップのトグル)。
@@ -11767,7 +11773,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
                     }}>
                     <span style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
-                      fontSize: 12.5, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
+                      fontSize: 12, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
                       border: sel ? "1px solid transparent" : "1px solid var(--c-line-strong)",
                       background: sel ? "var(--c-accent)" : "transparent",
                       color: sel ? "var(--c-on-accent)" : "var(--c-ink-2)",
@@ -12212,6 +12218,11 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
 //  MetricTabCard へ移って読み手ゼロになったので部品ごと削除した。bare / rowStyle という
 //  受け口もその部品と一緒に消えている。unit(正典 .numrow .v small = 11px)も
 //  読み手がその部品だけだったので鍵ごと落とした ─ 単位を出す列がまた要るときは正典から引き直す。)
+// 【便C 2026/09/15 の対象外。裁定待ち】label / sub の 10.5 は正典 north-star-measure.html の
+// `.numrow .l` / `.numrow .b` の実寸で、検査がそこから読んで突き合わせている。
+// 便C の凍結仕様は正典のこの2行を書き換え対象に挙げていないので、**正典ごと据え置き**にした
+// (実装だけ 12 にすると検査が落ちる = 正典と食い違う)。§4.1 の「最小は 12px」に届いていない
+// 残り2箇所のうちの1つ。もう1つは MY_DATA_SCOPE_FS。
 const BARE_ROW_STYLES = {
   numrow: { value: 19, label: 10.5, sub: 10.5 },
 };
@@ -13242,7 +13253,8 @@ const MY_DATA_EXPR_CHIP_H = 20;
 // design/canvas/S1.dc.html / Chips.dc.html(3案とも)がこの値で揃っている。
 // 【D-10a 2026/08/26 審査の指摘で直した】ここは --fs-md(15px)を当てていた。
 // 体系の7段(§4.1)に 16px は無いが、**モックが見た目の唯一の正典**(§6.0)なので正典を採る。
-// ピル(20px)と ▾(9px)の間で、記号だけが「2本の関係」を示す唯一の字なので 1px 小さいと沈む。
+// ピル(20px)と ▾(便C で 9px → 12px)の間で、記号だけが「2本の関係」を示す唯一の字。
+// **16px は据え置き**(便C が畳んだのは 12px 未満の側で、16px は §4.1 の対象外)。
 const MY_DATA_EXPR_OPERATORS = { line: "×", matrix: "ー" };
 const MY_DATA_EXPR_OP_FS = 16;
 
@@ -13957,7 +13969,7 @@ function MemoField({ value, onChange, onBlur }) {
   useEffect(() => { fit(ref.current); }, [value]);
   return (
     <label className="sans" style={{ display: "block", minHeight: "var(--tap-min)", cursor: "text" }}>
-      <span style={{ display: "block", fontSize: 10.5, color: "var(--c-ink-3)", marginBottom: 3 }}>メモ</span>
+      <span style={{ display: "block", fontSize: 12, color: "var(--c-ink-3)", marginBottom: 3 }}>メモ</span>
       <textarea
         ref={ref}
         rows={1}
@@ -14564,7 +14576,7 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
                     }} />
                   )}
                   {myDataSeriesLabel(seriesKey, day.label)}
-                  <span aria-hidden="true" style={{ fontSize: 9, color: "var(--c-line-strong)", marginLeft: 5 }}>▾</span>
+                  <span aria-hidden="true" style={{ fontSize: 12, color: "var(--c-line-strong)", marginLeft: 5 }}>▾</span>
                 </span>
               </button>
             );
@@ -14645,6 +14657,12 @@ function MyDataScopePicker({ dataSax, setDataSax, range, setRange }) {
   const rangeOptions = MY_DATA_RANGES;
   const rangeLabel = rangeOptions.find((o) => o.key === range)?.label ?? "";
   // 【D-10 §6 本人指示】文字は **10px**(本人がキャンバスで縮小した)。
+// 【便C 2026/09/15 の対象外。裁定待ち】§4.1 は「利用者の画面の最小は --fs-xs = 12px」に
+// なったが、ここは D-10 §6 の**別の本人指示**(本人が自分で縮めた)で、便C の凍結仕様の
+// 一覧にも入っていない。勝手に上げない ── 上げるなら本人の裁定が要る。
+// pitch-test の「12px 未満が MetroDiagPanel の外に0件」は**直値だけ**を数えるので、
+// 定数ごしのここは掛からない。残っているのはここと BARE_ROW_STYLES.numrow の 10.5 の2箇所で、
+// その2つだけであることを pitch-test が別に固定している。
   // この行には既に指標タブ(13px)が居るので、範囲の表示はそれより一段下げて
   // 「いま何を集計しているか」の脚注として読ませる。当たり判定は 44pt のまま(§5)。
   const MY_DATA_SCOPE_FS = 10;
@@ -14980,7 +14998,8 @@ function AnalysisLabView(props) {
             {/* 解析の進捗(ライブ録音と同じ解析パイプラインを通すため、ファイルの長さと同じだけ時間がかかる) */}
             {isAnalyzingUpload && !uploadNeedsTap && (
               <div style={{ pointerEvents: "auto", padding: "var(--sp-3) var(--sp-4)", background: "var(--c-surface)", border: "1px solid var(--c-line)", borderRadius: "var(--r-lg)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
-                {/* 【N-6】正典 mini「読み込み中」: 11px --ink3 の見出し + **3px の細い横棒** + 右に %。
+                {/* 【N-6】正典 mini「読み込み中」: --fs-xs --ink3 の見出し + **3px の細い横棒** + 右に %
+                  (正典の見出しは便C で 11px → 12px)。
                     棒の地は正典どおりヘアラインのトークン(--c-line)。8px の太い棒より静か。 */}
                 <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 8 }}>読み込み中</div>
                 <div style={{ background: "var(--c-line)", borderRadius: 2, height: 3, overflow: "hidden" }}>
@@ -15074,13 +15093,15 @@ function AnalysisLabView(props) {
               aria-expanded={filterEditorOpen}
               className="sans" style={{ ...TAP_BUTTON_RESET, minWidth: 0, minHeight: ANALYSIS_ROW_H }}
             >
-              {/* 【文字の 11px は正典が指定している】検査が design/canvas/A1.dc.html から読んで
-                  突き合わせている。§4.1 の7段(12px)と食い違うが、正典が勝つ(本人の決め)。 */}
+              {/* 【文字は正典 design/canvas/A1.dc.html が指定している】検査がそこから読んで
+                  突き合わせている。**便C 2026/09/15 で正典ごと 11px → 12px**(--fs-xs)。
+                  2026/09/08 の裁定「A」(正典が勝つ)はこの周で廃止され、
+                  「利用者の画面の最小は 12px」が答えになった(§4.1)。 */}
               <span style={{
                 display: "inline-flex", alignItems: "center", maxWidth: 160,
                 background: "var(--c-accent-tint)", border: "1px solid transparent",
                 borderRadius: "var(--r-pill)", padding: "4px 11px",
-                fontSize: 11, fontWeight: 600, color: "var(--c-accent)", lineHeight: 1.4,
+                fontSize: 12, fontWeight: 600, color: "var(--c-accent)", lineHeight: 1.4,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {pivotFilterChipText(flt, PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey))}

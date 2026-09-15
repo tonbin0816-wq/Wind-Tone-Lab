@@ -20,24 +20,47 @@
   --fs-2xl: 28px;
   --fs-hero: 46px;
 
-  /* 角丸(DESIGN-SYSTEM §2)。19値・105箇所をこの5段に畳む。
-     カード=--r-lg / カード内のブロック=--r-md / 入力欄・select=--r-xs / ピル=--r-pill。
+  /* 角丸(DESIGN-SYSTEM §2)。**3段が正**(2026/09/15 本人裁定・便C)。
+     カード・カード内のブロック=--r-2 / 入力欄・select・小ブロック=--r-1 / ピル=--r-full。
      円は 50% のまま(段には含めない)。 */
-  --r-xs: 4px;
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --r-pill: 999px;
+  --r-1: 8px;
+  --r-2: 12px;
+  --r-full: 999px;
+  /* 旧5段は**移行中の別名**。自前の値を持たず3段を指すだけなので、段を動かせば一緒に動く。
+     動いた値は2つ: --r-xs 4 → 8(入力欄・PlainSelect・B型が丸くなる)/
+     --r-lg 16 → 12(カードが角ばる)。正典 design/canvas/S1.dc.html のカードも同じ周で
+     16px → 12px へ書き換えてある(pitch-test が両方を突き合わせる)。 */
+  --r-xs: var(--r-1);
+  --r-sm: var(--r-1);
+  --r-md: var(--r-2);
+  --r-lg: var(--r-2);
+  --r-pill: var(--r-full);
 
   /* 余白(DESIGN-SYSTEM §3)。gapは既に4/6/8/10/12でほぼ揃っているので、
-     これを正としてpadding/marginも同じ段に寄せる。カード内側は --sp-4。 */
+     これを正としてpadding/marginも同じ段に寄せる。カード内側は --sp-4。
+     **5段が正**(2026/09/15 本人裁定・便C)。 */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 20px;
-  --sp-6: 24px;
-  --sp-8: 32px;
+  /* 旧名は移行中の別名(自前の値を持たない)。--sp-6 は 24 → 20、--sp-8 は 32 → 20。 */
+  --sp-6: var(--sp-5);
+  --sp-8: var(--sp-5);
+
+  /* 動きの時間(DESIGN-SYSTEM §1.11)。**3段が正**(2026/09/15 本人裁定・便C)。
+     5値(140 / 220 / 240 / 320 / 360)をここへ畳んだ。曲線と遅延(60ms)は変えていない。
+     **ループの動きは含まない** ── 順位の光(3.4s / 3.6s)・環の呼吸(1.9s / 2.6s)は
+     操作への反応ではないので段の外。帯が出ている長さ(NOTICE_MS)も「待つ長さ」なので外。 */
+  --d-fast: 120ms;
+  --d-base: 200ms;
+  --d-slow: 320ms;
+
+  /* 行間(DESIGN-SYSTEM §4.1a)。**この便ではトークンを置いただけ**で、
+     直書きの lineHeight(1.6 / 1.7 / 1.35)は1つも置き換えていない。 */
+  --lh-tight: 1.3;
+  --lh-base: 1.6;
+  --lh-loose: 1.75;
 
   /* タップ領域の最小値(DESIGN-SYSTEM §5)。見た目の大きさは変えず当たり判定だけ広げる。 */
   --tap-min: 44px;
@@ -510,7 +533,7 @@ body {
   padding-left: var(--page-pad-left);
   padding-right: var(--page-pad-right);
 }
-/* 大きいカード。角丸 16 / 内側 16 / 影は --shadow-card。 */
+/* 大きいカード。角丸 --r-lg(便C で 16 → 12)/ 内側 16 / 影は --shadow-card。 */
 .surf-card .card {
   background: var(--c-surface);
   border: 0;
@@ -599,11 +622,14 @@ body {
    直したのは3つ。**インライン style に時間・曲線・遅延を1つも書かない**(この節が唯一の持ち主)。
      (a) 描く日の更新が1フレーム遅れていた ── App.jsx 側で toggleDay が
          openDayKey と shownDayKey を**同じ更新で**書くようにした(useEffect を削除)
-     (b) 開閉を**非対称**にした。開く 320ms / 閉じる 240ms。
+     (b) 開閉を**非対称**にした。開く --d-slow / 閉じる --d-base。
          曲線 cubic-bezier(0.32, 0.72, 0, 1) は立ち上がりが速く終わりが長く効く
      (c) 中身(.day-panel-inner)も動かす。箱だけが伸びると「マスクで刈り取っている」ように
-         見えるのが硬さの正体。開くとき opacity 0→1 / translateY(-8px)→none を 220ms・**60ms 遅らせて**
-         (箱が先に開き、中身があとから収まる)、閉じるときは 140ms・遅延なし(中身が先に消える)
+         見えるのが硬さの正体。開くとき opacity 0→1 / translateY(-8px)→none を --d-base・**60ms 遅らせて**
+         (箱が先に開き、中身があとから収まる)、閉じるときは --d-fast・遅延なし(中身が先に消える)
+   【2026/09/15・便C】時間を3段のトークンへ寄せた(240 → --d-base 200 / 220 → --d-base 200 /
+   140 → --d-fast 120 / 320 は --d-slow のまま)。**生の ms をここに書かない** ──
+   §1.11 の表とトークンの二段で突き合わせる(検証33)。遅延 60ms と曲線は1つも変えていない。
    【D-11 §1(d) は実装していない。統括の判断待ち】凍結仕様は**レイヤ昇格ヒント**(高さ)と
    `contain: layout paint` も足すよう指示していたが、**当てていない**。理由は2つ:
      1. **そのヒントのプロパティはアプリ全体で禁止されている**(F-106。
@@ -621,20 +647,20 @@ body {
    Chrome 375×812 では `contain: layout paint` を当てても描画は壊れなかった(押し出し 204px を実測)。
    だが F-106 の教訓どおり**この類は Chrome で判定できない**ので、当てないほうへ倒した。 */
 .day-panel {
-  transition: height 240ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: height var(--d-base) cubic-bezier(0.32, 0.72, 0, 1);
 }
-.day-panel.is-open { transition: height 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.day-panel.is-open { transition: height var(--d-slow) cubic-bezier(0.32, 0.72, 0, 1); }
 .day-panel-inner {
   opacity: 0;
   transform: translateY(-8px);
-  transition: opacity 140ms cubic-bezier(0.32, 0.72, 0, 1),
-              transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity var(--d-fast) cubic-bezier(0.32, 0.72, 0, 1),
+              transform var(--d-fast) cubic-bezier(0.32, 0.72, 0, 1);
 }
 .day-panel.is-open .day-panel-inner {
   opacity: 1;
   transform: none;
-  transition: opacity 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms,
-              transform 220ms cubic-bezier(0.32, 0.72, 0, 1) 60ms;
+  transition: opacity var(--d-base) cubic-bezier(0.32, 0.72, 0, 1) 60ms,
+              transform var(--d-base) cubic-bezier(0.32, 0.72, 0, 1) 60ms;
 }
 /* 動きを減らす設定では **(b)(c) で足したものも含めて全部**止める。
    .day-panel-inner を opacity: 1 / transform: none に戻すのが要 ──
@@ -666,11 +692,12 @@ body {
    【時間と曲線の採り方(DESIGN-SYSTEM §1.11 の表に行を足してある)】
      ・曲線は `.day-panel` と**同じ** cubic-bezier(0.32, 0.72, 0, 1)。本人が「スムーズに
        開くようになった」と言ったのはこの曲線の感触なので、感触を運ぶ側は写す
-     ・時間は **360ms**。`.day-panel` の 320ms を**そのまま写していない** ── §1.11 の作法1 が
-       「320/240 は .day-panel 1つで採った値であって体系の作法ではない」と範囲を切っており、
-       下から出るシートは移動距離が長い(枠は 204px 前後、シートは自分の高さぶん = 数百px)。
-       ただし距離に比例させると 500ms を超えて鈍くなるので、比例はさせず**1段だけ長く**した。
-       **この 360ms は本人の実機で「スムーズ」の判定を受けていない**(実機待ち)
+     ・時間は **--d-slow**。2026/08/27 は 360ms を採っていた(`.day-panel` の 320ms を写さず
+       1段長くしたもの。下から出るシートは移動距離が長い ── 枠は 204px 前後、シートは
+       自分の高さぶん = 数百px)。**2026/09/15・便C で --d-slow(320ms)へ寄せた** ──
+       360 は3段に畳んだとき段の外へ1つだけ残る値で、「40ms 長いほうが良い」という実測が
+       1度も無かったため(§1.11「シートの時間の出どころ」)。
+       **320ms も 360ms も本人の実機で「スムーズ」の判定を受けていない**(実機待ち)
      ・**塗り(fill-mode)は付けない。** 走り終わったら transform が消えるので、静止時に
        transform を残さない(§6.3)。シートの中から開く全画面ピッカーが
        position: fixed の包含ブロックに閉じ込められる事故を作らない
@@ -684,10 +711,10 @@ body {
   to   { transform: translateY(0); }
 }
 .sheet-scrim {
-  animation: sheet-scrim-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: sheet-scrim-in var(--d-slow) cubic-bezier(0.32, 0.72, 0, 1);
 }
 .sheet-card {
-  animation: sheet-card-in 360ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: sheet-card-in var(--d-slow) cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* 動きを減らす設定では止める。**中身を戻す必要はない** ── .day-panel と違って
    静止時の姿勢(opacity: 1 / transform なし)は素の状態そのもので、
@@ -699,10 +726,9 @@ body {
 /* ------------------------------------------------------------------
    【B-0 2026-09-15 本人裁定】操作の合図の帯(App.jsx の ActionNotice)の出入りの動き。
 
-   **時間はこの1箇所だけが持つ**(App.jsx はミリ秒を1つも書かない)。
-   便C で「動きの時間」を3段のトークンにしたら、ここの 220ms を var(--d-base) に
-   差し替える ── 差し替え先が1箇所で済むように、値をローカルの変数に逃がしてある
-   (:root には置かない。:root は便C が書き換える場所)。
+   **時間の持ち主は :root の3段**(App.jsx はミリ秒を1つも書かない)。
+   便B ではローカル変数に 220ms を逃がしてあったが、**便C で var(--d-base) に差し替えた**
+   (§1.11 の表の「中身が現れる」と同じ段。出入りは「操作への反応」なので段に入る)。
    帯が**出ている長さ**(5秒)は見た目の曲線ではなく「待つ長さ」なので、
    ここではなく App.jsx の NOTICE_MS が持つ(loadProgress.js の τ と同じ理由)。
 
@@ -718,11 +744,10 @@ body {
   to   { opacity: 0; }
 }
 .action-notice {
-  --action-notice-d: 220ms;
-  animation: action-notice-in var(--action-notice-d) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: action-notice-in var(--d-base) cubic-bezier(0.32, 0.72, 0, 1);
 }
 .action-notice.is-leaving {
-  animation: action-notice-out var(--action-notice-d) cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  animation: action-notice-out var(--d-base) cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .action-notice, .action-notice.is-leaving { animation: none; }
@@ -757,7 +782,7 @@ body {
 /* ピル形が要る A型/B型だけに足す。角丸だけを差し替えるので後ろに置く */
 .ctl-pill { border-radius: var(--r-pill); }
 /* 大きな操作ブロック(録音とアップロードの対)だけに足す。相方の録音ボタンが
-   --r-lg(16px) を持つため、型の既定(--r-xs)のままだと対の角丸が割れる。
+   --r-lg を持つため、型の既定(--r-xs)のままだと対の角丸が割れる。
    .ctl-pill と同じく**角丸だけ**を差し替える(地・枠は型が持つ)。 */
 .ctl-lg { border-radius: var(--r-lg); }
 

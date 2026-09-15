@@ -817,7 +817,7 @@ ${[["19:42","自分 · Alto · Vandoren-3 #1","21.7秒"],["18:05","自分 · Alt
     const strike = state === "gone" ? " text-decoration: line-through;" : "";
     return `            <div style="min-height: 44px; display: flex; align-items: center; padding: 0 14px; font-size: 15px; background: ${bg}; color: ${col};${strike} border-radius: 8px">${label}${state === "sel" ? '<span style="margin-left: auto; font-size: 13px">✓</span>' : ""}</div>`;
   };
-  const sheet = (title, opts) => `<div style="border: 1px solid var(--c-line-strong); border-radius: 16px; padding: 12px; background: var(--c-surface)">
+  const sheet = (title, opts) => `<div style="border: 1px solid var(--c-line-strong); border-radius: 12px; padding: 12px; background: var(--c-surface)">
           <div style="font-size: 12px; font-weight: 600; color: var(--c-ink-3); padding: 0 2px 8px">${title}</div>
 ${opts.join("\n")}
         </div>`;
@@ -1028,7 +1028,7 @@ ${chap("積み重ね", "練習した日と、その量")}
 // ========================================================================
 
 const S_SHADOW = "0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06)";
-const sCard = (inner, pad = 16) => `<div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: ${pad}px">
+const sCard = (inner, pad = 16) => `<div style="background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; padding: ${pad}px">
         ${inner}
       </div>`;
 const sEyebrow = (t) => `<div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">${t}</div>`;
@@ -1294,15 +1294,21 @@ const aSubTab = `<div style="display: flex; align-items: center; gap: 0; margin-
       </div>`;
 // 【本人の手直し】「条件」→「**抽出条件**」
 const aDesc = `<div style="font-size: 12px; color: var(--c-ink-3); line-height: 1.6; padding: 0 4px 8px">抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します</div>`;
-// 【本人の手直し】チップ行 30px / 「編集」10px / 軸の行 30px / カード全体 80px
+// 【本人の手直し】チップ行 30px / 軸の行 30px / カード全体 80px
+// 【2026/09/15 本人裁定・便C / デザインブック 2-1・2-2 で書き換えた】
+//   ・チップ 11px / 「編集」10px / 軸のラベル 10px / 軸の ▾ 10px を **12px** へ
+//     (利用者の画面の最小は --fs-xs = 12px。診断パネルだけが例外)
+//   ・カードの角丸 16px を **12px** へ(--r-lg が --r-2 = 12px を指すようになった)
+//   どちらも「絵のほうを実装に追従させた」側の書き換え(§6.0 の逆向き。前例は B10 案ア)。
+//   pitch-test が A1.dc.html / S1.dc.html から読んで実装と突き合わせるので、片方だけ戻すと落ちる。
 const aChips = `<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; height: 30px">
           <span style="display: inline-flex; align-items: center; height: 30px">
-            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; font-weight: 600; color: var(--c-accent); background: var(--c-accent-tint); border-radius: 999px; line-height: 1.4">楽器 = Alto</span>
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 12px; font-weight: 600; color: var(--c-accent); background: var(--c-accent-tint); border-radius: 999px; line-height: 1.4">楽器 = Alto</span>
           </span>
           <span style="display: inline-flex; align-items: center; height: 30px">
-            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 11px; color: var(--c-ink-2); border: 1px dashed var(--c-line-strong); border-radius: 999px; line-height: 1.4">＋ 条件</span>
+            <span style="display: inline-flex; align-items: center; padding: 4px 11px; font-size: 12px; color: var(--c-ink-2); border: 1px dashed var(--c-line-strong); border-radius: 999px; line-height: 1.4">＋ 条件</span>
           </span>
-          <span style="margin-left: auto; display: inline-flex; align-items: center; height: 30px; font-size: 10px; color: var(--c-accent)">編集</span>
+          <span style="margin-left: auto; display: inline-flex; align-items: center; height: 30px; font-size: 12px; color: var(--c-accent)">編集</span>
         </div>`;
 function aChart() {
   const rows = 9, w = 347 - 32 - 44, h = 25;
@@ -1324,16 +1330,16 @@ function aChart() {
 // セルの min-width: 0 は grid の `1fr`(= minmax(auto, 1fr))の自動最小を外すためのもの。
 const aSel = (label, value) => `<div style="min-width: 0">
             <span style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: 44px; min-width: 44px">
-              <span style="font-size: 10px; color: var(--c-ink-3); letter-spacing: .02em; flex-shrink: 0">${label}</span>
+              <span style="font-size: 12px; color: var(--c-ink-3); letter-spacing: .02em; flex-shrink: 0">${label}</span>
               <span style="display: inline-flex; align-items: center; min-width: 0; max-width: 100%">
                 <span style="font-size: 12px; font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${value}</span>
-                <span style="font-size: 10px; color: var(--c-ink-3); margin-left: 4px; flex-shrink: 0">▾</span>
+                <span style="font-size: 12px; color: var(--c-ink-3); margin-left: 4px; flex-shrink: 0">▾</span>
               </span>
             </span>
           </div>`;
 {
   const inner = `${aDesc}
-      <div style="background: var(--c-surface); border-radius: 16px; box-shadow: ${S_SHADOW}; padding: 16px">
+      <div style="background: var(--c-surface); border-radius: 12px; box-shadow: ${S_SHADOW}; padding: 16px">
         ${aChips}
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px">${aSel("縦軸", "音名")}${aSel("横軸", "音程")}${aSel("分析軸", "リード")}</div>
       </div>
