@@ -2799,6 +2799,15 @@ const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした。
 // 指示どおりタップしても何も起きない。エラーモーダルはこの集合だけをタブで出し分ける。
 // アップロード由来のエラー(無音ファイル等)はここに入れない=データタブでも出る。
 const ERROR_MEASURE_ONLY = [MIC_RECOVER_FAILED_MSG];
+// 【A-5 / T5 2026-09-15 本人裁定】マイクの許可が下りていないときの案内。
+// errorMsg は**文字列1本**の state なので、他のエラーと同じ器に入れたまま
+// 「この綴りのときだけ3行構成で描く」という形で構造を持たせる(描画側の判定は
+// この定数との一致だけ。ERROR_MEASURE_ONLY の仕組みには手を入れていない)。
+// 見出しの文だけを state に置き、本文と操作は描画側が持つ ── 文字列の中に
+// 改行や印を詰め込むと、他のエラーと同じ経路を通るたびに崩れる。
+const MIC_DENIED_MSG = "マイクの使用が許可されていません";
+// 本文。**アプリとして配る前提の経路**を書く(本人裁定)。Safari の経路は書かない。
+const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
 
 // iOSはマイク使用中、既定でオーディオ出力を受話口(小音量)側に回すため、メトロノームが極端に
 // 小さく聞こえる。setSinkId は iOS Safari 未実装、AVAudioSessionCategoryOptionDefaultToSpeaker は
@@ -3745,7 +3754,7 @@ export default function WindToneLabPhaseMode() {
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       console.error("getUserMedia failed:", err.name, err.message, err);
-      setErrorMsg("マイクにアクセスできませんでした");
+      setErrorMsg(MIC_DENIED_MSG);
       setIsListening(false);
       return false;
     }
@@ -4160,6 +4169,25 @@ export default function WindToneLabPhaseMode() {
         >
           <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
+            {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に
+                「どうすれば直るか」と「もう一度試す」を足す。他のエラーは従来どおり1行。
+                【stopPropagation を書かないこと】この器は暗幕・カードのどちらを押しても
+                document までタップが伝播する前提で作られている(上のコメント参照)。
+                この再試行ボタンも伝播を止めない ── 押すと startListening が走り、
+                同じタップが親の onClick で errorMsg を閉じる。 */}
+            {errorMsg === MIC_DENIED_MSG && (
+              <>
+                <div className="sans" style={{ marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>{MIC_DENIED_HOWTO}</div>
+                {/* B型 = .ctl-plain + .ctl-pill */}
+                <button
+                  onClick={() => { startListening(); }}
+                  className="sans ctl-plain ctl-pill"
+                  style={{ marginTop: "var(--sp-3)", width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+                >
+                  もう一度試す
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -7854,6 +7882,12 @@ function MeasureView(props) {
             <PickChevron />
           </label>
         </div>
+        {/* 【A-4 / R7 2026-09-15 本人裁定】個体の <select> が押せない理由を枠の直下に書く。
+            **箱が未選択のときだけ。** 録音中の disabled には出さない ── 録音中であることは
+            環が既に言っており、ここで二重に言うと録音中ずっと文字が1行増える。 */}
+        {!selectedBoxGroup && (
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>箱を選ぶとリードを選べます</div>
+        )}
         </div>
         {/* メトロノーム(タップでパネルの開閉のみ。実際の音はパネル内のSTART/STOPで制御)。
             【N-4a】右端に移し、**2行ぶんの高さ**にする(本人指示)。
@@ -8533,13 +8567,13 @@ function MeasureView(props) {
           <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>この録音を保存しますか？</div>
             <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
-              {/* B型 = .ctl-plain + .ctl-pill。取り直しは状態を持たない普通のボタン */}
+              {/* B型 = .ctl-plain + .ctl-pill。取り直すは状態を持たない普通のボタン */}
               <button
                 onClick={discardPendingSession}
                 className="sans ctl-plain ctl-pill"
                 style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
               >
-                取り直し
+                取り直す
               </button>
               <button
                 onClick={registerPendingSession}
@@ -9421,13 +9455,24 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, tapMin, fl
               </button>
             ))}
           </div>
+          {/* 【A-1 / F1 2026-09-15 本人裁定】placeholder をラベルにしない。
+              入れ始めた瞬間に消える文字は「何の欄か」を担えない(入力中に確かめられない)。
+              ラベルの見た目はコミュニティの Field のラベルと同じ(--fs-xs / --c-ink-2 / 600 /
+              .jp-label の letter-spacing .02em)。読み上げ用に aria-label を input 側へ残す。 */}
+          <div className="sans jp-label" style={{ marginTop: "var(--sp-3)", fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 }}>目安の名前</div>
           <input
-            type="text" placeholder="目安の名前" value={name}
+            type="text" value={name}
+            aria-label="目安の名前"
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
             className="sans"
-            style={{ width: "100%", marginTop: "var(--sp-3)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-md)" }}
+            style={{ width: "100%", marginTop: "var(--sp-1)", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-md)" }}
           />
+          {/* 【A-4 / R7 2026-09-15 本人裁定】押せない理由を、押せないボタンの側ではなく
+              **直せる場所の隣**に置く。名前を入れたら消える。ボタンの語は変えない。 */}
+          {!name.trim() && (
+            <div className="sans" style={{ marginTop: "var(--sp-1)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>名前を入れると保存できます</div>
+          )}
           <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
             {/* B型 = .ctl-plain + .ctl-pill。キャンセルは状態を持たない普通のボタン */}
             <button
@@ -14867,18 +14912,29 @@ function AnalysisLabView(props) {
                           />
                         </div>
                       ) : dim?.filterKind === "numberRange" ? (
-                        <div className="sans" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--c-ink-2)" }}>
-                          <input
-                            type="number" min={1} placeholder="最小" value={flt.rangeMin ?? ""}
-                            onChange={(e) => updateFilter({ rangeMin: e.target.value === "" ? null : Number(e.target.value) })}
-                            style={{ width: 64 }}
-                          />
+                        /* 【A-1 / F1 2026-09-15 本人裁定】placeholder の「最小」「最大」を
+                           入力欄の**外**(直上)へ出す。入れ始めた瞬間に消える文字では、
+                           どちらの欄に何を入れたのかを入力中に確かめられない。
+                           「日目」の語はそのまま。行は flex-end に変え、ラベルのぶん背が
+                           伸びても「日目 〜」が入力欄と同じ高さに並ぶようにする。 */
+                        <div className="sans" style={{ display: "flex", alignItems: "flex-end", gap: 6, fontSize: 12, color: "var(--c-ink-2)" }}>
+                          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+                            <span className="jp-label" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>最小</span>
+                            <input
+                              type="number" min={1} aria-label="最小" value={flt.rangeMin ?? ""}
+                              onChange={(e) => updateFilter({ rangeMin: e.target.value === "" ? null : Number(e.target.value) })}
+                              style={{ width: 64 }}
+                            />
+                          </span>
                           <span>日目 〜</span>
-                          <input
-                            type="number" min={1} placeholder="最大" value={flt.rangeMax ?? ""}
-                            onChange={(e) => updateFilter({ rangeMax: e.target.value === "" ? null : Number(e.target.value) })}
-                            style={{ width: 64 }}
-                          />
+                          <span style={{ display: "inline-flex", flexDirection: "column", gap: 2 }}>
+                            <span className="jp-label" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>最大</span>
+                            <input
+                              type="number" min={1} aria-label="最大" value={flt.rangeMax ?? ""}
+                              onChange={(e) => updateFilter({ rangeMax: e.target.value === "" ? null : Number(e.target.value) })}
+                              style={{ width: 64 }}
+                            />
+                          </span>
                           <span>日目</span>
                         </div>
                       ) : (

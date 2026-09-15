@@ -21669,6 +21669,218 @@ console.log("\n========== 検証44: D-26 光からマスクを外す / 明るさ
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証45: 便A(デザインブック採用分) ── 文言と補助文
+//
+// 出どころ: docs/superpowers/plans/2026-09-15-designbook-adoption.md 便A
+// (F1 / F7 / F3・F4 / R7 / T5 / T2・T3。2026-09-14〜15 本人裁定)。
+//
+// **ここで守れること**: 綴りが在る/無いこと、条件の付き方(どの state のときに出るか)、
+// 部品が1つであること。**守れないこと**: 実際の見え方・折り返し・行間。
+// それは本人の目と実機だけが判る(Chrome の実測を実機の証拠にしない)。
+//
+// 【綴りを数える検査はコメントを剥がしてから】この節は全部 codeOf() を通してから見る。
+// 「〜を消した」という記録をコメントに残すと、剥がさない検査は素通りする(罠3)。
+// ============================================================
+console.log("\n========== 検証45: 便A 文言と補助文 ==========");
+{
+  const appCode = codeOf(src);
+  const commSrc = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const commCode = codeOf(commSrc);
+  const screensSrc = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const screensCode = codeOf(screensSrc);
+  const countOf = (hay, needle) => hay.split(needle).length - 1;
+
+  // --- A-1 / F1: ラベルを placeholder の外へ -------------------------------
+  // placeholder は入れ始めた瞬間に消えるので「何の欄か」を担えない。
+  for (const ph of ["目安の名前", "最小", "最大"]) {
+    check(`45 A-1 placeholder="${ph}" は残っていない`,
+      countOf(appCode, `placeholder="${ph}"`) === 0,
+      `${countOf(appCode, `placeholder="${ph}"`)}件`);
+  }
+  // 【消しただけでは不合格】読み上げの名前まで消えると、目で読める人だけの改善になる。
+  check("45 A-1 目安の名前は aria-label で読み上げ名を保つ",
+    /aria-label="目安の名前"/.test(appCode));
+  check("45 A-1 最小・最大も aria-label で読み上げ名を保つ",
+    /aria-label="最小"/.test(appCode) && /aria-label="最大"/.test(appCode));
+  // ラベルは input の**直上**。綴りが在るだけでは「どこかに在る」しか言えないので、
+  // 目安の名前は「ラベルの div → input」の順に並ぶことまで見る。
+  check("45 A-1 目安の名前のラベルは input の直上に在る",
+    />目安の名前<\/div>\s*<input/.test(appCode),
+    (/>目安の名前<\/div>[\s\S]{0,40}/.exec(appCode) || [""])[0].replace(/\s+/g, " ").slice(0, 60));
+  check("45 A-1 最小・最大のラベルも入力欄の直上に在る",
+    />最小<\/span>\s*<input/.test(appCode) && />最大<\/span>\s*<input/.test(appCode));
+  check("45 A-1 「日目」の語は残っている(単位を落としていない)",
+    countOf(appCode, "日目") >= 2, `${countOf(appCode, "日目")}件`);
+
+  // --- A-2 / F7: ボタンの語 -----------------------------------------------
+  check("45 A-2 「取り直し」は残っていない", countOf(appCode, "取り直し") === 0,
+    `${countOf(appCode, "取り直し")}件`);
+  check("45 A-2 「取り直す」が在る", countOf(appCode, "取り直す") === 1,
+    `${countOf(appCode, "取り直す")}件`);
+  // 【本人裁定で変えない語】ここが動いたら裁定違反。
+  check("45 A-2 保存の確認の「登録」は変えていない", /\n\s*登録\n/.test(appCode));
+  check("45 A-2 目安に設定の「保存」「キャンセル」は変えていない",
+    /\n\s*保存\n/.test(appCode) && /\n\s*キャンセル\n/.test(appCode));
+  check("45 A-2 初回作成のボタンは「プロフィールを作る」",
+    /busy \? "保存中…" : \(initial \? "保存" : "プロフィールを作る"\)/.test(commCode),
+    (/busy \? "保存中…"[^\n]*/.exec(commCode) || [""])[0]);
+
+  // --- A-3 / F3・F4: ニックネームの欄 --------------------------------------
+  // 欄が**保存時と同じ判定**を呼ぶこと。欄が独自の規則を持つと、
+  // 欄は何も言わないのに保存だけ弾かれる画面ができる。
+  check("45 A-3 CommunityTab が validateNickname を読み込んでいる",
+    /import \{[^}]*validateNickname[^}]*\} from "\.\/profile\.js"/.test(commCode));
+  check("45 A-3 入力の値そのものを validateNickname に通している",
+    /validateNickname\(nickname\)\.error/.test(commCode));
+  check("45 A-3 空欄では赤を出さない(長さ0のときは null)",
+    /nickname\.length === 0 \? null : \(validateNickname\(nickname\)\.error/.test(commCode),
+    (/const nickError[^\n]*/.exec(commCode) || [""])[0]);
+  check("45 A-3 判定の結果を欄の直下に描いている",
+    /\{nickError \? <div className="sans" style=\{fieldErrorStyle\}>\{nickError\}<\/div> : null\}/.test(commCode));
+  check("45 A-3 赤文字は --fs-xs / --c-danger",
+    /const fieldErrorStyle = \{ fontSize: "var\(--fs-xs\)", color: "var\(--c-danger\)"/.test(commCode));
+  check("45 A-3 エラー中の input は危険色の内枠を持つ",
+    /boxShadow: "inset 0 0 0 1px var\(--c-danger\)"/.test(commCode));
+  // 補助文は2つだけ。規則(記号・絵文字・文字数)を先に読ませない。
+  check("45 A-3 補助文に「記号」「絵文字」「20文字まで」を書かない",
+    countOf(commCode, "記号") === 0 && countOf(commCode, "絵文字") === 0
+    && countOf(commCode, "20文字まで") === 0,
+    `記号${countOf(commCode, "記号")} / 絵文字${countOf(commCode, "絵文字")} / 20文字まで${countOf(commCode, "20文字まで")}`);
+  check("45 A-3 補助文は「公開されます」の1文 + 「n / 20」",
+    /ニックネームは他の利用者に公開されます/.test(commCode)
+    && /\{nickLength\} \/ 20/.test(commCode));
+  // 数え方は profile.js と同じコードポイント。UTF-16 の .length で数えると
+  // 絵文字1つが 2 と数えられ、欄の数字と保存の判定が食い違う。
+  check("45 A-3 n の数え方はコードポイント([...value].length)",
+    /const nickLength = \[\.\.\.nickname\]\.length;/.test(commCode));
+  check("45 A-3 n / 20 は等幅数字", /fontVariantNumeric: "tabular-nums"/.test(commCode));
+  // 下のまとめの error は残す。ただしニックネーム由来は二重に出さない。
+  check("45 A-3 画面下のまとめ(error)は残っている",
+    /\{error \? <div className="sans" role="alert" style=\{errorStyle\}>\{error\}<\/div> : null\}/.test(commCode));
+  check("45 A-3 ニックネーム由来のエラーは下に重ねない",
+    /setError\(nickError && msg === nickError \? null : msg\);/.test(commCode),
+    (/setError\([^\n]*/.exec(commCode) || [""])[0]);
+
+  // --- A-4 / R7: 押せない理由 ----------------------------------------------
+  // 理由は「押せないボタン」ではなく**直せる場所の隣**に置く。
+  check("45 A-4 リード枠の直下に「箱を選ぶとリードを選べます」",
+    countOf(appCode, "箱を選ぶとリードを選べます") === 1,
+    `${countOf(appCode, "箱を選ぶとリードを選べます")}件`);
+  {
+    // 【録音中には出さない】環が「録音中」を既に言っている。ここで二重に言うと
+    // 録音中ずっと1行増え、上部設定行の高さが動いて環が下がる。
+    //
+    // 【条件式そのものを取り出す】「綴りの近くに isRecording が無い」という書き方だと、
+    // 条件を `(isRecording || !selectedBoxGroup)` に変える変異で **isRecording を含む形が
+    // できているのに素通りする**(実際に変異試験でそうなった)。
+    // 出し先の div を錨にして、それを包む条件式を捕まえ、**式の中身で**突き合わせる。
+    const m = /\{([^{}\n]*?)&& \(\n\s*<div className="sans"[^\n]*>箱を選ぶとリードを選べます<\/div>/.exec(appCode);
+    const guardExpr = m ? m[1].trim() : "";
+    check("45 A-4 出す条件は「箱が未選択」だけ",
+      guardExpr === "!selectedBoxGroup", `条件式: ${guardExpr || "(取り出せない)"}`);
+    check("45 A-4 録音中の disabled には出さない(条件に isRecording を入れない)",
+      guardExpr.length > 0 && !/isRecording/.test(guardExpr),
+      `条件式: ${guardExpr || "(取り出せない)"}`);
+  }
+  check("45 A-4 目安の名前の直下に「名前を入れると保存できます」",
+    countOf(appCode, "名前を入れると保存できます") === 1,
+    `${countOf(appCode, "名前を入れると保存できます")}件`);
+  {
+    const at = appCode.indexOf("名前を入れると保存できます");
+    const guard = at > 0 ? appCode.slice(Math.max(0, at - 220), at) : "";
+    check("45 A-4 名前の案内は空のときだけ出す(入れたら消える)",
+      /\{!name\.trim\(\) && \(/.test(guard), guard.replace(/\s+/g, " ").slice(-90));
+  }
+
+  // --- A-5 / T5: マイクの案内 ----------------------------------------------
+  check("45 A-5 「マイクにアクセスできませんでした」は残っていない",
+    countOf(appCode, "マイクにアクセスできませんでした") === 0,
+    `${countOf(appCode, "マイクにアクセスできませんでした")}件`);
+  check("45 A-5 見出しは「マイクの使用が許可されていません」",
+    /const MIC_DENIED_MSG = "マイクの使用が許可されていません";/.test(appCode));
+  check("45 A-5 本文は設定の経路(Safari の経路は書かない)",
+    /const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";/.test(appCode)
+    && countOf(appCode, "Safari") === 0);
+  check("45 A-5 getUserMedia の失敗は定数キーで置く(綴りの直書きをしない)",
+    /setErrorMsg\(MIC_DENIED_MSG\);/.test(appCode));
+  {
+    // 3行構成は**このキーのときだけ**。他のエラーは従来どおり1行。
+    const at = appCode.indexOf("{errorMsg === MIC_DENIED_MSG && (");
+    const seg = at > 0 ? appCode.slice(at, at + 1100) : "";
+    check("45 A-5 3行構成はマイク拒否のキーのときだけ描く", seg.length > 0);
+    check("45 A-5 2行目に MIC_DENIED_HOWTO を描く", /\{MIC_DENIED_HOWTO\}/.test(seg));
+    check("45 A-5 3行目は「もう一度試す」", /もう一度試す/.test(seg));
+    check("45 A-5 「もう一度試す」は startListening を呼ぶ",
+      /onClick=\{\(\) => \{ startListening\(\); \}\}/.test(seg),
+      (/onClick=\{[^\n]*/.exec(seg) || [""])[0]);
+    check("45 A-5 B型ピル(.ctl-plain .ctl-pill)で描く",
+      /className="sans ctl-plain ctl-pill"/.test(seg));
+    // 【この器の前提を壊さない】暗幕もカードも document までタップを通す作りなので、
+    // 中に足したボタンが伝播を止めるとマイク復旧のジェスチャー経路が死ぬ。
+    check("45 A-5 再試行ボタンは伝播を止めない(stopPropagation を書かない)",
+      seg.length > 0 && !/stopPropagation/.test(seg));
+  }
+  // ERROR_MEASURE_ONLY の仕組みは触っていない(他のタブの出し分けを変えない)。
+  check("45 A-5 ERROR_MEASURE_ONLY は MIC_RECOVER_FAILED_MSG のまま",
+    /const ERROR_MEASURE_ONLY = \[MIC_RECOVER_FAILED_MSG\];/.test(appCode));
+
+  // --- A-6 / T2・T3: コミュニティの0件 -------------------------------------
+  // **部品は1つ。** 3画面に写しを作ると、同じ0件が3通りの挙動をする画面ができる。
+  check("45 A-6 Empty は1つだけ定義されている",
+    countOf(screensCode, "function Empty(") === 1,
+    `${countOf(screensCode, "function Empty(")}件`);
+  check("45 A-6 Empty が onClear を受け取る",
+    /function Empty\(\{ children, onClear = null \}\)/.test(screensCode));
+  check("45 A-6 「条件を外す」の綴りは Empty の中に1つだけ",
+    countOf(screensCode, "条件を外す") === 1,
+    `${countOf(screensCode, "条件を外す")}件`);
+  {
+    const at = screensCode.indexOf("function Empty(");
+    const seg = at >= 0 ? screensCode.slice(at, at + 900) : "";
+    check("45 A-6 「条件を外す」は onClear を押し先に持つ",
+      /onClick=\{onClear\}[\s\S]{0,400}条件を外す/.test(seg),
+      seg.replace(/\s+/g, " ").slice(0, 120));
+    check("45 A-6 onClear が無いときはボタンごと描かない",
+      /\{onClear \? \(/.test(seg) && /\) : null\}/.test(seg));
+    check("45 A-6 B型ピル(.ctl-plain .ctl-pill)で描く",
+      /className="sans ctl-plain ctl-pill"/.test(seg));
+  }
+  // 3画面とも渡していること。**渡し方は三項**で、絞り込み中でなければ null。
+  check("45 A-6 3画面とも Empty に onClear を渡している",
+    countOf(screensCode, "<Empty onClear=") === 3,
+    `${countOf(screensCode, "<Empty onClear=")}件`);
+  check("45 A-6 順位の画面: 絞り込み中でなければ onClear は null",
+    /<Empty onClear=\{isFiltered\(filter\) \? \(\) => setFilter\(EMPTY_FILTER\) : null\}>/.test(screensCode));
+  check("45 A-6 シェア・データの画面: 楽器は絞り込みに数えない",
+    countOf(screensCode, '<Empty onClear={isFilteredBy(filter, ["genre", "position"])') === 2,
+    `${countOf(screensCode, '<Empty onClear={isFilteredBy(filter, ["genre", "position"])')}件`);
+  check("45 A-6 戻す先の楽器はその画面の既定(ANY を入れない)",
+    countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }') === 4,
+    `${countOf(screensCode, '{ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }')}件`);
+  // 条件名を文に入れる。「この条件」としか言えない文は、何を外せばよいかを言っていない。
+  check("45 A-6 条件名を組み立てる綴りは1つ(filterTerms)",
+    countOf(screensCode, "function filterTerms(") === 1
+    && countOf(screensCode, "${filterTerms(filter,") === 3,
+    `定義${countOf(screensCode, "function filterTerms(")} / 呼び${countOf(screensCode, "${filterTerms(filter,")}件`);
+  // 【`.join(" × ")` を素で数えない】シェアの組み合わせの見出し(COMBO_SLOTS)が
+  // 同じ綴りを1つ持っている。0件の文の側だけを数えるため「で、」まで含めて見る。
+  check("45 A-6 条件名は「 × 」でつなぐ",
+    countOf(screensCode, '.join(" × ")}で、') === 3,
+    `${countOf(screensCode, '.join(" × ")}で、')}件`);
+  check("45 A-6 数えない鍵は渡さない(シェア・データは genre と position だけ)",
+    countOf(screensCode, 'filterTerms(filter, ["genre", "position"])') === 2
+    && countOf(screensCode, 'filterTerms(filter, ["saxType", "genre", "position"])') === 1);
+  check("45 A-6 絞り込み中でない0件の文は現行のまま",
+    /`\$\{PERIOD_LABEL\[period\]\}に練習した人がまだいません`/.test(screensCode)
+    && /"公開されている目安がまだありません"/.test(screensCode));
+  check("45 A-6 「この条件」としか言わない文は残っていない",
+    countOf(screensCode, "この条件に合う人がまだいません") === 0
+    && countOf(screensCode, "この条件に合う目安がまだありません") === 0
+    && countOf(screensCode, "この条件で ") === 0);
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

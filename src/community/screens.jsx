@@ -187,8 +187,39 @@ function CapNotice({ count }) {
   );
 }
 
-function Empty({ children }) {
-  return <div className="sans" style={{ ...noteStyle, padding: "var(--sp-4) 0", textAlign: "center" }}>{children}</div>;
+// 【A-6 / T2・T3 2026-09-15 本人裁定】0件の知らせ。
+// **絞り込み中の0件だけ** onClear を受け取り、「条件を外す」を出す。
+// 3画面が同じこの1つを使う(写しを作らない)。onClear を渡さない呼び手の見た目は
+// 1px も変わらない ── ボタンごと描かれないため。
+function Empty({ children, onClear = null }) {
+  return (
+    <div className="sans" style={{ ...noteStyle, padding: "var(--sp-4) 0", textAlign: "center" }}>
+      <div>{children}</div>
+      {onClear ? (
+        /* B型 = .ctl-plain + .ctl-pill。押しても何も壊れないので危険色は持たない */
+        <button type="button" onClick={onClear} className="sans ctl-plain ctl-pill"
+                style={{ marginTop: "var(--sp-3)", minHeight: "var(--tap-min)", padding: "0 var(--sp-4)",
+                         color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}>
+          条件を外す
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// 【条件名を文に入れるための綴り】0件の文が「この条件」としか言えないと、
+// 何を外せばよいのかが画面から読めない。**数える鍵だけ**を渡すこと ──
+// 楽器ピルに「すべて」が無い画面(シェア・データ)で saxType を数えると、
+// 常に「絞り込み中」になって「まだ誰もいない」と言い分けられなくなる。
+const FILTER_TERM_OF = {
+  saxType: (v) => SAX_LABELS[v] ?? v,
+  genre: (v) => v,
+  position: (v) => v,
+};
+function filterTerms(filter, keys) {
+  return keys
+    .filter((k) => (filter?.[k] ?? ANY) !== ANY)
+    .map((k) => FILTER_TERM_OF[k](filter[k]));
 }
 
 // 公開ユーザーを1度だけ読んで使い回す。
@@ -416,9 +447,9 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
       </div>
 
       {ranked.length === 0 ? (
-        <Empty>
+        <Empty onClear={isFiltered(filter) ? () => setFilter(EMPTY_FILTER) : null}>
           {isFiltered(filter)
-            ? "この条件に合う人がまだいません"
+            ? `${filterTerms(filter, ["saxType", "genre", "position"]).join(" × ")}で、${PERIOD_LABEL[period]}に練習した人はまだいません`
             : `${PERIOD_LABEL[period]}に練習した人がまだいません`}
         </Empty>
       ) : (
@@ -615,7 +646,17 @@ export function ShareScreen({ users, saxTypes }) {
       <FilterRow value={filter} onChange={(v) => { setFilter(v); setDrill(null); setShowRest(false); }} saxAny={false} />
 
       {gear.total === 0 ? (
-        <Empty>この条件で {SAX_LABELS[saxType]} を吹く人がまだいません</Empty>
+        /* 【楽器種別は絞り込みに数えない】この画面の楽器ピルには「すべて」が無く、常に1つ
+           選ばれている(データ画面と同じ規則)。数えると必ず「絞り込み中」になる。
+           「条件を外す」で戻す先も、楽器だけはこの画面の既定(saxTypes[0])に置く ──
+           ANY はこのピルの選択肢に無いので、入れると値の無いピルができる。 */
+        <Empty onClear={isFilteredBy(filter, ["genre", "position"])
+                          ? () => { setFilter({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }); setDrill(null); setShowRest(false); }
+                          : null}>
+          {isFilteredBy(filter, ["genre", "position"])
+            ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、${SAX_LABELS[saxType]} を吹く人はまだいません`
+            : `${SAX_LABELS[saxType]} を吹く人がまだいません`}
+        </Empty>
       ) : (
         <>
           <div className="card">
@@ -929,7 +970,13 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           常に1つ選ばれている。数えると必ず「絞り込み中」になり、
           「まだ誰もいない」のか「条件で外れた」のかを言い分けられなくなる。 */}
       {pairs.length === 0 ? (
-        <Empty>{isFilteredBy(filter, ["genre", "position"]) ? "この条件に合う目安がまだありません" : "公開されている目安がまだありません"}</Empty>
+        <Empty onClear={isFilteredBy(filter, ["genre", "position"])
+                          ? () => setFilter({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" })
+                          : null}>
+          {isFilteredBy(filter, ["genre", "position"])
+            ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、公開されている目安はまだありません`
+            : "公開されている目安がまだありません"}
+        </Empty>
       ) : (
         <div className="card card-list">
           {pairs.map(({ ideal, owner }, i, arr) => (

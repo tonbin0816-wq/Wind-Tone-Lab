@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { buildProfileDoc, validateNickname, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
@@ -466,6 +466,9 @@ const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeig
 // 新しい寸法・色は作らない(--fs-sm と --c-ink はどちらも既存のトークン)。
 const gearHeadingStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", fontWeight: 700 };
 const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHeight: 1.6 };
+// 【A-3 / F3・F4 2026-09-15 本人裁定】**欄の直下**に出す赤文字。画面下のまとめ(errorStyle)より
+// 1段小さい --fs-xs ── 添え物であって、画面の主張ではないため。
+const fieldErrorStyle = { fontSize: "var(--fs-xs)", color: "var(--c-danger)", lineHeight: 1.6 };
 const controlStyle = { width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)" };
 
 // 主要動作(参加する・保存する)。B型 = 枠なし + 塗り。
@@ -866,6 +869,12 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 
   const toggle = (list, setList) => (v) => setList(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 
+  // 【A-3】入力のたびに**保存時と同じ判定**(validateNickname)を通す。
+  // 判定を2つ持たない ── 欄が独自の規則を持つと、欄は緑なのに保存だけ弾かれる画面ができる。
+  // 空欄は「まだ入れていない」であって誤りではないので、赤を出さない。
+  const nickLength = [...nickname].length;
+  const nickError = nickname.length === 0 ? null : (validateNickname(nickname).error ?? null);
+
   // 【外したら楽器の組の入力状態も捨てる】キーを消すことが「種別を外す」ことそのものなので、
   // 入力状態が取り残される経路が無い(残ると gear のキーが saxTypes より多くなり、
   // buildProfileDoc と Firestore ルールの「完全一致」に弾かれて保存できなくなる。
@@ -905,7 +914,10 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         })),
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
-      setError(msg);
+      // 【A-3】ニックネーム由来のエラーは**欄の直下に既に出ている**ので下に重ねない。
+      // 空欄のときは欄に赤が出ていない(nickError が null)ので、その場合は下に出す
+      // ── でないと「押しても何も起きない」になる。
+      setError(nickError && msg === nickError ? null : msg);
     } catch (e) {
       console.error("[community] プロフィールの保存に失敗", e?.code, e);
       setError(saveErrorOf(e));
@@ -918,13 +930,28 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>{initial ? "プロフィールを編集" : "プロフィールを作る"}</div>
 
-      <Field label="ニックネーム" note="ニックネームは他の利用者に公開されます">
+      {/* 【A-3 / F3・F4 2026-09-15 本人裁定】補助文は「公開される」の1文だけ。
+          文字数・使える文字の規則を先に読ませない ── 規則は**破ったときに**言えばよい。
+          右端の「n / 20」は数え方を validateNickname と揃える(コードポイント)。
+          赤は欄の直下に出し、空欄のときは出さない(まだ何も入れていない人に赤を見せない)。 */}
+      <Field
+        label="ニックネーム"
+        note={(
+          <span style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+            <span>ニックネームは他の利用者に公開されます</span>
+            <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--c-ink-3)", flexShrink: 0 }}>{nickLength} / 20</span>
+          </span>
+        )}
+      >
         <input
           type="text" value={nickname} maxLength={20}
           onChange={(e) => setNickname(e.target.value)}
           aria-label="ニックネーム"
-          className="sans" style={controlStyle}
+          aria-invalid={nickError ? true : undefined}
+          className="sans"
+          style={nickError ? { ...controlStyle, boxShadow: "inset 0 0 0 1px var(--c-danger)" } : controlStyle}
         />
+        {nickError ? <div className="sans" style={fieldErrorStyle}>{nickError}</div> : null}
       </Field>
 
       <Field label="アイコン">
@@ -1012,7 +1039,13 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 
       <button type="button" onClick={submit} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
-        {busy ? "保存中…" : "作成"}
+        {/* 【A-2 / F7 2026-09-15 本人裁定】ボタンの語は**押した先で起きること**。
+            「作成」は何が作られるのかを言っていない。
+            【この部品は編集でも使われている】initial があるときは同じボタンが
+            「プロフィールを編集」の画面に出る(見出しの分岐と同じ initial)。
+            裁定は**初回作成の語だけ**なので、編集側は busy の「保存中…」と揃えて「保存」。
+            F7 の対象ではないので語を発明せず、既にこのボタンが名乗っている語を使う。 */}
+        {busy ? "保存中…" : (initial ? "保存" : "プロフィールを作る")}
       </button>
       {onCancel ? (
         <button type="button" onClick={onCancel} disabled={busy} className="sans" style={secondaryButtonStyle}>
