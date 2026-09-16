@@ -5,7 +5,7 @@
 //   2. 正しい音名が表示されるか(全サックス種別×全音×基準Hz438-444で記音ラベル一致)
 //   3. これまでの音(グラフ)にも同じ値が反映されるか(メーター¢とグラフ¢の完全一致)
 // 使い方: node scripts/pitch-test.mjs
-import { readFileSync as _readFileSyncRaw } from "fs";
+import { readFileSync as _readFileSyncRaw, readdirSync } from "fs";
 
 // 【改行コードの正規化 2026-09-02】
 // この検査は App.jsx などをテキストとして読み、"\n}\n" のような目印で関数の範囲を
@@ -29,7 +29,11 @@ import { dirname, join } from "path";
 import { renderClick, renderBefore, peakOf, energyOf, mulberry32 } from "./metro-click-makeup.mjs";
 import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-before.mjs";
 // 目安を自分の平均へ揃える純関数。App.jsx が使うのと同じ実装を検査でも使う。
-import { alignIdealToMine } from "../src/community/align.js";
+import { alignIdealToMine, cohortAverage, alignProfile } from "../src/community/align.js";
+// 【便H(C2〜C9)2026-09-16】練習時間の公開統計と順位。実装そのものを import して実行で確かめる。
+import { computePracticeStats, validateStats, STATS_MAX, STATS_KEYS, STATS_REQUIRED_KEYS, STATS_SEC_KEYS, PERIOD_PHRASE, PERIOD_FIELD_SEC, PERIODS } from "../src/community/stats.js";
+import * as aggregate from "../src/community/aggregate.js";
+const { rankByPractice } = aggregate;
 // 【便G(D1)2026-09-16】練習時間(音を感知していた時間)。実装そのものを import して実行で確かめる。
 import { sessionSoundingSec, frameIntervalSec, isSoundingFrame } from "../src/soundingSec.js";
 // 【R6 2026-09-16 本人裁定③】リードの銘柄・型番の正はコミュニティのカタログ。
@@ -22150,9 +22154,11 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
   check("45 A-6 数えない鍵は渡さない(シェア・データは genre と position だけ)",
     countOf(screensCode, 'filterTerms(filter, ["genre", "position"])') === 2
     && countOf(screensCode, 'filterTerms(filter, ["saxType", "genre", "position"])') === 1);
-  check("45 A-6 絞り込み中でない0件の文は現行のまま",
-    /`\$\{PERIOD_LABEL\[period\]\}に練習した人がまだいません`/.test(screensCode)
-    && /"公開されている目安がまだありません"/.test(screensCode));
+  // 【便H 2026-09-16 で綴りが動いた】C5・C6: 期間は助詞込みの PERIOD_PHRASE(「すべてに」→「すべての期間で」)。
+  // C4:「公開されている目安」→「公開されているデータ」。検証52 が綴りそのものを縛る。
+  check("45 A-6 絞り込み中でない0件の文は現行のまま(便H の綴り)",
+    /`\$\{PERIOD_PHRASE\[period\]\}練習した人がまだいません`/.test(screensCode)
+    && /"公開されているデータがまだありません"/.test(screensCode));
   check("45 A-6 「この条件」としか言わない文は残っていない",
     countOf(screensCode, "この条件に合う人がまだいません") === 0
     && countOf(screensCode, "この条件に合う目安がまだありません") === 0
@@ -23072,8 +23078,9 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
       check("49.7 R9 戻るは定数の見た目を上書きしない(地・枠・色・大きさを書き戻す戻るが0件)",
         over.length === 0, over.map((x) => `${x.name}:${x.sp.trim()}`).join(" | ") || "0件");
     }
+    // 【便H(C9)2026-09-16】順位の子タブで SubTabs も同じ行から import するようになった。
     check("49.7 R9 コミュニティ側は App.jsx から import して読む(写しを作らない)",
-      /import \{ BACK_BUTTON_STYLE, BottomSheet \} from "\.\.\/App\.jsx";/.test(screens49)
+      /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs \} from "\.\.\/App\.jsx";/.test(screens49)
       && (codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length === 3,
       `${(codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length}箇所`);
     // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)
@@ -23725,6 +23732,360 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       `${countIn(gen51, /sIdealCard\(\)/g)}箇所`);
     check("51.4 D4 DESIGN-SYSTEM に目安のカード(My Data の最後)と練習時間の定義が書いてある",
       /目安のカード（便G D4/.test(ds51) && /累計の時間は「練習時間」/.test(ds51));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証52: 便H コミュニティ(C1〜C12)── 2026-09-16 実機の指摘
+//
+// 凍結仕様 docs/superpowers/plans/2026-09-16-device-feedback.md 便H。C9 の「採用数」は作らない(本人裁定)。
+// 【変異(複製で。実ツリー禁止)】① rules の hasAll に sec を足す ② rules の secAll の上限を1桁変える
+// ③ rankByPractice が "time" でも days を読む ④ target="_blank" を1つ戻す ⑤ PERIOD_PHRASE.all を
+// 「すべてで」 ⑥ ProfileView の削除を編集の上に戻す ⑦ C7 の rowcard を戻す → すべて落ちる。
+// ============================================================
+console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========");
+{
+  const readComm = (f) => readFileSync(join(__dirname, "..", "src", "community", f), "utf8");
+  const screensRaw52 = readComm("screens.jsx");
+  const commRaw52 = readComm("CommunityTab.jsx");
+  const screens52 = codeOf(screensRaw52);
+  const rank52 = codeOf(srcOfFn(screensRaw52, "RankScreen"));
+  const rankRow52 = codeOf(srcOfFn(screensRaw52, "RankRow"));
+  const empty52 = codeOf(srcOfFn(screensRaw52, "Empty"));
+  const person52 = codeOf(srcOfFn(screensRaw52, "PersonSheet"));
+  const comm52 = codeOf(commRaw52);
+  const profile52 = codeOf(srcOfFn(commRaw52, "ProfileView"));
+  const join52 = codeOf(srcOfFn(commRaw52, "JoinIntro"));
+  const nav52 = codeOf(srcOfFn(commRaw52, "NavRow"));
+  const legal52 = codeOf(readComm("LegalSheet.jsx"));
+  const ring52 = codeOf(readComm("LoadingRing.jsx"));
+  const align52 = codeOf(readComm("align.js"));
+  const stats52 = codeOf(readComm("stats.js"));
+  const agg52 = codeOf(readComm("aggregate.js"));
+  const aggTest52 = codeOf(readComm("aggregate.test.js"));
+  const alignTest52 = codeOf(readComm("align.test.js"));
+  const rules52 = codeOf(readFileSync(join(__dirname, "..", "firestore.rules"), "utf8"));
+  const css52 = codeOf(readFileSync(join(__dirname, "..", "src", "index.css"), "utf8"));
+  const app52 = codeOf(src);
+  const mjs52 = codeOf(readFileSync(join(__dirname, "..", "design", "canvas", "community.mjs"), "utf8"));
+  const noHtmlComment = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
+  const dcRank52 = noHtmlComment(readFileSync(join(__dirname, "..", "design", "canvas", "CommRank.dc.html"), "utf8"));
+  const dcMe52 = noHtmlComment(readFileSync(join(__dirname, "..", "design", "canvas", "CommMyPage.dc.html"), "utf8"));
+  const ns52 = noHtmlComment(readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8"));
+  const countIn = (s, re) => (s.match(re) || []).length;
+  // src/community 配下の .js / .jsx をまとめて(target="_blank" などの不在を全体で見る)
+  const commDir = join(__dirname, "..", "src", "community");
+  const commFiles = readdirSync(commDir).filter((f) => /\.(jsx?|css)$/.test(f));
+  const commAll52 = commFiles.map((f) => codeOf(readFileSync(join(commDir, f), "utf8"))).join("\n");
+  check("52.0 便H の走査対象を取れている(空回りしていない)",
+    rank52.length > 1500 && rankRow52.length > 1500 && empty52.length > 300 && person52.length > 3000
+    && profile52.length > 3000 && join52.length > 800 && nav52.length > 600 && legal52.length > 1500
+    && ring52.length > 1500 && align52.length > 3000 && stats52.length > 3000 && agg52.length > 3000
+    && rules52.length > 10000 && css52.length > 10000 && mjs52.length > 20000 && dcRank52.length > 5000
+    && dcMe52.length > 5000 && ns52.length > 20000 && commFiles.length >= 20,
+    `rank=${rank52.length} profile=${profile52.length} legal=${legal52.length} ring=${ring52.length} files=${commFiles.length}`);
+
+  // --- 52.1 C1 読み込み中の輪を、見えている領域の縦の中央に ---------------------------
+  // 【変異】justifyContent を外す / minHeight を消す / 数字を流れの中に戻す → 落ちる。
+  {
+    check("52.1 C1 包みは縦の flex で中央寄せ(justifyContent: center)",
+      /display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center"/.test(ring52));
+    check("52.1 C1 高さは 100dvh − --page-bottom-gap − 包みの上端(既存のトークン + 実測。新しい数を書かない)",
+      /minHeight: `calc\(100dvh - var\(--page-bottom-gap\) - \$\{top\}px\)`/.test(ring52));
+    check("52.1 C1 上端は文書座標で測る(rect.top + scrollY。App.jsx の fillViewportMinHeight と同じ考え)",
+      /useLayoutEffect\(/.test(ring52) && /el\.getBoundingClientRect\(\)\.top \+ \(window\.scrollY \|\| 0\)/.test(ring52)
+      && /window\.addEventListener\("resize", measure\)/.test(ring52));
+    check("52.1 C1 中央に来るのは**輪**。数字は輪の下に絶対配置(流れの中に置くと輪が中点より上にずれる)",
+      /<div style=\{\{ position: "relative" \}\}>\s*<LoadingRing p=\{pct \/ 100\} \/>/.test(ring52)
+      && /position: "absolute", top: "calc\(100% \+ var\(--sp-3\)\)"/.test(ring52));
+    check("52.1 C1 包みの style に直書きの px は無い(measured の ${top}px だけ)",
+      countIn(ring52.slice(ring52.indexOf('role="img"')), /\d+px/g) === 0);
+    check("52.1 C1 3つの step(chunk / account / list)は同じ包み(LoadingRingBox)を使う",
+      /<LoadingRing step="chunk" \/>/.test(app52) && /<LoadingRing step="account" \/>/.test(comm52)
+      && /<LoadingRing step="list" \/>/.test(comm52) && /export default function LoadingRingBox\(\{ step = null \}\)/.test(ring52));
+    check("52.1 C1 LoadingRing.jsx は React と loadProgress.js 以外を import しない(遅延読み込みを壊さない)",
+      countIn(ring52, /^import /gm) === 2 && /from "react";/.test(ring52) && /from "\.\/loadProgress\.js";/.test(ring52),
+      `${countIn(ring52, /^import /gm)}件`);
+  }
+
+  // --- 52.2 C2・C3 2行の文言(align.js)+ 表示側の pre-line ------------------------------
+  // 【変異】「...」を戻す / 句点で1文に戻す / pre-line を外す → 落ちる。
+  {
+    const c2 = cohortAverage({ notes: { 0: { spectralCentroidHz: 1, hnrDb: 1 } } }, []).error;
+    const c3 = alignProfile({ notes: {} }, { notes: {} }).error;
+    check("52.2 C2 実行: 「あと3人のデータが必要です」/ 改行 /「みなさまのデータをお待ちしています」(「...」と句点なし)",
+      c2 === "あと3人のデータが必要です\nみなさまのデータをお待ちしています", JSON.stringify(c2));
+    check("52.2 C3 実行: 「自分の計測がまだありません」/ 改行 /「数回吹いてから取り込んでください」",
+      c3 === "自分の計測がまだありません\n数回吹いてから取り込んでください", JSON.stringify(c3));
+    check("52.2 C2・C3 align.js に旧綴り(「お待ちしています...」「ありません。数回」)が無い",
+      countIn(align52, /お待ちしています\.\.\./g) === 0 && countIn(align52, /ありません。数回/g) === 0);
+    check("52.2 表示側(Empty)の文の要素に whiteSpace: \"pre-line\"",
+      /<div style=\{\{ whiteSpace: "pre-line" \}\}>\{children\}<\/div>/.test(empty52));
+    check("52.2 その2文は Empty で描かれる(avg.error / chart.error)",
+      /<Empty>\{avg\.error\}<\/Empty>/.test(screens52) && /<Empty>\{chart\.error\}<\/Empty>/.test(screens52));
+    check("52.2 align.test.js は新しい綴りを固定している(旧綴りは 0)",
+      countIn(alignTest52, /人のデータが必要です\\nみなさまのデータをお待ちしています/g) === 3
+      && countIn(alignTest52, /お待ちしています\.\.\./g) === 0
+      && /\["自分の計測がまだありません", "数回吹いてから取り込んでください"\]/.test(alignTest52),
+      `新綴り ${countIn(alignTest52, /人のデータが必要です\\nみなさまのデータをお待ちしています/g)}件`);
+  }
+
+  // --- 52.3 C4 「公開されている目安」→「公開されているデータ」 ------------------------------
+  {
+    check("52.3 C4 screens.jsx に「公開されている目安」0 /「公開されているデータ」2",
+      countIn(screens52, /公開されている目安/g) === 0 && countIn(screens52, /公開されているデータ/g) === 2,
+      `目安 ${countIn(screens52, /公開されている目安/g)} / データ ${countIn(screens52, /公開されているデータ/g)}`);
+    check("52.3 C4 src/community 全体と正典(community.mjs)に「公開されている目安」0",
+      countIn(commAll52, /公開されている目安/g) === 0 && countIn(mjs52, /公開されている目安/g) === 0);
+  }
+
+  // --- 52.4 C5・C6 期間の後ろを「で」に。「すべて」は「すべての期間で」 ------------------
+  // 【変異】PERIOD_PHRASE.all を「すべてで」/ 文を PERIOD_LABEL に戻す → 落ちる。
+  {
+    check("52.4 C5 PERIOD_PHRASE は stats.js に(PERIOD_LABEL の隣)。実行: 4つとも助詞込み、all は「すべての期間で」",
+      /export const PERIOD_PHRASE = \{ week: "今週で", month: "今月で", year: "今年で", all: "すべての期間で" \};/.test(stats52)
+      && PERIOD_PHRASE.all === "すべての期間で" && PERIODS.every((p) => /で$/.test(PERIOD_PHRASE[p]))
+      && stats52.indexOf("export const PERIOD_LABEL") < stats52.indexOf("export const PERIOD_PHRASE"),
+      JSON.stringify(PERIOD_PHRASE));
+    check("52.4 C5・C6 順位の空文は両方 PERIOD_PHRASE(絞り込みあり「…で、○○で練習した人はまだいません」/ なし「○○で練習した人がまだいません」)",
+      /`\$\{filterTerms\(filter, \["saxType", "genre", "position"\]\)\.join\(" × "\)\}で、\$\{PERIOD_PHRASE\[period\]\}練習した人はまだいません`/.test(rank52)
+      && /`\$\{PERIOD_PHRASE\[period\]\}練習した人がまだいません`/.test(rank52));
+    check("52.4 C6 「に練習した人」は screens.jsx に 0(「すべてに練習した人」が出ない)",
+      countIn(screens52, /に練習した人/g) === 0 && countIn(rank52, /PERIOD_LABEL\[period\]\}に/g) === 0);
+    check("52.4 C5 実行: 4つの期間の文が組み立てられ、「すべて」は「すべての期間で練習した人がまだいません」",
+      `${PERIOD_PHRASE.all}練習した人がまだいません` === "すべての期間で練習した人がまだいません"
+      && `${PERIOD_PHRASE.week}練習した人がまだいません` === "今週で練習した人がまだいません");
+  }
+
+  // --- 52.5 C7 「あなたはいまの絞り込みに含まれていません」の行を削除 ----------------------
+  // 【変異】rowcard を1つ戻す / findMyRank を戻す → 落ちる。
+  {
+    check("52.5 C7 順位画面に「含まれていません」「記録がまだありません」が 0",
+      countIn(rank52, /含まれていません/g) === 0 && countIn(rank52, /記録がまだありません/g) === 0
+      && countIn(screens52, /含まれていません/g) === 0);
+    check("52.5 C7 順位画面に rowcard の行が無い(自分の行を足していない)",
+      countIn(rank52, /rowcard/g) === 0 && countIn(rank52, /myUid && !mine/g) === 0);
+    check("52.5 C7 読み手が無くなった findMyRank は aggregate.js から消えている(screens / test にも 0)",
+      countIn(agg52, /findMyRank/g) === 0 && countIn(screens52, /findMyRank/g) === 0 && countIn(aggTest52, /findMyRank/g) === 0
+      && typeof aggregate.findMyRank === "undefined");
+  }
+
+  // --- 52.6 C8 「練習日数 今週」の行を削除 -------------------------------------------------
+  {
+    check("52.6 C8 順位画面に <span>練習日数</span> の行が 0(見出しは子タブが言う)",
+      countIn(rank52, /<span>練習日数<\/span>/g) === 0 && countIn(screens52, /<span>練習日数<\/span><span>\{PERIOD_LABEL\[period\]\}<\/span>/g) === 0);
+    check("52.6 C8 正典 CommRank.dc.html にも「練習日数 すべて」の行が無い",
+      countIn(dcRank52, /<span>練習日数<\/span><span>すべて<\/span>/g) === 0
+      && countIn(mjs52.slice(mjs52.indexOf("function buildRank()"), mjs52.indexOf("const PIE_COLORS")), /<span>練習日数<\/span>/g) === 0);
+  }
+
+  // --- 52.7 C9 順位を 練習日数 / 練習時間 の2種類に(子タブ)。練習時間の公開統計 -------------
+  // 【変異】SubTabs を外す / 既定を "time" に / rankByPractice が "time" でも days を読む /
+  //         STATS_MAX の sec を1つ消す / rules の上限を変える → 落ちる。
+  {
+    // 見た目
+    const metricsSrc = extractConst("RANK_METRICS", screens52);
+    const metrics = new Function(`${metricsSrc} return RANK_METRICS;`)();
+    check("52.7 C9 RANK_METRICS = 練習日数(days) | 練習時間(time)",
+      metrics.map((m) => `${m.key}:${m.label}`).join(",") === "days:練習日数,time:練習時間", JSON.stringify(metrics));
+    check("52.7 C9 順位画面に SubTabs(App.jsx export)。既定は練習日数(useState(\"days\"))",
+      /<SubTabs items=\{RANK_METRICS\} value=\{metric\} onChange=\{setMetric\} \/>/.test(rank52)
+      && /const \[metric, setMetric\] = useState\("days"\);/.test(rank52)
+      && /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs \} from "\.\.\/App\.jsx";/.test(screens52));
+    check("52.7 C9 子タブは期間の Chip 行の**上**(FilterRow の下)",
+      rank52.indexOf("<FilterRow") < rank52.indexOf("<SubTabs items={RANK_METRICS}")
+      && rank52.indexOf("<SubTabs items={RANK_METRICS}") < rank52.indexOf('aria-label="期間"'));
+    check("52.7 C9 順位の算出は metric を渡す(rankByPractice(shown, period, undefined, metric))",
+      /rankByPractice\(shown, period, undefined, metric\), \[shown, period, metric\]/.test(rank52));
+    // 数字
+    check("52.7 C9 RankRow: 練習時間の行(row.sec)は 時間・小数1桁、日数の行は n日のまま",
+      /\{row\.sec !== undefined \? hoursText\(row\.sec\) : row\.days\}/.test(rankRow52)
+      && /\{row\.sec !== undefined \? "時間" : "日"\}/.test(rankRow52)
+      && /const hoursText = \(sec\) => \(Math\.round\(sec \/ 360\) \/ 10\)\.toFixed\(1\);/.test(screens52));
+    check("52.7 C9 実行: hoursText 44280秒 → 12.3 / 36000 → 10.0 / 100 → 0.0(My Data の累計と同じ小数1桁)",
+      (() => { const h = new Function("sec", "return (Math.round(sec / 360) / 10).toFixed(1);"); return h(44280) === "12.3" && h(36000) === "10.0" && h(100) === "0.0"; })());
+    // 公開統計
+    check("52.7 C9 stats.js は sessionSoundingSec を import(定義を写さない)",
+      /import \{ sessionSoundingSec \} from "\.\.\/soundingSec\.js";/.test(stats52) && countIn(stats52, /function sessionSoundingSec/g) === 0);
+    check("52.7 C9 実行: STATS_KEYS は 9 キー(必須5 + sec4)。STATS_MAX の sec は 604800 / 2678400 / 31622400 / 3153600000",
+      STATS_KEYS.length === 9 && STATS_REQUIRED_KEYS.length === 5 && STATS_SEC_KEYS.join(",") === "secThisWeek,secThisMonth,secThisYear,secAll"
+      && STATS_MAX.secThisWeek === 604800 && STATS_MAX.secThisMonth === 2678400 && STATS_MAX.secThisYear === 31622400 && STATS_MAX.secAll === 3153600000,
+      `keys=${STATS_KEYS.length} ${JSON.stringify([STATS_MAX.secThisWeek, STATS_MAX.secThisMonth, STATS_MAX.secThisYear, STATS_MAX.secAll])}`);
+    check("52.7 C9 PERIOD_FIELD_SEC は PERIOD_FIELD の隣で、期間 → sec キー",
+      /export const PERIOD_FIELD_SEC = \{\s*week: "secThisWeek",\s*month: "secThisMonth",\s*year: "secThisYear",\s*all: "secAll",\s*\};/.test(stats52)
+      && Object.keys(PERIOD_FIELD_SEC).join(",") === "week,month,year,all");
+    {
+      // 実行: 9/3(木) 12:00 基準。0.1 秒刻みで 30 フレーム発音 = 3 秒の計測が今週に1件、去年に1件(7秒)。
+      const now = new Date(2026, 8, 3, 12);
+      const mk = (y, m, d, sec) => ({ recordedAt: new Date(y, m, d, 9).toISOString(),
+        frames: Array.from({ length: Math.round(sec * 10) }, (_, i) => ({ t: i * 0.1, pitchCents: 0 })) });
+      const st = computePracticeStats([mk(2026, 8, 3, 3), mk(2025, 5, 5, 7)], now);
+      check("52.7 C9 実行: computePracticeStats は 9 キーを返し、sec は暦の境界で足した整数秒(週3 / 月3 / 年3 / 累計10)",
+        Object.keys(st).length === 9 && STATS_KEYS.every((k) => k in st)
+        && st.secThisWeek === 3 && st.secThisMonth === 3 && st.secThisYear === 3 && st.secAll === 10
+        && STATS_SEC_KEYS.every((k) => Number.isInteger(st[k])), JSON.stringify(st));
+      check("52.7 C9 実行: validateStats は 9 キー全部を検査(sec が欠けると弾く / 上限超えを弾く / 揃えば通る)",
+        !!validateStats({ ...st, secAll: undefined }).error
+        && !!validateStats({ ...st, secAll: STATS_MAX.secAll + 1 }).error
+        && !validateStats(st).error);
+    }
+    // 集計
+    check("52.7 C9 rankByPractice(users, period, now, metric = \"days\")。\"time\" は PERIOD_FIELD_SEC を読む",
+      /export function rankByPractice\(users, period, now = new Date\(\), metric = "days"\)/.test(agg52)
+      && /const METRIC_FIELD = \{ days: PERIOD_FIELD, time: PERIOD_FIELD_SEC \};/.test(agg52)
+      && /import \{ PERIOD_FIELD, PERIOD_FIELD_SEC, isStatsFresh \} from "\.\/stats\.js";/.test(agg52));
+    {
+      const now = new Date(2026, 8, 3, 12);
+      const fresh = new Date(2026, 8, 3, 11).toISOString();
+      const base = { daysThisWeek: 3, daysThisMonth: 10, daysThisYear: 100, daysAll: 300, computedAt: fresh };
+      const users = [
+        { uid: "a", stats: { ...base, secThisWeek: 100, secThisMonth: 1000, secThisYear: 5000, secAll: 9000 } },
+        { uid: "b", stats: { ...base, secThisWeek: 200, secThisMonth: 500, secThisYear: 7000, secAll: 8000 } },
+        { uid: "c", stats: { ...base, secThisWeek: 150, secThisMonth: 44280, secThisYear: 6000, secAll: 100 } },
+        { uid: "old", stats: { ...base, daysThisMonth: 31 } },                                   // sec* 無し(古いアプリ)
+        { uid: "zero", stats: { ...base, secThisWeek: 0, secThisMonth: 0, secThisYear: 0, secAll: 0 } }, // 0秒
+      ];
+      const time = rankByPractice(users, "month", now, "time");
+      const days = rankByPractice(users, "month", now);
+      check("52.7 C9 実行: \"time\"(今月)は c(44280) > a(1000) > b(500)。sec* 無しと 0 秒は並ばない",
+        time.map((r) => r.uid).join(",") === "c,a,b" && time[0].sec === 44280 && time[0].days === undefined,
+        time.map((r) => `${r.uid}:${r.sec}`).join(" "));
+      check("52.7 C9 実行: \"time\" は期間ごとに別のキー(今週 b > c > a / 累計 a > b > c)",
+        rankByPractice(users, "week", now, "time").map((r) => r.uid).join(",") === "b,c,a"
+        && rankByPractice(users, "all", now, "time").map((r) => r.uid).join(",") === "a,b,c");
+      check("52.7 C9 実行: 既定(\"days\")の呼び出しは壊れていない(古いアプリの人も並ぶ。old が 31 日で1位)",
+        days.length === 5 && days[0].uid === "old" && days[0].days === 31 && days[0].sec === undefined,
+        days.map((r) => `${r.uid}:${r.days}`).join(" "));
+      check("52.7 C9 実行: isStatsFresh は両方に効く(先月に計算した人は \"time\" でも今月に並ばない)",
+        rankByPractice([{ uid: "stale", stats: { ...base, computedAt: new Date(2026, 7, 20).toISOString(), secThisMonth: 99999 } }], "month", now, "time").length === 0);
+    }
+    check("52.7 C9 aggregate.test.js に metric \"time\" の検査(並び / sec* 無しを落とす / 0秒を落とす)",
+      countIn(aggTest52, /"time"\)/g) >= 6 && /sec\* を持たない人/.test(aggTest52) && /0秒の人/.test(aggTest52));
+    // rules(コメントを剥がした本文で見る)
+    const statsBlock = rules52.slice(rules52.indexOf("'stats' in request.resource.data"), rules52.indexOf("request.resource.data.deviceClass"));
+    check("52.7 C9 rules: hasAll は必須5キーのまま(sec を必須にしない)",
+      /hasAll\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'\]\)/.test(statsBlock)
+      && !/hasAll\(\[[^\]]*sec/.test(statsBlock));
+    check("52.7 C9 rules: hasOnly は9キー",
+      /hasOnly\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt',\s*'secThisWeek','secThisMonth','secThisYear','secAll'\]\)/.test(statsBlock));
+    for (const k of STATS_SEC_KEYS) {
+      const re = new RegExp(`\\(!\\('${k}' in request\\.resource\\.data\\.stats\\) \\|\\| \\(\\s*request\\.resource\\.data\\.stats\\.${k} is int\\s*&& request\\.resource\\.data\\.stats\\.${k} >= 0\\s*&& request\\.resource\\.data\\.stats\\.${k} <= (\\d+)\\)\\)`);
+      const m = re.exec(statsBlock);
+      check(`52.7 C9 rules: ${k} は「無ければ通す / 在れば int かつ 0〜上限」。上限が STATS_MAX(${STATS_MAX[k]})と一致(錨)`,
+        !!m && Number(m[1]) === STATS_MAX[k], m ? `rules=${m[1]} / STATS_MAX=${STATS_MAX[k]}` : "形が違う");
+    }
+    for (const k of STATS_REQUIRED_KEYS.filter((x) => x !== "computedAt")) {
+      const m = new RegExp(`request\\.resource\\.data\\.stats\\.${k} <= (\\d+)`).exec(statsBlock);
+      check(`52.7 C9 rules: ${k} の上限も STATS_MAX と一致(日数側を巻き添えにしていない)`, !!m && Number(m[1]) === STATS_MAX[k]);
+    }
+    check("52.7 C9 rules: stats の塊は1つで、見出しが「練習日数・練習時間」",
+      countIn(readFileSync(join(__dirname, "..", "firestore.rules"), "utf8"), /---- stats\(練習日数・練習時間\) ----/g) === 1
+      && countIn(readFileSync(join(__dirname, "..", "firestore.rules"), "utf8"), /---- stats\(/g) === 1);
+    // 人の詳細は期間つきの練習日数を出していない(累計 daysAll)ので練習時間を足していない(仕様「出していなければ足さない」)
+    check("52.7 C9 人の詳細(PersonSheet)は累計 daysAll だけ。期間つきでないので練習時間は足さない",
+      /const days = person\.stats\?\.daysAll;/.test(person52) && countIn(person52, /PERIOD_(LABEL|FIELD|PHRASE)/g) === 0
+      && countIn(person52, /練習時間/g) === 0);
+    // 正典
+    check("52.7 C9 正典 CommRank.dc.html に子タブ「練習日数 | 練習時間」があり、期間の Chip より上",
+      /練習日数<\/div>/.test(dcRank52) && /練習時間<\/div>/.test(dcRank52)
+      && dcRank52.indexOf("練習時間</div>") < dcRank52.indexOf(">今週<"));
+    check("52.7 C9 正典 community.mjs: RANK_METRIC_TABS を subTabs で描く(写し)",
+      /const RANK_METRIC_TABS = \[\["days", "練習日数"\], \["time", "練習時間"\]\];/.test(mjs52)
+      && /subTabs\("days", RANK_METRIC_TABS\)/.test(mjs52));
+  }
+
+  // --- 52.8 C10 マイページの並び ------------------------------------------------------
+  // 【変異】削除を編集の上に戻す / 規約の card を uid の下に置く → 落ちる。
+  {
+    const order = ["<SwitchRow", "{error && !deleteOpen", 'label="お問い合わせ"', 'label="利用規約"', 'label="プライバシーポリシー"',
+      "{uid ? (", "onClick={onEdit}", "onClick={onOpenBackup}", "onClick={() => setDeleteOpen(true)}"];
+    const idx = order.map((k) => profile52.indexOf(k));
+    check("52.8 C10 ProfileView の DOM 順: 公開スイッチ → error → お問い合わせ / 規約 / ポリシー → uid → 編集 → 引継 → 削除",
+      idx.every((i) => i > 0) && idx.every((i, n) => n === 0 || i > idx[n - 1]), idx.join(" < "));
+    check("52.8 C10 削除のシート(BottomSheet)は削除ボタンより後(破壊的な一手が最後)",
+      profile52.indexOf("onClick={() => setDeleteOpen(true)}") < profile52.indexOf('ariaLabel="アカウントを削除しますか"'));
+    const dcOrder = [">公開<", "お問い合わせ", "利用規約", "プライバシーポリシー", ">編集<", ">アカウント引継<", ">アカウントを削除<"];
+    const dcIdx = dcOrder.map((k) => dcMe52.indexOf(k));
+    check("52.8 C10 正典 CommMyPage.dc.html も同じ並び",
+      dcIdx.every((i) => i > 0) && dcIdx.every((i, n) => n === 0 || i > dcIdx[n - 1]), dcIdx.join(" < "));
+  }
+
+  // --- 52.9 C11・C12 規約・ポリシーをアプリの中で読む(外へ出ない) --------------------------
+  // 【変異】target="_blank" を1つ戻す / fetch をやめて文を写す / .back を残す / 閉じるを消す /
+  //         legal.css を import する → 落ちる。
+  {
+    check("52.9 C11 LegalSheet.jsx: fetch で同じ origin の /terms.html /privacy.html を取る(path は support.js の定数)",
+      /import \{ PRIVACY_URL, TERMS_URL \} from "\.\.\/support\.js";/.test(legal52)
+      && /terms: \{ path: TERMS_URL, label: "利用規約" \}/.test(legal52) && /privacy: \{ path: PRIVACY_URL, label: "プライバシーポリシー" \}/.test(legal52)
+      && /const res = await fetch\(DOC\[kind\]\.path\);/.test(legal52)
+      && /export const TERMS_URL = "\/terms\.html";/.test(codeOf(readFileSync(join(__dirname, "..", "src", "support.js"), "utf8"))));
+    check("52.9 C11 LegalSheet.jsx: DOMParser で <body> の中身を取り、.back(文書末尾の「戻る」)を除いて .legal-doc に描く",
+      /new DOMParser\(\)\.parseFromString\(html, "text\/html"\)/.test(legal52)
+      && /doc\.body\.querySelectorAll\("\.back"\)/.test(legal52) && /return doc\.body\.innerHTML;/.test(legal52)
+      && /<div className="legal-doc" dangerouslySetInnerHTML=\{\{ __html: state\.html \}\} \/>/.test(legal52));
+    check("52.9 C11 LegalSheet.jsx: 取得結果はモジュール内の Map(2回目は即時)。失敗時は1行「読み込めませんでした」(errorStyle と同値)",
+      /const cache = new Map\(\);/.test(legal52) && /if \(cache\.has\(kind\)\) return cache\.get\(kind\);/.test(legal52)
+      && /<div className="sans" role="alert" style=\{errorStyle\}>読み込めませんでした<\/div>/.test(legal52)
+      && extractConst("errorStyle", legal52).replace(/^const errorStyle = /, "") === extractConst("errorStyle", comm52).replace(/^const errorStyle = /, ""));
+    check("52.9 C11 器は BottomSheet(App.jsx export)。先頭に閉じる(aria-label=\"閉じる\"、44×44、地なし = BACK_BUTTON_STYLE の考え、左上)",
+      /import \{ BACK_BUTTON_STYLE, BottomSheet \} from "\.\.\/App\.jsx";/.test(legal52)
+      && /<BottomSheet ariaLabel=\{DOC\[kind\]\.label\} onClose=\{onClose\}>\s*(?:\{\})?\s*<button type="button" onClick=\{onClose\} aria-label="閉じる"/.test(legal52)
+      && /style=\{\{ \.\.\.BACK_BUTTON_STYLE, width: "var\(--tap-min\)", justifyContent: "center", alignSelf: "flex-start" \}\}/.test(legal52)
+      && /<X size=\{17\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(legal52));
+    check("52.9 C11 本文はシートの中でスクロール(BottomSheet の器が maxHeight と overflowY を持つ。写しを作っていない)",
+      /maxHeight: "calc\(100dvh - var\(--nav-h\)\)", overflowY: "auto"/.test(codeOf(srcOfFn(src, "BottomSheet")))
+      && !/overflowY/.test(legal52) && !/maxHeight/.test(legal52));
+    check("52.9 C11・C12 src/community に target=\"_blank\" 0 / rel=\"noreferrer\" 0 / window.open 0",
+      countIn(commAll52, /target="_blank"/g) === 0 && countIn(commAll52, /rel="noreferrer"/g) === 0 && countIn(commAll52, /window\.open\(/g) === 0,
+      `blank ${countIn(commAll52, /target="_blank"/g)} / noreferrer ${countIn(commAll52, /rel="noreferrer"/g)}`);
+    check("52.9 C11 NavRow は href(mailto)か onClick(シート)。<a target=_blank> の経路(external)は無い",
+      /function NavRow\(\{ label, href = null, onClick = null, sub = null, last = false \}\)/.test(nav52)
+      && /if \(href\) return <a href=\{href\} className="sans" style=\{style\}>\{inner\}<\/a>;/.test(nav52)
+      && /return <button type="button" onClick=\{onClick\} className="sans" style=\{style\}>\{inner\}<\/button>;/.test(nav52)
+      && countIn(nav52, /external/g) === 0);
+    check("52.9 C11 ProfileView: 規約 / ポリシーは onClick で LegalSheet。お問い合わせは mailto のまま",
+      /<NavRow label="利用規約" onClick=\{\(\) => setLegal\("terms"\)\} \/>/.test(profile52)
+      && /<NavRow label="プライバシーポリシー" onClick=\{\(\) => setLegal\("privacy"\)\} last \/>/.test(profile52)
+      && /<NavRow label="お問い合わせ" href=\{`mailto:\$\{SUPPORT_EMAIL\}`\} sub=\{SUPPORT_EMAIL\} \/>/.test(profile52)
+      && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(profile52));
+    check("52.9 C11 JoinIntro(波及): 規約 / ポリシーは <button> で同じシート。お問い合わせは mailto のまま",
+      /<button type="button" onClick=\{\(\) => setLegal\("terms"\)\} className="sans" style=\{linkButtonStyle\}>利用規約<\/button>/.test(join52)
+      && /<button type="button" onClick=\{\(\) => setLegal\("privacy"\)\} className="sans" style=\{linkButtonStyle\}>プライバシーポリシー<\/button>/.test(join52)
+      && /<a href=\{`mailto:\$\{SUPPORT_EMAIL\}`\} style=\{\{ color: "var\(--c-accent\)" \}\}>お問い合わせ<\/a>/.test(join52)
+      && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(join52)
+      && countIn(join52, /TERMS_URL|PRIVACY_URL/g) === 0);
+    check("52.9 C11 CommunityTab.jsx は LegalSheet を import し、TERMS_URL / PRIVACY_URL を持たない(path は LegalSheet だけが読む)",
+      /import LegalSheet from "\.\/LegalSheet\.jsx";/.test(comm52) && countIn(comm52, /TERMS_URL|PRIVACY_URL/g) === 0
+      && countIn(comm52, /<LegalSheet kind=\{legal\}/g) === 2);
+    // index.css の .legal-doc(スコープ付きの写し)
+    const legalCss = css52.slice(css52.indexOf(".legal-doc {"));
+    check("52.9 C11 index.css に .legal-doc のスコープ付き規則(h1 / h2 / p / li / ul / table / th / td / a / .updated / .lead)",
+      legalCss.length > 500 && ["h1", "h2", "p", "li", "ul", "table", "th", "td", "a", ".updated", ".lead"]
+        .every((sel) => new RegExp(`\\.legal-doc ${sel.replace(".", "\\.")}[ ,{]`).test(legalCss)));
+    check("52.9 C11 .legal-doc の色と文字はトークンだけ(直書きの色・px の文字なし)。12px(--fs-xs)は .updated だけ",
+      countIn(legalCss, /#[0-9a-fA-F]{3,6}\b/g) === 0 && countIn(legalCss, /font-size: \d/g) === 0
+      && countIn(legalCss, /--fs-xs/g) === 1 && /\.legal-doc \.updated \{ font-size: var\(--fs-xs\)/.test(legalCss));
+    check("52.9 C11 legal.css はアプリに import していない(src 全体で 0)",
+      countIn(app52, /legal\.css/g) === 0 && countIn(commAll52, /legal\.css/g) === 0 && countIn(css52, /@import/g) === 0);
+    const rawCss = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+    check("52.9 C11 index.css の注記「本文は public/*.html を fetch(文の正は1つ)。体裁だけの写し。legal.css を直したらここも」",
+      /本文は public\/\*\.html を fetch\(文の正は1つ\)/.test(rawCss) && /体裁だけの写し。legal\.css を直したらここも/.test(rawCss));
+    // public の3ファイルはそのまま(ストア審査の URL)
+    const pub = (f) => readFileSync(join(__dirname, "..", "public", f), "utf8");
+    check("52.9 C11 public/terms.html / privacy.html / legal.css はそのまま(legal.css を読み、末尾に .back がある)",
+      /<link rel="stylesheet" href="\/legal\.css">/.test(pub("terms.html")) && /<link rel="stylesheet" href="\/legal\.css">/.test(pub("privacy.html"))
+      && /<a class="back" href="\/">/.test(pub("terms.html")) && /<a class="back" href="\/">/.test(pub("privacy.html"))
+      && /^\.back \{/m.test(pub("legal.css")));
+    check("52.9 C12 (経路の確認)計測タブは topTab が measure のとき startListening を起動時に呼ぶ。実挙動は実機待ち",
+      countIn(app52, /startListening\(/g) >= 1);
+  }
+
+  // --- 52.10 同乗: north-star の詳細シートの説明 ---------------------------------------
+  {
+    check("52.10 north-star-measure.html の詳細シートの説明が現状(音量表示 / 計測下限dB の1行。目安は My Data の最下部)",
+      /詳細シートの指標は「音量表示 \/ 計測下限dB」の1行だけ/.test(ns52) && /目安の選択と削除は My Data の最下部へ移った/.test(ns52)
+      && countIn(ns52, /目安プロファイルの選択と削除/g) === 0 && countIn(ns52, /計測下限スライダー/g) === 0);
   }
   console.log("  -> done");
 }

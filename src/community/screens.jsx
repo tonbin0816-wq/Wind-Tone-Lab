@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
-import { rankByPractice, findMyRank, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
-import { PERIODS, PERIOD_LABEL } from "./stats.js";
+import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
+import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
@@ -11,7 +11,7 @@ import { Avatar, RowChevron } from "./icons.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
-import { BACK_BUTTON_STYLE, BottomSheet } from "../App.jsx";
+import { BACK_BUTTON_STYLE, BottomSheet, SubTabs } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 import { hideFlagged, REPORT_REASONS } from "./report.js";
 import { listFlaggedUids, reportUser } from "./reportRepo.js";
@@ -194,7 +194,8 @@ function CapNotice({ count }) {
 function Empty({ children, onClear = null }) {
   return (
     <div className="sans" style={{ ...noteStyle, padding: "var(--sp-4) 0", textAlign: "center" }}>
-      <div>{children}</div>
+      {/* 【C2・C3 2026-09-16】align.js の文言は改行の文字で2行に分かれている。pre-line で効かせる。 */}
+      <div style={{ whiteSpace: "pre-line" }}>{children}</div>
       {onClear ? (
         /* B型 = .ctl-plain + .ctl-pill。押しても何も壊れないので危険色は持たない */
         <button type="button" onClick={onClear} className="sans ctl-plain ctl-pill"
@@ -329,6 +330,11 @@ function NameLine({ nickname, mine, size }) {
 // 2位・3位は光らせない(1位を立てるための光なので、全員光ると意味が消える)。
 const RANK_COLOR = { 1: "var(--c-rank-1)", 2: "var(--c-rank-2)", 3: "var(--c-rank-3)" };
 
+// 【C9 2026-09-16 実機の指摘】順位の2種類。子タブ(SubTabs)の項目。
+const RANK_METRICS = [{ key: "days", label: "練習日数" }, { key: "time", label: "練習時間" }];
+// 練習時間の表示は 時間・小数1桁(My Data の累計 hoursText と同じ作り)。row.sec は整数秒。
+const hoursText = (sec) => (Math.round(sec / 360) / 10).toFixed(1);
+
 function RankRow({ row, big = false, mine = false, onTap }) {
   const rankColor = RANK_COLOR[row.rank] ?? null;
   const tap = onTap ? {
@@ -387,7 +393,7 @@ function RankRow({ row, big = false, mine = false, onTap }) {
         fontSize: big ? (first ? "var(--fs-2xl)" : "var(--fs-xl)") : "var(--fs-md)",
         color: "var(--c-ink)",
       }}>
-        {row.days}<span style={{ fontFamily: "var(--font-jp)", fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>日</span>
+        {row.sec !== undefined ? hoursText(row.sec) : row.days}<span style={{ fontFamily: "var(--font-jp)", fontSize: "var(--fs-xs)", fontWeight: 600, color: "var(--c-ink-3)" }}>{row.sec !== undefined ? "時間" : "日"}</span>
       </div>
     </>
   );
@@ -425,16 +431,21 @@ function RankRow({ row, big = false, mine = false, onTap }) {
 
 export function RankScreen({ users, myUid, onOpenPerson }) {
   const [filter, setFilter] = useState(EMPTY_FILTER);
+  // 【C9 2026-09-16】順位の種類(練習日数 / 練習時間)。既定は練習日数。画面を離れたら戻ってよい。
+  const [metric, setMetric] = useState("days");
   // 【既定は「すべて」】2026/09/06 本人指示。人数が少ないうちは期間で切ると
   // 一覧が空になりやすく、まず全体が見えたほうがよい。
   const [period, setPeriod] = useState("all");
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
-  const ranked = useMemo(() => rankByPractice(shown, period), [shown, period]);
-  const mine = findMyRank(ranked, myUid);
+  const ranked = useMemo(() => rankByPractice(shown, period, undefined, metric), [shown, period, metric]);
 
   return (
     <div style={pageStyle}>
       <FilterRow value={filter} onChange={setFilter} />
+      {/* 【C9】種類の切替は子タブ(データタブの平均と同じ SubTabs)。期間の Chip はその下。
+          【C8】見出しの行(「練習日数 今週」)は消した ── 何の順位かは子タブが言い、
+          期間は選ばれた Chip が言っている。 */}
+      <SubTabs items={RANK_METRICS} value={metric} onChange={setMetric} />
       {/* 期間は状態を持つので A型のチップ。当たり判定44px / 見た目30px */}
       <div role="radiogroup" aria-label="期間" style={{ display: "flex", gap: "var(--sp-1)" }}>
         {PERIODS.map((p) => (
@@ -442,15 +453,13 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
         ))}
       </div>
 
-      <div className="sans" style={{ ...bodyNoteStyle, display: "flex", gap: 9 }}>
-        <span>練習日数</span><span>{PERIOD_LABEL[period]}</span>
-      </div>
-
       {ranked.length === 0 ? (
         <Empty onClear={isFiltered(filter) ? () => setFilter(EMPTY_FILTER) : null}>
+          {/* 【C5・C6】期間の語は助詞込み(PERIOD_PHRASE)。「すべて」は「すべての期間で」。
+              「〜で、今週で」と「で」が続くのは意図どおり(条件と期間は別の句)。 */}
           {isFiltered(filter)
-            ? `${filterTerms(filter, ["saxType", "genre", "position"]).join(" × ")}で、${PERIOD_LABEL[period]}に練習した人はまだいません`
-            : `${PERIOD_LABEL[period]}に練習した人がまだいません`}
+            ? `${filterTerms(filter, ["saxType", "genre", "position"]).join(" × ")}で、${PERIOD_PHRASE[period]}練習した人はまだいません`
+            : `${PERIOD_PHRASE[period]}練習した人がまだいません`}
         </Empty>
       ) : (
         <>
@@ -475,17 +484,8 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
         </>
       )}
 
-      {/* 【圏外でも自分は必ず見える】一覧に自分が出ていないときだけ、下に自分を置く。
-          出ていない理由は「その期間に練習していない」か「絞り込みから外れている」の2つで、
-          どちらなのかを言い分ける ── 「出ない」だけでは直しようがない。 */}
-      {myUid && !mine ? (
-        <div className="sans rowcard" style={bodyNoteStyle}>
-          {isFiltered(filter)
-            ? "あなたはいまの絞り込みに含まれていません"
-            : `あなたは${PERIOD_LABEL[period]}の記録がまだありません`}
-        </div>
-      ) : null}
-
+      {/* 【C7 2026-09-16 実機の指摘】ここにあった「あなたはいまの絞り込みに… / あなたは…の記録が
+          まだありません」の行(rowcard)は消した。読み手が無くなった findMyRank も aggregate.js から消した。 */}
       <CapNotice count={users.length} />
     </div>
   );
@@ -978,8 +978,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
                           ? () => setFilter({ ...EMPTY_FILTER, saxType: filter.saxType })
                           : null}>
           {isFilteredBy(filter, ["genre", "position"])
-            ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、公開されている目安はまだありません`
-            : "公開されている目安がまだありません"}
+            ? `${filterTerms(filter, ["genre", "position"]).join(" × ")}で、公開されているデータはまだありません`
+            : "公開されているデータがまだありません"}
         </Empty>
       ) : (
         <div className="card card-list">

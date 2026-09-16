@@ -45,7 +45,8 @@ export function alignOffset(mine, theirs, metric) {
 export function alignProfile(mine, theirs) {
   const mineNotes = mine?.notes ?? {};
   if (Object.keys(mineNotes).length === 0) {
-    return { error: "自分の計測がまだありません。数回吹いてから取り込んでください" };
+    // 【C3 2026-09-16 実機の指摘】2行に分ける(句点ではなく改行。表示側は white-space: pre-line)。
+    return { error: "自分の計測がまだありません\n数回吹いてから取り込んでください" };
   }
   const shiftedBy = {};
   for (const metric of SHIFTED_METRICS) {
@@ -113,7 +114,8 @@ export function cohortAverage(mine, others) {
       return { error: alignProfile(mine, { notes: {} }).error };
     }
     // ③ 純粋に人数が足りない。〇 は「あと何人で出せるか」
-    return { error: `あと${MIN_COHORT - usable.length}人のデータが必要です。みなさまのデータをお待ちしています...` };
+    // 【C2 2026-09-16 実機の指摘】「...」と句点を消し、2行に分ける(表示側は white-space: pre-line)。
+    return { error: `あと${MIN_COHORT - usable.length}人のデータが必要です\nみなさまのデータをお待ちしています` };
   }
 
   const sums = {}; // notes[key][metric] = { sum, n }

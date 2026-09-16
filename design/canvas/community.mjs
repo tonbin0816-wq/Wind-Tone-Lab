@@ -44,8 +44,10 @@ function avatar(icon, color, size = 34) {
 
 // SubTabs(App.jsx): marginLeft -9 / padding 0 9 / 選択 22px・非選択 15px / marginBottom 0
 const SUB_TABS = [["data", "データ"], ["rank", "順位"], ["share", "シェア"], ["me", "マイページ"]];
-function subTabs(sel) {
-  const items = SUB_TABS.map(([k, label]) => {
+// 【C9 2026-09-16】順位の種類も同じ SubTabs(screens.jsx の RANK_METRICS)。
+const RANK_METRIC_TABS = [["days", "練習日数"], ["time", "練習時間"]];
+function subTabs(sel, tabs = SUB_TABS) {
+  const items = tabs.map(([k, label]) => {
     const on = k === sel;
     return `        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: ${on ? "var(--fs-xl)" : "var(--fs-md)"}; font-weight: ${on ? 700 : 400}; color: ${on ? "var(--c-ink)" : "var(--c-ink-3)"}; line-height: 1.2">${label}</div>`;
   });
@@ -293,13 +295,14 @@ function buildRank() {
   const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
   const chips = ["今週", "今月", "今年", "すべて"].map((t) => chip(t, t === "すべて"));
 
+  // 【C8・C9 2026-09-16】「練習日数 すべて」の見出し行は消え、種類は子タブ(練習日数 | 練習時間)が言う。
   return screen("rank", `${filterRow(null, null, null)}
+
+      ${subTabs("days", RANK_METRIC_TABS)}
 
       <div style="display: flex; gap: var(--sp-1)">
 ${chips.join("\n")}
       </div>
-
-      <div style="${BODY_NOTE}; display: flex; gap: 9px"><span>練習日数</span><span>すべて</span></div>
 
       <div style="display: grid; gap: var(--sp-3)">
 ${top.join("\n")}
@@ -398,12 +401,30 @@ ${infoRow("編成", "ソロ・ビッグバンド")}
         </span>
       </div>
 
-      <div style="${BTN2}">編集</div>
+      <!-- 【並び C10 2026-09-16】公開スイッチ → お問い合わせ / 規約 / ポリシー → uid → 編集 → 引継 → 削除(破壊的な一手が最後) -->
+      <div style="${CARD}; padding: 0; margin-top: var(--sp-4)">
+${navRow("お問い合わせ", "ficus.help@gmail.com")}
+${navRow("利用規約")}
+${navRow("プライバシーポリシー", null, true)}
+      </div>
+
+      <div style="${NOTE}; text-align: center; word-break: break-all; margin-top: var(--sp-2)">a1b2c3d4e5f6g7h8i9j0k1l2m3n4</div>
+
+      <div style="${BTN2}; margin-top: var(--sp-4)">編集</div>
       <div style="${BTN2}">アカウント引継</div>
 
       <div style="display: grid; margin-top: var(--sp-4)">
         <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-danger); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">アカウントを削除</div>
       </div>`);
+}
+
+// NavRow(CommunityTab.jsx): 当たり 44 / padding 8 16 / 罫は行の間だけ / 右端の山形(RowChevron 8px)
+// 【C11 2026-09-16】規約・ポリシーは押すとアプリの中のシート(LegalSheet)が開く。外へは出ない。
+function navRow(label, sub = null, last = false) {
+  return `        <div style="display: flex; align-items: center; gap: var(--sp-3); min-height: 44px; padding: var(--sp-2) var(--sp-4); border-bottom: ${last ? "none" : "1px solid var(--c-line)"}; color: var(--c-ink); font-size: var(--fs-sm); font-weight: 600">
+          <span style="flex: 1 1 0; min-width: 0">${label}${sub ? `<span style="display: block; font-size: var(--fs-xs); color: var(--c-ink-3); font-weight: 400">${sub}</span>` : ""}</span>
+          <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </div>`;
 }
 
 // ---- 人をタップしたとき(表 = 音のデータ / 裏 = プロフィール) -------------

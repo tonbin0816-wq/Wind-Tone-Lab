@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rankByPractice, findMyRank, tallyCombos, gearKey, gearDisplay, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
+import { rankByPractice, tallyCombos, gearKey, gearDisplay, UNSET, GEAR_SLOTS, tallyGearByBrand, tallyGearModels, isDrillable } from "./aggregate.js";
 import { filterUsers, isFiltered, ANY } from "./directory.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 
@@ -72,10 +72,63 @@ describe("rankByPractice", () => {
   it("知らない期間では空を返す(黙って全員を並べない)", () => {
     expect(rankByPractice([person("a")], "そんな期間", NOW)).toEqual([]);
   });
-  it("圏外の自分は findMyRank が null を返す", () => {
-    const r = rankByPractice([person("a")], "month", NOW);
-    expect(findMyRank(r, "a").rank).toBe(1);
-    expect(findMyRank(r, "私")).toBeNull();
+  it("知らない指標でも空を返す", () => {
+    expect(rankByPractice([person("a")], "month", NOW, "そんな指標")).toEqual([]);
+  });
+
+  // ---- 【C9 2026-09-16】練習時間(metric "time") ----
+  const secStats = (over = {}) => ({ ...person("x").stats, secThisWeek: 100, secThisMonth: 1000, secThisYear: 5000, secAll: 9000, ...over });
+  it("metric \"time\" は練習時間(整数秒)の多い順に並び、行に sec が入る(days は入らない)", () => {
+    const r = rankByPractice([
+      person("a", { stats: secStats({ secThisMonth: 500 }) }),
+      person("b", { stats: secStats({ secThisMonth: 44280 }) }),
+      person("c", { stats: secStats({ secThisMonth: 3600 }) }),
+    ], "month", NOW, "time");
+    expect(r.map((x) => x.uid)).toEqual(["b", "c", "a"]);
+    expect(r.map((x) => x.rank)).toEqual([1, 2, 3]);
+    expect(r[0].sec).toBe(44280);
+    expect(r[0].days).toBeUndefined();
+  });
+  it("metric \"time\" は期間ごとに別のキーを読む(日数のキーではない)", () => {
+    // 日数は月 30 日と大きいが、秒は週 1 / 月 2 / 年 3 / 累計 4。並びが秒で決まればこの順になる。
+    const mk = (uid, w, m, y, a) => person(uid, { stats: secStats({ daysThisMonth: 30, secThisWeek: w, secThisMonth: m, secThisYear: y, secAll: a }) });
+    const users = [mk("p", 1, 20, 300, 4000), mk("q", 2, 10, 200, 5000)];
+    expect(rankByPractice(users, "week", NOW, "time").map((x) => x.uid)).toEqual(["q", "p"]);
+    expect(rankByPractice(users, "month", NOW, "time").map((x) => x.uid)).toEqual(["p", "q"]);
+    expect(rankByPractice(users, "year", NOW, "time").map((x) => x.uid)).toEqual(["p", "q"]);
+    expect(rankByPractice(users, "all", NOW, "time").map((x) => x.uid)).toEqual(["q", "p"]);
+    // 日数(既定)は 30 日で同点 → uid 順
+    expect(rankByPractice(users, "month", NOW).map((x) => x.uid)).toEqual(["p", "q"]);
+  });
+  it("sec* を持たない人(古いアプリで公開した人)は練習時間に並べない。日数には並ぶ", () => {
+    const old = person("古いアプリ"); // stats は日数5キーだけ
+    const fresh = person("新", { stats: secStats() });
+    expect(rankByPractice([old, fresh], "month", NOW, "time").map((x) => x.uid)).toEqual(["新"]);
+    expect(rankByPractice([old, fresh], "month", NOW, "days").map((x) => x.uid).sort()).toEqual(["古いアプリ", "新"].sort());
+  });
+  it("0秒の人・壊れた秒は練習時間に並べない(0日と同じ扱い)", () => {
+    const rows = rankByPractice([
+      person("ゼロ", { stats: secStats({ secThisMonth: 0 }) }),
+      person("文字列", { stats: secStats({ secThisMonth: "100" }) }),
+      person("小数", { stats: secStats({ secThisMonth: 3.5 }) }),
+      person("負", { stats: secStats({ secThisMonth: -5 }) }),
+      person("正常", { stats: secStats() }),
+    ], "month", NOW, "time");
+    expect(rows.map((x) => x.uid)).toEqual(["正常"]);
+  });
+  it("練習時間でも期間外に計算された古い値を捨てる(isStatsFresh は両方に効く)", () => {
+    const stale = person("古", { stats: secStats({ computedAt: iso(2026, 7, 20), secThisMonth: 99999 }) });
+    const fresh = person("新", { stats: secStats({ secThisMonth: 10 }) });
+    expect(rankByPractice([stale, fresh], "month", NOW, "time").map((x) => x.uid)).toEqual(["新"]);
+    expect(rankByPractice([stale, fresh], "all", NOW, "time").map((x) => x.uid)).toEqual(["古", "新"]);
+  });
+  it("練習時間の同点は同順位で、次はその人数ぶん飛ぶ", () => {
+    const r = rankByPractice([
+      person("a", { stats: secStats({ secThisMonth: 10 }) }),
+      person("b", { stats: secStats({ secThisMonth: 10 }) }),
+      person("c", { stats: secStats({ secThisMonth: 4 }) }),
+    ], "month", NOW, "time");
+    expect(r.map((x) => x.rank)).toEqual([1, 1, 3]);
   });
 });
 

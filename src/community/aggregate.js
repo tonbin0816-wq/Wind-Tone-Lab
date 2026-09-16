@@ -1,5 +1,5 @@
 import { OTHER_BRAND } from "./catalog/gear.js";
-import { PERIOD_FIELD, isStatsFresh } from "./stats.js";
+import { PERIOD_FIELD, PERIOD_FIELD_SEC, isStatsFresh } from "./stats.js";
 
 // ------------------------------------------------------------------
 // 順位と楽器の組の内訳。**どちらも公開ユーザーの配列を受け取って数えるだけの純粋な関数。**
@@ -8,8 +8,12 @@ import { PERIOD_FIELD, isStatsFresh } from "./stats.js";
 
 // ============ 順位 ============
 
+// 【C9 2026-09-16 実機の指摘】順位は 練習日数(metric "days") / 練習時間(metric "time")の2種類。
+// どちらを読むかはキーの対応表(PERIOD_FIELD / PERIOD_FIELD_SEC)で決め、並べ方は共通。
+const METRIC_FIELD = { days: PERIOD_FIELD, time: PERIOD_FIELD_SEC };
+
 /**
- * 練習日数の多い順に並べる。
+ * 練習日数(または練習時間)の多い順に並べる。
  *
  * 【古い値を捨てるのがこの関数の芯】stats はアプリを開いたときにしか書き換わらない。
  * 先月たくさん練習してその後開いていない人の daysThisMonth は先月の値のままなので、
@@ -17,38 +21,42 @@ import { PERIOD_FIELD, isStatsFresh } from "./stats.js";
  *
  * 落とされた人は「その期間の練習が0日の人」として順位に出ない。これは正しい ──
  * 今月一度も開いていないなら今月の練習は0日である。
+ *
+ * @param metric "days"(既定。行に days が入る) | "time"(行に sec = 整数秒が入る)
+ *   **sec* を持たない人(古いアプリで公開した人)は "time" に並べない** ── undefined は
+ *   Number.isInteger のガードで自然に落ちる。勝手に 0 と読んで「0.0時間」で並べない。
  */
-export function rankByPractice(users, period, now = new Date()) {
-  const field = PERIOD_FIELD[period];
+export function rankByPractice(users, period, now = new Date(), metric = "days") {
+  const field = METRIC_FIELD[metric]?.[period];
   if (!field) return [];
+  const key = metric === "time" ? "sec" : "days";
   const rows = [];
   for (const u of users ?? []) {
     const s = u?.stats;
     if (!s) continue; // まだ一度も公開していない人
     if (!isStatsFresh(s.computedAt, period, now)) continue;
-    const days = s[field];
+    const v = s[field];
     // 型が壊れた値を並べない。ルールは int を要求しているが、
     // 「読む側で守る」(設計書の宿題2への裁定)をここでも守る。
-    if (!Number.isInteger(days) || days < 0) continue;
-    if (days === 0) continue; // 0日の人を順位に並べても意味が無い
-    rows.push({ ...u, days });
+    if (!Number.isInteger(v) || v < 0) continue;
+    if (v === 0) continue; // 0日・0秒の人を順位に並べても意味が無い
+    rows.push({ ...u, [key]: v });
   }
-  // 【同点の並びを安定させる】days だけで比べると、読み込むたびに同点の人の順が入れ替わり、
+  // 【同点の並びを安定させる】値だけで比べると、読み込むたびに同点の人の順が入れ替わり、
   // 見るたび順位が違って見える。uid で決着させて毎回同じ並びにする。
-  rows.sort((a, b) => (b.days - a.days) || String(a.uid).localeCompare(String(b.uid)));
+  rows.sort((a, b) => (b[key] - a[key]) || String(a.uid).localeCompare(String(b.uid)));
   // 【同点は同順位。次は人数ぶん飛ばす】1位が2人なら次は3位。
   let rank = 0;
   let prev = null;
   return rows.map((r, i) => {
-    if (r.days !== prev) { rank = i + 1; prev = r.days; }
+    if (r[key] !== prev) { rank = i + 1; prev = r[key]; }
     return { ...r, rank };
   });
 }
 
-/** 順位の一覧から自分の行を探す。圏外なら null。 */
-export function findMyRank(ranked, uid) {
-  return (ranked ?? []).find((r) => r.uid === uid) ?? null;
-}
+// (【C7 2026-09-16】findMyRank(順位の一覧から自分の行を探す)はここにあった。読み手は
+//  順位画面の「あなたは…含まれていません / 記録がまだありません」の行だけで、その行を
+//  消したので関数も消した。)
 
 // ============ 楽器の組の内訳 ============
 

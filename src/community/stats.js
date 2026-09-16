@@ -10,16 +10,35 @@
 // 受け入れている。詳細は docs/superpowers/specs/2026-09-02-community-screens-design.md の決定3。
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// 【C9 2026-09-16 実機の指摘・本人裁定②⑥】練習日数に加えて**練習時間**も公開する。
+// 練習時間 = 各計測の sessionSoundingSec(音を感知していた時間。src/soundingSec.js の定義を
+// ここに写さない)を同じ暦の境界で足した**整数秒**。表示側が「時間 小数1桁」に直す。
+// ------------------------------------------------------------------
+import { sessionSoundingSec } from "../soundingSec.js";
+
 // 期間の上限。**改ざん対策ではなく、定義上ありえない値を弾くためのもの。**
 // 桁違いの数字で画面が壊れることだけは防ぐ。
+// 練習時間(秒)の上限は定義上の最大値: 週 7日×86400 / 月 31日×86400 / 年 366日×86400 / 累計 100年。
+// **firestore.rules の stats の塊がこの写しを持つ。片方だけ直さないこと**(stats.test.js が突き合わせる)。
 export const STATS_MAX = {
   daysThisWeek: 7,
   daysThisMonth: 31,
   daysThisYear: 366,
   daysAll: 36500, // 100年
+  secThisWeek: 604800,
+  secThisMonth: 2678400,
+  secThisYear: 31622400,
+  secAll: 3153600000,
 };
 
-export const STATS_KEYS = ["daysThisWeek", "daysThisMonth", "daysThisYear", "daysAll", "computedAt"];
+// rules の hasAll(必須の5キー)。古いアプリはこの5つしか書かない。
+export const STATS_REQUIRED_KEYS = ["daysThisWeek", "daysThisMonth", "daysThisYear", "daysAll", "computedAt"];
+// 練習時間の4キー。rules では**任意**(必須にすると、ルール公開からアプリ配信までの間に
+// 古いアプリの書き込みが全滅する)。新しいアプリは必ず9キー全部を書く(validateStats)。
+export const STATS_SEC_KEYS = ["secThisWeek", "secThisMonth", "secThisYear", "secAll"];
+// rules の hasOnly(9キー)。
+export const STATS_KEYS = [...STATS_REQUIRED_KEYS, ...STATS_SEC_KEYS];
 
 // 【月曜始まりにする】日本の「今週」は月曜から数えるのが普通で、
 // 日曜始まりにすると日曜に練習した人の週が翌週へずれて見える。
@@ -51,6 +70,8 @@ export function computePracticeStats(sessions, now = new Date()) {
   const week = new Set();
   const month = new Set();
   const year = new Set();
+  // 練習時間(秒)。日数と**同じ境界**で足す(セッションの採否も同じ)。
+  const sec = { all: 0, week: 0, month: 0, year: 0 };
 
   for (const s of sessions ?? []) {
     // 【文字列であることを先に見る】`new Date(null)` は Invalid ではなく **1970-01-01** を返す
@@ -71,17 +92,27 @@ export function computePracticeStats(sessions, now = new Date()) {
     if (t >= yearStart) year.add(k);
     if (t >= monthStart) month.add(k);
     if (t >= weekStart) week.add(k);
+    const d = sessionSoundingSec(s);
+    sec.all += d;
+    if (t >= yearStart) sec.year += d;
+    if (t >= monthStart) sec.month += d;
+    if (t >= weekStart) sec.week += d;
   }
 
   // 上限で頭打ちにする。定義上超えないはずだが、時計のずれ等で超えたときに
   // ルールで弾かれて**公開そのものが失敗する**より、頭打ちで通すほうがよい。
   const cap = (n, key) => Math.min(n, STATS_MAX[key]);
+  // 秒は Math.round で整数に(ルールは is int)。
   return {
     daysThisWeek: cap(week.size, "daysThisWeek"),
     daysThisMonth: cap(month.size, "daysThisMonth"),
     daysThisYear: cap(year.size, "daysThisYear"),
     daysAll: cap(all.size, "daysAll"),
     computedAt: now.toISOString(),
+    secThisWeek: cap(Math.round(sec.week), "secThisWeek"),
+    secThisMonth: cap(Math.round(sec.month), "secThisMonth"),
+    secThisYear: cap(Math.round(sec.year), "secThisYear"),
+    secAll: cap(Math.round(sec.all), "secAll"),
   };
 }
 
@@ -114,6 +145,13 @@ export const PERIOD_FIELD = {
   year: "daysThisYear",
   all: "daysAll",
 };
+// 期間 → 練習時間(秒)のキー。順位の「練習時間」が読む。
+export const PERIOD_FIELD_SEC = {
+  week: "secThisWeek",
+  month: "secThisMonth",
+  year: "secThisYear",
+  all: "secAll",
+};
 // 【2026/09/09 本人裁定・A25「C案」】**語を My Data と揃えない。**
 // 一度「1週間 / 1ヶ月 / 1年」へ揃えたが、数え方が違うまま語だけ揃えると嘘になるので戻した。
 //
@@ -128,12 +166,16 @@ export const PERIOD_FIELD = {
 // 「数時間以内に公開した人だけ」に絞るしかなくなって順位がほぼ空になる。
 // **「今週」は暦、「1週間」はローリング**と読めるので、語を分けるほうが正確。
 export const PERIOD_LABEL = { week: "今週", month: "今月", year: "今年", all: "すべて" };
+// 【C5・C6 2026-09-16 実機の指摘】文の中で使う期間の語は**助詞込み**でここ1箇所に持つ。
+// PERIOD_LABEL に「に」を付けると「すべてに練習した人」になる。「すべて」は「すべての期間で」。
+export const PERIOD_PHRASE = { week: "今週で", month: "今月で", year: "今年で", all: "すべての期間で" };
 export const PERIODS = ["week", "month", "year", "all"];
 
-/** 保存前の形の検査。ルールの `is int` と同じ厳しさにする。 */
+/** 保存前の形の検査。ルールの `is int` と同じ厳しさにする。
+ *  ルールでは sec* が任意だが、**このアプリは9キー全部を書く**(欠けていれば弾く)。 */
 export function validateStats(stats) {
   if (!stats || typeof stats !== "object") return { error: "練習日数の形が正しくありません" };
-  for (const k of ["daysThisWeek", "daysThisMonth", "daysThisYear", "daysAll"]) {
+  for (const k of Object.keys(STATS_MAX)) {
     const v = stats[k];
     if (!Number.isInteger(v) || v < 0 || v > STATS_MAX[k]) {
       return { error: `練習日数(${k})が正しくありません` };

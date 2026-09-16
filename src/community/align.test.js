@@ -128,10 +128,10 @@ describe("cohortAverage", () => {
   it("人数が足りないときは「あと〇人」を出し、〇は足りない人数そのもの", () => {
     // 2人しか合わせられない → あと1人
     const two = cohortAverage(mine, [a, b]);
-    expect(two.error).toBe("あと1人のデータが必要です。みなさまのデータをお待ちしています...");
+    expect(two.error).toBe("あと1人のデータが必要です\nみなさまのデータをお待ちしています");
     // 1人だけ → あと2人 / 誰もいない → あと3人。数が人数に連動していることを確かめる
-    expect(cohortAverage(mine, [a]).error).toBe("あと2人のデータが必要です。みなさまのデータをお待ちしています...");
-    expect(cohortAverage(mine, []).error).toBe("あと3人のデータが必要です。みなさまのデータをお待ちしています...");
+    expect(cohortAverage(mine, [a]).error).toBe("あと2人のデータが必要です\nみなさまのデータをお待ちしています");
+    expect(cohortAverage(mine, []).error).toBe("あと3人のデータが必要です\nみなさまのデータをお待ちしています");
     // 音の話に化けていないこと
     expect(two.error).not.toContain("重なっている音");
   });
@@ -149,6 +149,18 @@ describe("cohortAverage", () => {
     expect(cohortAverage({ notes: {} }, [a, b, c]).error).toContain("自分の計測");
     const few = { notes: { 0: note(9999, 99) } };
     expect(cohortAverage(mine, [few]).error).toContain("重なっている音");
+  });
+  // 【C2・C3 2026-09-16 実機の指摘】2行の文言は改行で分ける。句点と「...」は持たない。
+  // 表示側(screens.jsx の Empty)が white-space: pre-line で改行を効かせる。
+  it("2行の文言は改行1つで分かれ、句点・「...」を持たない(C2・C3)", () => {
+    const c3 = alignProfile({ notes: {} }, a).error;
+    expect(c3.split("\n")).toEqual(["自分の計測がまだありません", "数回吹いてから取り込んでください"]);
+    const c2 = cohortAverage(mine, []).error;
+    expect(c2.split("\n")).toEqual(["あと3人のデータが必要です", "みなさまのデータをお待ちしています"]);
+    for (const s of [c2, c3]) {
+      expect(s).not.toMatch(/[。…]/);
+      expect(s).not.toContain("...");
+    }
   });
   it("誰もいなければエラーを返す(0除算しない)", () => {
     expect(cohortAverage(mine, []).error).toBeTruthy();

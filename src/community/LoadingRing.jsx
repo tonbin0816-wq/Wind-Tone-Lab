@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { beginLoad, loadPercent, loadFloor } from "./loadProgress.js";
 
 // ------------------------------------------------------------------
@@ -55,6 +55,24 @@ export function LoadingRing({ p }) {
 // 進めずに出すのが正しい。
 export default function LoadingRingBox({ step = null }) {
   const [pct, setPct] = useState(() => loadFloor());
+  // 【C1 2026-09-16 実機の指摘】輪を**見えている領域の縦の中央**に置く。
+  // 領域 = この包みの上端(chunk / account なら本文の先頭、list なら子タブ帯の下端)〜下部ナビの上端。
+  // 包みの高さを「可視高(100dvh)− 下部ナビ(--page-bottom-gap)− 包みの上端」にして中を中央寄せする。
+  // 上端は文書座標で1度測る(スクロール位置に依らない。App.jsx の fillViewportMinHeight と同じ考え)。
+  // 新しい数は書かない: 100dvh と --page-bottom-gap は既存のトークン、上端は実測値。
+  // dvh 未対応の環境では minHeight の宣言ごと落ちて、以前どおり中身の高さになる。
+  const boxRef = useRef(null);
+  const [top, setTop] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = boxRef.current;
+      if (!el) return;
+      setTop(Math.max(0, el.getBoundingClientRect().top + (window.scrollY || 0)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   useEffect(() => {
     if (step) beginLoad(step);
@@ -73,11 +91,21 @@ export default function LoadingRingBox({ step = null }) {
   return (
     // role="img" + 固定の名前。role="status" にすると数字が変わるたびに
     // 読み上げが走り、1秒に何十回も「43%」「44%」と喋る。
-    <div role="img" aria-label="読み込み中"
-      style={{ padding: "var(--sp-6)", display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-3)" }}>
-      <LoadingRing p={pct / 100} />
-      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1 }}>
-        {Math.floor(pct)}%
+    <div role="img" aria-label="読み込み中" ref={boxRef}
+      style={{
+        padding: "var(--sp-6)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        minHeight: `calc(100dvh - var(--page-bottom-gap) - ${top}px)`,
+      }}>
+      {/* 【中央に来るのは輪】数字は輪の下に**絶対配置**で添える ── 流れの中に置くと
+          輪 + 余白 + 数字の塊が中央に来て、輪そのものは中点より上にずれる。 */}
+      <div style={{ position: "relative" }}>
+        <LoadingRing p={pct / 100} />
+        <div className="sans" style={{
+          position: "absolute", top: "calc(100% + var(--sp-3))", left: 0, right: 0, textAlign: "center",
+          fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1,
+        }}>
+          {Math.floor(pct)}%
+        </div>
       </div>
     </div>
   );

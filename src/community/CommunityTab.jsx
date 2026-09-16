@@ -6,8 +6,9 @@ import { AvatarSprite, Avatar, RowChevron } from "./icons.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
-// 【計画5 2026-09-10】運営者への連絡先と法務文書。綴りの写しを作らない。
-import { SUPPORT_EMAIL, PRIVACY_URL, TERMS_URL } from "../support.js";
+// 【計画5 2026-09-10】運営者への連絡先。綴りの写しを作らない。
+// (法務文書の path は LegalSheet.jsx が読む。ここはリンクを持たなくなった 2026-09-16 C11)
+import { SUPPORT_EMAIL } from "../support.js";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
@@ -22,6 +23,8 @@ import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds
 // 待ちは chunk → アカウント確認 → 名簿 と続くが、要素が入れ替わっても
 // 数字が巻き戻らないよう、進捗の帳簿は React の外(loadProgress.js)にある。
 import LoadingRing from "./LoadingRing.jsx";
+// 【C11・C12 2026-09-16】規約・ポリシーはアプリの中で読む(外へ出ない)。
+import LegalSheet from "./LegalSheet.jsx";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -512,8 +515,17 @@ function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
 }
 
+// 文章の中のリンクの見た目をした <button>。JoinIntro の規約・ポリシー用(押すとシートが開く)。
+// 以前の <a>(色だけ指定・下線はブラウザ既定)と同じ見え方にする。文字の大きさは行(noteStyle)を継ぐ。
+const linkButtonStyle = {
+  background: "none", border: "none", padding: 0, font: "inherit",
+  color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
+};
+
 function JoinIntro({ onJoin, notice = null }) {
   const [busy, setBusy] = useState(false);
+  // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
+  const [legal, setLegal] = useState(null);
   const join = async () => {
     if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
     setBusy(true);
@@ -536,13 +548,16 @@ function JoinIntro({ onJoin, notice = null }) {
       {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
           **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
       <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
-        <a href={TERMS_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-accent)" }}>利用規約</a>
-        <a href={PRIVACY_URL} target="_blank" rel="noreferrer" style={{ color: "var(--c-accent)" }}>プライバシーポリシー</a>
+        {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
+            お問い合わせ(mailto:)はそのまま。 */}
+        <button type="button" onClick={() => setLegal("terms")} className="sans" style={linkButtonStyle}>利用規約</button>
+        <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
         <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--c-accent)" }}>お問い合わせ</a>
       </div>
       <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
       </button>
+      {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
     </div>
   );
 }
@@ -1081,22 +1096,22 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 // Row(ラベルと値)とは役目が違う ── こちらは**押せる**。
 // 地も枠も足さず、押せることは右端の山形だけで返す(§6.7)。
 // 幅いっぱいが当たりになるので、横に並べた文字のリンクより押し分けやすい(§5)。
-function NavRow({ label, href, sub = null, external = false, last = false }) {
-  return (
-    <a
-      href={href}
-      {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
-      className="sans"
-      style={{
-        display: "flex", alignItems: "center", gap: "var(--sp-3)",
-        minHeight: "var(--tap-min)", padding: "var(--sp-2) var(--sp-4)",
-        borderBottom: last ? "none" : "1px solid var(--c-line)",
-        color: "var(--c-ink)", fontSize: "var(--fs-sm)", fontWeight: 600,
-        // 【下線を消す】これは文章の中のリンクではなく**行**。押せることは
-        // 右端の山形だけで返す(§6.7)ので、下線は二重の印になる。
-        textDecoration: "none",
-      }}
-    >
+// 【C11・C12 2026-09-16】href(mailto:)か onClick(アプリの中のシートを開く)のどちらか。
+// 以前あった external(別タブで開く)の経路は消した ── アプリの外へ出ると戻る手段が無く、
+// 戻ると SPA が再起動する(理由は LegalSheet.jsx)。
+function NavRow({ label, href = null, onClick = null, sub = null, last = false }) {
+  const style = {
+    display: "flex", alignItems: "center", gap: "var(--sp-3)",
+    width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer",
+    minHeight: "var(--tap-min)", padding: "var(--sp-2) var(--sp-4)",
+    borderBottom: last ? "none" : "1px solid var(--c-line)",
+    color: "var(--c-ink)", fontSize: "var(--fs-sm)", fontWeight: 600,
+    // 【下線を消す】これは文章の中のリンクではなく**行**。押せることは
+    // 右端の山形だけで返す(§6.7)ので、下線は二重の印になる。
+    textDecoration: "none",
+  };
+  const inner = (
+    <>
       <span style={{ flex: "1 1 0", minWidth: 0 }}>
         {label}
         {/* 【アドレスも出す】mailto を開けない端末(メールアプリを入れていない)でも
@@ -1104,8 +1119,10 @@ function NavRow({ label, href, sub = null, external = false, last = false }) {
         {sub ? <span className="sans" style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>{sub}</span> : null}
       </span>
       <RowChevron />
-    </a>
+    </>
   );
+  if (href) return <a href={href} className="sans" style={style}>{inner}</a>;
+  return <button type="button" onClick={onClick} className="sans" style={style}>{inner}</button>;
 }
 
 function Row({ label, value }) {
@@ -1127,6 +1144,8 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
 export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
+  const [legal, setLegal] = useState(null);
   // 【B-3 / T7 2026-09-15 本人裁定】削除の確認は window.confirm ではなくシート1枚。
   // 確認の文には**何が消えて何が残るか**が要り、confirm は1行しか持てない。
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1240,29 +1259,22 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
           ── DELETE_ERROR はシートの中(押したボタンの隣)に出す。 */}
       {error && !deleteOpen ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 
-      <button type="button" onClick={onEdit} disabled={busy} className="sans" style={secondaryButtonStyle}>
-        編集
-      </button>
-
-      {/* 【アカウント引継】「編集」と同じ体裁(secondaryButtonStyle)の一手を1つ増やすだけ。
-          説明は付けない ── 押せば中身が出るものに、押す前の説明は要らない。
-          並びは「アカウントを削除」より上。**破壊的な一手が最後**という並びを崩さない。 */}
-      <button type="button" onClick={onOpenBackup} disabled={busy} className="sans" style={secondaryButtonStyle}>
-        アカウント引継
-      </button>
+      {/* 【並び C10 2026-09-16 実機の指摘】公開スイッチ → error → お問い合わせ / 規約 / ポリシー → uid →
+          編集 → アカウント引継 → アカウントを削除。**破壊的な一手が最後**は保ったまま、
+          自分のアカウントを動かす3つ(編集・引継・削除)を続けて最下部に置く。 */}
 
       {/* 【計画5 2026-09-10 / 参考にした他アプリの設定画面に寄せた 2026-09-10】
-          お問い合わせと法務文書。**「アカウントを削除」より上**に置く ──
-          破壊的な一手が最後、という並びを崩さない。
+          お問い合わせと法務文書。
           通報で隠された人が「お急ぎの場合は…」で辿り着く先でもあるので、
           告知(このページの一番上)と同じページの中に無いと導線が切れる。
           【素のリンクを並べるのをやめた】以前は文字のリンク3つを横に並べていたが、
           横に並ぶぶん**1つあたりの当たりが狭く**、押し分けにくかった。
-          行にすれば幅いっぱいが当たりになる(§5)。押せることは右端の山形だけで返す(§6.7)。 */}
+          行にすれば幅いっぱいが当たりになる(§5)。押せることは右端の山形だけで返す(§6.7)。
+          【C11・C12 2026-09-16】規約・ポリシーはアプリの中のシート(LegalSheet)。外へ出ない。 */}
       <div className="card" style={{ padding: 0, marginTop: "var(--sp-4)" }}>
         <NavRow label="お問い合わせ" href={`mailto:${SUPPORT_EMAIL}`} sub={SUPPORT_EMAIL} />
-        <NavRow label="利用規約" href={TERMS_URL} external />
-        <NavRow label="プライバシーポリシー" href={PRIVACY_URL} external last />
+        <NavRow label="利用規約" onClick={() => setLegal("terms")} />
+        <NavRow label="プライバシーポリシー" onClick={() => setLegal("privacy")} last />
       </div>
 
       {/* 【匿名アカウントの識別子を出す 2026-09-10】
@@ -1278,6 +1290,17 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
         }}>{uid}</div>
       ) : null}
 
+      <button type="button" onClick={onEdit} disabled={busy} className="sans" style={{ ...secondaryButtonStyle, marginTop: "var(--sp-4)" }}>
+        編集
+      </button>
+
+      {/* 【アカウント引継】「編集」と同じ体裁(secondaryButtonStyle)の一手を1つ増やすだけ。
+          説明は付けない ── 押せば中身が出るものに、押す前の説明は要らない。
+          並びは「アカウントを削除」より上。**破壊的な一手が最後**という並びを崩さない。 */}
+      <button type="button" onClick={onOpenBackup} disabled={busy} className="sans" style={secondaryButtonStyle}>
+        アカウント引継
+      </button>
+
       {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
           削除の確認へ移した(2026-09-15 にその確認がシートになった)。 */}
       <div style={{ display: "grid", marginTop: "var(--sp-4)" }}>
@@ -1285,6 +1308,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
           アカウントを削除
         </button>
       </div>
+
+      {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
 
       {/* 【B-3 / T7 2026-09-15 本人裁定】削除の確認。器はアプリで1つの BottomSheet。
           【「戻せるか」の行は置かない】本人裁定。戻せないことは「消えるもの」の行が
