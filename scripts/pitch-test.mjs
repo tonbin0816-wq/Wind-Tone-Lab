@@ -3507,7 +3507,15 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     check("トラックの onmute を購読している", /\.onmute = \(\) => \{ recoverMicRef\.current/.test(src));
     check("トラックの onended を購読している", /\.onended = \(\) => \{ recoverMicRef\.current/.test(src));
     check("復旧失敗時に errorMsg を出している", /setErrorMsg\(MIC_RECOVER_FAILED_MSG\)/.test(src));
-    check("復旧失敗の文言はタップでの再試行を促している", /const MIC_RECOVER_FAILED_MSG = "[^"]*画面をタップ[^"]*";/.test(src));
+    // 【M8 2026-09-16 実機の指摘】文言は**見出しだけ**にした。「どうすれば直るか」と
+    // 「もう一度試す」はエラーの器が3行で出す(A-5 と同じ形)ので、
+    // 「画面をタップしてください」は**ボタンが代わりに言う**ことになり綴りごと消えた。
+    check("M8: 復旧失敗の見出しは「マイクを再接続できませんでした」",
+      /const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした";/.test(src),
+      (/const MIC_RECOVER_FAILED_MSG = "[^"]*";/.exec(src) || ["無し"])[0]);
+    check("M8: 「画面をタップしてください」は App.jsx に1件も無い(コメントを除く)",
+      !/画面をタップしてください/.test(codeOf(src)),
+      `${(codeOf(src).match(/画面をタップしてください/g) || []).length}件`);
     // 既存のメトロノーム出力設定(ゲイン・リミッター)を変えていないこと
     check("メトロノームのマスターゲインは2.6のまま", /master\.gain\.value = 2\.6;/.test(src));
     check("リミッターのthresholdは-3のまま", /limiter\.threshold\.value = -3;/.test(src));
@@ -6963,12 +6971,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // **下げたぶんは、下で「セッション詳細・PhraseTimeline・
   // データタブに .card / .tile / .tile-row が1つも無い」ことを名指しで固定して埋める。**
   check(".card が実際に使われている", cardTags.length >= 1, `${cardTags.length}箇所`);
-  check(".tile が実際に使われている", tileTags.length >= 1, `${tileTags.length}箇所`);
-  // 【D-3a】下限を下げたので、**残った1つが誰のものか**を名指しで固定する
-  // (下限だけを下げると「.tile が全部消えた」も通ってしまう)。
-  check("D-3a: 残った .tile は計測タブの詳細(MetricCard)のもの",
-    /className="tile"/.test(srcOfFn(src, "MetricCard")), `${tileTags.length}箇所`);
-  check(".tile-row が実際に使われている", rowTags.length >= 1, `${rowTags.length}箇所`);
+  // 【便D(M9)2026-09-16 で 0 になった】本人の実機指摘「詳細シートの指標を
+  // 音量表示と計測下限dB以外削除」で、.tile を名乗る唯一の部品(MetricCard)と
+  // それを並べる .tile-row が消えた。**下限は主張ごと反転させる**:
+  // 「使われている」ではなく「**呼び手が0件のまま戻っていない**」を見る
+  // (MetricCard を戻す変異・.tile を書き足す変異はここで落ちる)。
+  // index.css の .tile / .tile-row は面の作法の語彙として残っているが**呼び手は0**。
+  // CSS ごと畳むかは便D の担当外なので次便へ回す(統括へ起票済み)。
+  check("M9: .tile を名乗る要素は App.jsx に1つも無い(MetricCard ごと消えた)",
+    tileTags.length === 0, `${tileTags.length}箇所`);
+  check("M9: .tile-row を名乗る要素も1つも無い(3枚並べる行ごと消えた)",
+    rowTags.length === 0, `${rowTags.length}箇所`);
+  check("M9: MetricCard は部品ごと消えている(定義も呼び出しも無い)",
+    !/function MetricCard\(/.test(codeOf(src)) && !/<MetricCard\b/.test(codeOf(src)),
+    (codeOf(src).match(/(function MetricCard\(|<MetricCard\b)/g) || []).join(" / ") || "0件");
   // 【N-9】セッション詳細と分析(PIVOT)の関数に面のクラスが1つも無いこと(N-6 の My Data と同じ形)。
   // **「箱が無い」ことの十分条件ではない**(インラインで塗れば別・親が巻けば別)ので名前もそう名乗る。
   {
@@ -8038,9 +8054,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         (tag.match(/border: "[^"]*"/) || ["border 無し"])[0]);
       check("F-75: メトロノームのボタンは地も持たない",
         /background: "transparent"/.test(tag), (tag.match(/background: "[^"]*"/) || ["background 無し"])[0]);
-      // 外形は変えない(§6.1.5)。枠を 0 にすると 44×56 が 42×54 に縮む。
-      check("F-75: メトロノームのボタンの外形は 44(--tap-min)×56 のまま",
-        /width: "var\(--tap-min\)", height: 56/.test(tag), tag.replace(/\s+/g, " ").slice(0, 200));
+      // 【M7 2026-09-16 実機の指摘で高さが変わった】本人「メトロノームの当たり判定を
+      // 上だけ下げる」。以前は height 56(上部設定行2行ぶん)で行の中央に置いていたため、
+      // **1行目(奏者)の帯まで**このボタンが受け取っていた。
+      // 新: 高さは §5 の最小(--tap-min)で、alignSelf: flex-end で下端に寄せる。
+      // 幅は不変。**56 に戻す変異はここで落ちる。**
+      check("M7: メトロノームのボタンは 44(--tap-min)角で、下端に寄せる",
+        /width: "var\(--tap-min\)", height: "var\(--tap-min\)", alignSelf: "flex-end"/.test(tag)
+        && !/height: 56/.test(tag), tag.replace(/\s+/g, " ").slice(0, 240));
       check("メトロノームのボタンは ON/OFF を aria-pressed で持つ",
         /aria-pressed=\{showMetroPanel\}/.test(tag));
       // 枠を消したので、ON/OFF の唯一の視覚的な合図は**アイコンの色**。ここが消えたら状態が読めない。
@@ -8074,139 +8095,114 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("「詳細を見る」トグルの旧実装(枠 #D9E1EC + 地 #F3F6FA)が残っていない",
         !code.includes('border: "1px solid #D9E1EC", background: "#F3F6FA"'));
     }
-    // 【F-72 で主張が変わった】計測タブ上部の「奏者 / 楽器 / 基準ピッチ / リード」。
-    //   旧主張: リード枠は B型(.ctl-plain)= 地 --c-sunken を持つ / 奏者枠は素の <select>
-    //           (= 入力欄の規則の地 --c-sunken を持つ) で、両者の角丸が一致していること
-    //   新主張: **どちらも地を持たない素のテキスト + ▾**(正典 .reedchip / .set1)。
-    //           「触れる」の合図は地ではなく ▾ が担う。
-    // 本人指示(2026/08/12・実機)「モックでは上部の奏者やリードもカード色を変えて
-    // カード方式にしていない。モックに合わせて。モックどおり ▾ などがあれば
-    // タップすれば選択肢が出るんだなと直感的に分かる」。
-    // **主張は弱めていない**: 「地が無いこと」「▾ があること」「外形が変わっていないこと」を
-    // 新たに縛り、地を戻したら落ちる形にしてある。
+      // 【F-72 / 便D(M3〜M6)で主張が変わった】計測タブ上部の「奏者 / 楽器 / 基準ピッチ / リード」。
+      //   F-72 の主張: **どれも地を持たない素のテキスト + ▾**(正典 .reedchip / .set1)。
+      //                「触れる」の合図は地ではなく ▾ が担う。← **ここは変わっていない**
+      //   便D で変わったところ: 値の上に**透明なネイティブ <select> を重ねる**のをやめ、
+      //   「値を描いた <button> → ScrollPicker」にした(本人の実機指摘 M3 / M4 と
+      //   2026-09-16 の裁定④)。したがって
+      //     ・枠の中の <select> / <option> / appearance / color:transparent を見る検査は
+      //       **役目を終えた**(綴りごと無くなった物は縛れない)。代わりに
+      //       「App.jsx に実物の <select> が1つも無い」を**もっと強い形で**下に置く
+      //     ・「地も枠も持たない」「▾ が枠の中にある」「間隔を作る横方向の宣言は仕様表どおり」は
+      //       そのまま <button> に対して見る(緩めていない)
     {
-      // 【差し戻し①で目印が変わった】option の綴りは reedBoxOptions へ集約したので、
-      // 枠の目印は <label htmlFor="measure-reed-box"> だけになる。
-      const i = src.indexOf('<label htmlFor="measure-reed-box"');
-      const tag = i === -1 ? "" : tagAt(i + 1);
-      check("計測タブのリード枠を綴りで特定できている", tag !== "" && /htmlFor="measure-reed-box"/.test(tag), tag.slice(0, 160));
-      check("F-72: リード枠は型のクラス(.ctl-plain / .ctl-state)を持たない(地も枠も持たない)",
-        !/className=/.test(tag), (tag.match(/className="[^"]*"/) || ["className 無し"])[0]);
-      check("F-72: リード枠はインラインでも地・枠・角丸を持たない",
-        !withPrefix([tag], ["background", "border", "borderradius", "boxshadow"]).length, tag.slice(0, 200));
-      check("F-72: リード枠の padding は元のまま(地を落としても外形は 1px も変わらない)",
-        /padding: "2px 4px 2px 10px"/.test(tag), (tag.match(/padding: "[^"]*"/g) || []).join(" | "));
-      check("リード枠の旧実装(選択で地を塗り分ける)が残っていない",
-        !/selectedReedId \? "#EAEFF5"/.test(code));
-      // ▾。地が消えたので「押せば選択肢が出る」を形で示す唯一の合図。
-      // **枠(label)の中に居ること**まで見る(外に出すとそこが当たり判定の穴になる)。
       {
-        const lblEnd = i === -1 ? -1 : src.indexOf("</label>", i);
-        const lbl = i === -1 || lblEnd === -1 ? "" : src.slice(i, lblEnd);
-        check("F-72: リード枠の中に ▾(PickChevron)がある(正典 .reedchip の末尾)",
-          /<PickChevron \/>/.test(lbl), lbl.replace(/\s+/g, " ").slice(-160));
-      }
-      // 中の select 2つは DESIGN-SYSTEM §6.6 が明記する**意図的な例外**(地も枠も持たない)。
-      // 【F-72】ネイティブの三角を出さないため appearance も落とす。
-      // 【差し戻し① で主張が変わった】
-      //   旧主張: select が値を描く。appearance を落とすので §6.7 のとおり
-      //           高さ・行送り・overflow を select 自身が持つ
-      //   新主張: **値は <span> が描き、select は枠に重ねて透明にする。**
-      //           select に値を描かせると箱の幅が「いちばん長い option」で決まり、
-      //           「V16-3」と「#4」の間に 43.3px、「#4」と ▾ の間に 19.8px の空きが出ていた
-      //           (実測。リード12枚・#4 選択時)。正典 .reedchip は間が半角空白1つ。
-      //           重ねる形なら幅が値そのものになる。縦は包む <span> が TOPSET_REED_SELECT_H_PX で持つ。
-      {
-        const lblEnd = i === -1 ? -1 : src.indexOf("</label>", i);
-        const lbl = i === -1 || lblEnd === -1 ? "" : src.slice(i, lblEnd);
-        check("F-72: リード枠のブロックを走査できている", lbl.length > 400, `${lbl.length}文字`);
-        const sels = lbl.match(/<select[\s\S]*?\n\s*>/g) || [];
-        check("リード枠の中の select は2つ", sels.length === 2, `${sels.length}個`);
-        check("リード枠の中の select 2つは地も枠も持たない(§6.6 の意図的な例外を維持)",
-          sels.length === 2 && sels.every((t) => /background: "none", border: "none"/.test(t)),
-          sels.map((t) => (t.match(/background: "[^"]*", border: "[^"]*"/) || ["無し"])[0]).join(" | "));
-        check("F-72: リード枠の中の select は appearance を落としている(▾ が二重に出ない)",
-          sels.length === 2 && sels.every((t) => /appearance: "none", WebkitAppearance: "none"/.test(t)),
-          `${sels.filter((t) => /appearance: "none"/.test(t)).length}/2`);
-        check("F-72: リード枠の select 2つは値を描かず、枠に重ねて透明にする(幅を option に引きずられない)",
-          sels.length === 2 && sels.every((t) =>
-            /position: "absolute", left: 0, top: 0, width: "100%", height: "100%"/.test(t)
-            && /color: "transparent"/.test(t) && !/opacity: 0/.test(t)),
-          sels.map((t) => (t.match(/position: "[^"]*"/) || ["無し"])[0]).join(" | "));
-        // 縦は包む <span> が持つ(§6.7。上部設定行の高さ 60px = 環の位置を保つ)
-        const wraps = lbl.match(/<span style=\{\{ position: "relative"[^}]*\}\}>/g) || [];
-        check("F-72: 値と select を包む <span> は2つ(箱と個体)", wraps.length === 2, `${wraps.length}個`);
-        check("F-72: 包む <span> が縦(TOPSET_REED_SELECT_H_PX)を持つ",
-          wraps.length === 2 && wraps.every((t) => /height: TOPSET_REED_SELECT_H_PX/.test(t)),
-          wraps.map((t) => (t.match(/height: [A-Z_]*/) || ["無し"])[0]).join(" | "));
-        // 【差し戻し① 長い銘柄のはみ出し】maxWidth は幅の上限でしかなく、値を <span> に
-        // 描かせる形では**上限を超えた文字が箱の外へそのまま描かれる**(実測: `D'Addario
-        // Select Jazz-3S` 166.9px が maxWidth 110 を越え、隣の #3 に 56.4px 重なった)。
-        // 素の <select> はコントロールの箱が値をクリップしていたので、これは HEAD からの退行だった。
-        // 歯止めは**箱と値の両方**に要る(箱だけだと ellipsis が出ず、値だけだと flex で縮まない)。
-        check("F-72: 値を包む箱に overflow:hidden がある(maxWidth を越えた文字を外へ描かせない)",
-          wraps.length === 2 && wraps.every((t) => /overflow: "hidden"/.test(t)),
-          wraps.map((t) => (t.match(/overflow: "[^"]*"/) || ["overflow 無し"])[0]).join(" | "));
+        const anchorBox = code.indexOf('onClick={() => setOpenPicker("box")}');
+        const rowStart = anchorBox === -1 ? -1 : code.lastIndexOf("<div", anchorBox);
+        const rowEnd = anchorBox === -1 ? -1
+          : code.indexOf("</div>", code.indexOf("</button>", code.indexOf('onClick={() => setOpenPicker("reed")}')));
+        const reedRow = rowStart === -1 || rowEnd === -1 ? "" : code.slice(rowStart, rowEnd);
+        check("M4: 計測タブのリード枠(箱・個体の2ボタン)を綴りで特定できている",
+          reedRow.length > 600 && /setOpenPicker\("box"\)/.test(reedRow) && /setOpenPicker\("reed"\)/.test(reedRow),
+          `${reedRow.length}文字`);
+        check("M4: リード枠は型のクラス(.ctl-plain / .ctl-state)を持たない(地も枠も持たない)",
+          !/className=/.test(reedRow), (reedRow.match(/className="[^"]*"/) || ["className 無し"])[0]);
+        check("M4: リード枠の2つのボタンは地も枠も持たない",
+          (reedRow.match(/background: "none", border: "none"/g) || []).length === 2,
+          `${(reedRow.match(/background: "none", border: "none"/g) || []).length}/2`);
+        check("M4: リード枠は書体も大きさも行から継ぐ(font: inherit。<button> の既定へ落ちない)",
+          (reedRow.match(/font: "inherit"/g) || []).length === 2,
+          `${(reedRow.match(/font: "inherit"/g) || []).length}/2`);
+        check("M4: 箱のボタンは押すと箱のピッカーが開く / 個体は個体のピッカー",
+          /onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(reedRow)
+          && /onClick=\{\(\) => setOpenPicker\("reed"\)\}/.test(reedRow));
+        check("M4: 録音中は箱を、箱が未選択なら個体を押せない(押しても何も起きないを作らない)",
+          /disabled=\{isRecording\}/.test(reedRow)
+          && /disabled=\{isRecording \|\| !selectedBoxGroup\}/.test(reedRow));
+        check("M4: 2つとも読み上げの名前を持つ(文字だけでは何を選ぶ枠か分からない)",
+          /aria-label="リードの箱を選ぶ"/.test(reedRow) && /aria-label="リードの個体を選ぶ"/.test(reedRow));
+        // ▾ は**枠(button)の中**に居ること。外に出すとそこだけ当たり判定の穴になる。
         {
-          // 値そのものの <span>(包む箱の直後にある、position を持たない方)
-          // 【F-81 で1つ増えた】箱の開封日(値でも選択肢でもない**箱の説明**)が末尾に付いた。
-          // 3つとも色を持つので、まず**総数**を固定し、役割ごとに分けて中身を見る。
-          const colorSpans = (lbl.match(/<span style=\{\{ color: [^}]*\}\}>/g) || []);
-          check("F-72/F-81: リード枠の中で色を持つ <span> は3つ(箱の値・個体の値・開封日)",
-            colorSpans.length === 3, `${colorSpans.length}個`);
-          const valSpans = colorSpans.slice(0, 2);
-          check("F-72: リード枠の値の <span> は2つ(箱と個体)",
-            valSpans.length === 2 && /selectedReedId \? "var\(--c-ink\)"/.test(valSpans[0])
-            && /selectedReedId \? "var\(--c-ink-2\)"/.test(valSpans[1]),
-            valSpans.map((t) => (t.match(/color: [^,]*/) || ["?"])[0]).join(" | "));
-          check("F-72: リード枠の値は縮んで省略記号になる(minWidth:0 + overflow + textOverflow)",
-            valSpans.length === 2 && valSpans.every((t) =>
-              /minWidth: 0/.test(t) && /overflow: "hidden"/.test(t) && /textOverflow: "ellipsis"/.test(t)),
-            valSpans.map((t) => t.replace(/\s+/g, " ").slice(0, 140)).join(" | "));
-          // 【F-81】開封日は**箱の説明**なので、値(--c-ink / --c-ink-2)より弱い段に落とす。
-          // 折り返さず、縮まず(flexShrink:0)、省略記号も出さない = 日付は全桁読める。
-          const dateSpan = colorSpans[2] || "";
-          check("F-81: 開封日は値より弱い段(--c-ink-3)の素の文字",
-            /color: "var\(--c-ink-3\)"/.test(dateSpan), dateSpan.replace(/\s+/g, " ").slice(0, 140));
-          check("F-81: 開封日は折り返さず縮まない(全桁読める)",
-            /whiteSpace: "nowrap"/.test(dateSpan) && /flexShrink: 0/.test(dateSpan)
-            && !/textOverflow/.test(dateSpan), dateSpan.replace(/\s+/g, " ").slice(0, 140));
-          // 表記は yyyy/mm/dd(§6.0)。formatYmd を通すので月日だけの独自表記は作れない。
-          check("F-81: 開封日は formatYmd(yyyy/mm/dd)を通す(独自の日付表記を作らない)",
-            /\{selectedBoxGroup && formatYmd\(selectedBoxGroup\.startDate\) && \(/.test(lbl)
-            && /· \{formatYmd\(selectedBoxGroup\.startDate\)\}/.test(lbl));
-          check("F-81: 箱を選んでいないときは開封日を出さない(今に関係ない物は出ていない)",
-            /\{selectedBoxGroup && formatYmd/.test(lbl));
+          const memberBtn = (reedRow.match(/<button\s*\r?\n\s*onClick=\{\(\) => setOpenPicker\("reed"\)\}[\s\S]*?<\/button>/) || [""])[0];
+          check("M4: ▾(PickChevron)は個体のボタンの中にある(正典 .reedchip の末尾)",
+            /<PickChevron \/>/.test(memberBtn) && (reedRow.match(/<PickChevron \/>/g) || []).length === 1,
+            `${(reedRow.match(/<PickChevron \/>/g) || []).length}箇所`);
         }
-        // 【差し戻し②】箱と個体の間隔を作っているのは label の gap ではなく、
-        // **個体を包む箱の marginLeft**。gap:0 だけを見る検査では marginLeft を広げる変異を
-        // 通してしまう(43.3px 空く状態の復元。前回の不合格理由そのもの)。値で縛る。
-        check("F-72: 箱と個体の間隔は --sp-1 だけ(marginLeft を広げると「1つの塊」に読めなくなる)",
-          wraps.length === 2 && /marginLeft: "var\(--sp-1\)"/.test(wraps[1]) && !/marginLeft/.test(wraps[0]),
-          wraps.map((t) => (t.match(/marginLeft: [^,}]*/) || ["marginLeft 無し"])[0]).join(" | "));
-        // 【綴りの一元化】見えているテキストと <option> が**同じ配列**から作られていること。
-        // 2箇所に書くと「見えている値と選択肢がずれる」という最悪の壊れ方をする。
-        for (const [name, arr] of [["箱", "reedBoxOptions"], ["個体", "reedMemberOptions"]]) {
-          check(`F-72: リード枠の${name}は ${arr} からテキストも <option> も作る(綴りを2箇所に置かない)`,
-            new RegExp(`\\(${arr}\\.find\\(\\(o\\) => o\\.value ===`).test(lbl)
-            && new RegExp(`${arr}\\.map\\(\\(o\\) => \\(<option`).test(lbl),
-            lbl.replace(/\s+/g, " ").slice(0, 200));
-          check(`F-72: ${arr} の定義がある(先頭は未選択のときのラベル)`,
+        // --- M5 並びと段(箱 / 厚さ / 日付 / 個体#) -----------------------------------
+        {
+          const colorSpans = (reedRow.match(/<span style=\{\{ color: [^}]*\}\}>/g) || []);
+          check("M5: リード枠で色を持つ <span> は4つ(箱の銘柄・厚さ・日付・個体#)",
+            colorSpans.length === 4, `${colorSpans.length}個`);
+          check("M5: 段は 箱=--c-ink(太字) / 厚さ=--c-ink-2 / 日付=--c-ink-3 / 個体#=--c-ink-2",
+            colorSpans.length === 4
+            && /color: selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)", fontWeight: selectedReedId \? 600 : 400/.test(colorSpans[0])
+            && /color: "var\(--c-ink-2\)"/.test(colorSpans[1])
+            && /color: "var\(--c-ink-3\)"/.test(colorSpans[2])
+            && /color: selectedReedId \? "var\(--c-ink-2\)" : "var\(--c-line-strong\)"/.test(colorSpans[3]),
+            colorSpans.map((t) => (t.match(/color: [^,]*/) || ["?"])[0]).join(" | "));
+          // 並びは**ソース上の位置**で見る(色だけ合っていて順が違う、を落とす)
+          const posBrand = reedRow.indexOf("shortBrandLabel(");
+          const posStr = reedRow.indexOf("reedStrengthLabel(");
+          const posDate = reedRow.indexOf("formatYmd(selectedBoxGroup.startDate)");
+          const posMember = reedRow.indexOf("reedMemberOptions.find(");
+          check("M5: 並びは 箱(銘柄) → 厚さ → 日付 → 個体# の順",
+            posBrand > 0 && posStr > posBrand && posDate > posStr && posMember > posDate,
+            `銘柄${posBrand} 厚さ${posStr} 日付${posDate} 個体${posMember}`);
+          check("M5: 厚さは shortBoxLabel と同じ規則(reedStrengthLabel)から出す",
+            /\{reedStrengthLabel\(selectedBoxGroup\.strength\)\}/.test(reedRow));
+          check("M5: 銘柄は shortBoxLabel と同じ短縮規則(shortBrandLabel)から出す",
+            /\{selectedBoxGroup \? shortBrandLabel\(selectedBoxGroup\.brand, reedGroups\.map\(\(x\) => x\.brand\)\) : reedBoxOptions\[0\]\.label\}/.test(reedRow));
+          check("M5: 値は縮んで省略記号になる(minWidth:0 + overflow + textOverflow)",
+            (reedRow.match(/minWidth: 0, overflow: "hidden", textOverflow: "ellipsis"/g) || []).length === 2,
+            `${(reedRow.match(/minWidth: 0, overflow: "hidden", textOverflow: "ellipsis"/g) || []).length}/2`);
+          // 【M6】日付は**1つだけ**。中黒は廃止(A1 の裁定と同じ)。
+          check("M6: 日付は箱の開封日ひとつだけ(個体を選んでも同じ値)",
+            (reedRow.match(/formatYmd\(selectedBoxGroup\.startDate\)/g) || []).length === 2,
+            `${(reedRow.match(/formatYmd\(selectedBoxGroup\.startDate\)/g) || []).length}箇所(条件と表示で2)`);
+          check("M6: 箱を選んでいないときは開封日を出さない(今に関係ない物は出ていない)",
+            /\{selectedBoxGroup && formatYmd\(selectedBoxGroup\.startDate\) && \(/.test(reedRow));
+          check("M6: 日付は折り返さず縮まない(全桁読める)",
+            /color: "var\(--c-ink-3\)", whiteSpace: "nowrap", flexShrink: 0/.test(reedRow));
+        }
+        // --- 綴りの一元化: 選択肢もピッカーの中身も同じ配列から作る --------------------
+        for (const [name, arr, key] of [["箱", "reedBoxOptions", "box"], ["個体", "reedMemberOptions", "reed"]]) {
+          check(`M4: ${name}のピッカーは ${arr} から options も labelFn も作る(綴りを2箇所に置かない)`,
+            new RegExp(`options=\\{${arr}\\.map\\(\\(o\\) => o\\.value\\)\\}`).test(code)
+            && new RegExp(`labelFn=\\{\\(v\\) => \\(${arr}\\.find\\(\\(o\\) => o\\.value === v\\) \\|\\| ${arr}\\[0\\]\\)\\.label\\}`).test(code),
+            (code.match(new RegExp(`openPicker === "${key}"[\\s\\S]{0,420}`)) || [""])[0].replace(/\s+/g, " ").slice(0, 260));
+          check(`M4: ${arr} の定義がある(先頭は未選択のときのラベル)`,
             new RegExp(`const ${arr} = \\[\\s*\\{ value: "",`).test(src),
             (src.match(new RegExp(`const ${arr} = \\[[^\\n]*`)) || ["無し"])[0]);
         }
+        check("M4: 箱を選び直すと個体の選択は外れる(古い個体が残らない)",
+          /onChange=\{\(v\) => \{ setSelectedBoxKey\(v \|\| null\); setSelectedReedId\(null\); \}\}/.test(code));
+        check("M4: ピッカーは上部設定行(.tap-through)の中ではなく、画面ぶんの枠の外に置く",
+          code.indexOf('{openPicker === "box" && (') > code.indexOf("/* /画面ぶんの固定枠 */")
+          && code.indexOf('{openPicker === "reed" && (') > code.indexOf("/* /画面ぶんの固定枠 */"),
+          `枠の終わり ${code.indexOf("/* /画面ぶんの固定枠 */")} / 箱 ${code.indexOf('{openPicker === "box" && (')}`);
       }
 
       // --- リード枠の「横方向の間隔」を**集合ごと**突き合わせる ---------------
       // 【なぜ綴りの数え上げでは駄目か】前の版は「枠の中の marginLeft は1箇所」しか見ておらず、
       // 審査役の5変異が全部生存した: 箱の包みに marginRight:40 / paddingRight:40 を足す、
       // 個体の包みに paddingLeft:36 を足す、幅だけを持つ span を間に挟む、▾ の前に同じ span を挟む。
-      // どれも差し戻し②の状態(「V16-3」と「#4」が離れる / ▾ が隣の記号に見える)を復元する。
+      // どれも「V16-3」と「#4」が離れる / ▾ が隣の記号に見える状態を復元する。
       // **間隔は marginLeft 以外の手段でいくらでも作れる**ので、綴りを1つ数えても意味が無い。
       //
-      // ここでは (a) label の直下の子を4つに固定し (b) 枠の中の**横方向に効く宣言を全部集めて**
-      // 期待する集合とそのまま突き合わせる。期待集合は「何のためにその値があるか」を
-      // 1行ずつ書いた仕様表で、実装から機械的に写したものではない。
+      // ここでは (a) 包みの直下の子を2つ(箱のボタン / 個体のボタン)に固定し
+      // (b) 枠の中の**横方向に効く宣言を全部集めて**期待する集合とそのまま突き合わせる。
+      // 期待集合は「何のためにその値があるか」を1行ずつ書いた仕様表で、実装から機械的に写していない。
       // 集合に無い宣言が1つでも増えれば落ちる = 間隔を作る新しい経路を塞げる。
       {
         // 【専用のコメント除去】このファイルの codeOf / codeSafe は
@@ -8229,18 +8225,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         };
         const codeJs = stripJs(src);
         // 除去器そのものが空回りしていないことの確認(コードを食っていない / コメントは消えている)
-        check("F-72: コメント除去器が壊れていない(文字列の中の /* を食っていない)",
-          /accept="audio\/\*,video\/\*"/.test(codeJs) && !/正典 \.reedchip の末尾の ▾/.test(codeJs),
-          `accept 残存=${/accept="audio/.test(codeJs)} / コメント残存=${/正典 \.reedchip の末尾の ▾/.test(codeJs)}`);
+        check("M5: コメント除去器が壊れていない(文字列の中の /* を食っていない)",
+          /accept="audio\/\*,video\/\*"/.test(codeJs) && !/正典 \.reedchip の末尾の山形/.test(codeJs),
+          `accept 残存=${/accept="audio/.test(codeJs)} / コメント残存=${/正典 \.reedchip の末尾の山形/.test(codeJs)}`);
 
         const tagEnd = (s, from) => { let d = 0; for (let k = from; k < s.length; k++) { const ch = s[k]; if (ch === "{") d++; else if (ch === "}") d--; else if (ch === ">" && d === 0) return k + 1; } return s.length; };
-        const lo = codeJs.indexOf('<label htmlFor="measure-reed-box"');
+        const anchorBox = codeJs.indexOf('onClick={() => setOpenPicker("box")}');
+        const lo = anchorBox === -1 ? -1 : codeJs.lastIndexOf("<div", anchorBox);
         const openEnd = tagEnd(codeJs, lo);
-        const closeAt = codeJs.indexOf("</label>", lo);
+        const closeAt = anchorBox === -1 ? -1
+          : codeJs.indexOf("</div>", codeJs.indexOf("</button>", codeJs.indexOf('onClick={() => setOpenPicker("reed")}')));
         const openTag = lo === -1 ? "" : codeJs.slice(lo, openEnd);
         const body = lo === -1 || closeAt === -1 ? "" : codeJs.slice(openEnd, closeAt);
-        check("F-72: リード枠の開きタグと中身を走査できている", openTag !== "" && body.length > 300,
-          `開きタグ ${openTag.length}文字 / 中身 ${body.length}文字`);
+        check("M5: リード枠の包みと中身を走査できている", openTag !== "" && body.length > 600,
+          `包み ${openTag.length}文字 / 中身 ${body.length}文字`);
 
         // 直下の子と、枠の中の全タグ(順番つき)
         const allTags = [], children = [];
@@ -8261,12 +8259,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             k++;
           }
         }
-        // (a) 直下の子は「点 / 箱の包み / 個体の包み / 開封日 / ▾」の5つ**ちょうど**。
+        // (a) 包みの直下の子は「箱のボタン / 個体のボタン」の2つ**ちょうど**。
         //     スペーサーを1つ挟めばここで落ちる(幅を持たない span でも落ちる)。
-        // 【F-81 で4→5】箱の開封日が個体と ▾ の間に入った(本人指示「開封日も追加して」)。
-        check("F-72/F-81: リード枠の直下の子は 点span・箱の包み・個体の包み・開封日・▾ の5つちょうど",
-          JSON.stringify(children) === JSON.stringify(["span/", "span", "span", "span", "PickChevron/"]),
+        check("M5: リード枠の包みの直下の子は 箱のボタン・個体のボタンの2つちょうど",
+          JSON.stringify(children) === JSON.stringify(["button", "button"]),
           JSON.stringify(children));
+        // タグの並びそのものも固定する(間に何かを挟む変異はここでも落ちる)
+        check("M5: 枠の中のタグの並びは 箱ボタン/点/銘柄/厚さ/日付/個体ボタン/個体#/山形",
+          JSON.stringify(allTags.map((t) => t.name))
+            === JSON.stringify(["button", "span", "span", "span", "span", "button", "span", "PickChevron"]),
+          JSON.stringify(allTags.map((t) => t.name)));
 
         // (b) 横方向に効く宣言の**集合**。左右方向の位置・幅・余白に効きうる名前を全部拾う。
         const splitTop2 = (b) => { const out = []; let d = 0, cur = ""; for (const ch of b) { if ("([{".includes(ch)) d++; else if (")]}".includes(ch)) d--; if (ch === "," && d === 0) { out.push(cur); cur = ""; } else cur += ch; } out.push(cur); return out.map((x) => x.trim()).filter(Boolean); };
@@ -8279,148 +8281,99 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         };
         const HORIZ = /^(margin|padding|gap|columnGap|width|minWidth|maxWidth|left|right|inset)/;
         const got = [];
-        [{ name: "label", tag: openTag }, ...allTags].forEach((t, i2) => {
+        [{ name: "div", tag: openTag }, ...allTags].forEach((t, i2) => {
           styleDecls(t.tag).filter((d) => HORIZ.test(d.name)).forEach((d) => got.push(`${i2}:${t.name}:${d.name}=${d.value}`));
         });
         // 期待する集合。**何のためにその宣言があるか**を1つずつ書く。
-        // 番号はリード枠の中のタグの並び順(0=label / 1=点 / 2=箱の包み / 3=箱の値 /
-        // 4=箱のselect / 5=option / 6=個体の包み / 7=個体の値 / 8=個体のselect / 9=option /
-        // 10=開封日(F-81 で挿入) / 11=▾)。
+        // 番号は枠の中のタグの並び順(0=包み / 1=箱のボタン / 2=点 / 3=銘柄 / 4=厚さ /
+        // 5=日付 / 6=個体のボタン / 7=個体# / 8=山形)。
         // 並びが変われば番号がずれるので、タグを挟む変異もここで落ちる。
         const want = [
-          '0:label:gap=0',                              // 間隔は gap では作らない(0 に固定)
-          '0:label:padding="2px 4px 2px 10px"',         // 枠の内側の余白。N-4 で当たり判定を塞いだ値のまま
-          '1:span:width=6',                             // 選択済みを示す点の直径
-          '1:span:marginRight=2',                       // 点と銘柄の間
-          '2:span:maxWidth=110',                        // 銘柄の幅の上限
+          '1:button:gap="var(--sp-1)"',                 // 点・銘柄・厚さ・日付の間。区切りは記号ではなく余白(M5)
+          '1:button:padding=`2px 0 2px ${TOPSET_ROW_PAD_LEFT_PX}px`', // 左端は1行目と**同じ定数**(M1)
+          '2:span:width=6',                             // 選択済みを示す点の直径
+          '3:span:maxWidth=110',                        // 銘柄の幅の上限
           '3:span:minWidth=0',                          // flex で縮ませる(ellipsis を出すため)
-          '4:select:left=0',                            // 重ねた透明 select(枠にぴったり)
-          '4:select:width="100%"',
-          '4:select:padding=0',
-          '6:span:maxWidth=60',                         // 個体の幅の上限
-          '6:span:marginLeft="var(--sp-1)"',            // **箱と個体の間隔はこの1つだけ**(正典の半角空白1つ)
+          '6:button:padding="2px 4px 2px var(--sp-1)"', // **箱と個体の間隔はこの左 padding だけ**(正典の半角空白1つ)
+          '7:span:maxWidth=60',                         // 個体の幅の上限
           '7:span:minWidth=0',
-          '8:select:left=0',
-          '8:select:width="100%"',
-          '8:select:padding=0',
-          // 【F-81】開封日と個体の間。**個体と ▾ の間隔(--sp-1)と同じ**で、
-          // 「V16-3 #4 · 2026/08/13 ▾」が1つの塊に読めるようにする(F-72 の差し戻しの理由と同じ)。
-          '10:span:marginLeft="var(--sp-1)"',
         ];
         const missing = want.filter((x) => !got.includes(x));
         const extra = got.filter((x) => !want.includes(x));
-        check("F-72: リード枠の横方向の宣言は仕様表どおり(足りない物が無い)",
+        check("M5: リード枠の横方向の宣言は仕様表どおり(足りない物が無い)",
           missing.length === 0, missing.join(" | "));
-        check("F-72: リード枠に仕様表に無い横方向の宣言が増えていない(間隔を作る新しい経路を塞ぐ)",
+        check("M5: リード枠に仕様表に無い横方向の宣言が増えていない(間隔を作る新しい経路を塞ぐ)",
           extra.length === 0, extra.join(" | "));
       }
-      // 奏者枠。<select> は ▾ を中に持てないので、枠まるごとを <label htmlFor> にして
-      // ▾ をその中へ入れる(リード枠と同じ手)。地は落とすが、透明枠は残して外形を保つ。
-      //
-      // 【F-72 の適用範囲。審査①の差し戻しで作った縛り】
-      // PerformerSelector は**共有部品**で、計測タブとセッション詳細の2箇所から呼ばれる。
-      // 1周目は無条件に地を落としてしまい、**N-6 が未着手のセッション詳細まで巻き添えにした**
-      // (同じ行の隣のリード <select> は --c-sunken のままなので、1行に入力欄の作法が2種類並んだ)。
-      // 北極星モックは計測タブしか描いていないので §6.0 の「モックが勝つ」はあちらに及ばない。
-      // ここは「bare を渡した呼び出しだけが F-72 の見た目になる」ことを**両方の枝**で縛る。
+      // 奏者枠。**共有部品 PerformerSelector** が描く。
+      // 【便D(M4)で作りが変わった】以前は <label> + 透明な <select> + ▾ だったが、
+      // 「値を描いた <button> → ScrollPicker」になった(本人裁定④)。
+      // 開閉は**呼び出し側が持つ**(計測タブは openPicker が null でない間、
+      // 背面レイヤと録音ボタンを disabled にする必要があるため)。
       {
         const psStart = src.indexOf("function PerformerSelector(");
         const psEnd = src.indexOf("\nfunction ", psStart + 10);
         const ps = psStart === -1 ? "" : src.slice(psStart, psEnd);
-        check("F-72: PerformerSelector を走査できている", ps.length > 500, `${ps.length}文字`);
-        // (0) 既定は bare でない。既定を反転させると、次に増えた呼び出しへ黙って漏れる。
-        check("F-72: PerformerSelector の既定は bare でない(漏れる側を既定にしない)",
-          /function PerformerSelector\(\{[^}]*\bbare = false\b/.test(ps),
-          (ps.match(/function PerformerSelector\(\{[^}]*\}/) || [""])[0].replace(/\s+/g, " ").slice(0, 200));
-        // (1) bare でない枝 = HEAD のまま。地・枠・appearance・高さのどれも持たない素の <select>。
-        const plain = (ps.match(/if \(!bare\) \{[\s\S]*?\n  \}/) || [""])[0];
-        // 【N-9 でセッション詳細も bare になった】この枝の呼び出しは現在0件だが、
-        // 既定の受け皿として維持する(既定を反転させると次に増えた呼び出しへ黙って漏れる)。
-        check("F-72: bare でない枝がある(既定の受け皿。呼び出しは現在0件)", plain !== "", plain.slice(0, 80));
-        const plainSel = (plain.match(/<select[\s\S]*?\n\s*>/) || [""])[0];
-        check("F-72: bare でない枝の <select> は入力欄の規則そのまま(地・枠・appearance・高さを持たない)",
-          plainSel !== "" && /style=\{\{ pointerEvents: "auto" \}\}/.test(plainSel)
-          && !/background|appearance|height|lineHeight|overflow|border/.test(plainSel),
-          plainSel.replace(/\s+/g, " ").slice(0, 220));
-        check("F-72: bare でない枝は ▾ を持たない(次に増えた素の呼び出しへ作法を漏らさない)",
-          !/<PickChevron \/>/.test(plain), plain.replace(/\s+/g, " ").slice(0, 200));
-        check("F-72: bare でない枝は id を持たない(画面名を部品の中に直書きしない)",
-          !/id=/.test(plainSel), plainSel.replace(/\s+/g, " ").slice(0, 160));
-        // (2) bare の枝 = 正典 .set1。id は**呼び出し側から**受け取る。
-        const bareStart = ps.indexOf("htmlFor={selectId}");
-        const bare = bareStart === -1 ? "" : ps.slice(ps.lastIndexOf("<label", bareStart), ps.indexOf("</label>", bareStart));
-        check("F-72: bare の枝は <label htmlFor={selectId}> で ▾ を抱えている",
-          bare !== "" && /<PickChevron \/>/.test(bare) && /<select\s*\n?\s*id=\{selectId\}/.test(bare),
-          bare.replace(/\s+/g, " ").slice(0, 200));
-        const psel = (bare.match(/<select[\s\S]*?\n\s*>/) || [""])[0];
-        check("F-72: bare の select は地を持たない(入力欄の規則の --c-sunken を打ち消す)",
-          /background: "none"/.test(psel), (psel.match(/background: "[^"]*"/) || ["background 無し"])[0]);
-        check("F-72: bare の select は appearance を落としている(ネイティブの三角を出さない)",
-          /appearance: "none", WebkitAppearance: "none"/.test(psel), psel.replace(/\s+/g, " ").slice(0, 220));
-        // 【差し戻し①】値は <span> が描き、<select> は**枠に重ねて透明にする**。
-        //   <select> の固有幅は「いちばん長い option」で決まるので、値を <select> に描かせると
-        //   値が短いときに ▾ が右へ離れ、隣の項目の記号に見える(実測 76.0px 離れ / 隣とは 10.0px)。
-        //   重ねる形は幅が option に引きずられない。
-        //   **近接そのもの(▾ と値の距離 < ▾ と隣の距離)はハーネスでは縛れない**(書体の字幅が無い)。
-        //   ここで縛るのは「値を <span> が描き、<select> が枠全体に重なっている」という構造だけ。
-        check("F-72: bare の枠は値を <span> が描く(<select> の固有幅に ▾ の位置を引きずられない)",
-          /<span style=\{\{ color: "var\(--c-ink\)", whiteSpace: "nowrap",[^}]*\}\}>\{selectedPerformer\}<\/span>/.test(bare),
-          bare.replace(/\s+/g, " ").slice(0, 260));
-        // 【差し戻し①】奏者は**幅の上限を持たない**(枠の中に続くのが ▾ だけで、上限が無ければ
-        // 箱の幅は値そのものになり、はみ出しようが無い)。上限を付ける = px を決めることなので
-        // 発明しない。歯止め(overflow/textOverflow)は上限を持ったときに効くよう入れてある。
-        check("F-72: 奏者の値にも歯止め(minWidth:0 + overflow + textOverflow)が入っている",
-          /minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" \}\}>\{selectedPerformer\}/.test(bare),
-          bare.replace(/\s+/g, " ").slice(0, 260));
-        // 「無いこと」を主張するので **codeOf(コメント除去)を通してから見る**(LOOP.md)。
-        // 通さないと、経緯をコメントに書いただけで落ちる(実際に一度落とした)。
+        check("M4: PerformerSelector を走査できている", ps.length > 500, `${ps.length}文字`);
+        // (0) bare の枝分けは**役目を終えて消えた**。作りが1つしか無いので、
+        //     「既定を反転させると次の呼び出しへ漏れる」という事故の経路そのものが無い。
+        check("M4: bare の枝分けは残っていない(作りは1つだけ。漏れる経路が無い)",
+          !/\bbare\b/.test(codeOf(ps)) && !/if \(!bare\)/.test(ps),
+          (codeOf(ps).match(/\bbare\b/g) || []).length + "箇所");
+        check("M4: 受け口は開閉を外から受け取る(pickerOpen / onOpenPicker / onClosePicker)",
+          /function PerformerSelector\(\{[^}]*pickerOpen = false, onOpenPicker, onClosePicker \}\)/.test(ps),
+          (ps.match(/function PerformerSelector\(\{[^}]*\}\)/) || [""])[0].replace(/\s+/g, " ").slice(0, 240));
+        // (1) 枠は「値を描いた <button>」。地も枠も持たず、書体は行から継ぐ。
+        const btn = (ps.match(/<button\s*\r?\n\s*id=\{selectId\}[\s\S]*?<\/button>/) || [""])[0];
+        check("M4: 奏者の枠は <button>(id は呼び出し側から受け取る)", btn !== "", btn.slice(0, 120));
+        check("M4: 奏者の枠は地も枠も持たない(入力欄の規則の --c-sunken を打ち消す)",
+          /background: "none", border: "none", padding: 0, font: "inherit"/.test(btn),
+          btn.replace(/\s+/g, " ").slice(0, 240));
+        check("M4: 奏者の枠は押すと呼び出し側のピッカーを開く",
+          /onClick=\{onOpenPicker\}/.test(btn) && /aria-expanded=\{pickerOpen\}/.test(btn));
+        check("M4: 奏者の枠は値を <span> が描き、その後ろに ▾ が続く",
+          /<span style=\{\{ color: "var\(--c-ink\)", whiteSpace: "nowrap",[^}]*\}\}>\{selectedPerformer\}<\/span>\s*\r?\n\s*<PickChevron \/>/.test(btn),
+          btn.replace(/\s+/g, " ").slice(0, 260));
+        check("M4: 奏者の値にも歯止め(minWidth:0 + overflow + textOverflow)が入っている",
+          /minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" \}\}>\{selectedPerformer\}/.test(btn),
+          btn.replace(/\s+/g, " ").slice(0, 260));
+        // 幅の上限は**持たせない**(枠の中に続くのが ▾ だけで、上限が無ければ箱の幅は
+        // 値そのものになる)。上限を付ける = px を決めることなので発明しない。
         {
-          // codeOf はコメントを詰めるので位置がずれる。**除去後の文字列で取り直す。**
           const codeAll = codeOf(src);
           const p0 = codeAll.indexOf("function PerformerSelector(");
           const psc = p0 === -1 ? "" : codeAll.slice(p0, codeAll.indexOf("\nfunction ", p0 + 10));
-          const bs = psc.indexOf("htmlFor={selectId}");
-          const bareCode = bs === -1 ? "" : psc.slice(psc.lastIndexOf("<label", bs), psc.indexOf("</label>", bs));
-          check("F-72: bare の枝をコメント除去後にも走査できている", bareCode.length > 200, `${bareCode.length}文字`);
-          check("F-72: 奏者の枠は幅の上限を持たない(maxWidth を発明しない)",
-            !/maxWidth/.test(bareCode), (bareCode.match(/maxWidth[^,}]*/) || ["maxWidth 無し"])[0]);
+          check("M4: 奏者の枝をコメント除去後にも走査できている", psc.length > 200, `${psc.length}文字`);
+          check("M4: 奏者の枠は幅の上限を持たない(maxWidth を発明しない)",
+            !/maxWidth/.test(psc), (psc.match(/maxWidth[^,}]*/) || ["maxWidth 無し"])[0]);
         }
-        check("F-72: bare の select は枠全体に重なる(左上0・幅高さ100%)",
-          /position: "absolute", left: 0, top: 0, width: "100%", height: "100%"/.test(psel),
-          psel.replace(/\s+/g, " ").slice(0, 240));
-        // 透明化は opacity ではなく color。opacity:0 だと :focus-visible の輪郭まで消える。
-        check("F-72: bare の select は color: transparent で透明にする(opacity:0 にしない)",
-          /color: "transparent"/.test(psel) && !/opacity: 0/.test(psel),
-          psel.replace(/\s+/g, " ").slice(0, 240));
-        // 枠(label)の高さで上部設定行の高さを保つ(§6.1.5。環を動かさない)
-        check("F-72: bare の枠の高さは TOPSET_PERFORMER_H_PX(行の高さ=環の位置を保つ)",
-          /height: TOPSET_PERFORMER_H_PX/.test(bare.slice(0, bare.indexOf("<span"))),
-          bare.slice(0, 240).replace(/\s+/g, " "));
-        check("F-72: bare の枠は重ねるための位置指定を持つ(position: relative)",
-          /position: "relative"/.test(bare.slice(0, bare.indexOf("<span"))),
-          bare.slice(0, 240).replace(/\s+/g, " "));
-        // 位置の比較は**コメント中の `<select>` を拾わない目印**(id={selectId})で見る
-        check("F-72: ▾ は重ねた <select> より前(=枠の中)にある",
-          bare.indexOf("<PickChevron />") !== -1 && bare.indexOf("<PickChevron />") < bare.indexOf("id={selectId}"),
-          `▾ ${bare.indexOf("<PickChevron />")} / select ${bare.indexOf("id={selectId}")}`);
+        // 枠(button)の高さで上部設定行の高さを保つ(§6.1.5。環を動かさない)
+        check("M4: 奏者の枠の高さは TOPSET_PERFORMER_H_PX(行の高さ=環の位置を保つ)",
+          /height: TOPSET_PERFORMER_H_PX/.test(btn), btn.slice(0, 260).replace(/\s+/g, " "));
+        // (2) 追加はピッカーの**下**の入力欄1行。語は「追加」のまま。
+        check("M4: 奏者のピッカーは ScrollPicker で、下に「追加」の入力欄1行を持つ",
+          /<ScrollPicker\s*\r?\n\s*options=\{options\} value=\{selectedPerformer\}/.test(ps)
+          && /footer=\{\(/.test(ps) && /placeholder="名前を入力"/.test(ps) && />追加<\/button>/.test(ps),
+          ps.replace(/\s+/g, " ").slice(-300));
+        check("M4: 選択肢に「選択肢ではないもの」を混ぜていない(＋ 名前を入力... の option は消えた)",
+          !/__add__/.test(codeOf(src)) && /const options = \["自分", \.\.\.performers\];/.test(ps),
+          (codeOf(src).match(/__add__/g) || []).length + "箇所");
         // (3) 呼び出し側。
-        // 【N-9 2026/08/16 本人指示による書き換え】旧主張「bare を渡すのは計測タブだけ・
-        // セッション詳細は HEAD のまま」は仕様ごと廃止: セッション詳細も「素のテキスト + ▾」
-        // (select 類は見た目だけ既存の作法へ寄せる)。**どちらの呼び出しも** bare + 固有の
-        // selectId を渡す(画面名を部品の中に直書きしない)。
         const calls = [...src.matchAll(/<PerformerSelector[\s\S]*?\/>/g)].map((m) => m[0]);
-        check("F-72: PerformerSelector の呼び出しは2箇所(計測タブ / セッション詳細)",
+        check("M4: PerformerSelector の呼び出しは2箇所(計測タブ / セッション詳細の編集シート)",
           calls.length === 2, `${calls.length}箇所`);
-        const bareCalls = calls.filter((t) => /\bbare\b/.test(t));
-        check("F-72/N-9: 2箇所とも bare(素のテキスト + ▾)を渡す", bareCalls.length === 2,
+        check("M4: 2箇所とも開閉の3点(pickerOpen / onOpenPicker / onClosePicker)を渡す",
+          calls.every((t) => /pickerOpen=/.test(t) && /onOpenPicker=/.test(t) && /onClosePicker=/.test(t)),
           calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
-        check("F-72: 計測タブの呼び出し(disabled={isRecording} を持つ側)は selectId=\"measure-performer-select\"",
+        check("M4: 計測タブの呼び出しは openPicker === \"performer\" を見る(背面レイヤと録音ボタンを無効化するため)",
+          calls.some((t) => /disabled=\{isRecording\}/.test(t) && /pickerOpen=\{openPicker === "performer"\}/.test(t)
+            && /onOpenPicker=\{\(\) => setOpenPicker\("performer"\)\}/.test(t)),
+          calls.map((t) => t.replace(/\s+/g, " ").slice(0, 160)).join(" | "));
+        check("M4: 計測タブの呼び出しは selectId=\"measure-performer-select\"",
           calls.some((t) => /disabled=\{isRecording\}/.test(t) && /selectId="measure-performer-select"/.test(t)),
           calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
-        // 【D-3 2026/08/22】セッションの属性の編集は正典 #14b どおり**編集シート**へ移った
-        // (上部の1行メタは読み取り専用)。作法(bare + 専用の selectId)は不変で、置き場所だけ動いた。
-        check("D-3: セッションの奏者の呼び出しは bare + selectId=\"session-performer-select\"",
-          calls.some((t) => /\bbare\b/.test(t) && /selectId="session-performer-select"/.test(t)),
+        check("D-3: セッションの奏者の呼び出しは selectId=\"session-performer-select\"",
+          calls.some((t) => /selectId="session-performer-select"/.test(t)),
           calls.map((t) => t.replace(/\s+/g, " ").slice(0, 120)).join(" | "));
         check("N-9: 2つの selectId は別の値(同じ id が同時に2つ描かれる画面遷移を作らない)",
           calls.length === 2 && new Set(calls.map((t) => (t.match(/selectId="([^"]+)"/) || [])[1])).size === 2);
@@ -8656,14 +8609,18 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         decl(plainBlock, "border-radius") === decl(inputBlock, "border-radius") &&
         decl(plainBlock, "border-radius") === "var(--r-xs)",
         `.ctl-plain=${decl(plainBlock, "border-radius")} / select=${decl(inputBlock, "border-radius")}`);
-      // 地も枠も持たない <select> は全部で4つ(リード枠の2つ + 奏者 + PlainSelect)。
-      // §6.6 の「意図的な例外」の**総数**を固定する(増えたら例外に逃がしたということ)。
-      // 【N-9 で 3 → 4】セッション詳細・分析の「素のテキスト + ▾」を描く共有部品 PlainSelect の
-      // 中の <select> が4つ目。呼び出しが増えても綴りは PlainSelect の1つのまま。
+      // 【M4 2026-09-16 本人裁定④で例外そのものが消えた】§6.6 の「地も枠も持たない <select>」は
+      // リード枠の2つ + 奏者 + PlainSelect の4つあったが、選び方を ScrollPicker に統一したので
+      // **App.jsx に実物の <select> が1つも無くなった**。
+      // 数の固定(4つ)より強い主張になる = 例外に逃がす経路そのものが無い。
+      // コミュニティ(規程 F5 の例外)は別ファイルなのでここでは数えない。
       const bareSelects = inputTags
         .filter((x) => x.el === "select" && /background: "none"/.test(x.tag)).length;
-      check("地を持たない <select> は4つだけ(リード枠の箱・個体 + 奏者 + PlainSelect。§6.6 の意図的な例外)",
-        bareSelects === 4, `${bareSelects}箇所`);
+      check("M4: 地を持たない <select> は0件(例外そのものが無くなった)",
+        bareSelects === 0, `${bareSelects}箇所`);
+      check("M4: App.jsx に実物の <select> が1つも無い(コメントを除く)",
+        !/<select[\s>]/.test(codeOf(src)),
+        (codeOf(src).match(/<select[\s>]/g) || []).length + "箇所");
     }
     // 【D-2 2026/08/22】データタブの軸セレクタは §6.6 の「意図的な例外」だったが、
     // 正典 #13a で共有部品 PlainSelect へ寄せたので**例外そのものが無くなった**。
@@ -8728,17 +8685,19 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("D-3/D-4: 下線を引いた入力欄はもう無い(群はカードが作る)",
           underlined.length === 0, `${underlined.length}箇所`);
       }
-      // 【N-9】例外の側(PlainSelect の select)にも枠を書き足していないこと(奏者と同じ縛り)
+      // 【M4 2026-09-16】PlainSelect と奏者枠の「例外の <select>」は**無くなった**
+      // (ScrollPicker に統一。§6.6 の意図的な例外そのものが消えた)。
+      // 主張は「例外に枠を書き足していない」から「**例外が1つも無い**」へ強くなる。
       {
         const plainSelTags = tags.filter((t) => /aria-label=\{ariaLabel\}/.test(t));
-        check("N-9: PlainSelect の select は1つで、枠のインライン指定が無い(透明枠のまま=外形不変)",
-          plainSelTags.length === 1 && !/border:/.test(plainSelTags[0]),
+        check("M4: PlainSelect の中に <select> は無い(ScrollPicker に置き換わった)",
+          plainSelTags.length === 0,
           plainSelTags.map((t) => t.replace(/\s+/g, " ").slice(0, 160)).join(" | ") || "0件");
+        const performerSelTags = tags.filter((t) => /id=\{selectId\}/.test(t));
+        check("M4: 奏者枠の中にも <select> は無い(id={selectId} は <button> が持つ)",
+          performerSelTags.length === 0,
+          performerSelTags.map((t) => t.replace(/\s+/g, " ").slice(0, 160)).join(" | ") || "0件");
       }
-      // 例外の側にも枠を書き足していないこと(奏者の select に border を書けばここで落ちる)
-      const exceptionsWithBorder = tags.filter((t) => /id=\{selectId\}/.test(t) && /border:/.test(t));
-      check("F-72: 奏者の select に枠のインライン指定が無い(透明枠のまま=外形不変)",
-        exceptionsWithBorder.length === 0, exceptionsWithBorder.join(" | ").slice(0, 160));
       // 共通スタイルのオブジェクト経由でも書き戻せる。角丸も型が持つ。
       const rfBody = rfBodyFor(src);
       check("REED_FORM_CONTROL_STYLE がある", rfBody !== "");
@@ -10122,9 +10081,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("経過時間は録音ボタンの下に置かれている", rb !== -1 && i > rb, `録音ボタン ${rb} / 経過時間 ${i}`);
       const mi = src.indexOf('aria-label="メトロノーム"');
       const mtag = mi === -1 ? "" : tagAt(mi);
-      // 高さ56 = 上部バー2行ぶん。幅は --tap-min(44px)。バッジが無くなっても寸法は不変。
-      check("メトロノームアイコンは2行ぶんの高さ(height 56)でタップ幅は --tap-min",
-        /width: "var\(--tap-min\)", height: 56/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 200));
+      // 【M7 2026-09-16】高さは 56(上部バー2行ぶん)から --tap-min へ下がり、下端に寄る。
+      check("M7: メトロノームアイコンは --tap-min 角で下端に寄る(56 へ戻していない)",
+        /width: "var\(--tap-min\)", height: "var\(--tap-min\)", alignSelf: "flex-end"/.test(mtag)
+        && !/height: 56/.test(mtag), mtag.replace(/\s+/g, " ").slice(0, 240));
     }
 
     // --- 17.18 F-63 測定ボタンは計測タブと同じアイコン(絵は1箇所に閉じる) -----
@@ -11315,61 +11275,45 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       //     数を固定すると、押せる箱を1つ足すたびに正しい修正が落ちる。
       const tt = (code20.match(/className="tap-through"/g) || []).length;
       check("A-1: 操作を含む箱は .tap-through を使う(1箇所以上)", tt >= 1, `${tt}箇所`);
-      // (c) 入力欄は <button> ではないので index.css の .tap-through button では戻らない。
-      //     **入力欄そのもの**に pointerEvents:"auto" が要る(リード選択の箱2つと奏者セレクタ)。
-      //     ピルの箱の側に付けると、箱の padding と点の上でタップが死ぬ(審査①の実測)。
+      // (c) 【便D(M4)で構造が変わった】以前は「入力欄(<select>)は <button> ではないので
+      //     index.css の `.tap-through button` では当たり判定が戻らない。**入力欄そのもの**に
+      //     pointerEvents:"auto" が要る」だった。選び方を ScrollPicker に統一して
+      //     **上部設定行から入力欄が1つも無くなった**ので、戻し方は
+      //     「.tap-through button の規則」+「各ボタンの明示」の2枚になった。
+      //     主張は緩めない: 押せる物が**全部** pointerEvents:"auto" を持つことを見る。
       {
-        // 【F-72 で目印が変わった】枠から .ctl-plain(地)を外したので、目印は htmlFor だけになる。
-        // 【差し戻し①】終端も「その label の閉じタグ」で取る(option の綴りは配列へ移ったので
-        // reedPosition を目印にすると、枠の外(配列の定義側)を掴んでしまう)。
-        const pillStart = code20.lastIndexOf("<label", code20.indexOf('htmlFor="measure-reed-box"', code20.indexOf("function MeasureView(props)")));
-        const pill = pillStart === -1 ? "" : code20.slice(pillStart, code20.indexOf("</label>", pillStart));
-        const selects = (pill.match(/<select[\s\S]*?\n\s*>/g) || []);
-        // 【審査④⑥の修正】旧は「箱そのものは当たり判定を持たない」を `style={{` の**直後**だけで
-        // 見ており、style の**末尾**に pointerEvents を足す変異が生存した。
-        // さらに「左端だけ label」では枠の上下 2px・右 4px が背面レイヤに落ちたまま残った(実測 1,088px²)。
-        // 新: **枠まるごとが箱の <select> の <label>** = 枠の中に当たり判定の穴が構造的に無い。
-        // 綴りの並び順にも位置にも依存しない「構造」で見る。
-        {
-          const pillTag = (pill.match(/<label htmlFor="measure-reed-box"[\s\S]*?>/) || [""])[0];
-          check("A-1: リード枠のタグを走査できている", /htmlFor="measure-reed-box"/.test(pillTag), pillTag.slice(0, 140));
-          check("A-1: リード枠そのものが箱の <select> の <label>(枠の中に当たり判定の穴を作らない)",
-            /^<label htmlFor="measure-reed-box"/.test(pillTag),
-            pillTag.replace(/\s+/g, " ").slice(0, 200));
-          check("A-1: リード枠は当たり判定を取り戻している(.tap-through の中なので明示が要る)",
-            /pointerEvents: "auto"/.test(pillTag), pillTag.replace(/\s+/g, " ").slice(0, 200));
-          check("A-1: その <label> が指す id が箱の <select> にある",
-            /<select\s+id="measure-reed-box"/.test(pill));
-          // 枠の中に「label にも select にも属さない箱」を挟んでいないこと(挟むと穴が復活する)
-          // 【F-72】中身は 点の span / select 2つ / ▾(PickChevron)。**div は 0 のまま**。
-          const innerTags = (pill.match(/<(div|span|select)[\s>]/g) || []).map((t) => t.slice(1).trim());
-          check("A-1: リード枠の中身に穴になる箱(div)を挟んでいない / select は2つ",
-            innerTags.filter((t) => t === "div").length === 0 && innerTags.filter((t) => t === "select").length === 2,
-            innerTags.join(" "));
-          check("A-1: 枠の padding は元のまま(タグを label に変えただけで外形は不変)",
-            /padding: "2px 4px 2px 10px"/.test(pillTag), (pillTag.match(/padding: "[^"]*"/g) || []).join(" | "));
-        }
-        check("A-1: リード選択の <select> が当たり判定を取り戻している",
-          selects.length >= 1 && selects.every((t) => /pointerEvents: "auto"/.test(t)),
-          `${selects.length}個 / ` + selects.map((t) => t.slice(0, 60)).join(" | "));
+        const reedStart = code20.lastIndexOf("<div", code20.indexOf('onClick={() => setOpenPicker("box")}'));
+        const reedEnd = code20.indexOf("</div>", code20.indexOf("</button>", code20.indexOf('onClick={() => setOpenPicker("reed")}')));
+        // 包みの開きタグは含めない(中身だけを数える)
+        const pill = reedStart === -1 || reedEnd === -1 ? "" : code20.slice(code20.indexOf(">", reedStart) + 1, reedEnd);
+        check("A-1: リード枠(箱・個体の2ボタン)を走査できている", pill.length > 600, `${pill.length}文字`);
+        // 枠の中に「どのボタンにも属さない箱」が無いこと = 当たり判定の穴が構造的に無い。
+        // 包みの直下は <button> 2つだけで、点も値も日付も**ボタンの中**にある。
+        const innerTags = (pill.match(/<(div|span|button)[\s>]/g) || []).map((t) => t.slice(1).trim());
+        check("A-1: リード枠の中に穴になる箱(div)が無い / 押せる物は <button> 2つ",
+          innerTags.filter((t) => t === "div").length === 0
+          && innerTags.filter((t) => t === "button").length === 2,
+          innerTags.join(" "));
+        check("A-1: リード枠の2つのボタンは当たり判定を取り戻している(.tap-through の中なので明示が要る)",
+          (pill.match(/pointerEvents: "auto"/g) || []).length === 2,
+          `${(pill.match(/pointerEvents: "auto"/g) || []).length}/2`);
+        check("A-1: 枠の左端は1行目と同じ定数 / 右端の padding は元のまま(外形は不変)",
+          /padding: `2px 0 2px \$\{TOPSET_ROW_PAD_LEFT_PX\}px`/.test(pill)
+          && /padding: "2px 4px 2px var\(--sp-1\)"/.test(pill),
+          (pill.match(/padding: [^,]*/g) || []).join(" | "));
       }
-      // 【F-72 で形が変わった】奏者枠は「素の <select>」から「<label> + <select> + ▾」になった。
-      // .tap-through(pointer-events:none)の中なので、**label と select の両方**が
-      // 当たり判定を取り戻していないと、▾ の上や label の余白でタップが死ぬ。
-      // 【F-72】計測タブが使うのは PerformerSelector の **bare の枝**(htmlFor={selectId})。
-      // セッション詳細が使う既定の枝は .tap-through の外なので、この節の対象ではない。
+      // 【便D(M4)で形が変わった】奏者枠は「<label> + 透明 <select> + ▾」から
+      // **「値を描いた <button>」**になった。.tap-through(pointer-events:none)の中なので、
+      // ボタンが当たり判定を取り戻していないと ▾ の上でも値の上でもタップが死ぬ。
       {
-        const pAnchor = code20.indexOf("htmlFor={selectId}");
-        const pStart = pAnchor === -1 ? -1 : code20.lastIndexOf("<label", pAnchor);
-        const pTag = pStart === -1 ? "" : code20.slice(pStart, code20.indexOf(">", code20.indexOf("style=", pStart)) + 1);
-        const pSel = pStart === -1 ? "" : (code20.slice(pStart).match(/<select[\s\S]*?\n\s*>/) || [""])[0];
-        check("A-1: 奏者枠(label)を走査できている", pStart !== -1 && pTag !== "", pTag.slice(0, 120));
-        check("A-1: 奏者枠(label)が当たり判定を取り戻している",
+        const pAnchor = code20.indexOf("id={selectId}");
+        const pStart = pAnchor === -1 ? -1 : code20.lastIndexOf("<button", pAnchor);
+        const pTag = pStart === -1 ? "" : code20.slice(pStart, code20.indexOf("</button>", pStart));
+        check("A-1: 奏者枠(button)を走査できている", pStart !== -1 && pTag.length > 200, `${pTag.length}文字`);
+        check("A-1: 奏者枠(button)が当たり判定を取り戻している",
           /pointerEvents: "auto"/.test(pTag), pTag.replace(/\s+/g, " ").slice(0, 200));
-        check("A-1: 奏者セレクタ(select)が当たり判定を取り戻している",
-          /pointerEvents: "auto"/.test(pSel), pSel.replace(/\s+/g, " ").slice(0, 200));
         check("A-1: 奏者枠の中身に穴になる箱(div)を挟んでいない",
-          pStart !== -1 && !/<div[\s>]/.test(code20.slice(pStart, code20.indexOf("</label>", pAnchor))), "");
+          !/<div[\s>]/.test(pTag), "");
       }
       // (d) index.css 側の規則。**入力欄の規則を2つ目として足していない**ことも見る
       //     (足すと「入力欄の規則は index.css に1つだけ」が壊れる)。
@@ -13374,7 +13318,7 @@ let METRO_SIGS_ALL = [];
       const shownOn = (tab, msg) => new Function("topTab", "errorMsg", "ERROR_MEASURE_ONLY",
         `return !!(errorMsg && (${condM ? condM[1] : "false"}));`
       )(tab, msg, ["MIC"]);
-      check("「画面をタップしてください」の案内は、その指示が効くタブ(計測)でだけ出る",
+      check("計測タブでしか直せない案内(ERROR_MEASURE_ONLY)は、その指示が効くタブでだけ出る",
         shownOn(gestureTab, "MIC") === true && shownOn("analysis", "MIC") === false,
         `計測=${shownOn(gestureTab, "MIC")} / データ=${shownOn("analysis", "MIC")}`);
       check("アップロード由来のエラー(無音ファイル等)はデータタブでも出る",
@@ -13397,11 +13341,12 @@ let METRO_SIGS_ALL = [];
       !/基準ピッチ/.test(picker) && !/<h[1-6]/.test(picker) && !/label=/.test(picker), "");
     check("スクロールピッカーを開く側も見出しを渡していない",
       !/<ScrollPicker[^>]*(title|heading|label)=/.test(code));
-    // リード表記は V16-3 #4 が1つの塊として読める = 2つの select の間に隙間を作らない。
-    // 【F-72 で綴りが変わった】枠から .ctl-plain(地)を外した。**主張は同じ**(gap 0 で
-    // 箱と個体を隙間なく並べ、V16-3 #4 を1つの塊として読ませる)。
-    check("リード表記は箱と個体を隙間なく並べる(V16-3 #4 を1つの塊として読ませる)",
-      /<label htmlFor="measure-reed-box" style=\{\{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0,/.test(code));
+    // リード表記は「1つの塊」として読める = 箱と個体の間に行の gap(6px)を挟まない。
+    // 【M4/M5 2026-09-16 で綴りが変わった】枠は <label> + 透明 <select> から
+    // **<button> 2つ**になった。主張は同じ(2つを1つの包みに入れ、間隔は個体側の
+    // 左 padding --sp-1 だけが作る)。包みを外して行の gap を挟む変異はここで落ちる。
+    check("M5: 箱と個体の2つのボタンは行の gap を挟まない1つの包みに入っている",
+      /<div style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>\s*\r?\n\s*<button\s*\r?\n\s*onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(code));
     check("リード表記の色は箱=--c-ink / 個体=--c-ink-2(--c-accent はアクション専用・§1.4)",
       /color: selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)"/.test(code) &&
       /color: selectedReedId \? "var\(--c-ink-2\)" : "var\(--c-line-strong\)"/.test(code));
@@ -13487,42 +13432,40 @@ let METRO_SIGS_ALL = [];
       (sheet.match(/"1px solid transparent"/g) || []).length >= 3, "拍子 / 分割 / 拍グループ");
   }
 
-  // --- 24.9c 【F-76】選択中の目安をタップすると選択を解除する --------------------
-  // 本人指示(2026/08/12・実機)「選択中のものを解除するには他の目安をタップするか
-  // 削除するしか今は選択肢がない。選択中の目安をタップで目安設定を解除できるように」。
-  // 【縛り方】綴りの一致では中身を変えられるので、**実ソースの更新関数そのものを取り出して
-  // 評価する**(24.2 / 24.3 と同じ方式)。期待値は仕様(選択 / 解除 / 乗り換え)から立て、
-  // テスト内で定義した値をテスト内で検算する形にはしない。
+  // --- 24.9c 【F-76 → 便D(M9)で計測タブから外れた】目安の一覧 --------------------
+  // 本人指示(2026/08/12・実機)「選択中の目安をタップで目安設定を解除できるように」で
+  // 作った振る舞いは、**計測タブの詳細シートの中**にあった。
+  // 便D(M9)の凍結仕様「詳細シートの指標を音量表示と計測下限dB以外削除」で、その一覧は
+  // 計測タブから外れた ── **便G で My Data の一番下へ移す**(D4)ことが決まっている。
+  // したがってここで見るのは:
+  //   (1) 計測タブから**呼び手が消えている**こと(M9 の合格ライン)
+  //   (2) 移す先が使う**状態と後始末は消えていない**こと(定義ごと消すと便G が作り直しになる)
+  // **選択トグル(同じ行をもう一度押すと解除)の検査は、便G で My Data に置き直した時点で
+  // そちらへ書き戻すこと。** いまは置き場所が無いので、綴りを縛る対象が存在しない。
   {
-    const m = /onClick=\{\(\) => setSelectedIdealId\((\(cur\) => \([\s\S]*?\))\)\}/.exec(code);
-    check("F-76: 目安の行の更新関数を実ソースから取れている", m !== null, m ? m[1] : "取れない");
-    // p は行のプロファイル。更新関数は「今の選択 cur」を受け取って次の選択を返す。
-    const next = (cur, pid) => new Function("p", `return (${m ? m[1] : "() => null"});`)({ id: pid })(cur);
-    check("F-76: 未選択の状態で行をタップすると、その行が選択される",
-      next(null, "A") === "A", String(next(null, "A")));
-    check("F-76: 選択中の行をもう一度タップすると解除される(null に戻る)",
-      next("A", "A") === null, String(next("A", "A")));
-    check("F-76: 別の行をタップしたときは解除ではなく乗り換え(従来の挙動を壊さない)",
-      next("B", "A") === "A", String(next("B", "A")));
-    // 解除後は「—」の表示に戻る = selectedIdeal / currentNoteIdeal が null になり、
-    // 比較の破線と「目安: n」が消える。**表示側に分岐を足していない**ことを綴りで確かめる
-    // (selectedIdealId から selectedIdeal を引く1本道が保たれていること)。
-    // 【2026/09/06】目安は自分の平均に平行移動してから使うようになったので、
-    // 引く行(selectedIdealRaw)と揃える行(selectedIdeal)の2段になった。
-    // 見ているのは「1本道であること」なので、両方の綴りを固定する。
+    const code76 = codeOf(src);
+    check("M9: 計測タブの詳細シートから目安の一覧が消えている(選択の行も削除のゴミ箱も無い)",
+      !/setSelectedIdealId\(\(cur\) =>/.test(code76)
+      && !/deleteIdealProfile\(p\.id\)/.test(code76)
+      && !/idealProfiles\.map\(/.test(code76),
+      (code76.match(/(setSelectedIdealId\(\(cur\)|deleteIdealProfile\(p\.id\)|idealProfiles\.map\()/g) || []).join(" / ") || "0件");
+    check("M9: 目安の一覧は MeasureView へ渡されていない(prop ごと外した)",
+      !/idealProfiles=\{idealProfiles\}/.test(code76)
+      && !/deleteIdealProfile=\{deleteIdealProfile\}/.test(code76),
+      (code76.match(/(idealProfiles=|deleteIdealProfile=)/g) || []).join(" / ") || "0件");
+    // (2) 便G が使う側は**定義ごと残っている**(凍結仕様が明記している)
+    for (const [name, re] of [
+      ["idealProfiles", /const \[idealProfiles, setIdealProfiles\] = usePersistedState\("idealProfiles", \[\]\);/],
+      ["selectedIdealId", /const \[selectedIdealId, setSelectedIdealId\] = usePersistedState\("selectedIdealId", null\);/],
+      ["deleteIdealProfile", /const deleteIdealProfile = \(id\) => \{/],
+    ]) check(`M9: 便G が使う ${name} の定義は残っている(呼び手だけ消した)`, re.test(code76));
+    // 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)。
+    // 【2026/09/06】目安は自分の平均に平行移動してから使うので、引く行と揃える行の2段。
     check("F-76: 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)",
       /const selectedIdealRaw = idealProfiles\.find\(\(p\) => p\.id === selectedIdealId\) \|\| null;/.test(code)
       && /alignIdealToMine\(selectedIdealRaw, myAverageForIdeal\)/.test(code));
     check("F-76: 目安が無ければ揃えた結果も null(平行移動が null を作り出さない)",
       alignIdealToMine(null, { notes: { 60: { centroidHz: 1000 } } }) === null);
-    check("F-76: 「目安: n」は selectedIdeal が無ければ(未選択)に落ちる",
-      /目安\{selectedIdeal \? `: \$\{selectedIdeal\.name\}` : "\(未選択\)"\}/.test(code));
-    check("F-76: 比較の破線は目安が無ければ出ない(showIdealBar が currentNoteIdeal を要求する)",
-      /const showIdealBar = showIdeal && currentNoteIdeal && !!idealHarmonic;/.test(code));
-    // 削除(ゴミ箱)の挙動は変えていない。行の onClick へ伝播させない stopPropagation が要る
-    // (無いと、削除したつもりで選択トグルまで走る)。
-    check("F-76: 削除ボタンは行のタップへ伝播しない(削除の挙動は変えていない)",
-      /onClick=\{\(e\) => \{ e\.stopPropagation\(\); deleteIdealProfile\(p\.id\); \}\}/.test(code));
     check("F-76: 選択中の目安を削除したときは従来どおり選択も外れる",
       /if \(selectedIdealId === id\) setSelectedIdealId\(null\);/.test(code));
   }
@@ -15409,7 +15352,11 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
 
   // --- 26.5 リードの短縮表記(N-4a と同じ規則) ----------------------------------
   {
-    const rs = new Function(`${extractFunction("shortBoxLabel")}
+    // 【M5 2026-09-16】shortBoxLabel は「銘柄の短縮」と「番手の .0 落とし」を
+    // shortBrandLabel / reedStrengthLabel に分けて持つようになった(規則は1つのまま)。
+    const rs = new Function(`${extractFunction("shortBrandLabel")}
+      ${extractFunction("reedStrengthLabel")}
+      ${extractFunction("shortBoxLabel")}
       ${extractFunction("reedGroupKey")}
       ${extractFunction("reedPosition")}
       ${extractFunction("reedShortLabel")}
@@ -17234,25 +17181,34 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     !/borderBottom/.test(codeOf(srcOfFn(src, "DetailHeader"))));
 
   // --- 29.3 PlainSelect(素のテキスト + ▾)の配線。呼び出しに隣接する綴りで錨止め ---------
-  // 部品そのもの: 値は <span>{text}</span>、select は value/onChange をそのまま受ける
-  check("29.3 PlainSelect は値を <span> が描き、select へ value/onChange をそのまま渡す",
-    /\{text\}<\/span>/.test(ps29) && /value=\{value\}/.test(ps29) && /onChange=\{onChange\}/.test(ps29)
-    && /\{children\}/.test(ps29));
+  // 部品そのもの: 値は <span>{text}</span>、選択肢は options({value,label})から ScrollPicker へ。
+  // 【M4 2026-09-16】native <select> は無くなった(本人裁定④)。value/onChange の渡し方は
+  // 「イベント」から「**値そのもの**」に変わったので、呼び出し側の綴りも一緒に見る(下の 29.3 D-3 / PIVOT)。
+  check("M4: PlainSelect は値を <span> が描き、選択は ScrollPicker が受け持つ",
+    /\{text\}<\/span>/.test(ps29) && /<ScrollPicker\b/.test(ps29)
+    && /options=\{list\.map\(\(o\) => o\.value\)\} value=\{value\}/.test(ps29)
+    && /onChange=\{\(v\) => onChange\(v\)\}/.test(ps29));
+  check("M4: PlainSelect のラベルは options の中から引く(見えている値と選択肢を2箇所に書かない)",
+    /labelFn=\{\(v\) => \(list\.find\(\(o\) => o\.value === v\) \|\| \{ label: v \}\)\.label\}/.test(ps29));
+  check("M4: PlainSelect は自分で開閉を持つ(この2画面には無効化する背面レイヤが無い)",
+    /const \[open, setOpen\] = useState\(false\);/.test(ps29)
+    && /onClick=\{\(\) => setOpen\(true\)\}/.test(ps29) && /aria-expanded=\{open\}/.test(ps29));
   // 【F-120(a) 2026/08/27】以前はここが minHeight しか見ておらず、**横 44pt を消しても緑のまま**
-  // だった(§5 は 44×44 の両方を要求している)。縦横の両方を、**同じ <label> の開きタグの中**で見る。
-  // label の開きタグに閉じるのは、どこか別の要素に minWidth があるだけで通る形を避けるため。
+  // だった(§5 は 44×44 の両方を要求している)。縦横の両方を、**同じ開きタグの中**で見る。
+  // 【M4】器は <label> から <button> になった(中に <select> がもう無いため)。
   {
-    const labelTag = (ps29.match(/<label style=\{\{[^]*?\}\}>/) || [""])[0];
-    check("29.3 PlainSelect の当たり判定は縦横とも 44px(§5。label の開きタグの中で両方を見る)",
-      /minHeight: "var\(--tap-min\)"/.test(labelTag) && /minWidth: "var\(--tap-min\)"/.test(labelTag),
-      `minHeight ${/minHeight: "var\(--tap-min\)"/.test(labelTag)} / minWidth ${/minWidth: "var\(--tap-min\)"/.test(labelTag)}`);
+    // 器(<button>)の style だけを取り出す。開きタグを `>` で切ると onClick の
+    // アロー(`=>`)で切れてしまうので、style のオブジェクトそのものを掴む。
+    const btnStyle = (ps29.match(/style=\{\{ display: caption \? "flex"[\s\S]*?\}\}/) || [""])[0];
+    check("29.3 PlainSelect の器の style を走査できている(空回りしていない)",
+      btnStyle.length > 80, `${btnStyle.length}文字`);
+    check("29.3 PlainSelect の当たり判定は縦横とも 44px(§5。器の style の中で両方を見る)",
+      /minHeight: "var\(--tap-min\)"/.test(btnStyle) && /minWidth: "var\(--tap-min\)"/.test(btnStyle),
+      `minHeight ${/minHeight: "var\(--tap-min\)"/.test(btnStyle)} / minWidth ${/minWidth: "var\(--tap-min\)"/.test(btnStyle)}`);
+    check("M4: PlainSelect の器は地も枠も持たず、書体を親から継ぐ",
+      /background: "none", border: "none", padding: 0, font: "inherit"/.test(btnStyle),
+      btnStyle.replace(/\s+/g, " ").slice(0, 200));
   }
-  // F-72 の bare と同じ縛り: select は枠全体に重なり、color: transparent で消す(opacity は使わない)
-  check("29.3 PlainSelect の select は枠全体に重なる(absolute / 左上0 / 幅高さ100%)",
-    /position: "absolute", left: 0, top: 0, width: "100%", height: "100%"/.test(ps29));
-  check("29.3 PlainSelect の select は color: transparent + appearance なし(▾ の二重描きと値の二重描きを防ぐ)",
-    /color: "transparent"/.test(ps29) && /appearance: "none", WebkitAppearance: "none"/.test(ps29)
-    && !/opacity: 0/.test(ps29));
   // 呼び出しの集合(どの関数がいくつ持つか)。集合の外に増えたら気付く
   {
     // 【D-2 で 1 → 2】分析タブの PlainSelect は「絞り込む次元」に加えて、正典 #13a の
@@ -17300,10 +17256,12 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     /type="range"/.test(pt29) && /barlineXs\.map/.test(pt29) && /setSelectedFrameIdx\(i\)/.test(pt29));
   // 【D-3】編集シートへ移った。渡し方(値と onChange をそのまま)は変わっていない。
   check("29.3 D-3: リード紐付けは編集シートで onSetReedId に配線され、表示値はリードの表記そのもの",
-    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "—"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(e\) => onSetReedId\(e\.target\.value \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
+    /ariaLabel="紐付けるリード"\s*\r?\n\s*text=\{reed \? reedLabel\(reed, reeds\) : "—"\}\s*\r?\n\s*value=\{reedId \|\| ""\} onChange=\{\(v\) => onSetReedId\(v \|\| null\)\}/.test(srcOfFn(src, "SessionEditSheet"))
     && /onSetReedId=\{setSessionReedId\}/.test(det29));
+  check("M4: リードの選択肢は表示値と同じ出どころ(reedLabel)から作る(2箇所に書かない)",
+    /const reedOptions = \[\s*\r?\n\s*\{ value: "", label: "—" \},\s*\r?\n\s*\.\.\.reeds\.map\(\(r\) => \(\{ value: r\.id, label: reedLabel\(r, reeds\) \}\)\),/.test(srcOfFn(src, "SessionEditSheet")));
   check("29.3 PIVOT の次元セレクタは dimKey を書き換え、値の選択をリセットする(機能は従来のまま)",
-    /text=\{dim\?\.label \?\? flt\.dimKey\}\s*\r?\n\s*value=\{flt\.dimKey\}\s*\r?\n\s*onChange=\{\(e\) => setPivotFilters\(\(prev\) => prev\.map\(\(p, j\) => \(j === i \? \{ dimKey: e\.target\.value, values: \[\], rangeMin: null, rangeMax: null \}/.test(lab29));
+    /text=\{dim\?\.label \?\? flt\.dimKey\}\s*\r?\n\s*value=\{flt\.dimKey\}\s*\r?\n\s*onChange=\{\(v\) => setPivotFilters\(\(prev\) => prev\.map\(\(p, j\) => \(j === i \? \{ dimKey: v, values: \[\], rangeMin: null, rangeMax: null \}/.test(lab29));
 
   // bare の value は fmt の結果だけ(単位は部品側が描く。`${fmt(v)} ${unit}` に戻すと単位が二重になる)
   // 【D-3】数字は指標カード(MetricTabCard)の中で描くようになった。
@@ -17340,9 +17298,9 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["測度の切替", /PIVOT_MEASURES\.map/],
       ["指標(色分け)の切替", /なし\(全体\)/],
       // 【D-2】3枚の <select> は PlainSelect へ寄せたので、配線の綴りが onChange だけになった
-      ["並べる軸の切替", /onChange: \(e\) => setPivotRow\(e\.target\.value\)/],
-      ["数値の切替", /onChange: \(e\) => setPivotMetric\(e\.target\.value\)/],
-      ["分け方の切替", /onChange: \(e\) => setPivotCol\(e\.target\.value\)/],
+      ["並べる軸の切替", /onChange: \(v\) => setPivotRow\(v\)/],
+      ["数値の切替", /onChange: \(v\) => setPivotMetric\(v\)/],
+      ["分け方の切替", /onChange: \(v\) => setPivotCol\(v\)/],
       // \b が要る: 無いと <PivotLineChartGone> への改名(描かない変異)が接頭辞一致で生き残る
       // (変異試験 M17 で実際に生存した)。下の2つも同じ形で縛る。
       ["折れ線", /<PivotLineChart\b/],
@@ -17841,9 +17799,11 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
         // 枝分けが消えたので、**どの呼び手も同じ 44pt の当たり判定**になる。
         // 三項が残っていれば「渡さない画面は 1px も変わらない」という主張が要るが、
         // 消えた以上は「枝が1つであること」を見るのが正しい主張。
-        check("32.1 D-10c: label の style は枝分けの無い1つの object(inline の三項が消えた)",
-          !/<label style=\{inline/.test(ps32)
-          && /<label style=\{\{ position: "relative", display: caption \?/.test(ps32),
+        // 【M4 2026-09-16】器は <label> から <button> になった(中に <select> がもう無い)。
+        // 主張は同じ: **枝分けの無い1つの style object**(inline の三項が消えたまま)。
+        check("32.1 D-10c: 器の style は枝分けの無い1つの object(inline の三項が消えた)",
+          !/style=\{inline/.test(ps32)
+          && /style=\{\{ display: caption \? "flex" : "inline-flex", flexDirection: caption \?/.test(ps32),
           ps32.replace(/\s+/g, " ").slice(0, 200));
         check("32.1 D-10c: 軸の3つは caption(ラベルを値の上に積む枝)を渡している",
           /<PlainSelect[\s\S]{0,120}?caption=\{\w+\.label\}/.test(lab32)
@@ -20142,8 +20102,10 @@ console.log("\n========== 検証39: D-21 中身が同じなら同じものを渡
 
     // --- 39.1 音量 ── 判定の粒度は「画面に出る桁」と一致していなければならない --------
     // 画面より粗く見れば表示が固まり、細かく見れば間引きが効かない。
-    // **桁は画面(MeasureView の MetricCard)から読む**。判定側の桁と突き合わせる。
-    const volShownM = /value=\{volumeDb\.toFixed\((\d+)\)\}/.exec(measSrc39);
+    // **桁は画面から読む**。判定側の桁と突き合わせる。
+    // 【M9/M10 2026-09-16】音量が出る場所は詳細シートの MetricCard から
+    // **環の下の dB 表示**(音量表示のスイッチが ON のときだけ)へ移った。綴りだけが変わった。
+    const volShownM = /\{volumeDb\.toFixed\((\d+)\)\}dB/.exec(measSrc39);
     const volCmpM = /return prev\.toFixed\((\d+)\) === next\.toFixed\((\d+)\);/
       .exec(extractFunction("sameVolumeDbForDisplay"));
     check("39.1 音量の同一性は、画面に出る桁とまったく同じ桁で見ている",
@@ -21991,9 +21953,15 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     /setErrorMsg\(MIC_DENIED_MSG\);/.test(appCode));
   {
     // 3行構成は**このキーのときだけ**。他のエラーは従来どおり1行。
-    const at = appCode.indexOf("{errorMsg === MIC_DENIED_MSG && (");
+    // 【M8 2026-09-16 実機の指摘】3行構成は**計測タブ限定の案内(ERROR_MEASURE_ONLY)の
+    // 2つとも**にした。以前はマイク拒否だけが3行で、再接続失敗は1行だった。
+    // 分岐は集合そのものを読む ── 集合に足したメッセージが黙って1行に落ちない。
+    const at = appCode.indexOf("{ERROR_MEASURE_ONLY.includes(errorMsg) && (");
     const seg = at > 0 ? appCode.slice(at, at + 1100) : "";
-    check("45 A-5 3行構成はマイク拒否のキーのときだけ描く", seg.length > 0);
+    check("45 A-5 / M8 3行構成は ERROR_MEASURE_ONLY の分岐で描く(2つとも3行)", seg.length > 0);
+    check("45 A-5 / M8 マイク拒否だけを名指しする分岐は残っていない",
+      !/errorMsg === MIC_DENIED_MSG/.test(appCode),
+      (appCode.match(/errorMsg === MIC_DENIED_MSG/g) || []).length + "箇所");
     check("45 A-5 2行目に MIC_DENIED_HOWTO を描く", /\{MIC_DENIED_HOWTO\}/.test(seg));
     check("45 A-5 3行目は「もう一度試す」", /もう一度試す/.test(seg));
     check("45 A-5 「もう一度試す」は startListening を呼ぶ",
@@ -22504,6 +22472,217 @@ console.log("\n========== 検証47: 便C トークンと正典 ==========");
   check("47.4 掃除: SetAsIdealButton の受け口から tapMin が消えている",
     /function SetAsIdealButton\(\{ session, sessions, selectedIdeal, onSave, floating = false \}\)/.test(appCode47),
     (/function SetAsIdealButton\([^)]*\)/.exec(appCode47) || ["無し"])[0]);
+  console.log("  -> done");
+}
+
+console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
+{
+  const app48 = codeOf(src);
+  const meas48 = codeOf(srcOfFn(src, "MeasureView"));
+  // 上部設定行 = .tap-through の箱。ここから「メトロノーム」のボタンの手前までを
+  // **1行目 + 2行目**として切り出す(綴りではなく範囲で見る)。
+  const topStart = meas48.indexOf('<div className="tap-through"');
+  const topEnd = meas48.indexOf('aria-label="メトロノーム"', topStart);
+  const topSet = topStart >= 0 && topEnd > topStart ? meas48.slice(topStart, topEnd) : "";
+  check("48.0 上部設定行を切り出せている(空回りしていない)",
+    topSet.length > 1200 && /selectedBoxGroup/.test(topSet) && /<PerformerSelector/.test(topSet),
+    `${topSet.length}文字`);
+
+  // --- 48.1 M1 1行目の左端と2行目の点の左端を「1つの定数」で揃える ----------------
+  // 【変異】2行目の左 padding を直値へ戻す / 1行目だけ別の値にする → どちらもここで落ちる。
+  {
+    const defs = (app48.match(/const TOPSET_ROW_PAD_LEFT_PX = 10;/g) || []).length;
+    const uses = (app48.match(/TOPSET_ROW_PAD_LEFT_PX/g) || []).length;
+    check("48.1 M1 左端の余白は定数1つ(定義1 + 読み手2 = 綴り3)",
+      defs === 1 && uses === 3, `定義=${defs} / 綴り=${uses}`);
+    check("48.1 M1 1行目(奏者の行)がその定数を読む",
+      /flexWrap: "nowrap", overflowX: "auto", paddingLeft: TOPSET_ROW_PAD_LEFT_PX \}\}>/.test(topSet),
+      (topSet.match(/paddingLeft: [^,}]*/g) || ["無し"]).join(" | "));
+    check("48.1 M1 2行目(リード枠)も同じ定数を読む(左端に直値を書き戻していない)",
+      /padding: `2px 0 2px \$\{TOPSET_ROW_PAD_LEFT_PX\}px`/.test(topSet)
+      && !/padding: "2px 4px 2px 10px"/.test(topSet),
+      (topSet.match(/padding: [^,]*/g) || []).join(" | "));
+  }
+
+  // --- 48.2 M2 楽器名と Hz の間 ---------------------------------------------------
+  // 【変異】9px の区切り span を戻す / padding を 4 の直値に戻す → 落ちる。
+  {
+    check("48.2 M2 楽器と Hz の間の区切り span(幅9)は消えている",
+      !/<span aria-hidden="true" style=\{\{ width: 9/.test(topSet),
+      (topSet.match(/<span aria-hidden="true"[^>]*>/g) || []).join(" | ") || "0件");
+    const pads = (topSet.match(/cursor: "pointer", padding: [^,]*/g) || []);
+    check("48.2 M2 楽器・基準ピッチのボタンの padding は --sp-1(直値の 4 に戻していない)",
+      pads.length === 2 && pads.every((t) => /padding: "var\(--sp-1\)"/.test(t)),
+      pads.join(" | "));
+    // 1行目に幅だけを持つ span を挟む経路そのものを塞ぐ(別の綴りで戻すのを防ぐ)
+    const line1 = topSet.slice(topSet.indexOf("paddingLeft: TOPSET_ROW_PAD_LEFT_PX"),
+      topSet.indexOf("2行目") >= 0 ? topSet.indexOf("2行目") : topSet.indexOf('setOpenPicker("box")'));
+    check("48.2 M2 1行目に幅だけを持つ span が1つも無い(区切りを別の綴りで戻さない)",
+      !/<span[^>]*\bwidth: \d/.test(line1), (line1.match(/<span[^>]*width: \d[^>]*>/g) || []).join(" | ") || "0件");
+  }
+
+  // --- 48.3 M3/M4 選び方は ScrollPicker に統一 ------------------------------------
+  // 【変異】奏者の <select> を戻す → ここと「<select> が0件」で落ちる。
+  {
+    check("48.3 M4 App.jsx に実物の <select> が1つも無い(コメントを除く)",
+      !/<select[\s>]/.test(app48), (app48.match(/<select[\s>]/g) || []).length + "箇所");
+    check("48.3 M4 <option> も1つも無い(選択肢はピッカーの options が持つ)",
+      !/<option[\s>]/.test(app48), (app48.match(/<option[\s>]/g) || []).length + "箇所");
+    // 綴りの数と、実際に選ばせている場所の数を**別々に**固定する
+    // (共有部品に寄せたので、綴り1つで複数の画面をまかなう箇所がある)。
+    const spell = (app48.match(/<ScrollPicker\b/g) || []).length;
+    check("48.3 M4 ScrollPicker の綴りは7つ(基準ピッチ/楽器/箱/個体/奏者/軸など/追加シートの銘柄)",
+      spell === 7, `${spell}箇所`);
+    const sites = spell
+      + ((app48.match(/<PerformerSelector\b/g) || []).length - 1)   // 共有部品の呼び出しぶん
+      + ((app48.match(/<PlainSelect\b/g) || []).length - 1);
+    check("48.3 M4 実際に ScrollPicker で選ばせている箇所は10(凍結仕様の「8箇所以上」を満たす)",
+      sites >= 8 && sites === 10, `${sites}箇所`);
+    // 【M3】症状の原因は「値の上に**透明にした**操作要素を重ねる」作り。
+    // 透明化は color: "transparent" で行っていたので、その綴りが0件であることで見る
+    // (appearance: "none" 自体はリードの追加シートの入力欄が正当に使っているので数えない)。
+    check("48.3 M3 透明にした操作要素を重ねる作りは1つも残っていない(フォーカスの矩形が出る原因)",
+      !/color: "transparent"/.test(app48),
+      (app48.match(/color: "transparent"/g) || []).length + "箇所");
+    // ピッカーを開いている間は背面レイヤと録音ボタンを無効化する(§6.1.5)。
+    check("48.3 M4 ピッカーを開いている間は背面レイヤと録音ボタンが disabled",
+      (meas48.match(/disabled=\{openPicker !== null\}/g) || []).length === 2,
+      `${(meas48.match(/disabled=\{openPicker !== null\}/g) || []).length}箇所`);
+  }
+
+  // --- 48.4 M5/M6 リード行の並びと日付 --------------------------------------------
+  // (並び・段・間隔の本体は F-72 を引き継いだ節が見ている。ここは合格ラインの数え直し。)
+  // 【変異】リード行の並びを元に戻す / 中黒を戻す → 落ちる。
+  {
+    check("48.4 M6 上部設定行に中黒が1つも無い",
+      !/·/.test(topSet), (topSet.match(/·/g) || []).length + "件");
+    check("48.4 M5 上部設定行の日付は1つだけ(箱の開封日)",
+      (topSet.match(/formatYmd\(/g) || []).length === 2,
+      `${(topSet.match(/formatYmd\(/g) || []).length}箇所(条件と表示で2)`);
+    // 並びの確認。**位置で見る**(色だけ合っていて順が違う、を落とす)。
+    const pos = ["shortBrandLabel(", "reedStrengthLabel(", "formatYmd(selectedBoxGroup.startDate)", "reedMemberOptions.find("]
+      .map((k) => topSet.indexOf(k));
+    check("48.4 M5 並びは 箱(銘柄) → 厚さ → 日付 → 個体# の順",
+      pos.every((p) => p > 0) && pos[0] < pos[1] && pos[1] < pos[2] && pos[2] < pos[3],
+      pos.join(" < "));
+    check("48.4 M5 区切りは記号ではなく余白(箱のボタンの gap は --sp-1)",
+      /gap: "var\(--sp-1\)", height: TOPSET_REED_SELECT_H_PX/.test(topSet),
+      (topSet.match(/gap: [^,]*/g) || []).join(" | "));
+  }
+
+  // --- 48.5 M7 メトロノームの当たり判定 -------------------------------------------
+  // 【変異】height を 56 に戻す → 落ちる。
+  {
+    // 開きタグを取り出す(`>` は style の { } の外に出た最初のものだけを終端とみなす)。
+    const tagAt48 = (i2) => { let d = 0; for (let k = i2; k >= 0 && k < src.length; k--) if (src[k] === "<") { i2 = k; break; }
+      for (let k = i2; k < src.length; k++) { const ch = src[k]; if (ch === "{") d++; else if (ch === "}") d--; else if (ch === ">" && d === 0) return src.slice(i2, k + 1); } return ""; };
+    const mi = src.indexOf('aria-label="メトロノーム"');
+    const mtag = mi === -1 ? "" : tagAt48(mi);
+    check("48.5 M7 メトロノームは --tap-min 角で下端に寄る(56 へ戻していない)",
+      /height: "var\(--tap-min\)", alignSelf: "flex-end"/.test(mtag) && !/height: 56/.test(mtag),
+      mtag.replace(/\s+/g, " ").slice(0, 200));
+    // 上部設定行の高さ(60px = 環を動かさない)は**左の列**が決める。
+    // ボタンの高さを下げても行の高さが変わらないことを、寸法の出どころで見る。
+    // 【M1/M4 の副作用を止める釘】枠が <button> 1枚になったとき、padding が border-box の
+    // 中に入るぶんだけリード行が 30 → 26 に縮む(Chrome 実測で踏んだ)。
+    // 上部設定行の高さ 60px は §6.1.5「環を動かさない」の根拠なので、
+    // **奏者28 + gap2 + リード30 = 60** を定数の値ごと固定する。
+    check("48.5 M7 行の高さは左の列(奏者28 + gap2 + リード30 = 60)が決める(ボタンは高さを持ち込まない)",
+      /const TOPSET_PERFORMER_H_PX = 28;/.test(src) && /const TOPSET_REED_SELECT_H_PX = 30;/.test(src)
+      && /flexDirection: "column", gap: 2 \}\}>/.test(meas48),
+      (src.match(/const TOPSET_\w+ = \d+;/g) || []).join(" / "));
+  }
+
+  // --- 48.6 M8 マイクの案内 --------------------------------------------------------
+  // 【変異】再接続失敗を1行に戻す(分岐をマイク拒否の名指しへ戻す) → 落ちる。
+  {
+    check("48.6 M8 再接続失敗の見出しから「画面をタップしてください」が消えている",
+      /const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした";/.test(app48)
+      && !/画面をタップしてください/.test(app48));
+    check("48.6 M8 3行の分岐は ERROR_MEASURE_ONLY.includes(errorMsg)(2つとも3行)",
+      /\{ERROR_MEASURE_ONLY\.includes\(errorMsg\) && \(/.test(app48)
+      && !/errorMsg === MIC_DENIED_MSG/.test(app48),
+      (app48.match(/\{errorMsg [^\n]*&& \(/g) || []).join(" | ").slice(0, 200));
+    const at = app48.indexOf("{ERROR_MEASURE_ONLY.includes(errorMsg) && (");
+    const seg = at > 0 ? app48.slice(at, at + 1100) : "";
+    check("48.6 M8 3行は 見出し / MIC_DENIED_HOWTO / もう一度試す",
+      /\{MIC_DENIED_HOWTO\}/.test(seg) && /もう一度試す/.test(seg)
+      && /\{errorMsg\}<\/div>/.test(app48.slice(Math.max(0, at - 400), at)));
+  }
+
+  // --- 48.7 M9/M10 詳細シートは1行だけ --------------------------------------------
+  // 【変異】倍音構成を戻す / MetricCard を戻す / 目安の一覧を戻す → 落ちる。
+  {
+    // 消えた物を**綴りで**数える(計測ビューの中だけを見る)。
+    for (const [name, re] of [
+      ["倍音構成の棒グラフ", /倍音構成/], ["n倍のラベル", /\}倍</], ["目安のチェック", /checked=\{showIdeal\}/],
+      ["MetricCard", /<MetricCard\b/], ["スペクトル重心", /スペクトル重心/], ["HNR", /HNR/],
+      ["目安の一覧", /idealProfiles/], ["削除のゴミ箱", /<Trash2\b/],
+    ]) check(`48.7 M9 計測ビューから「${name}」が消えている`, !re.test(meas48),
+      (meas48.match(new RegExp(re.source, "g")) || []).length + "件");
+
+    // .card の直下の子を数える。**恒常の1行 + 条件つきの告知**の2つちょうど。
+    const cardAt = meas48.indexOf('<div className="card no-top-rule">');
+    const tagEnd48 = (t, from) => { let d = 0; for (let k = from; k < t.length; k++) { const ch = t[k]; if (ch === "{") d++; else if (ch === "}") d--; else if (ch === ">" && d === 0) return k + 1; } return t.length; };
+    const cardOpenEnd = tagEnd48(meas48, cardAt);
+    // カードの閉じは深さで探す
+    let depth = 1, k = cardOpenEnd, cardEnd = -1;
+    while (k < meas48.length && depth > 0) {
+      if (meas48.startsWith("</div>", k)) { depth--; if (depth === 0) { cardEnd = k; break; } k += 6; continue; }
+      if (meas48[k] === "<" && /^<div[\s>]/.test(meas48.slice(k, k + 5))) { depth++; k = tagEnd48(meas48, k); continue; }
+      k++;
+    }
+    const cardBody = cardAt >= 0 && cardEnd > 0 ? meas48.slice(cardOpenEnd, cardEnd) : "";
+    check("48.7 M10 詳細シートのカードを切り出せている(空回りしていない)",
+      cardBody.length > 800 && /音量表示/.test(cardBody) && /計測下限dB/.test(cardBody),
+      `${cardBody.length}文字`);
+    // 直下の子(深さ0の開きタグ)
+    const kids = [];
+    { let d = 0, i2 = 0;
+      while (i2 < cardBody.length) {
+        if (cardBody.startsWith("</", i2)) { d--; i2 = cardBody.indexOf(">", i2) + 1; continue; }
+        if (cardBody[i2] === "<" && /^<[A-Za-z]/.test(cardBody.slice(i2, i2 + 2))) {
+          const e = tagEnd48(cardBody, i2);
+          const tg = cardBody.slice(i2, e);
+          const nm = (/^<([A-Za-z][\w.]*)/.exec(tg) || [, "?"])[1];
+          if (d === 0) kids.push(nm);
+          if (!/\/>\s*$/.test(tg)) d++;
+          i2 = e; continue;
+        }
+        i2++;
+      }
+    }
+    check("48.7 M10 .card の直下は2つだけ(音量表示+計測下限dB の1行 / 端末の警告の告知)",
+      JSON.stringify(kids) === JSON.stringify(["div", "div"]), JSON.stringify(kids));
+    check("48.7 M10 2つ目は端末の警告(条件つき。指標ではないので M9 の削除対象ではない)",
+      /\{micProcessingWarning && \(/.test(cardBody));
+    // 1行の中身: 左が音量表示のスイッチ、右が計測下限dB
+    const row = cardBody.slice(cardBody.indexOf('<div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>'),
+      cardBody.indexOf("{micProcessingWarning"));
+    check("48.7 M10 1行の左が音量表示、右が計測下限dB(順が逆になっていない)",
+      row.indexOf("音量表示") > 0 && row.indexOf("計測下限dB") > row.indexOf("音量表示"),
+      `音量表示=${row.indexOf("音量表示")} / 計測下限dB=${row.indexOf("計測下限dB")}`);
+    check("48.7 M10 スイッチは role=\"switch\"(コミュニティの「公開」と同じ作法)",
+      /type="button" role="switch" aria-checked=\{showVolume\} aria-label="音量表示"/.test(row));
+    check("48.7 M10 スイッチの当たり判定は軌道ではなくボタンの 44px 角",
+      /width: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(row));
+    check("48.7 M10 計測下限dB のスライダーは余りを取り、値は右端に固定幅で出る",
+      /flex: 1, minWidth: 0, accentColor: "var\(--c-accent\)"/.test(row)
+      && /width: 62, textAlign: "right", flexShrink: 0/.test(row));
+    check("48.7 M10 375px で折り返さない(行に flexWrap を渡していない)",
+      !/flexWrap/.test(row));
+  }
+
+  // --- 48.8 M9 「音量表示」は計測タブで dB を出すかの切替 --------------------------
+  {
+    check("48.8 M9 音量表示は永続する設定(usePersistedState)。既定は OFF",
+      /const \[showVolume, setShowVolume\] = usePersistedState\("showVolume", false\);/.test(meas48));
+    check("48.8 M9 ON のときだけ環の下に dB を出す(環より下なので環は動かない)",
+      /<PitchRing note=\{note\} centsOffset=\{centsOffset\} diameter=\{RING_D_FULL\} \/>[\s\S]{0,400}?\{showVolume && \([\s\S]{0,400}?\{volumeDb\.toFixed\(1\)\}dB/.test(meas48),
+      (meas48.match(/\{volumeDb\.toFixed\(1\)\}dB/g) || []).length + "箇所");
+    check("48.8 M9 dB の段は録音の経過時間と同じ(--font-num / 12px / --c-ink-3。新しい値を足さない)",
+      /fontFamily: "var\(--font-num\)", fontSize: 12, color: "var\(--c-ink-3\)" \}\}>\s*\r?\n\s*\{volumeDb\.toFixed\(1\)\}dB/.test(meas48));
+  }
   console.log("  -> done");
 }
 
