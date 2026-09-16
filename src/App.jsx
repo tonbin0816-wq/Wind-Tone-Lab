@@ -23,6 +23,10 @@ import LoadingRing from "./community/LoadingRing.jsx";
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
 import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
+// 【R6 2026-09-16 本人裁定③】リードの銘柄と型番の正はコミュニティのカタログ1つ。
+// gear.js は firebase を読まない純粋なデータなので、ここから import しても
+// 計測タブの起動は重くならない(profile.js と同じ理由)。
+import { REED_CATALOG } from "./community/catalog/gear.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -1884,12 +1888,24 @@ export function ReedStrengthPills({ value, onChange, marginTop = 12 }) {
 
 // ============================================================
 // リード登録用マスタデータ
-// 銘柄: 初期リスト(一般的なメーカー) + ユーザーが自由入力した銘柄を自動追加
+// 銘柄・型番: 正は src/community/catalog/gear.js の REED_CATALOG(ここでは持たない)
+//             + ユーザーが自由入力した銘柄を自動追加
 // 番手: 2.0〜4.0を0.25刻み(正は src/community/profile.js。ここでは持たない)
 // ============================================================
-const INITIAL_REED_BRANDS = [
-  "Vandoren", "Rico (D'Addario)", "Légère", "Marca", "Rigotti", "Silverstein", "Alexander",
-];
+// 【R6 2026-09-16 本人裁定③】以前ここには INITIAL_REED_BRANDS(7銘柄)を直書きしていた。
+// コミュニティのカタログの部分集合で、片方だけ増える形になっていたので**カタログ1つに畳んだ**
+// (13銘柄 + 型番)。カタログに無い銘柄の逃げ道(REED_BRAND_CUSTOM の自由入力)は残してある。
+const REED_BRAND_OPTIONS = Object.keys(REED_CATALOG);
+// その銘柄の型番の選択肢。自由入力の銘柄と、カタログに無い古い記録の銘柄
+// ("Rico (D'Addario)" 等)は空配列 ── 呼び出し側は型番の行ごと出さない。
+function reedModelOptions(brand) {
+  return REED_CATALOG[brand]?.models ?? [];
+}
+// 保存する型番。**カタログにある組だけを通す**(自由入力の銘柄に型番は付かない)。
+// 既存のリードは model を持たないので、読み手はすべて `?? null` で受ける。
+function resolveReedModel(brand, model) {
+  return reedModelOptions(brand).includes(model) ? model : null;
+}
 
 
 const REED_BOX_SIZE = 10; // リード1箱あたりの枚数
@@ -1919,7 +1935,9 @@ function groupReeds(reeds) {
   const groups = {};
   for (const r of reeds) {
     const key = reedGroupKey(r);
-    if (!groups[key]) groups[key] = { key, brand: r.brand, strength: r.strength, startDate: r.startDate, members: [] };
+    // 【R6 2026-09-16】箱の型番。**箱のキー(銘柄|番手|開封日)は変えていない**ので、
+    // 同じ銘柄・番手・開封日で型番だけ違う箱は1つにまとまり、先頭の1枚の型番で呼ばれる。
+    if (!groups[key]) groups[key] = { key, brand: r.brand, model: r.model ?? null, strength: r.strength, startDate: r.startDate, members: [] };
     groups[key].members.push(r);
   }
   for (const g of Object.values(groups)) g.members.sort(reedMemberOrder);
@@ -1933,7 +1951,8 @@ function groupReeds(reeds) {
 //   ・箱を消した: 「Vandoren V16 3.0 の2箱(6枚)」 / 銘柄が複数なら「2箱(6枚)」
 //   ・枚を消した: 「Vandoren V16 3.0 の3枚」     / 銘柄が複数なら「3枚」
 function deletedReedsLabel(groups, count, boxCount) {
-  const names = [...new Set((groups || []).map((g) => `${g.brand} ${g.strength}`))];
+  // 【R6 2026-09-16】型番を持つ箱は型番まで言う(一覧の見出しと同じ綴り = reedBrandModelLabel)。
+  const names = [...new Set((groups || []).map((g) => `${reedBrandModelLabel(g.brand, g.model)} ${g.strength}`))];
   const head = names.length === 1 ? `${names[0]} の` : "";
   return boxCount > 0 ? `${head}${boxCount}箱(${count}枚)` : `${head}${count}枚`;
 }
@@ -1972,11 +1991,25 @@ function shortBrandLabel(brand, allBrands) {
 function reedStrengthLabel(strength) {
   return String(strength ?? "").replace(/\.0$/, "");
 }
-function shortBoxLabel(brand, strength, allBrands) {
+// 【R6 2026-09-16 本人裁定③】箱の短い呼び名の**頭**。
+// 型番(model)を持つ箱は型番で呼ぶ ── 型番こそが箱を言い当てる語で、
+// 銘柄の最後の語を採る短縮(shortBrandLabel)は型番が無い時代の代用だった。
+// 型番を持たない既存の記録は従来どおり銘柄の短縮に落ちる(1文字も変わらない)。
+function shortBoxHead(brand, model, allBrands) {
+  const m = String(model ?? "").trim();
+  return m || shortBrandLabel(brand, allBrands);
+}
+function shortBoxLabel(brand, strength, allBrands, model = null) {
   if (!String(brand ?? "").trim()) return String(strength ?? "");
-  const head = shortBrandLabel(brand, allBrands);
+  const head = shortBoxHead(brand, model, allBrands);
   const s = reedStrengthLabel(strength);
   return s ? `${head}-${s}` : head;
+}
+// 【R6】長いほうの呼び名「Vandoren V16」。型番が無ければ銘柄だけ(既存の記録と同じ)。
+// 一覧の箱の見出し・比較タブの箱の見出し・選択肢の長い表記が同じ綴りを読む。
+function reedBrandModelLabel(brand, model) {
+  const m = String(model ?? "").trim();
+  return m ? `${brand} ${m}` : String(brand ?? "");
 }
 
 // 【N-4b / B-2】録音の経過時間 m:ss。正典の .rectime(赤点 + 1:24)の表記。
@@ -2061,7 +2094,7 @@ function frameCountFor(sessions, reedId) {
 function reedLabel(reed, reeds) {
   if (!reed) return "";
   const pos = reedPosition(reed, reeds);
-  return `${reed.brand} ${reed.strength} #${pos}(${formatYmd(reed.startDate) ?? "—"})`;
+  return `${reedBrandModelLabel(reed.brand, reed.model)} ${reed.strength} #${pos}(${formatYmd(reed.startDate) ?? "—"})`;
 }
 
 // 【N-6】セッション一覧の副次行に出す短いリード表記「V16-3 #4」(短縮規則は N-4a の
@@ -2069,7 +2102,7 @@ function reedLabel(reed, reeds) {
 // リードが無い(未紐付け)ときは null を返し、呼び出し側が文言に振り替える。
 function reedShortLabel(reed, reeds) {
   if (!reed) return null;
-  return `${shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))} #${reedPosition(reed, reeds)}`;
+  return `${shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand), reed.model)} #${reedPosition(reed, reeds)}`;
 }
 
 // (【N-11 2026/08/17 本人指示】bulkReedOptionLabel = 一括リード変更の <select> の選択肢の
@@ -7617,7 +7650,7 @@ function MeasureView(props) {
   // 【N-4a】箱の表記「Vandoren V16 3.0」→「V16-3」。短縮規則は shortBoxLabel を参照。
   const reedBoxOptions = [
     { value: "", label: "リードを選択" },
-    ...reedGroups.map((g) => ({ value: g.key, label: shortBoxLabel(g.brand, g.strength, reedGroups.map((x) => x.brand)) })),
+    ...reedGroups.map((g) => ({ value: g.key, label: shortBoxLabel(g.brand, g.strength, reedGroups.map((x) => x.brand), g.model) })),
   ];
   const reedMemberOptions = [
     { value: "", label: selectedBoxGroup ? "#" : "—" },
@@ -8074,7 +8107,7 @@ function MeasureView(props) {
                   歯止め(overflow + textOverflow)を値そのものにも置く
                   (実測: 長い銘柄は上限を越えて隣に重なりうる)。 */}
               <span style={{ color: selectedReedId ? "var(--c-ink)" : "var(--c-ink-2)", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", maxWidth: 110, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {selectedBoxGroup ? shortBrandLabel(selectedBoxGroup.brand, reedGroups.map((x) => x.brand)) : reedBoxOptions[0].label}
+                {selectedBoxGroup ? shortBoxHead(selectedBoxGroup.brand, selectedBoxGroup.model, reedGroups.map((x) => x.brand)) : reedBoxOptions[0].label}
               </span>
               {/* 厚さ。規則は shortBoxLabel と同じ(reedStrengthLabel が唯一の答え)。 */}
               {selectedBoxGroup && (
@@ -9238,12 +9271,20 @@ function commitReedScores(reed, next, at) {
   return patch;
 }
 
+// 【R2 2026-09-16】位置 ⇄ 値の規則そのもの。**並びの配列だけを見る**。
+// 評価(総評/厚さ/バランス)以外のダイヤル(リードの厚さ・枚数)も同じ規則で動かすため、
+// 「項目キー → 並び」の部分を下の ratingDial* 側へ追い出した。規則は1つのまま。
+function dialValueAt(order, scrollTop, itemH) {
+  const i = Math.max(0, Math.min(order.length - 1, Math.round(scrollTop / itemH)));
+  return order[i];
+}
+function dialOffsetFor(order, value, itemH) {
+  return Math.max(0, order.indexOf(value)) * itemH;
+}
 // ダイヤルのスクロール位置 ⇄ 値。並び(上が5)がそのまま index になる。
 // key を渡さなければ整数のダイヤル(厚さ・バランス)、"rating" なら 0.1 刻み41段。
 function ratingDialValueAt(scrollTop, itemH, key) {
-  const order = ratingDialOrder(key);
-  const i = Math.max(0, Math.min(order.length - 1, Math.round(scrollTop / itemH)));
-  return order[i];
+  return dialValueAt(ratingDialOrder(key), scrollTop, itemH);
 }
 // 【N-5】未評価(null)は**中央(3)ではなく先頭の「—」**に置く。
 // 「—」が並びに入ったので、未評価のまま開いたダイヤルは「—」を指したまま止まる。
@@ -9251,10 +9292,29 @@ function ratingDialValueAt(scrollTop, itemH, key) {
 // (以前は中央の 3 に置いていたので、位置合わせ由来の scroll を確定に使わない
 //  ratingDialScrollIsUser だけが唯一の歯止めだった。歯止めは残してある)。
 function ratingDialOffsetFor(value, itemH, key) {
-  const order = ratingDialOrder(key);
-  const v = normalizeReedScoreOf(key, value);
-  return Math.max(0, order.indexOf(v)) * itemH;
+  return dialOffsetFor(ratingDialOrder(key), normalizeReedScoreOf(key, value), itemH);
 }
+// 【R2 2026-09-16】ダイヤル1列ぶんの一式(並び / 正規化 / 表示の文字列)。
+// **RatingDial はこの一式しか見ない** ── 部品の中に「評価の都合」を残さないための境目。
+// 評価の3項目はここから、リードの厚さ・枚数は下の optionDialSpec から作る。
+function ratingDialSpec(itemKey) {
+  return {
+    order: ratingDialOrder(itemKey),
+    normalize: (v) => normalizeReedScoreOf(itemKey, v),
+    text: (v) => reedScoreText(itemKey, v),
+  };
+}
+// 選択肢の配列から作る一式。並びは**渡された順のまま**(先頭が上)。
+// 並びに無い値(古い記録・範囲外)は末尾=いちばん下の段に寄せる。
+function optionDialSpec(options, text = String) {
+  const order = [...options];
+  return {
+    order,
+    normalize: (v) => (order.includes(v) ? v : order[order.length - 1]),
+    text,
+  };
+}
+
 // そのscrollイベントを「指で動かした」とみなしてよいか。
 // 表示位置を合わせるために自分で scrollTop を代入したぶん(syncTarget)は確定に使わない。
 // 使ってしまうと、未評価(null)のダイヤルを中央(3)に置いた時点で 3 が選ばれたことになり、
@@ -9341,12 +9401,15 @@ function reedGroupAvgRating(members) {
 // 厚さ・バランスでも、値が5や1のときは他の段を選ぶのにスクロールが要る。
 // 幅は列いっぱい(100%)。3列を横に並べる側(ReedScoreEditor)が列幅を決める。
 // 確定はダイアログを閉じたときに1回だけ行うので、ここでは onCommit を持たない。
-function RatingDial({ itemKey, value, onChange }) {
+// 【R2 2026-09-16】spec を渡すと**評価以外**の値も回せる(リードの厚さ・枚数)。
+// 渡さなければ従来どおり itemKey から評価の一式を作る ── 呼び出し側は1文字も変えていない。
+function RatingDial({ itemKey, value, onChange, spec = null }) {
   const ref = useRef(null);
   const ITEM = RATING_DIAL_ITEM_H;
   const VISIBLE = RATING_DIAL_VISIBLE;
   const height = ITEM * VISIBLE;
-  const v = normalizeReedScoreOf(itemKey, value);
+  const dial = spec || ratingDialSpec(itemKey);
+  const v = dial.normalize(value);
   const settleRef = useRef(null);
   const selfScrollRef = useRef(false);
   // 表示位置を合わせるために**自分で**動かしたスクロール量。ここから来た scroll イベントは
@@ -9357,7 +9420,7 @@ function RatingDial({ itemKey, value, onChange }) {
   useEffect(() => {
     const el = ref.current;
     if (!el || selfScrollRef.current) return;
-    const target = ratingDialOffsetFor(v, ITEM, itemKey);
+    const target = dialOffsetFor(dial.order, v, ITEM);
     if (Math.abs(el.scrollTop - target) > 1) { syncTargetRef.current = target; el.scrollTop = target; }
   }, [v, ITEM, itemKey]);
   const onScroll = () => {
@@ -9366,7 +9429,7 @@ function RatingDial({ itemKey, value, onChange }) {
     const isUser = ratingDialScrollIsUser(el.scrollTop, syncTargetRef.current);
     syncTargetRef.current = null;
     if (!isUser) return; // 位置合わせぶん。指で動かしたものではないので確定しない
-    const next = ratingDialValueAt(el.scrollTop, ITEM, itemKey);
+    const next = dialValueAt(dial.order, el.scrollTop, ITEM);
     selfScrollRef.current = true;
     if (next !== v) onChange(next);
     clearTimeout(settleRef.current);
@@ -9375,7 +9438,7 @@ function RatingDial({ itemKey, value, onChange }) {
   useEffect(() => () => clearTimeout(settleRef.current), []);
   const pick = (s) => {
     const el = ref.current;
-    if (el) { syncTargetRef.current = ratingDialOffsetFor(s, ITEM, itemKey); el.scrollTop = syncTargetRef.current; }
+    if (el) { syncTargetRef.current = dialOffsetFor(dial.order, s, ITEM); el.scrollTop = syncTargetRef.current; }
     onChange(s);
   };
   return (
@@ -9388,7 +9451,7 @@ function RatingDial({ itemKey, value, onChange }) {
         data-noswipe
         style={{ position: "absolute", inset: 0, overflowY: "auto", scrollSnapType: "y mandatory", padding: `${(height - ITEM) / 2}px 0`, boxSizing: "border-box", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
       >
-        {ratingDialOrder(itemKey).map((s) => {
+        {dial.order.map((s) => {
           const on = s === v;
           return (
             <button
@@ -9401,7 +9464,7 @@ function RatingDial({ itemKey, value, onChange }) {
               aria-label={s === RATING_DIAL_UNRATED ? "未評価に戻す" : undefined}
               style={{ display: "block", width: "100%", height: ITEM, minHeight: "var(--tap-min)", scrollSnapAlign: "center", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--font-num)", fontSize: "var(--fs-lg)", fontWeight: on ? 700 : 400, color: on ? "var(--c-accent)" : "var(--c-ink-4)" }}
             >
-              {reedScoreText(itemKey, s)}
+              {dial.text(s)}
             </button>
           );
         })}
@@ -10548,10 +10611,17 @@ const TAP_BUTTON_RESET = {
 const FLOAT_ACTION_Z = 45;
 // 浮かせるボタンと画面の縁との間隔。**既存の余白トークンだけで書く**(直書きの数値を作らない)。
 const FLOAT_ACTION_GAP = "var(--sp-3)";
-// 一覧の下に確保する余白 = ボタンの高さ(§5 の 44) + 上下の間隔。
+// 【R1 / R5 / R15 2026-09-16 実機の指摘「追加(＋)のアイコンを2回り大きく」】
+// **絵柄だけの浮かせるボタンの直径**であり、**追加シートの主要動作の高さ**でもある。
+// §5 の当たり判定 --tap-min(44) の 1.25 倍。既存のトークンに 56 の段は無いので、
+// **この1つだけが 56 を持つ**(FAB・一覧末尾の余白・シートの一手が同じ定数を読む)。
+// 語つきの FAB は従来の高さ(--tap-min)のまま ── 語が入るぶん横に伸びるので、
+// 高さまで上げると「浮かせる一手」が画面の隅で重くなる(本人の指摘は絵柄だけの丸の話)。
+const ACTION_LG_PX = 56;
+// 一覧の下に確保する余白 = ボタンの高さ(絵柄だけの 56) + 上下の間隔。
 // これが無いと最下行がボタンの下に潜る(案D の弱点として正典自身が書いている
 // 「最下段のタイルに少し重なる(下に余白を確保して回避)」)。
-const FLOAT_ACTION_SPACER_H = `calc(var(--tap-min) + ${FLOAT_ACTION_GAP} + ${FLOAT_ACTION_GAP})`;
+const FLOAT_ACTION_SPACER_H = `calc(${ACTION_LG_PX}px + ${FLOAT_ACTION_GAP} + ${FLOAT_ACTION_GAP})`;
 // 【2026/09/10 本人指示】label を渡さなければ**絵柄だけの丸**になる。
 // (「リードを追加」「録音を取り込む」は語を落として絵柄1つにした。)
 // **新しい値を発明しない** ── 直径は §5 の --tap-min、丸みは --r-pill(縦横が同じなので円)、
@@ -10572,9 +10642,12 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
            **どちらも既存のトークンだけで書く**(--page-pad-right / --page-bottom-gap / --sp-3)。 */
         right: "var(--page-pad-right)",
         bottom: `calc(var(--page-bottom-gap) + ${FLOAT_ACTION_GAP})`,
-        minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+        /* 【R1 2026-09-16】絵柄だけなら 56 角、語つきは従来どおり --tap-min。
+           縦横が同じ値で揃うので --r-pill がそのまま円になる。 */
+        minHeight: iconOnly ? ACTION_LG_PX : "var(--tap-min)",
+        minWidth: iconOnly ? ACTION_LG_PX : "var(--tap-min)",
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "var(--sp-1)",
-        // 絵柄だけのときは左右の padding を落とす。縦横が --tap-min で揃うので --r-pill が円になる。
+        // 絵柄だけのときは左右の padding を落とす。縦横が揃うので --r-pill が円になる。
         padding: iconOnly ? 0 : "0 var(--sp-5)", borderRadius: "var(--r-pill)", border: "none",
         background: disabled ? "var(--c-disabled)" : "var(--c-accent)",
         color: "var(--c-on-accent)",
@@ -10621,19 +10694,21 @@ function reedDetailMetaParts(startDate, days, sessionCount) {
 }
 
 // 【N-5】追加シート。正典のミニ「追加」。
-// 銘柄プルダウン(「＋ 新しい銘柄を入力...」で自由入力が出るのは現行のまま)・番手5種のピル・
-// 枚数 1〜10 の −/＋。**枚数1なら「1枚を追加」、複数なら「n枚の箱を追加」**。
+// 銘柄・型番のピッカー(「＋ 新しい銘柄を入力...」で自由入力が出るのは現行のまま)・
+// 厚さと枚数のダイヤル・主要動作1つ。
 // 現行の window.prompt による枚数入力は廃止(シートの中で完結する)。
 // シートの作法(暗幕・角丸28・つまみ・影)はテンポシート/「…」と同値。
 //
-// 追加ボタンの文言は純関数に出してある(ハーネスが JSX を見ないため。実行で数えられる)。
-function reedAddButtonLabel(count) {
-  return count === 1 ? "1枚を追加" : `${count}枚の箱を追加`;
-}
+// 【R4 2026-09-16 実機の指摘 + 本人裁定】追加の一手の文言は**枚数で変わらない1つ**に畳んだ。
+// 以前は「1枚を追加」/「n枚の箱を追加」と枚数を語に含めていたが、枚数はすぐ隣の
+// ダイヤルが現に見せている値なので、同じことを2箇所で言っていた
+// (§6.1.5「同じことを2度言わない」)。枚数が変わるたびにボタンの語が動くのもやめた。
+// 「追加」の語は変えていない(本人の語彙の禁則)。
+const REED_ADD_BUTTON_LABEL = "この箱を追加する";
 // 【F-80 / F-82】同じシートを「箱を編集」にも使う。実行の一手の文言はここで分ける
 // (JSX 側で書き分けるとハーネスから見えない)。
-function reedSheetButtonLabel(mode, count) {
-  return mode === "edit" ? "この箱を変更" : reedAddButtonLabel(count);
+function reedSheetButtonLabel(mode) {
+  return mode === "edit" ? "この箱を変更" : REED_ADD_BUTTON_LABEL;
 }
 // シートの見出し(--fs-xs / --ink3。正典は便C で 11px → 12px)とダイアログ名。
 // 綴りを2箇所に置かないためここへ集める。
@@ -10651,6 +10726,14 @@ function clampReedAddCount(n) {
   if (!Number.isFinite(v)) return REED_ADD_COUNT_MIN;
   return Math.max(REED_ADD_COUNT_MIN, Math.min(REED_ADD_COUNT_MAX, v));
 }
+// 【R2 2026-09-16 実機の指摘】厚さと枚数は**どちらもダイヤル**(評価と同じ RatingDial)。
+// 並びは評価のダイヤルと同じ向き = **上が大きい**(本人指示「上が5・下が1」と揃える)。
+// 選択肢そのものは発明しない: 厚さは REED_STRENGTHS(profile.js)、枚数は 1〜箱1つぶん。
+const REED_ADD_COUNTS = Array.from(
+  { length: REED_ADD_COUNT_MAX - REED_ADD_COUNT_MIN + 1 },
+  (_, i) => REED_ADD_COUNT_MAX - i);
+const REED_STRENGTH_DIAL = optionDialSpec([...REED_STRENGTHS].reverse());
+const REED_COUNT_DIAL = optionDialSpec(REED_ADD_COUNTS);
 
 // 【F-80 / F-82】mode で「追加」と「箱を編集」を切り替える。**呼び出し側で切り替える**方式
 // (F-72 罠1 の bare と同じ考え)で、既定は今までどおり "add"。追加の呼び出しは1文字も変えない。
@@ -10658,10 +10741,15 @@ function clampReedAddCount(n) {
 //   "edit" … 銘柄 + 番手 + 開封日。枚数は出さない(枚数は箱の中身であって箱の属性ではない)
 // 銘柄・番手・開封日はどれも箱のキー(銘柄|番手|開封日)なので、編集は3つを1枚のシートで扱う。
 function ReedBoxSheet({
-  brandOptions, brand, setBrand, customBrand, setCustomBrand,
+  brandOptions, brand, setBrand, model, setModel, customBrand, setCustomBrand,
   strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // 【R6】その銘柄に型番があるときだけ型番の行を出す(自由入力・カタログ外は空)。
+  const modelOptions = reedModelOptions(brand);
+  // 銘柄を変えたら型番は先頭へ。**別の銘柄の型番が残る経路を作らない**。
+  const pickBrand = (v) => { setBrand(v); setModel(reedModelOptions(v)[0] ?? null); };
   const isEdit = mode === "edit";
   const isCustom = brand === REED_BRAND_CUSTOM;
   // 押しても何も起きない一手を作らない(§6.1.5)。実行側(registerReeds / applyBoxEdit)は
@@ -10708,17 +10796,30 @@ function ReedBoxSheet({
             />
           )}
 
-          <ReedStrengthPills value={strength} onChange={setStrength} />
+          {/* 【R6 2026-09-16 本人裁定③】型番。銘柄と**同じ形**(太字の値 + ▾ / 下に罫1本)で
+              すぐ下に並べる。カタログに型番のある銘柄のときだけ出す。
+              値が空(型番を知らない古い箱)のときは「—」── A3 の「不明・欠落」の記号。 */}
+          {modelOptions.length > 0 && (
+            <button
+              onClick={() => setModelPickerOpen(true)}
+              aria-label="型番" aria-expanded={modelPickerOpen}
+              className="sans"
+              style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "8px 0", minHeight: "var(--tap-min)",
+                border: "none", borderBottom: "1px solid var(--c-line)",
+                background: "none", cursor: "pointer", fontSize: "var(--fs-md)", color: "var(--c-ink)", width: "100%",
+              }}
+            >
+              <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {model || "—"}
+              </span>
+              <PickChevron />
+            </button>
+          )}
 
-          {/* 枚数 1〜10。正典は −/数値/＋ を gap 26 で並べ、数値は 26px の太字。
-              ± の反応領域の幅は正典 .pmt の基準値 METRO_PM_W(72)。
-              【F-95a 以降は計測タブと同じではない】計測タブのテンポ行だけが本人指示で
-              1.2 倍(86.4)になった。ここは拡大の対象外なので基準値のまま。 */}
-          {/*
-              【正典と意図的に違う1点】正典ミニの `.pmt` は **height:40px** だが、
-              DESIGN-SYSTEM §6.0 は「§5 のタップ領域 44px は機能側の規定として引き続き有効。
-              機能とモックが衝突したときは機能を残す」と定めているので **44px** にした。
-              見えているのは「−」「＋」の文字だけなので、高さを 4px 足しても見た目は変わらない。 */}
+          {/* 【R2 2026-09-16】枚数の −/数値/＋(正典ミニの .pmt / METRO_PM_W)は**廃止**した。
+              下のダイヤルが枚数も受け持つ。METRO_PM_W の読み手は計測タブのテンポ行だけになった。 */}
           {/* 【F-80】開封日。編集のときだけ出す。
               **ScrollPicker ではなく input[type=date] を選んだ理由**: ScrollPicker は1列の
               選択肢リストなので、年・月・日の3値を1列に落とせない(日付を列挙すると選択肢が
@@ -10744,41 +10845,43 @@ function ReedBoxSheet({
             </div>
           )}
 
-          {/* 枚数は「追加」のときだけ。**箱の編集では出さない**(枚数は箱の中身であって
+          {/* 【R2 2026-09-16 実機の指摘】厚さと枚数は**どちらもダイヤル**を同じ行に横並び。
+              部品は評価の RatingDial そのもの(新しい部品を作らない)。列は幅を等分する。
+              以前の厚さは9個のピルで、2行に折り返してシートの高さが番手の数で動いていた。
+              **枚数は「追加」のときだけ**。箱の編集では出さない(枚数は箱の中身であって
               箱の属性ではない。編集で枚数を変えると、どの個体を消すのかが決まらない)。 */}
-          {!isEdit && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 26, marginTop: 16 }}>
-            <button
-              onClick={() => setCount((v) => clampReedAddCount(v - 1))}
-              aria-label="枚数を減らす" className="no-select"
-              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: "var(--fs-xl)", fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
-            >−</button>
-            <span aria-live="polite" style={{ fontSize: "var(--fs-2xl)", fontWeight: 600, fontFamily: "var(--font-num)", minWidth: 44, textAlign: "center" }}>{count}</span>
-            <button
-              onClick={() => setCount((v) => clampReedAddCount(v + 1))}
-              aria-label="枚数を増やす" className="no-select"
-              style={{ width: METRO_PM_W, height: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: "var(--fs-xl)", fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
-            >＋</button>
+          <div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+            <div data-noswipe style={{ flex: "1 1 0", minWidth: 0 }}>
+              <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginBottom: "var(--sp-1)" }}>厚さ</div>
+              <RatingDial spec={REED_STRENGTH_DIAL} value={strength} onChange={setStrength} />
+            </div>
+            {!isEdit && (
+              <div data-noswipe style={{ flex: "1 1 0", minWidth: 0 }}>
+                <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", marginBottom: "var(--sp-1)" }}>枚数</div>
+                <RatingDial spec={REED_COUNT_DIAL} value={count} onChange={(v) => setCount(clampReedAddCount(v))} />
+              </div>
+            )}
           </div>
-          )}
 
-          {/* 追加の一手。正典は紺の塗りピル(13px / 600 / padding 8px 22px)。 */}
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+          {/* 【R3 / R5 2026-09-16 実機の指摘】主要動作は中央揃え。
+              横幅は**銘柄の行の下線と同じ**(= シートの内側いっぱい)、高さは絵柄だけの
+              浮かせるボタンと同じ ACTION_LG_PX。塗りの強調(§6.7 の意図した例外5)。 */}
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
             <button
               onClick={onAdd}
               disabled={disabled}
               className="sans"
               style={{
-                minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
-                cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center",
+                width: "100%", height: ACTION_LG_PX,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                borderRadius: "var(--r-pill)", border: "none",
+                background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
+                color: "var(--c-on-accent)",
+                fontSize: "var(--fs-md)", fontWeight: 700,
+                cursor: disabled ? "default" : "pointer",
               }}
             >
-              <span style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontSize: 13, fontWeight: 600, color: "var(--c-on-accent)",
-                background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
-                borderRadius: 999, padding: "8px 22px",
-              }}>{reedSheetButtonLabel(mode, count)}</span>
+              {reedSheetButtonLabel(mode)}
             </button>
           </div>
           {/* 【2026/09/10 本人指示】箱ごと消す一手。**編集のときだけ**出す
@@ -10813,9 +10916,18 @@ function ReedBoxSheet({
         <ScrollPicker
           options={pickerOptions}
           value={brand}
-          onChange={(v) => setBrand(v)}
+          onChange={(v) => pickBrand(v)}
           onClose={() => setBrandPickerOpen(false)}
           labelFn={(v) => (v === REED_BRAND_CUSTOM ? REED_BRAND_CUSTOM_LABEL : v)}
+        />
+      )}
+      {/* 【R6】型番のピッカー。銘柄と同じ場所・同じ作法(シートの外へ出す)。 */}
+      {modelPickerOpen && (
+        <ScrollPicker
+          options={modelOptions}
+          value={model}
+          onChange={(v) => setModel(v)}
+          onClose={() => setModelPickerOpen(false)}
         />
       )}
     </>
@@ -10834,14 +10946,17 @@ function ReedRegisterView(props) {
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
-  const [newBrand, setNewBrand] = useState(INITIAL_REED_BRANDS[0]);
+  const [newBrand, setNewBrand] = useState(REED_BRAND_OPTIONS[0]);
+  // 【R6 2026-09-16 本人裁定③】型番。既定はその銘柄の先頭の型番
+  // (カタログに型番が無い銘柄・自由入力なら null)。
+  const [newModel, setNewModel] = useState(() => reedModelOptions(REED_BRAND_OPTIONS[0])[0] ?? null);
   const [customBrand, setCustomBrand] = useState("");
   const [newStrength, setNewStrength] = useState(REED_STRENGTH_DEFAULT); // 初期値3.0
   const [addCount, setAddCount] = useState(REED_ADD_COUNT_MAX);      // 既定は箱ぶん(10枚)
 
-  // ユーザーが自由入力した銘柄を選択肢に自動追加(初期リスト+動的追加分)
+  // ユーザーが自由入力した銘柄を選択肢に自動追加(カタログ+動的追加分)
   const [extraBrands, setExtraBrands] = useState([]);
-  const brandOptions = [...INITIAL_REED_BRANDS, ...extraBrands];
+  const brandOptions = [...REED_BRAND_OPTIONS, ...extraBrands];
 
   // 【F-102 2026/08/17 本人指示】番号編集モード(listMode === "numberEdit")中にタップした
   // 1枚。id で持つ(リードそのものを持つと、編集で reeds が変わった瞬間に古い実体を掴む)。
@@ -10854,6 +10969,7 @@ function ReedRegisterView(props) {
   // (箱そのものを持つと、編集で reeds が変わった瞬間に古い箱を掴んだままになる)。
   const [editBoxKey, setEditBoxKey] = useState(null);
   const [editBrand, setEditBrand] = useState("");
+  const [editModel, setEditModel] = useState(null);
   const [editCustomBrand, setEditCustomBrand] = useState("");
   const [editStrength, setEditStrength] = useState(REED_STRENGTH_DEFAULT);
   const [editStartDate, setEditStartDate] = useState("");
@@ -10861,6 +10977,8 @@ function ReedRegisterView(props) {
   const openBoxEdit = (g) => {
     setEditBoxKey(g.key);
     setEditBrand(g.brand);
+    // 【R6】型番を持たない古い箱は null のまま開く(勝手に先頭の型番を入れない)。
+    setEditModel(g.model ?? null);
     setEditCustomBrand("");
     setEditStrength(g.strength);
     setEditStartDate(g.startDate || "");
@@ -10884,6 +11002,9 @@ function ReedRegisterView(props) {
     const newReeds = Array.from({ length: count }).map((_, i) => ({
       id: generateId(),
       brand,
+      // 【R6 2026-09-16 本人裁定③】型番。カタログにある組だけを通す
+      // (自由入力の銘柄は null)。既存のリードは model を持たないままでよい。
+      model: resolveReedModel(brand, newModel),
       strength: newStrength,
       startDate,
       boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報)
@@ -10913,6 +11034,9 @@ function ReedRegisterView(props) {
   // **合流先の sortOrder も書き換わる**(並びは変えない。番号を詰めるだけ)。
   const updateGroup = (g, patch) => {
     const brand = (patch.brand ?? g.brand);
+    // 【R6】型番は箱のキーではない(キーは 銘柄|番手|開封日 のまま)。
+    // 箱の全メンバーへ同じ値を書くので、箱の中で型番が割れることは無い。
+    const model = resolveReedModel(brand, patch.model ?? g.model ?? null);
     const strength = (patch.strength ?? g.strength);
     const startDate = (patch.startDate ?? g.startDate);
     if (!brand || !startDate) return;
@@ -10925,7 +11049,7 @@ function ReedRegisterView(props) {
       dest.forEach((r, i) => rank.set(r.id, i + 1));
       g.members.forEach((m, i) => rank.set(m.id, dest.length + i + 1));
       return prev.map((r) => {
-        if (ids.has(r.id)) return { ...r, brand, strength, startDate, sortOrder: rank.get(r.id) };
+        if (ids.has(r.id)) return { ...r, brand, model, strength, startDate, sortOrder: rank.get(r.id) };
         return rank.has(r.id) ? { ...r, sortOrder: rank.get(r.id) } : r;
       });
     });
@@ -10939,7 +11063,7 @@ function ReedRegisterView(props) {
     if (editBrand === REED_BRAND_CUSTOM && !brandOptions.includes(brand)) {
       setExtraBrands((prev) => [...prev, brand]);
     }
-    updateGroup(editGroup, { brand, strength: editStrength, startDate: editStartDate });
+    updateGroup(editGroup, { brand, model: editModel, strength: editStrength, startDate: editStartDate });
     setEditBoxKey(null);
   };
 
@@ -10961,9 +11085,9 @@ function ReedRegisterView(props) {
     setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
-  // 並び替えの案内。正典に居場所は無いので、**一覧のいちばん下**(「＋ 追加」の下)に
-  // 小さく1行だけ置く。並び替える先がある箱(2枚以上)が1つも無ければ出さない。
-  const anyReorderable = reedGroups.some((g) => g.members.length >= 2);
+  /* 【R7 2026-09-16 実機の指摘】並び替えの案内(1行)は削除した。
+     読み手が無くなった anyReorderable も定義ごと消してある(死んだ計算を残さない)。
+     並び替えの操作そのもの(長押し + ドラッグ)は ReedTileGrid に残っている。 */
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -10986,7 +11110,7 @@ function ReedRegisterView(props) {
           const boxEditable = listMode === null;
           const nameStyle = { fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0 };
           const nameInner = (
-            <>{g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span></>
+            <>{reedBrandModelLabel(g.brand, g.model)} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span></>
           );
           const dateText = formatYmd(g.startDate) ?? "—";
           const heading = (
@@ -11076,12 +11200,6 @@ function ReedRegisterView(props) {
           (正典 .addrow の padding-top を持っていた REED_ADDROW_PAD_TOP_PX は読み手が
            無くなったので定義ごと削除した。) */}
 
-      {anyReorderable && listMode === null && (
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
-          長押ししてスライドすると並び替えられます・タップで詳細
-        </div>
-      )}
-
       {/* 【F-102】番号編集モード中の案内(1行)と、タップした1枚の番号編集シート。
           変更の確定はシートを閉じたとき(値が変わったときだけ書き込む=個別ページの
           commitPosition と同じ判定)。 */}
@@ -11097,11 +11215,12 @@ function ReedRegisterView(props) {
           子タブが「登録」のときだけ出す(「比較」の画面に追加の入口は無い)。
           **リードが0枚でも出す**(空状態からの唯一の入口)。
           【2026/09/10 本人指示】語を落として**＋だけ**にした。何が増えるかは
-          この画面(リードの一覧)が言っているので、語は読み上げ(aria)だけが持つ。 */}
+          この画面(リードの一覧)が言っているので、語は読み上げ(aria)だけが持つ。
+          【R1 2026-09-16 実機の指摘】円が 44 では ＋ が小さすぎた。円 56 / ＋ 28。 */}
       {pageActive && (
         <FloatingAction
           ariaLabel="リードを追加"
-          icon={<Plus size={20} strokeWidth={2.5} />}
+          icon={<Plus size={28} strokeWidth={2.5} />}
           onClick={() => setAddOpen(true)}
         />
       )}
@@ -11125,6 +11244,7 @@ function ReedRegisterView(props) {
         <ReedBoxSheet
           brandOptions={brandOptions}
           brand={newBrand} setBrand={setNewBrand}
+          model={newModel} setModel={setNewModel}
           customBrand={customBrand} setCustomBrand={setCustomBrand}
           strength={newStrength} setStrength={setNewStrength}
           count={addCount} setCount={setAddCount}
@@ -11141,6 +11261,7 @@ function ReedRegisterView(props) {
           mode="edit"
           brandOptions={[...new Set([...brandOptions, editGroup.brand])]}
           brand={editBrand} setBrand={setEditBrand}
+          model={editModel} setModel={setEditModel}
           customBrand={editCustomBrand} setCustomBrand={setEditCustomBrand}
           strength={editStrength} setStrength={setEditStrength}
           startDate={editStartDate} setStartDate={setEditStartDate}
@@ -11668,18 +11789,17 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 
   return (
     <div>
+      {/* 【R19 2026-09-16 実機の指摘】箱の見出しの右の「◯枚選択中」は削除した。
+          選んだ枚数はピルの塗りが返しているので、同じことを2箇所で言わない。
+          数えていた selectedInBox は読み手が無くなったので計算ごと消してある。 */}
       {groupReeds(reeds).map((g) => {
-        const selectedInBox = g.members.filter((r) => compareReedIds.includes(r.id)).length;
         return (
           <div key={g.key} style={{ padding: "16px 0 4px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
               {/* 正典の比較画面の見出しは .rname の 13.5px(一覧の 15px より一段小さい) */}
               <span className="sans" style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {g.brand} <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{g.strength}</span>
+                {reedBrandModelLabel(g.brand, g.model)} <span style={{ color: "var(--c-ink-3)", fontWeight: 400 }}>{g.strength}</span>
               </span>
-              {selectedInBox > 0 && (
-                <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{selectedInBox}枚選択中</span>
-              )}
             </div>
             {/* 正典 .selrow / .selpill。選択中は紺の塗り + 線種見本。
                 見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。 */}
@@ -12375,7 +12495,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
         onBack={onBack}
         backLabel="< 一覧"
         actions={null}
-        title={shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand))}
+        title={shortBoxLabel(reed.brand, reed.strength, reeds.map((r) => r.brand), reed.model)}
         titleSuffix={(
           /* #番号はそのまま編集欄。空欄にすると自動採番に戻り、placeholder にその値が出る
              (＝今なら何番になるかが分かる)。地・枠は持たない。当たり判定は 44px。
@@ -12430,11 +12550,13 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
       {/* 【D-4】正典 #15a: 「計測」は**下端固定のバーではなく浮かせるボタン**。
           My Data の「録音を取り込む」と同じ部品(FloatingAction)で、右下の位置・影・角丸も同じ。
           直前に高さぶんの余白を置いて、最後のカードがボタンの下に潜らないようにする。 */}
+      {/* 【R15 2026-09-16 実機の指摘】語を落として**絵柄だけ**にし、リード追加の ＋ と
+          同じ円 56 にする。何のための計測かはこの画面(リード個体詳細)が言っているので、
+          語は読み上げ(ariaLabel)だけが持つ ── 一覧の ＋ と同じ考え方。 */}
       <FloatingActionSpacer />
       <FloatingAction
-        label="計測"
         ariaLabel="このリードで計測する"
-        icon={<MeasureIcon size={15} color="var(--c-on-accent)" />}
+        icon={<MeasureIcon size={28} color="var(--c-on-accent)" />}
         onClick={() => onMeasure?.(reed.id)}
       />
 
@@ -13954,18 +14076,22 @@ function DeleteActionButton({ count, ariaLabel, onClick }) {
 //   左上に戻る導線、右上に一手(0〜2個)、その下にセリフの見出し(+ 添え字)、その下に1行メタ。
 // 区切りの「·」は --c-line-strong(正典 #C2C9D4 の写像)。
 // 【戻るの見た目は1箇所 2026/09/08 本人裁定「戻る記号は見た目まで統一」】
-// §6.7 の B型(枠を持たない操作対象。枠なし + 沈めた地)。表記は `< 行き先`(2026/09/06 本人指定)。
+// 表記は `< 行き先`(2026/09/06 本人指定)。
 // **月送りの ‹ › は揃えない** ── 戻る導線ではなく別の機能なので(本人裁定)。
 //
-// 以前ここは地を持たない文字ボタン(--c-accent / 13px)で、コミュニティ側だけが
-// 塗りのピルだった。作法が2つある状態を畳んだもので、寸法はコミュニティ側から取っている。
-// **地と padding を自分で持つので、行を左へ食い出させる必要が無い**(食い出しは親に
-// 切られて当たり判定が減る。実測 50.27px の見た目に対し実効 43px しか無かった)。
+// 【R9 2026-09-16 実機の指摘「戻るボタンの地を無しに」】地(--c-sunken)と左右の
+// padding を外した。狙いは**左端を本文に揃える**こと ── 地を持っていた頃は
+// padding 0 var(--sp-3) のぶん「<」が本文より 12px 内側に入り、行頭が1つずれて見えた。
+// 色・太さ・大きさ(--c-ink-2 / 600 / --fs-sm)と当たり判定(--tap-min)は**変えていない**。
+// これは §6.7 の B型(枠なし + 沈めた地)から外れる ── 戻るは「操作するもの」だが、
+// 画面の左上に1つだけ在って行き先を名乗るので、地で「触れる」を言う必要が無い。
+// **アプリの戻るはすべてこの1つの定数を読む**(App の `< 一覧` / `< My Data`、
+// コミュニティの `< 一覧` / `< 音のデータ` / `< メーカー`)。地を持つ戻るを別に作らない。
 export const BACK_BUTTON_STYLE = {
-  minHeight: "var(--tap-min)", padding: "0 var(--sp-3)",
+  minHeight: "var(--tap-min)", padding: 0,
   display: "inline-flex", alignItems: "center", justifySelf: "start",
   border: "none", borderRadius: "var(--r-md)",
-  background: "var(--c-sunken)", color: "var(--c-ink-2)",
+  background: "none", color: "var(--c-ink-2)",
   fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
 };
 function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {

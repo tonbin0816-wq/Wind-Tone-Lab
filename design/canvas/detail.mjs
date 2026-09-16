@@ -30,8 +30,9 @@ const textPx = (s, fs = 12) => {
   return w;
 };
 
-// 戻るの見た目。実装の BACK_BUTTON_STYLE(App.jsx)の写し。§6.7 B型・表記は「< 行き先」。
-const BACK_BTN = "min-height: 44px; padding: 0 var(--sp-3); display: inline-flex; align-items: center; border: none; border-radius: var(--r-md); background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600";
+// 戻るの見た目。実装の BACK_BUTTON_STYLE(App.jsx)の写し。表記は「< 行き先」。
+// 【R9 2026-09-16 実機の指摘】地(--c-sunken)と左右の padding を外した(左端を本文に揃える)。
+const BACK_BTN = "min-height: 44px; padding: 0; display: inline-flex; align-items: center; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600";
 
 // DetailHeader(App.jsx)
 function detailHeader({ backLabel, actions = "", title, titleSuffix = "", meta }) {
@@ -355,9 +356,9 @@ ${score("3", "バランス")}
       <div style="height: 68px"></div>
       </div>
       <!-- 実機は position: fixed。モックなので枠の右下に置いている -->
-      <div style="position: absolute; right: 14px; bottom: 12px; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); padding: 0 var(--sp-5); border-radius: var(--r-pill); border: none; background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; line-height: 1.2; box-shadow: 0 8px 24px rgba(15,23,42,0.18)">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--c-on-accent)" stroke-width="2" stroke-linecap="round"><path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" /><circle cx="12" cy="15" r="1.4" fill="var(--c-on-accent)" stroke="none" /></svg>
-        計測
+      <!-- 【R15 2026-09-16 実機の指摘】語を落として絵柄だけ。円 56(リード追加の ＋ と同寸) -->
+      <div style="position: absolute; right: 14px; bottom: 12px; min-height: 56px; min-width: 56px; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); padding: 0; border-radius: var(--r-pill); border: none; background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; line-height: 1.2; box-shadow: 0 8px 24px rgba(15,23,42,0.18)">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--c-on-accent)" stroke-width="2" stroke-linecap="round"><path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" /><circle cx="12" cy="15" r="1.4" fill="var(--c-on-accent)" stroke="none" /></svg>
       </div>
     </div>`;
 }

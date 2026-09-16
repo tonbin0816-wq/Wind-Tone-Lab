@@ -407,7 +407,8 @@ ${infoRow("編成", "ソロ・ビッグバンド")}
 }
 
 // ---- 人をタップしたとき(表 = 音のデータ / 裏 = プロフィール) -------------
-const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0 var(--sp-3); border: none; border-radius: var(--r-md); background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center";
+// 【R9 2026-09-16 実機の指摘】地(--c-sunken)と左右の padding を外した(App.jsx の BACK_BUTTON_STYLE と同値)。
+const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center";
 
 function personShell(inner) {
   return `${sprite()}
