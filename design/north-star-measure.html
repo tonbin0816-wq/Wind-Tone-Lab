@@ -644,8 +644,11 @@
             <path d="M10 42 L60 40 L110 34 L160 38 L210 26 L260 30 L317 24" fill="none" stroke="#7FA0CE" stroke-width="1.5"/>
             <path d="M10 58 L60 52 L110 56 L160 46 L210 48 L260 42 L317 44" fill="none" stroke="#174585" stroke-width="1.5" stroke-dasharray="5 3"/>
           </svg>
-          <div class="srow" style="margin-top:8px"><span class="d">#1 <i>★3.7</i></span><span class="d">#2 <i>★4.0</i></span><span class="d">#4 <i>★3.2</i></span></div>
-          <div style="font-size:12px;color:var(--ink3);padding-top:8px">#1: 1240 · #2: 980 · #4: 1105 フレーム</div>
+          <!-- 【R18 2026-09-16 本人裁定】比較タブの区切りの横線は1本も引かない。
+               .srow が持つ下の罫だけをここで打ち消す(.srow の定義そのものは触らない ──
+               セッション一覧の行が同じ規則を使っている)。区画は余白 --sp-4 が分ける。 -->
+          <div class="srow" style="margin-top:16px;padding-top:0;border-bottom:none"><span class="d">#1 <i>★3.7</i></span><span class="d">#2 <i>★4.0</i></span><span class="d">#4 <i>★3.2</i></span></div>
+          <div style="font-size:12px;color:var(--ink3);padding-top:16px">#1: 1240 · #2: 980 · #4: 1105 フレーム</div>
         </div>
         <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
       </div>

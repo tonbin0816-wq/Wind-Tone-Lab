@@ -6337,11 +6337,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 【D-31 2026/09/03 統括裁定】一覧を包むカードの**上下の余白だけ**を変える例外
     // (.surf-card .card.card-list)。**上下の padding しか持たない**ことは 34.6(下)が名指しで見る。
     // ここは集合に入れるだけ。
-    const expectCard = [".card", ".surf-rule .card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list"];
+    // 【R10 2026-09-16 本人の実機指摘】個体詳細・計測詳細のカードだけ影を外して枠で立たせる
+    // 例外(.surf-card .card.card-outline)。**枠と影しか持たない**ことと、枠の値が
+    // .reedtile のデータありのタイルと同じであることは 50.1(下)が名指しで見る。
+    const expectCard = [".card", ".surf-rule .card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .card.card-outline"];
     const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
     // カードの作法が持つもの: 地そのもの(.surf-card)と、小さいカード(.rowcard)。
-    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .rowcard"];
+    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .card.card-outline", ".surf-card .rowcard"];
     const expectRowCard  = [".surf-card .rowcard"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
@@ -7336,8 +7339,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     }
     for (const name of ["ReedEvaluationDetail", "ReedScoreHistoryChart"]) {
       const body = bodyOf(name);
+      // 【R10 2026-09-16】クラスが1つ増えた(`card card-outline`)。**後ろに続くクラスを許す**
+      // 綴りで見る(綴りを1つずつ足すと、次に例外クラスが増えるたびにここが落ちる。罠4)。
       check(`D-4: ${name} はカードで群を作る(正典 #15a)`,
-        /className="card"/.test(body), (body.match(/className="[^"]*"/g) || []).join(" / ").slice(0, 120));
+        /className="card(?: [a-z-]+)*"/.test(body), (body.match(/className="[^"]*"/g) || []).join(" / ").slice(0, 120));
       const bad = [...body.matchAll(/<div className="card(?: [a-z-]+)*"([^>]*)>/g)]
         .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
       check(`D-4: ${name} の .card にインラインの地・枠・padding が無い(作法を殺していない)`,
@@ -7590,10 +7595,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 【D-9u 2026/08/26】中央線が「0 だけ」から「指標ごとの値」へ広がったので、
     // 対称ドメインの作り方も centerAt を中心にした形になった。主張は同じ
     // (**中央線が絵の中央に来る**ように上下対称にする)ので、綴りだけを追う。
+    // 【R12 2026-09-16】式は部品の中から純関数 noteAxisDomain へ出た(4指標ぶんの
+    // 目盛の幅を測るのに同じ規則が要るため)。**錨をその関数へ移す**。
+    const domainFn = extractFunction("noteAxisDomain");
     check("中央線を持つときは上下対称のドメインにする(中央線が絵の中央に来る)",
-      /hi = center \+ half;/.test(chart) && /lo = center - half;/.test(chart));
+      /const hi = center \+ half, lo = center - half;/.test(domainFn));
     check("ゼロ除算だけ避ける(実測が全て中央値のとき半幅を1にフォールバック)",
-      /const half = maxDev \|\| 1;/.test(chart));
+      /const half = maxDev \|\| 1;/.test(domainFn));
     // 【D-12 2026/08/27 検査名の是正 + 実行での検証へ】前版はここで
     //   「平均差分は centerAt を渡さなくても 0 中心(**他画面の既定が変わっていない**)」
     // と名乗りながら、実際に見ていたのは**ドメイン計算1行の綴り**だけだった。
@@ -7606,13 +7614,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     {
       // 中心を決める式と、lo / hi を決めるブロックをソースから取り出して**関数として実行する**。
       const centerExpr = (/const center = ([\s\S]*?);\r?\n/.exec(chart) || [])[1];
-      const domainSrc = (/let lo, hi, rng;[\s\S]*?\r?\n {2}\}\r?\n/.exec(chart) || [])[0];
-      check("6.7 D-12: 中心の式と縦のスケールのブロックを取り出せている(空回りしていない)",
-        !!centerExpr && !!domainSrc && /hi =/.test(domainSrc) && /lo =/.test(domainSrc),
-        `${String(centerExpr).slice(0, 40)} / ${String(domainSrc).length}文字`);
+      check("6.7 D-12: 中心の式と縦のスケールの関数を取り出せている(空回りしていない)",
+        !!centerExpr && domainFn.length > 200 && /hi/.test(domainFn) && /lo/.test(domainFn),
+        `${String(centerExpr).slice(0, 40)} / ${domainFn.length}文字`);
       const centerOf = new Function("centerAt", "metricKey", `return (${centerExpr});`);
-      const domainOf = new Function("center", "allVals", "minV", "maxV",
-        `${domainSrc} return { lo, hi, rng };`);
+      // 【R12】純関数そのものを実行する(ブロックを切り出して包み直す必要が無くなった)。
+      const domainRaw = new Function(`${domainFn} return noteAxisDomain;`)();
+      const domainOf = (center, allVals) => domainRaw(allVals, center);
       // (1) 中心の既定。**他画面(centerAt を渡さない)**でも平均差分だけは 0。
       check("6.7 平均差分は centerAt を渡さなくても中心が 0・他の指標は中心を持たない",
         centerOf(null, "pitchCentsSigned") === 0
@@ -7625,14 +7633,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       //     D-8 は hi = max|v| / lo = -hi。期待値はここで手計算した数を書く
       //     (実装の式を写すと恒真になる。罠3)。値 -3 / 12 / 5 → hi 12 / lo -12。
       {
-        const d = domainOf(centerOf(null, "pitchCentsSigned"), [-3, 12, 5], -3, 12);
+        const d = domainOf(centerOf(null, "pitchCentsSigned"), [-3, 12, 5]);
         check("6.7 D-12: 他画面の平均差分は hi=+最大絶対値 / lo=−最大絶対値(D-8 から不変)",
           d.hi === 12 && d.lo === -12 && d.rng === 24, `hi=${d.hi} lo=${d.lo} rng=${d.rng}`);
       }
       // (3) 他画面の残り3指標は「最小〜最大に 12% の余白」の従来どおり(D-8 から不変)。
       //     10〜20 → pad = 10 × 0.12 = 1.2 → lo 8.8 / hi 21.2。
       {
-        const d = domainOf(centerOf(null, "hnrDb"), [10, 20], 10, 20);
+        const d = domainOf(centerOf(null, "hnrDb"), [10, 20]);
         check("6.7 D-12: 他画面の残り3指標は最小〜最大に 12% の余白(D-8 から不変)",
           Math.abs(d.lo - 8.8) < 1e-9 && Math.abs(d.hi - 21.2) < 1e-9,
           `lo=${d.lo} hi=${d.hi}`);
@@ -7640,13 +7648,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // (4) 中心を持つとき(My Data)は**中心が絵の中央に来る**。80〜130 で中心 100 なら
       //     いちばん遠いのが 30 なので lo 70 / hi 130、中間の目盛は 100。
       {
-        const d = domainOf(centerOf(100, "hnrDb"), [80, 130], 80, 130);
+        const d = domainOf(centerOf(100, "hnrDb"), [80, 130]);
         check("6.7 D-9u: 中心を渡すと上下対称になり、中間の目盛が中心そのものになる",
           d.lo === 70 && d.hi === 130 && (d.hi + d.lo) / 2 === 100, `lo=${d.lo} hi=${d.hi}`);
       }
       // (5) 実測が全て中心と同じでも潰れない(半幅 1 へ逃がす)。5 だけ → lo 4 / hi 6。
       {
-        const d = domainOf(centerOf(5, "hnrDb"), [5, 5], 5, 5);
+        const d = domainOf(centerOf(5, "hnrDb"), [5, 5]);
         check("6.7 D-9u: 実測が全て中心と同じでもドメインが潰れない(半幅 1 へ逃がす)",
           d.lo === 4 && d.hi === 6 && d.rng === 2, `lo=${d.lo} hi=${d.hi}`);
       }
@@ -9694,15 +9702,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             mtc.length > 0 && cmp.length > 0, `MetricTabCard ${mtc.length}字 / ReedCompareTab ${cmp.length}字`);
           check("D-30 §7.2: 指標グラフカード(カードの作法の2画面)は bordered を渡さない",
             mtc.length > 0 && !/\bbordered\b/.test(mtc), mtc.replace(/\s+/g, " "));
-          check("D-30 §7.2: リード比較(罫の作法)は bordered を持ったまま(巻き込まれていない)",
-            /\bbordered\b/.test(cmp), cmp.replace(/\s+/g, " "));
-          // 渡し手はアプリ全体で**この1箇所だけ**。My Data(D-9y)も渡していない。
-          check("D-30 §7.2: bordered を渡す呼び出しは1箇所だけ(リード比較)",
-            (codeOf(src).match(/\bbordered\b/g) || []).length === 3,
-            `${(codeOf(src).match(/\bbordered\b/g) || []).length}箇所(引数の宣言 + 使用 + 呼び出し1)`);
-          check("D-30 §7.2: bordered の引数そのものは残っている(罫の作法の画面が使う)",
-            /bordered = false/.test(met)
-            && /borderBottom: bordered \? "1px solid var\(--c-line\)" : "none"/.test(met));
+          // 【R18 2026-09-16 本人裁定で反転】比較タブの区切りの横線をすべて消したので、
+          // `bordered` の渡し手が**ゼロ**になった。受け口ごと落としてある
+          // (読み手の無い引数を残さない)。主張を「1箇所だけ」→「綴りが1つも無い」へ強める。
+          check("R18: bordered を渡す呼び出しは1つも無い(比較タブの下線も消えた)",
+            !/\bbordered\b/.test(cmp), cmp.replace(/\s+/g, " "));
+          check("R18: bordered の綴りは App.jsx のどこにも残っていない(受け口ごと消えた)",
+            (codeOf(src).match(/\bbordered\b/g) || []).length === 0,
+            `${(codeOf(src).match(/\bbordered\b/g) || []).length}箇所`);
+          check("R18: 指標タブは下辺の罫を1本も引かない(引く道そのものが無い)",
+            !/borderBottom/.test(codeOf(met)),
+            (codeOf(met).match(/borderBottom[^,}]*/g) || []).join(" / ") || "0件");
         }
         check("D-6: 子タブも選択中だけ濃い太字(正典 .subtabs .on の芯は不変)",
           /color: sel \? "var\(--c-ink\)" : "var\(--c-ink-3\)"/.test(sub)
@@ -14655,34 +14665,13 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
       !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
     check("評価の推移グラフは残っている", detail.includes("<ReedScoreHistoryChart"));
-    // 【D-4 2026/08/22・変異試験で足した】正典 #15a の注記「厚さ・バランスは 8/4 の記録から」。
-    // **線が途中から始まる理由**を説明する行なので、
-    //   ・途中から始まっている  → その日付を返す(注記を出す)
-    //   ・最初から揃っている    → null(出さない)  ← ここを守らないと嘘の注記が常に出る
-    //   ・1件も無い / 空        → null
-    // 日付の書式は横軸のラベルと**同じ1箇所**(reedScoreDateLabel)から出ることも確かめる。
-    {
-      const api2 = new Function(`${extractFunction("reedScoreDateLabel")}
-        ${extractFunction("reedScoreLateStartLabel")}
-        return { reedScoreLateStartLabel, reedScoreDateLabel };`)();
-      const late = api2.reedScoreLateStartLabel;
-      const H = (at, th) => ({ at, rating: 3, thickness: th, balance: th });
-      const d1 = "2026-07-22T00:00:00.000Z", d2 = "2026-08-04T00:00:00.000Z";
-      check("D-4: 厚さ・バランスが途中から始まるとき、その日付を返す",
-        late([H(d1, null), H(d2, 3)]) === api2.reedScoreDateLabel(d2),
-        `${late([H(d1, null), H(d2, 3)])} / ${api2.reedScoreDateLabel(d2)}`);
-      check("D-4: 最初から揃っていれば注記を出さない(嘘の注記を常に出さない)",
-        late([H(d1, 3), H(d2, 3)]) === null, String(late([H(d1, 3), H(d2, 3)])));
-      check("D-4: 厚さ・バランスが1件も無ければ注記を出さない",
-        late([H(d1, null), H(d2, null)]) === null, String(late([H(d1, null), H(d2, null)])));
-      check("D-4: 空の履歴でも落ちない", late([]) === null && late(null) === null);
-      // 片方(バランスだけ)が後から始まる場合も注記の対象(線が途中から始まるのは同じ)
-      check("D-4: 厚さかバランスのどちらかが後から始まれば注記の対象",
-        late([H(d1, null), { at: d2, rating: 3, thickness: null, balance: 4 }]) === api2.reedScoreDateLabel(d2));
-      check("D-4: 描画側は返り値があるときだけ注記を出す(null を描かない)",
-        /\{lateStart && \(/.test(srcOfFn(src, "ReedScoreHistoryChart"))
-        && /厚さ・バランスは \{lateStart\} の記録から/.test(srcOfFn(src, "ReedScoreHistoryChart")));
-    }
+    // 【R14 2026-09-16 実機の指摘で撤去】ここには正典 #15a の注記「厚さ・バランスは
+    // 8/4 の記録から」を作る reedScoreLateStartLabel の検査が6件あった。
+    // 本人「この行は要らない」で**注記ごと削除**し、関数も読み手ゼロで落としたので、
+    // 主張を**「注記も関数も戻っていない」**1件へ畳む(検証50 が R13/R14 を本体で見る)。
+    check("R14: 厚さ・バランスの注記は文言も関数も残っていない(読み手ゼロの定義を残さない)",
+      !/reedScoreLateStartLabel/.test(codeOf(src)) && !/厚さ・バランスは/.test(codeOf(src)),
+      (codeOf(src).match(/reedScoreLateStartLabel|厚さ・バランスは/g) || []).join(" / ") || "0件");
     // 正典 .numrow の実寸(値19px / ラベル10.5px / 副次10.5px)
     {
       // 【D-3a 2026/08/26】この寸法の読み手だった TappableMetricCard(数字タップでグラフ)は
@@ -16633,10 +16622,11 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 1);
     // 【D-9y 2026/08/25 本人指示】「指標タブの下の罫は両方外して」。
     // 上の罫は .no-top-rule が、下の罫は bordered を渡さないことで消える。
-    check("27.8 D-9y: 指標タブの下に罫を引かない(My Data だけ bordered を渡さない)",
+    // 【R18 2026-09-16 本人裁定】最後の渡し手(比較タブ)も渡さなくなり、受け口ごと消えた。
+    // 主張は「My Data は渡さない」から「**どの画面も引けない**」へ強まる。
+    check("27.8 D-9y / R18: 指標タブの下に罫を引かない(受け口ごと消えて引く道が無い)",
       !/bordered/.test(codeOf(myDataSection))
-      // 受け口そのものは他画面のために残っている(渡さない側の既定は false)。
-      && /bordered = false/.test(srcOfFn(src, "MetricUnderlineTabs")));
+      && !/bordered/.test(codeOf(srcOfFn(src, "MetricUnderlineTabs"))));
   }
 
   // --- 27.9 消えた側の綴りが残っていない(読み手ゼロの定義を残さない) ---------------
@@ -17078,8 +17068,11 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
         mdm.every((m) => !("idealKey" in m)), mdm.map((m) => Object.keys(m).join("+")).join(" / "));
     }
     // 他画面はそのまま: グラフ部品の目安描画と、リード詳細・セッション詳細の配線が生きている
+    // 【R12 2026-09-16】目安の取り出しは「指標をまたいで引ける」関数 idealByIdxOf になった
+    // (縦のスケールを4指標ぶん測るのに要る)。主張は同じ ── **目安と鍵の両方が揃った
+    // ときだけ破線を作る**。錨をその関数の中の同じ判定へ移す。
     check("28.4 グラフ部品の目安描画(破線)は従来のまま生きている(他画面用)",
-      /if \(selectedIdeal && idealKey\) \{/.test(chart) && /IDEAL_LINE_STYLE/.test(chart));
+      /if \(!selectedIdeal \|\| !key\) return null;/.test(chart) && /IDEAL_LINE_STYLE/.test(chart));
     // 【D-3 / D-4 2026/08/22】2画面とも同じ部品(MetricTabCard)になったので、
     // 目安の配線も**部品の中の1箇所**になった。呼び出し側は selectedIdeal を渡すだけ。
     // 【D-7 で綴りが変わった】metricsValues を落としたので、渡すのは selectedIdeal だけになった。
@@ -17094,8 +17087,11 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     // 1つあれば」通る形で、SetAsIdealButton / PhraseTimeline の同じ綴りに救われて
     // **指標カードから selectedIdeal を外す変異が生存**した(目安の破線+Δが消えるのに緑)。
     // 錨は**グラフの呼び出しに隣接する綴り**(部品の中)へ移した。
-    check("28.4 D-3: 指標カードのグラフは selectedIdeal と METRIC_IDEAL_KEYS を渡し続ける",
-      /selectedIdeal=\{selectedIdeal\} idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(srcOfFn(src, "MetricTabCard")));
+    // 【R17 2026-09-16】渡す目安が「生のまま」から「この画面の系列の平均へ揃えたもの」
+    // (alignedIdeal)に変わった。**目安を渡していること**と**鍵が対応表から来ること**は
+    // 変わらないので、錨を新しい綴りへ移す。揃える中身は検証50 が実行で見る。
+    check("28.4 D-3 / R17: 指標カードのグラフは揃えた目安と METRIC_IDEAL_KEYS を渡し続ける",
+      /selectedIdeal=\{alignedIdeal\} idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(srcOfFn(src, "MetricTabCard")));
   }
   console.log("  -> done");
 }
@@ -17202,9 +17198,11 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     `${(codeOf(det29).match(/borderTop: "1px solid var\(--c-rule\)"/g) || []).length}本`);
   // 【D-5 で 3 → 2】本人「音階ごとの平均を丸ごと削除」→ その1枚が画面ごと無くなった。
   // 残るのは「録音」と「メモ」の2枚 + 共通部品の指標グラフ(MetricTabCard)。
+  // 【R10 2026-09-16】2枚とも `card card-outline` を名乗るようになった。**枚数の主張は不変**
+  // なので、後ろに続くクラスを許す綴りで数える(罠4)。
   check("29.2 D-5: カードは3枚(指標グラフ / 録音 / メモ)",
-    (det29.match(/className="card"/g) || []).length === 2 && /<MetricTabCard/.test(det29),
-    `.card ${(det29.match(/className="card"/g) || []).length}枚 + MetricTabCard`);
+    (det29.match(/className="card(?: [a-z-]+)*"/g) || []).length === 2 && /<MetricTabCard/.test(det29),
+    `.card ${(det29.match(/className="card(?: [a-z-]+)*"/g) || []).length}枚 + MetricTabCard`);
   {
     const bad = [...det29.matchAll(/<div className="card(?: [a-z-]+)*"([^>]*)>/g)]
       .filter((m) => /background|border(?!Radius)|padding/i.test(m[1]));
@@ -23072,6 +23070,353 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
       check("49.7 R9 DESIGN-SYSTEM が「戻るは地を持たない」と書いている",
         /BACK_BUTTON_STYLE/.test(ds) && /戻る[^\n]*地を持たない|地を持たない[^\n]*戻る/.test(ds));
     }
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証50: 便F リード個体詳細・比較タブ(R10〜R14・R16〜R18)
+//
+// 出どころ: docs/superpowers/plans/2026-09-16-device-feedback.md 便F
+// (本人が実機で触って挙げた指摘。R18 = 2026-09-16 本人裁定⑤「区画の横線。E♭の縦線は残す」)。
+//
+// 【この節が名乗れないこと】(罠1)
+//   ・**影を外して枠にしたほうが読みやすいか。** 縁が読めるかは実機の本人しか言えない。
+//     ここが見るのは「影が 0 で、枠の値が .reedtile と同じ1箇所から来ている」ことだけ
+//   ・**左の空きを詰めた後の見え方。** 目盛と折れ線が重ならないことは正典の座標で数えるが、
+//     iOS Safari の実描画(字形のインク幅)は**実機待ち**
+//   ・**目安を系列の平均へ揃えたときに「直すべき音」が読み取れるか。** 平行移動の計算は
+//     実行で確かめるが、それが演奏の役に立つかは本人の判断
+//
+// 【綴りを数える検査はコメントを剥がしてから】この節は全部 codeOf() を通してから見る。
+// ============================================================
+console.log("\n========== 検証50: 便F リード個体詳細・比較タブ ==========");
+{
+  const app50 = codeOf(src);
+  const css50 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const detail50 = codeOf(srcOfFn(src, "ReedEvaluationDetail"));
+  const hist50 = codeOf(srcOfFn(src, "ReedScoreHistoryChart"));
+  const card50 = codeOf(srcOfFn(src, "MetricTabCard"));
+  const sess50 = codeOf(srcOfFn(src, "SessionDetailView"));
+  const cmp50 = codeOf(srcOfFn(src, "ReedCompareTab"));
+  const chart50 = codeOf(srcOfFn(src, "NoteAxisLineChart"));
+  const reedDc = readFileSync(join(__dirname, "..", "design", "canvas", "ReedDetail.dc.html"), "utf8");
+  const sessDc = readFileSync(join(__dirname, "..", "design", "canvas", "SessionDetail.dc.html"), "utf8");
+  const detailMjs = readFileSync(join(__dirname, "..", "design", "canvas", "detail.mjs"), "utf8");
+  // 正典の側も**綴りを数えるときはコメントを剥がす**(経緯を書いた瞬間に落ちないように)。
+  // .mjs は codeOf、.dc.html は HTML のコメントを落とす。
+  const bareMjs = codeOf(detailMjs).replace(/<!--[\s\S]*?-->/g, "");
+  const bareReedDc = reedDc.replace(/<!--[\s\S]*?-->/g, "");
+  const ds50 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  check("50.0 便F の走査対象を取れている(空回りしていない)",
+    detail50.length > 3000 && hist50.length > 2000 && card50.length > 600
+    && sess50.length > 3000 && cmp50.length > 2000 && chart50.length > 6000
+    && reedDc.length > 5000 && sessDc.length > 5000,
+    `detail=${detail50.length} hist=${hist50.length} card=${card50.length} sess=${sess50.length} cmp=${cmp50.length} chart=${chart50.length}`);
+
+  // --- 50.1 R10 個体詳細・計測詳細のカードは影なし・一覧のタイルと同じ枠 -------------
+  // 【変異】影を戻す(box-shadow: var(--shadow-card)) / 枠の値を直値にする /
+  //         どれか1枚から card-outline を外す → 落ちる。
+  {
+    const ruleOf = (sel) => {
+      const noComment = css50.replace(/\/\*[\s\S]*?\*\//g, "");
+      const hits = [...noComment.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter((m) => m[1].split(";").pop().trim().replace(/\s+/g, " ") === sel);
+      return hits.length === 1 ? hits[0][2] : null;
+    };
+    const declOf50 = (body, prop) => {
+      const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(String(body || ""));
+      return m ? m[1].trim() : null;
+    };
+    const outline = ruleOf(".surf-card .card.card-outline");
+    // 枠の値は**リード一覧のタイル(記録のあるもの)から読む**。実装の値を写した期待値にすると恒真。
+    const tileBase = ruleOf(".reedtile");
+    const tileData = ruleOf(".reedtile[data-tone=\"data\"]");
+    const wantBorder = `${(declOf50(tileBase, "border") || "").replace(/var\(--[\w-]+\)$/, "").trim()} ${declOf50(tileData, "border-color")}`;
+    check("50.1 R10 正典の枠(一覧のタイルの「データあり」)を読めている(空回りしていない)",
+      tileBase !== null && tileData !== null && /^1\.2px solid var\(--c-ink-3\)$/.test(wantBorder),
+      `一覧のタイル = ${wantBorder}`);
+    check("50.1 R10 枠のカードの規則が index.css に1つだけある",
+      outline !== null, outline === null ? "0回 or 2回以上" : "1回");
+    check("50.1 R10 枠は一覧のタイルの「データあり」と同じ値(ここで値を発明していない)",
+      declOf50(outline, "border") === wantBorder,
+      `カード = ${declOf50(outline, "border")} / タイル = ${wantBorder}`);
+    check("50.1 R10 影は持たない(box-shadow: none)",
+      declOf50(outline, "box-shadow") === "none", String(declOf50(outline, "box-shadow")));
+    check("50.1 R10 変えるのは枠と影だけ(地・角丸・padding は .surf-card .card のまま)",
+      [...String(outline).matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1]).sort().join(" ") === "border box-shadow",
+      [...String(outline).matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1]).join(" "));
+    // 他の5画面のカードは**影のまま**。.surf-card .card は 1px も触っていない。
+    check("50.1 R10 素の .surf-card .card は影を持ったまま(他の5画面を巻き込んでいない)",
+      declOf50(ruleOf(".surf-card .card"), "box-shadow") === "var(--shadow-card)"
+      && declOf50(ruleOf(".surf-card .card"), "border") === "0",
+      `${declOf50(ruleOf(".surf-card .card"), "box-shadow")} / ${declOf50(ruleOf(".surf-card .card"), "border")}`);
+    // JSX 側: 2画面の .card は**全部**枠のカードを名乗る。
+    for (const [name, body] of [["ReedEvaluationDetail", detail50], ["ReedScoreHistoryChart", hist50],
+      ["MetricTabCard", card50], ["SessionDetailView", sess50]]) {
+      const tags = body.match(/className="card(?: [a-z-]+)*"/g) || [];
+      check(`50.1 R10 ${name} の .card は全部 card-outline を名乗る(枚数 ${tags.length})`,
+        tags.length > 0 && tags.every((t) => t.includes(" card-outline\"")),
+        tags.join(" / ") || "0枚");
+    }
+    check("50.1 R10 枠のカードは6枚だけ(個体詳細2 + 推移1 + 指標カード1 + 計測詳細2)",
+      (app50.match(/className="card card-outline"/g) || []).length === 6,
+      `${(app50.match(/className="card card-outline"/g) || []).length}枚`);
+    check("50.1 R10 他の画面のカードは card-outline を名乗っていない(影のまま)",
+      (app50.match(/className="card(?: [a-z-]+)*"/g) || [])
+        .filter((t) => !t.includes("card-outline")).sort().join(" | ")
+        === "className=\"card card-accent\" | className=\"card card-list\" | className=\"card no-top-rule\" | className=\"card\" | className=\"card\" | className=\"card\" | className=\"card\"",
+      (app50.match(/className="card(?: [a-z-]+)*"/g) || []).filter((t) => !t.includes("card-outline")).sort().join(" | "));
+    // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)。
+    for (const [f, dc] of [["ReedDetail.dc.html", reedDc], ["SessionDetail.dc.html", sessDc]]) {
+      const cards = dc.match(/border: 1\.2px solid var\(--c-ink-3\); border-radius: var\(--r-lg\)[^"]*box-shadow: none/g) || [];
+      check(`50.1 R10 正典 ${f} のカードも影なし・同じ枠(${cards.length}枚)`,
+        cards.length >= 2 && !/box-shadow: var\(--shadow-card\)/.test(dc),
+        `${cards.length}枚 / 影つき ${(dc.match(/box-shadow: var\(--shadow-card\)/g) || []).length}枚`);
+    }
+    check("50.1 R10 DESIGN-SYSTEM §6.6 の表に「枠のカード」の行がある",
+      /card-outline/.test(ds50) && /枠のカード/.test(ds50));
+  }
+
+  // --- 50.2 R11 折れ線グラフの左の空きを詰める -----------------------------------
+  // 【変異】TICK_GAP を SVG_SP2 + SVG_SP1 に戻す → 落ちる。
+  {
+    check("50.2 R11 目盛ラベルの左右の余白は --sp-1(4px)",
+      /const TICK_GAP = SVG_SP1;/.test(chart50)
+      && /const SVG_SP1 = 4;/.test(src) && /const SVG_SP2 = 8;/.test(src),
+      (chart50.match(/const TICK_GAP = [^;]+;/g) || []).join(" / "));
+    check("50.2 R11 柱の幅は左右の余白 + 目盛の文字幅のまま(式は変えていない)",
+      /const AXW = overlay \? 0 : TICK_GAP \+ tickW \+ TICK_GAP;/.test(chart50)
+      && /tickX: overlay \? SVG_SP2 : AXW - TICK_GAP,/.test(chart50));
+    // **評価の推移のグラフは巻き込まない**(本人の指摘は折れ線グラフの左の空きの話)。
+    check("50.2 R11 評価の推移のグラフの余白は --sp-2 + --sp-1 のまま(巻き込んでいない)",
+      /const TICK_GAP = SVG_SP2 \+ SVG_SP1;/.test(srcOfFn(src, "ReedScoreHistoryChart")));
+    // 正典の座標で**実際に数える**。目盛の罫の x1 が柱(AXW)、目盛の文字の x が右端。
+    const gapsOf = (dc) => [...dc.matchAll(/<line x1="([\d.]+)"[^>]*stroke="var\(--c-line\)"[^>]*\/>\s*\r?\n\s*<text x="([\d.]+)"[^>]*text-anchor="end"/g)]
+      .map((m) => Math.round((Number(m[1]) - Number(m[2])) * 10) / 10);
+    const reedGaps = gapsOf(reedDc), sessGaps = gapsOf(sessDc);
+    check("50.2 R11 正典から目盛の余白を数えられている(空回りしていない)",
+      reedGaps.length === 8 && sessGaps.length === 3,
+      `リード詳細 ${reedGaps.length}本 / 計測詳細 ${sessGaps.length}本`);
+    check("50.2 R11 正典の折れ線グラフの目盛の余白は 4px(計測詳細は3本とも)",
+      sessGaps.every((g) => g === 4), sessGaps.join(","));
+    check("50.2 R11 正典のリード詳細は 折れ線3本=4px / 評価の推移5本=12px(片方だけ動かしていない)",
+      reedGaps.filter((g) => g === 4).length === 3 && reedGaps.filter((g) => g === 12).length === 5,
+      reedGaps.join(","));
+    check("50.2 R11 正典の生成器も 4 + 目盛幅 + 4(写しを片方だけ直していない)",
+      /const AXW = 4 \+ tickW \+ 4;/.test(detailMjs));
+    // **目盛の文字と折れ線は重ならない。** 文字の右端(x)より折れ線の左端が右にある。
+    // 1画面に svg が複数ある(折れ線 / 録音のタイムライン / 評価の推移)ので、
+    // **音名軸の折れ線の svg だけ**を取り出して数える ── E♭の縦線(--c-accent-line)が目印。
+    const noteSvgOf = (dc) => (dc.split("<svg").slice(1).map((b) => b.split("</svg>")[0])
+      .find((b) => /var\(--c-accent-line\)/.test(b) && /text-anchor="end"/.test(b)) || "");
+    const overlapOf = (dc) => {
+      const b = noteSvgOf(dc);
+      const tickX = Math.max(...[...b.matchAll(/<text x="([\d.]+)"[^>]*text-anchor="end"/g)].map((m) => Number(m[1])));
+      const polyX = Math.min(...[...b.matchAll(/<polyline points="([\d.]+),/g)].map((m) => Number(m[1])));
+      return Math.round((polyX - tickX) * 10) / 10;
+    };
+    check("50.2 R11 音名軸の折れ線の svg だけを取り出せている(空回りしていない)",
+      noteSvgOf(reedDc).length > 500 && noteSvgOf(sessDc).length > 500,
+      `リード詳細 ${noteSvgOf(reedDc).length}字 / 計測詳細 ${noteSvgOf(sessDc).length}字`);
+    check("50.2 R11 目盛の文字と折れ線は重ならない(正典の座標で実測。白い縁取りが要らない)",
+      overlapOf(reedDc) >= 8 && overlapOf(sessDc) >= 8,
+      `リード詳細 ${overlapOf(reedDc)}px / 計測詳細 ${overlapOf(sessDc)}px`);
+    check("50.2 R11 DESIGN-SYSTEM §1.9 に「数字だけの軸目盛は --sp-1」と書いてある",
+      /数字だけの軸目盛/.test(ds50));
+  }
+
+  // --- 50.3 R12 指標を切り替えても絵の寸法が変わらない ---------------------------
+  // 【変異】tickW をいま描いている指標の目盛だけから作る(元の式へ戻す)→ 落ちる。
+  {
+    const fns = new Function(`
+      function measureSvgTextPx(s, fontPx) { return String(s).length * fontPx * 0.6; }
+      ${extractFunction("noteAxisDomain")}
+      ${extractFunction("noteAxisMaxTickW")}
+      return { noteAxisDomain, noteAxisMaxTickW, measureSvgTextPx };`)();
+    // 4指標ぶんの「ありそうな値」。**実装の式を写していない**(桁数が指標ごとに違うことだけが要点)。
+    const VALS = {
+      hnrDb: [18, 24], spectralCentroidHz: [1200, 2400],
+      volumeDb: [-24, -12], pitchCentsSigned: [-8, 6],
+    };
+    const METRICS = [
+      { key: "hnrDb", fmt: (v) => v.toFixed(1) },
+      { key: "spectralCentroidHz", fmt: (v) => Math.round(v).toString() },
+      { key: "volumeDb", fmt: (v) => v.toFixed(1) },
+      { key: "pitchCentsSigned", fmt: (v) => (v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) },
+    ];
+    const fixed = fns.noteAxisMaxTickW(METRICS, (k) => VALS[k], 12);
+    // 旧い作り方 = 「いま描いている指標の目盛だけで測る」。指標ごとに答えが割れる。
+    const oldWay = METRICS.map((m) => {
+      const d = fns.noteAxisDomain(VALS[m.key], m.key === "pitchCentsSigned" ? 0 : null);
+      return Math.ceil(Math.max(...[d.hi, (d.hi + d.lo) / 2, d.lo].map((v) => fns.measureSvgTextPx(m.fmt(v), 12))));
+    });
+    check("50.3 R12 旧い作り方だと指標ごとに柱の幅が割れる(この検査が何かを見ている証拠)",
+      new Set(oldWay).size > 1, oldWay.join(","));
+    check("50.3 R12 新しい作り方は4指標の最大で1つに決まる(どの指標を選んでも同じ)",
+      fixed === Math.max(...oldWay) && oldWay.some((w) => w < fixed),
+      `固定 ${fixed} / 指標ごと ${oldWay.join(",")}`);
+    check("50.3 R12 柱の幅の計算は「いま選んでいる指標」を受け取らない(構造で固定している)",
+      !/metricKey|selected/.test(extractFunction("noteAxisMaxTickW")));
+    check("50.3 R12 部品は重ねないとき 4指標ぶんの最大を使う(いまの目盛だけで測らない)",
+      /: noteAxisMaxTickW\(REED_COMPARE_METRICS, valsOfMetric, FS\);/.test(chart50)
+      && /const tickW = overlay/.test(chart50));
+    check("50.3 R12 4指標ぶんの値は 1回のグループ分けから引く(指標ごとに数え直さない)",
+      /const seriesNoteGroups = series\.map\(\(s\) => \(s\.byIdx \? null : groupFramesByNote\(/.test(chart50)
+      && /const valsOfMetric = \(key\) => \{/.test(chart50)
+      && (chart50.match(/groupFramesByNote\(/g) || []).length === 1,
+      `groupFramesByNote の呼び出し ${(chart50.match(/groupFramesByNote\(/g) || []).length}箇所`);
+    // 高さと折れ線の左端は柱が固定されれば動かない(式に tickW 以外の指標依存が無い)。
+    check("50.3 R12 高さは目盛の幅に依らない(labelY は padTop / plotH / 文字サイズだけ)",
+      /const labelY = padTop \+ plotH \+ SVG_SP2 \+ Math\.round\(FS \* 0\.8\);/.test(chart50)
+      && /H: labelY \+ SVG_SP1,/.test(chart50));
+    check("50.3 R12 折れ線の左端は柱 + 音名ラベルの半分だけ(柱が固定なら動かない)",
+      /const x0 = overlay \? SVG_SP2 \+ halfLbl : AXW \+ halfLbl;/.test(chart50));
+    // My Data(重ねる)は柱を持たないので巻き込まれない。
+    check("50.3 R12 重ねるとき(My Data)は柱が 0 のまま(1px も変わっていない)",
+      /const AXW = overlay \? 0 : /.test(chart50) && /gridX0: overlay \? 0 : AXW,/.test(chart50));
+  }
+
+  // --- 50.4 R13 「n回の評価」→「最終計測日 yyyy/mm/dd」 --------------------------
+  // 【変異】「n回の評価」に戻す / 評価の件数を日付にして出す → 落ちる。
+  {
+    check("50.4 R13 「回の評価」はもう出さない(コメントを剥がして数える)",
+      (app50.match(/回の評価/g) || []).length === 0,
+      `${(app50.match(/回の評価/g) || []).length}件`);
+    check("50.4 R13 見出しの右は「最終計測日 + formatYmd」(1箇所)",
+      (app50.match(/最終計測日/g) || []).length === 1
+      && /\{formatYmd\(lastMeasuredAt\) && <span[^>]*>最終計測日 \{formatYmd\(lastMeasuredAt\)\}<\/span>\}/.test(hist50),
+      `${(app50.match(/最終計測日/g) || []).length}件`);
+    check("50.4 R13 日付は**評価の履歴ではなく計測**から来る(呼び出し側が最後の計測を渡す)",
+      /lastMeasuredAt=\{reedSessions\.length \? reedSessions\[reedSessions\.length - 1\]\.recordedAt : null\}/.test(detail50));
+    check("50.4 R13 計測が無ければ出さない(既定 null / 描く条件が formatYmd の返り)",
+      /function ReedScoreHistoryChart\(\{ reed, lastMeasuredAt = null \}\)/.test(hist50));
+    // reedSessions は録音日の昇順で並んでいる(最後 = いちばん新しい)。
+    check("50.4 R13 reedSessions は録音日の昇順(最後が最新であることの根拠)",
+      /\.sort\(\(a, b\) => new Date\(a\.recordedAt\) - new Date\(b\.recordedAt\)\);/.test(detail50));
+    check("50.4 R13 正典も「最終計測日」に書き換わっている(実装だけ先に動かしていない)",
+      /最終計測日/.test(bareMjs) && !/回の評価/.test(bareMjs)
+      && /最終計測日/.test(bareReedDc) && !/回の評価/.test(bareReedDc),
+      `生成器 ${(bareMjs.match(/回の評価/g) || []).length}件 / 正典 ${(bareReedDc.match(/回の評価/g) || []).length}件`);
+  }
+
+  // --- 50.5 R14 「厚さ・バランスは〇〇の記録から」の行を消す ---------------------
+  // 【変異】注記を戻す / 関数だけ戻す → 落ちる(25 節の1件と対で見る)。
+  {
+    check("50.5 R14 注記の文言も、日付を作っていた関数も残っていない",
+      (app50.match(/厚さ・バランスは|reedScoreLateStartLabel|lateStart/g) || []).length === 0,
+      (app50.match(/厚さ・バランスは|reedScoreLateStartLabel|lateStart/g) || []).join(" / ") || "0件");
+    check("50.5 R14 正典からも消えている",
+      !/厚さ・バランスは/.test(bareMjs) && !/厚さ・バランスは/.test(bareReedDc),
+      `生成器 ${(bareMjs.match(/厚さ・バランスは/g) || []).length}件 / 正典 ${(bareReedDc.match(/厚さ・バランスは/g) || []).length}件`);
+    // 日付ラベルそのもの(横軸)は残っている ── 消したのは注記だけ。
+    check("50.5 R14 横軸の日付ラベル(reedScoreDateLabel)は残っている(消しすぎていない)",
+      /const dateLabels = history\.map\(\(h\) => reedScoreDateLabel\(h\.at\)\);/.test(hist50));
+  }
+
+  // --- 50.6 R16 音程のグラフに目安の線を出す -------------------------------------
+  // 【変異】pitchCentsSigned: null に戻す → 落ちる。
+  {
+    const keys = new Function(`${extractConst("METRIC_IDEAL_KEYS")} return METRIC_IDEAL_KEYS;`)();
+    check("50.6 R16 音程の目安の鍵は pitchCentsSigned(null ではない)",
+      keys.pitchCentsSigned === "pitchCentsSigned", String(keys.pitchCentsSigned));
+    check("50.6 R16 4指標とも鍵を持つ(対応表に欠けが無い)",
+      Object.keys(keys).length === 4 && Object.values(keys).every((v) => typeof v === "string" && v.length > 0),
+      JSON.stringify(keys));
+    // **実行で確かめる。** 目安の音ごとの値から、その鍵で値が取れる = 破線が出る。
+    {
+      const g = new Function(`${extractFunction("getNoteIdeal")} return getNoteIdeal;`)();
+      const profile = { notes: { 5: { pitchCentsSigned: -4.2, hnrDb: 21, centroidHz: 1500, volumeDb: -18 } } };
+      const v = g(profile, 5)?.[keys.pitchCentsSigned];
+      check("50.6 R16 音程タブで目安の値が取れる(idealByIdx が非 null になる)",
+        typeof v === "number" && v === -4.2, String(v));
+      check("50.6 R16 他の3指標の鍵も今までどおり引ける(巻き込んでいない)",
+        g(profile, 5)[keys.hnrDb] === 21 && g(profile, 5)[keys.spectralCentroidHz] === 1500
+        && g(profile, 5)[keys.volumeDb] === -18);
+    }
+    check("50.6 R16 部品は目安と鍵が揃ったときだけ破線を作る(判定は1箇所)",
+      /if \(!selectedIdeal \|\| !key\) return null;/.test(chart50));
+  }
+
+  // --- 50.7 R17 目安は自分の系列の平均へ揃えてから描く ---------------------------
+  // 【変異】alignedIdeal をやめて selectedIdeal をそのまま渡す → 落ちる。
+  {
+    check("50.7 R17 指標カードは揃えた目安を渡す(生の目安を渡さない)",
+      /selectedIdeal=\{alignedIdeal\} idealKey=\{METRIC_IDEAL_KEYS\[m\.key\]\}/.test(card50)
+      && !/selectedIdeal=\{selectedIdeal\} idealKey=/.test(card50));
+    check("50.7 R17 揃える相手は**この画面の系列**(frames から音ごとの平均を作る)",
+      /for \(const g of groupFramesByNote\(frames \|\| \[\], undefined, saxType, tuningHz\)\) notes\[g\.semitoneIndex\] = g;/.test(card50)
+      && /return alignIdealToMine\(selectedIdeal, \{ notes \}\);/.test(card50));
+    check("50.7 R17 平行移動はコミュニティと同じ実装を import して使う(写しを作らない)",
+      /import \{ alignIdealToMine \} from "\.\/community\/align\.js";/.test(src)
+      && (app50.match(/function alignIdealToMine/g) || []).length === 0);
+    // **実行で確かめる。** 揃えると重心・HNR・音量は自分の中央値へ寄り、音程は動かない。
+    {
+      const mine = { notes: {
+        10: { hnrDb: 20, centroidHz: 1500, volumeDb: -20, pitchCentsSigned: 2 },
+        11: { hnrDb: 22, centroidHz: 1600, volumeDb: -19, pitchCentsSigned: 1 },
+        12: { hnrDb: 24, centroidHz: 1700, volumeDb: -18, pitchCentsSigned: 0 },
+      } };
+      const ideal = { notes: {
+        10: { hnrDb: 25, centroidHz: 1900, volumeDb: -15, pitchCentsSigned: -4 },
+        11: { hnrDb: 27, centroidHz: 2000, volumeDb: -14, pitchCentsSigned: -3 },
+        12: { hnrDb: 29, centroidHz: 2100, volumeDb: -13, pitchCentsSigned: -2 },
+      } };
+      const a = alignIdealToMine(ideal, mine);
+      check("50.7 R17 HNR は自分の中央値へ平行移動する(差は形だけ残る)",
+        a.notes[10].hnrDb === 20 && a.notes[11].hnrDb === 22 && a.notes[12].hnrDb === 24,
+        [a.notes[10].hnrDb, a.notes[11].hnrDb, a.notes[12].hnrDb].join(","));
+      check("50.7 R17 重心と音量も同じ規則で揃う",
+        a.notes[10].centroidHz === 1500 && a.notes[10].volumeDb === -20,
+        `${a.notes[10].centroidHz} / ${a.notes[10].volumeDb}`);
+      check("50.7 R17 **音程は揃えない**(0¢ が絶対の基準なので写すだけ)",
+        a.notes[10].pitchCentsSigned === -4 && a.notes[12].pitchCentsSigned === -2,
+        [a.notes[10].pitchCentsSigned, a.notes[12].pitchCentsSigned].join(","));
+      check("50.7 R17 合わせられないときは目安をそのまま使う(端末内なのでエラーにしない)",
+        alignIdealToMine(ideal, { notes: {} }) === ideal);
+      check("50.7 R17 目安が無ければ何も作らない", alignIdealToMine(null, mine) === null);
+    }
+    // **保存しない**(IndexedDB の目安は生の値のまま)。書き戻す綴りが無いことで見る。
+    check("50.7 R17 揃えた目安を保存していない(描くたびに導く)",
+      !/setIdealProfiles\(/.test(card50) && /useMemo\(/.test(card50));
+  }
+
+  // --- 50.8 R18 比較タブの区切りの横線を消す(E♭の縦線とグラフ内の3本は残す)-------
+  // 【変異】区切りの横線を1本戻す / E♭の縦線を消す → 落ちる。
+  {
+    const RULES = /border(?:Top|Bottom|Left|Right)?: "[^"]*(?:--c-line|--c-rule|solid)[^"]*"|height: 1[,}]|\bbordered\b/g;
+    const dividersOf = (body) => (body.match(RULES) || [])
+      // 「枠も地も持たない」ための 1px solid transparent / none は区切りではないので除く。
+      .filter((t) => !/solid transparent/.test(t));
+    check("50.8 R18 比較タブの描画に区切りの横線が 0 件(コメントを剥がして数える)",
+      dividersOf(cmp50).length === 0, dividersOf(cmp50).join(" / ") || "0件");
+    check("50.8 R18 区画は余白 --sp-4 で分ける(★一覧の上とフレーム数の上)",
+      /marginTop: "var\(--sp-4\)" \}\}>\s*\r?\n\s*\{items\.map/.test(cmp50)
+      && /paddingTop: "var\(--sp-4\)"/.test(cmp50));
+    check("50.8 R18 指標タブに下線を渡していない(受け口ごと消えている)",
+      (app50.match(/\bbordered\b/g) || []).length === 0,
+      `${(app50.match(/\bbordered\b/g) || []).length}件`);
+    // 個体詳細の同じ並び(タブ → 折れ線 → 評価の推移)にも横線が無い。
+    for (const [name, body] of [["ReedEvaluationDetail", detail50], ["ReedScoreHistoryChart", hist50],
+      ["MetricTabCard", card50], ["SessionDetailView", sess50]]) {
+      check(`50.8 R18 ${name} にも区切りの横線が 0 件(枠のカードの縁が区画を担う)`,
+        dividersOf(body).length === 0, dividersOf(body).join(" / ") || "0件");
+    }
+    // **グラフの中の線は残る。** 目盛3本 + E♭の縦の破線 + (My Data だけの)中央線。
+    const lineTags = chart50.match(/<line\b/g) || [];
+    check("50.8 R18 グラフの中の <line> は3種のまま(目盛 / 中央線 / E♭ の縦線)",
+      lineTags.length === 3, `${lineTags.length}個`);
+    check("50.8 R18 目盛は上端・中間・下端の3本(hi / mid / lo)",
+      /const tickVals = \[hi, \(hi \+ lo\) \/ 2, lo\];/.test(chart50)
+      && /\{L\.tickVals\.map\(\(v, k\) => \(/.test(chart50));
+    check("50.8 R18 **E♭の縦の破線は残っている**(本人「E♭の縦線は必要」)",
+      /\{midEbIdx !== null && \(\s*\r?\n\s*<line x1=\{L\.xAt\(midEbIdx\)\}[^>]*strokeDasharray="4 3"[^>]*\/>/.test(chart50),
+      `${(chart50.match(/strokeDasharray="4 3"/g) || []).length}件`);
+    check("50.8 R18 中央線は My Data だけ(比較タブでは引かない。D-12 の退行を戻していない)",
+      /const centerLineAt = myData \? center : null;/.test(chart50));
+    check("50.8 R18 正典の比較画面も★一覧の罫を打ち消してある(実装だけ先に動かしていない)",
+      /class="srow" style="margin-top:16px;padding-top:0;border-bottom:none"/.test(
+        readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8")));
   }
   console.log("  -> done");
 }

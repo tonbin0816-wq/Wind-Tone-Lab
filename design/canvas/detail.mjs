@@ -5,8 +5,19 @@
 // 【正典は src/App.jsx】写しであって提案ではない。寸法・色・語句をここで発明しない。
 //
 // 【この2画面は本文幅が違う】ここを揃えると嘘になる:
-//   ・セッション詳細 … 本文 347px(375 − --page-side-pad 14 × 2)。カード内側 315px
-//   ・リード詳細     … 本文 327px(さらに左右 10px の padding が入る)。カード内側 295px
+//   ・セッション詳細 … 本文 347px(375 − --page-side-pad 14 × 2)。カード内側 313px
+//   ・リード詳細     … 本文 327px(さらに左右 10px の padding が入る)。カード内側 293px
+// 【R10 2026-09-16】カードが影から**枠**へ移ったので、`box-sizing: border-box` のぶん
+// カードの内側が左右 1px ずつ狭まった(315 → 313 / 295 → 293)。
+// **1.2px ではなく 1px** ── ブラウザは border-width を device px に丸めるので、
+// 1.2px の宣言は dpr 1 でも 2 でも 1 CSS px で描かれる(Chrome 375×812 で実測: 347 の
+// カードの内側が 313px)。
+//
+// 【この2画面の本文幅が違う、という上の前提は古い。起票対象・便F の担当外】
+// B10(2026/09/09 本人裁定「案ア」)でリードタブの左右余白の定数3つが消え、
+// リード詳細も .app-root の 14px だけになった。実測(Chrome 375×812)でも
+// **リード詳細のカードは 347px**(= セッション詳細と同じ)で、下の 327 は B10 より前の値。
+// 便F の担当ではないのでここでは直さず、**気づいた事実だけ残す**。
 //   同じ MetricTabCard でも SVG の幅が変わり、点の間隔も半径も変わる。
 //
 // 数値と日付は**ダミー**。実データではない。
@@ -17,8 +28,10 @@ import { dcFile } from "./tokens.mjs";
 const OUT = fileURLToPath(new URL("./", import.meta.url));
 
 // ---- 共有の作法 ---------------------------------------------------------
-// .surf-card .card(index.css) … 地は白・枠なし・16px の丸・16px の内側余白・影
-const CARD = "background: var(--c-surface); border: 0; border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)";
+// .surf-card .card.card-outline(index.css) … 地は白・12px の丸・16px の内側余白。
+// 【R10 2026-09-16 本人の実機指摘】この2画面のカードは**影を持たず、リード一覧の
+// タイルと同じ枠**で立つ。枠の値は index.css の .reedtile[data-tone="data"] と同じ。
+const CARD = "background: var(--c-surface); border: 1.2px solid var(--c-ink-3); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: none";
 // .surf-card .rowcard … 12px の丸・10/14 の内側余白
 const ROWCARD = "background: var(--c-surface); border: 0; border-radius: var(--r-md); padding: 10px 14px; box-shadow: var(--shadow-row)";
 const NUM = "font-family: var(--font-num)";
@@ -79,7 +92,12 @@ function noteChart({ W, vals, ideal = null, digits = 1, fmt = (v) => v.toFixed(d
   const lo = mn - pad, hi = mx + pad, rng = hi - lo;
   const ticks = [hi, (hi + lo) / 2, lo];
   const tickW = Math.max(...ticks.map((v) => textPx(fmt(v))));
-  const AXW = 12 + tickW + 12;
+  // 【R11 2026-09-16 本人の実機指摘】目盛ラベルの左右の余白は 12px → **4px**(--sp-1)。
+  // 【R12 のモックでの限界】実装の AXW は**4指標ぶんの目盛を測った最大**で固定されるが、
+  // このモックは画面ごとに**1指標ぶんの数値しか持っていない**(持っていない指標の値を
+  // ここで作ると嘘になる)。したがってここで出る柱は「その指標だけで測った下限」で、
+  // 実機の柱はこれ以上になり得る。**数値の唯一の答えは実装側**(README のとおり)。
+  const AXW = 4 + tickW + 4;
   const labels = Array.from({ length: N_NOTES }, (_, i) => noteName(i));
   const halfLbl = Math.ceil(Math.max(...labels.map((s) => textPx(s))) / 2) + 4;
   const x0 = AXW + halfLbl, x1 = Math.max(x0 + 1, W - 8 - halfLbl);
@@ -96,7 +114,7 @@ function noteChart({ W, vals, ideal = null, digits = 1, fmt = (v) => v.toFixed(d
   const p = [`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display: block">`];
   for (const v of ticks) {
     p.push(`  <line x1="${AXW.toFixed(1)}" x2="${W}" y1="${yAt(v).toFixed(1)}" y2="${yAt(v).toFixed(1)}" stroke="var(--c-line)" stroke-width="1" />`);
-    p.push(`  <text x="${(AXW - 12).toFixed(1)}" y="${(yAt(v) + 4).toFixed(1)}" text-anchor="end" font-size="12" ${NUM.replace("font-family: ", 'font-family="')}" fill="var(--c-ink-4)">${fmt(v)}</text>`);
+    p.push(`  <text x="${(AXW - 4).toFixed(1)}" y="${(yAt(v) + 4).toFixed(1)}" text-anchor="end" font-size="12" ${NUM.replace("font-family: ", 'font-family="')}" fill="var(--c-ink-4)">${fmt(v)}</text>`);
   }
   // 中央 E♭ の縦ガイド(点線)。中央線は引かない。
   p.push(`  <line x1="${xAt(MID_EB).toFixed(1)}" x2="${xAt(MID_EB).toFixed(1)}" y1="8" y2="102" stroke="var(--c-accent-line)" stroke-width="1" stroke-dasharray="4 3" />`);
@@ -140,7 +158,7 @@ function memoField(text) {
 }
 
 // ---- セッション個別 -----------------------------------------------------
-const SESSION_W = 315; // 375 − 14×2 − 16×2
+const SESSION_W = 313; // 375 − 14×2 − 16×2 − 1×2(枠のカードの枠。実測と一致)
 
 function buildSession({ fit = false, missOnly = false } = {}) {
   // 音程(¢)。フラジオ域は吹いていないので欠測にする(区間が切れることを見せる)
@@ -251,7 +269,7 @@ ${bars}
 }
 
 // ---- リード個体 ---------------------------------------------------------
-const REED_W = 295; // 375 − 14×2 − 10×2 − 16×2
+const REED_W = 293; // 375 − 14×2 − 10×2 − 16×2 − 1×2(327 の前提は B10 より前。上の注記)
 
 function buildReed({ readable = false } = {}) {
   const vals = [11.4, 12.8, 13.6, 14.9, 16.2, 17.4, 18.1, 19.6, 20.4, 21.2, 21.9, 22.4, 22.8, 23.1, 22.7, 22.2, 21.6, 20.9,
@@ -342,7 +360,8 @@ ${score("3", "バランス")}
       <div style="${CARD}; margin-top: var(--sp-3)">
         <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 6px">
           <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">評価の推移</span>
-          <span style="font-size: 11px; color: var(--c-ink-3); flex-shrink: 0">6 回の評価</span>
+          <!-- 【R13 2026-09-16 実機の指摘】「n 回の評価」ではなく最終計測日(formatYmd) -->
+          <span style="font-size: 11px; color: var(--c-ink-3); flex-shrink: 0">最終計測日 2026/09/06</span>
         </div>
         ${hp.join("\n        ")}
         <div style="display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: var(--sp-2); font-size: 10.5px; color: var(--c-ink-3)">
@@ -350,7 +369,8 @@ ${score("3", "バランス")}
           <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch("var(--c-accent-mid)", 2, null)}厚さ</span>
           <span style="display: flex; align-items: center; gap: var(--sp-1)">${swatch(readable ? "var(--c-ink-3)" : "var(--c-accent-line)", readable ? 2 : 3, null)}バランス</span>
         </div>
-        <div style="${readable ? "margin-top: var(--sp-3)" : "margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--c-line)"}; font-size: 10.5px; color: var(--c-ink-3)">厚さ・バランスは 8/9 の記録から</div>
+        <!-- 【R14 2026-09-16 実機の指摘】「厚さ・バランスは 8/9 の記録から」の行は削除した。
+             この画面から罫が1本も無くなり、区画はカードの縁と余白だけが作る。 -->
       </div>
 
       <div style="height: 68px"></div>

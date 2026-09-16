@@ -11849,10 +11849,15 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               見れるように変更」。タブは4画面で**同じ部品・同じ並び**(MetricUnderlineTabs /
               DETAIL_CARD_METRICS)。**大きな数字は出さない** — リードが複数なので値が1つに決まらず、
               「なぜその1枚なのか」が読み取れなくなるため(本人が選択)。値は凡例と折れ線が示す。 */}
+          {/* 【R18 2026-09-16 本人裁定】比較タブの**区切りの横線は1本も引かない**。
+              ここは `bordered`(指標タブの下線)を渡していた最後の1箇所だった。
+              区画は余白 --sp-4 で分ける(§6.0 囲いの序列「1. 余白で分ける」)。
+              **グラフの中の線は別の話** ── hi/mid/lo の3本と E♭ の縦の破線は残る
+              (本人「E♭の縦線は必要」)。 */}
           <MetricUnderlineTabs
             order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
             value={compareMetric} onChange={setCompareMetric}
-            halfGap={DETAIL_TAB_HALF_GAP_PX} bordered
+            halfGap={DETAIL_TAB_HALF_GAP_PX}
           />
           {(() => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === compareMetric) ?? REED_COMPARE_METRICS[0];
@@ -11871,8 +11876,11 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               />
             );
           })()}
-          {/* ★一覧。正典は「#1 ★3.7」の**文字**で1行に並べる(星の絵は使わない)。 */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", alignItems: "center", padding: "11px 0", borderTop: "1px solid var(--c-line)", borderBottom: "1px solid var(--c-line)" }}>
+          {/* ★一覧。正典は「#1 ★3.7」の**文字**で1行に並べる(星の絵は使わない)。
+              【R18 2026-09-16 本人裁定】上下にあった罫2本を外し、区画は余白だけで分ける。
+              上の罫が担っていた「折れ線とここの境」は marginTop の --sp-4 が、
+              下の罫が担っていた「こことフレーム数の境」は次の要素の paddingTop が持つ。 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", alignItems: "center", marginTop: "var(--sp-4)" }}>
             {items.map((it) => {
               const avg = normalizeReedScoreOf("rating", it.reed.rating);
               return (
@@ -11882,7 +11890,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               );
             })}
           </div>
-          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: "var(--sp-4)", display: "flex", flexWrap: "wrap", gap: 9 }}>
             {items.map((it) => <span key={it.label}>{it.label}: {it.frameCount}フレーム</span>)}
           </div>
         </div>
@@ -11935,6 +11943,42 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
 //  ここにあった。zeroCentered は centerAt が引き取り、残りは D-9 の裁定で画面から消えたので
 //  受け口ごと削除した ─ 折れ線の「合っている」帯は出さない(§5)、比較対象は破線ではなく
 //  **2本目の系列そのもの**になった(§1)、凡例はチップの枠が引き取った(§2)。)
+// 音名軸グラフの**縦のスケール**(lo / hi / rng)。
+// 【R12 2026-09-16 で関数に出した】同じ規則を**指標をまたいで何度も**引く必要が出たため
+// (下の noteAxisMaxTickW が4指標ぶん回す)。中身は D-9u 当時の式のまま1つも変えていない:
+//   ・center を持つとき … その値を絵の真ん中に置き、上下を対称にする
+//     (0 中心と平均中心が同じ形になり、目盛は必ず hi / 中央線 / lo の3つになる)
+//   ・持たないとき     … 最小〜最大に 12% の余白(全部同値ならゼロ除算だけ避ける)
+function noteAxisDomain(vals, center) {
+  const list = (vals || []).filter((v) => v !== null && v !== undefined && !isNaN(v));
+  if (center !== null && center !== undefined) {
+    const maxDev = list.length ? Math.max(...list.map((v) => Math.abs(v - center))) : 0;
+    const half = maxDev || 1; // 実測が全て中央値(またはデータ無し)のときのゼロ除算だけ避ける
+    const hi = center + half, lo = center - half;
+    return { lo, hi, rng: hi - lo || 1 };
+  }
+  const minV = list.length ? Math.min(...list) : 0;
+  const maxV = list.length ? Math.max(...list) : 1;
+  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+  const lo = minV - pad, hi = maxV + pad;
+  return { lo, hi, rng: hi - lo || 1 };
+}
+
+// 【R12 2026-09-16 本人の実機指摘】「指標を切り替えるとグラフの縦横が変わる」。
+// 縦軸の柱の幅(AXW)は目盛の**文字の幅**で決まり、その文字は指標ごとに桁数が違う
+// (重心 "1642" / HNR "21.6" / 音程 "+8.4")。切り替えるたびに柱が伸び縮みし、
+// 折れ線の左端(x0)まで一緒に動いていた。
+// **4指標ぶんの目盛を測って、いちばん広いものに合わせて固定する。**
+// 目盛の値そのものは指標ごとの縦のスケール(noteAxisDomain)から作る ── ここで値を発明しない。
+// 中央線を持つかどうかの規則も指標ごと(ピッチだけ 0 中心)で、描く側と同じ式から引く。
+function noteAxisMaxTickW(metrics, valsOfMetric, fs) {
+  return Math.ceil(Math.max(...metrics.map((m) => {
+    const dom = noteAxisDomain(valsOfMetric(m.key), m.key === "pitchCentsSigned" ? 0 : null);
+    return Math.max(...[dom.hi, (dom.hi + dom.lo) / 2, dom.lo]
+      .map((v) => measureSvgTextPx(m.fmt(v), fs)));
+  })));
+}
+
 function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, includeAltissimo = true, myData = false, centerAt = null }) {
   // 【D-9】プリセットの中身はこの2つに畳む(呼び出し側は myData だけを渡す)。
   const plainLayout = plain || myData;
@@ -11949,36 +11993,54 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // 系列ごとに音(semitoneIndex)別の代表値を出す(groupFramesByNoteの共通ロジックに従う:
   // 音量・音色はclarity重み+アタック除外、ピッチはF-44のゲートを通した中央値)。
   // groupFramesByNoteは重心を"centroidHz"で返すため対応づける。
-  const groupKey = metricKey === "spectralCentroidHz" ? "centroidHz" : metricKey;
-  let seriesData = series.map((s) => {
-    // 【D-7】呼び手が音ごとの値を持っているならそれを使う(frames から数え直さない)。
-    if (s.byIdx) return { ...s, byIdx: s.byIdx };
+  const groupKey = (key) => (key === "spectralCentroidHz" ? "centroidHz" : key);
+  // 【R12 2026-09-16】グループ分けは**系列ごとに1回**。groupFramesByNote の戻りは
+  // 4指標ぶんの値を同時に持つので、指標を変えてもフレームから数え直す必要は無い。
+  // (R12 が「4指標ぶんの目盛の幅」を測るので、ここを1回に畳んでおかないと集計が4倍になる。)
+  // 【D-7】呼び手が音ごとの値を持っているなら frames から数え直さない(byIdx をそのまま使う)。
+  const seriesNoteGroups = series.map((s) => (s.byIdx ? null : groupFramesByNote(s.frames || [], undefined, saxType, tuningHz)));
+  const byIdxOfSeries = (si, key) => {
+    if (series[si].byIdx) return series[si].byIdx;
     const byIdx = {};
-    for (const g of groupFramesByNote(s.frames || [], undefined, saxType, tuningHz)) {
+    for (const g of seriesNoteGroups[si]) {
       // 【N-11 2026/08/17】**この軸に無い音は持ち込まない。** groupFramesByNote は音域の全音
       // (フラジオ込みの 37 音)で分けるので、includeAltissimo=false のときは上の 4 音が
       // 余る。ここで落とさないと、折れ線は繋がらないのに**点だけが軸の外へ描かれ**、
       // 縦のスケールもその値に引きずられる(375×812 の実測で実際に出た: 軸の右端 x=333 に
       // 対して点が x=371 まで並んだ)。落とすのは描画の範囲だけで、集計の規則は触らない。
       if (g.semitoneIndex >= N) continue;
-      const v = g[groupKey];
+      const v = g[groupKey(key)];
       if (v !== null && v !== undefined && !isNaN(v)) byIdx[g.semitoneIndex] = v;
     }
-    return { ...s, byIdx };
-  });
+    return byIdx;
+  };
+  let seriesData = series.map((s, si) => ({ ...s, byIdx: byIdxOfSeries(si, metricKey) }));
 
   // 理想値プロファイルの音ごとの値(存在する音だけ)。実測と同じ音名軸に破線で重ねる。
   // (【D-9 2026/08/26】D-8 の refByIdx = 「目安以外の比較対象も破線で重ねる」入口は消した。
   //  My Data では比較対象が**2本目の系列そのもの**になったので、破線で重ねる相手が居ない。)
-  let idealByIdx = null;
-  if (selectedIdeal && idealKey) {
+  // 【R12 2026-09-16】目安も指標をまたいで引けるようにした(縦のスケールに効くので、
+  // 目盛の幅を4指標ぶん測るときにも同じ規則で要る)。鍵の対応表は METRIC_IDEAL_KEYS の1箇所。
+  const idealByIdxOf = (key) => {
+    if (!selectedIdeal || !key) return null;
     const m = {};
     for (let i = 0; i < N; i++) {
-      const v = getNoteIdeal(selectedIdeal, i)?.[idealKey];
+      const v = getNoteIdeal(selectedIdeal, i)?.[key];
       if (v !== null && v !== undefined && !isNaN(v)) m[i] = v;
     }
-    if (Object.keys(m).length) idealByIdx = m;
-  }
+    return Object.keys(m).length ? m : null;
+  };
+  const idealByIdx = idealByIdxOf(idealKey);
+  // 指標 key で描くときに縦のスケールへ入る値の全部(実測の系列 + 目安)。
+  // **いま描いている指標では下の allVals と同じ物**になる(目安を渡す呼び手は
+  // idealKey に METRIC_IDEAL_KEYS[metricKey] を渡すので、鍵も一致する)。
+  const valsOfMetric = (key) => {
+    const ideal = idealByIdxOf(METRIC_IDEAL_KEYS[key]);
+    return [
+      ...series.flatMap((s, si) => Object.values(byIdxOfSeries(si, key))),
+      ...(ideal ? Object.values(ideal) : []),
+    ];
+  };
 
   // noteFocus: 横軸の「ラベル表示」だけを絞り込む(データタブの「My Data」「最新セッション」
   // カードのみが渡す)。プロットするデータ(折れ線・y軸スケール)は音域の全音を対象のまま。
@@ -11991,8 +12053,6 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     ...(idealByIdx ? Object.values(idealByIdx) : []),
   ];
   const hasData = seriesData.some((s) => Object.keys(s.byIdx).length > 0);
-  const minV = allVals.length ? Math.min(...allVals) : 0;
-  const maxV = allVals.length ? Math.max(...allVals) : 1;
   // 符号付きピッチ誤差(pitchCentsSigned)は0を挟んで上がシャープ側・下がフラット側になる
   // ように、0中心の対称ドメイン(lo = -hi)にする。データ自体が既に符号を持つので、
   // 折れ線は通常どおり1本。
@@ -12018,17 +12078,9 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // **中央線を引くこと**は別の話なので、上の center はドメイン用のまま残し、
   // 描く線だけをここで My Data に閉じる。読み手が「どちらの話か」を名前で見分けられる形にする。
   const centerLineAt = myData ? center : null;
-  let lo, hi, rng;
-  if (center !== null) {
-    const maxDev = allVals.length ? Math.max(...allVals.map((v) => Math.abs(v - center))) : 0;
-    const half = maxDev || 1; // 実測が全て中央値(またはデータ無し)のときのゼロ除算だけ避ける
-    hi = center + half;
-    lo = center - half;
-    rng = hi - lo || 1;
-  } else {
-    const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
-    lo = minV - pad; hi = maxV + pad; rng = hi - lo || 1;
-  }
+  // 【R12 2026-09-16】式は noteAxisDomain(モジュールの純関数)へ出した。
+  // 目盛の幅を4指標ぶん測るのに**同じ規則**が要るので、2箇所に書かないため。
+  const { lo, hi, rng } = noteAxisDomain(allVals, center);
 
   // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)。
   const ebIndexes = plotNoteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
@@ -12053,11 +12105,22 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
     // 以前ここで絶対値に潰していたのは "±" を前置する安定度の fmt が負の目盛で "±-4.4" と
     // 二重符号になるのを避けるためだったが、その指標(ミラー描画)ごと撤去したので不要になった。
     const tickTexts = tickVals.map((v) => fmt(v));
-    const tickW = Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))));
-    // 目盛ラベルの左右に --sp-2 以上(§1.9)。measureSvgTextPx は送り幅なので、実インクは
-    // 左右どちらにも送り幅を最大1px程度はみ出す(実測: 右 0.7px / 左 0.95px)。
-    // --sp-1 を逃げとして足す。足さないと実測が 7.3px / 7.05px と 8px を割る。
-    const TICK_GAP = SVG_SP2 + SVG_SP1;      // 目盛ラベルの左右の余白
+    // 【R12 2026-09-16 本人の実機指摘】柱の幅は**4指標の最大**で固定する。
+    // いま描いている指標の目盛だけで測ると、タブを押すたびに柱と折れ線の左端が動く。
+    // 重ねるとき(My Data)は柱が無い(AXW=0)ので、測るのも自分の目盛だけでよい。
+    const tickW = overlay
+      ? Math.ceil(Math.max(...tickTexts.map((t) => measureSvgTextPx(t, FS))))
+      : noteAxisMaxTickW(REED_COMPARE_METRICS, valsOfMetric, FS);
+    // 【R11 2026-09-16 本人の実機指摘】「折れ線グラフの左の空きを詰めて」。
+    // 目盛ラベルの左右の余白を --sp-2 + --sp-1(12px)から **--sp-1(4px)** にした。
+    // 柱が 16px 細くなり、そのぶん折れ線の左端(x0)が左へ広がる。
+    // **§1.9 の「左右 --sp-2 以上」に対する、数字だけの軸目盛に限った例外**
+    // (DESIGN-SYSTEM §1.9 に本人指摘として書いてある)。--sp-2 が要る理由は
+    // 和文グリフのインク超過(最大1.6px)だが、この軸の目盛は --font-num の数字だけで、
+    // 実測の超過は右 0.7px / 左 0.95px。4px なら実インクで 3px 以上残る。
+    // **文字の右隣は目盛の罫(x=AXW)で、折れ線は x0 = AXW + halfLbl から始まる**ので、
+    // 文字と折れ線は重ならない(白い縁取りは要らない。重ねる My Data だけが使う)。
+    const TICK_GAP = SVG_SP1;      // 目盛ラベルの左右の余白
     // 【N-11 2026/08/17 本人指示】重ねるとき(overlay)は**左に軸の柱を立てない**(AXW = 0)。
     // 目盛の文字はプロットの左上へ重ねて描く(下の tickX / tickTextY)。
     // 重ねるぶん、線の描画幅が AXW = TICK_GAP + 目盛の文字幅 + TICK_GAP ぶん広がる。
@@ -12278,21 +12341,15 @@ const BARE_ROW_STYLES = {
 // 幅はコンテナ実測(useMeasuredWidth)に追従させ、SVGの実寸と viewBox は 1:1(§1.9)。
 // 系列色は §1.7 の紺3段、線幅は §1.8。共通部品(useMeasuredWidth / fitLabel /
 // measureSvgTextPx / SERIES_STYLES / SVG_FS_XS)はすべて既存のものを共有する。
-// 【D-4 2026/08/22 本人指示・正典 #15a】厚さ・バランスの線が**途中から始まる**とき、
-// その最初の日付のラベルを返す(揃っていれば null = 注記を出さない)。
-// 総評だけが古くからあり、厚さ・バランスは後から足した項目なので、履歴の前半は null が並ぶ。
-// 日付の書き方は横軸のラベルと**同じ1箇所**(reedScoreDateLabel)から引く。
-function reedScoreLateStartLabel(history) {
-  const list = history || [];
-  if (list.length === 0) return null;
-  const has = (h) => (h.thickness !== null && h.thickness !== undefined)
-    || (h.balance !== null && h.balance !== undefined);
-  const i = list.findIndex(has);
-  if (i <= 0) return null;   // 見つからない(-1) = そもそも無い / 先頭(0) = 途中から始まっていない
-  return reedScoreDateLabel(list[i].at);
-}
+// (【R14 2026-09-16 本人の実機指摘】D-4 で足した「厚さ・バランスは 8/4 の記録から」の
+//  注記と、その日付を作っていた関数はここにあった。本人「この行は要らない」で
+//  **注記ごと削除**したので読み手がゼロになり、関数も一緒に落とした。
+//  線が途中から始まること自体は折れ線が見せている。)
 
-function ReedScoreHistoryChart({ reed }) {
+// 【R13 2026-09-16 本人の実機指摘】lastMeasuredAt = **このリードの最後の計測の recordedAt**。
+// 見出しの右に出していた「n回の評価」を置き換える(評価の回数ではなく計測の日)。
+// 計測が無ければ null を渡す = 何も出さない(持っていない値を書かない)。
+function ReedScoreHistoryChart({ reed, lastMeasuredAt = null }) {
   const [boxRef, W] = useMeasuredWidth();
   const history = useMemo(() => normalizeRatingHistory(reed.ratings), [reed.ratings]);
   const n = history.length;
@@ -12332,16 +12389,17 @@ function ReedScoreHistoryChart({ reed }) {
   })();
 
   const legendMax = Math.round(W * 0.42);
-  // 【D-4】厚さ・バランスが**最初の記録より後から**始まっていれば、その日付。揃っていれば null。
-  const lateStart = reedScoreLateStartLabel(history);
 
   return (
-    /* 【D-4 2026/08/22 本人指示】正典 #15a は「評価の推移」を**カード**にして、
-       見出しの右に「n 回の評価」を置く。空状態の文言は現行のまま2種とも残す。 */
-    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+    /* 【D-4 2026/08/22 本人指示】正典 #15a は「評価の推移」を**カード**にする。
+       空状態の文言は現行のまま2種とも残す。
+       【R13 2026-09-16 実機の指摘】見出しの右は「n 回の評価」ではなく**最終計測日**。
+       評価の回数は折れ線の点の数が既に返しているので、同じことを2箇所で言わない。
+       日付の書き方は表示用フォーマッタ 1箇所(formatYmd)から引く。 */
+    <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
       <div className="sans" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 6 }}>
         <span style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" }}>評価の推移</span>
-        {n > 0 && <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{n}回の評価</span>}
+        {formatYmd(lastMeasuredAt) && <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>最終計測日 {formatYmd(lastMeasuredAt)}</span>}
       </div>
       {n === 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", marginBottom: "var(--sp-2)" }}>まだ記録がありません</div>
@@ -12397,15 +12455,9 @@ function ReedScoreHistoryChart({ reed }) {
           次に評価を変えると、ここが線でつながります
         </div>
       )}
-      {/* 【D-4 2026/08/22】正典 #15a の注記「厚さ・バランスは 8/4 の記録から」。
-          **線が途中から始まる理由**が読めないと「途切れている」と誤読されるので、
-          厚さ・バランスが最初の記録より後から始まっているときだけ出す。
-          日付の書き方は横軸のラベルと同じ1箇所(reedScoreDateLabel)から引く。 */}
-      {lateStart && (
-        <div className="sans" style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--c-line)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>
-          厚さ・バランスは {lateStart} の記録から
-        </div>
-      )}
+      {/* (【R14 2026-09-16 実機の指摘】ここに「厚さ・バランスは 8/4 の記録から」の注記が
+          あった。本人「この行は要らない」で削除。**この画面から罫が1本も無くなった**
+          ── R10 でカードが枠を持つので、区画はカードの縁と余白だけが作る。) */}
     </div>
   );
 }
@@ -12523,14 +12575,14 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
       <ReedScoreField fields={SCORE_FIELDS} onOpen={() => setEditingScores(true)} />
 
       {/* メモは独立したカードへ出した。形は MemoField の1箇所(セッション詳細と同じ)。 */}
-      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+      <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
         <MemoField value={memoDraft} onChange={setMemoDraft} onBlur={commitMemo} />
       </div>
 
       {/* 指標グラフカード。**セッション詳細と完全に同じ部品**(正典の要求)。
           一覧のタイルから落ちた「開封n日」「未測定」は上の1行メタが引き取っている。 */}
       {reedSessions.length === 0 ? (
-        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+        <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
           <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>
             このリードに紐づく測定データがまだありません
           </div>
@@ -12544,8 +12596,13 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
       )}
 
       {/* 評価の推移(縦軸=1〜5・横軸=日付・総評/厚さ/バランスの3本)。カードの枠は
-          この呼び出し側ではなく部品の中(ReedScoreHistoryChart)が持つ。 */}
-      <ReedScoreHistoryChart reed={reed} />
+          この呼び出し側ではなく部品の中(ReedScoreHistoryChart)が持つ。
+          【R13 2026-09-16 実機の指摘】最終計測日は**この画面が既に持っている**
+          reedSessions(録音日の昇順)の最後から渡す。0件なら null = 出さない。 */}
+      <ReedScoreHistoryChart
+        reed={reed}
+        lastMeasuredAt={reedSessions.length ? reedSessions[reedSessions.length - 1].recordedAt : null}
+      />
 
       {/* 【D-4】正典 #15a: 「計測」は**下端固定のバーではなく浮かせるボタン**。
           My Data の「録音を取り込む」と同じ部品(FloatingAction)で、右下の位置・影・角丸も同じ。
@@ -13748,13 +13805,16 @@ export function SubTabs({ items, value, onChange }) {
 // 【D-9z 2026/08/25 本人指示】children = **この行の右端**に相乗りするもの(My Data の
 // 集計範囲セレクタ)。行を新設せず既にある行へ乗せる、という N-11 の手はそのままで、
 // 乗せる先が子タブ行から指標タブの行へ移った。渡さない3画面の見た目は 1px も変わらない。
-function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordered = false, children }) {
+// 【R18 2026-09-16 本人裁定】`bordered`(下辺に罫1本)の受け口はここにあった。
+// 渡していたのは比較タブ1箇所だけで、その1箇所が「区切りの横線を消す」裁定で渡さなくなり
+// **読み手がゼロ**になったので、引数ごと落とした(使い手の無い受け口を残さない)。
+// **選択中のタブの下線(下の boxShadow の inset)は選択の合図であって罫ではない。触らない。**
+function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, children }) {
   return (
     <div
       className="sans"
       style={{
         display: "flex", alignItems: "center", gap: 0, marginLeft: -halfGap,
-        borderBottom: bordered ? "1px solid var(--c-line)" : "none",
       }}
     >
       {order.map((key) => {
@@ -13810,17 +13870,40 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, bordere
 // 呼び手側の computeFrameMetrics(...) も一緒に消してある(読み手ゼロの定義を残さない)。
 function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMetricChange }) {
   const m = REED_COMPARE_METRICS.find((x) => x.key === metric) ?? REED_COMPARE_METRICS[0];
+  // 【R17 2026-09-16 本人の実機指摘】目安の破線は**この画面が描いている系列の平均**へ
+  // 揃えてから重ねる(コミュニティで使っているのと同じ平行移動 alignIdealToMine)。
+  //
+  // 重心・HNR・音量の絶対値はマイクの距離・入力ゲイン・部屋の響きで一律にずれる。
+  // 揃えずに重ねると全音で「足りない」と出続け、どの音を直せばいいか分からない。
+  // 共通する音の**中央値**を合わせてから重ねると、残るのは音ごとの形の差だけになる。
+  //
+  // 【App の selectedIdeal と二重にならないか】ならない。App が揃える先は
+  // **My Data の平均**(自分の全計測)で、ここが揃える先は**この1枚のリード / この1回の計測**。
+  // 別の基準なので、画面ごとに「その系列との差」が読める形になる。
+  // 平行移動は可換なので、順に当てても結果は「この系列の中央値に合わせた目安」1つに決まる。
+  //
+  // 【音程は揃えない】alignIdealToMine が動かすのは LOCAL_SHIFTED_METRICS
+  // (centroidHz / hnrDb / volumeDb)だけで、pitchCentsSigned は写すだけ。
+  // ピッチは環境非依存で 0¢ が絶対の基準なので、動かすと意味が壊れる。
+  //
+  // 【保存しない】目安そのもの(IndexedDB)は生の値のまま。描くたびにここで導く。
+  const alignedIdeal = useMemo(() => {
+    if (!selectedIdeal) return null;
+    // 音ごとの代表値の作り方は groupFramesByNote の**1箇所**から引く(同じ集計を2つ持たない)。
+    const notes = {};
+    for (const g of groupFramesByNote(frames || [], undefined, saxType, tuningHz)) notes[g.semitoneIndex] = g;
+    return alignIdealToMine(selectedIdeal, { notes });
+  }, [selectedIdeal, frames, saxType, tuningHz]);
   return (
     /* 【作法】.card の style は**オブジェクトリテラル直書き**にする(変数で渡すと
        検査が中身を読めず、地・枠・padding をインラインで殺していないことを確かめられない)。 */
-    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
-      {/* 【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】`bordered` を**渡さない**。
+    <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
+      {/* 【D-30 §7.2 統括裁定・凍結仕様 design/D30-SPEC.md】指標タブの下に罫を引かない。
           この部品の使い手はセッション詳細とリード個体詳細で、D-29 で**両方カードの作法**へ
           移った。カードの作法は罫を1本も引かない(§6.6)。My Data は D-9y の本人指示
-          「指標タブの下の罫は両方外して」で元から渡しておらず、同じ部品なのに
-          カードの画面どうしで罫の有無が割れていた ── その割れをここで閉じる。
-          **リード比較(:11355)は別の呼び出しなので巻き込まれない**(罫の作法のまま
-          `bordered` を持つ)。`MetricUnderlineTabs` の `bordered` 引数そのものは残す。
+          「指標タブの下の罫は両方外して」で元から引いていない。
+          【R18 2026-09-16 本人裁定】最後まで罫を持っていたリード比較も引かなくなり、
+          受け口(`bordered`)ごと消えた。**アプリ中どの指標タブにも下辺の罫は無い。**
           **選択中のタブの下線(boxShadow の inset)は選択の合図であって罫ではない。触らない。** */}
       <MetricUnderlineTabs
         order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
@@ -13837,7 +13920,7 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
         series={[{ id: "self", label: "この記録", style: SERIES_STYLES[0], frames }]}
         saxType={saxType} tuningHz={tuningHz}
         fmt={m.fmt}
-        selectedIdeal={selectedIdeal} idealKey={METRIC_IDEAL_KEYS[m.key]}
+        selectedIdeal={alignedIdeal} idealKey={METRIC_IDEAL_KEYS[m.key]}
       />
     </div>
   );
@@ -14793,8 +14876,15 @@ function MyDataScopePicker({ dataSax, setDataSax, range, setRange }) {
 }
 
 // REED_COMPARE_METRICSの各指標に対応する目安プロファイル側のフィールド名
-// (音名軸グラフに目安の破線を重ねるための対応表。平均差分は目安=0のため対象外)
-const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCentsSigned: null };
+// (音名軸グラフに目安の破線を重ねるための対応表)
+// 【R16 2026-09-16 本人の実機指摘】「音程のグラフにも目安の線を出して」。
+// pitchCentsSigned は長らく null(=破線を出さない)だったが、**目安の音ごとの値は
+// 最初から pitchCentsSigned を持っている**(groupFramesByNoteAcrossSessions の戻り)。
+// 対応表の1つの鍵が欠けていただけで、値は既にあった。
+// **目安=0 ではない。** 目安は「その日の自分(または取り込んだ人)の平均ズレ」で、
+// 0¢(理論値ぴったり)とは別物。0 を描くなら中央線の話になり、それは D-12 で
+// My Data だけに閉じてある。
+const METRIC_IDEAL_KEYS = { hnrDb: "hnrDb", spectralCentroidHz: "centroidHz", volumeDb: "volumeDb", pitchCentsSigned: "pitchCentsSigned" };
 
 // 【D-6】「画面ごとに定数を持つ」という N-6 の判断は**取り消した**。本人指摘
 // 「2つの種類のタブが同じ見た目で存在していてわかりにくい」を直すとき、
@@ -15848,7 +15938,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
           見出しの右の「検出ノート n ・ 平均アタック xxx ms」は PhraseTimeline の中が既に出している
           (正典 #14b の「検出 4音 · 平均アタック 164ms」と同じ内容。綴りを2箇所に持たない)。 */}
       {frames.length > 0 && (
-        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+        <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
           <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)", paddingBottom: 10 }}>録音</div>
           <PhraseTimeline
             frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
@@ -15859,7 +15949,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       )}
 
       {/* メモカード。形は MemoField の1箇所(リード詳細と同じ)。 */}
-      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+      <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
         <MemoField value={memoDraft} onChange={setMemoDraft} onBlur={commitMemo} />
       </div>
 
