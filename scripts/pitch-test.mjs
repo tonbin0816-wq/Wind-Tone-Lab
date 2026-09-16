@@ -30,6 +30,8 @@ import { renderClick, renderBefore, peakOf, energyOf, mulberry32 } from "./metro
 import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-before.mjs";
 // 目安を自分の平均へ揃える純関数。App.jsx が使うのと同じ実装を検査でも使う。
 import { alignIdealToMine } from "../src/community/align.js";
+// 【便G(D1)2026-09-16】練習時間(音を感知していた時間)。実装そのものを import して実行で確かめる。
+import { sessionSoundingSec, frameIntervalSec, isSoundingFrame } from "../src/soundingSec.js";
 // 【R6 2026-09-16 本人裁定③】リードの銘柄・型番の正はコミュニティのカタログ。
 // App.jsx が import して使うのと**同じ実物**を検査でも使う(写しを作らない)。
 import { REED_CATALOG } from "../src/community/catalog/gear.js";
@@ -8627,8 +8629,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // **描くのは PlainSelect の1箇所**なので綴りは1つ増えるだけ(呼び出しの集合は検証29)。
         const n = (code.match(/<PickChevron \/>/g) || []).length;
         // 【R6 2026-09-16 で 7 → 8】追加シートに型番の行が増えた(銘柄と同じ「値 + ▾」)。
-        check("F-72: ▾ を使う綴りは8つ(上部設定行の4つ + 追加シートの銘柄・型番 + データタブのフィルタピル + PlainSelect)",
-          n === 8, `${n}箇所`);
+        // 【D2 便G 2026-09-16 で 8 → 9】My Data の累計カードが押せるようになり(定義のシート)、
+        // 押せることを返す ▾ が右上に付いた(R3)。その1つは検証51 が MyDataSection で数える。
+        check("F-72: ▾ を使う綴りは9つ(上部設定行の4つ + 追加シートの銘柄・型番 + データタブのフィルタピル + PlainSelect + My Data の累計カード)",
+          n === 9, `${n}箇所`);
         check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
           (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
           `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -13508,24 +13512,33 @@ let METRO_SIGS_ALL = [];
   // したがってここで見るのは:
   //   (1) 計測タブから**呼び手が消えている**こと(M9 の合格ライン)
   //   (2) 移す先が使う**状態と後始末は消えていない**こと(定義ごと消すと便G が作り直しになる)
-  // **選択トグル(同じ行をもう一度押すと解除)の検査は、便G で My Data に置き直した時点で
-  // そちらへ書き戻すこと。** いまは置き場所が無いので、綴りを縛る対象が存在しない。
+  // 【便G(D4)2026-09-16 で置き直した】一覧は My Data の一番下の「目安」カードに移った。
+  // **選択トグルは移していない**(凍結仕様: もう一度押しても解除はしない)。置き先の綴りは
+  // 検証51 が縛る。ここは「計測タブに戻っていない」ことだけを名乗り続ける。
   {
     const code76 = codeOf(src);
+    const measure76 = codeOf(srcOfFn(src, "MeasureView"));
+    const measureCall76 = (() => {
+      const i = code76.indexOf("<MeasureView");
+      return i < 0 ? "" : code76.slice(i, code76.indexOf("/>", i));
+    })();
     check("M9: 計測タブの詳細シートから目安の一覧が消えている(選択の行も削除のゴミ箱も無い)",
       !/setSelectedIdealId\(\(cur\) =>/.test(code76)
       && !/deleteIdealProfile\(p\.id\)/.test(code76)
-      && !/idealProfiles\.map\(/.test(code76),
-      (code76.match(/(setSelectedIdealId\(\(cur\)|deleteIdealProfile\(p\.id\)|idealProfiles\.map\()/g) || []).join(" / ") || "0件");
+      && !/idealProfiles\.map\(/.test(measure76)
+      && (code76.match(/idealProfiles\.map\(/g) || []).length === 1
+      && /idealProfiles\.map\(/.test(codeOf(srcOfFn(src, "MyDataSection"))),
+      `MeasureView ${(measure76.match(/idealProfiles\.map\(/g) || []).length} / App 全体 ${(code76.match(/idealProfiles\.map\(/g) || []).length}`);
     check("M9: 目安の一覧は MeasureView へ渡されていない(prop ごと外した)",
-      !/idealProfiles=\{idealProfiles\}/.test(code76)
-      && !/deleteIdealProfile=\{deleteIdealProfile\}/.test(code76),
-      (code76.match(/(idealProfiles=|deleteIdealProfile=)/g) || []).join(" / ") || "0件");
-    // (2) 便G が使う側は**定義ごと残っている**(凍結仕様が明記している)
+      measureCall76.length > 100
+      && !/idealProfiles=/.test(measureCall76)
+      && !/deleteIdealProfile/.test(measureCall76),
+      (measureCall76.match(/(idealProfiles=|deleteIdealProfile)/g) || []).join(" / ") || "0件");
+    // (2) 便G が使う側は**定義ごと残っている**(削除は便G で undo 付きに変わった)
     for (const [name, re] of [
       ["idealProfiles", /const \[idealProfiles, setIdealProfiles\] = usePersistedState\("idealProfiles", \[\]\);/],
       ["selectedIdealId", /const \[selectedIdealId, setSelectedIdealId\] = usePersistedState\("selectedIdealId", null\);/],
-      ["deleteIdealProfile", /const deleteIdealProfile = \(id\) => \{/],
+      ["deleteIdealProfileWithUndo", /const deleteIdealProfileWithUndo = \(id\) => \{/],
     ]) check(`M9: 便G が使う ${name} の定義は残っている(呼び手だけ消した)`, re.test(code76));
     // 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)。
     // 【2026/09/06】目安は自分の平均に平行移動してから使うので、引く行と揃える行の2段。
@@ -13534,8 +13547,11 @@ let METRO_SIGS_ALL = [];
       && /alignIdealToMine\(selectedIdealRaw, myAverageForIdeal\)/.test(code));
     check("F-76: 目安が無ければ揃えた結果も null(平行移動が null を作り出さない)",
       alignIdealToMine(null, { notes: { 60: { centroidHz: 1000 } } }) === null);
+    // 【便G(D4)】削除は undo 付きになった。選択が外れる規則はそのまま(退避した「選ばれていた」
+    // 事実は元に戻すときに戻す ── 検証51 が対で見る)。
     check("F-76: 選択中の目安を削除したときは従来どおり選択も外れる",
-      /if \(selectedIdealId === id\) setSelectedIdealId\(null\);/.test(code));
+      /const wasSelected = selectedIdealId === id;/.test(code)
+      && /if \(wasSelected\) setSelectedIdealId\(null\);/.test(code));
   }
 
   // --- 24.10 経過時間の書式 ----------------------------------------------------
@@ -16556,14 +16572,17 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.7 D-10: 蓄積量は My Data の先頭へ移った(分析タブの脚注は消えている)",
       /const stock = myDataStockTexts\(myDataStock\(allMySessions\)\);/.test(myDataSection)
       && !/myDataStock/.test(codeOf(lab27)));
-    check("27.7 D-10: 累計の綴りは「累計 / 計測時間 / 計測件数 / 計測音」(本人がキャンバスで直した語)",
+    // 【便G(D1/D2)2026-09-16】時間の綴りは「練習時間」(本人裁定⑥)。3つの欄は MY_DATA_STOCK_CELLS
+    // (カードと定義のシートが同じ配列を読む)に移った。綴りそのものは検証51 が縛る。
+    check("27.7 D-10: 累計の綴りは「累計 / 練習時間 / 計測件数 / 計測音」(時間の語だけ便G で変わった)",
       /}}>累計<\/div>/.test(myDataSection)
-      && /unit: "時間", label: "計測時間"/.test(myDataSection)
-      && /unit: "件", label: "計測件数"/.test(myDataSection)
-      && /unit: "音", label: "計測音"/.test(myDataSection));
+      && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(myDataSection)
+      && /unit: "時間", label: "練習時間"/.test(codeOf(src))
+      && /unit: "件", label: "計測件数"/.test(codeOf(src))
+      && /unit: "音", label: "計測音"/.test(codeOf(src)));
     check("27.7 D-10: 累計の3つの数字は stock の3つをそのまま並べる(数の作り方を増やさない)",
-      /value: stock\.hours/.test(myDataSection) && /value: stock\.sessions/.test(myDataSection)
-      && /value: stock\.notes/.test(myDataSection));
+      /\{stock\[z\.key\]\}/.test(myDataSection)
+      && /key: "hours"/.test(codeOf(src)) && /key: "sessions"/.test(codeOf(src)) && /key: "notes"/.test(codeOf(src)));
   }
 
   // --- 27.8 寸法(正典 #9b から D-5 のモックへ移った分を明記する) --------------------
@@ -18738,8 +18757,9 @@ console.log("\n========== 検証34: D-15 計測タブの遅れ / 累計カード
     const accCards = (codeD15.match(/className="card card-accent"/g) || []).length;
     check("34.5 §3: card-accent を名乗るカードはアプリ全体で1枚だけ",
       accCards === 1 && (codeD15.match(/card-accent/g) || []).length === 1, `${accCards}枚`);
+    // 【便G(D2)2026-09-16】累計カードは押せる <button> になった(地・枠・padding は .card のまま)。
     check("34.5 §3: その1枚は My Data の「累計」カード",
-      /<div className="card card-accent" style=\{\{ marginTop: 0 \}\}>\s*\r?\n[\s\S]{0,300}?>累計<\/div>/.test(codeD15));
+      /className="card card-accent"\s*\r?\n\s*style=\{\{ marginTop: 0, width: "100%", display: "block", textAlign: "left", cursor: "pointer" \}\}\s*\r?\n\s*>[\s\S]{0,400}?>累計<\/div>/.test(codeD15));
     // 文字色はトークンで書く。インラインに白の直値を散らさない。
     const stockCard = (() => {
       const i = codeD15.indexOf('className="card card-accent"');
@@ -22352,8 +22372,9 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
   check("46 B-2 「元に戻せません」の断り書きも残っていない",
     countOf(appCode, "元に戻せません") === 0,
     `${countOf(appCode, "元に戻せません")}件`);
-  check("46 B-2 帯の一手は「元に戻す」(リード・計測の2箇所)",
-    countOf(appCode, 'actionLabel: "元に戻す",') === 2,
+  // 【便G(D4)2026-09-16 で 2 → 3】目安の削除も同じ帯の「元に戻す」を通る(検証51 が中身を見る)。
+  check("46 B-2 帯の一手は「元に戻す」(リード・計測・目安の3箇所)",
+    countOf(appCode, 'actionLabel: "元に戻す",') === 3,
     `${countOf(appCode, 'actionLabel: "元に戻す",')}件`);
   {
     const at = appCode.indexOf("const deleteReedsWithUndo = (ids, label) => {");
@@ -23162,10 +23183,11 @@ console.log("\n========== 検証50: 便F リード個体詳細・比較タブ ==
     check("50.1 R10 枠のカードは6枚だけ(個体詳細2 + 推移1 + 指標カード1 + 計測詳細2)",
       (app50.match(/className="card card-outline"/g) || []).length === 6,
       `${(app50.match(/className="card card-outline"/g) || []).length}枚`);
+    // 【便G(D4)2026-09-16 で素の card が 4 → 5 枚】My Data の一番下に「目安」のカードが増えた。
     check("50.1 R10 他の画面のカードは card-outline を名乗っていない(影のまま)",
       (app50.match(/className="card(?: [a-z-]+)*"/g) || [])
         .filter((t) => !t.includes("card-outline")).sort().join(" | ")
-        === "className=\"card card-accent\" | className=\"card card-list\" | className=\"card no-top-rule\" | className=\"card\" | className=\"card\" | className=\"card\" | className=\"card\"",
+        === "className=\"card card-accent\" | className=\"card card-list\" | className=\"card no-top-rule\" | className=\"card\" | className=\"card\" | className=\"card\" | className=\"card\" | className=\"card\"",
       (app50.match(/className="card(?: [a-z-]+)*"/g) || []).filter((t) => !t.includes("card-outline")).sort().join(" | "));
     // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)。
     for (const [f, dc] of [["ReedDetail.dc.html", reedDc], ["SessionDetail.dc.html", sessDc]]) {
@@ -23417,6 +23439,292 @@ console.log("\n========== 検証50: 便F リード個体詳細・比較タブ ==
     check("50.8 R18 正典の比較画面も★一覧の罫を打ち消してある(実装だけ先に動かしていない)",
       /class="srow" style="margin-top:16px;padding-top:0;border-bottom:none"/.test(
         readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8")));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証51: 便G データタブ(D1〜D4)
+//
+// 出どころ: docs/superpowers/plans/2026-09-16-device-feedback.md 便G
+// (本人裁定⑥「練習時間 = 計測タブで音を感知していたフレームの合計時間」)。
+//
+// 【この節が名乗れないこと】(罠1)
+//   ・**練習時間の数字が本人の体感と合うか。** ノイズゲートの閾値しだいで、実機の本人しか言えない。
+//     ここが見るのは「発音の判定が、既に『音あり』として扱っている基準(pitchCents)と同じ」ことと、
+//     式(発音フレーム数 × 間隔の中央値)が実行で成り立つことだけ
+//   ・**累計カードが押せると読めるか。** ▾ は PickChevron(--c-ink-3)を濃紺の上に置いている。
+//     コントラストの体感は実機待ち
+//   ・**コミュニティの順位が実際に開くか。** 参加済みの端末が要る(参加は押さない)。
+//     ここでは App → CommunityTab → CommunityTabBody → JoinedView の配線の綴りだけを見る
+//   ・**「元に戻す」5秒の体感**(便B と同じ)
+//
+// 【綴りを数える検査はコメントを剥がしてから】この節は全部 codeOf() を通してから見る。
+// 正典(.dc.html / .mjs / .html)も HTML コメントを落としてから数える。
+// ============================================================
+console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
+{
+  const app51 = codeOf(src);
+  const myData51 = codeOf(srcOfFn(src, "MyDataSection"));
+  const sheet51 = codeOf(srcOfFn(src, "MyDataStockSheet"));
+  const stock51 = codeOf(extractFunction("myDataStock"));
+  const lab51 = codeOf(srcOfFn(src, "AnalysisLabView"));
+  // MyDataPage は codeOf を通さない: 隠しファイル入力の accept="audio/*,video/*" の「/*」を
+  // codeOf がブロックコメントの開始と読み、直後の <MyDataSection …/> を丸ごと消してしまう
+  // (BottomSheet の注記と同じ罠)。この関数の中の呼び出しの props にコメントは無い。
+  const page51 = srcOfFn(src, "MyDataPage");
+  const measure51 = codeOf(srcOfFn(src, "MeasureView"));
+  const reedSheet51 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const sounding51 = codeOf(readFileSync(join(__dirname, "..", "src", "soundingSec.js"), "utf8"));
+  const comm51 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"));
+  const gen51 = codeOf(readFileSync(join(__dirname, "..", "design", "canvas", "generate.mjs"), "utf8"));
+  const noHtmlComment = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
+  const s1 = noHtmlComment(readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8"));
+  const s1o = noHtmlComment(readFileSync(join(__dirname, "..", "design", "canvas", "S1open.dc.html"), "utf8"));
+  const ns51 = noHtmlComment(readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8"));
+  const ds51 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const countIn = (s, re) => (s.match(re) || []).length;
+  // 「<X」から最初の「/>」まで(呼び出しの props)。
+  const callOf = (code, tag) => {
+    const i = code.indexOf(`<${tag}`);
+    return i < 0 ? "" : code.slice(i, code.indexOf("/>", i));
+  };
+  check("51.0 便G の走査対象を取れている(空回りしていない)",
+    myData51.length > 6000 && sheet51.length > 800 && stock51.length > 150 && lab51.length > 3000
+    && page51.length > 800 && measure51.length > 6000 && reedSheet51.length > 2000
+    && sounding51.length > 600 && comm51.length > 20000 && gen51.length > 30000
+    && s1.length > 5000 && s1o.length > 5000 && ns51.length > 20000 && ds51.length > 50000,
+    `myData=${myData51.length} sheet=${sheet51.length} stock=${stock51.length} sounding=${sounding51.length} comm=${comm51.length}`);
+
+  // --- 51.1 D1 「計測時間」→「練習時間」(音を感知していた時間の累計) -----------------
+  // 【変異】myDataStock を sessionDurationSec に戻す / ラベルを「計測時間」に戻す /
+  //         正典だけ「計測時間」に戻す / 発音の判定を pitchHz にする → 落ちる。
+  {
+    check("51.1 D1 src/soundingSec.js が sessionSoundingSec を export している",
+      /export function sessionSoundingSec\(session\) \{/.test(sounding51));
+    check("51.1 D1 App.jsx はそれを import して使う(写しを作らない)",
+      /import \{ sessionSoundingSec \} from "\.\/soundingSec\.js";/.test(src)
+      && countIn(app51, /function sessionSoundingSec/g) === 0);
+    check("51.1 D1 myDataStock は sessionSoundingSec を足す(sessionDurationSec は 0 回)",
+      countIn(stock51, /sessionSoundingSec\(/g) === 1 && countIn(stock51, /sessionDurationSec\(/g) === 0,
+      `sounding ${countIn(stock51, /sessionSoundingSec\(/g)} / duration ${countIn(stock51, /sessionDurationSec\(/g)}`);
+    check("51.1 D1 sessionDurationSec / sessionDurationLabel(一覧の m:ss)は残っている(消しすぎていない)",
+      /function sessionDurationSec\(session\) \{/.test(app51)
+      && /const t = sessionDurationSec\(session\);/.test(codeOf(extractFunction("sessionDurationLabel"))));
+    // 発音の判定 = **既に「音あり」として扱っている基準**に揃える。
+    // ライブ経路のフレームは pitchHz に MPM の基音をそのまま持つ(ゲートを通っていなくても値が残る)ので、
+    // pitchHz では「音を感知していた」にならない。pitchCents は両経路とも sounding のときだけ入る。
+    check("51.1 D1 発音の判定は pitchCents(取り込みの hasSound と同じ基準)",
+      /const c = frame\?\.pitchCents;/.test(sounding51)
+      && !/pitchHz/.test(codeOf(sounding51.slice(sounding51.indexOf("export function isSoundingFrame"), sounding51.indexOf("export function frameIntervalSec"))))
+      && /const hasSound = frames\.some\(\(f\) => f\.pitchCents !== null && f\.pitchCents !== undefined\);/.test(app51));
+    check("51.1 D1 (根拠)ライブ経路の pitchHz はゲートを通らなくても値を持つ / 取り込みは sounding のときだけ",
+      /pitchHz: f0,/.test(app51) && /pitchHz: sounding \? f0 : null,/.test(app51)
+      && /const pitchCentsUnified = noteNow \? noteNow\.centsExact : null;/.test(app51)
+      && /const noteNow = sounding \? freqToNote\(f0, effectiveTuningRef\.current\) : null;/.test(app51));
+    // **実行で確かめる。** 式 = 発音フレーム数 × 隣り合う t の差の中央値。
+    {
+      const on = (t) => ({ t, pitchHz: 440, pitchCents: 2.5 });
+      const off = (t) => ({ t, pitchHz: null, pitchCents: null });
+      const gated = (t) => ({ t, pitchHz: 442, pitchCents: null });
+      const uneven = [on(0), on(0.1), on(0.2), off(0.9), off(1.0), off(1.1)];
+      check("51.1 D1 実行: 間隔は隣り合う t の差の中央値(0.1, 0.1, 0.7, 0.1, 0.1 → 0.1。平均 0.22 ではない)",
+        Math.abs(frameIntervalSec(uneven) - 0.1) < 1e-9, String(frameIntervalSec(uneven)));
+      check("51.1 D1 実行: 練習時間 = 発音3フレーム × 0.1 = 0.3(録音の長さ 1.1 ではない)",
+        Math.abs(sessionSoundingSec({ frames: uneven }) - 0.3) < 1e-9, String(sessionSoundingSec({ frames: uneven })));
+      check("51.1 D1 実行: 発音フレームが 0 なら 0(録音の長さがあっても数えない)",
+        sessionSoundingSec({ frames: [off(0), off(0.1), off(0.2)] }) === 0);
+      check("51.1 D1 実行: frames 無し / 1件 / t の差が取れない → 0",
+        sessionSoundingSec(null) === 0 && sessionSoundingSec({ frames: [] }) === 0
+        && sessionSoundingSec({ frames: [on(0)] }) === 0 && sessionSoundingSec({ frames: [on(1), on(1)] }) === 0);
+      check("51.1 D1 実行: ゲートを通っていないフレーム(pitchHz あり・pitchCents なし)は数えない",
+        !isSoundingFrame(gated(0)) && Math.abs(sessionSoundingSec({ frames: [gated(0), gated(0.1), on(0.2), gated(0.3)] }) - 0.1) < 1e-9);
+    }
+    // 綴り。利用者に見える「計測時間」は 0、「練習時間」は実装と正典の両方にある。
+    for (const [name, body] of [["App.jsx", app51], ["S1.dc.html", s1], ["S1open.dc.html", s1o],
+      ["generate.mjs", gen51], ["north-star-measure.html", ns51], ["DESIGN-SYSTEM.md", ds51]]) {
+      check(`51.1 D1 ${name} に「計測時間」が 0 件(コメントを剥がして数える)`,
+        countIn(body, /計測時間/g) === 0, `${countIn(body, /計測時間/g)}件`);
+    }
+    for (const [name, body] of [["App.jsx", app51], ["S1.dc.html", s1], ["S1open.dc.html", s1o],
+      ["generate.mjs", gen51], ["DESIGN-SYSTEM.md", ds51]]) {
+      check(`51.1 D1 ${name} に「練習時間」がある(実装だけ / 正典だけ先に動かしていない)`,
+        countIn(body, /練習時間/g) >= 1, `${countIn(body, /練習時間/g)}件`);
+    }
+    check("51.1 D1 正典 S1 の単位は「件」(2026/09/09 本人裁定「数は計測◯件」。実装と同じ)",
+      />46<span[^>]*>件<\/span>/.test(s1) && />46<span[^>]*>件<\/span>/.test(s1o));
+  }
+
+  // --- 51.2 D2 累計カードをタップ → 定義の解説 -----------------------------------
+  // 【変異】累計カードを <div> に戻す / ▾ を外す / シートの綴りをカードと別に書く /
+  //         シートに4行目の文言を足す → 落ちる。
+  {
+    const cells = new Function(`${extractConst("MY_DATA_STOCK_CELLS")} return MY_DATA_STOCK_CELLS;`)();
+    check("51.2 D2 累計カードは <button type=\"button\">(押すと定義のシートが開く)",
+      /<button\s+type="button"\s+onClick=\{\(\) => setStockSheetOpen\(true\)\}\s+aria-expanded=\{stockSheetOpen\}[\s\S]{0,200}?className="card card-accent"/.test(myData51));
+    const stockCard = myData51.slice(myData51.indexOf('className="card card-accent"'), myData51.indexOf("</button>", myData51.indexOf('className="card card-accent"')));
+    check("51.2 D2 押せることを返す ▾(PickChevron)がカードの中に1つ(R3)",
+      stockCard.length > 500 && countIn(stockCard, /<PickChevron \/>/g) === 1 && countIn(myData51, /<PickChevron \/>/g) === 1,
+      `カードの中 ${countIn(stockCard, /<PickChevron \/>/g)} / MyDataSection 全体 ${countIn(myData51, /<PickChevron \/>/g)}`);
+    check("51.2 D2 数字の大きさ・並びは D-10 §2.1 のまま(26px / gap 10 / marginTop 10 / nowrap)",
+      /fontSize: 26, lineHeight: 1\.1, whiteSpace: "nowrap"/.test(stockCard)
+      && /display: "flex", alignItems: "flex-start", gap: 10, marginTop: 10/.test(stockCard));
+    check("51.2 D2 ボタン化で .card の作法を殺していない(インラインは width / display / textAlign / cursor だけ)",
+      /style=\{\{ marginTop: 0, width: "100%", display: "block", textAlign: "left", cursor: "pointer" \}\}/.test(myData51)
+      && !/padding|background|border|boxShadow/.test((/className="card card-accent"\s*\r?\n\s*style=\{\{([^}]*)\}\}/.exec(myData51) || ["", ""])[1]));
+    check("51.2 D2 3つの欄は1つの配列(key = hours / sessions / notes)",
+      Array.isArray(cells) && cells.map((c) => c.key).join(",") === "hours,sessions,notes", JSON.stringify(cells.map((c) => c.key)));
+    check("51.2 D2 ラベルは「練習時間 / 計測件数 / 計測音」・単位は「時間 / 件 / 音」",
+      cells.map((c) => c.label).join(",") === "練習時間,計測件数,計測音" && cells.map((c) => c.unit).join(",") === "時間,件,音",
+      cells.map((c) => `${c.label}(${c.unit})`).join(" "));
+    check("51.2 D2 定義は3つとも短い1文(about。40字以内・空でない)",
+      cells.every((c) => typeof c.about === "string" && c.about.length > 0 && c.about.length <= 40),
+      cells.map((c) => c.about).join(" / "));
+    check("51.2 D2 定義の文は凍結仕様の3文(計測音は noteEvents の実態に合わせて「検出した音」)",
+      cells[0].about === "計測タブで音を感知していた時間の合計" && cells[1].about === "保存した計測の数"
+      && cells[2].about === "計測の中で検出した音の数");
+    // **カードとシートが同じ配列を読む** = 綴りが2箇所で食い違えない。
+    check("51.2 D2 カードとシートの両方が MY_DATA_STOCK_CELLS を map する(綴りを2箇所に持たない)",
+      countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g) === 2
+      && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(stockCard) && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(sheet51)
+      && /\{z\.label\}/.test(stockCard) && /\{z\.label\}/.test(sheet51) && /\{z\.about\}/.test(sheet51),
+      `${countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g)}箇所`);
+    check("51.2 D2 シートは BottomSheet(器を増やしていない)。aria-label は「累計の定義」",
+      /<BottomSheet ariaLabel="累計の定義" onClose=\{onClose\}>/.test(sheet51)
+      && countIn(app51, /ariaLabel="累計の定義"/g) === 1);
+    // 説明は3行だけ。**他の文言を足さない**: シートの中の日本語のテキストノードは主要動作の語だけ。
+    const texts = [...sheet51.matchAll(/>\s*([^<>{}]*?[぀-ヿ一-鿿][^<>{}]*?)\s*</g)].map((m) => m[1].trim());
+    check("51.2 D2 シートに固定の文言は「他の人と比べてみる」だけ(3行の定義は配列から。他の文言を足していない)",
+      texts.join("|") === "他の人と比べてみる", texts.join(" | ") || "0件");
+    check("51.2 D2 綴りは「計測」(シートと配列に「セッション」が無い)",
+      !/セッション/.test(sheet51) && cells.every((c) => !/セッション/.test(c.label + c.about)));
+    check("51.2 D2 定義の行の文字はトークン(--fs-sm / --fs-xs / --c-ink / --c-ink-2)。12px 未満が無い",
+      /fontSize: "var\(--fs-sm\)", fontWeight: 600, color: "var\(--c-ink\)"/.test(sheet51)
+      && /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-2\)"/.test(sheet51)
+      && !/fontSize: (\d|1[01])\b/.test(sheet51));
+  }
+
+  // --- 51.3 D3 「他の人と比べてみる」→ コミュニティへ -------------------------------
+  // 【変異】setTopTab("community") を消す / landTab を渡さない / CommunityTabBody が受け口を
+  //         持たない / 初回の作成の "data" 規則を壊す → 落ちる。
+  {
+    check("51.3 D3 「他の人と比べてみる」は App.jsx に1つ(定義のシートの主要動作)",
+      countIn(app51, /他の人と比べてみる/g) === 1 && /他の人と比べてみる/.test(sheet51),
+      `${countIn(app51, /他の人と比べてみる/g)}件`);
+    check("51.3 D3 押すとシートを閉じてから行き先へ(onClose → onCompareOthers)",
+      /onClick=\{\(\) => \{ onClose\(\); onCompareOthers\(\); \}\}/.test(sheet51));
+    // 主要動作の作法は追加シート(R5)と同じ4つ。値はここで発明していない。
+    // 追加シートは disabled のとき地を --c-line-strong に落とす(押せる状態の地が --c-accent)。
+    const PRIMARY = [/width: "100%", height: ACTION_LG_PX,/, /borderRadius: "var\(--r-pill\)", border: "none",/,
+      /background: (?:disabled \? "var\(--c-line-strong\)" : )?"var\(--c-accent\)"/, /fontSize: "var\(--fs-md\)", fontWeight: 700/];
+    check("51.3 D3 ボタンは追加シートの主要動作と同じ作法(幅いっぱい / ACTION_LG_PX / --r-pill / 塗り --c-accent / --fs-md 700)",
+      PRIMARY.every((re) => re.test(sheet51)) && PRIMARY.every((re) => re.test(reedSheet51)),
+      PRIMARY.map((re) => `${re.test(sheet51) ? "o" : "x"}/${re.test(reedSheet51) ? "o" : "x"}`).join(" "));
+    check("51.3 D3 App: 行き先は「順位の子タブでコミュニティを開く」の1関数(setTopTab(\"community\") を持つ)",
+      /const openCommunityRank = useCallback\(\(\) => \{\s*setCommunityLandTab\("rank"\);\s*setTopTab\("community"\);\s*\}, \[\]\);/.test(app51)
+      && countIn(app51, /setTopTab\("community"\)/g) >= 1,
+      `setTopTab("community") ${countIn(app51, /setTopTab\("community"\)/g)}箇所`);
+    check("51.3 D3 App: 開く子タブは state 1つ(communityLandTab)。受け取ったら null に戻す口がある",
+      /const \[communityLandTab, setCommunityLandTab\] = useState\(null\);/.test(app51)
+      && /const clearCommunityLandTab = useCallback\(\(\) => setCommunityLandTab\(null\), \[\]\);/.test(app51));
+    const commCall = callOf(app51, "CommunityTab");
+    check("51.3 D3 <CommunityTab> に landTab と onLanded の両方を渡している",
+      commCall.length > 200 && /landTab=\{communityLandTab\}/.test(commCall) && /onLanded=\{clearCommunityLandTab\}/.test(commCall),
+      commCall.replace(/\s+/g, " ").slice(0, 160));
+    check("51.3 D3 props の道: App → AnalysisLabView → MyDataPage → MyDataSection → MyDataStockSheet",
+      /onCompareOthers=\{openCommunityRank\}/.test(callOf(app51, "AnalysisLabView"))
+      && /onCompareOthers=\{onCompareOthers\}/.test(callOf(lab51, "MyDataPage"))
+      && /onCompareOthers=\{onCompareOthers\}/.test(callOf(page51, "MyDataSection"))
+      && /onCompareOthers=\{onCompareOthers\}/.test(callOf(myData51, "MyDataStockSheet")));
+    // CommunityTab.jsx の受け口。
+    check("51.3 D3 CommunityTab.jsx: 既定の export が landTab と onLanded を受ける(既定は null)",
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} \/>/.test(comm51));
+    check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null \}\)/.test(comm51)
+      && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
+      && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
+    check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
+      /initialTab=\{landTab\}/.test(comm51) && /initialTab = "data"/.test(comm51));
+    check("51.3 D3 参加後の初回は \"data\" のまま(onSubmit の setLandTab(profile ? \"me\" : \"data\") を壊していない)",
+      /setLandTab\(profile \? "me" : "data"\);/.test(comm51));
+    const joinBranch = comm51.slice(comm51.indexOf('if (phase === "notJoined")'), comm51.indexOf('if (phase === "form")'));
+    check("51.3 D3 未参加(JoinIntro)の枝は landTab を読まない(参加を押させる導線は既存どおり)",
+      joinBranch.length > 200 && !/landTab/.test(joinBranch) && /<JoinIntro/.test(joinBranch));
+  }
+
+  // --- 51.4 D4 目安の選択・削除を My Data の一番下へ ------------------------------
+  // 【変異】目安カードを消す / 一番下でない位置に置く / 削除を undo なしの即時削除にする /
+  //         行を押して解除するトグルに戻す / window.confirm を使う → 落ちる。
+  {
+    const idealAt = myData51.indexOf(">目安</div>");
+    const cardsAt = [...myData51.matchAll(/className="card(?: [a-z-]+)*"/g)].map((m) => m.index);
+    check("51.4 D4 MyDataSection に見出し「目安」の .card がある",
+      idealAt > 0 && /className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n\s*<div className="sans"[^>]*>目安<\/div>/.test(myData51));
+    check("51.4 D4 その .card は MyDataSection の**最後**のカード(音の傾向カードより後)",
+      cardsAt.length >= 3 && idealAt > cardsAt[cardsAt.length - 1] && idealAt > myData51.indexOf("<NoteMatrixBlock"),
+      `目安 @${idealAt} / 最後のカード @${cardsAt[cardsAt.length - 1]}`);
+    check("51.4 D4 0件のときはカードごと出さない",
+      /\{idealProfiles\.length > 0 && \(\s*\r?\n\s*<div className="card"/.test(myData51));
+    check("51.4 D4 行は A型 .ctl-state で、状態は aria-pressed(便D で消す前の行と同じ作法)",
+      /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(myData51)
+      && /color: selectedIdealId === p\.id \? "var\(--c-accent\)" : "var\(--c-ink\)"/.test(myData51));
+    check("51.4 D4 行を押すとその id を選ぶ。**もう一度押しても解除しない**(トグルを移していない)",
+      /setSelectedIdealId\(p\.id\); \}\}/.test(myData51) && !/setSelectedIdealId\(\(cur\)/.test(myData51)
+      && !/\? null : p\.id/.test(myData51));
+    check("51.4 D4 ゴミ箱は onDeleteIdeal(p.id)。行の選択と分けるのに stopPropagation を使わない(押した要素で除く)",
+      /onClick=\{\(\) => onDeleteIdeal\(p\.id\)\}/.test(myData51)
+      && /if \(e\.target\?\.closest\?\.\("button"\)\) return; setSelectedIdealId\(p\.id\);/.test(myData51)
+      && !/stopPropagation/.test(myData51));
+    check("51.4 D4 ゴミ箱の絵柄と当たり判定は一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)",
+      /style=\{\{ \.\.\.TAP_BUTTON_RESET, minWidth: "var\(--tap-min\)", justifyContent: "center", flexShrink: 0, color: "var\(--c-ink-2\)" \}\}\s*\r?\n\s*>\s*\r?\n\s*<Trash2 size=\{14\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(myData51));
+    check("51.4 D4 MyDataSection は目安の配列を直接書き換えない(setIdealProfiles を持たない)",
+      !/setIdealProfiles/.test(myData51) && !/window\.confirm/.test(myData51));
+    // App 側: 即時削除 + 帯の「元に戻す」。選択の退避も戻す。
+    const del = (() => {
+      const i = app51.indexOf("const deleteIdealProfileWithUndo = (id) => {");
+      return i < 0 ? "" : app51.slice(i, app51.indexOf("\n  };", i));
+    })();
+    check("51.4 D4 App: 削除は deleteIdealProfileWithUndo の1関数(undo なしの deleteIdealProfile は無い)",
+      del.length > 300 && !/const deleteIdealProfile = /.test(app51) && countIn(app51, /deleteIdealProfile\(/g) === 0,
+      `${del.length}文字`);
+    check("51.4 D4 App: 押した瞬間に消し(setIdealProfiles の filter)、帯に「元に戻す」を出す(showNotice + undo)",
+      /setIdealProfiles\(\(prev\) => prev\.filter\(\(p\) => p\.id !== id\)\);/.test(del)
+      && /showNotice\(\{/.test(del) && /actionLabel: "元に戻す",/.test(del) && /undo: \(\) => \{/.test(del));
+    check("51.4 D4 App: 元に戻すと配列に足し戻す(二重に戻さない)。選択中だったら選択も戻す",
+      /setIdealProfiles\(\(prev\) => \(prev\.some\(\(p\) => p\.id === id\) \? prev : \[\.\.\.prev, removed\]\)\);/.test(del)
+      && /if \(wasSelected\) setSelectedIdealId\(id\);/.test(del)
+      && /if \(wasSelected\) setSelectedIdealId\(null\);/.test(del));
+    check("51.4 D4 App: 帯は App の根の1枚(新しい通知面を作っていない)。window.confirm は App / CommunityTab に 0",
+      countIn(app51, /<ActionNotice /g) === 1 && countIn(app51, /window\.confirm/g) === 0 && countIn(comm51, /window\.confirm/g) === 0,
+      `ActionNotice ${countIn(app51, /<ActionNotice /g)} / confirm ${countIn(app51, /window\.confirm/g)}+${countIn(comm51, /window\.confirm/g)}`);
+    check("51.4 D4 props の道: App → AnalysisLabView → MyDataPage → MyDataSection(値・選択・setter・undo 付き削除)",
+      /idealProfiles=\{idealProfiles\} selectedIdealId=\{selectedIdealId\} setSelectedIdealId=\{setSelectedIdealId\}/.test(callOf(app51, "AnalysisLabView"))
+      && /deleteIdealProfileWithUndo=\{deleteIdealProfileWithUndo\}/.test(callOf(app51, "AnalysisLabView"))
+      && /onDeleteIdeal=\{deleteIdealProfileWithUndo\}/.test(callOf(lab51, "MyDataPage"))
+      && /idealProfiles=\{idealProfiles\} selectedIdealId=\{selectedIdealId\} setSelectedIdealId=\{setSelectedIdealId\}/.test(callOf(page51, "MyDataSection"))
+      && /onDeleteIdeal=\{onDeleteIdeal\}/.test(callOf(page51, "MyDataSection")));
+    check("51.4 D4 計測タブ(MeasureView)には目安の一覧が戻っていない",
+      !/idealProfiles\.map\(/.test(measure51) && !/idealProfiles=/.test(callOf(app51, "MeasureView")));
+    // 正典。My Data の S1 / S1open に「目安」カードが**最後**にあり、累計カードに ▾ がある。
+    for (const [name, dc] of [["S1.dc.html", s1], ["S1open.dc.html", s1o]]) {
+      const at = dc.indexOf(">目安</div>");
+      // sCard(padding 16px)だけを数える。ページ末尾の注記の箱(padding 10px 12px)は画面の要素ではない。
+      const lastCardAt = Math.max(...[...dc.matchAll(/background: var\(--c-surface\); border-radius: 12px; box-shadow: [^;]+; padding: 16px">/g)].map((m) => m.index));
+      check(`51.4 D4 正典 ${name} に「目安」のカードがあり、それが最後のカード`,
+        at > 0 && lastCardAt > 0 && at > lastCardAt, `目安 @${at} / 最後のカード @${lastCardAt}`);
+      check(`51.4 D4 正典 ${name} の累計カードに ▾ がある(押せることを返す)`,
+        /累計<\/div>\s*<span aria-hidden="true"[^>]*>▾<\/span>/.test(dc));
+      check(`51.4 D4 正典 ${name} の目安の行は A型(枠 --c-line-strong / 選択中 --c-accent)+ ゴミ箱 44pt`,
+        /border: 1px solid var\(--c-accent\); border-radius: 8px/.test(dc) && /border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(dc)
+        && countIn(dc, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 2);
+    }
+    check("51.4 D4 生成器 generate.mjs に sIdealCard があり、S1 / S1open の末尾に置いている(片方だけ直していない)",
+      /function sIdealCard\(\)/.test(gen51) && countIn(gen51, /sIdealCard\(\)/g) === 3
+      && /sTrendCard\(10\), sGap, sIdealCard\(\)\]/.test(gen51) && /sTrendCard\(10\), sGap,\s*sIdealCard\(\),\s*\]/.test(gen51),
+      `${countIn(gen51, /sIdealCard\(\)/g)}箇所`);
+    check("51.4 D4 DESIGN-SYSTEM に目安のカード(My Data の最後)と練習時間の定義が書いてある",
+      /目安のカード（便G D4/.test(ds51) && /累計の時間は「練習時間」/.test(ds51));
   }
   console.log("  -> done");
 }

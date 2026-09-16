@@ -49,14 +49,17 @@
       </div>
       <div style="padding-top: 8px">
         <div style="background: var(--c-surface); border-radius: 12px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 16px">
-        <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">累計</div>
+        <div style="display: flex; align-items: center; justify-content: space-between">
+          <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">累計</div>
+          <span aria-hidden="true" style="font-size: 12px; color: var(--c-ink-3); line-height: 1">▾</span>
+        </div>
         <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 10px">
           <div style="flex: 1; min-width: 0">
             <div style="font-family: var(--font-num); font-weight: 600; color: var(--c-ink); letter-spacing: -.02em; font-size: 26px; line-height: 1.1; white-space: nowrap">12.5<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">時間</span></div>
-            <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 3px">計測時間</div>
+            <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 3px">練習時間</div>
           </div>
           <div style="flex: 1; min-width: 0">
-            <div style="font-family: var(--font-num); font-weight: 600; color: var(--c-ink); letter-spacing: -.02em; font-size: 26px; line-height: 1.1; white-space: nowrap">46<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">回</span></div>
+            <div style="font-family: var(--font-num); font-weight: 600; color: var(--c-ink); letter-spacing: -.02em; font-size: 26px; line-height: 1.1; white-space: nowrap">46<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">件</span></div>
             <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 3px">計測件数</div>
           </div>
           <div style="flex: 1; min-width: 0">
@@ -346,6 +349,20 @@
           <text x="275.19" y="196" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">G5</text>
           </svg></div>
         <div style="font-size: 11px; color: var(--c-ink-3); padding-top: 10px">目安未設定</div>
+      </div>
+        <div style="height: 12px"></div>
+        <div style="background: var(--c-surface); border-radius: 12px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); padding: 16px">
+        <div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid var(--c-accent); border-radius: 8px">
+            <div style="font-size: 12px; color: var(--c-accent)">先生の音<span style="font-size: 12px; color: var(--c-ink-2); margin-left: 6px">A.Sax</span></div>
+            <span style="min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid var(--c-line-strong); border-radius: 8px">
+            <div style="font-size: 12px; color: var(--c-ink)">8/24 の自分<span style="font-size: 12px; color: var(--c-ink-2); margin-left: 6px">A.Sax</span></div>
+            <span style="min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></span>
+          </div>
+        </div>
       </div>
       </div>
       <div style="margin-top: 16px; padding: 10px 12px; background: var(--c-surface); border-radius: 12px; box-shadow: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06); font-size: 11px; color: var(--c-ink-2); line-height: 1.6"><b>8/24 を押した状態。</b>カレンダーと「すべてのセッション」の<b>間に</b>その日のセッションが開き、<b>下のカード(すべてのセッション・折れ線)がそのぶん下へ押し出される</b>。<br><b>動き</b>: 開くときは高さ 0 → 実寸へ(200ms・ease-out)、閉じるときは逆。押した日付は紺の塗りになる。<b>他の場所をタップすると閉じる</b>(カレンダーの外側・同じ日付をもう一度・別の日付を押せばその日に切り替わる)。<br><b>最大3件</b>。4件目からは<b>この枠の中でスクロール</b>する(枠の高さは3件ぶんで固定)。件数は右上の「4 件」が言う。<br>この絵は4件のうち3件ぶんが見えている状態。</div>

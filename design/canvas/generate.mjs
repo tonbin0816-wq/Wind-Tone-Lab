@@ -1039,17 +1039,43 @@ const sSectionHead = (t, right) => `<div style="display: flex; align-items: base
       </div>`;
 
 // ---- サマリー -----------------------------------------------------------
-// S1(採用): 本人が綴りを「累計 / 計測時間 / 計測件数 / 計測音」へ直した
+// S1(採用): 本人が綴りを「累計 / 時間 / 計測件数 / 計測音」へ直した。
+// 【D1 2026-09-16 実機の指摘・本人裁定⑥】時間の綴りは「練習時間」= 音を感知していた時間の合計
+// (録音の長さではない)。件数の単位は 2026/09/09 本人裁定「数は計測◯件」の「件」
+// (実装・DESIGN-SYSTEM と同じ。ここだけ「回」のままだった)。
+// 【D2 / R3】累計のカードは**押せる**(定義の解説のシートが開く)ので、右上に ▾(実装の PickChevron
+// = .chev 12px / --c-ink-3)を置いて押せることを返す。数字の大きさ・並びは動かしていない。
 function sStatsThree() {
   const cell = (v, u, l) => `          <div style="flex: 1; min-width: 0">
             <div style="${sNum}; font-size: 26px; line-height: 1.1; white-space: nowrap">${v}<span style="font-size: 12px; font-weight: 400; color: var(--c-ink-3); margin-left: 2px; letter-spacing: 0">${u}</span></div>
             <div style="font-size: 10px; color: var(--c-ink-3); margin-top: 3px">${l}</div>
           </div>`;
-  return sCard(`${sEyebrow("累計")}
+  return sCard(`<div style="display: flex; align-items: center; justify-content: space-between">
+          ${sEyebrow("累計")}
+          <span aria-hidden="true" style="font-size: 12px; color: var(--c-ink-3); line-height: 1">▾</span>
+        </div>
         <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 10px">
-${cell("12.5", "時間", "計測時間")}
-${cell("46", "回", "計測件数")}
+${cell("12.5", "時間", "練習時間")}
+${cell("46", "件", "計測件数")}
 ${cell("3,120", "音", "計測音")}
+        </div>`);
+}
+
+// ---- 目安(便G D4)---------------------------------------------------------
+// 【D4 2026-09-16 実機の指摘】計測タブの詳細シートにあった「目安の選択・削除」を
+// **My Data の一番下**へ移した。行は A型(.ctl-state: 枠 --c-line-strong / 選択中は枠と字が
+// --c-accent / 地は透明)で、便D(M9)で消す前に詳細シートにあった行をそのまま写している。
+// 右端のゴミ箱は当たり判定 44pt(§5)。0件のときはこのカードごと出ない。
+const S_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
+function sIdealCard() {
+  const row = (name, sax, selected) => `          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid ${selected ? "var(--c-accent)" : "var(--c-line-strong)"}; border-radius: 8px">
+            <div style="font-size: 12px; color: ${selected ? "var(--c-accent)" : "var(--c-ink)"}">${name}<span style="font-size: 12px; color: var(--c-ink-2); margin-left: 6px">${sax}</span></div>
+            <span style="min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-2)">${S_TRASH}</span>
+          </div>`;
+  return sCard(`<div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+${row("先生の音", "A.Sax", true)}
+${row("8/24 の自分", "A.Sax", false)}
         </div>`);
 }
 // S2 / S3 は本人が綴りを元へ戻したので、そのまま(S1 の語彙を波及させない)
@@ -1192,8 +1218,8 @@ const sPage = (inner, note) => `<div style="width: 375px; background: var(--c-su
 
 // ---- S1(採用) 閉じた状態: 日付を押していないので、セッションは出ていない --------
 {
-  const inner = [sStatsThree(), sGap, sCalendarCard({ month: "2026/8", metaBeside: true, sel: null }), sGap, sAllSessions(), sGap, sTrendCard(10)].join("\n        ");
-  writeFileSync(OUT + "S1.dc.html", dcFile(sPage(inner, `<b>採用案の既定の姿</b>(日付を押していない状態)。<br>本人指示で<b>その日のセッションは常時表示をやめた</b>ので、ここには出ていない ── カレンダーのすぐ下は「すべてのセッション」、その下が折れ線。<br><b>カレンダーの月見出し</b>は yyyy/m。合計(3.7 時間 · 16 日)は月見出しの<b>右・下揃え</b>(baseline)。文字の大きさが違っても足元が1本に揃い、<b>月の綴りが伸びても重ならない</b>(見た目のズラしを使っていないため)。<br>日付を押した状態は右の「S1 日付を押した状態」。`)));
+  const inner = [sStatsThree(), sGap, sCalendarCard({ month: "2026/8", metaBeside: true, sel: null }), sGap, sAllSessions(), sGap, sTrendCard(10), sGap, sIdealCard()].join("\n        ");
+  writeFileSync(OUT + "S1.dc.html", dcFile(sPage(inner, `<b>採用案の既定の姿</b>(日付を押していない状態)。<br>本人指示で<b>その日のセッションは常時表示をやめた</b>ので、ここには出ていない ── カレンダーのすぐ下は「すべてのセッション」、その下が折れ線。<br><b>カレンダーの月見出し</b>は yyyy/m。合計(3.7 時間 · 16 日)は月見出しの<b>右・下揃え</b>(baseline)。文字の大きさが違っても足元が1本に揃い、<b>月の綴りが伸びても重ならない</b>(見た目のズラしを使っていないため)。<br>日付を押した状態は右の「S1 日付を押した状態」。<br><b>便G(2026-09-16 実機の指摘)</b>: 累計の時間は<b>「練習時間」</b>(音を感知していた時間の合計)。累計のカードは<b>押せる</b>(▾)── 押すと3つの定義と「他の人と比べてみる」のシートが出る。一番下に<b>「目安」</b>のカード(計測タブの詳細シートから移動。選択とゴミ箱。0件なら出ない)。`)));
   console.log("S1      採用案・閉じた状態");
 }
 
@@ -1206,7 +1232,8 @@ const sPage = (inner, note) => `<div style="width: 375px; background: var(--c-su
     sDayPanel(4),
     sGap,
     sAllSessions(), sGap,
-    sTrendCard(10),
+    sTrendCard(10), sGap,
+    sIdealCard(),
   ].join("\n        ");
   writeFileSync(OUT + "S1open.dc.html", dcFile(sPage(inner, `<b>8/24 を押した状態。</b>カレンダーと「すべてのセッション」の<b>間に</b>その日のセッションが開き、<b>下のカード(すべてのセッション・折れ線)がそのぶん下へ押し出される</b>。<br><b>動き</b>: 開くときは高さ 0 → 実寸へ(200ms・ease-out)、閉じるときは逆。押した日付は紺の塗りになる。<b>他の場所をタップすると閉じる</b>(カレンダーの外側・同じ日付をもう一度・別の日付を押せばその日に切り替わる)。<br><b>最大3件</b>。4件目からは<b>この枠の中でスクロール</b>する(枠の高さは3件ぶんで固定)。件数は右上の「4 件」が言う。<br>この絵は4件のうち3件ぶんが見えている状態。`)));
   console.log("S1open  採用案・日付を押した状態(3件 + スクロール)");

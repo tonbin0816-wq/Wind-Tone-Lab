@@ -82,11 +82,14 @@ const DELETE_PARTIAL_NOTICE =
 // 【スプライトはここに1つだけ置く】<use href="#ic-..."> は同じ文書の中にある
 // <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
 // どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal }) {
+// 【D3 2026-09-16 実機の指摘】landTab / onLanded = App から「開く子タブ」を渡す口
+// (My Data の「他の人と比べてみる」→ "rank")。受け取ったら onLanded で App 側を null に
+// 戻す(同じ値を2回押しても2回効くように)。普段は null で、何も変わらない。
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} />
     </>
   );
 }
@@ -304,7 +307,7 @@ export function BackupSheet({ onClose }) {
   );
 }
 
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -317,7 +320,20 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal }) {
   // 素直に書くと必ずデータタブに戻る ── フォームと JoinedView は別の要素なので、
   // 行き来のたびに JoinedView が作り直され、子タブの状態が初期値に戻るため。
   // 初回の作成だけは "data" のまま(作ったばかりの自分の欄より、まず中身を見せる)。
-  const [landTab, setLandTab] = useState("data");
+  // 【D3 2026-09-16】App から「開く子タブ」(landTabRequest)が来ていればそれで始める。
+  // このタブは topTab が community のときだけ描かれる(離れると消える)ので、来るのは
+  // いつも作り直しの直後 = JoinedView がまだ無い loading の間。JoinedView は initialTab を
+  // **初期値としてしか読まない**ので、その前に state を合わせておく必要がある。
+  const [landTab, setLandTab] = useState(landTabRequest || "data");
+  useEffect(() => {
+    if (!landTabRequest) return;
+    setLandTab(landTabRequest);
+    // 受け取ったので App 側の要求を消してもらう(次に同じ子タブを頼まれても効くように)。
+    if (onLanded) onLanded();
+  }, [landTabRequest, onLanded]);
+  // 未参加(JoinIntro)のときは landTab を読む相手が居ないので、何も起きない。参加して
+  // プロフィールを作ったあとは onSubmit の setLandTab(profile ? "me" : "data") が上書きする
+  // ── 「初回の作成は "data" のまま」の規則はそのまま。
 
   useEffect(() => {
     let alive = true;

@@ -14,6 +14,9 @@ import { buildAdoptedProfile } from "./community/idealDoc.js";
 // 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
 // firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
 import { alignIdealToMine } from "./community/align.js";
+// 【D1 2026-09-16】練習時間(音を感知していた時間)。My Data の累計とコミュニティの公開統計(便H)が
+// **同じ1関数**を読む。定義はあちらのファイルの冒頭。
+import { sessionSoundingSec } from "./soundingSec.js";
 // 【読み込み中の絵 2026/09/10 → 09/13】読み込みに合わせて輪が埋まる。
 // **この要素は firebase を import しない**(待たせている当のものを、待つ画面が
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
@@ -3195,6 +3198,18 @@ export default function WindToneLabPhaseMode() {
     setTopTab("analysis");
   }, []);
   const clearOpenSessionRequest = useCallback(() => setOpenSessionRequest(null), []);
+  // 【D3 2026-09-16 実機の指摘】My Data の累計の定義シートの「他の人と比べてみる」。
+  // 押すとコミュニティタブへ移り、**参加済みなら順位の子タブ**で開く(未参加なら既存どおり
+  // JoinIntro)。開く子タブは CommunityTab の中の state なので、根からは**開きたい子タブを
+  // 渡すだけ**にして、実際に開くのはあちら側(landTab)に任せる ── 帯の「開く」
+  // (openSessionRequest)と同じ形。受け取ったら onLanded で null に戻してもらう
+  // (同じ値を2回押しても2回効くように)。
+  const [communityLandTab, setCommunityLandTab] = useState(null);
+  const clearCommunityLandTab = useCallback(() => setCommunityLandTab(null), []);
+  const openCommunityRank = useCallback(() => {
+    setCommunityLandTab("rank");
+    setTopTab("community");
+  }, []);
   const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
   // 【F-59 本人指示】「pivotの集計条件や選択軸はページを移動して戻ってきても内容がキープ」。
   // AnalysisLabView は (a) タブを離れるとアンマウントされ (b) 下部ナビのタップごとに
@@ -4323,9 +4338,25 @@ export default function WindToneLabPhaseMode() {
     }
   }, [saxType, tuningHz, instrumentOffsetCents, temperature, selectedIdeal, selectedReedId, selectedPerformer, addSession, isAnalyzingUpload, noiseGateDb, requestWakeLock, releaseWakeLock, showNotice, openSessionFromNotice]);
 
-  const deleteIdealProfile = (id) => {
+  // 【D4 2026-09-16 実機の指摘】目安の削除は My Data の「目安」カードから。
+  // 【B-2 / R8 に揃える】確認を訊かずに**押した瞬間に消し**、帯で「元に戻す」を5秒だけ出す
+  // (deleteReedsWithUndo と同じ型。退避は showNotice が抱え、次の合図で捨てる)。
+  // 消した目安が選択中だったら選択も外し、戻したら選択も戻す(選ばれていた事実ごと退避する)。
+  // 戻し方は既にある口だけ: setIdealProfiles(usePersistedState)へ退避を足し戻す。
+  const deleteIdealProfileWithUndo = (id) => {
+    const removed = idealProfiles.find((p) => p.id === id);
+    if (!removed) return;
+    const wasSelected = selectedIdealId === id;
     setIdealProfiles((prev) => prev.filter((p) => p.id !== id));
-    if (selectedIdealId === id) setSelectedIdealId(null);
+    if (wasSelected) setSelectedIdealId(null);
+    showNotice({
+      text: `目安「${removed.name}」を削除しました`,
+      actionLabel: "元に戻す",
+      undo: () => {
+        setIdealProfiles((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, removed]));
+        if (wasSelected) setSelectedIdealId(id);
+      },
+    });
   };
 
   // 音名・セント誤差はレンダー時に実効基準ピッチ(基準Hz×個体差オフセット)で導出する。
@@ -4512,6 +4543,12 @@ export default function WindToneLabPhaseMode() {
           uploadNeedsTap={uploadNeedsTap} setUploadNeedsTap={setUploadNeedsTap}
           showNotice={showNotice}
           openSessionRequest={openSessionRequest} onOpenSessionRequestDone={clearOpenSessionRequest}
+          /* 【D3 / D4 2026-09-16】My Data の累計の定義シート → コミュニティの順位へ / 目安の一覧
+             (選択・削除)。目安は App の state なので、一覧側には値と setter と undo 付きの削除を
+             渡すだけ(あちらで setIdealProfiles を直接触らせない)。 */
+          onCompareOthers={openCommunityRank}
+          idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
+          deleteIdealProfileWithUndo={deleteIdealProfileWithUndo}
         />
       )}
       {topTab === "community" && (
@@ -4548,6 +4585,9 @@ export default function WindToneLabPhaseMode() {
                 保存と選択はここが行う。 */}
             <CommunityTab
               sessions={sessions} tuningHz={tuningHz}
+              /* 【D3】My Data の「他の人と比べてみる」から来たときに開く子タブ("rank")。
+                 受け取ったらあちらが onLanded で null に戻す。普段は null。 */
+              landTab={communityLandTab} onLanded={clearCommunityLandTab}
               onAdoptIdeal={({ aligned, theirIdeal, nickname }) => {
                 // 【ピッチの目標は自分の運指表から作る】相手の絶対周波数をそのまま
                 // 目標にすると、調弦(442/440)の違いぶんだけ常にずれて出る。
@@ -8460,8 +8500,9 @@ function MeasureView(props) {
             {/* 【M9/M10 2026-09-16 実機の指摘】詳細シートの中身は**1行だけ**にした。
                 消したもの: 倍音構成の棒グラフ / 「目安」のチェック / 音量・重心・HNR の
                 MetricCard 3枚 / 目安の一覧(選択・削除)。
-                目安の一覧は便G で My Data へ移すので、idealProfiles / selectedIdealId /
-                deleteIdealProfile の**定義は App に残してある**(この画面からの呼び出しだけ外した)。
+                目安の一覧は便G(D4)で My Data の一番下の「目安」カードへ移った。
+                idealProfiles / selectedIdealId の定義は App のまま、削除は
+                deleteIdealProfileWithUndo(即時 + 帯の「元に戻す」)になった。
                 左 = 音量表示(計測タブで音量 dB を出すかの切替) / 右 = 計測下限dB。
                 折り返さない(左は自然幅・右が余りを取る。375px の実測で 1行に収まる)。 */}
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
@@ -13217,15 +13258,17 @@ const MY_DATA_CARD_METRICS = ["pitchCentsSigned", "hnrDb", "spectralCentroidHz",
 // 【N-10 2026/08/17 本人指示】上部の「蓄積量の数字」(正典 案K の .stock = 46回 / 12.5時間 /
 // 3,120音)。母集団はヒーロー(旧)と同じ = 呼び出し側が渡す「奏者=自分 + 選択楽器 + 選択期間」。
 //   セッション数 … 渡された件数そのもの
-//   総演奏時間   … sessionDurationSec の合計(録音長そのものは保存されていないので、
-//                  一覧の m:ss と**同じ1箇所**から出す)
+//   練習時間     … 【D1 2026-09-16 実機の指摘・本人裁定⑥】sessionSoundingSec の合計
+//                  (**音を感知していたフレーム × フレーム間隔**。src/soundingSec.js)。
+//                  以前は sessionDurationSec(録音の長さ = 最後のフレームの t)を足していたが、
+//                  無音の待ち時間まで「練習した時間」に入っていた。録音の長さは一覧の m:ss
+//                  (sessionDurationLabel)が今までどおり出す ── 2つは別の値
 //   計測した音   … noteEvents(ノート区間分割。計測タブが「検出ノート」と呼んでいるもの)の合計。
 //                  noteEvents を持たない旧セッションは 0 として数える(新しい推定規則を作らない)
 function myDataStock(sessions) {
   let seconds = 0, noteCount = 0;
   for (const s of sessions || []) {
-    const sec = sessionDurationSec(s);
-    if (sec !== null) seconds += sec;
+    seconds += sessionSoundingSec(s);
     noteCount += Array.isArray(s?.noteEvents) ? s.noteEvents.length : 0;
   }
   return { sessionCount: (sessions || []).length, seconds, noteCount };
@@ -13243,6 +13286,55 @@ function myDataStockTexts(stock) {
     hours: hoursText(stock.seconds),
     notes: groupDigits(stock.noteCount),
   };
+}
+// 【D1 / D2 2026-09-16 実機の指摘】累計カードの3つの欄。**カードと定義のシートが同じ配列を読む**
+// ので、綴りが2箇所で食い違うことがない(key は myDataStockTexts の返す3つのキー)。
+//   label … カードのラベル。「練習時間」は本人裁定⑥(音を感知していた時間)。
+//           「計測件数」は 2026/09/09 本人裁定「数は計測◯件」(単位は件)。
+//   about … 定義のシートの1行。文は短く、3行だけ(他の文言を足さない)。
+//           計測音 = noteEvents の件数。noteEvents の1件は「音が始まってから
+//           ATTACK_WINDOW_MS(400ms)以上鳴り続けた区間」(計測タブが「検出ノート」と呼ぶもの。
+//           短すぎて途中で消えた音は数えない)。「判定できた音」ではなく「検出した音」と書く
+//           ── 音名が判定できたかどうかは見ていないため。
+const MY_DATA_STOCK_CELLS = [
+  { key: "hours", unit: "時間", label: "練習時間", about: "計測タブで音を感知していた時間の合計" },
+  { key: "sessions", unit: "件", label: "計測件数", about: "保存した計測の数" },
+  { key: "notes", unit: "音", label: "計測音", about: "計測の中で検出した音の数" },
+];
+// 【D2 / D3 2026-09-16 実機の指摘】累計カードを押すと開く定義のシート。3行だけ(綴りはカードと
+// 同じ MY_DATA_STOCK_CELLS から)。その下に主要動作1つ「他の人と比べてみる」── 押すとシートを
+// 閉じてコミュニティへ(参加済みなら順位の子タブ / 未参加なら初回の導線。行き先は App が持つ)。
+// ボタンの作法は追加シートの主要動作(ReedBoxSheet)と同じ: 幅いっぱい / 高さ ACTION_LG_PX /
+// 塗り --c-accent(§6.7 の意図した例外5)/ --r-pill。
+// MyDataSection の外に置くのは、あちらが「紺の面を1枚も持たない」(N-10・案K)ためで、
+// このシートは My Data の面ではなく BottomSheet の中の一手だから。
+function MyDataStockSheet({ onClose, onCompareOthers }) {
+  return (
+    <BottomSheet ariaLabel="累計の定義" onClose={onClose}>
+      {MY_DATA_STOCK_CELLS.map((z) => (
+        <div key={z.key} className="sans" style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-3)", padding: "var(--sp-2) 0" }}>
+          <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-ink)", flexShrink: 0 }}>{z.label}</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{z.about}</span>
+        </div>
+      ))}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
+        <button
+          type="button"
+          onClick={() => { onClose(); onCompareOthers(); }}
+          className="sans"
+          style={{
+            width: "100%", height: ACTION_LG_PX,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: "var(--r-pill)", border: "none",
+            background: "var(--c-accent)", color: "var(--c-on-accent)",
+            fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          他の人と比べてみる
+        </button>
+      </div>
+    </BottomSheet>
+  );
 }
 
 
@@ -14475,7 +14567,13 @@ function DaySessionRow({ session, reeds, onOpen }) {
 //   累計カード → カレンダーカード →(日付を押したときだけ)セッション →
 //   すべてのセッション → 音の傾向カード
 // **罫は1本も引かない**(本人「むやみに線をひくのやめて」)。群はカードと 12px の余白が切る。
-function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions }) {
+function MyDataSection({
+  sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions,
+  // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
+  onCompareOthers, idealProfiles = [], selectedIdealId = null, setSelectedIdealId, onDeleteIdeal,
+}) {
+  // 【D2】累計の定義のシート(累計カードを押すと開く)。永続化しない。
+  const [stockSheetOpen, setStockSheetOpen] = useState(false);
   // 【D-9z 2026/08/25 本人指示】楽器種別・期間のセレクタは**指標タブの行の右端**へ下りた
   // (本人「このセクタは mydata にしか影響しないのに、mydata・分析と同じ位置にあるのが違和感」)。
   // 状態は従来どおり AnalysisLabView が持ち、setter をここまで引き回している。
@@ -14601,26 +14699,38 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
       {/* 【D-15 §3 本人裁定(案A)】このカードだけ地が濃紺(--c-accent)。地は index.css の
           .surf-card .card.card-accent が持ち、影・角丸・padding は他のカードと同じまま。
           文字は白(--c-on-accent)、ラベルと単位は淡い青(--c-on-accent-dim)。 */}
-      <div className="card card-accent" style={{ marginTop: 0 }}>
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-on-accent-dim)" }}>累計</div>
+      {/* 【D2 2026-09-16 実機の指摘】カードは**押せる**(<button>)。押すと3つの綴りの定義の
+          シートが開く。押せることは右上の ▾(PickChevron)が返す(R3)。
+          ボタン化の作法は下の「すべての計測」(.rowcard の <button>)と同じ: width 100% /
+          textAlign left / cursor。地・枠・padding・影は .card の作法のまま(インラインで殺さない)。
+          数字の大きさ・並びは D-10 §2.1 から 1px も動かしていない。
+          3つの欄は MY_DATA_STOCK_CELLS(シートと同じ配列)から描く。 */}
+      <button
+        type="button"
+        onClick={() => setStockSheetOpen(true)}
+        aria-expanded={stockSheetOpen}
+        aria-label="累計の定義を見る"
+        className="card card-accent"
+        style={{ marginTop: 0, width: "100%", display: "block", textAlign: "left", cursor: "pointer" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-on-accent-dim)" }}>累計</div>
+          <PickChevron />
+        </div>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 10 }}>
-          {[
-            { key: "hours", value: stock.hours, unit: "時間", label: "計測時間" },
-            { key: "sessions", value: stock.sessions, unit: "件", label: "計測件数" },
-            { key: "notes", value: stock.notes, unit: "音", label: "計測音" },
-          ].map((z) => (
+          {MY_DATA_STOCK_CELLS.map((z) => (
             <div key={z.key} style={{ flex: 1, minWidth: 0 }}>
               {/* 26px は §4.4 の「24px以上の数値」に当たるので字間は −.02em。
                   単位だけは 12px なので字間を 0 に戻す(小さい字を詰めると潰れる)。 */}
               <div style={{ fontFamily: "var(--font-num)", fontWeight: 600, color: "var(--c-on-accent)", letterSpacing: "-.02em", fontSize: 26, lineHeight: 1.1, whiteSpace: "nowrap" }}>
-                {z.value}
+                {stock[z.key]}
                 <span className="sans" style={{ fontSize: 12, fontWeight: 400, color: "var(--c-on-accent-dim)", marginLeft: 2, letterSpacing: 0 }}>{z.unit}</span>
               </div>
               <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-on-accent-dim)", marginTop: 3 }}>{z.label}</div>
             </div>
           ))}
         </div>
-      </div>
+      </button>
 
       <PracticeCalendarCard
         sessions={allMySessions}
@@ -14771,6 +14881,54 @@ function MyDataSection({ sessions, reeds, selectedIdeal, saxType, tuningHz, data
           <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", paddingTop: 10 }}>—</div>
         )}
       </div>
+
+      {/* 【D4 2026-09-16 実機の指摘】目安の選択・削除。計測タブの詳細シート(M9 で消した)から
+          **My Data の一番下**へ移した。行の作法は移す前の詳細シートの行そのまま
+          (A型 = index.css の .ctl-state。選択中/非選択という状態を持つので枠線。状態は枠と字の色だけ)。
+          行が <button> ではなく <div> なのは、行の中に削除の <button> を抱えるため(button の入れ子は
+          作れない)。状態は aria-pressed が持つ。
+          **押しても解除はしない**(凍結仕様。F-76 のトグルは移さない)。
+          ゴミ箱は **即時削除 + 帯の「元に戻す」5秒**(onDeleteIdeal = App の
+          deleteIdealProfileWithUndo。window.confirm は使わない)。絵柄と当たり判定は
+          一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)。
+          **0件のときはカードごと出さない**(説明文・要素は減らす)。 */}
+      {idealProfiles.length > 0 && (
+        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>目安</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {idealProfiles.map((p) => (
+              <div
+                key={p.id}
+                /* ゴミ箱を押したときは選ばない。**stopPropagation は使わない**(D-10 §4:
+                   伝播を止める作りは document まで届くことに依存する仕組みを壊しうる)ので、
+                   閉じる判定(closeDayIfOutside)と同じく **押した要素で除く**。 */
+                onClick={(e) => { if (e.target?.closest?.("button")) return; setSelectedIdealId(p.id); }}
+                aria-pressed={selectedIdealId === p.id}
+                className="ctl-state"
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 0 0 10px", cursor: "pointer" }}
+              >
+                <div className="sans" style={{ fontSize: 12, color: selectedIdealId === p.id ? "var(--c-accent)" : "var(--c-ink)" }}>
+                  {p.name}<span style={{ fontSize: 12, color: "var(--c-ink-2)", marginLeft: 6 }}>{SAX_PRESETS[p.saxType]?.label}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onDeleteIdeal(p.id)}
+                  aria-label={`目安「${p.name}」を削除`}
+                  className="sans"
+                  style={{ ...TAP_BUTTON_RESET, minWidth: "var(--tap-min)", justifyContent: "center", flexShrink: 0, color: "var(--c-ink-2)" }}
+                >
+                  <Trash2 size={14} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 【D2 / D3 2026-09-16】累計の定義のシート(中身は MyDataStockSheet)。 */}
+      {stockSheetOpen && (
+        <MyDataStockSheet onClose={() => setStockSheetOpen(false)} onCompareOthers={onCompareOthers} />
+      )}
 
       {/* 【D-9 §1】系列を選ぶシート。**式の左右で同じ部品**を使い、見出し(1本目 / 2本目)だけが違う。
           【D-27】候補は**常に全部**出す。もう一方で選ばれているものを選ぶと**入れ替わる**
@@ -14925,6 +15083,9 @@ function AnalysisLabView(props) {
     // 【C-1/C-2 で移設】録音のアップロード。解析処理そのもの(handleUploadFile)は親のまま。
     handleUploadFile, isAnalyzingUpload, uploadProgress,
     uploadNeedsTap, setUploadNeedsTap,
+    // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧。親が持ったまま
+    // My Data へ引き回すだけ(状態の置き場は変えない)。
+    onCompareOthers, idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfileWithUndo,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
@@ -15201,6 +15362,9 @@ function AnalysisLabView(props) {
         onOpenAllSessions={openAllSessions}
         pageActive={dataSubTab === "mydata"}
         handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
+        onCompareOthers={onCompareOthers}
+        idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
+        onDeleteIdeal={deleteIdealProfileWithUndo}
       />
       {/* --- 分析(11.6節): クロス集計(ピボット型マトリクス) ---
           【N-9 2026/08/16 本人指示】「いい感じにほかのページと統一して」「なるべく要素を減らす」:
@@ -15778,6 +15942,8 @@ function MyDataPage({
   // 「今どのページか」を知らないと隣のページ(分析)でも出たままになる。
   pageActive,
   handleUploadFile, isAnalyzingUpload,
+  // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
+  onCompareOthers, idealProfiles, selectedIdealId, setSelectedIdealId, onDeleteIdeal,
 }) {
   // 隠しファイル入力。計測タブから移した(配線はそのまま流用。C-1/C-2)。
   const uploadInputRef = useRef(null);
@@ -15797,6 +15963,9 @@ function MyDataPage({
         totalSessionCount={sessions.length}
         onOpenSession={onOpenSession}
         onOpenAllSessions={onOpenAllSessions}
+        onCompareOthers={onCompareOthers}
+        idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
+        onDeleteIdeal={onDeleteIdeal}
       />
 
       {/* 記録の保全: 書き出し・読み戻し・保存状態。**追加だけ**で、上の要素は1つも動かしていない。
