@@ -4452,15 +4452,29 @@ export default function WindToneLabPhaseMode() {
           指示どおりタップしても復旧処理が1行も走らない=嘘の案内になる(審査役がスクショで確認)。
           → **タブではなくメッセージの種類で出し分ける。**
           計測タブ: すべてのエラーを出す / データタブ: 計測タブでしか意味を持たない案内だけ出さない。 */}
+      {/* 【J1 2026-09-17 本人指示「マイクの幕を直して」】**暗幕を下部ナビの上端で止める。**
+          いままで inset:0 の全面だったので、マイクが取れないと下部ナビごと覆われ、
+          リード・データ・コミュニティへ移れなかった(実測: 幕は 375×812 の z-index 60、
+          ナビは z-index 30)。しかも MIC_RECOVER_FAILED_MSG のときは、幕をタップすると
+          上のジェスチャー経路が即座に再試行して**また同じエラーを出す**ので、
+          「閉じても閉じても戻る」= 計測タブに閉じ込められる(端末で許可を拒むと必ず踏む)。
+          このエラーは**計測タブでしか意味を持たない**(ERROR_MEASURE_ONLY / 上のコメント)。
+          他のタブはマイクを使わないのだから、ナビだけは常に押せなければならない。
+          【カードの位置は1pxも動かない】器の下端が --page-bottom-gap ぶん上がったので、
+          下の余白を padding の --sp-4 だけにする(以前は page-bottom-gap + sp-4 を器の中で
+          取っていた)。結果としてカードの下端は前と同じ「ナビの上 --sp-4」に来る。
+          【aria-modal を名乗らない】ナビが生きている以上「外は不活性」は嘘になる。
+          【stopPropagation は依然として書かない】上の掟のとおり、タップは document まで
+          伝播させる(復旧経路がそれに依存している)。 */}
       {errorMsg && (topTab === "measure" || (topTab === "analysis" && !ERROR_MEASURE_ONLY.includes(errorMsg))) && (
         <div
-          role="dialog" aria-modal="true" aria-label="エラー"
+          role="dialog" aria-label="エラー"
           onClick={() => setErrorMsg("")}
           style={{
-            position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)",
+            position: "fixed", top: 0, left: 0, right: 0, bottom: "var(--page-bottom-gap)",
+            zIndex: 60, background: "rgba(15,23,42,0.28)",
             display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center",
             padding: "var(--sp-4)",
-            paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
           }}
         >
           <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>

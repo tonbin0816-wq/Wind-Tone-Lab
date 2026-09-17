@@ -12644,11 +12644,15 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       push(cur);
       return out;
     };
-    const keyDecls = (style) => {
+    // 【J1 2026-09-17 本人指示でここだけ分かれた】下端の3つ(inset / bottom / paddingBottom)を
+    // 共有の対象から外す。**それ以外の体裁は1つに揃えたまま**で、外した3つは下で
+    // 「保存確認は全面 / エラーはナビの上で止まる」と**両方を名指しで**釘付ける
+    // (片方を揃え直したら落ちるので、緩めていない)。
+    const F67_SHARED = ["position", "zIndex", "background", "flexDirection",
+      "justifyContent", "alignItems", "padding"];
+    const keyDecls = (style, keys = F67_SHARED) => {
       const m = declMap(style);
-      return ["position", "inset", "zIndex", "background", "flexDirection",
-        "justifyContent", "alignItems", "padding", "paddingBottom"]
-        .map((k) => `${k}=${m[k] ?? "無し"}`).join(" | ");
+      return keys.map((k) => `${k}=${m[k] ?? "無し"}`).join(" | ");
     };
     // 【2026/09/09 本人裁定「シートは①に統一」でこの3枚組は2枚組になった】
     // 以前ここは「目安に設定 / 保存確認 / マイク許可エラー」の3枚が**同じ四方囲みの器**を
@@ -12662,8 +12666,20 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       btnCode.includes('background: "rgba(15,23,42,0.28)"') ? "自前の暗幕が残っている" : "");
     const pending = keyDecls(dialogStyle("この録音を保存しますか？"));
     const micErr = keyDecls(dialogStyle("エラー"));
-    check("F-67: 保存確認とマイク許可エラーは同じ宣言(四方囲みの体裁は1つに揃える)",
+    check("F-67: 保存確認とマイク許可エラーは同じ宣言(下端以外の体裁は1つに揃える)",
       pending === micErr, `保存確認=[${pending}] エラー=[${micErr}]`);
+    // 【J1】外した3つを名指しで見る。**どちらの向きに揃え直しても落ちる。**
+    const pendingAll = declMap(dialogStyle("この録音を保存しますか？"));
+    const micAll = declMap(dialogStyle("エラー"));
+    check("F-67 / J1: 保存確認は全面を覆う(保存か破棄かを決めるまで進ませない)",
+      pendingAll.inset === "0"
+      && pendingAll.paddingBottom === '"calc(var(--page-bottom-gap) + var(--sp-4))"',
+      `inset=${pendingAll.inset} / paddingBottom=${pendingAll.paddingBottom}`);
+    check("F-67 / J1: マイクのエラーは下部ナビの上で止まる(計測タブ限定の案内。他タブへ移れること)",
+      micAll.inset === undefined
+      && micAll.bottom === '"var(--page-bottom-gap)"'
+      && micAll.paddingBottom === undefined,
+      `inset=${micAll.inset} / bottom=${micAll.bottom} / paddingBottom=${micAll.paddingBottom}`);
     check("F-67: 下寄せ(justifyContent: flex-end)である(計測タブと同じ理由で中央寄せにしない)",
       /flex-end/.test(pending), pending);
     // カード側(白い面)も同じ体裁であること
@@ -13392,7 +13408,9 @@ let METRO_SIGS_ALL = [];
       // それは実装を1文字も見ておらず、実装をどう壊しても永久に通る
       // (LOOP.md が名指しで禁じている「構造上失敗し得ないアサーション」)。
       // **JSX の表示条件そのものをソースから取り出して**評価する。
-      const condM = /\{errorMsg && \(([\s\S]*?)\) && \(\r?\n\s*<div\r?\n\s*role="dialog" aria-modal="true" aria-label="エラー"/.exec(code);
+      // 【J1 2026-09-17】エラーの器は aria-modal を名乗らなくなった(下部ナビが生きているため)。
+      // 錨の綴りだけを合わせる ── 取り出して**評価する**ことは変えていない。
+      const condM = /\{errorMsg && \(([\s\S]*?)\) && \(\r?\n\s*<div\r?\n\s*role="dialog" aria-label="エラー"/.exec(code);
       check("エラーモーダルの表示条件をソースから取り出せている", condM !== null,
         condM ? condM[1] : "取り出せない");
       const shownOn = (tab, msg) => new Function("topTab", "errorMsg", "ERROR_MEASURE_ONLY",
@@ -24202,6 +24220,79 @@ console.log("\n========== 検証53: 便I 目安の空状態 / カレンダーの
     /function sessionDurationSec\(session\) \{/.test(src) && /function sessionDurationLabel\(session\) \{/.test(src));
   check("53.9 I2 正典の説明にカレンダーも「練習時間」と書いてある",
     /カレンダーの合計も同じ/.test(s1_53) && /練習時間/.test(s1_53));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証54: 便J ── マイクのエラーで計測タブに閉じ込められない(2026-09-17 本人指示)
+//
+// 何が起きていたか(実測 Chrome 375×812): マイクが取れないと計測タブに
+// role="dialog" aria-label="エラー" の暗幕が出る。これが inset:0 の**全面**で
+// z-index 60、下部ナビ(z-index 30)ごと覆っていた。さらに MIC_RECOVER_FAILED_MSG の
+// ときは幕をタップすると document のジェスチャー経路が即座に再試行し、失敗して
+// **また同じエラーを出す**。Esc も効かない ── 許可を拒むとアプリの他のタブへ
+// 二度と行けない(ストア審査でも踏まれうる)。
+//
+// 直し方: 暗幕を --page-bottom-gap(ナビ + 安全域)の上で止める。**復旧経路には触らない**
+// (あの経路は「タップが document まで伝播すること」に依存しており、壊すと録音が死ぬ)。
+//
+// 【変異(複製で。実ツリー禁止)】① 暗幕を inset:0 に戻す ② 器の中で page-bottom-gap を
+// また取る(カードが浮く) ③ aria-modal="true" を戻す ④ 保存確認の幕まで縮める
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証54: 便J マイクのエラーとナビ ==========");
+{
+  const app54 = codeOf(src);
+  // エラーの器の開きタグだけを切り出す(保存確認の器と綴りが似ているので取り違えない)。
+  const errShell = (() => {
+    const a = app54.indexOf('aria-label="エラー"');
+    if (a < 0) return "";
+    const b = app54.indexOf(">", app54.indexOf("}}", a));
+    return b < 0 ? "" : app54.slice(a - 60, b);
+  })();
+  // 保存確認の器(この便では触らない。全面のままが正しい ── 決定を迫るものなので)。
+  const saveShell = (() => {
+    const a = app54.indexOf('aria-label="この録音を保存しますか？"');
+    if (a < 0) return "";
+    const b = app54.indexOf(">", app54.indexOf("}}", a));
+    return b < 0 ? "" : app54.slice(a - 60, b);
+  })();
+
+  check("54.1 エラーの器を読めている", errShell.length > 120 && saveShell.length > 120,
+    `err ${errShell.length} / save ${saveShell.length}`);
+
+  // --- 54.2 下部ナビを覆わない ------------------------------------------------
+  check("54.2 J1 エラーの暗幕は下部ナビの上端で止まる(bottom は --page-bottom-gap)",
+    /bottom: "var\(--page-bottom-gap\)"/.test(errShell) && !/inset: 0/.test(errShell));
+  check("54.2 J1 上・左・右は画面の端まで(幕としての体裁は保つ)",
+    /position: "fixed", top: 0, left: 0, right: 0, bottom: "var\(--page-bottom-gap\)"/.test(errShell));
+  check("54.2 J1 重なりの順は変えていない(z-index 60 のまま)",
+    /zIndex: 60/.test(errShell));
+
+  // --- 54.3 カードの位置は動かさない ------------------------------------------
+  // 器の下端が上がったぶん、器の中で page-bottom-gap を取り直すとカードが二重に浮く。
+  check("54.3 J1 器の中で page-bottom-gap を取り直さない(カードの下端はナビの上 --sp-4 のまま)",
+    /padding: "var\(--sp-4\)"/.test(errShell)
+    && !/paddingBottom: "calc\(var\(--page-bottom-gap\) \+ var\(--sp-4\)\)"/.test(errShell));
+
+  // --- 54.4 名乗り ------------------------------------------------------------
+  check("54.4 J1 aria-modal を名乗らない(ナビが生きているので「外は不活性」は嘘)",
+    !/aria-modal/.test(errShell) && /role="dialog"/.test(errShell));
+
+  // --- 54.5 保存確認の幕は全面のまま ------------------------------------------
+  // あちらは「保存するか捨てるか」を決めるまで進ませてはいけない。取り違えて縮めない。
+  check("54.5 J1 保存確認の幕は全面のまま(inset:0 / aria-modal / 下の余白も従来どおり)",
+    /inset: 0/.test(saveShell) && /aria-modal="true"/.test(saveShell)
+    && /paddingBottom: "calc\(var\(--page-bottom-gap\) \+ var\(--sp-4\)\)"/.test(saveShell));
+
+  // --- 54.6 復旧経路に触っていない --------------------------------------------
+  check("54.6 J1 復旧のジェスチャー経路は不変(document の touchend / pointerdown)",
+    /document\.addEventListener\("touchend", onGesture, \{ passive: true \}\)/.test(app54)
+    && /document\.addEventListener\("pointerdown", onGesture, \{ passive: true \}\)/.test(app54));
+  check("54.6 J1 エラーの器は依然として stopPropagation を書かない(復旧経路が伝播に依存)",
+    !/stopPropagation/.test(errShell));
+  check("54.6 J1 幕を押すと errorMsg を空にするだけ(従来どおり)",
+    /onClick=\{\(\) => setErrorMsg\(""\)\}/.test(errShell));
   console.log("  -> done");
 }
 
