@@ -45,6 +45,8 @@ const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たないため、
 // App.jsx は import して使うだけになった。切り出す先もそちらに合わせる。
 const profileSrc = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
+// 【I2 2026-09-17】練習時間の定義(発音フレーム × 間隔)。カレンダーもこれを読む。
+const soundingSrc = readFileSync(join(__dirname, "..", "src", "soundingSec.js"), "utf8");
 
 // コメントを外した「実際に動く側」だけを返す。「○○は使わない」「【削除済み】○○」という
 // 記録をコメントに書くと、その綴りが本文に現れて「○○が無いこと」の検査が落ちる。
@@ -53,14 +55,16 @@ function codeOf(s) {
   return String(s || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-function extractFunction(name) {
-  const idx = src.indexOf(`function ${name}(`);
+// 【I2 2026-09-17】第2引数を足した。App.jsx 以外(src/soundingSec.js など)の関数を
+// 同じ要領で切り出して評価するため。`export function` の `export ` は落ちる。
+function extractFunction(name, text = src) {
+  const idx = text.indexOf(`function ${name}(`);
   if (idx === -1) throw new Error(`function ${name} not found`);
-  let i = src.indexOf("{", idx);
+  let i = text.indexOf("{", idx);
   let depth = 0;
-  for (; i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}") { depth--; if (depth === 0) return src.slice(idx, i + 1); }
+  for (; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") { depth--; if (depth === 0) return text.slice(idx, i + 1); }
   }
   throw new Error(`function ${name}: unbalanced braces`);
 }
@@ -16323,6 +16327,9 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       ${extractFunction("localDayKey")}
       ${extractFunction("formatElapsedMs")}
       ${extractFunction("sessionDurationSec")}
+      ${extractFunction("isSoundingFrame", soundingSrc)}
+      ${extractFunction("frameIntervalSec", soundingSrc)}
+      ${extractFunction("sessionSoundingSec", soundingSrc)}
       ${extractFunction("calendarMonthDays")}
       ${extractFunction("calendarMonthTotals")}
       ${extractFunction("calendarShiftMonth")}
@@ -16350,16 +16357,23 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     }
     {
       // 【罠14】暦日は localDayKey。JST の深夜1時の記録もその日の箱に入る。
-      const s1 = { recordedAt: new Date(2026, 7, 22, 1, 30).toISOString(), frames: [{ t: 0 }, { t: 600 }] };
-      const s2 = { recordedAt: new Date(2026, 7, 22, 20, 0).toISOString(), frames: [{ t: 0 }, { t: 300 }] };
+      // 【I2 2026-09-17 本人裁定】マスの分は**練習時間**(発音フレーム × 間隔)。
+      // 録音の長さと**わざと違う**並びにして、どちらを数えているかを判別できるようにする:
+      //   s1 録音 600s / 発音 11フレーム × 30s = 330s   s2 録音 300s / 発音 5フレーム × 30s = 150s
+      // 旧定義(録音の長さ)なら 15分、新定義なら 8分になる。
+      const fr = (n, soundingCount) => Array.from({ length: n }, (_, i) => ({
+        t: i * 30, pitchHz: i < soundingCount ? 440 : null, pitchCents: i < soundingCount ? 1.5 : null,
+      }));
+      const s1 = { recordedAt: new Date(2026, 7, 22, 1, 30).toISOString(), frames: fr(21, 11) };
+      const s2 = { recordedAt: new Date(2026, 7, 22, 20, 0).toISOString(), frames: fr(11, 5) };
       const cells = api.calendarMonthDays([s1, s2], 2026, 7);
       const hit = cells.find((c) => c && c.key === "2026-08-22");
       check("27.5 深夜1時の記録もその日の箱に入る(UTC 暦日で前日へずれない。罠14)",
-        hit && hit.count === 2 && Math.abs(hit.minutes - 15) < 1e-9,
+        hit && hit.count === 2 && Math.abs(hit.minutes - 8) < 1e-9,
         hit ? `${hit.count}件 / ${hit.minutes}分` : "見つからない");
       const t = api.calendarMonthTotals(cells);
       check("27.5 見出しの合計はその月ぶん(秒と、記録のあった日数)",
-        Math.abs(t.seconds - 900) < 1e-6 && t.activeDays === 1, `${t.seconds}秒 / ${t.activeDays}日`);
+        Math.abs(t.seconds - 480) < 1e-6 && t.activeDays === 1, `${t.seconds}秒 / ${t.activeDays}日`);
       // 【D-10 2026/08/26 本人指示】既定の選択日(その月の記録のある最新の日 =
       // calendarLatestKey)は**要らなくなった**。本人「その日付に紐づくセッションの表示だけ、
       // 常時表示ではなく、日付を押したら…出てくるように変更」。
@@ -16564,9 +16578,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /<PracticeCalendarCard\s*\r?\n\s*sessions=\{allMySessions\}/.test(myDataSection));
     // 【D-10 §2.3】一覧への入口は**1つだけ**(正典 #9b から不変)。
     // 置き場所だけが練習カードの最下行から**カレンダーの下の小カード**へ移った。
-    check("27.7 D-10: 一覧への入口は小カード1枚だけ(入口の数は #9b から不変)",
-      (myDataSection.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
-      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
+    // 【I1 2026-09-17 本人指示で入口が1つ増えた】「目安設定がないときは…導線も用意して」。
+    // 目安が**0件のときだけ**出る空状態の導線が2つ目の入口になる(1件でもあれば消える)。
+    // #9b の精神「同じ場所が複数あるのをやめる」は生きているので、**2つまで**に釘付ける。
+    // カレンダーには依然として置かない。
+    check("27.7 D-10: 一覧への入口は小カード1枚 + 目安0件の空状態の導線だけ(#9b + I1)",
+      (myDataSection.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 2
+      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 2
       && !/onOpenAllSessions/.test(calCard),
       `${(src.match(/onClick=\{onOpenAllSessions\}/g) || []).length}箇所`);
     // 【D-10 §2.1 本人指示】蓄積量は**分析タブの脚注から My Data の先頭の「累計」カードへ**移った。
@@ -23671,8 +23689,9 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     check("51.4 D4 その .card は MyDataSection の**最後**のカード(音の傾向カードより後)",
       cardsAt.length >= 3 && idealAt > cardsAt[cardsAt.length - 1] && idealAt > myData51.indexOf("<NoteMatrixBlock"),
       `目安 @${idealAt} / 最後のカード @${cardsAt[cardsAt.length - 1]}`);
-    check("51.4 D4 0件のときはカードごと出さない",
-      /\{idealProfiles\.length > 0 && \(\s*\r?\n\s*<div className="card"/.test(myData51));
+    // 【I1 2026-09-17 本人指示で裁定が変わった】0件でもカードは出す。空状態の姿は検証53。
+    check("51.4 D4 0件でカードごと隠す出し分けは無い(I1 で撤回。姿は検証53)",
+      !/\{idealProfiles\.length > 0 && \(/.test(myData51));
     check("51.4 D4 行は A型 .ctl-state で、状態は aria-pressed(便D で消す前の行と同じ作法)",
       /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(myData51)
       && /color: selectedIdealId === p\.id \? "var\(--c-accent\)" : "var\(--c-ink\)"/.test(myData51));
@@ -23722,14 +23741,15 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
         at > 0 && lastCardAt > 0 && at > lastCardAt, `目安 @${at} / 最後のカード @${lastCardAt}`);
       check(`51.4 D4 正典 ${name} の累計カードに ▾ がある(押せることを返す)`,
         /累計<\/div>\s*<span aria-hidden="true"[^>]*>▾<\/span>/.test(dc));
-      check(`51.4 D4 正典 ${name} の目安の行は A型(枠 --c-line-strong / 選択中 --c-accent)+ ゴミ箱 44pt`,
-        /border: 1px solid var\(--c-accent\); border-radius: 8px/.test(dc) && /border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(dc)
-        && countIn(dc, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 2);
     }
+    // 【I1 2026-09-17】**S1 が0件の姿、S1open が1件以上の姿**を持つ。A型の行は S1open で見る。
+    check("51.4 D4 正典 S1open.dc.html の目安の行は A型(枠 --c-line-strong / 選択中 --c-accent)+ ゴミ箱 44pt",
+      /border: 1px solid var\(--c-accent\); border-radius: 8px/.test(s1o) && /border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1o)
+      && countIn(s1o, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 2);
     check("51.4 D4 生成器 generate.mjs に sIdealCard があり、S1 / S1open の末尾に置いている(片方だけ直していない)",
-      /function sIdealCard\(\)/.test(gen51) && countIn(gen51, /sIdealCard\(\)/g) === 3
-      && /sTrendCard\(10\), sGap, sIdealCard\(\)\]/.test(gen51) && /sTrendCard\(10\), sGap,\s*sIdealCard\(\),\s*\]/.test(gen51),
-      `${countIn(gen51, /sIdealCard\(\)/g)}箇所`);
+      /function sIdealCard\(empty = false\)/.test(gen51) && countIn(gen51, /sIdealCard\(/g) === 3
+      && /sTrendCard\(10\), sGap, sIdealCard\(true\)\]/.test(gen51) && /sTrendCard\(10\), sGap,\s*sIdealCard\(\),\s*\]/.test(gen51),
+      `${countIn(gen51, /sIdealCard\(/g)}箇所`);
     check("51.4 D4 DESIGN-SYSTEM に目安のカード(My Data の最後)と練習時間の定義が書いてある",
       /目安のカード（便G D4/.test(ds51) && /累計の時間は「練習時間」/.test(ds51));
   }
@@ -24087,6 +24107,101 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
       /詳細シートの指標は「音量表示 \/ 計測下限dB」の1行だけ/.test(ns52) && /目安の選択と削除は My Data の最下部へ移った/.test(ns52)
       && countIn(ns52, /目安プロファイルの選択と削除/g) === 0 && countIn(ns52, /計測下限スライダー/g) === 0);
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証53: 便I ── 目安の空状態と導線 / カレンダーを練習時間に(2026-09-17 本人裁定)
+//
+// 本人の言葉:
+//   ①「目安設定がないときは目安を設定してくださいを表示して目安設定の同線も用意して」
+//   ②(カレンダーの月合計も練習時間に揃える件)「はい。それでいいです」
+//
+// **ここで見ること**: 綴りと配線(どのボタンがどれを呼ぶか)、0件と1件以上の姿の出し分け、
+// 行き止まりの導線を出さないこと、カレンダーが読む定義が累計と同じ1つであること。
+// **見ないもの**: 実機での読みやすさ・押し心地。それは本人の目と実機が決める。
+//
+// 【変異(複製で。実ツリー禁止)】① 目安カードを再び length > 0 で隠す ② 空状態の文を変える
+// ③ 導線から onOpenAllSessions を外す ④ calendarMonthDays を sessionDurationSec に戻す
+// ⑤ 正典だけ0件の姿を消す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証53: 便I 目安の空状態 / カレンダーの練習時間 ==========");
+{
+  const app53 = codeOf(src);
+  const myData53 = codeOf(srcOfFn(src, "MyDataSection"));
+  const cal53 = codeOf(extractFunction("calendarMonthDays"));
+  const noHtmlComment53 = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const s1_53 = noHtmlComment53(readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8"));
+  const s1o_53 = noHtmlComment53(readFileSync(join(__dirname, "..", "design", "canvas", "S1open.dc.html"), "utf8"));
+  const gen53 = codeOf(readFileSync(join(__dirname, "..", "design", "canvas", "generate.mjs"), "utf8"));
+  const countIn53 = (t, re) => (t.match(re) || []).length;
+  const empty53 = (() => {
+    const a = myData53.indexOf("idealProfiles.length === 0 ? (");
+    if (a < 0) return "";
+    const b = myData53.indexOf(") : (", a);
+    return b < 0 ? "" : myData53.slice(a, b);
+  })();
+  // 【1件以上の姿】空状態の終わり(三項の右)から下。**最初の ") : (" を探さない** ──
+  // MyDataSection には他にも三項があり、目安より前の区画を拾ってしまう。
+  const filled53 = (() => {
+    const a = myData53.indexOf("idealProfiles.length === 0 ? (");
+    if (a < 0) return "";
+    const b = myData53.indexOf(") : (", a);
+    return b < 0 ? "" : myData53.slice(b);
+  })();
+
+  check("53.1 I1 目安カードを 0件で隠す出し分けが無い(カードは常に出る)",
+    !/\{idealProfiles\.length > 0 && \(/.test(myData53)
+    && /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n\s*<div className="sans"[^>]*>目安<\/div>/.test(myData53));
+  check("53.1 I1 0件か1件以上かで中身を分ける(三項の左が空状態)",
+    empty53.length > 200 && filled53.length > 200, `空 ${empty53.length} / 有 ${filled53.length}`);
+
+  check("53.2 I1 「目安を設定してください」が1つだけ",
+    countIn53(myData53, /目安を設定してください/g) === 1,
+    `${countIn53(myData53, /目安を設定してください/g)}箇所`);
+  check("53.2 I1 文は --fs-xs の --c-ink-2(利用者の画面の最小は 12px = --fs-xs)",
+    /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-2\)" \}\}>目安を設定してください/.test(empty53));
+
+  check("53.3 I1 導線の語は「計測を選んで目安に設定する」1つ",
+    countIn53(app53, /計測を選んで目安に設定する/g) === 1,
+    `${countIn53(app53, /計測を選んで目安に設定する/g)}箇所`);
+  check("53.3 I1 導線は onOpenAllSessions を呼ぶ(「すべての計測」と同じ行き先)",
+    /onClick=\{onOpenAllSessions\}/.test(empty53) && /計測を選んで目安に設定する/.test(empty53));
+
+  check("53.4 I1 自分の計測が0件のときは導線の行を出さない(行き止まりにしない)",
+    /\{allMySessions\.length > 0 && \(/.test(empty53));
+
+  check("53.5 I1 導線の行は .rowcard を使わない(カードの中なので地が二重になる)",
+    !/rowcard/.test(empty53));
+
+  check("53.6 I1 導線の綴りは「すべての計測」の行と同じ(--fs-sm の --c-accent → 右端に --fs-lg の ›)",
+    /fontSize: "var\(--fs-sm\)", color: "var\(--c-accent\)" \}\}>計測を選んで目安に設定する/.test(empty53)
+    && /marginLeft: "auto", fontSize: "var\(--fs-lg\)", color: "var\(--c-line-strong\)" \}\}>›/.test(empty53)
+    && /minHeight: "var\(--tap-min\)"/.test(empty53));
+
+  check("53.7 I1 1件以上の姿は便G のまま(.ctl-state / aria-pressed / ゴミ箱 Trash2)",
+    /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(filled53)
+    && /<Trash2 size=\{14\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(filled53)
+    && !/目安を設定してください/.test(filled53));
+
+  check("53.8 I1 正典 S1.dc.html が0件の姿(文と導線の両方)を持つ",
+    /目安を設定してください/.test(s1_53) && /計測を選んで目安に設定する/.test(s1_53));
+  check("53.8 I1 正典 S1open.dc.html は1件以上の姿(0件の語は無い)",
+    !/目安を設定してください/.test(s1o_53) && !/計測を選んで目安に設定する/.test(s1o_53));
+  check("53.8 I1 正典の導線も地を持たない(カードの中なので box-shadow を足さない)",
+    !/計測を選んで目安に設定する[\s\S]{0,200}box-shadow/.test(s1_53));
+  check("53.8 I1 生成器は empty を受けて0件の姿を作る(S1=0件 / S1open=1件以上)",
+    /function sIdealCard\(empty = false\)/.test(gen53) && /if \(empty\) \{/.test(gen53));
+
+  check("53.9 I2 calendarMonthDays は練習時間(sessionSoundingSec)で数える",
+    countIn53(cal53, /sessionSoundingSec\(/g) === 1 && countIn53(cal53, /sessionDurationSec\(/g) === 0,
+    `sounding ${countIn53(cal53, /sessionSoundingSec\(/g)} / duration ${countIn53(cal53, /sessionDurationSec\(/g)}`);
+  check("53.9 I2 累計カードとカレンダーが同じ関数を読む(定義が画面の中で割れていない)",
+    /sessionSoundingSec\(/.test(codeOf(extractFunction("myDataStock"))) && /sessionSoundingSec\(/.test(cal53));
+  check("53.9 I2 sessionDurationSec / sessionDurationLabel の定義は残る(1件の録音の長さ)",
+    /function sessionDurationSec\(session\) \{/.test(src) && /function sessionDurationLabel\(session\) \{/.test(src));
+  check("53.9 I2 正典の説明にカレンダーも「練習時間」と書いてある",
+    /カレンダーの合計も同じ/.test(s1_53) && /練習時間/.test(s1_53));
   console.log("  -> done");
 }
 

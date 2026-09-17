@@ -13679,8 +13679,12 @@ function calendarMonthDays(sessions, year, month) {
   for (const s of sessions || []) {
     const k = localDayKey(new Date(s.recordedAt));
     if (!byDay[k]) byDay[k] = { minutes: 0, count: 0 };
-    const sec = sessionDurationSec(s);
-    byDay[k].minutes += sec === null ? 0 : sec / 60;
+    // 【I2 2026-09-17 本人裁定】マスの濃さも月の合計も**練習時間**(音を感知していた時間)で数える。
+    // 便G で累計カードだけを sessionSoundingSec に変えたため、**同じ画面に**
+    // 「録音の長さ」と「練習時間」の2つの定義が並んでいた。母集団も期間も
+    // 同じ画面なので、定義を一つに揃える。
+    // sessionSoundingSec は値が出せないとき null ではなく **0** を返す(便G の凍結仕様)。
+    byDay[k].minutes += sessionSoundingSec(s) / 60;
     byDay[k].count += 1;
   }
   const first = new Date(year, month, 1);
@@ -14891,10 +14895,32 @@ function MyDataSection({
           ゴミ箱は **即時削除 + 帯の「元に戻す」5秒**(onDeleteIdeal = App の
           deleteIdealProfileWithUndo。window.confirm は使わない)。絵柄と当たり判定は
           一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)。
-          **0件のときはカードごと出さない**(説明文・要素は減らす)。 */}
-      {idealProfiles.length > 0 && (
-        <div className="card" style={{ marginTop: "var(--sp-3)" }}>
-          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>目安</div>
+          【I1 2026-09-17 本人指示】**0件でもカードは出す。**以前はカードごと出さなかったが、
+          本人「目安設定がないときは『目安を設定してください』を表示して導線も用意して」。
+          導線の行は「すべての計測 n件 ›」の行と同じ綴り(--fs-sm の --c-accent → 右端に ›)だが、
+          **地は持たせない** ── .rowcard は自前の地と影を持つので、.card の中に置くと地が二重になる。
+          自分の計測が0件のときは押しても行き止まりなので、**導線の行は出さず文だけ**にする。 */}
+      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>目安</div>
+        {idealProfiles.length === 0 ? (
+          <>
+            <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>目安を設定してください</div>
+            {allMySessions.length > 0 && (
+              <button
+                type="button"
+                onClick={onOpenAllSessions}
+                className="sans"
+                style={{
+                  ...TAP_BUTTON_RESET, width: "100%", minHeight: "var(--tap-min)",
+                  display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left",
+                }}
+              >
+                <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>計測を選んで目安に設定する</span>
+                <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: "var(--fs-lg)", color: "var(--c-line-strong)" }}>›</span>
+              </button>
+            )}
+          </>
+        ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {idealProfiles.map((p) => (
               <div
@@ -14922,8 +14948,8 @@ function MyDataSection({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 【D2 / D3 2026-09-16】累計の定義のシート(中身は MyDataStockSheet)。 */}
       {stockSheetOpen && (

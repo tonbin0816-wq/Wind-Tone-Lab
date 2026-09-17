@@ -1065,14 +1065,27 @@ ${cell("3,120", "音", "計測音")}
 // 【D4 2026-09-16 実機の指摘】計測タブの詳細シートにあった「目安の選択・削除」を
 // **My Data の一番下**へ移した。行は A型(.ctl-state: 枠 --c-line-strong / 選択中は枠と字が
 // --c-accent / 地は透明)で、便D(M9)で消す前に詳細シートにあった行をそのまま写している。
-// 右端のゴミ箱は当たり判定 44pt(§5)。0件のときはこのカードごと出ない。
+// 右端のゴミ箱は当たり判定 44pt(§5)。
+// 【I1 2026-09-17 本人指示】0件でも**カードは出す**。中身は「目安を設定してください」と、
+// 計測を選びに行く導線1つ。導線の行は「すべてのセッション」と同じ綴り(13px の --c-accent →
+// 右端に 17px の ›)だが、**地と影は持たせない**(カードの中なので地が二重になる)。
+// **S1 が0件の姿、S1open が1件以上の姿**を持つ(両方の姿を正典に残すため)。
 const S_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
-function sIdealCard() {
+function sIdealCard(empty = false) {
   const row = (name, sax, selected) => `          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid ${selected ? "var(--c-accent)" : "var(--c-line-strong)"}; border-radius: 8px">
             <div style="font-size: 12px; color: ${selected ? "var(--c-accent)" : "var(--c-ink)"}">${name}<span style="font-size: 12px; color: var(--c-ink-2); margin-left: 6px">${sax}</span></div>
             <span style="min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-2)">${S_TRASH}</span>
           </div>`;
-  return sCard(`<div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>
+  const HEAD = `<div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>`;
+  if (empty) {
+    return sCard(`${HEAD}
+        <div style="font-size: 12px; color: var(--c-ink-2)">目安を設定してください</div>
+        <div style="min-height: 44px; display: flex; align-items: center; gap: 12px">
+          <span style="font-size: 13px; color: var(--c-accent)">計測を選んで目安に設定する</span>
+          <span style="margin-left: auto; font-size: 17px; color: var(--c-line-strong)">›</span>
+        </div>`);
+  }
+  return sCard(`${HEAD}
         <div style="display: flex; flex-direction: column; gap: 6px">
 ${row("先生の音", "A.Sax", true)}
 ${row("8/24 の自分", "A.Sax", false)}
@@ -1218,8 +1231,8 @@ const sPage = (inner, note) => `<div style="width: 375px; background: var(--c-su
 
 // ---- S1(採用) 閉じた状態: 日付を押していないので、セッションは出ていない --------
 {
-  const inner = [sStatsThree(), sGap, sCalendarCard({ month: "2026/8", metaBeside: true, sel: null }), sGap, sAllSessions(), sGap, sTrendCard(10), sGap, sIdealCard()].join("\n        ");
-  writeFileSync(OUT + "S1.dc.html", dcFile(sPage(inner, `<b>採用案の既定の姿</b>(日付を押していない状態)。<br>本人指示で<b>その日のセッションは常時表示をやめた</b>ので、ここには出ていない ── カレンダーのすぐ下は「すべてのセッション」、その下が折れ線。<br><b>カレンダーの月見出し</b>は yyyy/m。合計(3.7 時間 · 16 日)は月見出しの<b>右・下揃え</b>(baseline)。文字の大きさが違っても足元が1本に揃い、<b>月の綴りが伸びても重ならない</b>(見た目のズラしを使っていないため)。<br>日付を押した状態は右の「S1 日付を押した状態」。<br><b>便G(2026-09-16 実機の指摘)</b>: 累計の時間は<b>「練習時間」</b>(音を感知していた時間の合計)。累計のカードは<b>押せる</b>(▾)── 押すと3つの定義と「他の人と比べてみる」のシートが出る。一番下に<b>「目安」</b>のカード(計測タブの詳細シートから移動。選択とゴミ箱。0件なら出ない)。`)));
+  const inner = [sStatsThree(), sGap, sCalendarCard({ month: "2026/8", metaBeside: true, sel: null }), sGap, sAllSessions(), sGap, sTrendCard(10), sGap, sIdealCard(true)].join("\n        ");
+  writeFileSync(OUT + "S1.dc.html", dcFile(sPage(inner, `<b>採用案の既定の姿</b>(日付を押していない状態)。<br>本人指示で<b>その日のセッションは常時表示をやめた</b>ので、ここには出ていない ── カレンダーのすぐ下は「すべてのセッション」、その下が折れ線。<br><b>カレンダーの月見出し</b>は yyyy/m。合計(3.7 時間 · 16 日)は月見出しの<b>右・下揃え</b>(baseline)。文字の大きさが違っても足元が1本に揃い、<b>月の綴りが伸びても重ならない</b>(見た目のズラしを使っていないため)。<br>日付を押した状態は右の「S1 日付を押した状態」。<br><b>便G(2026-09-16 実機の指摘)</b>: 累計の時間は<b>「練習時間」</b>(音を感知していた時間の合計)。累計のカードは<b>押せる</b>(▾)── 押すと3つの定義と「他の人と比べてみる」のシートが出る。一番下に<b>「目安」</b>のカード(計測タブの詳細シートから移動)。<br><b>便I(2026-09-17 本人裁定)</b>: 目安が<b>0件でもカードは出す</b> ── この画面がその姿で、「目安を設定してください」と<b>導線1つ</b>(押すと「すべての計測」へ)。1件以上の姿は右の「S1 日付を押した状態」。<b>カレンダーの合計も同じ「練習時間」</b>(マスの濃さも)で、累計のカードと定義が揃った。`)));
   console.log("S1      採用案・閉じた状態");
 }
 

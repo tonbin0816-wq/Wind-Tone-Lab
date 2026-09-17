@@ -2014,12 +2014,12 @@ D-7 で全画面を「罫」1つに畳んだが、**この2画面についてだ
 | 累計の数字 | 26px / `--font-num` / 600 / letter-spacing `-.02em`（§4.4）/ `white-space: nowrap` |
 | 累計の単位・ラベル | 12px（字間 0）/ 10px / `--c-ink-3` |
 | 月見出し | `yyyy/m`（例 `2026/8`）/ 17px / 600 / letter-spacing `-.01em` |
-| 月の合計「3.7 時間 · 16 日」 | 11px / `--c-ink-3` / 月見出しの右・`align-items: baseline` / gap 10px（実測 10.0px・重なりなし） |
+| 月の合計「3.7 時間 · 16 日」 | 11px / `--c-ink-3` / 月見出しの右・`align-items: baseline` / gap 10px（実測 10.0px・重なりなし）。**時間は「練習時間」**（音を感知していた時間。便I 2026-09-17 本人裁定で録音の長さから変えた）。マスの濃さも同じ定義で、**累計カードと1つの定義**（`sessionSoundingSec`） |
 | 曜日 | 11px / `--c-ink-3` |
 | カレンダーのマス / 丸 | 44px（`CALENDAR_CELL_H`）/ 34px（`CALENDAR_DOT`）。実測 44×45 |
 | 選択中の日 / 今日 | 地 `--c-accent` + 字 `--c-on-accent` + 600 / `box-shadow: inset 0 0 0 1.5px var(--c-accent)`（**選択中でないときだけ**） |
 | セッション1件 | 時刻 14px/600 / メタ 11px `--c-ink-3` / 長さ 12px `--font-num`。左の帯 3px・radius 2・`--c-accent-mid`（**意味を持たない**） |
-| 目安のカード（便G D4。**My Data の最後**） | 見出し「目安」12px/700。行は A型 `.ctl-state`（枠 `--c-line-strong` / 選択中は枠と字が `--c-accent`）/ 名前 12px + 楽器 12px `--c-ink-2`。ゴミ箱 `Trash2` 14 / 当たり判定 `--tap-min`。削除は即時 + 帯の「元に戻す」5秒。**0件ならカードごと出ない** |
+| 目安のカード（便G D4。**My Data の最後**） | 見出し「目安」12px/700。行は A型 `.ctl-state`（枠 `--c-line-strong` / 選択中は枠と字が `--c-accent`）/ 名前 12px + 楽器 12px `--c-ink-2`。ゴミ箱 `Trash2` 14 / 当たり判定 `--tap-min`。削除は即時 + 帯の「元に戻す」5秒。**0件でもカードは出す**（便I 2026-09-17 本人指示）── 中身は「目安を設定してください」12px `--c-ink-2` と、導線1つ「計測を選んで目安に設定する」13px `--c-accent` + 右端 `›` 17px `--c-line-strong` / `--tap-min`。**地は持たせない**（`.card` の中なので `.rowcard` を使うと地が二重になる）。自分の計測が0件のときは導線ごと出さない（押しても行き止まりのため） |
 | その1件のメタの中身 | **リードだけ**（`Vandoren-3 #1` / `未紐付け`）。**奏者は出さない** ─ 母集団が `myDataOwnSessions`（奏者=自分 かつ 選択中の楽器種別）なので全行同じ値になり、情報を運ばないため（2026/08/26 本人裁定）。**「すべてのセッション」の行は全奏者が出る画面なので奏者を残す** |
 | 開く枠 | 上限 192px（`MY_DATA_DAY_PANEL_MAX_H`）/ 200ms ease-out / `prefers-reduced-motion: reduce` で即時 |
 | 式のピル | 高さ 20px / padding `0 9px 0 12px` / 枠は**両方とも** `--c-line-strong` / 先頭に 6px の系列色の丸（**窓型では出さない**）/ ▾ 9px `--c-line-strong` |
