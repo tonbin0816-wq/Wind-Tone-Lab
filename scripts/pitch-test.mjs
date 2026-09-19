@@ -36,7 +36,7 @@ import * as aggregate from "../src/community/aggregate.js";
 const { rankByPractice } = aggregate;
 // 【便G(D1)2026-09-16】練習時間(音を感知していた時間)。実装そのものを import して実行で確かめる。
 import { sessionSoundingSec, frameIntervalSec, isSoundingFrame } from "../src/soundingSec.js";
-// 【R6 2026-09-16 本人裁定③】リードの銘柄・型番の正はコミュニティのカタログ。
+// 【R6 2026-09-16 本人裁定③】リードのメーカー・銘柄の正はコミュニティのカタログ。
 // App.jsx が import して使うのと**同じ実物**を検査でも使う(写しを作らない)。
 import { REED_CATALOG } from "../src/community/catalog/gear.js";
 
@@ -355,10 +355,10 @@ const code = [
   extractConst("REED_STRENGTHS", profileSrc).replace(/^export /, ""),
   extractConst("REED_ADD_COUNT_MIN"),
   extractConst("REED_ADD_COUNT_MAX"),
-  // 【R2 2026-09-16】厚さ・枚数のダイヤルの並び(REED_STRENGTHS の後に置くこと)
+  // 【便N 2026-09-19】厚さ・枚数の選択肢の並び(REED_STRENGTHS の後に置くこと)。
+  // ダイヤルの一式(REED_STRENGTH_DIAL / REED_COUNT_DIAL)は行になったので定義ごと消えた。
   extractConst("REED_ADD_COUNTS"),
-  extractConst("REED_STRENGTH_DIAL"),
-  extractConst("REED_COUNT_DIAL"),
+  extractConst("REED_STRENGTH_OPTIONS"),
   extractConst("REED_BRAND_CUSTOM"),
   extractConst("REED_BRAND_CUSTOM_LABEL"),
   extractConst("REED_MORE_ITEMS"),
@@ -484,7 +484,7 @@ const api = new Function(`${code}
            SUBTAB_GAP_PX, SUBTAB_HALF_GAP_PX, REED_NUMROW_MIN_PX,
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
-           REED_ADD_COUNTS, REED_STRENGTH_DIAL, REED_COUNT_DIAL,
+           REED_ADD_COUNTS, REED_STRENGTH_OPTIONS,
            dialValueAt, dialOffsetFor, ratingDialSpec, optionDialSpec,
            REED_ADD_BUTTON_LABEL,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
@@ -8217,7 +8217,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // --- M5 並びと段(箱 / 厚さ / 日付 / 個体#) -----------------------------------
         {
           const colorSpans = (reedRow.match(/<span style=\{\{ color: [^}]*\}\}>/g) || []);
-          check("M5: リード枠で色を持つ <span> は4つ(箱の銘柄・厚さ・日付・個体#)",
+          check("M5: リード枠で色を持つ <span> は4つ(箱のメーカー・厚さ・日付・個体#)",
             colorSpans.length === 4, `${colorSpans.length}個`);
           check("M5: 段は 箱=--c-ink(太字) / 厚さ=--c-ink-2 / 日付=--c-ink-3 / 個体#=--c-ink-2",
             colorSpans.length === 4
@@ -8231,13 +8231,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           const posStr = reedRow.indexOf("reedStrengthLabel(");
           const posDate = reedRow.indexOf("formatYmd(selectedBoxGroup.startDate)");
           const posMember = reedRow.indexOf("reedMemberOptions.find(");
-          check("M5: 並びは 箱(銘柄) → 厚さ → 日付 → 個体# の順",
+          check("M5: 並びは 箱(メーカー) → 厚さ → 日付 → 個体# の順",
             posBrand > 0 && posStr > posBrand && posDate > posStr && posMember > posDate,
-            `銘柄${posBrand} 厚さ${posStr} 日付${posDate} 個体${posMember}`);
+            `メーカー${posBrand} 厚さ${posStr} 日付${posDate} 個体${posMember}`);
           check("M5: 厚さは shortBoxLabel と同じ規則(reedStrengthLabel)から出す",
             /\{reedStrengthLabel\(selectedBoxGroup\.strength\)\}/.test(reedRow));
-          // 【R6 2026-09-16】型番を持つ箱は型番で呼ぶ。規則は shortBoxLabel の頭と同じ1つ。
-          check("M5 / R6: 銘柄の欄は shortBoxLabel と同じ頭(shortBoxHead)から出す",
+          // 【R6 2026-09-16】銘柄を持つ箱は銘柄で呼ぶ。規則は shortBoxLabel の頭と同じ1つ。
+          check("M5 / R6: メーカーの欄は shortBoxLabel と同じ頭(shortBoxHead)から出す",
             /\{selectedBoxGroup \? shortBoxHead\(selectedBoxGroup\.brand, selectedBoxGroup\.model, reedGroups\.map\(\(x\) => x\.brand\)\) : reedBoxOptions\[0\]\.label\}/.test(reedRow));
           check("M5: 値は縮んで省略記号になる(minWidth:0 + overflow + textOverflow)",
             (reedRow.match(/minWidth: 0, overflow: "hidden", textOverflow: "ellipsis"/g) || []).length === 2,
@@ -8341,7 +8341,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           JSON.stringify(children) === JSON.stringify(["button", "button"]),
           JSON.stringify(children));
         // タグの並びそのものも固定する(間に何かを挟む変異はここでも落ちる)
-        check("M5: 枠の中のタグの並びは 箱ボタン/点/銘柄/厚さ/日付/個体ボタン/個体#/山形",
+        check("M5: 枠の中のタグの並びは 箱ボタン/点/メーカー/厚さ/日付/個体ボタン/個体#/山形",
           JSON.stringify(allTags.map((t) => t.name))
             === JSON.stringify(["button", "span", "span", "span", "span", "button", "span", "PickChevron"]),
           JSON.stringify(allTags.map((t) => t.name)));
@@ -8361,14 +8361,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           styleDecls(t.tag).filter((d) => HORIZ.test(d.name)).forEach((d) => got.push(`${i2}:${t.name}:${d.name}=${d.value}`));
         });
         // 期待する集合。**何のためにその宣言があるか**を1つずつ書く。
-        // 番号は枠の中のタグの並び順(0=包み / 1=箱のボタン / 2=点 / 3=銘柄 / 4=厚さ /
+        // 番号は枠の中のタグの並び順(0=包み / 1=箱のボタン / 2=点 / 3=メーカー / 4=厚さ /
         // 5=日付 / 6=個体のボタン / 7=個体# / 8=山形)。
         // 並びが変われば番号がずれるので、タグを挟む変異もここで落ちる。
         const want = [
-          '1:button:gap="var(--sp-1)"',                 // 点・銘柄・厚さ・日付の間。区切りは記号ではなく余白(M5)
+          '1:button:gap="var(--sp-1)"',                 // 点・メーカー・厚さ・日付の間。区切りは記号ではなく余白(M5)
           '1:button:padding=`2px 0 2px ${TOPSET_ROW_PAD_LEFT_PX}px`', // 左端は1行目と**同じ定数**(M1)
           '2:span:width=6',                             // 選択済みを示す点の直径
-          '3:span:maxWidth=110',                        // 銘柄の幅の上限
+          '3:span:maxWidth=110',                        // メーカーの幅の上限
           '3:span:minWidth=0',                          // flex で縮ませる(ellipsis を出すため)
           '6:button:padding="2px 4px 2px var(--sp-1)"', // **箱と個体の間隔はこの左 padding だけ**(正典の半角空白1つ)
           '7:span:maxWidth=60',                         // 個体の幅の上限
@@ -8644,9 +8644,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             `実際=${JSON.stringify(horiz)} / 期待=${JSON.stringify(wantHoriz)}`);
         }
         // 上部設定行の4箇所(奏者 / 楽器 / 基準ピッチ / リード)すべてに出ていること。
-        // 【N-5 で 4 → 5】リードタブの追加シートの銘柄プルダウンが5つ目。
+        // 【N-5 で 4 → 5】リードタブの追加シートのメーカープルダウンが5つ目。
         // **箇所数を緩めたのではなく**、計測タブの上部設定行に4つあることと、
-        // 増えた1件が追加シートの銘柄であることを別々に固定する
+        // 増えた1件が追加シートのメーカーであることを別々に固定する
         // (F-72 の罠5「箇所数の固定で逃げない」)。
         // 【N-6 で 5 → 6】データタブのフィルタピル(正典 .fp の中の .chev)が6つ目。
         // ピルは3種類あるが**描くのは共通の filterPill 1箇所**なので綴りは1つ増えるだけ。
@@ -8654,13 +8654,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 呼び出しは5箇所(タイムラインの3つ / リード紐付け / PIVOT の次元)あるが
         // **描くのは PlainSelect の1箇所**なので綴りは1つ増えるだけ(呼び出しの集合は検証29)。
         const n = (code.match(/<PickChevron \/>/g) || []).length;
-        // 【R6 2026-09-16 で 7 → 8】追加シートに型番の行が増えた(銘柄と同じ「値 + ▾」)。
+        // 【R6 2026-09-16 で 7 → 8】追加シートに銘柄の行が増えた(メーカーと同じ「値 + ▾」)。
         // 【D2 便G 2026-09-16 で 8 → 9】My Data の累計カードが押せるようになり(定義のシート)、
         // 押せることを返す ▾ が右上に付いた(R3)。その1つは検証51 が MyDataSection で数える。
         // 【K1 2026-09-19 で 9 → 10】My Data の目安カードに「目安を追加 ▾」の行が増えた。
         // ここも画面が変わるのではなく**選択肢のシートが開く**ので ▾(› ではない)。
-        check("F-72: ▾ を使う綴りは10(上部設定行の4つ + 追加シートの銘柄・型番 + データタブのフィルタピル + PlainSelect + My Data の累計カード + 目安を追加)",
-          n === 10, `${n}箇所`);
+        // 【便N 2026-09-19 で 10 → 9】箱のシートの行は**共有の1部品**(ReedSheetPickRow)に
+        // なったので、2つ写していた ▾ が1つに減った。**箇所が減ったのではなく綴りが減った**
+        // (行は 2 → 4 に増えている。下の「共有部品に1つだけ」がそれを固定する)。
+        check("F-72: ▾ を使う綴りは9(上部設定行の4つ + 箱のシートの行の共有部品 + データタブのフィルタピル + PlainSelect + My Data の累計カード + 目安を追加)",
+          n === 9, `${n}箇所`);
         check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
           (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
           `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -8678,9 +8681,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           check("F-72: 上部設定行の ▾ は4つ(MeasureView に3つ + 奏者セレクタに1つ)",
             inMeasure === 3 && inPerformer === 1, `MeasureView=${inMeasure} / PerformerSelector=${inPerformer}`);
           const sheet = srcOfFn(src, "ReedBoxSheet");
-          check("N-5 / R6: 追加シートの銘柄・型番のプルダウンに ▾ がある(押せば選択肢が出ることを形で示す)",
-            (sheet.match(/<PickChevron \/>/g) || []).length === 2,
-            `${(sheet.match(/<PickChevron \/>/g) || []).length}箇所`);
+          // 【便N】4行(メーカー・銘柄・厚さ・枚数)はどれも共有の ReedSheetPickRow。
+          // ▾ の綴りはその部品の中に1つだけで、シート本体には1つも書かれていない。
+          check("N-5 / R6 / 便N: 箱のシートの行の ▾ は共有部品に1つだけ(行ごとに写していない)",
+            (sheet.match(/<PickChevron \/>/g) || []).length === 0
+            && (srcOfFn(src, "ReedSheetPickRow").match(/<PickChevron \/>/g) || []).length === 1
+            && (sheet.match(/<ReedSheetPickRow/g) || []).length === 4,
+            `シート直書き=${(sheet.match(/<PickChevron \/>/g) || []).length} / 行=${(sheet.match(/<ReedSheetPickRow/g) || []).length}`);
         }
       }
       // 型のクラスは名前で書く作法のまま(リードタブ等で使い続けるため)。
@@ -8788,11 +8795,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
 
     // --- 17.9 【N-5 で置き換え】リード登録フォームは無くなり、追加シートになった -------
     // 旧主張(2026-08-04 本人指示): 「新しいリードを登録」カードの中で
-    //   銘柄+番手が display:grid の2カラム / 使用開始日は単独の1行フル幅 /
+    //   メーカー+番手が display:grid の2カラム / 使用開始日は単独の1行フル幅 /
     //   使用開始日の input[type=date] が REED_FORM_CONTROL_STYLE(width:100%)を使う
     // 新主張(正典 = north-star-measure.html の「追加シート」):
     //   フォームそのものが画面から消え、「＋ 追加」1つ → シートの中に
-    //   銘柄プルダウン + 番手5種のピル + 枚数 1〜10 が入る。
+    //   メーカープルダウン + 番手5種のピル + 枚数 1〜10 が入る。
     //   **開封日の入力欄は出さない**(箱を追加した日が自動で開封日になる)。
     //   開封日を書き換えられるのは「…」の「箱の開封日を編集」だけで、
     //   そこで初めて input[type=date] が現れる(REED_FORM_CONTROL_STYLE はそこが使う)。
@@ -8887,7 +8894,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         !codeR.includes("1枚ずつ追加") && !codeR.includes("まとめて追加"));
       check("N-5: 枚数を window.prompt で聞く旧実装が残っていない",
         !/window\.prompt/.test(codeR), (codeR.match(/window\.prompt/g) || []).join(","));
-      check("N-5: 銘柄・番手の select(id=reed-brand-select / reed-strength-select)が残っていない",
+      check("N-5: メーカー・番手の select(id=reed-brand-select / reed-strength-select)が残っていない",
         !/id="reed-brand-select"/.test(codeR) && !/id="reed-strength-select"/.test(codeR));
       // 【F-111 2026/08/17 本人指示】入口の文言が「＋ 追加」→「＋ リードを追加」になり、
       // 置き場所も一覧末尾から右下の浮かせるボタンへ移った。**入口が1つ**という芯は不変。
@@ -8918,8 +8925,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         || /startDate, setStartDate, onAdd, onClose, mode = "add",/.test(src));
       check("F-82: mode=\"edit\" を渡す呼び出しは1つだけ(箱の編集)",
         (src.match(/mode="edit"/g) || []).length === 1, `${(src.match(/mode="edit"/g) || []).length}箇所`);
-      check("F-82 / R4: 編集の一手は「この箱を変更」/ 追加は「この箱を追加する」(同じ関数が分ける)",
-        api.reedSheetButtonLabel("edit") === "この箱を変更"
+      // 【便N 2026-09-19 本人指示】編集の一手は「この箱を変更」→「変更」。
+      // 追加の「この箱を追加する」は**1文字も変えていない**。
+      check("F-82 / R4 / 便N: 編集の一手は「変更」/ 追加は「この箱を追加する」(同じ関数が分ける)",
+        api.reedSheetButtonLabel("edit") === "変更"
         && api.reedSheetButtonLabel("add") === "この箱を追加する"
         && api.reedSheetButtonLabel(undefined) === "この箱を追加する",
         `${api.reedSheetButtonLabel("edit")} / ${api.reedSheetButtonLabel("add")}`);
@@ -8931,11 +8940,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         /\{reedSheetTitle\(mode\)\}/.test(src));
       // 枚数は「追加」のときだけ。編集で枚数を触らせると、どの個体を消すのかが決まらない。
       // 【R2 2026-09-16】−/数値/＋ はダイヤルに変わった。**錨を新しい姿へ向け直す**。
-      check("F-82 / R2: 枚数のダイヤルは追加のときだけ出る",
-        /\{!isEdit && \(\s*\r?\n?\s*<div[\s\S]{0,400}?<RatingDial spec=\{REED_COUNT_DIAL\}/
+      // 【便N 2026-09-19】そのダイヤルは名札つきの行になった。主張は1つも変えていない。
+      check("F-82 / R2 / 便N: 枚数の行は追加のときだけ出る",
+        /\{!isEdit && \(\s*\r?\n?\s*<ReedSheetPickRow[\s\S]{0,300}?label="枚数"/
           .test(srcOfFn(src, "ReedBoxSheet")));
       // 【押しても何も起きない一手を作らない(§6.1.5)】実行側(registerReeds / applyBoxEdit)は
-      // 銘柄が空・開封日が空のとき**黙って return する**。ボタンの disabled がそれと食い違うと、
+      // メーカーが空・開封日が空のとき**黙って return する**。ボタンの disabled がそれと食い違うと、
       // 「押せるのに無反応」になる。**実ソースの式を取り出して実行で突き合わせる**
       // (審査役の変異で `(isEdit && !startDate)` を外しても生存した = 検査が無かった)。
       {
@@ -8945,23 +8955,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         const isDisabled = new Function("isCustom", "customBrand", "isEdit", "startDate",
           `return !!(${m ? m[1] : "false"});`);
         // 編集: 開封日が空なら押せない / 入っていれば押せる
-        check("F-82: 編集で開封日が空なら「この箱を変更」は押せない(死んだ一手にしない)",
+        check("F-82: 編集で開封日が空なら「変更」は押せない(死んだ一手にしない)",
           isDisabled(false, "", true, "") === true && isDisabled(false, "", true, null) === true,
           `空=${isDisabled(false, "", true, "")}`);
         check("F-82: 編集で開封日が入っていれば押せる",
           isDisabled(false, "", true, "2026-08-13") === false,
           `${isDisabled(false, "", true, "2026-08-13")}`);
-        // 自由入力の銘柄が空なら追加も編集も押せない(現行のまま)
-        check("F-82: 自由入力の銘柄が空なら押せない(追加・編集とも)",
+        // 自由入力のメーカーが空なら追加も編集も押せない(現行のまま)
+        check("F-82: 自由入力のメーカーが空なら押せない(追加・編集とも)",
           isDisabled(true, "  ", false, "") === true && isDisabled(true, "  ", true, "2026-08-13") === true,
           `${isDisabled(true, "  ", false, "")} / ${isDisabled(true, "  ", true, "2026-08-13")}`);
         // 追加は開封日を持たない(自動で入る)ので、startDate が空でも押せる
         check("F-82: 追加は開封日を聞かないので startDate が空でも押せる",
           isDisabled(false, "", false, "") === false, `${isDisabled(false, "", false, "")}`);
         // 実行側が同じ2つで return していること(ボタンと実行の判断がずれない)
-        check("F-82: applyBoxEdit も 銘柄が空 / 開封日が空 で return する(ボタンと同じ判断)",
+        check("F-82: applyBoxEdit も メーカーが空 / 開封日が空 で return する(ボタンと同じ判断)",
           /const applyBoxEdit = \(\) => \{[\s\S]{0,400}?if \(!brand \|\| !editStartDate\) return;/.test(srcOf("ReedRegisterView")));
-        check("F-82: registerReeds も銘柄が空なら return する",
+        check("F-82: registerReeds もメーカーが空なら return する",
           /const registerReeds = \(count\) => \{\s*\r?\n\s*const brand = resolveBrand\(\);\s*\r?\n\s*if \(!brand\) return;/.test(srcOf("ReedRegisterView")));
       }
       // 枚数の範囲 1〜10(箱1つぶん)。上下にはみ出さない
@@ -8978,13 +8988,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         (codeOf(src).match(/onChange=\{\(v\) => setCount\(clampReedAddCount\(v\)\)\}/g) || []).length === 1
         && !/aria-label="枚数を減らす"|aria-label="枚数を増やす"/.test(codeOf(src)),
         (codeOf(src).match(/clampReedAddCount\([^)]*\)/g) || []).join(" | "));
-      // 銘柄の自由入力は現行のまま(選択肢の末尾に「＋ 新しい銘柄を入力...」)
-      check("銘柄の自由入力の値とラベルは現行のまま",
-        api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しい銘柄を入力...",
+      // メーカーの自由入力は現行のまま(選択肢の末尾に「＋ 新しいメーカーを入力...」)
+      check("メーカーの自由入力の値とラベルは現行のまま",
+        api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力...",
         `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
-      check("銘柄のピッカーの選択肢は 登録済み + 「＋ 新しい銘柄を入力...」",
+      check("メーカーのピッカーの選択肢は 登録済み + 「＋ 新しいメーカーを入力...」",
         /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(src));
-      check("自由入力した銘柄は候補に自動追加される(重複は避ける)",
+      check("自由入力したメーカーは候補に自動追加される(重複は避ける)",
         /if \(newBrand === REED_BRAND_CUSTOM && !brandOptions\.includes\(brand\)\) \{\s*setExtraBrands/.test(src));
       // 【2026/09/06 本人指示】2.0〜4.0 の 0.25 刻み。旧5値の上位集合なので、
       // 保存済みの箱の strength(文字列)は1件も書き換えなくてよい。
@@ -9098,7 +9108,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             check("同じローカル日の 08:00 と 10:00 は同じ開封日(箱が2つに割れない)",
               a === b && a === "2026-08-14", `${a} / ${b}`);
             // reedGroupKey が開封日を含むこと(割れる経路が実在することの裏取り)
-            check("箱のキーは 銘柄|番手|開封日(開封日がずれると箱が割れる)",
+            check("箱のキーは メーカー|番手|開封日(開封日がずれると箱が割れる)",
               /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
           }
         } finally {
@@ -9127,8 +9137,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("開封日の input[type=date] 自身が width:100% を持つ(REED_FORM_CONTROL_STYLE経由)",
           /width: "100%",/.test(rfBodyFor(src)), rfBodyFor(src).replace(/\s+/g, " ").slice(0, 160));
       }
-      // 【F-80 / F-82】箱の編集は**銘柄・番手・開封日の3つとも**箱の全メンバーへ同じ値を書く。
-      // 1枚だけ書き換えると reedGroupKey(銘柄|番手|開封日)が割れて箱が2つになる。
+      // 【F-80 / F-82】箱の編集は**メーカー・番手・開封日の3つとも**箱の全メンバーへ同じ値を書く。
+      // 1枚だけ書き換えると reedGroupKey(メーカー|番手|開封日)が割れて箱が2つになる。
       // **綴りではなく実行で確かめる**: 実ソースの updateGroup を取り出し、setReeds だけを
       // 差し替えて評価し、その結果を実物の groupReeds に通して箱の数を数える。
       {
@@ -9137,7 +9147,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           upd !== null && /setReeds\(/.test(upd ? upd[1] : ""), upd ? `${upd[1].length}文字` : "取れない");
         // 実ソースの updateGroup をそのまま評価する。差し替えるのは setReeds だけで、
         // 参照している実物の関数(reedGroupKey / reedMemberOrder / resolveReedModel)を渡す。
-        // 【R6 2026-09-16】型番は箱のキーではないが、箱の編集は全メンバーへ同じ値を書く。
+        // 【R6 2026-09-16】銘柄は箱のキーではないが、箱の編集は全メンバーへ同じ値を書く。
         const resolveReedModelReal = new Function("REED_CATALOG", `
           ${extractFunction("reedModelOptions")}
           ${extractFunction("resolveReedModel")}
@@ -9159,25 +9169,25 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("F-82: 用意した3枚は2箱に分かれている(前提の裏取り)",
           api.groupReeds(base).length === 2, `${api.groupReeds(base).length}箱`);
         const marca = api.groupReeds(base).find((x) => x.brand === "Marca");
-        // (a) 銘柄・番手を Vandoren 3.0 へ変えると、開封日も同じにすれば既存の箱へ合流する
+        // (a) メーカー・番手を Vandoren 3.0 へ変えると、開封日も同じにすれば既存の箱へ合流する
         {
           const after = applyUpdate(marca, { brand: "Vandoren", strength: "3.0", startDate: "2026-08-13" }, base);
           const gs = api.groupReeds(after);
-          check("F-82: 銘柄・番手・開封日を既存の箱と同じにすると、その箱へ合流する",
+          check("F-82: メーカー・番手・開封日を既存の箱と同じにすると、その箱へ合流する",
             gs.length === 1 && gs[0].members.length === 3, `${gs.length}箱 / ${gs[0]?.members.length}枚`);
         }
-        // (b) 開封日だけを合わせても、銘柄が違えば合流しない(キーの3要素が効いていることの裏取り)
+        // (b) 開封日だけを合わせても、メーカーが違えば合流しない(キーの3要素が効いていることの裏取り)
         {
           const after = applyUpdate(marca, { startDate: "2026-08-13" }, base);
           const gs = api.groupReeds(after);
-          check("F-80: 開封日だけ合わせても銘柄が違えば合流しない(片方向だけ見ていない)",
+          check("F-80: 開封日だけ合わせてもメーカーが違えば合流しない(片方向だけ見ていない)",
             gs.length === 2, `${gs.length}箱`);
         }
-        // (c) 3つとも患部: 銘柄だけ変えて開封日が違えば別の箱のまま
+        // (c) 3つとも患部: メーカーだけ変えて開封日が違えば別の箱のまま
         {
           const after = applyUpdate(marca, { brand: "Vandoren", strength: "3.0" }, base);
           const gs = api.groupReeds(after);
-          check("F-82: 銘柄・番手を合わせても開封日が違えば別の箱のまま",
+          check("F-82: メーカー・番手を合わせても開封日が違えば別の箱のまま",
             gs.length === 2, `${gs.length}箱`);
         }
         // (d) 書き換えは箱の全メンバーに及ぶ(1枚だけ動かして箱を割らない)
@@ -9189,7 +9199,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             moved.length === 2 && api.groupReeds(after).length === 2,
             `${moved.length}枚 / ${api.groupReeds(after).length}箱`);
         }
-        check("F-80/F-82: 箱のキーは 銘柄|番手|開封日 のまま(合流の判定がこの3つで決まる)",
+        check("F-80/F-82: 箱のキーは メーカー|番手|開封日 のまま(合流の判定がこの3つで決まる)",
           /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
 
         // (e) 【差し戻し②】合流したタイルは**末尾に続く**。
@@ -9996,7 +10006,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     }
 
     // --- 17.15b 【F-80 / F-82】.taptext = 見た目を変えずに当たり判定だけ 44pt へ ----
-    // 箱見出しの銘柄と日付は「文字そのもの」をタップさせる。padding / min-height で
+    // 箱見出しのメーカーと日付は「文字そのもの」をタップさせる。padding / min-height で
     // 広げると行が 20px → 44px に伸びて**見た目が変わる**(本人指示「今の表示から変更する
     // 必要はない」)ので、レイアウトに参加しない疑似要素で広げる。
     // ここで縛るのは3つ: (a) 高さが 44pt (b) レイアウトに参加しない (c) 余計な物を持ち込まない
@@ -10024,7 +10034,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check(".taptext は overflow を visible に固定する(疑似要素ごと切られるのを構造的に防ぐ)",
         /overflow:\s*visible\s*!important/.test(String(tt)), String(tt));
       // 他の規則が `.taptext` の付いた要素を名指しで切らないこと。
-      // (`.rname` は銘柄ボタンが `className="rname sans taptext"` で自分に付けているクラス名。
+      // (`.rname` はメーカーボタンが `className="rname sans taptext"` で自分に付けているクラス名。
       //  そこに `overflow: hidden` を1行足すと当たり判定が 15px に落ちることを審査役が実測した。
       //  いまは上の !important が勝つが、**そもそも書かせない**ほうが読み手に親切)
       {
@@ -13626,7 +13636,7 @@ let METRO_SIGS_ALL = [];
 // ============================================================
 // 検証25: N-5 リードタブを正典どおりにする
 //   A 登録一覧(箱見出し + 5×2タイル + 「＋ 追加」1つ)
-//   B 追加シート(銘柄・番手・枚数。window.prompt 廃止)
+//   B 追加シート(メーカー・番手・枚数。window.prompt 廃止)
 //   C タイルの長押しドラッグ並び替え
 //   D 「…」の削除モードと開封日の編集
 //   E 個体詳細(#自由入力・3列ダイヤル・測定データ4指標・評価推移・このリードで計測)
@@ -13843,8 +13853,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       parseFloat(declOf(mockCss, ".rmeta", "font-size")) === 12
       && parseFloat(declOf(mockCss, ".rmeta", "gap")) === 10
       && /fontSize: 12, color: "var\(--c-ink-3\)", display: "flex", gap: 10, alignItems: "baseline"/.test(src));
-    // 箱見出しに出るのは 銘柄・番手・平均★・開封日 の4つだけ(枚数バッジ等を足していない)
-    // 【F-80/F-82 で走査の開始位置を変えた】銘柄と日付をタップで編集できるようにしたので、
+    // 箱見出しに出るのは メーカー・番手・平均★・開封日 の4つだけ(枚数バッジ等を足していない)
+    // 【F-80/F-82 で走査の開始位置を変えた】メーカーと日付をタップで編集できるようにしたので、
     // 中身が nameInner / dateText に切り出された。走査は const boxEditable から始める。
     {
       const i = src.indexOf("const boxEditable = listMode === null;");
@@ -13853,7 +13863,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       check("箱見出しのブロックを走査できている",
         head.length > 1500 && /const heading = \(/.test(head), `${head.length}文字`);
       const shown = [
-        ["銘柄", /\{g\.brand\}/],
+        ["メーカー", /\{g\.brand\}/],
         ["番手", /\{g\.strength\}/],
         ["平均★", /★\{avgRating\.toFixed\(1\)\}/],
         ["開封日", /formatYmd\(g\.startDate\) \?\? "—"/],
@@ -13866,7 +13876,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       check("箱見出しの日付は formatYmd(yyyy/mm/dd)を通す",
         !/\{g\.startDate\}/.test(codeOf(head)));
 
-      // --- 【F-80 / F-82】銘柄と日付をタップすると「箱を編集」が開く ----------------
+      // --- 【F-80 / F-82】メーカーと日付をタップすると「箱を編集」が開く ----------------
       // **見た目を足していないこと**を、この2つの <button> の宣言を全件照合して縛る。
       // 「地・枠を持たない」は綴りの不在ではなく、**横方向・面まわりの宣言の集合**で見る
       // (F-72 罠5「綴り1つを数える検査は別名の宣言で生き残る」)。
@@ -13877,15 +13887,15 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         const close = head.indexOf(">", head.indexOf("style={{", open));
         return open === -1 ? null : head.slice(open, close + 1);
       };
-      const nameBtn = btnOf("の銘柄と番手を編集");
+      const nameBtn = btnOf("のメーカーと番手を編集");
       const dateBtn = btnOf("の開封日を編集");
-      check("F-82: 銘柄が <button> になっている(タップで編集が開く)",
+      check("F-82: メーカーが <button> になっている(タップで編集が開く)",
         nameBtn !== null && /onClick=\{\(\) => openBoxEdit\(g\)\}/.test(nameBtn),
         (nameBtn || "").replace(/\s+/g, " ").slice(0, 140));
       check("F-80: 日付が <button> になっている(タップで編集が開く)",
         dateBtn !== null && /onClick=\{\(\) => openBoxEdit\(g\)\}/.test(dateBtn),
         (dateBtn || "").replace(/\s+/g, " ").slice(0, 140));
-      for (const [label, tag] of [["銘柄", nameBtn], ["日付", dateBtn]]) {
+      for (const [label, tag] of [["メーカー", nameBtn], ["日付", dateBtn]]) {
         // 角丸・影・余白・寸法を**足していない** = 見た目が 1px も変わらないことの担保。
         // `padding: 0` は UA 既定の余白を消す**打ち消し**なので許す(足していないので値は 0 のみ)。
         // 0 以外の値が1つでも入れば落ちる(padding: 8 / minHeight: "var(--tap-min)" 等)。
@@ -13904,13 +13914,13 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
           tag !== null && /className="[^"]*\btaptext\b[^"]*"/.test(tag),
           (tag || "").replace(/\s+/g, " ").slice(0, 160));
       }
-      // 銘柄の見た目は nameStyle 1つが持ち、押せる側(button)と押せない側(span)で**共有**する。
+      // メーカーの見た目は nameStyle 1つが持ち、押せる側(button)と押せない側(span)で**共有**する。
       // 2箇所に書くと、削除モードに入った瞬間に文字の大きさや色が変わる。
-      check("F-82: 銘柄の見た目は nameStyle 1つ(押せる側と押せない側で共有)",
+      check("F-82: メーカーの見た目は nameStyle 1つ(押せる側と押せない側で共有)",
         /const nameStyle = \{ fontSize: 15, fontWeight: 600, color: "var\(--c-ink\)", minWidth: 0 \};/.test(head)
         && (head.match(/\.\.\.nameStyle/g) || []).length === 2,
         `${(head.match(/\.\.\.nameStyle/g) || []).length}箇所`);
-      check("F-82: 銘柄の文字も nameInner 1つ(押せる側と押せない側で共有)",
+      check("F-82: メーカーの文字も nameInner 1つ(押せる側と押せない側で共有)",
         (head.match(/\{nameInner\}/g) || []).length === 2, `${(head.match(/\{nameInner\}/g) || []).length}箇所`);
       check("F-80: 日付の文字も dateText 1つ(押せる側と押せない側で共有)",
         (head.match(/\{dateText\}/g) || []).length === 2, `${(head.match(/\{dateText\}/g) || []).length}箇所`);
@@ -13921,7 +13931,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // .taptext の CSS 側(index.css)の検査は §17.15b(cssBlock 等が使える節)に置いた。
       //
       // 【F-83】index.css が「.taptext を付ける要素は overflow を切ってはいけない」と
-      // **明文で禁じている**のに、それを見る検査が1本も無かった。銘柄ボタンの style に
+      // **明文で禁じている**のに、それを見る検査が1本も無かった。メーカーボタンの style に
       // `overflow: "hidden"` を足す変異は **PASS 5885 / FAIL 0 のまま生存**し、実ブラウザ
       // (375×812)で当たり判定が **44px → 15px** に落ちた(`elementFromPoint` を整数グリッドで
       // 1px刻みに走査。§5 の 44pt 割れ)。
@@ -14644,8 +14654,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("「< 一覧」で一覧へ戻れる(見た目は BACK_BUTTON_STYLE の1箇所)",
       /backLabel="< 一覧"/.test(detail) && /onBack={onBack}/.test(detail)
       && /onClick=\{onBack\}/.test(srcOfFn(src, "DetailHeader")));
-    // 【R6 2026-09-16】型番(model)を持つ箱は型番で呼ぶ。見出しも同じ規則から出す。
-    check("見出しは shortBoxLabel(型番があれば V16-3、無ければ従来の形)",
+    // 【R6 2026-09-16】銘柄(model)を持つ箱は銘柄で呼ぶ。見出しも同じ規則から出す。
+    check("見出しは shortBoxLabel(銘柄があれば V16-3、無ければ従来の形)",
       /shortBoxLabel\(reed\.brand, reed\.strength, reeds\.map\(\(r\) => r\.brand\), reed\.model\)/.test(detail));
     check("#番号は自由入力(空で自動採番の値が placeholder に出る)",
       /placeholder=\{String\(reedPosition\(reed, reeds\)\)\}/.test(detail)
@@ -14942,13 +14952,21 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         !/class="pmt" style="height:40px"/.test(mock)
         && !/aria-label="枚数を減らす"/.test(codeOf(sheet)),
         `正典ミニの ±=${/class="pmt" style="height:40px"/.test(mock)}`);
-      check("R2 追加シートは厚さ・枚数の2列(部品は評価と同じ RatingDial)",
-        (codeOf(sheet).match(/<RatingDial spec=\{REED_(STRENGTH|COUNT)_DIAL\}/g) || []).length === 2,
-        `${(codeOf(sheet).match(/<RatingDial spec=/g) || []).length}列`);
-      check("R2 正典ミニも厚さ・枚数の2列に書き換えてある(実装だけ先に動かしていない)",
-        /追加シート — 銘柄と<b>型番<\/b>のプルダウン/.test(mock)
-        && /<div style="font-size:12px;color:var\(--ink3\)">厚さ<\/div>/.test(mock)
-        && /<div style="font-size:12px;color:var\(--ink3\)">枚数<\/div>/.test(mock));
+      // 【便N 2026-09-19 本人指示】ダイヤル2列は**名札つきの4行**になった。
+      // 正典ミニ(design/north-star-measure.html)を先に書き換えてから実装を合わせている。
+      check("便N 追加シートは名札つきの4行(ダイヤルは1列も残っていない)",
+        (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 4
+        && !/<RatingDial/.test(codeOf(sheet)),
+        `${(codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length}行`);
+      check("便N 正典ミニも4行に書き換えてある(実装だけ先に動かしていない)",
+        /追加シート — <b>メーカー選択・銘柄選択・厚さ選択・枚数の4行が同じ形<\/b>/.test(mock)
+        && !/<b>型番<\/b>/.test(mock)
+        && [["メーカー選択", "Vandoren"], ["銘柄選択", "V16"], ["厚さ選択", "3.25"], ["枚数", "10"]]
+          .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`).test(mock))
+        // ミニの中のダイヤル2列(厚さ/枚数の段)が消えていること。
+        // **正典ファイル全体では数えない**(個体詳細の「厚さ」の指標が別の場所にある)。
+        && !/<div style="font-size:12px;color:var\(--ink3\)">厚さ<\/div>/.test(mock)
+        && !/<div style="font-size:12px;color:var\(--ink3\)">枚数<\/div>/.test(mock));
       // メトロノームの .pmt(48px)は残っている ── 消えたのは追加シートの上書きだけ
       check("正典の .pmt はメトロノームのために残っている(48px)",
         parseFloat(declOf(mockCss, ".pmt", "height") || "0") === 48,
@@ -15490,7 +15508,7 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
 
   // --- 26.5 リードの短縮表記(N-4a と同じ規則) ----------------------------------
   {
-    // 【M5 2026-09-16】shortBoxLabel は「銘柄の短縮」と「番手の .0 落とし」を
+    // 【M5 2026-09-16】shortBoxLabel は「メーカーの短縮」と「番手の .0 落とし」を
     // shortBrandLabel / reedStrengthLabel に分けて持つようになった(規則は1つのまま)。
     const rs = new Function(`${extractFunction("shortBrandLabel")}
       ${extractFunction("reedStrengthLabel")}
@@ -22495,9 +22513,9 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       const f = built.v;
       const g1 = { brand: "Vandoren V16", strength: "3.0" };
       const g2 = { brand: "Select Jazz", strength: "3S" };
-      check("46 B-2 銘柄が1つなら名前で呼ぶ(箱)",
+      check("46 B-2 メーカーが1つなら名前で呼ぶ(箱)",
         f([g1, g1], 6, 2) === "Vandoren V16 3.0 の2箱(6枚)", String(f([g1, g1], 6, 2)));
-      check("46 B-2 銘柄がまたがるときは数だけで言う",
+      check("46 B-2 メーカーがまたがるときは数だけで言う",
         f([g1, g2], 6, 2) === "2箱(6枚)", String(f([g1, g2], 6, 2)));
       check("46 B-2 枚を消したときは箱の数を言わない",
         f([g1], 3, 0) === "Vandoren V16 3.0 の3枚", String(f([g1], 3, 0)));
@@ -22714,14 +22732,16 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     // 綴りの数と、実際に選ばせている場所の数を**別々に**固定する
     // (共有部品に寄せたので、綴り1つで複数の画面をまかなう箇所がある)。
     const spell = (app48.match(/<ScrollPicker\b/g) || []).length;
-    // 【R6 2026-09-16】追加シートに**型番**のピッカーが1つ増えた(7 → 8)。
-    check("48.3 M4 ScrollPicker の綴りは8つ(基準ピッチ/楽器/箱/個体/奏者/軸など/追加シートの銘柄・型番)",
-      spell === 8, `${spell}箇所`);
+    // 【R6 2026-09-16】追加シートに**銘柄**のピッカーが1つ増えた(7 → 8)。
+    // 【便N 2026-09-19 で 8 → 10】厚さと枚数のダイヤルが行になり、選び方が
+    // メーカー・銘柄と同じ ScrollPicker に揃った(本人指示「箱追加のダイヤルもこの仕様に揃えて」)。
+    check("48.3 M4 ScrollPicker の綴りは10(基準ピッチ/楽器/箱/個体/奏者/軸など/箱のシートのメーカー・銘柄・厚さ・枚数)",
+      spell === 10, `${spell}箇所`);
     const sites = spell
       + ((app48.match(/<PerformerSelector\b/g) || []).length - 1)   // 共有部品の呼び出しぶん
       + ((app48.match(/<PlainSelect\b/g) || []).length - 1);
-    check("48.3 M4 実際に ScrollPicker で選ばせている箇所は11(凍結仕様の「8箇所以上」を満たす)",
-      sites >= 8 && sites === 11, `${sites}箇所`);
+    check("48.3 M4 実際に ScrollPicker で選ばせている箇所は13(凍結仕様の「8箇所以上」を満たす)",
+      sites >= 8 && sites === 13, `${sites}箇所`);
     // 【M3】症状の原因は「値の上に**透明にした**操作要素を重ねる」作り。
     // 透明化は color: "transparent" で行っていたので、その綴りが0件であることで見る
     // (appearance: "none" 自体はリードの追加シートの入力欄が正当に使っているので数えない)。
@@ -22746,7 +22766,7 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     // 並びの確認。**位置で見る**(色だけ合っていて順が違う、を落とす)。
     const pos = ["shortBoxHead(", "reedStrengthLabel(", "formatYmd(selectedBoxGroup.startDate)", "reedMemberOptions.find("]
       .map((k) => topSet.indexOf(k));
-    check("48.4 M5 並びは 箱(銘柄) → 厚さ → 日付 → 個体# の順",
+    check("48.4 M5 並びは 箱(メーカー) → 厚さ → 日付 → 個体# の順",
       pos.every((p) => p > 0) && pos[0] < pos[1] && pos[1] < pos[2] && pos[2] < pos[3],
       pos.join(" < "));
     check("48.4 M5 区切りは記号ではなく余白(箱のボタンの gap は --sp-1)",
@@ -22874,7 +22894,7 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
 // 検証49: 便E リードタブ(R1〜R9・R15・R19)と戻るボタン
 //
 // 出どころ: docs/superpowers/plans/2026-09-16-device-feedback.md 便E
-// (本人が実機で触って挙げた指摘。型番 = 2026-09-16 本人裁定③)。
+// (本人が実機で触って挙げた指摘。銘柄 = 2026-09-16 本人裁定③)。
 //
 // 【この節が名乗れないこと】(罠1)
 //   ・**押しやすくなったか / 読みやすくなったか**。56px の円が 44px より良いかは
@@ -22924,53 +22944,64 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
       `全${calls.length} / 絵柄だけ${noLabel.length}`);
   }
 
-  // --- 49.2 R2 厚さと枚数は「どちらもダイヤル」を同じ行に ------------------------
-  // 【変異】厚さをピルに戻す / 枚数を ± に戻す / 縦に積む → 落ちる。
+  // --- 49.2 R2 → 便N 厚さと枚数は「名札つきの1行」 ------------------------------
+  // 【R2 2026-09-16 の旧主張】厚さと枚数は**どちらもダイヤル**を同じ行に横並び。
+  // 【便N 2026-09-19 本人指示で撤回】「厚さはダイアルの縦幅が明らかに大きすぎるので
+  // 開封日と縦幅を合わせて」「箱追加のダイヤルもこの仕様に揃えて」。
+  // ダイヤル(9段 = 396px)は **--tap-min の行**になり、選び方は ScrollPicker に揃った。
+  // **緩めていない**: 検査の数は同じで、錨を新しい姿へ向け直しただけ
+  // (ダイヤルに戻す変異・行を1つにまとめる変異はここで落ちる)。
+  // 【変異】厚さをダイヤルに戻す / 枚数を ± に戻す / 番手のピルに戻す → 落ちる。
   {
-    const row = sheet49.slice(sheet49.indexOf('<div style={{ display: "flex", flexWrap: "nowrap", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>'),
+    const rows = sheet49.slice(sheet49.indexOf('label="厚さ選択"'),
       sheet49.indexOf("{reedSheetButtonLabel(mode)}"));
-    check("49.2 R2 ダイヤルの行を切り出せている", row.length > 400 && /RatingDial/.test(row), `${row.length}文字`);
-    check("49.2 R2 厚さも枚数もダイヤル(新しい部品を作らず RatingDial を使い回す)",
-      (row.match(/<RatingDial spec=\{REED_STRENGTH_DIAL\}/g) || []).length === 1
-      && (row.match(/<RatingDial spec=\{REED_COUNT_DIAL\}/g) || []).length === 1,
-      (row.match(/<RatingDial spec=\{\w+\}/g) || []).join(" | "));
-    check("49.2 R2 2つは同じ行に横並び(折り返さない・列は幅を等分)",
-      /flexWrap: "nowrap"/.test(row) && (row.match(/flex: "1 1 0", minWidth: 0/g) || []).length === 2,
-      `${(row.match(/flex: "1 1 0", minWidth: 0/g) || []).length}列`);
-    check("49.2 R2 厚さの位置が先(左が厚さ・右が枚数)",
-      row.indexOf("厚さ") > 0 && row.indexOf("枚数") > row.indexOf("厚さ"),
-      `厚さ=${row.indexOf("厚さ")} / 枚数=${row.indexOf("枚数")}`);
-    check("49.2 R2 追加シートに番手のピルも ± も残っていない",
-      !/<ReedStrengthPills/.test(sheet49) && !/枚数を減らす|枚数を増やす/.test(sheet49),
-      (sheet49.match(/<ReedStrengthPills|枚数を減らす/g) || []).join(" | ") || "0件");
-    // 選択肢は発明しない: 厚さは REED_STRENGTHS(profile.js)、枚数は 1〜箱1つぶん
-    check("49.2 R2 厚さの選択肢は REED_STRENGTHS そのもの(上が大きい向きに並べ替えただけ)",
-      api.REED_STRENGTH_DIAL.order.join(",") === [...api.REED_STRENGTHS].reverse().join(",")
-      && api.REED_STRENGTH_DIAL.order[0] === "4.0"
-      && api.REED_STRENGTH_DIAL.order[api.REED_STRENGTH_DIAL.order.length - 1] === "2.0",
-      api.REED_STRENGTH_DIAL.order.join(","));
-    check("49.2 R2 枚数の選択肢は 10〜1(上が多い。範囲は REED_ADD_COUNT_MIN〜MAX)",
-      api.REED_COUNT_DIAL.order.join(",") === "10,9,8,7,6,5,4,3,2,1"
-      && api.REED_COUNT_DIAL.order.length === api.REED_ADD_COUNT_MAX - api.REED_ADD_COUNT_MIN + 1,
-      api.REED_COUNT_DIAL.order.join(","));
-    // 一式(spec)の正規化は「並びに無い値を落とす」だけ。古い記録でも必ず1段を指す。
-    check("49.2 R2 一式は並びに無い値を末尾(いちばん下)へ落とす(空白の段を作らない)",
-      api.REED_STRENGTH_DIAL.normalize("9.9") === "2.0"
-      && api.REED_STRENGTH_DIAL.normalize("3.25") === "3.25"
-      && api.REED_COUNT_DIAL.normalize(99) === 1 && api.REED_COUNT_DIAL.normalize(7) === 7,
-      `${api.REED_STRENGTH_DIAL.normalize("9.9")} / ${api.REED_COUNT_DIAL.normalize(99)}`);
+    check("49.2 便N 厚さ・枚数の行を切り出せている",
+      rows.length > 120 && /ReedSheetPickRow/.test(rows), `${rows.length}文字`);
+    check("49.2 便N 厚さも枚数も同じ行の部品(新しい部品を作らず ReedSheetPickRow を使い回す)",
+      (sheet49.match(/<ReedSheetPickRow/g) || []).length === 4
+      && (sheet49.match(/label="(メーカー選択|銘柄選択|厚さ選択|枚数)"/g) || []).length === 4,
+      (sheet49.match(/label="[^"]*"/g) || []).join(" | "));
+    check("49.2 便N ダイヤルはシートから消えた(spec の2定数も定義ごと無い)",
+      !/RatingDial/.test(sheet49) && !/REED_STRENGTH_DIAL|REED_COUNT_DIAL/.test(app49),
+      (app49.match(/RatingDial|REED_STRENGTH_DIAL|REED_COUNT_DIAL/g) || []).join(" | ") || "0件");
+    check("49.2 便N 厚さの行が先(上が厚さ・下が枚数)",
+      sheet49.indexOf('label="厚さ選択"') > 0
+      && sheet49.indexOf('label="枚数"') > sheet49.indexOf('label="厚さ選択"'),
+      `厚さ=${sheet49.indexOf('label="厚さ選択"')} / 枚数=${sheet49.indexOf('label="枚数"')}`);
+    check("49.2 便N 追加シートに番手のピルも ± もダイヤルも残っていない",
+      !/<ReedStrengthPills/.test(sheet49) && !/枚数を減らす|枚数を増やす/.test(sheet49)
+      && !/<RatingDial/.test(sheet49),
+      (sheet49.match(/<ReedStrengthPills|枚数を減らす|<RatingDial/g) || []).join(" | ") || "0件");
+    // 選択肢は発明しない: 厚さは REED_STRENGTHS(profile.js)、枚数は 1〜箱1つぶん。
+    // **並びは画面に出ていた順のまま**(部品が変わっただけで向きは動かしていない)。
+    check("49.2 便N 厚さの選択肢は REED_STRENGTHS そのもの(上が大きい向きに並べ替えただけ)",
+      api.REED_STRENGTH_OPTIONS.join(",") === [...api.REED_STRENGTHS].reverse().join(",")
+      && api.REED_STRENGTH_OPTIONS[0] === "4.0"
+      && api.REED_STRENGTH_OPTIONS[api.REED_STRENGTH_OPTIONS.length - 1] === "2.0",
+      api.REED_STRENGTH_OPTIONS.join(","));
+    check("49.2 便N 枚数の選択肢は 10〜1(上が多い。範囲は REED_ADD_COUNT_MIN〜MAX)",
+      api.REED_ADD_COUNTS.join(",") === "10,9,8,7,6,5,4,3,2,1"
+      && api.REED_ADD_COUNTS.length === api.REED_ADD_COUNT_MAX - api.REED_ADD_COUNT_MIN + 1,
+      api.REED_ADD_COUNTS.join(","));
+    check("49.2 便N 枚数は箱1つぶんに収めたまま(ピッカーの値も clampReedAddCount を通す)",
+      api.clampReedAddCount(99) === api.REED_ADD_COUNT_MAX
+      && api.clampReedAddCount(0) === api.REED_ADD_COUNT_MIN
+      && /onChange=\{\(v\) => setCount\(clampReedAddCount\(v\)\)\}/.test(sheet49),
+      `${api.clampReedAddCount(99)} / ${api.clampReedAddCount(0)}`);
   }
-
   // --- 49.3 R3 / R4 / R5 主要動作の中央揃え・幅・高さ・文言 ----------------------
   // 【変異】語を「10枚の箱を追加」に戻す / 幅を内容ぶんに戻す / 高さを --tap-min に戻す → 落ちる。
   {
-    const btn = sheet49.slice(sheet49.indexOf('<div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>'),
-      sheet49.indexOf("{reedSheetButtonLabel(mode)}") + 40);
+    // 【便N】{reedSheetButtonLabel(mode)} は編集側(横並び)にも出るので、
+    // **中央揃えの器から後ろ**を切り出す(先頭から探すと編集側を掴む)。
+    const btnAt = sheet49.indexOf('<div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>');
+    const btn = sheet49.slice(btnAt, sheet49.indexOf("{reedSheetButtonLabel(mode)}", btnAt) + 40);
     check("49.3 R3 主要動作を切り出せている", btn.length > 300 && /reedSheetButtonLabel/.test(btn), `${btn.length}文字`);
     check("49.3 R3 主要動作は中央揃え", /justifyContent: "center"/.test(btn));
-    check("49.3 R5 横幅はシートの内側いっぱい(銘柄の行の下線と同じ幅)",
+    check("49.3 R5 横幅はシートの内側いっぱい(メーカーの行の下線と同じ幅)",
       /width: "100%", height: ACTION_LG_PX,/.test(btn)
-      && /borderBottom: "1px solid var\(--c-line\)",\s*\r?\n?[\s\S]{0,120}?width: "100%",/.test(sheet49));
+      // 【便N】行の罫は共有の REED_SHEET_ROW_STYLE が持つようになったので、そちらを見る。
+      && /const REED_SHEET_ROW_STYLE = \{[\s\S]{0,200}?borderBottom: "1px solid var\(--c-line\)",/.test(app49));
     check("49.3 R5 高さは R1 と同じ定数(56 を2箇所に書いていない)",
       /height: ACTION_LG_PX,/.test(btn) && !/height: 56/.test(sheet49));
     check("49.3 R4 追加の語は「この箱を追加する」1つ(枚数で変わらない)",
@@ -22980,39 +23011,49 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     check("49.3 R4 旧綴り(「n枚の箱を追加」「1枚を追加」)は1つも残っていない",
       !/枚の箱を追加/.test(app49) && !/1枚を追加/.test(app49),
       (app49.match(/.{0,8}枚の箱を追加|.{0,4}1枚を追加/g) || []).join(" | ") || "0件");
-    check("49.3 R4 編集の語は「この箱を変更」のまま(巻き添えで変えていない)",
-      api.reedSheetButtonLabel("edit") === "この箱を変更"
-      && (app49.match(/この箱を変更/g) || []).length === 1, api.reedSheetButtonLabel("edit"));
+    // 【便N 2026-09-19 本人指示】「この箱を変更→変更 / この箱を削除→削除 に変更」。
+    // 追加の「この箱を追加する」は**1文字も変えていない**(上の検査がそれを固定している)。
+    // 【綴りは JSX に直書きされていない】「変更」は reedSheetButtonLabel("edit") が返す
+    // ただ1つの出どころから来る(上の「JSX 側で書き分けていない」がそれを固定している)ので、
+    // `>変更<` の直書きは**0件であることが正しい**。数えるのは関数の答えと旧綴りの不在。
+    check("49.3 便N 編集の語は「変更」(旧綴り「この箱を変更」は1つも残っていない)",
+      api.reedSheetButtonLabel("edit") === "変更"
+      && !/この箱を変更/.test(app49) && (app49.match(/>変更</g) || []).length === 0
+      && (app49.match(/>削除</g) || []).length === 1,
+      `${api.reedSheetButtonLabel("edit")} / 旧綴り${(app49.match(/この箱を変更/g) || []).length}件 / >削除<${(app49.match(/>削除</g) || []).length}件`);
   }
 
   // --- 49.4 R8 編集モードも同じ配置(枚数だけ出さない) ---------------------------
   {
-    check("49.4 R8 枚数のダイヤルは追加のときだけ(編集では出さない)",
-      /\{!isEdit && \(\s*\r?\n?\s*<div[\s\S]{0,400}?<RatingDial spec=\{REED_COUNT_DIAL\}/.test(sheet49));
-    check("49.4 R8 厚さのダイヤルは編集でも出る(条件を持たない)",
-      !/\{!isEdit && \([\s\S]{0,200}?<RatingDial spec=\{REED_STRENGTH_DIAL\}/.test(sheet49)
-      && /<RatingDial spec=\{REED_STRENGTH_DIAL\}/.test(sheet49));
+    // 【便N】ダイヤル → 行。主張(枚数は追加だけ / 厚さは両方)は1つも変えていない。
+    check("49.4 R8 枚数の行は追加のときだけ(編集では出さない)",
+      /\{!isEdit && \(\s*\r?\n?\s*<ReedSheetPickRow[\s\S]{0,300}?label="枚数"/.test(sheet49));
+    check("49.4 R8 厚さの行は編集でも出る(条件を持たない)",
+      !/\{!isEdit && \([\s\S]{0,300}?label="厚さ選択"/.test(sheet49)
+      && /label="厚さ選択"/.test(sheet49));
     check("49.4 R8 一手も削除も編集と追加で同じ器(シートは1つのまま)",
       (src.match(/<ReedBoxSheet/g) || []).length === 2
       && (src.match(/mode="edit"/g) || []).length === 1);
   }
 
-  // --- 49.5 R6 銘柄はカタログ / リードの記録に型番 ------------------------------
-  // 【変異】model を label に使わない / カタログを読まずに銘柄を直書きに戻す → 落ちる。
+  // --- 49.5 R6 メーカーはカタログ / リードの記録に銘柄 ------------------------------
+  // 【変異】model を label に使わない / カタログを読まずにメーカーを直書きに戻す → 落ちる。
   {
-    check("49.5 R6 銘柄の一覧はコミュニティのカタログ(綴りを2箇所に持たない)",
+    check("49.5 R6 メーカーの一覧はコミュニティのカタログ(綴りを2箇所に持たない)",
       /import \{ REED_CATALOG \} from "\.\/community\/catalog\/gear\.js";/.test(src)
       && /const REED_BRAND_OPTIONS = Object\.keys\(REED_CATALOG\);/.test(app49)
       && !/INITIAL_REED_BRANDS/.test(app49),
       (app49.match(/INITIAL_REED_BRANDS/g) || []).length + "件(旧定数)");
-    check("49.5 R6 自由入力の逃げ道は残っている(カタログに無い銘柄)",
+    check("49.5 R6 自由入力の逃げ道は残っている(カタログに無いメーカー)",
       api.REED_BRAND_CUSTOM === "__custom__"
       && /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(app49));
-    check("49.5 R6 型番は銘柄 → 型番の2段(どちらも ScrollPicker)",
-      (sheet49.match(/<ScrollPicker/g) || []).length === 2
-      && sheet49.indexOf('aria-label="銘柄"') < sheet49.indexOf('aria-label="型番"'),
-      `銘柄=${sheet49.indexOf('aria-label="銘柄"')} / 型番=${sheet49.indexOf('aria-label="型番"')}`);
-    check("49.5 R6 銘柄を変えたら型番も付け替える(別の銘柄の型番が残らない)",
+    // 【便N】行に名札が付き、読み上げの名も名札から出る(aria-label={label})。
+    // ScrollPicker は4つ(メーカー・銘柄・厚さ・枚数)。どれもシートの**外**に出す。
+    check("49.5 R6 銘柄はメーカー → 銘柄の2段(どちらも ScrollPicker)",
+      (sheet49.match(/<ScrollPicker/g) || []).length === 4
+      && sheet49.indexOf('label="メーカー選択"') < sheet49.indexOf('label="銘柄選択"'),
+      `メーカー=${sheet49.indexOf('label="メーカー選択"')} / 銘柄=${sheet49.indexOf('label="銘柄選択"')}`);
+    check("49.5 R6 メーカーを変えたら銘柄も付け替える(別のメーカーの銘柄が残らない)",
       /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet49)
       && /onChange=\{\(v\) => pickBrand\(v\)\}/.test(sheet49));
     // 保存される形。**実行で確かめる**(綴りだけ見ても「保存していない」は分からない)。
@@ -23021,17 +23062,17 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
         ${extractFunction("reedModelOptions")}
         ${extractFunction("resolveReedModel")}
         return resolveReedModel;`)(REED_CATALOG);
-      check("49.5 R6 保存する型番はカタログにある組だけ(自由入力の銘柄は null)",
-        rm("Vandoren", "V16") === "V16" && rm("Vandoren", "存在しない型番") === null
-        && rm("勝手な銘柄", "V16") === null && rm("Vandoren", null) === null,
-        `${rm("Vandoren", "V16")} / ${rm("勝手な銘柄", "V16")}`);
+      check("49.5 R6 保存する銘柄はカタログにある組だけ(自由入力のメーカーは null)",
+        rm("Vandoren", "V16") === "V16" && rm("Vandoren", "存在しない銘柄") === null
+        && rm("勝手なメーカー", "V16") === null && rm("Vandoren", null) === null,
+        `${rm("Vandoren", "V16")} / ${rm("勝手なメーカー", "V16")}`);
       check("49.5 R6 追加は resolveReedModel を通した値を1枚ずつに書く",
         /model: resolveReedModel\(brand, newModel\),/.test(list49));
-      check("49.5 R6 箱の編集も型番を全メンバーへ書く(箱の中で型番が割れない)",
+      check("49.5 R6 箱の編集も銘柄を全メンバーへ書く(箱の中で銘柄が割れない)",
         /const model = resolveReedModel\(brand, patch\.model \?\? g\.model \?\? null\);/.test(list49)
         && /return \{ \.\.\.r, brand, model, strength, startDate, sortOrder: rank\.get\(r\.id\) \};/.test(list49));
     }
-    // 表示の規則。**型番を持たない既存の記録が1文字も変わらない**ことまで見る。
+    // 表示の規則。**銘柄を持たない既存の記録が1文字も変わらない**ことまで見る。
     {
       const lbl = new Function(`${extractFunction("shortBrandLabel")}
         ${extractFunction("reedStrengthLabel")}
@@ -23040,16 +23081,16 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
         ${extractFunction("reedBrandModelLabel")}
         return { shortBoxLabel, reedBrandModelLabel, shortBoxHead };`)();
       const brands = ["Vandoren", "Marca"];
-      check("49.5 R6 型番があれば 型番-厚さ(V16-3)",
+      check("49.5 R6 銘柄があれば 銘柄-厚さ(V16-3)",
         lbl.shortBoxLabel("Vandoren", "3.0", brands, "V16") === "V16-3"
         && lbl.shortBoxLabel("Vandoren", "2.5", brands, "Java Red Cut") === "Java Red Cut-2.5",
         lbl.shortBoxLabel("Vandoren", "3.0", brands, "V16"));
-      check("49.5 R6 型番が無ければ従来どおり(既存の記録の見え方が変わらない)",
+      check("49.5 R6 銘柄が無ければ従来どおり(既存の記録の見え方が変わらない)",
         lbl.shortBoxLabel("Vandoren V16", "3.0", ["Vandoren V16"]) === "V16-3"
         && lbl.shortBoxLabel("Vandoren V16", "3.0", ["Vandoren V16"], null) === "V16-3"
         && lbl.shortBoxLabel("Marca", "2.5", brands) === "Marca-2.5",
         lbl.shortBoxLabel("Marca", "2.5", brands));
-      check("49.5 R6 長い呼び名は 銘柄 型番(型番が無ければ銘柄だけ)",
+      check("49.5 R6 長い呼び名は メーカー 銘柄(銘柄が無ければメーカーだけ)",
         lbl.reedBrandModelLabel("Vandoren", "V16") === "Vandoren V16"
         && lbl.reedBrandModelLabel("Vandoren", null) === "Vandoren"
         && lbl.reedBrandModelLabel("Vandoren", undefined) === "Vandoren",
@@ -23060,24 +23101,24 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
       /model: r\.model \?\? null,/.test(app49)
       && api.groupReeds([{ id: "a", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }])[0].model === null,
       String(api.groupReeds([{ id: "a", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }])[0].model));
-    // 波及の4画面が型番を読んでいること(1つでも抜けると同じ箱が2通りの名で出る)
-    check("49.5 R6 波及: 計測タブの上部設定行が型番を読む",
+    // 波及の4画面が銘柄を読んでいること(1つでも抜けると同じ箱が2通りの名で出る)
+    check("49.5 R6 波及: 計測タブの上部設定行が銘柄を読む",
       /shortBoxHead\(selectedBoxGroup\.brand, selectedBoxGroup\.model, /.test(codeOf(srcOfFn(src, "MeasureView"))));
-    check("49.5 R6 波及: リード一覧の箱の見出しが型番を読む",
+    check("49.5 R6 波及: リード一覧の箱の見出しが銘柄を読む",
       /reedBrandModelLabel\(g\.brand, g\.model\)/.test(list49));
-    check("49.5 R6 波及: 個体詳細の見出しが型番を読む",
+    check("49.5 R6 波及: 個体詳細の見出しが銘柄を読む",
       /shortBoxLabel\(reed\.brand, reed\.strength, reeds\.map\(\(r\) => r\.brand\), reed\.model\)/.test(detail49));
     // 削除の帯が言う箱の名前も一覧の見出しと同じ綴り(実測で食い違っていたので揃えた)。
     {
       const dl = new Function(`${extractFunction("reedBrandModelLabel")}
         ${extractFunction("deletedReedsLabel")}
         return deletedReedsLabel;`)();
-      check("49.5 R6 波及: 削除の帯の箱の名前も型番まで言う(一覧の見出しと同じ綴り)",
+      check("49.5 R6 波及: 削除の帯の箱の名前も銘柄まで言う(一覧の見出しと同じ綴り)",
         dl([{ brand: "Vandoren", model: "Traditional", strength: "3.0" }], 10, 1) === "Vandoren Traditional 3.0 の1箱(10枚)"
         && dl([{ brand: "Vandoren V16", strength: "3.0" }], 3, 0) === "Vandoren V16 3.0 の3枚",
         dl([{ brand: "Vandoren", model: "Traditional", strength: "3.0" }], 10, 1));
     }
-    check("49.5 R6 波及: 比較タブの箱の見出しと凡例が型番を読む",
+    check("49.5 R6 波及: 比較タブの箱の見出しと凡例が銘柄を読む",
       /reedBrandModelLabel\(g\.brand, g\.model\)/.test(cmp49)
       && /reedBrandModelLabel\(reed\.brand, reed\.model\)/.test(codeOf(srcOfFn(src, "reedLabel"))));
     // コミュニティの公開データ(profile.js の gear)は**別物**。触っていない。
@@ -24703,6 +24744,193 @@ console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==
     /const PENCIL_BADGE = /.test(gen58) && /PENCIL_BADGE/.test(gen58.slice(gen58.indexOf("function buildMyPage"))));
   check("58.5 M3 正典の生成物で印は右下・直径 24",
     /position: absolute; right: 0; bottom: 0; width: 24px; height: 24px/.test(myPage58));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証59: 便N ── リードの語を入れ替え / 箱のシートを作り直す(2026-09-19 本人指示)
+//
+// 本人の言葉(原文):
+//   「リードタブのリードの箱編集画面について / メーカー選択 / 銘柄選択 / 厚さ選択に変更」
+//   「厚さはダイアルの縦幅が明らかに大きすぎるので開封日と縦幅を合わせて」
+//   「表示はメーカー選択などと同じ左寄せ」「開封日の日付も同じく左寄せ」
+//   「下のボタンの縦幅のサイズを削除側に揃えて」
+//   「この箱を変更→変更 / この箱を削除→削除 に変更」「その上で変更と削除を横並びに修正」
+//   「箱追加のダイヤルもこの仕様に揃えて」
+// 統括が本人に確かめた裁定: 語の入れ替えは**アプリ全体**で行う / 3つの行とも名札を出す。
+//
+// N1 リードだけ 銘柄(作り手) → メーカー、型番(製品名) → 銘柄。
+//    **識別子・保存キー・保存ずみデータの綴りは1文字も変えない。**
+//    **楽器・マウスピース・リガチャーの組(gear)の語は対象外**(本人が合意したのはリードの語)。
+// N2 箱のシートは名札つきの4行 + 下の一手。厚さのダイヤル(9段=396px)は行(--tap-min)へ。
+//
+// 【ここで見ること】綴りの出どころ・行の形・高さの出どころ・並び・正典との一致。
+// 【見ないもの(名乗らない)】
+//   ・行が実機で押しやすいか / ScrollPicker の慣性が iOS でどう出るか → **実機待ち**
+//   ・input[type=date] の中の文字が iOS Safari で本当に左へ寄るか。textAlign は指定できるが、
+//     ネイティブの日付フィールドの内部配置はエンジンが決める。**Chrome では判定不能**
+//   ・「4行の高さが同じに見えるか」は CSS の値で見ているだけで、描画の実測ではない
+//
+// 【変異(複製で。実ツリー禁止)】
+//   (1) 名札を「銘柄選択」→「型番選択」に戻す (2) 厚さをダイヤルに戻す
+//   (3) 変更のボタンを 56 に戻す (4) 変更と削除を縦積みに戻す
+//   (5) 開封日の左寄せを外す (6) 正典だけ古い語に戻す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証59: 便N リードの語と箱のシート ==========");
+{
+  const app59 = codeOf(src);
+  const sheet59raw = srcOfFn(src, "ReedBoxSheet");
+  const sheet59 = codeOf(sheet59raw);
+  const row59 = codeOf(srcOfFn(src, "ReedSheetPickRow"));
+  const mock59 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const gear59 = readFileSync(join(__dirname, "..", "src", "community", "catalog", "gear.js"), "utf8");
+  const prof59 = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
+  const count59 = (t, re) => (t.match(re) || []).length;
+
+  check("59.0 走査対象を取れている(空回りしていない)",
+    sheet59.length > 1500 && row59.length > 300 && mock59.length > 10000,
+    `シート=${sheet59.length} 行=${row59.length} 正典=${mock59.length}`);
+
+  // --- 59.1 N1 リードの語 ------------------------------------------------------
+  // 【変異(1)】名札や綴りを旧語へ戻す → ここで落ちる。
+  {
+    // 画面に出る綴り。出どころは1つずつ固定する(綴りを2箇所に置かない)。
+    check("59.1 N1 自由入力の逃げ道の語は「メーカー」",
+      api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力..."
+      && /placeholder="新しいメーカー名を入力"/.test(app59),
+      api.REED_BRAND_CUSTOM_LABEL);
+    check("59.1 N1 分析軸の綴りは「リードメーカー」(集計しているのは brand)",
+      /key: "brand", label: "リードメーカー",/.test(app59),
+      (app59.match(/key: "brand", label: "[^"]*"/g) || []).join(" | "));
+    check("59.1 N1 箱のシートの名札は メーカー選択 / 銘柄選択 / 厚さ選択 / 枚数",
+      count59(sheet59, /label="メーカー選択"/g) === 1
+      && count59(sheet59, /label="銘柄選択"/g) === 1
+      && count59(sheet59, /label="厚さ選択"/g) === 1
+      && count59(sheet59, /label="枚数"/g) === 1,
+      (sheet59.match(/label="[^"]*"/g) || []).join(" | "));
+    // 旧語の不在。**コメントを剥がしてから数える**(綴りを数える検査の作法)。
+    check("59.1 N1 App.jsx に旧語「型番」が1つも残っていない",
+      !/型番/.test(app59), (app59.match(/.{0,10}型番.{0,10}/g) || []).join(" | ") || "0件");
+    check("59.1 N1 App.jsx に旧語「リード銘柄」「新しい銘柄」が残っていない",
+      !/リード銘柄/.test(app59) && !/新しい銘柄/.test(app59),
+      (app59.match(/リード銘柄|新しい銘柄/g) || []).join(" | ") || "0件");
+    // 【ここが本体】綴りを変えたのは**画面に出る文字だけ**。識別子・保存キーは動かさない。
+    check("59.1 N1 識別子は1文字も変わっていない(brand / model / カタログの入口)",
+      /const REED_BRAND_OPTIONS = Object\.keys\(REED_CATALOG\);/.test(app59)
+      && api.REED_BRAND_CUSTOM === "__custom__"
+      && /function reedModelOptions\(/.test(app59)
+      && /model: resolveReedModel\(brand, newModel\),/.test(app59)
+      && /key: "brand",/.test(app59));
+    check("59.1 N1 箱のキーは brand|strength|startDate のまま(保存ずみデータを動かさない)",
+      api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" })
+        === "Vandoren|3.0|2026-08-01",
+      api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }));
+    // 【巻き添えにしない】楽器の組(gear)の語は本人の合意の外。1文字も触っていない。
+    check("59.1 N1 楽器の組のカタログ・プロフィールの語はそのまま(リードの行だけ直した)",
+      count59(gear59, /銘柄|型番/g) === 14 && count59(prof59, /銘柄|型番/g) === 1,
+      `gear=${count59(gear59, /銘柄|型番/g)} / profile=${count59(prof59, /銘柄|型番/g)}`);
+  }
+
+  // --- 59.2 N2 4つの行は同じ形 --------------------------------------------------
+  // 【変異(2)】厚さをダイヤルに戻す → ここで落ちる。
+  {
+    check("59.2 N2 行は共有の1部品(名札 + 値 + ▾)。綴りを行ごとに写していない",
+      count59(sheet59, /<ReedSheetPickRow/g) === 4
+      && count59(row59, /<PickChevron \/>/g) === 1
+      && count59(sheet59, /<PickChevron \/>/g) === 0,
+      `行=${count59(sheet59, /<ReedSheetPickRow/g)} / 部品の▾=${count59(row59, /<PickChevron \/>/g)}`);
+    // 高さの出どころは**共有の1つ**。行の部品も開封日の行もそこから引く
+    // (行ごとに書くと、片方だけ直す変異が通ってしまう)。
+    check("59.2 N2 行の高さは --tap-min(数値を書いていない・出どころは1つ)",
+      /const REED_SHEET_ROW_STYLE = \{[\s\S]{0,240}?minHeight: "var\(--tap-min\)",/.test(app59)
+      && /\.\.\.REED_SHEET_ROW_STYLE/.test(row59)
+      && !/minHeight: \d/.test(row59));
+    // 名札の体裁は**いまの開封日の行から引いた**。新しい値を作っていない。
+    check("59.2 N2 名札の体裁は1箇所(12px / --c-ink-3 / flexShrink:0)",
+      /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0 \};/.test(app59)
+      && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1
+      && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1);
+    check("59.2 N2 値は左寄せで、名札のすぐ右から始まる",
+      /flex: 1, textAlign: "left", fontWeight: 700,/.test(row59));
+    check("59.2 N2 厚さはダイヤルではなく行(RatingDial はシートに1つも無い)",
+      !/RatingDial/.test(sheet59) && /label="厚さ選択"/.test(sheet59),
+      (sheet59.match(/RatingDial/g) || []).join(" | ") || "0件");
+    check("59.2 N2 ダイヤルの一式2つは定義ごと消えた / RatingDial の定義は残る(評価が使う)",
+      !/REED_STRENGTH_DIAL|REED_COUNT_DIAL/.test(app59)
+      && /function RatingDial\(/.test(app59),
+      (app59.match(/REED_STRENGTH_DIAL|REED_COUNT_DIAL/g) || []).join(" | ") || "0件");
+    check("59.2 N2 厚さ・枚数のピッカーは ScrollPicker で、シートの**外**に出す",
+      sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}") > sheet59raw.indexOf("</BottomSheet>")
+      && sheet59raw.indexOf("options={REED_ADD_COUNTS}") > sheet59raw.indexOf("</BottomSheet>")
+      && count59(sheet59, /<ScrollPicker/g) === 4,
+      `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")}`);
+    // 【変異(5)】開封日の左寄せを外す → ここで落ちる。
+    check("59.2 N2 開封日の値も左寄せ(本人指示「開封日の日付も同じく左寄せ」)",
+      /type="date"[\s\S]{0,900}?textAlign: "left"/.test(sheet59));
+    check("59.2 N2 開封日の iOS の手当ては4点とも残っている(1つも下げていない)",
+      /type="date"[\s\S]{0,900}?WebkitAppearance: "none"/.test(sheet59)
+      && /type="date"[\s\S]{0,900}?appearance: "none"/.test(sheet59)
+      && /type="date"[\s\S]{0,900}?maxWidth: "100%"/.test(sheet59)
+      && /type="date"[\s\S]{0,900}?lineHeight: "1\.25"/.test(sheet59)
+      && /type="date"[\s\S]{0,900}?overflow: "hidden"/.test(sheet59));
+    // 総高は4行とも --tap-min。開封日だけ height を併記するのは、中の input(44)に
+    // 罫の 1px が足されて 45px になった実測への手当て(数値は書かず、同じトークンで固定)。
+    check("59.2 N2 開封日の行も同じ枠(REED_SHEET_ROW_STYLE)を使い、総高も --tap-min",
+      /<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE, height: "var\(--tap-min\)" \}\}>/.test(sheet59)
+      && /style=\{REED_SHEET_ROW_LABEL_STYLE\}>開封日<\/span>/.test(sheet59));
+  }
+
+  // --- 59.3 N2 下の一手は「変更」と「削除」の横並び ------------------------------
+  // 【変異(3)】変更を 56 に戻す 【変異(4)】縦積みに戻す → ここで落ちる。
+  {
+    const a59 = sheet59.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
+    const b59 = sheet59.indexOf(">削除</button>", a59);
+    const pair59 = a59 >= 0 && b59 > a59 ? sheet59.slice(a59, b59 + ">削除</button>".length) : "";
+    check("59.3 N2 変更と削除は**同じ親**の中の横並び(縦積みに戻すと切り出せない)",
+      pair59.length > 300 && /display: "flex"/.test(pair59)
+      && pair59.includes("{reedSheetButtonLabel(mode)}") && pair59.includes(">削除</button>"),
+      `${pair59.length}文字`);
+    check("59.3 N2 どちらも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
+      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 2
+      && !/ACTION_LG_PX/.test(pair59) && !/height: 56/.test(pair59),
+      `--tap-min=${count59(pair59, /minHeight: "var\(--tap-min\)"/g)}個`);
+    check("59.3 N2 幅は等分(2列とも flex 1 1 0)",
+      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 2,
+      `${count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g)}列`);
+    check("59.3 N2 並びは 変更が左・削除が右(破壊的な一手を右端に置く)",
+      pair59.indexOf("{reedSheetButtonLabel(mode)}") < pair59.indexOf(">削除</button>"));
+    check("59.3 N2 塗りと色は今までのまま(変更=--c-accent / 削除=--c-danger)",
+      /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/.test(pair59)
+      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59));
+    check("59.3 N2 編集の語は「変更」/ 旧綴り「この箱を変更」「この箱を削除」は0件",
+      api.reedSheetButtonLabel("edit") === "変更"
+      && !/この箱を変更/.test(app59) && !/この箱を削除/.test(app59),
+      `${api.reedSheetButtonLabel("edit")} / 旧綴り${count59(app59, /この箱を変更|この箱を削除/g)}件`);
+    // 【追加のシートは触っていない】本人の指示に入っていないので寸法も綴りも据え置き。
+    check("59.3 N2 追加の主要動作は幅いっぱい・高さ ACTION_LG_PX のまま(触っていない)",
+      count59(app59, /この箱を追加する/g) === 1
+      && /width: "100%", height: ACTION_LG_PX,/.test(sheet59)
+      && api.REED_ADD_BUTTON_LABEL === "この箱を追加する");
+  }
+
+  // --- 59.4 正典(先に書き換えてから実装を合わせた) ------------------------------
+  // 【変異(6)】正典だけ古い語・古い姿に戻す → ここで落ちる。
+  {
+    check("59.4 正典ミニの4行は 名札 → 値(左寄せ) → ▾ で、高さ44",
+      [["メーカー選択", "Vandoren"], ["銘柄選択", "V16"], ["厚さ選択", "3.25"], ["枚数", "10"]]
+        .every(([lab, val]) => new RegExp(
+          `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`
+        ).test(mock59)));
+    check("59.4 正典に旧語「型番」が1つも残っていない",
+      !/型番/.test(mock59), (mock59.match(/.{0,8}型番.{0,8}/g) || []).join(" | ") || "0件");
+    check("59.4 正典の説明も4行と横並びの一手を書いている",
+      /追加シート — <b>メーカー選択・銘柄選択・厚さ選択・枚数の4行が同じ形<\/b>/.test(mock59)
+      && /「変更」と「削除」が横並び・高さ44/.test(mock59));
+    check("59.4 正典の箱見出しの語も「メーカー」",
+      /箱見出しにメーカー・番手・平均★・開封日/.test(mock59));
+    check("59.4 DESIGN-SYSTEM の表も「リードメーカー」へ揃っている",
+      /リードメーカー/.test(readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8")));
+  }
   console.log("  -> done");
 }
 

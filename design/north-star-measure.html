@@ -499,42 +499,34 @@
         </div>
         <div class="tabs"><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="計測"><use href="#ic-measure"/></svg></div><div class="tab on"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="リード"><use href="#ic-reed"/></svg></div><div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" aria-label="データ"><use href="#ic-data"/></svg></div></div>
       </div>
-      <div class="cap">登録 — 箱見出しに銘柄・番手・平均★・開封日(自動、編集は右上「…」)。#7は<b>長押しで持ち上がった状態</b>: ドラッグで並び替え(決定6・必須)。「…」に箱/個体の削除モード。タイルタップで個体詳細(→I)。登録⇄比較は横スワイプでも移動</div>
+      <div class="cap">登録 — 箱見出しにメーカー・番手・平均★・開封日(自動、編集は右上「…」)。#7は<b>長押しで持ち上がった状態</b>: ドラッグで並び替え(決定6・必須)。「…」に箱/個体の削除モード。タイルタップで個体詳細(→I)。登録⇄比較は横スワイプでも移動</div>
     </div>
 
     <!-- mini: 追加フロー -->
     <div class="col">
       <div class="mini">
         <div style="font-size:12px;color:var(--ink3);margin-bottom:10px">追加</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px">
-          <span><b>Vandoren</b></span><span class="chev">▾</span>
+        <div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line);font-size:14px">
+          <span style="font-size:12px;color:var(--ink3);flex:none">メーカー選択</span>
+          <span style="flex:1;text-align:left;min-width:0"><b>Vandoren</b></span><span class="chev">▾</span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px">
-          <span><b>V16</b></span><span class="chev">▾</span>
+        <div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line);font-size:14px">
+          <span style="font-size:12px;color:var(--ink3);flex:none">銘柄選択</span>
+          <span style="flex:1;text-align:left;min-width:0"><b>V16</b></span><span class="chev">▾</span>
         </div>
-        <div style="display:flex;gap:8px;text-align:center;margin-top:16px">
-          <div style="flex:1">
-            <div style="font-size:12px;color:var(--ink3)">厚さ</div>
-            <div style="font-size:13px;color:var(--line2)">3.75</div>
-            <div style="font-size:13px;color:var(--ink3)">3.5</div>
-            <div style="font-size:17px;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 0">3.25</div>
-            <div style="font-size:13px;color:var(--ink3)">3.0</div>
-            <div style="font-size:13px;color:var(--line2)">2.75</div>
-          </div>
-          <div style="flex:1">
-            <div style="font-size:12px;color:var(--ink3)">枚数</div>
-            <div style="font-size:13px;color:var(--line2)">10</div>
-            <div style="font-size:13px;color:var(--ink3)">9</div>
-            <div style="font-size:17px;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px 0">8</div>
-            <div style="font-size:13px;color:var(--ink3)">7</div>
-            <div style="font-size:13px;color:var(--line2)">6</div>
-          </div>
+        <div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line);font-size:14px">
+          <span style="font-size:12px;color:var(--ink3);flex:none">厚さ選択</span>
+          <span style="flex:1;text-align:left;min-width:0"><b>3.25</b></span><span class="chev">▾</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line);font-size:14px">
+          <span style="font-size:12px;color:var(--ink3);flex:none">枚数</span>
+          <span style="flex:1;text-align:left;min-width:0"><b>10</b></span><span class="chev">▾</span>
         </div>
         <div style="display:flex;justify-content:center;margin-top:16px">
           <span style="display:flex;align-items:center;justify-content:center;width:100%;height:56px;font-size:15px;color:#fff;background:var(--accent);border-radius:999px;font-weight:700">この箱を追加する</span>
         </div>
       </div>
-      <div class="minicap">追加シート — 銘柄と<b>型番</b>のプルダウン(「＋新しい銘柄を入力…」で自由入力が出るのは現行のまま。型番はカタログにある銘柄のときだけ)・厚さと枚数の<b>ダイヤル2列</b>・主要動作1つ。一手は<b>幅いっぱい・高さ56</b>(絵柄だけの浮かせるボタンと同寸)。開封日入力欄は無い(箱の追加日が自動)</div>
+      <div class="minicap">追加シート — <b>メーカー選択・銘柄選択・厚さ選択・枚数の4行が同じ形</b>(名札 → 値(左寄せ) → 右端に ▾ / 高さ44)。どれも押すとピッカーが出る(「＋新しいメーカーを入力…」で自由入力が出るのは現行のまま。銘柄はカタログに組のあるメーカーのときだけ)・主要動作1つ。一手は<b>幅いっぱい・高さ56</b>(絵柄だけの浮かせるボタンと同寸)。開封日入力欄は無い(箱の追加日が自動)。箱の編集は同じ4行(枚数の代わりに開封日)で、下は<b>「変更」と「削除」が横並び・高さ44</b></div>
     </div>
 
     <!-- I: 個体詳細 -->

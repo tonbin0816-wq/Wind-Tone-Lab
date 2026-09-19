@@ -201,7 +201,7 @@ describe("tallyGearByBrand / tallyGearModels", () => {
       { key: "YAS-875EX", count: 2, ratio: 2 / 3 },
       { key: "YAS-62", count: 1, ratio: 1 / 3 },
     ]);
-    // 鍵は銘柄を除いた型番。銘柄を繰り返さない
+    // 鍵はメーカーを除いた型番。メーカーを繰り返さない
     expect(r.items.map((x) => x.key)).not.toContain("YAMAHA YAS-62");
     // リードは番手まで出す
     const reed = tallyGearModels([
@@ -209,7 +209,7 @@ describe("tallyGearByBrand / tallyGearModels", () => {
       person("b", { gear: { alto: g({ reedStrength: "3.25" }) } }),
     ], "alto", "reed", "Vandoren");
     expect(reed.items.map((x) => x.key).sort()).toEqual(["Traditional 3.0", "Traditional 3.25"]);
-    // 銘柄はあるが型番が無いドキュメントは「未選択」として数える(勝手に埋めない)
+    // メーカーはあるが型番が無いドキュメントは「未選択」として数える(勝手に埋めない)
     const noModel = tallyGearModels(
       [person("a", { gear: { alto: g({ instrumentModel: null }) } })], "alto", "instrument", "YAMAHA");
     expect(noModel.items).toEqual([{ key: UNSET, count: 1, ratio: 1 }]);

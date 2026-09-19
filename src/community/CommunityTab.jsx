@@ -491,7 +491,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
 // ------------------------------------------------------------------
 
 /* 【minmax(0, 1fr) を外さないこと】grid の子の min-width は既定 auto なので、
-   中の長い文字(型番・銘柄)が列そのものを押し広げ、**ページ全体の X 軸がずれる**。
+   中の長い文字(型番・メーカー)が列そのものを押し広げ、**ページ全体の X 軸がずれる**。
    凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
    実測: 375px 幅でカードが 619.7px まで広がった。minmax(0, 1fr) で 315px に収まる。
    同じ事故がアイコンの色の格子でも起きている(CommunityTab.jsx の格子のコメント)。 */
@@ -775,7 +775,7 @@ function gearLabel(v) {
   return v.model ? `${v.brand} ${v.model}` : v.brand;
 }
 
-// リードだけは番手が続く。番手を持たない古いドキュメントは銘柄・型番だけで出す
+// リードだけは番手が続く。番手を持たない古いドキュメントはメーカー・銘柄だけで出す
 // (ルールが null を許しているので、保存し直すまで番手の無い人がいる)。
 function reedLabel(g = {}) {
   const base = gearLabel({ brand: g.reedBrand, model: g.reedModel });
@@ -874,7 +874,7 @@ const gearEntryToPicks = (g = {}) => ({
   mouthpiece: g.mpBrand ? { brand: g.mpBrand, model: g.mpModel ?? null } : null,
   ligature: g.ligBrand ? { brand: g.ligBrand, model: g.ligModel ?? null } : null,
   reed: g.reedBrand ? { brand: g.reedBrand, model: g.reedModel ?? null } : null,
-  // 番手は銘柄と別の欄。GearPicker の value の形({brand, model})を変えないため、
+  // 番手はメーカーと別の欄。GearPicker の value の形({brand, model})を変えないため、
   // reed の中に入れず並べて持つ。
   reedStrength: g.reedStrength ?? null,
 });

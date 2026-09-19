@@ -65,7 +65,7 @@ export function rankByPractice(users, period, now = new Date(), metric = "days")
 // 書き込みには null が残る。未選択を「その他」に混ぜると内訳が実態より「その他」に寄る。
 export const UNSET = "__unset__";
 
-// 3つ目の要素は「銘柄・型番に続けて数える値」。リードだけが番手を持つ。
+// 3つ目の要素は「メーカー・型番に続けて数える値」。リードだけが番手を持つ。
 const SLOTS = {
   instrument: ["instrumentBrand", "instrumentModel"],
   mouthpiece: ["mpBrand", "mpModel"],
@@ -115,7 +115,7 @@ export function gearDisplay(brand, model, extra) {
 
 // ============ 内訳を2段にする(メーカー段 → 型番段) ============
 //
-// 【既存の gearKey を壊さないこと】gearKey は「銘柄 型番 番手」を1つの鍵にする関数。
+// 【既存の gearKey を壊さないこと】gearKey は「メーカー 型番 番手」を1つの鍵にする関数。
 // 2段の内訳はそこに手を入れず**別に足した**。
 // 【2026/09/09】かつてここには1段版の `tallyGear` があり、この2つが gearKey を共有していた。
 // 画面が2段へ移ったあと `tallyGear` はどこからも呼ばれない残骸になったので撤去した
@@ -129,9 +129,9 @@ export function brandKey(brand) {
 }
 
 /**
- * 型番段の鍵。**銘柄を除いた「型番」**。リードだけ番手まで付ける
+ * 型番段の鍵。**メーカーを除いた「型番」**。リードだけ番手まで付ける
  * (2026/09/06 本人指示「リードは型番段で番手まで出してよい」)。
- * 銘柄は選んだが型番が無いドキュメントは「未選択」として数える ── 勝手に埋めない。
+ * メーカーは選んだが型番が無いドキュメントは「未選択」として数える ── 勝手に埋めない。
  */
 export function modelKey(model, extra) {
   if (model === null || model === undefined || model === "") return UNSET;
