@@ -43,6 +43,15 @@ export async function setProfilePublic(uid, isPublic) {
   await updateDoc(userRef(uid), { isPublic: !!isPublic });
 }
 
+// 【M 2026-09-19 本人指示】アイコンの変更はプロフィールの**表示画面**から行う
+// (編集フォームからは外した)。setProfilePublic と同じく updateDoc で2つのキーだけを
+// 差し替える ── setDoc の全置換だと他の項目を巻き添えにする。
+// ルールは「書いた結果のドキュメント全体」を見るので、icon / iconColor の検査
+// (絵柄の集合・色は 1〜10 の整数)はそのまま効く。**ルールの変更は要らない。**
+export async function setProfileAvatar(uid, { icon, iconColor }) {
+  await updateDoc(userRef(uid), { icon, iconColor });
+}
+
 // spec §8: アカウント削除はアプリ内から完全削除できることが必須(匿名でも適用)。
 //
 // 【順序は deleteDoc → deleteUser で固定】auth ユーザーを先に消すと、

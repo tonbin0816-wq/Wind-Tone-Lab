@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, deleteAccount } from "./accountRepo.js";
+import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, validateNickname, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron } from "./icons.jsx";
+// 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
+// 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
+// 既に使っている(LegalSheet の ×)ので、置き場所を増やさない。
+import { Pencil } from "lucide-react";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
@@ -76,6 +80,11 @@ const toggleErrorOf = (e) => (isPermissionDenied(e) ? RULE_ERROR : TOGGLE_ERROR)
 // 完了できる」ことだけ ── 存在しないドキュメントの削除は何もしないので、何度押しても壊れない。
 // (deleteUser の失敗は accountRepo 側でサインアウトに落とし込んでいる。匿名ユーザーは
 //  再認証できないので、押し直しを促すと永久に失敗し続ける行き止まりになるため。)
+// 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す印の直径。
+// 64 の円に対して 3/8 = 24(本人の添付画像と同じ割合)。絵柄は鉛筆。
+const AVATAR_EDIT_BADGE_PX = 24;
+// アイコンの変更に失敗したときの文言。公開設定の失敗と同じ言い方に揃える。
+const AVATAR_ERROR = "アイコンを変更できませんでした。電波の良いところでもう一度お試しください。";
 const DELETE_ERROR = "削除を最後まで終えられませんでした。電波の良いところでもう一度「アカウントを削除」を押してください。途中まで消えていても、押し直せば続きから完了できます";
 // deleteUser だけが失敗した場合(auth/requires-recent-login など)。データは消えている。
 // 「消えていない」と誤解させないよう、消えたものと残ったものを分けて言う。
@@ -106,7 +115,7 @@ const SUB_TABS = [
 ];
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onDelete, initialTab = "data" }) {
+function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onDelete, initialTab = "data" }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -207,6 +216,14 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // 最初の一手で失敗した時点では**まだ何も変わっていない**ので、その文言が正しい。
   // 2手目が失敗しても残るのは「公開のままだが目安が無い」だけで、次にタブを開いた
   // ときの effect が出し直す。
+  // 【M2 2026-09-19】アイコンを変えたら、**手元の名簿の自分の行も直す**。
+  // 順位・データの一覧は dir.users の絵柄で人を描くので、直さないと
+  // 次に読み直すまで自分だけ古い絵柄のまま並ぶ(公開設定と同じ考え)。
+  const changeAvatar = async (v) => {
+    await onChangeAvatar(v);   // users の icon / iconColor を書き、profile を更新する
+    dir.setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, ...v } : u)));
+  };
+
   const togglePublic = async (v) => {
     if (!v) await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
     await onTogglePublic(v);               // users.isPublic を書き、profile を更新する
@@ -249,7 +266,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
-        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -451,6 +468,10 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
         setProfile({ ...profile, isPublic: v });
+      }}
+      onChangeAvatar={async (v) => {
+        await setProfileAvatar(uid, v); // 失敗は ProfileView が受けて文言を出す
+        setProfile({ ...profile, ...v });
       }}
       onDelete={async () => {
         // 例外が出るのは削除の途中で失敗したとき。一部だけ消えていることがあるので、
@@ -874,8 +895,14 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
   // 【既定を選んだ状態で出す】アイコンは必須なので、未選択で始めると
   // 「何も触っていないのに保存できない」になる。初期値は一覧の先頭と色1。
-  const [icon, setIcon] = useState(initial?.icon ?? AVATAR_ICONS[0]);
-  const [iconColor, setIconColor] = useState(initial?.iconColor ?? AVATAR_COLOR_MIN);
+  // 【M1 2026-09-19 本人指示】アイコンの編集は**この画面から外した**
+  // (「プロフィール編集画面からアイコン編集を削除 / プロフィール画面でアイコンを
+  // タップしたら変更できるように」)。ただし**保存する値としては残す** ──
+  // 初回作成では既定の絵柄で1枚のプロフィールを書き切る必要があり、
+  // 編集では今の絵柄をそのまま持ち回らないと保存のたびに既定へ戻ってしまう。
+  // 触らないので state ではなく定数。変更は ProfileView → setProfileAvatar が行う。
+  const icon = initial?.icon ?? AVATAR_ICONS[0];
+  const iconColor = initial?.iconColor ?? AVATAR_COLOR_MIN;
   const [position, setPosition] = useState(initial?.position ?? "");
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
@@ -985,10 +1012,6 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           style={nickError ? { ...controlStyle, boxShadow: "inset 0 0 0 1px var(--c-danger)" } : controlStyle}
         />
         {nickError ? <div className="sans" style={fieldErrorStyle}>{nickError}</div> : null}
-      </Field>
-
-      <Field label="アイコン">
-        <AvatarPicker icon={icon} color={iconColor} onChange={(v) => { setIcon(v.icon); setIconColor(v.color); }} />
       </Field>
 
       <Field label="楽器種別(複数選択可)">
@@ -1141,7 +1164,7 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
@@ -1149,10 +1172,39 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
   // 【B-3 / T7 2026-09-15 本人裁定】削除の確認は window.confirm ではなくシート1枚。
   // 確認の文には**何が消えて何が残るか**が要り、confirm は1行しか持てない。
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // 【M2 2026-09-19】アイコンを選び直すシート。下書きはシートの中だけで動かし、
+  // 閉じたときに**変わっていたら1回だけ**書く。
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [avatarDraft, setAvatarDraft] = useState({ icon: null, iconColor: null });
   const gear = profile?.gear ?? {};
   // 表示順は SAX_TYPES の並びに揃える(保存されている配列の順に依らず同じ画面になる)。
   const types = SAX_TYPES.filter((t) => (profile?.saxTypes ?? []).includes(t));
   const isPublic = profile?.isPublic !== false;
+
+  // 【M2】開くときに今の値を下書きへ写す(シートを閉じて開き直しても、
+  // いつも「いま保存されている絵柄」から始まる)。
+  const openAvatar = () => {
+    setAvatarDraft({
+      icon: profile?.icon ?? AVATAR_ICONS[0],
+      iconColor: profile?.iconColor ?? AVATAR_COLOR_MIN,
+    });
+    setAvatarOpen(true);
+  };
+  const closeAvatar = async () => {
+    setAvatarOpen(false);
+    const same = avatarDraft.icon === (profile?.icon ?? AVATAR_ICONS[0])
+      && avatarDraft.iconColor === (profile?.iconColor ?? AVATAR_COLOR_MIN);
+    if (same || !onChangeAvatar) return;   // 変わっていなければ書かない
+    setError(null);
+    try {
+      await onChangeAvatar({ icon: avatarDraft.icon, iconColor: avatarDraft.iconColor });
+    } catch (e) {
+      // 公開設定と同じ作法 ── 失敗したら画面の絵柄は元のまま(profile が唯一の正)で、
+      // この文言と一致する。
+      console.error("[community] アイコンの変更に失敗", e?.code, e);
+      setError(AVATAR_ERROR);
+    }
+  };
 
   const togglePublic = async (v) => {
     if (busy) return;
@@ -1221,10 +1273,48 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onDelete, onOpenB
           どこに居るかを言っている。同じことを2度言わない(説明は減らす方向)。 */}
 
       {/* 名前より先にアイコンを出す。順位や一覧では絵柄で人を探すので、
-          自分がどう見えているかが最初に分かるようにする。 */}
+          自分がどう見えているかが最初に分かるようにする。
+          【M2 / M3 2026-09-19 本人指示】**ここが編集の導線**になった
+          (「プロフィール画面でアイコンをタップしたら変更できるように」)。
+          押せることは**右下の小さな印**が返す(本人の添付画像の形。絵柄は
+          カメラではなく鉛筆)。当たり判定は 64 の円そのもので --tap-min を超える。
+          押すと選び直すシートが開くので、状態は aria-expanded で返す。 */}
       <div style={{ display: "flex", justifyContent: "center" }}>
-        <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} size={64} />
+        <button
+          type="button"
+          onClick={openAvatar}
+          aria-label="アイコンを変更"
+          aria-expanded={avatarOpen}
+          style={{
+            position: "relative", display: "inline-flex", padding: 0,
+            background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
+          }}
+        >
+          <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} size={64} />
+          <span aria-hidden="true" style={{
+            position: "absolute", right: 0, bottom: 0,
+            width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX, borderRadius: "var(--r-full)",
+            background: "var(--c-ink)", color: "var(--c-surface)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Pencil size={13} strokeWidth={1.9} />
+          </span>
+        </button>
       </div>
+
+      {/* 【M2】絵柄を選び直すシート。**部品は編集フォームが使っていた AvatarPicker
+          そのもの**(選び方を2つ作らない)。書き込みは**閉じたときの1回だけ**で、
+          絵柄と色を続けて選んでも users への書き込みは1回になる
+          (リードの点数のダイアログと同じ手)。変わっていなければ書かない。 */}
+      {avatarOpen && (
+        <BottomSheet ariaLabel="アイコンを変更" onClose={closeAvatar}>
+          <AvatarPicker
+            icon={avatarDraft.icon}
+            color={avatarDraft.iconColor}
+            onChange={(v) => setAvatarDraft({ icon: v.icon, iconColor: v.color })}
+          />
+        </BottomSheet>
+      )}
 
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />

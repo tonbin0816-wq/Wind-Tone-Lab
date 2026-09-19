@@ -24612,6 +24612,100 @@ console.log("\n========== 検証57: 便L 録音中の下部タブ / 点数3枚�
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証58: 便M ── アイコンの編集をプロフィール画面へ(2026-09-19 本人指示)
+//
+// 本人の言葉:
+//   「プロフィール編集画面からアイコン編集を削除」
+//   「プロフィール画面でアイコンをタップしたら変更できるようにアイコンタップ後に移行」
+//   「プロフィール画面上でのアイコンは添付画像のイメージで、アイコンを添えて
+//     編集導線であることを示して」「添付はカメラのアイコンだが鉛筆マークにして」
+//
+// **ここで見ること**: 編集フォームから選び方が消えていること、表示画面のアイコンが
+// 押せて選び直すシートが開くこと、印が鉛筆であること、書き込みが**閉じたときの1回**で
+// 変わっていなければ書かないこと、手元の名簿の自分の行も直すこと。
+// **見ないもの**: 印の大きさが実機で押しやすいか。当たり判定は 64 の円そのものなので
+// --tap-min は満たすが、印の見え方は本人の目が決める。
+//
+// 【変異(複製で。実ツリー禁止)】① フォームに AvatarPicker を戻す ② 表示画面の
+// アイコンを <button> でなくす ③ 鉛筆をカメラに変える ④ 変わっていなくても書く
+// ⑤ 名簿の自分の行を直さない ⑥ 正典だけ印を消す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==========");
+{
+  const commSrc58 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const comm58 = codeOf(commSrc58);
+  const repo58 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8"));
+  const gen58 = codeOf(readFileSync(join(__dirname, "..", "design", "canvas", "community.mjs"), "utf8"));
+  const myPage58 = readFileSync(join(__dirname, "..", "design", "canvas", "CommMyPage.dc.html"), "utf8")
+    .replace(/<!--[\s\S]*?-->/g, "");
+  const countIn58 = (t, re) => (t.match(re) || []).length;
+  // 編集フォーム(ProfileForm)と表示画面(ProfileView)を切り分ける。
+  const cut58 = (name, next) => {
+    const a = comm58.indexOf(name);
+    if (a < 0) return "";
+    const b = next ? comm58.indexOf(next, a) : comm58.length;
+    return b < 0 ? comm58.slice(a) : comm58.slice(a, b);
+  };
+  const view58 = cut58("export function ProfileView(");
+
+  check("58.0 表示画面を読めている", view58.length > 2000, `${view58.length}文字`);
+
+  // --- 58.1 編集フォームからは消えた ------------------------------------------
+  check("58.1 M1 アイコンの欄(Field label=\"アイコン\")がどこにも無い",
+    countIn58(comm58, /<Field label="アイコン">/g) === 0);
+  // 選び方の部品そのものは残る(表示画面のシートが使う)。使い手は**1つだけ**。
+  check("58.1 M1 AvatarPicker を使うのは表示画面のシート1箇所だけ",
+    countIn58(comm58, /<AvatarPicker/g) === 1 && /<AvatarPicker/.test(view58),
+    `${countIn58(comm58, /<AvatarPicker/g)}箇所`);
+  // 保存する値としては残す(初回作成の既定・編集での持ち回り)。
+  check("58.1 M1 フォームは今の絵柄を持ち回る(保存の値としては残る)",
+    /const icon = initial\?\.icon \?\? AVATAR_ICONS\[0\];/.test(comm58)
+    && /const iconColor = initial\?\.iconColor \?\? AVATAR_COLOR_MIN;/.test(comm58));
+  check("58.1 M1 フォームに絵柄の setter はもう無い(触らないので state ではない)",
+    countIn58(comm58, /setIcon\(/g) === 0 && countIn58(comm58, /setIconColor\(/g) === 0);
+
+  // --- 58.2 表示画面のアイコンが編集の導線 ------------------------------------
+  check("58.2 M2 アイコンは押せる(<button> + 読み上げ「アイコンを変更」)",
+    /aria-label="アイコンを変更"/.test(view58) && /onClick=\{openAvatar\}/.test(view58));
+  check("58.2 M2 押すと開くのはシート(画面は変わらない)。状態は aria-expanded で返す",
+    /aria-expanded=\{avatarOpen\}/.test(view58)
+    && /<BottomSheet ariaLabel="アイコンを変更"/.test(view58));
+  check("58.2 M2 当たり判定はアイコンの円そのもの(64 なので --tap-min を超える)",
+    /<Avatar icon=\{profile\?\.icon \?\? AVATAR_ICONS\[0\]\}[^>]*size=\{64\}/.test(view58));
+
+  // --- 58.3 印は鉛筆 ----------------------------------------------------------
+  check("58.3 M3 印は鉛筆(カメラではない)",
+    /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(view58)
+    && !/Camera/.test(comm58));
+  check("58.3 M3 印の直径は 64 の 3/8 = 24 で、定数にしてある",
+    /const AVATAR_EDIT_BADGE_PX = 24;/.test(comm58)
+    && /width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX/.test(view58));
+  check("58.3 M3 印はアイコンの右下(地は --c-ink / 線は --c-surface)",
+    /position: "absolute", right: 0, bottom: 0/.test(view58)
+    && /background: "var\(--c-ink\)", color: "var\(--c-surface\)"/.test(view58));
+
+  // --- 58.4 書き込み ----------------------------------------------------------
+  check("58.4 M2 書き込みは updateDoc で2つのキーだけ(全置換にしない)",
+    /export async function setProfileAvatar\(uid, \{ icon, iconColor \}\) \{\s*\r?\n\s*await updateDoc\(userRef\(uid\), \{ icon, iconColor \}\);/.test(repo58));
+  // 閉じたときの1回だけ。絵柄と色を続けて選んでも書き込みは1回。
+  check("58.4 M2 書くのは閉じたときで、変わっていなければ書かない",
+    /if \(same \|\| !onChangeAvatar\) return;/.test(view58)
+    && /const same = avatarDraft\.icon === \(profile\?\.icon \?\? AVATAR_ICONS\[0\]\)/.test(view58));
+  check("58.4 M2 失敗しても画面の絵柄は元のまま(文言を出すだけ)",
+    /setError\(AVATAR_ERROR\);/.test(view58) && /const AVATAR_ERROR = /.test(comm58));
+  // 一覧(順位・データ)は dir.users の絵柄で人を描くので、自分の行も直す。
+  check("58.4 M2 手元の名簿の自分の行も直す(直さないと自分だけ古い絵柄で並ぶ)",
+    /dir\.setUsers\(\(prev\) => prev\.map\(\(u\) => \(u\.uid === uid \? \{ \.\.\.u, \.\.\.v \} : u\)\)\);/.test(comm58));
+
+  // --- 58.5 正典 --------------------------------------------------------------
+  check("58.5 M3 正典のマイページにも鉛筆の印がある",
+    /const PENCIL_BADGE = /.test(gen58) && /PENCIL_BADGE/.test(gen58.slice(gen58.indexOf("function buildMyPage"))));
+  check("58.5 M3 正典の生成物で印は右下・直径 24",
+    /position: absolute; right: 0; bottom: 0; width: 24px; height: 24px/.test(myPage58));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

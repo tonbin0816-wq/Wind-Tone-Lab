@@ -367,8 +367,14 @@ function infoRow(label, value, em = "6.5em") {
 }
 const BTN2 = "width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-md); font-weight: 600; display: flex; align-items: center; justify-content: center";
 
+// 【M3 2026-09-19 本人指示】マイページのアイコンは**編集の導線**なので、
+// 右下に小さな印(直径 24 = 64 の 3/8)を添える。絵柄は鉛筆
+// (本人「添付はカメラのアイコンだが鉛筆マークにして」)。地は --c-ink・線は白。
+// 押すと絵柄を選び直すシートが開く ── 画面は変わらない。
+const PENCIL_BADGE = `<span aria-hidden="true" style="position: absolute; right: 0; bottom: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--c-ink); color: #fff; display: inline-flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg></span>`;
+
 function buildMyPage() {
-  return screen("me", `<div style="display: flex; justify-content: center">${avatar("ic-star", 8, 64)}</div>
+  return screen("me", `<div style="display: flex; justify-content: center"><span style="position: relative; display: inline-flex">${avatar("ic-star", 8, 64)}${PENCIL_BADGE}</span></div>
 
       <div>
 ${infoRow("ニックネーム", "tone-lab")}
