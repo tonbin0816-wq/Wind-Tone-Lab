@@ -9361,7 +9361,10 @@ function ratingDialOffsetFor(value, itemH, key) {
 }
 // 【R2 2026-09-16】ダイヤル1列ぶんの一式(並び / 正規化 / 表示の文字列)。
 // **RatingDial はこの一式しか見ない** ── 部品の中に「評価の都合」を残さないための境目。
-// 評価の3項目はここから、リードの厚さ・枚数は下の optionDialSpec から作る。
+// 評価の3項目はここから作る。
+// 【便N の積み残し 2026-09-19】リードの厚さ・枚数は**ダイヤルをやめて行 + ScrollPicker**
+// になったので、選択肢から一式を作る optionDialSpec と、それを外から渡すための spec 引数は
+// 読み手が0になった。使い手の無い定義は残さない(便F・便K と同じ作法)。
 function ratingDialSpec(itemKey) {
   return {
     order: ratingDialOrder(itemKey),
@@ -9369,17 +9372,6 @@ function ratingDialSpec(itemKey) {
     text: (v) => reedScoreText(itemKey, v),
   };
 }
-// 選択肢の配列から作る一式。並びは**渡された順のまま**(先頭が上)。
-// 並びに無い値(古い記録・範囲外)は末尾=いちばん下の段に寄せる。
-function optionDialSpec(options, text = String) {
-  const order = [...options];
-  return {
-    order,
-    normalize: (v) => (order.includes(v) ? v : order[order.length - 1]),
-    text,
-  };
-}
-
 // そのscrollイベントを「指で動かした」とみなしてよいか。
 // 表示位置を合わせるために自分で scrollTop を代入したぶん(syncTarget)は確定に使わない。
 // 使ってしまうと、未評価(null)のダイヤルを中央(3)に置いた時点で 3 が選ばれたことになり、
@@ -9468,12 +9460,12 @@ function reedGroupAvgRating(members) {
 // 確定はダイアログを閉じたときに1回だけ行うので、ここでは onCommit を持たない。
 // 【R2 2026-09-16】spec を渡すと**評価以外**の値も回せる(リードの厚さ・枚数)。
 // 渡さなければ従来どおり itemKey から評価の一式を作る ── 呼び出し側は1文字も変えていない。
-function RatingDial({ itemKey, value, onChange, spec = null }) {
+function RatingDial({ itemKey, value, onChange }) {
   const ref = useRef(null);
   const ITEM = RATING_DIAL_ITEM_H;
   const VISIBLE = RATING_DIAL_VISIBLE;
   const height = ITEM * VISIBLE;
-  const dial = spec || ratingDialSpec(itemKey);
+  const dial = ratingDialSpec(itemKey);
   const v = dial.normalize(value);
   const settleRef = useRef(null);
   const selfScrollRef = useRef(false);

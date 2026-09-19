@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
-import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, UNSET, COMBO_SLOTS } from "./aggregate.js";
+import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
@@ -686,7 +686,7 @@ export function ShareScreen({ users, saxTypes }) {
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", padding: "var(--sp-2) 0 var(--sp-1)" }}>
               <PieChart items={items} onPick={drill ? undefined : setDrill}
                 label={drill
-                  ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}を使う${shownTotal}人の、型番の内訳`
+                  ? `${gearLabelOf(drill)} の${SLOT_LABEL[slot]}を使う${shownTotal}人の、${SLOT_MODEL_WORD[slot]}の内訳`
                   : `${SAX_LABELS[saxType]} を吹く${shownTotal}人の、${SLOT_LABEL[slot]}のメーカーの内訳`} />
               <PieLegend items={items} onPick={drill ? undefined : setDrill}
                 showRest={showRest} onToggleRest={drill ? undefined : () => setShowRest((v) => !v)} />

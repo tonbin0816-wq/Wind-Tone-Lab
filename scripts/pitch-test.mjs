@@ -325,7 +325,6 @@ const code = [
   extractFunction("dialValueAt"),
   extractFunction("dialOffsetFor"),
   extractFunction("ratingDialSpec"),
-  extractFunction("optionDialSpec"),
   extractFunction("ratingDialValueAt"),
   extractFunction("ratingDialOffsetFor"),
   extractFunction("ratingDialScrollIsUser"),
@@ -485,7 +484,7 @@ const api = new Function(`${code}
            REED_DRAG_LONGPRESS_MS, REED_DRAG_SLOP_PX,
            REED_ADD_COUNT_MIN, REED_ADD_COUNT_MAX, REED_BOX_SIZE, REED_STRENGTHS,
            REED_ADD_COUNTS, REED_STRENGTH_OPTIONS,
-           dialValueAt, dialOffsetFor, ratingDialSpec, optionDialSpec,
+           dialValueAt, dialOffsetFor, ratingDialSpec,
            REED_ADD_BUTTON_LABEL,
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
            DETAIL_CARD_METRICS,
@@ -4454,13 +4453,16 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
     // 項目3: ダイヤルの並びは定数から引く(その場で reverse したりしない)
     {
       const dial = sourceOf("RatingDial");
-      // 【R2 2026-09-16】ダイヤルは「一式(spec)」だけを見る形になった。評価の一式は
-      // ratingDialSpec(itemKey)、リードの厚さ・枚数は optionDialSpec(選択肢)。
-      // **緩めていない**: 並び・表示・正規化の出どころを1つに縛る主張はそのままで、
-      // 「itemKey を直接読む」から「一式から読む」へ錨を向け直しただけ。
+      // 【R2 2026-09-16】ダイヤルは「一式(spec)」だけを見る形になった。
+      // 【便N の積み残し 2026-09-19】リードの厚さ・枚数がダイヤルをやめたので、
+      // 外から一式を渡す経路(spec 引数)と optionDialSpec は**読み手0件になって消えた**。
+      // 一式は itemKey から作る1本だけ。**緩めていない**: 並び・表示・正規化の出どころを
+      // 1つに縛る主張はそのままで、「渡されなければ作る」が「必ず作る」になっただけ。
       check("R2 ダイヤルは一式(spec)の並びを順に描く", /\{dial\.order\.map\(/.test(dial));
-      check("R2 一式は渡されなければ itemKey から作る(呼び出し側は変わっていない)",
-        /const dial = spec \|\| ratingDialSpec\(itemKey\);/.test(dial));
+      check("R2 一式は itemKey から作る1本だけ(外から渡す経路は持たない)",
+        /const dial = ratingDialSpec\(itemKey\);/.test(dial)
+        && !/spec/.test(dial)
+        && !/function optionDialSpec/.test(src));
       check("R2 評価の一式は従来どおり ratingDialOrder / normalizeReedScoreOf / reedScoreText から作る",
         /order: ratingDialOrder\(itemKey\),/.test(srcOfFn(src, "ratingDialSpec"))
         && /normalize: \(v\) => normalizeReedScoreOf\(itemKey, v\),/.test(srcOfFn(src, "ratingDialSpec"))
@@ -24931,6 +24933,50 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     check("59.4 DESIGN-SYSTEM の表も「リードメーカー」へ揃っている",
       /リードメーカー/.test(readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8")));
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証60: 便N の積み残し ── 枠ごとの製品名の語 / 死んだダイヤルの一式(2026-09-19)
+//
+// 便N でリードだけ「メーカー(Vandoren)/銘柄(Traditional)」に入れ替えたが、
+// シェアの内訳の見出しは4枠(楽器・マウスピース・リガチャー・リード)を**1つの綴り**で
+// 描いていたため、リードだけ「型番の内訳」と出て箱のシート(銘柄選択)と食い違っていた。
+// 語を枠ごとに持つ1つの表へ移した。**楽器の組の3枠は従来どおり「型番」**。
+//
+// もう1つ: 厚さ・枚数がダイヤルをやめたので optionDialSpec と RatingDial の spec 引数は
+// 読み手0件になった。既存の「参照0件の定数」検査は SCREAMING_CASE しか見ないので素通りする。
+// 定義ごと消し、戻ってこないようここで縛る。
+//
+// 【変異(複製で。実ツリー禁止)】① 見出しを「型番の内訳」に戻す ② リードの語を「型番」にする
+// ③ optionDialSpec を戻す ④ RatingDial に spec 引数を戻す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証60: 枠ごとの製品名の語 / 死んだ一式 ==========");
+{
+  const agg60 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "aggregate.js"), "utf8"));
+  const scr60 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8"));
+  const app60 = codeOf(src);
+
+  // --- 60.1 枠ごとの語 --------------------------------------------------------
+  check("60.1 製品名の語は枠ごとに1つの表が持つ(綴りを画面に直書きしない)",
+    /export const SLOT_MODEL_WORD = \{ instrument: "型番", mouthpiece: "型番", ligature: "型番", reed: "銘柄" \};/.test(agg60));
+  check("60.1 シェアの内訳の見出しはその表から引く",
+    /\$\{SLOT_MODEL_WORD\[slot\]\}の内訳/.test(scr60)
+    && !/型番の内訳/.test(scr60));
+  // リードの画面(箱のシート・分析軸)と食い違わないこと。
+  check("60.1 リードの製品名は「銘柄」で、アプリのどこにも「型番」で出てこない",
+    !/型番/.test(app60) && /reed: "銘柄"/.test(agg60));
+  check("60.1 楽器・マウスピース・リガチャーは従来どおり「型番」",
+    /instrument: "型番"/.test(agg60) && /mouthpiece: "型番"/.test(agg60) && /ligature: "型番"/.test(agg60));
+
+  // --- 60.2 死んだ一式を残さない ----------------------------------------------
+  check("60.2 optionDialSpec は定義ごと消えている(厚さ・枚数がダイヤルをやめたため)",
+    !/function optionDialSpec/.test(app60));
+  check("60.2 RatingDial は spec を外から受けない(一式は itemKey から作る1本)",
+    /function RatingDial\(\{ itemKey, value, onChange \}\) \{/.test(app60)
+    && /const dial = ratingDialSpec\(itemKey\);/.test(app60));
+  check("60.2 評価の一式(ratingDialSpec)は残る(評価の3つが使い続ける)",
+    /function ratingDialSpec\(itemKey\) \{/.test(app60));
   console.log("  -> done");
 }
 

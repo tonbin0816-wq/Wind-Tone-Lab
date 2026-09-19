@@ -74,6 +74,11 @@ const SLOTS = {
 };
 export const GEAR_SLOTS = Object.keys(SLOTS);
 export const SLOT_LABEL = { instrument: "楽器", mouthpiece: "マウスピース", ligature: "リガチャー", reed: "リード" };
+// 【便N の積み残し 2026-09-19】製品名の呼び方は**枠ごとに違う**。
+// リードは本人裁定で「メーカー(Vandoren)/銘柄(Traditional)」に入れ替わったが、
+// 楽器・マウスピース・リガチャーは従来どおり「型番」。1つの綴りで4枠を描くと、
+// リードだけ画面の他の場所(箱のシート・分析軸)と食い違う。
+export const SLOT_MODEL_WORD = { instrument: "型番", mouthpiece: "型番", ligature: "型番", reed: "銘柄" };
 
 /**
  * 楽器の組1つを数えるための鍵。null は UNSET、その他は OTHER_BRAND のまま。
