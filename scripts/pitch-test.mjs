@@ -24296,6 +24296,60 @@ console.log("\n========== 検証54: 便J マイクのエラーとナビ ========
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証55: 詳細2画面のカードの内側の幅(2026-09-17)
+//
+// 便F(badbdcd)が「detail.mjs の REED_W が依拠している『リード詳細の本文は 327px』は
+// B10(2026/09/09 本人裁定「案ア」)より前の値で、実測は 347px」と起票し、別の便が
+// REED_W 293 → 313 に直した。**が、この数字を見る検査が1つも無かった**
+// (複製で 293 に戻して正典を作り直しても 7821 件が全部通った)。ここで錨を打つ。
+//
+// B10 で左右余白の定数3つと包みの div 2枚が消え、リード詳細も .app-root の 14px だけに
+// なった。よって**セッション詳細とリード詳細は同じ 347 / 313**。片方だけ動かすと落ちる。
+//
+// 【変異(複製で。実ツリー禁止)】① REED_W を 293 に戻す(正典も作り直す)
+// ② SESSION_W だけ動かす ③ README の表のリードタブを 327px に戻す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証55: 詳細2画面のカードの内側の幅 ==========");
+{
+  const detail55 = readFileSync(join(__dirname, "..", "design", "canvas", "detail.mjs"), "utf8");
+  const readme55 = readFileSync(join(__dirname, "..", "design", "canvas", "README.md"), "utf8");
+  // 【テンプレート文字列に \d を書かない】`\d` は不明な escape として **d** に潰れ、
+  // パターンが `(d+)` になって黙って一致しなくなる(実際に一度踏んだ)。正規表現リテラルで書く。
+  const num55 = (name) => {
+    const head = `const ${name} = `;
+    const i = detail55.indexOf(head);
+    if (i < 0) return null;
+    const m = /^(\d+);/.exec(detail55.slice(i + head.length));
+    return m ? Number(m[1]) : null;
+  };
+  const dc55 = (f) => readFileSync(join(__dirname, "..", "design", "canvas", f), "utf8");
+  const countW = (f, w) => (dc55(f).match(new RegExp(`width="${w}"`, "g")) || []).length;
+
+  check("55.1 生成器の内側の幅はセッション詳細もリード詳細も 313(B10 以後は同じ器)",
+    num55("SESSION_W") === 313 && num55("REED_W") === 313,
+    `SESSION_W=${num55("SESSION_W")} / REED_W=${num55("REED_W")}`);
+  check("55.1 2つは同じ値である(片方だけ動かさない)",
+    num55("SESSION_W") === num55("REED_W"));
+
+  // 生成物にも同じ数字が出ていること(生成器だけ直して作り直し忘れ、を防ぐ)。
+  for (const f of ["ReedDetail.dc.html", "ReedDetailE.dc.html", "SessionDetailE.dc.html"]) {
+    check(`55.2 正典 ${f} の折れ線は 313 幅(293 の古い値が残っていない)`,
+      countW(f, 313) >= 1 && countW(f, 293) === 0,
+      `313=${countW(f, 313)} / 293=${countW(f, 293)}`);
+  }
+  check("55.2 正典 SessionDetail.dc.html も 313 幅",
+    countW("SessionDetail.dc.html", 313) >= 1 && countW("SessionDetail.dc.html", 293) === 0);
+
+  // README の本文幅の表。**表の行**が 347px を言っていること(327 は経緯の注記にだけ残る)。
+  const reedRow55 = (readme55.split("\n").find((l) => l.startsWith("| リードタブ")) || "");
+  check("55.3 README の表: リードタブ・リード個体詳細の本文は 347px(327px ではない)",
+    /347px/.test(reedRow55) && !/327px/.test(reedRow55), reedRow55.slice(0, 90));
+  check("55.3 README の表: My Data・分析・詳細2画面も同じ 347px",
+    /347px/.test(readme55.split("\n").find((l) => l.startsWith("| My Data")) || ""));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {
