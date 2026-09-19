@@ -23704,18 +23704,23 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       cells[0].about === "計測タブで音を感知していた時間の合計" && cells[1].about === "保存した計測の数"
       && cells[2].about === "計測の中で検出した音の数");
     // **カードとシートが同じ配列を読む** = 綴りが2箇所で食い違えない。
-    check("51.2 D2 カードとシートの両方が MY_DATA_STOCK_CELLS を map する(綴りを2箇所に持たない)",
-      countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g) === 2
-      && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(stockCard) && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(sheet51)
+    // 【束1 2026-09-19 本人指示】シートは4行目(集計対象)が付いたので MY_DATA_STOCK_SHEET_ROWS を
+    // map する。それは MY_DATA_STOCK_CELLS を**広げたもの**なので、3行の綴りは依然1箇所にしかない
+    // (4行が同じ姿で描かれることは検証61 が見る)。
+    check("51.2 D2 カードは MY_DATA_STOCK_CELLS を、シートはそれを広げた配列を map する(綴りを2箇所に持たない)",
+      countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g) === 1
+      && /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(stockCard)
+      && /\{MY_DATA_STOCK_SHEET_ROWS\.map\(\(z\) => \(/.test(sheet51)
+      && /const MY_DATA_STOCK_SHEET_ROWS = \[\s*\r?\n\s*\.\.\.MY_DATA_STOCK_CELLS,/.test(app51)
       && /\{z\.label\}/.test(stockCard) && /\{z\.label\}/.test(sheet51) && /\{z\.about\}/.test(sheet51),
-      `${countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g)}箇所`);
+      `カードの map ${countIn(app51, /MY_DATA_STOCK_CELLS\.map\(/g)}箇所`);
     check("51.2 D2 シートは BottomSheet(器を増やしていない)。aria-label は「累計の定義」",
       /<BottomSheet ariaLabel="累計の定義" onClose=\{onClose\}>/.test(sheet51)
       && countIn(app51, /ariaLabel="累計の定義"/g) === 1);
     // 説明は3行だけ。**他の文言を足さない**: シートの中の日本語のテキストノードは主要動作の語だけ。
     const texts = [...sheet51.matchAll(/>\s*([^<>{}]*?[぀-ヿ一-鿿][^<>{}]*?)\s*</g)].map((m) => m[1].trim());
-    check("51.2 D2 シートに固定の文言は「他の人と比べてみる」だけ(3行の定義は配列から。他の文言を足していない)",
-      texts.join("|") === "他の人と比べてみる", texts.join(" | ") || "0件");
+    check("51.2 D2 シートに固定の文言は「みんなのデータをみる」だけ(定義の4行は配列から。他の文言を足していない)",
+      texts.join("|") === "みんなのデータをみる", texts.join(" | ") || "0件");
     check("51.2 D2 綴りは「計測」(シートと配列に「セッション」が無い)",
       !/セッション/.test(sheet51) && cells.every((c) => !/セッション/.test(c.label + c.about)));
     check("51.2 D2 定義の行の文字はトークン(--fs-sm / --fs-xs / --c-ink / --c-ink-2)。12px 未満が無い",
@@ -23724,13 +23729,13 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       && !/fontSize: (\d|1[01])\b/.test(sheet51));
   }
 
-  // --- 51.3 D3 「他の人と比べてみる」→ コミュニティへ -------------------------------
+  // --- 51.3 D3 「みんなのデータをみる」→ コミュニティへ -------------------------------
   // 【変異】setTopTab("community") を消す / landTab を渡さない / CommunityTabBody が受け口を
   //         持たない / 初回の作成の "data" 規則を壊す → 落ちる。
   {
-    check("51.3 D3 「他の人と比べてみる」は App.jsx に1つ(定義のシートの主要動作)",
-      countIn(app51, /他の人と比べてみる/g) === 1 && /他の人と比べてみる/.test(sheet51),
-      `${countIn(app51, /他の人と比べてみる/g)}件`);
+    check("51.3 D3 「みんなのデータをみる」は App.jsx に1つ(定義のシートの主要動作)",
+      countIn(app51, /みんなのデータをみる/g) === 1 && /みんなのデータをみる/.test(sheet51),
+      `${countIn(app51, /みんなのデータをみる/g)}件`);
     check("51.3 D3 押すとシートを閉じてから行き先へ(onClose → onCompareOthers)",
       /onClick=\{\(\) => \{ onClose\(\); onCompareOthers\(\); \}\}/.test(sheet51));
     // 主要動作の作法は追加シート(R5)と同じ4つ。値はここで発明していない。
@@ -24436,7 +24441,7 @@ console.log("\n========== 検証55: 詳細2画面のカードの内側の幅 ===
 // **見ないもの**: 実機でのスクロールの手触り。それは本人の指が決める。
 //
 // 【変異(複製で。実ツリー禁止)】① 追加の行を一覧の中に入れる ② ▾ を › に変える
-// ③ maxHeight を外す ④ シートの「他の人のデータから」を消す ⑤ 行き止まりの守りを外す
+// ③ maxHeight を外す ④ シートの「みんなのデータから」を消す ⑤ 行き止まりの守りを外す
 // ⑥ コミュニティの着地を "rank" にする ⑦ 追加の行に .rowcard を付ける → いずれも落ちること。
 // ============================================================
 console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロール ==========");
@@ -24537,8 +24542,8 @@ console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロー
     /<DataOptionSheet\s*\r?\n?\s*ariaLabel="目安を追加"/.test(sheet56));
   check("56.4 K3 値を選ぶのではなく行き先を選ぶので value を渡さない(選択状態を持たない)",
     !/value=\{/.test(sheet56));
-  check("56.4 K3 行き先は2つ「自分の計測から」「他の人のデータから」",
-    /label: "自分の計測から"/.test(sheet56) && /label: "他の人のデータから"/.test(sheet56));
+  check("56.4 K3 行き先は2つ「自分の計測から」「みんなのデータから」(束1 で後者の綴りだけ変えた)",
+    /label: "自分の計測から"/.test(sheet56) && /label: "みんなのデータから"/.test(sheet56));
   // 行き止まりを出さない規則は I1 の行から**シートの側**へ移った。
   check("56.4 K3 自分の計測が0件なら「自分の計測から」を出さない(押しても選ぶものが無い)",
     /allMySessions\.length > 0 \? \[\{ key: "measure", label: "自分の計測から" \}\] : \[\]/.test(sheet56));
@@ -24551,7 +24556,7 @@ console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロー
   // --- 56.5 コミュニティへの着地 ----------------------------------------------
   check("56.5 K3 App の openCommunityIdeals はデータの子タブへ着地する",
     /const openCommunityIdeals = useCallback\(\(\) => \{\s*\r?\n\s*setCommunityLandTab\("data"\);\s*\r?\n\s*setTopTab\("community"\);/.test(app56));
-  check("56.5 K3 便G の「他の人と比べてみる」は順位のままで、取り違えていない",
+  check("56.5 K3 便G の「みんなのデータをみる」は順位のままで、取り違えていない",
     /const openCommunityRank = useCallback\(\(\) => \{\s*\r?\n\s*setCommunityLandTab\("rank"\);/.test(app56));
   check("56.5 K3 受け渡しは onCompareOthers と同じ道(App → AnalysisLabView → MyDataPage → MyDataSection)",
     countIn56(app56, /onOpenCommunityIdeals=\{/g) === 3
@@ -24977,6 +24982,148 @@ console.log("\n========== 検証60: 枠ごとの製品名の語 / 死んだ一�
     && /const dial = ratingDialSpec\(itemKey\);/.test(app60));
   check("60.2 評価の一式(ratingDialSpec)は残る(評価の3つが使い続ける)",
     /function ratingDialSpec\(itemKey\) \{/.test(app60));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証61: 束1 ── 累計シートの4行を揃える / 集計対象 / 導線の綴りを「みんなの」に(2026-09-19 本人指示)
+//
+// 本人の言葉:
+//   「上部の練習時間カードタップ後の表示の練習時間、計測件数、計測音の説明文もそれぞれ
+//     左側の縦を揃えて」
+//   「集計対象 奏者が自分の計測データのみ を追加」
+//   「他の人と比べてみる→みんなのデータをみる に変更」
+//   「目安の追加タップ後の表示も 他の人のデータから→みんなのデータから に変更」
+//
+// **ここで見ること**: 4行が1つの map から同じ姿で出ること、ラベルの幅が1箇所から来て
+// **一番長いラベルの文字数から導かれている**こと(値を発明していない)、4行目の綴り、
+// 2つの導線の綴りと**行き先が変わっていないこと**。
+// **見ないもの**: 実機の字送り。em はフォントの字幅に依るので、実機で「計測件数」が
+// 1行に収まるかは端末のフォントが決める(dev では収まることを実測済み = 52px / 4em = 52px)。
+//
+// 【変異(複製で。実ツリー禁止)】① ラベルの幅の指定(flex: 0 0 <em>)を外す
+// ② 4行目(集計対象)を配列から消す ③ ボタンの綴りを「他の人と比べてみる」に戻す
+// ④ 目安の行の綴りを「他の人のデータから」に戻す ⑤ 4行目だけシートに直書きする
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証61: 束1 累計シートの4行と導線の綴り ==========");
+{
+  const app61 = codeOf(src);
+  const sheet61 = codeOf(srcOfFn(src, "MyDataStockSheet"));
+  const myData61 = codeOf(srcOfFn(src, "MyDataSection"));
+  const countIn61 = (t, re) => (t.match(re) || []).length;
+  const noHtmlComment61 = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const s1_61 = noHtmlComment61(readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8"));
+  const ds61 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  // 目安を追加のシートの塊(検証56 と同じ切り方。塊の終わりで切る)。
+  const idealSheet61 = (() => {
+    const a = myData61.indexOf("idealAddOpen && (");
+    if (a < 0) return "";
+    const end = myData61.indexOf("onClose={() => setIdealAddOpen(false)}", a);
+    return end < 0 ? "" : myData61.slice(a, end + 40);
+  })();
+  const rows61 = new Function(`${extractConst("MY_DATA_STOCK_CELLS")}
+    ${extractConst("MY_DATA_STOCK_SHEET_ROWS")}
+    ${extractConst("MY_DATA_STOCK_LABEL_W")}
+    return { cells: MY_DATA_STOCK_CELLS, rows: MY_DATA_STOCK_SHEET_ROWS, w: MY_DATA_STOCK_LABEL_W };`)();
+
+  check("61.0 シートと目安のシートを読めている",
+    sheet61.length > 600 && idealSheet61.length > 300,
+    `stock ${sheet61.length} / ideal ${idealSheet61.length}`);
+
+  // --- 61.1 1-A 4行の説明文の左端を縦に揃える --------------------------------
+  // 本人「説明文もそれぞれ左側の縦を揃えて」。ラベルの列を固定幅にすれば、説明文は
+  // どの行でも「ラベルの幅 + gap」から始まる = 左端が1本に揃う。
+  check("61.1 1-A 4行は**1つの map** から出る(4行目だけ別の綴りで書かれていない)",
+    countIn61(sheet61, /\.map\(\(z\) => \(/g) === 1
+    && /\{MY_DATA_STOCK_SHEET_ROWS\.map\(\(z\) => \(/.test(sheet61),
+    `map ${countIn61(sheet61, /\.map\(\(z\) => \(/g)}箇所`);
+  check("61.1 1-A ラベルの列は固定幅(flex: 0 0 <em>)。コミュニティのプロフィールの行と同じ作法",
+    /flex: `0 0 \$\{MY_DATA_STOCK_LABEL_W\}`/.test(sheet61)
+    // 幅を持たない旧い書き方(縮まないだけで左端は揃わない)に戻していない。
+    && !/flexShrink: 0/.test(sheet61));
+  check("61.1 1-A 幅の指定は1箇所から来る(定義1 + 使い1。行ごとに書いていない)",
+    countIn61(app61, /MY_DATA_STOCK_LABEL_W/g) === 2,
+    `${countIn61(app61, /MY_DATA_STOCK_LABEL_W/g)}箇所`);
+  {
+    // **値を発明していない**ことを、定数の言い換えではなく「一番長いラベルの文字数」から確かめる。
+    // 全角の1文字 = 1em なので、4文字のラベルが収まる最小は 4em。
+    // 5文字のラベルを足した瞬間にここが落ち、幅の見直しを強制する。
+    const longest = Math.max(...rows61.rows.map((r) => r.label.length));
+    check("61.1 1-A em は**一番長いラベルの文字数**から導く(4文字 → 4em)",
+      rows61.w === `${longest}em` && longest === 4,
+      `${rows61.w} / 最長 ${longest}文字`);
+  }
+  check("61.1 1-A 説明文は残りを取る(flex: 1 1 0 / minWidth 0)── 左端がラベルの幅で決まる",
+    /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-2\)", flex: "1 1 0", minWidth: 0/.test(sheet61));
+  check("61.1 1-A 行の間の gap と上下の余白は4行とも同じ(1つの map なので1組だけ)",
+    countIn61(sheet61, /gap: "var\(--sp-3\)", padding: "var\(--sp-2\) 0"/g) === 1);
+
+  // --- 61.2 1-B 「集計対象」の行 ---------------------------------------------
+  check("61.2 1-B シートの行は4つ。3つはカードと同じ配列を**広げた**もの(綴りを2箇所に持たない)",
+    rows61.rows.length === 4 && rows61.cells.length === 3
+    && rows61.rows.slice(0, 3).every((r, i) => r === rows61.cells[i] || JSON.stringify(r) === JSON.stringify(rows61.cells[i])),
+    `${rows61.rows.length}行 / カード ${rows61.cells.length}欄`);
+  {
+    // 4行目が消える変異でも**ここだけが落ちる**ように、無いときは undefined を読ませない
+    // (読ませるとハーネスごと死に、以降の検査が1つも走らなくなる)。
+    const r4 = rows61.rows[3] || {};
+    check("61.2 1-B 4行目は「集計対象」「奏者が自分の計測データのみ」(末尾に足す)",
+      r4.label === "集計対象" && r4.about === "奏者が自分の計測データのみ",
+      `${r4.label} / ${r4.about}`);
+  }
+  check("61.2 1-B 綴りは App.jsx に1件ずつ",
+    countIn61(app61, /集計対象/g) === 1 && countIn61(app61, /奏者が自分の計測データのみ/g) === 1,
+    `集計対象 ${countIn61(app61, /集計対象/g)}件 / 説明 ${countIn61(app61, /奏者が自分の計測データのみ/g)}件`);
+  check("61.2 1-B カードの3つの数字は増えていない(母集団は数ではないので累計カードには出さない)",
+    /\{MY_DATA_STOCK_CELLS\.map\(\(z\) => \(/.test(myData61)
+    && !/MY_DATA_STOCK_SHEET_ROWS/.test(myData61));
+  {
+    // 見出しや罫を新しく作っていない: シートの中の日本語の直書きは主要動作の語だけ。
+    // (4行目を JSX に直書きする変異はここで落ちる。)
+    const texts61 = [...sheet61.matchAll(/>\s*([^<>{}]*?[぀-ヿ一-鿿][^<>{}]*?)\s*</g)].map((m) => m[1].trim());
+    check("61.2 1-B 4行目のために見出し・罫・別の綴りを足していない(直書きは主要動作の語だけ)",
+      texts61.join("|") === "みんなのデータをみる"
+      && !/borderBottom|borderTop|<hr/.test(sheet61),
+      texts61.join(" | ") || "0件");
+  }
+
+  // --- 61.3 1-C 「他の人と比べてみる」→「みんなのデータをみる」 ----------------
+  check("61.3 1-C 古い綴りはアプリのどこにも残っていない",
+    countIn61(app61, /他の人と比べてみる/g) === 0,
+    `${countIn61(app61, /他の人と比べてみる/g)}件`);
+  check("61.3 1-C 新しい綴りは1つだけ(累計シートの主要動作)",
+    countIn61(app61, /みんなのデータをみる/g) === 1 && /みんなのデータをみる/.test(sheet61),
+    `${countIn61(app61, /みんなのデータをみる/g)}件`);
+  check("61.3 1-C 行き先は変えていない(閉じてから onCompareOthers。受け取りも同じ)",
+    /onClick=\{\(\) => \{ onClose\(\); onCompareOthers\(\); \}\}/.test(sheet61)
+    && /function MyDataStockSheet\(\{ onClose, onCompareOthers \}\)/.test(app61)
+    && /const openCommunityRank = useCallback\(\(\) => \{\s*\r?\n?\s*setCommunityLandTab\("rank"\);/.test(app61));
+  check("61.3 1-C ボタンの体裁は変えていない(幅いっぱい / ACTION_LG_PX / --r-pill / 塗り --c-accent / --fs-md 700)",
+    /width: "100%", height: ACTION_LG_PX,/.test(sheet61)
+    && /borderRadius: "var\(--r-pill\)", border: "none",/.test(sheet61)
+    && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(sheet61)
+    && /fontSize: "var\(--fs-md\)", fontWeight: 700, cursor: "pointer",/.test(sheet61));
+
+  // --- 61.4 1-D 「他の人のデータから」→「みんなのデータから」 ------------------
+  check("61.4 1-D 古い綴りはアプリのどこにも残っていない",
+    countIn61(app61, /他の人のデータから/g) === 0,
+    `${countIn61(app61, /他の人のデータから/g)}件`);
+  check("61.4 1-D 新しい綴りは1つだけ(目安を追加のシートの2つ目の行)",
+    countIn61(app61, /みんなのデータから/g) === 1 && /label: "みんなのデータから"/.test(idealSheet61),
+    `${countIn61(app61, /みんなのデータから/g)}件`);
+  check("61.4 1-D 行き先は変えていない(コミュニティ = onOpenCommunityIdeals)",
+    /else onOpenCommunityIdeals\(\);/.test(idealSheet61)
+    && /const openCommunityIdeals = useCallback\(\(\) => \{\s*\r?\n?\s*setCommunityLandTab\("data"\);/.test(app61));
+  check("61.4 1-D 便K の規則が残る: 自分の計測が0件なら「自分の計測から」を出さない",
+    /allMySessions\.length > 0 \? \[\{ key: "measure", label: "自分の計測から" \}\] : \[\]/.test(idealSheet61));
+
+  // --- 61.5 正典 --------------------------------------------------------------
+  check("61.5 正典 S1 が新しい綴りへ追随している(古い綴りは残っていない)",
+    /みんなのデータをみる/.test(s1_61) && !/他の人と比べてみる/.test(s1_61) && /集計対象/.test(s1_61));
+  check("61.5 DESIGN-SYSTEM の表が4行と2つの綴りを持っている",
+    /みんなのデータをみる/.test(ds61) && /みんなのデータから/.test(ds61)
+    && /奏者が自分の計測データのみ/.test(ds61) && /MY_DATA_STOCK_SHEET_ROWS/.test(ds61));
   console.log("  -> done");
 }
 

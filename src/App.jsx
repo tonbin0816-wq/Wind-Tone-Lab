@@ -3198,7 +3198,8 @@ export default function WindToneLabPhaseMode() {
     setTopTab("analysis");
   }, []);
   const clearOpenSessionRequest = useCallback(() => setOpenSessionRequest(null), []);
-  // 【D3 2026-09-16 実機の指摘】My Data の累計の定義シートの「他の人と比べてみる」。
+  // 【D3 2026-09-16 実機の指摘】My Data の累計の定義シートの主要動作(束1 で綴りは
+  // 「みんなのデータをみる」になった。行き先は変えていない)。
   // 押すとコミュニティタブへ移り、**参加済みなら順位の子タブ**で開く(未参加なら既存どおり
   // JoinIntro)。開く子タブは CommunityTab の中の state なので、根からは**開きたい子タブを
   // 渡すだけ**にして、実際に開くのはあちら側(landTab)に任せる ── 帯の「開く」
@@ -3210,7 +3211,8 @@ export default function WindToneLabPhaseMode() {
     setCommunityLandTab("rank");
     setTopTab("community");
   }, []);
-  // 【K3 2026-09-19 本人指示】目安を追加する2つ目の導線「他の人のデータから」。
+  // 【K3 2026-09-19 本人指示】目安を追加する2つ目の導線(束1 で綴りは「みんなのデータから」
+  // になった。行き先は変えていない)。
   // 着地は**データの子タブ**(公開されているデータの一覧)。そこで人を押すと PersonSheet が
   // 開き、「目安に設定」で取り込める。未参加なら既存どおり JoinIntro が出る。
   const openCommunityIdeals = useCallback(() => {
@@ -4607,7 +4609,7 @@ export default function WindToneLabPhaseMode() {
                 保存と選択はここが行う。 */}
             <CommunityTab
               sessions={sessions} tuningHz={tuningHz}
-              /* 【D3】My Data の「他の人と比べてみる」から来たときに開く子タブ("rank")。
+              /* 【D3】My Data の「みんなのデータをみる」から来たときに開く子タブ("rank")。
                  受け取ったらあちらが onLanded で null に戻す。普段は null。 */
               landTab={communityLandTab} onLanded={clearCommunityLandTab}
               onAdoptIdeal={({ aligned, theirIdeal, nickname }) => {
@@ -13399,9 +13401,25 @@ const MY_DATA_STOCK_CELLS = [
   { key: "sessions", unit: "件", label: "計測件数", about: "保存した計測の数" },
   { key: "notes", unit: "音", label: "計測音", about: "計測の中で検出した音の数" },
 ];
-// 【D2 / D3 2026-09-16 実機の指摘】累計カードを押すと開く定義のシート。3行だけ(綴りはカードと
-// 同じ MY_DATA_STOCK_CELLS から)。その下に主要動作1つ「他の人と比べてみる」── 押すとシートを
-// 閉じてコミュニティへ(参加済みなら順位の子タブ / 未参加なら初回の導線。行き先は App が持つ)。
+// 【束1 2026-09-19 本人指示】定義のシートの**4行目**「集計対象 / 奏者が自分の計測データのみ」。
+// 数字のカードには出ない(カードは3つの数を並べる面で、母集団は数ではない)ので
+// MY_DATA_STOCK_CELLS には足せない。かといってシートの JSX に1行だけ直書きすると、
+// **4行目だけ別の綴りで描かれる**ことになり、上の3行と体裁がずれる余地が生まれる。
+// そこで「シートが読む1つの配列」をここで作る ── 3行は MY_DATA_STOCK_CELLS の写しではなく
+// **そのもの**を広げるので、ラベル・定義の綴りは今までどおり1箇所にしかない。
+const MY_DATA_STOCK_SHEET_ROWS = [
+  ...MY_DATA_STOCK_CELLS,
+  { key: "scope", label: "集計対象", about: "奏者が自分の計測データのみ" },
+];
+// 【束1 2026-09-19 本人指示】ラベルの列の幅。**4行の説明文の左端を縦に揃える**ために、
+// 一番長いラベル(「計測件数」「練習時間」「集計対象」= 4文字)が収まる最小の em を
+// ラベル側の flex-basis にする。作法はコミュニティのプロフィールの行と同じ
+// (design/canvas/community.mjs の infoRow / src/community/CommunityTab.jsx の Row が
+//  `flex: 0 0 <em>`)。px を発明せず**字の大きさに連れて動く em** で持つ。
+const MY_DATA_STOCK_LABEL_W = "4em";
+// 【D2 / D3 2026-09-16 実機の指摘】累計カードを押すと開く定義のシート。行は MY_DATA_STOCK_SHEET_ROWS
+// から(綴りはカードと同じ MY_DATA_STOCK_CELLS が正)。その下に主要動作1つ「みんなのデータをみる」
+// ── 押すとシートを閉じてコミュニティへ(参加済みなら順位の子タブ / 未参加なら初回の導線。行き先は App が持つ)。
 // ボタンの作法は追加シートの主要動作(ReedBoxSheet)と同じ: 幅いっぱい / 高さ ACTION_LG_PX /
 // 塗り --c-accent(§6.7 の意図した例外5)/ --r-pill。
 // MyDataSection の外に置くのは、あちらが「紺の面を1枚も持たない」(N-10・案K)ためで、
@@ -13409,10 +13427,10 @@ const MY_DATA_STOCK_CELLS = [
 function MyDataStockSheet({ onClose, onCompareOthers }) {
   return (
     <BottomSheet ariaLabel="累計の定義" onClose={onClose}>
-      {MY_DATA_STOCK_CELLS.map((z) => (
+      {MY_DATA_STOCK_SHEET_ROWS.map((z) => (
         <div key={z.key} className="sans" style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-3)", padding: "var(--sp-2) 0" }}>
-          <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-ink)", flexShrink: 0 }}>{z.label}</span>
-          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>{z.about}</span>
+          <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-ink)", flex: `0 0 ${MY_DATA_STOCK_LABEL_W}` }}>{z.label}</span>
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", flex: "1 1 0", minWidth: 0 }}>{z.about}</span>
         </div>
       ))}
       <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
@@ -13428,7 +13446,7 @@ function MyDataStockSheet({ onClose, onCompareOthers }) {
             fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
           }}
         >
-          他の人と比べてみる
+          みんなのデータをみる
         </button>
       </div>
     </BottomSheet>
@@ -15096,7 +15114,7 @@ function MyDataSection({
           title="目安を追加"
           items={[
             ...(allMySessions.length > 0 ? [{ key: "measure", label: "自分の計測から" }] : []),
-            { key: "community", label: "他の人のデータから" },
+            { key: "community", label: "みんなのデータから" },
           ]}
           onPick={(k) => {
             setIdealAddOpen(false);
