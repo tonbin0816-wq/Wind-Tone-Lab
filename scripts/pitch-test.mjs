@@ -24423,9 +24423,21 @@ console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロー
     /onClick=\{\(\) => setIdealAddOpen\(true\)\}/.test(card56));
   check("56.1 K1 右端は ▾(PickChevron)。› ではない ── 開くのは選択肢であって画面ではない",
     /<PickChevron \/>/.test(card56) && !/>›</.test(card56));
-  check("56.1 K1 綴りは「すべての計測」の行と同じ(--fs-sm の --c-accent / --tap-min)",
-    /fontSize: "var\(--fs-sm\)", color: "var\(--c-accent\)" \}\}>目安を追加/.test(card56)
-    && /minHeight: "var\(--tap-min\)"/.test(card56));
+  // 【K4 2026-09-19 本人の手直し】「目安を追加も他の目安と同じデザインにして」。
+  // 行と同じ A型の箱にした。**枠線があるものは状態を持っている**という index.css の
+  // 約束を破らないため、シートの開閉を aria-expanded で返す(累計カードと同じ手)。
+  check("56.1 K4 追加の行は行と同じ A型の箱(.ctl-state)で、字も同じ 12px の --c-ink",
+    /className="ctl-state sans"/.test(card56)
+    && /fontSize: 12, color: "var\(--c-ink\)" \}\}>目安を追加/.test(card56)
+    // 高さは行の実測値そのもの。--tap-min(44)だと border-box のぶん2px低い箱が並ぶ。
+    && /minHeight: MY_DATA_IDEAL_ROW_H/.test(card56));
+  check("56.1 K4 枠を借りるだけにしない ── 開閉の状態を aria-expanded で返す",
+    /aria-expanded=\{idealAddOpen\}/.test(card56));
+  // TAP_BUTTON_RESET は border と background を none にするので、混ぜると枠が消える。
+  check("56.1 K4 追加の行は TAP_BUTTON_RESET を混ぜない(枠が消える)",
+    !/\.\.\.TAP_BUTTON_RESET[\s\S]{0,200}目安を追加/.test(card56));
+  check("56.1 K4 一覧との間は行と行の間と同じ(同じカードが縦に並んで見える)",
+    /marginTop: MY_DATA_IDEAL_GAP/.test(card56));
   // 【53.5 から引き継ぎ】.rowcard は自前の地と影を持つ。.card の中に置くと地が二重になる。
   check("56.1 K1 追加の行は .rowcard を使わない(カードの中なので地が二重になる)",
     !/rowcard/.test(card56));
@@ -24495,6 +24507,9 @@ console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロー
     && countIn56(s1o_56, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 4);
   check("56.6 K1 正典の追加の行も ▾(› ではない)",
     /目安を追加<\/span>[\s\S]{0,160}▾/.test(s1_56));
+  check("56.6 K4 正典の追加の行も行と同じ枠(--c-line-strong / 角丸 8)で、行と同じ 6px を空ける",
+    /margin-top: 6px;[^"]*border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1_56)
+    && /margin-top: 6px;[^"]*border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1o_56));
   console.log("  -> done");
 }
 

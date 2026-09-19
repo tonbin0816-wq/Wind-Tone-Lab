@@ -1080,9 +1080,12 @@ function sIdealCard(empty = false) {
   const HEAD = `<div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>`;
   // 【K1 2026-09-19 本人指示】追加の行。**一覧の外**に置く(4件以上でもスクロールせずに押せる)。
   // 右端は ▾ ── 画面が変わるのではなく**選択肢のシートが開く**(自分の計測から / 他の人のデータから)。
-  const ADD = `<div style="min-height: 44px; display: flex; align-items: center; gap: 12px">
-          <span style="font-size: 13px; color: var(--c-accent)">目安を追加</span>
-          <span style="margin-left: auto; font-size: 9px; color: var(--c-ink-3)">▾</span>
+  // 【K4 2026-09-19 本人の手直し】行と**同じ A型の箱**(枠 --c-line-strong / 地は透明)。
+  // 本人「目安を追加も他の目安と同じデザインにして / 同じカードが縦に並んでいて
+  // 1番下だけ位置固定」。上の一覧と同じ 6px を空けて続く。
+  const ADD = `<div style="margin-top: 6px; min-height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid var(--c-line-strong); border-radius: 8px">
+          <span style="font-size: 12px; color: var(--c-ink)">目安を追加</span>
+          <span style="min-width: 44px; display: inline-flex; justify-content: center; font-size: 9px; color: var(--c-ink-3)">▾</span>
         </div>`;
   if (empty) {
     return sCard(`${HEAD}

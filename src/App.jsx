@@ -14981,18 +14981,33 @@ function MyDataSection({
             ))}
           </div>
         )}
-        {/* 【K1】追加の行。**一覧の外**(4件以上でもスクロールせずに押せる)。 */}
+        {/* 【K1 / K4 2026-09-19 本人の手直し】追加の行。**一覧の外**に置く
+            (4件以上でもスクロールせずに押せる = 本人「1番下だけ位置固定」)。
+            本人「目安を追加も他の目安と同じデザインにして / 同じカードが縦に並んでいて」
+            → **行と同じ A型の箱**(.ctl-state)にした。上の一覧と同じ gap で続くので、
+            見た目は「同じカードが縦に並び、最後の1枚だけ動かない」になる。
+            【A型を名乗ってよい理由】index.css の約束は「枠線があるものは状態を持っている」。
+            この行は**シートの開閉という状態**を持つので aria-expanded で返す
+            (.ctl-state[aria-expanded="true"] が枠を --c-accent にする既存の規則。
+            累計カードと同じ手)。状態を持たないのに枠を借りているわけではない。
+            【TAP_BUTTON_RESET を使わない】あれは border と background を none にするので、
+            .ctl-state の枠が消える。必要な打ち消しだけを書く。 */}
         <button
           type="button"
           onClick={() => setIdealAddOpen(true)}
-          className="sans"
+          aria-expanded={idealAddOpen}
+          className="ctl-state sans"
           style={{
-            ...TAP_BUTTON_RESET, width: "100%", minHeight: "var(--tap-min)",
-            display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left",
+            /* 【高さは行と同じ 46】行は .ctl-state の枠 1px×2 + 中の当たり判定 44 で 46 になる。
+               ここで --tap-min(44) を使うと border-box のぶん**2px 低い箱**が並んで見える
+               (実測で 44 vs 46 だった)。行の実測値そのものを使って揃える。 */
+            width: "100%", minHeight: MY_DATA_IDEAL_ROW_H, marginTop: MY_DATA_IDEAL_GAP,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "0 0 0 10px", cursor: "pointer", textAlign: "left", fontSize: "var(--fs-xs)",
           }}
         >
-          <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>目安を追加</span>
-          <span style={{ marginLeft: "auto", display: "inline-flex" }}><PickChevron /></span>
+          <span style={{ fontSize: 12, color: "var(--c-ink)" }}>目安を追加</span>
+          <span style={{ minWidth: "var(--tap-min)", display: "inline-flex", justifyContent: "center" }}><PickChevron /></span>
         </button>
       </div>
 
