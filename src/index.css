@@ -617,6 +617,13 @@ body {
    セレクタに `.card.` が出るので、pitch-test の「作法に効く規則の集合」の走査にも
    ちゃんと引っかかる ── 走査から逃げる綴りにしないこと。 */
 .surf-card .card.card-outline { border: 1.2px solid var(--c-ink-3); box-shadow: none; }
+/* 【L2 2026-09-19 本人指示】小カードの枠版。本人「リードタブの個別リードページの
+   三つの点数枠も同ページの他と同じ枠線に変更」。あの画面は便F(R10)で
+   影なし・枠のカード(.card-outline)になったが、点数の3枚だけが .rowcard の
+   地+影のままで1枚だけ作法から外れていた。
+   **上の .card-outline とまったく同じ2行**を .rowcard に足すだけにする
+   (新しい枠の値を作らない)。寸法・角丸・地は .rowcard が持ったまま。 */
+.surf-card .rowcard.rowcard-outline { border: 1.2px solid var(--c-ink-3); box-shadow: none; }
 /* 小さいカード(セッション1件 / すべてのセッション)。角丸 12 / 内側 10px 14px。
    .card と別のクラスにするのは、**同じ .card に2つの寸法を持たせない**ため
    (インライン style で padding を書くと作法が丸ごと効かなくなる)。 */

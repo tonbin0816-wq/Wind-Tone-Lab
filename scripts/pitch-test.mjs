@@ -4344,8 +4344,12 @@ console.log("\n========== 14. リードの主観評価(総評=0.1刻み41段 / �
         !/className="ctl-plain"/.test(fld), (fld.match(/className="[^"]*"/g) || []).join(" / "));
       // 【D-29 §2.2】3枚は**小カード(.rowcard)**。地・枠・角丸・padding・影の持ち主は
       // index.css の `.surf-card .rowcard` ただ1つで、ここは名乗るだけ。
-      check("D-29 §2.2: 3枚は小カード(.rowcard)を名乗る",
-        (fld.match(/className="rowcard sans"/g) || []).length === 1,
+      // 【L2 2026-09-19 本人指示】「三つの点数枠も同ページの他と同じ枠線に」。
+      // 便F(R10)でこの画面のカードは影なし・枠(.card-outline)になったのに、
+      // 点数の3枚だけが .rowcard の地+影のままで1枚だけ作法から外れていた。
+      // .card と .card-outline の関係とまったく同じ形で、.rowcard に枠版を足した。
+      check("D-29 §2.2 / L2: 3枚は小カードの枠版(.rowcard .rowcard-outline)を名乗る",
+        (fld.match(/className="rowcard rowcard-outline sans"/g) || []).length === 1,
         (fld.match(/className="[^"]*"/g) || []).join(" / "));
       check("D-29 §2.2: 大きいカード(.card)にしていない(寸法を2つ持たせない)",
         !(fld.match(/className="[^"]*"/g) || []).some((s) => /"([^"]*)"/.exec(s)[1].trim().split(/\s+/).includes("card")),
@@ -6364,8 +6368,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     const expectTile = [".surf-rule .tile", ".tile"];
     const expectRow  = [".surf-rule .tile-row", ".tile-row"];
     // カードの作法が持つもの: 地そのもの(.surf-card)と、小さいカード(.rowcard)。
-    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .card.card-outline", ".surf-card .rowcard"];
-    const expectRowCard  = [".surf-card .rowcard"];
+    // 【L2 2026-09-19 本人指示】小カードの枠版(.surf-card .rowcard.rowcard-outline)。
+    // リード個体詳細の点数3枚だけが .rowcard の地+影のままで、同じ画面の
+    // .card-outline(便F R10)と作法が食い違っていた。**枠と影しか持たない**ことと、
+    // 枠の値が .card-outline とまったく同じであることは 50.1 の隣(下の 57)が名指しで見る。
+    const expectSurfCard = [".surf-card", ".surf-card .card", ".surf-card .card.card-accent", ".surf-card .card.card-list", ".surf-card .card.card-outline", ".surf-card .rowcard", ".surf-card .rowcard.rowcard-outline"];
+    const expectRowCard  = [".surf-card .rowcard", ".surf-card .rowcard.rowcard-outline"];
     // 入力欄の共通規則(type を列挙する方式)。range / checkbox は含めない。
     const expectInput = [
       'input[type="date"]', 'input[type="datetime-local"]', 'input[type="number"]',
@@ -13296,7 +13304,15 @@ let METRO_SIGS_ALL = [];
   // 正典「演奏中」: 上部設定行と下部タブが opacity .35。**環・音名・折れ線は淡くしない**。
   {
     const dims = [...code.matchAll(/opacity: isRecording \? ([0-9.]+) : 1/g)].map((m) => Number(m[1]));
-    check("録音中に淡くする箇所は2つ(上部設定行と下部タブ)だけ", dims.length === 2, `${dims.length}箇所: ${dims.join(",")}`);
+    const navSrc247 = srcOfFn(src, "BottomNav");
+    // 【L1 2026-09-19 本人指示で下部タブの淡さを撤回】opacity は帯の地にも効くので、
+    // 帯そのものが透けて**裏のカードが下部タブに重なって見えていた**
+    // (録音中は音量の詳細が帯の下まで伸びる)。本人「タブは透明にならなくていい」。
+    // 淡くするのは**上部設定行だけ**になった。環・音名・折れ線は従来どおり淡くしない。
+    check("録音中に淡くする箇所は上部設定行の1つだけ(下部タブは L1 で撤回)",
+      dims.length === 1, `${dims.length}箇所: ${dims.join(",")}`);
+    check("L1 下部タブの帯は録音中も透かさない(裏が重なって見えるため)",
+      !/opacity: isRecording/.test(navSrc247), navSrc247.slice(0, 0) || "");
     check("淡さは正典の .35", dims.every((d) => d === 0.35), dims.join(","));
     // 環・音名・折れ線が淡さの中に入っていないこと = PitchRing / PitchDeviationLine を
     // 呼ぶ行が opacity を持つ祖先の中に無いこと。綴りで直に確かめる。
@@ -24510,6 +24526,89 @@ console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロー
   check("56.6 K4 正典の追加の行も行と同じ枠(--c-line-strong / 角丸 8)で、行と同じ 6px を空ける",
     /margin-top: 6px;[^"]*border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1_56)
     && /margin-top: 6px;[^"]*border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1o_56));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証57: 便L ── 録音中の下部タブ / リード個体詳細の点数3枚(2026-09-19 本人指示)
+//
+// 本人の言葉:
+//   「録音中に下のタブが透明になって音量の詳細タブが重なって見える点を修正して。
+//     タブは透明にならなくていい」
+//   「リードタブの個別リードページの三つの点数枠も同ページの他と同じ枠線に変更」
+//
+// L1: B-1(デザインブック採用)の「録音中は下部タブ全体を opacity .35」を撤回した。
+//     opacity は帯の**地**(rgba(255,255,255,.92))にも効くので帯そのものが透け、
+//     録音中に帯の下まで伸びる音量の詳細が**重なって見えて**いた。
+//     地を透かさずに淡さだけ足す手は無いので、淡さのほうを落とす。
+// L2: 便F(R10)でこの画面のカードは影なし・枠(.card-outline)になったのに、
+//     点数の3枚だけが .rowcard の地+影のまま**1枚だけ作法から外れて**いた。
+//     .card → .card-outline とまったく同じ形で .rowcard の枠版を足した。
+//
+// 【変異(複製で。実ツリー禁止)】① 帯に opacity を戻す ② 点数3枚を .rowcard に戻す
+// ③ 枠版の値を .card-outline と違う値にする ④ 枠版に寸法を足す
+// ⑤ 正典だけ古い姿に戻す → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証57: 便L 録音中の下部タブ / 点数3枚の枠 ==========");
+{
+  const app57 = codeOf(src);
+  const css57 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const nav57 = codeOf(srcOfFn(src, "BottomNav"));
+  const fld57 = codeOf(srcOfFn(src, "ReedScoreField"));
+  const detail57 = readFileSync(join(__dirname, "..", "design", "canvas", "detail.mjs"), "utf8");
+  const reedDc57 = readFileSync(join(__dirname, "..", "design", "canvas", "ReedDetail.dc.html"), "utf8")
+    .replace(/<!--[\s\S]*?-->/g, "");
+  // 【正規表現を組み立てない】セレクタを escape する式を書くと、書き出すときの
+  // バックスラッシュで壊れる(この節で実際に踏んだ)。素直に文字列で切り出す。
+  // ".surf-card .rowcard {" は ".surf-card .rowcard.rowcard-outline {" に一致しない
+  // (直後の " {" まで含めて探しているため)。
+  const ruleOf = (sel) => {
+    const i = css57.indexOf(sel + " {");
+    if (i < 0) return null;
+    const a = css57.indexOf("{", i), b = css57.indexOf("}", a);
+    return b < 0 ? null : css57.slice(a + 1, b).trim();
+  };
+
+  // --- 57.1 録音中の下部タブ --------------------------------------------------
+  check("57.1 L1 下部タブの帯は録音中も透かさない(opacity を持たない)",
+    nav57.length > 400 && !/opacity/.test(nav57), `${nav57.length}文字`);
+  check("57.1 L1 帯の地は従来どおり(透かさないので裏が重ならない)",
+    /background: "rgba\(255,255,255,\.92\)"/.test(nav57));
+  // 淡くするのをやめただけで、押せなくする方は変えていない。
+  check("57.1 L1 録音中はタブを押せないまま(機能は変えていない)",
+    /disabled=\{isRecording\}/.test(nav57));
+  // 上部設定行の淡さは残る(正典の「演奏中」のうち、地が透けても困らない側)。
+  check("57.1 L1 淡くするのはアプリ全体で上部設定行の1箇所だけ",
+    (app57.match(/opacity: isRecording \? [0-9.]+ : 1/g) || []).length === 1,
+    `${(app57.match(/opacity: isRecording \? [0-9.]+ : 1/g) || []).length}箇所`);
+
+  // --- 57.2 点数3枚の枠 -------------------------------------------------------
+  const outlineRow = ruleOf(".surf-card .rowcard.rowcard-outline");
+  const outlineCard = ruleOf(".surf-card .card.card-outline");
+  check("57.2 L2 小カードの枠版が index.css にある", outlineRow !== null, String(outlineRow));
+  // **枠の値は .card-outline とまったく同じ**(同じ画面に2種類の枠を作らない)。
+  check("57.2 L2 枠の値は .card-outline と1文字も違わない",
+    outlineRow !== null && outlineCard !== null && outlineRow === outlineCard,
+    `row=[${outlineRow}] card=[${outlineCard}]`);
+  // 枠と影しか持たない(寸法・角丸・地は .rowcard のまま)。
+  check("57.2 L2 枠版は枠と影しか持たない(寸法・角丸・地は .rowcard のまま)",
+    outlineRow !== null
+    && /^border: 1\.2px solid var\(--c-ink-3\); box-shadow: none;$/.test(outlineRow),
+    String(outlineRow));
+  check("57.2 L2 点数の3枚がその枠版を名乗る",
+    /className="rowcard rowcard-outline sans"/.test(fld57));
+  // 同じ画面の他のカードは従来どおり .card-outline のまま(片方だけ直していない)。
+  check("57.2 L2 同じ画面のメモ・指標カードは .card card-outline のまま",
+    (codeOf(srcOfFn(src, "ReedEvaluationDetail")).match(/className="card card-outline"/g) || []).length >= 2);
+
+  // --- 57.3 正典 --------------------------------------------------------------
+  check("57.3 L2 正典の生成器に枠版があり、点数3枚がそれを使う",
+    /const ROWCARD_OUTLINE = /.test(detail57) && /const score = \(v, label\) => `\s*<div style="\$\{ROWCARD_OUTLINE\}/.test(detail57));
+  check("57.3 L2 正典の生成物に影つきの点数枠が残っていない",
+    !/box-shadow: var\(--shadow-row\)/.test(reedDc57));
+  check("57.3 L2 正典の点数3枚は枠 1.2px --c-ink-3(同じ画面のカードと同じ)",
+    (reedDc57.match(/border: 1\.2px solid var\(--c-ink-3\)/g) || []).length >= 4,
+    `${(reedDc57.match(/border: 1\.2px solid var\(--c-ink-3\)/g) || []).length}箇所`);
   console.log("  -> done");
 }
 

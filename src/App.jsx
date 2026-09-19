@@ -4700,15 +4700,17 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
     },
   ];
   return (
-    /* 【B-1】録音中は下部タブを淡くする(正典の「演奏中」は下部タブ全体が opacity .35)。
-       演奏中は「今の音」だけを読む場面なので、周辺を一段落として主役を立てる。
-       タブそのものは従来どおり disabled のままで、機能は何も変えていない。
-       帯全体に1つだけ掛けるので、選択中/非選択の濃淡の差は淡くしても保たれる。 */
+    /* 【L1 2026-09-19 本人指示で B-1 の淡さを撤回】
+       本人「録音中に下のタブが透明になって音量の詳細タブが重なって見える。
+       タブは透明にならなくていい」。
+       B-1 は帯**全体**に opacity .35 を掛けていた。opacity は地(rgba(255,255,255,.92))にも
+       効くので、帯そのものが透けて**裏のカードが下部タブに重なって見えていた**
+       (録音中は音量の詳細が帯の下まで伸びる)。**地を透かさずに淡さだけ足す手は無い**
+       ので、淡さのほうを落とす。タブは従来どおり disabled のままで、機能は変えていない。 */
     <div style={{
       position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
-      opacity: isRecording ? 0.35 : 1,
     }}>
       {/* アイコンのみの1行。ラベルを廃してタブ帯の縦幅を小さくする(演奏中の画面領域を広く取るため) */}
       <div style={{ maxWidth: 480, margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
@@ -4725,8 +4727,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                 background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
-                /* 【B-1】録音中の淡さは帯(親)に1回だけ掛ける。ここで重ねて掛けると
-                   0.35 × 0.4 = 0.14 になり、正典の .35 より2段暗くなる。 */
+                /* 【L1】録音中の淡さは撤回した(帯の地まで透けて裏が重なって見えたため)。
+                   ここにも淡さを足さない ── 「透明にならなくていい」が本人裁定。 */
                 color,
               }}
             >
@@ -9656,7 +9658,7 @@ function ReedScoreField({ fields, onOpen }) {
             **押したときの行き先は3枚とも同じまま**(1つの3列ダイヤル。§6.4 は保つ)。 */
         <button
           key={it.key}
-          type="button" onClick={onOpen} className="rowcard sans"
+          type="button" onClick={onOpen} className="rowcard rowcard-outline sans"
           aria-label={`${it.label} ${it.text}・評価を編集`}
           style={{
             flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",

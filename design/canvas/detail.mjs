@@ -37,6 +37,10 @@ const OUT = fileURLToPath(new URL("./", import.meta.url));
 const CARD = "background: var(--c-surface); border: 1.2px solid var(--c-ink-3); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: none";
 // .surf-card .rowcard … 12px の丸・10/14 の内側余白
 const ROWCARD = "background: var(--c-surface); border: 0; border-radius: var(--r-md); padding: 10px 14px; box-shadow: var(--shadow-row)";
+// 【L2 2026-09-19 本人指示】小カードの枠版(.rowcard.rowcard-outline)。
+// 本人「三つの点数枠も同ページの他と同じ枠線に」。枠の値は上の CARD(=.card-outline)と
+// **まったく同じ**で、寸法と角丸は ROWCARD のまま。
+const ROWCARD_OUTLINE = "background: var(--c-surface); border: 1.2px solid var(--c-ink-3); border-radius: var(--r-md); padding: 10px 14px; box-shadow: none";
 const NUM = "font-family: var(--font-num)";
 
 // 12px の送り幅の近似(measureSvgTextPx の代わり)。generate.mjs と同じ係数。
@@ -281,7 +285,7 @@ function buildReed({ readable = false } = {}) {
     20.4, 19.7, 19.1, 18.6, 18.0, 17.5, 16.9, 16.3, 15.6, 15.0, 14.3, 13.7, 13.0, 12.3, 11.7, null, null, null, null];
   const { svg, AXW } = noteChart({ W: REED_W, vals, ideal, digits: 1 });
 
-  const score = (v, label) => `        <div style="${ROWCARD}; flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center">
+  const score = (v, label) => `        <div style="${ROWCARD_OUTLINE}; flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center">
           <span style="${NUM}; font-size: var(--fs-2xl); font-weight: 600; line-height: 1; color: ${v === "—" ? "var(--c-ink-3)" : "var(--c-accent)"}">${v}</span>
           <span style="font-size: var(--fs-xs); color: var(--c-ink-3); margin-top: 3px">${label}</span>
         </div>`;
