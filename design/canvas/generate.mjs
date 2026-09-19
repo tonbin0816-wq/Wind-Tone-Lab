@@ -1070,6 +1070,7 @@ ${cell("3,120", "音", "計測音")}
 // 計測を選びに行く導線1つ。導線の行は「すべてのセッション」と同じ綴り(13px の --c-accent →
 // 右端に 17px の ›)だが、**地と影は持たせない**(カードの中なので地が二重になる)。
 // **S1 が0件の姿、S1open が1件以上の姿**を持つ(両方の姿を正典に残すため)。
+// S1open は**4件**を描いて「3つまで + 4件目の頭が覗く」という K2 の規則を目で示す。
 const S_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
 function sIdealCard(empty = false) {
   const row = (name, sax, selected) => `          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0 0 10px; border: 1px solid ${selected ? "var(--c-accent)" : "var(--c-line-strong)"}; border-radius: 8px">
@@ -1077,19 +1078,27 @@ function sIdealCard(empty = false) {
             <span style="min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-2)">${S_TRASH}</span>
           </div>`;
   const HEAD = `<div style="font-size: 12px; color: var(--c-ink); font-weight: 700; margin-bottom: 8px">目安</div>`;
+  // 【K1 2026-09-19 本人指示】追加の行。**一覧の外**に置く(4件以上でもスクロールせずに押せる)。
+  // 右端は ▾ ── 画面が変わるのではなく**選択肢のシートが開く**(自分の計測から / 他の人のデータから)。
+  const ADD = `<div style="min-height: 44px; display: flex; align-items: center; gap: 12px">
+          <span style="font-size: 13px; color: var(--c-accent)">目安を追加</span>
+          <span style="margin-left: auto; font-size: 9px; color: var(--c-ink-3)">▾</span>
+        </div>`;
   if (empty) {
     return sCard(`${HEAD}
         <div style="font-size: 12px; color: var(--c-ink-2)">目安を設定してください</div>
-        <div style="min-height: 44px; display: flex; align-items: center; gap: 12px">
-          <span style="font-size: 13px; color: var(--c-accent)">計測を選んで目安に設定する</span>
-          <span style="margin-left: auto; font-size: 17px; color: var(--c-line-strong)">›</span>
-        </div>`);
+        ${ADD}`);
   }
+  // 【K2】3つまで表示、4つ目からは縦スクロール(1日の計測の枠と同じ考え)。
+  // 179px = 行 46×3 + 間 6×3 + 次の行の頭 23。**4件目の頭が覗く**ので続きがあると分かる。
   return sCard(`${HEAD}
-        <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="max-height: 179px; overflow: hidden; display: flex; flex-direction: column; gap: 6px">
 ${row("先生の音", "A.Sax", true)}
 ${row("8/24 の自分", "A.Sax", false)}
-        </div>`);
+${row("9/5 の自分", "A.Sax", false)}
+${row("先輩の音", "T.Sax", false)}
+        </div>
+        ${ADD}`);
 }
 // S2 / S3 は本人が綴りを元へ戻したので、そのまま(S1 の語彙を波及させない)
 function sStatsHero() {

@@ -3210,6 +3210,13 @@ export default function WindToneLabPhaseMode() {
     setCommunityLandTab("rank");
     setTopTab("community");
   }, []);
+  // 【K3 2026-09-19 本人指示】目安を追加する2つ目の導線「他の人のデータから」。
+  // 着地は**データの子タブ**(公開されているデータの一覧)。そこで人を押すと PersonSheet が
+  // 開き、「目安に設定」で取り込める。未参加なら既存どおり JoinIntro が出る。
+  const openCommunityIdeals = useCallback(() => {
+    setCommunityLandTab("data");
+    setTopTab("community");
+  }, []);
   const [compareReedIds, setCompareReedIds] = useState([]); // 「比較」タブで選択中のリード(タブ切替をまたいで保持)
   // 【F-59 本人指示】「pivotの集計条件や選択軸はページを移動して戻ってきても内容がキープ」。
   // AnalysisLabView は (a) タブを離れるとアンマウントされ (b) 下部ナビのタップごとに
@@ -4561,6 +4568,7 @@ export default function WindToneLabPhaseMode() {
              (選択・削除)。目安は App の state なので、一覧側には値と setter と undo 付きの削除を
              渡すだけ(あちらで setIdealProfiles を直接触らせない)。 */
           onCompareOthers={openCommunityRank}
+          onOpenCommunityIdeals={openCommunityIdeals}
           idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           deleteIdealProfileWithUndo={deleteIdealProfileWithUndo}
         />
@@ -13783,6 +13791,16 @@ const CALENDAR_DAY_ATTR = "data-calendar-day";
 //     時間・曲線・遅延はすべて index.css の .day-panel / .day-panel-inner が持つ
 //     (prefers-reduced-motion をここ1箇所で尊重するため)
 const MY_DATA_DAY_PANEL_MAX_H = 192;
+// 【K2 2026-09-19 本人指示】目安の一覧も「3つまで表示、4つ目からは縦スクロール」。
+// 本人「1日あたりの計測表示と同じ感じだね」── 上の枠と同じ考えで、**頭が覗く**高さにする
+// (覗くことで続きがあると分かる。上の 192px が「3件 + 4件目の頭 27px」なのと同じ意図)。
+// 値は発明せず**行の実測から導く**: 行 46px(.ctl-state) / 行の間 6px(既存の gap)。
+//   3行ぶん      = 46×3 + 6×2 = 150
+//   + 行の間     = 156
+//   + 次の行の頭 = 156 + 23(46 の半分) = 179
+const MY_DATA_IDEAL_ROW_H = 46;
+const MY_DATA_IDEAL_GAP = 6;
+const MY_DATA_IDEAL_LIST_MAX_H = MY_DATA_IDEAL_ROW_H * 3 + MY_DATA_IDEAL_GAP * 3 + MY_DATA_IDEAL_ROW_H / 2;
 // 秒 → 「9.4」。小数1桁の規則をここ1箇所に閉じる(myDataStockTexts とカレンダーの合計時間が共有)。
 function hoursText(seconds) { return ((Number(seconds) || 0) / 3600).toFixed(1); }
 
@@ -14588,10 +14606,12 @@ function DaySessionRow({ session, reeds, onOpen }) {
 function MyDataSection({
   sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
-  onCompareOthers, idealProfiles = [], selectedIdealId = null, setSelectedIdealId, onDeleteIdeal,
+  onCompareOthers, onOpenCommunityIdeals, idealProfiles = [], selectedIdealId = null, setSelectedIdealId, onDeleteIdeal,
 }) {
   // 【D2】累計の定義のシート(累計カードを押すと開く)。永続化しない。
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
+  // 【K3】目安の追加の導線を選ぶシート。永続化しない(画面を離れたら閉じてよい)。
+  const [idealAddOpen, setIdealAddOpen] = useState(false);
   // 【D-9z 2026/08/25 本人指示】楽器種別・期間のセレクタは**指標タブの行の右端**へ下りた
   // (本人「このセクタは mydata にしか影響しないのに、mydata・分析と同じ位置にあるのが違和感」)。
   // 状態は従来どおり AnalysisLabView が持ち、setter をここまで引き回している。
@@ -14911,31 +14931,29 @@ function MyDataSection({
           一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)。
           【I1 2026-09-17 本人指示】**0件でもカードは出す。**以前はカードごと出さなかったが、
           本人「目安設定がないときは『目安を設定してください』を表示して導線も用意して」。
-          導線の行は「すべての計測 n件 ›」の行と同じ綴り(--fs-sm の --c-accent → 右端に ›)だが、
-          **地は持たせない** ── .rowcard は自前の地と影を持つので、.card の中に置くと地が二重になる。
-          自分の計測が0件のときは押しても行き止まりなので、**導線の行は出さず文だけ**にする。 */}
+          【K1〜K3 2026-09-19 本人指示】追加の導線を**1本から2本**にし、行を一覧の下へ移した。
+          本人「既存の目安に続く形で『目安を追加』を追加 / 追加ボタンタップ後の導線は
+          mydata からかコミュニティからかの二つ / 追加済み目安の表示は3つまでで、
+          4つ以降は縦スクロール(1日あたりの計測表示と同じ感じ)」。
+            ・「目安を追加」は**一覧の外**に置く ── 中に入れると4件以上のとき
+              スクロールしないと押せなくなる
+            ・右端は **▾**(›ではない)。押すと画面が変わるのではなく**選択肢のシートが開く**
+              (§「ふるまいの差は ▾ の有無で示す」)。累計カードと同じ PickChevron
+            ・0件でも1件以上でも**同じ行**を出す。0件のときだけ上に「目安を設定してください」
+            ・I1 の「計測を選んで目安に設定する ›」はこの行に**置き換えた**(導線が2本になったため)。
+              行き止まりを出さない規則は**シートの側**へ移った(自分の計測が0件なら
+              「自分の計測から」を出さない)
+          【一覧の高さ】MY_DATA_IDEAL_LIST_MAX_H(=179)で頭打ち。3件以下は届かないので
+          スクロールは出ない。綴りは1日の計測の枠と同じ(overflowY: auto + WebkitOverflowScrolling)。 */}
       <div className="card" style={{ marginTop: "var(--sp-3)" }}>
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink)", fontWeight: 700, marginBottom: 8 }}>目安</div>
         {idealProfiles.length === 0 ? (
-          <>
-            <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>目安を設定してください</div>
-            {allMySessions.length > 0 && (
-              <button
-                type="button"
-                onClick={onOpenAllSessions}
-                className="sans"
-                style={{
-                  ...TAP_BUTTON_RESET, width: "100%", minHeight: "var(--tap-min)",
-                  display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left",
-                }}
-              >
-                <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>計測を選んで目安に設定する</span>
-                <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: "var(--fs-lg)", color: "var(--c-line-strong)" }}>›</span>
-              </button>
-            )}
-          </>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>目安を設定してください</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{
+            maxHeight: MY_DATA_IDEAL_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch",
+            display: "flex", flexDirection: "column", gap: MY_DATA_IDEAL_GAP,
+          }}>
             {idealProfiles.map((p) => (
               <div
                 key={p.id}
@@ -14963,7 +14981,40 @@ function MyDataSection({
             ))}
           </div>
         )}
+        {/* 【K1】追加の行。**一覧の外**(4件以上でもスクロールせずに押せる)。 */}
+        <button
+          type="button"
+          onClick={() => setIdealAddOpen(true)}
+          className="sans"
+          style={{
+            ...TAP_BUTTON_RESET, width: "100%", minHeight: "var(--tap-min)",
+            display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <span style={{ fontSize: "var(--fs-sm)", color: "var(--c-accent)" }}>目安を追加</span>
+          <span style={{ marginLeft: "auto", display: "inline-flex" }}><PickChevron /></span>
+        </button>
       </div>
+
+      {/* 【K3】追加の導線を選ぶシート。**新しい部品を作らない** ── 値を選ぶのではなく
+          行き先を選ぶので value を渡さない(そうすると aria-pressed も選択色も付かない)。
+          自分の計測が0件のときは「自分の計測から」を出さない(押しても選ぶものが無い)。 */}
+      {idealAddOpen && (
+        <DataOptionSheet
+          ariaLabel="目安を追加"
+          title="目安を追加"
+          items={[
+            ...(allMySessions.length > 0 ? [{ key: "measure", label: "自分の計測から" }] : []),
+            { key: "community", label: "他の人のデータから" },
+          ]}
+          onPick={(k) => {
+            setIdealAddOpen(false);
+            if (k === "measure") onOpenAllSessions();
+            else onOpenCommunityIdeals();
+          }}
+          onClose={() => setIdealAddOpen(false)}
+        />
+      )}
 
       {/* 【D2 / D3 2026-09-16】累計の定義のシート(中身は MyDataStockSheet)。 */}
       {stockSheetOpen && (
@@ -15125,7 +15176,7 @@ function AnalysisLabView(props) {
     uploadNeedsTap, setUploadNeedsTap,
     // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧。親が持ったまま
     // My Data へ引き回すだけ(状態の置き場は変えない)。
-    onCompareOthers, idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfileWithUndo,
+    onCompareOthers, onOpenCommunityIdeals, idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfileWithUndo,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
@@ -15403,6 +15454,7 @@ function AnalysisLabView(props) {
         pageActive={dataSubTab === "mydata"}
         handleUploadFile={handleUploadFile} isAnalyzingUpload={isAnalyzingUpload}
         onCompareOthers={onCompareOthers}
+        onOpenCommunityIdeals={onOpenCommunityIdeals}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         onDeleteIdeal={deleteIdealProfileWithUndo}
       />
@@ -15983,7 +16035,7 @@ function MyDataPage({
   pageActive,
   handleUploadFile, isAnalyzingUpload,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
-  onCompareOthers, idealProfiles, selectedIdealId, setSelectedIdealId, onDeleteIdeal,
+  onCompareOthers, onOpenCommunityIdeals, idealProfiles, selectedIdealId, setSelectedIdealId, onDeleteIdeal,
 }) {
   // 隠しファイル入力。計測タブから移した(配線はそのまま流用。C-1/C-2)。
   const uploadInputRef = useRef(null);
@@ -16004,6 +16056,7 @@ function MyDataPage({
         onOpenSession={onOpenSession}
         onOpenAllSessions={onOpenAllSessions}
         onCompareOthers={onCompareOthers}
+        onOpenCommunityIdeals={onOpenCommunityIdeals}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         onDeleteIdeal={onDeleteIdeal}
       />

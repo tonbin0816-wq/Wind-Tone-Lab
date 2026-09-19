@@ -51,8 +51,18 @@ const soundingSrc = readFileSync(join(__dirname, "..", "src", "soundingSec.js"),
 // コメントを外した「実際に動く側」だけを返す。「○○は使わない」「【削除済み】○○」という
 // 記録をコメントに書くと、その綴りが本文に現れて「○○が無いこと」の検査が落ちる。
 // 記録を残せなくなるのは本末転倒なので、綴りの不在を見る検査はここを通してから見る。
+// 【2026-09-19 穴を塞いだ】以前は `/\*[\s\S]*?\*\/` で無条件に剥がしていたため、
+// **文字列の中の `/*` をコメントの始まりと読み違えていた**。App.jsx の
+// `accept="image/*,video/*"` がそれで、そこから次の `*/` までの **931文字**(取り込みの
+// 入力・その周りの受け渡し)が、codeOf を通すすべての検査から**見えなくなっていた**
+// (検証56 で「渡しが3つあるのに2つしか数えられない」として発覚)。
+// 直し方: コメントの始まりは**行頭か、空白か `{ ( , ; =` の直後**に限る。
+// JSX の `{/* */}`・style の中の `, /* */`・行頭の `/* */` はすべて通り、
+// `image/*` のように語の途中に現れるものは通らない。
 function codeOf(s) {
-  return String(s || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  return String(s || "")
+    .replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//g, "$1")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 // 【I2 2026-09-17】第2引数を足した。App.jsx 以外(src/soundingSec.js など)の関数を
@@ -8639,8 +8649,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 【R6 2026-09-16 で 7 → 8】追加シートに型番の行が増えた(銘柄と同じ「値 + ▾」)。
         // 【D2 便G 2026-09-16 で 8 → 9】My Data の累計カードが押せるようになり(定義のシート)、
         // 押せることを返す ▾ が右上に付いた(R3)。その1つは検証51 が MyDataSection で数える。
-        check("F-72: ▾ を使う綴りは9つ(上部設定行の4つ + 追加シートの銘柄・型番 + データタブのフィルタピル + PlainSelect + My Data の累計カード)",
-          n === 9, `${n}箇所`);
+        // 【K1 2026-09-19 で 9 → 10】My Data の目安カードに「目安を追加 ▾」の行が増えた。
+        // ここも画面が変わるのではなく**選択肢のシートが開く**ので ▾(› ではない)。
+        check("F-72: ▾ を使う綴りは10(上部設定行の4つ + 追加シートの銘柄・型番 + データタブのフィルタピル + PlainSelect + My Data の累計カード + 目安を追加)",
+          n === 10, `${n}箇所`);
         check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
           (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
           `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -16600,9 +16612,13 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // 目安が**0件のときだけ**出る空状態の導線が2つ目の入口になる(1件でもあれば消える)。
     // #9b の精神「同じ場所が複数あるのをやめる」は生きているので、**2つまで**に釘付ける。
     // カレンダーには依然として置かない。
-    check("27.7 D-10: 一覧への入口は小カード1枚 + 目安0件の空状態の導線だけ(#9b + I1)",
-      (myDataSection.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 2
-      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 2
+    // 【K1 2026-09-19 で形が変わった】目安の導線は行から**シート**へ移ったので、
+    // 直接 onClick に載せているのは小カードの1つだけに戻った。シートからの呼び出し
+    // (onOpenAllSessions())も入口なので、**2つで打ち止め**であることを両方で数える。
+    check("27.7 D-10: 一覧への入口は小カード1枚 + 目安の追加シートだけ(#9b + K1)",
+      (myDataSection.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
+      && (src.match(/onClick=\{onOpenAllSessions\}/g) || []).length === 1
+      && (myDataSection.match(/onOpenAllSessions\(\)/g) || []).length === 1
       && !/onOpenAllSessions/.test(calCard),
       `${(src.match(/onClick=\{onOpenAllSessions\}/g) || []).length}箇所`);
     // 【D-10 §2.1 本人指示】蓄積量は**分析タブの脚注から My Data の先頭の「累計」カードへ**移った。
@@ -23606,8 +23622,10 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     check("51.2 D2 累計カードは <button type=\"button\">(押すと定義のシートが開く)",
       /<button\s+type="button"\s+onClick=\{\(\) => setStockSheetOpen\(true\)\}\s+aria-expanded=\{stockSheetOpen\}[\s\S]{0,200}?className="card card-accent"/.test(myData51));
     const stockCard = myData51.slice(myData51.indexOf('className="card card-accent"'), myData51.indexOf("</button>", myData51.indexOf('className="card card-accent"')));
-    check("51.2 D2 押せることを返す ▾(PickChevron)がカードの中に1つ(R3)",
-      stockCard.length > 500 && countIn(stockCard, /<PickChevron \/>/g) === 1 && countIn(myData51, /<PickChevron \/>/g) === 1,
+    // 【K1 2026-09-19 で MyDataSection 全体が 1 → 2】目安カードの「目安を追加」にも
+    // ▾ が付いた(あちらもシートが開く)。**累計カードの中は1つのまま**を見る。
+    check("51.2 D2 押せることを返す ▾(PickChevron)が累計カードの中に1つ(R3)。My Data 全体では2つ(もう1つは目安を追加)",
+      stockCard.length > 500 && countIn(stockCard, /<PickChevron \/>/g) === 1 && countIn(myData51, /<PickChevron \/>/g) === 2,
       `カードの中 ${countIn(stockCard, /<PickChevron \/>/g)} / MyDataSection 全体 ${countIn(myData51, /<PickChevron \/>/g)}`);
     check("51.2 D2 数字の大きさ・並びは D-10 §2.1 のまま(26px / gap 10 / marginTop 10 / nowrap)",
       /fontSize: 26, lineHeight: 1\.1, whiteSpace: "nowrap"/.test(stockCard)
@@ -23763,7 +23781,7 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     // 【I1 2026-09-17】**S1 が0件の姿、S1open が1件以上の姿**を持つ。A型の行は S1open で見る。
     check("51.4 D4 正典 S1open.dc.html の目安の行は A型(枠 --c-line-strong / 選択中 --c-accent)+ ゴミ箱 44pt",
       /border: 1px solid var\(--c-accent\); border-radius: 8px/.test(s1o) && /border: 1px solid var\(--c-line-strong\); border-radius: 8px/.test(s1o)
-      && countIn(s1o, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 2);
+      && countIn(s1o, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 4);
     check("51.4 D4 生成器 generate.mjs に sIdealCard があり、S1 / S1open の末尾に置いている(片方だけ直していない)",
       /function sIdealCard\(empty = false\)/.test(gen51) && countIn(gen51, /sIdealCard\(/g) === 3
       && /sTrendCard\(10\), sGap, sIdealCard\(true\)\]/.test(gen51) && /sTrendCard\(10\), sGap,\s*sIdealCard\(\),\s*\]/.test(gen51),
@@ -24171,8 +24189,11 @@ console.log("\n========== 検証53: 便I 目安の空状態 / カレンダーの
   check("53.1 I1 目安カードを 0件で隠す出し分けが無い(カードは常に出る)",
     !/\{idealProfiles\.length > 0 && \(/.test(myData53)
     && /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n\s*<div className="sans"[^>]*>目安<\/div>/.test(myData53));
-  check("53.1 I1 0件か1件以上かで中身を分ける(三項の左が空状態)",
-    empty53.length > 200 && filled53.length > 200, `空 ${empty53.length} / 有 ${filled53.length}`);
+  // 【K1 2026-09-19 で空の枝は1行になった】導線の行は**両方の姿で共通**なので三項の外へ出た。
+  check("53.1 I1 0件か1件以上かで中身を分ける(左=文だけ / 右=一覧)",
+    /目安を設定してください/.test(empty53) && !/\.map\(/.test(empty53)
+    && /idealProfiles\.map\(/.test(filled53),
+    `空 ${empty53.length} / 有 ${filled53.length}`);
 
   check("53.2 I1 「目安を設定してください」が1つだけ",
     countIn53(myData53, /目安を設定してください/g) === 1,
@@ -24180,34 +24201,25 @@ console.log("\n========== 検証53: 便I 目安の空状態 / カレンダーの
   check("53.2 I1 文は --fs-xs の --c-ink-2(利用者の画面の最小は 12px = --fs-xs)",
     /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-2\)" \}\}>目安を設定してください/.test(empty53));
 
-  check("53.3 I1 導線の語は「計測を選んで目安に設定する」1つ",
-    countIn53(app53, /計測を選んで目安に設定する/g) === 1,
+  // 【K1 2026-09-19 本人指示で1本 → 2本になった】I1 の「計測を選んで目安に設定する ›」は
+  // 「目安を追加 ▾」に置き換わり、行き止まりを出さない規則は**シートの側**へ移った。
+  // ここでは**古い姿がどこにも残っていないこと**だけを見る(新しい姿は検証56が持つ)。
+  check("53.3 I1 の1本だけの導線は残っていない(K1 で「目安を追加」に置き換えた。姿は検証56)",
+    countIn53(app53, /計測を選んで目安に設定する/g) === 0
+    && !/\{allMySessions\.length > 0 && \(/.test(empty53),
     `${countIn53(app53, /計測を選んで目安に設定する/g)}箇所`);
-  check("53.3 I1 導線は onOpenAllSessions を呼ぶ(「すべての計測」と同じ行き先)",
-    /onClick=\{onOpenAllSessions\}/.test(empty53) && /計測を選んで目安に設定する/.test(empty53));
-
-  check("53.4 I1 自分の計測が0件のときは導線の行を出さない(行き止まりにしない)",
-    /\{allMySessions\.length > 0 && \(/.test(empty53));
-
-  check("53.5 I1 導線の行は .rowcard を使わない(カードの中なので地が二重になる)",
-    !/rowcard/.test(empty53));
-
-  check("53.6 I1 導線の綴りは「すべての計測」の行と同じ(--fs-sm の --c-accent → 右端に --fs-lg の ›)",
-    /fontSize: "var\(--fs-sm\)", color: "var\(--c-accent\)" \}\}>計測を選んで目安に設定する/.test(empty53)
-    && /marginLeft: "auto", fontSize: "var\(--fs-lg\)", color: "var\(--c-line-strong\)" \}\}>›/.test(empty53)
-    && /minHeight: "var\(--tap-min\)"/.test(empty53));
 
   check("53.7 I1 1件以上の姿は便G のまま(.ctl-state / aria-pressed / ゴミ箱 Trash2)",
     /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(filled53)
     && /<Trash2 size=\{14\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(filled53)
     && !/目安を設定してください/.test(filled53));
 
-  check("53.8 I1 正典 S1.dc.html が0件の姿(文と導線の両方)を持つ",
-    /目安を設定してください/.test(s1_53) && /計測を選んで目安に設定する/.test(s1_53));
-  check("53.8 I1 正典 S1open.dc.html は1件以上の姿(0件の語は無い)",
-    !/目安を設定してください/.test(s1o_53) && !/計測を選んで目安に設定する/.test(s1o_53));
-  check("53.8 I1 正典の導線も地を持たない(カードの中なので box-shadow を足さない)",
-    !/計測を選んで目安に設定する[\s\S]{0,200}box-shadow/.test(s1_53));
+  check("53.8 I1 正典 S1.dc.html が0件の姿(文と追加の行の両方)を持つ",
+    /目安を設定してください/.test(s1_53) && /目安を追加/.test(s1_53));
+  check("53.8 I1 正典 S1open.dc.html は1件以上の姿(0件の文は無いが追加の行はある)",
+    !/目安を設定してください/.test(s1o_53) && /目安を追加/.test(s1o_53));
+  check("53.8 I1 正典の追加の行も地を持たない(カードの中なので box-shadow を足さない)",
+    !/目安を追加[\s\S]{0,200}box-shadow/.test(s1_53));
   check("53.8 I1 生成器は empty を受けて0件の姿を作る(S1=0件 / S1open=1件以上)",
     /function sIdealCard\(empty = false\)/.test(gen53) && /if \(empty\) \{/.test(gen53));
 
@@ -24347,6 +24359,142 @@ console.log("\n========== 検証55: 詳細2画面のカードの内側の幅 ===
     /347px/.test(reedRow55) && !/327px/.test(reedRow55), reedRow55.slice(0, 90));
   check("55.3 README の表: My Data・分析・詳細2画面も同じ 347px",
     /347px/.test(readme55.split("\n").find((l) => l.startsWith("| My Data")) || ""));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証56: 便K ── 目安の追加の導線と一覧のスクロール(2026-09-19 本人指示)
+//
+// 本人の言葉:
+//   「mydata タブ下部の目安設定に、既存の目安に続く形で『目安を追加』を追加」
+//   「追加ボタンタップ後の追加導線は mydata からかコミュニティからかの二つの導線」
+//   「追加済み目安の表示は3つまでで、4つ以降は縦スクロールで表示される仕組みに」
+//   「1日あたりの計測表示と同じ感じだね」
+//
+// **ここで見ること**: 綴りと配線、行が一覧の外にあること(4件以上でも押せる)、
+// 高さの上限が**行の実測から導かれている**こと、シートの2つの行き先、
+// 行き止まりを出さない規則がシートへ移ったこと。
+// **見ないもの**: 実機でのスクロールの手触り。それは本人の指が決める。
+//
+// 【変異(複製で。実ツリー禁止)】① 追加の行を一覧の中に入れる ② ▾ を › に変える
+// ③ maxHeight を外す ④ シートの「他の人のデータから」を消す ⑤ 行き止まりの守りを外す
+// ⑥ コミュニティの着地を "rank" にする ⑦ 追加の行に .rowcard を付ける → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証56: 便K 目安の追加と一覧のスクロール ==========");
+{
+  const app56 = codeOf(src);
+  const myData56 = codeOf(srcOfFn(src, "MyDataSection"));
+  const noHtmlComment56 = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const s1_56 = noHtmlComment56(readFileSync(join(__dirname, "..", "design", "canvas", "S1.dc.html"), "utf8"));
+  const s1o_56 = noHtmlComment56(readFileSync(join(__dirname, "..", "design", "canvas", "S1open.dc.html"), "utf8"));
+  const countIn56 = (t, re) => (t.match(re) || []).length;
+  // 目安カードの本体(見出しから追加シートの手前まで)と、追加シートの塊。
+  const card56 = (() => {
+    const a = myData56.indexOf(">目安</div>");
+    const b = myData56.indexOf("idealAddOpen && (", a);
+    return a < 0 || b < 0 ? "" : myData56.slice(a, b);
+  })();
+  // 【塊の終わりで切る】固定の文字数で切ると後ろの部品まで拾い、
+  // 「value を渡していない」のような**無いことを見る検査**が嘘になる(実際に一度踏んだ)。
+  const sheet56 = (() => {
+    const a = myData56.indexOf("idealAddOpen && (");
+    if (a < 0) return "";
+    const end = myData56.indexOf("onClose={() => setIdealAddOpen(false)}", a);
+    return end < 0 ? "" : myData56.slice(a, end + 40);
+  })();
+  // 一覧(三項の右)。**追加の行の位置で切らない** ── そうすると「一覧の中に
+  // 追加の行が無い」が**構造上いつでも真**になり、行を中に入れる変異が素通りする
+  // (実際に一度踏んだ)。三項の閉じ `)}` で切る。
+  const ternaryEnd56 = card56.indexOf("\n        )}", card56.indexOf("idealProfiles.map("));
+  const list56 = (() => {
+    const a = card56.indexOf("idealProfiles.length === 0 ? (");
+    return a < 0 || ternaryEnd56 < 0 ? "" : card56.slice(a, ternaryEnd56);
+  })();
+
+  check("56.0 目安カードと追加シートを読めている",
+    card56.length > 800 && sheet56.length > 300 && list56.length > 500,
+    `card ${card56.length} / sheet ${sheet56.length} / list ${list56.length}`);
+
+  // --- 56.1 追加の行 ----------------------------------------------------------
+  check("56.1 K1 「目安を追加」は1つだけ",
+    countIn56(app56, /目安を追加/g) >= 1 && countIn56(card56, />目安を追加</g) === 1,
+    `カードの中 ${countIn56(card56, />目安を追加</g)}`);
+  check("56.1 K1 押すと追加のシートが開く(画面は変わらない)",
+    /onClick=\{\(\) => setIdealAddOpen\(true\)\}/.test(card56));
+  check("56.1 K1 右端は ▾(PickChevron)。› ではない ── 開くのは選択肢であって画面ではない",
+    /<PickChevron \/>/.test(card56) && !/>›</.test(card56));
+  check("56.1 K1 綴りは「すべての計測」の行と同じ(--fs-sm の --c-accent / --tap-min)",
+    /fontSize: "var\(--fs-sm\)", color: "var\(--c-accent\)" \}\}>目安を追加/.test(card56)
+    && /minHeight: "var\(--tap-min\)"/.test(card56));
+  // 【53.5 から引き継ぎ】.rowcard は自前の地と影を持つ。.card の中に置くと地が二重になる。
+  check("56.1 K1 追加の行は .rowcard を使わない(カードの中なので地が二重になる)",
+    !/rowcard/.test(card56));
+
+  // --- 56.2 行は一覧の外 ------------------------------------------------------
+  // 中に入れると4件以上のときスクロールしないと押せない。
+  check("56.2 K1 追加の行は一覧(三項)の**外**にある(4件以上でもスクロールせずに押せる)",
+    ternaryEnd56 > 0
+    && !/setIdealAddOpen\(true\)/.test(list56)
+    && card56.indexOf("setIdealAddOpen(true)") > ternaryEnd56,
+    `三項の閉じ @${ternaryEnd56} / 追加の行 @${card56.indexOf("setIdealAddOpen(true)")}`);
+
+  // --- 56.3 3つまで + 4つ目からスクロール -------------------------------------
+  check("56.3 K2 一覧は高さで頭打ちにして縦スクロール(1日の計測の枠と同じ綴り)",
+    /maxHeight: MY_DATA_IDEAL_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch"/.test(list56));
+  check("56.3 K2 行の間は定数を使う(一覧と高さの式で同じ数を2回書かない)",
+    /gap: MY_DATA_IDEAL_GAP/.test(list56));
+  {
+    // 値を直書きせず**行の実測から導く**。179 = 46×3 + 6×3 + 46/2。
+    const api56 = new Function(`${extractConst("MY_DATA_IDEAL_ROW_H")}
+      ${extractConst("MY_DATA_IDEAL_GAP")}
+      ${extractConst("MY_DATA_IDEAL_LIST_MAX_H")}
+      return { MY_DATA_IDEAL_ROW_H, MY_DATA_IDEAL_GAP, MY_DATA_IDEAL_LIST_MAX_H };`)();
+    check("56.3 K2 上限は行 46 と間 6 から導く(3行 + 間 + 次の行の頭)",
+      api56.MY_DATA_IDEAL_ROW_H === 46 && api56.MY_DATA_IDEAL_GAP === 6
+      && api56.MY_DATA_IDEAL_LIST_MAX_H === 179,
+      `${api56.MY_DATA_IDEAL_LIST_MAX_H}px`);
+    check("56.3 K2 3件は上限に届かず(=スクロールしない)、4件で超える",
+      46 * 3 + 6 * 2 <= api56.MY_DATA_IDEAL_LIST_MAX_H
+      && 46 * 4 + 6 * 3 > api56.MY_DATA_IDEAL_LIST_MAX_H,
+      `3件=${46 * 3 + 6 * 2} / 4件=${46 * 4 + 6 * 3} / 上限=${api56.MY_DATA_IDEAL_LIST_MAX_H}`);
+    check("56.3 K2 上限は式で書く(179 を直書きしない)",
+      !/const MY_DATA_IDEAL_LIST_MAX_H = 179/.test(app56));
+  }
+
+  // --- 56.4 追加のシート ------------------------------------------------------
+  check("56.4 K3 シートは DataOptionSheet を流用する(新しい部品を作らない)",
+    /<DataOptionSheet\s*\r?\n?\s*ariaLabel="目安を追加"/.test(sheet56));
+  check("56.4 K3 値を選ぶのではなく行き先を選ぶので value を渡さない(選択状態を持たない)",
+    !/value=\{/.test(sheet56));
+  check("56.4 K3 行き先は2つ「自分の計測から」「他の人のデータから」",
+    /label: "自分の計測から"/.test(sheet56) && /label: "他の人のデータから"/.test(sheet56));
+  // 行き止まりを出さない規則は I1 の行から**シートの側**へ移った。
+  check("56.4 K3 自分の計測が0件なら「自分の計測から」を出さない(押しても選ぶものが無い)",
+    /allMySessions\.length > 0 \? \[\{ key: "measure", label: "自分の計測から" \}\] : \[\]/.test(sheet56));
+  check("56.4 K3 行き先の配線(計測=すべての計測へ / コミュニティ=公開されているデータへ)",
+    /if \(k === "measure"\) onOpenAllSessions\(\);/.test(sheet56)
+    && /else onOpenCommunityIdeals\(\);/.test(sheet56));
+  check("56.4 K3 選んだらシートを閉じてから動く",
+    /setIdealAddOpen\(false\);\s*\r?\n\s*if \(k === "measure"\)/.test(sheet56));
+
+  // --- 56.5 コミュニティへの着地 ----------------------------------------------
+  check("56.5 K3 App の openCommunityIdeals はデータの子タブへ着地する",
+    /const openCommunityIdeals = useCallback\(\(\) => \{\s*\r?\n\s*setCommunityLandTab\("data"\);\s*\r?\n\s*setTopTab\("community"\);/.test(app56));
+  check("56.5 K3 便G の「他の人と比べてみる」は順位のままで、取り違えていない",
+    /const openCommunityRank = useCallback\(\(\) => \{\s*\r?\n\s*setCommunityLandTab\("rank"\);/.test(app56));
+  check("56.5 K3 受け渡しは onCompareOthers と同じ道(App → AnalysisLabView → MyDataPage → MyDataSection)",
+    countIn56(app56, /onOpenCommunityIdeals=\{/g) === 3
+    && countIn56(app56, /onOpenCommunityIdeals,/g) === 3,
+    `渡し ${countIn56(app56, /onOpenCommunityIdeals=\{/g)} / 受け ${countIn56(app56, /onOpenCommunityIdeals,/g)}`);
+
+  // --- 56.6 正典 --------------------------------------------------------------
+  check("56.6 K1 正典 S1 / S1open の両方に追加の行がある(0件でも1件以上でも同じ行)",
+    /目安を追加/.test(s1_56) && /目安を追加/.test(s1o_56));
+  check("56.6 K2 正典 S1open は4件を描いて頭打ちを示す(3つまで + 4件目の頭が覗く)",
+    /max-height: 179px/.test(s1o_56)
+    && countIn56(s1o_56, /min-width: 44px; min-height: 44px;[^>]*>\s*<svg/g) === 4);
+  check("56.6 K1 正典の追加の行も ▾(› ではない)",
+    /目安を追加<\/span>[\s\S]{0,160}▾/.test(s1_56));
   console.log("  -> done");
 }
 
