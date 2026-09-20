@@ -10875,7 +10875,7 @@ const REED_STRENGTH_OPTIONS = REED_STRENGTHS.slice().reverse();
 // nowrap は「4em に収まらない名札が折り返して行が2段になる」のを止めるための保険
 // (いまの5つは2〜3字なので収まるが、幅を持たせた以上ここを開けておかない)。
 const REED_SHEET_LABEL_W = "4em";
-const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap" };
+const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" };
 const REED_SHEET_ROW_STYLE = {
   display: "flex", alignItems: "center", gap: 12,
   minHeight: "var(--tap-min)",
@@ -14098,7 +14098,7 @@ function ViewToggle({ value, onChange }) {
 //  副産物として**子タブ行は両タブとも「素のテキスト2つだけ」**になり、
 //  dataSubTab === "mydata" の分岐が1つ消えている。)
 // 【export する理由】SwipePager と同じ。子タブの作法はアプリ内で1つだけ。
-export function SubTabs({ items, value, onChange }) {
+export function SubTabs({ items, value, onChange, children = null }) {
   return (
     <div
       className="sans"
@@ -14136,6 +14136,11 @@ export function SubTabs({ items, value, onChange }) {
           </button>
         );
       })}
+      {/* 【便O 2026-09-20 検収で発見】children の受け口は D-6 で作られたが、D-9(3d46f1c)の
+          書き換えで**引数から落ちていた**。以来リードタブの右端(「…」・削除モードの
+          「完了/キャンセル」・削除の実行)が1つも描かれていない。渡さない画面(データタブ)の
+          見え方は children が null なので 1px も変わらない。 */}
+      {children}
     </div>
   );
 }

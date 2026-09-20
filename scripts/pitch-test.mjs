@@ -15131,10 +15131,16 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       check("26.1 D-9r: 子タブ行に dataSubTab の分岐が無い(両タブで同じ形)",
         !/dataSubTab === "mydata"/.test(row) && !/listMode !== null/.test(row),
         row.includes("dataSubTab ===") ? "分岐が残っている" : "分岐なし");
-      // 【D-9r】相乗りの受け口そのものも SubTabs から消えている(読み手ゼロの受け口を残さない)。
-      check("26.1 D-9r: SubTabs は children の受け口を持たない(渡し手がゼロになった)",
-        /function SubTabs\(\{ items, value, onChange \}\)/.test(src)
-        && !/\{children\}/.test(srcOfFn(src, "SubTabs")));
+      // 【便O 2026-09-20 検収で向け直した】D-9r はここで「渡し手がゼロになったので
+      // children の受け口ごと外した」と主張していたが、**リードタブは渡し続けていた**
+      // (「…」・削除モードの「完了/キャンセル」・削除の実行)。受け口を外した D-9(3d46f1c)
+      // 以降、その3つは1つも描かれていない。実測(375×812 の dev サーバ)で「その他の操作」も
+      // 「完了」も DOM に無いことから判った。主張を事実の側へ向け直す:
+      // **データタブはこの行の右端に何も乗せない**(ここが D-9z/D-9r の本題)。
+      // 受け口そのものが在ることと、リードタブが使っていることは検証67.1 が見る。
+      check("26.1 D-9r: データタブは子タブ行の右端に何も乗せない",
+        !/\{children\}/.test(row) && !/marginLeft: "auto"/.test(row),
+        row.includes("children") ? "行に children がある" : "右端は空");
     }
   }
 
@@ -24876,7 +24882,7 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && !/minHeight: \d/.test(row59));
     // 名札の体裁は**いまの開封日の行から引いた**。新しい値を作っていない。
     check("59.2 N2 名札の体裁は1箇所(12px / --c-ink-3 / flexShrink:0)",
-      /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap" \};/.test(app59)
+      /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" \};/.test(app59)
       && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1
       && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1);
     check("59.2 N2 値は左寄せで、名札のすぐ右から始まる",
@@ -26364,6 +26370,37 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       view66.indexOf("番号を変更するリードをタップ") < view66.indexOf("長押しで並び替え")
       && view66.indexOf("長押しで並び替え") < view66.indexOf("<FloatingActionSpacer />"));
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証67: 検収の実測で見つかった2件(便O)
+//   67.1 SubTabs が children を捨てていた(D-9 3d46f1c 以降の退行)。リードタブの右端
+//        (「…」・削除モードの「完了/キャンセル」・削除の実行)が1つも描かれていなかった。
+//        dev サーバの実測(375×812)で「その他の操作」も「完了」も DOM に無いことから判った。
+//   67.2 箱のシートの名札が <button> の text-align:center を継いで中央へ寄っていた。
+//        4em の箱を持たせた便O で初めて見えた(それまでは名札の幅 = 字の幅だったので
+//        どの名札も左端 24px から始まっていた)。実測で 銘柄/厚さ だけ 12px 右へずれていた。
+// ============================================================
+console.log("========== 検証67: SubTabs の children / 名札の左寄せ ==========");
+{
+  const sub67 = (src.match(/export function SubTabs\([\s\S]*?\n\}\n/) || [""])[0];
+  check("67.1 SubTabs の引数に children がある",
+    /export function SubTabs\(\{ items, value, onChange, children = null \}\)/.test(src));
+  check("67.1 SubTabs の本文が children を描いている",
+    /\{children\}/.test(sub67), sub67 ? "本文は取れている" : "本文が取れない");
+  check("67.1 children は items の**後ろ**(行の右端)に置かれている",
+    sub67.indexOf("{t.label}") >= 0 && sub67.indexOf("{children}") > sub67.indexOf("{t.label}"));
+  check("67.1 リードタブの「…」と出口は SubTabs の中身として残っている",
+    /<\/SubTabs>/.test(src)
+    && /listMode === "numberEdit" \? "完了" : "キャンセル"/.test(src)
+    && /aria-label="その他の操作"/.test(src));
+  const lbl67 = (src.match(/const REED_SHEET_ROW_LABEL_STYLE = \{[^\n]*\};/) || [""])[0];
+  check("67.2 名札は左寄せ(ボタンの text-align:center を継がない)",
+    /textAlign: "left"/.test(lbl67), lbl67 || "取り出せない");
+  check("67.2 名札の固定幅と折り返し止めは残っている",
+    /minWidth: REED_SHEET_LABEL_W/.test(lbl67) && /whiteSpace: "nowrap"/.test(lbl67),
+    lbl67 || "取り出せない");
   console.log("  -> done");
 }
 
