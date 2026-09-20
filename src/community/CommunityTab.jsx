@@ -145,7 +145,11 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       try {
         const v = await isFlagged(uid);
         if (alive) setFlaggedMe(v);
-      } catch (e) { /* 読めなければ告知を出さないだけ。順位や一覧は今までどおり出る */ }
+      } catch (e) {
+        // 【便Q 2026-09-20】読めなければ告知を出さないだけで、順位や一覧は今までどおり出る。
+        // ただし**黙って捨てない** ── 拒まれたのか通信が切れたのかは別の話。
+        console.error("[community] 通報の確認に失敗", e?.code, e);
+      }
     })();
     return () => { alive = false; };
   }, [uid]);
@@ -185,7 +189,14 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       try {
         const stats = computePracticeStats(sessions ?? []);
         if (alive) await publishStats(uid, stats);
-      } catch (e) { /* 順位が古いままになるだけ。利用者に見せる意味が無い */ }
+      } catch (e) {
+        // 【便Q 2026-09-20】**利用者に見せないことと、記録に残さないことは別**。
+        // ここが空だったせいで、ルールに拒まれて順位が更新されない状態が
+        // 画面にもコンソールにも一切出ず、原因の切り分けに1周かかった。
+        // 文言は出さないまま(本人の操作ではないので直せることが無い)、綴りだけ残す。
+        // プロフィールの保存(下の onSubmit)は既にこの形になっている。
+        console.error("[community] 練習記録の公開に失敗", e?.code, e);
+      }
       // 【目安も同じ機会に公開する】目安は「選んで出すもの」ではなく、
       // 登録した楽器種別ごとの自分の平均が1つあるだけ(2026-09-03 本人裁定)。
       // したがって公開ボタンは無く、練習日数と同じくタブを開いたときに更新する。
@@ -195,7 +206,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         if (alive && profile?.isPublic !== false && Array.isArray(profile?.saxTypes)) {
           await publishMyIdeals(uid, myIdeals);
         }
-      } catch (e) { /* 同上。1種別も出せなくても他の画面は見られる */ }
+      } catch (e) {
+        // 【便Q 2026-09-20】上と同じ理由で綴りを残す。文言は出さない。
+        console.error("[community] 目安の公開に失敗", e?.code, e);
+      }
     })();
     return () => { alive = false; };
     // sessions を依存に入れない ── 録音のたびに書き直すことになる。

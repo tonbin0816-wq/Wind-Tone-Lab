@@ -30,8 +30,22 @@ export async function ensureSignedIn() {
 
 const userRef = (uid) => doc(getFirebase().db, "users", uid);
 
+// 【便Q 2026-09-20 本人報告「順位タブに今まであった自分のデータが表示されなくなった」】
+// **merge を外すと順位から自分が消える。** buildProfileDoc が返すのは 13キーで、
+// その中に stats(練習日数・練習時間)は**入っていない** ── 練習記録はプロフィールとは
+// 別の機会(タブを開いたとき)に publishStats が書き足すものだから。
+// 素の setDoc は文書まるごとの置き換えなので、保存するたびにサーバ上の stats が消えていた。
+// 順位は stats を持つ人だけを並べる(aggregate.js の `if (!s) continue;`)ので、
+// **プロフィールを保存した人がその場で順位から落ちる。**
+//
+// 引き金は束6 の属性の語替え ── 旧語で登録していた人の属性が未選択になり、
+// 選び直して保存した。保存の作りは前からこうで、今回の語替えが初めて踏ませた。
+//
+// merge で残るのは stats と places の2つだけ(どちらも firestore.rules の hasOnly に在る)。
+// 13キーは毎回すべて書き直されるので、外した選択肢が居残ることは無い
+// (配列は merge でも丸ごと置き換わる)。
 export async function saveProfile(uid, profileDoc) {
-  await setDoc(userRef(uid), profileDoc);
+  await setDoc(userRef(uid), profileDoc, { merge: true });
 }
 
 export async function loadProfile(uid) {

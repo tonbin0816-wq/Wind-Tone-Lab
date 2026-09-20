@@ -26825,6 +26825,58 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証72: プロフィールの保存が練習記録を消していた(便Q)
+//   本人の報告「順位タブに今まであった自分のデータが表示されなくなった」。
+//   buildProfileDoc が返すのは13キーで stats を含まない。素の setDoc は
+//   文書まるごとの置き換えなので、保存のたびにサーバ上の stats が消えていた。
+//   順位は stats を持つ人だけを並べるので、保存した人がその場で落ちる。
+//   → 保存を merge にする。あわせて、公開の失敗を握り潰すのをやめる。
+// ============================================================
+console.log("========== 検証72: プロフィールの保存が練習記録を消さない ==========");
+{
+  const acct72 = readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8");
+  const comm72 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"));
+  const prof72 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8"));
+  const agg72 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "aggregate.js"), "utf8"));
+  const acctCode72 = codeOf(acct72);
+
+  // --- 72.1 保存は差分で書く ---------------------------------------------------
+  check("72.1 プロフィールの保存は merge で書く(文書まるごとの置き換えをしない)",
+    /setDoc\(userRef\(uid\), profileDoc, \{ merge: true \}\)/.test(acctCode72));
+  check("72.1 素の setDoc(第3引数なし)が accountRepo に1つも無い",
+    (acctCode72.match(/setDoc\([^)]*\)\s*;/g) || []).filter((t) => !/merge: true/.test(t)).length === 0,
+    (acctCode72.match(/setDoc\([^)]*\)\s*;/g) || []).join(" | ") || "0件");
+
+  // --- 72.2 消える理由がまだ在ること(前提が変わったら気づけるように) -------------
+  // buildProfileDoc が stats を持つようになったら、この検査は落ちてよい
+  // (そのときは merge の理由の半分が消えるので、解説を書き直すこと)。
+  check("72.2 buildProfileDoc は stats を返さない(だから置き換えると消える)",
+    /return \{\s*doc: \{/.test(prof72) && !/\bstats:/.test(prof72));
+  check("72.2 順位は stats を持つ人だけを並べる(持たない人は行ごと出ない)",
+    /const s = u\?\.stats;/.test(agg72) && /if \(!s\) continue;/.test(agg72));
+
+  // --- 72.3 失敗を握り潰さない --------------------------------------------------
+  check("72.3 練習記録の公開の失敗をコンソールに残す",
+    /console\.error\("\[community\] 練習記録の公開に失敗", e\?\.code, e\);/.test(comm72));
+  check("72.3 目安の公開の失敗もコンソールに残す",
+    /console\.error\("\[community\] 目安の公開に失敗", e\?\.code, e\);/.test(comm72));
+  check("72.3 中身の無い catch が CommunityTab に1つも無い",
+    (comm72.match(/catch \(e\) \{\s*\}/g) || []).length === 0,
+    `${(comm72.match(/catch \(e\) \{\s*\}/g) || []).length}件`);
+  check("72.3 利用者への文言は増やしていない(副次的な更新なので黙ったまま)",
+    !/練習記録の公開に失敗しました/.test(comm72));
+
+  // --- 72.4 merge で残るキーはルールが許している --------------------------------
+  {
+    const rules72 = readFileSync(join(__dirname, "..", "firestore.rules"), "utf8");
+    const hasOnly72 = (rules72.match(/hasOnly\(\['nickname'[^)]*\)/) || [""])[0];
+    check("72.4 merge で残る stats と places はルールの hasOnly に在る",
+      /'stats'/.test(hasOnly72) && /'places'/.test(hasOnly72), hasOnly72 || "取り出せない");
+  }
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {
