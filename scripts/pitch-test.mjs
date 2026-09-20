@@ -369,7 +369,8 @@ const code = [
   // 【R4 2026-09-16】追加の一手の文言は枚数で変わらない1つの定数に畳んだ。
   extractConst("REED_ADD_BUTTON_LABEL"),
   extractFunction("reedSheetButtonLabel"),
-  extractFunction("reedSheetTitle"),
+  // 【便O 2026-09-20】編集の見出しを出さなくなり、mode で分ける関数は定数1つに畳んだ。
+  extractConst("REED_ADD_SHEET_TITLE"),
   extractFunction("clampReedAddCount"),
   // F-79b タイルの見た目(指への追従・避ける動き)。定義を参照するので定数を先に並べる
   extractConst("REED_TILE_SLIDE_EASE"),
@@ -489,7 +490,7 @@ const api = new Function(`${code}
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
            DETAIL_CARD_METRICS,
            reedTileTone, gridDropIndex, reedDetailMetaParts, clampReedAddCount,
-           reedSheetButtonLabel, reedSheetTitle, reedTileVisual,
+           reedSheetButtonLabel, REED_ADD_SHEET_TITLE, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
@@ -8934,12 +8935,16 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         && api.reedSheetButtonLabel("add") === "この箱を追加する"
         && api.reedSheetButtonLabel(undefined) === "この箱を追加する",
         `${api.reedSheetButtonLabel("edit")} / ${api.reedSheetButtonLabel("add")}`);
-      check("F-82: シートの見出しは 追加=「追加」/ 編集=「箱を編集」",
-        api.reedSheetTitle("edit") === "箱を編集" && api.reedSheetTitle("add") === "追加"
-        && api.reedSheetTitle(undefined) === "追加",
-        `${api.reedSheetTitle("edit")} / ${api.reedSheetTitle("add")}`);
-      check("F-82: 見出しの綴りは reedSheetTitle からしか出ない(JSX に直書きしていない)",
-        /\{reedSheetTitle\(mode\)\}/.test(src));
+      // 【便O 2026-09-20 本人指示】編集の見出しは**出さなくなった**ので、mode で分ける
+      // reedSheetTitle は定義ごと畳んで REED_ADD_SHEET_TITLE 1つにした(死んだ枝を残さない)。
+      // 主張は下げていない: 「追加の見出しの綴り」と「綴りが1箇所からしか出ない」を見続ける。
+      // 読み上げの名前(ariaLabel の「箱を編集」)が残ることは検証66.4 が見る。
+      check("F-82 / 便O: シートの見出しは追加のときだけ。綴りは「追加」で、分ける関数は定義ごと無い",
+        api.REED_ADD_SHEET_TITLE === "追加" && !/function reedSheetTitle\(/.test(src),
+        `${api.REED_ADD_SHEET_TITLE}`);
+      check("F-82 / 便O: 見出しの綴りは REED_ADD_SHEET_TITLE からしか出ない(JSX に直書きしていない)",
+        /\{REED_ADD_SHEET_TITLE\}/.test(src)
+        && /\{!isEdit && \(/.test(srcOfFn(src, "ReedBoxSheet")));
       // 枚数は「追加」のときだけ。編集で枚数を触らせると、どの個体を消すのかが決まらない。
       // 【R2 2026-09-16】−/数値/＋ はダイヤルに変わった。**錨を新しい姿へ向け直す**。
       // 【便N 2026-09-19】そのダイヤルは名札つきの行になった。主張は1つも変えていない。
@@ -22961,21 +22966,23 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
   // (ダイヤルに戻す変異・行を1つにまとめる変異はここで落ちる)。
   // 【変異】厚さをダイヤルに戻す / 枚数を ± に戻す / 番手のピルに戻す → 落ちる。
   {
-    const rows = sheet49.slice(sheet49.indexOf('label="厚さ選択"'),
+    // 【便O 2026-09-20】名札の綴りは「メーカー選択」→「メーカー」等に変わった。
+    // **見ているもの(行の部品・数・並び)は1つも変えていない**。
+    const rows = sheet49.slice(sheet49.indexOf('label="厚さ"'),
       sheet49.indexOf("{reedSheetButtonLabel(mode)}"));
     check("49.2 便N 厚さ・枚数の行を切り出せている",
       rows.length > 120 && /ReedSheetPickRow/.test(rows), `${rows.length}文字`);
     check("49.2 便N 厚さも枚数も同じ行の部品(新しい部品を作らず ReedSheetPickRow を使い回す)",
       (sheet49.match(/<ReedSheetPickRow/g) || []).length === 4
-      && (sheet49.match(/label="(メーカー選択|銘柄選択|厚さ選択|枚数)"/g) || []).length === 4,
+      && (sheet49.match(/label="(メーカー|銘柄|厚さ|枚数)"/g) || []).length === 4,
       (sheet49.match(/label="[^"]*"/g) || []).join(" | "));
     check("49.2 便N ダイヤルはシートから消えた(spec の2定数も定義ごと無い)",
       !/RatingDial/.test(sheet49) && !/REED_STRENGTH_DIAL|REED_COUNT_DIAL/.test(app49),
       (app49.match(/RatingDial|REED_STRENGTH_DIAL|REED_COUNT_DIAL/g) || []).join(" | ") || "0件");
     check("49.2 便N 厚さの行が先(上が厚さ・下が枚数)",
-      sheet49.indexOf('label="厚さ選択"') > 0
-      && sheet49.indexOf('label="枚数"') > sheet49.indexOf('label="厚さ選択"'),
-      `厚さ=${sheet49.indexOf('label="厚さ選択"')} / 枚数=${sheet49.indexOf('label="枚数"')}`);
+      sheet49.indexOf('label="厚さ"') > 0
+      && sheet49.indexOf('label="枚数"') > sheet49.indexOf('label="厚さ"'),
+      `厚さ=${sheet49.indexOf('label="厚さ"')} / 枚数=${sheet49.indexOf('label="枚数"')}`);
     check("49.2 便N 追加シートに番手のピルも ± もダイヤルも残っていない",
       !/<ReedStrengthPills/.test(sheet49) && !/枚数を減らす|枚数を増やす/.test(sheet49)
       && !/<RatingDial/.test(sheet49),
@@ -23037,8 +23044,8 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     check("49.4 R8 枚数の行は追加のときだけ(編集では出さない)",
       /\{!isEdit && \(\s*\r?\n?\s*<ReedSheetPickRow[\s\S]{0,300}?label="枚数"/.test(sheet49));
     check("49.4 R8 厚さの行は編集でも出る(条件を持たない)",
-      !/\{!isEdit && \([\s\S]{0,300}?label="厚さ選択"/.test(sheet49)
-      && /label="厚さ選択"/.test(sheet49));
+      !/\{!isEdit && \([\s\S]{0,300}?label="厚さ"/.test(sheet49)
+      && /label="厚さ"/.test(sheet49));
     check("49.4 R8 一手も削除も編集と追加で同じ器(シートは1つのまま)",
       (src.match(/<ReedBoxSheet/g) || []).length === 2
       && (src.match(/mode="edit"/g) || []).length === 1);
@@ -23059,8 +23066,8 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // ScrollPicker は4つ(メーカー・銘柄・厚さ・枚数)。どれもシートの**外**に出す。
     check("49.5 R6 銘柄はメーカー → 銘柄の2段(どちらも ScrollPicker)",
       (sheet49.match(/<ScrollPicker/g) || []).length === 4
-      && sheet49.indexOf('label="メーカー選択"') < sheet49.indexOf('label="銘柄選択"'),
-      `メーカー=${sheet49.indexOf('label="メーカー選択"')} / 銘柄=${sheet49.indexOf('label="銘柄選択"')}`);
+      && sheet49.indexOf('label="メーカー"') < sheet49.indexOf('label="銘柄"'),
+      `メーカー=${sheet49.indexOf('label="メーカー"')} / 銘柄=${sheet49.indexOf('label="銘柄"')}`);
     check("49.5 R6 メーカーを変えたら銘柄も付け替える(別のメーカーの銘柄が残らない)",
       /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet49)
       && /onChange=\{\(v\) => pickBrand\(v\)\}/.test(sheet49));
@@ -24821,11 +24828,14 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     check("59.1 N1 分析軸の綴りは「リードメーカー」(集計しているのは brand)",
       /key: "brand", label: "リードメーカー",/.test(app59),
       (app59.match(/key: "brand", label: "[^"]*"/g) || []).join(" | "));
-    check("59.1 N1 箱のシートの名札は メーカー選択 / 銘柄選択 / 厚さ選択 / 枚数",
-      count59(sheet59, /label="メーカー選択"/g) === 1
-      && count59(sheet59, /label="銘柄選択"/g) === 1
-      && count59(sheet59, /label="厚さ選択"/g) === 1
-      && count59(sheet59, /label="枚数"/g) === 1,
+    // 【便O 2026-09-20 本人指示】名札から「選択」を外した(▾ が既に「押せば選択肢が出る」
+    // ことを言っているので、語で重ねて言わない)。**数も1つずつなのも変えていない**。
+    check("59.1 N1 箱のシートの名札は メーカー / 銘柄 / 厚さ / 枚数(旧語「〜選択」は0件)",
+      count59(sheet59, /label="メーカー"/g) === 1
+      && count59(sheet59, /label="銘柄"/g) === 1
+      && count59(sheet59, /label="厚さ"/g) === 1
+      && count59(sheet59, /label="枚数"/g) === 1
+      && count59(sheet59, /メーカー選択|銘柄選択|厚さ選択/g) === 0,
       (sheet59.match(/label="[^"]*"/g) || []).join(" | "));
     // 旧語の不在。**コメントを剥がしてから数える**(綴りを数える検査の作法)。
     check("59.1 N1 App.jsx に旧語「型番」が1つも残っていない",
@@ -24866,13 +24876,13 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && !/minHeight: \d/.test(row59));
     // 名札の体裁は**いまの開封日の行から引いた**。新しい値を作っていない。
     check("59.2 N2 名札の体裁は1箇所(12px / --c-ink-3 / flexShrink:0)",
-      /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0 \};/.test(app59)
+      /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap" \};/.test(app59)
       && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1
       && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1);
     check("59.2 N2 値は左寄せで、名札のすぐ右から始まる",
       /flex: 1, textAlign: "left", fontWeight: 700,/.test(row59));
     check("59.2 N2 厚さはダイヤルではなく行(RatingDial はシートに1つも無い)",
-      !/RatingDial/.test(sheet59) && /label="厚さ選択"/.test(sheet59),
+      !/RatingDial/.test(sheet59) && /label="厚さ"/.test(sheet59),
       (sheet59.match(/RatingDial/g) || []).join(" | ") || "0件");
     check("59.2 N2 ダイヤルの一式2つは定義ごと消えた / RatingDial の定義は残る(評価が使う)",
       !/REED_STRENGTH_DIAL|REED_COUNT_DIAL/.test(app59)
@@ -24894,13 +24904,16 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && /type="date"[\s\S]{0,900}?overflow: "hidden"/.test(sheet59));
     // 総高は4行とも --tap-min。開封日だけ height を併記するのは、中の input(44)に
     // 罫の 1px が足されて 45px になった実測への手当て(数値は書かず、同じトークンで固定)。
+    // 【便O 2026-09-20 本人指示】この行だけ下の罫を消した。**枠と総高は据え置き**。
     check("59.2 N2 開封日の行も同じ枠(REED_SHEET_ROW_STYLE)を使い、総高も --tap-min",
-      /<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE, height: "var\(--tap-min\)" \}\}>/.test(sheet59)
+      /<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE, height: "var\(--tap-min\)", borderBottom: "none" \}\}>/.test(sheet59)
       && /style=\{REED_SHEET_ROW_LABEL_STYLE\}>開封日<\/span>/.test(sheet59));
   }
 
-  // --- 59.3 N2 下の一手は「変更」と「削除」の横並び ------------------------------
+  // --- 59.3 N2 下の一手は「変更」「番号編集」「削除」の横並び --------------------
   // 【変異(3)】変更を 56 に戻す 【変異(4)】縦積みに戻す → ここで落ちる。
+  // 【便O 2026-09-20 本人指示】真ん中に「番号編集」が入って3つになり、青と赤の対比が
+  // きついという指摘で変更・番号編集の塗りを --c-sunken へ落とした。数と塗りの錨を向け直す。
   {
     const a59 = sheet59.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b59 = sheet59.indexOf(">削除</button>", a59);
@@ -24909,18 +24922,22 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       pair59.length > 300 && /display: "flex"/.test(pair59)
       && pair59.includes("{reedSheetButtonLabel(mode)}") && pair59.includes(">削除</button>"),
       `${pair59.length}文字`);
-    check("59.3 N2 どちらも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
-      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 2
+    check("59.3 N2 3つとも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
+      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 3
       && !/ACTION_LG_PX/.test(pair59) && !/height: 56/.test(pair59),
       `--tap-min=${count59(pair59, /minHeight: "var\(--tap-min\)"/g)}個`);
-    check("59.3 N2 幅は等分(2列とも flex 1 1 0)",
-      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 2,
+    check("59.3 N2 幅は等分(3列とも flex 1 1 0)",
+      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 3,
       `${count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g)}列`);
     check("59.3 N2 並びは 変更が左・削除が右(破壊的な一手を右端に置く)",
       pair59.indexOf("{reedSheetButtonLabel(mode)}") < pair59.indexOf(">削除</button>"));
-    check("59.3 N2 塗りと色は今までのまま(変更=--c-accent / 削除=--c-danger)",
-      /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/.test(pair59)
-      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59));
+    // 【便O】青と赤の対比がきついという指摘で、赤は削除の1つだけにした。
+    // 変更・番号編集は CommunityTab の secondaryButtonStyle と同じ2トークン。
+    check("59.3 N2 塗りは 変更・番号編集=--c-sunken / 削除だけ --c-danger(青は残っていない)",
+      count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 2
+      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59)
+      && !/--c-accent/.test(pair59) && !/--c-line-strong/.test(pair59),
+      (pair59.match(/background: "?[^,;]*/g) || []).join(" | "));
     check("59.3 N2 編集の語は「変更」/ 旧綴り「この箱を変更」「この箱を削除」は0件",
       api.reedSheetButtonLabel("edit") === "変更"
       && !/この箱を変更/.test(app59) && !/この箱を削除/.test(app59),
@@ -25499,8 +25516,8 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
     if (selExpr63 && togExpr63) {
       const s0 = "";
       const p1 = press63(s0, "社会人");
-      const p2 = press63(p1.v, "独学");
-      const p3 = press63(p2.v, "独学");
+      const p2 = press63(p1.v, "職業音楽家");
+      const p3 = press63(p2.v, "職業音楽家");
       const sel = (s) => selOf63(s);
       const a0 = sel(s0), a1 = sel(p1.v), a2 = sel(p2.v), a3 = sel(p3.v);
       check("63.3 4-C 何も選んでいないときは0件(select の「選択」と同じ。保存される値は空のまま)",
@@ -25508,7 +25525,7 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
       check("63.3 4-C 押すと**1つだけ**選ばれる",
         p1.ok && a1.ok && a1.v.length === 1 && a1.v[0] === "社会人", p1.err || a1.err || JSON.stringify(a1.v));
       check("63.3 4-C 別のを押すと**前のが外れる**(2つ同時に選べない)",
-        p2.ok && a2.ok && a2.v.length === 1 && a2.v[0] === "独学" && !a2.v.includes("社会人"),
+        p2.ok && a2.ok && a2.v.length === 1 && a2.v[0] === "職業音楽家" && !a2.v.includes("社会人"),
         p2.err || a2.err || JSON.stringify(a2.v));
       check("63.3 4-C 同じものを押し直すと外れる(押すたびに切り替わる)",
         p3.ok && a3.ok && a3.v.length === 0, p3.err || a3.err || JSON.stringify(a3.v));
@@ -25527,9 +25544,11 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
 
   // --- 63.5 保存される形は1文字も変わっていない -------------------------------
   {
+    // 【便O 2026-09-20 本人指示で語を入れ替えた】束4 の時点の錨(旧5語)を、新しい正へ向け直す。
+    // 見ているもの(中身と並びの完全一致)は1つも緩めていない。中身の正は検証66.1 が持つ。
     const positions63 = new Function(`${extractConst("POSITIONS", profileSrc).replace(/^export /, "")} return POSITIONS;`)();
-    check("63.5 POSITIONS の中身が着手前と同一(5つ・並びも同じ)",
-      positions63.join(" / ") === "学生 / 学生（音大） / 社会人 / 講師・プロ / 独学",
+    check("63.5 POSITIONS の中身が便O の指示と同一(4つ・並びも同じ)",
+      positions63.join(" / ") === "学生 / 学生（音楽専門） / 社会人 / 職業音楽家",
       positions63.join(" / "));
   }
   check("63.5 buildProfileDoc の呼び出しは1箇所のまま(保存の道筋を変えていない)",
@@ -26139,6 +26158,215 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     && /\| 一覧の `FloatingAction` \| `FLOAT_ACTION_SPACER_H`/.test(ds65));
   console.log("  -> done");
 }
+// ============================================================
+// 検証66: 便O ── 属性の語 / リードの箱のシート / 長押しの案内(2026-09-20 本人指示・凍結仕様)
+//
+// 本人の言葉:
+//   「属性の選択肢を 学生 / 学生（音楽専門） / 社会人 / 職業音楽家 に」
+//   「箱を編集の見出しは要らない」「メーカーなどの名札から『選択』を外して」
+//   「値の先頭を縦に揃えて」「開封日の下の線を消して」
+//   「青と赤のコントラストがきつい」「番号編集をここから入れるように」
+//   「リードタブの下に『長押しで並び替え』を戻して」
+//
+// **ここで見ること**:
+//   66.1 属性の4語と並び。**旧3語が実装から消えている**こと。
+//        ルール側の写しが同じ4つ・同じ順であること。
+//   66.2 名札から「選択」が落ち、3つの名札が1つずつ在ること。
+//   66.3 名札が固定幅を読んでいて、その幅が既存の "4em" であること(新しい値を作っていない)。
+//   66.4 編集の見出しが消え、分ける関数が定義ごと無いこと。読み上げの名前は残ること。
+//   66.5 開封日の行だけ罫が消え、共有の枠の罫は残っていること。
+//   66.6 下の一手が3つで、赤は削除だけ。**押したときの動き**を実際に走らせて確かめる。
+//   66.7 案内の行が2つの条件で守られ、体裁が上の案内と**同じ文字列**であること。
+//
+// **見ないもの**:
+//   ・値の左端が実際に同じ x に揃うかどうか(名札の "4em" が実測で何 px になるかは
+//     字送り次第)。ここは**実機・実測待ち**。ソースからは「固定幅を持つこと」までしか言えない。
+//   ・罫が消えた後の見え方、3つのボタンの語が 375px 幅で折り返さないかどうか。
+//     どちらも**描かせないと判定できない**(この検査はソース照合)。
+//   ・正典(design/canvas)の属性のピル5つ。正典は今回の指示の範囲外で動かしていないため
+//     旧語のまま残っている(検証63.6 が今までどおり正典側だけを見ている)。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① POSITIONS に旧語を戻す            ② label を「メーカー選択」へ戻す
+//   ③ minWidth を外す                   ④ 見出しの !isEdit を外す
+//   ⑤ borderBottom:"none" を外す        ⑥ 変更の塗りを --c-accent へ戻す
+//   ⑦ 番号編集で閉じずにモードへ入る      ⑧ 案内の reeds.length > 0 を外す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押しの案内 ==========");
+{
+  const read66 = (...p) => readFileSync(join(__dirname, "..", ...p), "utf8");
+  const count66 = (t, re) => (t.match(re) || []).length;
+  const app66 = codeOf(src);
+  const sheet66 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const view66 = codeOf(srcOfFn(src, "ReedRegisterView"));
+  const tab66 = codeOf(srcOfFn(src, "ReedsTab"));
+  const prof66 = codeOf(profileSrc);
+  const rules66 = read66("firestore.rules");
+  const comm66 = codeOf(read66("src", "community", "CommunityTab.jsx"));
+  const screens66 = codeOf(read66("src", "community", "screens.jsx"));
+
+  check("66.0 実装とルールを読めている(空回りしていない)",
+    sheet66.length > 3000 && view66.length > 3000 && tab66.length > 3000
+    && prof66.length > 3000 && rules66.length > 10000 && comm66.length > 10000,
+    `シート${sheet66.length} / 一覧${view66.length} / タブ${tab66.length} / rules${rules66.length}`);
+
+  // --- 66.1 属性の語 -----------------------------------------------------------
+  // **期待値は「守るべき定数」から逆算しない**: 4語を綴りでここに書き、実装側と
+  // ルール側の**両方**をその綴りと突き合わせる(片方を他方から導くと、2つ同時に
+  // 間違えたときに素通りする)。
+  {
+    const positions66 = new Function(`${extractConst("POSITIONS", profileSrc).replace(/^export /, "")} return POSITIONS;`)();
+    check("66.1 POSITIONS は 学生 / 学生（音楽専門） / 社会人 / 職業音楽家 の4つ(並びも同じ)",
+      Array.isArray(positions66) && positions66.length === 4
+      && positions66.join(" / ") === "学生 / 学生（音楽専門） / 社会人 / 職業音楽家",
+      Array.isArray(positions66) ? positions66.join(" / ") : String(positions66));
+    check("66.1 旧3語が実装のどこにも残っていない(コメントを剥がして数える)",
+      count66(prof66, /独学|音大|講師/g) === 0
+      && count66(comm66, /独学|音大|講師/g) === 0
+      && count66(screens66, /独学|音大|講師/g) === 0
+      && count66(app66, /独学|音大|講師/g) === 0,
+      `profile=${count66(prof66, /独学|音大|講師/g)} / タブ=${count66(comm66, /独学|音大|講師/g)} / 画面=${count66(screens66, /独学|音大|講師/g)} / App=${count66(app66, /独学|音大|講師/g)}`);
+    check("66.1 firestore.rules の position の列挙も同じ4つ・同じ順(旧語は0件)",
+      rules66.includes("request.resource.data.position in ['学生','学生（音楽専門）','社会人','職業音楽家']")
+      && count66(rules66, /'独学'|'学生（音大）'|'講師・プロ'/g) === 0,
+      (rules66.match(/request\.resource\.data\.position in \[[^\]]*\]/) || ["取り出せない"])[0]);
+    check("66.1 属性の選択肢は今までどおり POSITIONS をそのまま渡すだけ(写しを作っていない)",
+      /options=\{POSITIONS\}/.test(comm66) && /options=\{POSITIONS\}/.test(screens66));
+  }
+
+  // --- 66.2 名札から「選択」を外した -------------------------------------------
+  check("66.2 シートの本文に旧語「メーカー選択 / 銘柄選択 / 厚さ選択」が1つも無い",
+    count66(sheet66, /メーカー選択|銘柄選択|厚さ選択/g) === 0,
+    (sheet66.match(/.{0,6}選択/g) || []).join(" | ") || "0件");
+  check("66.2 新しい名札 メーカー / 銘柄 / 厚さ が1つずつ在る(枚数・開封日は据え置き)",
+    count66(sheet66, /label="メーカー"/g) === 1
+    && count66(sheet66, /label="銘柄"/g) === 1
+    && count66(sheet66, /label="厚さ"/g) === 1
+    && count66(sheet66, /label="枚数"/g) === 1
+    && count66(sheet66, /aria-label="開封日"/g) === 1,
+    (sheet66.match(/label="[^"]*"/g) || []).join(" | "));
+  check("66.2 読み上げの名は名札そのもの(行の部品が aria-label={label} を持つ)",
+    /aria-label=\{label\}/.test(codeOf(srcOfFn(src, "ReedSheetPickRow"))));
+
+  // --- 66.3 値の先頭を縦にそろえる ---------------------------------------------
+  {
+    const w66 = new Function(`${extractConst("REED_SHEET_LABEL_W")} return REED_SHEET_LABEL_W;`)();
+    const my66 = new Function(`${extractConst("MY_DATA_STOCK_LABEL_W")} return MY_DATA_STOCK_LABEL_W;`)();
+    const ls66 = extractConst("REED_SHEET_ROW_LABEL_STYLE");
+    check("66.3 名札の固定幅は 4em(既存の MY_DATA_STOCK_LABEL_W と同じ値。新しい値を作っていない)",
+      w66 === "4em" && my66 === "4em", `リード=${w66} / 在庫=${my66}`);
+    check("66.3 名札の体裁がその幅を読んでいる(数値の直書きではない)",
+      /minWidth: REED_SHEET_LABEL_W/.test(ls66), ls66);
+    check("66.3 12px / --c-ink-3 / flexShrink:0 は1つも落ちていない",
+      /fontSize: 12/.test(ls66) && /color: "var\(--c-ink-3\)"/.test(ls66) && /flexShrink: 0/.test(ls66));
+    check("66.3 名札の体裁の読み手は2箇所だけ(行の部品と開封日の行。写しを作っていない)",
+      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 2,
+      `${count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g)}箇所`);
+  }
+
+  // --- 66.4 編集の見出しを消した -----------------------------------------------
+  {
+    const title66 = new Function(`${extractConst("REED_ADD_SHEET_TITLE")} return REED_ADD_SHEET_TITLE;`)();
+    check("66.4 見出しの綴りは定数1つで「追加」、分ける関数 reedSheetTitle は定義ごと無い",
+      title66 === "追加" && !/function reedSheetTitle\s*\(/.test(app66)
+      && count66(app66, /reedSheetTitle/g) === 0,
+      `${title66} / 残り${count66(app66, /reedSheetTitle/g)}件`);
+    check("66.4 見出しは**追加のときだけ**描く(!isEdit で囲われている)",
+      /\{!isEdit && \([\s\S]{0,300}?\{REED_ADD_SHEET_TITLE\}/.test(sheet66)
+      && count66(sheet66, /REED_ADD_SHEET_TITLE/g) === 1);
+    check("66.4 読み上げの名前は残っている(ariaLabel の「箱を編集」/「リードを追加」)",
+      /ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/.test(sheet66));
+  }
+
+  // --- 66.5 開封日の行の罫 ------------------------------------------------------
+  check("66.5 開封日の行だけ下の罫を消した(枠と総高 --tap-min は据え置き)",
+    /<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE, height: "var\(--tap-min\)", borderBottom: "none" \}\}>/.test(sheet66),
+    (sheet66.match(/<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE[^>]*>/) || ["取り出せない"])[0]);
+  check("66.5 共有の枠の罫そのものは残っている(他の行は今までどおり罫を持つ)",
+    /borderBottom: "1px solid var\(--c-line\)",/.test(extractConst("REED_SHEET_ROW_STYLE"))
+    && /borderBottom: "1px solid var\(--c-line\)",/.test(codeOf(srcOfFn(src, "ReedSheetPickRow"))),
+    extractConst("REED_SHEET_ROW_STYLE").replace(/\s+/g, " "));
+
+  // --- 66.6 下の一手は3つ / 赤は削除だけ / 番号編集はモードへ入るだけ ------------
+  {
+    const a66 = sheet66.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
+    const b66 = sheet66.indexOf(">削除</button>", a66);
+    const trio66 = a66 >= 0 && b66 > a66 ? sheet66.slice(a66, b66 + ">削除</button>".length) : "";
+    check("66.6 編集の3つを同じ親から切り出せている(縦積みに戻すと切り出せない)",
+      trio66.length > 500 && count66(trio66, /<button/g) === 3,
+      `${trio66.length}文字 / ${count66(trio66, /<button/g)}個`);
+    check("66.6 並びは 変更 → 番号編集 → 削除(破壊的な一手が右端)",
+      trio66.indexOf("{reedSheetButtonLabel(mode)}") < trio66.indexOf(">番号編集</button>")
+      && trio66.indexOf(">番号編集</button>") < trio66.indexOf(">削除</button>")
+      && count66(sheet66, />番号編集<\/button>/g) === 1);
+    check("66.6 変更と番号編集の塗りは --c-sunken / 字は --c-ink-2 / 太さ600(2つとも)",
+      count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 2
+      && count66(trio66, /fontWeight: 600/g) === 2,
+      `塗り${count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g)} / 太さ${count66(trio66, /fontWeight: 600/g)}`);
+    check("66.6 赤は削除の1つだけ。**edit の枝に --c-accent は残っていない**",
+      count66(trio66, /var\(--c-danger\)/g) === 1
+      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(trio66)
+      && count66(trio66, /var\(--c-accent\)/g) === 0,
+      `danger=${count66(trio66, /var\(--c-danger\)/g)} / accent=${count66(trio66, /var\(--c-accent\)/g)}`);
+    check("66.6 追加の枝の --c-accent は残っている(追加の一手は触っていない)",
+      count66(sheet66.slice(b66), /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/g) === 1,
+      `${count66(sheet66.slice(b66), /var\(--c-accent\)/g)}件`);
+    check("66.6 その2トークンは CommunityTab の secondaryButtonStyle と同じ綴り",
+      /const secondaryButtonStyle = \{/.test(comm66)
+      && /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/.test(comm66));
+    check("66.6 押せないときは塗りを変えず薄くする(灰へ化けない)",
+      /opacity: disabled \? 0\.5 : 1,/.test(trio66)
+      && count66(trio66, /var\(--c-line-strong\)/g) === 0
+      && /cursor: disabled \? "default" : "pointer",/.test(trio66));
+    check("66.6 押せるかどうかの判定式は1文字も変えていない",
+      /const disabled = \(isCustom && !customBrand\.trim\(\)\) \|\| \(isEdit && !startDate\);/.test(sheet66));
+    check("66.6 番号編集のボタンは onNumberEdit が渡されたときだけ出る(受け口の既定は null)",
+      /onNumberEdit = null,/.test(sheet66) && /\{onNumberEdit \? \(/.test(trio66));
+    {
+      // **綴りではなく動きで見る。** 呼び手の式をソースから取り出して実際に走らせ、
+      // 「先にシートを閉じ、そのあとモードへ入る」順序まで確かめる。
+      const h66 = (view66.match(/onNumberEdit=\{(\(\) => \{[\s\S]*?\})\}/) || [])[1];
+      check("66.6 番号編集の呼び手をソースから取り出せている", Boolean(h66), h66 || "取り出せない");
+      if (h66) {
+        const log66 = [];
+        const fn66 = new Function("setEditBoxKey", "enterNumberEdit", `return (${h66});`)(
+          (v) => log66.push(`close:${String(v)}`), () => log66.push("enter"));
+        fn66();
+        check("66.6 押すと**先にシートを閉じ、そのあと**番号編集モードへ入る",
+          log66.join(" > ") === "close:null > enter", log66.join(" > ") || "何も起きない");
+      }
+    }
+    check("66.6 モードへ入る一手は「…」の『リード番号を変更』と**同じ startMode**(新しい経路を作っていない)",
+      /enterNumberEdit=\{\(\) => startMode\("numberEdit"\)\}/.test(tab66)
+      && /const startMode = \(mode\) => \{[\s\S]{0,200}?setListMode\(mode\);/.test(tab66));
+    check("66.6 既存の入口(「…」の『リード番号を変更』)はそのまま残っている",
+      /\{ mode: "numberEdit", label: "リード番号を変更" \}/.test(app66));
+    check("66.6 番号編集モードの後始末(useEffect)を壊していない",
+      /useEffect\(\(\) => \{ if \(listMode !== "numberEdit"\) setNumberEditId\(null\); \}, \[listMode\]\);/.test(view66));
+    check("66.6 追加の呼び出しには onNumberEdit を渡していない(追加に番号編集は無い)",
+      count66(app66, /onNumberEdit=/g) === 1);
+  }
+
+  // --- 66.7 「長押しで並び替え」の案内 ------------------------------------------
+  {
+    const guide66 = (view66.match(/\{listMode === null && reeds\.length > 0 && \([\s\S]{0,400}?\)\}/) || [""])[0];
+    check("66.7 案内は listMode === null と reeds.length > 0 の**両方**で守られている",
+      guide66.length > 100 && /長押しで並び替え/.test(guide66)
+      && count66(view66, /長押しで並び替え/g) === 1,
+      guide66.replace(/\s+/g, " ").slice(0, 140) || "取り出せない");
+    const styles66 = view66.match(/style=\{\{ fontSize: "var\(--fs-xs\)"[^}]*\}\}/g) || [];
+    check("66.7 体裁は numberEdit の案内と**同じ綴り**(新しい値を作っていない)",
+      styles66.length === 2 && styles66[0] === styles66[1]
+      && /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)"/.test(styles66[0] || ""),
+      styles66.join(" || ") || "取り出せない");
+    check("66.7 置き場所は numberEdit の案内の下・FloatingActionSpacer のすぐ上",
+      view66.indexOf("番号を変更するリードをタップ") < view66.indexOf("長押しで並び替え")
+      && view66.indexOf("長押しで並び替え") < view66.indexOf("<FloatingActionSpacer />"));
+  }
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

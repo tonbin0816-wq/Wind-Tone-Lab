@@ -10561,6 +10561,10 @@ function ReedsTab(props) {
              ReedsTab の入れ子ではないので、押すと ReferenceError で何も消えなかった)。
              削除の一手を1つに畳むついでに、ここで渡して繋ぐ。 */
           deleteReedsWithUndo={deleteReedsWithUndo}
+          /* 【便O 2026-09-20 本人指示】箱の編集シートの「番号編集」から番号編集モードへ入る。
+             listMode を持っているのは ReedsTab なので、**「…」の『リード番号を変更』と
+             同じ startMode をそのまま渡す**(新しい経路を作らない。選択の後始末も同じ)。 */
+          enterNumberEdit={() => startMode("numberEdit")}
         />
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
@@ -10822,11 +10826,13 @@ const REED_ADD_BUTTON_LABEL = "この箱を追加する";
 function reedSheetButtonLabel(mode) {
   return mode === "edit" ? "変更" : REED_ADD_BUTTON_LABEL;
 }
-// シートの見出し(--fs-xs / --ink3。正典は便C で 11px → 12px)とダイアログ名。
-// 綴りを2箇所に置かないためここへ集める。
-function reedSheetTitle(mode) {
-  return mode === "edit" ? "箱を編集" : "追加";
-}
+// シートの見出し(--fs-xs / --ink3。正典は便C で 11px → 12px)。
+// 【便O 2026-09-20 本人指示】**編集のときは見出しを出さない**。
+// 何のシートかは中の行(メーカー / 銘柄 / 厚さ / 開封日)と下の一手が既に言っている。
+// 出す枝が「追加」1つだけになったので、mode で分ける関数ごと畳んで定数にした
+// (読み手の無い枝を残さない)。読み上げの名前は BottomSheet の ariaLabel が
+// 「箱を編集」/「リードを追加」で持ち続けるので、そちらは1文字も変えていない。
+const REED_ADD_SHEET_TITLE = "追加";
 // メーカープルダウンの「新しいメーカーを入力」の値とラベル。現行の <option value="__custom__"> を
 // そのまま引き継ぐ(保存されるメーカー名には出ない内部値)。
 const REED_BRAND_CUSTOM = "__custom__";
@@ -10863,7 +10869,13 @@ const REED_STRENGTH_OPTIONS = REED_STRENGTHS.slice().reverse();
 // いまの開封日の行から、罫と padding はいまのメーカーの行からそのまま引いた。
 // 開封日だけはこの部品を通さない ── 中身が input[type=date] で、▾(押せば選択肢が出る印)を
 // 付けると「押しても何も起きない一手」になる(§6.1.5)。枠(名札 / 高さ / 左寄せ)だけを揃える。
-const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0 };
+// 【便O 2026-09-20 本人指示】名札に**固定幅**を持たせて、メーカー・銘柄・厚さ・枚数・開封日の
+// 値の左端を同じ x に揃える。自然幅(flexShrink:0 だけ)だと名札の字数ぶんだけ値がずれていた。
+// **新しい値は作っていない**: My Data の在庫の行が使う MY_DATA_STOCK_LABEL_W と同じ "4em"。
+// nowrap は「4em に収まらない名札が折り返して行が2段になる」のを止めるための保険
+// (いまの5つは2〜3字なので収まるが、幅を持たせた以上ここを開けておかない)。
+const REED_SHEET_LABEL_W = "4em";
+const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap" };
 const REED_SHEET_ROW_STYLE = {
   display: "flex", alignItems: "center", gap: 12,
   minHeight: "var(--tap-min)",
@@ -10898,7 +10910,7 @@ function ReedSheetPickRow({ label, value, onOpen, expanded }) {
 // メーカー・番手・開封日はどれも箱のキー(メーカー|番手|開封日)なので、編集は3つを1枚のシートで扱う。
 function ReedBoxSheet({
   brandOptions, brand, setBrand, model, setModel, customBrand, setCustomBrand,
-  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, mode = "add",
+  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, onNumberEdit = null, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -10925,12 +10937,18 @@ function ReedBoxSheet({
     <>
       <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
-          {/* 正典ミニの見出し「追加」(--fs-xs / --ink3。正典は便C で 11px → 12px)。編集のときは「箱を編集」 */}
-          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{reedSheetTitle(mode)}</div>
+          {/* 正典ミニの見出し「追加」(--fs-xs / --ink3。正典は便C で 11px → 12px)。
+              【便O 2026-09-20 本人指示】**編集のときは見出しごと出さない**(下の isEdit の分岐)。 */}
+          {!isEdit && (
+            <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{REED_ADD_SHEET_TITLE}</div>
+          )}
 
-          {/* 【便N】メーカー。正典の行は「名札 + 太字の値(左寄せ) + ▾」。形は ReedSheetPickRow 1つ。 */}
+          {/* 【便N】メーカー。正典の行は「名札 + 太字の値(左寄せ) + ▾」。形は ReedSheetPickRow 1つ。
+              【便O 2026-09-20 本人指示】名札から「選択」を外した(「メーカー選択」→「メーカー」)。
+              ▾ が「押せば選択肢が出る」ことを既に言っているので、語で重ねて言わない(§6.1.5)。
+              **追加のシートも同じ語になる**(呼び出しを add と edit で共有しているため。意図どおり)。 */}
           <ReedSheetPickRow
-            label="メーカー選択"
+            label="メーカー"
             value={isCustom ? (customBrand.trim() || REED_BRAND_CUSTOM_LABEL) : brand}
             onOpen={() => setBrandPickerOpen(true)}
             expanded={brandPickerOpen}
@@ -10950,7 +10968,7 @@ function ReedBoxSheet({
               値が空(銘柄を知らない古い箱)のときは「—」── A3 の「不明・欠落」の記号。 */}
           {modelOptions.length > 0 && (
             <ReedSheetPickRow
-              label="銘柄選択"
+              label="銘柄"
               value={model || "—"}
               onOpen={() => setModelPickerOpen(true)}
               expanded={modelPickerOpen}
@@ -10974,8 +10992,12 @@ function ReedBoxSheet({
               minHeight は下限でしかないので、中の input が持つ --tap-min(44)に罫の 1px が
               足されて、この行だけ 1px 高くなっていた(他の3行は中身が小さく minHeight で止まる)。
               border-box の height で総高を --tap-min に固定する。**新しい値は作っていない**。 */}
+          {/* 【便O 2026-09-20 本人指示】この行だけ**下の罫を出さない**。
+              REED_SHEET_ROW_STYLE 自体は他の行が使っているので触らず、下の style で重ねて消す。
+              height: --tap-min は**残す**: 罫の 1px を打ち消すための手当てだったが、
+              罫が消えても総高を --tap-min に固定したままでよい(他の行と同じ高さ)。 */}
           {isEdit && (
-            <div style={{ ...REED_SHEET_ROW_STYLE, height: "var(--tap-min)" }}>
+            <div style={{ ...REED_SHEET_ROW_STYLE, height: "var(--tap-min)", borderBottom: "none" }}>
               <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>開封日</span>
               <input
                 type="date"
@@ -11001,7 +11023,7 @@ function ReedBoxSheet({
               **枚数は「追加」のときだけ**。箱の編集では出さない(枚数は箱の中身であって
               箱の属性ではない。編集で枚数を変えると、どの個体を消すのかが決まらない)。 */}
           <ReedSheetPickRow
-            label="厚さ選択"
+            label="厚さ"
             value={strength}
             onOpen={() => setStrengthPickerOpen(true)}
             expanded={strengthPickerOpen}
@@ -11015,11 +11037,13 @@ function ReedBoxSheet({
             />
           )}
 
-          {/* 【便N 2026-09-19 本人指示】編集の下の一手は「変更」と「削除」の**横並び**。
-              「下のボタンの縦幅のサイズを削除側に揃えて」= どちらも --tap-min。幅は等分。
-              **並びは変更が左・削除が右**(破壊的な一手を右端に置く)。
-              塗りと色はいままでのまま(変更 = --c-accent / 削除 = --c-danger)。
-              追加のほうは触っていない: 中央揃え・幅いっぱい・高さ ACTION_LG_PX のまま
+          {/* 【便N 2026-09-19 本人指示】編集の下の一手は**横並び**。幅は等分・高さは --tap-min。
+              **並びは破壊的な一手を右端に置く**(便O で「変更 / 番号編集 / 削除」の3つになった)。
+              【便O 2026-09-20 本人指示】本人の言葉「青と赤のコントラストがきつい」。
+              変更と番号編集の塗りを CommunityTab.jsx の secondaryButtonStyle と**同じ2トークン**
+              (--c-sunken / --c-ink-2、太さ 600)に落とし、赤は削除の1つだけにした。
+              **新しい色は作っていない**(どちらのトークンも既に在る)。
+              追加のほうは触っていない: 中央揃え・幅いっぱい・高さ ACTION_LG_PX・--c-accent のまま
               (便E で本人が決めた綴りと寸法。今回の指示に入っていない)。 */}
           {isEdit ? (
             <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
@@ -11027,18 +11051,39 @@ function ReedBoxSheet({
                 onClick={onAdd}
                 disabled={disabled}
                 className="sans"
+                /* 【便O】押せないときは**塗りを変えずに薄くする**。以前は --c-line-strong の
+                   灰へ化けていたが、沈めた地の上に灰を重ねると字が読めなくなる。
+                   判定式(disabled)は1文字も変えていない。 */
                 style={{
                   flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   borderRadius: "var(--r-pill)", border: "none",
-                  background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
-                  color: "var(--c-on-accent)",
-                  fontSize: "var(--fs-sm)", fontWeight: 700,
+                  background: "var(--c-sunken)", color: "var(--c-ink-2)",
+                  fontSize: "var(--fs-sm)", fontWeight: 600,
+                  opacity: disabled ? 0.5 : 1,
                   cursor: disabled ? "default" : "pointer",
                 }}
               >
                 {reedSheetButtonLabel(mode)}
               </button>
+              {/* 【便O 2026-09-20 本人指示】リードの番号を変える入口。
+                  **新しい仕組みは作らない**: 既にある listMode === "numberEdit" へ入るだけで、
+                  シートを閉じて一覧をそのモードにする(配線は呼び出し側が持つ)。
+                  「…」の中の「リード番号を変更」は今までどおり残る ── 入口が2つになるだけ。
+                  onDelete と同じ作法で、**渡されたときだけ**出す(追加の呼び出しには渡さない)。 */}
+              {onNumberEdit ? (
+                <button
+                  type="button" onClick={onNumberEdit}
+                  className="sans"
+                  style={{
+                    flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    borderRadius: "var(--r-pill)", border: "none",
+                    background: "var(--c-sunken)", color: "var(--c-ink-2)",
+                    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+                  }}
+                >番号編集</button>
+              ) : null}
               {/* 【2026/09/10 本人指示】箱ごと消す一手。**編集のときだけ**出す
                   (追加の途中に消すものは無い)。
                   【.ctl-danger は使わない】あの綴りは「選んだぶんを消す」共通部品ひとつだけの
@@ -11134,6 +11179,8 @@ function ReedRegisterView(props) {
     pageActive,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
+    // 【便O】箱の編集シートからの「番号編集」も、「…」の『リード番号を変更』と**同じ一手**を通る。
+    enterNumberEdit,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -11276,9 +11323,15 @@ function ReedRegisterView(props) {
     setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
-  /* 【R7 2026-09-16 実機の指摘】並び替えの案内(1行)は削除した。
-     読み手が無くなった anyReorderable も定義ごと消してある(死んだ計算を残さない)。
-     並び替えの操作そのもの(長押し + ドラッグ)は ReedTileGrid に残っている。 */
+  /* 【並び替えの案内(1行)の経緯】
+     ・R7 2026-09-16 実機の指摘で**一度削除した**。読み手が無くなった anyReorderable も
+       定義ごと消してある(死んだ計算を残さない)。
+     ・便O 2026-09-20 本人の再指示で**戻した**。操作そのもの(長押し + ドラッグ)は
+       ずっと ReedTileGrid に在るのに、画面のどこにも「長押しできる」と書いていないため
+       気付けない(§6.1.5 の裏返し ── 在る一手を隠したままにしない)。
+     戻したのは**案内の1行だけ**で、anyReorderable は復活させていない。
+     出す条件は「一覧が素のとき(listMode === null)かつリードが1枚以上」── 削除・番号編集の
+     最中は別の案内が出ていて、そこで長押しはできない。 */
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -11400,6 +11453,14 @@ function ReedRegisterView(props) {
         </div>
       )}
 
+      {/* 【便O 2026-09-20 本人指示】並び替えの案内(1行)。体裁は**すぐ上の案内と同値**
+          (--fs-xs / --c-ink-3 / 中央 / 上に --sp-2)── 新しい値は作っていない。 */}
+      {listMode === null && reeds.length > 0 && (
+        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
+          長押しで並び替え
+        </div>
+      )}
+
       {/* 【F-111】一覧の下に、浮かせるボタンの高さぶんの余白。最下段のタイルに重ならない。 */}
       <FloatingActionSpacer />
       {/* 【F-111 2026/08/17 本人指示・正典 案D】追加の入口を右下に浮かせる。
@@ -11458,6 +11519,11 @@ function ReedRegisterView(props) {
           startDate={editStartDate} setStartDate={setEditStartDate}
           onAdd={applyBoxEdit}
           onDelete={deleteEditingBox}
+          /* 【便O 2026-09-20 本人指示】番号編集はこの1手で既存のモードへ入るだけ。
+             **シートを閉じてから**モードへ入る(開いたままだと、一覧のタイルが
+             シートの裏に隠れていて「タップするリード」が押せない)。
+             numberEditId の後始末は既存の useEffect がそのまま面倒を見る。 */
+          onNumberEdit={() => { setEditBoxKey(null); enterNumberEdit(); }}
           onClose={() => setEditBoxKey(null)}
         />
       )}
