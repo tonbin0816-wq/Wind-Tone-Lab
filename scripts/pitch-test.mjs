@@ -27195,6 +27195,55 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証74: 保存のたびに順位から自分が消える(便S)
+//   本人の報告「属性編集すると順位から消えるのがまだ直らない」。
+//   便Q で保存が練習記録を消さないようにしたが、**表示の順番**が残っていた:
+//   名簿(listPublicUsers)の読みと練習記録の書き(publishStats)は別々に走り、
+//   読みのほうが先に終わる。読み終えた名簿の自分の行には、いま書いた記録がまだ無い。
+//   順位は記録を持つ人だけを並べるので、自分だけが消える。
+//   プロフィールを保存すると画面ごと作り直されるので、保存のたびに再現した。
+//   → 書いた値を控え、名簿が読めたら自分の行へ入れる(どちらが先でも効く形)。
+// ============================================================
+console.log("========== 検証74: 保存しても順位から自分が消えない ==========");
+{
+  const comm74 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"));
+  const agg74 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "aggregate.js"), "utf8"));
+
+  // --- 74.1 控える ------------------------------------------------------------
+  check("74.1 公開に成功したら、書いた値をその場で控える",
+    /await publishStats\(uid, stats\);[\s\S]{0,400}?setMyStats\(stats\);/.test(comm74));
+  check("74.1 控え先は state 1つ(myStats)",
+    /const \[myStats, setMyStats\] = useState\(null\);/.test(comm74)
+    && (comm74.match(/setMyStats\(/g) || []).length === 1);
+
+  // --- 74.2 名簿へ入れる ------------------------------------------------------
+  const patch74 = (comm74.match(/useEffect\(\(\) => \{\s*if \(!uid \|\| !myStats[\s\S]{0,700}?\}, \[uid, myStats, dir\.phase\]\);/) || [""])[0];
+  check("74.2 控えた値を名簿の自分の行へ入れる経路が在る",
+    patch74.length > 100, patch74 ? "取れている" : "取り出せない");
+  check("74.2 **書いた直後ではなく別の useEffect**で入れる(読みと書きのどちらが先でも効く)",
+    /\}, \[uid, myStats, dir\.phase\]\);/.test(comm74)
+    && /dir\.phase !== "ready"/.test(patch74));
+  check("74.2 直すのは自分の行だけ(他人の行に触らない)",
+    /prev\.map\(\(u\) => \(u\.uid === uid \? \{ \.\.\.u, stats: myStats \} : u\)\)/.test(patch74));
+  check("74.2 同じ値を入れ直して描き直しが止まらなくなる経路を潰してある",
+    /prev\.some\(\(u\) => u\.uid === uid && u\.stats === myStats\)/.test(patch74));
+
+  // --- 74.3 前提(これが変わったら この直しの意味も変わる) ----------------------
+  check("74.3 順位は練習記録を持つ人だけを並べる(持たない人は行ごと出ない)",
+    /const s = u\?\.stats;/.test(agg74) && /if \(!s\) continue;/.test(agg74));
+  check("74.3 便Q の直し(保存は merge)が生きている",
+    /setDoc\(userRef\(uid\), profileDoc, \{ merge: true \}\)/
+      .test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8"))));
+
+  // --- 74.4 先にあった同じ作法を壊していない ----------------------------------
+  check("74.4 アイコンの変更は今までどおり手元の名簿も直す",
+    /dir\.setUsers\(\(prev\) => prev\.map\(\(u\) => \(u\.uid === uid \? \{ \.\.\.u, \.\.\.v \} : u\)\)\)/.test(comm74));
+  check("74.4 公開の切り替えは今までどおり練習記録を落とさない",
+    /stats: mine\?\.stats \?\? computePracticeStats\(sessions \?\? \[\]\)/.test(comm74));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

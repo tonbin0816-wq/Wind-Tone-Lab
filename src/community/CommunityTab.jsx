@@ -133,6 +133,9 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // 【計画5 2026-09-10】myUid を渡す ── 通報された人を落とすときに
   // **自分だけは残す**ため(黙って消さない。理由はマイページの告知で伝える)。
   const dir = usePublicUsers(uid);
+  // 【便S 2026-09-21】このタブで公開した自分の練習記録の控え。名簿の読みより後に
+  // 書き終わることがあるので、読み直さずに自分の行だけを直すために持つ。
+  const [myStats, setMyStats] = useState(null);
 
   // 自分が通報で隠れているか。**一覧の結果からは判定しない** ── 一覧は上限50で
   // 切れるので、切れた先に自分が居ると本人にだけ何も知らせないまま隠れてしまう。
@@ -188,7 +191,17 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     (async () => {
       try {
         const stats = computePracticeStats(sessions ?? []);
-        if (alive) await publishStats(uid, stats);
+        if (alive) {
+          await publishStats(uid, stats);
+          // 【便S 2026-09-21 本人報告「属性編集すると順位から消えるのがまだ直らない」】
+          // **書いた値を控える。** 名簿(dir)を読むのと ここで書くのは別々に走っていて、
+          // 読みのほうが先に終わる。つまり読み終えた名簿の自分の行には、いま書いた
+          // 練習記録がまだ入っていない。順位は練習記録を持つ人だけを並べるので
+          // (aggregate.js の `if (!s) continue;`)、**自分だけが消える**。
+          // プロフィールを保存すると この画面ごと作り直されるので、保存のたびに再現する。
+          // 控えた値は下の useEffect が名簿へ入れる(読みと書きのどちらが先でも効くように)。
+          if (alive) setMyStats(stats);
+        }
       } catch (e) {
         // 【便Q 2026-09-20】**利用者に見せないことと、記録に残さないことは別**。
         // ここが空だったせいで、ルールに拒まれて順位が更新されない状態が
@@ -215,6 +228,22 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     // sessions を依存に入れない ── 録音のたびに書き直すことになる。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
+
+  // 【便S 2026-09-21】控えた練習記録を、手元の名簿の自分の行へ入れる。
+  // **読みと書きのどちらが先に終わっても効く**ように、別の useEffect にしてある
+  // (書いた直後にその場で入れる形だと、名簿がまだ空のときに空振りし、
+  //  そのあと届いた名簿が古い値で上書きしてしまう)。
+  // アイコンの変更と公開の切り替えは前から手元の名簿を直していて、
+  // **練習記録だけが抜けていた**。同じ作法に揃える。
+  // 同じ値を入れ直して描き直しが止まらなくなることは、値そのものの一致で防ぐ。
+  useEffect(() => {
+    if (!uid || !myStats || dir.phase !== "ready") return;
+    dir.setUsers((prev) => (prev.some((u) => u.uid === uid && u.stats === myStats)
+      ? prev
+      : prev.map((u) => (u.uid === uid ? { ...u, stats: myStats } : u))));
+    // dir.setUsers は setState を包むだけなので依存に入れない(入れると毎描画で走る)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, myStats, dir.phase]);
 
   // 【4ページを同時に持つので、読み込み中の告知はページごとに出す】
   // 横スワイプは4枚を並べて動かす作法なので、body() の早期 return
