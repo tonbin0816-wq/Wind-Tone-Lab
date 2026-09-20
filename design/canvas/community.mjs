@@ -88,10 +88,21 @@ ${filterPill("属性", position)}
 }
 
 // Chip(screens.jsx): 当たり 44 / 見えるピル 30 / A型(枠 + 文字色。地は塗らない)
-function chip(text, on, grow = true) {
+// off = 選びようが無いもの(束2 2026-09-19)。枠は transparent・字は --c-line-strong。
+// 枠を 0 にせず transparent で残すのは、寸法が 2px ずれて行が揃わなくなるため。
+function chip(text, on, grow = true, off = false) {
   return `        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: ${grow ? "1 1 0" : "0 0 auto"}; min-width: 0">
-          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}; color: ${on ? "var(--c-accent)" : "var(--c-ink-2)"}; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: ${grow ? "100%" : "auto"}; box-sizing: border-box">${text}</span>
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid ${off ? "transparent" : on ? "var(--c-accent)" : "var(--c-line-strong)"}; color: ${off ? "var(--c-line-strong)" : on ? "var(--c-accent)" : "var(--c-ink-2)"}; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: ${grow ? "100%" : "auto"}; box-sizing: border-box">${text}</span>
         </span>`;
+}
+
+// 人物画面の楽器の行(SaxTypeRow)。**表と裏が同じ1つの部品**。束2 2026-09-19 案ア:
+// SAX_TYPES の4つを常に等分で並べ、選択中 / 吹く / 吹かない を枠の段階で分ける。
+function saxTypeRow(selected, plays) {
+  return `      <div style="display: flex; gap: var(--sp-1)">
+${["S.Sax", "A.Sax", "T.Sax", "B.Sax"]
+    .map((t) => chip(t, t === selected, true, !plays.includes(t))).join("\n")}
+      </div>`;
 }
 
 const CARD = "background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)";
@@ -440,7 +451,7 @@ const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0; border: non
 function personShell(inner) {
   return `${sprite()}
   <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
-    <div style="padding: var(--sp-4); padding-bottom: var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+    <div style="padding: 0 var(--sp-4) var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
       ${inner}
     </div>
   </div>`;
@@ -473,18 +484,16 @@ function buildPerson() {
         <div style="font-size: var(--fs-lg); font-weight: 700; color: var(--c-ink)">142<span style="font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
       </div>
 
-      <div style="display: flex; gap: var(--sp-1)">
-${chip("A.Sax", true)}
-${chip("T.Sax", false)}
-      </div>
+${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 
-      <div style="${LABEL}; padding-top: var(--sp-3)">音のデータ</div>
       ${underlineTabs(["重心", "HNR", "音程"], "重心")}
-      <div style="${NOTE}">重心(Hz)　計測${p.rec}件</div>
+      <div style="${NOTE}">Hz　計測${p.rec}件</div>
       ${lineChart({ keys: KEYS, series, digits: 0 })}
       ${legend(series)}
       <div style="${NOTE}">${ALIGN_NOTE}</div>
-      <div style="min-height: 44px; border: none; border-radius: var(--r-md); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">目安に設定</div>`);
+      <div style="display: flex; justify-content: flex-end">
+        <div style="min-height: 44px; padding: 0 var(--sp-5); border: none; border-radius: var(--r-pill); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; box-shadow: 0 8px 24px rgba(15,23,42,0.18); display: inline-flex; align-items: center; justify-content: center">目安に設定</div>
+      </div>`);
 }
 
 function buildPersonBack() {
@@ -502,10 +511,7 @@ ${infoRow("編成", '<span style="display: flex; flex-wrap: wrap; gap: 9px"><spa
       </div>
 
       <div style="${LABEL}; padding-top: var(--sp-3)">楽器の組</div>
-      <div style="display: flex; gap: var(--sp-1)">
-${chip("A.Sax", true)}
-${chip("T.Sax", false)}
-      </div>
+${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
       <div>
 ${gear("楽器", "YAMAHA YAS-62")}
 ${gear("マウスピース", "Selmer Paris S90 180")}

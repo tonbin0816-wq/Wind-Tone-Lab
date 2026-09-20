@@ -47,7 +47,7 @@
     </defs>
   </svg>
   <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
-    <div style="padding: var(--sp-4); padding-bottom: var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+    <div style="padding: 0 var(--sp-4) var(--sp-6); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
       <div style="justify-self: start; min-height: 44px; padding: 0; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center">&lt; 一覧</div>
 
       <div style="display: flex; align-items: center; gap: var(--sp-3)">
@@ -66,14 +66,19 @@
 
       <div style="display: flex; gap: var(--sp-1)">
         <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid transparent; color: var(--c-line-strong); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">S.Sax</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
           <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">A.Sax</span>
         </span>
         <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
           <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">T.Sax</span>
         </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid transparent; color: var(--c-line-strong); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">B.Sax</span>
+        </span>
       </div>
 
-      <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; padding-top: var(--sp-3)">音のデータ</div>
       <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心</span>
@@ -85,7 +90,7 @@
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">音程</span>
           </div>
         </div>
-      <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">重心(Hz)　計測38件</div>
+      <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">Hz　計測38件</div>
       <svg viewBox="0 0 320 160" width="100%" role="img" style="display: block; overflow: visible">
               <line x1="40" x2="312" y1="10.0" y2="10.0" stroke="var(--c-line)" stroke-width="1" />
               <text x="34" y="14.0" text-anchor="end" font-size="9" fill="var(--c-ink-3)">2098</text>
@@ -139,7 +144,9 @@
             </svg>
       <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><span style="width: 14px; height: 3px; border-radius: 2px; background: var(--c-accent); flex: 0 0 auto"></span><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">しろねこ</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><span style="width: 14px; height: 3px; border-radius: 2px; background: var(--c-ink-2); flex: 0 0 auto"></span><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
       <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています</div>
-      <div style="min-height: 44px; border: none; border-radius: var(--r-md); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">目安に設定</div>
+      <div style="display: flex; justify-content: flex-end">
+        <div style="min-height: 44px; padding: 0 var(--sp-5); border: none; border-radius: var(--r-pill); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; box-shadow: 0 8px 24px rgba(15,23,42,0.18); display: inline-flex; align-items: center; justify-content: center">目安に設定</div>
+      </div>
     </div>
   </div>
 </x-dc>

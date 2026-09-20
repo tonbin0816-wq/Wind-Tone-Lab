@@ -86,23 +86,35 @@ function UnderlineTabs({ items, value, onChange, label }) {
 // 箱ではなく中身を小さくする(§5「見た目の大きさは変えない。当たり判定だけ広げる」)。
 // 先例: §5.1 My Data の式の行 20px / §5.2 分析タブのチップ 30px。
 // ------------------------------------------------------------------
-function Chip({ on, onClick, children, grow = false, ariaLabel }) {
+// 【off = 選びようが無いもの 2026-09-19 本人指示・案ア】
+// 人物画面の楽器の行が、その人が**吹かない**種別も並べるようになった(SaxTypeRow)。
+// 吹かない種別は選択に切り替わりようがない = **状態を持たない**ので、
+// index.css §6.7「枠線は状態を持つものにだけ」に従って**枠を持たせない**
+// (`1px solid transparent` ── 枠を 0 にすると寸法が 2px ずれて行が揃わなくなる)。
+// 字も --c-line-strong まで落とす。**新しい色は作らない**(枠に使っている既存の値)。
+// 押せないので <button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。
+function Chip({ on, onClick, children, grow = false, ariaLabel, off = false }) {
+  const boxStyle = {
+    minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
+    justifyContent: "center", padding: 0, border: "none", background: "none",
+    flex: grow ? "1 1 0" : "0 0 auto", minWidth: 0,
+  };
+  const pill = (
+    <span style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
+      border: `1px solid ${off ? "transparent" : on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+      color: off ? "var(--c-line-strong)" : on ? "var(--c-accent)" : "var(--c-ink-2)",
+      fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
+      width: grow ? "100%" : "auto", boxSizing: "border-box",
+    }}>{children}</span>
+  );
+  if (off) return <span className="sans" style={boxStyle}>{pill}</span>;
   return (
     <button type="button" role="radio" aria-checked={on} aria-label={ariaLabel}
       onClick={onClick} className="sans"
-      style={{
-        minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
-        justifyContent: "center", padding: 0, border: "none", background: "none",
-        cursor: "pointer", flex: grow ? "1 1 0" : "0 0 auto", minWidth: 0,
-      }}>
-      <span style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
-        border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
-        color: on ? "var(--c-accent)" : "var(--c-ink-2)",
-        fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
-        width: grow ? "100%" : "auto", boxSizing: "border-box",
-      }}>{children}</span>
+      style={{ ...boxStyle, cursor: "pointer" }}>
+      {pill}
     </button>
   );
 }
@@ -1075,6 +1087,37 @@ function InfoLine({ label, value }) {
   );
 }
 
+// ------------------------------------------------------------------
+// 人物画面の楽器の行。**表(音のデータ)と裏(プロフィール)が同じ1つの部品を呼ぶ。**
+// 以前は同じ radiogroup が2箇所に直書きされていて、片方だけ直る事故の入口だった。
+//
+// 【常に4つ 2026-09-19 本人指示・案ア】本人「ソプラノからバリトンまで同じ行に横並びで配置」。
+// データのある種別だけを出していたので、1種別の人では `grow` のチップが横いっぱいに
+// 伸びて「ボタン1つ」に見えていた。SAX_TYPES の4つを `flex: 1 1 0` で等分に並べれば
+// 幅は常に 1/4 で、行が何を選ぶものなのかも読める。
+//
+// 【3つの状態は枠を段階的に減らして分ける】新しい色は1つも作らない:
+//   1. いま見ているデータの楽器 … 枠 --c-accent / 字 --c-accent(Chip の選択中そのまま)
+//   2. その人が吹く楽器         … 枠 --c-line-strong / 字 --c-ink-2(Chip の非選択そのまま)
+//   3. 吹かない楽器             … 枠なし(transparent) / 字 --c-line-strong。押せない
+// 3 に枠が無いのは index.css §6.7「枠線は状態を持つものにだけ」に沿うため ──
+// 吹かない種別は選択に切り替わりようがないので、状態を持たない。
+//
+// 【吹くかどうかは person.saxTypes で決める】目安や楽器の組があるかは問わない。
+// 「吹くが何も公開していない」は 2 で、「吹かない」は 3 で、別のことだと読める。
+// ------------------------------------------------------------------
+function SaxTypeRow({ saxType, playing, onPick }) {
+  const plays = new Set(playing ?? []);
+  return (
+    <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
+      {SAX_TYPES.map((t) => (
+        <Chip key={t} on={t === saxType} off={!plays.has(t)} grow
+              onClick={() => onPick(t)}>{SAX_LABELS[t]}</Chip>
+      ))}
+    </div>
+  );
+}
+
 export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported }) {
   const [adopted, setAdopted] = useState(null);
   // 【計画5 2026-09-10】通報。開いているか / 選んだ理由 / 送った結果。
@@ -1097,7 +1140,15 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
 
   const [saxType, setSaxType] = useState(() => types[0] ?? "alto");
   const [metric, setMetric] = useState("spectralCentroidHz");
-  useEffect(() => { if (types.length > 0 && !types.includes(saxType)) setSaxType(types[0]); }, [types, saxType]);
+  // 【選べる集合は「行が押せる形で描くもの」2026-09-19 束2】
+  // 案アで**吹くがデータが無い種別**も押せるようになった。ここを types(データのある種別)
+  // だけで見ていると、その種別を押した瞬間に先頭へ引き戻されて**何も起きないように見える**
+  // (実測で踏んだ: T.Sax を押しても A.Sax のまま)。行が押せるのは person.saxTypes なので、
+  // 引き戻すのは**そのどちらにも入っていないとき**だけにする。
+  useEffect(() => {
+    const pickable = person?.saxTypes ?? [];
+    if (types.length > 0 && !types.includes(saxType) && !pickable.includes(saxType)) setSaxType(types[0]);
+  }, [types, saxType, person]);
 
   const theirIdeal = useMemo(
     () => (ideals ?? []).find((i) => i.ownerUid === person?.uid && i.saxType === saxType) ?? null,
@@ -1154,7 +1205,13 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
     // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
     <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
-      <div style={{ ...pageStyle, paddingBottom: "var(--sp-6, 40px)" }}>
+      {/* 【上の余白は 16 だけ外す 2026-09-19 本人指示「上部の余白が大きすぎるので詰めて」】
+          シートの上端から `< 一覧` までは つまみの上 14 + つまみ 44 + つまみと中身の間 12 +
+          この画面の上余白 16 = 86 あった。**BottomSheet 側の 14/44/12 は全シートに効く**ので
+          1px も触らない。この画面だけが足している 16 を 0 にして 70 にする。
+          `pageStyle` は他のコミュニティ画面も使う共有の定義なので、定義は変えず
+          ここでの上書きだけで済ませる(paddingBottom を上書きしているのと同じ手)。 */}
+      <div style={{ ...pageStyle, paddingTop: 0, paddingBottom: "var(--sp-6, 40px)" }}>
         {/* 【行き先を名乗る戻る】表記は `< 一覧`(2026/09/06 本人指定)。
             裏(プロフィール)にいるときは行き先が変わるので、同じ形で行き先だけ差し替える。
             寸法・色は変えない。 */}
@@ -1199,27 +1256,20 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             </div>
 
             <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>楽器の組</div>
-            {/* 種別の選択は表と共有する。1枚のシートなので状態を2つ持たない。 */}
+            {/* 種別の選択は表と共有する。1枚のシートなので状態を2つ持たない。
+                本人「プロフィールも同様に変更」── 行の見た目も表と同じ1つの部品が描く。 */}
+            <SaxTypeRow saxType={saxType} playing={person.saxTypes} onPick={setSaxType} />
             {types.length === 0 ? (
               /* 直前で属性・ジャンル・編成を出しているので「何も公開していません」は嘘 */
               <Empty>楽器の組は登録されていません</Empty>
-            ) : (
-              <>
-                <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
-                  {types.map((t) => (
-                    <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
-                  ))}
-                </div>
-                {g ? (
-                  <div>
-                    <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
-                    <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
-                    <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
-                    <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
-                  </div>
-                ) : <Empty>この楽器の登録はまだありません</Empty>}
-              </>
-            )}
+            ) : g ? (
+              <div>
+                <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
+                <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
+                <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
+                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
+              </div>
+            ) : <Empty>この楽器の登録はまだありません</Empty>}
           </>
         ) : (
           <>
@@ -1232,20 +1282,17 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           </div>
         </div>
 
+        {/* 表と裏で同じ行。データのある種別が無い人でも4つ並ぶ(押せるのは吹く種別だけ)。 */}
+        <SaxTypeRow saxType={saxType} playing={person.saxTypes} onPick={setSaxType} />
+
         {types.length === 0 ? (
           <Empty>この人はまだ何も公開していません</Empty>
         ) : (
           <>
-            <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
-              {types.map((t) => (
-                <Chip key={t} on={t === saxType} grow onClick={() => setSaxType(t)}>{SAX_LABELS[t]}</Chip>
-              ))}
-            </div>
-
             {/* 【楽器の組は表に出さない 2026/09/07】裏(プロフィール)が持っている。
                 同じ4行を2箇所に置くと、片方だけ直る事故が起きる。
-                表は「音のデータ」だけを見せる画面にする。 */}
-            <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>音のデータ</div>
+                【見出しは消した 2026-09-19 本人指示】「中段にある音のデータというテキストは削除」。
+                この画面は人物の音のデータを見る画面なので、見出しが何も足していなかった。 */}
             {!theirIdeal ? (
               <Empty>この楽器の目安はまだ公開されていません</Empty>
             ) : (
@@ -1257,7 +1304,11 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                   <Empty>{chart.error}</Empty>
                 ) : chart ? (
                   <>
-                    <div className="sans" style={noteStyle}>{m.label}({m.unit})　計測{theirIdeal.sourceSessionCount ?? "—"}件</div>
+                    {/* 【指標名は落とす 2026-09-19 本人指示】「選択中の項目の表示も削除。
+                        タブを見ればわかるので」。真上の下線タブが選択中の指標を返しているので、
+                        同じ語を下でもう一度言っていた。**単位は残す** ── タブは単位を持たず、
+                        縦軸の数字が何なのかはここでしか分からない。 */}
+                    <div className="sans" style={noteStyle}>{m.unit}　計測{theirIdeal.sourceSessionCount ?? "—"}件</div>
                     <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
                                centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
                     <Legend series={chart.series} />
@@ -1268,13 +1319,18 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                         環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか
                         分からなくなる。上のグラフに出ている線がそのまま目安になる。 */}
                     {onAdopt ? (
-                      /* 面の右下に貼り付ける器。地はシートと同じ --c-surface で、
-                         下の内容が透けないようにする(新しい濃さを作らない)。
+                      /* 面の右下に貼り付ける器。
+                         【ボタンだけを浮かせる 2026-09-19 本人指示】「目安に設定の浮いている
+                         ボタンの行も浮いてしまっているので**ボタンだけを**浮かせて」。
+                         以前はこの器が地(--c-surface)と上下の padding を持っていたため、
+                         行そのものが白い帯になって貼り付いていた。地と padding をやめると
+                         下の内容は透けるが、**浮きはボタン自身の影が返す** ──
+                         My Data / リードの FloatingAction と同じ作法(地は持たず影だけ)。
+                         貼り付ける仕組み(sticky / bottom 0)とボタンの寸法・色・影は変えない。
                          zIndex は**この容器の中だけ**の話なので 1 で足りる。 */
                       <div style={{
                         position: "sticky", bottom: 0, zIndex: 1,
                         display: "flex", justifyContent: "flex-end",
-                        background: "var(--c-surface)", padding: "var(--sp-2) 0",
                       }}>
                         <button
                           type="button" className="sans"

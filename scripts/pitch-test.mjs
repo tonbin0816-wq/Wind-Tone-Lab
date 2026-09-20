@@ -25127,6 +25127,199 @@ console.log("\n========== 検証61: 束1 累計シートの4行と導線の綴�
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証62: 束2 ── コミュニティの人物画面(2026-09-19 本人指示・裁定ずみ)
+//
+// 本人の言葉:
+//   「人をタップして出てくる個人の音データ画面の上部の余白が大きすぎるので詰めて」
+//   「A.saxの表示が横いっぱいに広がっているボタン仕様を横幅を狭くして
+//     ソプラノからバリトンまで同じ行に横並びで配置」
+//   「そのデータの楽器、その人が演奏する楽器、しない楽器の3つの区別がつくように
+//     色や枠を工夫して」
+//   「中段にある音のデータというテキストは削除」
+//   「折れ線グラフ左上の重心とかHNRとか選択中の項目の表示も削除。タブを見ればわかるので」
+//   「上部のユーザーアイコンタップ後に出るプロフィールも同様に変更」
+//   「目安に設定の浮いているボタンの行も浮いてしまっているのでボタンだけを浮かせて」
+//
+// **ここで見ること**:
+//   2-A 上の余白を 16 だけ外したこと(共有の pageStyle と BottomSheet を巻き込んでいないこと)
+//   2-B 楽器の行が**1つの部品**になり、SAX_TYPES の4つを等分で描き、3つの状態を持つこと
+//   2-C 「音のデータ」の見出しが消え、「楽器の組」は残ること
+//   2-D グラフの上の一行が単位だけになったこと
+//   2-E 「目安に設定」の器から地と padding が消え、sticky と影は残ること
+//   正典(CommPerson / CommPersonBack)が同じ5つに追随していること
+//
+// **見ないもの**: 実機の見え方。2-E で器の地を外したので下の内容が透ける。
+// 影だけで「浮いている」と読めるか、透けた文字が読みにくくないかは
+// **実機でしか判定できない**(dev の実測を合格の根拠にしない)。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① paddingTop: 0 を外す ② 吹かない楽器に枠を付ける ③ 4つでなく types だけ描く
+//   ④「音のデータ」の見出しを戻す ⑤ グラフの上に指標名を戻す ⑥ 器に地を戻す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==========");
+{
+  const screens62 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const all62 = codeOf(screens62);
+  const person62 = codeOf(srcOfFn(screens62, "PersonSheet"));
+  const chip62 = codeOf(srcOfFn(screens62, "Chip"));
+  const row62 = codeOf(srcOfFn(screens62, "SaxTypeRow"));
+  const bs62 = codeOf(srcOfFn(src, "BottomSheet"));
+  const count62 = (t, re) => (t.match(re) || []).length;
+  const noHtmlComment62 = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const front62 = noHtmlComment62(readFileSync(join(__dirname, "..", "design", "canvas", "CommPerson.dc.html"), "utf8"));
+  const back62 = noHtmlComment62(readFileSync(join(__dirname, "..", "design", "canvas", "CommPersonBack.dc.html"), "utf8"));
+
+  check("62.0 人物画面・チップ・楽器の行・シートの器を読めている",
+    person62.length > 3000 && chip62.length > 400 && row62.length > 200 && bs62.length > 800,
+    `person ${person62.length} / chip ${chip62.length} / row ${row62.length} / sheet ${bs62.length}`);
+
+  // --- 62.1 2-A 上の余白を 16 詰める ------------------------------------------
+  check("62.1 2-A この画面の器だけが上の余白を 0 にする(paddingBottom と同じ上書きの手)",
+    /\{ \.\.\.pageStyle, paddingTop: 0, paddingBottom: "var\(--sp-6, 40px\)" \}/.test(person62));
+  check("62.1 2-A pageStyle の定義は着手前と同一(他のコミュニティ画面を巻き込んでいない)",
+    /const pageStyle = \{ padding: "var\(--sp-4\) 0", display: "grid", gridTemplateColumns: "minmax\(0, 1fr\)", gap: "var\(--sp-4\)" \};/.test(screens62));
+  check("62.1 2-A 上を 0 にしたのは**この画面だけ**(コミュニティの他の画面には足していない)",
+    count62(all62, /paddingTop: 0/g) === 1,
+    `paddingTop: 0 は ${count62(all62, /paddingTop: 0/g)}箇所`);
+  {
+    // 上端から `< 一覧` までの内訳を**シートの実装から読み直して**足す。
+    // BottomSheet の 14 / 44 / 12 を誰かが動かしたら、ここが落ちて実測をやり直させる。
+    const padTop62 = Number((bs62.match(/padding: "(\d+)px 24px"/) || [])[1]);
+    const gap62 = Number((bs62.match(/alignSelf: "center", marginBottom: (\d+)/) || [])[1]);
+    const knob62 = /width: "var\(--tap-min\)", height: "var\(--tap-min\)"/.test(bs62) ? 44 : NaN;
+    check("62.1 2-A 上端から `< 一覧` まで = 14 + 44 + 12 = 70(この画面の 16 だけが消えた)",
+      padTop62 + knob62 + gap62 === 70 && /paddingTop: 0/.test(person62),
+      `${padTop62} + ${knob62} + ${gap62} = ${padTop62 + knob62 + gap62}`);
+  }
+
+  // --- 62.2 2-B 楽器の行を4つ等分 + 3つの状態(案ア) ---------------------------
+  check("62.2 2-B 楽器の行を描く部品は1つ(radiogroup の直書きが2箇所に無い)",
+    count62(all62, /role="radiogroup" aria-label="楽器種別"/g) === 1
+    && count62(person62, /role="radiogroup"/g) === 0,
+    `直書き ${count62(all62, /role="radiogroup" aria-label="楽器種別"/g)}箇所 / 人物画面の中 ${count62(person62, /role="radiogroup"/g)}箇所`);
+  check("62.2 2-B 表(音のデータ)と裏(プロフィール)の両方が同じ部品を呼ぶ",
+    count62(person62, /<SaxTypeRow /g) === 2
+    && count62(person62, /playing=\{person\.saxTypes\}/g) === 2,
+    `${count62(person62, /<SaxTypeRow /g)}箇所`);
+  check("62.2 2-B 部品は SAX_TYPES の**4つすべて**を描く(データのある types で絞らない)",
+    /SAX_TYPES\.map\(\(t\) => \(/.test(row62) && !/\btypes\b/.test(row62));
+  {
+    const saxTypes62 = new Function(`${extractConst("SAX_TYPES", profileSrc).replace(/^export /, "")} return SAX_TYPES;`)();
+    const saxLabels62 = new Function(`${extractConst("SAX_LABELS", profileSrc).replace(/^export /, "")} return SAX_LABELS;`)();
+    check("62.2 2-B 4つ = ソプラノからバリトン(S.Sax / A.Sax / T.Sax / B.Sax)",
+      saxTypes62.length === 4 && saxTypes62.map((t) => saxLabels62[t]).join(" ") === "S.Sax A.Sax T.Sax B.Sax",
+      saxTypes62.map((t) => saxLabels62[t]).join(" "));
+  }
+  check("62.2 2-B 4つは等分(grow を渡し、Chip の grow が flex: 1 1 0 になる)",
+    /\bgrow\b/.test(row62) && /flex: grow \? "1 1 0" : "0 0 auto"/.test(chip62));
+  {
+    // **色は綴りで見ない。**枠と字の式をソースから取り出して3つの状態で実際に評価する。
+    // (吹かない楽器に枠を付ける変異は、ここで枠の値が変わって落ちる。)
+    const borderExpr62 = (chip62.match(/border: `1px solid \$\{([^`]+)\}`/) || [])[1];
+    const colorExpr62 = (chip62.match(/color: (off \? [^\r\n]*),\r?\n/) || [])[1];
+    const paint62 = (on, off) => new Function("on", "off", `return [${borderExpr62}, ${colorExpr62}];`)(on, off);
+    const sel62 = paint62(true, false);
+    const play62 = paint62(false, false);
+    const mute62 = paint62(false, true);
+    check("62.2 2-B 状態1 いま見ているデータの楽器 = 枠 --c-accent / 字 --c-accent",
+      sel62[0] === "var(--c-accent)" && sel62[1] === "var(--c-accent)", sel62.join(" / "));
+    check("62.2 2-B 状態2 その人が吹く楽器 = 枠 --c-line-strong / 字 --c-ink-2(いまの非選択のまま)",
+      play62[0] === "var(--c-line-strong)" && play62[1] === "var(--c-ink-2)", play62.join(" / "));
+    check("62.2 2-B 状態3 吹かない楽器 = 枠 transparent / 字 --c-line-strong",
+      mute62[0] === "transparent" && mute62[1] === "var(--c-line-strong)", mute62.join(" / "));
+    check("62.2 2-B 3つの状態はすべて違う見え方になる(枠か字のどちらかが必ず違う)",
+      new Set([sel62.join("|"), play62.join("|"), mute62.join("|")]).size === 3);
+  }
+  check("62.2 2-B 吹かない楽器は押せない(<button> にも role=\"radio\" にもしない)",
+    /if \(off\) return <span className="sans" style=\{boxStyle\}>\{pill\}<\/span>;/.test(chip62)
+    && count62(chip62, /<button/g) === 1 && count62(chip62, /role="radio"/g) === 1,
+    `button ${count62(chip62, /<button/g)} / radio ${count62(chip62, /role="radio"/g)}`);
+  check("62.2 2-B 吹くかどうかは person.saxTypes で決める(目安や楽器の組の有無では決めない)",
+    /const plays = new Set\(playing \?\? \[\]\);/.test(row62) && /off=\{!plays\.has\(t\)\}/.test(row62));
+  // 【実測で踏んだ 2026-09-19】案アで「吹くがデータが無い種別」が押せるようになったのに、
+  // 種別を正す useEffect は types(データのある種別)だけを有効とみなしたままだった。
+  // T.Sax を押しても A.Sax に引き戻され、**押せるのに何も起きない**行になっていた。
+  check("62.2 2-B 吹くがデータが無い種別を押しても引き戻さない(押せるのに何も起きない を作らない)",
+    /const pickable = person\?\.saxTypes \?\? \[\];/.test(person62)
+    && /if \(types\.length > 0 && !types\.includes\(saxType\) && !pickable\.includes\(saxType\)\) setSaxType\(types\[0\]\);/.test(person62));
+  check("62.2 2-B 新しい色を作っていない(screens.jsx の --c- 以外の色の直書きは影の1つだけ)",
+    count62(all62, /#[0-9a-fA-F]{3,8}\b/g) === 0
+    && count62(all62, /rgba?\(/g) === 1
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(all62),
+    `hex ${count62(all62, /#[0-9a-fA-F]{3,8}\b/g)}件 / rgb ${count62(all62, /rgba?\(/g)}件`);
+
+  // --- 62.3 2-C 「音のデータ」の見出しを消す ----------------------------------
+  check("62.3 2-C 見出しは消えた。残る2件は**戻るボタンの行き先の名乗り**だけ",
+    count62(person62, /音のデータ/g) === 2
+    && /aria-label=\{side === "profile" \? "音のデータに戻る"/.test(person62)
+    && /\{side === "profile" \? "< 音のデータ" : "< 一覧"\}/.test(person62)
+    && !/jp-label[^\r\n]*音のデータ/.test(person62),
+    `${count62(person62, /音のデータ/g)}件`);
+  check("62.3 2-C 裏の「楽器の組」の見出しは残っている(本人は「音のデータ」だけを名指しした)",
+    /jp-label" style=\{\{ \.\.\.labelStyle, paddingTop: "var\(--sp-3\)" \}\}>楽器の組<\/div>/.test(person62));
+
+  // --- 62.4 2-D グラフの上の一行 ----------------------------------------------
+  check("62.4 2-D 一行は単位だけ(指標名は落ちた。タブが選択中を返しているので重複だった)",
+    /\{m\.unit\}　計測\{theirIdeal\.sourceSessionCount \?\? "—"\}件/.test(person62)
+    && !/\{m\.label\}\(/.test(person62));
+  check("62.4 2-D **単位は残す**。区切りの全角空白と「計測n件」もそのまま",
+    count62(person62, /　計測/g) === 1 && count62(person62, /\{m\.unit\}/g) === 1);
+
+  // --- 62.5 2-E 「目安に設定」はボタンだけ浮かせる ----------------------------
+  {
+    const a62 = person62.indexOf('position: "sticky"');
+    const box62 = a62 < 0 ? "" : person62.slice(person62.lastIndexOf("<div style={{", a62), person62.indexOf("}}>", a62) + 3);
+    const flat62 = box62.replace(/\s+/g, " ");
+    check("62.5 2-E 浮かせる器に地が無い(行ごと白い帯になっていた地をやめた)",
+      box62.length > 40 && !/background/.test(box62), flat62 || "器が見つからない");
+    check("62.5 2-E 浮かせる器に上下の padding が無い", box62.length > 40 && !/padding/.test(box62), flat62);
+    check("62.5 2-E 貼り付ける仕組みは変えていない(sticky / bottom 0 / zIndex 1 / 右寄せ)",
+      /position: "sticky", bottom: 0, zIndex: 1/.test(box62)
+      && /display: "flex", justifyContent: "flex-end"/.test(box62));
+    check("62.5 2-E ボタンの影・寸法・色は1つも変えていない(浮きは影だけが返す)",
+      /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(person62)
+      && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(person62)
+      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(person62)
+      && /borderRadius: "var\(--r-pill\)"/.test(person62)
+      && /padding: "0 var\(--sp-5\)"/.test(person62));
+    check("62.5 2-E 行き先は変えていない(onAdopt に aligned / theirIdeal / nickname を渡す)",
+      /onAdopt\(\{ aligned, theirIdeal, nickname: person\.nickname \}\)/.test(person62));
+  }
+
+  // --- 62.6 正典(design/canvas)------------------------------------------------
+  check("62.6 正典 CommPerson / CommPersonBack の器が上の余白 0 に追随している",
+    /padding: 0 var\(--sp-4\) var\(--sp-6\)/.test(front62)
+    && /padding: 0 var\(--sp-4\) var\(--sp-6\)/.test(back62)
+    && !/padding: var\(--sp-4\); padding-bottom/.test(front62));
+  check("62.6 正典 表も裏も4つの種別を1行に並べる(S.Sax / A.Sax / T.Sax / B.Sax が1つずつ)",
+    ["S\\.Sax", "A\\.Sax", "T\\.Sax", "B\\.Sax"].every((t) =>
+      count62(front62, new RegExp(t, "g")) === 1 && count62(back62, new RegExp(t, "g")) === 1),
+    ["S.Sax", "A.Sax", "T.Sax", "B.Sax"].map((t) => `${t}:${count62(front62, new RegExp(t.replace(".", "\\."), "g"))}`).join(" "));
+  check("62.6 正典 吹かない2つは枠 transparent・字 --c-line-strong(表・裏とも2つ)",
+    count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2
+    && count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2,
+    `表 ${count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)} / 裏 ${count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)}`);
+  check("62.6 正典 CommPerson から「音のデータ」の見出しが消え、CommPersonBack の「楽器の組」は残る",
+    !/>音のデータ</.test(front62) && />楽器の組</.test(back62));
+  check("62.6 正典 グラフの上の一行は単位だけ(`Hz　計測n件`。指標名は落ちた)",
+    /Hz　計測\d+件/.test(front62) && !/重心\(Hz\)/.test(front62));
+  {
+    // DESIGN-SYSTEM §6.7 が3つの状態の**唯一の答え**を持つ(実装はそこから引くだけ)。
+    const ds62 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+    check("62.6 正典 §6.7 が「選びようが無い選択肢は枠を落とす」を表で持っている",
+      /選びようが無い選択肢/.test(ds62)
+      && /\| その人が吹かない楽器 \| `transparent` \| `--c-line-strong` \| \*\*×\*\*/.test(ds62)
+      && /\| その人が吹く楽器（データの有無は問わない） \| `--c-line-strong` \| `--c-ink-2` \|/.test(ds62)
+      && /\| いま見ているデータの楽器 \| `--c-accent` \| `--c-accent` \|/.test(ds62));
+  }
+  check("62.6 正典 「目安に設定」はボタンだけが浮く(右寄せ・ピル・影。地の帯が無い)",
+    /justify-content: flex-end"><div style="[^"]*border-radius: var\(--r-pill\)[^"]*box-shadow: 0 8px 24px rgba\(15,23,42,0\.18\)[^"]*">目安に設定<\/div>/.test(front62.replace(/\s*\r?\n\s*/g, ""))
+    && !/border-radius: var\(--r-md\); background: var\(--c-accent\)[^"]*">目安に設定/.test(front62));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {
