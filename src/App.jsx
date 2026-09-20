@@ -542,7 +542,8 @@ function swipeBackHandler(go, handlers) {
 //   「下から出てくるテンポ拍子メニューは下スワイプでも閉じれる機能を追加」(計測タブ)
 // 統括の凍結: **同じ作法にするのは「シート」だけ**で、下端寄せのカードすべてではない。
 // ここで言うシート = **正典 .sheet の角丸(28px 28px 0 0)を持ち、下端に密着し、つまみを持つ**
-// カード4種(テンポ拍子 / リード追加・箱を編集 / リードの「…」 / DataOptionSheet)。
+// カード3種(テンポ拍子 / リード追加・箱を編集 / DataOptionSheet)。
+// (リードの「…」は便P で入口ごと、便R 後半-後半 で定義ごと無くなった。)
 // 下端寄せだが**外した3枚**は「エラー」「この録音を保存しますか？」「目安に設定」で、
 // いずれも角丸 --r-lg の四方囲み・つまみ無しの別部品(保存確認は誤タップ防止のため
 // 背景タップでも閉じない設計)。判断の根拠は design/BACKLOG.md の F-88 に記録した。
@@ -838,8 +839,8 @@ export function useSheetDismiss(onClose) {
       close: () => onCloseRef.current?.(),
       // 戻し終わったら **transform を消す**。§6.3「静止時に transform を残さない」。
       // identity(translateY(0px))でも、transform を持つ要素は position:fixed の子孫の
-      // 包含ブロックになる。シートの中からは ScrollPicker(z-index 60 の全画面モーダル)が
-      // 開くので、残すと**そのピッカーがシートの中に閉じ込められる**。
+      // 包含ブロックになる。シートの中からは**もう1枚のシート**(OptionSheet /
+      // ReedPickSheet。どちらも z-index 60)が開くので、残すと2枚目が中に閉じ込められる。
       scheduleClear: () => {
         if (settleTimer.current) clearTimeout(settleTimer.current);
         settleTimer.current = setTimeout(() => {
@@ -901,8 +902,8 @@ export function useSheetDismiss(onClose) {
 // 【束5 2026-09-20 本人指示】「ユーザーの個人データを開いている時にスクロールアクションを
 // すると裏側の画面がスクロールされる仕様を削除」。
 //
-// **開いている枚数を数えるのはここ1箇所だけ。** シートの上にシート(ScrollPicker)が
-// 重なる経路があるので、1枚閉じるたびに解除すると**まだ開いているのに裏が動き出す**。
+// **開いている枚数を数えるのはここ1箇所だけ。** シートの上にシート(箱のシートから開く
+// 一覧など)が重なる経路があるので、1枚閉じるたびに解除すると**まだ開いているのに裏が動き出す**。
 // 0 になったときだけ戻す。
 //
 // 止め方は `document.body` を position: fixed にして、いま読んでいた位置ぶん上へずらす
@@ -4575,7 +4576,7 @@ export default function WindToneLabPhaseMode() {
           temperature={temperature} setTemperature={setTemperature}
           tuningHz={tuningHz} setTuningHz={setTuningHz}
           matchedFingering={matchedFingering}
-          reeds={reeds} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
+          reeds={reeds} sessions={sessions} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb} micProcessingWarning={micProcessingWarning}
@@ -4796,98 +4797,48 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
   );
 }
 
-// iOS風のスクロールスナップピッカー。中央行が現在値で、スクロールが止まった位置の
-// 値を確定してonChangeを呼ぶ(確定ボタンは持たず、選ぶ動作=決定とする)。
-// 背景タップ or Escで閉じる。optionsは表示順の配列、labelFnで見た目のラベルに変換する。
-function ScrollPicker({ options, value, onChange, onClose, labelFn, footer = null }) {
-  const ROW_H = 38;
-  const VISIBLE_ROWS = 3;
-  const containerRef = useRef(null);
-  const scrollTimerRef = useRef(null);
-
-  useEffect(() => {
-    const idx = Math.max(0, options.indexOf(value));
-    const el = containerRef.current;
-    if (el) el.scrollTop = idx * ROW_H;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // 【束5 2026-09-20】ピッカーも暗幕を持つ1枚なので、同じ数え役に並ぶ。
-  // **シートの上に重なって開く経路がある**ので、閉じても枚数が0にならない限り
-  // 裏は止まったまま(ここを数えないと、ピッカーを閉じた瞬間に裏が動き出す)。
-  useBackdropScrollLock();
-
-  const handleScroll = () => {
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    scrollTimerRef.current = setTimeout(() => {
-      const el = containerRef.current;
-      if (!el) return;
-      const idx = Math.max(0, Math.min(options.length - 1, Math.round(el.scrollTop / ROW_H)));
-      el.scrollTo({ top: idx * ROW_H, behavior: "smooth" });
-      if (options[idx] !== value) onChange(options[idx]);
-    }, 130);
-  };
-
-  // 【portal にする 2026/09/08 本人裁定「部品写しはいいと思う方を採用」】
-  // シートの中から開くので、シートに transform が残っていると position:fixed の基準が
-  // シートになる(§6.3)。body へ出せば基準は必ず画面になり、呼び出し側の回避策
-  // (ReedBoxSheet が持っていた「ピッカーを開いている間は下スワイプの配線を外す」)が要らなくなる。
-  return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,0.28)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      {/* 【M4 2026-09-16】奏者のピッカーだけ、選択肢の**下に**「追加」の入力欄を1行持つ。
-          footer を渡さない呼び出しでは列の子がカード1枚だけなので、カードの寸法も
-          中央に来ることも 1px も変わらない(暗幕タップで閉じる経路もそのまま)。 */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-2)" }}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ position: "relative", width: 140, background: "var(--c-surface)", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.18)", overflow: "hidden" }}
-      >
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          className="sans"
-          style={{ height: ROW_H * VISIBLE_ROWS, overflowY: "auto", scrollSnapType: "y mandatory", WebkitOverflowScrolling: "touch" }}
-        >
-          <div style={{ height: ROW_H }} />
-          {options.map((o) => (
-            <div
-              key={o}
-              style={{
-                height: ROW_H, display: "flex", alignItems: "center", justifyContent: "center",
-                scrollSnapAlign: "center", fontSize: 15,
-                fontWeight: o === value ? 700 : 400,
-                color: o === value ? "var(--c-accent)" : "var(--c-ink)",
-              }}
-            >
-              {/* 【M4】選択肢の綴りは呼び出し側が決めるので、カード幅(140)より長い
-                  ラベルが来うる。器の外へ描かせず、既存の歯止め(nowrap + 省略記号)で止める。 */}
-              <span style={{ minWidth: 0, padding: "0 var(--sp-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{labelFn ? labelFn(o) : o}</span>
-            </div>
-          ))}
-          <div style={{ height: ROW_H }} />
-        </div>
-        {/* 中央行のハイライト帯(選択中の値がここに来る) */}
-        <div style={{ position: "absolute", top: ROW_H, left: 0, right: 0, height: ROW_H, borderTop: "1px solid #E9ECF0", borderBottom: "1px solid #E9ECF0", background: "rgba(37,99,235,0.05)", pointerEvents: "none" }} />
-      </div>
-      {footer ? (
-        <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--c-surface)", borderRadius: 12, boxShadow: "0 8px 24px rgba(15,23,42,0.18)", padding: "var(--sp-2)" }}>{footer}</div>
-      ) : null}
-      </div>
-    </div>,
-    document.body,
+// ============================================================
+// 【便R 後半-後半 2026-09-20】一覧の行1枚。
+//
+// **OptionSheet と ReedPickSheet が同じ形の行を要る**(全幅・--tap-min の高さ・下に
+// --c-line の罫・選択中は --c-accent の太字と右端の ✓)。2箇所に写すと必ず片方だけ直され、
+// 同じ一覧なのに行の高さや罫が食い違う。描き方はここ1箇所だけに置く。
+//
+// option = false のときは「一覧の中の1つ」ではなく素のボタンとして名乗る
+// (ReedPickSheet の「紐付けない」の1行は listbox の外に置くため。
+//  listbox の外の role="option" は読み上げに嘘をつく)。
+function OptionRow({ label, selected, last, onClick, option = true }) {
+  return (
+    <button
+      type="button"
+      role={option ? "option" : undefined}
+      aria-selected={option ? selected : undefined}
+      aria-pressed={option ? undefined : selected}
+      onClick={onClick}
+      className="sans"
+      style={{
+        width: "100%", height: "var(--tap-min)",
+        display: "flex", alignItems: "center", gap: "var(--sp-2)",
+        background: "none", border: "none",
+        borderBottom: last ? "none" : "1px solid var(--c-line)",
+        padding: 0, cursor: "pointer", textAlign: "left",
+        fontSize: "var(--fs-md)",
+        fontWeight: selected ? 700 : 400,
+        color: selected ? "var(--c-accent)" : "var(--c-ink)",
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      {selected ? <span aria-hidden="true" style={{ flexShrink: 0 }}>✓</span> : null}
+    </button>
   );
 }
 
 // ============================================================
 // 【便R 後半-前半 2026-09-20 本人裁定】「多いか長い選択肢は、下から出る全幅の一覧」。
-// 幅140のホイール(ScrollPicker)は綴りが切れて読めない。その置き換えがこの1枚。
+// 幅140のホイールは綴りが切れて読めない。その置き換えがこの1枚
+// (ホイールの部品そのものは便R 後半-後半 で読み手が0になり、定義ごと消えた)。
 //
-// **受け口は ScrollPicker と同じ**(options / value / onChange / onClose / labelFn / footer)。
+// **受け口は畳んだホイールと同じ綴り**(options / value / onChange / onClose / labelFn / footer)。
 // 呼び手は部品の名前を変えるだけで済む ── 綴りを書き換える回数を最小にするため。
 //
 // **器は既存の BottomSheet**。暗幕・角丸・つまみ・影・Escape・裏の固定は全部そちらが持つ
@@ -4911,36 +4862,185 @@ function OptionSheet({ options, value, onChange, onClose, labelFn, ariaLabel, fo
         role="listbox" aria-label={ariaLabel}
         style={{ maxHeight: OPTION_SHEET_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}
       >
-        {list.map((o, i) => {
-          const selected = o === value;
-          return (
-            <button
-              key={o}
-              type="button"
-              role="option"
-              aria-selected={selected}
-              onClick={() => { onChange(o); onClose(); }}
-              className="sans"
-              style={{
-                width: "100%", height: "var(--tap-min)",
-                display: "flex", alignItems: "center", gap: "var(--sp-2)",
-                background: "none", border: "none",
-                borderBottom: i === list.length - 1 ? "none" : "1px solid var(--c-line)",
-                padding: 0, cursor: "pointer", textAlign: "left",
-                fontSize: "var(--fs-md)",
-                fontWeight: selected ? 700 : 400,
-                color: selected ? "var(--c-accent)" : "var(--c-ink)",
-              }}
-            >
-              <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{labelFn ? labelFn(o) : o}</span>
-              {selected ? <span aria-hidden="true" style={{ flexShrink: 0 }}>✓</span> : null}
-            </button>
-          );
-        })}
+        {/* 行の描き方は OptionRow がただ1つ持つ(ReedPickSheet の段と同じ形。写しを作らない)。 */}
+        {list.map((o, i) => (
+          <OptionRow
+            key={o}
+            label={labelFn ? labelFn(o) : o}
+            selected={o === value}
+            last={i === list.length - 1}
+            onClick={() => { onChange(o); onClose(); }}
+          />
+        ))}
       </div>
       {/* 【M4 由来】奏者の一覧だけ、選択肢の**下に**「追加」の入力欄を1行持つ。
-          間隔は ScrollPicker が持っていた gap と同じ --sp-2(新しい値を作らない)。 */}
+          間隔は畳んだホイールが持っていた gap と同じ --sp-2(新しい値を作らない)。 */}
       {footer ? <div style={{ marginTop: "var(--sp-2)" }}>{footer}</div> : null}
+    </BottomSheet>
+  );
+}
+
+// ============================================================
+// 【便R 後半-後半 2026-09-20 本人裁定】リードは**1段ずつ進んで**選ぶ。
+//
+// 本人の言葉:「箱が3つあれば30枚。1列に30行は選べない。銘柄 → 開封日 → 番号の順に絞る。
+// シートの中身を段ごとに入れ替える。1画面に1つの問いだけ。上のパンくずで戻れる。」
+//
+// **束ね方は作り直さない。** 箱は既にある groupReeds(キーは メーカー|番手|開封日)が決めており、
+// ここはその箱を「メーカー + 銘柄 + 厚さ」でもう一段まとめて読むだけ。
+// 器は既存の BottomSheet、行は OptionSheet と同じ OptionRow、番号のタイルは
+// リードタブと同じ index.css の .reedtile ── **新しい見た目を1つも作らない**。
+// ============================================================
+
+// 銘柄の段のキー。**箱のキー(reedGroupKey)から開封日を落としたもの**で、
+// 箱にもリード1枚にも同じ形で当たる(どちらも brand / model / strength を持つため)。
+function reedBrandGroupKey(x) {
+  return `${x.brand}|${x.model ?? ""}|${x.strength}`;
+}
+// 銘柄の段の選択肢。並びは groupReeds の並び(開封日の新しい順)をそのまま引き継ぐ。
+// 綴りは既にある reedBrandModelLabel と reedStrengthLabel から作る(新しい綴りを足さない)。
+function groupReedBrands(groups) {
+  const out = {};
+  for (const g of groups || []) {
+    const key = reedBrandGroupKey(g);
+    if (!out[key]) out[key] = { key, label: `${reedBrandModelLabel(g.brand, g.model)} ${reedStrengthLabel(g.strength)}`, boxes: [] };
+    out[key].boxes.push(g);
+  }
+  return Object.values(out);
+}
+// いまどの段を見せるか。**選択肢が1つしかない段は出さない**
+// (§6.1.5「押しても何も変わらない一手を作らない」)。箱が1つしか無い人には番号だけが出る。
+// 純関数にしてあるのは、scripts/pitch-test.mjs のハーネスが JSX を見ないため ──
+// 段を飛ばす判定は綴りではなく**実行**で確かめる(検証76.2)。
+//   brandCount … 銘柄の組の数 / dateCount … 選んだ組の中の箱の数
+//   picked     … { brand, box } いま決まっているキー(未決は null)
+function reedPickStep(brandCount, dateCount, picked) {
+  if (brandCount > 1 && !picked?.brand) return "brand";
+  if (dateCount > 1 && !picked?.box) return "date";
+  return "member";
+}
+const REED_PICK_STEP_TITLES = { brand: "銘柄を選ぶ", date: "開封日を選ぶ", member: "番号を選ぶ" };
+// 「紐付けない」の1行の綴り。**新しい語を作らない** ── 呼び手(計測データの編集シート)が
+// いま枠にも選択肢にも出している「—」(A3 の「不明・欠落」の記号)をそのまま引く。
+const REED_PICK_NONE_LABEL = "—";
+function ReedPickSheet({ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null }) {
+  const all = reeds || [];
+  const boxes = groupReeds(all);
+  const brands = groupReedBrands(boxes);
+  // 【開き始めの段】「リードの個体を選ぶ」から開くときだけ箱が決まっている(番号の段から始まる)。
+  // 「リードの箱を選ぶ」は boxKey を渡さないので、必ず1段目から始まる。
+  const opened = boxKey ? boxes.find((g) => g.key === boxKey) || null : null;
+  const [brandKey, setBrandKey] = useState(opened ? reedBrandGroupKey(opened) : null);
+  const [pickedBoxKey, setPickedBoxKey] = useState(opened ? opened.key : null);
+  // 飛ばした段は「決まっている」ものとして読む。**state には書かない**
+  // (書くと描画のたびに走る後始末が要る。導けるものは導く)。
+  // **reedPickStep に渡すのは「押して選んだ生の状態」**(brandKey / pickedBoxKey)。
+  // 飛ばした段の答えを先に埋めて渡すと、段を飛ばす判定が reedPickStep の中と
+  // ここの2箇所に散り、選択肢の数の条件が何も決めていない状態になる
+  // (実際、変異試験で brandCount > 0 に書き換えても何も落ちなかった)。
+  const brand = brands.find((b) => b.key === brandKey) || (brands.length === 1 ? brands[0] : null);
+  const myBoxes = brand?.boxes || [];
+  const box = myBoxes.find((g) => g.key === pickedBoxKey) || (myBoxes.length === 1 ? myBoxes[0] : null);
+  const step = reedPickStep(brands.length, myBoxes.length, { brand: brandKey, box: pickedBoxKey });
+  const members = box?.members || [];
+  const current = all.find((r) => r.id === value) || null;
+  // いま来た道筋。**出すのは実際に出した段だけ**なので、飛ばした段はパンくずにも出ない。
+  // 1段目には戻る先が無いので、そこではパンくずそのものが出ない。
+  const crumbs = [];
+  if (brands.length > 1 && brand) {
+    crumbs.push({ key: "brand", label: brand.label, back: () => { setBrandKey(null); setPickedBoxKey(null); } });
+  }
+  if (myBoxes.length > 1 && box && step === "member") {
+    crumbs.push({ key: "date", label: formatYmd(box.startDate) ?? REED_PICK_NONE_LABEL, back: () => setPickedBoxKey(null) });
+  }
+  const listStyle = { maxHeight: OPTION_SHEET_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" };
+  return (
+    <BottomSheet ariaLabel="リードを選ぶ" onClose={onClose}>
+      {/* パンくず。体裁は --fs-xs / --c-ink-3、**選んだ値だけ** --c-ink の太字(OptionRow の
+          選択中と同じ 700)。押すとその段へ戻る。見た目は変えず当たり判定だけ .taptext で広げる(§5)。 */}
+      {crumbs.length > 0 && (
+        <div className="sans" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-1)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>
+          <span aria-hidden="true">‹</span>
+          {crumbs.map((c, i) => (
+            <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-1)", minWidth: 0 }}>
+              {i > 0 ? <span aria-hidden="true">›</span> : null}
+              {/* 切り取り(ellipsis)は**内側の子**が持つ。外側の .taptext に overflow を
+                  書くと疑似要素ごと切られて当たり判定が 44pt を割る(F-83・箱見出しと同じ罠)。 */}
+              <button
+                type="button" onClick={c.back}
+                className="sans taptext"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "var(--fs-xs)", color: "var(--c-ink)", fontWeight: 700, minWidth: 0, maxWidth: "100%", display: "block" }}
+              >
+                <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* 見出しは OptionSheet と**同じ綴り**(--fs-xs / --c-ink-3 / 下に 10)。新しい値を作らない。 */}
+      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{REED_PICK_STEP_TITLES[step]}</div>
+      {step === "brand" && (
+        <div role="listbox" aria-label={REED_PICK_STEP_TITLES.brand} style={listStyle}>
+          {brands.map((b, i) => (
+            <OptionRow
+              key={b.key}
+              label={b.label}
+              selected={!!current && reedBrandGroupKey(current) === b.key}
+              last={i === brands.length - 1}
+              onClick={() => { setBrandKey(b.key); setPickedBoxKey(null); }}
+            />
+          ))}
+        </div>
+      )}
+      {step === "date" && (
+        <div role="listbox" aria-label={REED_PICK_STEP_TITLES.date} style={listStyle}>
+          {myBoxes.map((g, i) => (
+            <OptionRow
+              key={g.key}
+              label={formatYmd(g.startDate) ?? REED_PICK_NONE_LABEL}
+              selected={!!current && reedGroupKey(current) === g.key}
+              last={i === myBoxes.length - 1}
+              onClick={() => setPickedBoxKey(g.key)}
+            />
+          ))}
+        </div>
+      )}
+      {/* 番号の段。**タイルの見た目は index.css の .reedtile と data-tone**(リードタブの
+          タイルと同じ規則を読む。ここに地・枠・角丸・濃さを書かない)。
+          並び替えの長押しはこの段に要らないので、ReedTileGrid(掴んで動かす一式)は
+          使い回さず**タイルの見た目だけを共有する**。番号は reedPosition が唯一の答え。 */}
+      {step === "member" && (members.length === 0 ? (
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "20px 0" }}>まだリードが登録されていません</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${REED_GRID_COLS}, 1fr)`, gap: REED_GRID_GAP_PX }}>
+          {members.map((r, i) => (
+            <button
+              key={r.id}
+              type="button"
+              className="no-select reedtile"
+              data-tone={r.id === value ? "sel" : reedTileTone((sessions || []).some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null)}
+              aria-label={`${reedPosition(r, all) ?? i + 1}枚目`}
+              aria-pressed={r.id === value}
+              onClick={() => { onChange(r.id); onClose(); }}
+              style={{
+                aspectRatio: "1", fontSize: REED_TILE_FS_PX, fontFamily: "var(--font-num)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 0, cursor: "pointer",
+              }}
+            >
+              {reedPosition(r, all) ?? i + 1}
+            </button>
+          ))}
+        </div>
+      ))}
+      {/* 【紐付けない】**最後の段の下**に1行。許した呼び手(計測データの編集シート)だけ。
+          綴りは呼び手が枠に出しているものと同じ REED_PICK_NONE_LABEL(新しい語を作らない)。
+          間隔は OptionSheet の footer と同じ --sp-2。 */}
+      {allowNone && step === "member" && (
+        <div style={{ marginTop: "var(--sp-2)" }}>
+          <OptionRow label={REED_PICK_NONE_LABEL} selected={!value} last option={false} onClick={() => { onChange(null); onClose(); }} />
+        </div>
+      )}
     </BottomSheet>
   );
 }
@@ -7749,6 +7849,11 @@ function MeasureView(props) {
     saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering: matchedFingeringPassed,
     reeds, selectedReedId, setSelectedReedId,
+    // 【便R 後半-後半 2026-09-20】sessions を**受け取り直した**。リードの番号のタイルの
+    // 濃さ(.reedtile[data-tone])は「そのリードに残っている記録の量」で決まるので、
+    // リードタブと同じ見た目にするには計測の一覧が要る。C-1 で外したのは
+    // アップロードの完了通知が使っていたぶんで、それは戻していない。
+    sessions,
     performers, selectedPerformer, setSelectedPerformer, setPerformers,
     noiseGateDb, setNoiseGateDb, micProcessingWarning,
     scheduledClicksRef, metroActiveRef, metroBarPerfTimesRef, requestWakeLock, releaseWakeLock,
@@ -7846,7 +7951,7 @@ function MeasureView(props) {
   const selectedBoxGroup = reedGroups.find((g) => g.key === selectedBoxKey) || null;
 
   // リード枠の選択肢。**綴りをここ1箇所に集める。**
-  // 【M4 2026-09-16】枠に見えている値も、ScrollPicker に並ぶラベルも、両方この配列から作る。
+  // 【M4 2026-09-16】枠に見えている値も、選び方の一覧に並ぶラベルも、両方この配列から作る。
   // 2箇所に書くと必ず片方が腐る(見えている値と選択肢がずれる、という最悪の壊れ方をする)。
   // 先頭は必ず「未選択のときに見せるラベル」にしておくこと(描画側が [0] を既定に使う)。
   // 【N-4a】箱の表記「Vandoren V16 3.0」→「V16-3」。短縮規則は shortBoxLabel を参照。
@@ -8313,9 +8418,9 @@ function MeasureView(props) {
               <label> にする」形で穴を塞いでいた(N-4 の 1,088px² / 審査⑥)。いまは箱と個体が
               それぞれ <button> なので、**押せない余白そのものが構造的に存在しない**。
               押した結果が開くかどうかがプラットフォーム依存だった問題(F-72 の未解決点)も
-              一緒に消えた ── 開くのはアプリ自身の ScrollPicker で、HTML 仕様に委ねていない。 */}
-          {/* 【M3/M4/M5/M6 2026-09-16 実機の指摘】native <select> をやめ、楽器・基準ピッチと
-              同じ ScrollPicker(画面ぶんの枠の**外**・position:fixed の z-index 60)で選ぶ。
+              一緒に消えた ── 開くのはアプリ自身のシートで、HTML 仕様に委ねていない。 */}
+          {/* 【M3/M4/M5/M6 2026-09-16 実機の指摘】native <select> をやめ、楽器と
+              同じ下から出るシート(画面ぶんの枠の**外**・position:fixed の z-index 60)で選ぶ。
               枠は「値を描いた <button>」2つ = 箱 と 個体。
               ・M3 透明な <select> が消えたので、選択後にフォーカスの矩形が残る症状は
                 原因ごと無くなった(:focus-visible はボタンの輪郭に正しく出る)
@@ -8467,7 +8572,7 @@ function MeasureView(props) {
           z-index 1 を与えて**前面**に出す: 上部設定行 / テンポの操作行 / 録音ボタンと詳細トグル。
           さらにそれらの箱自身は .tap-through で当たり判定を捨て、中の操作要素だけが受け取る
           (箱に当たり判定を残すと、箱の**余白**でタップが死ぬ。375×812 の全走査で実測して直した)。
-          モーダル(ScrollPicker・保存確認・テンポシート)は position:fixed の z-index 60 で更に上。 */}
+          モーダル(シート・保存確認・テンポシート)は position:fixed の z-index 60 で更に上。 */}
       {showMetroPanel && (
         <button
           type="button"
@@ -8783,30 +8888,32 @@ function MeasureView(props) {
           />
         </BottomSheet>
       )}
-      {/* 【M4 2026-09-16】リードの箱・個体も同じ場所・同じ作法で選ぶ。
-          **綴りは reedBoxOptions / reedMemberOptions の1箇所**から、選択肢のラベルも
-          枠に見えている値も作る(2箇所に書くと必ず片方が腐る)。 */}
-      {openPicker === "box" && (
-        <ScrollPicker
-          options={reedBoxOptions.map((o) => o.value)} value={selectedBoxKey || ""}
-          onChange={(v) => { setSelectedBoxKey(v || null); setSelectedReedId(null); }}
+      {/* 【便R 後半-後半 2026-09-20 本人裁定】箱も個体も**同じ1枚**(ReedPickSheet)で選ぶ。
+          幅140のホイール2つ(箱 / 個体)は畳んだ ── 綴りが切れて読めないうえ、
+          箱が3つあれば30枚を1列に並べることになり選べない。段は 銘柄 → 開封日 → 番号。
+          ・「リードの箱を選ぶ」… boxKey を渡さないので**1段目(銘柄)から**開く
+          ・「リードの個体を選ぶ」… 箱は既に選ばれているので boxKey を渡し**番号の段から**開く
+          **上部設定行の2つのボタン(見た目・綴り・▾)は1文字も変えていない。**
+          枠に見えている値の出どころも reedBoxOptions / reedMemberOptions のまま。
+          【箱だけ選んだ状態は、この入口からは作られなくなった】ホイールのときは箱を選んだ
+          瞬間に個体が null になり「箱は選んだが個体は未選択」で止まれた。段階選択では
+          箱の選択は**途中の段**であって終端の一手ではないので、選び終われば個体まで必ず決まる
+          (= 押しても何も紐付かない個体ボタンが出る経路が消える。§6.1.5)。
+          selectedBoxKey は既存の useEffect が selectedReedId から追従させる(新しい配線を作らない)。 */}
+      {(openPicker === "box" || openPicker === "reed") && (
+        <ReedPickSheet
+          reeds={reeds} sessions={sessions}
+          value={selectedReedId || null}
+          boxKey={openPicker === "reed" ? selectedBoxKey : null}
+          onChange={(id) => setSelectedReedId(id)}
           onClose={() => setOpenPicker(null)}
-          labelFn={(v) => (reedBoxOptions.find((o) => o.value === v) || reedBoxOptions[0]).label}
-        />
-      )}
-      {openPicker === "reed" && (
-        <ScrollPicker
-          options={reedMemberOptions.map((o) => o.value)} value={selectedReedId || ""}
-          onChange={(v) => setSelectedReedId(v || null)}
-          onClose={() => setOpenPicker(null)}
-          labelFn={(v) => (reedMemberOptions.find((o) => o.value === v) || reedMemberOptions[0]).label}
         />
       )}
 
       {/* 【A-5】テンポシート。テンポ数値のタップで下から開く。正典 = north-star-measure.html の
           「テンポシート」。中身は 大きな −/数値/＋ ・拍子12種 ・1拍の分割 ・(5/8・7/8だけ)拍グループ
           ・小節アクセント。**環は消さずに上へ重ねる**(以前は環と入れ替わっていた)。
-          暗幕の色・カードの影は ScrollPicker / 保存確認と同値(新しい濃さを発明しない)。
+          暗幕の色・カードの影はシート / 保存確認と同値(新しい濃さを発明しない)。
           背景タップで閉じる。z-index 60 なので A-1 の背面レイヤには絶対に届かない。 */}
       {tempoSheetOpen && (
         // 【C-14 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」の最後の1枚】
@@ -9023,7 +9130,7 @@ function MeasureView(props) {
           【背景タップでは閉じない】誤タップで録音を失わせないため、暗幕に onClick を付けない。
           どちらかを選べば registerPendingSession / discardPendingSession が pendingSession を
           null にするので、そのまま消える。保存・破棄のロジックには触っていない。
-          暗幕の色・不透明度・カードの影は ScrollPicker と同値(新しい濃さを発明しない)。
+          暗幕の色・不透明度・カードの影はシートと同値(新しい濃さを発明しない)。
           カードは下寄せ。画面中央に置くと環(top 147〜477)を覆ってしまうため、
           環と音名を隠さない位置=環の下・アクションの上に浮かせる。 */}
       {!isRecording && pendingSession && (
@@ -9079,7 +9186,7 @@ function MeasureView(props) {
 // 理想値/お手本セッション/(音高のみ)理論値のどれと比較するかだけを選ぶ。
 // 【N-9 2026/08/16 本人指示】セッション詳細・分析(PIVOT)の選択欄を「素のテキスト + ▾」へ
 // 寄せるための共有部品。計測タブの上部設定行 / PerformerSelector と同じ構造:
-// 値は <span> が描き、押すと ScrollPicker が開く。
+// 値は <span> が描き、押すと下から出る一覧(OptionSheet)が開く。
 // 【M4 2026-09-16 本人裁定】ここも native <select> をやめた。以前は透明な <select> を
 // 枠全体に重ねていたが、(a) 選択後もフォーカスが残って :focus-visible の輪郭が
 // 見えない矩形に描かれる(M3) (b) 1つのアプリに選択肢の出し方が2種類ある(M4)、の2つが
@@ -9535,7 +9642,7 @@ function ratingDialOffsetFor(value, itemH, key) {
 // 【R2 2026-09-16】ダイヤル1列ぶんの一式(並び / 正規化 / 表示の文字列)。
 // **RatingDial はこの一式しか見ない** ── 部品の中に「評価の都合」を残さないための境目。
 // 評価の3項目はここから作る。
-// 【便N の積み残し 2026-09-19】リードの厚さ・枚数は**ダイヤルをやめて行 + ScrollPicker**
+// 【便N の積み残し 2026-09-19】リードの厚さ・枚数は**ダイヤルをやめて行 + ホイール**
 // になったので、選択肢から一式を作る optionDialSpec と、それを外から渡すための spec 引数は
 // 読み手が0になった。使い手の無い定義は残さない(便F・便K と同じ作法)。
 function ratingDialSpec(itemKey) {
@@ -10008,7 +10115,7 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, floating =
   );
 }
 
-// 【M4 2026-09-16 本人裁定「ScrollPicker で確定」】奏者の選び方。
+// 【M4 2026-09-16 本人裁定「アプリ自身の選び方で確定」】奏者の選び方。
 // **共有部品**で、計測タブの上部設定行とセッション詳細の編集シートの2箇所から呼ばれる。
 //
 // 【便D で native <select> をやめた】以前は「値を <span> が描き、その上に透明な
@@ -10016,8 +10123,8 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, floating =
 //   (1) 本人の実機指摘 M3「選択後に青い枠が中途半端に出る」── 透明な <select> が
 //       選択後もフォーカスを持ち、:focus-visible の輪郭が**見えない要素の矩形**に描かれていた
 //   (2) 本人の実機指摘 M4「選択肢の出し方をアプリの仕様に統一」── 楽器・基準ピッチは
-//       ScrollPicker、奏者・箱・個体は iPhone 既定のリストで、1画面に2つの作法が混ざっていた
-// いまは「値を描いた <button>」+ ScrollPicker。押した結果が**プラットフォーム依存でなくなる**
+//       アプリ自身のホイール、奏者・箱・個体は iPhone 既定のリストで、1画面に2つの作法が混ざっていた
+// いまは「値を描いた <button>」+ アプリ自身のシート。押した結果が**プラットフォーム依存でなくなる**
 // (<label> / <select> の activation behavior に依存していた F-72 の未解決点も一緒に消えた)。
 //
 // 【開閉の状態は呼び出し側が持つ】計測タブは「ピッカーが開いている間は背面レイヤと
@@ -10025,8 +10132,8 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, floating =
 // そこで pickerOpen / onOpenPicker / onClosePicker を受け取る形にした。
 // id も呼び出し側から渡す(部品の中に画面名を直書きすると、名前と事実がずれる)。
 //
-// 【奏者の追加】ピッカーの**下**に入力欄を1行置く(ScrollPicker の footer)。
-// 以前は選択肢の中の「＋ 名前を入力...」だったが、ScrollPicker の1列には
+// 【奏者の追加】一覧の**下**に入力欄を1行置く(OptionSheet の footer)。
+// 以前は選択肢の中の「＋ 名前を入力...」だったが、選択肢の1列には
 // 「選択肢ではないもの」を混ぜられない。語は「追加」のまま変えていない。
 function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer, setPerformers, disabled, selectId, pickerOpen = false, onOpenPicker, onClosePicker }) {
   const [addingName, setAddingName] = useState("");
@@ -10226,7 +10333,7 @@ function reedTileVisual(drag, id, home, cur) {
 //
 // 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
 // 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, noDrag = false, selectedForDelete, onTileTap, onReorder }) {
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, noDrag = false, onTileTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -10286,15 +10393,14 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, no
   };
 
   // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
-  // 削除モード中はタップが選択のトグルになるので、その場合だけ pointer 系を丸ごと降ろす。
   // 【F-102】番号編集モード(noDrag)中は長押しの並び替えを起動しない(タップ=番号編集に一本化)。
-  const canReorder = !deleteMode && !noDrag && members.length >= 2;
+  // 【便R 後半-後半 2026-09-20】選んで消すモードは入口ごと消えたので、判定からも外れた。
+  const canReorder = !noDrag && members.length >= 2;
 
   const handlePointerDown = (id, index) => (e) => {
     // 落ちている最中に次のジェスチャーが来たら、その場で落とし切ってから始める
     // (落下の transform を残したまま新しいドラッグを重ねると基準が二重になる)。
     if (settleTimerRef.current) { cancelSettle(); setDrag(null); }
-    if (deleteMode) return;                       // 削除モード中は onClick が選択を担う(現行と同じ方針)
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const startX = e.clientX, startY = e.clientY;
     const target = e.currentTarget;
@@ -10403,10 +10509,8 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, no
         const cur = drag ? order.indexOf(r.id) : home;
         const vis = reedTileVisual(drag, r.id, home, cur);
         const idx = home;
-        const tone = deleteMode
-          ? (selectedForDelete?.has(r.id) ? "sel" : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null))
-          : (r.id === selectedReedId ? "sel"
-            : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null));
+        const tone = r.id === selectedReedId ? "sel"
+          : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null);
         return (
           /* no-select: 長押しで並び替えを起動するので、同じ長押しがテキスト選択に化けないようにする(F-49)。 */
           <button
@@ -10418,12 +10522,10 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, no
             data-tone={tone}
             data-drag={isDragging ? "true" : "false"}
             aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
-            aria-pressed={deleteMode ? !!selectedForDelete?.has(r.id) : undefined}
             onPointerDown={handlePointerDown(r.id, idx)}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp(r.id)}
             onPointerCancel={handlePointerCancel}
-            onClick={deleteMode ? () => onTileTap(r.id) : undefined}
             style={{
               /* 正典 .tile の寸法。aspect-ratio 1 なので幅は .rgrid の 1fr が決める */
               aspectRatio: "1",
@@ -10465,12 +10567,15 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, deleteMode, no
 // (ルートに置くと状態を2階層またいで配らねばならない)。データタブの子タブ行には触らない。
 //
 // 【モード】listMode は登録子タブだけが持つ一時的な状態:
-//   null         通常
-//   "boxDelete"  箱を選んで削除
-//   "memberDelete" 個体を選んで削除
-// モード中は「…」の代わりに「キャンセル」と実行を同じ行に出す。
+//   null          通常
+//   "numberEdit"  リード番号を変更(箱の編集シートの「番号編集」から入る)
+// モード中は子タブ行の右端に「完了」を出す。
 // 【F-80】"dateEdit"(箱の開封日を編集)は廃止。開封日は箱の見出しの日付をタップして
 // 「箱を編集」シートで直す(F-82 のメーカー・番手の編集と同じシート)。モードごと消した。
+// 【便R 後半-後半 2026-09-20 本人裁定】「個体一枚ずつ消すことはほぼないのでなくていい」。
+// 箱を選んで削除 / 個体を選んで削除の2つは、便P で「…」を消した時点で**入口を失っていた**。
+// 本人の裁定を受けて、モードも選択の入れ物も実行も**定義ごと消した**。
+// 箱ごとの削除は箱の編集シートの「削除」が担い続ける(機能は1つも落ちていない)。
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
@@ -10485,9 +10590,6 @@ function ReedsTab(props) {
   // 【N-5】正典の一覧は常時展開なので開閉は無くなったが、追加シートの下書き(メーカー・番手・枚数)は
   // 同じ理由でここに置く必要がある。
   const [listMode, setListMode] = useState(null);
-  const [selectedBoxKeys, setSelectedBoxKeys] = useState(() => new Set());
-  const [selectedMemberIds, setSelectedMemberIds] = useState(() => new Set());
-  const [moreOpen, setMoreOpen] = useState(false);
   // 一覧のスクロール位置。詳細を開く直前に控え、戻ったら同じ位置へ復帰させる。
   const listScrollYRef = useRef(0);
   const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
@@ -10540,42 +10642,11 @@ function ReedsTab(props) {
     });
   };
 
-  const exitMode = () => {
-    setListMode(null);
-    setSelectedBoxKeys(new Set());
-    setSelectedMemberIds(new Set());
-  };
-  const startMode = (mode) => {
-    setSelectedBoxKeys(new Set());
-    setSelectedMemberIds(new Set());
-    setListMode(mode);
-    setMoreOpen(false);
-  };
-  const toggleBoxSelected = (key) => setSelectedBoxKeys((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
-  const toggleMemberSelected = (id) => setSelectedMemberIds((prev) => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-  const confirmBoxDelete = () => {
-    if (selectedBoxKeys.size === 0) return;
-    const targetGroups = reedGroups.filter((g) => selectedBoxKeys.has(g.key));
-    const ids = targetGroups.flatMap((g) => g.members.map((m) => m.id));
-    deleteReedsWithUndo(ids, deletedReedsLabel(targetGroups, ids.length, targetGroups.length));
-    exitMode();   // 選択モードは従来どおり抜ける
-  };
-  const confirmMemberDelete = () => {
-    if (selectedMemberIds.size === 0) return;
-    const ids = [...selectedMemberIds];
-    const idSet = new Set(ids);
-    const targetGroups = reedGroups.filter((g) => g.members.some((m) => idSet.has(m.id)));
-    deleteReedsWithUndo(ids, deletedReedsLabel(targetGroups, ids.length, 0));
-    exitMode();   // 選択モードは従来どおり抜ける
-  };
+  // 【便R 後半-後半 2026-09-20】選ぶための入れ物(selectedBoxKeys / selectedMemberIds)と
+  // トグル(toggleBoxSelected / toggleMemberSelected)、実行(confirmBoxDelete /
+  // confirmMemberDelete)は**読み手ごと消した**。残るモードは numberEdit だけで、
+  // これは「選んで実行する」型ではなく「編集して終わる」型なので選択の入れ物を持たない。
+  const exitMode = () => setListMode(null);
 
   // 左右の余白は一覧・個体詳細・比較で同じ(正典 .rlist の 24px)。
   // **詳細だけ枠の外に出さない**: 早期 return を枠の内側に畳んであるのはそのため
@@ -10621,33 +10692,22 @@ function ReedsTab(props) {
       >
         {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。 */}
         {/* 【便P 2026-09-20 本人指示】「リードタブの右上の3点復活させてくれたがもう不要なので削除」。
-            **「その他の操作」のボタンだけ**を消した。listMode !== null のときの
-            「完了 / キャンセル」と削除の実行は残す ── 番号編集モードと削除モードの
-            出口がこれしか無いので、消すとモードから戻れなくなる。
+            **「その他の操作」のボタンだけ**を消した。モード中の出口は残す ──
+            番号編集モードの出口がこれしか無いので、消すとモードから戻れなくなる。
             リードが0枚かどうかの条件(reeds.length > 0)は「…」だけのものだったので、
             残る中身の条件 listMode !== null に畳んだ(空の器を描かない)。
-            【REED_MORE_ITEMS / ReedMoreMenu / moreOpen は消していない】
-            中身の「箱を選んで削除」「個体を選んで削除」は**入口を失うだけ**で、
-            入口をどこへ移すかは本人がまだ決めていない(検証71.5 がこの事実を見張る)。 */}
+            【便R 後半-後半 2026-09-20 本人裁定】入口を失っていた削除モード2つは
+            定義ごと消えた。残るモードは numberEdit だけなので、**ここに出るのは「完了」1つ**。
+            削除の実行(DeleteActionButton)の呼び手もここから消えた ── 部品そのものは
+            すべての計測(AllSessionsPage)が使い続けるので残している。 */}
         {reedsSubTab === "register" && listMode !== null && (
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 {/* 【F-102】numberEdit は選んで実行する型ではなく「編集して終わる」型なので、
                     出口の文言は「完了」(編集はシートを閉じた時点で確定済み。キャンセルと出すと
-                    変更が戻ると誤読される)。見た目の型は削除モードのキャンセルと同じ B型ピル。 */}
+                    変更が戻ると誤読される)。見た目の型は B型ピル。 */}
                 <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
-                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>{listMode === "numberEdit" ? "完了" : "キャンセル"}</span>
+                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>完了</span>
                 </button>
-                {/* 【D-5】削除の一手はゴミ箱アイコンの共通部品へ(すべてのセッションと同じ形)。
-                    **numberEdit は削除ではない**ので、上の「完了」だけが出る。 */}
-                {listMode !== "numberEdit" && (
-                <DeleteActionButton
-                  count={listMode === "boxDelete" ? selectedBoxKeys.size : selectedMemberIds.size}
-                  ariaLabel={listMode === "boxDelete"
-                    ? (selectedBoxKeys.size > 0 ? `選んだ${selectedBoxKeys.size}箱を削除` : "箱を削除")
-                    : (selectedMemberIds.size > 0 ? `選んだ${selectedMemberIds.size}枚を削除` : "リードを削除")}
-                  onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
-                />
-                )}
           </div>
         )}
       </SubTabs>
@@ -10663,8 +10723,6 @@ function ReedsTab(props) {
           onOpenReed={openReed}
           reedGroups={reedGroups}
           listMode={listMode}
-          selectedBoxKeys={selectedBoxKeys} toggleBoxSelected={toggleBoxSelected}
-          selectedMemberIds={selectedMemberIds} toggleMemberSelected={toggleMemberSelected}
           pageActive={reedsSubTab === "register"}
           /* 【B-2 で判った取りこぼし】箱の編集シートの「削除」(便N まで「この箱を削除」)は、ReedsTab の
              deleteReeds を**渡されないまま**名前で呼んでいた(ReedRegisterView は
@@ -10672,66 +10730,30 @@ function ReedsTab(props) {
              削除の一手を1つに畳むついでに、ここで渡して繋ぐ。 */
           deleteReedsWithUndo={deleteReedsWithUndo}
           /* 【便O 2026-09-20 本人指示】箱の編集シートの「番号編集」から番号編集モードへ入る。
-             listMode を持っているのは ReedsTab なので、**「…」の『リード番号を変更』と
-             同じ startMode をそのまま渡す**(新しい経路を作らない。選択の後始末も同じ)。 */
-          enterNumberEdit={() => startMode("numberEdit")}
+             listMode を持っているのは ReedsTab なので、そこへ入る一手をここから渡す。
+             【便R 後半-後半】「…」の『リード番号を変更』が消えたので、**この1箇所が
+             番号編集モードへの唯一の入口**になった(startMode という中継ぎは要らなくなった)。 */
+          enterNumberEdit={() => setListMode("numberEdit")}
         />
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
         </div>
       </SwipePager>
-
-      {moreOpen && (
-        <ReedMoreMenu
-          onClose={() => setMoreOpen(false)}
-          onPick={startMode}
-        />
-      )}
     </div>
   );
 }
 
-// 【N-5】登録一覧の「…」。正典 .subtabs 右端の3点から開く。
-// 使用頻度の低い操作をここへ入れる(正典の3原則「今に関係ない物は出ていない」)。
-// シートの作法(暗幕・角丸28・つまみ36×4・影)はテンポシートと同値。新しい濃さを発明しない。
-// **リードが0枚のときはこのメニューの入口ごと出さない**(どちらも実行できないため。呼び出し側の条件)。
-//
-// 【F-78 総枚数バッジは消した(2026/08/14 本人決定)】N-5 では「登録済みリード n枚」を
-// このメニューの見出しへ**暫定**で置き、置き場所は本人判断待ちとしていた。本人の決定は「消す」。
-// 枚数はタイルを数えれば分かる(正典の判断)ので、アプリのどこにも総枚数は出さない。
-//
-// 【F-80 「箱の開封日を編集」も消した】開封日は箱の見出しの日付をタップして編集する形に移した
-// (本人指示「日付をタップしたら編集できるというのは直感的に分かるはず」)。残るのは削除2件。
-const REED_MORE_ITEMS = [
-  { mode: "boxDelete", label: "箱を選んで削除" },
-  { mode: "memberDelete", label: "個体を選んで削除" },
-  // 【F-102 2026/08/17 本人指示】番号編集の入口を「…」へ。モード中はタイルをタップすると
-  // その1枚の番号編集シートが開く(個別ページの点線の下線は削除した。機能はこの経路で維持)。
-  { mode: "numberEdit", label: "リード番号を変更" },
-];
-function ReedMoreMenu({ onClose, onPick }) {
-  return (
-    <BottomSheet ariaLabel="リードの操作" onClose={onClose}>
-        {REED_MORE_ITEMS.map((it) => (
-          <button
-            key={it.mode}
-            onClick={() => onPick(it.mode)}
-            className="sans"
-            style={{
-              minHeight: "var(--tap-min)", display: "flex", alignItems: "center",
-              background: "none", border: "none", borderBottom: "1px solid var(--c-line)",
-              padding: 0, cursor: "pointer", fontSize: "var(--fs-md)", color: "var(--c-ink)", textAlign: "left",
-            }}
-          >
-            {it.label}
-          </button>
-        ))}
-    </BottomSheet>
-  );
-}
+// (【便R 後半-後半 2026-09-20 本人裁定】登録一覧の「…」のメニュー(REED_MORE_ITEMS の定義と
+//  それを並べる ReedMoreMenu、開閉の moreOpen)はここにあったが、便P で「…」そのものを
+//  消したあと入口が1つも無く、本人の裁定「個体一枚ずつ消すことはほぼないのでなくていい」で
+//  **定義ごと消した**。残っていた3項目の行き先:
+//    ・箱を選んで削除   → 箱の編集シートの「削除」が担う(機能は落ちていない)
+//    ・個体を選んで削除 → 本人の裁定で廃止
+//    ・リード番号を変更 → 箱の編集シートの「番号編集」が唯一の入口(便O)
+//  使い手の無い定義を残さない ── 便F・便K・M9 と同じ作法。)
 
 // 【F-102 2026/08/17 本人指示】「…」→「リード番号を変更」モードでタイルをタップすると開く、
-// 1枚ぶんの番号編集シート。シートの作法(暗幕・角丸28・つまみ36×4・影)は ReedMoreMenu と同値
+// 1枚ぶんの番号編集シート。シートの作法(暗幕・角丸28・つまみ36×4・影)は器の BottomSheet が持つ
 // (新しい濃さ・寸法を発明しない)。番号の意味は個別ページの入力欄と同一:
 // 自由記述・空にすると自動採番に戻る(placeholder に今の値が出る)。
 // 確定はシートを閉じる操作(背景タップ・つまみ・Escape)で行う(開いて閉じただけ=変更なしは書き込まない)。
@@ -10953,7 +10975,7 @@ function clampReedAddCount(n) {
 // 【便N 2026-09-19 本人指示】厚さと枚数の**ダイヤルは廃止**した。
 // 本人の言葉:「厚さはダイアルの縦幅が明らかに大きすぎるので開封日と縦幅を合わせて」。
 // ダイヤルは9段 = 396px をシートの中に積んでいたので、開封日の 44px と並ぶ形にならない。
-// 選び方は便D で ScrollPicker に統一ずみなので、**メーカー・銘柄と同じ作法の行**にする
+// 選び方は便D でアプリ自身の1つに統一ずみなので、**メーカー・銘柄と同じ作法の行**にする
 // (RatingDial 自体は評価の3つが使い続けるので残す。消したのは 2つの spec だけ)。
 //
 // 選択肢そのものは発明しない: 厚さは REED_STRENGTHS(profile.js)、枚数は 1〜箱1つぶん。
@@ -11101,7 +11123,7 @@ function ReedBoxSheet({
           {/* 【R2 2026-09-16】枚数の −/数値/＋(正典ミニの .pmt / METRO_PM_W)は**廃止**した。
               便N で枚数は行になった。METRO_PM_W の読み手は計測タブのテンポ行だけのまま。 */}
           {/* 【F-80】開封日。編集のときだけ出す。
-              **ScrollPicker ではなく input[type=date] を選んだ理由**: ScrollPicker は1列の
+              **1列の選択肢ではなく input[type=date] を選んだ理由**: 1列の一覧は
               選択肢リストなので、年・月・日の3値を1列に落とせない(日付を列挙すると選択肢が
               無限に近くなる)。一方 input[type=date] は iOS Safari で固有幅が width より
               優先される既知の罠がある(BACKLOG F-39/F-40/F-41)。だから**行内には置かず**、
@@ -11146,7 +11168,7 @@ function ReedBoxSheet({
           )}
 
           {/* 【便R 2026-09-20 本人指示】厚さ・枚数は**ホイールをやめて、その場のピル**にした。
-              便N で行 + ScrollPicker にしたが、幅140のホイールは名札が切れて読めない。
+              便N で行 + ホイールにしたが、幅140のホイールは名札が切れて読めない。
               選択肢は9つ・10個と少なく、どれも2〜3字と短いので、行に出しきれる。
               **名札は残し、ピルは名札の下**に置く(9つは名札の右に横1行では入らない)。
               名札の綴りと左端は他の行と同じ(REED_SHEET_ROW_LABEL_STYLE)。
@@ -11186,7 +11208,7 @@ function ReedBoxSheet({
               {/* 【便O 2026-09-20 本人指示】リードの番号を変える入口。
                   **新しい仕組みは作らない**: 既にある listMode === "numberEdit" へ入るだけで、
                   シートを閉じて一覧をそのモードにする(配線は呼び出し側が持つ)。
-                  「…」の中の「リード番号を変更」は今までどおり残る ── 入口が2つになるだけ。
+                  【便R 後半-後半 2026-09-20】「…」が定義ごと消えたので、**ここが唯一の入口**になった。
                   onDelete と同じ作法で、**渡されたときだけ**出す(追加の呼び出しには渡さない)。 */}
               {onNumberEdit ? (
                 <button
@@ -11275,13 +11297,13 @@ function ReedBoxSheet({
 function ReedRegisterView(props) {
   const {
     reeds, setReeds, sessions, selectedReedId, onOpenReed, reedGroups,
-    listMode, selectedBoxKeys, toggleBoxSelected, selectedMemberIds, toggleMemberSelected,
+    listMode,
     // 【F-111】浮かせるボタンは body へ portal で出るので、SwipePager の「今どのページか」を
     // 知らないと**隣のページ(比較)を見ている間も出たままになる**。呼び出し側が渡す。
     pageActive,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
-    // 【便O】箱の編集シートからの「番号編集」も、「…」の『リード番号を変更』と**同じ一手**を通る。
+    // 【便O】箱の編集シートからの「番号編集」が番号編集モードへの入口(便R 後半-後半 以降は唯一)。
     enterNumberEdit,
   } = props;
 
@@ -11442,17 +11464,14 @@ function ReedRegisterView(props) {
       ) : (
         reedGroups.map((g) => {
           const avgRating = reedGroupAvgRating(g.members);
-          const boxChecked = selectedBoxKeys?.has(g.key);
           // 【F-80 / F-82】メーカーと日付をタップすると「箱を編集」シートが開く。
           // **見た目は 1px も足していない**: 地・枠・角丸・下線を持たない <button> にし、
           // 当たり判定だけ index.css の .taptext(疑似要素)で 44pt へ広げる
           // (DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
-          // **どの削除モード中も**素の <span> に戻す。理由はモードによって違う:
-          //   ・箱を選んで削除(boxDelete) … 見出しの行そのものが選択の <button> になるので、
-          //     入れ子を避ける(押せる物が2つ重なると、どちらが効くか画面から読めない)。
-          //   ・個体を選んで削除(memberDelete) … 見出しの行は素の <div> のままだが、
-          //     「今は選んで消す作業中」に編集シートが開くのは筋が通らない。
-          // (前版のコメントは前者の理由だけを両方に当てていて、memberDelete では偽だった)
+          // **モード中は**素の <span> に戻す。番号を変える作業中に編集シートが開くのは
+          // 筋が通らないうえ、タイルのタップが番号編集に一本化されている最中に
+          // 見出しだけ別の意味を持つことになるため。
+          // 【便R 後半-後半】残るモードは numberEdit だけになったので、理由も1つになった。
           const boxEditable = listMode === null;
           const nameStyle = { fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0 };
           const nameInner = (
@@ -11499,36 +11518,17 @@ function ReedRegisterView(props) {
           return (
             /* 正典 .rgroup: padding 20px 0 24px / 下に罫1本 */
             <div key={g.key} style={{ paddingTop: REED_GROUP_PAD_TOP_PX, paddingBottom: REED_GROUP_PAD_BOTTOM_PX, borderBottom: "1px solid var(--c-line)" }}>
-              {listMode === "boxDelete" ? (
-                /* 箱まとめ削除。見出しの行がそのまま選択の当たり判定になる */
-                <button
-                  onClick={() => toggleBoxSelected(g.key)}
-                  className="sans"
-                  aria-pressed={!!boxChecked}
-                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 4, minHeight: "var(--tap-min)", marginBottom: REED_HEAD_MB_PX, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
-                >
-                  <input
-                    type="checkbox" checked={!!boxChecked} onChange={() => toggleBoxSelected(g.key)}
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label={`${g.brand} ${g.strength} の箱を選択`}
-                    style={reedCheckboxStyle(!!boxChecked, 18)}
-                  />
-                  <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>{heading}</span>
-                </button>
-              ) : (
-                /* 正典 .rhead: baseline 揃えの両端寄せ / 下に 14px */
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: REED_HEAD_MB_PX }}>{heading}</div>
-              )}
+              {/* 正典 .rhead: baseline 揃えの両端寄せ / 下に 14px
+                  【便R 後半-後半】箱を選んで削除のときだけ見出しをチェックボックスの行に
+                  差し替えていた分岐は、モードごと消えたのでここから無くなった。 */}
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: REED_HEAD_MB_PX }}>{heading}</div>
               <ReedTileGrid
                 members={g.members}
                 reeds={reeds}
                 sessions={sessions}
                 selectedReedId={selectedReedId}
-                deleteMode={listMode === "memberDelete"}
                 noDrag={listMode === "numberEdit"}
-                selectedForDelete={selectedMemberIds}
-                onTileTap={(id) => (listMode === "memberDelete" ? toggleMemberSelected(id)
-                  : listMode === "numberEdit" ? setNumberEditId(id)
+                onTileTap={(id) => (listMode === "numberEdit" ? setNumberEditId(id)
                   : onOpenReed?.(id))}
                 onReorder={reorderGroupMembers}
               />
@@ -14497,18 +14497,17 @@ function DataOptionSheet({ ariaLabel, title = null, items, value, onPick, onClos
 function SessionEditSheet({
   recordedAtLocal, onSetRecordedAt,
   performers, setPerformers, performer, onSetPerformer,
-  reeds, reedId, onSetReedId,
+  reeds, sessions, reedId, onSetReedId,
   onClose,
 }) {
   const reed = reeds.find((r) => r.id === reedId) || null;
   // 【M4 2026-09-16】奏者のピッカーの開閉。この画面には「開いている間に無効化する
   // 背面レイヤ」が無いので、開閉はこのシートが自分で持つ(計測タブだけが openPicker を持つ)。
   const [performerPickerOpen, setPerformerPickerOpen] = useState(false);
-  // リードの選択肢。**見えている値(text)と同じ出どころ**から作る(2箇所に書かない)。
-  const reedOptions = [
-    { value: "", label: "—" },
-    ...reeds.map((r) => ({ value: r.id, label: reedLabel(r, reeds) })),
-  ];
+  // 【便R 後半-後半 2026-09-20】リードの選び方は**段階選択のシート**(ReedPickSheet)。
+  // 1列の一覧(PlainSelect)はリードが増えると選べない ── 箱が3つあれば30行になる。
+  // 選択肢の配列はもう要らない(段ごとの綴りは ReedPickSheet が箱の束ねから作る)。
+  const [reedPickOpen, setReedPickOpen] = useState(false);
   // 【D-5 2026/08/23 本人指示】「編集を押したときのポップアップのフォントサイズも、
   // 右寄せ、左寄せもばらばら過ぎるのでいずれかに統一」。
   //   ・寄せ … **すべて左**(ラベルの右に値が続く。メモを左詰めにしたのと同じ向き)
@@ -14550,13 +14549,37 @@ function SessionEditSheet({
           onClosePicker={() => setPerformerPickerOpen(false)}
         />
       ))}
+      {/* 【便R 後半-後半】枠に見えている値は**1文字も変えていない**
+          (選んでいれば reedLabel、無ければ ReedPickSheet と同じ REED_PICK_NONE_LABEL)。
+          変わったのは押したときに開くものだけ。「紐付けない」を許すのはこの呼び手だけ。
+          器(button の style)は PlainSelect の枠と同値を**この1箇所に写している** ──
+          PlainSelect から枠を切り出すと、この便の担当外(分析タブの軸ほか)まで
+          書き換えることになるため。値・寸法は1つも変えていない。 */}
       {row("リード", (
-        <PlainSelect
-          ariaLabel="紐付けるリード"
-          text={reed ? reedLabel(reed, reeds) : "—"}
-          value={reedId || ""} onChange={(v) => onSetReedId(v || null)}
-          options={reedOptions}
-        />
+        <>
+          <button
+            type="button"
+            aria-label="紐付けるリード"
+            aria-haspopup="listbox"
+            aria-expanded={reedPickOpen}
+            onClick={() => setReedPickOpen(true)}
+            style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", justifyContent: "center", minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", maxWidth: "100%" }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
+              <span className="sans" style={{ color: "var(--c-ink)", fontSize: 12, fontWeight: 400, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{reed ? reedLabel(reed, reeds) : REED_PICK_NONE_LABEL}</span>
+              <PickChevron />
+            </span>
+          </button>
+          {reedPickOpen && (
+            <ReedPickSheet
+              reeds={reeds} sessions={sessions}
+              value={reedId || null}
+              onChange={(id) => onSetReedId(id || null)}
+              onClose={() => setReedPickOpen(false)}
+              allowNone
+            />
+          )}
+        </>
       ))}
     </BottomSheet>
   );
@@ -16581,7 +16604,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSes
           recordedAtLocal={recordedAtLocal} onSetRecordedAt={setSessionRecordedAt}
           performers={performers} setPerformers={setPerformers}
           performer={session.performer} onSetPerformer={setSessionPerformer}
-          reeds={reeds} reedId={session.reedId} onSetReedId={setSessionReedId}
+          reeds={reeds} sessions={sessions} reedId={session.reedId} onSetReedId={setSessionReedId}
           onClose={() => setEditOpen(false)}
         />
       )}
