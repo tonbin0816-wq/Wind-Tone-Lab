@@ -1319,9 +1319,6 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
                                centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
                     <Legend series={chart.series} />
-                    <div className="sans" style={noteStyle}>
-                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
-                    </div>
                     {/* 【取り込むのは「合わせたあとの値」】相手の生の値を目標にすると、
                         環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか
                         分からなくなる。上のグラフに出ている線がそのまま目安になる。 */}
@@ -1357,6 +1354,17 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                         >目安に設定</button>
                       </div>
                     ) : null}
+                    {/* 【便O 2026-09-20 本人裁定「重なりは案2を採用」】注記は**貼り付く
+                        ボタンより後ろ**に置く。sticky(bottom 0)のボタンの裏を通るのは
+                        流れの上で**前に**在る要素だけなので、後ろへ移せば重なりようが無い
+                        ── 束5 で空きを足しても重なりが消えなかったのは、注記が前に在って
+                        送っている途中で裏を通っていたから(合格条件の「一番下まで送ったとき」は
+                        元から満たされていて、検査が症状を見ていなかった)。
+                        引き換えに、注記は一番下まで送らないと出ない。本人の選択。
+                        **綴りは1文字も変えていない**。移したのは置き場所だけ。 */}
+                    <div className="sans" style={noteStyle}>
+                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
+                    </div>
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>
                         目安に設定しました。計測タブで比べられます

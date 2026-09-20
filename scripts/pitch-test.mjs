@@ -26469,6 +26469,46 @@ console.log("========== 検証68: 選ぶ欄の地を外す(開封日 / 演奏開
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証69: 「目安に設定」と注記の重なり ── 本人裁定「案2を採用」(便O)
+//   sticky(bottom 0)のボタンの裏を通るのは、流れの上で**前に**在る要素だけ。
+//   束5 は空きを足したが、注記は前に在ったままだったので**送っている途中**の重なりが
+//   消えなかった(合格条件が「一番下まで送ったとき」で、症状を見ていなかった)。
+//   案2 は注記そのものをボタンの器より後ろへ移す。引き換えに注記は一番下でしか出ない。
+// ============================================================
+console.log("========== 検証69: 注記を貼り付くボタンより後ろへ(案2) ==========");
+{
+  // **人物シートの中だけを見る。** 同じ注記は目安の個別ページにも在るので、
+  // ファイル全体で位置を数えると別の画面の1件を掴んでしまう(初版で実際に掴んだ)。
+  const screensRaw69 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const screens69 = codeOf(screensRaw69);
+  const person69 = codeOf(srcOfFn(screensRaw69, "PersonSheet"));
+  const NOTE69 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
+  const iNote = person69.indexOf(NOTE69);
+  const iSticky = person69.indexOf('position: "sticky", bottom: 0');
+  const iSpacer = person69.indexOf("height: ADOPT_STICKY_SPACER_H");
+  const iLegend = person69.indexOf("<Legend series={chart.series} />");
+
+  check("69.1 注記は**貼り付くボタンの器より後ろ**に居る(裏を通る相手が居ない)",
+    iSticky > 0 && iNote > iSticky, `sticky=${iSticky} / 注記=${iNote}`);
+  check("69.2 注記は末尾の空きより**前**に居る(空きが文の途中に挟まらない)",
+    iSpacer > 0 && iNote < iSpacer, `注記=${iNote} / 空き=${iSpacer}`);
+  check("69.3 グラフの凡例の直下には注記が無い(移したのであって写していない)",
+    iLegend > 0 && iLegend < iSticky && iNote > iSticky);
+  check("69.4 人物シートの注記は1件のまま(言い換えも写しも作っていない)",
+    (person69.match(new RegExp(NOTE69, "g")) || []).length === 1,
+    `${(person69.match(new RegExp(NOTE69, "g")) || []).length}件`);
+  // 目安の個別ページの同じ注記は**動かしていない**(あちらに貼り付くボタンは無い)。
+  check("69.4 目安の個別ページの注記は触っていない(ファイル全体では2件のまま)",
+    (screens69.match(new RegExp(NOTE69, "g")) || []).length === 2,
+    `${(screens69.match(new RegExp(NOTE69, "g")) || []).length}件`);
+  check("69.5 貼り付ける仕組みと寸法・色・影は1つも変えていない(束2・束5 の裁定)",
+    /position: "sticky", bottom: 0, zIndex: 1,/.test(person69)
+    && /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(screens69)
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(person69));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {
