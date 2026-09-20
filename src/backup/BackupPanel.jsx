@@ -6,10 +6,14 @@
 //
 // **クラウドには一切触らない。** Firestore にも認証にも触れない。ファイル1つで完結する。
 //
-// 【見た目の作法】データタブはカードの作法(.surf-card)。器は `.card` 1枚で、
-// 地・枠・角丸・余白・影は index.css の `.surf-card .card` がそのまま持つ
-// (インライン style で上書きしない)。色・文字寸法・角丸・当たり判定は
-// design/DESIGN-SYSTEM.md のトークンだけを使い、新しい値を作らない。
+// 【見た目の作法】【便R 2026-09-20 本人指示】本人の言葉「引き継ぎの中の文をカード形式に
+// する必要ない」。いちばん外の器から `card` のクラスを外した ── この板はシートの中にしか
+// 出ないので、シートの面の上にもう1枚カードの面が載って**面が二重**になっていた。
+// 外したので上の余白も持たない(シートの他の中身と同じく、つまみの下の間隔がそのまま先頭)。
+// **文・順序・ボタンは1文字も変えていない。** 見出しだけシートの小さな見出し
+// (--fs-xs / --c-ink-3。ReedBoxSheet の見出しと同じ綴り)へ降ろした。
+// 色・文字寸法・角丸・当たり判定は design/DESIGN-SYSTEM.md のトークンだけを使い、
+// 新しい値を作らない。
 import { useEffect, useRef, useState } from "react";
 import { buildSnapshot, validateSnapshot, snapshotFileName } from "./snapshot.js";
 import { readAll, writeAll, requestPersistence, storageEstimate } from "./localStore.js";
@@ -120,10 +124,10 @@ export default function BackupPanel() {
   })();
 
   return (
-    /* 【作法】.card の style は**オブジェクトリテラル直書き**にする(検査が中身を読んで
-       地・枠・padding をインラインで殺していないことを確かめる)。 */
-    <div className="card" style={{ marginTop: "var(--sp-3)" }}>
-      <div className="sans" style={{ fontSize: 17, fontWeight: 600, color: "var(--c-ink)", letterSpacing: "-.01em" }}>
+    /* 【便R 2026-09-20】器はもうカードではない。地・枠・角丸・影・padding を
+       持たない素の <div> で、面はシートの1枚だけになる。 */
+    <div>
+      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>
         記録の保存
       </div>
       <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 6 }}>

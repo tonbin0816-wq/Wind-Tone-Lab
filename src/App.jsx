@@ -1899,24 +1899,30 @@ function registerBand(semitoneIndex, lowMax = 20, midMax = 32) {
 
 const REGISTER_BAND_LABELS = { low: "低音域", mid: "中音域", high: "高音域", unknown: "不明" };
 
-// 【番手のピル行を1つの部品にする】リードの追加シート・箱の編集・コミュニティの
-// プロフィールの3箇所が同じ見た目で番手を選ぶ。綴りを3つに散らすと、次に刻みや
-// 見た目を変えるときに必ず1箇所だけ取り残される(本人の方針「現行のアプリと同じ
-// 機能は現行のアプリに揃えて」)。
+// 【ピル行を1つの部品にする】同じ見た目で「少なくて短い選択肢」を選ぶ場所が
+// 4つある。綴りを散らすと、次に刻みや見た目を変えるときに必ず1箇所だけ取り残される
+// (本人の方針「現行のアプリと同じ機能は現行のアプリに揃えて」)。
+//   ・コミュニティのプロフィール … 普段の番手(REED_STRENGTHS / 小さい順)
+//   ・箱のシートの厚さ            … REED_STRENGTH_OPTIONS(大きい順)
+//   ・箱のシートの枚数            … REED_ADD_COUNTS(多い順)
+//   ・計測タブの楽器のシート      … SAX_TYPE_OPTIONS
+// 【便R 2026-09-20】以前この部品は ReedStrengthPills という名前で、選択肢として
+// REED_STRENGTHS を**中に直書き**していた。厚さ・枚数・楽器が同じ見た目を要るように
+// なったので、**選択肢を引数で受ける**ようにして1つに畳んだ(写しを作らない)。
+// 並びは呼び手が渡した配列のまま ── どの値がどの向きに並ぶかは部品の決め事ではない。
 //
-// 番手9種(2.0〜4.0 の 0.25 刻み)。正典 .selrow / .selpill
-// (12px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
+// 正典 .selrow / .selpill(12px / padding 4px 11px / 角丸999 / 選択は紺の塗り)。
 // 【便C 2026/09/15】.selpill は 12.5px → 12px(--fs-xs)。正典も同じ周で書き換えてある。
 // 見た目のピルは 44 に満たないので、外側の <button> が当たり判定を持つ(§5)。
 // marginTop は呼び手が決める(リードの追加シートは 12、ラベル付きの欄の中では 0)。
 // 部品に埋めると、置く場所ごとに違ってよい値が1つに固定される。
-export function ReedStrengthPills({ value, onChange, marginTop = 12 }) {
+export function OptionPills({ options, value, onChange, labelFn = (v) => v, ariaPrefix, marginTop = 12 }) {
   return (
     <div style={{ display: "flex", gap: 7, justifyContent: "flex-start", flexWrap: "wrap", marginTop }}>
-      {REED_STRENGTHS.map((s) => (
-        <button key={s} type="button" onClick={() => onChange(s)}
-          aria-pressed={value === s}
-          aria-label={`番手 ${s}`}
+      {options.map((o) => (
+        <button key={o} type="button" onClick={() => onChange(o)}
+          aria-pressed={value === o}
+          aria-label={`${ariaPrefix} ${labelFn(o)}`}
           className="no-select"
           style={{
             minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: 0,
@@ -1926,10 +1932,10 @@ export function ReedStrengthPills({ value, onChange, marginTop = 12 }) {
           <span style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             fontSize: 12, padding: "4px 11px", borderRadius: 999, fontFamily: "var(--font-num)",
-            border: value === s ? "1px solid transparent" : "1px solid var(--c-line-strong)",
-            background: value === s ? "var(--c-accent)" : "transparent",
-            color: value === s ? "var(--c-on-accent)" : "var(--c-ink-2)",
-          }}>{s}</span>
+            border: value === o ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+            background: value === o ? "var(--c-accent)" : "transparent",
+            color: value === o ? "var(--c-on-accent)" : "var(--c-ink-2)",
+          }}>{labelFn(o)}</span>
         </button>
       ))}
     </div>
@@ -4919,6 +4925,22 @@ function PickChevron() {
 // Chrome の実測では判定には使えない。上部設定行が実機でも 60px のままかは
 // **実機で本人が見るまで分からない**。
 // ずれていたら、この2定数の調整で吸収する(呼び出し側は触らなくてよい形にしてある)。
+// 【便R 2026-09-20】配列の中で value にいちばん近い値の**位置**を返す。
+// 保存されている基準ピッチが選択肢の外(古い記録・手で書き換えた値)でも、
+// 壊れた値のまま描かずに寄せるために要る。寄せないと両端の判定も − / ＋ の行き先も
+// 決まらず、「押しても何も起きない一手」が生まれる(§6.1.5)。
+// **両端そのものは呼び手が配列から導く**(438 / 444 をどこにも直書きしない)。
+function nearestIndexIn(options, value) {
+  const v = Number(value);
+  if (!options.length) return -1;
+  if (!Number.isFinite(v)) return 0;
+  let best = 0;
+  for (let i = 1; i < options.length; i++) {
+    if (Math.abs(options[i] - v) < Math.abs(options[best] - v)) best = i;
+  }
+  return best;
+}
+
 const TOPSET_PERFORMER_H_PX = 28;
 // 【便D(M4)で持ち主が変わった。外形は 1px も変わっていない】
 // 以前この定数は「リード枠の中の**値を包む箱**の高さ(26)」で、枠(<label>)は
@@ -7787,6 +7809,10 @@ function MeasureView(props) {
   const measureMinH = useFillViewportHeight(measureRootRef);
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
+  // 【便R 2026-09-20 本人指示】基準ピッチの現在位置。**両端は TUNING_HZ_OPTIONS から導く**
+  // ので、438 / 444 という数はこのファイルの選択肢の定義以外には1つも現れない。
+  // 範囲の外の値は nearestIndexIn がいちばん近い値へ寄せる(壊れた値で詰まらせない)。
+  const tuningIdx = nearestIndexIn(TUNING_HZ_OPTIONS, tuningHz);
 
   // --- メトロノーム(設定は永続化。ON/OFFはタブ滞在中のみ=タブを離れるとアンマウントで停止) ---
   const [metroTempo, setMetroTempo] = usePersistedState("metroTempo", 120);
@@ -8180,8 +8206,36 @@ function MeasureView(props) {
               【M2 2026-09-16 実機の指摘】楽器名と Hz の間が空きすぎていたので、
               間にあった幅 9px の区切り span を**消し**、両ボタンの padding を体系内の
               最小段 --sp-1 にした(新しい値を足さない)。 */}
+          {/* 楽器。**行のボタンは今までのまま**(値 + ▾)。押すと開くものがホイールから
+              下から出るシートに変わっただけで、「押せば選択肢が出る」は変わらないので ▾ は残す。 */}
           <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: "var(--sp-1)", fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
-          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: "var(--sp-1)", fontSize: 12 }}>{tuningHz}Hz<PickChevron /></button>
+          {/* 【便R 2026-09-20 本人指示】基準ピッチは幅140のホイールをやめ、**− / 値 / ＋** にする。
+              ・▾ は外す ── 押しても一覧は出なくなるので、残すと嘘の印になる(F-72 の ▾ は
+                「押せば選択肢が出る」の印)。
+              ・端では disabled にして薄く(--c-disabled)する。押しても何も起きない一手を
+                作らない(§6.1.5)。両端は TUNING_HZ_OPTIONS の長さから導く。
+              ・値の見た目は今のまま(12px / --c-ink-3)。− と ＋ も同じ 12px の素の文字で、
+                地も枠も持たない。
+              ・当たり判定は §5「見た目の大きさは変えない。当たり判定だけ広げる」のとおり、
+                **縦は .taptext**(index.css の既存クラス。箱の見出しの日付が既に使っている)、
+                **横は minWidth: var(--tap-min)**(ピル行が既に使っている作法)で 44 にする。
+                **高さを持つ値をここに書かない**のが肝 ── 1行目は 28px で、高さを足すと
+                行が伸びて環が下がる(§6.1.5「環を動かさない」)。 */}
+          <button
+            onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx - 1])}
+            disabled={tuningIdx === 0}
+            aria-label="基準ピッチを下げる"
+            className="sans taptext no-select"
+            style={{ minWidth: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, lineHeight: 1, color: tuningIdx === 0 ? "var(--c-disabled)" : "var(--c-ink-3)", cursor: tuningIdx === 0 ? "default" : "pointer" }}
+          >−</button>
+          <span style={{ fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, whiteSpace: "nowrap" }}>{TUNING_HZ_OPTIONS[tuningIdx]}Hz</span>
+          <button
+            onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx + 1])}
+            disabled={tuningIdx === TUNING_HZ_OPTIONS.length - 1}
+            aria-label="基準ピッチを上げる"
+            className="sans taptext no-select"
+            style={{ minWidth: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, lineHeight: 1, color: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "var(--c-disabled)" : "var(--c-ink-3)", cursor: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "default" : "pointer" }}
+          >＋</button>
         </div>
         {/* 2行目 = リード。 */}
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
@@ -8649,19 +8703,23 @@ function MeasureView(props) {
           どちらも構造的に起きない。**併せて背面レイヤと録音ボタンを disabled にする**
           (§6.1.5「押しても何も起きないを作らない」)。
           ピッカー自体の作法(止まった位置で即確定・暗幕タップ / Esc で閉じる)は変えていない。 */}
-      {openPicker === "tuning" && (
-        <ScrollPicker
-          options={TUNING_HZ_OPTIONS} value={tuningHz}
-          onChange={setTuningHz} onClose={() => setOpenPicker(null)}
-          labelFn={(hz) => `${hz}Hz`}
-        />
-      )}
+      {/* 【便R 2026-09-20 本人指示】基準ピッチのホイールは**無くなった**(行の − / ＋ が選ぶ)。
+          openPicker が "tuning" になる経路もここで消えている。 */}
+      {/* 【便R 2026-09-20 本人指示】楽器はホイールをやめ、**下から出るシートの中のピル**で選ぶ。
+          行にピルを直接は置けない(4つで 224px 要る / 実測の空きは 124px)ので、シートを1枚挟む。
+          器は BottomSheet、ピルは OptionPills ── どちらも既にある部品で、写しを作らない。
+          1つ押したら選んで閉じる(選ぶ動作=決定。ホイールのときと同じ作法)。 */}
       {openPicker === "sax" && (
-        <ScrollPicker
-          options={SAX_TYPE_OPTIONS} value={saxType}
-          onChange={setSaxType} onClose={() => setOpenPicker(null)}
-          labelFn={(key) => SAX_PRESETS[key]?.label}
-        />
+        <BottomSheet ariaLabel="楽器" onClose={() => setOpenPicker(null)}>
+          {/* 見出しは箱のシートと同じ綴り(--fs-xs / --c-ink-3)。新しい値を作らない。 */}
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>楽器</div>
+          <OptionPills
+            options={SAX_TYPE_OPTIONS} value={saxType}
+            onChange={(v) => { setSaxType(v); setOpenPicker(null); }}
+            labelFn={(key) => SAX_PRESETS[key]?.label}
+            ariaPrefix="楽器"
+          />
+        </BottomSheet>
       )}
       {/* 【M4 2026-09-16】リードの箱・個体も同じ場所・同じ作法で選ぶ。
           **綴りは reedBoxOptions / reedMemberOptions の1箇所**から、選択肢のラベルも
@@ -10873,6 +10931,16 @@ const REED_SHEET_ROW_STYLE = {
   minHeight: "var(--tap-min)",
   borderBottom: "1px solid var(--c-line)",
 };
+// 【便R 2026-09-20 本人指示】ピルを置く行(厚さ / 枚数)。**新しい値を1つも作っていない**:
+// 枠(罫・名札との間隔・下限の高さ)は上の REED_SHEET_ROW_STYLE、上下の padding は
+// ReedSheetPickRow が持っていた "8px 0" をそのまま引いた。
+// 違うのは向きだけ ── 名札の**下**にピルを並べるので縦に積む(9つは横1行に入らない)。
+// gap を 0 にするのは、ピルの <button> が既に上下 7px ずつの余白を持っているため
+// (足すと名札とピルの間だけが広く見える。PillGroup の注記と同じ理由)。
+const REED_SHEET_PILL_ROW_STYLE = {
+  ...REED_SHEET_ROW_STYLE,
+  flexDirection: "column", alignItems: "flex-start", gap: 0, padding: "8px 0",
+};
 function ReedSheetPickRow({ label, value, onOpen, expanded }) {
   return (
     <button
@@ -10906,9 +10974,8 @@ function ReedBoxSheet({
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  // 【便N】厚さと枚数もメーカー・銘柄と同じ ScrollPicker で選ぶ(ダイヤルを廃止)。
-  const [strengthPickerOpen, setStrengthPickerOpen] = useState(false);
-  const [countPickerOpen, setCountPickerOpen] = useState(false);
+  // 【便R 2026-09-20 本人指示】厚さと枚数の**ホイールは無くなった**。選択肢は少なくて短いので、
+  // シートを1枚挟まず**その場にピルを並べる**(OptionPills)。開閉の state も要らない。
   // 【R6】そのメーカーに銘柄があるときだけ銘柄の行を出す(自由入力・カタログ外は空)。
   const modelOptions = reedModelOptions(brand);
   // メーカーを変えたら銘柄は先頭へ。**別のメーカーの銘柄が残る経路を作らない**。
@@ -11014,24 +11081,28 @@ function ReedBoxSheet({
             </div>
           )}
 
-          {/* 【便N 2026-09-19 本人指示】厚さは**ダイヤルをやめて行**にした
-              (「ダイアルの縦幅が明らかに大きすぎるので開封日と縦幅を合わせて」)。
-              押すと ScrollPicker が開く ── メーカー・銘柄と同じ作法で、ピッカーはシートの外。
+          {/* 【便R 2026-09-20 本人指示】厚さ・枚数は**ホイールをやめて、その場のピル**にした。
+              便N で行 + ScrollPicker にしたが、幅140のホイールは名札が切れて読めない。
+              選択肢は9つ・10個と少なく、どれも2〜3字と短いので、行に出しきれる。
+              **名札は残し、ピルは名札の下**に置く(9つは名札の右に横1行では入らない)。
+              名札の綴りと左端は他の行と同じ(REED_SHEET_ROW_LABEL_STYLE)。
               **枚数は「追加」のときだけ**。箱の編集では出さない(枚数は箱の中身であって
               箱の属性ではない。編集で枚数を変えると、どの個体を消すのかが決まらない)。 */}
-          <ReedSheetPickRow
-            label="厚さ"
-            value={strength}
-            onOpen={() => setStrengthPickerOpen(true)}
-            expanded={strengthPickerOpen}
-          />
-          {!isEdit && (
-            <ReedSheetPickRow
-              label="枚数"
-              value={count}
-              onOpen={() => setCountPickerOpen(true)}
-              expanded={countPickerOpen}
+          <div style={REED_SHEET_PILL_ROW_STYLE}>
+            <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>厚さ</span>
+            <OptionPills
+              options={REED_STRENGTH_OPTIONS} value={strength}
+              onChange={(v) => setStrength(v)} ariaPrefix="厚さ" marginTop={0}
             />
+          </div>
+          {!isEdit && (
+            <div style={REED_SHEET_PILL_ROW_STYLE}>
+              <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>枚数</span>
+              <OptionPills
+                options={REED_ADD_COUNTS} value={count}
+                onChange={(v) => setCount(clampReedAddCount(v))} ariaPrefix="枚数" marginTop={0}
+              />
+            </div>
           )}
 
           {/* 【便N 2026-09-19 本人指示】編集の下の一手は**横並び**。幅は等分・高さは --tap-min。
@@ -11129,25 +11200,8 @@ function ReedBoxSheet({
           onClose={() => setModelPickerOpen(false)}
         />
       )}
-      {/* 【便N】厚さのピッカー。メーカー・銘柄と同じ場所・同じ作法(シートの外へ出す)。 */}
-      {strengthPickerOpen && (
-        <ScrollPicker
-          options={REED_STRENGTH_OPTIONS}
-          value={strength}
-          onChange={(v) => setStrength(v)}
-          onClose={() => setStrengthPickerOpen(false)}
-        />
-      )}
-      {/* 【便N】枚数のピッカー。追加のときだけ開く(行そのものが追加にしか無い)。
-          値は clampReedAddCount を通したまま ── 箱1つぶんを越える経路を作らない。 */}
-      {countPickerOpen && (
-        <ScrollPicker
-          options={REED_ADD_COUNTS}
-          value={count}
-          onChange={(v) => setCount(clampReedAddCount(v))}
-          onClose={() => setCountPickerOpen(false)}
-        />
-      )}
+      {/* 【便R 2026-09-20】厚さ・枚数のピッカーは**無くなった**(シートの中のピルが選ぶ)。
+          値の歯止め(clampReedAddCount)は呼び出し側に残っている ── 箱1つぶんを越える経路を作らない。 */}
     </>
   );
 }

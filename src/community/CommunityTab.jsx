@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, validateNickname, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
@@ -17,7 +17,7 @@ import { APP_STORE_REVIEW_URL } from "../support.js";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
-import { buildIdealProfileFromSessions, SubTabs, SwipePager, ReedStrengthPills, BottomSheet } from "../App.jsx";
+import { buildIdealProfileFromSessions, SubTabs, SwipePager, OptionPills, BottomSheet } from "../App.jsx";
 // 【アカウント引継の中身は My Data の「記録の保存」そのもの】写しを作らない。
 // 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を1つ増やすだけ。
 import BackupPanel from "../backup/BackupPanel.jsx";
@@ -325,21 +325,19 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
 // 影 / maxHeight / Escape の useEffect / useSheetDismiss を自分で持っていた)。
 // 写しをやめて BottomSheet ただ1つに畳んだので、この関数は中身しか持たない。
 //
-// 【畳めなかった理由と、その解き方】以前ここには「この器だけは BottomSheet に畳めない。
-// portal で body へ出すと .surf-card の外になり、中の BackupPanel の .card が
-// カードとして描かれなくなる」と書いてあった。事実は正しい ── `.card` の寸法は
-// index.css が `.surf-card .card` として持っており、document.body へ出すと
-// `.surf-card` の子孫でなくなって寸法が丸ごと効かなくなる。
-// **解き方: 中身を `.surf-card` の div で包む。** 作法の根を中身と一緒に連れて行けば、
-// ポータル先がどこでも `.surf-card .card` は成立する。`.surf-card` の地は --c-bg で
-// シートのカードの --c-surface と同じ #FFFFFF なので、地の見え方は変わらない
-// (`.surf-card` が持つ左右の負マージンぶん白が食い出すが、色が同じなので見えない)。
+// 【便R 2026-09-20 本人指示】「引き継ぎの中の文をカード形式にする必要ない」。
+// BackupPanel の外側から `card` を外したので、**`.surf-card` の包みも一緒に外した**。
+// この包みは `.card` のためだけに在った ── index.css が `.card` の寸法を
+// `.surf-card .card` として持っており、document.body へ portal されると
+// `.surf-card` の子孫でなくなって寸法が丸ごと効かなくなる、という1点だけが理由だった。
+// 他に落ちる作法は無い: `.surf-card` の地は --c-bg でシートの --c-surface と同色、
+// 左右の負マージンと padding は同じトークンで打ち消し合って幅を1px も変えない。
+// BackupPanel が使う .sans / .ctl-plain / .ctl-pill はどれも `.surf-card` に
+// ぶら下がっていない(index.css の単独規則)。
 export function BackupSheet({ onClose }) {
   return (
     <BottomSheet ariaLabel="アカウント引継" onClose={onClose}>
-      <div className="surf-card">
-        <BackupPanel />
-      </div>
+      <BackupPanel />
     </BottomSheet>
   );
 }
@@ -1127,10 +1125,14 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           />
           {/* 【番手はリードタブと同じピル行】2026/09/06 本人指示で追加。
               リードタブ(App.jsx)の箱は1枚ごとの番手を持つが、ここが持つのは
-              「普段使っている番手」1つ。見た目の部品は App.jsx から借りて1つにする。 */}
+              「普段使っている番手」1つ。見た目の部品は App.jsx から借りて1つにする。
+              【便R 2026-09-20】部品の名前が ReedStrengthPills → OptionPills になった
+              (厚さ・枚数・楽器も同じ見た目を要るようになり、選択肢を引数で受ける形に畳んだ)。
+              **ここが渡す選択肢と並びは REED_STRENGTHS のまま**で、見た目は1px も変わらない。 */}
           <Field label="リードの番手">
-            <ReedStrengthPills value={gearPicks[t]?.reedStrength ?? null} marginTop={0}
-                               onChange={(v) => setPick(t, "reedStrength", v)} />
+            <OptionPills options={REED_STRENGTHS} value={gearPicks[t]?.reedStrength ?? null} marginTop={0}
+                         ariaPrefix="番手"
+                         onChange={(v) => setPick(t, "reedStrength", v)} />
           </Field>
         </div>
       ))}

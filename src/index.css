@@ -956,7 +956,17 @@ textarea {
    見た目は 1px も変わらない。
    **封じられるのは「この要素自身の、!important でない overflow」だけ。**
    `contain: paint` / `clip-path` / **祖先**の overflow でも疑似要素は切られる(審査役の実測で
-   いずれも 44px → 15px)。いまアプリ内に該当は0箇所で、検査もそこは範囲外と名乗っている。 */
+   いずれも 44px → 15px)。
+   【便R 2026-09-20 実測で該当が1箇所できた。0箇所ではない】計測タブの上部設定行の1行目は
+   `overflowX: "auto"`(長い奏者名を横スクロールで届かせるための既存の宣言)を持つ。
+   overflow-x を auto にすると overflow-y も auto に計算されるので、そこに置いた
+   基準ピッチの − / ＋ の疑似要素は**行の高さ(28px)で切られる**。
+   Chrome 375×812 の実測(elementFromPoint を1px刻みで走査):
+   宣言は 44px、実際に押せるのは **44 幅 × 28 高**。**横は 44 に届いている**。
+   行の高さ 28 は §6.1.5(環を動かさない)で動かせないので、ここを 44 高にするには
+   1行目の横スクロールを捨てるしかない ── 捨てると長い奏者名のとき ＋ が画面外へ出て
+   届かなくなる(§6.1.5 の別の側面)。**どちらを取るかは本人裁定待ち**として、
+   いまは「行の高さを守る / 横は 44」を選んでいる。検査は 検証73.2 がこの事実を錨にしている。 */
 .taptext { position: relative; overflow: visible !important; }
 .taptext::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: var(--tap-min); }
 
