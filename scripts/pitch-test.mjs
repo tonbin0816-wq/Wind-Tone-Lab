@@ -25320,6 +25320,260 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証63: 束4 ── プロフィール編集の入力欄を揃える(2026-09-19 本人指示)
+//
+// 本人の言葉:
+//   「プロフィール編集画面で楽器やマウスピースのグレーのカードを
+//     ニックネームのグレーのカードの形に統一」
+//   「演奏開始年も同様に統一」
+//   「属性はダイヤルではなくジャンルなどの他と同様に選択肢をボタンで提示して選択式に変更」
+//
+// **ここで見ること**:
+//   4-A 楽器・マウスピース・リガチャー・リードの欄が、ニックネームと**同じ1つの綴り**に
+//       なったこと(type も style も同じ。欄ごとのインラインの上書きが0であること)
+//   4-B 演奏開始年も同じ綴りになり、**選び方(<select>)は変わっていない**こと
+//   4-C 属性が PillGroup(ジャンル・編成と同じ部品)になり、**1つだけ**選べること
+//       (1つだけを、綴りではなく**式を実際に走らせて**確かめる)
+//   保存される形(buildProfileDoc の呼び出し / onSubmit の11キー / POSITIONS の中身)が
+//   着手前と**1文字も変わっていない**こと
+//   正典(CommProfileEdit.dc.html / community.mjs / canvas.json / DESIGN-SYSTEM)が
+//   同じ姿を持っていること
+//
+// **見ないもの**: iOS Safari での見え方。今回の眼目は
+// 「<select> の ▾ と input[type=search] の UA 描画をやめて形を1つにする」ことだが、
+// **その差が出るのは実機(iOS Safari)だけ**で、dev の Chromium では変更前から
+// 6欄とも 347x44 / --c-sunken / 8px で揃って見えていた(実測)。
+// 実機で本当に揃ったかは**実機でしか判定できない**(dev の実測を合格の根拠にしない)。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① 楽器の欄だけ別の style に戻す ② 演奏開始年だけ別の style に戻す
+//   ③ 属性をダイヤル(<select>)に戻す ④ 属性を複数選べるようにする
+//   ⑤ 正典だけ古い姿に戻す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と属性 ==========");
+{
+  const comm63raw = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const comm63 = codeOf(comm63raw);
+  const form63 = codeOf(srcOfFn(comm63raw, "ProfileForm"));
+  const picker63 = codeOf(srcOfFn(comm63raw, "GearPicker"));
+  const pill63 = codeOf(srcOfFn(comm63raw, "PillGroup"));
+  const css63 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const count63 = (t, re) => (t.match(re) || []).length;
+  const noHtmlComment63 = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const dc63 = noHtmlComment63(readFileSync(join(__dirname, "..", "design", "canvas", "CommProfileEdit.dc.html"), "utf8"));
+  // 色の直書きを数えるときは <style> のトークンの写し(tokens.mjs)と絵柄の SVG を除く。
+  // どちらも**この画面が作った色ではない**(アートボード全部が同じ写しを埋めている)。
+  const body63 = dc63.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<svg[\s\S]*?<\/svg>/g, "");
+  const mjs63 = codeOf(readFileSync(join(__dirname, "..", "design", "canvas", "community.mjs"), "utf8"));
+  const canvas63 = readFileSync(join(__dirname, "..", "design", "canvas", "canvas.json"), "utf8");
+  const ds63 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+
+  check("63.0 フォーム・欄の部品・ピルの部品・正典を読めている(空回りしていない)",
+    form63.length > 4000 && picker63.length > 1500 && pill63.length > 800 && dc63.length > 3000,
+    `form ${form63.length} / picker ${picker63.length} / pill ${pill63.length} / 正典 ${dc63.length}`);
+
+  // --- 63.1 4-A 楽器の組の欄をニックネームと同じ形に ---------------------------
+  check("63.1 4-A 欄の綴りの定義は**1箇所**(controlStyle)",
+    count63(comm63, /const controlStyle = \{/g) === 1,
+    `${count63(comm63, /const controlStyle = \{/g)}箇所`);
+  check("63.1 4-A ニックネームの欄は controlStyle を使う(揃える先の見本。触っていない)",
+    /style=\{nickError \? \{ \.\.\.controlStyle, boxShadow: "inset 0 0 0 1px var\(--c-danger\)" \} : controlStyle\}/.test(form63));
+  check("63.1 4-A 楽器の組の欄も**同じ1つ**を使う(欄ごとの style を持たない)",
+    /style=\{disabled \? controlDisabledStyle : controlStyle\}/.test(picker63)
+    && /const controlDisabledStyle = \{ \.\.\.controlStyle, opacity: 0\.6, cursor: "not-allowed" \};/.test(comm63));
+  check("63.1 4-A 検索欄の type はニックネームと同じ text(iOS が別に描く search をやめた)",
+    /type="text" value=\{query\}/.test(picker63) && !/type="search"/.test(comm63),
+    count63(comm63, /type="search"/g) + "件の search");
+  check("63.1 4-A 楽器の組の欄は4つとも1つの部品(GearPicker)から出る",
+    count63(form63, /<GearPicker\b/g) === 4 && count63(comm63, /function GearPicker\(/g) === 1,
+    `呼び手 ${count63(form63, /<GearPicker\b/g)} / 定義 ${count63(comm63, /function GearPicker\(/g)}`);
+  {
+    // **欄ごとの上書きを、綴りの不在ではなく「中身を取り出して見る」形で数える。**
+    // controlStyle を展開している箱をすべて拾い、寸法・色・角丸の鍵が入っていないことを見る。
+    const spreads63 = comm63.match(/\{ \.\.\.controlStyle[^}]*\}/g) || [];
+    const banned63 = /width|minHeight|height|padding|fontSize|background|border|borderRadius|(^|[^-])\bcolor\b/;
+    const bad63 = spreads63.filter((s) => banned63.test(s.replace("...controlStyle", "")));
+    check("63.1 4-A 欄ごとに寸法・色・角丸をインラインで上書きしている箇所が**0**",
+      bad63.length === 0, bad63.join(" / ") || `展開は ${spreads63.length}箇所(すべて寸法・色・角丸を持たない)`);
+    check("63.1 4-A controlStyle を展開する箇所は2つだけ(ニックネームの赤枠 / 引けないときの薄さ)",
+      spreads63.length === 2
+      && spreads63.some((s) => /boxShadow: "inset 0 0 0 1px var\(--c-danger\)"/.test(s))
+      && spreads63.some((s) => /opacity: 0\.6, cursor: "not-allowed"/.test(s)),
+      spreads63.join(" / "));
+  }
+  {
+    // controlStyle 自身が新しい値を持たないこと(トークンと 100% だけ)。
+    const cs63 = (comm63.match(/const controlStyle = \{[\s\S]*?\n\};/) || [""])[0];
+    check("63.1 4-A controlStyle は生の px / hex を1つも持たない(値を発明していない)",
+      cs63.length > 80 && !/#[0-9a-fA-F]{3,8}\b/.test(cs63) && !/\b\d+px\b/.test(cs63),
+      cs63.replace(/\s+/g, " "));
+    check("63.1 4-A controlStyle は UA の描き分けを外す(綴りを揃えても select は ▾ を描くため)",
+      /appearance: "none"/.test(cs63) && /WebkitAppearance: "none"/.test(cs63), cs63.replace(/\s+/g, " "));
+  }
+  check("63.1 4-A 地・枠・角丸を配るのは index.css の入力欄の規則**1つだけ**(寸法は持たない)",
+    (() => {
+      const rule63 = (css63.match(/input\[type="text"\],[\s\S]*?\n\}/) || [""])[0];
+      return /\nselect,/.test(rule63) && /\ntextarea \{/.test(rule63)
+        && /background: var\(--c-sunken\);/.test(rule63)
+        && /border: 1px solid transparent;/.test(rule63)
+        && /border-radius: var\(--r-xs\);/.test(rule63)
+        && !/min-height|padding|font-size/.test(rule63);
+    })());
+  check("63.1 4-A 候補が出る仕掛けを壊していない(部分一致の4本 + 選ぶと確定 + その他の逃げ道)",
+    /runSearch=\{\(q\) => searchInstrumentModels\(q, t\)\}/.test(form63)
+    && /runSearch=\{\(q\) => searchMouthpieces\(q\)\}/.test(form63)
+    && /runSearch=\{\(q\) => searchLigatures\(q\)\}/.test(form63)
+    && /runSearch=\{\(q\) => searchReeds\(q\)\}/.test(form63)
+    && /const results = !disabled && query\.trim\(\) \? runSearch\(query\)\.slice\(0, 10\) : \[\];/.test(picker63)
+    && /onClick=\{\(\) => \{ setQuery\(""\); onPick\(\{ brand: r\.brand, model: r\.model \}\); \}\}/.test(picker63)
+    && /onPick\(\{ brand: OTHER_BRAND, model: null \}\)/.test(picker63));
+
+  // --- 63.2 4-B 演奏開始年も同じ形に(選び方は変えない) ------------------------
+  check("63.2 4-B 演奏開始年の欄も**同じ1つ**の綴り(controlStyle をそのまま渡す)",
+    /aria-label="演奏開始年" className="sans" style=\{controlStyle\}>/.test(form63));
+  check("63.2 4-B 選び方は変えていない(押すと年の一覧が出る <select> のまま)",
+    /<select value=\{startYear\} onChange=\{\(e\) => setStartYear\(e\.target\.value\)\}/.test(form63)
+    && /\{yearOptions\.map\(\(y\) => <option key=\{y\} value=\{y\}>\{y\}年<\/option>\)\}/.test(form63));
+  check("63.2 4-B 年の一覧の作り方は変えていない(フォームを開くたびに作る。年をまたいでも選べる)",
+    /const \[yearOptions\] = useState\(\(\) => startYearOptions\(\)\);/.test(form63));
+
+  // --- 63.3 4-C 属性をジャンル・編成と同じピルに ------------------------------
+  check("63.3 4-C 属性はピルの並び(PillGroup)で描かれ、ダイヤル(<select>)の綴りが消えた",
+    /<PillGroup\s+options=\{POSITIONS\}/.test(form63)
+    && !/aria-label="属性"/.test(form63.replace(/ariaPrefix="属性"/g, "")),
+    count63(form63, /<select/g) + "個の select がフォームに残っている");
+  check("63.3 4-C **新しい部品を作っていない**(ピルの並びの定義は1つ。呼び手は4つ)",
+    count63(comm63, /function PillGroup\(/g) === 1 && count63(form63, /<PillGroup\b/g) === 4,
+    `定義 ${count63(comm63, /function PillGroup\(/g)} / 呼び手 ${count63(form63, /<PillGroup\b/g)}`);
+  check("63.3 4-C 足したのは引数1つだけ(single。既定は false なので既存の3つは書き換え不要)",
+    /function PillGroup\(\{ options, selected, onToggle, ariaPrefix, labelOf = \(v\) => v, single = false \}\)/.test(pill63));
+  check("63.3 4-C single を渡すのは属性だけ(楽器種別・ジャンル・編成は今までどおり複数選べる)",
+    count63(form63, /\bsingle\b/g) === 1
+    && /ariaPrefix="属性" single/.test(form63)
+    && /<PillGroup options=\{GENRES\} selected=\{genres\} onToggle=\{toggle\(genres, setGenres\)\} ariaPrefix="ジャンル" \/>/.test(form63)
+    && /<PillGroup options=\{ENSEMBLES\} selected=\{ensembles\} onToggle=\{toggle\(ensembles, setEnsembles\)\} ariaPrefix="編成" \/>/.test(form63),
+    `single は ${count63(form63, /\bsingle\b/g)}箇所`);
+  check("63.3 4-C 読み上げは radio の作法(単一は radiogroup + radio + aria-checked / 複数は aria-pressed)",
+    /role=\{single \? "radiogroup" : undefined\} aria-label=\{single \? ariaPrefix : undefined\}/.test(pill63)
+    && /role=\{single \? "radio" : undefined\}/.test(pill63)
+    && /aria-checked=\{single \? on : undefined\}/.test(pill63)
+    && /aria-pressed=\{single \? undefined : on\}/.test(pill63)
+    && /aria-label=\{`\$\{ariaPrefix\} \$\{text\}`\}/.test(pill63));
+  check("63.3 4-C 見た目はジャンル・編成と同じ A型のピルのまま(当たり 44 / 見えるピル 30 / ON は枠と字だけ)",
+    /minHeight: "var\(--tap-min\)", padding: 0, background: "transparent", border: "none"/.test(pill63)
+    && /minHeight: 30, padding: "0 13px", borderRadius: "var\(--r-pill\)"/.test(pill63)
+    && /border: `1px solid \$\{on \? "var\(--c-accent\)" : "var\(--c-line-strong\)"\}`/.test(pill63)
+    && /color: on \? "var\(--c-accent\)" : "var\(--c-ink-2\)"/.test(pill63));
+  {
+    // **「1つだけ」を綴りで見ない。** 呼び手の2つの式をソースから取り出して実際に走らせる。
+    // (複数選べるようにする変異は、ここで選択の数が2になって落ちる。)
+    const posBlock63 = (form63.match(/<PillGroup\s+options=\{POSITIONS\}[\s\S]*?\/>/) || [""])[0];
+    const selExpr63 = (posBlock63.match(/selected=\{([^}]+)\}/) || [])[1];
+    const togExpr63 = (posBlock63.match(/onToggle=\{([^}]+)\}/) || [])[1];
+    const selOf63 = runFn(() => 0).ok && selExpr63 && togExpr63
+      ? (state) => runFn(new Function("position", `return (${selExpr63});`), state)
+      : null;
+    const press63 = (state, p) => {
+      let out = state;
+      const r = runFn(new Function("position", "setPosition", `return (${togExpr63});`), state, (v) => { out = v; });
+      if (!r.ok || typeof r.v !== "function") return { ok: false, v: state, err: r.err || "押す式を組み立てられない" };
+      const r2 = runFn(r.v, p);
+      return { ok: r2.ok, v: out, err: r2.err };
+    };
+    check("63.3 4-C 属性の2つの式(選択中 / 押したとき)をソースから取り出せている",
+      Boolean(selExpr63) && Boolean(togExpr63), `${selExpr63} / ${togExpr63}`);
+    if (selExpr63 && togExpr63) {
+      const s0 = "";
+      const p1 = press63(s0, "社会人");
+      const p2 = press63(p1.v, "独学");
+      const p3 = press63(p2.v, "独学");
+      const sel = (s) => selOf63(s);
+      const a0 = sel(s0), a1 = sel(p1.v), a2 = sel(p2.v), a3 = sel(p3.v);
+      check("63.3 4-C 何も選んでいないときは0件(select の「選択」と同じ。保存される値は空のまま)",
+        a0.ok && Array.isArray(a0.v) && a0.v.length === 0, a0.err || JSON.stringify(a0.v));
+      check("63.3 4-C 押すと**1つだけ**選ばれる",
+        p1.ok && a1.ok && a1.v.length === 1 && a1.v[0] === "社会人", p1.err || a1.err || JSON.stringify(a1.v));
+      check("63.3 4-C 別のを押すと**前のが外れる**(2つ同時に選べない)",
+        p2.ok && a2.ok && a2.v.length === 1 && a2.v[0] === "独学" && !a2.v.includes("社会人"),
+        p2.err || a2.err || JSON.stringify(a2.v));
+      check("63.3 4-C 同じものを押し直すと外れる(押すたびに切り替わる)",
+        p3.ok && a3.ok && a3.v.length === 0, p3.err || a3.err || JSON.stringify(a3.v));
+    }
+  }
+
+  // --- 63.4 ダイヤルの読み手の帳簿 --------------------------------------------
+  // **定義ごと消す判断はしない。** <select> はネイティブの要素で「定義」を持たず、
+  // かつ読み手が0件になっていない(演奏開始年が使い続ける)。残す判断を綴りで縛る。
+  check("63.4 この画面に残る <select> は**演奏開始年の1つだけ**(属性からは消えた)",
+    count63(comm63, /<select\b/g) === 1
+    && /<select value=\{startYear\}/.test(form63),
+    `${count63(comm63, /<select\b/g)}個`);
+  check("63.4 POSITIONS は使われ続けている(読み手を失っていない)",
+    /POSITIONS/.test(comm63) && /options=\{POSITIONS\}/.test(form63));
+
+  // --- 63.5 保存される形は1文字も変わっていない -------------------------------
+  {
+    const positions63 = new Function(`${extractConst("POSITIONS", profileSrc).replace(/^export /, "")} return POSITIONS;`)();
+    check("63.5 POSITIONS の中身が着手前と同一(5つ・並びも同じ)",
+      positions63.join(" / ") === "学生 / 学生（音大） / 社会人 / 講師・プロ / 独学",
+      positions63.join(" / "));
+  }
+  check("63.5 buildProfileDoc の呼び出しは1箇所のまま(保存の道筋を変えていない)",
+    count63(comm63, /buildProfileDoc\(/g) === 1 && /const r = buildProfileDoc\(input\);/.test(comm63),
+    `${count63(comm63, /buildProfileDoc\(/g)}箇所`);
+  {
+    const payload63 = (form63.match(/await onSubmit\(\{[\s\S]*?\n {6}\}\);/) || [""])[0];
+    const keys63 = (payload63.match(/^ {8}(\w+)[,:]/gm) || []).map((s) => s.trim().replace(/[,:]$/, ""));
+    check("63.5 onSubmit に渡す11キーが着手前と同一(位置も名前も変えていない)",
+      keys63.join(" ") === "nickname icon iconColor saxTypes position startYear genres ensembles ageConfirmed isPublic gear",
+      keys63.join(" ") || "取り出せない");
+    check("63.5 属性は今までどおり1つの文字列で渡る(配列にしていない)",
+      /\n {8}position,\n/.test(payload63) && /const \[position, setPosition\] = useState\(initial\?\.position \?\? ""\);/.test(form63));
+  }
+  check("63.5 gear のキーの作り方は変えていない(saxTypes からしか作らない)",
+    /gear: Object\.fromEntries\(saxTypes\.map\(\(t\) => \{/.test(form63)
+    && /return \[t, picksToGearEntry\(gearPicks\[t\]\)\];/.test(form63));
+
+  // --- 63.6 正典(design/canvas と DESIGN-SYSTEM)-------------------------------
+  check("63.6 正典 プロフィール編集のアートボードが在り、canvas.json に載っている",
+    /CommProfileEdit\.dc\.html/.test(canvas63) && dc63.includes("プロフィールを編集"));
+  check("63.6 正典 欄の綴りは1つで、**6つの欄**がそれを使う(ニックネーム + 楽器の組4つ + 演奏開始年)",
+    count63(mjs63, /const FORM_FIELD = /g) === 1
+    && count63(dc63, /background: var\(--c-sunken\); border: 1px solid transparent; border-radius: var\(--r-xs\); appearance: none/g) === 6,
+    `正典の欄 ${count63(dc63, /background: var\(--c-sunken\); border: 1px solid transparent; border-radius: var\(--r-xs\); appearance: none/g)}個`);
+  check("63.6 正典の欄の地・枠・角丸は index.css の入力欄の規則と**同じ綴り**(写しがずれていない)",
+    (() => {
+      const rule63 = (css63.match(/input\[type="text"\],[\s\S]*?\n\}/) || [""])[0];
+      const box63 = (dc63.match(/background: var\(--c-sunken\); border: 1px solid transparent; border-radius: var\(--r-xs\)/) || [""])[0];
+      return box63.length > 0
+        && /background: var\(--c-sunken\);/.test(rule63)
+        && /border: 1px solid transparent;/.test(rule63)
+        && /border-radius: var\(--r-xs\);/.test(rule63);
+    })());
+  check("63.6 正典 属性はピル5つ(社会人が選択中 = 枠と字が --c-accent)。▾ も <select> も無い",
+    /学生/.test(dc63) && /講師・プロ/.test(dc63) && /独学/.test(dc63)
+    && !/<select/.test(dc63)
+    && !/<path d="M2 4l3 3 3-3"/.test(dc63)
+    && count63(dc63, /border: 1px solid var\(--c-accent\); color: var\(--c-accent\)/g) >= 1);
+  check("63.6 正典 演奏開始年は欄のまま(ピルにしていない。選び方を変えていない印)",
+    /演奏開始年<\/div>\s*\n\s*<div style="width: 100%; min-height: 44px/.test(dc63));
+  check("63.6 正典 新しい色を作っていない(--c- 以外の色の直書きが0)",
+    count63(body63, /#[0-9a-fA-F]{3,8}\b/g) === 0,
+    (body63.match(/#[0-9a-fA-F]{3,8}\b/g) || []).join(" / ") || "0件");
+  check("63.6 正典 §6.7 が「入力欄の形は画面で1つ」を表で持っている",
+    /#### 入力欄の形は画面で1つ/.test(ds63)
+    && /\| ニックネーム \| `input\[type="text"\]` \| `controlStyle` \|/.test(ds63)
+    && /\| 演奏開始年（押すと年の一覧が出る） \| `select` \| `controlStyle` \|/.test(ds63)
+    && /`appearance: none`/.test(ds63));
+  check("63.6 正典 §6.7 が「1つだけ選ぶ選択肢も同じピル」を表で持っている",
+    /#### 1つだけ選ぶ選択肢も、複数選ぶ選択肢と同じピルで出す/.test(ds63)
+    && /\| 複数選べる（楽器種別・ジャンル・編成） \| 押しボタンの入\/切 \| `aria-pressed` \|/.test(ds63)
+    && /\| \*\*1つだけ選ぶ（属性）\*\* \| 選択肢の集合 \| `role="radiogroup"` \+ `role="radio"` \+ `aria-checked` \|/.test(ds63));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

@@ -226,6 +226,15 @@
       "title": "マイページ"
     },
     {
+      "file": "CommProfileEdit.dc.html",
+      "page": "page-4",
+      "x": 2730,
+      "y": 0,
+      "w": 375,
+      "h": 1440,
+      "title": "プロフィール編集(束4)"
+    },
+    {
       "file": "CommPerson.dc.html",
       "page": "page-4",
       "x": 1820,

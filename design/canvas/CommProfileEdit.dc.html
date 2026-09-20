@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+      --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
+      --fs-2xl: 28px; --fs-hero: 46px;
+      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --tap-min: 44px;
+      --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
+      --c-rule: #E1E6EC;
+      --c-ink: #121F32; --c-ink-2: #435266; --c-ink-3: #8D95A1; --c-ink-4: #A6AEBA;
+      --c-line: #E9ECF0; --c-line-strong: #C3CAD3;
+      --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
+      --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
+      --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
+      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
+      --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
+      --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
+      --c-avatar-10: #2C3542;
+      --c-disabled: #B7BFC9; --c-danger: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
+      --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
+      --c-quiet: #C7CFD9;
+      --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+    a { color: var(--c-accent); } a:hover { color: #123A70; }
+  </style>
+</helmet>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+
+    </defs>
+  </svg>
+  <!-- 【実測 2026/09/09】app-root と .surf-card が左右 14px を持つ(--page-side-pad)。
+       その中で pageStyle が さらに --sp-4 を足すので、カードの左端は 14+16=30、
+       カードの中の文字は 14+16+16=46。**子タブの文字は 30** なので 16px ずれている。 -->
+  <div style="width: 375px; background: var(--c-bg); padding: 0 14px; box-sizing: border-box">
+    <div style="padding: 0 var(--sp-4)">
+      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">データ</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">順位</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">シェア</div>
+        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">マイページ</div>
+      </div>
+    </div>
+    <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+      <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">プロフィールを編集</div>
+
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">ニックネーム</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center">tone-lab</div>
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6"><span style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)"><span>ニックネームは他の利用者に公開されます</span><span style="font-family: var(--font-num); color: var(--c-ink-3); flex-shrink: 0">8 / 20</span></span></div>
+      </div>
+
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">楽器種別(複数選択可)</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">S.Sax</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">A.Sax</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">T.Sax</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">B.Sax</span>
+        </span>
+        </div>
+      </div>
+
+      <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700">A.Sax</div>
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">楽器</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center"></div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center">カタログに無い(その他)</div>
+      </div>
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">マウスピース</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center"></div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center">カタログに無い(その他)</div>
+      </div>
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">リガチャー</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center"></div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center">カタログに無い(その他)</div>
+      </div>
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">リード</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center"></div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center">カタログに無い(その他)</div>
+      </div>
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">リードの番手</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">2.0</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">2.5</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">3.0</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">3.5</span>
+        </span>
+        </div>
+      </div>
+
+      <!-- 【束4-C】ダイヤル(<select>)をやめ、ジャンル・編成と同じピルにした。
+           違いは「1つだけ選ぶ」ことだけなので、同じ部品に引数を1つ足して使う
+           (role="radiogroup" + role="radio" + aria-checked)。 -->
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">属性</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">学生</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">学生（音大）</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">社会人</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">講師・プロ</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">独学</span>
+        </span>
+        </div>
+      </div>
+
+      <!-- 【束4-B】選び方(押すと年の一覧が出る)は変えない。器の見た目だけニックネームに揃える。 -->
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">演奏開始年</div>
+        <div style="width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center">2015年</div>
+      </div>
+
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">ジャンル(複数選択可)</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">クラシック</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">ジャズ</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">ポップス</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">その他</span>
+        </span>
+        </div>
+      </div>
+
+      <div style="display: grid; gap: var(--sp-1)">
+        <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600">編成(複数選択可)</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">ソロ</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">アンサンブル</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">ビッグバンド</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">吹奏楽</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">オーケストラ</span>
+        </span>
+        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0">
+          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: auto; box-sizing: border-box">その他</span>
+        </span>
+        </div>
+      </div>
+
+      <div style="min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--c-ink)">
+        <span style="width: 18px; height: 18px; flex: 0 0 auto; border: 1px solid var(--c-line-strong); border-radius: 3px"></span>
+        <span>13歳以上です</span>
+      </div>
+
+      <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-md); font-weight: 700; display: flex; align-items: center; justify-content: center">保存</div>
+      <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-md); font-weight: 600; display: flex; align-items: center; justify-content: center">やめる</div>
+    </div>
+  </div>
+</x-dc>
+</body>
+</html>

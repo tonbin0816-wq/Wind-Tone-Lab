@@ -511,7 +511,26 @@ const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHei
 // 【A-3 / F3・F4 2026-09-15 本人裁定】**欄の直下**に出す赤文字。画面下のまとめ(errorStyle)より
 // 1段小さい --fs-xs ── 添え物であって、画面の主張ではないため。
 const fieldErrorStyle = { fontSize: "var(--fs-xs)", color: "var(--c-danger)", lineHeight: 1.6 };
-const controlStyle = { width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)" };
+// 【束4 2026-09-19 本人指示】「楽器やマウスピースのグレーのカードをニックネームの
+// グレーのカードの形に統一」「演奏開始年も同様に統一」。
+// **欄の綴りはこの1つだけ**にする(寸法・地・角丸はここと index.css の入力欄の規則が持ち、
+// 欄ごとにインラインで作り直さない)。地 --c-sunken・枠 1px transparent・角丸 --r-xs は
+// index.css の `input[type=...] , select, textarea` の1つの規則が全員に配る。
+//
+// 【appearance: none が要る理由】同じ宣言を当てても、**ブラウザが要素ごとに別の
+// 描き方(UA の appearance)を持っている**ので形が揃わない。
+//   ・<select> は右端に ▾ を描き、iOS では地と高さの扱いも input と違う
+//   ・input[type="search"] は iOS Safari で高さ・角丸を UA が握り、min-height が効かない
+// 「同じ形」を綴りだけで約束しても描き分けられてしまうので、UA の描き方そのものを外す。
+// **新しい寸法・色・角丸は1つも作っていない**(appearance は値ではなく描き方の指定)。
+// 選び方(押すと ▾ の一覧 / iOS ではピッカー)は器の見た目とは別なので変わらない。
+const controlStyle = {
+  width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)",
+  appearance: "none", WebkitAppearance: "none",
+};
+// 引けない状態(楽器種別が未選択)のときだけ薄くする。**寸法・地・角丸は上を継ぐ**
+// ── 欄ごとにインラインで上書きしないための名前(GearPicker が読む)。
+const controlDisabledStyle = { ...controlStyle, opacity: 0.6, cursor: "not-allowed" };
 
 // 主要動作(参加する・保存する)。B型 = 枠なし + 塗り。
 const primaryButtonStyle = {
@@ -599,19 +618,32 @@ function Field({ label, note, children }) {
 // 見た目・寸法は App.jsx の拍のグループ選択ピルと同値(新しい値を作らない)。
 // labelOf: 保存する値と画面に出す文字が違うとき(楽器種別は値 "alto" / 表示 "A.Sax")に渡す。
 // 既定は「値をそのまま出す」なので、既存の呼び手(ジャンル・編成)は書き換え不要。
-function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v }) {
+//
+// single: **1つだけ選ぶ**並び(属性)。既定は false なので、複数選べる既存の呼び手
+// (楽器種別・ジャンル・編成)は書き換え不要。**新しい部品を作らない**ための引数1つ。
+// 【読み上げは作法が変わる】複数選べる並びは押しボタンの入/切なので aria-pressed、
+// 1つだけ選ぶ並びは選択肢の集合なので role="radiogroup" + role="radio" + aria-checked。
+// 見た目(A型のピル)は同じでも、読み手に伝わる意味が違うので綴りを分ける。
+// 「1つだけ」を守るのは呼び手側(selected に1つしか入れない)。ここは描くだけ。
+function PillGroup({ options, selected, onToggle, ariaPrefix, labelOf = (v) => v, single = false }) {
   return (
     /* 【行間は 0 でよい】ボタンが 44px、中の見えるピルが 30px なので、
        ボタン自体が上下 7px ずつの余白を持っている。ここに縦の gap を足すと
        見た目の間隔が 52px になり、本人指摘の「明らかに大きすぎる」に戻る。 */
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "0 var(--sp-1)" }}>
+    <div
+      role={single ? "radiogroup" : undefined} aria-label={single ? ariaPrefix : undefined}
+      style={{ display: "flex", flexWrap: "wrap", gap: "0 var(--sp-1)" }}
+    >
       {options.map((opt) => {
         const on = selected.includes(opt);
         const text = labelOf(opt);
         return (
           <button
             key={opt} type="button" onClick={() => onToggle(opt)}
-            aria-pressed={on} aria-label={`${ariaPrefix} ${text}`}
+            role={single ? "radio" : undefined}
+            aria-checked={single ? on : undefined}
+            aria-pressed={single ? undefined : on}
+            aria-label={`${ariaPrefix} ${text}`}
             className="sans no-select"
             style={{
               minHeight: "var(--tap-min)", padding: 0, background: "transparent", border: "none",
@@ -822,11 +854,16 @@ function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disable
 
   return (
     <Field label={label} note={note}>
+      {/* 【束4】ニックネームの欄と**まったく同じ綴り**にする(type も style も同じ1つ)。
+          以前は type="search" で、iOS Safari が searchfield として別に描くため
+          「グレーのカードの形」がニックネームと揃っていなかった。
+          打った文字で候補を絞る仕掛けは type に依らない(onChange と runSearch が持つ)ので、
+          1つも壊れない。読み上げは aria-label の「○○を検索」がそのまま担う。 */}
       <input
-        type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+        type="text" value={query} onChange={(e) => setQuery(e.target.value)}
         aria-label={`${ariaPrefix}を検索`}
         disabled={disabled}
-        className="sans" style={{ ...controlStyle, opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "auto" }}
+        className="sans" style={disabled ? controlDisabledStyle : controlStyle}
       />
       {results.length > 0 && (
         <div style={{ display: "grid", gap: 0 }}>
@@ -1067,11 +1104,17 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
         </div>
       ))}
 
+      {/* 【束4 2026-09-19 本人指示】「属性はダイヤルではなくジャンルなどの他と同様に
+          選択肢をボタンで提示して選択式に変更」。**ジャンル・編成と同じ部品**をそのまま使う
+          (新しい部品を作らない)。違いは「1つだけ選ぶ」ことだけなので、引数を1つ足した。
+          押すたびに切り替わり(同じものを押し直すと外れる)、別のものを押すと前のが外れる。
+          **保存される値は変えていない** ── 選ばなければ空文字のまま(select の "選択" と同じ)。 */}
       <Field label="属性">
-        <select value={position} onChange={(e) => setPosition(e.target.value)} aria-label="属性" className="sans" style={controlStyle}>
-          <option value="">選択</option>
-          {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
+        <PillGroup
+          options={POSITIONS} selected={position ? [position] : []}
+          onToggle={(p) => setPosition(position === p ? "" : p)}
+          ariaPrefix="属性" single
+        />
       </Field>
 
       <Field label="演奏開始年">

@@ -444,6 +444,73 @@ function navRow(label, sub = null, last = false) {
         </div>`;
 }
 
+// ---- プロフィール編集(束4 2026-09-19 本人指示) --------------------------
+// 本人:「プロフィール編集画面で楽器やマウスピースのグレーのカードをニックネームの
+//        グレーのカードの形に統一」「演奏開始年も同様に統一」
+//        「属性はダイヤルではなくジャンルなどの他と同様に選択肢をボタンで提示して選択式に変更」
+//
+// 【欄の綴りは1つ】ニックネーム・楽器・マウスピース・リガチャー・リード・演奏開始年が
+// **同じ FORM_FIELD** を使う。欄ごとに寸法・地・角丸を持たせない。
+// 実装は src/community/CommunityTab.jsx の controlStyle + index.css の入力欄の規則。
+// **appearance: none** が要る: 同じ宣言を当てても、<select> は ▾ を描き、
+// input[type="search"] は iOS Safari が別の形で描くので、綴りだけでは形が揃わない。
+// (実装は検索欄の type も "text" にしてニックネームと完全に同じにしてある。)
+const FORM_FIELD = "width: 100%; min-height: 44px; padding: 0 var(--sp-3); font-size: var(--fs-sm); color: var(--c-ink); background: var(--c-sunken); border: 1px solid transparent; border-radius: var(--r-xs); appearance: none; box-sizing: border-box; display: flex; align-items: center";
+
+// Field(CommunityTab.jsx): 見出し + 中身(+ 注意書き)
+function formField(label, inner, note = null) {
+  return `      <div style="display: grid; gap: var(--sp-1)">
+        <div style="${LABEL}">${label}</div>
+${inner}${note ? `\n        <div style="${NOTE}">${note}</div>` : ""}
+      </div>`;
+}
+// 空の入力欄(打つと候補が出る欄・年を選ぶ欄・ニックネームの欄がこれ1つ)
+const formBox = (value = "") => `        <div style="${FORM_FIELD}">${value}</div>`;
+// PillGroup(CommunityTab.jsx): 行間 0 / 横は --sp-1。選択中は枠と字が --c-accent。
+function pillRow(items) {
+  return `        <div style="display: flex; flex-wrap: wrap; gap: 0 var(--sp-1)">
+${items.map(([t, on]) => chip(t, on, false)).join("\n")}
+        </div>`;
+}
+const OTHER_BTN = "width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center";
+
+function buildProfileEdit() {
+  const gearField = (label) => `${formField(label, `${formBox()}\n        <div style="${OTHER_BTN}">カタログに無い(その他)</div>`)}`;
+  return screen("me", `<div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">プロフィールを編集</div>
+
+${formField("ニックネーム", formBox("tone-lab"),
+    `<span style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)"><span>ニックネームは他の利用者に公開されます</span><span style="${NUM}; color: var(--c-ink-3); flex-shrink: 0">8 / 20</span></span>`)}
+
+${formField("楽器種別(複数選択可)", pillRow([["S.Sax", false], ["A.Sax", true], ["T.Sax", false], ["B.Sax", false]]))}
+
+      <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700">A.Sax</div>
+${gearField("楽器")}
+${gearField("マウスピース")}
+${gearField("リガチャー")}
+${gearField("リード")}
+${formField("リードの番手", pillRow([["2.0", false], ["2.5", false], ["3.0", true], ["3.5", false]]))}
+
+      <!-- 【束4-C】ダイヤル(<select>)をやめ、ジャンル・編成と同じピルにした。
+           違いは「1つだけ選ぶ」ことだけなので、同じ部品に引数を1つ足して使う
+           (role="radiogroup" + role="radio" + aria-checked)。 -->
+${formField("属性", pillRow([["学生", false], ["学生（音大）", false], ["社会人", true], ["講師・プロ", false], ["独学", false]]))}
+
+      <!-- 【束4-B】選び方(押すと年の一覧が出る)は変えない。器の見た目だけニックネームに揃える。 -->
+${formField("演奏開始年", formBox("2015年"))}
+
+${formField("ジャンル(複数選択可)", pillRow([["クラシック", false], ["ジャズ", true], ["ポップス", false], ["その他", false]]))}
+
+${formField("編成(複数選択可)", pillRow([["ソロ", true], ["アンサンブル", false], ["ビッグバンド", false], ["吹奏楽", false], ["オーケストラ", false], ["その他", false]]))}
+
+      <div style="min-height: 44px; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--c-ink)">
+        <span style="width: 18px; height: 18px; flex: 0 0 auto; border: 1px solid var(--c-line-strong); border-radius: 3px"></span>
+        <span>13歳以上です</span>
+      </div>
+
+      <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-md); font-weight: 700; display: flex; align-items: center; justify-content: center">保存</div>
+      <div style="${BTN2}">やめる</div>`);
+}
+
 // ---- 人をタップしたとき(表 = 音のデータ / 裏 = プロフィール) -------------
 // 【R9 2026-09-16 実機の指摘】地(--c-sunken)と左右の padding を外した(App.jsx の BACK_BUTTON_STYLE と同値)。
 const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center";
@@ -835,6 +902,7 @@ const FILES = [
   ["CommRank.dc.html", buildRank, "順位"],
   ["CommShare.dc.html", buildShare, "シェア"],
   ["CommMyPage.dc.html", buildMyPage, "マイページ"],
+  ["CommProfileEdit.dc.html", buildProfileEdit, "プロフィール編集(束4)"],
   ["CommPerson.dc.html", buildPerson, "人をタップ(表 音のデータ)"],
   ["CommPersonBack.dc.html", buildPersonBack, "人をタップ(裏 プロフィール)"],
   ["CommDataB.dc.html", buildDataB, "改善案 データ(線に名前)"],
