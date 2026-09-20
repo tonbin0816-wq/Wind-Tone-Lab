@@ -419,10 +419,15 @@ ${infoRow("編成", "ソロ・ビッグバンド")}
       </div>
 
       <!-- 【並び C10 2026-09-16】公開スイッチ → お問い合わせ / 規約 / ポリシー → uid → 編集 → 引継 → 削除(破壊的な一手が最後) -->
+      <!-- 【束3 2026-09-19 本人指示】お問い合わせはアプリの中のフォーム(FeedbackSheet)を開く行になった。
+           アドレスの副題は消えた ── フォームで送るので写す先が無い。
+           「レビューを送る」の行はお問い合わせの**上**に入るが、飛び先(APP_STORE_REVIEW_URL)が
+           null の間は行ごと出ない。**いまの画面には無い**ので、ここにも描かない
+           (このカタログは「現状」の写しであって提案ではない)。 -->
       <div style="${CARD}; padding: 0; margin-top: var(--sp-4)">
-${navRow("お問い合わせ", "ficus.help@gmail.com")}
+${navRow("お問い合わせ")}
 ${navRow("利用規約")}
-${navRow("プライバシーポリシー", null, true)}
+${navRow("プライバシーポリシー", true)}
       </div>
 
       <div style="${NOTE}; text-align: center; word-break: break-all; margin-top: var(--sp-2)">a1b2c3d4e5f6g7h8i9j0k1l2m3n4</div>
@@ -437,9 +442,11 @@ ${navRow("プライバシーポリシー", null, true)}
 
 // NavRow(CommunityTab.jsx): 当たり 44 / padding 8 16 / 罫は行の間だけ / 右端の山形(RowChevron 8px)
 // 【C11 2026-09-16】規約・ポリシーは押すとアプリの中のシート(LegalSheet)が開く。外へは出ない。
-function navRow(label, sub = null, last = false) {
+// 【束3 2026-09-19】お問い合わせも同じくシート(FeedbackSheet)。副題(アドレス)の受け口は
+// 実装(NavRow)から消えたので、こちらも持たない ── 正典に画面に無いものを残さない。
+function navRow(label, last = false) {
   return `        <div style="display: flex; align-items: center; gap: var(--sp-3); min-height: 44px; padding: var(--sp-2) var(--sp-4); border-bottom: ${last ? "none" : "1px solid var(--c-line)"}; color: var(--c-ink); font-size: var(--fs-sm); font-weight: 600">
-          <span style="flex: 1 1 0; min-width: 0">${label}${sub ? `<span style="display: block; font-size: var(--fs-xs); color: var(--c-ink-3); font-weight: 400">${sub}</span>` : ""}</span>
+          <span style="flex: 1 1 0; min-width: 0">${label}</span>
           <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </div>`;
 }

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X } from "lucide-react";
-import { BACK_BUTTON_STYLE, BottomSheet } from "../App.jsx";
+import { BottomSheet } from "../App.jsx";
 import { PRIVACY_URL, TERMS_URL } from "../support.js";
 
 // ------------------------------------------------------------------
@@ -54,7 +53,7 @@ const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHei
 
 /**
  * @param kind "terms" | "privacy"
- * @param onClose 閉じる(× / つまみ / Esc / 暗幕タップ。後ろ3つは BottomSheet が持つ)
+ * @param onClose 閉じる(つまみ / 下スワイプ / Esc / 暗幕タップ。**4つとも BottomSheet が持つ**)
  */
 export default function LegalSheet({ kind, onClose }) {
   const [state, setState] = useState(() => (cache.has(kind) ? { html: cache.get(kind) } : { loading: true }));
@@ -70,12 +69,12 @@ export default function LegalSheet({ kind, onClose }) {
 
   return (
     <BottomSheet ariaLabel={DOC[kind].label} onClose={onClose}>
-      {/* 【先頭に閉じる手段】左上。44×44・地なし(BACK_BUTTON_STYLE と同じ考え)。
-          つまみ・Esc・暗幕タップも BottomSheet の既存どおり効く。 */}
-      <button type="button" onClick={onClose} aria-label="閉じる" className="sans"
-        style={{ ...BACK_BUTTON_STYLE, width: "var(--tap-min)", justifyContent: "center", alignSelf: "flex-start" }}>
-        <X size={17} strokeWidth={1.9} aria-hidden="true" />
-      </button>
+      {/* 【束3 2026-09-19 本人指示】左上の閉じる印は**消した**。本人
+          「利用規約とプライバシーポリシーは下から出てくる形に変更になったので左上の×ボタンは削除」。
+          閉じる手段は器(BottomSheet)が4つ持っている: つまみ・下スワイプ・Esc・暗幕タップ。
+          下から出るシートでは**つまみと下スワイプが閉じ方の合図**なので、左上の印は
+          同じことをもう一度言っているだけになる(§6.0 の「二重の印を置かない」と同じ考え)。
+          **onClose の受け口と配線は残す** ── 器がそれを呼ぶ。 */}
       {state.error ? (
         <div className="sans" role="alert" style={errorStyle}>読み込めませんでした</div>
       ) : state.html ? (

@@ -10,9 +10,10 @@ import { Pencil } from "lucide-react";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
-// 【計画5 2026-09-10】運営者への連絡先。綴りの写しを作らない。
-// (法務文書の path は LegalSheet.jsx が読む。ここはリンクを持たなくなった 2026-09-16 C11)
-import { SUPPORT_EMAIL } from "../support.js";
+// 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
+// (理由は support.js)。お問い合わせのアドレス(SUPPORT_EMAIL)はもう画面に出さないので
+// ここでは読まない ── 連絡はアプリの中のフォーム(FeedbackSheet)が受ける。
+import { APP_STORE_REVIEW_URL } from "../support.js";
 import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "./idealRepo.js";
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
@@ -29,6 +30,8 @@ import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds
 import LoadingRing from "./LoadingRing.jsx";
 // 【C11・C12 2026-09-16】規約・ポリシーはアプリの中で読む(外へ出ない)。
 import LegalSheet from "./LegalSheet.jsx";
+// 【束3 2026-09-19 本人指示】お問い合わせもアプリの中で完結する(メールへ飛ばさない)。
+import FeedbackSheet from "./FeedbackSheet.jsx";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -566,6 +569,9 @@ function JoinIntro({ onJoin, notice = null }) {
   const [busy, setBusy] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
   const [legal, setLegal] = useState(null);
+  // 【束3】お問い合わせのシート。**未参加の人も送れる**(送信のときに匿名の資格情報だけを
+  // 作る。users は書かないので参加にはならない)。
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const join = async () => {
     if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
     setBusy(true);
@@ -589,15 +595,18 @@ function JoinIntro({ onJoin, notice = null }) {
           **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
       <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
         {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
-            お問い合わせ(mailto:)はそのまま。 */}
+            【束3 2026-09-19】お問い合わせも同じ形にした ── 以前の mailto: は端末に
+            メールアプリが無いと何も起きず、有ってもアプリの外へ出る。3つとも同じ
+            「押すとシートが開く」になったので、見た目も同じ linkButtonStyle に揃う。 */}
         <button type="button" onClick={() => setLegal("terms")} className="sans" style={linkButtonStyle}>利用規約</button>
         <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
-        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: "var(--c-accent)" }}>お問い合わせ</a>
+        <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
       </div>
       <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
       </button>
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
+      {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </div>
   );
 }
@@ -1162,10 +1171,16 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 // Row(ラベルと値)とは役目が違う ── こちらは**押せる**。
 // 地も枠も足さず、押せることは右端の山形だけで返す(§6.7)。
 // 幅いっぱいが当たりになるので、横に並べた文字のリンクより押し分けやすい(§5)。
-// 【C11・C12 2026-09-16】href(mailto:)か onClick(アプリの中のシートを開く)のどちらか。
+// 【C11・C12 2026-09-16】href か onClick(アプリの中のシートを開く)のどちらか。
 // 以前あった external(別タブで開く)の経路は消した ── アプリの外へ出ると戻る手段が無く、
 // 戻ると SPA が再起動する(理由は LegalSheet.jsx)。
-function NavRow({ label, href = null, onClick = null, sub = null, last = false }) {
+// **href に target は付けない**(便H で target="_blank" はアプリから0件にしてある)。
+//
+// 【束3 2026-09-19】副題(sub)の受け口を消した。唯一の使い手だった「お問い合わせ」が
+// mailto: をやめてアプリの中のフォームになり、**アドレスを写して使う必要が無くなった**ため
+// (以前は「メールアプリを入れていない端末でも写せるように」という理由で出していた)。
+// 受け口だけ残すと、次に行を足す人が「何のための副題か」を読めない死んだ引数になる。
+function NavRow({ label, href = null, onClick = null, last = false }) {
   const style = {
     display: "flex", alignItems: "center", gap: "var(--sp-3)",
     width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer",
@@ -1178,12 +1193,7 @@ function NavRow({ label, href = null, onClick = null, sub = null, last = false }
   };
   const inner = (
     <>
-      <span style={{ flex: "1 1 0", minWidth: 0 }}>
-        {label}
-        {/* 【アドレスも出す】mailto を開けない端末(メールアプリを入れていない)でも
-            写して使える形が要る。 */}
-        {sub ? <span className="sans" style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", fontWeight: 400 }}>{sub}</span> : null}
-      </span>
+      <span style={{ flex: "1 1 0", minWidth: 0 }}>{label}</span>
       <RowChevron />
     </>
   );
@@ -1212,6 +1222,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   const [busy, setBusy] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
   const [legal, setLegal] = useState(null);
+  // 【束3 2026-09-19】お問い合わせのシート(アプリの中のフォーム)。
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   // 【B-3 / T7 2026-09-15 本人裁定】削除の確認は window.confirm ではなくシート1枚。
   // 確認の文には**何が消えて何が残るか**が要り、confirm は1行しか持てない。
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1405,7 +1417,13 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
           行にすれば幅いっぱいが当たりになる(§5)。押せることは右端の山形だけで返す(§6.7)。
           【C11・C12 2026-09-16】規約・ポリシーはアプリの中のシート(LegalSheet)。外へ出ない。 */}
       <div className="card" style={{ padding: 0, marginTop: "var(--sp-4)" }}>
-        <NavRow label="お問い合わせ" href={`mailto:${SUPPORT_EMAIL}`} sub={SUPPORT_EMAIL} />
+        {/* 【束3 2026-09-19 本人指示】レビューの行は**お問い合わせの上**。
+            飛び先(APP_STORE_REVIEW_URL)が決まるまでは**行ごと出さない** ──
+            押しても何も起きない一手を並べない(§6.1.5)。理由と埋め方は support.js。 */}
+        {APP_STORE_REVIEW_URL ? <NavRow label="レビューを送る" href={APP_STORE_REVIEW_URL} /> : null}
+        {/* 【束3 2026-09-19 本人指示】メールへ飛ばすのをやめ、アプリの中のフォームを開く。
+            アドレスの副題は出さない ── フォームで送るので写す先が無い。 */}
+        <NavRow label="お問い合わせ" onClick={() => setFeedbackOpen(true)} />
         <NavRow label="利用規約" onClick={() => setLegal("terms")} />
         <NavRow label="プライバシーポリシー" onClick={() => setLegal("privacy")} last />
       </div>
@@ -1443,6 +1461,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
       </div>
 
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
+      {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
 
       {/* 【B-3 / T7 2026-09-15 本人裁定】削除の確認。器はアプリで1つの BottomSheet。
           【「戻せるか」の行は置かない】本人裁定。戻せないことは「消えるもの」の行が

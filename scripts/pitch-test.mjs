@@ -24148,31 +24148,37 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
       /const cache = new Map\(\);/.test(legal52) && /if \(cache\.has\(kind\)\) return cache\.get\(kind\);/.test(legal52)
       && /<div className="sans" role="alert" style=\{errorStyle\}>読み込めませんでした<\/div>/.test(legal52)
       && extractConst("errorStyle", legal52).replace(/^const errorStyle = /, "") === extractConst("errorStyle", comm52).replace(/^const errorStyle = /, ""));
-    check("52.9 C11 器は BottomSheet(App.jsx export)。先頭に閉じる(aria-label=\"閉じる\"、44×44、地なし = BACK_BUTTON_STYLE の考え、左上)",
-      /import \{ BACK_BUTTON_STYLE, BottomSheet \} from "\.\.\/App\.jsx";/.test(legal52)
-      && /<BottomSheet ariaLabel=\{DOC\[kind\]\.label\} onClose=\{onClose\}>\s*(?:\{\})?\s*<button type="button" onClick=\{onClose\} aria-label="閉じる"/.test(legal52)
-      && /style=\{\{ \.\.\.BACK_BUTTON_STYLE, width: "var\(--tap-min\)", justifyContent: "center", alignSelf: "flex-start" \}\}/.test(legal52)
-      && /<X size=\{17\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(legal52));
+    // 【束3 2026-09-19 本人指示で書き換えた】先頭の閉じる印(×)は消えた。
+    // 錨は緩めず、**「器を呼んでいる」+「中身の側に閉じる一手を持たない」**を同じ強さで見る。
+    // 詳しくは 検証64(3-A)。
+    check("52.9 C11 器は BottomSheet(App.jsx export)。中身の側は閉じる一手を持たない(閉じ方は器の4つ)",
+      /import \{ BottomSheet \} from "\.\.\/App\.jsx";/.test(legal52)
+      && /<BottomSheet ariaLabel=\{DOC\[kind\]\.label\} onClose=\{onClose\}>/.test(legal52)
+      && countIn(legal52, /<button/g) === 0
+      && countIn(legal52, /BACK_BUTTON_STYLE/g) === 0
+      && countIn(legal52, /lucide-react/g) === 0);
     check("52.9 C11 本文はシートの中でスクロール(BottomSheet の器が maxHeight と overflowY を持つ。写しを作っていない)",
       /maxHeight: "calc\(100dvh - var\(--nav-h\)\)", overflowY: "auto"/.test(codeOf(srcOfFn(src, "BottomSheet")))
       && !/overflowY/.test(legal52) && !/maxHeight/.test(legal52));
     check("52.9 C11・C12 src/community に target=\"_blank\" 0 / rel=\"noreferrer\" 0 / window.open 0",
       countIn(commAll52, /target="_blank"/g) === 0 && countIn(commAll52, /rel="noreferrer"/g) === 0 && countIn(commAll52, /window\.open\(/g) === 0,
       `blank ${countIn(commAll52, /target="_blank"/g)} / noreferrer ${countIn(commAll52, /rel="noreferrer"/g)}`);
-    check("52.9 C11 NavRow は href(mailto)か onClick(シート)。<a target=_blank> の経路(external)は無い",
-      /function NavRow\(\{ label, href = null, onClick = null, sub = null, last = false \}\)/.test(nav52)
+    // 【束3 2026-09-19 本人指示で書き換えた】お問い合わせはアプリの中のフォームになり、
+    // NavRow の副題(sub)は唯一の使い手を失って消えた。錨は緩めず、**受け口が無いこと**まで見る。
+    check("52.9 C11 NavRow は href か onClick(シート)。<a target=_blank> の経路(external)も副題(sub)も無い",
+      /function NavRow\(\{ label, href = null, onClick = null, last = false \}\)/.test(nav52)
       && /if \(href\) return <a href=\{href\} className="sans" style=\{style\}>\{inner\}<\/a>;/.test(nav52)
       && /return <button type="button" onClick=\{onClick\} className="sans" style=\{style\}>\{inner\}<\/button>;/.test(nav52)
-      && countIn(nav52, /external/g) === 0);
-    check("52.9 C11 ProfileView: 規約 / ポリシーは onClick で LegalSheet。お問い合わせは mailto のまま",
+      && countIn(nav52, /external/g) === 0 && countIn(nav52, /\bsub\b/g) === 0);
+    check("52.9 C11 ProfileView: 規約 / ポリシーは onClick で LegalSheet。お問い合わせは onClick でアプリの中のフォーム",
       /<NavRow label="利用規約" onClick=\{\(\) => setLegal\("terms"\)\} \/>/.test(profile52)
       && /<NavRow label="プライバシーポリシー" onClick=\{\(\) => setLegal\("privacy"\)\} last \/>/.test(profile52)
-      && /<NavRow label="お問い合わせ" href=\{`mailto:\$\{SUPPORT_EMAIL\}`\} sub=\{SUPPORT_EMAIL\} \/>/.test(profile52)
+      && /<NavRow label="お問い合わせ" onClick=\{\(\) => setFeedbackOpen\(true\)\} \/>/.test(profile52)
       && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(profile52));
-    check("52.9 C11 JoinIntro(波及): 規約 / ポリシーは <button> で同じシート。お問い合わせは mailto のまま",
+    check("52.9 C11 JoinIntro(波及): 規約 / ポリシー / お問い合わせの3つとも <button> で同じ作法のシート",
       /<button type="button" onClick=\{\(\) => setLegal\("terms"\)\} className="sans" style=\{linkButtonStyle\}>利用規約<\/button>/.test(join52)
       && /<button type="button" onClick=\{\(\) => setLegal\("privacy"\)\} className="sans" style=\{linkButtonStyle\}>プライバシーポリシー<\/button>/.test(join52)
-      && /<a href=\{`mailto:\$\{SUPPORT_EMAIL\}`\} style=\{\{ color: "var\(--c-accent\)" \}\}>お問い合わせ<\/a>/.test(join52)
+      && /<button type="button" onClick=\{\(\) => setFeedbackOpen\(true\)\} className="sans" style=\{linkButtonStyle\}>お問い合わせ<\/button>/.test(join52)
       && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(join52)
       && countIn(join52, /TERMS_URL|PRIVACY_URL/g) === 0);
     check("52.9 C11 CommunityTab.jsx は LegalSheet を import し、TERMS_URL / PRIVACY_URL を持たない(path は LegalSheet だけが読む)",
@@ -25574,6 +25580,323 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証64: 束3 ── お問い合わせのフォーム / レビュー / 規約の閉じ方(2026-09-19 本人指示・裁定ずみ)
+//
+// 本人の言葉:
+//   「プロフィールの利用規約とプライバシーポリシーは下から出てくる形に変更になったので
+//     左上の×ボタンは削除」
+//   「お問い合わせはメールに飛ばす形ではなくて添付画像のような形を採用できますか？」
+//   「お問い合わせの上にレビューを送る を追加してタップで App Store のレビュー画面に遷移するよう
+//     機能を追加」
+//
+// **ここで見ること**:
+//   3-A LegalSheet から閉じる印(×)が消え、**閉じ方は器(BottomSheet)の4つだけ**になったこと。
+//       `onClose` の受け口と配線は残っていること。
+//   3-B お問い合わせがアプリの中のフォームになったこと。綴り8つが1件ずつ・上限 1000・
+//       **空のときは押せない**(綴りではなく**式を実際に走らせて**確かめる)・二重送信を止める・
+//       書くだけで読まない・rules の上限と画面の上限が同じ数であること。
+//   3-C レビューの行が**仕込まれているが出ていない**こと(飛び先が null のため)。
+//
+// **見ないもの**: 実機(iOS Safari)での入力欄の高さと、ソフトキーボードが出たときの
+// シートの見え方。`100dvh` の実寸も、キーボードが `dvh` を縮めるかどうかも
+// **実機でしか判定できない**(dev の Chromium の実測を合格の根拠にしない)。
+// **本番 Firestore への書き込みも見ない**(検査は1件も送らない)。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① LegalSheet に × を戻す ② 送信を空でも押せるようにする
+//   ③ feedbackRepo に読む関数を足す ④ rules の 1000 文字の上限を外す
+//   ⑤ mailto: を戻す ⑥ URL が null でもレビューの行を出す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証64: 束3 お問い合わせのフォームとレビューの行 ==========");
+{
+  const read64 = (...p) => readFileSync(join(__dirname, "..", ...p), "utf8");
+  const feedRaw64 = read64("src", "community", "FeedbackSheet.jsx");
+  const feed64 = codeOf(feedRaw64);
+  const sheet64 = codeOf(srcOfFn(feedRaw64, "FeedbackSheet"));
+  const repoRaw64 = read64("src", "community", "feedbackRepo.js");
+  const repo64 = codeOf(repoRaw64);
+  const legal64 = codeOf(read64("src", "community", "LegalSheet.jsx"));
+  const commRaw64 = read64("src", "community", "CommunityTab.jsx");
+  const comm64 = codeOf(commRaw64);
+  const profile64 = codeOf(srcOfFn(commRaw64, "ProfileView"));
+  const join64 = codeOf(srcOfFn(commRaw64, "JoinIntro"));
+  const nav64 = codeOf(srcOfFn(commRaw64, "NavRow"));
+  const support64 = codeOf(read64("src", "support.js"));
+  const rulesCode64 = codeOf(read64("firestore.rules"));
+  const app64 = codeOf(src);
+  const bottom64 = codeOf(srcOfFn(src, "BottomSheet"));
+  const ds64 = read64("design", "DESIGN-SYSTEM.md");
+  const mjs64 = codeOf(read64("design", "canvas", "community.mjs"));
+  const dcMe64 = read64("design", "canvas", "CommMyPage.dc.html").replace(/<!--[\s\S]*?-->/g, "");
+  const count64 = (t, re) => (t.match(re) || []).length;
+  // src/community 配下の .js / .jsx をまとめて(mailto: の不在を**階層全体**で見る)
+  const commDir64 = join(__dirname, "..", "src", "community");
+  const commAll64 = readdirSync(commDir64).filter((f) => /\.(jsx?|css)$/.test(f))
+    .map((f) => codeOf(readFileSync(join(commDir64, f), "utf8"))).join("\n");
+
+  check("64.0 3つの実装・器・ルール・正典を読めている(空回りしていない)",
+    feed64.length > 2000 && repo64.length > 400 && legal64.length > 800
+    && bottom64.length > 800 && rulesCode64.length > 3000 && mjs64.length > 3000,
+    `sheet ${feed64.length} / repo ${repo64.length} / legal ${legal64.length} / 器 ${bottom64.length} / rules ${rulesCode64.length}`);
+
+  // --- 64.1 3-A 規約シートの左上の × を消す ----------------------------------
+  check("64.1 3-A LegalSheet.jsx に X の import も <X も 0。閉じる一手(<button)そのものが無い",
+    count64(legal64, /lucide-react/g) === 0 && count64(legal64, /<X\b/g) === 0
+    && count64(legal64, /\bX\b/g) === 0 && count64(legal64, /<button/g) === 0
+    && count64(legal64, /BACK_BUTTON_STYLE/g) === 0,
+    `lucide ${count64(legal64, /lucide-react/g)} / <X ${count64(legal64, /<X\b/g)} / <button ${count64(legal64, /<button/g)}`);
+  check("64.1 3-A onClose の受け口と配線は残る(器がそれを呼ぶ)",
+    /export default function LegalSheet\(\{ kind, onClose \}\)/.test(legal64)
+    && /<BottomSheet ariaLabel=\{DOC\[kind\]\.label\} onClose=\{onClose\}>/.test(legal64)
+    && count64(legal64, /onClose/g) === 3,
+    `onClose ${count64(legal64, /onClose/g)}箇所`);
+  check("64.1 3-A 閉じ方は器(BottomSheet)が4つ持っている: つまみ / 下スワイプ / Esc / 暗幕タップ",
+    /aria-label="閉じる"/.test(bottom64)
+    && /useSheetDismiss\(onClose\)/.test(bottom64)
+    && /if \(e\.key === "Escape"\) onClose\(\);/.test(bottom64)
+    && /role="dialog" aria-modal="true" aria-label=\{ariaLabel\}\s*\n\s*onClick=\{onClose\}/.test(bottom64));
+  check("64.1 3-A §6.7 が「下から出るシートに左上の閉じる印を足さない」を表で持つ(4つの持ち主)",
+    /#### 下から出るシートに左上の閉じる印を足さない/.test(ds64)
+    && /\| つまみ（36×4）を押す \| `BottomSheet` \|/.test(ds64)
+    && /\| 下スワイプ \| `BottomSheet`（`useSheetDismiss`） \|/.test(ds64)
+    && /\| `Esc` \| `BottomSheet` \|/.test(ds64)
+    && /\| 暗幕タップ \| `BottomSheet` \|/.test(ds64));
+
+  // --- 64.2 3-B お問い合わせの画面(綴り・寸法・押せる条件)---------------------
+  check("64.2 3-B FeedbackSheet.jsx が在り、器は BottomSheet(自前の暗幕・角丸・Esc を持たない)",
+    /import \{ BottomSheet \} from "\.\.\/App\.jsx";/.test(feed64)
+    && /<BottomSheet ariaLabel=\{SHEET_TITLE\} onClose=\{onClose\}>/.test(feed64)
+    && !/overflowY|borderRadius: "28px|Escape|createPortal/.test(feed64));
+  {
+    // 本人の添付画像の綴り。**1件ずつ**(写しが2つ出来ていない / 言い換えが混ざっていない)。
+    const words64 = [
+      [/お問い合わせ・要望\/感想/g, "見出し"],
+      [/ひとことだけでも構いません。/g, "本文1"],
+      [/お気軽にお問い合わせください。/g, "本文2"],
+      [/例\)/g, "例)"],
+      [/・使ってみた感想/g, "例の1行目"],
+      [/・機能などのご要望/g, "例の2行目"],
+      [/・不具合の報告/g, "例の3行目"],
+      [/placeholder="ここに入力\.\.\."/g, "placeholder"],
+      [/>送信<\/button>/g, "送信のボタン"],
+      [/送信するとこの端末に匿名のIDが作られます。名前や連絡先は送られません。/g, "断り書き"],
+    ];
+    const bad64 = words64.filter(([re]) => count64(feed64, re) !== 1).map(([re, n]) => `${n}=${count64(feed64, re)}`);
+    check("64.2 3-B 画面の綴り10個がそれぞれ**1件ずつ**", bad64.length === 0, bad64.join(" / ") || "10個とも1件");
+  }
+  check("64.2 3-B 見出しは ariaLabel と同じ1つの綴りから出る(目で読む人と聞く人が別の名前の画面に居ない)",
+    /const SHEET_TITLE = "お問い合わせ・要望\/感想";/.test(feed64)
+    && /ariaLabel=\{SHEET_TITLE\}/.test(feed64) && />\{SHEET_TITLE\}<\/div>/.test(feed64));
+  check("64.2 3-B 入力欄は <textarea> で、maxLength は上限の定数から引く(生の数を書いていない)",
+    /<textarea/.test(feed64) && /maxLength=\{FEEDBACK_MAX\}/.test(feed64)
+    && /import \{ sendFeedback, FEEDBACK_MAX \} from "\.\/feedbackRepo\.js";/.test(feed64)
+    && count64(feed64, /1000/g) === 0,
+    `FeedbackSheet の中の 1000 は ${count64(feed64, /1000/g)}件`);
+  check("64.2 3-B 入力欄の高さは既存の式から作る(新しい数を発明していない)",
+    /const INPUT_H = "calc\(\(100dvh - var\(--nav-h\)\) \/ 2\)";/.test(feed64)
+    && /minHeight: INPUT_H/.test(feed64)
+    && /maxHeight: "calc\(100dvh - var\(--nav-h\)\)"/.test(bottom64));
+  {
+    // 生の色・生の px は0。幅いっぱい(100%)と字の太さ(700)は既存の綴りと同じなので除いて数え、
+    // **残る多桁の数が ACTION_LG_PX の 56 ただ1つ**であることを見る(値を発明していない印)。
+    const raw64 = feed64.replace(/width: "100%"/g, "").replace(/fontWeight: 700/g, "");
+    check("64.2 3-B 生の色も生の px も0。残る多桁の数は ACTION_LG_PX の 56 だけ(値を発明していない)",
+      count64(feed64, /#[0-9a-fA-F]{3,8}\b/g) === 0 && count64(feed64, /\b\d+px\b/g) === 0
+      && count64(raw64, /\b\d\d+\b/g) === 1 && /const ACTION_LG_PX = 56;/.test(feed64),
+      (raw64.match(/\b\d\d+\b/g) || []).join(" / ") || "0件");
+  }
+  check("64.2 3-B 主要動作の高さは App.jsx の ACTION_LG_PX と**同値**(写しがずれていない)",
+    extractConst("ACTION_LG_PX", feed64) === extractConst("ACTION_LG_PX", app64)
+    && /height: ACTION_LG_PX/.test(feed64),
+    `sheet: ${extractConst("ACTION_LG_PX", feed64)} / app: ${extractConst("ACTION_LG_PX", app64)}`);
+  check("64.2 3-B 送信の体裁は追加シートの主要動作と同じ作法(幅いっぱい / --r-pill / 塗り --c-accent)",
+    /width: "100%", height: ACTION_LG_PX/.test(feed64)
+    && /borderRadius: "var\(--r-pill\)", border: "none"/.test(feed64)
+    && /background: enabled \? "var\(--c-accent\)" : "var\(--c-line-strong\)"/.test(feed64)
+    && /color: "var\(--c-on-accent\)"/.test(feed64));
+  check("64.2 3-B 押せないときの地 --c-line-strong は**既にある使い方**(スイッチの切)と同じ色",
+    /background: showVolume \? "var\(--c-accent\)" : "var\(--c-line-strong\)"/.test(app64));
+  check("64.2 3-B 断り書きは --fs-xs / --c-ink-3(利用者の画面の文字の最小。12px 未満を作っていない)",
+    /const noteStyle = \{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", lineHeight: 1\.6 \};/.test(feed64)
+    && /style=\{noteStyle\}>送信するとこの端末に匿名のIDが作られます。/.test(feed64));
+  {
+    // 見出し・本文・注・失敗の4つの綴りが CommunityTab の同名の定数と同値(見た目が食い違わない)。
+    const same64 = ["titleStyle", "bodyStyle", "noteStyle", "errorStyle"].filter((n) =>
+      extractConst(n, feed64).replace(`const ${n} = `, "") !== extractConst(n, comm64).replace(`const ${n} = `, ""));
+    check("64.2 3-B 文字の綴り4つは CommunityTab.jsx と同値(LegalSheet の errorStyle と同じ事情)",
+      same64.length === 0, same64.join(" / ") || "4つとも同値");
+  }
+  {
+    // **「空のときは押せない」を綴りで見ない。** 押せるかを決める式をソースから取り出して走らせる。
+    const canSrc64 = (feed64.match(/const canSend = ([^;]+);/) || [])[1];
+    const disSrc64 = (feed64.match(/disabled=\{([^}]+)\}/) || [])[1];
+    let gate64 = null;
+    try { gate64 = new Function("text", "busy", `const canSend = ${canSrc64}; return (${disSrc64});`); } catch { gate64 = null; }
+    const g = (t, b) => runFn(gate64, t, b);
+    check("64.2 3-B 空のとき送信は押せない / 1文字入れると押せる(式を実際に走らせた)",
+      g("", false).ok && g("", false).v === true
+      && g("あ", false).ok && g("あ", false).v === false,
+      `空=${JSON.stringify(g("", false).v)} 1文字=${JSON.stringify(g("あ", false).v)} ${g("", false).err}`);
+    check("64.2 3-B 空白だけでも押せない(運営者が受け取っても何もできない投書を作らない)",
+      g("   ", false).ok && g("   ", false).v === true, `空白だけ=${JSON.stringify(g("   ", false).v)}`);
+    check("64.2 3-B 送信中(busy)は押せない = 二重送信を止める",
+      g("あ", true).ok && g("あ", true).v === true, `busy=${JSON.stringify(g("あ", true).v)}`);
+  }
+  // 【2026-09-20 実測で穴が見つかった】`busy` は state なので、同じ1ティックに2回押しが
+  // 入ると2回目の閉包はまだ busy=false を見て素通りし、**stub が2回呼ばれた**。
+  // 押した瞬間に立つ印(ref)が無いと「二重送信を止める」は嘘になるので、そこまで見る。
+  check("64.2 3-B 押す側の門は**描画を待たない印(ref)**で立つ(同じ1ティックの2回押しでも2件送らない)",
+    /const sending = useRef\(false\);/.test(feed64)
+    && /if \(sending\.current \|\| busy \|\| !canSend\) return;/.test(feed64)
+    && /sending\.current = true;\s*\n\s*setBusy\(true\); setError\(null\);/.test(feed64)
+    && /finally \{\s*\n\s*sending\.current = false;\s*\n\s*setBusy\(false\);\s*\n\s*\}/.test(feed64)
+    && /import React, \{ useRef, useState \} from "react";/.test(feed64));
+  check("64.2 3-B 失敗しても入力を消さず、その場に1行。綴りは既存の失敗の言い方に揃っている",
+    /const SEND_ERROR = "送信できませんでした。電波の良いところでもう一度お試しください。";/.test(feed64)
+    && /setError\(SEND_ERROR\);/.test(feed64) && !/setText\(""\)/.test(feed64)
+    && /const AVATAR_ERROR = "アイコンを変更できませんでした。電波の良いところでもう一度お試しください。";/.test(comm64));
+  check("64.2 3-B 成功の一言は**このシートの中**。新しい通知面(ActionNotice)を作っていない",
+    /role="status" style=\{bodyStyle\}>送信しました。ありがとうございます<\/div>/.test(feed64)
+    && count64(commAll64, /ActionNotice/g) === 0,
+    `community の ActionNotice ${count64(commAll64, /ActionNotice/g)}件`);
+
+  // --- 64.3 3-B 送り口(feedbackRepo)-------------------------------------------
+  check("64.3 3-B feedbackRepo は addDoc で feedback へ書く(id は Firestore に任せる)",
+    /import \{ addDoc, collection \} from "firebase\/firestore";/.test(repo64)
+    && /await addDoc\(collection\(db, "feedback"\), buildFeedbackDoc\(\{ uid, text \}, now\)\);/.test(repo64));
+  check("64.3 3-B feedbackRepo は**読む関数を1つも持たない**(getDoc / getDocs / onSnapshot / query が 0)",
+    count64(repo64, /\bgetDocs?\b/g) === 0 && count64(repo64, /onSnapshot/g) === 0
+    && count64(repo64, /\bquery\(/g) === 0,
+    `getDoc(s) ${count64(repo64, /\bgetDocs?\b/g)} / onSnapshot ${count64(repo64, /onSnapshot/g)}`);
+  check("64.3 3-B 送信のときに匿名の資格情報だけを作る(users は書かない = 参加ではない)",
+    /import \{ ensureSignedIn \} from "\.\/accountRepo\.js";/.test(feed64)
+    && /const uid = await signIn\(\);/.test(feed64)
+    && count64(feed64, /saveProfile|setDoc|buildProfileDoc/g) === 0);
+  check("64.3 3-B 差込口(signIn / send)の**既定は実物**。アプリ側の呼び手は1つも渡していない",
+    /export default function FeedbackSheet\(\{ onClose, signIn = ensureSignedIn, send = sendFeedback \}\)/.test(feed64)
+    && count64(comm64, /<FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/>/g) === 2
+    && count64(comm64, /signIn=|send=/g) === 0,
+    `CommunityTab から渡している差込口 ${count64(comm64, /signIn=|send=/g)}件`);
+  {
+    // 書かれる形を**実際に組み立てて**見る(綴りの読み合わせで済ませない)。
+    const max64 = Number((repo64.match(/export const FEEDBACK_MAX = (\d+);/) || [])[1]);
+    let build64 = null;
+    try {
+      build64 = new Function("detectDeviceClass", "FEEDBACK_MAX",
+        `${srcOfFn(repoRaw64, "buildFeedbackDoc")}; return buildFeedbackDoc;`)(() => "pc", max64);
+    } catch { build64 = null; }
+    const long64 = runFn(build64, { uid: "u1", text: "あ".repeat(max64 + 1) }, new Date(0));
+    check("64.3 3-B 書くのは {uid,text,createdAt,deviceClass} の4つだけ。createdAt は ISO の文字列",
+      long64.ok && Object.keys(long64.v).sort().join(",") === "createdAt,deviceClass,text,uid"
+      && long64.v.createdAt === "1970-01-01T00:00:00.000Z" && typeof long64.v.createdAt === "string",
+      long64.ok ? Object.keys(long64.v).sort().join(",") : long64.err);
+    check("64.3 3-B 上限を超えた本文は**送る前に切り詰められる**(上限ちょうどになる)",
+      long64.ok && long64.v.text.length === max64 && max64 === 1000,
+      long64.ok ? `${max64 + 1}文字 → ${long64.v.text.length}文字(上限 ${max64})` : long64.err);
+    check("64.3 3-B 画面も同じ上限で切る(stub に差し替えても 1000 を超えない)",
+      /await send\(\{ uid, text: text\.slice\(0, FEEDBACK_MAX\) \}\);/.test(feed64));
+  }
+
+  // --- 64.4 3-B マイページ / 参加前の画面の導線 --------------------------------
+  check("64.4 3-B src/community に mailto: が**0件**(メールへ飛ばす経路が消えた)",
+    count64(commAll64, /mailto:/g) === 0 && count64(commAll64, /SUPPORT_EMAIL/g) === 0,
+    `mailto ${count64(commAll64, /mailto:/g)} / SUPPORT_EMAIL ${count64(commAll64, /SUPPORT_EMAIL/g)}`);
+  check("64.4 3-B マイページのお問い合わせは onClick でこのシートを開く。アドレスの副題は無い",
+    /<NavRow label="お問い合わせ" onClick=\{\(\) => setFeedbackOpen\(true\)\} \/>/.test(profile64)
+    && /\{feedbackOpen \? <FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/> : null\}/.test(profile64)
+    && count64(nav64, /\bsub\b/g) === 0 && count64(profile64, /\bsub=/g) === 0);
+  check("64.4 3-B 参加前の画面(JoinIntro)のリンクも同じシートに差し替わった",
+    /<button type="button" onClick=\{\(\) => setFeedbackOpen\(true\)\} className="sans" style=\{linkButtonStyle\}>お問い合わせ<\/button>/.test(join64)
+    && /\{feedbackOpen \? <FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/> : null\}/.test(join64));
+  check("64.4 3-B FeedbackSheet を開く場所は2つだけ(部品の定義は1つ。写しを作っていない)",
+    count64(comm64, /<FeedbackSheet /g) === 2 && count64(comm64, /import FeedbackSheet from "\.\/FeedbackSheet\.jsx";/g) === 1
+    && count64(feed64, /export default function FeedbackSheet\(/g) === 1);
+  check("64.4 3-B SUPPORT_EMAIL の定義は残る(読み手は src/support.test.js。public の2枚と綴りを突き合わせる)",
+    /export const SUPPORT_EMAIL = "ficus\.help@gmail\.com";/.test(support64)
+    && /SUPPORT_EMAIL/.test(codeOf(read64("src", "support.test.js"))));
+
+  // --- 64.5 3-B firestore.rules(本人がコンソールで公開する成果物)---------------
+  {
+    const fi64 = rulesCode64.indexOf("match /feedback/{id}");
+    const rf64 = fi64 === -1 ? "" : rulesCode64.slice(fi64, rulesCode64.indexOf("\n    }", fi64) + 6);
+    check("64.5 3-B rules に match /feedback/{id} が1つ在り、read / update / delete は false",
+      count64(rulesCode64, /match \/feedback\/\{id\}/g) === 1
+      && /allow read, update, delete: if false;/.test(rf64),
+      `feedback の塊 ${rf64.length}文字`);
+    check("64.5 3-B create は auth を要求し、uid は自分のものに限る(他人の名前で投書できない)",
+      /allow create: if request\.auth != null/.test(rf64)
+      && /request\.resource\.data\.uid == request\.auth\.uid/.test(rf64));
+    const rulesMax64 = Number((rf64.match(/text\.size\(\) <= (\d+)/) || [])[1]);
+    const appMax64 = Number((repo64.match(/export const FEEDBACK_MAX = (\d+);/) || [])[1]);
+    check("64.5 3-B 本文の上限は 1000 で、**画面の上限と同じ数**(片方だけ直すと行き止まりになる)",
+      rulesMax64 === 1000 && rulesMax64 === appMax64 && /text\.size\(\) > 0/.test(rf64),
+      `rules ${rulesMax64} / 画面 ${appMax64}`);
+    {
+      // アプリが書く形が、ルールの許すキーの集合に**実際に収まる**か。
+      let build64 = null;
+      try {
+        build64 = new Function("detectDeviceClass", "FEEDBACK_MAX",
+          `${srcOfFn(repoRaw64, "buildFeedbackDoc")}; return buildFeedbackDoc;`)(() => "ios", appMax64);
+      } catch { build64 = null; }
+      const doc64 = runFn(build64, { uid: "u1", text: "あ" }, new Date(0));
+      const only64 = ((rf64.match(/hasOnly\(\[([^\]]+)\]\)/) || [])[1] || "").split(",").map((s) => s.trim().replace(/'/g, ""));
+      const all64 = ((rf64.match(/hasAll\(\[([^\]]+)\]\)/) || [])[1] || "").split(",").map((s) => s.trim().replace(/'/g, ""));
+      check("64.5 3-B アプリが書く4つのキーは rules の hasOnly に収まり、hasAll の3つを満たす",
+        doc64.ok && only64.length > 0
+        && Object.keys(doc64.v).every((k) => only64.includes(k))
+        && all64.every((k) => k in doc64.v),
+        doc64.ok ? `書く ${Object.keys(doc64.v).join(",")} / 許す ${only64.join(",")}` : doc64.err);
+      check("64.5 3-B deviceClass の値(プロフィールと同じ判定)は rules の列挙に入っている",
+        doc64.ok && /deviceClass in \['ios','android','pc'\]/.test(rf64)
+        && rf64.includes(`'${doc64.v.deviceClass}'`),
+        doc64.ok ? doc64.v.deviceClass : doc64.err);
+    }
+    check("64.5 3-B 既存の塊は1つも消えていない(users / ideals / flags / reports / banned / 全拒否)",
+      count64(rulesCode64, /match \/users\/\{uid\}/g) === 1
+      && count64(rulesCode64, /match \/ideals\/\{docId\}/g) === 1
+      && count64(rulesCode64, /match \/flags\/\{targetUid\}/g) === 1
+      && count64(rulesCode64, /match \/reports\/\{reportId\}/g) === 1
+      && count64(rulesCode64, /match \/banned\/\{uid\}/g) === 1
+      && count64(rulesCode64, /match \/\{document=\*\*\} \{ allow read, write: if false; \}/g) === 1);
+  }
+  check("64.5 3-B §6.7 が「連絡はアプリの中で完結する」を表で持つ(上限とトークンの出どころ)",
+    /#### 連絡はアプリの中で完結する/.test(ds64)
+    && /\| \*\*押せないときの送信ボタン\*\* \| 地 `--c-line-strong`/.test(ds64)
+    && /`FEEDBACK_MAX` = 1000。`firestore\.rules` の `feedback` も同じ 1000/.test(ds64)
+    && /写しが1つある（束3 2026-09-19）。/.test(ds64));
+
+  // --- 64.6 3-C レビューの行(仕込むが出さない)---------------------------------
+  check("64.6 3-C APP_STORE_REVIEW_URL は support.js に1つ。いまは null(飛び先が決まっていない)",
+    /export const APP_STORE_REVIEW_URL = null;/.test(support64)
+    && count64(support64, /APP_STORE_REVIEW_URL/g) === 1);
+  check("64.6 3-C null のときレビューの行は**出ない**(薄く出して押せなくもしない)",
+    /\{APP_STORE_REVIEW_URL \? <NavRow label="レビューを送る" href=\{APP_STORE_REVIEW_URL\} \/> : null\}/.test(profile64)
+    && count64(comm64, /レビューを送る/g) === 1
+    && count64(comm64, /disabled=\{true\}|aria-disabled/g) === 0);
+  check("64.6 3-C 行はお問い合わせの**上**(URL が入った日にその位置で出る)",
+    profile64.indexOf("レビューを送る") > 0
+    && profile64.indexOf("レビューを送る") < profile64.indexOf('<NavRow label="お問い合わせ"'));
+  check("64.6 3-C 開くのは href で、target は付けない(便H でアプリから 0件にしてある)",
+    count64(commAll64, /target="_blank"/g) === 0
+    && /if \(href\) return <a href=\{href\} className="sans" style=\{style\}>\{inner\}<\/a>;/.test(nav64));
+  check("64.6 3-C §6.7 が「飛び先が決まっていない行は出さない」を表で持つ",
+    /#### 飛び先が決まっていない行は出さない/.test(ds64)
+    && /\| `null`（いま） \| \*\*出ない\*\*/.test(ds64));
+
+  // --- 64.7 正典(design/canvas)------------------------------------------------
+  check("64.7 正典 マイページの生成器に副題(sub)の受け口が無い(実装の NavRow と揃っている)",
+    /function navRow\(label, last = false\) \{/.test(mjs64)
+    && count64(mjs64, /ficus\.help@gmail\.com/g) === 0
+    && /\$\{navRow\("お問い合わせ"\)\}/.test(mjs64));
+  check("64.7 正典 再生成物(CommMyPage.dc.html)からもアドレスの副題が消えている",
+    count64(dcMe64, /ficus\.help@gmail\.com/g) === 0
+    && count64(dcMe64, /お問い合わせ/g) === 1
+    && count64(dcMe64, /レビューを送る/g) === 0,
+    `アドレス ${count64(dcMe64, /ficus\.help@gmail\.com/g)} / レビュー ${count64(dcMe64, /レビューを送る/g)}`);
+  console.log("  -> done");
+}
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

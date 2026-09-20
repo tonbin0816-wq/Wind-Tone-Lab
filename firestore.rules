@@ -400,6 +400,36 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ================================================================
+    // feedback: お問い合わせ・要望/感想。**書き込み専用の投書箱**。
+    //
+    // 【読めるのは運営(コンソール)だけ】アプリからは1件も読まない。
+    // list も get も許さないので、他人の投書は誰にも見えない。
+    // 【更新・削除も許さない】送ったものを後から書き換えられると記録にならない。
+    // 【匿名でよいが、誰でもは許さない】送信のときに匿名の資格情報を作るので
+    // request.auth は必ず在る。uid を添えるのは、同じ人からの続きを運営が辿れるようにするため
+    // (プロフィールとは結び付けない。参加していない人の uid も入る)。
+    // 【長さの上限】画面の上限と同じ 1000 文字。桁違いの本文でコンソールが壊れるのを防ぐ。
+    // 【createdAt は文字列】他のドキュメントと同じ扱い(サーバ時刻は使っていない)。
+    // ================================================================
+    match /feedback/{id} {
+      allow read, update, delete: if false;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasAll(['uid','text','createdAt'])
+        && request.resource.data.keys().hasOnly(['uid','text','createdAt','deviceClass','appVersion'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdAt.size() <= 40
+        && (!('deviceClass' in request.resource.data)
+            || request.resource.data.deviceClass in ['ios','android','pc'])
+        && (!('appVersion' in request.resource.data)
+            || (request.resource.data.appVersion is string
+                && request.resource.data.appVersion.size() <= 40));
+    }
+
     // banned: 運営者がコンソールで置く。クライアントからは読み書きできない。
     // 上の notBanned() が rules の中から exists() で見るだけ
     // (rules の exists() はこの規則を通らない)。

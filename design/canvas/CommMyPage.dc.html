@@ -135,9 +135,14 @@
       </div>
 
       <!-- 【並び C10 2026-09-16】公開スイッチ → お問い合わせ / 規約 / ポリシー → uid → 編集 → 引継 → 削除(破壊的な一手が最後) -->
+      <!-- 【束3 2026-09-19 本人指示】お問い合わせはアプリの中のフォーム(FeedbackSheet)を開く行になった。
+           アドレスの副題は消えた ── フォームで送るので写す先が無い。
+           「レビューを送る」の行はお問い合わせの**上**に入るが、飛び先(APP_STORE_REVIEW_URL)が
+           null の間は行ごと出ない。**いまの画面には無い**ので、ここにも描かない
+           (このカタログは「現状」の写しであって提案ではない)。 -->
       <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card); padding: 0; margin-top: var(--sp-4)">
         <div style="display: flex; align-items: center; gap: var(--sp-3); min-height: 44px; padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--c-line); color: var(--c-ink); font-size: var(--fs-sm); font-weight: 600">
-          <span style="flex: 1 1 0; min-width: 0">お問い合わせ<span style="display: block; font-size: var(--fs-xs); color: var(--c-ink-3); font-weight: 400">ficus.help@gmail.com</span></span>
+          <span style="flex: 1 1 0; min-width: 0">お問い合わせ</span>
           <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </div>
         <div style="display: flex; align-items: center; gap: var(--sp-3); min-height: 44px; padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--c-line); color: var(--c-ink); font-size: var(--fs-sm); font-weight: 600">
