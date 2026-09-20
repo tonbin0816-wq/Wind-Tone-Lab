@@ -79,3 +79,18 @@ export function RowChevron({ size = 8 }) {
     </svg>
   );
 }
+
+// 【押すとその場で選択肢が開く印 2026-09-20 本人指示「印もつけて」】
+// 演奏開始年の欄から地(--c-sunken)を外したので、押せることを返すものが無くなった。
+// **綴りは App.jsx の PickChevron と同値**(▾ / 12px / --c-ink-3)── リードの箱の
+// メーカー・銘柄・厚さの行が既に使っている印で、新しい記号も新しい色も作っていない。
+// 【RowChevron とは別物】あちらは右向きで「別の場所へ行く」、こちらは下向きで
+// 「その場で選択肢が開く」。向きが意味を担っているので1つに畳まない。
+// 【当たり判定は持たない】押す先は <select> ただ1つ。置く側が pointerEvents: none で覆う。
+export function PickChevron({ size = 12 }) {
+  return (
+    <span aria-hidden="true" style={{
+      fontSize: size, color: "var(--c-ink-3)", lineHeight: 1, flexShrink: 0,
+    }}>▾</span>
+  );
+}

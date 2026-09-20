@@ -26509,6 +26509,49 @@ console.log("========== 検証69: 注記を貼り付くボタンより後ろへ(
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証70: 演奏開始年に「押すと選択肢が開く」印(便O 追補・本人指示「印もつけて」)
+//   地を外した欄は、押せることを返すものが何も無くなる。▾ がそれを担う。
+//   綴りは App.jsx の PickChevron と同値 ── 新しい記号も色も作らない。
+//   ▾ は当たり判定を持たない(押す先は <select> ただ1つ)。
+// ============================================================
+console.log("========== 検証70: 演奏開始年の ▾ ==========");
+{
+  const comm70 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const icons70 = readFileSync(join(__dirname, "..", "src", "community", "icons.jsx"), "utf8");
+  const appChev70 = srcOfFn(src, "PickChevron");
+  const commChev70 = srcOfFn(icons70, "PickChevron");
+
+  check("70.1 community 側にも PickChevron が1つある",
+    /export function PickChevron\(\{ size = 12 \}\)/.test(icons70)
+    && (icons70.match(/function PickChevron\(/g) || []).length === 1);
+  check("70.1 記号と色と大きさは App.jsx の PickChevron と同値(新しい印を作っていない)",
+    /▾/.test(appChev70) && /▾/.test(commChev70)
+    && /color: "var\(--c-ink-3\)"/.test(appChev70) && /color: "var\(--c-ink-3\)"/.test(commChev70)
+    && /const PICK_CHEV_PX = 12;/.test(src) && /size = 12/.test(commChev70),
+    commChev70 ? "両方取れている" : "取り出せない");
+  check("70.1 右向きの RowChevron は別物として残っている(向きが意味を担う)",
+    /export function RowChevron\(\{ size = 8 \}\)/.test(icons70)
+    && (comm70.match(/<RowChevron \/>/g) || []).length === 1);
+
+  // **コメントを剥がしてから切り出す。** 解説の文中に "paddingRight を足していない" と
+  // 書いてあるだけで「寸法を上書きしている」と読まれてしまう(初版で実際に落ちた)。
+  const yearBox70 = (codeOf(comm70).match(/<Field label="演奏開始年">[\s\S]*?<\/Field>/) || [""])[0];
+  check("70.2 演奏開始年の欄に ▾ が1つ載っている",
+    (yearBox70.match(/<PickChevron \/>/g) || []).length === 1,
+    yearBox70 ? `${(yearBox70.match(/<PickChevron \/>/g) || []).length}個` : "欄が取れない");
+  check("70.2 ▾ は当たり判定を持たない(押す先は <select> ただ1つ)",
+    /pointerEvents: "none"/.test(yearBox70));
+  check("70.2 ▾ の置き場所は欄の右端で、左の余白と同じトークン(--sp-3)",
+    /right: "var\(--sp-3\)"/.test(yearBox70));
+  check("70.3 欄の寸法を上書きしていない(paddingRight を足していない)",
+    !/padding/.test(yearBox70)
+    && /style=\{controlPlainStyle\}/.test(yearBox70));
+  check("70.4 印を付けたのは演奏開始年の1箇所だけ(打ち込む欄へ広げていない)",
+    (comm70.match(/<PickChevron \/>/g) || []).length === 1);
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

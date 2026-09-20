@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, validateNickname, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
-import { AvatarSprite, Avatar, RowChevron } from "./icons.jsx";
+import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
 // 既に使っている(LegalSheet の ×)ので、置き場所を増やさない。
@@ -1135,10 +1135,24 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
       </Field>
 
       <Field label="演奏開始年">
-        <select value={startYear} onChange={(e) => setStartYear(e.target.value)} aria-label="演奏開始年" className="sans" style={controlPlainStyle}>
-          <option value="">選択</option>
-          {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
-        </select>
+        {/* 【便O 2026-09-20 本人指示「印もつけて」】地を外したぶん、
+            「押すと選択肢が開く」を ▾ が返す(§6.1.5 の裏返し ── 押せるものは
+            押せると分かること)。上下を挟むのは属性とジャンルのピルなので、
+            印が無いと年の値が文字として並んでいるようにしか見えない。
+            【欄の寸法は1つも変えない】paddingRight を足していない ── 値は
+            「2015年」の5字で、幅いっぱいの欄の左端に出るので ▾ と重ならない。
+            【▾ は当たり判定を持たない】pointerEvents: none。押す先は <select> 1つだけで、
+            押せる物が2つ重なる形を作らない。右端の位置は欄の左の余白と同じ --sp-3。 */}
+        <div style={{ position: "relative", display: "grid" }}>
+          <select value={startYear} onChange={(e) => setStartYear(e.target.value)} aria-label="演奏開始年" className="sans" style={controlPlainStyle}>
+            <option value="">選択</option>
+            {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
+          </select>
+          <span style={{
+            position: "absolute", right: "var(--sp-3)", top: 0, bottom: 0,
+            display: "flex", alignItems: "center",
+          }}><RowChevron /></span>
+        </div>
       </Field>
 
       <Field label="ジャンル(複数選択可)">
