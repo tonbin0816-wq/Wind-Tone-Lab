@@ -25428,14 +25428,20 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
     // **欄ごとの上書きを、綴りの不在ではなく「中身を取り出して見る」形で数える。**
     // controlStyle を展開している箱をすべて拾い、寸法・色・角丸の鍵が入っていないことを見る。
     const spreads63 = comm63.match(/\{ \.\.\.controlStyle[^}]*\}/g) || [];
+    // 【便O 2026-09-20 追補】本人指示「プロフィール欄の演奏開始年も透明にして」で、
+    // **地を消すだけ**の3つ目の展開が加わった(controlPlainStyle)。禁止一覧から
+    // background を外すのではなく、`background: "transparent"` ただ1つの綴りを
+    // 名指しで通す ── 別の地を塗る上書きは今までどおり落ちる。
+    const bgOk63 = /^\{ \.\.\.controlStyle, background: "transparent" \}$/;
     const banned63 = /width|minHeight|height|padding|fontSize|background|border|borderRadius|(^|[^-])\bcolor\b/;
-    const bad63 = spreads63.filter((s) => banned63.test(s.replace("...controlStyle", "")));
+    const bad63 = spreads63.filter((t) => !bgOk63.test(t) && banned63.test(t.replace("...controlStyle", "")));
     check("63.1 4-A 欄ごとに寸法・色・角丸をインラインで上書きしている箇所が**0**",
       bad63.length === 0, bad63.join(" / ") || `展開は ${spreads63.length}箇所(すべて寸法・色・角丸を持たない)`);
-    check("63.1 4-A controlStyle を展開する箇所は2つだけ(ニックネームの赤枠 / 引けないときの薄さ)",
-      spreads63.length === 2
-      && spreads63.some((s) => /boxShadow: "inset 0 0 0 1px var\(--c-danger\)"/.test(s))
-      && spreads63.some((s) => /opacity: 0\.6, cursor: "not-allowed"/.test(s)),
+    check("63.1 4-A controlStyle を展開する箇所は3つだけ(赤枠 / 引けないときの薄さ / 地の打ち消し)",
+      spreads63.length === 3
+      && spreads63.some((t) => /boxShadow: "inset 0 0 0 1px var\(--c-danger\)"/.test(t))
+      && spreads63.some((t) => /opacity: 0\.6, cursor: "not-allowed"/.test(t))
+      && spreads63.some((t) => bgOk63.test(t)),
       spreads63.join(" / "));
   }
   {
@@ -25466,8 +25472,12 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
     && /onPick\(\{ brand: OTHER_BRAND, model: null \}\)/.test(picker63));
 
   // --- 63.2 4-B 演奏開始年も同じ形に(選び方は変えない) ------------------------
-  check("63.2 4-B 演奏開始年の欄も**同じ1つ**の綴り(controlStyle をそのまま渡す)",
-    /aria-label="演奏開始年" className="sans" style=\{controlStyle\}>/.test(form63));
+  // 【便O 2026-09-20 追補で向け直した】本人指示「演奏開始年も透明にして」。
+  // 寸法・色・角丸は今までどおり controlStyle ただ1つから出る ── 違うのは地だけで、
+  // その綴りは controlPlainStyle 1つ(検証68.2 が中身を見る)。
+  check("63.2 4-B 演奏開始年の寸法は**同じ1つ**から出る(違うのは地だけ)",
+    /aria-label="演奏開始年" className="sans" style=\{controlPlainStyle\}>/.test(form63)
+    && /const controlPlainStyle = \{ \.\.\.controlStyle, background: "transparent" \};/.test(comm63));
   check("63.2 4-B 選び方は変えていない(押すと年の一覧が出る <select> のまま)",
     /<select value=\{startYear\} onChange=\{\(e\) => setStartYear\(e\.target\.value\)\}/.test(form63)
     && /\{yearOptions\.map\(\(y\) => <option key=\{y\} value=\{y\}>\{y\}年<\/option>\)\}/.test(form63));
@@ -26401,6 +26411,61 @@ console.log("========== 検証67: SubTabs の children / 名札の左寄せ ====
   check("67.2 名札の固定幅と折り返し止めは残っている",
     /minWidth: REED_SHEET_LABEL_W/.test(lbl67) && /whiteSpace: "nowrap"/.test(lbl67),
     lbl67 || "取り出せない");
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証68: 選ぶ欄の地を外す(便O 追補・本人指示)
+//   「開封日の欄も同様に透明にして」「プロフィール欄の演奏開始年も透明にして」。
+//   入力欄の地(--c-sunken)は index.css のただ1つの規則が全員に配るので、
+//   **選ぶだけの2つ**だけがそれを打ち消す。打ち込む欄(ニックネーム・機材の検索・
+//   メーカーの自由入力)は地を持ったまま ──「打つ場所には地がある / 選ぶ場所には無い」。
+//   枠(1px solid transparent)は**外さない**: 0 にすると高さと幅が 2px 縮み、
+//   同じ規則を読む他の欄まで動く(index.css の注記)。
+// ============================================================
+console.log("========== 検証68: 選ぶ欄の地を外す(開封日 / 演奏開始年) ==========");
+{
+  const src68 = src;
+  const comm68 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const css68 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+
+  // --- 68.1 リードの箱のシートの開封日 ----------------------------------------
+  const plain68 = (src68.match(/const PICK_CONTROL_PLAIN = \{[^\n]*\};/) || [""])[0];
+  check("68.1 打ち消しの綴りは1つ(PICK_CONTROL_PLAIN)で、中身は地だけ",
+    plain68 === 'const PICK_CONTROL_PLAIN = { background: "transparent" };', plain68 || "取り出せない");
+  const dateRow68 = (src68.match(/type="date"[\s\S]{0,1200}?\/>/) || [""])[0];
+  check("68.1 開封日の欄が打ち消しを読んでいる",
+    /\.\.\.PICK_CONTROL_PLAIN/.test(dateRow68), dateRow68 ? "行は取れている" : "行が取れない");
+  check("68.1 開封日の欄は地だけを消し、枠と寸法の出どころ(REED_FORM_CONTROL_STYLE)は継いだまま",
+    /\.\.\.REED_FORM_CONTROL_STYLE, \.\.\.PICK_CONTROL_PLAIN/.test(dateRow68)
+    && !/border:/.test(dateRow68));
+  check("68.1 束5 の左寄せ(padding: 0 / textAlign: left)を巻き添えにしていない",
+    /padding: 0, textAlign: "left"/.test(dateRow68));
+  check("68.1 打ち消しを読むのは開封日の1箇所だけ(打ち込む欄へ広げていない)",
+    (src68.match(/PICK_CONTROL_PLAIN/g) || []).length === 2);
+  check("68.1 寸法の出どころ(REED_FORM_CONTROL_STYLE)は地を持たないまま",
+    !/const REED_FORM_CONTROL_STYLE = \{[\s\S]{0,300}?background/.test(src68));
+
+  // --- 68.2 プロフィール編集の演奏開始年 --------------------------------------
+  const cplain68 = (comm68.match(/const controlPlainStyle = \{[^\n]*\};/) || [""])[0];
+  check("68.2 打ち消しの綴りは1つ(controlPlainStyle)で、寸法は controlStyle を継ぐ",
+    cplain68 === 'const controlPlainStyle = { ...controlStyle, background: "transparent" };',
+    cplain68 || "取り出せない");
+  check("68.2 演奏開始年の欄が打ち消しを読んでいる",
+    /aria-label="演奏開始年" className="sans" style=\{controlPlainStyle\}/.test(comm68));
+  check("68.2 打ち消しを読むのは演奏開始年の1箇所だけ",
+    (comm68.match(/controlPlainStyle/g) || []).length === 2);
+  check("68.2 打ち込む欄は地を持ったまま(ニックネームと機材の検索は controlStyle)",
+    /aria-label="ニックネーム"[\s\S]{0,200}?style=\{nickError \? \{ \.\.\.controlStyle/.test(comm68)
+    && /aria-label=\{`\$\{ariaPrefix\}を検索`\}[\s\S]{0,200}?controlDisabledStyle : controlStyle/.test(comm68));
+  check("68.2 寸法の出どころ(controlStyle)は地を持たないまま(地は index.css の1規則が配る)",
+    !/const controlStyle = \{[\s\S]{0,300}?background/.test(comm68));
+
+  // --- 68.3 地を配る規則そのものは動かしていない ------------------------------
+  check("68.3 入力欄の地は index.css の1つの規則のまま(--c-sunken)",
+    /input\[type="text"\],[\s\S]{0,300}?background: var\(--c-sunken\);/.test(css68));
+  check("68.3 枠の 1px solid transparent は残っている(0 にすると 2px 縮む)",
+    /background: var\(--c-sunken\);[\s\S]{0,120}?border: 1px solid transparent;/.test(css68));
   console.log("  -> done");
 }
 

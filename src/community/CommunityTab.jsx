@@ -534,6 +534,14 @@ const controlStyle = {
 // 引けない状態(楽器種別が未選択)のときだけ薄くする。**寸法・地・角丸は上を継ぐ**
 // ── 欄ごとにインラインで上書きしないための名前(GearPicker が読む)。
 const controlDisabledStyle = { ...controlStyle, opacity: 0.6, cursor: "not-allowed" };
+// 【便O 2026-09-20 本人指示】「プロフィール欄の演奏開始年も透明にして」。
+// 演奏開始年は**選ぶだけ**の欄で、上下を挟むのは属性とジャンルのピル ── その並びの中で
+// ここだけ灰色の箱になっていた。地を打ち消して周りと揃える。
+// 打ち込む欄(ニックネーム・機材の検索)は controlStyle のまま地を持つ
+// ── 「打つ場所には地がある / 選ぶ場所には無い」。リードの開封日と同じ考え方
+// (あちらの綴りは App.jsx の PICK_CONTROL_PLAIN)。
+// **枠の 1px solid transparent は外さない**(index.css の注記。0 にすると 2px 縮む)。
+const controlPlainStyle = { ...controlStyle, background: "transparent" };
 
 // 主要動作(参加する・保存する)。B型 = 枠なし + 塗り。
 const primaryButtonStyle = {
@@ -1127,7 +1135,7 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
       </Field>
 
       <Field label="演奏開始年">
-        <select value={startYear} onChange={(e) => setStartYear(e.target.value)} aria-label="演奏開始年" className="sans" style={controlStyle}>
+        <select value={startYear} onChange={(e) => setStartYear(e.target.value)} aria-label="演奏開始年" className="sans" style={controlPlainStyle}>
           <option value="">選択</option>
           {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
         </select>

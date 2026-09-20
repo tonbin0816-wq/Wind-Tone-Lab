@@ -10875,6 +10875,14 @@ const REED_STRENGTH_OPTIONS = REED_STRENGTHS.slice().reverse();
 // nowrap は「4em に収まらない名札が折り返して行が2段になる」のを止めるための保険
 // (いまの5つは2〜3字なので収まるが、幅を持たせた以上ここを開けておかない)。
 const REED_SHEET_LABEL_W = "4em";
+// 【便O 2026-09-20 本人指示】「開封日の欄も同様に透明にして」。
+// 入力欄の地(--c-sunken)は index.css のただ1つの規則が全員に配っているので、
+// **選ぶだけの欄**はそれを打ち消す。打ち込む欄(ニックネーム・メーカーの自由入力・
+// 機材の検索)は地を持ったまま ── 「打つ場所には地がある / 選ぶ場所には無い」。
+// **枠の 1px solid transparent は外さない**(index.css の注記のとおり、0 にすると
+// 高さと幅が 2px 縮んで、同じ規則を読む他の欄まで動く)。地だけを消す。
+// コミュニティの演奏開始年にも同じ打ち消しがある(綴りはあちらの CONTROL_PLAIN)。
+const PICK_CONTROL_PLAIN = { background: "transparent" };
 const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" };
 const REED_SHEET_ROW_STYLE = {
   display: "flex", alignItems: "center", gap: 12,
@@ -11012,7 +11020,7 @@ function ReedBoxSheet({
                    padding:0 を足した。padding を 0 にするのは、上の3行の値の左端と
                    同じ x に揃えるため(REED_FORM_CONTROL_STYLE の "0 8px" のままだと 8px ずれる)。
                    **4点はどれも下げていない**。 */
-                style={{ ...REED_FORM_CONTROL_STYLE, flex: 1, minWidth: 0, padding: 0, textAlign: "left", fontSize: "var(--fs-md)", WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
+                style={{ ...REED_FORM_CONTROL_STYLE, ...PICK_CONTROL_PLAIN, flex: 1, minWidth: 0, padding: 0, textAlign: "left", fontSize: "var(--fs-md)", WebkitAppearance: "none", appearance: "none", maxWidth: "100%", lineHeight: "1.25", overflow: "hidden" }}
               />
             </div>
           )}
