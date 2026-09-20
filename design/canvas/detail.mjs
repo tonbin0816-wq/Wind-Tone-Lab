@@ -165,6 +165,11 @@ function memoField(text) {
 }
 
 // ---- セッション個別 -----------------------------------------------------
+// 【束5 2026-09-20 本人指示】「タイムラインの下部にある詳細はピッチ一致度以外削除」。
+// ドリルダウンから **音色一致度の枠** と **音量 / HNR の行** を外した。
+// 残したのは「t = n.nn s の詳細」の見出しと**ピッチ一致度の枠1つだけ**
+// (見出しはどのフレームの話かを言う唯一の文なので残す)。
+// 枠が1つになったので flex: 1 1 0 が幅いっぱいを取り、数字はカードの中央に来る。
 const SESSION_W = 313; // 375 − 14×2 − 16×2 − 1×2(枠のカードの枠。実測と一致)
 
 function buildSession({ fit = false, missOnly = false } = {}) {
@@ -257,14 +262,6 @@ ${bars}
               <div style="font-size: 10.5px; color: var(--c-ink-3)">ピッチ一致度</div>
               <div style="font-size: 10.5px; color: var(--c-ink-3); min-height: 15px">440.6 Hz ／ 記音A4</div>
             </div>
-            <div style="flex: 1 1 0; min-width: 60px; text-align: center">
-              <div style="${NUM}; font-size: 19px; font-weight: 600; color: #D97706">0.61</div>
-              <div style="font-size: 10.5px; color: var(--c-ink-3)">音色一致度(目安基準)</div>
-              <div style="font-size: 10.5px; color: var(--c-ink-3); min-height: 15px">重心 1642Hz</div>
-            </div>
-          </div>
-          <div style="font-size: 12px; color: #435266; margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap">
-            <span>音量: -18.4 dB</span><span>HNR: 21.6 dB</span>
           </div>
         </div>
       </div>

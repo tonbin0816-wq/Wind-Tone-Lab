@@ -897,6 +897,53 @@ export function useSheetDismiss(onClose) {
   };
 }
 
+// ============================================================
+// 【束5 2026-09-20 本人指示】「ユーザーの個人データを開いている時にスクロールアクションを
+// すると裏側の画面がスクロールされる仕様を削除」。
+//
+// **開いている枚数を数えるのはここ1箇所だけ。** シートの上にシート(ScrollPicker)が
+// 重なる経路があるので、1枚閉じるたびに解除すると**まだ開いているのに裏が動き出す**。
+// 0 になったときだけ戻す。
+//
+// 止め方は `document.body` を position: fixed にして、いま読んでいた位置ぶん上へずらす
+// (`top: -<scrollY>px`)。これで文書に「スクロールできる余り」が無くなるので、
+// 暗幕の上でもシートの中身の端でもブラウザが裏を動かせなくなる。
+// **閉じたら必ず元の位置へ戻す** ── fixed を外した瞬間に文書は先頭へ飛ぶので、
+// 保存しておいた位置へ window.scrollTo で戻す。ここを忘れるのが一番壊しやすい。
+//
+// 【position を空文字に戻す理由】`static` と書くと index.css 側の規則を上書きしてしまう。
+// 空文字はインライン宣言そのものを消すので、開く前の姿へ正確に戻る。
+let openSheetCount = 0;      // いま開いているシート(ピッカーを含む)の枚数
+let lockedScrollY = 0;       // 止めた瞬間に読んでいた位置。解除のときここへ戻す
+function lockBackdropScroll() {
+  if (openSheetCount === 0) {
+    lockedScrollY = window.scrollY || window.pageYOffset || 0;
+    const s = document.body.style;
+    s.position = "fixed";
+    s.top = `-${lockedScrollY}px`;
+    s.left = "0";
+    s.right = "0";
+  }
+  openSheetCount += 1;
+}
+function unlockBackdropScroll() {
+  openSheetCount = Math.max(0, openSheetCount - 1);
+  if (openSheetCount > 0) return;   // まだ上に1枚以上ある。裏は止めたまま
+  const s = document.body.style;
+  s.position = "";
+  s.top = "";
+  s.left = "";
+  s.right = "";
+  window.scrollTo(0, lockedScrollY);
+}
+// シート1枚ぶんの出入りを上の数え役につなぐだけの層。**判定を持たない。**
+function useBackdropScrollLock() {
+  useEffect(() => {
+    lockBackdropScroll();
+    return unlockBackdropScroll;
+  }, []);
+}
+
 function SwipeBackArea({ onBack, onForward, children }) {
   const viewportRef = useRef(null);
   const trackRef = useRef(null);
@@ -4763,6 +4810,11 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn, footer = nul
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // 【束5 2026-09-20】ピッカーも暗幕を持つ1枚なので、同じ数え役に並ぶ。
+  // **シートの上に重なって開く経路がある**ので、閉じても枚数が0にならない限り
+  // 裏は止まったまま(ここを数えないと、ピッカーを閉じた瞬間に裏が動き出す)。
+  useBackdropScrollLock();
 
   const handleScroll = () => {
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
@@ -8972,9 +9024,13 @@ function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false
 // **この固定で画面から消えるもの**(本人が了解済み):
 //   ・目安を基準にした色分け  ・別セッション整列(別の記録の同じ音に重ねて比べる)
 //   ・音量 / 重心 / HNR の時間変化
-// **消えないもの**: 下のドリルダウンの「音色一致度」は比較対象が**目安**なので従来どおり動く
-// (基準セレクタとは無関係だった)。「ピッチ一致度」も絶対値基準のまま。
-function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sessions, ownSessionId, barlines }) {
+// **消えないもの**: 「ピッチ一致度」は絶対値基準のまま。
+// 【束5 2026-09-20 本人指示】「タイムラインの下部にある詳細はピッチ一致度以外削除」。
+// ドリルダウンから**音色一致度の枠**と**音量 / HNR の行**が消えた。読み手が0件になった
+// `getComparisonTarget` / `noTargetLabel` と、`getMatchScore` の "timbre" の枝、
+// そこだけが使っていた受け口 `selectedIdeal` / `NUM_HARMONICS` も**定義ごと消している**。
+// (`timbreMatchScore` / `getNoteIdeal` は計測タブ側に読み手が残るので消さない。)
+function PhraseTimeline({ frames, noteEvents, sessions, ownSessionId, barlines }) {
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
   const timelineScrollRef = useRef(null);
 
@@ -8988,23 +9044,16 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
     container.scrollLeft = Math.max(0, x - container.clientWidth / 2);
   }, [selectedFrameIdx]);
 
-  // 【D-5】比較対象は**音ごとの目安**だけになった(別セッション整列は本人指示で削除)。
-  // 形は noteIdeal のまま({pitchHz, centroidHz, hnrDb, harmonicsProfile})。
-  const getComparisonTarget = (frame) => getNoteIdeal(selectedIdeal, frame.semitoneIndex);
+  // 【束5 2026-09-20】比較対象を引く getComparisonTarget はここにあったが、読み手だった
+  // 音色一致度の枠が消えて0件になったので**定義ごと削除した**。
 
   // 【D-5】表示は**ピッチに固定**(本人指示)。指標の切替が無くなったので分岐も消えた。
   const getMetricValue = (frame) => frame.pitchHz;
 
   // ピッチは**絶対値(平均律)基準に固定**(本人指示)。録音時の値をそのまま使う。
-  // 音色は音ごとの目安と比べる(比較対象は getComparisonTarget の1箇所)。
-  const getMatchScore = (frame, kind) => {
-    if (kind === "pitch") return frame.matchScore?.pitch?.theoretical ?? 0;
-    const target = getComparisonTarget(frame);
-    if (!target) return 0;
-    const harmNorm = frame.harmonics?.length === NUM_HARMONICS ? frame.harmonics.map((h) => h.levelNorm) : new Array(NUM_HARMONICS).fill(0);
-    const idealHarmNorm = target.harmonicsProfile ? target.harmonicsProfile.map((h) => h.norm) : new Array(NUM_HARMONICS).fill(0);
-    return timbreMatchScore(harmNorm, idealHarmNorm, frame.spectralCentroidHz, target.centroidHz, frame.hnrDb, target.hnrDb);
-  };
+  // 【束5】音色の枝(目安と比べる側)は読み手が0件になったので消した。残るのはピッチだけ
+  // なので、どちらを出すかを選ぶ引数 kind も要らない。
+  const getMatchScore = (frame) => frame.matchScore?.pitch?.theoretical ?? 0;
 
   const values = frames.map(getMetricValue).filter((v) => v !== null && v !== undefined && !isNaN(v));
   const minV = values.length ? Math.min(...values) : 0;
@@ -9099,7 +9148,7 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
               // 無音・測定外(ピッチ未検出)のフレームは一致度が定義できないためグレーにする
               // (以前はスコア0扱いで赤く表示され、測定できていない区間が「大きく外れている」ように見えていた)。
               const sounding = f.pitchHz != null && !isNaN(f.pitchHz);
-              const color = sounding ? scoreToColor(getMatchScore(f, "pitch")) : "var(--c-line-strong)";
+              const color = sounding ? scoreToColor(getMatchScore(f)) : "var(--c-line-strong)";
               return (
                 <rect key={i} x={i * 6} y={110} width={5} height={8} fill={color}
                   onClick={() => setSelectedFrameIdx(i)}
@@ -9145,12 +9194,14 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
           </div>
 
           {(() => {
-            const target = getComparisonTarget(selectedFrame);
-            // 【D-5】比較対象は目安だけになったので、読めないときの理由も1つだけ。
-            const noTargetLabel = "この音の目安が未登録";
+            // 【束5 2026-09-20 本人指示】「詳細はピッチ一致度以外削除」。
+            // 2枠あったうちの**音色一致度(目安)**を外した。読めないときの理由を言っていた
+            // noTargetLabel も、比較対象を引く getComparisonTarget も、これで読み手が
+            // 0件になったので**定義ごと消してある**(上)。
+            // 枠は1つになったが列の作法(BARE_ROW_STYLES.numrow / REED_NUMROW_MIN_PX)は
+            // そのまま。flex: 1 1 0 が幅いっぱいを取るので、数字はカードの中央に来る。
             const cells = [
-              { label: "ピッチ一致度", value: `${Math.round(getMatchScore(selectedFrame, "pitch") * 100)}%`, sub: selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)}Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—", color: scoreToColor(getMatchScore(selectedFrame, "pitch")) },
-              { label: "音色一致度(目安)", value: target ? `${Math.round(getMatchScore(selectedFrame, "timbre") * 100)}%` : "—", sub: target ? `重心 ${Math.round(selectedFrame.spectralCentroidHz)}Hz` : noTargetLabel, color: target ? scoreToColor(getMatchScore(selectedFrame, "timbre")) : undefined },
+              { label: "ピッチ一致度", value: `${Math.round(getMatchScore(selectedFrame) * 100)}%`, sub: selectedFrame.pitchHz ? `${selectedFrame.pitchHz.toFixed(1)}Hz ／ 記音${selectedFrame.matchedWrittenNote ?? "—"}` : "—", color: scoreToColor(getMatchScore(selectedFrame)) },
             ];
             return (
               <div style={{ display: "flex", flexWrap: "wrap", marginBottom: 12 }}>
@@ -9165,10 +9216,9 @@ function PhraseTimeline({ frames, noteEvents, selectedIdeal, NUM_HARMONICS, sess
             );
           })()}
 
-          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-2)", marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap" }}>
-            <span>音量: {selectedFrame.volumeDb?.toFixed(1)}dB</span>
-            <span>HNR: {selectedFrame.hnrDb?.toFixed(1) ?? "—"}dB</span>
-          </div>
+          {/* 【束5 2026-09-20 本人指示】ここにあった「音量: n dB ／ HNR: n dB」の行は
+              **削除した**。「詳細はピッチ一致度以外削除」。見出し(t = n.nn s の詳細)は
+              どのフレームの話かを言う唯一の文なので残す。 */}
         </div>
       )}
     </>
@@ -14174,6 +14224,9 @@ export function BottomSheet({ ariaLabel, onClose, children }) {
   // 【F-90】下スワイプで閉じる。カードの中は縦スクロールし得るので、
   // useSheetDismiss が**先頭に居るときだけ**ドラッグとして扱う。
   const dismiss = useSheetDismiss(onClose);
+  // 【束5 2026-09-20 本人指示】開いている間、裏の画面を動かさない。
+  // 数える仕組みは useBackdropScrollLock の1箇所(上にピッカーが重なっても0にならない)。
+  useBackdropScrollLock();
   return createPortal(
     <div
       role="dialog" aria-modal="true" aria-label={ariaLabel}
@@ -14203,6 +14256,9 @@ export function BottomSheet({ ariaLabel, onClose, children }) {
              残る帯は暗幕なので、そこを押せば閉じられる。
              dvh 未対応の環境ではこの宣言ごと落ちて上限なしになる。 */
           maxHeight: "calc(100dvh - var(--nav-h))", overflowY: "auto",
+          /* 【束5 2026-09-20 本人指示】中身の端まで来ても、そこから先を親(裏の画面)へ
+             渡さない。overflowY と対で在るものなので同じ行に置く。 */
+          overscrollBehavior: "contain",
         }}
       >
         <button
@@ -14290,11 +14346,17 @@ function SessionEditSheet({
           type="datetime-local"
           value={recordedAtLocal}
           onChange={(e) => onSetRecordedAt(e.target.value)}
-          className="sans"
+          className="sans datetime-flush"
           /* 【D-5 実機確認で発見】横の padding 8px は**ブラウザ既定の名残**で、この行だけ
              値の文字が右へ 8px ずれていた(3行の左端を揃えたのに揃って見えない)。
-             左右を 0 にして、他の2行と同じ左端から始める(残る差は透明枠の 1px だけ)。 */
-          style={{ padding: "4px 0", fontSize: 12, boxSizing: "border-box", width: 190, flexShrink: 0, background: "none", border: "1px solid transparent", borderRadius: 0 }}
+             左右を 0 にして、他の2行と同じ左端から始める。
+             【束5 2026-09-20 本人指示】「日付を下の奏者やリードと先頭行の縦列を揃えて」。
+             D-5 で残していた**透明枠の 1px** がまだ効いていて、値の文字だけ 1px 内側から
+             始まっていた(Chrome 375×812 で実測: 日付 69 / 奏者 68 / リード 68)。
+             枠は外さない(§6.7「枠を透明にして残す」── 外すと外形が縮む)。
+             **枠のぶんだけ器を左へずらして打ち消す**ので、外形の幅(190)も高さも変わらない。
+             内側の余白(UA がシャドウ側に持つ padding)は .datetime-flush が 0 にする。 */
+          style={{ padding: "4px 0", marginLeft: -1, fontSize: 12, boxSizing: "border-box", width: 190, flexShrink: 0, background: "none", border: "1px solid transparent", borderRadius: 0 }}
         />
       ))}
       {row("奏者", (
@@ -15385,7 +15447,7 @@ function AnalysisLabView(props) {
       <SwipeBackArea onBack={() => setSelectedSessionId(null)}>
         <SessionDetailView
           session={selectedSession} reeds={reeds} sessions={sessions} selectedIdeal={selectedIdeal}
-          NUM_HARMONICS={NUM_HARMONICS} promoteSessionToIdeal={promoteSessionToIdeal}
+          promoteSessionToIdeal={promoteSessionToIdeal}
           updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
           tuningHz={tuningHz}
           onBack={() => setSelectedSessionId(null)}
@@ -16211,7 +16273,10 @@ function MyDataPage({
 // **基準の切替(絶対値 / 目安 / 別セッション整列)はタブと重複していない**(タブは音名軸グラフの
 // 指標を切り替えるもので、こちらはタイムラインの比較基準)。落とすと機能が消えるので、
 // PhraseTimeline の中身はそのまま残した。**正典と意図的に違えた1点**として BACKLOG に起票する。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMONICS, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
+// 【束5 2026-09-20】受け口から NUM_HARMONICS が消えた。唯一の読み手だった
+// PhraseTimeline の音色一致度の枠が無くなり、この画面では誰も見なくなったため
+// (selectedIdeal は MetricTabCard / SetAsIdealButton が今も読むので残る)。
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
   const frames = session.frames || [];
   // (【D-5】音階ごとの平均の表を削除したので、noteGroups の読み手が無くなった。分解も止める。)
   const reed = reeds.find((r) => r.id === session.reedId) || null;
@@ -16311,9 +16376,11 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, NUM_HARMON
       {frames.length > 0 && (
         <div className="card card-outline" style={{ marginTop: "var(--sp-3)" }}>
           <div className="sans" style={{ fontSize: "var(--fs-xs)", fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)", paddingBottom: 10 }}>録音</div>
+          {/* 【束5 2026-09-20】selectedIdeal / NUM_HARMONICS の受け渡しは**やめた** ──
+              読み手だった音色一致度の枠が消えて、部品の中で誰も見なくなったため。 */}
           <PhraseTimeline
-            frames={frames} noteEvents={session.noteEvents} selectedIdeal={selectedIdeal}
-            NUM_HARMONICS={NUM_HARMONICS} sessions={sessions} ownSessionId={session.id}
+            frames={frames} noteEvents={session.noteEvents}
+            sessions={sessions} ownSessionId={session.id}
             barlines={session.barlines}
           />
         </div>

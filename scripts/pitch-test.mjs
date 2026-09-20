@@ -12168,9 +12168,11 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         /fontSize: 12, color: "var\(--c-ink-3\)", minWidth: "3em", flexShrink: 0/.test(srcOfFn(src, "SessionEditSheet")));
       // 【D-5 実機確認で発見して直した】3行の**値の左端**が揃うのは、ラベルの 3em だけでは
       // 足りない。日付の欄はブラウザ既定の横 padding を持っていて、この行だけ文字が右へ
-      // ずれていた。**横の padding は 0** にする(残る差は透明枠の 1px)。
-      check("D-5: 日付の欄は横に padding を持たない(値の左端が他の2行と揃う)",
-        /style=\{\{ padding: "4px 0", fontSize: 12, boxSizing: "border-box", width: 190/.test(srcOfFn(src, "SessionEditSheet")));
+      // ずれていた。**横の padding は 0** にする。
+      // 【束5 2026-09-20 で 1px ぶん進んだ】D-5 が「残る差は透明枠の 1px」と書いて残して
+      // いたぶんを marginLeft: -1 で打ち消した(枠そのものは外さない。§6.7)。
+      check("D-5: 日付の欄は横に padding を持たず、透明枠の 1px を打ち消している(値の左端が他の2行と揃う)",
+        /style=\{\{ padding: "4px 0", marginLeft: -1, fontSize: 12, boxSizing: "border-box", width: 190/.test(srcOfFn(src, "SessionEditSheet")));
       check("D-3: 編集シートの行は 44pt の高さを持つ(§5)",
         /minHeight: "var\(--tap-min\)", borderBottom: "1px solid var\(--c-line\)"/.test(srcOfFn(src, "SessionEditSheet")));
     }
@@ -17428,8 +17430,11 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.3 D-5: タイムラインの指標はピッチに固定(選ばせない)",
     /const getMetricValue = \(frame\) => frame\.pitchHz;/.test(pt29)
     && !/timelineMetric/.test(codeOf(src)));
-  check("29.3 D-5: 比較の基準は絶対値(目安)に固定(選ばせない)",
-    /const getComparisonTarget = \(frame\) => getNoteIdeal\(selectedIdeal, frame\.semitoneIndex\);/.test(pt29)
+  // 【束5 2026-09-20 で綴りが変わった】ドリルダウンが**ピッチ一致度だけ**になり、
+  // 目安を引いていた getComparisonTarget は読み手0件で定義ごと消えた。固定されていること
+  // (基準を選ばせないこと)は、一致度の出どころが録音時の理論値ただ1つであることで見る。
+  check("29.3 D-5: 比較の基準は絶対値(理論値)に固定(選ばせない)",
+    /const getMatchScore = \(frame\) => frame\.matchScore\?\.pitch\?\.theoretical \?\? 0;/.test(pt29)
     && !/referenceBasis/.test(codeOf(src)));
   check("29.3 D-5: 別セッション整列は状態ごと消えている(読み手ゼロの綴りを残さない)",
     !/referenceSessionId|referenceCandidates/.test(codeOf(src)));
@@ -17466,8 +17471,9 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   check("29.3 D-7: fmt は今もグラフの軸が使う(語彙ごと消していない)",
     /fmt=\{m\.fmt\}/.test(srcOfFn(src, "MetricTabCard")));
   // ドリルダウンの一致度は機能色(scoreToColor)を数値の色で返す(旧 MetricCard と同じ考え)
+  // 【束5 2026-09-20】枠が1つになり、getMatchScore から kind の引数が消えた。
   check("29.3 ドリルダウンの一致度の数値は scoreToColor の色を持つ(隣接: cells の組み立て)",
-    /color: scoreToColor\(getMatchScore\(selectedFrame, "pitch"\)\)/.test(pt29)
+    /color: scoreToColor\(getMatchScore\(selectedFrame\)\)/.test(pt29)
     && /color: c\.color \|\| "var\(--c-ink\)"/.test(pt29));
 
   // --- 29.4 機能を1つも落としていないこと(集合で確かめる。26.7 と同じ形) ------------------
@@ -25895,6 +25901,242 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
     && count64(dcMe64, /お問い合わせ/g) === 1
     && count64(dcMe64, /レビューを送る/g) === 0,
     `アドレス ${count64(dcMe64, /ficus\.help@gmail\.com/g)} / レビュー ${count64(dcMe64, /レビューを送る/g)}`);
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証65: 束5 ── 編集シートの日付 / タイムラインの詳細 / シートの裏のスクロール /
+//               人物シートの浮かせたボタン(2026-09-20 本人指示・凍結仕様)
+//
+// 本人の言葉:
+//   「個別計測データ画面にあるの編集画面の日付を下の奏者やリードと先頭行の縦列を揃えて」
+//   「タイムラインの下部にある詳細はピッチ一致度以外削除」
+//   「ユーザーの個人データを開いている時にスクロールアクションをすると
+//     裏側の画面がスクロールされる仕様を削除」
+//   「目安に設定のボタンと[計測環境により…]のテキストが被っているのでボタンの位置を下げて」
+//
+// **ここで見ること**:
+//   5-A 日付の欄が**内側の余白と枠のぶんを打ち消している**こと(行の形は変えていない)。
+//   5-B ドリルダウンが**ピッチ一致度1枠だけ**になり、読み手0件になった定義が消えていること。
+//       消しすぎていないこと(timbreMatchScore / getNoteIdeal は他に読み手が在る)。
+//   5-C **開いている枚数を数える仕組みが1箇所**に在り、0 になったときだけ裏を戻すこと。
+//       綴りだけでなく**実際に走らせて**「2枚開いて1枚閉じても解除しない」を確かめる。
+//   5-D 貼り付くボタンと対の空きが在り、高さがトークンから導かれていること。
+//
+// **見ないもの**:
+//   ・日付の欄の**内側の余白**が実際に効くかどうか。Chrome の実測では元から 0 で、
+//     ずれていたのは透明枠の 1px だけだった。`::-webkit-datetime-edit` の padding が
+//     効くかは**実機(iOS Safari)でしか判定できない**(§6.7 の日付欄の節と同じ)。
+//   ・タッチでの裏のスクロール。dev の Chromium で送れるのは wheel まで。
+//   ・人物シートの**途中のスクロール位置**でボタンが注記に重なるかどうか
+//     (375×600 の実測では**空きの有無に関係なく 83 位置で重なる**。ここは別件として
+//      報告済みで、この検査は「空きが在ること」だけを見る)。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① 日付の打ち消し(marginLeft: -1)を外す  ② 音色一致度の枠を戻す
+//   ③ 音量・HNR の行を戻す                  ④ overscrollBehavior を外す
+//   ⑤ 枚数を数えずに常に解除する            ⑥ PersonSheet の空きを外す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだけ / シートの裏 / 浮かせたボタンの空き ==========");
+{
+  const read65 = (...p) => readFileSync(join(__dirname, "..", ...p), "utf8");
+  const count65 = (t, re) => (t.match(re) || []).length;
+  const app65 = codeOf(src);
+  const editSheet65 = codeOf(srcOfFn(src, "SessionEditSheet"));
+  const pt65 = codeOf(srcOfFn(src, "PhraseTimeline"));
+  const bottom65 = codeOf(srcOfFn(src, "BottomSheet"));
+  const picker65 = codeOf(srcOfFn(src, "ScrollPicker"));
+  const dismiss65 = codeOf(srcOfFn(src, "useSheetDismiss"));
+  // CSS はブロックコメントだけを潰す(セレクタに混ざるため)。
+  const css65 = read65("src", "index.css").replace(/\/\*[\s\S]*?\*\//g, " ");
+  const screensRaw65 = read65("src", "community", "screens.jsx");
+  const screens65 = codeOf(screensRaw65);
+  const person65 = codeOf(srcOfFn(screensRaw65, "PersonSheet"));
+  const detailMjs65 = codeOf(read65("design", "canvas", "detail.mjs"));
+  const dcSession65 = read65("design", "canvas", "SessionDetail.dc.html").replace(/<!--[\s\S]*?-->/g, "");
+  const dcSessionE65 = read65("design", "canvas", "SessionDetailE.dc.html").replace(/<!--[\s\S]*?-->/g, "");
+  const ds65 = read65("design", "DESIGN-SYSTEM.md");
+
+  check("65.0 4つの実装・器・正典を読めている(空回りしていない)",
+    editSheet65.length > 800 && pt65.length > 4000 && bottom65.length > 800
+    && picker65.length > 1500 && person65.length > 4000 && css65.length > 10000
+    && detailMjs65.length > 5000 && dcSession65.length > 5000,
+    `edit ${editSheet65.length} / timeline ${pt65.length} / 器 ${bottom65.length} / picker ${picker65.length} / person ${person65.length}`);
+
+  // --- 65.1 5-A 編集シートの日付の左端 -----------------------------------------
+  check("65.1 5-A 日付の欄は横の padding が 0 で、透明枠の 1px を marginLeft で打ち消す",
+    /style=\{\{ padding: "4px 0", marginLeft: -1, fontSize: 12, boxSizing: "border-box", width: 190, flexShrink: 0, background: "none", border: "1px solid transparent", borderRadius: 0 \}\}/.test(editSheet65),
+    (editSheet65.match(/style=\{\{ padding: "4px 0"[^}]*\}\}/) || ["取り出せない"])[0]);
+  check("65.1 5-A 透明枠そのものは残っている(§6.7「枠を透明にして残す」。外すと外形が縮む)",
+    /border: "1px solid transparent"/.test(editSheet65)
+    && !/border: "none"/.test(editSheet65));
+  check("65.1 5-A 内側の余白(UA のシャドウ側)を 0 にする綴りは index.css に1つだけ",
+    count65(css65, /\.datetime-flush/g) === 2   // 2つのセレクタ = 1規則
+    && /\.datetime-flush::-webkit-datetime-edit,\s*\n\.datetime-flush::-webkit-datetime-edit-fields-wrapper \{\s*\n\s*padding: 0;\s*\n\}/.test(css65),
+    (css65.match(/\.datetime-flush[\s\S]{0,160}/) || ["規則が無い"])[0].replace(/\s+/g, " "));
+  check("65.1 5-A その規則は地・枠・角丸を持たない(配るのは入力欄の規則ただ1つ)",
+    (() => {
+      const rule = (css65.match(/\.datetime-flush::-webkit-datetime-edit,[\s\S]*?\n\}/) || [""])[0];
+      return rule.length > 0 && /padding: 0;/.test(rule)
+        && !/background|border|border-radius|font-size|width|height/.test(rule);
+    })());
+  check("65.1 5-A セレクタに input / select / textarea を書いていない(入力欄の規則を2つにしない)",
+    (() => {
+      const sels = (css65.match(/\.datetime-flush[^{]*\{/) || [""])[0];
+      return sels.length > 0 && !/\b(input|select|textarea)\b/.test(sels);
+    })());
+  check("65.1 5-A 付け先は className(綴りは JSX と CSS で同じ)",
+    /className="sans datetime-flush"/.test(editSheet65)
+    && count65(app65, /datetime-flush/g) === 1);
+  check("65.1 5-A 行の形は変えていない(3行とも row() / ラベルは 3em のまま)",
+    /minWidth: "3em", flexShrink: 0/.test(editSheet65)
+    && count65(editSheet65, /\{row\("/g) === 3,
+    `row( ${count65(editSheet65, /\{row\("/g)}箇所`);
+
+  // --- 65.2 5-B タイムラインの詳細はピッチ一致度だけ ----------------------------
+  check("65.2 5-B ドリルダウンに音色の枠・音量の行・HNR の行が1つも無い",
+    count65(pt65, /音色一致度/g) === 0
+    && count65(pt65, /音量:/g) === 0
+    && count65(pt65, /HNR:/g) === 0,
+    `音色 ${count65(pt65, /音色一致度/g)} / 音量 ${count65(pt65, /音量:/g)} / HNR ${count65(pt65, /HNR:/g)}`);
+  check("65.2 5-B 残るのはピッチ一致度1枠と、どのフレームかを言う見出し",
+    count65(pt65, /label: "ピッチ一致度"/g) === 1
+    && count65(pt65, /const cells = \[/g) === 1
+    && /t = \{selectedFrame\.t\.toFixed\(2\)\}s の詳細/.test(pt65));
+  check("65.2 5-B 読み手0件になった定義が消えている(比較対象・理由の文・音色の枝)",
+    count65(pt65, /getComparisonTarget/g) === 0
+    && count65(pt65, /noTargetLabel/g) === 0
+    && count65(pt65, /timbreMatchScore/g) === 0
+    && count65(pt65, /NUM_HARMONICS/g) === 0
+    && count65(pt65, /selectedIdeal/g) === 0,
+    `target ${count65(pt65, /getComparisonTarget/g)} / label ${count65(pt65, /noTargetLabel/g)} / timbre ${count65(pt65, /timbreMatchScore/g)} / NUM_H ${count65(pt65, /NUM_HARMONICS/g)} / ideal ${count65(pt65, /selectedIdeal/g)}`);
+  check("65.2 5-B 一致度は引数1つ(どちらを出すかを選ぶ kind が消えた)",
+    /const getMatchScore = \(frame\) => frame\.matchScore\?\.pitch\?\.theoretical \?\? 0;/.test(pt65)
+    && count65(pt65, /getMatchScore\(\w+, "/g) === 0,
+    `kind つきの呼び出し ${count65(pt65, /getMatchScore\(\w+, "/g)}箇所`);
+  check("65.2 5-B 呼び出し側も目安と倍音数を渡していない(受け口と対で消えている)",
+    /<PhraseTimeline\s*\n\s*frames=\{frames\} noteEvents=\{session\.noteEvents\}\s*\n\s*sessions=\{sessions\} ownSessionId=\{session\.id\}\s*\n\s*barlines=\{session\.barlines\}\s*\n\s*\/>/.test(app65),
+    (app65.match(/<PhraseTimeline[\s\S]{0,200}?\/>/) || ["取り出せない"])[0].replace(/\s+/g, " "));
+  check("65.2 5-B 1つ上(セッション詳細)の受け口からも倍音数が消えている(渡す先が無くなったため)",
+    /function SessionDetailView\(\{ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal,/.test(app65)
+    && count65(codeOf(srcOfFn(src, "SessionDetailView")), /NUM_HARMONICS/g) === 0
+    && /<SessionDetailView\s*\n\s*session=\{selectedSession\} reeds=\{reeds\} sessions=\{sessions\} selectedIdeal=\{selectedIdeal\}\s*\n\s*promoteSessionToIdeal=/.test(app65),
+    `SessionDetailView の中の NUM_HARMONICS ${count65(codeOf(srcOfFn(src, "SessionDetailView")), /NUM_HARMONICS/g)}箇所`);
+  check("65.2 5-B 消しすぎていない(音色の算術と目安の引き手はアプリの他所で生きている)",
+    count65(app65, /\btimbreMatchScore\b/g) >= 3
+    && count65(app65, /\bgetNoteIdeal\b/g) >= 3,
+    `timbreMatchScore ${count65(app65, /\btimbreMatchScore\b/g)} / getNoteIdeal ${count65(app65, /\bgetNoteIdeal\b/g)}`);
+  check("65.2 5-B タイムライン本体は1つも変えていない(スクラブ・小節線・折れ線・検出ノート)",
+    /type="range"/.test(pt65) && /barlineXs\.map/.test(pt65)
+    && /<polyline/.test(pt65) && /検出ノート \{noteEvents\.length\}/.test(pt65));
+  check("65.2 5-B 正典(生成器)からも音色の枠と音量・HNR の行が消えている",
+    count65(detailMjs65, /音色一致度/g) === 0
+    && count65(detailMjs65, /音量: -18\.4 dB/g) === 0
+    && count65(detailMjs65, /HNR: 21\.6 dB/g) === 0
+    && count65(detailMjs65, /ピッチ一致度/g) === 1);
+  check("65.2 5-B 正典の再生成物2枚(SessionDetail / SessionDetailE)も同じ姿",
+    count65(dcSession65, /音色一致度/g) === 0 && count65(dcSessionE65, /音色一致度/g) === 0
+    && count65(dcSession65, /音量:/g) === 0 && count65(dcSessionE65, /音量:/g) === 0
+    && count65(dcSession65, /HNR: /g) === 0 && count65(dcSessionE65, /HNR: /g) === 0
+    && count65(dcSession65, /ピッチ一致度/g) === 1 && count65(dcSessionE65, /ピッチ一致度/g) === 1
+    && /の詳細/.test(dcSession65) && /の詳細/.test(dcSessionE65),
+    `現状 音色${count65(dcSession65, /音色一致度/g)} 音量${count65(dcSession65, /音量:/g)} / 案E 音色${count65(dcSessionE65, /音色一致度/g)}`);
+
+  // --- 65.3 5-C シートを開いている間、裏を止める --------------------------------
+  check("65.3 5-C シートのカードは端まで来ても親へ渡さない(overflowY と同じ塊)",
+    /maxHeight: "calc\(100dvh - var\(--nav-h\)\)", overflowY: "auto",[\s\S]{0,400}?overscrollBehavior: "contain",/.test(bottom65),
+    (bottom65.match(/overscrollBehavior[^,]*/) || ["無い"])[0]);
+  check("65.3 5-C 数える仕組みは1箇所だけ(入れ物も出入り口も1つずつ)",
+    count65(app65, /let openSheetCount = 0;/g) === 1
+    && count65(app65, /let lockedScrollY = 0;/g) === 1
+    && count65(app65, /function lockBackdropScroll\(\)/g) === 1
+    && count65(app65, /function unlockBackdropScroll\(\)/g) === 1
+    && count65(app65, /function useBackdropScrollLock\(\)/g) === 1);
+  check("65.3 5-C 0 になったときだけ解除する式がある",
+    /openSheetCount = Math\.max\(0, openSheetCount - 1\);/.test(app65)
+    && /if \(openSheetCount > 0\) return;/.test(app65));
+  check("65.3 5-C 戻すときに**保存した位置へ**戻す式がある",
+    /lockedScrollY = window\.scrollY \|\| window\.pageYOffset \|\| 0;/.test(app65)
+    && /s\.top = `-\$\{lockedScrollY\}px`;/.test(app65)
+    && /window\.scrollTo\(0, lockedScrollY\);/.test(app65));
+  check("65.3 5-C 使い手はシートの器とピッカーの2つ。どちらも1回ずつ呼ぶ",
+    count65(bottom65, /useBackdropScrollLock\(\);/g) === 1
+    && count65(picker65, /useBackdropScrollLock\(\);/g) === 1
+    && count65(app65, /useBackdropScrollLock\(\);/g) === 2,
+    `全体 ${count65(app65, /useBackdropScrollLock\(\);/g)}箇所`);
+  check("65.3 5-C 下スワイプで閉じる仕掛け(useSheetDismiss)の中身は触っていない",
+    /const g = gestureRef\.current;/.test(dismiss65)
+    && /node\.addEventListener\("touchmove", fn, \{ passive: false \}\);/.test(dismiss65)
+    && /onTouchStart: \(e\) => g\.start\(e\)/.test(dismiss65));
+  {
+    // **綴りではなく動きで見る。** 実ソースの数え役を取り出して走らせ、
+    // 「2枚開いて1枚閉じても解除しない / 0 になった瞬間だけ保存した位置へ戻す」を確かめる。
+    // 変異⑤(枚数を数えずに常に解除する)はここで落ちる。
+    const lets65 = (src.match(/let openSheetCount = 0;[\s\S]*?let lockedScrollY = 0;/) || [""])[0];
+    const lock65 = extractFunction("lockBackdropScroll");
+    const unlock65 = extractFunction("unlockBackdropScroll");
+    check("65.3 5-C 数え役を実ソースから取り出せている", lets65.length > 20 && lock65.length > 100 && unlock65.length > 80,
+      `lets ${lets65.length} / lock ${lock65.length} / unlock ${unlock65.length}`);
+    const make65 = new Function("window", "document",
+      `${lets65}\n${lock65}\n${unlock65}\nreturn { lock: lockBackdropScroll, unlock: unlockBackdropScroll, count: () => openSheetCount };`);
+    const scrolls65 = [];
+    const win65 = { scrollY: 344, pageYOffset: 344, scrollTo: (x, y) => { scrolls65.push(y); win65.scrollY = y; } };
+    const doc65 = { body: { style: {} } };
+    const api65 = make65(win65, doc65);
+    const st65 = doc65.body.style;
+    api65.lock();                                   // 1枚目(シート)
+    const afterFirst = { pos: st65.position, top: st65.top, n: api65.count() };
+    api65.lock();                                   // 2枚目(ピッカーが重なる)
+    const afterSecond = { pos: st65.position, top: st65.top, n: api65.count() };
+    api65.unlock();                                 // ピッカーだけ閉じる
+    const afterPicker = { pos: st65.position, top: st65.top, n: api65.count(), scrolls: scrolls65.length };
+    api65.unlock();                                 // シートも閉じる
+    const afterAll = { pos: st65.position, top: st65.top, n: api65.count(), scrolls: scrolls65.slice() };
+    check("65.3 5-C 1枚目で裏が止まり、いま読んでいた位置を覚える",
+      afterFirst.pos === "fixed" && afterFirst.top === "-344px" && afterFirst.n === 1,
+      JSON.stringify(afterFirst));
+    check("65.3 5-C 2枚目が重なっても位置を取り直さない(0 でない間は何もしない)",
+      afterSecond.pos === "fixed" && afterSecond.top === "-344px" && afterSecond.n === 2,
+      JSON.stringify(afterSecond));
+    check("65.3 5-C **1枚閉じただけでは解除しない**(数えている証拠)",
+      afterPicker.pos === "fixed" && afterPicker.top === "-344px"
+      && afterPicker.n === 1 && afterPicker.scrolls === 0,
+      JSON.stringify(afterPicker));
+    check("65.3 5-C 0 になった瞬間に元へ戻し、**保存した位置へ**スクロールし直す",
+      afterAll.pos === "" && afterAll.top === "" && afterAll.n === 0
+      && afterAll.scrolls.length === 1 && afterAll.scrolls[0] === 344,
+      JSON.stringify(afterAll));
+  }
+
+  // --- 65.4 5-D 「目安に設定」と注記の重なり ------------------------------------
+  check("65.4 5-D 空きの高さはトークンから導く(px の直書きが無い)",
+    /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(screens65)
+    && count65(screens65, /ADOPT_STICKY_SPACER_H/g) === 2,
+    `読み手を含め ${count65(screens65, /ADOPT_STICKY_SPACER_H/g)}箇所`);
+  check("65.4 5-D 人物シートに空きが1つあり、貼り付くボタンの器より**後ろ**に居る",
+    count65(person65, /<div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/>/g) === 1
+    && person65.indexOf('position: "sticky", bottom: 0') < person65.indexOf("ADOPT_STICKY_SPACER_H"));
+  check("65.4 5-D 空きは取り込みの一手が在るときだけ置く(ボタンと対で在る)",
+    /\{onAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}/.test(person65));
+  check("65.4 5-D 束2 の裁定どおり sticky と寸法・色・影は1つも変えていない",
+    /position: "sticky", bottom: 0, zIndex: 1,/.test(person65)
+    && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person65)
+    && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(person65)
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person65));
+  check("65.4 5-D 注記の綴りは1件のまま(言い換えも写しも作っていない)",
+    count65(person65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 1);
+
+  // --- 65.5 規範(DESIGN-SYSTEM)--------------------------------------------------
+  check("65.5 §6.7 が「下から出るシートは開いている間 裏を止める」を表で持つ",
+    /#### 下から出るシートは開いている間、裏の画面を止める/.test(ds65)
+    && /\| 枚数を数える \| `src\/App\.jsx` の `openSheetCount`/.test(ds65)
+    && /\| 戻す位置 \| `lockedScrollY`/.test(ds65)
+    && /\| 端で親へ渡さない \| `\.sheet-card` の `overscroll-behavior: contain`/.test(ds65));
+  check("65.5 §6.7 が「貼り付く一手には対の空きを置く」を表で持つ",
+    /#### 貼り付く一手には、対の空きを本文の末尾に置く/.test(ds65)
+    && /\| 人物シートの「目安に設定」 \| `ADOPT_STICKY_SPACER_H` = `calc\(var\(--tap-min\) \+ var\(--sp-3\)\)` \|/.test(ds65)
+    && /\| 一覧の `FloatingAction` \| `FLOAT_ACTION_SPACER_H`/.test(ds65));
   console.log("  -> done");
 }
 console.log("\n========== 結果 ==========");

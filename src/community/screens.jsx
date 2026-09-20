@@ -46,6 +46,13 @@ const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeig
 const bodyNoteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", lineHeight: 1.8 };
 // 10px は §6.6「D-10 の実寸」表の eyebrow(10px / 600 / .08em / --c-ink-3)。体系が持つ値。
 const eyebrowStyle = { fontSize: 10, fontWeight: 600, letterSpacing: ".08em", color: "var(--c-ink-3)" };
+// 【束5 2026-09-20 本人指示】「目安に設定のボタンと[計測環境により…]のテキストが被っている
+// のでボタンの位置を下げて」。貼り付くボタン(sticky / bottom 0)と対で、**本文の末尾に
+// ボタンの高さぶんの空きを置く**。片方だけだと最後まで送っても注記がボタンの下に残る。
+// 高さは**ボタンの実寸から引く** ── ボタンの高さは minHeight: var(--tap-min)、
+// 間隔は既にこの画面が使っている --sp-3。新しい数は作らない
+// (App.jsx の FLOAT_ACTION_SPACER_H と同じ考え方。あちらは絵柄だけの 56 角なので値が違う)。
+const ADOPT_STICKY_SPACER_H = "calc(var(--tap-min) + var(--sp-3))";
 
 // ------------------------------------------------------------------
 // 指標の切替は**下線タブ**。現行アプリの MetricUnderlineTabs(App.jsx)と同じ作り。
@@ -1358,6 +1365,11 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     {adopted?.error ? (
                       <div className="sans" role="alert" style={{ ...noteStyle, color: "var(--c-bad)" }}>{adopted.error}</div>
                     ) : null}
+                    {/* 【束5 2026-09-20 本人指示】貼り付くボタンと対の空き。**ボタンの器より後ろ**
+                        (取り込んだ結果の1行より更に後ろ ── 空きが文の途中に挟まらないように)。
+                        これが無いと、一番下まで送ってもボタンが器の下端に居座り、
+                        注記や結果の行がその裏に残る。高さの持ち主は ADOPT_STICKY_SPACER_H だけ。 */}
+                    {onAdopt ? <div aria-hidden="true" style={{ height: ADOPT_STICKY_SPACER_H }} /> : null}
                   </>
                 ) : null}
               </>
