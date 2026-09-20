@@ -9258,7 +9258,7 @@ function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false
 // `getComparisonTarget` / `noTargetLabel` と、`getMatchScore` の "timbre" の枝、
 // そこだけが使っていた受け口 `selectedIdeal` / `NUM_HARMONICS` も**定義ごと消している**。
 // (`timbreMatchScore` / `getNoteIdeal` は計測タブ側に読み手が残るので消さない。)
-function PhraseTimeline({ frames, noteEvents, sessions, ownSessionId, barlines }) {
+function PhraseTimeline({ frames, noteEvents, barlines }) {
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(null);
   const timelineScrollRef = useRef(null);
 
@@ -10862,7 +10862,7 @@ const FLOAT_ACTION_GAP = "var(--sp-3)";
 // **この1つだけが 56 を持つ**(FAB・一覧末尾の余白・シートの一手が同じ定数を読む)。
 // 語つきの FAB は従来の高さ(--tap-min)のまま ── 語が入るぶん横に伸びるので、
 // 高さまで上げると「浮かせる一手」が画面の隅で重くなる(本人の指摘は絵柄だけの丸の話)。
-const ACTION_LG_PX = 56;
+export const ACTION_LG_PX = 56;
 // 一覧の下に確保する余白 = ボタンの高さ(絵柄だけの 56) + 上下の間隔。
 // これが無いと最下行がボタンの下に潜る(案D の弱点として正典自身が書いている
 // 「最下段のタイルに少し重なる(下に余白を確保して回避)」)。
@@ -16584,7 +16584,6 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSes
               読み手だった音色一致度の枠が消えて、部品の中で誰も見なくなったため。 */}
           <PhraseTimeline
             frames={frames} noteEvents={session.noteEvents}
-            sessions={sessions} ownSessionId={session.id}
             barlines={session.barlines}
           />
         </div>

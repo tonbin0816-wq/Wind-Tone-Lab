@@ -82,7 +82,9 @@ function extractConst(name, text = src) {
   const re = new RegExp(`(?:export )?const ${name} = `);
   const m = re.exec(text);
   if (!m) throw new Error(`const ${name} not found`);
-  const start = m.index;
+  // 【便V 2026-09-21】`export const` の `export ` は落とす(extractFunction と同じ作法)。
+  // 戻り値を new Function に入れる使い手があるので、export 付きだと構文エラーになる。
+  const start = m.index + (m[0].startsWith("export ") ? "export ".length : 0);
   const eq = text.indexOf("=", start);
   let i = eq + 1;
   while (text[i] === " ") i++;
@@ -15085,16 +15087,26 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 便R 前半で実装の厚さ・枚数はピルの並びになったのに、正典ミニは「値 + ▾」の行のまま
       // だった ── その食い違いをここで畳む。**寸法・色は1つも動かしていない**:
       // ピルは正典が既に持つ .selrow / .selpill、名札と罫と高さ44 は上の2行から引いた。
+      // 【便V 2026-09-21】名札の綴りを**実装から引く**形へ向け直した。便O で実装は
+      // 「メーカー / 銘柄」になっていたのに、ここは旧語「メーカー選択 / 銘柄選択」を
+      // 直書きで期待していたため、**正典だけが古い**状態を検査が固定していた(§6.0)。
+      // これで正典と実装のどちらかだけを動かすと落ちる。
+      const pickLabels25 = [...codeOf(sheet).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+      const pillLabels25 = [...codeOf(sheet).matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
+      check("便V 突き合わせる名札を実装から取り出せている(空回りしていない)",
+        pickLabels25.length === 2 && pillLabels25.length === 2
+        && pickLabels25.concat(pillLabels25).every((t) => t.length > 0),
+        `▾=${JSON.stringify(pickLabels25)} / ピル=${JSON.stringify(pillLabels25)}`);
       check("便R 正典ミニも「▾ の行2つ + ピルの段2つ」に書き換えてある(実装だけ先に動かしていない)",
-        /追加シート — <b>メーカー選択・銘柄選択の2行が同じ形<\/b>/.test(mock)
-        && /<b>厚さ・枚数は名札の下にピルを並べる<\/b>/.test(mock)
+        new RegExp(`追加シート — <b>${pickLabels25.join("・")}の2行が同じ形</b>`).test(mock)
+        && new RegExp(`<b>${pillLabels25.join("・")}は名札の下にピルを並べる</b>`).test(mock)
         && !/<b>型番<\/b>/.test(mock)
-        // ▾ の行は メーカー選択 / 銘柄選択 の2つだけ
-        && [["メーカー選択", "Vandoren"], ["銘柄選択", "V16"]]
+        // ▾ の行は実装の名札(メーカー / 銘柄)の2つだけ
+        && [[pickLabels25[0], "Vandoren"], [pickLabels25[1], "V16"]]
           .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`).test(mock))
         && !/>厚さ選択</.test(mock)
         // 厚さ・枚数は名札の下のピル。選ばれている値(3.25 / 10)は .selpill.on
-        && [["厚さ", "3.25"], ["枚数", "10"]].every(([lab, val]) => {
+        && [[pillLabels25[0], "3.25"], [pillLabels25[1], "10"]].every(([lab, val]) => {
           const i = mock.indexOf(`>${lab}</span>`);
           if (i < 0) return false;
           const blk = mock.slice(i, mock.indexOf("</div>\n        </div>", i));
@@ -25152,22 +25164,34 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
   {
     // 【便R 後半-後半 2026-09-20】厚さ・枚数は実装に合わせてピルの段になった(§6.0「正典が勝つ」)。
     // **▾ の行は メーカー選択 / 銘柄選択 の2つ**で、寸法(gap12 / 高さ44 / 罫 / 14px)は不変。
+    // 【便V 2026-09-21】名札と下の一手の語を**実装から引く**形へ向け直した。
+    // ここは旧語「メーカー選択 / 銘柄選択」と旧い一手「変更」を直書きで期待していて、
+    // 実装(便O で「メーカー / 銘柄」、便P で「番号編集 / 削除」)とずれた正典を固定していた。
+    const pick594 = [...sheet59.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    const pill594 = [...sheet59.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
+    const head594 = sheet59.indexOf("<div style={{ display: \"flex\", gap: \"var(--sp-2)\", marginTop: \"var(--sp-4)\" }}>");
+    const row594 = head594 >= 0 ? sheet59.slice(head594, sheet59.indexOf(") : (", head594)) : "";
+    const act594 = [...row594.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
+    check("59.4 正典と突き合わせる語を実装から取り出せている(空回りしていない)",
+      pick594.length === 2 && pill594.length === 2 && act594.length === 2,
+      `▾=${JSON.stringify(pick594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
     check("59.4 正典ミニの ▾ の行は 名札 → 値(左寄せ) → ▾ で、高さ44",
-      [["メーカー選択", "Vandoren"], ["銘柄選択", "V16"]]
+      [[pick594[0], "Vandoren"], [pick594[1], "V16"]]
         .every(([lab, val]) => new RegExp(
           `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`
         ).test(mock59)));
     check("59.4 正典ミニの厚さ・枚数は名札の下のピル(高さ44・罫・名札の体裁は据え置き)",
-      [["厚さ", "3.25"], ["枚数", "10"]].every(([lab, val]) => new RegExp(
+      [[pill594[0], "3.25"], [pill594[1], "10"]].every(([lab, val]) => new RegExp(
         `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:8px 0;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<div class="selrow" style="justify-content:flex-start">[\\s\\S]{0,600}?<span class="selpill on">${val}</span>`
       ).test(mock59))
       && !/>厚さ選択</.test(mock59));
     check("59.4 正典に旧語「型番」が1つも残っていない",
       !/型番/.test(mock59), (mock59.match(/.{0,8}型番.{0,8}/g) || []).join(" | ") || "0件");
-    check("59.4 正典の説明も「2行 + ピルの段」と横並びの一手を書いている",
-      /追加シート — <b>メーカー選択・銘柄選択の2行が同じ形<\/b>/.test(mock59)
-      && /<b>厚さ・枚数は名札の下にピルを並べる<\/b>/.test(mock59)
-      && /「変更」と「削除」が横並び・高さ44/.test(mock59));
+    check("59.4 正典の説明も「2行 + ピルの段」と横並びの一手を書いている(語は実装から引く)",
+      new RegExp(`追加シート — <b>${pick594.join("・")}の2行が同じ形</b>`).test(mock59)
+      && new RegExp(`<b>${pill594.join("・")}は名札の下にピルを並べる</b>`).test(mock59)
+      && new RegExp(`「${act594[0]}」と「${act594[1]}」が横並び・高さ44`).test(mock59),
+      `正典=${(/下は<b>[^<]*<\/b>/.exec(mock59) || [""])[0]} / 実装=${JSON.stringify(act594)}`);
     check("59.4 正典の箱見出しの語も「メーカー」",
       /箱見出しにメーカー・番手・平均★・開封日/.test(mock59));
     check("59.4 DESIGN-SYSTEM の表も「リードメーカー」へ揃っている",
@@ -25924,7 +25948,7 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
 
   // --- 64.2 3-B お問い合わせの画面(綴り・寸法・押せる条件)---------------------
   check("64.2 3-B FeedbackSheet.jsx が在り、器は BottomSheet(自前の暗幕・角丸・Esc を持たない)",
-    /import \{ BottomSheet \} from "\.\.\/App\.jsx";/.test(feed64)
+    /import \{ BottomSheet, ACTION_LG_PX \} from "\.\.\/App\.jsx";/.test(feed64)
     && /<BottomSheet ariaLabel=\{SHEET_TITLE\} onClose=\{onClose\}>/.test(feed64)
     && !/overflowY|borderRadius: "28px|Escape|createPortal/.test(feed64));
   {
@@ -25958,17 +25982,23 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
     && /maxHeight: "calc\(100dvh - var\(--nav-h\)\)"/.test(bottom64));
   {
     // 生の色・生の px は0。幅いっぱい(100%)と字の太さ(700)は既存の綴りと同じなので除いて数え、
-    // **残る多桁の数が ACTION_LG_PX の 56 ただ1つ**であることを見る(値を発明していない印)。
+    // **残る多桁の数が0**であることを見る(値を発明していない印)。
+    // 【便V 2026-09-21】56 の写しは消えた(App.jsx の ACTION_LG_PX を import する)ので、
+    // ここに残ってよい多桁の数は**1つも無い**。錨を事実の側へ向け直す。
     const raw64 = feed64.replace(/width: "100%"/g, "").replace(/fontWeight: 700/g, "");
-    check("64.2 3-B 生の色も生の px も0。残る多桁の数は ACTION_LG_PX の 56 だけ(値を発明していない)",
+    check("64.2 3-B 生の色も生の px も0。残る多桁の数も0(値を発明していない)",
       count64(feed64, /#[0-9a-fA-F]{3,8}\b/g) === 0 && count64(feed64, /\b\d+px\b/g) === 0
-      && count64(raw64, /\b\d\d+\b/g) === 1 && /const ACTION_LG_PX = 56;/.test(feed64),
+      && count64(raw64, /\b\d\d+\b/g) === 0,
       (raw64.match(/\b\d\d+\b/g) || []).join(" / ") || "0件");
   }
-  check("64.2 3-B 主要動作の高さは App.jsx の ACTION_LG_PX と**同値**(写しがずれていない)",
-    extractConst("ACTION_LG_PX", feed64) === extractConst("ACTION_LG_PX", app64)
+  // 【便V 2026-09-21】高さ 56 の**綴りは1箇所**(App.jsx)。ここは写しを持たず import する。
+  // 「同値であること」ではなく「1つしか無いこと」を見る ── 写しが戻ったら落ちる。
+  check("64.2 3-B 主要動作の高さは App.jsx の ACTION_LG_PX を読む(写しを持たない)",
+    !/const ACTION_LG_PX/.test(feed64)
+    && /import \{ BottomSheet, ACTION_LG_PX \} from "\.\.\/App\.jsx";/.test(feed64)
+    && /export const ACTION_LG_PX = 56;/.test(app64)
     && /height: ACTION_LG_PX/.test(feed64),
-    `sheet: ${extractConst("ACTION_LG_PX", feed64)} / app: ${extractConst("ACTION_LG_PX", app64)}`);
+    `写し=${count64(feed64, /const ACTION_LG_PX/g)}件 / App=${extractConst("ACTION_LG_PX", app64)}`);
   check("64.2 3-B 送信の体裁は追加シートの主要動作と同じ作法(幅いっぱい / --r-pill / 塗り --c-accent)",
     /width: "100%", height: ACTION_LG_PX/.test(feed64)
     && /borderRadius: "var\(--r-pill\)", border: "none"/.test(feed64)
@@ -26280,8 +26310,11 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     /const getMatchScore = \(frame\) => frame\.matchScore\?\.pitch\?\.theoretical \?\? 0;/.test(pt65)
     && count65(pt65, /getMatchScore\(\w+, "/g) === 0,
     `kind つきの呼び出し ${count65(pt65, /getMatchScore\(\w+, "/g)}箇所`);
+  // 【便V 2026-09-21】束5 で読み手が0件になっていた sessions / ownSessionId を、受け口と
+  // 渡し側の両方から消した。**主張は緩めていない**: 渡している props が受け口と対で
+  // あることを見るままで、綴りを事実の側へ向け直した(検証77.2 が対を機械的に見る)。
   check("65.2 5-B 呼び出し側も目安と倍音数を渡していない(受け口と対で消えている)",
-    /<PhraseTimeline\s*\n\s*frames=\{frames\} noteEvents=\{session\.noteEvents\}\s*\n\s*sessions=\{sessions\} ownSessionId=\{session\.id\}\s*\n\s*barlines=\{session\.barlines\}\s*\n\s*\/>/.test(app65),
+    /<PhraseTimeline\s*\n\s*frames=\{frames\} noteEvents=\{session\.noteEvents\}\s*\n\s*barlines=\{session\.barlines\}\s*\n\s*\/>/.test(app65),
     (app65.match(/<PhraseTimeline[\s\S]{0,200}?\/>/) || ["取り出せない"])[0].replace(/\s+/g, " "));
   check("65.2 5-B 1つ上(セッション詳細)の受け口からも倍音数が消えている(渡す先が無くなったため)",
     /function SessionDetailView\(\{ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal,/.test(app65)
@@ -27939,9 +27972,12 @@ ${deriv76}
     const a77 = mock76.indexOf('<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">追加</div>');
     const b77 = mock76.indexOf("この箱を追加する", a77);
     const mini77 = a77 >= 0 && b77 > a77 ? mock76.slice(a77, b77) : "";
+    // 【便V 2026-09-21】器の目印も**実装の名札**から引く(旧語の直書きをやめた)。
+    const pick767 = [...codeOf(srcOfFn(src, "ReedBoxSheet")).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
     check("76.7 正典ミニの「追加」の器を切り出せている(空回りしていない)",
-      mini77.length > 800 && /メーカー選択/.test(mini77), `${mini77.length}文字`);
-    check("76.7 ミニの ▾ は2つだけ(メーカー選択 / 銘柄選択)",
+      mini77.length > 800 && pick767.length === 2 && mini77.includes(`>${pick767[0]}</span>`),
+      `${mini77.length}文字 / 名札=${JSON.stringify(pick767)}`);
+    check("76.7 ミニの ▾ は2つだけ(実装の名札2つ)",
       (mini77.match(/class="chev"/g) || []).length === 2,
       `${(mini77.match(/class="chev"/g) || []).length}個`);
     check("76.7 厚さ・枚数は「値 + ▾」の行ではない(その形の行が0件)",
@@ -27968,6 +28004,175 @@ ${deriv76}
     // 実装側の対応(正典と実装が同じ形をしている)
     check("76.7 実装の厚さ・枚数もピル(OptionPills)のまま",
       (codeOf(srcOfFn(src, "ReedBoxSheet")).match(/<OptionPills/g) || []).length === 2);
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証77: 便V 掃除 ── 正典と実装の食い違い / 死んだ受け口 / 定数の写し(2026-09-21)
+//
+// この周は**画面を1px も動かさない掃除**。守るのは3つ。
+//   77.1 正典ミニ(design/north-star-measure.html の「追加」)の名札と下の一手が
+//        実装と同じ語であること。期待値は**実装の綴りから引く**ので、どちらか一方だけを
+//        動かすと落ちる(§6.0「正典が勝つ」── 正典だけ古い状態を検査が固定しない)。
+//        旧語(メーカー選択 / 銘柄選択 / 厚さ選択)が design/ 配下に1つも残っていないことも見る。
+//   77.2 PhraseTimeline の受け口と渡し側が**対**であること。束5 で読み手が消えた
+//        sessions / ownSessionId を両側から外した。受け口の名が本文で1つも読まれない
+//        状態が戻ってきたら落ちる。
+//   77.3 高さ 56 の綴りは App.jsx の ACTION_LG_PX **1箇所だけ**。src/ の他のファイルは
+//        import して読む(写しを作らない)。
+//
+// 【「src/ に 56 が1つも無い」という形にしなかった理由】src/ には ACTION_LG_PX と
+// 無関係な 56 が実在する(SAX_CONCERT_RANGE の lowMidi、community/icons.jsx の SVG の
+// 座標、screens.jsx のアバターの寸法)。それらまで禁じる検査は事実と違うので、
+// **「ACTION_LG_PX を名乗る宣言が1つだけ」+「写しのあった FeedbackSheet に裸の 56 が0」**
+// という、実際に守りたいことだけを見る形にした。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① 正典ミニの名札を「メーカー選択」に戻す        → 77.1 が落ちる
+//   ② PhraseTimeline の受け口に sessions を戻す      → 77.2 が落ちる
+//   ③ FeedbackSheet に const ACTION_LG_PX = 56; を戻す → 77.3 が落ちる
+// ============================================================
+console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受け口 / 定数の写し ==========");
+{
+  const app77 = codeOf(src);
+  const mock77 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const count77 = (t, re) => (t.match(re) || []).length;
+
+  // --- 77.1 正典ミニの名札と下の一手を実装に合わせる ------------------------------
+  {
+    const sheet77 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+    // 実装の名札。▾ の行(ReedSheetPickRow)とピルの段(REED_SHEET_PILL_ROW_STYLE)から引く。
+    const pick77 = [...sheet77.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    const pill77 = [...sheet77.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
+    const labels77 = pick77.concat(pill77);
+    // 実装の「編集の下の一手」。isEdit の横並びの中のボタンの語だけを取る。
+    const headA77 = sheet77.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
+    const rowA77 = headA77 >= 0 ? sheet77.slice(headA77, sheet77.indexOf(") : (", headA77)) : "";
+    const act77 = [...rowA77.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
+    // 正典ミニの「追加」の器(正典ファイル全体には別の「厚さ」がある)。
+    const a77 = mock77.indexOf('<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">追加</div>');
+    const b77 = mock77.indexOf("この箱を追加する", a77);
+    const mini77 = a77 >= 0 && b77 > a77 ? mock77.slice(a77, b77) : "";
+
+    check("77.1 健全性: 実装の名札4つ・一手2つ・正典ミニの器を取り出せている(空回りしていない)",
+      labels77.length === 4 && labels77.every((t) => t.length > 0)
+      && act77.length === 2 && act77.every((t) => t.length > 0)
+      && mini77.length > 800,
+      `名札=${JSON.stringify(labels77)} / 一手=${JSON.stringify(act77)} / ミニ=${mini77.length}文字`);
+
+    // 4つの名札が**実装の綴りのまま**ミニに在る。旧語に戻すとここで落ちる。
+    const missing77 = labels77.filter((lab) => count77(mini77, new RegExp(`>${lab}</span>`, "g")) !== 1);
+    check("77.1 正典ミニの名札4つは実装の綴りと同じで、それぞれ1件ずつ",
+      labels77.length === 4 && missing77.length === 0,
+      missing77.length ? `合わないもの: ${missing77.join(" / ")}` : `${labels77.join(" / ")}`);
+    // 並びも実装どおり(メーカー → 銘柄 → 厚さ → 枚数)。
+    check("77.1 ミニの名札の並びが実装の並びと同じ",
+      labels77.map((lab) => mini77.indexOf(`>${lab}</span>`))
+        .every((v, i, arr) => v >= 0 && (i === 0 || v > arr[i - 1])),
+      labels77.map((lab) => `${lab}@${mini77.indexOf(`>${lab}</span>`)}`).join(" / "));
+    // ミニの説明文も実装の語で書かれている(V-1 の3つめ / V-2 の下の一手)。
+    check("77.1 ミニの説明文の名札も実装から引いた語(追加シートの2行 + ピルの段)",
+      new RegExp(`追加シート — <b>${pick77.join("・")}の2行が同じ形</b>`).test(mock77)
+      && new RegExp(`<b>${pill77.join("・")}は名札の下にピルを並べる</b>`).test(mock77),
+      (/追加シート — <b>[^<]*<\/b>/.exec(mock77) || ["取り出せない"])[0]);
+    check("77.1 ミニの説明文の「箱の編集の下の一手」も実装の2つ(番号編集 / 削除)",
+      new RegExp(`「${act77[0]}」と「${act77[1]}」が横並び・高さ44`).test(mock77),
+      `正典=${(/下は<b>[^<]*<\/b>/.exec(mock77) || ["取り出せない"])[0]} / 実装=${JSON.stringify(act77)}`);
+
+    // 旧語が design/ 配下に1つも無い。**綴りは literal**(消したい語そのものなので、
+    // 実装から引くと「実装に無いものを探す」空回りになる)。
+    const OLD77 = ["メーカー選択", "銘柄選択", "厚さ選択"];
+    const designDir77 = join(__dirname, "..", "design");
+    const designFiles77 = readdirSync(designDir77, { recursive: true })
+      .map((p) => String(p))
+      .filter((p) => /\.(html|md|css|js|mjs|txt|json)$/i.test(p));
+    const hits77 = [];
+    for (const rel of designFiles77) {
+      let text = "";
+      try { text = readFileSync(join(designDir77, rel), "utf8"); } catch { continue; }
+      for (const w of OLD77) {
+        const n = count77(text, new RegExp(w, "g"));
+        if (n > 0) hits77.push(`${rel}:${w}×${n}`);
+      }
+    }
+    check("77.1 健全性: design/ の読み取りが空回りしていない(ファイルを列挙できている)",
+      designFiles77.length >= 5 && designFiles77.some((p) => p.endsWith("north-star-measure.html")),
+      `${designFiles77.length}ファイル`);
+    check("77.1 旧語(メーカー選択 / 銘柄選択 / 厚さ選択)は design/ 配下に1つも無い",
+      hits77.length === 0, hits77.join(" / ") || "0件");
+  }
+
+  // --- 77.2 PhraseTimeline の受け口と渡し側が対 ------------------------------------
+  {
+    const raw77 = srcOfFn(src, "PhraseTimeline");
+    const sig77 = (/function PhraseTimeline\(\{([^}]*)\}\)/.exec(raw77) || [])[1];
+    const params77 = String(sig77 || "").split(",").map((t) => t.trim()).filter(Boolean);
+    // 受け口の行を落とした「本文だけ」。受け口の名がここに出るかどうかで読み手を数える。
+    const body77 = codeOf(raw77.slice(raw77.indexOf(") {") + 3));
+    const callRaw77 = (/<PhraseTimeline\b[\s\S]*?\/>/.exec(app77) || [""])[0];
+    const props77 = [...callRaw77.matchAll(/(\w+)=\{/g)].map((m) => m[1]);
+
+    check("77.2 健全性: 受け口と渡し側を取り出せている(空回りしていない)",
+      params77.length >= 3 && props77.length >= 3 && body77.length > 3000,
+      `受け口=${JSON.stringify(params77)} / 渡し=${JSON.stringify(props77)} / 本文=${body77.length}文字`);
+    check("77.2 受け口に sessions / ownSessionId が無い(束5 で読み手が消えた2つ)",
+      !params77.includes("sessions") && !params77.includes("ownSessionId"),
+      JSON.stringify(params77));
+    check("77.2 渡し側にも sessions / ownSessionId が無い",
+      !props77.includes("sessions") && !props77.includes("ownSessionId"),
+      JSON.stringify(props77));
+    check("77.2 受け口と渡し側は**対**(片方だけ増やすと落ちる)",
+      JSON.stringify([...params77].sort()) === JSON.stringify([...props77].sort()),
+      `受け口=${JSON.stringify([...params77].sort())} / 渡し=${JSON.stringify([...props77].sort())}`);
+    // 受け口の名が本文で1度も読まれていない、という状態そのものを禁じる。
+    const unread77 = params77.filter((n) => count77(body77, new RegExp(`\\b${n}\\b`, "g")) === 0);
+    check("77.2 受け口はすべて本文で読まれている(死んだ受け口が0)",
+      unread77.length === 0, unread77.join(" / ") || "0件");
+    // 消しすぎていない: sessions / ownSessionId を読む側(SetAsIdealButton・編集シート)は生きている。
+    check("77.2 消しすぎていない(sessions を読む他の使い手はセッション詳細に残っている)",
+      count77(codeOf(srcOfFn(src, "SessionDetailView")), /sessions=\{sessions\}/g) >= 2,
+      `${count77(codeOf(srcOfFn(src, "SessionDetailView")), /sessions=\{sessions\}/g)}箇所`);
+  }
+
+  // --- 77.3 ACTION_LG_PX の綴りは1箇所 ---------------------------------------------
+  {
+    const srcDir77 = join(__dirname, "..", "src");
+    const srcFiles77 = readdirSync(srcDir77, { recursive: true })
+      .map((p) => String(p).replace(/\\/g, "/"))
+      .filter((p) => /\.(js|jsx)$/i.test(p));
+    const decl77 = [];
+    const users77 = [];
+    for (const rel of srcFiles77) {
+      let text = "";
+      try { text = codeOf(readFileSync(join(srcDir77, rel), "utf8")); } catch { continue; }
+      const d = count77(text, /const ACTION_LG_PX\b/g);
+      if (d > 0) decl77.push(`${rel}×${d}`);
+      if (/\bACTION_LG_PX\b/.test(text) && d === 0) users77.push(rel);
+    }
+    check("77.3 健全性: src/ の読み取りが空回りしていない(App.jsx を含むファイルを列挙できている)",
+      srcFiles77.length >= 5 && srcFiles77.includes("App.jsx"),
+      `${srcFiles77.length}ファイル`);
+    check("77.3 ACTION_LG_PX を宣言しているのは App.jsx ただ1つ(写しが無い)",
+      decl77.length === 1 && decl77[0] === "App.jsx×1",
+      decl77.join(" / ") || "0件");
+    check("77.3 App.jsx はそれを export していて、値は 56 のまま(見た目は1px も動かない)",
+      /export const ACTION_LG_PX = 56;/.test(src)
+      && new Function(`${extractConst("ACTION_LG_PX")} return ACTION_LG_PX;`)() === 56,
+      String(new Function(`${extractConst("ACTION_LG_PX")} return ACTION_LG_PX;`)()));
+    // 宣言していないのに読んでいるファイルは、必ず App.jsx から import して読む。
+    const badUser77 = users77.filter((rel) => {
+      const text = readFileSync(join(srcDir77, rel), "utf8");
+      return !/import \{[^}]*\bACTION_LG_PX\b[^}]*\} from "\.\.\/App\.jsx";/.test(text);
+    });
+    check("77.3 ACTION_LG_PX を読む他のファイルは App.jsx から import している",
+      users77.length >= 1 && badUser77.length === 0,
+      `読み手=${users77.join(" / ") || "0件"} / import していないもの=${badUser77.join(" / ") || "0件"}`);
+    // 写しのあった当のファイル。裸の 56 が1つも無いこと(写しが戻ったら落ちる)。
+    const feed77 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "FeedbackSheet.jsx"), "utf8"));
+    check("77.3 FeedbackSheet.jsx に裸の 56 は1つも無い(定数を読むだけ)",
+      count77(feed77, /(?<![\w.])56(?![\w.])/g) === 0 && /height: ACTION_LG_PX/.test(feed77),
+      `56 が ${count77(feed77, /(?<![\w.])56(?![\w.])/g)}件`);
   }
   console.log("  -> done");
 }

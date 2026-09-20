@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { BottomSheet } from "../App.jsx";
+import { BottomSheet, ACTION_LG_PX } from "../App.jsx";
 import { ensureSignedIn } from "./accountRepo.js";
 import { sendFeedback, FEEDBACK_MAX } from "./feedbackRepo.js";
 
@@ -28,12 +28,11 @@ const SHEET_TITLE = "お問い合わせ・要望/感想";
 // ── 利用者にできることは同じ(電波の良いところでやり直す)なので、言い方まで変えない。
 const SEND_ERROR = "送信できませんでした。電波の良いところでもう一度お試しください。";
 
-// 【主要動作の高さ】App.jsx の ACTION_LG_PX と同じ 56(--tap-min の 1.25 倍。
-// 既存のトークンに 56 の段は無い、とあちらの注記が書いている)。
-// App.jsx は export していないので**ここは写し**になる。片方だけ動かすと
-// 追加シートの一手とこのシートの一手が違う高さになるので、検証64 が
-// 両方をソースから取り出して同値であることを見ている。
-const ACTION_LG_PX = 56;
+// 【主要動作の高さ】ACTION_LG_PX(56)は App.jsx の1つを**読む**。
+// 【便V 2026-09-21】ここにあった写しの定数は消した。App.jsx が export するようになり、
+// BottomSheet と同じ行から取れる(../App.jsx からの import はこのファイルの既定の作法)。
+// 循環にならない: App.jsx から CommunityTab.jsx へは lazy(() => import(...)) の
+// **動的 import** だけで、静的な輪はできない。値は 56 のままで見た目は1px も動かない。
 
 // 入力欄の高さ。**新しい数を作らない** ── シートが使える高さ(BottomSheet の上限と
 // 同じ式 = 画面の高さ − 下部ナビ1つぶん)の半分。本人の添付画像がおよそ画面の半分。
