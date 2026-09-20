@@ -1150,8 +1150,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
           </select>
           <span style={{
             position: "absolute", right: "var(--sp-3)", top: 0, bottom: 0,
-            display: "flex", alignItems: "center",
-          }}><RowChevron /></span>
+            display: "flex", alignItems: "center", pointerEvents: "none",
+          }}><PickChevron /></span>
         </div>
       </Field>
 

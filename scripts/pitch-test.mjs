@@ -368,7 +368,9 @@ const code = [
   extractFunction("reedDetailMetaParts"),
   // 【R4 2026-09-16】追加の一手の文言は枚数で変わらない1つの定数に畳んだ。
   extractConst("REED_ADD_BUTTON_LABEL"),
-  extractFunction("reedSheetButtonLabel"),
+  // 【便P 2026-09-20】編集の一手(「変更」)が消え、語を mode で分ける
+  // reedSheetButtonLabel は定義ごと畳まれた。取り出しの配管もここで外す
+  // (主張は下の「定義ごと無い」「綴りは定数1つ」へ向け直してある)。
   // 【便O 2026-09-20】編集の見出しを出さなくなり、mode で分ける関数は定数1つに畳んだ。
   extractConst("REED_ADD_SHEET_TITLE"),
   extractFunction("clampReedAddCount"),
@@ -490,7 +492,7 @@ const api = new Function(`${code}
            REED_BRAND_CUSTOM, REED_BRAND_CUSTOM_LABEL, REED_MORE_ITEMS,
            DETAIL_CARD_METRICS,
            reedTileTone, gridDropIndex, reedDetailMetaParts, clampReedAddCount,
-           reedSheetButtonLabel, REED_ADD_SHEET_TITLE, reedTileVisual,
+           REED_ADD_SHEET_TITLE, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
@@ -8919,8 +8921,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("R4 枚数で語が変わらない(枚数を語に持つ旧綴りが1つも無い)",
         !/[0-9n]枚の箱を追加|1枚を追加/.test(codeOf(src)),
         (codeOf(src).match(/.{0,12}枚の箱を追加|.{0,6}1枚を追加/g) || []).join(" | ") || "0件");
-      check("シートは reedSheetButtonLabel を呼んで文言を出す(JSX 側で書き分けていない)",
-        /\{reedSheetButtonLabel\(mode\)\}/.test(src));
+      // 【便P 2026-09-20 本人指示】編集の一手(「変更」)を消したので、mode で語を分ける
+      // 必要が無くなった。**主張を事実の側へ向け直す**(緩めてはいない):
+      // 「文言は定数 REED_ADD_BUTTON_LABEL ただ1つから出る」「分ける関数は定義ごと無い」。
+      // **コメントを剥がしてから数える**(経緯の説明に名前が出てくるだけで落ちる)。
+      check("便P: 追加の文言は定数1つから出る(JSX に直書きせず、mode で分ける関数も無い)",
+        /\{REED_ADD_BUTTON_LABEL\}/.test(src)
+        && !/function reedSheetButtonLabel\s*\(/.test(codeOf(src))
+        && (codeOf(src).match(/reedSheetButtonLabel/g) || []).length === 0,
+        `残り ${(codeOf(src).match(/reedSheetButtonLabel/g) || []).length}件`);
       // 【F-80 / F-82】同じシートを「箱を編集」にも使う。**呼び出し側で切り替える**方式で、
       // 既定は "add"(F-72 罠1「既定を新しい側にすると次の呼び出し側へ黙って漏れる」)。
       check("F-82: シートの mode の既定は \"add\"(追加の呼び出しは何も渡さない)",
@@ -8928,13 +8937,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         || /startDate, setStartDate, onAdd, onClose, mode = "add",/.test(src));
       check("F-82: mode=\"edit\" を渡す呼び出しは1つだけ(箱の編集)",
         (src.match(/mode="edit"/g) || []).length === 1, `${(src.match(/mode="edit"/g) || []).length}箇所`);
-      // 【便N 2026-09-19 本人指示】編集の一手は「この箱を変更」→「変更」。
-      // 追加の「この箱を追加する」は**1文字も変えていない**。
-      check("F-82 / R4 / 便N: 編集の一手は「変更」/ 追加は「この箱を追加する」(同じ関数が分ける)",
-        api.reedSheetButtonLabel("edit") === "変更"
-        && api.reedSheetButtonLabel("add") === "この箱を追加する"
-        && api.reedSheetButtonLabel(undefined) === "この箱を追加する",
-        `${api.reedSheetButtonLabel("edit")} / ${api.reedSheetButtonLabel("add")}`);
+      // 【便P 2026-09-20 本人指示】「リードの箱の編集画面から編集ボタンを削除」。
+      // 便N の主張(編集の一手は「変更」)は**本人の指示で撤回**された。向け直した主張は
+      // 「編集の一手は無い(語がどこにも残っていない)」「追加の綴りは1文字も変えていない」。
+      check("便P: 編集の一手「変更」はシートのどこにも無い / 追加の綴りは据え置き",
+        (codeOf(srcOfFn(src, "ReedBoxSheet")).match(/>変更</g) || []).length === 0
+        && api.REED_ADD_BUTTON_LABEL === "この箱を追加する",
+        `変更 ${(codeOf(srcOfFn(src, "ReedBoxSheet")).match(/>変更</g) || []).length}件 / 追加 ${api.REED_ADD_BUTTON_LABEL}`);
       // 【便O 2026-09-20 本人指示】編集の見出しは**出さなくなった**ので、mode で分ける
       // reedSheetTitle は定義ごと畳んで REED_ADD_SHEET_TITLE 1つにした(死んだ枝を残さない)。
       // 主張は下げていない: 「追加の見出しの綴り」と「綴りが1箇所からしか出ない」を見続ける。
@@ -9891,20 +9900,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // `{reeds.length > 0 && …}` で括っていた。N-5 の初版はこれを落として、0枚でも
       // 削除の項目を出していた(審査役の実測)。§6.0 の3原則「今に関係ない物は出ていない」。
       // どれも「箱があること」が前提なので、**入口ごと**出さない。
+      // 【便P 2026-09-20 本人指示】「リードタブの右上の3点…もう不要なので削除」。
+      // 「…」が消えたので、右端の行に残るのは**モード中の出口と実行だけ**になった。
+      // 主張を事実の側へ向け直す(緩めてはいない): 条件式を実ソースから取り出して走らせ、
+      // 「モードが無ければ行ごと出さない / モードが残っていれば必ず出す」を見る。
       {
         const tab = srcOfFn(src, "ReedsTab");
         // 条件式を実ソースから取り出して評価する(綴りの一致ではなく振る舞いで見る)
-        const m = /\{reedsSubTab === "register" && (\([^)]*\)) && \(/.exec(tab);
-        check("「…」を出す条件式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
+        const m = /\{reedsSubTab === "register" && (listMode !== null) && \(/.exec(tab);
+        check("右端の行を出す条件式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
         const shows = new Function("reeds", "listMode", `return !!(${m ? m[1] : "true"});`);
-        check("リードが0枚・モード無しなら「…」を出さない", shows({ length: 0 }, null) === false);
-        check("リードが1枚以上なら「…」を出す", shows({ length: 1 }, null) === true && shows({ length: 12 }, null) === true);
-        // 0枚でモードが残った場合だけは行を出す(「キャンセル」に戻れなくなるのを防ぐ)
+        check("モードが無ければ右端の行は出さない(枚数に関わらず)",
+          shows({ length: 0 }, null) === false && shows({ length: 12 }, null) === false);
+        // 0枚でもモードが残っていれば行を出す(「キャンセル」に戻れなくなるのを防ぐ)
         check("0枚でもモードが残っていれば行は出す(戻れなくならない)",
-          shows({ length: 0 }, "boxDelete") === true);
-        // 「…」の項目はどれも登録済みリードがあることが前提(0枚で出す意味が無いことの裏取り)。
-        // 【F-102】「リード番号を変更」もリードが無ければ対象が無い(同じ前提)。
-        check("「…」の項目はどれも登録済みリードを対象にする操作",
+          shows({ length: 0 }, "boxDelete") === true && shows({ length: 3 }, "numberEdit") === true);
+        // 「…」の項目はどれも登録済みリードがあることが前提(定義は残っている)。
+        check("REED_MORE_ITEMS の項目はどれも登録済みリードを対象にする操作(定義は残っている)",
           api.REED_MORE_ITEMS.every((it) => /箱|個体|リード/.test(it.label)),
           api.REED_MORE_ITEMS.map((x) => x.label).join(" / "));
       }
@@ -14904,9 +14916,12 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("一覧のスクロール位置の復元は残っている",
       /listScrollYRef\.current = window\.scrollY/.test(tab) && /window\.scrollTo\(0, y\)/.test(tab));
     check("箱グルーピングは groupReeds のまま", /const reedGroups = groupReeds\(reeds\);/.test(tab));
-    check("子タブの「…」は登録タブのときだけ出す(正典の比較画面には無い)",
-      /\{reedsSubTab === "register" && \(/.test(tab));
-    check("モード中は「…」の代わりにキャンセルと実行が出る", /\{listMode === null \? \(/.test(tab));
+    // 【便P 2026-09-20 本人指示】「…」を消した。右端の行は登録子タブの**モード中だけ**出る。
+    check("子タブの右端の行は登録タブのときだけ出す(正典の比較画面には無い)",
+      /\{reedsSubTab === "register" && listMode !== null && \(/.test(tab));
+    check("モード中は出口(完了/キャンセル)と実行が出る",
+      /listMode === "numberEdit" \? "完了" : "キャンセル"/.test(tab)
+      && /<DeleteActionButton/.test(tab));
     // 個体詳細も一覧・比較と同じ左右の余白の中に置く(詳細だけ 14px になっていた実測を潰した)
     // 【D-29 2026/09/03】個体詳細がカードの作法へ移り、地を画面の端まで届かせるために
     // `.surf-card` が1枚外側に増えた。**左右の余白は内側の div が持つ**(値は不変)。
@@ -23013,11 +23028,11 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
   // --- 49.3 R3 / R4 / R5 主要動作の中央揃え・幅・高さ・文言 ----------------------
   // 【変異】語を「10枚の箱を追加」に戻す / 幅を内容ぶんに戻す / 高さを --tap-min に戻す → 落ちる。
   {
-    // 【便N】{reedSheetButtonLabel(mode)} は編集側(横並び)にも出るので、
-    // **中央揃えの器から後ろ**を切り出す(先頭から探すと編集側を掴む)。
+    // 【便P 2026-09-20】編集の一手が消えて mode で分ける関数も畳まれたので、
+    // 切り出しの目印を {REED_ADD_BUTTON_LABEL} へ向け直す(主張は1つも変えていない)。
     const btnAt = sheet49.indexOf('<div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>');
-    const btn = sheet49.slice(btnAt, sheet49.indexOf("{reedSheetButtonLabel(mode)}", btnAt) + 40);
-    check("49.3 R3 主要動作を切り出せている", btn.length > 300 && /reedSheetButtonLabel/.test(btn), `${btn.length}文字`);
+    const btn = sheet49.slice(btnAt, sheet49.indexOf("{REED_ADD_BUTTON_LABEL}", btnAt) + 40);
+    check("49.3 R3 主要動作を切り出せている", btn.length > 300 && /REED_ADD_BUTTON_LABEL/.test(btn), `${btn.length}文字`);
     check("49.3 R3 主要動作は中央揃え", /justifyContent: "center"/.test(btn));
     check("49.3 R5 横幅はシートの内側いっぱい(メーカーの行の下線と同じ幅)",
       /width: "100%", height: ACTION_LG_PX,/.test(btn)
@@ -23032,16 +23047,13 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     check("49.3 R4 旧綴り(「n枚の箱を追加」「1枚を追加」)は1つも残っていない",
       !/枚の箱を追加/.test(app49) && !/1枚を追加/.test(app49),
       (app49.match(/.{0,8}枚の箱を追加|.{0,4}1枚を追加/g) || []).join(" | ") || "0件");
-    // 【便N 2026-09-19 本人指示】「この箱を変更→変更 / この箱を削除→削除 に変更」。
-    // 追加の「この箱を追加する」は**1文字も変えていない**(上の検査がそれを固定している)。
-    // 【綴りは JSX に直書きされていない】「変更」は reedSheetButtonLabel("edit") が返す
-    // ただ1つの出どころから来る(上の「JSX 側で書き分けていない」がそれを固定している)ので、
-    // `>変更<` の直書きは**0件であることが正しい**。数えるのは関数の答えと旧綴りの不在。
-    check("49.3 便N 編集の語は「変更」(旧綴り「この箱を変更」は1つも残っていない)",
-      api.reedSheetButtonLabel("edit") === "変更"
-      && !/この箱を変更/.test(app49) && (app49.match(/>変更</g) || []).length === 0
+    // 【便P 2026-09-20 本人指示】「リードの箱の編集画面から編集ボタンを削除」。
+    // 便N の主張(編集の語は「変更」)は本人の指示で撤回された。**主張を事実の側へ向け直す**:
+    // 「変更」の語はどこにも無く(旧綴り「この箱を変更」も無く)、削除の1つだけが残る。
+    check("49.3 便P 編集の語「変更」は無い(旧綴り「この箱を変更」も0件 / 削除は1つ)",
+      !/この箱を変更/.test(app49) && (app49.match(/>変更</g) || []).length === 0
       && (app49.match(/>削除</g) || []).length === 1,
-      `${api.reedSheetButtonLabel("edit")} / 旧綴り${(app49.match(/この箱を変更/g) || []).length}件 / >削除<${(app49.match(/>削除</g) || []).length}件`);
+      `旧綴り${(app49.match(/この箱を変更/g) || []).length}件 / >変更<${(app49.match(/>変更</g) || []).length}件 / >削除<${(app49.match(/>削除</g) || []).length}件`);
   }
 
   // --- 49.4 R8 編集モードも同じ配置(枚数だけ出さない) ---------------------------
@@ -24916,38 +24928,41 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && /style=\{REED_SHEET_ROW_LABEL_STYLE\}>開封日<\/span>/.test(sheet59));
   }
 
-  // --- 59.3 N2 下の一手は「変更」「番号編集」「削除」の横並び --------------------
-  // 【変異(3)】変更を 56 に戻す 【変異(4)】縦積みに戻す → ここで落ちる。
+  // --- 59.3 N2 下の一手は「番号編集」「削除」の横並び ---------------------------
+  // 【変異(3)】番号編集を 56 に戻す 【変異(4)】縦積みに戻す → ここで落ちる。
   // 【便O 2026-09-20 本人指示】真ん中に「番号編集」が入って3つになり、青と赤の対比が
-  // きついという指摘で変更・番号編集の塗りを --c-sunken へ落とした。数と塗りの錨を向け直す。
+  // きついという指摘で変更・番号編集の塗りを --c-sunken へ落とした。
+  // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 「変更」が消えて**2つ**に
+  // なった。数の錨を向け直す(横並び・等分・高さ・塗り・並びの主張は1つも緩めていない)。
   {
     const a59 = sheet59.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b59 = sheet59.indexOf(">削除</button>", a59);
     const pair59 = a59 >= 0 && b59 > a59 ? sheet59.slice(a59, b59 + ">削除</button>".length) : "";
-    check("59.3 N2 変更と削除は**同じ親**の中の横並び(縦積みに戻すと切り出せない)",
+    check("59.3 N2 番号編集と削除は**同じ親**の中の横並び(縦積みに戻すと切り出せない)",
       pair59.length > 300 && /display: "flex"/.test(pair59)
-      && pair59.includes("{reedSheetButtonLabel(mode)}") && pair59.includes(">削除</button>"),
+      && pair59.includes(">番号編集</button>") && pair59.includes(">削除</button>"),
       `${pair59.length}文字`);
-    check("59.3 N2 3つとも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
-      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 3
+    check("59.3 N2 2つとも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
+      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 2
       && !/ACTION_LG_PX/.test(pair59) && !/height: 56/.test(pair59),
       `--tap-min=${count59(pair59, /minHeight: "var\(--tap-min\)"/g)}個`);
-    check("59.3 N2 幅は等分(3列とも flex 1 1 0)",
-      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 3,
+    check("59.3 N2 幅は等分(2列とも flex 1 1 0)",
+      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 2,
       `${count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g)}列`);
-    check("59.3 N2 並びは 変更が左・削除が右(破壊的な一手を右端に置く)",
-      pair59.indexOf("{reedSheetButtonLabel(mode)}") < pair59.indexOf(">削除</button>"));
+    check("59.3 N2 並びは 番号編集が左・削除が右(破壊的な一手を右端に置く)",
+      pair59.indexOf(">番号編集</button>") >= 0
+      && pair59.indexOf(">番号編集</button>") < pair59.indexOf(">削除</button>"));
     // 【便O】青と赤の対比がきついという指摘で、赤は削除の1つだけにした。
-    // 変更・番号編集は CommunityTab の secondaryButtonStyle と同じ2トークン。
-    check("59.3 N2 塗りは 変更・番号編集=--c-sunken / 削除だけ --c-danger(青は残っていない)",
-      count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 2
+    // 番号編集は CommunityTab の secondaryButtonStyle と同じ2トークン。
+    check("59.3 N2 塗りは 番号編集=--c-sunken / 削除だけ --c-danger(青は残っていない)",
+      count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
       && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59)
       && !/--c-accent/.test(pair59) && !/--c-line-strong/.test(pair59),
       (pair59.match(/background: "?[^,;]*/g) || []).join(" | "));
-    check("59.3 N2 編集の語は「変更」/ 旧綴り「この箱を変更」「この箱を削除」は0件",
-      api.reedSheetButtonLabel("edit") === "変更"
+    check("59.3 N2 編集の語「変更」は無い / 旧綴り「この箱を変更」「この箱を削除」も0件",
+      count59(app59, />変更</g) === 0
       && !/この箱を変更/.test(app59) && !/この箱を削除/.test(app59),
-      `${api.reedSheetButtonLabel("edit")} / 旧綴り${count59(app59, /この箱を変更|この箱を削除/g)}件`);
+      `>変更<${count59(app59, />変更</g)}件 / 旧綴り${count59(app59, /この箱を変更|この箱を削除/g)}件`);
     // 【追加のシートは触っていない】本人の指示に入っていないので寸法も綴りも据え置き。
     check("59.3 N2 追加の主要動作は幅いっぱい・高さ ACTION_LG_PX のまま(触っていない)",
       count59(app59, /この箱を追加する/g) === 1
@@ -26006,8 +26021,11 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
   check("65.1 5-A 透明枠そのものは残っている(§6.7「枠を透明にして残す」。外すと外形が縮む)",
     /border: "1px solid transparent"/.test(editSheet65)
     && !/border: "none"/.test(editSheet65));
+  // 【便P 2026-09-20】寄せの規則(::-webkit-date-and-time-value)が増えたので、
+  // 「セレクタが2つ = 1規則」という数え方は事実と合わなくなった。**主張を向け直す**:
+  // 内側の余白を 0 にする規則は**今までどおり1つ**(綴りは1文字も変えていない)。
   check("65.1 5-A 内側の余白(UA のシャドウ側)を 0 にする綴りは index.css に1つだけ",
-    count65(css65, /\.datetime-flush/g) === 2   // 2つのセレクタ = 1規則
+    count65(css65, /\.datetime-flush::-webkit-datetime-edit,/g) === 1
     && /\.datetime-flush::-webkit-datetime-edit,\s*\n\.datetime-flush::-webkit-datetime-edit-fields-wrapper \{\s*\n\s*padding: 0;\s*\n\}/.test(css65),
     (css65.match(/\.datetime-flush[\s\S]{0,160}/) || ["規則が無い"])[0].replace(/\s+/g, " "));
   check("65.1 5-A その規則は地・枠・角丸を持たない(配るのは入力欄の規則ただ1つ)",
@@ -26021,9 +26039,12 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
       const sels = (css65.match(/\.datetime-flush[^{]*\{/) || [""])[0];
       return sels.length > 0 && !/\b(input|select|textarea)\b/.test(sels);
     })());
-  check("65.1 5-A 付け先は className(綴りは JSX と CSS で同じ)",
+  // 【便P 2026-09-20 本人指示】「個別計測データのページも**リードのページも**」。
+  // 付け先は**2箇所**になった(計測データの編集シート / 箱の編集シートの開封日)。
+  check("65.1 5-A 付け先は className(綴りは JSX と CSS で同じ。いまは2箇所)",
     /className="sans datetime-flush"/.test(editSheet65)
-    && count65(app65, /datetime-flush/g) === 1);
+    && count65(app65, /className="sans datetime-flush"/g) === 2,
+    `${count65(app65, /className="sans datetime-flush"/g)}箇所`);
   check("65.1 5-A 行の形は変えていない(3行とも row() / ラベルは 3em のまま)",
     /minWidth: "3em", flexShrink: 0/.test(editSheet65)
     && count65(editSheet65, /\{row\("/g) === 3,
@@ -26149,11 +26170,15 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(screens65)
     && count65(screens65, /ADOPT_STICKY_SPACER_H/g) === 2,
     `読み手を含め ${count65(screens65, /ADOPT_STICKY_SPACER_H/g)}箇所`);
-  check("65.4 5-D 人物シートに空きが1つあり、貼り付くボタンの器より**後ろ**に居る",
+  // 【便P 2026-09-20 本人指示】「1番下までスクロールするとボタンの位置も上がる」。
+  // 束5 は空きを**器より後ろ**に置いていたが、それだと一番下でボタンの自然な位置が
+  // 空きのぶん上に来て、そこへ戻って上がる。便P は器を本文の末尾へ移し、
+  // 空きを**その直前**に置いた(375×812 の写しで実測: 下端の移動 0px)。向きを逆へ向け直す。
+  check("65.4 5-D 人物シートに空きが1つあり、貼り付くボタンの器の**直前**に居る",
     count65(person65, /<div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/>/g) === 1
-    && person65.indexOf('position: "sticky", bottom: 0') < person65.indexOf("ADOPT_STICKY_SPACER_H"));
-  check("65.4 5-D 空きは取り込みの一手が在るときだけ置く(ボタンと対で在る)",
-    /\{onAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}/.test(person65));
+    && person65.indexOf("ADOPT_STICKY_SPACER_H") < person65.indexOf('position: "sticky", bottom: 0'));
+  check("65.4 5-D 空きは取り込みの一手が出るときだけ置く(ボタンと対で在る)",
+    /\{showAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}/.test(person65));
   check("65.4 5-D 束2 の裁定どおり sticky と寸法・色・影は1つも変えていない",
     /position: "sticky", bottom: 0, zIndex: 1,/.test(person65)
     && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person65)
@@ -26309,16 +26334,19 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     const a66 = sheet66.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b66 = sheet66.indexOf(">削除</button>", a66);
     const trio66 = a66 >= 0 && b66 > a66 ? sheet66.slice(a66, b66 + ">削除</button>".length) : "";
-    check("66.6 編集の3つを同じ親から切り出せている(縦積みに戻すと切り出せない)",
-      trio66.length > 500 && count66(trio66, /<button/g) === 3,
+    // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 3つ → **2つ**。
+    // 並びの主張(破壊的な一手が右端)も、塗りの主張(赤は削除だけ)も緩めていない。数を向け直す。
+    check("66.6 編集の2つを同じ親から切り出せている(縦積みに戻すと切り出せない)",
+      trio66.length > 400 && count66(trio66, /<button/g) === 2,
       `${trio66.length}文字 / ${count66(trio66, /<button/g)}個`);
-    check("66.6 並びは 変更 → 番号編集 → 削除(破壊的な一手が右端)",
-      trio66.indexOf("{reedSheetButtonLabel(mode)}") < trio66.indexOf(">番号編集</button>")
+    check("66.6 並びは 番号編集 → 削除(破壊的な一手が右端)/「変更」は無い",
+      trio66.indexOf(">番号編集</button>") >= 0
       && trio66.indexOf(">番号編集</button>") < trio66.indexOf(">削除</button>")
-      && count66(sheet66, />番号編集<\/button>/g) === 1);
-    check("66.6 変更と番号編集の塗りは --c-sunken / 字は --c-ink-2 / 太さ600(2つとも)",
-      count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 2
-      && count66(trio66, /fontWeight: 600/g) === 2,
+      && count66(sheet66, />番号編集<\/button>/g) === 1
+      && count66(sheet66, />変更<\/button>/g) === 0);
+    check("66.6 番号編集の塗りは --c-sunken / 字は --c-ink-2 / 太さ600(1つ)",
+      count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
+      && count66(trio66, /fontWeight: 600/g) === 1,
       `塗り${count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g)} / 太さ${count66(trio66, /fontWeight: 600/g)}`);
     check("66.6 赤は削除の1つだけ。**edit の枝に --c-accent は残っていない**",
       count66(trio66, /var\(--c-danger\)/g) === 1
@@ -26331,10 +26359,14 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     check("66.6 その2トークンは CommunityTab の secondaryButtonStyle と同じ綴り",
       /const secondaryButtonStyle = \{/.test(comm66)
       && /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/.test(comm66));
-    check("66.6 押せないときは塗りを変えず薄くする(灰へ化けない)",
-      /opacity: disabled \? 0\.5 : 1,/.test(trio66)
+    // 【便P 2026-09-20】押せなくなり得た一手(「変更」)は消えたので、編集の2つに
+    // disabled は無い。**判定式そのものは追加の一手が今までどおり読んでいる**
+    // (下の「判定式は1文字も変えていない」がそれを見る)。主張を事実の側へ向け直す。
+    check("66.6 編集の2つはどちらも常に押せる(disabled も灰の化けも無い)",
+      count66(trio66, /disabled/g) === 0
       && count66(trio66, /var\(--c-line-strong\)/g) === 0
-      && /cursor: disabled \? "default" : "pointer",/.test(trio66));
+      && count66(trio66, /cursor: "pointer",/g) === 2,
+      `disabled ${count66(trio66, /disabled/g)} / pointer ${count66(trio66, /cursor: "pointer",/g)}`);
     check("66.6 押せるかどうかの判定式は1文字も変えていない",
       /const disabled = \(isCustom && !customBrand\.trim\(\)\) \|\| \(isEdit && !startDate\);/.test(sheet66));
     check("66.6 番号編集のボタンは onNumberEdit が渡されたときだけ出る(受け口の既定は null)",
@@ -26342,15 +26374,18 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     {
       // **綴りではなく動きで見る。** 呼び手の式をソースから取り出して実際に走らせ、
       // 「先にシートを閉じ、そのあとモードへ入る」順序まで確かめる。
+      // 【便P 2026-09-20 本人指示】「情報を変更して編集画面を閉じたら変更反映されるように」。
+      // 番号編集もシートから出る経路なので、**編集中の値を捨てないよう先に applyBoxEdit を
+      // 呼ぶ**ようになった。主張は緩めていない(順序を見るのは今までどおり)。
       const h66 = (view66.match(/onNumberEdit=\{(\(\) => \{[\s\S]*?\})\}/) || [])[1];
       check("66.6 番号編集の呼び手をソースから取り出せている", Boolean(h66), h66 || "取り出せない");
       if (h66) {
         const log66 = [];
-        const fn66 = new Function("setEditBoxKey", "enterNumberEdit", `return (${h66});`)(
-          (v) => log66.push(`close:${String(v)}`), () => log66.push("enter"));
+        const fn66 = new Function("applyBoxEdit", "setEditBoxKey", "enterNumberEdit", `return (${h66});`)(
+          () => log66.push("apply"), (v) => log66.push(`close:${String(v)}`), () => log66.push("enter"));
         fn66();
-        check("66.6 押すと**先にシートを閉じ、そのあと**番号編集モードへ入る",
-          log66.join(" > ") === "close:null > enter", log66.join(" > ") || "何も起きない");
+        check("66.6 押すと**変更を適用 → シートを閉じ → 番号編集モードへ入る**の順",
+          log66.join(" > ") === "apply > close:null > enter", log66.join(" > ") || "何も起きない");
       }
     }
     check("66.6 モードへ入る一手は「…」の『リード番号を変更』と**同じ startMode**(新しい経路を作っていない)",
@@ -26401,10 +26436,15 @@ console.log("========== 検証67: SubTabs の children / 名札の左寄せ ====
     /\{children\}/.test(sub67), sub67 ? "本文は取れている" : "本文が取れない");
   check("67.1 children は items の**後ろ**(行の右端)に置かれている",
     sub67.indexOf("{t.label}") >= 0 && sub67.indexOf("{children}") > sub67.indexOf("{t.label}"));
-  check("67.1 リードタブの「…」と出口は SubTabs の中身として残っている",
+  // 【便P 2026-09-20 本人指示】「リードタブの右上の3点…もう不要なので削除」。
+  // 67.1 が見ていた芯は「SubTabs の children が捨てられていない」こと。その芯は不変で、
+  // **中身が出口と削除の実行だけになった**。「…」の不在も併せて見る(消しただけなのに
+  // 受け口ごと落ちると、番号編集モードの出口が消えて戻れなくなるため)。
+  check("67.1 リードタブの出口は SubTabs の中身として残っている(「…」は0件)",
     /<\/SubTabs>/.test(src)
     && /listMode === "numberEdit" \? "完了" : "キャンセル"/.test(src)
-    && /aria-label="その他の操作"/.test(src));
+    && (src.match(/aria-label="その他の操作"/g) || []).length === 0,
+    `その他の操作 ${(src.match(/aria-label="その他の操作"/g) || []).length}件`);
   const lbl67 = (src.match(/const REED_SHEET_ROW_LABEL_STYLE = \{[^\n]*\};/) || [""])[0];
   check("67.2 名札は左寄せ(ボタンの text-align:center を継がない)",
     /textAlign: "left"/.test(lbl67), lbl67 || "取り出せない");
@@ -26470,13 +26510,13 @@ console.log("========== 検証68: 選ぶ欄の地を外す(開封日 / 演奏開
 }
 
 // ============================================================
-// 検証69: 「目安に設定」と注記の重なり ── 本人裁定「案2を採用」(便O)
-//   sticky(bottom 0)のボタンの裏を通るのは、流れの上で**前に**在る要素だけ。
-//   束5 は空きを足したが、注記は前に在ったままだったので**送っている途中**の重なりが
-//   消えなかった(合格条件が「一番下まで送ったとき」で、症状を見ていなかった)。
-//   案2 は注記そのものをボタンの器より後ろへ移す。引き換えに注記は一番下でしか出ない。
+// 検証69: 「目安に設定」と注記の置き場所 ── 便P で**案2を取り消した**
+//   便O は注記を貼り付くボタンより後ろへ移した(案2)。便P で本人が
+//   「最初に見た時はボタンと重なっててもいいが、スクロールでボタンを避けられるように」
+//   と決めたので、注記は**グラフ(凡例)の直下**へ戻し、貼り付く器のほうを本文の末尾へ移した。
+//   **主張を事実の側へ向け直す**(消していない): 注記は凡例の直下で、器より前に在ること。
 // ============================================================
-console.log("========== 検証69: 注記を貼り付くボタンより後ろへ(案2) ==========");
+console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) ==========");
 {
   // **人物シートの中だけを見る。** 同じ注記は目安の個別ページにも在るので、
   // ファイル全体で位置を数えると別の画面の1件を掴んでしまう(初版で実際に掴んだ)。
@@ -26489,12 +26529,14 @@ console.log("========== 検証69: 注記を貼り付くボタンより後ろへ(
   const iSpacer = person69.indexOf("height: ADOPT_STICKY_SPACER_H");
   const iLegend = person69.indexOf("<Legend series={chart.series} />");
 
-  check("69.1 注記は**貼り付くボタンの器より後ろ**に居る(裏を通る相手が居ない)",
-    iSticky > 0 && iNote > iSticky, `sticky=${iSticky} / 注記=${iNote}`);
+  check("69.1 注記は**貼り付くボタンの器より前**に居る(便P で案2を取り消した)",
+    iSticky > 0 && iNote < iSticky, `注記=${iNote} / sticky=${iSticky}`);
   check("69.2 注記は末尾の空きより**前**に居る(空きが文の途中に挟まらない)",
     iSpacer > 0 && iNote < iSpacer, `注記=${iNote} / 空き=${iSpacer}`);
-  check("69.3 グラフの凡例の直下には注記が無い(移したのであって写していない)",
-    iLegend > 0 && iLegend < iSticky && iNote > iSticky);
+  check("69.3 注記はグラフの凡例の**直後**に在る(読む順どおりの場所へ戻した)",
+    iLegend > 0 && iLegend < iNote && iNote < iSticky
+    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*計測環境により/.test(person69),
+    `凡例=${iLegend} / 注記=${iNote}`);
   check("69.4 人物シートの注記は1件のまま(言い換えも写しも作っていない)",
     (person69.match(new RegExp(NOTE69, "g")) || []).length === 1,
     `${(person69.match(new RegExp(NOTE69, "g")) || []).length}件`);
@@ -26549,6 +26591,237 @@ console.log("========== 検証70: 演奏開始年の ▾ ==========");
     && /style=\{controlPlainStyle\}/.test(yearBox70));
   check("70.4 印を付けたのは演奏開始年の1箇所だけ(打ち込む欄へ広げていない)",
     (comm70.match(/<PickChevron \/>/g) || []).length === 1);
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証71: 便P ── 日付の寄せ / 貼り付くボタン / リードタブの「…」/ 箱の編集シート
+//               (2026-09-20 本人指示・凍結仕様)
+//
+// 本人の言葉:
+//   「個別計測データのページもリードのページも日付が両方中央揃えになっているので
+//     他の行と左の先頭行をあわせて」「何度も言っているので同じミスを二度としないで」
+//   「目安に設定ボタンは固定して。いま1番下までスクロールするとボタンの位置も上がる」
+//   「最初に見た時はボタンと重なっててもいいが、スクロールでボタンを避けられるようにして」
+//   「以下のテキストと折れ線グラフの余白を詰めて」
+//   「リードタブの右上の3点復活させてくれたがもう不要なので削除」
+//   「リードの箱の編集画面から編集ボタンを削除。情報を変更して編集画面を閉じたら
+//     変更反映されるようにして」
+//
+// **ここで見ること**:
+//   71.1 寄せを UA のシャドウ側へ指定した規則が在り、内側の余白の規則が残っていること。
+//   71.2 日付欄を持つ**2箇所とも** datetime-flush を名乗っていること(件数で数える)。
+//   71.3 注記が凡例の直後・器より前に在り、空きが器の直前に在ること。
+//        ボタンの寸法・色・影の4つが1つも変わっていないこと。
+//   71.4 リードタブに「その他の操作」が1つも無く、モード中の出口と実行は残っていること。
+//   71.5 「箱を選んで削除」「個体を選んで削除」は**いま入口が無い**という事実。
+//   71.6 箱の編集シートの下は2つで「変更」の語が無いこと。閉じ方と番号編集の順序。
+//
+// **見ないもの**:
+//   ・**日付が実機(iOS Safari)で左へ寄るかどうか。** 値を描くのは UA のシャドウ要素で、
+//     Chrome はそこを既定で左寄せにする。だから Chrome の実測は「効いた」の根拠にならない
+//     (過去2回、Chrome で測って報告し、実機では中央のままだった)。ここが見られるのは
+//     **指定が在ること**までで、効いたかどうかは**実機待ち**。
+//   ・凡例と注記の詰めが何 px に見えるか。トークンの綴り(--sp-2)までしか言えない。
+//   ・ボタンが一番下で動かないこと**そのもの**はソースからは言えない。
+//     375×812 の写し(file 相当の静的な1枚)で実測した: scrollTop 0 / 最大 のどちらでも
+//     ボタン下端はカード下端から 40px、移動 0.06px。通報の行の下端 707.94 < ボタン上端 727.94。
+//     ここが見るのは**その形(空き → 器 が本文の末尾に在ること)**が崩れていないこと。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① ::-webkit-date-and-time-value の規則を消す  ② 開封日の datetime-flush を外す
+//   ③ 注記を器より後ろへ戻す(案2)               ④ 空きを器より後ろへ戻す
+//   ⑤ 「その他の操作」のボタンを戻す              ⑥ 「変更」のボタンを戻す
+//   ⑦ onClose から applyBoxEdit を外す            ⑧ deleteEditingBox に applyBoxEdit を足す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン / 「…」/ 箱の編集シート ==========");
+{
+  const read71 = (...p) => readFileSync(join(__dirname, "..", ...p), "utf8");
+  const count71 = (t, re) => (t.match(re) || []).length;
+  const app71 = codeOf(src);
+  const sheet71 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const editSheet71 = codeOf(srcOfFn(src, "SessionEditSheet"));
+  const tab71 = codeOf(srcOfFn(src, "ReedsTab"));
+  const view71 = codeOf(srcOfFn(src, "ReedRegisterView"));
+  // CSS はブロックコメントだけを潰す(セレクタに混ざるため)
+  const css71 = read71("src", "index.css").replace(/\/\*[\s\S]*?\*\//g, " ");
+  const screensRaw71 = read71("src", "community", "screens.jsx");
+  const person71 = codeOf(srcOfFn(screensRaw71, "PersonSheet"));
+
+  check("71.0 実装を読めている(空回りしていない)",
+    sheet71.length > 3000 && editSheet71.length > 800 && tab71.length > 3000
+    && view71.length > 3000 && css71.length > 10000 && person71.length > 4000,
+    `シート${sheet71.length} / 編集${editSheet71.length} / タブ${tab71.length} / 一覧${view71.length} / 人物${person71.length}`);
+
+  // --- 71.1 寄せの持ち主(UA のシャドウ側)------------------------------------
+  {
+    const valueRule = (css71.match(/\.datetime-flush::-webkit-date-and-time-value \{[^}]*\}/) || [""])[0];
+    check("71.1 ::-webkit-date-and-time-value の規則が index.css に1つあり、text-align: left を持つ",
+      count71(css71, /\.datetime-flush::-webkit-date-and-time-value/g) === 1
+      && /text-align:\s*left;/.test(valueRule),
+      valueRule.replace(/\s+/g, " ") || "規則が無い");
+    check("71.1 input 自身にも text-align: left が在る(Chrome 側の層)",
+      /\.datetime-flush \{[^}]*text-align:\s*left;[^}]*\}/.test(css71),
+      (css71.match(/\.datetime-flush \{[^}]*\}/) || ["規則が無い"])[0].replace(/\s+/g, " "));
+    check("71.1 既存の内側の余白(padding: 0)の規則は1文字も変えずに残っている",
+      /\.datetime-flush::-webkit-datetime-edit,\s*\n\.datetime-flush::-webkit-datetime-edit-fields-wrapper \{\s*\n\s*padding: 0;\s*\n\}/.test(css71));
+    check("71.1 datetime-flush を名乗るセレクタに input / select / textarea の語が無い",
+      (() => {
+        const sels = css71.match(/\.datetime-flush[^{]*\{/g) || [];
+        return sels.length === 3 && sels.every((s) => !/\b(input|select|textarea)\b/.test(s));
+      })(),
+      (css71.match(/\.datetime-flush[^{]*\{/g) || []).join(" | ").replace(/\s+/g, " "));
+  }
+
+  // --- 71.2 日付欄を持つ2箇所とも datetime-flush を名乗る ----------------------
+  check("71.2 datetime-flush を付けた欄はアプリ全体で2箇所(計測データ / 箱の開封日)",
+    count71(app71, /className="sans datetime-flush"/g) === 2,
+    `${count71(app71, /className="sans datetime-flush"/g)}箇所`);
+  check("71.2 計測データの編集シートの datetime-local が名乗っている",
+    /type="datetime-local"[\s\S]{0,300}?className="sans datetime-flush"/.test(editSheet71));
+  check("71.2 箱の編集シートの開封日(date)が名乗っている",
+    /type="date"[\s\S]{0,300}?className="sans datetime-flush"/.test(sheet71));
+  check("71.2 便N の保険(textAlign: left)は開封日から落ちていない",
+    /padding: 0, textAlign: "left"/.test(sheet71));
+
+  // --- 71.3 注記・空き・器の並び / ボタンの4点 ---------------------------------
+  {
+    const NOTE71 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
+    const iLegend = person71.indexOf("<Legend series={chart.series} />");
+    const iNote = person71.indexOf(NOTE71);
+    const iSpacer = person71.indexOf("height: ADOPT_STICKY_SPACER_H");
+    const iSticky = person71.indexOf('position: "sticky", bottom: 0');
+    check("71.3 注記は凡例の**直後**(間に他の要素が挟まっていない)",
+      iLegend > 0 && iNote > iLegend
+      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*計測環境により/.test(person71),
+      `凡例=${iLegend} / 注記=${iNote}`);
+    check("71.3 注記は貼り付く器より**前**に在る(案2 は取り消した)",
+      iSticky > 0 && iNote < iSticky, `注記=${iNote} / 器=${iSticky}`);
+    check("71.3 空きは器の**直前**に在る(間に他の要素が挟まっていない)",
+      iSpacer > 0 && iSpacer < iSticky
+      && /\{showAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}\s*\r?\n\s*\{showAdopt \? \(/.test(person71),
+      `空き=${iSpacer} / 器=${iSticky}`);
+    check("71.3 凡例と注記の詰めはトークン1つ(--sp-2)。px の直書きをしていない",
+      /<div style=\{\{ display: "grid", gap: "var\(--sp-2\)" \}\}>\s*\r?\n\s*<Legend series=\{chart\.series\} \/>/.test(person71));
+    // **ボタンの寸法・色・影は1つも変えない**(束2・束5・便O の裁定)。
+    check("71.3 ボタンの4点(高さ / 地 / 字 / 影)が1つも変わっていない",
+      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person71)
+      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(person71)
+      && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person71)
+      && /position: "sticky", bottom: 0, zIndex: 1,/.test(person71));
+    check("71.3 空きの高さの式は束5 のまま(新しい数を作っていない)",
+      /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(codeOf(screensRaw71)));
+    check("71.3 器は通報の行より**後ろ**に在る(本文の末尾へ移した)",
+      person71.indexOf("この人を通報") > 0 && person71.indexOf("この人を通報") < iSticky,
+      `通報=${person71.indexOf("この人を通報")} / 器=${iSticky}`);
+    // 出す条件は**持ち上げただけ**で、描画の分岐は増やしていない。
+    check("71.3 出す条件は1箇所(showAdopt)にまとめ、読み手は空きと器の2つだけ",
+      /const showAdopt = Boolean\(onAdopt && side === "data" && types\.length > 0\s*\r?\n?\s*&& theirIdeal && chart && !chart\.error\);/.test(person71)
+      && count71(person71, /showAdopt/g) === 3,
+      `${count71(person71, /showAdopt/g)}箇所`);
+  }
+
+  // --- 71.4 リードタブの「…」---------------------------------------------------
+  check("71.4 リードタブに「その他の操作」のボタンが1つも無い",
+    count71(app71, /aria-label="その他の操作"/g) === 0
+    && count71(app71, /setMoreOpen\(true\)/g) === 0,
+    `その他の操作 ${count71(app71, /aria-label="その他の操作"/g)}件 / 開く一手 ${count71(app71, /setMoreOpen\(true\)/g)}件`);
+  check("71.4 モード中の出口(完了 / キャンセル)は残っている",
+    /\{listMode === "numberEdit" \? "完了" : "キャンセル"\}/.test(tab71)
+    && /<button onClick=\{exitMode\}/.test(tab71));
+  check("71.4 削除の実行(DeleteActionButton)も残っている",
+    /<DeleteActionButton/.test(tab71)
+    && /onClick=\{listMode === "boxDelete" \? confirmBoxDelete : confirmMemberDelete\}/.test(tab71));
+  check("71.4 右端の行は登録子タブの**モード中だけ**出る",
+    /\{reedsSubTab === "register" && listMode !== null && \(/.test(tab71));
+  check("71.4 SubTabs の children の受け口は残っている(出口がここに載る)",
+    /export function SubTabs\(\{ items, value, onChange, children = null \}\)/.test(src)
+    && /\{children\}/.test((src.match(/export function SubTabs\([\s\S]*?\n\}\n/) || [""])[0]));
+
+  // --- 71.5 入口を失った2つのモード(明文の事実として置く)----------------------
+  // **いまこの2つには入口が無い。** 「…」を消したので REED_MORE_ITEMS を並べる
+  // ReedMoreMenu が開く経路(setMoreOpen(true))が1つも無く、moreOpen は常に false。
+  // 定義は**わざと残している**(入口をどこへ移すかは本人がまだ決めていない)。
+  // 入口を足すときは、この検査が落ちることで「ここを直せ」と分かる。
+  check("71.5 「箱を選んで削除」「個体を選んで削除」は**いま入口が無い**(開く一手が0件)",
+    count71(app71, /setMoreOpen\(true\)/g) === 0
+    && api.REED_MORE_ITEMS.some((it) => it.label === "箱を選んで削除")
+    && api.REED_MORE_ITEMS.some((it) => it.label === "個体を選んで削除"),
+    `開く一手 ${count71(app71, /setMoreOpen\(true\)/g)}件 / 項目 ${api.REED_MORE_ITEMS.map((x) => x.label).join(" / ")}`);
+  check("71.5 定義は消していない(戻せるように REED_MORE_ITEMS と ReedMoreMenu を残す)",
+    /const REED_MORE_ITEMS = \[/.test(app71)
+    && /function ReedMoreMenu\(\{ onClose, onPick \}\)/.test(app71)
+    && /REED_MORE_ITEMS\.map\(\(it\) => \(/.test(app71)
+    && /\{moreOpen && \(/.test(app71));
+
+  // --- 71.6 箱の編集シートの下の一手と、閉じたときの反映 ------------------------
+  {
+    const a71 = sheet71.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
+    const b71 = sheet71.indexOf(">削除</button>", a71);
+    const pair71 = a71 >= 0 && b71 > a71 ? sheet71.slice(a71, b71 + ">削除</button>".length) : "";
+    check("71.6 編集の下は2つ(番号編集 / 削除)で、「変更」の語がシートのどこにも無い",
+      count71(pair71, /<button/g) === 2
+      && />番号編集<\/button>/.test(pair71) && />削除<\/button>/.test(pair71)
+      && count71(sheet71, />変更</g) === 0,
+      `${count71(pair71, /<button/g)}個 / 変更 ${count71(sheet71, />変更</g)}件`);
+    check("71.6 幅は 1 1 0 のまま2等分・高さと色は据え置き",
+      count71(pair71, /flex: "1 1 0", minWidth: 0, minHeight: "var\(--tap-min\)",/g) === 2
+      && count71(pair71, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
+      && count71(pair71, /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/g) === 1);
+    check("71.6 reedSheetButtonLabel は定義ごと無い(読み手の無い枝を残していない)",
+      !/function reedSheetButtonLabel\s*\(/.test(app71)
+      && count71(app71, /reedSheetButtonLabel/g) === 0,
+      `${count71(app71, /reedSheetButtonLabel/g)}件`);
+    check("71.6 追加の一手は定数から出る(綴りは1文字も変えていない)",
+      /\{REED_ADD_BUTTON_LABEL\}/.test(sheet71)
+      && api.REED_ADD_BUTTON_LABEL === "この箱を追加する");
+    check("71.6 押せるかどうかの判定式は1文字も変えていない(読み手は追加の一手)",
+      /const disabled = \(isCustom && !customBrand\.trim\(\)\) \|\| \(isEdit && !startDate\);/.test(sheet71)
+      && /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/.test(sheet71));
+
+    // **綴りではなく動きで見る。** 呼び手の式をソースから取り出して実際に走らせる。
+    {
+      const oc71 = (view71.match(/onClose=\{(\(\) => \{[\s\S]*?\})\}\s*\r?\n\s*\/>\s*\r?\n\s*\)\}/) || [])[1];
+      check("71.6 箱の編集シートの onClose をソースから取り出せている", Boolean(oc71), oc71 || "取り出せない");
+      if (oc71) {
+        const log71 = [];
+        const fn71 = new Function("applyBoxEdit", "setEditBoxKey", `return (${oc71});`)(
+          () => log71.push("apply"), (v) => log71.push(`close:${String(v)}`));
+        fn71();
+        check("71.6 閉じると**先に変更を適用し、そのあと**シートを畳む",
+          log71.join(" > ") === "apply > close:null", log71.join(" > ") || "何も起きない");
+      }
+    }
+    {
+      const ne71 = (view71.match(/onNumberEdit=\{(\(\) => \{[\s\S]*?\})\}/) || [])[1];
+      check("71.6 番号編集の呼び手をソースから取り出せている", Boolean(ne71), ne71 || "取り出せない");
+      if (ne71) {
+        const log71 = [];
+        const fn71 = new Function("applyBoxEdit", "setEditBoxKey", "enterNumberEdit", `return (${ne71});`)(
+          () => log71.push("apply"), (v) => log71.push(`close:${String(v)}`), () => log71.push("enter"));
+        fn71();
+        check("71.6 番号編集は 適用 → 閉じる → モードへ入る の順(編集中の値を捨てない)",
+          log71.join(" > ") === "apply > close:null > enter", log71.join(" > ") || "何も起きない");
+      }
+    }
+    // 【消した箱を書き戻さない】削除の経路は applyBoxEdit を通らない。
+    // 器(BottomSheet / useSheetDismiss)がアンマウントで onClose を呼んでいないことも併せて見る
+    // ── 呼んでいたら、削除で消した箱が onClose 経由で書き戻る。
+    {
+      const del71 = (view71.match(/const deleteEditingBox = \(\) => \{[\s\S]*?\n  \};/) || [""])[0];
+      check("71.6 deleteEditingBox を取り出せている", del71.length > 100, `${del71.length}文字`);
+      check("71.6 削除の経路は applyBoxEdit を呼ばない(消した箱を書き戻さない)",
+        del71.length > 100 && count71(del71, /applyBoxEdit/g) === 0
+        && /setEditBoxKey\(null\);/.test(del71) && /deleteReedsWithUndo\(/.test(del71),
+        `applyBoxEdit ${count71(del71, /applyBoxEdit/g)}件`);
+      check("71.6 器はアンマウントで onClose を呼ばない(detach は finish と cancelClear だけ)",
+        /const detach = \(\) => \{ finish\(true\); io\.cancelClear\(\); \};/.test(app71)
+        && !/detach[\s\S]{0,60}io\.close\(\)/.test(app71));
+      check("71.6 開封日が空のときは applyBoxEdit が黙って return する(閉じる側は別に畳む)",
+        /const applyBoxEdit = \(\) => \{[\s\S]{0,300}?if \(!brand \|\| !editStartDate\) return;/.test(view71));
+    }
+  }
   console.log("  -> done");
 }
 

@@ -1199,6 +1199,15 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   const g = person.gear?.[saxType] ?? null;
   const days = person.stats?.daysAll;
 
+  // 【便P 2026-09-20 本人指示】「目安に設定ボタンは固定して。いま1番下までスクロールすると
+  // ボタンの位置も上がる仕様になっている」。
+  // 貼り付く器を**本文の一番最後**(通報の行より後ろ)へ移したので、ボタンを出す条件だけを
+  // ここへ持ち上げる。**中身は下の分岐と同じ**: 表(音のデータ)に居て、データのある種別が
+  // あって、その種別の目安が公開されていて、合わせられている(chart.error が無い)とき。
+  // 描画の分岐(Empty の出し分け)は1つも変えていない。
+  const showAdopt = Boolean(onAdopt && side === "data" && types.length > 0
+    && theirIdeal && chart && !chart.error);
+
 
   return (
     // 【C-16 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
@@ -1318,52 +1327,19 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     <div className="sans" style={noteStyle}>{m.unit}　計測{theirIdeal.sourceSessionCount ?? "—"}件</div>
                     <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
                                centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
-                    <Legend series={chart.series} />
-                    {/* 【取り込むのは「合わせたあとの値」】相手の生の値を目標にすると、
-                        環境の差のぶんだけ全音で「足りない」と出続け、どの音を直せばいいか
-                        分からなくなる。上のグラフに出ている線がそのまま目安になる。 */}
-                    {onAdopt ? (
-                      /* 面の右下に貼り付ける器。
-                         【ボタンだけを浮かせる 2026-09-19 本人指示】「目安に設定の浮いている
-                         ボタンの行も浮いてしまっているので**ボタンだけを**浮かせて」。
-                         以前はこの器が地(--c-surface)と上下の padding を持っていたため、
-                         行そのものが白い帯になって貼り付いていた。地と padding をやめると
-                         下の内容は透けるが、**浮きはボタン自身の影が返す** ──
-                         My Data / リードの FloatingAction と同じ作法(地は持たず影だけ)。
-                         貼り付ける仕組み(sticky / bottom 0)とボタンの寸法・色・影は変えない。
-                         zIndex は**この容器の中だけ**の話なので 1 で足りる。 */
-                      <div style={{
-                        position: "sticky", bottom: 0, zIndex: 1,
-                        display: "flex", justifyContent: "flex-end",
-                      }}>
-                        <button
-                          type="button" className="sans"
-                          onClick={() => {
-                            const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
-                            setAdopted(r?.error ? { error: r.error } : { ok: true });
-                          }}
-                          style={{
-                            minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-                            padding: "0 var(--sp-5)", border: "none",
-                            borderRadius: "var(--r-pill)",
-                            background: "var(--c-accent)", color: "var(--c-on-accent)",
-                            fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
-                            boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-                            cursor: "pointer",
-                          }}
-                        >目安に設定</button>
+                    {/* 【便P 2026-09-20 本人裁定】案2(注記をボタンより後ろへ)は**取り消した**。
+                        本人の言葉「最初に見た時はボタンと重なっててもいいが、スクロールで
+                        ボタンを避けられるようにして」── 重なり自体は許されたので、
+                        注記はグラフの直下(読む順どおりの場所)へ戻す。綴りは1文字も変えていない。
+                        【便P 本人指示「以下のテキストと折れ線グラフの余白を詰めて」】
+                        凡例と注記の間だけを詰める。親(pageStyle)の gap は --sp-4 なので、
+                        この2つだけを**既にこの画面が使っている --sp-2** の格子で包む。
+                        新しい数は作っていない(16px → 8px)。 */}
+                    <div style={{ display: "grid", gap: "var(--sp-2)" }}>
+                      <Legend series={chart.series} />
+                      <div className="sans" style={noteStyle}>
+                        計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
                       </div>
-                    ) : null}
-                    {/* 【便O 2026-09-20 本人裁定「重なりは案2を採用」】注記は**貼り付く
-                        ボタンより後ろ**に置く。sticky(bottom 0)のボタンの裏を通るのは
-                        流れの上で**前に**在る要素だけなので、後ろへ移せば重なりようが無い
-                        ── 束5 で空きを足しても重なりが消えなかったのは、注記が前に在って
-                        送っている途中で裏を通っていたから(合格条件の「一番下まで送ったとき」は
-                        元から満たされていて、検査が症状を見ていなかった)。
-                        引き換えに、注記は一番下まで送らないと出ない。本人の選択。
-                        **綴りは1文字も変えていない**。移したのは置き場所だけ。 */}
-                    <div className="sans" style={noteStyle}>
-                      計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
                     </div>
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>
@@ -1373,11 +1349,6 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     {adopted?.error ? (
                       <div className="sans" role="alert" style={{ ...noteStyle, color: "var(--c-bad)" }}>{adopted.error}</div>
                     ) : null}
-                    {/* 【束5 2026-09-20 本人指示】貼り付くボタンと対の空き。**ボタンの器より後ろ**
-                        (取り込んだ結果の1行より更に後ろ ── 空きが文の途中に挟まらないように)。
-                        これが無いと、一番下まで送ってもボタンが器の下端に居座り、
-                        注記や結果の行がその裏に残る。高さの持ち主は ADOPT_STICKY_SPACER_H だけ。 */}
-                    {onAdopt ? <div aria-hidden="true" style={{ height: ADOPT_STICKY_SPACER_H }} /> : null}
                   </>
                 ) : null}
               </>
@@ -1404,6 +1375,49 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         </div>
       ) : null}
       </div>
+      {/* 【便P 2026-09-20 本人指示】「最初に見た時はボタンと重なっててもいいが、
+          スクロールでボタンを避けられるようにして」。
+          **空き → 貼り付く器** の順で、本文(pageStyle の器)の**外・その後ろ**に置く。
+          ・器を本文の一番最後へ移すと、一番下まで送ったときの「自然な位置」が末尾に来るので、
+            ボタンが下端から動かなくなる。
+          ・本文の器の中に置くと、その器自身の下余白(paddingBottom: --sp-6 = 20px)が
+            ボタンの下に残り、一番下で **20.44px 上がる**(375×812 の写しで実測)。
+            外へ出すと同じ実測で **0px**(scrollTop 0 と最大でボタン下端が同じ)。
+            本文の下余白は1px も変えていないので、他の行の見た目は動かない。
+          ・空きが器の直前に在るので、その上の内容(注記・取り込んだ結果・通報の行)は
+            すべてボタンを避けられる。高さの持ち主は ADOPT_STICKY_SPACER_H だけ。
+          横の余白はシートのカード(padding: 14px 24px)が配るので、本文の中に在ったときと
+          同じ x に右端が来る(pageStyle の横 padding は元から 0)。 */}
+      {showAdopt ? <div aria-hidden="true" style={{ height: ADOPT_STICKY_SPACER_H }} /> : null}
+      {showAdopt ? (
+        /* 面の右下に貼り付ける器。
+           【ボタンだけを浮かせる 2026-09-19 本人指示】「目安に設定の浮いているボタンの行も
+           浮いてしまっているので**ボタンだけを**浮かせて」。器は地も padding も持たず、
+           浮きはボタン自身の影が返す ── My Data / リードの FloatingAction と同じ作法。
+           貼り付ける仕組み(sticky / bottom 0)とボタンの寸法・色・影は1つも変えていない。
+           zIndex は**この容器の中だけ**の話なので 1 で足りる。 */
+        <div style={{
+          position: "sticky", bottom: 0, zIndex: 1,
+          display: "flex", justifyContent: "flex-end",
+        }}>
+          <button
+            type="button" className="sans"
+            onClick={() => {
+              const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
+              setAdopted(r?.error ? { error: r.error } : { ok: true });
+            }}
+            style={{
+              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+              padding: "0 var(--sp-5)", border: "none",
+              borderRadius: "var(--r-pill)",
+              background: "var(--c-accent)", color: "var(--c-on-accent)",
+              fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
+              boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+              cursor: "pointer",
+            }}
+          >目安に設定</button>
+        </div>
+      ) : null}
       {reporting ? (
         <ReportSheet
           nickname={person?.nickname}

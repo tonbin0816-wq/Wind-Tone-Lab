@@ -10497,28 +10497,18 @@ function ReedsTab(props) {
         value={reedsSubTab}
         onChange={(k) => { if (listMode) exitMode(); setReedsSubTab(k); }}
       >
-        {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。
-            【リードが0枚のときは出さない】中身は「箱を選んで削除 / 個体を選んで削除」で、
-            **箱が1つも無ければどちらも実行できない**。
-            HEAD も削除の入口を `{reeds.length > 0 && …}` で括っていた(0枚では出さない)。
-            §6.0 の3原則「今に関係ない物は出ていない」。0枚の画面に残るのは
-            「まだリードが登録されていません」と「＋ 追加」だけになる。 */}
-        {reedsSubTab === "register" && (reeds.length > 0 || listMode !== null) && (
+        {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。 */}
+        {/* 【便P 2026-09-20 本人指示】「リードタブの右上の3点復活させてくれたがもう不要なので削除」。
+            **「その他の操作」のボタンだけ**を消した。listMode !== null のときの
+            「完了 / キャンセル」と削除の実行は残す ── 番号編集モードと削除モードの
+            出口がこれしか無いので、消すとモードから戻れなくなる。
+            リードが0枚かどうかの条件(reeds.length > 0)は「…」だけのものだったので、
+            残る中身の条件 listMode !== null に畳んだ(空の器を描かない)。
+            【REED_MORE_ITEMS / ReedMoreMenu / moreOpen は消していない】
+            中身の「箱を選んで削除」「個体を選んで削除」は**入口を失うだけ**で、
+            入口をどこへ移すかは本人がまだ決めていない(検証71.5 がこの事実を見張る)。 */}
+        {reedsSubTab === "register" && listMode !== null && (
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-            {listMode === null ? (
-              <button
-                onClick={() => setMoreOpen(true)}
-                aria-label="その他の操作"
-                aria-expanded={moreOpen}
-                className="sans"
-                style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--c-ink-2)" }}
-              >
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
-                  <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
-                </svg>
-              </button>
-            ) : (
-              <>
                 {/* 【F-102】numberEdit は選んで実行する型ではなく「編集して終わる」型なので、
                     出口の文言は「完了」(編集はシートを閉じた時点で確定済み。キャンセルと出すと
                     変更が戻ると誤読される)。見た目の型は削除モードのキャンセルと同じ B型ピル。 */}
@@ -10536,8 +10526,6 @@ function ReedsTab(props) {
                   onClick={listMode === "boxDelete" ? confirmBoxDelete : confirmMemberDelete}
                 />
                 )}
-              </>
-            )}
           </div>
         )}
       </SubTabs>
@@ -10818,14 +10806,10 @@ function reedDetailMetaParts(startDate, days, sessionCount) {
 // (§6.1.5「同じことを2度言わない」)。枚数が変わるたびにボタンの語が動くのもやめた。
 // 「追加」の語は変えていない(本人の語彙の禁則)。
 const REED_ADD_BUTTON_LABEL = "この箱を追加する";
-// 【F-80 / F-82】同じシートを「箱を編集」にも使う。実行の一手の文言はここで分ける
-// (JSX 側で書き分けるとハーネスから見えない)。
-// 【便N 2026-09-19 本人指示】編集の一手は「この箱を変更」→**「変更」**(隣の「削除」と
-// 横並びになり、どちらも「この箱」の話であることは見出し「箱を編集」が既に言っている)。
-// 追加の綴りは**1文字も変えていない**(今回の指示に入っていない)。
-function reedSheetButtonLabel(mode) {
-  return mode === "edit" ? "変更" : REED_ADD_BUTTON_LABEL;
-}
+// 【便P 2026-09-20 本人指示】「リードの箱の編集画面から編集ボタンを削除。情報を変更して
+// 編集画面を閉じたら変更反映されるようにして」。編集の一手が消えたので、
+// 語を mode で分ける reedSheetButtonLabel は**定義ごと畳んだ**(読み手の無い枝を残さない)。
+// 残るのは追加の綴り REED_ADD_BUTTON_LABEL ただ1つ ── 綴りは1文字も変えていない。
 // シートの見出し(--fs-xs / --ink3。正典は便C で 11px → 12px)。
 // 【便O 2026-09-20 本人指示】**編集のときは見出しを出さない**。
 // 何のシートかは中の行(メーカー / 銘柄 / 厚さ / 開封日)と下の一手が既に言っている。
@@ -11004,6 +10988,11 @@ function ReedBoxSheet({
               REED_SHEET_ROW_STYLE 自体は他の行が使っているので触らず、下の style で重ねて消す。
               height: --tap-min は**残す**: 罫の 1px を打ち消すための手当てだったが、
               罫が消えても総高を --tap-min に固定したままでよい(他の行と同じ高さ)。 */}
+          {/* 【便P 2026-09-20 本人指示】「リードのページも日付が中央揃え」。
+              計測データの編集シートにしか付いていなかった datetime-flush を
+              **こちらの開封日にも付ける**(本人は「両方」と言っている)。
+              下の textAlign: "left" は便N で入れた Chrome 側の保険で、**残す** ──
+              値を描くのは UA のシャドウ側なので、効く層が違う。 */}
           {isEdit && (
             <div style={{ ...REED_SHEET_ROW_STYLE, height: "var(--tap-min)", borderBottom: "none" }}>
               <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>開封日</span>
@@ -11012,7 +11001,7 @@ function ReedBoxSheet({
                 aria-label="開封日"
                 value={startDate || ""}
                 onChange={(e) => setStartDate?.(e.target.value)}
-                className="sans"
+                className="sans datetime-flush"
                 /* appearance / maxWidth / lineHeight / overflow の4点は、N-5 まで
                    「…」の中にあった同じ欄が持っていた手当てを**1つも下げずに**引き継いだもの
                    (理由は §6.9 の検査のコメント。iOS Safari の固有幅・縦位置・内部UIのはみ出し)。
@@ -11046,34 +11035,19 @@ function ReedBoxSheet({
           )}
 
           {/* 【便N 2026-09-19 本人指示】編集の下の一手は**横並び**。幅は等分・高さは --tap-min。
-              **並びは破壊的な一手を右端に置く**(便O で「変更 / 番号編集 / 削除」の3つになった)。
+              **並びは破壊的な一手を右端に置く**。
+              【便P 2026-09-20 本人指示】「編集ボタンを削除。情報を変更して編集画面を
+              閉じたら変更反映されるようにして」。「変更」を外して**2つ**(番号編集 / 削除)。
+              flex: "1 1 0" のままなので幅は2等分になる。色と高さは1つも変えていない。
+              変更の適用は呼び出し側の onClose が持つ ── どの閉じ方(つまみ・暗幕・下スワイプ・
+              Escape)でも同じ経路を通る。
               【便O 2026-09-20 本人指示】本人の言葉「青と赤のコントラストがきつい」。
-              変更と番号編集の塗りを CommunityTab.jsx の secondaryButtonStyle と**同じ2トークン**
-              (--c-sunken / --c-ink-2、太さ 600)に落とし、赤は削除の1つだけにした。
-              **新しい色は作っていない**(どちらのトークンも既に在る)。
+              番号編集の塗りは CommunityTab.jsx の secondaryButtonStyle と**同じ2トークン**
+              (--c-sunken / --c-ink-2、太さ 600)。赤は削除の1つだけ。
               追加のほうは触っていない: 中央揃え・幅いっぱい・高さ ACTION_LG_PX・--c-accent のまま
               (便E で本人が決めた綴りと寸法。今回の指示に入っていない)。 */}
           {isEdit ? (
             <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
-              <button
-                onClick={onAdd}
-                disabled={disabled}
-                className="sans"
-                /* 【便O】押せないときは**塗りを変えずに薄くする**。以前は --c-line-strong の
-                   灰へ化けていたが、沈めた地の上に灰を重ねると字が読めなくなる。
-                   判定式(disabled)は1文字も変えていない。 */
-                style={{
-                  flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  borderRadius: "var(--r-pill)", border: "none",
-                  background: "var(--c-sunken)", color: "var(--c-ink-2)",
-                  fontSize: "var(--fs-sm)", fontWeight: 600,
-                  opacity: disabled ? 0.5 : 1,
-                  cursor: disabled ? "default" : "pointer",
-                }}
-              >
-                {reedSheetButtonLabel(mode)}
-              </button>
               {/* 【便O 2026-09-20 本人指示】リードの番号を変える入口。
                   **新しい仕組みは作らない**: 既にある listMode === "numberEdit" へ入るだけで、
                   シートを閉じて一覧をそのモードにする(配線は呼び出し側が持つ)。
@@ -11130,7 +11104,7 @@ function ReedBoxSheet({
                   cursor: disabled ? "default" : "pointer",
                 }}
               >
-                {reedSheetButtonLabel(mode)}
+                {REED_ADD_BUTTON_LABEL}
               </button>
             </div>
           )}
@@ -11525,14 +11499,22 @@ function ReedRegisterView(props) {
           customBrand={editCustomBrand} setCustomBrand={setEditCustomBrand}
           strength={editStrength} setStrength={setEditStrength}
           startDate={editStartDate} setStartDate={setEditStartDate}
-          onAdd={applyBoxEdit}
           onDelete={deleteEditingBox}
           /* 【便O 2026-09-20 本人指示】番号編集はこの1手で既存のモードへ入るだけ。
              **シートを閉じてから**モードへ入る(開いたままだと、一覧のタイルが
              シートの裏に隠れていて「タップするリード」が押せない)。
-             numberEditId の後始末は既存の useEffect がそのまま面倒を見る。 */
-          onNumberEdit={() => { setEditBoxKey(null); enterNumberEdit(); }}
-          onClose={() => setEditBoxKey(null)}
+             numberEditId の後始末は既存の useEffect がそのまま面倒を見る。
+             【便P 2026-09-20】**先に applyBoxEdit を呼ぶ**(編集中の値を捨てない)。 */
+          onNumberEdit={() => { applyBoxEdit(); setEditBoxKey(null); enterNumberEdit(); }}
+          /* 【便P 2026-09-20 本人指示】「情報を変更して編集画面を閉じたら変更反映されるように」。
+             つまみ・暗幕タップ・下スワイプ・Escape の4つの閉じ方はどれもこの onClose を通るので、
+             ここ1箇所で全部が反映される(「変更」のボタンはもう無い)。
+             applyBoxEdit は自分でも setEditBoxKey(null) するが、**開封日が空のときは黙って
+             return する**ので、閉じる側はここで別に呼ぶ(押しても閉じない経路を作らない)。
+             【削除の経路はここを通らない】deleteEditingBox は自分で setEditBoxKey(null) して
+             シートを消す。BottomSheet / useSheetDismiss はアンマウントで onClose を呼ばない
+             (detach は finish(true) と cancelClear だけ)ので、消した箱が書き戻ることはない。 */
+          onClose={() => { applyBoxEdit(); setEditBoxKey(null); }}
         />
       )}
     </div>
