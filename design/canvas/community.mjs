@@ -237,9 +237,9 @@ const asVals = (arr) => Object.fromEntries(KEYS.map((k, i) => [k, arr[i]]));
 const PEOPLE = [
   { nick: "しろねこ", icon: "ic-cat", color: 1, who: ["学生", "歴3年", "クラシック"], days: 24, rec: 38 },
   { nick: "Reedman", icon: "ic-music-notes", color: 6, who: ["社会人", "歴12年", "ジャズ"], days: 21, rec: 26 },
-  { nick: "あおば", icon: "ic-leaf", color: 3, who: ["学生（音大）", "歴7年", "クラシック"], days: 19, rec: 31 },
-  { nick: "tone-lab", icon: "ic-star", color: 8, who: ["講師・プロ", "歴20年", "ジャズ"], days: 17, rec: 44, mine: true },
-  { nick: "まるこ", icon: "ic-rabbit", color: 5, who: ["独学", "歴2年", "ポップス"], days: 14, rec: 12 },
+  { nick: "あおば", icon: "ic-leaf", color: 3, who: ["学生（音楽専門）", "歴7年", "クラシック"], days: 19, rec: 31 },
+  { nick: "tone-lab", icon: "ic-star", color: 8, who: ["職業音楽家", "歴20年", "ジャズ"], days: 17, rec: 44, mine: true },
+  { nick: "まるこ", icon: "ic-rabbit", color: 5, who: ["学生", "歴2年", "ポップス"], days: 14, rec: 12 },
   { nick: "Kei", icon: "ic-fish", color: 2, who: ["社会人", "歴5年", "クラシック"], days: 11, rec: 19 },
   { nick: "のあ", icon: "ic-butterfly", color: 7, who: ["学生", "歴4年", "ポップス"], days: 9, rec: 8 },
   { nick: "ハル", icon: "ic-sun", color: 4, who: ["社会人", "歴9年", "ジャズ"], days: 6, rec: 15 },
@@ -400,7 +400,7 @@ ${infoRow("楽器", "Selmer Paris Mark VI")}
 ${infoRow("マウスピース", "Otto Link Tone Edge")}
 ${infoRow("リガチャー", "未選択")}
 ${infoRow("リード", 'Vandoren Java <span style="' + NUM + '">2.5</span>')}
-${infoRow("属性", "講師・プロ")}
+${infoRow("属性", "職業音楽家")}
 ${infoRow("演奏開始年", '<span style="' + NUM + '">2006</span>年')}
 ${infoRow("ジャンル", "ジャズ・ポップス")}
 ${infoRow("編成", "ソロ・ビッグバンド")}
@@ -500,7 +500,7 @@ ${formField("リードの番手", pillRow([["2.0", false], ["2.5", false], ["3.0
       <!-- 【束4-C】ダイヤル(<select>)をやめ、ジャンル・編成と同じピルにした。
            違いは「1つだけ選ぶ」ことだけなので、同じ部品に引数を1つ足して使う
            (role="radiogroup" + role="radio" + aria-checked)。 -->
-${formField("属性", pillRow([["学生", false], ["学生（音大）", false], ["社会人", true], ["講師・プロ", false], ["独学", false]]))}
+${formField("属性", pillRow([["学生", false], ["学生（音楽専門）", false], ["社会人", true], ["職業音楽家", false]]))}
 
       <!-- 【束4-B】選び方(押すと年の一覧が出る)は変えない。器の見た目だけニックネームに揃える。 -->
 ${formField("演奏開始年", formBox("2015年"))}

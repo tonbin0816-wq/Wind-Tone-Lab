@@ -4884,6 +4884,68 @@ function ScrollPicker({ options, value, onChange, onClose, labelFn, footer = nul
 }
 
 // ============================================================
+// 【便R 後半-前半 2026-09-20 本人裁定】「多いか長い選択肢は、下から出る全幅の一覧」。
+// 幅140のホイール(ScrollPicker)は綴りが切れて読めない。その置き換えがこの1枚。
+//
+// **受け口は ScrollPicker と同じ**(options / value / onChange / onClose / labelFn / footer)。
+// 呼び手は部品の名前を変えるだけで済む ── 綴りを書き換える回数を最小にするため。
+//
+// **器は既存の BottomSheet**。暗幕・角丸・つまみ・影・Escape・裏の固定は全部そちらが持つ
+// (C-14/C-15/C-16/D-6 の裁定「シートはアプリ唯一の器」。ここで写しを作らない)。
+// 中身は全幅の行の縦並び。1行 = --tap-min の高さ + 下の罫 --c-line、綴りは左寄せで
+// 収まらなければ省略記号。選択中は --c-accent の太字 + 右端の ✓。押したら選んで閉じる。
+//
+// 【一覧の高さ】件数が多いと縦に伸びるので、行を包む器で頭打ちにする。
+// 値は発明せず MY_DATA_IDEAL_LIST_MAX_H と**同じ作法**(1行 × n + 半行。頭が覗くことで
+// 続きがあると分かる)で書く。ただし1行の高さは CSS の変数 --tap-min なので、
+// 式も CSS 側(calc)で持つ。**px の直書きはしない。**
+const OPTION_SHEET_VISIBLE_ROWS = 6;
+const OPTION_SHEET_LIST_MAX_H = `calc(var(--tap-min) * ${OPTION_SHEET_VISIBLE_ROWS} + var(--tap-min) / 2)`;
+function OptionSheet({ options, value, onChange, onClose, labelFn, ariaLabel, footer = null }) {
+  const list = options || [];
+  return (
+    <BottomSheet ariaLabel={ariaLabel} onClose={onClose}>
+      {/* 見出しは ReedBoxSheet の見出しと**同じ綴り**(--fs-xs / --c-ink-3)。 */}
+      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{ariaLabel}</div>
+      <div
+        role="listbox" aria-label={ariaLabel}
+        style={{ maxHeight: OPTION_SHEET_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}
+      >
+        {list.map((o, i) => {
+          const selected = o === value;
+          return (
+            <button
+              key={o}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              onClick={() => { onChange(o); onClose(); }}
+              className="sans"
+              style={{
+                width: "100%", height: "var(--tap-min)",
+                display: "flex", alignItems: "center", gap: "var(--sp-2)",
+                background: "none", border: "none",
+                borderBottom: i === list.length - 1 ? "none" : "1px solid var(--c-line)",
+                padding: 0, cursor: "pointer", textAlign: "left",
+                fontSize: "var(--fs-md)",
+                fontWeight: selected ? 700 : 400,
+                color: selected ? "var(--c-accent)" : "var(--c-ink)",
+              }}
+            >
+              <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{labelFn ? labelFn(o) : o}</span>
+              {selected ? <span aria-hidden="true" style={{ flexShrink: 0 }}>✓</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {/* 【M4 由来】奏者の一覧だけ、選択肢の**下に**「追加」の入力欄を1行持つ。
+          間隔は ScrollPicker が持っていた gap と同じ --sp-2(新しい値を作らない)。 */}
+      {footer ? <div style={{ marginTop: "var(--sp-2)" }}>{footer}</div> : null}
+    </BottomSheet>
+  );
+}
+
+// ============================================================
 // 【F-72】「押せば選択肢が出る」を形で示す ▾。
 //
 // 本人指示(2026/08/12・実機): 「モックでは上部の奏者やリードもカード色を変えて
@@ -9040,7 +9102,7 @@ function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false
   // 【M4 2026-09-16】開閉はこの部品が自分で持つ。計測タブの上部設定行と違って、
   // この2画面(セッション詳細の編集シート / 分析タブの軸)には
   // 「開いている間は無効化する背面レイヤ」が無いので、外へ出す必要がない。
-  // ScrollPicker は document.body へ portal されるので、シートの transform にも
+  // OptionSheet の器(BottomSheet)は document.body へ portal されるので、シートの transform にも
   // .tap-through(pointer-events:none)にも影響されない。
   const [open, setOpen] = useState(false);
   const list = options || [];
@@ -9066,10 +9128,11 @@ function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false
         {captionNode}{valueNode}
       </button>
       {open && (
-        <ScrollPicker
+        <OptionSheet
           options={list.map((o) => o.value)} value={value}
           onChange={(v) => onChange(v)} onClose={() => setOpen(false)}
           labelFn={(v) => (list.find((o) => o.value === v) || { label: v }).label}
+          ariaLabel={ariaLabel}
         />
       )}
     </>
@@ -10000,9 +10063,10 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
         <PickChevron />
       </button>
       {pickerOpen && (
-        <ScrollPicker
+        <OptionSheet
           options={options} value={selectedPerformer}
           onChange={setSelectedPerformer} onClose={onClosePicker}
+          ariaLabel="奏者"
           footer={(
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <input
@@ -10987,8 +11051,8 @@ function ReedBoxSheet({
   // 片方だけにすると「押せるのに無反応」になる(審査役の変異で実際に生き残った経路)。
   const disabled = (isCustom && !customBrand.trim()) || (isEdit && !startDate);
   const pickerOptions = [...brandOptions, REED_BRAND_CUSTOM];
-  // 【F-88】下スワイプで閉じる。**メーカーピッカーを開いている間は配線ごと外す**
-  // (ScrollPicker はこのシートの中から開く全画面モーダルで、シートに transform が
+  // 【F-88】下スワイプで閉じる。**メーカーの一覧を開いている間は配線ごと外す**
+  // (OptionSheet はこのシートの中から開く全画面モーダルで、シートに transform が
   //  残っているとそのピッカーの position:fixed の基準がシートになる。§6.3。
   //  ドラッグ後 SWIPE_BACK_SETTLE_MS で transform は消えるが、消える前にピッカーを
   //  開けてしまう経路を残さない)。
@@ -11180,11 +11244,12 @@ function ReedBoxSheet({
             </div>
           )}
       </BottomSheet>
-      {/* メーカーのピッカーはシートの**外**に出す(z-index はシートと同じ層の上)。
+      {/* メーカーの一覧はシートの**外**に出す(z-index はシートと同じ層の上)。
           シートの中に置くと、暗幕がシートの中に閉じて背面がタップできてしまう(F-73 と同型の罠)。 */}
       {brandPickerOpen && (
-        <ScrollPicker
+        <OptionSheet
           options={pickerOptions}
+          ariaLabel="メーカー"
           value={brand}
           onChange={(v) => pickBrand(v)}
           onClose={() => setBrandPickerOpen(false)}
@@ -11193,8 +11258,9 @@ function ReedBoxSheet({
       )}
       {/* 【R6】銘柄のピッカー。メーカーと同じ場所・同じ作法(シートの外へ出す)。 */}
       {modelPickerOpen && (
-        <ScrollPicker
+        <OptionSheet
           options={modelOptions}
+          ariaLabel="銘柄"
           value={model}
           onChange={(v) => setModel(v)}
           onClose={() => setModelPickerOpen(false)}

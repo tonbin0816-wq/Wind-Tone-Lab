@@ -8431,8 +8431,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("M4: 奏者の枠の高さは TOPSET_PERFORMER_H_PX(行の高さ=環の位置を保つ)",
           /height: TOPSET_PERFORMER_H_PX/.test(btn), btn.slice(0, 260).replace(/\s+/g, " "));
         // (2) 追加はピッカーの**下**の入力欄1行。語は「追加」のまま。
-        check("M4: 奏者のピッカーは ScrollPicker で、下に「追加」の入力欄1行を持つ",
-          /<ScrollPicker\s*\r?\n\s*options=\{options\} value=\{selectedPerformer\}/.test(ps)
+        check("M4: 奏者の一覧は OptionSheet で、下に「追加」の入力欄1行を持つ(便R 後半-前半)",
+          /<OptionSheet\s*\r?\n\s*options=\{options\} value=\{selectedPerformer\}/.test(ps)
           && /footer=\{\(/.test(ps) && /placeholder="名前を入力"/.test(ps) && />追加<\/button>/.test(ps),
           ps.replace(/\s+/g, " ").slice(-300));
         check("M4: 選択肢に「選択肢ではないもの」を混ぜていない(＋ 名前を入力... の option は消えた)",
@@ -11351,7 +11351,7 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
         /disabled=\{openPicker !== null\}/.test(recTag), recTag.replace(/\s+/g, " ").slice(0, 240));
       // ピッカー自体の作法(暗幕タップ / Esc で閉じる)は変えていない
       const pi = code20.indexOf("function ScrollPicker");
-      const picker = pi === -1 ? "" : code20.slice(pi, code20.indexOf("function PickChevron"));
+      const picker = pi === -1 ? "" : srcOfFn(code20, "ScrollPicker");
       check("F-73: ピッカーは暗幕タップで閉じる作法のまま", /onClick=\{onClose\}/.test(picker));
       check("F-73: ピッカーは Esc で閉じる作法のまま", /e\.key === "Escape"/.test(picker) && /onClose\(\)/.test(picker));
       check("F-73: ピッカーの暗幕は position:fixed の z-index 60(枠の中の z-index 1 より上)",
@@ -13531,7 +13531,7 @@ let METRO_SIGS_ALL = [];
       /3: \{ n: 3, beams: 1 \}/.test(sub) && /2: \{ n: 2, beams: 1 \}/.test(sub) && /4: \{ n: 4, beams: 2 \}/.test(sub));
     // スクロールピッカーに見出しを出さない(正典)。
     const pi = code.indexOf("function ScrollPicker");
-    const picker = pi === -1 ? "" : code.slice(pi, code.indexOf("function PitchDeviationLine"));
+    const picker = pi === -1 ? "" : srcOfFn(code, "ScrollPicker");
     check("スクロールピッカーは見出し(「基準ピッチ」等の label)を持たない",
       !/基準ピッチ/.test(picker) && !/<h[1-6]/.test(picker) && !/label=/.test(picker), "");
     check("スクロールピッカーを開く側も見出しを渡していない",
@@ -17443,8 +17443,8 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // 部品そのもの: 値は <span>{text}</span>、選択肢は options({value,label})から ScrollPicker へ。
   // 【M4 2026-09-16】native <select> は無くなった(本人裁定④)。value/onChange の渡し方は
   // 「イベント」から「**値そのもの**」に変わったので、呼び出し側の綴りも一緒に見る(下の 29.3 D-3 / PIVOT)。
-  check("M4: PlainSelect は値を <span> が描き、選択は ScrollPicker が受け持つ",
-    /\{text\}<\/span>/.test(ps29) && /<ScrollPicker\b/.test(ps29)
+  check("M4: PlainSelect は値を <span> が描き、選択は OptionSheet が受け持つ(便R 後半-前半)",
+    /\{text\}<\/span>/.test(ps29) && /<OptionSheet\b/.test(ps29)
     && /options=\{list\.map\(\(o\) => o\.value\)\} value=\{value\}/.test(ps29)
     && /onChange=\{\(v\) => onChange\(v\)\}/.test(ps29));
   check("M4: PlainSelect のラベルは options の中から引く(見えている値と選択肢を2箇所に書かない)",
@@ -22814,20 +22814,23 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
       !/<option[\s>]/.test(app48), (app48.match(/<option[\s>]/g) || []).length + "箇所");
     // 綴りの数と、実際に選ばせている場所の数を**別々に**固定する
     // (共有部品に寄せたので、綴り1つで複数の画面をまかなう箇所がある)。
-    const spell = (app48.match(/<ScrollPicker\b/g) || []).length;
+    const spell = (app48.match(/<ScrollPicker\b|<OptionSheet\b/g) || []).length;
     // 【R6 2026-09-16】追加シートに**銘柄**のピッカーが1つ増えた(7 → 8)。
     // 【便N 2026-09-19 で 8 → 10】厚さと枚数のダイヤルが行になり、選び方が
     // メーカー・銘柄と同じ ScrollPicker に揃った(本人指示「箱追加のダイヤルもこの仕様に揃えて」)。
     // 【便R 2026-09-20 で 10 → 6】本人指示でホイールをアプリから無くす周の前半。
     // 基準ピッチ(− / ＋)・楽器(シートのピル)・厚さ・枚数(その場のピル)の4つが消えた。
     // 残る6は 箱 / 個体 / 奏者 / PlainSelect / 箱のシートのメーカー・銘柄。
-    check("48.3 便R ScrollPicker の綴りは6(箱/個体/奏者/軸など/箱のシートのメーカー・銘柄)",
+    // 【便R 後半-前半 2026-09-20】**主張を事実の側へ向け直した**: 6のうち4つ
+    // (奏者 / PlainSelect / メーカー / 銘柄)は幅140のホイールをやめて OptionSheet になった。
+    // 数も、どの画面が選ばせるかも1つも変わっていないので、両方の綴りを合わせて数える。
+    check("48.3 便R 選び方を開く綴りは6(箱/個体/奏者/軸など/箱のシートのメーカー・銘柄)",
       spell === 6, `${spell}箇所`);
     const sites = spell
       + ((app48.match(/<PerformerSelector\b/g) || []).length - 1)   // 共有部品の呼び出しぶん
       + ((app48.match(/<PlainSelect\b/g) || []).length - 1);
     // 【便R 2026-09-20 で 13 → 9】上の4つが消えたぶん。凍結仕様の「8箇所以上」はまだ満たす。
-    check("48.3 便R 実際に ScrollPicker で選ばせている箇所は9(凍結仕様の「8箇所以上」を満たす)",
+    check("48.3 便R 実際に専用の1枚で選ばせている箇所は9(凍結仕様の「8箇所以上」を満たす)",
       sites >= 8 && sites === 9, `${sites}箇所`);
     // 【M3】症状の原因は「値の上に**透明にした**操作要素を重ねる」作り。
     // 透明化は color: "transparent" で行っていたので、その綴りが0件であることで見る
@@ -23144,8 +23147,8 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // 【便N】行に名札が付き、読み上げの名も名札から出る(aria-label={label})。
     // 【便R 2026-09-20 で 4 → 2】厚さ・枚数のホイールが無くなったので、シートの外へ出す
     // ScrollPicker はメーカーと銘柄の2つだけになった。順序の主張は1つも変えていない。
-    check("49.5 R6 銘柄はメーカー → 銘柄の2段(どちらも ScrollPicker)",
-      (sheet49.match(/<ScrollPicker/g) || []).length === 2
+    check("49.5 R6 銘柄はメーカー → 銘柄の2段(どちらも同じ1枚。便R 後半-前半で OptionSheet へ)",
+      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).length === 2
       && sheet49.indexOf('label="メーカー"') < sheet49.indexOf('label="銘柄"'),
       `メーカー=${sheet49.indexOf('label="メーカー"')} / 銘柄=${sheet49.indexOf('label="銘柄"')}`);
     check("49.5 R6 メーカーを変えたら銘柄も付け替える(別のメーカーの銘柄が残らない)",
@@ -24981,12 +24984,12 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 「シートの外へ出す」の対象はメーカー・銘柄の2つだけになった。
     // **錨を事実の側へ向け直す**: 厚さ・枚数の選択肢は**シートの中**(ピル)で、
     // 残る ScrollPicker は2つとも幕の外に居ることを見る。
-    check("59.2 便R 厚さ・枚数はシートの中のピル / 残る ScrollPicker 2つはシートの**外**",
+    check("59.2 便R 厚さ・枚数はシートの中のピル / 残る選び方2つはシートの**外**",
       sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}") < sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={REED_ADD_COUNTS}") < sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={pickerOptions}") > sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={modelOptions}") > sheet59raw.indexOf("</BottomSheet>")
-      && count59(sheet59, /<ScrollPicker/g) === 2,
+      && count59(sheet59, /<ScrollPicker|<OptionSheet/g) === 2,
       `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")} メーカー=${sheet59raw.indexOf("options={pickerOptions}")}`);
     // 【変異(5)】開封日の左寄せを外す → ここで落ちる。
     check("59.2 N2 開封日の値も左寄せ(本人指示「開封日の日付も同じく左寄せ」)",
@@ -25691,11 +25694,28 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
         && /border: 1px solid transparent;/.test(rule63)
         && /border-radius: var\(--r-xs\);/.test(rule63);
     })());
-  check("63.6 正典 属性はピル5つ(社会人が選択中 = 枠と字が --c-accent)。▾ も <select> も無い",
-    /学生/.test(dc63) && /講師・プロ/.test(dc63) && /独学/.test(dc63)
-    && !/<select/.test(dc63)
-    && !/<path d="M2 4l3 3 3-3"/.test(dc63)
-    && count63(dc63, /border: 1px solid var\(--c-accent\); color: var\(--c-accent\)/g) >= 1);
+  // 【便R 後半-前半 2026-09-20】**主張を事実の側へ向け直した**。束6(376860c)で
+  // 実装の POSITIONS は4語になったのに、正典の生成物は旧5語のままだった
+  // (この検査が旧語の在ることを主張していたので、食い違ったまま緑で通っていた)。
+  // いまは **実装の POSITIONS から期待値を引く** ── 正典が実装とずれたら落ちる。
+  {
+    const prof63 = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
+    const positions63 = new Function(`${extractConst("POSITIONS", prof63).replace(/^export /, "")} return POSITIONS;`)();
+    const posBlock63 = dc63.slice(dc63.indexOf(">属性</div>"), dc63.indexOf(">演奏開始年</div>"));
+    const posWords63 = (posBlock63.match(/box-sizing: border-box">([^<]*)<\/span>/g) || [])
+      .map((t) => t.replace(/^[\s\S]*border-box">/, "").replace(/<\/span>$/, ""));
+    check("63.6 正典 属性のピルを切り出せている(空回りしていない)",
+      posBlock63.length > 500 && posWords63.length > 0, `${posBlock63.length}文字 / ${posWords63.length}個`);
+    check("63.6 正典 属性のピルは実装の POSITIONS と同じ語・同じ順・同じ数(いまは4つ)",
+      posWords63.join("/") === positions63.join("/"),
+      `正典 ${posWords63.join("/")} / 実装 ${positions63.join("/")}`);
+    check("63.6 正典 選択中の1つだけが --c-accent の枠と字(社会人)",
+      count63(posBlock63, /border: 1px solid var\(--c-accent\); color: var\(--c-accent\)/g) === 1
+      && /border: 1px solid var\(--c-accent\); color: var\(--c-accent\)[^>]*>社会人</.test(posBlock63),
+      `${count63(posBlock63, /border: 1px solid var\(--c-accent\); color: var\(--c-accent\)/g)}個`);
+    check("63.6 正典 属性に ▾ も <select> も無い",
+      !/<select/.test(dc63) && !/<path d="M2 4l3 3 3-3"/.test(dc63));
+  }
   check("63.6 正典 演奏開始年は欄のまま(ピルにしていない。選び方を変えていない印)",
     /演奏開始年<\/div>\s*\n\s*<div style="width: 100%; min-height: 44px/.test(dc63));
   check("63.6 正典 新しい色を作っていない(--c- 以外の色の直書きが0)",
@@ -27116,10 +27136,10 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     check("73.4 ReedBoxSheet に strengthPickerOpen / countPickerOpen が綴りごと無い",
       !/strengthPickerOpen|countPickerOpen/.test(app73),
       (app73.match(/strengthPickerOpen|countPickerOpen/g) || []).join(" | ") || "0件");
-    check("73.4 厚さ・枚数のホイールは無い(シートの ScrollPicker はメーカー・銘柄の2つだけ)",
-      count73(sheet73, /<ScrollPicker/g) === 2
+    check("73.4 厚さ・枚数のホイールは無い(シートの選び方はメーカー・銘柄の2つだけ)",
+      count73(sheet73, /<ScrollPicker|<OptionSheet/g) === 2
       && !/options=\{REED_STRENGTH_OPTIONS\}\s*\n\s*value=\{strength\}/.test(sheet73),
-      `${count73(sheet73, /<ScrollPicker/g)}枚`);
+      `${count73(sheet73, /<ScrollPicker|<OptionSheet/g)}枚`);
     check("73.4 厚さ・枚数はその場のピル(名札は残り、ピルは名札の下)",
       /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>\s*\n\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>厚さ<\/span>\s*\n\s*<OptionPills/.test(sheet73)
       && /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>\s*\n\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>枚数<\/span>\s*\n\s*<OptionPills/.test(sheet73));
@@ -27177,8 +27197,11 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     check("73.6 ScrollPicker の定義はまだ在る(撤去は次の便)",
       /function ScrollPicker\(\{ options, value, onChange, onClose, labelFn, footer = null \}\)/.test(app73));
     // 読み手は 10 → 6。**減ったことを数で固定する**(戻す変異はここで落ちる)。
-    const readers73 = count73(app73, /<ScrollPicker\b/g);
-    check("73.6 ScrollPicker の読み手は10から6へ減っている(基準ピッチ/楽器/厚さ/枚数の4つが外れた)",
+    // 【便R 後半-前半 2026-09-20 で向け直した】6のうち4つは幅140のホイールをやめて
+    // OptionSheet(下から出る全幅の一覧)になった。**数も画面も変わっていない**ので、
+    // 「選び方を開く読み手」として両方の綴りを合わせて数える(どちらが何枚かは検証75が見る)。
+    const readers73 = count73(app73, /<ScrollPicker\b|<OptionSheet\b/g);
+    check("73.6 選び方を開く読み手は10から6へ減っている(基準ピッチ/楽器/厚さ/枚数の4つが外れた)",
       readers73 === 6, `${readers73}箇所`);
     // 残る6が誰かを名指しで見る(数だけだと別の4つが消える変異が素通りする)。
     for (const [lab, needle] of [
@@ -27189,7 +27212,7 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
       ["箱のシートのメーカー", /options=\{pickerOptions\}/],
       ["箱のシートの銘柄", /options=\{modelOptions\}/],
     ]) {
-      check(`73.6 残るホイールが実在する: ${lab}`, needle.test(app73), String(needle));
+      check(`73.6 残る選び方が実在する: ${lab}`, needle.test(app73), String(needle));
     }
   }
   console.log("  -> done");
@@ -27241,6 +27264,219 @@ console.log("========== 検証74: 保存しても順位から自分が消えな�
     /dir\.setUsers\(\(prev\) => prev\.map\(\(u\) => \(u\.uid === uid \? \{ \.\.\.u, \.\.\.v \} : u\)\)\)/.test(comm74));
   check("74.4 公開の切り替えは今までどおり練習記録を落とさない",
     /stats: mine\?\.stats \?\? computePracticeStats\(sessions \?\? \[\]\)/.test(comm74));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証75: 便R 後半-前半 ── 多いか長い選択肢は「下から出る全幅の一覧」(OptionSheet)
+//
+//   本人が選んだ置き換え。幅140のホイール(ScrollPicker)は綴りが切れて読めないので、
+//   **既存の BottomSheet を器にした全幅の行の縦並び**へ移す。この便で移すのは4つ:
+//     ・PlainSelect(編集シートのリード / 分析タブの絞り込む次元 / 並べる軸・数値・分け方)
+//     ・奏者(PerformerSelector。「追加」の1行は footer のまま)
+//     ・箱のシートのメーカー / 銘柄
+//   リードの箱・個体のホイールと ScrollPicker の定義は**次の便**。ここでは読み手が減るだけ。
+//
+//   **この節が守らないもの**:
+//     ・実機(iOS Safari)での行の高さ・字形・押しやすさ・慣性。Chrome の実測は判定に使えない
+//       (LOOP.md)。行の宣言が --tap-min であることまでしか言えない。
+//     ・「1行に収まらない綴りが実際に省略記号で切れるか」── 描かせないと分からない。
+//       ここは宣言(nowrap + overflow + textOverflow)が在ることだけを見る。
+//     ・一覧の上限(1行×6 + 半行)が実機で何 px になるか。--tap-min は CSS の変数なので
+//       ソースからは式であることしか言えない。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① 行の罫を外す              ② 選択中の ✓ を消す        ③ onClose() を落とす
+//   ④ 上限を px の直書きに戻す   ⑤ PlainSelect を ScrollPicker へ戻す
+//   ⑥ 奏者の footer の綴りを変える ⑦ REED_BRAND_CUSTOM を pickerOptions から外す
+//   ⑧ ScrollPicker の読み手を1つ増やす ⑨ 正典に旧語を戻す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の一覧 ==========");
+{
+  const app75 = codeOf(src);
+  const opt75 = codeOf(srcOfFn(src, "OptionSheet"));
+  const plain75 = codeOf(srcOfFn(src, "PlainSelect"));
+  const perf75 = codeOf(srcOfFn(src, "PerformerSelector"));
+  const sheet75 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const count75 = (t, re) => (t.match(re) || []).length;
+
+  check("75.0 一覧の部品と4つの呼び手を切り出せている(空回りしていない)",
+    opt75.length > 1200 && plain75.length > 1500 && perf75.length > 1200 && sheet75.length > 4000,
+    `一覧 ${opt75.length} / PlainSelect ${plain75.length} / 奏者 ${perf75.length} / 箱のシート ${sheet75.length}`);
+
+  // --- 75.1 部品そのもの --------------------------------------------------------
+  {
+    check("75.1 OptionSheet の定義は1つだけ",
+      count75(app75, /function OptionSheet\(/g) === 1,
+      `${count75(app75, /function OptionSheet\(/g)}個`);
+    check("75.1 受け口は ScrollPicker と同じ綴り(呼び手の書き換えを最小にする)",
+      /function OptionSheet\(\{ options, value, onChange, onClose, labelFn, ariaLabel, footer = null \}\)/.test(app75));
+    check("75.1 器は既存の BottomSheet(ariaLabel と onClose をそのまま渡す)",
+      /<BottomSheet ariaLabel=\{ariaLabel\} onClose=\{onClose\}>/.test(opt75)
+      && /<\/BottomSheet>/.test(opt75));
+    // 新しい暗幕・角丸・つまみ・影を作らない。**綴りの不在で見る**(器の写しを作った変異が落ちる)。
+    for (const [lab, re] of [
+      ["暗幕", /position: "fixed", inset: 0/],
+      ["角丸", /borderRadius/],
+      ["影", /boxShadow/],
+      ["portal", /createPortal/],
+      ["Escape の配線", /e\.key === "Escape"/],
+    ]) {
+      check(`75.1 一覧は自前の${lab}を持たない(器の写しを作らない)`, !re.test(opt75), String(re));
+    }
+    check("75.1 見出しは ariaLabel をそのまま1行(--fs-xs / --c-ink-3。ReedBoxSheet の見出しと同じ綴り)",
+      /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{ariaLabel\}<\/div>/.test(opt75)
+      && /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{REED_ADD_SHEET_TITLE\}<\/div>/.test(sheet75));
+    check("75.1 行は全幅・--tap-min の高さ",
+      /width: "100%", height: "var\(--tap-min\)"/.test(opt75));
+    check("75.1 行の下に罫 --c-line(最後の行だけ罫なし)",
+      /borderBottom: i === list\.length - 1 \? "none" : "1px solid var\(--c-line\)"/.test(opt75));
+    check("75.1 綴りは左寄せ。1行に収まらないときは省略記号",
+      /textAlign: "left"/.test(opt75)
+      && /whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"/.test(opt75));
+    check("75.1 選択中は --c-accent の太字",
+      /fontWeight: selected \? 700 : 400/.test(opt75)
+      && /color: selected \? "var\(--c-accent\)" : "var\(--c-ink\)"/.test(opt75));
+    check("75.1 選択中の行の**右端**に ✓ が出る(選んでいない行には出ない)",
+      /\{selected \? <span aria-hidden="true" style=\{\{ flexShrink: 0 \}\}>✓<\/span> : null\}/.test(opt75)
+      && opt75.indexOf("✓") > opt75.indexOf("textOverflow: \"ellipsis\""),
+      count75(opt75, /✓/g) + "個");
+    // 押したら「選んで閉じる」。**実行で確かめる**(綴りだけ見ても順番も両方呼ぶかも分からない)。
+    {
+      const m75 = opt75.match(/onClick=\{(\(\) => \{[\s\S]*?\})\}/);
+      const log75 = [];
+      const made75 = m75 ? runFn(() => new Function("onChange", "onClose", "o", `return ${m75[1]};`)) : { ok: false, err: "取り出せない" };
+      const h75 = made75.ok ? runFn(made75.v, (v) => log75.push("change:" + v), () => log75.push("close"), "あ") : made75;
+      const r75 = h75.ok ? runFn(h75.v) : h75;
+      check("75.1 行を押すと onChange してから onClose する(実行で確かめる)",
+        r75.ok && log75.join(" ") === "change:あ close",
+        r75.ok ? log75.join(" ") : `例外(${r75.err})`);
+    }
+    // 上限は式。**px の直書きが無い**ことと、式そのものを評価して見る。
+    {
+      const maxh75 = runFn(new Function(
+        `${extractConst("OPTION_SHEET_VISIBLE_ROWS")} ${extractConst("OPTION_SHEET_LIST_MAX_H")} return OPTION_SHEET_LIST_MAX_H;`));
+      check("75.1 一覧の上限は「1行 × 6 + 半行」の式(MY_DATA_IDEAL_LIST_MAX_H と同じ作法)",
+        maxh75.ok && maxh75.v === "calc(var(--tap-min) * 6 + var(--tap-min) / 2)", shownOf(maxh75));
+      // 罫の 1px は**仕様が名指しした値**なので数から外す。それ以外の px の直書き
+      // (高さ・上限を px で書き戻す変異)はここで落ちる。
+      const noRule75 = opt75.replace(/"1px solid var\(--c-line\)"/g, "");
+      check("75.1 上限にも寸法にも px の直書きが無い(罫の 1px を除く)",
+        maxh75.ok && !/px/.test(String(maxh75.v)) && !/\d+px/.test(noRule75),
+        (noRule75.match(/\d+px/g) || []).join(" | ") || "0件");
+      check("75.1 行を包む器が上限と縦スクロールを持つ",
+        /maxHeight: OPTION_SHEET_LIST_MAX_H, overflowY: "auto"/.test(opt75));
+    }
+    check("75.1 読み上げ: 包みは listbox、行は option + aria-selected",
+      /role="listbox" aria-label=\{ariaLabel\}/.test(opt75)
+      && /role="option"/.test(opt75) && /aria-selected=\{selected\}/.test(opt75));
+    check("75.1 footer は一覧の**下**(渡さない呼び手では何も出ない)",
+      /\{footer \? <div style=\{\{ marginTop: "var\(--sp-2\)" \}\}>\{footer\}<\/div> : null\}/.test(opt75)
+      && opt75.indexOf("{footer ?") > opt75.indexOf('role="listbox"'));
+  }
+
+  // --- 75.2 呼び手はホイールを読んでいない --------------------------------------
+  {
+    check("75.2 PlainSelect は OptionSheet を1枚だけ開き、ScrollPicker を読んでいない",
+      count75(plain75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(plain75),
+      `一覧 ${count75(plain75, /<OptionSheet\b/g)} / ホイール ${count75(plain75, /<ScrollPicker/g)}`);
+    check("75.2 PlainSelect は見出しに自分の ariaLabel を渡す",
+      /labelFn=\{\(v\) => \(list\.find\(\(o\) => o\.value === v\) \|\| \{ label: v \}\)\.label\}\s*\r?\n\s*ariaLabel=\{ariaLabel\}/.test(plain75));
+    check("75.2 PerformerSelector は OptionSheet を1枚だけ開き、ScrollPicker を読んでいない",
+      count75(perf75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(perf75),
+      `一覧 ${count75(perf75, /<OptionSheet\b/g)} / ホイール ${count75(perf75, /<ScrollPicker/g)}`);
+    check("75.2 箱のシートのメーカー・銘柄も OptionSheet(ScrollPicker を読んでいない)",
+      count75(sheet75, /<OptionSheet\b/g) === 2 && !/<ScrollPicker/.test(sheet75),
+      `一覧 ${count75(sheet75, /<OptionSheet\b/g)} / ホイール ${count75(sheet75, /<ScrollPicker/g)}`);
+    check("75.2 メーカーと銘柄の一覧は見出しを持つ(どちらを選んでいるかが読める)",
+      /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet75)
+      && /<OptionSheet\s*\r?\n\s*options=\{modelOptions\}\s*\r?\n\s*ariaLabel="銘柄"/.test(sheet75));
+    // シートの**外**に出す置き方は変えていない(暗幕がシートの中に閉じる罠。F-73 と同型)。
+    check("75.2 メーカー・銘柄の一覧は今までどおりシートの**外**(BottomSheet の兄弟)",
+      srcOfFn(src, "ReedBoxSheet").indexOf("options={pickerOptions}") > srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>")
+      && srcOfFn(src, "ReedBoxSheet").indexOf("options={modelOptions}") > srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>"));
+  }
+
+  // --- 75.3 PlainSelect の呼び手3つは1文字も変えていない -------------------------
+  {
+    const calls75 = [...src.matchAll(/<PlainSelect[\s\S]*?\/>/g)].map((m) => m[0].replace(/\s+/g, " ").trim());
+    const want75 = [
+      `<PlainSelect ariaLabel="紐付けるリード" text={reed ? reedLabel(reed, reeds) : "—"} value={reedId || ""} onChange={(v) => onSetReedId(v || null)} options={reedOptions} />`,
+      `<PlainSelect ariaLabel="絞り込む次元" text={dim?.label ?? flt.dimKey} value={flt.dimKey} onChange={(v) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: v, values: [], rangeMin: null, rangeMax: null } : p)))} options={PIVOT_DIMENSIONS.map((d) => ({ value: d.key, label: d.label }))} />`,
+      `<PlainSelect strong caption={z.label} ariaLabel={z.aria} text={z.text} value={z.value} onChange={z.onChange} options={z.options} />`,
+    ];
+    check("75.3 PlainSelect の呼び手は3つのまま(編集シートのリード / 絞り込む次元 / 軸の3列)",
+      calls75.length === 3, `${calls75.length}箇所`);
+    for (let i = 0; i < want75.length; i++) {
+      check(`75.3 呼び手${i + 1}の綴りが1文字も変わっていない`,
+        calls75[i] === want75[i], calls75[i] || "取り出せない");
+    }
+  }
+
+  // --- 75.4 奏者の「追加」の1行は footer のまま ---------------------------------
+  {
+    check("75.4 奏者の一覧は footer を渡す(見出しは「奏者」)",
+      /ariaLabel="奏者"\s*\r?\n\s*footer=\{\(/.test(perf75));
+    const foot75 = (perf75.match(/footer=\{\(([\s\S]*?)\r?\n\s*\)\}/) || [, ""])[1].replace(/\s+/g, " ").trim();
+    check("75.4 「追加」の1行の綴りが1文字も変わっていない(中身・振る舞いを1つも触らない)",
+      foot75 === `<div style={{ display: "flex", gap: 4, alignItems: "center" }}> <input type="text" placeholder="名前を入力" aria-label="奏者の名前" value={addingName} onChange={(e) => setAddingName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmAdd(); }} className="sans" style={{ padding: "5px 8px", fontSize: 12, width: 110 }} /> <button onClick={confirmAdd} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", cursor: "pointer" }}>追加</button> </div>`,
+      foot75 || "取り出せない");
+    check("75.4 footer を渡すのは奏者だけ(他の3つに増やしていない)",
+      count75(app75, /footer=\{\(/g) === 1, `${count75(app75, /footer=\{\(/g)}箇所`);
+  }
+
+  // --- 75.5 「＋ 新しいメーカーを入力...」は今までどおり選択肢の1つ ---------------
+  {
+    const lab75 = runFn(new Function(`${extractConst("REED_BRAND_CUSTOM_LABEL")} return REED_BRAND_CUSTOM_LABEL;`));
+    check("75.5 綴りも値も変えていない(＋ 新しいメーカーを入力...)",
+      lab75.ok && lab75.v === "＋ 新しいメーカーを入力...", shownOf(lab75));
+    check("75.5 メーカーの一覧の**末尾**に選択肢として並ぶ",
+      /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(sheet75));
+    check("75.5 その1つだけ綴りを差し替える labelFn が今までどおり在る",
+      /labelFn=\{\(v\) => \(v === REED_BRAND_CUSTOM \? REED_BRAND_CUSTOM_LABEL : v\)\}/.test(sheet75));
+  }
+
+  // --- 75.6 ScrollPicker の読み手は 6 → 2。定義はまだ在る -----------------------
+  {
+    const readers75 = count75(app75, /<ScrollPicker\b/g);
+    check("75.6 ScrollPicker の読み手は6から2へ減っている(残るのは箱と個体)",
+      readers75 === 2, `${readers75}箇所`);
+    check("75.6 残る2つは箱と個体(名指しで見る。別の2つが残る変異を通さない)",
+      /<ScrollPicker[\s\S]{0,200}?options=\{reedBoxOptions\.map\(\(o\) => o\.value\)\}/.test(app75)
+      && /<ScrollPicker[\s\S]{0,200}?options=\{reedMemberOptions\.map\(\(o\) => o\.value\)\}/.test(app75));
+    check("75.6 ScrollPicker の定義はまだ在る(撤去は次の便)",
+      /function ScrollPicker\(\{ options, value, onChange, onClose, labelFn, footer = null \}\)/.test(app75));
+    check("75.6 一覧の読み手は4つ(奏者 / PlainSelect / メーカー / 銘柄)",
+      count75(app75, /<OptionSheet\b/g) === 4, `${count75(app75, /<OptionSheet\b/g)}箇所`);
+  }
+
+  // --- 75.7 正典(design/canvas)の属性の語 --------------------------------------
+  {
+    const dir75 = join(__dirname, "..", "design", "canvas");
+    const files75 = readdirSync(dir75).filter((f) => f.endsWith(".dc.html"));
+    check("75.7 正典の生成物を読めている(空回りしていない)", files75.length > 20, `${files75.length}枚`);
+    const old75 = ["学生（音大）", "講師・プロ", "独学"];
+    const hits75 = [];
+    for (const f of files75) {
+      const t = readFileSync(join(dir75, f), "utf8");
+      for (const w of old75) if (t.includes(w)) hits75.push(`${f}:${w}`);
+    }
+    check("75.7 旧3語(学生（音大）/ 講師・プロ / 独学)が生成物に1つも残っていない",
+      hits75.length === 0, hits75.join(" | ") || "0件");
+    const gen75 = readFileSync(join(dir75, "community.mjs"), "utf8");
+    check("75.7 生成器そのものにも旧3語が残っていない(作り直せば戻る経路を塞ぐ)",
+      old75.every((w) => !gen75.includes(w)), old75.filter((w) => gen75.includes(w)).join(" | ") || "0件");
+    const edit75 = readFileSync(join(dir75, "CommProfileEdit.dc.html"), "utf8").replace(/<!--[\s\S]*?-->/g, "");
+    const block75 = edit75.slice(edit75.indexOf(">属性</div>"), edit75.indexOf(">演奏開始年</div>"));
+    const words75 = (block75.match(/box-sizing: border-box">([^<]*)<\/span>/g) || [])
+      .map((t) => t.replace(/^[\s\S]*border-box">/, "").replace(/<\/span>$/, ""));
+    const prof75 = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
+    const positions75 = runFn(new Function(`${extractConst("POSITIONS", prof75).replace(/^export /, "")} return POSITIONS;`));
+    check("75.7 属性のピルは4つで、綴りも順も実装の POSITIONS と同じ",
+      positions75.ok && words75.length === 4 && words75.join("/") === positions75.v.join("/"),
+      `正典 ${words75.join("/")} / 実装 ${positions75.ok ? positions75.v.join("/") : shownOf(positions75)}`);
+  }
   console.log("  -> done");
 }
 
