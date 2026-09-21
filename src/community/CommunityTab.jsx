@@ -21,7 +21,7 @@ import { buildIdealProfileFromSessions, SubTabs, SwipePager, OptionPills, Bottom
 // 【アカウント引継の中身は My Data の「記録の保存」そのもの】写しを作らない。
 // 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を1つ増やすだけ。
 import BackupPanel from "../backup/BackupPanel.jsx";
-import { publishStats } from "./directory.js";
+import { publishStats, withMyRow } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
 // 【読み込み中の絵 2026/09/10 → 09/13 本人指示】App.jsx の Suspense と同じ要素。
@@ -133,9 +133,14 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // 【計画5 2026-09-10】myUid を渡す ── 通報された人を落とすときに
   // **自分だけは残す**ため(黙って消さない。理由はマイページの告知で伝える)。
   const dir = usePublicUsers(uid);
-  // 【便S 2026-09-21】このタブで公開した自分の練習記録の控え。名簿の読みより後に
-  // 書き終わることがあるので、読み直さずに自分の行だけを直すために持つ。
-  const [myStats, setMyStats] = useState(null);
+  // 【便Z 2026-09-21】自分の練習記録は**この端末が数える**。サーバの写しを待たない。
+  // 便Q(保存が消していた)・便S(読みと書きの順)・便W(差分が古いキーを残す)と
+  // 原因を1つずつ潰しても本人の端末で再発したのは、**自分が順位に出るかどうかを
+  // サーバに委ねていた**から。委ねるのをやめる。
+  const myStats = useMemo(() => computePracticeStats(sessions ?? []), [sessions]);
+  // 名簿に自分の行を必ず置く(規則は directory.js の withMyRow に1つだけ)。
+  const users = useMemo(() => withMyRow(dir.users, uid, profile, myStats),
+    [dir.users, uid, profile, myStats]);
 
   // 自分が通報で隠れているか。**一覧の結果からは判定しない** ── 一覧は上限50で
   // 切れるので、切れた先に自分が居ると本人にだけ何も知らせないまま隠れてしまう。
@@ -190,18 +195,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     let alive = true;
     (async () => {
       try {
-        const stats = computePracticeStats(sessions ?? []);
-        if (alive) {
-          await publishStats(uid, stats);
-          // 【便S 2026-09-21 本人報告「属性編集すると順位から消えるのがまだ直らない」】
-          // **書いた値を控える。** 名簿(dir)を読むのと ここで書くのは別々に走っていて、
-          // 読みのほうが先に終わる。つまり読み終えた名簿の自分の行には、いま書いた
-          // 練習記録がまだ入っていない。順位は練習記録を持つ人だけを並べるので
-          // (aggregate.js の `if (!s) continue;`)、**自分だけが消える**。
-          // プロフィールを保存すると この画面ごと作り直されるので、保存のたびに再現する。
-          // 控えた値は下の useEffect が名簿へ入れる(読みと書きのどちらが先でも効くように)。
-          if (alive) setMyStats(stats);
-        }
+        // 【便Z 2026-09-21】ここは**他人に見せるため**の書き込みだけ。
+        // 自分の順位は withMyRow が手元の値で必ず置くので、
+        // この書き込みが拒まれても・遅れても、自分が消えることは無い。
+        if (alive) await publishStats(uid, myStats);
       } catch (e) {
         // 【便Q 2026-09-20】**利用者に見せないことと、記録に残さないことは別**。
         // ここが空だったせいで、ルールに拒まれて順位が更新されない状態が
@@ -229,22 +226,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
-  // 【便S 2026-09-21】控えた練習記録を、手元の名簿の自分の行へ入れる。
-  // **読みと書きのどちらが先に終わっても効く**ように、別の useEffect にしてある
-  // (書いた直後にその場で入れる形だと、名簿がまだ空のときに空振りし、
-  //  そのあと届いた名簿が古い値で上書きしてしまう)。
-  // アイコンの変更と公開の切り替えは前から手元の名簿を直していて、
-  // **練習記録だけが抜けていた**。同じ作法に揃える。
-  // 同じ値を入れ直して描き直しが止まらなくなることは、値そのものの一致で防ぐ。
-  useEffect(() => {
-    if (!uid || !myStats || dir.phase !== "ready") return;
-    dir.setUsers((prev) => (prev.some((u) => u.uid === uid && u.stats === myStats)
-      ? prev
-      : prev.map((u) => (u.uid === uid ? { ...u, stats: myStats } : u))));
-    // dir.setUsers は setState を包むだけなので依存に入れない(入れると毎描画で走る)。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid, myStats, dir.phase]);
-
+  // 【便Z 2026-09-21】便S の「書いた直後に手元の名簿を継ぎ当てる」は**消した**。
+  // 継ぎ当ては「サーバの写しが正で、届くまでの繋ぎ」という形だったが、
+  // 自分の順位についてはそもそも写しが正ではない。withMyRow が毎回置くので、
+  // 繋ぎは要らなくなった(死んだ経路を残さない)。
   // 【4ページを同時に持つので、読み込み中の告知はページごとに出す】
   // 横スワイプは4枚を並べて動かす作法なので、body() の早期 return
   // (「読み込み中なら1枚だけ返す」)は使えない。
@@ -306,10 +291,10 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         {/* 【step を渡さない】目安の一覧は名簿と並行に走る。段階を足すと、
             先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
-          <DataScreen users={dir.users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />
+          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />
         ))}
-        {dirGate ?? <RankScreen users={dir.users} myUid={uid} onOpenPerson={setPerson} />}
-        {dirGate ?? <ShareScreen users={dir.users} saxTypes={profile?.saxTypes ?? []} />}
+        {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
+        {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
         <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />

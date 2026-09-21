@@ -27517,23 +27517,33 @@ console.log("========== 検証74: 保存しても順位から自分が消えな�
   const agg74 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "aggregate.js"), "utf8"));
 
   // --- 74.1 控える ------------------------------------------------------------
-  check("74.1 公開に成功したら、書いた値をその場で控える",
-    /await publishStats\(uid, stats\);[\s\S]{0,400}?setMyStats\(stats\);/.test(comm74));
-  check("74.1 控え先は state 1つ(myStats)",
-    /const \[myStats, setMyStats\] = useState\(null\);/.test(comm74)
-    && (comm74.match(/setMyStats\(/g) || []).length === 1);
+  // 【便Z 2026-09-21 で向け直した】便S の答え(書いた直後に手元の名簿を継ぎ当てる)は
+  // **取り消された**。継ぎ当ては「サーバの写しが正で、届くまでの繋ぎ」という形だったが、
+  // 自分の順位についてはそもそも写しが正ではない。
+  // いま守るべき主張は「**自分の順位はサーバの写しに委ねない**」。
+  check("74.1 自分の練習記録はこの端末が数える(サーバの写しを待たない)",
+    /const myStats = useMemo\(\(\) => computePracticeStats\(sessions \?\? \[\]\), \[sessions\]\);/.test(comm74));
+  check("74.1 継ぎ当ての一式は綴りごと無い(死んだ経路を残さない)",
+    !/setMyStats/.test(comm74) && !/dir\.setUsers\(\(prev\) => \(prev\.some/.test(comm74));
 
-  // --- 74.2 名簿へ入れる ------------------------------------------------------
-  const patch74 = (comm74.match(/useEffect\(\(\) => \{\s*if \(!uid \|\| !myStats[\s\S]{0,700}?\}, \[uid, myStats, dir\.phase\]\);/) || [""])[0];
-  check("74.2 控えた値を名簿の自分の行へ入れる経路が在る",
-    patch74.length > 100, patch74 ? "取れている" : "取り出せない");
-  check("74.2 **書いた直後ではなく別の useEffect**で入れる(読みと書きのどちらが先でも効く)",
-    /\}, \[uid, myStats, dir\.phase\]\);/.test(comm74)
-    && /dir\.phase !== "ready"/.test(patch74));
-  check("74.2 直すのは自分の行だけ(他人の行に触らない)",
-    /prev\.map\(\(u\) => \(u\.uid === uid \? \{ \.\.\.u, stats: myStats \} : u\)\)/.test(patch74));
-  check("74.2 同じ値を入れ直して描き直しが止まらなくなる経路を潰してある",
-    /prev\.some\(\(u\) => u\.uid === uid && u\.stats === myStats\)/.test(patch74));
+  // --- 74.2 名簿に自分の行を必ず置く ------------------------------------------
+  check("74.2 規則は1つ(withMyRow)で、directory.js が持つ",
+    /import \{[^}]*withMyRow[^}]*\} from "\.\/directory\.js";/.test(comm74)
+    && /export function withMyRow\(users, myUid, myProfile, myStats = null\)/
+      .test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "directory.js"), "utf8"))));
+  check("74.2 一覧を使う3画面すべてに、自分の行つきのものを渡す",
+    /const users = useMemo\(\(\) => withMyRow\(dir\.users, uid, profile, myStats\)/.test(comm74)
+    && /<DataScreen users=\{users\}/.test(comm74)
+    && /<RankScreen users=\{users\}/.test(comm74)
+    && /<ShareScreen users=\{users\}/.test(comm74));
+  check("74.2 素の dir.users を画面へ渡している箇所が無い(継ぎ当ての取りこぼしを作らない)",
+    !/(Rank|Share|Data)Screen users=\{dir\.users\}/.test(comm74));
+  // 【振る舞いは vitest が見る】src/community/myrow.test.js が
+  // 「サーバから1件も返らなくても自分は居る」「上限50の外でも足される」
+  // 「非公開なら差し込まない」などを**規則を実際に動かして**確かめている。
+  // ここ(綴りの検査)は配線だけを見る ── 便W の事故の教訓で、役割を分けてある。
+  check("74.2 振る舞いの試験がある(綴りの検査だけにしない)",
+    /withMyRow/.test(readFileSync(join(__dirname, "..", "src", "community", "myrow.test.js"), "utf8")));
 
   // --- 74.3 前提(これが変わったら この直しの意味も変わる) ----------------------
   check("74.3 順位は練習記録を持つ人だけを並べる(持たない人は行ごと出ない)",

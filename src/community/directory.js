@@ -47,6 +47,42 @@ export async function publishStats(uid, stats) {
   await updateDoc(doc(db, "users", uid), { stats: v.stats });
 }
 
+/**
+ * 一覧に**自分の行を必ず置く**。
+ *
+ * 【なぜ要るのか ── 便Z 2026-09-21】本人の報告:
+ * 「何も変更しないでプロフィール編集の保存ボタンを押すだけで順位から消える」。
+ * 原因を1つずつ潰しても再発したのは、**自分が順位に出るかどうかを
+ * サーバの写しに委ねていた**から。委ねている限り、写しが古い・書けない・
+ * 読みが書きより先に終わる・上限50の外に出た、のどれか1つで自分が消える。
+ *
+ * **自分の練習記録はこの端末が持っている。** サーバの写しは「他人に見せるため」
+ * だけのもので、自分の順位を出すのに要らない。だからここで必ず差し込む。
+ * これで、サーバへの書き込みが拒まれても・読みと書きの順が入れ替わっても・
+ * 一覧の上限に押し出されても、**自分は自分の順位から消えない**。
+ *
+ * 規則は4つだけ:
+ *   - 非公開のときは差し込まない(むしろ取り除く)。公開の意思がない人を出さない
+ *   - 既に居るならその位置のまま中身を差し替える(並びを動かさない)
+ *   - 居ないなら末尾に足す
+ *   - 練習記録は渡されたときだけ入れる(空の器を作らない)
+ *
+ * サーバの行が持っていて手元に無い項目(他人が見た絵柄など)は残すので、
+ * 差し替えで情報が減ることはない。
+ */
+export function withMyRow(users, myUid, myProfile, myStats = null) {
+  const list = users ?? [];
+  if (!myUid || !myProfile) return list;
+  if (myProfile.isPublic === false) return list.filter((u) => u?.uid !== myUid);
+  const at = list.findIndex((u) => u?.uid === myUid);
+  const row = { ...(at < 0 ? {} : list[at]), ...myProfile, uid: myUid, isPublic: true };
+  if (myStats) row.stats = myStats;
+  if (at < 0) return [...list, row];
+  const next = list.slice();
+  next[at] = row;
+  return next;
+}
+
 // ------------------------------------------------------------------
 // 条件で絞る。**サーバではなくクライアントで絞る。**
 //
