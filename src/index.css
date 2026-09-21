@@ -577,6 +577,34 @@ body {
   animation: rank-shine-spin 3.6s linear infinite;
 }
 
+/* ============================================================
+   【便Y 2026-09-21 本人裁定「番号編集は案1を採用」】番号編集中であることを
+   **タイルの中の数字だけ**が返す。本人の言葉:「カードごと揺らさず数字だけ揺らして」。
+
+   【なぜタイルではなく数字か】編集で変えられるのは**番号そのもの**なので、
+   揺れているものと変えられるものが一致する。タイルの枠・地・角丸・寸法は
+   1つも動かないので、並びが揺れて見えることも、当たり判定が動くこともない。
+
+   【速さは既存の段から引く】--d-slow(320ms)。新しい速さを作らない。
+   傾きの 3deg だけは体系に元が無いので、ここで1つ決める(小さく、読めるまま)。
+   10枚が同じ拍で動くと機械の目盛りに見えるので、3つの位相へばらす。
+
+   【止める設定では揺らさない】順位1位の光と同じ作法(止めても色で見分けられる)。
+   ここは代わりに**タイルの枠を点線**にする ── 合図がゼロになる状態を作らない。
+   点線は枠の描き方だけを変えるので、寸法は止めても動かない。
+   ============================================================ */
+@keyframes reed-number-wiggle { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+.reedtile-editing .reedtile > span {
+  display: inline-block;
+  animation: reed-number-wiggle var(--d-slow) ease-in-out infinite;
+}
+.reedtile-editing .reedtile:nth-child(3n) > span { animation-delay: calc(var(--d-slow) / 3); }
+.reedtile-editing .reedtile:nth-child(3n + 2) > span { animation-delay: calc(var(--d-slow) * 2 / 3); }
+@media (prefers-reduced-motion: reduce) {
+  .reedtile-editing .reedtile > span { animation: none; }
+  .reedtile-editing .reedtile { border-style: dashed; }
+}
+
 /* 【動きを止める設定を尊重する】止めても3色は色だけで見分けられる
    (金 3.22 / 銀 4.00 / 銅 5.75、金と銅の色相差 22°)ので、色は消さない。 */
 @media (prefers-reduced-motion: reduce) {

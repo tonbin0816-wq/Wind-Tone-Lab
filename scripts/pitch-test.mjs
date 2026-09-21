@@ -14327,8 +14327,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 順序まで見る: dragInfoRef への代入が canReorder の早期 return より**前**にあること。
       // 【F-102 2026/08/17 本人指示】番号編集モード(noDrag)でも長押しの並び替えを起動しない
       // (タップ=番号編集に一本化)。判定の綴りに !noDrag が加わった。
-      check("並び替えできるかの判定は canReorder に分けてある(便R で !deleteMode が外れた)",
-        /const canReorder = !noDrag && members\.length >= 2;/.test(grid));
+      // 【便Y 2026-09-21】受け口の名を noDrag → numberEditing にした。
+      // 同じ値を 2つの名で持たないため ── 揃れを止めるのも、数字を揺らすのも
+      // 「番号を編集中だから」という同じ理由。主張（編集中は並び替えを起動しない）は同じ。
+      check("並び替えできるかの判定は canReorder に分けてある(番号編集中は起動しない)",
+        /const canReorder = !numberEditing && members\.length >= 2;/.test(grid));
       {
         const rec = "dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };";
         check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
@@ -28081,7 +28084,7 @@ ${deriv76}
       && count76(app76, /setListMode\("numberEdit"\)/g) === 1
       && />番号編集<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet"))));
     check("76.6 モード中のタイルのタップは番号のシートを開く",
-      /noDrag=\{listMode === "numberEdit"\}/.test(view76)
+      /numberEditing=\{listMode === "numberEdit"\}/.test(view76)
       && /onTileTap=\{\(id\) => \(listMode === "numberEdit" \? setNumberEditId\(id\)/.test(view76));
     check("76.6 番号のシートと案内の1行は残っている",
       /\{listMode === "numberEdit" && \(/.test(view76)
@@ -28776,6 +28779,72 @@ ${deriv79}
       && /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet79)
       && /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet79));
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証80: 番号編集中は「数字だけ」が揺れる(便Y・本人裁定「案1を採用」)
+//   本人の言葉:「カードごと揺らさず数字だけ揺らして」。
+//   揺れの持ち主はタイル(button)ではなく**中の <span>**。タイルの枠・地・角丸・寸法は
+//   1つも動かないので、並びが揺れて見えることも当たり判定が動くこともない。
+//   止める設定のときは揺らさず、代わりに枠を点線にする(合図がゼロになる状態を作らない)。
+//
+//   【この検査が守らないもの】実際に回っているかどうか。ブラウザペインが隠れていると
+//   時計が止まるので、そこは `getAnimations()` の currentTime を手で進めた実測で確かめた
+//   (-3 → 0 → +3 → 0 → -3 / 320ms、タイル側の transform は none のまま)。
+// ============================================================
+console.log("========== 検証80: 番号編集中は数字だけが揺れる ==========");
+{
+  const css80 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const src80 = codeOf(src);
+  const grid80 = srcOfFn(src, "ReedTileGrid");
+
+  // --- 80.1 揺れそのもの -------------------------------------------------------
+  check("80.1 揺れの型は1つだけ定義されている",
+    (css80.match(/@keyframes reed-number-wiggle/g) || []).length === 1);
+  check("80.1 傾きは小さく、左右で同じ(-3deg と 3deg)",
+    /@keyframes reed-number-wiggle \{ 0%, 100% \{ transform: rotate\(-3deg\); \} 50% \{ transform: rotate\(3deg\); \} \}/.test(css80));
+  check("80.1 速さは体系の段から引く(--d-slow。ミリ秒の直書きが無い)",
+    /animation: reed-number-wiggle var\(--d-slow\) ease-in-out infinite;/.test(css80));
+  check("80.1 位相は3つにばらす(10枚が同じ拍で動かない)。ずれも --d-slow から導く",
+    /nth-child\(3n\) > span \{ animation-delay: calc\(var\(--d-slow\) \/ 3\); \}/.test(css80)
+    && /nth-child\(3n \+ 2\) > span \{ animation-delay: calc\(var\(--d-slow\) \* 2 \/ 3\); \}/.test(css80));
+
+  // --- 80.2 揺らす先は数字だけ -------------------------------------------------
+  check("80.2 揺らすのはタイルの中の <span> だけ(タイルそのものではない)",
+    /\.reedtile-editing \.reedtile > span \{/.test(css80));
+  {
+    // `.reedtile-editing .reedtile {` のように **> span を伴わない**宣言で
+    // animation を当てていないこと(当てるとカードごと揺れる = 本人が禁じた形)。
+    const blocks80 = css80.match(/\.reedtile-editing[^{]*\{[^}]*\}/g) || [];
+    const bad80 = blocks80.filter((b) => /animation:/.test(b) && !/> span/.test(b.split("{")[0]));
+    check("80.2 タイル(カード)そのものに揺れを当てていない",
+      bad80.length === 0, bad80.join(" / ") || `${blocks80.length}件すべて span 向け`);
+  }
+  check("80.2 数字の包みは状態によらず常に在る(入れ物が入れ替わらない)",
+    /<span>\{reedPosition\(r, reeds\) \?\? idx \+ 1\}<\/span>/.test(grid80));
+
+  // --- 80.3 動きを止める設定 ---------------------------------------------------
+  {
+    const reduce80 = (css80.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.reedtile-editing[\s\S]*?\n\}/) || [""])[0];
+    check("80.3 止める設定では揺らさない",
+      /\.reedtile-editing \.reedtile > span \{ animation: none; \}/.test(reduce80), reduce80 ? "取れている" : "取り出せない");
+    check("80.3 止めたときは代わりに枠が点線になる(合図がゼロにならない)",
+      /\.reedtile-editing \.reedtile \{ border-style: dashed; \}/.test(reduce80));
+    check("80.3 止めても寸法は動かない(枠の太さ・角丸・地に触っていない)",
+      !/border-width|border-radius|background/.test(reduce80), reduce80 || "取り出せない");
+  }
+
+  // --- 80.4 付ける場所 ---------------------------------------------------------
+  check("80.4 印は器に1つだけ置く(タイル側に配らない)",
+    /className=\{numberEditing \? "reedtile-editing" : undefined\}/.test(grid80)
+    && (src80.match(/reedtile-editing/g) || []).length === 1);
+  check("80.4 揺れるのは登録一覧が番号編集のときだけ(リードを選ぶシートは揺れない)",
+    /numberEditing=\{listMode === "numberEdit"\}/.test(src80)
+    && !/reedtile-editing/.test(srcOfFn(src, "ReedPickSheet")));
+  check("80.4 受け口の名は「なぜ」を言う(numberEditing)。noDrag の綴りは残っていない",
+    /function ReedTileGrid\(\{ members, reeds, sessions, selectedReedId, numberEditing = false, onTileTap, onReorder \}\)/.test(src80)
+    && !/noDrag/.test(src80));
   console.log("  -> done");
 }
 

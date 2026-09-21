@@ -10393,7 +10393,7 @@ function reedTileVisual(drag, id, home, cur) {
 //
 // 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
 // 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, noDrag = false, onTileTap, onReorder }) {
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing = false, onTileTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -10455,7 +10455,7 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, noDrag = false
   // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
   // 【F-102】番号編集モード(noDrag)中は長押しの並び替えを起動しない(タップ=番号編集に一本化)。
   // 【便R 後半-後半 2026-09-20】選んで消すモードは入口ごと消えたので、判定からも外れた。
-  const canReorder = !noDrag && members.length >= 2;
+  const canReorder = !numberEditing && members.length >= 2;
 
   const handlePointerDown = (id, index) => (e) => {
     // 落ちている最中に次のジェスチャーが来たら、その場で落とし切ってから始める
@@ -10558,8 +10558,12 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, noDrag = false
   };
 
   return (
+    /* 【便Y】番号編集中は index.css の .reedtile-editing が**数字だけ**を揺らす。
+       クラスは器に1つ置くだけ ── タイル側に印を配ると、揺れの持ち主が10箇所に散る。
+       止める設定のときは揺れの代わりに枠が点線になる(どちらも index.css が決める)。 */
     <div
       ref={gridRef}
+      className={numberEditing ? "reedtile-editing" : undefined}
       style={{ display: "grid", gridTemplateColumns: `repeat(${REED_GRID_COLS}, 1fr)`, gap: REED_GRID_GAP_PX }}
     >
       {orderedMembers.map((r, home) => {
@@ -10602,7 +10606,10 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, noDrag = false
               touchAction: isDragging ? "none" : "pan-y",
             }}
           >
-            {reedPosition(r, reeds) ?? idx + 1}
+            {/* 【便Y】揺れるのはこの <span> だけ。タイル(button)は動かさない。
+                包みは番号編集中でなくても置く ── 中身の入れ物が状態で変わると、
+                入ったり出たりのたびに描き直しの経路が2つになる。 */}
+            <span>{reedPosition(r, reeds) ?? idx + 1}</span>
           </button>
         );
       })}
@@ -11661,7 +11668,7 @@ function ReedRegisterView(props) {
                 reeds={reeds}
                 sessions={sessions}
                 selectedReedId={selectedReedId}
-                noDrag={listMode === "numberEdit"}
+                numberEditing={listMode === "numberEdit"}
                 onTileTap={(id) => (listMode === "numberEdit" ? setNumberEditId(id)
                   : onOpenReed?.(id))}
                 onReorder={reorderGroupMembers}
