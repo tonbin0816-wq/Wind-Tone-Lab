@@ -17,10 +17,6 @@ import { alignIdealToMine } from "./community/align.js";
 // 【D1 2026-09-16】練習時間(音を感知していた時間)。My Data の累計とコミュニティの公開統計(便H)が
 // **同じ1関数**を読む。定義はあちらのファイルの冒頭。
 import { sessionSoundingSec } from "./soundingSec.js";
-// 【AE 2026-09-21 本人指示・凍結仕様】計測タブの起動の挨拶。文言と決め方は
-// src/greeting.js の greetingFor() ただ1つが持つ(綴りをこちらへ写さない)。
-// あちらは他のモジュールを1つも import しない純粋な計算で、起動を重くしない。
-import { greetingFor } from "./greeting.js";
 // 【読み込み中の絵 2026/09/10 → 09/13】読み込みに合わせて輪が埋まる。
 // **この要素は firebase を import しない**(待たせている当のものを、待つ画面が
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
@@ -3352,45 +3348,12 @@ export default function WindToneLabPhaseMode() {
   // isRecording: 録音ボタンで蓄積中かどうか(セッションとして保存されるのはこの間のフレームのみ)。
   const [isListening, setIsListening] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  // 【AE-3】起動の挨拶。**この実行で1度だけ**決めて、1度だけ出す。
-  // ・前回出した一文を1つだけ覚えておき、次に開いたとき**同じ束の中の違う一文**を選ぶ
-  //   (毎回同じだと一週間で古くなる、というのが本人と合意した設計の芯)。
-  // ・文言を決めるのは useState の**遅延初期化子**。App のマウント時にしか走らないので、
-  //   タブを行き来しても決め直されない(リロードすれば また決まる)。
-  // ・**挨拶のために new Date() を呼ぶのはここ1箇所だけ。** greetingFor は時計も乱数も
-  //   自分では引かない純関数なので、検査が時刻と前回を渡して実際に走らせられる。
-  const [lastGreeting] = usePersistedState("lastGreeting", "");
-  const [openingGreeting] = useState(() => greetingFor(new Date(), lastGreeting));
-  // 出しているかどうかの旗。**App が持つ。** 計測タブ(MeasureView)はタブを移ると
-  // 丸ごとマウントし直されるので、子に置くと行き来のたびに出し直される。
-  // App は張りっぱなしなので、ここに置けば「アプリを開いてから1度だけ」になる。
-  // 下ろすのは録音が始まったとき1回で、録音が終わっても戻さない。
-  const [greetingOn, setGreetingOn] = useState(true);
   const [pitch, setPitch] = useState(null);
   const [harmonicLevels, setHarmonicLevels] = useState([]);
   const [volumeDb, setVolumeDb] = useState(-100);
   const [centroidHz, setCentroidHz] = useState(0);
   const [hnrDb, setHnrDb] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
-
-  // 【AE-3】録音が始まったら挨拶を消す(終わっても戻さない)。
-  useEffect(() => { if (isRecording) setGreetingOn(false); }, [isRecording]);
-  // 【AE-3】次に開いたとき違う一文を選べるよう、今回出した一文を覚える。
-  // openingGreeting は起動で1回決まったきり変わらないので、書くのも1回だけ。
-  //
-  // 【なぜ setter ではなく idbSet を直に呼ぶか ── 実測で決めた】
-  // usePersistedState の setter は**最初の読み込みが片付くまで書かない**
-  // (loadedRef が立つまで idbSet を呼ばない)。キーがまだ一度も保存されていない
-  // **初回起動では、マウント直後に setter を呼んでも黙って落ちる** ── 読み込みの完了は
-  // 外から見えず、値はもう変わらないので書き直す機会も来ない。実測(dev・375×812)で、
-  // setter だけの形では初回起動のあと kv に lastGreeting が現れなかった。
-  // それでは「前回と違う一文」が永遠に働かない(いつも候補の先頭になる)。
-  // ここは保存へ直に1回書く。**保存の仕組みは増やしていない**: 同じ IndexedDB の
-  // 同じ kv ストアへ、usePersistedState が使うのと**同じ idbSet** で書く。読むのは
-  // usePersistedState のままなので、次の起動では温め(warmPersistedStateCache)が拾う。
-  // persistedStateCache には**触らない**: 触ると、温めが上限に当たった起動で
-  // 読み戻しが「食い違い」と見なされ、古い値で上書きされる経路ができる。
-  useEffect(() => { idbSet("lastGreeting", openingGreeting); }, [openingGreeting]);
 
   const [saxType, setSaxType] = usePersistedState("saxType", "alto");
   const [noiseGateDb, setNoiseGateDb] = usePersistedState("noiseGateDb", NOISE_GATE_DEFAULT_DB); // 楽器音だけ拾うためのノイズゲート(dBFS)
@@ -4665,9 +4628,6 @@ export default function WindToneLabPhaseMode() {
         <div className="surf-rule">
         <MeasureView
           isRecording={isRecording} toggleRecording={toggleRecording}
-          /* 【AE-3】出さないときは空文字。出す・出さないを決めるのは App 側の旗1つで、
-             MeasureView は受け取った一行をそのまま置くだけ(文言も条件も持たない)。 */
-          greeting={greetingOn ? openingGreeting : ""}
           note={note} centsOffset={centsOffset}
           harmonicLevels={harmonicLevels}
           volumeDb={volumeDb} centroidHz={centroidHz} hnrDb={hnrDb}
@@ -7961,8 +7921,6 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
 function MeasureView(props) {
   const {
     isRecording, toggleRecording, note: notePassed, centsOffset: centsOffsetPassed,
-    // 【AE-3】起動の挨拶の一行。空文字なら出さない。文言も出す条件もここでは決めない。
-    greeting,
     harmonicLevels: harmonicLevelsPassed,
     volumeDb, centroidHz: centroidHzPassed, hnrDb: hnrDbPassed,
     saxType, setSaxType, temperature, setTemperature,
@@ -8728,35 +8686,6 @@ function MeasureView(props) {
           </div>
         )}
       </div>
-
-      {/* 【AE-3 2026-09-21 本人指示・凍結仕様】起動の挨拶の一行。
-          音が鳴っていない間、この区画(上部設定行の下・高さ RING_D_FULL)は
-          まるごと空いている ── 環は鳴っていないとき弧も光も描かないので、
-          375×812 の実測で y=80〜410 に何も出ていない。そこへ一行だけ置く。
-          【1pxも動かさない作り】絶対配置なので流れの寸法を1つも変えず、
-          pointerEvents:none なので当たり判定も1つも奪わない。タップは今までどおり
-          背面レイヤ(A-1)へ素通りするので、**押しても何も起きない一手は生まれない**。
-          消えるきっかけは「録音が始まったとき」ただ1つ(App 側の旗)。
-          色は --c-ink-3、大きさは --fs-sm。どちらも既に体系に在る段で、新しい値は作らない。
-          【環の器の**外**に置く】既存の検査2つが「並び」で意味を見ている ──
-          検証24.7 は `<div style={{ flexShrink: 0 }}>` の直後が `<PitchRing>` であることで
-          「環は淡くしない」を、検証48.8 は `<PitchRing>` から `{showVolume}` までの
-          近さで「dB は環より下」を見ている。間に割り込むとどちらも壊れるので、
-          器の外・同じ position:relative の箱の中に置く。**出る場所は1pxも変わらない**
-          (絶対配置の基準はどちらでもこの箱)。 */}
-      {greeting && (
-        <div
-          className="sans"
-          style={{
-            position: "absolute", top: 0, left: 0, right: 0, height: RING_D_FULL,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            pointerEvents: "none",
-            fontSize: "var(--fs-sm)", color: "var(--c-ink-3)", textAlign: "center",
-          }}
-        >
-          {greeting}
-        </div>
-      )}
 
       {/* ── 可変の中間 ── 状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。 */}
       <div style={{ display: "flex", flexDirection: "column" }}>
