@@ -10742,7 +10742,14 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
                 【AB-1 2026-09-21 本人指示】「鉛筆がありすぎて集合体恐怖症みたい。最初からではなくて
                 長押ししたら…その時に初めて鉛筆マークを出して」。**編集中だけ**描く。
                 描く経路はこの1つだけなので、通常時は1つも出ない。
-                【AB-2】丸囲いは塗らない ── 地は透明、枠は --c-line-strong の 1px、絵は --c-ink-2。 */}
+                【AB-2】丸囲いは塗らない ── 地は透明、枠は --c-line-strong の 1px、絵は --c-ink-2。
+                【便AC 検収 2026-09-21】**選んでいる1枚だけは色を裏返す。**
+                そのタイルは紺のベタ塗り(--c-accent)なので、--c-ink-2 の絵は地に沈んで
+                ほとんど見えない(実測のコントラスト比 1.20:1 = 事実上の不可視)。
+                枠の --c-line-strong は紺の上でも 5.7:1 で読めるが、**中の絵が消えると
+                「丸があるだけ」になり、何の印か分からなくなる**。
+                裏返す先は、そのタイルが既に字に使っている --c-on-accent ただ1つ
+                (.reedtile[data-tone="sel"] の color)。**新しい色を作っていない。** */}
             {editing && (
             <button
               type="button"
@@ -10753,8 +10760,10 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
               style={{
                 position: "absolute", right: 0, top: 0,
                 width: REED_TILE_PENCIL_PX, height: REED_TILE_PENCIL_PX, padding: 0,
-                borderRadius: "var(--r-full)", border: "1px solid var(--c-line-strong)",
-                background: "transparent", color: "var(--c-ink-2)",
+                borderRadius: "var(--r-full)",
+                border: `1px solid ${tone === "sel" ? "var(--c-on-accent)" : "var(--c-line-strong)"}`,
+                background: "transparent",
+                color: tone === "sel" ? "var(--c-on-accent)" : "var(--c-ink-2)",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer",
               }}

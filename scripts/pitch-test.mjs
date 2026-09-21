@@ -29280,12 +29280,17 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
     // ベタ塗り(地 --c-ink / 線 --c-surface)から**地は透明・枠だけ**へ変わった。
     // 主張を事実へ向け直す: 地を塗る綴りが1つも無く、枠と絵は体系の段から引いていること。
     // **プロフィールのアイコンの印は変えていない**(そちらは塗りのまま)ことも併せて見る。
+    // 【便AC 検収 2026-09-21 で向け直した】選んでいる1枚のタイルは紺のベタ塗りなので、
+    // --c-ink-2 の絵は地に沈む(実測 1.20:1 = 事実上の不可視)。そこだけ --c-on-accent へ
+    // 裏返した。**主張は変えていない**: 地は塗らない / 枠は1px / 新しい色を作らない。
     check("81.3 丸囲いは塗らない(地は透明。--c-ink のベタ塗りは綴りごと無い)",
-      /background: "transparent", color: "var\(--c-ink-2\)",/.test(grid81)
+      /background: "transparent",/.test(grid81)
+      && /color: tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)",/.test(grid81)
       && !/background: "var\(--c-ink\)"/.test(grid81),
       (grid81.match(/background: "[^"]*"/g) || []).join(" / ") || "0件");
     check("81.3 枠は A型の枠と同じ --c-line-strong の 1px / 円は --r-full のまま",
-      /borderRadius: "var\(--r-full\)", border: "1px solid var\(--c-line-strong\)",/.test(grid81));
+      /borderRadius: "var\(--r-full\)",/.test(grid81)
+      && /border: `1px solid \$\{tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-line-strong\)"\}`,/.test(grid81));
     check("81.3 絵は --c-ink-2。新しい色を作っていない(2つとも index.css に定義が在る)",
       /--c-ink-2:\s*#/.test(css81) && /--c-line-strong:\s*#/.test(css81));
     check("81.3 プロフィールのアイコンの印は塗りのまま(こちらは1文字も触っていない)",
@@ -29602,11 +29607,17 @@ console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押�
       /background: "transparent",/.test(grid82)
       && !/background: "var\(--c-ink\)"/.test(grid82),
       (grid82.match(/background: "[^"]*"/g) || []).join(" / ") || "0件");
-    check("82.5 枠は --c-line-strong の 1px",
-      /border: "1px solid var\(--c-line-strong\)",/.test(grid82)
+    // 【便AC 検収 2026-09-21 で向け直した】選んでいる1枚のタイルは紺のベタ塗りなので、
+    // --c-ink-2 の絵は地に沈む(実測 1.20:1 = 事実上の不可視)。そこだけ --c-on-accent へ
+    // 裏返した。**主張は変えていない**: 地は塗らない / 枠は1px / 新しい色を作らない。
+    check("82.5 枠は --c-line-strong の 1px(選んだ1枚だけ --c-on-accent へ裏返す)",
+      /border: `1px solid \$\{tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-line-strong\)"\}`,/.test(grid82)
       && !/border: "none",[\s\S]{0,80}?REED_TILE_PENCIL_PX/.test(grid82));
-    check("82.5 絵は --c-ink-2",
-      /color: "var\(--c-ink-2\)",/.test(grid82));
+    check("82.5 絵は --c-ink-2(選んだ1枚だけ --c-on-accent へ裏返す)",
+      /color: tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)",/.test(grid82));
+    // 裏返す先は、そのタイルが既に字に使っている色ただ1つ(新しい色を作っていない)。
+    check("82.5 裏返す先は .reedtile[data-tone=\"sel\"] が字に使う色と同じ",
+      /\.reedtile\[data-tone="sel"\][^}]*color: var\(--c-on-accent\)/.test(cssRaw82));
     check("82.5 その2つは体系に定義が在る色(新しい色を作っていない)",
       /--c-line-strong:\s*#[0-9A-Fa-f]{3,8};/.test(cssRaw82) && /--c-ink-2:\s*#[0-9A-Fa-f]{3,8};/.test(cssRaw82),
       (cssRaw82.match(/--c-(line-strong|ink-2):\s*#[0-9A-Fa-f]+/g) || []).join(" / "));
