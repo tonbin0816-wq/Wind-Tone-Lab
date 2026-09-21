@@ -8202,17 +8202,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         const rowEnd = anchorBox === -1 ? -1
           : code.indexOf("</div>", code.indexOf("</button>", code.indexOf('onClick={() => setOpenPicker("reed")}')));
         const reedRow = rowStart === -1 || rowEnd === -1 ? "" : code.slice(rowStart, rowEnd);
-        check("M4: 計測タブのリード枠(箱・個体の2ボタン)を綴りで特定できている",
+        check("M4: 計測タブのリード枠(箱・開封日・個体の3ボタン)を綴りで特定できている",
           reedRow.length > 600 && /setOpenPicker\("box"\)/.test(reedRow) && /setOpenPicker\("reed"\)/.test(reedRow),
           `${reedRow.length}文字`);
         check("M4: リード枠は型のクラス(.ctl-plain / .ctl-state)を持たない(地も枠も持たない)",
           !/className=/.test(reedRow), (reedRow.match(/className="[^"]*"/) || ["className 無し"])[0]);
-        check("M4: リード枠の2つのボタンは地も枠も持たない",
-          (reedRow.match(/background: "none", border: "none"/g) || []).length === 2,
-          `${(reedRow.match(/background: "none", border: "none"/g) || []).length}/2`);
-        check("M4: リード枠は書体も大きさも行から継ぐ(font: inherit。<button> の既定へ落ちない)",
-          (reedRow.match(/font: "inherit"/g) || []).length === 2,
-          `${(reedRow.match(/font: "inherit"/g) || []).length}/2`);
+        // 【便X 2026-09-21 で 2 → 3】箱のボタンが「点+メーカー+厚さ」と「開封日」の2つに割れた
+        // (本人指示「日付タップした時は日付の選択からできるように」)。**主張は緩めていない**:
+        // 枠の中の <button> が**全部**地も枠も持たず、書体を行から継ぐことを見る。
+        check("M4 / 便X: リード枠の3つのボタンは地も枠も持たない",
+          (reedRow.match(/background: "none", border: "none"/g) || []).length === 3,
+          `${(reedRow.match(/background: "none", border: "none"/g) || []).length}/3`);
+        check("M4 / 便X: リード枠は書体も大きさも行から継ぐ(font: inherit。<button> の既定へ落ちない)",
+          (reedRow.match(/font: "inherit"/g) || []).length === 3,
+          `${(reedRow.match(/font: "inherit"/g) || []).length}/3`);
         check("M4: 箱のボタンは押すと箱のピッカーが開く / 個体は個体のピッカー",
           /onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(reedRow)
           && /onClick=\{\(\) => setOpenPicker\("reed"\)\}/.test(reedRow));
@@ -8284,10 +8287,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("便R: 箱の選択は selectedReedId から導く(箱だけが古いまま残る経路を作らない)",
           /onChange=\{\(id\) => setSelectedReedId\(id\)\}/.test(code)
           && /if \(key\) setSelectedBoxKey\(\(prev\) => \(prev === key \? prev : key\)\);/.test(code));
+        // 【便X 2026-09-21】入口が3つ("box" / "reeddate" / "reed")になったので、分岐の綴りを
+        // 事実の側へ向け直した。**主張(シートは画面ぶんの枠の外)は1文字も緩めていない。**
         check("M4: ピッカーは上部設定行(.tap-through)の中ではなく、画面ぶんの枠の外に置く",
-          code.indexOf('{(openPicker === "box" || openPicker === "reed") && (') > code.indexOf("{detailOpen && (")
+          code.indexOf('{(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (') > code.indexOf("{detailOpen && (")
           && code.indexOf("{detailOpen && (") > 0,
-          `詳細カード ${code.indexOf("{detailOpen && (")} / リードのシート ${code.indexOf('{(openPicker === "box" || openPicker === "reed") && (')}`);
+          `詳細カード ${code.indexOf("{detailOpen && (")} / リードのシート ${code.indexOf('{(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (')}`);
       }
 
       // --- リード枠の「横方向の間隔」を**集合ごと**突き合わせる ---------------
@@ -8358,13 +8363,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         }
         // (a) 包みの直下の子は「箱のボタン / 個体のボタン」の2つ**ちょうど**。
         //     スペーサーを1つ挟めばここで落ちる(幅を持たない span でも落ちる)。
-        check("M5: リード枠の包みの直下の子は 箱のボタン・個体のボタンの2つちょうど",
-          JSON.stringify(children) === JSON.stringify(["button", "button"]),
+        // 【便X 2026-09-21 で 2 → 3】開封日が独立した <button> になった。
+        // **押せない隙間を作らない**という芯は同じ: 直下の子は <button> だけ(div も span も無い)。
+        check("M5 / 便X: リード枠の包みの直下の子は 箱・開封日・個体のボタンの3つちょうど",
+          JSON.stringify(children) === JSON.stringify(["button", "button", "button"]),
           JSON.stringify(children));
         // タグの並びそのものも固定する(間に何かを挟む変異はここでも落ちる)
-        check("M5: 枠の中のタグの並びは 箱ボタン/点/メーカー/厚さ/日付/個体ボタン/個体#/山形",
+        check("M5 / 便X: 枠の中のタグの並びは 箱ボタン/点/メーカー/厚さ/日付ボタン/日付/個体ボタン/個体#/山形",
           JSON.stringify(allTags.map((t) => t.name))
-            === JSON.stringify(["button", "span", "span", "span", "span", "button", "span", "PickChevron"]),
+            === JSON.stringify(["button", "span", "span", "span", "button", "span", "button", "span", "PickChevron"]),
           JSON.stringify(allTags.map((t) => t.name)));
 
         // (b) 横方向に効く宣言の**集合**。左右方向の位置・幅・余白に効きうる名前を全部拾う。
@@ -8383,17 +8390,22 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         });
         // 期待する集合。**何のためにその宣言があるか**を1つずつ書く。
         // 番号は枠の中のタグの並び順(0=包み / 1=箱のボタン / 2=点 / 3=メーカー / 4=厚さ /
-        // 5=日付 / 6=個体のボタン / 7=個体# / 8=山形)。
+        // 5=日付のボタン / 6=日付 / 7=個体のボタン / 8=個体# / 9=山形)。
         // 並びが変われば番号がずれるので、タグを挟む変異もここで落ちる。
+        // 【便X 2026-09-21】開封日が <button> になって番号が1つずつ後ろへずれ、
+        // 日付のボタンの左 padding が1行増えた。**値は増えていない**: 以前 箱のボタンの
+        // gap --sp-1 が作っていた「厚さ と 日付 の間の 4px」を、同じ --sp-1 が
+        // 日付のボタンの左 padding として作る(包みは gap を持たないので足し算にならない)。
         const want = [
-          '1:button:gap="var(--sp-1)"',                 // 点・メーカー・厚さ・日付の間。区切りは記号ではなく余白(M5)
+          '1:button:gap="var(--sp-1)"',                 // 点・メーカー・厚さの間。区切りは記号ではなく余白(M5)
           '1:button:padding=`2px 0 2px ${TOPSET_ROW_PAD_LEFT_PX}px`', // 左端は1行目と**同じ定数**(M1)
           '2:span:width=6',                             // 選択済みを示す点の直径
           '3:span:maxWidth=110',                        // メーカーの幅の上限
           '3:span:minWidth=0',                          // flex で縮ませる(ellipsis を出すため)
-          '6:button:padding="2px 4px 2px var(--sp-1)"', // **箱と個体の間隔はこの左 padding だけ**(正典の半角空白1つ)
-          '7:span:maxWidth=60',                         // 個体の幅の上限
-          '7:span:minWidth=0',
+          '5:button:padding="2px 0 2px var(--sp-1)"',   // **厚さと日付の間隔はこの左 padding だけ**(以前の gap と同値)
+          '7:button:padding="2px 4px 2px var(--sp-1)"', // **日付と個体の間隔はこの左 padding だけ**(正典の半角空白1つ)
+          '8:span:maxWidth=60',                         // 個体の幅の上限
+          '8:span:minWidth=0',
         ];
         const missing = want.filter((x) => !got.includes(x));
         const extra = got.filter((x) => !want.includes(x));
@@ -8608,26 +8620,27 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 楽器種別 / 基準ピッチ。元から地も枠も無いので、F-72 で足したのは ▾ だけ。
       {
         const saxBtn = (code.match(/<button onClick=\{\(\) => setOpenPicker\("sax"\)\}[\s\S]*?<\/button>/) || [""])[0];
-        // 【便R 2026-09-20 本人指示】基準ピッチは「値 + ▾ の1つのボタン」から
-        // **− / 値 / ＋** になった。押しても一覧は出なくなったので ▾ は嘘の印になる。
-        // **錨を事実の側へ向け直す**(検査は消していない): 「▾ が在る」を要求していた1行は
-        // 「▾ が無い」へ裏返し、地も枠も持たないことは −/＋ の両方に対して見る。
-        // 端で押せないこと・当たり判定・読み上げの名は検証73.1 / 73.2 が本体として見る。
-        const tunMinus = (code.match(/<button\s+onClick=\{\(\) => setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx - 1\]\)\}[\s\S]*?<\/button>/) || [""])[0];
-        const tunPlus = (code.match(/<button\s+onClick=\{\(\) => setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx \+ 1\]\)\}[\s\S]*?<\/button>/) || [""])[0];
+        // 【便X 2026-09-21 本人指示で錨が戻った】基準ピッチは便R 前半で「値 + ▾ の1つの
+        // ボタン」から **− / 値 / ＋** になったが、本人指示「上部のテキスト上はプラマイは
+        // 削除して今まで通りの表示にして」で**元の「値 + ▾」に戻った**。
+        // 押すと下からシートが出る = ▾ は「押せば選択肢が出る」の正しい印なので、
+        // 便R で裏返した1行は**もう一度表の主張へ戻す**(検査は消していない)。
+        // − / ＋ はシートの中へ移ったので、そちらは検証79.1 が本体として見る。
+        const tunBtn = (code.match(/<button onClick=\{\(\) => setOpenPicker\("tuning"\)\}[\s\S]*?<\/button>/) || [""])[0];
         check("F-72: 楽器種別のボタンに ▾ がある(ボタンの中なので当たり判定の穴にならない)",
           /<PickChevron \/>/.test(saxBtn), saxBtn.replace(/\s+/g, " ").slice(-120));
-        check("便R: 基準ピッチの − と ＋ を綴りで特定できている(空回りしていない)",
-          tunMinus.length > 200 && tunPlus.length > 200 && />−<\/button>$/.test(tunMinus) && />＋<\/button>$/.test(tunPlus),
-          `−=${tunMinus.length} / ＋=${tunPlus.length}`);
-        check("便R: 基準ピッチに ▾ は無い(押しても一覧は出ないので、残すと嘘の印になる)",
-          !/<PickChevron \/>/.test(tunMinus) && !/<PickChevron \/>/.test(tunPlus)
-          && !/Hz<PickChevron \/>/.test(code),
-          (code.match(/.{0,20}Hz<PickChevron \/>/g) || []).join(" | ") || "0件");
+        check("便X: 基準ピッチの行のボタンを綴りで特定できている(空回りしていない)",
+          tunBtn.length > 120 && /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}Hz/.test(tunBtn),
+          `${tunBtn.length}文字`);
+        check("便X: 基準ピッチのボタンに ▾ がある(押せばシートが出るので正しい印)",
+          /<PickChevron \/>/.test(tunBtn) && /Hz<PickChevron \/>/.test(code),
+          tunBtn.replace(/\s+/g, " ").slice(-120));
         check("F-72: 楽器種別・基準ピッチは地も枠も持たないまま",
           /background: "none", border: "none"/.test(saxBtn)
-          && /background: "none", border: "none"/.test(tunMinus)
-          && /background: "none", border: "none"/.test(tunPlus));
+          && /background: "none", border: "none"/.test(tunBtn));
+        check("便X: 基準ピッチのボタンの style は楽器のボタンと同じ1つ(寸法・色・綴りを揃える)",
+          (saxBtn.match(/style=\{\{[^}]*\}\}/) || [""])[0] === (tunBtn.match(/style=\{\{[^}]*\}\}/) || ["x"])[0],
+          `楽器=${(saxBtn.match(/style=\{\{[^}]*\}\}/) || [""])[0]} / 基準ピッチ=${(tunBtn.match(/style=\{\{[^}]*\}\}/) || [""])[0]}`);
       }
       // ▾ の見た目は正典 .chev(--ink3 の段)。**定数と実際の描画の両方**を見る。
       // 【便C 2026/09/15】正典 .chev は 10px → 12px になった(利用者の画面の最小は --fs-xs)。
@@ -8702,8 +8715,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 【便R 後半-後半 2026-09-20 で 8 → 9】計測データの編集シートのリードが
         // PlainSelect をやめ、ReedPickSheet を直に開く**自前の枠**になった(綴りが1つ増える)。
         // 画面に出る ▾ の数は変わっていない ── 同じ場所に同じ ▾ が出続ける。
-        check("F-72: ▾ を使う綴りは9(上部設定行の3つ + 箱のシートの行の共有部品 + データタブのフィルタピル + PlainSelect + 編集シートのリード + My Data の累計カード + 目安を追加)",
-          n === 9, `${n}箇所`);
+        // 【便X 2026-09-21 で 9 → 10】基準ピッチが「値 + ▾」に戻った(押すとシートが開く)。
+        // 銘柄の行は ▾ の行(ReedSheetPickRow)から**検索窓**になったが、▾ の綴りは
+        // 共有部品の中の1つなので数は動かない(下の「共有部品に1つだけ」が行の数を固定する)。
+        check("F-72: ▾ を使う綴りは10(上部設定行の4つ + 箱のシートの行の共有部品 + データタブのフィルタピル + PlainSelect + 編集シートのリード + My Data の累計カード + 目安を追加)",
+          n === 10, `${n}箇所`);
         check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
           (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
           `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -8718,19 +8734,22 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           // 奏者は共有部品 PerformerSelector が描く。
           // 【便R 2026-09-20 で 4 → 3】基準ピッチが − / 値 / ＋ になり、MeasureView の
           // 3つが2つになった。**楽器とリード枠の ▾ は残る**(どちらも押せば選択肢が出る)。
+          // 【便X 2026-09-21 で 3 → 4】基準ピッチが「値 + ▾」に戻り、MeasureView が3つに戻った。
           const inMeasure = (srcOfFn(src, "MeasureView").match(/<PickChevron \/>/g) || []).length;
           const inPerformer = (srcOfFn(src, "PerformerSelector").match(/<PickChevron \/>/g) || []).length;
-          check("F-72: 上部設定行の ▾ は3つ(MeasureView に2つ + 奏者セレクタに1つ)",
-            inMeasure === 2 && inPerformer === 1, `MeasureView=${inMeasure} / PerformerSelector=${inPerformer}`);
+          check("F-72: 上部設定行の ▾ は4つ(MeasureView に3つ + 奏者セレクタに1つ)",
+            inMeasure === 3 && inPerformer === 1, `MeasureView=${inMeasure} / PerformerSelector=${inPerformer}`);
           const sheet = srcOfFn(src, "ReedBoxSheet");
           // 【便N】4行はどれも共有の ReedSheetPickRow だった。
           // 【便R 2026-09-20 で 4 → 2】厚さと枚数は**その場のピル**になり、▾ を持つ行は
           // メーカーと銘柄の2つになった。**主張は1つも緩めていない** ── ▾ の綴りが
           // 共有部品の中に1つだけで、シート本体には1つも書かれていないことは同じ。
-          check("N-5 / R6 / 便R: 箱のシートの行の ▾ は共有部品に1つだけ(行ごとに写していない)",
+          // 【便X 2026-09-21 で 2 → 1】銘柄は**検索窓 + 候補**になり、▾ の行はメーカーだけ。
+          // 検索窓の行は押せば一覧が出る行ではないので ▾ を持たない(嘘の印を作らない)。
+          check("N-5 / R6 / 便R / 便X: 箱のシートの行の ▾ は共有部品に1つだけ(行ごとに写していない)",
             (sheet.match(/<PickChevron \/>/g) || []).length === 0
             && (srcOfFn(src, "ReedSheetPickRow").match(/<PickChevron \/>/g) || []).length === 1
-            && (sheet.match(/<ReedSheetPickRow/g) || []).length === 2,
+            && (sheet.match(/<ReedSheetPickRow/g) || []).length === 1,
             `シート直書き=${(sheet.match(/<PickChevron \/>/g) || []).length} / 行=${(sheet.match(/<ReedSheetPickRow/g) || []).length}`);
         }
       }
@@ -11366,15 +11385,16 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       const detailAt = code20.indexOf("{detailOpen && (");
       const recAnchor = code20.indexOf('aria-label={isRecording ? "録音を停止" : "録音する"}');
       // 【便R 2026-09-20 で 2 → 1】基準ピッチのホイールは無くなり(行の − / ＋ が選ぶ)、
-      // 楽器はホイールからシートに変わった。**置き場所の主張は1つも変えていない** ──
-      // 「枠の外」に居ることを、残った1枚(楽器のシート)に対してそのまま見る。
-      // tuning の分岐が復活したらここで落ちる(綴りを列挙に残したままにしてある)。
+      // 楽器はホイールからシートに変わった。
+      // 【便X 2026-09-21 で 1 → 2】基準ピッチは**下から出るシート**として戻ってきた
+      // (本人指示「タップで下に − 442 + がでてそこで操作する」)。**置き場所の主張は
+      // 1つも変えていない** ── 2枚とも「枠の外」に居ることをそのまま見る。
       const pickers = [...code20.matchAll(/\{openPicker === "(tuning|sax)" && \(/g)].map((m) => ({ k: m[1], at: m.index }));
-      check("F-73: 上部設定行から開く板の分岐を走査できている(楽器の1枚 / 基準ピッチは分岐ごと無い)",
-        pickers.length === 1 && pickers[0].k === "sax",
+      check("F-73: 上部設定行から開く板の分岐を走査できている(基準ピッチ / 楽器の2枚)",
+        pickers.length === 2 && pickers.map((p) => p.k).sort().join(",") === "sax,tuning",
         pickers.map((p) => `${p.k}@${p.at}`).join(" ") || "0件");
       check("F-73: 上部設定行から開く板は画面ぶんの枠の**外**に置く(.tap-through の中に戻さない)",
-        detailAt !== -1 && recAnchor !== -1 && pickers.length === 1
+        detailAt !== -1 && recAnchor !== -1 && pickers.length === 2
         && pickers.every((p) => p.at > detailAt && p.at > recAnchor),
         `詳細カード ${detailAt} / 録音ボタン ${recAnchor} / ` + pickers.map((p) => `${p.k}@${p.at}`).join(" "));
       // 録音ボタンも無効化する(本人「録音ボタンも選択肢提示中に有効になっている」)
@@ -11488,19 +11508,22 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
         const reedEnd = code20.indexOf("</div>", code20.indexOf("</button>", code20.indexOf('onClick={() => setOpenPicker("reed")}')));
         // 包みの開きタグは含めない(中身だけを数える)
         const pill = reedStart === -1 || reedEnd === -1 ? "" : code20.slice(code20.indexOf(">", reedStart) + 1, reedEnd);
-        check("A-1: リード枠(箱・個体の2ボタン)を走査できている", pill.length > 600, `${pill.length}文字`);
+        check("A-1: リード枠(箱・開封日・個体の3ボタン)を走査できている", pill.length > 600, `${pill.length}文字`);
         // 枠の中に「どのボタンにも属さない箱」が無いこと = 当たり判定の穴が構造的に無い。
-        // 包みの直下は <button> 2つだけで、点も値も日付も**ボタンの中**にある。
+        // 包みの直下は <button> だけで、点も値も日付も**どれかのボタンの中**にある。
         const innerTags = (pill.match(/<(div|span|button)[\s>]/g) || []).map((t) => t.slice(1).trim());
-        check("A-1: リード枠の中に穴になる箱(div)が無い / 押せる物は <button> 2つ",
+        // 【便X 2026-09-21 で 2 → 3】開封日が独立したボタンになった。
+        // **穴が構造的に無い**という芯は同じ(直下に div が1つも無く、押せる物は <button> だけ)。
+        check("A-1 / 便X: リード枠の中に穴になる箱(div)が無い / 押せる物は <button> 3つ",
           innerTags.filter((t) => t === "div").length === 0
-          && innerTags.filter((t) => t === "button").length === 2,
+          && innerTags.filter((t) => t === "button").length === 3,
           innerTags.join(" "));
-        check("A-1: リード枠の2つのボタンは当たり判定を取り戻している(.tap-through の中なので明示が要る)",
-          (pill.match(/pointerEvents: "auto"/g) || []).length === 2,
-          `${(pill.match(/pointerEvents: "auto"/g) || []).length}/2`);
-        check("A-1: 枠の左端は1行目と同じ定数 / 右端の padding は元のまま(外形は不変)",
+        check("A-1 / 便X: リード枠の3つのボタンは当たり判定を取り戻している(.tap-through の中なので明示が要る)",
+          (pill.match(/pointerEvents: "auto"/g) || []).length === 3,
+          `${(pill.match(/pointerEvents: "auto"/g) || []).length}/3`);
+        check("A-1: 枠の左端は1行目と同じ定数 / 日付と個体の左 padding は元のまま(外形は不変)",
           /padding: `2px 0 2px \$\{TOPSET_ROW_PAD_LEFT_PX\}px`/.test(pill)
+          && /padding: "2px 0 2px var\(--sp-1\)"/.test(pill)
           && /padding: "2px 4px 2px var\(--sp-1\)"/.test(pill),
           (pill.match(/padding: [^,]*/g) || []).join(" | "));
       }
@@ -15078,11 +15101,14 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // (幅140のホイールは名札が切れて読めない、という本人の指摘でホイールを畳む周)。
       // **錨を事実の側へ向け直す**: 名札つきの行が4つであることは変えず、内訳を
       // 「▾ の行2つ + ピルの行2つ」として見る。ダイヤルが1列も無いことはそのまま。
-      check("便R 追加シートは名札つきの4行(▾ の行2 + ピルの行2。ダイヤルは1列も残っていない)",
-        (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 2
+      // 【便X 2026-09-21】銘柄が**検索窓の行**になった(▾ の行 2 → 1 + 検索窓の行 1)。
+      // 名札つきの行が4つであることも、ダイヤルが1列も無いことも変わっていない。
+      check("便X 追加シートは名札つきの4行(▾ の行1 + 検索窓の行1 + ピルの行2。ダイヤルは1列も残っていない)",
+        (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 1
+        && (codeOf(sheet).match(/<ReedModelSearchRow/g) || []).length === 1
         && (codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
         && !/<RatingDial/.test(codeOf(sheet)),
-        `▾ の行=${(codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length} / ピルの行=${(codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length}`);
+        `▾ の行=${(codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length} / 検索窓の行=${(codeOf(sheet).match(/<ReedModelSearchRow/g) || []).length} / ピルの行=${(codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length}`);
       // 【便R 後半-後半 2026-09-20】正典ミニを実装に合わせて書き換えた(§6.0「正典が勝つ」)。
       // 便R 前半で実装の厚さ・枚数はピルの並びになったのに、正典ミニは「値 + ▾」の行のまま
       // だった ── その食い違いをここで畳む。**寸法・色は1つも動かしていない**:
@@ -15092,18 +15118,23 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 直書きで期待していたため、**正典だけが古い**状態を検査が固定していた(§6.0)。
       // これで正典と実装のどちらかだけを動かすと落ちる。
       const pickLabels25 = [...codeOf(sheet).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+      const searchLabels25 = [...codeOf(sheet).matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
       const pillLabels25 = [...codeOf(sheet).matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
       check("便V 突き合わせる名札を実装から取り出せている(空回りしていない)",
-        pickLabels25.length === 2 && pillLabels25.length === 2
-        && pickLabels25.concat(pillLabels25).every((t) => t.length > 0),
-        `▾=${JSON.stringify(pickLabels25)} / ピル=${JSON.stringify(pillLabels25)}`);
-      check("便R 正典ミニも「▾ の行2つ + ピルの段2つ」に書き換えてある(実装だけ先に動かしていない)",
-        new RegExp(`追加シート — <b>${pickLabels25.join("・")}の2行が同じ形</b>`).test(mock)
+        pickLabels25.length === 1 && searchLabels25.length === 1 && pillLabels25.length === 2
+        && pickLabels25.concat(searchLabels25, pillLabels25).every((t) => t.length > 0),
+        `▾=${JSON.stringify(pickLabels25)} / 検索窓=${JSON.stringify(searchLabels25)} / ピル=${JSON.stringify(pillLabels25)}`);
+      check("便X 正典ミニも「▾ の行1 + 検索窓の行1 + ピルの段2」に書き換えてある(実装だけ先に動かしていない)",
+        new RegExp(`追加シート — <b>${pickLabels25.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock)
+        && new RegExp(`<b>${searchLabels25.join("・")}は検索窓 \\+ 候補</b>`).test(mock)
         && new RegExp(`<b>${pillLabels25.join("・")}は名札の下にピルを並べる</b>`).test(mock)
         && !/<b>型番<\/b>/.test(mock)
-        // ▾ の行は実装の名札(メーカー / 銘柄)の2つだけ
-        && [[pickLabels25[0], "Vandoren"], [pickLabels25[1], "V16"]]
+        // ▾ の行は実装の名札(メーカー)の1つだけ
+        && [[pickLabels25[0], "Vandoren"]]
           .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`).test(mock))
+        // 銘柄の行は「値 + ✕」(決まっている姿)。▾ を持たない = 押せば一覧が出る嘘の印にしない
+        && [[searchLabels25[0], "V16"]]
+          .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`).test(mock))
         && !/>厚さ選択</.test(mock)
         // 厚さ・枚数は名札の下のピル。選ばれている値(3.25 / 10)は .selpill.on
         && [[pillLabels25[0], "3.25"], [pillLabels25[1], "10"]].every(([lab, val]) => {
@@ -22894,13 +22925,20 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     // − / 値 / ＋ の3つになった(± は padding 0 + minWidth --tap-min)。
     // **主張は事実の側へ向け直しただけ**: 残った楽器のボタンの padding が --sp-1 で
     // あることと、± が直値の padding を持たないことを併せて見る。
+    // 【便X 2026-09-21 で 1 → 2】基準ピッチが「値 + ▾」のボタンに戻り、楽器と**同じ style**に
+    // なった(本人指示「今まで通りの表示にして」)。padding が --sp-1 であることは同じ。
     const pads = (topSet.match(/cursor: "pointer", padding: [^,]*/g) || []);
-    check("48.2 M2 楽器のボタンの padding は --sp-1(直値の 4 に戻していない)",
-      pads.length === 1 && pads.every((t) => /padding: "var\(--sp-1\)"/.test(t)),
+    check("48.2 M2 楽器・基準ピッチのボタンの padding は --sp-1(直値の 4 に戻していない)",
+      pads.length === 2 && pads.every((t) => /padding: "var\(--sp-1\)"/.test(t)),
       pads.join(" | "));
-    check("48.2 便R 基準ピッチの − / ＋ は padding を持たない(横は minWidth --tap-min で広げる)",
-      (topSet.match(/minWidth: "var\(--tap-min\)", padding: 0,/g) || []).length === 2,
-      `${(topSet.match(/minWidth: "var\(--tap-min\)", padding: 0,/g) || []).length}箇所`);
+    // 【便X 2026-09-21】− / ＋ は**シートの中**へ移った。行(高さ28)ではないので、
+    // 横だけでなく**縦にも** --tap-min を持てる = 44×44。行には1つも残っていない。
+    check("48.2 便X 基準ピッチの − / ＋ は上部設定行に1つも無い(シートの中へ移った)",
+      !/aria-label="基準ピッチを(下|上)げる"/.test(topSet),
+      (topSet.match(/aria-label="基準ピッチを(下|上)げる"/g) || []).join(" | ") || "0件");
+    check("48.2 便X シートの中の − / ＋ は 44×44(縦横とも --tap-min。直値を書いていない)",
+      (meas48.match(/minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)", padding: 0,/g) || []).length === 2,
+      `${(meas48.match(/minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)", padding: 0,/g) || []).length}箇所`);
     // 1行目に幅だけを持つ span を挟む経路そのものを塞ぐ(別の綴りで戻すのを防ぐ)
     const line1 = topSet.slice(topSet.indexOf("paddingLeft: TOPSET_ROW_PAD_LEFT_PX"),
       topSet.indexOf("2行目") >= 0 ? topSet.indexOf("2行目") : topSet.indexOf('setOpenPicker("box")'));
@@ -22930,16 +22968,20 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     // 【便R 後半-後半 2026-09-20】箱と個体のホイール2つは **ReedPickSheet 1つ**に畳まれ、
     // 計測データの編集シートのリードは PlainSelect をやめて ReedPickSheet を直に開くようになった。
     // 綴りの数は 6 のまま(ホイール2 → 段階選択2)、**選ばせる画面は1つも減っていない**。
-    check("48.3 便R 選び方を開く綴りは6(リードの段階選択2 + 奏者 + 軸など + 箱のシートのメーカー・銘柄)",
-      spell === 6, `${spell}箇所`);
+    // 【便X 2026-09-21 で 6 → 5】銘柄は**シートを開かず、その場の検索窓 + 候補**で選ぶように
+    // なった(本人指示「プロフィールと同様に…検索窓作って候補出る形に変更」)。
+    // **選ばせる画面は1つも減っていない** ── 下の sites が銘柄の検索窓を1箇所として数え直す。
+    check("48.3 便X 選び方を開く綴りは5(リードの段階選択2 + 奏者 + 軸など + 箱のシートのメーカー)",
+      spell === 5, `${spell}箇所`);
     const sites = spell
       + ((app48.match(/<PerformerSelector\b/g) || []).length - 1)   // 共有部品の呼び出しぶん
-      + ((app48.match(/<PlainSelect\b/g) || []).length - 1);
+      + ((app48.match(/<PlainSelect\b/g) || []).length - 1)
+      + (app48.match(/<ReedModelSearchRow\b/g) || []).length;       // 銘柄はシートを開かず検索窓で選ぶ
     // 【便R 2026-09-20 で 13 → 9】上の4つが消えたぶん。
     // 【便R 後半-後半 で 9 → 8】計測データの編集シートのリードが PlainSelect から
     // ReedPickSheet へ移ったので、PlainSelect の呼び出しが 3 → 2 に減った(綴りの引き算ぶん)。
     // **画面は1つも減っていない**(同じ場所で同じように選べる)。凍結仕様の「8箇所以上」は満たす。
-    check("48.3 便R 実際に専用の1枚で選ばせている箇所は8(凍結仕様の「8箇所以上」を満たす)",
+    check("48.3 便X 実際に専用の選び方で選ばせている箇所は8(凍結仕様の「8箇所以上」を満たす)",
       sites >= 8 && sites === 8, `${sites}箇所`);
     // 【M3】症状の原因は「値の上に**透明にした**操作要素を重ねる」作り。
     // 透明化は color: "transparent" で行っていたので、その綴りが0件であることで見る
@@ -23161,10 +23203,13 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     check("49.2 便R 厚さ・枚数の行を切り出せている",
       rows.length > 120 && /REED_SHEET_PILL_ROW_STYLE/.test(rows) && /<OptionPills/.test(rows),
       `${rows.length}文字`);
+    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行(ReedModelSearchRow)になった。
+    // ピルの行2つ・OptionPills 2つ・名札の綴り2つ(メーカー / 銘柄)は1つも変わっていない。
     check("49.2 便R 厚さも枚数も同じ形(行は REED_SHEET_PILL_ROW_STYLE / ピルは OptionPills の1部品)",
       (sheet49.match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
       && (sheet49.match(/<OptionPills/g) || []).length === 2
-      && (sheet49.match(/<ReedSheetPickRow/g) || []).length === 2
+      && (sheet49.match(/<ReedSheetPickRow/g) || []).length === 1
+      && (sheet49.match(/<ReedModelSearchRow/g) || []).length === 1
       && (sheet49.match(/label="(メーカー|銘柄)"/g) || []).length === 2,
       (sheet49.match(/label="[^"]*"/g) || []).join(" | "));
     check("49.2 便N ダイヤルはシートから消えた(spec の2定数も定義ごと無い)",
@@ -23245,8 +23290,10 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
   // --- 49.5 R6 メーカーはカタログ / リードの記録に銘柄 ------------------------------
   // 【変異】model を label に使わない / カタログを読まずにメーカーを直書きに戻す → 落ちる。
   {
+    // 【便X 2026-09-21】銘柄を絞る規則もカタログ側の1つ(filterModelsByQuery)を読むので、
+    // import の綴りが1つ増えた。**カタログそのものの出どころは1箇所のまま**。
     check("49.5 R6 メーカーの一覧はコミュニティのカタログ(綴りを2箇所に持たない)",
-      /import \{ REED_CATALOG \} from "\.\/community\/catalog\/gear\.js";/.test(src)
+      /import \{ REED_CATALOG, filterModelsByQuery \} from "\.\/community\/catalog\/gear\.js";/.test(src)
       && /const REED_BRAND_OPTIONS = Object\.keys\(REED_CATALOG\);/.test(app49)
       && !/INITIAL_REED_BRANDS/.test(app49),
       (app49.match(/INITIAL_REED_BRANDS/g) || []).length + "件(旧定数)");
@@ -23256,8 +23303,10 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // 【便N】行に名札が付き、読み上げの名も名札から出る(aria-label={label})。
     // 【便R 2026-09-20 で 4 → 2】厚さ・枚数のホイールが無くなったので、シートの外へ出す
     // ScrollPicker はメーカーと銘柄の2つだけになった。順序の主張は1つも変えていない。
-    check("49.5 R6 銘柄はメーカー → 銘柄の2段(どちらも同じ1枚。便R 後半-前半で OptionSheet へ)",
-      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).length === 2
+    // 【便X 2026-09-21】銘柄は一覧ではなく検索窓になったので、シートの外へ出す一覧は
+    // メーカーの1枚だけ。**順序(メーカーが上・銘柄が下)の主張は1つも変えていない。**
+    check("49.5 R6 銘柄はメーカー → 銘柄の2段(一覧はメーカーの1枚 / 銘柄は検索窓)",
+      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).length === 1
       && sheet49.indexOf('label="メーカー"') < sheet49.indexOf('label="銘柄"'),
       `メーカー=${sheet49.indexOf('label="メーカー"')} / 銘柄=${sheet49.indexOf('label="銘柄"')}`);
     check("49.5 R6 メーカーを変えたら銘柄も付け替える(別のメーカーの銘柄が残らない)",
@@ -25049,8 +25098,11 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
         === "Vandoren|3.0|2026-08-01",
       api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }));
     // 【巻き添えにしない】楽器の組(gear)の語は本人の合意の外。1文字も触っていない。
+    // 【便X 2026-09-21 で 14 → 16】gear.js に filterModelsByQuery(銘柄の候補を絞る純関数)が
+    // 増え、その注記が「銘柄」を2回使う。**画面に出る語も既存の綴りも1文字も動いていない**
+    // (増えたのは新しい関数のコメントだけ)。profile.js は1件のまま。
     check("59.1 N1 楽器の組のカタログ・プロフィールの語はそのまま(リードの行だけ直した)",
-      count59(gear59, /銘柄|型番/g) === 14 && count59(prof59, /銘柄|型番/g) === 1,
+      count59(gear59, /銘柄|型番/g) === 16 && count59(prof59, /銘柄|型番/g) === 1,
       `gear=${count59(gear59, /銘柄|型番/g)} / profile=${count59(prof59, /銘柄|型番/g)}`);
   }
 
@@ -25060,8 +25112,10 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 【便R 2026-09-20 で 4 → 2 + 2】厚さ・枚数はピルの行になった。
     // **形が2種類になっただけで、どちらも共有の1つ**(▾ の行 = ReedSheetPickRow /
     // ピルの行 = REED_SHEET_PILL_ROW_STYLE + OptionPills)。写しは1つも無い。
-    check("59.2 N2 行は共有の部品(▾ の行2 + ピルの行2)。綴りを行ごとに写していない",
-      count59(sheet59, /<ReedSheetPickRow/g) === 2
+    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行(ReedModelSearchRow)になった。
+    check("59.2 N2 行は共有の部品(▾ の行1 + 検索窓の行1 + ピルの行2)。綴りを行ごとに写していない",
+      count59(sheet59, /<ReedSheetPickRow/g) === 1
+      && count59(sheet59, /<ReedModelSearchRow/g) === 1
       && count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) === 2
       && count59(sheet59, /<OptionPills/g) === 2
       && count59(row59, /<PickChevron \/>/g) === 1
@@ -25093,13 +25147,16 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 「シートの外へ出す」の対象はメーカー・銘柄の2つだけになった。
     // **錨を事実の側へ向け直す**: 厚さ・枚数の選択肢は**シートの中**(ピル)で、
     // 残る ScrollPicker は2つとも幕の外に居ることを見る。
-    check("59.2 便R 厚さ・枚数はシートの中のピル / 残る選び方2つはシートの**外**",
+    // 【便X 2026-09-21】銘柄も**シートの中**へ入った(検索窓 + 候補)。外へ出すのは
+    // メーカーの一覧1枚だけ ── 暗幕がシートの中に閉じる罠(F-73 と同型)に当たるのは
+    // 「シートの上にもう1枚のシートを重ねる」ものだけで、その場の検索窓は当たらない。
+    check("59.2 便X 厚さ・枚数・銘柄はシートの中 / 外へ出すのはメーカーの一覧1枚だけ",
       sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}") < sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={REED_ADD_COUNTS}") < sheet59raw.indexOf("</BottomSheet>")
+      && sheet59raw.indexOf("options={modelOptions}") < sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={pickerOptions}") > sheet59raw.indexOf("</BottomSheet>")
-      && sheet59raw.indexOf("options={modelOptions}") > sheet59raw.indexOf("</BottomSheet>")
-      && count59(sheet59, /<ScrollPicker|<OptionSheet/g) === 2,
-      `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")} メーカー=${sheet59raw.indexOf("options={pickerOptions}")}`);
+      && count59(sheet59, /<ScrollPicker|<OptionSheet/g) === 1,
+      `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")} 銘柄=${sheet59raw.indexOf("options={modelOptions}")} メーカー=${sheet59raw.indexOf("options={pickerOptions}")}`);
     // 【変異(5)】開封日の左寄せを外す → ここで落ちる。
     check("59.2 N2 開封日の値も左寄せ(本人指示「開封日の日付も同じく左寄せ」)",
       /type="date"[\s\S]{0,900}?textAlign: "left"/.test(sheet59));
@@ -25168,17 +25225,24 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // ここは旧語「メーカー選択 / 銘柄選択」と旧い一手「変更」を直書きで期待していて、
     // 実装(便O で「メーカー / 銘柄」、便P で「番号編集 / 削除」)とずれた正典を固定していた。
     const pick594 = [...sheet59.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    const search594 = [...sheet59.matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
     const pill594 = [...sheet59.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
     const head594 = sheet59.indexOf("<div style={{ display: \"flex\", gap: \"var(--sp-2)\", marginTop: \"var(--sp-4)\" }}>");
     const row594 = head594 >= 0 ? sheet59.slice(head594, sheet59.indexOf(") : (", head594)) : "";
     const act594 = [...row594.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
     check("59.4 正典と突き合わせる語を実装から取り出せている(空回りしていない)",
-      pick594.length === 2 && pill594.length === 2 && act594.length === 2,
-      `▾=${JSON.stringify(pick594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
+      pick594.length === 1 && search594.length === 1 && pill594.length === 2 && act594.length === 2,
+      `▾=${JSON.stringify(pick594)} / 検索窓=${JSON.stringify(search594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
     check("59.4 正典ミニの ▾ の行は 名札 → 値(左寄せ) → ▾ で、高さ44",
-      [[pick594[0], "Vandoren"], [pick594[1], "V16"]]
+      [[pick594[0], "Vandoren"]]
         .every(([lab, val]) => new RegExp(
           `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`
+        ).test(mock59)));
+    // 【便X 2026-09-21】銘柄の行は同じ枠(高さ44 / 罫 / 名札の体裁)のまま、右端が ▾ → ✕。
+    check("59.4 正典ミニの銘柄の行は 名札 → 値(左寄せ) → ✕ で、高さ44(枠は据え置き)",
+      [[search594[0], "V16"]]
+        .every(([lab, val]) => new RegExp(
+          `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`
         ).test(mock59)));
     check("59.4 正典ミニの厚さ・枚数は名札の下のピル(高さ44・罫・名札の体裁は据え置き)",
       [[pill594[0], "3.25"], [pill594[1], "10"]].every(([lab, val]) => new RegExp(
@@ -25187,8 +25251,9 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && !/>厚さ選択</.test(mock59));
     check("59.4 正典に旧語「型番」が1つも残っていない",
       !/型番/.test(mock59), (mock59.match(/.{0,8}型番.{0,8}/g) || []).join(" | ") || "0件");
-    check("59.4 正典の説明も「2行 + ピルの段」と横並びの一手を書いている(語は実装から引く)",
-      new RegExp(`追加シート — <b>${pick594.join("・")}の2行が同じ形</b>`).test(mock59)
+    check("59.4 正典の説明も「▾ の行 + 検索窓 + ピルの段」と横並びの一手を書いている(語は実装から引く)",
+      new RegExp(`追加シート — <b>${pick594.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock59)
+      && new RegExp(`<b>${search594.join("・")}は検索窓 \\+ 候補</b>`).test(mock59)
       && new RegExp(`<b>${pill594.join("・")}は名札の下にピルを並べる</b>`).test(mock59)
       && new RegExp(`「${act594[0]}」と「${act594[1]}」が横並び・高さ44`).test(mock59),
       `正典=${(/下は<b>[^<]*<\/b>/.exec(mock59) || [""])[0]} / 実装=${JSON.stringify(act594)}`);
@@ -26551,8 +26616,10 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       /fontSize: 12/.test(ls66) && /color: "var\(--c-ink-3\)"/.test(ls66) && /flexShrink: 0/.test(ls66));
     // 【便R 2026-09-20 で 2 → 4】厚さ・枚数がピルの行になり、名札を自分で描くようになった。
     // **写しは1つも作っていない**: 4箇所とも同じ定数を読むだけ(体裁の綴りは1つのまま)。
-    check("66.3 名札の体裁の読み手は4箇所(行の部品 / 開封日 / 厚さ / 枚数。写しを作っていない)",
-      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 4,
+    // 【便X 2026-09-21 で 4 → 6】銘柄の検索窓の行が名札を2箇所(値が決まっている姿 /
+    // 検索窓の姿)で描く。**写しは1つも作っていない**: 6箇所とも同じ定数を読むだけ。
+    check("66.3 名札の体裁の読み手は6箇所(行の部品 / 開封日 / 厚さ / 枚数 / 銘柄の2つの姿)",
+      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 6,
       `${count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g)}箇所`);
   }
 
@@ -27182,9 +27249,18 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
 
   // --- 73.1 基準ピッチは − / 値 / ＋ ------------------------------------------
   {
-    check("73.1 openPicker === \"tuning\" の枝は1つも無い(ホイールの経路ごと消えている)",
-      !/openPicker === "tuning"/.test(app73) && !/setOpenPicker\("tuning"\)/.test(app73),
+    // 【便X 2026-09-21 で主張が裏返った】便R 前半は「ホイールの経路ごと消えている」を
+    // 見ていたが、本人指示で基準ピッチは**下から出るシート**として戻った。
+    // 消えたままなのは**幅140のホイール(ScrollPicker)**であって、"tuning" の枝ではない。
+    // **錨を事実の側へ向け直す**: 枝は行のボタンと板の2箇所ちょうどで、開くのは
+    // ホイールではなく BottomSheet であることを見る(ホイールへ戻す変異はここで落ちる)。
+    check("73.1 便X openPicker === \"tuning\" の枝は行のボタンと板の2つだけ",
+      (app73.match(/setOpenPicker\("tuning"\)/g) || []).length === 1
+      && (app73.match(/openPicker === "tuning"/g) || []).length === 1,
       (app73.match(/openPicker === "tuning"|setOpenPicker\("tuning"\)/g) || []).join(" | ") || "0件");
+    check("73.1 便X その板はホイールではなく BottomSheet(幅140のホイールは綴りごと無い)",
+      /\{openPicker === "tuning" && \(\s*\n\s*<BottomSheet ariaLabel="基準ピッチ"/.test(meas73)
+      && !/ScrollPicker/.test(app73));
     // 選択肢そのものは動かしていない。**実行で確かめる**(綴りだけ見ても中身は分からない)。
     const opts73 = new Function(`${extractConst("TUNING_HZ_OPTIONS")} return TUNING_HZ_OPTIONS;`)();
     check("73.1 TUNING_HZ_OPTIONS は7つのまま(438〜444 の1刻み)",
@@ -27203,9 +27279,12 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
       /setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx - 1\]\)/.test(meas73)
       && /setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx \+ 1\]\)/.test(meas73));
     // 端では押せない + 薄くする。**押しても何も起きない一手を作らない(§6.1.5)。**
+    // 【便X 2026-09-21】− / ＋ はシートの中へ移った。地の段はシートの中なので
+    // 行の --c-ink-3 ではなくメトロノームの ± と同じ --c-ink-2。**薄くする色は同じ
+    // --c-disabled のまま**(新しい色を作っていない)。
     check("73.1 端では薄くする(--c-disabled。新しい色を作っていない)",
-      count73(meas73, /\? "var\(--c-disabled\)" : "var\(--c-ink-3\)"/g) === 2,
-      `${count73(meas73, /\? "var\(--c-disabled\)" : "var\(--c-ink-3\)"/g)}箇所`);
+      count73(meas73, /\? "var\(--c-disabled\)" : "var\(--c-ink-2\)"/g) === 2,
+      `${count73(meas73, /\? "var\(--c-disabled\)" : "var\(--c-ink-2\)"/g)}箇所`);
     // 範囲の外の値は**いちばん近い値へ寄せてから描く**。実装そのものを実行で確かめる。
     {
       const near73 = new Function(`${extractFunction("nearestIndexIn")} return nearestIndexIn;`)();
@@ -27223,8 +27302,11 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
         /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}Hz/.test(meas73)
         && !/\{tuningHz\}Hz/.test(meas73));
     }
-    check("73.1 基準ピッチの並びから ▾ が消えている(押しても一覧は出ないので嘘の印になる)",
-      !/Hz<PickChevron \/>/.test(app73), (app73.match(/.{0,20}Hz<PickChevron \/>/g) || []).join(" | ") || "0件");
+    // 【便X 2026-09-21 で主張が裏返った】押すとシートが出るので ▾ は**正しい印**に戻った。
+    // 本人指示「上部のテキスト上はプラマイは削除して今まで通りの表示にして」。
+    check("73.1 便X 基準ピッチの行は「値 + ▾」に戻っている(押せばシートが出る)",
+      /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}Hz<PickChevron \/>/.test(app73),
+      (app73.match(/.{0,20}Hz<PickChevron \/>/g) || []).join(" | ") || "0件");
   }
 
   // --- 73.2 当たり判定と読み上げ ------------------------------------------------
@@ -27235,40 +27317,50 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
       minus73.length > 200 && plus73.length > 200
       && />−<\/button>$/.test(minus73) && />＋<\/button>$/.test(plus73),
       `−=${minus73.length} / ＋=${plus73.length}`);
-    // 縦は .taptext(index.css の既存クラス)、横は minWidth --tap-min(ピル行と同じ作法)。
-    check("73.2 縦の当たり判定は .taptext で広げる(新しい広げ方を作らない)",
-      /className="sans taptext no-select"/.test(minus73) && /className="sans taptext no-select"/.test(plus73));
+    // 【便X 2026-09-21 で作りが変わった】− / ＋ は**シートの中**へ移った。
+    // シートには行の高さ(28)の縛りが無いので、疑似要素(.taptext)で縦を稼ぐ必要が消え、
+    // **縦も横も素直に minHeight / minWidth = --tap-min** で 44×44 を取れる。
+    // .taptext は箱の見出しの日付などが使い続けるので、index.css の規則は生きている
+    // (下でそれを確かめる ── クラスが消えたら他の読み手が黙って 44 を失う)。
+    check("73.2 便X 縦横とも --tap-min(疑似要素に頼らない。直値を書いていない)",
+      /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(minus73)
+      && /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(plus73));
     check("73.2 .taptext の綴りが index.css に在り、44 を配っている(空回りしていない)",
       /\.taptext::after \{[^}]*height: var\(--tap-min\);/.test(
         readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")));
-    check("73.2 横の当たり判定は minWidth --tap-min(直値を書いていない)",
-      /minWidth: "var\(--tap-min\)"/.test(minus73) && /minWidth: "var\(--tap-min\)"/.test(plus73));
+    check("73.2 便X − / ＋ はもう .taptext を読まない(高さを自分で持てるため)",
+      !/taptext/.test(minus73) && !/taptext/.test(plus73),
+      (minus73.match(/className="[^"]*"/) || ["無し"])[0]);
     // **行の高さを持つ値を書かない。** 書くと1行目が伸びて環が下がる(§6.1.5)。
     // 28 に限らず「数値の height / minHeight / lineHeight の数値」を丸ごと禁じる
     // (28 だけを見ていると 30 に書き換える変異が素通りする)。
+    // 【便X 2026-09-21 で場所が変わった】シートの中なので高さを持ってよい。
+    // 禁じるのは**数値の直書き**(28 に限らず、トークンでない高さ)。
+    // 行が伸びて環が下がる経路は、そもそも行に − / ＋ が居なくなったことで消えている。
     for (const [lab, t] of [["−", minus73], ["＋", plus73]]) {
-      check(`73.2 ${lab} は高さを持つ値を書いていない(height / minHeight が無い)`,
-        !/\bheight:/.test(t) && !/\bminHeight:/.test(t) && !/\b28\b/.test(t),
+      check(`73.2 ${lab} の高さはトークンだけ(数値の height / minHeight を書いていない)`,
+        !/\bheight: \d/.test(t) && !/\bminHeight: \d/.test(t) && !/\b28\b/.test(t),
         (t.match(/\b(height|minHeight): [^,}]*/g) || []).join(" | ") || "0件");
     }
-    // 【実測で判明した構造。緑でも「44×44 が守られている」とは書けない】
-    // 1行目は `overflowX: "auto"`(長い奏者名を横スクロールで届かせる既存の宣言)を持つ。
-    // overflow-x を auto にすると overflow-y も auto に計算されるので、**.taptext の
-    // 疑似要素はこの祖先で縦に切られる**(index.css の .taptext の注記が名指ししている経路)。
-    // Chrome 375×812 の実測(elementFromPoint を1px刻みで走査): 宣言 44px に対して
-    // 実際に押せるのは **44 幅 × 28 高**。横は 44 に届いているが、縦は行の高さで止まる。
-    // 行の高さ 28 は §6.1.5 で動かせず、横スクロールを捨てると長い奏者名で ＋ が
-    // 画面外へ出て届かなくなる ── **どちらを取るかは本人裁定待ち**。
-    // ここはその構造を**錨として固定する**だけ(横スクロールを外したらこの検査が落ちて、
-    // 縦が 44 になったことに気づける)。**この検査は 44×44 を保証しない。**
-    check("73.2 【錨・実測】1行目は overflowX: auto を持つ(ゆえに疑似要素は縦に切られる)",
+    // 【錨】1行目は `overflowX: "auto"`(長い奏者名を横スクロールで届かせる既存の宣言)を持つ。
+    // overflow-x を auto にすると overflow-y も auto に計算されるので、**この行の中では
+    // .taptext の疑似要素が縦に切られる**(index.css の .taptext の注記が名指ししている経路)。
+    // 便R 前半はここに − / ＋ を置いていたため、Chrome 375×812 の実測で
+    // 宣言 44px に対して実際に押せるのは 44 幅 × 28 高しか無かった。
+    // 【便X 2026-09-21 で解消】本人指示で − / ＋ は**シートの中**へ移り、行の高さの縛りを
+    // 受けなくなった(44×44 を素直に取れる)。この錨は**行そのものの性質**として残す ──
+    // 横スクロールを外したら落ちて、行の当たり判定の前提が変わったことに気づける。
+    check("73.2 【錨】1行目は overflowX: auto を持つ(この行の中では疑似要素が縦に切られる)",
       /flexWrap: "nowrap", overflowX: "auto", paddingLeft: TOPSET_ROW_PAD_LEFT_PX/.test(meas73),
       (meas73.match(/overflowX: "[^"]*"/g) || []).join(" | ") || "0件");
     check("73.2 読み上げの名前が2つとも在る",
       /aria-label="基準ピッチを下げる"/.test(minus73) && /aria-label="基準ピッチを上げる"/.test(plus73));
     // 値そのものは見えている文字で足りる(読み上げの名前を重ねて足さない)。
+    // 【便X 2026-09-21】シートの中の値。段は一覧の「選択中の行」(OptionRow)と同じ
+    // --fs-md / 700 / --c-accent、字面は数値なので --font-num。行の 12px には縛られない。
+    // 押せない素の <span> であること(読み上げの名前を重ねて足さない)は同じ。
     check("73.2 値は素の <span>(押せない・読み上げの名前を持たない)",
-      /<span style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, whiteSpace: "nowrap" \}\}>\{TUNING_HZ_OPTIONS\[tuningIdx\]\}Hz<\/span>/.test(meas73));
+      /<span className="no-select" style=\{\{ fontFamily: "var\(--font-num\)", fontSize: "var\(--fs-md\)", fontWeight: 700, color: "var\(--c-accent\)", whiteSpace: "nowrap" \}\}>\{TUNING_HZ_OPTIONS\[tuningIdx\]\}<\/span>/.test(meas73));
   }
 
   // --- 73.3 楽器はシートの中のピル ----------------------------------------------
@@ -27316,8 +27408,9 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     check("73.4 ReedBoxSheet に strengthPickerOpen / countPickerOpen が綴りごと無い",
       !/strengthPickerOpen|countPickerOpen/.test(app73),
       (app73.match(/strengthPickerOpen|countPickerOpen/g) || []).join(" | ") || "0件");
-    check("73.4 厚さ・枚数のホイールは無い(シートの選び方はメーカー・銘柄の2つだけ)",
-      count73(sheet73, /<ScrollPicker|<OptionSheet/g) === 2
+    // 【便X 2026-09-21 で 2 → 1】銘柄はシートを開かず、その場の検索窓 + 候補で選ぶ。
+    check("73.4 厚さ・枚数のホイールは無い(シートの外へ出す一覧はメーカーの1枚だけ)",
+      count73(sheet73, /<ScrollPicker|<OptionSheet/g) === 1
       && !/options=\{REED_STRENGTH_OPTIONS\}\s*\n\s*value=\{strength\}/.test(sheet73),
       `${count73(sheet73, /<ScrollPicker|<OptionSheet/g)}枚`);
     check("73.4 厚さ・枚数はその場のピル(名札は残り、ピルは名札の下)",
@@ -27384,12 +27477,15 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     // 「選び方を開く読み手」として綴りを合わせて数える(どちらが何枚かは検証75が見る)。
     // 【便R 後半-後半】残る2つ(箱 / 個体)は ReedPickSheet 1枚に畳まれ、代わりに
     // 計測データの編集シートのリードが PlainSelect から ReedPickSheet へ移った ── **数は6のまま**。
+    // 【便X 2026-09-21】銘柄は板を開かず**その場の検索窓**になった(板 5 + 検索窓 1)。
+    // **選ばせる場所は6のまま。** どちらの形かは下の名指しの一覧が見る。
     const readers73 = count73(app73, /<OptionSheet\b|<ReedPickSheet\b/g);
-    check("73.6 選び方を開く読み手は10から6へ減っている(基準ピッチ/楽器/厚さ/枚数の4つが外れた)",
-      readers73 === 6, `${readers73}箇所`);
+    const search73 = count73(app73, /<ReedModelSearchRow\b/g);
+    check("73.6 選び方の読み手は6のまま(板5 + 銘柄の検索窓1)",
+      readers73 === 5 && search73 === 1, `板=${readers73} / 検索窓=${search73}`);
     // 残る6が誰かを名指しで見る(数だけだと別の4つが消える変異が素通りする)。
     for (const [lab, needle] of [
-      ["計測タブの箱と個体", /boxKey=\{openPicker === "reed" \? selectedBoxKey : null\}/],
+      ["計測タブの箱と開封日と個体", /boxKey=\{openPicker === "box" \? null : selectedBoxKey\}/],
       ["計測データの編集シートのリード", /<ReedPickSheet[\s\S]{0,400}?allowNone/],
       ["奏者", /options=\{options\} value=\{selectedPerformer\}/],
       ["PlainSelect(軸など)", /options=\{list\.map\(\(o\) => o\.value\)\}/],
@@ -27583,16 +27679,17 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
     check("75.2 PerformerSelector は OptionSheet を1枚だけ開き、ScrollPicker を読んでいない",
       count75(perf75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(perf75),
       `一覧 ${count75(perf75, /<OptionSheet\b/g)} / ホイール ${count75(perf75, /<ScrollPicker/g)}`);
-    check("75.2 箱のシートのメーカー・銘柄も OptionSheet(ScrollPicker を読んでいない)",
-      count75(sheet75, /<OptionSheet\b/g) === 2 && !/<ScrollPicker/.test(sheet75),
+    // 【便X 2026-09-21 で 2 → 1】銘柄は一覧ではなく検索窓 + 候補になった(本人指示)。
+    check("75.2 箱のシートのメーカーも OptionSheet(ScrollPicker を読んでいない)",
+      count75(sheet75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(sheet75),
       `一覧 ${count75(sheet75, /<OptionSheet\b/g)} / ホイール ${count75(sheet75, /<ScrollPicker/g)}`);
-    check("75.2 メーカーと銘柄の一覧は見出しを持つ(どちらを選んでいるかが読める)",
-      /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet75)
-      && /<OptionSheet\s*\r?\n\s*options=\{modelOptions\}\s*\r?\n\s*ariaLabel="銘柄"/.test(sheet75));
+    check("75.2 メーカーの一覧は見出しを持つ(何を選んでいるかが読める)",
+      /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet75));
     // シートの**外**に出す置き方は変えていない(暗幕がシートの中に閉じる罠。F-73 と同型)。
-    check("75.2 メーカー・銘柄の一覧は今までどおりシートの**外**(BottomSheet の兄弟)",
+    // 銘柄の検索窓はもう1枚のシートではないので、この罠に当たらない(中に在ってよい)。
+    check("75.2 メーカーの一覧は今までどおりシートの**外**(BottomSheet の兄弟)",
       srcOfFn(src, "ReedBoxSheet").indexOf("options={pickerOptions}") > srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>")
-      && srcOfFn(src, "ReedBoxSheet").indexOf("options={modelOptions}") > srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>"));
+      && srcOfFn(src, "ReedBoxSheet").indexOf("options={modelOptions}") < srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>"));
   }
 
   // --- 75.3 PlainSelect の呼び手3つは1文字も変えていない -------------------------
@@ -27642,10 +27739,11 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
     // ReedPickSheet へ移り、読み手も定義も0になった。**綴りの不在で固定する。**
     check("75.6 ホイール(ScrollPicker)は読み手も定義も0(綴りごと無い)",
       !/ScrollPicker/.test(app75), (app75.match(/ScrollPicker/g) || []).length + "箇所");
-    check("75.6 箱と個体の行き先は ReedPickSheet(名指しで見る。行き先を失う変異を通さない)",
-      /<ReedPickSheet[\s\S]{0,400}?boxKey=\{openPicker === "reed" \? selectedBoxKey : null\}/.test(app75));
-    check("75.6 一覧の読み手は4つ(奏者 / PlainSelect / メーカー / 銘柄)",
-      count75(app75, /<OptionSheet\b/g) === 4, `${count75(app75, /<OptionSheet\b/g)}箇所`);
+    check("75.6 箱・開封日・個体の行き先は ReedPickSheet(名指しで見る。行き先を失う変異を通さない)",
+      /<ReedPickSheet[\s\S]{0,400}?boxKey=\{openPicker === "box" \? null : selectedBoxKey\}/.test(app75));
+    // 【便X 2026-09-21 で 4 → 3】銘柄は一覧ではなく検索窓になった。
+    check("75.6 一覧の読み手は3つ(奏者 / PlainSelect / メーカー)",
+      count75(app75, /<OptionSheet\b/g) === 3, `${count75(app75, /<OptionSheet\b/g)}箇所`);
   }
 
   // --- 75.7 正典(design/canvas)の属性の語 --------------------------------------
@@ -27740,8 +27838,10 @@ console.log("\n========== 検証76: 便R 後半-後半 リードの段階選択 
   {
     check("76.2 ReedPickSheet の定義は1つだけ",
       count76(app76, /function ReedPickSheet\(/g) === 1, `${count76(app76, /function ReedPickSheet\(/g)}個`);
-    check("76.2 受け口は凍結仕様どおり(reeds / sessions / value / onChange / onClose / allowNone)",
-      /function ReedPickSheet\(\{ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null \}\)/.test(app76));
+    // 【便X 2026-09-21】押した場所の段(entry)を受ける引数が1つ増えた。
+    // 既定は null = 押した場所を持たない呼び手(計測データの編集シート)で、答えは1つも変わらない。
+    check("76.2 受け口は凍結仕様どおり(reeds / sessions / value / onChange / onClose / allowNone / boxKey / entry)",
+      /function ReedPickSheet\(\{ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null, entry = null \}\)/.test(app76));
     check("76.2 器は既存の BottomSheet(ariaLabel=\"リードを選ぶ\")",
       /<BottomSheet ariaLabel="リードを選ぶ" onClose=\{onClose\}>/.test(pick76)
       && /<\/BottomSheet>/.test(pick76));
@@ -27805,14 +27905,17 @@ console.log("\n========== 検証76: 便R 後半-後半 リードの段階選択 
     check("76.2 段を決める式を実ソースから取り出せている(空回りしていない)",
       deriv76.length > 200 && /reedPickStep\(/.test(deriv76) && /const step = /.test(deriv76),
       `${deriv76.length}文字`);
-    const run76 = (all, brandKey = null, pickedBoxKey = null) => runFn(new Function(
-      "reedPickStep", "groupReeds", "groupReedBrands", "all", "brandKey", "pickedBoxKey",
+    // 【便X 2026-09-21】段を決める式は entry(押した場所)も読むので、ハーネスも渡す。
+    // ここは **entry を渡さない呼び手**(既定の null)の答えを見る節 ── 押した場所ごとの
+    // 場合分けは検証79.2 が別に走らせる。
+    const run76 = (all, brandKey = null, pickedBoxKey = null, entry = null) => runFn(new Function(
+      "reedPickStep", "groupReeds", "groupReedBrands", "all", "brandKey", "pickedBoxKey", "entry",
       `const boxes = groupReeds(all);
        const brands = groupReedBrands(boxes);
 ${deriv76}
        return { step, brands: brands.length, boxes: myBoxes.length, box: box ? box.key : null };`),
       api76.ok ? api76.v.reedPickStep : null, api76.ok ? api76.v.groupReeds : null,
-      api76.ok ? api76.v.groupReedBrands : null, all, brandKey, pickedBoxKey);
+      api76.ok ? api76.v.groupReedBrands : null, all, brandKey, pickedBoxKey, entry);
     const reed76 = (id, brand, model, strength, startDate) =>
       ({ id, brand, model, strength, startDate, createdAt: `2026-08-0${id}T10:00:00.000Z` });
     // (a) 箱が1つだけ → 銘柄も開封日も**飛ばして**番号のタイルだけ
@@ -27899,12 +28002,25 @@ ${deriv76}
     };
     check("76.4 上部設定行のリードの塊を切り出せている(空回りしていない)",
       blk76.length > 2000 && /setOpenPicker\("reed"\)/.test(blk76), `${blk76.length}文字`);
-    check("76.4 塊は a97fd1b(この便の前)から1文字も変わっていない",
-      fnv76(blk76) === "2b97810f", `fnv1a=${fnv76(blk76)} / 期待=2b97810f`);
+    // 【便X 2026-09-21 で指紋を打ち直した】本人指示で箱のボタンを2つに割った
+    // (点+メーカー+厚さ / 開封日)。**割った後の姿**をここで固定する ── 以後この塊が
+    // 1文字でも動けば落ちる。何が動いたかは下の読める主張が言う。
+    check("76.4 塊は便X(開封日を独立させた周)の姿から1文字も変わっていない",
+      fnv76(blk76) === "16ea699e", `fnv1a=${fnv76(blk76)} / 期待=16ea699e`);
     // 読める形の主張(指紋が落ちたときに何を直すか分かるように)
     check("76.4 箱のボタンの綴り(読み上げ・押したときの合図)はそのまま",
       /aria-label="リードの箱を選ぶ"/.test(blk76) && /onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(blk76)
       && /aria-haspopup="listbox"/.test(blk76));
+    check("76.4 便X 開封日は独立したボタンで、読み上げの名は「リードの開封日から選ぶ」",
+      /aria-label="リードの開封日から選ぶ"/.test(blk76)
+      && /onClick=\{\(\) => setOpenPicker\("reeddate"\)\}/.test(blk76)
+      && /aria-haspopup="listbox"/.test(blk76));
+    check("76.4 便X 他の2つの読み上げの名は1文字も変わっていない",
+      (blk76.match(/aria-label="[^"]*"/g) || []).join(" | ")
+        === 'aria-label="リードの箱を選ぶ" | aria-label="リードの開封日から選ぶ" | aria-label="リードの個体を選ぶ"',
+      (blk76.match(/aria-label="[^"]*"/g) || []).join(" | "));
+    check("76.4 便X 開封日が無い箱では日付のボタンごと出さない(押せない物を置かない)",
+      /\{selectedBoxGroup && formatYmd\(selectedBoxGroup\.startDate\) && \(\s*\r?\n\s*<button/.test(blk76));
     check("76.4 個体のボタンの綴りもそのまま(箱が未選択なら押せない)",
       /aria-label="リードの個体を選ぶ"/.test(blk76)
       && /onClick=\{\(\) => setOpenPicker\("reed"\)\}/.test(blk76)
@@ -27913,11 +28029,12 @@ ${deriv76}
       count76(blk76, /<PickChevron \/>/g) === 1
       && blk76.indexOf("<PickChevron />") > blk76.indexOf('setOpenPicker("reed")'));
     // どちらを押しても同じ1枚が開く。個体は**番号の段から**(箱は既に選ばれている)。
-    check("76.4 どちらのボタンも ReedPickSheet を開く(1枚に畳んである)",
-      /\{\(openPicker === "box" \|\| openPicker === "reed"\) && \(\s*\r?\n\s*<ReedPickSheet/.test(app76)
+    check("76.4 3つのボタンとも ReedPickSheet を開く(1枚に畳んである)",
+      /\{\(openPicker === "box" \|\| openPicker === "reeddate" \|\| openPicker === "reed"\) && \(\s*\r?\n\s*<ReedPickSheet/.test(app76)
       && count76(codeOf(srcOfFn(src, "MeasureView")), /<ReedPickSheet/g) === 1);
-    check("76.4 箱のボタンは1段目から、個体のボタンは番号の段から開く",
-      /boxKey=\{openPicker === "reed" \? selectedBoxKey : null\}/.test(app76));
+    check("76.4 便X 押した場所がそのまま段になる(箱=銘柄 / 開封日=開封日 / 個体=番号)",
+      /entry=\{openPicker === "box" \? "brand" : openPicker === "reeddate" \? "date" : "member"\}/.test(app76)
+      && /boxKey=\{openPicker === "box" \? null : selectedBoxKey\}/.test(app76));
     check("76.4 計測タブでは「紐付けない」を出さない(allowNone を渡していない)",
       !/allowNone/.test(codeOf(srcOfFn(src, "MeasureView"))));
     check("76.4 選び終わると selectedReedId が変わる(上部設定行の値の出どころ)",
@@ -27987,10 +28104,11 @@ ${deriv76}
     // 【便V 2026-09-21】器の目印も**実装の名札**から引く(旧語の直書きをやめた)。
     const pick767 = [...codeOf(srcOfFn(src, "ReedBoxSheet")).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
     check("76.7 正典ミニの「追加」の器を切り出せている(空回りしていない)",
-      mini77.length > 800 && pick767.length === 2 && mini77.includes(`>${pick767[0]}</span>`),
+      mini77.length > 800 && pick767.length === 1 && mini77.includes(`>${pick767[0]}</span>`),
       `${mini77.length}文字 / 名札=${JSON.stringify(pick767)}`);
-    check("76.7 ミニの ▾ は2つだけ(実装の名札2つ)",
-      (mini77.match(/class="chev"/g) || []).length === 2,
+    // 【便X 2026-09-21 で 2 → 1】銘柄は検索窓になり、▾ を持つ行はメーカーだけ。
+    check("76.7 ミニの ▾ は1つだけ(実装の ▾ の名札1つ)",
+      (mini77.match(/class="chev"/g) || []).length === 1,
       `${(mini77.match(/class="chev"/g) || []).length}個`);
     check("76.7 厚さ・枚数は「値 + ▾」の行ではない(その形の行が0件)",
       !/>厚さ選択</.test(mini77)
@@ -28056,8 +28174,10 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
     const sheet77 = codeOf(srcOfFn(src, "ReedBoxSheet"));
     // 実装の名札。▾ の行(ReedSheetPickRow)とピルの段(REED_SHEET_PILL_ROW_STYLE)から引く。
     const pick77 = [...sheet77.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    // 【便X 2026-09-21】銘柄は ▾ の行ではなく検索窓の行になったので、名札の出どころが1つ増えた。
+    const search77 = [...sheet77.matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
     const pill77 = [...sheet77.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
-    const labels77 = pick77.concat(pill77);
+    const labels77 = pick77.concat(search77, pill77);
     // 実装の「編集の下の一手」。isEdit の横並びの中のボタンの語だけを取る。
     const headA77 = sheet77.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const rowA77 = headA77 >= 0 ? sheet77.slice(headA77, sheet77.indexOf(") : (", headA77)) : "";
@@ -28084,8 +28204,9 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
         .every((v, i, arr) => v >= 0 && (i === 0 || v > arr[i - 1])),
       labels77.map((lab) => `${lab}@${mini77.indexOf(`>${lab}</span>`)}`).join(" / "));
     // ミニの説明文も実装の語で書かれている(V-1 の3つめ / V-2 の下の一手)。
-    check("77.1 ミニの説明文の名札も実装から引いた語(追加シートの2行 + ピルの段)",
-      new RegExp(`追加シート — <b>${pick77.join("・")}の2行が同じ形</b>`).test(mock77)
+    check("77.1 ミニの説明文の名札も実装から引いた語(▾ の行 + 検索窓の行 + ピルの段)",
+      new RegExp(`追加シート — <b>${pick77.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock77)
+      && new RegExp(`<b>${search77.join("・")}は検索窓 \\+ 候補</b>`).test(mock77)
       && new RegExp(`<b>${pill77.join("・")}は名札の下にピルを並べる</b>`).test(mock77),
       (/追加シート — <b>[^<]*<\/b>/.exec(mock77) || ["取り出せない"])[0]);
     check("77.1 ミニの説明文の「箱の編集の下の一手」も実装の2つ(番号編集 / 削除)",
@@ -28236,6 +28357,425 @@ console.log("========== 検証78: 消した「…」の話が残っていない 
   // 実装側の裏取り(注記だけ直して実装が残る、の逆を防ぐ)。
   check("78.2 実装側にも削除モードの綴りが無い",
     !/ReedMoreMenu|REED_MORE_ITEMS/.test(codeOf(rawApp78)));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証79: 便X 2026-09-21 本人指示の3つ
+//   X-1 基準ピッチは「タップしたら下に出るシート」で操作する
+//       本人:「計測タブのHz変更は奏者と楽器選択と同じようにタップで下に − 442 + がでて
+//              そこで操作する仕様に変更。上部のテキスト上はプラマイは削除して今まで通りの表示にして」
+//   X-2 リードは**押した場所の段**から開く
+//       本人:「リード選択で番号タップで番号から選択になるように、日付タップした時は
+//              日付の選択からできるように変更。登録されているリードが複数あると
+//              日付タップでも必ず銘柄選択からになる」
+//   X-3 リードの箱の追加で、銘柄を**検索で絞る**
+//       本人:「リードタブでのリード追加時の銘柄はプロフィールと同様に選択肢羅列ではなく
+//              検索窓作って候補出る形に変更」
+//
+//   この節が守るもの:
+//     79.1 上部設定行は「値 + ▾」の1つのボタン(楽器と同じ style)/ 下から出るシートの中に
+//          − / 値 / ＋ があり、± は縦横とも --tap-min / 正典 .set1 も元の姿に戻っている
+//     79.2 段の決まり方を**純関数として実際に走らせる**(入口3つ × 箱の数の場合分け)。
+//          押した場所の段は選択肢が1つでも出る / 押した場所を渡さない呼び手の答えは不変
+//     79.3 銘柄は検索窓 + 候補。**入力欄と候補の行の綴りをプロフィールの GearPicker と
+//          突き合わせる**(両方のファイルを読む)。絞る規則はカタログ側の1つを実行で確かめる
+//
+//   **この節が守らないもの**:
+//     ・実機(iOS Safari)でのシートの出方・44×44 の押しやすさ・検索窓のキーボード。
+//       Chrome の実測は判定に使えない(LOOP.md)。宣言が在ることまでしか言えない。
+//     ・「押したら本当にその段が描かれる」── ハーネスは JSX を描かない。ここで実行して
+//       確かめられるのは**開き始めの段を決める式**(79.2)。描画は実測に委ねる。
+//
+// 【変異(複製で。実ツリー禁止)】
+//   ① 行に − / ＋ を書き戻す            ② シートの ± から minHeight を外す
+//   ③ 正典 .set1 を「− 442Hz ＋」に戻す  ④ reedPickStep から entry の枝を外す
+//   ⑤ entry="date" でも箱を先に埋める    ⑥ 開封日のボタンの aria-label を変える
+//   ⑦ 銘柄を OptionSheet に戻す          ⑧ 検索窓の style を GearPicker と違う値にする
+//   ⑨ 候補の上限 10 を別の数にする
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証79: 便X 基準ピッチのシート / 押した場所の段 / 銘柄の検索 ==========");
+{
+  const app79 = codeOf(src);
+  const meas79 = codeOf(srcOfFn(src, "MeasureView"));
+  const pick79 = codeOf(srcOfFn(src, "ReedPickSheet"));
+  const sheet79 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const mock79 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+  const commRaw79 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const gearRaw79 = readFileSync(join(__dirname, "..", "src", "community", "catalog", "gear.js"), "utf8");
+  const count79 = (t, re) => (t.match(re) || []).length;
+
+  check("79.0 切り出しが空回りしていない",
+    meas79.length > 20000 && pick79.length > 2500 && sheet79.length > 4000 && mock79.length > 10000,
+    `計測 ${meas79.length} / 段階選択 ${pick79.length} / 箱のシート ${sheet79.length}`);
+
+  // ------------------------------------------------------------------
+  // 79.1 X-1 基準ピッチ
+  // ------------------------------------------------------------------
+  {
+    // (a) 上部設定行 ── 楽器のボタンと**同じ style の1つのボタン**。
+    const saxBtn79 = (meas79.match(/<button onClick=\{\(\) => setOpenPicker\("sax"\)\}[\s\S]*?<\/button>/) || [""])[0];
+    const tunBtn79 = (meas79.match(/<button onClick=\{\(\) => setOpenPicker\("tuning"\)\}[\s\S]*?<\/button>/) || [""])[0];
+    check("79.1 行の2つのボタンを切り出せている(空回りしていない)",
+      saxBtn79.length > 120 && tunBtn79.length > 120, `楽器=${saxBtn79.length} / 基準ピッチ=${tunBtn79.length}`);
+    const styleOf79 = (t) => (t.match(/style=\{\{[^}]*\}\}/) || [""])[0];
+    check("79.1 基準ピッチのボタンの style は楽器のボタンと1文字も違わない(寸法・色を発明していない)",
+      styleOf79(tunBtn79) !== "" && styleOf79(tunBtn79) === styleOf79(saxBtn79),
+      `楽器=${styleOf79(saxBtn79)} / 基準ピッチ=${styleOf79(tunBtn79)}`);
+    check("79.1 中身は「値 + ▾」(押せばシートが出る印)",
+      /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}Hz<PickChevron \/><\/button>/.test(tunBtn79), tunBtn79.slice(-80));
+    check("79.1 行に − / ＋ は1つも残っていない(本人指示「上部のテキスト上はプラマイは削除」)",
+      !/aria-label="基準ピッチを(下|上)げる"/.test(tunBtn79)
+      && meas79.indexOf('aria-label="基準ピッチを下げる"') > meas79.indexOf('openPicker === "tuning" &&'),
+      `− の位置=${meas79.indexOf('aria-label="基準ピッチを下げる"')} / シートの位置=${meas79.indexOf('openPicker === "tuning" &&')}`);
+
+    // (b) シート ── 器も見出しも楽器のシートと同じ作法。
+    const tunSheet79 = (() => {
+      const a = meas79.indexOf('{openPicker === "tuning" && (');
+      return a < 0 ? "" : meas79.slice(a, meas79.indexOf('{openPicker === "sax" && (', a));
+    })();
+    check("79.1 基準ピッチのシートを切り出せている(空回りしていない)",
+      tunSheet79.length > 800 && /<BottomSheet/.test(tunSheet79), `${tunSheet79.length}文字`);
+    check("79.1 器は既存の BottomSheet(ariaLabel=\"基準ピッチ\")",
+      /<BottomSheet ariaLabel="基準ピッチ" onClose=\{\(\) => setOpenPicker\(null\)\}>/.test(tunSheet79));
+    for (const [lab, re] of [
+      ["暗幕", /position: "fixed", inset: 0/], ["角丸", /borderRadius/], ["影", /boxShadow/],
+      ["portal", /createPortal/], ["Escape の配線", /e\.key === "Escape"/],
+    ]) {
+      check(`79.1 シートは自前の${lab}を持たない(器の写しを作らない)`, !re.test(tunSheet79), String(re));
+    }
+    // 見出しの綴りは楽器のシートと**同じ1行の形**(語だけが違う)。
+    const headOf79 = (t) => (t.match(/<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)" \}\}>([^<]+)<\/div>/) || [])[1];
+    const saxSheet79 = (() => {
+      const a = meas79.indexOf('{openPicker === "sax" && (');
+      return a < 0 ? "" : meas79.slice(a, a + 900);
+    })();
+    check("79.1 見出しは楽器のシートと同じ綴り(--fs-xs / --c-ink-3)、語は「基準ピッチ」",
+      headOf79(tunSheet79) === "基準ピッチ" && headOf79(saxSheet79) === "楽器",
+      `基準ピッチ=${headOf79(tunSheet79)} / 楽器=${headOf79(saxSheet79)}`);
+
+    // (c) − / ＋ は 44×44。**縦にも --tap-min を持てる**のがシートに移した意味。
+    const m79 = (tunSheet79.match(/<button\s+onClick=\{\(\) => setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx - 1\]\)\}[\s\S]*?<\/button>/) || [""])[0];
+    const p79 = (tunSheet79.match(/<button\s+onClick=\{\(\) => setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx \+ 1\]\)\}[\s\S]*?<\/button>/) || [""])[0];
+    check("79.1 シートの中の − と ＋ を切り出せている(空回りしていない)",
+      />−<\/button>$/.test(m79) && />＋<\/button>$/.test(p79), `−=${m79.length} / ＋=${p79.length}`);
+    for (const [lab, t] of [["−", m79], ["＋", p79]]) {
+      check(`79.1 ${lab} の当たり判定は縦横とも --tap-min(44×44。直値を書いていない)`,
+        /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(t)
+        && !/minWidth: \d/.test(t) && !/minHeight: \d/.test(t),
+        (t.match(/min(Width|Height): [^,}]*/g) || []).join(" | "));
+    }
+    check("79.1 読み上げの名は便R 前半のまま(基準ピッチを下げる / 上げる)",
+      /aria-label="基準ピッチを下げる"/.test(m79) && /aria-label="基準ピッチを上げる"/.test(p79));
+    // (d) 範囲・端・寄せは便R 前半の実装をそのまま持ってきた。**438 / 444 を直書きしない。**
+    check("79.1 端では押せない(両端は TUNING_HZ_OPTIONS の長さから導く)",
+      /disabled=\{tuningIdx === 0\}/.test(m79)
+      && /disabled=\{tuningIdx === TUNING_HZ_OPTIONS\.length - 1\}/.test(p79));
+    check("79.1 端では薄くする(--c-disabled)。1押しで1つ動く(行き先は配列の隣)",
+      /var\(--c-disabled\)/.test(m79) && /var\(--c-disabled\)/.test(p79)
+      && /setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx - 1\]\)/.test(m79)
+      && /setTuningHz\(TUNING_HZ_OPTIONS\[tuningIdx \+ 1\]\)/.test(p79));
+    check("79.1 438 / 444 は選択肢の定義以外に1つも無い",
+      count79(app79.replace(/const TUNING_HZ_OPTIONS = \[[^\]]*\];/, ""), /\b(438|444)\b/g) === 0,
+      (app79.replace(/const TUNING_HZ_OPTIONS = \[[^\]]*\];/, "").match(/.{0,20}\b(438|444)\b.{0,20}/g) || []).join(" | ") || "0件");
+    // 寄せる規則は実装をそのまま実行して確かめる(行もシートも**寄せたあとの値**を描く)。
+    {
+      const near79 = runFn(() => new Function(`${extractFunction("nearestIndexIn")} return nearestIndexIn;`)());
+      const opts79 = new Function(`${extractConst("TUNING_HZ_OPTIONS")} return TUNING_HZ_OPTIONS;`)();
+      check("79.1 寄せる関数を実ソースから組み立てられている", near79.ok, near79.err);
+      check("79.1 範囲外の値はいちばん近い値へ寄る(430→438 / 999→444 / 壊れた値→先頭)",
+        near79.ok && near79.v(opts79, 430) === 0 && near79.v(opts79, 999) === opts79.length - 1
+        && near79.v(opts79, "こわれた") === 0 && near79.v(opts79, 442) === 4,
+        near79.ok ? [430, 999, "こわれた", 442].map((v) => `${v}→${near79.v(opts79, v)}`).join(" / ") : near79.err);
+      check("79.1 行もシートも寄せたあとの値を描く(生の tuningHz を描かない)",
+        count79(meas79, /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}/g) === 2 && !/\{tuningHz\}/.test(meas79),
+        `${count79(meas79, /\{TUNING_HZ_OPTIONS\[tuningIdx\]\}/g)}箇所`);
+    }
+    // (e) ± を押してもシートは閉じない(何度も押す操作なので)。楽器のシートとは作法が違う。
+    check("79.1 ± を押してもシートは閉じない(setOpenPicker(null) を持たない)",
+      !/setTuningHz\([^)]*\); setOpenPicker\(null\)/.test(tunSheet79)
+      && count79(tunSheet79, /setOpenPicker\(null\)/g) === 1,   // 器の onClose ただ1つ
+      `${count79(tunSheet79, /setOpenPicker\(null\)/g)}箇所`);
+
+    // (f) 正典 .set1 ── §6.0「正典が勝つ」。便R 前半で書き換えた3箇所を元へ戻した。
+    check("79.1 正典 .set1 の基準ピッチは「442Hz ▾」に戻っている(3箇所とも)",
+      count79(mock79, /<span>442Hz <span class="chev">▾<\/span><\/span>/g) === 3
+      && !/− 442Hz ＋/.test(mock79),
+      `442Hz ▾=${count79(mock79, /<span>442Hz <span class="chev">▾<\/span><\/span>/g)} / 旧=${count79(mock79, /− 442Hz ＋/g)}`);
+    check("79.1 正典 .set1 は3枚とも 奏者 / 楽器 / 基準ピッチ の3つで、どれも ▾ を持つ",
+      [...mock79.matchAll(/<span class="set1">([\s\S]*?)<\/span>\s*\n\s*<\/div>/g)]
+        .map((m) => (m[1].match(/class="chev"/g) || []).length).join(",") === "3,3,3",
+      [...mock79.matchAll(/<span class="set1">([\s\S]*?)<\/span>\s*\n\s*<\/div>/g)]
+        .map((m) => (m[1].match(/class="chev"/g) || []).length).join(","));
+  }
+
+  // ------------------------------------------------------------------
+  // 79.2 X-2 押した場所の段
+  // ------------------------------------------------------------------
+  {
+    // (a) 上部設定行の3つの入口。**読み上げの名**と行き先。
+    const blk79 = (() => {
+      const a = src.indexOf('<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>\n            <button\n              onClick={() => setOpenPicker("box")}');
+      const b = a < 0 ? -1 : src.indexOf("</div>\n        </div>", a);
+      return a >= 0 && b > a ? src.slice(a, b) : "";
+    })();
+    check("79.2 上部設定行のリードの塊を切り出せている(空回りしていない)",
+      blk79.length > 2000 && /setOpenPicker\("reeddate"\)/.test(blk79), `${blk79.length}文字`);
+    check("79.2 入口は3つ(箱 / 開封日 / 個体)。開封日の読み上げの名は「リードの開封日から選ぶ」",
+      (blk79.match(/aria-label="[^"]*"/g) || []).join(" | ")
+        === 'aria-label="リードの箱を選ぶ" | aria-label="リードの開封日から選ぶ" | aria-label="リードの個体を選ぶ"',
+      (blk79.match(/aria-label="[^"]*"/g) || []).join(" | "));
+    // 注記にも <button> の語が出てくるので、タグを数える側はコメントを剥いてから見る。
+    const blkCode79 = codeOf(blk79);
+    // 【綴りの前後関係では入れ子を見分けられない】`<button…<button…</button>…</button>` は
+    // **兄弟2つでも当たる**(初版はそれで、入れ子を1つも検出できない = 構造上失敗し得ない
+    // 検査だった)。開きと閉じを順に数えて**深さ**を見る。深さが2に達したら入れ子。
+    const btnDepth79 = (() => {
+      let d = 0, max = 0, open = 0;
+      for (const m of blkCode79.matchAll(/<button[\s>]|<\/button>/g)) {
+        if (m[0] === "</button>") d--;
+        else { d++; open++; if (d > max) max = d; }
+      }
+      return { max, open };
+    })();
+    check("79.2 入れ子のボタンを作っていない(3つとも兄弟。<button> の中に <button> が無い)",
+      btnDepth79.max === 1 && btnDepth79.open === 3,
+      `最大の深さ=${btnDepth79.max} / 個数=${btnDepth79.open}`);
+    check("79.2 間隔は --sp-1 のまま(日付のボタンの左 padding が、以前の gap と同じ値を作る)",
+      /padding: "2px 0 2px var\(--sp-1\)"/.test(blk79)
+      && /<div style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>/.test(blk79)
+      && !/<div style=\{\{ display: "flex", alignItems: "center", gap:[^}]*flexShrink: 0 \}\}>/.test(blk79));
+    check("79.2 開封日が無い箱では日付のボタンごと出さない(出ていないものは押せない)",
+      /\{selectedBoxGroup && formatYmd\(selectedBoxGroup\.startDate\) && \(\s*\r?\n\s*<button/.test(blk79));
+
+    // (b) **段の決まり方を実際に走らせる。** 綴りだけを見る検査にしない。
+    //     実装の3行(開き始めの state)と4行(段を決める式)を**そのまま**取り出して回す。
+    const api79 = runFn(() => new Function(`
+      ${extractFunction("reedGroupKey")}
+      ${extractFunction("reedMemberOrder")}
+      ${extractFunction("groupReeds")}
+      ${extractFunction("reedBrandModelLabel")}
+      ${extractFunction("reedStrengthLabel")}
+      ${extractFunction("reedBrandGroupKey")}
+      ${extractFunction("groupReedBrands")}
+      ${extractFunction("reedPickStep")}
+      return { groupReeds, groupReedBrands, reedBrandGroupKey, reedPickStep };`)());
+    check("79.2 束ね方と段の判定を実ソースから組み立てられる", api79.ok, api79.err);
+    const s79 = srcOfFn(src, "ReedPickSheet");
+    const init79 = (() => {
+      const a = s79.indexOf("  const opened = boxKey ?");
+      const b = s79.indexOf("  const brand = brands.find((b) => b.key === brandKey)");
+      return a >= 0 && b > a ? s79.slice(a, b) : "";
+    })();
+    const deriv79 = (() => {
+      const a = s79.indexOf("  const brand = brands.find((b) => b.key === brandKey)");
+      const b = s79.indexOf("  const members = box?.members || [];");
+      return a >= 0 && b > a ? s79.slice(a, b) : "";
+    })();
+    check("79.2 開き始めの state と段の式を実ソースから取り出せている(空回りしていない)",
+      /useState\(/.test(init79) && /entry !== "date"/.test(init79)
+      && deriv79.length > 200 && /const step = reedPickStep\(/.test(deriv79)
+      && /entry\)/.test(deriv79),
+      `state=${init79.length}文字 / 式=${deriv79.length}文字`);
+    // useState は「初期値をそのまま返す」ものに差し替えて回す(初回の描画が見たい)。
+    const open79 = (all, boxKey, entry) => runFn(new Function(
+      "reedPickStep", "groupReeds", "groupReedBrands", "reedBrandGroupKey", "all", "boxKey", "entry",
+      `const useState = (v) => [v, () => {}];
+       const boxes = groupReeds(all);
+       const brands = groupReedBrands(boxes);
+${init79}
+${deriv79}
+       return { step, brandKey, pickedBoxKey, brands: brands.length, boxes: myBoxes.length };`),
+      api79.ok ? api79.v.reedPickStep : null, api79.ok ? api79.v.groupReeds : null,
+      api79.ok ? api79.v.groupReedBrands : null, api79.ok ? api79.v.reedBrandGroupKey : null,
+      all, boxKey, entry);
+    const reed79 = (id, brand, model, strength, startDate) =>
+      ({ id, brand, model, strength, startDate, createdAt: `2026-08-0${id}T10:00:00.000Z` });
+    // 箱の数の場合分け(検収の実測と同じ形):
+    //   ONE  … 箱1つ            / TWO  … 同じ銘柄で箱2つ(開封日違い)
+    //   MIX  … 銘柄2組・各1箱   / MIX2 … 銘柄2組・片方が2箱
+    const ONE = [reed79(1, "Vandoren", "V16", "3.0", "2026-08-01"), reed79(2, "Vandoren", "V16", "3.0", "2026-08-01")];
+    const TWO = [...ONE, reed79(3, "Vandoren", "V16", "3.0", "2026-08-20")];
+    const MIX = [...ONE, reed79(4, "D'Addario", "Select Jazz", "3.0", "2026-08-05")];
+    const MIX2 = [...MIX, reed79(5, "Vandoren", "V16", "3.0", "2026-08-20")];
+    const K1 = "Vandoren|3.0|2026-08-01";
+    const CASES = [["箱1つ", ONE], ["同じ銘柄で箱2つ", TWO], ["銘柄2組・各1箱", MIX], ["銘柄2組・片方2箱", MIX2]];
+    // (b-1) メーカー/厚さを押した(entry="brand") → **どの場合でも銘柄の段**。
+    for (const [lab, all] of CASES) {
+      const r = open79(all, null, "brand");
+      check(`79.2 メーカーを押したら銘柄の段から(${lab})`,
+        r.ok && r.v.step === "brand", r.ok ? JSON.stringify(r.v) : shownOf(r));
+    }
+    // (b-2) 開封日を押した(entry="date") → **どの場合でも開封日の段**。
+    //       箱は埋めない(埋めると段が飛ぶ)が、銘柄は埋まっている = 押した箱の銘柄の中を見る。
+    for (const [lab, all] of CASES) {
+      const r = open79(all, K1, "date");
+      check(`79.2 開封日を押したら開封日の段から(${lab})`,
+        r.ok && r.v.step === "date" && r.v.pickedBoxKey === null && r.v.brandKey === "Vandoren|V16|3.0",
+        r.ok ? JSON.stringify(r.v) : shownOf(r));
+    }
+    // (b-3) 個体(#n)を押した(entry="member") → **どの場合でも番号の段**(今までどおり)。
+    for (const [lab, all] of CASES) {
+      const r = open79(all, K1, "member");
+      check(`79.2 個体を押したら番号の段から(${lab})`,
+        r.ok && r.v.step === "member" && r.v.pickedBoxKey === K1, r.ok ? JSON.stringify(r.v) : shownOf(r));
+    }
+    // (b-4) 押した場所を渡さない呼び手(計測データの編集シート)の答えは**1つも変わっていない**。
+    for (const [lab, all, want] of [
+      ["箱1つ", ONE, "member"], ["同じ銘柄で箱2つ", TWO, "date"],
+      ["銘柄2組・各1箱", MIX, "brand"], ["銘柄2組・片方2箱", MIX2, "brand"],
+    ]) {
+      const r = open79(all, null, null);
+      check(`79.2 押した場所を渡さない呼び手は今までどおり(${lab} → ${want})`,
+        r.ok && r.v.step === want, r.ok ? JSON.stringify(r.v) : shownOf(r));
+    }
+    // (b-5) 押した場所の段を出したあと、次の段へ進む(行き止まりを作っていない)。
+    {
+      const st = runFn(api79.ok ? api79.v.reedPickStep : null, 1, 1, { brand: "b", box: null }, "date");
+      check("79.2 開封日の段で箱を選ぶ前は date、選べば member へ進む(箱が1つでも同じ)",
+        st.ok && st.v === "date"
+        && runFn(api79.ok ? api79.v.reedPickStep : null, 1, 1, { brand: "b", box: "x" }, "date").v === "member",
+        shownOf(st));
+      const sb = runFn(api79.ok ? api79.v.reedPickStep : null, 1, 1, { brand: null, box: null }, "brand");
+      check("79.2 銘柄の段で銘柄を選ぶ前は brand、選べば(箱1つなら)member へ進む",
+        sb.ok && sb.v === "brand"
+        && runFn(api79.ok ? api79.v.reedPickStep : null, 1, 1, { brand: "b", box: null }, "brand").v === "member",
+        shownOf(sb));
+    }
+    // (c) パンくずの出る条件は、段を出す条件と**同じもの**を読む(押した場所の段に戻れる)。
+    check("79.2 パンくずの条件も entry を読む(押した場所の段が行き止まりにならない)",
+      /const brandStepShown = entry === "brand" \|\| brands\.length > 1;/.test(pick79)
+      && /const dateStepShown = entry === "date" \|\| myBoxes\.length > 1;/.test(pick79)
+      && /if \(brandStepShown && brand && step !== "brand"\) \{/.test(pick79)
+      && /if \(dateStepShown && box && step === "member"\) \{/.test(pick79));
+    // (d) 入口の綴りは1箇所(計測タブ)。編集シートは entry を渡さない。
+    check("79.2 entry を渡すのは計測タブの1箇所だけ(編集シートは押した場所を持たない)",
+      count79(app79, /entry=\{/g) === 1
+      && !/entry=/.test(codeOf(srcOfFn(src, "SessionEditSheet"))));
+  }
+
+  // ------------------------------------------------------------------
+  // 79.3 X-3 銘柄の検索
+  // ------------------------------------------------------------------
+  {
+    const row79 = codeOf(srcOfFn(src, "ReedModelSearchRow"));
+    const gear79 = codeOf(srcOfFn(commRaw79, "GearPicker"));
+    check("79.3 検索の行とプロフィールの GearPicker を切り出せている(空回りしていない)",
+      row79.length > 1200 && gear79.length > 1500, `行=${row79.length} / GearPicker=${gear79.length}`);
+
+    // (a) 銘柄の一覧(OptionSheet)は**綴りごと無い**。開閉の state も残っていない。
+    check("79.3 銘柄の一覧と開閉の state は無い(死んだ受け口を残していない)",
+      !/modelPickerOpen/.test(app79)
+      && !/ariaLabel="銘柄"/.test(app79)
+      && count79(sheet79, /<ReedModelSearchRow/g) === 1,
+      (app79.match(/modelPickerOpen/g) || []).length + "件");
+    // (b) 絞る母集団は今までどおり reedModelOptions(brand)。カタログを増やしていない。
+    check("79.3 絞る母集団は reedModelOptions(brand) のまま",
+      /const modelOptions = reedModelOptions\(brand\);/.test(sheet79)
+      && /options=\{modelOptions\}/.test(sheet79)
+      && /\{modelOptions\.length > 0 && \(/.test(sheet79));
+    // (c) 絞る規則は**カタログ側の1つ**。実行して確かめる(綴りだけ見ない)。
+    {
+      const f79 = runFn(() => new Function(`
+        const norm = ${(/const norm = ([^\n]+);/.exec(gearRaw79) || [, "null"])[1]};
+        ${extractFunction("filterModelsByQuery", gearRaw79)}
+        return filterModelsByQuery;`)());
+      check("79.3 絞る関数を実ソースから組み立てられる", f79.ok, f79.err);
+      const models = ["V16", "Java", "Java Red", "ZZ", "Traditional"];
+      check("79.3 打った文字を含む銘柄だけが残る(部分一致・大小を区別しない)",
+        f79.ok && JSON.stringify(f79.v(models, "java")) === JSON.stringify(["Java", "Java Red"])
+        && JSON.stringify(f79.v(models, "V16")) === JSON.stringify(["V16"])
+        && JSON.stringify(f79.v(models, "v16")) === JSON.stringify(["V16"]),
+        f79.ok ? JSON.stringify(f79.v(models, "java")) : f79.err);
+      check("79.3 打つ前(空の問い合わせ)は候補を出さない(全件を並べない)",
+        f79.ok && f79.v(models, "").length === 0 && f79.v(models, "   ").length === 0,
+        f79.ok ? String(f79.v(models, "").length) : f79.err);
+      check("79.3 候補に無い文字は0件(「候補なし」の経路に落ちる)",
+        f79.ok && f79.v(models, "存在しない").length === 0, f79.ok ? "0件" : f79.err);
+      check("79.3 全角・ハイフン・空白の揺れも引ける(正規化の規則は norm ただ1つ)",
+        f79.ok && f79.v(models, "Ｖ１６").length === 1 && f79.v(models, "java red").length === 1
+        && f79.v(models, "javared").length === 1,
+        f79.ok ? `Ｖ１６→${f79.v(models, "Ｖ１６").length} / javared→${f79.v(models, "javared").length}`: f79.err);
+      check("79.3 返るのは**渡した母集団の要素だけ**(カタログを引き直していない)",
+        f79.ok && f79.v(models, "a").every((m) => models.includes(m))
+        && f79.v(["ぜんぜん別の銘柄"], "v16").length === 0,
+        f79.ok ? JSON.stringify(f79.v(models, "a")) : f79.err);
+      check("79.3 絞る規則の定義は gear.js に1つだけ(App.jsx に写していない)",
+        count79(gearRaw79, /export function filterModelsByQuery\(/g) === 1
+        && !/function filterModelsByQuery\(/.test(app79)
+        && /import \{ REED_CATALOG, filterModelsByQuery \}/.test(src));
+    }
+    // (d) 上限10は GearPicker と**同じ数**。数え上げは実装から引く(直書きの突き合わせにしない)。
+    {
+      const max79 = new Function(`${extractConst("REED_MODEL_SEARCH_MAX")} return REED_MODEL_SEARCH_MAX;`)();
+      const gearMax79 = Number((/runSearch\(query\)\.slice\(0, (\d+)\)/.exec(gear79) || [])[1]);
+      check("79.3 候補の上限はプロフィールと同じ10件(数は両方のソースから読む)",
+        max79 === gearMax79 && max79 === 10, `リード=${max79} / プロフィール=${gearMax79}`);
+      check("79.3 その上限を実際に当てている(slice を書き忘れていない)",
+        /filterModelsByQuery\(options, query\)\.slice\(0, REED_MODEL_SEARCH_MAX\)/.test(row79));
+    }
+    // (e) 見た目 ── 入力欄と候補の行の宣言を**プロフィールの綴りとそのまま突き合わせる**。
+    {
+      const objOf79 = (text, from) => {
+        const i = text.indexOf("{", from);
+        let d = 0;
+        for (let k = i; k < text.length; k++) {
+          if (text[k] === "{") d++;
+          else if (text[k] === "}") { d--; if (d === 0) return text.slice(i, k + 1); }
+        }
+        return "";
+      };
+      const evalObj79 = (lit) => runFn(() => new Function(`return (${lit});`)());
+      // プロフィール側: 入力欄は controlStyle、候補の行は結果のボタンのインライン style。
+      const ctrl79 = evalObj79(objOf79(commRaw79, commRaw79.indexOf("const controlStyle = ")));
+      // style={{ の**内側の** { から取る(外側から取ると {{…}} になり、式として評価できない)。
+      const gOptAt79 = gear79.indexOf("style={{", gear79.indexOf("onPick({ brand: r.brand, model: r.model })"));
+      const gOpt79 = evalObj79(objOf79(gear79, gOptAt79 < 0 ? -1 : gOptAt79 + 7));
+      // リード側: 名前を付けた定数2つ。
+      const rIn79 = evalObj79(extractConst("REED_MODEL_SEARCH_INPUT_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
+      const rOpt79 = evalObj79(extractConst("REED_MODEL_SEARCH_OPTION_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
+      const norm79 = (r) => (r.ok ? JSON.stringify(Object.entries(r.v).sort()) : `例外(${r.err})`);
+      check("79.3 突き合わせる4つの style を両方のファイルから読めている(空回りしていない)",
+        ctrl79.ok && gOpt79.ok && rIn79.ok && rOpt79.ok
+        && Object.keys(ctrl79.v).length >= 5 && Object.keys(gOpt79.v).length >= 8,
+        `プロフィール入力=${Object.keys(ctrl79.ok ? ctrl79.v : {}).length}件 / プロフィール候補=${Object.keys(gOpt79.ok ? gOpt79.v : {}).length}件`);
+      check("79.3 入力欄の寸法・地はプロフィールの controlStyle と同値(写しが drift しない)",
+        norm79(rIn79) === norm79(ctrl79), `リード=${norm79(rIn79)} / プロフィール=${norm79(ctrl79)}`);
+      check("79.3 候補の行の寸法・罫もプロフィールの候補の行と同値",
+        norm79(rOpt79) === norm79(gOpt79), `リード=${norm79(rOpt79)} / プロフィール=${norm79(gOpt79)}`);
+    }
+    // (f) 作法も同じ: 打つ → 候補 → 押すと決まる / 決まっている間は値 + ✕。
+    check("79.3 打った文字は state に入るだけで、値にはならない(自由入力の経路が無い)",
+      /onChange=\{\(e\) => setQuery\(e\.target\.value\)\}/.test(row79)
+      && /onClick=\{\(\) => \{ setQuery\(""\); onPick\(m\); \}\}/.test(row79)
+      && !/onPick\(query/.test(row79)
+      && !/OTHER_BRAND|カタログに無い/.test(row79),
+      (row79.match(/onPick\([^)]*\)/g) || []).join(" | "));
+    check("79.3 決まっている間は値 + ✕(✕ で検索窓へ戻る)。GearPicker と同じ作法",
+      /onClick=\{\(\) => \{ setQuery\(""\); onPick\(null\); \}\}/.test(row79)
+      && />✕<\/button>/.test(row79)
+      && /if \(value\) \{/.test(row79)
+      && /<PickChevron/.test(row79) === false);
+    check("79.3 ✕ の当たり判定は --tap-min(§5)。読み上げの名は名札から作る",
+      /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(row79)
+      && /aria-label=\{`\$\{label\}の選択を解除`\}/.test(row79)
+      && /aria-label=\{`\$\{label\}を検索`\}/.test(row79));
+    check("79.3 候補が0件のときは「候補なし」の1行だけ(打つ前は何も出さない)",
+      /\{query\.trim\(\) && results\.length === 0 && \(/.test(row79)
+      && /候補なし/.test(row79)
+      && count79(row79, /候補なし/g) === 1);
+    // (g) 枠は箱のシートの既存の行から引く。**新しい枠を作っていない。**
+    check("79.3 枠と名札は既存の行の綴りを読む(新しい寸法を作っていない)",
+      /style=\{REED_SHEET_PILL_ROW_STYLE\}/.test(row79)
+      && /\{ \.\.\.REED_SHEET_ROW_STYLE, padding: "8px 0" \}/.test(row79)
+      && count79(row79, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 2);
+    // (h) **メーカーの行は触っていない**(今回の指示に入っていない)。
+    check("79.3 メーカーの行は今までどおり ▾ の行 + シートの外の一覧",
+      /<ReedSheetPickRow\s*\r?\n\s*label="メーカー"/.test(srcOfFn(src, "ReedBoxSheet"))
+      && /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet79)
+      && /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet79));
+  }
   console.log("  -> done");
 }
 

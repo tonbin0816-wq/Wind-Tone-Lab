@@ -29,7 +29,7 @@ import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
 // 【R6 2026-09-16 本人裁定③】リードのメーカーと銘柄の正はコミュニティのカタログ1つ。
 // gear.js は firebase を読まない純粋なデータなので、ここから import しても
 // 計測タブの起動は重くならない(profile.js と同じ理由)。
-import { REED_CATALOG } from "./community/catalog/gear.js";
+import { REED_CATALOG, filterModelsByQuery } from "./community/catalog/gear.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -4914,27 +4914,39 @@ function groupReedBrands(groups) {
 // いまどの段を見せるか。**選択肢が1つしかない段は出さない**
 // (§6.1.5「押しても何も変わらない一手を作らない」)。箱が1つしか無い人には番号だけが出る。
 // 純関数にしてあるのは、scripts/pitch-test.mjs のハーネスが JSX を見ないため ──
-// 段を飛ばす判定は綴りではなく**実行**で確かめる(検証76.2)。
+// 段を飛ばす判定は綴りではなく**実行**で確かめる(検証76.2 / 検証79.2)。
 //   brandCount … 銘柄の組の数 / dateCount … 選んだ組の中の箱の数
 //   picked     … { brand, box } いま決まっているキー(未決は null)
-function reedPickStep(brandCount, dateCount, picked) {
-  if (brandCount > 1 && !picked?.brand) return "brand";
-  if (dateCount > 1 && !picked?.box) return "date";
+//   entry      … **押した場所の段**("brand" / "date" / "member")。押した場所を持たない
+//                 呼び手(計測データの編集シート)は渡さない = null。
+//
+// 【便X 2026-09-21 本人指示】「リード選択で番号タップで番号から選択になるように、
+// 日付タップした時は日付の選択からできるように変更」。
+// **押した場所の段は、選択肢が1つでも出す。** 押したのにその段が飛ぶと、押した本人から見て
+// 「押しても何も起きない」になる(§6.1.5 の表裏。選択肢が1つの段を飛ばすのは
+//  *押した場所ではない* 段の話)。entry を渡さない呼び手の答えは1つも変わらない。
+function reedPickStep(brandCount, dateCount, picked, entry = null) {
+  if (!picked?.brand && (entry === "brand" || brandCount > 1)) return "brand";
+  if (!picked?.box && (entry === "date" || dateCount > 1)) return "date";
   return "member";
 }
 const REED_PICK_STEP_TITLES = { brand: "銘柄を選ぶ", date: "開封日を選ぶ", member: "番号を選ぶ" };
 // 「紐付けない」の1行の綴り。**新しい語を作らない** ── 呼び手(計測データの編集シート)が
 // いま枠にも選択肢にも出している「—」(A3 の「不明・欠落」の記号)をそのまま引く。
 const REED_PICK_NONE_LABEL = "—";
-function ReedPickSheet({ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null }) {
+function ReedPickSheet({ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null, entry = null }) {
   const all = reeds || [];
   const boxes = groupReeds(all);
   const brands = groupReedBrands(boxes);
-  // 【開き始めの段】「リードの個体を選ぶ」から開くときだけ箱が決まっている(番号の段から始まる)。
-  // 「リードの箱を選ぶ」は boxKey を渡さないので、必ず1段目から始まる。
+  // 【開き始めの段】押した場所(entry)と、そのとき決まっている箱(boxKey)で決まる。
+  //   "brand"  … 箱のメーカー/厚さを押した。boxKey は渡らないので何も埋まらず、銘柄の段から。
+  //   "date"   … 箱の開封日を押した。**銘柄だけを埋めて箱は空ける** ── 埋めると開封日の段が
+  //              飛んで、押した場所が出ないまま番号の段になる(本人報告の症状そのもの)。
+  //   "member" … 個体(#n)を押した。銘柄も箱も埋まるので番号の段から。
+  // 渡さない呼び手(計測データの編集シート)は今までどおり、選択肢の数だけで段が決まる。
   const opened = boxKey ? boxes.find((g) => g.key === boxKey) || null : null;
   const [brandKey, setBrandKey] = useState(opened ? reedBrandGroupKey(opened) : null);
-  const [pickedBoxKey, setPickedBoxKey] = useState(opened ? opened.key : null);
+  const [pickedBoxKey, setPickedBoxKey] = useState(opened && entry !== "date" ? opened.key : null);
   // 飛ばした段は「決まっている」ものとして読む。**state には書かない**
   // (書くと描画のたびに走る後始末が要る。導けるものは導く)。
   // **reedPickStep に渡すのは「押して選んだ生の状態」**(brandKey / pickedBoxKey)。
@@ -4944,16 +4956,20 @@ function ReedPickSheet({ reeds, sessions, value, onChange, onClose, allowNone = 
   const brand = brands.find((b) => b.key === brandKey) || (brands.length === 1 ? brands[0] : null);
   const myBoxes = brand?.boxes || [];
   const box = myBoxes.find((g) => g.key === pickedBoxKey) || (myBoxes.length === 1 ? myBoxes[0] : null);
-  const step = reedPickStep(brands.length, myBoxes.length, { brand: brandKey, box: pickedBoxKey });
+  const step = reedPickStep(brands.length, myBoxes.length, { brand: brandKey, box: pickedBoxKey }, entry);
   const members = box?.members || [];
   const current = all.find((r) => r.id === value) || null;
   // いま来た道筋。**出すのは実際に出した段だけ**なので、飛ばした段はパンくずにも出ない。
   // 1段目には戻る先が無いので、そこではパンくずそのものが出ない。
+  // 【便X 2026-09-21】出す/出さないの条件は reedPickStep と同じもの(選択肢が2つ以上 **または**
+  // 押した場所)を読む。押した場所だから出した段に戻れない、という行き止まりを作らないため。
+  const brandStepShown = entry === "brand" || brands.length > 1;
+  const dateStepShown = entry === "date" || myBoxes.length > 1;
   const crumbs = [];
-  if (brands.length > 1 && brand) {
+  if (brandStepShown && brand && step !== "brand") {
     crumbs.push({ key: "brand", label: brand.label, back: () => { setBrandKey(null); setPickedBoxKey(null); } });
   }
-  if (myBoxes.length > 1 && box && step === "member") {
+  if (dateStepShown && box && step === "member") {
     crumbs.push({ key: "date", label: formatYmd(box.startDate) ?? REED_PICK_NONE_LABEL, back: () => setPickedBoxKey(null) });
   }
   const listStyle = { maxHeight: OPTION_SHEET_LIST_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" };
@@ -8379,33 +8395,15 @@ function MeasureView(props) {
           {/* 楽器。**行のボタンは今までのまま**(値 + ▾)。押すと開くものがホイールから
               下から出るシートに変わっただけで、「押せば選択肢が出る」は変わらないので ▾ は残す。 */}
           <button onClick={() => setOpenPicker("sax")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: "var(--sp-1)", fontSize: 12 }}>{SAX_PRESETS[saxType]?.label}<PickChevron /></button>
-          {/* 【便R 2026-09-20 本人指示】基準ピッチは幅140のホイールをやめ、**− / 値 / ＋** にする。
-              ・▾ は外す ── 押しても一覧は出なくなるので、残すと嘘の印になる(F-72 の ▾ は
-                「押せば選択肢が出る」の印)。
-              ・端では disabled にして薄く(--c-disabled)する。押しても何も起きない一手を
-                作らない(§6.1.5)。両端は TUNING_HZ_OPTIONS の長さから導く。
-              ・値の見た目は今のまま(12px / --c-ink-3)。− と ＋ も同じ 12px の素の文字で、
-                地も枠も持たない。
-              ・当たり判定は §5「見た目の大きさは変えない。当たり判定だけ広げる」のとおり、
-                **縦は .taptext**(index.css の既存クラス。箱の見出しの日付が既に使っている)、
-                **横は minWidth: var(--tap-min)**(ピル行が既に使っている作法)で 44 にする。
-                **高さを持つ値をここに書かない**のが肝 ── 1行目は 28px で、高さを足すと
-                行が伸びて環が下がる(§6.1.5「環を動かさない」)。 */}
-          <button
-            onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx - 1])}
-            disabled={tuningIdx === 0}
-            aria-label="基準ピッチを下げる"
-            className="sans taptext no-select"
-            style={{ minWidth: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, lineHeight: 1, color: tuningIdx === 0 ? "var(--c-disabled)" : "var(--c-ink-3)", cursor: tuningIdx === 0 ? "default" : "pointer" }}
-          >−</button>
-          <span style={{ fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, whiteSpace: "nowrap" }}>{TUNING_HZ_OPTIONS[tuningIdx]}Hz</span>
-          <button
-            onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx + 1])}
-            disabled={tuningIdx === TUNING_HZ_OPTIONS.length - 1}
-            aria-label="基準ピッチを上げる"
-            className="sans taptext no-select"
-            style={{ minWidth: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, lineHeight: 1, color: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "var(--c-disabled)" : "var(--c-ink-3)", cursor: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "default" : "pointer" }}
-          >＋</button>
+          {/* 【便X 2026-09-21 本人指示】基準ピッチは**押したら下から出るシート**で操作する。
+              本人の言葉:「計測タブのHz変更は奏者と楽器選択と同じようにタップで下に − 442 + が
+              でてそこで操作する仕様に変更。上部のテキスト上はプラマイは削除して今まで通りの表示にして」。
+              ・便R 前半で行に直に置いた − / ＋ はここから消える。行は**便R 前半より前の姿**
+                (値 + ▾ の1つのボタン)に戻す。style は隣の楽器のボタンと**同じ1つ**(元から同値)。
+              ・▾ は戻す ── 押せば選択肢(シート)が出るので、F-72 の印として正しい。
+              ・値は TUNING_HZ_OPTIONS[tuningIdx]。範囲外の保存値を nearestIndexIn が寄せた後の
+                値を出す(行とシートで違う数を見せない)。438 / 444 はどこにも直書きしない。 */}
+          <button onClick={() => setOpenPicker("tuning")} style={{ background: "none", border: "none", color: "var(--c-ink-3)", cursor: "pointer", padding: "var(--sp-1)", fontSize: 12 }}>{TUNING_HZ_OPTIONS[tuningIdx]}Hz<PickChevron /></button>
         </div>
         {/* 2行目 = リード。 */}
         <div className="sans" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", overflowX: "auto" }}>
@@ -8455,12 +8453,31 @@ function MeasureView(props) {
               {selectedBoxGroup && (
                 <span style={{ color: "var(--c-ink-2)", whiteSpace: "nowrap", flexShrink: 0 }}>{reedStrengthLabel(selectedBoxGroup.strength)}</span>
               )}
-              {/* 【F-81 / M6】箱の開封日。表記は yyyy/mm/dd(§6.0)。値でも選択肢でもない
-                  **箱の説明**なので値より弱い段に落とす。選んでいないときは出さない。 */}
-              {selectedBoxGroup && formatYmd(selectedBoxGroup.startDate) && (
-                <span style={{ color: "var(--c-ink-3)", whiteSpace: "nowrap", flexShrink: 0 }}>{formatYmd(selectedBoxGroup.startDate)}</span>
-              )}
             </button>
+            {/* 【F-81 / M6】箱の開封日。表記は yyyy/mm/dd(§6.0)。値でも選択肢でもない
+                **箱の説明**なので値より弱い段に落とす。選んでいないときは出さない。
+                【便X 2026-09-21 本人指示】「日付タップした時は日付の選択からできるように変更」。
+                日付は**独立した押せるもの**になった。入れ子のボタンは作れないので、箱のボタンを
+                2つに割ってある(点+メーカー+厚さ / 開封日)。
+                **見た目は1pxも動かしていない**: 以前この span は箱のボタンの gap --sp-1 で
+                厚さと離れていた。同じ --sp-1 を今度は**この枠の左 padding**が作る
+                (包みの <div> は gap を持たないので、間隔は足し算にならない)。
+                高さ・上下の padding・色・並び・flexShrink はどれも以前のまま。
+                【押せない隙間を作らない】2つとも <button> で、包みの中の隙間は 0 のまま ──
+                「枠の中に背面レイヤへ落ちる穴は構造的に無い」性質は割っても保たれる。
+                【開封日が無い箱】以前からこの span ごと出していないので、**押す対象そのものが
+                出ない**(出ていないものは押せない)。箱のボタンと個体のボタンは今までどおり押せる。 */}
+            {selectedBoxGroup && formatYmd(selectedBoxGroup.startDate) && (
+              <button
+                onClick={() => setOpenPicker("reeddate")}
+                disabled={isRecording}
+                aria-label="リードの開封日から選ぶ"
+                aria-haspopup="listbox"
+                style={{ pointerEvents: "auto", display: "flex", alignItems: "center", height: TOPSET_REED_SELECT_H_PX, padding: "2px 0 2px var(--sp-1)", background: "none", border: "none", font: "inherit", color: "inherit", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}
+              >
+                <span style={{ color: "var(--c-ink-3)", whiteSpace: "nowrap", flexShrink: 0 }}>{formatYmd(selectedBoxGroup.startDate)}</span>
+              </button>
+            )}
             <button
               onClick={() => setOpenPicker("reed")}
               disabled={isRecording || !selectedBoxGroup}
@@ -8873,8 +8890,42 @@ function MeasureView(props) {
           どちらも構造的に起きない。**併せて背面レイヤと録音ボタンを disabled にする**
           (§6.1.5「押しても何も起きないを作らない」)。
           ピッカー自体の作法(止まった位置で即確定・暗幕タップ / Esc で閉じる)は変えていない。 */}
-      {/* 【便R 2026-09-20 本人指示】基準ピッチのホイールは**無くなった**(行の − / ＋ が選ぶ)。
-          openPicker が "tuning" になる経路もここで消えている。 */}
+      {/* 【便X 2026-09-21 本人指示】基準ピッチは**下から出るシート**の中で操作する。
+          ・器は既存の BottomSheet(暗幕・角丸・つまみ・影・Escape は器が持つ。写しを作らない)。
+          ・見出しの綴りは**楽器のシートと同じ**(--fs-xs / --c-ink-3)。語は「基準ピッチ」。
+          ・− と ＋ は**当たり判定 44×44**。上部設定行では行の高さ 28 に切られて 44×28 しか
+            取れなかったが、シートの中は高さの制約が無いので縦にも var(--tap-min) を持てる(§5)。
+            高さを持てたので .taptext(疑似要素で縦を広げるクラス)は要らなくなった。
+          ・値の段は一覧の「選択中の行」(OptionRow)と同じ --fs-md / 700 / --c-accent。
+            行の 12px には縛られない(シートの中なので環を動かさない)。字面は数値なので --font-num。
+          ・範囲(TUNING_HZ_OPTIONS)・端の disabled と --c-disabled・範囲外を寄せる
+            nearestIndexIn は**便R 前半の実装をそのまま**持ってきた。押しても何も起きない
+            一手を作らない(§6.1.5)。
+          ・1つ押して閉じる楽器のシートと違い、ここは閉じない ── − / ＋ は何度も押す操作で、
+            1回ごとに閉じると 442 → 438 に4回開き直すことになる。 */}
+      {openPicker === "tuning" && (
+        <BottomSheet ariaLabel="基準ピッチ" onClose={() => setOpenPicker(null)}>
+          <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>基準ピッチ</div>
+          {/* 見出しとの間隔は楽器のシートのピル行と同じ 12(OptionPills の既定の marginTop)。 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "var(--sp-2)", marginTop: 12 }}>
+            <button
+              onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx - 1])}
+              disabled={tuningIdx === 0}
+              aria-label="基準ピッチを下げる"
+              className="sans no-select"
+              style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "var(--fs-md)", lineHeight: 1, color: tuningIdx === 0 ? "var(--c-disabled)" : "var(--c-ink-2)", cursor: tuningIdx === 0 ? "default" : "pointer" }}
+            >−</button>
+            <span className="no-select" style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-accent)", whiteSpace: "nowrap" }}>{TUNING_HZ_OPTIONS[tuningIdx]}</span>
+            <button
+              onClick={() => setTuningHz(TUNING_HZ_OPTIONS[tuningIdx + 1])}
+              disabled={tuningIdx === TUNING_HZ_OPTIONS.length - 1}
+              aria-label="基準ピッチを上げる"
+              className="sans no-select"
+              style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "var(--fs-md)", lineHeight: 1, color: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "var(--c-disabled)" : "var(--c-ink-2)", cursor: tuningIdx === TUNING_HZ_OPTIONS.length - 1 ? "default" : "pointer" }}
+            >＋</button>
+          </div>
+        </BottomSheet>
+      )}
       {/* 【便R 2026-09-20 本人指示】楽器はホイールをやめ、**下から出るシートの中のピル**で選ぶ。
           行にピルを直接は置けない(4つで 224px 要る / 実測の空きは 124px)ので、シートを1枚挟む。
           器は BottomSheet、ピルは OptionPills ── どちらも既にある部品で、写しを作らない。
@@ -8903,11 +8954,17 @@ function MeasureView(props) {
           箱の選択は**途中の段**であって終端の一手ではないので、選び終われば個体まで必ず決まる
           (= 押しても何も紐付かない個体ボタンが出る経路が消える。§6.1.5)。
           selectedBoxKey は既存の useEffect が selectedReedId から追従させる(新しい配線を作らない)。 */}
-      {(openPicker === "box" || openPicker === "reed") && (
+      {/* 【便X 2026-09-21 本人指示】入口は3つになった。押した場所をそのまま entry で渡す。
+          ・"box"      … 箱(点+メーカー+厚さ)を押した → 銘柄の段
+          ・"reeddate" … 箱の開封日を押した          → **開封日の段**
+          ・"reed"     … 個体(#n)を押した            → 番号の段
+          箱は開封日・個体のときだけ渡す(銘柄から始めるときに埋めると段が飛ぶ)。 */}
+      {(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (
         <ReedPickSheet
           reeds={reeds} sessions={sessions}
           value={selectedReedId || null}
-          boxKey={openPicker === "reed" ? selectedBoxKey : null}
+          entry={openPicker === "box" ? "brand" : openPicker === "reeddate" ? "date" : "member"}
+          boxKey={openPicker === "box" ? null : selectedBoxKey}
           onChange={(id) => setSelectedReedId(id)}
           onClose={() => setOpenPicker(null)}
         />
@@ -11032,6 +11089,85 @@ const REED_SHEET_PILL_ROW_STYLE = {
   ...REED_SHEET_ROW_STYLE,
   flexDirection: "column", alignItems: "flex-start", gap: 0, padding: "8px 0",
 };
+// 【便X 2026-09-21 本人指示】銘柄は「検索窓 + 候補」で選ぶ。
+// 本人の言葉:「リードタブでのリード追加時の銘柄はプロフィールと同様に選択肢羅列ではなく
+// 検索窓作って候補出る形に変更」。
+//
+// **作法はプロフィールの GearPicker(src/community/CommunityTab.jsx)をそのまま引く**:
+//   決まっている → 値 + ✕(押すと外れて検索窓に戻る) / 決まっていない → 検索窓 + 候補10件まで
+// 見た目(入力欄の寸法・候補の行)も GearPicker と同値。**その2つの綴りが同じであることを
+// 検証79.3 が両方のファイルを読んで突き合わせる**(片方だけ動く事故を綴りで止められないため)。
+//
+// 【部品そのものは畳めない】理由は3つ、どれも見た目ではなく作りの違い:
+//   ① 値の形が違う。GearPicker は {brand, model} の組、ここは銘柄の文字列1つ。
+//   ② 逃げ道が違う。GearPicker は末尾に「カタログに無い(その他)」を必ず置くが、
+//      銘柄の欄にはいま自由入力の経路が無い(本人指示「候補なしを出すだけ」)。
+//   ③ 住んでいる場所が違う。CommunityTab.jsx は lazy(() => import(...)) で遅らせてある。
+//      あちらから部品や style を import すると、計測タブの起動でコミュニティ一式まで
+//      読み込むことになる(分割の意味が消える)。
+//
+// 枠(名札が上・中身が下)は厚さ・枚数の行と同じ REED_SHEET_PILL_ROW_STYLE。
+// 名札の綴りと左端も他の行と同じ REED_SHEET_ROW_LABEL_STYLE。**新しい枠を作らない。**
+const REED_MODEL_SEARCH_MAX = 10;
+// GearPicker の controlStyle と同値(検証79.3 が突き合わせる)。
+const REED_MODEL_SEARCH_INPUT_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)",
+  appearance: "none", WebkitAppearance: "none",
+};
+// GearPicker の候補の行と同値(検証79.3 が突き合わせる)。
+const REED_MODEL_SEARCH_OPTION_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", textAlign: "left",
+  background: "transparent", border: "none", borderBottom: "1px solid var(--c-line)",
+  borderRadius: 0, color: "var(--c-ink)", fontSize: "var(--fs-sm)", cursor: "pointer",
+};
+function ReedModelSearchRow({ label, options, value, onPick }) {
+  const [query, setQuery] = useState("");
+  // 絞り込みの規則はカタログ側の1つ(filterModelsByQuery)。ここで normalize を写さない。
+  const results = filterModelsByQuery(options, query).slice(0, REED_MODEL_SEARCH_MAX);
+  if (value) {
+    return (
+      <div style={{ ...REED_SHEET_ROW_STYLE, padding: "8px 0" }}>
+        <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
+        {/* 値の段は他の行(ReedSheetPickRow)と同じ左寄せの太字。▾ は持たない ──
+            押して一覧が出る欄ではなくなったので、残すと嘘の印になる(F-72 の ▾ の意味)。 */}
+        <span className="sans" style={{ flex: 1, textAlign: "left", fontWeight: 700, fontSize: "var(--fs-md)", color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
+        {/* 選び直す一手。綴り・寸法は GearPicker の ✕ と同じ(--tap-min の当たり判定)。 */}
+        <button
+          type="button" onClick={() => { setQuery(""); onPick(null); }}
+          aria-label={`${label}の選択を解除`}
+          className="sans no-select"
+          style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0, background: "transparent", border: "none", color: "var(--c-ink-3)", fontSize: "var(--fs-md)", lineHeight: 1, cursor: "pointer", flexShrink: 0 }}
+        >✕</button>
+      </div>
+    );
+  }
+  return (
+    <div style={REED_SHEET_PILL_ROW_STYLE}>
+      <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
+      <input
+        type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+        aria-label={`${label}を検索`}
+        className="sans" style={REED_MODEL_SEARCH_INPUT_STYLE}
+      />
+      {results.length > 0 && (
+        <div style={{ display: "grid", gap: 0, width: "100%" }}>
+          {results.map((m) => (
+            <button
+              key={m} type="button"
+              onClick={() => { setQuery(""); onPick(m); }}
+              className="sans" style={REED_MODEL_SEARCH_OPTION_STYLE}
+            >{m}</button>
+          ))}
+        </div>
+      )}
+      {/* 打った文字が候補に無いとき。**新しい自由入力の経路は作らない**(本人指示)ので、
+          出すのは「候補なし」の1行だけ。打つ前(空の問い合わせ)には何も出さない。 */}
+      {query.trim() && results.length === 0 && (
+        <div className="sans" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink-3)" }}>候補なし</div>
+      )}
+    </div>
+  );
+}
 function ReedSheetPickRow({ label, value, onOpen, expanded }) {
   return (
     <button
@@ -11064,7 +11200,6 @@ function ReedBoxSheet({
   strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, onNumberEdit = null, mode = "add",
 }) {
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // 【便R 2026-09-20 本人指示】厚さと枚数の**ホイールは無くなった**。選択肢は少なくて短いので、
   // シートを1枚挟まず**その場にピルを並べる**(OptionPills)。開閉の state も要らない。
   // 【R6】そのメーカーに銘柄があるときだけ銘柄の行を出す(自由入力・カタログ外は空)。
@@ -11113,15 +11248,17 @@ function ReedBoxSheet({
             />
           )}
 
-          {/* 【R6 2026-09-16 本人裁定③】銘柄。メーカーと**同じ形**(太字の値 + ▾ / 下に罫1本)で
-              すぐ下に並べる。カタログに銘柄のあるメーカーのときだけ出す。
-              値が空(銘柄を知らない古い箱)のときは「—」── A3 の「不明・欠落」の記号。 */}
+          {/* 【R6 2026-09-16 本人裁定③】銘柄。カタログに銘柄のあるメーカーのときだけ出す。
+              【便X 2026-09-21 本人指示】**一覧の羅列をやめ、検索窓 + 候補**にした
+              (プロフィールと同じ作法)。絞る母集団は今までどおり reedModelOptions(brand)。
+              値が空(銘柄を知らない古い箱・✕ で外した直後)のときは検索窓が出る ── 以前
+              そこに出していた「—」は、押せば一覧が出る行の値としての綴りだったので役目が無い。 */}
           {modelOptions.length > 0 && (
-            <ReedSheetPickRow
+            <ReedModelSearchRow
               label="銘柄"
-              value={model || "—"}
-              onOpen={() => setModelPickerOpen(true)}
-              expanded={modelPickerOpen}
+              options={modelOptions}
+              value={model}
+              onPick={(v) => setModel(v)}
             />
           )}
 
@@ -11283,16 +11420,8 @@ function ReedBoxSheet({
           labelFn={(v) => (v === REED_BRAND_CUSTOM ? REED_BRAND_CUSTOM_LABEL : v)}
         />
       )}
-      {/* 【R6】銘柄のピッカー。メーカーと同じ場所・同じ作法(シートの外へ出す)。 */}
-      {modelPickerOpen && (
-        <OptionSheet
-          options={modelOptions}
-          ariaLabel="銘柄"
-          value={model}
-          onChange={(v) => setModel(v)}
-          onClose={() => setModelPickerOpen(false)}
-        />
-      )}
+      {/* 【便X 2026-09-21】銘柄の一覧は**無くなった**(シートの中の検索窓 + 候補が選ぶ)。
+          開閉の state ごと消えているので、死んだ受け口は残っていない。 */}
       {/* 【便R 2026-09-20】厚さ・枚数のピッカーは**無くなった**(シートの中のピルが選ぶ)。
           値の歯止め(clampReedAddCount)は呼び出し側に残っている ── 箱1つぶんを越える経路を作らない。 */}
     </>

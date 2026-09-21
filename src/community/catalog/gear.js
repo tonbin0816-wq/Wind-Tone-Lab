@@ -805,6 +805,19 @@ export function searchReeds(query) {
   return out;
 }
 
+// 【便X 2026-09-21 本人指示】「リードタブでのリード追加時の銘柄はプロフィールと同様に
+// 選択肢羅列ではなく検索窓作って候補出る形に変更」。
+// **母集団は呼び手が渡す** ── リードの箱のシートは reedModelOptions(brand)(= そのメーカーの
+// 銘柄)だけを絞るので、カタログを引き直さない(カタログは1つも増えていない)。
+// 正規化の規則(NFKC / 小文字化 / 空白とハイフンを落とす)は上の norm ただ1つを読む。
+// 写しを作ると「プロフィールでは引けるのにリードでは引けない」語が必ず出る。
+// 空の問い合わせで空を返すのは searchXxx と同じ作法(打つ前に全件は出さない)。
+export function filterModelsByQuery(models, query) {
+  const q = norm(query);
+  if (!q) return [];
+  return (models || []).filter((m) => norm(m).includes(q));
+}
+
 export function isValidReed(brand, model) {
   if (brand === null && model === null) return true; // 未選択
   if (brand === OTHER_BRAND) return model === null;  // 明示的に選ばれた「その他」
