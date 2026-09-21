@@ -27113,11 +27113,21 @@ console.log("========== 検証72: プロフィールの保存が練習記録を�
   const acctCode72 = codeOf(acct72);
 
   // --- 72.1 保存は差分で書く ---------------------------------------------------
-  check("72.1 プロフィールの保存は merge で書く(文書まるごとの置き換えをしない)",
-    /setDoc\(userRef\(uid\), profileDoc, \{ merge: true \}\)/.test(acctCode72));
-  check("72.1 素の setDoc(第3引数なし)が accountRepo に1つも無い",
-    (acctCode72.match(/setDoc\([^)]*\)\s*;/g) || []).filter((t) => !/merge: true/.test(t)).length === 0,
-    (acctCode72.match(/setDoc\([^)]*\)\s*;/g) || []).join(" | ") || "0件");
+  // 【便W 2026-09-21 で向け直した】ここは便Q で「merge で書くこと」を固定していたが、
+  // **その merge 自体がバグだった**。merge は入れ子の辞書をキーごとに混ぜるので、
+  // 楽器種別を1つ外しても `gear` に古いキーが残り、firestore.rules の
+  // 「gear のキー集合 == saxTypes」に当たって**以後の保存が永久に拒否される**。
+  // 正しい形は「置き換え + stats だけ自分で持ち越す」。主張を反転させる。
+  check("72.1 プロフィールの保存に merge を使わない(入れ子の gear に古いキーが残るため)",
+    !/merge:\s*true/.test(acctCode72), (acctCode72.match(/merge:[^,)}]*/g) || []).join(" | ") || "0件");
+  check("72.1 保存は文書まるごとの置き換え(第3引数なしの setDoc)",
+    /setDoc\(userRef\(uid\), carried \? \{ \.\.\.profileDoc, stats: carried \} : profileDoc\);/.test(acctCode72));
+  check("72.1 書く前に読んで練習記録を持ち越す",
+    /const snap = await getDoc\(userRef\(uid\)\);/.test(acctCode72)
+    && /if \(prev && prev\.stats\) carried = prev\.stats;/.test(acctCode72));
+  check("72.1 読めなくても保存は続ける(止めない・黙って捨てない)",
+    /console\.error\("\[community\] 保存前の練習記録の読み出しに失敗", e\?\.code, e\);/.test(acctCode72)
+    && !/throw/.test((acctCode72.match(/export async function saveProfile[\s\S]*?\n\}/) || [""])[0]));
 
   // --- 72.2 消える理由がまだ在ること(前提が変わったら気づけるように) -------------
   // buildProfileDoc が stats を持つようになったら、この検査は落ちてよい
@@ -27429,8 +27439,10 @@ console.log("========== 検証74: 保存しても順位から自分が消えな�
   // --- 74.3 前提(これが変わったら この直しの意味も変わる) ----------------------
   check("74.3 順位は練習記録を持つ人だけを並べる(持たない人は行ごと出ない)",
     /const s = u\?\.stats;/.test(agg74) && /if \(!s\) continue;/.test(agg74));
-  check("74.3 便Q の直し(保存は merge)が生きている",
-    /setDoc\(userRef\(uid\), profileDoc, \{ merge: true \}\)/
+  // 【便W 2026-09-21 で向け直した】便Q の答え(merge)は取り消された。いま守るべきは
+  // 「保存が練習記録を消さない」という**主張のほう**で、その実現は持ち越しに変わった。
+  check("74.3 保存が練習記録を消さない(置き換えでも持ち越す)",
+    /setDoc\(userRef\(uid\), carried \? \{ \.\.\.profileDoc, stats: carried \} : profileDoc\);/
       .test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8"))));
 
   // --- 74.4 先にあった同じ作法を壊していない ----------------------------------

@@ -30,22 +30,41 @@ export async function ensureSignedIn() {
 
 const userRef = (uid) => doc(getFirebase().db, "users", uid);
 
-// 【便Q 2026-09-20 本人報告「順位タブに今まであった自分のデータが表示されなくなった」】
-// **merge を外すと順位から自分が消える。** buildProfileDoc が返すのは 13キーで、
-// その中に stats(練習日数・練習時間)は**入っていない** ── 練習記録はプロフィールとは
-// 別の機会(タブを開いたとき)に publishStats が書き足すものだから。
-// 素の setDoc は文書まるごとの置き換えなので、保存するたびにサーバ上の stats が消えていた。
-// 順位は stats を持つ人だけを並べる(aggregate.js の `if (!s) continue;`)ので、
-// **プロフィールを保存した人がその場で順位から落ちる。**
+// プロフィールの保存。**文書まるごとの置き換え**で、練習記録(stats)だけを持ち越す。
 //
-// 引き金は束6 の属性の語替え ── 旧語で登録していた人の属性が未選択になり、
-// 選び直して保存した。保存の作りは前からこうで、今回の語替えが初めて踏ませた。
+// 【merge を使ってはいけない ── 便W 2026-09-21 本人報告「サーバーに保存を拒否されました」】
+// 便Q で「stats が消える」を直すために `{ merge: true }` にしたが、**これが別のバグを作った。**
+// merge は**入れ子の辞書をキーごとに混ぜる**。`gear` は楽器種別をキーにした辞書なので、
+// 楽器種別を1つ外して保存しても、**サーバ側には外した種別の組が残り続ける**。
+// firestore.rules は
+//   gear.keys().hasOnly(saxTypes) / hasAll(saxTypes) / saxTypes.size() == gear.keys().size()
+// の3つで「キー集合が saxTypes と完全に一致すること」を要求するので、居残った1つで
+// **その後の保存が永久に拒否される**(バリトンを足して外した本人の端末がこの状態になった)。
+// 便Q の注記は「配列は merge でも丸ごと置き換わる」とだけ書いて、**辞書を見落としていた**。
 //
-// merge で残るのは stats と places の2つだけ(どちらも firestore.rules の hasOnly に在る)。
-// 13キーは毎回すべて書き直されるので、外した選択肢が居残ることは無い
-// (配列は merge でも丸ごと置き換わる)。
+// 【だから置き換えに戻し、stats は自分で持ち越す】
+// buildProfileDoc が返すのは13キーで stats を含まない ── 練習記録はプロフィールとは別の
+// 機会(タブを開いたとき)に publishStats が書き足すものだから。置き換えるだけだと消え、
+// 順位は stats を持つ人だけを並べる(aggregate.js の `if (!s) continue;`)ので
+// 保存した人がその場で順位から落ちる(便Q の症状)。だから**書く前に1回読んで連れて行く**。
+//
+// 【places は連れて行かない】2026/09/06 に廃止した項目で、クライアントはもう書かない。
+// ルールは「在るなら中身を見る」の形なので、**無くなるぶんには通る**。
+// 置き換えのついでに古い項目が落ちるのは、こちらの望む向き。
+//
+// 【読みが失敗したら stats 無しで書く】保存そのものを止めない。順位は次にタブを開いた
+// ときの publishStats が書き直す。**保存できないことのほうが利用者にとって重い。**
 export async function saveProfile(uid, profileDoc) {
-  await setDoc(userRef(uid), profileDoc, { merge: true });
+  let carried = null;
+  try {
+    const snap = await getDoc(userRef(uid));
+    const prev = snap.exists() ? snap.data() : null;
+    if (prev && prev.stats) carried = prev.stats;
+  } catch (e) {
+    // 【黙って捨てない】読めなかった事実は残す。文言は出さない(保存は続ける)。
+    console.error("[community] 保存前の練習記録の読み出しに失敗", e?.code, e);
+  }
+  await setDoc(userRef(uid), carried ? { ...profileDoc, stats: carried } : profileDoc);
 }
 
 export async function loadProfile(uid) {
