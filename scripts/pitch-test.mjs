@@ -39,6 +39,9 @@ import { sessionSoundingSec, frameIntervalSec, isSoundingFrame } from "../src/so
 // 【R6 2026-09-16 本人裁定③】リードのメーカー・銘柄の正はコミュニティのカタログ。
 // App.jsx が import して使うのと**同じ実物**を検査でも使う(写しを作らない)。
 import { REED_CATALOG } from "../src/community/catalog/gear.js";
+// 【AE 2026-09-21】計測タブの起動の挨拶。**写しを作らず実装そのものを走らせる**
+// (検証85)。greeting.js は他のモジュールを1つも import しない純関数。
+import { greetingFor } from "../src/greeting.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -29975,6 +29978,306 @@ console.log("========== 検証84: 温めが返らなくても画面は出る ===
     `));
     check("84.6 上限の値は 1500ms(起動の体感を壊さない範囲)",
       raced.ok && raced.v.ms === 1500, shownOf(raced));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証85: 計測タブの起動の挨拶(AE-1〜AE-4・2026-09-21 本人指示・凍結仕様の訂正版)
+//   本人の要求は「挨拶だけ」。浅い助言・季節・天気は**1つも入れない**と決まっている
+//   (季節は「暖かいと音程が高く出る」のような話が失礼、天気はその日によるため不採用。
+//    8/13〜8/16 の行事も名指しで不採用)。だからこの節の芯は
+//   「出る一文が決められた候補だけであること」。
+//
+//   【綴りだけを見る検査にしない】greetingFor は **src/greeting.js の実物を import して
+//   実際に走らせる**。時刻も前回の一文も引数で渡すので、検査が自由に動かせる
+//   (関数の中で new Date() や Math.random() を引く作りだと、検査が結果を固定できず
+//    **構造上失敗し得ない検査**になる)。
+//
+//   【期待値の作り方】下の文字列は greeting.js の定数から引いてきた写しではなく、
+//   **本人の指示書の表をここへ手で書き写したもの**。実装を書き換えたら落ちる。
+//
+//   【束の中の選び方】「前回と違う一文」は**回す**ことで実現している。
+//   前回の一文の次を返すので、候補を1周ぶん回せば**候補の全部と、その順**が出る。
+//   だからこの節は「回した列」を見る ── 綴り・候補の数・回り方を1つの検査で確かめられる。
+// ============================================================
+console.log("\n========== 検証85: 起動の挨拶(候補 / 境界 / 日付 / 配線) ==========");
+{
+  const app85 = codeOf(src);
+  const greetRaw = readFileSync(join(__dirname, "..", "src", "greeting.js"), "utf8");
+  const greetCode = codeOf(greetRaw);
+
+  // --- 指示書の表(手で書き写したもの。実装からは引かない) ---
+  const ASA = ["おはようございます", "朝の練習ですね"];
+  const HIRU = ["こんにちは", "昼の練習ですね"];
+  const YUU = ["こんにちは", "夕方の練習ですね", "今日もお疲れ様です"];
+  const YORU = ["こんばんは", "夜まで練習お疲れ様です", "今日もお疲れ様です", "夜の練習ですね"];
+  const SHINYA = ["こんばんは", "夜遅くまでお疲れ様です", "静かな時間ですね"];
+  const NEW_YEAR = ["ハッピーニューイヤー", "あけましておめでとうございます"];
+  const SETSUBUN = ["節分ですね"];
+  const HINA = ["ひな祭りですね"];
+  const KODOMO = ["こどもの日ですね"];
+  const TANABATA = ["七夕ですね"];
+  const HALLOWEEN = ["ハロウィンですね"];
+  const XMAS = ["メリークリスマス"];
+  const NYE = ["来年も良い年になりますように"];
+
+  // 【走らせる】前回の一文を返り値で受け継ぎながら n 回呼ぶ。最初の「前回」は空。
+  const cycle = (y, mo, d, h, mi, n) => {
+    const out = [];
+    let prev = "";
+    for (let i = 0; i < n; i++) {
+      const r = runFn(greetingFor, new Date(y, mo - 1, d, h, mi, 0), prev);
+      if (!r.ok) return { ok: false, err: r.err, out };
+      out.push(r.v);
+      prev = r.v;
+    }
+    return { ok: true, err: "", out };
+  };
+  // 候補を2周ぶん回した列が「表の並び × 2」と一致すること。
+  // これで**綴り・候補の数・順・前回と違うこと**が一度に確かめられる。
+  const twice = (want) => want.concat(want);
+  const rounds = (y, mo, d, h, mi, want) => {
+    const c = cycle(y, mo, d, h, mi, want.length * 2);
+    return { ok: c.ok && c.out.join("|") === twice(want).join("|"), shown: c.ok ? c.out.join("|") : `例外(${c.err})` };
+  };
+  const ck = (label, y, mo, d, h, mi, want) => {
+    const r = rounds(y, mo, d, h, mi, want);
+    check(label, r.ok, r.shown);
+  };
+
+  // --- 85.1 時刻の束5つ。候補の綴りと並びを**回して**確かめる ---
+  ck("85.1a あさ(5〜9)の候補は おはようございます / 朝の練習ですね", 2026, 6, 10, 7, 0, ASA);
+  ck("85.1b ひる(10〜14)の候補は こんにちは / 昼の練習ですね", 2026, 6, 10, 12, 0, HIRU);
+  ck("85.1c ゆうがた(15〜17)の候補は こんにちは / 夕方の練習ですね / 今日もお疲れ様です", 2026, 6, 10, 16, 0, YUU);
+  ck("85.1d よる(18〜22)の候補は こんばんは / 夜まで練習お疲れ様です / 今日もお疲れ様です / 夜の練習ですね", 2026, 6, 10, 20, 0, YORU);
+  ck("85.1e しんや(23〜4)の候補は こんばんは / 夜遅くまでお疲れ様です / 静かな時間ですね", 2026, 6, 10, 2, 0, SHINYA);
+  ck("85.1f しんやは日をまたいでも同じ束(23時も2時も)", 2026, 6, 10, 23, 0, SHINYA);
+
+  // --- 85.2 日付8つ。候補の綴りを**回して**確かめる ---
+  ck("85.2a 1/1 は ハッピーニューイヤー / あけましておめでとうございます", 2027, 1, 1, 12, 0, NEW_YEAR);
+  ck("85.2b 1/2 も同じ候補", 2027, 1, 2, 12, 0, NEW_YEAR);
+  ck("85.2c 1/3 も同じ候補", 2027, 1, 3, 12, 0, NEW_YEAR);
+  ck("85.2d 2/3 は 節分ですね", 2026, 2, 3, 12, 0, SETSUBUN);
+  ck("85.2e 3/3 は ひな祭りですね", 2026, 3, 3, 12, 0, HINA);
+  ck("85.2f 5/5 は こどもの日ですね", 2026, 5, 5, 12, 0, KODOMO);
+  ck("85.2g 7/7 は 七夕ですね", 2026, 7, 7, 12, 0, TANABATA);
+  ck("85.2h 10/31 は ハロウィンですね", 2026, 10, 31, 12, 0, HALLOWEEN);
+  ck("85.2i 12/24 は メリークリスマス", 2026, 12, 24, 12, 0, XMAS);
+  ck("85.2j 12/25 も メリークリスマス", 2026, 12, 25, 12, 0, XMAS);
+  ck("85.2k 12/31 は 来年も良い年になりますように", 2026, 12, 31, 12, 0, NYE);
+
+  // --- 85.3 境界10点。**束が変わること**を、束まるごとの並びで見る ---
+  //   こんにちは は ひる と ゆうがた の両方に、こんばんは は よる と しんや の両方に
+  //   在るので、1回だけ呼んで比べても境界は見分けられない。束を1周させて見分ける。
+  ck("85.3a 4:59 は しんや", 2026, 6, 10, 4, 59, SHINYA);
+  ck("85.3b 5:00 は あさ", 2026, 6, 10, 5, 0, ASA);
+  ck("85.3c 9:59 は あさ", 2026, 6, 10, 9, 59, ASA);
+  ck("85.3d 10:00 は ひる", 2026, 6, 10, 10, 0, HIRU);
+  ck("85.3e 14:59 は ひる", 2026, 6, 10, 14, 59, HIRU);
+  ck("85.3f 15:00 は ゆうがた", 2026, 6, 10, 15, 0, YUU);
+  ck("85.3g 17:59 は ゆうがた", 2026, 6, 10, 17, 59, YUU);
+  ck("85.3h 18:00 は よる", 2026, 6, 10, 18, 0, YORU);
+  ck("85.3i 22:59 は よる", 2026, 6, 10, 22, 59, YORU);
+  ck("85.3j 23:00 は しんや", 2026, 6, 10, 23, 0, SHINYA);
+
+  // --- 85.4 日付は時刻の**代わり**に出る(並べない・置き換える) ---
+  {
+    const xmas3 = runFn(greetingFor, new Date(2026, 11, 25, 3, 0, 0), "");
+    const ny7 = runFn(greetingFor, new Date(2027, 0, 1, 7, 0, 0), "");
+    const tana23 = runFn(greetingFor, new Date(2026, 6, 7, 23, 0, 0), "");
+    check("85.4a 12/25 の 3:00 は(しんやではなく)メリークリスマス", xmas3.ok && xmas3.v === XMAS[0], shownOf(xmas3));
+    check("85.4b 1/1 の 7:00 は(あさではなく)ハッピーニューイヤー", ny7.ok && ny7.v === NEW_YEAR[0], shownOf(ny7));
+    check("85.4c 7/7 の 23:00 は(しんやではなく)七夕ですね", tana23.ok && tana23.v === TANABATA[0], shownOf(tana23));
+    // 並べない = 時刻の挨拶が1文字も混ざらないこと。
+    const timeWords = [].concat(ASA, HIRU, YUU, YORU, SHINYA);
+    // 【r.v に直に .includes を呼ばない】文字列以外が返る壊れ方をすると、ここで
+    // TypeError が飛んで**ハーネスごと落ち、PASS/FAIL の集計行すら出なくなる**
+    // (この罠は runFn の説明にも書いてある)。必ず型を見てから触る。
+    check("85.4d 日付の日に時刻の挨拶を**並べない**(置き換える)",
+      [xmas3, ny7, tana23].every((r) => r.ok && typeof r.v === "string"
+        && !timeWords.some((w) => r.v.includes(w))),
+      [xmas3, ny7, tana23].map((r) => shownOf(r)).join(" / "));
+  }
+
+  // --- 85.5 年は見ない ---
+  {
+    const years = [1999, 2024, 2026, 2031, 2087];
+    check("85.5a 別の年の 7/7 でも同じ", years.every((y) => rounds(y, 7, 7, 12, 0, TANABATA).ok),
+      years.map((y) => `${y}:${cycle(y, 7, 7, 12, 0, 1).out[0]}`).join(" "));
+    check("85.5b 別の年の 12/25 でも同じ", years.every((y) => rounds(y, 12, 25, 12, 0, XMAS).ok));
+    check("85.5c 別の年の 1/1 でも同じ(候補2つの回り方まで)", years.every((y) => rounds(y, 1, 1, 12, 0, NEW_YEAR).ok));
+    check("85.5d 普通の日も年で変わらない", years.every((y) => rounds(y, 6, 10, 12, 0, HIRU).ok));
+  }
+
+  // --- 85.6 出る一文は表のぶんだけ。取りこぼしも余りも無い ---
+  {
+    // 1年ぶんの全部の日 × 24時 × 「前回」を候補全部に振って回す。
+    const all = [].concat(ASA, HIRU, YUU, YORU, SHINYA, NEW_YEAR, SETSUBUN, HINA,
+      KODOMO, TANABATA, HALLOWEEN, XMAS, NYE);
+    const want = [...new Set(all)];
+    const seen = new Set();
+    let bad = "";
+    const prevs = ["", "まったく別の文字列"].concat(want);
+    for (let mo = 1; mo <= 12; mo++) {
+      for (let d = 1; d <= 31; d++) {
+        const probe = new Date(2026, mo - 1, d);
+        if (probe.getMonth() !== mo - 1) continue; // 2/30 のような日付は飛ばす
+        for (let h = 0; h < 24; h++) {
+          for (const p of prevs) {
+            const r = runFn(greetingFor, new Date(2026, mo - 1, d, h, 30, 0), p);
+            if (!r.ok || typeof r.v !== "string" || !r.v) { bad = `${mo}/${d} ${h}時 prev=${p} → ${shownOf(r)}`; seen.add(String(r.v)); }
+            else seen.add(r.v);
+          }
+        }
+      }
+    }
+    check("85.6a どの日・どの時刻・どの前回でも必ず文字列を返す(例外も空も無い)", bad === "", bad);
+    check("85.6b 出る一文は表の 20 通り **ちょうど**(余りが無い)",
+      [...seen].every((v) => want.includes(v)), [...seen].filter((v) => !want.includes(v)).join(" / "));
+    check("85.6c 表の 20 通りが**全部**出る(取りこぼしが無い)",
+      want.every((v) => seen.has(v)), want.filter((v) => !seen.has(v)).join(" / "));
+    check("85.6d 重複を除いた綴りは 20 通り(時刻11 + 日付9)", want.length === 20 && seen.size === 20,
+      `want=${want.length} seen=${seen.size}`);
+  }
+
+  // --- 85.7 前回と違う一文を選ぶ。【走らせて確かめる】 ---
+  {
+    // 候補が2つ以上ある束では、**前回に何を渡しても**返りが前回と違うこと。
+    const multi = [
+      ["あさ", [2026, 6, 10, 7], ASA], ["ひる", [2026, 6, 10, 12], HIRU],
+      ["ゆうがた", [2026, 6, 10, 16], YUU], ["よる", [2026, 6, 10, 20], YORU],
+      ["しんや", [2026, 6, 10, 2], SHINYA], ["正月", [2027, 1, 1, 12], NEW_YEAR],
+    ];
+    let same = "";
+    for (const [name, [y, mo, d, h], want] of multi) {
+      for (const p of want) {
+        const r = runFn(greetingFor, new Date(y, mo - 1, d, h, 0, 0), p);
+        if (!r.ok || r.v === p) same = `${name} prev=${p} → ${shownOf(r)}`;
+      }
+    }
+    check("85.7a 候補が2つ以上ある束では、返りは**必ず前回と違う**", same === "", same);
+    // 続けて呼ぶと候補を一巡する(2つの間を往復するだけにならない)。
+    const c4 = cycle(2026, 6, 10, 20, 0, 4);   // よる = 候補4つ
+    check("85.7b 続けて開くと候補を**一巡する**(2つの往復で終わらない)",
+      c4.ok && new Set(c4.out).size === 4, c4.out.join("|"));
+    // 候補が1つしかない日付は、前回が同じでもその一文を返す(空を返さない)。
+    const solo = runFn(greetingFor, new Date(2026, 6, 7, 12, 0, 0), TANABATA[0]);
+    check("85.7c 候補が1つの日は、前回が同じでもその一文を返す", solo.ok && solo.v === TANABATA[0], shownOf(solo));
+  }
+
+  // --- 85.8 助言・季節・天気・8月中旬の行事の語が1つも無い ---
+  {
+    const NG = ["暖か", "寒", "気温", "湿気", "湿度", "天気", "雨", "晴", "雪", "夏", "冬", "春", "秋",
+      "季節", "音程", "ピッチ", "チューニング", "リード", "息", "ロングトーン", "ウォームアップ",
+      "頑張", "がんば", "おすすめ", "ましょう", "ください", "してみ", "コツ", "アドバイス",
+      "注意", "気をつけ", "高く出", "低く出"];
+    const all = [].concat(ASA, HIRU, YUU, YORU, SHINYA, NEW_YEAR, SETSUBUN, HINA,
+      KODOMO, TANABATA, HALLOWEEN, XMAS, NYE);
+    const outs = new Set();
+    for (let mo = 1; mo <= 12; mo++) {
+      for (let d = 1; d <= 31; d++) {
+        const probe = new Date(2026, mo - 1, d);
+        if (probe.getMonth() !== mo - 1) continue;
+        for (const h of [0, 7, 12, 16, 20, 23]) for (const p of ["", ...all]) {
+          const r = runFn(greetingFor, new Date(2026, mo - 1, d, h, 30, 0), p);
+          // 文字列以外を混ぜない(下の t.includes で落ちるとハーネスごと止まる)。
+          if (r.ok && typeof r.v === "string") outs.add(r.v);
+          else if (!r.ok || typeof r.v !== "string") outs.add(String(r.v));
+        }
+      }
+    }
+    const hits = [...outs].flatMap((t) => NG.filter((w) => t.includes(w)).map((w) => `${t}:${w}`));
+    check("85.8a 出る一文に助言・季節・天気の語が1つも無い", hits.length === 0, hits.join(" / "));
+    // 8/13〜8/16 は**普通の日**。時刻の束に落ちること(日付の一文を作らない)。
+    check("85.8b 8/13〜8/16 は普通の日のまま(ひるの束)",
+      [13, 14, 15, 16].every((d) => rounds(2026, 8, d, 12, 0, HIRU).ok),
+      [13, 14, 15, 16].map((d) => cycle(2026, 8, d, 12, 0, 1).out[0]).join(" "));
+    // その行事の綴り自体が src に1文字も無いこと(コメントも含めた**生のソース**で見る)。
+    const bon = String.fromCharCode(0x304a, 0x76c6);
+    check("85.8c その行事の綴りは src に1つも無い(greeting.js)", !greetRaw.includes(bon));
+    check("85.8d その行事の綴りは src に1つも無い(App.jsx)", !src.includes(bon));
+  }
+
+  // --- 85.9 決め方は純関数1つ。**時計も乱数もこの関数は引かない** ---
+  check("85.9a greeting.js は時計を自分で読まない(引数の無い new Date() が無い)",
+    !/new Date\(\s*\)/.test(greetCode), (greetCode.match(/new Date\([^)]*\)/g) || []).join(" / "));
+  check("85.9b greeting.js は乱数を引かない(検査が結果を固定できなくなる)",
+    !/Math\.random/.test(greetCode));
+  check("85.9c greetingFor は date と prev を受け取る純関数",
+    /export function greetingFor\(date, prev = ""\)/.test(greetCode));
+  check("85.9d 年は見ない(getFullYear を引かない)", !/getFullYear/.test(greetCode));
+  check("85.9e 時計を読むのは呼び手。App.jsx で挨拶のために new Date() を呼ぶのは1箇所だけ",
+    (app85.match(/greetingFor\(new Date\(\), lastGreeting\)/g) || []).length === 1);
+
+  // --- 85.10 文言の綴りは greeting.js **だけ**。JSX に直書きしない ---
+  {
+    const all = [...new Set([].concat(ASA, HIRU, YUU, YORU, SHINYA, NEW_YEAR, SETSUBUN,
+      HINA, KODOMO, TANABATA, HALLOWEEN, XMAS, NYE))];
+    check("85.10a 20 通りの綴りは App.jsx に1つも書かれていない",
+      all.every((t) => !app85.includes(t)), all.filter((t) => app85.includes(t)).join(" / "));
+    check("85.10b 20 通りの綴りは greeting.js に在る", all.every((t) => greetCode.includes(t)));
+  }
+
+  // --- 85.11 見た目は --c-ink-3 / --fs-sm。新しい色も新しい大きさも作らない ---
+  {
+    const m = /\{greeting && \(([\s\S]*?)\n\s*\)\}/.exec(app85);
+    const block = m ? m[1] : "";
+    check("85.11a 一行は greeting が在るときだけ出す", block !== "");
+    check("85.11b 字の色は --c-ink-3", /color: "var\(--c-ink-3\)"/.test(block));
+    check("85.11c 大きさは --fs-sm", /fontSize: "var\(--fs-sm\)"/.test(block));
+    check("85.11d 書体は .sans", /className="sans"/.test(block));
+    check("85.11e 中央揃え", /justifyContent: "center"/.test(block) && /textAlign: "center"/.test(block));
+    check("85.11f 生の色・生の px を持ち込まない(新しい値を作らない)",
+      !/color: "#/.test(block) && !/fontSize: \d/.test(block));
+    check("85.11g 絶対配置で流れの寸法を1つも取らない", /position: "absolute"/.test(block));
+    check("85.11h pointerEvents:none で当たり判定を奪わない(押しても何も起きない一手を作らない)",
+      /pointerEvents: "none"/.test(block));
+    check("85.11i 高さは環と同じ既存の定数(新しい寸法を作らない)", /height: RING_D_FULL/.test(block));
+  }
+
+  // --- 85.12 出すのは1度だけ。タブの行き来で出し直さない配線 ---
+  {
+    check("85.12a 文言は起動の1回だけ決まる(useState の遅延初期化子)",
+      /const \[openingGreeting\] = useState\(\(\) => greetingFor\(new Date\(\), lastGreeting\)\);/.test(app85));
+    check("85.12b 前回の一文は保存から読む(usePersistedState のキー1つ)",
+      /const \[lastGreeting\] = usePersistedState\("lastGreeting", ""\);/.test(app85));
+    check("85.12c 今回の一文を保存に残す(次に開いたとき違う一文を選ぶため)",
+      /useEffect\(\(\) => \{ idbSet\("lastGreeting", openingGreeting\); \}, \[openingGreeting\]\);/.test(app85));
+    const mvSrc = codeOf(srcOfFn(src, "MeasureView"));
+    check("85.12d 旗も文言も MeasureView が持たない(持つと行き来で出し直す)",
+      !/greetingOn/.test(mvSrc) && !/setGreetingOn/.test(mvSrc)
+      && !/greetingFor/.test(mvSrc) && !/openingGreeting/.test(mvSrc) && !/lastGreeting/.test(mvSrc));
+    check("85.12e 旗は App(MeasureView より前)に在る",
+      app85.indexOf("const [greetingOn, setGreetingOn] = useState(true);") !== -1
+      && app85.indexOf("const [greetingOn, setGreetingOn] = useState(true);") < app85.indexOf("function MeasureView("));
+    check("85.12f 旗を true へ戻す道が1本も無い(一度消えたら戻らない)",
+      !/setGreetingOn\(true\)/.test(app85));
+  }
+
+  // --- 85.13 録音中は出さない。【走らせて確かめる】 ---
+  {
+    // 渡す側の式を App.jsx から**そのまま切り出して走らせる**(綴りを写さない)。
+    const mProp = /greeting=\{([^}]*)\}/.exec(app85);
+    const propExpr = mProp ? mProp[1] : "";
+    const f = runFn(() => new Function("greetingOn", "openingGreeting", `return (${propExpr});`));
+    const fn = f.ok ? f.v : null;
+    const on = runFn(fn, true, "挨拶");
+    const off = runFn(fn, false, "挨拶");
+    check("85.13a 旗が立っていれば文言を渡す", on.ok && on.v === "挨拶", shownOf(on));
+    check("85.13b 旗が下りていれば空文字を渡す(= 一行を出さない)", off.ok && off.v === "", shownOf(off));
+    const mEff = /useEffect\(\(\) => \{ if \(isRecording\) setGreetingOn\(false\); \}, \[isRecording\]\);/.exec(app85);
+    check("85.13c 旗を下ろすのは録音が始まったとき(依存は isRecording 1つ)", !!mEff);
+    {
+      let flag = true;
+      const body = new Function("isRecording", "setGreetingOn", "if (isRecording) setGreetingOn(false);");
+      const r1 = runFn(body, false, (v) => { flag = v; });
+      const afterIdle = flag;
+      const r2 = runFn(body, true, (v) => { flag = v; });
+      const afterRec = flag;
+      check("85.13d 鳴っていないときは旗を触らない", r1.ok && afterIdle === true);
+      check("85.13e 録音が始まったら旗が下りる", r2.ok && afterRec === false);
+    }
   }
   console.log("  -> done");
 }
