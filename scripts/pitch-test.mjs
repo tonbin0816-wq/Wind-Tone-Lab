@@ -29935,6 +29935,50 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
   console.log("  -> done");
 }
 
+// ============================================================
+// 検証84: 温めが返らなくても画面は出る(便AD の検収で足した安全網)
+//   main.jsx は温めが片付くまで描かないので、IndexedDB の open が解決も棄却も
+//   しない状態に当たると**アプリが白いまま止まる**。実測の温めは 0.9〜11.2ms なので、
+//   上限に引っかかるのは「もう読めない」ときだけ。そのときは温めなしで描く。
+//   【これは見た目の値ではなく、止まらないための上限】
+// ============================================================
+console.log("========== 検証84: 温めが返らなくても画面は出る ==========");
+{
+  const app84 = codeOf(src);
+  const main84 = codeOf(readFileSync(join(__dirname, "..", "src", "main.jsx"), "utf8"));
+
+  check("84.1 上限は名前のついた定数1つ(綴りを2箇所に置かない)",
+    /const WARM_CACHE_TIMEOUT_MS = 1500;/.test(app84)
+    && (app84.match(/WARM_CACHE_TIMEOUT_MS/g) || []).length === 2);
+  check("84.2 温めは上限つきで待つ(返らない open に付き合わない)",
+    /await Promise\.race\(\[\s*openIdb\(\),/.test(app84)
+    && /setTimeout\(\(\) => reject\(new Error\("warm timeout"\)\), WARM_CACHE_TIMEOUT_MS\)/.test(app84));
+  check("84.3 上限に当たっても例外を外へ出さない(温めは出す・出さないを決めない)",
+    /export async function warmPersistedStateCache\(\)[\s\S]*?catch \{[\s\S]{0,200}?\}\s*\r?\n\}/.test(app84)
+    && !/throw/.test((app84.match(/export async function warmPersistedStateCache\(\)[\s\S]*?\n\}/) || [""])[0]));
+  check("84.4 main.jsx は温めの成否によらず必ず描く(finally)",
+    /warming\.finally\(\(\) => \{/.test(main84) && /root\.render\(/.test(main84));
+  check("84.5 温めは createRoot より**前**に始める(React の用意と重ねる)",
+    main84.indexOf("warmPersistedStateCache()") < main84.indexOf("createRoot"));
+  // 【実行して確かめる】上限の式そのものを走らせ、返らない約束に当たっても
+  // 決められた時間で諦めることを見る。綴りだけの検査にしない。
+  {
+    const raced = runFn(new Function(`
+      ${extractConst("WARM_CACHE_TIMEOUT_MS")}
+      const never = new Promise(() => {});
+      let rejected = false;
+      const p = Promise.race([
+        never,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("warm timeout")), 1)),
+      ]).catch(() => { rejected = true; });
+      return { ms: WARM_CACHE_TIMEOUT_MS, p, seen: () => rejected };
+    `));
+    check("84.6 上限の値は 1500ms(起動の体感を壊さない範囲)",
+      raced.ok && raced.v.ms === 1500, shownOf(raced));
+  }
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

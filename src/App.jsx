@@ -2285,9 +2285,20 @@ function usePersistedState(key, initialValue) {
 //     どちらも鍵の昇順で返るので、同じ添字が対応する。
 //   ・読めない環境(プライベートブラウジング等)では**温めずに黙って戻る**。その場合は
 //     従来どおり initialValue で始まり idbGet の結果を待つ(起動そのものは止めない)。
+// 【便AD 検収 2026-09-21 で足した安全網】温めが**返らない**ときの上限。
+// main.jsx は温めが片付くまで画面を描かないので、IndexedDB の open が解決も棄却も
+// しない状態(端末側の不調・別タブが古い版を掴んだままの blocked など)に当たると
+// **アプリが白いまま止まる**。実測の温めは 0.9〜11.2ms なので、ここに引っかかるのは
+// 「もう読めない」ときだけ。そのときは温め**なし**で描く ── 起動直後に既定値が
+// 一瞬見える元の姿に戻るだけで、止まるよりずっとよい。
+// **これは見た目の値ではなく、止まらないための上限**(§6.1.5 の寸法とは別の話)。
+const WARM_CACHE_TIMEOUT_MS = 1500;
 export async function warmPersistedStateCache() {
   try {
-    const db = await openIdb();
+    const db = await Promise.race([
+      openIdb(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("warm timeout")), WARM_CACHE_TIMEOUT_MS)),
+    ]);
     const { keys, values } = await new Promise((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, "readonly");
       const store = tx.objectStore(IDB_STORE);
