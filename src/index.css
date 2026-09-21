@@ -580,7 +580,7 @@ body {
 /* 【AA-2 2026-09-21 本人指示】「リード番号編集で番号が揺れるのは削除」。
    便Y の .reedtile-editing(番号編集中に**数字だけ**を揺らす一式)と
    @keyframes reed-number-wiggle は、番号編集モードごと**綴りで消えた**。
-   揺れの行き先は下の .reedtile[data-lifted] ── 長押しで持ち上がった**カードごと**。 */
+   揺れの行き先は下の .reedtile[data-editing] ── 長押しで入る**編集中**のあいだ、画面の全部のカード。 */
 
 /* 【動きを止める設定を尊重する】止めても3色は色だけで見分けられる
    (金 3.22 / 銀 4.00 / 銅 5.75、金と銅の色相差 22°)ので、色は消さない。 */
@@ -940,26 +940,31 @@ textarea {
 /* 正典 .tile.drag: 浮き上がり + 影 + 枠が紺。持ち上がったことが動かす前から分かる */
 .reedtile[data-drag="true"] { border-color: var(--c-accent); box-shadow: 0 10px 22px rgba(20, 30, 50, 0.22); }
 
-/* 【AA-2 2026-09-21 本人指示】「長押ししてカードごと揺れるように変更」。
-   長押しが成立して持ち上がっている間(data-lifted)だけ、**カードそのもの**が揺れる。
-   落ちていく間(settling)は揺らさない ── 落下は呼び出し側の transition が担う。
+/* 【AB-2 2026-09-21 本人指示】「最初からではなくて長押ししたら全部のカードが揺れて」。
+   iPhone のホーム画面の並べ替えと同じ: 長押しで**編集中**に入り、その間
+   **画面にあるすべてのカード**が揺れ続ける。指を離しても止まらない。
+   揺れるのは data-editing の片が立ったカード ── その片を配るのは一覧を持つ側で、
+   箱が2つあれば両方の箱のタイルに同じ片が配られる。
+   （便AA までの data-lifted は「掴んでいる1枚」だけを指していたので、綴りごと消えた。
+    掴んでいる1枚の見た目（浮き上がり・影・紺の枠）は data-drag がそのまま持ち続ける。）
 
-   【速さと傾きは便Y の綴りをそのまま引いた】--d-slow(320ms)/ ±3deg / ease-in-out /
-   infinite。**新しい値は1つも作っていない**。名前だけ中身に合わせて付け直した
-   (reed-number-wiggle → reed-tile-wiggle)。位相をばらす3つ組は消した ──
-   持ち上がるカードは常に1枚なので、ずらす相手が居ない。
+   【速さと傾きは便Yの綴りをそのまま引いた】--d-slow（320ms）/ ±3deg / ease-in-out /
+   infinite。**新しい値は1つも作っていない**。
 
-   【回すのはこの層だけ】指への追従・避ける動き・落下は**包み**(1つ外側の <div>)の
+   【回すのはこの層だけ】指への追従・避ける動き・落下は**包み**（1つ外側の <div>）の
    transform が持つ。アニメーションはインラインの transform を丸ごと上書きするので、
    同じ層に置くと指から離れる。ここはカード自身なので、回る中心もカードの中心になる。
-   カードの枠・地・角丸・寸法は1つも動かない(回るだけ)。
+   カードの枠・地・角丸・寸法は1つも動かない（回るだけ）。
 
-   【止める設定では揺らさない】代わりの合図は**既に在る**(持ち上がり -6px・影・紺の枠)。
-   新しい代わりを作らない。 */
+   【止める設定では揺らさない】掴んでいる1枚には浮き上がり・影・紺の枠があるが、
+   **掴んでいない残り全部のカード**は揺れが止まると編集中を返すものが無くなる。
+   代わりは**便Y で使っていた手をそのまま引く**：タイルの枠を点線にする
+   （.reedtile-editing .reedtile { border-style: dashed } がそれだった）。**新しい合図を発明していない**。
+   鉛筆は動きと無関係なので、止める設定でも編集中は出る（JSX 側の条件は editing だけ）。 */
 @keyframes reed-tile-wiggle { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
-.reedtile[data-lifted="true"] { animation: reed-tile-wiggle var(--d-slow) ease-in-out infinite; }
+.reedtile[data-editing="true"] { animation: reed-tile-wiggle var(--d-slow) ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .reedtile[data-lifted="true"] { animation: none; }
+  .reedtile[data-editing="true"] { animation: none; border-style: dashed; }
 }
 
 /* 【F-80 / F-82】文字そのものをタップさせるとき、**見た目を1pxも変えずに**当たり判定だけ

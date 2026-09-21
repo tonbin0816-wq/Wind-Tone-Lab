@@ -10413,9 +10413,17 @@ function reedTileVisual(drag, id, home, cur) {
 // 【AA-2 2026-09-21 本人指示】カードの右上の鉛筆。押すとそのリードの番号のシートが直接開く。
 // 本人の言葉:「カードの右上に鉛筆マークをつけてそこタップしたら番号編集できるように変更」。
 //
-// 【作法はプロフィールのアイコンの印をそのまま引く】(src/community/CommunityTab.jsx の
-// AVATAR_EDIT_BADGE_PX まわり)── 円は --r-full、地は --c-ink、線は --c-surface、絵は Pencil。
-// **色のトークンは1つも発明していない。**
+// 【AB-2 2026-09-21 本人指示】「鉛筆マークの丸囲いは色を塗らないで枠線だけ残して」。
+// 地 --c-ink / 線 --c-surface のベタ塗り(プロフィールのアイコンの印と同じ作法)から、
+// **地は透明・枠は1px・絵は読める濃さ**へ変えた。引いた値はどちらも体系に在るもの:
+//   ・枠 … --c-line-strong(A型の枠と同じ。「入力欄・丸ボタンの枠」の段)
+//   ・絵 … --c-ink-2(副テキストの濃さ)
+// **新しい色は1つも作っていない。** 円の形は --r-full のまま。
+// 【AB-1 2026-09-21 本人指示】この鉛筆は**編集中だけ**描く(「最初からではなくて」)。
+// 通常時に描く経路は1つも無い ── 下の ReedTileGrid の {editing && ...} がただ1つの入口。
+//
+// 【大きさはそのまま】プロフィールのアイコンの印(src/community/CommunityTab.jsx の
+// AVATAR_EDIT_BADGE_PX まわり)から導いた 円20 / 絵11 / 線1.9 は1つも変えていない。
 //
 // 【大きさの導き方】プロフィールは「アイコンの円 64 に対して 3/8 = 24 / 中の絵 13 / 線 1.9」。
 // リードのタイルは 375 幅で (375 − 14×2 − 10×4) / 5 = 61.4px しかないので、同じ 3/8 だと
@@ -10427,6 +10435,16 @@ const REED_TILE_PENCIL_STROKE = 1.9;
 // 鉛筆であることの目印。**綴りは1箇所**(下の reedTilePressPlan が同じ定数から選択子を組む)。
 const REED_TILE_PENCIL_ATTR = "data-reed-pencil";
 const REED_TILE_PENCIL_MARK = { [REED_TILE_PENCIL_ATTR]: "true" };
+// 【AB-2 2026-09-21 本人指示】編集中(iPhone のホーム画面の並べ替えと同じ状態)の出入り。
+// 入口は**タイルの長押しが成立した瞬間**、出口は**子タブ行の右端の「完了」**。
+// 出入りを1つの関数に畳んだのは、入口と出口が別々に育つと
+// 「入れるのに抜けられない」状態を作れてしまうため(検証82.4 がこれを実際に走らせる)。
+// 指を離しても抜けない ── "longPress" 以外の合図が来るまで現状のまま返す。
+function reedEditingNext(editing, action) {
+  if (action === "longPress") return true;
+  if (action === "done") return false;
+  return editing;
+}
 
 // 【AA-2】押下をどう扱うか。**押された物だけ**で決まる。
 //   record       … タイルの押下として記録するか。false ならタップ(個体詳細)も起きない
@@ -10465,7 +10483,12 @@ function reedTilePressPlan(e, canReorder) {
 //
 // 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
 // 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onPencilTap, onReorder }) {
+//
+// 【AB-2 2026-09-21 本人指示】長押しは「持ち上げる」だけでなく**編集中へ入る**合図になった。
+// editing / onEnterEditing は**自分で持たない**(props で受ける) ── 箱ごとに別の
+// ReedTileGrid なので、ここで持つと「長押しした箱のタイルだけ揺れる」に戻ってしまう。
+// 揺れも鉛筆も editing ただ1つで決まり、掴んでいる1枚かどうかは見ない。
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnterEditing, onTileTap, onPencilTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -10591,6 +10614,11 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onP
       info.onUp = onUp;
       info.onTouchMove = onTouchMove;
       dragInfoRef.current = info;
+      // 【AB-2】長押しが成立した=編集中に入る。**指を離しても抜けない**(出口は「完了」だけ)。
+      // 持ち上がりと同じ瞬間に入るので、新しい時間(長押しの判定)は作っていない。
+      // **setReedTileDragActive と setDrag の間には何も挟まない**(検査17.11 が
+      // 「長押しの瞬間に持ち上がる」をその隣接で見ている)。
+      onEnterEditing?.();
       setReedTileDragActive(true);   // ここから先は横スワイプで子タブを動かさない
       setDrag({
         id,
@@ -10642,9 +10670,8 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onP
     >
       {orderedMembers.map((r, home) => {
         const isDragging = drag?.id === r.id;
-        // 【AA-2】持ち上がっている間だけ揺らす。**落ちている間(settling)は揺らさない** ──
-        // 落下は reedTileVisual の transition が担うので、その 320ms に揺れを重ねない。
-        const isLifted = isDragging && !drag.settling;
+        // 【AB-2】揺れの担い手は「掴んでいる1枚」から**編集中のすべてのタイル**へ移った。
+        // 便AA の isLifted(掴んで持ち上がっている間だけ真)は読み手が0になったので消した。
         // home = DOM 上のマス(ドラッグ中は凍結) / cur = 並び替え後の論理位置。
         // 見た目のずれは reedTileVisual がこの2つから決める。
         const cur = drag ? order.indexOf(r.id) : home;
@@ -10695,7 +10722,7 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onP
               className="no-select reedtile"
               data-tone={tone}
               data-drag={isDragging ? "true" : "false"}
-              data-lifted={isLifted ? "true" : "false"}
+              data-editing={editing ? "true" : "false"}
               aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
               style={{
                 /* 正典 .tile の寸法。aspect-ratio 1 なので高さは幅から決まり、幅は包み(1fr)が決める */
@@ -10711,7 +10738,12 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onP
                 (モードに入ってからタップする2段はもう無い)。
                 カードの中ではなく**兄弟**に置く ── タイル自身が <button> なので、
                 中に <button> を入れると入れ子になる。押下は包みまで上がるが、
-                reedTilePressPlan が鉛筆のぶんを振り分けるので、個体詳細も並び替えも走らない。 */}
+                reedTilePressPlan が鉛筆のぶんを振り分けるので、個体詳細も並び替えも走らない。
+                【AB-1 2026-09-21 本人指示】「鉛筆がありすぎて集合体恐怖症みたい。最初からではなくて
+                長押ししたら…その時に初めて鉛筆マークを出して」。**編集中だけ**描く。
+                描く経路はこの1つだけなので、通常時は1つも出ない。
+                【AB-2】丸囲いは塗らない ── 地は透明、枠は --c-line-strong の 1px、絵は --c-ink-2。 */}
+            {editing && (
             <button
               type="button"
               {...REED_TILE_PENCIL_MARK}
@@ -10721,14 +10753,15 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onP
               style={{
                 position: "absolute", right: 0, top: 0,
                 width: REED_TILE_PENCIL_PX, height: REED_TILE_PENCIL_PX, padding: 0,
-                borderRadius: "var(--r-full)", border: "none",
-                background: "var(--c-ink)", color: "var(--c-surface)",
+                borderRadius: "var(--r-full)", border: "1px solid var(--c-line-strong)",
+                background: "transparent", color: "var(--c-ink-2)",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer",
               }}
             >
               <Pencil size={REED_TILE_PENCIL_GLYPH_PX} strokeWidth={REED_TILE_PENCIL_STROKE} />
             </button>
+            )}
           </div>
         );
       })}
@@ -10776,6 +10809,15 @@ function ReedsTab(props) {
     showNotice,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
+  // 【AB-2 2026-09-21 本人指示】編集中(iPhone のホーム画面の並べ替えと同じ状態)。
+  // **箱ごとの ReedTileGrid には持たせない** ── そこで持つと長押しした箱のタイルだけが
+  // 揺れる(本人の指示は「全部のカードが揺れて」)。かといって一覧(ReedRegisterView)にも
+  // 置けない: 出口の「完了」は**子タブ行の右端**(下の SubTabs の children)で、
+  // そこを描くのはこの ReedsTab だから ── 状態を2つに写さないために、旗はここに1つだけ置き、
+  // 一覧はそれを受け取ってすべての ReedTileGrid へ配る(配り手は一覧のまま)。
+  const [listEditing, setListEditing] = useState(false);
+  const enterListEditing = () => setListEditing((v) => reedEditingNext(v, "longPress"));
+  const exitListEditing = () => setListEditing((v) => reedEditingNext(v, "done"));
   // 一覧のスクロール位置。詳細を開く直前に控え、戻ったら同じ位置へ復帰させる。
   const listScrollYRef = useRef(0);
   const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
@@ -10875,13 +10917,23 @@ function ReedsTab(props) {
         value={reedsSubTab}
         onChange={(k) => setReedsSubTab(k)}
       >
-        {/* 正典 .subtabs の右端(margin-left:auto)は**空になった**。
+        {/* 正典 .subtabs の右端(margin-left:auto)。
             【便P 2026-09-20 本人指示】「その他の操作」(「…」)を消し、
             【便R 後半-後半 2026-09-20 本人裁定】削除モード2つを定義ごと消し、
-            【AA-2 2026-09-21 本人指示】最後に残っていた番号編集モードの出口「完了」も、
-            モードそのものが無くなったので消えた。**右端に出すものはもう1つも無い。**
+            【AA-2 2026-09-21】番号編集モードの消滅でいったん**空になった**。
+            【AB-2 2026-09-21 本人指示】iPhone のホーム画面と同じく、編集中の**出口**として
+            「完了」がここへ戻る。文言・体裁・置き場所は便P の綴りをそのまま引いた
+            (B型ピル / padding 7px 14px / 12px / --c-ink-2 / marginLeft: auto の行)。
+            **新しい体裁は作っていない。** 出すのは登録子タブで編集中のときだけ。
             削除の実行(DeleteActionButton)は部品ごと残っている ──
             すべての計測(AllSessionsPage)が使い続けるため。 */}
+        {reedsSubTab === "register" && listEditing && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+            <button type="button" onClick={exitListEditing} className="sans" style={{ ...TAP_BUTTON_RESET }}>
+              <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>完了</span>
+            </button>
+          </div>
+        )}
       </SubTabs>
 
       <SwipePager
@@ -10895,6 +10947,9 @@ function ReedsTab(props) {
           onOpenReed={openReed}
           reedGroups={reedGroups}
           pageActive={reedsSubTab === "register"}
+          /* 【AB-2】編集中の旗と、その入口。一覧はこれをすべての ReedTileGrid へ配る。 */
+          editing={listEditing}
+          onEnterEditing={enterListEditing}
           /* 【B-2 で判った取りこぼし】箱の編集シートの「削除」(便N まで「この箱を削除」)は、ReedsTab の
              deleteReeds を**渡されないまま**名前で呼んでいた(ReedRegisterView は
              ReedsTab の入れ子ではないので、押すと ReferenceError で何も消えなかった)。
@@ -11500,6 +11555,11 @@ function ReedRegisterView(props) {
     // 【F-111】浮かせるボタンは body へ portal で出るので、SwipePager の「今どのページか」を
     // 知らないと**隣のページ(比較)を見ている間も出たままになる**。呼び出し側が渡す。
     pageActive,
+    // 【AB-2 2026-09-21 本人指示】編集中(長押しで入り、「完了」で抜ける)。
+    // **箱ごとに持たない。** ここで受けて、下のすべての ReedTileGrid へ同じ値を配る ──
+    // そうしないと「長押しした箱のタイルだけ揺れる」に戻る(本人の指示は「全部のカードが揺れて」)。
+    editing,
+    onEnterEditing,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
   } = props;
@@ -11707,6 +11767,9 @@ function ReedRegisterView(props) {
                 reeds={reeds}
                 sessions={sessions}
                 selectedReedId={selectedReedId}
+                /* 【AB-2】箱がいくつあっても**同じ旗**を配る(揺れるのは画面の全タイル)。 */
+                editing={editing}
+                onEnterEditing={onEnterEditing}
                 /* 【AA-2 2026-09-21 本人指示】カードの2つの口は**行き先が別**。
                    タップ(本体)= 個体詳細 / 鉛筆 = 番号のシート。
                    モードで意味が入れ替わる形(以前の numberEditing)はもう無い。 */
