@@ -386,10 +386,6 @@ const code = [
   extractConst("REED_TILE_SETTLE_MS"),
   extractConst("REED_TILE_LIFT_PX"),
   extractConst("REED_TILE_DRAG_DEG"),
-  // 【AA-2 2026-09-21】カードの右上の鉛筆の寸法(検証81 が値と導き方を突き合わせる)。
-  extractConst("REED_TILE_PENCIL_PX"),
-  extractConst("REED_TILE_PENCIL_GLYPH_PX"),
-  extractConst("REED_TILE_PENCIL_STROKE"),
   extractFunction("reedTileVisual"),
   // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
   extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
@@ -506,7 +502,6 @@ const api = new Function(`${code}
            reedTileTone, gridDropIndex, reedDetailMetaParts, clampReedAddCount,
            REED_ADD_SHEET_TITLE, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
-           REED_TILE_PENCIL_PX, REED_TILE_PENCIL_GLYPH_PX, REED_TILE_PENCIL_STROKE,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
            reedGroupAvgRating, reedGroupKey, groupReeds, reedMemberOrder,
@@ -9688,7 +9683,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           if (o.start >= c.start && o.start < end) return c;
         return null;
       };
-      const unreadable = [], both = [], framed = [], mockOutline = [], pencilOutline = [];
+      const unreadable = [], both = [], framed = [], mockOutline = [];
       for (const o of opens) {
         const owner = ownerOf(o);
         if (!owner) continue;
@@ -9730,19 +9725,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 制約として機能しない」と定めたので、**この2つだけ**を名指しで外す。
         // 名指しなので、他の要素に枠を足せば従来どおり落ちる。件数も下で固定する。
         const MOCK_OUTLINE_ONLY = /aria-label="テンポを(下|上)げる" className="no-select"\s*\r?\n?\s*style=\{\{ width: 62/;
-        // 【AB-2 2026-09-21 本人指示】リードのカードの右上の鉛筆も「輪郭だけの円」になった。
-        // 本人の言葉:「鉛筆マークの丸囲いは色を塗らないで枠線だけ残して」。
-        // 地はベタ塗り(--c-ink)から**透明**になり、枠(--c-line-strong)だけが残る。
-        // 状態(押されている/開いている)は持たないので、上の ± と同じ**名指しの例外**にする。
-        // 名指し(鉛筆の目印 REED_TILE_PENCIL_MARK)なので、他の操作に枠を足せば従来どおり落ちる。
-        // 件数は下で 1 に固定する ── 鉛筆を増やしても通る形にはしない。
-        const PENCIL_OUTLINE_ONLY = /\{\.\.\.REED_TILE_PENCIL_MARK\}/;
+        // 【便AF 2026-09-21 本人指示で消えた】カードの右上の鉛筆は綴りごと無い。
+        // **例外の名指しごと落とした。** 存在しないものを例外に残しておくと、次に同じ綴りを
+        // 足した者が黙って例外へ滑り込む ── いま鉛筆を書き戻せば受け皿が無いので、
+        // その枠は下の framed に入り【芯2】で落ちる。件数も下で 1 → 0 に固定する。
         const hasFrame = bd.some((d) => arms(d.value).arms.flatMap(lits).some((x) => frameVisible(d.name, x)));
         const hasState = /aria-pressed=|aria-expanded=/.test(owner.tag) ||
           /className="[^"]*\bctl-state\b/.test(owner.tag);
         if (hasFrame && !hasState) {
           if (MOCK_OUTLINE_ONLY.test(owner.tag)) mockOutline.push(`${lineOf(owner.start)}`);
-          else if (PENCIL_OUTLINE_ONLY.test(owner.tag)) pencilOutline.push(`${lineOf(owner.start)}`);
           else framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
         }
       }
@@ -9768,9 +9759,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 例外は**テンポシートの ± の2つだけ**。増えたら「例外に逃がした」ということ。
       check("芯2 の例外は正典 .pm(テンポシートの ±)の2つだけ",
         mockOutline.length === 2, `${mockOutline.length}件: ` + mockOutline.join(" | "));
-      // 【AB-2】鉛筆の例外も**1つだけ**。増えたら「例外に逃がした」ということ。
-      check("芯2 の鉛筆の例外はカードの右上の1つだけ(本人指示の「枠線だけ残して」)",
-        pencilOutline.length === 1, `${pencilOutline.length}件: ` + pencilOutline.join(" | "));
+      // 【便AF 2026-09-21 本人指示】鉛筆が消えたので、例外は**0件**に固定する。
+      // 実ソースに鉛筆の綴りが1つも無いことと突き合わせる ── 書き戻せばここが落ち、
+      // 名指しの受け皿が無いので上の【芯2】でも同時に落ちる。
+      check("芯2 の鉛筆の例外は0件(鉛筆は綴りごと無い ── 書き戻せば例外ではなく芯2 で落ちる)",
+        (src.match(/REED_TILE_PENCIL/g) || []).length === 0,
+        `${(src.match(/REED_TILE_PENCIL/g) || []).length}箇所`);
       // 型のクラスが実際に広く行き渡っていること(名指しの検査では見えない全体像)
       // 【F-75 で 8 → 6】計測タブの2件(メトロノーム / 詳細トグル)が本人指示で枠線を撤去し、
       // A型を外れた。下限だけ下げると「もっと減らしても通る」ので、**外れた2件が
@@ -12431,12 +12425,15 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         /disabled=\{count === 0\}/.test(del));
       check("D-5: 押せないときはカーソルも指にしない(押せる見た目を作らない)",
         /cursor: count > 0 \? "pointer" : "default"/.test(del));
-      // 【AA-2 2026-09-21】番号変更はモードではなくカードの鉛筆になったので、出口そのものが無い。
+      // 【便AF 2026-09-21 本人指示で向け直した】番号変更の入口は**鉛筆ではなく
+      // 「揺れている間(編集中)のカードのタップ」**になった。読み上げの名
+      // 「◯枚目の番号を変更」も鉛筆と一緒に綴りごと消えている。
       // 主張(番号変更にゴミ箱を使わない)は同じ ── リードタブに削除の実行は1つも無い。
-      check("D-5 / AA-2: 番号変更の入口は鉛筆で、ゴミ箱は使わない(リードタブに削除の実行は無い)",
+      check("D-5 / 便AF: 番号変更の入口は編集中のカードのタップで、ゴミ箱は使わない(リードタブに削除の実行は無い)",
         !/<DeleteActionButton/.test(codeOf(srcOfFn(src, "ReedsTab")))
-        && /aria-label=\{`\$\{reedPosition\(r, reeds\) \?\? idx \+ 1\}枚目の番号を変更`\}/
-          .test(codeOf(srcOfFn(src, "ReedTileGrid"))));
+        && /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/
+          .test(codeOf(srcOfFn(src, "ReedRegisterView")))
+        && !/枚目の番号を変更/.test(src));
       // 【罠9】ariaLabel の中身はテンプレート文字列なので波括弧を含む。
       // [^}]* で刈ると 0 件になり「空回りしたのに通る」検査になる。**場面の綴りそのもの**で数える。
       {
@@ -14414,7 +14411,7 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 【便Y 2026-09-21】受け口の名を noDrag → numberEditing にした。
       // 【AA-2 2026-09-21】番号編集モードが入口ごと消えたので、判定に残るのは
       // 「並び替える先があるか」だけになった。**主張(並び替えられないなら長押しを張らない)は同じ**。
-      // 鉛筆を押したときに起動しないことは、下の reedTilePressPlan を**実際に走らせて**見る(検証81)。
+      // 【便AF 2026-09-21】鉛筆は綴りごと消えたので、振り分けに除く相手はもう無い(検証81.3(c))。
       check("並び替えできるかの判定は canReorder に分けてある(並び替える先があるときだけ)",
         /const canReorder = members\.length >= 2;/.test(grid));
       {
@@ -26823,7 +26820,7 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       && /const disabled = !resolvedBrand \|\| \(isEdit && !startDate\);/.test(sheet66)
       && count66(sheet66, /const disabled = /g) === 1);
     // 【AA-2 2026-09-21】番号編集の受け口(onNumberEdit)とその呼び手は**綴りごと消えた**。
-    // 入口はカードの右上の鉛筆1つで、そこから番号のシートが直接開く(検証81 が見る)。
+    // 【便AF 2026-09-21】入口は**揺れている間のカードのタップ**1つで、そこから番号のシートが直接開く(検証81 が見る)。
     check("66.6 / AA-2 番号編集の受け口と呼び手は綴りごと無い",
       !/onNumberEdit/.test(app66), (app66.match(/onNumberEdit/g) || []).length + "件");
     check("66.6 / AA-2 モードへ入る一手も無い(setListMode は登録一覧に1つも無い)",
@@ -26843,7 +26840,7 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       && /onClose=\{\(\) => setNumberEditId\(null\)\}/.test(view66)
       && count66(view66, /setNumberEditId\(null\)/g) === 1,
       `${count66(view66, /setNumberEditId\(null\)/g)}箇所`);
-    check("66.6 / AA-2 番号編集を開く口はカードの鉛筆1つ(追加のシートには無い)",
+    check("66.6 / 便AF 番号編集を開く口は編集中のカードのタップ1つ(追加のシートには無い)",
       count66(app66, /setNumberEditId\(id\)/g) === 1 && !/onNumberEdit=/.test(app66));
   }
 
@@ -27230,12 +27227,14 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   check("71.5 箱ごとの削除は箱の編集シートの「削除」が担い続ける",
     /onDelete=\{/.test(app71) && />削除<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet")))
     && /deleteReedsWithUndo\(ids, deletedReedsLabel\(\[editGroup\], ids\.length, 1\)\);/.test(app71));
-  // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**:
-  // カードの右上の鉛筆 → 番号のシート。機能は1つも落ちていない(むしろ2段が1段になった)。
-  check("71.5 / AA-2 番号編集の経路は残っている(入口はカードの鉛筆1つ)",
-    /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(app71)
+  // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**。
+  // 【便AF 2026-09-21 本人指示で向け直した】入口は鉛筆ではなく
+  // **「揺れている間のカードのタップ」**。機能は1つも落ちていない(シートは同じもの)。
+  check("71.5 / 便AF 番号編集の経路は残っている(入口は編集中のカードのタップ1つ)",
+    /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/.test(app71)
     && /<ReedNumberSheet/.test(app71)
-    && !/listMode === "numberEdit"/.test(app71));
+    && !/listMode === "numberEdit"/.test(app71)
+    && count71(app71, /onPencilTap/g) === 0);
 
   // --- 71.6 箱の編集シートの下の一手と、閉じたときの反映 ------------------------
   {
@@ -28253,16 +28252,27 @@ ${deriv76}
       /function DeleteActionButton\(/.test(app76)
       && count76(app76, /<DeleteActionButton\b/g) === 1
       && /<DeleteActionButton/.test(codeOf(srcOfFn(src, "AllSessionsPage"))));
-    // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**:
-    // カードの右上の鉛筆 → 番号のシート。入口も、モードも、出口も1段ずつ減っている。
+    // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**。
+    // 【便AF 2026-09-21 本人指示で向け直した】入口は鉛筆ではなく
+    // **「揺れている間のカードのタップ」**ただ1つ。
     // **番号を直すシート(ReedNumberSheet)は残っている** ── 機能は1つも落ちていない。
-    check("76.6 / AA-2 番号編集へ入る一手はカードの鉛筆1つ",
-      /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view76)
-      && count76(app76, /onPencilTap=/g) === 1
+    check("76.6 / 便AF 番号編集へ入る一手は編集中のカードのタップ1つ",
+      /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/.test(view76)
+      && count76(app76, /onTileTap=/g) === 1
+      && count76(app76, /onPencilTap/g) === 0
       && !/>番号編集<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet"))));
-    check("76.6 / AA-2 タイルのタップは今までどおり個体詳細(意味がモードで入れ替わらない)",
-      /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view76)
-      && !/numberEditing/.test(app76));
+    // 【便AF 2026-09-21 本人指示で**裏返した**】本人の言葉:
+    // 「リードタブの編集中の鉛筆マークを削除して、揺れてる時にカードタップで番号編集の仕様に変更」。
+    // 便AA〜AD のあいだは「タイルのタップは今までどおり個体詳細(意味がモードで入れ替わらない)」と
+    // 書いていたが、**本人指示でその形が戻った**。主張を事実の側へ向け直す ──
+    // 行き先は editing で入れ替わる(編集中=番号編集 / それ以外=個体詳細)。
+    // 入れ替わる軸は editing ただ1つで、旧モードの綴り(numberEditing / listMode)は
+    // 依然として登録一覧に1つも無い(戻ったのは「行き先の入れ替え」だけで、モードではない)。
+    // **行き先を実際に走らせて**確かめるのは検証81.3(e)。
+    check("76.6 / 便AF タイルのタップは行き先がモードで入れ替わる(編集中=番号編集 / それ以外=個体詳細)",
+      /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/.test(view76)
+      && !/numberEditing/.test(app76)
+      && !/listMode/.test(view76));
     check("76.6 / AA-2 番号のシートは残っている(案内の1行はモードごと無い)",
       /<ReedNumberSheet/.test(view76)
       && !/番号を変更するリードをタップ/.test(codeOf(src)));
@@ -29038,11 +29048,12 @@ console.log("========== 検証80: 数字だけの揺れは綴りごと消えた 
 //          **「編集中のすべてのタイル(data-editing)」**へ移った。止める設定の代わりの合図も、
 //          掴んでいない残り全部には持ち上がり・影・紺の枠が付かないため、便Y の点線に変わった。
 //          「編集中」そのものの一式は下の検証82 が見る。
-//     81.3 AA-2 鉛筆。置き場所と大きさ・入れ子のボタンを作らない形。
-//          【AB-2 で向け直した】丸囲いは塗らない(地は透明・枠 --c-line-strong・絵 --c-ink-2)。
-//          「編集中だけ描く」ことは検証82.1 が見る。
-//          **押下の振り分け(reedTilePressPlan)を実際に走らせて**、鉛筆を押しても
-//          タップ(個体詳細)も長押し(並び替え)も走らないことを確かめる。
+//     81.3 【便AF 2026-09-21 本人指示で向け直した】鉛筆は**綴りごと消えた**。
+//          本人:「リードタブの編集中の鉛筆マークを削除して、揺れてる時にカードタップで
+//                 番号編集の仕様に変更」。守るのは (a) 鉛筆の綴りが戻っていないこと、
+//          (b) マスの中の押せるものはカード1つだけ、(c) 押下の振り分けに除く相手が無いこと
+//          (**実際に走らせる**)、(e) **行き先が editing で入れ替わること**
+//          (onTileTap の式を切り出して**両方の場合を走らせる**)。
 //     81.4 AA-2 モードの一式が綴りごと消え、番号を直すシートだけが残っている。
 //     81.5 AA-3 文言。
 //
@@ -29050,18 +29061,19 @@ console.log("========== 検証80: 数字だけの揺れは綴りごと消えた 
 //     ・実機(iOS Safari)での揺れの見え方・鉛筆の押しやすさ(20px は §5 の 44pt を満たさない)。
 //       Chrome の実測は判定に使えない(LOOP.md)。宣言が在ることまでしか言えない。
 //     ・「押したら本当に番号のシートが開く」── ハーネスは JSX を描かない。ここで実行して
-//        確かめられるのは**押下をどう振り分けるか**(81.3)。描画は実測に委ねる。
+//        確かめられるのは**押下をどう振り分けるか**と**どちらの相手を呼ぶか**(81.3)。
+//        描画とシートの開き方は実測に委ねる。
 //
 // 【変異(複製で。vitest を要するものは実ツリーで try/finally)】
 //   ① searchReeds を filterModelsByQuery に戻す      ② 名札を「メーカー」に戻す
 //   ③ 逃げ道のボタンを消す                            ④ reedGroupKey に銘柄を混ぜる
 //   ⑤ 揺れをカードから <span> へ移す                  ⑥ 傾きを 3deg 以外にする
 //   ⑦ 止める設定の枝を消す                            ⑧ 揺れをカードのインライン transform と同じ層へ
-//   ⑨ reedTilePressPlan が鉛筆でも record: true を返す ⑩ 鉛筆でも armLongPress: true を返す
-//   ⑪ 鉛筆をカードの中へ入れて入れ子のボタンにする     ⑫ 文言を「長押しで並び替え」に戻す
+//   ⑨ 鉛筆(綴り・定数・import)を書き戻す            ⑩ 編集中でも onOpenReed を呼ぶように戻す
+//   ⑪ マスの中に2つ目の <button> を足す                ⑫ 文言を「長押しで並び替え」に戻す
 // → いずれも落ちること。
 // ============================================================
-console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの揺れと鉛筆 / AA-3 文言 ==========");
+console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの揺れ / 便AF 鉛筆は消えた / AA-3 文言 ==========");
 {
   const app81 = codeOf(src);
   const css81 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
@@ -29272,92 +29284,110 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
   }
 
   // ------------------------------------------------------------------
-  // 81.3 AA-2 カードの右上の鉛筆
+  // 81.3 【便AF 2026-09-21 本人指示で向け直した】カードの右上の鉛筆は**消えた**
+  //      本人:「リードタブの編集中の鉛筆マークを削除して、揺れてる時にカードタップで
+  //             番号編集の仕様に変更」。
+  //      守るものが入れ替わった:
+  //        (a) 鉛筆に関わる綴りが**1つも無い**こと(書き戻したら落ちる = 便AF-2)。
+  //        (b) マスの中の押せるものは**カード1つだけ**(兄弟のボタンも入れ子のボタンも無い)。
+  //        (c) 押下の振り分けは「除く相手が無い」形になったことを**実際に走らせて**見る。
+  //        (e) **行き先がモードで入れ替わる**(編集中=番号編集 / それ以外=個体詳細)ことを、
+  //            onTileTap の中身を切り出して**両方の場合を走らせて**見る。
   // ------------------------------------------------------------------
   {
-    // (a) 絵柄と色はプロフィールのアイコンの印と同じ作法。**トークンは発明していない。**
-    check("81.3 絵柄は lucide の Pencil(プロフィールのアイコンの印と同じ)",
-      /import \{[^}]*\bPencil\b[^}]*\} from "lucide-react";/.test(src)
-      && /<Pencil size=\{REED_TILE_PENCIL_GLYPH_PX\} strokeWidth=\{REED_TILE_PENCIL_STROKE\} \/>/.test(grid81)
-      && /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(commRaw81));
-    // 【AB-2 2026-09-21 本人指示】「鉛筆マークの丸囲いは色を塗らないで枠線だけ残して」。
-    // ベタ塗り(地 --c-ink / 線 --c-surface)から**地は透明・枠だけ**へ変わった。
-    // 主張を事実へ向け直す: 地を塗る綴りが1つも無く、枠と絵は体系の段から引いていること。
-    // **プロフィールのアイコンの印は変えていない**(そちらは塗りのまま)ことも併せて見る。
-    // 【便AC 検収 2026-09-21 で向け直した】選んでいる1枚のタイルは紺のベタ塗りなので、
-    // --c-ink-2 の絵は地に沈む(実測 1.20:1 = 事実上の不可視)。そこだけ --c-on-accent へ
-    // 裏返した。**主張は変えていない**: 地は塗らない / 枠は1px / 新しい色を作らない。
-    check("81.3 丸囲いは塗らない(地は透明。--c-ink のベタ塗りは綴りごと無い)",
-      /background: "transparent",/.test(grid81)
-      && /color: tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)",/.test(grid81)
-      && !/background: "var\(--c-ink\)"/.test(grid81),
-      (grid81.match(/background: "[^"]*"/g) || []).join(" / ") || "0件");
-    check("81.3 枠は A型の枠と同じ --c-line-strong の 1px / 円は --r-full のまま",
-      /borderRadius: "var\(--r-full\)",/.test(grid81)
-      && /border: `1px solid \$\{tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-line-strong\)"\}`,/.test(grid81));
-    check("81.3 絵は --c-ink-2。新しい色を作っていない(2つとも index.css に定義が在る)",
-      /--c-ink-2:\s*#/.test(css81) && /--c-line-strong:\s*#/.test(css81));
-    check("81.3 プロフィールのアイコンの印は塗りのまま(こちらは1文字も触っていない)",
-      /background: "var\(--c-ink\)", color: "var\(--c-surface\)",/.test(commRaw81));
-    // 大きさは導いた値。線の太さはプロフィールと同値。
-    check("81.3 大きさは タイルに合わせて決めた 円20 / 絵11、線はプロフィールと同値 1.9",
-      api.REED_TILE_PENCIL_PX === 20 && api.REED_TILE_PENCIL_GLYPH_PX === 11
-      && api.REED_TILE_PENCIL_STROKE === 1.9
-      && (/const AVATAR_EDIT_BADGE_PX = 24;/.test(commRaw81)),
-      `円=${api.REED_TILE_PENCIL_PX} / 絵=${api.REED_TILE_PENCIL_GLYPH_PX} / 線=${api.REED_TILE_PENCIL_STROKE}`);
-    check("81.3 絵と円の比はプロフィールと同じ(13/24 を 20 に当てて 11)",
-      Math.round(api.REED_TILE_PENCIL_PX * 13 / 24) === api.REED_TILE_PENCIL_GLYPH_PX,
-      `${api.REED_TILE_PENCIL_PX} × 13/24 = ${(api.REED_TILE_PENCIL_PX * 13 / 24).toFixed(2)} → ${api.REED_TILE_PENCIL_GLYPH_PX}`);
-    check("81.3 置き場所はカードの右上",
-      /position: "absolute", right: 0, top: 0,/.test(grid81));
-    // (b) 入れ子のボタンを作らない: 鉛筆はカードの**兄弟**。
+    // (a) 【便AF-2】消えた綴りが戻っていない。**これで4つの綴りをまとめて見張る。**
+    {
+      const gone81 = [/REED_TILE_PENCIL/g, /onPencilTap/g, /data-reed-pencil/g, /\bPencil\b/g];
+      const hits81 = gone81.map((re) => (src.match(re) || []).length);
+      check("81.3 / 便AF-2 鉛筆に関わる綴りは App.jsx に1つも無い(書き戻したらここで落ちる)",
+        hits81.every((n) => n === 0),
+        gone81.map((re, i) => `${re.source}=${hits81[i]}`).join(" / "));
+      check("81.3 / 便AF-2 lucide の Pencil は App.jsx の import からも消えた(読み手0の import を残さない)",
+        !/import \{[^}]*\bPencil\b[^}]*\} from "lucide-react";/.test(src)
+        && /from "lucide-react";/.test(src));
+      // 寸法の定数も、導き方の元(プロフィールの印)への参照も、リード側には残っていない。
+      check("81.3 / 便AF 鉛筆の寸法の定数は3つとも定義ごと無い(円20 / 絵11 / 線1.9)",
+        !/const REED_TILE_PENCIL_PX/.test(src)
+        && !/const REED_TILE_PENCIL_GLYPH_PX/.test(src)
+        && !/const REED_TILE_PENCIL_STROKE/.test(src)
+        && !/AVATAR_EDIT_BADGE/.test(src),
+        (src.match(/REED_TILE_PENCIL_[A-Z_]*|AVATAR_EDIT_BADGE/g) || []).join(" / ") || "0件");
+      // **コミュニティ側(src/community/)は1文字も触っていない** ── あちらは Pencil を使い続ける。
+      check("81.3 / 便AF コミュニティのプロフィールの鉛筆は今までどおり(あちらは触っていない)",
+        /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(commRaw81)
+        && /const AVATAR_EDIT_BADGE_PX = 24;/.test(commRaw81)
+        && /background: "var\(--c-ink\)", color: "var\(--c-surface\)",/.test(commRaw81));
+    }
+    // (b) マスの中の押せるものは**カード1つだけ**。兄弟のボタンも、入れ子のボタンも無い。
     {
       const cardAt81 = grid81.indexOf('className="no-select reedtile"');
       const cardEnd81 = grid81.indexOf("</button>", cardAt81);
-      const pencilAt81 = grid81.indexOf("REED_TILE_PENCIL_MARK");
-      check("81.3 鉛筆はカードの**外**に在る(入れ子のボタンを作っていない)",
-        cardAt81 > 0 && pencilAt81 > cardEnd81,
-        `カードの閉じ=${cardEnd81} / 鉛筆=${pencilAt81}`);
+      check("81.3 / 便AF マスの中の押せるものはカード1つだけ(鉛筆の兄弟が消えた)",
+        count81(grid81, /<button/g) === 1 && count81(grid81, /type="button"/g) === 1,
+        `<button>=${count81(grid81, /<button/g)} / type="button"=${count81(grid81, /type="button"/g)}`);
       check("81.3 カードの中には数字の <span> しか無い(押せる物を入れ子にしていない)",
-        !/<button/.test(grid81.slice(cardEnd81 - 400 > cardAt81 ? cardAt81 : cardAt81, cardEnd81)),
-        "カードの中の <button> は0件");
-      check("81.3 マスの中の押せるものは2つ(カード / 鉛筆)。どちらも type=\"button\"",
-        count81(grid81, /<button/g) === 2 && count81(grid81, /type="button"/g) === 2);
-      check("81.3 鉛筆には読み上げの名が付いている(何が起きるかが語で分かる)",
-        /aria-label=\{`\$\{reedPosition\(r, reeds\) \?\? idx \+ 1\}枚目の番号を変更`\}/.test(grid81));
+        cardAt81 > 0 && cardEnd81 > cardAt81
+        && !/<button/.test(grid81.slice(cardAt81, cardEnd81)),
+        `カード=${cardAt81} / 閉じ=${cardEnd81}`);
+      check("81.3 / 便AF カードを閉じたあとに押せる物を置いていない(兄弟の <button> が0件)",
+        cardEnd81 > 0 && !/<button/.test(grid81.slice(cardEnd81)),
+        (grid81.slice(cardEnd81).match(/<button/g) || []).join(" / ") || "0件");
+      // 右上に何かを載せる作りごと無い(絶対配置・丸・枠・色がマスの中に1つも無い)。
+      check("81.3 / 便AF カードの右上に載せる物が無い(絶対配置・--r-full の丸・枠・色が0件)",
+        count81(grid81, /position: "absolute"/g) === 0
+        && count81(grid81, /--r-full/g) === 0
+        && count81(grid81, /border: /g) === 0
+        && count81(grid81, /color: /g) === 0,
+        `absolute=${count81(grid81, /position: "absolute"/g)} / r-full=${count81(grid81, /--r-full/g)}` +
+        ` / border=${count81(grid81, /border: /g)} / color=${count81(grid81, /color: /g)}`);
+      // 読み上げの名はカードの1つだけ。「◯枚目の番号を変更」は綴りごと無い。
+      check("81.3 / 便AF 読み上げの名はカードの1つだけ(「◯枚目の番号を変更」は綴りごと無い)",
+        count81(grid81, /aria-label=/g) === 1
+        && /aria-label=\{`\$\{reedPosition\(r, reeds\) \?\? idx \+ 1\}枚目`\}/.test(grid81)
+        && !/枚目の番号を変更/.test(src),
+        `aria-label=${count81(grid81, /aria-label=/g)}個`);
     }
     // (c) **押下の振り分けを実際に走らせる。** 綴りだけ見る検査にしない。
+    //     【便AF で裏返した】鉛筆が無いので「除く相手」も無い ── かつて鉛筆だった押下を
+    //     渡しても、いまは**普通のカードとして記録する**(昔の枝が残っていればここで落ちる)。
     {
       const plan81 = runFn(() => new Function(`
-        ${extractConst("REED_TILE_PENCIL_ATTR")}
         ${extractFunction("reedTilePressPlan")}
         return reedTilePressPlan;`)());
       check("81.3 押下の振り分け(reedTilePressPlan)を実ソースから組み立てられる", plan81.ok, plan81.err);
-      // 押された物を模す。closest は「祖先に鉛筆の目印があるか」を返すブラウザの実装と同じ約束。
+      // 【罠 D-13】**組み立てが通っても、呼んだときに落ちる。** 例えば鉛筆の枝を書き戻すと
+      // 拾い落とした目印の定数が ReferenceError になり、包まないとハーネスごと死んで
+      // PASS/FAIL の集計行すら出ない(変異1 で実際に踏んだ)。**呼び出しも1つずつ包む。**
+      const call81 = (e, canReorder) =>
+        (plan81.ok ? runFn(() => plan81.v(e, canReorder))
+                   : { ok: false, v: undefined, err: plan81.err });
+      const shape81 = (r) => (r.ok ? JSON.stringify(r.v) : `例外(${r.err})`);
       const onTile81 = { target: { closest: () => null } };
-      const onPencil81 = { target: { closest: (sel) => (sel === "[data-reed-pencil]" ? { tag: "pencil" } : null) } };
+      const asPencil81 = { target: { closest: (sel) => (sel === "[data-reed-pencil]" ? { tag: "pencil" } : null) } };
+      const tileOn81 = call81(onTile81, true), tileOff81 = call81(onTile81, false);
+      const penOn81 = call81(asPencil81, true), penOff81 = call81(asPencil81, false);
       check("81.3 カードを押したら 押下を記録し、並べ替えられるなら長押しも張る",
-        plan81.ok && JSON.stringify(plan81.v(onTile81, true)) === JSON.stringify({ record: true, armLongPress: true }),
-        plan81.ok ? JSON.stringify(plan81.v(onTile81, true)) : plan81.err);
-      check("81.3 **鉛筆を押したら押下を記録しない**(タップ=個体詳細が走らない)",
-        plan81.ok && plan81.v(onPencil81, true).record === false,
-        plan81.ok ? JSON.stringify(plan81.v(onPencil81, true)) : plan81.err);
-      check("81.3 **鉛筆を押したら長押しも張らない**(並び替えが始まらない)",
-        plan81.ok && plan81.v(onPencil81, true).armLongPress === false
-        && plan81.v(onPencil81, false).armLongPress === false,
-        plan81.ok ? JSON.stringify(plan81.v(onPencil81, true)) : plan81.err);
+        shape81(tileOn81) === JSON.stringify({ record: true, armLongPress: true }),
+        shape81(tileOn81));
+      check("81.3 / 便AF 鉛筆の目印つきの押下も**普通のカードとして記録する**(除く枝が残っていない)",
+        shape81(penOn81) === JSON.stringify({ record: true, armLongPress: true }),
+        shape81(penOn81));
+      check("81.3 / 便AF 鉛筆の目印つきでも長押しは張る(並び替えが死んでいない)",
+        penOn81.ok && penOff81.ok && !!penOn81.v && !!penOff81.v
+        && penOn81.v.armLongPress === true && penOff81.v.armLongPress === false,
+        `${shape81(penOn81)} / ${shape81(penOff81)}`);
       check("81.3 1枚しかない箱(並び替えられない)でも、カードの押下は記録する(タップが死なない)",
-        plan81.ok && JSON.stringify(plan81.v(onTile81, false)) === JSON.stringify({ record: true, armLongPress: false }),
-        plan81.ok ? JSON.stringify(plan81.v(onTile81, false)) : plan81.err);
-      check("81.3 closest を持たない押下(古い経路・合成イベント)はカード扱い(押下が死なない)",
-        plan81.ok && plan81.v({ target: {} }, true).record === true
-        && plan81.v({}, true).record === true && plan81.v(null, true).record === true,
-        plan81.ok ? JSON.stringify(plan81.v({}, true)) : plan81.err);
-      // 目印の綴りは1箇所から出る(選択子と属性が別々に drift しない)。
-      check("81.3 鉛筆の目印の綴りは1箇所(選択子も属性も同じ定数から作る)",
-        /const REED_TILE_PENCIL_MARK = \{ \[REED_TILE_PENCIL_ATTR\]: "true" \};/.test(app81)
-        && /t\.closest\(`\[\$\{REED_TILE_PENCIL_ATTR\}\]`\)/.test(app81)
-        && count81(app81, /data-reed-pencil/g) === 1,
+        shape81(tileOff81) === JSON.stringify({ record: true, armLongPress: false }),
+        shape81(tileOff81));
+      const bare81 = [call81({ target: {} }, true), call81({}, true), call81(null, true)];
+      check("81.3 closest を持たない押下(古い経路・合成イベント)もカード扱い(押下が死なない)",
+        bare81.every((r) => r.ok && !!r.v && r.v.record === true),
+        bare81.map(shape81).join(" / "));
+      // 振り分けそのものが「押された物を見ない」形になった(選択子も目印も引かない)。
+      check("81.3 / 便AF 振り分けは押された物を見ない(closest も目印の綴りも引かない)",
+        !/closest/.test(extractFunction("reedTilePressPlan"))
+        && !/data-reed-pencil/.test(extractFunction("reedTilePressPlan"))
+        && count81(app81, /data-reed-pencil/g) === 0,
         `${count81(app81, /data-reed-pencil/g)}箇所`);
     }
     // (d) その振り分けを**押下と長押しの両方が通る**(通らない経路を作らない)。
@@ -29369,14 +29399,36 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
     check("81.3 長押しを張るかも同じ振り分けが決める(2つ目の判定を作っていない)",
       /if \(!plan\.armLongPress\) return;/.test(grid81)
       && count81(grid81, /reedTilePressPlan\(/g) === 1);
-    // (e) 押すと番号のシートが開く / タップは個体詳細のまま。行き先が違う。
-    check("81.3 鉛筆を押すと番号のシートが開く(タップは今までどおり個体詳細)",
-      /onClick=\{\(\) => onPencilTap\?\.\(r\.id\)\}/.test(grid81)
-      && /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view81)
-      && /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view81));
-    check("81.3 2つの口の行き先は別(同じ関数を2回渡していない)",
-      !/onPencilTap=\{\(id\) => onOpenReed/.test(view81)
-      && !/onTileTap=\{\(id\) => setNumberEditId/.test(view81));
+    // (e) 【便AF】**行き先がモードで入れ替わる。** 綴りだけでなく**実際に走らせて**見る。
+    //     ハーネスは JSX を描かないが、行き先を決める式そのものは値なので走らせられる
+    //     (前例: reedTilePressPlan / reedEditingNext / idealRowSelectionNext)。
+    {
+      const tapSrc81 = (view81.match(/onTileTap=\{(\(id\) => \([^\n]*?\))\}/) || [])[1] || "";
+      check("81.3 / 便AF 行き先を決める式(onTileTap)を一覧の実ソースから切り出せている",
+        tapSrc81.length > 20 && count81(app81, /onTileTap=/g) === 1,
+        tapSrc81 || "取り出せない");
+      // 切り出した式をそのまま走らせ、editing を入れ替えて**どちらを呼んだか**を記録する。
+      const tap81 = (editing) => runFn(() => {
+        const log = [];
+        new Function("editing", "setNumberEditId", "onOpenReed", `return (${tapSrc81});`)(
+          editing, (id) => log.push(`number:${id}`), (id) => log.push(`detail:${id}`))("r7");
+        return log.join(" / ") || "どちらも呼ばれない";
+      });
+      const onEdit81 = tap81(true), offEdit81 = tap81(false);
+      check("81.3 / 便AF **揺れている間(編集中)にカードを押すと番号のシートへ行く**",
+        onEdit81.ok && onEdit81.v === "number:r7", shownOf(onEdit81));
+      check("81.3 / 便AF **揺れていないときは今までどおり個体詳細へ行く**",
+        offEdit81.ok && offEdit81.v === "detail:r7", shownOf(offEdit81));
+      check("81.3 / 便AF 行き先はモードで入れ替わる(同じ相手を2回呼んでいない)",
+        onEdit81.ok && offEdit81.ok && onEdit81.v !== offEdit81.v,
+        `編集中=${shownOf(onEdit81)} / それ以外=${shownOf(offEdit81)}`);
+      // 番号編集への入口は**この1つだけ**。鉛筆の口(onPencilTap)は綴りごと無い。
+      check("81.3 / 便AF 番号編集への入口はこの1つだけ(onPencilTap は綴りごと無い)",
+        count81(app81, /onPencilTap/g) === 0
+        && count81(app81, /setNumberEditId\(id\)/g) === 1
+        && /<ReedNumberSheet/.test(view81),
+        `onPencilTap=${count81(app81, /onPencilTap/g)} / setNumberEditId(id)=${count81(app81, /setNumberEditId\(id\)/g)}`);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -29418,11 +29470,12 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
       /\{reeds\.length > 0 && \(\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)" \}\}>\s*\r?\n\s*長押しで編集/.test(view81));
     check("81.5 出す条件はリードが1枚以上(0枚のときは出さない)",
       /\{reeds\.length > 0 && \(/.test(view81) && count81(view81, /\{reeds\.length > 0 && \(/g) === 1);
-    check("81.5 正典の登録の説明も鉛筆と揺れに揃っている(実装だけ先に動かしていない)",
+    check("81.5 / 便AF 正典の登録の説明も揺れとカードタップに揃っている(実装だけ先に動かしていない)",
       (() => {
         const m81 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
         return /カードごと揺れ、ドラッグで並び替え/.test(m81)
-          && /番号編集は<b>カードの右上の鉛筆<\/b>/.test(m81);
+          && /番号編集は<b>揺れている間のカードタップ<\/b>/.test(m81)
+          && !/鉛筆/.test(m81);
       })());
   }
   console.log("  -> done");
@@ -29435,13 +29488,13 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
 //          枠線だけ残して。iPhone の動画の挙動を参考にして。」
 //
 //   この節が守るもの:
-//     82.1 鉛筆は**編集中だけ**描く(通常時に描く経路が1つも無い)。
+//     82.1 【便AF で向け直した】鉛筆は綴りごと消えた(描き分ける門がマスの中に0件)。
 //     82.2 編集中かどうかは**一覧の上**で1つだけ持ち、すべての ReedTileGrid へ配っている
 //          (箱ごとに持つと「長押しした箱だけ揺れる」に戻る)。
 //     82.3 揺れは「編集中のすべてのタイル」に当たる(掴んだ1枚を名指ししていない)。
 //     82.4 出口(完了)が在り、押すと編集中が終わる。**出入りを実際に走らせて**確かめる。
-//     82.5 鉛筆の丸は地を持たず、枠は --c-line-strong / 絵は --c-ink-2。大きさは前と同じ。
-//     82.6 止める設定では揺らさず、代わりの合図(便Y の点線)が在る。鉛筆は止める設定でも出る。
+//     82.5 【便AF で向け直した】鉛筆の見た目を書く綴りがマスの中に1つも無い(index.css は無傷)。
+//     82.6 止める設定では揺らさず、代わりの合図(便Y の点線)が在る。
 //
 //   **この節が守らないもの**:
 //     ・実機(iOS Safari)で揺れがどう見えるか・指を離したあと何秒続くか。
@@ -29450,12 +29503,12 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
 //       いまの作り(毎回長押し)をそのまま保つことだけを 82.3 の最後で固定する。
 //
 // 【変異(すべて複製で試し、必ず元へ戻した)】
-//   ① 鉛筆の {editing && ( を外して常に描く         ② editing を ReedTileGrid の useState に戻す
+//   ① 鉛筆を書き戻す                                ② editing を ReedTileGrid の useState に戻す
 //   ③ 揺れを .reedtile[data-drag] に付け替える      ④ reedEditingNext の "done" を true にする
-//   ⑤ 鉛筆の地を var(--c-ink) に塗り戻す            ⑥ 止める設定の border-style: dashed を消す
+//   ⑤ 編集中でも個体詳細を開くように戻す            ⑥ 止める設定の border-style: dashed を消す
 // → いずれも落ちること。
 // ============================================================
-console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押しで全部のカードが揺れる ==========");
+console.log("\n========== 検証82: 便AF 鉛筆は綴りごと無い / AB-2 長押しで全部のカードが揺れる ==========");
 {
   const app82 = codeOf(src);
   const grid82 = codeOf(srcOfFn(src, "ReedTileGrid"));
@@ -29470,31 +29523,27 @@ console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押�
     `grid=${grid82.length} / view=${view82.length} / tab=${tab82.length} / css=${css82.length}`);
 
   // ------------------------------------------------------------------
-  // 82.1 鉛筆は編集中だけ描く
+  // 82.1 【便AF 2026-09-21 本人指示で向け直した】鉛筆は消えた
+  //      かつては「鉛筆は編集中だけ描く」を守っていた節。いまは**描く物が無い**ので、
+  //      守るものは「編集中で描き分ける門そのものがマスの中に無い」ことへ移った。
+  //      編集中の効きは **data-editing の1つだけ**(揺れを当てる選択子。見た目は index.css)。
   // ------------------------------------------------------------------
   {
-    // 描く場所は1つだけ(目印の綴りは定数1つ・使い手も1つ)。
-    check("82.1 鉛筆を描く経路はただ1つ(写しを作っていない)",
-      count82(grid82, /REED_TILE_PENCIL_MARK/g) === 1
-      && count82(app82, /<Pencil size=\{REED_TILE_PENCIL_GLYPH_PX\}/g) === 1,
-      `${count82(grid82, /REED_TILE_PENCIL_MARK/g)}箇所`);
-    // そのただ1つが {editing && ( … )} の中にある = 通常時に描く経路が無い。
-    {
-      const gate = grid82.indexOf("{editing && (");
-      const mark = grid82.indexOf("REED_TILE_PENCIL_MARK");
-      const close = grid82.indexOf(")}", grid82.indexOf("</button>", mark));
-      check("82.1 その1つは {editing && ( … )} の内側にある(通常時は1つも描かない)",
-        gate > 0 && mark > gate && close > mark,
-        `門=${gate} / 鉛筆=${mark} / 閉じ=${close}`);
-    }
-    // 門は editing ただ1つで決まる。「掴んでいる1枚」や「箱の枚数」を混ぜていない。
-    check("82.1 門は editing ただ1つ(掴んでいるか・枚数を混ぜていない)",
-      count82(grid82, /\{editing && \(/g) === 1
-      && !/\{editing && isDragging/.test(grid82)
-      && !/\{editing && members\.length/.test(grid82));
-    // 常に描いていた便AA の形(門の無い鉛筆)が残っていないこと。
-    check("82.1 門の外に鉛筆の <button> が無い(便AA の「常に出る」形は残っていない)",
-      grid82.indexOf("{editing && (") < grid82.indexOf("REED_TILE_PENCIL_MARK"));
+    check("82.1 / 便AF 鉛筆を描く経路は0(綴りごと消えた)",
+      count82(grid82, /REED_TILE_PENCIL_MARK/g) === 0
+      && count82(app82, /<Pencil/g) === 0
+      && count82(app82, /REED_TILE_PENCIL/g) === 0,
+      `${count82(app82, /REED_TILE_PENCIL/g)}箇所`);
+    check("82.1 / 便AF 編集中で描き分ける門そのものがマスの中に無い({editing && ( が0件)",
+      count82(grid82, /\{editing && \(/g) === 0,
+      `${count82(grid82, /\{editing && \(/g)}箇所`);
+    check("82.1 / 便AF 編集中の効きはタイルの属性1つだけ(editing を読むのは受け口と属性のみ)",
+      /data-editing=\{editing \? "true" : "false"\}/.test(grid82)
+      && count82(grid82, /\bediting\b/g) === 3,
+      `${count82(grid82, /\bediting\b/g)}箇所`);
+    check("82.1 / 便AF マスの中の <button> はカード1つだけ(鉛筆の形は門の内にも外にも無い)",
+      count82(grid82, /<button/g) === 1,
+      `${count82(grid82, /<button/g)}個`);
   }
 
   // ------------------------------------------------------------------
@@ -29557,11 +29606,14 @@ console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押�
       && /const plan = reedTilePressPlan\(e, canReorder\);/.test(grid82)
       && !/editing \? true : canReorder/.test(grid82)
       && !/plan\.armLongPress \|\| editing/.test(grid82));
-    // 編集中でもタイル本体のタップは個体詳細のまま(押しても何も起きない一手を作らない)。
-    check("82.3 編集中でもタイル本体のタップは個体詳細のまま",
+    // 【便AF 2026-09-21 本人指示で裏返した】「揺れてる時にカードタップで番号編集の仕様に変更」。
+    // タイルの側は今までどおり onTileTap を呼ぶだけ(編集中に押下を殺す枝は作っていない)。
+    // **行き先を入れ替えるのは一覧の側**で、分かれる軸は editing ただ1つ。
+    // 行き先そのものを**走らせて**確かめるのは検証81.3(e)。
+    check("82.3 / 便AF 編集中もタイルのタップは生きている(行き先は一覧が editing で入れ替える)",
       /onTileTap\(id\);/.test(grid82)
       && !/if \(editing\) return;/.test(grid82)
-      && /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view82));
+      && /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/.test(view82));
   }
 
   // ------------------------------------------------------------------
@@ -29604,40 +29656,44 @@ console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押�
   }
 
   // ------------------------------------------------------------------
-  // 82.5 鉛筆の見た目(地を持たない / 枠と絵は体系から / 大きさは前と同じ)
+  // 82.5 【便AF 2026-09-21 本人指示で向け直した】鉛筆の見た目は**綴りごと無い**
+  //      かつては「地を持たない / 枠は --c-line-strong / 絵は --c-ink-2 / 大きさは便AA と同じ」を
+  //      守っていた。鉛筆が消えたので、守るものは「マスの中に見た目を書く綴りが1つも無い」
+  //      ことへ移った ── 地・枠・色・丸・絶対配置・寸法の定数、どれも0件。
+  //      タイルの見た目は index.css の .reedtile が持つ。**そこは1文字も触っていない。**
   // ------------------------------------------------------------------
   {
-    check("82.5 丸囲いは地を持たない(透明)",
-      /background: "transparent",/.test(grid82)
-      && !/background: "var\(--c-ink\)"/.test(grid82),
+    check("82.5 / 便AF 丸囲いの地の綴りがマスの中に1つも無い(transparent も --c-ink も)",
+      count82(grid82, /background: /g) === 0,
       (grid82.match(/background: "[^"]*"/g) || []).join(" / ") || "0件");
-    // 【便AC 検収 2026-09-21 で向け直した】選んでいる1枚のタイルは紺のベタ塗りなので、
-    // --c-ink-2 の絵は地に沈む(実測 1.20:1 = 事実上の不可視)。そこだけ --c-on-accent へ
-    // 裏返した。**主張は変えていない**: 地は塗らない / 枠は1px / 新しい色を作らない。
-    check("82.5 枠は --c-line-strong の 1px(選んだ1枚だけ --c-on-accent へ裏返す)",
-      /border: `1px solid \$\{tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-line-strong\)"\}`,/.test(grid82)
-      && !/border: "none",[\s\S]{0,80}?REED_TILE_PENCIL_PX/.test(grid82));
-    check("82.5 絵は --c-ink-2(選んだ1枚だけ --c-on-accent へ裏返す)",
-      /color: tone === "sel" \? "var\(--c-on-accent\)" : "var\(--c-ink-2\)",/.test(grid82));
-    // 裏返す先は、そのタイルが既に字に使っている色ただ1つ(新しい色を作っていない)。
-    check("82.5 裏返す先は .reedtile[data-tone=\"sel\"] が字に使う色と同じ",
+    check("82.5 / 便AF 枠の綴りがマスの中に1つも無い(1px solid も --c-line-strong も)",
+      count82(grid82, /border: /g) === 0 && count82(grid82, /--c-line-strong/g) === 0,
+      `border=${count82(grid82, /border: /g)} / line-strong=${count82(grid82, /--c-line-strong/g)}`);
+    check("82.5 / 便AF 絵の色の綴りがマスの中に1つも無い(--c-ink-2 も --c-on-accent も)",
+      count82(grid82, /color: /g) === 0 && count82(grid82, /--c-ink-2/g) === 0
+      && count82(grid82, /--c-on-accent/g) === 0,
+      (grid82.match(/color: [^\n]*/g) || []).join(" / ") || "0件");
+    check("82.5 / 便AF 丸と置き場所の綴りも無い(--r-full の丸・右上の絶対配置が0件)",
+      count82(grid82, /--r-full/g) === 0
+      && count82(grid82, /position: "absolute"/g) === 0,
+      `r-full=${count82(grid82, /--r-full/g)} / absolute=${count82(grid82, /position: "absolute"/g)}`);
+    check("82.5 / 便AF 大きさの定数も3つとも定義ごと無い(円20 / 絵11 / 線1.9)",
+      count82(app82, /REED_TILE_PENCIL_PX/g) === 0
+      && count82(app82, /REED_TILE_PENCIL_GLYPH_PX/g) === 0
+      && count82(app82, /REED_TILE_PENCIL_STROKE/g) === 0,
+      `${count82(app82, /REED_TILE_PENCIL_[A-Z_]*/g)}箇所`);
+    // **index.css は1文字も触っていない。** 選んでいる1枚の字の色も、体系の色の定義も今までどおり。
+    check("82.5 選んでいる1枚の字の色は今までどおり(.reedtile[data-tone=\"sel\"] は触っていない)",
       /\.reedtile\[data-tone="sel"\][^}]*color: var\(--c-on-accent\)/.test(cssRaw82));
-    check("82.5 その2つは体系に定義が在る色(新しい色を作っていない)",
+    check("82.5 体系の色の定義も残っている(使い手が減っただけで、段を消していない)",
       /--c-line-strong:\s*#[0-9A-Fa-f]{3,8};/.test(cssRaw82) && /--c-ink-2:\s*#[0-9A-Fa-f]{3,8};/.test(cssRaw82),
       (cssRaw82.match(/--c-(line-strong|ink-2):\s*#[0-9A-Fa-f]+/g) || []).join(" / "));
-    check("82.5 大きさは便AA と同じ(円20 / 絵11 / 線1.9)",
-      api.REED_TILE_PENCIL_PX === 20 && api.REED_TILE_PENCIL_GLYPH_PX === 11
-      && api.REED_TILE_PENCIL_STROKE === 1.9,
-      `円=${api.REED_TILE_PENCIL_PX} / 絵=${api.REED_TILE_PENCIL_GLYPH_PX} / 線=${api.REED_TILE_PENCIL_STROKE}`);
-    check("82.5 円の形と置き場所も便AA と同じ(--r-full / 右上)",
-      /borderRadius: "var\(--r-full\)"/.test(grid82)
-      && /position: "absolute", right: 0, top: 0,/.test(grid82));
-    // 数字はタイルの中央・鉛筆は右上。**数字は鉛筆の円の中に入らない**
-    // (中央 61.4/2 = 30.7 に対し、鉛筆の円は右上 20×20。重なりの判定は実測に委ねるが、
-    //  置き方そのものが「中央」と「右上」で分かれていることはここで固定する)。
-    check("82.5 数字は中央・鉛筆は右上(同じ角に2つ置いていない)",
+    // マスに載るのは中央の数字ただ1つ(角に載せる物が無くなった)。
+    check("82.5 / 便AF マスに載るのは中央の数字ただ1つ(角に載せる物が無い)",
       /display: "flex", alignItems: "center", justifyContent: "center",/.test(grid82)
-      && /<span>\{reedPosition\(r, reeds\) \?\? idx \+ 1\}<\/span>/.test(grid82));
+      && /<span>\{reedPosition\(r, reeds\) \?\? idx \+ 1\}<\/span>/.test(grid82)
+      && count82(grid82, /<span>/g) === 1,
+      `<span>=${count82(grid82, /<span>/g)}個`);
   }
 
   // ------------------------------------------------------------------
@@ -29766,10 +29822,13 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       && /target\.closest\(`\[\$\{REED_TILE_CELL_ATTR\}\]`\)/.test(app83)
       && count83(app83, /data-reed-cell/g) === 1,
       `${count83(app83, /data-reed-cell/g)}箇所`);
-    check("83.1 目印はマス(包み)に付いている ── カード本体も鉛筆もその中に入る",
+    // 【便AF 2026-09-21】鉛筆が消えたので、包みの中に入るのは**カード本体とマスの余白**。
+    // 目印が包みに付いている限り、そのどこを押しても編集中は終わらない(上で走らせた)。
+    check("83.1 目印はマス(包み)に付いている ── カード本体もマスの余白もその中に入る",
       /\{\.\.\.REED_TILE_CELL_MARK\}\s*\r?\n\s*onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(grid83)
       && grid83.indexOf("{...REED_TILE_CELL_MARK}") < grid83.indexOf('className="no-select reedtile"')
-      && grid83.indexOf("{...REED_TILE_CELL_MARK}") < grid83.indexOf("REED_TILE_PENCIL_MARK"));
+      && grid83.indexOf("{...REED_TILE_CELL_MARK}") < grid83.indexOf("</button>"),
+      `包み=${grid83.indexOf("{...REED_TILE_CELL_MARK}")} / カード=${grid83.indexOf('className="no-select reedtile"')} / 閉じ=${grid83.indexOf("</button>")}`);
   }
 
   // ------------------------------------------------------------------
@@ -29796,20 +29855,27 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       count83(app83, /setListEditing\(/g) === 2
       && count83(app83, /reedEditingNext\(v, "done"\)/g) === 1,
       `setListEditing=${count83(app83, /setListEditing\(/g)} / done=${count83(app83, /reedEditingNext\(v, "done"\)/g)}`);
-    check("83.2 タイル・鉛筆の行き先は今までどおり(終わらせたついでに行き先を入れ替えていない)",
-      /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view83)
-      && /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view83));
+    // 【便AF 2026-09-21 本人指示で向け直した】行き先は**editing で入れ替わる1つの式**になった。
+    // AD-1(一覧の空きで終わる)を足したついでに、その式を書き換えていないことを見る。
+    check("83.2 / 便AF タイルの行き先は便AF のまま(終わらせたついでに書き換えていない)",
+      /onTileTap=\{\(id\) => \(editing \? setNumberEditId\(id\) : onOpenReed\?\.\(id\)\)\}/.test(view83)
+      && count83(app83, /onPencilTap/g) === 0
+      && count83(app83, /onTileTap=/g) === 1,
+      `onTileTap=${count83(app83, /onTileTap=/g)} / onPencilTap=${count83(app83, /onPencilTap/g)}`);
     check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ)",
       /onClick=\{\(\) => setAddOpen\(true\)\}/.test(view83)
       && !/ariaLabel="リードを追加"[\s\S]{0,200}onExitEditing/.test(view83));
     check("83.2 **stopPropagation を新しく増やしていない**(一覧・タイルとも0件)",
       count83(view83, /stopPropagation/g) === 0 && count83(grid83, /stopPropagation/g) === 0,
       `view=${count83(view83, /stopPropagation/g)} / grid=${count83(grid83, /stopPropagation/g)}`);
-    // 揺れも鉛筆も editing ただ1つが門なので、旗を下ろせば両方消える(門は検証82.1 / 82.3 が見る)。
-    check("83.2 終わると揺れも鉛筆も消える ── 門は editing ただ1つのまま",
-      /\{editing && \(/.test(grid83)
+    // 【便AF 2026-09-21 本人指示で向け直した】消える物は揺れだけになった(鉛筆はもう無い)。
+    // 旗を下ろせば data-editing が "false" になり、揺れの選択子から外れる。
+    // 行き先も同じ旗で決まるので、終わった瞬間にタップは個体詳細へ戻る(検証81.3(e) が走らせる)。
+    check("83.2 / 便AF 終わると揺れが消える ── 効くのは data-editing ただ1つ(鉛筆はもう無い)",
+      count83(grid83, /\{editing && \(/g) === 0
       && /data-editing=\{editing \? "true" : "false"\}/.test(grid83)
-      && /\.reedtile\[data-editing="true"\] \{ animation: reed-tile-wiggle/.test(cssRaw83));
+      && /\.reedtile\[data-editing="true"\] \{ animation: reed-tile-wiggle/.test(cssRaw83),
+      `門={editing && ( が ${count83(grid83, /\{editing && \(/g)}箇所`);
   }
 
   // ------------------------------------------------------------------
