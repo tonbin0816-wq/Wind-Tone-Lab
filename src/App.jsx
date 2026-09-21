@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
 // 代わりに「長押しで持ち上がる」ことを正典 .tile.drag の見た目(浮き上がり+影+紺の枠)で示す。
-import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity, Plus } from "lucide-react";
+import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Activity, Plus, Pencil } from "lucide-react";
 
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
@@ -29,7 +29,7 @@ import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
 // 【R6 2026-09-16 本人裁定③】リードのメーカーと銘柄の正はコミュニティのカタログ1つ。
 // gear.js は firebase を読まない純粋なデータなので、ここから import しても
 // 計測タブの起動は重くならない(profile.js と同じ理由)。
-import { REED_CATALOG, filterModelsByQuery } from "./community/catalog/gear.js";
+import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -10370,6 +10370,38 @@ function reedTileVisual(drag, id, home, cur) {
   return { transform: `translate(${x}px, ${y}px)${rot}`, transition: REED_TILE_SLIDE_EASE, zIndex: id === drag.id ? 2 : 1 };
 }
 
+// 【AA-2 2026-09-21 本人指示】カードの右上の鉛筆。押すとそのリードの番号のシートが直接開く。
+// 本人の言葉:「カードの右上に鉛筆マークをつけてそこタップしたら番号編集できるように変更」。
+//
+// 【作法はプロフィールのアイコンの印をそのまま引く】(src/community/CommunityTab.jsx の
+// AVATAR_EDIT_BADGE_PX まわり)── 円は --r-full、地は --c-ink、線は --c-surface、絵は Pencil。
+// **色のトークンは1つも発明していない。**
+//
+// 【大きさの導き方】プロフィールは「アイコンの円 64 に対して 3/8 = 24 / 中の絵 13 / 線 1.9」。
+// リードのタイルは 375 幅で (375 − 14×2 − 10×4) / 5 = 61.4px しかないので、同じ 3/8 だと
+// 23 になり、中央の数字(REED_TILE_FS_PX = 14)とぶつかる。**円だけを体系に在る 20(--sp-5 と同値)に落とし、
+// 絵と線はプロフィールの比をそのまま当てる**: 20 × 13/24 = 10.8 → 11、線は 1.9 のまま。
+const REED_TILE_PENCIL_PX = 20;
+const REED_TILE_PENCIL_GLYPH_PX = 11;
+const REED_TILE_PENCIL_STROKE = 1.9;
+// 鉛筆であることの目印。**綴りは1箇所**(下の reedTilePressPlan が同じ定数から選択子を組む)。
+const REED_TILE_PENCIL_ATTR = "data-reed-pencil";
+const REED_TILE_PENCIL_MARK = { [REED_TILE_PENCIL_ATTR]: "true" };
+
+// 【AA-2】押下をどう扱うか。**押された物だけ**で決まる。
+//   record       … タイルの押下として記録するか。false ならタップ(個体詳細)も起きない
+//                  ── handlePointerUp は「記録された押下」が無ければ何もしないため。
+//   armLongPress … 長押し(並び替え)のタイマーを張るか。
+// 鉛筆はカードの**兄弟**なので押下は包みまで上がってくる。ここで振り分ける
+// (stopPropagation は使わない ── カードのどこを掴んでも並び替えが始まる形を壊さないため)。
+// **1枚しかない箱でも押下は記録する**(記録しないとタップが死んで詳細を開けない。N-5 の実測)。
+function reedTilePressPlan(e, canReorder) {
+  const t = e && e.target;
+  const onPencil = !!(t && typeof t.closest === "function" && t.closest(`[${REED_TILE_PENCIL_ATTR}]`));
+  if (onPencil) return { record: false, armLongPress: false };
+  return { record: true, armLongPress: !!canReorder };
+}
+
 // 【N-5】5×2 のタイル。長押し(400ms)で持ち上がり、ドラッグで並び替える。
 // 正典 .rgrid / .tile / .tile.drag。
 //
@@ -10393,7 +10425,7 @@ function reedTileVisual(drag, id, home, cur) {
 //
 // 【F-79b】DOM の並びはドラッグ中**凍結**する。動くのは transform だけ。
 // 掴んだタイルのレイアウト位置が最後まで変わらないので、入れ替えが起きても指からずれない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing = false, onTileTap, onReorder }) {
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, onTileTap, onPencilTap, onReorder }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -10453,11 +10485,17 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
   };
 
   // 並び替えを起動できるか。**タップで詳細を開けるかとは別**。
-  // 【F-102】番号編集モード(noDrag)中は長押しの並び替えを起動しない(タップ=番号編集に一本化)。
   // 【便R 後半-後半 2026-09-20】選んで消すモードは入口ごと消えたので、判定からも外れた。
-  const canReorder = !numberEditing && members.length >= 2;
+  // 【AA-2 2026-09-21】番号編集モードも入口ごと消えた(入口はカードの鉛筆1つ)ので、
+  // 判定に残るのは「並び替える先があるか」だけになった。
+  const canReorder = members.length >= 2;
 
   const handlePointerDown = (id, index) => (e) => {
+    // 【AA-2】鉛筆を押したときは、タイルの手続きを1つも起こさない
+    // (タップ=個体詳細 も 長押し=並び替え も)。**いちばん先に見る** ──
+    // 後ろに置くと、落下の打ち切りだけが鉛筆の押下で走ってしまう。
+    const plan = reedTilePressPlan(e, canReorder);
+    if (!plan.record) return;
     // 落ちている最中に次のジェスチャーが来たら、その場で落とし切ってから始める
     // (落下の transform を残したまま新しいドラッグを重ねると基準が二重になる)。
     if (settleTimerRef.current) { cancelSettle(); setDrag(null); }
@@ -10471,7 +10509,7 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
     // lastX/lastY は長押しが成立するまでの指の現在位置(スロップ 8px の内側で動きうる)。
     // 掴んだ瞬間のずれはここから採る。押した点から採ると、成立の瞬間に最大 8px 跳ねる。
     dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };
-    if (!canReorder) return;
+    if (!plan.armLongPress) return;
     longPressTimerRef.current = setTimeout(() => {
       const pending = dragInfoRef.current;
       if (!pending) return;
@@ -10558,16 +10596,15 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
   };
 
   return (
-    /* 【便Y】番号編集中は index.css の .reedtile-editing が**数字だけ**を揺らす。
-       クラスは器に1つ置くだけ ── タイル側に印を配ると、揺れの持ち主が10箇所に散る。
-       止める設定のときは揺れの代わりに枠が点線になる(どちらも index.css が決める)。 */
     <div
       ref={gridRef}
-      className={numberEditing ? "reedtile-editing" : undefined}
       style={{ display: "grid", gridTemplateColumns: `repeat(${REED_GRID_COLS}, 1fr)`, gap: REED_GRID_GAP_PX }}
     >
       {orderedMembers.map((r, home) => {
         const isDragging = drag?.id === r.id;
+        // 【AA-2】持ち上がっている間だけ揺らす。**落ちている間(settling)は揺らさない** ──
+        // 落下は reedTileVisual の transition が担うので、その 320ms に揺れを重ねない。
+        const isLifted = isDragging && !drag.settling;
         // home = DOM 上のマス(ドラッグ中は凍結) / cur = 並び替え後の論理位置。
         // 見た目のずれは reedTileVisual がこの2つから決める。
         const cur = drag ? order.indexOf(r.id) : home;
@@ -10576,26 +10613,30 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
         const tone = r.id === selectedReedId ? "sel"
           : reedTileTone(sessions.some((s) => s.reedId === r.id), normalizeReedRating(r.rating) !== null);
         return (
-          /* no-select: 長押しで並び替えを起動するので、同じ長押しがテキスト選択に化けないようにする(F-49)。 */
-          <button
+          /* 【AA-2 2026-09-21 本人指示】マスの中身は**包み / カード / 鉛筆**の3つ。
+             ・包み(この <div>)… reedTileVisual が決める動き(指への追従・避ける動き・落下)と
+               重なりの順、そして押下の受け口。**マスそのもの**なので、掴んだ位置を測る
+               getBoundingClientRect も各マスの左上(cells)も今までと同じ値を返す。
+             ・カード(<button>)… 見た目(.reedtile)と、持ち上がっている間の揺れ。
+             ・鉛筆(<button>)… カードの**兄弟**。入れ子のボタンを作らないための形。
+
+             【揺れをいちばん内側へ置いた理由】CSS アニメーションは同じ要素のインライン
+             transform を丸ごと上書きする(アニメーション起源はインラインより強い)ので、
+             reedTileVisual の transform と同じ層には置けない ── 置くと指に追従しなくなる。
+             逆に外側(包み)を回すと、指まで動いたぶんが半径になって元のマスの周りを振り回す。
+             いちばん内側で回せば、カードは**自分の中心**で揺れる。
+             止める設定で揺れが消えても、追従・落下は包みが持っているので1つも壊れない。
+
+             no-select: 長押しで並び替えを起動するので、同じ長押しがテキスト選択に化けないようにする(F-49)。 */
+          <div
             key={r.id}
-            type="button"
-            /* 地・枠・角丸・文字色は index.css の .reedtile が持つ(型と同じ扱い)。
-               ここに書くとインラインがクラスより強く、濃さの4段が丸ごと効かなくなる。 */
-            className="no-select reedtile"
-            data-tone={tone}
-            data-drag={isDragging ? "true" : "false"}
-            aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
+            className="no-select"
             onPointerDown={handlePointerDown(r.id, idx)}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp(r.id)}
             onPointerCancel={handlePointerCancel}
             style={{
-              /* 正典 .tile の寸法。aspect-ratio 1 なので幅は .rgrid の 1fr が決める */
-              aspectRatio: "1",
-              fontSize: REED_TILE_FS_PX, fontFamily: "var(--font-num)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              padding: 0, cursor: "pointer", position: "relative",
+              position: "relative",
               /* 正典 .tile.drag の浮き上がり(-6px / -2deg)と、指への追従・入れ替えで避ける動きは
                  すべて reedTileVisual が決める。影と紺の枠は .reedtile[data-drag] が持つ。 */
               transform: vis.transform,
@@ -10606,11 +10647,49 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
               touchAction: isDragging ? "none" : "pan-y",
             }}
           >
-            {/* 【便Y】揺れるのはこの <span> だけ。タイル(button)は動かさない。
-                包みは番号編集中でなくても置く ── 中身の入れ物が状態で変わると、
-                入ったり出たりのたびに描き直しの経路が2つになる。 */}
-            <span>{reedPosition(r, reeds) ?? idx + 1}</span>
-          </button>
+            <button
+              type="button"
+              /* 地・枠・角丸・文字色は index.css の .reedtile が持つ(型と同じ扱い)。
+                 ここに書くとインラインがクラスより強く、濃さの4段が丸ごと効かなくなる。
+                 【AA-2】持ち上がっている間の揺れ(reed-tile-wiggle)も index.css が持つ。 */
+              className="no-select reedtile"
+              data-tone={tone}
+              data-drag={isDragging ? "true" : "false"}
+              data-lifted={isLifted ? "true" : "false"}
+              aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
+              style={{
+                /* 正典 .tile の寸法。aspect-ratio 1 なので高さは幅から決まり、幅は包み(1fr)が決める */
+                width: "100%", aspectRatio: "1",
+                fontSize: REED_TILE_FS_PX, fontFamily: "var(--font-num)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 0, cursor: "pointer", position: "relative",
+              }}
+            >
+              <span>{reedPosition(r, reeds) ?? idx + 1}</span>
+            </button>
+            {/* 【AA-2】番号編集の入口。押すとそのリードの番号のシートが**直接**開く
+                (モードに入ってからタップする2段はもう無い)。
+                カードの中ではなく**兄弟**に置く ── タイル自身が <button> なので、
+                中に <button> を入れると入れ子になる。押下は包みまで上がるが、
+                reedTilePressPlan が鉛筆のぶんを振り分けるので、個体詳細も並び替えも走らない。 */}
+            <button
+              type="button"
+              {...REED_TILE_PENCIL_MARK}
+              onClick={() => onPencilTap?.(r.id)}
+              aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目の番号を変更`}
+              className="sans no-select"
+              style={{
+                position: "absolute", right: 0, top: 0,
+                width: REED_TILE_PENCIL_PX, height: REED_TILE_PENCIL_PX, padding: 0,
+                borderRadius: "var(--r-full)", border: "none",
+                background: "var(--c-ink)", color: "var(--c-surface)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <Pencil size={REED_TILE_PENCIL_GLYPH_PX} strokeWidth={REED_TILE_PENCIL_STROKE} />
+            </button>
+          </div>
         );
       })}
     </div>
@@ -10630,21 +10709,24 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, numberEditing 
 // 【N-5】正典の子タブ行(.subtabs)をここで描く。
 // 以前は App.jsx のルート(topTab === "reeds" の中)に溝つきのセグメントコントロールがあったが、
 // 正典は**素のテキスト2つ**で、選択中だけ濃い太字。
-// ここへ移したのは、右端に出るもの(いまは番号編集モードの「完了」だけ)が
-// 登録一覧の状態と一体だから(ルートに置くと状態を2階層またいで配らねばならない)。
+// ここへ移したのは、右端に出るものが登録一覧の状態と一体だったから
+// (ルートに置くと状態を2階層またいで配らねばならない)。
 // 【便R 後半-後半 2026-09-21】右端の「…」と削除モード2つは定義ごと無い。
+// 【AA-2 2026-09-21】最後に残っていた番号編集モードの「完了」も無くなり、**右端は空**になった。
 // データタブの子タブ行には触らない。
 //
-// 【モード】listMode は登録子タブだけが持つ一時的な状態:
-//   null          通常
-//   "numberEdit"  リード番号を変更(箱の編集シートの「番号編集」から入る)
-// モード中は子タブ行の右端に「完了」を出す。
+// 【モード】登録子タブはもう一時的なモードを持たない(下の AA-2 の記録):
 // 【F-80】"dateEdit"(箱の開封日を編集)は廃止。開封日は箱の見出しの日付をタップして
 // 「箱を編集」シートで直す(F-82 のメーカー・番手の編集と同じシート)。モードごと消した。
 // 【便R 後半-後半 2026-09-20 本人裁定】「個体一枚ずつ消すことはほぼないのでなくていい」。
 // 箱を選んで削除 / 個体を選んで削除の2つは、便P で「…」を消した時点で**入口を失っていた**。
 // 本人の裁定を受けて、モードも選択の入れ物も実行も**定義ごと消した**。
 // 箱ごとの削除は箱の編集シートの「削除」が担い続ける(機能は1つも落ちていない)。
+// 【AA-2 2026-09-21 本人指示】最後に残っていた "numberEdit" も**定義ごと消えた**。
+// 番号を変える入口がカードの右上の鉛筆になり、「モードへ入ってからタップする」2段が
+// 要らなくなったため。消えたのは listMode / setListMode / exitMode / enterNumberEdit と、
+// モード中だけ出していた子タブ行の「完了」・一覧の案内「番号を変更するリードをタップ」・
+// 箱の編集シートの「番号編集」。**番号を直すシート(ReedNumberSheet)は残っている**。
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
@@ -10654,11 +10736,6 @@ function ReedsTab(props) {
     showNotice,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
-  // 展開中の箱は詳細を開いている間もここで保持する。ReedRegisterView側のstateにすると
-  // 詳細表示中にアンマウントされ、戻ったとき一覧が畳まれてトップに戻ってしまう(ユーザー報告)。
-  // 【N-5】正典の一覧は常時展開なので開閉は無くなったが、追加シートの下書き(メーカー・番手・枚数)は
-  // 同じ理由でここに置く必要がある。
-  const [listMode, setListMode] = useState(null);
   // 一覧のスクロール位置。詳細を開く直前に控え、戻ったら同じ位置へ復帰させる。
   const listScrollYRef = useRef(0);
   const openReed = (id) => { listScrollYRef.current = window.scrollY; setEvaluatingReedId(id); };
@@ -10713,9 +10790,8 @@ function ReedsTab(props) {
 
   // 【便R 後半-後半 2026-09-20】選ぶための入れ物(selectedBoxKeys / selectedMemberIds)と
   // トグル(toggleBoxSelected / toggleMemberSelected)、実行(confirmBoxDelete /
-  // confirmMemberDelete)は**読み手ごと消した**。残るモードは numberEdit だけで、
-  // これは「選んで実行する」型ではなく「編集して終わる」型なので選択の入れ物を持たない。
-  const exitMode = () => setListMode(null);
+  // confirmMemberDelete)は**読み手ごと消した**。
+  // 【AA-2 2026-09-21】最後の numberEdit も消えたので、モードの出口(exitMode)も無くなった。
 
   // 左右の余白は一覧・個体詳細・比較で同じ(正典 .rlist の 24px)。
   // **詳細だけ枠の外に出さない**: 早期 return を枠の内側に畳んであるのはそのため
@@ -10757,33 +10833,20 @@ function ReedsTab(props) {
       <SubTabs
         items={[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }]}
         value={reedsSubTab}
-        onChange={(k) => { if (listMode) exitMode(); setReedsSubTab(k); }}
+        onChange={(k) => setReedsSubTab(k)}
       >
-        {/* 正典 .subtabs の右端(margin-left:auto)。登録子タブのときだけ出す(正典の比較画面には無い)。 */}
-        {/* 【便P 2026-09-20 本人指示】「リードタブの右上の3点復活させてくれたがもう不要なので削除」。
-            **「その他の操作」のボタンだけ**を消した。モード中の出口は残す ──
-            番号編集モードの出口がこれしか無いので、消すとモードから戻れなくなる。
-            リードが0枚かどうかの条件(reeds.length > 0)は「…」だけのものだったので、
-            残る中身の条件 listMode !== null に畳んだ(空の器を描かない)。
-            【便R 後半-後半 2026-09-20 本人裁定】入口を失っていた削除モード2つは
-            定義ごと消えた。残るモードは numberEdit だけなので、**ここに出るのは「完了」1つ**。
-            削除の実行(DeleteActionButton)の呼び手もここから消えた ── 部品そのものは
-            すべての計測(AllSessionsPage)が使い続けるので残している。 */}
-        {reedsSubTab === "register" && listMode !== null && (
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-                {/* 【F-102】numberEdit は選んで実行する型ではなく「編集して終わる」型なので、
-                    出口の文言は「完了」(編集はシートを閉じた時点で確定済み。キャンセルと出すと
-                    変更が戻ると誤読される)。見た目の型は B型ピル。 */}
-                <button onClick={exitMode} className="sans" style={{ ...TAP_BUTTON_RESET }}>
-                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>完了</span>
-                </button>
-          </div>
-        )}
+        {/* 正典 .subtabs の右端(margin-left:auto)は**空になった**。
+            【便P 2026-09-20 本人指示】「その他の操作」(「…」)を消し、
+            【便R 後半-後半 2026-09-20 本人裁定】削除モード2つを定義ごと消し、
+            【AA-2 2026-09-21 本人指示】最後に残っていた番号編集モードの出口「完了」も、
+            モードそのものが無くなったので消えた。**右端に出すものはもう1つも無い。**
+            削除の実行(DeleteActionButton)は部品ごと残っている ──
+            すべての計測(AllSessionsPage)が使い続けるため。 */}
       </SubTabs>
 
       <SwipePager
         index={reedsSubTab === "compare" ? 1 : 0}
-        onIndexChange={(i) => { if (listMode) exitMode(); setReedsSubTab(i === 1 ? "compare" : "register"); }}
+        onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
       >
         <ReedRegisterView
           reeds={reeds} setReeds={setReeds}
@@ -10791,18 +10854,12 @@ function ReedsTab(props) {
           selectedReedId={selectedReedId}
           onOpenReed={openReed}
           reedGroups={reedGroups}
-          listMode={listMode}
           pageActive={reedsSubTab === "register"}
           /* 【B-2 で判った取りこぼし】箱の編集シートの「削除」(便N まで「この箱を削除」)は、ReedsTab の
              deleteReeds を**渡されないまま**名前で呼んでいた(ReedRegisterView は
              ReedsTab の入れ子ではないので、押すと ReferenceError で何も消えなかった)。
              削除の一手を1つに畳むついでに、ここで渡して繋ぐ。 */
           deleteReedsWithUndo={deleteReedsWithUndo}
-          /* 【便O 2026-09-20 本人指示】箱の編集シートの「番号編集」から番号編集モードへ入る。
-             listMode を持っているのは ReedsTab なので、そこへ入る一手をここから渡す。
-             【便R 後半-後半】「…」の『リード番号を変更』が消えたので、**この1箇所が
-             番号編集モードへの唯一の入口**になった(startMode という中継ぎは要らなくなった)。 */
-          enterNumberEdit={() => setListMode("numberEdit")}
         />
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
@@ -10821,8 +10878,9 @@ function ReedsTab(props) {
 //    ・リード番号を変更 → 箱の編集シートの「番号編集」が唯一の入口(便O)
 //  使い手の無い定義を残さない ── 便F・便K・M9 と同じ作法。)
 
-// 【F-102 2026/08/17 本人指示】「…」→「リード番号を変更」モードでタイルをタップすると開く、
-// 1枚ぶんの番号編集シート。シートの作法(暗幕・角丸28・つまみ36×4・影)は器の BottomSheet が持つ
+// 【F-102 2026/08/17 本人指示 / AA-2 2026-09-21 で入口が変わった】
+// 1枚ぶんの番号編集シート。**カードの右上の鉛筆を押すと直接開く**
+// (以前は「番号編集モードへ入ってからタイルをタップ」の2段だった)。シートの作法(暗幕・角丸28・つまみ36×4・影)は器の BottomSheet が持つ
 // (新しい濃さ・寸法を発明しない)。番号の意味は個別ページの入力欄と同一:
 // 自由記述・空にすると自動採番に戻る(placeholder に今の値が出る)。
 // 確定はシートを閉じる操作(背景タップ・つまみ・Escape)で行う(開いて閉じただけ=変更なしは書き込まない)。
@@ -11088,7 +11146,7 @@ const REED_SHEET_ROW_STYLE = {
 };
 // 【便R 2026-09-20 本人指示】ピルを置く行(厚さ / 枚数)。**新しい値を1つも作っていない**:
 // 枠(罫・名札との間隔・下限の高さ)は上の REED_SHEET_ROW_STYLE、上下の padding は
-// ReedSheetPickRow が持っていた "8px 0" をそのまま引いた。
+// 旧 ReedSheetPickRow が持っていた "8px 0" をそのまま引いた。
 // 違うのは向きだけ ── 名札の**下**にピルを並べるので縦に積む(9つは横1行に入らない)。
 // gap を 0 にするのは、ピルの <button> が既に上下 7px ずつの余白を持っているため
 // (足すと名札とピルの間だけが広く見える。PillGroup の注記と同じ理由)。
@@ -11096,54 +11154,86 @@ const REED_SHEET_PILL_ROW_STYLE = {
   ...REED_SHEET_ROW_STYLE,
   flexDirection: "column", alignItems: "flex-start", gap: 0, padding: "8px 0",
 };
-// 【便X 2026-09-21 本人指示】銘柄は「検索窓 + 候補」で選ぶ。
-// 本人の言葉:「リードタブでのリード追加時の銘柄はプロフィールと同様に選択肢羅列ではなく
-// 検索窓作って候補出る形に変更」。
+// 【AA-1 2026-09-21 本人指示】リードは**メーカーと銘柄を分けず、1つの検索**で選ぶ。
+// 本人の言葉:「リードの銘柄はプロフィールと同じようにメーカーと銘柄を分けないで検索対象に変更」。
 //
-// **作法はプロフィールの GearPicker(src/community/CommunityTab.jsx)をそのまま引く**:
-//   決まっている → 値 + ✕(押すと外れて検索窓に戻る) / 決まっていない → 検索窓 + 候補10件まで
-// 見た目(入力欄の寸法・候補の行)も GearPicker と同値。**その2つの綴りが同じであることを
-// 検証79.3 が両方のファイルを読んで突き合わせる**(片方だけ動く事故を綴りで止められないため)。
+// **母集団も絞り方もプロフィールの GearPicker と同じ1つ**(src/community/catalog/gear.js の
+// searchReeds)。新しいカタログを作らない・正規化を写さない。名札の語もプロフィールから引く
+// (GearPicker の label="リード")。
 //
-// 【部品そのものは畳めない】理由は3つ、どれも見た目ではなく作りの違い:
-//   ① 値の形が違う。GearPicker は {brand, model} の組、ここは銘柄の文字列1つ。
-//   ② 逃げ道が違う。GearPicker は末尾に「カタログに無い(その他)」を必ず置くが、
-//      銘柄の欄にはいま自由入力の経路が無い(本人指示「候補なしを出すだけ」)。
-//   ③ 住んでいる場所が違う。CommunityTab.jsx は lazy(() => import(...)) で遅らせてある。
-//      あちらから部品や style を import すると、計測タブの起動でコミュニティ一式まで
-//      読み込むことになる(分割の意味が消える)。
+// 【部品そのものは畳めない】便X の3つの理由のうち①(値の形)は消えた ── どちらも
+// {brand, model} の組になった。残る2つ:
+//   ・逃げ道が違う。GearPicker の「その他」(OTHER_BRAND)は**メーカー名を1つに潰す**ので、
+//     ここでは使えない: 箱のキーは メーカー|番手|開封日 なので、カタログに無いメーカーの箱が
+//     全部「その他」に合流してしまう。**作法(常に末尾に在る逃げ道の一手)だけを引き**、
+//     行き先は今までどおりリードの自由入力(REED_BRAND_CUSTOM)にする。
+//   ・住んでいる場所が違う。CommunityTab.jsx は lazy(() => import(...)) で遅らせてある。
+//     あちらから部品や style を import すると、計測タブの起動でコミュニティ一式まで読み込む。
 //
 // 枠(名札が上・中身が下)は厚さ・枚数の行と同じ REED_SHEET_PILL_ROW_STYLE。
 // 名札の綴りと左端も他の行と同じ REED_SHEET_ROW_LABEL_STYLE。**新しい枠を作らない。**
-const REED_MODEL_SEARCH_MAX = 10;
-// GearPicker の controlStyle と同値(検証79.3 が突き合わせる)。
-const REED_MODEL_SEARCH_INPUT_STYLE = {
+const REED_SEARCH_MAX = 10;
+// GearPicker の controlStyle と同値(検証81 が突き合わせる)。
+const REED_SEARCH_INPUT_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)",
   appearance: "none", WebkitAppearance: "none",
 };
-// GearPicker の候補の行と同値(検証79.3 が突き合わせる)。
-const REED_MODEL_SEARCH_OPTION_STYLE = {
+// GearPicker の候補の行と同値(検証81 が突き合わせる)。
+const REED_SEARCH_OPTION_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-3)", textAlign: "left",
   background: "transparent", border: "none", borderBottom: "1px solid var(--c-line)",
   borderRadius: 0, color: "var(--c-ink)", fontSize: "var(--fs-sm)", cursor: "pointer",
 };
-function ReedModelSearchRow({ label, options, value, onPick }) {
+// GearPicker の逃げ道の一手と同値(あちらの secondaryButtonStyle に --fs-sm / 600 を重ねた形。
+// 検証81 が CommunityTab.jsx を読んで突き合わせる)。
+const REED_SEARCH_OTHER_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
+  background: "var(--c-sunken)", color: "var(--c-ink-2)",
+  fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+};
+// 決まっている値を外す ✕。綴り・寸法は GearPicker の ✕ と同じ(--tap-min の当たり判定)。
+const REED_SEARCH_CLEAR_STYLE = {
+  minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
+  background: "transparent", border: "none", color: "var(--c-ink-3)",
+  fontSize: "var(--fs-md)", lineHeight: 1, cursor: "pointer", flexShrink: 0,
+};
+function ReedSearchRow({ label, brand, model, custom, customBrand, setCustomBrand, onPick, onOther }) {
   const [query, setQuery] = useState("");
-  // 絞り込みの規則はカタログ側の1つ(filterModelsByQuery)。ここで normalize を写さない。
-  const results = filterModelsByQuery(options, query).slice(0, REED_MODEL_SEARCH_MAX);
-  if (value) {
+  // 絞り込みの規則はカタログ側の1つ(searchReeds)。ここで normalize を写さない。
+  // 打つ前(空の問い合わせ)に全件は出さない ── searchReeds 自身の作法と同じ。
+  const results = query.trim() ? searchReeds(query).slice(0, REED_SEARCH_MAX) : [];
+  // 自由入力のメーカー。GearPicker の「その他」が立つ位置だが、名前は打ってもらう
+  // (潰すとカタログに無いメーカーの箱が全部1つに合流する)。
+  if (custom) {
     return (
       <div style={{ ...REED_SHEET_ROW_STYLE, padding: "8px 0" }}>
         <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
-        {/* 値の段は他の行(ReedSheetPickRow)と同じ左寄せの太字。▾ は持たない ──
-            押して一覧が出る欄ではなくなったので、残すと嘘の印になる(F-72 の ▾ の意味)。 */}
-        <span className="sans" style={{ flex: 1, textAlign: "left", fontWeight: 700, fontSize: "var(--fs-md)", color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
-        {/* 選び直す一手。綴り・寸法は GearPicker の ✕ と同じ(--tap-min の当たり判定)。 */}
+        <input
+          type="text" placeholder="新しいメーカー名を入力" value={customBrand}
+          onChange={(e) => setCustomBrand(e.target.value)}
+          aria-label="新しいメーカー名"
+          className="sans" style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, flex: 1, minWidth: 0 }}
+        />
         <button
           type="button" onClick={() => { setQuery(""); onPick(null); }}
           aria-label={`${label}の選択を解除`}
-          className="sans no-select"
-          style={{ minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0, background: "transparent", border: "none", color: "var(--c-ink-3)", fontSize: "var(--fs-md)", lineHeight: 1, cursor: "pointer", flexShrink: 0 }}
+          className="sans no-select" style={REED_SEARCH_CLEAR_STYLE}
+        >✕</button>
+      </div>
+    );
+  }
+  if (brand) {
+    return (
+      <div style={{ ...REED_SHEET_ROW_STYLE, padding: "8px 0" }}>
+        <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
+        {/* 値の段は厚さ・枚数の行と同じ左寄せの太字。▾ は持たない ──
+            押して一覧が出る欄ではないので、残すと嘘の印になる(F-72 の ▾ の意味)。
+            綴りは一覧の箱の見出しと同じ reedBrandModelLabel(メーカー 銘柄)。 */}
+        <span className="sans" style={{ flex: 1, textAlign: "left", fontWeight: 700, fontSize: "var(--fs-md)", color: "var(--c-ink)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reedBrandModelLabel(brand, model)}</span>
+        <button
+          type="button" onClick={() => { setQuery(""); onPick(null); }}
+          aria-label={`${label}の選択を解除`}
+          className="sans no-select" style={REED_SEARCH_CLEAR_STYLE}
         >✕</button>
       </div>
     );
@@ -11154,48 +11244,32 @@ function ReedModelSearchRow({ label, options, value, onPick }) {
       <input
         type="text" value={query} onChange={(e) => setQuery(e.target.value)}
         aria-label={`${label}を検索`}
-        className="sans" style={REED_MODEL_SEARCH_INPUT_STYLE}
+        className="sans" style={REED_SEARCH_INPUT_STYLE}
       />
       {results.length > 0 && (
         <div style={{ display: "grid", gap: 0, width: "100%" }}>
-          {results.map((m) => (
+          {results.map((r) => (
             <button
-              key={m} type="button"
-              onClick={() => { setQuery(""); onPick(m); }}
-              className="sans" style={REED_MODEL_SEARCH_OPTION_STYLE}
-            >{m}</button>
+              key={`${r.brand}/${r.model}`} type="button"
+              onClick={() => { setQuery(""); onPick({ brand: r.brand, model: r.model }); }}
+              className="sans" style={REED_SEARCH_OPTION_STYLE}
+            ><span style={{ color: "var(--c-ink-3)" }}>{r.brand}</span> {r.model}</button>
           ))}
         </div>
       )}
-      {/* 打った文字が候補に無いとき。**新しい自由入力の経路は作らない**(本人指示)ので、
-          出すのは「候補なし」の1行だけ。打つ前(空の問い合わせ)には何も出さない。 */}
-      {query.trim() && results.length === 0 && (
-        <div className="sans" style={{ minHeight: "var(--tap-min)", display: "flex", alignItems: "center", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink-3)" }}>候補なし</div>
-      )}
+      {/* 候補が出ていなくても常に末尾に置く(GearPicker と同じ作法)。
+          打った文字が候補ゼロだったときの逃げ道がこれ ── カタログに無いメーカーはここから登録する。 */}
+      <button
+        type="button" onClick={() => { setQuery(""); onOther(); }}
+        className="sans" style={REED_SEARCH_OTHER_STYLE}
+      >{REED_BRAND_CUSTOM_LABEL}</button>
     </div>
   );
 }
-function ReedSheetPickRow({ label, value, onOpen, expanded }) {
-  return (
-    <button
-      onClick={onOpen}
-      aria-label={label} aria-expanded={expanded}
-      className="sans"
-      style={{
-        ...REED_SHEET_ROW_STYLE, padding: "8px 0",
-        border: "none", borderBottom: "1px solid var(--c-line)",
-        background: "none", cursor: "pointer", fontSize: "var(--fs-md)", color: "var(--c-ink)", width: "100%",
-      }}
-    >
-      <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
-      <span style={{
-        flex: 1, textAlign: "left", fontWeight: 700,
-        minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>{value}</span>
-      <PickChevron />
-    </button>
-  );
-}
+// 【AA-1 2026-09-21】ここに在った ReedSheetPickRow(名札 + 太字の値 + ▾ の行)は
+// **読み手ごと消した**。箱のシートで ▾ を持っていたのはメーカーの行だけで、
+// その行が銘柄と1つの検索欄(ReedSearchRow)になったため。
+// ▾ の部品(PickChevron)そのものは計測タブなどが使い続けるので残っている。
 
 // 【F-80 / F-82】mode で「追加」と「箱を編集」を切り替える。**呼び出し側で切り替える**方式
 // (F-72 罠1 の bare と同じ考え)で、既定は今までどおり "add"。追加の呼び出しは1文字も変えない。
@@ -11203,30 +11277,21 @@ function ReedSheetPickRow({ label, value, onOpen, expanded }) {
 //   "edit" … メーカー + 番手 + 開封日。枚数は出さない(枚数は箱の中身であって箱の属性ではない)
 // メーカー・番手・開封日はどれも箱のキー(メーカー|番手|開封日)なので、編集は3つを1枚のシートで扱う。
 function ReedBoxSheet({
-  brandOptions, brand, setBrand, model, setModel, customBrand, setCustomBrand,
-  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, onNumberEdit = null, mode = "add",
+  brand, setBrand, model, setModel, customBrand, setCustomBrand,
+  strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, mode = "add",
 }) {
-  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
   // 【便R 2026-09-20 本人指示】厚さと枚数の**ホイールは無くなった**。選択肢は少なくて短いので、
   // シートを1枚挟まず**その場にピルを並べる**(OptionPills)。開閉の state も要らない。
-  // 【R6】そのメーカーに銘柄があるときだけ銘柄の行を出す(自由入力・カタログ外は空)。
-  const modelOptions = reedModelOptions(brand);
-  // メーカーを変えたら銘柄は先頭へ。**別のメーカーの銘柄が残る経路を作らない**。
-  const pickBrand = (v) => { setBrand(v); setModel(reedModelOptions(v)[0] ?? null); };
   const isEdit = mode === "edit";
   const isCustom = brand === REED_BRAND_CUSTOM;
   // 押しても何も起きない一手を作らない(§6.1.5)。実行側(registerReeds / applyBoxEdit)は
   // メーカーが空・開封日が空のとき**黙って return する**ので、その2つをここで先に潰しておく。
   // 片方だけにすると「押せるのに無反応」になる(審査役の変異で実際に生き残った経路)。
-  const disabled = (isCustom && !customBrand.trim()) || (isEdit && !startDate);
-  const pickerOptions = [...brandOptions, REED_BRAND_CUSTOM];
-  // 【F-88】下スワイプで閉じる。**メーカーの一覧を開いている間は配線ごと外す**
-  // (OptionSheet はこのシートの中から開く全画面モーダルで、シートに transform が
-  //  残っているとそのピッカーの position:fixed の基準がシートになる。§6.3。
-  //  ドラッグ後 SWIPE_BACK_SETTLE_MS で transform は消えるが、消える前にピッカーを
-  //  開けてしまう経路を残さない)。
+  // 【AA-1】メーカーは ✕ で外せるようになったので、空の枝は「自由入力が空」だけではない。
+  // 実行側と同じ「解決したメーカー名が空かどうか」を1つの式で見る。
+  const resolvedBrand = isCustom ? customBrand.trim() : String(brand ?? "").trim();
+  const disabled = !resolvedBrand || (isEdit && !startDate);
   return (
-    <>
       <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
           {/* 正典ミニの見出し「追加」(--fs-xs / --ink3。正典は便C で 11px → 12px)。
@@ -11235,39 +11300,19 @@ function ReedBoxSheet({
             <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{REED_ADD_SHEET_TITLE}</div>
           )}
 
-          {/* 【便N】メーカー。正典の行は「名札 + 太字の値(左寄せ) + ▾」。形は ReedSheetPickRow 1つ。
-              【便O 2026-09-20 本人指示】名札から「選択」を外した(「メーカー選択」→「メーカー」)。
-              ▾ が「押せば選択肢が出る」ことを既に言っているので、語で重ねて言わない(§6.1.5)。
-              **追加のシートも同じ語になる**(呼び出しを add と edit で共有しているため。意図どおり)。 */}
-          <ReedSheetPickRow
-            label="メーカー"
-            value={isCustom ? (customBrand.trim() || REED_BRAND_CUSTOM_LABEL) : brand}
-            onOpen={() => setBrandPickerOpen(true)}
-            expanded={brandPickerOpen}
+          {/* 【AA-1 2026-09-21 本人指示】メーカーの行と銘柄の行は**1つに畳んだ**。
+              名札の語はプロフィールの GearPicker から引く(あちらの label="リード")。
+              選ぶと brand と model の**両方**が決まる。保存される値の形は1文字も変えていない
+              (箱のキーは メーカー|番手|開封日 のまま)。
+              カタログに無いメーカーの逃げ道(自由入力)は行の中に残っている。 */}
+          <ReedSearchRow
+            label="リード"
+            brand={brand} model={model}
+            custom={isCustom}
+            customBrand={customBrand} setCustomBrand={setCustomBrand}
+            onPick={(v) => { setBrand(v ? v.brand : null); setModel(v ? v.model : null); }}
+            onOther={() => { setBrand(REED_BRAND_CUSTOM); setModel(null); }}
           />
-          {/* 「＋ 新しいメーカーを入力...」を選んだときだけ出る自由入力(現行のまま)。 */}
-          {isCustom && (
-            <input
-              type="text" placeholder="新しいメーカー名を入力" value={customBrand}
-              onChange={(e) => setCustomBrand(e.target.value)}
-              className="sans"
-              style={{ ...REED_FORM_CONTROL_STYLE, fontSize: 12, marginTop: 8 }}
-            />
-          )}
-
-          {/* 【R6 2026-09-16 本人裁定③】銘柄。カタログに銘柄のあるメーカーのときだけ出す。
-              【便X 2026-09-21 本人指示】**一覧の羅列をやめ、検索窓 + 候補**にした
-              (プロフィールと同じ作法)。絞る母集団は今までどおり reedModelOptions(brand)。
-              値が空(銘柄を知らない古い箱・✕ で外した直後)のときは検索窓が出る ── 以前
-              そこに出していた「—」は、押せば一覧が出る行の値としての綴りだったので役目が無い。 */}
-          {modelOptions.length > 0 && (
-            <ReedModelSearchRow
-              label="銘柄"
-              options={modelOptions}
-              value={model}
-              onPick={(v) => setModel(v)}
-            />
-          )}
 
           {/* 【R2 2026-09-16】枚数の −/数値/＋(正典ミニの .pmt / METRO_PM_W)は**廃止**した。
               便N で枚数は行になった。METRO_PM_W の読み手は計測タブのテンポ行だけのまま。 */}
@@ -11354,24 +11399,10 @@ function ReedBoxSheet({
               (便E で本人が決めた綴りと寸法。今回の指示に入っていない)。 */}
           {isEdit ? (
             <div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
-              {/* 【便O 2026-09-20 本人指示】リードの番号を変える入口。
-                  **新しい仕組みは作らない**: 既にある listMode === "numberEdit" へ入るだけで、
-                  シートを閉じて一覧をそのモードにする(配線は呼び出し側が持つ)。
-                  【便R 後半-後半 2026-09-20】「…」が定義ごと消えたので、**ここが唯一の入口**になった。
-                  onDelete と同じ作法で、**渡されたときだけ**出す(追加の呼び出しには渡さない)。 */}
-              {onNumberEdit ? (
-                <button
-                  type="button" onClick={onNumberEdit}
-                  className="sans"
-                  style={{
-                    flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    borderRadius: "var(--r-pill)", border: "none",
-                    background: "var(--c-sunken)", color: "var(--c-ink-2)",
-                    fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-                  }}
-                >番号編集</button>
-              ) : null}
+              {/* 【AA-2 2026-09-21 本人指示】ここに在った「番号編集」は**綴りごと消えた**。
+                  番号を変える入口は各タイルの右上の鉛筆1つになり、モード(listMode)そのものが
+                  無くなったので、この一手には行き先が残っていない(押しても何も起きない一手を残さない)。
+                  残るのは削除だけ。幅の指定(flex: "1 1 0")は触っていないので、行いっぱいに伸びる。 */}
               {/* 【2026/09/10 本人指示】箱ごと消す一手。**編集のときだけ**出す
                   (追加の途中に消すものは無い)。
                   【.ctl-danger は使わない】あの綴りは「選んだぶんを消す」共通部品ひとつだけの
@@ -11415,37 +11446,22 @@ function ReedBoxSheet({
             </div>
           )}
       </BottomSheet>
-      {/* メーカーの一覧はシートの**外**に出す(z-index はシートと同じ層の上)。
-          シートの中に置くと、暗幕がシートの中に閉じて背面がタップできてしまう(F-73 と同型の罠)。 */}
-      {brandPickerOpen && (
-        <OptionSheet
-          options={pickerOptions}
-          ariaLabel="メーカー"
-          value={brand}
-          onChange={(v) => pickBrand(v)}
-          onClose={() => setBrandPickerOpen(false)}
-          labelFn={(v) => (v === REED_BRAND_CUSTOM ? REED_BRAND_CUSTOM_LABEL : v)}
-        />
-      )}
-      {/* 【便X 2026-09-21】銘柄の一覧は**無くなった**(シートの中の検索窓 + 候補が選ぶ)。
-          開閉の state ごと消えているので、死んだ受け口は残っていない。 */}
-      {/* 【便R 2026-09-20】厚さ・枚数のピッカーは**無くなった**(シートの中のピルが選ぶ)。
-          値の歯止め(clampReedAddCount)は呼び出し側に残っている ── 箱1つぶんを越える経路を作らない。 */}
-    </>
   );
 }
+// 【AA-1 2026-09-21】メーカーの一覧(OptionSheet)と開閉の state は**綴りごと無くなった**
+// ── メーカーは銘柄と1つの検索欄になったので、選択肢を並べるシートに読み手が居ない。
+// 【便X 2026-09-21】銘柄の一覧も無い。死んだ受け口は1つも残っていない。
+// 【便R 2026-09-20】厚さ・枚数のピッカーも無い(シートの中のピルが選ぶ)。
+// 値の歯止め(clampReedAddCount)は呼び出し側に残っている ── 箱1つぶんを越える経路を作らない。
 
 function ReedRegisterView(props) {
   const {
     reeds, setReeds, sessions, selectedReedId, onOpenReed, reedGroups,
-    listMode,
     // 【F-111】浮かせるボタンは body へ portal で出るので、SwipePager の「今どのページか」を
     // 知らないと**隣のページ(比較)を見ている間も出たままになる**。呼び出し側が渡す。
     pageActive,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
-    // 【便O】箱の編集シートからの「番号編集」が番号編集モードへの入口(便R 後半-後半 以降は唯一)。
-    enterNumberEdit,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -11457,16 +11473,15 @@ function ReedRegisterView(props) {
   const [newStrength, setNewStrength] = useState(REED_STRENGTH_DEFAULT); // 初期値3.0
   const [addCount, setAddCount] = useState(REED_ADD_COUNT_MAX);      // 既定は箱ぶん(10枚)
 
-  // ユーザーが自由入力したメーカーを選択肢に自動追加(カタログ+動的追加分)
-  const [extraBrands, setExtraBrands] = useState([]);
-  const brandOptions = [...REED_BRAND_OPTIONS, ...extraBrands];
+  // 【AA-1 2026-09-21】自由入力したメーカーを一覧へ足す入れ物(extraBrands / brandOptions)は
+  // **読み手ごと消した**。メーカーの選択肢を並べるシートが無くなり(1つの検索欄になった)、
+  // 足した先を読む者が1人も居なくなったため。自由入力そのものは行の中に残っている。
 
-  // 【F-102 2026/08/17 本人指示】番号編集モード(listMode === "numberEdit")中にタップした
-  // 1枚。id で持つ(リードそのものを持つと、編集で reeds が変わった瞬間に古い実体を掴む)。
+  // 【F-102 2026/08/17 本人指示 / AA-2 2026-09-21】番号を変える1枚。
+  // 押されたカードの鉛筆が id を入れる(以前はモード中のタップだった)。
+  // id で持つ(リードそのものを持つと、編集で reeds が変わった瞬間に古い実体を掴む)。
   const [numberEditId, setNumberEditId] = useState(null);
   const numberEditReed = numberEditId ? reeds.find((r) => r.id === numberEditId) || null : null;
-  // モードを抜けたら開きっぱなしのシートも閉じる(モード外にシートだけ残さない)
-  useEffect(() => { if (listMode !== "numberEdit") setNumberEditId(null); }, [listMode]);
 
   // 【F-80 / F-82】箱の編集。見出しのメーカー／日付をタップして開く。下書きは箱のキーで持つ
   // (箱そのものを持つと、編集で reeds が変わった瞬間に古い箱を掴んだままになる)。
@@ -11494,10 +11509,6 @@ function ReedRegisterView(props) {
   const registerReeds = (count) => {
     const brand = resolveBrand();
     if (!brand) return;
-    // 自由入力のメーカーは選択肢に自動追加(重複は避ける)
-    if (newBrand === REED_BRAND_CUSTOM && !brandOptions.includes(brand)) {
-      setExtraBrands((prev) => [...prev, brand]);
-    }
     // **ローカル暦日**で入れる(localDayKey の解説を見ること)。
     // toISOString().slice(0,10) は UTC の暦日なので、JST の 00:00〜09:00 に追加すると
     // 1日前の開封日になり、箱のキー(メーカー|番手|開封日)まで割れる。
@@ -11562,10 +11573,6 @@ function ReedRegisterView(props) {
     if (!editGroup) return;
     const brand = editBrand === REED_BRAND_CUSTOM ? editCustomBrand.trim() : editBrand;
     if (!brand || !editStartDate) return;
-    // 自由入力のメーカーは選択肢に自動追加(追加シートと同じ扱い)
-    if (editBrand === REED_BRAND_CUSTOM && !brandOptions.includes(brand)) {
-      setExtraBrands((prev) => [...prev, brand]);
-    }
     updateGroup(editGroup, { brand, model: editModel, strength: editStrength, startDate: editStartDate });
     setEditBoxKey(null);
   };
@@ -11588,15 +11595,17 @@ function ReedRegisterView(props) {
     setReeds((prev) => prev.map((r) => (orderById.has(r.id) ? { ...r, sortOrder: orderById.get(r.id) } : r)));
   };
 
-  /* 【並び替えの案内(1行)の経緯】
+  /* 【長押しの案内(1行)の経緯】
      ・R7 2026-09-16 実機の指摘で**一度削除した**。読み手が無くなった anyReorderable も
        定義ごと消してある(死んだ計算を残さない)。
      ・便O 2026-09-20 本人の再指示で**戻した**。操作そのもの(長押し + ドラッグ)は
        ずっと ReedTileGrid に在るのに、画面のどこにも「長押しできる」と書いていないため
        気付けない(§6.1.5 の裏返し ── 在る一手を隠したままにしない)。
+     ・【AA-3 2026-09-21 本人指示】語を「長押しで並び替え」→「長押しで編集」に替えた。
+       長押しで起きることが並び替えだけではなくなった(持ち上がったカードが揺れ、
+       そのまま動かせば並び替わる)ため。**体裁は1px も変えていない。**
      戻したのは**案内の1行だけ**で、anyReorderable は復活させていない。
-     出す条件は「一覧が素のとき(listMode === null)かつリードが1枚以上」── 削除・番号編集の
-     最中は別の案内が出ていて、そこで長押しはできない。 */
+     出す条件は「リードが1枚以上」── モードは無くなったので、条件は枚数1つになった。 */
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -11609,11 +11618,9 @@ function ReedRegisterView(props) {
           // **見た目は 1px も足していない**: 地・枠・角丸・下線を持たない <button> にし、
           // 当たり判定だけ index.css の .taptext(疑似要素)で 44pt へ広げる
           // (DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
-          // **モード中は**素の <span> に戻す。番号を変える作業中に編集シートが開くのは
-          // 筋が通らないうえ、タイルのタップが番号編集に一本化されている最中に
-          // 見出しだけ別の意味を持つことになるため。
-          // 【便R 後半-後半】残るモードは numberEdit だけになったので、理由も1つになった。
-          const boxEditable = listMode === null;
+          // 【AA-2 2026-09-21】モードが無くなったので、**見出しは常に押せる**。
+          // 「モード中は素の <span> に戻す」枝は読み手ごと消した(番号編集は鉛筆が直接開くので、
+          //  一覧が別の意味を持つ最中というものが存在しない)。
           const nameStyle = { fontSize: 15, fontWeight: 600, color: "var(--c-ink)", minWidth: 0 };
           const nameInner = (
             <>{reedBrandModelLabel(g.brand, g.model)} <span style={{ color: "var(--c-ink-3)", fontWeight: 400, fontStyle: "normal" }}>{g.strength}</span></>
@@ -11624,35 +11631,27 @@ function ReedRegisterView(props) {
               {/* 正典 .rname: 15px / 600。番手は <i>(--ink3 / 400 / 斜体にしない)。
                   切り取り(ellipsis)は**内側の子**が持つ。外側に overflow:hidden を置くと
                   .taptext の疑似要素ごと切られて当たり判定が 44pt を割る。 */}
-              {boxEditable ? (
-                <button
-                  type="button"
-                  onClick={() => openBoxEdit(g)}
-                  aria-label={`${g.brand} ${g.strength} のメーカーと番手を編集`}
-                  className="rname sans taptext"
-                  style={{ ...nameStyle, background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", display: "block" }}
-                >
-                  <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameInner}</span>
-                </button>
-              ) : (
-                <span className="rname sans" style={{ ...nameStyle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameInner}</span>
-              )}
+              <button
+                type="button"
+                onClick={() => openBoxEdit(g)}
+                aria-label={`${g.brand} ${g.strength} のメーカーと番手を編集`}
+                className="rname sans taptext"
+                style={{ ...nameStyle, background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", display: "block" }}
+              >
+                <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameInner}</span>
+              </button>
               {/* 正典 .rmeta: 12px / --ink3 / gap 10 / baseline。★は文字のまま(星の絵は使わない) */}
               <span className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", display: "flex", gap: 10, alignItems: "baseline", flexShrink: 0 }}>
                 {avgRating !== null && <span>★{avgRating.toFixed(1)}</span>}
-                {boxEditable ? (
-                  <button
-                    type="button"
-                    onClick={() => openBoxEdit(g)}
-                    aria-label={`${g.brand} ${g.strength} の開封日を編集`}
-                    className="sans taptext"
-                    style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--c-ink-3)", cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    {dateText}
-                  </button>
-                ) : (
-                  <span>{dateText}</span>
-                )}
+                <button
+                  type="button"
+                  onClick={() => openBoxEdit(g)}
+                  aria-label={`${g.brand} ${g.strength} の開封日を編集`}
+                  className="sans taptext"
+                  style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--c-ink-3)", cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  {dateText}
+                </button>
               </span>
             </>
           );
@@ -11668,9 +11667,11 @@ function ReedRegisterView(props) {
                 reeds={reeds}
                 sessions={sessions}
                 selectedReedId={selectedReedId}
-                numberEditing={listMode === "numberEdit"}
-                onTileTap={(id) => (listMode === "numberEdit" ? setNumberEditId(id)
-                  : onOpenReed?.(id))}
+                /* 【AA-2 2026-09-21 本人指示】カードの2つの口は**行き先が別**。
+                   タップ(本体)= 個体詳細 / 鉛筆 = 番号のシート。
+                   モードで意味が入れ替わる形(以前の numberEditing)はもう無い。 */
+                onTileTap={(id) => onOpenReed?.(id)}
+                onPencilTap={(id) => setNumberEditId(id)}
                 onReorder={reorderGroupMembers}
               />
             </div>
@@ -11687,20 +11688,18 @@ function ReedRegisterView(props) {
           (正典 .addrow の padding-top を持っていた REED_ADDROW_PAD_TOP_PX は読み手が
            無くなったので定義ごと削除した。) */}
 
-      {/* 【F-102】番号編集モード中の案内(1行)と、タップした1枚の番号編集シート。
+      {/* 【AA-2 2026-09-21 本人指示】番号編集モード中の案内「番号を変更するリードをタップ」は
+          **綴りごと消えた** ── モードが無くなり、番号のシートはカードの鉛筆が直接開くので、
+          「どれをタップするか」を言う相手が居ない。
           変更の確定はシートを閉じたとき(値が変わったときだけ書き込む=個別ページの
-          commitPosition と同じ判定)。 */}
-      {listMode === "numberEdit" && (
-        <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
-          番号を変更するリードをタップ
-        </div>
-      )}
+          commitPosition と同じ判定)。配線は下の numberEditReed のところ。 */}
 
-      {/* 【便O 2026-09-20 本人指示】並び替えの案内(1行)。体裁は**すぐ上の案内と同値**
-          (--fs-xs / --c-ink-3 / 中央 / 上に --sp-2)── 新しい値は作っていない。 */}
-      {listMode === null && reeds.length > 0 && (
+      {/* 【便O 2026-09-20 本人指示】長押しの案内(1行)。体裁は**便O のときと同値**
+          (--fs-xs / --c-ink-3 / 中央 / 上に --sp-2)── 新しい値は作っていない。
+          【AA-3 2026-09-21 本人指示】語だけを「長押しで並び替え」から入れ替えた。 */}
+      {reeds.length > 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
-          長押しで並び替え
+          長押しで編集
         </div>
       )}
 
@@ -11737,7 +11736,6 @@ function ReedRegisterView(props) {
 
       {addOpen && (
         <ReedBoxSheet
-          brandOptions={brandOptions}
           brand={newBrand} setBrand={setNewBrand}
           model={newModel} setModel={setNewModel}
           customBrand={customBrand} setCustomBrand={setCustomBrand}
@@ -11749,24 +11747,20 @@ function ReedRegisterView(props) {
       )}
 
       {/* 【F-80 / F-82】箱の編集。**mode は呼び出し側で渡す**(既定は "add" のまま)。
-          メーカーの選択肢にはこの箱のメーカーを必ず含める(過去に自由入力したメーカーは
-          brandOptions に載っていないことがあり、載っていないと開いた瞬間に別のメーカーへ化ける)。 */}
+          【AA-1 2026-09-21】メーカーの選択肢を渡す必要は無くなった ── 1つの検索欄になり、
+          いま決まっている値(brand / model)はそのまま名前で描かれるので、
+          カタログに無いメーカーの箱を開いても別のメーカーへ化けようがない。 */}
       {editGroup && (
         <ReedBoxSheet
           mode="edit"
-          brandOptions={[...new Set([...brandOptions, editGroup.brand])]}
           brand={editBrand} setBrand={setEditBrand}
           model={editModel} setModel={setEditModel}
           customBrand={editCustomBrand} setCustomBrand={setEditCustomBrand}
           strength={editStrength} setStrength={setEditStrength}
           startDate={editStartDate} setStartDate={setEditStartDate}
           onDelete={deleteEditingBox}
-          /* 【便O 2026-09-20 本人指示】番号編集はこの1手で既存のモードへ入るだけ。
-             **シートを閉じてから**モードへ入る(開いたままだと、一覧のタイルが
-             シートの裏に隠れていて「タップするリード」が押せない)。
-             numberEditId の後始末は既存の useEffect がそのまま面倒を見る。
-             【便P 2026-09-20】**先に applyBoxEdit を呼ぶ**(編集中の値を捨てない)。 */
-          onNumberEdit={() => { applyBoxEdit(); setEditBoxKey(null); enterNumberEdit(); }}
+          /* 【AA-2 2026-09-21 本人指示】ここに在った onNumberEdit は**綴りごと消えた**。
+             番号を変える入口はカードの右上の鉛筆1つになった。 */
           /* 【便P 2026-09-20 本人指示】「情報を変更して編集画面を閉じたら変更反映されるように」。
              つまみ・暗幕タップ・下スワイプ・Escape の4つの閉じ方はどれもこの onClose を通るので、
              ここ1箇所で全部が反映される(「変更」のボタンはもう無い)。

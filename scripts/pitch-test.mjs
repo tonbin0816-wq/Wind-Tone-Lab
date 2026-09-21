@@ -386,6 +386,10 @@ const code = [
   extractConst("REED_TILE_SETTLE_MS"),
   extractConst("REED_TILE_LIFT_PX"),
   extractConst("REED_TILE_DRAG_DEG"),
+  // 【AA-2 2026-09-21】カードの右上の鉛筆の寸法(検証81 が値と導き方を突き合わせる)。
+  extractConst("REED_TILE_PENCIL_PX"),
+  extractConst("REED_TILE_PENCIL_GLYPH_PX"),
+  extractConst("REED_TILE_PENCIL_STROKE"),
   extractFunction("reedTileVisual"),
   // 詳細画面の横スワイプ(指追従。右=戻る / 左=onForward)
   extractConst("SWIPE_BACK_THRESHOLD_RATIO"),
@@ -502,6 +506,7 @@ const api = new Function(`${code}
            reedTileTone, gridDropIndex, reedDetailMetaParts, clampReedAddCount,
            REED_ADD_SHEET_TITLE, reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
+           REED_TILE_PENCIL_PX, REED_TILE_PENCIL_GLYPH_PX, REED_TILE_PENCIL_STROKE,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
            reedGroupAvgRating, reedGroupKey, groupReeds, reedMemberOrder,
@@ -8716,10 +8721,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // PlainSelect をやめ、ReedPickSheet を直に開く**自前の枠**になった(綴りが1つ増える)。
         // 画面に出る ▾ の数は変わっていない ── 同じ場所に同じ ▾ が出続ける。
         // 【便X 2026-09-21 で 9 → 10】基準ピッチが「値 + ▾」に戻った(押すとシートが開く)。
-        // 銘柄の行は ▾ の行(ReedSheetPickRow)から**検索窓**になったが、▾ の綴りは
-        // 共有部品の中の1つなので数は動かない(下の「共有部品に1つだけ」が行の数を固定する)。
-        check("F-72: ▾ を使う綴りは10(上部設定行の4つ + 箱のシートの行の共有部品 + データタブのフィルタピル + PlainSelect + 編集シートのリード + My Data の累計カード + 目安を追加)",
-          n === 10, `${n}箇所`);
+        // 【AA-1 2026-09-21 で 10 → 9】箱のシートのメーカーが銘柄と1つの検索欄になり、
+        // 「押せば一覧が出る行」が消えたので、その共有部品(ReedSheetPickRow)ごと無くなった。
+        // **画面から ▾ が1つ減ったのは、押せば一覧が出る行が1つ減ったから**(嘘の印を残さない)。
+        check("F-72: ▾ を使う綴りは9(上部設定行の4つ + データタブのフィルタピル + PlainSelect + 編集シートのリード + My Data の累計カード + 目安を追加)",
+          n === 9, `${n}箇所`);
         check("N-9: PlainSelect の ▾ は共有部品の中に1つだけ(呼び出し側に写していない)",
           (srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length === 1,
           `${(srcOfFn(src, "PlainSelect").match(/<PickChevron \/>/g) || []).length}箇所`);
@@ -8745,12 +8751,15 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           // メーカーと銘柄の2つになった。**主張は1つも緩めていない** ── ▾ の綴りが
           // 共有部品の中に1つだけで、シート本体には1つも書かれていないことは同じ。
           // 【便X 2026-09-21 で 2 → 1】銘柄は**検索窓 + 候補**になり、▾ の行はメーカーだけ。
-          // 検索窓の行は押せば一覧が出る行ではないので ▾ を持たない(嘘の印を作らない)。
-          check("N-5 / R6 / 便R / 便X: 箱のシートの行の ▾ は共有部品に1つだけ(行ごとに写していない)",
+          // 【AA-1 2026-09-21 で 1 → 0】そのメーカーの行も銘柄と1つの検索欄(ReedSearchRow)に
+          // 畳まれた。行の部品(ReedSheetPickRow)は読み手ごと消えている。
+          // **主張は1つも緩めていない**: シート本体に ▾ が1つも書かれていない(嘘の印を作らない)
+          // ことを見る ── 押せば一覧が出る行がもう無いので、正しい数は0。
+          check("N-5 / R6 / 便R / 便X / AA-1: 箱のシートに ▾ の行は1つも無い(押せば一覧が出る行が消えた)",
             (sheet.match(/<PickChevron \/>/g) || []).length === 0
-            && (srcOfFn(src, "ReedSheetPickRow").match(/<PickChevron \/>/g) || []).length === 1
-            && (sheet.match(/<ReedSheetPickRow/g) || []).length === 1,
-            `シート直書き=${(sheet.match(/<PickChevron \/>/g) || []).length} / 行=${(sheet.match(/<ReedSheetPickRow/g) || []).length}`);
+            && !/ReedSheetPickRow/.test(codeOf(src))
+            && (sheet.match(/<ReedSearchRow/g) || []).length === 1,
+            `シート直書き=${(sheet.match(/<PickChevron \/>/g) || []).length} / 検索の行=${(sheet.match(/<ReedSearchRow/g) || []).length}`);
         }
       }
       // 型のクラスは名前で書く作法のまま(リードタブ等で使い続けるため)。
@@ -9028,24 +9037,38 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // (審査役の変異で `(isEdit && !startDate)` を外しても生存した = 検査が無かった)。
       {
         const sheet = srcOfFn(src, "ReedBoxSheet");
+        // 【AA-1 2026-09-21】メーカーは ✕ で外せるようになったので、判定が
+        // `resolvedBrand` を1行挟む形になった。**取り出す行を1つ増やしただけ**で、
+        // 走らせ方も主張も同じ(実ソースの式をそのまま実行して突き合わせる)。
+        const mr = /const resolvedBrand = (.+);/.exec(sheet);
         const m = /const disabled = (.+);/.exec(sheet);
         check("F-82: シートの disabled の式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
-        const isDisabled = new Function("isCustom", "customBrand", "isEdit", "startDate",
-          `return !!(${m ? m[1] : "false"});`);
+        check("F-82 / AA-1: メーカー名を解決する式も実ソースから取れている", mr !== null, mr ? mr[1] : "取れない");
+        const isDisabled = new Function("isCustom", "customBrand", "isEdit", "startDate", "brand",
+          `const resolvedBrand = ${mr ? mr[1] : '""'};
+           return !!(${m ? m[1] : "false"});`);
         // 編集: 開封日が空なら押せない / 入っていれば押せる
         check("F-82: 編集で開封日が空なら「変更」は押せない(死んだ一手にしない)",
-          isDisabled(false, "", true, "") === true && isDisabled(false, "", true, null) === true,
-          `空=${isDisabled(false, "", true, "")}`);
+          isDisabled(false, "", true, "", "Vandoren") === true && isDisabled(false, "", true, null, "Vandoren") === true,
+          `空=${isDisabled(false, "", true, "", "Vandoren")}`);
         check("F-82: 編集で開封日が入っていれば押せる",
-          isDisabled(false, "", true, "2026-08-13") === false,
-          `${isDisabled(false, "", true, "2026-08-13")}`);
+          isDisabled(false, "", true, "2026-08-13", "Vandoren") === false,
+          `${isDisabled(false, "", true, "2026-08-13", "Vandoren")}`);
         // 自由入力のメーカーが空なら追加も編集も押せない(現行のまま)
         check("F-82: 自由入力のメーカーが空なら押せない(追加・編集とも)",
-          isDisabled(true, "  ", false, "") === true && isDisabled(true, "  ", true, "2026-08-13") === true,
-          `${isDisabled(true, "  ", false, "")} / ${isDisabled(true, "  ", true, "2026-08-13")}`);
+          isDisabled(true, "  ", false, "", "__custom__") === true && isDisabled(true, "  ", true, "2026-08-13", "__custom__") === true,
+          `${isDisabled(true, "  ", false, "", "__custom__")} / ${isDisabled(true, "  ", true, "2026-08-13", "__custom__")}`);
         // 追加は開封日を持たない(自動で入る)ので、startDate が空でも押せる
         check("F-82: 追加は開封日を聞かないので startDate が空でも押せる",
-          isDisabled(false, "", false, "") === false, `${isDisabled(false, "", false, "")}`);
+          isDisabled(false, "", false, "", "Vandoren") === false, `${isDisabled(false, "", false, "", "Vandoren")}`);
+        // 【AA-1】メーカーを ✕ で外した(brand = null)なら押せない。
+        // registerReeds は resolveBrand() が空だと黙って return するので、
+        // ここが false のままだと「押せるのに無反応」が生まれる。
+        check("F-82 / AA-1: メーカーを外した直後は押せない(追加・編集とも)",
+          isDisabled(false, "", false, "", null) === true
+          && isDisabled(false, "", true, "2026-08-13", null) === true
+          && isDisabled(false, "", false, "", "   ") === true,
+          `null=${isDisabled(false, "", false, "", null)} / 空白=${isDisabled(false, "", false, "", "   ")}`);
         // 実行側が同じ2つで return していること(ボタンと実行の判断がずれない)
         check("F-82: applyBoxEdit も メーカーが空 / 開封日が空 で return する(ボタンと同じ判断)",
           /const applyBoxEdit = \(\) => \{[\s\S]{0,400}?if \(!brand \|\| !editStartDate\) return;/.test(srcOf("ReedRegisterView")));
@@ -9070,10 +9093,17 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("メーカーの自由入力の値とラベルは現行のまま",
         api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力...",
         `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
-      check("メーカーのピッカーの選択肢は 登録済み + 「＋ 新しいメーカーを入力...」",
-        /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(src));
-      check("自由入力したメーカーは候補に自動追加される(重複は避ける)",
-        /if \(newBrand === REED_BRAND_CUSTOM && !brandOptions\.includes\(brand\)\) \{\s*setExtraBrands/.test(src));
+      // 【AA-1 2026-09-21】メーカーの一覧そのものが無くなった(1つの検索欄になった)ので、
+      // 「一覧の末尾に自由入力を置く」も「自由入力したメーカーを一覧へ足す」も**行き先が消えた**。
+      // 主張を事実の側へ向け直す: 逃げ道は**検索の行の末尾に常に在るボタン**で、
+      // 一覧と入れ物(pickerOptions / extraBrands / brandOptions)は綴りごと無い。
+      check("AA-1: 自由入力の逃げ道は検索の行の末尾に常に在る(押すと REED_BRAND_CUSTOM へ)",
+        /onClick=\{\(\) => \{ setQuery\(""\); onOther\(\); \}\}/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+        && /\{REED_BRAND_CUSTOM_LABEL\}<\/button>/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+        && /onOther=\{\(\) => \{ setBrand\(REED_BRAND_CUSTOM\); setModel\(null\); \}\}/.test(codeOf(srcOfFn(src, "ReedBoxSheet"))));
+      check("AA-1: メーカーの一覧と、そこへ足す入れ物は綴りごと無い(死んだ受け口を残さない)",
+        !/pickerOptions|extraBrands|brandOptions/.test(codeOf(src)),
+        (codeOf(src).match(/pickerOptions|extraBrands|brandOptions/g) || []).join(" / ") || "0件");
       // 【2026/09/06 本人指示】2.0〜4.0 の 0.25 刻み。旧5値の上位集合なので、
       // 保存済みの箱の strength(文字列)は1件も書き換えなくてよい。
       check("番手は9種(2.0〜4.0 の 0.25 刻み)",
@@ -9952,9 +9982,12 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       check("便R: 「…」の一式(REED_MORE_ITEMS / ReedMoreMenu / moreOpen)が綴りごと無い",
         !/REED_MORE_ITEMS|ReedMoreMenu|moreOpen/.test(codeOf(src)),
         (codeOf(src).match(/REED_MORE_ITEMS|ReedMoreMenu|moreOpen/g) || []).join(" / ") || "0件");
-      check("便R: 残るモードは numberEdit だけ(削除の2モードは綴りごと無い)",
-        !/boxDelete|memberDelete/.test(codeOf(src)) && /listMode === "numberEdit"/.test(codeOf(src)),
-        (codeOf(src).match(/boxDelete|memberDelete/g) || []).join(" / ") || "0件");
+      // 【AA-2 2026-09-21】最後に残っていた numberEdit も入口ごと消えた(入口はカードの鉛筆)。
+      // 主張を事実の側へ向け直す: **登録一覧のモードは1つも残っていない**。
+      check("便R / AA-2: 登録一覧のモードは1つも残っていない(削除の2つも番号編集も綴りごと無い)",
+        !/boxDelete|memberDelete/.test(codeOf(src)) && !/"numberEdit"/.test(codeOf(src))
+        && !/enterNumberEdit|exitMode/.test(codeOf(src)),
+        (codeOf(src).match(/boxDelete|memberDelete|"numberEdit"|enterNumberEdit|exitMode/g) || []).join(" / ") || "0件");
       // 【審査で塞いだ穴】番号シートの「開いて閉じただけでは書かない」2ガードが無検査で、
       // 削除する変異が生存した(開閉だけで自動採番が boxNumber に**不可逆に固定化**される
       // = F-105 で自ら「気づきにくいが不可逆」と起票した当の形)。onCommit に**隣接する綴り**で固定。
@@ -9971,12 +10004,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       }
       // 番号編集モードの出口は「完了」(「キャンセル」だと blur 確定済みの変更が戻ると誤読される。
       // 統括が承認した文言の決定)。
-      // 【便R 後半-後半 2026-09-20】削除系のモードが定義ごと消え、残るモードは numberEdit だけに
-      // なったので、**枝そのものが無くなって「完了」1つ**になった。主張は同じ(出口の語は「完了」)。
-      check("F-102: モードの出口の文言は「完了」ただ1つ(「キャンセル」の枝ごと無い)",
-        />完了<\/span>/.test(codeOf(srcOfFn(src, "ReedsTab")))
-        && !/キャンセル/.test(codeOf(srcOfFn(src, "ReedsTab"))),
-        (codeOf(srcOfFn(src, "ReedsTab")).match(/キャンセル/g) || []).join(" / ") || "0件");
+      // 【AA-2 2026-09-21】モードそのものが無くなったので、出口も要らなくなった。
+      // **主張を事実の側へ向け直す**(緩めていない): 出口の語も、それが守っていたモードも
+      // 綴りごと無いこと ── 出口だけ残すと「押しても何も起きない一手」になる。
+      check("F-102 / AA-2: モードの出口(完了)はモードごと無い(キャンセルも0件)",
+        !/>完了<\/span>/.test(codeOf(srcOfFn(src, "ReedsTab")))
+        && !/キャンセル/.test(codeOf(srcOfFn(src, "ReedsTab")))
+        && !/listMode/.test(codeOf(srcOfFn(src, "ReedsTab"))),
+        (codeOf(srcOfFn(src, "ReedsTab")).match(/キャンセル|listMode/g) || []).join(" / ") || "0件");
       // 「開封日を編集」という入口が「…」側に残っていないこと(モードごと消したことの裏取り)。
       check("F-80: listMode に \"dateEdit\" が残っていない(モードごと消した)",
         !/"dateEdit"/.test(codeOf(src)), (codeOf(src).match(/"dateEdit"/g) || []).join(",") || "0件");
@@ -9990,20 +10025,23 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 削除の項目を出していた(審査役の実測)。§6.0 の3原則「今に関係ない物は出ていない」。
       // どれも「箱があること」が前提なので、**入口ごと**出さない。
       // 【便P 2026-09-20 本人指示】「リードタブの右上の3点…もう不要なので削除」。
-      // 「…」が消えたので、右端の行に残るのは**モード中の出口と実行だけ**になった。
-      // 主張を事実の側へ向け直す(緩めてはいない): 条件式を実ソースから取り出して走らせ、
-      // 「モードが無ければ行ごと出さない / モードが残っていれば必ず出す」を見る。
+      // 【AA-2 2026-09-21】最後に残っていたモード中の出口も消え、**子タブ行の右端は空**になった。
+      // 主張を事実の側へ向け直す(緩めてはいない): 条件つきで何かを出す枝が1つも無いこと。
+      // 空の器も描かない ── 「出るかもしれない行」が残っていると、そこに何も無いまま
+      // 隙間だけが開く(§6.0「今に関係ない物は出ていない」)。
       {
         const tab = srcOfFn(src, "ReedsTab");
-        // 条件式を実ソースから取り出して評価する(綴りの一致ではなく振る舞いで見る)
-        const m = /\{reedsSubTab === "register" && (listMode !== null) && \(/.exec(tab);
-        check("右端の行を出す条件式を実ソースから取れている", m !== null, m ? m[1] : "取れない");
-        const shows = new Function("reeds", "listMode", `return !!(${m ? m[1] : "true"});`);
-        check("モードが無ければ右端の行は出さない(枚数に関わらず)",
-          shows({ length: 0 }, null) === false && shows({ length: 12 }, null) === false);
-        // 0枚でもモードが残っていれば行を出す(「完了」に戻れなくなるのを防ぐ)
-        check("0枚でもモードが残っていれば行は出す(戻れなくならない)",
-          shows({ length: 0 }, "numberEdit") === true && shows({ length: 3 }, "numberEdit") === true);
+        check("子タブ行の右端に出すものは1つも無い(条件つきの枝ごと消えた)",
+          !/\{reedsSubTab === "register" &&/.test(tab)
+          && !/marginLeft: "auto"/.test(tab)
+          && !/>完了<\/span>/.test(tab),
+          (tab.match(/marginLeft: "auto"/g) || []).length + "件");
+        {
+          const inner = codeOf(tab).slice(codeOf(tab).indexOf("<SubTabs"), codeOf(tab).indexOf("</SubTabs>"));
+          check("SubTabs は中身を持たずに閉じている(空の器を描かない)",
+            inner.length > 0 && !/<button|<div|<span/.test(inner),
+            (inner.match(/<button|<div|<span/g) || []).join(" / ") || "0件");
+        }
       }
     }
 
@@ -12364,9 +12402,12 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
         /disabled=\{count === 0\}/.test(del));
       check("D-5: 押せないときはカーソルも指にしない(押せる見た目を作らない)",
         /cursor: count > 0 \? "pointer" : "default"/.test(del));
-      check("D-5: 番号変更の出口はゴミ箱にしない(削除ではないので「完了」のまま)",
-        />完了<\/span>/.test(codeOf(srcOfFn(src, "ReedsTab")))
-        && !/<DeleteActionButton/.test(codeOf(srcOfFn(src, "ReedsTab"))));
+      // 【AA-2 2026-09-21】番号変更はモードではなくカードの鉛筆になったので、出口そのものが無い。
+      // 主張(番号変更にゴミ箱を使わない)は同じ ── リードタブに削除の実行は1つも無い。
+      check("D-5 / AA-2: 番号変更の入口は鉛筆で、ゴミ箱は使わない(リードタブに削除の実行は無い)",
+        !/<DeleteActionButton/.test(codeOf(srcOfFn(src, "ReedsTab")))
+        && /aria-label=\{`\$\{reedPosition\(r, reeds\) \?\? idx \+ 1\}枚目の番号を変更`\}/
+          .test(codeOf(srcOfFn(src, "ReedTileGrid"))));
       // 【罠9】ariaLabel の中身はテンプレート文字列なので波括弧を含む。
       // [^}]* で刈ると 0 件になり「空回りしたのに通る」検査になる。**場面の綴りそのもの**で数える。
       {
@@ -13990,7 +14031,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 【F-80/F-82 で走査の開始位置を変えた】メーカーと日付をタップで編集できるようにしたので、
     // 中身が nameInner / dateText に切り出された。走査は const boxEditable から始める。
     {
-      const i = src.indexOf("const boxEditable = listMode === null;");
+      // 【AA-2 2026-09-21】走査の開始位置を向け直した。モードが無くなって boxEditable の
+      // 枝ごと消えたので、見出しの手前にある const avgRating から始める(走る範囲はむしろ広い)。
+      const i = src.indexOf("const avgRating = reedGroupAvgRating(g.members);");
       const j = src.indexOf("\n          return (", i);
       const head = i === -1 || j === -1 ? "" : src.slice(i, j);
       check("箱見出しのブロックを走査できている",
@@ -14047,19 +14090,21 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
           tag !== null && /className="[^"]*\btaptext\b[^"]*"/.test(tag),
           (tag || "").replace(/\s+/g, " ").slice(0, 160));
       }
-      // メーカーの見た目は nameStyle 1つが持ち、押せる側(button)と押せない側(span)で**共有**する。
-      // 2箇所に書くと、削除モードに入った瞬間に文字の大きさや色が変わる。
-      check("F-82: メーカーの見た目は nameStyle 1つ(押せる側と押せない側で共有)",
+      // メーカーの見た目は nameStyle 1つが持つ。
+      // 【AA-2 2026-09-21 で 2 → 1】モードが無くなり「押せない側の <span>」の枝が消えたので、
+      // 写す先も1つになった。**主張は同じ**(見た目の出どころは1箇所で、直書きが無い)。
+      check("F-82: メーカーの見た目は nameStyle 1つ(出どころが1箇所で、直書きが無い)",
         /const nameStyle = \{ fontSize: 15, fontWeight: 600, color: "var\(--c-ink\)", minWidth: 0 \};/.test(head)
-        && (head.match(/\.\.\.nameStyle/g) || []).length === 2,
+        && (head.match(/\.\.\.nameStyle/g) || []).length === 1,
         `${(head.match(/\.\.\.nameStyle/g) || []).length}箇所`);
-      check("F-82: メーカーの文字も nameInner 1つ(押せる側と押せない側で共有)",
-        (head.match(/\{nameInner\}/g) || []).length === 2, `${(head.match(/\{nameInner\}/g) || []).length}箇所`);
-      check("F-80: 日付の文字も dateText 1つ(押せる側と押せない側で共有)",
-        (head.match(/\{dateText\}/g) || []).length === 2, `${(head.match(/\{dateText\}/g) || []).length}箇所`);
-      // 削除モード中は見出しの行そのものが <button> なので、入れ子にせず素の <span> に戻す。
-      check("F-80/F-82: 削除モード中は素の <span> に戻す(押せる物を入れ子にしない)",
-        /\{boxEditable \? \(/.test(head) && (head.match(/\) : \(/g) || []).length === 2,
+      check("F-82: メーカーの文字も nameInner 1つ(綴りを写していない)",
+        (head.match(/\{nameInner\}/g) || []).length === 1, `${(head.match(/\{nameInner\}/g) || []).length}箇所`);
+      check("F-80: 日付の文字も dateText 1つ(綴りを写していない)",
+        (head.match(/\{dateText\}/g) || []).length === 1, `${(head.match(/\{dateText\}/g) || []).length}箇所`);
+      // 【AA-2】モードで <span> に戻す枝は**消えた**。見出しは常に押せる
+      // (番号編集がモードではなくなり、一覧が別の意味を持つ最中というものが無くなったため)。
+      check("F-80/F-82 / AA-2: モードで <span> に戻す枝は無い(モードごと消えた)",
+        !/boxEditable/.test(head) && (head.match(/\) : \(/g) || []).length === 0,
         `${(head.match(/\) : \(/g) || []).length}箇所`);
       // .taptext の CSS 側(index.css)の検査は §17.15b(cssBlock 等が使える節)に置いた。
       //
@@ -14328,18 +14373,19 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 【F-102 2026/08/17 本人指示】番号編集モード(noDrag)でも長押しの並び替えを起動しない
       // (タップ=番号編集に一本化)。判定の綴りに !noDrag が加わった。
       // 【便Y 2026-09-21】受け口の名を noDrag → numberEditing にした。
-      // 同じ値を 2つの名で持たないため ── 揃れを止めるのも、数字を揺らすのも
-      // 「番号を編集中だから」という同じ理由。主張（編集中は並び替えを起動しない）は同じ。
-      check("並び替えできるかの判定は canReorder に分けてある(番号編集中は起動しない)",
-        /const canReorder = !numberEditing && members\.length >= 2;/.test(grid));
+      // 【AA-2 2026-09-21】番号編集モードが入口ごと消えたので、判定に残るのは
+      // 「並び替える先があるか」だけになった。**主張(並び替えられないなら長押しを張らない)は同じ**。
+      // 鉛筆を押したときに起動しないことは、下の reedTilePressPlan を**実際に走らせて**見る(検証81)。
+      check("並び替えできるかの判定は canReorder に分けてある(並び替える先があるときだけ)",
+        /const canReorder = members\.length >= 2;/.test(grid));
       {
         const rec = "dragInfoRef.current = { armed: false, startX, startY, lastX: startX, lastY: startY, id, index };";
         check("1枚しかない箱でも押下は記録する(タップで詳細が開く)",
-          grid.indexOf(rec) !== -1 && grid.indexOf(rec) < grid.indexOf("if (!canReorder) return;"),
-          `記録=${grid.indexOf(rec)} / 早期return=${grid.indexOf("if (!canReorder) return;")}`);
+          grid.indexOf(rec) !== -1 && grid.indexOf(rec) < grid.indexOf("if (!plan.armLongPress) return;"),
+          `記録=${grid.indexOf(rec)} / 早期return=${grid.indexOf("if (!plan.armLongPress) return;")}`);
       }
       check("1枚しかない箱では長押しのタイマーを張らない",
-        /if \(!canReorder\) return;\s*\r?\n\s*longPressTimerRef\.current = setTimeout\(/.test(grid));
+        /if \(!plan\.armLongPress\) return;\s*\r?\n\s*longPressTimerRef\.current = setTimeout\(/.test(grid));
       check("タップで詳細を開くのは長押しが成立しなかったときだけ",
         /const handlePointerUp = \(id\) => \(\) => \{\s*\r?\n\s*const info = dragInfoRef\.current;\s*\r?\n\s*if \(!info \|\| info\.armed\) return;/.test(grid)
         && /onTileTap\(id\);/.test(grid));
@@ -15036,14 +15082,14 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     check("一覧のスクロール位置の復元は残っている",
       /listScrollYRef\.current = window\.scrollY/.test(tab) && /window\.scrollTo\(0, y\)/.test(tab));
     check("箱グルーピングは groupReeds のまま", /const reedGroups = groupReeds\(reeds\);/.test(tab));
-    // 【便P 2026-09-20 本人指示】「…」を消した。右端の行は登録子タブの**モード中だけ**出る。
-    check("子タブの右端の行は登録タブのときだけ出す(正典の比較画面には無い)",
-      /\{reedsSubTab === "register" && listMode !== null && \(/.test(tab));
-    // 【便R 後半-後半 2026-09-20】残るモードは numberEdit だけになったので、
-    // モード中に出るのは**出口の「完了」1つ**。削除の実行(DeleteActionButton)の呼び手は
-    // ここから消えた(部品そのものは「すべての計測」が使い続ける)。
-    check("モード中は出口(完了)が出る。削除の実行はもう出ない",
-      />完了<\/span>/.test(tab) && !/<DeleteActionButton/.test(tab)
+    // 【便P 2026-09-20 本人指示】「…」を消した。
+    // 【AA-2 2026-09-21】最後に残っていたモード中の出口も消え、右端は空になった。
+    check("子タブの右端に条件つきで出すものは1つも無い(AA-2 でモードごと消えた)",
+      !/\{reedsSubTab === "register" &&/.test(tab) && !/>完了<\/span>/.test(tab));
+    // 削除の実行(DeleteActionButton)の呼び手はリードタブに無い
+    // (部品そのものは「すべての計測」が使い続ける)。
+    check("削除の実行はリードタブに無く、「すべての計測」に残っている",
+      !/<DeleteActionButton/.test(tab)
       && /<DeleteActionButton/.test(codeOf(srcOfFn(src, "AllSessionsPage"))));
     // 個体詳細も一覧・比較と同じ左右の余白の中に置く(詳細だけ 14px になっていた実測を潰した)
     // 【D-29 2026/09/03】個体詳細がカードの作法へ移り、地を画面の端まで届かせるために
@@ -15105,13 +15151,14 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // **錨を事実の側へ向け直す**: 名札つきの行が4つであることは変えず、内訳を
       // 「▾ の行2つ + ピルの行2つ」として見る。ダイヤルが1列も無いことはそのまま。
       // 【便X 2026-09-21】銘柄が**検索窓の行**になった(▾ の行 2 → 1 + 検索窓の行 1)。
-      // 名札つきの行が4つであることも、ダイヤルが1列も無いことも変わっていない。
-      check("便X 追加シートは名札つきの4行(▾ の行1 + 検索窓の行1 + ピルの行2。ダイヤルは1列も残っていない)",
-        (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 1
-        && (codeOf(sheet).match(/<ReedModelSearchRow/g) || []).length === 1
+      // 【AA-1 2026-09-21 で 4 → 3】メーカーと銘柄が1つの検索の行に畳まれた(本人指示)。
+      // **ダイヤルが1列も無いことは変わっていない。**
+      check("AA-1 追加シートは名札つきの3行(検索の行1 + ピルの行2。ダイヤルは1列も残っていない)",
+        (codeOf(sheet).match(/<ReedSearchRow/g) || []).length === 1
+        && (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 0
         && (codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
         && !/<RatingDial/.test(codeOf(sheet)),
-        `▾ の行=${(codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length} / 検索窓の行=${(codeOf(sheet).match(/<ReedModelSearchRow/g) || []).length} / ピルの行=${(codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length}`);
+        `検索の行=${(codeOf(sheet).match(/<ReedSearchRow/g) || []).length} / ピルの行=${(codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length}`);
       // 【便R 後半-後半 2026-09-20】正典ミニを実装に合わせて書き換えた(§6.0「正典が勝つ」)。
       // 便R 前半で実装の厚さ・枚数はピルの並びになったのに、正典ミニは「値 + ▾」の行のまま
       // だった ── その食い違いをここで畳む。**寸法・色は1つも動かしていない**:
@@ -15121,22 +15168,18 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 直書きで期待していたため、**正典だけが古い**状態を検査が固定していた(§6.0)。
       // これで正典と実装のどちらかだけを動かすと落ちる。
       const pickLabels25 = [...codeOf(sheet).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
-      const searchLabels25 = [...codeOf(sheet).matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+      const searchLabels25 = [...codeOf(sheet).matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
       const pillLabels25 = [...codeOf(sheet).matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
       check("便V 突き合わせる名札を実装から取り出せている(空回りしていない)",
-        pickLabels25.length === 1 && searchLabels25.length === 1 && pillLabels25.length === 2
-        && pickLabels25.concat(searchLabels25, pillLabels25).every((t) => t.length > 0),
+        pickLabels25.length === 0 && searchLabels25.length === 1 && pillLabels25.length === 2
+        && searchLabels25.concat(pillLabels25).every((t) => t.length > 0),
         `▾=${JSON.stringify(pickLabels25)} / 検索窓=${JSON.stringify(searchLabels25)} / ピル=${JSON.stringify(pillLabels25)}`);
-      check("便X 正典ミニも「▾ の行1 + 検索窓の行1 + ピルの段2」に書き換えてある(実装だけ先に動かしていない)",
-        new RegExp(`追加シート — <b>${pickLabels25.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock)
-        && new RegExp(`<b>${searchLabels25.join("・")}は検索窓 \\+ 候補</b>`).test(mock)
+      check("AA-1 正典ミニも「検索の行1 + ピルの段2」に書き換えてある(実装だけ先に動かしていない)",
+        new RegExp(`追加シート — <b>${searchLabels25.join("・")}は検索窓 \\+ 候補</b>`).test(mock)
         && new RegExp(`<b>${pillLabels25.join("・")}は名札の下にピルを並べる</b>`).test(mock)
         && !/<b>型番<\/b>/.test(mock)
-        // ▾ の行は実装の名札(メーカー)の1つだけ
-        && [[pickLabels25[0], "Vandoren"]]
-          .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`).test(mock))
-        // 銘柄の行は「値 + ✕」(決まっている姿)。▾ を持たない = 押せば一覧が出る嘘の印にしない
-        && [[searchLabels25[0], "V16"]]
+        // リードの行は「値 + ✕」(決まっている姿)。▾ を持たない = 押せば一覧が出る嘘の印にしない
+        && [[searchLabels25[0], "Vandoren V16"]]
           .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`).test(mock))
         && !/>厚さ選択</.test(mock)
         // 厚さ・枚数は名札の下のピル。選ばれている値(3.25 / 10)は .selpill.on
@@ -22973,19 +23016,24 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     // 綴りの数は 6 のまま(ホイール2 → 段階選択2)、**選ばせる画面は1つも減っていない**。
     // 【便X 2026-09-21 で 6 → 5】銘柄は**シートを開かず、その場の検索窓 + 候補**で選ぶように
     // なった(本人指示「プロフィールと同様に…検索窓作って候補出る形に変更」)。
-    // **選ばせる画面は1つも減っていない** ── 下の sites が銘柄の検索窓を1箇所として数え直す。
-    check("48.3 便X 選び方を開く綴りは5(リードの段階選択2 + 奏者 + 軸など + 箱のシートのメーカー)",
-      spell === 5, `${spell}箇所`);
+    // 【AA-1 2026-09-21 で 5 → 4】本人指示「メーカーと銘柄を分けないで検索対象に変更」で、
+    // 箱のシートのメーカーの一覧が**銘柄と1つの検索欄に畳まれた**。
+    // **数が減ったのは選ばせる場所が1つになったからで、選べなくなった物は1つも無い。**
+    // この節の芯は「選び方は専用の1つに統一されていて、<select> が1つも無いこと」で、
+    // 数はその時点の事実。**事実の側へ向け直す**(緩めていない)。
+    check("48.3 AA-1 選び方を開く綴りは4(リードの段階選択2 + 奏者 + 軸など)",
+      spell === 4, `${spell}箇所`);
     const sites = spell
       + ((app48.match(/<PerformerSelector\b/g) || []).length - 1)   // 共有部品の呼び出しぶん
       + ((app48.match(/<PlainSelect\b/g) || []).length - 1)
-      + (app48.match(/<ReedModelSearchRow\b/g) || []).length;       // 銘柄はシートを開かず検索窓で選ぶ
+      + (app48.match(/<ReedSearchRow\b/g) || []).length;            // リードはシートを開かず検索窓で選ぶ
     // 【便R 2026-09-20 で 13 → 9】上の4つが消えたぶん。
     // 【便R 後半-後半 で 9 → 8】計測データの編集シートのリードが PlainSelect から
     // ReedPickSheet へ移ったので、PlainSelect の呼び出しが 3 → 2 に減った(綴りの引き算ぶん)。
-    // **画面は1つも減っていない**(同じ場所で同じように選べる)。凍結仕様の「8箇所以上」は満たす。
-    check("48.3 便X 実際に専用の選び方で選ばせている箇所は8(凍結仕様の「8箇所以上」を満たす)",
-      sites >= 8 && sites === 8, `${sites}箇所`);
+    // 【AA-1 2026-09-21 で 8 → 7】メーカーと銘柄の2箇所が1箇所(リードの検索)に畳まれた。
+    // **選べなくなった物は1つも無い**(同じシートで同じ2つの値が決まる)。
+    check("48.3 AA-1 実際に専用の選び方で選ばせている箇所は7(どれも専用の選び方を通る)",
+      sites === 7, `${sites}箇所`);
     // 【M3】症状の原因は「値の上に**透明にした**操作要素を重ねる」作り。
     // 透明化は color: "transparent" で行っていたので、その綴りが0件であることで見る
     // (appearance: "none" 自体はリードの追加シートの入力欄が正当に使っているので数えない)。
@@ -23206,14 +23254,15 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     check("49.2 便R 厚さ・枚数の行を切り出せている",
       rows.length > 120 && /REED_SHEET_PILL_ROW_STYLE/.test(rows) && /<OptionPills/.test(rows),
       `${rows.length}文字`);
-    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行(ReedModelSearchRow)になった。
-    // ピルの行2つ・OptionPills 2つ・名札の綴り2つ(メーカー / 銘柄)は1つも変わっていない。
+    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行になった。
+    // 【AA-1 2026-09-21 で ▾ の行 1 → 0】メーカーも銘柄と1つの検索の行(ReedSearchRow)に畳まれた。
+    // ピルの行2つ・OptionPills 2つは1つも変わっていない。名札は1つ(「リード」)になった。
     check("49.2 便R 厚さも枚数も同じ形(行は REED_SHEET_PILL_ROW_STYLE / ピルは OptionPills の1部品)",
       (sheet49.match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
       && (sheet49.match(/<OptionPills/g) || []).length === 2
-      && (sheet49.match(/<ReedSheetPickRow/g) || []).length === 1
-      && (sheet49.match(/<ReedModelSearchRow/g) || []).length === 1
-      && (sheet49.match(/label="(メーカー|銘柄)"/g) || []).length === 2,
+      && (sheet49.match(/<ReedSheetPickRow/g) || []).length === 0
+      && (sheet49.match(/<ReedSearchRow/g) || []).length === 1
+      && (sheet49.match(/label="リード"/g) || []).length === 1,
       (sheet49.match(/label="[^"]*"/g) || []).join(" | "));
     check("49.2 便N ダイヤルはシートから消えた(spec の2定数も定義ごと無い)",
       !/RatingDial/.test(sheet49) && !/REED_STRENGTH_DIAL|REED_COUNT_DIAL/.test(app49),
@@ -23293,28 +23342,38 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
   // --- 49.5 R6 メーカーはカタログ / リードの記録に銘柄 ------------------------------
   // 【変異】model を label に使わない / カタログを読まずにメーカーを直書きに戻す → 落ちる。
   {
-    // 【便X 2026-09-21】銘柄を絞る規則もカタログ側の1つ(filterModelsByQuery)を読むので、
-    // import の綴りが1つ増えた。**カタログそのものの出どころは1箇所のまま**。
+    // 【便X 2026-09-21】銘柄を絞る規則もカタログ側の1つを読む(import の綴りが1つ増えた)。
+    // 【AA-1 2026-09-21】その規則が searchReeds(メーカーと銘柄をまとめて引く)へ替わった。
+    // **カタログそのものの出どころは1箇所のまま**。
     check("49.5 R6 メーカーの一覧はコミュニティのカタログ(綴りを2箇所に持たない)",
-      /import \{ REED_CATALOG, filterModelsByQuery \} from "\.\/community\/catalog\/gear\.js";/.test(src)
+      /import \{ REED_CATALOG, searchReeds \} from "\.\/community\/catalog\/gear\.js";/.test(src)
       && /const REED_BRAND_OPTIONS = Object\.keys\(REED_CATALOG\);/.test(app49)
       && !/INITIAL_REED_BRANDS/.test(app49),
       (app49.match(/INITIAL_REED_BRANDS/g) || []).length + "件(旧定数)");
+    // 【AA-1】逃げ道は一覧の末尾の選択肢ではなく、**検索の行の末尾に常に在るボタン**になった。
+    // 行き先(REED_BRAND_CUSTOM の自由入力)は1文字も変えていない。
     check("49.5 R6 自由入力の逃げ道は残っている(カタログに無いメーカー)",
       api.REED_BRAND_CUSTOM === "__custom__"
-      && /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(app49));
-    // 【便N】行に名札が付き、読み上げの名も名札から出る(aria-label={label})。
-    // 【便R 2026-09-20 で 4 → 2】厚さ・枚数のホイールが無くなったので、シートの外へ出す
-    // ScrollPicker はメーカーと銘柄の2つだけになった。順序の主張は1つも変えていない。
-    // 【便X 2026-09-21】銘柄は一覧ではなく検索窓になったので、シートの外へ出す一覧は
-    // メーカーの1枚だけ。**順序(メーカーが上・銘柄が下)の主張は1つも変えていない。**
-    check("49.5 R6 銘柄はメーカー → 銘柄の2段(一覧はメーカーの1枚 / 銘柄は検索窓)",
-      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).length === 1
-      && sheet49.indexOf('label="メーカー"') < sheet49.indexOf('label="銘柄"'),
-      `メーカー=${sheet49.indexOf('label="メーカー"')} / 銘柄=${sheet49.indexOf('label="銘柄"')}`);
-    check("49.5 R6 メーカーを変えたら銘柄も付け替える(別のメーカーの銘柄が残らない)",
-      /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet49)
-      && /onChange=\{\(v\) => pickBrand\(v\)\}/.test(sheet49));
+      && /\{REED_BRAND_CUSTOM_LABEL\}<\/button>/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+      && /placeholder="新しいメーカー名を入力"/.test(codeOf(srcOfFn(src, "ReedSearchRow"))));
+    // 【便N】行に名札が付き、読み上げの名も名札から出る。
+    // 【便R 2026-09-20 で 4 → 2】厚さ・枚数のホイールが無くなった。
+    // 【便X 2026-09-21】銘柄は一覧ではなく検索窓になり、外へ出す一覧はメーカーの1枚だけ。
+    // 【AA-1 2026-09-21 で 1 → 0】そのメーカーも1つの検索欄に畳まれた。
+    // **主張を事実の側へ向け直す**(緩めていない): シートの外へ出す一覧は1枚も無く、
+    // メーカーと銘柄は**1つの行の中で同時に決まる**(2段ではなくなった)。
+    check("49.5 R6 / AA-1 メーカーと銘柄は1つの検索で同時に決まる(シートの外へ出す一覧は0枚)",
+      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).length === 0
+      && /onPick=\{\(v\) => \{ setBrand\(v \? v\.brand : null\); setModel\(v \? v\.model : null\); \}\}/.test(sheet49),
+      (sheet49.match(/<ScrollPicker|<OptionSheet/g) || []).join(" | ") || "0枚");
+    // 【AA-1】「別のメーカーの銘柄が残る経路を作らない」という主張は**強くなった**:
+    // 以前は pickBrand が付け替えていたが、いまは brand と model が**必ず同じ候補から同時に入る**
+    // (片方だけ動かす口が無い)。外すときも2つ同時に null になる。
+    check("49.5 R6 / AA-1 別のメーカーの銘柄が残る経路が無い(2つは必ず同時に入り、同時に外れる)",
+      /onPick=\{\(v\) => \{ setBrand\(v \? v\.brand : null\); setModel\(v \? v\.model : null\); \}\}/.test(sheet49)
+      && !/setModel\(reedModelOptions/.test(codeOf(src))
+      && /onClick=\{\(\) => \{ setQuery\(""\); onPick\(\{ brand: r\.brand, model: r\.model \}\); \}\}/
+        .test(codeOf(srcOfFn(src, "ReedSearchRow"))));
     // 保存される形。**実行で確かめる**(綴りだけ見ても「保存していない」は分からない)。
     {
       const rm = new Function("REED_CATALOG", `
@@ -25051,7 +25110,8 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
   const app59 = codeOf(src);
   const sheet59raw = srcOfFn(src, "ReedBoxSheet");
   const sheet59 = codeOf(sheet59raw);
-  const row59 = codeOf(srcOfFn(src, "ReedSheetPickRow"));
+  // 【AA-1 2026-09-21】行の共有部品は ReedSheetPickRow(▾ の行)から ReedSearchRow(検索の行)へ。
+  const row59 = codeOf(srcOfFn(src, "ReedSearchRow"));
   const mock59 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
   const gear59 = readFileSync(join(__dirname, "..", "src", "community", "catalog", "gear.js"), "utf8");
   const prof59 = readFileSync(join(__dirname, "..", "src", "community", "profile.js"), "utf8");
@@ -25076,11 +25136,13 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // ことを言っているので、語で重ねて言わない)。**数も1つずつなのも変えていない**。
     // 【便R 2026-09-20】厚さ・枚数の名札は <span> になった(行がピルの行に変わったため)。
     // **名札の語と数は1つも変えていない**。綴りの目印だけ label= から >語< へ向け直す。
-    check("59.1 N1 箱のシートの名札は メーカー / 銘柄 / 厚さ / 枚数(旧語「〜選択」は0件)",
-      count59(sheet59, /label="メーカー"/g) === 1
-      && count59(sheet59, /label="銘柄"/g) === 1
+    // 【AA-1 2026-09-21】メーカーと銘柄の2つの名札は、プロフィールから引いた1語「リード」に
+    // 畳まれた(GearPicker の label="リード")。**旧語の不在の主張は1つも緩めていない。**
+    check("59.1 N1 / AA-1 箱のシートの名札は リード / 厚さ / 枚数(旧語「〜選択」は0件)",
+      count59(sheet59, /label="リード"/g) === 1
       && count59(sheet59, />厚さ</g) === 1
       && count59(sheet59, />枚数</g) === 1
+      && count59(sheet59, /label="メーカー"|label="銘柄"/g) === 0
       && count59(sheet59, /メーカー選択|銘柄選択|厚さ選択/g) === 0,
       (sheet59.match(/label="[^"]*"|>(厚さ|枚数)</g) || []).join(" | "));
     // 旧語の不在。**コメントを剥がしてから数える**(綴りを数える検査の作法)。
@@ -25101,11 +25163,14 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
         === "Vandoren|3.0|2026-08-01",
       api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }));
     // 【巻き添えにしない】楽器の組(gear)の語は本人の合意の外。1文字も触っていない。
-    // 【便X 2026-09-21 で 14 → 16】gear.js に filterModelsByQuery(銘柄の候補を絞る純関数)が
-    // 増え、その注記が「銘柄」を2回使う。**画面に出る語も既存の綴りも1文字も動いていない**
-    // (増えたのは新しい関数のコメントだけ)。profile.js は1件のまま。
+    // 【便X 2026-09-21 で 14 → 16】gear.js に filterModelsByQuery が増え、注記が「銘柄」を2回使った。
+    // 【AA-1 2026-09-21 で 16 → 17】リードがメーカーごと searchReeds で引くようになり、
+    // 銘柄だけを絞る filterModelsByQuery は読み手を失ったので**定義ごと消した**。
+    // 消した経緯の注記が「銘柄」を使うので、数は減らずに1つ増える。
+    // **画面に出る語も既存の綴りも1文字も動いていない**(動いたのはコメントだけ)。
+    // profile.js は1件のまま。
     check("59.1 N1 楽器の組のカタログ・プロフィールの語はそのまま(リードの行だけ直した)",
-      count59(gear59, /銘柄|型番/g) === 16 && count59(prof59, /銘柄|型番/g) === 1,
+      count59(gear59, /銘柄|型番/g) === 17 && count59(prof59, /銘柄|型番/g) === 1,
       `gear=${count59(gear59, /銘柄|型番/g)} / profile=${count59(prof59, /銘柄|型番/g)}`);
   }
 
@@ -25115,15 +25180,17 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 【便R 2026-09-20 で 4 → 2 + 2】厚さ・枚数はピルの行になった。
     // **形が2種類になっただけで、どちらも共有の1つ**(▾ の行 = ReedSheetPickRow /
     // ピルの行 = REED_SHEET_PILL_ROW_STYLE + OptionPills)。写しは1つも無い。
-    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行(ReedModelSearchRow)になった。
-    check("59.2 N2 行は共有の部品(▾ の行1 + 検索窓の行1 + ピルの行2)。綴りを行ごとに写していない",
-      count59(sheet59, /<ReedSheetPickRow/g) === 1
-      && count59(sheet59, /<ReedModelSearchRow/g) === 1
+    // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行になった。
+    // 【AA-1 2026-09-21 で ▾ の行 1 → 0】メーカーも同じ検索の行(ReedSearchRow)へ畳まれ、
+    // 行の部品(ReedSheetPickRow)は読み手ごと消えた。
+    // **主張は同じ**: 行はどれも共有の1つで、綴りを行ごとに写していない。
+    check("59.2 N2 行は共有の部品(検索の行1 + ピルの行2)。綴りを行ごとに写していない",
+      count59(sheet59, /<ReedSearchRow/g) === 1
+      && !/ReedSheetPickRow/.test(app59)
       && count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) === 2
       && count59(sheet59, /<OptionPills/g) === 2
-      && count59(row59, /<PickChevron \/>/g) === 1
       && count59(sheet59, /<PickChevron \/>/g) === 0,
-      `▾ の行=${count59(sheet59, /<ReedSheetPickRow/g)} / ピルの行=${count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g)}`);
+      `検索の行=${count59(sheet59, /<ReedSearchRow/g)} / ピルの行=${count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g)}`);
     // 高さの出どころは**共有の1つ**。行の部品も開封日の行もそこから引く
     // (行ごとに書くと、片方だけ直す変異が通ってしまう)。
     check("59.2 N2 行の高さは --tap-min(数値を書いていない・出どころは1つ)",
@@ -25133,10 +25200,12 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 名札の体裁は**いまの開封日の行から引いた**。新しい値を作っていない。
     // 【便R 2026-09-20 で シート内 1 → 3】厚さ・枚数の名札がシート本体の <span> になった
     // (開封日と同じ形)。**体裁の綴りは1つのまま** ── 3箇所とも同じ定数を読む。
+    // 【AA-1 2026-09-21】シート本体が描く名札は 開封日 / 厚さ / 枚数 の3つのまま。
+    // 行の部品が描く名札は**3つの姿**(自由入力 / 値 / 検索窓)。どれも同じ定数を読むだけ。
     check("59.2 N2 名札の体裁は1箇所(12px / --c-ink-3 / flexShrink:0)",
       /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" \};/.test(app59)
       && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 3
-      && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 1);
+      && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 3);
     check("59.2 N2 値は左寄せで、名札のすぐ右から始まる",
       /flex: 1, textAlign: "left", fontWeight: 700,/.test(row59));
     check("59.2 N2 厚さはダイヤルではない(RatingDial はシートに1つも無い)",
@@ -25150,16 +25219,16 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 「シートの外へ出す」の対象はメーカー・銘柄の2つだけになった。
     // **錨を事実の側へ向け直す**: 厚さ・枚数の選択肢は**シートの中**(ピル)で、
     // 残る ScrollPicker は2つとも幕の外に居ることを見る。
-    // 【便X 2026-09-21】銘柄も**シートの中**へ入った(検索窓 + 候補)。外へ出すのは
-    // メーカーの一覧1枚だけ ── 暗幕がシートの中に閉じる罠(F-73 と同型)に当たるのは
-    // 「シートの上にもう1枚のシートを重ねる」ものだけで、その場の検索窓は当たらない。
-    check("59.2 便X 厚さ・枚数・銘柄はシートの中 / 外へ出すのはメーカーの一覧1枚だけ",
+    // 【便X 2026-09-21】銘柄も**シートの中**へ入った(検索窓 + 候補)。
+    // 【AA-1 2026-09-21】メーカーも同じ検索の行へ畳まれ、**外へ出すものは1枚も無くなった**
+    // ── シートの上にもう1枚のシートを重ねる経路そのものが消えたので、
+    // 暗幕がシートの中に閉じる罠(F-73 と同型)に当たる余地が無い。
+    check("59.2 AA-1 選ぶものはすべてシートの中(外へ出す一覧は0枚)",
       sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}") < sheet59raw.indexOf("</BottomSheet>")
       && sheet59raw.indexOf("options={REED_ADD_COUNTS}") < sheet59raw.indexOf("</BottomSheet>")
-      && sheet59raw.indexOf("options={modelOptions}") < sheet59raw.indexOf("</BottomSheet>")
-      && sheet59raw.indexOf("options={pickerOptions}") > sheet59raw.indexOf("</BottomSheet>")
-      && count59(sheet59, /<ScrollPicker|<OptionSheet/g) === 1,
-      `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")} 銘柄=${sheet59raw.indexOf("options={modelOptions}")} メーカー=${sheet59raw.indexOf("options={pickerOptions}")}`);
+      && sheet59raw.indexOf("<ReedSearchRow") < sheet59raw.indexOf("</BottomSheet>")
+      && count59(sheet59, /<ScrollPicker|<OptionSheet/g) === 0,
+      `幕=${sheet59raw.indexOf("</BottomSheet>")} 厚さ=${sheet59raw.indexOf("options={REED_STRENGTH_OPTIONS}")} リード=${sheet59raw.indexOf("<ReedSearchRow")}`);
     // 【変異(5)】開封日の左寄せを外す → ここで落ちる。
     check("59.2 N2 開封日の値も左寄せ(本人指示「開封日の日付も同じく左寄せ」)",
       /type="date"[\s\S]{0,900}?textAlign: "left"/.test(sheet59));
@@ -25181,30 +25250,32 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
   // 【変異(3)】番号編集を 56 に戻す 【変異(4)】縦積みに戻す → ここで落ちる。
   // 【便O 2026-09-20 本人指示】真ん中に「番号編集」が入って3つになり、青と赤の対比が
   // きついという指摘で変更・番号編集の塗りを --c-sunken へ落とした。
-  // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 「変更」が消えて**2つ**に
-  // なった。数の錨を向け直す(横並び・等分・高さ・塗り・並びの主張は1つも緩めていない)。
+  // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 「変更」が消えて2つになった。
+  // 【AA-2 2026-09-21】その2つのうち「番号編集」も消えた(入口がカードの鉛筆になり、
+  // モードが無くなったので行き先が残っていない)。**残るのは削除1つ。**
+  // 数の錨を向け直す ── 枠(横並びの親・高さ・幅の指定・塗り)は1文字も変えていない。
   {
     const a59 = sheet59.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b59 = sheet59.indexOf(">削除</button>", a59);
     const pair59 = a59 >= 0 && b59 > a59 ? sheet59.slice(a59, b59 + ">削除</button>".length) : "";
-    check("59.3 N2 番号編集と削除は**同じ親**の中の横並び(縦積みに戻すと切り出せない)",
-      pair59.length > 300 && /display: "flex"/.test(pair59)
-      && pair59.includes(">番号編集</button>") && pair59.includes(">削除</button>"),
-      `${pair59.length}文字`);
-    check("59.3 N2 2つとも高さは --tap-min(削除側に揃えた。56 を持ち込まない)",
-      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 2
+    check("59.3 N2 / AA-2 編集の下の一手は削除ただ1つ(番号編集は綴りごと無い)",
+      pair59.length > 200 && /display: "flex"/.test(pair59)
+      && pair59.includes(">削除</button>")
+      && count59(app59, />番号編集<\/button>/g) === 0,
+      `${pair59.length}文字 / 番号編集 ${count59(app59, />番号編集<\/button>/g)}件`);
+    check("59.3 N2 高さは --tap-min(56 を持ち込まない)",
+      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 1
       && !/ACTION_LG_PX/.test(pair59) && !/height: 56/.test(pair59),
       `--tap-min=${count59(pair59, /minHeight: "var\(--tap-min\)"/g)}個`);
-    check("59.3 N2 幅は等分(2列とも flex 1 1 0)",
-      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 2,
+    check("59.3 N2 幅の指定は据え置き(flex 1 1 0。1つになったので行いっぱいに伸びる)",
+      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 1,
       `${count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g)}列`);
-    check("59.3 N2 並びは 番号編集が左・削除が右(破壊的な一手を右端に置く)",
-      pair59.indexOf(">番号編集</button>") >= 0
-      && pair59.indexOf(">番号編集</button>") < pair59.indexOf(">削除</button>"));
+    check("59.3 N2 / AA-2 破壊的な一手だけが残った(右端の並びを語る相手が居ない)",
+      count59(pair59, /<button/g) === 1 && pair59.indexOf(">削除</button>") > 0);
     // 【便O】青と赤の対比がきついという指摘で、赤は削除の1つだけにした。
-    // 番号編集は CommunityTab の secondaryButtonStyle と同じ2トークン。
-    check("59.3 N2 塗りは 番号編集=--c-sunken / 削除だけ --c-danger(青は残っていない)",
-      count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
+    // 【AA-2】もう一方(--c-sunken の番号編集)が消えたので、残るのは赤1つ。
+    check("59.3 N2 塗りは 削除だけ --c-danger(青も沈めた地も残っていない)",
+      count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
       && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59)
       && !/--c-accent/.test(pair59) && !/--c-line-strong/.test(pair59),
       (pair59.match(/background: "?[^,;]*/g) || []).join(" | "));
@@ -25227,23 +25298,26 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 【便V 2026-09-21】名札と下の一手の語を**実装から引く**形へ向け直した。
     // ここは旧語「メーカー選択 / 銘柄選択」と旧い一手「変更」を直書きで期待していて、
     // 実装(便O で「メーカー / 銘柄」、便P で「番号編集 / 削除」)とずれた正典を固定していた。
+    // 【AA-1 2026-09-21】▾ の行は消え、検索の行は ReedSearchRow ただ1つ(名札は「リード」)。
     const pick594 = [...sheet59.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
-    const search594 = [...sheet59.matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    const search594 = [...sheet59.matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
     const pill594 = [...sheet59.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
     const head594 = sheet59.indexOf("<div style={{ display: \"flex\", gap: \"var(--sp-2)\", marginTop: \"var(--sp-4)\" }}>");
     const row594 = head594 >= 0 ? sheet59.slice(head594, sheet59.indexOf(") : (", head594)) : "";
     const act594 = [...row594.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
     check("59.4 正典と突き合わせる語を実装から取り出せている(空回りしていない)",
-      pick594.length === 1 && search594.length === 1 && pill594.length === 2 && act594.length === 2,
+      pick594.length === 0 && search594.length === 1 && pill594.length === 2 && act594.length === 1,
       `▾=${JSON.stringify(pick594)} / 検索窓=${JSON.stringify(search594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
-    check("59.4 正典ミニの ▾ の行は 名札 → 値(左寄せ) → ▾ で、高さ44",
-      [[pick594[0], "Vandoren"]]
-        .every(([lab, val]) => new RegExp(
-          `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span class="chev">▾</span>`
-        ).test(mock59)));
-    // 【便X 2026-09-21】銘柄の行は同じ枠(高さ44 / 罫 / 名札の体裁)のまま、右端が ▾ → ✕。
-    check("59.4 正典ミニの銘柄の行は 名札 → 値(左寄せ) → ✕ で、高さ44(枠は据え置き)",
-      [[search594[0], "V16"]]
+    // 【AA-1 2026-09-21】▾ の行は実装から消えたので、正典ミニからも消えている。
+    check("59.4 正典ミニにも ▾ の行は1つも無い(実装だけ先に動かしていない)",
+      !/class="chev"/.test(mock59.slice(mock59.indexOf('margin-bottom:10px">追加</div>'),
+                                        mock59.indexOf("この箱を追加する"))),
+      "ミニの ▾ の数=" + ((mock59.slice(mock59.indexOf('margin-bottom:10px">追加</div>'),
+                                        mock59.indexOf("この箱を追加する")).match(/class="chev"/g) || []).length));
+    // 【便X 2026-09-21】検索の行は枠(高さ44 / 罫 / 名札の体裁)そのままで右端が ✕。
+    // 【AA-1 2026-09-21】その1行がメーカーと銘柄の**両方**を持つ(値は「メーカー 銘柄」)。
+    check("59.4 正典ミニのリードの行は 名札 → 値(左寄せ) → ✕ で、高さ44(枠は据え置き)",
+      [[search594[0], "Vandoren V16"]]
         .every(([lab, val]) => new RegExp(
           `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`
         ).test(mock59)));
@@ -25254,11 +25328,10 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && !/>厚さ選択</.test(mock59));
     check("59.4 正典に旧語「型番」が1つも残っていない",
       !/型番/.test(mock59), (mock59.match(/.{0,8}型番.{0,8}/g) || []).join(" | ") || "0件");
-    check("59.4 正典の説明も「▾ の行 + 検索窓 + ピルの段」と横並びの一手を書いている(語は実装から引く)",
-      new RegExp(`追加シート — <b>${pick594.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock59)
-      && new RegExp(`<b>${search594.join("・")}は検索窓 \\+ 候補</b>`).test(mock59)
+    check("59.4 正典の説明も「検索窓 + ピルの段」と下の一手を書いている(語は実装から引く)",
+      new RegExp(`追加シート — <b>${search594.join("・")}は検索窓 \\+ 候補</b>`).test(mock59)
       && new RegExp(`<b>${pill594.join("・")}は名札の下にピルを並べる</b>`).test(mock59)
-      && new RegExp(`「${act594[0]}」と「${act594[1]}」が横並び・高さ44`).test(mock59),
+      && new RegExp(`下は<b>「${act594[0]}」が幅いっぱい・高さ44</b>`).test(mock59),
       `正典=${(/下は<b>[^<]*<\/b>/.exec(mock59) || [""])[0]} / 実装=${JSON.stringify(act594)}`);
     check("59.4 正典の箱見出しの語も「メーカー」",
       /箱見出しにメーカー・番手・平均★・開封日/.test(mock59));
@@ -26596,15 +26669,16 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     (sheet66.match(/.{0,6}選択/g) || []).join(" | ") || "0件");
   // 【便R 2026-09-20】厚さ・枚数の名札は <span> になった(行がピルの行に変わったため)。
   // **語も数も1つも変えていない**。綴りの目印だけ label= から >語< へ向け直す。
-  check("66.2 新しい名札 メーカー / 銘柄 / 厚さ が1つずつ在る(枚数・開封日は据え置き)",
-    count66(sheet66, /label="メーカー"/g) === 1
-    && count66(sheet66, /label="銘柄"/g) === 1
+  // 【AA-1 2026-09-21】メーカーと銘柄は1つの名札「リード」に畳まれた(プロフィールから引いた語)。
+  check("66.2 名札は リード / 厚さ / 枚数 が1つずつ在る(開封日は据え置き)",
+    count66(sheet66, /label="リード"/g) === 1
     && count66(sheet66, />厚さ</g) === 1
     && count66(sheet66, />枚数</g) === 1
     && count66(sheet66, /aria-label="開封日"/g) === 1,
     (sheet66.match(/label="[^"]*"|>(厚さ|枚数)</g) || []).join(" | "));
-  check("66.2 読み上げの名は名札そのもの(行の部品が aria-label={label} を持つ)",
-    /aria-label=\{label\}/.test(codeOf(srcOfFn(src, "ReedSheetPickRow"))));
+  check("66.2 読み上げの名は名札そのもの(行の部品が名札から aria-label を作る)",
+    /aria-label=\{`\$\{label\}を検索`\}/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+    && /aria-label=\{`\$\{label\}の選択を解除`\}/.test(codeOf(srcOfFn(src, "ReedSearchRow"))));
 
   // --- 66.3 値の先頭を縦にそろえる ---------------------------------------------
   {
@@ -26619,10 +26693,13 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       /fontSize: 12/.test(ls66) && /color: "var\(--c-ink-3\)"/.test(ls66) && /flexShrink: 0/.test(ls66));
     // 【便R 2026-09-20 で 2 → 4】厚さ・枚数がピルの行になり、名札を自分で描くようになった。
     // **写しは1つも作っていない**: 4箇所とも同じ定数を読むだけ(体裁の綴りは1つのまま)。
-    // 【便X 2026-09-21 で 4 → 6】銘柄の検索窓の行が名札を2箇所(値が決まっている姿 /
-    // 検索窓の姿)で描く。**写しは1つも作っていない**: 6箇所とも同じ定数を読むだけ。
-    check("66.3 名札の体裁の読み手は6箇所(行の部品 / 開封日 / 厚さ / 枚数 / 銘柄の2つの姿)",
-      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 6,
+    // 【便X 2026-09-21 で 4 → 6】銘柄の検索窓の行が名札を2箇所で描くようになった。
+    // 【AA-1 2026-09-21 で 6 → 6】▾ の行が消え(−1)、検索の行が**3つの姿**
+    // (自由入力 / 値が決まっている / 検索窓)を描くようになった(+1)。
+    // **写しは1つも作っていない**: どの箇所も同じ定数を読むだけ。
+    check("66.3 名札の体裁の読み手は6箇所(開封日 / 厚さ / 枚数 / リードの3つの姿)",
+      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 6
+      && count66(codeOf(srcOfFn(src, "ReedSearchRow")), /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 3,
       `${count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g)}箇所`);
   }
 
@@ -26644,9 +26721,13 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
   check("66.5 開封日の行だけ下の罫を消した(枠と総高 --tap-min は据え置き)",
     /<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE, height: "var\(--tap-min\)", borderBottom: "none" \}\}>/.test(sheet66),
     (sheet66.match(/<div style=\{\{ \.\.\.REED_SHEET_ROW_STYLE[^>]*>/) || ["取り出せない"])[0]);
-  check("66.5 共有の枠の罫そのものは残っている(他の行は今までどおり罫を持つ)",
+  // 【AA-1 2026-09-21】行の共有部品は ReedSearchRow へ替わった。罫は自分で書かず
+  // **共有の枠(REED_SHEET_ROW_STYLE / REED_SHEET_PILL_ROW_STYLE)から継ぐ**ので、
+  // 主張を「継いでいる / 自分で書いていない」の形へ向け直す(緩めていない)。
+  check("66.5 共有の枠の罫そのものは残っている(他の行は今までどおり罫を継ぐ)",
     /borderBottom: "1px solid var\(--c-line\)",/.test(extractConst("REED_SHEET_ROW_STYLE"))
-    && /borderBottom: "1px solid var\(--c-line\)",/.test(codeOf(srcOfFn(src, "ReedSheetPickRow"))),
+    && /\.\.\.REED_SHEET_ROW_STYLE/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+    && !/borderBottom:/.test(codeOf(srcOfFn(src, "ReedSearchRow"))),
     extractConst("REED_SHEET_ROW_STYLE").replace(/\s+/g, " "));
 
   // --- 66.6 下の一手は3つ / 赤は削除だけ / 番号編集はモードへ入るだけ ------------
@@ -26654,19 +26735,19 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     const a66 = sheet66.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b66 = sheet66.indexOf(">削除</button>", a66);
     const trio66 = a66 >= 0 && b66 > a66 ? sheet66.slice(a66, b66 + ">削除</button>".length) : "";
-    // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 3つ → **2つ**。
-    // 並びの主張(破壊的な一手が右端)も、塗りの主張(赤は削除だけ)も緩めていない。数を向け直す。
-    check("66.6 編集の2つを同じ親から切り出せている(縦積みに戻すと切り出せない)",
-      trio66.length > 400 && count66(trio66, /<button/g) === 2,
+    // 【便P 2026-09-20 本人指示】「編集画面から編集ボタンを削除」── 3つ → 2つ。
+    // 【AA-2 2026-09-21】その2つのうち「番号編集」も消えた(入口がカードの鉛筆になった)。
+    // 塗りの主張(赤は削除だけ)は緩めていない。数を向け直す。
+    check("66.6 / AA-2 編集の一手は削除1つだけ(番号編集は綴りごと無い)",
+      trio66.length > 200 && count66(trio66, /<button/g) === 1
+      && count66(app66, />番号編集<\/button>/g) === 0,
       `${trio66.length}文字 / ${count66(trio66, /<button/g)}個`);
-    check("66.6 並びは 番号編集 → 削除(破壊的な一手が右端)/「変更」は無い",
-      trio66.indexOf(">番号編集</button>") >= 0
-      && trio66.indexOf(">番号編集</button>") < trio66.indexOf(">削除</button>")
-      && count66(sheet66, />番号編集<\/button>/g) === 1
+    check("66.6 / AA-2 「変更」も「番号編集」もシートに無い",
+      count66(sheet66, />番号編集<\/button>/g) === 0
       && count66(sheet66, />変更<\/button>/g) === 0);
-    check("66.6 番号編集の塗りは --c-sunken / 字は --c-ink-2 / 太さ600(1つ)",
-      count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
-      && count66(trio66, /fontWeight: 600/g) === 1,
+    check("66.6 / AA-2 沈めた地の一手(--c-sunken)はもうシートに無い(赤だけ)",
+      count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
+      && count66(trio66, /fontWeight: 600/g) === 0,
       `塗り${count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g)} / 太さ${count66(trio66, /fontWeight: 600/g)}`);
     check("66.6 赤は削除の1つだけ。**edit の枝に --c-accent は残っていない**",
       count66(trio66, /var\(--c-danger\)/g) === 1
@@ -26682,37 +26763,25 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     // 【便P 2026-09-20】押せなくなり得た一手(「変更」)は消えたので、編集の2つに
     // disabled は無い。**判定式そのものは追加の一手が今までどおり読んでいる**
     // (下の「判定式は1文字も変えていない」がそれを見る)。主張を事実の側へ向け直す。
-    check("66.6 編集の2つはどちらも常に押せる(disabled も灰の化けも無い)",
+    check("66.6 編集の一手は常に押せる(disabled も灰の化けも無い)",
       count66(trio66, /disabled/g) === 0
       && count66(trio66, /var\(--c-line-strong\)/g) === 0
-      && count66(trio66, /cursor: "pointer",/g) === 2,
+      && count66(trio66, /cursor: "pointer",/g) === 1,
       `disabled ${count66(trio66, /disabled/g)} / pointer ${count66(trio66, /cursor: "pointer",/g)}`);
-    check("66.6 押せるかどうかの判定式は1文字も変えていない",
-      /const disabled = \(isCustom && !customBrand\.trim\(\)\) \|\| \(isEdit && !startDate\);/.test(sheet66));
-    check("66.6 番号編集のボタンは onNumberEdit が渡されたときだけ出る(受け口の既定は null)",
-      /onNumberEdit = null,/.test(sheet66) && /\{onNumberEdit \? \(/.test(trio66));
-    {
-      // **綴りではなく動きで見る。** 呼び手の式をソースから取り出して実際に走らせ、
-      // 「先にシートを閉じ、そのあとモードへ入る」順序まで確かめる。
-      // 【便P 2026-09-20 本人指示】「情報を変更して編集画面を閉じたら変更反映されるように」。
-      // 番号編集もシートから出る経路なので、**編集中の値を捨てないよう先に applyBoxEdit を
-      // 呼ぶ**ようになった。主張は緩めていない(順序を見るのは今までどおり)。
-      const h66 = (view66.match(/onNumberEdit=\{(\(\) => \{[\s\S]*?\})\}/) || [])[1];
-      check("66.6 番号編集の呼び手をソースから取り出せている", Boolean(h66), h66 || "取り出せない");
-      if (h66) {
-        const log66 = [];
-        const fn66 = new Function("applyBoxEdit", "setEditBoxKey", "enterNumberEdit", `return (${h66});`)(
-          () => log66.push("apply"), (v) => log66.push(`close:${String(v)}`), () => log66.push("enter"));
-        fn66();
-        check("66.6 押すと**変更を適用 → シートを閉じ → 番号編集モードへ入る**の順",
-          log66.join(" > ") === "apply > close:null > enter", log66.join(" > ") || "何も起きない");
-      }
-    }
-    // 【便R 後半-後半 2026-09-20】「…」が定義ごと消え、番号編集モードへ入る一手は
-    // **箱の編集シートの「番号編集」ただ1つ**になった(中継ぎの startMode も要らなくなった)。
-    check("66.6 モードへ入る一手は箱の編集シートの「番号編集」ただ1つ",
-      /enterNumberEdit=\{\(\) => setListMode\("numberEdit"\)\}/.test(tab66)
-      && count66(app66, /setListMode\("numberEdit"\)/g) === 1,
+    // 【AA-1 2026-09-21】判定式は「メーカーが空か」の見方が1行増えた(✕ で外せるようになったため)。
+    // **読み手も主張も同じ**(実行側が黙って return する条件と1対1)。
+    // 走らせた突き合わせは §17 の F-82 が持つ(ここは綴りの在処だけを見る)。
+    check("66.6 押せるかどうかの判定はシートが1つだけ持つ(読み手は追加の一手)",
+      /const resolvedBrand = isCustom \? customBrand\.trim\(\) : String\(brand \?\? ""\)\.trim\(\);/.test(sheet66)
+      && /const disabled = !resolvedBrand \|\| \(isEdit && !startDate\);/.test(sheet66)
+      && count66(sheet66, /const disabled = /g) === 1);
+    // 【AA-2 2026-09-21】番号編集の受け口(onNumberEdit)とその呼び手は**綴りごと消えた**。
+    // 入口はカードの右上の鉛筆1つで、そこから番号のシートが直接開く(検証81 が見る)。
+    check("66.6 / AA-2 番号編集の受け口と呼び手は綴りごと無い",
+      !/onNumberEdit/.test(app66), (app66.match(/onNumberEdit/g) || []).length + "件");
+    check("66.6 / AA-2 モードへ入る一手も無い(setListMode は登録一覧に1つも無い)",
+      count66(app66, /setListMode\("numberEdit"\)/g) === 0
+      && !/listMode/.test(tab66),
       `${count66(app66, /setListMode\("numberEdit"\)/g)}箇所`);
     // 【便R 後半-後半】「…」の項目そのもの({ mode: ..., label: ... })が綴りごと無い。
     // 番号のシートの見出し(BottomSheet ariaLabel="リード番号を変更")は**残る**ので、
@@ -26720,27 +26789,41 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     check("66.6 「…」の項目({ mode: \"numberEdit\", label: ... })は綴りごと無い(入口は上の1つだけ)",
       !/\{ mode: "numberEdit"/.test(codeOf(app66)) && !/\{ mode: "/.test(codeOf(app66)),
       (codeOf(app66).match(/\{ mode: "[^"]*"/g) || []).join(" / ") || "0件");
-    check("66.6 番号編集モードの後始末(useEffect)を壊していない",
-      /useEffect\(\(\) => \{ if \(listMode !== "numberEdit"\) setNumberEditId\(null\); \}, \[listMode\]\);/.test(view66));
-    check("66.6 追加の呼び出しには onNumberEdit を渡していない(追加に番号編集は無い)",
-      count66(app66, /onNumberEdit=/g) === 1);
+    // 【AA-2 2026-09-21】モードを抜けたときの後始末(useEffect)は、モードごと消えた。
+    // 番号のシートを閉じるのは**シート自身の onClose** ── 開いたものを閉じる口は今までどおり1つ。
+    check("66.6 / AA-2 モードの後始末(useEffect)は綴りごと無く、閉じる口はシートの onClose 1つ",
+      !/if \(listMode !== "numberEdit"\)/.test(app66)
+      && /onClose=\{\(\) => setNumberEditId\(null\)\}/.test(view66)
+      && count66(view66, /setNumberEditId\(null\)/g) === 1,
+      `${count66(view66, /setNumberEditId\(null\)/g)}箇所`);
+    check("66.6 / AA-2 番号編集を開く口はカードの鉛筆1つ(追加のシートには無い)",
+      count66(app66, /setNumberEditId\(id\)/g) === 1 && !/onNumberEdit=/.test(app66));
   }
 
-  // --- 66.7 「長押しで並び替え」の案内 ------------------------------------------
+  // --- 66.7 長押しの案内 --------------------------------------------------------
+  // 【AA-3 2026-09-21 本人指示】語を「長押しで並び替え」→「長押しで編集」に替えた。
+  // 【AA-2 2026-09-21】モードが無くなったので、出す条件は枚数1つになった
+  // (以前は listMode === null が併せて守っていた)。**体裁は1px も変えていない。**
   {
-    const guide66 = (view66.match(/\{listMode === null && reeds\.length > 0 && \([\s\S]{0,400}?\)\}/) || [""])[0];
-    check("66.7 案内は listMode === null と reeds.length > 0 の**両方**で守られている",
-      guide66.length > 100 && /長押しで並び替え/.test(guide66)
-      && count66(view66, /長押しで並び替え/g) === 1,
+    const guide66 = (view66.match(/\{reeds\.length > 0 && \([\s\S]{0,400}?\)\}/) || [""])[0];
+    check("66.7 案内は reeds.length > 0 で守られている(0枚のときは出さない)",
+      guide66.length > 100 && /長押しで編集/.test(guide66)
+      && count66(view66, /長押しで編集/g) === 1,
       guide66.replace(/\s+/g, " ").slice(0, 140) || "取り出せない");
+    check("66.7 / AA-3 旧語「長押しで並び替え」は App.jsx のどこにも無い(綴りは2択のみ)",
+      !/長押しで並び替え/.test(codeOf(src)),
+      (codeOf(src).match(/長押しで並び替え/g) || []).length + "件");
     const styles66 = view66.match(/style=\{\{ fontSize: "var\(--fs-xs\)"[^}]*\}\}/g) || [];
-    check("66.7 体裁は numberEdit の案内と**同じ綴り**(新しい値を作っていない)",
-      styles66.length === 2 && styles66[0] === styles66[1]
+    check("66.7 体裁は便O のときと**同じ綴り**(新しい値を作っていない)",
+      styles66.length === 1
       && /fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)"/.test(styles66[0] || ""),
       styles66.join(" || ") || "取り出せない");
-    check("66.7 置き場所は numberEdit の案内の下・FloatingActionSpacer のすぐ上",
-      view66.indexOf("番号を変更するリードをタップ") < view66.indexOf("長押しで並び替え")
-      && view66.indexOf("長押しで並び替え") < view66.indexOf("<FloatingActionSpacer />"));
+    check("66.7 置き場所は FloatingActionSpacer のすぐ上のまま",
+      view66.indexOf("長押しで編集") > 0
+      && view66.indexOf("長押しで編集") < view66.indexOf("<FloatingActionSpacer />"));
+    check("66.7 / AA-2 旧案内「番号を変更するリードをタップ」は綴りごと無い",
+      !/番号を変更するリードをタップ/.test(codeOf(src)),
+      (codeOf(src).match(/番号を変更するリードをタップ/g) || []).length + "件");
   }
   console.log("  -> done");
 }
@@ -26768,9 +26851,13 @@ console.log("========== 検証67: SubTabs の children / 名札の左寄せ ====
   // **中身が出口と削除の実行だけになった**。「…」の不在も併せて見る(消しただけなのに
   // 受け口ごと落ちると、番号編集モードの出口が消えて戻れなくなるため)。
   // 【便R 後半-後半 2026-09-20】残るモードは numberEdit だけになり、中身は「完了」1つ。
-  check("67.1 リードタブの出口は SubTabs の中身として残っている(「…」は0件)",
+  // 【AA-2 2026-09-21】そのモードも消え、**リードタブの子タブ行の右端は空**になった。
+  // 67.1 の芯(SubTabs が children を捨てていない)は上の3つが見ている。ここは
+  // 「リードタブが右端に何も置いていない」という事実を固定する(空の器も残していない)。
+  check("67.1 / AA-2 リードタブは子タブ行の右端に何も置いていない(「…」も出口も0件)",
     /<\/SubTabs>/.test(src)
-    && />完了<\/span>/.test(codeOf(srcOfFn(src, "ReedsTab")))
+    && !/>完了<\/span>/.test(codeOf(srcOfFn(src, "ReedsTab")))
+    && !/marginLeft: "auto"/.test(codeOf(srcOfFn(src, "ReedsTab")))
     && (src.match(/aria-label="その他の操作"/g) || []).length === 0,
     `その他の操作 ${(src.match(/aria-label="その他の操作"/g) || []).length}件`);
   const lbl67 = (src.match(/const REED_SHEET_ROW_LABEL_STYLE = \{[^\n]*\};/) || [""])[0];
@@ -27055,18 +27142,18 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     count71(app71, /aria-label="その他の操作"/g) === 0
     && count71(app71, /setMoreOpen\(true\)/g) === 0,
     `その他の操作 ${count71(app71, /aria-label="その他の操作"/g)}件 / 開く一手 ${count71(app71, /setMoreOpen\(true\)/g)}件`);
-  // 【便R 後半-後半 2026-09-20】残るモードは numberEdit だけになったので、出口の語は「完了」1つ。
-  check("71.4 モード中の出口(完了)は残っている",
-    />完了<\/span>/.test(tab71)
-    && /<button onClick=\{exitMode\}/.test(tab71));
+  // 【AA-2 2026-09-21】モードそのものが消えたので、出口も要らなくなった。
+  check("71.4 / AA-2 モードも出口も綴りごと無い(押しても何も起きない一手を残さない)",
+    !/>完了<\/span>/.test(tab71) && !/exitMode/.test(tab71) && !/listMode/.test(tab71));
   // 削除の実行(DeleteActionButton)の**呼び手**はリードタブから消えた。
   // **部品そのものは残す**(「すべての計測」が使い続ける)。
   check("71.4 削除の実行の呼び手はリードタブから消え、部品は「すべての計測」に残っている",
     !/<DeleteActionButton/.test(tab71)
     && /function DeleteActionButton\(/.test(codeOf(src))
     && /<DeleteActionButton/.test(codeOf(srcOfFn(src, "AllSessionsPage"))));
-  check("71.4 右端の行は登録子タブの**モード中だけ**出る",
-    /\{reedsSubTab === "register" && listMode !== null && \(/.test(tab71));
+  // 【AA-2 2026-09-21】モードが消え、右端に条件つきで出す行そのものが無くなった。
+  check("71.4 / AA-2 右端に条件つきで出す行は1つも無い(空の器も残していない)",
+    !/\{reedsSubTab === "register" &&/.test(tab71) && !/marginLeft: "auto"/.test(tab71));
   check("71.4 SubTabs の children の受け口は残っている(出口がここに載る)",
     /export function SubTabs\(\{ items, value, onChange, children = null \}\)/.test(src)
     && /\{children\}/.test((src.match(/export function SubTabs\([\s\S]*?\n\}\n/) || [""])[0]));
@@ -27089,26 +27176,28 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   check("71.5 箱ごとの削除は箱の編集シートの「削除」が担い続ける",
     /onDelete=\{/.test(app71) && />削除<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet")))
     && /deleteReedsWithUndo\(ids, deletedReedsLabel\(\[editGroup\], ids\.length, 1\)\);/.test(app71));
-  // 番号編集モードの経路は残っている(箱の編集シートの「番号編集」→ タイル → 番号のシート → 完了)。
-  check("71.5 番号編集モードの経路は残っている(入口は箱の編集シートの「番号編集」1つ)",
-    /enterNumberEdit=\{\(\) => setListMode\("numberEdit"\)\}/.test(app71)
-    && /onNumberEdit=\{/.test(app71)
-    && /listMode === "numberEdit" \? setNumberEditId\(id\)/.test(app71)
-    && /\{listMode === "numberEdit" && \(/.test(app71));
+  // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**:
+  // カードの右上の鉛筆 → 番号のシート。機能は1つも落ちていない(むしろ2段が1段になった)。
+  check("71.5 / AA-2 番号編集の経路は残っている(入口はカードの鉛筆1つ)",
+    /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(app71)
+    && /<ReedNumberSheet/.test(app71)
+    && !/listMode === "numberEdit"/.test(app71));
 
   // --- 71.6 箱の編集シートの下の一手と、閉じたときの反映 ------------------------
   {
     const a71 = sheet71.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const b71 = sheet71.indexOf(">削除</button>", a71);
     const pair71 = a71 >= 0 && b71 > a71 ? sheet71.slice(a71, b71 + ">削除</button>".length) : "";
-    check("71.6 編集の下は2つ(番号編集 / 削除)で、「変更」の語がシートのどこにも無い",
-      count71(pair71, /<button/g) === 2
-      && />番号編集<\/button>/.test(pair71) && />削除<\/button>/.test(pair71)
+    // 【AA-2 2026-09-21】「番号編集」が消えて**削除1つ**になった。
+    check("71.6 / AA-2 編集の下は削除1つで、「変更」も「番号編集」もシートに無い",
+      count71(pair71, /<button/g) === 1
+      && />削除<\/button>/.test(pair71)
+      && count71(sheet71, />番号編集</g) === 0
       && count71(sheet71, />変更</g) === 0,
       `${count71(pair71, /<button/g)}個 / 変更 ${count71(sheet71, />変更</g)}件`);
-    check("71.6 幅は 1 1 0 のまま2等分・高さと色は据え置き",
-      count71(pair71, /flex: "1 1 0", minWidth: 0, minHeight: "var\(--tap-min\)",/g) === 2
-      && count71(pair71, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 1
+    check("71.6 幅の指定・高さ・色は据え置き(1つになったので行いっぱいに伸びる)",
+      count71(pair71, /flex: "1 1 0", minWidth: 0, minHeight: "var\(--tap-min\)",/g) === 1
+      && count71(pair71, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
       && count71(pair71, /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/g) === 1);
     check("71.6 reedSheetButtonLabel は定義ごと無い(読み手の無い枝を残していない)",
       !/function reedSheetButtonLabel\s*\(/.test(app71)
@@ -27117,8 +27206,10 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     check("71.6 追加の一手は定数から出る(綴りは1文字も変えていない)",
       /\{REED_ADD_BUTTON_LABEL\}/.test(sheet71)
       && api.REED_ADD_BUTTON_LABEL === "この箱を追加する");
-    check("71.6 押せるかどうかの判定式は1文字も変えていない(読み手は追加の一手)",
-      /const disabled = \(isCustom && !customBrand\.trim\(\)\) \|\| \(isEdit && !startDate\);/.test(sheet71)
+    // 【AA-1 2026-09-21】判定は「解決したメーカー名が空か」の1行を挟む形になった
+    // (✕ でメーカーを外せるようになったため)。**読み手も、灰の化け方も同じ**。
+    check("71.6 押せるかどうかの判定はシートが1つだけ持つ(読み手は追加の一手)",
+      /const disabled = !resolvedBrand \|\| \(isEdit && !startDate\);/.test(sheet71)
       && /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/.test(sheet71));
 
     // **綴りではなく動きで見る。** 呼び手の式をソースから取り出して実際に走らせる。
@@ -27134,18 +27225,12 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
           log71.join(" > ") === "apply > close:null", log71.join(" > ") || "何も起きない");
       }
     }
-    {
-      const ne71 = (view71.match(/onNumberEdit=\{(\(\) => \{[\s\S]*?\})\}/) || [])[1];
-      check("71.6 番号編集の呼び手をソースから取り出せている", Boolean(ne71), ne71 || "取り出せない");
-      if (ne71) {
-        const log71 = [];
-        const fn71 = new Function("applyBoxEdit", "setEditBoxKey", "enterNumberEdit", `return (${ne71});`)(
-          () => log71.push("apply"), (v) => log71.push(`close:${String(v)}`), () => log71.push("enter"));
-        fn71();
-        check("71.6 番号編集は 適用 → 閉じる → モードへ入る の順(編集中の値を捨てない)",
-          log71.join(" > ") === "apply > close:null > enter", log71.join(" > ") || "何も起きない");
-      }
-    }
+    // 【AA-2 2026-09-21】番号編集の呼び手(onNumberEdit)は綴りごと消えた ──
+    // 入口がカードの鉛筆になり、シートを閉じてからモードへ入る、という手順そのものが無い。
+    // **編集中の値を捨てないこと**は、残った onClose(上の検査が実際に走らせている)が担う。
+    check("71.6 / AA-2 番号編集の呼び手は綴りごと無い(閉じる経路は onClose ただ1つ)",
+      !/onNumberEdit/.test(view71) && !/enterNumberEdit/.test(codeOf(src)),
+      (view71.match(/onNumberEdit/g) || []).length + "件");
     // 【消した箱を書き戻さない】削除の経路は applyBoxEdit を通らない。
     // 器(BottomSheet / useSheetDismiss)がアンマウントで onClose を呼んでいないことも併せて見る
     // ── 呼んでいたら、削除で消した箱が onClose 経由で書き戻る。
@@ -27412,8 +27497,10 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
       !/strengthPickerOpen|countPickerOpen/.test(app73),
       (app73.match(/strengthPickerOpen|countPickerOpen/g) || []).join(" | ") || "0件");
     // 【便X 2026-09-21 で 2 → 1】銘柄はシートを開かず、その場の検索窓 + 候補で選ぶ。
-    check("73.4 厚さ・枚数のホイールは無い(シートの外へ出す一覧はメーカーの1枚だけ)",
-      count73(sheet73, /<ScrollPicker|<OptionSheet/g) === 1
+    // 【AA-1 2026-09-21 で 1 → 0】メーカーも同じ検索欄に畳まれた。
+    // シートの外へ出す一覧は1枚も無い ── 選ぶものはすべてシートの中で決まる。
+    check("73.4 厚さ・枚数のホイールは無い(シートの外へ出す一覧は0枚)",
+      count73(sheet73, /<ScrollPicker|<OptionSheet/g) === 0
       && !/options=\{REED_STRENGTH_OPTIONS\}\s*\n\s*value=\{strength\}/.test(sheet73),
       `${count73(sheet73, /<ScrollPicker|<OptionSheet/g)}枚`);
     check("73.4 厚さ・枚数はその場のピル(名札は残り、ピルは名札の下)",
@@ -27481,19 +27568,20 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     // 【便R 後半-後半】残る2つ(箱 / 個体)は ReedPickSheet 1枚に畳まれ、代わりに
     // 計測データの編集シートのリードが PlainSelect から ReedPickSheet へ移った ── **数は6のまま**。
     // 【便X 2026-09-21】銘柄は板を開かず**その場の検索窓**になった(板 5 + 検索窓 1)。
-    // **選ばせる場所は6のまま。** どちらの形かは下の名指しの一覧が見る。
+    // 【AA-1 2026-09-21 で 6 → 5】メーカーの板が銘柄の検索窓と1つに畳まれた
+    // (本人指示「メーカーと銘柄を分けないで検索対象に変更」)。
+    // **選べなくなった物は1つも無い**: 同じシートで同じ2つの値が同時に決まる。
     const readers73 = count73(app73, /<OptionSheet\b|<ReedPickSheet\b/g);
-    const search73 = count73(app73, /<ReedModelSearchRow\b/g);
-    check("73.6 選び方の読み手は6のまま(板5 + 銘柄の検索窓1)",
-      readers73 === 5 && search73 === 1, `板=${readers73} / 検索窓=${search73}`);
+    const search73 = count73(app73, /<ReedSearchRow\b/g);
+    check("73.6 選び方の読み手は5(板4 + リードの検索窓1)",
+      readers73 === 4 && search73 === 1, `板=${readers73} / 検索窓=${search73}`);
     // 残る6が誰かを名指しで見る(数だけだと別の4つが消える変異が素通りする)。
     for (const [lab, needle] of [
       ["計測タブの箱と開封日と個体", /boxKey=\{openPicker === "box" \? null : selectedBoxKey\}/],
       ["計測データの編集シートのリード", /<ReedPickSheet[\s\S]{0,400}?allowNone/],
       ["奏者", /options=\{options\} value=\{selectedPerformer\}/],
       ["PlainSelect(軸など)", /options=\{list\.map\(\(o\) => o\.value\)\}/],
-      ["箱のシートのメーカー", /options=\{pickerOptions\}/],
-      ["箱のシートの銘柄", /options=\{modelOptions\}/],
+      ["箱のシートのリード(メーカーと銘柄)", /runSearch|searchReeds\(query\)\.slice/],
     ]) {
       check(`73.6 残る選び方が実在する: ${lab}`, needle.test(app73), String(needle));
     }
@@ -27693,16 +27781,15 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
       count75(perf75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(perf75),
       `一覧 ${count75(perf75, /<OptionSheet\b/g)} / ホイール ${count75(perf75, /<ScrollPicker/g)}`);
     // 【便X 2026-09-21 で 2 → 1】銘柄は一覧ではなく検索窓 + 候補になった(本人指示)。
-    check("75.2 箱のシートのメーカーも OptionSheet(ScrollPicker を読んでいない)",
-      count75(sheet75, /<OptionSheet\b/g) === 1 && !/<ScrollPicker/.test(sheet75),
+    // 【AA-1 2026-09-21 で 1 → 0】メーカーも同じ検索欄へ畳まれ、箱のシートは
+    // **もう1枚も一覧を開かない**。検索窓はシートではないので、暗幕がシートの中に閉じる
+    // 罠(F-73 と同型)に当たる経路そのものが無くなった。
+    check("75.2 箱のシートは一覧もホイールも1枚も開かない(選ぶものはシートの中で決まる)",
+      count75(sheet75, /<OptionSheet\b/g) === 0 && !/<ScrollPicker/.test(sheet75),
       `一覧 ${count75(sheet75, /<OptionSheet\b/g)} / ホイール ${count75(sheet75, /<ScrollPicker/g)}`);
-    check("75.2 メーカーの一覧は見出しを持つ(何を選んでいるかが読める)",
-      /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet75));
-    // シートの**外**に出す置き方は変えていない(暗幕がシートの中に閉じる罠。F-73 と同型)。
-    // 銘柄の検索窓はもう1枚のシートではないので、この罠に当たらない(中に在ってよい)。
-    check("75.2 メーカーの一覧は今までどおりシートの**外**(BottomSheet の兄弟)",
-      srcOfFn(src, "ReedBoxSheet").indexOf("options={pickerOptions}") > srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>")
-      && srcOfFn(src, "ReedBoxSheet").indexOf("options={modelOptions}") < srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>"));
+    check("75.2 / AA-1 リードの検索窓は BottomSheet の**中**に在る(全画面の幕を重ねない)",
+      srcOfFn(src, "ReedBoxSheet").indexOf("<ReedSearchRow") > 0
+      && srcOfFn(src, "ReedBoxSheet").indexOf("<ReedSearchRow") < srcOfFn(src, "ReedBoxSheet").indexOf("</BottomSheet>"));
   }
 
   // --- 75.3 PlainSelect の呼び手3つは1文字も変えていない -------------------------
@@ -27740,10 +27827,15 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
     const lab75 = runFn(new Function(`${extractConst("REED_BRAND_CUSTOM_LABEL")} return REED_BRAND_CUSTOM_LABEL;`));
     check("75.5 綴りも値も変えていない(＋ 新しいメーカーを入力...)",
       lab75.ok && lab75.v === "＋ 新しいメーカーを入力...", shownOf(lab75));
-    check("75.5 メーカーの一覧の**末尾**に選択肢として並ぶ",
-      /const pickerOptions = \[\.\.\.brandOptions, REED_BRAND_CUSTOM\];/.test(sheet75));
-    check("75.5 その1つだけ綴りを差し替える labelFn が今までどおり在る",
-      /labelFn=\{\(v\) => \(v === REED_BRAND_CUSTOM \? REED_BRAND_CUSTOM_LABEL : v\)\}/.test(sheet75));
+    // 【AA-1 2026-09-21】一覧が無くなったので、置き場所が**検索の行の末尾**に移った。
+    // GearPicker の「カタログに無い(その他)」と同じ作法 ── 候補が0件でも消えない。
+    // **語も行き先も1文字も変えていない。**
+    check("75.5 / AA-1 逃げ道は検索の行の末尾に常に在る(候補が0件でも消えない)",
+      /\{REED_BRAND_CUSTOM_LABEL\}<\/button>/.test(codeOf(srcOfFn(src, "ReedSearchRow")))
+      && !/results\.length === 0 &&[\s\S]{0,200}?REED_BRAND_CUSTOM_LABEL/.test(codeOf(srcOfFn(src, "ReedSearchRow"))));
+    check("75.5 / AA-1 押すと自由入力へ進む(行き先は今までどおり REED_BRAND_CUSTOM)",
+      /onOther=\{\(\) => \{ setBrand\(REED_BRAND_CUSTOM\); setModel\(null\); \}\}/.test(sheet75)
+      && /placeholder="新しいメーカー名を入力"/.test(codeOf(srcOfFn(src, "ReedSearchRow"))));
   }
 
   // --- 75.6 ホイールの読み手は 6 → 2 → 0。定義も無い ----------------------------
@@ -27755,8 +27847,9 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
     check("75.6 箱・開封日・個体の行き先は ReedPickSheet(名指しで見る。行き先を失う変異を通さない)",
       /<ReedPickSheet[\s\S]{0,400}?boxKey=\{openPicker === "box" \? null : selectedBoxKey\}/.test(app75));
     // 【便X 2026-09-21 で 4 → 3】銘柄は一覧ではなく検索窓になった。
-    check("75.6 一覧の読み手は3つ(奏者 / PlainSelect / メーカー)",
-      count75(app75, /<OptionSheet\b/g) === 3, `${count75(app75, /<OptionSheet\b/g)}箇所`);
+    // 【AA-1 2026-09-21 で 3 → 2】メーカーも検索窓へ畳まれた。
+    check("75.6 一覧の読み手は2つ(奏者 / PlainSelect)",
+      count75(app75, /<OptionSheet\b/g) === 2, `${count75(app75, /<OptionSheet\b/g)}箇所`);
   }
 
   // --- 75.7 正典(design/canvas)の属性の語 --------------------------------------
@@ -28088,24 +28181,21 @@ ${deriv76}
       /function DeleteActionButton\(/.test(app76)
       && count76(app76, /<DeleteActionButton\b/g) === 1
       && /<DeleteActionButton/.test(codeOf(srcOfFn(src, "AllSessionsPage"))));
-    // numberEdit の経路: 箱の編集シートの「番号編集」→ タイル → 番号のシート →「完了」
-    check("76.6 numberEdit へ入る一手は箱の編集シートの「番号編集」1つ",
-      /enterNumberEdit=\{\(\) => setListMode\("numberEdit"\)\}/.test(app76)
-      && count76(app76, /setListMode\("numberEdit"\)/g) === 1
-      && />番号編集<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet"))));
-    check("76.6 モード中のタイルのタップは番号のシートを開く",
-      /numberEditing=\{listMode === "numberEdit"\}/.test(view76)
-      && /onTileTap=\{\(id\) => \(listMode === "numberEdit" \? setNumberEditId\(id\)/.test(view76));
-    check("76.6 番号のシートと案内の1行は残っている",
-      /\{listMode === "numberEdit" && \(/.test(view76)
-      && /番号を変更するリードをタップ/.test(src)
-      && /<ReedNumberSheet/.test(view76));
-    check("76.6 モードの出口(完了)は子タブ行の右端に残っている",
-      /\{reedsSubTab === "register" && listMode !== null && \(/.test(tab76)
-      && />完了<\/span>/.test(tab76)
-      && /<button onClick=\{exitMode\}/.test(tab76));
-    check("76.6 出口の後始末は listMode を戻すだけ(消えた入れ物を触らない)",
-      /const exitMode = \(\) => setListMode\(null\);/.test(app76));
+    // 【AA-2 2026-09-21】番号編集の経路は**モードを通らなくなった**:
+    // カードの右上の鉛筆 → 番号のシート。入口も、モードも、出口も1段ずつ減っている。
+    // **番号を直すシート(ReedNumberSheet)は残っている** ── 機能は1つも落ちていない。
+    check("76.6 / AA-2 番号編集へ入る一手はカードの鉛筆1つ",
+      /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view76)
+      && count76(app76, /onPencilTap=/g) === 1
+      && !/>番号編集<\/button>/.test(codeOf(srcOfFn(src, "ReedBoxSheet"))));
+    check("76.6 / AA-2 タイルのタップは今までどおり個体詳細(意味がモードで入れ替わらない)",
+      /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view76)
+      && !/numberEditing/.test(app76));
+    check("76.6 / AA-2 番号のシートは残っている(案内の1行はモードごと無い)",
+      /<ReedNumberSheet/.test(view76)
+      && !/番号を変更するリードをタップ/.test(codeOf(src)));
+    check("76.6 / AA-2 モードも出口もリードタブに無い",
+      !/listMode/.test(tab76) && !/>完了<\/span>/.test(tab76) && !/exitMode/.test(app76));
   }
 
   // --- 76.7 正典ミニは実装に合わせてある ------------------------------------------
@@ -28115,13 +28205,15 @@ ${deriv76}
     const b77 = mock76.indexOf("この箱を追加する", a77);
     const mini77 = a77 >= 0 && b77 > a77 ? mock76.slice(a77, b77) : "";
     // 【便V 2026-09-21】器の目印も**実装の名札**から引く(旧語の直書きをやめた)。
-    const pick767 = [...codeOf(srcOfFn(src, "ReedBoxSheet")).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    // 【AA-1 2026-09-21】▾ の行は消え、実装の名札は検索の行の「リード」1つ。
+    const pick767 = [...codeOf(srcOfFn(src, "ReedBoxSheet")).matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
     check("76.7 正典ミニの「追加」の器を切り出せている(空回りしていない)",
       mini77.length > 800 && pick767.length === 1 && mini77.includes(`>${pick767[0]}</span>`),
       `${mini77.length}文字 / 名札=${JSON.stringify(pick767)}`);
-    // 【便X 2026-09-21 で 2 → 1】銘柄は検索窓になり、▾ を持つ行はメーカーだけ。
-    check("76.7 ミニの ▾ は1つだけ(実装の ▾ の名札1つ)",
-      (mini77.match(/class="chev"/g) || []).length === 1,
+    // 【便X 2026-09-21 で 2 → 1】銘柄は検索窓になった。
+    // 【AA-1 2026-09-21 で 1 → 0】メーカーも同じ行へ畳まれ、▾ を持つ行は1つも無い。
+    check("76.7 ミニに ▾ は1つも無い(押せば一覧が出る行が実装から消えた)",
+      (mini77.match(/class="chev"/g) || []).length === 0,
       `${(mini77.match(/class="chev"/g) || []).length}個`);
     check("76.7 厚さ・枚数は「値 + ▾」の行ではない(その形の行が0件)",
       !/>厚さ選択</.test(mini77)
@@ -28188,7 +28280,7 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
     // 実装の名札。▾ の行(ReedSheetPickRow)とピルの段(REED_SHEET_PILL_ROW_STYLE)から引く。
     const pick77 = [...sheet77.matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
     // 【便X 2026-09-21】銘柄は ▾ の行ではなく検索窓の行になったので、名札の出どころが1つ増えた。
-    const search77 = [...sheet77.matchAll(/<ReedModelSearchRow\s+label="([^"]+)"/g)].map((m) => m[1]);
+    const search77 = [...sheet77.matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
     const pill77 = [...sheet77.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
     const labels77 = pick77.concat(search77, pill77);
     // 実装の「編集の下の一手」。isEdit の横並びの中のボタンの語だけを取る。
@@ -28200,16 +28292,18 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
     const b77 = mock77.indexOf("この箱を追加する", a77);
     const mini77 = a77 >= 0 && b77 > a77 ? mock77.slice(a77, b77) : "";
 
-    check("77.1 健全性: 実装の名札4つ・一手2つ・正典ミニの器を取り出せている(空回りしていない)",
-      labels77.length === 4 && labels77.every((t) => t.length > 0)
-      && act77.length === 2 && act77.every((t) => t.length > 0)
+    // 【AA-1 2026-09-21 で 4 → 3】メーカーと銘柄が1つの名札「リード」に畳まれた。
+    // 【AA-2 2026-09-21 で 一手 2 → 1】編集の下は削除だけになった。
+    check("77.1 健全性: 実装の名札3つ・一手1つ・正典ミニの器を取り出せている(空回りしていない)",
+      labels77.length === 3 && labels77.every((t) => t.length > 0)
+      && act77.length === 1 && act77.every((t) => t.length > 0)
       && mini77.length > 800,
       `名札=${JSON.stringify(labels77)} / 一手=${JSON.stringify(act77)} / ミニ=${mini77.length}文字`);
 
-    // 4つの名札が**実装の綴りのまま**ミニに在る。旧語に戻すとここで落ちる。
+    // 名札が**実装の綴りのまま**ミニに在る。旧語に戻すとここで落ちる。
     const missing77 = labels77.filter((lab) => count77(mini77, new RegExp(`>${lab}</span>`, "g")) !== 1);
-    check("77.1 正典ミニの名札4つは実装の綴りと同じで、それぞれ1件ずつ",
-      labels77.length === 4 && missing77.length === 0,
+    check("77.1 正典ミニの名札3つは実装の綴りと同じで、それぞれ1件ずつ",
+      labels77.length === 3 && missing77.length === 0,
       missing77.length ? `合わないもの: ${missing77.join(" / ")}` : `${labels77.join(" / ")}`);
     // 並びも実装どおり(メーカー → 銘柄 → 厚さ → 枚数)。
     check("77.1 ミニの名札の並びが実装の並びと同じ",
@@ -28217,13 +28311,13 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
         .every((v, i, arr) => v >= 0 && (i === 0 || v > arr[i - 1])),
       labels77.map((lab) => `${lab}@${mini77.indexOf(`>${lab}</span>`)}`).join(" / "));
     // ミニの説明文も実装の語で書かれている(V-1 の3つめ / V-2 の下の一手)。
-    check("77.1 ミニの説明文の名札も実装から引いた語(▾ の行 + 検索窓の行 + ピルの段)",
-      new RegExp(`追加シート — <b>${pick77.join("・")}は名札 → 値\\(左寄せ\\) → 右端に ▾ の行</b>`).test(mock77)
-      && new RegExp(`<b>${search77.join("・")}は検索窓 \\+ 候補</b>`).test(mock77)
+    check("77.1 ミニの説明文の名札も実装から引いた語(検索窓の行 + ピルの段)",
+      pick77.length === 0
+      && new RegExp(`追加シート — <b>${search77.join("・")}は検索窓 \\+ 候補</b>`).test(mock77)
       && new RegExp(`<b>${pill77.join("・")}は名札の下にピルを並べる</b>`).test(mock77),
       (/追加シート — <b>[^<]*<\/b>/.exec(mock77) || ["取り出せない"])[0]);
-    check("77.1 ミニの説明文の「箱の編集の下の一手」も実装の2つ(番号編集 / 削除)",
-      new RegExp(`「${act77[0]}」と「${act77[1]}」が横並び・高さ44`).test(mock77),
+    check("77.1 ミニの説明文の「箱の編集の下の一手」も実装の1つ(削除)",
+      new RegExp(`下は<b>「${act77[0]}」が幅いっぱい・高さ44</b>`).test(mock77),
       `正典=${(/下は<b>[^<]*<\/b>/.exec(mock77) || ["取り出せない"])[0]} / 実装=${JSON.stringify(act77)}`);
 
     // 旧語が design/ 配下に1つも無い。**綴りは literal**(消したい語そのものなので、
@@ -28670,65 +28764,68 @@ ${deriv79}
 
   // ------------------------------------------------------------------
   // 79.3 X-3 銘柄の検索
+  //
+  // 【AA-1 2026-09-21 で姿が変わった】本人指示「リードの銘柄はプロフィールと同じように
+  // メーカーと銘柄を分けないで検索対象に変更」で、**銘柄だけの検索窓(ReedModelSearchRow)は
+  // メーカーと1つになった**(ReedSearchRow)。X-3 の主張「銘柄は羅列ではなく打って絞る」は
+  // 生きているので、**錨を新しい部品へ向け直す**(緩めていない)。
+  // 母集団が reedModelOptions(brand) から searchReeds に替わったこと、
+  // 名札・逃げ道・畳んだ行の綴りは検証81 が見る。
   // ------------------------------------------------------------------
   {
-    const row79 = codeOf(srcOfFn(src, "ReedModelSearchRow"));
+    const row79 = codeOf(srcOfFn(src, "ReedSearchRow"));
     const gear79 = codeOf(srcOfFn(commRaw79, "GearPicker"));
     check("79.3 検索の行とプロフィールの GearPicker を切り出せている(空回りしていない)",
       row79.length > 1200 && gear79.length > 1500, `行=${row79.length} / GearPicker=${gear79.length}`);
 
-    // (a) 銘柄の一覧(OptionSheet)は**綴りごと無い**。開閉の state も残っていない。
+    // (a) 選択肢を並べるシート(OptionSheet)は**綴りごと無い**。開閉の state も残っていない。
     check("79.3 銘柄の一覧と開閉の state は無い(死んだ受け口を残していない)",
       !/modelPickerOpen/.test(app79)
       && !/ariaLabel="銘柄"/.test(app79)
-      && count79(sheet79, /<ReedModelSearchRow/g) === 1,
+      && count79(sheet79, /<ReedSearchRow/g) === 1,
       (app79.match(/modelPickerOpen/g) || []).length + "件");
-    // (b) 絞る母集団は今までどおり reedModelOptions(brand)。カタログを増やしていない。
-    check("79.3 絞る母集団は reedModelOptions(brand) のまま",
-      /const modelOptions = reedModelOptions\(brand\);/.test(sheet79)
-      && /options=\{modelOptions\}/.test(sheet79)
-      && /\{modelOptions\.length > 0 && \(/.test(sheet79));
-    // (c) 絞る規則は**カタログ側の1つ**。実行して確かめる(綴りだけ見ない)。
+    // (b) 打つ前は何も出さない / 打った文字で絞る ── 規則は**カタログ側の1つ**。実行で確かめる。
     {
       const f79 = runFn(() => new Function(`
         const norm = ${(/const norm = ([^\n]+);/.exec(gearRaw79) || [, "null"])[1]};
-        ${extractFunction("filterModelsByQuery", gearRaw79)}
-        return filterModelsByQuery;`)());
+        const brandMatches = ${(/const brandMatches = ([\s\S]*?);\r?\n/.exec(gearRaw79) || [, "null"])[1]};
+        ${extractConst("BRAND_ALIASES", gearRaw79)}
+        ${extractConst("REED_CATALOG", gearRaw79)}
+        ${extractFunction("searchReeds", gearRaw79)}
+        return searchReeds;`)());
       check("79.3 絞る関数を実ソースから組み立てられる", f79.ok, f79.err);
-      const models = ["V16", "Java", "Java Red", "ZZ", "Traditional"];
+      const lab79 = (r) => `${r.brand} ${r.model}`;
       check("79.3 打った文字を含む銘柄だけが残る(部分一致・大小を区別しない)",
-        f79.ok && JSON.stringify(f79.v(models, "java")) === JSON.stringify(["Java", "Java Red"])
-        && JSON.stringify(f79.v(models, "V16")) === JSON.stringify(["V16"])
-        && JSON.stringify(f79.v(models, "v16")) === JSON.stringify(["V16"]),
-        f79.ok ? JSON.stringify(f79.v(models, "java")) : f79.err);
+        f79.ok && f79.v("java").map(lab79).includes("Vandoren Java")
+        && f79.v("JAVA").map(lab79).includes("Vandoren Java")
+        && f79.v("v16").map(lab79).includes("Vandoren V16")
+        && !f79.v("v16").map(lab79).includes("Vandoren Java"),
+        f79.ok ? f79.v("java").map(lab79).join(" / ") : f79.err);
       check("79.3 打つ前(空の問い合わせ)は候補を出さない(全件を並べない)",
-        f79.ok && f79.v(models, "").length === 0 && f79.v(models, "   ").length === 0,
-        f79.ok ? String(f79.v(models, "").length) : f79.err);
-      check("79.3 候補に無い文字は0件(「候補なし」の経路に落ちる)",
-        f79.ok && f79.v(models, "存在しない").length === 0, f79.ok ? "0件" : f79.err);
+        f79.ok && f79.v("").length === 0 && f79.v("   ").length === 0,
+        f79.ok ? String(f79.v("").length) : f79.err);
+      check("79.3 候補に無い文字は0件(逃げ道の一手だけが残る)",
+        f79.ok && f79.v("存在しない銘柄").length === 0, f79.ok ? "0件" : f79.err);
       check("79.3 全角・ハイフン・空白の揺れも引ける(正規化の規則は norm ただ1つ)",
-        f79.ok && f79.v(models, "Ｖ１６").length === 1 && f79.v(models, "java red").length === 1
-        && f79.v(models, "javared").length === 1,
-        f79.ok ? `Ｖ１６→${f79.v(models, "Ｖ１６").length} / javared→${f79.v(models, "javared").length}`: f79.err);
-      check("79.3 返るのは**渡した母集団の要素だけ**(カタログを引き直していない)",
-        f79.ok && f79.v(models, "a").every((m) => models.includes(m))
-        && f79.v(["ぜんぜん別の銘柄"], "v16").length === 0,
-        f79.ok ? JSON.stringify(f79.v(models, "a")) : f79.err);
+        f79.ok && f79.v("Ｖ１６").map(lab79).includes("Vandoren V16")
+        && f79.v("java red cut").map(lab79).includes("Vandoren Java Red Cut")
+        && f79.v("javaredcut").map(lab79).includes("Vandoren Java Red Cut"),
+        f79.ok ? `Ｖ１６→${f79.v("Ｖ１６").length} / javaredcut→${f79.v("javaredcut").length}` : f79.err);
       check("79.3 絞る規則の定義は gear.js に1つだけ(App.jsx に写していない)",
-        count79(gearRaw79, /export function filterModelsByQuery\(/g) === 1
-        && !/function filterModelsByQuery\(/.test(app79)
-        && /import \{ REED_CATALOG, filterModelsByQuery \}/.test(src));
+        count79(gearRaw79, /export function searchReeds\(/g) === 1
+        && !/function searchReeds\(/.test(app79)
+        && /import \{ REED_CATALOG, searchReeds \}/.test(src));
     }
-    // (d) 上限10は GearPicker と**同じ数**。数え上げは実装から引く(直書きの突き合わせにしない)。
+    // (c) 上限10は GearPicker と**同じ数**。数え上げは実装から引く(直書きの突き合わせにしない)。
     {
-      const max79 = new Function(`${extractConst("REED_MODEL_SEARCH_MAX")} return REED_MODEL_SEARCH_MAX;`)();
+      const max79 = new Function(`${extractConst("REED_SEARCH_MAX")} return REED_SEARCH_MAX;`)();
       const gearMax79 = Number((/runSearch\(query\)\.slice\(0, (\d+)\)/.exec(gear79) || [])[1]);
       check("79.3 候補の上限はプロフィールと同じ10件(数は両方のソースから読む)",
         max79 === gearMax79 && max79 === 10, `リード=${max79} / プロフィール=${gearMax79}`);
       check("79.3 その上限を実際に当てている(slice を書き忘れていない)",
-        /filterModelsByQuery\(options, query\)\.slice\(0, REED_MODEL_SEARCH_MAX\)/.test(row79));
+        /searchReeds\(query\)\.slice\(0, REED_SEARCH_MAX\)/.test(row79));
     }
-    // (e) 見た目 ── 入力欄と候補の行の宣言を**プロフィールの綴りとそのまま突き合わせる**。
+    // (d) 見た目 ── 入力欄と候補の行の宣言を**プロフィールの綴りとそのまま突き合わせる**。
     {
       const objOf79 = (text, from) => {
         const i = text.indexOf("{", from);
@@ -28746,8 +28843,8 @@ ${deriv79}
       const gOptAt79 = gear79.indexOf("style={{", gear79.indexOf("onPick({ brand: r.brand, model: r.model })"));
       const gOpt79 = evalObj79(objOf79(gear79, gOptAt79 < 0 ? -1 : gOptAt79 + 7));
       // リード側: 名前を付けた定数2つ。
-      const rIn79 = evalObj79(extractConst("REED_MODEL_SEARCH_INPUT_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
-      const rOpt79 = evalObj79(extractConst("REED_MODEL_SEARCH_OPTION_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
+      const rIn79 = evalObj79(extractConst("REED_SEARCH_INPUT_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
+      const rOpt79 = evalObj79(extractConst("REED_SEARCH_OPTION_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, ""));
       const norm79 = (r) => (r.ok ? JSON.stringify(Object.entries(r.v).sort()) : `例外(${r.err})`);
       check("79.3 突き合わせる4つの style を両方のファイルから読めている(空回りしていない)",
         ctrl79.ok && gOpt79.ok && rIn79.ok && rOpt79.ok
@@ -28758,103 +28855,454 @@ ${deriv79}
       check("79.3 候補の行の寸法・罫もプロフィールの候補の行と同値",
         norm79(rOpt79) === norm79(gOpt79), `リード=${norm79(rOpt79)} / プロフィール=${norm79(gOpt79)}`);
     }
-    // (f) 作法も同じ: 打つ → 候補 → 押すと決まる / 決まっている間は値 + ✕。
-    check("79.3 打った文字は state に入るだけで、値にはならない(自由入力の経路が無い)",
+    // (e) 作法も同じ: 打つ → 候補 → 押すと決まる / 決まっている間は値 + ✕。
+    check("79.3 打った文字は state に入るだけで、値にはならない(打ち込みが銘柄にならない)",
       /onChange=\{\(e\) => setQuery\(e\.target\.value\)\}/.test(row79)
-      && /onClick=\{\(\) => \{ setQuery\(""\); onPick\(m\); \}\}/.test(row79)
-      && !/onPick\(query/.test(row79)
-      && !/OTHER_BRAND|カタログに無い/.test(row79),
+      && /onClick=\{\(\) => \{ setQuery\(""\); onPick\(\{ brand: r\.brand, model: r\.model \}\); \}\}/.test(row79)
+      && !/onPick\(query/.test(row79),
       (row79.match(/onPick\([^)]*\)/g) || []).join(" | "));
     check("79.3 決まっている間は値 + ✕(✕ で検索窓へ戻る)。GearPicker と同じ作法",
       /onClick=\{\(\) => \{ setQuery\(""\); onPick\(null\); \}\}/.test(row79)
       && />✕<\/button>/.test(row79)
-      && /if \(value\) \{/.test(row79)
+      && /if \(brand\) \{/.test(row79)
       && /<PickChevron/.test(row79) === false);
     check("79.3 ✕ の当たり判定は --tap-min(§5)。読み上げの名は名札から作る",
-      /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(row79)
+      /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(codeOf(extractConst("REED_SEARCH_CLEAR_STYLE")))
       && /aria-label=\{`\$\{label\}の選択を解除`\}/.test(row79)
       && /aria-label=\{`\$\{label\}を検索`\}/.test(row79));
-    check("79.3 候補が0件のときは「候補なし」の1行だけ(打つ前は何も出さない)",
-      /\{query\.trim\(\) && results\.length === 0 && \(/.test(row79)
-      && /候補なし/.test(row79)
-      && count79(row79, /候補なし/g) === 1);
-    // (g) 枠は箱のシートの既存の行から引く。**新しい枠を作っていない。**
+    // (f) 枠は箱のシートの既存の行から引く。**新しい枠を作っていない。**
     check("79.3 枠と名札は既存の行の綴りを読む(新しい寸法を作っていない)",
       /style=\{REED_SHEET_PILL_ROW_STYLE\}/.test(row79)
-      && /\{ \.\.\.REED_SHEET_ROW_STYLE, padding: "8px 0" \}/.test(row79)
-      && count79(row79, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 2);
-    // (h) **メーカーの行は触っていない**(今回の指示に入っていない)。
-    check("79.3 メーカーの行は今までどおり ▾ の行 + シートの外の一覧",
-      /<ReedSheetPickRow\s*\r?\n\s*label="メーカー"/.test(srcOfFn(src, "ReedBoxSheet"))
-      && /<OptionSheet\s*\r?\n\s*options=\{pickerOptions\}\s*\r?\n\s*ariaLabel="メーカー"/.test(sheet79)
-      && /const pickBrand = \(v\) => \{ setBrand\(v\); setModel\(reedModelOptions\(v\)\[0\] \?\? null\); \};/.test(sheet79));
+      && count79(row79, /\{ \.\.\.REED_SHEET_ROW_STYLE, padding: "8px 0" \}/g) === 2
+      && count79(row79, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 3);
+    // (g) **メーカーだけの行はもう無い**(AA-1 で1つに畳んだ)。
+    check("79.3 メーカーだけの行と、その一覧・切り替えは綴りごと無い",
+      !/label="メーカー"/.test(app79)
+      && !/ariaLabel="メーカー"/.test(app79)
+      && !/const pickBrand = /.test(app79)
+      && !/brandPickerOpen/.test(app79),
+      (app79.match(/label="メーカー"|ariaLabel="メーカー"|pickBrand|brandPickerOpen/g) || []).join(" / ") || "0件");
   }
   console.log("  -> done");
 }
 
 // ============================================================
-// 検証80: 番号編集中は「数字だけ」が揺れる(便Y・本人裁定「案1を採用」)
-//   本人の言葉:「カードごと揺らさず数字だけ揺らして」。
-//   揺れの持ち主はタイル(button)ではなく**中の <span>**。タイルの枠・地・角丸・寸法は
-//   1つも動かないので、並びが揺れて見えることも当たり判定が動くこともない。
-//   止める設定のときは揺らさず、代わりに枠を点線にする(合図がゼロになる状態を作らない)。
-//
-//   【この検査が守らないもの】実際に回っているかどうか。ブラウザペインが隠れていると
-//   時計が止まるので、そこは `getAnimations()` の currentTime を手で進めた実測で確かめた
-//   (-3 → 0 → +3 → 0 → -3 / 320ms、タイル側の transform は none のまま)。
+// 検証80: 番号編集中の「数字だけの揺れ」は**綴りごと消えた**(AA-2・本人指示)
+//   便Y で入れた「番号編集中はタイルの中の数字だけが揺れる」一式は、
+//   本人の言葉「リード番号編集で番号が揺れるのは削除」で消えた。
+//   **主張を事実の側へ向け直す**(緩めていない): 便Y が固定していた形
+//   (.reedtile-editing / reed-number-wiggle / numberEditing)が1つも残っていないこと。
+//   揺れの行き先(長押しで持ち上がったカードごと)は検証81 が見る。
 // ============================================================
-console.log("========== 検証80: 番号編集中は数字だけが揺れる ==========");
+console.log("========== 検証80: 数字だけの揺れは綴りごと消えた ==========");
 {
-  const css80 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  // 【綴りの不在を見る検査の作法】消した経緯は index.css の注記に残す(そこが記録の場所)。
+  // 注記に綴りが現れるので、**コメントを剥がしてから**数える(codeOf と同じ考え方)。
+  const css80 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
   const src80 = codeOf(src);
   const grid80 = srcOfFn(src, "ReedTileGrid");
 
-  // --- 80.1 揺れそのもの -------------------------------------------------------
-  check("80.1 揺れの型は1つだけ定義されている",
-    (css80.match(/@keyframes reed-number-wiggle/g) || []).length === 1);
-  check("80.1 傾きは小さく、左右で同じ(-3deg と 3deg)",
-    /@keyframes reed-number-wiggle \{ 0%, 100% \{ transform: rotate\(-3deg\); \} 50% \{ transform: rotate\(3deg\); \} \}/.test(css80));
-  check("80.1 速さは体系の段から引く(--d-slow。ミリ秒の直書きが無い)",
-    /animation: reed-number-wiggle var\(--d-slow\) ease-in-out infinite;/.test(css80));
-  check("80.1 位相は3つにばらす(10枚が同じ拍で動かない)。ずれも --d-slow から導く",
-    /nth-child\(3n\) > span \{ animation-delay: calc\(var\(--d-slow\) \/ 3\); \}/.test(css80)
-    && /nth-child\(3n \+ 2\) > span \{ animation-delay: calc\(var\(--d-slow\) \* 2 \/ 3\); \}/.test(css80));
+  check("80.0 切り出しが空回りしていない",
+    css80.length > 10000 && grid80.length > 5000, `css=${css80.length} / grid=${grid80.length}`);
 
-  // --- 80.2 揺らす先は数字だけ -------------------------------------------------
-  check("80.2 揺らすのはタイルの中の <span> だけ(タイルそのものではない)",
-    /\.reedtile-editing \.reedtile > span \{/.test(css80));
-  {
-    // `.reedtile-editing .reedtile {` のように **> span を伴わない**宣言で
-    // animation を当てていないこと(当てるとカードごと揺れる = 本人が禁じた形)。
-    const blocks80 = css80.match(/\.reedtile-editing[^{]*\{[^}]*\}/g) || [];
-    const bad80 = blocks80.filter((b) => /animation:/.test(b) && !/> span/.test(b.split("{")[0]));
-    check("80.2 タイル(カード)そのものに揺れを当てていない",
-      bad80.length === 0, bad80.join(" / ") || `${blocks80.length}件すべて span 向け`);
-  }
-  check("80.2 数字の包みは状態によらず常に在る(入れ物が入れ替わらない)",
+  // --- 80.1 数字だけを揺らす型と規則が1つも残っていない -------------------------
+  check("80.1 @keyframes reed-number-wiggle は定義ごと無い",
+    !/reed-number-wiggle/.test(css80), (css80.match(/reed-number-wiggle/g) || []).join(" / ") || "0件");
+  check("80.1 .reedtile-editing の規則も1つも残っていない(器の印ごと消えた)",
+    !/reedtile-editing/.test(css80), (css80.match(/\.reedtile-editing[^{]*\{/g) || []).join(" / ") || "0件");
+  check("80.1 数字の <span> を名指しする規則が index.css に1つも無い",
+    !/\.reedtile > span|\.reedtile\s*>\s*span/.test(css80),
+    (css80.match(/\.reedtile\s*>\s*span/g) || []).join(" / ") || "0件");
+  check("80.1 止める設定の枝にも .reedtile-editing は残っていない(点線の合図ごと消えた)",
+    !/border-style: dashed/.test(css80), (css80.match(/border-style: [a-z]+/g) || []).join(" / ") || "0件");
+
+  // --- 80.2 JSX 側の受け口も残っていない ---------------------------------------
+  check("80.2 器に印を配る className は無い(numberEditing の受け口ごと消えた)",
+    !/reedtile-editing/.test(src80) && !/numberEditing/.test(src80),
+    (src80.match(/reedtile-editing|numberEditing/g) || []).join(" / ") || "0件");
+  check("80.2 旧名 noDrag も残っていない", !/noDrag/.test(src80));
+  // 数字の包み <span> は**残す**(便Y で作った入れ物をそのまま使い続ける ──
+  // 中身の入れ物が状態で入れ替わると、描き直しの経路が2つになる)。
+  check("80.2 数字の包みは残っている(入れ物を作り直していない)",
     /<span>\{reedPosition\(r, reeds\) \?\? idx \+ 1\}<\/span>/.test(grid80));
 
-  // --- 80.3 動きを止める設定 ---------------------------------------------------
+  // --- 80.3 モードそのものが無いので、揺れる条件も存在しない ---------------------
+  check("80.3 番号編集モードの綴りは App.jsx に1つも無い",
+    !/"numberEdit"/.test(src80), (src80.match(/"numberEdit"/g) || []).join(" / ") || "0件");
+  check("80.3 リードを選ぶシート(ReedPickSheet)にも印は無い(前から無いことを保つ)",
+    !/reedtile-editing/.test(srcOfFn(src, "ReedPickSheet")));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証81: AA-1 / AA-2 / AA-3(2026-09-21 本人指示)
+//   AA-1 リードの銘柄を「メーカーと分けない1つの検索」にする
+//        本人:「リードの銘柄はプロフィールと同じようにメーカーと銘柄を分けないで検索対象に変更」
+//   AA-2 番号編集の合図を「長押しでカードごと揺れる」に変える
+//        本人:「リード番号編集で番号が揺れるのは削除。代替として長押ししてカードごと揺れるように変更。
+//               今まで通り並び替えもできるし、カードの右上に鉛筆マークをつけてそこタップしたら
+//               番号編集できるように変更」
+//   AA-3 リードタブの下の文言を「長押しで編集」へ
+//
+//   この節が守るもの:
+//     81.1 AA-1 1つの検索。母集団は searchReeds(プロフィールと同じ実物を**実行して**確かめる)。
+//          名札の語はプロフィールの GearPicker から引く。保存の形は1文字も変わっていない
+//          (reedGroupKey を実際に走らせる)。自由入力の逃げ道が残っている。
+//     81.2 AA-2 揺れるのはカード。速さ・傾きは便Y の値をそのまま引く。止める設定では揺らさない。
+//          指への追従・落下(reedTileVisual)と**別の層**に置いてある。
+//     81.3 AA-2 鉛筆。プロフィールのアイコンの印と同じトークン。入れ子のボタンを作らない。
+//          **押下の振り分け(reedTilePressPlan)を実際に走らせて**、鉛筆を押しても
+//          タップ(個体詳細)も長押し(並び替え)も走らないことを確かめる。
+//     81.4 AA-2 モードの一式が綴りごと消え、番号を直すシートだけが残っている。
+//     81.5 AA-3 文言。
+//
+//   **この節が守らないもの**:
+//     ・実機(iOS Safari)での揺れの見え方・鉛筆の押しやすさ(20px は §5 の 44pt を満たさない)。
+//       Chrome の実測は判定に使えない(LOOP.md)。宣言が在ることまでしか言えない。
+//     ・「押したら本当に番号のシートが開く」── ハーネスは JSX を描かない。ここで実行して
+//        確かめられるのは**押下をどう振り分けるか**(81.3)。描画は実測に委ねる。
+//
+// 【変異(複製で。vitest を要するものは実ツリーで try/finally)】
+//   ① searchReeds を filterModelsByQuery に戻す      ② 名札を「メーカー」に戻す
+//   ③ 逃げ道のボタンを消す                            ④ reedGroupKey に銘柄を混ぜる
+//   ⑤ 揺れをカードから <span> へ移す                  ⑥ 傾きを 3deg 以外にする
+//   ⑦ 止める設定の枝を消す                            ⑧ 揺れをカードのインライン transform と同じ層へ
+//   ⑨ reedTilePressPlan が鉛筆でも record: true を返す ⑩ 鉛筆でも armLongPress: true を返す
+//   ⑪ 鉛筆をカードの中へ入れて入れ子のボタンにする     ⑫ 文言を「長押しで並び替え」に戻す
+// → いずれも落ちること。
+// ============================================================
+console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの揺れと鉛筆 / AA-3 文言 ==========");
+{
+  const app81 = codeOf(src);
+  const css81 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const commRaw81 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const gearRaw81 = readFileSync(join(__dirname, "..", "src", "community", "catalog", "gear.js"), "utf8");
+  const sheet81 = codeOf(srcOfFn(src, "ReedBoxSheet"));
+  const row81 = codeOf(srcOfFn(src, "ReedSearchRow"));
+  const grid81 = codeOf(srcOfFn(src, "ReedTileGrid"));
+  const view81 = codeOf(srcOfFn(src, "ReedRegisterView"));
+  const tab81 = codeOf(srcOfFn(src, "ReedsTab"));
+  const count81 = (t, re) => (t.match(re) || []).length;
+
+  check("81.0 切り出しが空回りしていない",
+    sheet81.length > 3000 && row81.length > 1500 && grid81.length > 5000
+    && view81.length > 6000 && tab81.length > 2000 && css81.length > 10000,
+    `シート=${sheet81.length} / 行=${row81.length} / タイル=${grid81.length} / 一覧=${view81.length} / タブ=${tab81.length}`);
+
+  // ------------------------------------------------------------------
+  // 81.1 AA-1 メーカーと銘柄を1つの検索へ
+  // ------------------------------------------------------------------
   {
-    const reduce80 = (css80.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.reedtile-editing[\s\S]*?\n\}/) || [""])[0];
-    check("80.3 止める設定では揺らさない",
-      /\.reedtile-editing \.reedtile > span \{ animation: none; \}/.test(reduce80), reduce80 ? "取れている" : "取り出せない");
-    check("80.3 止めたときは代わりに枠が点線になる(合図がゼロにならない)",
-      /\.reedtile-editing \.reedtile \{ border-style: dashed; \}/.test(reduce80));
-    check("80.3 止めても寸法は動かない(枠の太さ・角丸・地に触っていない)",
-      !/border-width|border-radius|background/.test(reduce80), reduce80 || "取り出せない");
+    // (a) 行は1つ。メーカーだけの行・銘柄だけの行は綴りごと無い。
+    check("81.1 箱のシートのリードの行は1つ(メーカーの行と銘柄の行は綴りごと無い)",
+      count81(sheet81, /<ReedSearchRow/g) === 1
+      && !/ReedModelSearchRow|ReedSheetPickRow/.test(app81)
+      && !/label="メーカー"|label="銘柄"/.test(app81),
+      (app81.match(/ReedModelSearchRow|ReedSheetPickRow|label="メーカー"|label="銘柄"/g) || []).join(" / ") || "0件");
+    // (b) 名札の語は**プロフィールから引く**。両方のソースを読んで突き合わせる。
+    {
+      const gearPickerLabels81 = [...commRaw81.matchAll(/<GearPicker\s*\r?\n\s*label="([^"]+)"/g)].map((m) => m[1]);
+      const reedRowLabel81 = (/<ReedSearchRow\s*\r?\n\s*label="([^"]+)"/.exec(sheet81) || [])[1];
+      check("81.1 プロフィールの名札を読めている(空回りしていない)",
+        gearPickerLabels81.length === 4 && gearPickerLabels81.includes("リード"),
+        JSON.stringify(gearPickerLabels81));
+      check("81.1 箱のシートの名札はプロフィールの GearPicker の語そのまま(新しい語を作っていない)",
+        reedRowLabel81 !== undefined && gearPickerLabels81.includes(reedRowLabel81) && reedRowLabel81 === "リード",
+        `リード側=${reedRowLabel81} / プロフィール側=${JSON.stringify(gearPickerLabels81)}`);
+    }
+    // (c) 母集団と絞り方は**カタログの searchReeds 1つ**。実装そのものを組み立てて走らせる。
+    {
+      const f81 = runFn(() => new Function(`
+        const norm = ${(/const norm = ([^\n]+);/.exec(gearRaw81) || [, "null"])[1]};
+        const brandMatches = ${(/const brandMatches = ([\s\S]*?);\r?\n/.exec(gearRaw81) || [, "null"])[1]};
+        ${extractConst("BRAND_ALIASES", gearRaw81)}
+        ${extractConst("REED_CATALOG", gearRaw81)}
+        ${extractFunction("searchReeds", gearRaw81)}
+        return searchReeds;`)());
+      check("81.1 searchReeds を実ソースから組み立てられる", f81.ok, f81.err);
+      const lab81 = (r) => `${r.brand} ${r.model}`;
+      // **メーカーでも銘柄でも同じ1つの検索で引ける**(分けないことの本体)。
+      check("81.1 メーカーの名で引くと、そのメーカーの銘柄が**組で**返る",
+        f81.ok && f81.v("vandoren").length === 8
+        && f81.v("vandoren").every((r) => r.brand === "Vandoren" && typeof r.model === "string"),
+        f81.ok ? f81.v("vandoren").map(lab81).join(" / ") : f81.err);
+      check("81.1 銘柄の名で引くと、メーカーの違う同名の銘柄が**全部**返る(分けていないことの証拠)",
+        f81.ok && f81.v("classic").length >= 4
+        && new Set(f81.v("classic").map((r) => r.brand)).size >= 4,
+        f81.ok ? f81.v("classic").map(lab81).join(" / ") : f81.err);
+      check("81.1 返るのは必ず {brand, model} の組(片方だけの候補を作らない)",
+        f81.ok && f81.v("java").every((r) => Object.keys(r).sort().join(",") === "brand,model"),
+        f81.ok ? JSON.stringify(f81.v("java")[0]) : f81.err);
+      check("81.1 打つ前は0件(全件を並べない)",
+        f81.ok && f81.v("").length === 0 && f81.v("  ").length === 0);
+      check("81.1 母集団はカタログ1つ。App.jsx は import して使うだけ(写していない)",
+        /import \{ REED_CATALOG, searchReeds \} from "\.\/community\/catalog\/gear\.js";/.test(src)
+        && !/function searchReeds\(/.test(app81)
+        && count81(gearRaw81, /export function searchReeds\(/g) === 1);
+      check("81.1 プロフィールも同じ実物を読む(2つの検索を持たない)",
+        /runSearch=\{\(q\) => searchReeds\(q\)\}/.test(commRaw81)
+        && count81(commRaw81, /searchReeds/g) === 2,
+        `${count81(commRaw81, /searchReeds/g)}箇所`);
+      // 銘柄だけを絞る旧実装は**読み手ごと消えた**。
+      check("81.1 銘柄だけを絞る filterModelsByQuery は定義ごと無い(引き方は1つ)",
+        !/export function filterModelsByQuery/.test(gearRaw81) && !/filterModelsByQuery/.test(app81));
+    }
+    // (d) 選ぶと brand と model の**両方**が決まる / 外すと両方が外れる。
+    check("81.1 候補を押すと brand と model の両方が決まる",
+      /onClick=\{\(\) => \{ setQuery\(""\); onPick\(\{ brand: r\.brand, model: r\.model \}\); \}\}/.test(row81)
+      && /onPick=\{\(v\) => \{ setBrand\(v \? v\.brand : null\); setModel\(v \? v\.model : null\); \}\}/.test(sheet81));
+    check("81.1 ✕ で外すと両方が同時に外れる(片方だけ残る経路が無い)",
+      count81(row81, /onPick\(null\)/g) === 2 && !/setModel\(null\)\s*\}\s*else/.test(sheet81));
+    // (e) **保存される形は1文字も変わっていない。** 実際に走らせて確かめる。
+    check("81.1 箱のキーは メーカー|番手|開封日 のまま(銘柄はキーに入らない)",
+      api.reedGroupKey({ brand: "Vandoren", model: "V16", strength: "3.0", startDate: "2026-08-01" })
+        === "Vandoren|3.0|2026-08-01"
+      && api.reedGroupKey({ brand: "Vandoren", model: "Java", strength: "3.0", startDate: "2026-08-01" })
+        === api.reedGroupKey({ brand: "Vandoren", model: null, strength: "3.0", startDate: "2026-08-01" }),
+      api.reedGroupKey({ brand: "Vandoren", model: "V16", strength: "3.0", startDate: "2026-08-01" }));
+    check("81.1 保存する銘柄はカタログの組だけを通す(resolveReedModel は触っていない)",
+      /model: resolveReedModel\(brand, newModel\),/.test(app81)
+      && /function resolveReedModel\(brand, model\) \{\s*\r?\n\s*return reedModelOptions\(brand\)\.includes\(model\) \? model : null;/.test(src));
+    // (f) 自由入力の逃げ道(カタログに無いメーカー)が残っている。
+    check("81.1 逃げ道は候補の有無に関わらず**常に**末尾に在る(GearPicker と同じ作法)",
+      /\{REED_BRAND_CUSTOM_LABEL\}<\/button>/.test(row81)
+      && /onClick=\{\(\) => \{ setQuery\(""\); onOther\(\); \}\}/.test(row81)
+      // 候補が出ているかどうかの枝の**外**に在る(results.length の条件に包まれていない)
+      && row81.indexOf("REED_BRAND_CUSTOM_LABEL") > row81.indexOf("{results.length > 0 && ("));
+    check("81.1 逃げ道の語と値は1文字も変えていない",
+      api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力...",
+      `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
+    check("81.1 押すと自由入力が出て、打った名前がそのままメーカーになる",
+      /onOther=\{\(\) => \{ setBrand\(REED_BRAND_CUSTOM\); setModel\(null\); \}\}/.test(sheet81)
+      && /placeholder="新しいメーカー名を入力"/.test(row81)
+      && /const resolveBrand = \(\) => \(newBrand === REED_BRAND_CUSTOM \? customBrand\.trim\(\) : newBrand\);/.test(app81));
+    // 逃げ道の一手の見た目は GearPicker の「カタログに無い(その他)」と同値。
+    {
+      const objOf81 = (text, from) => {
+        const i = text.indexOf("{", from);
+        let d = 0;
+        for (let k = i; k < text.length; k++) {
+          if (text[k] === "{") d++;
+          else if (text[k] === "}") { d--; if (d === 0) return text.slice(i, k + 1); }
+        }
+        return "";
+      };
+      const sec81 = runFn(() => new Function(`return (${objOf81(commRaw81, commRaw81.indexOf("const secondaryButtonStyle = "))});`)());
+      const mine81 = runFn(() => new Function(`return (${extractConst("REED_SEARCH_OTHER_STYLE").replace(/^const [^=]+= /, "").replace(/;$/, "")});`)());
+      const want81 = sec81.ok ? { ...sec81.v, fontSize: "var(--fs-sm)", fontWeight: 600 } : null;
+      const norm81 = (o) => JSON.stringify(Object.entries(o || {}).sort());
+      check("81.1 逃げ道の一手の見た目はプロフィールの secondaryButtonStyle + (--fs-sm / 600) と同値",
+        sec81.ok && mine81.ok && norm81(mine81.v) === norm81(want81),
+        `リード=${norm81(mine81.ok ? mine81.v : {})} / プロフィール=${norm81(want81)}`);
+      check("81.1 プロフィール側も同じ重ね方をしている(片方だけ drift しない)",
+        /style=\{\{ \.\.\.secondaryButtonStyle, fontSize: "var\(--fs-sm\)", fontWeight: 600 \}\}/.test(commRaw81));
+    }
+    // (g) 編集シートでも同じ形(mode で分けていない)。
+    check("81.1 箱の編集でも同じ1つの行から選び直す(mode で形を分けていない)",
+      count81(sheet81, /<ReedSearchRow/g) === 1
+      && !/isEdit \?[\s\S]{0,120}?ReedSearchRow/.test(sheet81)
+      && count81(app81, /<ReedBoxSheet/g) === 2);
+    check("81.1 編集で開いたときは今の値がそのまま出る(古い箱のメーカーが化けない)",
+      /setEditBrand\(g\.brand\);/.test(view81) && /setEditModel\(g\.model \?\? null\);/.test(view81)
+      && /brand=\{editBrand\} setBrand=\{setEditBrand\}/.test(view81));
   }
 
-  // --- 80.4 付ける場所 ---------------------------------------------------------
-  check("80.4 印は器に1つだけ置く(タイル側に配らない)",
-    /className=\{numberEditing \? "reedtile-editing" : undefined\}/.test(grid80)
-    && (src80.match(/reedtile-editing/g) || []).length === 1);
-  check("80.4 揺れるのは登録一覧が番号編集のときだけ(リードを選ぶシートは揺れない)",
-    /numberEditing=\{listMode === "numberEdit"\}/.test(src80)
-    && !/reedtile-editing/.test(srcOfFn(src, "ReedPickSheet")));
-  check("80.4 受け口の名は「なぜ」を言う(numberEditing)。noDrag の綴りは残っていない",
-    /function ReedTileGrid\(\{ members, reeds, sessions, selectedReedId, numberEditing = false, onTileTap, onReorder \}\)/.test(src80)
-    && !/noDrag/.test(src80));
+  // ------------------------------------------------------------------
+  // 81.2 AA-2 長押しで持ち上がったカードが揺れる
+  // ------------------------------------------------------------------
+  {
+    const kf81 = (css81.match(/@keyframes reed-tile-wiggle \{[^}]*\{[^}]*\}[^}]*\{[^}]*\}[^}]*\}/) || [""])[0];
+    check("81.2 揺れの型を切り出せている(空回りしていない)", kf81.length > 40, kf81 || "取り出せない");
+    // 速さ・傾きは便Y の綴りをそのまま引いた。**新しい値を作っていない。**
+    check("81.2 傾きは左右で同じ(-3deg と 3deg)。便Y の値をそのまま引いた",
+      /0%, 100% \{ transform: rotate\(-3deg\); \}/.test(kf81) && /50% \{ transform: rotate\(3deg\); \}/.test(kf81), kf81);
+    check("81.2 速さは体系の段から引く(--d-slow。ミリ秒の直書きが無い)",
+      /animation: reed-tile-wiggle var\(--d-slow\) ease-in-out infinite;/.test(css81)
+      && !/reed-tile-wiggle \d+m?s/.test(css81));
+    // 揺れるのは**カード**。数字だけを名指しする規則は無い。
+    check("81.2 揺れるのはカード(.reedtile)そのもの。数字の <span> を名指ししていない",
+      /\.reedtile\[data-lifted="true"\] \{ animation: reed-tile-wiggle/.test(css81)
+      && !/span[^{]*\{\s*[^}]*reed-tile-wiggle/.test(css81));
+    check("81.2 揺れの規則は1つだけ(位相をばらす写しを作っていない)",
+      count81(css81, /reed-tile-wiggle/g) === 3,   // @keyframes の定義 + 当てる1行 + 止める枝は animation:none なので出てこない
+      `${count81(css81, /reed-tile-wiggle/g)}箇所`);
+    // 持ち上がっている間だけ。落ちていく間(settling)は揺らさない。
+    check("81.2 揺れるのは持ち上がっている間だけ(落下の 320ms には重ねない)",
+      /const isLifted = isDragging && !drag\.settling;/.test(grid81)
+      && /data-lifted=\{isLifted \? "true" : "false"\}/.test(grid81));
+    // **別の層**に置いた: 指への追従・落下は包みの transform、揺れはカードの transform。
+    check("81.2 指への追従・避ける動き・落下は**包み**が持つ(reedTileVisual の transform を壊していない)",
+      /transform: vis\.transform,/.test(grid81)
+      && count81(grid81, /transform: vis\.transform,/g) === 1
+      && /transition: vis\.transition,/.test(grid81) && /zIndex: vis\.zIndex,/.test(grid81));
+    check("81.2 カード(.reedtile)のインライン style は transform を1つも持たない(揺れと取り合わない)",
+      (() => {
+        const i = grid81.indexOf('className="no-select reedtile"');
+        const j = grid81.indexOf("</button>", i);
+        return i > 0 && j > i && !/transform/.test(grid81.slice(i, j));
+      })(),
+      "カードの宣言に transform は無い");
+    check("81.2 掴んだ位置・落ちる先を決める式は1文字も変えていない",
+      /const x = drag\.pointerX - drag\.grabX - homeCell\.left;/.test(codeOf(srcOfFn(src, "reedTileVisual")))
+      && /rotate\(\$\{REED_TILE_DRAG_DEG\}deg\)/.test(codeOf(srcOfFn(src, "reedTileVisual")))
+      && /translateY|REED_TILE_LIFT_PX/.test(codeOf(srcOfFn(src, "reedTileVisual"))));
+    // 止める設定では揺らさない。**代わりの合図は既に在る**ので新しく作らない。
+    {
+      const reduce81 = (css81.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\r?\n\s*\.reedtile\[data-lifted="true"\][\s\S]*?\n\}/) || [""])[0];
+      check("81.2 止める設定では揺らさない",
+        /\.reedtile\[data-lifted="true"\] \{ animation: none; \}/.test(reduce81), reduce81 || "取り出せない");
+      check("81.2 止めたときに新しい代わりの合図を作っていない(持ち上がり・影・紺の枠が既に在る)",
+        reduce81.length > 0 && !/border-style|background|box-shadow|outline/.test(reduce81),
+        reduce81 || "取り出せない");
+      check("81.2 その既に在る合図は1つも落ちていない",
+        /\.reedtile\[data-drag="true"\] \{ border-color: var\(--c-accent\); box-shadow: 0 10px 22px rgba\(20, 30, 50, 0\.22\); \}/.test(css81)
+        && api.REED_TILE_LIFT_PX === 6 && api.REED_TILE_DRAG_DEG === -2,
+        `lift=${api.REED_TILE_LIFT_PX} / deg=${api.REED_TILE_DRAG_DEG}`);
+    }
+    // 並び替えそのものは今までどおり。
+    check("81.2 並び替えは今までどおり(掴む場所を限定しない / 止める子が1つも無い)",
+      /onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(grid81)
+      && count81(grid81, /stopPropagation/g) === 0
+      && /const canReorder = members\.length >= 2;/.test(grid81));
+  }
+
+  // ------------------------------------------------------------------
+  // 81.3 AA-2 カードの右上の鉛筆
+  // ------------------------------------------------------------------
+  {
+    // (a) 絵柄と色はプロフィールのアイコンの印と同じ作法。**トークンは発明していない。**
+    check("81.3 絵柄は lucide の Pencil(プロフィールのアイコンの印と同じ)",
+      /import \{[^}]*\bPencil\b[^}]*\} from "lucide-react";/.test(src)
+      && /<Pencil size=\{REED_TILE_PENCIL_GLYPH_PX\} strokeWidth=\{REED_TILE_PENCIL_STROKE\} \/>/.test(grid81)
+      && /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(commRaw81));
+    check("81.3 地 --c-ink / 線 --c-surface / 円 --r-full はプロフィールの印と同じ3トークン",
+      /background: "var\(--c-ink\)", color: "var\(--c-surface\)",/.test(grid81)
+      && /borderRadius: "var\(--r-full\)",/.test(grid81)
+      && /background: "var\(--c-ink\)", color: "var\(--c-surface\)",/.test(commRaw81));
+    // 大きさは導いた値。線の太さはプロフィールと同値。
+    check("81.3 大きさは タイルに合わせて決めた 円20 / 絵11、線はプロフィールと同値 1.9",
+      api.REED_TILE_PENCIL_PX === 20 && api.REED_TILE_PENCIL_GLYPH_PX === 11
+      && api.REED_TILE_PENCIL_STROKE === 1.9
+      && (/const AVATAR_EDIT_BADGE_PX = 24;/.test(commRaw81)),
+      `円=${api.REED_TILE_PENCIL_PX} / 絵=${api.REED_TILE_PENCIL_GLYPH_PX} / 線=${api.REED_TILE_PENCIL_STROKE}`);
+    check("81.3 絵と円の比はプロフィールと同じ(13/24 を 20 に当てて 11)",
+      Math.round(api.REED_TILE_PENCIL_PX * 13 / 24) === api.REED_TILE_PENCIL_GLYPH_PX,
+      `${api.REED_TILE_PENCIL_PX} × 13/24 = ${(api.REED_TILE_PENCIL_PX * 13 / 24).toFixed(2)} → ${api.REED_TILE_PENCIL_GLYPH_PX}`);
+    check("81.3 置き場所はカードの右上",
+      /position: "absolute", right: 0, top: 0,/.test(grid81));
+    // (b) 入れ子のボタンを作らない: 鉛筆はカードの**兄弟**。
+    {
+      const cardAt81 = grid81.indexOf('className="no-select reedtile"');
+      const cardEnd81 = grid81.indexOf("</button>", cardAt81);
+      const pencilAt81 = grid81.indexOf("REED_TILE_PENCIL_MARK");
+      check("81.3 鉛筆はカードの**外**に在る(入れ子のボタンを作っていない)",
+        cardAt81 > 0 && pencilAt81 > cardEnd81,
+        `カードの閉じ=${cardEnd81} / 鉛筆=${pencilAt81}`);
+      check("81.3 カードの中には数字の <span> しか無い(押せる物を入れ子にしていない)",
+        !/<button/.test(grid81.slice(cardEnd81 - 400 > cardAt81 ? cardAt81 : cardAt81, cardEnd81)),
+        "カードの中の <button> は0件");
+      check("81.3 マスの中の押せるものは2つ(カード / 鉛筆)。どちらも type=\"button\"",
+        count81(grid81, /<button/g) === 2 && count81(grid81, /type="button"/g) === 2);
+      check("81.3 鉛筆には読み上げの名が付いている(何が起きるかが語で分かる)",
+        /aria-label=\{`\$\{reedPosition\(r, reeds\) \?\? idx \+ 1\}枚目の番号を変更`\}/.test(grid81));
+    }
+    // (c) **押下の振り分けを実際に走らせる。** 綴りだけ見る検査にしない。
+    {
+      const plan81 = runFn(() => new Function(`
+        ${extractConst("REED_TILE_PENCIL_ATTR")}
+        ${extractFunction("reedTilePressPlan")}
+        return reedTilePressPlan;`)());
+      check("81.3 押下の振り分け(reedTilePressPlan)を実ソースから組み立てられる", plan81.ok, plan81.err);
+      // 押された物を模す。closest は「祖先に鉛筆の目印があるか」を返すブラウザの実装と同じ約束。
+      const onTile81 = { target: { closest: () => null } };
+      const onPencil81 = { target: { closest: (sel) => (sel === "[data-reed-pencil]" ? { tag: "pencil" } : null) } };
+      check("81.3 カードを押したら 押下を記録し、並べ替えられるなら長押しも張る",
+        plan81.ok && JSON.stringify(plan81.v(onTile81, true)) === JSON.stringify({ record: true, armLongPress: true }),
+        plan81.ok ? JSON.stringify(plan81.v(onTile81, true)) : plan81.err);
+      check("81.3 **鉛筆を押したら押下を記録しない**(タップ=個体詳細が走らない)",
+        plan81.ok && plan81.v(onPencil81, true).record === false,
+        plan81.ok ? JSON.stringify(plan81.v(onPencil81, true)) : plan81.err);
+      check("81.3 **鉛筆を押したら長押しも張らない**(並び替えが始まらない)",
+        plan81.ok && plan81.v(onPencil81, true).armLongPress === false
+        && plan81.v(onPencil81, false).armLongPress === false,
+        plan81.ok ? JSON.stringify(plan81.v(onPencil81, true)) : plan81.err);
+      check("81.3 1枚しかない箱(並び替えられない)でも、カードの押下は記録する(タップが死なない)",
+        plan81.ok && JSON.stringify(plan81.v(onTile81, false)) === JSON.stringify({ record: true, armLongPress: false }),
+        plan81.ok ? JSON.stringify(plan81.v(onTile81, false)) : plan81.err);
+      check("81.3 closest を持たない押下(古い経路・合成イベント)はカード扱い(押下が死なない)",
+        plan81.ok && plan81.v({ target: {} }, true).record === true
+        && plan81.v({}, true).record === true && plan81.v(null, true).record === true,
+        plan81.ok ? JSON.stringify(plan81.v({}, true)) : plan81.err);
+      // 目印の綴りは1箇所から出る(選択子と属性が別々に drift しない)。
+      check("81.3 鉛筆の目印の綴りは1箇所(選択子も属性も同じ定数から作る)",
+        /const REED_TILE_PENCIL_MARK = \{ \[REED_TILE_PENCIL_ATTR\]: "true" \};/.test(app81)
+        && /t\.closest\(`\[\$\{REED_TILE_PENCIL_ATTR\}\]`\)/.test(app81)
+        && count81(app81, /data-reed-pencil/g) === 1,
+        `${count81(app81, /data-reed-pencil/g)}箇所`);
+    }
+    // (d) その振り分けを**押下と長押しの両方が通る**(通らない経路を作らない)。
+    check("81.3 押下はいちばん先に振り分けを通る(落下の打ち切りより前)",
+      /const plan = reedTilePressPlan\(e, canReorder\);\s*\r?\n\s*if \(!plan\.record\) return;/.test(grid81)
+      && grid81.indexOf("const plan = reedTilePressPlan")
+         < grid81.indexOf("if (settleTimerRef.current) { cancelSettle(); setDrag(null); }"),
+      `振り分け=${grid81.indexOf("const plan = reedTilePressPlan")} / 落下の打ち切り=${grid81.indexOf("if (settleTimerRef.current) { cancelSettle(); setDrag(null); }")}`);
+    check("81.3 長押しを張るかも同じ振り分けが決める(2つ目の判定を作っていない)",
+      /if \(!plan\.armLongPress\) return;/.test(grid81)
+      && count81(grid81, /reedTilePressPlan\(/g) === 1);
+    // (e) 押すと番号のシートが開く / タップは個体詳細のまま。行き先が違う。
+    check("81.3 鉛筆を押すと番号のシートが開く(タップは今までどおり個体詳細)",
+      /onClick=\{\(\) => onPencilTap\?\.\(r\.id\)\}/.test(grid81)
+      && /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view81)
+      && /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view81));
+    check("81.3 2つの口の行き先は別(同じ関数を2回渡していない)",
+      !/onPencilTap=\{\(id\) => onOpenReed/.test(view81)
+      && !/onTileTap=\{\(id\) => setNumberEditId/.test(view81));
+  }
+
+  // ------------------------------------------------------------------
+  // 81.4 AA-2 番号編集モードの一式
+  // ------------------------------------------------------------------
+  {
+    for (const w of ["listMode", "enterNumberEdit", "exitMode", "onNumberEdit", "numberEditing",
+                     "番号を変更するリードをタップ", "番号編集"]) {
+      check(`81.4 ${w} はリードタブから綴りごと無い`,
+        !new RegExp(w).test(tab81) && !new RegExp(w).test(view81) && !new RegExp(w).test(sheet81),
+        [tab81, view81, sheet81].map((t) => (t.match(new RegExp(w, "g")) || []).length).join(" / "));
+    }
+    check("81.4 子タブ行の右端に出すものは1つも無い(「完了」ごと消えた)",
+      !/>完了<\/span>/.test(tab81) && !/marginLeft: "auto"/.test(tab81));
+    // **番号を直すシートは残っている**(機能は1つも落ちていない)。
+    check("81.4 番号を直すシート(ReedNumberSheet)は残っている",
+      /function ReedNumberSheet\(/.test(src) && /<ReedNumberSheet/.test(view81)
+      && /<BottomSheet ariaLabel="リード番号を変更"/.test(codeOf(srcOfFn(src, "ReedNumberSheet"))));
+    check("81.4 開いて閉じただけでは書かない2つのガードも残っている(F-102 の不可逆を作らない)",
+      /if \(trimmed === String\(numberEditReed\.boxNumber \?\? ""\)\) return;/.test(view81)
+      && /if \(trimmed === String\(reedPosition\(numberEditReed, reeds\) \?\? ""\)\) return;/.test(view81));
+    // 見出しは常に押せる(モードで意味が入れ替わる形が無くなった)。
+    check("81.4 箱の見出しは常に押せる(モードで <span> に戻す枝が無い)",
+      !/boxEditable/.test(app81)
+      && count81(view81, /onClick=\{\(\) => openBoxEdit\(g\)\}/g) === 2);
+  }
+
+  // ------------------------------------------------------------------
+  // 81.5 AA-3 リードタブの下の文言
+  // ------------------------------------------------------------------
+  {
+    check("81.5 文言は「長押しで編集」ただ1つ",
+      count81(app81, /長押しで編集/g) === 1 && !/長押しで並び替え/.test(app81),
+      (app81.match(/長押しで[^<\s]*/g) || []).join(" / "));
+    check("81.5 体裁は便O のときと同値(新しい値を作っていない)",
+      /\{reeds\.length > 0 && \(\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)" \}\}>\s*\r?\n\s*長押しで編集/.test(view81));
+    check("81.5 出す条件はリードが1枚以上(0枚のときは出さない)",
+      /\{reeds\.length > 0 && \(/.test(view81) && count81(view81, /\{reeds\.length > 0 && \(/g) === 1);
+    check("81.5 正典の登録の説明も鉛筆と揺れに揃っている(実装だけ先に動かしていない)",
+      (() => {
+        const m81 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
+        return /カードごと揺れ、ドラッグで並び替え/.test(m81)
+          && /番号編集は<b>カードの右上の鉛筆<\/b>/.test(m81);
+      })());
+  }
   console.log("  -> done");
 }
 

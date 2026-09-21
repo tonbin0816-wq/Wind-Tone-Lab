@@ -577,33 +577,10 @@ body {
   animation: rank-shine-spin 3.6s linear infinite;
 }
 
-/* ============================================================
-   【便Y 2026-09-21 本人裁定「番号編集は案1を採用」】番号編集中であることを
-   **タイルの中の数字だけ**が返す。本人の言葉:「カードごと揺らさず数字だけ揺らして」。
-
-   【なぜタイルではなく数字か】編集で変えられるのは**番号そのもの**なので、
-   揺れているものと変えられるものが一致する。タイルの枠・地・角丸・寸法は
-   1つも動かないので、並びが揺れて見えることも、当たり判定が動くこともない。
-
-   【速さは既存の段から引く】--d-slow(320ms)。新しい速さを作らない。
-   傾きの 3deg だけは体系に元が無いので、ここで1つ決める(小さく、読めるまま)。
-   10枚が同じ拍で動くと機械の目盛りに見えるので、3つの位相へばらす。
-
-   【止める設定では揺らさない】順位1位の光と同じ作法(止めても色で見分けられる)。
-   ここは代わりに**タイルの枠を点線**にする ── 合図がゼロになる状態を作らない。
-   点線は枠の描き方だけを変えるので、寸法は止めても動かない。
-   ============================================================ */
-@keyframes reed-number-wiggle { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
-.reedtile-editing .reedtile > span {
-  display: inline-block;
-  animation: reed-number-wiggle var(--d-slow) ease-in-out infinite;
-}
-.reedtile-editing .reedtile:nth-child(3n) > span { animation-delay: calc(var(--d-slow) / 3); }
-.reedtile-editing .reedtile:nth-child(3n + 2) > span { animation-delay: calc(var(--d-slow) * 2 / 3); }
-@media (prefers-reduced-motion: reduce) {
-  .reedtile-editing .reedtile > span { animation: none; }
-  .reedtile-editing .reedtile { border-style: dashed; }
-}
+/* 【AA-2 2026-09-21 本人指示】「リード番号編集で番号が揺れるのは削除」。
+   便Y の .reedtile-editing(番号編集中に**数字だけ**を揺らす一式)と
+   @keyframes reed-number-wiggle は、番号編集モードごと**綴りで消えた**。
+   揺れの行き先は下の .reedtile[data-lifted] ── 長押しで持ち上がった**カードごと**。 */
 
 /* 【動きを止める設定を尊重する】止めても3色は色だけで見分けられる
    (金 3.22 / 銀 4.00 / 銅 5.75、金と銅の色相差 22°)ので、色は消さない。 */
@@ -962,6 +939,28 @@ textarea {
 .reedtile[data-tone="sel"] { background: var(--c-accent); border-color: transparent; color: var(--c-on-accent); font-weight: 600; }
 /* 正典 .tile.drag: 浮き上がり + 影 + 枠が紺。持ち上がったことが動かす前から分かる */
 .reedtile[data-drag="true"] { border-color: var(--c-accent); box-shadow: 0 10px 22px rgba(20, 30, 50, 0.22); }
+
+/* 【AA-2 2026-09-21 本人指示】「長押ししてカードごと揺れるように変更」。
+   長押しが成立して持ち上がっている間(data-lifted)だけ、**カードそのもの**が揺れる。
+   落ちていく間(settling)は揺らさない ── 落下は呼び出し側の transition が担う。
+
+   【速さと傾きは便Y の綴りをそのまま引いた】--d-slow(320ms)/ ±3deg / ease-in-out /
+   infinite。**新しい値は1つも作っていない**。名前だけ中身に合わせて付け直した
+   (reed-number-wiggle → reed-tile-wiggle)。位相をばらす3つ組は消した ──
+   持ち上がるカードは常に1枚なので、ずらす相手が居ない。
+
+   【回すのはこの層だけ】指への追従・避ける動き・落下は**包み**(1つ外側の <div>)の
+   transform が持つ。アニメーションはインラインの transform を丸ごと上書きするので、
+   同じ層に置くと指から離れる。ここはカード自身なので、回る中心もカードの中心になる。
+   カードの枠・地・角丸・寸法は1つも動かない(回るだけ)。
+
+   【止める設定では揺らさない】代わりの合図は**既に在る**(持ち上がり -6px・影・紺の枠)。
+   新しい代わりを作らない。 */
+@keyframes reed-tile-wiggle { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+.reedtile[data-lifted="true"] { animation: reed-tile-wiggle var(--d-slow) ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .reedtile[data-lifted="true"] { animation: none; }
+}
 
 /* 【F-80 / F-82】文字そのものをタップさせるとき、**見た目を1pxも変えずに**当たり判定だけ
    44pt へ広げる(DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
