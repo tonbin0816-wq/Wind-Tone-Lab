@@ -24154,12 +24154,16 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     check("51.4 D4 行は A型 .ctl-state で、状態は aria-pressed(便D で消す前の行と同じ作法)",
       /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(myData51)
       && /color: selectedIdealId === p\.id \? "var\(--c-accent\)" : "var\(--c-ink\)"/.test(myData51));
-    check("51.4 D4 行を押すとその id を選ぶ。**もう一度押しても解除しない**(トグルを移していない)",
-      /setSelectedIdealId\(p\.id\); \}\}/.test(myData51) && !/setSelectedIdealId\(\(cur\)/.test(myData51)
-      && !/\? null : p\.id/.test(myData51));
+    // 【AD-2 2026-09-21 本人指示で向け直した】「もう一度押しても解除しない」という D4 の凍結仕様は
+    // 本人の指示で**裏返った**(選択中の行を押すと外れる)。検査は消さず、主張を事実の側へ向ける。
+    // どちらへ転ぶかを**実際に走らせて**確かめるのは検証83.3。ここが見るのは配線だけ。
+    check("51.4 D4 行を押すと選択が動く。判定は純関数 idealRowSelectionNext ただ1つを通る",
+      /setSelectedIdealId\(idealRowSelectionNext\(selectedIdealId, p\.id\)\); \}\}/.test(myData51)
+      && !/setSelectedIdealId\(\(cur\)/.test(myData51)
+      && !/setSelectedIdealId\(p\.id\); \}\}/.test(myData51));
     check("51.4 D4 ゴミ箱は onDeleteIdeal(p.id)。行の選択と分けるのに stopPropagation を使わない(押した要素で除く)",
       /onClick=\{\(\) => onDeleteIdeal\(p\.id\)\}/.test(myData51)
-      && /if \(e\.target\?\.closest\?\.\("button"\)\) return; setSelectedIdealId\(p\.id\);/.test(myData51)
+      && /if \(e\.target\?\.closest\?\.\("button"\)\) return; setSelectedIdealId\(idealRowSelectionNext\(selectedIdealId, p\.id\)\);/.test(myData51)
       && !/stopPropagation/.test(myData51));
     check("51.4 D4 ゴミ箱の絵柄と当たり判定は一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)",
       /style=\{\{ \.\.\.TAP_BUTTON_RESET, minWidth: "var\(--tap-min\)", justifyContent: "center", flexShrink: 0, color: "var\(--c-ink-2\)" \}\}\s*\r?\n\s*>\s*\r?\n\s*<Trash2 size=\{14\} strokeWidth=\{1\.9\} aria-hidden="true" \/>/.test(myData51));
@@ -29661,6 +29665,272 @@ console.log("\n========== 検証82: AB-1 鉛筆は編集中だけ / AB-2 長押�
       !/prefers-reduced-motion/.test(grid82) && !/matchMedia/.test(grid82)
       && !/prefers-reduced-motion/.test(view82) && !/prefers-reduced-motion/.test(tab82),
       (grid82.match(/prefers-reduced-motion|matchMedia/g) || []).join(" / ") || "0件");
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証83: AD-1 / AD-2 / AD-3(2026-09-21 本人指示)
+//   AD-1 本人:「揺れてるのをカード以外の場所タップでも編集終了できるように変更。
+//               終了したらもちろん揺れ止めて」
+//   AD-2 本人:「mydata の下の目安について、選択中の目安をタップで目安設定から外れるように
+//               して。エフェクト的には枠の色だけ戻してくれればいい」
+//   AD-3 本人:「アプリ起動時に計測タブのリードが一瞬未選択の時の仕様になるのを修正して」
+//
+//   この節が守るもの:
+//     83.1 AD-1 の判定(reedListPressEndsEditing)を**実際に走らせる**。タイルは終えない /
+//          一覧の空き・箱の見出しは終える / 一覧の外(浮かせる「＋」・シート)は終えない。
+//     83.2 AD-1 の配線。出口の一手は増えていない(「完了」と同じ exitListEditing)。
+//     83.3 AD-2 の判定(idealRowSelectionNext)を**実際に走らせる**。
+//     83.4 AD-2 の配線と「変えたのは枠の色だけ」(行の地・太さ・寸法・並びをインラインで持たない)。
+//     83.5 AD-3 の温め(warmPersistedStateCache)と、最初の描画の前に呼ぶ配線。
+//
+//   **この節が守らないもの**:
+//     ・実機(iOS Safari)での見え方・指の感触。Chrome の実測は判定に使えない(LOOP.md)。
+//     ・「1フレーム目に未選択の姿が出ないか」そのもの ── これは**実測でしか見えない**
+//       (ここで固定できるのは「温めてから描く」という組み立てだけ)。
+//     ・温めにかかる時間。IndexedDB の速さは端末と中身で変わるので、数値は錨にしない。
+// ============================================================
+console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 目安のトグル / AD-3 冷えた起動 ==========");
+{
+  const app83 = codeOf(src);
+  const grid83 = codeOf(srcOfFn(src, "ReedTileGrid"));
+  const view83 = codeOf(srcOfFn(src, "ReedRegisterView"));
+  const tab83 = codeOf(srcOfFn(src, "ReedsTab"));
+  const myData83 = codeOf(srcOfFn(src, "MyDataSection"));
+  const main83 = readFileSync(join(__dirname, "..", "src", "main.jsx"), "utf8");
+  const cssRaw83 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const hook83 = src.slice(src.indexOf("const persistedStateCache"), src.indexOf("function useSessionsStore"));
+  const count83 = (t, re) => (t.match(re) || []).length;
+
+  check("83.0 切り出しが空回りしていない",
+    grid83.length > 5000 && view83.length > 6000 && tab83.length > 2000
+    && myData83.length > 5000 && main83.length > 300 && hook83.length > 1000,
+    `grid=${grid83.length} / view=${view83.length} / tab=${tab83.length} / myData=${myData83.length} / main=${main83.length} / hook=${hook83.length}`);
+
+  // ------------------------------------------------------------------
+  // 83.1 AD-1 の判定を**実際に走らせる**
+  // ------------------------------------------------------------------
+  {
+    const ends83 = runFn(() => new Function(`
+      ${extractConst("REED_TILE_CELL_ATTR")}
+      ${extractFunction("reedListPressEndsEditing")}
+      return reedListPressEndsEditing;`)());
+    check("83.1 一覧の押下の判定(reedListPressEndsEditing)を実ソースから組み立てられる", ends83.ok, ends83.err);
+
+    // 押された物と一覧を模す。closest は「祖先にその目印があるか」を返すブラウザの約束と同じ。
+    // contains は「その要素が一覧の DOM の中に居るか」── portal で出る物は false になる。
+    const inList83 = [];
+    const mk83 = (cell) => {
+      const t = { closest: (sel) => (cell && sel === "[data-reed-cell]" ? { tag: "cell" } : null) };
+      inList83.push(t);
+      return t;
+    };
+    const onCell83 = mk83(true);      // タイル(カード本体・鉛筆・マスの余白)
+    const onBlank83 = mk83(false);    // 一覧の地・箱と箱のあいだ・案内の1行
+    const onHeading83 = mk83(false);  // 箱の見出し(メーカー / 開封日)
+    const noClosest83 = {};           // closest を持たない押下(合成イベント等)
+    inList83.push(noClosest83);
+    const outside83 = { closest: () => null };  // 浮かせる「＋」・下から出るシート(DOM では一覧の外)
+    const listRoot83 = { contains: (t) => inList83.indexOf(t) !== -1 };
+
+    check("83.1 **タイルを押しても編集中は終わらない**(タップ=個体詳細 / 鉛筆=番号のシートは今までどおり)",
+      ends83.ok && ends83.v(onCell83, listRoot83) === false,
+      ends83.ok ? String(ends83.v(onCell83, listRoot83)) : ends83.err);
+    check("83.1 **一覧の空いている場所を押したら終わる**",
+      ends83.ok && ends83.v(onBlank83, listRoot83) === true,
+      ends83.ok ? String(ends83.v(onBlank83, listRoot83)) : ends83.err);
+    check("83.1 箱の見出しを押しても終わる(「箱を編集」シートを開く一手は残したまま)",
+      ends83.ok && ends83.v(onHeading83, listRoot83) === true,
+      ends83.ok ? String(ends83.v(onHeading83, listRoot83)) : ends83.err);
+    check("83.1 **一覧の外(右下の浮かせる「＋」・下から出るシート)は巻き込まない**",
+      ends83.ok && ends83.v(outside83, listRoot83) === false,
+      ends83.ok ? String(ends83.v(outside83, listRoot83)) : ends83.err);
+    check("83.1 押された物が無い / 一覧が無い / closest を持たない押下では終えない(押下が化けない)",
+      ends83.ok && ends83.v(null, listRoot83) === false
+      && ends83.v(onBlank83, null) === false
+      && ends83.v(onBlank83, {}) === false
+      && ends83.v(noClosest83, listRoot83) === false,
+      ends83.ok ? `${ends83.v(null, listRoot83)} / ${ends83.v(onBlank83, null)} / ${ends83.v(onBlank83, {})} / ${ends83.v(noClosest83, listRoot83)}` : ends83.err);
+    // 判定は**押された物と一覧の範囲だけ**で決まる(state を見ない = 同じ入力なら同じ答え)。
+    {
+      const endsSrc83 = extractFunction("reedListPressEndsEditing");
+      check("83.1 判定は引数2つだけで決まる(編集中かどうか・枚数・並び順を見ていない)",
+        /^function reedListPressEndsEditing\(target, listRoot\) \{/.test(endsSrc83)
+        && !/\b(editing|members|reeds|useState|useRef|selected)\b/.test(endsSrc83),
+        endsSrc83.slice(0, 80));
+    }
+    // 目印の綴りは1箇所から出る(属性と選択子が別々に drift しない)。
+    check("83.1 マスの目印の綴りは1箇所(属性も選択子も同じ定数から作る)",
+      /const REED_TILE_CELL_MARK = \{ \[REED_TILE_CELL_ATTR\]: "true" \};/.test(app83)
+      && /target\.closest\(`\[\$\{REED_TILE_CELL_ATTR\}\]`\)/.test(app83)
+      && count83(app83, /data-reed-cell/g) === 1,
+      `${count83(app83, /data-reed-cell/g)}箇所`);
+    check("83.1 目印はマス(包み)に付いている ── カード本体も鉛筆もその中に入る",
+      /\{\.\.\.REED_TILE_CELL_MARK\}\s*\r?\n\s*onPointerDown=\{handlePointerDown\(r\.id, idx\)\}/.test(grid83)
+      && grid83.indexOf("{...REED_TILE_CELL_MARK}") < grid83.indexOf('className="no-select reedtile"')
+      && grid83.indexOf("{...REED_TILE_CELL_MARK}") < grid83.indexOf("REED_TILE_PENCIL_MARK"));
+  }
+
+  // ------------------------------------------------------------------
+  // 83.2 AD-1 の配線
+  // ------------------------------------------------------------------
+  {
+    check("83.2 一覧の根の押下が判定を通り、**true のときだけ**出口を呼ぶ",
+      /onClick=\{\(e\) => \{ if \(reedListPressEndsEditing\(e\.target, e\.currentTarget\)\) onExitEditing\?\.\(\); \}\}/.test(view83));
+    check("83.2 判定を呼ぶ場所は1つ(定義1 + 呼び出し1)。写しを作っていない",
+      count83(app83, /reedListPressEndsEditing\(/g) === 2,
+      `${count83(app83, /reedListPressEndsEditing\(/g)}箇所`);
+    check("83.2 出口を呼ぶ場所も1つ(判定を通らない近道を作っていない)",
+      count83(app83, /onExitEditing\?\.\(\)/g) === 1,
+      `${count83(app83, /onExitEditing\?\.\(\)/g)}箇所`);
+    check("83.2 一覧は出口を props で受け取る(自分で旗を作らない・終わらせ方を持たない)",
+      /onExitEditing,/.test(view83)
+      && !/setListEditing/.test(view83) && !/reedEditingNext/.test(view83),
+      (view83.match(/setListEditing|reedEditingNext/g) || []).join(" / ") || "0件");
+    check("83.2 ReedsTab が配るのは「完了」と**同じ一手**(exitListEditing)",
+      /onExitEditing=\{exitListEditing\}/.test(tab83)
+      && /onClick=\{exitListEditing\}/.test(tab83)
+      && />完了<\/span>/.test(tab83));
+    check("83.2 終わらせ方は1つのまま(旗を下ろす綴りは2箇所・\"done\" は1箇所)",
+      count83(app83, /setListEditing\(/g) === 2
+      && count83(app83, /reedEditingNext\(v, "done"\)/g) === 1,
+      `setListEditing=${count83(app83, /setListEditing\(/g)} / done=${count83(app83, /reedEditingNext\(v, "done"\)/g)}`);
+    check("83.2 タイル・鉛筆の行き先は今までどおり(終わらせたついでに行き先を入れ替えていない)",
+      /onTileTap=\{\(id\) => onOpenReed\?\.\(id\)\}/.test(view83)
+      && /onPencilTap=\{\(id\) => setNumberEditId\(id\)\}/.test(view83));
+    check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ)",
+      /onClick=\{\(\) => setAddOpen\(true\)\}/.test(view83)
+      && !/ariaLabel="リードを追加"[\s\S]{0,200}onExitEditing/.test(view83));
+    check("83.2 **stopPropagation を新しく増やしていない**(一覧・タイルとも0件)",
+      count83(view83, /stopPropagation/g) === 0 && count83(grid83, /stopPropagation/g) === 0,
+      `view=${count83(view83, /stopPropagation/g)} / grid=${count83(grid83, /stopPropagation/g)}`);
+    // 揺れも鉛筆も editing ただ1つが門なので、旗を下ろせば両方消える(門は検証82.1 / 82.3 が見る)。
+    check("83.2 終わると揺れも鉛筆も消える ── 門は editing ただ1つのまま",
+      /\{editing && \(/.test(grid83)
+      && /data-editing=\{editing \? "true" : "false"\}/.test(grid83)
+      && /\.reedtile\[data-editing="true"\] \{ animation: reed-tile-wiggle/.test(cssRaw83));
+  }
+
+  // ------------------------------------------------------------------
+  // 83.3 AD-2 の判定を**実際に走らせる**
+  // ------------------------------------------------------------------
+  {
+    const sel83 = runFn(() => new Function(`
+      ${extractFunction("idealRowSelectionNext")}
+      return idealRowSelectionNext;`)());
+    check("83.3 目安の選択の判定(idealRowSelectionNext)を実ソースから組み立てられる", sel83.ok, sel83.err);
+    check("83.3 選ばれていない行を押すと、その目安が選ばれる(今までどおり)",
+      sel83.ok && sel83.v(null, "a") === "a" && sel83.v("b", "a") === "a",
+      sel83.ok ? `${sel83.v(null, "a")} / ${sel83.v("b", "a")}` : sel83.err);
+    check("83.3 **選択中の行をもう一度押すと外れる**(目安なし = null)",
+      sel83.ok && sel83.v("a", "a") === null,
+      sel83.ok ? String(sel83.v("a", "a")) : sel83.err);
+    check("83.3 外した後にもう一度押せば選び直せる(行き止まりを作らない)",
+      sel83.ok && sel83.v(sel83.v("a", "a"), "a") === "a",
+      sel83.ok ? String(sel83.v(sel83.v("a", "a"), "a")) : sel83.err);
+    check("83.3 外れた状態は既にある「目安なし」と同じ値(null)。新しい状態を作っていない",
+      sel83.ok && sel83.v("a", "a") === null
+      && /const \[selectedIdealId, setSelectedIdealId\] = usePersistedState\("selectedIdealId", null\);/.test(app83)
+      && /if \(wasSelected\) setSelectedIdealId\(null\);/.test(app83));
+  }
+
+  // ------------------------------------------------------------------
+  // 83.4 AD-2 の配線と「変えたのは枠の色だけ」
+  // ------------------------------------------------------------------
+  {
+    check("83.4 行の押下は判定を通る。判定を呼ぶ場所は1つ(定義1 + 呼び出し1)",
+      /setSelectedIdealId\(idealRowSelectionNext\(selectedIdealId, p\.id\)\)/.test(myData83)
+      && count83(app83, /idealRowSelectionNext\(/g) === 2,
+      `${count83(app83, /idealRowSelectionNext\(/g)}箇所`);
+    check("83.4 ゴミ箱を押したときは選択が動かない(押した要素で除く。stopPropagation は使わない)",
+      /if \(e\.target\?\.closest\?\.\("button"\)\) return;/.test(myData83)
+      && count83(myData83, /stopPropagation/g) === 0);
+    check("83.4 読み上げは今までの綴り(aria-pressed)が担う ── 選択中は true で返る",
+      /aria-pressed=\{selectedIdealId === p\.id\}\s*\r?\n\s*className="ctl-state"/.test(myData83));
+    // **枠の色は index.css だけが持つ。** 実装は行に border を1つも書かないので、
+    // 外れたときに戻るのは「通常時の .ctl-state の枠」そのもの(新しい色を作っていない)。
+    {
+      const rowTag83 = (() => {
+        const i = myData83.indexOf("aria-pressed={selectedIdealId === p.id}");
+        const j = myData83.indexOf(">", myData83.indexOf('style={{ display: "flex"', i));
+        return i < 0 || j < 0 ? "" : myData83.slice(i, j);
+      })();
+      check("83.4 行の開きタグを切り出せている", rowTag83.length > 80 && /ctl-state/.test(rowTag83), `${rowTag83.length}文字`);
+      check("83.4 行は枠(border)をインラインで持たない ── 枠の色は index.css の .ctl-state だけが決める",
+        rowTag83 !== "" && !/border/.test(rowTag83), rowTag83.slice(0, 120));
+      check("83.4 行は地(background)もインラインで持たない ── 外れても地は動かない",
+        rowTag83 !== "" && !/background/.test(rowTag83), rowTag83.slice(0, 120));
+      check("83.4 行の寸法・並びの綴りは D4 のまま(padding / 並び / gap を1つも動かしていない)",
+        /style=\{\{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 0 0 10px", cursor: "pointer" \}\}/.test(myData83)
+        && /gap: MY_DATA_IDEAL_GAP,/.test(myData83)
+        && /maxHeight: MY_DATA_IDEAL_LIST_MAX_H, overflowY: "auto"/.test(myData83));
+    }
+    check("83.4 字の色は今までの2つだけ(--c-accent / --c-ink。新しい色を作っていない)",
+      /color: selectedIdealId === p\.id \? "var\(--c-accent\)" : "var\(--c-ink\)"/.test(myData83)
+      && count83(myData83, /color: selectedIdealId === p\.id/g) === 1);
+    check("83.4 枠の色の2状態は index.css の1箇所が持つ(通常 --c-line-strong / ON --c-accent)",
+      /\.ctl-state \{ background: transparent; border: 1px solid var\(--c-line-strong\); border-radius: var\(--r-sm\); \}/.test(cssRaw83)
+      && /\.ctl-state\[aria-pressed="true"\], \.ctl-state\[aria-expanded="true"\] \{ border-color: var\(--c-accent\); \}/.test(cssRaw83));
+    // 目安が外れた(= 目安なし)ときの道は既に在る: 表示側は selectedIdeal が null になるだけ。
+    check("83.4 目安なしの道は既にある(告知の1行があり、グラフは selectedIdeal を見て描く)",
+      /\{!selectedIdeal && \(/.test(myData83)
+      && /const selectedIdealRaw = idealProfiles\.find\(\(p\) => p\.id === selectedIdealId\) \|\| null;/.test(app83));
+  }
+
+  // ------------------------------------------------------------------
+  // 83.5 AD-3 冷えた起動 ── 最初の描画の前にキャッシュを温める
+  // ------------------------------------------------------------------
+  {
+    check("83.5 温める関数(warmPersistedStateCache)が在り、外へ出している",
+      /export async function warmPersistedStateCache\(\) \{/.test(hook83));
+    const warm83 = extractFunction("warmPersistedStateCache");
+    check("83.5 kv ストアを**1つの読み取りトランザクション**で読む(キーごとに開き直さない)",
+      /const tx = db\.transaction\(IDB_STORE, "readonly"\);/.test(warm83)
+      && /const keysReq = store\.getAllKeys\(\);/.test(warm83)
+      && /const valuesReq = store\.getAll\(\);/.test(warm83)
+      && count83(warm83, /db\.transaction\(/g) === 1,
+      `transaction = ${count83(warm83, /db\.transaction\(/g)}箇所`);
+    check("83.5 読めた値はキャッシュへ入れる(usePersistedState が初期値に使うのと同じ Map)",
+      /keys\.forEach\(\(k, i\) => \{ if \(values\[i\] !== undefined\) persistedStateCache\.set\(k, values\[i\]\); \}\);/.test(warm83));
+    check("83.5 読めなくても投げない(起動そのものは止めない)",
+      /\} catch \{/.test(warm83) && !/throw/.test(warm83), warm83.slice(-160));
+    check("83.5 温まっているキーは読み直さない(実体の入れ替えで起動直後に描き直さない)",
+      /if \(loadedRef\.current\) return;\r?\n\s*let cancelled = false;\r?\n\s*idbGet\(key\)\.then/.test(hook83));
+    check("83.5 値が1bit も変わっていないなら書き戻さない(起動のたびに全キーへ書かない)",
+      /if \(persistedStateCache\.get\(key\) === state\) return;\r?\n\s*if \(loadedRef\.current\) \{ persistedStateCache\.set\(key, state\); idbSet\(key, state\); \}/.test(hook83));
+    check("83.5 **保存の仕組みを2つに増やしていない**(IndexedDB のまま。localStorage / sessionStorage は0件)",
+      !/localStorage|sessionStorage/.test(app83) && !/localStorage|sessionStorage/.test(main83),
+      (app83.match(/localStorage|sessionStorage/g) || []).join(" / ") || "0件");
+    // main.jsx: 温めてから App を描く。**順序を位置で固定する**(呼ぶだけでは順序を言えない)。
+    check("83.5 起動の入口が温めを呼ぶ(呼ぶのは1箇所)",
+      /import App, \{ warmPersistedStateCache \} from '\.\/App\.jsx'/.test(main83)
+      && count83(main83, /warmPersistedStateCache\(\)/g) === 1,
+      `${count83(main83, /warmPersistedStateCache\(\)/g)}箇所`);
+    check("83.5 **温めをいちばん先に始める**(React の用意より前。読みと用意が重なる)",
+      main83.indexOf("warmPersistedStateCache()") > 0
+      && main83.indexOf("warmPersistedStateCache()") < main83.indexOf("createRoot("),
+      `温め=${main83.indexOf("warmPersistedStateCache()")} / createRoot=${main83.indexOf("createRoot(")}`);
+    check("83.5 **App を描くのは温めが終わってから**(順序を位置で固定する)",
+      main83.indexOf("warming.finally(") > main83.indexOf("createRoot(")
+      && main83.indexOf("warming.finally(") < main83.indexOf("<App />"),
+      `finally=${main83.indexOf("warming.finally(")} / App=${main83.indexOf("<App />")}`);
+    check("83.5 温めが失敗しても必ず App を描く(finally)",
+      /const warming = warmPersistedStateCache\(\)/.test(main83)
+      && /warming\.finally\(\(\) => \{/.test(main83));
+    // 【実測で決めた】輪(LoadingRing)を1枚挟むと React の根がもう一度 render を通り、
+    // 本番ビルドの A/B で**約 39ms** 遅くなった(温めそのものは 0.9〜11.2ms)。
+    // 待つあいだは**何も描かない** ── JS が評価され終わるまでに既に出ている姿と同じで、
+    // 新しい待ち画面は1つも作っていない。描くのは App ただ1つ・根の render は1回だけ。
+    check("83.5 待つあいだに新しい待ち画面を作っていない(描くのは App ただ1つ)",
+      count83(main83, /root\.render\(/g) === 1
+      && count83(main83, /<[A-Z]/g) === 2
+      && !/<LoadingRing/.test(main83) && !/import LoadingRing/.test(main83),
+      `render=${count83(main83, /root\.render\(/g)} / 要素=${(main83.match(/<[A-Z][A-Za-z.]*/g) || []).join(" ")}`);
+    // F-101 のキャッシュそのもの(30.2 が見ている)は1文字も変えていない。
+    check("83.5 初期値の決め方は F-101 のまま(has() 判定。?? で null を潰さない)",
+      /useState\(\(\) => \(persistedStateCache\.has\(key\) \? persistedStateCache\.get\(key\) : initialValue\)\)/.test(hook83)
+      && /useRef\(persistedStateCache\.has\(key\)\)/.test(hook83));
   }
   console.log("  -> done");
 }

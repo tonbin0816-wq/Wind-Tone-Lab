@@ -2241,6 +2241,13 @@ function usePersistedState(key, initialValue) {
   const loadedRef = useRef(persistedStateCache.has(key));
 
   useEffect(() => {
+    // 【AD-3 2026-09-21 本人指示】温まっている(= 最初の描画の前に warmPersistedStateCache が
+    // このキーを入れた、または前のマウントで読めた)なら読み直さない。読み直しても値は
+    // 同じで、配列・オブジェクトの実体だけが入れ替わり、起動の直後にもう一度全部が
+    // 描き直されるだけになる。**キャッシュと IndexedDB がずれる経路は無い**: kv を書くのは
+    // このフックだけで、書き出しの読み戻し(backup/localStore.js の writeAll)は直後に
+    // window.location.reload() するので、そこではモジュールごと作り直される。
+    if (loadedRef.current) return;
     let cancelled = false;
     idbGet(key).then((saved) => {
       if (cancelled) return;
@@ -2252,10 +2259,48 @@ function usePersistedState(key, initialValue) {
   }, []);
 
   useEffect(() => {
+    // 【AD-3】温めた直後の1回は「読んだ値をそのまま書き戻す」だけになる。実体が同じなら
+    // 1bit も変わっていないので書かない(起動のたびに kv の全キーへ無駄な書き込みが走る)。
+    if (persistedStateCache.get(key) === state) return;
     if (loadedRef.current) { persistedStateCache.set(key, state); idbSet(key, state); }
   }, [key, state]);
 
   return [state, setState];
+}
+
+// 【AD-3 2026-09-21 本人指示】「アプリ起動時に計測タブのリードが一瞬未選択の時の仕様になる」。
+// 原因は上の usePersistedState が useState(initialValue) で始まり、IndexedDB からの読み出しが
+// useEffect の中にあること ── 冷えた起動では1フレーム以上のあいだ selectedReedId = null が
+// 描かれ、上部設定行が「リードを選択」の姿になる(同じ理由で楽器・基準ピッチも既定値が一瞬出る)。
+//
+// **直し方は「最初の描画の前にキャッシュを温める」。** usePersistedState は既に
+// persistedStateCache を見て初期値を決めるので、アプリを描く前にここを埋めれば
+// どのキーも1フレーム目から保存値で始まる。呼ぶのは src/main.jsx ただ1箇所。
+//
+//   ・**保存の仕組みは増やしていない**(IndexedDB のまま。localStorage へは引っ越さない
+//     ── 保存先が2箇所になる)。
+//   ・鍵と値は kv ストアから**1つの読み取りトランザクション**でまとめて取る
+//     (キーごとに idbGet を並べると接続とトランザクションがキーの数だけ増える)。
+//     組み直し方は backup/localStore.js の readAll と同じ ── getAllKeys と getAll は
+//     どちらも鍵の昇順で返るので、同じ添字が対応する。
+//   ・読めない環境(プライベートブラウジング等)では**温めずに黙って戻る**。その場合は
+//     従来どおり initialValue で始まり idbGet の結果を待つ(起動そのものは止めない)。
+export async function warmPersistedStateCache() {
+  try {
+    const db = await openIdb();
+    const { keys, values } = await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const store = tx.objectStore(IDB_STORE);
+      const keysReq = store.getAllKeys();
+      const valuesReq = store.getAll();
+      tx.oncomplete = () => resolve({ keys: keysReq.result || [], values: valuesReq.result || [] });
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    keys.forEach((k, i) => { if (values[i] !== undefined) persistedStateCache.set(k, values[i]); });
+  } catch {
+    // 温められなかっただけ。画面は従来どおり出す(ここで投げると起動そのものが止まる)。
+  }
 }
 
 // --- セッション専用のレコード単位ストア -------------------------------
@@ -10435,8 +10480,15 @@ const REED_TILE_PENCIL_STROKE = 1.9;
 // 鉛筆であることの目印。**綴りは1箇所**(下の reedTilePressPlan が同じ定数から選択子を組む)。
 const REED_TILE_PENCIL_ATTR = "data-reed-pencil";
 const REED_TILE_PENCIL_MARK = { [REED_TILE_PENCIL_ATTR]: "true" };
+// 【AD-1 2026-09-21 本人指示】マス(タイルの包み)であることの目印。**綴りは1箇所**
+// (下の reedListPressEndsEditing が同じ定数から選択子を組む)。カード本体も鉛筆も
+// この包みの中に居るので、「タイルのどこかを押したか」はこの1つで見分けられる。
+const REED_TILE_CELL_ATTR = "data-reed-cell";
+const REED_TILE_CELL_MARK = { [REED_TILE_CELL_ATTR]: "true" };
 // 【AB-2 2026-09-21 本人指示】編集中(iPhone のホーム画面の並べ替えと同じ状態)の出入り。
 // 入口は**タイルの長押しが成立した瞬間**、出口は**子タブ行の右端の「完了」**。
+// 【AD-1 2026-09-21 本人指示】出口の**押し場所**が増えた(一覧のタイル以外の場所)が、
+// 終わらせ方そのものはここの "done" ただ1つのまま ── どこを押しても同じ一手を通る。
 // 出入りを1つの関数に畳んだのは、入口と出口が別々に育つと
 // 「入れるのに抜けられない」状態を作れてしまうため(検証82.4 がこれを実際に走らせる)。
 // 指を離しても抜けない ── "longPress" 以外の合図が来るまで現状のまま返す。
@@ -10444,6 +10496,27 @@ function reedEditingNext(editing, action) {
   if (action === "longPress") return true;
   if (action === "done") return false;
   return editing;
+}
+
+// 【AD-1 2026-09-21 本人指示】「揺れてるのをカード以外の場所タップでも編集終了できるように
+// 変更。終了したらもちろん揺れ止めて」。登録一覧のどこを押したときに編集中を終えるかを、
+// **押された物と一覧の範囲だけ**で決める(state を見ない = 純粋)。
+//   ・タイル(マスの中 = カード本体・鉛筆・マスの余白) … 終えない。
+//     押した先の仕事(タップ=個体詳細 / 鉛筆=番号のシート)は今までどおりで、並び替えも壊さない。
+//   ・それ以外(箱の見出し・箱と箱のあいだ・案内の1行・一覧の地) … 終える。
+//     箱の見出しは「箱を編集」シートも開くが、**その一手は残したまま**同時に終える
+//     ── 押した先が別の画面なので、戻ってきたときに揺れたまま残るほうがおかしい。
+//   ・一覧の**外**(右下に浮かせる「＋」・下から出るシート)は終えない。それぞれに仕事がある。
+//     React の portal は DOM の親子ではないのに合図だけは木を上がってくるので、
+//     「一覧の中を押したか」は listRoot.contains で見る。
+// **stopPropagation は使わない**(既存の作法 ── 伝播を止める作りは document まで届く
+// 仕組みを壊しうる。D-10 §4 / reedTilePressPlan と同じく「押した要素で除く」)。
+function reedListPressEndsEditing(target, listRoot) {
+  if (!target || !listRoot) return false;
+  if (typeof listRoot.contains !== "function" || !listRoot.contains(target)) return false;
+  if (typeof target.closest !== "function") return false;
+  if (target.closest(`[${REED_TILE_CELL_ATTR}]`)) return false;
+  return true;
 }
 
 // 【AA-2】押下をどう扱うか。**押された物だけ**で決まる。
@@ -10698,6 +10771,7 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
           <div
             key={r.id}
             className="no-select"
+            {...REED_TILE_CELL_MARK}
             onPointerDown={handlePointerDown(r.id, idx)}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp(r.id)}
@@ -10956,9 +11030,12 @@ function ReedsTab(props) {
           onOpenReed={openReed}
           reedGroups={reedGroups}
           pageActive={reedsSubTab === "register"}
-          /* 【AB-2】編集中の旗と、その入口。一覧はこれをすべての ReedTileGrid へ配る。 */
+          /* 【AB-2】編集中の旗と、その入口。一覧はこれをすべての ReedTileGrid へ配る。
+             【AD-1 2026-09-21 本人指示】出口も配る。「完了」と**同じ exitListEditing** を
+             渡すので、終わらせ方は1つのまま(reedEditingNext の "done" ただ1つ)。 */
           editing={listEditing}
           onEnterEditing={enterListEditing}
+          onExitEditing={exitListEditing}
           /* 【B-2 で判った取りこぼし】箱の編集シートの「削除」(便N まで「この箱を削除」)は、ReedsTab の
              deleteReeds を**渡されないまま**名前で呼んでいた(ReedRegisterView は
              ReedsTab の入れ子ではないので、押すと ReferenceError で何も消えなかった)。
@@ -11569,6 +11646,9 @@ function ReedRegisterView(props) {
     // そうしないと「長押しした箱のタイルだけ揺れる」に戻る(本人の指示は「全部のカードが揺れて」)。
     editing,
     onEnterEditing,
+    // 【AD-1 2026-09-21 本人指示】編集中の**出口**。子タブ行の「完了」と同じ一手
+    // (ReedsTab の exitListEditing)を受け取る ── 出口を2つに増やさない。
+    onExitEditing,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
   } = props;
@@ -11717,7 +11797,15 @@ function ReedRegisterView(props) {
      出す条件は「リードが1枚以上」── モードは無くなったので、条件は枚数1つになった。 */
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    /* 【AD-1 2026-09-21 本人指示】一覧のどこを押しても、タイルでなければ編集中を終える。
+       判定は reedListPressEndsEditing ただ1つ(実際に走らせる検査は検証83)。
+       ここに置く(= 一覧の根)のは、浮かせる「＋」もシートも**この木の下ではあるが
+       DOM では外**なので、contains で外せるため。終わったら揺れも鉛筆も消える
+       ── どちらも editing ただ1つが門なので、旗を下ろすだけでよい。 */
+    <div
+      style={{ maxWidth: 900, margin: "0 auto" }}
+      onClick={(e) => { if (reedListPressEndsEditing(e.target, e.currentTarget)) onExitEditing?.(); }}
+    >
       {reeds.length === 0 ? (
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "20px 0" }}>まだリードが登録されていません</div>
       ) : (
@@ -15210,6 +15298,18 @@ function DaySessionRow({ session, reeds, onOpen }) {
 //   累計カード → カレンダーカード →(日付を押したときだけ)セッション →
 //   すべてのセッション → 音の傾向カード
 // **罫は1本も引かない**(本人「むやみに線をひくのやめて」)。群はカードと 12px の余白が切る。
+
+// 【AD-2 2026-09-21 本人指示】「mydata の下の目安について、選択中の目安をタップで
+// 目安設定から外れるようにして。エフェクト的には枠の色だけ戻してくれればいい」。
+// 押された行が**いま選ばれている行なら外す**(= 目安なし)。違う行ならその行を選ぶ。
+// 外れた状態(null)は既にある道: 選択中の目安を削除したときと同じ値で、表示側は
+// selectedIdeal が null になることで伝わる(表示側に分岐を足していない)。
+// setSelectedIdealId((cur) => …) の形にしないのは、M9 の検査が「計測タブに目安の一覧が
+// 戻っていない」ことをその綴りの不在で見ているため ── 判定はここに出し、呼ぶ側は値を渡す。
+function idealRowSelectionNext(currentId, pressedId) {
+  return currentId === pressedId ? null : pressedId;
+}
+
 function MyDataSection({
   sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
@@ -15532,7 +15632,12 @@ function MyDataSection({
           (A型 = index.css の .ctl-state。選択中/非選択という状態を持つので枠線。状態は枠と字の色だけ)。
           行が <button> ではなく <div> なのは、行の中に削除の <button> を抱えるため(button の入れ子は
           作れない)。状態は aria-pressed が持つ。
-          **押しても解除はしない**(凍結仕様。F-76 のトグルは移さない)。
+          【AD-2 2026-09-21 本人指示】**選択中の行をもう一度押すと外れる**(目安なしへ戻る)。
+          D4 で「押しても解除はしない」と決めた凍結仕様を、本人の指示で裏返した。
+          外れたときに戻るのは**通常時の姿そのもの**(.ctl-state の枠 --c-line-strong と
+          --c-ink の字)で、新しい色・地・太さ・寸法は1つも作っていない。
+          読み上げは今までの綴り(aria-pressed)がそのまま担う ── 押されている状態が
+          true で返るので、「もう一度押すと外れる」がそのまま伝わる。
           ゴミ箱は **即時削除 + 帯の「元に戻す」5秒**(onDeleteIdeal = App の
           deleteIdealProfileWithUndo。window.confirm は使わない)。絵柄と当たり判定は
           一覧の「削除する計測を選ぶ」と同じ(TAP_BUTTON_RESET + --tap-min / Trash2 14)。
@@ -15567,7 +15672,7 @@ function MyDataSection({
                 /* ゴミ箱を押したときは選ばない。**stopPropagation は使わない**(D-10 §4:
                    伝播を止める作りは document まで届くことに依存する仕組みを壊しうる)ので、
                    閉じる判定(closeDayIfOutside)と同じく **押した要素で除く**。 */
-                onClick={(e) => { if (e.target?.closest?.("button")) return; setSelectedIdealId(p.id); }}
+                onClick={(e) => { if (e.target?.closest?.("button")) return; setSelectedIdealId(idealRowSelectionNext(selectedIdealId, p.id)); }}
                 aria-pressed={selectedIdealId === p.id}
                 className="ctl-state"
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 0 0 10px", cursor: "pointer" }}
