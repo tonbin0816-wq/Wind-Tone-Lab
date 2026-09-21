@@ -8465,9 +8465,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("M4: 奏者の枠の高さは TOPSET_PERFORMER_H_PX(行の高さ=環の位置を保つ)",
           /height: TOPSET_PERFORMER_H_PX/.test(btn), btn.slice(0, 260).replace(/\s+/g, " "));
         // (2) 追加はピッカーの**下**の入力欄1行。語は「追加」のまま。
-        check("M4: 奏者の一覧は OptionSheet で、下に「追加」の入力欄1行を持つ(便R 後半-前半)",
+        // 【便AB 2026-09-21 本人裁定「案あ」で向け直した】常に出ていた入力欄と塗りの
+        // ボタンをやめ、普段は他の行と同じ「＋ 追加」1行。押すとその行が入力欄に変わる。
+        // 主張(奏者の一覧は OptionSheet で、下に追加の道を1つ持つ)は変えていない。
+        check("M4: 奏者の一覧は OptionSheet で、下に「＋ 追加」の行を持つ(押すと入力欄になる)",
           /<OptionSheet\s*\r?\n\s*options=\{options\} value=\{selectedPerformer\}/.test(ps)
-          && /footer=\{\(/.test(ps) && /placeholder="名前を入力"/.test(ps) && />追加<\/button>/.test(ps),
+          && /footer=\{adding \? \(/.test(ps) && /placeholder="名前を入力"/.test(ps)
+          && /label=\{PERFORMER_ADD_LABEL\}/.test(ps) && />追加<\/button>/.test(ps),
           ps.replace(/\s+/g, " ").slice(-300));
         check("M4: 選択肢に「選択肢ではないもの」を混ぜていない(＋ 名前を入力... の option は消えた)",
           !/__add__/.test(codeOf(src)) && /const options = \["自分", \.\.\.performers\];/.test(ps),
@@ -8975,9 +8979,14 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 置き場所も一覧末尾から右下の浮かせるボタンへ移った。**入口が1つ**という芯は不変。
       // 【2026/09/10 本人指示】語を落として絵柄(＋)だけにした。**芯は今も不変**なので、
       // 数えるものを読み上げの語へ移し、**画面に出る語が戻っていないこと**も併せて見る。
+      // 【便AB 2026-09-21 で射程を絞った】禁じているのは**リードの一覧の末尾**の
+      // 「＋ 追加」。codeR はリードタブより広いので、**奏者の「＋ 追加」**まで
+      // 巻き込んでいた。あちらは本人裁定(便AB・案あ)で置いた別物なので除く。
+      const codeR111 = codeR.split('const PERFORMER_ADD_LABEL').join('const PERFORMER_ADD_LABEL_X');
       check("F-111: 追加の入口は1つだけ(絵柄のみ。旧綴りは残っていない)",
         (codeR.match(/ariaLabel="リードを追加"/g) || []).length === 1
-        && !codeR.includes("＋ 追加") && !codeR.includes("＋ リードを追加"),
+        && !codeR111.replace('"＋ 追加";', '"";').includes("＋ 追加")
+        && !codeR.includes("＋ リードを追加"),
         `${(codeR.match(/ariaLabel="リードを追加"/g) || []).length}箇所 / 旧綴り ${(codeR.match(/＋ 追加|＋ リードを追加/g) || []).length}箇所`);
       // 絵柄だけの形になっていること(語を戻す変異はここでも落ちる)
       check("F-111: 追加の入口は絵柄だけ(label を渡していない)",
@@ -14166,9 +14175,19 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       declOf(mockCss, ".addrow", "justify-content") === "center"
       && parseFloat(declOf(mockCss, ".addbtn", "font-size")) === 14,
       `${declOf(mockCss, ".addrow", "justify-content")} / ${declOf(mockCss, ".addbtn", "font-size")}`);
-    check("F-111: 一覧末尾の「＋ 追加」の行が実装に残っていない",
-      !/REED_ADDROW_PAD_TOP_PX/.test(codeOf(src)) && !codeOf(src).includes("＋ 追加"),
-      (codeOf(src).match(/＋ 追加|REED_ADDROW_PAD_TOP_PX/g) || []).length + "件");
+    // 【便AB 2026-09-21 で射程を絞った】この検査が禁じているのは**リードの一覧の末尾**に
+    // あった「＋ 追加」の行(F-111 で右下の浮かせるボタンへ移した)。
+    // ファイル全体で綴りを禁じていたため、**奏者の一覧の「＋ 追加」**まで巻き込んでいた。
+    // あちらは本人裁定(便AB・案あ)で置いた別物なので、射程をリードの一覧へ絞る。
+    {
+      const reg111 = codeOf(srcOfFn(src, "ReedRegisterView"));
+      check("F-111: 一覧末尾の「＋ 追加」の行が実装に残っていない(リードの一覧)",
+        !/REED_ADDROW_PAD_TOP_PX/.test(codeOf(src)) && !reg111.includes("＋ 追加"),
+        (reg111.match(/＋ 追加/g) || []).length + "件 / 定数 "
+        + (codeOf(src).match(/REED_ADDROW_PAD_TOP_PX/g) || []).length + "件");
+      check("F-111: 奏者の「＋ 追加」は別物として在る(禁じすぎていない)",
+        codeOf(src).includes('const PERFORMER_ADD_LABEL = "＋ 追加";'));
+    }
     // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
     // 【D-7 2026/09/09 本人裁定「主要動作はすべて右下に浮かせる」で 3 → 4】
     // セッション個別詳細の「★ 目安に設定」がヘッダ右から下りてきて4つ目。
@@ -27722,9 +27741,11 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
       && /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{REED_ADD_SHEET_TITLE\}<\/div>/.test(sheet75));
     check("75.1 行は全幅・--tap-min の高さ",
       /width: "100%", height: "var\(--tap-min\)"/.test(row75));
-    check("75.1 行の下に罫 --c-line(最後の行だけ罫なし)",
+    // 【便AB 2026-09-21 で向け直した】一覧の後ろに「＋ 追加」の行が続くときは、
+    // 最後の選択肢にも罫を残す ── 残さないと、そこだけ間が抜けて2つの部品に見える。
+    check("75.1 行の下に罫 --c-line(いちばん下の行だけ罫なし)",
       /borderBottom: last \? "none" : "1px solid var\(--c-line\)"/.test(row75)
-      && /last=\{i === list\.length - 1\}/.test(opt75));
+      && /last=\{i === list\.length - 1 && !footer\}/.test(opt75));
     check("75.1 綴りは左寄せ。1行に収まらないときは省略記号",
       /textAlign: "left"/.test(row75)
       && /whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"/.test(row75));
@@ -27765,9 +27786,11 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
       /role="listbox" aria-label=\{ariaLabel\}/.test(opt75)
       && /role=\{option \? "option" : undefined\}/.test(row75)
       && /aria-selected=\{option \? selected : undefined\}/.test(row75));
-    check("75.1 footer は一覧の**下**(渡さない呼び手では何も出ない)",
-      /\{footer \? <div style=\{\{ marginTop: "var\(--sp-2\)" \}\}>\{footer\}<\/div> : null\}/.test(opt75)
-      && opt75.indexOf("{footer ?") > opt75.indexOf('role="listbox"'));
+    // 【便AB で向け直した】footer は器で包まない(包むと間が空き、そこだけ別物に見える)。
+    check("75.1 footer は一覧の**下**に、間を空けずに続く(渡さない呼び手では何も出ない)",
+      /\n\s*\{footer\}\r?\n/.test(opt75)
+      && !/marginTop: "var\(--sp-2\)" \}\}>\{footer\}/.test(opt75)
+      && opt75.indexOf("{footer}") > opt75.indexOf('role="listbox"'));
   }
 
   // --- 75.2 呼び手はホイールを読んでいない --------------------------------------
@@ -27812,14 +27835,28 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
 
   // --- 75.4 奏者の「追加」の1行は footer のまま ---------------------------------
   {
+    // 【便AB 2026-09-21 本人裁定「奏者追加は案あ」で向け直した】
+    // 本人の指摘「1番下の追加のところが前のレイアウトが混ざっている」。
+    // 入力欄と塗りのボタンを常に出す形をやめ、**普段は他の行と同じ「＋ 追加」1行**、
+    // 押すと**その行が**入力欄に変わる形にした。
     check("75.4 奏者の一覧は footer を渡す(見出しは「奏者」)",
-      /ariaLabel="奏者"\s*\r?\n\s*footer=\{\(/.test(perf75));
-    const foot75 = (perf75.match(/footer=\{\(([\s\S]*?)\r?\n\s*\)\}/) || [, ""])[1].replace(/\s+/g, " ").trim();
-    check("75.4 「追加」の1行の綴りが1文字も変わっていない(中身・振る舞いを1つも触らない)",
-      foot75 === `<div style={{ display: "flex", gap: 4, alignItems: "center" }}> <input type="text" placeholder="名前を入力" aria-label="奏者の名前" value={addingName} onChange={(e) => setAddingName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") confirmAdd(); }} className="sans" style={{ padding: "5px 8px", fontSize: 12, width: 110 }} /> <button onClick={confirmAdd} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", cursor: "pointer" }}>追加</button> </div>`,
-      foot75 || "取り出せない");
+      /ariaLabel="奏者"\s*\r?\n\s*footer=\{adding \? \(/.test(perf75));
+    check("75.4 普段の姿は一覧と**同じ部品**(OptionRow)。新しい行の形を作っていない",
+      /<OptionRow\s*\r?\n\s*label=\{PERFORMER_ADD_LABEL\}\s*\r?\n\s*option=\{false\}/.test(perf75)
+      && /const PERFORMER_ADD_LABEL = "＋ 追加";/.test(app75));
+    check("75.4 押すとその行が入力欄になる(面を増やさない・高さは行と同じ)",
+      /onClick=\{\(\) => setAdding\(true\)\}/.test(perf75)
+      && /alignItems: "center", gap: "var\(--sp-2\)", height: "var\(--tap-min\)"/.test(perf75));
+    check("75.4 名前が空のうちは実行の一手を押せない(押しても何も起きない一手を作らない)",
+      /disabled=\{!addingName\.trim\(\)\}/.test(perf75));
+    check("75.4 足したらその場で選ばれ、一覧の行を押したときと同じく閉じる",
+      /setSelectedPerformer\(name\);[\s\S]{0,400}?onClosePicker\?\.\(\);/.test(perf75));
+    check("75.4 閉じると入力の途中を残さない(次は必ず「＋ 追加」から)",
+      /const closePicker = \(\) => \{ setAdding\(false\); setAddingName\(""\); onClosePicker\?\.\(\); \};/.test(perf75)
+      && /onClose=\{closePicker\}/.test(perf75));
     check("75.4 footer を渡すのは奏者だけ(他の3つに増やしていない)",
-      count75(app75, /footer=\{\(/g) === 1, `${count75(app75, /footer=\{\(/g)}箇所`);
+      count75(app75, /footer=\{adding \? \(/g) === 1 && count75(app75, /footer=\{\(/g) === 0,
+      `${count75(app75, /footer=\{adding \? \(/g)}箇所`);
   }
 
   // --- 75.5 「＋ 新しいメーカーを入力...」は今までどおり選択肢の1つ ---------------

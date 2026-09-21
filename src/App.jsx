@@ -4871,14 +4871,16 @@ function OptionSheet({ options, value, onChange, onClose, labelFn, ariaLabel, fo
             key={o}
             label={labelFn ? labelFn(o) : o}
             selected={o === value}
-            last={i === list.length - 1}
+            last={i === list.length - 1 && !footer}
             onClick={() => { onChange(o); onClose(); }}
           />
         ))}
       </div>
-      {/* 【M4 由来】奏者の一覧だけ、選択肢の**下に**「追加」の入力欄を1行持つ。
-          間隔は畳んだホイールが持っていた gap と同じ --sp-2(新しい値を作らない)。 */}
-      {footer ? <div style={{ marginTop: "var(--sp-2)" }}>{footer}</div> : null}
+      {/* 【便AB 2026-09-21 本人裁定「奏者追加は案あ」】奏者の一覧だけ、選択肢の**下に**
+          「＋ 追加」の行を持つ。**間を空けない** ── 空けるとそこだけ別の部品に見える
+          (本人「前のレイアウトが混ざっている」の指摘がまさにそれだった)。
+          一覧の最後の行の罫は、後ろにこの行が続くときだけ残す(下の last の式)。 */}
+      {footer}
     </BottomSheet>
   );
 }
@@ -10195,10 +10197,19 @@ function SetAsIdealButton({ session, sessions, selectedIdeal, onSave, floating =
 // 【奏者の追加】一覧の**下**に入力欄を1行置く(OptionSheet の footer)。
 // 以前は選択肢の中の「＋ 名前を入力...」だったが、選択肢の1列には
 // 「選択肢ではないもの」を混ぜられない。語は「追加」のまま変えていない。
+// 【便AB 2026-09-21】「＋ 追加」の行の綴り。一覧の行と同じ部品(OptionRow)で描くので、
+// 高さ・罫・左右の余白は一覧とまったく同じになる。**新しい行の形を作らない。**
+const PERFORMER_ADD_LABEL = "＋ 追加";
 function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer, setPerformers, disabled, selectId, pickerOpen = false, onOpenPicker, onClosePicker }) {
   const [addingName, setAddingName] = useState("");
+  // 【便AB 本人裁定「案あ」】普段は他の行と同じ1行。押した**その行が**入力欄に変わる。
+  // 面を増やさない(引き継ぎのシートからカードを外したばかりで、ここで二重にすると筋が通らない)。
+  const [adding, setAdding] = useState(false);
 
   const options = ["自分", ...performers];
+
+  // シートを閉じるたびに入力の途中を残さない。次に開いたときは必ず「＋ 追加」から。
+  const closePicker = () => { setAdding(false); setAddingName(""); onClosePicker?.(); };
 
   const confirmAdd = () => {
     const name = addingName.trim();
@@ -10206,6 +10217,10 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
     setPerformers((prev) => (prev.includes(name) ? prev : [...prev, name]));
     setSelectedPerformer(name);
     setAddingName("");
+    setAdding(false);
+    // 【選んだのと同じ結末にする】足した奏者はその場で選ばれるので、
+    // 一覧の行を押したときと同じく閉じる(開いたまま残すと、何が起きたのか分からない)。
+    onClosePicker?.();
   };
 
   return (
@@ -10232,19 +10247,44 @@ function PerformerSelector({ performers, selectedPerformer, setSelectedPerformer
       {pickerOpen && (
         <OptionSheet
           options={options} value={selectedPerformer}
-          onChange={setSelectedPerformer} onClose={onClosePicker}
+          onChange={setSelectedPerformer} onClose={closePicker}
           ariaLabel="奏者"
-          footer={(
-            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          footer={adding ? (
+            /* 押したあと。**同じ場所が入力欄に変わる**。高さは行と同じ --tap-min。
+               入力欄の地(--c-sunken)は index.css のただ1つの規則が配る ──
+               「打つ場所には地がある / 選ぶ場所には無い」の作法(便O)をここでも守る。 */
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", height: "var(--tap-min)" }}>
               <input
                 type="text" placeholder="名前を入力" aria-label="奏者の名前" value={addingName}
                 onChange={(e) => setAddingName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") confirmAdd(); }}
+                autoFocus
                 className="sans"
-                style={{ padding: "5px 8px", fontSize: 12, width: 110 }}
+                style={{ flex: 1, minWidth: 0, height: "var(--tap-min)", padding: "0 var(--sp-3)", fontSize: "var(--fs-sm)", color: "var(--c-ink)" }}
               />
-              <button onClick={confirmAdd} className="sans" style={{ fontSize: 12, padding: "5px 8px", borderRadius: 5, border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)", cursor: "pointer" }}>追加</button>
+              {/* 実行の一手。塗りを持たせない ── 一覧の中の1行に塗りを置くと、
+                  そこだけ別の面に見える。色と太さで「これが決め手」を返す。 */}
+              <button
+                type="button" onClick={confirmAdd} disabled={!addingName.trim()}
+                className="sans"
+                style={{
+                  minHeight: "var(--tap-min)", minWidth: "var(--tap-min)", padding: "0 var(--sp-2)",
+                  background: "none", border: "none", cursor: addingName.trim() ? "pointer" : "default",
+                  fontSize: "var(--fs-sm)", fontWeight: 700,
+                  color: addingName.trim() ? "var(--c-accent)" : "var(--c-disabled)",
+                }}
+              >追加</button>
             </div>
+          ) : (
+            /* 普段。**他の行と同じ部品**なので、高さも罫も左右の余白も一覧と揃う。
+               選択肢ではないので option={false}(読み上げが「選択肢の1つ」と言わない)。 */
+            <OptionRow
+              label={PERFORMER_ADD_LABEL}
+              option={false}
+              selected={false}
+              last
+              onClick={() => setAdding(true)}
+            />
           )}
         />
       )}
