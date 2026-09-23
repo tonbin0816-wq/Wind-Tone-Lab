@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { REPORT_REASONS, buildReportDoc, buildFlagDoc, hideFlagged, hideFlaggedIdeals } from "./report.js";
+import { REPORT_REASONS, buildReportDoc, buildFlagDoc, hideFlagged, hideFlaggedIdeals, reportEntryVisible } from "./report.js";
 
 const RULES = readFileSync(fileURLToPath(new URL("../../firestore.rules", import.meta.url)), "utf8");
 // 【綴りを数える検査はコメントを剥がしてから】pitch-test の codeOf() と同じ考え方。
@@ -145,5 +145,40 @@ describe("firestore.rules(通報まわり)", () => {
     expect(RULES_CODE).toMatch(/function notBanned\(\)/);
     // 定義1 + 使い手4(users / ideals / flags / reports)
     expect(RULES_CODE.match(/notBanned\(\)/g)).toHaveLength(5);
+  });
+});
+
+// 【便AG 2026-09-23 本人裁定「案A」】通報の入口を裏(プロフィール面)だけに寄せた。
+// 表(音のデータ)は縦に長く、末尾に置くと「目安に設定」の帯の下に埋もれる ──
+// 実際に本人から「通報機能がアプリ側でなくなっている」と報告が出たのがこの形。
+// **綴りではなく振る舞いを見る。** 条件が逆に書き換わったらここが落ちる。
+describe("通報の入口を出すか(reportEntryVisible)", () => {
+  const OTHER = { side: "profile", personUid: "u-them", myUid: "u-me" };
+
+  it("裏で、相手が他人なら出す", () => {
+    expect(reportEntryVisible(OTHER)).toBe(true);
+  });
+
+  it("表(音のデータ)では出さない ── ここが便AG の要点", () => {
+    expect(reportEntryVisible({ ...OTHER, side: "data" })).toBe(false);
+  });
+
+  it("自分自身のときは、裏でも出さない(ルールも同じ条件を持つ)", () => {
+    expect(reportEntryVisible({ ...OTHER, personUid: "u-me" })).toBe(false);
+  });
+
+  it("相手の uid が無いときは出さない", () => {
+    expect(reportEntryVisible({ ...OTHER, personUid: undefined })).toBe(false);
+    expect(reportEntryVisible({ ...OTHER, personUid: "" })).toBe(false);
+  });
+
+  it("自分の uid が無い(サインインしていない)ときは出さない", () => {
+    expect(reportEntryVisible({ ...OTHER, myUid: null })).toBe(false);
+    expect(reportEntryVisible({ ...OTHER, myUid: "" })).toBe(false);
+  });
+
+  it("side が未知の値のときは出さない(既定で出す側へ倒さない)", () => {
+    expect(reportEntryVisible({ ...OTHER, side: "gear" })).toBe(false);
+    expect(reportEntryVisible({ ...OTHER, side: undefined })).toBe(false);
   });
 });

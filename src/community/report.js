@@ -21,6 +21,26 @@
 // 同期は report.test.js の「Firestore ルールの列挙と一致する」で検査している。
 export const REPORT_REASONS = ["不適切なニックネーム", "なりすまし", "その他"];
 
+/**
+ * 人物紹介シートに「この人を通報」を出すか。
+ *
+ * 【便AG 2026-09-23 本人裁定「案A」】判断をここへ出したのは、条件が
+ * JSX の中にしか無いと**綴りを見る検査しか書けない**ため。綴りの検査は
+ * 「条件が消えた」ことは掴めても「条件が逆になった」ことを掴めない。
+ *
+ * 規則は3つ。どれか1つでも欠けたら出さない。
+ *  ・裏(プロフィール面)である ── 表(音のデータ)は縦に長く、末尾に置くと届かない。
+ *    実際に本人から「通報機能がなくなっている」と報告が出たのがこの形だった。
+ *  ・相手の uid と自分の uid が両方とれている。
+ *  ・その2つが別人である ── 自分は通報できない(firestore.rules も同じ条件を持つ)。
+ */
+export function reportEntryVisible({ side, personUid, myUid }) {
+  if (side !== "profile") return false;
+  if (typeof personUid !== "string" || personUid.length === 0) return false;
+  if (typeof myUid !== "string" || myUid.length === 0) return false;
+  return personUid !== myUid;
+}
+
 /** 通報のドキュメントを組む。ルールが要求する形をそのまま返す。 */
 export function buildReportDoc({ targetUid, reporterUid, reason }, now = new Date()) {
   if (typeof targetUid !== "string" || targetUid.length === 0) return { error: "通報の相手が分かりません" };

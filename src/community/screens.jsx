@@ -13,7 +13,7 @@ import { Avatar, RowChevron } from "./icons.jsx";
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
 import { BACK_BUTTON_STYLE, BottomSheet, SubTabs } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
-import { hideFlagged, REPORT_REASONS } from "./report.js";
+import { hideFlagged, REPORT_REASONS, reportEntryVisible } from "./report.js";
 import { listFlaggedUids, reportUser } from "./reportRepo.js";
 
 // ------------------------------------------------------------------
@@ -1357,13 +1357,21 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         )}
           </>
         )}
-      {/* 【計画5 2026-09-10 通報の入口】
+      {/* 【計画5 2026-09-10 通報の入口 / 便AG 2026-09-23 本人裁定「案A」で裏だけに移した】
           並びの一番下に置く。**この画面の主要動作ではない**ので、右下に浮かせる
           「目安に設定」(D-7)とは別の系統として、本文の流れの末尾に地味に置く。
           自分自身は通報できない(ルールも同じ条件を持つ)ので、自分の紹介では出さない。
           型は B型の素のボタン(§6.7)。危険色は使わない ── 押した先で理由を選ぶので、
-          ここはまだ何も起きない一手である。 */}
-      {person?.uid && myUid && person.uid !== myUid ? (
+          ここはまだ何も起きない一手である。
+
+          【なぜ裏(side === "profile")だけなのか ── 便AG】
+          以前は表裏どちらの末尾にも出していたが、**表(音のデータ)は縦に長い**ので、
+          最後まで送らないと現れず、しかも下端には「目安に設定」の帯が貼り付いている。
+          本人から「通報機能がアプリ側でなくなっている」と報告が出た ── 機能は生きていて、
+          *届かなかった*。通報は「人」に対する動作であって「データ」に対する動作ではないので、
+          裏へ寄せる。裏はプロフィールの数行ぶんしかないので、末尾でもひと目で届く。
+          **表に戻さないこと。** 戻すとまた同じ埋もれ方をする。 */}
+      {reportEntryVisible({ side, personUid: person?.uid, myUid }) ? (
         <div style={{ marginTop: "var(--sp-6)", paddingTop: "var(--sp-4)", borderTop: "1px solid var(--c-line)" }}>
           <button
             type="button" className="sans ctl-plain ctl-pill"
