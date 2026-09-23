@@ -18,6 +18,28 @@ export class FirebaseConfigMissingError extends Error {
   }
 }
 
+/**
+ * 写真の置き場(Cloud Storage のバケット)の名前を決める。
+ *
+ * 【便AH-2 2026-09-23 統括】もとは環境変数だけを見ていたが、それだと
+ * **手元と Vercel の両方に同じ値を入れるまで本番の写真が動かない**。
+ * Vite はビルド時に値を埋め込むので、Vercel 側を忘れると手元だけ動いて
+ * 本番で「送信できませんでした」が出る ── 原因が一番分かりにくい形になる。
+ *
+ * Firebase の既定のバケット名は `<projectId>.firebasestorage.app` で、
+ * projectId は**すでに必須の4キーに入っている**。だから導ける。
+ * (このプロジェクトの実物が ficus-caa43.firebasestorage.app であることは
+ *  2026-09-23 に確認済み。古い `<projectId>.appspot.com` は存在しない。)
+ *
+ * 環境変数は**上書きとして残す** ── 既定と違う名前のバケットを使う配信や、
+ * 将来バケットを移したときに、コードを変えずに追従できるようにするため。
+ */
+export function storageBucketFor(projectId, override = undefined) {
+  if (typeof override === "string" && override.length > 0) return override;
+  if (typeof projectId !== "string" || projectId.length === 0) return undefined;
+  return `${projectId}.firebasestorage.app`;
+}
+
 let cached = null;
 
 export function getFirebase() {
@@ -35,7 +57,9 @@ export function getFirebase() {
     // **必須にしない。** これが無い配信でもコミュニティは今までどおり全部動き、
     // 写真を選んだときだけ失敗する(そこで「送信できませんでした」が出る)。
     // 上の4つと同じ扱いにすると、環境変数を1つ足すまでタブ全体が開かなくなる。
-    const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+    const storageBucket = storageBucketFor(
+      conf.projectId, import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    );
 
     const app = initializeApp(storageBucket ? { ...conf, storageBucket } : conf);
     cached = { app, auth: getAuth(app), db: getFirestore(app) };
