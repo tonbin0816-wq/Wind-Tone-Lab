@@ -128,7 +128,7 @@ const DELETE_PARTIAL_NOTICE =
 // <symbol> を参照する。アイコンを出す画面ごとに置くと、同じ id が複数現れたときに
 // どれが引かれるかが不定になる。中身を別の関数に分け、外側で1回だけ描く。
 // 【D3 2026-09-16 実機の指摘】landTab / onLanded = App から「開く子タブ」を渡す口
-// (My Data の「他の人と比べてみる」→ "rank")。受け取ったら onLanded で App 側を null に
+// (My Data の「みんなのデータをみる」→ "rank")。受け取ったら onLanded で App 側を null に
 // 戻す(同じ値を2回押しても2回効くように)。普段は null で、何も変わらない。
 export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null }) {
   return (
