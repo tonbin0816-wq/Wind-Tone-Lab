@@ -44,7 +44,7 @@ service cloud.firestore {
         // hasAll に置いたままだと、その人が公開スイッチを触った瞬間に弾かれる。
         // hasOnly と下の型検査は残す ── 残っている値が別の形に化けることは止め続ける。
         && request.resource.data.keys().hasAll(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','gear','deviceClass','isPublic','ageConfirmed','updatedAt'])
-        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
+        && request.resource.data.keys().hasOnly(['nickname','icon','iconColor','photo','saxTypes','position','startYear','genres','ensembles','places','gear','stats','deviceClass','isPublic','ageConfirmed','updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.nickname.size() > 0
         // size() は UTF-8 のバイト長。クライアントの上限20コードポイントに対し、
@@ -54,6 +54,30 @@ service cloud.firestore {
         // 載る経路が1つ増える。設計書 §8.1 の「自由入力はニックネームだけ」を保つ。
         // **src/community/profile.js の AVATAR_ICONS の写し。片方だけ直さないこと。**
         && request.resource.data.icon in ['ic-cat','ic-dog','ic-bird','ic-rabbit','ic-butterfly','ic-fish','ic-paw-print','ic-flower-lotus','ic-leaf','ic-tree','ic-star','ic-heart','ic-moon-stars','ic-sun','ic-cloud','ic-rainbow','ic-fire','ic-snowflake','ic-sparkle','ic-crown-simple','ic-diamond','ic-ghost','ic-music-notes','ic-guitar']
+        // ---- photo(アイコンの写真。便AH 2026-09-23 決定6) ----------------
+        // 【クライアントは写真の「値」を1つも入れられない】値を入れられるのは
+        // 判定を通した Cloud Functions だけ(Admin SDK はこのルールを通らない)。
+        // だから**判定を通っていない写真が載る経路が構造上存在しない。**
+        //
+        // クライアントに許すのは次の2つだけ:
+        //   (a) キーを持たない / null を書く = **消す**(決定4「絵柄を選び直せば戻る」)
+        //   (b) いま載っている値を**そのまま**書き戻す
+        //
+        // 【(b) が要る理由 ── 「null のみ」と書くと写真を持つ人が何も書けなくなる】
+        // ルールが見るのは**書いたあとのドキュメント全体**(request.resource.data)で、
+        // 「今回変えたキー」ではない。写真を持っている人が公開スイッチを触る・
+        // 練習日数を足す・絵柄を変えるのどれをしても、photo にはサーバが入れた
+        // 場所が入ったまま評価される。「null のみ」にすると**それが全部拒否され、
+        // 写真を載せた瞬間にその人のアプリが何も書けなくなる。**
+        // (任意キーの存在ガードを忘れてプロフィールの保存が全部拒否された事故と同じ形。)
+        // (b) を許してもクライアントが入れられる値は増えない ── 書けるのは
+        // 「いま在る値」か null だけで、**新しい値は1つも作れない**。決定6 の性質は保たれる。
+        //
+        // 【hasAll に入れない】写真を持たない人が大多数で、必須にすると全員が弾かれる。
+        && (!('photo' in request.resource.data)
+            || request.resource.data.photo == null
+            || (resource != null && 'photo' in resource.data
+                && request.resource.data.photo == resource.data.photo))
         // 色は番号。実値(16進数)は保存しないので、後から色を調整できる。
         && request.resource.data.iconColor is int
         && request.resource.data.iconColor >= 1
@@ -393,7 +417,7 @@ service cloud.firestore {
         // 【理由は列挙で固定する】自由記述を許すと、公開はされないとはいえ
         // 「自由入力はニックネームだけ」という §8.1 の設計が1つ崩れる。
         // **src/community/report.js の REPORT_REASONS の写し。片方だけ直さないこと。**
-        && request.resource.data.reason in ['不適切なニックネーム','なりすまし','その他']
+        && request.resource.data.reason in ['不適切なニックネーム','なりすまし','アイコンの写真が不適切','他人が写っている','その他']
         && request.resource.data.createdAt is string
         && request.resource.data.createdAt.size() <= 40
         && request.resource.data.status == 'open';

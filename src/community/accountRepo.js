@@ -54,17 +54,27 @@ const userRef = (uid) => doc(getFirebase().db, "users", uid);
 //
 // 【読みが失敗したら stats 無しで書く】保存そのものを止めない。順位は次にタブを開いた
 // ときの publishStats が書き直す。**保存できないことのほうが利用者にとって重い。**
+// 【便AH 2026-09-23 写真も連れて行く】stats とまったく同じ理由。置き換えるだけだと
+// **プロフィールを編集した瞬間に写真が消える**(クライアントは写真の値を書けないので、
+// 一度消えたら二度と戻せない ── 決定6)。だから書く前の1回の読みで一緒に連れて行く。
+// firestore.rules は「写真は null か、**いま載っている値と同じ**ときだけ通す」形にして
+// あるので、この持ち越しは通り、新しい値を入れることは相変わらずできない。
 export async function saveProfile(uid, profileDoc) {
   let carried = null;
+  let carriedPhoto = null;
   try {
     const snap = await getDoc(userRef(uid));
     const prev = snap.exists() ? snap.data() : null;
     if (prev && prev.stats) carried = prev.stats;
+    if (prev && typeof prev.photo === "string" && prev.photo.length > 0) carriedPhoto = prev.photo;
   } catch (e) {
     // 【黙って捨てない】読めなかった事実は残す。文言は出さない(保存は続ける)。
     console.error("[community] 保存前の練習記録の読み出しに失敗", e?.code, e);
   }
-  await setDoc(userRef(uid), carried ? { ...profileDoc, stats: carried } : profileDoc);
+  const next = { ...profileDoc };
+  if (carried) next.stats = carried;
+  if (carriedPhoto) next.photo = carriedPhoto;
+  await setDoc(userRef(uid), next);
 }
 
 export async function loadProfile(uid) {
@@ -81,8 +91,21 @@ export async function setProfilePublic(uid, isPublic) {
 // 差し替える ── setDoc の全置換だと他の項目を巻き添えにする。
 // ルールは「書いた結果のドキュメント全体」を見るので、icon / iconColor の検査
 // (絵柄の集合・色は 1〜10 の整数)はそのまま効く。**ルールの変更は要らない。**
-export async function setProfileAvatar(uid, { icon, iconColor }) {
-  await updateDoc(userRef(uid), { icon, iconColor });
+// 【便AH 2026-09-23 決定4「絵柄に戻す導線は作らない」】
+// 格子で絵柄を選び直せば戻る ── つまり**絵柄を選ぶことが写真を消すこと**である。
+// 「写真をやめる」ボタンを作らない代わりに、写真を消す意図を **photo: null** で受ける。
+//
+// 【photo が値を持っているなら、写真のキーを1文字も書かない ── 重2 の直し】
+// 2026-09-23 審査役の指摘。以前はここが**無条件に null を書いていた**ので、
+//   ① 色を押す → ② 写真を選んで成功 → ③ 閉じる
+// の順で、③ が「色が変わった」ことだけを理由に呼ばれ、**いま載せたばかりの写真を
+// 消していた**(掃除の関数が Storage の実体まで消す)。消す意図は呼び出し側が
+// 明示する ── 下書きに写真が載っているなら、それは「消す」ではない。
+// null はクライアントが書ける唯一の値(決定6)なので、消す側の経路はルールを通る。
+export async function setProfileAvatar(uid, { icon, iconColor, photo = null }) {
+  const patch = { icon, iconColor };
+  if (photo === null) patch.photo = null;
+  await updateDoc(userRef(uid), patch);
 }
 
 // spec §8: アカウント削除はアプリ内から完全削除できることが必須(匿名でも適用)。

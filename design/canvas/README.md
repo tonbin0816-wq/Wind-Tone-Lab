@@ -14,7 +14,7 @@
 | D-9 反映 | My Data の現状(Full / Main / Centroid / Windows)と分析タブ上部・系列シート |
 | 検討した案 | 不採用の記録(StackA / PlanA / CompareB / PlanD) |
 | レイアウト刷新案 | S1・S1open・S2・S3・A1・A2・Chips |
-| **コミュニティ** | **データ / 順位 / シェア / マイページ / 人をタップ(表・裏)** |
+| **コミュニティ** | **データ / 順位 / シェア / マイページ / 人をタップ(表・裏) / アイコンを変更 / 写真の拡大表示** |
 | **統一の比較** | **UnifyPad / UnifySheet / UnifyAction / RankColor ── 裁定のために「いま何種類あるか」を並べた絵** |
 
 本文幅は **`app-root` の左右 14px(`--page-side-pad`)の内側**が基準で、そこにさらに

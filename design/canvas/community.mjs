@@ -19,6 +19,11 @@ const SRC = fileURLToPath(new URL("../../src/community/", import.meta.url));
 // 【写しを作らない】絵柄のパスをここに貼ると、icons.jsx を直したとき片方だけ古くなる。
 // アートボードは単体で開かれるので、使う分の <symbol> だけを実装から抜いて埋める。
 const ICONS_SRC = readFileSync(SRC + "icons.jsx", "utf8");
+// 【選べる絵柄の並びは profile.js が正】写しをここに貼らない(README の約束)。
+const PROFILE_SRC = readFileSync(SRC + "profile.js", "utf8");
+const AVATAR_ICONS = ((PROFILE_SRC.match(/export const AVATAR_ICONS = \[([\s\S]*?)\];/) || [, ""])[1]
+  .match(/"([^"]+)"/g) || []).map((q) => q.slice(1, -1));
+if (AVATAR_ICONS.length === 0) throw new Error("profile.js から AVATAR_ICONS を読めない");
 function symbolOf(id) {
   const m = ICONS_SRC.match(new RegExp(`<symbol id="${id}"[\\s\\S]*?</symbol>`));
   if (!m) throw new Error(`icons.jsx に ${id} が無い`);
@@ -37,7 +42,12 @@ ${defs}
 // ---- 部品(すべて実装からの写し) ----------------------------------------
 
 // Avatar(icons.jsx): 円の地は --c-avatar-N、絵柄は白で size*0.6
-function avatar(icon, color, size = 34) {
+// 【便AH 2026-09-23】写真があれば写真を描く。地は --c-sunken(読み込み中に見える面)で、
+// 丸く切り抜くので --c-avatar-N は意味を持たない(凍結仕様 決定2 と同じ理由)。
+function avatar(icon, color, size = 34, photo = null) {
+  if (photo) {
+    return `<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: ${size}px; height: ${size}px; border-radius: 50%; background: var(--c-sunken); overflow: hidden"><img src="${photo}" alt="" width="${size}" height="${size}" style="width: ${size}px; height: ${size}px; object-fit: cover; display: block; border-radius: 50%" /></span>`;
+  }
   usedIcons.add(icon);
   return `<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: ${size}px; height: ${size}px; border-radius: 50%; background: var(--c-avatar-${color})"><svg width="${size * 0.6}" height="${size * 0.6}" fill="#fff" aria-hidden="true"><use href="#${icon}" /></svg></span>`;
 }
@@ -903,6 +913,98 @@ const buildDataD = () => dataScreen({
   rows: dataRows({ pad: "8px 2px", minH: 40, av: 28, who: false }),
 });
 
+
+// =========================================================================
+// 便AH アイコンに任意の写真を使えるようにする(2026-09-23 凍結仕様)
+//   docs/superpowers/specs/2026-09-23-avatar-photo.md
+// **ここは現状の写しである。**寸法・色・語句をここで発明していない ──
+// 出どころは src/community/CommunityTab.jsx の AvatarPicker と PhotoZoom.jsx。
+// =========================================================================
+
+// 【ダミーの写真。**設計上の値ではない**】実機では利用者が選んだ 256px の WebP が入る。
+// アートボードは単体で開かれるので、外部ファイルを参照せず data URI で埋める。
+const DUMMY_PHOTO = "data:image/svg+xml;base64," + Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">'
+  + '<rect width="256" height="256" fill="#8FA6BD"/>'
+  + '<circle cx="128" cy="96" r="46" fill="#E6ECF2"/>'
+  + '<path d="M36 256c0-50 41-82 92-82s92 32 92 82z" fill="#E6ECF2"/></svg>',
+).toString("base64");
+
+// AvatarPicker のマス(CommunityTab.jsx の cell())。選択中の表し方は既存のまま
+// (地 --c-accent-tint)。**新しい状態表現を作らない**(凍結仕様 決定1)。
+const pickCell = (sel) => `min-width: 44px; min-height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; background: ${sel ? "var(--c-accent-tint)" : "transparent"}; border: none; border-radius: var(--r-md)`;
+
+// 写真枠の絵柄。lucide の Image(線 2px・24px 四方)。鉛筆の印と同じ出どころ。
+const PHOTO_GLYPH = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+
+// 【決定1】列は6→5。5×5 = 25 でちょうど埋まる。写真枠は格子の先頭(左上)。
+// 【minmax(0, 1fr) を外さない】外すと格子が画面より広くなり、ページ全体を押し広げる。
+function iconGrid({ photo, sel }) {
+  const cells = [
+    `        <div style="${pickCell(sel === "photo")}">${photo
+      ? avatar(null, null, 24, photo)
+      : PHOTO_GLYPH}</div>`,
+    ...AVATAR_ICONS.map((id) => {
+      usedIcons.add(id);
+      return `        <div style="${pickCell(sel === id)}"><svg width="24" height="24" fill="var(--c-ink)" aria-hidden="true"><use href="#${id}" /></svg></div>`;
+    }),
+  ];
+  return `      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-1)">
+${cells.join("\n")}
+      </div>`;
+}
+
+function colorGrid(sel) {
+  const cells = [];
+  for (let n = 1; n <= 10; n++) {
+    const ring = n === sel ? "box-shadow: 0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-accent); " : "";
+    cells.push(`        <div style="${pickCell(false)}"><span style="display: block; width: 24px; height: 24px; border-radius: 50%; ${ring}background: var(--c-avatar-${n})"></span></div>`);
+  }
+  return `      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-1)">
+${cells.join("\n")}
+      </div>`;
+}
+
+// シートの器(App.jsx の BottomSheet)。つまみ 36×4 / 角丸 28px 28px 0 0 / 上下 14・左右 24。
+function sheetCard(inner) {
+  return `  <div style="width: 375px; background: var(--c-surface); border-radius: 28px 28px 0 0; box-shadow: 0 8px 24px rgba(15,23,42,0.18); padding: 14px 24px 40px; box-sizing: border-box">
+    <div style="display: flex; justify-content: center; margin-bottom: 12px"><span style="width: 36px; height: 4px; border-radius: 2px; background: var(--c-line-strong); display: block"></span></div>
+    <div style="display: grid; gap: var(--sp-3)">
+${inner}
+    </div>
+  </div>`;
+}
+
+// 2つの状態を縦に並べる。**同じ部品の出し分け**なので、別の画面ではない。
+function buildAvatarPick() {
+  const withIcon = sheetCard(`      <div style="display: flex; justify-content: center">${avatar("ic-star", 8, 64)}</div>
+      <div style="${LABEL}">絵柄</div>
+${iconGrid({ photo: null, sel: "ic-star" })}
+      <div style="${LABEL}">背景</div>
+${colorGrid(8)}`);
+  // 【決定2】写真を選んでいる間、背景色の行は消える。丸く切り抜くので地が見えない。
+  // 【決定1】既に写真を設定している人は、写真枠にその写真の縮小が出る。
+  const withPhoto = sheetCard(`      <div style="display: flex; justify-content: center">${avatar(null, null, 64, DUMMY_PHOTO)}</div>
+      <div style="${LABEL}">絵柄</div>
+${iconGrid({ photo: DUMMY_PHOTO, sel: "photo" })}`);
+  return `${sprite()}
+  <div style="width: 375px; background: var(--c-bg); display: grid; gap: var(--sp-6); padding-bottom: var(--sp-6); box-sizing: border-box">
+    <div style="${NOTE}; padding: var(--sp-4) var(--sp-4) 0">絵柄を選んでいるとき（背景の行が出る）</div>
+${withIcon}
+    <div style="${NOTE}; padding: 0 var(--sp-4)">写真を選んでいるとき（背景の行は消える）</div>
+${withPhoto}
+  </div>`;
+}
+
+// 【決定5】アイコンをタップすると写真がそのまま大きく出る。間にシートを挟まない。
+// 閉じるボタンは置かない ── 画面のどこをタップしても戻る(Escape も同じ)。
+// 暗幕は既存のシートと同値 rgba(15,23,42,0.28)。**写真のときだけ**出る。
+function buildPhotoZoom() {
+  return `  <div style="width: 375px; height: 700px; background: rgba(15,23,42,0.28); display: flex; align-items: center; justify-content: center; padding: var(--sp-4); box-sizing: border-box">
+    <img src="${DUMMY_PHOTO}" alt="" style="width: 343px; height: 343px; max-width: 100%; object-fit: contain; border-radius: var(--r-lg); display: block" />
+  </div>`;
+}
+
 // ---- 書き出し -----------------------------------------------------------
 const FILES = [
   ["CommData.dc.html", buildData, "データ"],
@@ -917,6 +1019,8 @@ const FILES = [
   ["CommRankTint.dc.html", buildRankTint, "順位案A 淡い地"],
   ["CommDataC.dc.html", buildDataC, "データ案C 一覧の面をやめる"],
   ["CommDataD.dc.html", buildDataD, "データ案D 一覧を1行に"],
+  ["CommAvatarPick.dc.html", buildAvatarPick, "便AH アイコンを変更(格子5×5・写真枠)"],
+  ["CommPhotoZoom.dc.html", buildPhotoZoom, "便AH 写真の拡大表示"],
 ];
 
 for (const [name, build, label] of FILES) {

@@ -226,6 +226,24 @@
       "title": "マイページ"
     },
     {
+      "file": "CommAvatarPick.dc.html",
+      "page": "page-4",
+      "x": 3185,
+      "y": 0,
+      "w": 375,
+      "h": 1020,
+      "title": "便AH アイコンを変更(格子5×5・写真枠)"
+    },
+    {
+      "file": "CommPhotoZoom.dc.html",
+      "page": "page-4",
+      "x": 3640,
+      "y": 0,
+      "w": 375,
+      "h": 700,
+      "title": "便AH 写真の拡大表示"
+    },
+    {
       "file": "CommProfileEdit.dc.html",
       "page": "page-4",
       "x": 2730,

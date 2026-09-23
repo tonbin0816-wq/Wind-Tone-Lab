@@ -938,7 +938,9 @@ function unlockBackdropScroll() {
   window.scrollTo(0, lockedScrollY);
 }
 // シート1枚ぶんの出入りを上の数え役につなぐだけの層。**判定を持たない。**
-function useBackdropScrollLock() {
+// 【export した 2026-09-23】BottomSheet を使わない全画面の面(コミュニティの写真の
+// 拡大表示)からも呼べるようにする。数える仕組みはここ1箇所のまま(写しを作らない)。
+export function useBackdropScrollLock() {
   useEffect(() => {
     lockBackdropScroll();
     return unlockBackdropScroll;

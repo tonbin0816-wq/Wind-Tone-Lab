@@ -31,7 +31,13 @@ export function getFirebase() {
     const missing = Object.keys(conf).filter((k) => !conf[k]);
     if (missing.length > 0) throw new FirebaseConfigMissingError(missing);
 
-    const app = initializeApp(conf);
+    // 【便AH 2026-09-23】アイコンの写真の置き場(Cloud Storage)。
+    // **必須にしない。** これが無い配信でもコミュニティは今までどおり全部動き、
+    // 写真を選んだときだけ失敗する(そこで「送信できませんでした」が出る)。
+    // 上の4つと同じ扱いにすると、環境変数を1つ足すまでタブ全体が開かなくなる。
+    const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+
+    const app = initializeApp(storageBucket ? { ...conf, storageBucket } : conf);
     cached = { app, auth: getAuth(app), db: getFirestore(app) };
   }
   return cached;

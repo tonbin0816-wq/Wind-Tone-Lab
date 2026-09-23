@@ -11,6 +11,7 @@
 // 【出どころ】design/community-tab-proposals.html の画面案から機械的に取り出した。
 // 絵柄の顔ぶれは 2026-08-28 の本人裁定(道具の絵をやめて動物・自然にする)による。
 // ------------------------------------------------------------------
+import { avatarPaint } from "./avatarPhoto.js";
 
 // スプライト本体。**1画面に1つだけ置く。** <use> はこれを参照する。
 export function AvatarSprite() {
@@ -48,21 +49,37 @@ export function AvatarSprite() {
 
 // 丸い地に白抜きの絵柄。順位・一覧・プロフィールで同じ見た目にする。
 // color は AVATAR_COLORS の 1..10。CSS 変数 --c-avatar-N を引く。
-export function Avatar({ icon, color, size = 40 }) {
+//
+// 【便AH 2026-09-23】写真があれば写真を描く。**どちらを描くかはここで決めない** ──
+// 判断は avatarPaint(avatarPhoto.js)が持ち、ここはその答えを描くだけ。
+// **この1箇所で全ての呼び出しに効く**(凍結仕様の「触る場所」)。
+// 写真のときの地は --c-sunken ── 読み込みが終わるまでの面で、丸く切り抜くので
+// --c-avatar-N は1px も見えない(決定2 が背景の行を消すのと同じ理由)。
+export function Avatar({ icon, color, photo = null, size = 40 }) {
+  const paint = avatarPaint({ photo, icon, color });
   return (
     <span
       aria-hidden="true"
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         flex: "0 0 auto", width: size, height: size, borderRadius: "50%",
-        background: `var(--c-avatar-${color})`,
+        overflow: "hidden",
+        background: paint.kind === "photo" ? "var(--c-sunken)" : `var(--c-avatar-${paint.color})`,
       }}
     >
-      {/* 絵柄は地に対して白。地の10色は白との比 4.5:1 以上を実測してある
-          (DESIGN-SYSTEM §1.6a)。色を足すときも同じ下限を守ること。 */}
-      <svg width={size * 0.6} height={size * 0.6} fill="#fff" aria-hidden="true">
-        <use href={`#${icon}`} />
-      </svg>
+      {paint.kind === "photo" ? (
+        /* 正方形に切って保存してあるので、objectFit: cover は縦横比が崩れたときの保険。 */
+        <img
+          src={paint.url} alt="" width={size} height={size}
+          style={{ width: size, height: size, objectFit: "cover", display: "block", borderRadius: "50%" }}
+        />
+      ) : (
+        /* 絵柄は地に対して白。地の10色は白との比 4.5:1 以上を実測してある
+           (DESIGN-SYSTEM §1.6a)。色を足すときも同じ下限を守ること。 */
+        <svg width={size * 0.6} height={size * 0.6} fill="#fff" aria-hidden="true">
+          <use href={`#${paint.icon}`} />
+        </svg>
+      )}
     </span>
   );
 }

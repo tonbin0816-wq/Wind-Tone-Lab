@@ -25100,12 +25100,23 @@ console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==
     && /background: "var\(--c-ink\)", color: "var\(--c-surface\)"/.test(view58));
 
   // --- 58.4 書き込み ----------------------------------------------------------
-  check("58.4 M2 書き込みは updateDoc で2つのキーだけ(全置換にしない)",
-    /export async function setProfileAvatar\(uid, \{ icon, iconColor \}\) \{\s*\r?\n\s*await updateDoc\(userRef\(uid\), \{ icon, iconColor \}\);/.test(repo58));
+  // 【便AH 2026-09-23 決定4】「写真をやめる」ボタンは作らない ── **絵柄を選ぶことが
+  // 写真を消すこと**なので、消す意図は photo: null で受ける。全置換にしないのは変わらない。
+  // 【重2 の直し 2026-09-23 審査役の指摘】ここが**無条件に null を書いていた**ため、
+  // 「色を押す → 写真を選んで成功 → 閉じる」の順で、いま載せたばかりの写真を消していた。
+  // 下書きに写真が載っているなら photo のキーを1文字も書かない。
+  // 振る舞いは src/community/accountRepo.test.js が端から端まで通して見る。
+  check("58.4 M2/便AH 書き込みは updateDoc(全置換にしない)。写真を消すのは null を渡されたときだけ",
+    /export async function setProfileAvatar\(uid, \{ icon, iconColor, photo = null \}\) \{\s*\r?\n\s*const patch = \{ icon, iconColor \};\s*\r?\n\s*if \(photo === null\) patch\.photo = null;\s*\r?\n\s*await updateDoc\(userRef\(uid\), patch\);/.test(repo58));
   // 閉じたときの1回だけ。絵柄と色を続けて選んでも書き込みは1回。
-  check("58.4 M2 書くのは閉じたときで、変わっていなければ書かない",
-    /if \(same \|\| !onChangeAvatar\) return;/.test(view58)
-    && /const same = avatarDraft\.icon === \(profile\?\.icon \?\? AVATAR_ICONS\[0\]\)/.test(view58));
+  // 【便AH 2026-09-23】「変わったか」と「写真をどうするか」を1つの純関数に畳んだ
+  // (avatarWriteOnClose)。**書く中身を画面側で組み立てない** ── 組み立てていたときに
+  // 重2(載せたばかりの写真を消す)が起きた。純関数の振る舞いは
+  // src/community/avatarPhoto.test.js が「色を変えてから写真を選ぶ」順で確かめる。
+  check("58.4 M2/便AH 書くのは閉じたときで、何を書くかは avatarWriteOnClose が決める",
+    /const write = avatarWriteOnClose\(\{ draft: avatarDraft, saved: profile \}\);/.test(view58)
+    && /if \(!write \|\| !onChangeAvatar\) return;/.test(view58)
+    && /await onChangeAvatar\(write\);/.test(view58));
   check("58.4 M2 失敗しても画面の絵柄は元のまま(文言を出すだけ)",
     /setError\(AVATAR_ERROR\);/.test(view58) && /const AVATAR_ERROR = /.test(comm58));
   // 一覧(順位・データ)は dir.users の絵柄で人を描くので、自分の行も直す。
@@ -27328,8 +27339,17 @@ console.log("========== 検証72: プロフィールの保存が練習記録を�
   // 正しい形は「置き換え + stats だけ自分で持ち越す」。主張を反転させる。
   check("72.1 プロフィールの保存に merge を使わない(入れ子の gear に古いキーが残るため)",
     !/merge:\s*true/.test(acctCode72), (acctCode72.match(/merge:[^,)}]*/g) || []).join(" | ") || "0件");
+  // 【便AH 2026-09-23】持ち越す物が2つ(練習記録・写真)になったので、三項演算子から
+  // 名前つきの1つの器へ変えた。**置き換えであること(第3引数なしの setDoc)は変わらない。**
   check("72.1 保存は文書まるごとの置き換え(第3引数なしの setDoc)",
-    /setDoc\(userRef\(uid\), carried \? \{ \.\.\.profileDoc, stats: carried \} : profileDoc\);/.test(acctCode72));
+    /const next = \{ \.\.\.profileDoc \};/.test(acctCode72)
+    && /await setDoc\(userRef\(uid\), next\);/.test(acctCode72)
+    && !/setDoc\(userRef\(uid\), [^)]*, \{/.test(acctCode72));
+  // 【便AH 決定6】写真はクライアントが値を書けない。置き換えで落とすと二度と戻せないので、
+  // 練習記録と同じ1回の読みで連れて行く(振る舞いは accountRepo.test.js が見る)。
+  check("72.1/便AH 写真も持ち越す(落とすとクライアントからは二度と戻せない)",
+    /if \(prev && typeof prev\.photo === "string" && prev\.photo\.length > 0\) carriedPhoto = prev\.photo;/.test(acctCode72)
+    && /if \(carriedPhoto\) next\.photo = carriedPhoto;/.test(acctCode72));
   check("72.1 書く前に読んで練習記録を持ち越す",
     /const snap = await getDoc\(userRef\(uid\)\);/.test(acctCode72)
     && /if \(prev && prev\.stats\) carried = prev\.stats;/.test(acctCode72));
@@ -27692,8 +27712,11 @@ console.log("========== 検証74: 保存しても順位から自分が消えな�
   // 【便W 2026-09-21 で向け直した】便Q の答え(merge)は取り消された。いま守るべきは
   // 「保存が練習記録を消さない」という**主張のほう**で、その実現は持ち越しに変わった。
   check("74.3 保存が練習記録を消さない(置き換えでも持ち越す)",
-    /setDoc\(userRef\(uid\), carried \? \{ \.\.\.profileDoc, stats: carried \} : profileDoc\);/
-      .test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8"))));
+    (() => {
+      const a = codeOf(readFileSync(join(__dirname, "..", "src", "community", "accountRepo.js"), "utf8"));
+      return /if \(carried\) next\.stats = carried;/.test(a)
+        && /await setDoc\(userRef\(uid\), next\);/.test(a);
+    })());
 
   // --- 74.4 先にあった同じ作法を壊していない ----------------------------------
   check("74.4 アイコンの変更は今までどおり手元の名簿も直す",

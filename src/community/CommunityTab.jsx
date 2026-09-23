@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
@@ -6,7 +6,16 @@ import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
 // 既に使っている(LegalSheet の ×)ので、置き場所を増やさない。
-import { Pencil } from "lucide-react";
+import { Pencil, Image as PhotoGlyph } from "lucide-react";
+// 【便AH 2026-09-23】アイコンに任意の写真を使う。凍結仕様:
+//   docs/superpowers/specs/2026-09-23-avatar-photo.md
+// **判断はこのファイルに書かない** ── 何を描くか・拡大を出すか・失敗の種類は
+// すべて avatarPhoto.js の純関数が決める(単体で走らせて確かめてある)。
+import {
+  PHOTO_ACCEPT, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
+} from "./avatarPhoto.js";
+import { saveAvatarPhoto } from "./photoRepo.js";
+import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
@@ -86,8 +95,29 @@ const toggleErrorOf = (e) => (isPermissionDenied(e) ? RULE_ERROR : TOGGLE_ERROR)
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す印の直径。
 // 64 の円に対して 3/8 = 24(本人の添付画像と同じ割合)。絵柄は鉛筆。
 const AVATAR_EDIT_BADGE_PX = 24;
+// 【便AH 2026-09-23】印は写真のときも**変更の唯一の入口**になる(写真のときアイコン
+// そのものを押すと拡大表示が出るため)。**見た目の 24 は1px も動かさず、当たり判定だけ
+// 広げる**(DESIGN-SYSTEM §5「見た目の大きさは変えない。当たり判定だけ広げる」)。
+// 透明の子を四方へ (44 - 24) / 2 = 10 はみ出させると、押せる範囲が 44×44 になる。
+const TAP_MIN_PX = 44;                                                 // = --tap-min(§5)
+const AVATAR_EDIT_HIT_INSET_PX = -(TAP_MIN_PX - AVATAR_EDIT_BADGE_PX) / 2;
 // アイコンの変更に失敗したときの文言。公開設定の失敗と同じ言い方に揃える。
 const AVATAR_ERROR = "アイコンを変更できませんでした。電波の良いところでもう一度お試しください。";
+// 【便AH 決定3】写真の失敗は2通りしかない。**保留の状態を作らない**ので、
+// 「通らなかった」はその場で文言になって終わる(何も変わらない)。
+// 綴りは凍結仕様のとおり。通信側は FeedbackSheet の SEND_ERROR と同じ1文。
+const PHOTO_REJECT_ERROR = "この写真は使えません。別の写真をお試しください。";
+const PHOTO_SEND_ERROR = "送信できませんでした。電波の良いところでもう一度お試しください。";
+// 【この端末では開けない形式(中8 2026-09-23 審査役の指摘)】iPhone の HEIC などは
+// 復号できないことがある。**電波の問題ではないので、待たせる案内をしない。**
+// 綴りは上の2つと同じ調子(何が起きたか → 次にできること)。
+const PHOTO_READ_ERROR = "この写真を読み取れませんでした。別の写真をお試しください。";
+const PHOTO_ERROR_BY_KIND = {
+  unreadable: PHOTO_READ_ERROR,
+  rejected: PHOTO_REJECT_ERROR,
+  network: PHOTO_SEND_ERROR,
+};
+const photoErrorOf = (e) => PHOTO_ERROR_BY_KIND[photoFailureKind(e)] ?? PHOTO_SEND_ERROR;
 const DELETE_ERROR = "削除を最後まで終えられませんでした。電波の良いところでもう一度「アカウントを削除」を押してください。途中まで消えていても、押し直せば続きから完了できます";
 // deleteUser だけが失敗した場合(auth/requires-recent-login など)。データは消えている。
 // 「消えていない」と誤解させないよう、消えたものと残ったものを分けて言う。
@@ -118,7 +148,7 @@ const SUB_TABS = [
 ];
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onDelete, initialTab = "data" }) {
+function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data" }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -255,6 +285,13 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     dir.setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, ...v } : u)));
   };
 
+  // 【便AH 2026-09-23】写真が載ったあと。**書いたのはサーバの関数**なので、
+  // ここがするのは手元の写しを新しい場所へ向け直すことだけ(絵柄と同じ考え)。
+  const changePhoto = (photo) => {
+    onPhotoChanged(photo);
+    dir.setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, photo } : u)));
+  };
+
   const togglePublic = async (v) => {
     if (!v) await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
     await onTogglePublic(v);               // users.isPublic を書き、profile を更新する
@@ -297,7 +334,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
-        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -500,7 +537,13 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       }}
       onChangeAvatar={async (v) => {
         await setProfileAvatar(uid, v); // 失敗は ProfileView が受けて文言を出す
+        // 【便AH】書いた形と画面を揃える。v.photo は「消す(null)」か
+        // 「そのまま残す(いまの場所)」のどちらかで、setProfileAvatar と同じ答えを見ている。
         setProfile({ ...profile, ...v });
+      }}
+      onPhotoChanged={(photo) => {
+        // 【便AH】写真を書いたのはサーバの関数(決定6)。ここは画面を向け直すだけ。
+        setProfile({ ...profile, photo });
       }}
       onDelete={async () => {
         // 例外が出るのは削除の途中で失敗したとき。一部だけ消えていることがあるので、
@@ -759,7 +802,37 @@ function SwitchRow({ checked, onChange, disabled = false, label, note }) {
 // 絵柄と地の色を選ぶ。**上に実物大の1つを出す。**
 // 画面案の初期の版は上部の見本が横長で、実際にどう見えるか分からなかった
 // (2026-08-28 本人指摘)。選んだ結果そのものを、順位や一覧で出るのと同じ大きさで見せる。
-function AvatarPicker({ icon, color, onChange }) {
+// 【便AH 2026-09-23】写真枠が1つ増えた(凍結仕様 決定1・決定2)。
+//   ・列は6→5。**5 × 5 = 25 でちょうど埋まる**(絵柄は1つも捨てていない)
+//   ・写真枠は格子の先頭(左上)。器も選択中の表し方も他のマスと同じ
+//   ・写真を選んでいる間、**背景の行は消える**(丸く切り抜くので地が見えない)
+// 写真の保存だけはここが自分で行う ── 決定3「判定は保存の最中に同期で行う」ため、
+// 絵柄のように「シートを閉じたときに1回」では遅い(閉じてから落ちると伝える先が無い)。
+function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null }) {
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  // 写真と絵柄のどちらを描いているかは avatarPhoto.js が決める(画面は判断を持たない)。
+  const usingPhoto = avatarPaint({ photo, icon, color }).kind === "photo";
+
+  // 【決定3 の流れそのもの】選ぶ → 端末で書き直す → 送る → 載るか、文言が出るか。
+  // **途中の状態が残らない**ので、他人が中途半端な姿を見ることは無い。
+  const takePhoto = async (file) => {
+    if (!file || busy || !onPickPhoto) return;
+    setBusy(true); setError(null);
+    try {
+      // ここで正方形に切り、256px の WebP に書き直す(EXIF はこの書き直しで落ちる)。
+      const blob = await encodeSquarePhoto(file);
+      await onPickPhoto(blob);
+    } catch (e) {
+      // 【黙って捨てない】理由は残す。画面には2通りの文言のどちらかだけを出す。
+      console.error("[community] 写真を保存できなかった", e?.code, e);
+      setError(photoErrorOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const cell = (selected) => ({
     minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
     display: "flex", alignItems: "center", justifyContent: "center",
@@ -769,7 +842,7 @@ function AvatarPicker({ icon, color, onChange }) {
   return (
     <div style={{ display: "grid", gap: "var(--sp-3)" }}>
       <div style={{ display: "flex", justifyContent: "center" }}>
-        <Avatar icon={icon} color={color} size={64} />
+        <Avatar icon={icon} color={color} photo={photo} size={64} />
       </div>
 
       <div className="sans jp-label" style={labelStyle}>絵柄</div>
@@ -779,14 +852,28 @@ function AvatarPicker({ icon, color, onChange }) {
           (実際にこれで色の行が476pxになり、375pxの画面でニックネーム欄まで画面外へ出た)。
           minmax(0, ...) にすると列は0まで縮められるので、はみ出しがページに伝播しない。 */}
       <div role="radiogroup" aria-label="アイコンの絵柄" style={{
-        display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: "var(--sp-1)",
+        display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
+        opacity: busy ? 0.6 : 1,
       }}>
+        {/* 【写真枠は先頭(左上)】他のマスと同じ器に「写真」の意味の絵柄1つ。
+            既に写真を設定している人には、その写真の縮小が出る。
+            **選択中の表し方は既存のマスと同じ**(地 --c-accent-tint)。 */}
+        <button
+          type="button" role="radio" aria-checked={usingPhoto}
+          aria-label="写真" aria-busy={busy || undefined} disabled={busy}
+          onClick={() => fileRef.current?.click()}
+          style={cell(usingPhoto)}
+        >
+          {usingPhoto
+            ? <Avatar photo={photo} size={24} />
+            : <PhotoGlyph size={24} strokeWidth={2} color="var(--c-ink)" />}
+        </button>
         {AVATAR_ICONS.map((id) => (
           <button
-            key={id} type="button" role="radio" aria-checked={id === icon}
-            aria-label={id.replace(/^ic-/, "")}
+            key={id} type="button" role="radio" aria-checked={!usingPhoto && id === icon}
+            aria-label={id.replace(/^ic-/, "")} disabled={busy}
             onClick={() => onChange({ icon: id, color })}
-            style={cell(id === icon)}
+            style={cell(!usingPhoto && id === icon)}
           >
             {/* 一覧の中は選択の判別が要るだけなので、地の色は付けず絵柄だけを出す。
                 地の色まで付けると24個ぶん色が散り、いま選んでいるものが埋もれる。 */}
@@ -796,31 +883,54 @@ function AvatarPicker({ icon, color, onChange }) {
           </button>
         ))}
       </div>
+      {/* 【決定3 保存中の待ちを出す】30KB の画像なら1秒弱。
+          **状態としては残らない** ── 返ってきた時点で載っているか、下の文言が出るかのどちらか。 */}
+      {busy ? <div className="sans" role="status" style={noteStyle}>保存中…</div> : null}
+      {error ? <div className="sans" role="alert" style={fieldErrorStyle}>{error}</div> : null}
+      {/* 【`image/*` と書かない】pitch-test の codeOf() が `/` と `*` の並びを
+          ブロックコメントの始まりと読む(罠の目録 9)。列挙は avatarPhoto.js が持つ。 */}
+      <input
+        ref={fileRef} type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }}
+        onChange={(e) => {
+          const f = e.target.files?.[0] ?? null;
+          // 【同じ写真をもう一度選べるようにする】値を消さないと、2度目の choose で
+          // change が起きない(落ちたあとに同じ写真を選び直せなくなる)。
+          e.target.value = "";
+          takePhoto(f);
+        }}
+      />
 
-      <div className="sans jp-label" style={labelStyle}>背景</div>
-      {/* 【10色を1行に並べない】当たり判定は44px角を割れないので、10列だと
-          10*44 + 隙間9*4 = 476px 必要になる。375px の端末で使える幅は
-          375 - 左右の余白32 = 343px しかない。**5列2段にすると 5*44 + 4*4 = 236px で収まる。**
-          「列を狭くして1行に収める」は当たり判定を割るので採らない。 */}
-      <div role="radiogroup" aria-label="アイコンの背景" style={{
-        display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
-      }}>
-        {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
-          <button
-            key={n} type="button" role="radio" aria-checked={n === color}
-            aria-label={`色 ${n}`}
-            onClick={() => onChange({ icon, color: n })}
-            style={cell(n === color)}
-          >
-            <span style={{
-              display: "block", width: 24, height: 24, borderRadius: "50%",
-              background: `var(--c-avatar-${n})`,
-              // 選択中は輪で示す。**地の色そのものを変えない** ── 見本と食い違う。
-              boxShadow: n === color ? "0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-accent)" : "none",
-            }} />
-          </button>
-        ))}
-      </div>
+      {/* 【決定2】写真を選んでいる間、背景色の行は消える。
+          丸く切り抜くので10色の地は写真の裏に隠れて意味を持たない。
+          絵柄を選び直せば(= 写真をやめれば)戻る。 */}
+      {usingPhoto ? null : (
+        <>
+          <div className="sans jp-label" style={labelStyle}>背景</div>
+          {/* 【10色を1行に並べない】当たり判定は44px角を割れないので、10列だと
+              10*44 + 隙間9*4 = 476px 必要になる。375px の端末で使える幅は
+              375 - 左右の余白32 = 343px しかない。**5列2段にすると 5*44 + 4*4 = 236px で収まる。**
+              「列を狭くして1行に収める」は当たり判定を割るので採らない。 */}
+          <div role="radiogroup" aria-label="アイコンの背景" style={{
+            display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
+          }}>
+            {Array.from({ length: AVATAR_COLOR_MAX - AVATAR_COLOR_MIN + 1 }, (_, i) => i + AVATAR_COLOR_MIN).map((n) => (
+              <button
+                key={n} type="button" role="radio" aria-checked={n === color}
+                aria-label={`色 ${n}`}
+                onClick={() => onChange({ icon, color: n })}
+                style={cell(n === color)}
+              >
+                <span style={{
+                  display: "block", width: 24, height: 24, borderRadius: "50%",
+                  background: `var(--c-avatar-${n})`,
+                  // 選択中は輪で示す。**地の色そのものを変えない** ── 見本と食い違う。
+                  boxShadow: n === color ? "0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-accent)" : "none",
+                }} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1269,7 +1379,7 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
@@ -1282,7 +1392,16 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   // 【M2 2026-09-19】アイコンを選び直すシート。下書きはシートの中だけで動かし、
   // 閉じたときに**変わっていたら1回だけ**書く。
   const [avatarOpen, setAvatarOpen] = useState(false);
-  const [avatarDraft, setAvatarDraft] = useState({ icon: null, iconColor: null });
+  // 【便AH】下書きは写真も持つ。絵柄を押した瞬間に下書きの写真が null になるので、
+  // シートの中の見た目(写真枠の選択・背景の行の出し分け)がその場で正しくなる。
+  // 「変わったかどうか」も3つ並べて比べるだけで済む(押したかを別に覚えなくてよい)。
+  const [avatarDraft, setAvatarDraft] = useState({ icon: null, iconColor: null, photo: null });
+  // 【便AH】写真の拡大表示(決定5)。**写真のときだけ**出る。
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const photo = profile?.photo ?? null;
+  const canZoom = photoZoomAvailable({
+    photo, icon: profile?.icon, color: profile?.iconColor, place: "mypage",
+  });
   const gear = profile?.gear ?? {};
   // 表示順は SAX_TYPES の並びに揃える(保存されている配列の順に依らず同じ画面になる)。
   const types = SAX_TYPES.filter((t) => (profile?.saxTypes ?? []).includes(t));
@@ -1294,17 +1413,33 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
     setAvatarDraft({
       icon: profile?.icon ?? AVATAR_ICONS[0],
       iconColor: profile?.iconColor ?? AVATAR_COLOR_MIN,
+      photo: profile?.photo ?? null,
     });
     setAvatarOpen(true);
   };
+  // 【便AH 決定3】写真だけは**その場で**送る。判定が保存の最中に走るので、
+  // シートを閉じてからでは「通らなかった」を伝える先が無い。
+  // 例外はそのまま投げる ── 受けて文言を出すのは AvatarPicker(押した場所の隣)。
+  const savePhoto = async (blob) => {
+    // 誰として上げるかが分からない状態で置き場へ書かない(ルールも同じ条件で弾く)。
+    if (!uid) throw new Error("PHOTO_NO_UID");
+    const url = await saveAvatarPhoto(uid, blob);
+    // 載った物を下書きにも写す ── こうしないと、閉じたときに
+    // 「下書きには写真が無い」と読まれて、絵柄へ戻す書き込みが走る。
+    setAvatarDraft((d) => ({ ...d, photo: url }));
+    if (onPhotoChanged) onPhotoChanged(url);
+  };
   const closeAvatar = async () => {
     setAvatarOpen(false);
-    const same = avatarDraft.icon === (profile?.icon ?? AVATAR_ICONS[0])
-      && avatarDraft.iconColor === (profile?.iconColor ?? AVATAR_COLOR_MIN);
-    if (same || !onChangeAvatar) return;   // 変わっていなければ書かない
+    // 【何を書くかはここで決めない ── 重2 の直し 2026-09-23】
+    // 「変わったか」と「写真をどうするか」を別々に組み立てると、
+    // 色を押してから写真を選んだ順で**載せたばかりの写真を消す**書き込みが走る。
+    // 判断は avatarWriteOnClose(純関数)が1つで持つ。null なら書かない。
+    const write = avatarWriteOnClose({ draft: avatarDraft, saved: profile });
+    if (!write || !onChangeAvatar) return;   // 変わっていなければ書かない
     setError(null);
     try {
-      await onChangeAvatar({ icon: avatarDraft.icon, iconColor: avatarDraft.iconColor });
+      await onChangeAvatar(write);
     } catch (e) {
       // 公開設定と同じ作法 ── 失敗したら画面の絵柄は元のまま(profile が唯一の正)で、
       // この文言と一致する。
@@ -1386,39 +1521,63 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
           押せることは**右下の小さな印**が返す(本人の添付画像の形。絵柄は
           カメラではなく鉛筆)。当たり判定は 64 の円そのもので --tap-min を超える。
           押すと選び直すシートが開くので、状態は aria-expanded で返す。 */}
+      {/* 【便AH 2026-09-23 決定5】写真のときは、アイコンを押すと**写真がそのまま大きく出る**。
+          絵柄のときは今までどおり選び直すシートが開く(絵柄は拡大しても何も増えない)。
+          **変更の入口は鉛筆の印が常に持つ**ので、写真にしても選び直せなくならない。
+          包みを <span> にしたのは、鉛筆を独立した押しどころにするため
+          (<button> の中に <button> は置けない)。見た目は 1px も動かしていない。 */}
       <div style={{ display: "flex", justifyContent: "center" }}>
-        <button
-          type="button"
-          onClick={openAvatar}
-          aria-label="アイコンを変更"
-          aria-expanded={avatarOpen}
-          style={{
-            position: "relative", display: "inline-flex", padding: 0,
-            background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
-          }}
-        >
-          <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} size={64} />
-          <span aria-hidden="true" style={{
-            position: "absolute", right: 0, bottom: 0,
-            width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX, borderRadius: "var(--r-full)",
-            background: "var(--c-ink)", color: "var(--c-surface)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-          }}>
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button
+            type="button"
+            onClick={() => (canZoom ? setZoomOpen(true) : openAvatar())}
+            aria-label={canZoom ? "写真を大きく表示" : "アイコンを変更"}
+            aria-expanded={canZoom ? undefined : avatarOpen}
+            style={{
+              display: "inline-flex", padding: 0,
+              background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
+            }}
+          >
+            <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} photo={photo} size={64} />
+          </button>
+          <button
+            type="button"
+            onClick={openAvatar}
+            aria-label="アイコンを変更"
+            aria-expanded={avatarOpen}
+            style={{
+              position: "absolute", right: 0, bottom: 0,
+              width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX, borderRadius: "var(--r-full)",
+              background: "var(--c-ink)", color: "var(--c-surface)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              padding: 0, border: "none", cursor: "pointer",
+            }}
+          >
+            {/* 【当たり判定だけ広げる(§5)】透明の子を四方へ10はみ出させて 44×44 にする。
+                印そのものの 24px は動かさないので、見え方は変わらない。 */}
+            <span aria-hidden="true" style={{ position: "absolute", inset: AVATAR_EDIT_HIT_INSET_PX }} />
             <Pencil size={13} strokeWidth={1.9} />
-          </span>
-        </button>
+          </button>
+        </span>
       </div>
+
+      {/* 【便AH 決定5】そのまま大きく出す。間にシートを挟まない。
+          閉じるのは画面のどこをタップしても(Escape も)。閉じるボタンは置かない。 */}
+      {zoomOpen && photo ? <PhotoZoom url={photo} onClose={() => setZoomOpen(false)} /> : null}
 
       {/* 【M2】絵柄を選び直すシート。**部品は編集フォームが使っていた AvatarPicker
           そのもの**(選び方を2つ作らない)。書き込みは**閉じたときの1回だけ**で、
           絵柄と色を続けて選んでも users への書き込みは1回になる
-          (リードの点数のダイアログと同じ手)。変わっていなければ書かない。 */}
+          (リードの点数のダイアログと同じ手)。変わっていなければ書かない。
+          【便AH】写真だけは別 ── 決定3 のとおりその場で送り、その場で結果が出る。 */}
       {avatarOpen && (
         <BottomSheet ariaLabel="アイコンを変更" onClose={closeAvatar}>
           <AvatarPicker
             icon={avatarDraft.icon}
             color={avatarDraft.iconColor}
-            onChange={(v) => setAvatarDraft({ icon: v.icon, iconColor: v.color })}
+            photo={avatarDraft.photo}
+            onChange={(v) => setAvatarDraft({ icon: v.icon, iconColor: v.color, photo: null })}
+            onPickPhoto={savePhoto}
           />
         </BottomSheet>
       )}

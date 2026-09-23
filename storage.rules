@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// ====================================================================
+// アイコンの写真の置き場(便AH 2026-09-23 凍結仕様 決定7)
+//   docs/superpowers/specs/2026-09-23-avatar-photo.md
+//
+// 【置き場が2つある理由】1つにすると、判定を通ったあとで**同じ場所を別の画像で
+// 上書き**できてしまい、users に載っている場所の中身だけがすり替わる。
+// 場所を分けると、画面に出る側をクライアントが1バイトも書けなくなる。
+//
+//   avatarUploads/{uid}/photo.webp … クライアントが書ける。**誰も見ない**
+//   avatars/{uid}/{file}           … 関数(Admin SDK)だけが書ける。**ここだけが画面に出る**
+//
+// 【上限は3つとも「青天井にしない」ためのもの(決定7)】
+//   ・置ける場所は自分の uid の下だけ
+//   ・1人1枚 … 名前を photo.webp に固定してある。他の名前は下の既定の拒否に落ちる
+//   ・大きさ 256KiB … 256px の WebP は実測で 10〜30KB。十分な余裕を見た固定値
+//     **src/community/avatarPhoto.js の PHOTO_MAX_BYTES の写し。片方だけ直さないこと。**
+//   ・image/webp のみ
+// ====================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // 判定を通った写真。**誰でも読めて、クライアントは誰も書けない。**
+    // 公開プロフィールに載るものなので、読みはプロフィールと同じ扱い。
+    match /avatars/{uid}/{file} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // クライアントが書ける唯一の置き場。**判定前なので誰にも見せない**
+    // (本人だけが読める ── 上げ直すときに自分の物であることを確かめられるように)。
+    match /avatarUploads/{uid}/photo.webp {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      // 【create と update を分けて書く】write のままだと request.resource が
+      // null になる delete まで同じ式で見ることになり、**自分の置き場を消せなくなる**。
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource != null
+        && request.resource.size <= 262144
+        && request.resource.contentType == 'image/webp';
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // 【既定は拒否】上で名指ししていない場所は読み書きとも通さない。
+    // 「1人1枚」はここが担っている ── photo.webp 以外の名前はここに落ちる。
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

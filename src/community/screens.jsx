@@ -15,10 +15,20 @@ import { BACK_BUTTON_STYLE, BottomSheet, SubTabs } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 import { hideFlagged, REPORT_REASONS, reportEntryVisible } from "./report.js";
 import { listFlaggedUids, reportUser } from "./reportRepo.js";
+// 【便AH 2026-09-23】アイコンの写真。**出すかどうかの判断は純関数が持つ**
+// (凍結仕様 決定5。docs/superpowers/specs/2026-09-23-avatar-photo.md)。
+import { photoZoomAvailable } from "./avatarPhoto.js";
+import PhotoZoom from "./PhotoZoom.jsx";
 
 // ------------------------------------------------------------------
 // 共有のスタイル。値はトークンから引くだけで、新しい寸法・色は作らない。
 // ------------------------------------------------------------------
+// 【便AH 2026-09-23】写真を押して拡大するための器。**地も枠も足さない**(§6.7) ──
+// アイコンの円そのものが当たり判定で、56px なので --tap-min を超える。
+const PHOTO_TAP_STYLE = {
+  display: "inline-flex", flex: "none", padding: 0,
+  background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
+};
 /* 【minmax(0, 1fr) を外さないこと】grid の子の min-width は既定 auto なので、
    中の長い文字(型番・メーカー)が列そのものを押し広げ、**ページ全体の X 軸がずれる**。
    凡例の行に minWidth: 0 と省略記号は付けてあるが、それは flex の中でしか効かない。
@@ -388,7 +398,7 @@ function RankRow({ row, big = false, mine = false, onTap }) {
           <span aria-hidden="true" className="rank-shine-ring"
                 style={{ position: "absolute", inset: 0, borderRadius: "50%" }} />
           <span style={{ position: "absolute", inset: 3, borderRadius: "50%", display: "inline-flex" }}>
-            <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} size={56} />
+            <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN} photo={row.photo ?? null} size={56} />
           </span>
         </span>
       ) : (
@@ -398,7 +408,7 @@ function RankRow({ row, big = false, mine = false, onTap }) {
           margin: big && rankColor ? 3 : 0,
         }}>
           <Avatar icon={row.icon ?? AVATAR_ICONS[0]} color={row.iconColor ?? AVATAR_COLOR_MIN}
-                  size={big ? 44 : 34} />
+                  photo={row.photo ?? null} size={big ? 44 : 34} />
         </span>
       )}
       <div style={{ flex: "1 1 0", minWidth: 0 }}>
@@ -1016,7 +1026,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
                    borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)",
                    cursor: onOpenPerson ? "pointer" : "default",
                  }}>
-              <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} size={34} />
+              <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} photo={owner.photo ?? null} size={34} />
               <div style={{ flex: "1 1 0", minWidth: 0 }}>
                 {/* 【目安に名前は無い】種別ごとに1つなので、人の名前で示すのが自然。
                     公開される自由入力をニックネームだけに保つためでもある。 */}
@@ -1134,6 +1144,10 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   // 【表と裏で1枚】新しい画面の作法を増やさない(2026/09/06 本人指示)。
   // 表 = 音のデータ / 裏 = プロフィール。行き来は上部の1つのボタンだけが担う。
   const [side, setSide] = useState("data");
+  // 【便AH 2026-09-23 決定5】写真の拡大。**裏(プロフィール面)のときだけ**出る。
+  // 表(音のデータ)の名前の行はいままでどおり行全体がプロフィールへの入口なので、
+  // そこで写真が開くと人を開けなくなる。場所の名前を渡して純関数に決めさせる。
+  const [photoZoom, setPhotoZoom] = useState(false);
   // その人が登録している種別のうち、目安か楽器の組があるものだけをタブに出す。
   // 「タブはあるのに中身が何も無い」を作らない。
   const types = useMemo(() => {
@@ -1196,6 +1210,16 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   }, [theirIdeal, aligned, myIdeals, saxType, m.key, person]);
 
   if (!person) return null;
+  const personPhoto = person.photo ?? null;
+  const canZoomPerson = photoZoomAvailable({
+    photo: personPhoto, icon: person.icon, color: person.iconColor,
+    place: side === "profile" ? "personBack" : "personFront",
+  });
+  // 綴りは1つ。押せる器で包むかどうかだけが変わる(中の絵は同じもの)。
+  const personAvatar = (
+    <Avatar icon={person.icon ?? AVATAR_ICONS[0]} color={person.iconColor ?? AVATAR_COLOR_MIN}
+            photo={personPhoto} size={56} />
+  );
   const g = person.gear?.[saxType] ?? null;
   const days = person.stats?.daysAll;
 
@@ -1249,7 +1273,12 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
              } : {})}
              style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)",
                       cursor: side === "data" ? "pointer" : "default" }}>
-          <Avatar icon={person.icon ?? AVATAR_ICONS[0]} color={person.iconColor ?? AVATAR_COLOR_MIN} size={56} />
+          {canZoomPerson ? (
+            <button type="button" aria-label="写真を大きく表示" style={PHOTO_TAP_STYLE}
+                    onClick={() => setPhotoZoom(true)}>
+              {personAvatar}
+            </button>
+          ) : personAvatar}
           <div style={{ minWidth: 0, flex: "1 1 0" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
             <WhoLine u={person} />
@@ -1452,6 +1481,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
       {reportState?.error ? (
         <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{reportState.error}</div>
       ) : null}
+      {/* 【便AH 決定5】そのまま大きく出す。閉じるのは画面のどこをタップしても(Escape も)。
+          このシートより上の層へ出る(PhotoZoom が持つ)。 */}
+      {photoZoom && personPhoto ? <PhotoZoom url={personPhoto} onClose={() => setPhotoZoom(false)} /> : null}
     </BottomSheet>
   );
 }
