@@ -23552,8 +23552,9 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // 【便H(C9)2026-09-16】順位の子タブで SubTabs も同じ行から import するようになった。
     // 【便AO 2026-09-24】同じ行から NoteAxisLineChart / formatSignedCents も読むようになった
     // (手作りの折れ線をやめてアプリ本体の部品に揃えた)。**名前を足してよいのはその2つだけ**。
+    // 【便AT/AU 2026-09-24】順位の種類と人物紹介のタブが溝型(SegmentedTabs)に替わり、SubTabs は読まなくなった。
     check("49.7 R9 コミュニティ側は App.jsx から import して読む(写しを作らない)",
-      /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs(, NoteAxisLineChart, formatSignedCents)? \} from "\.\.\/App\.jsx";/.test(screens49)
+      /import \{ BACK_BUTTON_STYLE, BottomSheet,( SubTabs,)? NoteAxisLineChart, formatSignedCents \} from "\.\.\/App\.jsx";/.test(screens49)
       && (codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length === 3,
       `${(codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length}箇所`);
     // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)
@@ -24380,7 +24381,7 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
       /<SegmentedTabs ariaLabel="順位の種類" items=\{RANK_METRICS\} value=\{metric\} onChange=\{setMetric\} \/>/.test(rank52)
       && !/<SubTabs items=\{RANK_METRICS\}/.test(rank52)
       && /const \[metric, setMetric\] = useState\("days"\);/.test(rank52)
-      && /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs(, NoteAxisLineChart, formatSignedCents)? \} from "\.\.\/App\.jsx";/.test(screens52));
+      && /import \{ BACK_BUTTON_STYLE, BottomSheet,( SubTabs,)? NoteAxisLineChart, formatSignedCents \} from "\.\.\/App\.jsx";/.test(screens52));
     // 【便AT】期間はチップの行をやめ、条件行(FilterRow)の4つ目(一番右)になった。
     check("52.7 便AT 期間は条件行の4つ目(FilterRow に period / onPeriod を渡す)。種類の切り替えは条件行の下",
       /<FilterRow value=\{filter\} onChange=\{setFilter\} period=\{period\} onPeriod=\{setPeriod\} \/>/.test(rank52)
@@ -25643,8 +25644,7 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   const screens62 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
   const all62 = codeOf(screens62);
   const person62 = codeOf(srcOfFn(screens62, "PersonSheet"));
-  // 【便AT 2026-09-24】楽器の行の部品は Chip(枠線のピル)から SegmentedTabs(溝型)に替わった。
-  const chip62 = codeOf(srcOfFn(screens62, "SegmentedTabs"));
+  const chip62 = codeOf(srcOfFn(screens62, "Chip"));
   const row62 = codeOf(srcOfFn(screens62, "SaxTypeRow"));
   const bs62 = codeOf(srcOfFn(src, "BottomSheet"));
   const count62 = (t, re) => (t.match(re) || []).length;
@@ -25676,11 +25676,10 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   }
 
   // --- 62.2 2-B 楽器の行を4つ等分 + 3つの状態(案ア) ---------------------------
-  check("62.2 2-B 楽器の行を描く部品は1つ(「楽器種別」の切り替えを名乗るのは SaxTypeRow だけ)",
-    count62(all62, /ariaLabel="楽器種別"/g) === 1
-    && /ariaLabel="楽器種別"/.test(row62)
+  check("62.2 2-B 楽器の行を描く部品は1つ(radiogroup の直書きが2箇所に無い)",
+    count62(all62, /role="radiogroup" aria-label="楽器種別"/g) === 1
     && count62(person62, /role="radiogroup"/g) === 0,
-    `名乗り ${count62(all62, /ariaLabel="楽器種別"/g)}箇所 / 人物画面の中 ${count62(person62, /role="radiogroup"/g)}箇所`);
+    `直書き ${count62(all62, /role="radiogroup" aria-label="楽器種別"/g)}箇所 / 人物画面の中 ${count62(person62, /role="radiogroup"/g)}箇所`);
   check("62.2 2-B 表(音のデータ)と裏(プロフィール)の両方が同じ部品を呼ぶ",
     count62(person62, /<SaxTypeRow /g) === 2
     && count62(person62, /playing=\{person\.saxTypes\}/g) === 2,
@@ -25694,39 +25693,32 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
       saxTypes62.length === 4 && saxTypes62.map((t) => saxLabels62[t]).join(" ") === "S.Sax A.Sax T.Sax B.Sax",
       saxTypes62.map((t) => saxLabels62[t]).join(" "));
   }
-  check("62.2 2-B/便AT 4つは等分(溝は grid の列を minmax(0, 1fr) で等しく切る)",
-    /gridAutoFlow: "column", gridAutoColumns: "minmax\(0, 1fr\)"/.test(chip62)
-    && /<SegmentedTabs /.test(row62));
+  check("62.2 2-B 4つは等分(grow を渡し、Chip の grow が flex: 1 1 0 になる)",
+    /\bgrow\b/.test(row62) && /flex: grow \? "1 1 0" : "0 0 auto"/.test(chip62));
   {
-    // **色は綴りで見ない。**面と字の式をソースから取り出して3つの状態で実際に評価する。
-    // 【便AT 2026-09-24】部品が溝型(SegmentedTabs)に替わり、状態は「白い面の有無」と「字の色」で分かれる。
-    // (吹かない楽器に白い面を乗せる / 字を濃くする変異は、ここで値が変わって落ちる。)
-    const onExpr62 = (chip62.match(/const on = ([^;\r\n]+);/) || [])[1];
-    const bgExpr62 = (chip62.match(/background: (on \? "var\(--c-surface\)" : "transparent"),/) || [])[1];
-    const colorExpr62 = (chip62.match(/color: (it\.disabled \? [^\r\n]*),\r?\n/) || [])[1];
-    const paint62 = (selected, disabled) => new Function("it", "value",
-      `const on = ${onExpr62}; return [${bgExpr62}, ${colorExpr62}];`)({ key: "a", disabled }, selected ? "a" : "b");
+    // **色は綴りで見ない。**枠と字の式をソースから取り出して3つの状態で実際に評価する。
+    // (吹かない楽器に枠を付ける変異は、ここで枠の値が変わって落ちる。)
+    const borderExpr62 = (chip62.match(/border: `1px solid \$\{([^`]+)\}`/) || [])[1];
+    const colorExpr62 = (chip62.match(/color: (off \? [^\r\n]*),\r?\n/) || [])[1];
+    const paint62 = (on, off) => new Function("on", "off", `return [${borderExpr62}, ${colorExpr62}];`)(on, off);
     const sel62 = paint62(true, false);
     const play62 = paint62(false, false);
     const mute62 = paint62(false, true);
-    const muteSel62 = paint62(true, true);
-    check("62.2 2-B 状態1 いま見ているデータの楽器 = 白い面 --c-surface / 字 --c-ink",
-      sel62[0] === "var(--c-surface)" && sel62[1] === "var(--c-ink)", sel62.join(" / "));
-    check("62.2 2-B 状態2 その人が吹く楽器 = 面なし / 字 --c-ink-3",
-      play62[0] === "transparent" && play62[1] === "var(--c-ink-3)", play62.join(" / "));
-    check("62.2 2-B 状態3 吹かない楽器 = 面なし / 字 --c-line-strong(以前のチップの off と同じ色)",
+    check("62.2 2-B 状態1 いま見ているデータの楽器 = 枠 --c-accent / 字 --c-accent",
+      sel62[0] === "var(--c-accent)" && sel62[1] === "var(--c-accent)", sel62.join(" / "));
+    check("62.2 2-B 状態2 その人が吹く楽器 = 枠 --c-line-strong / 字 --c-ink-2(いまの非選択のまま)",
+      play62[0] === "var(--c-line-strong)" && play62[1] === "var(--c-ink-2)", play62.join(" / "));
+    check("62.2 2-B 状態3 吹かない楽器 = 枠 transparent / 字 --c-line-strong",
       mute62[0] === "transparent" && mute62[1] === "var(--c-line-strong)", mute62.join(" / "));
-    check("62.2 2-B 吹かない楽器には、選んだ値と一致しても白い面が乗らない",
-      muteSel62[0] === "transparent" && muteSel62[1] === "var(--c-line-strong)", muteSel62.join(" / "));
-    check("62.2 2-B 3つの状態はすべて違う見え方になる(面か字のどちらかが必ず違う)",
+    check("62.2 2-B 3つの状態はすべて違う見え方になる(枠か字のどちらかが必ず違う)",
       new Set([sel62.join("|"), play62.join("|"), mute62.join("|")]).size === 3);
   }
   check("62.2 2-B 吹かない楽器は押せない(<button> にも role=\"radio\" にもしない)",
-    /if \(it\.disabled\) return <span key=\{it\.key\} className="sans" style=\{box\}>\{face\}<\/span>;/.test(chip62)
+    /if \(off\) return <span className="sans" style=\{boxStyle\}>\{pill\}<\/span>;/.test(chip62)
     && count62(chip62, /<button/g) === 1 && count62(chip62, /role="radio"/g) === 1,
     `button ${count62(chip62, /<button/g)} / radio ${count62(chip62, /role="radio"/g)}`);
   check("62.2 2-B 吹くかどうかは person.saxTypes で決める(目安や楽器の組の有無では決めない)",
-    /const plays = new Set\(playing \?\? \[\]\);/.test(row62) && /disabled: !plays\.has\(t\)/.test(row62));
+    /const plays = new Set\(playing \?\? \[\]\);/.test(row62) && /off=\{!plays\.has\(t\)\}/.test(row62));
   // 【実測で踏んだ 2026-09-19】案アで「吹くがデータが無い種別」が押せるようになったのに、
   // 種別を正す useEffect は types(データのある種別)だけを有効とみなしたままだった。
   // T.Sax を押しても A.Sax に引き戻され、**押せるのに何も起きない**行になっていた。
@@ -25787,11 +25779,10 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     ["S\\.Sax", "A\\.Sax", "T\\.Sax", "B\\.Sax"].every((t) =>
       count62(front62, new RegExp(t, "g")) === 1 && count62(back62, new RegExp(t, "g")) === 1),
     ["S.Sax", "A.Sax", "T.Sax", "B.Sax"].map((t) => `${t}:${count62(front62, new RegExp(t.replace(".", "\\."), "g"))}`).join(" "));
-  // 【便AT 2026-09-24】正典も溝型。吹かない2つは字 --c-line-strong・面なし(transparent)。
-  check("62.6 正典 吹かない2つは字 --c-line-strong・面なし(表・裏とも2つ)",
-    count62(front62, /color: var\(--c-line-strong\); background: transparent/g) === 2
-    && count62(back62, /color: var\(--c-line-strong\); background: transparent/g) === 2,
-    `表 ${count62(front62, /color: var\(--c-line-strong\); background: transparent/g)} / 裏 ${count62(back62, /color: var\(--c-line-strong\); background: transparent/g)}`);
+  check("62.6 正典 吹かない2つは枠 transparent・字 --c-line-strong(表・裏とも2つ)",
+    count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2
+    && count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2,
+    `表 ${count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)} / 裏 ${count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)}`);
   check("62.6 正典 CommPerson から「音のデータ」の見出しが消え、CommPersonBack の「楽器の組」は残る",
     !/>音のデータ</.test(front62) && />楽器の組</.test(back62));
   check("62.6 正典 グラフの上の一行は単位だけ(`Hz　計測n件`。指標名は落ちた)",

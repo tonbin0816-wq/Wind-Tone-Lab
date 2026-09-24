@@ -130,11 +130,14 @@ ${cells.join("\n")}
       </div>`;
 }
 
-// 人物画面・マイページの楽器の行(SaxTypeRow)。【便AT】溝型。SAX_TYPES の4つを常に並べ、
-// 選択中 / 吹く(登録している) / 吹かない(押せない) の3つ。
+// 【便AU 2026-09-24 本人指示「楽器の形式は前のやつに戻して」】チップに戻した。マイページも同じ部品。
+// 人物画面の楽器の行(SaxTypeRow)。**表と裏が同じ1つの部品**。束2 2026-09-19 案ア:
+// SAX_TYPES の4つを常に等分で並べ、選択中 / 吹く / 吹かない を枠の段階で分ける。
 function saxTypeRow(selected, plays) {
-  return `      ${segmented(["S.Sax", "A.Sax", "T.Sax", "B.Sax"]
-    .map((t) => [t, !plays.includes(t) ? "dis" : t === selected ? "on" : "off"]))}`;
+  return `      <div style="display: flex; gap: var(--sp-1)">
+${["S.Sax", "A.Sax", "T.Sax", "B.Sax"]
+    .map((t) => chip(t, t === selected, true, !plays.includes(t))).join("\n")}
+      </div>`;
 }
 
 const CARD = "background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)";
@@ -687,7 +690,7 @@ function personShell(inner) {
   </div>`;
 }
 
-// 名前の行は押せる行ではない(便AO)。その下に SubTabs(PERSON_TABS)。
+// 名前の行は押せる行ではない(便AO)。その下に データ | プロフィール の切り替え(便AU で溝型 segmented)。
 const PERSON_TABS = [["data", "データ"], ["profile", "プロフィール"]];
 function personHead(p, tab) {
   return `<div style="display: flex; align-items: center; gap: var(--sp-3)">
@@ -698,7 +701,7 @@ function personHead(p, tab) {
         </div>
       </div>
 
-      ${subTabs(tab, PERSON_TABS)}`;
+      ${segmented(PERSON_TABS.map(([k, label]) => [label, k === tab ? "on" : "off"]))}`;
 }
 
 function buildPerson() {

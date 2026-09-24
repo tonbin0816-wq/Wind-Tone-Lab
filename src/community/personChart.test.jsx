@@ -31,8 +31,8 @@ vi.mock("../App.jsx", async (importOriginal) => {
   };
 });
 
-import { MeasuredWidthSeedContext, concertNoteLabelOf, NoteAxisLineChart, SubTabs } from "../App.jsx";
-import { PersonSheet, DataScreen } from "./screens.jsx";
+import { MeasuredWidthSeedContext, concertNoteLabelOf, NoteAxisLineChart } from "../App.jsx";
+import { PersonSheet, DataScreen, SegmentedTabs } from "./screens.jsx";
 
 const TUNING = 442;
 // 【データは3音だけ】14 / 16 / 18。A.Sax なら実音 E♭4 / F4 / G4(記音 C5 / D5 / E5)。
@@ -198,17 +198,20 @@ describe("R12 ── 指標を切り替えても縦軸の柱の幅(= 折れ線�
   });
 });
 
-describe("人物紹介は SubTabs の [データ | プロフィール](便AO 変更2)", () => {
+// 【便AU 2026-09-24 本人指示】部品は SubTabs から溝型(SegmentedTabs)に替わった。
+describe("人物紹介は溝型の [データ | プロフィール](便AO 変更2 / 便AU)", () => {
   const TAB_ITEMS = [{ key: "data", label: "データ" }, { key: "profile", label: "プロフィール" }];
   const html = drawPerson({ width: 360 });
+  const drawTabs = () => renderToStaticMarkup(
+    <SegmentedTabs ariaLabel="表示する内容" items={TAB_ITEMS} value="data" onChange={() => {}} />);
 
-  it("アプリの他の画面と同じ SubTabs がそのまま描かれ、初期はデータのタブ", () => {
-    const tabs = renderToStaticMarkup(<SubTabs items={TAB_ITEMS} value="data" onChange={() => {}} />);
+  it("溝型の切り替え(SegmentedTabs)がそのまま描かれ、初期はデータのタブ", () => {
+    const tabs = drawTabs();
     expect(html).toContain(tabs);
   });
 
   it("タブは名前の行(アイコン・名前)の下", () => {
-    const tabs = renderToStaticMarkup(<SubTabs items={TAB_ITEMS} value="data" onChange={() => {}} />);
+    const tabs = drawTabs();
     expect(html.indexOf("しろねこ")).toBeGreaterThan(-1);
     expect(html.indexOf(tabs)).toBeGreaterThan(html.indexOf("しろねこ"));
   });
@@ -263,8 +266,9 @@ describe("正典 CommData / CommPerson / CommPersonBack(便AO)", () => {
     });
   }
 
-  it("CommPerson / CommPersonBack: SubTabs [データ | プロフィール]、左上は < 一覧、名前の行に山形が無い", async () => {
-    const tab = (html, label) => new RegExp(`font-size: var\\(--fs-xl\\); font-weight: 700; color: var\\(--c-ink\\); line-height: 1\\.2">${label}<`).test(html);
+  it("CommPerson / CommPersonBack: 溝型の [データ | プロフィール](便AU)、左上は < 一覧、名前の行に山形が無い", async () => {
+    // 選んでいる側だけが白い面(--shadow-seg)に乗る
+    const tab = (html, label) => new RegExp(`box-shadow: var\\(--shadow-seg\\)">${label}<`).test(html);
     const front = await read("CommPerson.dc.html");
     const back = await read("CommPersonBack.dc.html");
     expect(tab(front, "データ")).toBe(true);
@@ -273,7 +277,7 @@ describe("正典 CommData / CommPerson / CommPersonBack(便AO)", () => {
       expect(html).toContain("&lt; 一覧");
       expect(html).not.toContain("音のデータ");
       expect(html).not.toContain('d="M4 2l3 3-3 3"');
-      expect(html).toMatch(/line-height: 1\.2">データ<[\s\S]{0,400}line-height: 1\.2">プロフィール</);
+      expect(html).toMatch(/>データ<\/span>[\s\S]{0,1200}>プロフィール<\/span>/);
     }
   });
 });

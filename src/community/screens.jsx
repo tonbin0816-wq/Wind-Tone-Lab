@@ -12,7 +12,7 @@ import { Avatar } from "./icons.jsx";
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
 // 【便AO 2026-09-24】音名軸の折れ線もアプリ本体の NoteAxisLineChart ただ1つ(手作りの LineChart は消した)。
-import { BACK_BUTTON_STYLE, BottomSheet, SubTabs, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
+import { BACK_BUTTON_STYLE, BottomSheet, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 import { hideFlagged, REPORT_REASONS, reportEntryVisible } from "./report.js";
 import { listFlaggedUids, reportUser } from "./reportRepo.js";
@@ -103,14 +103,15 @@ function UnderlineTabs({ items, value, onChange, label }) {
 //
 // 【便AT 2026-09-24 本人指示】「タブ切り替えを4枚目(別のアプリの『打撃成績 | 投手成績』)の
 // デザインと同じにして」。灰色の溝の中で、選んでいる側だけが白く浮き上がる形。
-// 使う場所は3つ: 順位の種類(練習日数 | 練習時間)・人物紹介の楽器・マイページの楽器。
-// 以前の選択チップ(Chip。枠線のピル)はこれに置き換わって、読み手がいなくなったので消した。
+// 使う場所は2つ: 順位の種類(練習日数 | 練習時間)・人物紹介の「データ | プロフィール」。
+// 【便AU 2026-09-24 本人指示】楽器の行(人物紹介・マイページ)は前の選択チップ(Chip)に戻した ──
+// 「人物のページのタブはデータとプロフィールを新しいタブ形式にして欲しかった。楽器の形式は前のやつに戻して」。
 //
 // 寸法: 溝(--c-sunken・角 --r-2)は高さ 44。**押せる箱は溝の高さいっぱい(44)**で、
 // 見える白い面(角 --r-1)は内側 36。文字は --fs-md。
 // 選べない項目(disabled)は溝の中に並べるが、字を --c-line-strong まで落として押せなくする
-// (<button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。以前の
-// Chip の off と同じ作法・同じ色)。白い面は選べる項目にしか乗らない。
+// (<button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。Chip の off と
+// 同じ作法・同じ色)。白い面は選べる項目にしか乗らない。
 // ------------------------------------------------------------------
 export function SegmentedTabs({ items, value, onChange, ariaLabel }) {
   return (
@@ -150,7 +151,8 @@ export function SegmentedTabs({ items, value, onChange, ariaLabel }) {
 }
 
 // ------------------------------------------------------------------
-// 【消した部品の記録 便AT】選択チップ(Chip)。**当たり判定 44px / 見えるピルは 30px**。
+// 【便AU 2026-09-24 本人指示「楽器の形式は前のやつに戻して」】楽器の行はこのチップに戻した。
+// 選択チップ。**当たり判定 44px / 見えるピルは 30px**。
 // 本人指摘「44ptの決まりはあるが明らかに大きすぎる」への答えで、
 // 箱ではなく中身を小さくする(§5「見た目の大きさは変えない。当たり判定だけ広げる」)。
 // 先例: §5.1 My Data の式の行 20px / §5.2 分析タブのチップ 30px。
@@ -162,8 +164,31 @@ export function SegmentedTabs({ items, value, onChange, ariaLabel }) {
 // (`1px solid transparent` ── 枠を 0 にすると寸法が 2px ずれて行が揃わなくなる)。
 // 字も --c-line-strong まで落とす。**新しい色は作らない**(枠に使っている既存の値)。
 // 押せないので <button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。
-// (この「選びようが無いものは字を --c-line-strong まで落とし、押せなくする」は SegmentedTabs の
-//  disabled がそのまま受け継いでいる。)
+function Chip({ on, onClick, children, grow = false, ariaLabel, off = false }) {
+  const boxStyle = {
+    minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
+    justifyContent: "center", padding: 0, border: "none", background: "none",
+    flex: grow ? "1 1 0" : "0 0 auto", minWidth: 0,
+  };
+  const pill = (
+    <span style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
+      border: `1px solid ${off ? "transparent" : on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+      color: off ? "var(--c-line-strong)" : on ? "var(--c-accent)" : "var(--c-ink-2)",
+      fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
+      width: grow ? "100%" : "auto", boxSizing: "border-box",
+    }}>{children}</span>
+  );
+  if (off) return <span className="sans" style={boxStyle}>{pill}</span>;
+  return (
+    <button type="button" role="radio" aria-checked={on} aria-label={ariaLabel}
+      onClick={onClick} className="sans"
+      style={{ ...boxStyle, cursor: "pointer" }}>
+      {pill}
+    </button>
+  );
+}
 
 // ------------------------------------------------------------------
 // 条件行。**3画面が同じ部品を同じ位置(上部1行)に置く。**
@@ -1129,22 +1154,28 @@ function InfoLine({ label, value }) {
 // 伸びて「ボタン1つ」に見えていた。SAX_TYPES の4つを `flex: 1 1 0` で等分に並べれば
 // 幅は常に 1/4 で、行が何を選ぶものなのかも読める。
 //
-// 【3つの状態】(便AT 2026-09-24 に溝型へ。新しい色は作っていない):
-//   1. いま見ているデータの楽器 … 白い面(--c-surface・--shadow-seg)/ 字 --c-ink 太字
-//   2. その人が吹く楽器         … 面なし / 字 --c-ink-3
-//   3. 吹かない楽器             … 面なし / 字 --c-line-strong。押せない
-// (以前は枠線のチップで、1 = 枠と字 --c-accent、2 = 枠 --c-line-strong・字 --c-ink-2、3 = 枠なし。)
+// 【3つの状態は枠を段階的に減らして分ける】新しい色は1つも作らない:
+//   1. いま見ているデータの楽器 … 枠 --c-accent / 字 --c-accent(Chip の選択中そのまま)
+//   2. その人が吹く楽器         … 枠 --c-line-strong / 字 --c-ink-2(Chip の非選択そのまま)
+//   3. 吹かない楽器             … 枠なし(transparent) / 字 --c-line-strong。押せない
+// 3 に枠が無いのは index.css §6.7「枠線は状態を持つものにだけ」に沿うため ──
+// 吹かない種別は選択に切り替わりようがないので、状態を持たない。
 //
 // 【吹くかどうかは person.saxTypes で決める】目安や楽器の組があるかは問わない。
 // 「吹くが何も公開していない」は 2 で、「吹かない」は 3 で、別のことだと読める。
 // ------------------------------------------------------------------
-// 【便AT 2026-09-24】溝型(SegmentedTabs)で描く。**マイページも同じこの部品を使う**
-// (本人指示「その楽器を登録していない人はタブの表自体は同じように出すが、切り替えはできないように」)。
+// 【便AU 2026-09-24 本人指示】マイページも同じこの部品を使う(export)。
+// 「プロフィールのページも。前のやつの該当の楽器をタップしたらその楽器のデータになるように」──
+// 押した楽器の楽器の組に切り替わる(呼び手の onPick が表示する種別を替える)。
 export function SaxTypeRow({ saxType, playing, onPick }) {
   const plays = new Set(playing ?? []);
   return (
-    <SegmentedTabs ariaLabel="楽器種別" value={saxType} onChange={onPick}
-      items={SAX_TYPES.map((t) => ({ key: t, label: SAX_LABELS[t], disabled: !plays.has(t) }))} />
+    <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
+      {SAX_TYPES.map((t) => (
+        <Chip key={t} on={t === saxType} off={!plays.has(t)} grow
+              onClick={() => onPick(t)}>{SAX_LABELS[t]}</Chip>
+      ))}
+    </div>
   );
 }
 
@@ -1152,7 +1183,8 @@ export function SaxTypeRow({ saxType, playing, onPick }) {
 // データとプロフィールがタブ切り替えになるように変更して」。
 // 以前は「表(音のデータ)/裏(プロフィール)」で、名前の行を押すと裏返り、左上の
 // `< 音のデータ` で戻った。コミュニティ上部・データタブ・リードタブと同じ SubTabs にした。
-// 中身の出し分けは side("data" / "profile")のまま。
+// 【便AU 2026-09-24 本人指示】「人物のページのタブはデータとプロフィールを新しいタブ形式にして欲しかった」
+// ── 溝型(SegmentedTabs)に替えた。中身の出し分けは side("data" / "profile")のまま。
 const PERSON_TABS = [
   { key: "data", label: "データ" },
   { key: "profile", label: "プロフィール" },
@@ -1298,10 +1330,10 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           </div>
         </div>
 
-        {/* 【便AO 2026-09-24 本人指示】データとプロフィールはタブで切り替える。
-            コミュニティ上部・データタブ・リードタブと同じ部品(SubTabs)。名前の行の下に置く。
+        {/* 【便AO 2026-09-24 本人指示】データとプロフィールはタブで切り替える。名前の行の下に置く。
+            【便AU】部品は溝型(SegmentedTabs。順位の「練習日数 | 練習時間」と同じ)。
             楽器種別の選択(saxType)は両タブで共有する(状態は1つ)。 */}
-        <SubTabs items={PERSON_TABS} value={side} onChange={setSide} />
+        <SegmentedTabs ariaLabel="表示する内容" items={PERSON_TABS} value={side} onChange={setSide} />
 
         {side === "profile" ? (
           <>

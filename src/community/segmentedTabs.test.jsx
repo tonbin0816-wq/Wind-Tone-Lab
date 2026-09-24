@@ -8,7 +8,8 @@ import { ProfileView } from "./CommunityTab.jsx";
 // ------------------------------------------------------------------
 // 【便AT 2026-09-24 本人指示】
 //   1・3「タブ切り替えを4枚目(『打撃成績 | 投手成績』)のデザインと同じに」── 溝型 SegmentedTabs。
-//        人物紹介とマイページの楽器。登録していない楽器も並ぶが、押せない。
+//        【便AU で訂正】溝型にするのは人物紹介の「データ | プロフィール」。楽器の行(人物紹介・マイページ)は
+//        前のチップに戻し、登録していない楽器も並ぶが押せない。押した楽器の中身に切り替わる。
 //   2  「練習日数と練習時間の切り替えをこのタブ切り替えに。期間は上部の楽器ジャンル属性と同じように
 //        4つ横並びにして一番右側に加えて」
 // 実際に描いて押す(jsdom)。綴りは見ない。
@@ -108,7 +109,61 @@ const PROFILE = {
   genres: ["ジャズ"], ensembles: ["ソロ"], isPublic: true,
 };
 
+// ---- 人物紹介 ---------------------------------------------------------------
+// 【便AU 2026-09-24 本人指示】「人物のページのタブはデータとプロフィールを新しいタブ形式にして欲しかった。
+// 楽器の形式は前のやつに戻して。プロフィールのページも。前のやつの該当の楽器をタップしたらその楽器のデータに」
+const doc$ = (sel) => document.querySelector(sel);
+const docGroup = (label) => doc$(`[role="radiogroup"][aria-label="${label}"]`);
+const PERSON = {
+  uid: "p1", nickname: "しろねこ", icon: "ic-cat", iconColor: 2, photo: null,
+  saxTypes: ["alto", "tenor"], position: "学生", genres: [], ensembles: [], stats: { daysAll: 3 },
+  gear: { alto: GEAR_P(["YAMAHA", "YAS-62"]), tenor: GEAR_P(["Selmer", "Reference 54"]) },
+};
+function GEAR_P(inst) {
+  return { instrumentBrand: inst[0], instrumentModel: inst[1], mpBrand: "Selmer", mpModel: "S80 C*",
+    ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0" };
+}
+const { PersonSheet } = await import("./screens.jsx");
+
+describe("人物紹介 ── データ | プロフィール は溝型、楽器はチップ", () => {
+  const open = () => draw(<PersonSheet person={PERSON} ideals={[]} myIdeals={{}} onClose={() => {}}
+    onAdopt={() => ({})} myUid="me" tuningHz={442} />);
+
+  it("データ | プロフィール は溝型(地 --c-sunken)。押すとプロフィールに切り替わる", async () => {
+    await open();
+    const tabs = docGroup("表示する内容");
+    expect(tabs.style.background).toBe("var(--c-sunken)");
+    expect(checkedLabel(tabs)).toBe("データ");
+    await act(async () => { radios(tabs)[1].click(); });
+    expect(checkedLabel(docGroup("表示する内容"))).toBe("プロフィール");
+    expect(document.body.textContent).toContain("YAMAHA YAS-62");     // プロフィール側の楽器の組
+  });
+
+  it("楽器の行は溝型ではなく前のチップ。吹かない楽器は押せず、T.Sax を押すと T.Sax の組になる", async () => {
+    await open();
+    await act(async () => { radios(docGroup("表示する内容"))[1].click(); });
+    const row = docGroup("楽器種別");
+    expect(row.style.background).toBe("");                  // 溝(--c-sunken)ではない
+    expect(row.textContent).toBe("S.SaxA.SaxT.SaxB.Sax");
+    expect(radios(row).map((r) => r.textContent)).toEqual(["A.Sax", "T.Sax"]);
+    // チップの選択中は枠と字が紺(前の形)
+    const pill = (r) => r.querySelector("span");
+    expect(pill(radios(row)[0]).style.border).toContain("var(--c-accent)");
+    await act(async () => { radios(row)[1].click(); });
+    expect(checkedLabel(docGroup("楽器種別"))).toBe("T.Sax");
+    expect(document.body.textContent).toContain("Selmer Reference 54");
+    expect(document.body.textContent).not.toContain("YAS-62");
+  });
+});
+
 describe("マイページ ── 楽器の組は楽器の切り替えで1組ずつ", () => {
+  it("楽器の行は溝型ではなく前のチップ(人物紹介と同じ部品)", async () => {
+    await draw(<ProfileView profile={PROFILE} uid="u1" />);
+    const g = group("楽器種別");
+    expect(g.style.background).toBe("");
+    expect(radios(g)[0].querySelector("span").style.border).toContain("var(--c-accent)");
+  });
+
   it("4つの楽器が並び、登録していない S.Sax / B.Sax は押せない。最初は登録している最初の楽器(A.Sax)", async () => {
     await draw(<ProfileView profile={PROFILE} uid="u1" />);
     const g = group("楽器種別");
