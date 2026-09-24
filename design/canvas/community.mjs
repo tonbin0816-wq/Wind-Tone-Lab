@@ -24,6 +24,10 @@ const PROFILE_SRC = readFileSync(SRC + "profile.js", "utf8");
 const AVATAR_ICONS = ((PROFILE_SRC.match(/export const AVATAR_ICONS = \[([\s\S]*?)\];/) || [, ""])[1]
   .match(/"([^"]+)"/g) || []).map((q) => q.slice(1, -1));
 if (AVATAR_ICONS.length === 0) throw new Error("profile.js から AVATAR_ICONS を読めない");
+// 【便AS】格子に並べるのは選べる14種(写真枠と合わせて 5 × 3)。
+const AVATAR_PICKABLE_ICONS = ((PROFILE_SRC.match(/export const AVATAR_PICKABLE_ICONS = \[([\s\S]*?)\];/) || [, ""])[1]
+  .match(/"(ic-[a-z0-9-]+)"/g) || []).map((s) => s.slice(1, -1));
+if (AVATAR_PICKABLE_ICONS.length !== 14) throw new Error("profile.js から AVATAR_PICKABLE_ICONS(14種)を読めない");
 function symbolOf(id) {
   const m = ICONS_SRC.match(new RegExp(`<symbol id="${id}"[\\s\\S]*?</symbol>`));
   if (!m) throw new Error(`icons.jsx に ${id} が無い`);
@@ -300,7 +304,10 @@ function noteAxisChart({ saxType = "alto", series, fmt, width }) {
       p.push(`    <polyline fill="none" stroke-width="2"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""} points="${seg.join(" ")}" />`);
     }
     for (const [idx, v] of Object.entries(s.byIdx)) {
-      p.push(`    <circle cx="${na2(xAt(+idx))}" cy="${na2(yAt(v))}" r="${na2(dotR)}" stroke="none" />`);
+      // 【便AR】比べる相手(hollow)は目安と同じ白抜きの点
+      p.push(s.hollow
+        ? `    <circle cx="${na2(xAt(+idx))}" cy="${na2(yAt(v))}" r="${na2(dotR)}" stroke-width="1" style="fill: var(--c-surface)" />`
+        : `    <circle cx="${na2(xAt(+idx))}" cy="${na2(yAt(v))}" r="${na2(dotR)}" stroke="none" />`);
     }
     p.push(`  </g>`);
   }
@@ -313,12 +320,22 @@ function noteAxisChart({ saxType = "alto", series, fmt, width }) {
   return p.join("\n            ");
 }
 
-// Legend(screens.jsx): 14x3 の実線の帯。破線は帯では描き分けない
+// Legend(screens.jsx): 【便AR】グラフと同じ「線 + 点」の小さな見本(22×10)。破線・白抜きも見本に出す
+function legendSwatch(s) {
+  const line = `<line x1="1" y1="5" x2="21" y2="5" stroke-width="2"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""} style="stroke: ${s.color}" />`;
+  const dot = s.hollow
+    ? `<circle cx="11" cy="5" r="3" stroke-width="1" style="stroke: ${s.color}; fill: var(--c-surface)" />`
+    : `<circle cx="11" cy="5" r="3" style="fill: ${s.color}" />`;
+  return `<svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible">${line}${dot}</svg>`;
+}
 function legend(series) {
   return `<div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)">${series
-    .map((s) => `<div style="display: flex; align-items: center; gap: var(--sp-1)"><span style="width: 14px; height: 3px; border-radius: 2px; background: ${s.color}; flex: 0 0 auto"></span><span style="${NOTE}">${s.label}</span></div>`)
+    .map((s) => `<div style="display: flex; align-items: center; gap: var(--sp-1)">${legendSwatch(s)}<span style="${NOTE}">${s.label}</span></div>`)
     .join("")}</div>`;
 }
+// 【便AR 2026-09-24 本人採用 案B】計測タブの「実測と目安」にそろえる。screens.jsx の COMPARE_SERIES / MINE_SERIES の正典。
+const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
+const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
 
 const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています";
 
@@ -373,8 +390,8 @@ const PEOPLE = [
 // ---- データ -------------------------------------------------------------
 function buildData() {
   const series = [
-    { label: "みんなの平均", byIdx: naVals(centroidAvg), color: "var(--c-accent)" },
-    { label: "自分", byIdx: naVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
+    { label: "みんなの平均", byIdx: naVals(centroidAvg), ...COMPARE_SERIES },
+    { label: "自分", byIdx: naVals(centroidMine), ...MINE_SERIES },
   ];
   const rows = PEOPLE.slice(0, 4).map((p, i, arr) => `          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">
             ${avatar(p.icon, p.color, 34)}
@@ -675,8 +692,8 @@ function personHead(p, tab) {
 function buildPerson() {
   const p = PEOPLE[0];
   const series = [
-    { label: p.nick, byIdx: naVals(centroidTheir), color: "var(--c-accent)" },
-    { label: "自分", byIdx: naVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
+    { label: p.nick, byIdx: naVals(centroidTheir), ...COMPARE_SERIES },
+    { label: "自分", byIdx: naVals(centroidMine), ...MINE_SERIES },
   ];
   return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
 
@@ -1056,7 +1073,8 @@ const pickCell = (sel) => `min-width: 44px; min-height: 44px; padding: 0; displa
 // 写真枠の絵柄。lucide の Image(線 2px・24px 四方)。鉛筆の印と同じ出どころ。
 const PHOTO_GLYPH = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--c-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
 
-// 【決定1】列は6→5。5×5 = 25 でちょうど埋まる。写真枠は格子の先頭(左上)。
+// 【決定1】列は6→5。写真枠は格子の先頭(左上)。
+// 【便AS 2026-09-24 本人指示】絵柄は14種に絞った。写真枠と合わせて 5×3 = 15。
 // 【minmax(0, 1fr) を外さない】外すと格子が画面より広くなり、ページ全体を押し広げる。
 // 【便AM 2026-09-24 本人の実機報告「写真の選択も出てこない」】
 // 見出しが「絵柄」で絵が25個並ぶ中の1つだったので、写真を選ぶ場所に見えなかった。
@@ -1083,7 +1101,7 @@ function iconGrid({ photo, sel, busy = null }) {
       : `        <div style="${pickCell(sel === "photo")}; flex-direction: column; gap: 2px">${photo
       ? avatar(null, null, 24, photo)
       : PHOTO_GLYPH}${PHOTO_CELL_LABEL}</div>`,
-    ...AVATAR_ICONS.map((id) => {
+    ...AVATAR_PICKABLE_ICONS.map((id) => {
       usedIcons.add(id);
       return `        <div style="${pickCell(sel === id)}${busy ? "; opacity: 0.6" : ""}"><svg width="24" height="24" fill="var(--c-ink)" aria-hidden="true"><use href="#${id}" /></svg></div>`;
     }),
@@ -1174,7 +1192,7 @@ const FILES = [
   ["CommRankTint.dc.html", buildRankTint, "順位案A 淡い地"],
   ["CommDataC.dc.html", buildDataC, "データ案C 一覧の面をやめる"],
   ["CommDataD.dc.html", buildDataD, "データ案D 一覧を1行に"],
-  ["CommAvatarPick.dc.html", buildAvatarPick, "便AH アイコンを変更(格子5×5・写真枠)"],
+  ["CommAvatarPick.dc.html", buildAvatarPick, "便AS アイコンを変更(格子5×3・写真枠)"],
   ["CommPhotoZoom.dc.html", buildPhotoZoom, "便AH 写真の拡大表示"],
 ];
 

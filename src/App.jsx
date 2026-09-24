@@ -12293,6 +12293,13 @@ function noteAxisDotPath(seg) {
 // 系列がこの色を取らないようにここで1箇所に定義しておく。破線パターンは §1.8 の "4 3"。
 const IDEAL_LINE_STYLE = { color: "var(--c-ink-3)", width: 2, dash: "4 3" };
 
+// 【便AR 2026-09-24】系列の点の塗り。style.hollow の系列は、目安(IDEAL_LINE_STYLE の破線)と
+// 同じ白抜きの点(地 --c-surface・縁は線の色 1px)で描く。コミュニティの「比べる相手」
+// (みんなの平均・人物紹介のその人)がこれを使う。それ以外は今までどおり塗りで縁なし。
+export const noteAxisDotPaint = (st) => (st?.hollow
+  ? { strokeWidth: 1, style: { fill: "var(--c-surface)" } }
+  : { stroke: "none" });
+
 // (【N-10 2026/08/17 本人指示】N-8 の HERO_CHART_* = 紺のヒーローの中の折れ線の配色は、
 //  案K 採用で紺のカードそのものが無くなったため削除した。使い手の無い定義を残さない。)
 
@@ -12997,8 +13004,9 @@ export function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tun
                         strokeLinejoin={draw.round ? "round" : undefined} strokeLinecap={draw.round ? "round" : undefined}
                         points={seg.join(" ")} />
                     )))}
+                    {/* 【便AR 2026-09-24】塗り方は noteAxisDotPaint(style.hollow なら目安と同じ白抜き)。 */}
                     {draw.dot && Object.entries(s.byIdx).map(([idx, v]) => (
-                      <circle key={idx} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} stroke="none" />
+                      <circle key={idx} cx={L.xAt(+idx)} cy={L.yAt(v)} r={L.dotR} {...noteAxisDotPaint(st)} />
                     ))}
                   </g>
                 );

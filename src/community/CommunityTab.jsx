@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
+import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_PICKABLE_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
@@ -805,6 +805,9 @@ function SwitchRow({ checked, onChange, disabled = false, label, note }) {
 // (2026-08-28 本人指摘)。選んだ結果そのものを、順位や一覧で出るのと同じ大きさで見せる。
 // 【便AH 2026-09-23】写真枠が1つ増えた(凍結仕様 決定1・決定2)。
 //   ・列は6→5。**5 × 5 = 25 でちょうど埋まる**(絵柄は1つも捨てていない)
+//   ・【便AS 2026-09-24 本人指示】絵柄を14種に絞った。写真枠と合わせて **5 × 3 = 15**。
+//     並べるのは AVATAR_PICKABLE_ICONS。外した10種の人も上の見本では今の絵柄のまま描かれ
+//     (格子ではどれも選択中にならない)、選び直さない限り保存しても変わらない。
 //   ・写真枠は格子の先頭(左上)。器も選択中の表し方も他のマスと同じ
 //   ・写真を選んでいる間、**背景の行は消える**(丸く切り抜くので地が見えない)
 // 写真の保存だけはここが自分で行う ── 決定3「判定は保存の最中に同期で行う」ため、
@@ -966,7 +969,7 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
             }}
           />
         </label>
-        {AVATAR_ICONS.map((id) => (
+        {AVATAR_PICKABLE_ICONS.map((id) => (
           <button
             key={id} type="button" role="radio" aria-checked={!usingPhoto && id === icon}
             aria-label={id.replace(/^ic-/, "")} disabled={busy}

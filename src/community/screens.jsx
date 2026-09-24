@@ -834,6 +834,17 @@ const metricFmt = (m) => (m.key === "pitchCentsSigned" ? formatSignedCents : (v)
 // 太さは §1.8 の系列の 2px(いままでの LineChart の既定と同じ)。
 const COMMUNITY_SERIES_WIDTH = 2;
 
+// 【便AR 2026-09-24 本人採用 案B「計測タブにそろえる」】
+// 本人の実機報告「どれがみんなの平均でどれが自分か分かりにくい」。以前は平均が紺(--c-accent)の
+// 塗りの点、自分が濃い灰(--c-ink-2)の塗りの点で、点だけになると色の差しか残らなかった。
+// 計測タブの「実測と目安」と同じ決まりにそろえる:
+//   ・自分        … 実測と同じ。紺の実線・塗りの点
+//   ・比べる相手  … 目安と同じ。--c-ink-3 の破線 4 3・白抜きの点(平均も、人物紹介のその人も)
+// 相手は目安に設定できるもの(人物紹介の「目安に設定」)なので、目安の見た目が役と合う。
+// 描く順は相手が先(下)・自分が後(上)── 計測タブも目安を先に描いて実測を上に乗せている。
+const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
+const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
+
 // chart = { series: [{ label, color, dash?, values, byMetric }] } を NoteAxisLineChart の形にして描く。
 //   ・byIdx … いまの指標の「音の番号 → 値」(数値のキー)
 //   ・byMetric … 3指標ぶん。R12(指標を切り替えても柱の幅を動かさない)のために渡す
@@ -849,11 +860,27 @@ function CommunityNoteChart({ chart, metric, saxType, tuningHz }) {
       tuningHz={tuningHz}
       series={chart.series.map((s, i) => ({
         id: `s${i}`, label: s.label,
-        style: { color: s.color, width: COMMUNITY_SERIES_WIDTH, dash: s.dash ?? null },
+        style: { color: s.color, width: COMMUNITY_SERIES_WIDTH, dash: s.dash ?? null, hollow: Boolean(s.hollow) },
         byIdx: s.values, byMetric: s.byMetric,
       }))}
       selectedIdeal={null} idealKey={null}
     />
+  );
+}
+
+// 【便AR】凡例の見本は、グラフと同じ「線 + 点」を小さく描く(破線・白抜きも見本に出す)。
+// 以前は 14×3 の実線の帯で、破線かどうかも点の塗りも凡例からは分からなかった。
+const LEGEND_SWATCH_W = 22;
+function LegendSwatch({ s }) {
+  return (
+    <svg width={LEGEND_SWATCH_W} height={10} viewBox={`0 0 ${LEGEND_SWATCH_W} 10`} aria-hidden="true"
+         data-legend-swatch={s.hollow ? "hollow" : "fill"} style={{ display: "block", flex: "0 0 auto", overflow: "visible" }}>
+      <line x1={1} y1={5} x2={LEGEND_SWATCH_W - 1} y2={5} strokeWidth={COMMUNITY_SERIES_WIDTH}
+            strokeDasharray={s.dash || undefined} style={{ stroke: s.color }} />
+      {s.hollow
+        ? <circle cx={LEGEND_SWATCH_W / 2} cy={5} r={3} strokeWidth={1} style={{ stroke: s.color, fill: "var(--c-surface)" }} />
+        : <circle cx={LEGEND_SWATCH_W / 2} cy={5} r={3} style={{ fill: s.color }} />}
+    </svg>
   );
 }
 
@@ -862,7 +889,7 @@ function Legend({ series }) {
     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
       {series.map((s) => (
         <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }}>
-          <span style={{ width: 14, height: 3, borderRadius: 2, background: s.color, flex: "0 0 auto" }} />
+          <LegendSwatch s={s} />
           <span className="sans" style={noteStyle}>{s.label}</span>
         </div>
       ))}
@@ -910,8 +937,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     if (Object.keys(avgBy[m.key]).length === 0 && Object.keys(mineBy[m.key]).length === 0) return null;
     return {
       series: [
-        { label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, color: "var(--c-accent)" },
-        { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
+        { label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, ...COMPARE_SERIES },
+        { label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES },
       ],
     };
   }, [avg, mineShared, m.key]);
@@ -1163,8 +1190,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
     return {
       series: [
-        { label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, color: "var(--c-accent)" },
-        { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
+        { label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, ...COMPARE_SERIES },
+        { label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES },
       ],
     };
   }, [theirIdeal, aligned, myIdeals, saxType, m.key, person]);

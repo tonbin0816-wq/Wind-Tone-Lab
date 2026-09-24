@@ -116,6 +116,18 @@ export const AVATAR_ICONS = [
   "ic-guitar",
 ];
 
+// 【便AS 2026-09-24 本人指示「アイコンの種類を減らそう。写真を入れて5×3になるように絞って」】
+// **選べるのはこの14種だけ**(格子の先頭の写真枠と合わせて 5 × 3 = 15)。
+// 上の AVATAR_ICONS(24種)は**描ける・保存できる**一覧として残す ── 外した10種を今使っている人の
+// アイコンを消さず、その人がプロフィールを保存し直せなくなる罠(便AI の旧い属性の語と同じ形)を作らない。
+// ルール(firestore.rules)も 24種のままなので、配信の順は気にしなくてよい。
+// 並びは格子の行ごとに 動物 / 自然 / しるしと音楽。
+export const AVATAR_PICKABLE_ICONS = [
+  "ic-cat", "ic-dog", "ic-bird", "ic-rabbit",
+  "ic-leaf", "ic-flower-lotus", "ic-sun", "ic-moon-stars", "ic-cloud",
+  "ic-star", "ic-heart", "ic-sparkle", "ic-crown-simple", "ic-music-notes",
+];
+
 // 【地の色は番号で持つ。色そのものは保存しない】実値は index.css の
 // --c-avatar-1..10 にあり、後から色を調整しても保存済みのプロフィールを
 // 書き直さずに済む。16進数で保存すると、色を変えた瞬間に

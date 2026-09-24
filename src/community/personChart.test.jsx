@@ -121,16 +121,34 @@ describe("コミュニティのグラフ ── 横軸はその楽器の音域�
     expect(concertAxis("tenor")).not.toEqual(concertAxis("alto")); // 取り違えれば落ちる前提
   });
 
-  it("系列の色と線種は凡例と同じ: 1本目 --c-accent の実線 / 2本目(自分)--c-ink-2 の破線 4 3", () => {
-    const html = drawPerson();
-    const groups = seriesGroups(svgOf(html));
-    expect(groups.map((g) => g.color)).toEqual(["var(--c-accent)", "var(--c-ink-2)"]);
-    expect(groups[0].body).not.toMatch(/stroke-dasharray/);
-    expect(groups[1].body).toMatch(/<polyline[^>]*stroke-dasharray="4 3"/);
-    // 凡例の帯の色も同じ2色(Legend は1文字も変えていない)
-    expect(html).toMatch(/background:var\(--c-accent\);flex:0 0 auto[\s\S]*?しろねこ/);
-    expect(html).toMatch(/background:var\(--c-ink-2\);flex:0 0 auto[\s\S]*?自分/);
-  });
+  // 【便AR 2026-09-24 本人採用 案B】計測タブの「実測と目安」と同じ決まり。
+  //   比べる相手(1本目) = 目安の見た目: --c-ink-3・破線 4 3・白抜きの点
+  //   自分(2本目)       = 実測の見た目: --c-accent・実線・塗りの点
+  for (const [name, draw, other] of [["人物紹介", () => drawPerson(), "しろねこ"], ["データの「みんなの平均」", () => drawData(), "みんなの平均"]]) {
+    it(`${name}: 相手は灰の破線と白抜きの点、自分は紺の実線と塗りの点。凡例の見本も同じ`, () => {
+      const html = draw();
+      const groups = seriesGroups(svgOf(html));
+      expect(groups.map((g) => g.color)).toEqual(["var(--c-ink-3)", "var(--c-accent)"]);
+      // 相手: 破線・点はすべて白抜き(地 --c-surface)
+      expect(groups[0].body).toMatch(/<polyline[^>]*stroke-dasharray="4 3"/);
+      const theirDots = [...groups[0].body.matchAll(/<circle [^>]*>/g)].map((m) => m[0]);
+      expect(theirDots.length).toBeGreaterThan(0);
+      for (const d of theirDots) expect(d).toMatch(/fill:var\(--c-surface\)/);
+      // 自分: 実線・点は塗り(縁なし)
+      expect(groups[1].body).not.toMatch(/stroke-dasharray/);
+      const mineDots = [...groups[1].body.matchAll(/<circle [^>]*>/g)].map((m) => m[0]);
+      expect(mineDots.length).toBeGreaterThan(0);
+      for (const d of mineDots) { expect(d).toMatch(/stroke="none"/); expect(d).not.toMatch(/--c-surface/); }
+      // 凡例の見本: 相手は白抜き、自分は塗り(並びも同じ)
+      expect(html).toMatch(new RegExp(`data-legend-swatch="hollow"[\\s\\S]*?${other}[\\s\\S]*?data-legend-swatch="fill"[\\s\\S]*?自分`));
+      expect(html).toMatch(/data-legend-swatch="hollow"[\s\S]*?stroke-dasharray="4 3"[\s\S]*?stroke:var\(--c-ink-3\)/);
+      // 見本の点そのもの: 相手の見本は白抜き(地 --c-surface)、自分の見本は塗り
+      const swatchOf = (kind) => (html.match(new RegExp(`<svg[^>]*data-legend-swatch="${kind}"[\\s\\S]*?</svg>`)) || [""])[0];
+      expect(swatchOf("hollow")).toMatch(/<circle[^>]*fill:var\(--c-surface\)/);
+      expect(swatchOf("fill")).toMatch(/<circle[^>]*fill:var\(--c-accent\)/);
+      expect(swatchOf("fill")).not.toMatch(/--c-surface/);
+    });
+  }
 
   it("見出し(label / unit)は出さない(単位は画面の側が出している)", () => {
     const html = drawPerson();

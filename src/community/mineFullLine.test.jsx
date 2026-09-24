@@ -38,8 +38,9 @@ const MINE = { alto: { notes: localNotes(MY_KEYS, 1400) } };
 const svgOf = (html) => (html.match(/<svg width="(\d+)" height="[\d.]+" viewBox="0 0 \1 [\s\S]*?<\/svg>/) || [""])[0];
 const seriesGroups = (svg) => [...svg.matchAll(/<g style="stroke:([^;]+);fill:[^"]+">([\s\S]*?)<\/g>/g)]
   .map((m) => ({ color: m[1], dots: [...m[2].matchAll(/<circle cx="([-\d.]+)"/g)].length }));
-const mineGroup = (html) => seriesGroups(svgOf(html)).find((g) => g.color === "var(--c-ink-2)");
-const otherGroup = (html) => seriesGroups(svgOf(html)).find((g) => g.color === "var(--c-accent)");
+// 【便AR】自分 = 紺(実測の見た目)、相手 = --c-ink-3(目安の見た目)
+const mineGroup = (html) => seriesGroups(svgOf(html)).find((g) => g.color === "var(--c-accent)");
+const otherGroup = (html) => seriesGroups(svgOf(html)).find((g) => g.color === "var(--c-ink-3)");
 
 const USERS = ["a", "b", "c"].map((u) => ({ uid: u, nickname: u, saxTypes: ["alto"], genres: [], position: "学生" }));
 const drawData = () => renderToStaticMarkup(
