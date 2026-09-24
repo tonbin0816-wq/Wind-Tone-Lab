@@ -24375,13 +24375,17 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     const metrics = new Function(`${metricsSrc} return RANK_METRICS;`)();
     check("52.7 C9 RANK_METRICS = 練習日数(days) | 練習時間(time)",
       metrics.map((m) => `${m.key}:${m.label}`).join(",") === "days:練習日数,time:練習時間", JSON.stringify(metrics));
-    check("52.7 C9 順位画面に SubTabs(App.jsx export)。既定は練習日数(useState(\"days\"))",
-      /<SubTabs items=\{RANK_METRICS\} value=\{metric\} onChange=\{setMetric\} \/>/.test(rank52)
+    // 【便AT 2026-09-24 本人指示】種類の切り替えは溝型(SegmentedTabs)に替わった(以前は SubTabs)。
+    check("52.7 C9/便AT 順位画面の種類は SegmentedTabs。既定は練習日数(useState(\"days\"))",
+      /<SegmentedTabs ariaLabel="順位の種類" items=\{RANK_METRICS\} value=\{metric\} onChange=\{setMetric\} \/>/.test(rank52)
+      && !/<SubTabs items=\{RANK_METRICS\}/.test(rank52)
       && /const \[metric, setMetric\] = useState\("days"\);/.test(rank52)
       && /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs(, NoteAxisLineChart, formatSignedCents)? \} from "\.\.\/App\.jsx";/.test(screens52));
-    check("52.7 C9 子タブは期間の Chip 行の**上**(FilterRow の下)",
-      rank52.indexOf("<FilterRow") < rank52.indexOf("<SubTabs items={RANK_METRICS}")
-      && rank52.indexOf("<SubTabs items={RANK_METRICS}") < rank52.indexOf('aria-label="期間"'));
+    // 【便AT】期間はチップの行をやめ、条件行(FilterRow)の4つ目(一番右)になった。
+    check("52.7 便AT 期間は条件行の4つ目(FilterRow に period / onPeriod を渡す)。種類の切り替えは条件行の下",
+      /<FilterRow value=\{filter\} onChange=\{setFilter\} period=\{period\} onPeriod=\{setPeriod\} \/>/.test(rank52)
+      && rank52.indexOf("<FilterRow") < rank52.indexOf("<SegmentedTabs")
+      && !/aria-label="期間"/.test(rank52) && !/PERIODS\.map/.test(rank52));
     check("52.7 C9 順位の算出は metric を渡す(rankByPractice(shown, period, undefined, metric))",
       /rankByPractice\(shown, period, undefined, metric\), \[shown, period, metric\]/.test(rank52));
     // 数字
@@ -24484,12 +24488,16 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
       /const days = person\.stats\?\.daysAll;/.test(person52) && countIn(person52, /PERIOD_(LABEL|FIELD|PHRASE)/g) === 0
       && countIn(person52, /練習時間/g) === 0);
     // 正典
-    check("52.7 C9 正典 CommRank.dc.html に子タブ「練習日数 | 練習時間」があり、期間の Chip より上",
-      /練習日数<\/div>/.test(dcRank52) && /練習時間<\/div>/.test(dcRank52)
-      && dcRank52.indexOf("練習時間</div>") < dcRank52.indexOf(">今週<"));
-    check("52.7 C9 正典 community.mjs: RANK_METRIC_TABS を subTabs で描く(写し)",
+    // 【便AT 2026-09-24 本人指示】正典も、種類は溝型・期間は条件行の4つ目(期間のチップの行は無い)。
+    check("52.7 便AT 正典 CommRank.dc.html: 練習日数 | 練習時間 は溝型(--c-sunken の溝・白い面)、期間は条件行の4つ目",
+      /練習日数<\/span>/.test(dcRank52) && /練習時間<\/span>/.test(dcRank52)
+      && /box-shadow: var\(--shadow-seg\)">練習日数<\/span>/.test(dcRank52)
+      && />期間<\/span>/.test(dcRank52) && dcRank52.indexOf(">期間</span>") < dcRank52.indexOf("練習日数</span>")
+      && !/>今週</.test(dcRank52));
+    check("52.7 便AT 正典 community.mjs: RANK_METRIC_TABS を segmented で描き、条件行に期間を渡す(写し)",
       /const RANK_METRIC_TABS = \[\["days", "練習日数"\], \["time", "練習時間"\]\];/.test(mjs52)
-      && /subTabs\("days", RANK_METRIC_TABS\)/.test(mjs52));
+      && /segmented\(RANK_METRIC_TABS\.map/.test(mjs52)
+      && /filterRow\(null, null, null, null\)/.test(mjs52));
   }
 
   // --- 52.8 C10 マイページの並び ------------------------------------------------------
@@ -25635,7 +25643,8 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   const screens62 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
   const all62 = codeOf(screens62);
   const person62 = codeOf(srcOfFn(screens62, "PersonSheet"));
-  const chip62 = codeOf(srcOfFn(screens62, "Chip"));
+  // 【便AT 2026-09-24】楽器の行の部品は Chip(枠線のピル)から SegmentedTabs(溝型)に替わった。
+  const chip62 = codeOf(srcOfFn(screens62, "SegmentedTabs"));
   const row62 = codeOf(srcOfFn(screens62, "SaxTypeRow"));
   const bs62 = codeOf(srcOfFn(src, "BottomSheet"));
   const count62 = (t, re) => (t.match(re) || []).length;
@@ -25667,10 +25676,11 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   }
 
   // --- 62.2 2-B 楽器の行を4つ等分 + 3つの状態(案ア) ---------------------------
-  check("62.2 2-B 楽器の行を描く部品は1つ(radiogroup の直書きが2箇所に無い)",
-    count62(all62, /role="radiogroup" aria-label="楽器種別"/g) === 1
+  check("62.2 2-B 楽器の行を描く部品は1つ(「楽器種別」の切り替えを名乗るのは SaxTypeRow だけ)",
+    count62(all62, /ariaLabel="楽器種別"/g) === 1
+    && /ariaLabel="楽器種別"/.test(row62)
     && count62(person62, /role="radiogroup"/g) === 0,
-    `直書き ${count62(all62, /role="radiogroup" aria-label="楽器種別"/g)}箇所 / 人物画面の中 ${count62(person62, /role="radiogroup"/g)}箇所`);
+    `名乗り ${count62(all62, /ariaLabel="楽器種別"/g)}箇所 / 人物画面の中 ${count62(person62, /role="radiogroup"/g)}箇所`);
   check("62.2 2-B 表(音のデータ)と裏(プロフィール)の両方が同じ部品を呼ぶ",
     count62(person62, /<SaxTypeRow /g) === 2
     && count62(person62, /playing=\{person\.saxTypes\}/g) === 2,
@@ -25684,32 +25694,39 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
       saxTypes62.length === 4 && saxTypes62.map((t) => saxLabels62[t]).join(" ") === "S.Sax A.Sax T.Sax B.Sax",
       saxTypes62.map((t) => saxLabels62[t]).join(" "));
   }
-  check("62.2 2-B 4つは等分(grow を渡し、Chip の grow が flex: 1 1 0 になる)",
-    /\bgrow\b/.test(row62) && /flex: grow \? "1 1 0" : "0 0 auto"/.test(chip62));
+  check("62.2 2-B/便AT 4つは等分(溝は grid の列を minmax(0, 1fr) で等しく切る)",
+    /gridAutoFlow: "column", gridAutoColumns: "minmax\(0, 1fr\)"/.test(chip62)
+    && /<SegmentedTabs /.test(row62));
   {
-    // **色は綴りで見ない。**枠と字の式をソースから取り出して3つの状態で実際に評価する。
-    // (吹かない楽器に枠を付ける変異は、ここで枠の値が変わって落ちる。)
-    const borderExpr62 = (chip62.match(/border: `1px solid \$\{([^`]+)\}`/) || [])[1];
-    const colorExpr62 = (chip62.match(/color: (off \? [^\r\n]*),\r?\n/) || [])[1];
-    const paint62 = (on, off) => new Function("on", "off", `return [${borderExpr62}, ${colorExpr62}];`)(on, off);
+    // **色は綴りで見ない。**面と字の式をソースから取り出して3つの状態で実際に評価する。
+    // 【便AT 2026-09-24】部品が溝型(SegmentedTabs)に替わり、状態は「白い面の有無」と「字の色」で分かれる。
+    // (吹かない楽器に白い面を乗せる / 字を濃くする変異は、ここで値が変わって落ちる。)
+    const onExpr62 = (chip62.match(/const on = ([^;\r\n]+);/) || [])[1];
+    const bgExpr62 = (chip62.match(/background: (on \? "var\(--c-surface\)" : "transparent"),/) || [])[1];
+    const colorExpr62 = (chip62.match(/color: (it\.disabled \? [^\r\n]*),\r?\n/) || [])[1];
+    const paint62 = (selected, disabled) => new Function("it", "value",
+      `const on = ${onExpr62}; return [${bgExpr62}, ${colorExpr62}];`)({ key: "a", disabled }, selected ? "a" : "b");
     const sel62 = paint62(true, false);
     const play62 = paint62(false, false);
     const mute62 = paint62(false, true);
-    check("62.2 2-B 状態1 いま見ているデータの楽器 = 枠 --c-accent / 字 --c-accent",
-      sel62[0] === "var(--c-accent)" && sel62[1] === "var(--c-accent)", sel62.join(" / "));
-    check("62.2 2-B 状態2 その人が吹く楽器 = 枠 --c-line-strong / 字 --c-ink-2(いまの非選択のまま)",
-      play62[0] === "var(--c-line-strong)" && play62[1] === "var(--c-ink-2)", play62.join(" / "));
-    check("62.2 2-B 状態3 吹かない楽器 = 枠 transparent / 字 --c-line-strong",
+    const muteSel62 = paint62(true, true);
+    check("62.2 2-B 状態1 いま見ているデータの楽器 = 白い面 --c-surface / 字 --c-ink",
+      sel62[0] === "var(--c-surface)" && sel62[1] === "var(--c-ink)", sel62.join(" / "));
+    check("62.2 2-B 状態2 その人が吹く楽器 = 面なし / 字 --c-ink-3",
+      play62[0] === "transparent" && play62[1] === "var(--c-ink-3)", play62.join(" / "));
+    check("62.2 2-B 状態3 吹かない楽器 = 面なし / 字 --c-line-strong(以前のチップの off と同じ色)",
       mute62[0] === "transparent" && mute62[1] === "var(--c-line-strong)", mute62.join(" / "));
-    check("62.2 2-B 3つの状態はすべて違う見え方になる(枠か字のどちらかが必ず違う)",
+    check("62.2 2-B 吹かない楽器には、選んだ値と一致しても白い面が乗らない",
+      muteSel62[0] === "transparent" && muteSel62[1] === "var(--c-line-strong)", muteSel62.join(" / "));
+    check("62.2 2-B 3つの状態はすべて違う見え方になる(面か字のどちらかが必ず違う)",
       new Set([sel62.join("|"), play62.join("|"), mute62.join("|")]).size === 3);
   }
   check("62.2 2-B 吹かない楽器は押せない(<button> にも role=\"radio\" にもしない)",
-    /if \(off\) return <span className="sans" style=\{boxStyle\}>\{pill\}<\/span>;/.test(chip62)
+    /if \(it\.disabled\) return <span key=\{it\.key\} className="sans" style=\{box\}>\{face\}<\/span>;/.test(chip62)
     && count62(chip62, /<button/g) === 1 && count62(chip62, /role="radio"/g) === 1,
     `button ${count62(chip62, /<button/g)} / radio ${count62(chip62, /role="radio"/g)}`);
   check("62.2 2-B 吹くかどうかは person.saxTypes で決める(目安や楽器の組の有無では決めない)",
-    /const plays = new Set\(playing \?\? \[\]\);/.test(row62) && /off=\{!plays\.has\(t\)\}/.test(row62));
+    /const plays = new Set\(playing \?\? \[\]\);/.test(row62) && /disabled: !plays\.has\(t\)/.test(row62));
   // 【実測で踏んだ 2026-09-19】案アで「吹くがデータが無い種別」が押せるようになったのに、
   // 種別を正す useEffect は types(データのある種別)だけを有効とみなしたままだった。
   // T.Sax を押しても A.Sax に引き戻され、**押せるのに何も起きない**行になっていた。
@@ -25770,10 +25787,11 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     ["S\\.Sax", "A\\.Sax", "T\\.Sax", "B\\.Sax"].every((t) =>
       count62(front62, new RegExp(t, "g")) === 1 && count62(back62, new RegExp(t, "g")) === 1),
     ["S.Sax", "A.Sax", "T.Sax", "B.Sax"].map((t) => `${t}:${count62(front62, new RegExp(t.replace(".", "\\."), "g"))}`).join(" "));
-  check("62.6 正典 吹かない2つは枠 transparent・字 --c-line-strong(表・裏とも2つ)",
-    count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2
-    && count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2,
-    `表 ${count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)} / 裏 ${count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)}`);
+  // 【便AT 2026-09-24】正典も溝型。吹かない2つは字 --c-line-strong・面なし(transparent)。
+  check("62.6 正典 吹かない2つは字 --c-line-strong・面なし(表・裏とも2つ)",
+    count62(front62, /color: var\(--c-line-strong\); background: transparent/g) === 2
+    && count62(back62, /color: var\(--c-line-strong\); background: transparent/g) === 2,
+    `表 ${count62(front62, /color: var\(--c-line-strong\); background: transparent/g)} / 裏 ${count62(back62, /color: var\(--c-line-strong\); background: transparent/g)}`);
   check("62.6 正典 CommPerson から「音のデータ」の見出しが消え、CommPersonBack の「楽器の組」は残る",
     !/>音のデータ</.test(front62) && />楽器の組</.test(back62));
   check("62.6 正典 グラフの上の一行は単位だけ(`Hz　計測n件`。指標名は落ちた)",

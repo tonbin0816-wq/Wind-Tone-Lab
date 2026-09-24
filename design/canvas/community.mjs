@@ -84,20 +84,23 @@ ${row.join("\n")}
 }
 
 // FilterPill / FilterRow(screens.jsx): 当たり 44 / 見えるピル 34 / 地は --c-sunken / 枠なし
-function filterPill(label, value) {
+function filterPill(label, value, dense = false) {
   const on = value !== null;
   return `        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
-          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: ${on ? 700 : 600}; color: ${on ? "var(--c-ink)" : "var(--c-ink-3)"}; white-space: nowrap; overflow: hidden">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 ${dense ? 6 : 10}px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: ${on ? 700 : 600}; color: ${on ? "var(--c-ink)" : "var(--c-ink-3)"}; white-space: nowrap; overflow: hidden">
             <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">${on ? value : label}</span>
             <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </span>
         </span>`;
 }
-function filterRow(sax, genre, position) {
-  return `<div style="display: flex; gap: var(--sp-2)">
-${filterPill("楽器", sax)}
-${filterPill("ジャンル", genre)}
-${filterPill("属性", position)}
+// 【便AT 2026-09-24 本人指示】順位だけ、4つ目(一番右)に期間のピル。4つのときは隙間 --sp-1・内側 6。
+// period は undefined なら3つ、null なら「すべて」(薄い字の「期間」)、文字列なら選んだ期間。
+function filterRow(sax, genre, position, period) {
+  const four = period !== undefined;
+  return `<div style="display: flex; gap: ${four ? "var(--sp-1)" : "var(--sp-2)"}">
+${filterPill("楽器", sax, four)}
+${filterPill("ジャンル", genre, four)}
+${filterPill("属性", position, four)}${four ? "\n" + filterPill("期間", period, true) : ""}
       </div>`;
 }
 
@@ -110,13 +113,28 @@ function chip(text, on, grow = true, off = false) {
         </span>`;
 }
 
-// 人物画面の楽器の行(SaxTypeRow)。**表と裏が同じ1つの部品**。束2 2026-09-19 案ア:
-// SAX_TYPES の4つを常に等分で並べ、選択中 / 吹く / 吹かない を枠の段階で分ける。
-function saxTypeRow(selected, plays) {
-  return `      <div style="display: flex; gap: var(--sp-1)">
-${["S.Sax", "A.Sax", "T.Sax", "B.Sax"]
-    .map((t) => chip(t, t === selected, true, !plays.includes(t))).join("\n")}
+// SegmentedTabs(screens.jsx): 【便AT 2026-09-24 本人指示】溝型の切り替え。
+// 溝 --c-sunken・角 --r-2・高さ 44 / 押せる箱は溝の高さいっぱい / 見える白い面 36・角 --r-1・影 --shadow-seg。
+// 字 --fs-md。選択中 --c-ink 700 / 選べる --c-ink-3 600 / 選べない --c-line-strong 600(面は乗らない)。
+// items = [[label, state]] state: "on" | "off"(選べる) | "dis"(選べない)
+function segmented(items) {
+  const cells = items.map(([label, st]) => {
+    const on = st === "on";
+    const color = st === "dis" ? "var(--c-line-strong)" : on ? "var(--c-ink)" : "var(--c-ink-3)";
+    return `        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: ${on ? 700 : 600}; color: ${color}; background: ${on ? "var(--c-surface)" : "transparent"}; box-shadow: ${on ? "var(--shadow-seg)" : "none"}">${label}</span>
+        </span>`;
+  });
+  return `<div style="display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); background: var(--c-sunken); border-radius: var(--r-2); padding: 0 2px; min-height: 44px">
+${cells.join("\n")}
       </div>`;
+}
+
+// 人物画面・マイページの楽器の行(SaxTypeRow)。【便AT】溝型。SAX_TYPES の4つを常に並べ、
+// 選択中 / 吹く(登録している) / 吹かない(押せない) の3つ。
+function saxTypeRow(selected, plays) {
+  return `      ${segmented(["S.Sax", "A.Sax", "T.Sax", "B.Sax"]
+    .map((t) => [t, !plays.includes(t) ? "dis" : t === selected ? "on" : "off"]))}`;
 }
 
 const CARD = "background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)";
@@ -446,16 +464,11 @@ function rankRow(p, rank, big) {
 function buildRank() {
   const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRowEdge(p, i + 1)}`);
   const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
-  const chips = ["今週", "今月", "今年", "すべて"].map((t) => chip(t, t === "すべて"));
+  // 【便AT 2026-09-24 本人指示】種類(練習日数 | 練習時間)は溝型の切り替え、期間は条件行の4つ目。
+  // 期間のチップの行は消えた。既定の「すべて」は他の3つと同じく薄い字の項目名(期間)。
+  return screen("rank", `${filterRow(null, null, null, null)}
 
-  // 【C8・C9 2026-09-16】「練習日数 すべて」の見出し行は消え、種類は子タブ(練習日数 | 練習時間)が言う。
-  return screen("rank", `${filterRow(null, null, null)}
-
-      ${subTabs("days", RANK_METRIC_TABS)}
-
-      <div style="display: flex; gap: var(--sp-1)">
-${chips.join("\n")}
-      </div>
+      ${segmented(RANK_METRIC_TABS.map(([k, label]) => [label, k === "days" ? "on" : "off"]))}
 
       <div style="display: grid; gap: var(--sp-3)">
 ${top.join("\n")}
@@ -532,16 +545,15 @@ function buildMyPage() {
       <div>
 ${infoRow("ニックネーム", "tone-lab")}
 ${infoRow("楽器種別", "A.Sax・T.Sax")}
-        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">A.Sax</div>
+        <!-- 【便AT 2026-09-24 本人指示】楽器の組は SaxTypeRow の切り替えで1組ずつ(登録していない種別は押せない)。
+             以前は種別ごとに見出し + 4行を縦に積んでいた。ここは A.Sax を選んでいる姿。 -->
+        <div style="padding: var(--sp-3) 0 var(--sp-1)">
+${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
+        </div>
 ${infoRow("楽器", "YAMAHA YAS-875EX")}
 ${infoRow("マウスピース", "Selmer Paris S90 190")}
 ${infoRow("リガチャー", "BG Tradition")}
 ${infoRow("リード", 'Vandoren Traditional <span style="' + NUM + '">3.0</span>')}
-        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">T.Sax</div>
-${infoRow("楽器", "Selmer Paris Mark VI")}
-${infoRow("マウスピース", "Otto Link Tone Edge")}
-${infoRow("リガチャー", "未選択")}
-${infoRow("リード", 'Vandoren Java <span style="' + NUM + '">2.5</span>')}
 ${infoRow("属性", "職業音楽家")}
 ${infoRow("演奏開始年", '<span style="' + NUM + '">2006</span>年')}
 ${infoRow("ジャンル", "ジャズ・ポップス")}

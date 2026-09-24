@@ -35,6 +35,7 @@
       --c-quiet: #C7CFD9;
       --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
@@ -70,7 +71,24 @@
           <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器種別</div>
           <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">A.Sax・T.Sax</div>
         </div>
-        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">A.Sax</div>
+        <!-- 【便AT 2026-09-24 本人指示】楽器の組は SaxTypeRow の切り替えで1組ずつ(登録していない種別は押せない)。
+             以前は種別ごとに見出し + 4行を縦に積んでいた。ここは A.Sax を選んでいる姿。 -->
+        <div style="padding: var(--sp-3) 0 var(--sp-1)">
+      <div style="display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); background: var(--c-sunken); border-radius: var(--r-2); padding: 0 2px; min-height: 44px">
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 600; color: var(--c-line-strong); background: transparent; box-shadow: none">S.Sax</span>
+        </span>
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 700; color: var(--c-ink); background: var(--c-surface); box-shadow: var(--shadow-seg)">A.Sax</span>
+        </span>
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 600; color: var(--c-ink-3); background: transparent; box-shadow: none">T.Sax</span>
+        </span>
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 600; color: var(--c-line-strong); background: transparent; box-shadow: none">B.Sax</span>
+        </span>
+      </div>
+        </div>
         <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
           <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器</div>
           <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">YAMAHA YAS-875EX</div>
@@ -86,23 +104,6 @@
         <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
           <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リード</div>
           <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Vandoren Traditional <span style="font-family: var(--font-num)">3.0</span></div>
-        </div>
-        <div style="font-size: var(--fs-sm); color: var(--c-ink); font-weight: 700; padding: var(--sp-3) 0 var(--sp-1)">T.Sax</div>
-        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">楽器</div>
-          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Selmer Paris Mark VI</div>
-        </div>
-        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">マウスピース</div>
-          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Otto Link Tone Edge</div>
-        </div>
-        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リガチャー</div>
-          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">未選択</div>
-        </div>
-        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">リード</div>
-          <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">Vandoren Java <span style="font-family: var(--font-num)">2.5</span></div>
         </div>
         <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
           <div style="font-size: var(--fs-xs); color: var(--c-ink-2); font-weight: 600; flex: 0 0 6.5em">属性</div>

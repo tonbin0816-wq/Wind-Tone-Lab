@@ -99,7 +99,58 @@ function UnderlineTabs({ items, value, onChange, label }) {
 }
 
 // ------------------------------------------------------------------
-// 選択チップ。**当たり判定 44px / 見えるピルは 30px**。
+// 溝型の切り替え(SegmentedTabs)
+//
+// 【便AT 2026-09-24 本人指示】「タブ切り替えを4枚目(別のアプリの『打撃成績 | 投手成績』)の
+// デザインと同じにして」。灰色の溝の中で、選んでいる側だけが白く浮き上がる形。
+// 使う場所は3つ: 順位の種類(練習日数 | 練習時間)・人物紹介の楽器・マイページの楽器。
+// 以前の選択チップ(Chip。枠線のピル)はこれに置き換わって、読み手がいなくなったので消した。
+//
+// 寸法: 溝(--c-sunken・角 --r-2)は高さ 44。**押せる箱は溝の高さいっぱい(44)**で、
+// 見える白い面(角 --r-1)は内側 36。文字は --fs-md。
+// 選べない項目(disabled)は溝の中に並べるが、字を --c-line-strong まで落として押せなくする
+// (<button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。以前の
+// Chip の off と同じ作法・同じ色)。白い面は選べる項目にしか乗らない。
+// ------------------------------------------------------------------
+export function SegmentedTabs({ items, value, onChange, ariaLabel }) {
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} style={{
+      display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(0, 1fr)",
+      background: "var(--c-sunken)", borderRadius: "var(--r-2)", padding: "0 2px",
+      minHeight: "var(--tap-min)",
+    }}>
+      {items.map((it) => {
+        const on = !it.disabled && it.key === value;
+        const face = (
+          <span style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: "100%", minWidth: 0, minHeight: 36, padding: "0 4px", boxSizing: "border-box",
+            borderRadius: "var(--r-1)", whiteSpace: "nowrap", overflow: "hidden",
+            fontSize: "var(--fs-md)", fontWeight: on ? 700 : 600,
+            color: it.disabled ? "var(--c-line-strong)" : on ? "var(--c-ink)" : "var(--c-ink-3)",
+            background: on ? "var(--c-surface)" : "transparent",
+            boxShadow: on ? "var(--shadow-seg)" : "none",
+          }}>{it.label}</span>
+        );
+        const box = {
+          display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0,
+          minHeight: "var(--tap-min)", padding: "0 2px", border: "none", background: "none",
+        };
+        if (it.disabled) return <span key={it.key} className="sans" style={box}>{face}</span>;
+        return (
+          <button key={it.key} type="button" role="radio" aria-checked={on}
+            onClick={() => onChange(it.key)} className="sans"
+            style={{ ...box, cursor: "pointer" }}>
+            {face}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// 【消した部品の記録 便AT】選択チップ(Chip)。**当たり判定 44px / 見えるピルは 30px**。
 // 本人指摘「44ptの決まりはあるが明らかに大きすぎる」への答えで、
 // 箱ではなく中身を小さくする(§5「見た目の大きさは変えない。当たり判定だけ広げる」)。
 // 先例: §5.1 My Data の式の行 20px / §5.2 分析タブのチップ 30px。
@@ -111,31 +162,8 @@ function UnderlineTabs({ items, value, onChange, label }) {
 // (`1px solid transparent` ── 枠を 0 にすると寸法が 2px ずれて行が揃わなくなる)。
 // 字も --c-line-strong まで落とす。**新しい色は作らない**(枠に使っている既存の値)。
 // 押せないので <button> にも role="radio" にもしない ── 読み上げにも「選べる」と言わせない。
-function Chip({ on, onClick, children, grow = false, ariaLabel, off = false }) {
-  const boxStyle = {
-    minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
-    justifyContent: "center", padding: 0, border: "none", background: "none",
-    flex: grow ? "1 1 0" : "0 0 auto", minWidth: 0,
-  };
-  const pill = (
-    <span style={{
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
-      border: `1px solid ${off ? "transparent" : on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
-      color: off ? "var(--c-line-strong)" : on ? "var(--c-accent)" : "var(--c-ink-2)",
-      fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
-      width: grow ? "100%" : "auto", boxSizing: "border-box",
-    }}>{children}</span>
-  );
-  if (off) return <span className="sans" style={boxStyle}>{pill}</span>;
-  return (
-    <button type="button" role="radio" aria-checked={on} aria-label={ariaLabel}
-      onClick={onClick} className="sans"
-      style={{ ...boxStyle, cursor: "pointer" }}>
-      {pill}
-    </button>
-  );
-}
+// (この「選びようが無いものは字を --c-line-strong まで落とし、押せなくする」は SegmentedTabs の
+//  disabled がそのまま受け継いでいる。)
 
 // ------------------------------------------------------------------
 // 条件行。**3画面が同じ部品を同じ位置(上部1行)に置く。**
@@ -156,7 +184,7 @@ function Chip({ on, onClick, children, grow = false, ariaLabel, off = false }) {
 // 見た目のピルは aria-hidden にして、読み上げは select が担う。
 // allowAny=false のとき「すべて」は出さない。シェアとデータは楽器種別ごとに
 // 1組を数える画面で、種別が決まらないと何の内訳なのか言えないため(争点B)。
-function FilterPill({ label, value, options, labelOf, onChange, allowAny = true }) {
+function FilterPill({ label, value, options, labelOf, onChange, allowAny = true, dense = false }) {
   // 「すべて」が無いピルは常に値を持つので、常に「選んでいる」濃さで出る。
   const on = value !== ANY;
   return (
@@ -176,7 +204,9 @@ function FilterPill({ label, value, options, labelOf, onChange, allowAny = true 
       </select>
       <span aria-hidden="true" className="sans" style={{
         display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
-        width: "100%", minWidth: 0, minHeight: 34, padding: "0 10px", boxSizing: "border-box",
+        // 【便AT】4つ並ぶ行(順位)は1つ 80px 前後になるので、左右の内側を 10 → 6 に詰める
+        // (「ジャンル」+ 下向きの印が 59px。10 のままだと「ジャン…」になる)。
+        width: "100%", minWidth: 0, minHeight: 34, padding: dense ? "0 6px" : "0 10px", boxSizing: "border-box",
         background: "var(--c-sunken)", borderRadius: "var(--r-pill)",
         fontSize: "var(--fs-xs)", fontWeight: on ? 700 : 600,
         color: on ? "var(--c-ink)" : "var(--c-ink-3)", whiteSpace: "nowrap", overflow: "hidden",
@@ -192,15 +222,24 @@ function FilterPill({ label, value, options, labelOf, onChange, allowAny = true 
   );
 }
 
-export function FilterRow({ value, onChange, saxAny = true }) {
+// 【便AT 2026-09-24 本人指示】「期間は上部の楽器ジャンル属性と同じように4つ横並びにして
+// 一番右側に加えて」。period / onPeriod を渡した画面(順位)だけ、4つ目に期間のピルが出る。
+// 「すべて」は他の3つの「すべて」と同じ扱い(薄い字で項目名「期間」)。選ぶと「今週」などに替わる。
+export function FilterRow({ value, onChange, saxAny = true, period = null, onPeriod = null }) {
+  const withPeriod = period !== null && typeof onPeriod === "function";
   return (
-    <div style={{ display: "flex", gap: "var(--sp-2)" }}>
-      <FilterPill label="楽器" value={value.saxType} options={SAX_TYPES} allowAny={saxAny}
+    <div style={{ display: "flex", gap: withPeriod ? "var(--sp-1)" : "var(--sp-2)" }}>
+      <FilterPill label="楽器" value={value.saxType} options={SAX_TYPES} allowAny={saxAny} dense={withPeriod}
         labelOf={(t) => SAX_LABELS[t]} onChange={(v) => onChange({ ...value, saxType: v })} />
-      <FilterPill label="ジャンル" value={value.genre} options={GENRES}
+      <FilterPill label="ジャンル" value={value.genre} options={GENRES} dense={withPeriod}
         onChange={(v) => onChange({ ...value, genre: v })} />
-      <FilterPill label="属性" value={value.position} options={POSITIONS}
+      <FilterPill label="属性" value={value.position} options={POSITIONS} dense={withPeriod}
         onChange={(v) => onChange({ ...value, position: v })} />
+      {withPeriod ? (
+        <FilterPill label="期間" dense value={period === "all" ? ANY : period}
+          options={PERIODS.filter((p) => p !== "all")} labelOf={(p) => PERIOD_LABEL[p]}
+          onChange={(v) => onPeriod(v === ANY ? "all" : v)} />
+      ) : null}
     </div>
   );
 }
@@ -362,7 +401,8 @@ function NameLine({ nickname, mine, size }) {
 // 2位・3位は光らせない(1位を立てるための光なので、全員光ると意味が消える)。
 const RANK_COLOR = { 1: "var(--c-rank-1)", 2: "var(--c-rank-2)", 3: "var(--c-rank-3)" };
 
-// 【C9 2026-09-16 実機の指摘】順位の2種類。子タブ(SubTabs)の項目。
+// 【C9 2026-09-16 実機の指摘】順位の2種類。
+// 【便AT 2026-09-24 本人指示】切り替えは溝型(SegmentedTabs)。以前は子タブ(SubTabs)だった。
 const RANK_METRICS = [{ key: "days", label: "練習日数" }, { key: "time", label: "練習時間" }];
 // 練習時間の表示は 時間・小数1桁(My Data の累計 hoursText と同じ作り)。row.sec は整数秒。
 const hoursText = (sec) => (Math.round(sec / 360) / 10).toFixed(1);
@@ -473,17 +513,12 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
 
   return (
     <div style={pageStyle}>
-      <FilterRow value={filter} onChange={setFilter} />
-      {/* 【C9】種類の切替は子タブ(データタブの平均と同じ SubTabs)。期間の Chip はその下。
-          【C8】見出しの行(「練習日数 今週」)は消した ── 何の順位かは子タブが言い、
-          期間は選ばれた Chip が言っている。 */}
-      <SubTabs items={RANK_METRICS} value={metric} onChange={setMetric} />
-      {/* 期間は状態を持つので A型のチップ。当たり判定44px / 見た目30px */}
-      <div role="radiogroup" aria-label="期間" style={{ display: "flex", gap: "var(--sp-1)" }}>
-        {PERIODS.map((p) => (
-          <Chip key={p} on={p === period} grow onClick={() => setPeriod(p)}>{PERIOD_LABEL[p]}</Chip>
-        ))}
-      </div>
+      {/* 【便AT 2026-09-24 本人指示】期間は条件行の4つ目(一番右)。以前はチップの行だった。 */}
+      <FilterRow value={filter} onChange={setFilter} period={period} onPeriod={setPeriod} />
+      {/* 【便AT】種類の切替は溝型(SegmentedTabs)。
+          【C8】見出しの行(「練習日数 今週」)は消した ── 何の順位かは切り替えが言い、
+          期間は条件行の4つ目が言っている。 */}
+      <SegmentedTabs ariaLabel="順位の種類" items={RANK_METRICS} value={metric} onChange={setMetric} />
 
       {ranked.length === 0 ? (
         <Empty onClear={isFiltered(filter) ? () => setFilter(EMPTY_FILTER) : null}>
@@ -1094,25 +1129,22 @@ function InfoLine({ label, value }) {
 // 伸びて「ボタン1つ」に見えていた。SAX_TYPES の4つを `flex: 1 1 0` で等分に並べれば
 // 幅は常に 1/4 で、行が何を選ぶものなのかも読める。
 //
-// 【3つの状態は枠を段階的に減らして分ける】新しい色は1つも作らない:
-//   1. いま見ているデータの楽器 … 枠 --c-accent / 字 --c-accent(Chip の選択中そのまま)
-//   2. その人が吹く楽器         … 枠 --c-line-strong / 字 --c-ink-2(Chip の非選択そのまま)
-//   3. 吹かない楽器             … 枠なし(transparent) / 字 --c-line-strong。押せない
-// 3 に枠が無いのは index.css §6.7「枠線は状態を持つものにだけ」に沿うため ──
-// 吹かない種別は選択に切り替わりようがないので、状態を持たない。
+// 【3つの状態】(便AT 2026-09-24 に溝型へ。新しい色は作っていない):
+//   1. いま見ているデータの楽器 … 白い面(--c-surface・--shadow-seg)/ 字 --c-ink 太字
+//   2. その人が吹く楽器         … 面なし / 字 --c-ink-3
+//   3. 吹かない楽器             … 面なし / 字 --c-line-strong。押せない
+// (以前は枠線のチップで、1 = 枠と字 --c-accent、2 = 枠 --c-line-strong・字 --c-ink-2、3 = 枠なし。)
 //
 // 【吹くかどうかは person.saxTypes で決める】目安や楽器の組があるかは問わない。
 // 「吹くが何も公開していない」は 2 で、「吹かない」は 3 で、別のことだと読める。
 // ------------------------------------------------------------------
-function SaxTypeRow({ saxType, playing, onPick }) {
+// 【便AT 2026-09-24】溝型(SegmentedTabs)で描く。**マイページも同じこの部品を使う**
+// (本人指示「その楽器を登録していない人はタブの表自体は同じように出すが、切り替えはできないように」)。
+export function SaxTypeRow({ saxType, playing, onPick }) {
   const plays = new Set(playing ?? []);
   return (
-    <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
-      {SAX_TYPES.map((t) => (
-        <Chip key={t} on={t === saxType} off={!plays.has(t)} grow
-              onClick={() => onPick(t)}>{SAX_LABELS[t]}</Chip>
-      ))}
-    </div>
+    <SegmentedTabs ariaLabel="楽器種別" value={saxType} onChange={onPick}
+      items={SAX_TYPES.map((t) => ({ key: t, label: SAX_LABELS[t], disabled: !plays.has(t) }))} />
   );
 }
 

@@ -35,6 +35,7 @@
       --c-quiet: #C7CFD9;
       --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
+      --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
@@ -66,44 +67,39 @@
       </div>
     </div>
     <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
-      <div style="display: flex; gap: var(--sp-2)">
+      <div style="display: flex; gap: var(--sp-1)">
         <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
-          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 6px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
             <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">楽器</span>
             <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </span>
         </span>
         <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
-          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 6px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
             <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">ジャンル</span>
             <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </span>
         </span>
         <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
-          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 10px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 6px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
             <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">属性</span>
+            <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </span>
+        <span style="flex: 1 1 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-width: 0; min-height: 34px; padding: 0 6px; box-sizing: border-box; background: var(--c-sunken); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3); white-space: nowrap; overflow: hidden">
+            <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">期間</span>
             <svg width="7" height="7" viewBox="0 0 10 10" style="flex: none; opacity: .55" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </span>
         </span>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 0; margin-left: -9px; margin-bottom: 0">
-        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 700; color: var(--c-ink); line-height: 1.2">練習日数</div>
-        <div style="min-height: 44px; min-width: 44px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 400; color: var(--c-ink-3); line-height: 1.2">練習時間</div>
-      </div>
-
-      <div style="display: flex; gap: var(--sp-1)">
-        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
-          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">今週</span>
+      <div style="display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); background: var(--c-sunken); border-radius: var(--r-2); padding: 0 2px; min-height: 44px">
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 700; color: var(--c-ink); background: var(--c-surface); box-shadow: var(--shadow-seg)">練習日数</span>
         </span>
-        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
-          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">今月</span>
-        </span>
-        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
-          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); color: var(--c-ink-2); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">今年</span>
-        </span>
-        <span style="min-height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0">
-          <span style="display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 13px; border-radius: var(--r-pill); border: 1px solid var(--c-accent); color: var(--c-accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; width: 100%; box-sizing: border-box">すべて</span>
+        <span style="display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 0 2px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; padding: 0 4px; box-sizing: border-box; border-radius: var(--r-1); white-space: nowrap; overflow: hidden; font-size: var(--fs-md); font-weight: 600; color: var(--c-ink-3); background: transparent; box-shadow: none">練習時間</span>
         </span>
       </div>
 

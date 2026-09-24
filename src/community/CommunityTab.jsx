@@ -16,7 +16,7 @@ import {
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
-import { RankScreen, ShareScreen, DataScreen, PersonSheet, usePublicUsers } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -1496,6 +1496,11 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   const gear = profile?.gear ?? {};
   // 表示順は SAX_TYPES の並びに揃える(保存されている配列の順に依らず同じ画面になる)。
   const types = SAX_TYPES.filter((t) => (profile?.saxTypes ?? []).includes(t));
+  // 【便AT】楽器の組の切り替え。押した種別(gearPick)が登録から外れていたら(編集で消した等)、
+  // 登録している最初の種別に戻る。最初に開いたときも登録している最初の種別。
+  const [gearPick, setGearPick] = useState(null);
+  const gearType = types.includes(gearPick) ? gearPick : (types[0] ?? null);
+  const shownGear = (gearType && gear[gearType]) || {};
   const isPublic = profile?.isPublic !== false;
 
   // 【M2】開くときに今の値を下書きへ写す(シートを閉じて開き直しても、
@@ -1676,20 +1681,20 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
         <Row label="楽器種別" value={listOrDash(types.map((t) => SAX_LABELS[t]))} />
-        {/* 楽器の組は楽器種別ごとに1組。どの楽器の楽器の組かが分からないと読めないので、
-            種別の見出しを挟んでから3行を出す。 */}
-        {types.map((t) => {
-          const g = gear[t] ?? {};
-          return (
-            <React.Fragment key={t}>
-              <div className="sans jp-label" style={{ ...gearHeadingStyle, padding: "var(--sp-3) 0 var(--sp-1)" }}>{SAX_LABELS[t]}</div>
-              <Row label="楽器" value={gearLabel({ brand: g.instrumentBrand, model: g.instrumentModel })} />
-              <Row label="マウスピース" value={gearLabel({ brand: g.mpBrand, model: g.mpModel })} />
-              <Row label="リガチャー" value={gearLabel({ brand: g.ligBrand, model: g.ligModel })} />
-              <Row label="リード" value={reedLabel(g)} />
-            </React.Fragment>
-          );
-        })}
+        {/* 【便AT 2026-09-24 本人指示】楽器の組は「S.Sax | A.Sax | T.Sax | B.Sax」の切り替えで
+            1組ずつ出す(人物紹介と同じ SaxTypeRow)。登録していない楽器も並ぶが押せない。
+            以前は登録した種別の数だけ、見出し + 4行の組を縦に積んでいた。 */}
+        {gearType ? (
+          <>
+            <div style={{ padding: "var(--sp-3) 0 var(--sp-1)" }}>
+              <SaxTypeRow saxType={gearType} playing={types} onPick={setGearPick} />
+            </div>
+            <Row label="楽器" value={gearLabel({ brand: shownGear.instrumentBrand, model: shownGear.instrumentModel })} />
+            <Row label="マウスピース" value={gearLabel({ brand: shownGear.mpBrand, model: shownGear.mpModel })} />
+            <Row label="リガチャー" value={gearLabel({ brand: shownGear.ligBrand, model: shownGear.ligModel })} />
+            <Row label="リード" value={reedLabel(shownGear)} />
+          </>
+        ) : null}
         <Row label="属性" value={positionLabel(profile?.position) ?? "—"} />
         <Row label="演奏開始年" value={profile?.startYear ? `${profile.startYear}年` : "—"} />
         <Row label="ジャンル" value={listOrDash(profile?.genres)} />
