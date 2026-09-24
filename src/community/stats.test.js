@@ -196,6 +196,22 @@ describe("validateStats", () => {
   });
 });
 
+// 【便AN 2026-09-24】楽器の組と練習記録の検査は、評価する式の数を減らすために
+// 関数(validGearEntry / optStr60 / validStats / boundedInt)へ畳んだ。
+// 検査はその**関数の中身**と、**各所がその関数を呼んでいること**の両方を見る。
+// 片方だけだと「関数は正しいが誰も呼んでいない」を見逃す。
+const ruleFnBody = (rulesText, name) => {
+  const at = rulesText.indexOf(`function ${name}(`);
+  if (at < 0) return "";
+  const open = rulesText.indexOf("{", at);
+  let depth = 0;
+  for (let i = open; i < rulesText.length; i++) {
+    if (rulesText[i] === "{") depth += 1;
+    else if (rulesText[i] === "}") { depth -= 1; if (depth === 0) return rulesText.slice(open, i + 1); }
+  }
+  return "";
+};
+
 describe("firestore.rules との同期", () => {
   const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
   // 改行と空白を1つに潰す(hasOnly の9キーは rules 側で2行に折り返している)。
@@ -204,24 +220,38 @@ describe("firestore.rules との同期", () => {
     // 【食い違うと本番でしか壊れない】実装が通す値をルールが弾くと、
     // 公開の瞬間に permission-denied になる。手元にルールは無いので気づけない。
     expect(Object.keys(STATS_MAX).length).toBe(8);
+    // 【便AN】検査は validStats の中に1組、整数の上下限は boundedInt に1つ。
+    const statsFn = ruleFnBody(rules, "validStats");
+    const intFn = ruleFnBody(rules, "boundedInt");
+    expect(statsFn.length).toBeGreaterThan(200);
+    expect(intFn).toContain("v is int && v >= 0 && v <= max");
     for (const [k, max] of Object.entries(STATS_MAX)) {
-      expect(rules).toContain(`request.resource.data.stats.${k} is int`);
-      expect(rules).toContain(`request.resource.data.stats.${k} >= 0`);
-      expect(rules).toContain(`request.resource.data.stats.${k} <= ${max}`);
+      if (STATS_SEC_KEYS.includes(k)) {
+        expect(statsFn).toContain(`(!('${k}' in s) || boundedInt(s.${k}, ${max}))`);
+      } else {
+        expect(statsFn).toContain(`boundedInt(s.${k}, ${max})`);
+      }
     }
+    // users の規則が validStats を呼んでいる(関数は在るが誰も呼ばない、を落とす)
+    // 【便AN】いまと同じ練習記録(プロフィール保存で持ち越したもの)は検査を省く。
+    // 省けるのは「まったく同じ」ときだけ。比べる相手が無ければ必ず validStats を通る。
+    expect(rules.replace(/\s+/g, " ")).toContain(
+      "(!('stats' in request.resource.data) || (resource != null && 'stats' in resource.data && request.resource.data.stats == resource.data.stats) || validStats(request.resource.data.stats))");
   });
   it("hasAll は必須5キーのまま、hasOnly は9キー(練習時間の4キーは任意)", () => {
     const list = (keys) => "[" + keys.map((k) => `'${k}'`).join(",") + "]";
-    expect(flat).toContain(`request.resource.data.stats.keys().hasAll(${list(STATS_REQUIRED_KEYS)})`);
+    // 【便AN】列挙は validStats の中。
+    const statsFlat = ruleFnBody(rules, "validStats").replace(/\s+/g, " ");
+    expect(statsFlat).toContain(`s.keys().hasAll(${list(STATS_REQUIRED_KEYS)})`);
     // hasOnly は rules 側で折り返しているので、空白を除いて比べる。
-    const only = /request\.resource\.data\.stats\.keys\(\)\.hasOnly\(\[([^\]]*)\]\)/.exec(flat);
+    const only = /s\.keys\(\)\.hasOnly\(\[([^\]]*)\]\)/.exec(statsFlat);
     expect(only).not.toBeNull();
     expect(only[1].replace(/\s+/g, "").split(",")).toEqual(STATS_KEYS.map((k) => `'${k}'`));
     // 【古いアプリを締め出さない】sec* を hasAll に入れると、ルール公開からアプリ配信までの間、
     // 5キーしか書かない古いアプリの書き込みが全滅する。
     for (const k of STATS_SEC_KEYS) {
-      expect(flat).not.toMatch(new RegExp(`hasAll\\(\\[[^\\]]*'${k}'`));
-      expect(flat).toContain(`(!('${k}' in request.resource.data.stats) || (`);
+      expect(statsFlat).not.toMatch(new RegExp(`hasAll\\(\\[[^\\]]*'${k}'`));
+      expect(statsFlat).toContain(`(!('${k}' in s) || boundedInt(`);
     }
   });
   it("公開している人だけが一覧に返る規則になっている", () => {

@@ -24447,20 +24447,31 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     check("52.7 C9 aggregate.test.js に metric \"time\" の検査(並び / sec* 無しを落とす / 0秒を落とす)",
       countIn(aggTest52, /"time"\)/g) >= 6 && /sec\* を持たない人/.test(aggTest52) && /0秒の人/.test(aggTest52));
     // rules(コメントを剥がした本文で見る)
-    const statsBlock = rules52.slice(rules52.indexOf("'stats' in request.resource.data"), rules52.indexOf("request.resource.data.deviceClass"));
+    // 【便AN 2026-09-24】練習記録の検査は、評価する式の数を減らすために validStats へ畳んだ
+    // (ルールは1回の判定で評価できる式が1,000個まで。楽器の組を埋めた人ほど越えて、
+    //  練習記録が一度も公開できていなかった)。塊は**関数の本体**から取り、
+    // users の規則がそれを呼んでいることを別に見る(関数は在るが誰も呼ばない、を落とす)。
+    // 関数が見つからなければ塊は空文字 = 下の検査がすべて落ちる。
+    const vsAt52 = rules52.indexOf("function validStats(s) {");
+    const vsEnd52 = vsAt52 < 0 ? -1 : rules52.indexOf("\n    }", vsAt52);
+    const statsBlock = (vsAt52 < 0 || vsEnd52 < 0) ? "" : rules52.slice(vsAt52, vsEnd52);
+    check("52.7 C9 rules: users の規則は練習記録を validStats に通す(在るなら見る・いまと同じなら省く)",
+      /\(!\('stats' in request\.resource\.data\)\s*\|\| \(resource != null && 'stats' in resource\.data && request\.resource\.data\.stats == resource\.data\.stats\)\s*\|\| validStats\(request\.resource\.data\.stats\)\)/.test(rules52));
+    check("52.7 C9 rules: boundedInt は「int かつ 0 以上 max 以下」",
+      /function boundedInt\(v, max\) \{\s*return v is int && v >= 0 && v <= max;/.test(rules52));
     check("52.7 C9 rules: hasAll は必須5キーのまま(sec を必須にしない)",
-      /hasAll\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'\]\)/.test(statsBlock)
+      /s\.keys\(\)\.hasAll\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'\]\)/.test(statsBlock)
       && !/hasAll\(\[[^\]]*sec/.test(statsBlock));
     check("52.7 C9 rules: hasOnly は9キー",
-      /hasOnly\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt',\s*'secThisWeek','secThisMonth','secThisYear','secAll'\]\)/.test(statsBlock));
+      /s\.keys\(\)\.hasOnly\(\['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt',\s*'secThisWeek','secThisMonth','secThisYear','secAll'\]\)/.test(statsBlock));
     for (const k of STATS_SEC_KEYS) {
-      const re = new RegExp(`\\(!\\('${k}' in request\\.resource\\.data\\.stats\\) \\|\\| \\(\\s*request\\.resource\\.data\\.stats\\.${k} is int\\s*&& request\\.resource\\.data\\.stats\\.${k} >= 0\\s*&& request\\.resource\\.data\\.stats\\.${k} <= (\\d+)\\)\\)`);
+      const re = new RegExp(`\\(!\\('${k}' in s\\) \\|\\| boundedInt\\(s\\.${k}, (\\d+)\\)\\)`);
       const m = re.exec(statsBlock);
       check(`52.7 C9 rules: ${k} は「無ければ通す / 在れば int かつ 0〜上限」。上限が STATS_MAX(${STATS_MAX[k]})と一致(錨)`,
         !!m && Number(m[1]) === STATS_MAX[k], m ? `rules=${m[1]} / STATS_MAX=${STATS_MAX[k]}` : "形が違う");
     }
     for (const k of STATS_REQUIRED_KEYS.filter((x) => x !== "computedAt")) {
-      const m = new RegExp(`request\\.resource\\.data\\.stats\\.${k} <= (\\d+)`).exec(statsBlock);
+      const m = new RegExp(`(?<!in s\\) \\|\\| )boundedInt\\(s\\.${k}, (\\d+)\\)`).exec(statsBlock);
       check(`52.7 C9 rules: ${k} の上限も STATS_MAX と一致(日数側を巻き添えにしていない)`, !!m && Number(m[1]) === STATS_MAX[k]);
     }
     check("52.7 C9 rules: stats の塊は1つで、見出しが「練習日数・練習時間」",

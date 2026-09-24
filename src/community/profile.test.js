@@ -50,6 +50,22 @@ const base = {
   gear: { alto: { instrumentBrand: "YAMAHA", instrumentModel: "YAS-62", mpBrand: "Selmer", mpModel: "S80 C*", ligBrand: "Rovner", ligModel: "Dark", reedBrand: "Vandoren", reedModel: "Traditional", reedStrength: "3.0" } },
 };
 
+// 【便AN 2026-09-24】楽器の組と練習記録の検査は、評価する式の数を減らすために
+// 関数(validGearEntry / optStr60 / validStats / boundedInt)へ畳んだ。
+// 検査はその**関数の中身**と、**各所がその関数を呼んでいること**の両方を見る。
+// 片方だけだと「関数は正しいが誰も呼んでいない」を見逃す。
+const ruleFnBody = (rulesText, name) => {
+  const at = rulesText.indexOf(`function ${name}(`);
+  if (at < 0) return "";
+  const open = rulesText.indexOf("{", at);
+  let depth = 0;
+  for (let i = open; i < rulesText.length; i++) {
+    if (rulesText[i] === "{") depth += 1;
+    else if (rulesText[i] === "}") { depth -= 1; if (depth === 0) return rulesText.slice(open, i + 1); }
+  }
+  return "";
+};
+
 describe("validateNickname", () => {
   it("前後の空白を落として受理する", () => {
     expect(validateNickname("  太郎 ")).toEqual({ value: "太郎" });
@@ -535,8 +551,12 @@ describe("firestore.rules との同期", () => {
     }
   });
   it("gear の中の任意のキー(番手)も囲ってある", () => {
+    // 【便AN】番手の囲いは validGearEntry の中に1つ。4種別はその関数を必ず通る(下の検査)。
+    const gearFn = ruleFnBody(rules, "validGearEntry");
+    expect(gearFn.length).toBeGreaterThan(200);
+    expect(gearFn).toContain("!('reedStrength' in g)");
     for (const type of SAX_TYPES) {
-      expect(rules).toContain(`!('reedStrength' in request.resource.data.gear.${type})`);
+      expect(rules).toContain(`validGearEntry(request.resource.data.gear.${type})`);
     }
   });
   it("saxTypes の列挙がルールと一致する", () => {
@@ -582,9 +602,19 @@ describe("firestore.rules との同期", () => {
     // 保存の瞬間に permission-denied になる。しかも手元では起きない
     // (手元にルールは無く、テストも通る)。実際に古いルールのまま配って踏んだ。
     const listOf = (ks) => "[" + ks.map((k) => `'${k}'`).join(",") + "]";
+    // 【便AN】キーの列挙は validGearEntry の中に1組。4種別がそれを呼ぶ。
+    const gearFn = ruleFnBody(rules, "validGearEntry");
+    expect(gearFn).toContain(`g.keys().hasAll(${listOf(GEAR_KEYS_REQUIRED)})`);
+    // 【便AN】hasOnly(9語の列挙)の代わりに「数が8か、9なら残りは番手」で同じ集合を言う。
+    // **これが hasOnly と同じ意味になるのは、任意のキーが番手1つだけのときに限る。**
+    // 任意のキーが増えたら、この書き方は黙って緩くなる ── だからその前提をここで固定する。
+    const optionalKeys = GEAR_KEYS.filter((k) => !GEAR_KEYS_REQUIRED.includes(k));
+    expect(optionalKeys).toEqual(["reedStrength"]);
+    expect(GEAR_KEYS.length).toBe(GEAR_KEYS_REQUIRED.length + 1);
+    expect(gearFn).toContain(`g.size() <= ${GEAR_KEYS.length}`);
+    expect(gearFn).toContain(`(g.size() == ${GEAR_KEYS_REQUIRED.length} || 'reedStrength' in g)`);
     for (const t of SAX_TYPES) {
-      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasAll(${listOf(GEAR_KEYS_REQUIRED)})`);
-      expect(rules).toContain(`request.resource.data.gear.${t}.keys().hasOnly(${listOf(GEAR_KEYS)})`);
+      expect(rules).toContain(`validGearEntry(request.resource.data.gear.${t})`);
     }
   });
   it("gear のキー集合が saxTypes と完全一致であることをルールが要求している", () => {
@@ -601,21 +631,32 @@ describe("firestore.rules との同期", () => {
     );
   });
   it("4種別それぞれについて、楽器の組のキーと string-or-null の型検査がある", () => {
+    // 【便AN】4種別とも「在るなら validGearEntry に通す」1行。検査の中身は関数に1組。
+    const gearFn = ruleFnBody(rules, "validGearEntry");
+    const strFn = ruleFnBody(rules, "optStr60");
     for (const type of SAX_TYPES) {
-      const p = `request.resource.data.gear.${type}`;
-      // 「そのキーが在るなら中身を検査する」形の入口
-      expect(rules).toContain(`!request.resource.data.gear.keys().hasAny(['${type}'])`);
-      expect(rules).toContain(`${p}.keys().hasAll(${asRulesList(GEAR_KEYS_REQUIRED)})`);
-      expect(rules).toContain(`${p}.keys().hasOnly(${asRulesList(GEAR_KEYS)})`);
-      for (const key of GEAR_KEYS_STRING) {
-        expect(rules).toContain(`${p}.${key} == null`);
-        expect(rules).toContain(`${p}.${key} is string`);
-        expect(rules).toContain(`${p}.${key}.size() <= 60`);
-      }
-      // 番手は長さではなく列挙で固定する。自由文が1文字でも入る余地を残さない。
-      expect(rules).toContain(`${p}.reedStrength == null`);
-      expect(rules).toContain(`${p}.reedStrength in [${REED_STRENGTHS.map((s) => `'${s}'`).join(",")}]`);
+      // 「そのキーが在るなら中身を検査する」形の入口と、関数への受け渡しが**同じ1行**に在る
+      expect(rules).toContain(
+        `(!request.resource.data.gear.keys().hasAny(['${type}']) || validGearEntry(request.resource.data.gear.${type}))`);
     }
+    expect(gearFn).toContain(`g.keys().hasAll(${asRulesList(GEAR_KEYS_REQUIRED)})`);
+    expect(gearFn).toContain(`g.size() <= ${GEAR_KEYS.length}`);
+    // 【便AN】楽器の組がいまと同じなら中身の検査を省く。**省けるのは「まったく同じ」ときだけ**で、
+    // 新しい値は必ず4行を通る。比べる相手が無い(新規・楽器の組が無い)ときは省かない。
+    const flatRules = rules.replace(/\s+/g, " ");
+    expect(flatRules).toContain(
+      "((resource != null && 'gear' in resource.data && request.resource.data.gear == resource.data.gear) || ((!request.resource.data.gear.keys().hasAny(['soprano'])");
+    // 文字列の8項目は、1つ残らず optStr60 を通る
+    for (const key of GEAR_KEYS_STRING) {
+      expect(gearFn).toContain(`optStr60(g.${key})`);
+    }
+    // optStr60 そのもの: null か、60字以内の文字列
+    expect(strFn).toContain("v == null");
+    expect(strFn).toContain("v is string");
+    expect(strFn).toContain("v.size() <= 60");
+    // 番手は長さではなく列挙で固定する。自由文が1文字でも入る余地を残さない。
+    expect(gearFn).toContain("g.reedStrength == null");
+    expect(gearFn).toContain(`g.reedStrength in [${REED_STRENGTHS.map((s) => `'${s}'`).join(",")}]`);
   });
   it("互いを指す注意書きが両側にある", () => {
     expect(rules).toContain("src/community/profile.js");

@@ -18,6 +18,79 @@ service cloud.firestore {
     function notBanned() {
       return !exists(/databases/$(database)/documents/banned/$(request.auth.uid));
     }
+
+    // ================================================================
+    // 【便AN 2026-09-24 評価する式の数を減らす ── 意味は1文字も変えていない】
+    //
+    // Firestore のルールは**1回の判定で評価できる式が1,000個まで**。越えると
+    // 中身が正しくても permission-denied になり、理由はどこにも出ない。
+    // users の規則は楽器の組の検査で膨らんでいて、上限ぎりぎりにいた。
+    // `request.resource.data.gear.alto.instrumentBrand` は `.` 1つごとに1式と数えられ、
+    // それを項目ごとに3回(== null / is string / size())たどっていた。
+    //
+    // 実測(2026-09-24、本番のルール・テスト用の文書で):
+    //   ・練習時間の4項目は、どれでも1つなら通り、どの組み合わせでも2つ以上で拒否
+    //   ・楽器の組を空欄(null)にして式を減らすと、同じ9項目が通る
+    // = 中身ではなく**数**で落ちていた。楽器の組をきちんと埋めた人ほど落ちる。
+    // 本人(アルトとテナーの2本ぶん埋めている)は練習記録を一度も公開できておらず、
+    // 他の人の順位に一切出ていなかった(自分の画面では withMyRow が手元で足すので見えていた)。
+    //
+    // 直し方は**短い名前で受け取る関数に畳む**こと。道のりを1回たどって名前に束ねれば、
+    // 中の検査は `g.instrumentBrand` の2式で済む。判定の中身・列挙・上限は元のまま。
+    // **ここに検査を足すときは、式の数が増えることを意識すること。**
+    // ================================================================
+
+    // 楽器の組の1項目: 未選択(null) か、60字以内の文字列。
+    function optStr60(v) {
+      return v == null || (v is string && v.size() <= 60);
+    }
+
+    // 楽器の組1組(1種別ぶん)。キーは実装の8キー(番手は任意で9キー目)。
+    // 番手は長さではなく列挙で固定する(自由文が1文字でも入る余地を残さない)。
+    // **src/community/profile.js の GEAR_KEYS / REED_STRENGTHS の写し。片方だけ直さないこと。**
+    function validGearEntry(g) {
+      // 【hasOnly の9語の列挙を使わない ── 同じ意味で式が少ない】必須の8キーが揃っていて、
+      // 数が8なら「ちょうどその8つ」、9なら残りの1つは番手でしかありえない。
+      // = hasOnly(8キー + reedStrength) と同じ集合を、列挙を並べずに言える。
+      return g.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
+        && g.size() <= 9
+        && (g.size() == 8 || 'reedStrength' in g)
+        && optStr60(g.instrumentBrand) && optStr60(g.instrumentModel)
+        && optStr60(g.mpBrand) && optStr60(g.mpModel)
+        && optStr60(g.ligBrand) && optStr60(g.ligModel)
+        && optStr60(g.reedBrand) && optStr60(g.reedModel)
+        && (!('reedStrength' in g)
+            || g.reedStrength == null
+            || g.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0']);
+    }
+
+    // 0 以上 max 以下の整数。
+    function boundedInt(v, max) {
+      return v is int && v >= 0 && v <= max;
+    }
+
+    // 練習記録(練習日数・練習時間)。**src/community/stats.js の STATS_MAX / STATS_KEYS の写し。**
+    // 練習時間の4キーは任意(hasAll に入れない)。古いアプリは5キーしか書かないので、
+    // 必須にするとルール公開からアプリ配信までの間、古いアプリの書き込みが全滅する。
+    // 上限は定義上の最大値(週7日・月31日・年366日 / 週 7日×86400 秒 …)。
+    // 上限は改ざん対策ではなく、桁違いの数字で画面が壊れることを防ぐためのもの。
+    // computedAt は「いつ数えた値か」。読む側がこれを見て、期間外の古い値を捨てる。
+    function validStats(s) {
+      return s is map
+        && s.keys().hasAll(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
+        && s.keys().hasOnly(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt',
+                             'secThisWeek','secThisMonth','secThisYear','secAll'])
+        && boundedInt(s.daysThisWeek, 7)
+        && boundedInt(s.daysThisMonth, 31)
+        && boundedInt(s.daysThisYear, 366)
+        && boundedInt(s.daysAll, 36500)
+        && (!('secThisWeek' in s) || boundedInt(s.secThisWeek, 604800))
+        && (!('secThisMonth' in s) || boundedInt(s.secThisMonth, 2678400))
+        && (!('secThisYear' in s) || boundedInt(s.secThisYear, 31622400))
+        && (!('secAll' in s) || boundedInt(s.secAll, 3153600000))
+        && s.computedAt is string
+        && s.computedAt.size() <= 40;
+    }
     match /users/{uid} {
       // 公開プロフィールは誰でも読める。非公開は本人のみ(spec: 非公開でも復元用にクラウド保存する)
       allow get: if resource.data.isPublic == true || (request.auth != null && request.auth.uid == uid);
@@ -171,66 +244,17 @@ service cloud.firestore {
         // reedStrength が無いという理由で弾かれ、プロフィールを保存し直すまで
         // 順位も公開設定も止まる。クライアント(buildProfileDoc)が必須にしているので、
         // これから書かれる doc には必ず入る。ルールは上位集合のまま置く。
-        && (!request.resource.data.gear.keys().hasAny(['soprano']) || (
-             request.resource.data.gear.soprano.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.soprano.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
-          && (request.resource.data.gear.soprano.instrumentBrand == null || (request.resource.data.gear.soprano.instrumentBrand is string && request.resource.data.gear.soprano.instrumentBrand.size() <= 60))
-          && (request.resource.data.gear.soprano.instrumentModel == null || (request.resource.data.gear.soprano.instrumentModel is string && request.resource.data.gear.soprano.instrumentModel.size() <= 60))
-          && (request.resource.data.gear.soprano.mpBrand == null || (request.resource.data.gear.soprano.mpBrand is string && request.resource.data.gear.soprano.mpBrand.size() <= 60))
-          && (request.resource.data.gear.soprano.mpModel == null || (request.resource.data.gear.soprano.mpModel is string && request.resource.data.gear.soprano.mpModel.size() <= 60))
-          && (request.resource.data.gear.soprano.ligBrand == null || (request.resource.data.gear.soprano.ligBrand is string && request.resource.data.gear.soprano.ligBrand.size() <= 60))
-          && (request.resource.data.gear.soprano.ligModel == null || (request.resource.data.gear.soprano.ligModel is string && request.resource.data.gear.soprano.ligModel.size() <= 60))
-          && (request.resource.data.gear.soprano.reedBrand == null || (request.resource.data.gear.soprano.reedBrand is string && request.resource.data.gear.soprano.reedBrand.size() <= 60))
-          && (request.resource.data.gear.soprano.reedModel == null || (request.resource.data.gear.soprano.reedModel is string && request.resource.data.gear.soprano.reedModel.size() <= 60))
-          && (!('reedStrength' in request.resource.data.gear.soprano)
-              || request.resource.data.gear.soprano.reedStrength == null
-              || request.resource.data.gear.soprano.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
-           ))
-        && (!request.resource.data.gear.keys().hasAny(['alto']) || (
-             request.resource.data.gear.alto.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.alto.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
-          && (request.resource.data.gear.alto.instrumentBrand == null || (request.resource.data.gear.alto.instrumentBrand is string && request.resource.data.gear.alto.instrumentBrand.size() <= 60))
-          && (request.resource.data.gear.alto.instrumentModel == null || (request.resource.data.gear.alto.instrumentModel is string && request.resource.data.gear.alto.instrumentModel.size() <= 60))
-          && (request.resource.data.gear.alto.mpBrand == null || (request.resource.data.gear.alto.mpBrand is string && request.resource.data.gear.alto.mpBrand.size() <= 60))
-          && (request.resource.data.gear.alto.mpModel == null || (request.resource.data.gear.alto.mpModel is string && request.resource.data.gear.alto.mpModel.size() <= 60))
-          && (request.resource.data.gear.alto.ligBrand == null || (request.resource.data.gear.alto.ligBrand is string && request.resource.data.gear.alto.ligBrand.size() <= 60))
-          && (request.resource.data.gear.alto.ligModel == null || (request.resource.data.gear.alto.ligModel is string && request.resource.data.gear.alto.ligModel.size() <= 60))
-          && (request.resource.data.gear.alto.reedBrand == null || (request.resource.data.gear.alto.reedBrand is string && request.resource.data.gear.alto.reedBrand.size() <= 60))
-          && (request.resource.data.gear.alto.reedModel == null || (request.resource.data.gear.alto.reedModel is string && request.resource.data.gear.alto.reedModel.size() <= 60))
-          && (!('reedStrength' in request.resource.data.gear.alto)
-              || request.resource.data.gear.alto.reedStrength == null
-              || request.resource.data.gear.alto.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
-           ))
-        && (!request.resource.data.gear.keys().hasAny(['tenor']) || (
-             request.resource.data.gear.tenor.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.tenor.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
-          && (request.resource.data.gear.tenor.instrumentBrand == null || (request.resource.data.gear.tenor.instrumentBrand is string && request.resource.data.gear.tenor.instrumentBrand.size() <= 60))
-          && (request.resource.data.gear.tenor.instrumentModel == null || (request.resource.data.gear.tenor.instrumentModel is string && request.resource.data.gear.tenor.instrumentModel.size() <= 60))
-          && (request.resource.data.gear.tenor.mpBrand == null || (request.resource.data.gear.tenor.mpBrand is string && request.resource.data.gear.tenor.mpBrand.size() <= 60))
-          && (request.resource.data.gear.tenor.mpModel == null || (request.resource.data.gear.tenor.mpModel is string && request.resource.data.gear.tenor.mpModel.size() <= 60))
-          && (request.resource.data.gear.tenor.ligBrand == null || (request.resource.data.gear.tenor.ligBrand is string && request.resource.data.gear.tenor.ligBrand.size() <= 60))
-          && (request.resource.data.gear.tenor.ligModel == null || (request.resource.data.gear.tenor.ligModel is string && request.resource.data.gear.tenor.ligModel.size() <= 60))
-          && (request.resource.data.gear.tenor.reedBrand == null || (request.resource.data.gear.tenor.reedBrand is string && request.resource.data.gear.tenor.reedBrand.size() <= 60))
-          && (request.resource.data.gear.tenor.reedModel == null || (request.resource.data.gear.tenor.reedModel is string && request.resource.data.gear.tenor.reedModel.size() <= 60))
-          && (!('reedStrength' in request.resource.data.gear.tenor)
-              || request.resource.data.gear.tenor.reedStrength == null
-              || request.resource.data.gear.tenor.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
-           ))
-        && (!request.resource.data.gear.keys().hasAny(['baritone']) || (
-             request.resource.data.gear.baritone.keys().hasAll(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel'])
-          && request.resource.data.gear.baritone.keys().hasOnly(['instrumentBrand','instrumentModel','mpBrand','mpModel','ligBrand','ligModel','reedBrand','reedModel','reedStrength'])
-          && (request.resource.data.gear.baritone.instrumentBrand == null || (request.resource.data.gear.baritone.instrumentBrand is string && request.resource.data.gear.baritone.instrumentBrand.size() <= 60))
-          && (request.resource.data.gear.baritone.instrumentModel == null || (request.resource.data.gear.baritone.instrumentModel is string && request.resource.data.gear.baritone.instrumentModel.size() <= 60))
-          && (request.resource.data.gear.baritone.mpBrand == null || (request.resource.data.gear.baritone.mpBrand is string && request.resource.data.gear.baritone.mpBrand.size() <= 60))
-          && (request.resource.data.gear.baritone.mpModel == null || (request.resource.data.gear.baritone.mpModel is string && request.resource.data.gear.baritone.mpModel.size() <= 60))
-          && (request.resource.data.gear.baritone.ligBrand == null || (request.resource.data.gear.baritone.ligBrand is string && request.resource.data.gear.baritone.ligBrand.size() <= 60))
-          && (request.resource.data.gear.baritone.ligModel == null || (request.resource.data.gear.baritone.ligModel is string && request.resource.data.gear.baritone.ligModel.size() <= 60))
-          && (request.resource.data.gear.baritone.reedBrand == null || (request.resource.data.gear.baritone.reedBrand is string && request.resource.data.gear.baritone.reedBrand.size() <= 60))
-          && (request.resource.data.gear.baritone.reedModel == null || (request.resource.data.gear.baritone.reedModel is string && request.resource.data.gear.baritone.reedModel.size() <= 60))
-          && (!('reedStrength' in request.resource.data.gear.baritone)
-              || request.resource.data.gear.baritone.reedStrength == null
-              || request.resource.data.gear.baritone.reedStrength in ['2.0','2.25','2.5','2.75','3.0','3.25','3.5','3.75','4.0'])
-           ))
+        // 【便AN 楽器の組がいまと同じなら中身の検査を省く】練習記録の公開・公開の切り替え・
+        // アイコンの変更は楽器の組に触らない。触らない物を毎回検査し直すと式の数の上限
+        // (1,000)を越え、楽器の組をきちんと埋めた人ほど何も書けなくなる。
+        // いま載っている値は、書かれた時点でこの検査を通っている(写真・旧い属性の門と同じ考え)。
+        // 新しく入れる値は必ず下の4行を通るので、不正な値を入れる経路は増えない。
+        // 上の「キーの集合が saxTypes と一致」は省かない(saxTypes だけを変える書き込みがある)。
+        && ((resource != null && 'gear' in resource.data && request.resource.data.gear == resource.data.gear)
+            || ((!request.resource.data.gear.keys().hasAny(['soprano']) || validGearEntry(request.resource.data.gear.soprano))
+             && (!request.resource.data.gear.keys().hasAny(['alto']) || validGearEntry(request.resource.data.gear.alto))
+             && (!request.resource.data.gear.keys().hasAny(['tenor']) || validGearEntry(request.resource.data.gear.tenor))
+             && (!request.resource.data.gear.keys().hasAny(['baritone']) || validGearEntry(request.resource.data.gear.baritone))))
         // ---- stats(練習日数・練習時間) ----
         // 【この値は本人のクライアントが書く。改ざんは防げない】
         // ローカルのセッションはサーバに無いので、その数が本物かはここでは判定できない。
@@ -247,44 +271,11 @@ service cloud.firestore {
         // 必須にするとルール公開からアプリ配信までの間、古いアプリの書き込みが全滅する。
         // 新しいアプリは9キーすべてを書く。読む側は sec* が無い人を練習時間の順位に並べない。
         // 上限は定義上の最大値(週 7日×86400 / 月 31日×86400 / 年 366日×86400 / 累計 100年)。
-        && (!('stats' in request.resource.data) || (
-             request.resource.data.stats is map
-          && request.resource.data.stats.keys().hasAll(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt'])
-          && request.resource.data.stats.keys().hasOnly(['daysThisWeek','daysThisMonth','daysThisYear','daysAll','computedAt',
-                                                         'secThisWeek','secThisMonth','secThisYear','secAll'])
-          && request.resource.data.stats.daysThisWeek is int
-          && request.resource.data.stats.daysThisWeek >= 0
-          && request.resource.data.stats.daysThisWeek <= 7
-          && request.resource.data.stats.daysThisMonth is int
-          && request.resource.data.stats.daysThisMonth >= 0
-          && request.resource.data.stats.daysThisMonth <= 31
-          && request.resource.data.stats.daysThisYear is int
-          && request.resource.data.stats.daysThisYear >= 0
-          && request.resource.data.stats.daysThisYear <= 366
-          && request.resource.data.stats.daysAll is int
-          && request.resource.data.stats.daysAll >= 0
-          && request.resource.data.stats.daysAll <= 36500
-          && (!('secThisWeek' in request.resource.data.stats) || (
-                request.resource.data.stats.secThisWeek is int
-             && request.resource.data.stats.secThisWeek >= 0
-             && request.resource.data.stats.secThisWeek <= 604800))
-          && (!('secThisMonth' in request.resource.data.stats) || (
-                request.resource.data.stats.secThisMonth is int
-             && request.resource.data.stats.secThisMonth >= 0
-             && request.resource.data.stats.secThisMonth <= 2678400))
-          && (!('secThisYear' in request.resource.data.stats) || (
-                request.resource.data.stats.secThisYear is int
-             && request.resource.data.stats.secThisYear >= 0
-             && request.resource.data.stats.secThisYear <= 31622400))
-          && (!('secAll' in request.resource.data.stats) || (
-                request.resource.data.stats.secAll is int
-             && request.resource.data.stats.secAll >= 0
-             && request.resource.data.stats.secAll <= 3153600000))
-        // computedAt は「いつ数えた値か」。読む側がこれを見て、期間外の古い値を捨てる
-        // (先月の成績で今月の順位に並ぶのを防ぐ)。時刻としての正しさは検査できない。
-          && request.resource.data.stats.computedAt is string
-          && request.resource.data.stats.computedAt.size() <= 40
-           ))
+        // 【便AN 練習記録もいまと同じなら省く】プロフィールの保存は練習記録を持ち越して
+        // 置き換える(accountRepo.saveProfile)。持ち越した値は書かれた時点で検査を通っている。
+        && (!('stats' in request.resource.data)
+            || (resource != null && 'stats' in resource.data && request.resource.data.stats == resource.data.stats)
+            || validStats(request.resource.data.stats))
         // ---- ここまで ----
         && request.resource.data.deviceClass in ['ios','android','pc']
         && request.resource.data.updatedAt is string
