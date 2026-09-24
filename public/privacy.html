@@ -73,7 +73,7 @@ Ficus（以下「本アプリ」）は、サックスの練習を記録・分析
   <tr>
     <td>アイコンの写真</td>
     <td>アイコンに写真を選んだ場合、その画像1枚（Cloud Storage for Firebase に保存）。
-      <strong>端末の中で正方形に切り抜き、256ピクセルの WebP 形式に作り直してから送ります。</strong>
+      <strong>端末の中で正方形に切り抜き、256ピクセルの WebP 形式（WebP を作れない端末では JPEG 形式）に作り直してから送ります。</strong>
       この作り直しで、<strong>撮影日時・撮影場所（位置情報）などの付帯情報（Exif）は取り除かれます。</strong>
       保存の前に Google の Cloud Vision API による自動判定を行い、
       <strong>判定を通らなかった画像は保存されません。</strong></td>

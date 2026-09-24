@@ -12,7 +12,7 @@ import { Pencil, Image as PhotoGlyph } from "lucide-react";
 // **判断はこのファイルに書かない** ── 何を描くか・拡大を出すか・失敗の種類は
 // すべて avatarPhoto.js の純関数が決める(単体で走らせて確かめてある)。
 import {
-  PHOTO_ACCEPT, avatarDraftAfterPick, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
+  PHOTO_ACCEPT, photoProgressAt, avatarDraftAfterPick, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
@@ -816,6 +816,38 @@ const PHOTO_INPUT_HIDDEN = {
   overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0, opacity: 0,
 };
 
+// 【便AP 2026-09-24 本人指示】写真枠を囲む進み具合の輪。
+// 直径 40・太さ 3。地の輪は --c-line、進んだぶんは --c-accent(選択中と同じ色 ── 新しい色を作らない)。
+// 12時の位置から時計回りに埋まる。中には送っている写真(無ければ写真の絵柄)を小さく見せる。
+// 【読み上げ】輪は radio(写真枠)の中にあり、radio の子は読み上げの意味を失うので、輪は
+// aria-hidden にして、代わりに写真枠の名前を「写真を保存中」にする(下の「保存中…」の行も在る)。
+export const PHOTO_RING_PX = 40;
+const PHOTO_RING_STROKE = 3;
+export function PhotoProgressRing({ progress, preview = null }) {
+  const r = (PHOTO_RING_PX - PHOTO_RING_STROKE) / 2;
+  const c = 2 * Math.PI * r;
+  const p = Math.min(1, Math.max(0, Number(progress) || 0));
+  const inner = PHOTO_RING_PX - PHOTO_RING_STROKE * 2 - 6;
+  return (
+    <span aria-hidden="true" data-photo-ring="" data-progress={Math.round(p * 100)}
+          style={{ position: "relative", display: "inline-flex", width: PHOTO_RING_PX, height: PHOTO_RING_PX,
+                   alignItems: "center", justifyContent: "center" }}>
+      <svg width={PHOTO_RING_PX} height={PHOTO_RING_PX} viewBox={`0 0 ${PHOTO_RING_PX} ${PHOTO_RING_PX}`}
+           aria-hidden="true" style={{ position: "absolute", inset: 0 }}>
+        <circle cx={PHOTO_RING_PX / 2} cy={PHOTO_RING_PX / 2} r={r} fill="none"
+                stroke="var(--c-line)" strokeWidth={PHOTO_RING_STROKE} />
+        <circle cx={PHOTO_RING_PX / 2} cy={PHOTO_RING_PX / 2} r={r} fill="none"
+                stroke="var(--c-accent)" strokeWidth={PHOTO_RING_STROKE} strokeLinecap="round"
+                strokeDasharray={c} strokeDashoffset={c * (1 - p)}
+                transform={`rotate(-90 ${PHOTO_RING_PX / 2} ${PHOTO_RING_PX / 2})`} />
+      </svg>
+      {preview
+        ? <img src={preview} alt="" style={{ width: inner, height: inner, borderRadius: "50%", objectFit: "cover" }} />
+        : <PhotoGlyph size={18} strokeWidth={2} color="var(--c-ink-3)" />}
+    </span>
+  );
+}
+
 // 【便AM】検査が描画して確かめるため外へ出す(画面の中では ProfileView だけが使う)。
 export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null }) {
   const fileRef = useRef(null);
@@ -826,21 +858,40 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
 
   // 【決定3 の流れそのもの】選ぶ → 端末で書き直す → 送る → 載るか、文言が出るか。
   // **途中の状態が残らない**ので、他人が中途半端な姿を見ることは無い。
+  // 【便AP 2026-09-24 本人指示】保存の進み具合。段(stage)は保存の手順が知らせ、
+  // 輪の埋まり具合は photoProgressAt(純関数)が段と時刻から決める。
+  // 判定の段は途中経過が返らないので、時刻を刻んで少しずつ進める(返事が来るまで 100% にしない)。
+  const [stage, setStage] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+  // 送っている写真そのものを輪の中に見せる(何を確かめているのかが分かるように)。
+  const [preview, setPreview] = useState(null);
+  useEffect(() => {
+    if (!busy) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(t);
+  }, [busy]);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
   const takePhoto = async (file) => {
     if (!file || busy || !onPickPhoto) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setStage({ stage: "encode" });
     try {
-      // ここで正方形に切り、256px の WebP に書き直す(EXIF はこの書き直しで落ちる)。
+      // ここで正方形に切り、256px の WebP(出せない端末では JPEG)に書き直す(EXIF はこの書き直しで落ちる)。
       const blob = await encodeSquarePhoto(file);
-      await onPickPhoto(blob);
+      setPreview(URL.createObjectURL(blob));
+      await onPickPhoto(blob, setStage);
+      // 【満ちたところを一瞬見せる】返事が来た合図。すぐ消すと、満ちたのか途切れたのか分からない。
+      setStage({ stage: "done" });
+      await new Promise((r) => setTimeout(r, 300));
     } catch (e) {
       // 【黙って捨てない】理由は残す。画面には2通りの文言のどちらかだけを出す。
       console.error("[community] 写真を保存できなかった", e?.code, e);
       setError(photoErrorOf(e));
     } finally {
-      setBusy(false);
+      setBusy(false); setStage(null); setPreview(null);
     }
   };
+  const progress = photoProgressAt(stage, now);
 
   const cell = (selected) => ({
     minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0,
@@ -864,7 +915,6 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
           読み上げで「絵柄の中の写真」になる。 */}
       <div role="radiogroup" aria-label="アイコンの絵柄と写真" style={{
         display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
-        opacity: busy ? 0.6 : 1,
       }}>
         {/* 【写真枠は先頭(左上)】他のマスと同じ器に「写真」の意味の絵柄1つ。
             既に写真を設定している人には、その写真の縮小が出る。
@@ -881,7 +931,7 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
             ・キーボード(Enter / Space)だけは従来どおり input を叩く ── 机上のブラウザでは効く。 */}
         <label
           role="radio" aria-checked={usingPhoto}
-          aria-label="写真を選ぶ" aria-busy={busy || undefined}
+          aria-label={busy ? "写真を保存中" : "写真を選ぶ"} aria-busy={busy || undefined}
           tabIndex={busy ? -1 : 0}
           onKeyDown={(e) => {
             if (busy || (e.key !== "Enter" && e.key !== " ")) return;
@@ -890,10 +940,18 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
           }}
           style={{ ...cell(usingPhoto), position: "relative", flexDirection: "column", gap: 2, cursor: busy ? "default" : "pointer" }}
         >
-          {usingPhoto
-            ? <Avatar photo={photo} size={24} />
-            : <PhotoGlyph size={24} strokeWidth={2} color="var(--c-ink)" />}
-          <span className="sans" aria-hidden="true" style={{ fontSize: "var(--fs-xs)", lineHeight: 1, color: "var(--c-ink-2)" }}>写真</span>
+          {/* 【便AP】保存の間は、送っている写真を輪で囲んで見せる(輪は 100% まで埋まる)。
+              「写真」の文字は輪の間だけ引っ込める(輪の直径 40 がマスの高さ 44 に収まるように)。 */}
+          {busy ? (
+            <PhotoProgressRing progress={progress} preview={preview} />
+          ) : (
+            <>
+              {usingPhoto
+                ? <Avatar photo={photo} size={24} />
+                : <PhotoGlyph size={24} strokeWidth={2} color="var(--c-ink)" />}
+              <span className="sans" aria-hidden="true" style={{ fontSize: "var(--fs-xs)", lineHeight: 1, color: "var(--c-ink-2)" }}>写真</span>
+            </>
+          )}
           {/* 【`image/*` と書かない】pitch-test の codeOf() が `/` と `*` の並びを
               ブロックコメントの始まりと読む(罠の目録 9)。列挙は avatarPhoto.js が持つ。 */}
           <input
@@ -913,7 +971,8 @@ export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto 
             key={id} type="button" role="radio" aria-checked={!usingPhoto && id === icon}
             aria-label={id.replace(/^ic-/, "")} disabled={busy}
             onClick={() => onChange({ icon: id, color })}
-            style={cell(!usingPhoto && id === icon)}
+            // 【便AP】保存の間、薄くするのは絵柄のマスだけ。写真枠(進み具合の輪)は薄めない。
+            style={{ ...cell(!usingPhoto && id === icon), opacity: busy ? 0.6 : 1 }}
           >
             {/* 一覧の中は選択の判別が要るだけなので、地の色は付けず絵柄だけを出す。
                 地の色まで付けると24個ぶん色が散り、いま選んでいるものが埋もれる。 */}
@@ -1449,10 +1508,10 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   // 【便AH 決定3】写真だけは**その場で**送る。判定が保存の最中に走るので、
   // シートを閉じてからでは「通らなかった」を伝える先が無い。
   // 例外はそのまま投げる ── 受けて文言を出すのは AvatarPicker(押した場所の隣)。
-  const savePhoto = async (blob) => {
+  const savePhoto = async (blob, onStage) => {
     // 誰として上げるかが分からない状態で置き場へ書かない(ルールも同じ条件で弾く)。
     if (!uid) throw new Error("PHOTO_NO_UID");
-    const url = await saveAvatarPhoto(uid, blob);
+    const url = await saveAvatarPhoto(uid, blob, onStage);
     // 載った物を下書きにも写す ── こうしないと、閉じたときに
     // 「下書きには写真が無い」と読まれて、絵柄へ戻す書き込みが走る。
     setAvatarDraft((d) => ({ ...d, photo: url }));

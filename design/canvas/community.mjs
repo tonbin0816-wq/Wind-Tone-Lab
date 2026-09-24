@@ -1063,14 +1063,29 @@ const PHOTO_GLYPH = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
 // **このマスにだけ「写真」の文字を添える**。文字が在ること自体が「ここは他と違う」の目印になる。
 // 絵 24px + 間 2px + 文字 12px(行の高さ 1)= 38px で、マスの高さ 44px の中に収まる(格子は動かない)。
 const PHOTO_CELL_LABEL = `<span style="font-size: 12px; line-height: 1; color: var(--c-ink-2)">写真</span>`;
-function iconGrid({ photo, sel }) {
+// 【便AP 2026-09-24 本人指示】保存の間、写真枠は進み具合の輪になる。
+// 「読み込んでいるなら、左上の写真アイコンの周りを円形で囲って100%完了するまで円グラフで表す」
+// 直径 40・太さ 3。地の輪 --c-line、進んだぶん --c-accent。12時から時計回り。
+// 中には送っている写真(28px)。書き出しの間はまだ写真が無いので、写真の絵柄(18px・--c-ink-3)。
+// 輪の間は「写真」の文字を引っ込める(40 がマスの 44 に収まる)。
+// 薄くなる(0.6)のは絵柄のマスだけで、輪は薄めない。**CommunityTab.jsx の PhotoProgressRing の正典。**
+function photoRing(progress, photo) {
+  const r = (40 - 3) / 2;
+  const c = 2 * Math.PI * r;
+  return `<span style="position: relative; display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center"><svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" style="position: absolute; inset: 0"><circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--c-line)" stroke-width="3"/><circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--c-accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - progress)).toFixed(2)}" transform="rotate(-90 20 20)"/></svg>${photo
+    ? `<img src="${photo}" alt="" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover">`
+    : PHOTO_GLYPH.replace('width="24" height="24"', 'width="18" height="18"').replace('stroke="var(--c-ink)"', 'stroke="var(--c-ink-3)"')}</span>`;
+}
+function iconGrid({ photo, sel, busy = null }) {
   const cells = [
-    `        <div style="${pickCell(sel === "photo")}; flex-direction: column; gap: 2px">${photo
+    busy
+      ? `        <div style="${pickCell(sel === "photo")}">${photoRing(busy.progress, busy.photo)}</div>`
+      : `        <div style="${pickCell(sel === "photo")}; flex-direction: column; gap: 2px">${photo
       ? avatar(null, null, 24, photo)
       : PHOTO_GLYPH}${PHOTO_CELL_LABEL}</div>`,
     ...AVATAR_ICONS.map((id) => {
       usedIcons.add(id);
-      return `        <div style="${pickCell(sel === id)}"><svg width="24" height="24" fill="var(--c-ink)" aria-hidden="true"><use href="#${id}" /></svg></div>`;
+      return `        <div style="${pickCell(sel === id)}${busy ? "; opacity: 0.6" : ""}"><svg width="24" height="24" fill="var(--c-ink)" aria-hidden="true"><use href="#${id}" /></svg></div>`;
     }),
   ];
   return `      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-1)">
@@ -1111,12 +1126,28 @@ ${colorGrid(8)}`);
   const withPhoto = sheetCard(`      <div style="display: flex; justify-content: center">${avatar(null, null, 64, DUMMY_PHOTO)}</div>
       <div style="${LABEL}">絵柄</div>
 ${iconGrid({ photo: DUMMY_PHOTO, sel: "photo" })}`);
+  // 【便AP】保存の最中(判定待ち・約6割)。下に「保存中…」の1行が出る。
+  const saving = sheetCard(`      <div style="display: flex; justify-content: center">${avatar("ic-star", 8, 64)}</div>
+      <div style="${LABEL}">絵柄</div>
+${iconGrid({ photo: null, sel: "ic-star", busy: { progress: 0.62, photo: DUMMY_PHOTO } })}
+      <div style="${NOTE}">保存中…</div>
+      <div style="${LABEL}">背景</div>
+${colorGrid(8)}`);
+  // 輪の3つの姿(写真枠だけを抜き出して並べる): 書き出し中 / 判定中 / 返事が来た
+  const ringStates = `      <div style="display: flex; gap: var(--sp-4); justify-content: center; align-items: flex-end">
+${[["書き出し中 4%", 0.04, null], ["判定中 62%", 0.62, DUMMY_PHOTO], ["返事が来た 100%", 1, DUMMY_PHOTO]].map(([label, p, ph]) =>
+    `        <div style="display: grid; justify-items: center; gap: var(--sp-1)"><div style="${pickCell(false)}; width: 62px">${photoRing(p, ph)}</div><div style="${NOTE}">${label}</div></div>`).join("\n")}
+      </div>`;
   return `${sprite()}
   <div style="width: 375px; background: var(--c-bg); display: grid; gap: var(--sp-6); padding-bottom: var(--sp-6); box-sizing: border-box">
     <div style="${NOTE}; padding: var(--sp-4) var(--sp-4) 0">絵柄を選んでいるとき（背景の行が出る）</div>
 ${withIcon}
     <div style="${NOTE}; padding: 0 var(--sp-4)">写真を選んでいるとき（背景の行は消える）</div>
 ${withPhoto}
+    <div style="${NOTE}; padding: 0 var(--sp-4)">写真を保存しているとき（写真枠が進み具合の輪になる）</div>
+${saving}
+    <div style="${NOTE}; padding: 0 var(--sp-4)">輪の姿（判定の間は 95% へ近づくだけで、返事が来て 100%）</div>
+${ringStates}
   </div>`;
 }
 

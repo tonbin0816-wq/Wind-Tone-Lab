@@ -1,5 +1,6 @@
 import {
-  avatarPathOf, avatarPrefixOf, downloadUrlOf, looksLikeWebp, pathOfDownloadUrl, safeSearchVerdict,
+  avatarPathOf, avatarPrefixOf, downloadUrlOf, pathOfDownloadUrl, photoKindOf, safeSearchVerdict,
+  stripJpegMetadata, PHOTO_MIME_JPEG,
   shouldDropPhoto, uploadAcceptable, uploadPathOf,
 } from "./avatarVerdict.js";
 
@@ -43,19 +44,29 @@ export async function runVetAvatarPhoto({ uid }, deps) {
 
   if (!(await deps.exists(src))) throw photoError("rejected", "no-upload");
 
-  const form = uploadAcceptable(await deps.getMetadata(src));
+  const meta = await deps.getMetadata(src);
+  const form = uploadAcceptable(meta);
   if (!form.ok) {
     await deps.remove(src);
     throw photoError("rejected", form.reason);
   }
 
   // ---- ここから先は、このバッファだけを見る ------------------------------
-  const bytes = await deps.download(src);
+  const raw = await deps.download(src);
 
-  // 【中9】申告ではなく中身を見る。JPEG を image/webp と称して上げても通らない。
-  if (!looksLikeWebp(bytes)) {
+  // 【中9】申告ではなく中身を見る。形式を**中身から**決め、申告と食い違えば落とす
+  // (PNG を image/webp と称して上げる ── iPhone で実際に起きていた形 ── も、ここで落ちる)。
+  const kind = photoKindOf(raw);
+  if (!kind || kind !== meta?.contentType) {
     await deps.remove(src);
-    throw photoError("rejected", "not-webp-bytes");
+    throw photoError("rejected", "bytes-mismatch");
+  }
+  // 【便AP】JPEG は付帯情報(EXIF など)を取り除いた**新しいバイト列**を、判定にも保存にも使う。
+  // WebP はそのまま(canvas の書き出しは付帯情報を持たない)。
+  const bytes = kind === PHOTO_MIME_JPEG ? stripJpegMetadata(raw) : raw;
+  if (!bytes) {
+    await deps.remove(src);
+    throw photoError("rejected", "broken-jpeg");
   }
 
   let verdict;
@@ -75,8 +86,8 @@ export async function runVetAvatarPhoto({ uid }, deps) {
   // 【名前を毎回変える】古い場所を指している画面や CDN の写しに新しい写真が出ない。
   const rev = deps.rev();
   const token = deps.token();
-  const dest = avatarPathOf(uid, rev);
-  await deps.save(dest, bytes, token);
+  const dest = avatarPathOf(uid, rev, kind);
+  await deps.save(dest, bytes, token, kind);
   await deps.remove(src);
 
   const url = downloadUrlOf(deps.bucketName, dest, token);

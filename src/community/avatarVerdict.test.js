@@ -53,8 +53,12 @@ describe("uploadAcceptable ── 上がってきた形を見る", () => {
     expect(uploadAcceptable({ size: 262145, contentType: "image/webp" }))
       .toEqual({ ok: false, reason: "too-large" });
   });
-  it("WebP でないものは落とす(書き直しを通っていない = EXIF が残り得る)", () => {
-    expect(uploadAcceptable({ size: 20000, contentType: "image/jpeg" }).ok).toBe(false);
+  // 【便AP 2026-09-24】iPhone の Safari は canvas を WebP で書き出せないので、JPEG も受ける
+  // (EXIF は関数が判定の前に取り除く ── avatarJpeg.test.jsx)。それ以外は落とす。
+  it("WebP と JPEG のほかは落とす", () => {
+    expect(uploadAcceptable({ size: 20000, contentType: "image/jpeg" }).ok).toBe(true);
+    expect(uploadAcceptable({ size: 20000, contentType: "image/png" }).ok).toBe(false);
+    expect(uploadAcceptable({ size: 20000, contentType: "image/heic" }).ok).toBe(false);
     expect(uploadAcceptable({ size: 20000 }).ok).toBe(false);
   });
   it("空のものは落とす", () => {
@@ -186,12 +190,12 @@ describe("storage.rules(決定7)", () => {
     expect(seg).toMatch(/allow write: if false;/);
   });
 
-  it("置き場は自分の uid の下・1人1枚・256KiB・image/webp だけ", () => {
+  it("置き場は自分の uid の下・1人1枚・256KiB・WebP か JPEG だけ", () => {
     const seg = rules.slice(rules.indexOf("match /avatarUploads/"));
     expect(rules).toContain("match /avatarUploads/{uid}/photo.webp");
     expect(seg).toMatch(/request\.auth\.uid == uid/);
     expect(seg).toMatch(/request\.resource\.size <= 262144/);
-    expect(seg).toMatch(/request\.resource\.contentType == 'image\/webp'/);
+    expect(seg).toMatch(/request\.resource\.contentType in \['image\/webp', 'image\/jpeg'\]/);
   });
 
   it("名指ししていない場所は読み書きできない", () => {
@@ -238,8 +242,10 @@ describe("functions/index.js ── 配線だけで、判断を持たない", ()
   it("置き場を copy で写す道具が無い(読んだバイト列をそのまま save する)", () => {
     expect(fn).not.toMatch(/\.copy\(/);
     expect(fn).not.toMatch(/gcsImageUri|gs:\/\//);
-    expect(fn).toMatch(/save: \(p, bytes, token\) =>/);
-    expect(fn).toMatch(/safeSearchDetection\(\{ image: \{ content: bytes \} \}\)/);
+    expect(fn).toMatch(/save: \(p, bytes, token, contentType = "image\/webp"\) => bucket\(\)\.file\(p\)\.save\(Buffer\.from\(bytes\), \{\s*contentType,\s*metadata:/);
+    // 【便AP 審査の変異 M14】中身から決めた形式が、保存の設定まで届いている(決め打ちの image/webp にしない)。
+    expect(fn).not.toMatch(/save\(Buffer\.from\(bytes\), \{\s*contentType: "/);
+    expect(fn).toMatch(/safeSearchDetection\(\{ image: \{ content: Buffer\.from\(bytes\) \} \}\)/);
   });
 
   // 【配線が空になっていないこと】avatarJobs は「消せ」と言うだけなので、

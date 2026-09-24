@@ -18,9 +18,13 @@ import { runCleanAvatarPhoto, runVetAvatarPhoto } from "./avatarJobs.js";
 // ====================================================================
 
 initializeApp();
-// 写真1枚は 256px の WebP なので割り当ては最小でよい。同時実行を絞るのは、
+// 写真1枚は 256px の WebP / JPEG なので割り当ては最小でよい。同時実行を絞るのは、
 // 万一叩かれたときに費用が伸び続けないようにするため。
-setGlobalOptions({ region: "us-central1", memory: "256MiB", timeoutSeconds: 60, maxInstances: 10 });
+// 【便AP 2026-09-24 東京へ移した】us-central1 に置いていたので、1回の判定で写真の置き場・
+// データベース(どちらも東京)と10回ほど太平洋を往復し、温まっていても約4秒かかっていた
+// (実測: 送信 0.17秒 / 判定 3.9〜4.2秒、冷えていると8秒)。
+// **src/community/photoRepo.js の PHOTO_FUNCTIONS_REGION の写し。片方だけ直さないこと。**
+setGlobalOptions({ region: "asia-northeast1", memory: "256MiB", timeoutSeconds: 60, maxInstances: 10 });
 
 const db = () => getFirestore();
 const bucket = () => getStorage().bucket();
@@ -36,8 +40,9 @@ const storageDeps = () => ({
   getMetadata: async (p) => (await bucket().file(p).getMetadata())[0],
   download: async (p) => (await bucket().file(p).download())[0],
   // 【判定したバイト列そのものを書く】置き場から写す(copy)のではない ── 重1。
-  save: (p, bytes, token) => bucket().file(p).save(bytes, {
-    contentType: "image/webp",
+  // 形式は中身から決めたもの(WebP / JPEG)。関数に渡すのは Buffer にそろえる。
+  save: (p, bytes, token, contentType = "image/webp") => bucket().file(p).save(Buffer.from(bytes), {
+    contentType,
     metadata: {
       cacheControl: "public, max-age=31536000, immutable",
       metadata: { firebaseStorageDownloadTokens: token },
@@ -54,7 +59,7 @@ const storageDeps = () => ({
   },
   dropAll: async (prefix) => { await bucket().deleteFiles({ prefix }); },
   safeSearch: async (bytes) => {
-    const [res] = await visionClient().safeSearchDetection({ image: { content: bytes } });
+    const [res] = await visionClient().safeSearchDetection({ image: { content: Buffer.from(bytes) } });
     return res?.safeSearchAnnotation ?? null;
   },
   writeUserPhoto: (uid, url) => db().doc(`users/${uid}`).set({ photo: url }, { merge: true }),
@@ -69,7 +74,11 @@ const storageDeps = () => ({
 
 const CODE_OF = { unauthenticated: "unauthenticated", rejected: "failed-precondition", unavailable: "unavailable" };
 
-export const vetAvatarPhoto = onCall(async (req) => {
+// 【便AP 移し替えの間だけ 2026-09-24】判定は東京と us-central1 の**両方**に置く。
+// 配信済みの古い端末は us-central1 を呼ぶので、先に消すと、新しい端末が配信されるまでの間
+// 写真の保存が全部「送信できませんでした」になる(Firebase の文書が勧める並走の手順)。
+// **端末の配信を確かめたら、この region の行を消して配信し直す**(us-central1 側が消える)。
+export const vetAvatarPhoto = onCall({ region: ["asia-northeast1", "us-central1"] }, async (req) => {
   try {
     return await runVetAvatarPhoto({ uid: req.auth?.uid ?? null }, storageDeps());
   } catch (e) {

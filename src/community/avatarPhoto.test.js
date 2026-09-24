@@ -377,7 +377,8 @@ describe("配線 ── 判断を通らずに描く経路が無い", () => {
     const repo = read("./photoRepo.js");
     expect(comm).toMatch(/encodeSquarePhoto\(/);
     // 送る側は Blob しか受け取らない。File をそのまま渡す道を作らない。
-    expect(repo).toMatch(/uploadBytes\(/);
+    // 【便AP】進み具合を知らせるため uploadBytesResumable に替えた(送るのは同じ Blob)。
+    expect(repo).toMatch(/uploadBytesResumable\(/);
     expect(repo).not.toMatch(/uploadString\(/);
   });
 

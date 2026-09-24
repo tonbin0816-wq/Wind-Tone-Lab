@@ -13,10 +13,20 @@
 // ------------------------------------------------------------------
 import { AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
 
-// 【書き直しの仕様(決定0/決定3の2番)】正方形 256px の WebP。
+// 【書き直しの仕様(決定0/決定3の2番)】正方形 256px の WebP(書き出せない端末では JPEG ── 便AP)。
 // **storage.rules と functions も同じ値を要求する。片方だけ直さないこと。**
 export const PHOTO_EDGE_PX = 256;
 export const PHOTO_MIME = "image/webp";
+// 【便AP 2026-09-24 本人の実機報告「写真はなにを選んでも使えません」】
+// **iPhone の Safari は canvas を WebP で書き出せない。** toBlob に image/webp を頼むと黙って
+// PNG を返す。以前はそれに「WebP」の札を付けて送り、判定(中身を見る)で必ず落ちていた。
+// WebP が出なければ **JPEG で書き直す**。JPEG も canvas から書き出すので EXIF は付かない
+// (念のため関数側でも JPEG の付帯情報を取り除く ── functions/avatarVerdict.js の stripJpegMetadata)。
+// **storage.rules と functions の写し。片方だけ直さないこと。**
+export const PHOTO_FALLBACK_MIME = "image/jpeg";
+export const PHOTO_MIMES = [PHOTO_MIME, PHOTO_FALLBACK_MIME];
+// JPEG へ落とすときの地(透明な所の色)。
+export const PHOTO_JPEG_GROUND = "#ffffff";
 // 品質は 256px の顔写真が 10〜30KB に収まる帯。上限(下の PHOTO_MAX_BYTES)は
 // この値に対して十分な余裕を見た固定値で、青天井にしないためのもの(決定7)。
 export const PHOTO_QUALITY = 0.82;
@@ -76,7 +86,7 @@ const domDeps = {
 };
 
 /**
- * 選ばれた画像を、正方形 256px の WebP に書き直す。
+ * 選ばれた画像を、正方形 256px の WebP(書き出せない端末では JPEG)に書き直す。
  *
  * **元のファイルは1バイトも返らない。** 返るのは canvas から書き出した新しい Blob で、
  * EXIF はここで落ちる(canvas は画素しか持たない)。
@@ -101,12 +111,58 @@ export async function encodeSquarePhoto(file, deps = domDeps) {
     0, 0, plan.output.width, plan.output.height,
   );
   if (typeof img.close === "function") img.close();
-  const blob = await deps.toBlob(canvas, plan.output.type, plan.output.quality);
+  let blob = await deps.toBlob(canvas, plan.output.type, plan.output.quality);
   if (!blob) throw new Error("PHOTO_ENCODE_FAILED");
+  // 【便AP】頼んだ形式で返ってこなかったら(= Safari の WebP)、JPEG で書き直す。
+  // **返ってきた Blob の type を信じる** ── 頼んだ形式を信じると、PNG に WebP の札が付く。
+  // JPEG は透明を持てず、透明な所は黒になる。**白い地の上に描き直してから**書き出す
+  // (WebP の端末では透明なまま載るので、せめて黒い塊にはしない)。
+  if (blob.type !== plan.output.type) {
+    const flat = deps.makeCanvas(plan.output.width, plan.output.height);
+    const fctx = flat.getContext("2d");
+    if (!fctx) throw new Error("PHOTO_ENCODE_FAILED");
+    fctx.fillStyle = PHOTO_JPEG_GROUND;
+    fctx.fillRect(0, 0, plan.output.width, plan.output.height);
+    fctx.drawImage(canvas, 0, 0);
+    blob = await deps.toBlob(flat, PHOTO_FALLBACK_MIME, plan.output.quality);
+    if (!blob || blob.type !== PHOTO_FALLBACK_MIME) throw new Error("PHOTO_ENCODE_FAILED");
+  }
   // 【上限は端末側でも見る】ここで止めれば、通らないと分かっている書き込みを投げない。
   // 本当の門は storage.rules(決定7)で、こちらはそれを先取りするだけ。
   if (blob.size > PHOTO_MAX_BYTES) throw new Error("PHOTO_TOO_LARGE");
   return blob;
+}
+
+// ------------------------------------------------------------------
+// 【便AP 2026-09-24 本人指示】保存の進み具合(写真枠を囲む輪)
+// 「読み込んでいるのか、正しく挙動していないかわからない。左上の写真アイコンの周りを円形で
+//  囲って100%完了するまで円グラフで表すとか工夫して」
+//
+// 保存は3段: 書き出し(端末) → 送信(実際のバイト数が分かる) → 判定(サーバー。途中経過は返らない)。
+// 判定の段は時間に沿って上限へ**近づくだけ**で、返事が来るまで決して 100% にしない
+// (来ていないのに満ちると、止まっているように見える ── まさに直したい状態)。
+//   encode … 4%
+//   upload … 8% → 30%(送ったバイト数の割合)
+//   vet    … 30% → 95% に、時定数 1.4秒で近づく(1秒で約6割 ── 秒数は配信後に実測して見直す)
+//   done   … 100%
+// ------------------------------------------------------------------
+export const PHOTO_PROGRESS = Object.freeze({ encode: 0.04, uploadStart: 0.08, uploadEnd: 0.3, vetCap: 0.95, vetTauMs: 1400 });
+
+const clamp01 = (x) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
+
+/** 段(stage)と今の時刻から、輪の埋まり具合(0〜1)を決める。段が無ければ 0。 */
+export function photoProgressAt(stage, nowMs) {
+  const P = PHOTO_PROGRESS;
+  switch (stage?.stage) {
+    case "encode": return P.encode;
+    case "upload": return P.uploadStart + (P.uploadEnd - P.uploadStart) * clamp01(stage.fraction);
+    case "vet": {
+      const t = Math.max(0, (Number(nowMs) || 0) - (Number(stage.startedAt) || 0));
+      return P.uploadEnd + (P.vetCap - P.uploadEnd) * (1 - Math.exp(-t / P.vetTauMs));
+    }
+    case "done": return 1;
+    default: return 0;
+  }
 }
 
 const isUsablePhoto = (v) => typeof v === "string" && v.trim().length > 0;
