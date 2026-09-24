@@ -939,11 +939,16 @@ const PHOTO_GLYPH = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
 
 // 【決定1】列は6→5。5×5 = 25 でちょうど埋まる。写真枠は格子の先頭(左上)。
 // 【minmax(0, 1fr) を外さない】外すと格子が画面より広くなり、ページ全体を押し広げる。
+// 【便AM 2026-09-24 本人の実機報告「写真の選択も出てこない」】
+// 見出しが「絵柄」で絵が25個並ぶ中の1つだったので、写真を選ぶ場所に見えなかった。
+// **このマスにだけ「写真」の文字を添える**。文字が在ること自体が「ここは他と違う」の目印になる。
+// 絵 24px + 間 2px + 文字 12px(行の高さ 1)= 38px で、マスの高さ 44px の中に収まる(格子は動かない)。
+const PHOTO_CELL_LABEL = `<span style="font-size: 12px; line-height: 1; color: var(--c-ink-2)">写真</span>`;
 function iconGrid({ photo, sel }) {
   const cells = [
-    `        <div style="${pickCell(sel === "photo")}">${photo
+    `        <div style="${pickCell(sel === "photo")}; flex-direction: column; gap: 2px">${photo
       ? avatar(null, null, 24, photo)
-      : PHOTO_GLYPH}</div>`,
+      : PHOTO_GLYPH}${PHOTO_CELL_LABEL}</div>`,
     ...AVATAR_ICONS.map((id) => {
       usedIcons.add(id);
       return `        <div style="${pickCell(sel === id)}"><svg width="24" height="24" fill="var(--c-ink)" aria-hidden="true"><use href="#${id}" /></svg></div>`;

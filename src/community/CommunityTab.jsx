@@ -808,7 +808,15 @@ function SwitchRow({ checked, onChange, disabled = false, label, note }) {
 //   ・写真を選んでいる間、**背景の行は消える**(丸く切り抜くので地が見えない)
 // 写真の保存だけはここが自分で行う ── 決定3「判定は保存の最中に同期で行う」ため、
 // 絵柄のように「シートを閉じたときに1回」では遅い(閉じてから落ちると伝える先が無い)。
-function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null }) {
+// 【便AM】写真選択の input を「見えないだけで在る」形にする。display:none にしない。
+// 端末によっては display:none の input を label から開かない。
+const PHOTO_INPUT_HIDDEN = {
+  position: "absolute", width: 1, height: 1, padding: 0, margin: -1,
+  overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0, opacity: 0,
+};
+
+// 【便AM】検査が描画して確かめるため外へ出す(画面の中では ProfileView だけが使う)。
+export function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -860,16 +868,45 @@ function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null 
         {/* 【写真枠は先頭(左上)】他のマスと同じ器に「写真」の意味の絵柄1つ。
             既に写真を設定している人には、その写真の縮小が出る。
             **選択中の表し方は既存のマスと同じ**(地 --c-accent-tint)。 */}
-        <button
-          type="button" role="radio" aria-checked={usingPhoto}
-          aria-label="写真" aria-busy={busy || undefined} disabled={busy}
-          onClick={() => fileRef.current?.click()}
-          style={cell(usingPhoto)}
+        {/* 【便AM 2026-09-24 本人の実機報告「写真の選択も出てこない」】
+            ・写真枠は **<label> で写真選択の input を包む**。押した瞬間にブラウザ自身が選択を開く。
+              以前は <button> から、display:none にした input の .click() を**プログラムで叩いて**いた。
+              iOS の WebKit ではこの叩き方で選択が開かないことがある(この環境では確かめる手段が無い)。
+              label ならプログラムから叩かないので、端末に依らず開く。
+            ・input は display:none にしない。**見えないだけで在る**形(PHOTO_INPUT_HIDDEN)にする
+              ── 端末によっては display:none の input を label からも開かない。
+            ・見出しが「絵柄」で絵が25個並ぶ中の1つだったので、写真を選ぶ場所に見えなかった。
+              **このマスにだけ「写真」の文字を添える**(正典 CommAvatarPick と同じ)。
+            ・キーボード(Enter / Space)だけは従来どおり input を叩く ── 机上のブラウザでは効く。 */}
+        <label
+          role="radio" aria-checked={usingPhoto}
+          aria-label="写真を選ぶ" aria-busy={busy || undefined}
+          tabIndex={busy ? -1 : 0}
+          onKeyDown={(e) => {
+            if (busy || (e.key !== "Enter" && e.key !== " ")) return;
+            e.preventDefault();
+            fileRef.current?.click();
+          }}
+          style={{ ...cell(usingPhoto), position: "relative", flexDirection: "column", gap: 2, cursor: busy ? "default" : "pointer" }}
         >
           {usingPhoto
             ? <Avatar photo={photo} size={24} />
             : <PhotoGlyph size={24} strokeWidth={2} color="var(--c-ink)" />}
-        </button>
+          <span className="sans" aria-hidden="true" style={{ fontSize: "var(--fs-xs)", lineHeight: 1, color: "var(--c-ink-2)" }}>写真</span>
+          {/* 【`image/*` と書かない】pitch-test の codeOf() が `/` と `*` の並びを
+              ブロックコメントの始まりと読む(罠の目録 9)。列挙は avatarPhoto.js が持つ。 */}
+          <input
+            ref={fileRef} type="file" accept={PHOTO_ACCEPT} disabled={busy} tabIndex={-1}
+            style={PHOTO_INPUT_HIDDEN}
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              // 【同じ写真をもう一度選べるようにする】値を消さないと、2度目の choose で
+              // change が起きない(落ちたあとに同じ写真を選び直せなくなる)。
+              e.target.value = "";
+              takePhoto(f);
+            }}
+          />
+        </label>
         {AVATAR_ICONS.map((id) => (
           <button
             key={id} type="button" role="radio" aria-checked={!usingPhoto && id === icon}
@@ -889,18 +926,6 @@ function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null 
           **状態としては残らない** ── 返ってきた時点で載っているか、下の文言が出るかのどちらか。 */}
       {busy ? <div className="sans" role="status" style={noteStyle}>保存中…</div> : null}
       {error ? <div className="sans" role="alert" style={fieldErrorStyle}>{error}</div> : null}
-      {/* 【`image/*` と書かない】pitch-test の codeOf() が `/` と `*` の並びを
-          ブロックコメントの始まりと読む(罠の目録 9)。列挙は avatarPhoto.js が持つ。 */}
-      <input
-        ref={fileRef} type="file" accept={PHOTO_ACCEPT} style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0] ?? null;
-          // 【同じ写真をもう一度選べるようにする】値を消さないと、2度目の choose で
-          // change が起きない(落ちたあとに同じ写真を選び直せなくなる)。
-          e.target.value = "";
-          takePhoto(f);
-        }}
-      />
 
       {/* 【決定2】写真を選んでいる間、背景色の行は消える。
           丸く切り抜くので10色の地は写真の裏に隠れて意味を持たない。
