@@ -16913,8 +16913,10 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     check("27.7 カレンダーの濃さは calendarLevel → calendarFill の順で引く(呼び出しに隣接)",
       /const level = calendarLevel\(c\.minutes, maxMinutes, c\.count\);/.test(calCard)
       && /background: isSel \? "var\(--c-accent\)" : calendarFill\(level\),/.test(calCard));
-    check("27.7 カレンダーの母集団は My Data と同じ(奏者=自分 + 選択楽器を渡している)",
-      /<PracticeCalendarCard\s*\r?\n\s*sessions=\{allMySessions\}/.test(myDataSection));
+    // 【便AX 2026-09-25 本人指示】「カレンダーも選んでる楽器関係なく表示して」── 累計と同じ母集団。
+    check("27.7 便AX カレンダーの母集団は累計と同じ(奏者=自分 の計測すべて。楽器種別で絞らない)",
+      /<PracticeCalendarCard\s*\r?\n\s*sessions=\{stockSessions\}/.test(myDataSection)
+      && /const stockSessions = myDataStockSessions\(sessions\);/.test(myDataSection));
     // 【D-10 §2.3】一覧への入口は**1つだけ**(正典 #9b から不変)。
     // 置き場所だけが練習カードの最下行から**カレンダーの下の小カード**へ移った。
     // 【I1 2026-09-17 本人指示で入口が1つ増えた】「目安設定がないときは…導線も用意して」。
@@ -16936,7 +16938,7 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // (奏者=自分 + 選択中の楽器種別)。**期間では絞らない**(統括の裁定 §8(1))。
     // 【便AW 2026-09-24 本人指示】累計の母集団は **奏者=自分 の計測すべて**(楽器種別・期間で絞らない)に変わった。
     check("27.7 D-10/便AW: 蓄積量は My Data の先頭(分析タブの脚注は消えている)。母集団は全楽器・全期間",
-      /const stock = myDataStockTexts\(myDataStock\(myDataStockSessions\(sessions\)\)\);/.test(myDataSection)
+      /const stockSessions = myDataStockSessions\(sessions\);\s*const stock = myDataStockTexts\(myDataStock\(stockSessions\)\);/.test(myDataSection)
       && /function myDataStockSessions\(sessions\) \{\s*return \(sessions \|\| \[\]\)\.filter\(\(s\) => s\.performer === "自分"\);\s*\}/.test(src)
       && !/myDataStock/.test(codeOf(lab27)));
     // 【便G(D1/D2)2026-09-16】時間の綴りは「練習時間」(本人裁定⑥)。3つの欄は MY_DATA_STOCK_CELLS
@@ -17303,9 +17305,11 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       check("27.10 D-10b: 母集団は奏者=自分 かつ 選択中の楽器種別だけ(奏者の列が情報を運ばない根拠)",
         got === "a,d", got);
       // (b) その日の一覧は**その母集団から**作っている(呼び出しに隣接する綴り。罠2)
-      check("27.10 D-10b: その日の一覧は allMySessions から作る(全奏者の sessions からではない)",
-        /const daySessions = shownDayKey === null \? \[\] : allMySessions/.test(myDataSection)
-        && /const allMySessions = myDataOwnSessions\(sessions, saxType, dataSax\);/.test(myDataSection));
+      // 【便AX 2026-09-25】その日の一覧はカレンダーと同じ stockSessions(奏者=自分 の全楽器)から作る
+      // (カレンダーに印があるのに一覧が空、を作らない)。全奏者の sessions からではない点は変わらない。
+      check("27.10 D-10b/便AX: その日の一覧は stockSessions(奏者=自分)から作る(全奏者の sessions からではない)",
+        /const daySessions = shownDayKey === null \? \[\] : stockSessions/.test(myDataSection)
+        && /const stockSessions = myDataStockSessions\(sessions\);/.test(myDataSection));
       // (c) だからこの行に奏者を出さない
       check("27.10 D-10b: その日のセッションの行は奏者を出さない(母集団が自分だけなので情報を運ばない)",
         !/performer/.test(rowSrc), (rowSrc.match(/.{0,40}performer.{0,40}/) || [""])[0]);

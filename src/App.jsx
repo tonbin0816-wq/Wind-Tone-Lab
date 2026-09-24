@@ -15292,10 +15292,10 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
 function DaySessionRow({ session, reeds, onOpen }) {
   const reed = (reeds || []).find((r) => r.id === session.reedId) || null;
   // 【D-10b 2026/08/26 本人裁定】メタは**リードだけ**。奏者は出さない。
-  // この一覧の母集団は myDataOwnSessions = **奏者=自分 かつ 選択中の楽器種別**で、
-  // 呼び出し側(MyDataSection)は daySessions を allMySessions から作っている。
-  // つまり奏者は全行「自分」・楽器も全行同じで、**情報を運んでいない列**だった
-  // (累計・カレンダー・その日のセッション・グラフの4つとも同じ母集団)。
+  // この一覧の母集団は **奏者=自分** で、奏者は全行「自分」── **情報を運んでいない列**だった。
+  // 【便AX 2026-09-25】呼び出し側(MyDataSection)は daySessions をカレンダーと同じ stockSessions
+  // (奏者=自分 の全楽器)から作るようになった。楽器は行ごとに違いうるが、リードの名前で見分けられる
+  // (リードは楽器種別ごとに登録する)ので、メタはリードだけのまま。
   // **「すべてのセッション」の行(AllSessionsPage)は触らない** ── あちらは全奏者が出る画面なので、
   // 奏者が情報になる。同じ綴りに見えても母集団が違う。
   // 読めない区画は**丸ごと省く**(「—:—」のような穴を作らない)という D-5 の規則はそのまま:
@@ -15372,7 +15372,12 @@ function MyDataSection({
   // 【便AW 2026-09-24 本人指示】累計の母集団は **奏者=自分 の計測すべて**(楽器種別でも期間でも
   // 絞らない)。以前(D-10 §8(1))はカレンダーと同じ allMySessions(選択中の楽器種別)だった。
   // 表示文字列の作り方(小数1桁の時間・カンマ区切り)は myDataStockTexts の1箇所。
-  const stock = myDataStockTexts(myDataStock(myDataStockSessions(sessions)));
+  // 【便AX 2026-09-25 本人指示】「カレンダーも選んでる楽器関係なく表示して」。カレンダーと、
+  // 日付を押して開く「その日のセッション」も累計と同じ母集団(奏者=自分 の計測すべて)を読む。
+  // (その日のセッションだけ楽器で絞ると、カレンダーに印があるのに一覧が空、が起きる。)
+  // グラフ(期間・今日/直近の日の系列)は今までどおり allMySessions(選択中の楽器種別)。
+  const stockSessions = myDataStockSessions(sessions);
+  const stock = myDataStockTexts(myDataStock(stockSessions));
 
   const periodFrames = mySessions.flatMap((s) => s.frames || []);
   // 【N-8】「当日のデータがまだない場合は直近の記録のある日」。選定・フレーム・ラベルは
@@ -15405,7 +15410,7 @@ function MyDataSection({
   const dayPanelRef = useRef(null);
   const dayInnerRef = useRef(null);
   const [dayPanelH, setDayPanelH] = useState(0);
-  const daySessions = shownDayKey === null ? [] : allMySessions
+  const daySessions = shownDayKey === null ? [] : stockSessions
     .filter((s) => localDayKey(new Date(s.recordedAt)) === shownDayKey)
     .sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
   // 高さは実測する(height: auto へはトランジションが掛からない)。枠の中は
@@ -15510,7 +15515,7 @@ function MyDataSection({
       </button>
 
       <PracticeCalendarCard
-        sessions={allMySessions}
+        sessions={stockSessions}
         openDayKey={openDayKey}
         onToggleDay={toggleDay}
       />
