@@ -18,6 +18,27 @@ export const MIN_COMMON_NOTES = 3;
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
 
+/**
+ * グラフの1本の線にする「音の番号 → 値」。**その線が持っている音をすべて**拾う。
+ *
+ * 【便AQ 2026-09-24 本人の実機報告「少なくとも自分の音は全部揃ってるはずなのに出てない」】
+ * 以前は、比べる相手(みんなの平均・その人)に値がある音だけを横に並べ、自分の線も
+ * その音でしか拾っていなかった。テスト奏者が数音しか録っていないと、自分の線が数点に削られた。
+ * 線ごとに自分の音で拾えば、相手の音が少なくても自分の線は全音出る
+ * (横軸はもともと楽器の音域の全音 ── NoteAxisLineChart)。
+ *
+ * @param notes  notes[音の番号][指標] = 値 か { value }
+ * @param read   セルから数値を取り出す(平均は { value, n } なので c => c?.value)
+ */
+export function noteValues(notes, metric, read = (cell) => cell) {
+  const out = {};
+  for (const [k, note] of Object.entries(notes ?? {})) {
+    const v = read(note?.[metric]);
+    if (num(v)) out[k] = v;
+  }
+  return out;
+}
+
 export function commonNoteKeys(mine, theirs, metric) {
   const a = mine?.notes ?? {};
   const b = theirs?.notes ?? {};

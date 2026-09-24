@@ -4,7 +4,7 @@ import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
-import { cohortAverage, alignProfile } from "./align.js";
+import { cohortAverage, alignProfile, noteValues } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
@@ -901,31 +901,14 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
   const chart = useMemo(() => {
     if (avg.error) return null;
-    const keys = Object.keys(avg.notes).sort((a, b) => Number(a) - Number(b));
-    if (keys.length === 0) return null;
     // 自分の線も変換後の値から読む。ここだけローカルの綴りを直に読むと、
     // 綴りを足したときに片方だけ直し忘れる。読む場所を1つにする。
     // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
-    const mineOf = (key) => {
-      const out = {};
-      for (const k of keys) {
-        const v = mineShared.notes?.[k]?.[key];
-        if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
-      }
-      return out;
-    };
-    const avgOf = (key) => {
-      const out = {};
-      for (const k of keys) {
-        const cell = avg.notes[k]?.[key];
-        if (cell) out[k] = cell.value;
-      }
-      return out;
-    };
-    const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, avgOf(x.key)]));
-    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, mineOf(x.key)]));
+    // 【便AQ】線ごとに**自分の持っている音で**拾う(noteValues)。平均のある音で自分を絞らない。
+    const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(avg.notes, x.key, (c) => c?.value)]));
+    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
+    if (Object.keys(avgBy[m.key]).length === 0 && Object.keys(mineBy[m.key]).length === 0) return null;
     return {
-      keys,
       series: [
         { label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, color: "var(--c-accent)" },
         { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
@@ -1174,28 +1157,11 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     if (!theirIdeal || !aligned) return null;
     const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
     if (aligned.error) return { error: aligned.error };
-    const keys = Object.keys(aligned.notes).sort((a, b) => Number(a) - Number(b));
     // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
-    const theirOf = (key) => {
-      const out = {};
-      for (const k of keys) {
-        const tv = aligned.notes[k]?.[key];
-        if (typeof tv === "number") out[k] = tv;
-      }
-      return out;
-    };
-    const mineOf = (key) => {
-      const out = {};
-      for (const k of keys) {
-        const mv = mineShared.notes?.[k]?.[key];
-        if (typeof mv === "number") out[k] = mv;
-      }
-      return out;
-    };
-    const theirBy = Object.fromEntries(METRICS.map((x) => [x.key, theirOf(x.key)]));
-    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, mineOf(x.key)]));
+    // 【便AQ】線ごとに**その線の持っている音で**拾う(noteValues)。相手の音で自分を絞らない。
+    const theirBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(aligned.notes, x.key)]));
+    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
     return {
-      keys,
       series: [
         { label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, color: "var(--c-accent)" },
         { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
