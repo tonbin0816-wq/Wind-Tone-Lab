@@ -1,6 +1,7 @@
 import { collection, getDocs, limit as qLimit, orderBy, query, where, doc, updateDoc } from "firebase/firestore";
 import { getFirebase } from "./firebaseClient.js";
 import { validateStats } from "./stats.js";
+import { positionLabel } from "./profile.js";
 
 // ------------------------------------------------------------------
 // 公開ユーザーの一覧。**データ・順位・シェアの3画面がここだけを共有する。**
@@ -106,7 +107,8 @@ export function filterUsers(users, { saxType = ANY, genre = ANY, position = ANY 
     // ジャンルも配列。「クラシックもジャズもやる人」はどちらの絞り込みにも現れる。
     if (genre !== ANY && !(Array.isArray(u.genres) && u.genres.includes(genre))) return false;
     // 属性は単一。
-    if (position !== ANY && u.position !== position) return false;
+    // 【便AI】旧い語のまま残っている人も、読み替えた語で絞り込みに当たるようにする。
+    if (position !== ANY && positionLabel(u.position) !== position) return false;
     return true;
   });
 }

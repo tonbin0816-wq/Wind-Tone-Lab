@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN } from "./profile.js";
+import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
@@ -304,7 +304,9 @@ function yearsOf(startYear) {
 // (§6.0 囲いの序列「1. 余白で分ける」)。並びの gap がそのまま区切りになる。
 function whoParts(u) {
   const parts = [];
-  if (u.position) parts.push(u.position);
+  // 【便AI】旧い語のまま残っている人も、新しい語で出す。
+  const pl = positionLabel(u.position);
+  if (pl) parts.push(pl);
   const y = yearsOf(u.startYear);
   if (y !== null) parts.push(`歴${y}年`);
   if (Array.isArray(u.genres) && u.genres[0]) parts.push(u.genres[0]);
@@ -1291,7 +1293,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         {side === "profile" ? (
           <>
             <div>
-              <InfoLine label="属性" value={person.position} />
+              <InfoLine label="属性" value={positionLabel(person.position)} />
               {/* 年は数値なので --font-num(§4.3) */}
               <InfoLine label="演奏開始年" value={Number.isInteger(person.startYear)
                 ? <><span style={{ fontFamily: "var(--font-num)" }}>{person.startYear}</span>年</>

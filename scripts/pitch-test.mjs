@@ -25996,8 +25996,11 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
     check("63.5 onSubmit に渡す11キーが着手前と同一(位置も名前も変えていない)",
       keys63.join(" ") === "nickname icon iconColor saxTypes position startYear genres ensembles ageConfirmed isPublic gear",
       keys63.join(" ") || "取り出せない");
+    // 【便AI 2026-09-24】初期値は旧い語を読み替える positionForEdit を通すようにした。
+    // positionForEdit は必ず文字列を返す(未選択は "")ので、「1つの文字列で渡る」は変わらない。
+    // 返り値が文字列であることの振る舞いは src/community/legacyPosition.test.js が見る。
     check("63.5 属性は今までどおり1つの文字列で渡る(配列にしていない)",
-      /\n {8}position,\n/.test(payload63) && /const \[position, setPosition\] = useState\(initial\?\.position \?\? ""\);/.test(form63));
+      /\n {8}position,\n/.test(payload63) && /const \[position, setPosition\] = useState\(positionForEdit\(initial\?\.position\)\);/.test(form63));
   }
   check("63.5 gear のキーの作り方は変えていない(saxTypes からしか作らない)",
     /gear: Object\.fromEntries\(saxTypes\.map\(\(t\) => \{/.test(form63)
@@ -26704,12 +26707,36 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       Array.isArray(positions66) && positions66.length === 4
       && positions66.join(" / ") === "学生 / 学生（音楽専門） / 社会人 / 職業音楽家",
       Array.isArray(positions66) ? positions66.join(" / ") : String(positions66));
+    // 【便AI 2026-09-24】profile.js の LEGACY_POSITIONS は、旧い語のまま Firestore に残って
+    // いる人を読み替えるための**入力側の鍵**として旧い語を持つ。画面にも選択肢にも出ない。
+    // その表**だけ**を剥がしてから数える。**表が見つからなければ剥がさずに数える**ので
+    // (= 0 にならず落ちる)、存在しないものを例外に名指しする形にはならない。
+    // 表の**出力側**に旧い語が無いことは直下の 66.1b が見る。
+    const legacyAt66 = prof66.indexOf("export const LEGACY_POSITIONS = Object.freeze({");
+    const legacyEnd66 = legacyAt66 < 0 ? -1 : prof66.indexOf("});", legacyAt66);
+    const prof66NoLegacy = (legacyAt66 < 0 || legacyEnd66 < 0)
+      ? prof66
+      : prof66.slice(0, legacyAt66) + prof66.slice(legacyEnd66 + 3);
     check("66.1 旧3語が実装のどこにも残っていない(コメントを剥がして数える)",
-      count66(prof66, /独学|音大|講師/g) === 0
+      count66(prof66NoLegacy, /独学|音大|講師/g) === 0
       && count66(comm66, /独学|音大|講師/g) === 0
       && count66(screens66, /独学|音大|講師/g) === 0
       && count66(app66, /独学|音大|講師/g) === 0,
       `profile=${count66(prof66, /独学|音大|講師/g)} / タブ=${count66(comm66, /独学|音大|講師/g)} / 画面=${count66(screens66, /独学|音大|講師/g)} / App=${count66(app66, /独学|音大|講師/g)}`);
+    // 【便AI】読み替え表そのものの形。鍵は旧い語、値は**いまの4語のどれか**でなければならない。
+    // 値に旧い語が入ると、読み替えたつもりで旧い語を画面に出すことになる。
+    {
+      const legacyBlock = (legacyAt66 < 0 || legacyEnd66 < 0) ? "" : prof66.slice(legacyAt66, legacyEnd66 + 3);
+      const legacyMap = legacyBlock
+        ? new Function(`return ${legacyBlock.replace(/^export const LEGACY_POSITIONS = /, "").replace(/;$/, "")};`)()
+        : null;
+      const vals = legacyMap ? Object.values(legacyMap) : [];
+      check("66.1b 読み替え表が在り、値はすべていまの4語のどれか(旧い語を出力しない)",
+        !!legacyMap && vals.length >= 6
+        && vals.every((v) => ["学生", "学生（音楽専門）", "社会人", "職業音楽家"].includes(v))
+        && !Object.keys(legacyMap).includes("独学"),
+        legacyMap ? JSON.stringify(legacyMap) : "表が見つからない");
+    }
     check("66.1 firestore.rules の position の列挙も同じ4つ・同じ順(旧語は0件)",
       rules66.includes("request.resource.data.position in ['学生','学生（音楽専門）','社会人','職業音楽家']")
       && count66(rules66, /'独学'|'学生（音大）'|'講師・プロ'/g) === 0,

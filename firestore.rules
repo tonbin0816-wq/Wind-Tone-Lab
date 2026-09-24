@@ -101,7 +101,18 @@ service cloud.firestore {
         // 自由入力はニックネーム1つだけ、を型で担保するために列挙で固定する。
         // **profile.js 側の定数を足し引きしたら、必ずここも直すこと**(逆も同じ)。
         // 同期は src/community/profile.test.js の「Firestore ルールの列挙と一致する」で検査している。
-        && request.resource.data.position in ['学生','学生（音楽専門）','社会人','職業音楽家']
+        // 【便AI 2026-09-24 旧い属性の語を閉じ込めない】
+        // 語は4世代変わっており、旧い語のまま残っている人がいる。ルールは書いたあとの
+        // **文書全体**を見るので、新しい4語だけを通すと、その人は公開の切り替えも
+        // アイコンの変更も練習記録の更新も全部弾かれる(写真の門と同じ罠)。
+        // 「新しい4語、または**いま載っている値のまま**」を通す。
+        // 新たに旧い語を入れる経路は無い ── create では resource が null なので後半は偽、
+        // update でも値を変えるなら前半の4語に入っていなければならない。
+        // いま載っている値は旧いルールの列挙を通ったものなので、任意の文字列は載っていない
+        // (「自由入力はニックネームだけ」の性質は保たれる)。
+        // 読み替えは src/community/profile.js の LEGACY_POSITIONS。
+        && (request.resource.data.position in ['学生','学生（音楽専門）','社会人','職業音楽家']
+            || (resource != null && request.resource.data.position == resource.data.position))
         && request.resource.data.startYear is int
         && request.resource.data.startYear >= 1900
         && request.resource.data.startYear <= 2200

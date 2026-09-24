@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX } from "./profile.js";
+import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
@@ -1093,7 +1093,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
   // 触らないので state ではなく定数。変更は ProfileView → setProfileAvatar が行う。
   const icon = initial?.icon ?? AVATAR_ICONS[0];
   const iconColor = initial?.iconColor ?? AVATAR_COLOR_MIN;
-  const [position, setPosition] = useState(initial?.position ?? "");
+  // 【便AI】旧い語は新しい語へ読み替えて出す。対応先の無い語(独学)は空 ── 選び直してもらう。
+  const [position, setPosition] = useState(positionForEdit(initial?.position));
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
   const [genres, setGenres] = useState(initial?.genres ?? []);
   const [ensembles, setEnsembles] = useState(initial?.ensembles ?? []);
@@ -1599,7 +1600,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
             </React.Fragment>
           );
         })}
-        <Row label="属性" value={profile?.position ?? "—"} />
+        <Row label="属性" value={positionLabel(profile?.position) ?? "—"} />
         <Row label="演奏開始年" value={profile?.startYear ? `${profile.startYear}年` : "—"} />
         <Row label="ジャンル" value={listOrDash(profile?.genres)} />
         <Row label="編成" value={listOrDash(profile?.ensembles)} />
