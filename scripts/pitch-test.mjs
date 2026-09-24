@@ -23550,8 +23550,10 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
         over.length === 0, over.map((x) => `${x.name}:${x.sp.trim()}`).join(" | ") || "0件");
     }
     // 【便H(C9)2026-09-16】順位の子タブで SubTabs も同じ行から import するようになった。
+    // 【便AO 2026-09-24】同じ行から NoteAxisLineChart / formatSignedCents も読むようになった
+    // (手作りの折れ線をやめてアプリ本体の部品に揃えた)。**名前を足してよいのはその2つだけ**。
     check("49.7 R9 コミュニティ側は App.jsx から import して読む(写しを作らない)",
-      /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs \} from "\.\.\/App\.jsx";/.test(screens49)
+      /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs(, NoteAxisLineChart, formatSignedCents)? \} from "\.\.\/App\.jsx";/.test(screens49)
       && (codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length === 3,
       `${(codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length}箇所`);
     // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)
@@ -24376,7 +24378,7 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     check("52.7 C9 順位画面に SubTabs(App.jsx export)。既定は練習日数(useState(\"days\"))",
       /<SubTabs items=\{RANK_METRICS\} value=\{metric\} onChange=\{setMetric\} \/>/.test(rank52)
       && /const \[metric, setMetric\] = useState\("days"\);/.test(rank52)
-      && /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs \} from "\.\.\/App\.jsx";/.test(screens52));
+      && /import \{ BACK_BUTTON_STYLE, BottomSheet, SubTabs(, NoteAxisLineChart, formatSignedCents)? \} from "\.\.\/App\.jsx";/.test(screens52));
     check("52.7 C9 子タブは期間の Chip 行の**上**(FilterRow の下)",
       rank52.indexOf("<FilterRow") < rank52.indexOf("<SubTabs items={RANK_METRICS}")
       && rank52.indexOf("<SubTabs items={RANK_METRICS}") < rank52.indexOf('aria-label="期間"'));
@@ -25721,10 +25723,11 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     `hex ${count62(all62, /#[0-9a-fA-F]{3,8}\b/g)}件 / rgb ${count62(all62, /rgba?\(/g)}件`);
 
   // --- 62.3 2-C 「音のデータ」の見出しを消す ----------------------------------
-  check("62.3 2-C 見出しは消えた。残る2件は**戻るボタンの行き先の名乗り**だけ",
-    count62(person62, /音のデータ/g) === 2
-    && /aria-label=\{side === "profile" \? "音のデータに戻る"/.test(person62)
-    && /\{side === "profile" \? "< 音のデータ" : "< 一覧"\}/.test(person62)
+  // 【便AO 2026-09-24 本人指示】表裏がタブ(SubTabs)に変わり、戻るボタンの行き先の名乗り
+  // (`< 音のデータ` / 「音のデータに戻る」)も消えた。残っていた2件がそれだったので **0件**。
+  // 見出しを戻す変異(④)もここで落ちる。
+  check("62.3 2-C 見出しは消えた。戻るの名乗り(< 音のデータ)も便AO で消え、人物画面に「音のデータ」は0件",
+    count62(person62, /音のデータ/g) === 0
     && !/jp-label[^\r\n]*音のデータ/.test(person62),
     `${count62(person62, /音のデータ/g)}件`);
   check("62.3 2-C 裏の「楽器の組」の見出しは残っている(本人は「音のデータ」だけを名指しした)",

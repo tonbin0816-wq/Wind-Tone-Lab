@@ -328,7 +328,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         {/* 【step を渡さない】目安の一覧は名簿と並行に走る。段階を足すと、
             先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
-          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} />
+          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} />
         ))}
         {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
@@ -347,6 +347,7 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
           person={person}
           ideals={ideals ?? []}
           myIdeals={myIdeals}
+          tuningHz={tuningHz}
           onAdopt={onAdoptIdeal}
           onClose={() => setPerson(null)}
           myUid={uid}

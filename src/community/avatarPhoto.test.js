@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   planPhotoEncode, encodeSquarePhoto, avatarPaint, avatarWriteOnClose, photoZoomAvailable, photoFailureKind,
-  avatarDraftAfterPick,
+  avatarDraftAfterPick, PHOTO_ZOOM_PLACES,
 } from "./avatarPhoto.js";
 import { AVATAR_ICONS } from "./profile.js";
 
@@ -170,12 +170,19 @@ describe("photoZoomAvailable ── 拡大表示を出すか(決定5)", () => {
     expect(photoZoomAvailable({ ...PHOTO, place: "mypage" })).toBe(true);
   });
 
-  it("人物紹介の裏(プロフィール面)は出す", () => {
-    expect(photoZoomAvailable({ ...PHOTO, place: "personBack" })).toBe(true);
+  // 【便AO 2026-09-24】人物紹介は表裏からタブ(データ / プロフィール)に変わり、名前の行は
+  // 押せる行ではなくなった。場所は "person" 1つで、**どちらのタブでも**出す。
+  it("人物紹介(データ・プロフィールの両タブ)は出す", () => {
+    expect(photoZoomAvailable({ ...PHOTO, place: "person" })).toBe(true);
   });
 
-  it("表(音のデータ面)の名前の行では出さない ── 行全体がプロフィールへの入口", () => {
+  it("出す場所はマイページと人物紹介の2つだけ(集合で縛る)", () => {
+    expect([...PHOTO_ZOOM_PLACES].sort()).toEqual(["mypage", "person"]);
+  });
+
+  it("表裏だった頃の場所の名前はもう通じない(古い名前で出し分ける経路を残さない)", () => {
     expect(photoZoomAvailable({ ...PHOTO, place: "personFront" })).toBe(false);
+    expect(photoZoomAvailable({ ...PHOTO, place: "personBack" })).toBe(false);
   });
 
   it("順位・一覧の行では出さない ── 行全体がその人を開く", () => {
@@ -183,9 +190,9 @@ describe("photoZoomAvailable ── 拡大表示を出すか(決定5)", () => {
     expect(photoZoomAvailable({ ...PHOTO, place: "directory" })).toBe(false);
   });
 
-  it("絵柄のときは、裏でもマイページでも出さない", () => {
+  it("絵柄のときは、人物紹介でもマイページでも出さない", () => {
     expect(photoZoomAvailable({ icon: "ic-cat", color: 3, place: "mypage" })).toBe(false);
-    expect(photoZoomAvailable({ icon: "ic-cat", color: 3, photo: null, place: "personBack" })).toBe(false);
+    expect(photoZoomAvailable({ icon: "ic-cat", color: 3, photo: null, place: "person" })).toBe(false);
   });
 
   it("場所が未知のときは出さない(既定で出す側へ倒さない)", () => {
@@ -318,11 +325,14 @@ describe("配線 ── 判断を通らずに描く経路が無い", () => {
     const comm = read("./CommunityTab.jsx");
     const screens = read("./screens.jsx");
     expect(comm).toMatch(/photoZoomAvailable\(\{[\s\S]{0,200}?place: "mypage"/);
-    // 裏は1枚のシートが表と裏を兼ねるので、場所の名前を側で切り替えて渡す。
-    expect(screens).toMatch(/photoZoomAvailable\(\{[\s\S]{0,300}?side === "profile" \? "personBack" : "personFront"/);
+    // 【便AO】人物紹介は場所 "person" を**タブ(side)に関係なく**渡す。
+    const call = (screens.match(/photoZoomAvailable\(\{[\s\S]{0,300}?\}\)/) || [""])[0];
+    expect(call).toMatch(/place: "person",/);
+    expect(call).not.toMatch(/side/);
+    expect(screens).not.toMatch(/"personFront"|"personBack"/);
   });
 
-  it("裏のアイコンも写真を受け取る(渡し漏れがあれば絵柄が出てしまう)", () => {
+  it("人物紹介のアイコンも写真を受け取る(渡し漏れがあれば絵柄が出てしまう)", () => {
     const screens = read("./screens.jsx");
     // 綴りは1つ。押せる器で包むかどうかだけが変わる。
     expect(screens).toMatch(/const personAvatar = \([\s\S]{0,300}?photo=\{personPhoto\}/);

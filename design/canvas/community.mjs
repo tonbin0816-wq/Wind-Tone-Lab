@@ -209,6 +209,110 @@ function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R, H = CH
   return p.join("\n            ");
 }
 
+// ---- NoteAxisLineChart(App.jsx の写し)────────────────────────────────
+// 【便AO 2026-09-24 本人の実機報告「横軸が D2 E2 F#2 の3つしかない」】
+// データの「みんなの平均」と人物紹介の折れ線は、手作りの LineChart から
+// アプリ本体の NoteAxisLineChart(`plain`・My Data ではない側)に差し替わった。
+// ここはその L() の写し(generate.mjs の layout() が My Data 側を写しているのと同じ約束)。
+//   ・横軸は**その楽器の音域の全音**(buildFingeringTable。フラジオ込み)。データのある音だけではない
+//   ・音名は**実音**(concertFreqLabel)。音の番号を 12 で回した名前ではない
+//   ・縦軸の目盛は上端・中間・下端の3本(--c-line)。中央線(--c-line-strong)は My Data だけ(D-12)
+//   ・音域の中央の E♭ に縦の破線(--c-accent-line / 4 3)。点は描く(My Data 以外)
+// 音域・音名の表は App.jsx から**その場で抜く**(写しを貼らない。icons.jsx と同じ扱い)。
+// 上の LineChart の写しは、**改善案の面(CommDataB / C / D)**が当時の姿のまま使っている。
+const APP_SRC = readFileSync(fileURLToPath(new URL("../../src/App.jsx", import.meta.url)), "utf8");
+const appConst = (name) => {
+  const m = APP_SRC.match(new RegExp(`const ${name} = ([\\s\\S]*?);\\n`));
+  if (!m) throw new Error(`App.jsx から ${name} を読めない`);
+  return new Function(`return (${m[1]});`)();
+};
+const NA_RANGE = appConst("SAX_CONCERT_RANGE");
+const NA_NOTE_NAMES = appConst("NOTE_NAMES");
+const NA_PLOT_H = appConst("CHART_PLOT_H");
+const NA_FS = appConst("SVG_FS_XS"), NA_SP1 = appConst("SVG_SP1"), NA_SP2 = appConst("SVG_SP2");
+// 実音の音名。キャンバスの基準ピッチはどの値でも音名は変わらないので MIDI から引く
+// (concertFreqLabel は 基準ピッチで割り戻して丸めるだけなので、同じ名前になる)。
+const naLabels = (saxType) => {
+  const r = NA_RANGE[saxType];
+  return Array.from({ length: r.highMidi - r.lowMidi + 1 }, (_, i) => {
+    const midi = r.lowMidi + i;
+    return NA_NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
+  });
+};
+// measureSvgTextPx の代わり(generate.mjs の textPx と同じ係数。system font 12px の実測に近い)
+const naTextPx = (s, fs = NA_FS) => {
+  let w = 0;
+  for (const ch of String(s)) w += /[0-9]/.test(ch) ? fs * 0.556 : /[♯♭]/.test(ch) ? fs * 0.60 : fs * 0.667;
+  return w;
+};
+const na2 = (n) => Math.round(n * 100) / 100;
+
+// width はそのグラフが置かれる箱の実寸(SVG の実寸 = viewBox。§1.9 の縮小禁止)。
+// 【柱の幅】実装は4指標ぶんの目盛の最大で固定する(R12)。キャンバスは1指標ぶんの
+// ダミーしか持たないので、描いている指標の目盛から測る。
+function noteAxisChart({ saxType = "alto", series, fmt, width }) {
+  const labels = naLabels(saxType);
+  const N = labels.length;
+  const vals = series.flatMap((s) => Object.values(s.byIdx));
+  // noteAxisDomain(中心を持たない指標): 最小〜最大に 12% の余白
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+  const FS = NA_FS, plotH = NA_PLOT_H, padTop = NA_SP2;
+  const tickVals = [hi, (hi + lo) / 2, lo];
+  const tickTexts = tickVals.map(fmt);
+  const tickW = Math.ceil(Math.max(...tickTexts.map((t) => naTextPx(t))));
+  const TICK_GAP = NA_SP1;
+  const AXW = TICK_GAP + tickW + TICK_GAP;
+  const maxLblW = Math.ceil(Math.max(0, ...labels.map((nm) => naTextPx(nm))));
+  const halfLbl = Math.ceil(maxLblW / 2) + NA_SP1;
+  const x0 = AXW + halfLbl;
+  const x1 = Math.max(x0 + 1, width - NA_SP2 - halfLbl);
+  const colStep = (x1 - x0) / Math.max(1, N - 1);
+  const need = maxLblW + NA_SP2;
+  const labelStep = [1, 2, 3, 4, 6, 12].find((st) => st * colStep >= need) ?? Math.max(12, Math.ceil(need / colStep / 12) * 12);
+  const ebIdx = labels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  const axisCenter = (N - 1) / 2;
+  const midEb = ebIdx.reduce((b, i) => (Math.abs(i - axisCenter) < Math.abs(b - axisCenter) ? i : b), ebIdx[0]);
+  const showLabel = (i) => (((i - midEb) % labelStep) + labelStep) % labelStep === 0;
+  const dotR = Math.max(1.5, Math.min(3, colStep * 0.3));
+  const labelY = padTop + plotH + NA_SP2 + Math.round(FS * 0.8);
+  const H = labelY + NA_SP1;
+  const xAt = (i) => x0 + i * colStep;
+  const yAt = (v) => padTop + plotH - ((v - lo) / rng) * plotH;
+
+  const p = [];
+  p.push(`<svg width="${width}" height="${H}" viewBox="0 0 ${width} ${H}" style="display: block">`);
+  tickVals.forEach((v, k) => {
+    p.push(`  <line x1="${AXW}" y1="${na2(yAt(v))}" x2="${width}" y2="${na2(yAt(v))}" stroke-width="1" style="stroke: var(--c-line)" />`);
+    p.push(`  <text x="${AXW - TICK_GAP}" y="${na2(yAt(v) + Math.round(FS * 0.35))}" font-size="${FS}" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-4)">${tickTexts[k]}</text>`);
+  });
+  p.push(`  <line x1="${na2(xAt(midEb))}" y1="${padTop}" x2="${na2(xAt(midEb))}" y2="${padTop + plotH}" stroke-width="1" stroke-dasharray="4 3" style="stroke: var(--c-accent-line)" />`);
+  for (const s of series) {
+    const segs = []; let cur = [];
+    for (let i = 0; i < N; i++) {
+      if (s.byIdx[i] !== undefined) cur.push(`${na2(xAt(i))},${na2(yAt(s.byIdx[i]))}`);
+      else { if (cur.length) segs.push(cur); cur = []; }
+    }
+    if (cur.length) segs.push(cur);
+    p.push(`  <g style="stroke: ${s.color}; fill: ${s.color}">`);
+    for (const seg of segs) {
+      p.push(`    <polyline fill="none" stroke-width="2"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""} points="${seg.join(" ")}" />`);
+    }
+    for (const [idx, v] of Object.entries(s.byIdx)) {
+      p.push(`    <circle cx="${na2(xAt(+idx))}" cy="${na2(yAt(v))}" r="${na2(dotR)}" stroke="none" />`);
+    }
+    p.push(`  </g>`);
+  }
+  labels.forEach((nm, i) => {
+    if (!showLabel(i)) return;
+    const eb = i === midEb;
+    p.push(`  <text x="${na2(xAt(i))}" y="${labelY}" font-size="${FS}" font-weight="${eb ? 700 : 400}" text-anchor="middle" font-family="var(--font-num)" style="fill: ${eb ? "var(--c-accent)" : "var(--c-ink-3)"}">${nm}</text>`);
+  });
+  p.push(`</svg>`);
+  return p.join("\n            ");
+}
+
 // Legend(screens.jsx): 14x3 の実線の帯。破線は帯では描き分けない
 function legend(series) {
   return `<div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)">${series
@@ -243,6 +347,17 @@ const centroidAvg = [742, 806, 878, 944, 1021, 1098, 1172, 1258, 1331, 1409, 148
 const centroidMine = [712, 795, 902, 968, 1010, 1042, 1061, 1088, 1140, 1252, 1372, 1498, 1626, 1742, 1848, 1954, 2036, 2098];
 const centroidTheir = [790, 851, 918, 1002, 1112, 1208, 1288, 1344, 1382, 1412, 1451, 1502, 1571, 1655, 1748, 1836, 1902, 1948];
 const asVals = (arr) => Object.fromEntries(KEYS.map((k, i) => [k, arr[i]]));
+// 【便AO】音名軸(NoteAxisLineChart)の面で使う音の番号。上の KEYS(34〜51)は手作りの
+// LineChart が「番号を 12 で回して名付ける」だけだった頃の値で、A.Sax の音域(0〜36)の外に出る。
+// 同じ値の並びを A.Sax の番号 10〜27(実音 B3〜E5)に置く。**ダミー**。
+const NA_KEYS = KEYS.map((_, i) => 10 + i);
+const naVals = (arr) => Object.fromEntries(NA_KEYS.map((k, i) => [k, arr[i]]));
+const roundFmt = (v) => Math.round(v).toString(); // 重心(METRICS の digits 0)
+// 器の幅(このキャンバスの箱の実寸。SVG は 1:1 で置く)
+//   データのカードの中 = 375 − 14×2(app-root)− 16×2(screen の --sp-4)− 16×2(カードの --sp-4)
+//   人物紹介の本文    = 375 − 14×2 − 16×2(personShell の --sp-4)
+const NA_W_DATA = 375 - 14 * 2 - 16 * 2 - 16 * 2;
+const NA_W_PERSON = 375 - 14 * 2 - 16 * 2;
 
 const PEOPLE = [
   { nick: "しろねこ", icon: "ic-cat", color: 1, who: ["学生", "歴3年", "クラシック"], days: 24, rec: 38 },
@@ -258,8 +373,8 @@ const PEOPLE = [
 // ---- データ -------------------------------------------------------------
 function buildData() {
   const series = [
-    { label: "みんなの平均", values: asVals(centroidAvg), color: "var(--c-accent)" },
-    { label: "自分", values: asVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
+    { label: "みんなの平均", byIdx: naVals(centroidAvg), color: "var(--c-accent)" },
+    { label: "自分", byIdx: naVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
   ];
   const rows = PEOPLE.slice(0, 4).map((p, i, arr) => `          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">
             ${avatar(p.icon, p.color, 34)}
@@ -281,7 +396,7 @@ function buildData() {
           ${underlineTabs(["重心", "HNR", "音程"], "重心")}
         </div>
         <div style="display: grid; gap: var(--sp-2)">
-          ${lineChart({ keys: KEYS, series, digits: 0 })}
+          ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_DATA })}
           ${legend(series)}
           <div style="${BODY_NOTE}">${ALIGN_NOTE}</div>
         </div>
@@ -528,7 +643,9 @@ ${formField("編成(複数選択可)", pillRow([["ソロ", true], ["アンサン
       <div style="${BTN2}">やめる</div>`);
 }
 
-// ---- 人をタップしたとき(表 = 音のデータ / 裏 = プロフィール) -------------
+// ---- 人をタップしたとき(タブ データ / プロフィール) -------------------------
+// 【便AO 2026-09-24 本人指示】表裏(名前の行を押して裏返る・`< 音のデータ` で戻る)をやめ、
+// 名前の行の下に SubTabs [データ | プロフィール]。左上は常に `< 一覧`。名前の行に山形は無い。
 // 【R9 2026-09-16 実機の指摘】地(--c-sunken)と左右の padding を外した(App.jsx の BACK_BUTTON_STYLE と同値)。
 const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center";
 
@@ -541,27 +658,29 @@ function personShell(inner) {
   </div>`;
 }
 
-function personHead(p, chevron) {
+// 名前の行は押せる行ではない(便AO)。その下に SubTabs(PERSON_TABS)。
+const PERSON_TABS = [["data", "データ"], ["profile", "プロフィール"]];
+function personHead(p, tab) {
   return `<div style="display: flex; align-items: center; gap: var(--sp-3)">
         ${avatar(p.icon, p.color, 56)}
         <div style="min-width: 0; flex: 1 1 0">
           <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">${p.nick}</div>
           ${whoLine(p.who)}
-        </div>${chevron
-    ? `\n        <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M4 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>`
-    : ""}
-      </div>`;
+        </div>
+      </div>
+
+      ${subTabs(tab, PERSON_TABS)}`;
 }
 
 function buildPerson() {
   const p = PEOPLE[0];
   const series = [
-    { label: p.nick, values: asVals(centroidTheir), color: "var(--c-accent)" },
-    { label: "自分", values: asVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
+    { label: p.nick, byIdx: naVals(centroidTheir), color: "var(--c-accent)" },
+    { label: "自分", byIdx: naVals(centroidMine), color: "var(--c-ink-2)", dash: "4 3" },
   ];
   return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
 
-      ${personHead(p, true)}
+      ${personHead(p, "data")}
 
       <div style="display: flex; align-items: baseline; gap: var(--sp-2)">
         <div style="${LABEL}">練習日数</div>
@@ -572,7 +691,7 @@ ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 
       ${underlineTabs(["重心", "HNR", "音程"], "重心")}
       <div style="${NOTE}">Hz　計測${p.rec}件</div>
-      ${lineChart({ keys: KEYS, series, digits: 0 })}
+      ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_PERSON })}
       ${legend(series)}
       <div style="${NOTE}">${ALIGN_NOTE}</div>
       <div style="display: flex; justify-content: flex-end">
@@ -583,9 +702,9 @@ ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 function buildPersonBack() {
   const p = PEOPLE[0];
   const gear = (label, value) => infoRow(label, value, "7em");
-  return personShell(`<div style="${BACK_BTN}">&lt; 音のデータ</div>
+  return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
 
-      ${personHead(p, false)}
+      ${personHead(p, "profile")}
 
       <div>
 ${infoRow("属性", "学生", "7em")}
@@ -1017,8 +1136,8 @@ const FILES = [
   ["CommShare.dc.html", buildShare, "シェア"],
   ["CommMyPage.dc.html", buildMyPage, "マイページ"],
   ["CommProfileEdit.dc.html", buildProfileEdit, "プロフィール編集(束4)"],
-  ["CommPerson.dc.html", buildPerson, "人をタップ(表 音のデータ)"],
-  ["CommPersonBack.dc.html", buildPersonBack, "人をタップ(裏 プロフィール)"],
+  ["CommPerson.dc.html", buildPerson, "人をタップ(タブ データ)"],
+  ["CommPersonBack.dc.html", buildPersonBack, "人をタップ(タブ プロフィール)"],
   ["CommDataB.dc.html", buildDataB, "改善案 データ(線に名前)"],
   ["CommRankB.dc.html", buildRankB, "改善案 順位(上位3位)"],
   ["CommRankTint.dc.html", buildRankTint, "順位案A 淡い地"],

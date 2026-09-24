@@ -7,11 +7,12 @@ import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, alignProfile } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
-import { Avatar, RowChevron } from "./icons.jsx";
+import { Avatar } from "./icons.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
-import { BACK_BUTTON_STYLE, BottomSheet, SubTabs } from "../App.jsx";
+// 【便AO 2026-09-24】音名軸の折れ線もアプリ本体の NoteAxisLineChart ただ1つ(手作りの LineChart は消した)。
+import { BACK_BUTTON_STYLE, BottomSheet, SubTabs, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 import { hideFlagged, REPORT_REASONS, reportEntryVisible } from "./report.js";
 import { listFlaggedUids, reportUser } from "./reportRepo.js";
@@ -814,87 +815,45 @@ const METRICS = [
   { key: "pitchCentsSigned", label: "音程", unit: "¢", digits: 1 },
 ];
 
-// 半音インデックス → 表示名。0 を C として12音で回す。
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const noteLabel = (key) => {
-  const n = Number(key);
-  if (!Number.isInteger(n)) return String(key);
-  return NOTE_NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) + 1);
-};
-
-// 折れ線を1枚のSVGで描く。**横軸は音名**(他の画面と同じ向き)。
+// 【便AO 2026-09-24 本人の実機報告】「重心とかHNRとか音程の横軸が D2 E2 F#2 の3つしかない。
+// その楽器の該当の音は横軸に出るようにして」。
+// ここには手作りの折れ線(LineChart)があり、原因は2つあった:
+//   1. 音名が誤り … 音の番号(semitoneIndex)を「0 を C1 として12音で回す」だけで名付けていた。
+//      semitoneIndex は**その楽器の最低音から数えた運指の番号**なので、A.Sax の 14/16/18
+//      (実音 E♭4 / F4 / G4)が D2 / E2 / F#2 と出ていた。
+//   2. 横軸がデータのある音だけ … 3音しか公開されていなければ横軸も3つ。
+// アプリ本体の NoteAxisLineChart に差し替えた。あちらは buildFingeringTable で**その楽器の
+// 音域の全音**を横軸に並べ、実音の音名(concertFreqLabel)を付ける。手作りの部品は残さない
+// (同じ絵を2つの部品が描くと、片方だけ直る)。
 //
-// 【centerAt】その値を中心にした対称の縦軸にし、中心線を1本引く。
-// 音程は「0 からどれだけ外れているか」を読む指標なので、min/max で枠を決めると
-// 0 が枠の外に出ることすらあり、上か下かが読めない(2026/09/06 本人指示)。
-// App.jsx の My Data(NoteAxisLineChart)が既に同じ形を持つので、それに揃える。
-//
-// 【横軸のラベルを間引く規則】音数が増えると 9px の音名が隣と重なって読めなくなる。
-// 規則はこの1つだけ ── **表示するラベルは最大 MAX_X_LABELS 個。等間隔に選び、
-// 両端(最初と最後の音)は必ず出す。** 点と線は全部の音を描いたまま、
-// 文字だけを間引く(形を読む画面なので、線を間引いてはいけない)。
-const MAX_X_LABELS = 7;
-function xLabelIndexes(n) {
-  const set = new Set();
-  if (n <= 0) return set;
-  if (n <= MAX_X_LABELS) { for (let i = 0; i < n; i++) set.add(i); return set; }
-  // 0 と n-1 を含む等間隔の MAX_X_LABELS 点。丸めても両端は必ず入る。
-  for (let j = 0; j < MAX_X_LABELS; j++) set.add(Math.round((j * (n - 1)) / (MAX_X_LABELS - 1)));
-  return set;
-}
+// 目盛の書式は METRICS の digits。音程だけ符号付き(App.jsx の formatSignedCents =
+// 小数1桁。METRICS の音程の digits 1 と同じ)。
+const metricFmt = (m) => (m.key === "pitchCentsSigned" ? formatSignedCents : (v) => v.toFixed(m.digits));
 
-function LineChart({ keys, series, digits, centerAt = null }) {
-  const W = 320, H = 160, PAD_L = 40, PAD_B = 22, PAD_T = 10, PAD_R = 8;
-  const all = series.flatMap((s) => keys.map((k) => s.values[k]).filter((v) => typeof v === "number"));
-  if (all.length === 0) return null;
-  let lo = Math.min(...all), hi = Math.max(...all);
-  if (typeof centerAt === "number") {
-    // 中心からの最大の外れ幅で対称にする。全値が中心のときは 0 で割らないよう 1 を置く。
-    const half = Math.max(...all.map((v) => Math.abs(v - centerAt))) || 1;
-    lo = centerAt - half; hi = centerAt + half;
-  } else if (lo === hi) { lo -= 1; hi += 1; } // 全部同じ値のとき0で割らない
-  // 目盛は上下2本。中心があるときは中心も加えて3本。
-  const ticks = typeof centerAt === "number" ? [hi, centerAt, lo] : [hi, lo];
-  const x = (i) => PAD_L + (keys.length === 1 ? (W - PAD_L - PAD_R) / 2 : (i * (W - PAD_L - PAD_R)) / (keys.length - 1));
-  const y = (v) => PAD_T + (1 - (v - lo) / (hi - lo)) * (H - PAD_T - PAD_B);
-  const xLabels = xLabelIndexes(keys.length);
+// 系列の見た目は**凡例(Legend)と同じ値から引く**(color / dash を2箇所に書かない)。
+// 太さは §1.8 の系列の 2px(いままでの LineChart の既定と同じ)。
+const COMMUNITY_SERIES_WIDTH = 2;
 
+// chart = { series: [{ label, color, dash?, values, byMetric }] } を NoteAxisLineChart の形にして描く。
+//   ・byIdx … いまの指標の「音の番号 → 値」(数値のキー)
+//   ・byMetric … 3指標ぶん。R12(指標を切り替えても柱の幅を動かさない)のために渡す
+//   ・plain … 見出し(label / unit)を出さない。単位は画面の側が出している
+//   ・音程は metricKey で自動的に 0 中心
+function CommunityNoteChart({ chart, metric, saxType, tuningHz }) {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
-         aria-label={`音名ごとの比較。横軸は音名、縦軸は値(${lo.toFixed(digits)}〜${hi.toFixed(digits)})`}
-         style={{ display: "block", overflow: "visible" }}>
-      {/* 目盛りは上下2本だけ。線の形を読む画面なので、罫で埋めない。
-          中心線(±0)だけは --c-line-strong の実線で一段濃くする ── App.jsx の
-          My Data の中央線と同じ(DESIGN-SYSTEM §1.8)。 */}
-      {ticks.map((v, i) => (
-        <g key={i}>
-          <line x1={PAD_L} x2={W - PAD_R} y1={y(v)} y2={y(v)}
-                stroke={v === centerAt ? "var(--c-line-strong)" : "var(--c-line)"} strokeWidth="1" />
-          <text x={PAD_L - 6} y={y(v) + 4} textAnchor="end" fontSize="9" fill="var(--c-ink-3)" className="sans">
-            {v.toFixed(digits)}
-          </text>
-        </g>
-      ))}
-      {keys.map((k, i) => (xLabels.has(i) ? (
-        <text key={k} x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--c-ink-3)" className="sans">
-          {noteLabel(k)}
-        </text>
-      ) : null))}
-      {series.map((s) => {
-        const pts = keys.map((k, i) => (typeof s.values[k] === "number" ? `${x(i)},${y(s.values[k])}` : null)).filter(Boolean);
-        if (pts.length === 0) return null;
-        return (
-          <g key={s.label}>
-            <polyline points={pts.join(" ")} fill="none" stroke={s.color} strokeWidth={s.width ?? 2}
-                      strokeLinejoin="round" strokeLinecap="round" strokeDasharray={s.dash ?? "none"} />
-            {pts.map((p) => {
-              const [px, py] = p.split(",");
-              return <circle key={p} cx={px} cy={py} r="2.5" fill={s.color} />;
-            })}
-          </g>
-        );
-      })}
-    </svg>
+    <NoteAxisLineChart
+      plain
+      metricKey={metric.key}
+      fmt={metricFmt(metric)}
+      saxType={saxType}
+      tuningHz={tuningHz}
+      series={chart.series.map((s, i) => ({
+        id: `s${i}`, label: s.label,
+        style: { color: s.color, width: COMMUNITY_SERIES_WIDTH, dash: s.dash ?? null },
+        byIdx: s.values, byMetric: s.byMetric,
+      }))}
+      selectedIdeal={null} idealKey={null}
+    />
   );
 }
 
@@ -911,7 +870,9 @@ function Legend({ series }) {
   );
 }
 
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson }) {
+// 【便AO 2026-09-24 tuningHz】横軸の実音の音名を引くのに要る(自分の基準ピッチ。
+// CommunityTab が buildMyIdeals に渡しているものと同じ値)。
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz }) {
   // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
@@ -944,21 +905,30 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     if (keys.length === 0) return null;
     // 自分の線も変換後の値から読む。ここだけローカルの綴りを直に読むと、
     // 綴りを足したときに片方だけ直し忘れる。読む場所を1つにする。
-    const mineValues = {};
-    for (const k of keys) {
-      const v = mineShared.notes?.[k]?.[m.key];
-      if (typeof v === "number" && Number.isFinite(v)) mineValues[k] = v;
-    }
-    const avgValues = {};
-    for (const k of keys) {
-      const cell = avg.notes[k]?.[m.key];
-      if (cell) avgValues[k] = cell.value;
-    }
+    // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
+    const mineOf = (key) => {
+      const out = {};
+      for (const k of keys) {
+        const v = mineShared.notes?.[k]?.[key];
+        if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+      }
+      return out;
+    };
+    const avgOf = (key) => {
+      const out = {};
+      for (const k of keys) {
+        const cell = avg.notes[k]?.[key];
+        if (cell) out[k] = cell.value;
+      }
+      return out;
+    };
+    const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, avgOf(x.key)]));
+    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, mineOf(x.key)]));
     return {
       keys,
       series: [
-        { label: "みんなの平均", values: avgValues, color: "var(--c-accent)" },
-        { label: "自分", values: mineValues, color: "var(--c-ink-2)", dash: "4 3" },
+        { label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, color: "var(--c-accent)" },
+        { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
       ],
     };
   }, [avg, mineShared, m.key]);
@@ -985,8 +955,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           <Empty>{avg.error}</Empty>
         ) : (
           <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-            {chart ? <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
-                                       centerAt={m.key === "pitchCentsSigned" ? 0 : null} /> : <Empty>この指標のデータがありません</Empty>}
+            {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty>この指標のデータがありません</Empty>}
             {chart ? <Legend series={chart.series} /> : null}
             {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
                 「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
@@ -1137,18 +1106,29 @@ function SaxTypeRow({ saxType, playing, onPick }) {
   );
 }
 
-export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported }) {
+// 【便AO 2026-09-24 本人指示】「他の奏者のページはこのアプリの他のタブ切り替えに倣って
+// データとプロフィールがタブ切り替えになるように変更して」。
+// 以前は「表(音のデータ)/裏(プロフィール)」で、名前の行を押すと裏返り、左上の
+// `< 音のデータ` で戻った。コミュニティ上部・データタブ・リードタブと同じ SubTabs にした。
+// 中身の出し分けは side("data" / "profile")のまま。
+const PERSON_TABS = [
+  { key: "data", label: "データ" },
+  { key: "profile", label: "プロフィール" },
+];
+
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported, tuningHz }) {
   const [adopted, setAdopted] = useState(null);
   // 【計画5 2026-09-10】通報。開いているか / 選んだ理由 / 送った結果。
   // シートの上にシートを重ねない ── 人物紹介を閉じてから通報のシートを出す。
   const [reporting, setReporting] = useState(false);
   const [reportState, setReportState] = useState(null);
-  // 【表と裏で1枚】新しい画面の作法を増やさない(2026/09/06 本人指示)。
-  // 表 = 音のデータ / 裏 = プロフィール。行き来は上部の1つのボタンだけが担う。
+  // 【1枚のシートの2つのタブ】新しい画面の作法を増やさない(2026/09/06 本人指示)。
+  // "data" = データ / "profile" = プロフィール。行き来は名前の行の下の SubTabs だけが担う(便AO)。
   const [side, setSide] = useState("data");
-  // 【便AH 2026-09-23 決定5】写真の拡大。**裏(プロフィール面)のときだけ**出る。
-  // 表(音のデータ)の名前の行はいままでどおり行全体がプロフィールへの入口なので、
-  // そこで写真が開くと人を開けなくなる。場所の名前を渡して純関数に決めさせる。
+  // 【便AH 2026-09-23 決定5 → 便AO 2026-09-24】写真の拡大。**両方のタブで**出る。
+  // 以前は裏(プロフィール面)だけだった ── 表の名前の行が行全体でプロフィールへの入口で、
+  // そこで写真が開くと人を開けなくなるから。便AO でその入口(名前の行を押して裏返る)が
+  // 無くなったので、理由も消えた。場所の名前を渡して純関数に決めさせるのは変わらない。
   const [photoZoom, setPhotoZoom] = useState(false);
   // その人が登録している種別のうち、目安か楽器の組があるものだけをタブに出す。
   // 「タブはあるのに中身が何も無い」を作らない。
@@ -1195,27 +1175,40 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
     if (aligned.error) return { error: aligned.error };
     const keys = Object.keys(aligned.notes).sort((a, b) => Number(a) - Number(b));
-    const theirValues = {}; const mineValues = {};
-    for (const k of keys) {
-      const tv = aligned.notes[k]?.[m.key];
-      if (typeof tv === "number") theirValues[k] = tv;
-      const mv = mineShared.notes?.[k]?.[m.key];
-      if (typeof mv === "number") mineValues[k] = mv;
-    }
+    // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
+    const theirOf = (key) => {
+      const out = {};
+      for (const k of keys) {
+        const tv = aligned.notes[k]?.[key];
+        if (typeof tv === "number") out[k] = tv;
+      }
+      return out;
+    };
+    const mineOf = (key) => {
+      const out = {};
+      for (const k of keys) {
+        const mv = mineShared.notes?.[k]?.[key];
+        if (typeof mv === "number") out[k] = mv;
+      }
+      return out;
+    };
+    const theirBy = Object.fromEntries(METRICS.map((x) => [x.key, theirOf(x.key)]));
+    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, mineOf(x.key)]));
     return {
       keys,
       series: [
-        { label: person?.nickname ?? "この人", values: theirValues, color: "var(--c-accent)" },
-        { label: "自分", values: mineValues, color: "var(--c-ink-2)", dash: "4 3" },
+        { label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, color: "var(--c-accent)" },
+        { label: "自分", values: mineBy[m.key], byMetric: mineBy, color: "var(--c-ink-2)", dash: "4 3" },
       ],
     };
   }, [theirIdeal, aligned, myIdeals, saxType, m.key, person]);
 
   if (!person) return null;
   const personPhoto = person.photo ?? null;
+  // 【便AO】場所は「人物紹介」1つ。タブ(side)では変えない ── 両方のタブで出す。
   const canZoomPerson = photoZoomAvailable({
     photo: personPhoto, icon: person.icon, color: person.iconColor,
-    place: side === "profile" ? "personBack" : "personFront",
+    place: "person",
   });
   // 綴りは1つ。押せる器で包むかどうかだけが変わる(中の絵は同じもの)。
   const personAvatar = (
@@ -1228,7 +1221,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   // 【便P 2026-09-20 本人指示】「目安に設定ボタンは固定して。いま1番下までスクロールすると
   // ボタンの位置も上がる仕様になっている」。
   // 貼り付く器を**本文の一番最後**(通報の行より後ろ)へ移したので、ボタンを出す条件だけを
-  // ここへ持ち上げる。**中身は下の分岐と同じ**: 表(音のデータ)に居て、データのある種別が
+  // ここへ持ち上げる。**中身は下の分岐と同じ**: データのタブに居て、データのある種別が
   // あって、その種別の目安が公開されていて、合わせられている(chart.error が無い)とき。
   // 描画の分岐(Empty の出し分け)は1つも変えていない。
   const showAdopt = Boolean(onAdopt && side === "data" && types.length > 0
@@ -1241,9 +1234,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     // だけだった。アプリで唯一この作法だったので、器を BottomSheet に畳んだ。
     // 重なり順も 60 に揃い、閉じ方が つまみ / 暗幕タップ / 下スワイプ / Escape の4つに増える。
     // **左上のボタンは消さない。**
-    //   ・`< 音のデータ` は**閉じる操作ではない** ── 裏(プロフィール)から表(音のデータ)へ
-    //     戻る**シートの中の移動**で、シートの閉じ方では代替できない。
-    //   ・`< 一覧` は同じ形・同じ位置で行き先だけ差し替えたものなので、片方だけ消せない。
+    //   ・【便AO 2026-09-24】`< 音のデータ`(裏から表へ戻るシートの中の移動)は消えた ──
+    //     行き来は SubTabs が担う。左上は**常に `< 一覧`**(シートを閉じる)。
+    //     全画面の DetailHeader の `< 一覧` と同じ位置・同じ語で、行き先を名乗る戻るとして残す。
     // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
     // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
     <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
@@ -1255,26 +1248,19 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           ここでの上書きだけで済ませる(paddingBottom を上書きしているのと同じ手)。 */}
       <div style={{ ...pageStyle, paddingTop: 0, paddingBottom: "var(--sp-6, 40px)" }}>
         {/* 【行き先を名乗る戻る】表記は `< 一覧`(2026/09/06 本人指定)。
-            裏(プロフィール)にいるときは行き先が変わるので、同じ形で行き先だけ差し替える。
+            【便AO 2026-09-24】どちらのタブに居ても行き先は一覧(シートを閉じる)。
             寸法・色は変えない。 */}
         <button type="button" className="sans"
-                onClick={() => (side === "profile" ? setSide("data") : onClose())}
-                aria-label={side === "profile" ? "音のデータに戻る" : "一覧に戻る"}
+                onClick={onClose}
+                aria-label="一覧に戻る"
                 style={BACK_BUTTON_STYLE}>
-          {side === "profile" ? "< 音のデータ" : "< 一覧"}
+          {"< 一覧"}
         </button>
 
-        {/* 【名前の行がプロフィールの入口】表では押せる。行の高さは 56px のアイコンで
-            決まるので当たり判定は足りている(箱を大きくしていない)。
-            押せることは右端の山形だけで返す ── 地も枠も足さない(§6.7)。 */}
-        <div {...(side === "data" ? {
-               role: "button", tabIndex: 0,
-               onClick: () => setSide("profile"),
-               onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSide("profile"); } },
-               "aria-label": `${person.nickname} のプロフィールを見る`,
-             } : {})}
-             style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)",
-                      cursor: side === "data" ? "pointer" : "default" }}>
+        {/* 【名前の行は押せる行ではない 便AO 2026-09-24】以前はデータ側で行全体が
+            プロフィールへの入口で、右端に山形を出していた。入口は下の SubTabs に移ったので、
+            role="button" も山形も持たない(押しても何も起きない行に押せる印を残さない)。 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
           {canZoomPerson ? (
             <button type="button" aria-label="写真を大きく表示" style={PHOTO_TAP_STYLE}
                     onClick={() => setPhotoZoom(true)}>
@@ -1285,10 +1271,12 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
             <WhoLine u={person} />
           </div>
-          {side === "data" ? (
-            <RowChevron />
-          ) : null}
         </div>
+
+        {/* 【便AO 2026-09-24 本人指示】データとプロフィールはタブで切り替える。
+            コミュニティ上部・データタブ・リードタブと同じ部品(SubTabs)。名前の行の下に置く。
+            楽器種別の選択(saxType)は両タブで共有する(状態は1つ)。 */}
+        <SubTabs items={PERSON_TABS} value={side} onChange={setSide} />
 
         {side === "profile" ? (
           <>
@@ -1329,7 +1317,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           </div>
         </div>
 
-        {/* 表と裏で同じ行。データのある種別が無い人でも4つ並ぶ(押せるのは吹く種別だけ)。 */}
+        {/* 両タブで同じ行。データのある種別が無い人でも4つ並ぶ(押せるのは吹く種別だけ)。 */}
         <SaxTypeRow saxType={saxType} playing={person.saxTypes} onPick={setSaxType} />
 
         {types.length === 0 ? (
@@ -1356,8 +1344,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                         同じ語を下でもう一度言っていた。**単位は残す** ── タブは単位を持たず、
                         縦軸の数字が何なのかはここでしか分からない。 */}
                     <div className="sans" style={noteStyle}>{m.unit}　計測{theirIdeal.sourceSessionCount ?? "—"}件</div>
-                    <LineChart keys={chart.keys} series={chart.series} digits={m.digits}
-                               centerAt={m.key === "pitchCentsSigned" ? 0 : null} />
+                    <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} />
                     {/* 【便P 2026-09-20 本人裁定】案2(注記をボタンより後ろへ)は**取り消した**。
                         本人の言葉「最初に見た時はボタンと重なっててもいいが、スクロールで
                         ボタンを避けられるようにして」── 重なり自体は許されたので、

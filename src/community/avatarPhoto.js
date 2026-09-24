@@ -27,11 +27,14 @@ export const PHOTO_MAX_BYTES = 262144;
 export const PHOTO_ACCEPT = "image/png,image/jpeg,image/webp,image/heic,image/heif";
 
 // 【決定5】拡大できる場所は2つだけ。
-//   mypage     … マイページの自分のアイコン
-//   personBack … 人物紹介シートの裏(プロフィール面)のアイコン
-// 表(音のデータ面)の名前の行と、順位などの一覧の行は**行全体がその人を開く入口**なので
-// ここに入れない。入れると行を押すたびに写真が開き、人を開けなくなる。
-export const PHOTO_ZOOM_PLACES = ["mypage", "personBack"];
+//   mypage … マイページの自分のアイコン
+//   person … 人物紹介シートのアイコン(データ・プロフィールの**両タブ**)
+// 順位などの一覧の行は**行全体がその人を開く入口**なのでここに入れない。
+// 入れると行を押すたびに写真が開き、人を開けなくなる。
+// 【便AO 2026-09-24】以前は人物紹介を表(personFront)と裏(personBack)に分け、裏だけで
+// 出していた ── 表の名前の行が行全体でプロフィールへの入口だったから。表裏がタブに変わり、
+// 名前の行は押せる行ではなくなったので、その理由が消えた。場所は "person" 1つに畳んだ。
+export const PHOTO_ZOOM_PLACES = ["mypage", "person"];
 
 /**
  * 端末側の書き直しの手順を決める。**画像には触らない**(描くのは下の encodeSquarePhoto)。
@@ -132,7 +135,7 @@ export function avatarPaint({ photo, icon, color } = {}) {
  *
  * 規則は2つ。どちらか一方でも欠けたら出さない。
  *  ・描いているのが写真である ── 絵柄はベクターなので拡大に意味が無い
- *  ・場所が PHOTO_ZOOM_PLACES のどれかである ── 裏とマイページだけ
+ *  ・場所が PHOTO_ZOOM_PLACES のどれかである ── 人物紹介とマイページだけ
  */
 export function photoZoomAvailable({ photo, icon, color, place } = {}) {
   if (avatarPaint({ photo, icon, color }).kind !== "photo") return false;

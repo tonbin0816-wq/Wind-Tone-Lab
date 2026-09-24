@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
@@ -1263,7 +1263,8 @@ function concertNoteTableOf(saxType, tuningHz) {
   }
   return hit;
 }
-function concertNoteLabelOf(semitoneIndex, saxType, tuningHz) {
+// 【便AO 2026-09-24】コミュニティの検査が「横軸の音名が実音か」の答えとしてこれを引くので export する。
+export function concertNoteLabelOf(semitoneIndex, saxType, tuningHz) {
   if (semitoneIndex === null || semitoneIndex === undefined) return null;
   const hit = concertNoteTableOf(saxType, tuningHz);
   return hit ? (hit.labels[semitoneIndex] ?? null) : null;
@@ -12339,9 +12340,16 @@ function fitLabel(s, maxPx, fontPx, fontFamily = "var(--font-num)") {
 // 描画コンテナの実ピクセル幅を返す。グラフはこの実測値に追従させ、SVGは viewBox と実寸を
 // 1:1 に保つ(preserveAspectRatio による全体縮小はしない。縮小すると 12px の文字が
 // 実効 9.6px になり DESIGN-SYSTEM §4.1「グラフ内は --fs-xs 以上」が破れる)。
+//
+// 【便AO 2026-09-24 測る前の幅の受け口】検査(react-dom/server で描く)は useLayoutEffect が
+// 走らないので幅が 0 のまま残り、グラフが1本も描かれない。**Provider を置かない本番では
+// 初期値は従来どおり 0**(このコンテキストの既定値)で、実測が入ればそちらで上書きされる。
+// 画面の側から使わないこと ── 置いてよいのは検査だけ。
+export const MeasuredWidthSeedContext = createContext(0);
 function useMeasuredWidth() {
   const ref = useRef(null);
-  const [w, setW] = useState(0);
+  const seed = useContext(MeasuredWidthSeedContext);
+  const [w, setW] = useState(seed);
   // 小数のはみ出しで横スクロールが出ないよう、実測値は必ず切り捨てて使う
   const measure = () => {
     const el = ref.current;
@@ -12406,7 +12414,8 @@ function SeriesSwatch({ style: st, width = 14 }) {
 // `(-0.04).toFixed(1)` が `-0.0` になって `-0.0¢` が出る。**どちらの側も 0 は 0**。
 // 書式をこの1関数に寄せ、リード比較・個体詳細・セッション詳細・My Data・目安との差(Δ)が
 // 同じ規則で出るようにする(以前は同じ式が3箇所に写されていた)。
-function formatSignedCents(v) {
+// 【便AO 2026-09-24】コミュニティの音程の目盛も同じ書式(符号付き・小数1桁)で出すので export する。
+export function formatSignedCents(v) {
   const t = v.toFixed(1);
   if (t === "0.0" || t === "-0.0") return "0.0";
   return v > 0 ? `+${t}` : t;
@@ -12678,7 +12687,10 @@ function noteAxisMaxTickW(metrics, valsOfMetric, fs) {
   })));
 }
 
-function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, includeAltissimo = true, myData = false, centerAt = null }) {
+// 【便AO 2026-09-24 本人の実機報告】コミュニティ(データの「みんなの平均」と人物紹介)も
+// この部品で描く(community 配下から import するので export する)。あちらの手作りの折れ線は
+// 横軸がデータのある音だけ・音名が運指の番号を 12 で回しただけ(実音の G4 が D2 に化けた)だった。
+export function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, fmt, selectedIdeal, idealKey, noteFocus = null, idealDiffText = null, plain = false, includeAltissimo = true, myData = false, centerAt = null }) {
   // 【D-9】プリセットの中身はこの2つに畳む(呼び出し側は myData だけを渡す)。
   const plainLayout = plain || myData;
   const overlay = myData;
@@ -12698,7 +12710,14 @@ function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tuningHz, 
   // (R12 が「4指標ぶんの目盛の幅」を測るので、ここを1回に畳んでおかないと集計が4倍になる。)
   // 【D-7】呼び手が音ごとの値を持っているなら frames から数え直さない(byIdx をそのまま使う)。
   const seriesNoteGroups = series.map((s) => (s.byIdx ? null : groupFramesByNote(s.frames || [], undefined, saxType, tuningHz)));
+  // 【便AO 2026-09-24 byMetric】byIdx は**いま描いている指標**の値しか持たないので、
+  // R12 の「4指標ぶんの目盛の幅」を測るときに他の指標の値が引けず、いまの指標の値を
+  // 他の指標の書式で測ってしまう(重心の 1642 を HNR の書式で "1642.0" と測る)。
+  // タブを押すたびに柱の幅が変わり、R12 が破れる。**byMetric(指標 → 音ごとの値)を
+  // 一緒に渡した系列だけ**、他の指標はそちらから引く(無い指標は値なし)。
+  // 渡さない呼び手(My Data)は従来どおり byIdx をそのまま返す ── 1文字も変わらない。
   const byIdxOfSeries = (si, key) => {
+    if (series[si].byIdx && series[si].byMetric && key !== metricKey) return series[si].byMetric[key] ?? {};
     if (series[si].byIdx) return series[si].byIdx;
     const byIdx = {};
     for (const g of seriesNoteGroups[si]) {

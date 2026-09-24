@@ -59,7 +59,9 @@ node design/canvas/rankshine.mjs     # 順位色 金と銅を離して光らせ�
 - `generate.mjs` の幾何(`layout()`)は `NoteAxisLineChart` の `L()` を、色と段は
   `divergingStep` / `matrixCellPaint` を写している。**App.jsx を直したら追随させること**。
 - `community.mjs` は `src/community/screens.jsx` と `CommunityTab.jsx` を写している。
-  折れ線は `LineChart`、円は `PieChart` の `arcPath` をそのまま移した。
+  円は `PieChart` の `arcPath` をそのまま移した。折れ線は、データと人物紹介の現状の面
+  (CommData / CommPerson)が `NoteAxisLineChart` の `L()` の写し(`noteAxisChart`。2026-09-24 便AO)、
+  改善案の面(CommDataB / C / D)は当時の手作りの `LineChart` の写しのまま。
   アイコンの絵柄は `icons.jsx` から**その場で抜いて**埋めるので、貼り直す必要は無い。
   **数値の唯一の答えは実装側**。
 - `unify.mjs` は**提案ではなく実測の展示**。`UNIFY-AUDIT.md` の B10 / C14-16 / D6 / D7 を、
