@@ -156,6 +156,44 @@ describe("人物紹介 ── データ | プロフィール は溝型、楽器�
   });
 });
 
+// 【便AV 2026-09-24 本人指示】
+//  「楽器の組というテキストは削除」「個人ページではアイコンと名前だけに」
+//  「リード行の下線とその下の横線は削除」「この人を通報ボタンをタブ切り替えの横幅と同じに」
+describe("人物紹介 ── 見出し・名前の行・下線・通報ボタン(便AV)", () => {
+  const open = () => draw(<PersonSheet person={{ ...PERSON, startYear: 2020, genres: ["ジャズ"] }} ideals={[]} myIdeals={{}}
+    onClose={() => {}} onAdopt={() => ({})} myUid="me" tuningHz={442} />);
+  const toProfile = async () => { await act(async () => { radios(docGroup("表示する内容"))[1].click(); }); };
+  const dialog = () => document.querySelector('[role="dialog"]') ?? document.body;
+
+  it("名前の行はアイコンと名前だけ(属性・歴・ジャンルはデータのタブに出ない)", async () => {
+    await open();
+    const text = dialog().textContent;
+    expect(text).toContain("しろねこ");
+    expect(text).not.toContain("学生");
+    expect(text).not.toMatch(/歴\d+年/);
+    expect(text).not.toContain("ジャズ");
+  });
+
+  it("プロフィールのタブ: 「楽器の組」の文字が無く、リードの行だけ下線が無い", async () => {
+    await open();
+    await toProfile();
+    expect(dialog().textContent).not.toContain("楽器の組");
+    const rowOf = (label) => [...dialog().querySelectorAll("div")].find((d) => d.firstChild?.textContent === label && d.children.length === 2);
+    // (jsdom は border-bottom の「none」を style から落とすので、「1px の下線が在るか」で比べる)
+    expect(rowOf("リード").getAttribute("style")).not.toMatch(/border-bottom: 1px/);
+    expect(rowOf("楽器").getAttribute("style")).toMatch(/border-bottom: 1px solid/);
+  });
+
+  it("「この人を通報」は横幅いっぱい(タブと同じ幅)で、上に区切りの線が無い", async () => {
+    await open();
+    await toProfile();
+    const btn = [...dialog().querySelectorAll("button")].find((b) => b.textContent === "この人を通報");
+    expect(btn).toBeTruthy();
+    expect(btn.style.width).toBe("100%");
+    expect(btn.parentElement.style.borderTop).toBe("");
+  });
+});
+
 describe("マイページ ── 楽器の組は楽器の切り替えで1組ずつ", () => {
   it("楽器の行は溝型ではなく前のチップ(人物紹介と同じ部品)", async () => {
     await draw(<ProfileView profile={PROFILE} uid="u1" />);

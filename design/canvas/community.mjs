@@ -528,8 +528,8 @@ ${out.join("\n")}
 }
 
 // ---- マイページ ---------------------------------------------------------
-function infoRow(label, value, em = "6.5em") {
-  return `        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: 1px solid var(--c-line)">
+function infoRow(label, value, em = "6.5em", last = false) {
+  return `        <div style="display: flex; gap: var(--sp-3); align-items: baseline; padding: var(--sp-2) 0; border-bottom: ${last ? "none" : "1px solid var(--c-line)"}">
           <div style="${LABEL}; flex: 0 0 ${em}">${label}</div>
           <div style="font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.7; flex: 1 1 0; min-width: 0">${value}</div>
         </div>`;
@@ -697,7 +697,7 @@ function personHead(p, tab) {
         ${avatar(p.icon, p.color, 56)}
         <div style="min-width: 0; flex: 1 1 0">
           <div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">${p.nick}</div>
-          ${whoLine(p.who)}
+          <!-- 【便AV 2026-09-24 本人指示】人物紹介はアイコンと名前だけ(属性・歴・ジャンルはプロフィールのタブと重複) -->
         </div>
       </div>
 
@@ -733,7 +733,7 @@ ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 
 function buildPersonBack() {
   const p = PEOPLE[0];
-  const gear = (label, value) => infoRow(label, value, "7em");
+  const gear = (label, value, last = false) => infoRow(label, value, "7em", last);
   return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
 
       ${personHead(p, "profile")}
@@ -745,13 +745,13 @@ ${infoRow("ジャンル", '<span style="display: flex; flex-wrap: wrap; gap: 9px
 ${infoRow("編成", '<span style="display: flex; flex-wrap: wrap; gap: 9px"><span>吹奏楽</span></span>', "7em")}
       </div>
 
-      <div style="${LABEL}; padding-top: var(--sp-3)">楽器の組</div>
+      <!-- 【便AV 2026-09-24 本人指示】「楽器の組」の見出しは消した。楽器の行が見出しの役をする -->
 ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
       <div>
 ${gear("楽器", "YAMAHA YAS-62")}
 ${gear("マウスピース", "Selmer Paris S90 180")}
 ${gear("リガチャー", "YAMAHA 標準")}
-${gear("リード", 'Vandoren Traditional <span style="' + NUM + '">2.5</span>')}
+${gear("リード", 'Vandoren Traditional <span style="' + NUM + '">2.5</span>', true)}
       </div>`);
 }
 

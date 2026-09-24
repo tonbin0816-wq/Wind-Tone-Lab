@@ -25739,8 +25739,9 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     count62(person62, /音のデータ/g) === 0
     && !/jp-label[^\r\n]*音のデータ/.test(person62),
     `${count62(person62, /音のデータ/g)}件`);
-  check("62.3 2-C 裏の「楽器の組」の見出しは残っている(本人は「音のデータ」だけを名指しした)",
-    /jp-label" style=\{\{ \.\.\.labelStyle, paddingTop: "var\(--sp-3\)" \}\}>楽器の組<\/div>/.test(person62));
+  // 【便AV 2026-09-24 本人指示】「楽器の組というテキストは削除」── 裏の見出しも消えた。
+  check("62.3 2-C/便AV 裏の「楽器の組」の見出しも消えた(文言として画面に出ない)",
+    !/>楽器の組<\/div>/.test(person62) && !/labelStyle, paddingTop: "var\(--sp-3\)" \}\}>/.test(person62));
 
   // --- 62.4 2-D グラフの上の一行 ----------------------------------------------
   check("62.4 2-D 一行は単位だけ(指標名は落ちた。タブが選択中を返しているので重複だった)",
@@ -25783,8 +25784,9 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2
     && count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g) === 2,
     `表 ${count62(front62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)} / 裏 ${count62(back62, /border: 1px solid transparent; color: var\(--c-line-strong\)/g)}`);
-  check("62.6 正典 CommPerson から「音のデータ」の見出しが消え、CommPersonBack の「楽器の組」は残る",
-    !/>音のデータ</.test(front62) && />楽器の組</.test(back62));
+  // 【便AV 2026-09-24 本人指示】「楽器の組」の見出しも消えた。
+  check("62.6 正典 CommPerson から「音のデータ」、CommPersonBack から「楽器の組」の見出しが消えた",
+    !/>音のデータ</.test(front62) && !/>楽器の組</.test(back62));
   check("62.6 正典 グラフの上の一行は単位だけ(`Hz　計測n件`。指標名は落ちた)",
     /Hz　計測\d+件/.test(front62) && !/重心\(Hz\)/.test(front62));
   {

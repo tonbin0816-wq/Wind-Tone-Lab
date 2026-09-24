@@ -1113,13 +1113,14 @@ const infoValueStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", flex: 
 
 // strength はリードのときだけ渡す。番手を持たない古いドキュメントもあるので、
 // 無ければ何も足さない(ルールが null を許している)。
-function GearLine({ label, brand, model, strength = null }) {
+// 【便AV 2026-09-24 本人指示「リード行の下線とその下の横線は削除」】last の行(組の最後 = リード)は下線を持たない。
+function GearLine({ label, brand, model, strength = null, last = false }) {
   const has = brand !== null && brand !== undefined;
   const v = !has ? "—"
     : brand === OTHER_BRAND ? "その他"
     : model ? `${brand} ${model}` : brand;
   return (
-    <div style={infoRowStyle}>
+    <div style={last ? { ...infoRowStyle, borderBottom: "none" } : infoRowStyle}>
       <div className="sans jp-label" style={infoLabelStyle}>{label}</div>
       <div className="sans" style={infoValueStyle}>
         {v}
@@ -1325,8 +1326,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             </button>
           ) : personAvatar}
           <div style={{ minWidth: 0, flex: "1 1 0" }}>
+            {/* 【便AV 2026-09-24 本人指示】「プロフィールとアイコン横の学生歴クラシックが重複するので
+                個人ページではアイコンと名前だけに」── 属性・歴・ジャンルはプロフィールのタブが持つ。 */}
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" }}>{person.nickname}</div>
-            <WhoLine u={person} />
           </div>
         </div>
 
@@ -1347,7 +1349,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
               <InfoLine label="編成" value={person.ensembles} />
             </div>
 
-            <div className="sans jp-label" style={{ ...labelStyle, paddingTop: "var(--sp-3)" }}>楽器の組</div>
+            {/* 【便AV 2026-09-24 本人指示】「楽器の組というテキストは削除」。楽器の行がそのまま見出しの役をする。 */}
             {/* 種別の選択は表と共有する。1枚のシートなので状態を2つ持たない。
                 本人「プロフィールも同様に変更」── 行の見た目も表と同じ1つの部品が描く。 */}
             <SaxTypeRow saxType={saxType} playing={person.saxTypes} onPick={setSaxType} />
@@ -1359,7 +1361,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                 <GearLine label="楽器" brand={g.instrumentBrand} model={g.instrumentModel} />
                 <GearLine label="マウスピース" brand={g.mpBrand} model={g.mpModel} />
                 <GearLine label="リガチャー" brand={g.ligBrand} model={g.ligModel} />
-                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} />
+                <GearLine label="リード" brand={g.reedBrand} model={g.reedModel} strength={g.reedStrength} last />
               </div>
             ) : <Empty>この楽器の登録はまだありません</Empty>}
           </>
@@ -1447,11 +1449,13 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           裏へ寄せる。裏はプロフィールの数行ぶんしかないので、末尾でもひと目で届く。
           **表に戻さないこと。** 戻すとまた同じ埋もれ方をする。 */}
       {reportEntryVisible({ side, personUid: person?.uid, myUid }) ? (
-        <div style={{ marginTop: "var(--sp-6)", paddingTop: "var(--sp-4)", borderTop: "1px solid var(--c-line)" }}>
+        // 【便AV 2026-09-24 本人指示】「その下の横線は削除」「この人を通報ボタンをタブ切り替えの横幅と同じに」。
+        // 区切りの線(borderTop)をやめ、ボタンは本文の幅いっぱい(= 上の データ | プロフィール と同じ幅)。
+        <div style={{ marginTop: "var(--sp-6)" }}>
           <button
             type="button" className="sans ctl-plain ctl-pill"
             onClick={() => { setReportState(null); setReporting(true); }}
-            style={{ minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}
+            style={{ width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}
           >
             この人を通報
           </button>
