@@ -1,5 +1,5 @@
 import {
-  avatarPathOf, avatarPrefixOf, downloadUrlOf, looksLikeWebp, safeSearchVerdict,
+  avatarPathOf, avatarPrefixOf, downloadUrlOf, looksLikeWebp, pathOfDownloadUrl, safeSearchVerdict,
   shouldDropPhoto, uploadAcceptable, uploadPathOf,
 } from "./avatarVerdict.js";
 
@@ -84,7 +84,12 @@ export async function runVetAvatarPhoto({ uid }, deps) {
   await deps.writeUserPhoto(uid, url);
 
   // 【1人1枚(決定7)】差し替えのたびに増やさない。いま載せた物だけを残す。
-  await deps.dropOthers(avatarPrefixOf(uid), dest);
+  // 【便AJ 2026-09-24 競合】同じ人が続けて2枚上げると、先に終わった側の片付けが
+  // 後から載った写真を消し得る。**消す直前に users の写真を読み直し、それも残す。**
+  // (窓を狭めるだけで、ゼロにはしない ── 読んでから消すまでの間に別の書き込みが
+  //  割り込む余地は残る。同じ人が1秒以内に2枚上げる形なので、ここで止める。)
+  const current = pathOfDownloadUrl(await deps.readUserPhoto(uid));
+  await deps.dropOthers(avatarPrefixOf(uid), [...new Set([dest, current].filter(Boolean))]);
   return { photo: url };
 }
 
@@ -98,6 +103,16 @@ export async function runVetAvatarPhoto({ uid }, deps) {
  */
 export async function runCleanAvatarPhoto({ uid, before, after }, deps) {
   if (!shouldDropPhoto(before, after)) return { dropped: false };
+  // 【便AJ 2026-09-24 競合】この掃除は users の書き込みを**合図に非同期で**走るので、
+  // 数秒遅れて来ることがある。「絵柄に戻す → すぐ新しい写真を上げる」と、
+  // 起動した時点では新しい写真がもう載っている。丸ごと消すとそれも消える。
+  // **消す直前に読み直し、いま載っている写真があれば、それ以外だけを消す。**
+  // その場合は置き場(avatarUploads)にも触らない ── 新しい写真の判定が使っている最中かもしれない。
+  const current = pathOfDownloadUrl(await deps.readUserPhoto(uid));
+  if (current) {
+    await deps.dropOthers(avatarPrefixOf(uid), [current]);
+    return { dropped: true, kept: current };
+  }
   await deps.dropAll(avatarPrefixOf(uid));
   await deps.remove(uploadPathOf(uid));
   return { dropped: true };

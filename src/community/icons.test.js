@@ -133,7 +133,7 @@ describe("アイコンの選択欄が狭い端末に収まる", () => {
   };
 
   it("絵柄の格子が320pxの端末に収まる", () => {
-    expect(needed(columnsOf("アイコンの絵柄"))).toBeLessThanOrEqual(available);
+    expect(needed(columnsOf("アイコンの絵柄と写真"))).toBeLessThanOrEqual(available);
   });
   it("背景色の格子が320pxの端末に収まる", () => {
     expect(needed(columnsOf("アイコンの背景"))).toBeLessThanOrEqual(available);
@@ -145,7 +145,7 @@ describe("アイコンの選択欄が狭い端末に収まる", () => {
   it("列は minmax(0, 1fr) で指定する(1fr だと中身の幅が列の下限になる)", () => {
     // `repeat(N, 1fr)` は最小値が auto なので、中の44pxがそのまま列の下限になり、
     // 縮まずにページを押し広げる。minmax(0, ...) なら0まで縮むので伝播しない。
-    for (const label of ["アイコンの絵柄", "アイコンの背景"]) {
+    for (const label of ["アイコンの絵柄と写真", "アイコンの背景"]) {
       expect(gridOf(label)).toMatch(/^repeat\(\d+, minmax\(0, 1fr\)\)$/);
     }
   });

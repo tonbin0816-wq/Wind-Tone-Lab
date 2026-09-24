@@ -107,3 +107,17 @@ export function uploadAcceptable(meta) {
 export function downloadUrlOf(bucket, path, token) {
   return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
 }
+
+/**
+ * downloadUrlOf の逆。users/{uid}.photo(URL)から Storage の置き場を取り出す。
+ * 読めない形なら null(= 残すべき物は分からない、として扱う)。
+ *
+ * 【便AJ 2026-09-24】掃除の直前に「いま載っている写真」を読み直すために要る。
+ * users に在るのは URL だけで、消す側が要るのは置き場の名前なので。
+ */
+export function pathOfDownloadUrl(url) {
+  if (typeof url !== "string") return null;
+  const m = url.match(/\/o\/([^?]+)\?/);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch { return null; }
+}

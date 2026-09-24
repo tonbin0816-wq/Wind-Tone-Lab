@@ -175,6 +175,17 @@ export function photoFailureKind(e) {
  *
  * @returns null なら書かない / 器を返したらそれをそのまま users へ渡す
  */
+/**
+ * 格子で絵柄か色を押したあとの下書き。**写真は必ず外れる**(決定4: 絵柄を選ぶこと＝写真をやめること)。
+ *
+ * 【便AJ 2026-09-24】もとは画面の中の1行だった。審査役の変異「絵柄を押しても下書きの写真を
+ * 消さない」が生き残ったので、判断をここへ出して振る舞いで守る。写真が外れれば avatarPaint が
+ * 絵柄を返し、背景色の行が戻る(決定2)。
+ */
+export function avatarDraftAfterPick(pick = {}) {
+  return { icon: pick.icon ?? null, iconColor: pick.color ?? null, photo: null };
+}
+
 export function avatarWriteOnClose({ draft, saved } = {}) {
   const icon = draft?.icon ?? null;
   const iconColor = draft?.iconColor ?? null;

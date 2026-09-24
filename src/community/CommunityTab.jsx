@@ -12,7 +12,7 @@ import { Pencil, Image as PhotoGlyph } from "lucide-react";
 // **判断はこのファイルに書かない** ── 何を描くか・拡大を出すか・失敗の種類は
 // すべて avatarPhoto.js の純関数が決める(単体で走らせて確かめてある)。
 import {
-  PHOTO_ACCEPT, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
+  PHOTO_ACCEPT, avatarDraftAfterPick, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
@@ -851,7 +851,9 @@ function AvatarPicker({ icon, color, photo = null, onChange, onPickPhoto = null 
           親は grid なので、広がった子は兄弟もろともページ全体を押し広げる
           (実際にこれで色の行が476pxになり、375pxの画面でニックネーム欄まで画面外へ出た)。
           minmax(0, ...) にすると列は0まで縮められるので、はみ出しがページに伝播しない。 */}
-      <div role="radiogroup" aria-label="アイコンの絵柄" style={{
+      {/* 【便AJ】名前は「絵柄と写真」── 先頭のマスは写真なので、「絵柄」だけだと
+          読み上げで「絵柄の中の写真」になる。 */}
+      <div role="radiogroup" aria-label="アイコンの絵柄と写真" style={{
         display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "var(--sp-1)",
         opacity: busy ? 0.6 : 1,
       }}>
@@ -1577,7 +1579,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
             icon={avatarDraft.icon}
             color={avatarDraft.iconColor}
             photo={avatarDraft.photo}
-            onChange={(v) => setAvatarDraft({ icon: v.icon, iconColor: v.color, photo: null })}
+            onChange={(v) => setAvatarDraft(avatarDraftAfterPick(v))}
             onPickPhoto={savePhoto}
           />
         </BottomSheet>

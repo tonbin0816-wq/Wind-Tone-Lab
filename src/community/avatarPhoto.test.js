@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   planPhotoEncode, encodeSquarePhoto, avatarPaint, avatarWriteOnClose, photoZoomAvailable, photoFailureKind,
+  avatarDraftAfterPick,
 } from "./avatarPhoto.js";
 import { AVATAR_ICONS } from "./profile.js";
 
@@ -380,5 +381,25 @@ describe("配線 ── 判断を通らずに描く経路が無い", () => {
     // 画面側は通報の告知(既存)で「確認」の語を使うが、写真の状態は持たない。
     const comm = read("./CommunityTab.jsx");
     expect(comm.match(/photoStatus|photoPending|photoReview/g)).toBeNull();
+  });
+});
+
+
+// 【便AJ 2026-09-24 決定4】格子で絵柄か色を押したら、写真は必ず外れる。
+// 審査役の変異「絵柄を押しても下書きの写真を消さない」が生き残っていたので、振る舞いで守る。
+describe("avatarDraftAfterPick ── 絵柄を選ぶこと＝写真をやめること(決定4)", () => {
+  it("押した絵柄と色になり、写真は null", () => {
+    expect(avatarDraftAfterPick({ icon: "ic-cat", color: 3 })).toEqual({ icon: "ic-cat", iconColor: 3, photo: null });
+  });
+
+  it("押す前に写真を持っていても、写真は外れる", () => {
+    const d = avatarDraftAfterPick({ icon: "ic-dog", color: 1, photo: "https://a" });
+    expect(d.photo).toBeNull();
+  });
+
+  // 決定2: 写真が外れれば絵柄が描かれ、背景色の行が戻る。画面の出し分けは avatarPaint を見ている。
+  it("押したあとは絵柄が描かれる(= 背景色の行が戻る)", () => {
+    const d = avatarDraftAfterPick({ icon: "ic-cat", color: 3 });
+    expect(avatarPaint({ photo: d.photo, icon: d.icon, color: d.iconColor }).kind).not.toBe("photo");
   });
 });

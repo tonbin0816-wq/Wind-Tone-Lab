@@ -220,7 +220,17 @@ describe("functions/index.js ── 配線だけで、判断を持たない", ()
   });
 
   it("users へ書く道具は1つだけ(別の枝から書けない)", () => {
-    expect((fn.match(/db\(\)\.doc\(/g) || [])).toHaveLength(1);
+    // 【便AJ 2026-09-24】掃除の直前に「いま載っている写真」を**読む**道具を足した。
+    // 読むだけなので決定6(値を入れるのは判定を通った1箇所だけ)は動かない。ただし
+    // 「読む」を口実に書く道を増やせないよう、**すべての db().doc( が「その場で .get() する」か
+    // 「唯一の書き込み(set/update/delete/create)」のどちらかであること**を見る。
+    // 変数に取っておいて後で書く形(`const r = db().doc(...); r.set(...)`)は、
+    // どちらにも数えられないので all と一致せず落ちる。
+    const all = fn.match(/db\(\)\.doc\(/g) || [];
+    const reads = fn.match(/db\(\)\.doc\([^)]*\)\.get\(\)/g) || [];
+    const writes = fn.match(/db\(\)\.doc\([^)]*\)\.(set|update|delete|create)\(/g) || [];
+    expect(writes).toHaveLength(1);
+    expect(all.length).toBe(reads.length + writes.length);
     expect(fn).toMatch(/writeUserPhoto: \(uid, url\) => db\(\)\.doc\(`users\/\$\{uid\}`\)\.set\(\{ photo: url \}, \{ merge: true \}\)/);
   });
 

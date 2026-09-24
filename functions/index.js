@@ -44,10 +44,12 @@ const storageDeps = () => ({
     },
   }),
   remove: async (p) => { try { await bucket().file(p).delete(); } catch (e) { console.warn("[avatar] 消せなかった", p, e?.message); } },
+  // keep は1つの名前でも、名前の配列でもよい(便AJ: 読み直した「いま載っている写真」も残す)。
   dropOthers: async (prefix, keep) => {
     try {
+      const keeps = new Set([].concat(keep ?? []));
       const [olds] = await bucket().getFiles({ prefix });
-      await Promise.all(olds.filter((f) => f.name !== keep).map((f) => f.delete().catch(() => {})));
+      await Promise.all(olds.filter((f) => !keeps.has(f.name)).map((f) => f.delete().catch(() => {})));
     } catch (e) { console.warn("[avatar] 古い写真を消せなかった", e?.message); }
   },
   dropAll: async (prefix) => { await bucket().deleteFiles({ prefix }); },
@@ -56,6 +58,11 @@ const storageDeps = () => ({
     return res?.safeSearchAnnotation ?? null;
   },
   writeUserPhoto: (uid, url) => db().doc(`users/${uid}`).set({ photo: url }, { merge: true }),
+  // 【便AJ】掃除の直前に「いま載っている写真」を読み直す。文書が無ければ null。
+  readUserPhoto: async (uid) => {
+    const snap = await db().doc(`users/${uid}`).get();
+    return snap.exists ? (snap.get("photo") ?? null) : null;
+  },
   rev: () => randomUUID().replace(/-/g, "").slice(0, 16),
   token: () => randomUUID(),
 });
