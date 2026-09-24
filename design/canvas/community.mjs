@@ -547,7 +547,7 @@ function buildMyPage() {
 
       <div>
 ${infoRow("ニックネーム", "tone-lab")}
-${infoRow("楽器種別", "A.Sax・T.Sax")}
+        <!-- 【便AW 2026-09-24 本人指示】「楽器種別」の行は消した(下の楽器のボタンと重複) -->
         <!-- 【便AT 2026-09-24 本人指示】楽器の組は SaxTypeRow の切り替えで1組ずつ(登録していない種別は押せない)。
              以前は種別ごとに見出し + 4行を縦に積んでいた。ここは A.Sax を選んでいる姿。 -->
         <div style="padding: var(--sp-3) 0 var(--sp-1)">
@@ -593,7 +593,7 @@ ${navRow("プライバシーポリシー", true)}
       <div style="${BTN2}">アカウント引継</div>
 
       <div style="display: grid; margin-top: var(--sp-4)">
-        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-danger); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">アカウントを削除</div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: 1px solid var(--c-danger); background: transparent; color: var(--c-danger); font-size: var(--fs-sm); font-weight: 700; display: flex; align-items: center; justify-content: center">アカウントを削除</div>
       </div>`);
 }
 

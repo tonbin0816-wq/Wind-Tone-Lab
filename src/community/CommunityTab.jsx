@@ -16,7 +16,7 @@ import {
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
-import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -1680,7 +1680,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
 
       <div>
         <Row label="ニックネーム" value={profile?.nickname ?? "—"} />
-        <Row label="楽器種別" value={listOrDash(types.map((t) => SAX_LABELS[t]))} />
+        {/* 【便AW 2026-09-24 本人指示】「楽器種別」の行は消した ── 下の楽器のボタンと重複する
+            (登録している楽器は押せる、していない楽器は薄い、でボタンの行が同じことを言う)。 */}
         {/* 【便AT 2026-09-24 本人指示】楽器の組は「S.Sax | A.Sax | T.Sax | B.Sax」の切り替えで
             1組ずつ出す(人物紹介と同じ SaxTypeRow)。登録していない楽器も並ぶが押せない。
             以前は登録した種別の数だけ、見出し + 4行の組を縦に積んでいた。 */}
@@ -1762,7 +1763,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
       {/* 【説明はボタンの下に置かない 2026/09/06 本人指示】常時出していた一文は
           削除の確認へ移した(2026-09-15 にその確認がシートになった)。 */}
       <div style={{ display: "grid", marginTop: "var(--sp-4)" }}>
-        <button type="button" onClick={() => setDeleteOpen(true)} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
+        {/* 【便AW 2026-09-24 本人指示】入口は地なし・枠と字が赤(DANGER_OUTLINE_STYLE)。
+            確認のシートの中の「アカウントを削除する」は赤い地のまま(dangerButtonStyle)。 */}
+        <button type="button" onClick={() => setDeleteOpen(true)} disabled={busy} className="sans" style={{ ...DANGER_OUTLINE_STYLE, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
       </div>

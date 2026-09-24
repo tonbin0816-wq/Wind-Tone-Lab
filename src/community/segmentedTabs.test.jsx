@@ -194,6 +194,37 @@ describe("人物紹介 ── 見出し・名前の行・下線・通報ボタ�
   });
 });
 
+// 【便AW 2026-09-24 本人指示】
+//  「自分のプロフィールで楽器種別が下の楽器種別ボタンと重複するのでニックネームの下の楽器種別行を削除」
+//  「アカウントを削除のボタンを背景色なしで枠線とテキストが赤に。この人を通報のボタンも同じく」
+describe("マイページ・人物紹介 ── 楽器種別の行と、赤い枠のボタン(便AW)", () => {
+  const isOutlineRed = (btn) => btn.style.border.includes("var(--c-danger)")
+    && btn.style.color === "var(--c-danger)" && btn.style.background === "transparent";
+
+  it("マイページに「楽器種別」の行が無い(楽器のボタンの行は残る)", async () => {
+    await draw(<ProfileView profile={PROFILE} uid="u1" />);
+    expect(host.textContent).not.toContain("楽器種別");
+    expect(group("楽器種別")).not.toBe(null);          // ボタンの行(読み上げの名前)は残る
+    expect(host.textContent).toContain("てすと");       // ニックネームの行はある
+  });
+
+  it("マイページの「アカウントを削除」は地なし・枠と字が赤", async () => {
+    await draw(<ProfileView profile={PROFILE} uid="u1" />);
+    const btn = [...host.querySelectorAll("button")].find((b) => b.textContent === "アカウントを削除");
+    expect(btn).toBeTruthy();
+    expect(isOutlineRed(btn)).toBe(true);
+  });
+
+  it("人物紹介の「この人を通報」も同じ見た目", async () => {
+    await draw(<PersonSheet person={PERSON} ideals={[]} myIdeals={{}} onClose={() => {}}
+      onAdopt={() => ({})} myUid="me" tuningHz={442} />);
+    await act(async () => { radios(docGroup("表示する内容"))[1].click(); });
+    const btn = [...document.querySelectorAll("button")].find((b) => b.textContent === "この人を通報");
+    expect(btn).toBeTruthy();
+    expect(isOutlineRed(btn)).toBe(true);
+  });
+});
+
 describe("マイページ ── 楽器の組は楽器の切り替えで1組ずつ", () => {
   it("楽器の行は溝型ではなく前のチップ(人物紹介と同じ部品)", async () => {
     await draw(<ProfileView profile={PROFILE} uid="u1" />);

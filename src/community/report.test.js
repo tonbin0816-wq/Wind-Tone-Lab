@@ -22,10 +22,11 @@ describe("REPORT_REASONS", () => {
   // 【便AH 2026-09-23 決定8】写真を使えるようにしたので 3 → 5。
   // 見ているのは数ではなく**自由記述の逃げ道が無いこと**なので、
   // 列挙が固定の配列であることと、写真の2つが入っていることを併せて見る。
-  it("自由記述の逃げ道を持たない(列挙の5つだけ)", () => {
-    expect(REPORT_REASONS).toHaveLength(5);
+  // 【便AW 2026-09-24 本人指示】「他人が写っている」を外して 5 → 4。
+  it("自由記述の逃げ道を持たない(列挙の4つだけ)", () => {
+    expect(REPORT_REASONS).toEqual(["不適切なニックネーム", "なりすまし", "アイコンの写真が不適切", "その他"]);
     expect(REPORT_REASONS).toContain("アイコンの写真が不適切");
-    expect(REPORT_REASONS).toContain("他人が写っている");
+    expect(REPORT_REASONS).not.toContain("他人が写っている");
     expect(REPORT_REASONS[REPORT_REASONS.length - 1]).toBe("その他");
   });
 });

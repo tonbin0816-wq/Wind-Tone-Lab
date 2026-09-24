@@ -419,7 +419,8 @@ service cloud.firestore {
         // 【理由は列挙で固定する】自由記述を許すと、公開はされないとはいえ
         // 「自由入力はニックネームだけ」という §8.1 の設計が1つ崩れる。
         // **src/community/report.js の REPORT_REASONS の写し。片方だけ直さないこと。**
-        && request.resource.data.reason in ['不適切なニックネーム','なりすまし','アイコンの写真が不適切','他人が写っている','その他']
+        // 【便AW 2026-09-24 本人指示】「他人が写っている」を外した(4つ)。
+        && request.resource.data.reason in ['不適切なニックネーム','なりすまし','アイコンの写真が不適切','その他']
         && request.resource.data.createdAt is string
         && request.resource.data.createdAt.size() <= 40
         && request.resource.data.status == 'open';

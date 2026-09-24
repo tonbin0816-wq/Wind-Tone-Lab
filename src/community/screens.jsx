@@ -271,6 +271,16 @@ export function FilterRow({ value, onChange, saxAny = true, period = null, onPer
 
 export const EMPTY_FILTER = { saxType: ANY, genre: ANY, position: ANY };
 
+// 【便AW 2026-09-24 本人指示】「アカウントを削除のボタンを背景色なしで枠線とテキストが赤に。
+// この人を通報のボタンも同じく」。**押すと確認が開く入口**の一手の見た目(地なし・枠と字が --c-danger)。
+// 確認のシートの中の最後の一手(アカウントを削除する)は、今までどおり赤い地のまま(dangerButtonStyle)。
+// マイページ(CommunityTab.jsx)と人物紹介の両方がこの1つを読む(写しを作らない)。
+export const DANGER_OUTLINE_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
+  border: "1px solid var(--c-danger)", background: "transparent", color: "var(--c-danger)",
+  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
+};
+
 // 【上限に触れていることを黙らない】50件で切られていることは、人数もグラフも
 // 普通に出るので画面からは分からない。切られたときだけ必ず出す。
 // 詳細は設計書の決定1-b(公開ユーザーが40人に達したら読み直すこと)。
@@ -1452,10 +1462,11 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         // 【便AV 2026-09-24 本人指示】「その下の横線は削除」「この人を通報ボタンをタブ切り替えの横幅と同じに」。
         // 区切りの線(borderTop)をやめ、ボタンは本文の幅いっぱい(= 上の データ | プロフィール と同じ幅)。
         <div style={{ marginTop: "var(--sp-6)" }}>
+          {/* 【便AW】地なし・枠と字が赤(DANGER_OUTLINE_STYLE。マイページのアカウントを削除と同じ)。 */}
           <button
-            type="button" className="sans ctl-plain ctl-pill"
+            type="button" className="sans"
             onClick={() => { setReportState(null); setReporting(true); }}
-            style={{ width: "100%", minHeight: "var(--tap-min)", padding: "0 var(--sp-4)", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer" }}
+            style={{ ...DANGER_OUTLINE_STYLE, padding: "0 var(--sp-4)" }}
           >
             この人を通報
           </button>

@@ -175,9 +175,10 @@ describe("firestore.rules の写真の門を**実際に評価する**(決定6)",
     expect(hasAll).not.toContain("'photo'");
   });
 
-  it("通報の理由の写しが REPORT_REASONS と同じ5つ(写真の2つを含む)", () => {
-    expect(rules).toContain("'アイコンの写真が不適切'");
-    expect(rules).toContain("'他人が写っている'");
+  // 【便AW 2026-09-24】「他人が写っている」を外して4つ。
+  it("通報の理由の写しが REPORT_REASONS と同じ4つ", () => {
+    expect(rules).toContain("request.resource.data.reason in ['不適切なニックネーム','なりすまし','アイコンの写真が不適切','その他']");
+    expect(rules).not.toContain("'他人が写っている'");
   });
 });
 

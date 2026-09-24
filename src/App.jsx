@@ -13994,7 +13994,8 @@ const MY_DATA_STOCK_CELLS = [
 // **そのもの**を広げるので、ラベル・定義の綴りは今までどおり1箇所にしかない。
 const MY_DATA_STOCK_SHEET_ROWS = [
   ...MY_DATA_STOCK_CELLS,
-  { key: "scope", label: "集計対象", about: "奏者が自分の計測データのみ" },
+  // 【便AW】全楽器・全期間になったので、定義の文にもそれを書く。
+  { key: "scope", label: "集計対象", about: "奏者が自分の計測データのみ(すべての楽器・すべての期間)" },
 ];
 // 【束1 2026-09-19 本人指示】ラベルの列の幅。**4行の説明文の左端を縦に揃える**ために、
 // 一番長いラベル(「計測件数」「練習時間」「集計対象」= 4文字)が収まる最小の em を
@@ -14488,6 +14489,14 @@ function hoursText(seconds) { return ((Number(seconds) || 0) / 3600).toFixed(1);
 // マトリクスもカレンダーも**この1関数から母集団を取る**(規則を2箇所に写さない)。
 function myDataOwnSessions(sessions, saxType, dataSax) {
   return (sessions || []).filter((s) => s.performer === "自分" && (s.saxType ?? saxType) === dataSax);
+}
+
+// 【便AW 2026-09-24 本人指示】「mydata タブの上の累計は、楽器ごとではなく全楽器、全期間の累計を表示。
+// つまり下の折れ線グラフで選択される楽器種別や期間の影響を受けない」。
+// 累計の母集団は**奏者=自分**だけで絞る(楽器種別でも期間でも絞らない)。
+// カレンダー・その日のセッション・グラフは今までどおり myDataOwnSessions(選んでいる楽器種別)。
+export function myDataStockSessions(sessions) {
+  return (sessions || []).filter((s) => s.performer === "自分");
 }
 
 // ================= 【D-3 2026/08/22 本人指示・凍結仕様 design/D3-SPEC.md】=================
@@ -15360,11 +15369,10 @@ function MyDataSection({
     })
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
-  // 【D-10 §2.1 / 統括の裁定 §8(1)】累計の母集団は **allMySessions**(奏者=自分 +
-  // 選択中の楽器種別)。**期間では絞らない**(「累計」なので)。画面の中で母集団が2つに
-  // 割れないよう、カレンダーとまったく同じ集合を数える。
+  // 【便AW 2026-09-24 本人指示】累計の母集団は **奏者=自分 の計測すべて**(楽器種別でも期間でも
+  // 絞らない)。以前(D-10 §8(1))はカレンダーと同じ allMySessions(選択中の楽器種別)だった。
   // 表示文字列の作り方(小数1桁の時間・カンマ区切り)は myDataStockTexts の1箇所。
-  const stock = myDataStockTexts(myDataStock(allMySessions));
+  const stock = myDataStockTexts(myDataStock(myDataStockSessions(sessions)));
 
   const periodFrames = mySessions.flatMap((s) => s.frames || []);
   // 【N-8】「当日のデータがまだない場合は直近の記録のある日」。選定・フレーム・ラベルは

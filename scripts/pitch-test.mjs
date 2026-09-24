@@ -16934,8 +16934,10 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // 本人「自分の総計測時間、回数などを先頭にだして」。表示文字列は myDataStockTexts の1箇所のまま。
     // 母集団も変わっている: 脚注は分析タブの全セッション、累計カードは allMySessions
     // (奏者=自分 + 選択中の楽器種別)。**期間では絞らない**(統括の裁定 §8(1))。
-    check("27.7 D-10: 蓄積量は My Data の先頭へ移った(分析タブの脚注は消えている)",
-      /const stock = myDataStockTexts\(myDataStock\(allMySessions\)\);/.test(myDataSection)
+    // 【便AW 2026-09-24 本人指示】累計の母集団は **奏者=自分 の計測すべて**(楽器種別・期間で絞らない)に変わった。
+    check("27.7 D-10/便AW: 蓄積量は My Data の先頭(分析タブの脚注は消えている)。母集団は全楽器・全期間",
+      /const stock = myDataStockTexts\(myDataStock\(myDataStockSessions\(sessions\)\)\);/.test(myDataSection)
+      && /function myDataStockSessions\(sessions\) \{\s*return \(sessions \|\| \[\]\)\.filter\(\(s\) => s\.performer === "自分"\);\s*\}/.test(src)
       && !/myDataStock/.test(codeOf(lab27)));
     // 【便G(D1/D2)2026-09-16】時間の綴りは「練習時間」(本人裁定⑥)。3つの欄は MY_DATA_STOCK_CELLS
     // (カードと定義のシートが同じ配列を読む)に移った。綴りそのものは検証51 が縛る。
@@ -25549,8 +25551,9 @@ console.log("\n========== 検証61: 束1 累計シートの4行と導線の綴�
     // 4行目が消える変異でも**ここだけが落ちる**ように、無いときは undefined を読ませない
     // (読ませるとハーネスごと死に、以降の検査が1つも走らなくなる)。
     const r4 = rows61.rows[3] || {};
-    check("61.2 1-B 4行目は「集計対象」「奏者が自分の計測データのみ」(末尾に足す)",
-      r4.label === "集計対象" && r4.about === "奏者が自分の計測データのみ",
+    // 【便AW 2026-09-24】累計が全楽器・全期間になったので、定義の文にもそれを書いた。
+    check("61.2 1-B/便AW 4行目は「集計対象」「奏者が自分の計測データのみ(すべての楽器・すべての期間)」(末尾に足す)",
+      r4.label === "集計対象" && r4.about === "奏者が自分の計測データのみ(すべての楽器・すべての期間)",
       `${r4.label} / ${r4.about}`);
   }
   check("61.2 1-B 綴りは App.jsx に1件ずつ",
