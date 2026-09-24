@@ -17737,8 +17737,12 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
   // 【便R 後半-後半】選択肢の配列(reedOptions)は要らなくなった ── 段の綴りは箱の束ねから作る。
   // **枠の「—」と段の「紐付けない」が同じ1つの綴りを読む**ことを見る(2箇所に書かない)。
   check("便R: 枠の「—」と「紐付けない」の行は同じ1つの綴り(REED_PICK_NONE_LABEL)",
-    /const REED_PICK_NONE_LABEL = "—";/.test(src)
-    && api.REED_PICK_NONE_LABEL === "—"
+    // 【便AK】「—」→「未紐付け」。枠と行が同じ1つの綴りである、という主張は変えない。
+    // 加えて、データタブの絞り込みが同じ状態に付けている語と**同じ綴り**であることを見る
+    // (片方だけ直してずれるのを止める)。
+    /const REED_PICK_NONE_LABEL = "未紐付け";/.test(src)
+    && api.REED_PICK_NONE_LABEL === "未紐付け"
+    && /\{ key: "__none__", label: "未紐付け" \}/.test(src)
     && !/const reedOptions = \[/.test(codeOf(src))
     && /label=\{REED_PICK_NONE_LABEL\}/.test(srcOfFn(src, "ReedPickSheet")));
   check("29.3 PIVOT の次元セレクタは dimKey を書き換え、値の選択をリセットする(機能は従来のまま)",
@@ -28275,7 +28279,7 @@ ${deriv76}
       && !/<PlainSelect/.test(edit76));
     check("76.5 枠に見えている値の綴りは変わっていない(reedLabel / 「—」)",
       /\{reed \? reedLabel\(reed, reeds\) : REED_PICK_NONE_LABEL\}/.test(edit76)
-      && api.REED_PICK_NONE_LABEL === "—");
+      && api.REED_PICK_NONE_LABEL === "未紐付け");
     check("76.5 読み上げの名も変わっていない(紐付けるリード)",
       /aria-label="紐付けるリード"/.test(edit76));
     check("76.5 ▾ は今までどおり値の右に出る(押せば選択肢が出る印)",

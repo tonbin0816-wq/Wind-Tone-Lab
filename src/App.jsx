@@ -4991,9 +4991,16 @@ function reedPickStep(brandCount, dateCount, picked, entry = null) {
   return "member";
 }
 const REED_PICK_STEP_TITLES = { brand: "銘柄を選ぶ", date: "開封日を選ぶ", member: "番号を選ぶ" };
-// 「紐付けない」の1行の綴り。**新しい語を作らない** ── 呼び手(計測データの編集シート)が
-// いま枠にも選択肢にも出している「—」(A3 の「不明・欠落」の記号)をそのまま引く。
-const REED_PICK_NONE_LABEL = "—";
+// 「紐付けない」の1行の綴り。**新しい語を作らない** ── 呼び手(計測データの編集シート)は
+// 枠にも選択肢にもこの1つを出す(便R: 枠と行は同じ1つの綴り)。
+//
+// 【便AK 2026-09-24 統括の判断(本人から一任)】「—」→「未紐付け」。
+// 「—」は A3 の「不明・欠落」の記号で、欄の値としては正しいが、**押す行**としては
+// 押すと何が起きるのか伝わらなかった(保留中の宿題に起票されていた件)。
+// 「未紐付け」はデータタブのリードの絞り込み(DataOptionSheet の「すべて / 未紐付け / 各リード」)で
+// **すでに画面に出ている語**で、指しているのも同じ「どのリードにも紐付いていない」状態。
+// 新しい語は作っていない。2か所の綴りがずれないよう、pitch-test が両方を突き合わせる。
+const REED_PICK_NONE_LABEL = "未紐付け";
 function ReedPickSheet({ reeds, sessions, value, onChange, onClose, allowNone = false, boxKey = null, entry = null }) {
   const all = reeds || [];
   const boxes = groupReeds(all);
