@@ -30013,6 +30013,23 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       `transaction = ${count83(warm83, /db\.transaction\(/g)}箇所`);
     check("83.5 読めた値はキャッシュへ入れる(usePersistedState が初期値に使うのと同じ Map)",
       /keys\.forEach\(\(k, i\) => \{ if \(values\[i\] !== undefined\) persistedStateCache\.set\(k, values\[i\]\); \}\);/.test(warm83));
+    // 【便AL 2026-09-24】まだ一度も保存されていない鍵を、読み込みを待たせずに始める印。
+    // 順番を**位置で**比べる(間の注記の有無で正規表現が壊れないように)。
+    {
+      const cut = warm83.indexOf("} catch {");
+      const tryPart = cut < 0 ? "" : warm83.slice(0, cut);
+      const catchPart = cut < 0 ? "" : warm83.slice(cut);
+      const iFill = tryPart.indexOf("persistedStateCache.set(k, values[i])");
+      const iFlag = tryPart.indexOf("persistedCacheComplete = true");
+      check("83.5b 便AL: 読み切ったときだけ印を立てる(try の中・キャッシュを埋めた後。catch では立てない)",
+        cut > 0 && iFill >= 0 && iFlag > iFill && !catchPart.includes("persistedCacheComplete = true"),
+        `try:${iFill}/${iFlag} catch:${catchPart.includes("persistedCacheComplete = true")}`);
+      const iFn = hook83.indexOf("function usePersistedState(key, initialValue) {");
+      const iSeed = hook83.indexOf("seedPersistedCache(persistedStateCache, persistedCacheComplete, key, initialValue);");
+      const iUse = hook83.indexOf("const [state, setState] = useState(");
+      check("83.5b 便AL: フックは useState より前に、まだ無い鍵へ初期値を仮に置く",
+        iFn >= 0 && iSeed > iFn && iUse > iSeed, `fn:${iFn} seed:${iSeed} useState:${iUse}`);
+    }
     check("83.5 読めなくても投げない(起動そのものは止めない)",
       /\} catch \{/.test(warm83) && !/throw/.test(warm83), warm83.slice(-160));
     check("83.5 温まっているキーは読み直さない(実体の入れ替えで起動直後に描き直さない)",

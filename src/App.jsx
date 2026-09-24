@@ -2238,7 +2238,30 @@ async function idbSet(key, value) {
 //   ・cache.get(key) ?? initialValue にしない理由: null は正当な保存値(selectedReedId 等)なので、
 //     ?? だと null が既定値に化ける。有無は has() で判定する。
 const persistedStateCache = new Map();
+
+// 【便AL 2026-09-24】warmPersistedStateCache が kv の**全部の鍵を1回で読み切った**ら立てる。
+// 立っていれば「キャッシュに無い鍵は IndexedDB にも無い」と分かる。
+let persistedCacheComplete = false;
+
+// 【便AL】まだ一度も保存されていない鍵を、読み込みを待たずに「読み込み済み」で始めさせる。
+//
+// 以前は、先読みが温めるのは**既にある鍵だけ**だったので、新しい鍵(入れたての端末・
+// 新しく足した設定)は idbGet が返るまで loadedRef が false のまま。その数ミリ秒のあいだに
+// 起きた変更は**画面には出るのに保存されず捨てられた**(挨拶文で実際に踏んだ形)。
+//
+// 先読みが読み切っていれば、無いことはもう分かっているので待つ必要が無い。
+// **キャッシュに初期値を仮に置く**のが肝 ── 置かずに「読み込み済み」だけ立てると、
+// 下の書き込みが初期値を IndexedDB へ1回書いてしまい、後で既定値を変えたとき
+// **触っていない人の値が古い既定値のまま凍る**。仮に置けば「同じ値なので書かない」に落ちる。
+//
+// 先読みが失敗・時間切れのときは印が立たないので、従来どおり idbGet を待つ(挙動は不変)。
+// null は正当な保存値なので、有無は has() で見る(F-101 と同じ理由)。
+export function seedPersistedCache(cache, complete, key, initialValue) {
+  if (complete && !cache.has(key)) cache.set(key, initialValue);
+}
+
 function usePersistedState(key, initialValue) {
+  seedPersistedCache(persistedStateCache, persistedCacheComplete, key, initialValue);
   const [state, setState] = useState(() => (persistedStateCache.has(key) ? persistedStateCache.get(key) : initialValue));
   const loadedRef = useRef(persistedStateCache.has(key));
 
@@ -2311,6 +2334,9 @@ export async function warmPersistedStateCache() {
       tx.onabort = () => reject(tx.error);
     });
     keys.forEach((k, i) => { if (values[i] !== undefined) persistedStateCache.set(k, values[i]); });
+    // 【便AL】**読み切ったときだけ**立てる。catch の側では立てない(読めていないのに
+    // 「無い」と決めつけると、保存されている値を初期値で隠してしまう)。
+    persistedCacheComplete = true;
   } catch {
     // 温められなかっただけ。画面は従来どおり出す(ここで投げると起動そのものが止まる)。
   }
