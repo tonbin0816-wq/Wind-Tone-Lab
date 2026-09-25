@@ -72,6 +72,8 @@ function layout({ vals, zeroCentered, fmt, refVals, plotH = PLOT_H, meanCentered
   const colStep = (x1 - x0) / (N - 1);
   const need = maxLblW + SVG_SP2;
   const labelStep = [1, 2, 3, 4, 6, 12].find((s) => s * colStep >= need) ?? 12;
+  // 【便AZ 2026-09-25】目印の音は楽器で変わる(App.jsx の noteAxisGuideName: E♭管は E♭ / B♭管は B♭)。
+  // この生成器の絵は A.Sax だけなので E♭ のまま(出力は変わらない。生成器は今の出力を再現しないので出し直していない)。
   const ebIdx = LABELS.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
   const axisCenter = (N - 1) / 2;
   const midEb = ebIdx.reduce((b, i) => (Math.abs(i - axisCenter) < Math.abs(b - axisCenter) ? i : b), ebIdx[0]);

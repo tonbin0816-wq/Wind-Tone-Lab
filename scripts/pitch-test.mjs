@@ -392,7 +392,8 @@ const code = [
   // reedSheetButtonLabel は定義ごと畳まれた。取り出しの配管もここで外す
   // (主張は下の「定義ごと無い」「綴りは定数1つ」へ向け直してある)。
   // 【便O 2026-09-20】編集の見出しを出さなくなり、mode で分ける関数は定数1つに畳んだ。
-  extractConst("REED_ADD_SHEET_TITLE"),
+  // 【便AZ 2026-09-25 本人指示 A2】追加の見出しも消え、定数 REED_ADD_SHEET_TITLE は定義ごと無い。
+  // 取り出しの配管もここで外す(主張は下の「定義ごと無い」へ向け直してある)。
   extractFunction("clampReedAddCount"),
   // F-79b タイルの見た目(指への追従・避ける動き)。定義を参照するので定数を先に並べる
   extractConst("REED_TILE_SLIDE_EASE"),
@@ -513,7 +514,7 @@ const api = new Function(`${code}
            reedPickStep, REED_PICK_STEP_TITLES, REED_PICK_NONE_LABEL,
            DETAIL_CARD_METRICS,
            reedTileTone, gridDropIndex, reedDetailMetaParts, clampReedAddCount,
-           REED_ADD_SHEET_TITLE, reedTileVisual,
+           reedTileVisual,
            REED_TILE_SLIDE_EASE, REED_TILE_SETTLE_MS, REED_TILE_LIFT_PX, REED_TILE_DRAG_DEG,
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
@@ -9020,8 +9021,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 旧主張(「1枚を追加」/「n枚の箱を追加」)は、枚数をダイヤルが現に見せている以上
       // 同じことを2度言う形だったので撤回した。**緩めてはいない**: 新しい主張は
       // 「綴りは定数1つで、枚数に依存しない」で、旧綴りが戻れば下の不在検査で落ちる。
-      check("R4 追加の一手は「この箱を追加する」(定数1つ。枚数で変わらない)",
-        api.REED_ADD_BUTTON_LABEL === "この箱を追加する", api.REED_ADD_BUTTON_LABEL);
+      // 【便AZ 2026-09-25 本人指示 A3】語は「この箱を追加する」→「追加」。定数1つ・枚数で変わらないのは同じ。
+      check("R4 → 便AZ 追加の一手は「追加」(定数1つ。枚数で変わらない)",
+        api.REED_ADD_BUTTON_LABEL === "追加", api.REED_ADD_BUTTON_LABEL);
       check("R4 枚数で語が変わらない(枚数を語に持つ旧綴りが1つも無い)",
         !/[0-9n]枚の箱を追加|1枚を追加/.test(codeOf(src)),
         (codeOf(src).match(/.{0,12}枚の箱を追加|.{0,6}1枚を追加/g) || []).join(" | ") || "0件");
@@ -9046,17 +9048,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 「編集の一手は無い(語がどこにも残っていない)」「追加の綴りは1文字も変えていない」。
       check("便P: 編集の一手「変更」はシートのどこにも無い / 追加の綴りは据え置き",
         (codeOf(srcOfFn(src, "ReedBoxSheet")).match(/>変更</g) || []).length === 0
-        && api.REED_ADD_BUTTON_LABEL === "この箱を追加する",
+        // 【便AZ 2026-09-25 本人指示 A3】追加の綴りは「この箱を追加する」→「追加」(定数1つのまま)。
+        && api.REED_ADD_BUTTON_LABEL === "追加",
         `変更 ${(codeOf(srcOfFn(src, "ReedBoxSheet")).match(/>変更</g) || []).length}件 / 追加 ${api.REED_ADD_BUTTON_LABEL}`);
       // 【便O 2026-09-20 本人指示】編集の見出しは**出さなくなった**ので、mode で分ける
       // reedSheetTitle は定義ごと畳んで REED_ADD_SHEET_TITLE 1つにした(死んだ枝を残さない)。
       // 主張は下げていない: 「追加の見出しの綴り」と「綴りが1箇所からしか出ない」を見続ける。
       // 読み上げの名前(ariaLabel の「箱を編集」)が残ることは検証66.4 が見る。
-      check("F-82 / 便O: シートの見出しは追加のときだけ。綴りは「追加」で、分ける関数は定義ごと無い",
-        api.REED_ADD_SHEET_TITLE === "追加" && !/function reedSheetTitle\(/.test(src),
-        `${api.REED_ADD_SHEET_TITLE}`);
-      check("F-82 / 便O: 見出しの綴りは REED_ADD_SHEET_TITLE からしか出ない(JSX に直書きしていない)",
-        /\{REED_ADD_SHEET_TITLE\}/.test(src)
+      // 【便AZ 2026-09-25 本人指示 A2】追加のときの見出し「追加」も消えた(編集は便O から出していない)。
+      // 主張を「見出しは追加のときだけ」から「見出しはどちらのときも出さない(定数も分ける関数も無い)」へ向け直す。
+      check("F-82 / 便O → 便AZ: シートの見出しは出さない。定数 REED_ADD_SHEET_TITLE も分ける関数も定義ごと無い",
+        !/REED_ADD_SHEET_TITLE/.test(codeOf(src)) && !/function reedSheetTitle\(/.test(src),
+        (codeOf(src).match(/REED_ADD_SHEET_TITLE/g) || []).length + "件");
+      check("F-82 / 便AZ: 見出しの綴りをシートに直書きしていない(>追加< の見出しの div が無い)",
+        !/<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>[^<{]*<\/div>/.test(codeOf(srcOfFn(src, "ReedBoxSheet")))
         && /\{!isEdit && \(/.test(srcOfFn(src, "ReedBoxSheet")));
       // 枚数は「追加」のときだけ。編集で枚数を触らせると、どの個体を消すのかが決まらない。
       // 【R2 2026-09-16】−/数値/＋ はダイヤルに変わった。**錨を新しい姿へ向け直す**。
@@ -23456,16 +23461,23 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     const btn = sheet49.slice(btnAt, sheet49.indexOf("{REED_ADD_BUTTON_LABEL}", btnAt) + 40);
     check("49.3 R3 主要動作を切り出せている", btn.length > 300 && /REED_ADD_BUTTON_LABEL/.test(btn), `${btn.length}文字`);
     check("49.3 R3 主要動作は中央揃え", /justifyContent: "center"/.test(btn));
+    // 【便AZ 2026-09-25 本人指示 A3】高さの宣言は height: ACTION_LG_PX → minHeight: var(--tap-min)。横幅の主張はそのまま。
     check("49.3 R5 横幅はシートの内側いっぱい(メーカーの行の下線と同じ幅)",
-      /width: "100%", height: ACTION_LG_PX,/.test(btn)
+      /width: "100%", minHeight: "var\(--tap-min\)",/.test(btn)
       // 【便N】行の罫は共有の REED_SHEET_ROW_STYLE が持つようになったので、そちらを見る。
       && /const REED_SHEET_ROW_STYLE = \{[\s\S]{0,200}?borderBottom: "1px solid var\(--c-line\)",/.test(app49));
-    check("49.3 R5 高さは R1 と同じ定数(56 を2箇所に書いていない)",
-      /height: ACTION_LG_PX,/.test(btn) && !/height: 56/.test(sheet49));
-    check("49.3 R4 追加の語は「この箱を追加する」1つ(枚数で変わらない)",
-      api.REED_ADD_BUTTON_LABEL === "この箱を追加する"
-      && (app49.match(/この箱を追加する/g) || []).length === 1,
-      `${api.REED_ADD_BUTTON_LABEL} / ${(app49.match(/この箱を追加する/g) || []).length}件`);
+    // 【便AZ 2026-09-25 本人指示 A3】「縦幅が大きい」── 絵柄だけの浮かせるボタンの 56(R1)をやめ、
+    // シートの中の主ボタンの標準 --tap-min にそろえた。そろえた先(「目安に設定」のシートの「保存」)の
+    // 綴りが実在することも見る(相手が居ないのに「そろえた」と言わない)。
+    check("49.3 R5 → 便AZ 高さはシートの主ボタンの標準 --tap-min(「目安に設定」の保存と同じ)。56 は持ち込まない",
+      /minHeight: "var\(--tap-min\)",/.test(btn) && !/ACTION_LG_PX/.test(sheet49) && !/height: 56/.test(sheet49)
+      && /style=\{\{ flex: 1, minHeight: "var\(--tap-min\)", borderRadius: "var\(--r-pill\)", border: "none", background: "var\(--c-accent\)", color: "var\(--c-on-accent\)", fontSize: "var\(--fs-md\)", fontWeight: 700,/.test(app49));
+    // 【便AZ 2026-09-25 本人指示 A3】語は「追加」。旧綴り「この箱を追加する」はどこにも残っていない。
+    check("49.3 R4 → 便AZ 追加の語は「追加」1つ(枚数で変わらない・旧綴りは0件)",
+      api.REED_ADD_BUTTON_LABEL === "追加"
+      && (app49.match(/const REED_ADD_BUTTON_LABEL = "追加";/g) || []).length === 1
+      && (app49.match(/この箱を追加する/g) || []).length === 0,
+      `${api.REED_ADD_BUTTON_LABEL} / 旧綴り${(app49.match(/この箱を追加する/g) || []).length}件`);
     check("49.3 R4 旧綴り(「n枚の箱を追加」「1枚を追加」)は1つも残っていない",
       !/枚の箱を追加/.test(app49) && !/1枚を追加/.test(app49),
       (app49.match(/.{0,8}枚の箱を追加|.{0,4}1枚を追加/g) || []).join(" | ") || "0件");
@@ -23667,13 +23679,21 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // 【便AT/AU 2026-09-24】順位の種類と人物紹介のタブが溝型(SegmentedTabs)に替わり、SubTabs は読まなくなった。
     check("49.7 R9 コミュニティ側は App.jsx から import して読む(写しを作らない)",
       /import \{ BACK_BUTTON_STYLE, BottomSheet,( SubTabs,)? NoteAxisLineChart, formatSignedCents \} from "\.\.\/App\.jsx";/.test(screens49)
-      && (codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length === 3,
+      // 【便AZ 2026-09-25 本人指示 C】人物紹介の「< 一覧」を消したので 3 → 2(import と データの画面の戻る)。
+      && (codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length === 2,
       `${(codeOf(screens49).match(/BACK_BUTTON_STYLE/g) || []).length}箇所`);
     // 正典(design/canvas)も同じ姿へ書き換えてある(実装だけ先に動かしていない)
-    for (const f of ["ReedDetail.dc.html", "SessionDetail.dc.html", "CommPerson.dc.html"]) {
+    // 【便AZ 2026-09-25 本人指示 C】正典の人物紹介(CommPerson)からは戻るそのものが消えた。
+    // 残る2面は今までどおり「戻るも地を持たない」、CommPerson は「戻るが無い・地つきの戻るも無い」を見る。
+    for (const f of ["ReedDetail.dc.html", "SessionDetail.dc.html"]) {
       const dc = readFileSync(join(__dirname, "..", "design", "canvas", f), "utf8");
       check(`49.7 R9 正典 ${f} の戻るも地を持たない`,
         /background: none/.test(dc) && !/border-radius: var\(--r-md\); background: var\(--c-sunken\); color: var\(--c-ink-2\)/.test(dc));
+    }
+    {
+      const dc = readFileSync(join(__dirname, "..", "design", "canvas", "CommPerson.dc.html"), "utf8");
+      check("49.7 → 便AZ 正典 CommPerson.dc.html に戻る(< 一覧)は無い・地つきの戻るも無い",
+        !/&lt; 一覧/.test(dc) && !/border-radius: var\(--r-md\); background: var\(--c-sunken\); color: var\(--c-ink-2\)/.test(dc));
     }
     check("49.7 R15 正典 ReedDetail.dc.html の計測も絵柄だけの円 56",
       /min-height: 56px; min-width: 56px/.test(
@@ -24215,10 +24235,13 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       /onClick=\{\(\) => \{ onClose\(\); onCompareOthers\(\); \}\}/.test(sheet51));
     // 主要動作の作法は追加シート(R5)と同じ4つ。値はここで発明していない。
     // 追加シートは disabled のとき地を --c-line-strong に落とす(押せる状態の地が --c-accent)。
-    const PRIMARY = [/width: "100%", height: ACTION_LG_PX,/, /borderRadius: "var\(--r-pill\)", border: "none",/,
+    // 【便AZ 2026-09-25 本人指示 A3】追加シートの主要動作は高さだけ --tap-min に下がった(本人「縦幅が大きい」)。
+    // このシート(累計の定義)は指示に入っていないので ACTION_LG_PX のまま。**高さ以外の3つ**は今も同じ作法。
+    const PRIMARY = [/borderRadius: "var\(--r-pill\)", border: "none",/,
       /background: (?:disabled \? "var\(--c-line-strong\)" : )?"var\(--c-accent\)"/, /fontSize: "var\(--fs-md\)", fontWeight: 700/];
-    check("51.3 D3 ボタンは追加シートの主要動作と同じ作法(幅いっぱい / ACTION_LG_PX / --r-pill / 塗り --c-accent / --fs-md 700)",
-      PRIMARY.every((re) => re.test(sheet51)) && PRIMARY.every((re) => re.test(reedSheet51)),
+    check("51.3 D3 → 便AZ ボタンは追加シートの主要動作と同じ作法(--r-pill / 塗り --c-accent / --fs-md 700)。高さはこのシートだけ ACTION_LG_PX",
+      PRIMARY.every((re) => re.test(sheet51)) && PRIMARY.every((re) => re.test(reedSheet51))
+      && /width: "100%", height: ACTION_LG_PX,/.test(sheet51) && /width: "100%", minHeight: "var\(--tap-min\)",/.test(reedSheet51),
       PRIMARY.map((re) => `${re.test(sheet51) ? "o" : "x"}/${re.test(reedSheet51) ? "o" : "x"}`).join(" "));
     check("51.3 D3 App: 行き先は「順位の子タブでコミュニティを開く」の1関数(setTopTab(\"community\") を持つ)",
       /const openCommunityRank = useCallback\(\(\) => \{\s*setCommunityLandTab\("rank"\);\s*setTopTab\("community"\);\s*\}, \[\]\);/.test(app51)
@@ -25486,10 +25509,11 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && !/この箱を変更/.test(app59) && !/この箱を削除/.test(app59),
       `>変更<${count59(app59, />変更</g)}件 / 旧綴り${count59(app59, /この箱を変更|この箱を削除/g)}件`);
     // 【追加のシートは触っていない】本人の指示に入っていないので寸法も綴りも据え置き。
-    check("59.3 N2 追加の主要動作は幅いっぱい・高さ ACTION_LG_PX のまま(触っていない)",
-      count59(app59, /この箱を追加する/g) === 1
-      && /width: "100%", height: ACTION_LG_PX,/.test(sheet59)
-      && api.REED_ADD_BUTTON_LABEL === "この箱を追加する");
+    // 【便AZ 2026-09-25 本人指示 A3】追加の主要動作は語が「追加」、高さが --tap-min になった(幅いっぱいは同じ)。
+    check("59.3 N2 → 便AZ 追加の主要動作は幅いっぱい・高さ --tap-min・語は「追加」",
+      count59(app59, /この箱を追加する/g) === 0
+      && /width: "100%", minHeight: "var\(--tap-min\)",/.test(sheet59)
+      && api.REED_ADD_BUTTON_LABEL === "追加");
   }
 
   // --- 59.4 正典(先に書き換えてから実装を合わせた) ------------------------------
@@ -25513,10 +25537,13 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       `▾=${JSON.stringify(pick594)} / 検索窓=${JSON.stringify(search594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
     // 【AA-1 2026-09-21】▾ の行は実装から消えたので、正典ミニからも消えている。
     check("59.4 正典ミニにも ▾ の行は1つも無い(実装だけ先に動かしていない)",
-      !/class="chev"/.test(mock59.slice(mock59.indexOf('margin-bottom:10px">追加</div>'),
-                                        mock59.indexOf("この箱を追加する"))),
-      "ミニの ▾ の数=" + ((mock59.slice(mock59.indexOf('margin-bottom:10px">追加</div>'),
-                                        mock59.indexOf("この箱を追加する")).match(/class="chev"/g) || []).length));
+      // 【便AZ 2026-09-25】ミニの見出し「追加」と旧い語が消えたので、切り出しの目印を
+      // 器の前の注記「mini: 追加フロー」と説明文の頭「追加シート —」へ向け直した(主張は同じ)。
+      mock59.indexOf("<!-- mini: 追加フロー -->") > 0
+      && !/class="chev"/.test(mock59.slice(mock59.indexOf("<!-- mini: 追加フロー -->"),
+                                        mock59.indexOf('<div class="minicap">追加シート'))),
+      "ミニの ▾ の数=" + ((mock59.slice(mock59.indexOf("<!-- mini: 追加フロー -->"),
+                                        mock59.indexOf('<div class="minicap">追加シート')).match(/class="chev"/g) || []).length));
     // 【便X 2026-09-21】検索の行は枠(高さ44 / 罫 / 名札の体裁)そのままで右端が ✕。
     // 【AA-1 2026-09-21】その1行がメーカーと銘柄の**両方**を持つ(値は「メーカー 銘柄」)。
     check("59.4 正典ミニのリードの行は 名札 → 値(左寄せ) → ✕ で、高さ44(枠は据え置き)",
@@ -26943,14 +26970,13 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
 
   // --- 66.4 編集の見出しを消した -----------------------------------------------
   {
-    const title66 = new Function(`${extractConst("REED_ADD_SHEET_TITLE")} return REED_ADD_SHEET_TITLE;`)();
-    check("66.4 見出しの綴りは定数1つで「追加」、分ける関数 reedSheetTitle は定義ごと無い",
-      title66 === "追加" && !/function reedSheetTitle\s*\(/.test(app66)
+    // 【便AZ 2026-09-25 本人指示 A2】追加のときの見出しも消えた。主張を「どちらのときも見出しは出さない」へ。
+    check("66.4 → 便AZ 見出しの定数も分ける関数 reedSheetTitle も定義ごと無い",
+      count66(app66, /REED_ADD_SHEET_TITLE/g) === 0 && !/function reedSheetTitle\s*\(/.test(app66)
       && count66(app66, /reedSheetTitle/g) === 0,
-      `${title66} / 残り${count66(app66, /reedSheetTitle/g)}件`);
-    check("66.4 見出しは**追加のときだけ**描く(!isEdit で囲われている)",
-      /\{!isEdit && \([\s\S]{0,300}?\{REED_ADD_SHEET_TITLE\}/.test(sheet66)
-      && count66(sheet66, /REED_ADD_SHEET_TITLE/g) === 1);
+      `定数 ${count66(app66, /REED_ADD_SHEET_TITLE/g)}件 / 関数 ${count66(app66, /reedSheetTitle/g)}件`);
+    check("66.4 → 便AZ 見出しはどちらのときも描かない(シートの中に「追加」の見出しの div が無い)",
+      !/>追加<\/div>/.test(sheet66) && !/\{REED_ADD_SHEET_TITLE\}/.test(sheet66));
     check("66.4 読み上げの名前は残っている(ariaLabel の「箱を編集」/「リードを追加」)",
       /ariaLabel=\{isEdit \? "箱を編集" : "リードを追加"\}/.test(sheet66));
   }
@@ -27454,7 +27480,8 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
       `${count71(app71, /reedSheetButtonLabel/g)}件`);
     check("71.6 追加の一手は定数から出る(綴りは1文字も変えていない)",
       /\{REED_ADD_BUTTON_LABEL\}/.test(sheet71)
-      && api.REED_ADD_BUTTON_LABEL === "この箱を追加する");
+      // 【便AZ 2026-09-25 本人指示 A3】語は「追加」(定数から出るのは同じ)。
+      && api.REED_ADD_BUTTON_LABEL === "追加");
     // 【AA-1 2026-09-21】判定は「解決したメーカー名が空か」の1行を挟む形になった
     // (✕ でメーカーを外せるようになったため)。**読み手も、灰の化け方も同じ**。
     check("71.6 押せるかどうかの判定はシートが1つだけ持つ(読み手は追加の一手)",
@@ -27985,7 +28012,9 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
     }
     check("75.1 見出しは ariaLabel をそのまま1行(--fs-xs / --c-ink-3。ReedBoxSheet の見出しと同じ綴り)",
       /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{ariaLabel\}<\/div>/.test(opt75)
-      && /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{REED_ADD_SHEET_TITLE\}<\/div>/.test(sheet75));
+      // 【便AZ 2026-09-25】突き合わせの相手だった ReedBoxSheet の見出しは本人指示で消えた。
+      // 同じ綴りの見出しを持つ段階選択のシート(ReedPickSheet の段の見出し)へ向け直す。
+      && /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", marginBottom: 10 \}\}>\{REED_PICK_STEP_TITLES\[step\]\}<\/div>/.test(codeOf(srcOfFn(src, "ReedPickSheet"))));
     check("75.1 行は全幅・--tap-min の高さ",
       /width: "100%", height: "var\(--tap-min\)"/.test(row75));
     // 【便AB 2026-09-21 で向け直した】一覧の後ろに「＋ 追加」の行が続くときは、
@@ -28513,8 +28542,10 @@ ${deriv76}
   // --- 76.7 正典ミニは実装に合わせてある ------------------------------------------
   {
     // ミニの「追加」の器の中だけを見る(正典ファイル全体には別の「厚さ」がある)。
-    const a77 = mock76.indexOf('<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">追加</div>');
-    const b77 = mock76.indexOf("この箱を追加する", a77);
+    // 【便AZ 2026-09-25】ミニの見出し「追加」と旧い語「この箱を追加する」が消えたので、目印を
+    // 器の前の注記と説明文の頭へ向け直した(切り出す範囲は同じ器)。
+    const a77 = mock76.indexOf("<!-- mini: 追加フロー -->");
+    const b77 = mock76.indexOf('<div class="minicap">追加シート', a77);
     const mini77 = a77 >= 0 && b77 > a77 ? mock76.slice(a77, b77) : "";
     // 【便V 2026-09-21】器の目印も**実装の名札**から引く(旧語の直書きをやめた)。
     // 【AA-1 2026-09-21】▾ の行は消え、実装の名札は検索の行の「リード」1つ。
@@ -28610,8 +28641,9 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
     const rowA77 = headA77 >= 0 ? sheet77.slice(headA77, sheet77.indexOf(") : (", headA77)) : "";
     const act77 = [...rowA77.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
     // 正典ミニの「追加」の器(正典ファイル全体には別の「厚さ」がある)。
-    const a77 = mock77.indexOf('<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">追加</div>');
-    const b77 = mock77.indexOf("この箱を追加する", a77);
+    // 【便AZ 2026-09-25】目印を器の前の注記と説明文の頭へ向け直した(76.7 と同じ)。
+    const a77 = mock77.indexOf("<!-- mini: 追加フロー -->");
+    const b77 = mock77.indexOf('<div class="minicap">追加シート', a77);
     const mini77 = a77 >= 0 && b77 > a77 ? mock77.slice(a77, b77) : "";
 
     // 【AA-1 2026-09-21 で 4 → 3】メーカーと銘柄が1つの名札「リード」に畳まれた。
@@ -29113,7 +29145,9 @@ ${deriv79}
     // (b) 打つ前は何も出さない / 打った文字で絞る ── 規則は**カタログ側の1つ**。実行で確かめる。
     {
       const f79 = runFn(() => new Function(`
-        const norm = ${(/const norm = ([^\n]+);/.exec(gearRaw79) || [, "null"])[1]};
+        // 【便AZ 2026-09-25(B)】norm は複数行の関数宣言になり、表 KANA_V を読む。実ソースから両方を切り出す。
+        ${extractConst("KANA_V", gearRaw79)}
+        ${extractFunction("norm", gearRaw79)}
         const brandMatches = ${(/const brandMatches = ([\s\S]*?);\r?\n/.exec(gearRaw79) || [, "null"])[1]};
         ${extractConst("BRAND_ALIASES", gearRaw79)}
         ${extractConst("REED_CATALOG", gearRaw79)}
@@ -29197,8 +29231,11 @@ ${deriv79}
       && /aria-label=\{`\$\{label\}の選択を解除`\}/.test(row79)
       && /aria-label=\{`\$\{label\}を検索`\}/.test(row79));
     // (f) 枠は箱のシートの既存の行から引く。**新しい枠を作っていない。**
+    // 【便AZ 2026-09-25 本人の実機報告 A1】検索の姿は枠に gap --sp-1 を重ねた(検索欄と逃げ道の一手が
+    // 隙間 0 で接していた)。値は写し元のプロフィールの Field(gap --sp-1)と同じで、新しい寸法ではない。
     check("79.3 枠と名札は既存の行の綴りを読む(新しい寸法を作っていない)",
-      /style=\{REED_SHEET_PILL_ROW_STYLE\}/.test(row79)
+      /style=\{\{ \.\.\.REED_SHEET_PILL_ROW_STYLE, gap: "var\(--sp-1\)" \}\}/.test(row79)
+      && /<div style=\{\{ display: "grid", gap: "var\(--sp-1\)" \}\}>/.test(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"))
       && count79(row79, /\{ \.\.\.REED_SHEET_ROW_STYLE, padding: "8px 0" \}/g) === 2
       && count79(row79, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 3);
     // (g) **メーカーだけの行はもう無い**(AA-1 で1つに畳んだ)。
@@ -29354,7 +29391,9 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
     // (c) 母集団と絞り方は**カタログの searchReeds 1つ**。実装そのものを組み立てて走らせる。
     {
       const f81 = runFn(() => new Function(`
-        const norm = ${(/const norm = ([^\n]+);/.exec(gearRaw81) || [, "null"])[1]};
+        // 【便AZ 2026-09-25(B)】norm は複数行の関数宣言になり、表 KANA_V を読む。実ソースから両方を切り出す。
+        ${extractConst("KANA_V", gearRaw81)}
+        ${extractFunction("norm", gearRaw81)}
         const brandMatches = ${(/const brandMatches = ([\s\S]*?);\r?\n/.exec(gearRaw81) || [, "null"])[1]};
         ${extractConst("BRAND_ALIASES", gearRaw81)}
         ${extractConst("REED_CATALOG", gearRaw81)}
@@ -30490,6 +30529,33 @@ console.log("========== 検証85: 便AY リードの楽器種別 ── 配線�
     check("85.8 E8 コミュニティ・バックアップはリードの楽器を読まない(reedSaxTypeOf を持ち込んでいない)",
       others85.every((t) => !/reedSaxTypeOf|backfillReedSaxTypes/.test(t)));
   }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証86: 便AZ(2026-09-25 本人の実機報告と指示)── 配線の錨
+//   振る舞い(描いて読む・押す)は src/noteAxisGuide.test.jsx / src/reedSaxType.test.jsx /
+//   src/community/catalog/gear.test.js / src/community/personChart.test.jsx が持つ。
+//   ここは「規則が1つの関数にあり、読み手がそれを読んでいる」ことだけを綴りで固定する(十分条件ではない)。
+// ============================================================
+console.log("========== 検証86: 便AZ 目印の音・検索の正規化・人物紹介の戻る ==========");
+{
+  const chart86 = codeOf(srcOfFn(src, "NoteAxisLineChart"));
+  check("86.1 D 目印の音は noteAxisGuideName(saxType) から(グラフの中に E♭ を直書きしていない)",
+    /const guideName = noteAxisGuideName\(saxType\);\s*\n\s*const ebIndexes = plotNoteLabels\.map\(\(nm, i\) => \(nm\.startsWith\(guideName\) \? i : -1\)\)/.test(chart86)
+    && !/startsWith\("E♭"\)/.test(chart86));
+  const canvas86 = readFileSync(join(__dirname, "..", "design", "canvas", "community.mjs"), "utf8");
+  check("86.1 D 正典の生成器も同じ規則を App.jsx から抜いて使う(写しを持たない)",
+    /appFn\("noteAxisGuideName"/.test(canvas86) && /nm\.startsWith\(guide\)/.test(canvas86)
+    && !/nm\.startsWith\("E♭"\)/.test(canvas86));
+  const gear86 = readFileSync(join(__dirname, "..", "src", "community", "catalog", "gear.js"), "utf8");
+  check("86.2 B 4つの検索はどれも同じ norm を通る(検索ごとに別の正規化を持たない)",
+    ["searchInstrumentModels", "searchMouthpieces", "searchLigatures", "searchReeds"]
+      .every((f) => /const q = norm\(query\);/.test(srcOfFn(gear86, f)))
+    && (gear86.match(/function norm\(/g) || []).length === 1);
+  const person86 = codeOf(srcOfFn(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8"), "PersonSheet"));
+  check("86.3 C 人物紹介に戻るボタン(BACK_BUTTON_STYLE / 一覧に戻る)は無い",
+    !/BACK_BUTTON_STYLE/.test(person86) && !/一覧に戻る/.test(person86) && !/< 一覧/.test(person86));
   console.log("  -> done");
 }
 

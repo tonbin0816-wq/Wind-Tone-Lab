@@ -242,7 +242,7 @@ function lineChartRaw({ keys, series, digits, centerAt, endLabels, PAD_R, H = CH
 //   ・横軸は**その楽器の音域の全音**(buildFingeringTable。フラジオ込み)。データのある音だけではない
 //   ・音名は**実音**(concertFreqLabel)。音の番号を 12 で回した名前ではない
 //   ・縦軸の目盛は上端・中間・下端の3本(--c-line)。中央線(--c-line-strong)は My Data だけ(D-12)
-//   ・音域の中央の E♭ に縦の破線(--c-accent-line / 4 3)。点は描く(My Data 以外)
+//   ・音域の中央の目印の音(E♭管は E♭ / B♭管は B♭。便AZ)に縦の破線(--c-accent-line / 4 3)。点は描く(My Data 以外)
 // 音域・音名の表は App.jsx から**その場で抜く**(写しを貼らない。icons.jsx と同じ扱い)。
 // 上の LineChart の写しは、**改善案の面(CommDataB / C / D)**が当時の姿のまま使っている。
 const APP_SRC = readFileSync(fileURLToPath(new URL("../../src/App.jsx", import.meta.url)), "utf8");
@@ -252,7 +252,18 @@ const appConst = (name) => {
   return new Function(`return (${m[1]});`)();
 };
 const NA_RANGE = appConst("SAX_CONCERT_RANGE");
+// 【便AZ 2026-09-25 本人指示】目印の音名(縦の破線・太字・間引きの起点)は楽器で変わる
+// (E♭管は E♭、B♭管は B♭)。規則は App.jsx の noteAxisGuideName ただ1つ ── その場で抜いて使う。
+const appFn = (name, deps) => {
+  const at = APP_SRC.indexOf(`function ${name}(`);
+  if (at < 0) throw new Error(`App.jsx から ${name} を読めない`);
+  const end = APP_SRC.indexOf("\n}\n", at);
+  return new Function(...Object.keys(deps), `${APP_SRC.slice(at, end + 2)} return ${name};`)(...Object.values(deps));
+};
 const NA_NOTE_NAMES = appConst("NOTE_NAMES");
+const naGuideName = appFn("noteAxisGuideName", {
+  TRANSPOSITION_SEMITONES: appConst("TRANSPOSITION_SEMITONES"), NOTE_NAMES: NA_NOTE_NAMES,
+});
 const NA_PLOT_H = appConst("CHART_PLOT_H");
 const NA_FS = appConst("SVG_FS_XS"), NA_SP1 = appConst("SVG_SP1"), NA_SP2 = appConst("SVG_SP2");
 // 実音の音名。キャンバスの基準ピッチはどの値でも音名は変わらないので MIDI から引く
@@ -296,7 +307,8 @@ function noteAxisChart({ saxType = "alto", series, fmt, width }) {
   const colStep = (x1 - x0) / Math.max(1, N - 1);
   const need = maxLblW + NA_SP2;
   const labelStep = [1, 2, 3, 4, 6, 12].find((st) => st * colStep >= need) ?? Math.max(12, Math.ceil(need / colStep / 12) * 12);
-  const ebIdx = labels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  const guide = naGuideName(saxType);
+  const ebIdx = labels.map((nm, i) => (nm.startsWith(guide) ? i : -1)).filter((i) => i >= 0);
   const axisCenter = (N - 1) / 2;
   const midEb = ebIdx.reduce((b, i) => (Math.abs(i - axisCenter) < Math.abs(b - axisCenter) ? i : b), ebIdx[0]);
   const showLabel = (i) => (((i - midEb) % labelStep) + labelStep) % labelStep === 0;
@@ -677,9 +689,9 @@ ${formField("編成(複数選択可)", pillRow([["ソロ", true], ["アンサン
 
 // ---- 人をタップしたとき(タブ データ / プロフィール) -------------------------
 // 【便AO 2026-09-24 本人指示】表裏(名前の行を押して裏返る・`< 音のデータ` で戻る)をやめ、
-// 名前の行の下に SubTabs [データ | プロフィール]。左上は常に `< 一覧`。名前の行に山形は無い。
-// 【R9 2026-09-16 実機の指摘】地(--c-sunken)と左右の padding を外した(App.jsx の BACK_BUTTON_STYLE と同値)。
-const BACK_BTN = "justify-self: start; min-height: 44px; padding: 0; border: none; border-radius: var(--r-md); background: none; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: inline-flex; align-items: center";
+// 名前の行の下に SubTabs [データ | プロフィール]。名前の行に山形は無い。
+// 【便AZ 2026-09-25 本人指示】左上の `< 一覧` は消した(実装の PersonSheet と同じ。閉じ方はシートの作法)。
+// その見た目の写し BACK_BTN も読み手が無くなったので畳んだ。
 
 function personShell(inner) {
   return `${sprite()}
@@ -710,9 +722,7 @@ function buildPerson() {
     { label: p.nick, byIdx: naVals(centroidTheir), ...COMPARE_SERIES },
     { label: "自分", byIdx: naVals(centroidMine), ...MINE_SERIES },
   ];
-  return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
-
-      ${personHead(p, "data")}
+  return personShell(`${personHead(p, "data")}
 
       <div style="display: flex; align-items: baseline; gap: var(--sp-2)">
         <div style="${LABEL}">練習日数</div>
@@ -734,9 +744,7 @@ ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 function buildPersonBack() {
   const p = PEOPLE[0];
   const gear = (label, value, last = false) => infoRow(label, value, "7em", last);
-  return personShell(`<div style="${BACK_BTN}">&lt; 一覧</div>
-
-      ${personHead(p, "profile")}
+  return personShell(`${personHead(p, "profile")}
 
       <div>
 ${infoRow("属性", "学生", "7em")}

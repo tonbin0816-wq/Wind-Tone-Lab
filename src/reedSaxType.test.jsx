@@ -365,7 +365,7 @@ describe("リードタブの楽器のチップの行(D5)", () => {
     const saxPills = [...sheet.querySelectorAll('button[aria-label^="楽器 "]')];
     expect(saxPills.map((b) => b.getAttribute("aria-label"))).toEqual(["楽器 S.Sax", "楽器 A.Sax", "楽器 T.Sax", "楽器 B.Sax"]);
     expect(saxPills.find((b) => b.getAttribute("aria-pressed") === "true").getAttribute("aria-label")).toBe("楽器 B.Sax");
-    await press([...sheet.querySelectorAll("button")].find((b) => b.textContent === "この箱を追加する"));
+    await press([...sheet.querySelectorAll("button")].find((b) => b.textContent === "追加"));
     const added = lastReeds.filter((r) => !REEDS.some((x) => x.id === r.id));
     expect(added.length).toBeGreaterThan(0);
     expect(added.every((r) => r.saxType === "baritone")).toBe(true);
@@ -448,7 +448,7 @@ describe("登録と箱の編集で選んだ楽器が書かれる(中3 / 軽7 / �
     expect(pressedSaxIn(sheet)).toBe("楽器 B.Sax");
     await press(saxPillIn(sheet, "T.Sax"));                            // シートの中で T.Sax に替える
     expect(pressedSaxIn(sheet)).toBe("楽器 T.Sax");
-    await press([...sheet.querySelectorAll("button")].find((b) => b.textContent === "この箱を追加する"));
+    await press([...sheet.querySelectorAll("button")].find((b) => b.textContent === "追加"));
     const added = last.filter((r) => !REEDS.some((x) => x.id === r.id));
     expect(added.length).toBeGreaterThan(0);
     expect(added.every((r) => r.saxType === "tenor")).toBe(true);
@@ -677,5 +677,52 @@ describe("reedSelectionToRestore ── 元に戻すときに選び直すリー�
     expect(reedSelectionToRestore(["a1"], "t1")).toBe(null);
     expect(reedSelectionToRestore(["a1"], null)).toBe(null);
     expect(reedSelectionToRestore(undefined, "a1")).toBe(null);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便AZ 2026-09-25 本人の実機報告と指示 A】リードの追加シート。
+//   A1 検索欄と「＋ 新しいメーカーを入力…」が縦に重なる → 行を縮ませない(flexShrink 0)
+//   A2 見出し「追加」を消す(読み上げの名前「リードを追加」は残す)
+//   A3 主ボタンの縦幅を標準(--tap-min。「目安に設定」の保存と同じ)に、語は「追加」
+// 【守っていないもの】jsdom は配置を計算しないので、**重ならないこと**そのものは測れない。
+// ここで見ているのは「行が縮まない宣言を持つ」ことまで(Chrome 375×560 の実測は報告に書いた)。
+// ------------------------------------------------------------------
+describe("リードの追加シート(便AZ A)", () => {
+  const openAdd = async () => {
+    await draw(<Harness saxType="alto" />);
+    await press(document.body.querySelector('button[aria-label="リードを追加"]'));
+    return sheetOf("リードを追加");
+  };
+  it("A2: 見出し「追加」は無い(読み上げの名前は「リードを追加」のまま)", async () => {
+    const sheet = await openAdd();
+    expect(sheet).not.toBe(null);
+    const titles = [...sheet.querySelectorAll("div")].filter((d) => d.children.length === 0 && d.textContent === "追加");
+    expect(titles).toHaveLength(0);
+  });
+  it("A3: 主ボタンは「追加」、高さは --tap-min(56 の height を持たない)", async () => {
+    const sheet = await openAdd();
+    const btn = [...sheet.querySelectorAll("button")].find((b) => b.textContent === "追加");
+    expect(btn).toBeTruthy();
+    expect(btn.style.minHeight).toBe("var(--tap-min)");
+    expect(btn.style.height).toBe("");
+    expect([...sheet.querySelectorAll("button")].some((b) => b.textContent === "この箱を追加する")).toBe(false);
+  });
+  it("A1: 検索欄の行(空の検索欄と「＋ 新しいメーカーを入力…」)も、ほかの行も縮まない(flexShrink 0)", async () => {
+    const sheet = await openAdd();
+    await press(sheet.querySelector('button[aria-label="リードの選択を解除"]'));   // 空の検索欄の姿にする
+    const input = sheet.querySelector('input[aria-label="リードを検索"]');
+    expect(input).not.toBe(null);
+    const row = input.parentElement;
+    expect([...row.querySelectorAll("button")].some((b) => b.textContent.includes("新しいメーカーを入力"))).toBe(true);
+    expect(row.style.flexShrink).toBe("0");
+    // 検索欄と逃げ道の一手の間は、写し元のプロフィールの GearPicker(Field)と同じ --sp-1(隙間 0 で接しない)
+    expect(row.style.gap).toBe("var(--sp-1)");
+    // 楽器・厚さ・枚数の行も同じ枠(縮むとピルが次の行へはみ出す)
+    for (const label of ["楽器", "厚さ", "枚数"]) {
+      const lab = [...sheet.querySelectorAll("span")].find((sp) => sp.textContent === label);
+      expect(lab, label).toBeTruthy();
+      expect(lab.parentElement.style.flexShrink, label).toBe("0");
+    }
   });
 });

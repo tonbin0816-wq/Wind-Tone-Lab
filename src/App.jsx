@@ -1157,6 +1157,18 @@ const TRANSPOSITION_SEMITONES = {
   baritone: -9 - 12, // E♭管、1オクターブ下
 };
 
+// 【便AZ 2026-09-25 本人指示 D】音名軸の折れ線グラフの**目印の音名**(縦の点線・太字の音名・
+// 横軸の音名の間引きの起点)。本人「A.Sax と B.Sax はそのまま E♭。S.Sax と T.Sax は B♭」。
+// 移調楽器の「記音 C」の実音 = その楽器の調(E♭管は E♭、B♭管は B♭)なので、表を新しく持たずに
+// 移調量(TRANSPOSITION_SEMITONES)から導く: 記音 C(音名の0番)を移調量だけずらした音名。
+// 知らない楽器(saxType が無い等)は以前と同じ E♭(便AZ より前の唯一の目印)。
+// **規則はこの1つ**。NoteAxisLineChart と正典の生成器(design/canvas/community.mjs)がこれを読む。
+function noteAxisGuideName(saxType) {
+  const t = TRANSPOSITION_SEMITONES[saxType];
+  if (typeof t !== "number") return "E♭";
+  return NOTE_NAMES[((t % 12) + 12) % 12];
+}
+
 const A4_MIDI = 69;
 
 function writtenMidiToSoundingFreq(writtenMidi, saxType, tuningHz) {
@@ -2130,6 +2142,8 @@ export {
   reedGroupKey, reedBrandGroupKey, groupReeds,
   useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
   ReedsTab, SessionEditSheet,
+  // 【便AZ】音名軸の目印の音名(楽器 → E♭ / B♭)。
+  noteAxisGuideName,
 };
 
 // 箱の中のタイルの並び順。表示順(sortOrder)が主で、長押し並び替えで変わる。
@@ -11577,7 +11591,8 @@ function reedDetailMetaParts(saxType, startDate, days, sessionCount) {
 // ダイヤルが現に見せている値なので、同じことを2箇所で言っていた
 // (§6.1.5「同じことを2度言わない」)。枚数が変わるたびにボタンの語が動くのもやめた。
 // 「追加」の語は変えていない(本人の語彙の禁則)。
-const REED_ADD_BUTTON_LABEL = "この箱を追加する";
+// 【便AZ 2026-09-25 本人指示 A3】文言は「追加」に(「この箱を追加する」から)。
+const REED_ADD_BUTTON_LABEL = "追加";
 // 【便P 2026-09-20 本人指示】「リードの箱の編集画面から編集ボタンを削除。情報を変更して
 // 編集画面を閉じたら変更反映されるようにして」。編集の一手が消えたので、
 // 語を mode で分ける reedSheetButtonLabel は**定義ごと畳んだ**(読み手の無い枝を残さない)。
@@ -11588,7 +11603,9 @@ const REED_ADD_BUTTON_LABEL = "この箱を追加する";
 // 出す枝が「追加」1つだけになったので、mode で分ける関数ごと畳んで定数にした
 // (読み手の無い枝を残さない)。読み上げの名前は BottomSheet の ariaLabel が
 // 「箱を編集」/「リードを追加」で持ち続けるので、そちらは1文字も変えていない。
-const REED_ADD_SHEET_TITLE = "追加";
+// 【便AZ 2026-09-25 本人指示 A2】追加のときの見出し「追加」も**消した**(定数 REED_ADD_SHEET_TITLE ごと)。
+// 何のシートかは一番上の「楽器」の行と下の「追加」のボタンが言っている。読み上げの名前(ariaLabel
+// 「リードを追加」)はそのまま残る。
 // メーカープルダウンの「新しいメーカーを入力」の値とラベル。現行の <option value="__custom__"> を
 // そのまま引き継ぐ(保存されるメーカー名には出ない内部値)。
 const REED_BRAND_CUSTOM = "__custom__";
@@ -11640,10 +11657,19 @@ const REED_SHEET_LABEL_W = "4em";
 // コミュニティの演奏開始年にも同じ打ち消しがある(綴りはあちらの CONTROL_PLAIN)。
 const PICK_CONTROL_PLAIN = { background: "transparent" };
 const REED_SHEET_ROW_LABEL_STYLE = { fontSize: 12, color: "var(--c-ink-3)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" };
+// 【便AZ 2026-09-25 本人の実機報告 A1】「リードの検索欄と『＋ 新しいメーカーを入力…』が縦に重なる」。
+// 原因: シートの器(BottomSheet)は縦の flex で、上限(画面高 − ナビ)を越えると overflowY: auto で
+// スクロールする作り。ところが行が minHeight(--tap-min)を**明示**しているため、flex の子の
+// 自動の下限(中身の高さ)が 44px に置き換わり、中身が上限を越えると**行が 44px まで押し縮められて**
+// 中身が次の行へはみ出す(Chrome 375×560 で再現: 検索の行 108px → 82px に縮み、下の行と 26px 重なる)。
+// 画面の縦が足りない(小さい端末・キーボードで表示域が縮む)ときにだけ起きる。
+// 直し方: 行は縮ませない(flexShrink: 0)。溢れたぶんは器が元から持つスクロールに任せる。
+// 新しい値は作っていない(flex の既定 1 を 0 にするだけ)。
 const REED_SHEET_ROW_STYLE = {
   display: "flex", alignItems: "center", gap: 12,
   minHeight: "var(--tap-min)",
   borderBottom: "1px solid var(--c-line)",
+  flexShrink: 0,
 };
 // 【便R 2026-09-20 本人指示】ピルを置く行(厚さ / 枚数)。**新しい値を1つも作っていない**:
 // 枠(罫・名札との間隔・下限の高さ)は上の REED_SHEET_ROW_STYLE、上下の padding は
@@ -11739,8 +11765,12 @@ function ReedSearchRow({ label, brand, model, custom, customBrand, setCustomBran
       </div>
     );
   }
+  // 【便AZ 2026-09-25 本人の実機報告 A1】ピルの行の枠(gap 0)をそのまま使っていたので、
+  // 検索欄と「＋ 新しいメーカーを入力…」(どちらも --c-sunken の地で 44px)が**隙間 0 で接して**いた。
+  // ピルは自分の <button> が上下 7px の余白を持つので 0 でよいが、この2つは余白を持たない。
+  // 間隔は写し元のプロフィールの GearPicker(Field の gap --sp-1)と同じ値にそろえる(新しい値は作らない)。
   return (
-    <div style={REED_SHEET_PILL_ROW_STYLE}>
+    <div style={{ ...REED_SHEET_PILL_ROW_STYLE, gap: "var(--sp-1)" }}>
       <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>{label}</span>
       <input
         type="text" value={query} onChange={(e) => setQuery(e.target.value)}
@@ -11797,11 +11827,8 @@ function ReedBoxSheet({
   return (
       <BottomSheet ariaLabel={isEdit ? "箱を編集" : "リードを追加"} onClose={onClose}>
 
-          {/* 正典ミニの見出し「追加」(--fs-xs / --ink3。正典は便C で 11px → 12px)。
-              【便O 2026-09-20 本人指示】**編集のときは見出しごと出さない**(下の isEdit の分岐)。 */}
-          {!isEdit && (
-            <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{REED_ADD_SHEET_TITLE}</div>
-          )}
+          {/* 【便AZ 2026-09-25 本人指示 A2】ここに在った追加のときの見出し「追加」は消した
+              (編集のときは便O から出していない)。読み上げの名前は BottomSheet の ariaLabel が持つ。 */}
 
           {/* 【便AY 2026-09-25 本人指示 D5 / 統括 E1】行の一番上に「楽器」。部品は既存の OptionPills
               (計測タブの楽器のシートと同じ選択肢・同じ語 = SAX_PRESETS)。枠は厚さ・枚数の行と同じ
@@ -11942,15 +11969,18 @@ function ReedBoxSheet({
             </div>
           ) : (
             /* 【R3 / R5 2026-09-16 実機の指摘】主要動作は中央揃え。
-               横幅は**メーカーの行の下線と同じ**(= シートの内側いっぱい)、高さは絵柄だけの
-               浮かせるボタンと同じ ACTION_LG_PX。塗りの強調(§6.7 の意図した例外5)。 */
+               横幅は**メーカーの行の下線と同じ**(= シートの内側いっぱい)。塗りの強調(§6.7 の意図した例外5)。
+               【便AZ 2026-09-25 本人指示 A3】「縦幅が大きい」── 高さは絵柄だけの浮かせるボタンの
+               ACTION_LG_PX(56)をやめ、**シートの中の主ボタンの標準 --tap-min(44)**にそろえた。
+               そろえた先: 「目安に設定」のシートの「保存」(minHeight: var(--tap-min) / --r-pill /
+               --c-accent / --fs-md 700)。同じシートの編集の下の一手「削除」も同じ --tap-min。 */
             <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--sp-4)" }}>
               <button
                 onClick={onAdd}
                 disabled={disabled}
                 className="sans"
                 style={{
-                  width: "100%", height: ACTION_LG_PX,
+                  width: "100%", minHeight: "var(--tap-min)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   borderRadius: "var(--r-pill)", border: "none",
                   background: disabled ? "var(--c-line-strong)" : "var(--c-accent)",
@@ -13188,8 +13218,11 @@ export function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tun
   // 目盛の幅を4指標ぶん測るのに**同じ規則**が要るので、2箇所に書かないため。
   const { lo, hi, rng } = noteAxisDomain(allVals, center);
 
-  // 音名軸の目印: 音域の中央に最も近いE♭を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)。
-  const ebIndexes = plotNoteLabels.map((nm, i) => (nm.startsWith("E♭") ? i : -1)).filter((i) => i >= 0);
+  // 音名軸の目印: 音域の中央に最も近い「目印の音」を1つだけ強調する(今どのあたりを吹いているか掴みやすくする)。
+  // 【便AZ 2026-09-25 本人指示】目印の音は楽器で変わる(E♭管は E♭、B♭管は B♭)── noteAxisGuideName。
+  // 名前は以前の E♭ のまま(midEbIdx)にしてある: 読み手は縦線・太字・間引きの起点の3つで、意味は同じ。
+  const guideName = noteAxisGuideName(saxType);
+  const ebIndexes = plotNoteLabels.map((nm, i) => (nm.startsWith(guideName) ? i : -1)).filter((i) => i >= 0);
   const axisCenter = (plotN - 1) / 2;
   const midEbIdx = ebIndexes.length
     ? ebIndexes.reduce((best, i) => (Math.abs(i - axisCenter) < Math.abs(best - axisCenter) ? i : best), ebIndexes[0])
@@ -13346,7 +13379,7 @@ export function NoteAxisLineChart({ label, unit, metricKey, series, saxType, tun
               {centerLineAt !== null && (
                 <line x1={L.gridX0} y1={L.yAt(centerLineAt)} x2={W} y2={L.yAt(centerLineAt)} strokeWidth="1" style={{ stroke: "var(--c-line-strong)" }} />
               )}
-              {/* 中央のE♭に縦のガイド線を引く(ラベルも下で色付けする)。 */}
+              {/* 中央の目印の音(E♭管は E♭ / B♭管は B♭)に縦のガイド線を引く(ラベルも下で色付けする)。 */}
               {midEbIdx !== null && (
                 <line x1={L.xAt(midEbIdx)} y1={L.padTop} x2={L.xAt(midEbIdx)} y2={L.padTop + L.plotH} strokeWidth="1" strokeDasharray="4 3" style={{ stroke: "var(--c-accent-line)" }} />
               )}
@@ -14410,8 +14443,9 @@ const MY_DATA_STOCK_LABEL_W = "4em";
 // 【D2 / D3 2026-09-16 実機の指摘】累計カードを押すと開く定義のシート。行は MY_DATA_STOCK_SHEET_ROWS
 // から(綴りはカードと同じ MY_DATA_STOCK_CELLS が正)。その下に主要動作1つ「みんなのデータをみる」
 // ── 押すとシートを閉じてコミュニティへ(参加済みなら順位の子タブ / 未参加なら初回の導線。行き先は App が持つ)。
-// ボタンの作法は追加シートの主要動作(ReedBoxSheet)と同じ: 幅いっぱい / 高さ ACTION_LG_PX /
-// 塗り --c-accent(§6.7 の意図した例外5)/ --r-pill。
+// ボタンの作法は幅いっぱい / 高さ ACTION_LG_PX / 塗り --c-accent(§6.7 の意図した例外5)/ --r-pill。
+// (【便AZ 2026-09-25】以前は「追加シートの主要動作(ReedBoxSheet)と同じ」と書いていたが、
+//  あちらは本人指示で --tap-min に下がった。このシートの高さは今回の指示に入っていないので変えていない。)
 // MyDataSection の外に置くのは、あちらが「紺の面を1枚も持たない」(N-10・案K)ためで、
 // このシートは My Data の面ではなく BottomSheet の中の一手だから。
 function MyDataStockSheet({ onClose, onCompareOthers }) {

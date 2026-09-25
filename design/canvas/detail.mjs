@@ -88,6 +88,8 @@ const noteName = (i) => {
   const m = LOW_MIDI + i;
   return NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
 };
+// 【便AZ 2026-09-25】目印の音は楽器で変わる(App.jsx の noteAxisGuideName: E♭管は E♭ / B♭管は B♭)。
+// この絵は A.Sax なので E♭ のまま(生成器は今の出力を再現しないので出し直していない)。
 // 中央の E♭(記音)。縦の点線ガイドと、太字の音名ラベルが付く唯一の音。
 const MID_EB = 14; // MIDI 63 = E♭4
 

@@ -216,8 +216,10 @@ describe("人物紹介は溝型の [データ | プロフィール](便AO 変更
     expect(html.indexOf(tabs)).toBeGreaterThan(html.indexOf("しろねこ"));
   });
 
-  it("左上は「< 一覧」だけ。「< 音のデータ」は無い", () => {
-    expect(html).toContain("&lt; 一覧");
+  // 【便AZ 2026-09-25 本人指示 C】「< 一覧」も消した(閉じ方はシートのつまみ・暗幕・下スワイプ・Escape)。
+  it("上端に戻るボタンは無い(「< 一覧」も「< 音のデータ」も無い)", () => {
+    expect(html).not.toContain("&lt; 一覧");
+    expect(html).not.toContain('aria-label="一覧に戻る"');
     expect(html).not.toContain("音のデータ");
   });
 
@@ -266,7 +268,8 @@ describe("正典 CommData / CommPerson / CommPersonBack(便AO)", () => {
     });
   }
 
-  it("CommPerson / CommPersonBack: 溝型の [データ | プロフィール](便AU)、左上は < 一覧、名前の行に山形が無い", async () => {
+  // 【便AZ 2026-09-25】正典も上端の「< 一覧」を消した(生成器 community.mjs を直して出し直した)。
+  it("CommPerson / CommPersonBack: 溝型の [データ | プロフィール](便AU)、上端に < 一覧は無い、名前の行に山形が無い", async () => {
     // 選んでいる側だけが白い面(--shadow-seg)に乗る
     const tab = (html, label) => new RegExp(`box-shadow: var\\(--shadow-seg\\)">${label}<`).test(html);
     const front = await read("CommPerson.dc.html");
@@ -274,7 +277,7 @@ describe("正典 CommData / CommPerson / CommPersonBack(便AO)", () => {
     expect(tab(front, "データ")).toBe(true);
     expect(tab(back, "プロフィール")).toBe(true);
     for (const html of [front, back]) {
-      expect(html).toContain("&lt; 一覧");
+      expect(html).not.toContain("&lt; 一覧");
       expect(html).not.toContain("音のデータ");
       expect(html).not.toContain('d="M4 2l3 3-3 3"');
       expect(html).toMatch(/>データ<\/span>[\s\S]{0,1200}>プロフィール<\/span>/);

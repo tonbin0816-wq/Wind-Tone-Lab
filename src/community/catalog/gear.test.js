@@ -11,6 +11,7 @@ import {
   searchLigatures,
   isValidLigature,
   LIGATURE_CATALOG,
+  searchReeds,
 } from "./gear.js";
 
 describe("searchInstrumentModels", () => {
@@ -250,5 +251,36 @@ describe("消した型番の後方互換", () => {
   it("でたらめな型番は今までどおり弾く(逃げ道が穴になっていない)", () => {
     expect(isValidInstrument("Keilwerth", "SX90ZZZ", "alto")).toBe(false);
     expect(isValidLigature("Yamaha", "存在しないリガチャー")).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便AZ 2026-09-25 本人の実機報告 B】「バンドレン」で Vandoren が出ない(「バンド」までなら出る)。
+// 別名は「バンドーレン」。読みを足すのではなく、比べる両側を同じ形に畳む正規化で吸収する。
+// 4つの検索(楽器・マウスピース・リガチャー・リード)は同じ正規化を通るので、それぞれで確かめる。
+// ------------------------------------------------------------------
+describe("カタカナの揺れを吸収する(長音・中黒・ひらがな・ヴ)", () => {
+  const hasBrand = (hits, brand) => hits.some((h) => h.brand === brand);
+  it("リード: バンドレン / バンドーレン / ばんどれん / ヴァンドレン → Vandoren", () => {
+    for (const q of ["バンドレン", "バンドーレン", "ばんどれん", "ばんどーれん", "ヴァンドレン", "ﾊﾞﾝﾄﾞﾚﾝ"]) {
+      expect(hasBrand(searchReeds(q), "Vandoren"), q).toBe(true);
+    }
+  });
+  it("マウスピース・リガチャーも同じ正規化(バンドレン → Vandoren)", () => {
+    expect(hasBrand(searchMouthpieces("バンドレン"), "Vandoren")).toBe(true);
+    expect(hasBrand(searchLigatures("ばんどれん"), "Vandoren")).toBe(true);
+  });
+  it("楽器: 長音を抜いても・ひらがなでも引ける(セルマ / せるまー → Selmer Paris)", () => {
+    expect(hasBrand(searchInstrumentModels("セルマ", "alto"), "Selmer Paris")).toBe(true);
+    expect(hasBrand(searchInstrumentModels("せるまー", "alto"), "Selmer Paris")).toBe(true);
+    expect(hasBrand(searchInstrumentModels("カイルベルト", "alto"), "Keilwerth")).toBe(true);
+  });
+  it("中黒と空白は無視する(オットー・リンク → Otto Link)", () => {
+    expect(hasBrand(searchMouthpieces("オットー・リンク"), "Otto Link")).toBe(true);
+    expect(hasBrand(searchMouthpieces("オット リンク"), "Otto Link")).toBe(true);
+  });
+  it("関係の無い語は当たらない(畳みすぎていない)", () => {
+    expect(searchReeds("バンドレンX")).toEqual([]);
+    expect(hasBrand(searchReeds("ダダリオ"), "Vandoren")).toBe(false);
   });
 });
