@@ -74,11 +74,9 @@ const storageDeps = () => ({
 
 const CODE_OF = { unauthenticated: "unauthenticated", rejected: "failed-precondition", unavailable: "unavailable" };
 
-// 【便AP 移し替えの間だけ 2026-09-24】判定は東京と us-central1 の**両方**に置く。
-// 配信済みの古い端末は us-central1 を呼ぶので、先に消すと、新しい端末が配信されるまでの間
-// 写真の保存が全部「送信できませんでした」になる(Firebase の文書が勧める並走の手順)。
-// **端末の配信を確かめたら、この region の行を消して配信し直す**(us-central1 側が消える)。
-export const vetAvatarPhoto = onCall({ region: ["asia-northeast1", "us-central1"] }, async (req) => {
+// 【便AP 2026-09-24 → 2026-09-25 並走を終えた】移し替えの間は us-central1 にも置いていたが、
+// 端末の配信から1日たったので外した。地域は setGlobalOptions の asia-northeast1 だけ。
+export const vetAvatarPhoto = onCall(async (req) => {
   try {
     return await runVetAvatarPhoto({ uid: req.auth?.uid ?? null }, storageDeps());
   } catch (e) {
