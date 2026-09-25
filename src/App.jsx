@@ -13,7 +13,7 @@ const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
 import { buildAdoptedProfile } from "./community/idealDoc.js";
 // 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
 // firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
-import { alignIdealToMine } from "./community/align.js";
+import { alignIdealToMine, idealForUse } from "./community/align.js";
 // 【D1 2026-09-16】練習時間(音を感知していた時間)。My Data の累計とコミュニティの公開統計(便H)が
 // **同じ1関数**を読む。定義はあちらのファイルの冒頭。
 import { sessionSoundingSec } from "./soundingSec.js";
@@ -1569,8 +1569,13 @@ function pitchMatchScore(centsError, toleranceCents = 50) {
   return Math.exp(-0.5 * x * x);
 }
 
-function timbreMatchScore(measuredHarmonicsNorm, referenceHarmonicsNorm, measuredCentroid, referenceCentroid, measuredHnr, referenceHnr) {
-  const wHarm = 0.6, wCentroid = 0.25, wHnr = 0.15;
+// 【便BA 再審査 2026-09-25 統括の裁定】excluded: 目安から外した指標(idealForUse の excludedMetrics。
+// "centroidHz" / "hnrDb")。外した項は**使わない**(その重みを除いた残りで割り直す)。
+// 渡さない呼び出し(今までの全部)は1つも変わらない。
+function timbreMatchScore(measuredHarmonicsNorm, referenceHarmonicsNorm, measuredCentroid, referenceCentroid, measuredHnr, referenceHnr, excluded = null) {
+  const useCentroid = !(excluded && excluded.includes("centroidHz"));
+  const useHnr = !(excluded && excluded.includes("hnrDb"));
+  const wHarm = 0.6, wCentroid = useCentroid ? 0.25 : 0, wHnr = useHnr ? 0.15 : 0;
 
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < measuredHarmonicsNorm.length; i++) {
@@ -1588,7 +1593,9 @@ function timbreMatchScore(measuredHarmonicsNorm, referenceHarmonicsNorm, measure
   const hnrScore = Math.exp(-hnrDiff / 15.0);
 
   const total = wHarm * harmScore + wCentroid * centroidScore + wHnr * hnrScore;
-  return Math.min(1, Math.max(0, total));
+  // 外した項があるときだけ、残った重みの合計で割り直す(外さないときは割らない = 今までと同じ式)。
+  const scaled = useCentroid && useHnr ? total : total / (wHarm + wCentroid + wHnr);
+  return Math.min(1, Math.max(0, scaled));
 }
 
 function scoreToColor(score) {
@@ -2815,7 +2822,7 @@ function createFrameAnalyzer({ saxType, tuningHz, instrumentOffsetCents, tempera
       const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
       const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
       const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
-        ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
+        ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb, selectedIdeal?.excludedMetrics)
         : 0;
 
       frames.push({
@@ -3767,8 +3774,10 @@ export default function WindToneLabPhaseMode() {
     const own = myDataOwnSessions(sessions, saxType, selectedIdealRaw.saxType ?? saxType);
     return own.length ? buildIdealProfileFromSessions(own, "", 8, tuningHz * Math.pow(2, instrumentOffsetCents / 1200)) : null;
   }, [selectedIdealRaw, sessions, saxType, tuningHz, instrumentOffsetCents]);
+  // 【便BA 再審査 2026-09-25 統括の裁定】揃えるのは idealForUse(alignIdealToMine + 揃えずに取り込んだ目安の
+  // 揃えられなかった指標を外す)。**目安を使う場所はすべてこの selectedIdeal を読む**ので、外すのはここ1箇所。
   const selectedIdeal = useMemo(
-    () => alignIdealToMine(selectedIdealRaw, myAverageForIdeal), [selectedIdealRaw, myAverageForIdeal]);
+    () => idealForUse(selectedIdealRaw, myAverageForIdeal), [selectedIdealRaw, myAverageForIdeal]);
 
   // マイクは計測タブ滞在中ずっと繋ぎっぱなしにする(録音の開始/停止では繋ぎ直さない)ため、
   // tick()は長寿命のクロージャになる。設定変更(サックス種別・基準ピッチ・気温・理想値等)を
@@ -4324,7 +4333,7 @@ export default function WindToneLabPhaseMode() {
             // 音色一致度: 理論モデルは倍音の相対強度情報を持たないため、理想値のみを基準とする
             // (企画書v3 2.8節の方針: ピッチ以外は理想値との比較に絞る)
             const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
-              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
+              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb, selectedIdeal?.excludedMetrics)
               : 0;
 
             const frame = {
@@ -4373,7 +4382,7 @@ export default function WindToneLabPhaseMode() {
             const pitchScoreTheory = pitchCentsVsTheory !== null ? pitchMatchScore(pitchCentsVsTheory) : 0;
             const pitchScoreIdeal = pitchCentsVsIdeal !== null ? pitchMatchScore(pitchCentsVsIdeal) : 0;
             const timbreScoreIdeal = noteIdeal && timbreMeasurable && centroid !== null
-              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb)
+              ? timbreMatchScore(harmNorm, idealHarmNorm, centroid, noteIdeal.centroidHz, hnr, noteIdeal.hnrDb, selectedIdeal?.excludedMetrics)
               : 0;
             const liveFrame = {
               t: liveElapsedMs / 1000,
@@ -4977,10 +4986,9 @@ export default function WindToneLabPhaseMode() {
             {/* 【sessions を渡す】コミュニティは練習日数を公開するので、端末の中の
                 セッションが要る。ここには既に読み込み済みの配列があるので、
                 タブ側でもう一度 IndexedDB を開かせない。 */}
-            {/* 【myIdealProfile を渡す】コホート平均は「他人の音を自分に合わせてから」
-                平均する。合わせる基準が自分の目安なので、これが無いと平均は出せない。
-                いま選んでいる目安をそのまま渡す(選んでいなければ null で、
-                画面側が「自分の計測がまだありません」と案内する)。 */}
+            {/* (【便BA 2026-09-25】ここには「コホート平均は他人の音を自分に合わせてから平均する。
+                自分の目安が無いと平均は出せない」と書いてあった。いまは平均は他の人どうしで揃えて
+                自分の計測に関係なく出し、自分の線は重ねられるときだけ重ねる(src/community/align.js)。) */}
             {/* 【取り込みは App.jsx が受ける】目安の一覧は App.jsx の state なので、
                 コミュニティ側から直接は触らせない。あちらは「合わせた結果」を渡すだけで、
                 保存と選択はここが行う。 */}

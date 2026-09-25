@@ -4,7 +4,7 @@ import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
-import { cohortAverage, alignProfile, noteValues } from "./align.js";
+import { cohortAverage, cohortPlainProfile, alignProfile, copyProfile, noteValues } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
@@ -913,6 +913,10 @@ const COMMUNITY_SERIES_WIDTH = 2;
 // 相手は目安に設定できるもの(人物紹介の「目安に設定」)なので、目安の見た目が役と合う。
 // 描く順は相手が先(下)・自分が後(上)── 計測タブも目安を先に描いて実測を上に乗せている。
 const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
+// 【便BA 2026-09-25 本人指示】自分と共通の音が 3 音に足りない(自分の計測がその楽器に無いときも)とき、
+// 自分の線は出さず、相手(みんなの平均 / その人)の線だけを出して、グラフの下にこの1行。
+// 以前はグラフごと出さずに「重なっている音が 3 音に足りません」「自分の計測がまだありません」を出していた。
+const MINE_WAITING_NOTE = "あなたの計測データもお待ちしています";
 const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
 
 // chart = { series: [{ label, color, dash?, values, byMetric }] } を NoteAxisLineChart の形にして描く。
@@ -989,28 +993,33 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
 
   // 【綴りを揃えてから比べる】自分の目安は App.jsx の形(centroidHz / harmonicsProfile)、
   // 読んできた他人の目安は公開の形(spectralCentroidHz / harmonics)。
-  // 変換せずに渡すと共通音が1つも見つからず、**常に「重なっている音が足りません」**になる。
+  // 変換せずに渡すと共通音が1つも見つからず、平均へ自分を重ねられない。
   // 実際にこれを踏んだ。sanitizeNotes が対応表を持っているので、それを通す。
   const mineShared = useMemo(
     () => ({ notes: sanitizeNotes(myIdeals?.[saxType]?.notes) }), [myIdeals, saxType]);
-  const avg = useMemo(() => cohortAverage(mineShared, others), [mineShared, others]);
+  // 【便BA 2026-09-25 本人指示】みんなの平均は**自分の計測に関係なく**、他の人どうしで揃えて出す。
+  const avg = useMemo(() => cohortAverage(others), [others]);
 
   const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
   const chart = useMemo(() => {
     if (avg.error) return null;
-    // 自分の線も変換後の値から読む。ここだけローカルの綴りを直に読むと、
-    // 綴りを足したときに片方だけ直し忘れる。読む場所を1つにする。
+    // 【便BA】平均と自分の共通音が 3 音以上あれば、**平均の側を自分の高さへ平行移動**して重ねる
+    // (自分の値は動かさない。以前と同じ見え方)。足りなければ(自分の計測が無いときも)自分の線は出さず、
+    // 平均は揃えない高さ(基準の人の高さ)のまま出す。
+    const plain = cohortPlainProfile(avg);
+    const aligned = alignProfile(mineShared, plain);
     // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
-    // 【便AQ】線ごとに**自分の持っている音で**拾う(noteValues)。平均のある音で自分を絞らない。
-    const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(avg.notes, x.key, (c) => c?.value)]));
-    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
-    if (Object.keys(avgBy[m.key]).length === 0 && Object.keys(mineBy[m.key]).length === 0) return null;
-    return {
-      series: [
-        { label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, ...COMPARE_SERIES },
-        { label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES },
-      ],
-    };
+    // 【便AQ】線ごとに**その線の持っている音で**拾う(noteValues)。平均のある音で自分を絞らない。
+    const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues((aligned ?? plain).notes, x.key)]));
+    const series = [{ label: "みんなの平均", values: avgBy[m.key], byMetric: avgBy, ...COMPARE_SERIES }];
+    if (aligned) {
+      // 自分の線も変換後の値から読む。ここだけローカルの綴りを直に読むと、
+      // 綴りを足したときに片方だけ直し忘れる。読む場所を1つにする。
+      const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
+      series.push({ label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES });
+    }
+    if (series.every((x) => Object.keys(x.values).length === 0)) return null;
+    return { series, withMine: Boolean(aligned) };
   }, [avg, mineShared, m.key]);
 
   return (
@@ -1038,10 +1047,15 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
             {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty>この指標のデータがありません</Empty>}
             {chart ? <Legend series={chart.series} /> : null}
             {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
-                「自分のほうが低い/高い」を絶対値の差だと読んでしまう。 */}
-            <div className="sans" style={bodyNoteStyle}>
-              計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
-            </div>
+                「自分のほうが低い/高い」を絶対値の差だと読んでしまう。
+                【便BA】自分の線を出せないとき(共通の音が 3 音未満・自分の計測が無い)は比べる相手が無いので、
+                代わりに同じ体裁で「あなたの計測データもお待ちしています」の1行。
+                【便BA 再審査】グラフが無い(この指標のデータがありません)ときは、どちらの1行も出さない。 */}
+            {chart ? (
+              <div className="sans" style={bodyNoteStyle}>
+                {chart.withMine ? "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。" : MINE_WAITING_NOTE}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -1245,31 +1259,35 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
 
   // 【この人だけを自分に合わせる】コホート平均と同じ算術を使う。
-  // 自分の目安が無い種別では合わせられないので、そのときは相手の線だけを出さず、
-  // なぜ出ないのかを言う(絶対値だけ出すと環境の差を実力の差と読ませてしまう)。
+  // 【便BA 2026-09-25 本人指示】その人の線は**自分の計測に関係なくいつも出す**。
+  //   ・自分と共通の音が 3 音以上 → その人の線を自分の高さへ揃え、自分の線と重ねる(以前と同じ)
+  //   ・足りない(自分の計測が無いときも) → 自分の線は出さず、その人の線は揃えない値のまま
+  //     + 「あなたの計測データもお待ちしています」の1行
+  // 以前は足りないとき線ごと出さずに文言(「重なっている音が…」)だけを出していた。
   // 【合わせた結果を1度だけ作る】グラフにも取り込みにも同じものを使う。
   // 別々に計算すると、画面に出ている線と取り込まれる値が食い違いうる。
-  const aligned = useMemo(() => {
-    if (!theirIdeal) return null;
-    const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
-    return alignProfile(mineShared, { notes: theirIdeal.notes });
-  }, [theirIdeal, myIdeals, saxType]);
+  const mineShared = useMemo(
+    () => ({ notes: sanitizeNotes(myIdeals?.[saxType]?.notes) }), [myIdeals, saxType]);
+  const aligned = useMemo(
+    () => (theirIdeal ? alignProfile(mineShared, { notes: theirIdeal.notes }) : null),
+    [theirIdeal, mineShared]);
+  // 線と取り込みに使うその人の値。揃えられたら揃えた値、揃えられなければ揃えない写し。
+  const theirShown = useMemo(
+    () => (theirIdeal ? (aligned ?? copyProfile({ notes: theirIdeal.notes })) : null),
+    [theirIdeal, aligned]);
 
   const chart = useMemo(() => {
-    if (!theirIdeal || !aligned) return null;
-    const mineShared = { notes: sanitizeNotes(myIdeals?.[saxType]?.notes) };
-    if (aligned.error) return { error: aligned.error };
+    if (!theirShown) return null;
     // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
     // 【便AQ】線ごとに**その線の持っている音で**拾う(noteValues)。相手の音で自分を絞らない。
-    const theirBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(aligned.notes, x.key)]));
-    const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
-    return {
-      series: [
-        { label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, ...COMPARE_SERIES },
-        { label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES },
-      ],
-    };
-  }, [theirIdeal, aligned, myIdeals, saxType, m.key, person]);
+    const theirBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(theirShown.notes, x.key)]));
+    const series = [{ label: person?.nickname ?? "この人", values: theirBy[m.key], byMetric: theirBy, ...COMPARE_SERIES }];
+    if (aligned) {
+      const mineBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues(mineShared.notes, x.key)]));
+      series.push({ label: "自分", values: mineBy[m.key], byMetric: mineBy, ...MINE_SERIES });
+    }
+    return { series, withMine: Boolean(aligned) };
+  }, [theirShown, aligned, mineShared, m.key, person]);
 
   if (!person) return null;
   const personPhoto = person.photo ?? null;
@@ -1290,10 +1308,13 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   // ボタンの位置も上がる仕様になっている」。
   // 貼り付く器を**本文の一番最後**(通報の行より後ろ)へ移したので、ボタンを出す条件だけを
   // ここへ持ち上げる。**中身は下の分岐と同じ**: データのタブに居て、データのある種別が
-  // あって、その種別の目安が公開されていて、合わせられている(chart.error が無い)とき。
-  // 描画の分岐(Empty の出し分け)は1つも変えていない。
+  // あって、その種別の目安が公開されているとき。
+  // 【便BA 2026-09-25 本人指示】「目安に設定」は**共通の音が足りなくても押せる**。
+  // 足りないときは揃えない値(theirShown = copyProfile)を取り込み、印 alignedAtAdopt:false が付く。
+  // 【便BA 再審査で訂正】使うとき(App.jsx の selectedIdeal = idealForUse)も自分の側のデータは同じなので
+  // 揃えられず、揃えが要る指標(重心・HNR)はその目安から外して使う。自分の計測が増えて揃えられれば戻る。
   const showAdopt = Boolean(onAdopt && side === "data" && types.length > 0
-    && theirIdeal && chart && !chart.error);
+    && theirIdeal && chart);
 
 
   return (
@@ -1395,10 +1416,10 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
               <>
                 <UnderlineTabs label="見る指標" value={metric} onChange={setMetric}
                   items={METRICS.map((x) => ({ key: x.key, label: x.label }))} />
-                {chart?.error ? (
-                  // 【合わせられないときに絶対値を出さない】環境の差を実力の差と読ませてしまう。
-                  <Empty>{chart.error}</Empty>
-                ) : chart ? (
+                {/* 【便BA 2026-09-25】以前ここは「合わせられないときは線を出さず文言だけ」だった
+                    (絶対値だけ出すと環境の差を実力の差と読ませる、という理由)。本人指示で、その人の線は
+                    いつも出す。自分の線が無いので比べる相手が無く、差を読ませることも無い。 */}
+                {chart ? (
                   <>
                     {/* 【指標名は落とす 2026-09-19 本人指示】「選択中の項目の表示も削除。
                         タブを見ればわかるので」。真上の下線タブが選択中の指標を返しているので、
@@ -1416,8 +1437,10 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                         新しい数は作っていない(16px → 8px)。 */}
                     <div style={{ display: "grid", gap: "var(--sp-2)" }}>
                       <Legend series={chart.series} />
+                      {/* 【便BA】自分の線を出せないとき(揃えていない)は「揃えた状態で」は嘘になるので、
+                          同じ体裁で「あなたの計測データもお待ちしています」の1行に置き換える。 */}
                       <div className="sans" style={noteStyle}>
-                        計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。
+                        {chart.withMine ? "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。" : MINE_WAITING_NOTE}
                       </div>
                     </div>
                     {adopted?.ok ? (
@@ -1493,7 +1516,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           <button
             type="button" className="sans"
             onClick={() => {
-              const r = onAdopt({ aligned, theirIdeal, nickname: person.nickname });
+              // 【便BA】揃えられたら揃えた値、揃えられなければ揃えない値(theirShown)を取り込む。
+              const r = onAdopt({ aligned: theirShown, theirIdeal, nickname: person.nickname });
               setAdopted(r?.error ? { error: r.error } : { ok: true });
             }}
             style={{

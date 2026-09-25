@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { commonNoteKeys, medianOf, alignOffset, alignProfile, cohortAverage, alignIdealToMine, MIN_COMMON_NOTES, MIN_COHORT } from "./align.js";
+import { commonNoteKeys, medianOf, alignOffset, alignProfile, copyProfile, cohortAverage, cohortOrder, cohortNoteCount, cohortPlainProfile, alignIdealToMine, MIN_COMMON_NOTES, MIN_COHORT } from "./align.js";
 
 // notes[semitoneIndex] の最小形。実際のプロファイルはもっと持つが、
 // 平行移動が見るのはここに書いた4つだけ。
@@ -68,108 +68,147 @@ describe("alignProfile", () => {
     expect(r.notes["0"].volumeDb).toBeUndefined();
     expect(Object.keys(r.notes["0"])).not.toContain("volumeDb");
   });
-  it("共通音が足りなければエラーを返す", () => {
+  // 【便BA 2026-09-25 本人指示】合わせられないときは文言ではなく null を返す(画面は相手の線だけを出す)。
+  // 文言「重なっている音が 3 音に足りません」「自分の計測がまだありません」は読み手を失って定義ごと消えた。
+  it("共通音が足りなければ null(文言は返さない)", () => {
     const few = { notes: { 0: note(1800, 16), 2: note(2100, 17) } };
-    expect(alignProfile(mine, few).error).toContain("重なっている音");
+    expect(alignProfile(mine, few)).toBeNull();
   });
-  it("自分にデータが無ければエラーを返す", () => {
-    expect(alignProfile({ notes: {} }, theirs).error).toContain("自分の計測");
+  it("自分にデータが無ければ null", () => {
+    expect(alignProfile({ notes: {} }, theirs)).toBeNull();
+    expect(alignProfile(null, theirs)).toBeNull();
   });
 });
 
-describe("cohortAverage", () => {
-  // 自分に合わせたあとの値で平均されることを確かめる。
-  const a = { notes: { 0: note(1800, 16), 2: note(2100, 17), 4: note(2600, 20) } }; // オフセット -500 / -5
-  const b = { notes: { 0: note(1900, 17), 2: note(2200, 18), 4: note(2700, 21) } }; // 中央値2200/18 → -600 / -6
-  const c = { notes: { 0: note(1700, 15), 2: note(2000, 16), 4: note(2500, 19) } }; // 中央値2000/16 → -400 / -4
+describe("copyProfile(揃えない写し。便BA)", () => {
+  it("重心・HNR・音程・倍音構成を値のまま写し、音量は写さない。移動量は null", () => {
+    const withVol = { notes: { 0: { ...note(1800, 16, 3), volumeDb: -12 }, 7: note(3000, 22) } };
+    const r = copyProfile(withVol);
+    expect(r.shiftedBy).toBeNull();
+    expect(r.notes["0"]).toEqual({ spectralCentroidHz: 1800, hnrDb: 16, pitchCentsSigned: 3, harmonics: [1, 0.5, 0.25] });
+    expect(r.notes["7"].spectralCentroidHz).toBe(3000);
+    expect(Object.keys(r.notes["0"])).not.toContain("volumeDb");
+  });
+});
 
-  it("一人ずつ自分に合わせてから平均する", () => {
-    const r = cohortAverage(mine, [a, b, c]);
+// ------------------------------------------------------------------
+// 【便BA 2026-09-25 本人指示・統括の決定】みんなの平均は**自分の計測に関係なく**、他の人どうしで揃えてから出す。
+//   基準 = いちばん多くの音を持っている人(同数なら録音回数、さらに同数なら ownerUid の辞書順)
+//   残りを音の多い順に、その時点までの平均へ揃えて足す。共通音 3 音未満の人は入れない。
+//   音程は揃えずに平均。入った人数が 3 人未満なら「あと○人…」。
+// 期待値は上の決まりを手で当てはめて書く(実装の式から逆算しない)。
+// ------------------------------------------------------------------
+describe("cohortAverage(他の人どうしで揃える。便BA)", () => {
+  const P = (uid, notes, sourceSessionCount = 1) => ({ ownerUid: uid, sourceSessionCount, notes });
+  // a は4音(基準)。b・c は3音で a と 0/2/4 が重なる。
+  const a = P("a", { 0: note(1000, 10, 2), 2: note(1400, 12, 4), 4: note(1800, 14, 6), 5: note(2000, 15, 8) }, 5);
+  const b = P("b", { 0: note(1600, 20, 0), 2: note(2000, 22, 0), 4: note(2400, 24, 0) }, 3);  // a より +600 / +10
+  const c = P("c", { 0: note(700, 5, -2), 2: note(1100, 7, -4), 4: note(1500, 9, -6) }, 2);   // a より -300 / -5
+
+  it("自分の計測を受け取らない(引数は他の人だけ)。平均は基準(いちばん音の多い a)の高さに揃う", () => {
+    expect(cohortAverage.length).toBe(1);
+    const r = cohortAverage([b, c, a]);
     expect(r.error).toBeUndefined();
     expect(r.count).toBe(3);
-    // a: 1800-500=1300 / b: 1900-600=1300 / c: 1700-400=1300 → 平均 1300
-    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1300, 6);
+    expect(r.baseUid).toBe("a");
+    // b・c は a の高さへ揃えて足されるので、音0の重心はどれも 1000 → 平均 1000
+    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1000, 6);
+    expect(r.notes["0"].hnrDb.value).toBeCloseTo(10, 6);
     expect(r.notes["0"].spectralCentroidHz.n).toBe(3);
+    // 基準だけが持つ音5はそのまま(n = 1)
+    expect(r.notes["5"].spectralCentroidHz.value).toBe(2000);
+    expect(r.notes["5"].spectralCentroidHz.n).toBe(1);
   });
-  it("先に平均してから合わせた場合と結果が違う(順序が意味を持つ証拠)", () => {
-    // 【材料の選び方に注意】上の a/b/c はずれ量が -500/-600/-400 で平均がちょうど -500 になり、
-    // 「先に平均 → 1つのオフセットで移動」でも同じ答えに着いてしまう。
-    // それでは順序の意味を確かめたことにならないので、ここでは**環境が大きく違う人**を混ぜる。
-    const far = { notes: { 0: note(3000, 30), 2: note(3300, 31), 4: note(3800, 34) } }; // 中央値3300 → -1700
-    const r = cohortAverage(mine, [a, b, far]);
-    // 一人ずつ合わせてから平均: (1800-500 + 1900-600 + 3000-1700)/3 = 1300
-    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1300, 6);
-    // 先に平均してから1つのオフセットで動かすと別の値になる
-    const naiveMean = (1800 + 1900 + 3000) / 3; // 2233.33...
-    expect(naiveMean - 500).not.toBeCloseTo(1300, 6);
+  it("音程は揃えずに平均する(環境非依存)", () => {
+    const r = cohortAverage([a, b, c]);
+    expect(r.notes["0"].pitchCentsSigned.value).toBeCloseTo((2 + 0 - 2) / 3, 6);
+    expect(r.notes["2"].pitchCentsSigned.value).toBeCloseTo((4 + 0 - 4) / 3, 6);
   });
-  it("合わせられない人は平均に入れない", () => {
-    // 共通音が2つしかない人。素通しで混ぜると環境のずれごと平均に入る。
-    const few = { notes: { 0: note(9999, 99), 2: note(9999, 99) } };
-    const r = cohortAverage(mine, [a, b, c, few]);
+  it("入力の順に依らない(基準の選び方と足す順番が決定的)", () => {
+    const orders = [[a, b, c], [c, b, a], [b, a, c], [c, a, b]];
+    const vals = orders.map((o) => JSON.stringify(cohortAverage(o)));
+    expect(new Set(vals).size).toBe(1);
+  });
+  it("基準の選び方: 音の数 → 録音回数 → ownerUid の辞書順", () => {
+    const x = P("x", { 0: note(1, 1), 1: note(1, 1), 2: note(1, 1) }, 1);
+    const y = P("y", { 0: note(1, 1), 1: note(1, 1), 2: note(1, 1) }, 9);
+    const z = P("z", { 0: note(1, 1), 1: note(1, 1), 2: note(1, 1), 3: note(1, 1) }, 0);
+    expect(cohortOrder([x, y, z]).map((p) => p.ownerUid)).toEqual(["z", "y", "x"]);  // 音4 > 音3(録音9 > 1)
+    const m = P("m", { 0: note(1, 1) }, 1);
+    const k = P("k", { 0: note(1, 1) }, 1);
+    expect(cohortOrder([m, k]).map((p) => p.ownerUid)).toEqual(["k", "m"]);            // 全部同じなら uid の辞書順
+    expect(cohortNoteCount(z)).toBe(4);
+  });
+  it("足すのは「その時点までの平均」へ(基準だけに揃えるのではない)", () => {
+    // B(6音)が基準。X は B と 0/1/2 が重なって入り、音 10/11 を足す。
+    // D は B とは音0 しか重ならない(基準だけに揃えるなら入れない)が、
+    // その時点までの平均(B + X)とは 0/10/11 の3音が重なる → 入る。
+    const B = P("B", { 0: note(1000, 10), 1: note(1100, 11), 2: note(1200, 12), 3: note(1300, 13), 4: note(1400, 14), 5: note(1500, 15) }, 1);
+    const X = P("X", { 0: note(2000, 20), 1: note(2100, 21), 2: note(2200, 22), 10: note(3000, 30), 11: note(3100, 31) }, 1);
+    const D = P("D", { 0: note(500, 5), 10: note(1500, 15), 11: note(1600, 16) }, 1);
+    const r = cohortAverage([D, X, B]);
+    expect(r.baseUid).toBe("B");
     expect(r.count).toBe(3);
-    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1300, 6);
+    // X は -1000 / -10 で B に揃う(音10 → 2000)。D は平均(音0=1000, 10=2000, 11=2100)と中央値 2000 vs 1500 → +500
+    expect(r.notes["10"].spectralCentroidHz.value).toBeCloseTo(2000, 6);
+    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1000, 6);
   });
-  it("音ごとに母数が違うことを n で返す", () => {
-    // d は音4を持たない。音4の n だけ小さくなる。
-    const d = { notes: { 0: note(1800, 16), 2: note(2100, 17), 5: note(2900, 22) } };
-    const r = cohortAverage(mine, [a, b, c, d]);
-    expect(r.count).toBe(4);
-    expect(r.notes["0"].spectralCentroidHz.n).toBe(4);
-    expect(r.notes["4"].spectralCentroidHz.n).toBe(3);
+  it("揃えられない人(その時点までの平均と共通音 3 音未満)は平均に入れない", () => {
+    const few = P("few", { 0: note(9999, 99), 2: note(9999, 99) }, 1);
+    const r = cohortAverage([a, b, c, few]);
+    expect(r.count).toBe(3);
+    expect(r.notes["0"].spectralCentroidHz.value).toBeCloseTo(1000, 6);
   });
-  it("3人に足りなければ平均を出さない", () => {
-    // 少数の平均は個人の特定に近づき、平均として意味も無い
+  it("公開している人が 3 人未満なら「あと○人」(○は足りない人数)", () => {
     expect(MIN_COHORT).toBe(3);
-    expect(cohortAverage(mine, [a, b]).notes).toBeUndefined();
+    expect(cohortAverage([a, b]).error).toBe("あと1人のデータが必要です\nみなさまのデータをお待ちしています");
+    expect(cohortAverage([a]).error).toBe("あと2人のデータが必要です\nみなさまのデータをお待ちしています");
+    expect(cohortAverage([]).error).toBe("あと3人のデータが必要です\nみなさまのデータをお待ちしています");
+    expect(cohortAverage(null).error).toBeTruthy();
+    expect(cohortAverage([a, b]).notes).toBeUndefined();
   });
-
-  // 【不足の理由で文言を出し分ける】人数と共通音は別の話。同じ文言に潰すと嘘になる。
-  it("人数が足りないときは「あと〇人」を出し、〇は足りない人数そのもの", () => {
-    // 2人しか合わせられない → あと1人
-    const two = cohortAverage(mine, [a, b]);
-    expect(two.error).toBe("あと1人のデータが必要です\nみなさまのデータをお待ちしています");
-    // 1人だけ → あと2人 / 誰もいない → あと3人。数が人数に連動していることを確かめる
-    expect(cohortAverage(mine, [a]).error).toBe("あと2人のデータが必要です\nみなさまのデータをお待ちしています");
-    expect(cohortAverage(mine, []).error).toBe("あと3人のデータが必要です\nみなさまのデータをお待ちしています");
-    // 音の話に化けていないこと
-    expect(two.error).not.toContain("重なっている音");
-  });
-
-  it("共通音が足りないときは人数の文言を出さない(待っても出ると誤解させない)", () => {
-    // 3人いる。人数は足りているのに、全員2音しか重ならないので出せない。
-    const few = (c0, h0) => ({ notes: { 0: note(c0, h0), 2: note(c0 + 300, h0 + 1) } });
-    const r = cohortAverage(mine, [few(1800, 16), few(1900, 17), few(1700, 15)]);
-    expect(r.error).toBe(`重なっている音が ${MIN_COMMON_NOTES} 音に足りません`);
-    expect(r.error).not.toContain("お待ちしています");
+  // 【便BA 再審査 2026-09-25 統括の裁定】公開している人は 3 人以上いるのに、同じ音で揃えられて平均に入った人が
+  // 3 人未満 → 「あと○人」を出さない(もう 3 人いるのに増やせと読める)。
+  it("公開している人は 3 人以上・平均に入れた人が 3 人未満 → 「同じ音を計測している人が、まだ足りません」", () => {
+    const few = P("few", { 0: note(9999, 99) }, 1); // a・b と共通の音が 1 つ → 揃えられず入らない
+    const r = cohortAverage([a, b, few]);
+    expect(r.error.split("\n")).toEqual(["同じ音を計測している人が、まだ足りません", "みなさまのデータをお待ちしています"]);
+    expect(r.error).not.toContain("あと");
     expect(r.notes).toBeUndefined();
+    // 入らない人が 2 人いても同じ(2 人しか入らない)
+    const few2 = P("few2", { 9: note(1, 1) }, 1);
+    expect(cohortAverage([a, b, few, few2]).error).toBe("同じ音を計測している人が、まだ足りません\nみなさまのデータをお待ちしています");
+    // 3 人入れば文は出ない(平均が出る)
+    expect(cohortAverage([a, b, c, few]).error).toBeUndefined();
   });
-  it("自分の計測が無いときと、誰とも重ならないときで文言が違う", () => {
-    // どちらも「出ない」だが、利用者がすべきことが違う
-    expect(cohortAverage({ notes: {} }, [a, b, c]).error).toContain("自分の計測");
-    const few = { notes: { 0: note(9999, 99) } };
-    expect(cohortAverage(mine, [few]).error).toContain("重なっている音");
-  });
-  // 【C2・C3 2026-09-16 実機の指摘】2行の文言は改行で分ける。句点と「...」は持たない。
-  // 表示側(screens.jsx の Empty)が white-space: pre-line で改行を効かせる。
-  it("2行の文言は改行1つで分かれ、句点・「...」を持たない(C2・C3)", () => {
-    const c3 = alignProfile({ notes: {} }, a).error;
-    expect(c3.split("\n")).toEqual(["自分の計測がまだありません", "数回吹いてから取り込んでください"]);
-    const c2 = cohortAverage(mine, []).error;
-    expect(c2.split("\n")).toEqual(["あと3人のデータが必要です", "みなさまのデータをお待ちしています"]);
-    for (const s of [c2, c3]) {
-      expect(s).not.toMatch(/[。…]/);
-      expect(s).not.toContain("...");
+  it("文言「重なっている音が…」「自分の計測が…」はもう出ない", () => {
+    for (const r of [cohortAverage([a]), cohortAverage([]), cohortAverage([a, P("f", { 0: note(1, 1) })])]) {
+      expect(r.error).not.toContain("重なっている音");
+      expect(r.error).not.toContain("自分の計測");
     }
   });
-  it("誰もいなければエラーを返す(0除算しない)", () => {
-    expect(cohortAverage(mine, []).error).toBeTruthy();
-    expect(cohortAverage(mine, null).error).toBeTruthy();
+  // 【C2 2026-09-16 実機の指摘】2行の文言は改行で分ける。句点と「...」は持たない。
+  it("2行の文言は改行1つで分かれ、句点・「...」を持たない(C2)", () => {
+    const c2 = cohortAverage([]).error;
+    expect(c2.split("\n")).toEqual(["あと3人のデータが必要です", "みなさまのデータをお待ちしています"]);
+    expect(c2).not.toMatch(/[。…]/);
+    expect(c2).not.toContain("...");
   });
   it("音量は平均にも現れない", () => {
-    const withVol = (o) => ({ notes: Object.fromEntries(Object.entries(o.notes).map(([k, v]) => [k, { ...v, volumeDb: -12 }])) });
-    const r = cohortAverage(mine, [withVol(a), withVol(b), withVol(c)]);
+    const withVol = (o) => ({ ...o, notes: Object.fromEntries(Object.entries(o.notes).map(([k, v]) => [k, { ...v, volumeDb: -12 }])) });
+    const r = cohortAverage([withVol(a), withVol(b), withVol(c)]);
     expect(Object.keys(r.notes["0"])).not.toContain("volumeDb");
+  });
+  it("平均の素の形(cohortPlainProfile)を自分へ揃えられる(平均の側を動かす)", () => {
+    const avg = cohortAverage([a, b, c]);
+    const plain = cohortPlainProfile(avg);
+    expect(plain.notes["0"].spectralCentroidHz).toBeCloseTo(1000, 6);
+    // 自分は a より +200 の高さ。平均を自分へ揃えると音0 は 1200 になる(自分の値は動かない)
+    const me = { notes: { 0: note(1200, 11), 2: note(1600, 13), 4: note(2000, 15) } };
+    const r = alignProfile(me, plain);
+    expect(r.shiftedBy.spectralCentroidHz).toBeCloseTo(200, 6);
+    expect(r.notes["0"].spectralCentroidHz).toBeCloseTo(1200, 6);
+    expect(me.notes["0"].spectralCentroidHz).toBe(1200);
   });
 });
 

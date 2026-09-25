@@ -371,6 +371,11 @@ const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
 const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
 
 const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています";
+// 【便BA 2026-09-25 本人指示】みんなの平均は自分の計測に関係なく、他の人どうしで揃えて出す(src/community/align.js)。
+// この正典の面(CommData / CommPerson)は**自分と共通の音が 3 音以上ある姿**(自分の線を重ね、上の注記を出す)。
+// 足りない姿(自分の計測が無い・0〜2音)は、自分の線を出さず、注記の代わりに同じ体裁で
+// 「あなたの計測データもお待ちしています」の1行になる(文言の正は screens.jsx の MINE_WAITING_NOTE)。
+// 面は足していない(見た目の部品は同じで、線が1本減り注記の文が替わるだけ)。検査は src/community/cohortMine.test.jsx。
 
 // ---- 画面の外枠 ---------------------------------------------------------
 function screen(sel, inner) {

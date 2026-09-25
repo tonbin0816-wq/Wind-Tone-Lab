@@ -29,7 +29,7 @@ import { dirname, join } from "path";
 import { renderClick, renderBefore, peakOf, energyOf, mulberry32 } from "./metro-click-makeup.mjs";
 import { scheduleBeforeWood, BEFORE_WOOD_SPEC, BEFORE_VOL } from "./metro-click-before.mjs";
 // 目安を自分の平均へ揃える純関数。App.jsx が使うのと同じ実装を検査でも使う。
-import { alignIdealToMine, cohortAverage, alignProfile } from "../src/community/align.js";
+import { alignIdealToMine, cohortAverage, alignProfile, idealForUse } from "../src/community/align.js";
 // 【便H(C2〜C9)2026-09-16】練習時間の公開統計と順位。実装そのものを import して実行で確かめる。
 import { computePracticeStats, validateStats, STATS_MAX, STATS_KEYS, STATS_REQUIRED_KEYS, STATS_SEC_KEYS, PERIOD_PHRASE, PERIOD_FIELD_SEC, PERIODS } from "../src/community/stats.js";
 import * as aggregate from "../src/community/aggregate.js";
@@ -13878,9 +13878,12 @@ let METRO_SIGS_ALL = [];
     ]) check(`M9: 便G が使う ${name} の定義は残っている(呼び手だけ消した)`, re.test(code76));
     // 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)。
     // 【2026/09/06】目安は自分の平均に平行移動してから使うので、引く行と揃える行の2段。
+    // 【便BA 再審査 2026-09-25 統括の裁定】揃える行は idealForUse(alignIdealToMine を中で呼び、揃えずに取り込んだ
+    // 目安の揃えられない指標を外す)になった。null を渡せば null(下の実行と 検証87)。
     check("F-76: 解除は selectedIdeal を null にすることで表示に伝わる(表示側に分岐を足さない)",
       /const selectedIdealRaw = idealProfiles\.find\(\(p\) => p\.id === selectedIdealId\) \|\| null;/.test(code)
-      && /alignIdealToMine\(selectedIdealRaw, myAverageForIdeal\)/.test(code));
+      && /idealForUse\(selectedIdealRaw, myAverageForIdeal\)/.test(code)
+      && idealForUse(null, { notes: { 60: { centroidHz: 1000 } } }) === null);
     check("F-76: 目安が無ければ揃えた結果も null(平行移動が null を作り出さない)",
       alignIdealToMine(null, { notes: { 60: { centroidHz: 1000 } } }) === null);
     // 【便G(D4)】削除は undo 付きになった。選択が外れる規則はそのまま(退避した「選ばれていた」
@@ -23982,8 +23985,9 @@ console.log("\n========== 検証50: 便F リード個体詳細・比較タブ ==
     check("50.7 R17 揃える相手は**この画面の系列**(frames から音ごとの平均を作る)",
       /for \(const g of groupFramesByNote\(frames \|\| \[\], undefined, saxType, tuningHz\)\) notes\[g\.semitoneIndex\] = g;/.test(card50)
       && /return alignIdealToMine\(selectedIdeal, \{ notes \}\);/.test(card50));
+    // 【便BA 再審査 2026-09-25】import に idealForUse(selectedIdeal を導く使う形)が加わった。
     check("50.7 R17 平行移動はコミュニティと同じ実装を import して使う(写しを作らない)",
-      /import \{ alignIdealToMine \} from "\.\/community\/align\.js";/.test(src)
+      /import \{ alignIdealToMine, idealForUse \} from "\.\/community\/align\.js";/.test(src)
       && (app50.match(/function alignIdealToMine/g) || []).length === 0);
     // **実行で確かめる。** 揃えると重心・HNR・音量は自分の中央値へ寄り、音程は動かない。
     {
@@ -24434,23 +24438,48 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
   // --- 52.2 C2・C3 2行の文言(align.js)+ 表示側の pre-line ------------------------------
   // 【変異】「...」を戻す / 句点で1文に戻す / pre-line を外す → 落ちる。
   {
-    const c2 = cohortAverage({ notes: { 0: { spectralCentroidHz: 1, hnrDb: 1 } } }, []).error;
-    const c3 = alignProfile({ notes: {} }, { notes: {} }).error;
+    // 【便BA 2026-09-25 本人指示】cohortAverage は自分の計測を受け取らなくなった(他の人どうしで揃える)。
+    const c2 = cohortAverage([]).error;
+    const c3 = alignProfile({ notes: {} }, { notes: {} });
     check("52.2 C2 実行: 「あと3人のデータが必要です」/ 改行 /「みなさまのデータをお待ちしています」(「...」と句点なし)",
       c2 === "あと3人のデータが必要です\nみなさまのデータをお待ちしています", JSON.stringify(c2));
-    check("52.2 C3 実行: 「自分の計測がまだありません」/ 改行 /「数回吹いてから取り込んでください」",
-      c3 === "自分の計測がまだありません\n数回吹いてから取り込んでください", JSON.stringify(c3));
+    // 【便BA 2026-09-25 本人指示】C3 の文言「自分の計測がまだありません / 数回吹いてから取り込んでください」と
+    // 「重なっている音が 3 音に足りません」は、みんなの平均・人物紹介に出さなくなり(自分の線を出さない +
+    // 「あなたの計測データもお待ちしています」)、読み手を失って**定義ごと消えた**。合わせられないときは null。
+    check("52.2 C3 → 便BA 実行: 自分の計測が無いとき alignProfile は文言ではなく null。文言は align.js にも画面にも無い",
+      c3 === null
+      && countIn(codeOf(align52), /自分の計測がまだありません|重なっている音が/g) === 0
+      && countIn(codeOf(screens52), /自分の計測がまだありません|重なっている音が/g) === 0,
+      JSON.stringify(c3));
     check("52.2 C2・C3 align.js に旧綴り(「お待ちしています...」「ありません。数回」)が無い",
       countIn(align52, /お待ちしています\.\.\./g) === 0 && countIn(align52, /ありません。数回/g) === 0);
     check("52.2 表示側(Empty)の文の要素に whiteSpace: \"pre-line\"",
       /<div style=\{\{ whiteSpace: "pre-line" \}\}>\{children\}<\/div>/.test(empty52));
-    check("52.2 その2文は Empty で描かれる(avg.error / chart.error)",
-      /<Empty>\{avg\.error\}<\/Empty>/.test(screens52) && /<Empty>\{chart\.error\}<\/Empty>/.test(screens52));
+    // 【便BA】人物紹介の chart.error(合わせられないときの文言)は無くなった。残るのは平均の人数不足(avg.error)だけ。
+    check("52.2 → 便BA その文は Empty で描かれる(avg.error)。人物紹介の chart.error は無い",
+      /<Empty>\{avg\.error\}<\/Empty>/.test(screens52) && !/chart\.error/.test(codeOf(screens52)));
+    // 【便BA】align.test.js の人数の文言は 3 → 4 件(揃えられない人を数えない場合を足した)。C3 の綴りは消えた。
+    // 【便BA 再審査 2026-09-25 統括の裁定】公開している人が 3 人以上で平均に入った人が 3 人未満のときは
+    // 「あと○人」ではなく「同じ音を計測している人が、まだ足りません」になった。その場合の1件が移って 4 → 3 件。
+    // 新しい文は実行して確かめる(下)。align.test.js はその文を改行込みで1件固定している。
     check("52.2 align.test.js は新しい綴りを固定している(旧綴りは 0)",
       countIn(alignTest52, /人のデータが必要です\\nみなさまのデータをお待ちしています/g) === 3
+      && countIn(alignTest52, /同じ音を計測している人が、まだ足りません\\nみなさまのデータをお待ちしています/g) === 1
       && countIn(alignTest52, /お待ちしています\.\.\./g) === 0
-      && /\["自分の計測がまだありません", "数回吹いてから取り込んでください"\]/.test(alignTest52),
+      && !/数回吹いてから取り込んでください/.test(codeOf(alignTest52)),
       `新綴り ${countIn(alignTest52, /人のデータが必要です\\nみなさまのデータをお待ちしています/g)}件`);
+    {
+      // 【便BA 再審査】実行: 3 人公開・2 人しか同じ音で揃えられない → 2行の文。「あと」は言わない。
+      const n52 = (c, h) => ({ spectralCentroidHz: c, hnrDb: h });
+      const p52 = (uid, notes) => ({ ownerUid: uid, sourceSessionCount: 1, notes });
+      const r52 = cohortAverage([
+        p52("a", { 0: n52(1000, 10), 2: n52(1400, 12), 4: n52(1800, 14) }),
+        p52("b", { 0: n52(1600, 20), 2: n52(2000, 22), 4: n52(2400, 24) }),
+        p52("x", { 9: n52(1, 1) }),
+      ]).error;
+      check("52.2 → 便BA 再審査 実行: 公開 3 人・平均に入れた人 2 人 → 「同じ音を計測している人が、まだ足りません」/ 改行 /「みなさまのデータをお待ちしています」",
+        r52 === "同じ音を計測している人が、まだ足りません\nみなさまのデータをお待ちしています", JSON.stringify(r52));
+    }
   }
 
   // --- 52.3 C4 「公開されている目安」→「公開されているデータ」 ------------------------------
@@ -25920,8 +25949,10 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
       && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(person62)
       && /borderRadius: "var\(--r-pill\)"/.test(person62)
       && /padding: "0 var\(--sp-5\)"/.test(person62));
-    check("62.5 2-E 行き先は変えていない(onAdopt に aligned / theirIdeal / nickname を渡す)",
-      /onAdopt\(\{ aligned, theirIdeal, nickname: person\.nickname \}\)/.test(person62));
+    // 【便BA 2026-09-25 本人指示】渡す値は theirShown(揃えられたら揃えた値、揃えられなければ揃えない写し)。
+    // 受け口の名前(aligned / theirIdeal / nickname)と行き先は変えていない。
+    check("62.5 2-E → 便BA 行き先は変えていない(onAdopt に aligned / theirIdeal / nickname を渡す。aligned は theirShown)",
+      /onAdopt\(\{ aligned: theirShown, theirIdeal, nickname: person\.nickname \}\)/.test(person62));
   }
 
   // --- 62.6 正典(design/canvas)------------------------------------------------
@@ -27217,7 +27248,8 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
     iSpacer > 0 && iNote < iSpacer, `注記=${iNote} / 空き=${iSpacer}`);
   check("69.3 注記はグラフの凡例の**直後**に在る(読む順どおりの場所へ戻した)",
     iLegend > 0 && iLegend < iNote && iNote < iSticky
-    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*計測環境により/.test(person69),
+    // 【便BA】注記の div の中は「自分の線があれば揃えの注記、無ければ『あなたの計測データもお待ちしています』」の出し分け。
+    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*\{chart\.withMine \? "計測環境により/.test(person69),
     `凡例=${iLegend} / 注記=${iNote}`);
   check("69.4 人物シートの注記は1件のまま(言い換えも写しも作っていない)",
     (person69.match(new RegExp(NOTE69, "g")) || []).length === 1,
@@ -27376,7 +27408,8 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     const iSticky = person71.indexOf('position: "sticky", bottom: 0');
     check("71.3 注記は凡例の**直後**(間に他の要素が挟まっていない)",
       iLegend > 0 && iNote > iLegend
-      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*計測環境により/.test(person71),
+      // 【便BA】注記の div の中は揃えの注記と「あなたの計測データもお待ちしています」の出し分け。
+      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*\{chart\.withMine \? "計測環境により/.test(person71),
       `凡例=${iLegend} / 注記=${iNote}`);
     check("71.3 注記は貼り付く器より**前**に在る(案2 は取り消した)",
       iSticky > 0 && iNote < iSticky, `注記=${iNote} / 器=${iSticky}`);
@@ -27399,7 +27432,8 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
       `通報=${person71.indexOf("この人を通報")} / 器=${iSticky}`);
     // 出す条件は**持ち上げただけ**で、描画の分岐は増やしていない。
     check("71.3 出す条件は1箇所(showAdopt)にまとめ、読み手は空きと器の2つだけ",
-      /const showAdopt = Boolean\(onAdopt && side === "data" && types\.length > 0\s*\r?\n?\s*&& theirIdeal && chart && !chart\.error\);/.test(person71)
+      // 【便BA 2026-09-25 本人指示】「目安に設定」は共通の音が足りなくても押せる(!chart.error の条件は消えた)。
+      /const showAdopt = Boolean\(onAdopt && side === "data" && types\.length > 0\s*\r?\n?\s*&& theirIdeal && chart\);/.test(person71)
       && count71(person71, /showAdopt/g) === 3,
       `${count71(person71, /showAdopt/g)}箇所`);
   }
@@ -30556,6 +30590,61 @@ console.log("========== 検証86: 便AZ 目印の音・検索の正規化・人�
   const person86 = codeOf(srcOfFn(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8"), "PersonSheet"));
   check("86.3 C 人物紹介に戻るボタン(BACK_BUTTON_STYLE / 一覧に戻る)は無い",
     !/BACK_BUTTON_STYLE/.test(person86) && !/一覧に戻る/.test(person86) && !/< 一覧/.test(person86));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証87: 便BA 再審査(2026-09-25 統括の裁定)── 揃えずに取り込んだ目安の使い方
+//   取り込み → 使う形の振る舞いは src/community/idealForUse.test.js が持つ。
+//   ここは App.jsx の側: (1) 目安を使う場所が1つ(selectedIdeal = idealForUse)であること
+//   (2) 音色一致度が外した指標を使わないこと(timbreMatchScore を実物のまま切り出して実行)。
+// ============================================================
+console.log("========== 検証87: 便BA 再審査 揃えずに取り込んだ目安 ==========");
+{
+  const count87 = (t, re) => (t.match(re) || []).length;
+  const app87 = codeOf(src);
+  check("87.1 selectedIdeal は idealForUse(selectedIdealRaw, myAverageForIdeal) で導く(外すのはここ1箇所)",
+    /const selectedIdeal = useMemo\(\s*\n?\s*\(\) => idealForUse\(selectedIdealRaw, myAverageForIdeal\), \[selectedIdealRaw, myAverageForIdeal\]\);/.test(app87)
+    && !/alignIdealToMine\(selectedIdealRaw/.test(app87));
+  const timbre87 = new Function(`${extractFunction("timbreMatchScore")}; return timbreMatchScore;`)();
+  const harmA = [1, 0.5, 0.25, 0.1, 0, 0, 0, 0], harmB = [1, 0.4, 0.3, 0.1, 0, 0, 0, 0];
+  // 倍音の一致(コサイン)は手で出す
+  const dot = harmA.reduce((t, v, i) => t + v * harmB[i], 0);
+  const cos = dot / (Math.hypot(...harmA) * Math.hypot(...harmB));
+  // 渡さない呼び出しは今までの式そのもの: 0.6·倍音 + 0.25·exp(-3·相対誤差) + 0.15·exp(-差/15)
+  const old87 = 0.6 * cos + 0.25 * Math.exp(-3 * (Math.abs(1500 - 1200) / 1200)) + 0.15 * Math.exp(-Math.abs(12 - 18) / 15);
+  check("87.2 音色一致度: 外す指標を渡さない呼び出しは今までの式と同じ値",
+    Math.abs(timbre87(harmA, harmB, 1500, 1200, 12, 18) - old87) < 1e-12
+    && timbre87(harmA, harmB, 1500, 1200, 12, 18) === timbre87(harmA, harmB, 1500, 1200, 12, 18, null),
+    `${timbre87(harmA, harmB, 1500, 1200, 12, 18)} / ${old87}`);
+  // 重心・HNR を外したら、その目安の値が無くても(undefined)・測った値がどうでも、倍音の一致だけで決まる
+  const both = ["centroidHz", "hnrDb"];
+  const s1 = timbre87(harmA, harmB, 1500, undefined, 12, undefined, both);
+  const s2 = timbre87(harmA, harmB, 400, undefined, 40, undefined, both);
+  check("87.3 音色一致度: 重心・HNR を外すと、その2項を使わない(倍音の一致だけ = 残った重みで割り直す)",
+    Math.abs(s1 - cos) < 1e-12 && s1 === s2, `${s1} / ${s2} / 倍音 ${cos}`);
+  // HNR だけ外す: (0.6·倍音 + 0.25·重心) / 0.85
+  const s3 = timbre87(harmA, harmB, 1500, 1200, 12, undefined, ["hnrDb"]);
+  const want3 = (0.6 * cos + 0.25 * Math.exp(-3 * (300 / 1200))) / 0.85;
+  check("87.3 音色一致度: HNR だけ外すと、重心は使い HNR は使わない",
+    Math.abs(s3 - want3) < 1e-12 && s3 === timbre87(harmA, harmB, 1500, 1200, 99, undefined, ["hnrDb"]), `${s3} / ${want3}`);
+  check("87.4 音色一致度を出す3箇所(アップロード解析・録音中・録音していないとき)は外した指標を渡す",
+    count87(app87, /timbreMatchScore\(harmNorm, idealHarmNorm, centroid, noteIdeal\.centroidHz, hnr, noteIdeal\.hnrDb, selectedIdeal\?\.excludedMetrics\)/g) === 3
+    && count87(app87, /timbreMatchScore\(/g) === 4,
+    `${count87(app87, /timbreMatchScore\(/g)}件`);
+  // 実物どうしでつなぐ: 揃えずに取り込んだ目安 × 自分の計測なし → 使う形から重心・HNR が消え、
+  // グラフが読む getNoteIdeal(...)[指標] は undefined(= 目安の線を描かない)。音程は残る。
+  const getNoteIdeal87 = new Function(`${extractFunction("getNoteIdeal")}; return getNoteIdeal;`)();
+  const adopted87 = { id: "x", sourceKind: "community", alignedAtAdopt: false,
+    notes: { 14: { centroidHz: 1450, hnrDb: 17, pitchCentsSigned: 4, semitoneIndex: 14 }, 16: { centroidHz: 1530, hnrDb: 19, pitchCentsSigned: 1, semitoneIndex: 16 } } };
+  const use87 = idealForUse(adopted87, null);
+  check("87.5 揃えずに取り込んだ目安 × 自分の計測なし → グラフの読む値に重心・HNR が無い(線を描かない)・音程は在る",
+    [14, 16].every((i) => getNoteIdeal87(use87, i)?.centroidHz === undefined && getNoteIdeal87(use87, i)?.hnrDb === undefined
+      && typeof getNoteIdeal87(use87, i)?.pitchCentsSigned === "number")
+    && JSON.stringify(use87.excludedMetrics) === JSON.stringify(both));
+  const { alignedAtAdopt: _drop87, ...old87Ideal } = adopted87;
+  check("87.5 印の無い古い目安は今まで通り(外さない)",
+    getNoteIdeal87(idealForUse(old87Ideal, null), 14)?.centroidHz === 1450 && idealForUse(old87Ideal, null).excludedMetrics === undefined);
   console.log("  -> done");
 }
 

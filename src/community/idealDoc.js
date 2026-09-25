@@ -238,7 +238,11 @@ export const ADOPTED_SOURCE = "community";
 /**
  * 他人の目安を取り込んだ、ローカルの目安プロファイルを作る。
  *
- * @param aligned alignProfile の結果(自分に合わせ済みの notes)
+ * @param aligned alignProfile の結果(自分に合わせ済みの notes)。【便BA 2026-09-25】共通の音が足りないときは
+ *                copyProfile の結果(揃えない写し。shiftedBy が null)が来る。
+ *                【便BA 再審査 統括の裁定】揃えずに取り込んだかどうかを alignedAtAdopt に残す。使うとき
+ *                (align.js の idealForUse)に、揃えずに取り込んだ目安が自分へ揃えられなければ、
+ *                揃えが要る指標(重心・HNR)を目安から外す ── 他人の環境の生の値で比べないため。
  * @param theirIdeal 公開ドキュメント(saxType を取る)
  * @param nickname 相手のニックネーム。名前に使う
  * @param id 新しい目安の id(App.jsx の generateId で作って渡す)
@@ -276,6 +280,9 @@ export function buildAdoptedProfile({ aligned, theirIdeal, nickname, id, baseFre
       recordedAt: now.toISOString(),
       notes,
       sourceKind: ADOPTED_SOURCE,
+      // 【便BA 再審査】揃えて取り込んだら true、揃えずに取り込んだら false。
+      // 印の無い古い目安は、今まで通り揃えて取り込んだものとして扱う(idealForUse)。
+      alignedAtAdopt: Boolean(aligned?.shiftedBy),
       // 【自分のセッションから作ったものではないので空にする】
       // ここに何か入れると、関係の無いセッションが「目安設定中」と表示される。
       sourceSessionIds: [],
