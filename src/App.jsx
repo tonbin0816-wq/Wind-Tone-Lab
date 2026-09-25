@@ -56,7 +56,9 @@ class CommunityErrorBoundary extends Component {
     if (!this.state.failed) return this.props.children;
     return (
       <div className="sans" style={communityFallbackStyle}>
-        <div>コミュニティを読み込めませんでした。アプリを更新すると直ることがあります。</div>
+        {/* 【便BB 2026-09-25】アプリでも Web でも通じる語にした(旧「アプリを更新すると直ることがあります」/ ボタン「再読み込み」)。
+            ボタンの語はコミュニティの失敗画面の「もう一度試す」と揃える。押したときの動き(読み込み直し)は変えていない。 */}
+        <div>コミュニティを読み込めませんでした。アプリを開き直すと直ることがあります。</div>
         <button
           type="button"
           onClick={() => window.location.reload()}
@@ -68,7 +70,7 @@ class CommunityErrorBoundary extends Component {
             fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
           }}
         >
-          再読み込み
+          もう一度試す
         </button>
       </div>
     );
@@ -3197,10 +3199,11 @@ function analyzeMediaFile(file, opts) {
         // 自動再生の制限でブロックされた場合(ファイル選択のタップから時間が経っていると
         // iOS/Chromeはジェスチャ外の再生を拒否する)、失敗にはせず「タップして開始」を
         // 呼び出し側に依頼する。渡した関数は新しいタップのイベント内で呼んでもらう。
+        // 【便BB 2026-09-25】文言は旧「ブラウザが再生をブロックしました」。アプリでも Web でも通じる語にした。
         if (onNeedTap) {
-          onNeedTap(() => tryStart().catch(() => fail("ブラウザが再生をブロックしました。もう一度お試しください")));
+          onNeedTap(() => tryStart().catch(() => fail("端末が再生を許可しませんでした。もう一度お試しください")));
         } else {
-          fail("ブラウザが再生をブロックしました。もう一度お試しください");
+          fail("端末が再生を許可しませんでした。もう一度お試しください");
         }
       });
     };

@@ -5198,6 +5198,8 @@ console.log("\n========== 15. 詳細画面の横スワイプ(指追従・右=戻
     // 実機の再現手順: 評価グラフを拡大しようとして、1本目が動いた後に2本目が着地する。
     // index.html の viewport meta に user-scalable=no も maximum-scale も無く、
     // ピンチズームは有効。2本指は想定外操作ではなくサポートされた操作。
+    // 【便BB 2026-09-25】iOS のときだけ起動時に maximum-scale=1 を足すようになった(入力欄の自動拡大を
+    // 止めるため)。iOS Safari は上限を指2本の拡大に使わないので、この操作は残る(検証88.4)。
     // 2本目は isPrimary === false なので isSwipeTarget が偽になる。ここで進行中の
     // ドラッグを後始末なしに捨てると、track は最後の setX の値のまま無期限に固着する。
     {
@@ -27871,10 +27873,13 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
         at73.every((i) => i >= 0), words73.map((w, i) => `${w.slice(0, 8)}@${at73[i]}`).join(" | "));
       check("73.5 出てくる順も変わっていない",
         at73.every((v, i) => i === 0 || v > at73[i - 1]), at73.join(" < "));
-      check("73.5 容量と保存領域の一文も変わっていない",
+      // 【便BB 2026-09-25 統括指示】利用者に見える文から「ブラウザ」を外した(アプリでも Web でも通じる語)。
+      // 旧「このブラウザは空き容量が…」→「この端末は空き容量が…」。意味は変えていない。
+      check("73.5 容量と保存領域の一文も変わっていない(便BB で主語だけ「この端末」に)",
         /`\$\{estimate\.usageMB\.toFixed\(1\)\} MB を使用中`/.test(backup73)
         && /"この端末に保存されています"/.test(backup73)
-        && /"このブラウザは空き容量が減ると記録を自動削除することがあります"/.test(backup73));
+        && /"この端末は空き容量が減ると記録を自動削除することがあります"/.test(backup73)
+        && !/このブラウザは/.test(backup73));
     }
   }
 
@@ -30645,6 +30650,75 @@ console.log("========== 検証87: 便BA 再審査 揃えずに取り込んだ目
   const { alignedAtAdopt: _drop87, ...old87Ideal } = adopted87;
   check("87.5 印の無い古い目安は今まで通り(外さない)",
     getNoteIdeal87(idealForUse(old87Ideal, null), 14)?.centroidHz === 1450 && idealForUse(old87Ideal, null).excludedMetrics === undefined);
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証88: 便BB(2026-09-25 統括指示)── アプリとして出す前に Web 版でも直すもの
+//   参加前の画面のアカウント引継の振る舞い(描いて押す)は src/community/joinIntroBackup.test.jsx が持つ。
+//   ここは綴りの錨(十分条件ではない)。
+// ============================================================
+console.log("========== 検証88: 便BB ダブルタップの拡大・参加前の引継・Web 前提の文言 ==========");
+{
+  const css88 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const cssCode88 = codeOf(css88);
+  // 1 原因B: ダブルタップの拡大を止める。ルート1か所だけ(要素ごとに散らさない)。
+  check("88.1 index.css の html に touch-action: manipulation(ダブルタップの拡大だけを止める)",
+    /\nhtml \{\n  touch-action: manipulation;\n\}/.test(cssCode88));
+  check("88.1 index.css の touch-action 宣言はその1つだけ(pan-y / none を祖先に敷かない。§6.3)",
+    (cssCode88.match(/touch-action\s*:/g) || []).length === 1,
+    `${(cssCode88.match(/touch-action\s*:/g) || []).length}件`);
+  check("88.1 manipulation は指2本の拡大を残す値(none / pan-x / pan-y 単独ではない)",
+    !/touch-action:\s*(none|pan-x|pan-y|pinch-zoom)\s*;/.test(cssCode88));
+  // 2 参加前の画面の入口
+  const comm88 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const join88 = codeOf(srcOfFn(comm88, "JoinIntro"));
+  check("88.2 参加前の画面(JoinIntro)にアカウント引継の入口(マイページと同じ secondaryButtonStyle)",
+    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{secondaryButtonStyle\}>\s*\n\s*アカウント引継\s*\n\s*<\/button>/.test(join88));
+  check("88.2 開くのはマイページと同じ BackupSheet(写しを作らない)",
+    /\{backup \? <BackupSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(join88)
+    && (comm88.match(/<BackupPanel \/>/g) || []).length === 1);
+  check("88.2 「My Data の記録の保存」の誤ったコメントは残っていない",
+    !/My Data の「記録の保存」/.test(comm88));
+  // 4 利用者に見える文言: 「ブラウザ」「再読み込み」「アプリを更新すると」を前提にしない(コメントは除く)
+  const files88 = [];
+  const walk88 = (d) => {
+    for (const f of readdirSync(d, { withFileTypes: true })) {
+      const q = join(d, f.name);
+      if (f.isDirectory()) walk88(q);
+      else if (/\.(jsx?|mjs)$/.test(f.name) && !/\.test\./.test(f.name)) files88.push(q);
+    }
+  };
+  walk88(join(__dirname, "..", "src"));
+  const hits88 = files88.flatMap((f) => (codeOf(readFileSync(f, "utf8")).match(/.{0,20}(ブラウザ|再読み込み|アプリを更新すると|リロード).{0,10}/g) || [])
+    .map((m) => `${f.split(/[\\/]/).slice(-2).join("/")}: ${m}`));
+  check("88.3 src の動く側(コメント以外)に「ブラウザ」「再読み込み」「アプリを更新すると」「リロード」が無い",
+    files88.length > 20 && hits88.length === 0, `${files88.length}ファイル / ${hits88.slice(0, 3).join(" | ") || "0件"}`);
+  // 1A(統括の裁定 (b)): iOS のときだけ起動時に maximum-scale=1 を足す。判定の振る舞いは
+  // src/iosViewport.test.js。ここは既定の viewport が変わっていないことと、起動の配線の綴り。
+  const html88 = readFileSync(join(__dirname, "..", "index.html"), "utf8");
+  check("88.4 index.html の既定の viewport は変えていない(maximum-scale / user-scalable が無い = iOS 以外は指2本の拡大が効く)",
+    /<meta name="viewport" content="width=device-width, initial-scale=1\.0, viewport-fit=cover" \/>/.test(html88)
+    && !/maximum-scale|user-scalable/.test(html88));
+  const main88 = codeOf(readFileSync(join(__dirname, "..", "src", "main.jsx"), "utf8"));
+  check("88.4 起動の最初(描く前・温めより前)に applyIOSViewport() を1回呼ぶ",
+    /import \{ applyIOSViewport \} from '\.\/iosViewport\.js'/.test(main88)
+    && (main88.match(/applyIOSViewport\(\)/g) || []).length === 1
+    && main88.indexOf("applyIOSViewport()") < main88.indexOf("warmPersistedStateCache()")
+    && main88.indexOf("applyIOSViewport()") < main88.indexOf("createRoot("));
+  const ios88 = await import("../src/iosViewport.js");
+  check("88.4 実行: iPhone / iPadOS の Mac 名乗り は iOS、Android・本物の Mac は iOS ではない",
+    ios88.isIOSDevice("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", 5) === true
+    && ios88.isIOSDevice("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 5) === true
+    && ios88.isIOSDevice("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 0) === false
+    && ios88.isIOSDevice("Mozilla/5.0 (Linux; Android 14; Pixel 8)", 5) === false);
+  const ds88 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  check("88.1 DESIGN-SYSTEM の「touch-action は使わない」の節に例外(html に manipulation を1か所だけ)が書いてある",
+    /\*\*`touch-action` は使わない。\*\*[^\n]*\n\n\*\*例外: `html` に `touch-action: manipulation` を1か所だけは可\*\*/.test(ds88));
+  const app88 = codeOf(src);
+  check("88.3 置き換えた文言(再生の拒否・コミュニティの読み込み失敗)",
+    (app88.match(/"端末が再生を許可しませんでした。もう一度お試しください"/g) || []).length === 2
+    && /コミュニティを読み込めませんでした。アプリを開き直すと直ることがあります。/.test(app88));
   console.log("  -> done");
 }
 

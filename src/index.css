@@ -304,6 +304,20 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 【便BB 2026-09-25 本人の報告「意図せず拡大されてしまう」】素早い2回のタップ(メトロノームの
+   「画面をたたいて開始・停止」など)がダブルタップの拡大になっていた。manipulation は
+   「縦横のスクロール(pan-x pan-y)と指2本の拡大(pinch-zoom)だけを許す」= ダブルタップの拡大だけを止める。
+   【DESIGN-SYSTEM §6.3「touch-action は使わない」との関係】あの禁止の理由は「祖先に pan-y を敷くと
+   子孫の横スクロール表が動かなくなる」こと。manipulation は pan-x も pan-y も許すので、子孫の
+   横スクロール・縦スクロール・指2本の拡大(評価グラフを拡大して見る。検証の F-16 の注記)は残る。
+   掴んだタイルだけの none / pan-y(App.jsx の並び替え)とも交わりは同じ(none / pan-y のまま)。
+   スワイプの非パッシブ touchmove の preventDefault は touch-action と独立なので、そのまま効く。
+   ※ touch-action は継承しないが、効く動作は「触れた要素から祖先まで」の交わりで決まるので、
+   ルート1か所で全体に効く(-webkit-tap-highlight-color と同じく、要素ごとに足すと漏れる)。 */
+html {
+  touch-action: manipulation;
+}
+
 /* アプリのルート。iOS Safari の 100vh は**アドレスバーを含む高さ**を返すため、可視領域より
    大きい min-height が敷かれ、詳細を閉じた素の状態でも常にアドレスバーぶんだけ縦スクロール
    できてしまう(実機で計測タブ・リードタブの両方で報告された)。可視領域に追従する dvh を使う。

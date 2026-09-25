@@ -27,8 +27,10 @@ import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
 import { buildIdealProfileFromSessions, SubTabs, SwipePager, OptionPills, BottomSheet } from "../App.jsx";
-// 【アカウント引継の中身は My Data の「記録の保存」そのもの】写しを作らない。
-// 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を1つ増やすだけ。
+// 【アカウント引継の中身は backup/BackupPanel.jsx の「記録の保存」そのもの】写しを作らない。
+// 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を持つだけ。
+// 【便BB 2026-09-25】以前ここには「My Data の記録の保存」とあったが、App.jsx(My Data)は
+// BackupPanel を描いていない。置き場所はマイページ(参加済み)と参加前の画面(JoinIntro)の2つ。
 import BackupPanel from "../backup/BackupPanel.jsx";
 import { publishStats, withMyRow } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
@@ -369,8 +371,8 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   );
 }
 
-// 【アカウント引継】プロフィールの一番下から開く。中身は My Data の「記録の保存」を
-// **そのまま**出すだけで、このファイルは器を1つも持たない。
+// 【アカウント引継】プロフィールの一番下と、参加前の画面(JoinIntro。便BB)から開く。
+// 中身は BackupPanel(記録の保存)を**そのまま**出すだけで、このファイルは器を1つも持たない。
 //
 // 【C-14 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
 // ここは以前 App.jsx の BottomSheet を**別実装で写して**いた(暗幕・角丸 28 / つまみ 36×4 /
@@ -643,8 +645,12 @@ const linkButtonStyle = {
   color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
 };
 
-function JoinIntro({ onJoin, notice = null }) {
+export function JoinIntro({ onJoin, notice = null }) {
   const [busy, setBusy] = useState(false);
+  // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
+  // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
+  // 開くのはマイページと**同じ BackupSheet**(写しを作らない)。
+  const [backup, setBackup] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
   const [legal, setLegal] = useState(null);
   // 【束3】お問い合わせのシート。**未参加の人も送れる**(送信のときに匿名の資格情報だけを
@@ -683,7 +689,13 @@ function JoinIntro({ onJoin, notice = null }) {
       <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
       </button>
+      {/* 【便BB】マイページと同じ体裁(secondaryButtonStyle)・同じ名前。参加の一手より下に置く
+          (この画面の主要動作は参加。引継は主要でない一手)。 */}
+      <button type="button" onClick={() => setBackup(true)} className="sans" style={secondaryButtonStyle}>
+        アカウント引継
+      </button>
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
+      {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </div>
   );

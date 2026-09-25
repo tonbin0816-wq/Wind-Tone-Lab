@@ -69,7 +69,8 @@ export default function BackupPanel() {
       a.remove();
       setNotice(`計測${jpNum(snapshot.counts.sessions)}件を ${name} に書き出しました`);
     } catch {
-      setFailure("書き出せませんでした。ブラウザの設定でこの端末の保存領域が使えない可能性があります");
+      // 【便BB 2026-09-25】利用者に見える文は「ブラウザ」を前提にしない(アプリでも Web でも通じる「端末」)。
+      setFailure("書き出せませんでした。端末の設定で保存領域が使えない可能性があります");
     } finally {
       // 呼ばないとメモリに残る。
       if (url) URL.revokeObjectURL(url);
@@ -117,9 +118,10 @@ export default function BackupPanel() {
     return `${estimate.usageMB.toFixed(1)} MB を使用中`;
   })();
 
+  // 【便BB】旧「このブラウザは…」。意味(空き容量が減ると消えうる)は変えず、主語を「この端末」に。
   const persistenceLine = (() => {
     if (persistence === "granted") return "この端末に保存されています";
-    if (persistence === "denied") return "このブラウザは空き容量が減ると記録を自動削除することがあります";
+    if (persistence === "denied") return "この端末は空き容量が減ると記録を自動削除することがあります";
     return null;
   })();
 

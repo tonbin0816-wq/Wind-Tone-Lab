@@ -4,7 +4,9 @@
 //
 // クラウドには一切触らない。Firestore にも認証にも触れず、その手の module を1つも import しない。
 //
-// 【App.jsx との循環 import について】App.jsx → BackupPanel.jsx → localStore.js → App.jsx。
+// 【App.jsx との循環 import について】App.jsx →(遅延読み込み)community/CommunityTab.jsx →
+// BackupPanel.jsx → localStore.js → App.jsx。(【便BB】以前は App.jsx が BackupPanel を直に読む形で
+// 書いてあったが、App.jsx は BackupPanel を読んでいない。)
 // ここが App.jsx から取るのは**呼び出し時にしか読まない**もの(関数宣言と、関数の中でしか
 // 参照しない定数)だけなので、モジュールの評価順に依存しない。
 // ここでトップレベルに `const X = IDB_STORE` のような**読み取り**を書かないこと

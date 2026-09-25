@@ -1648,6 +1648,8 @@ right: calc(14px + env(safe-area-inset-right))
 
 **`touch-action` は使わない。** 祖先の指定が子孫より優先されるため、`pan-y` を敷くと中にある横スクロール表が動かせなくなる。
 
+**例外: `html` に `touch-action: manipulation` を1か所だけは可**（ダブルタップの拡大を止めるため。縦横のスクロールと指2本の拡大は許すので、上の理由には当たらない）。【便BB 2026-09-25 統括の裁定】置き場所は `src/index.css` の `html` の1か所だけ。要素ごとに足さない。
+
 **未確定のうちは `preventDefault` してはいけない。** iOS は最初の `touchmove` で `preventDefault` されるとそのジェスチャー全体をスクロールしなくなるので、縦スクロールが死ぬ。
 
 #### 動かす面の構造

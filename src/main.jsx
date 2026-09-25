@@ -2,6 +2,12 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App, { warmPersistedStateCache } from './App.jsx'
 import './index.css'
+import { applyIOSViewport } from './iosViewport.js'
+
+// 【便BB 2026-09-25 統括の裁定】iOS のときだけ viewport に maximum-scale=1 を足す
+// (入力欄に触れたときの自動拡大を止める。指2本の拡大は iOS では残る)。理由と判定は iosViewport.js。
+// 描く前に1回だけ。index.html の既定の viewport は変えない(iOS 以外はそのまま)。
+applyIOSViewport()
 
 // 【AD-3 2026-09-21 本人指示】「アプリ起動時に計測タブのリードが一瞬未選択の時の仕様になる」。
 // **最初の描画の前に**保存された値を読み込み、App.jsx の persistedStateCache を温める。
