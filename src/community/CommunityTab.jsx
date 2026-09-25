@@ -330,7 +330,8 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
         {/* 【step を渡さない】目安の一覧は名簿と並行に走る。段階を足すと、
             先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
-          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} />
+          /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。 */
+          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} active={index === 0} />
         ))}
         {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
@@ -645,8 +646,44 @@ const linkButtonStyle = {
   color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
 };
 
+// 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意のチェック。
+// 行全体が押せる <label>(高さ --tap-min)。中身はネイティブの checkbox なので読み上げはそのまま
+// 「チェックボックス・オン/オフ」。見た目だけ appearance を外して描き直す:
+// 箱 20px・角丸 6px・枠 1.5px --c-line-strong(モック .box の値)/ 入ると --c-accent の塗りに白いレ点。
+// 13歳以上の CheckRow(ネイティブの見た目 18px)とは別の部品 ── あちらは本人が見た目を決めていないので触らない。
+const AGREE_BOX_PX = 20;
+function AgreeRow({ checked, onChange, children }) {
+  return (
+    <label className="sans no-select" style={{
+      minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: "var(--sp-2)",
+      fontSize: "var(--fs-sm)", color: "var(--c-ink)", cursor: "pointer",
+    }}>
+      <span style={{ position: "relative", flex: "none", width: AGREE_BOX_PX, height: AGREE_BOX_PX, display: "inline-flex" }}>
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
+          style={{
+            appearance: "none", WebkitAppearance: "none", margin: 0, boxSizing: "border-box",
+            width: AGREE_BOX_PX, height: AGREE_BOX_PX, borderRadius: 6, cursor: "pointer",
+            border: `1.5px solid ${checked ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+            background: checked ? "var(--c-accent)" : "transparent",
+          }} />
+        {checked ? (
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20" width={AGREE_BOX_PX} height={AGREE_BOX_PX}
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ position: "absolute", inset: 0, pointerEvents: "none", color: "var(--c-on-accent)" }}>
+            <polyline points="5.5,10.5 8.5,13.5 14.5,7" />
+          </svg>
+        ) : null}
+      </span>
+      <span>{children}</span>
+    </label>
+  );
+}
+
 export function JoinIntro({ onJoin, notice = null }) {
   const [busy, setBusy] = useState(false);
+  // 【便BC 2026-09-25】規約とプライバシーポリシーへの同意。**保存しない**(この画面を開くたびに外れた状態から)。
+  // 入るまで参加の一手は押せない。
+  const [agreed, setAgreed] = useState(false);
   // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
   // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
   // 開くのはマイページと**同じ BackupSheet**(写しを作らない)。
@@ -658,6 +695,7 @@ export function JoinIntro({ onJoin, notice = null }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const join = async () => {
     if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
+    if (!agreed) return; // 【便BC】同意の前は押せない(disabled と二重に守る)
     setBusy(true);
     try { await onJoin(); } finally { setBusy(false); }
   };
@@ -686,7 +724,11 @@ export function JoinIntro({ onJoin, notice = null }) {
         <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
         <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
       </div>
-      <button type="button" onClick={join} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
+      {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。 */}
+      <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>
+      <button type="button" onClick={join} disabled={busy || !agreed} className="sans"
+        style={{ ...primaryButtonStyle, background: agreed ? "var(--c-accent)" : "var(--c-disabled)",
+                 cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}
       </button>
       {/* 【便BB】マイページと同じ体裁(secondaryButtonStyle)・同じ名前。参加の一手より下に置く

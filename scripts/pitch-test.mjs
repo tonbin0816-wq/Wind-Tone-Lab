@@ -25909,10 +25909,12 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   check("62.2 2-B 吹くがデータが無い種別を押しても引き戻さない(押せるのに何も起きない を作らない)",
     /const pickable = person\?\.saxTypes \?\? \[\];/.test(person62)
     && /if \(types\.length > 0 && !types\.includes\(saxType\) && !pickable\.includes\(saxType\)\) setSaxType\(types\[0\]\);/.test(person62));
-  check("62.2 2-B 新しい色を作っていない(screens.jsx の --c- 以外の色の直書きは影の1つだけ)",
+  // 【便BC 2026-09-25】用語の説明の吹き出し(MetricTabs)も、浮かぶ物の影(既存の同じ1値)を使うので
+  // 直書きは2箇所になった。**色の種類は増えていない**ことを見る: rgb の直書きは2件とも同じ影の1値。
+  check("62.2 2-B 新しい色を作っていない(screens.jsx の --c- 以外の色の直書きは浮かぶ物の影の1値だけ。便BC で2箇所)",
     count62(all62, /#[0-9a-fA-F]{3,8}\b/g) === 0
-    && count62(all62, /rgba?\(/g) === 1
-    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(all62),
+    && count62(all62, /rgba?\(/g) === 2
+    && count62(all62, /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) === 2,
     `hex ${count62(all62, /#[0-9a-fA-F]{3,8}\b/g)}件 / rgb ${count62(all62, /rgba?\(/g)}件`);
 
   // --- 62.3 2-C 「音のデータ」の見出しを消す ----------------------------------
@@ -26844,8 +26846,12 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person65)
     && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(person65)
     && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person65));
-  check("65.4 5-D 注記の綴りは1件のまま(言い換えも写しも作っていない)",
-    count65(person65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 1);
+  // 【便BC 2026-09-25 本人指示】この注記は重心・HNR の用語の説明(MetricTabs の吹き出し)の一番下へ移った。
+  // 人物シートの本文からは消え、綴りはファイルに1件(TERM_SHARED_NOTE)だけ。言い換えも写しも作っていない。
+  check("65.4 5-D 注記の綴りは1件のまま(便BC で用語の説明へ移った: 人物シートの本文0件・ファイル1件)",
+    count65(person65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 0
+    && count65(screens65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 1
+    && /const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";/.test(screens65));
 
   // --- 65.5 規範(DESIGN-SYSTEM)--------------------------------------------------
   check("65.5 §6.7 が「下から出るシートは開いている間 裏を止める」を表で持つ",
@@ -27239,7 +27245,9 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
   const screens69 = codeOf(screensRaw69);
   const person69 = codeOf(srcOfFn(screensRaw69, "PersonSheet"));
   const NOTE69 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
-  const iNote = person69.indexOf(NOTE69);
+  // 【便BC 2026-09-25 本人指示】揃えの注記(NOTE69)は用語の説明(MetricTabs)へ移った。凡例の直下に残るのは
+  // 「あなたの計測データもお待ちしています」(MINE_WAITING_NOTE)の1行だけなので、並びの主張はその1行で見る。
+  const iNote = person69.indexOf("{MINE_WAITING_NOTE}");
   const iSticky = person69.indexOf('position: "sticky", bottom: 0');
   const iSpacer = person69.indexOf("height: ADOPT_STICKY_SPACER_H");
   const iLegend = person69.indexOf("<Legend series={chart.series} />");
@@ -27251,14 +27259,19 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
   check("69.3 注記はグラフの凡例の**直後**に在る(読む順どおりの場所へ戻した)",
     iLegend > 0 && iLegend < iNote && iNote < iSticky
     // 【便BA】注記の div の中は「自分の線があれば揃えの注記、無ければ『あなたの計測データもお待ちしています』」の出し分け。
-    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*\{chart\.withMine \? "計測環境により/.test(person69),
+    // 【便BC】揃えの注記は用語の説明へ移ったので、凡例の直下は「自分の線が無いときだけ お待ちしています」の1行。
+    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(person69),
     `凡例=${iLegend} / 注記=${iNote}`);
-  check("69.4 人物シートの注記は1件のまま(言い換えも写しも作っていない)",
-    (person69.match(new RegExp(NOTE69, "g")) || []).length === 1,
+  // 【便BC 2026-09-25 本人指示】揃えの注記はグラフの下から消え、重心・HNR の用語の説明(MetricTabs)の
+  // 一番下へ移った。人物シートとみんなの平均カード(以前ここで「目安の個別ページ」と呼んでいた2件目)の
+  // どちらの本文にも無く、綴りはファイルに1件(TERM_SHARED_NOTE)。人物シートは MetricTabs を使う。
+  check("69.4 人物シートの本文に揃えの注記は無い(便BC で用語の説明へ移った)。切り替えは MetricTabs",
+    (person69.match(new RegExp(NOTE69, "g")) || []).length === 0
+    && /<MetricTabs value=\{metric\} onChange=\{setMetric\} \/>/.test(person69),
     `${(person69.match(new RegExp(NOTE69, "g")) || []).length}件`);
-  // 目安の個別ページの同じ注記は**動かしていない**(あちらに貼り付くボタンは無い)。
-  check("69.4 目安の個別ページの注記は触っていない(ファイル全体では2件のまま)",
-    (screens69.match(new RegExp(NOTE69, "g")) || []).length === 2,
+  check("69.4 揃えの注記の綴りはファイル全体で1件(用語の説明の共通の一文 TERM_SHARED_NOTE だけ)",
+    (screens69.match(new RegExp(NOTE69, "g")) || []).length === 1
+    && /const TERM_SHARED_NOTE = "/.test(screens69),
     `${(screens69.match(new RegExp(NOTE69, "g")) || []).length}件`);
   check("69.5 貼り付ける仕組みと寸法・色・影は1つも変えていない(束2・束5 の裁定)",
     /position: "sticky", bottom: 0, zIndex: 1,/.test(person69)
@@ -27405,13 +27418,16 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   {
     const NOTE71 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
     const iLegend = person71.indexOf("<Legend series={chart.series} />");
-    const iNote = person71.indexOf(NOTE71);
+    // 【便BC 2026-09-25 本人指示】揃えの注記(NOTE71)は用語の説明へ移った。凡例の直下に残る1行で見る。
+    const iNote = person71.indexOf("{MINE_WAITING_NOTE}");
     const iSpacer = person71.indexOf("height: ADOPT_STICKY_SPACER_H");
     const iSticky = person71.indexOf('position: "sticky", bottom: 0');
     check("71.3 注記は凡例の**直後**(間に他の要素が挟まっていない)",
       iLegend > 0 && iNote > iLegend
       // 【便BA】注記の div の中は揃えの注記と「あなたの計測データもお待ちしています」の出し分け。
-      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?<div className="sans" style=\{noteStyle\}>\s*\r?\n\s*\{chart\.withMine \? "計測環境により/.test(person71),
+      // 【便BC】揃えの注記は用語の説明へ移り、凡例の直下は「自分の線が無いときだけ お待ちしています」の1行。
+      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(person71)
+      && !person71.includes(NOTE71),
       `凡例=${iLegend} / 注記=${iNote}`);
     check("71.3 注記は貼り付く器より**前**に在る(案2 は取り消した)",
       iSticky > 0 && iNote < iSticky, `注記=${iNote} / 器=${iSticky}`);
@@ -30719,6 +30735,176 @@ console.log("========== 検証88: 便BB ダブルタップの拡大・参加前�
   check("88.3 置き換えた文言(再生の拒否・コミュニティの読み込み失敗)",
     (app88.match(/"端末が再生を許可しませんでした。もう一度お試しください"/g) || []).length === 2
     && /コミュニティを読み込めませんでした。アプリを開き直すと直ることがあります。/.test(app88));
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証89: 便BC 2026-09-25 本人選定(モック ficus-community-looks.html / ficus-block-mock.html)
+//   1 みんなの平均カードは濃紺(.card-accent)+ 白い台紙(モック「C」)
+//   2 重心・HNR の用語の説明(モック「イ. 吹き出し」)。グラフの下の揃えの注記は吹き出しへ移った
+//   3 順位の1〜3位は 44px の帯の中に白い数字(モック「い」)
+//   4 下部タブのアイコン: リード = 斜めのリード / データ = 折れ線と点
+//   5 参加の画面に規約への同意のチェック
+// 振る舞いは jsdom の termTip / agreeGate / rankBand.test.jsx が描いて押して見る。ここは綴りの番人。
+// ============================================================
+console.log("========== 検証89: 便BC 平均カード・用語の説明・順位の帯・下部タブのアイコン・規約の同意 ==========");
+{
+  const scrRaw89 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const scr89 = codeOf(scrRaw89);
+  const data89 = codeOf(srcOfFn(scrRaw89, "DataScreen"));
+  const person89 = codeOf(srcOfFn(scrRaw89, "PersonSheet"));
+  const tabs89 = codeOf(srcOfFn(scrRaw89, "UnderlineTabs"));
+  const mtabs89 = codeOf(srcOfFn(scrRaw89, "MetricTabs"));
+  const rank89 = codeOf(srcOfFn(scrRaw89, "RankRow"));
+  const css89 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const cssCode89 = codeOf(css89);
+  const ds89 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const nav89 = codeOf(srcOfFn(src, "BottomNav"));
+  const commRaw89 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const join89 = codeOf(srcOfFn(commRaw89, "JoinIntro"));
+  const agree89 = codeOf(srcOfFn(commRaw89, "AgreeRow"));
+  const count89 = (t, re) => (t.match(re) || []).length;
+  check("89.0 読む関数を切り出せている(空回りしていない)",
+    data89.length > 2000 && person89.length > 3000 && tabs89.length > 800 && mtabs89.length > 1500
+    && rank89.length > 1500 && nav89.length > 1500 && join89.length > 1200 && agree89.length > 400,
+    `data ${data89.length} / person ${person89.length} / tabs ${tabs89.length} / mtabs ${mtabs89.length} / rank ${rank89.length} / nav ${nav89.length} / join ${join89.length} / agree ${agree89.length}`);
+
+  // --- 89.1 平均カード ------------------------------------------------------------
+  check("89.1 みんなの平均カードは .card-accent(地は index.css の1規則。インラインで地を書かない)",
+    /<div className="card card-accent">/.test(data89) && !/className="card card-accent" style=/.test(data89));
+  // 34.5 は App.jsx だけを数えている(累計カード1枚)。コミュニティの1枚はここで数える。
+  check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚だけ",
+    count89(codeOf(src), /className="card card-accent"/g) === 1 && count89(scr89, /card-accent/g) === 1
+    && count89(data89, /card-accent/g) === 1,
+    `App ${count89(codeOf(src), /className="card card-accent"/g)} / screens ${count89(scr89, /card-accent/g)}`);
+  check("89.1 人物のページのカードは濃紺にしない(PersonSheet に card-accent / onAccent が無い)",
+    !/card-accent|onAccent/.test(person89));
+  check("89.1 見出しと人数は濃紺の上の字(--c-on-accent-dim / 数字は --c-on-accent)",
+    /style=\{\{ \.\.\.eyebrowStyle, color: "var\(--c-on-accent-dim\)" \}\}>みんなの平均/.test(data89)
+    && /style=\{\{ \.\.\.noteStyle, color: "var\(--c-on-accent-dim\)" \}\}>/.test(data89)
+    && /fontWeight: 700, color: "var\(--c-on-accent\)" \}\}>\{avg\.count\}/.test(data89));
+  check("89.1 切り替えより下は白い台紙(--c-surface・--r-1・内側 10px)。グラフ・凡例・0件・エラーは台紙の中",
+    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}>/.test(data89)
+    && (() => {
+      const i = data89.indexOf("<div data-avg-inset"), j = data89.indexOf("<CommunityNoteChart"), k = data89.indexOf("<Empty>{avg.error}</Empty>");
+      const l = data89.indexOf("<Legend series={chart.series} />"), t = data89.indexOf("<MetricTabs");
+      return i > 0 && t > 0 && t < i && j > i && k > i && l > i;
+    })());
+  check("89.1 平均カードの切り替えは MetricTabs の濃紺版(onAccent)",
+    /<MetricTabs value=\{metric\} onChange=\{setMetric\} onAccent active=\{active\} \/>/.test(data89));
+  // 【便BC 審査】横スワイプで裏へ回ったら閉じる。平均カードはページャの 0 番目(データ)なので active は index === 0。
+  check("89.1 平均カードはページャの 0 番目で、active={index === 0} を受け取る",
+    /<SwipePager index=\{index\}[^>]*>[\s\S]{0,700}?<DataScreen [^>]*active=\{index === 0\} \/>[\s\S]{0,200}?<RankScreen /.test(codeOf(commRaw89))
+    && /const SUB_TABS = \[\s*\r?\n\s*\{ key: "data",/.test(commRaw89));
+  // 濃紺の指定を渡さない呼び手(シェアの「見る項目」・人物のページ)の見た目は変わらない。
+  check("89.1 UnderlineTabs: onAccent でないときの字・下線・並びは便BC の前と同じ綴り",
+    /const selColor = onAccent \? "var\(--c-on-accent\)" : "var\(--c-ink\)";/.test(tabs89)
+    && /const offColor = onAccent \? "var\(--c-on-accent-dim\)" : "var\(--c-ink-3\)";/.test(tabs89)
+    && /style=\{\{ display: "flex", alignItems: "center", gap: 0, marginLeft: -10, flexWrap: "wrap" \}\}>/.test(tabs89)
+    && /boxShadow: sel \? `inset 0 -2px 0 0 \$\{selColor\}` : "none",/.test(tabs89));
+  // 【便BC 統括裁定】切り替えの下の区切り線は引かない(本人指示 D-9y / D-30 §7.2 を優先)。トークンも消した。
+  check("89.1 濃紺の上の切り替えにも下の区切り線は無い(--c-on-accent-line はどこにも無い)",
+    !/on-accent-line|data-accent-rule/.test(tabs89 + scr89 + cssCode89)
+    && !/\| `--c-on-accent-line` \|/.test(ds89));
+
+  // --- 89.2 用語の説明 ------------------------------------------------------------
+  const CENTROID89 = "音に含まれる成分が、どの高さに集まっているかを表す値です。高い成分が多いほど値が上がり、明るい音に聞こえます。";
+  const HNR89 = "楽器の響きと、息などの雑音の大きさの比です。高いほど芯のある澄んだ音に聞こえます。";
+  const SHARED89 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
+  check("89.2 文案は本人が選んだ文のまま(重心 / HNR / 共通の一文。どれもファイルに1件)",
+    count89(scr89, new RegExp(CENTROID89, "g")) === 1 && count89(scr89, new RegExp(HNR89, "g")) === 1
+    && count89(scr89, new RegExp(SHARED89, "g")) === 1
+    && scr89.includes(`spectralCentroidHz: "${CENTROID89}"`) && scr89.includes(`hnrDb: "${HNR89}"`)
+    && scr89.includes(`const TERM_SHARED_NOTE = "${SHARED89}";`));
+  check("89.2 用語の説明を持つのは重心と HNR の2つだけ(音程は持たない)",
+    /const TERM_TEXT = \{\s*\r?\n\s*spectralCentroidHz: "[^"]+",\s*\r?\n\s*hnrDb: "[^"]+",\s*\r?\n\};/.test(scr89)
+    && !/pitchCentsSigned: "/.test(scr89));
+  check("89.2 2箇所(平均カード・人物のページ)が同じ MetricTabs を使う。グラフの下に揃えの注記は無い",
+    count89(scr89, /<MetricTabs /g) === 2 && data89.includes("<MetricTabs") && person89.includes("<MetricTabs")
+    && !data89.includes(SHARED89) && !person89.includes(SHARED89)
+    && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
+  check("89.2 「?」は飾り(aria-hidden)で、押すのは選んでいるタブ。読み上げ名に「用語の説明」・aria-expanded",
+    /<span aria-hidden="true" data-term-mark/.test(tabs89)
+    && /aria-label=\{hinted \? `\$\{it\.label\} 用語の説明` : undefined\}/.test(tabs89)
+    && /aria-expanded=\{hinted \? hint\.open : undefined\}/.test(tabs89)
+    && /onClick=\{\(\) => \(hinted \? hint\.onToggle\(\) : onChange\(it\.key\)\)\}/.test(tabs89)
+    && count89(tabs89, /<button/g) === 1);
+  check("89.2 吹き出し: 地 --c-ink・字 --c-on-accent・角丸 --r-2・影は浮かぶ物と同値・暗幕を持たない",
+    /background: "var\(--c-ink\)", color: "var\(--c-on-accent\)", borderRadius: "var\(--r-2\)",/.test(mtabs89)
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(mtabs89)
+    && !/rgba\(15,23,42,0\.28\)|position: "fixed"/.test(mtabs89));
+  // 【便BC 審査】内側は吹き出しとタブのボタンだけ / フォーカスが外へ出たら閉じる / × はタブへフォーカスを戻す /
+  // ページが裏へ回ったら閉じる。振る舞いは termTip.test.jsx が描いて押して見る。
+  check("89.2 閉じ方: 指標が変わる・外を触る・フォーカスが外へ出る・Esc(document で止める)・×(タブへ戻す)・裏へ回る",
+    /useEffect\(\(\) => \{ setOpen\(false\); \}, \[value\]\);/.test(mtabs89)
+    && /useEffect\(\(\) => \{ if \(!active\) setOpen\(false\); \}, \[active\]\);/.test(mtabs89)
+    && /document\.addEventListener\("pointerdown", onDown\);/.test(mtabs89)
+    && /document\.addEventListener\("focusin", onFocus\);/.test(mtabs89)
+    && /t\.closest\('\[role="tab"\]'\)/.test(mtabs89)
+    && /if \(e\.key === "Escape"\) \{ e\.stopPropagation\(\); setOpen\(false\); \}/.test(mtabs89)
+    && /aria-label="用語の説明を閉じる" onClick=\{closeByX\}/.test(mtabs89)
+    && /if \(sel\) sel\.focus\(\);/.test(mtabs89));
+  check("89.2 吹き出しは浮かぶ(absolute・top 100%)。三角は上向き(上へ出て borderBottom だけ塗る)",
+    /position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2,/.test(mtabs89)
+    && /position: "absolute", top: -TERM_ARROW_PX, left: arrowLeft,/.test(mtabs89)
+    && /borderBottom: `\$\{TERM_ARROW_PX\}px solid var\(--c-ink\)`/.test(mtabs89)
+    && !/borderTop:/.test(mtabs89));
+
+  // --- 89.3 順位の帯 --------------------------------------------------------------
+  check("89.3 上位3件の帯は 44px。数字は帯の中(--c-on-accent・1位 --fs-2xl / 2・3位 --fs-xl)",
+    /\.\.\.\(first \? \{ flex: "0 0 44px" \} : \{ flex: "0 0 44px", background: rankColor \?\? "transparent" \}\),/.test(rank89)
+    && /fontSize: first \? "var\(--fs-2xl\)" : "var\(--fs-xl\)",\s*\r?\n\s*color: rankColor \? "var\(--c-on-accent\)" : "var\(--c-ink\)",\s*\r?\n\s*\}\}>\{row\.rank\}<\/span>/.test(rank89));
+  check("89.3 帯の外の数字の列(34px)は無い。4px の帯も残っていない",
+    !/0 0 34px|0 0 4px/.test(rank89) && /\{big \? null : \(/.test(rank89));
+  check("89.3 1位の帯は光のまま(class を名乗るだけ・background の短縮形を書かない)",
+    /className=\{first \? "rank-shine-bar" : undefined\}/.test(rank89)
+    && /first \? \{ flex: "0 0 44px" \} :/.test(rank89));
+
+  // --- 89.4 下部タブのアイコン ------------------------------------------------------
+  check("89.4 リード = 斜めのリード(1.8・translate で中央寄せ・rotate 35)",
+    /strokeWidth="1\.8"[^>]*>\s*\r?\n\s*<g transform="translate\(0\.7 -1\.9\) rotate\(35 12 13\)">\s*\r?\n\s*<path d="M9\.5 22 L9\.5 10 Q9\.5 4\.5 12 4\.5 Q14\.5 4\.5 14\.5 10 L14\.5 22 Z" \/>\s*\r?\n\s*<path d="M9\.5 15 Q12 11\.8 14\.5 15" \/>\s*\r?\n\s*<\/g>/.test(nav89)
+    && !/M9 22 L9 10 Q9 4 12 4/.test(nav89));
+  check("89.4 データ = 折れ線と点(2・基準の線・折れ線・4点に r=1.6 の塗りの丸)",
+    /<line x1="3" y1="20\.5" x2="21" y2="20\.5" \/>/.test(nav89)
+    && /<polyline points="4\.5,16 9\.5,10\.5 14,13\.5 19\.5,6" \/>/.test(nav89)
+    && ["4.5\" cy=\"16", "9.5\" cy=\"10.5", "14\" cy=\"13.5", "19.5\" cy=\"6"].every((p) => nav89.includes(`<circle cx="${p}" r="1.6" fill={c} stroke="none" />`))
+    && !/x1="7" y1="20" x2="7" y2="13"/.test(nav89));
+  check("89.4 計測とコミュニティのアイコンは変えていない",
+    /icon: \(c\) => \(<MeasureIcon color=\{c\} \/>\),/.test(nav89)
+    && /<circle cx="9" cy="8" r="3\.2" \/>/.test(nav89) && /<path d="M15\.5 13\.6 Q20\.5 13\.6 20\.5 18" \/>/.test(nav89));
+
+  // --- 89.5 規約への同意 ------------------------------------------------------------
+  check("89.5 同意の行は導線(規約・ポリシー)の下・参加の一手の上。参加は同意まで disabled・地 --c-disabled",
+    (() => {
+      const a = join89.indexOf('setLegal("privacy")'), b = join89.indexOf("<AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>");
+      const c = join89.indexOf("disabled={busy || !agreed}");
+      return a > 0 && b > a && c > b;
+    })()
+    && /background: agreed \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(join89)
+    && /const \[agreed, setAgreed\] = useState\(false\);/.test(join89)
+    && /if \(!agreed\) return;/.test(join89));
+  check("89.5 同意の箱: ネイティブの checkbox を label が包む(行 --tap-min)・20px・角丸 6・枠 1.5px --c-line-strong・入ると --c-accent",
+    /<label className="sans no-select" style=\{\{\s*\r?\n\s*minHeight: "var\(--tap-min\)"/.test(agree89)
+    && /<input type="checkbox" checked=\{checked\}/.test(agree89)
+    && /const AGREE_BOX_PX = 20;/.test(codeOf(commRaw89)) && /borderRadius: 6,/.test(agree89)
+    && /border: `1\.5px solid \$\{checked \? "var\(--c-accent\)" : "var\(--c-line-strong\)"\}`/.test(agree89)
+    && /background: checked \? "var\(--c-accent\)" : "transparent"/.test(agree89)
+    && /color: "var\(--c-on-accent\)"/.test(agree89));
+  check("89.5 同意は保存しない(localStorage / 永続化の読み書きを JoinIntro・AgreeRow が持たない)",
+    !/localStorage|persist|setDoc|saveProfile/.test(join89 + agree89));
+
+  // --- 89.6 index.css の注記の閉じ方 ------------------------------------------------
+  // 【便BC 実装で踏んだ】既存の注記に行を足すとき、足した行を「*/」で閉じてしまい、元の注記の残りが CSS として
+  // 読まれて **.rank-shine-bar の規則ごと効かなくなった**(1位の帯が白くなり、白い数字が見えなくなった)。
+  // 3ゲートはどれも落ちなかった(検査が注記込みの文字列を見ていた)。注記を外した CSS に「*/」が残らないこと、
+  // 光の規則が規則の境目から始まることを見る。
+  const cssNoComment89 = css89.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("89.6 index.css: 注記を外すと「*/」が1つも残らない(注記の閉じ過ぎ・閉じ忘れが無い)",
+    !/\*\//.test(cssNoComment89) && !/\/\*/.test(cssNoComment89),
+    `*/ ${(cssNoComment89.match(/\*\//g) || []).length}件 / /* ${(cssNoComment89.match(/\/\*/g) || []).length}件`);
+  check("89.6 index.css: 順位の光の規則(.rank-shine-bar / .rank-shine-ring)は注記の外に生きている",
+    /\}\s*\.rank-shine-bar\s*\{\s*background-image: linear-gradient\(/.test(cssNoComment89)
+    && /\}\s*\.rank-shine-ring\s*\{\s*background: conic-gradient\(/.test(cssNoComment89));
   console.log("  -> done");
 }
 

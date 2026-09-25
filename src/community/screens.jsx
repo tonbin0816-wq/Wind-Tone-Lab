@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
@@ -70,30 +70,177 @@ const ADOPT_STICKY_SPACER_H = "calc(var(--tap-min) + var(--sp-3))";
 // 当たり判定 44px / 見えるのは 26px の文字と下線だけ / 選択は inset 0 -2px。
 // **カードの作法では下の罫を引かない**(D-30 §7.2「bordered を渡さない」)。
 // 本人指示「現行アプリと同じ機能は現行に揃える」。
-// ------------------------------------------------------------------
-function UnderlineTabs({ items, value, onChange, label }) {
+//
+// 【便BC 2026-09-25 本人選定 モック「C. 濃紺の中に白い台紙」】onAccent = 濃紺の面(.card-accent)の上。
+// 選んでいる字と下線は --c-on-accent、選んでいない字は --c-on-accent-dim。
+// **onAccent を渡さない呼び手の見た目は 1px も変わらない**(変わるのは色の分岐だけ)。
+// 【便BC 統括裁定】モックにあった切り替えの下の区切り線は引かない(本人指示 D-9y / D-30 §7.2 を優先)。
+//
+// 【便BC 本人選定 モック「イ. 吹き出し」】hint = { keys, open, id, onToggle }。選んでいる指標が keys に
+// 入っていれば、その字の右に小さな「?」の丸を出す(線・currentColor)。**選んでいるタブをもう一度押すと
+// onToggle**(吹き出しの開け閉め)。「?」を別のボタンにすると <button> の入れ子になるので、「?」は飾り
+// (aria-hidden)にして、押す場所はタブそのもの。読み上げには aria-label で「用語の説明」を足し、
+// aria-expanded / aria-controls で吹き出しとつなぐ。
+const HINT_MARK_PX = 18; // 「?」の丸。モック .q の 18px
+function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint = null }) {
+  const selColor = onAccent ? "var(--c-on-accent)" : "var(--c-ink)";
+  const offColor = onAccent ? "var(--c-on-accent-dim)" : "var(--c-ink-3)";
   return (
     <div className="sans" role="tablist" aria-label={label}
       style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -10, flexWrap: "wrap" }}>
       {items.map((it) => {
         const sel = it.key === value;
+        const hinted = Boolean(sel && hint && hint.keys.includes(it.key));
         return (
           <button key={it.key} type="button" role="tab" aria-selected={sel}
-            onClick={() => onChange(it.key)} className="sans"
+            aria-label={hinted ? `${it.label} 用語の説明` : undefined}
+            aria-expanded={hinted ? hint.open : undefined}
+            aria-controls={hinted && hint.open ? hint.id : undefined}
+            onClick={() => (hinted ? hint.onToggle() : onChange(it.key))} className="sans"
             style={{
               minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               padding: "0 10px", background: "none", border: "none", cursor: "pointer",
             }}>
-            <span style={{
+            <span data-tab-face={sel ? "" : undefined} style={{
               display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 2px",
               fontSize: "var(--fs-sm)", fontWeight: 600,
-              color: sel ? "var(--c-ink)" : "var(--c-ink-3)",
-              boxShadow: sel ? "inset 0 -2px 0 0 var(--c-ink)" : "none",
-            }}>{it.label}</span>
+              color: sel ? selColor : offColor,
+              boxShadow: sel ? `inset 0 -2px 0 0 ${selColor}` : "none",
+            }}>
+              {it.label}
+              {hinted ? (
+                <span aria-hidden="true" data-term-mark style={{
+                  width: HINT_MARK_PX, height: HINT_MARK_PX, boxSizing: "border-box", marginLeft: "var(--sp-1)",
+                  borderRadius: "50%", border: "1.5px solid currentColor",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "var(--fs-xs)", fontWeight: 700, lineHeight: 1,
+                }}>?</span>
+              ) : null}
+            </span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// 【便BC 2026-09-25 本人選定 モック「イ. 吹き出し」】重心と HNR の用語の説明。
+// 同じ下線タブ(重心 / HNR / 音程)と同じ注意書きを持つ2箇所 ── みんなの平均カード(DataScreen)と
+// 人物のページのデータ(PersonSheet) ── が、この1つ(MetricTabs)を使う。写しを作らない。
+//   ・選んでいる指標が重心か HNR のときだけ、字の右に「?」。音程では出さない(TERM_TEXT に無い)
+//   ・選んでいるタブをもう一度押すと開く / 閉じる。別のタブを押して指標が変わったら閉じる
+//   ・×・吹き出しの外を触る・Esc でも閉じる。画面は暗くしない(暗幕を持たない)
+// 文案は本人が選んだもの(一字一句このまま。モックの案2)。共通の一文は、以前グラフの下に出していた
+// 注意書き(便BA まで chart.withMine のとき)をここへ移したもの。グラフの下からは消した。
+// ------------------------------------------------------------------
+const TERM_TEXT = {
+  spectralCentroidHz: "音に含まれる成分が、どの高さに集まっているかを表す値です。高い成分が多いほど値が上がり、明るい音に聞こえます。",
+  hnrDb: "楽器の響きと、息などの雑音の大きさの比です。高いほど芯のある澄んだ音に聞こえます。",
+};
+const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
+// 上向きの三角の大きさ。モック .bubble::before の border 7px。
+const TERM_ARROW_PX = 7;
+// 三角を吹き出しの角丸(--r-2 = 12px)の上に載せない。端へ寄るときはここで止める。
+const TERM_ARROW_EDGE_PX = 12;
+
+function MetricTabs({ value, onChange, onAccent = false, active = true }) {
+  const [open, setOpen] = useState(false);
+  const [arrowLeft, setArrowLeft] = useState(TERM_ARROW_EDGE_PX);
+  const boxRef = useRef(null);
+  const tipRef = useRef(null);
+  const tipId = useId();
+  const term = TERM_TEXT[value] ?? null;
+  const metricLabel = (METRICS.find((x) => x.key === value) ?? METRICS[0]).label;
+
+  // 指標が変わったら閉じる(別のタブを押したとき。外から value が変わったときも)。
+  useEffect(() => { setOpen(false); }, [value]);
+  // 【便BC 審査】横スワイプでページが替わったら閉じる(ページャは裏のページも描いたままなので、
+  // 閉じないと裏で開いたまま残る)。active はページャの index から呼び手が渡す。ページャの外(人物のページ)は常に true。
+  useEffect(() => { if (!active) setOpen(false); }, [active]);
+
+  // 【便BC 審査】「内側」とみなすのは吹き出しの要素と、タブ([role=tab])のボタンだけ。
+  // タブ列の外枠で判定すると、「音程」より右の空いた帯を押しても閉じなかった。
+  const isInside = (t) => Boolean(t && t.closest
+    && ((tipRef.current && tipRef.current.contains(t))
+      || (boxRef.current && boxRef.current.contains(t) && t.closest('[role="tab"]'))));
+
+  // 外を触る・フォーカスが外へ出る・Esc で閉じる。開いている間だけ聞く。
+  // 【Esc は document で受けて止める】人物のページは BottomSheet の中にあり、あちらは window の keydown で
+  // シートごと閉じる。document は window より先に届くので、ここで止めれば Esc 1回で閉じるのは吹き出しだけ。
+  // 【focusin】キーボードだけで操作すると、Tab で先へ進んでも吹き出しが裏に開いたまま残り、最初の Esc が
+  // 見えない吹き出しに吸われていた(便BC 審査)。フォーカスが吹き出しとタブの外へ出たら閉じる。
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (!isInside(e.target)) setOpen(false); };
+    const onFocus = (e) => { if (!isInside(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("focusin", onFocus);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // × で閉じたら、フォーカスを選んでいるタブ(開いた場所)へ戻す。body に落とさない(便BC 審査)。
+  const closeByX = () => {
+    setOpen(false);
+    const sel = boxRef.current && boxRef.current.querySelector('[role="tab"][aria-selected="true"]');
+    if (sel) sel.focus();
+  };
+
+  // 三角は「?」の付いたタブ(選んでいる字の器)の真下。吹き出しの横幅は器(この箱)いっぱいで、
+  // 器はカード / シートの中身の幅なので、画面の端から 16px 以上内側に収まる(カードは 30px・シートは 24px)。
+  useLayoutEffect(() => {
+    if (!open || !boxRef.current) return;
+    const face = boxRef.current.querySelector("[data-tab-face]");
+    const box = boxRef.current.getBoundingClientRect();
+    if (!face || !(box.width > 0)) return;
+    const f = face.getBoundingClientRect();
+    const center = f.left + f.width / 2 - box.left;
+    const max = box.width - TERM_ARROW_EDGE_PX - TERM_ARROW_PX * 2;
+    setArrowLeft(Math.max(TERM_ARROW_EDGE_PX, Math.min(max, center - TERM_ARROW_PX)));
+  }, [open, value]);
+
+  return (
+    <div ref={boxRef} style={{ position: "relative" }}>
+      <UnderlineTabs label="見る指標" value={value} onChange={onChange} onAccent={onAccent}
+        items={METRICS.map((x) => ({ key: x.key, label: x.label }))}
+        hint={{ keys: Object.keys(TERM_TEXT), open, id: tipId, onToggle: () => setOpen((o) => !o) }} />
+      {open && term ? (
+        <div ref={tipRef} id={tipId} role="dialog" aria-label={`${metricLabel} 用語の説明`} className="sans" data-term-tip
+          style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2,
+            background: "var(--c-ink)", color: "var(--c-on-accent)", borderRadius: "var(--r-2)",
+            /* 影は既存の浮かぶ物(シート・右下の浮かぶボタン)と同値。新しい濃さを発明しない。 */
+            boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+            padding: "var(--sp-3)", display: "grid", gap: "var(--sp-2)", textAlign: "left",
+          }}>
+          <span aria-hidden="true" data-term-arrow style={{
+            position: "absolute", top: -TERM_ARROW_PX, left: arrowLeft, width: 0, height: 0,
+            borderLeft: `${TERM_ARROW_PX}px solid transparent`, borderRight: `${TERM_ARROW_PX}px solid transparent`,
+            borderBottom: `${TERM_ARROW_PX}px solid var(--c-ink)`,
+          }} />
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+            <div style={{ fontSize: "var(--fs-md)", fontWeight: 700, lineHeight: "var(--lh-base)" }}>{metricLabel}</div>
+            {/* 当たり判定は 44px 角。上と右と下は吹き出しの内側の余白へ食い込ませ、見出しの行を高くしない。 */}
+            <button type="button" aria-label="用語の説明を閉じる" onClick={closeByX} className="sans"
+              style={{
+                minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", flex: "none",
+                margin: "calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) 0",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0,
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--c-on-accent-dim)", fontSize: "var(--fs-md)", lineHeight: 1,
+              }}>×</button>
+          </div>
+          <div style={{ fontSize: "var(--fs-sm)", lineHeight: "var(--lh-loose)" }}>{term}</div>
+          <div style={{ fontSize: "var(--fs-xs)", lineHeight: "var(--lh-loose)", color: "var(--c-on-accent-dim)" }}>{TERM_SHARED_NOTE}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -454,15 +601,21 @@ function RankRow({ row, big = false, mine = false, onTap }) {
   // ・順位の数字は --c-ink に戻した。金 2.59:1 / 銀 2.47:1 は大きな文字の下限 3:1 に
   //   届いておらず、字を大きくしても薄いままだったため(実測)
   // ・1位だけもう一段大きい。**台の高さには頼らない**(本人指示「丸パクリ過ぎる」)
+  // 【便BC 2026-09-25 本人選定 モック「い」で上の2点を更新】帯は 44px になり、数字は帯の中で白
+  // (--c-on-accent)。数字の字を順位の色で塗るのではなく、帯を塗ってその上に白を置く形なので、
+  // 上の「金の字は 3:1 に届かない」には当たらない(比は下の帯の注記)。面(カードの白)は今も塗らない。
   const first = big && row.rank === 1;
+  // 【便BC 2026-09-25 本人選定 モック「い. 帯を太くして順位を入れる」】上位3件の数字は左端の帯の中へ移した
+  // (下の帯の記述)。帯の外にあった数字の列(34px)は上位3件では描かない。4位以下の行は今までどおり。
   const inner = (
     <>
-      <div className="sans" style={{
-        flex: big ? "0 0 34px" : "0 0 1.6em", textAlign: "center", fontWeight: 700,
-        letterSpacing: "-.02em", fontFamily: "var(--font-num)", lineHeight: big ? 1 : undefined,
-        fontSize: big ? (first ? "var(--fs-2xl)" : "var(--fs-xl)") : "var(--fs-sm)",
-        color: big ? "var(--c-ink)" : "var(--c-ink-3)",
-      }}>{row.rank}</div>
+      {big ? null : (
+        <div className="sans" style={{
+          flex: "0 0 1.6em", textAlign: "center", fontWeight: 700,
+          letterSpacing: "-.02em", fontFamily: "var(--font-num)",
+          fontSize: "var(--fs-sm)", color: "var(--c-ink-3)",
+        }}>{row.rank}</div>
+      )}
       {/* 環は面ではなく線。アイコンの外側に出す。
           【1位だけ層を分ける】光る環は conic-gradient なので box-shadow では描けない。
           色の層を 3px 大きく敷き、その上にアイコンを重ねる ──
@@ -524,10 +677,22 @@ function RankRow({ row, big = false, mine = false, onTap }) {
     }}>
       {/* 【1位の帯だけ光る】class は動きと gradient を持つ。
           **background の短縮形をここに書かない** ── 短縮形は background-size を
-          auto へ戻すので、index.css 側の「3倍に伸ばす」が打ち消される(モックで踏んだ)。 */}
-      <span aria-hidden="true"
+          auto へ戻すので、index.css 側の「3倍に伸ばす」が打ち消される(モックで踏んだ)。
+          【便BC 2026-09-25 本人選定 モック「い」】帯を 4px → 44px に広げ、順位の数字を帯の中央へ白で入れる。
+          数字の大きさは今までと同じ(1位 --fs-2xl 28px / 2・3位 --fs-xl 22px・太字 700)。
+          【白い字が読めるか】どちらも WCAG の「大きい文字」(太字 18.66px 以上)に当たるので、求められる比は 3:1。
+          白に対して 金 3.22:1(光の山 = いちばん明るい瞬間)/ 帯の暗い側(光の土台 --c-rank-1-base)4.96:1 /
+          銀 4.00:1 / 銅 5.75:1 ── 4つとも 3:1 以上(比は rankcolor.test.js がトークンから計算し直して確かめる)。
+          アイコンの環・名前・値・カードの白い面はそのまま。 */}
+      <span data-rank-band
             className={first ? "rank-shine-bar" : undefined}
-            style={first ? { flex: "0 0 4px" } : { flex: "0 0 4px", background: rankColor ?? "transparent" }} />
+            style={{
+              ...(first ? { flex: "0 0 44px" } : { flex: "0 0 44px", background: rankColor ?? "transparent" }),
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: "var(--font-num)", fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1,
+              fontSize: first ? "var(--fs-2xl)" : "var(--fs-xl)",
+              color: rankColor ? "var(--c-on-accent)" : "var(--c-ink)",
+            }}>{row.rank}</span>
       <div style={{
         flex: "1 1 0", minWidth: 0, display: "flex", alignItems: "center",
         gap: "var(--sp-3)", padding: "var(--sp-4)",
@@ -973,7 +1138,8 @@ function Legend({ series }) {
 
 // 【便AO 2026-09-24 tuningHz】横軸の実音の音名を引くのに要る(自分の基準ピッチ。
 // CommunityTab が buildMyIdeals に渡しているものと同じ値)。
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz }) {
+// 【便BC 審査】active = ページャでこの画面が表に出ているか。裏へ回ったら用語の説明を閉じる(既定は true)。
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true }) {
   // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
@@ -1026,38 +1192,45 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     <div style={pageStyle}>
       <FilterRow value={filter} onChange={setFilter} saxAny={false} />
 
-      <div className="card">
+      {/* 【便BC 2026-09-25 本人選定 モック「C. 濃紺の中に白い台紙」】このカードの地は My Data の累計カードと
+          同じ濃紺。地は index.css の .surf-card .card.card-accent が持つ(コミュニティは App.jsx で
+          .surf-card の中に描かれるので、累計カードと同じ仕組みがそのまま効く)。影・角丸・padding は他のカードと同じ。
+          濃紺の上に置くのは 見出し・人数・指標の切り替えだけ。**切り替えより下は白い台紙の中**
+          (グラフの線の色は白地の決まりのまま使えるので、1本も変えていない)。 */}
+      <div className="card card-accent">
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
-          <div className="sans jp-label" style={eyebrowStyle}>みんなの平均</div>
+          <div className="sans jp-label" style={{ ...eyebrowStyle, color: "var(--c-on-accent-dim)" }}>みんなの平均</div>
           {avg.error ? null : (
-            <div className="sans" style={noteStyle}>
-              目安を公開している<span style={{ fontFamily: "var(--font-num)", fontWeight: 700 }}>{avg.count}</span>人
+            <div className="sans" style={{ ...noteStyle, color: "var(--c-on-accent-dim)" }}>
+              目安を公開している<span style={{ fontFamily: "var(--font-num)", fontWeight: 700, color: "var(--c-on-accent)" }}>{avg.count}</span>人
             </div>
           )}
         </div>
-        {/* 指標の切替は現行アプリと同じ下線タブ(本人指示) */}
+        {/* 指標の切替は現行アプリと同じ下線タブ(本人指示)。【便BC】濃紺の上の色で描き、重心・HNR の用語の説明を持つ */}
         <div style={{ margin: "10px 0 2px" }}>
-          <UnderlineTabs label="見る指標" value={metric} onChange={setMetric}
-            items={METRICS.map((x) => ({ key: x.key, label: x.label }))} />
+          <MetricTabs value={metric} onChange={setMetric} onAccent active={active} />
         </div>
-        {avg.error ? (
-          <Empty>{avg.error}</Empty>
-        ) : (
-          <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-            {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty>この指標のデータがありません</Empty>}
-            {chart ? <Legend series={chart.series} /> : null}
-            {/* 【この注意書きを消さないこと】平行移動を知らずに見ると、
-                「自分のほうが低い/高い」を絶対値の差だと読んでしまう。
-                【便BA】自分の線を出せないとき(共通の音が 3 音未満・自分の計測が無い)は比べる相手が無いので、
-                代わりに同じ体裁で「あなたの計測データもお待ちしています」の1行。
-                【便BA 再審査】グラフが無い(この指標のデータがありません)ときは、どちらの1行も出さない。 */}
-            {chart ? (
-              <div className="sans" style={bodyNoteStyle}>
-                {chart.withMine ? "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。" : MINE_WAITING_NOTE}
-              </div>
-            ) : null}
-          </div>
-        )}
+        {/* 【便BC】白い台紙。地 --c-surface・角丸 --r-1・内側 10px(モック .inset の値)。 */}
+        <div data-avg-inset style={{ marginTop: "var(--sp-2)", background: "var(--c-surface)", borderRadius: "var(--r-1)", padding: 10 }}>
+          {avg.error ? (
+            <Empty>{avg.error}</Empty>
+          ) : (
+            <div style={{ display: "grid", gap: "var(--sp-2)" }}>
+              {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty>この指標のデータがありません</Empty>}
+              {chart ? <Legend series={chart.series} /> : null}
+              {/* 【便BC 2026-09-25 本人指示】ここにあった「計測環境により値全体が一律にずれるため、…」
+                  (自分の線と重ねているとき)は、重心・HNR の用語の説明の一番下へ移した(MetricTabs)。
+                  平行移動を知らずに見ると差を絶対値の差と読んでしまう、という理由の注意書きなので、
+                  消したのではなく置き場所を替えた。
+                  【便BA】自分の線を出せないとき(共通の音が 3 音未満・自分の計測が無い)は、今までどおり
+                  「あなたの計測データもお待ちしています」の1行を出す。
+                  【便BA 再審査】グラフが無い(この指標のデータがありません)ときは出さない。 */}
+              {chart && !chart.withMine ? (
+                <div className="sans" style={bodyNoteStyle}>{MINE_WAITING_NOTE}</div>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 【見出しを置かない】2026/09/06 本人指示。下の一覧が自分で名乗るので要らない
@@ -1414,8 +1587,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
               <Empty>この楽器の目安はまだ公開されていません</Empty>
             ) : (
               <>
-                <UnderlineTabs label="見る指標" value={metric} onChange={setMetric}
-                  items={METRICS.map((x) => ({ key: x.key, label: x.label }))} />
+                {/* 【便BC 2026-09-25 本人選定】重心・HNR の用語の説明(吹き出し)を持つ切り替え。
+                    みんなの平均カードと同じ部品(MetricTabs)。このシートは白いので濃紺の上の色にはしない。 */}
+                <MetricTabs value={metric} onChange={setMetric} />
                 {/* 【便BA 2026-09-25】以前ここは「合わせられないときは線を出さず文言だけ」だった
                     (絶対値だけ出すと環境の差を実力の差と読ませる、という理由)。本人指示で、その人の線は
                     いつも出す。自分の線が無いので比べる相手が無く、差を読ませることも無い。 */}
@@ -1438,10 +1612,13 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     <div style={{ display: "grid", gap: "var(--sp-2)" }}>
                       <Legend series={chart.series} />
                       {/* 【便BA】自分の線を出せないとき(揃えていない)は「揃えた状態で」は嘘になるので、
-                          同じ体裁で「あなたの計測データもお待ちしています」の1行に置き換える。 */}
-                      <div className="sans" style={noteStyle}>
-                        {chart.withMine ? "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。" : MINE_WAITING_NOTE}
-                      </div>
+                          同じ体裁で「あなたの計測データもお待ちしています」の1行に置き換える。
+                          【便BC 2026-09-25 本人指示】揃えているときの「計測環境により値全体が一律にずれるため、…」は
+                          重心・HNR の用語の説明の一番下へ移した(MetricTabs。みんなの平均カードと同じ)。
+                          ここに残るのは「お待ちしています」の1行だけ。 */}
+                      {chart.withMine ? null : (
+                        <div className="sans" style={noteStyle}>{MINE_WAITING_NOTE}</div>
+                      )}
                     </div>
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>

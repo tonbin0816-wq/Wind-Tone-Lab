@@ -5058,13 +5058,18 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       icon: (c) => (<MeasureIcon color={c} />),
     },
     {
-      // 実際のリード1枚を正面から見たピクトグラム: 先端(チップ)はとがらせず、なだらかな
-      // ドーム状のアーチにする。中央より少し下のヴァンプ(削り部)を表す直線、下は平らな尻(ヒール)。
+      // 【便BC 2026-09-25 本人選定「斜めのリード」】リード1枚を正面から見た形を 35° 傾けたピクトグラム。
+      // 先端(チップ)はなだらかなドーム、下は平らな尻(ヒール)。中央より少し下の削り(ヴァンプ)の境目は
+      // 直線ではなく上へふくらむ弧で描く。translate(0.7 -1.9) は傾けた形の外接枠を 24×24 の中央へ寄せるため
+      // (傾けたままだと中心が (11.2, 13.8) で左下へ寄る)。寄せたあとの外接枠は x 5.5〜18.4 / y 3.8〜19.9
+      // (中心 (11.9, 11.9))、線の太さ 1.8 の半分を足しても x 4.6〜19.3 / y 2.9〜20.8 で枠に収まる(便BC で計算)。
       key: "reeds", label: "リード",
       icon: (c) => (
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 22 L9 10 Q9 4 12 4 Q15 4 15 10 L15 22 Z" />
-          <line x1="9" y1="14" x2="15" y2="14" />
+          <g transform="translate(0.7 -1.9) rotate(35 12 13)">
+            <path d="M9.5 22 L9.5 10 Q9.5 4.5 12 4.5 Q14.5 4.5 14.5 10 L14.5 22 Z" />
+            <path d="M9.5 15 Q12 11.8 14.5 15" />
+          </g>
         </svg>
       ),
     },
@@ -5081,10 +5086,17 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       ),
     },
     {
+      // 【便BC 2026-09-25 本人選定「折れ線と点」】下に基準の線、その上に4点を結ぶ折れ線。点は塗りの丸
+      // (色は線と同じ・線なし)。以前は縦棒3本の棒グラフだった。
       key: "analysis", label: "データ",
       icon: (c) => (
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
-          <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="20.5" x2="21" y2="20.5" />
+          <polyline points="4.5,16 9.5,10.5 14,13.5 19.5,6" />
+          <circle cx="4.5" cy="16" r="1.6" fill={c} stroke="none" />
+          <circle cx="9.5" cy="10.5" r="1.6" fill={c} stroke="none" />
+          <circle cx="14" cy="13.5" r="1.6" fill={c} stroke="none" />
+          <circle cx="19.5" cy="6" r="1.6" fill={c} stroke="none" />
         </svg>
       ),
     },

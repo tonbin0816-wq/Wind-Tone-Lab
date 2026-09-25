@@ -108,7 +108,9 @@ describe("みんなの平均は自分の計測に関係なく出る(便BA)", () 
       expect(Boolean(mineLine())).toBe(aligned);
       expect(legendLabels()).toEqual(aligned ? ["みんなの平均", "自分"] : ["みんなの平均"]);
       expect(host.textContent.includes(WAIT)).toBe(!aligned);
-      expect(host.textContent.includes("揃えた状態で線の形で比較しています")).toBe(aligned);
+      // 【便BC 2026-09-25 本人指示】揃えの注記はグラフの下から消え、重心・HNR の用語の説明(吹き出し)へ移った。
+      // 吹き出しは閉じて描かれるので、揃えていても本文には出ない(開け閉めは termTip.test.jsx)。
+      expect(host.textContent.includes("揃えた状態で線の形で比較しています")).toBe(false);
     });
   }
   it("【便BA 再審査 中2】3音重なる: 平均の線は**自分の高さへ動いている**(共通の音での中央値が自分と一致)。形は平均のまま", async () => {
