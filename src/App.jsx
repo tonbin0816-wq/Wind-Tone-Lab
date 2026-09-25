@@ -5050,7 +5050,7 @@ function MeasureIcon({ size = 30, color = "currentColor" }) {
   );
 }
 
-// 画面下部の固定ナビ。計測/リード/データをアイコンのみで切り替える(ラベルは aria-label)。
+// 画面下部の固定ナビ。計測/リード/コミュニティ/データをアイコンのみで切り替える(ラベルは aria-label)。
 function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
@@ -5069,14 +5069,6 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       ),
     },
     {
-      key: "analysis", label: "データ",
-      icon: (c) => (
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
-          <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
-        </svg>
-      ),
-    },
-    {
       // 人が2人並ぶピクトグラム(手前の1人が大きく、奥にもう1人)。
       key: "community", label: "コミュニティ",
       icon: (c) => (
@@ -5085,6 +5077,14 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
           <path d="M3.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 14.5 20" />
           <circle cx="17" cy="9" r="2.4" />
           <path d="M15.5 13.6 Q20.5 13.6 20.5 18" />
+        </svg>
+      ),
+    },
+    {
+      key: "analysis", label: "データ",
+      icon: (c) => (
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round">
+          <line x1="7" y1="20" x2="7" y2="13" /><line x1="12" y1="20" x2="12" y2="7" /><line x1="17" y1="20" x2="17" y2="11" />
         </svg>
       ),
     },
