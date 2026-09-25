@@ -337,7 +337,8 @@ function buildReed({ readable = false } = {}) {
         backLabel: "&lt; 一覧",
         title: "Vandoren-3",
         titleSuffix: `<span style="display: inline-flex; align-items: center; color: var(--c-ink-3)"><span>#</span><span style="width: 46px; min-height: 44px; display: inline-flex; align-items: center; font-size: 15px; font-weight: 600; color: var(--c-ink-3)">1</span></span>`,
-        meta: ["開封 2026/08/02", "36日", "6 セッション"],
+        // 【便AY 2026-09-25】見出しのメタの先頭に楽器名(実装の reedDetailMetaParts に追随)。
+        meta: ["A.Sax", "開封 2026/08/02", "36日", "6 セッション"],
       })}
 
       <div style="display: flex; align-items: stretch; flex-wrap: nowrap; gap: var(--sp-2)">

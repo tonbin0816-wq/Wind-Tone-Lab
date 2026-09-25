@@ -318,6 +318,19 @@ const code = [
   extractFunction("normalizeRatingHistory"),
   extractFunction("commitReedScores"),
   extractFunction("reedGroupAvgRating"),
+  // 【便AY 2026-09-25 本人指示】箱のキーに楽器種別が入った。reedGroupKey / groupReeds が
+  // 楽器を読む唯一の関数(reedSaxTypeOf)とその語彙(SAX_PRESETS のキー)を**先に**並べる。
+  extractConst("SAX_PRESETS"),
+  extractConst("REED_SAX_TYPE_DEFAULT"),
+  extractFunction("isKnownSaxType"),
+  extractFunction("reedSaxTypeOf"),
+  extractFunction("reedsOfSax"),
+  extractFunction("reedSelectionForSax"),
+  extractFunction("reedSaxInvariantReady"),
+  extractFunction("reedSaxEmptyText"),
+  extractFunction("measureReedEmptyGuide"),
+  extractFunction("backfillReedSaxTypes"),
+  extractFunction("reedBrandGroupKey"),
   // 箱のまとめ方そのもの。F-80/F-82 の「合流する」を実行で確かめるのに要る
   extractFunction("reedGroupKey"),
   extractFunction("reedMemberOrder"),
@@ -505,6 +518,7 @@ const api = new Function(`${code}
            normalizeReedScore, normalizeReedRating, normalizeReedScoreOf, ratingDialOrder, reedScoreText,
            reedHistoryEntry, localDayKey, reedRatingDayKey, normalizeRatingHistory, commitReedScores,
            reedGroupAvgRating, reedGroupKey, groupReeds, reedMemberOrder,
+           SAX_PRESETS, reedSaxTypeOf, reedsOfSax, reedSelectionForSax, reedSaxInvariantReady, measureReedEmptyGuide, backfillReedSaxTypes, reedBrandGroupKey,
            swipePagerEndKind, swipePagerTrackStyle, swipePagerNextIndex, swipePagerInterrupted,
            SWIPE_PAGER_GUTTER, swipePagerTrackTransform,
            ratingDialValueAt, ratingDialOffsetFor, ratingDialScrollIsUser,
@@ -524,6 +538,16 @@ const api = new Function(`${code}
            audioClockStalled, metroCtxNeedsRebuild,
            TAP_TEMPO_RESET_MS, TAP_TEMPO_INTERVALS, tapTempoPush, tapTempoFromTaps,
            tapTempoLiveCount, tapTempoResetInMs };`)();
+
+// 【便AY 2026-09-25 本人指示】箱のキー(reedGroupKey)と銘柄の段のキー(reedBrandGroupKey)が
+// 楽器種別を読むようになった。それらを**単独で切り出して回す**節(26.5 / 76 / 79)が
+// 一緒に評価しなければならない前置き。中身は実ソースの定義そのもの(写しを作らない)。
+const REED_SAX_PRELUDE = [
+  extractConst("SAX_PRESETS"),
+  extractConst("REED_SAX_TYPE_DEFAULT"),
+  extractFunction("isKnownSaxType"),
+  extractFunction("reedSaxTypeOf"),
+].join("\n");
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -8238,7 +8262,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             colorSpans.length === 4, `${colorSpans.length}個`);
           check("M5: 段は 箱=--c-ink(太字) / 厚さ=--c-ink-2 / 日付=--c-ink-3 / 個体#=--c-ink-2",
             colorSpans.length === 4
-            && /color: selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)", fontWeight: selectedReedId \? 600 : 400/.test(colorSpans[0])
+            // 【便AY 2026-09-25(再審査 中2)】今の楽器のリードが0枚なら箱の字は --c-disabled(押せない)。
+            // 基準ピッチのシートの − / ＋ が端で押せないときの既存の作法に従う。それ以外の段は1つも変えていない。
+            && /color: reedEmptyGuide \? "var\(--c-disabled\)" : selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)", fontWeight: selectedReedId \? 600 : 400/.test(colorSpans[0])
             && /color: "var\(--c-ink-2\)"/.test(colorSpans[1])
             && /color: "var\(--c-ink-3\)"/.test(colorSpans[2])
             && /color: selectedReedId \? "var\(--c-ink-2\)" : "var\(--c-line-strong\)"/.test(colorSpans[3]),
@@ -8289,10 +8315,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           && /if \(key\) setSelectedBoxKey\(\(prev\) => \(prev === key \? prev : key\)\);/.test(code));
         // 【便X 2026-09-21】入口が3つ("box" / "reeddate" / "reed")になったので、分岐の綴りを
         // 事実の側へ向け直した。**主張(シートは画面ぶんの枠の外)は1文字も緩めていない。**
+        // 【便AY 2026-09-25(中2)】条件の先頭に !reedEmptyGuide が付いた(0枚なら開かない)。主張は同じ。
         check("M4: ピッカーは上部設定行(.tap-through)の中ではなく、画面ぶんの枠の外に置く",
-          code.indexOf('{(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (') > code.indexOf("{detailOpen && (")
+          code.indexOf('{!reedEmptyGuide && (openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (') > code.indexOf("{detailOpen && (")
           && code.indexOf("{detailOpen && (") > 0,
-          `詳細カード ${code.indexOf("{detailOpen && (")} / リードのシート ${code.indexOf('{(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (')}`);
+          `詳細カード ${code.indexOf("{detailOpen && (")} / リードのシート ${code.indexOf('{!reedEmptyGuide && (openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (')}`);
       }
 
       // --- リード枠の「横方向の間隔」を**集合ごと**突き合わせる ---------------
@@ -8932,7 +8959,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           //   (3) totalCount という綴りが残っていない(前版からの引き継ぎ)
           // **どれも「枚数の表示が無い」ことの十分条件ではない**ので、名前もそう名乗る。
           {
-            const COUNT_EXPR = /\b(?:reeds|members|orderedMembers|g\.members)\.length\b/g;
+            // 【便AY 2026-09-25】一覧の空と案内の条件は「見ている楽器の箱があるか」(reedGroups.length)に
+            // なった。数を描く抜け道が増えないよう、網(1)にも reedGroups を足す。
+            const COUNT_EXPR = /\b(?:reeds|reedGroups|members|orderedMembers|g\.members)\.length\b/g;
             const bad1 = [];
             for (const b of bodies) {
               let m;
@@ -8958,7 +8987,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
               !/totalCount/.test(codeOf(src)),
               (codeOf(src).match(/totalCount[^\n]{0,30}/g) || []).join(" / ") || "0件");
             // 走査が空回りしていないことの裏取り: 正当な比較の用途は実在する
-            const legit = bodies.flatMap((b) => b.body.match(/\b(?:reeds|members)\.length\s*(?:===|!==|>=|<=|>|<)/g) || []);
+            // 【便AY】reedGroups の比較も正当な用途として数える(一覧の空・案内の条件)。
+            const legit = bodies.flatMap((b) => b.body.match(/\b(?:reeds|reedGroups|members)\.length\s*(?:===|!==|>=|<=|>|<)/g) || []);
             check("F-78: 比較の用途は実在する(網1 が何も見ずに通っていない)",
               legit.length >= 3, legit.join(" / "));
           }
@@ -9142,8 +9172,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 【便R 2026-09-20】厚さ・枚数・楽器がピルに戻ったので呼び手は4つ。
         // **緩めていない**: 件数を両側とも釘で留め、コミュニティが REED_STRENGTHS を
         // そのまま渡していること(並びを作り直していないこと)も併せて見る。
-        check("便R ピル行の呼び手は4つ(App の厚さ・枚数・楽器 + コミュニティのプロフィール)",
-          (src.match(/<OptionPills/g) || []).length === 3
+        // 【便AY 2026-09-25 本人指示】箱のシートの一番上に「楽器」の行(同じ OptionPills)が足された。
+        // App の呼び手は 計測タブの楽器・箱のシートの楽器・厚さ・枚数 の4つ。
+        check("便R → 便AY ピル行の呼び手は5つ(App の計測の楽器・箱の楽器・厚さ・枚数 + コミュニティのプロフィール)",
+          (src.match(/<OptionPills/g) || []).length === 4
           && (communitySrc.match(/<OptionPills /g) || []).length === 1
           && /<OptionPills options=\{REED_STRENGTHS\}/.test(communitySrc),
           `App ${(src.match(/<OptionPills/g) || []).length} / community ${(communitySrc.match(/<OptionPills /g) || []).length}`);
@@ -9233,8 +9265,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             check("同じローカル日の 08:00 と 10:00 は同じ開封日(箱が2つに割れない)",
               a === b && a === "2026-08-14", `${a} / ${b}`);
             // reedGroupKey が開封日を含むこと(割れる経路が実在することの裏取り)
-            check("箱のキーは メーカー|番手|開封日(開封日がずれると箱が割れる)",
-              /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
+            // 【便AY 2026-09-25 本人指示】キーの末尾に楽器種別が足された(メーカー|番手|開封日|楽器)。
+            // 主張(開封日を含むので、開封日がずれると箱が割れる)は変わらない。綴りを新しい形へ向け直した。
+            check("箱のキーは メーカー|番手|開封日|楽器(開封日がずれると箱が割れる)",
+              /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}\|\$\{reedSaxTypeOf\(r\)\}`;/.test(src));
           }
         } finally {
           process.env.TZ = tzOrig === undefined ? tzSystem : tzOrig;
@@ -9324,8 +9358,32 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
             moved.length === 2 && api.groupReeds(after).length === 2,
             `${moved.length}枚 / ${api.groupReeds(after).length}箱`);
         }
-        check("F-80/F-82: 箱のキーは メーカー|番手|開封日 のまま(合流の判定がこの3つで決まる)",
-          /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}`;/.test(src));
+        // 【便AY 2026-09-25 本人指示】キーは メーカー|番手|開封日|楽器 になった(E2)。
+        // 合流の判定もキーそのもの(reedGroupKey)で引くので、楽器を含めた4つで決まる。
+        check("F-80/F-82 → 便AY: 箱のキーは メーカー|番手|開封日|楽器(合流の判定がこの4つで決まる)",
+          /return `\$\{r\.brand\}\|\$\{r\.strength\}\|\$\{r\.startDate\}\|\$\{reedSaxTypeOf\(r\)\}`;/.test(src)
+          && /const nextKey = reedGroupKey\(\{ brand, strength, startDate, saxType \}\);/.test(srcOf("ReedRegisterView")));
+        // 【便AY 2026-09-25】楽器だけを変えると箱ごと動き、同じ鍵の箱があれば合流する(E1 / E2)。
+        // **実ソースの updateGroup を走らせて**確かめる(上の (a)〜(d) と同じ仕掛け)。
+        {
+          const two = [
+            { id: "A1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", saxType: "alto", createdAt: "2026-08-13T01:00:00.000Z" },
+            { id: "T1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-13", saxType: "tenor", createdAt: "2026-08-13T01:00:01.000Z" },
+          ];
+          check("便AY: 楽器だけが違う2枚は別の箱(同じ日の Vandoren 3.0 でもアルトとテナーは別)",
+            api.groupReeds(two).length === 2, `${api.groupReeds(two).length}箱`);
+          // テナーの箱が取れないとき(キーから楽器が落ちて1箱に潰れた等)は、例外で検査全体を
+          // 止めずに**この2件を落とす**(集計行まで走り切らせる)。
+          const tenorBox = api.groupReeds(two).find((x) => x.saxType === "tenor");
+          const merged = tenorBox ? api.groupReeds(applyUpdate(tenorBox, { saxType: "alto" }, two)) : [];
+          check("便AY: 箱の編集で楽器をアルトへ変えると、同じ鍵のアルトの箱へ合流する",
+            !!tenorBox && merged.length === 1 && merged[0].members.length === 2 && merged[0].saxType === "alto",
+            tenorBox ? `${merged.length}箱 / ${merged[0]?.members.length}枚 / ${merged[0]?.saxType}` : "テナーの箱が無い");
+          const moved = tenorBox ? applyUpdate(tenorBox, { saxType: "baritone" }, two) : [];
+          check("便AY: 楽器の変更は箱の全員へ書かれ、他の箱は触らない",
+            !!tenorBox && moved.find((r) => r.id === "T1")?.saxType === "baritone" && moved.find((r) => r.id === "A1")?.saxType === "alto",
+            moved.map((r) => `${r.id}:${r.saxType}`).join(",") || "テナーの箱が無い");
+        }
 
         // (e) 【差し戻し②】合流したタイルは**末尾に続く**。
         // 旧実装は値を書き換えるだけで、両方の箱が sortOrder 1..n を持ったまま重なり、
@@ -9388,8 +9446,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
               moved.members.map((m) => m.id).join(","));
           }
           // 並びの規則は groupReeds と合流で**同じ関数**を使う(2箇所に書くと必ず食い違う)
+          // 【便AY 2026-09-25(軽5)で 3 → 5】推定の合流(backfillReedSaxTypes)も updateGroup と同じ
+          // 並びの規則で番号を振り直すので、読み手が2つ増えた(同じ1つの関数を読むだけ)。
           check("F-82: 箱の中の並びの規則は reedMemberOrder 1つ",
-            (codeOf(src).match(/reedMemberOrder/g) || []).length === 3
+            (codeOf(src).match(/reedMemberOrder/g) || []).length === 5
+            && (codeOf(srcOfFn(src, "backfillReedSaxTypes")).match(/\.sort\(reedMemberOrder\)/g) || []).length === 2
             && /g\.members\.sort\(reedMemberOrder\)/.test(src)
             && /\.sort\(reedMemberOrder\);/.test(srcOf("ReedRegisterView")),
             `${(codeOf(src).match(/reedMemberOrder/g) || []).length}箇所`);
@@ -9730,7 +9791,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 足した者が黙って例外へ滑り込む ── いま鉛筆を書き戻せば受け皿が無いので、
         // その枠は下の framed に入り【芯2】で落ちる。件数も下で 1 → 0 に固定する。
         const hasFrame = bd.some((d) => arms(d.value).arms.flatMap(lits).some((x) => frameVisible(d.name, x)));
-        const hasState = /aria-pressed=|aria-expanded=/.test(owner.tag) ||
+        // 【便AY 2026-09-25】リードタブの楽器のチップ(ReedSaxChipRow)は人物紹介の Chip と同じく
+        // role="radio" + aria-checked で状態を持つ。**ラジオの選択も状態**なので数える
+        // (aria-checked を持たない枠は従来どおり落ちる)。
+        const hasState = /aria-pressed=|aria-expanded=|role="radio" aria-checked=/.test(owner.tag) ||
           /className="[^"]*\bctl-state\b/.test(owner.tag);
         if (hasFrame && !hasState) {
           if (MOCK_OUTLINE_ONLY.test(owner.tag)) mockOutline.push(`${lineOf(owner.start)}`);
@@ -10438,8 +10502,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check("D-4: 浮かせるボタンの下に潜らないよう、直前に高さぶんの余白がある",
           /<FloatingActionSpacer \/>\s*\r?\n\s*<FloatingAction/.test(detail));
         // 渡す側: 計測タブのリードを選んでからタブを移す(現行の goToMeasure と同じ2手)
-        check("N-5: ジャンプは「リードを選ぶ → 計測タブへ移る」の2手のまま",
-          /onMeasure=\{\(id\) => \{ setSelectedReedId\(id\); setTopTab\("measure"\); \}\}/.test(src));
+        // 【便AY 2026-09-25 本人指示 D3】「計測へ」は計測タブの楽器もそのリードの楽器にしてから移る。
+        // 2手 → 3手(リードを選ぶ → 楽器をそのリードの楽器に → 計測タブへ移る)。楽器は reedSaxTypeOf で読む。
+        check("N-5 → 便AY: ジャンプは「リードを選ぶ → 楽器をそのリードの楽器に → 計測タブへ移る」",
+          /onMeasure=\{\(id\) => \{ setSelectedReedId\(id\); setSaxType\(reedSaxTypeOf\(reeds\.find\(\(r\) => r\.id === id\)\)\); setTopTab\("measure"\); \}\}/.test(src));
         check("TAP_BUTTON_RESET が minHeight: var(--tap-min) を持つ(削除モードのピルが使う)",
           /const TAP_BUTTON_RESET = \{[\s\S]*?minHeight: "var\(--tap-min\)"/.test(src));
       }
@@ -13684,7 +13750,8 @@ let METRO_SIGS_ALL = [];
     check("M5: 箱と個体の2つのボタンは行の gap を挟まない1つの包みに入っている",
       /<div style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>\s*\r?\n\s*<button\s*\r?\n\s*onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(code));
     check("リード表記の色は箱=--c-ink / 個体=--c-ink-2(--c-accent はアクション専用・§1.4)",
-      /color: selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)"/.test(code) &&
+      // 【便AY(再審査 中2)】箱の字の先頭に「0枚なら --c-disabled」の枝が付いた(箱=--c-ink の主張はそのまま)。
+      /color: reedEmptyGuide \? "var\(--c-disabled\)" : selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)"/.test(code) &&
       /color: selectedReedId \? "var\(--c-ink-2\)" : "var\(--c-line-strong\)"/.test(code));
     // 詳細カードは下端のシェブロンで開閉(現行踏襲)。
     check("詳細カードはシェブロンのトグルで開閉する", /aria-expanded=\{detailOpen\}/.test(code));
@@ -14214,7 +14281,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       (codeOf(src).match(/<FloatingAction\b/g) || []).length === 4
       // 【2026/09/10 本人指示】語を落として絵柄(＋)だけになった。
       && /<FloatingAction\s*\r?\n\s*ariaLabel="リードを追加"/.test(codeOf(src))
-      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src)),
+      // 【便AY 2026-09-25】開く前に登録のシートの楽器を「一覧で選んでいる楽器」へ入れ直す(D5)。
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b/g) || []).length}箇所`);
     // 「リードが0枚のとき出さない」条件を**付けていない**こと(空状態からの唯一の入口)
     check("F-111: 浮かせるボタンに reeds.length の条件が付いていない(0枚でも出る)",
@@ -14893,9 +14961,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 【D-4】開封日は右上の独立した区画ではなく、正典 #15a の**1行メタの先頭**に入った。
     // 書式(yyyy/mm/dd)は reedDetailMetaParts の中で formatYmd から引く。
     // **実行で確かめる**(綴りを写した検査は、書式を変えても綴りが同じなら通ってしまう)。
-    check("開封日は1行メタの先頭に yyyy/mm/dd で出る",
-      api.reedDetailMetaParts("2026-06-10", 74, 4)[0] === "開封 2026/06/10",
-      api.reedDetailMetaParts("2026-06-10", 74, 4)[0]);
+    // 【便AY 2026-09-25 E5】先頭の区画(D-4 で空けていた正典の「Alto」の枠)に楽器名が入った。
+    // 開封日は**楽器名の次**(2番目)。書式の主張(yyyy/mm/dd)は変わらない。
+    check("開封日は1行メタの楽器名の次に yyyy/mm/dd で出る",
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 4)[1] === "開封 2026/06/10",
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 4)[1]);
     // 【D-4 2026/08/22】メモは正典 #15a の**評価カードの中の1行**になった
     // (ラベル「メモ」を左、値を右寄せ、空なら「タップして入力」)。
     // セッション詳細のメモカードと**同じ形**(2画面で読み方が変わらない)。
@@ -14952,21 +15022,34 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
     // 「nセッション · 開封n日」。一覧のタイルから落ちた情報は**1行メタ**が引き取った(正典 #15a)。
     // 【D-4 2026/08/22】1行メタの区画は reedDetailMetaParts が組み立てる。
     // 区切りの「·」は DetailHeader が打つので、この関数は**配列**を返す。
-    check("D-4: 1行メタは reedDetailMetaParts が組み立てる(区切りは画面が打つ)",
-      /const meta = reedDetailMetaParts\(reed\.startDate, usageDays\(new Date\(\), reed\.startDate\), reedSessions\.length\);/.test(detail));
-    check("D-4: 正典 #15a の並び(開封日 → 日数 → セッション数)",
-      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · ") === "開封 2026/06/10 · 74日 · 計測4件",
-      api.reedDetailMetaParts("2026-06-10", 74, 4).join(" · "));
+    // 【便AY 2026-09-25 E5】第1引数に**そのリードの楽器**(reedSax = reedSaxTypeOf(reed))を渡す。
+    // 計測タブの楽器(グローバルの saxType)ではない。
+    check("D-4 → 便AY: 1行メタは reedDetailMetaParts が組み立てる(先頭はそのリードの楽器・区切りは画面が打つ)",
+      /const meta = reedDetailMetaParts\(reedSax, reed\.startDate, usageDays\(new Date\(\), reed\.startDate\), reedSessions\.length\);/.test(detail)
+      && /const reedSax = reedSaxTypeOf\(reed\);/.test(detail));
+    // 【便AY 2026-09-25 E5】正典 #15a の並びは「Alto · 開封 6/10 · 74日 · 4 セッション」。
+    // 空けていた先頭の枠に楽器名(SAX_PRESETS の label)が入り、正典の並びが揃った。
+    check("D-4 → 便AY: 正典 #15a の並び(楽器 → 開封日 → 日数 → セッション数)",
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 4).join(" · ") === "A.Sax · 開封 2026/06/10 · 74日 · 計測4件",
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 4).join(" · "));
+    check("便AY: 楽器名は SAX_PRESETS の label(テナーなら T.Sax。知らない値なら区画ごと出さない)",
+      api.reedDetailMetaParts("tenor", "2026-06-10", 74, 4)[0] === "T.Sax"
+      && api.reedDetailMetaParts("clarinet", "2026-06-10", 74, 4)[0] === "開封 2026/06/10",
+      `${api.reedDetailMetaParts("tenor", "2026-06-10", 74, 4)[0]} / ${api.reedDetailMetaParts("clarinet", "2026-06-10", 74, 4)[0]}`);
     // 【2026/09/10 本人裁定】0件は値であって欠落ではない。「—」ではなく「計測0件」。
     check("D-4: セッションが0件なら「計測0件」(0 は値。「—」にしない)",
-      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · ") === "開封 2026/06/10 · 74日 · 計測0件",
-      api.reedDetailMetaParts("2026-06-10", 74, 0).join(" · "));
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 0).join(" · ") === "A.Sax · 開封 2026/06/10 · 74日 · 計測0件",
+      api.reedDetailMetaParts("alto", "2026-06-10", 74, 0).join(" · "));
     check("D-4: 開封日が未設定なら開封の区画も日数の区画も出さない(穴を作らない)",
-      api.reedDetailMetaParts(null, null, 3).join(" · ") === "計測3件"
-      && api.reedDetailMetaParts(null, null, 0).join(" · ") === "計測0件",
-      `${api.reedDetailMetaParts(null, null, 3).join(" · ")} / ${api.reedDetailMetaParts(null, null, 0).join(" · ")}`);
+      api.reedDetailMetaParts("alto", null, null, 3).join(" · ") === "A.Sax · 計測3件"
+      && api.reedDetailMetaParts("alto", null, null, 0).join(" · ") === "A.Sax · 計測0件",
+      `${api.reedDetailMetaParts("alto", null, null, 3).join(" · ")} / ${api.reedDetailMetaParts("alto", null, null, 0).join(" · ")}`);
     check("D-4: 「測定データ」の見出し語はもう付けない(正典 #15a は値だけを並べる)",
-      !api.reedDetailMetaParts("2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
+      !api.reedDetailMetaParts("alto", "2026-06-10", 74, 4).some((x) => x.includes("測定データ")));
+    // 【便AY 2026-09-25 E5】詳細のグラフの横軸は**そのリードの楽器**で引く(以前はグローバルの saxType = バグ)。
+    check("便AY: 詳細のグラフ(MetricTabCard)の横軸はそのリードの楽器(saxType={reedSax})",
+      /<MetricTabCard\s*\r?\n\s*frames=\{allFrames\} saxType=\{reedSax\}/.test(detail)
+      && !/saxType=\{saxType\}/.test(codeOf(detail)));
     check("評価の推移グラフは残っている", detail.includes("<ReedScoreHistoryChart"));
     // 【R14 2026-09-16 実機の指摘で撤去】ここには正典 #15a の注記「厚さ・バランスは
     // 8/4 の記録から」を作る reedScoreLateStartLabel の検査が6件あった。
@@ -15117,7 +15200,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       /<SwipeBackArea onBack=\{closeReed\} onForward=\{openCompareFromReed\}>/.test(tab));
     check("一覧のスクロール位置の復元は残っている",
       /listScrollYRef\.current = window\.scrollY/.test(tab) && /window\.scrollTo\(0, y\)/.test(tab));
-    check("箱グルーピングは groupReeds のまま", /const reedGroups = groupReeds\(reeds\);/.test(tab));
+    // 【便AY 2026-09-25 本人指示 D5】束ね方は groupReeds のまま。母集団が「見ている楽器のリード」になった。
+    check("箱グルーピングは groupReeds のまま(母集団は見ている楽器のリード = 便AY)",
+      /const reedGroups = groupReeds\(reedsOfSax\(reeds, listSax\)\);/.test(tab));
     // 【便P 2026-09-20 本人指示】「…」を消した。
     // 【AA-2 2026-09-21】モード中の出口も消え、右端は空になった。
     // 【AB-2 2026-09-21 本人指示】編集中の出口「完了」だけが戻った。事実へ向け直す:
@@ -15193,10 +15278,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 【便X 2026-09-21】銘柄が**検索窓の行**になった(▾ の行 2 → 1 + 検索窓の行 1)。
       // 【AA-1 2026-09-21 で 4 → 3】メーカーと銘柄が1つの検索の行に畳まれた(本人指示)。
       // **ダイヤルが1列も無いことは変わっていない。**
-      check("AA-1 追加シートは名札つきの3行(検索の行1 + ピルの行2。ダイヤルは1列も残っていない)",
+      // 【便AY 2026-09-25 本人指示 で 3 → 4】一番上に「楽器」のピルの行が足された。
+      check("AA-1 → 便AY 追加シートは名札つきの4行(検索の行1 + ピルの行3。ダイヤルは1列も残っていない)",
         (codeOf(sheet).match(/<ReedSearchRow/g) || []).length === 1
         && (codeOf(sheet).match(/<ReedSheetPickRow/g) || []).length === 0
-        && (codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
+        && (codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 3
         && !/<RatingDial/.test(codeOf(sheet)),
         `検索の行=${(codeOf(sheet).match(/<ReedSearchRow/g) || []).length} / ピルの行=${(codeOf(sheet).match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length}`);
       // 【便R 後半-後半 2026-09-20】正典ミニを実装に合わせて書き換えた(§6.0「正典が勝つ」)。
@@ -15210,8 +15296,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       const pickLabels25 = [...codeOf(sheet).matchAll(/<ReedSheetPickRow\s+label="([^"]+)"/g)].map((m) => m[1]);
       const searchLabels25 = [...codeOf(sheet).matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
       const pillLabels25 = [...codeOf(sheet).matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
+      // 【便AY 2026-09-25】ピルの名札は 楽器・厚さ・枚数 の3つ(2 → 3)。
       check("便V 突き合わせる名札を実装から取り出せている(空回りしていない)",
-        pickLabels25.length === 0 && searchLabels25.length === 1 && pillLabels25.length === 2
+        pickLabels25.length === 0 && searchLabels25.length === 1 && pillLabels25.length === 3
         && searchLabels25.concat(pillLabels25).every((t) => t.length > 0),
         `▾=${JSON.stringify(pickLabels25)} / 検索窓=${JSON.stringify(searchLabels25)} / ピル=${JSON.stringify(pillLabels25)}`);
       check("AA-1 正典ミニも「検索の行1 + ピルの段2」に書き換えてある(実装だけ先に動かしていない)",
@@ -15223,7 +15310,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
           .every(([lab, val]) => new RegExp(`>${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`).test(mock))
         && !/>厚さ選択</.test(mock)
         // 厚さ・枚数は名札の下のピル。選ばれている値(3.25 / 10)は .selpill.on
-        && [[pillLabels25[0], "3.25"], [pillLabels25[1], "10"]].every(([lab, val]) => {
+        // 【便AY 2026-09-25】一番上の「楽器」も同じ段(選ばれている値は A.Sax)。
+        && [[pillLabels25[0], "A.Sax"], [pillLabels25[1], "3.25"], [pillLabels25[2], "10"]].every(([lab, val]) => {
           const i = mock.indexOf(`>${lab}</span>`);
           if (i < 0) return false;
           const blk = mock.slice(i, mock.indexOf("</div>\n        </div>", i));
@@ -15545,7 +15633,10 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
     check("26.3 副次行はリード短縮形・奏者・録音時間を余白でつなぎ、欠測は区画ごと省く",
       /const subParts = \[reedShortLabel\(reed, reeds\) \?\? "—", s\.performer \|\| null, dur\]\.filter\(Boolean\);/.test(allSessionsPage)
       && /\{subParts\.map\(\(t, i\) => <span key=\{i\}>\{t\}<\/span>\)\}/.test(allSessionsPage)
-      && !/[·・]/.test(codeOf(allSessionsPage)));
+      // 【便AY 2026-09-25 E7 と統括の裁定】リードの絞り込みの**ピルの表示**は `A.Sax · V16-3 #1` と
+      // 楽器名を「·」で添える(選択肢は reedSaxOptionLabel が同じ形を作る)。副次行が「·」を使わない主張は
+      // 変えない ── ピルの表示のその1行だけを除いてから見る。
+      && !/[·・]/.test(codeOf(allSessionsPage).replace("`${SAX_PRESETS[reedSaxTypeOf(r)].label} · ${reedShortLabel(r, reeds)}`", "")));
     check("26.3 ピッチの差分は行から出さない(本人指示)",
       !/pitchCents/.test(codeOf(allSessionsPage)));
     // 【D-1 2026/08/22】一覧が専用ページへ移ったので、その画面では静的なクラス is-full で
@@ -15788,6 +15879,7 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       ${extractFunction("reedStrengthLabel")}
       ${extractFunction("shortBoxHead")}
       ${extractFunction("shortBoxLabel")}
+      ${REED_SAX_PRELUDE}
       ${extractFunction("reedGroupKey")}
       ${extractFunction("reedPosition")}
       ${extractFunction("reedShortLabel")}
@@ -18089,7 +18181,8 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
     check("31.4 使い手は4画面(My Data の取り込み / リードタブの追加 / 個体詳細の計測 / セッション詳細の目安に設定)だけ",
       (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 4
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => uploadInputRef\.current\?\.click\(\)\}/.test(codeOf(src))
-      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setAddOpen\(true\)\}/.test(codeOf(src))
+      // 【便AY 2026-09-25】リードの追加は開く前に楽器を一覧の選択へ入れ直す(行き先は同じ追加シート)。
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setIsOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length}箇所`);
     // D-7 の本題: セッション個別詳細のヘッダ右に目安の入口が**戻っていない**こと。
@@ -18444,11 +18537,16 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
 
   // --- 32.5 条件のチップ行(実行で検証 + 配線) ------------------------------------
   {
+    // 【便AY 2026-09-25】値の表示は pivotValueLabel を通る(リード(個体)は id → 「A.Sax · …」)ので一緒に切り出す。
     const api = new Function(`${extractConst("PIVOT_CHIP_VALUES_MAX")}
       ${extractFunction("formatYmd")}
+      ${extractFunction("pivotValueLabel")}
       ${extractFunction("pivotFilterChipText")}
       return pivotFilterChipText;`)();
     const dimNote = { label: "音名" };
+    check("32.5 便AY 表示が値と違う次元(labelOf を持つ)は、チップにも表示の綴りを出す",
+      api({ values: ["id1"] }, { label: "リード(個体)", labelOf: (v) => `A.Sax · ${v}` }) === "A.Sax · id1",
+      api({ values: ["id1"] }, { label: "リード(個体)", labelOf: (v) => `A.Sax · ${v}` }));
     check("32.5 値を選んでいない条件は次元名だけ(全選択と同じ扱いなので値を書けない)",
       api({ values: [] }, dimNote) === "音名", api({ values: [] }, dimNote));
     check("32.5 値を選んでいれば**値そのもの**を出す(正典 #13a の「Alto」「6ヶ月」)",
@@ -18467,7 +18565,8 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
       api({ dimKey: "reed", values: [] }, null) === "reed", api({ dimKey: "reed", values: [] }, null));
     // 配線: チップは押すと編集が開き、「＋」は条件を足して開く
     check("32.5 チップの文字は pivotFilterChipText の1箇所から出る(畳み方を2箇所に書かない)",
-      /pivotFilterChipText\(flt, PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === flt\.dimKey\)\)/.test(lab32)
+      // 【便AY 2026-09-25】第3引数に pivotCtx(リード(個体)の id を「A.Sax · …」に引くため)。
+      /pivotFilterChipText\(flt, PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === flt\.dimKey\), pivotCtx\)/.test(lab32)
       && (codeOf(lab32).match(/pivotFilterChipText\(/g) || []).length === 1);
     // 【D-14 2026/08/27 本人指示で書き換え】行の右端の「編集 / 閉じる」を消したので、
     // **開く手も閉じる手もチップが持つ**しかない。開くだけだと編集を畳めなくなる
@@ -22426,8 +22525,10 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     // 出し先の div を錨にして、それを包む条件式を捕まえ、**式の中身で**突き合わせる。
     const m = /\{([^{}\n]*?)&& \(\n\s*<div className="sans"[^\n]*>箱を選ぶとリードを選べます<\/div>/.exec(appCode);
     const guardExpr = m ? m[1].trim() : "";
-    check("45 A-4 出す条件は「箱が未選択」だけ",
-      guardExpr === "!selectedBoxGroup", `条件式: ${guardExpr || "(取り出せない)"}`);
+    // 【便AY 2026-09-25(再審査 中2)】今の楽器のリードが0枚のとき(reedEmptyGuide)は出さない ──
+    // 箱が押せないので「箱を選ぶと」は成り立たない。録音中を条件に入れない主張(下)は変えない。
+    check("45 A-4 → 便AY 出す条件は「リードがある楽器で、箱が未選択」だけ",
+      guardExpr === "!reedEmptyGuide && !selectedBoxGroup", `条件式: ${guardExpr || "(取り出せない)"}`);
     check("45 A-4 録音中の disabled には出さない(条件に isRecording を入れない)",
       guardExpr.length > 0 && !/isRecording/.test(guardExpr),
       `条件式: ${guardExpr || "(取り出せない)"}`);
@@ -23307,9 +23408,11 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
     // 【便X 2026-09-21 で ▾ の行 2 → 1】銘柄は検索窓の行になった。
     // 【AA-1 2026-09-21 で ▾ の行 1 → 0】メーカーも銘柄と1つの検索の行(ReedSearchRow)に畳まれた。
     // ピルの行2つ・OptionPills 2つは1つも変わっていない。名札は1つ(「リード」)になった。
-    check("49.2 便R 厚さも枚数も同じ形(行は REED_SHEET_PILL_ROW_STYLE / ピルは OptionPills の1部品)",
-      (sheet49.match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 2
-      && (sheet49.match(/<OptionPills/g) || []).length === 2
+    // 【便AY 2026-09-25 本人指示】一番上に「楽器」の行が**同じ形**(REED_SHEET_PILL_ROW_STYLE + OptionPills)で
+    // 足された。ピルの行・OptionPills は 2 → 3(楽器・厚さ・枚数)。
+    check("49.2 便R → 便AY 楽器も厚さも枚数も同じ形(行は REED_SHEET_PILL_ROW_STYLE / ピルは OptionPills の1部品)",
+      (sheet49.match(/<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) || []).length === 3
+      && (sheet49.match(/<OptionPills/g) || []).length === 3
       && (sheet49.match(/<ReedSheetPickRow/g) || []).length === 0
       && (sheet49.match(/<ReedSearchRow/g) || []).length === 1
       && (sheet49.match(/label="リード"/g) || []).length === 1,
@@ -23438,7 +23541,10 @@ console.log("\n========== 検証49: 便E リードタブと戻るボタン =====
         /model: resolveReedModel\(brand, newModel\),/.test(list49));
       check("49.5 R6 箱の編集も銘柄を全メンバーへ書く(箱の中で銘柄が割れない)",
         /const model = resolveReedModel\(brand, patch\.model \?\? g\.model \?\? null\);/.test(list49)
-        && /return \{ \.\.\.r, brand, model, strength, startDate, sortOrder: rank\.get\(r\.id\) \};/.test(list49));
+        // 【便AY 2026-09-25 E1】楽器(saxType)も同じ1行で全メンバーへ書く。
+        // 【軽8】ただし**実際に変えたときだけ**(saxPatch。変えていなければ各リードの今の値のまま)。
+        && /return \{ \.\.\.r, brand, model, strength, startDate, \.\.\.saxPatch, sortOrder: rank\.get\(r\.id\) \};/.test(list49)
+        && /const saxPatch = patch\.saxType \? \{ saxType \} : \{\};/.test(list49));
     }
     // 表示の規則。**銘柄を持たない既存の記録が1文字も変わらない**ことまで見る。
     {
@@ -25225,8 +25331,10 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // **名札の語と数は1つも変えていない**。綴りの目印だけ label= から >語< へ向け直す。
     // 【AA-1 2026-09-21】メーカーと銘柄の2つの名札は、プロフィールから引いた1語「リード」に
     // 畳まれた(GearPicker の label="リード")。**旧語の不在の主張は1つも緩めていない。**
-    check("59.1 N1 / AA-1 箱のシートの名札は リード / 厚さ / 枚数(旧語「〜選択」は0件)",
+    // 【便AY 2026-09-25 本人指示】一番上に「楽器」の名札が足された(語は計測タブの楽器のシートと同じ)。
+    check("59.1 N1 / AA-1 / 便AY 箱のシートの名札は 楽器 / リード / 厚さ / 枚数(旧語「〜選択」は0件)",
       count59(sheet59, /label="リード"/g) === 1
+      && count59(sheet59, />楽器</g) === 1
       && count59(sheet59, />厚さ</g) === 1
       && count59(sheet59, />枚数</g) === 1
       && count59(sheet59, /label="メーカー"|label="銘柄"/g) === 0
@@ -25245,9 +25353,14 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && /function reedModelOptions\(/.test(app59)
       && /model: resolveReedModel\(brand, newModel\),/.test(app59)
       && /key: "brand",/.test(app59));
-    check("59.1 N1 箱のキーは brand|strength|startDate のまま(保存ずみデータを動かさない)",
+    // 【便AY 2026-09-25 本人指示 E2】箱のキーの末尾に楽器種別が入った(brand|strength|startDate|楽器)。
+    // 識別子 brand / strength / startDate は1文字も変わっていない(N1 の主張はそのまま)。
+    // 楽器を持たない保存ずみのリードは、推定が走るまで alto として読む(E3)。
+    check("59.1 N1 → 便AY 箱のキーは brand|strength|startDate|楽器(楽器を持たない記録は alto として読む)",
       api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" })
-        === "Vandoren|3.0|2026-08-01",
+        === "Vandoren|3.0|2026-08-01|alto"
+      && api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01", saxType: "tenor" })
+        === "Vandoren|3.0|2026-08-01|tenor",
       api.reedGroupKey({ brand: "Vandoren", strength: "3.0", startDate: "2026-08-01" }));
     // 【巻き添えにしない】楽器の組(gear)の語は本人の合意の外。1文字も触っていない。
     // 【便X 2026-09-21 で 14 → 16】gear.js に filterModelsByQuery が増え、注記が「銘柄」を2回使った。
@@ -25271,11 +25384,12 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 【AA-1 2026-09-21 で ▾ の行 1 → 0】メーカーも同じ検索の行(ReedSearchRow)へ畳まれ、
     // 行の部品(ReedSheetPickRow)は読み手ごと消えた。
     // **主張は同じ**: 行はどれも共有の1つで、綴りを行ごとに写していない。
-    check("59.2 N2 行は共有の部品(検索の行1 + ピルの行2)。綴りを行ごとに写していない",
+    // 【便AY 2026-09-25 本人指示】「楽器」の行も同じピルの行(REED_SHEET_PILL_ROW_STYLE + OptionPills)。2 → 3。
+    check("59.2 N2 → 便AY 行は共有の部品(検索の行1 + ピルの行3)。綴りを行ごとに写していない",
       count59(sheet59, /<ReedSearchRow/g) === 1
       && !/ReedSheetPickRow/.test(app59)
-      && count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) === 2
-      && count59(sheet59, /<OptionPills/g) === 2
+      && count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g) === 3
+      && count59(sheet59, /<OptionPills/g) === 3
       && count59(sheet59, /<PickChevron \/>/g) === 0,
       `検索の行=${count59(sheet59, /<ReedSearchRow/g)} / ピルの行=${count59(sheet59, /<div style=\{REED_SHEET_PILL_ROW_STYLE\}>/g)}`);
     // 高さの出どころは**共有の1つ**。行の部品も開封日の行もそこから引く
@@ -25291,7 +25405,8 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     // 行の部品が描く名札は**3つの姿**(自由入力 / 値 / 検索窓)。どれも同じ定数を読むだけ。
     check("59.2 N2 名札の体裁は1箇所(12px / --c-ink-3 / flexShrink:0)",
       /const REED_SHEET_ROW_LABEL_STYLE = \{ fontSize: 12, color: "var\(--c-ink-3\)", flexShrink: 0, minWidth: REED_SHEET_LABEL_W, whiteSpace: "nowrap", textAlign: "left" \};/.test(app59)
-      && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 3
+      // 【便AY 2026-09-25】シート本体の名札に「楽器」が足された(3 → 4)。体裁の綴りは1つのまま。
+      && count59(sheet59, /REED_SHEET_ROW_LABEL_STYLE/g) === 4
       && count59(row59, /REED_SHEET_ROW_LABEL_STYLE/g) === 3);
     check("59.2 N2 値は左寄せで、名札のすぐ右から始まる",
       /flex: 1, textAlign: "left", fontWeight: 700,/.test(row59));
@@ -25392,8 +25507,9 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
     const head594 = sheet59.indexOf("<div style={{ display: \"flex\", gap: \"var(--sp-2)\", marginTop: \"var(--sp-4)\" }}>");
     const row594 = head594 >= 0 ? sheet59.slice(head594, sheet59.indexOf(") : (", head594)) : "";
     const act594 = [...row594.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1]);
+    // 【便AY 2026-09-25】ピルの名札は 楽器・厚さ・枚数 の3つ(2 → 3)。
     check("59.4 正典と突き合わせる語を実装から取り出せている(空回りしていない)",
-      pick594.length === 0 && search594.length === 1 && pill594.length === 2 && act594.length === 1,
+      pick594.length === 0 && search594.length === 1 && pill594.length === 3 && act594.length === 1,
       `▾=${JSON.stringify(pick594)} / 検索窓=${JSON.stringify(search594)} / ピル=${JSON.stringify(pill594)} / 一手=${JSON.stringify(act594)}`);
     // 【AA-1 2026-09-21】▾ の行は実装から消えたので、正典ミニからも消えている。
     check("59.4 正典ミニにも ▾ の行は1つも無い(実装だけ先に動かしていない)",
@@ -25408,8 +25524,11 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
         .every(([lab, val]) => new RegExp(
           `<div style="display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<span style="flex:1;text-align:left;min-width:0"><b>${val}</b></span><span style="color:var\\(--ink3\\)">✕</span>`
         ).test(mock59)));
-    check("59.4 正典ミニの厚さ・枚数は名札の下のピル(高さ44・罫・名札の体裁は据え置き)",
-      [[pill594[0], "3.25"], [pill594[1], "10"]].every(([lab, val]) => new RegExp(
+    // 【便AY 2026-09-25】正典ミニにも一番上に「楽器」のピルの段(選ばれている値 A.Sax)を足した。
+    // 名札は実装から引いた3つ(楽器・厚さ・枚数)を、並びの順に選ばれている値と組にする。
+    check("59.4 → 便AY 正典ミニの楽器・厚さ・枚数は名札の下のピル(高さ44・罫・名札の体裁は据え置き)",
+      pill594.length === 3
+      && [[pill594[0], "A.Sax"], [pill594[1], "3.25"], [pill594[2], "10"]].every(([lab, val]) => new RegExp(
         `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:8px 0;min-height:44px;border-bottom:1px solid var\\(--line\\);font-size:14px">\\s*\\n\\s*<span style="font-size:12px;color:var\\(--ink3\\);flex:none">${lab}</span>\\s*\\n\\s*<div class="selrow" style="justify-content:flex-start">[\\s\\S]{0,600}?<span class="selpill on">${val}</span>`
       ).test(mock59))
       && !/>厚さ選択</.test(mock59));
@@ -26815,8 +26934,9 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     // 【AA-1 2026-09-21 で 6 → 6】▾ の行が消え(−1)、検索の行が**3つの姿**
     // (自由入力 / 値が決まっている / 検索窓)を描くようになった(+1)。
     // **写しは1つも作っていない**: どの箇所も同じ定数を読むだけ。
-    check("66.3 名札の体裁の読み手は6箇所(開封日 / 厚さ / 枚数 / リードの3つの姿)",
-      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 6
+    // 【便AY 2026-09-25 で 6 → 7】箱のシートの一番上に「楽器」の名札が足された(同じ定数を読むだけ)。
+    check("66.3 → 便AY 名札の体裁の読み手は7箇所(楽器 / 開封日 / 厚さ / 枚数 / リードの3つの姿)",
+      count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 7
       && count66(codeOf(srcOfFn(src, "ReedSearchRow")), /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g) === 3,
       `${count66(app66, /style=\{REED_SHEET_ROW_LABEL_STYLE\}/g)}箇所`);
   }
@@ -26923,8 +27043,10 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
   // 【AA-2 2026-09-21】モードが無くなったので、出す条件は枚数1つになった
   // (以前は listMode === null が併せて守っていた)。**体裁は1px も変えていない。**
   {
-    const guide66 = (view66.match(/\{reeds\.length > 0 && \([\s\S]{0,400}?\)\}/) || [""])[0];
-    check("66.7 案内は reeds.length > 0 で守られている(0枚のときは出さない)",
+    // 【便AY 2026-09-25 本人指示 D5】「長押しで編集」は**その楽器の箱が1つ以上あるときだけ**。
+    // 条件は reeds.length(全楽器の枚数)から reedGroups.length(見ている楽器の箱の数)へ移った。
+    const guide66 = (view66.match(/\{reedGroups\.length > 0 && \([\s\S]{0,400}?\)\}/) || [""])[0];
+    check("66.7 → 便AY 案内は reedGroups.length > 0 で守られている(見ている楽器の箱が無いときは出さない)",
       guide66.length > 100 && /長押しで編集/.test(guide66)
       && count66(view66, /長押しで編集/g) === 1,
       guide66.replace(/\s+/g, " ").slice(0, 140) || "取り出せない");
@@ -27595,8 +27717,12 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
     check("73.3 シートの中身は見出し(--fs-xs / --c-ink-3)+ ピル",
       /<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)" \}\}>楽器<\/div>/.test(meas73)
       && /<OptionPills\s+options=\{SAX_TYPE_OPTIONS\} value=\{saxType\}/.test(meas73));
-    check("73.3 1つ押したら選んで閉じる",
-      /onChange=\{\(v\) => \{ setSaxType\(v\); setOpenPicker\(null\); \}\}/.test(meas73));
+    // 【便AY 2026-09-25 本人指示 D2】選ぶ一手は changeSaxType(楽器を替え、別の楽器のリードなら選択を外す)。
+    // 「1つ押したら選んで閉じる」は変わらない。changeSaxType の中が setSaxType を呼ぶことも見る。
+    check("73.3 1つ押したら選んで閉じる(便AY: 選ぶ一手は changeSaxType)",
+      /onChange=\{\(v\) => \{ changeSaxType\(v\); setOpenPicker\(null\); \}\}/.test(meas73)
+      // 【便AY 重1】changeSaxType は次の選択を reedSelectionForSax に決めさせてから楽器を書く。
+      && /const changeSaxType = \(v\) => \{\s*\n\s*const next = reedSelectionForSax\(reeds, selectedReedId, selectedBoxKey, v\);\s*\n\s*setSaxType\(v\);/.test(meas73));
     check("73.3 行のボタンは今のまま(値 + ▾。押せば選択肢が出るのは変わらない)",
       /<button onClick=\{\(\) => setOpenPicker\("sax"\)\}[\s\S]{0,260}?\{SAX_PRESETS\[saxType\]\?\.label\}<PickChevron \/><\/button>/.test(meas73));
     // 選択肢とラベルの出どころは今までどおり(綴りを増やしていない)。
@@ -27608,11 +27734,12 @@ console.log("========== 検証73: 便R ホイールを減らす前半 ==========
       count73(app73, /export function OptionPills\(/g) === 1
       && !/ReedStrengthPills/.test(app73) && !/ReedStrengthPills/.test(comm73),
       (app73.match(/ReedStrengthPills/g) || []).join(" | ") || "0件");
-    check("73.3 その1つを 楽器・厚さ・枚数・コミュニティの4箇所が読む",
+    // 【便AY 2026-09-25 で 4 → 5】箱のシートの一番上に「楽器」のピルが足された(箱のシート 2 → 3)。
+    check("73.3 → 便AY その1つを 楽器(計測)・楽器(箱)・厚さ・枚数・コミュニティの5箇所が読む",
       count73(meas73, /<OptionPills/g) === 1
-      && count73(sheet73, /<OptionPills/g) === 2
+      && count73(sheet73, /<OptionPills/g) === 3
       && count73(comm73, /<OptionPills/g) === 1
-      && count73(app73, /<OptionPills/g) === 3,
+      && count73(app73, /<OptionPills/g) === 4,
       `楽器=${count73(meas73, /<OptionPills/g)} / 箱のシート=${count73(sheet73, /<OptionPills/g)} / コミュニティ=${count73(comm73, /<OptionPills/g)}`);
     // ピルの見た目(A型: 枠 --c-line-strong / 選択中は地 --c-accent・字 --c-on-accent)。
     {
@@ -28148,6 +28275,7 @@ console.log("\n========== 検証76: 便R 後半-後半 リードの段階選択 
 
     // --- 段を飛ばす判定は**実行で**確かめる(綴りだけを見る検査にしない)----------
     const api76 = runFn(() => new Function(`
+      ${REED_SAX_PRELUDE}
       ${extractFunction("reedGroupKey")}
       ${extractFunction("reedMemberOrder")}
       ${extractFunction("groupReeds")}
@@ -28193,9 +28321,10 @@ ${deriv76}
     check("76.2 同じ銘柄で箱が2つなら、銘柄は飛ばして開封日の段から始まる",
       rB.ok && rB.v.step === "date" && rB.v.brands === 1 && rB.v.boxes === 2,
       rB.ok ? JSON.stringify(rB.v) : shownOf(rB));
-    const rB2 = run76(two76, null, "Vandoren|3.0|2026-08-20");
+    // 【便AY 2026-09-25】箱のキー・銘柄の段のキーの末尾に楽器が入った(楽器を持たないリードは alto)。
+    const rB2 = run76(two76, null, "Vandoren|3.0|2026-08-20|alto");
     check("76.2 開封日を選ぶと番号の段へ進む",
-      rB2.ok && rB2.v.step === "member" && rB2.v.box === "Vandoren|3.0|2026-08-20",
+      rB2.ok && rB2.v.step === "member" && rB2.v.box === "Vandoren|3.0|2026-08-20|alto",
       rB2.ok ? JSON.stringify(rB2.v) : shownOf(rB2));
     // (c) 銘柄が2組 → 銘柄の段から始まり、選ぶと(箱が1つなので)番号まで飛ぶ
     const mix76 = [...one76, reed76(4, "D'Addario", "Select Jazz", "3.0", "2026-08-05")];
@@ -28203,13 +28332,13 @@ ${deriv76}
     check("76.2 銘柄が2組なら銘柄の段から始まる",
       rC.ok && rC.v.step === "brand" && rC.v.brands === 2,
       rC.ok ? JSON.stringify(rC.v) : shownOf(rC));
-    const rC2 = run76(mix76, "Vandoren|V16|3.0");
+    const rC2 = run76(mix76, "Vandoren|V16|3.0|alto");
     check("76.2 銘柄を選んだ先の箱が1つなら、開封日を飛ばして番号の段へ",
       rC2.ok && rC2.v.step === "member" && rC2.v.boxes === 1,
       rC2.ok ? JSON.stringify(rC2.v) : shownOf(rC2));
     // (d) 銘柄が2組で、選んだ組の箱が2つ → 開封日の段が出る
     const mix2_76 = [...mix76, reed76(5, "Vandoren", "V16", "3.0", "2026-08-20")];
-    const rD = run76(mix2_76, "Vandoren|V16|3.0");
+    const rD = run76(mix2_76, "Vandoren|V16|3.0|alto");
     check("76.2 銘柄を選んだ先の箱が2つなら開封日の段が出る",
       rD.ok && rD.v.step === "date" && rD.v.boxes === 2,
       rD.ok ? JSON.stringify(rD.v) : shownOf(rD));
@@ -28268,8 +28397,17 @@ ${deriv76}
     // 【便X 2026-09-21 で指紋を打ち直した】本人指示で箱のボタンを2つに割った
     // (点+メーカー+厚さ / 開封日)。**割った後の姿**をここで固定する ── 以後この塊が
     // 1文字でも動けば落ちる。何が動いたかは下の読める主張が言う。
-    check("76.4 塊は便X(開封日を独立させた周)の姿から1文字も変わっていない",
-      fnv76(blk76) === "16ea699e", `fnv1a=${fnv76(blk76)} / 期待=16ea699e`);
+    // 【便AY 2026-09-25 統括の指示(中2)で指紋を打ち直した】今の楽器のリードが1枚も無いときは
+    // 箱のボタンを押せなくする(空のシートを開かない)。変えたのは箱のボタンの **2行だけ**
+    // (disabled に `|| !!reedEmptyGuide`、cursor の条件に `|| reedEmptyGuide`)── 便X の姿との差分を
+    // 行ごとに突き合わせて確かめてから打ち直した。以後この塊が1文字でも動けば落ちる。
+    // 【便AY 再審査(中2)でもう一度打ち直した】押せない箱の字を --c-disabled にした(箱のメーカーの span の
+    // color の1行だけ)。便X の姿との差は、箱のボタンの disabled・cursor・この color の3行 ── 行ごとに突き合わせて確認。
+    check("76.4 → 便AY 塊は便AY(0枚なら箱を押せない・字は --c-disabled)の姿から1文字も変わっていない",
+      fnv76(blk76) === "bd6c12fe", `fnv1a=${fnv76(blk76)} / 期待=bd6c12fe`);
+    check("76.4 便AY 箱のボタンは今の楽器のリードが0枚なら押せない(案内と同じ reedEmptyGuide を読む)",
+      /disabled=\{isRecording \|\| !!reedEmptyGuide\}/.test(blk76)
+      && /cursor: isRecording \|\| reedEmptyGuide \? "default" : "pointer"/.test(blk76));
     // 読める形の主張(指紋が落ちたときに何を直すか分かるように)
     check("76.4 箱のボタンの綴り(読み上げ・押したときの合図)はそのまま",
       /aria-label="リードの箱を選ぶ"/.test(blk76) && /onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(blk76)
@@ -28293,7 +28431,8 @@ ${deriv76}
       && blk76.indexOf("<PickChevron />") > blk76.indexOf('setOpenPicker("reed")'));
     // どちらを押しても同じ1枚が開く。個体は**番号の段から**(箱は既に選ばれている)。
     check("76.4 3つのボタンとも ReedPickSheet を開く(1枚に畳んである)",
-      /\{\(openPicker === "box" \|\| openPicker === "reeddate" \|\| openPicker === "reed"\) && \(\s*\r?\n\s*<ReedPickSheet/.test(app76)
+      // 【便AY 2026-09-25(中2)】今の楽器のリードが0枚なら開かない(!reedEmptyGuide が前に付いた)。
+      /\{!reedEmptyGuide && \(openPicker === "box" \|\| openPicker === "reeddate" \|\| openPicker === "reed"\) && \(\s*\r?\n\s*(?:\{\}\s*)?<ReedPickSheet/.test(app76)
       && count76(codeOf(srcOfFn(src, "MeasureView")), /<ReedPickSheet/g) === 1);
     check("76.4 便X 押した場所がそのまま段になる(箱=銘柄 / 開封日=開封日 / 個体=番号)",
       /entry=\{openPicker === "box" \? "brand" : openPicker === "reeddate" \? "date" : "member"\}/.test(app76)
@@ -28406,12 +28545,18 @@ ${deriv76}
     check("76.7 ミニの枚数のピルは実装の REED_ADD_COUNTS と同じ並び",
       JSON.stringify(pillsOf77("枚数")) === JSON.stringify(api.REED_ADD_COUNTS.map(String)),
       `正典 ${JSON.stringify(pillsOf77("枚数"))} / 実装 ${JSON.stringify(api.REED_ADD_COUNTS)}`);
-    check("76.7 ピルは正典が既に持つ .selrow / .selpill を使う(新しい寸法・色を作らない)",
+    // 【便AY 2026-09-25】ミニの一番上に「楽器」の段が足された。並びは実装の選択肢(SAX_PRESETS のキーの順の label)。
+    check("便AY ミニの楽器のピルは実装の SAX_PRESETS と同じ並び・同じ語(S.Sax 〜 B.Sax)",
+      JSON.stringify(pillsOf77("楽器")) === JSON.stringify(Object.values(api.SAX_PRESETS).map((p) => p.label)),
+      `正典 ${JSON.stringify(pillsOf77("楽器"))} / 実装 ${JSON.stringify(Object.values(api.SAX_PRESETS).map((p) => p.label))}`);
+    // 【便AY 2026-09-25 で 2 → 3】選ばれているピルは 楽器・厚さ・枚数 の段に1つずつ。
+    check("76.7 → 便AY ピルは正典が既に持つ .selrow / .selpill を使う(新しい寸法・色を作らない)",
       /<div class="selrow" style="justify-content:flex-start">/.test(mini77)
-      && (mini77.match(/class="selpill on"/g) || []).length === 2);
+      && (mini77.match(/class="selpill on"/g) || []).length === 3);
     // 実装側の対応(正典と実装が同じ形をしている)
-    check("76.7 実装の厚さ・枚数もピル(OptionPills)のまま",
-      (codeOf(srcOfFn(src, "ReedBoxSheet")).match(/<OptionPills/g) || []).length === 2);
+    // 【便AY 2026-09-25 で 2 → 3】楽器の行も同じ OptionPills。
+    check("76.7 → 便AY 実装の楽器・厚さ・枚数もピル(OptionPills)のまま",
+      (codeOf(srcOfFn(src, "ReedBoxSheet")).match(/<OptionPills/g) || []).length === 3);
   }
   console.log("  -> done");
 }
@@ -28455,7 +28600,11 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
     // 【便X 2026-09-21】銘柄は ▾ の行ではなく検索窓の行になったので、名札の出どころが1つ増えた。
     const search77 = [...sheet77.matchAll(/<ReedSearchRow\s*\r?\n?\s*label="([^"]+)"/g)].map((m) => m[1]);
     const pill77 = [...sheet77.matchAll(/\{REED_SHEET_PILL_ROW_STYLE\}>\s*<span className="sans" style=\{REED_SHEET_ROW_LABEL_STYLE\}>([^<]+)<\/span>/g)].map((m) => m[1]);
-    const labels77 = pick77.concat(search77, pill77);
+    // 【便AY 2026-09-25】名札の並びは**実装の中の位置の順**に並べ直す。「楽器」が検索の行より上に
+    // 来たので、出どころ別に連結しただけ(▾ → 検索 → ピル)では実装の並びにならない。
+    const labels77 = pick77.concat(search77, pill77)
+      .map((lab) => ({ lab, at: Math.max(sheet77.indexOf(`label="${lab}"`), sheet77.indexOf(`>${lab}</span>`)) }))
+      .sort((x, y) => x.at - y.at).map((x) => x.lab);
     // 実装の「編集の下の一手」。isEdit の横並びの中のボタンの語だけを取る。
     const headA77 = sheet77.indexOf('<div style={{ display: "flex", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>');
     const rowA77 = headA77 >= 0 ? sheet77.slice(headA77, sheet77.indexOf(") : (", headA77)) : "";
@@ -28467,16 +28616,18 @@ console.log("\n========== 検証77: 便V 正典との食い違い / 死んだ受
 
     // 【AA-1 2026-09-21 で 4 → 3】メーカーと銘柄が1つの名札「リード」に畳まれた。
     // 【AA-2 2026-09-21 で 一手 2 → 1】編集の下は削除だけになった。
-    check("77.1 健全性: 実装の名札3つ・一手1つ・正典ミニの器を取り出せている(空回りしていない)",
-      labels77.length === 3 && labels77.every((t) => t.length > 0)
+    // 【便AY 2026-09-25 で 3 → 4】「楽器」の名札が一番上に足された。
+    check("77.1 → 便AY 健全性: 実装の名札4つ・一手1つ・正典ミニの器を取り出せている(空回りしていない)",
+      labels77.length === 4 && labels77.every((t) => t.length > 0)
+      && labels77[0] === "楽器"
       && act77.length === 1 && act77.every((t) => t.length > 0)
       && mini77.length > 800,
       `名札=${JSON.stringify(labels77)} / 一手=${JSON.stringify(act77)} / ミニ=${mini77.length}文字`);
 
     // 名札が**実装の綴りのまま**ミニに在る。旧語に戻すとここで落ちる。
     const missing77 = labels77.filter((lab) => count77(mini77, new RegExp(`>${lab}</span>`, "g")) !== 1);
-    check("77.1 正典ミニの名札3つは実装の綴りと同じで、それぞれ1件ずつ",
-      labels77.length === 3 && missing77.length === 0,
+    check("77.1 → 便AY 正典ミニの名札4つは実装の綴りと同じで、それぞれ1件ずつ",
+      labels77.length === 4 && missing77.length === 0,
       missing77.length ? `合わないもの: ${missing77.join(" / ")}` : `${labels77.join(" / ")}`);
     // 並びも実装どおり(メーカー → 銘柄 → 厚さ → 枚数)。
     check("77.1 ミニの名札の並びが実装の並びと同じ",
@@ -28832,6 +28983,7 @@ console.log("\n========== 検証79: 便X 基準ピッチのシート / 押した
     // (b) **段の決まり方を実際に走らせる。** 綴りだけを見る検査にしない。
     //     実装の3行(開き始めの state)と4行(段を決める式)を**そのまま**取り出して回す。
     const api79 = runFn(() => new Function(`
+      ${REED_SAX_PRELUDE}
       ${extractFunction("reedGroupKey")}
       ${extractFunction("reedMemberOrder")}
       ${extractFunction("groupReeds")}
@@ -28879,7 +29031,8 @@ ${deriv79}
     const TWO = [...ONE, reed79(3, "Vandoren", "V16", "3.0", "2026-08-20")];
     const MIX = [...ONE, reed79(4, "D'Addario", "Select Jazz", "3.0", "2026-08-05")];
     const MIX2 = [...MIX, reed79(5, "Vandoren", "V16", "3.0", "2026-08-20")];
-    const K1 = "Vandoren|3.0|2026-08-01";
+    // 【便AY 2026-09-25】キーの末尾に楽器(楽器を持たないリードは alto)。
+    const K1 = "Vandoren|3.0|2026-08-01|alto";
     const CASES = [["箱1つ", ONE], ["同じ銘柄で箱2つ", TWO], ["銘柄2組・各1箱", MIX], ["銘柄2組・片方2箱", MIX2]];
     // (b-1) メーカー/厚さを押した(entry="brand") → **どの場合でも銘柄の段**。
     for (const [lab, all] of CASES) {
@@ -28892,7 +29045,7 @@ ${deriv79}
     for (const [lab, all] of CASES) {
       const r = open79(all, K1, "date");
       check(`79.2 開封日を押したら開封日の段から(${lab})`,
-        r.ok && r.v.step === "date" && r.v.pickedBoxKey === null && r.v.brandKey === "Vandoren|V16|3.0",
+        r.ok && r.v.step === "date" && r.v.pickedBoxKey === null && r.v.brandKey === "Vandoren|V16|3.0|alto",
         r.ok ? JSON.stringify(r.v) : shownOf(r));
     }
     // (b-3) 個体(#n)を押した(entry="member") → **どの場合でも番号の段**(今までどおり)。
@@ -29242,9 +29395,11 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
     check("81.1 ✕ で外すと両方が同時に外れる(片方だけ残る経路が無い)",
       count81(row81, /onPick\(null\)/g) === 2 && !/setModel\(null\)\s*\}\s*else/.test(sheet81));
     // (e) **保存される形は1文字も変わっていない。** 実際に走らせて確かめる。
-    check("81.1 箱のキーは メーカー|番手|開封日 のまま(銘柄はキーに入らない)",
+    // 【便AY 2026-09-25 本人指示 E2】キーの末尾に楽器種別が入った(楽器を持たない記録は alto)。
+    // 本題の「銘柄はキーに入らない」は変わらない。
+    check("81.1 → 便AY 箱のキーは メーカー|番手|開封日|楽器(銘柄はキーに入らない)",
       api.reedGroupKey({ brand: "Vandoren", model: "V16", strength: "3.0", startDate: "2026-08-01" })
-        === "Vandoren|3.0|2026-08-01"
+        === "Vandoren|3.0|2026-08-01|alto"
       && api.reedGroupKey({ brand: "Vandoren", model: "Java", strength: "3.0", startDate: "2026-08-01" })
         === api.reedGroupKey({ brand: "Vandoren", model: null, strength: "3.0", startDate: "2026-08-01" }),
       api.reedGroupKey({ brand: "Vandoren", model: "V16", strength: "3.0", startDate: "2026-08-01" }));
@@ -29552,10 +29707,12 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
     check("81.5 文言は「長押しで編集」ただ1つ",
       count81(app81, /長押しで編集/g) === 1 && !/長押しで並び替え/.test(app81),
       (app81.match(/長押しで[^<\s]*/g) || []).join(" / "));
+    // 【便AY 2026-09-25 本人指示 D5】条件は「見ている楽器の箱が1つ以上」(reedGroups.length)。体裁は同値のまま。
     check("81.5 体裁は便O のときと同値(新しい値を作っていない)",
-      /\{reeds\.length > 0 && \(\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)" \}\}>\s*\r?\n\s*長押しで編集/.test(view81));
-    check("81.5 出す条件はリードが1枚以上(0枚のときは出さない)",
-      /\{reeds\.length > 0 && \(/.test(view81) && count81(view81, /\{reeds\.length > 0 && \(/g) === 1);
+      /\{reedGroups\.length > 0 && \(\s*\r?\n\s*<div className="sans" style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", textAlign: "center", paddingTop: "var\(--sp-2\)" \}\}>\s*\r?\n\s*長押しで編集/.test(view81));
+    check("81.5 → 便AY 出す条件は見ている楽器の箱が1つ以上(無いときは出さない)",
+      /\{reedGroups\.length > 0 && \(/.test(view81) && count81(view81, /\{reedGroups\.length > 0 && \(/g) === 1
+      && count81(view81, /\{reeds\.length > 0 && \(/g) === 0);
     check("81.5 / 便AF 正典の登録の説明も揺れとカードタップに揃っている(実装だけ先に動かしていない)",
       (() => {
         const m81 = readFileSync(join(__dirname, "..", "design", "north-star-measure.html"), "utf8");
@@ -29948,8 +30105,10 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       && count83(app83, /onPencilTap/g) === 0
       && count83(app83, /onTileTap=/g) === 1,
       `onTileTap=${count83(app83, /onTileTap=/g)} / onPencilTap=${count83(app83, /onPencilTap/g)}`);
-    check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ)",
-      /onClick=\{\(\) => setAddOpen\(true\)\}/.test(view83)
+    // 【便AY 2026-09-25】開く前に登録のシートの楽器を一覧の選択へ入れ直す一手だけが増えた(D5)。
+    // 編集を終わらせる一手は増えていない(下の2つめの条件)。
+    check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ。便AY: 楽器の初期値を入れ直す)",
+      /onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(view83)
       && !/ariaLabel="リードを追加"[\s\S]{0,200}onExitEditing/.test(view83));
     check("83.2 **stopPropagation を新しく増やしていない**(一覧・タイルとも0件)",
       count83(view83, /stopPropagation/g) === 0 && count83(grid83, /stopPropagation/g) === 0,
@@ -30144,6 +30303,192 @@ console.log("========== 検証84: 温めが返らなくても画面は出る ===
     `));
     check("84.6 上限の値は 1500ms(起動の体感を壊さない範囲)",
       raced.ok && raced.v.ms === 1500, shownOf(raced));
+  }
+  console.log("  -> done");
+}
+
+// ============================================================
+// 検証85: 便AY リードに楽器種別を入れる(F-87)── 配線の錨
+//   凍結仕様 docs/superpowers/specs/2026-09-25-reed-saxtype.md の D1〜D5 / E1〜E7。
+//   **振る舞い**(推定・箱の鍵・絞り込みの判定・チップ・登録シート・付け直すシート)は
+//   src/reedSaxType.test.jsx が実物を走らせて・描いて押して確かめる。
+//   ここは**描くには重すぎる画面の配線**を、呼び出しに隣接する綴りで固定する(罠の目録 2)。
+//   【十分条件ではない】綴りが正しくても、描いたときに値が届くことまでは言っていない
+//   (計測タブはマイク・メトロノーム一式が要るので jsdom で描いていない)。
+// ============================================================
+console.log("========== 検証85: 便AY リードの楽器種別 ── 配線の錨 ==========");
+{
+  const app85 = codeOf(src);
+  const meas85 = codeOf(srcOfFn(src, "MeasureView"));
+  const tab85 = codeOf(srcOfFn(src, "ReedsTab"));
+  const cmp85 = codeOf(srcOfFn(src, "ReedCompareTab"));
+  const edit85 = codeOf(srcOfFn(src, "SessionEditSheet"));
+  const sdv85 = codeOf(srcOfFn(src, "SessionDetailView"));
+  const all85 = codeOf(srcOfFn(src, "AllSessionsPage"));
+
+  // E4: 推定は計測の読み込みが終わってから・変わったときだけ書く
+  // 【2026-09-25 統括の裁定(懸念2)】門は「読み込みが**成功**した」(status === "ready")。
+  // 読み込み中("loading")・失敗("error")の枝では推定しない・書かない。
+  check("85.1 E4 推定は sessionsStatus が \"ready\" のときだけ走る(読み込み前・失敗の空の sessions で全部 alto にしない)",
+    /useEffect\(\(\) => \{\s*\n\s*if \(sessionsStatus !== "ready"\) return;\s*\n\s*if \(backfillReedSaxTypes\(reeds, sessions\) === reeds\) return;\s*\n\s*setReeds\(\(prev\) => backfillReedSaxTypes\(prev, sessions\)\);\s*\n\s*\}, \[sessionsStatus, reeds, sessions, setReeds\]\);/.test(app85)
+    && (app85.match(/backfillReedSaxTypes\(/g) || []).length === 3
+    // 【便AY 審査の差し戻し】推定は useReedSaxBackfill に出した(描いて走らせる検査のため)。App はそれを1回だけ呼ぶ。
+    && (app85.match(/useReedSaxBackfill\(sessionsStatus, reeds, sessions, setReeds\);/g) || []).length === 1);
+  // 【重1 2026-09-25 統括の指示】楽器とリードの食い違いを塞ぐ不変条件は App の1箇所。
+  // 【再審査 軽4 / 軽5】門は「保存から読み込み済み(楽器・リード一覧・選んでいるリード)」と「楽器なしが残っていない」。
+  // 計測の読み込みの状態(sessionsStatus)は渡さない(全部のリードが楽器を持つなら待たない)。
+  check("85.1 重1 不変条件は App が1回だけ呼び、選んでいる箱も App が持つ",
+    (app85.match(/useReedSaxInvariant\(\{\s*\n\s*persistedLoaded: saxTypeLoaded && reedsLoaded && selectedReedIdLoaded,\s*\n\s*reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,\s*\n\s*\}\);/g) || []).length === 1
+    && /const \[saxType, setSaxType, saxTypeLoaded\] = usePersistedState\("saxType", "alto"\);/.test(app85)
+    && /const \[reeds, setReeds, reedsLoaded\] = usePersistedState\("reeds", \[\]\);/.test(app85)
+    && /const \[selectedReedId, setSelectedReedId, selectedReedIdLoaded\] = usePersistedState\("selectedReedId", null\);/.test(app85)
+    && /return !!persistedLoaded && \(reeds \|\| \[\]\)\.every\(\(r\) => isKnownSaxType\(r\?\.saxType\)\);/.test(codeOf(srcOfFn(src, "reedSaxInvariantReady")))
+    && (app85.match(/const \[selectedBoxKey, setSelectedBoxKey\] = useState\(/g) || []).length === 1
+    && /selectedBoxKey=\{selectedBoxKey\} setSelectedBoxKey=\{setSelectedBoxKey\}/.test(app85)
+    && /if \(!reedSaxInvariantReady\(persistedLoaded, reeds\)\) return;\s*\n\s*const next = reedSelectionForSax\(reeds, selectedReedId, selectedBoxKey, saxType\);\s*\n\s*setSelectedReedId\(next\.reedId\);\s*\n\s*setSelectedBoxKey\(next\.boxKey\);/.test(codeOf(srcOfFn(src, "useReedSaxInvariant"))));
+  {
+    const store85 = codeOf(srcOfFn(src, "useSessionsStore"));
+    const load85 = codeOf(srcOfFn(src, "idbGetAllSessions"));
+    check("85.1 E4 読み込みの結果は useSessionsStore が state で返す(\"loading\" で始まり、then の中で決める)",
+      /const \[status, setStatus\] = useState\("loading"\);/.test(store85)
+      && /setSessionsState\(migrated\);\s*\n\s*loadedRef\.current = true;\s*\n\s*setStatus\(failed \? "error" : "ready"\);/.test(store85)
+      && /return \[sessions, addSession, updateSessions, deleteSessions, restoreSessions, status\];/.test(store85)
+      && /const \[sessions, addSession, updateSessions, deleteSessions, restoreSessions, sessionsStatus\] = useSessionsStore\(\);/.test(app85));
+    check("85.1 懸念2 読み込みの失敗は \"error\" になる(失敗の口を渡し、catch の枝がそれを呼ぶ)",
+      // 【便AY 審査の差し戻し】読み込みの口は引数 loadAll(既定は idbGetAllSessions)。検査が作り物を渡せる形。
+      /function useSessionsStore\(loadAll = idbGetAllSessions\)/.test(src)
+      && /let failed = false;\s*\n\s*loadAll\(\(\) => \{ failed = true; \}\)\.then\(/.test(store85)
+      && /\} catch \{\s*\n\s*onFail\?\.\(\);\s*\n\s*return \[\];/.test(load85)
+      && (store85.match(/setStatus\(/g) || []).length === 1
+      && !/setStatus\("ready"\)/.test(store85));
+  }
+  // 【再審査 軽5】usePersistedState は読み込み済みかを3つ目の値で返す。書き込みの門(loadedRef)と同じ瞬間に立つ。
+  {
+    const hook85 = codeOf(srcOfFn(src, "usePersistedState"));
+    check("85.1 軽5 usePersistedState は読み込み済みかを返す(温まっていれば最初から、読めたら loadedRef と一緒に立つ)",
+      /const \[loaded, setLoaded\] = useState\(\(\) => persistedStateCache\.has\(key\)\);/.test(hook85)
+      && /loadedRef\.current = true;\s*\n\s*setLoaded\(true\);/.test(hook85)
+      && /return \[state, setState, loaded\];/.test(hook85));
+  }
+  // E4 を実行で: 変更が無ければ同じ参照・推定は多数決(細かい場合分けは vitest)
+  {
+    const same = [{ id: "r1", saxType: "tenor" }];
+    const est = api.backfillReedSaxTypes([{ id: "r1" }], [
+      { reedId: "r1", saxType: "tenor", recordedAt: "2026-09-01" },
+      { reedId: "r1", saxType: "tenor", recordedAt: "2026-09-02" },
+      { reedId: "r1", saxType: "alto", recordedAt: "2026-09-03" },
+    ]);
+    check("85.1 E4 実行: 変更なしは同じ配列 / 多数決でテナー",
+      api.backfillReedSaxTypes(same, []) === same && est[0].saxType === "tenor",
+      `${est[0].saxType}`);
+    // 【2026-09-25 統括の裁定】推定は箱ごと。同じ箱(古い鍵が同じ)の片方にだけテナーの計測 → 2枚ともテナー。
+    const box85 = [
+      { id: "b1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01", createdAt: "2026-08-01T01:00:00Z" },
+      { id: "b2", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01", createdAt: "2026-08-01T01:00:01Z" },
+    ];
+    const est2 = api.backfillReedSaxTypes(box85, [{ reedId: "b1", saxType: "tenor", recordedAt: "2026-09-01" }]);
+    check("85.1 裁定 実行: 推定は箱ごと(計測の無い仲間も同じ楽器・箱は割れない)",
+      est2.every((r) => r.saxType === "tenor") && api.groupReeds(est2).length === 1,
+      est2.map((r) => `${r.id}:${r.saxType}`).join(","));
+  }
+
+  // D2: 計測タブの候補と、楽器を替えたときの選択
+  check("85.2 D2 計測タブのリード選び(ReedPickSheet)の母集団はいまの楽器のリードだけ",
+    /const reedsForSax = reedsOfSax\(reeds, saxType\);/.test(meas85)
+    && /<ReedPickSheet\s*\n\s*reeds=\{reedsForSax\} sessions=\{sessions\}/.test(meas85)
+    && !/<ReedPickSheet\s*\n\s*reeds=\{reeds\}/.test(meas85));
+  // 【便AY 重1】分岐は reedSelectionForSax の中だけ。changeSaxType は返った2つを**分岐せずに**書く。
+  check("85.2 D2 楽器のシートは changeSaxType を通る(別の楽器のリードなら選択と箱を外す)",
+    /const changeSaxType = \(v\) => \{\s*\n\s*const next = reedSelectionForSax\(reeds, selectedReedId, selectedBoxKey, v\);\s*\n\s*setSaxType\(v\);\s*\n\s*setSelectedReedId\(next\.reedId\);\s*\n\s*setSelectedBoxKey\(next\.boxKey\);\s*\n\s*\};/.test(meas85)
+    && (meas85.match(/setSaxType\(/g) || []).length === 1
+    && !/useState\(\(\) => \(selectedReed \?/.test(meas85));
+  // 【中2 2026-09-25】今の楽器のリードが0枚: 案内とシートの条件は同じ reedEmptyGuide。
+  check("85.2 中2 案内とシートの条件は「今の楽器のリードの数」(reedEmptyGuide 1つ)",
+    /const reedEmptyGuide = measureReedEmptyGuide\(saxType, reedsForSax\.length\);/.test(meas85)
+    && /\{reedEmptyGuide && \(\s*\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", marginBottom: "var\(--sp-1\)" \}\}>\s*\n\s*<div>\{reedEmptyGuide\}<\/div>\s*\n\s*<div>「リード」タブでリードを登録できます<\/div>/.test(meas85)
+    && /\{!reedEmptyGuide && \(openPicker === "box"/.test(meas85)
+    && !/reeds\.length === 0\) && \(/.test(meas85));
+
+  // D3: 計測へ
+  check("85.3 D3 「計測へ」は計測タブの楽器をそのリードの楽器にする(ReedsTab が setSaxType を受け取る)",
+    /saxType=\{saxType\} setSaxType=\{setSaxType\} tuningHz=\{effectiveTuningHz\}/.test(app85)
+    && /setSaxType\(reedSaxTypeOf\(reeds\.find\(\(r\) => r\.id === id\)\)\)/.test(tab85));
+
+  // D4 / D5: 一覧と比較は同じ1つの選択を読む
+  check("85.4 D5 チップの行は子タブの行の下に1つだけ。最初は計測タブの楽器・保存しない(useState)",
+    /const \[listSax, setListSax\] = useState\(saxType\);/.test(tab85)
+    && (tab85.match(/<ReedSaxChipRow /g) || []).length === 1
+    // (間の JSX コメントは codeOf が剥がして `{}` だけが残る)
+    && /<\/SubTabs>\s*(?:\{\}\s*)?<ReedSaxChipRow value=\{listSax\} onPick=\{setListSax\} \/>\s*(?:\{\}\s*)?<SwipePager/.test(tab85)
+    && !/usePersistedState\("[^"]*[Ss]ax/.test(tab85));
+  check("85.4 D4 比較は選んだ楽器のリードだけ・横軸もその楽器(saxType={listSax})",
+    /<ReedCompareTab [^\n]*saxType=\{listSax\}/.test(tab85)
+    && /const saxReeds = reedsOfSax\(reeds, saxType\);/.test(cmp85)
+    && /\{groupReeds\(saxReeds\)\.map\(/.test(cmp85)
+    && /\.map\(\(id\) => saxReeds\.find\(\(r\) => r\.id === id\)\)/.test(cmp85)
+    && /saxType=\{saxType\}/.test(cmp85));
+  {
+    const chip85 = codeOf(srcOfFn(src, "ReedSaxChipRow"));
+    const screens85 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+    const chipSrc85 = srcOfFn(screens85, "Chip");
+    // 見た目の正は screens.jsx の Chip。**あちらの綴りから値を引いて**突き合わせる(写しの drift を見る)。
+    const want85 = [
+      'minHeight: "var(--tap-min)"', "minHeight: 30", 'padding: "0 13px"', 'borderRadius: "var(--r-pill)"',
+      'fontSize: "var(--fs-xs)", fontWeight: 600', '"var(--c-accent)"', '"var(--c-line-strong)"', '"var(--c-ink-2)"',
+    ];
+    check("85.4 D5 チップの見た目は人物紹介の Chip と同じ値(あちらの綴りにも在る値だけを使う)",
+      want85.every((w) => chipSrc85.includes(w) && chip85.includes(w))
+      && /flex: "1 1 0"/.test(chip85) && /gap: "var\(--sp-1\)"/.test(chip85),
+      want85.filter((w) => !(chipSrc85.includes(w) && chip85.includes(w))).join(" / ") || "全部一致");
+    check("85.4 D5 チップは押せない状態(disabled / 枠なしの off)を持たない(本人「4つとも押せる」)",
+      !/disabled/.test(chip85) && !/transparent/.test(chip85) && /role="radio" aria-checked=\{on\}/.test(chip85));
+    check("85.4 D5 App.jsx は screens.jsx を import しない(循環を作らない)",
+      !/from "\.\/community\/screens\.jsx"/.test(src));
+  }
+
+  // E6: 付け直すシート
+  check("85.5 E6 付け直すシートの候補はその計測の楽器のリードだけ",
+    /<ReedPickSheet\s*\n\s*reeds=\{reedsOfSax\(reeds, saxType\)\} sessions=\{sessions\}/.test(edit85)
+    && /saxType=\{isKnownSaxType\(session\.saxType\) \? session\.saxType : saxType\}/.test(sdv85)
+    && /<SessionDetailView[\s\S]{0,600}?saxType=\{saxType\}/.test(codeOf(srcOfFn(src, "AnalysisLabView"))));
+  check("85.5 E6 枠の表示は全リードから引く(すでに付いている別の楽器のリードを外さない)",
+    /const reed = reeds\.find\(\(r\) => r\.id === reedId\) \|\| null;/.test(edit85));
+
+  // E7: すべてのセッションのリードの絞り込み
+  // 【便AY 統括の裁定】選択肢の綴りは reedSaxOptionLabel(分析のリード(個体)と同じ1つ)。ピルの表示にも添える。
+  check("85.6 E7 リードの絞り込みの選択肢とピルに楽器名を添える(A.Sax · …)",
+    /\.\.\.reeds\.map\(\(r\) => \(\{ key: r\.id, label: reedSaxOptionLabel\(r, reeds\) \}\)\),/.test(all85)
+    && /return `\$\{SAX_PRESETS\[reedSaxTypeOf\(r\)\]\.label\} · \$\{reedLabel\(r, reeds\)\}`;/.test(codeOf(srcOfFn(src, "reedSaxOptionLabel")))
+    && /return r \? `\$\{SAX_PRESETS\[reedSaxTypeOf\(r\)\]\.label\} · \$\{reedShortLabel\(r, reeds\)\}` : "リード";/.test(all85));
+  // 【便AY 統括の裁定(E8)】ピボットのリード(個体)は id で束ね、表示は pivotValueLabel(行・凡例・チップ・選択肢)。
+  {
+    const lab85 = codeOf(srcOfFn(src, "AnalysisLabView"));
+    const chart85 = codeOf(srcOfFn(src, "PivotLineChart"));
+    check("85.6 E8 ピボットのリード(個体)の表示は4箇所とも pivotValueLabel を通る",
+      /rowLabelOf=\{\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotRow\), v, pivotCtx\)\}/.test(lab85)
+      && /colLabelOf=\{\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotCol\), v, pivotCtx\)\}/.test(lab85)
+      && /\{pivotValueLabel\(dim, v, pivotCtx\)\}/.test(lab85)
+      && /fitLabel\(rowLabelOf\(rk\), LABEL_MAX, FS\)/.test(chart85)
+      && /fitLabel\(colLabelOf\(ck\), LABEL_MAX, SVG_FS_XS\)/.test(chart85)
+      && /measureSvgTextPx\(rowLabelOf\(rk\), FS\)/.test(chart85));
+  }
+
+  // E1: 登録と箱の編集で楽器を書く
+  {
+    const view85 = codeOf(srcOfFn(src, "ReedRegisterView"));
+    check("85.7 E1 登録は選んだ楽器を1枚ずつに書く / 編集は箱の楽器から開く",
+      /saxType: newSax,/.test(view85) && /setEditSax\(g\.saxType\);/.test(view85)
+      // 【軽8 / 軽7】編集は楽器を**変えたときだけ**渡し、変えたら一覧の楽器も移す。
+      && /const saxChanged = editSax !== editGroup\.saxType;/.test(view85)
+      && /saxType: saxChanged \? editSax : undefined \}\);/.test(view85)
+      && /if \(saxChanged\) onPickListSax\?\.\(editSax\);/.test(view85));
+  }
+  // E8: 触らない(コミュニティ・目安・ピボット・バックアップ)。reedSaxTypeOf を読みに行っていないこと。
+  {
+    const others85 = ["src/community/CommunityTab.jsx", "src/community/screens.jsx", "src/backup/localStore.js"]
+      .map((p) => readFileSync(join(__dirname, "..", p), "utf8"));
+    check("85.8 E8 コミュニティ・バックアップはリードの楽器を読まない(reedSaxTypeOf を持ち込んでいない)",
+      others85.every((t) => !/reedSaxTypeOf|backfillReedSaxTypes/.test(t)));
   }
   console.log("  -> done");
 }

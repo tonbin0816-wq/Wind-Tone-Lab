@@ -321,7 +321,9 @@ describe("端末・置き場の門・関数で、受ける形式と地域がそ�
     expect(fns.vetAvatarPhoto.__endpoint.region).toContain(clientRegion);
     // 掃除はデータベースと同じ東京に1つだけ(2地域で二重に動かさない)
     expect(fns.cleanAvatarPhoto.__endpoint.region).toEqual(["asia-northeast1"]);
-  });
+    // 【2026-09-25】functions/index.js の最初の読み込み(firebase-admin など)が重く、全件実行の最中は
+    // 既定の5秒を越えることがあった。読むだけの検査なので待ち時間だけ延ばす(中身は変えていない)。
+  }, 30_000);
 
   it("送るときの札は Blob の中身から取る(決め打ちの image/webp を付けない)", () => {
     expect(repo).not.toMatch(/contentType: PHOTO_MIME\b/);

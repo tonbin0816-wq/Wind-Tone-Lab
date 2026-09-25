@@ -1976,9 +1976,161 @@ const REED_BOX_SIZE = 10; // リード1箱あたりの枚数
 // 登録順(createdAt)で1からの通し番号を振る。一覧表示・データ分析での
 // 個体識別(#N)に共通して使う。
 // ============================================================
+// 【便AY 2026-09-25 本人指示 / F-87】箱のキーに**楽器種別**を足した(E2)。
+// 本人「バンドレンのトラディショナルにはアルトもソプラノもテナーもバリトンも全部ある」──
+// 同じ日に開けた Traditional 3.0 でも、アルトとテナーは**別の箱**。
+// 楽器の読み方は reedSaxTypeOf ただ1つ(持っていない古いリードは alto として読む)。
 function reedGroupKey(r) {
-  return `${r.brand}|${r.strength}|${r.startDate}`;
+  return `${r.brand}|${r.strength}|${r.startDate}|${reedSaxTypeOf(r)}`;
 }
+
+// 【便AY 2026-09-25 本人指示 / F-87】リードの楽器種別。語彙は SAX_PRESETS のキー
+// (soprano / alto / tenor / baritone)、表示は SAX_PRESETS[..].label(S.Sax / A.Sax / T.Sax / B.Sax)。
+// **楽器を読む場所はこの関数1つ**(E3)。saxType を持たない(または知らない値の)リードは、
+// 推定(backfillReedSaxTypes)が走るまでの間 alto とみなす ── D1 の「紐付いた計測が無ければ alto」と同じ値。
+// 画面ごとに `r.saxType ?? "alto"` と書くと、知らない値("Alto" など)の扱いが場所ごとに割れる。
+const REED_SAX_TYPE_DEFAULT = "alto";
+function isKnownSaxType(t) {
+  return typeof t === "string" && Object.prototype.hasOwnProperty.call(SAX_PRESETS, t);
+}
+function reedSaxTypeOf(r) {
+  return isKnownSaxType(r?.saxType) ? r.saxType : REED_SAX_TYPE_DEFAULT;
+}
+// その楽器のリードだけ。計測タブの候補(D2)・リードタブの一覧と比較(D5 / D4)・
+// 計測にリードを付け直すシート(E6)が**同じ1つの絞り方**を読む。
+function reedsOfSax(reeds, saxType) {
+  return (reeds || []).filter((r) => reedSaxTypeOf(r) === saxType);
+}
+// 【便AY E7 / 統括の裁定】楽器名を添えたリードの長い呼び名「A.Sax · Vandoren V16 3.0 #1(2026/08/01)」。
+// すべてのセッションのリードの選択肢と、分析のリード(個体)の表示が同じこの1つを読む。
+function reedSaxOptionLabel(r, reeds) {
+  return `${SAX_PRESETS[reedSaxTypeOf(r)].label} · ${reedLabel(r, reeds)}`;
+}
+// 【中2 2026-09-25 統括の指示】計測タブの案内。今の楽器のリードが1枚も無ければ
+// 「T.Sax のリードはまだ登録されていません」(リードタブの空の1行と同じ語)、あれば null。
+// **案内を出す条件とリードのシートを開けない条件は、この1つの戻り値を読む**(2つを食い違わせない)。
+function measureReedEmptyGuide(saxType, countForSax) {
+  return countForSax > 0 ? null : reedSaxEmptyText(saxType);
+}
+// 「B.Sax のリードはまだ登録されていません」。リードタブの一覧・比較と計測タブの案内が読む**1つの綴り**。
+function reedSaxEmptyText(saxType) {
+  return `${SAX_PRESETS[saxType]?.label ?? ""} のリードはまだ登録されていません`;
+}
+// 【D2 / 重1】計測タブの楽器(saxType)に対する「選んでいるリード」と「選んでいる箱」。
+// **楽器を替えた一手(changeSaxType)と、App の不変条件(useReedSaxInvariant)が同じこの1つを読む。**
+//   ・選んでいるリードが**別の楽器のもの** → リードも箱も外す(null / null)
+//   ・選んでいるリードが同じ楽器のもの     → リードはそのまま。箱はそのリードの箱(箱は個体に従う)
+//   ・リードを選んでいない                 → 箱が別の楽器の箱なら外す。同じ楽器・一覧に無い箱はそのまま
+//   ・一覧に見つからない id(削除されたリード) → リードも箱も外す(軽3 2026-09-25 統括の裁定。
+//     削除のあと計測タブで、もう無いリードの id のまま録音・取り込みされる穴もこれで塞がる)
+// 返すのは常に {reedId, boxKey}。呼び手は**分岐せずに**そのまま書く(同じ値なら React が何もしない)。
+function reedSelectionForSax(reeds, selectedReedId, selectedBoxKey, saxType) {
+  const list = reeds || [];
+  const reedId = selectedReedId ?? null;
+  if (reedId) {
+    const r = list.find((x) => x.id === reedId);
+    if (!r) return { reedId: null, boxKey: null };
+    return reedSaxTypeOf(r) === saxType ? { reedId, boxKey: reedGroupKey(r) } : { reedId: null, boxKey: null };
+  }
+  let boxKey = selectedBoxKey ?? null;
+  if (boxKey) {
+    const box = groupReeds(list).find((g) => g.key === boxKey);
+    if (box && box.saxType !== saxType) boxKey = null;
+  }
+  return { reedId, boxKey };
+}
+// 【重1】楽器とリードの食い違いを**判定してよいか**。推定(backfillReedSaxTypes)が済む前は、
+// 楽器を持たない古いリードが alto と読まれるので、テナー使いの選択を「アルトのリード」と誤って外してしまう。
+//   (1) 楽器・リード一覧・選んでいるリードが**保存から読み込み済み**(軽5。初期値 "alto" / [] / null のうちに
+//       判定すると、正しい選択を外して保存してしまう)
+//   (2) **楽器を持たないリードが1枚も残っていない**(軽4 2026-09-25 統括の裁定)。
+//       全部のリードが楽器を持っていれば、計測の読み込みを待つ理由が無い。楽器なしが残っているあいだは、
+//       推定(計測の読み込み成功が門)が済むまで自然に待つことになる ── 読み込みに失敗した起動では
+//       推定が走らないので、この判定もしない(今までどおり)。
+function reedSaxInvariantReady(persistedLoaded, reeds) {
+  return !!persistedLoaded && (reeds || []).every((r) => isKnownSaxType(r?.saxType));
+}
+// 【D1 / E4】楽器種別を持たない既存のリードに、紐付いた計測(sessions の reedId)の saxType から
+// 楽器を入れる。**純関数**で、変更が無ければ**同じ配列を返す**(呼び手は参照の一致で
+// 「書き込まない」を判断する ── 起動のたびに走るので、何も変わらない起動で reeds を書き戻さない)。
+// 【2026-09-25 統括の裁定】推定は**箱ごと**。箱は実物の1箱なので、同じ箱のリードは同じ楽器。
+// 1枚ずつ推定すると、同じ箱の中で楽器が割れて箱が2つになり、番号(reedPosition)も振り直されてしまう。
+//   ・楽器を持たないリードを**古い鍵(メーカー|番手|開封日)**でまとめ、その箱の全員に紐付いた計測を合算する
+//   ・いちばん多い楽器 / 同数なら、その中で**いちばん新しい計測**(recordedAt)の楽器 / 計測が1件も無ければ alto
+//   ・決めた楽器を**その箱の全員**に入れる
+//   ・既に知っている値を持つリードは触らない(本人が編集で直した値を推定で上書きしない)。
+//     同じ古い鍵に「楽器あり」と「楽器なし」が混ざるときは、**楽器なしの側だけ**で箱として推定する
+//   ・知らない値("Alto" 等)のリードは、持っていないのと同じに扱って推定し直す
+// 計測の側の楽器が読めない(知らない値)ものは数えない。
+// **計測の読み込みが成功する前に呼んではいけない**(紐付けが見えず全部 alto になる)。呼び手が門を持つ。
+function backfillReedSaxTypes(reeds, sessions) {
+  if (!Array.isArray(reeds) || reeds.length === 0) return reeds;
+  if (!reeds.some((r) => !isKnownSaxType(r?.saxType))) return reeds;
+  // 古い鍵(楽器を入れる前の箱のキー)。楽器を持たないリードだけをこれで箱にまとめる。
+  const legacyBoxOf = (r) => `${r.brand}|${r.strength}|${r.startDate}`;
+  const boxOfReed = new Map();
+  for (const r of reeds) {
+    if (!isKnownSaxType(r?.saxType)) boxOfReed.set(r.id, legacyBoxOf(r));
+  }
+  // 古い鍵 → { 楽器 → { n: 件数, latest: いちばん新しい計測の時刻(ms) } }(箱の全員ぶんを合算)
+  const tally = new Map();
+  for (const s of sessions || []) {
+    if (!s || !boxOfReed.has(s.reedId) || !isKnownSaxType(s.saxType)) continue;
+    const box = boxOfReed.get(s.reedId);
+    let byType = tally.get(box);
+    if (!byType) { byType = new Map(); tally.set(box, byType); }
+    const t = new Date(s.recordedAt).getTime();
+    const at = Number.isFinite(t) ? t : -Infinity;
+    const cur = byType.get(s.saxType) || { n: 0, latest: -Infinity };
+    byType.set(s.saxType, { n: cur.n + 1, latest: Math.max(cur.latest, at) });
+  }
+  const decided = new Map();
+  for (const [box, byType] of tally) {
+    let best = REED_SAX_TYPE_DEFAULT;
+    let bestN = 0;
+    let bestAt = -Infinity;
+    for (const [t, { n, latest }] of byType) {
+      if (n > bestN || (n === bestN && latest > bestAt)) { best = t; bestN = n; bestAt = latest; }
+    }
+    decided.set(box, best);
+  }
+  const out = reeds.map((r) => {
+    if (isKnownSaxType(r?.saxType)) return r;
+    return { ...r, saxType: decided.get(boxOfReed.get(r.id)) ?? REED_SAX_TYPE_DEFAULT };
+  });
+  // 【軽5 2026-09-25 統括の指示】推定した箱が、**楽器を持つ既存の箱と同じ鍵**になって合流するときは、
+  // 箱の編集の合流(updateGroup)と同じく番号(sortOrder)を振り直す: 既存の箱を今の並びのまま 1.. に詰め、
+  // その続きに推定した箱の全員を並べる。振り直さないと、両方が sortOrder を持っていたとき
+  // reedMemberOrder が**交互に**並べる(F-82 の差し戻し②と同じ壊れ方)。並びの規則は reedMemberOrder 1つ。
+  const rank = new Map();
+  for (const box of new Set(boxOfReed.values())) {
+    const incoming = out.filter((r) => boxOfReed.get(r.id) === box).sort(reedMemberOrder);
+    const key = reedGroupKey(incoming[0]);
+    const dest = out.filter((r) => !boxOfReed.has(r.id) && reedGroupKey(r) === key).sort(reedMemberOrder);
+    if (dest.length === 0) continue;
+    dest.forEach((r, i) => rank.set(r.id, i + 1));
+    incoming.forEach((r, i) => rank.set(r.id, dest.length + i + 1));
+  }
+  if (rank.size === 0) return out;
+  return out.map((r) => (rank.has(r.id) ? { ...r, sortOrder: rank.get(r.id) } : r));
+}
+// 【便AY 2026-09-25 審査の起票A】リードを削除して「元に戻す」と、リードは戻るが計測タブの選択は戻らなかった
+// (不変条件が「一覧に無い id」を外して null を保存するため)。削除の前に、選んでいたリードが消える側に
+// 入っているかを控え、元に戻すときにその id を選び直す。箱は不変条件がリードの箱にそろえる。
+// 控えるのは「消えるリードを選んでいたとき」だけ(他のリードを選んでいたなら、元に戻しても選択に触らない)。
+function reedSelectionToRestore(deletedIds, selectedReedId) {
+  if (selectedReedId == null) return null;
+  return new Set(deletedIds ?? []).has(selectedReedId) ? selectedReedId : null;
+}
+// 【便AY 2026-09-25】振る舞いの検査(src/reedSaxType.test.jsx)が**実物を**描いて・走らせるための出口。
+// 定義の側には export を付けない(pitch-test が関数の綴りを `function 名前(` で切り出しているため)。
+export {
+  reedSaxTypeOf, backfillReedSaxTypes, reedsOfSax, reedSelectionForSax, reedSaxInvariantReady,
+  measureReedEmptyGuide, pivotValueLabel, PIVOT_DIMENSIONS, reedSelectionToRestore,
+  reedGroupKey, reedBrandGroupKey, groupReeds,
+  useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
+  ReedsTab, SessionEditSheet,
+};
 
 // 箱の中のタイルの並び順。表示順(sortOrder)が主で、長押し並び替えで変わる。
 // 管理番号(boxNumber)とは独立。sortOrder 未設定のものは登録順(createdAt)で後ろに続く。
@@ -1995,9 +2147,10 @@ function groupReeds(reeds) {
   const groups = {};
   for (const r of reeds) {
     const key = reedGroupKey(r);
-    // 【R6 2026-09-16】箱の銘柄。**箱のキー(メーカー|番手|開封日)は変えていない**ので、
+    // 【R6 2026-09-16】箱の銘柄。**銘柄は箱のキー(便AY から メーカー|番手|開封日|楽器)に入っていない**ので、
     // 同じメーカー・番手・開封日で銘柄だけ違う箱は1つにまとまり、先頭の1枚の銘柄で呼ばれる。
-    if (!groups[key]) groups[key] = { key, brand: r.brand, model: r.model ?? null, strength: r.strength, startDate: r.startDate, members: [] };
+    // 【便AY 2026-09-25】箱の楽器(saxType)。キーに入っているので箱の中で割れることは無い。
+    if (!groups[key]) groups[key] = { key, brand: r.brand, model: r.model ?? null, strength: r.strength, startDate: r.startDate, saxType: reedSaxTypeOf(r), members: [] };
     groups[key].members.push(r);
   }
   for (const g of Object.values(groups)) g.members.sort(reedMemberOrder);
@@ -2265,6 +2418,12 @@ function usePersistedState(key, initialValue) {
   seedPersistedCache(persistedStateCache, persistedCacheComplete, key, initialValue);
   const [state, setState] = useState(() => (persistedStateCache.has(key) ? persistedStateCache.get(key) : initialValue));
   const loadedRef = useRef(persistedStateCache.has(key));
+  // 【便AY 2026-09-25 統括の指示(軽5)】読み込みが済んだかを**描画に見える形**でも返す(3つ目の値)。
+  // loadedRef は書き込みの門(ref なので effect を起こせない)。これは同じ瞬間に立つ写し。
+  // 温めが時間切れで各キーがばらばらに読まれる起動では、saxType が初期値 "alto" のうちに
+  // 楽器とリードの不変条件が走り、テナーのリードの選択を外して保存してしまい得る ── その門に使う。
+  // 受け取らない呼び手(2つだけ分割代入する既存の全員)は1文字も変わらない。
+  const [loaded, setLoaded] = useState(() => persistedStateCache.has(key));
 
   useEffect(() => {
     // 【AD-3 2026-09-21 本人指示】温まっている(= 最初の描画の前に warmPersistedStateCache が
@@ -2279,6 +2438,7 @@ function usePersistedState(key, initialValue) {
       if (cancelled) return;
       if (saved !== undefined) { persistedStateCache.set(key, saved); setState(saved); }
       loadedRef.current = true;
+      setLoaded(true);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2291,7 +2451,7 @@ function usePersistedState(key, initialValue) {
     if (loadedRef.current) { persistedStateCache.set(key, state); idbSet(key, state); }
   }, [key, state]);
 
-  return [state, setState];
+  return [state, setState, loaded];
 }
 
 // 【AD-3 2026-09-21 本人指示】「アプリ起動時に計測タブのリードが一瞬未選択の時の仕様になる」。
@@ -2350,7 +2510,10 @@ export async function warmPersistedStateCache() {
 // 「データを撮りためる」というアプリの目的そのものと衝突していた。
 // セッションだけはkeyPath:"id"の専用ストアにして、変更のあった1件だけを
 // put/deleteする方式にし、書き込みコストをセッション総数と切り離す。
-async function idbGetAllSessions() {
+// 【便AY 2026-09-25 統括の裁定(懸念2)】onFail: 読めなかったことを呼び手へ知らせる口。
+// 戻り値は今までどおり [](画面は空のまま動き続ける)。読めなかったのか、本当に0件なのかは
+// 戻り値では区別できないので、区別が要る呼び手(useSessionsStore の status)だけがこれを渡す。
+async function idbGetAllSessions(onFail = null) {
   try {
     const db = await openIdb();
     return await new Promise((resolve, reject) => {
@@ -2360,6 +2523,7 @@ async function idbGetAllSessions() {
       req.onerror = () => reject(req.error);
     });
   } catch {
+    onFail?.();
     return [];
   }
 }
@@ -2399,13 +2563,22 @@ async function idbDeleteSessions(ids) {
 // sessions配列をReact state上では今まで通り扱いつつ、書き込みだけは変更のあった
 // レコードに限定する。addSession: 新規1件追加。updateSessions: 関数更新の結果、
 // 中身が変わったレコードだけを差分検出してIndexedDBに書き込む。
-function useSessionsStore() {
+// 【便AY 2026-09-25 統括の指示(中3)】loadAll は読み込みの口。既定は IndexedDB(idbGetAllSessions)。
+// 検査は失敗する作り物・成功する作り物を渡して、status の分かれ方を**実際に走らせて**確かめる。
+function useSessionsStore(loadAll = idbGetAllSessions) {
   const [sessions, setSessionsState] = useState([]);
   const loadedRef = useRef(false);
+  // 【便AY 2026-09-25 E4】読み込みの結果を**描画に見える形**で返す(ref では effect が起きない)。
+  //   "loading" … 読み込み中 / "ready" … 読めた / "error" … 読めなかった(sessions は空のまま)
+  // リードの楽器種別の推定(backfillReedSaxTypes)は **"ready" のときだけ**走らせる ──
+  // 読み込み前や読めなかったときの sessions は空配列なので、走ると全部のリードが alto で書き込まれてしまう
+  // (【2026-09-25 統括の裁定(懸念2)】失敗の枝では推定しない・書かない)。
+  const [status, setStatus] = useState("loading");
 
   useEffect(() => {
     let cancelled = false;
-    idbGetAllSessions().then((all) => {
+    let failed = false;
+    loadAll(() => { failed = true; }).then((all) => {
       if (cancelled) return;
       // 音名表記統一(D#→E♭, A#→B♭)より前に保存されたフレームの音名表記を一度だけ変換して書き戻す
       const migrated = all.map((s) => {
@@ -2417,6 +2590,7 @@ function useSessionsStore() {
       if (changed.length > 0) idbPutSessions(changed);
       setSessionsState(migrated);
       loadedRef.current = true;
+      setStatus(failed ? "error" : "ready");
     });
     return () => { cancelled = true; };
   }, []);
@@ -2453,7 +2627,36 @@ function useSessionsStore() {
     idbPutSessions(list);
   }, []);
 
-  return [sessions, addSession, updateSessions, deleteSessions, restoreSessions];
+  return [sessions, addSession, updateSessions, deleteSessions, restoreSessions, status];
+}
+
+// 【便AY 2026-09-25 D1 / E4】楽器種別を持たないリードに、紐付いた計測の楽器を入れる(App が1回だけ呼ぶ)。
+// ・**計測の読み込みが成功してから**走らせる(status === "ready" が門)。読み込み前・失敗のときは
+//   sessions が空で、紐付けが1件も見えないので全部 alto で書き込まれてしまう(懸念2の裁定)。
+// ・**起動のたびに走る**(一度きりの書き換えにしない)── 古いバックアップを戻すと、楽器種別の
+//   無いリードが戻ってくるため。reeds が入れ替わればこの effect がもう一度走る。
+// ・書くのは**変わったときだけ**。backfillReedSaxTypes は変更が無ければ同じ配列を返すので、
+//   参照が同じなら setReeds を呼ばない(何も変わらない起動で reeds を書き戻さない)。
+function useReedSaxBackfill(sessionsStatus, reeds, sessions, setReeds) {
+  useEffect(() => {
+    if (sessionsStatus !== "ready") return;
+    if (backfillReedSaxTypes(reeds, sessions) === reeds) return;
+    setReeds((prev) => backfillReedSaxTypes(prev, sessions));
+  }, [sessionsStatus, reeds, sessions, setReeds]);
+}
+
+// 【重1 2026-09-25 統括の指示】「選んでいるリードの楽器 ≠ 計測タブの楽器 なら選択を外す(箱の選択も)」を
+// **App のこの1箇所**に置く不変条件。経路を問わない: 箱の編集で楽器を変えた / 推定で楽器が入った /
+// 起動時に保存済みの組が食い違っていた / アップロード(録音と同じく今の楽器と今のリードで記録する)。
+// 判定してよいのは reedSaxInvariantReady のときだけ(保存から読み込み済み・楽器なしのリードが残っていない)。
+// 次の選択は reedSelectionForSax が決め、ここは**分岐せずにそのまま書く**(同じ値なら何も起きない)。
+function useReedSaxInvariant({ persistedLoaded, reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey }) {
+  useEffect(() => {
+    if (!reedSaxInvariantReady(persistedLoaded, reeds)) return;
+    const next = reedSelectionForSax(reeds, selectedReedId, selectedBoxKey, saxType);
+    setSelectedReedId(next.reedId);
+    setSelectedBoxKey(next.boxKey);
+  }, [persistedLoaded, reeds, saxType, selectedReedId, selectedBoxKey, setSelectedReedId, setSelectedBoxKey]);
 }
 
 // ============================================================
@@ -3384,7 +3587,7 @@ export default function WindToneLabPhaseMode() {
   const [hnrDb, setHnrDb] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [saxType, setSaxType] = usePersistedState("saxType", "alto");
+  const [saxType, setSaxType, saxTypeLoaded] = usePersistedState("saxType", "alto");
   const [noiseGateDb, setNoiseGateDb] = usePersistedState("noiseGateDb", NOISE_GATE_DEFAULT_DB); // 楽器音だけ拾うためのノイズゲート(dBFS)
   const [temperature, setTemperature] = useState(20);
   const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440〜444Hzのボタン、デフォルト442Hz
@@ -3416,9 +3619,26 @@ export default function WindToneLabPhaseMode() {
 
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
-  const [reeds, setReeds] = usePersistedState("reeds", []); // リードマスタ一覧
-  const [sessions, addSession, updateSessions, deleteSessions, restoreSessions] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
-  const [selectedReedId, setSelectedReedId] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
+  const [reeds, setReeds, reedsLoaded] = usePersistedState("reeds", []); // リードマスタ一覧
+  const [sessions, addSession, updateSessions, deleteSessions, restoreSessions, sessionsStatus] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
+  const [selectedReedId, setSelectedReedId, selectedReedIdLoaded] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
+
+  // 【便AY 2026-09-25 本人指示 D1 / 統括 E4】楽器種別を持たないリードに、紐付いた計測の楽器を入れる
+  // (門・書き方は useReedSaxBackfill の注記)。
+  useReedSaxBackfill(sessionsStatus, reeds, sessions, setReeds);
+  // 【重1 2026-09-25 統括の指示】計測タブの「選んでいる箱」。以前は MeasureView の中の state だったが、
+  // 楽器とリードの食い違いを塞ぐ不変条件(useReedSaxInvariant)が**リードと箱を一緒に**外すために
+  // App へ持ち上げた。初期値は以前と同じ「選んでいるリードの箱」(温めたキャッシュから1フレーム目で決まる)。
+  // 選び直し・リードへの追従(MeasureView の effect)は以前のまま MeasureView が書く。
+  const [selectedBoxKey, setSelectedBoxKey] = useState(() => {
+    const r = (reeds || []).find((x) => x.id === selectedReedId);
+    return r ? reedGroupKey(r) : null;
+  });
+  // 【軽5】楽器・リード一覧・選んでいるリードの3つが**読み込み済み**になってから判定する。
+  useReedSaxInvariant({
+    persistedLoaded: saxTypeLoaded && reedsLoaded && selectedReedIdLoaded,
+    reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,
+  });
 
   // --- 奏者(演奏者)管理 ---
   // 「自分」は常に選べる固定選択肢。ユーザーが「名前を入力」で追加した名前をperformersに積み上げていく
@@ -4574,7 +4794,7 @@ export default function WindToneLabPhaseMode() {
           reeds={reeds} setReeds={setReeds}
           sessions={sessions} updateSessions={updateSessions}
           setTopTab={setTopTab} setSelectedReedId={setSelectedReedId} selectedReedId={selectedReedId}
-          selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={effectiveTuningHz}
+          selectedIdeal={selectedIdeal} saxType={saxType} setSaxType={setSaxType} tuningHz={effectiveTuningHz}
           compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
           showNotice={showNotice}
@@ -4665,6 +4885,7 @@ export default function WindToneLabPhaseMode() {
           tuningHz={tuningHz} setTuningHz={setTuningHz}
           matchedFingering={matchedFingering}
           reeds={reeds} sessions={sessions} selectedReedId={selectedReedId} setSelectedReedId={setSelectedReedId}
+          selectedBoxKey={selectedBoxKey} setSelectedBoxKey={setSelectedBoxKey}
           performers={performers} selectedPerformer={selectedPerformer}
           setSelectedPerformer={setSelectedPerformer} setPerformers={setPerformers}
           noiseGateDb={noiseGateDb} setNoiseGateDb={setNoiseGateDb} micProcessingWarning={micProcessingWarning}
@@ -4976,7 +5197,7 @@ function OptionSheet({ options, value, onChange, onClose, labelFn, ariaLabel, fo
 // 本人の言葉:「箱が3つあれば30枚。1列に30行は選べない。銘柄 → 開封日 → 番号の順に絞る。
 // シートの中身を段ごとに入れ替える。1画面に1つの問いだけ。上のパンくずで戻れる。」
 //
-// **束ね方は作り直さない。** 箱は既にある groupReeds(キーは メーカー|番手|開封日)が決めており、
+// **束ね方は作り直さない。** 箱は既にある groupReeds(キーは メーカー|番手|開封日|楽器 ── 楽器は便AY から)が決めており、
 // ここはその箱を「メーカー + 銘柄 + 厚さ」でもう一段まとめて読むだけ。
 // 器は既存の BottomSheet、行は OptionSheet と同じ OptionRow、番号のタイルは
 // リードタブと同じ index.css の .reedtile ── **新しい見た目を1つも作らない**。
@@ -4984,8 +5205,10 @@ function OptionSheet({ options, value, onChange, onClose, labelFn, ariaLabel, fo
 
 // 銘柄の段のキー。**箱のキー(reedGroupKey)から開封日を落としたもの**で、
 // 箱にもリード1枚にも同じ形で当たる(どちらも brand / model / strength を持つため)。
+// 【便AY 2026-09-25 E2】箱のキーと同じ判断で**楽器種別を含める**(開封日だけを落とした形のまま)。
+// 箱(groupReeds の saxType)にもリード1枚にも reedSaxTypeOf が同じ答えを返す。
 function reedBrandGroupKey(x) {
-  return `${x.brand}|${x.model ?? ""}|${x.strength}`;
+  return `${x.brand}|${x.model ?? ""}|${x.strength}|${reedSaxTypeOf(x)}`;
 }
 // 銘柄の段の選択肢。並びは groupReeds の並び(開封日の新しい順)をそのまま引き継ぐ。
 // 綴りは既にある reedBrandModelLabel と reedStrengthLabel から作る(新しい綴りを足さない)。
@@ -7962,6 +8185,8 @@ function MeasureView(props) {
     saxType, setSaxType, temperature, setTemperature,
     tuningHz, setTuningHz, matchedFingering: matchedFingeringPassed,
     reeds, selectedReedId, setSelectedReedId,
+    // 【重1 2026-09-25】選んでいる箱は App が持つ(楽器とリードの不変条件がリードと一緒に外すため)。
+    selectedBoxKey, setSelectedBoxKey,
     // 【便R 後半-後半 2026-09-20】sessions を**受け取り直した**。リードの番号のタイルの
     // 濃さ(.reedtile[data-tone])は「そのリードに残っている記録の量」で決まるので、
     // リードタブと同じ見た目にするには計測の一覧が要る。C-1 で外したのは
@@ -8048,11 +8273,11 @@ function MeasureView(props) {
     try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* noop */ }
   }, []);
 
-  const selectedReed = reeds?.find((r) => r.id === selectedReedId) || null;
+  // (【重1 2026-09-25】selectedReed はここにあった。読み手は箱の選択の初期値だけで、その state が App へ移ったので畳んだ。)
 
   // リード選択は箱→個体の二段階にする(枚数が増えるとフラットな一覧では選びにくいため)。
   const reedGroups = groupReeds(reeds || []);
-  const [selectedBoxKey, setSelectedBoxKey] = useState(() => (selectedReed ? reedGroupKey(selectedReed) : null));
+  // 【重1 2026-09-25】selectedBoxKey は App の state(初期値も App が「選んでいるリードの箱」で作る)。
   // リードタブの「測定へ」等、外部からselectedReedIdが変わった場合は箱の選択も追従させる。
   // ただし本画面で箱を選び直してreedIdをnullにクリアした場合は上書きしない。
   useEffect(() => {
@@ -8062,6 +8287,22 @@ function MeasureView(props) {
     if (key) setSelectedBoxKey((prev) => (prev === key ? prev : key));
   }, [selectedReedId, reeds]);
   const selectedBoxGroup = reedGroups.find((g) => g.key === selectedBoxKey) || null;
+  // 【便AY 2026-09-25 本人指示 D2】リードを選ぶ一覧(箱・開封日・個体)には**いま選んでいる楽器の
+  // リードだけ**を出す。絞るのは選ぶ一覧(ReedPickSheet)に渡す母集団だけで、上部設定行に
+  // 見えている「いま選んでいるリード」は全部から引く ── 見えている値と録音に紐付く値を
+  // 食い違わせない(楽器を替えたときの選択の外し方は下の楽器のシートの onChange)。
+  const reedsForSax = reedsOfSax(reeds, saxType);
+  // 楽器を替える一手。選んでいたリードが別の楽器のものなら外す(D2)。箱の選択も一緒に外す
+  // ── 残すと「箱だけ選ばれて個体が空」の姿で止まる。**分岐は reedSelectionForSax の中だけ**で、
+  // ここは返った2つをそのまま書く(App の不変条件 useReedSaxInvariant と同じ1つの判断を読む)。
+  const changeSaxType = (v) => {
+    const next = reedSelectionForSax(reeds, selectedReedId, selectedBoxKey, v);
+    setSaxType(v);
+    setSelectedReedId(next.reedId);
+    setSelectedBoxKey(next.boxKey);
+  };
+  // 【中2 2026-09-25 統括の指示】今の楽器のリードが1枚も無いときの案内。null なら出さない。
+  const reedEmptyGuide = measureReedEmptyGuide(saxType, reedsForSax.length);
 
   // リード枠の選択肢。**綴りをここ1箇所に集める。**
   // 【M4 2026-09-16】枠に見えている値も、選び方の一覧に並ぶラベルも、両方この配列から作る。
@@ -8528,19 +8769,24 @@ function MeasureView(props) {
               【当たり判定】2つとも <button> なので、枠の中に背面レイヤへ落ちる穴は構造的に無い。
               行の gap(6px)を間に挟まないよう、2つは**1つの包み**に入れる。箱と個体の間隔は
               個体側の左 padding --sp-1 だけが作る(正典 .reedchip の半角空白1つ)。 */}
+          {/* 【中2 2026-09-25】今の楽器のリードが1枚も無いときは箱のボタンを押せなくする(空のシートを開かない)。
+              開ける条件と下の案内の条件は同じ「今の楽器のリードの数」(reedEmptyGuide)。
+              押せないことは**字の色**でも返す: --c-disabled。同じ計測タブの基準ピッチのシートの − / ＋ が
+              端で押せないときに使っている既存の作法(disabled + 字 --c-disabled + cursor default)に従う。
+              新しい値は作っていない。 */}
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button
               onClick={() => setOpenPicker("box")}
-              disabled={isRecording}
+              disabled={isRecording || !!reedEmptyGuide}
               aria-label="リードの箱を選ぶ"
               aria-haspopup="listbox"
-              style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-1)", height: TOPSET_REED_SELECT_H_PX, padding: `2px 0 2px ${TOPSET_ROW_PAD_LEFT_PX}px`, background: "none", border: "none", font: "inherit", color: "inherit", flexShrink: 0, cursor: isRecording ? "default" : "pointer" }}
+              style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "var(--sp-1)", height: TOPSET_REED_SELECT_H_PX, padding: `2px 0 2px ${TOPSET_ROW_PAD_LEFT_PX}px`, background: "none", border: "none", font: "inherit", color: "inherit", flexShrink: 0, cursor: isRecording || reedEmptyGuide ? "default" : "pointer" }}
             >
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: selectedReedId ? "var(--c-accent)" : "var(--c-line-strong)", flexShrink: 0 }} />
               {/* メーカー。maxWidth は**幅の上限**でしかないので、越えた文字を外へ描かせない
                   歯止め(overflow + textOverflow)を値そのものにも置く
                   (実測: 長いメーカーは上限を越えて隣に重なりうる)。 */}
-              <span style={{ color: selectedReedId ? "var(--c-ink)" : "var(--c-ink-2)", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", maxWidth: 110, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: reedEmptyGuide ? "var(--c-disabled)" : selectedReedId ? "var(--c-ink)" : "var(--c-ink-2)", fontWeight: selectedReedId ? 600 : 400, whiteSpace: "nowrap", maxWidth: 110, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                 {selectedBoxGroup ? shortBoxHead(selectedBoxGroup.brand, selectedBoxGroup.model, reedGroups.map((x) => x.brand)) : reedBoxOptions[0].label}
               </span>
               {/* 厚さ。規則は shortBoxLabel と同じ(reedStrengthLabel が唯一の答え)。 */}
@@ -8590,7 +8836,9 @@ function MeasureView(props) {
         {/* 【A-4 / R7 2026-09-15 本人裁定】個体のボタンが押せない理由を枠の直下に書く。
             **箱が未選択のときだけ。** 録音中の disabled には出さない ── 録音中であることは
             環が既に言っており、ここで二重に言うと録音中ずっと文字が1行増える。 */}
-        {!selectedBoxGroup && (
+        {/* 【中2 2026-09-25 統括の指示】今の楽器のリードが0枚のとき(reedEmptyGuide)は出さない ──
+            箱は押せないので「箱を選ぶと」は成り立たない。代わりに下の2行の案内がその理由を言う。 */}
+        {!reedEmptyGuide && !selectedBoxGroup && (
           <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>箱を選ぶとリードを選べます</div>
         )}
         </div>
@@ -8631,8 +8879,14 @@ function MeasureView(props) {
           <MetronomeIcon color={showMetroPanel ? "var(--c-accent)" : "var(--c-ink-3)"} size={26} />
         </button>
       </div>
-      {(!reeds || reeds.length === 0) && (
-        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: "var(--sp-1)" }}>「リード」タブでリードを登録できます</div>
+      {/* 【中2 2026-09-25 統括の指示】条件は「今の楽器のリードの数」(以前は全楽器の枚数)。
+          体裁は以前のこの1行のまま(12px / --c-ink-3 / 下に --sp-1)。何の楽器のリードが無いのかを
+          先に言い、既存の「「リード」タブでリードを登録できます」を続ける。 */}
+      {reedEmptyGuide && (
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", marginBottom: "var(--sp-1)" }}>
+          <div>{reedEmptyGuide}</div>
+          <div>「リード」タブでリードを登録できます</div>
+        </div>
       )}
 
       {/* 【C-1 で移設】隠しファイル入力とアップロードのボタン・告知はデータタブへ移した。
@@ -9030,7 +9284,7 @@ function MeasureView(props) {
           <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>楽器</div>
           <OptionPills
             options={SAX_TYPE_OPTIONS} value={saxType}
-            onChange={(v) => { setSaxType(v); setOpenPicker(null); }}
+            onChange={(v) => { changeSaxType(v); setOpenPicker(null); }}
             labelFn={(key) => SAX_PRESETS[key]?.label}
             ariaPrefix="楽器"
           />
@@ -9053,9 +9307,10 @@ function MeasureView(props) {
           ・"reeddate" … 箱の開封日を押した          → **開封日の段**
           ・"reed"     … 個体(#n)を押した            → 番号の段
           箱は開封日・個体のときだけ渡す(銘柄から始めるときに埋めると段が飛ぶ)。 */}
-      {(openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (
+      {!reedEmptyGuide && (openPicker === "box" || openPicker === "reeddate" || openPicker === "reed") && (
         <ReedPickSheet
-          reeds={reeds} sessions={sessions}
+          /* 【便AY D2】候補は**いま選んでいる楽器のリードだけ**(reedsForSax)。 */
+          reeds={reedsForSax} sessions={sessions}
           value={selectedReedId || null}
           entry={openPicker === "box" ? "brand" : openPicker === "reeddate" ? "date" : "member"}
           boxKey={openPicker === "box" ? null : selectedBoxKey}
@@ -10878,15 +11133,68 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
 // 要らなくなったため。消えたのは listMode / setListMode / exitMode / enterNumberEdit と、
 // モード中だけ出していた子タブ行の「完了」・一覧の案内「番号を変更するリードをタップ」・
 // 箱の編集シートの「番号編集」。**番号を直すシート(ReedNumberSheet)は残っている**。
+// 【便AY 2026-09-25 本人指示 D5】リードタブの楽器のチップの行(登録と比較が同じ1行を読む)。
+// 見た目の正は人物紹介・マイページの楽器の行(src/community/screens.jsx の Chip)。
+// **あちらを import しない** ── screens.jsx は App.jsx を import しているので循環になる。
+// 値はあちらの Chip(grow・選択中/非選択の2状態)と同じトークン・同じ寸法をここに書く:
+//   当たり --tap-min(44)/ 見えるピル 30・角 --r-pill・枠 1px・字 --fs-xs 600・等分(flex 1 1 0)・間 --sp-1
+//   選択中 … 枠と字が --c-accent / それ以外 … 枠 --c-line-strong・字 --c-ink-2
+// あちらにある3つ目の状態(off = 押せない・枠なし)は**持たない**:
+// 本人指示「4つとも押せる。リードが無い楽器も薄くしない」。
+// 並びと語は SAX_PRESETS(soprano → baritone / S.Sax 〜 B.Sax)。新しい語を作らない。
+function ReedSaxChipRow({ value, onPick }) {
+  return (
+    <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
+      {Object.keys(SAX_PRESETS).map((t) => {
+        const on = t === value;
+        return (
+          <button
+            key={t} type="button" role="radio" aria-checked={on}
+            onClick={() => onPick(t)} className="sans"
+            style={{
+              minHeight: "var(--tap-min)", display: "inline-flex", alignItems: "center",
+              justifyContent: "center", padding: 0, border: "none", background: "none",
+              flex: "1 1 0", minWidth: 0, cursor: "pointer",
+            }}
+          >
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              minHeight: 30, padding: "0 13px", borderRadius: "var(--r-pill)",
+              border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`,
+              color: on ? "var(--c-accent)" : "var(--c-ink-2)",
+              fontSize: "var(--fs-xs)", fontWeight: 600, whiteSpace: "nowrap",
+              width: "100%", boxSizing: "border-box",
+            }}>{SAX_PRESETS[t].label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+// 【便AY D5】その楽器のリードが1枚も無いときの1行。体裁は置く画面の既存の空の文言と同じ:
+//   ・登録の一覧 … 「まだリードが登録されていません」(12px / --c-ink-3 / 上下 20px)
+//   ・比較       … 【軽9 2026-09-25】「比較するリードがありません…」(12px / --c-ink-3 / 中央寄せ / padding 30)
+function ReedSaxEmptyLine({ saxType, centered = false }) {
+  const style = centered
+    ? { fontSize: 12, color: "var(--c-ink-3)", textAlign: "center", padding: 30 }
+    : { fontSize: 12, color: "var(--c-ink-3)", padding: "20px 0" };
+  return <div className="sans" style={style}>{reedSaxEmptyText(saxType)}</div>;
+}
+
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
-    selectedIdeal, saxType, tuningHz, compareReedIds, setCompareReedIds,
+    selectedIdeal, saxType, setSaxType, tuningHz, compareReedIds, setCompareReedIds,
     reedsSubTab, setReedsSubTab, selectedReedId,
     // 【B-2】削除の合図を出す口。帯そのものは App の根にあり、ここは呼ぶだけ。
     showNotice,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
+  // 【便AY 2026-09-25 本人指示 D5】一覧(と比較)で見ている楽器。
+  // **最初は計測タブで選んでいる楽器**。保存しない ── ReedsTab はリードタブを開くたびに
+  // 描き直される(topTab の切り替え・下部ナビの navNonce)ので、開くたびにそこから始まる。
+  // 登録と比較で**同じ1つ**を読む(チップの行は子タブの行の下に1つだけ)。
+  const [listSax, setListSax] = useState(saxType);
   // 【AB-2 2026-09-21 本人指示】編集中(iPhone のホーム画面の並べ替えと同じ状態)。
   // **箱ごとの ReedTileGrid には持たせない** ── そこで持つと長押しした箱のタイルだけが
   // 揺れる(本人の指示は「全部のカードが揺れて」)。かといって一覧(ReedRegisterView)にも
@@ -10911,7 +11219,8 @@ function ReedsTab(props) {
     if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [evaluatingReedId]);
 
-  const reedGroups = groupReeds(reeds);
+  // 【便AY D5】一覧に並べるのは**見ている楽器の箱だけ**。箱の見出しに楽器名は足さない。
+  const reedGroups = groupReeds(reedsOfSax(reeds, listSax));
 
   // 消したリードに紐づいていたセッションは reedId / linkedAt を落として
   // 紐付けだけ解除する(セッション自体は消さない)。
@@ -10934,12 +11243,15 @@ function ReedsTab(props) {
     const unlinked = sessions
       .filter((s) => idSet.has(s.reedId))
       .map((s) => ({ id: s.id, reedId: s.reedId, linkedAt: s.linkedAt }));
+    // 【便AY 審査の起票A】消えるリードを選んでいたら控える(元に戻すときに選び直す)。
+    const reselect = reedSelectionToRestore(ids, selectedReedId);
     deleteReeds(ids);
     showNotice({
       text: `${label}を削除しました`,
       actionLabel: "元に戻す",
       undo: () => {
         setReeds((prev) => [...prev, ...removedReeds]);
+        if (reselect) setSelectedReedId(reselect);
         const byId = new Map(unlinked.map((u) => [u.id, u]));
         updateSessions((prev) => prev.map((s) => (byId.has(s.id)
           ? { ...s, reedId: byId.get(s.id).reedId, linkedAt: byId.get(s.id).linkedAt }
@@ -10970,9 +11282,11 @@ function ReedsTab(props) {
         <SwipeBackArea onBack={closeReed} onForward={openCompareFromReed}>
           <ReedEvaluationDetail
             reed={evaluatingReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
-            selectedIdeal={selectedIdeal} saxType={saxType} tuningHz={tuningHz}
+            /* 【便AY E5】詳細は計測タブの楽器(saxType)を読まない。グラフの横軸はそのリードの楽器。 */
+            selectedIdeal={selectedIdeal} tuningHz={tuningHz}
             onBack={closeReed}
-            onMeasure={(id) => { setSelectedReedId(id); setTopTab("measure"); }}
+            /* 【便AY 2026-09-25 本人指示 D3】計測タブの楽器もそのリードの楽器にしてから移る。 */
+            onMeasure={(id) => { setSelectedReedId(id); setSaxType(reedSaxTypeOf(reeds.find((r) => r.id === id))); setTopTab("measure"); }}
           />
         </SwipeBackArea>
       </div>
@@ -11014,6 +11328,12 @@ function ReedsTab(props) {
         )}
       </SubTabs>
 
+      {/* 【便AY 2026-09-25 本人指示 D5(モック版2 = A案・全部押せる)】`登録 | 比較` の下に楽器のチップの行。
+          登録と比較で**同じ1行・同じ1つの選択**(listSax)を読むので、子タブの行の下に1つだけ置く
+          (ページの中に置くと SwipePager の2ページに2つ描かれ、選択を2つに写すことになる)。
+          4つとも押せる。リードが無い楽器も薄くしない(本人指示)。 */}
+      <ReedSaxChipRow value={listSax} onPick={setListSax} />
+
       <SwipePager
         index={reedsSubTab === "compare" ? 1 : 0}
         onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
@@ -11024,6 +11344,7 @@ function ReedsTab(props) {
           selectedReedId={selectedReedId}
           onOpenReed={openReed}
           reedGroups={reedGroups}
+          listSax={listSax} onPickListSax={setListSax}
           pageActive={reedsSubTab === "register"}
           /* 【AB-2】編集中の旗と、その入口。一覧はこれをすべての ReedTileGrid へ配る。
              【AD-1 2026-09-21 本人指示】出口も配る。「完了」と**同じ exitListEditing** を
@@ -11038,7 +11359,9 @@ function ReedsTab(props) {
           deleteReedsWithUndo={deleteReedsWithUndo}
         />
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
-          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={saxType} tuningHz={tuningHz} />
+          {/* 【便AY D4 / D5】比較は**同じ楽器のリードどうしだけ**。候補は選んだ楽器のリード、
+              重ねるグラフの横軸もその楽器(計測タブの楽器ではない)。 */}
+          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={listSax} tuningHz={tuningHz} />
         </div>
       </SwipePager>
     </div>
@@ -11229,10 +11552,12 @@ function FloatingActionSpacer() {
 // 集計は既存の usageDays() / セッション数だけを使う。新しい指標は作らない。
 //   セッションが0件            → 「計測0件」(0 は分かっている値。2026/09/10 本人裁定)
 //   開封日が未設定 / 読めない  → その区画ごと出さない(穴を作らない)
-// **楽器種別は出さない**: リードは楽器種別を持っていない(起票 F-87 が未着手)。
-// 正典の先頭の「Alto」に当たる区画は、F-87 を入れるまで空ける。
-function reedDetailMetaParts(startDate, days, sessionCount) {
+// 【便AY 2026-09-25 E5 / F-87】正典の先頭の「Alto」に当たる区画(D-4 から空けてあった枠)に
+// **楽器名**を入れる。綴りは SAX_PRESETS[..].label(A.Sax など)── 計測タブの楽器のシートと同じ語。
+// 引数の saxType はリードの楽器(reedSaxTypeOf で読んだもの)。知らない値なら区画ごと出さない。
+function reedDetailMetaParts(saxType, startDate, days, sessionCount) {
   return [
+    SAX_PRESETS[saxType]?.label ?? null,
     startDate ? `開封 ${formatYmd(startDate)}` : null,
     days ? `${days}日` : null,
     // 【2026/09/10 本人裁定】0件は「値が無い」のではなく**値が 0**。A3 の「—」は不明・欠落の
@@ -11340,7 +11665,7 @@ const REED_SHEET_PILL_ROW_STYLE = {
 // 【部品そのものは畳めない】便X の3つの理由のうち①(値の形)は消えた ── どちらも
 // {brand, model} の組になった。残る2つ:
 //   ・逃げ道が違う。GearPicker の「その他」(OTHER_BRAND)は**メーカー名を1つに潰す**ので、
-//     ここでは使えない: 箱のキーは メーカー|番手|開封日 なので、カタログに無いメーカーの箱が
+//     ここでは使えない: 箱のキーは メーカー|番手|開封日|楽器(楽器は便AY から)なので、カタログに無いメーカーの箱が
 //     全部「その他」に合流してしまう。**作法(常に末尾に在る逃げ道の一手)だけを引き**、
 //     行き先は今までどおりリードの自由入力(REED_BRAND_CUSTOM)にする。
 //   ・住んでいる場所が違う。CommunityTab.jsx は lazy(() => import(...)) で遅らせてある。
@@ -11449,10 +11774,12 @@ function ReedSearchRow({ label, brand, model, custom, customBrand, setCustomBran
 
 // 【F-80 / F-82】mode で「追加」と「箱を編集」を切り替える。**呼び出し側で切り替える**方式
 // (F-72 罠1 の bare と同じ考え)で、既定は今までどおり "add"。追加の呼び出しは1文字も変えない。
-//   "add"  … メーカー + 番手 + 枚数。開封日は出さない(箱を追加した日が自動で入る)
-//   "edit" … メーカー + 番手 + 開封日。枚数は出さない(枚数は箱の中身であって箱の属性ではない)
-// メーカー・番手・開封日はどれも箱のキー(メーカー|番手|開封日)なので、編集は3つを1枚のシートで扱う。
+//   "add"  … 楽器 + メーカー + 番手 + 枚数。開封日は出さない(箱を追加した日が自動で入る)
+//   "edit" … 楽器 + メーカー + 番手 + 開封日。枚数は出さない(枚数は箱の中身であって箱の属性ではない)
+// 楽器・メーカー・番手・開封日はどれも箱のキー(メーカー|番手|開封日|楽器。楽器は便AY から)なので、
+// 編集は4つを1枚のシートで扱う。
 function ReedBoxSheet({
+  saxType, setSaxType,
   brand, setBrand, model, setModel, customBrand, setCustomBrand,
   strength, setStrength, count, setCount, startDate, setStartDate, onAdd, onClose, onDelete = null, mode = "add",
 }) {
@@ -11476,10 +11803,25 @@ function ReedBoxSheet({
             <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{REED_ADD_SHEET_TITLE}</div>
           )}
 
+          {/* 【便AY 2026-09-25 本人指示 D5 / 統括 E1】行の一番上に「楽器」。部品は既存の OptionPills
+              (計測タブの楽器のシートと同じ選択肢・同じ語 = SAX_PRESETS)。枠は厚さ・枚数の行と同じ
+              REED_SHEET_PILL_ROW_STYLE、名札も同じ REED_SHEET_ROW_LABEL_STYLE ── 新しい枠を作らない。
+              追加のときの初期値は一覧で選んでいる楽器、編集のときはその箱の楽器。
+              編集で変えると、閉じたときに箱の全員の楽器が書き換わる(同じ鍵の箱があれば合流)。 */}
+          <div style={REED_SHEET_PILL_ROW_STYLE}>
+            <span className="sans" style={REED_SHEET_ROW_LABEL_STYLE}>楽器</span>
+            <OptionPills
+              options={Object.keys(SAX_PRESETS)} value={saxType}
+              onChange={(v) => setSaxType(v)}
+              labelFn={(key) => SAX_PRESETS[key]?.label}
+              ariaPrefix="楽器" marginTop={0}
+            />
+          </div>
+
           {/* 【AA-1 2026-09-21 本人指示】メーカーの行と銘柄の行は**1つに畳んだ**。
               名札の語はプロフィールの GearPicker から引く(あちらの label="リード")。
               選ぶと brand と model の**両方**が決まる。保存される値の形は1文字も変えていない
-              (箱のキーは メーカー|番手|開封日 のまま)。
+              (箱のキーは メーカー|番手|開封日|楽器 ── 銘柄は入らない。楽器は便AY から)。
               カタログに無いメーカーの逃げ道(自由入力)は行の中に残っている。 */}
           <ReedSearchRow
             label="リード"
@@ -11646,9 +11988,16 @@ function ReedRegisterView(props) {
     onExitEditing,
     // 【B-2】箱の編集シートからの削除も、一覧の削除と**同じ一手**を通る。
     deleteReedsWithUndo,
+    // 【便AY 2026-09-25 D5】一覧で見ている楽器(ReedsTab のチップの行)。reedGroups は既にこの楽器の箱だけ。
+    listSax,
+    // 【軽7】見ている楽器を替える口(ReedsTab の setListSax)。箱の編集で楽器を変えたとき、その楽器へ移す。
+    onPickListSax,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
+  // 【便AY 2026-09-25 本人指示 D5 / E1】登録のシートの「楽器」。**初期値は一覧で選んでいる楽器**
+  // (＋ を押したときに listSax から入れ直す ── 下の FloatingAction の onClick)。
+  const [newSax, setNewSax] = useState(listSax);
   const [newBrand, setNewBrand] = useState(REED_BRAND_OPTIONS[0]);
   // 【R6 2026-09-16 本人裁定③】銘柄。既定はそのメーカーの先頭の銘柄
   // (カタログに銘柄が無いメーカー・自由入力なら null)。
@@ -11675,6 +12024,8 @@ function ReedRegisterView(props) {
   const [editCustomBrand, setEditCustomBrand] = useState("");
   const [editStrength, setEditStrength] = useState(REED_STRENGTH_DEFAULT);
   const [editStartDate, setEditStartDate] = useState("");
+  // 【便AY E1】箱の編集の「楽器」。閉じたときに箱の全員の saxType を書き換える。
+  const [editSax, setEditSax] = useState(listSax);
   const editGroup = reedGroups.find((g) => g.key === editBoxKey) || null;
   const openBoxEdit = (g) => {
     setEditBoxKey(g.key);
@@ -11684,6 +12035,7 @@ function ReedRegisterView(props) {
     setEditCustomBrand("");
     setEditStrength(g.strength);
     setEditStartDate(g.startDate || "");
+    setEditSax(g.saxType);
   };
 
   const resolveBrand = () => (newBrand === REED_BRAND_CUSTOM ? customBrand.trim() : newBrand);
@@ -11705,6 +12057,8 @@ function ReedRegisterView(props) {
       model: resolveReedModel(brand, newModel),
       strength: newStrength,
       startDate,
+      // 【便AY 2026-09-25 E1】登録のシートで選んだ楽器。
+      saxType: newSax,
       boxLabel: count > 1 ? `#${i + 1}/${count}` : null, // まとめ登録時の箱内通し番号(参考情報)
       rating: null, // 主観の5段階評価(1〜5)。未評価はnull
       thickness: null, // 主観の厚さ(抵抗感/密度)。未評価はnull
@@ -11718,6 +12072,7 @@ function ReedRegisterView(props) {
 
   // 【F-80 / F-82】箱の編集(メーカー・番手・開封日)。
   // **箱のキーは メーカー|番手|開封日**(reedGroupKey)なので、3つのどれを変えても箱ごと動く。
+  // 【便AY 2026-09-25】キーの末尾に楽器が入った。楽器を変えても同じく箱ごと動き、同じ鍵の箱へ合流する。
   // その箱に属する全部のリードを同じ値へ書き換える(1枚だけ動かすと箱が割れる)。
   // 変更後のキーが既にある箱と一致したら、groupReeds が同じキーでまとめるので**その箱へ合流する**。
   //
@@ -11732,14 +12087,21 @@ function ReedRegisterView(props) {
   // **合流先の sortOrder も書き換わる**(並びは変えない。番号を詰めるだけ)。
   const updateGroup = (g, patch) => {
     const brand = (patch.brand ?? g.brand);
-    // 【R6】銘柄は箱のキーではない(キーは メーカー|番手|開封日 のまま)。
+    // 【R6】銘柄は箱のキーではない(キーは メーカー|番手|開封日|楽器。楽器は便AY から)。
     // 箱の全メンバーへ同じ値を書くので、箱の中で銘柄が割れることは無い。
     const model = resolveReedModel(brand, patch.model ?? g.model ?? null);
     const strength = (patch.strength ?? g.strength);
     const startDate = (patch.startDate ?? g.startDate);
+    // 【便AY 2026-09-25 E1 / E2】楽器も箱のキー。変えれば箱ごと動き、同じ鍵の箱があれば合流する。
+    // 【軽8 2026-09-25 統括の指示】楽器を**書く**のは patch が楽器を持つとき(=実際に変えたとき)だけ。
+    // 持たないときは各リードの今の値のまま(楽器を持つリードは ...r が保つ。持たないリードに alto を確定させない
+    // ── 計測の読み込みに失敗した起動で箱を開いて閉じただけで、推定の前に alto が書き込まれてしまう)。
+    const saxType = (patch.saxType ?? g.saxType);
+    const saxPatch = patch.saxType ? { saxType } : {};
     if (!brand || !startDate) return;
     const ids = new Set(g.members.map((m) => m.id));
-    const nextKey = `${brand}|${strength}|${startDate}`;
+    // 合流先の判定は**箱のキーそのもの**(reedGroupKey)で引く。キーの形を2箇所に書かない。
+    const nextKey = reedGroupKey({ brand, strength, startDate, saxType });
     setReeds((prev) => {
       const dest = prev.filter((r) => !ids.has(r.id) && reedGroupKey(r) === nextKey)
         .sort(reedMemberOrder);           // 並びの規則は groupReeds と同じものを使う
@@ -11747,7 +12109,7 @@ function ReedRegisterView(props) {
       dest.forEach((r, i) => rank.set(r.id, i + 1));
       g.members.forEach((m, i) => rank.set(m.id, dest.length + i + 1));
       return prev.map((r) => {
-        if (ids.has(r.id)) return { ...r, brand, model, strength, startDate, sortOrder: rank.get(r.id) };
+        if (ids.has(r.id)) return { ...r, brand, model, strength, startDate, ...saxPatch, sortOrder: rank.get(r.id) };
         return rank.has(r.id) ? { ...r, sortOrder: rank.get(r.id) } : r;
       });
     });
@@ -11757,7 +12119,11 @@ function ReedRegisterView(props) {
     if (!editGroup) return;
     const brand = editBrand === REED_BRAND_CUSTOM ? editCustomBrand.trim() : editBrand;
     if (!brand || !editStartDate) return;
-    updateGroup(editGroup, { brand, model: editModel, strength: editStrength, startDate: editStartDate });
+    // 【軽8】楽器は**実際に変えたときだけ**渡す(開いて閉じただけでは書かない)。
+    const saxChanged = editSax !== editGroup.saxType;
+    updateGroup(editGroup, { brand, model: editModel, strength: editStrength, startDate: editStartDate, saxType: saxChanged ? editSax : undefined });
+    // 【軽7 2026-09-25 統括の指示】楽器を変えた箱は、一覧で見ている楽器ごと移す(箱が黙って消えない)。
+    if (saxChanged) onPickListSax?.(editSax);
     setEditBoxKey(null);
   };
 
@@ -11801,8 +12167,11 @@ function ReedRegisterView(props) {
       style={{ maxWidth: 900, margin: "0 auto" }}
       onClick={(e) => { if (reedListPressEndsEditing(e.target, e.currentTarget)) onExitEditing?.(); }}
     >
-      {reeds.length === 0 ? (
-        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "20px 0" }}>まだリードが登録されていません</div>
+      {/* 【便AY 2026-09-25 本人指示 D5】見ている楽器のリードが無ければ、一覧の場所に1行だけ
+          (「B.Sax のリードはまだ登録されていません」)。リードが1枚も無い人も同じ1行 ──
+          チップの行は常に出ているので、どの楽器の話かを言う形に揃える。 */}
+      {reedGroups.length === 0 ? (
+        <ReedSaxEmptyLine saxType={listSax} />
       ) : (
         reedGroups.map((g) => {
           const avgRating = reedGroupAvgRating(g.members);
@@ -11895,7 +12264,8 @@ function ReedRegisterView(props) {
       {/* 【便O 2026-09-20 本人指示】長押しの案内(1行)。体裁は**便O のときと同値**
           (--fs-xs / --c-ink-3 / 中央 / 上に --sp-2)── 新しい値は作っていない。
           【AA-3 2026-09-21 本人指示】語だけを「長押しで並び替え」から入れ替えた。 */}
-      {reeds.length > 0 && (
+      {/* 【便AY D5】出す条件は「**その楽器の**箱が1つ以上」(他の楽器のリードしか無いときは出さない)。 */}
+      {reedGroups.length > 0 && (
         <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", textAlign: "center", paddingTop: "var(--sp-2)" }}>
           長押しで編集
         </div>
@@ -11913,7 +12283,7 @@ function ReedRegisterView(props) {
         <FloatingAction
           ariaLabel="リードを追加"
           icon={<Plus size={28} strokeWidth={2.5} />}
-          onClick={() => setAddOpen(true)}
+          onClick={() => { setNewSax(listSax); setAddOpen(true); }}
         />
       )}
 
@@ -11934,6 +12304,7 @@ function ReedRegisterView(props) {
 
       {addOpen && (
         <ReedBoxSheet
+          saxType={newSax} setSaxType={setNewSax}
           brand={newBrand} setBrand={setNewBrand}
           model={newModel} setModel={setNewModel}
           customBrand={customBrand} setCustomBrand={setCustomBrand}
@@ -11951,6 +12322,7 @@ function ReedRegisterView(props) {
       {editGroup && (
         <ReedBoxSheet
           mode="edit"
+          saxType={editSax} setSaxType={setEditSax}
           brand={editBrand} setBrand={setEditBrand}
           model={editModel} setModel={setEditModel}
           customBrand={editCustomBrand} setCustomBrand={setEditCustomBrand}
@@ -12491,8 +12863,17 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
     return <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", textAlign: "center", padding: 30 }}>比較するリードがありません。まず「登録」タブでリードを登録してください</div>;
   }
 
+  // 【便AY 2026-09-25 本人指示 D4 / D5】候補は**選んだ楽器のリードだけ**(saxType = リードタブの
+  // チップの行で選んでいる楽器)。比べる相手も同じ楽器に限る ── 選んだまま別の楽器へ移った
+  // リード(compareReedIds に残っている id)は、その楽器を見ている間は重ねない。
+  // compareReedIds そのものは消さない(楽器を戻せば、選んでいたものがそのまま戻る)。
+  const saxReeds = reedsOfSax(reeds, saxType);
+  if (saxReeds.length === 0) {
+    return <ReedSaxEmptyLine saxType={saxType} centered />;
+  }
+
   const selectedItems = compareReedIds
-    .map((id) => reeds.find((r) => r.id === id))
+    .map((id) => saxReeds.find((r) => r.id === id))
     .filter(Boolean)
     .map((r) => ({ reed: r, label: reedLabel(r, reeds), frameCount: framesOf(r.id) }));
 
@@ -12507,7 +12888,7 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
       {/* 【R19 2026-09-16 実機の指摘】箱の見出しの右の「◯枚選択中」は削除した。
           選んだ枚数はピルの塗りが返しているので、同じことを2箇所で言わない。
           数えていた selectedInBox は読み手が無くなったので計算ごと消してある。 */}
-      {groupReeds(reeds).map((g) => {
+      {groupReeds(saxReeds).map((g) => {
         return (
           <div key={g.key} style={{ padding: "16px 0 4px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
@@ -13199,13 +13580,18 @@ function ReedScoreHistoryChart({ reed, lastMeasuredAt = null }) {
 // 正典が却下側に置いたもの: 評価を3行リスト+5段階ドットで出す形 / 数字タップでグラフが出る形 /
 // **下端固定の「このリードで計測」ボタン**(浮かせるボタンへ)。
 //
-// 【正典と意図的に違えた2点】
+// 【正典と意図的に違えた点】(D-4 では2点。便AY で1点になった)
 //   ・ヘッダー右の「編集」は**置かない**。正典 #15a は置いているが、この画面で編集できるのは
 //     #番号(見出しの中で直接編集)・メモ(評価カードの中)・評価(3カラムのタップ)だけで、
 //     すべて画面の中に入口がある。**何も起きない入口を作らない**(F-77 の罠)。
-//   ・1行メタに**楽器種別を出さない**。正典は「Alto · 開封 6/10 · 74日 · 4 セッション」だが、
-//     **リードは楽器種別を持っていない**(起票 F-87 が未着手)。持っていない値を書かない。
-function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, saxType, tuningHz, onBack, onMeasure }) {
+//   ・(【便AY 2026-09-25 で解消】以前はここに「1行メタに楽器種別を出さない ── リードが楽器種別を
+//     持っていない(F-87 未着手)」とあった。F-87 でリードが楽器を持ったので、正典どおり先頭に楽器名を出す
+//     (reedDetailMetaParts の先頭の区画)。違えているのは上の1点だけになった。)
+function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, tuningHz, onBack, onMeasure }) {
+  // 【便AY 2026-09-25 E5】このリードの楽器。見出しのメタと、グラフの横軸(音名の並び)がこれを読む。
+  // 以前はグラフが**計測タブの楽器(グローバルの saxType)**で横軸を引いていた ── テナーのリードを
+  // アルトを選んだまま開くと、アルトの音域で描かれていた(バグ)。
+  const reedSax = reedSaxTypeOf(reed);
   const reedSessions = sessions
     .filter((s) => s.reedId === reed.id)
     .sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
@@ -13265,7 +13651,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   // 1行メタ「開封 6/10 · 74日 · 4 セッション」。読めない区画は**丸ごと省く**。
   // 語(「開封」「日」「セッション」)の作り方は reedDetailMetaLine に既にあるので、
   // **同じ関数から引いて**区画に割る(綴りを2箇所に持たない)。
-  const meta = reedDetailMetaParts(reed.startDate, usageDays(new Date(), reed.startDate), reedSessions.length);
+  const meta = reedDetailMetaParts(reedSax, reed.startDate, usageDays(new Date(), reed.startDate), reedSessions.length);
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -13315,7 +13701,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
         </div>
       ) : (
         <MetricTabCard
-          frames={allFrames} saxType={saxType} tuningHz={tuningHz}
+          frames={allFrames} saxType={reedSax} tuningHz={tuningHz}
           selectedIdeal={selectedIdeal}
           metric={detailMetric} onMetricChange={setDetailMetric}
         />
@@ -13422,7 +13808,17 @@ const PIVOT_DIMENSIONS = [
   },
   {
     key: "reed", label: "リード(個体)",
-    getValue: (f, ctx) => (f.reed ? reedLabel(f.reed, ctx.reeds) : "—"),
+    // 【便AY 2026-09-25 統括の裁定(E7/E8)】箱の鍵に楽器が入ったので、reedLabel(メーカー 銘柄 番手 #n(開封日))は
+    // **楽器違いで同じ綴りになり得る**(同じ日に開けた Traditional 3.0 のアルト #1 とテナー #1)。
+    // 綴りで束ねると別のリードが1本の線に混ざるので、**束ねる鍵はリードの id**、表示は labelOf が
+    // 「A.Sax · 」を前に付けた綴り(すべてのセッションのリードの選択肢と同じ形)にする。
+    getValue: (f) => (f.reed ? f.reed.id : "—"),
+    // 並びは以前と同じく**見えている綴り**の順(id の順にすると登録順に変わってしまう)。
+    getSort: (f, ctx) => (f.reed ? reedSaxOptionLabel(f.reed, ctx?.reeds || []) : "—"),
+    labelOf: (v, ctx) => {
+      const r = (ctx?.reeds || []).find((x) => x.id === v);
+      return r ? reedSaxOptionLabel(r, ctx.reeds) : v;
+    },
   },
   {
     key: "brand", label: "リードメーカー",
@@ -13504,6 +13900,12 @@ const PIVOT_MEASURES = [
   { key: "hnr", label: "HNR(dB)", getValue: (f) => (timbreSustained(f) ? f.hnrDb : null), fmt: (v) => v.toFixed(1) },
   { key: "centroid", label: "重心(Hz)", getValue: (f) => (timbreSustained(f) ? f.spectralCentroidHz : null), fmt: (v) => Math.round(v).toString() },
 ];
+
+// 【便AY 2026-09-25】次元の値の**表示**。値そのもの(束ねる鍵)と表示が違う次元(リード(個体) = id)だけが
+// labelOf を持ち、それ以外は値がそのまま表示。グラフの行・凡例・条件チップ・条件の選択肢がこれを通る。
+function pivotValueLabel(dim, v, ctx) {
+  return dim?.labelOf ? dim.labelOf(v, ctx) : v;
+}
 
 // 指定した次元がとりうる値の一覧を、ソートキーつきで返す(音域帯まとめ選択など値→ソートキーの
 // 対応が必要な場面用)。次元のソート順で並ぶ。
@@ -13649,7 +14051,7 @@ function pivotUnitOf(metricDef) {
 // **値そのもの**で出す。値を選んでいないフィルタ(=全選択と同じ扱い)は次元名だけを出す。
 // 範囲(日付・日数)のフィルタは端の値をつないで出す。**押せば必ず編集に入れる**ので、
 // ここで出せない情報があっても行き止まりにはならない。
-function pivotFilterChipText(flt, dim) {
+function pivotFilterChipText(flt, dim, ctx = null) {
   const name = dim?.label ?? flt?.dimKey ?? "";
   if (dim?.filterKind === "dateRange" || dim?.filterKind === "numberRange") {
     const a = flt?.rangeMin, b = flt?.rangeMax;
@@ -13657,7 +14059,8 @@ function pivotFilterChipText(flt, dim) {
     const f = (v) => (dim.filterKind === "dateRange" ? (formatYmd(v) ?? "") : String(v));
     return `${name} ${a === null ? "" : f(a)}〜${b === null ? "" : f(b)}`;
   }
-  const vals = flt?.values ?? [];
+  // 【便AY】値の表示は pivotValueLabel(リード(個体)は id → 「A.Sax · …」)。
+  const vals = (flt?.values ?? []).map((v) => pivotValueLabel(dim, v, ctx));
   if (vals.length === 0) return name;
   if (vals.length <= PIVOT_CHIP_VALUES_MAX) return vals.join(" / ");
   return `${vals.slice(0, PIVOT_CHIP_VALUES_MAX).join(" / ")} 他${vals.length - PIVOT_CHIP_VALUES_MAX}`;
@@ -13694,7 +14097,8 @@ const DATE_INPUT_FIT = { minWidth: 0, maxWidth: "100%" };
 //
 // 【行の縞をオクターブで割れるのは行が音名のときだけ】rowIsNote が false のときは縞を出さない
 // (「2行ごとに交互」のような**正典に無い規則を発明しない**)。
-function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false }) {
+// 【便AY 2026-09-25】rowLabelOf / colLabelOf: 行・凡例の**表示**(既定は値のまま)。鍵(rk / ck)は束ねる値のまま使う。
+function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false, rowLabelOf = (v) => v, colLabelOf = (v) => v }) {
   // グラフ幅は固定値ではなくコンテナの実測幅。375pxでも横に溢れない条件がここで決まる。
   const [boxRef, W] = useMeasuredWidth();
 
@@ -13740,7 +14144,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
 
     // 左端も RPAD と同じだけ内側に寄せる。getComputedTextLength() は送り幅で、和文グリフの
     // 実インクは 1px 前後それを超えることがあるため、この余白が無いと左端で欠ける。
-    const longest = rowKeys.reduce((m, rk) => Math.max(m, measureSvgTextPx(rk, FS)), 0);
+    const longest = rowKeys.reduce((m, rk) => Math.max(m, measureSvgTextPx(rowLabelOf(rk), FS)), 0);
     const LABELW = RPAD + Math.min(Math.ceil(longest), LABEL_MAX) + GAPL;
     const PLOTW = Math.max(1, W - LABELW - RPAD);
 
@@ -13785,7 +14189,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
         {/* 項目ラベル(縦軸) */}
         {rowKeys.map((rk, ri) => (
           <text key={rk} x={LABELW - GAPL} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS}
-            fill="var(--c-ink-2)" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rk, LABEL_MAX, FS)}</text>
+            fill="var(--c-ink-2)" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rowLabelOf(rk), LABEL_MAX, FS)}</text>
         ))}
         {/* 目盛ラベル。両端だけは枠の内側へ寄せる(中央合わせだと半分が枠外に出る)。
             0 のラベルと重なる1本だけは譲る(crowded)。 */}
@@ -13830,7 +14234,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false 
             {shownKeys.map((ck, ci) => (
               <span key={ck} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>
                 <SeriesSwatch style={styleAt(ci)} width={12} />
-                {fitLabel(ck, LABEL_MAX, SVG_FS_XS)}
+                {fitLabel(colLabelOf(ck), LABEL_MAX, SVG_FS_XS)}
               </span>
             ))}
           </div>
@@ -14866,6 +15270,8 @@ function SessionEditSheet({
   recordedAtLocal, onSetRecordedAt,
   performers, setPerformers, performer, onSetPerformer,
   reeds, sessions, reedId, onSetReedId,
+  // 【便AY 2026-09-25 E6】この計測の楽器(session.saxType。無ければグローバルの saxType)。
+  saxType,
   onClose,
 }) {
   const reed = reeds.find((r) => r.id === reedId) || null;
@@ -14940,7 +15346,9 @@ function SessionEditSheet({
           </button>
           {reedPickOpen && (
             <ReedPickSheet
-              reeds={reeds} sessions={sessions}
+              /* 【便AY 2026-09-25 E6】候補は**この計測の楽器のリードだけ**。すでに付いている
+                 別の楽器のリードは外さない(枠の表示は上の reedLabel のまま。選び直したときだけ変わる)。 */
+              reeds={reedsOfSax(reeds, saxType)} sessions={sessions}
               value={reedId || null}
               onChange={(id) => onSetReedId(id || null)}
               onClose={() => setReedPickOpen(false)}
@@ -16043,6 +16451,8 @@ function AnalysisLabView(props) {
           promoteSessionToIdeal={promoteSessionToIdeal}
           updateSessions={updateSessions} performers={performers} setPerformers={setPerformers}
           tuningHz={tuningHz}
+          /* 【便AY E6】リードを付け直すシートの候補は、その計測の楽器(無ければこの楽器)のリードだけ。 */
+          saxType={saxType}
           onBack={() => setSelectedSessionId(null)}
         />
       </SwipeBackArea>
@@ -16278,7 +16688,7 @@ function AnalysisLabView(props) {
                 fontSize: 12, fontWeight: 600, color: "var(--c-accent)", lineHeight: 1.4,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
-                {pivotFilterChipText(flt, PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey))}
+                {pivotFilterChipText(flt, PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey), pivotCtx)}
               </span>
             </button>
           ))}
@@ -16453,7 +16863,7 @@ function AnalysisLabView(props) {
                                       fontWeight: selected ? 600 : 400,
                                     }}
                                   >
-                                    {v}
+                                    {pivotValueLabel(dim, v, pivotCtx)}
                                   </button>
                                 );
                               });
@@ -16524,6 +16934,9 @@ function AnalysisLabView(props) {
             <PivotLineChart
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
               metricDef={metricDef}
+              /* 【便AY】リード(個体)は id で束ねて「A.Sax · …」で見せる(pivotValueLabel)。 */
+              rowLabelOf={(v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotRow), v, pivotCtx)}
+              colLabelOf={(v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotCol), v, pivotCtx)}
               /* 行の縞(オクターブ単位)は**行が音名のときだけ**。正典に無い規則を発明しない。 */
               rowIsNote={pivotRow === "note"}
             />
@@ -16624,7 +17037,8 @@ function AllSessionsPage({
     if (!sessionFilterReed) return "リード";
     if (sessionFilterReed === "__none__") return "未紐付け";
     const r = reeds.find((x) => x.id === sessionFilterReed);
-    return reedShortLabel(r, reeds) ?? "リード";
+    // 【便AY 2026-09-25 統括の裁定(E7)】選択肢と同じく楽器名を添える(楽器違いで同じ短い名になり得る)。
+    return r ? `${SAX_PRESETS[reedSaxTypeOf(r)].label} · ${reedShortLabel(r, reeds)}` : "リード";
   })();
 
   return (
@@ -16765,7 +17179,8 @@ function AllSessionsPage({
           items={[
             { key: "", label: "すべて" },
             { key: "__none__", label: "未紐付け" },
-            ...reeds.map((r) => ({ key: r.id, label: reedLabel(r, reeds) })),
+            // 【便AY 2026-09-25 E7】楽器が違う同じ銘柄の箱を見分けられるよう、楽器名を添える(例 `A.Sax · …`)。
+            ...reeds.map((r) => ({ key: r.id, label: reedSaxOptionLabel(r, reeds) })),
           ]}
           value={sessionFilterReed}
           onPick={(k) => { setSessionFilterReed(k); setPillSheet(null); }}
@@ -16869,7 +17284,7 @@ function MyDataPage({
 // 【束5 2026-09-20】受け口から NUM_HARMONICS が消えた。唯一の読み手だった
 // PhraseTimeline の音色一致度の枠が無くなり、この画面では誰も見なくなったため
 // (selectedIdeal は MetricTabCard / SetAsIdealButton が今も読むので残る)。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, saxType, onBack }) {
   const frames = session.frames || [];
   // (【D-5】音階ごとの平均の表を削除したので、noteGroups の読み手が無くなった。分解も止める。)
   const reed = reeds.find((r) => r.id === session.reedId) || null;
@@ -16993,6 +17408,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSes
           performers={performers} setPerformers={setPerformers}
           performer={session.performer} onSetPerformer={setSessionPerformer}
           reeds={reeds} sessions={sessions} reedId={session.reedId} onSetReedId={setSessionReedId}
+          saxType={isKnownSaxType(session.saxType) ? session.saxType : saxType}
           onClose={() => setEditOpen(false)}
         />
       )}
