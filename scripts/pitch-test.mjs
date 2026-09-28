@@ -10435,7 +10435,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     {
       const code = codeOf(src);
       check("MeasureIcon が共通コンポーネントとして存在する", /function MeasureIcon\(/.test(src));
-      const arcs = (code.match(/M4 15 A8 8 0 0 1 20 15/g) || []).length;
+      // 【便BD 2026-09-28】絵を Lucide の gauge に替えた。弧の綴りも新しいものを数える。
+      const arcs = (code.match(/M3\.34 19a10 10 0 1 1 17\.32 0/g) || []).length;
       check("計測の絵(メーターの弧)はアプリ全体で1箇所だけ(コピーが残っていない)",
         arcs === 1, `${arcs}箇所`);
       // 引数の分割代入({ size = 30, … })で終端を誤らないよう、括弧を数えてから本体を取る
@@ -10458,9 +10459,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       };
       const body = bodyOf("MeasureIcon");
       check("MeasureIcon の本体を走査できている", body !== "" && body.includes("</svg>"), `${body.length}文字`);
-      check("その1箇所は MeasureIcon の中にある", /M4 15 A8 8 0 0 1 20 15/.test(body));
-      check("MeasureIcon は針と軸の点も持つ(弧だけの別物になっていない)",
-        /<line x1="12" y1="15" x2="15" y2="9" \/>/.test(body) && /<circle cx="12" cy="15" r="1.4"/.test(body));
+      check("その1箇所は MeasureIcon の中にある", /M3\.34 19a10 10 0 1 1 17\.32 0/.test(body));
+      check("MeasureIcon は針も持つ(弧だけの別物になっていない)",
+        /<path d="m12 14 4-4" \/>/.test(body) && !/M4 15 A8 8 0 0 1 20 15/.test(codeOf(src)));
       // 【変異で1度すり抜けた】`/size = 30/` だけを見ていたら、本体に const size = 30 を
       // 置いて引数から size を消す変異が通った(呼び出し側がサイズを決められなくなるのに緑)。
       // **引数の並びそのもの**を見る。
@@ -30864,12 +30865,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("89.4 リード = 斜めのリード(1.8・translate で中央寄せ・rotate 35)",
     /strokeWidth="1\.8"[^>]*>\s*\r?\n\s*<g transform="translate\(0\.7 -1\.9\) rotate\(35 12 13\)">\s*\r?\n\s*<path d="M9\.5 22 L9\.5 10 Q9\.5 4\.5 12 4\.5 Q14\.5 4\.5 14\.5 10 L14\.5 22 Z" \/>\s*\r?\n\s*<path d="M9\.5 15 Q12 11\.8 14\.5 15" \/>\s*\r?\n\s*<\/g>/.test(nav89)
     && !/M9 22 L9 10 Q9 4 12 4/.test(nav89));
-  check("89.4 データ = 折れ線と点(2・基準の線・折れ線・4点に r=1.6 の塗りの丸)",
-    /<line x1="3" y1="20\.5" x2="21" y2="20\.5" \/>/.test(nav89)
-    && /<polyline points="4\.5,16 9\.5,10\.5 14,13\.5 19\.5,6" \/>/.test(nav89)
-    && ["4.5\" cy=\"16", "9.5\" cy=\"10.5", "14\" cy=\"13.5", "19.5\" cy=\"6"].every((p) => nav89.includes(`<circle cx="${p}" r="1.6" fill={c} stroke="none" />`))
-    && !/x1="7" y1="20" x2="7" y2="13"/.test(nav89));
-  check("89.4 計測とコミュニティのアイコンは変えていない",
+  // 【便BD 2026-09-28 本人選定】データは Iconoir の stats-up-square(線は 2)。折れ線と点は外した。
+  check("89.4 データ = 四角の中に右肩上がり(2・縦棒3本・角の丸い四角)",
+    /key: "analysis", label: "データ",\s*icon: \(c\) => \(\s*<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke=\{c\} strokeWidth="2"/.test(nav89)
+    && ["M16 16L16 8", "M12 16L12 11", "M8 16L8 13"].every((d) => nav89.includes(`<path d="${d}" />`))
+    && nav89.includes('<path d="M3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4Z" />')
+    && !/4\.5,16 9\.5,10\.5/.test(nav89) && !/x1="7" y1="20" x2="7" y2="13"/.test(nav89));
+  check("89.4 計測は MeasureIcon のまま・コミュニティのアイコンは変えていない",
     /icon: \(c\) => \(<MeasureIcon color=\{c\} \/>\),/.test(nav89)
     && /<circle cx="9" cy="8" r="3\.2" \/>/.test(nav89) && /<path d="M15\.5 13\.6 Q20\.5 13\.6 20\.5 18" \/>/.test(nav89));
 

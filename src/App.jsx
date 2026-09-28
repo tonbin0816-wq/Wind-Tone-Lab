@@ -5041,11 +5041,13 @@ export default function WindToneLabPhaseMode() {
 // (DESIGN-SYSTEM §1.9)ので、トークンで色を指定したい呼び出し側は親要素の CSS の
 // color で渡すこと。hex を直接渡す道も残してある(下部ナビは選択状態で色を出し分ける)。
 // 装飾なので aria-hidden。意味は呼び出し側のボタンの aria-label が担う。
+// 【便BD 2026-09-28 本人選定「メーター(細い針)」】絵は Lucide の gauge(ISC ライセンス・
+// lucide-static 1.48.0)をそのまま写したもの。大きな弧と、中心から右上へ伸びる短い針。
+// 以前は自作の小さな弧+針+軸の点だった。ライセンスの文は THIRD_PARTY_NOTICES.md。
 function MeasureIcon({ size = 30, color = "currentColor" }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
-      <path d="M4 15 A8 8 0 0 1 20 15" /><line x1="12" y1="15" x2="15" y2="9" />
-      <circle cx="12" cy="15" r="1.4" fill={color} stroke="none" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" />
     </svg>
   );
 }
@@ -5086,17 +5088,17 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       ),
     },
     {
-      // 【便BC 2026-09-25 本人選定「折れ線と点」】下に基準の線、その上に4点を結ぶ折れ線。点は塗りの丸
-      // (色は線と同じ・線なし)。以前は縦棒3本の棒グラフだった。
+      // 【便BD 2026-09-28 本人選定「四角の中に右肩上がり」】Iconoir の stats-up-square
+      // (MIT ライセンス)を写したもの。角の丸い四角の中に、右へ行くほど高い縦棒3本。
+      // 線の太さは元の 1.5 ではなく、ほかのタブと同じ 2(本人はこの太さの見本で選んだ)。
+      // 以前は自作の折れ線と点(便BC)、その前は縦棒3本。ライセンスの文は THIRD_PARTY_NOTICES.md。
       key: "analysis", label: "データ",
       icon: (c) => (
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="3" y1="20.5" x2="21" y2="20.5" />
-          <polyline points="4.5,16 9.5,10.5 14,13.5 19.5,6" />
-          <circle cx="4.5" cy="16" r="1.6" fill={c} stroke="none" />
-          <circle cx="9.5" cy="10.5" r="1.6" fill={c} stroke="none" />
-          <circle cx="14" cy="13.5" r="1.6" fill={c} stroke="none" />
-          <circle cx="19.5" cy="6" r="1.6" fill={c} stroke="none" />
+          <path d="M16 16L16 8" />
+          <path d="M12 16L12 11" />
+          <path d="M8 16L8 13" />
+          <path d="M3 20.4V3.6C3 3.26863 3.26863 3 3.6 3H20.4C20.7314 3 21 3.26863 21 3.6V20.4C21 20.7314 20.7314 21 20.4 21H3.6C3.26863 21 3 20.7314 3 20.4Z" />
         </svg>
       ),
     },
