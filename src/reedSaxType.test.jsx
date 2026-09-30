@@ -661,7 +661,12 @@ describe("usePersistedState は読み込みが済んだかを返す(軽5)", () =
     const out = [];
     await draw(<KvHarness k={`test-loaded-${Date.now()}`} out={out} />);
     expect(out[0]).toEqual({ v: "alto", loaded: false });
-    await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+    // 【便BE 2026-09-30 統括指示】以前は固定の 40ms を1回待っていた(作り物の読み込みは 0ms + 10ms)。
+    // 全検査を並走させた重い状態ではタイマーが遅れて間に合わず、loaded=false のまま落ちることがあった
+    // (2026-09-30 に 16 回中 2 回)。**読み込みが済むまで**短い間隔で待つ(上限つき)。見る中身は変えていない。
+    for (let i = 0; i < 400 && !out[out.length - 1]?.loaded; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    }
     expect(out[out.length - 1]).toEqual({ v: "tenor", loaded: true });
     // 保存値が入る前に loaded だけが先に立つ描画は無い
     expect(out.some((x) => x.loaded && x.v === "alto")).toBe(false);

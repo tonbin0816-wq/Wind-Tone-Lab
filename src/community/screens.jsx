@@ -428,6 +428,26 @@ export const DANGER_OUTLINE_STYLE = {
   fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
 };
 
+// 【便BE 2026-09-30 本人指示(モック B 案の .btn.quiet)】「この人をブロック」の入口。
+// 寸法・角丸・字の大きさは通報の入口(DANGER_OUTLINE_STYLE)と**同じ**で、色だけが違う:
+// 枠 1px --c-line-strong・字 --c-ink-2・地なし。ブロックは「自分の画面から消す」だけの一手で、
+// 運営に届く通報(赤い枠)とは色で分ける。形は DANGER_OUTLINE_STYLE から引き継ぐ(写しを作らない)。
+export const QUIET_OUTLINE_STYLE = {
+  ...DANGER_OUTLINE_STYLE,
+  border: "1px solid var(--c-line-strong)", color: "var(--c-ink-2)",
+};
+
+// 【便BE】危険の塗り(確認のシートの最後の一手)。地 --c-danger・字 --c-on-accent(白)・枠なし。
+// **これが唯一の定義**: 「ブロックする」(このファイル)と、マイページの「アカウントを削除する」
+// (CommunityTab.jsx の dangerButtonStyle = これの別名)が同じものを読む。
+// 置き場所がこちらなのは、CommunityTab.jsx がこのファイルを読む向き(screens.jsx は CommunityTab.jsx を
+// 読まない)だから。逆に置くと循環になる。
+export const DANGER_FILL_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
+  background: "var(--c-danger)", color: "var(--c-on-accent)",
+  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
+};
+
 // 【上限に触れていることを黙らない】50件で切られていることは、人数もグラフも
 // 普通に出るので画面からは分からない。切られたときだけ必ず出す。
 // 詳細は設計書の決定1-b(公開ユーザーが40人に達したら読み直すこと)。
@@ -1388,8 +1408,12 @@ const PERSON_TABS = [
   { key: "profile", label: "プロフィール" },
 ];
 
-export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported, tuningHz }) {
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported, tuningHz, onBlock = null }) {
   const [adopted, setAdopted] = useState(null);
+  // 【便BE 2026-09-30 本人裁定「B」】ブロックの確認のシートを開いているか。
+  // 「ブロックする」を押したら onBlock(person) を呼ぶだけ ── 一覧に足す・このページを閉じるのは
+  // 呼び出し側(JoinedView)が持つ(一覧と開いている人の両方を持っているのがあちらだから)。
+  const [blocking, setBlocking] = useState(false);
   // 【計画5 2026-09-10】通報。開いているか / 選んだ理由 / 送った結果。
   // シートの上にシートを重ねない ── 人物紹介を閉じてから通報のシートを出す。
   const [reporting, setReporting] = useState(false);
@@ -1653,7 +1677,21 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
       {reportEntryVisible({ side, personUid: person?.uid, myUid }) ? (
         // 【便AV 2026-09-24 本人指示】「その下の横線は削除」「この人を通報ボタンをタブ切り替えの横幅と同じに」。
         // 区切りの線(borderTop)をやめ、ボタンは本文の幅いっぱい(= 上の データ | プロフィール と同じ幅)。
-        <div style={{ marginTop: "var(--sp-6)" }}>
+        // 【便BE 2026-09-30 本人指示(モック B 案)】通報の**上**に「この人をブロック」。2つの間は 8px(--sp-2)、
+        // 横幅は通報と同じ(どちらも幅いっぱい)。**出す条件は通報と同じ** ── この器ごと reportEntryVisible の
+        // 内側に置いたので、プロフィール面・相手と自分の uid が揃っている・自分ではない、の3つを通報と共有する
+        // (条件を2箇所に書かない)。ブロックだけの条件は「受け口(onBlock)がある」の1つ。
+        <div style={{ marginTop: "var(--sp-6)", display: "grid", gap: "var(--sp-2)" }}>
+          {onBlock ? (
+            /* 地なし・枠 --c-line-strong・字 --c-ink-2(QUIET_OUTLINE_STYLE)。押すと確認のシートが開く。 */
+            <button
+              type="button" className="sans"
+              onClick={() => setBlocking(true)}
+              style={{ ...QUIET_OUTLINE_STYLE, padding: "0 var(--sp-4)" }}
+            >
+              この人をブロック
+            </button>
+          ) : null}
           {/* 【便AW】地なし・枠と字が赤(DANGER_OUTLINE_STYLE。マイページのアカウントを削除と同じ)。 */}
           <button
             type="button" className="sans"
@@ -1709,6 +1747,15 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           >目安に設定</button>
         </div>
       ) : null}
+      {/* 【便BE】ブロックの確認。器は BottomSheet(通報のシートと同じく、このシートの中から重ねる)。
+          「ブロックする」で onBlock を呼ぶ → 呼び出し側が一覧に足してこのページごと閉じる。 */}
+      {blocking ? (
+        <BlockConfirmSheet
+          nickname={person?.nickname}
+          onClose={() => setBlocking(false)}
+          onConfirm={() => { setBlocking(false); onBlock?.(person); }}
+        />
+      ) : null}
       {reporting ? (
         <ReportSheet
           nickname={person?.nickname}
@@ -1738,6 +1785,37 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
       {/* 【便AH 決定5】そのまま大きく出す。閉じるのは画面のどこをタップしても(Escape も)。
           このシートより上の層へ出る(PhotoZoom が持つ)。 */}
       {photoZoom && personPhoto ? <PhotoZoom url={personPhoto} onClose={() => setPhotoZoom(false)} /> : null}
+    </BottomSheet>
+  );
+}
+
+// ------------------------------------------------------------------
+// ブロックの確認のシート(便BE 2026-09-30 本人裁定「B」。モックの 2)
+//
+// 文言は本人の採用したモックのまま。通報のあとに「ブロックもしますか」は聞かない(本人裁定)。
+// 【器は BottomSheet】シートの器はアプリで1つ(§4.5)。ボタンの並びはアカウントの削除の確認と同じ
+// (縦に積む・間 --sp-2)。最後の一手は危険の塗り(DANGER_FILL_STYLE)、「やめる」は B型の素のボタン。
+// ------------------------------------------------------------------
+export const BLOCK_NOTE_EFFECT = "ブロックすると、この人は順位・シェア・データの一覧と、みんなの平均から見えなくなります。相手には知らされません。";
+export const BLOCK_NOTE_UNDO = "マイページの「ブロック中の人」から、いつでも解除できます。";
+// 本文の段落。モックの 13px / --c-ink-2 / 行送り 1.8 を既存の値で引く(--fs-sm = 13px。1.8 は bodyNoteStyle の行送り)。
+const blockNoteStyle = { ...bodyNoteStyle, fontSize: "var(--fs-sm)" };
+export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
+  const title = `${nickname ?? "この人"} をブロックしますか`;
+  return (
+    <BottomSheet ariaLabel={title} onClose={onClose}>
+      <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>{title}</div>
+      <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_EFFECT}</div>
+      <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_UNDO}</div>
+      <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
+        <button type="button" onClick={onConfirm} className="sans" style={DANGER_FILL_STYLE}>
+          ブロックする
+        </button>
+        <button
+          type="button" onClick={onClose} className="sans ctl-plain ctl-pill"
+          style={{ width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+        >やめる</button>
+      </div>
     </BottomSheet>
   );
 }

@@ -315,3 +315,22 @@ export function idealForUse(ideal, mine) {
   }
   return { ...aligned, notes, excludedMetrics: drop };
 }
+
+// 【便BE 2026-09-30 本人指示・統括の裁定「案(a)」】目安から外した指標(excludedMetrics)の知らせ。
+// 外すと、セッション詳細・リード詳細の指標カードで**その指標の目安の破線が黙って消える**。
+// そのタブを見ているときだけ、グラフの下に1行この文を出す(文言は本人の指定のまま。英字の前後の空白も)。
+export const IDEAL_EXCLUDED_NOTE = "My Data が不足しています";
+
+/** 目安 ideal が、揃えが要る指標(重心・HNR)を1つでも外しているか。外していなければ知らせの行ごと置かない。 */
+export function idealHasExcluded(ideal) {
+  const ex = ideal?.excludedMetrics;
+  return Array.isArray(ex) && ex.some((k) => ADOPT_ALIGN_REQUIRED.includes(k));
+}
+
+/**
+ * いま見ている指標(ローカルの綴り: centroidHz / hnrDb / pitchCentsSigned / volumeDb)の目安の破線が、
+ * 外されたせいで出ていないか。**重心・HNR だけ**が対象(音程・音量は外さないので常に false)。
+ */
+export function idealMetricExcluded(ideal, idealKey) {
+  return ADOPT_ALIGN_REQUIRED.includes(idealKey) && idealHasExcluded(ideal) && ideal.excludedMetrics.includes(idealKey);
+}

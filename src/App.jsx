@@ -14,6 +14,8 @@ import { buildAdoptedProfile } from "./community/idealDoc.js";
 // 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
 // firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
 import { alignIdealToMine, idealForUse } from "./community/align.js";
+// 【便BE 2026-09-30】目安から外した指標の知らせ(指標カードのグラフの下の1行)。判断は align.js。
+import { IDEAL_EXCLUDED_NOTE, idealHasExcluded, idealMetricExcluded } from "./community/align.js";
 // 【D1 2026-09-16】練習時間(音を感知していた時間)。My Data の累計とコミュニティの公開統計(便H)が
 // **同じ1関数**を読む。定義はあちらのファイルの冒頭。
 import { sessionSoundingSec } from "./soundingSec.js";
@@ -2151,6 +2153,8 @@ export {
   reedGroupKey, reedBrandGroupKey, groupReeds,
   useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
   ReedsTab, SessionEditSheet,
+  // 【便BE】指標カード(目安から外した指標の知らせの検査 idealExcludedNote.test.jsx が描く)。
+  MetricTabCard,
   // 【便AZ】音名軸の目印の音名(楽器 → E♭ / B♭)。
   noteAxisGuideName,
 };
@@ -15206,6 +15210,23 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
         fmt={m.fmt}
         selectedIdeal={alignedIdeal} idealKey={METRIC_IDEAL_KEYS[m.key]}
       />
+      {/* 【便BE 2026-09-30 本人指示・統括の裁定「案(a)」】揃えずに取り込んだ目安で、重心・HNR を
+          外しているとき(App の selectedIdeal = idealForUse の excludedMetrics)、その指標のタブでは
+          目安の破線が出ない。黙って消えないよう、グラフの下に1行だけ知らせる。
+          【跳ねない】外している指標が1つでもあれば、行は**どのタブでも置き**、該当しないタブ
+          (音程・音量・外していない方)では visibility: hidden で隠す ── タブを替えてもカードの高さが
+          1px も動かない。目安が無い・何も外していないときは行ごと置かない(今までの見た目のまま)。
+          作法は小さな注意書き(--fs-xs / --c-ink-3)。 */}
+      {idealHasExcluded(selectedIdeal) ? (
+        <div
+          className="sans" data-ideal-excluded-note
+          aria-hidden={idealMetricExcluded(selectedIdeal, METRIC_IDEAL_KEYS[m.key]) ? undefined : true}
+          style={{
+            marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6,
+            visibility: idealMetricExcluded(selectedIdeal, METRIC_IDEAL_KEYS[m.key]) ? "visible" : "hidden",
+          }}
+        >{IDEAL_EXCLUDED_NOTE}</div>
+      ) : null}
     </div>
   );
 }

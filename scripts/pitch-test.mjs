@@ -22997,15 +22997,21 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
     (/const goPrivate[\s\S]{0,140}/.exec(commCode) || [""])[0].replace(/\s+/g, " "));
   check("46 B-3 togglePublic は親の onTogglePublic を呼ぶ(別の道を作っていない)",
     /const togglePublic = async \(v\) => \{[\s\S]{0,260}?await onTogglePublic\(v\);/.test(commCode));
+  // 【便BE 2026-09-30 審査の指摘】危険の塗りの定義は screens.jsx の DANGER_FILL_STYLE ただ1つになった
+  // (「ブロックする」と共有)。ここは別名。色の検査は定義の側へ移した。
   check("46 B-3 危険色は --c-danger(新しい色を作っていない)",
-    /const dangerButtonStyle = \{[\s\S]{0,200}background: "var\(--c-danger\)"/.test(commCode));
+    /const dangerButtonStyle = DANGER_FILL_STYLE;/.test(commCode)
+    && /export const DANGER_FILL_STYLE = \{[\s\S]{0,200}background: "var\(--c-danger\)"/.test(
+      readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8")));
   // 公開している目安の数は myIdeals から。持っているのは JoinedView なので prop で渡す。
   check("46 B-3 公開している目安の数は myIdeals の鍵の数",
     /const publicIdealCount = Object\.keys\(myIdeals \?\? \{\}\)\.length;/.test(commCode));
   check("46 B-3 myIdeals は JoinedView から ProfileView へ渡している",
     /<ProfileView flaggedMe=\{flaggedMe\} uid=\{uid\} profile=\{profile\} myIdeals=\{myIdeals\}/.test(commCode));
+  // 【便BE 2026-09-30】ProfileView の受け口の末尾に blocked / onUnblock(ブロック中の人)が加わった。
+  // 錨は「myIdeals を既定 null で受け取る」のまま、末尾でなくてもよい形にした(緩めたのは位置だけ)。
   check("46 B-3 ProfileView は myIdeals を受け取る",
-    /export function ProfileView\(\{[^}]*myIdeals = null \}\)/.test(commCode));
+    /export function ProfileView\(\{[^}]*\bmyIdeals = null(?:, [^}]*)? \}\)/.test(commCode));
   // 削除ボタンはシートを開くだけ(押した瞬間に消さない)。
   check("46 B-3 一覧の「アカウントを削除」はシートを開くだけ",
     /onClick=\{\(\) => setDeleteOpen\(true\)\}[\s\S]{0,200}アカウントを削除\s*<\/button>/.test(commCode));
@@ -24719,7 +24725,8 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     // 【束3 2026-09-19 本人指示で書き換えた】お問い合わせはアプリの中のフォームになり、
     // NavRow の副題(sub)は唯一の使い手を失って消えた。錨は緩めず、**受け口が無いこと**まで見る。
     check("52.9 C11 NavRow は href か onClick(シート)。<a target=_blank> の経路(external)も副題(sub)も無い",
-      /function NavRow\(\{ label, href = null, onClick = null, last = false \}\)/.test(nav52)
+      // 【便BE 2026-09-30 本人指示】右端の添え字 value(「ブロック中の人  N人 ›」)が加わった。副題(sub)ではない。
+      /function NavRow\(\{ label, href = null, onClick = null, last = false, value = null \}\)/.test(nav52)
       && /if \(href\) return <a href=\{href\} className="sans" style=\{style\}>\{inner\}<\/a>;/.test(nav52)
       && /return <button type="button" onClick=\{onClick\} className="sans" style=\{style\}>\{inner\}<\/button>;/.test(nav52)
       && countIn(nav52, /external/g) === 0 && countIn(nav52, /\bsub\b/g) === 0);
@@ -27965,8 +27972,11 @@ console.log("========== 検証74: 保存しても順位から自分が消えな�
     /import \{[^}]*withMyRow[^}]*\} from "\.\/directory\.js";/.test(comm74)
     && /export function withMyRow\(users, myUid, myProfile, myStats = null\)/
       .test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "directory.js"), "utf8"))));
+  // 【便BE 2026-09-30 本人裁定「B」】名簿はブロックした人を落としてから自分の行を置く
+  // (落とす規則は block.js の hideBlocked。自分は落とさない)。元は withMyRow(dir.users, …)。
   check("74.2 一覧を使う3画面すべてに、自分の行つきのものを渡す",
-    /const users = useMemo\(\(\) => withMyRow\(dir\.users, uid, profile, myStats\)/.test(comm74)
+    /const shownDirUsers = useMemo\(\(\) => hideBlocked\(dir\.users, blocked, uid\)/.test(comm74)
+    && /const users = useMemo\(\(\) => withMyRow\(shownDirUsers, uid, profile, myStats\)/.test(comm74)
     && /<DataScreen users=\{users\}/.test(comm74)
     && /<RankScreen users=\{users\}/.test(comm74)
     && /<ShareScreen users=\{users\}/.test(comm74));

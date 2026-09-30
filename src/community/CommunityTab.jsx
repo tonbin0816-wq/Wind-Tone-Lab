@@ -16,7 +16,7 @@ import {
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
-import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE, DANGER_FILL_STYLE } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
 import { isFlagged } from "./reportRepo.js";
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -27,6 +27,11 @@ import { listIdeals, buildMyIdeals, publishMyIdeals, unpublishAllIdeals } from "
 // 【BottomSheet 2026/09/09 本人裁定】シートの器はアプリで1つ。下スワイプの配線
 // (useSheetDismiss)も Escape も器の中にあるので、ここは器を呼ぶだけでよくなった。
 import { buildIdealProfileFromSessions, SubTabs, SwipePager, OptionPills, BottomSheet } from "../App.jsx";
+// 【便BE 2026-09-30 本人裁定「B」】ブロックの一覧は**この端末**に保存する(サーバーには書かない)。
+// 保存の仕組みはアプリで1つ(usePersistedState = IndexedDB の kv)。アカウント引継は kv を丸ごと
+// 書き出す/読み戻すので、一覧もファイルに入り、読み戻すと戻る。判断は block.js。
+import { usePersistedState } from "../App.jsx";
+import { BLOCKED_USERS_KEY, normalizeBlockedList, addBlocked, removeBlocked, hideBlocked, hideBlockedIdeals } from "./block.js";
 // 【アカウント引継の中身は backup/BackupPanel.jsx の「記録の保存」そのもの】写しを作らない。
 // 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を持つだけ。
 // 【便BB 2026-09-25】以前ここには「My Data の記録の保存」とあったが、App.jsx(My Data)は
@@ -150,7 +155,8 @@ const SUB_TABS = [
 ];
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
-function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data" }) {
+// 【便BE】export は振る舞いの検査(block.test.jsx)が実物を描くための出口。
+export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data" }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -170,9 +176,16 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
   // 原因を1つずつ潰しても本人の端末で再発したのは、**自分が順位に出るかどうかを
   // サーバに委ねていた**から。委ねるのをやめる。
   const myStats = useMemo(() => computePracticeStats(sessions ?? []), [sessions]);
+  // 【便BE 2026-09-30 本人裁定「B」】ブロックした人。**自分の画面からだけ**落とす。
+  // 落とすのは通報(usePublicUsers の hideFlagged)と同じ考え ── **数える前に**落とすので、
+  // 順位・シェア・データの一覧の母数からも消える。読み直しはしない: 一覧が変われば
+  // この useMemo が組み直すだけなので、ブロックも解除も押したその場で効く。
+  const [blockedRaw, setBlockedRaw] = usePersistedState(BLOCKED_USERS_KEY, []);
+  const blocked = useMemo(() => normalizeBlockedList(blockedRaw), [blockedRaw]);
+  const shownDirUsers = useMemo(() => hideBlocked(dir.users, blocked, uid), [dir.users, blocked, uid]);
   // 名簿に自分の行を必ず置く(規則は directory.js の withMyRow に1つだけ)。
-  const users = useMemo(() => withMyRow(dir.users, uid, profile, myStats),
-    [dir.users, uid, profile, myStats]);
+  const users = useMemo(() => withMyRow(shownDirUsers, uid, profile, myStats),
+    [shownDirUsers, uid, profile, myStats]);
 
   // 自分が通報で隠れているか。**一覧の結果からは判定しない** ── 一覧は上限50で
   // 切れるので、切れた先に自分が居ると本人にだけ何も知らせないまま隠れてしまう。
@@ -314,6 +327,18 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
     if (v) await publishMyIdeals(uid, myIdeals);
   };
 
+  // 【便BE】目安もブロックした人のぶんを落とす。**みんなの平均(DataScreen)はこの配列から数える**ので、
+  // 平均からも消える。人物のページの目安も同じ配列を読む。読み込み中(null)は null のまま渡す。
+  const shownIdeals = useMemo(() => (ideals === null ? null : hideBlockedIdeals(ideals, blocked, uid)),
+    [ideals, blocked, uid]);
+  // 【便BE】ブロックする(人物のページの確認のシートから)。一覧に足して、人物のページを閉じる。
+  const block = (p) => {
+    setBlockedRaw((prev) => addBlocked(prev, p));
+    setPerson(null);
+  };
+  // 【便BE】解除(マイページの「ブロック中の人」から)。確認は挟まない(本人裁定)。
+  const unblock = (targetUid) => setBlockedRaw((prev) => removeBlocked(prev, targetUid));
+
   const index = Math.max(0, SUB_TABS.findIndex((x) => x.key === tab));
   // 子タブを動かしたら人物紹介は閉じる(下の画面が別人のものに変わるため)
   const go = (k) => { setPerson(null); setTab(k); };
@@ -331,13 +356,13 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
             先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
           /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。 */
-          <DataScreen users={users} ideals={ideals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} active={index === 0} />
+          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} active={index === 0} />
         ))}
         {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
-        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} />
+        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} blocked={blocked} onUnblock={unblock} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
@@ -348,12 +373,13 @@ function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, on
       {person ? (
         <PersonSheet
           person={person}
-          ideals={ideals ?? []}
+          ideals={shownIdeals ?? []}
           myIdeals={myIdeals}
           tuningHz={tuningHz}
           onAdopt={onAdoptIdeal}
           onClose={() => setPerson(null)}
           myUid={uid}
+          onBlock={block}
           onReported={(targetUid) => {
             // 【読み直さない】50件ぶんの読み取りを1回増やさずに、手元の配列から落とす。
             // 目安も一緒に落とす ── データタブの線が通報した相手のまま残らないように。
@@ -629,11 +655,9 @@ const secondaryButtonStyle = {
   fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
 };
 // 破壊的な一手。index.css の .ctl-danger と同じ考え方(枠は持たず、地と文字色だけ)。
-const dangerButtonStyle = {
-  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
-  background: "var(--c-danger)", color: "var(--c-on-accent)",
-  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
-};
+// 【便BE 審査の指摘】定義は screens.jsx の DANGER_FILL_STYLE ただ1つ(「ブロックする」と同じもの)。
+// ここは別名を置くだけで、値の写しを持たない。
+const dangerButtonStyle = DANGER_FILL_STYLE;
 
 function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
@@ -1487,7 +1511,9 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
 // mailto: をやめてアプリの中のフォームになり、**アドレスを写して使う必要が無くなった**ため
 // (以前は「メールアプリを入れていない端末でも写せるように」という理由で出していた)。
 // 受け口だけ残すと、次に行を足す人が「何のための副題か」を読めない死んだ引数になる。
-function NavRow({ label, href = null, onClick = null, last = false }) {
+// 【便BE 2026-09-30 本人指示(モック B 案の 3)】右端の山形の手前に小さな添え字(value)を置ける
+// (「ブロック中の人  N人 ›」)。渡さない行は1px も変わらない ── 要素ごと描かれないため。
+function NavRow({ label, href = null, onClick = null, last = false, value = null }) {
   const style = {
     display: "flex", alignItems: "center", gap: "var(--sp-3)",
     width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer",
@@ -1501,11 +1527,63 @@ function NavRow({ label, href = null, onClick = null, last = false }) {
   const inner = (
     <>
       <span style={{ flex: "1 1 0", minWidth: 0 }}>{label}</span>
+      {value != null ? <span style={navValueStyle}>{value}</span> : null}
       <RowChevron />
     </>
   );
   if (href) return <a href={href} className="sans" style={style}>{inner}</a>;
   return <button type="button" onClick={onClick} className="sans" style={style}>{inner}</button>;
+}
+
+// 【便BE】NavRow の右の添え字。モックの `.nav small`(--c-ink-3・太さ 400)。字は --fs-xs。
+const navValueStyle = { flex: "none", fontSize: "var(--fs-xs)", fontWeight: 400, color: "var(--c-ink-3)" };
+
+// 【便BE 2026-09-30 本人指示(モック B 案の 3)】「解除」のピル。見た目の高さはモックの .pill の 32px、
+// **押せる範囲は 44px(--tap-min)** ── §5「見た目の大きさは変えない。当たり判定だけ広げる」。
+// 透明の子を上下へ (44 - 32) / 2 = 6 はみ出させる(アイコンの鉛筆の印と同じ手)。
+// 地 --c-sunken・字 --c-ink-2 は B型(.ctl-plain .ctl-pill)と下の style が持つ。
+const UNBLOCK_PILL_H = 32;
+const UNBLOCK_HIT_INSET_Y = -(TAP_MIN_PX - UNBLOCK_PILL_H) / 2;
+
+// 【便BE】ブロック中の人の一覧(シート)。並びはブロックした順。解除は確認なしで即座に外す。
+export function BlockedSheet({ list, onUnblock, onClose }) {
+  const rows = normalizeBlockedList(list);
+  return (
+    <BottomSheet ariaLabel="ブロック中の人" onClose={onClose}>
+      <div className="sans" style={{ ...titleStyle, marginBottom: "var(--sp-2)" }}>ブロック中の人</div>
+      {rows.length === 0 ? (
+        <div className="sans" style={{ ...noteStyle, padding: "var(--sp-3) 0" }}>ブロック中の人はいません</div>
+      ) : (
+        <div>
+          {rows.map((e, i) => (
+            <div key={e.uid} style={{
+              display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-2) 0",
+              borderBottom: i === rows.length - 1 ? "none" : "1px solid var(--c-line)",
+            }}>
+              {/* 名前とアイコンは**ブロックした時点の写し**(その人はもう一覧に居ないので読み直せない)。 */}
+              <Avatar icon={e.icon ?? AVATAR_ICONS[0]} color={e.iconColor ?? AVATAR_COLOR_MIN} photo={e.photo ?? null} size={36} />
+              <div className="sans" style={{ flex: "1 1 0", minWidth: 0, fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--c-ink)", overflowWrap: "anywhere" }}>
+                {e.nickname || "—"}
+              </div>
+              <button
+                type="button" onClick={() => onUnblock?.(e.uid)}
+                aria-label={`${e.nickname || "この人"} のブロックを解除`}
+                className="sans ctl-plain ctl-pill"
+                style={{
+                  position: "relative", flex: "none", minHeight: UNBLOCK_PILL_H, padding: "0 var(--sp-3)",
+                  color: "var(--c-ink-2)", fontSize: "var(--fs-xs)", fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                {/* 当たり判定だけを 44px へ広げる透明の子(見た目の 32px は動かさない)。 */}
+                <span aria-hidden="true" style={{ position: "absolute", top: UNBLOCK_HIT_INSET_Y, bottom: UNBLOCK_HIT_INSET_Y, left: 0, right: 0 }} />
+                解除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </BottomSheet>
+  );
 }
 
 function Row({ label, value }) {
@@ -1524,8 +1602,11 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null, blocked = [], onUnblock = null }) {
   const [error, setError] = useState(null);
+  // 【便BE 2026-09-30】「ブロック中の人」のシート。
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  const blockedList = normalizeBlockedList(blocked);
   const [busy, setBusy] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
   const [legal, setLegal] = useState(null);
@@ -1782,6 +1863,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
         {/* 【束3 2026-09-19 本人指示】レビューの行は**お問い合わせの上**。
             飛び先(APP_STORE_REVIEW_URL)が決まるまでは**行ごと出さない** ──
             押しても何も起きない一手を並べない(§6.1.5)。理由と埋め方は support.js。 */}
+        {/* 【便BE 2026-09-30 本人指示】「ブロック中の人」はこのカードの**一番上**。
+            **0人でも行は出す**(「0人 ›」)── 解除の入口がどこにあるかを、ブロックする前から見せる。 */}
+        <NavRow label="ブロック中の人" value={`${blockedList.length}人`} onClick={() => setBlockedOpen(true)} />
         {APP_STORE_REVIEW_URL ? <NavRow label="レビューを送る" href={APP_STORE_REVIEW_URL} /> : null}
         {/* 【束3 2026-09-19 本人指示】メールへ飛ばすのをやめ、アプリの中のフォームを開く。
             アドレスの副題は出さない ── フォームで送るので写す先が無い。 */}
@@ -1826,6 +1910,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
 
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
+      {blockedOpen ? (
+        <BlockedSheet list={blockedList} onUnblock={onUnblock} onClose={() => setBlockedOpen(false)} />
+      ) : null}
 
       {/* 【B-3 / T7 2026-09-15 本人裁定】削除の確認。器はアプリで1つの BottomSheet。
           【「戻せるか」の行は置かない】本人裁定。戻せないことは「消えるもの」の行が
