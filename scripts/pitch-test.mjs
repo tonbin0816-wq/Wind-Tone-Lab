@@ -23022,7 +23022,8 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
   check("46 B-3 公開している目安の数は myIdeals の鍵の数",
     /const publicIdealCount = Object\.keys\(myIdeals \?\? \{\}\)\.length;/.test(commCode));
   check("46 B-3 myIdeals は JoinedView から ProfileView へ渡している",
-    /<ProfileView flaggedMe=\{flaggedMe\} uid=\{uid\} profile=\{profile\} myIdeals=\{myIdeals\}/.test(commCode));
+    // 【便BG 2026-10-01 本人指示】通報で隠れる告知(flaggedMe)を外したので、錨の先頭から flaggedMe を抜いた。
+    /<ProfileView uid=\{uid\} profile=\{profile\} myIdeals=\{myIdeals\}/.test(commCode));
   // 【便BE 2026-09-30】ProfileView の受け口の末尾に blocked / onUnblock(ブロック中の人)が加わった。
   // 錨は「myIdeals を既定 null で受け取る」のまま、末尾でなくてもよい形にした(緩めたのは位置だけ)。
   check("46 B-3 ProfileView は myIdeals を受け取る",
@@ -27472,8 +27473,9 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     check("71.3 空きの高さの式は束5 のまま(新しい数を作っていない)",
       /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(codeOf(screensRaw71)));
     check("71.3 器は通報の行より**後ろ**に在る(本文の末尾へ移した)",
-      person71.indexOf("この人を通報") > 0 && person71.indexOf("この人を通報") < iSticky,
-      `通報=${person71.indexOf("この人を通報")} / 器=${iSticky}`);
+      // 【便BG 2026-10-01 本人指示】入口の文字が「この人を通報」→「通報」になった。ボタンの中身が「通報」だけの位置で見る。
+      person71.search(/>\s*通報\s*<\/button>/) > 0 && person71.search(/>\s*通報\s*<\/button>/) < iSticky,
+      `通報=${person71.search(/>\s*通報\s*<\/button>/)} / 器=${iSticky}`);
     // 出す条件は**持ち上げただけ**で、描画の分岐は増やしていない。
     check("71.3 出す条件は1箇所(showAdopt)にまとめ、読み手は空きと器の2つだけ",
       // 【便BA 2026-09-25 本人指示】「目安に設定」は共通の音が足りなくても押せる(!chart.error の条件は消えた)。

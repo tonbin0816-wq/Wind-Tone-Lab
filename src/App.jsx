@@ -15310,9 +15310,32 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
 // **community 配下(CommunityTab.jsx / screens.jsx)から使うので export する。**
 // (この注記に `community` + スラッシュ + アスタリスク のような綴りを書かないこと。
 //  検査の codeOf() がそれをブロックコメントの開始と読み、下の実装を丸ごと消す。)
+//
+// 【便BG 2026-10-01 統括裁定「器を直す」】Escape で閉じるのは**いちばん上の1枚だけ**。
+// 以前は開いている BottomSheet がどれも window の keydown を聞いて閉じていたので、シートの上に
+// シートを重ねた画面(人物のページ → 通報 / ブロックの確認)で Escape を1回押すと、重なった全部が閉じた。
+// 開いている器の重なりを、ここ(モジュール)の Set で持つ:
+//   ・番号は**最初の描画**で振る(描画は親 → 子の順なので、親のシートより中から開いた子のシートが必ず大きい。
+//     useEffect は子 → 親の順に走るので、そこで振ると同じ描画で一緒に開いた親子の順が逆になる)
+//   ・開いている間だけ Set に居る。Escape を受けた器は、自分がいちばん大きい番号のときだけ閉じる
+// 聞き手は今までどおり window の泡の段。先に止める2つはそのまま効く:
+//   用語の吹き出し(document の keydown で止める ── 吹き出し → シートの順)と、写真の拡大(window の捕捉の段)。
+let bottomSheetSeq = 0;
+const openBottomSheets = new Set();
+const isTopBottomSheet = (id) => openBottomSheets.size > 0 && id === Math.max(...openBottomSheets);
 export function BottomSheet({ ariaLabel, onClose, children }) {
+  const sheetIdRef = useRef(0);
+  if (sheetIdRef.current === 0) { bottomSheetSeq += 1; sheetIdRef.current = bottomSheetSeq; }
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const id = sheetIdRef.current;
+    openBottomSheets.add(id);
+    return () => { openBottomSheets.delete(id); };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isTopBottomSheet(sheetIdRef.current)) return;
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);

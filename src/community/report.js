@@ -4,18 +4,19 @@
 // 【計画5 モデレーション 2026-09-10】
 // docs/superpowers/plans/2026-09-10-community-plan-5-moderation.md
 //
-// 【なぜ「読む側が隠す」のか】通報者は相手の users/{uid} を書けない
-// (ルール: 本人のみ)。だから「通報したら相手の isPublic を落とす」は書けない。
-// Cloud Functions も使わない(2026-09-02 設計書の決定1)。そこで通報を別の集合
-// (flags)に置き、一覧を読む側がそれを見て当該 uid を落とす。反映は即時。
+// 【便BG 2026-10-01 本人指示】通報で一覧から消す動き(全員の画面から隠す)をやめた。
+// 通報は、運営に届く reports の書き込みだけ。以前は flags にも書き、一覧を読む側が
+// flags に居る uid を落としていた(hideFlagged / hideFlaggedIdeals / buildFlagDoc)。
+// クライアントは flags を書きも読みもしなくなったので、その3つはこのファイルから消した。
+// 自分の画面から消したい人は、通報のあとに問われる「ブロックする」か、人物のページの
+// 「ブロック」で消す(block.js。落とす関数は block.js が自分で持つ)。
+// firestore.rules の flags の塊は変えていない ── 許されていることを使わなくなっただけ。
 //
 // 【ブロックは通報と別に作った】【便BE 2026-09-30 本人裁定「B」】
 // 2026-09-10 の本人裁定は「ブロックは作らない」だった(利用者どうしが接触する経路 ──
 // メッセージ・コメント・フォロー ── が無く、通報による全体非公開で足りるという判断)。
-// これを**覆した**。通報は全員の画面から消え、戻せるのは運営だけなので、
-// 「自分の画面からだけ消し、自分で解除できる」一手が別に要る(App Store の審査でも必須)。
+// これを**覆した**。「自分の画面からだけ消し、自分で解除できる」一手が別に要る(App Store の審査でも必須)。
 // ブロックは block.js(純関数)が持つ。サーバーには何も書かず、この端末に保存する。
-// 落とし方はこのファイルの hideFlagged / hideFlaggedIdeals をそのまま使う(数える前に落とす)。
 // ------------------------------------------------------------------
 
 // 【理由は列挙で固定する】自由記述を置かない。
@@ -34,7 +35,7 @@ export const REPORT_REASONS = [
 ];
 
 /**
- * 人物紹介シートに「この人を通報」を出すか。
+ * 人物紹介シートに通報の入口(【便BG】文字は「通報」)を出すか。
  *
  * 【便AG 2026-09-23 本人裁定「案A」】判断をここへ出したのは、条件が
  * JSX の中にしか無いと**綴りを見る検査しか書けない**ため。綴りの検査は
@@ -76,31 +77,3 @@ export function buildReportDoc({ targetUid, reporterUid, reason }, now = new Dat
   };
 }
 
-/** flags に置くドキュメント。**通報者は入れない**(flags は誰でも読めるため)。 */
-export function buildFlagDoc(now = new Date()) {
-  return { createdAt: now.toISOString() };
-}
-
-/**
- * 隠す相手を落とす。**数える前に通す**のが要点 ──
- * 順位やシェアの母数から消えるのは、落としたあとに数えるからである。
- *
- * @param users 公開ユーザーの配列(uid を持つ)
- * @param flaggedUids Set<string> か配列。flags に居る uid
- * @param myUid 自分の uid。**自分は落とさない**(下記)
- *
- * 【自分だけは残す】通報された本人の画面から自分が消えると、
- * 「何が起きたのか分からないまま居なくなる」という一番わかりにくい壊れ方になる。
- * 本人にはマイページで理由を伝える(設計書 §8.1 追記の1「黙って消さない」)ので、
- * 一覧からも消さずに残す。他人の画面からは消えている。
- */
-export function hideFlagged(users, flaggedUids, myUid = null) {
-  const set = flaggedUids instanceof Set ? flaggedUids : new Set(flaggedUids ?? []);
-  return (users ?? []).filter((u) => !set.has(u?.uid) || (myUid != null && u?.uid === myUid));
-}
-
-/** 目安も同じ規則で落とす。こちらは所有者の uid が ownerUid に入っている。 */
-export function hideFlaggedIdeals(ideals, flaggedUids, myUid = null) {
-  const set = flaggedUids instanceof Set ? flaggedUids : new Set(flaggedUids ?? []);
-  return (ideals ?? []).filter((i) => !set.has(i?.ownerUid) || (myUid != null && i?.ownerUid === myUid));
-}

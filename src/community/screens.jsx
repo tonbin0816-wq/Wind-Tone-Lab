@@ -14,8 +14,9 @@ import { Avatar } from "./icons.jsx";
 // 【便AO 2026-09-24】音名軸の折れ線もアプリ本体の NoteAxisLineChart ただ1つ(手作りの LineChart は消した)。
 import { BACK_BUTTON_STYLE, BottomSheet, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
-import { hideFlagged, REPORT_REASONS, reportEntryVisible } from "./report.js";
-import { listFlaggedUids, reportUser } from "./reportRepo.js";
+// 【便BG 2026-10-01 本人指示】通報で一覧から消さない。flags を読む関数(listFlaggedUids)と落とす関数(hideFlagged)は読まない。
+import { REPORT_REASONS, reportEntryVisible } from "./report.js";
+import { reportUser } from "./reportRepo.js";
 // 【便AH 2026-09-23】アイコンの写真。**出すかどうかの判断は純関数が持つ**
 // (凍結仕様 決定5。docs/superpowers/specs/2026-09-23-avatar-photo.md)。
 import { photoZoomAvailable } from "./avatarPhoto.js";
@@ -422,13 +423,15 @@ export const EMPTY_FILTER = { saxType: ANY, genre: ANY, position: ANY };
 // この人を通報のボタンも同じく」。**押すと確認が開く入口**の一手の見た目(地なし・枠と字が --c-danger)。
 // 確認のシートの中の最後の一手(アカウントを削除する)は、今までどおり赤い地のまま(dangerButtonStyle)。
 // マイページ(CommunityTab.jsx)と人物紹介の両方がこの1つを読む(写しを作らない)。
+// 【便BG 2026-10-01 本人指示】ブロックの確認の「ブロックする」、通報のシートの「通報する」、
+// 通報のあとの「ブロックする」も、赤の塗りをやめてこれを読む(塗りなしの赤枠)。
 export const DANGER_OUTLINE_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
   border: "1px solid var(--c-danger)", background: "transparent", color: "var(--c-danger)",
   fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
 };
 
-// 【便BE 2026-09-30 本人指示(モック B 案の .btn.quiet)】「この人をブロック」の入口。
+// 【便BE 2026-09-30 本人指示(モック B 案の .btn.quiet)】ブロックの入口(【便BG】文字は「ブロック」)。
 // 寸法・角丸・字の大きさは通報の入口(DANGER_OUTLINE_STYLE)と**同じ**で、色だけが違う:
 // 枠 1px --c-line-strong・字 --c-ink-2・地なし。ブロックは「自分の画面から消す」だけの一手で、
 // 運営に届く通報(赤い枠)とは色で分ける。形は DANGER_OUTLINE_STYLE から引き継ぐ(写しを作らない)。
@@ -438,8 +441,9 @@ export const QUIET_OUTLINE_STYLE = {
 };
 
 // 【便BE】危険の塗り(確認のシートの最後の一手)。地 --c-danger・字 --c-on-accent(白)・枠なし。
-// **これが唯一の定義**: 「ブロックする」(このファイル)と、マイページの「アカウントを削除する」
-// (CommunityTab.jsx の dangerButtonStyle = これの別名)が同じものを読む。
+// **これが唯一の定義**: マイページの「アカウントを削除する」(CommunityTab.jsx の dangerButtonStyle =
+// これの別名)が読む。【便BG 2026-10-01 本人指示】「ブロックする」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)
+// に替わったので、このファイルの中にはもう読み手が居ない。
 // 置き場所がこちらなのは、CommunityTab.jsx がこのファイルを読む向き(screens.jsx は CommunityTab.jsx を
 // 読まない)だから。逆に置くと循環になる。
 export const DANGER_FILL_STYLE = {
@@ -502,25 +506,20 @@ function filterTerms(filter, keys) {
 // **読み直さない**。他人の変更まで即時に追う必要は無いので、自分の行だけ
 // 手元の配列で差し引く(2026/09/06 本人指摘「非公開にしてもその場で反映されない」)。
 export function usePublicUsers(myUid = null) {
-  const [state, setState] = useState({ phase: "loading", users: [], error: null, flagged: new Set() });
+  const [state, setState] = useState({ phase: "loading", users: [], error: null });
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        // 【計画5 2026-09-10】通報された人をここで落とす。**この1箇所だけ**でよい ──
-        // 順位もシェアもデータも、みんなこの users を受け取って数える。
-        // 落としてから数えるので、母数からも消える。
-        //
-        // 【flags が読めなくても一覧は出す】通報の名簿が読めないのは通信の問題であって、
-        // そのために「みんなのデータ」自体を出さないのは割に合わない。
-        // 隠すべき人が出てしまうが、それは通信が復旧するまでの間だけ。
-        const [users, flagged] = await Promise.all([
-          listPublicUsers(),
-          listFlaggedUids().catch(() => new Set()),
-        ]);
-        if (alive) setState({ phase: "ready", users: hideFlagged(users, flagged, myUid), error: null, flagged });
+        // 【便BG 2026-10-01 本人指示】通報された人を全員の画面から落とすのをやめた。
+        // 以前はここで flags(通報の名簿)も読み、hideFlagged で落としてから返していた。
+        // いまは公開ユーザーをそのまま返す。人を消すのはブロックだけで、それは呼び出し側
+        // (CommunityTab.jsx の JoinedView が hideBlocked で、数える前に)が持つ。
+        // myUid は受け取り続ける ── サインインし直して uid が変わったら読み直す(読み直す時機は変えない)。
+        const users = await listPublicUsers();
+        if (alive) setState({ phase: "ready", users, error: null });
       } catch (e) {
-        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした", flagged: new Set() });
+        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした" });
       }
     })();
     return () => { alive = false; };
@@ -1408,7 +1407,9 @@ const PERSON_TABS = [
   { key: "profile", label: "プロフィール" },
 ];
 
-export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, onReported, tuningHz, onBlock = null }) {
+// 【便BG 2026-10-01 本人指示】受け口 onReported(通報した相手を一覧から即座に消す)を外した。
+// 通報では一覧から消さない。消したい人は、通報のあとに問われる「ブロックする」で onBlock を通る。
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null }) {
   const [adopted, setAdopted] = useState(null);
   // 【便BE 2026-09-30 本人裁定「B」】ブロックの確認のシートを開いているか。
   // 「ブロックする」を押したら onBlock(person) を呼ぶだけ ── 一覧に足す・このページを閉じるのは
@@ -1677,7 +1678,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
       {reportEntryVisible({ side, personUid: person?.uid, myUid }) ? (
         // 【便AV 2026-09-24 本人指示】「その下の横線は削除」「この人を通報ボタンをタブ切り替えの横幅と同じに」。
         // 区切りの線(borderTop)をやめ、ボタンは本文の幅いっぱい(= 上の データ | プロフィール と同じ幅)。
-        // 【便BE 2026-09-30 本人指示(モック B 案)】通報の**上**に「この人をブロック」。2つの間は 8px(--sp-2)、
+        // 【便BG 2026-10-01 本人指示】入口の文字を「この人をブロック」→「ブロック」、「この人を通報」→「通報」。
+        // 見た目(ブロック = 灰色の枠、通報 = 赤の枠)と並び(ブロックが上)はそのまま。
+        // 【便BE 2026-09-30 本人指示(モック B 案)】通報の**上**にブロック。2つの間は 8px(--sp-2)、
         // 横幅は通報と同じ(どちらも幅いっぱい)。**出す条件は通報と同じ** ── この器ごと reportEntryVisible の
         // 内側に置いたので、プロフィール面・相手と自分の uid が揃っている・自分ではない、の3つを通報と共有する
         // (条件を2箇所に書かない)。ブロックだけの条件は「受け口(onBlock)がある」の1つ。
@@ -1689,7 +1692,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
               onClick={() => setBlocking(true)}
               style={{ ...QUIET_OUTLINE_STYLE, padding: "0 var(--sp-4)" }}
             >
-              この人をブロック
+              ブロック
             </button>
           ) : null}
           {/* 【便AW】地なし・枠と字が赤(DANGER_OUTLINE_STYLE。マイページのアカウントを削除と同じ)。 */}
@@ -1698,7 +1701,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             onClick={() => { setReportState(null); setReporting(true); }}
             style={{ ...DANGER_OUTLINE_STYLE, padding: "0 var(--sp-4)" }}
           >
-            この人を通報
+            通報
           </button>
         </div>
       ) : null}
@@ -1756,6 +1759,18 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           onConfirm={() => { setBlocking(false); onBlock?.(person); }}
         />
       ) : null}
+      {/* 【便BG 2026-10-01 本人指示】通報は運営に届く reports の書き込みだけ。一覧からは消さない。
+          **送れたあと**は同じシートの中身が「通報しました / この奏者をブロックしますか」に替わる。
+            ・ブロックする → onBlock(その人)。一覧に足して、シートと人物のページを閉じるのは呼び出し側
+              (ブロックの確認のシートは重ねて出さない)
+            ・ブロックしない(つまみ・暗幕タップ・下スワイプ・Escape で閉じても同じ)→ シートだけ閉じて人物のページに戻る。
+              【便BG 審査】Escape で閉じるのはいちばん上の1枚だけ(App.jsx の BottomSheet が重なりを持つ)。
+              送信中・問いの最中に Escape を押しても閉じるのはこの通報のシートだけで、人物のページは残る。
+            ・既に通報済み(create が「既に在る」で落ちた)も、送れたときと同じに扱って問う(reportRepo.js)
+            ・送れなかったとき → エラーを**通報のシートの中**(ボタンの上)に出すだけで、ブロックは問わない。
+              【便BG 審査】以前は人物のページの末尾に出していたが、開いたままの通報のシートに隠れて見えなかった。
+            ・受け口(onBlock)が無い呼び手では問わない(シートを閉じて「通報しました」を出す)。
+              既にブロックしている相手は一覧から消えているので、この人物のページはそもそも開かない。 */}
       {reporting ? (
         <ReportSheet
           nickname={person?.nickname}
@@ -1763,24 +1778,22 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           onSubmit={async (reason) => {
             try {
               await reportUser({ targetUid: person.uid, reporterUid: myUid, reason });
-              setReporting(false);
-              setReportState({ ok: true });
-              // 一覧から即座に消す。読み直さずに呼び出し側へ知らせる
-              // (読み直すと 50 件ぶんの読み取りが1回増える)。
-              onReported?.(person.uid);
             } catch (e) {
-              setReportState({ error: "通報を送れませんでした。電波の良いところでもう一度お試しください" });
+              return false; // エラーの文は ReportSheet が自分の中に出す
             }
+            setReportState({ ok: true });
+            if (!onBlock) setReporting(false);
+            return true;
           }}
+          onBlock={() => { setReporting(false); onBlock?.(person); }}
         />
       ) : null}
+      {/* 【便BG】「この人はすぐに一覧から見えなくなります」を外した(もう消さないので事実と違う)。
+          文字は通報のあとのシートの見出しと同じ「通報しました」。 */}
       {reportState?.ok ? (
         <div className="sans" role="status" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-accent)" }}>
-          通報しました。この人はすぐに一覧から見えなくなります
+          {REPORT_DONE_TITLE}
         </div>
-      ) : null}
-      {reportState?.error ? (
-        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{reportState.error}</div>
       ) : null}
       {/* 【便AH 決定5】そのまま大きく出す。閉じるのは画面のどこをタップしても(Escape も)。
           このシートより上の層へ出る(PhotoZoom が持つ)。 */}
@@ -1792,29 +1805,40 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
 // ------------------------------------------------------------------
 // ブロックの確認のシート(便BE 2026-09-30 本人裁定「B」。モックの 2)
 //
-// 文言は本人の採用したモックのまま。通報のあとに「ブロックもしますか」は聞かない(本人裁定)。
+// 文言は本人の採用したモックのまま(本文は【便BG】で書き換えた)。
+// 【便BG 2026-10-01 本人指示】通報を送れたあとに「この奏者をブロックしますか」と問うようになった
+// (便BE の「通報のあとに聞かない」を覆した)。問うのは通報のシートの中で、このシートは重ねない。
 // 【器は BottomSheet】シートの器はアプリで1つ(§4.5)。ボタンの並びはアカウントの削除の確認と同じ
-// (縦に積む・間 --sp-2)。最後の一手は危険の塗り(DANGER_FILL_STYLE)、「やめる」は B型の素のボタン。
+// (縦に積む・間 --sp-2)。最後の一手は【便BG】塗りなしの赤枠(DANGER_OUTLINE_STYLE)、「やめる」は B型の素のボタン。
 // ------------------------------------------------------------------
-export const BLOCK_NOTE_EFFECT = "ブロックすると、この人は順位・シェア・データの一覧と、みんなの平均から見えなくなります。相手には知らされません。";
+// 【便BG 2026-10-01 本人指示】本文の1段落目を書き換えた(2段落目はそのまま)。
+export const BLOCK_NOTE_EFFECT = "ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。";
 export const BLOCK_NOTE_UNDO = "マイページの「ブロック中の人」から、いつでも解除できます。";
 // 本文の段落。モックの 13px / --c-ink-2 / 行送り 1.8 を既存の値で引く(--fs-sm = 13px。1.8 は bodyNoteStyle の行送り)。
 const blockNoteStyle = { ...bodyNoteStyle, fontSize: "var(--fs-sm)" };
+// シートの見出し(ブロックの確認・通報・通報しました が同じものを読む)。
+const sheetTitleStyle = { fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" };
+// 確認のシートの「やめる」「ブロックしない」。B型の素のボタン(.ctl-plain + .ctl-pill = 地 --c-sunken)。
+// 値は便BE の「やめる」のまま(写しを作らないために1つにまとめただけ)。
+const SHEET_QUIET_BUTTON_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
+};
+// 縦に2つ積む器(44px 以上のボタン・間 8px = --sp-2)。
+const sheetButtonStackStyle = { display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" };
 export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
   const title = `${nickname ?? "この人"} をブロックしますか`;
   return (
     <BottomSheet ariaLabel={title} onClose={onClose}>
-      <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>{title}</div>
+      <div className="sans" style={sheetTitleStyle}>{title}</div>
       <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_EFFECT}</div>
       <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_UNDO}</div>
-      <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
-        <button type="button" onClick={onConfirm} className="sans" style={DANGER_FILL_STYLE}>
+      <div style={sheetButtonStackStyle}>
+        <button type="button" onClick={onConfirm} className="sans" style={DANGER_OUTLINE_STYLE}>
           ブロックする
         </button>
-        <button
-          type="button" onClick={onClose} className="sans ctl-plain ctl-pill"
-          style={{ width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
-        >やめる</button>
+        <button type="button" onClick={onClose} className="sans ctl-plain ctl-pill" style={SHEET_QUIET_BUTTON_STYLE}>
+          やめる
+        </button>
       </div>
     </BottomSheet>
   );
@@ -1827,16 +1851,52 @@ export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
 // 設計書 §8.1 の「自由入力はニックネームだけ」を1つも崩さない
 // (その前提の上に、通報の自動処理が成立している)。
 // 【器は BottomSheet】シートの器はアプリで1つ(§4.5)。
+//
+// 【便BG 2026-10-01 本人指示】
+//  ・説明文は「(ニックネーム) さんを通報します。通報すると運営が内容を確認します。」
+//    (一覧から消さなくなったので「すぐに一覧から見えなくなり」を外した)
+//  ・「通報する」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)。やめる と縦に積む(間 --sp-2)
+//  ・**送れたあと**(onSubmit が true を返したとき)は同じシートの中身を
+//    「通報しました / この奏者をブロックしますか / ブロックする・ブロックしない」に切り替える。
+//    受け口(onBlock)が無い呼び手は、true を返す前にこのシートを閉じる(問わない)。
+//    【便BG 審査】以前は askBlock という受け口でも問うかを決めていたが、上の閉じ方と同じ意味だったので外した。
+//  ・送れなかったとき(false)は切り替えず、エラーの文を**このシートの中**(ボタンの上)に1行出す。
+//    文言は以前人物のページの末尾に出していたものと同じ。もう一度押すと消える。
+//  ・【便BG 審査】二度押しの歯止め。busy(state)は描き直すまで効かないので、同じ処理単位で2回押されると
+//    2回とも送っていた。押した瞬間に立つ ref(sendingRef)で止める。busy は見た目(送信中…・薄さ・disabled)に使う。
 // ------------------------------------------------------------------
-function ReportSheet({ nickname, onClose, onSubmit }) {
+export const REPORT_NOTE_TAIL = "通報すると運営が内容を確認します。";
+export const REPORT_DONE_TITLE = "通報しました";
+export const REPORT_ASK_BLOCK = "この奏者をブロックしますか";
+export const REPORT_SEND_ERROR = "通報を送れませんでした。電波の良いところでもう一度お試しください";
+function ReportSheet({ nickname, onClose, onSubmit, onBlock }) {
   const [reason, setReason] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const sendingRef = useRef(false);
+  if (done) {
+    return (
+      <BottomSheet ariaLabel={REPORT_DONE_TITLE} onClose={onClose}>
+        <div className="sans" style={sheetTitleStyle}>{REPORT_DONE_TITLE}</div>
+        <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{REPORT_ASK_BLOCK}</div>
+        <div style={sheetButtonStackStyle}>
+          <button type="button" onClick={onBlock} className="sans" style={DANGER_OUTLINE_STYLE}>
+            ブロックする
+          </button>
+          <button type="button" onClick={onClose} className="sans ctl-plain ctl-pill" style={SHEET_QUIET_BUTTON_STYLE}>
+            ブロックしない
+          </button>
+        </div>
+      </BottomSheet>
+    );
+  }
   return (
     <BottomSheet ariaLabel="この人を通報" onClose={onClose}>
-      <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>通報</div>
+      <div className="sans" style={sheetTitleStyle}>通報</div>
       <div className="sans" style={{ ...noteStyle, marginTop: "var(--sp-2)" }}>
         {nickname ? `${nickname} さんを通報します。` : "この人を通報します。"}
-        通報するとその人はすぐに一覧から見えなくなり、運営が内容を確認します。
+        {REPORT_NOTE_TAIL}
       </div>
       {/* 理由は A型(選択中かどうかという状態を持つ)。状態は枠の色だけで返す。 */}
       <div style={{ display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" }}>
@@ -1852,23 +1912,35 @@ function ReportSheet({ nickname, onClose, onSubmit }) {
           >{r}</button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-5)" }}>
-        <button
-          type="button" onClick={onClose} className="sans ctl-plain ctl-pill"
-          style={{ flex: 1, minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
-        >やめる</button>
-        {/* 【危険色にしない】消えるのは相手であって、押した本人のデータではない。
-            §1.5 の危険色は「自分のものが戻らなくなる」一手のために取ってある。 */}
+      {/* 【便BG 2026-10-01 本人指示】「通報する」を塗りなしの赤枠(DANGER_OUTLINE_STYLE。人物のページの
+          通報の入口と同じ)にし、やめる と縦に積んだ(上が一手・下が やめる。ブロックの確認と同じ並び)。
+          以前は紺の塗りで、横に2つ並べていた。間は --sp-5 のまま(理由の列との間)。
+          押せないとき(理由が未選択・送信中)の薄さ 0.45 は今までどおり。 */}
+      {/* 【便BG 審査】送れなかったときの1行。ボタンの上・理由の列の下。値は以前人物のページで使っていたもの
+          (noteStyle・上の余白 --sp-3・字 --c-bad)のまま。 */}
+      {failed ? (
+        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{REPORT_SEND_ERROR}</div>
+      ) : null}
+      <div style={{ ...sheetButtonStackStyle, marginTop: "var(--sp-5)" }}>
         <button
           type="button" disabled={!reason || busy}
-          onClick={async () => { setBusy(true); await onSubmit(reason); setBusy(false); }}
-          className="sans"
-          style={{
-            flex: 1, minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
-            background: "var(--c-accent)", color: "var(--c-on-accent)",
-            fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer", opacity: reason && !busy ? 1 : 0.45,
+          onClick={async () => {
+            if (sendingRef.current) return;
+            sendingRef.current = true;
+            setBusy(true);
+            setFailed(false);
+            const ok = await onSubmit(reason);
+            sendingRef.current = false;
+            setBusy(false);
+            if (ok === true) setDone(true);
+            else setFailed(true);
           }}
+          className="sans"
+          style={{ ...DANGER_OUTLINE_STYLE, opacity: reason && !busy ? 1 : 0.45 }}
         >{busy ? "送信中…" : "通報する"}</button>
+        <button type="button" onClick={onClose} className="sans ctl-plain ctl-pill" style={SHEET_QUIET_BUTTON_STYLE}>
+          やめる
+        </button>
       </div>
     </BottomSheet>
   );

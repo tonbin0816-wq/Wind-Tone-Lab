@@ -21,7 +21,8 @@ vi.mock("./directory.js", async (orig) => {
   return { ...(await orig()), listPublicUsers: vi.fn(async () => kit.SERVER_USERS), publishStats: vi.fn(async () => {}) };
 });
 vi.mock("./reportRepo.js", async () => ({
-  listFlaggedUids: vi.fn(async () => new Set()), isFlagged: vi.fn(async () => false), reportUser: vi.fn(async () => {}),
+  // 【便BG 2026-10-01】listFlaggedUids / isFlagged は reportRepo.js から消えたので、作り物からも外した。
+  reportUser: vi.fn(async () => ({ already: false })),
 }));
 vi.mock("./idealRepo.js", async (orig) => {
   const kit = await import("./blockKit.testutil.jsx");
@@ -74,7 +75,7 @@ describe("ブロック → 一覧から消える → 保存と引継に載る �
     const sheet = dialogNamed("くろねこ の詳細");
     expect(sheet).not.toBe(null);
     await click([...sheet.querySelectorAll('[role="radio"]')].find((b) => b.textContent.trim() === "プロフィール"));
-    await click(buttonsNamed("この人をブロック")[0]);
+    await click(buttonsNamed("ブロック")[0]); // 【便BG】入口の文字は「ブロック」
     expect(dialogNamed("くろねこ をブロックしますか")).not.toBe(null);
     await click(buttonsNamed("ブロックする")[0]);
 

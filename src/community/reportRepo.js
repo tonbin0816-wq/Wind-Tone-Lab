@@ -1,24 +1,31 @@
-import { collection, doc, getDoc, getDocs, limit as qLimit, query, setDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { getFirebase } from "./firebaseClient.js";
-import { buildFlagDoc, buildReportDoc } from "./report.js";
-import { DIRECTORY_LIMIT } from "./directory.js";
+import { buildReportDoc } from "./report.js";
 
 // ------------------------------------------------------------------
 // 通報の読み書き。純関数は report.js が持つ。
 // 【計画5 モデレーション 2026-09-10】
+//
+// 【便BG 2026-10-01 本人指示】通報で一覧から消す動きをやめた。書くのは reports の1つだけ。
+// 以前は flags/{target} にも書き(reportUser)、一覧を読む側が flags を読んで(listFlaggedUids)
+// その人を全員の画面から落とし、本人にはマイページで告知していた(isFlagged)。
+// クライアントは flags を書きも読みもしなくなったので、その2つの読みの関数も消した。
+// firestore.rules の flags の塊は変えていない(使わなくなっただけ。配信の順番は問わない)。
+// 本番に残っている flags の文書は、もう誰にも読まれない。消すのは運営の作業(コンソール)。
 // ------------------------------------------------------------------
 
 /**
- * 通報する。**2つ書く。**
+ * 通報する。reports/{target}_{reporter} に1つ書く(監査の記録。クライアントからは読めない)。
  *
- *   reports/{target}_{reporter} … 監査の記録(誰が・なぜ)。クライアントからは読めない
- *   flags/{target}              … 「隠す」の名簿。誰でも読める。通報者は入れない
+ * @returns {{ already: boolean }} already = 既に同じ相手を通報していた(下記)
  *
- * 【reports の失敗を握る理由】ルールは reports の update を拒む(後から理由や時刻を
+ * 【二重通報は失敗にしない】ルールは reports の update を拒む(後から理由や時刻を
  * 書き換えられないようにするため)。同じ人が同じ相手を2度通報すると、2度目は
- * 「既にある doc への書き込み」= update と見なされて弾かれる。**それは正常な経路**なので、
- * ここで止めずに flags の方へ進む(相手は隠れたままでよい)。
- * flags の失敗は握らない ── そちらが落ちたら通報が効いていない。
+ * 「既にある doc への書き込み」= update と見なされて permission-denied で弾かれる。
+ * **それは正常な経路**(記録は1件目が持っている)なので、送れたときと同じに扱う。
+ * 【便BG】以前は reports の失敗を**すべて**握り、成否は flags の書き込みで決まっていた。
+ * flags が無くなったので、握るのは permission-denied(= 既に在る)だけにした。
+ * 通信の失敗など、それ以外はそのまま投げる(画面は「通報を送れませんでした」を出し、ブロックは問わない)。
  */
 export async function reportUser({ targetUid, reporterUid, reason }, now = new Date()) {
   const r = buildReportDoc({ targetUid, reporterUid, reason }, now);
@@ -26,35 +33,9 @@ export async function reportUser({ targetUid, reporterUid, reason }, now = new D
   const { db } = getFirebase();
   try {
     await setDoc(doc(db, "reports", r.id), r.doc);
-  } catch {
-    // 二重通報。記録は1件目が持っているので、何も足さずに進む。
+    return { already: false };
+  } catch (e) {
+    if (e?.code === "permission-denied") return { already: true };
+    throw e;
   }
-  await setDoc(doc(db, "flags", targetUid), buildFlagDoc(now));
-}
-
-/**
- * いま隠されている uid の集合。
- *
- * 【上限は users と同じ 50】公開ユーザー自体が 50 で頭打ちなので、
- * 隠されている人がそれを超えることは現状ありえない。
- * **決定1-b(公開ユーザーが50人を超えたら壊れる)を直すときは、ここも一緒に直すこと。**
- */
-export async function listFlaggedUids(max = DIRECTORY_LIMIT) {
-  const { db } = getFirebase();
-  const snap = await getDocs(query(collection(db, "flags"), qLimit(max)));
-  return new Set(snap.docs.map((d) => d.id));
-}
-
-/**
- * 自分が隠されているか。マイページの告知に使う。
- *
- * 【一覧とは別に1件読む】listFlaggedUids は上限50で切れるので、
- * 「自分が入っているか」を一覧の結果から判定すると、切れた先に居たときに
- * **本人にだけ何も知らせないまま隠れる**という最悪の壊れ方になる。1 read 増やして確実に見る。
- */
-export async function isFlagged(uid) {
-  if (!uid) return false;
-  const { db } = getFirebase();
-  const snap = await getDoc(doc(db, "flags", uid));
-  return snap.exists();
 }
