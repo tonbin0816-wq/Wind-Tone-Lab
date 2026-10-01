@@ -17,7 +17,8 @@ import {
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE, DANGER_FILL_STYLE } from "./screens.jsx";
-// 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
+// 【便BG 2026-10-01 本人指示】以前ここで reportRepo.js の isFlagged(自分が通報で隠れているか)を読んでいた。
+// 通報で誰も隠れなくなったので、読む関数ごと消した。
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
 // (理由は support.js)。お問い合わせのアドレス(SUPPORT_EMAIL)はもう画面に出さないので
 // ここでは読まない ── 連絡はアプリの中のフォーム(FeedbackSheet)が受ける。
@@ -634,8 +635,9 @@ const secondaryButtonStyle = {
   fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
 };
 // 破壊的な一手。index.css の .ctl-danger と同じ考え方(枠は持たず、地と文字色だけ)。
-// 【便BE 審査の指摘】定義は screens.jsx の DANGER_FILL_STYLE ただ1つ(「ブロックする」と同じもの)。
-// ここは別名を置くだけで、値の写しを持たない。
+// 【便BE 審査の指摘】定義は screens.jsx の DANGER_FILL_STYLE ただ1つ。ここは別名を置くだけで、値の写しを持たない。
+// 【便BG 2026-10-01 本人指示】「ブロックする」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)に替わったので、
+// この赤の塗りを使うのはいまはアカウントを削除するだけ。
 const dangerButtonStyle = DANGER_FILL_STYLE;
 
 function Centered({ children }) {
@@ -1817,8 +1819,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
 
       {/* 【計画5 2026-09-10 / 参考にした他アプリの設定画面に寄せた 2026-09-10】
           お問い合わせと法務文書。
-          通報で隠された人が「お急ぎの場合は…」で辿り着く先でもあるので、
-          告知(このページの一番上)と同じページの中に無いと導線が切れる。
+          【便BG 2026-10-01】以前は「通報で隠された人が告知(このページの一番上)から辿り着く先」でもあった。
+          通報で隠さなくなり、その告知も外したので、いまはお問い合わせと法務文書の入口だけ。
           【素のリンクを並べるのをやめた】以前は文字のリンク3つを横に並べていたが、
           横に並ぶぶん**1つあたりの当たりが狭く**、押し分けにくかった。
           行にすれば幅いっぱいが当たりになる(§5)。押せることは右端の山形だけで返す(§6.7)。

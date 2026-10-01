@@ -210,7 +210,9 @@ describe("送れたあと: 同じシートで「この奏者をブロックし�
 });
 
 describe("送れなかったとき: ブロックは問わない", () => {
-  it("エラーは今までどおり出し、シートは送る前のまま。「この奏者をブロックしますか」は出ない", async () => {
+  // 【便BG 審査】エラーは**通報のシートの中**(ボタンの上)に出す。以前は人物のページの末尾に出していて、
+  // 開いたままの通報のシートに隠れて見えなかった。人物のページの側には出さない。
+  it("エラーは通報のシートの中(ボタンの上)に1行。人物のページには出さない。「この奏者をブロックしますか」は出ない", async () => {
     reportUser.mockRejectedValue(Object.assign(new Error("offline"), { code: "unavailable" }));
     const calls = [];
     await draw({ onBlock: (p) => calls.push(p) });
@@ -223,11 +225,104 @@ describe("送れなかったとき: ブロックは問わない", () => {
     // 送る前のシートが残り、もう一度押せる
     const d = dialogNamed(REPORT_FORM);
     expect(d).not.toBe(null);
-    expect(buttonsIn(d, "通報する")[0].disabled).toBe(false);
-    // エラーの文は今までどおり
-    const alert = dialogNamed(PERSON_PAGE).querySelector('[role="alert"]');
-    expect(alert.textContent).toBe("通報を送れませんでした。電波の良いところでもう一度お試しください");
+    const send = buttonsIn(d, "通報する")[0];
+    expect(send.disabled).toBe(false);
+    // エラーの文は通報のシートの中に1つ。文言は以前と同じ
+    const alerts = [...d.querySelectorAll('[role="alert"]')];
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toBe("通報を送れませんでした。電波の良いところでもう一度お試しください");
+    // ボタンの上(ボタンの並びより前)・理由の列より後
+    expect(alerts[0].compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const lastReason = buttonsIn(d, REPORT_REASONS[REPORT_REASONS.length - 1])[0];
+    expect(lastReason.compareDocumentPosition(alerts[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 画面全体でエラーはこの1つだけ(人物のページの末尾には出ていない)
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(dialogNamed(PERSON_PAGE).querySelector('[role="alert"]')).toBe(null);
     expect(dialogNamed(PERSON_PAGE).querySelector('[role="status"]')).toBe(null);
     expect(calls).toHaveLength(0);
+    // もう一度押すと、送っている間にエラーは消える(前の失敗を出したまま「送信中…」にしない)。
+    // 送れたら問いに替わる
+    let release;
+    reportUser.mockImplementation(() => new Promise((r) => { release = r; }));
+    await act(async () => { send.click(); });
+    expect(buttonsIn(d, "送信中…")).toHaveLength(1);
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    await act(async () => { release({ already: false }); });
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(dialogNamed(REPORT_DONE)).not.toBe(null);
+  });
+});
+
+describe("二度押しの歯止め(便BG 審査)", () => {
+  it("同じ処理単位で「通報する」を2回押しても、reportUser は1回だけ", async () => {
+    let release;
+    reportUser.mockImplementation(() => new Promise((r) => { release = r; }));
+    await draw({ onBlock: () => {} });
+    await openReport();
+    const d = dialogNamed(REPORT_FORM);
+    await act(async () => { buttonsIn(d, REPORT_REASONS[0])[0].click(); });
+    const send = buttonsIn(d, "通報する")[0];
+    await act(async () => { send.click(); send.click(); });
+    expect(reportUser).toHaveBeenCalledTimes(1);
+    // 送信中は押せず、「送信中…」
+    const busyBtn = buttonsIn(d, "送信中…")[0];
+    expect(busyBtn).toBeTruthy();
+    expect(busyBtn.disabled).toBe(true);
+    await act(async () => { busyBtn.click(); });
+    expect(reportUser).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ already: false }); });
+    expect(dialogNamed(REPORT_DONE)).not.toBe(null);
+    expect(reportUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 【便BG 審査 / 統括裁定「器を直す」】Escape で閉じるのはいちばん上のシートだけ(App.jsx の BottomSheet)。
+const pressEscape = () => act(async () => {
+  document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+});
+describe("Escape はいちばん上のシートだけを閉じる", () => {
+  it("通報の送信中に Escape → 通報のシートだけ閉じ、人物のページは残る", async () => {
+    let release;
+    reportUser.mockImplementation(() => new Promise((r) => { release = r; }));
+    await draw({ onBlock: () => {} });
+    await openReport();
+    const d = dialogNamed(REPORT_FORM);
+    await act(async () => { buttonsIn(d, REPORT_REASONS[0])[0].click(); });
+    await act(async () => { buttonsIn(d, "通報する")[0].click(); });
+    expect(buttonsIn(d, "送信中…")).toHaveLength(1);
+    await pressEscape();
+    expect(dialogNamed(REPORT_FORM)).toBe(null);
+    expect(dialogNamed(PERSON_PAGE)).not.toBe(null);
+    // 送信があとで終わっても、問いのシートは開き直さない。人物のページは残る
+    await act(async () => { release({ already: false }); });
+    expect(dialogNamed(REPORT_DONE)).toBe(null);
+    expect(dialogNamed(PERSON_PAGE)).not.toBe(null);
+  });
+
+  it("問いのシート(通報しました)で Escape → 問いだけ閉じ(ブロックしないと同じ)、人物のページは残る", async () => {
+    reportUser.mockResolvedValue({ already: false });
+    const calls = [];
+    await draw({ onBlock: (p) => calls.push(p) });
+    await openReport();
+    await pickAndSend();
+    expect(dialogNamed(REPORT_DONE)).not.toBe(null);
+    await pressEscape();
+    expect(dialogNamed(REPORT_DONE)).toBe(null);
+    expect(dialogNamed(PERSON_PAGE)).not.toBe(null);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("2枚重ね(人物のページ + ブロックの確認): Escape 1回で上だけ、2回で両方閉じる", async () => {
+    const closed = [];
+    await draw({ onBlock: () => {}, onClose: () => closed.push("person") });
+    await act(async () => { buttonsNamed("ブロック")[0].click(); });
+    expect(dialogNamed("テスト1 をブロックしますか")).not.toBe(null);
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
+    await pressEscape();
+    expect(dialogNamed("テスト1 をブロックしますか")).toBe(null);
+    expect(dialogNamed(PERSON_PAGE)).not.toBe(null);
+    expect(closed).toEqual([]);
+    await pressEscape();
+    expect(closed).toEqual(["person"]); // 人物のページの onClose が1回(呼び出し側が閉じる)
   });
 });

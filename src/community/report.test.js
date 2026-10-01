@@ -104,6 +104,9 @@ describe("firestore.rules(通報まわり)", () => {
 
   // flags の1件読みは「まだ通報されていない = ドキュメントが無い」が普通の状態。
   // resource を見る式にすると、その普通の状態で拒否される。
+  // 【便BG 2026-10-01】いまのクライアントは flags を読まない(通報で隠すのをやめた)。それでもこの検査を残すのは、
+  // ルールの flags の塊を変えていないから ── 古い版のアプリ(配信が行き渡るまで残る)はまだ flags を1件読みし、
+  // 拒否されるとマイページの確認が失敗の扱いになる。ルールから flags の塊を外す便で、この検査も一緒に外す。
   it("flags の1件読みは resource を見ない(無いのが普通の状態)", () => {
     const flags = RULES_CODE.slice(RULES_CODE.indexOf("match /flags/"), RULES_CODE.indexOf("match /reports/"));
     expect(flags).toMatch(/allow get: if true;/);

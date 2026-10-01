@@ -1763,22 +1763,23 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
           **送れたあと**は同じシートの中身が「通報しました / この奏者をブロックしますか」に替わる。
             ・ブロックする → onBlock(その人)。一覧に足して、シートと人物のページを閉じるのは呼び出し側
               (ブロックの確認のシートは重ねて出さない)
-            ・ブロックしない(つまみ・暗幕・Escape で閉じても同じ)→ シートだけ閉じて人物のページに戻る
+            ・ブロックしない(つまみ・暗幕タップ・下スワイプ・Escape で閉じても同じ)→ シートだけ閉じて人物のページに戻る。
+              【便BG 審査】Escape で閉じるのはいちばん上の1枚だけ(App.jsx の BottomSheet が重なりを持つ)。
+              送信中・問いの最中に Escape を押しても閉じるのはこの通報のシートだけで、人物のページは残る。
             ・既に通報済み(create が「既に在る」で落ちた)も、送れたときと同じに扱って問う(reportRepo.js)
-            ・送れなかったとき → 今までどおりエラーを出すだけで、ブロックは問わない
+            ・送れなかったとき → エラーを**通報のシートの中**(ボタンの上)に出すだけで、ブロックは問わない。
+              【便BG 審査】以前は人物のページの末尾に出していたが、開いたままの通報のシートに隠れて見えなかった。
             ・受け口(onBlock)が無い呼び手では問わない(シートを閉じて「通報しました」を出す)。
               既にブロックしている相手は一覧から消えているので、この人物のページはそもそも開かない。 */}
       {reporting ? (
         <ReportSheet
           nickname={person?.nickname}
-          askBlock={Boolean(onBlock)}
           onClose={() => setReporting(false)}
           onSubmit={async (reason) => {
             try {
               await reportUser({ targetUid: person.uid, reporterUid: myUid, reason });
             } catch (e) {
-              setReportState({ error: "通報を送れませんでした。電波の良いところでもう一度お試しください" });
-              return false;
+              return false; // エラーの文は ReportSheet が自分の中に出す
             }
             setReportState({ ok: true });
             if (!onBlock) setReporting(false);
@@ -1793,9 +1794,6 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         <div className="sans" role="status" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-accent)" }}>
           {REPORT_DONE_TITLE}
         </div>
-      ) : null}
-      {reportState?.error ? (
-        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{reportState.error}</div>
       ) : null}
       {/* 【便AH 決定5】そのまま大きく出す。閉じるのは画面のどこをタップしても(Escape も)。
           このシートより上の層へ出る(PhotoZoom が持つ)。 */}
@@ -1858,17 +1856,25 @@ export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
 //  ・説明文は「(ニックネーム) さんを通報します。通報すると運営が内容を確認します。」
 //    (一覧から消さなくなったので「すぐに一覧から見えなくなり」を外した)
 //  ・「通報する」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)。やめる と縦に積む(間 --sp-2)
-//  ・**送れたあと**(onSubmit が true を返し、askBlock のとき)は同じシートの中身を
+//  ・**送れたあと**(onSubmit が true を返したとき)は同じシートの中身を
 //    「通報しました / この奏者をブロックしますか / ブロックする・ブロックしない」に切り替える。
-//    送れなかったとき(false)は切り替えない(エラーは呼び出し側が出す)。
+//    受け口(onBlock)が無い呼び手は、true を返す前にこのシートを閉じる(問わない)。
+//    【便BG 審査】以前は askBlock という受け口でも問うかを決めていたが、上の閉じ方と同じ意味だったので外した。
+//  ・送れなかったとき(false)は切り替えず、エラーの文を**このシートの中**(ボタンの上)に1行出す。
+//    文言は以前人物のページの末尾に出していたものと同じ。もう一度押すと消える。
+//  ・【便BG 審査】二度押しの歯止め。busy(state)は描き直すまで効かないので、同じ処理単位で2回押されると
+//    2回とも送っていた。押した瞬間に立つ ref(sendingRef)で止める。busy は見た目(送信中…・薄さ・disabled)に使う。
 // ------------------------------------------------------------------
 export const REPORT_NOTE_TAIL = "通報すると運営が内容を確認します。";
 export const REPORT_DONE_TITLE = "通報しました";
 export const REPORT_ASK_BLOCK = "この奏者をブロックしますか";
-function ReportSheet({ nickname, askBlock = false, onClose, onSubmit, onBlock }) {
+export const REPORT_SEND_ERROR = "通報を送れませんでした。電波の良いところでもう一度お試しください";
+function ReportSheet({ nickname, onClose, onSubmit, onBlock }) {
   const [reason, setReason] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const sendingRef = useRef(false);
   if (done) {
     return (
       <BottomSheet ariaLabel={REPORT_DONE_TITLE} onClose={onClose}>
@@ -1910,14 +1916,24 @@ function ReportSheet({ nickname, askBlock = false, onClose, onSubmit, onBlock })
           通報の入口と同じ)にし、やめる と縦に積んだ(上が一手・下が やめる。ブロックの確認と同じ並び)。
           以前は紺の塗りで、横に2つ並べていた。間は --sp-5 のまま(理由の列との間)。
           押せないとき(理由が未選択・送信中)の薄さ 0.45 は今までどおり。 */}
+      {/* 【便BG 審査】送れなかったときの1行。ボタンの上・理由の列の下。値は以前人物のページで使っていたもの
+          (noteStyle・上の余白 --sp-3・字 --c-bad)のまま。 */}
+      {failed ? (
+        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{REPORT_SEND_ERROR}</div>
+      ) : null}
       <div style={{ ...sheetButtonStackStyle, marginTop: "var(--sp-5)" }}>
         <button
           type="button" disabled={!reason || busy}
           onClick={async () => {
+            if (sendingRef.current) return;
+            sendingRef.current = true;
             setBusy(true);
+            setFailed(false);
             const ok = await onSubmit(reason);
+            sendingRef.current = false;
             setBusy(false);
-            if (ok === true && askBlock) setDone(true);
+            if (ok === true) setDone(true);
+            else setFailed(true);
           }}
           className="sans"
           style={{ ...DANGER_OUTLINE_STYLE, opacity: reason && !busy ? 1 : 0.45 }}

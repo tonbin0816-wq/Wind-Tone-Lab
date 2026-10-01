@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 
@@ -7,8 +8,10 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 //   ・通報を送っても、その人は順位・データの一覧・みんなの平均の人数に**残る**(読み直しも無い)
 //   ・通報のあとの「ブロックしない」→ 人物のページに戻り、一覧もそのまま。ブロックの一覧は空のまま
 //   ・もう一度通報して「ブロックする」→ 人物のページが閉じ、その人は一覧から消え、ブロックの一覧(保存)に入る
-//   ・flags を読まない: reportRepo の作り物は reportUser **しか持たない**。画面が listFlaggedUids / isFlagged を
-//     使おうとすれば、作り物に無い名前を読んだところで落ちる(名簿が出ず、この検査は待ちの期限で落ちる)
+//   ・flags を読まない: 作り物に、消した2つの関数(listFlaggedUids / isFlagged)の**数える偽物**を置き、
+//     最後に呼ばれた回数が 0 であることを見る。【便BG 審査】以前は「作り物に無い名前を読めば落ちる」に頼っていたが、
+//     CommunityTab の isFlagged の呼び出しは try/catch の中なので、無い名前で投げても握り潰されて緑のままだった
+//     (変異 M11a が生き残った)。回数で見れば、呼んだ時点で落ちる。
 // サーバーは作り物(directory / reportRepo / idealRepo)。IndexedDB も作り物(blockJoined.test.jsx と同じ)。
 // 【守っていないもの】reports に書く中身と flags に書かないこと(reportRepo.test.js)。ブラウザでの見た目。
 // ------------------------------------------------------------------
@@ -20,7 +23,12 @@ vi.mock("./directory.js", async (orig) => {
   const kit = await import("./blockKit.testutil.jsx");
   return { ...(await orig()), listPublicUsers: vi.fn(async () => kit.SERVER_USERS), publishStats: vi.fn(async () => {}) };
 });
-vi.mock("./reportRepo.js", async () => ({ reportUser: vi.fn(async () => ({ already: false })) }));
+vi.mock("./reportRepo.js", async () => ({
+  reportUser: vi.fn(async () => ({ already: false })),
+  // 本物の reportRepo.js には無い(便BG で消した)。画面がもう一度呼び始めたら数に出る見張り。
+  listFlaggedUids: vi.fn(async () => new Set()),
+  isFlagged: vi.fn(async () => false),
+}));
 vi.mock("./idealRepo.js", async (orig) => {
   const kit = await import("./blockKit.testutil.jsx");
   return {
@@ -34,7 +42,7 @@ const { JoinedView } = await import("./CommunityTab.jsx");
 const { warmPersistedStateCache } = await import("../App.jsx");
 const { listPublicUsers } = await import("./directory.js");
 const { listIdeals } = await import("./idealRepo.js");
-const { reportUser } = await import("./reportRepo.js");
+const { reportUser, listFlaggedUids, isFlagged } = await import("./reportRepo.js");
 const { readAll } = await import("../backup/localStore.js");
 const { BLOCKED_USERS_KEY } = await import("./block.js");
 const { REPORT_REASONS } = await import("./report.js");
@@ -102,5 +110,12 @@ describe("通報しても一覧から消えない(便BG)", () => {
     expect(listPublicUsers).toHaveBeenCalledTimes(1);
     const saved = await waitForValue(savedBlocked, (v) => Array.isArray(v) && v.length === 1, "ブロックの一覧に入る");
     expect(saved[0]).toMatchObject({ uid: "u2", nickname: "くろねこ" });
+
+    // flags の名簿も、自分が隠れているかも、一度も読んでいない(マイページへ行っても)
+    await kit.goSubTab("マイページ");
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(listFlaggedUids).toHaveBeenCalledTimes(0);
+    expect(isFlagged).toHaveBeenCalledTimes(0);
+    expect(bodyText()).not.toContain("一時的に他の人から見えなくなっています");
   });
 });

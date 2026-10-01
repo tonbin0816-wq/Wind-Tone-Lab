@@ -17,7 +17,8 @@ vi.mock("./directory.js", async (orig) => {
   return { ...(await orig()), listPublicUsers: vi.fn(async () => kit.SERVER_USERS), publishStats: vi.fn(async () => {}) };
 });
 vi.mock("./reportRepo.js", async () => ({
-  listFlaggedUids: vi.fn(async () => new Set()), isFlagged: vi.fn(async () => false), reportUser: vi.fn(async () => {}),
+  // 【便BG 2026-10-01】listFlaggedUids / isFlagged は reportRepo.js から消えたので、作り物からも外した。
+  reportUser: vi.fn(async () => ({ already: false })),
 }));
 vi.mock("./idealRepo.js", async (orig) => {
   const kit = await import("./blockKit.testutil.jsx");
