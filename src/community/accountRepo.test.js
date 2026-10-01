@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const setDoc = vi.fn();
 const getDoc = vi.fn();
 const updateDoc = vi.fn();
+const onSnapshot = vi.fn();
 
 vi.mock("firebase/firestore", () => ({
   doc: (...args) => ({ __ref: args.slice(1).join("/") }),
@@ -24,6 +25,7 @@ vi.mock("firebase/firestore", () => ({
   getDoc: (...args) => getDoc(...args),
   updateDoc: (...args) => updateDoc(...args),
   deleteDoc: vi.fn(),
+  onSnapshot: (...args) => onSnapshot(...args),
 }));
 vi.mock("firebase/auth", () => ({
   signInAnonymously: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock("firebase/auth", () => ({
 vi.mock("./firebaseClient.js", () => ({ getFirebase: () => ({ db: {}, auth: {} }) }));
 vi.mock("./idealRepo.js", () => ({ unpublishAllIdeals: vi.fn() }));
 
-const { saveProfile, setProfileAvatar } = await import("./accountRepo.js");
+const { saveProfile, setProfileAvatar, watchMyPhoto } = await import("./accountRepo.js");
 // 【便AH 重2】シートを閉じたときに何を書くかを決める純関数。
 // 「色を押してから写真を選ぶ」順を**端から端まで**通すために、ここで一緒に使う。
 const { avatarWriteOnClose } = await import("./avatarPhoto.js");
@@ -59,6 +61,7 @@ beforeEach(() => {
   setDoc.mockReset();
   getDoc.mockReset();
   updateDoc.mockReset();
+  onSnapshot.mockReset();
   setDoc.mockResolvedValue(undefined);
   updateDoc.mockResolvedValue(undefined);
 });
@@ -105,6 +108,25 @@ describe("アイコンのシートを閉じたときの書き込み", () => {
     );
     expect(w).toBeNull();
     expect(updateDoc).not.toHaveBeenCalled();
+  });
+
+  // 【便BH 再審査】色を押してから写真を選び、**判定の途中で閉じた**。下書きの写真は null だが
+  // 「保存中」の印がある。以前は null を書き、掃除が判定中の写真を消していた(閉じたので何も知らされない)。
+  it("写真の保存の途中で閉じたら、色・絵柄だけを書き、写真のキーは1文字も書かない", async () => {
+    const w = await close(
+      { icon: "ic-cat", iconColor: 7, photo: null, photoSaving: true },
+      { icon: "ic-cat", iconColor: 1, photo: URL },
+    );
+    expect(w).toMatchObject({ keepPhoto: true });
+    expect(patch()).toEqual({ icon: "ic-cat", iconColor: 7 });
+  });
+
+  it("写真を持たない人でも、保存の途中で閉じたら null を書かない", async () => {
+    await close(
+      { icon: "ic-dog", iconColor: 3, photo: null, photoSaving: true },
+      { icon: "ic-cat", iconColor: 1, photo: null },
+    );
+    expect(patch()).toEqual({ icon: "ic-dog", iconColor: 3 });
   });
 
   it("写真を持たない人が色だけ変えたときは、今までどおり null を書く", async () => {
@@ -186,5 +208,97 @@ describe("saveProfile", () => {
     expect("stats" in setDoc.mock.calls[0][1]).toBe(false);
     expect(spy).toHaveBeenCalled(); // 黙って捨てない
     spy.mockRestore();
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便BH 2026-10-01 本人裁定 (a) → 差し戻し(不合格2)】自分の users.photo を見張る道具(watchMyPhoto)。
+// 最初の版(followPhotoChange)は「写真が変わるまで1回だけ」だったが、関数より早く公開に戻した場合・
+// 2回入れ替わった場合に古い URL が手元に残るので、参加中の画面がある間ずっと見張る形にした。
+// ここでは道具の振る舞い(何を渡し、いつ外れるか)を onSnapshot の作り物で確かめる。
+// 画面の側(届いた値で profile と一覧を直す)は photoWatch.test.jsx が本物の画面を描いて確かめる。
+// ------------------------------------------------------------------
+describe("watchMyPhoto ── 参加中の画面がある間、自分の写真を見張る", () => {
+  const OLD = "https://example.test/o/avatars%2Fu1%2Fr.webp?alt=media&token=t0";
+  const NEW = "https://example.test/o/avatars%2Fu1%2Fr.webp?alt=media&token=t1";
+  const snap = (data) => ({ exists: () => data !== null, data: () => data });
+  const arm = () => {
+    const unsub = vi.fn();
+    let emit = null;
+    let fail = null;
+    onSnapshot.mockImplementation((ref, next, error) => { emit = next; fail = error; return unsub; });
+    const got = vi.fn();
+    const stop = watchMyPhoto("u1", got);
+    return { unsub, got, stop, emit: (d) => emit(snap(d)), fail: (e) => fail(e) };
+  };
+
+  it("自分の users を1つだけ見張る", () => {
+    arm();
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    expect(onSnapshot.mock.calls[0][0]).toEqual({ __ref: "users/u1" });
+  });
+
+  it("届くたびに、いまの photo を渡す(1回で止めない ── 2回入れ替わっても両方届く)", () => {
+    const w = arm();
+    w.emit({ isPublic: false, photo: OLD });
+    w.emit({ isPublic: false, photo: NEW });
+    w.emit({ isPublic: true, photo: "https://example.test/third" });
+    expect(w.got.mock.calls.map((c) => c[0])).toEqual([OLD, NEW, "https://example.test/third"]);
+    expect(w.unsub).not.toHaveBeenCalled();
+  });
+
+  it("写真が無い・文書が無いときは null を渡す", () => {
+    const w = arm();
+    w.emit({ isPublic: true });
+    w.emit(null);
+    expect(w.got.mock.calls.map((c) => c[0])).toEqual([null, null]);
+  });
+
+  it("返した関数で外せる(画面を離れたとき)", () => {
+    const w = arm();
+    expect(w.stop).toBe(w.unsub);
+    w.stop();
+    expect(w.unsub).toHaveBeenCalledTimes(1);
+  });
+
+  it("見張れなかったら記録を残す(画面は止めない)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const w = arm();
+    w.fail(Object.assign(new Error("denied"), { code: "permission-denied" }));
+    expect(w.got).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+// 【綴りの検査 ── 振る舞いは photoWatch.test.jsx】CommunityTabBody は Firebase に繋がないと描けないので、
+// 「本物の見張りを JoinedView に渡している」「届いた写真をその時点の profile に重ねる」
+// 「保存のあとに手元の写真と練習記録を持ち越す」の3つの配線は綴りでしか守れない。
+describe("参加中の画面への配線(便BH 差し戻し・綴り)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./CommunityTab.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const body = src.slice(src.indexOf("function CommunityTabBody("));
+
+  it("本物の見張り(watchMyPhoto)を JoinedView に渡している", () => {
+    expect(body).toMatch(/watchPhoto=\{watchMyPhoto\}/);
+  });
+
+  it("届いた写真は、その時点の profile に重ねる(続けて届いても巻き戻さない)", () => {
+    expect(body).toMatch(/onPhotoChanged=\{\(photo\) => \{[\s\S]{0,300}?setProfile\(\(p\) => \(p \? \{ \.\.\.p, photo \} : p\)\);/);
+  });
+
+  it("プロフィールの保存のあと、手元の写真と練習記録を持ち越す", () => {
+    expect(body).toMatch(/setProfile\(profileAfterSave\(profile, r\.doc\)\);/);
+    expect(body).not.toMatch(/setProfile\(r\.doc\)/);
+  });
+
+  it("公開の切り替え・アイコンの変更のあとも、その時点の profile に重ねる(見張りが届けた URL を巻き戻さない)", () => {
+    expect(body).toMatch(/setProfile\(\(p\) => \(p \? \{ \.\.\.p, isPublic: v \} : p\)\);/);
+    expect(body).toMatch(/setProfile\(\(p\) => \(p \? \{ \.\.\.p, icon: v\.icon, iconColor: v\.iconColor, \.\.\.\(v\.photo === null && !v\.keepPhoto \? \{ photo: null \} : \{\}\) \} : p\)\);/);
+    expect(body).not.toMatch(/setProfile\(\{ \.\.\.profile, /);
+  });
+
+  it("最初の版の「1回だけの見張り」は残っていない", () => {
+    expect(src).not.toMatch(/followPhotoChange|photoWatch/);
   });
 });

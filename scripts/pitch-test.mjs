@@ -25322,8 +25322,10 @@ console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==
   // 「色を押す → 写真を選んで成功 → 閉じる」の順で、いま載せたばかりの写真を消していた。
   // 下書きに写真が載っているなら photo のキーを1文字も書かない。
   // 振る舞いは src/community/accountRepo.test.js が端から端まで通して見る。
-  check("58.4 M2/便AH 書き込みは updateDoc(全置換にしない)。写真を消すのは null を渡されたときだけ",
-    /export async function setProfileAvatar\(uid, \{ icon, iconColor, photo = null \}\) \{\s*\r?\n\s*const patch = \{ icon, iconColor \};\s*\r?\n\s*if \(photo === null\) patch\.photo = null;\s*\r?\n\s*await updateDoc\(userRef\(uid\), patch\);/.test(repo58));
+  // 【便BH 2026-10-01 再審査】写真の保存(判定)の途中でシートを閉じたときは、null でも写真のキーを
+  // 書かない(keepPhoto)。閉じた時点の null で判定中の写真を消していたため。判断は avatarWriteOnClose。
+  check("58.4 M2/便AH 書き込みは updateDoc(全置換にしない)。写真を消すのは null を渡されたときだけ(保存中は書かない)",
+    /export async function setProfileAvatar\(uid, \{ icon, iconColor, photo = null, keepPhoto = false \}\) \{\s*\r?\n\s*const patch = \{ icon, iconColor \};\s*\r?\n\s*if \(photo === null && !keepPhoto\) patch\.photo = null;\s*\r?\n\s*await updateDoc\(userRef\(uid\), patch\);/.test(repo58));
   // 閉じたときの1回だけ。絵柄と色を続けて選んでも書き込みは1回。
   // 【便AH 2026-09-23】「変わったか」と「写真をどうするか」を1つの純関数に畳んだ
   // (avatarWriteOnClose)。**書く中身を画面側で組み立てない** ── 組み立てていたときに

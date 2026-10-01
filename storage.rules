@@ -10,6 +10,7 @@ rules_version = '2';
 //
 //   avatarUploads/{uid}/photo.webp … クライアントが書ける。**誰も見ない**
 //   avatars/{uid}/{file}           … 関数(Admin SDK)だけが書ける。**ここだけが画面に出る**
+//                                     (画面へは鍵付きの URL で出す。ルールでの読みは閉じてある ── 便BH)
 //
 // 【上限は3つとも「青天井にしない」ためのもの(決定7)】
 //   ・置ける場所は自分の uid の下だけ
@@ -22,10 +23,20 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // 判定を通った写真。**誰でも読めて、クライアントは誰も書けない。**
-    // 公開プロフィールに載るものなので、読みはプロフィールと同じ扱い。
+    // 判定を通った写真。**クライアントは誰も書けない。**
+    // 【便BH 2026-10-01 本人裁定 読みも閉じた】以前は allow read: if true だった。
+    // ・画面に出すのは users.photo の**鍵(token)付きの URL** で、鍵付きの URL はこのルールを
+    //   通らない(Firebase が鍵で通す)。だから読みを閉じても表示は変わらない。
+    // ・開けたままだと、鍵を持たない誰でも SDK で avatars/{uid}/ を list して
+    //   uid から写真を辿れる・名前さえ分かれば読める。公開をやめた人の写真も同じ。
+    //   しかも getDownloadURL は**いまの鍵**の URL を返すので、鍵を入れ替えても取り直せてしまう。
+    //   公開をやめたら関数(cleanAvatarPhoto)が鍵を入れ替え、users.photo を新しい鍵の URL に
+    //   替える。閉じておけば、**古い鍵の URL でも、鍵を持たない道でも読めなくなる。**
+    //   ただし、すでに見た人の端末のキャッシュは消せない。
+    // ・アプリはここを SDK(getDownloadURL / getBlob / getBytes / listAll)で読んでいない
+    //   (便BH で src 全体を確かめた)。関数は Admin SDK なのでルールを通らない。
     match /avatars/{uid}/{file} {
-      allow read: if true;
+      allow read: if false;
       allow write: if false;
     }
 

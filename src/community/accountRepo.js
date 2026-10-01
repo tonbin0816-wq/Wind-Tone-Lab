@@ -1,5 +1,5 @@
 import { signInAnonymously, onAuthStateChanged, deleteUser, signOut } from "firebase/auth";
-import { doc, setDoc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { getFirebase } from "./firebaseClient.js";
 import { unpublishAllIdeals } from "./idealRepo.js";
 
@@ -86,6 +86,26 @@ export async function setProfilePublic(uid, isPublic) {
   await updateDoc(userRef(uid), { isPublic: !!isPublic });
 }
 
+// 【便BH 2026-10-01 本人裁定 (a) → 差し戻し(不合格2)で作り直し】自分の users.photo を見張る。
+// 公開をやめると、関数(cleanAvatarPhoto)が写真の鍵を入れ替え、users.photo を新しい鍵の URL に
+// 書き直す。関数は users の書き込みを合図に**少し遅れて**走るので、書いた直後に1回読み直しても
+// 古い URL のままのことが多い。最初の版は「写真が変わるまで1回だけ」見張ったが、
+//   ・関数より早く公開に戻すと、張る機会が無い(張るのは切ったときだけ)
+//   ・2回入れ替わると、2回目を拾えない
+// ので、**参加中の画面(JoinedView)がある間はずっと見張る**形にした。画面を離れたら外す。
+// 読み取りは「張った1回 + 自分の文書が変わった回数」(練習記録の公開など、写真以外の変更でも1回と
+// 数えられる)。長く通信が切れていたあとに張り直されたときは、そのぶんもう1回読む。
+// onPhoto には毎回いまの photo(無ければ null)を渡す。同じ値かどうかは呼ぶ側が見る。
+// 返り値は見張りを外す関数。
+export function watchMyPhoto(uid, onPhoto) {
+  return onSnapshot(userRef(uid), (snap) => {
+    onPhoto(snap.exists() ? (snap.data()?.photo ?? null) : null);
+  }, (e) => {
+    // 【黙って捨てない】見張れなくても画面は止めない(次にタブを開けば読み直す)。
+    console.error("[community] 写真の見張りに失敗", e?.code, e);
+  });
+}
+
 // 【M 2026-09-19 本人指示】アイコンの変更はプロフィールの**表示画面**から行う
 // (編集フォームからは外した)。setProfilePublic と同じく updateDoc で2つのキーだけを
 // 差し替える ── setDoc の全置換だと他の項目を巻き添えにする。
@@ -102,9 +122,11 @@ export async function setProfilePublic(uid, isPublic) {
 // 消していた**(掃除の関数が Storage の実体まで消す)。消す意図は呼び出し側が
 // 明示する ── 下書きに写真が載っているなら、それは「消す」ではない。
 // null はクライアントが書ける唯一の値(決定6)なので、消す側の経路はルールを通る。
-export async function setProfileAvatar(uid, { icon, iconColor, photo = null }) {
+// 【便BH 再審査】keepPhoto が真なら、photo が null でも写真のキーを書かない(写真の保存の途中で
+// シートを閉じたとき。avatarWriteOnClose が決める)。
+export async function setProfileAvatar(uid, { icon, iconColor, photo = null, keepPhoto = false }) {
   const patch = { icon, iconColor };
-  if (photo === null) patch.photo = null;
+  if (photo === null && !keepPhoto) patch.photo = null;
   await updateDoc(userRef(uid), patch);
 }
 

@@ -11,6 +11,7 @@
 // 【出どころ】design/community-tab-proposals.html の画面案から機械的に取り出した。
 // 絵柄の顔ぶれは 2026-08-28 の本人裁定(道具の絵をやめて動物・自然にする)による。
 // ------------------------------------------------------------------
+import { useState } from "react";
 import { avatarPaint } from "./avatarPhoto.js";
 
 // スプライト本体。**1画面に1つだけ置く。** <use> はこれを参照する。
@@ -55,8 +56,14 @@ export function AvatarSprite() {
 // **この1箇所で全ての呼び出しに効く**(凍結仕様の「触る場所」)。
 // 写真のときの地は --c-sunken ── 読み込みが終わるまでの面で、丸く切り抜くので
 // --c-avatar-N は1px も見えない(決定2 が背景の行を消すのと同じ理由)。
+// 【便BH 差し戻し(不合格2)】写真が読めなかったら(onError)、**その人の絵柄と色に戻す**(無ければ既定)。
+// 公開をやめた人の写真は鍵が入れ替わるので、入れ替わる前の URL を持っている画面(他の人の一覧の写し・
+// ブロック一覧の写し・キャッシュの差)では読めなくなる。壊れた画像のまま(地の色の丸)にしない。
+// 覚えるのは「読めなかった URL」だけなので、別の URL が来れば写真をもう一度試す。
 export function Avatar({ icon, color, photo = null, size = 40 }) {
-  const paint = avatarPaint({ photo, icon, color });
+  const [failedUrl, setFailedUrl] = useState(null);
+  const asked = avatarPaint({ photo, icon, color });
+  const paint = asked.kind === "photo" && asked.url === failedUrl ? avatarPaint({ photo: null, icon, color }) : asked;
   return (
     <span
       aria-hidden="true"
@@ -71,6 +78,7 @@ export function Avatar({ icon, color, photo = null, size = 40 }) {
         /* 正方形に切って保存してあるので、objectFit: cover は縦横比が崩れたときの保険。 */
         <img
           src={paint.url} alt="" width={size} height={size}
+          onError={() => setFailedUrl(paint.url)}
           style={{ width: size, height: size, objectFit: "cover", display: "block", borderRadius: "50%" }}
         />
       ) : (

@@ -243,11 +243,13 @@ function fakeFn({ contentType, bytes }) {
     safeSearch: async (b) => { calls.visionGot.push(b); return CLEAN; },
     save: async (p, b, t, type) => { calls.saved.push({ path: p, bytes: b, token: t, type }); },
     remove: async (p) => { calls.removed.push(p); },
-    dropOthers: async () => {},
+    // 【便BH 2026-10-01】dropOthers は listPhotos に、writeUserPhoto は「decide が書く」形になった。
+    listPhotos: async () => [],
     dropAll: async () => {},
-    writeUserPhoto: async (uid, url) => { calls.wrote.push({ uid, url }); },
+    writeUserPhoto: async (uid, decide) => decide(calls.wrote.at(-1)?.url ?? null, (url) => { calls.wrote.push({ uid, url }); }),
     readUserPhoto: async () => calls.wrote.at(-1)?.url ?? null,
     rev: () => "rev1",
+    now: () => 1000,   // 【便BH 差し戻し】置き場の時刻が取れないときの物差し
     token: () => "tok1",
   };
   return { calls, deps };

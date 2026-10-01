@@ -218,6 +218,8 @@ export function photoFailureKind(e) {
   if (/PHOTO_UNREADABLE/.test(msg)) return "unreadable";
   if (name === "EncodingError" || name === "InvalidStateError") return "unreadable";
   if (/could not be decoded|decode|unsupported|corrupt/i.test(msg)) return "unreadable";
+  // 【便BH 再審査】判定の途中で写真が外された(本人が絵柄に戻した等)。通信の失敗ではない。
+  if (code === "functions/aborted" || /photo-superseded/.test(msg)) return "superseded";
   if (code === "functions/failed-precondition" || code === "functions/invalid-argument") return "rejected";
   if (/photo-rejected|PHOTO_[A-Z_]+/.test(msg)) return "rejected";
   return "network";
@@ -248,12 +250,21 @@ export function avatarDraftAfterPick(pick = {}) {
 export function avatarWriteOnClose({ draft, saved } = {}) {
   const icon = draft?.icon ?? null;
   const iconColor = draft?.iconColor ?? null;
-  const photo = isUsablePhoto(draft?.photo) ? draft.photo : null;
   // 下書きが組み上がっていない(開いていない)ときは書かない。
   if (icon === null || iconColor === null) return null;
   const savedIcon = saved?.icon ?? AVATAR_ICONS[0];
   const savedColor = saved?.iconColor ?? AVATAR_COLOR_MIN;
   const savedPhoto = isUsablePhoto(saved?.photo) ? saved.photo : null;
+  // 【便BH 差し戻し(不合格2)】下書きの写真は「写真を残す(値がある)か、絵柄にする(null)か」の印で、
+  // **残す写真はいま保存されている写真**。下書きの URL をそのまま答えにすると、シートを開いている
+  // 間に公開をやめて鍵が入れ替わったとき、閉じた瞬間に古い URL が手元に書き戻されていた。
+  //
+  // 【便BH 再審査】写真の保存(判定)の途中でシートを閉じたとき、下書きに「保存中」の印
+  // (photoSaving)がある。そのときは写真について何も書かない(keepPhoto)── 色を押してから写真を
+  // 選んだ順だと下書きの写真は null なので、印が無いと null を書き、掃除が判定中の写真を消していた
+  // (閉じたあとなので、本人には何も知らされない)。色・絵柄は書いてよい。判定が終われば写真が載る。
+  const saving = draft?.photoSaving === true;
+  const photo = isUsablePhoto(draft?.photo) || saving ? savedPhoto : null;
   if (icon === savedIcon && iconColor === savedColor && photo === savedPhoto) return null;
-  return { icon, iconColor, photo };
+  return saving ? { icon, iconColor, photo, keepPhoto: true } : { icon, iconColor, photo };
 }

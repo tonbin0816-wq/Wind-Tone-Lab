@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount } from "./accountRepo.js";
+import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount, watchMyPhoto } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
-import { buildProfileDoc, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_PICKABLE_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
+import { buildProfileDoc, profileAfterSave, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_PICKABLE_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
 import { AvatarSprite, Avatar, RowChevron, PickChevron } from "./icons.jsx";
 // 【M3 2026-09-19 本人指示】アイコンが編集の導線であることを示す鉛筆の印。
 // 本人「添付はカメラのアイコンだが鉛筆マークにして」。lucide はこの階層でも
@@ -124,7 +124,12 @@ const PHOTO_ERROR_BY_KIND = {
   rejected: PHOTO_REJECT_ERROR,
   network: PHOTO_SEND_ERROR,
 };
-const photoErrorOf = (e) => PHOTO_ERROR_BY_KIND[photoFailureKind(e)] ?? PHOTO_SEND_ERROR;
+// 【便BH 再審査】superseded(判定の途中で写真が外された)は文言を出さない(null)。本人が絵柄に戻したのなら
+// それが本人の意思で、「電波の良いところで」と案内すると嘘になる。
+const photoErrorOf = (e) => {
+  const kind = photoFailureKind(e);
+  return kind === "superseded" ? null : (PHOTO_ERROR_BY_KIND[kind] ?? PHOTO_SEND_ERROR);
+};
 const DELETE_ERROR = "削除を最後まで終えられませんでした。電波の良いところでもう一度「アカウントを削除」を押してください。途中まで消えていても、押し直せば続きから完了できます";
 // deleteUser だけが失敗した場合(auth/requires-recent-login など)。データは消えている。
 // 「消えていない」と誤解させないよう、消えたものと残ったものを分けて言う。
@@ -156,7 +161,7 @@ const SUB_TABS = [
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
 // 【便BE】export は振る舞いの検査(block.test.jsx)が実物を描くための出口。
-export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data" }) {
+export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -290,6 +295,26 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
     onPhotoChanged(photo);
     dir.setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, photo } : u)));
   };
+
+  // 【便BH 2026-10-01 本人裁定 (a) → 差し戻し(不合格2)】自分の users.photo を、この画面がある間
+  // ずっと見張る(watchPhoto = accountRepo の watchMyPhoto。検査では作り物を渡す)。
+  // 公開をやめると関数が写真の鍵を入れ替えて users.photo を新しい URL に書き直すので、手元の写し
+  // (profile と一覧の自分の行)を古い URL のまま持たない。届いた値は changePhoto に流す
+  // ── 写真を載せたときと同じ道で、profile と一覧の両方が直る。
+  // 手元と同じ値なら何もしない(練習記録の公開など、写真以外の変更でも合図は届く)。
+  // 読み取りは「張った1回 + 自分の文書が変わった回数」。画面を離れたら外す。
+  const changePhotoRef = useRef(changePhoto);
+  changePhotoRef.current = changePhoto;
+  const shownPhotoRef = useRef(profile?.photo ?? null);
+  shownPhotoRef.current = profile?.photo ?? null;
+  useEffect(() => {
+    if (!uid || !watchPhoto) return undefined;
+    return watchPhoto(uid, (photo) => {
+      if (photo === shownPhotoRef.current) return;
+      shownPhotoRef.current = photo;   // 描き直す前に同じ値が続けて届いても、2度は流さない
+      changePhotoRef.current(photo);
+    });
+  }, [uid, watchPhoto]);
 
   const togglePublic = async (v) => {
     if (!v) await unpublishAllIdeals(uid); // 非公開にしたら音のデータをサーバに残さない
@@ -525,7 +550,10 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           // 削除して入り直した場合は profile が null に戻っているので、
           // 前回の "me" が残ったまま新しい人をマイページに落とすことはない。
           setLandTab(profile ? "me" : "data");
-          setProfile(r.doc);
+          // 【便BH 差し戻し(統括裁定4)】r.doc は photo と stats を持たない(フォームが作る13キー)。
+          // そのまま置くと、保存した瞬間に手元の写真と練習記録が消えていた(サーバには saveProfile が
+          // 持ち越している)。手元の値を持ち越す(profileAfterSave)。
+          setProfile(profileAfterSave(profile, r.doc));
           setPhase("profile");
           return null;
         }}
@@ -543,18 +571,28 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
-        setProfile({ ...profile, isPublic: v });
+        // 【便BH 2026-10-01 (a) 差し戻し】公開をやめたあとの写真の URL の書き直しは、JoinedView の見張り
+        // (watchPhoto)が拾う。書いている間(await の間)に見張りが新しい URL を届けることがあるので、
+        // 押した時点の profile ではなく**その時点の profile** に重ねる(古い URL に巻き戻さない)。
+        setProfile((p) => (p ? { ...p, isPublic: v } : p));
       }}
       onChangeAvatar={async (v) => {
         await setProfileAvatar(uid, v); // 失敗は ProfileView が受けて文言を出す
         // 【便AH】書いた形と画面を揃える。v.photo は「消す(null)」か
         // 「そのまま残す(いまの場所)」のどちらかで、setProfileAvatar と同じ答えを見ている。
-        setProfile({ ...profile, ...v });
+        // 【便BH 差し戻し】「残す」ときは手元の写真に触らない。書いている間に見張りが新しい URL を
+        // 届けていたら、v.photo(閉じた時点の URL)で巻き戻すことになるため。消すときだけ null を書く。
+        // 【便BH 再審査】keepPhoto(写真の保存の途中で閉じた)のときも写真に触らない。
+        setProfile((p) => (p ? { ...p, icon: v.icon, iconColor: v.iconColor, ...(v.photo === null && !v.keepPhoto ? { photo: null } : {}) } : p));
       }}
       onPhotoChanged={(photo) => {
         // 【便AH】写真を書いたのはサーバの関数(決定6)。ここは画面を向け直すだけ。
-        setProfile({ ...profile, photo });
+        // 【便BH 差し戻し】見張り(watchPhoto)からも続けて届くので、その時点の profile に重ねる
+        // (描いた時点の profile に重ねると、続けて届いた2つめが1つめを巻き戻す)。
+        setProfile((p) => (p ? { ...p, photo } : p));
       }}
+      // 【便BH 差し戻し(不合格2)】自分の users.photo を見張る道具。参加中の画面がある間だけ張る。
+      watchPhoto={watchMyPhoto}
       onDelete={async () => {
         // 例外が出るのは削除の途中で失敗したとき。一部だけ消えていることがあるので、
         // ProfileView は「押し直せば続きから完了できる」と言う(DELETE_ERROR)。
@@ -1606,6 +1644,17 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   // 【便AH】写真の拡大表示(決定5)。**写真のときだけ**出る。
   const [zoomOpen, setZoomOpen] = useState(false);
   const photo = profile?.photo ?? null;
+  // 【便BH 差し戻し(不合格2)】シートを開いている間に写真の URL が入れ替わったら(公開をやめたときの
+  // 鍵の入れ替え)、下書きが**古い URL のままなら**新しい URL に合わせる。合わせないと、閉じたときに
+  // 古い URL が手元に書き戻される(avatarWriteOnClose の側でも、写真を残す答えはいまの写真にしてある)。
+  // 下書きで絵柄を選んでいた(写真が null)ならその選択を変えない。
+  const lastPhotoRef = useRef(photo);
+  useEffect(() => {
+    const prev = lastPhotoRef.current;
+    lastPhotoRef.current = photo;
+    if (prev === photo || prev === null) return;
+    setAvatarDraft((d) => (d.photo === prev ? { ...d, photo } : d));
+  }, [photo]);
   const canZoom = photoZoomAvailable({
     photo, icon: profile?.icon, color: profile?.iconColor, place: "mypage",
   });
@@ -1621,11 +1670,15 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
 
   // 【M2】開くときに今の値を下書きへ写す(シートを閉じて開き直しても、
   // いつも「いま保存されている絵柄」から始まる)。
+  // 【便BH 再審査】写真の保存(判定)が進んでいる数。0 でなければ下書きに「保存中」の印(photoSaving)を置く。
+  // 閉じたときに avatarWriteOnClose がその印を見て、写真を null で上書きしない。
+  const photoSaving = useRef(0);
   const openAvatar = () => {
     setAvatarDraft({
       icon: profile?.icon ?? AVATAR_ICONS[0],
       iconColor: profile?.iconColor ?? AVATAR_COLOR_MIN,
       photo: profile?.photo ?? null,
+      photoSaving: photoSaving.current > 0,
     });
     setAvatarOpen(true);
   };
@@ -1635,11 +1688,20 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   const savePhoto = async (blob, onStage) => {
     // 誰として上げるかが分からない状態で置き場へ書かない(ルールも同じ条件で弾く)。
     if (!uid) throw new Error("PHOTO_NO_UID");
-    const url = await saveAvatarPhoto(uid, blob, onStage);
-    // 載った物を下書きにも写す ── こうしないと、閉じたときに
-    // 「下書きには写真が無い」と読まれて、絵柄へ戻す書き込みが走る。
-    setAvatarDraft((d) => ({ ...d, photo: url }));
-    if (onPhotoChanged) onPhotoChanged(url);
+    // 【便BH 再審査】選んだ時点で「保存中」の印を置く。判定の途中でシートを閉じても、
+    // 閉じたときの書き込みが写真を null にしない(判定が終われば、この写真が載る)。
+    photoSaving.current += 1;
+    setAvatarDraft((d) => ({ ...d, photoSaving: true }));
+    try {
+      const url = await saveAvatarPhoto(uid, blob, onStage);
+      // 載った物を下書きにも写す ── こうしないと、閉じたときに
+      // 「下書きには写真が無い」と読まれて、絵柄へ戻す書き込みが走る。
+      setAvatarDraft((d) => ({ ...d, photo: url }));
+      if (onPhotoChanged) onPhotoChanged(url);
+    } finally {
+      photoSaving.current -= 1;
+      if (photoSaving.current === 0) setAvatarDraft((d) => ({ ...d, photoSaving: false }));
+    }
   };
   const closeAvatar = async () => {
     setAvatarOpen(false);
@@ -1773,7 +1835,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
             icon={avatarDraft.icon}
             color={avatarDraft.iconColor}
             photo={avatarDraft.photo}
-            onChange={(v) => setAvatarDraft(avatarDraftAfterPick(v))}
+            /* 【便BH 再審査】「保存中」の印は絵柄・色を選び直しても持ち越す(開き直したシートで、判定の途中に
+               絵柄を押してから閉じても、写真を null で上書きしない)。 */
+            onChange={(v) => setAvatarDraft((d) => ({ ...avatarDraftAfterPick(v), photoSaving: d.photoSaving === true }))}
             onPickPhoto={savePhoto}
           />
         </BottomSheet>

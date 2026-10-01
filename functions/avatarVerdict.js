@@ -238,3 +238,106 @@ export function pathOfDownloadUrl(url) {
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch { return null; }
 }
+
+/** downloadUrlOf の URL から鍵(token)を取り出す。読めなければ null。 */
+export function tokenOfDownloadUrl(url) {
+  if (typeof url !== "string") return null;
+  const m = url.match(/[?&]token=([^&]+)/);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch { return null; }
+}
+
+// ------------------------------------------------------------------
+// 【便BH 2026-10-01 本人裁定 (b)】写真の版(rev)に**上げた時刻**を入れ、新旧を比べられるようにする。
+//
+// 以前の rev は乱数だけだったので、同じ人が別のタブ・別の端末からほぼ同時に2枚上げると、
+// どちらが新しいかを誰も言えなかった。その結果、関数どうしの「載せる → 読み直す → 片付ける」が
+// 交差して、users.photo が指している実体を片方の片付けが消すことがあった(全員の画面で壊れた画像)。
+// 版に時刻を入れれば「新しいほうだけを載せる」「指しているものより古いものだけを消す」と言える。
+//
+// 【物差しは「上げた順」── 便BH 審査の差し戻し(不合格1)】最初の版は、時刻を Vision の判定の
+// **あと**で取っていた。判定の速さは写真ごとに違うので、先に上げた写真の判定が遅いと、
+// 先に上げたほうが「新しい」ことになって勝っていた。いまは置き場(avatarUploads)の実体が
+// **作られた時刻(timeCreated)と世代(generation)**を物差しにする。置き場は1人1つの名前なので、
+// 上げ直すたびに新しい世代ができ、上げた順がそのまま残る。取れないときだけ、関数に入った直後
+// (読み込みと判定より前)の時刻を使う(uploadOrderOf)。
+//
+// 【形】`<13桁のミリ秒>-<20桁の世代>-<乱数>`。桁をそろえてあるので、文字列のまま並べても
+// 「時刻 → 世代 → 乱数」の順になる。同じミリ秒どうしは世代で決め、世代も同じ(同じ1回の
+// アップロードを2本の判定が読んだ)なら乱数の並びで決める(どちらかに必ず決まる)。
+// 【前の形(乱数16桁)の写真】時刻を持たないので**いちばん古い**として扱う(時刻 0)。
+// 新しい形の写真が1枚でも載れば、前の形のものはすべてそれより古い。
+// ------------------------------------------------------------------
+const PHOTO_REV_TIME = /^(\d{13})-(\d{20})-[0-9a-z]+$/;
+const PHOTO_PATH = /^avatars\/([^/]+)\/([^/.]+)\.(webp|jpg)$/;
+const DIGITS = /^\d+$/;
+
+/** 版の名前を作る。ms は上げた時刻(ミリ秒)、gen は置き場の世代(数字の文字列)、salt は乱数の文字列。 */
+export const photoRevAt = (ms, gen, salt) =>
+  `${String(Math.trunc(ms)).padStart(13, "0")}-${(DIGITS.test(String(gen ?? "")) ? String(gen) : "0").padStart(20, "0")}-${salt}`;
+
+/**
+ * 置き場のメタデータから「上げた順」を取り出す。
+ * timeCreated(作られた時刻)が読めなければ fallbackMs(関数に入った直後の時刻)を使う。
+ * generation(世代)が読めなければ "0"。
+ */
+export function uploadOrderOf(meta, fallbackMs) {
+  const t = Date.parse(meta?.timeCreated ?? "");
+  const g = String(meta?.generation ?? "");
+  return { ms: Number.isFinite(t) ? t : fallbackMs, gen: DIGITS.test(g) ? g : "0" };
+}
+
+/** 置き場の名前から、比べるための鍵を取り出す。avatars/{uid}/{rev}.{webp|jpg} の形でなければ null。 */
+export function photoRevKeyOf(path) {
+  if (typeof path !== "string") return null;
+  const m = path.match(PHOTO_PATH);
+  if (!m) return null;
+  const t = m[2].match(PHOTO_REV_TIME);
+  return { uid: m[1], rev: m[2], time: t ? Number(t[1]) : 0, gen: t ? t[2] : "" };
+}
+
+/** 版の時刻(ミリ秒)。読めない形なら null。前の形は 0。 */
+export const photoTimeOf = (path) => photoRevKeyOf(path)?.time ?? null;
+
+/**
+ * path の写真が than の写真より**古い**か。比べる順は「時刻 → 世代 → 版の名前」。
+ * 【分からないものは古いと言わない】どちらかが読めない形・別の人の写真なら false ──
+ * 古いと言えば消される。消してよいと言い切れるものだけを真にする。
+ */
+export function isOlderPhoto(path, than) {
+  const a = photoRevKeyOf(path);
+  const b = photoRevKeyOf(than);
+  if (!a || !b || a.uid !== b.uid) return false;
+  if (a.time !== b.time) return a.time < b.time;
+  if (a.gen !== b.gen) return a.gen < b.gen;   // 同じ桁数(20桁)にそろえてあるので文字列で比べてよい
+  return a.rev < b.rev;
+}
+
+/**
+ * 単調に増える時計。同じ関数の中で2回呼ばれても、2回目は必ず1回目より大きい。
+ * 【便BH 差し戻し後】使うのは、置き場の時刻が取れなかったときの代わり(関数に入った直後の時刻)と、
+ * 掃除の合図の時刻が読めなかったときの代わりだけ。別の関数の実体どうしの順は、サーバの時計にまかせる。
+ */
+export function monotonicClock(now = () => Date.now()) {
+  let last = -Infinity;
+  return () => (last = Math.max(now(), last + 1));
+}
+
+// ------------------------------------------------------------------
+// 【便BH 2026-10-01 本人裁定 (a)】公開をやめたら、古い写真の URL を効かなくする。
+//
+// avatars/ の読みはルールで閉じた(storage.rules)が、画面が使う URL は**鍵(token)付き**で、
+// 鍵付きの URL はルールを通らない。公開中に URL を得た相手は、鍵が同じである限り読み続けられる。
+// だから公開をやめたら**鍵を新しい乱数に入れ替え**、users.photo を新しい鍵の URL に書き直す。
+// 鍵を新しい1つにした時点で、新しい鍵の URL に替わり、古い鍵では読めなくなる(手順は avatarJobs の revokePhotoUrl)。
+// **ただし、すでに見た人の端末のキャッシュは消せない**(新しく上げる写真は Cache-Control を
+// private にして、手前の共有キャッシュには持たせない。前から在る写真は public のまま)。
+//
+// 発火は「公開(true)→ 非公開(false)」に変わったときだけ。
+//   ・false → true(公開に戻す)では入れ替えない(入れ替える理由が無い)
+//   ・自分の書き直し(photo だけが変わる)で関数がもう一度起動しても、
+//     isPublic は false → false なので**何もしない**(無限に回らない)
+// ------------------------------------------------------------------
+export function shouldRevokePhotoUrl(before, after) {
+  return before?.isPublic === true && after?.isPublic === false;
+}

@@ -329,3 +329,14 @@ export function buildProfileDoc(input, now = new Date()) {
     },
   };
 }
+
+// 【便BH 差し戻し(統括裁定4)】プロフィールを保存したあとの手元の profile。
+// フォームが作る doc(buildProfileDoc の13キー)は photo と stats を持たない。サーバへは saveProfile が
+// 持ち越すが、手元に doc をそのまま置くと、**保存した瞬間に自分の写真と練習記録が手元から消えていた**
+// (再読み込みまで絵柄に見える)。手元に在った値を持ち越す。無かったものは足さない。
+export function profileAfterSave(prev, doc) {
+  const next = { ...doc };
+  if (typeof prev?.photo === "string" && prev.photo.length > 0) next.photo = prev.photo;
+  if (prev?.stats) next.stats = prev.stats;
+  return next;
+}

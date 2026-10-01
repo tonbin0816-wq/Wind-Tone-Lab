@@ -202,6 +202,14 @@ describe("photoZoomAvailable ── 拡大表示を出すか(決定5)", () => {
   });
 });
 
+describe("photoFailureKind ── 便BH 再審査: 判定の途中で写真が外された", () => {
+  it("superseded は通信の失敗とも判定の失敗とも別の種別", () => {
+    expect(photoFailureKind({ code: "functions/aborted", message: "photo-superseded: superseded" })).toBe("superseded");
+    expect(photoFailureKind(new Error("photo-superseded: superseded"))).toBe("superseded");
+    expect(photoFailureKind({ code: "functions/unavailable", message: "photo-unavailable: no-verdict" })).toBe("network");
+  });
+});
+
 describe("photoFailureKind ── 文言の出し分け(決定3)", () => {
   it("関数が拒んだものは「判定で落ちた」", () => {
     expect(photoFailureKind({ code: "functions/failed-precondition", message: "photo-rejected" })).toBe("rejected");
@@ -289,6 +297,38 @@ describe("avatarWriteOnClose ── シートを閉じたときに何を書く�
   it("下書きが組み上がっていない(開いていない)ときは書かない", () => {
     expect(avatarWriteOnClose({ draft: { icon: null, iconColor: null, photo: null }, saved: SAVED })).toBeNull();
     expect(avatarWriteOnClose()).toBeNull();
+  });
+
+  // 【便BH 差し戻し(不合格2)】シートを開いている間に、公開をやめて写真の鍵が入れ替わった形。
+  // 下書きは古い URL のまま、保存側は新しい URL。以前は「写真が変わった」と読んで古い URL を答えに入れ、
+  // 閉じた瞬間に手元の profile が古い URL(もう読めない)に巻き戻っていた。
+  it("下書きの写真が古い URL のままでも、残す写真はいま保存されている写真(古い URL を書き戻さない)", () => {
+    expect(avatarWriteOnClose({
+      draft: { icon: "ic-cat", iconColor: 1, photo: URL_A },
+      saved: { icon: "ic-cat", iconColor: 1, photo: URL_B },
+    })).toBeNull();                                        // 何も変えていないので書かない
+    const w = avatarWriteOnClose({
+      draft: { icon: "ic-cat", iconColor: 3, photo: URL_A },
+      saved: { icon: "ic-cat", iconColor: 1, photo: URL_B },
+    });
+    expect(w).toEqual({ icon: "ic-cat", iconColor: 3, photo: URL_B });
+  });
+
+  // 【便BH 再審査】写真の保存(判定)の途中で閉じた。下書きの写真は null(色を押したあと)でも、
+  // 「保存中」の印があれば写真について何も書かない。
+  it("保存中の印があれば、写真は書かない(keepPhoto)。色・絵柄は書く", () => {
+    expect(avatarWriteOnClose({
+      draft: { icon: "ic-cat", iconColor: 7, photo: null, photoSaving: true },
+      saved: { icon: "ic-cat", iconColor: 1, photo: URL_A },
+    })).toEqual({ icon: "ic-cat", iconColor: 7, photo: URL_A, keepPhoto: true });
+    expect(avatarWriteOnClose({
+      draft: { icon: "ic-cat", iconColor: 1, photo: null, photoSaving: true },
+      saved: { icon: "ic-cat", iconColor: 1, photo: URL_A },
+    })).toBeNull();                                        // 色も絵柄も変えていなければ書かない
+    expect(avatarWriteOnClose({
+      draft: { icon: "ic-dog", iconColor: 1, photo: null, photoSaving: false },
+      saved: { icon: "ic-cat", iconColor: 1, photo: URL_A },
+    })).toEqual({ icon: "ic-dog", iconColor: 1, photo: null });   // 印が無ければ今までどおり消す
   });
 
   it("保存されている側の既定(絵柄の先頭・色1)と比べる", () => {

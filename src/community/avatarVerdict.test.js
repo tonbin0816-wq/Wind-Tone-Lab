@@ -185,10 +185,24 @@ describe("firestore.rules の写真の門を**実際に評価する**(決定6)",
 describe("storage.rules(決定7)", () => {
   const rules = codeOf(readRoot("../../storage.rules"));
 
-  it("画面に出る側はクライアントが書けない", () => {
+  // 【便BH 2026-10-01 本人裁定】読みも閉じた(allow read: if true → if false)。
+  // 画面は鍵付きの URL で出すのでルールを通らない。開けたままだと list で uid から辿れ、
+  // getDownloadURL で入れ替えた後の鍵まで取り直せる。
+  it("画面に出る側はクライアントが書けず、ルールでは読めもしない(鍵付きの URL だけが通る)", () => {
     const seg = rules.slice(rules.indexOf("match /avatars/"), rules.indexOf("match /avatarUploads/"));
-    expect(seg).toMatch(/allow read: if true;/);
+    expect(seg).toMatch(/allow read: if false;/);
     expect(seg).toMatch(/allow write: if false;/);
+    // 読み(get / list)を通す行が他に1つも無い
+    expect(seg).not.toMatch(/allow (read|get|list)[^;]*if (?!false;)/);
+  });
+
+  it("読みを閉じた理由がコメントに残っている(鍵付き URL はルールを通らない・list で辿れる・鍵を取り直せる)", () => {
+    const raw = readRoot("../../storage.rules");
+    const seg = raw.slice(raw.indexOf("// 判定を通った写真。"), raw.indexOf("match /avatars/"));
+    expect(seg).toContain("便BH 2026-10-01");
+    expect(seg).toMatch(/鍵\(token\)付きの URL/);
+    expect(seg).toMatch(/list/);
+    expect(seg).toMatch(/getDownloadURL/);
   });
 
   it("置き場は自分の uid の下・1人1枚・256KiB・WebP か JPEG だけ", () => {
@@ -224,6 +238,9 @@ describe("functions/index.js ── 配線だけで、判断を持たない", ()
     expect(fn).toMatch(/runCleanAvatarPhoto\(\{/);
   });
 
+  // 【便BH 2026-10-01 (b)】書き込みはトランザクション(tx.set)の中の1つだけになった。
+  // 以前は「db().doc(...).set( がちょうど1つ」を見ていた。いまはトランザクションの中で
+  // ref を作って tx.get / tx.set するので、数え方を「直接書く0件 + tx.set 1件」に変えた。
   it("users へ書く道具は1つだけ(別の枝から書けない)", () => {
     // 【便AJ 2026-09-24】掃除の直前に「いま載っている写真」を**読む**道具を足した。
     // 読むだけなので決定6(値を入れるのは判定を通った1箇所だけ)は動かない。ただし
@@ -233,10 +250,18 @@ describe("functions/index.js ── 配線だけで、判断を持たない", ()
     // どちらにも数えられないので all と一致せず落ちる。
     const all = fn.match(/db\(\)\.doc\(/g) || [];
     const reads = fn.match(/db\(\)\.doc\([^)]*\)\.get\(\)/g) || [];
-    const writes = fn.match(/db\(\)\.doc\([^)]*\)\.(set|update|delete|create)\(/g) || [];
-    expect(writes).toHaveLength(1);
-    expect(all.length).toBe(reads.length + writes.length);
-    expect(fn).toMatch(/writeUserPhoto: \(uid, url\) => db\(\)\.doc\(`users\/\$\{uid\}`\)\.set\(\{ photo: url \}, \{ merge: true \}\)/);
+    const directWrites = fn.match(/db\(\)\.doc\([^)]*\)\.(set|update|delete|create)\(/g) || [];
+    const txRefs = fn.match(/const ref = db\(\)\.doc\(`users\/\$\{uid\}`\);/g) || [];
+    const txWrites = fn.match(/\btx\.(set|update|delete|create)\(/g) || [];
+    expect(directWrites).toHaveLength(0);
+    expect(txRefs).toHaveLength(1);
+    expect(txWrites).toHaveLength(1);
+    expect(all.length).toBe(reads.length + txRefs.length);
+    // ref をトランザクションの外から直に書く形(`ref.set(...)`)も入っていない
+    expect(fn).not.toMatch(/\bref\.(set|update|delete|create)\(/);
+    // 書くのは photo だけ(merge で他の項目を巻き添えにしない)
+    expect(fn).toMatch(/\(photo\) => tx\.set\(ref, \{ photo \}, \{ merge: true \}\)/);
+    expect(fn).toMatch(/writeUserPhoto: \(uid, decide\) => db\(\)\.runTransaction\(/);
   });
 
   // 【重1】置き場から写す(copy)道を残さない。載るのは download したバイト列だけ。
@@ -252,11 +277,31 @@ describe("functions/index.js ── 配線だけで、判断を持たない", ()
   // 【配線が空になっていないこと】avatarJobs は「消せ」と言うだけなので、
   // ここが何もしない道具を渡すと、users から消えても実体が残り続ける(決定9 が崩れる)。
   it("掃除の道具は本当に消す(門で殺されていない)", () => {
-    expect(fn).toMatch(/dropAll: async \(prefix\) => \{ await bucket\(\)\.deleteFiles\(\{ prefix \}\); \}/);
-    expect(fn).toMatch(/remove: async \(p\) => \{ try \{ await bucket\(\)\.file\(p\)\.delete\(\); \}/);
-    expect(fn).toMatch(/dropOthers: async \(prefix, keep\) => \{[\s\S]{0,300}?f\.delete\(\)/);
+    // 【便BH 差し戻し(統括裁定3)】dropAll(丸ごと消す)は外した。掃除は合図の時刻より前の版だけを
+    // listPhotos と remove で消す(判断は avatarJobs。avatarAdmin.test.js が本物の配線で走らせている)。
+    expect(fn).not.toMatch(/dropAll|deleteFiles/);
+    // remove は条件(ifGenerationMatch)を本物の delete へそのまま渡す(置き場は読んだ世代のときだけ消す)。
+    expect(fn).toMatch(/remove: async \(p, opts\) => \{ try \{ await bucket\(\)\.file\(p\)\.delete\(opts\); \}/);
+    // 【便BH 2026-10-01 (b)】dropOthers は外した。古いものを選ぶのは avatarJobs で、消すのは remove。
+    // ここでは「名前を並べる道具が本物の一覧を返す」ことを見る(空を返せば何も消えない)。
+    expect(fn).not.toMatch(/dropOthers/);
+    expect(fn).toMatch(/listPhotos: async \(prefix\) => \(await bucket\(\)\.getFiles\(\{ prefix \}\)\)\[0\]\.map\(\(f\) => f\.name\)/);
+    // 【便BH (a)】鍵の入れ替えは本物の setMetadata に届いている。
+    expect(fn).toMatch(/setDownloadToken: \(p, token\) => bucket\(\)\.file\(p\)\.setMetadata\(\{ metadata: \{ firebaseStorageDownloadTokens: token \} \}\)/);
     // 「消す」を門の中へ入れていない(`if (false)` で殺す形が入らない)。
     expect(fn).not.toMatch(/if \([^)]*\)[^\n]*deleteFiles/);
+  });
+
+  // 【便BH 差し戻し(統括裁定2)】新しく上げる写真は private(手前の共有キャッシュに持たせない)。
+  it("新しく保存する写真の Cache-Control は private", () => {
+    expect(fn).toMatch(/cacheControl: "private, max-age=31536000, immutable"/);
+    expect(fn).not.toMatch(/cacheControl: "public/);
+  });
+
+  // 【便BH 差し戻し】版の物差しは置き場の「上げた順」、掃除の物差しは合図の時刻。どちらも配線で渡している。
+  it("版は avatarJobs が渡す「上げた順」で作り、掃除には合図の時刻を渡す", () => {
+    expect(fn).toMatch(/rev: \(order\) => photoRevAt\(order\.ms, order\.gen, /);
+    expect(fn).toMatch(/at: event\.time \?\? null,/);
   });
 
   it("判断(if)を index.js へ戻していない", () => {

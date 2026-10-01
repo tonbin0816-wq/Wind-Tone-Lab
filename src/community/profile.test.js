@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   validateNickname,
   buildProfileDoc,
+  profileAfterSave,
   detectDeviceClass,
   POSITIONS,
   SAX_TYPES,
@@ -670,5 +671,36 @@ describe("detectDeviceClass", () => {
     expect(detectDeviceClass("Mozilla/5.0 (iPhone; ...)")).toBe("ios");
     expect(detectDeviceClass("Mozilla/5.0 (Linux; Android 14; ...)")).toBe("android");
     expect(detectDeviceClass("Mozilla/5.0 (Windows NT 10.0)")).toBe("pc");
+  });
+});
+
+// 【便BH 差し戻し(統括裁定4)】プロフィールを保存したあとの手元の profile。
+// 以前は setProfile(r.doc) で、フォームの doc(photo と stats を持たない)をそのまま置いていたので、
+// 保存した瞬間に手元から写真と練習記録が消えていた(サーバには saveProfile が持ち越していた)。
+describe("profileAfterSave ── 保存したあとも、手元の写真と練習記録を持ち越す", () => {
+  const doc = { nickname: "新しい名前", icon: "ic-cat", iconColor: 2, isPublic: true };
+  const URL = "https://example.test/o/avatars%2Fu1%2Fr.webp?alt=media&token=t";
+  const stats = { daysAll: 30, secAll: 3600 };
+
+  it("写真と練習記録を持ち越し、フォームの値はフォームのものになる", () => {
+    const prev = { nickname: "古い名前", icon: "ic-dog", iconColor: 1, photo: URL, stats, isPublic: false };
+    expect(profileAfterSave(prev, doc)).toEqual({ ...doc, photo: URL, stats });
+  });
+
+  it("持っていなかったものは足さない(空の欄を作らない)", () => {
+    const next = profileAfterSave({ nickname: "古い名前" }, doc);
+    expect(next).toEqual(doc);
+    expect("photo" in next).toBe(false);
+    expect("stats" in next).toBe(false);
+  });
+
+  it("初めての保存(手元に profile が無い)でも動く", () => {
+    expect(profileAfterSave(null, doc)).toEqual(doc);
+  });
+
+  it("フォームの doc を書き換えない(新しい器を返す)", () => {
+    const d = { ...doc };
+    profileAfterSave({ photo: URL, stats }, d);
+    expect(d).toEqual(doc);
   });
 });
