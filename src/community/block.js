@@ -2,20 +2,27 @@
 // ブロックの純関数。**Firestore に触らない**(ブロックはサーバーに何も書かない)。
 //
 // 【便BE 2026-09-30 本人裁定「ブロックを通報と分けて作る(B)」】
-// 通報(report.js)は flags に書き、その人を**全員の画面**から消す。戻せるのは運営だけ。
 // App Store の審査(利用者が作るものを見せるアプリはブロックが必須)に向けて、
 // **自分の画面からだけ**消し、自分でいつでも戻せる「ブロック」を別に作る。
+// 【便BG 2026-10-01 本人指示】通報は一覧から消さなくなった(reports に書くだけ)。
+// 画面から人を消すのは、いまはこのブロックだけ。通報を送れたあとにも「この奏者をブロックしますか」と問う。
 //
 //   ・保存はこの端末(App.jsx の usePersistedState = IndexedDB の kv)。鍵は BLOCKED_USERS_KEY。
 //     アカウント引継(src/backup)は kv を丸ごと書き出す/読み戻すので、ファイルにも入り、読み戻すと戻る。
 //     古いファイル(この鍵が無い)を読み戻すと鍵ごと無くなり、一覧は空で始まる(normalizeBlockedList)。
-//   ・落とし方は通報と同じ考え(hideFlagged / hideFlaggedIdeals)── **数える前に落とす**ので
-//     順位・シェア・データの一覧の母数からも、みんなの平均(目安の集計)からも消える。
+//   ・**数える前に落とす**ので、順位・シェア・データの一覧の母数からも、みんなの平均(目安の集計)からも消える。
+//     【便BG】落とす関数は、以前は report.js の hideFlagged / hideFlaggedIdeals を借りていた。
+//     通報が flags を使わなくなってあちらを消したので、同じ規則(自分は落とさない)をここへ移した。
 //   ・相手には知らせない。サーバーには何も書かない。
-//   ・入口(人物のページの「この人をブロック」)を出す条件は通報と同じ(report.js の reportEntryVisible)。
+//   ・入口(人物のページの「ブロック」)を出す条件は通報と同じ(report.js の reportEntryVisible)。
 //     screens.jsx で通報の入口と同じ器の中に置いたので、条件は1箇所にしか無い。
 // ------------------------------------------------------------------
-import { hideFlagged, hideFlaggedIdeals } from "./report.js";
+
+// uid の集合に居るものを落とす。**自分は落とさない**(myUid と同じものは残す)。
+// 自分の画面から自分が消えると、何が起きたのか分からないまま居なくなる。
+function dropUids(items, uidOf, set, myUid) {
+  return (items ?? []).filter((x) => !set.has(uidOf(x)) || (myUid != null && uidOf(x) === myUid));
+}
 
 /** IndexedDB(kv)の鍵。**綴りを変えないこと** ── 変えると保存済みの一覧と引継のファイルが読めなくなる。 */
 export const BLOCKED_USERS_KEY = "blockedUsers";
@@ -74,14 +81,14 @@ export function removeBlocked(list, uid) {
 }
 
 /**
- * ブロックした人を落とす。規則は通報の hideFlagged と同じ(**自分は落とさない**)。
+ * ブロックした人を落とす(**自分は落とさない**)。
  * 自分をブロックする入口は無いが、一覧が壊れていても自分が消えることは無い。
  */
 export function hideBlocked(users, list, myUid = null) {
-  return hideFlagged(users, blockedUidSet(list), myUid);
+  return dropUids(users, (u) => u?.uid, blockedUidSet(list), myUid);
 }
 
 /** 目安も同じ規則で落とす(所有者は ownerUid)。みんなの平均はこの結果から数える。 */
 export function hideBlockedIdeals(ideals, list, myUid = null) {
-  return hideFlaggedIdeals(ideals, blockedUidSet(list), myUid);
+  return dropUids(ideals, (i) => i?.ownerUid, blockedUidSet(list), myUid);
 }

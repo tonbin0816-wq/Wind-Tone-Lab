@@ -18,7 +18,6 @@ import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE, DANGER_FILL_STYLE } from "./screens.jsx";
 // 【計画5 モデレーション 2026-09-10】自分が通報で隠れているかを見る。
-import { isFlagged } from "./reportRepo.js";
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
 // (理由は support.js)。お問い合わせのアドレス(SUPPORT_EMAIL)はもう画面に出さないので
 // ここでは読まない ── 連絡はアプリの中のフォーム(FeedbackSheet)が受ける。
@@ -168,8 +167,8 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   const [backup, setBackup] = useState(false);
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
-  // 【計画5 2026-09-10】myUid を渡す ── 通報された人を落とすときに
-  // **自分だけは残す**ため(黙って消さない。理由はマイページの告知で伝える)。
+  // 【便BG 2026-10-01 本人指示】通報された人を一覧から落とすのをやめた(usePublicUsers は flags を読まない)。
+  // uid を渡すのは、uid が変わったら読み直すため。
   const dir = usePublicUsers(uid);
   // 【便Z 2026-09-21】自分の練習記録は**この端末が数える**。サーバの写しを待たない。
   // 便Q(保存が消していた)・便S(読みと書きの順)・便W(差分が古いキーを残す)と
@@ -177,7 +176,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   // サーバに委ねていた**から。委ねるのをやめる。
   const myStats = useMemo(() => computePracticeStats(sessions ?? []), [sessions]);
   // 【便BE 2026-09-30 本人裁定「B」】ブロックした人。**自分の画面からだけ**落とす。
-  // 落とすのは通報(usePublicUsers の hideFlagged)と同じ考え ── **数える前に**落とすので、
+  // 【便BG】画面から人を消すのは、いまはこれだけ(通報は消さない)。**数える前に**落とすので、
   // 順位・シェア・データの一覧の母数からも消える。読み直しはしない: 一覧が変われば
   // この useMemo が組み直すだけなので、ブロックも解除も押したその場で効く。
   const [blockedRaw, setBlockedRaw] = usePersistedState(BLOCKED_USERS_KEY, []);
@@ -187,25 +186,9 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   const users = useMemo(() => withMyRow(shownDirUsers, uid, profile, myStats),
     [shownDirUsers, uid, profile, myStats]);
 
-  // 自分が通報で隠れているか。**一覧の結果からは判定しない** ── 一覧は上限50で
-  // 切れるので、切れた先に自分が居ると本人にだけ何も知らせないまま隠れてしまう。
-  // 1 read 増やして確実に見る(reportRepo.isFlagged のコメントも参照)。
-  const [flaggedMe, setFlaggedMe] = useState(false);
-  useEffect(() => {
-    if (!uid) return;
-    let alive = true;
-    (async () => {
-      try {
-        const v = await isFlagged(uid);
-        if (alive) setFlaggedMe(v);
-      } catch (e) {
-        // 【便Q 2026-09-20】読めなければ告知を出さないだけで、順位や一覧は今までどおり出る。
-        // ただし**黙って捨てない** ── 拒まれたのか通信が切れたのかは別の話。
-        console.error("[community] 通報の確認に失敗", e?.code, e);
-      }
-    })();
-    return () => { alive = false; };
-  }, [uid]);
+  // 【便BG 2026-10-01 本人指示】「自分が通報で隠れているか」の確認(flags/{自分} の1件読み = isFlagged)と、
+  // マイページの告知を外した。通報では誰も隠れなくなったので、「一時的に他の人から見えなくなっています」は
+  // 事実と違う知らせになる。設計書 §8.1 追記1「黙って消さない」は、**消さなくなった**ことで満たされる。
 
   // 【自分の目安を種別ごとに作る】公開するものと、データ画面で自分の線として
   // 描くものは**同じ値**にする。別々に作ると、公開した値と画面の値が食い違う。
@@ -362,14 +345,16 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
-        <ProfileView flaggedMe={flaggedMe} uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} blocked={blocked} onUnblock={unblock} />
+        <ProfileView uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} blocked={blocked} onUnblock={unblock} />
       </SwipePager>
       {/* 【人物紹介は SwipePager の外(兄弟)】中に入れると、track が静止時も持つ
           transform が position: fixed の包含ブロックになり、画面全体を覆えなくなる
           (DESIGN-SYSTEM §6.3 が名指しで警告している事故)。
           【2026/09/09】中身は BottomSheet になり document.body へポータルされるので
           包含ブロックの事故そのものは器の側で防がれるが、**兄弟のまま置く**
-          ── ポータルするかどうかは器の都合で、呼び出し側がそれに寄りかからない。 */}
+          ── ポータルするかどうかは器の都合で、呼び出し側がそれに寄りかからない。
+          【便BG 2026-10-01 本人指示】onReported(通報した相手を手元の一覧と目安から落とす)を外した。
+          通報では一覧から消さない。通報のあとに「ブロックする」を選べば onBlock(= block)を通って消える。 */}
       {person ? (
         <PersonSheet
           person={person}
@@ -380,12 +365,6 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
           onClose={() => setPerson(null)}
           myUid={uid}
           onBlock={block}
-          onReported={(targetUid) => {
-            // 【読み直さない】50件ぶんの読み取りを1回増やさずに、手元の配列から落とす。
-            // 目安も一緒に落とす ── データタブの線が通報した相手のまま残らないように。
-            dir.setUsers((prev) => prev.filter((u) => u.uid !== targetUid));
-            setIdeals((prev) => (prev ?? []).filter((i) => i.ownerUid !== targetUid));
-          }}
         />
       ) : null}
       {/* 【アカウント引継も SwipePager の外】上の人物紹介と同じ理由。
@@ -1602,7 +1581,7 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
-export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, flaggedMe = false, uid = null, myIdeals = null, blocked = [], onUnblock = null }) {
+export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, uid = null, myIdeals = null, blocked = [], onUnblock = null }) {
   const [error, setError] = useState(null);
   // 【便BE 2026-09-30】「ブロック中の人」のシート。
   const [blockedOpen, setBlockedOpen] = useState(false);
@@ -1724,24 +1703,9 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   return (
     <div className="sans" style={pageStyle}>
 
-      {/* 【計画5 2026-09-10】通報で隠れているときの告知。
-          設計書 §8.1 の追記1「黙って消さない」。**一番上に置く** ── 下に置くと、
-          プロフィールを見に来ただけの人が気づかずに閉じる。
-          地は --c-warn-bg(§1.5 が名前を与えている警告の面)。危険色は使わない ──
-          本人が何かを失ったわけではなく、確認待ちの状態にすぎない。
-          【連絡先へ送る 2026-09-10】設計書 §8.1 追記1「黙って消さない」の要点は、
-          消された側に**道を残す**こと。行き先はこのページの下にある。 */}
-      {flaggedMe ? (
-        <div role="status" style={{
-          background: "var(--c-warn-bg)", borderRadius: "var(--r-md)",
-          padding: "var(--sp-3) var(--sp-4)", fontSize: "var(--fs-sm)",
-          color: "var(--c-ink)", lineHeight: 1.7,
-        }}>
-          通報があったため、あなたのプロフィールは一時的に他の人から見えなくなっています。
-          運営が内容を確認し、問題がなければ元に戻します。
-          お急ぎの場合は、このページ下部の「お問い合わせ」からご連絡ください。
-        </div>
-      ) : null}
+      {/* 【便BG 2026-10-01 本人指示】通報で隠れているときの告知(計画5 2026-09-10。設計書 §8.1 追記1
+          「黙って消さない」)を外した。通報では誰の画面からも消えなくなったので、
+          「一時的に他の人から見えなくなっています」は事実と違う。判定に使っていた flags も読まない。 */}
       {/* 【見出しは置かない 2026/09/06 本人指示】子タブの「マイページ」が既に
           どこに居るかを言っている。同じことを2度言わない(説明は減らす方向)。 */}
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { REPORT_REASONS, buildReportDoc, buildFlagDoc, hideFlagged, hideFlaggedIdeals, reportEntryVisible } from "./report.js";
+import * as reportModule from "./report.js";
+import { REPORT_REASONS, buildReportDoc, reportEntryVisible } from "./report.js";
 
 const RULES = readFileSync(fileURLToPath(new URL("../../firestore.rules", import.meta.url)), "utf8");
 // 【綴りを数える検査はコメントを剥がしてから】pitch-test の codeOf() と同じ考え方。
@@ -58,51 +59,16 @@ describe("buildReportDoc", () => {
   });
 });
 
-describe("buildFlagDoc", () => {
-  // 【通報者を入れない】flags は誰でも読めるので、入れると
-  // 「誰が誰を通報したか」が世界中に見える。
-  it("createdAt だけを持つ(通報者を入れない)", () => {
-    const d = buildFlagDoc(new Date("2026-09-10T01:00:00Z"));
-    expect(Object.keys(d)).toEqual(["createdAt"]);
-  });
-});
-
-describe("hideFlagged", () => {
-  const users = [{ uid: "a" }, { uid: "b" }, { uid: "me" }];
-
-  it("通報された人を落とす", () => {
-    expect(hideFlagged(users, new Set(["b"])).map((u) => u.uid)).toEqual(["a", "me"]);
-  });
-
-  // 【自分だけは残す】本人の画面から自分が消えると、何が起きたのか分からないまま
-  // 居なくなる。本人にはマイページの告知で理由を伝えるので、一覧には残す。
-  it("自分は落とさない", () => {
-    expect(hideFlagged(users, new Set(["me"]), "me").map((u) => u.uid)).toEqual(["a", "b", "me"]);
-  });
-
-  it("myUid を渡さなければ自分も落ちる(既定は他人の画面)", () => {
-    expect(hideFlagged(users, new Set(["me"])).map((u) => u.uid)).toEqual(["a", "b"]);
-  });
-
-  it("配列でも Set でも同じ", () => {
-    expect(hideFlagged(users, ["b"]).map((u) => u.uid)).toEqual(["a", "me"]);
-  });
-
-  it("空や null で壊れない", () => {
-    expect(hideFlagged(null, null)).toEqual([]);
-    expect(hideFlagged(users, null).map((u) => u.uid)).toEqual(["a", "b", "me"]);
-  });
-});
-
-describe("hideFlaggedIdeals", () => {
-  const ideals = [{ ownerUid: "a" }, { ownerUid: "b" }, { ownerUid: "me" }];
-
-  it("所有者が通報されている目安を落とす", () => {
-    expect(hideFlaggedIdeals(ideals, new Set(["b"])).map((i) => i.ownerUid)).toEqual(["a", "me"]);
-  });
-
-  it("自分の目安は残す", () => {
-    expect(hideFlaggedIdeals(ideals, new Set(["me"]), "me").map((i) => i.ownerUid)).toEqual(["a", "b", "me"]);
+// 【便BG 2026-10-01 本人指示】通報で一覧から消す動き(全員の画面から隠す)をやめた。
+// flags に置く文書を組む buildFlagDoc と、flags に居る人を落とす hideFlagged / hideFlaggedIdeals を消した。
+// 以前ここにあった hideFlagged の検査(落とす・自分は落とさない・myUid 無しなら自分も落ちる・空で壊れない)は、
+// 同じ規則を引き継いだ block.js の hideBlocked / hideBlockedIdeals の検査として block.test.js へ移した。
+// ここでは「消した関数が戻ってこない」ことだけを見る(戻すと、誰かが呼べば通報でまた人が消える)。
+describe("通報で人を隠す関数は無い(便BG)", () => {
+  it("report.js は buildFlagDoc / hideFlagged / hideFlaggedIdeals を持たない", () => {
+    expect(reportModule.buildFlagDoc).toBeUndefined();
+    expect(reportModule.hideFlagged).toBeUndefined();
+    expect(reportModule.hideFlaggedIdeals).toBeUndefined();
   });
 });
 

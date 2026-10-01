@@ -6,9 +6,12 @@ import { createRoot } from "react-dom/client";
 // ------------------------------------------------------------------
 // 【便BE 2026-09-30 本人裁定「B」(モック ficus-block-mock.html の 1〜3)】ブロックの画面。
 // **実際に描いて押す**(jsdom。シートの器は本物の BottomSheet ── document.body へポータルされる)。
-//   1. 人物のページ(プロフィール面)に「この人をブロック」が通報の**上**に出る。自分・データ面では出ない
+//   1. 人物のページ(プロフィール面)に「ブロック」が通報の**上**に出る。自分・データ面では出ない
 //   2. 押すと確認のシート(見出し・本文2段落・「ブロックする」「やめる」)。やめる → 何も起きない /
 //      ブロックする → onBlock(その人)
+// 【便BG 2026-10-01 本人指示】入口の文字を「この人をブロック」→「ブロック」、「この人を通報」→「通報」。
+//   確認のシートの本文1段落目を書き換え、「ブロックする」を赤の塗りから塗りなしの赤枠(DANGER_OUTLINE_STYLE)にした。
+//   通報の流れ(送れたあとにブロックを問う)は reportFlow.test.jsx が見る。
 //   3. マイページの「ブロック中の人」の行(0人でも出る・カードの一番上)とシート(0人の文言・解除)
 // 【守っていないもの】一覧から実際に消えること・保存・引継(blockJoined.test.jsx が見る)。
 //   ブラウザでの実寸(jsdom は寸法を持たない ── style の綴りで見る)。
@@ -56,13 +59,25 @@ const toProfileSide = async () => {
 };
 const CONFIRM = "しろねこ をブロックしますか";
 
-describe("人物のページの「この人をブロック」", () => {
+describe("人物のページの「ブロック」", () => {
+  // 【便BG 2026-10-01 本人指示】入口の文字は「ブロック」「通報」(以前の「この人を〜」は無い)。
+  it("入口の文字は「ブロック」と「通報」だけ(「この人をブロック」「この人を通報」は無い)", async () => {
+    await drawPerson({ onBlock: () => {} });
+    await toProfileSide();
+    const sheet = dialogNamed("しろねこ の詳細");
+    const labels = [...sheet.querySelectorAll("button")].map((b) => b.textContent.trim());
+    expect(labels).toContain("ブロック");
+    expect(labels).toContain("通報");
+    expect(sheet.textContent).not.toContain("この人をブロック");
+    expect(sheet.textContent).not.toContain("この人を通報");
+  });
+
   it("プロフィール面で、通報の**上**に1つ出る(2つは同じ並びの中・間は --sp-2)", async () => {
     const calls = [];
     await drawPerson({ onBlock: (p) => calls.push(p) });
     await toProfileSide();
-    const block = buttonsNamed("この人をブロック");
-    const report = buttonsNamed("この人を通報");
+    const block = buttonsNamed("ブロック");
+    const report = buttonsNamed("通報");
     expect(block).toHaveLength(1);
     expect(report).toHaveLength(1);
     // 並び: ブロックが先(上)
@@ -76,8 +91,8 @@ describe("人物のページの「この人をブロック」", () => {
   it("見た目: 地なし・枠 1px --c-line-strong・字 --c-ink-2。形(幅・高さ・角丸・字の大きさ・余白)は通報と同じ", async () => {
     await drawPerson({ onBlock: () => {} });
     await toProfileSide();
-    const b = buttonsNamed("この人をブロック")[0].style;
-    const r = buttonsNamed("この人を通報")[0].style;
+    const b = buttonsNamed("ブロック")[0].style;
+    const r = buttonsNamed("通報")[0].style;
     expect(b.border).toBe("1px solid var(--c-line-strong)");
     expect(b.color).toBe("var(--c-ink-2)");
     expect(b.background).toBe("transparent");
@@ -92,50 +107,71 @@ describe("人物のページの「この人をブロック」", () => {
 
   it("データ面・自分の人物のページ・受け口(onBlock)が無いときは出ない", async () => {
     await drawPerson({ onBlock: () => {} });
-    expect(buttonsNamed("この人をブロック")).toHaveLength(0); // 開いた直後はデータ面
+    expect(buttonsNamed("ブロック")).toHaveLength(0); // 開いた直後はデータ面
     await toProfileSide();
-    expect(buttonsNamed("この人をブロック")).toHaveLength(1);
+    expect(buttonsNamed("ブロック")).toHaveLength(1);
 
     act(() => root.unmount()); root = createRoot(host);
     await drawPerson({ onBlock: () => {}, myUid: "p1" });
     await toProfileSide();
-    expect(buttonsNamed("この人をブロック")).toHaveLength(0);
-    expect(buttonsNamed("この人を通報")).toHaveLength(0);
+    expect(buttonsNamed("ブロック")).toHaveLength(0);
+    expect(buttonsNamed("通報")).toHaveLength(0);
 
     act(() => root.unmount()); root = createRoot(host);
     await drawPerson({});
     await toProfileSide();
-    expect(buttonsNamed("この人をブロック")).toHaveLength(0);
-    expect(buttonsNamed("この人を通報")).toHaveLength(1);
+    expect(buttonsNamed("ブロック")).toHaveLength(0);
+    expect(buttonsNamed("通報")).toHaveLength(1);
   });
 
-  it("押すと確認のシート: 見出し・本文2段落・「ブロックする」(危険の塗り)と「やめる」", async () => {
+  // 【便BG 2026-10-01 本人指示】本文は次の2段落(一字一句)。見出しはそのまま。
+  //   「ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。」
+  //   「マイページの「ブロック中の人」から、いつでも解除できます。」
+  // 「ブロックする」は赤の塗りから、塗りなしの赤枠(人物のページの通報の入口と同じ DANGER_OUTLINE_STYLE)へ。
+  it("押すと確認のシート: 見出し・本文2段落(一字一句)・「ブロックする」(塗りなしの赤枠)と「やめる」", async () => {
     await drawPerson({ onBlock: () => {} });
     await toProfileSide();
     expect(dialogNamed(CONFIRM)).toBe(null);
-    await act(async () => { buttonsNamed("この人をブロック")[0].click(); });
+    await act(async () => { buttonsNamed("ブロック")[0].click(); });
     const d = dialogNamed(CONFIRM);
     expect(d).not.toBe(null);
     const texts = [...d.querySelectorAll("div.sans")].map((x) => x.textContent);
-    expect(texts).toContain(CONFIRM);
-    expect(texts).toContain("ブロックすると、この人は順位・シェア・データの一覧と、みんなの平均から見えなくなります。相手には知らされません。");
-    expect(texts).toContain("マイページの「ブロック中の人」から、いつでも解除できます。");
-    expect(BLOCK_NOTE_EFFECT).toBe("ブロックすると、この人は順位・シェア・データの一覧と、みんなの平均から見えなくなります。相手には知らされません。");
+    // 見出し + 本文の2段落が、この順で、この3つだけ
+    expect(texts).toEqual([
+      CONFIRM,
+      "ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。",
+      "マイページの「ブロック中の人」から、いつでも解除できます。",
+    ]);
+    expect(BLOCK_NOTE_EFFECT).toBe("ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。");
     expect(BLOCK_NOTE_UNDO).toBe("マイページの「ブロック中の人」から、いつでも解除できます。");
     const ok = [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === "ブロックする");
     const no = [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === "やめる");
     expect(ok).toHaveLength(1);
     expect(no).toHaveLength(1);
-    expect(ok[0].style.background).toBe("var(--c-danger)");
-    expect(ok[0].style.color).toBe("var(--c-on-accent)");
+    // 塗りなしの赤枠: 地なし・枠 1px --c-danger・字 --c-danger(赤の塗り --c-danger / 白字 ではない)
+    expect(ok[0].style.background).toBe("transparent");
+    expect(ok[0].style.border).toBe("1px solid var(--c-danger)");
+    expect(ok[0].style.color).toBe("var(--c-danger)");
+    // 人物のページの通報の入口と同じ形(寸法・角丸・字)
+    // 確認のシートの下(人物のページ)に通報の入口がある
+    const entry = buttonsNamed("通報")[0].style;
+    for (const k of ["width", "minHeight", "borderRadius", "fontSize", "fontWeight", "border", "color", "background"]) {
+      expect([k, ok[0].style[k]]).toEqual([k, entry[k]]);
+    }
+    expect(ok[0].style.minHeight).toBe("var(--tap-min)"); // 44px 以上
+    // 縦に2つ(上が ブロックする・下が やめる)、間は --sp-2(8px)
     expect(ok[0].compareDocumentPosition(no[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(ok[0].parentElement).toBe(no[0].parentElement);
+    expect(ok[0].parentElement.style.display).toBe("grid");
+    expect(ok[0].parentElement.style.gap).toBe("var(--sp-2)");
+    expect(no[0].style.minHeight).toBe("var(--tap-min)");
   });
 
   it("「やめる」は何もしないで閉じる(onBlock は呼ばれない)", async () => {
     const calls = [];
     await drawPerson({ onBlock: (p) => calls.push(p) });
     await toProfileSide();
-    await act(async () => { buttonsNamed("この人をブロック")[0].click(); });
+    await act(async () => { buttonsNamed("ブロック")[0].click(); });
     await act(async () => { buttonsNamed("やめる")[0].click(); });
     expect(dialogNamed(CONFIRM)).toBe(null);
     expect(calls).toHaveLength(0);
@@ -147,7 +183,7 @@ describe("人物のページの「この人をブロック」", () => {
     const calls = [];
     await drawPerson({ onBlock: (p) => calls.push(p) });
     await toProfileSide();
-    await act(async () => { buttonsNamed("この人をブロック")[0].click(); });
+    await act(async () => { buttonsNamed("ブロック")[0].click(); });
     await act(async () => { buttonsNamed("ブロックする")[0].click(); });
     expect(calls).toHaveLength(1);
     expect(calls[0].uid).toBe("p1");
@@ -155,26 +191,29 @@ describe("人物のページの「この人をブロック」", () => {
     expect(dialogNamed(CONFIRM)).toBe(null);
   });
 
-  // 【便BE 審査の指摘】以前は描いた style の綴りを突き合わせていた。いまは定義が1つ(screens.jsx の
-  // DANGER_FILL_STYLE)なので、**同じものを参照している**ことを見る:
-  //   「ブロックする」は DANGER_FILL_STYLE を描き、CommunityTab.jsx の dangerButtonStyle はその別名で、
-  //   CommunityTab.jsx に危険の塗りの写し(background: var(--c-danger) の定義)が残っていない。
-  it("「ブロックする」とアカウントを削除するの塗りは、同じ1つの定義(DANGER_FILL_STYLE)を参照している", async () => {
-    const { DANGER_FILL_STYLE } = await import("./screens.jsx");
+  // 【便BE 審査の指摘】以前は描いた style の綴りを突き合わせていた。定義は1つ(screens.jsx)に置き、
+  // **同じものを参照している**ことを見る。
+  // 【便BG 2026-10-01 本人指示】「ブロックする」は赤の塗り(DANGER_FILL_STYLE)から塗りなしの赤枠
+  // (DANGER_OUTLINE_STYLE)に替わった。アカウントを削除するは赤の塗りのまま(CommunityTab.jsx の
+  // dangerButtonStyle = DANGER_FILL_STYLE の別名)。危険の塗りの写しが CommunityTab.jsx に無いことも見る。
+  it("「ブロックする」は DANGER_OUTLINE_STYLE を参照し、アカウントを削除するの塗り(DANGER_FILL_STYLE)とは別", async () => {
+    const { DANGER_FILL_STYLE, DANGER_OUTLINE_STYLE } = await import("./screens.jsx");
     const comm = (await import("./CommunityTab.jsx?raw")).default;
     const scr = (await import("./screens.jsx?raw")).default;
     expect(comm).toMatch(/import \{[^}]*DANGER_FILL_STYLE[^}]*\} from "\.\/screens\.jsx";/);
     expect(comm).toMatch(/const dangerButtonStyle = DANGER_FILL_STYLE;/);
     expect(comm).not.toMatch(/background: "var\(--c-danger\)"/);
-    expect(scr).toMatch(/<button type="button" onClick=\{onConfirm\} className="sans" style=\{DANGER_FILL_STYLE\}>/);
+    expect(scr).toMatch(/<button type="button" onClick=\{onConfirm\} className="sans" style=\{DANGER_OUTLINE_STYLE\}>/);
+    expect(scr).not.toMatch(/style=\{DANGER_FILL_STYLE\}/);
     // 描いた結果もその定義どおり
     await drawPerson({ onBlock: () => {} });
     await toProfileSide();
-    await act(async () => { buttonsNamed("この人をブロック")[0].click(); });
+    await act(async () => { buttonsNamed("ブロック")[0].click(); });
     const s = buttonsNamed("ブロックする")[0].style;
-    expect(s.background).toBe(DANGER_FILL_STYLE.background);
-    expect(s.color).toBe(DANGER_FILL_STYLE.color);
-    expect(s.fontWeight).toBe(String(DANGER_FILL_STYLE.fontWeight));
+    expect(s.background).toBe(DANGER_OUTLINE_STYLE.background);
+    expect(s.border).toBe(DANGER_OUTLINE_STYLE.border);
+    expect(s.color).toBe(DANGER_OUTLINE_STYLE.color);
+    expect(s.background).not.toBe(DANGER_FILL_STYLE.background);
   });
 });
 

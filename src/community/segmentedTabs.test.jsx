@@ -184,10 +184,11 @@ describe("人物紹介 ── 見出し・名前の行・下線・通報ボタ�
     expect(rowOf("楽器").getAttribute("style")).toMatch(/border-bottom: 1px solid/);
   });
 
-  it("「この人を通報」は横幅いっぱい(タブと同じ幅)で、上に区切りの線が無い", async () => {
+  // 【便BG 2026-10-01 本人指示】入口の文字は「この人を通報」→「通報」。
+  it("「通報」は横幅いっぱい(タブと同じ幅)で、上に区切りの線が無い", async () => {
     await open();
     await toProfile();
-    const btn = [...dialog().querySelectorAll("button")].find((b) => b.textContent === "この人を通報");
+    const btn = [...dialog().querySelectorAll("button")].find((b) => b.textContent === "通報");
     expect(btn).toBeTruthy();
     expect(btn.style.width).toBe("100%");
     expect(btn.parentElement.style.borderTop).toBe("");
@@ -215,11 +216,12 @@ describe("マイページ・人物紹介 ── 楽器種別の行と、赤い�
     expect(isOutlineRed(btn)).toBe(true);
   });
 
-  it("人物紹介の「この人を通報」も同じ見た目", async () => {
+  // 【便BG 2026-10-01 本人指示】入口の文字は「この人を通報」→「通報」。
+  it("人物紹介の「通報」も同じ見た目", async () => {
     await draw(<PersonSheet person={PERSON} ideals={[]} myIdeals={{}} onClose={() => {}}
       onAdopt={() => ({})} myUid="me" tuningHz={442} />);
     await act(async () => { radios(docGroup("表示する内容"))[1].click(); });
-    const btn = [...document.querySelectorAll("button")].find((b) => b.textContent === "この人を通報");
+    const btn = [...document.querySelectorAll("button")].find((b) => b.textContent === "通報");
     expect(btn).toBeTruthy();
     expect(isOutlineRed(btn)).toBe(true);
   });

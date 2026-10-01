@@ -74,7 +74,7 @@ describe("ブロック → 一覧から消える → 保存と引継に載る �
     const sheet = dialogNamed("くろねこ の詳細");
     expect(sheet).not.toBe(null);
     await click([...sheet.querySelectorAll('[role="radio"]')].find((b) => b.textContent.trim() === "プロフィール"));
-    await click(buttonsNamed("この人をブロック")[0]);
+    await click(buttonsNamed("ブロック")[0]); // 【便BG】入口の文字は「ブロック」
     expect(dialogNamed("くろねこ をブロックしますか")).not.toBe(null);
     await click(buttonsNamed("ブロックする")[0]);
 

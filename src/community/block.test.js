@@ -58,6 +58,24 @@ describe("hideBlocked — 落とす・自分は落とさない・解除で戻る
     expect(hideBlockedIdeals(IDEALS, list, "me").map((i) => i.ownerUid)).toEqual(["a", "c", "d"]);
     expect(hideBlockedIdeals(IDEALS, removeBlocked(list, "b"), "me").map((i) => i.ownerUid)).toEqual(["a", "b", "c", "d"]);
   });
+  // 【便BG 2026-10-01】以前は report.js の hideFlagged / hideFlaggedIdeals を借りていた。あちらを消して
+  // 同じ規則を block.js へ移したので、report.test.js にあった hideFlagged の検査のうち、ここに無かったものを移した。
+  it("myUid を渡さなければ自分も落ちる(自分を残すのは myUid を渡したときだけ)", () => {
+    const broken = [{ uid: "me", nickname: "自分" }];
+    expect(hideBlocked(USERS, broken).map((u) => u.uid)).toEqual(["a", "b", "c"]);
+    expect(hideBlocked(USERS, broken, "me").map((u) => u.uid)).toEqual(["a", "b", "c", "me"]);
+  });
+  it("目安も自分のものは残す(一覧が壊れて自分が入っていても)", () => {
+    const withMine = [...IDEALS, IDEAL("me", 1700)];
+    const broken = [{ uid: "me", nickname: "自分" }, { uid: "b", nickname: "b" }];
+    expect(hideBlockedIdeals(withMine, broken, "me").map((i) => i.ownerUid)).toEqual(["a", "c", "d", "me"]);
+  });
+  it("名簿や目安が null / undefined でも壊れない(空を返す)", () => {
+    const list = addBlocked([], U("b"));
+    expect(hideBlocked(null, list, "me")).toEqual([]);
+    expect(hideBlocked(undefined, list, "me")).toEqual([]);
+    expect(hideBlockedIdeals(null, list, "me")).toEqual([]);
+  });
 });
 
 describe("母数から消える(数える前に落とす)", () => {
