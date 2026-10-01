@@ -11,10 +11,15 @@
     :root {
       --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
       --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --font-serif: "Instrument Serif", serif;
       --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
       --fs-2xl: 28px; --fs-hero: 46px;
-      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
-      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --r-1: 8px; --r-2: 12px; --r-full: 999px;
+      --r-xs: var(--r-1); --r-sm: var(--r-1); --r-md: var(--r-2); --r-lg: var(--r-2); --r-pill: var(--r-full);
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+      --sp-6: var(--sp-5); --sp-8: var(--sp-5);
+      --d-fast: 120ms; --d-base: 200ms; --d-slow: 320ms;
+      --lh-tight: 1.3; --lh-base: 1.6; --lh-loose: 1.75;
       --tap-min: 44px;
       --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
       --c-rule: #E1E6EC;
@@ -23,19 +28,24 @@
       --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
       --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
       --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
-      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-rank-1: #B08A2E; --c-rank-2: #77808B; --c-rank-3: #9A5330; --c-rank-1-base: #896C24;
       --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
       --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
       --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
       --c-avatar-10: #2C3542;
       --c-disabled: #B7BFC9; --c-danger: #DC2626;
-      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626; --c-warn-bg: #FDF0E1;
       --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
       --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
       --c-quiet: #C7CFD9;
       --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
+      --nav-h: 47px;
+      --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+      --page-side-pad: 14px;
+      --page-pad-left: calc(var(--page-side-pad) + env(safe-area-inset-left));
+      --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
@@ -84,84 +94,89 @@
         </span>
       </div>
 
-      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card)">
+      <!-- 【便BF 2026-10-01 便BC の写し(本人選定 モック「C. 濃紺の中に白い台紙」)】カードの地は濃紺
+           (.card.card-accent = --c-accent)。濃紺の上は 見出し・人数・指標の切り替えだけで、見出しと人数の字は
+           --c-on-accent-dim、人数の数字は --c-on-accent。切り替えより下は白い台紙(地 --c-surface・角丸 --r-1・
+           内側 10px・上に --sp-2)の中。グラフの下の一文は消えた(用語の説明の吹き出しへ移った)。 -->
+      <div style="background: var(--c-surface); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-card); background: var(--c-accent)">
         <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)">
-          <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3)">みんなの平均</div>
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">目安を公開している<span style="font-family: var(--font-num); font-weight: 700">12</span>人</div>
+          <div style="font-size: 10px; font-weight: 600; letter-spacing: .08em; color: var(--c-ink-3); color: var(--c-on-accent-dim)">みんなの平均</div>
+          <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6; color: var(--c-on-accent-dim)">目安を公開している<span style="font-family: var(--font-num); font-weight: 700; color: var(--c-on-accent)">12</span>人</div>
         </div>
         <div style="margin: 10px 0 2px">
           <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心</span>
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-on-accent); box-shadow: inset 0 -2px 0 0 var(--c-on-accent);">重心<span aria-hidden="true" style="width: 18px; height: 18px; box-sizing: border-box; margin-left: var(--sp-1); border-radius: 50%; border: 1.5px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 700; line-height: 1">?</span></span>
           </div>
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">HNR</span>
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-on-accent-dim);">HNR</span>
           </div>
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">音程</span>
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-on-accent-dim);">音程</span>
           </div>
         </div>
         </div>
-        <div style="display: grid; gap: var(--sp-2)">
-          <svg width="283" height="124" viewBox="0 0 283 124" style="display: block">
-              <line x1="35" y1="8" x2="283" y2="8" stroke-width="1" style="stroke: var(--c-line)" />
+        <div style="margin-top: var(--sp-2); background: var(--c-surface); border-radius: var(--r-1); padding: 10px">
+          <div style="display: grid; gap: var(--sp-2)">
+            <svg width="263" height="124" viewBox="0 0 263 124" style="display: block">
+              <line x1="35" y1="8" x2="263" y2="8" stroke-width="1" style="stroke: var(--c-line)" />
               <text x="31" y="12" font-size="12" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-4)">2264</text>
-              <line x1="35" y1="55" x2="283" y2="55" stroke-width="1" style="stroke: var(--c-line)" />
+              <line x1="35" y1="55" x2="263" y2="55" stroke-width="1" style="stroke: var(--c-line)" />
               <text x="31" y="59" font-size="12" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-4)">1405</text>
-              <line x1="35" y1="102" x2="283" y2="102" stroke-width="1" style="stroke: var(--c-line)" />
+              <line x1="35" y1="102" x2="263" y2="102" stroke-width="1" style="stroke: var(--c-line)" />
               <text x="31" y="106" font-size="12" text-anchor="end" font-family="var(--font-num)" style="fill: var(--c-ink-4)">546</text>
-              <line x1="131.67" y1="8" x2="131.67" y2="102" stroke-width="1" stroke-dasharray="4 3" style="stroke: var(--c-accent-line)" />
+              <line x1="123.89" y1="8" x2="123.89" y2="102" stroke-width="1" stroke-dasharray="4 3" style="stroke: var(--c-accent-line)" />
               <g style="stroke: var(--c-ink-3); fill: var(--c-ink-3)">
-                <polyline fill="none" stroke-width="2" stroke-dasharray="4 3" points="108.33,91.26 114.17,87.76 120,83.82 125.83,80.21 131.67,76 137.5,71.79 143.33,67.74 149.17,63.04 155,59.05 160.83,54.78 166.67,50.57 172.5,46.96 178.33,42.86 184.17,38.97 190,35.36 195.83,31.7 201.67,28.53 207.5,25.63" />
-                <circle cx="108.33" cy="91.26" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="114.17" cy="87.76" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="120" cy="83.82" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="125.83" cy="80.21" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="131.67" cy="76" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="137.5" cy="71.79" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="143.33" cy="67.74" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="149.17" cy="63.04" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="155" cy="59.05" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="160.83" cy="54.78" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="166.67" cy="50.57" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="172.5" cy="46.96" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="178.33" cy="42.86" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="184.17" cy="38.97" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="190" cy="35.36" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="195.83" cy="31.7" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="201.67" cy="28.53" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
-                <circle cx="207.5" cy="25.63" r="1.75" stroke-width="1" style="fill: var(--c-surface)" />
+                <polyline fill="none" stroke-width="2" stroke-dasharray="4 3" points="102.78,91.26 108.06,87.76 113.33,83.82 118.61,80.21 123.89,76 129.17,71.79 134.44,67.74 139.72,63.04 145,59.05 150.28,54.78 155.56,50.57 160.83,46.96 166.11,42.86 171.39,38.97 176.67,35.36 181.94,31.7 187.22,28.53 192.5,25.63" />
+                <circle cx="102.78" cy="91.26" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="108.06" cy="87.76" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="113.33" cy="83.82" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="118.61" cy="80.21" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="123.89" cy="76" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="129.17" cy="71.79" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="134.44" cy="67.74" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="139.72" cy="63.04" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="145" cy="59.05" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="150.28" cy="54.78" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="155.56" cy="50.57" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="160.83" cy="46.96" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="166.11" cy="42.86" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="171.39" cy="38.97" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="176.67" cy="35.36" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="181.94" cy="31.7" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="187.22" cy="28.53" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
+                <circle cx="192.5" cy="25.63" r="1.58" stroke-width="1" style="fill: var(--c-surface)" />
               </g>
               <g style="stroke: var(--c-accent); fill: var(--c-accent)">
-                <polyline fill="none" stroke-width="2" points="108.33,92.9 114.17,88.36 120,82.51 125.83,78.9 131.67,76.6 137.5,74.85 143.33,73.81 149.17,72.34 155,69.49 160.83,63.37 166.67,56.8 172.5,49.91 178.33,42.91 184.17,36.57 190,30.77 195.83,24.97 201.67,20.49 207.5,17.1" />
-                <circle cx="108.33" cy="92.9" r="1.75" stroke="none" />
-                <circle cx="114.17" cy="88.36" r="1.75" stroke="none" />
-                <circle cx="120" cy="82.51" r="1.75" stroke="none" />
-                <circle cx="125.83" cy="78.9" r="1.75" stroke="none" />
-                <circle cx="131.67" cy="76.6" r="1.75" stroke="none" />
-                <circle cx="137.5" cy="74.85" r="1.75" stroke="none" />
-                <circle cx="143.33" cy="73.81" r="1.75" stroke="none" />
-                <circle cx="149.17" cy="72.34" r="1.75" stroke="none" />
-                <circle cx="155" cy="69.49" r="1.75" stroke="none" />
-                <circle cx="160.83" cy="63.37" r="1.75" stroke="none" />
-                <circle cx="166.67" cy="56.8" r="1.75" stroke="none" />
-                <circle cx="172.5" cy="49.91" r="1.75" stroke="none" />
-                <circle cx="178.33" cy="42.91" r="1.75" stroke="none" />
-                <circle cx="184.17" cy="36.57" r="1.75" stroke="none" />
-                <circle cx="190" cy="30.77" r="1.75" stroke="none" />
-                <circle cx="195.83" cy="24.97" r="1.75" stroke="none" />
-                <circle cx="201.67" cy="20.49" r="1.75" stroke="none" />
-                <circle cx="207.5" cy="17.1" r="1.75" stroke="none" />
+                <polyline fill="none" stroke-width="2" points="102.78,92.9 108.06,88.36 113.33,82.51 118.61,78.9 123.89,76.6 129.17,74.85 134.44,73.81 139.72,72.34 145,69.49 150.28,63.37 155.56,56.8 160.83,49.91 166.11,42.91 171.39,36.57 176.67,30.77 181.94,24.97 187.22,20.49 192.5,17.1" />
+                <circle cx="102.78" cy="92.9" r="1.58" stroke="none" />
+                <circle cx="108.06" cy="88.36" r="1.58" stroke="none" />
+                <circle cx="113.33" cy="82.51" r="1.58" stroke="none" />
+                <circle cx="118.61" cy="78.9" r="1.58" stroke="none" />
+                <circle cx="123.89" cy="76.6" r="1.58" stroke="none" />
+                <circle cx="129.17" cy="74.85" r="1.58" stroke="none" />
+                <circle cx="134.44" cy="73.81" r="1.58" stroke="none" />
+                <circle cx="139.72" cy="72.34" r="1.58" stroke="none" />
+                <circle cx="145" cy="69.49" r="1.58" stroke="none" />
+                <circle cx="150.28" cy="63.37" r="1.58" stroke="none" />
+                <circle cx="155.56" cy="56.8" r="1.58" stroke="none" />
+                <circle cx="160.83" cy="49.91" r="1.58" stroke="none" />
+                <circle cx="166.11" cy="42.91" r="1.58" stroke="none" />
+                <circle cx="171.39" cy="36.57" r="1.58" stroke="none" />
+                <circle cx="176.67" cy="30.77" r="1.58" stroke="none" />
+                <circle cx="181.94" cy="24.97" r="1.58" stroke="none" />
+                <circle cx="187.22" cy="20.49" r="1.58" stroke="none" />
+                <circle cx="192.5" cy="17.1" r="1.58" stroke="none" />
               </g>
-              <text x="61.67" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭3</text>
-              <text x="96.67" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A3</text>
-              <text x="131.67" y="120" font-size="12" font-weight="700" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-accent)">E♭4</text>
-              <text x="166.67" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A4</text>
-              <text x="201.67" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭5</text>
-              <text x="236.67" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A5</text>
+              <text x="60.56" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭3</text>
+              <text x="92.22" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A3</text>
+              <text x="123.89" y="120" font-size="12" font-weight="700" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-accent)">E♭4</text>
+              <text x="155.56" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A4</text>
+              <text x="187.22" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭5</text>
+              <text x="218.89" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A5</text>
             </svg>
-          <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" stroke-dasharray="4 3" style="stroke: var(--c-ink-3)" /><circle cx="11" cy="5" r="3" stroke-width="1" style="stroke: var(--c-ink-3); fill: var(--c-surface)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">みんなの平均</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" style="stroke: var(--c-accent)" /><circle cx="11" cy="5" r="3" style="fill: var(--c-accent)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
-          <div style="font-size: var(--fs-xs); color: var(--c-ink-2); line-height: 1.8">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています</div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" stroke-dasharray="4 3" style="stroke: var(--c-ink-3)" /><circle cx="11" cy="5" r="3" stroke-width="1" style="stroke: var(--c-ink-3); fill: var(--c-surface)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">みんなの平均</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" style="stroke: var(--c-accent)" /><circle cx="11" cy="5" r="3" style="fill: var(--c-accent)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
+          </div>
         </div>
       </div>
 

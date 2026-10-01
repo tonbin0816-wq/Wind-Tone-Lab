@@ -16,6 +16,8 @@ import { buildAdoptedProfile } from "./community/idealDoc.js";
 import { alignIdealToMine, idealForUse } from "./community/align.js";
 // 【便BE 2026-09-30】目安から外した指標の知らせ(指標カードのグラフの下の1行)。判断は align.js。
 import { IDEAL_EXCLUDED_NOTE, idealHasExcluded, idealMetricExcluded } from "./community/align.js";
+// 【便BF 2026-10-01】取り込んだ目安の印。「目安に設定」が取り込んだ目安と合体しないための見分け(promoteIdealProfiles)。
+import { ADOPTED_SOURCE_KIND } from "./community/align.js";
 // 【D1 2026-09-16】練習時間(音を感知していた時間)。My Data の累計とコミュニティの公開統計(便H)が
 // **同じ1関数**を読む。定義はあちらのファイルの冒頭。
 import { sessionSoundingSec } from "./soundingSec.js";
@@ -2151,6 +2153,8 @@ export {
   reedSaxTypeOf, backfillReedSaxTypes, reedsOfSax, reedSelectionForSax, reedSaxInvariantReady,
   measureReedEmptyGuide, pivotValueLabel, PIVOT_DIMENSIONS, reedSelectionToRestore,
   reedGroupKey, reedBrandGroupKey, groupReeds,
+  // 【便BF】「目安に設定」の足す/積み上げるの判断(src/idealPromote.test.js が走らせる)。
+  promoteIdealProfiles, isAdoptedIdealProfile,
   useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
   ReedsTab, SessionEditSheet,
   // 【便BE】指標カード(目安から外した指標の知らせの検査 idealExcludedNote.test.jsx が描く)。
@@ -2380,17 +2384,28 @@ export function openIdb() {
   });
 }
 
+// 【便BF 2026-10-01 統括指示(便AY 起票B)】読めたか・読めなかったかを**区別して**返す。
+//   { ok: true, value }  … 読めた(value が undefined なら「まだ保存されていない」)
+//   { ok: false }        … 読めなかった(開けない・get が失敗した)
+// 以前は失敗も undefined(= 保存なし)で返していたので、呼び手の usePersistedState からは
+// 「読めた・値なし」と「読めなかった」が見分けられなかった。温めが時間切れで reeds の読みだけが失敗した起動では、
+// reeds が初期値 [] のまま不変条件が走り、選んでいたリードの選択が外れて null が保存された。
+// usePersistedState はこの区別を4つ目の値 readOk で返す(値・書き込み・loaded の振る舞いは変えない)。
+// **indexedDB そのものが無い環境**(jsdom など)は「読めた・値なし」に数える ── 保存先が無いので
+// 守るべき保存値も無い。失敗に数えると、その環境では不変条件が一度も走らなくなる。
 async function idbGet(key) {
+  if (typeof indexedDB === "undefined") return { ok: true, value: undefined };
   try {
     const db = await openIdb();
-    return await new Promise((resolve, reject) => {
+    const value = await new Promise((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, "readonly");
       const req = tx.objectStore(IDB_STORE).get(key);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
+    return { ok: true, value };
   } catch {
-    return undefined; // プライベートブラウジング等でIndexedDBが使えない場合は諦めて初期値を使う
+    return { ok: false }; // 開けない・読めない。呼び手は readOk を false のままにする
   }
 }
 
@@ -2441,6 +2456,12 @@ export function seedPersistedCache(cache, complete, key, initialValue) {
   if (complete && !cache.has(key)) cache.set(key, initialValue);
 }
 
+// 【便BF 2026-10-01 統括の裁定(審査の差し戻し)】この起動で**読みが失敗した鍵**の控え。
+// 失敗した鍵も、書き込み・loaded は今までどおり立つ(下の説明)。そのあと画面で値を変えるとキャッシュに
+// 鍵が入るので、再マウントで「キャッシュに在る = 読めた」と取り違えないよう、失敗は別に控える。
+// 控えはモジュールごと作り直されるまで(= その起動のあいだ)消さない。
+const persistedReadFailed = new Set();
+
 function usePersistedState(key, initialValue) {
   seedPersistedCache(persistedStateCache, persistedCacheComplete, key, initialValue);
   const [state, setState] = useState(() => (persistedStateCache.has(key) ? persistedStateCache.get(key) : initialValue));
@@ -2451,6 +2472,12 @@ function usePersistedState(key, initialValue) {
   // 楽器とリードの不変条件が走り、テナーのリードの選択を外して保存してしまい得る ── その門に使う。
   // 受け取らない呼び手(2つだけ分割代入する既存の全員)は1文字も変わらない。
   const [loaded, setLoaded] = useState(() => persistedStateCache.has(key));
+  // 【便BF 2026-10-01 統括の裁定(便AY 起票B)】4つ目の値 readOk = **本当に読めたか**。
+  // loaded は読みが失敗しても立つ(HEAD のまま。書き込みの門でもあるので、ここは変えない)。
+  // readOk は、読めたとき(値なしで読めた・indexedDB が無い環境も含む)だけ true。失敗した鍵は
+  // その起動のあいだ false のまま。楽器とリードの不変条件がこれを門に足す ── 読めていない reeds(初期値 [])で
+  // 「一覧に無いリード」と判定して選択を外さないため。受け取らない呼び手は1文字も変わらない。
+  const [readOk, setReadOk] = useState(() => persistedStateCache.has(key) && !persistedReadFailed.has(key));
 
   useEffect(() => {
     // 【AD-3 2026-09-21 本人指示】温まっている(= 最初の描画の前に warmPersistedStateCache が
@@ -2461,11 +2488,13 @@ function usePersistedState(key, initialValue) {
     // window.location.reload() するので、そこではモジュールごと作り直される。
     if (loadedRef.current) return;
     let cancelled = false;
-    idbGet(key).then((saved) => {
+    idbGet(key).then(({ ok, value: saved }) => {
       if (cancelled) return;
       if (saved !== undefined) { persistedStateCache.set(key, saved); setState(saved); }
       loadedRef.current = true;
       setLoaded(true);
+      // 【便BF】読めたかどうかだけを別に返す。失敗でも上の3行(値・書き込みの門・loaded)は HEAD と同じ。
+      if (ok) { persistedReadFailed.delete(key); setReadOk(true); } else persistedReadFailed.add(key);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2478,7 +2507,7 @@ function usePersistedState(key, initialValue) {
     if (loadedRef.current) { persistedStateCache.set(key, state); idbSet(key, state); }
   }, [key, state]);
 
-  return [state, setState, loaded];
+  return [state, setState, loaded, readOk];
 }
 
 // 【AD-3 2026-09-21 本人指示】「アプリ起動時に計測タブのリードが一瞬未選択の時の仕様になる」。
@@ -2677,13 +2706,21 @@ function useReedSaxBackfill(sessionsStatus, reeds, sessions, setReeds) {
 // 起動時に保存済みの組が食い違っていた / アップロード(録音と同じく今の楽器と今のリードで記録する)。
 // 判定してよいのは reedSaxInvariantReady のときだけ(保存から読み込み済み・楽器なしのリードが残っていない)。
 // 次の選択は reedSelectionForSax が決め、ここは**分岐せずにそのまま書く**(同じ値なら何も起きない)。
-function useReedSaxInvariant({ persistedLoaded, reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey }) {
+// 【便BF 2026-10-01 統括の裁定(便AY 起票B)】persistedReadOk = 関わる3つの鍵(楽器・リード一覧・選んでいるリード)が
+// **本当に読めたか**(usePersistedState の4つ目の値)。読みが失敗した起動では、loaded は立つが readOk は false の
+// まま。そのときは**その起動のあいだ判定しない** ── 読めていない reeds(初期値 [])で「一覧に無いリード」と
+// 判定すると、選んでいたリードの選択が外れて null が保存される(起票B の形)。判定しない代わりに、
+// 一覧に無いリードや楽器の違うリードを選んだままになりうる(不変条件が選択を外さないだけで、
+// 読めていない reeds に足したリードが保存の一覧を上書きしうるのは HEAD から変わらない)。
+// 既定の true は、門を持たない検査用の呼び手のため。App は3つの readOk を必ず渡す(pitch-test の 便BF の節)。
+function useReedSaxInvariant({ persistedLoaded, persistedReadOk = true, reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey }) {
   useEffect(() => {
+    if (!persistedReadOk) return;
     if (!reedSaxInvariantReady(persistedLoaded, reeds)) return;
     const next = reedSelectionForSax(reeds, selectedReedId, selectedBoxKey, saxType);
     setSelectedReedId(next.reedId);
     setSelectedBoxKey(next.boxKey);
-  }, [persistedLoaded, reeds, saxType, selectedReedId, selectedBoxKey, setSelectedReedId, setSelectedBoxKey]);
+  }, [persistedLoaded, persistedReadOk, reeds, saxType, selectedReedId, selectedBoxKey, setSelectedReedId, setSelectedBoxKey]);
 }
 
 // ============================================================
@@ -3615,7 +3652,7 @@ export default function WindToneLabPhaseMode() {
   const [hnrDb, setHnrDb] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [saxType, setSaxType, saxTypeLoaded] = usePersistedState("saxType", "alto");
+  const [saxType, setSaxType, saxTypeLoaded, saxTypeReadOk] = usePersistedState("saxType", "alto");
   const [noiseGateDb, setNoiseGateDb] = usePersistedState("noiseGateDb", NOISE_GATE_DEFAULT_DB); // 楽器音だけ拾うためのノイズゲート(dBFS)
   const [temperature, setTemperature] = useState(20);
   const [tuningHz, setTuningHz] = usePersistedState("tuningHz", 442); // 基準ピッチ: 440〜444Hzのボタン、デフォルト442Hz
@@ -3647,9 +3684,9 @@ export default function WindToneLabPhaseMode() {
 
   // --- リード管理 state (企画書v5 10節) ---
   // reeds/sessionsは練習を重ねるほど価値が増す蓄積データのため、IndexedDBに永続化する(usePersistedState)
-  const [reeds, setReeds, reedsLoaded] = usePersistedState("reeds", []); // リードマスタ一覧
+  const [reeds, setReeds, reedsLoaded, reedsReadOk] = usePersistedState("reeds", []); // リードマスタ一覧
   const [sessions, addSession, updateSessions, deleteSessions, restoreSessions, sessionsStatus] = useSessionsStore(); // 録音セッション一覧(reedIdで紐付け、10.5節のsessionWithReedに準拠。レコード単位で永続化)
-  const [selectedReedId, setSelectedReedId, selectedReedIdLoaded] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
+  const [selectedReedId, setSelectedReedId, selectedReedIdLoaded, selectedReedIdReadOk] = usePersistedState("selectedReedId", null); // 録音前に選択する「今回使うリード」
 
   // 【便AY 2026-09-25 本人指示 D1 / 統括 E4】楽器種別を持たないリードに、紐付いた計測の楽器を入れる
   // (門・書き方は useReedSaxBackfill の注記)。
@@ -3663,8 +3700,10 @@ export default function WindToneLabPhaseMode() {
     return r ? reedGroupKey(r) : null;
   });
   // 【軽5】楽器・リード一覧・選んでいるリードの3つが**読み込み済み**になってから判定する。
+  // 【便BF 2026-10-01】さらに3つとも**本当に読めた**ときだけ(読みが失敗した起動では、その起動のあいだ判定しない)。
   useReedSaxInvariant({
     persistedLoaded: saxTypeLoaded && reedsLoaded && selectedReedIdLoaded,
+    persistedReadOk: saxTypeReadOk && reedsReadOk && selectedReedIdReadOk,
     reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,
   });
 
@@ -4616,24 +4655,12 @@ export default function WindToneLabPhaseMode() {
     // tuningHz は音ごとの実音ラベル(concertLabel)の算出に使う(F-54)。運指テーブルと同じ
     // 基準ピッチ(楽器個体差の補正込み)を渡さないと、記録される音名が計測タブとずれる。
     const newProfile = buildIdealProfileFromSessions(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope);
+    // 【便BF 2026-10-01】足すか積み上げるかは promoteIdealProfiles(モジュールの純関数)が決める。
+    // 合体先は自分の計測から作った目安だけ(取り込んだ目安とは合体しない)。
     setIdealProfiles((prev) => {
-      const existingIdx = prev.findIndex((p) => p.name === trimmedName);
-      if (existingIdx === -1) {
-        setSelectedIdealId(newProfile.id);
-        return [...prev, newProfile];
-      }
-      // 同じ名前があれば notes をマージする(複数回に分けて録った音を積み上げる既存の挙動)。
-      // 由来も同じく積む: マージ後のプロファイルには両方のセッションのデータが入っているので、
-      // どちらのセッション詳細でも「目安設定中」が出るのが正しい。
-      const existing = prev[existingIdx];
-      const merged = {
-        ...existing,
-        notes: { ...existing.notes, ...newProfile.notes },
-        sourceKind: newProfile.sourceKind,
-        sourceSessionIds: [...new Set([...(existing.sourceSessionIds || []), ...newProfile.sourceSessionIds])],
-      };
-      setSelectedIdealId(merged.id);
-      return prev.map((p, i) => (i === existingIdx ? merged : p));
+      const r = promoteIdealProfiles(prev, newProfile, trimmedName);
+      setSelectedIdealId(r.selectedId);
+      return r.profiles;
     });
   }, [NUM_HARMONICS, effectiveTuningHz, sessions]);
 
@@ -12550,6 +12577,41 @@ function buildFramesWithContext(sessions, reeds) {
 function getNoteIdeal(profile, semitoneIndex) {
   if (!profile || semitoneIndex === null || semitoneIndex === undefined) return null;
   return profile.notes?.[semitoneIndex] ?? null;
+}
+
+// 【便BF 2026-10-01 統括指示】「目安に設定」で**同じ名前の目安に積み上げてよいのは、自分の計測から作った目安だけ**。
+// 以前は名前だけで合体先を探していたので、取り込んだ目安(コミュニティの「目安に設定」)と同じ名前で
+// 作ると合体し、sourceKind が "session" に書き換わった。すると idealForUse(community/align.js)の
+// 「揃えずに取り込んだ目安から重心・HNR を外す」の対象から漏れ、**揃えていない他人の重心・HNR が混ざった**。
+// 取り込んだ目安の見分け方は2つのどちらか:
+//   ・sourceKind が ADOPTED_SOURCE_KIND("community")── 取り込んだときに付く印
+//   ・alignedAtAdopt を持つ ── 取り込み(buildAdoptedProfile)だけが付ける鍵。この穴で既に合体して
+//     sourceKind が "session" に化けた目安も、これで見分けて**それ以上は積み上げない**。
+// 取り込んだ目安しか同じ名前が無ければ、名前が無いときと同じく**別の目安として足して選ぶ**
+// (同じ人の目安を2回取り込んだときも、同じ名前の目安が2つ並ぶ ── 取り込みの側の同名の扱いと同じ)。
+function isAdoptedIdealProfile(p) {
+  return p?.sourceKind === ADOPTED_SOURCE_KIND || Object.prototype.hasOwnProperty.call(p ?? {}, "alignedAtAdopt");
+}
+function idealMergeTargetIndex(profiles, name) {
+  return profiles.findIndex((p) => p.name === name && !isAdoptedIdealProfile(p));
+}
+// 【便BF 2026-10-01】promoteSessionToIdeal の setIdealProfiles の中身を、検査が走らせられる形で外へ出した
+// (中身は以前のまま。変えたのは合体先の探し方 idealMergeTargetIndex だけ)。
+// 返すのは { profiles: 新しい一覧, selectedId: 選ぶ目安の id }。
+function promoteIdealProfiles(prev, newProfile, name) {
+  const existingIdx = idealMergeTargetIndex(prev, name);
+  if (existingIdx === -1) return { profiles: [...prev, newProfile], selectedId: newProfile.id };
+  // 同じ名前があれば notes をマージする(複数回に分けて録った音を積み上げる既存の挙動)。
+  // 由来も同じく積む: マージ後のプロファイルには両方のセッションのデータが入っているので、
+  // どちらのセッション詳細でも「目安設定中」が出るのが正しい。
+  const existing = prev[existingIdx];
+  const merged = {
+    ...existing,
+    notes: { ...existing.notes, ...newProfile.notes },
+    sourceKind: newProfile.sourceKind,
+    sourceSessionIds: [...new Set([...(existing.sourceSessionIds || []), ...newProfile.sourceSessionIds])],
+  };
+  return { profiles: prev.map((p, i) => (i === existingIdx ? merged : p)), selectedId: merged.id };
 }
 
 // セッション全体のフレームを音階(運指)ごとに分解し、理想値プロファイルを組み立てる。

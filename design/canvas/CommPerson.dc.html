@@ -11,10 +11,15 @@
     :root {
       --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
       --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --font-serif: "Instrument Serif", serif;
       --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 22px;
       --fs-2xl: 28px; --fs-hero: 46px;
-      --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
-      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+      --r-1: 8px; --r-2: 12px; --r-full: 999px;
+      --r-xs: var(--r-1); --r-sm: var(--r-1); --r-md: var(--r-2); --r-lg: var(--r-2); --r-pill: var(--r-full);
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+      --sp-6: var(--sp-5); --sp-8: var(--sp-5);
+      --d-fast: 120ms; --d-base: 200ms; --d-slow: 320ms;
+      --lh-tight: 1.3; --lh-base: 1.6; --lh-loose: 1.75;
       --tap-min: 44px;
       --c-bg: #FFFFFF; --c-surface: #FFFFFF; --c-sunk: #F6F7F9; --c-sunken: #EEF1F4;
       --c-rule: #E1E6EC;
@@ -23,19 +28,24 @@
       --c-accent: #174585; --c-accent-mid: #7FA0CE; --c-accent-dim: #9DB3CC;
       --c-accent-line: #B9C9E4; --c-accent-tint: #EAEFF5;
       --c-on-accent: #FFFFFF; --c-on-accent-dim: #B9C9E4;
-      --c-rank-1: #C79A3E; --c-rank-2: #9BA6B4; --c-rank-3: #A9743E;
+      --c-rank-1: #B08A2E; --c-rank-2: #77808B; --c-rank-3: #9A5330; --c-rank-1-base: #896C24;
       --c-avatar-1: #174585; --c-avatar-2: #3E6E8E; --c-avatar-3: #2F6F5E;
       --c-avatar-4: #6B7A3F; --c-avatar-5: #9A6B2F; --c-avatar-6: #A8543C;
       --c-avatar-7: #7D4A6B; --c-avatar-8: #5B5FA3; --c-avatar-9: #4A5567;
       --c-avatar-10: #2C3542;
       --c-disabled: #B7BFC9; --c-danger: #DC2626;
-      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626;
+      --c-good: #16A34A; --c-warn: #D97706; --c-bad: #DC2626; --c-warn-bg: #FDF0E1;
       --c-div-1: #43719F; --c-div-2: #658BB1; --c-div-3: #89A6C3; --c-div-4: #B3C6D9;
       --c-div-5: #E2D0A3; --c-div-6: #D1B570; --c-div-7: #C39F45; --c-div-8: #B5891C;
       --c-quiet: #C7CFD9;
       --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
+      --nav-h: 47px;
+      --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+      --page-side-pad: 14px;
+      --page-pad-left: calc(var(--page-side-pad) + env(safe-area-inset-left));
+      --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
@@ -86,9 +96,11 @@
         </span>
       </div>
 
+      <!-- 【便BF 2026-10-01 便BC の写し】切り替えはみんなの平均カードと同じ部品(重心・HNR に「?」)。
+           このシートは白いので濃紺の上の色にはしない。凡例の下の一文は吹き出しへ移って消えた。 -->
       <div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心</span>
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink); box-shadow: inset 0 -2px 0 0 var(--c-ink);">重心<span aria-hidden="true" style="width: 18px; height: 18px; box-sizing: border-box; margin-left: var(--sp-1); border-radius: 50%; border: 1.5px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 700; line-height: 1">?</span></span>
           </div>
           <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
             <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-ink-3);">HNR</span>
@@ -155,8 +167,9 @@
               <text x="224.78" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">E♭5</text>
               <text x="265.11" y="120" font-size="12" font-weight="400" text-anchor="middle" font-family="var(--font-num)" style="fill: var(--c-ink-3)">A5</text>
             </svg>
-      <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" stroke-dasharray="4 3" style="stroke: var(--c-ink-3)" /><circle cx="11" cy="5" r="3" stroke-width="1" style="stroke: var(--c-ink-3); fill: var(--c-surface)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">しろねこ</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" style="stroke: var(--c-accent)" /><circle cx="11" cy="5" r="3" style="fill: var(--c-accent)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
-      <div style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています</div>
+      <div style="display: grid; gap: var(--sp-2)">
+        <div style="display: flex; flex-wrap: wrap; gap: var(--sp-3)"><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" stroke-dasharray="4 3" style="stroke: var(--c-ink-3)" /><circle cx="11" cy="5" r="3" stroke-width="1" style="stroke: var(--c-ink-3); fill: var(--c-surface)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">しろねこ</span></div><div style="display: flex; align-items: center; gap: var(--sp-1)"><svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true" style="display: block; flex: 0 0 auto; overflow: visible"><line x1="1" y1="5" x2="21" y2="5" stroke-width="2" style="stroke: var(--c-accent)" /><circle cx="11" cy="5" r="3" style="fill: var(--c-accent)" /></svg><span style="font-size: var(--fs-xs); color: var(--c-ink-3); line-height: 1.6">自分</span></div></div>
+      </div>
       <div style="display: flex; justify-content: flex-end">
         <div style="min-height: 44px; padding: 0 var(--sp-5); border: none; border-radius: var(--r-pill); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; box-shadow: 0 8px 24px rgba(15,23,42,0.18); display: inline-flex; align-items: center; justify-content: center">目安に設定</div>
       </div>

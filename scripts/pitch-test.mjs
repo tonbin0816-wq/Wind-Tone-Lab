@@ -12898,6 +12898,21 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
       /const targets = scope === "performer" \? selectPerformerSessions\(sessions, sessionLike\) : \[sessionLike\];/.test(src));
     check("F-68: 生成はその対象一式を渡す(1セッションに縮めない)",
       /buildIdealProfileFromSessions\(targets, trimmedName, NUM_HARMONICS, effectiveTuningHz, scope\)/.test(src));
+    // 【便BF 2026-10-01 統括指示】同じ名前の目安へ積み上げるかどうかは promoteIdealProfiles が決め、
+    // 合体先は取り込んだ目安を除いて探す(idealMergeTargetIndex)。振る舞いは src/idealPromote.test.js が走らせる。
+    // ここは**配線**: コンポーネントの中の promoteSessionToIdeal が、その関数を今の名前で呼んでいること。
+    {
+      const iPromote = src.indexOf("const promoteSessionToIdeal = useCallback(");
+      const promoteBody = iPromote < 0 ? "" : src.slice(iPromote, src.indexOf("}, [NUM_HARMONICS, effectiveTuningHz, sessions]);", iPromote));
+      check("便BF: promoteSessionToIdeal は promoteIdealProfiles(prev, newProfile, trimmedName) の結果で一覧と選択を書く",
+        /setIdealProfiles\(\(prev\) => \{\s*\n\s*const r = promoteIdealProfiles\(prev, newProfile, trimmedName\);\s*\n\s*setSelectedIdealId\(r\.selectedId\);\s*\n\s*return r\.profiles;/.test(promoteBody)
+        && !/findIndex\(\(p\) => p\.name === trimmedName\)/.test(promoteBody),
+        promoteBody.length + "文字");
+      const fnPromote = extractFunction("promoteIdealProfiles");
+      check("便BF: 合体先は idealMergeTargetIndex(取り込んだ目安を除く)で探す",
+        /const existingIdx = idealMergeTargetIndex\(prev, name\);/.test(fnPromote)
+        && /return profiles\.findIndex\(\(p\) => p\.name === name && !isAdoptedIdealProfile\(p\)\);/.test(extractFunction("idealMergeTargetIndex")));
+    }
     // 【B-1 2026-09-15 本人裁定で1箇所になった】データタブ上端の完了カードごと帯へ寄せたので、
     // 「★ 目安に設定」の呼び出し元は**セッション詳細の1つだけ**。
     // 数を緩めるのではなく**新しい数で固定する**(2つに戻ると落ちる)。
@@ -26599,7 +26614,10 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
 
   // --- 64.7 正典(design/canvas)------------------------------------------------
   check("64.7 正典 マイページの生成器に副題(sub)の受け口が無い(実装の NavRow と揃っている)",
-    /function navRow\(label, last = false\) \{/.test(mjs64)
+    // 【便BF 2026-10-01】便BE の「ブロック中の人  N人 ›」の写しで、添え字(value)の受け口が1つ増えた
+    // (実装の NavRow の value と同じ)。主張(副題 sub の受け口が無い)は同じ。
+    /function navRow\(label, last = false, value = null\) \{/.test(mjs64)
+    && !/function navRow\([^)]*sub/.test(mjs64)
     && count64(mjs64, /ficus\.help@gmail\.com/g) === 0
     && /\$\{navRow\("お問い合わせ"\)\}/.test(mjs64));
   check("64.7 正典 再生成物(CommMyPage.dc.html)からもアドレスの副題が消えている",
@@ -30330,6 +30348,25 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       /\} catch \{/.test(warm83) && !/throw/.test(warm83), warm83.slice(-160));
     check("83.5 温まっているキーは読み直さない(実体の入れ替えで起動直後に描き直さない)",
       /if \(loadedRef\.current\) return;\r?\n\s*let cancelled = false;\r?\n\s*idbGet\(key\)\.then/.test(hook83));
+    // 【便BF 2026-10-01 統括の裁定(便AY 起票B)】読めたか読めなかったかは4つ目の値 readOk で返す。
+    // 値・書き込みの門・loaded は HEAD(2274bd6)のまま ── 失敗でも立つ。読み直しはしない。
+    // 振る舞いは src/reedSaxType.test.jsx が走らせて見る。ここは綴りの錨。
+    {
+      const thenAt = hook83.indexOf("idbGet(key).then(({ ok, value: saved }) => {");
+      const thenPart = thenAt < 0 ? "" : hook83.slice(thenAt, hook83.indexOf("});", thenAt));
+      // 【便BF 審査の軽微】読めたら失敗の控えから外す(再マウントの使い手が増えても readOk が戻らないように)。
+      check("83.5c 便BF: 失敗でも値・書き込みの門・loaded は HEAD と同じ順で立ち、readOk だけが ok で分かれる",
+        /if \(cancelled\) return;\s*\n\s*if \(saved !== undefined\) \{ persistedStateCache\.set\(key, saved\); setState\(saved\); \}\s*\n\s*loadedRef\.current = true;\s*\n\s*setLoaded\(true\);[\s\S]*?if \(ok\) \{ persistedReadFailed\.delete\(key\); setReadOk\(true\); \} else persistedReadFailed\.add\(key\);/.test(thenPart)
+        && !/setTimeout|retry/i.test(codeOf(thenPart)),
+        thenPart.slice(0, 160));
+      check("83.5c 便BF: 読み直しの仕組みは無い(PERSISTED_READ_RETRY_MS も消えた)",
+        !/PERSISTED_READ_RETRY_MS|retryTimer/.test(src));
+      check("83.5c 便BF: idbGet は読めたか読めなかったかを分けて返す(失敗を「保存なし」に化けさせない)",
+        /return \{ ok: true, value \};/.test(src) && /return \{ ok: false \};/.test(src)
+        && !/return undefined; \/\/ プライベートブラウジング/.test(src));
+      check("83.5c 便BF: readOk は「キャッシュに在る」かつ「この起動で読みが失敗していない」から始まる",
+        /const \[readOk, setReadOk\] = useState\(\(\) => persistedStateCache\.has\(key\) && !persistedReadFailed\.has\(key\)\);/.test(hook83));
+    }
     check("83.5 値が1bit も変わっていないなら書き戻さない(起動のたびに全キーへ書かない)",
       /if \(persistedStateCache\.get\(key\) === state\) return;\r?\n\s*if \(loadedRef\.current\) \{ persistedStateCache\.set\(key, state\); idbSet\(key, state\); \}/.test(hook83));
     check("83.5 **保存の仕組みを2つに増やしていない**(IndexedDB のまま。localStorage / sessionStorage は0件)",
@@ -30443,14 +30480,15 @@ console.log("========== 検証85: 便AY リードの楽器種別 ── 配線�
   // 【再審査 軽4 / 軽5】門は「保存から読み込み済み(楽器・リード一覧・選んでいるリード)」と「楽器なしが残っていない」。
   // 計測の読み込みの状態(sessionsStatus)は渡さない(全部のリードが楽器を持つなら待たない)。
   check("85.1 重1 不変条件は App が1回だけ呼び、選んでいる箱も App が持つ",
-    (app85.match(/useReedSaxInvariant\(\{\s*\n\s*persistedLoaded: saxTypeLoaded && reedsLoaded && selectedReedIdLoaded,\s*\n\s*reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,\s*\n\s*\}\);/g) || []).length === 1
-    && /const \[saxType, setSaxType, saxTypeLoaded\] = usePersistedState\("saxType", "alto"\);/.test(app85)
-    && /const \[reeds, setReeds, reedsLoaded\] = usePersistedState\("reeds", \[\]\);/.test(app85)
-    && /const \[selectedReedId, setSelectedReedId, selectedReedIdLoaded\] = usePersistedState\("selectedReedId", null\);/.test(app85)
+    // 【便BF 2026-10-01 統括の裁定】門に「3つとも本当に読めた」(readOk)が足された。読み込み済みの門はそのまま。
+    (app85.match(/useReedSaxInvariant\(\{\s*\n\s*persistedLoaded: saxTypeLoaded && reedsLoaded && selectedReedIdLoaded,\s*\n\s*persistedReadOk: saxTypeReadOk && reedsReadOk && selectedReedIdReadOk,\s*\n\s*reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,\s*\n\s*\}\);/g) || []).length === 1
+    && /const \[saxType, setSaxType, saxTypeLoaded, saxTypeReadOk\] = usePersistedState\("saxType", "alto"\);/.test(app85)
+    && /const \[reeds, setReeds, reedsLoaded, reedsReadOk\] = usePersistedState\("reeds", \[\]\);/.test(app85)
+    && /const \[selectedReedId, setSelectedReedId, selectedReedIdLoaded, selectedReedIdReadOk\] = usePersistedState\("selectedReedId", null\);/.test(app85)
     && /return !!persistedLoaded && \(reeds \|\| \[\]\)\.every\(\(r\) => isKnownSaxType\(r\?\.saxType\)\);/.test(codeOf(srcOfFn(src, "reedSaxInvariantReady")))
     && (app85.match(/const \[selectedBoxKey, setSelectedBoxKey\] = useState\(/g) || []).length === 1
     && /selectedBoxKey=\{selectedBoxKey\} setSelectedBoxKey=\{setSelectedBoxKey\}/.test(app85)
-    && /if \(!reedSaxInvariantReady\(persistedLoaded, reeds\)\) return;\s*\n\s*const next = reedSelectionForSax\(reeds, selectedReedId, selectedBoxKey, saxType\);\s*\n\s*setSelectedReedId\(next\.reedId\);\s*\n\s*setSelectedBoxKey\(next\.boxKey\);/.test(codeOf(srcOfFn(src, "useReedSaxInvariant"))));
+    && /if \(!persistedReadOk\) return;\s*\n\s*if \(!reedSaxInvariantReady\(persistedLoaded, reeds\)\) return;\s*\n\s*const next = reedSelectionForSax\(reeds, selectedReedId, selectedBoxKey, saxType\);\s*\n\s*setSelectedReedId\(next\.reedId\);\s*\n\s*setSelectedBoxKey\(next\.boxKey\);/.test(codeOf(srcOfFn(src, "useReedSaxInvariant"))));
   {
     const store85 = codeOf(srcOfFn(src, "useSessionsStore"));
     const load85 = codeOf(srcOfFn(src, "idbGetAllSessions"));
@@ -30473,7 +30511,8 @@ console.log("========== 検証85: 便AY リードの楽器種別 ── 配線�
     check("85.1 軽5 usePersistedState は読み込み済みかを返す(温まっていれば最初から、読めたら loadedRef と一緒に立つ)",
       /const \[loaded, setLoaded\] = useState\(\(\) => persistedStateCache\.has\(key\)\);/.test(hook85)
       && /loadedRef\.current = true;\s*\n\s*setLoaded\(true\);/.test(hook85)
-      && /return \[state, setState, loaded\];/.test(hook85));
+      // 【便BF 2026-10-01】4つ目に readOk(本当に読めたか)が足された。3つ目までは同じ。
+      && /return \[state, setState, loaded, readOk\];/.test(hook85));
   }
   // E4 を実行で: 変更が無ければ同じ参照・推定は多数決(細かい場合分けは vitest)
   {
@@ -30917,6 +30956,118 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("89.6 index.css: 順位の光の規則(.rank-shine-bar / .rank-shine-ring)は注記の外に生きている",
     /\}\s*\.rank-shine-bar\s*\{\s*background-image: linear-gradient\(/.test(cssNoComment89)
     && /\}\s*\.rank-shine-ring\s*\{\s*background: conic-gradient\(/.test(cssNoComment89));
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便BF 2026-10-01 統括指示】キャンバスの正典を配信済みの見た目へ(便BC・便BE)と、トークンの写しのズレ。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便BF] キャンバスのトークンの写し・正典の便BC / 便BE");
+  // --- BF.1 design/canvas/tokens.mjs の写しは src/index.css の :root と同じ -----------------------
+  // 写しは全アートボードの <style> に埋め込まれる。ズレても3ゲートは1件も落ちなかった(便C の角丸・
+  // 余白、案G の順位の色が、写しだけ古いまま残っていた)。**期待値は index.css から読む**(写しの値を
+  // 期待値に書き写すと恒真になる)。比べるのは var() を辿った実値と、別名の形(var(--段))の両方。
+  const cssBF = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const rootAt = cssBF.indexOf(":root {");
+  let depthBF = 0, endBF = rootAt;
+  for (; endBF < cssBF.length; endBF++) {
+    if (cssBF[endBF] === "{") depthBF++;
+    else if (cssBF[endBF] === "}") { depthBF--; if (depthBF === 0) break; }
+  }
+  const declsOf = (text) => {
+    const m = new Map();
+    for (const x of text.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) m.set(x[1], x[2].replace(/\s+/g, " ").trim());
+    return m;
+  };
+  const realBF = declsOf(cssBF.slice(rootAt, endBF));
+  const tokSrcBF = readFileSync(join(__dirname, "..", "design", "canvas", "tokens.mjs"), "utf8");
+  const tokRootBF = tokSrcBF.slice(tokSrcBF.indexOf(":root {"), tokSrcBF.indexOf("}", tokSrcBF.indexOf(":root {")));
+  const copyBF = declsOf(tokRootBF);
+  const resolveBF = (m, v, d = 0) => String(v).replace(/var\((--[\w-]+)\)/g, (_, n) => (d > 6 ? "?" : resolveBF(m, m.get(n) ?? `未定義(${n})`, d + 1))).toLowerCase();
+  check("BF.1 便BF: 走査できている(index.css の :root と写しの :root を読めている)",
+    realBF.size >= 80 && copyBF.size >= 60, `index.css ${realBF.size} / 写し ${copyBF.size}`);
+  const missingBF = [...realBF.keys()].filter((k) => !copyBF.has(k));
+  const extraBF = [...copyBF.keys()].filter((k) => !realBF.has(k));
+  check("BF.1 便BF: 写しは index.css の :root の鍵を1つも欠かさず、余分も持たない(未定義は透明になって黙って消える)",
+    missingBF.length === 0 && extraBF.length === 0, `欠け ${missingBF.join(" ") || "なし"} / 余分 ${extraBF.join(" ") || "なし"}`);
+  const driftBF = [...realBF.keys()].filter((k) => copyBF.has(k) && resolveBF(copyBF, copyBF.get(k)) !== resolveBF(realBF, realBF.get(k)));
+  check("BF.1 便BF: 写しの実値(var() を辿った値)は index.css と全部同じ",
+    driftBF.length === 0,
+    driftBF.map((k) => `${k} 写し=${resolveBF(copyBF, copyBF.get(k))} 正=${resolveBF(realBF, realBF.get(k))}`).join(" / ") || "ズレなし");
+  const aliasBF = [...realBF.entries()].filter(([, v]) => /^var\(--[\w-]+\)$/.test(v));
+  check("BF.1 便BF: index.css で別名(var(--段))の鍵は、写しでも同じ段を指す別名(実値を平らに書かない)",
+    aliasBF.length >= 7 && aliasBF.every(([k, v]) => copyBF.get(k) === v),
+    aliasBF.filter(([k, v]) => copyBF.get(k) !== v).map(([k, v]) => `${k} 写し=${copyBF.get(k)} 正=${v}`).join(" / ") || `${aliasBF.length}件`);
+  // 生成器が写しを出し直したかも見る(tokens.mjs だけ直して .dc.html を出し直し忘れる形)。
+  const canvasDirBF = join(__dirname, "..", "design", "canvas");
+  const staleBF = readdirSync(canvasDirBF).filter((f) => f.endsWith(".dc.html")).filter((f) => {
+    const html = readFileSync(join(canvasDirBF, f), "utf8");
+    const at = html.indexOf(":root {");
+    if (at < 0) return false; // 写しを埋めない .dc.html(本人がキャンバスで作ったもの)は対象外
+    const m = declsOf(html.slice(at, html.indexOf("}", at)));
+    return [...realBF.keys()].some((k) => resolveBF(m, m.get(k) ?? `未定義(${k})`) !== resolveBF(realBF, realBF.get(k)));
+  });
+  check("BF.1 便BF: 写しを埋めている全部の .dc.html が出し直されている(どれも index.css と同じ値)",
+    staleBF.length === 0, staleBF.join(" ") || "全部そろっている");
+
+  // --- BF.2 正典の順位(便BC): 上位3件は 44px の帯に白の順位の数字 ---------------------------------
+  // 期待値の帯の幅は実装(screens.jsx の RankRow)から読む。
+  const noCommentBF = (t) => t.replace(/<!--[\s\S]*?-->/g, "");
+  const dcBF = (f) => noCommentBF(readFileSync(join(canvasDirBF, f), "utf8"));
+  const screensBF = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const bandW = (/<span data-rank-band[\s\S]{0,300}?flex: "0 0 (\d+)px"/.exec(screensBF) || [])[1];
+  const rankDcBF = dcBF("CommRank.dc.html");
+  const bandsBF = [...rankDcBF.matchAll(/<span style="flex: 0 0 (\d+)px; background: var\(--c-rank-(\d)\);[^"]*color: var\(--c-on-accent\)">(\d)<\/span>/g)];
+  check("BF.2 便BC: 実装の帯の幅を読めている(空回りしていない)", bandW === "44", `実装=${bandW}`);
+  check("BF.2 便BC 正典 CommRank.dc.html: 上位3件の帯は実装と同じ幅で、中に白(--c-on-accent)の順位 1・2・3",
+    bandsBF.length === 3 && bandsBF.every((m, i) => m[1] === bandW && m[2] === String(i + 1) && m[3] === String(i + 1)),
+    bandsBF.map((m) => `${m[1]}px/rank-${m[2]}/${m[3]}`).join(" ") || "0件");
+  check("BF.2 便BC 正典 CommRank.dc.html: 4px の帯(便BC より前の形)は残っていない",
+    !/flex: 0 0 4px; background: var\(--c-rank-/.test(rankDcBF));
+
+  // --- BF.3 正典のデータ・人物のページ(便BC): 濃紺のカード + 白い台紙 / 「?」/ グラフの下の一文は無い ---------
+  const dataDcBF = dcBF("CommData.dc.html");
+  const personDcBF = dcBF("CommPerson.dc.html");
+  const alignNoteBF = "計測環境により値全体が一律にずれるため";
+  check("BF.3 便BC: 実装はグラフの下に揃えの一文を出していない(用語の説明の吹き出しへ移った)",
+    /const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため/.test(screensBF)
+    && !/withMine \? "計測環境により/.test(screensBF));
+  check("BF.3 便BC 正典 CommData / CommPerson: グラフの下の揃えの一文は無い(吹き出しは閉じた姿)",
+    !dataDcBF.includes(alignNoteBF) && !personDcBF.includes(alignNoteBF));
+  check("BF.3 便BC 正典 CommData: みんなの平均のカードは濃紺(--c-accent)で、見出しは --c-on-accent-dim",
+    /box-shadow: var\(--shadow-card\); background: var\(--c-accent\)">\s*<div[^>]*>\s*<div style="[^"]*color: var\(--c-on-accent-dim\)">みんなの平均<\/div>/.test(dataDcBF));
+  check("BF.3 便BC 正典 CommData: グラフと凡例は白い台紙(--c-surface・角 --r-1・内側 10px。実装の data-avg-inset と同じ)の中",
+    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}>/.test(screensBF)
+    && /<div style="margin-top: var\(--sp-2\); background: var\(--c-surface\); border-radius: var\(--r-1\); padding: 10px">\s*<div style="display: grid; gap: var\(--sp-2\)">\s*<svg/.test(dataDcBF));
+  const qMarkBF = /font-weight: 600; color: var\(--c-(on-accent|ink)\); box-shadow: inset 0 -2px 0 0 var\(--c-(on-accent|ink)\);">重心<span aria-hidden="true" style="width: 18px; height: 18px;[^"]*border: 1\.5px solid currentColor;[^"]*">\?<\/span><\/span>/;
+  check("BF.3 便BC 正典 CommData: 選んでいる「重心」は濃紺の上の色(--c-on-accent)で、右に「?」の丸",
+    (qMarkBF.exec(dataDcBF) || [])[1] === "on-accent");
+  check("BF.3 便BC 正典 CommPerson: 選んでいる「重心」は白い面の色(--c-ink)で、右に「?」の丸",
+    (qMarkBF.exec(personDcBF) || [])[1] === "ink");
+  check("BF.3 便BC 正典: 選んでいない HNR・音程には「?」が付かない(付くのは選んでいる指標だけ)",
+    !/>HNR<span aria-hidden/.test(dataDcBF + personDcBF) && !/>音程<span aria-hidden/.test(dataDcBF + personDcBF));
+
+  // --- BF.4 正典のマイページ・人物のページ(便BE) --------------------------------------------------
+  const meDcBF = dcBF("CommMyPage.dc.html");
+  const iBlocked = meDcBF.indexOf(">ブロック中の人<");
+  check("BF.4 便BE 正典 CommMyPage: 「ブロック中の人」はお問い合わせのカードの一番上(お問い合わせより前)で、人数を添える",
+    iBlocked > 0 && iBlocked < meDcBF.indexOf(">お問い合わせ<")
+    && /ブロック中の人<\/span>\s*<span style="flex: none; font-size: var\(--fs-xs\); font-weight: 400; color: var\(--c-ink-3\)">\d+人<\/span>/.test(meDcBF));
+  const backDcBF = dcBF("CommPersonBack.dc.html");
+  // 【便BF 変異試験で塞いだ】文字とボタンの見た目を**同じ要素で**結ぶ(文字だけ入れ替える変異が生き残った)。
+  const btnAt = (border, color, label) => {
+    const m = new RegExp(`border: 1px solid var\\(--c-${border}\\); background: transparent; color: var\\(--c-${color}\\);[^"]*">${label}</div>`).exec(backDcBF);
+    return m ? m.index : -1;
+  };
+  const iBlockBtn = btnAt("line-strong", "ink-2", "ブロック");
+  const iReportBtn = btnAt("danger", "danger", "通報");
+  check("BF.4 便BE 正典 CommPersonBack: プロフィールの末尾に、灰色の枠の「ブロック」が赤い枠の「通報」の上(2026-10-01 統括の文言)",
+    iBlockBtn > 0 && iReportBtn > iBlockBtn
+    && />ブロック<\/div>/.test(backDcBF) && />通報<\/div>/.test(backDcBF)
+    && !/この人をブロック|この人を通報/.test(backDcBF));
+  check("BF.4 便BE 正典 CommPersonBack: 確認のシート・通報のシートは描かない(別の便で作り直す)",
+    !/ブロックする<|通報する<|理由/.test(backDcBF));
   console.log("  -> done");
 }
 

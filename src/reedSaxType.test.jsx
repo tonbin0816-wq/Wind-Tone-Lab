@@ -673,6 +673,192 @@ describe("usePersistedState は読み込みが済んだかを返す(軽5)", () =
   });
 });
 
+// ------------------------------------------------------------------
+// 【便BF 2026-10-01 統括の裁定(審査の差し戻し)/ 便AY 起票B】読みが**失敗した**起動。
+// idbGet は失敗を「保存なし」と区別して返し、usePersistedState は4つ目の値 readOk でそれを返す。
+// 値・書き込み・loaded の振る舞いは HEAD(2274bd6)のまま ── 失敗でも loaded は立ち、読み直しはしない。
+// 楽器とリードの不変条件は、関わる3つの鍵の readOk を門に足し、失敗した起動ではその起動のあいだ判定しない
+// (選択を外さない。一覧に無いリードを選んだままになりうる。ほかの振る舞いは HEAD のまま)。
+// 作り物の IndexedDB で、鍵ごとに「何回失敗させるか」を決めて**本物のフック**を走らせる。
+// 【守っているもの】失敗で loaded は立ち readOk は false / 読めた・値なし・IndexedDB が無いときは readOk が true /
+//   失敗のあと読み直さない / 再マウントしても readOk は false のまま / 書き込みは HEAD と同じ
+//   (審査の B: 保存値なし・失敗・足す → 書かれる)/ 報告の起動の形で選択が外れない / 読めた起動では今までどおり外す
+// 【守っていないもの】App が3つの readOk を不変条件へ渡していること(綴りは pitch-test の 85.1 重1)。
+// ------------------------------------------------------------------
+describe("usePersistedState の readOk と、読みが失敗した起動の不変条件(便BF / 便AY 起票B)", () => {
+  let realIdb;
+  beforeEach(() => { realIdb = Object.getOwnPropertyDescriptor(globalThis, "indexedDB"); });
+  afterEach(() => {
+    if (realIdb) Object.defineProperty(globalThis, "indexedDB", realIdb);
+    else delete globalThis.indexedDB;
+  });
+  // store: 保存されている値 / fails: 鍵 → 失敗させる回数(Infinity で失敗し続ける) / log: 読み・書きの記録
+  const kvFake = (store, fails, log) => ({
+    open() {
+      const req = {};
+      setTimeout(() => {
+        req.result = {
+          transaction: () => {
+            const tx = { oncomplete: null, onerror: null };
+            tx.objectStore = () => ({
+              get: (k) => {
+                const r2 = {};
+                setTimeout(() => {
+                  log.gets.push(k);
+                  if ((fails[k] ?? 0) > 0) { fails[k] -= 1; r2.error = new Error("get failed"); r2.onerror?.(); return; }
+                  r2.result = store[k]; r2.onsuccess?.();
+                }, 0);
+                return r2;
+              },
+              put: (v, k) => { log.puts.push([k, v]); setTimeout(() => tx.oncomplete?.(), 0); },
+            });
+            return tx;
+          },
+        };
+        req.onsuccess?.();
+      }, 0);
+      return req;
+    },
+  });
+  const setIdb = (v) => Object.defineProperty(globalThis, "indexedDB", { value: v, configurable: true, writable: true });
+  const waitUntil = async (cond) => {
+    for (let i = 0; i < 400 && !cond(); i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    }
+  };
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  function KvHarness({ k, init = "alto", out }) {
+    const [v, setV, loaded, readOk] = usePersistedState(k, init);
+    out.push({ v, loaded, readOk });
+    out.set = setV;
+    return null;
+  }
+
+  it("読みが失敗した起動: loaded は立つ(HEAD のまま)が readOk は false。読み直しはしない", async () => {
+    const k = `test-bf-fail-${Date.now()}`;
+    const log = { gets: [], puts: [] };
+    setIdb(kvFake({ [k]: "tenor" }, { [k]: 1 }, log));
+    const out = [];
+    await draw(<KvHarness k={k} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.loaded);
+    expect(out[out.length - 1]).toEqual({ v: "alto", loaded: true, readOk: false });
+    // 失敗は1回だけ仕込んである。読み直すなら 2回目で読めて tenor になるはず ── ならない
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    expect(log.gets.filter((x) => x === k)).toHaveLength(1);
+    expect(out[out.length - 1]).toEqual({ v: "alto", loaded: true, readOk: false });
+    expect(out.some((x) => x.readOk)).toBe(false);
+  });
+
+  it("書き込みは HEAD と同じ(審査の B): 保存値なし・読みが失敗・画面で足す → 書かれる", async () => {
+    const k = `test-bf-write-${Date.now()}`;
+    const log = { gets: [], puts: [] };
+    setIdb(kvFake({}, { [k]: 1 }, log));
+    const out = [];
+    await draw(<KvHarness k={k} init={[]} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.loaded);
+    expect(out[out.length - 1].readOk).toBe(false);
+    expect(log.puts).toEqual([]);                                   // 失敗だけでは書かない(値は変わっていない)
+    await act(async () => { out.set([{ id: "r-new" }]); });
+    await waitUntil(() => log.puts.length >= 1);
+    expect(log.puts).toEqual([[k, [{ id: "r-new" }]]]);             // 足したリードは黙って消えない
+  });
+
+  it("読みが失敗した鍵は、再マウントしても readOk が false のまま(画面で変えてキャッシュに入っても取り違えない)", async () => {
+    const k = `test-bf-remount-${Date.now()}`;
+    const log = { gets: [], puts: [] };
+    setIdb(kvFake({}, { [k]: 1 }, log));
+    const out = [];
+    await draw(<KvHarness k={k} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.loaded);
+    await act(async () => { out.set("tenor"); });
+    await draw(<div />);                                            // 外して
+    const again = [];
+    await draw(<KvHarness k={k} out={again} />);                    // 描き直す(キャッシュから始まる)
+    await settle();
+    expect(again[0]).toEqual({ v: "tenor", loaded: true, readOk: false });
+    expect(again.some((x) => x.readOk)).toBe(false);
+  });
+
+  it("読めた起動: 保存値があれば readOk は true(値も入る)", async () => {
+    const k = `test-bf-ok-${Date.now()}`;
+    setIdb(kvFake({ [k]: "tenor" }, {}, { gets: [], puts: [] }));
+    const out = [];
+    await draw(<KvHarness k={k} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.readOk);
+    expect(out[out.length - 1]).toEqual({ v: "tenor", loaded: true, readOk: true });
+  });
+
+  it("値なしで読めた起動も readOk は true", async () => {
+    const k = `test-bf-empty-${Date.now()}`;
+    setIdb(kvFake({}, {}, { gets: [], puts: [] }));
+    const out = [];
+    await draw(<KvHarness k={k} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.readOk);
+    expect(out[out.length - 1]).toEqual({ v: "alto", loaded: true, readOk: true });
+  });
+
+  it("indexedDB そのものが無い環境は「読めた・値なし」(readOk は true)", async () => {
+    setIdb(undefined);
+    const out = [];
+    await draw(<KvHarness k={`test-bf-noidb-${Date.now()}`} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.readOk);
+    expect(out[out.length - 1]).toEqual({ v: "alto", loaded: true, readOk: true });
+  });
+
+  // 報告の起動の形: 楽器(tenor)と選んでいるリード(t1)は読めたが、reeds の読みだけが失敗した。
+  // HEAD では reeds=[] のまま読み込み済みになり、不変条件が「一覧に無いリード」として t1 を外して null を保存した。
+  // App と同じく、3つの鍵の loaded と readOk を不変条件へ渡す。
+  function BootHarness({ p, out }) {
+    const [saxType, , saxLoaded, saxOk] = usePersistedState(`${p}-saxType`, "alto");
+    const [reeds, , reedsLoaded, reedsOk] = usePersistedState(`${p}-reeds`, []);
+    const [selectedReedId, setSelectedReedId, selLoaded, selOk] = usePersistedState(`${p}-selectedReedId`, null);
+    const [selectedBoxKey, setSelectedBoxKey] = useState(null);
+    useReedSaxInvariant({
+      persistedLoaded: saxLoaded && reedsLoaded && selLoaded,
+      persistedReadOk: saxOk && reedsOk && selOk,
+      reeds, saxType, selectedReedId, setSelectedReedId, selectedBoxKey, setSelectedBoxKey,
+    });
+    out.push({ selectedReedId, loaded: saxLoaded && reedsLoaded && selLoaded });
+    return null;
+  }
+  const tenorReed = { id: "t1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01", saxType: "tenor", createdAt: "2026-08-01T01:00:00Z" };
+  const altoReed = { id: "a1", brand: "Vandoren", strength: "3.0", startDate: "2026-08-01", saxType: "alto", createdAt: "2026-08-01T01:00:01Z" };
+
+  it("reeds の読みだけが失敗した起動では、選んでいたリードの選択を外さない(null を保存しない)", async () => {
+    const p = `test-bf-boot-${Date.now()}`;
+    const log = { gets: [], puts: [] };
+    setIdb(kvFake(
+      { [`${p}-saxType`]: "tenor", [`${p}-reeds`]: [tenorReed], [`${p}-selectedReedId`]: "t1" },
+      { [`${p}-reeds`]: 1 },
+      log,
+    ));
+    const out = [];
+    await draw(<BootHarness p={p} out={out} />);
+    await waitUntil(() => out[out.length - 1]?.loaded && out[out.length - 1]?.selectedReedId === "t1");
+    await settle();
+    expect(out[out.length - 1]).toEqual({ selectedReedId: "t1", loaded: true });
+    const firstT1 = out.findIndex((x) => x.selectedReedId === "t1");
+    expect(out.slice(firstT1).some((x) => x.selectedReedId !== "t1")).toBe(false);
+    expect(log.puts.filter(([k]) => k === `${p}-selectedReedId`)).toEqual([]);
+  });
+
+  it("読めた起動では、今までどおり楽器の違うリードの選択を外す(null を保存する)", async () => {
+    const p = `test-bf-bootok-${Date.now()}`;
+    const log = { gets: [], puts: [] };
+    setIdb(kvFake(
+      { [`${p}-saxType`]: "tenor", [`${p}-reeds`]: [altoReed, tenorReed], [`${p}-selectedReedId`]: "a1" },
+      {},
+      log,
+    ));
+    const out = [];
+    await draw(<BootHarness p={p} out={out} />);
+    await waitUntil(() => log.puts.some(([k]) => k === `${p}-selectedReedId`));
+    await settle();
+    expect(out[out.length - 1]).toEqual({ selectedReedId: null, loaded: true });
+    expect(log.puts.filter(([k]) => k === `${p}-selectedReedId`)).toEqual([[`${p}-selectedReedId`, null]]);
+  });
+});
+
 // 【便AY 審査の起票A 2026-09-25】削除 →「元に戻す」で、消える前に選んでいたリードを選び直す。
 describe("reedSelectionToRestore ── 元に戻すときに選び直すリード", () => {
   it("消えるリードを選んでいたら、その id を返す", () => {

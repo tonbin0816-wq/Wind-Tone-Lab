@@ -71,11 +71,21 @@ ${items.join("\n")}
 }
 
 // UnderlineTabs(screens.jsx): marginLeft -10 / 当たり 44 / 見えるのは 26px の字と下線
-function underlineTabs(items, sel) {
+// 【便BF 2026-10-01 便BC の写し】onAccent = 濃紺の面(みんなの平均カード)の上。選んでいる字と下線は
+// --c-on-accent、選んでいない字は --c-on-accent-dim。hint = 用語の説明を持つ指標(重心・HNR)。
+// 選んでいる指標が hint に入っていれば、字の右に「?」の丸(18px・線 1.5px currentColor・左に --sp-1・
+// 字 --fs-xs 700)。吹き出しは押したときだけ開くので、正典は閉じた姿(実装の MetricTabs)。
+// 切り替えの下の区切り線は引かない(便BC 統括裁定。実装も引いていない)。
+function underlineTabs(items, sel, { onAccent = false, hint = [] } = {}) {
+  const selColor = onAccent ? "var(--c-on-accent)" : "var(--c-ink)";
+  const offColor = onAccent ? "var(--c-on-accent-dim)" : "var(--c-ink-3)";
   const row = items.map((t) => {
     const on = t === sel;
+    const mark = on && hint.includes(t)
+      ? `<span aria-hidden="true" style="width: 18px; height: 18px; box-sizing: border-box; margin-left: var(--sp-1); border-radius: 50%; border: 1.5px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 700; line-height: 1">?</span>`
+      : "";
     return `          <div style="min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px">
-            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: ${on ? "var(--c-ink)" : "var(--c-ink-3)"};${on ? " box-shadow: inset 0 -2px 0 0 var(--c-ink);" : ""}">${t}</span>
+            <span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var(--fs-sm); font-weight: 600; color: ${on ? selColor : offColor};${on ? ` box-shadow: inset 0 -2px 0 0 ${selColor};` : ""}">${t}${mark}</span>
           </div>`;
   });
   return `<div style="display: flex; align-items: center; gap: 0; margin-left: -10px; flex-wrap: wrap">
@@ -376,6 +386,10 @@ const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、
 // 足りない姿(自分の計測が無い・0〜2音)は、自分の線を出さず、注記の代わりに同じ体裁で
 // 「あなたの計測データもお待ちしています」の1行になる(文言の正は screens.jsx の MINE_WAITING_NOTE)。
 // 面は足していない(見た目の部品は同じで、線が1本減り注記の文が替わるだけ)。検査は src/community/cohortMine.test.jsx。
+// 【便BF 2026-10-01 便BC の写し】揃えているときの上の一文(ALIGN_NOTE)は、実装では重心・HNR の用語の説明
+// (「?」を押すと開く吹き出し)の一番下へ移り、グラフの下からは消えた。現状の面(CommData / CommPerson)は
+// もう描かない。ALIGN_NOTE を読むのは、当時の記録である改善案の面(CommDataB / C / D)だけ。
+const TERM_HINT = ["重心", "HNR"]; // 用語の説明を持つ指標(screens.jsx の TERM_TEXT の2つ)
 
 // ---- 画面の外枠 ---------------------------------------------------------
 function screen(sel, inner) {
@@ -410,8 +424,9 @@ const naVals = (arr) => Object.fromEntries(NA_KEYS.map((k, i) => [k, arr[i]]));
 const roundFmt = (v) => Math.round(v).toString(); // 重心(METRICS の digits 0)
 // 器の幅(このキャンバスの箱の実寸。SVG は 1:1 で置く)
 //   データのカードの中 = 375 − 14×2(app-root)− 16×2(screen の --sp-4)− 16×2(カードの --sp-4)
+//                        − 10×2(【便BF 便BC の写し】白い台紙の内側 10px。実装の data-avg-inset の padding)
 //   人物紹介の本文    = 375 − 14×2 − 16×2(personShell の --sp-4)
-const NA_W_DATA = 375 - 14 * 2 - 16 * 2 - 16 * 2;
+const NA_W_DATA = 375 - 14 * 2 - 16 * 2 - 16 * 2 - 10 * 2;
 const NA_W_PERSON = 375 - 14 * 2 - 16 * 2;
 
 const PEOPLE = [
@@ -442,18 +457,23 @@ function buildData() {
 
   return screen("data", `${filterRow("A.Sax", null, null)}
 
-      <div style="${CARD}">
+      <!-- 【便BF 2026-10-01 便BC の写し(本人選定 モック「C. 濃紺の中に白い台紙」)】カードの地は濃紺
+           (.card.card-accent = --c-accent)。濃紺の上は 見出し・人数・指標の切り替えだけで、見出しと人数の字は
+           --c-on-accent-dim、人数の数字は --c-on-accent。切り替えより下は白い台紙(地 --c-surface・角丸 --r-1・
+           内側 10px・上に --sp-2)の中。グラフの下の一文は消えた(用語の説明の吹き出しへ移った)。 -->
+      <div style="${CARD}; background: var(--c-accent)">
         <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2)">
-          <div style="${EYEBROW}">みんなの平均</div>
-          <div style="${NOTE}">目安を公開している<span style="${NUM}; font-weight: 700">12</span>人</div>
+          <div style="${EYEBROW}; color: var(--c-on-accent-dim)">みんなの平均</div>
+          <div style="${NOTE}; color: var(--c-on-accent-dim)">目安を公開している<span style="${NUM}; font-weight: 700; color: var(--c-on-accent)">12</span>人</div>
         </div>
         <div style="margin: 10px 0 2px">
-          ${underlineTabs(["重心", "HNR", "音程"], "重心")}
+          ${underlineTabs(["重心", "HNR", "音程"], "重心", { onAccent: true, hint: TERM_HINT })}
         </div>
-        <div style="display: grid; gap: var(--sp-2)">
-          ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_DATA })}
-          ${legend(series)}
-          <div style="${BODY_NOTE}">${ALIGN_NOTE}</div>
+        <div style="margin-top: var(--sp-2); background: var(--c-surface); border-radius: var(--r-1); padding: 10px">
+          <div style="display: grid; gap: var(--sp-2)">
+            ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_DATA })}
+            ${legend(series)}
+          </div>
         </div>
       </div>
 
@@ -479,10 +499,33 @@ function rankRow(p, rank, big) {
           </div>`;
 }
 
+// 【便BF 2026-10-01 便BC の写し(本人選定 モック「い. 帯を太くして順位を入れる」)】上位3件の左端の帯は
+// 44px になり、順位の数字は帯の中央に白(--c-on-accent)で入る。数字の大きさは前と同じ(1位 --fs-2xl /
+// 2・3位 --fs-xl・太字 700)。帯の外にあった数字の列(34px)は描かない。環・名前・値・カードの白い面はそのまま。
+// 1位の帯と環は実装では光る(rank-shine-bar / rank-shine-ring)。正典は動かないので、光の山の色
+// (--c-rank-1)で塗る ── 4px の帯の頃(rankRowEdge)と同じ扱い。
+function rankRowBand(p, rank) {
+  const c = RANK_COLOR[rank - 1];
+  const first = rank === 1;
+  const av = first ? 56 : 44;
+  return `<div style="display: flex; align-items: stretch; background: var(--c-surface); border-radius: var(--r-lg); box-shadow: var(--shadow-card); overflow: hidden">
+            <span style="flex: 0 0 44px; background: ${c}; display: flex; align-items: center; justify-content: center; ${NUM}; font-weight: 700; letter-spacing: -.02em; line-height: 1; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; color: var(--c-on-accent)">${rank}</span>
+            <div style="flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4)">
+              <span style="position: relative; display: inline-flex; flex: none; border-radius: 50%; box-shadow: 0 0 0 3px ${c}; margin: 3px">${avatar(p.icon, p.color, av)}</span>
+              <div style="flex: 1 1 0; min-width: 0">
+                ${nameLine(p.nick, p.mine, first ? "var(--fs-lg)" : "var(--fs-md)")}
+                ${whoLine(p.who)}
+              </div>
+              <div style="flex: 0 0 auto; font-weight: 700; ${NUM}; letter-spacing: -.02em; line-height: 1; font-size: ${first ? "var(--fs-2xl)" : "var(--fs-xl)"}; color: var(--c-ink)">${p.days}<span style="font-family: var(--font-jp); font-size: var(--fs-xs); font-weight: 600; color: var(--c-ink-3)">日</span></div>
+            </div>
+          </div>`;
+}
+
 // 【上位3件は案B(左の帯)】2026/09/08 本人裁定で実装済み。ここは現状の写しなので、
 // 実装(screens.jsx の RankRow)と同じ形にしてある。
+// 【便BF 2026-10-01】帯は便BC で 44px・数字入りになった(rankRowBand)。4px の帯の rankRowEdge は案の記録として残す。
 function buildRank() {
-  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRowEdge(p, i + 1)}`);
+  const top = PEOPLE.slice(0, 3).map((p, i) => `        ${rankRowBand(p, i + 1)}`);
   const rest = PEOPLE.slice(3).map((p, i, arr) => `          <div style="border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">${rankRow(p, i + 4, false)}</div>`);
   // 【便AT 2026-09-24 本人指示】種類(練習日数 | 練習時間)は溝型の切り替え、期間は条件行の4つ目。
   // 期間のチップの行は消えた。既定の「すべて」は他の3つと同じく薄い字の項目名(期間)。
@@ -598,7 +641,10 @@ ${infoRow("編成", "ソロ・ビッグバンド")}
            「レビューを送る」の行はお問い合わせの**上**に入るが、飛び先(APP_STORE_REVIEW_URL)が
            null の間は行ごと出ない。**いまの画面には無い**ので、ここにも描かない
            (このカタログは「現状」の写しであって提案ではない)。 -->
+      <!-- 【便BF 2026-10-01 便BE の写し】カードの一番上に「ブロック中の人」。右端の山形の手前に人数
+           (字 --fs-xs・太さ 400・--c-ink-3)。0人でも行は出る。人数はダミー。 -->
       <div style="${CARD}; padding: 0; margin-top: var(--sp-4)">
+${navRow("ブロック中の人", false, "2人")}
 ${navRow("お問い合わせ")}
 ${navRow("利用規約")}
 ${navRow("プライバシーポリシー", true)}
@@ -618,9 +664,11 @@ ${navRow("プライバシーポリシー", true)}
 // 【C11 2026-09-16】規約・ポリシーは押すとアプリの中のシート(LegalSheet)が開く。外へは出ない。
 // 【束3 2026-09-19】お問い合わせも同じくシート(FeedbackSheet)。副題(アドレス)の受け口は
 // 実装(NavRow)から消えたので、こちらも持たない ── 正典に画面に無いものを残さない。
-function navRow(label, last = false) {
+// 【便BF 2026-10-01 便BE の写し】value = 山形の手前の添え字(実装の navValueStyle)。渡さない行は1文字も変わらない。
+function navRow(label, last = false, value = null) {
   return `        <div style="display: flex; align-items: center; gap: var(--sp-3); min-height: 44px; padding: var(--sp-2) var(--sp-4); border-bottom: ${last ? "none" : "1px solid var(--c-line)"}; color: var(--c-ink); font-size: var(--fs-sm); font-weight: 600">
-          <span style="flex: 1 1 0; min-width: 0">${label}</span>
+          <span style="flex: 1 1 0; min-width: 0">${label}</span>${value != null ? `
+          <span style="flex: none; font-size: var(--fs-xs); font-weight: 400; color: var(--c-ink-3)">${value}</span>` : ""}
           <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true" style="flex: none; color: var(--c-ink-3)"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </div>`;
 }
@@ -736,11 +784,14 @@ function buildPerson() {
 
 ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 
-      ${underlineTabs(["重心", "HNR", "音程"], "重心")}
+      <!-- 【便BF 2026-10-01 便BC の写し】切り替えはみんなの平均カードと同じ部品(重心・HNR に「?」)。
+           このシートは白いので濃紺の上の色にはしない。凡例の下の一文は吹き出しへ移って消えた。 -->
+      ${underlineTabs(["重心", "HNR", "音程"], "重心", { hint: TERM_HINT })}
       <div style="${NOTE}">Hz　計測${p.rec}件</div>
       ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_PERSON })}
-      ${legend(series)}
-      <div style="${NOTE}">${ALIGN_NOTE}</div>
+      <div style="display: grid; gap: var(--sp-2)">
+        ${legend(series)}
+      </div>
       <div style="display: flex; justify-content: flex-end">
         <div style="min-height: 44px; padding: 0 var(--sp-5); border: none; border-radius: var(--r-pill); background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-sm); font-weight: 600; box-shadow: 0 8px 24px rgba(15,23,42,0.18); display: inline-flex; align-items: center; justify-content: center">目安に設定</div>
       </div>`);
@@ -765,6 +816,17 @@ ${gear("楽器", "YAMAHA YAS-62")}
 ${gear("マウスピース", "Selmer Paris S90 180")}
 ${gear("リガチャー", "YAMAHA 標準")}
 ${gear("リード", 'Vandoren Traditional <span style="' + NUM + '">2.5</span>', true)}
+      </div>
+
+      <!-- 【便BF 2026-10-01 便BE の写し + 統括の指示】本文の末尾に、ブロック(上)と通報(下)の入口。
+           2つの間は --sp-2、上に --sp-6、どちらも本文の幅いっぱい・当たり 44・角 --r-pill・字 --fs-sm 700。
+           ブロックは地なし・枠 1px --c-line-strong・字 --c-ink-2(QUIET_OUTLINE_STYLE)、
+           通報は地なし・枠と字が --c-danger(DANGER_OUTLINE_STYLE)。
+           **文字は統括の指示で「ブロック」「通報」**(2026-10-01。実装の「この人をブロック」「この人を通報」は
+           別の便で直る)。押した先の確認のシート・通報のシートは別の便で作り直すので、正典には描かない。 -->
+      <div style="margin-top: var(--sp-6); display: grid; gap: var(--sp-2)">
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: 1px solid var(--c-line-strong); background: transparent; color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 700; padding: 0 var(--sp-4); box-sizing: border-box; display: flex; align-items: center; justify-content: center">ブロック</div>
+        <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: 1px solid var(--c-danger); background: transparent; color: var(--c-danger); font-size: var(--fs-sm); font-weight: 700; padding: 0 var(--sp-4); box-sizing: border-box; display: flex; align-items: center; justify-content: center">通報</div>
       </div>`);
 }
 
