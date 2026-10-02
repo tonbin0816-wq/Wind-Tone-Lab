@@ -101,6 +101,22 @@ describe("母数から消える(数える前に落とす)", () => {
     expect(JSON.stringify(hidden)).not.toBe(JSON.stringify(all));
     expect(JSON.stringify(back)).toBe(JSON.stringify(all));
   });
+  // 【便BO2 2026-10-02】倍音構成の平均からも、ブロックした人の分が外れる(解除すると戻る)。期待値は手計算。
+  it("みんなの平均の倍音構成: ブロックした人の分が外れる", () => {
+    const H = { a: [1, 0], b: [0, 1], c: [1, 0], d: [1, 0] };
+    const withH = IDEALS.map((x) => ({ ...x, notes: Object.fromEntries(Object.entries(x.notes).map(([k, v]) => [k, { ...v, harmonics: H[x.ownerUid] }])) }));
+    const list = addBlocked([], U("b"));
+    const all = cohortAverage(withH).notes["14"].harmonics;
+    const hidden = cohortAverage(hideBlockedIdeals(withH, list, "me")).notes["14"].harmonics;
+    expect(all.n).toBe(4);
+    expect(all.value[0]).toBeCloseTo(0.75, 9);
+    expect(all.value[1]).toBeCloseTo(0.25, 9);
+    expect(hidden.n).toBe(3);
+    expect(hidden.value[0]).toBeCloseTo(1, 9);
+    expect(hidden.value[1]).toBeCloseTo(0, 9);
+    const back = cohortAverage(hideBlockedIdeals(withH, removeBlocked(list, "b"), "me")).notes["14"].harmonics;
+    expect(back).toEqual(all);
+  });
 });
 
 describe("addBlocked / removeBlocked / normalizeBlockedList", () => {

@@ -158,9 +158,34 @@ export function cohortOrder(others) {
  * @returns { notes, count, baseUid } | { error }
  *   notes[音の番号][指標] = { value, n }(その音に値があった人数 n も返す)
  */
+// 【便BO2 2026-10-02 統括の裁定】倍音構成(harmonics)も平均する。取り込んだ「みんなの平均」の目安に
+// 倍音構成が入らないと、計測タブの音色一致度の倍音の項(重み 0.6)が常に 0 になっていた。
+//   ・平均に**入った人だけ**の分を足す(重心・HNR・音程と同じ母集団。揃えられずに外れた人・ブロック・絞り込みで
+//     落ちた人の分は入らない)
+//   ・揃え(平行移動)はしない。倍音構成は音の中での比率で、環境に依らない(COPIED_METRICS)
+//   ・音ごとに、次数(配列の添字)ごとの比をそのまま算術平均する。その次数の値を持っている人だけで割る(n は次数ごと)
+//   ・**正規化し直さない**。公開の倍音構成は、フレームごとに最大の倍音を 1 にした比(App.jsx の levelNorm)を
+//     音ごとに平均したもの(0〜1)で、人物の取り込みも同じ尺度のまま入る。比の算術平均も同じ 0〜1 の尺度に収まる。
+//     音色一致度はコサイン類似度(大きさに依らない)なので、尺度の揃え方で点は変わらない
+// 返す形は他の指標と同じ { value, n }(value は数値の配列、n はその音に倍音構成があった人数)。
+// cohortPlainProfile を通ると素の配列になり、alignProfile / copyProfile がそのまま写し、
+// toLocalNotes が人物の取り込みと同じ [{ n, norm }] の綴りへ戻す。
+function averageHarmonics(list) {
+  const len = Math.max(0, ...list.map((h) => h.length));
+  const out = [];
+  for (let i = 0; i < len; i++) {
+    const vs = list.map((h) => h[i]).filter(num);
+    // その次数を持っている人が居なければ 0(人物の側の作り方 `wm ?? 0` と同じ。配列に穴を空けない)
+    out.push(vs.length > 0 ? vs.reduce((s, v) => s + v, 0) / vs.length : 0);
+  }
+  return out;
+}
+
 export function cohortAverage(others) {
   const order = cohortOrder(others);
   const sums = {}; // notes[key][metric] = { sum, n }
+  // 【便BO2】倍音構成は数値の配列なので sums とは別に持つ(runningAverage が sum / n で割らないように)。
+  const harms = {}; // harms[key] = [配列, 配列, …](平均に入った人の分だけ)
   const addPerson = (notes, shift) => {
     for (const [key, note] of Object.entries(notes ?? {})) {
       for (const metric of SHIFTED_METRICS) {
@@ -176,6 +201,12 @@ export function cohortAverage(others) {
         sums[key].pitchCentsSigned ??= { sum: 0, n: 0 };
         sums[key].pitchCentsSigned.sum += note.pitchCentsSigned;
         sums[key].pitchCentsSigned.n += 1;
+      }
+      // 【便BO2】倍音構成は揃えずにそのまま積む(shift は使わない)
+      const h = note?.harmonics;
+      if (Array.isArray(h) && h.length > 0 && h.every(num)) {
+        harms[key] ??= [];
+        harms[key].push(h);
       }
     }
   };
@@ -225,6 +256,11 @@ export function cohortAverage(others) {
       // 【その音に値があった人数も返す】音ごとに母数が違う。
       notes[key][metric] = { value: sum / n, n };
     }
+  }
+  // 【便BO2】倍音構成の平均。重心・HNR・音程の値には1つも触らない(別の鍵に足すだけ)。
+  for (const [key, list] of Object.entries(harms)) {
+    notes[key] ??= {};
+    notes[key].harmonics = { value: averageHarmonics(list), n: list.length };
   }
   return { notes, count, baseUid: order[0]?.ownerUid ?? null };
 }

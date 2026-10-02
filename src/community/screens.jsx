@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
@@ -6,10 +6,12 @@ import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, cohortPlainProfile, alignProfile, copyProfile, noteValues } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
-import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
+import { sanitizeNotes, buildAdoptedProfile, ADOPTED_DONE_NOTE } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
 // 【便BI 2026-10-02】重心・HNR の用語の吹き出しは、リード・データの指標タブと共有する1つ(src/termTip.jsx)。
 import { TermTip, TermMark, termTabHinted, termTabProps } from "../termTip.jsx";
+// 【便BO 2026-10-02】みんなの平均カードを押したとき、吹き出しが開いていたか・吹き出しの中を押したかを読む。
+import { termTipOpenWithin, inTermTip } from "../termTip.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
@@ -80,6 +82,19 @@ const eyebrowStyle = { fontSize: 10, fontWeight: 600, letterSpacing: ".08em", co
 // 間隔は既にこの画面が使っている --sp-3。新しい数は作らない
 // (App.jsx の FLOAT_ACTION_SPACER_H と同じ考え方。あちらは絵柄だけの 56 角なので値が違う)。
 const ADOPT_STICKY_SPACER_H = "calc(var(--tap-min) + var(--sp-3))";
+// 【便BO 2026-10-02】人物のページの右下に貼り付く「目安に設定」のボタンの見た目。**読むのは人物のページだけ。**
+// 値は人物のページのボタンに直書きしてあったものを1字も変えずに移しただけ(束2・束5・便O の裁定のまま)。
+// 【便BO3 2026-10-03 統括の裁定】みんなの平均の確認のシートの主の一手は、これではなく**シートの中の主ボタンの標準**
+// (SHEET_PRIMARY_BUTTON_STYLE)を読む。これは浮かせるボタン(影つき・--fs-sm 600)の見た目で、シートの中のボタンではない。
+const ADOPT_BUTTON_STYLE = {
+  minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
+  padding: "0 var(--sp-5)", border: "none",
+  borderRadius: "var(--r-pill)",
+  background: "var(--c-accent)", color: "var(--c-on-accent)",
+  fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
+  boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+  cursor: "pointer",
+};
 
 // ------------------------------------------------------------------
 // 指標の切替は**下線タブ**。現行アプリの MetricUnderlineTabs(App.jsx)と同じ作り。
@@ -362,9 +377,10 @@ function CapNotice({ count }) {
 // **絞り込み中の0件だけ** onClear を受け取り、「条件を外す」を出す。
 // 3画面が同じこの1つを使う(写しを作らない)。onClear を渡さない呼び手の見た目は
 // 1px も変わらない ── ボタンごと描かれないため。
-function Empty({ children, onClear = null }) {
+// 【便BO2 2026-10-02】id … 読み上げの説明(aria-describedby)から指すときだけ渡す。渡さない呼び手は属性も足さない。
+function Empty({ children, onClear = null, id = undefined }) {
   return (
-    <div className="sans" style={{ ...noteStyle, padding: "var(--sp-4) 0", textAlign: "center" }}>
+    <div id={id} className="sans" style={{ ...noteStyle, padding: "var(--sp-4) 0", textAlign: "center" }}>
       {/* 【C2・C3 2026-09-16】align.js の文言は改行の文字で2行に分かれている。pre-line で効かせる。 */}
       <div style={{ whiteSpace: "pre-line" }}>{children}</div>
       {onClear ? (
@@ -1040,9 +1056,11 @@ function LegendSwatch({ s }) {
   );
 }
 
-function Legend({ series }) {
+// 【便BO2 2026-10-02】id … みんなの平均の台紙が読み上げの説明(aria-describedby)から指すときだけ渡す。
+// 人物のページは渡さない(属性も足さない)。見た目は変わらない。
+function Legend({ series, id = undefined }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+    <div id={id} style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
       {series.map((s) => (
         <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "var(--sp-1)" }}>
           <LegendSwatch s={s} />
@@ -1056,7 +1074,9 @@ function Legend({ series }) {
 // 【便AO 2026-09-24 tuningHz】横軸の実音の音名を引くのに要る(自分の基準ピッチ。
 // CommunityTab が buildMyIdeals に渡しているものと同じ値)。
 // 【便BC 審査】active = ページャでこの画面が表に出ているか。裏へ回ったら用語の説明を閉じる(既定は true)。
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true }) {
+// 【便BO 2026-10-02 本人指示】onAdopt = みんなの平均を目安に設定する受け口(人物のページの onAdopt と同じ1つ。
+// CommunityTab が App.jsx の onAdoptIdeal を渡す)。渡さない呼び手ではカードは押しても何も起きない。
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true, onAdopt = null }) {
   // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
@@ -1082,6 +1102,11 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     () => ({ notes: sanitizeNotes(myIdeals?.[saxType]?.notes) }), [myIdeals, saxType]);
   // 【便BA 2026-09-25 本人指示】みんなの平均は**自分の計測に関係なく**、他の人どうしで揃えて出す。
   const avg = useMemo(() => cohortAverage(others), [others]);
+  // 【便BO 2026-10-02 本人指示】平均の素の形と、自分へ揃えた形を**1度だけ**作る。グラフにも「目安に設定」にも
+  // 同じものを使う(PersonSheet の theirShown と同じ考え方。別々に計算すると、描いている線と取り込む値が食い違いうる)。
+  // 以前はグラフの useMemo の中で同じ2行(cohortPlainProfile / alignProfile)を計算していた。式は1つも変えていない。
+  const avgPlain = useMemo(() => (avg.error ? null : cohortPlainProfile(avg)), [avg]);
+  const avgAligned = useMemo(() => (avgPlain ? alignProfile(mineShared, avgPlain) : null), [avgPlain, mineShared]);
 
   const m = METRICS.find((x) => x.key === metric) ?? METRICS[0];
   const chart = useMemo(() => {
@@ -1089,8 +1114,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     // 【便BA】平均と自分の共通音が 3 音以上あれば、**平均の側を自分の高さへ平行移動**して重ねる
     // (自分の値は動かさない。以前と同じ見え方)。足りなければ(自分の計測が無いときも)自分の線は出さず、
     // 平均は揃えない高さ(基準の人の高さ)のまま出す。
-    const plain = cohortPlainProfile(avg);
-    const aligned = alignProfile(mineShared, plain);
+    const plain = avgPlain;
+    const aligned = avgAligned;
     // 【便AO】3指標ぶんを作る(byMetric。R12 の柱の幅を測るのに要る)。描くのは m.key の分。
     // 【便AQ】線ごとに**その線の持っている音で**拾う(noteValues)。平均のある音で自分を絞らない。
     const avgBy = Object.fromEntries(METRICS.map((x) => [x.key, noteValues((aligned ?? plain).notes, x.key)]));
@@ -1103,7 +1128,67 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
     }
     if (series.every((x) => Object.keys(x.values).length === 0)) return null;
     return { series, withMine: Boolean(aligned) };
-  }, [avg, mineShared, m.key]);
+  }, [avg, avgPlain, avgAligned, mineShared, m.key]);
+
+  // ------------------------------------------------------------------
+  // 【便BO 2026-10-02 本人指示】「みんなの平均カードをタップで、そのとき抽出されている条件の平均の目安に
+  // 設定するか聞いて設定する導線を作って。表のカードのレイアウトは変えないで」。
+  //   ・押せるのは平均が出ているとき(avg.error が無い)だけ。「あと○人…」・エラーでは何も起きない
+  //   ・押して反応するのはカードの中の**指標タブの列(role="tablist")と用語の吹き出し以外**
+  //     (見出し・人数・グラフ・凡例・台紙の余白)。タブの押し直し(吹き出しの開け閉め)とぶつけない
+  //   ・吹き出しが開いているあいだに押したら、吹き出しを閉じるだけ(シートは開かない)。
+  //     吹き出しは document の pointerdown で閉じる(termTip.jsx)ので、click の時点ではもう閉じている。
+  //     そこで**押し始め(pointerdown)の時点で開いていたか**を控えておき、click で読む。
+  //     カードの pointerdown は React の根で配られ、document の聞き手より先に走る(吹き出しはまだ在る)
+  //   ・カードの見た目は1px も変えない(style・クラス・子の並びはそのまま。足すのは押したときの処理と読み上げだけ)
+  // 取り込む値は**カードが描いている平均そのもの**(揃えられたら揃えた値、揃えられなければ揃えない写し)。
+  // 印(alignedAtAdopt)は人物と同じ規則で buildAdoptedProfile が付ける(揃えられた = true / 揃えない写し = false)。
+  // ------------------------------------------------------------------
+  const [adoptOpen, setAdoptOpen] = useState(false);
+  const [adoptError, setAdoptError] = useState(null);
+  const tipOpenAtDownRef = useRef(false);
+  const adoptable = Boolean(onAdopt && !avg.error && avgPlain);
+  // 【便BO2 2026-10-02 統括の裁定】台紙(role="button")の読み上げ。以前は aria-label で名前を付けていたが、
+  // aria-label は中身の読み上げを置き換えるので、凡例と「あなたの計測データもお待ちしています」が読まれなくなっていた。
+  //   名前 … 見えない要素(hidden)の「みんなの平均を目安に設定」を aria-labelledby で指す(名前は変えていない)
+  //   説明 … 凡例と下の1行(グラフが無いときは「この指標のデータがありません」)を aria-describedby で添える
+  const adoptNameId = useId();
+  const avgLegendId = useId();
+  const avgEmptyId = useId();
+  const avgWaitId = useId();
+  // 名前と本文に入れる条件。【便BO3 2026-10-03 統括の裁定】**ジャンル・属性のうち、付いているものだけ**(楽器は入れない ──
+  // 目安の一覧が名前の後ろに楽器を付けるので、名前に入れると二重になる)。条件の語を拾うのは0件の文と同じ filterTerms だが、
+  // つなぎ方は違う(0件の文は「 × 」、ここは記号を使わず余白で並べる・名前は半角の空白1つ)。楽器は本文の頭にだけ出す(シート側)。
+  const adoptTerms = filterTerms(filter, ["genre", "position"]);
+  const openAdopt = () => { setAdoptError(null); setAdoptOpen(true); };
+  const onCardPointerDown = (e) => {
+    tipOpenAtDownRef.current = termTipOpenWithin(e.currentTarget);
+  };
+  // 【便BO3 2026-10-03 審査の指摘】押し始めのあと click が来ない(指がスクロールに変わった・中断された)ときは
+  // ブラウザが pointercancel を出す。控えた印をそこで戻す(残すと、次の pointerdown を伴わない click が
+  // 「吹き出しが開いていた」と読まれて何も起きなくなる)。
+  const onCardPointerCancel = () => { tipOpenAtDownRef.current = false; };
+  const onCardClick = (e) => {
+    const wasTipOpen = tipOpenAtDownRef.current;
+    tipOpenAtDownRef.current = false;
+    // タブの列(押し直しの吹き出しを含む)と吹き出しの中は、それぞれが自分で受ける。
+    if (e.target.closest?.('[role="tablist"]') || inTermTip(e.target)) return;
+    if (wasTipOpen || !adoptable) return;
+    openAdopt();
+  };
+  const adoptNow = () => {
+    // 揃えられたら揃えた値、揃えられなければ揃えない写し(PersonSheet の theirShown と同じ規則)。
+    const shown = avgAligned ?? copyProfile(avgPlain);
+    const r = onAdopt({
+      aligned: shown,
+      theirIdeal: { saxType },
+      nickname: null,
+      name: cohortAdoptName(adoptTerms),
+      announce: true,
+    });
+    if (r?.error) { setAdoptError(r.error); return; }
+    setAdoptOpen(false);
+  };
 
   return (
     <div style={subPageStyle}>
@@ -1114,7 +1199,12 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           .surf-card の中に描かれるので、累計カードと同じ仕組みがそのまま効く)。影・角丸・padding は他のカードと同じ。
           濃紺の上に置くのは 見出し・人数・指標の切り替えだけ。**切り替えより下は白い台紙の中**
           (グラフの線の色は白地の決まりのまま使えるので、1本も変えていない)。 */}
-      <div className="card card-accent">
+      {/* 【便BO 2026-10-02 本人指示】押すと「みんなの平均を目安に設定しますか」の確認のシート。
+          足すのは押したときの処理だけで、クラス・style・子の並びは1つも変えていない(押せる印も足さない)。 */}
+      <div className="card card-accent"
+           onPointerDown={adoptable ? onCardPointerDown : undefined}
+           onPointerCancel={adoptable ? onCardPointerCancel : undefined}
+           onClick={adoptable ? onCardClick : undefined}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
           <div className="sans jp-label" style={{ ...eyebrowStyle, color: "var(--c-on-accent-dim)" }}>みんなの平均</div>
           {avg.error ? null : (
@@ -1128,13 +1218,22 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           <MetricTabs value={metric} onChange={setMetric} onAccent active={active} />
         </div>
         {/* 【便BC】白い台紙。地 --c-surface・角丸 --r-1・内側 10px(モック .inset の値)。 */}
-        <div data-avg-inset style={{ marginTop: "var(--sp-2)", background: "var(--c-surface)", borderRadius: "var(--r-1)", padding: 10 }}>
+        {/* 【便BO】キーボードと読み上げの入口は、この白い台紙(グラフ・凡例)1つ。カードそのものを
+            role="button" にすると、中の指標タブが読み上げから消える(ボタンの子は飾り扱い)ので、タブを含まない
+            台紙に持たせる。フォーカスの輪郭は同じ画面の一覧の行(role="button" の div)と同じくブラウザの既定のまま
+            (style は足さない)。押したとき(マウス・指)はカードの onClick が受けるので、ここは Enter / Space だけ。 */}
+        <div data-avg-inset style={{ marginTop: "var(--sp-2)", background: "var(--c-surface)", borderRadius: "var(--r-1)", padding: 10 }}
+             role={adoptable ? "button" : undefined}
+             tabIndex={adoptable ? 0 : undefined}
+             aria-labelledby={adoptable ? adoptNameId : undefined}
+             aria-describedby={adoptable ? [chart ? avgLegendId : avgEmptyId, chart && !chart.withMine ? avgWaitId : null].filter(Boolean).join(" ") : undefined}
+             onKeyDown={adoptable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openAdopt(); } } : undefined}>
           {avg.error ? (
             <Empty>{avg.error}</Empty>
           ) : (
             <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-              {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty>この指標のデータがありません</Empty>}
-              {chart ? <Legend series={chart.series} /> : null}
+              {chart ? <CommunityNoteChart chart={chart} metric={m} saxType={saxType} tuningHz={tuningHz} /> : <Empty id={avgEmptyId}>この指標のデータがありません</Empty>}
+              {chart ? <Legend series={chart.series} id={avgLegendId} /> : null}
               {/* 【便BC 2026-09-25 本人指示】ここにあった「計測環境により値全体が一律にずれるため、…」
                   (自分の線と重ねているとき)は、重心・HNR の用語の説明の一番下へ移した(MetricTabs)。
                   平行移動を知らずに見ると差を絶対値の差と読んでしまう、という理由の注意書きなので、
@@ -1143,12 +1242,25 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
                   「あなたの計測データもお待ちしています」の1行を出す。
                   【便BA 再審査】グラフが無い(この指標のデータがありません)ときは出さない。 */}
               {chart && !chart.withMine ? (
-                <div className="sans" style={bodyNoteStyle}>{MINE_WAITING_NOTE}</div>
+                <div id={avgWaitId} className="sans" style={bodyNoteStyle}>{MINE_WAITING_NOTE}</div>
               ) : null}
             </div>
           )}
         </div>
       </div>
+      {/* 【便BO2】台紙の読み上げの名前。hidden なので描かれず、場所も取らない(grid の子にもならない)。
+          カードの外に置く ── カードの中の要素・style を1つも増やさないため。 */}
+      {adoptable ? <span id={adoptNameId} hidden>{COHORT_ADOPT_ENTRY_LABEL}</span> : null}
+
+      {/* 【便BO】確認のシート。カードの**外**(兄弟)に置く ── シートは body へ出るが、React の上では
+          親へ click が伝わるので、カードの中に置くとシートの中を押すたびにカードの onClick が走る。 */}
+      {adoptOpen && adoptable ? (
+        <CohortAdoptSheet
+          saxLabel={SAX_LABELS[saxType] ?? saxType} terms={adoptTerms} count={avg.count} error={adoptError}
+          onConfirm={adoptNow}
+          onClose={() => setAdoptOpen(false)}
+        />
+      ) : null}
 
       {/* 【見出しを置かない】2026/09/06 本人指示。下の一覧が自分で名乗るので要らない
           (§6.0「説明を消して形に語らせる」) */}
@@ -1545,7 +1657,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
                     </div>
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>
-                        目安に設定しました。計測タブで比べられます
+                        {/* 【便BO】綴りはみんなの平均の知らせ(帯)と同じ1つ(idealDoc.js)。文は変えていない。 */}
+                        {ADOPTED_DONE_NOTE}
                       </div>
                     ) : null}
                     {adopted?.error ? (
@@ -1636,15 +1749,8 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
               const r = onAdopt({ aligned: theirShown, theirIdeal, nickname: person.nickname });
               setAdopted(r?.error ? { error: r.error } : { ok: true });
             }}
-            style={{
-              minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
-              padding: "0 var(--sp-5)", border: "none",
-              borderRadius: "var(--r-pill)",
-              background: "var(--c-accent)", color: "var(--c-on-accent)",
-              fontSize: "var(--fs-sm)", fontWeight: 600, lineHeight: 1.2,
-              boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-              cursor: "pointer",
-            }}
+            /* 【便BO】見た目は ADOPT_BUTTON_STYLE(このボタンだけが読む)。値は1つも変えていない。 */
+            style={ADOPT_BUTTON_STYLE}
           >目安に設定</button>
         </div>
       ) : null}
@@ -1733,6 +1839,63 @@ export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
       <div style={sheetButtonStackStyle}>
         <button type="button" onClick={onConfirm} className="sans" style={DANGER_OUTLINE_STYLE}>
           ブロックする
+        </button>
+        <button type="button" onClick={onClose} className="sans ctl-plain ctl-pill" style={SHEET_QUIET_BUTTON_STYLE}>
+          やめる
+        </button>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ------------------------------------------------------------------
+// 【便BO 2026-10-02 本人指示】みんなの平均を目安に設定するかの確認のシート
+//
+// 作法はブロックの確認(BlockConfirmSheet)と同じ: 器は BottomSheet、見出し(sheetTitleStyle)・本文の段落
+// (blockNoteStyle・上 --sp-2)・縦に2つ積むボタン(sheetButtonStackStyle)。
+//   ・見出し … 「みんなの平均を目安に設定しますか」(読み上げの名前も同じ綴り)
+//   ・本文   … そのとき抽出されている条件と人数を1行。【便BO3 2026-10-03 統括の裁定】中黒(·)は本人裁定で廃止ずみなので、
+//              記号を使わず余白(gap 9。WhoLine / InfoLine と同じ作法)で並べる:「A.Sax クラシック 学生 の12人の平均」。
+//              条件が付いていない項目(ジャンル・属性の「すべて」)は出さない。人数は平均に入った人数(カードの数と同じ)。
+//              楽器は条件の頭に置く(名前からは外したが、このシートには楽器を言う場所がほかに無い ── 条件の行は暗幕の下で、
+//              目安は楽器ごとのものなので、何の平均かを本文で言い切る)
+//   ・主の一手 … 「目安に設定」。【便BO3】シートの中の主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE。目安に設定のシートの
+//              「保存」・リード追加の「追加」と同じ --tap-min / --r-pill / --c-accent / --fs-md 700 / 影なし)
+//   ・やめる   … B型の素のボタン(ブロックの確認の「やめる」と同じ SHEET_QUIET_BUTTON_STYLE)。何も保存しない
+//   ・取り込めなかったとき(buildAdoptedProfile のエラー)は、通報のシートの失敗と同じ1行をボタンの上に出して閉じない
+// 名前は「みんなの平均（クラシック 学生）」(全角の括弧・条件の区切りは半角の空白1つ・楽器は入れない)。
+// 同じ名前の目安が既にあっても、人物の取り込みと同じく**別の目安として足す**(App.jsx の onAdoptIdeal)。
+// ------------------------------------------------------------------
+export const COHORT_ADOPT_TITLE = "みんなの平均を目安に設定しますか";
+// カードの白い台紙(キーボード・読み上げの入口)の名前。
+const COHORT_ADOPT_ENTRY_LABEL = "みんなの平均を目安に設定";
+// 【便BO3】条件(ジャンル・属性)が1つも無いとき(データ画面からは「楽器のほかに条件が無い」とき)は「みんなの平均」だけ。
+export function cohortAdoptName(terms) {
+  return terms.length > 0 ? `みんなの平均（${terms.join(" ")}）` : "みんなの平均";
+}
+// 【便BO3 2026-10-03 統括の裁定】シートの中の主ボタンの標準。値は目安に設定のシートの「保存」・リード追加の「追加」
+// (App.jsx)と同じ: 高さ --tap-min / --r-pill / 枠なし / 地 --c-accent / 字 --c-on-accent / --fs-md / 700 / 影なし。
+// 幅いっぱいは、縦に積む「やめる」(SHEET_QUIET_BUTTON_STYLE)と同じ。
+const SHEET_PRIMARY_BUTTON_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
+  background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
+};
+function CohortAdoptSheet({ saxLabel, terms, count, error, onConfirm, onClose }) {
+  return (
+    <BottomSheet ariaLabel={COHORT_ADOPT_TITLE} onClose={onClose}>
+      <div className="sans" style={sheetTitleStyle}>{COHORT_ADOPT_TITLE}</div>
+      {/* 【便BO3】記号で区切らず余白で並べる(WhoLine / InfoLine と同じ gap 9・折り返してよい)。 */}
+      <div className="sans" data-cohort-adopt-line style={{ ...blockNoteStyle, marginTop: "var(--sp-2)", display: "flex", flexWrap: "wrap", gap: 9 }}>
+        {[saxLabel, ...terms].map((t) => <span key={t}>{t}</span>)}
+        {/* 人数は数値なので --font-num(§4.3。カードの人数と同じ) */}
+        <span>の<span style={{ fontFamily: "var(--font-num)" }}>{count}</span>人の平均</span>
+      </div>
+      {error ? (
+        <div className="sans" role="alert" style={{ ...noteStyle, marginTop: "var(--sp-3)", color: "var(--c-bad)" }}>{error}</div>
+      ) : null}
+      <div style={sheetButtonStackStyle}>
+        <button type="button" onClick={onConfirm} className="sans" style={SHEET_PRIMARY_BUTTON_STYLE}>
+          目安に設定
         </button>
         <button type="button" onClick={onClose} className="sans ctl-plain ctl-pill" style={SHEET_QUIET_BUTTON_STYLE}>
           やめる

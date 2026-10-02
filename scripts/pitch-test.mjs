@@ -22687,8 +22687,9 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
   check("45 A-6 Empty は1つだけ定義されている",
     countOf(screensCode, "function Empty(") === 1,
     `${countOf(screensCode, "function Empty(")}件`);
+  // 【便BO2 2026-10-02】読み上げの説明から指すための id を任意で受けるようになった(渡さない呼び手は属性も足さない)。
   check("45 A-6 Empty が onClear を受け取る",
-    /function Empty\(\{ children, onClear = null \}\)/.test(screensCode));
+    /function Empty\(\{ children, onClear = null, id = undefined \}\)/.test(screensCode));
   check("45 A-6 「条件を外す」の綴りは Empty の中に1つだけ",
     countOf(screensCode, "条件を外す") === 1,
     `${countOf(screensCode, "条件を外す")}件`);
@@ -22738,7 +22739,10 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     countOf(screensCode, '.join(" × ")}で、') === 3,
     `${countOf(screensCode, '.join(" × ")}で、')}件`);
   check("45 A-6 数えない鍵は渡さない(シェア・データは genre と position だけ)",
-    countOf(screensCode, 'filterTerms(filter, ["genre", "position"])') === 2
+    // 【便BO3 2026-10-03 統括の裁定】みんなの平均を目安に設定するときの名前・本文の条件も genre と position だけ
+    // (楽器は目安の一覧が名前の後ろに付ける)。シェア・データの0件の文の2件に、その1件(const adoptTerms)が加わって3件。
+    countOf(screensCode, 'filterTerms(filter, ["genre", "position"])') === 3
+    && countOf(screensCode, 'const adoptTerms = filterTerms(filter, ["genre", "position"]);') === 1
     && countOf(screensCode, 'filterTerms(filter, ["saxType", "genre", "position"])') === 1);
   // 【便H 2026-09-16 で綴りが動いた】C5・C6: 期間は助詞込みの PERIOD_PHRASE(「すべてに」→「すべての期間で」)。
   // C4:「公開されている目安」→「公開されているデータ」。検証52 が綴りそのものを縛る。
@@ -23141,7 +23145,9 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       JSON.stringify(gotConsts46) === JSON.stringify([...allowConsts46].sort()), gotConsts46.join(" | "));
     const allowFns46 = ["App.jsx:WindToneLabPhaseMode", "App.jsx:MeasureView", "App.jsx:pitchCellColor",
       "backup/BackupPanel.jsx:BackupPanel", "community/CommunityTab.jsx:ProfileForm",
-      "community/screens.jsx:PersonSheet", "community/screens.jsx:ReportSheet"];
+      "community/screens.jsx:PersonSheet", "community/screens.jsx:ReportSheet",
+      // 【便BO 2026-10-02】みんなの平均の確認のシート。取り込めなかったときの1行の字(--c-bad)。地ではない。
+      "community/screens.jsx:CohortAdoptSheet"];
     const gotFns46 = scan46.redFns.map((c) => `${c.file}:${c.name}`).sort();
     check("46 B-3 / 便BI 再審査 本体に赤を含む関数は許可の一覧の外に無い(画面の部品と pitchCellColor。許可しても地の式で呼べば上で拾う)",
       JSON.stringify(gotFns46) === JSON.stringify([...allowFns46].sort()), gotFns46.join(" | "));
@@ -26117,12 +26123,16 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     check("62.5 2-E 貼り付ける仕組みは変えていない(sticky / bottom 0 / zIndex 1 / 右寄せ)",
       /position: "sticky", bottom: 0, zIndex: 1/.test(box62)
       && /display: "flex", justifyContent: "flex-end"/.test(box62));
+    // 【便BO 2026-10-02】ボタンの見た目は ADOPT_BUTTON_STYLE(みんなの平均の確認のシートと共有する1つ)へ移した。
+    // 値は1字も変えていないので、同じ綴りをその定義から読み、人物のページがそれを読んでいることを見る。
+    const btn62 = (/const ADOPT_BUTTON_STYLE = \{[\s\S]*?\n\};/.exec(all62) || [""])[0];
     check("62.5 2-E ボタンの影・寸法・色は1つも変えていない(浮きは影だけが返す)",
-      /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(person62)
-      && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(person62)
-      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(person62)
-      && /borderRadius: "var\(--r-pill\)"/.test(person62)
-      && /padding: "0 var\(--sp-5\)"/.test(person62));
+      /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(btn62)
+      && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)"/.test(btn62)
+      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)"/.test(btn62)
+      && /borderRadius: "var\(--r-pill\)"/.test(btn62)
+      && /padding: "0 var\(--sp-5\)"/.test(btn62)
+      && /style=\{ADOPT_BUTTON_STYLE\}\s*\r?\n\s*>目安に設定<\/button>/.test(person62));
     // 【便BA 2026-09-25 本人指示】渡す値は theirShown(揃えられたら揃えた値、揃えられなければ揃えない写し)。
     // 受け口の名前(aligned / theirIdeal / nickname)と行き先は変えていない。
     check("62.5 2-E → 便BA 行き先は変えていない(onAdopt に aligned / theirIdeal / nickname を渡す。aligned は theirShown)",
@@ -27016,11 +27026,14 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     && person65.indexOf("ADOPT_STICKY_SPACER_H") < person65.indexOf('position: "sticky", bottom: 0'));
   check("65.4 5-D 空きは取り込みの一手が出るときだけ置く(ボタンと対で在る)",
     /\{showAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}/.test(person65));
+  // 【便BO 2026-10-02】寸法・色・影は ADOPT_BUTTON_STYLE(共有の1つ)の定義から読む。人物のページはそれを読む。
+  const btn65 = (/const ADOPT_BUTTON_STYLE = \{[\s\S]*?\n\};/.exec(screens65) || [""])[0];
   check("65.4 5-D 束2 の裁定どおり sticky と寸法・色・影は1つも変えていない",
     /position: "sticky", bottom: 0, zIndex: 1,/.test(person65)
-    && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person65)
-    && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(person65)
-    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person65));
+    && /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(btn65)
+    && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(btn65)
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(btn65)
+    && /style=\{ADOPT_BUTTON_STYLE\}/.test(person65));
   // 【便BC 2026-09-25 本人指示】この注記は重心・HNR の用語の説明(MetricTabs の吹き出し)の一番下へ移った。
   // 人物シートの本文からは消え、綴りはファイルに1件(TERM_SHARED_NOTE)だけ。言い換えも写しも作っていない。
   // 【便BI 2026-10-02】吹き出しは共有の部品(src/termTip.jsx)へ移ったので、綴りの1件も向こうにある(screens.jsx は0件)。
@@ -27463,7 +27476,9 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
   check("69.5 貼り付ける仕組みと寸法・色・影は1つも変えていない(束2・束5 の裁定)",
     /position: "sticky", bottom: 0, zIndex: 1,/.test(person69)
     && /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(screens69)
-    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test(person69));
+    // 【便BO 2026-10-02】影は ADOPT_BUTTON_STYLE(共有の1つ)の定義から読む。人物のページはそれを読む。
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/.test((/const ADOPT_BUTTON_STYLE = \{[\s\S]*?\n\};/.exec(screens69) || [""])[0])
+    && /style=\{ADOPT_BUTTON_STYLE\}/.test(person69));
   console.log("  -> done");
 }
 
@@ -27625,10 +27640,13 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     check("71.3 凡例と注記の詰めはトークン1つ(--sp-2)。px の直書きをしていない",
       /<div style=\{\{ display: "grid", gap: "var\(--sp-2\)" \}\}>\s*\r?\n\s*<Legend series=\{chart\.series\} \/>/.test(person71));
     // **ボタンの寸法・色・影は1つも変えない**(束2・束5・便O の裁定)。
+    // 【便BO 2026-10-02】高さ・地・字・影は ADOPT_BUTTON_STYLE(共有の1つ)の定義から読む。人物のページはそれを読む。
+    const btn71 = (/const ADOPT_BUTTON_STYLE = \{[\s\S]*?\n\};/.exec(codeOf(screensRaw71)) || [""])[0];
     check("71.3 ボタンの4点(高さ / 地 / 字 / 影)が1つも変わっていない",
-      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(person71)
-      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(person71)
-      && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person71)
+      /minHeight: "var\(--tap-min\)", minWidth: "var\(--tap-min\)",/.test(btn71)
+      && /background: "var\(--c-accent\)", color: "var\(--c-on-accent\)",/.test(btn71)
+      && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(btn71)
+      && /style=\{ADOPT_BUTTON_STYLE\}/.test(person71)
       && /position: "sticky", bottom: 0, zIndex: 1,/.test(person71));
     check("71.3 空きの高さの式は束5 のまま(新しい数を作っていない)",
       /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(codeOf(screensRaw71)));
@@ -30995,7 +31013,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- 89.1 平均カード ------------------------------------------------------------
   check("89.1 みんなの平均カードは .card-accent(地は index.css の1規則。インラインで地を書かない)",
-    /<div className="card card-accent">/.test(data89) && !/className="card card-accent" style=/.test(data89));
+    // 【便BO 2026-10-02 本人指示】押すと目安に設定の確認のシート。足したのは押したときの処理の2つだけ(style は無いまま)。
+    // 【便BO3 2026-10-03】押し始めの中断(pointercancel)で控えた印を戻す受け口が加わった(3つ。style は無いまま)。
+    /<div className="card card-accent"\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
+    && !/className="card card-accent"[^>]*style=/.test(data89));
   // 34.5 は App.jsx だけを数えている(累計カード1枚)。コミュニティの1枚はここで数える。
   check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚だけ",
     count89(codeOf(src), /className="card card-accent"/g) === 1 && count89(scr89, /card-accent/g) === 1
@@ -31007,11 +31028,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /style=\{\{ \.\.\.eyebrowStyle, color: "var\(--c-on-accent-dim\)" \}\}>みんなの平均/.test(data89)
     && /style=\{\{ \.\.\.noteStyle, color: "var\(--c-on-accent-dim\)" \}\}>/.test(data89)
     && /fontWeight: 700, color: "var\(--c-on-accent\)" \}\}>\{avg\.count\}/.test(data89));
+  // 【便BO 2026-10-02】台紙はキーボード・読み上げの入口(role="button"・Enter / Space)を持つようになった。style は同じ綴りのまま。
   check("89.1 切り替えより下は白い台紙(--c-surface・--r-1・内側 10px)。グラフ・凡例・0件・エラーは台紙の中",
-    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}>/.test(data89)
+    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}\s*\r?\n\s*role=\{adoptable \? "button" : undefined\}\s*\r?\n\s*tabIndex=\{adoptable \? 0 : undefined\}\s*\r?\n\s*aria-labelledby=\{adoptable \? adoptNameId : undefined\}\s*\r?\n\s*aria-describedby=\{adoptable \? [^\n]*: undefined\}\s*\r?\n\s*onKeyDown=\{adoptable \? \(e\) => \{[^\n]*\} : undefined\}>/.test(data89)
     && (() => {
       const i = data89.indexOf("<div data-avg-inset"), j = data89.indexOf("<CommunityNoteChart"), k = data89.indexOf("<Empty>{avg.error}</Empty>");
-      const l = data89.indexOf("<Legend series={chart.series} />"), t = data89.indexOf("<MetricTabs");
+      // 【便BO2 2026-10-02】凡例は台紙の読み上げの説明から指すので id を持つ(見た目は同じ)。
+      const l = data89.indexOf("<Legend series={chart.series} id={avgLegendId} />"), t = data89.indexOf("<MetricTabs");
       return i > 0 && t > 0 && t < i && j > i && k > i && l > i;
     })());
   check("89.1 平均カードの切り替えは MetricTabs の濃紺版(onAccent)",
@@ -31048,7 +31071,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("89.2 2箇所(平均カード・人物のページ)が同じ MetricTabs を使う。グラフの下に揃えの注記は無い",
     count89(scr89, /<MetricTabs /g) === 2 && data89.includes("<MetricTabs") && person89.includes("<MetricTabs")
     && !data89.includes(SHARED89) && !person89.includes(SHARED89)
-    && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
+    // 【便BO2 2026-10-02】1行は台紙の読み上げの説明(aria-describedby)から指すので id を持つ。見た目の綴りは同じ。
+    && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div id=\{avgWaitId\} className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
   // 【便BI 2026-10-02】「?」(TermMark)と読み上げの属性(termTabProps)は termTip.jsx の1つ。コミュニティの
   // UnderlineTabs と App.jsx の MetricUnderlineTabs が同じものを読む(写しを作らない)。
   {
@@ -31262,8 +31286,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     !dataDcBF.includes(alignNoteBF) && !personDcBF.includes(alignNoteBF));
   check("BF.3 便BC 正典 CommData: みんなの平均のカードは濃紺(--c-accent)で、見出しは --c-on-accent-dim",
     /box-shadow: var\(--shadow-card\); background: var\(--c-accent\)">\s*<div[^>]*>\s*<div style="[^"]*color: var\(--c-on-accent-dim\)">みんなの平均<\/div>/.test(dataDcBF));
+  // 【便BO 2026-10-02 → 便BO2 で訂正】実装の台紙は入口の属性(role / tabIndex / aria-labelledby / aria-describedby / onKeyDown)を
+  // 後ろに持つ(便BO2 で aria-label をやめた ── 中身の読み上げを置き換えるため)。style は同じ綴りのまま。
   check("BF.3 便BC 正典 CommData: グラフと凡例は白い台紙(--c-surface・角 --r-1・内側 10px。実装の data-avg-inset と同じ)の中",
-    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}>/.test(screensBF)
+    /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}\s*\r?\n\s*role=\{adoptable \? "button" : undefined\}\s*\r?\n\s*tabIndex=\{adoptable \? 0 : undefined\}\s*\r?\n\s*aria-labelledby=\{adoptable \? adoptNameId : undefined\}\s*\r?\n\s*aria-describedby=\{adoptable \? [^\n]*: undefined\}\s*\r?\n\s*onKeyDown=\{adoptable \? \(e\) => \{[^\n]*\} : undefined\}>/.test(screensBF)
     && /<div style="margin-top: var\(--sp-2\); background: var\(--c-surface\); border-radius: var\(--r-1\); padding: 10px">\s*<div style="display: grid; gap: var\(--sp-2\)">\s*<svg/.test(dataDcBF));
   // 【便BJ 2026-10-02 本人指示】指標タブの並びは My Data・リードと同じ「音程・HNR・重心」(左から)、
   // 最初に選ばれているのは一番左の音程(screens.jsx の METRICS[0])。正典は開いた直後の姿なので、
@@ -31488,6 +31514,88 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BN.2 参加前の画面・編集のフォームは共有の pageStyle のまま(子タブの行の下に居ない)",
     /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "JoinIntro")))
     && /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "ProfileForm"))));
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[便BO] みんなの平均カードを押して、その条件の平均を目安に設定する");
+  // 【便BO 2026-10-02 本人指示】「みんなの平均カードをタップで、そのとき抽出されている条件の平均の目安に設定するか
+  // 聞いて設定する導線を作って。表のカードのレイアウトは変えないで」。
+  // 押す・開く・本文・取り込む値・やめる・カードの見た目は src/community/cohortAdopt.test.jsx が実際に描いて押して見る。
+  // ここが見るのは、jsdom では描かない**配線**(罠2: 呼び出しに隣接する綴りで縛る):
+  //   BO.1 App.jsx の onAdoptIdeal が name を buildAdoptedProfile へ渡し、announce のときだけ帯で知らせる
+  //   BO.2 CommunityTab が DataScreen に人物と同じ受け口(onAdoptIdeal)を渡す
+  //   BO.3 DataScreen が受け口へ渡す値はグラフと同じ1度だけ作った平均(揃えた値 / 揃えない写し)
+  //   BO.4 知らせの文の綴りは1つ(idealDoc.js)。人物のページの1行と帯が同じものを読む
+  const appBO = codeOf(src);
+  const scrBO = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const tabBO = codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"));
+  const docBO = readFileSync(join(__dirname, "..", "src", "community", "idealDoc.js"), "utf8");
+  const iA = appBO.indexOf("onAdoptIdeal={(");
+  const adoptBO = iA < 0 ? "" : appBO.slice(iA, appBO.indexOf("return { ok: true };", iA) + 20);
+  check("BO.0 App.jsx の onAdoptIdeal を切り出せている(空回りしていない)", adoptBO.length > 400, `${adoptBO.length}字`);
+  check("BO.1 onAdoptIdeal は name と announce を受け、name を buildAdoptedProfile へそのまま渡す(人物は渡さない = 既定の名前)",
+    /onAdoptIdeal=\{\(\{ aligned, theirIdeal, nickname, name = null, announce = false \}\) => \{/.test(adoptBO)
+    && /const r = buildAdoptedProfile\(\{ aligned, theirIdeal, nickname, name, id: generateId\(\), baseFreqOf \}\);/.test(adoptBO));
+  {
+    const iSel = adoptBO.indexOf("setSelectedIdealId(r.profile.id);");
+    const iNotice = adoptBO.indexOf("if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true });");
+    const iRet = adoptBO.indexOf("return { ok: true };");
+    check("BO.1 帯の知らせは announce のときだけ・取り込んで選んだ**あと**・ok を返す前(エラーのときは出さない)",
+      iSel > 0 && iNotice > iSel && iRet > iNotice && adoptBO.indexOf("if (r.error) return r;") < iNotice
+      && (adoptBO.match(/showNotice\(/g) || []).length === 1,
+      `選ぶ=${iSel} / 帯=${iNotice} / 返す=${iRet}`);
+  }
+  check("BO.1 App.jsx は知らせの文を idealDoc.js から読む",
+    /import \{ buildAdoptedProfile, ADOPTED_DONE_NOTE \} from "\.\/community\/idealDoc\.js";/.test(src));
+  check("BO.2 CommunityTab: DataScreen に onAdopt={onAdoptIdeal}(人物のページと同じ受け口)",
+    /<DataScreen [^>]*onAdopt=\{onAdoptIdeal\}[^>]*\/>/.test(tabBO) && /<PersonSheet[\s\S]{0,300}?onAdopt=\{onAdoptIdeal\}/.test(tabBO));
+  const dataBO = codeOf(srcOfFn(scrBO, "DataScreen"));
+  check("BO.3 グラフと取り込みは同じ1度だけ作った平均を読む(avgPlain / avgAligned)",
+    /const avgPlain = useMemo\(\(\) => \(avg\.error \? null : cohortPlainProfile\(avg\)\), \[avg\]\);/.test(dataBO)
+    && /const avgAligned = useMemo\(\(\) => \(avgPlain \? alignProfile\(mineShared, avgPlain\) : null\), \[avgPlain, mineShared\]\);/.test(dataBO)
+    && /const plain = avgPlain;\s*\r?\n\s*const aligned = avgAligned;/.test(dataBO)
+    && (dataBO.match(/cohortPlainProfile\(/g) || []).length === 1 && (dataBO.match(/alignProfile\(/g) || []).length === 1);
+  check("BO.3 受け口へ渡すのは 揃えた値 ?? 揃えない写し・その条件の名前・announce・楽器(人物の theirShown と同じ規則)",
+    /const shown = avgAligned \?\? copyProfile\(avgPlain\);/.test(dataBO)
+    && /const r = onAdopt\(\{\s*\r?\n\s*aligned: shown,\s*\r?\n\s*theirIdeal: \{ saxType \},\s*\r?\n\s*nickname: null,\s*\r?\n\s*name: cohortAdoptName\(adoptTerms\),\s*\r?\n\s*announce: true,\s*\r?\n\s*\}\);/.test(dataBO));
+  check("BO.3 押して開くのは平均が出ているときだけ(adoptable に avg.error が入っている)",
+    /const adoptable = Boolean\(onAdopt && !avg\.error && avgPlain\);/.test(dataBO));
+  const personBO = codeOf(srcOfFn(scrBO, "PersonSheet"));
+  const lit = "目安に設定しました。計測タブで比べられます";
+  check("BO.4 知らせの文の綴りは idealDoc.js の1つだけ(screens.jsx・App.jsx に直書きが無い)。人物のページはそれを読む",
+    (docBO.match(new RegExp(lit, "g")) || []).length === 1
+    && /export const ADOPTED_DONE_NOTE = "目安に設定しました。計測タブで比べられます";/.test(docBO)
+    && !codeOf(scrBO).includes(lit) && !appBO.includes(lit)
+    && /\{ADOPTED_DONE_NOTE\}/.test(personBO));
+  check("BO.4 人物のページは今までどおり name / announce を渡さない(シートの中の1行・名前は「○○ さんの目安」)",
+    /onAdopt\(\{ aligned: theirShown, theirIdeal, nickname: person\.nickname \}\)/.test(personBO)
+    && /name: typeof name === "string" && name\.length > 0 \? name : `\$\{nickname\} さんの目安`,/.test(docBO));
+  // 【便BO2 2026-10-02 統括の裁定】みんなの平均に倍音構成の平均。値の一致・母集団・揃えないことは align.test.js /
+  // cohortAdopt.test.jsx / block.test.js が実行して見る。ここは実行で1件だけ: 平均に入った人だけ・次数ごとの算術平均・
+  // 重心をずらして入った人の倍音構成もそのまま(期待値は手計算)。
+  {
+    const pBO = (uid, c, harm) => ({ ownerUid: uid, sourceSessionCount: 1,
+      notes: Object.fromEntries([0, 2, 4].map((k, i) => [k, { spectralCentroidHz: c + i * 100, hnrDb: 10 + i, harmonics: harm }])) });
+    const rBO = cohortAverage([pBO("a", 1000, [1, 0.5]), pBO("b", 3000, [0.6, 1]), pBO("c", 500, [0.8, 0]),
+      { ownerUid: "x", sourceSessionCount: 1, notes: { 0: { spectralCentroidHz: 1, hnrDb: 1, harmonics: [9, 9] }, 9: { spectralCentroidHz: 1, hnrDb: 1, harmonics: [9, 9] } } }]);
+    const hBO = rBO.notes?.["0"]?.harmonics;
+    check("BO.5 便BO2 実行: 倍音構成は平均に入った3人の次数ごとの算術平均(揃えない・入らない x の分は無い)",
+      rBO.count === 3 && hBO && hBO.n === 3 && Math.abs(hBO.value[0] - 0.8) < 1e-9 && Math.abs(hBO.value[1] - 0.5) < 1e-9
+      && Math.abs(rBO.notes["0"].spectralCentroidHz.value - 1000) < 1e-9,
+      JSON.stringify(hBO));
+  }
+  // 【便BO3 2026-10-03 統括の裁定】シートの主ボタンはシートの中の主ボタンの標準。ADOPT_BUTTON_STYLE を読むのは人物のページだけ。
+  {
+    const sheetBO3 = codeOf(srcOfFn(scrBO, "CohortAdoptSheet"));
+    check("BO.6 便BO3 確認のシートの「目安に設定」は SHEET_PRIMARY_BUTTON_STYLE(--tap-min / --r-pill / --c-accent / --fs-md 700 / 影なし)",
+      /<button type="button" onClick=\{onConfirm\} className="sans" style=\{SHEET_PRIMARY_BUTTON_STYLE\}>/.test(sheetBO3)
+      && /const SHEET_PRIMARY_BUTTON_STYLE = \{\s*\r?\n\s*width: "100%", minHeight: "var\(--tap-min\)", borderRadius: "var\(--r-pill\)", border: "none",\s*\r?\n\s*background: "var\(--c-accent\)", color: "var\(--c-on-accent\)", fontSize: "var\(--fs-md\)", fontWeight: 700, cursor: "pointer",\s*\r?\n\};/.test(scrBO));
+    check("BO.6 便BO3 ADOPT_BUTTON_STYLE を読むのは人物のページの1箇所だけ",
+      (codeOf(scrBO).match(/style=\{ADOPT_BUTTON_STYLE\}/g) || []).length === 1 && /style=\{ADOPT_BUTTON_STYLE\}/.test(codeOf(srcOfFn(scrBO, "PersonSheet"))));
+    check("BO.6 便BO3 名前・本文に中黒(·)を使わない。名前は全角の括弧と半角の空白",
+      !/·/.test(codeOf(scrBO)) && /`みんなの平均（\$\{terms\.join\(" "\)\}）`/.test(scrBO));
+  }
   console.log("  -> done");
 }
 

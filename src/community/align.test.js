@@ -277,3 +277,89 @@ describe("alignIdealToMine", () => {
     expect(out.notes[62].volumeDb).toBe(-17);
   });
 });
+
+// ------------------------------------------------------------------
+// 【便BO2 2026-10-02 統括の裁定】みんなの平均に倍音構成(harmonics)の平均を足した。
+//   ・音ごと・次数ごとに、平均に入った人の比をそのまま算術平均する(正規化し直さない)
+//   ・揃え(平行移動)はしない(重心・HNR をずらして入った人も、倍音構成はそのまま)
+//   ・平均に入らなかった人(揃えられない・画面から外れた)の分は入らない
+//   ・重心・HNR・音程の平均は1つも変わらない
+// 期待値は手で計算した数(実装の式を写さない)。
+// ------------------------------------------------------------------
+describe("cohortAverage の倍音構成(便BO2)", () => {
+  const P = (uid, notes) => ({ ownerUid: uid, sourceSessionCount: 1, notes });
+  const n = (c, h, p, harm) => ({ spectralCentroidHz: c, hnrDb: h, pitchCentsSigned: p, ...(harm ? { harmonics: harm } : {}) });
+  const HA = [1, 0.5, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01];
+  const HB = [1, 0.7, 0.5, 0.3, 0.2, 0.1, 0.05, 0.02];
+  const HC = [0.8, 1, 0.4, 0.2, 0.1, 0.1, 0.05, 0];
+  const HX = [1, 1, 1, 1, 1, 1, 1, 1];
+  // b は重心 +500・HNR +6、c は -200・-3 ずらして入る(揃えて足される)。c は音4 に倍音構成を持たない。
+  const a = P("a", { 0: n(1000, 10, 0, HA), 2: n(1400, 12, 0, HA), 4: n(1800, 14, 0, HA), 5: n(2000, 15, 0, HA) });
+  const b = P("b", { 0: n(1500, 16, 3, HB), 2: n(1900, 18, 3, HB), 4: n(2300, 20, 3, HB) });
+  const c = P("c", { 0: n(800, 7, -3, HC), 2: n(1200, 9, -3, HC), 4: n(1600, 11, -3) });
+  // x は a と共通の音が 2 つしか無い → 平均に入らない(倍音構成も入らない)
+  const x = P("x", { 0: n(1000, 10, 0, HX), 2: n(1400, 12, 0, HX), 9: n(1, 1, 0, HX) });
+  const close = (got, want) => { expect(got).toHaveLength(want.length); want.forEach((w, i) => expect(got[i]).toBeCloseTo(w, 9)); };
+
+  it("音ごと・次数ごとの算術平均(手計算)。n はその音に倍音構成があった人数", () => {
+    const r = cohortAverage([a, b, c, x]);
+    expect(r.count).toBe(3);
+    close(r.notes["0"].harmonics.value, [2.8 / 3, 2.2 / 3, 1.2 / 3, 0.7 / 3, 0.4 / 3, 0.25 / 3, 0.12 / 3, 0.03 / 3]);
+    expect(r.notes["0"].harmonics.n).toBe(3);
+    // 音4 は c が持たない → a と b の2人で割る
+    close(r.notes["4"].harmonics.value, [1, 0.6, 0.4, 0.25, 0.15, 0.075, 0.035, 0.015]);
+    expect(r.notes["4"].harmonics.n).toBe(2);
+    // 音5 は a だけ
+    close(r.notes["5"].harmonics.value, HA);
+    expect(r.notes["5"].harmonics.n).toBe(1);
+    // 正規化し直さない: 平均の最大は 1 にならない(元の比の平均のまま)
+    expect(Math.max(...r.notes["0"].harmonics.value)).toBeCloseTo(2.8 / 3, 9);
+  });
+
+  it("平均に入らない人(x)の分は入らない。その人を外しても結果は同じ / 入る人を外すとその人の分が外れる", () => {
+    expect(JSON.stringify(cohortAverage([a, b, c, x]).notes["0"].harmonics))
+      .toBe(JSON.stringify(cohortAverage([a, b, c]).notes["0"].harmonics));
+    // b を外す(ブロック・絞り込み)と、残りに d を足して3人にしても b の分は消える
+    const d = P("d", { 0: n(1000, 10, 0, HX), 2: n(1400, 12, 0, HX), 4: n(1800, 14, 0, HX) });
+    const r = cohortAverage([a, c, d]);
+    expect(r.count).toBe(3);
+    close(r.notes["0"].harmonics.value, [2.8 / 3, 2.5 / 3, 1.7 / 3, 1.4 / 3, 1.2 / 3, 1.15 / 3, 1.07 / 3, 1.01 / 3]);
+  });
+
+  it("揃えをしない: 重心・HNR をずらして入った人の倍音構成もそのまま。自分へ揃えた写しでも倍音構成は動かない", () => {
+    const r = cohortAverage([a, b, c]);
+    // b を重心 +5000 にずらしても(揃えて入る)倍音構成の平均は変わらない
+    const bFar = P("b", Object.fromEntries(Object.entries(b.notes).map(([k, v]) => [k, { ...v, spectralCentroidHz: v.spectralCentroidHz + 5000, hnrDb: v.hnrDb + 30 }])));
+    expect(JSON.stringify(cohortAverage([a, bFar, c]).notes["0"].harmonics)).toBe(JSON.stringify(r.notes["0"].harmonics));
+    const plain = cohortPlainProfile(r);
+    const me = { notes: { 0: note(3000, 40), 2: note(3400, 42), 4: note(3800, 44) } };
+    const al = alignProfile(me, plain);
+    expect(al.shiftedBy.spectralCentroidHz).toBeCloseTo(2000, 6);
+    expect(al.notes["0"].harmonics).toEqual(plain.notes["0"].harmonics);
+    expect(copyProfile(plain).notes["0"].harmonics).toEqual(plain.notes["0"].harmonics);
+  });
+
+  it("重心・HNR・音程の平均は、倍音構成があっても無くても1つも変わらない", () => {
+    const strip = (p) => P(p.ownerUid, Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, { spectralCentroidHz: v.spectralCentroidHz, hnrDb: v.hnrDb, pitchCentsSigned: v.pitchCentsSigned }])));
+    const withH = cohortAverage([a, b, c]);
+    const without = cohortAverage([strip(a), strip(b), strip(c)]);
+    const dropH = (r) => JSON.stringify(Object.fromEntries(Object.entries(r.notes).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).filter(([m]) => m !== "harmonics"))])));
+    expect(dropH(withH)).toBe(dropH(without));
+    expect(withH.count).toBe(without.count);
+    expect(Object.values(without.notes).some((v) => "harmonics" in v)).toBe(false);
+  });
+
+  it("次数ごとに、その次数を持っている人だけで割る(配列の長さが違う人が混ざっても、無い次数を 0 と数えない)", () => {
+    const short = (p) => P(p.ownerUid, Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, { ...v, harmonics: [0.4, 0.2] }])));
+    const r = cohortAverage([a, short(b), short(c)]);
+    // 1・2次は3人、3次から先は a だけ
+    close(r.notes["0"].harmonics.value, [1.8 / 3, 0.9 / 3, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01]);
+  });
+
+  it("壊れた倍音構成(数値でない・空)は数えない", () => {
+    const bad = (p, h) => P(p.ownerUid, Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, { ...v, harmonics: h }])));
+    const r = cohortAverage([a, bad(b, [1, "x"]), bad(c, [])]);
+    close(r.notes["0"].harmonics.value, HA);
+    expect(r.notes["0"].harmonics.n).toBe(1);
+  });
+});

@@ -69,6 +69,13 @@ export function TermMark() {
   );
 }
 
+// 【便BO 2026-10-02 本人指示】吹き出しの外の呼び手(みんなの平均カードの「押すと目安に設定」)が読む2つ。
+// 吹き出しの印(data-term-tip)の綴りはこのファイルだけが持つ(screens.jsx に写しを作らない)。
+//   termTipOpenWithin(el) … el の中に吹き出しが開いているか
+//   inTermTip(t)          … 押した場所 t が吹き出しの中か
+export const termTipOpenWithin = (el) => Boolean(el && el.querySelector && el.querySelector("[data-term-tip]"));
+export const inTermTip = (t) => Boolean(t && t.closest && t.closest("[data-term-tip]"));
+
 // value … 選んでいる指標のキー / label … その指標の名前(吹き出しの見出し)
 // active … ページャの裏へ回ったら false(閉じる)。ページャの外は常に true
 // sharedNote … 共通の一文(揃えて比べる説明)を出すか。コミュニティだけ true

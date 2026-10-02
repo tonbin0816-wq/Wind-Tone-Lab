@@ -10,7 +10,7 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Act
 const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
 // 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
 // 画面本体は lazy のままにして、初回の読み込みを重くしない。
-import { buildAdoptedProfile } from "./community/idealDoc.js";
+import { buildAdoptedProfile, ADOPTED_DONE_NOTE } from "./community/idealDoc.js";
 // 【目安を自分の平均に揃える】align.js は他のモジュールを import しない純粋な計算で、
 // firebase を計測タブへ引き込まない。共有用の平行移動と同じ考え方を端末内でも使う。
 import { alignIdealToMine, idealForUse } from "./community/align.js";
@@ -5220,19 +5220,26 @@ export default function WindToneLabPhaseMode() {
               /* 【D3】My Data の「みんなのデータをみる」から来たときに開く子タブ("rank")。
                  受け取ったらあちらが onLanded で null に戻す。普段は null。 */
               landTab={communityLandTab} onLanded={clearCommunityLandTab}
-              onAdoptIdeal={({ aligned, theirIdeal, nickname }) => {
+              onAdoptIdeal={({ aligned, theirIdeal, nickname, name = null, announce = false }) => {
                 // 【ピッチの目標は自分の運指表から作る】相手の絶対周波数をそのまま
                 // 目標にすると、調弦(442/440)の違いぶんだけ常にずれて出る。
                 // 相手の楽器種別の理論周波数を、**自分の基準ピッチで**引いて渡す。
                 const table = buildFingeringTable(theirIdeal.saxType, effectiveTuningHz, null);
                 const baseFreqOf = (semitoneIndex) =>
                   table.find((t) => t.semitoneIndex === semitoneIndex)?.soundingFreqHz ?? null;
-                const r = buildAdoptedProfile({ aligned, theirIdeal, nickname, id: generateId(), baseFreqOf });
+                // 【便BO 2026-10-02 本人指示】みんなの平均も同じこの道を通る(name に「みんなの平均(…)」が来る)。
+                // 人物は name を渡さないので、今までどおり「(ニックネーム) さんの目安」。
+                const r = buildAdoptedProfile({ aligned, theirIdeal, nickname, name, id: generateId(), baseFreqOf });
                 if (r.error) return r;
                 setIdealProfiles((prev) => [...prev, r.profile]);
                 // 取り込んだらそのまま選ぶ。設定したのに選ばれていないと、
                 // 計測タブへ戻って「変わっていない」と思われる。
                 setSelectedIdealId(r.profile.id);
+                // 【便BO 2026-10-02 本人指示】みんなの平均は確認のシートを閉じてから知らせる(announce)。
+                // シートが消えるので、人物のページのようにシートの中の1行では言えない。帯(ActionNotice)は
+                // この App の根にあり、ここ(App.jsx の中)からなら届く。文は人物のページの1行と同じ綴り。
+                // 人物は announce を渡さない(シートの中の1行のまま。帯は出さない)。
+                if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true });
                 return { ok: true };
               }}
             />

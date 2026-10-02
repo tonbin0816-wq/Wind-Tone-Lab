@@ -235,6 +235,11 @@ export function toLocalNotes(sharedNotes) {
 // 「目安設定中」のセッション判定(sourceSessionIds)に混ぜてはいけない。
 export const ADOPTED_SOURCE = "community";
 
+// 【便BO 2026-10-02 本人指示】取り込んだことの知らせ。人物のページ(シートの中の1行)と、
+// みんなの平均の確認のシートを閉じたあとの帯(App.jsx の ActionNotice)が、同じこの1つの綴りを読む。
+// App.jsx も読むのでここに置く(screens.jsx は遅延読み込みなので App.jsx から読めない)。
+export const ADOPTED_DONE_NOTE = "目安に設定しました。計測タブで比べられます";
+
 /**
  * 他人の目安を取り込んだ、ローカルの目安プロファイルを作る。
  *
@@ -246,8 +251,10 @@ export const ADOPTED_SOURCE = "community";
  * @param theirIdeal 公開ドキュメント(saxType を取る)
  * @param nickname 相手のニックネーム。名前に使う
  * @param id 新しい目安の id(App.jsx の generateId で作って渡す)
+ * @param name 【便BO 2026-10-02 本人指示】目安の名前を呼ぶ側が決めるとき(みんなの平均)。渡さなければ
+ *             今までどおり「(ニックネーム) さんの目安」。取り込みの道(印・揃えの扱い・音の形)は人物と1つも変えない。
  */
-export function buildAdoptedProfile({ aligned, theirIdeal, nickname, id, baseFreqOf = null, now = new Date() }) {
+export function buildAdoptedProfile({ aligned, theirIdeal, nickname, id, name = null, baseFreqOf = null, now = new Date() }) {
   const notes = toLocalNotes(aligned?.notes);
   if (Object.keys(notes).length === 0) return { error: "取り込める音がありませんでした" };
 
@@ -275,7 +282,8 @@ export function buildAdoptedProfile({ aligned, theirIdeal, nickname, id, baseFre
       id,
       // 【誰の目安かが分かる名前にする】取り込んだあと一覧に並ぶので、
       // 「目安」だけでは自分で録ったものと見分けが付かない。
-      name: `${nickname} さんの目安`,
+      // 【便BO】みんなの平均は「みんなの平均(A.Sax・クラシック・学生)」を呼ぶ側が渡す。
+      name: typeof name === "string" && name.length > 0 ? name : `${nickname} さんの目安`,
       saxType: theirIdeal?.saxType ?? null,
       recordedAt: now.toISOString(),
       notes,

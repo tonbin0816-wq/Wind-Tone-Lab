@@ -364,8 +364,9 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
         {/* 【step を渡さない】目安の一覧は名簿と並行に走る。段階を足すと、
             先に終わった側で数字が巻き戻る。今の値のまま育った ficus を出す。 */}
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
-          /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。 */
-          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} active={index === 0} />
+          /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。
+             【便BO 2026-10-02 本人指示】onAdopt: みんなの平均カードを押して目安に設定する。人物のページと同じ受け口。 */
+          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} />
         ))}
         {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
