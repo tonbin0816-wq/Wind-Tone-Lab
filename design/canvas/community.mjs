@@ -418,7 +418,13 @@ const METRIC_LABELS = METRIC_TABS.map((m) => m.label);
 const METRIC_FIRST = METRIC_TABS[0]; // 最初に選ばれている指標(正典は開いた直後の姿を描く)
 
 // ---- 画面の外枠 ---------------------------------------------------------
-function screen(sel, inner) {
+// 【便BN 2026-10-02 本人指示】子タブの行の下端 → ページの先頭の上の余白は、実装と同じく
+// データ・順位・シェア = 0(screens.jsx の subPageStyle。リードタブの楽器の行と同じ)/
+// マイページ = --sp-2(CommunityTab.jsx の myPageStyle。My Data の最初のカードと同じ)。
+// 以前はどのページも --sp-4 だった。top を渡すのは編集のフォーム(CommProfileEdit)だけで、実装の
+// ProfileForm は子タブの行の下に居ない(上端 --sp-4 のまま。便BN で変えていない)ので --sp-4 を渡す。
+// 左右(下の注記の 14+16 の写し)は便BN の範囲外で、触っていない。
+function screen(sel, inner, top = sel === "me" ? "var(--sp-2)" : "0") {
   return `${sprite()}
   <!-- 【実測 2026/09/09】app-root と .surf-card が左右 14px を持つ(--page-side-pad)。
        その中で pageStyle が さらに --sp-4 を足すので、カードの左端は 14+16=30、
@@ -427,7 +433,7 @@ function screen(sel, inner) {
     <div style="padding: 0 var(--sp-4)">
       ${subTabs(sel)}
     </div>
-    <div style="padding: var(--sp-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
+    <div style="padding: ${top === "var(--sp-4)" ? top : `${top} var(--sp-4) var(--sp-4)`}; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4)">
       ${inner}
     </div>
   </div>`;
@@ -780,7 +786,7 @@ ${formField("編成(複数選択可)", pillRow([["ソロ", true], ["アンサン
       </div>
 
       <div style="width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-accent); color: var(--c-on-accent); font-size: var(--fs-md); font-weight: 700; display: flex; align-items: center; justify-content: center">保存</div>
-      <div style="${BTN2}">やめる</div>`);
+      <div style="${BTN2}">やめる</div>`, "var(--sp-4)"); // 【便BN】編集のフォームは上端 --sp-4 のまま(実装の ProfileForm)
 }
 
 // ---- 人をタップしたとき(タブ データ / プロフィール) -------------------------

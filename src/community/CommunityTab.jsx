@@ -620,6 +620,15 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
 // 14+16+16 = 46px と、My Data 側の 30px より 16px 右へずれる(ブラウザ実測)。
 // 縦の --sp-4 と カード間の gap はそのまま。
 const pageStyle = { padding: "var(--sp-4) 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
+// 【便BN 2026-10-02 本人指示】「コミュニティタブだけ、タブと楽器やジャンルなどのボタンの幅が広い。
+// 他のリードタブ・データタブと揃えて詰めて」(幅 = 縦の間隔)。マイページは子タブの行のすぐ下に居るのに、
+// 上の pageStyle の上端 --sp-4 を足していた。データタブの My Data は子タブの行の下端 → 最初のカードが
+// --sp-2(8px)なので、それにそろえる(375×812 の実測: 子タブの行の下端 → アイコンの上端 16 → 8)。
+// 先頭が条件の行のデータ・順位・シェアは、リードタブの楽器の行と同じ 0(screens.jsx の subPageStyle)。
+// pageStyle は参加前の画面(JoinIntro)と編集のフォーム(ProfileForm)も読む。あの2つは子タブの行の下に
+// 居ない(子タブの行ごと入れ替わる)ので変えない。下端の --sp-4 と項目のあいだの gap も変えない。
+const MY_PAGE_TOP_PAD = "var(--sp-2)";
+const myPageStyle = { ...pageStyle, paddingTop: MY_PAGE_TOP_PAD };
 const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" };
 const bodyStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink)", lineHeight: 1.7 };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
@@ -1767,7 +1776,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
   const publicIdealCount = Object.keys(myIdeals ?? {}).length;
 
   return (
-    <div className="sans" style={pageStyle}>
+    <div className="sans" style={myPageStyle}>
 
       {/* 【便BG 2026-10-01 本人指示】通報で隠れているときの告知(計画5 2026-09-10。設計書 §8.1 追記1
           「黙って消さない」)を外した。通報では誰の画面からも消えなくなったので、

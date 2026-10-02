@@ -31442,6 +31442,55 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   console.log("  -> done");
 }
 
+{
+  console.log("\n[便BN] コミュニティの子タブの行の下の余白(リード・データとそろえる)");
+  // 【便BN 2026-10-02 本人指示】「コミュニティタブだけ、タブと楽器やジャンルなどのボタンの幅が広い。
+  // 他のリードタブ・データタブと揃えて詰めて」。実装の値そのものの一致は src/subTabGap.test.jsx が
+  // アプリ全体を描いて見る(リード・データの値もその場で描いて読む)。ここが見るのは
+  //   BN.1 正典(design/canvas/community.mjs → Comm*.dc.html)の子タブの下の余白が、実装と同じ値で描かれていること
+  //   BN.2 実装の配線(3ページが subPageStyle・マイページが myPageStyle・共有の pageStyle は変えていない)
+  // 期待値は実装のソースから読む(ここに値を手で書かない。実装を動かしたら正典の出し直しまでここが落ちる)。
+  const scrBN = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const tabBN = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const subTopBN = (scrBN.match(/\nconst SUB_PAGE_TOP_PAD = ([^;\n]+);/) || [])[1];
+  const myTopBN = (tabBN.match(/\nconst MY_PAGE_TOP_PAD = "([^"\n]+)";/) || [])[1];
+  const formTopBN = (tabBN.match(/\nconst pageStyle = \{ padding: "(\S+) 0",/) || [])[1];
+  check("BN.0 実装から子タブの下の余白を読める(3ページ・マイページ・編集のフォーム)",
+    subTopBN !== undefined && myTopBN !== undefined && formTopBN !== undefined, JSON.stringify({ subTopBN, myTopBN, formTopBN }));
+  // 正典の、子タブの行のすぐ下のページの包み(screen() が描く1つ)の上の余白
+  const dcTopBN = (name) => {
+    const html = readFileSync(join(__dirname, "..", "design", "canvas", name), "utf8");
+    const m = [...html.matchAll(/<div style="padding: ([^;"]+); display: grid; grid-template-columns: minmax\(0, 1fr\); gap: var\(--sp-4\)">/g)];
+    if (m.length !== 1) return `包みが ${m.length} 個`;
+    return m[0][1].trim().split(/\s+/)[0];
+  };
+  const normBN = (v) => (v === "0px" ? "0" : String(v));
+  for (const name of ["CommData.dc.html", "CommRank.dc.html", "CommShare.dc.html"]) {
+    check(`BN.1 正典 ${name}: 子タブの行 → 条件の行の余白 = 実装の SUB_PAGE_TOP_PAD`,
+      normBN(dcTopBN(name)) === normBN(subTopBN), `${dcTopBN(name)} vs ${subTopBN}`);
+  }
+  check("BN.1 正典 CommMyPage.dc.html: 子タブの行 → アイコンの余白 = 実装の MY_PAGE_TOP_PAD",
+    dcTopBN("CommMyPage.dc.html") === myTopBN, `${dcTopBN("CommMyPage.dc.html")} vs ${myTopBN}`);
+  // 編集のフォーム(ProfileForm)は子タブの行の下に居ないので変えていない = 共有の pageStyle の上端のまま
+  check("BN.1 正典 CommProfileEdit.dc.html: 編集のフォームの上の余白は実装の pageStyle の上端のまま",
+    dcTopBN("CommProfileEdit.dc.html") === formTopBN, `${dcTopBN("CommProfileEdit.dc.html")} vs ${formTopBN}`);
+  // 配線: データ・順位・シェアの3ページの根が subPageStyle を読む(pageStyle を直に読む根は残っていない)
+  const rootsBN = ["RankScreen", "ShareScreen", "DataScreen"].map((n) => codeOf(srcOfFn(scrBN, n)));
+  check("BN.2 データ・順位・シェアの根は subPageStyle(3つとも)",
+    rootsBN.every((b) => (b.match(/<div style=\{subPageStyle\}>/g) || []).length === 1 && !/<div style=\{pageStyle\}>/.test(b)));
+  check("BN.2 subPageStyle は共有の pageStyle の上端だけを SUB_PAGE_TOP_PAD で上書きする",
+    /\nconst subPageStyle = \{ \.\.\.pageStyle, paddingTop: SUB_PAGE_TOP_PAD \};/.test(scrBN));
+  const profBN = codeOf(srcOfFn(tabBN, "ProfileView"));
+  check("BN.2 マイページ(ProfileView)の根は myPageStyle・pageStyle を直に読む根は無い",
+    /<div className="sans" style=\{myPageStyle\}>/.test(profBN) && !/style=\{pageStyle\}/.test(profBN)
+    && /\nconst myPageStyle = \{ \.\.\.pageStyle, paddingTop: MY_PAGE_TOP_PAD \};/.test(tabBN));
+  // 参加前の画面(JoinIntro)と編集のフォーム(ProfileForm)は子タブの行の下に居ないので、共有の pageStyle のまま
+  check("BN.2 参加前の画面・編集のフォームは共有の pageStyle のまま(子タブの行の下に居ない)",
+    /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "JoinIntro")))
+    && /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "ProfileForm"))));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

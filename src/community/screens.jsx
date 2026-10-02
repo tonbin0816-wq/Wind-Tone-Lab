@@ -45,6 +45,17 @@ const PHOTO_TAP_STYLE = {
 // 14+16+16 = 46px と、My Data 側の 30px より 16px 右へずれる(ブラウザ実測)。
 // 縦の --sp-4 と カード間の gap はそのまま。
 const pageStyle = { padding: "var(--sp-4) 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "var(--sp-4)" };
+// 【便BN 2026-10-02 本人指示】「コミュニティタブだけ、タブと楽器やジャンルなどのボタンの幅が広い。
+// 他のリードタブ・データタブと揃えて詰めて」(幅 = 縦の間隔)。子タブの行(データ・順位・シェア・マイページ)の
+// すぐ下に来る3ページ(データ・順位・シェア)は、どれも先頭が条件の行(楽器・ジャンル・属性のピル。当たり 44)。
+// リードタブも子タブの行のすぐ下が楽器の行(当たり 44)で、**あいだに余白を1px も足していない**(0)。
+// 同じ並びなので同じ 0 にそろえる(375×812 の実測: 子タブの行の下端 → 条件の行の上端 16 → 0)。
+// 上の pageStyle は人物のシート(PersonSheet)も読む共有の定義なので変えず、上端だけここで上書きする
+// (PersonSheet が paddingTop: 0 で上書きしているのと同じ手)。下端の --sp-4 と、条件の行とその下のカードの
+// あいだ(gap の --sp-4)は変えない。マイページ(CommunityTab.jsx の ProfileView)は先頭がカードではなく
+// アイコンなので、あちらは My Data のカードと同じ --sp-2(MY_PAGE_TOP_PAD)。
+const SUB_PAGE_TOP_PAD = 0;
+const subPageStyle = { ...pageStyle, paddingTop: SUB_PAGE_TOP_PAD };
 const noteStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6 };
 const labelStyle = { fontSize: "var(--fs-xs)", color: "var(--c-ink-2)", fontWeight: 600 };
 // 【カードの作法】§6.6。地は白・浮きは影だけ・群の境界の罫は1本も引かない。
@@ -616,7 +627,7 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
   const ranked = useMemo(() => rankByPractice(shown, period, undefined, metric), [shown, period, metric]);
 
   return (
-    <div style={pageStyle}>
+    <div style={subPageStyle}>
       {/* 【便AT 2026-09-24 本人指示】期間は条件行の4つ目(一番右)。以前はチップの行だった。 */}
       <FilterRow value={filter} onChange={setFilter} period={period} onPeriod={setPeriod} />
       {/* 【便AT】種類の切替は溝型(SegmentedTabs)。
@@ -813,7 +824,7 @@ export function ShareScreen({ users, saxTypes }) {
   const shownTotal = models ? models.total : gear.total;
 
   return (
-    <div style={pageStyle}>
+    <div style={subPageStyle}>
       <FilterRow value={filter} onChange={(v) => { setFilter(v); setDrill(null); setShowRest(false); }} saxAny={false} />
 
       {gear.total === 0 ? (
@@ -1095,7 +1106,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   }, [avg, mineShared, m.key]);
 
   return (
-    <div style={pageStyle}>
+    <div style={subPageStyle}>
       <FilterRow value={filter} onChange={setFilter} saxAny={false} />
 
       {/* 【便BC 2026-09-25 本人選定 モック「C. 濃紺の中に白い台紙」】このカードの地は My Data の累計カードと
