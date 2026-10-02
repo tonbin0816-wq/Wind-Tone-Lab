@@ -255,7 +255,14 @@
      逆にノッチ無し端末(inset=0)では 25px の余分な空白が出ていた。
      ------------------------------------------------------------------ */
   --nav-h: 47px;
-  --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  /* 【便BL 2026-10-02 本人指示】下部タブのすぐ上に置く広告の帯の高さ。**値の唯一の答えはここ**。
+     既定は 0px(帯が無い = 今までと 1px も変わらない)。見本の帯の合図(?adpreview=1。src/adPreview.js)が
+     <html> に data-ad-preview="1" を付けたときだけ、下の規則で 50px(AdMob の下部の帯の高さ)になる。
+     将来の本物の帯もここを読む。--page-bottom-gap が足すので、ページ下端の余白・下部に浮かせるボタン・
+     計測タブの画面ぶんの高さ(useFillViewportHeight)がまとめて帯の上へずれる。
+     シートが開いているあいだ帯は隠れるが、この値は 0 に戻さない(戻すと裏のページが 50px 跳ねる)。 */
+  --ad-h: 0px;
+  --page-bottom-gap: calc(var(--nav-h) + var(--ad-h) + env(safe-area-inset-bottom));
 
   /* 【N-11 2026/08/17 本人指示】本文の左右余白。**値の唯一の答えはここ**。
      `.app-root` の左右 padding がこの2つを使い、
@@ -267,6 +274,11 @@
   --page-side-pad: 14px;
   --page-pad-left:  calc(var(--page-side-pad) + env(safe-area-inset-left));
   --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
+}
+
+/* 【便BL 2026-10-02 本人指示】見本の広告の帯が出ている端末だけ、帯の高さを持つ。 */
+:root[data-ad-preview="1"] {
+  --ad-h: 50px;
 }
 
 /* ラバーバンドスクロールで body の地色が見えるため、ページ背景と同色を敷く。

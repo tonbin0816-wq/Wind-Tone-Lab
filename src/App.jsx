@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component, createContext, useContext, startTransition } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component, createContext, useContext, startTransition, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
@@ -28,6 +28,8 @@ import { sessionSoundingSec } from "./soundingSec.js";
 import LoadingRing from "./community/LoadingRing.jsx";
 // 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し。コミュニティと共有する1つ(写しを作らない)。
 import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
+// 【便BL 2026-10-02 本人指示】見本の広告の帯の合図。読むのは <html> の印だけ(付けるのは main.jsx)。
+import { isAdPreviewOn } from "./adPreview.js";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -5167,6 +5169,9 @@ export default function WindToneLabPhaseMode() {
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
+      {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
+          (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
+      <AdPreviewStrip />
     </div>
   );
 }
@@ -5278,6 +5283,50 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// 【便BL 2026-10-02 本人指示】見本の広告の帯。本人「広告を入れたらボタン類が重ならないか、先に実機で見たい」。
+// 本物の広告ではない。合図(?adpreview=1。src/adPreview.js)を付けた端末でだけ出る。合図が無ければ何も描かない
+// (帯の高さ --ad-h も 0px のままなので、ページは 1px も変わらない)。
+//   ・位置: 下部タブのすぐ上。下端 = 下部タブの高さ + 安全域(--page-bottom-gap から --ad-h を抜いた式)
+//   ・大きさ: 横幅いっぱい・高さ --ad-h(index.css。値はそこだけが持つ)
+//   ・地は本物の帯に近い淡い灰(--c-sunk)。中央に小さく「広告(見本)」、左上に「広告」の印。文字は --fs-xs / --c-ink-3
+//   ・重なり順は下部タブと同じ 30(§4.5a)。下部タブより後ろに置くので、同じ 30 の中では上に描かれる。
+//     シート・暗幕(60)・写真の拡大(70)・吹き出しより下
+//   ・BottomSheet が1枚でも開いているあいだは描かない(本物の帯はシートの下端のボタンを隠すため)。
+//     **--ad-h は 0 に戻さない** ── 戻すと裏のページの下端・浮かせるボタン・計測タブの枠が 50px 跳ね、
+//     閉じるとまた跳ね返る。帯の居た場所は暗幕の下になるだけ
+//   ・当たり判定は持ったまま(本物の帯も押せる面で、裏のページへは通さない)
+function AdPreviewStrip() {
+  const [on] = useState(() => isAdPreviewOn());
+  const sheetOpen = useAnyBottomSheetOpen();
+  if (!on || sheetOpen) return null;
+  return (
+    <div
+      data-ad-preview-strip
+      aria-label="広告(見本)"
+      style={{
+        position: "fixed", left: 0, right: 0, zIndex: 30,
+        bottom: "calc(var(--nav-h) + env(safe-area-inset-bottom))",
+        height: "var(--ad-h)",
+        background: "var(--c-sunk)", borderTop: "1px solid var(--c-line)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      <span
+        className="sans"
+        style={{
+          position: "absolute", top: "var(--sp-1)", left: "var(--sp-1)",
+          fontSize: "var(--fs-xs)", lineHeight: 1, color: "var(--c-ink-3)",
+          border: "1px solid var(--c-line-strong)", padding: "0 var(--sp-1)",
+        }}
+      >
+        広告
+      </span>
+      <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>広告(見本)</span>
     </div>
   );
 }
@@ -15464,13 +15513,24 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
 let bottomSheetSeq = 0;
 const openBottomSheets = new Set();
 const isTopBottomSheet = (id) => openBottomSheets.size > 0 && id === Math.max(...openBottomSheets);
+// 【便BL 2026-10-02 本人指示】「1枚でも開いているか」を React から読めるようにする(見本の広告の帯が読む)。
+// 本物の AdMob の帯はアプリの画面の上に重なるので、シートの下端のボタンを隠す。だから開いているあいだ帯を隠す。
+// 数えるのは上の Set のまま(写しを作らない)。出入りのたびに聞き手へ知らせるだけ。
+const bottomSheetListeners = new Set();
+const notifyBottomSheets = () => { bottomSheetListeners.forEach((fn) => fn()); };
+const subscribeBottomSheets = (fn) => { bottomSheetListeners.add(fn); return () => { bottomSheetListeners.delete(fn); }; };
+const anyBottomSheetOpen = () => openBottomSheets.size > 0;
+function useAnyBottomSheetOpen() {
+  return useSyncExternalStore(subscribeBottomSheets, anyBottomSheetOpen, () => false);
+}
 export function BottomSheet({ ariaLabel, onClose, children }) {
   const sheetIdRef = useRef(0);
   if (sheetIdRef.current === 0) { bottomSheetSeq += 1; sheetIdRef.current = bottomSheetSeq; }
   useEffect(() => {
     const id = sheetIdRef.current;
     openBottomSheets.add(id);
-    return () => { openBottomSheets.delete(id); };
+    notifyBottomSheets();
+    return () => { openBottomSheets.delete(id); notifyBottomSheets(); };
   }, []);
   useEffect(() => {
     const onKey = (e) => {

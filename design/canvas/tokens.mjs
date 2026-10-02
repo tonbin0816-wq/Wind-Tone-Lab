@@ -18,6 +18,8 @@
 // 段を片方だけ動かせてしまう。index.css の :root を触ったら、同じ周でここを写し、6つの生成器
 // (generate / community / detail / rankcolor / rankshine / unify)を全部走らせること。
 // 写しの実値が index.css と一致することは pitch-test の 便BF の節が突き合わせる。
+// 【便BL 2026-10-02】--ad-h(下部タブの上の広告の帯の高さ)を写し、--page-bottom-gap に足した。
+// キャンバスは帯の無い姿(0px)を描く。50px になるのは index.css の :root[data-ad-preview="1"] だけで、写しには持たない。
 export const TOKENS = `
     :root {
       --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
@@ -53,7 +55,8 @@ export const TOKENS = `
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
       --nav-h: 47px;
-      --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+      --ad-h: 0px;
+      --page-bottom-gap: calc(var(--nav-h) + var(--ad-h) + env(safe-area-inset-bottom));
       --page-side-pad: 14px;
       --page-pad-left: calc(var(--page-side-pad) + env(safe-area-inset-left));
       --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));

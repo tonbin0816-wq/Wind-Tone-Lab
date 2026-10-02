@@ -6329,8 +6329,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   // トークンは1回しか定義しない。末尾に `:root { --c-rule: #FFFFFF }` を足すだけで
   // セレクタを一切触らずに罫を消せてしまうため(実測で確認済み)。
   {
+    // 【便BL 2026-10-02 本人指示】例外は1つだけ: --ad-h(下部タブの上の広告の帯の高さ)は :root で 0px、
+    // 見本の帯の合図(<html data-ad-preview="1">)が付いたときだけ 50px に上書きする。**合図の属性つきの
+    // 規則の中の1回だけ**を数えから外す(素の :root の末尾追記・2つ目の上書きは、これまでどおり落ちる)。
+    const cssForDup = css.replace(/:root\[data-ad-preview="1"\]\s*\{\s*--ad-h:\s*50px;\s*\}/, "");
+    const defsIn = (text, n) => [...text.matchAll(new RegExp(`${n}\\s*:\\s*([^;]+);`, "g"))].length;
     const dup = [...new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))]
-      .filter((n) => cssVarAll(n).length > 1);
+      .filter((n) => defsIn(cssForDup, n) > 1);
     check("index.css のトークンはそれぞれ1回しか定義されていない(末尾追記での差し替えが無い)",
       dup.length === 0, dup.join(" "));
   }

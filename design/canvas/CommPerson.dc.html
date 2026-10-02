@@ -42,7 +42,8 @@
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
       --nav-h: 47px;
-      --page-bottom-gap: calc(var(--nav-h) + env(safe-area-inset-bottom));
+      --ad-h: 0px;
+      --page-bottom-gap: calc(var(--nav-h) + var(--ad-h) + env(safe-area-inset-bottom));
       --page-side-pad: 14px;
       --page-pad-left: calc(var(--page-side-pad) + env(safe-area-inset-left));
       --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
