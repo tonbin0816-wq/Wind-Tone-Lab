@@ -244,6 +244,10 @@
   /* 【便AT 2026-09-24】溝型の切り替え(SegmentedTabs)の、選んでいる面の浮き。
      カードの影より近く小さい(溝の中の 36px の面なので、広い影だと溝の外へにじむ)。 */
   --shadow-seg:  0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
+  /* 【便BP 2026-10-03 本人裁定】はじめの一手(src/onboarding.jsx)の暗幕。--c-ink(#121F32 = 18,31,50)の 46%。
+     **この暗幕の外に使わない。** シートの暗幕(rgba(15,23,42,0.28))とは別の物 ── あちらは「裏の画面を止める」幕、
+     こちらは「押してほしい所だけを明るく残す」幕で、濃さも役割も違う(DESIGN-SYSTEM §1.6 / §4.5a)。 */
+  --c-coach-dim: rgba(18, 31, 50, .46);
 
   /* ------------------------------------------------------------------
      レイアウト定数。
@@ -784,6 +788,53 @@ body {
    閉じ側の姿勢を CSS で持っていないため(keyframes の from は走らなければ効かない)。 */
 @media (prefers-reduced-motion: reduce) {
   .sheet-scrim, .sheet-card { animation: none; }
+}
+
+/* ------------------------------------------------------------------
+   【便BP 2026-10-03 本人裁定】はじめの一手(src/onboarding.jsx の OnboardingCoach)。正典 = 版4(ficus-tutorial.html)。
+   ・暗幕は穴(.coach-hole)の外側の影で作る。**穴の縁に枠線は付けない**(本人裁定)。影の広がり 150vmax は
+     「どこに穴があっても画面の一番遠い角まで届く」ための幾何の値(画面の対角線 ≦ √2 × vmax)で、見た目の値ではない
+   ・暗幕と穴は**タップを下へ通す**(pointer-events: none)。カードだけが当たり判定を持つ(押しても何も起きない。版4どおり)。
+     【便BP3 2026-10-03 統括の裁定】便BP2 の「カードも通す」は改めた。代わりにカードを**押せる部品と重ならない所**に置く
+     (onboarding.jsx の placeCoachCard)。読み上げはカードではなく、常に在る空の .coach-live(role="status")が文を持つ
+   ・カード: 白(--c-surface)・角丸 18(本人裁定。段の外の別の部品 ── シートの上だけ 28 と同じ扱い。DESIGN-SYSTEM §2)・
+     浮きの影(シート・浮かせるボタン・告知と同値 0 8px 24px rgba(15,23,42,0.18)。新しい濃さを作らない)。
+     左右は画面から 22px(本人裁定)。中身は丸いアイコン(地 --c-accent-tint・色 --c-accent)・見出し・1行
+   ・【版4との値の差】見出しは版4の 17px → --fs-lg(18px。7段に 17 が無い)。カードの内側の左右と下は版4の 18px →
+     --sp-4(16px。5段に 18 が無い)。上は版4と同じ 20(--sp-5)。1行の行間は版4の 1.7 → --lh-loose(1.75)
+   ・動きは**済んだときに溶けて消える 0.35 秒だけ**(本人裁定。§1.11 の3段の外 ── 段に入れると「速い/普通/遅い」の
+     意味が壊れるので、ループの動きと同じく段の外に置く)。曲線は版4の ease-out。出るときの動きは無い
+   ・**時間はここだけが持つ**(onboarding.jsx は getComputedStyle で読んで後始末の時計にする。ミリ秒を書かない)
+   ------------------------------------------------------------------ */
+@keyframes coach-out {
+  to { opacity: 0; }
+}
+.coach-layer { position: fixed; inset: 0; pointer-events: none; }
+.coach-layer[data-leaving="true"] { animation: coach-out 350ms ease-out forwards; }
+.coach-hole { position: fixed; pointer-events: none; box-shadow: 0 0 0 150vmax var(--c-coach-dim); }
+.coach-card {
+  position: fixed; left: 22px; right: 22px; pointer-events: auto;
+  background: var(--c-surface); border-radius: 18px; box-shadow: 0 8px 24px rgba(15,23,42,0.18);
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  display: grid; justify-items: center; gap: var(--sp-2); text-align: center;
+}
+.coach-icon {
+  width: 44px; height: 44px; border-radius: 50%; margin-bottom: var(--sp-1);
+  background: var(--c-accent-tint); color: var(--c-accent);
+  display: grid; place-items: center;
+}
+.coach-icon svg { width: 24px; height: 24px; }
+.coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }
+.coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }
+/* 読み上げの入れ物(常に1つ。文だけを差し替える)。見た目には出さない ── 値は「画面から外して読み上げにだけ残す」ための
+   幾何の値(1px・切り抜き)で、見た目の値ではない。 */
+.coach-live {
+  position: fixed; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; pointer-events: none;
+}
+/* 動きを減らす設定では溶けもしない(onboarding.jsx も同じ設定を見て、溶かさずに即座に消す)。 */
+@media (prefers-reduced-motion: reduce) {
+  .coach-layer[data-leaving="true"] { animation: none; }
 }
 
 /* ------------------------------------------------------------------

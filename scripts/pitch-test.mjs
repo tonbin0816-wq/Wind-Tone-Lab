@@ -13942,7 +13942,9 @@ let METRO_SIGS_ALL = [];
       (measureCall76.match(/(idealProfiles=|deleteIdealProfile)/g) || []).join(" / ") || "0件");
     // (2) 便G が使う側は**定義ごと残っている**(削除は便G で undo 付きに変わった)
     for (const [name, re] of [
-      ["idealProfiles", /const \[idealProfiles, setIdealProfiles\] = usePersistedState\("idealProfiles", \[\]\);/],
+      // 【便BP 2026-10-03】はじめの一手の移行の門に、読み込み済み・本当に読めたか(3つ目・4つ目)を受け取るようになった。
+      // 鍵と初期値([])は変えていない。
+      ["idealProfiles", /const \[idealProfiles, setIdealProfiles, idealProfilesLoaded, idealProfilesReadOk\] = usePersistedState\("idealProfiles", \[\]\);/],
       ["selectedIdealId", /const \[selectedIdealId, setSelectedIdealId\] = usePersistedState\("selectedIdealId", null\);/],
       ["deleteIdealProfileWithUndo", /const deleteIdealProfileWithUndo = \(id\) => \{/],
     ]) check(`M9: 便G が使う ${name} の定義は残っている(呼び手だけ消した)`, re.test(code76));
@@ -24428,10 +24430,12 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       && /onCompareOthers=\{onCompareOthers\}/.test(callOf(myData51, "MyDataStockSheet")));
     // CommunityTab.jsx の受け口。
     check("51.3 D3 CommunityTab.jsx: 既定の export が landTab と onLanded を受ける(既定は null)",
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} \/>/.test(comm51));
+      // 【便BP 2026-10-03】はじめの一手の印を立てる口 onOnboarding(既定 null)が末尾に加わった。landTab / onLanded の形は同じ。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null \}\)/.test(comm51)
+      // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -30087,9 +30091,12 @@ console.log("\n========== 検証82: 便AF 鉛筆は綴りごと無い / AB-2 長
     check("82.1 / 便AF 編集中で描き分ける門そのものがマスの中に無い({editing && ( が0件)",
       count82(grid82, /\{editing && \(/g) === 0,
       `${count82(grid82, /\{editing && \(/g)}箇所`);
-    check("82.1 / 便AF 編集中の効きはタイルの属性1つだけ(editing を読むのは受け口と属性のみ)",
+    // 【便BP3 2026-10-03 統括の裁定】揺れている間ははじめの一手の的を名乗らない。editing を読む所が1つ増えた
+    // (data-coach の門。見た目は変えない)。数えるのは 受け口の分割代入・data-editing の属性名と値・data-coach の門 の計4つ(以前は3つ)。
+    check("82.1 / 便AF 編集中の効きはタイルの属性1つだけ(editing を読むのは受け口と属性のみ。便BP3 で data-coach の門が加わった)",
       /data-editing=\{editing \? "true" : "false"\}/.test(grid82)
-      && count82(grid82, /\bediting\b/g) === 3,
+      && /data-coach=\{coachFirst && home === 0 && !editing \? "reedsMeasure" : undefined\}/.test(grid82)
+      && count82(grid82, /\bediting\b/g) === 4,
       `${count82(grid82, /\bediting\b/g)}箇所`);
     check("82.1 / 便AF マスの中の <button> はカード1つだけ(鉛筆の形は門の内にも外にも無い)",
       count82(grid82, /<button/g) === 1,
@@ -31015,7 +31022,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("89.1 みんなの平均カードは .card-accent(地は index.css の1規則。インラインで地を書かない)",
     // 【便BO 2026-10-02 本人指示】押すと目安に設定の確認のシート。足したのは押したときの処理の2つだけ(style は無いまま)。
     // 【便BO3 2026-10-03】押し始めの中断(pointercancel)で控えた印を戻す受け口が加わった(3つ。style は無いまま)。
-    /<div className="card card-accent"\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
+    // 【便BP 2026-10-03】はじめの一手(参加後2)の的の名乗り data-coach が加わった(押せるときだけ。style は無いまま)。
+    // 【便BP5 2026-10-03】押せるときは、ほかの一手のカードを重ねない印(data-coach-avoid)も付く(style は無いまま)。
+    /<div className="card card-accent"\s*\r?\n\s*data-coach=\{adoptable \? "adoptAverage" : undefined\}\s*\r?\n\s*data-coach-avoid=\{adoptable \? "" : undefined\}\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
     && !/className="card card-accent"[^>]*style=/.test(data89));
   // 34.5 は App.jsx だけを数えている(累計カード1枚)。コミュニティの1枚はここで数える。
   check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚だけ",

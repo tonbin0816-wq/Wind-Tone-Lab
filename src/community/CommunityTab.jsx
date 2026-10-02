@@ -142,11 +142,13 @@ const DELETE_PARTIAL_NOTICE =
 // 【D3 2026-09-16 実機の指摘】landTab / onLanded = App から「開く子タブ」を渡す口
 // (My Data の「みんなのデータをみる」→ "rank")。受け取ったら onLanded で App 側を null に
 // 戻す(同じ値を2回押しても2回効くように)。普段は null で、何も変わらない。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null }) {
+// 【便BP 2026-10-03】onOnboarding = はじめの一手の印を立てる口(App.jsx の markOnboarding)。
+// 呼ぶのは2つだけ: 参加済みと分かった("join")・人物のページを開いた("openPerson")。渡さなければ何も起きない。
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} />
     </>
   );
 }
@@ -161,7 +163,7 @@ const SUB_TABS = [
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
 // 【便BE】export は振る舞いの検査(block.test.jsx)が実物を描くための出口。
-export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null }) {
+export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null, onOnboarding = null }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -351,6 +353,11 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   const index = Math.max(0, SUB_TABS.findIndex((x) => x.key === tab));
   // 子タブを動かしたら人物紹介は閉じる(下の画面が別人のものに変わるため)
   const go = (k) => { setPerson(null); setTab(k); };
+  // 【便BP 2026-10-03】人物のページを開く(データ・順位のどちらの一覧からでも)。開けたら、はじめの一手の印を立てる。
+  const openPerson = (p) => {
+    setPerson(p);
+    if (p) onOnboarding?.("openPerson");
+  };
 
   return (
     <div>
@@ -366,9 +373,9 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
           /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。
              【便BO 2026-10-02 本人指示】onAdopt: みんなの平均カードを押して目安に設定する。人物のページと同じ受け口。 */
-          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} />
+          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={openPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} />
         ))}
-        {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
+        {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={openPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
         {/* 【B-3 2026-09-15 本人裁定】削除のシートが「外から見えなくなるもの」を数えるのに
             公開している目安の数が要る。myIdeals を持っているのはこの階層だけなので渡す。 */}
@@ -429,7 +436,7 @@ export function BackupSheet({ onClose }) {
   );
 }
 
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -453,6 +460,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
     // 受け取ったので App 側の要求を消してもらう(次に同じ子タブを頼まれても効くように)。
     if (onLanded) onLanded();
   }, [landTabRequest, onLanded]);
+  // 【便BP 2026-10-03】はじめの一手: 参加済みと分かったら(プロフィールの画面に入ったら)印を立てる。
+  // 参加した直後(初回のプロフィールの保存)も、既に参加している人がタブを開いたときも、ここを通る。
+  // 参加しているかは Firebase に訊いて初めて分かるので、起動時の移行では決められない(App.jsx の移行の注記)。
+  useEffect(() => {
+    if (phase === "profile") onOnboarding?.("join");
+  }, [phase, onOnboarding]);
   // 未参加(JoinIntro)のときは landTab を読む相手が居ないので、何も起きない。参加して
   // プロフィールを作ったあとは onSubmit の setLandTab(profile ? "me" : "data") が上書きする
   // ── 「初回の作成は "data" のまま」の規則はそのまま。
@@ -569,6 +582,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       tuningHz={tuningHz}
       onAdoptIdeal={onAdoptIdeal}
       initialTab={landTab}
+      onOnboarding={onOnboarding}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
@@ -754,19 +768,20 @@ export function JoinIntro({ onJoin, notice = null }) {
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>コミュニティ</div>
       {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
-      <div style={bodyStyle}>
+      {/* 【便BP4 2026-10-03】data-coach-avoid: はじめの一手のカードをここに重ねない(同意の前に読む説明文。見た目は変えない)。 */}
+      <div style={bodyStyle} data-coach-avoid="">
         参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
         メールアドレスなどの個人情報は公表されません。
       </div>
       {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
           アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
           「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
-      <div style={noteStyle}>
+      <div style={noteStyle} data-coach-avoid="">
         匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
       </div>
       {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
           **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
-      <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+      <div className="sans" data-coach-avoid="" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
         {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
             【束3 2026-09-19】お問い合わせも同じ形にした ── 以前の mailto: は端末に
             メールアプリが無いと何も起きず、有ってもアプリの外へ出る。3つとも同じ
@@ -777,7 +792,8 @@ export function JoinIntro({ onJoin, notice = null }) {
       </div>
       {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。 */}
       <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>
-      <button type="button" onClick={join} disabled={busy || !agreed} className="sans"
+      {/* 【便BP 2026-10-03】data-coach = はじめの一手(コミュニティ・参加前)の的。見た目は変えない。 */}
+      <button type="button" onClick={join} disabled={busy || !agreed} className="sans" data-coach="join"
         style={{ ...primaryButtonStyle, background: agreed ? "var(--c-accent)" : "var(--c-disabled)",
                  cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
         {busy ? "準備中…" : "参加してプロフィールを作る"}

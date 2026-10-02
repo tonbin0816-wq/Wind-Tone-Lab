@@ -30,8 +30,12 @@ import LoadingRing from "./community/LoadingRing.jsx";
 import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
 // 【便BL 2026-10-02 本人指示】見本の広告の帯の合図。読むのは <html> の印だけ(付けるのは main.jsx)。
 import { isAdPreviewOn } from "./adPreview.js";
+// 【便BP3 2026-10-03 本人の依頼】はじめの一手の見本の合図(?tutorialpreview=1)。読むのは <html> の印だけ(付けるのは main.jsx)。
+import { isTutorialPreviewOn } from "./tutorialPreview.js";
 // 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りないときだけ環を縮める計算(純関数。検査は measureRingFit.test.js)。
 import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringScale } from "./measureRingFit.js";
+// 【便BP 2026-10-03 本人裁定】はじめの一手。どの一手を出すか・印・移行・位置の判断は onboarding.jsx の純関数。
+import { OnboardingCoach, ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, markOnboardingDone, migrateOnboardingDone, coachCandidates, NO_COACH, onboardingFlagsForSavedSession } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3844,7 +3848,8 @@ export default function WindToneLabPhaseMode() {
   const [instrumentOffsetCents, setInstrumentOffsetCents] = usePersistedState("instrumentOffsetCents", 0); // 楽器個体差の補正(セント)。運指テーブル全体をシフトする(企画書3節末尾の注記への対応)
 
   // 理想値プロファイルは「撮りためたデータ」の中核のひとつのため永続化する
-  const [idealProfiles, setIdealProfiles] = usePersistedState("idealProfiles", []);
+  // 【便BP】3つ目・4つ目(読み込み済み・本当に読めたか)は、はじめの一手の移行の門にだけ使う。
+  const [idealProfiles, setIdealProfiles, idealProfilesLoaded, idealProfilesReadOk] = usePersistedState("idealProfiles", []);
   const [selectedIdealId, setSelectedIdealId] = usePersistedState("selectedIdealId", null);
 
   // 音名表記統一(D#→E♭, A#→B♭)より前に保存された理想値プロファイルのwrittenLabelを
@@ -3896,6 +3901,46 @@ export default function WindToneLabPhaseMode() {
   // 「自分」は常に選べる固定選択肢。ユーザーが「名前を入力」で追加した名前をperformersに積み上げていく
   const [performers, setPerformers] = usePersistedState("performers", []);
   const [selectedPerformer, setSelectedPerformer] = usePersistedState("selectedPerformer", "自分");
+
+  // 【便BP 2026-10-03 本人裁定】はじめの一手の「済んだ印」。この端末の保存(kv)の1つの鍵に持つ
+  // (アカウント引継は kv を丸ごと書き出すので、ファイルにも入る)。
+  // **印は成功の道でだけ立てる**(計測の保存・リードの登録・参加・人物のページを開く・平均の取り込み)。
+  // 数を毎回数えて決めない ── 計測やリードを消しても戻らないように。
+  const [onboardingRaw, setOnboardingRaw, onboardingLoaded, onboardingReadOk] = usePersistedState(ONBOARDING_KEY, ONBOARDING_INITIAL);
+  const onboardingDone = useMemo(() => normalizeOnboardingDone(onboardingRaw), [onboardingRaw]);
+  // 読めていない(読みが失敗した)起動では印を書かない ── 初期値の {} に1つ足した物で、保存されている印を上書きしてしまう。
+  const onboardingWritableRef = useRef(false);
+  onboardingWritableRef.current = onboardingLoaded && onboardingReadOk;
+  // 【便BP3 2026-10-03 本人の依頼】見本(?tutorialpreview=1 を覚えた端末)。保存してある印を**読まずに**全部「まだ」として扱い、
+  // この起動の中で済ませた一手はメモリの上(previewDoneRaw)にだけ立てる。**本物の印は書かない・移行もしない。**
+  const [tutorialPreview] = useState(() => isTutorialPreviewOn());
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => ({ migrated: true }));
+  const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
+  const markOnboarding = useCallback((flag) => {
+    if (tutorialPreview) { setPreviewDoneRaw((prev) => markOnboardingDone(prev, flag)); return; }
+    if (!onboardingWritableRef.current) return;
+    setOnboardingRaw((prev) => markOnboardingDone(prev, flag));
+  }, [setOnboardingRaw, tutorialPreview]);
+  // 既にある人の移行(更新後の最初の起動で1回)。**読み込みが済み、本当に読めてから**判定する
+  // (印・計測・リード・目安の4つ。読めていない初期値の [] で「何も無い人」と決めない)。
+  // 参加は Firebase に訊かないと分からないので、ここでは決めない(コミュニティタブが参加済みと分かった時点で立てる)。
+  useEffect(() => {
+    if (tutorialPreview) return;   // 【便BP3】見本の起動では本物の印に触らない(移行も次の普通の起動へ回す)
+    if (!onboardingLoaded || !onboardingReadOk) return;
+    if (sessionsStatus !== "ready" || !reedsLoaded || !reedsReadOk || !idealProfilesLoaded || !idealProfilesReadOk) return;
+    setOnboardingRaw((prev) => migrateOnboardingDone(prev, { sessions, reeds, idealProfiles, isAdopted: isAdoptedIdealProfile }));
+  }, [tutorialPreview, onboardingLoaded, onboardingReadOk, sessionsStatus, reedsLoaded, reedsReadOk, idealProfilesLoaded, idealProfilesReadOk, sessions, reeds, idealProfiles, setOnboardingRaw]);
+  // 案内を出してよいのは、印が読めて移行も済んでから(移行の前に出すと、既に使っている人に一瞬出る)。
+  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated;
+  // 案内が読む印と「出してよいか」。見本ではメモリの上の印を読み、読み込みを待たない(本物の印を見ないので)。
+  const coachDone = tutorialPreview ? previewDone : onboardingDone;
+  const coachReady = tutorialPreview || onboardingReady;
+  // BottomSheet が1枚でも開いている間は出さない(便BL の知らせをそのまま読む)。
+  const anySheetOpen = useAnyBottomSheetOpen();
+  // 計測が保存された(録音・取り込みのどちらも)。リードを紐づけた計測なら「このリードで計測」も済む。
+  const markSessionSaved = useCallback((session) => {
+    for (const flag of onboardingFlagsForSavedSession(session)) markOnboarding(flag);
+  }, [markOnboarding]);
 
   // --- 音声ファイルアップロード解析(分析タブ) ---
   const [isAnalyzingUpload, setIsAnalyzingUpload] = useState(false);
@@ -4085,6 +4130,8 @@ export default function WindToneLabPhaseMode() {
   const registerPendingSession = useCallback(() => {
     if (pendingSession) {
       addSession(pendingSession);
+      // 【便BP】はじめの一手: 計測が1件保存された(リードを紐づけていれば「このリードで計測」も)。
+      markSessionSaved(pendingSession);
       // 【B-1 / T6・T8・R6 2026-09-15 本人裁定】保存したことを**操作の隣**で返す。
       // 時刻は recordedAt の HH:mm(書式の綴りは formatYmd 1箇所のまま)。
       showNotice({
@@ -4097,7 +4144,7 @@ export default function WindToneLabPhaseMode() {
     setPendingSession(null);
     setPhraseFrames([]);
     phraseFramesRef.current = [];
-  }, [pendingSession, addSession, showNotice, openSessionFromNotice]);
+  }, [pendingSession, addSession, showNotice, openSessionFromNotice, markSessionSaved]);
   const discardPendingSession = useCallback(() => {
     setPendingSession(null);
     setPhraseFrames([]);
@@ -4927,6 +4974,8 @@ export default function WindToneLabPhaseMode() {
           noteEvents,
         };
         addSession(session);
+        // 【便BP】はじめの一手: 取り込みで保存した計測も「計測が1件保存された」に数える(データタブの案内もここで済む)。
+        markSessionSaved(session);
         // 【B-1】完了の合図は帯1枚。**進捗バーはそのまま**(それは操作の場所の中にある)。
         showNotice({
           text: "解析が完了しました",
@@ -4982,6 +5031,12 @@ export default function WindToneLabPhaseMode() {
   // 「本文の左右余白」を1箇所で動かせば3つとも同時に動く(計算値は従来と 1px も変わらない)。
   // 【便BI 2026-10-02 本人裁定(b)】上端の余白は計測タブだけ詰める(PAGE_TOP_PAD の注記)。
   // 【便BM 2026-10-02 本人指示】全タブとも同じ 4px にそろえた(PAGE_TOP_PAD の1つ。タブで切り替えない)。
+  // 【便BP2 2026-10-03 統括の裁定】BottomSheet **以外**の z60 の暗幕が出ている間は、はじめの一手を出さない。
+  // 洗い出した2つ(PhotoZoom の z70 は人物のページ・マイページの中からしか開かない。報告の一覧):
+  //   ・エラーの暗幕 … 下の {errorMsg && (topTab === "measure" || …)} と**同じ式**(onboardingApp.test.jsx が突き合わせる)
+  //   ・「この録音を保存しますか？」 … MeasureView の {!isRecording && pendingSession && …}。MeasureView は計測タブでだけ描かれる
+  const errorScrimShown = Boolean(errorMsg && (topTab === "measure" || (topTab === "analysis" && !ERROR_MEASURE_ONLY.includes(errorMsg))));
+  const saveConfirmShown = topTab === "measure" && Boolean(!isRecording && pendingSession);
   return (
     <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
       <style>{`
@@ -5042,6 +5097,7 @@ export default function WindToneLabPhaseMode() {
           compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds}
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
           showNotice={showNotice}
+          onReedsRegistered={() => markOnboarding("reeds")}
         />
       )}
 
@@ -5182,6 +5238,8 @@ export default function WindToneLabPhaseMode() {
           onOpenCommunityIdeals={openCommunityIdeals}
           idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
           deleteIdealProfileWithUndo={deleteIdealProfileWithUndo}
+          /* 【便BP3】計測の詳細でリードを後から紐づけたら、はじめの一手(リード2)の印を立てる。 */
+          onReedLinked={() => markOnboarding("reedsMeasure")}
         />
       )}
       {topTab === "community" && (
@@ -5240,8 +5298,13 @@ export default function WindToneLabPhaseMode() {
                 // この App の根にあり、ここ(App.jsx の中)からなら届く。文は人物のページの1行と同じ綴り。
                 // 人物は announce を渡さない(シートの中の1行のまま。帯は出さない)。
                 if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true });
+                // 【便BP】はじめの一手(参加後2): みんなの平均を目安に設定できた。announce を渡すのはみんなの平均だけ
+                // (人物は渡さない。cohortAdopt.test.jsx が固定している)。
+                if (announce) markOnboarding("adoptAverage");
                 return { ok: true };
               }}
+              /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。 */
+              onOnboarding={markOnboarding}
             />
           </Suspense>
         </CommunityErrorBoundary>
@@ -5260,6 +5323,17 @@ export default function WindToneLabPhaseMode() {
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
           (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
       <AdPreviewStrip />
+      {/* 【便BP 2026-10-03 本人裁定】はじめの一手。**描くのはこの1箇所だけ**(body へ出す)。
+          出してよいのは、印が読めて移行が済み(見本ではいつでも)、録音中でなく、BottomSheet も z60 の暗幕(エラー・保存の確認)も出ておらず、
+          録音ファイルの取り込みを解析していないときだけ(【便BP3】isAnalyzingUpload)。
+          計測タブはマイクの許可が済んでから(isListening かつエラー無し。許可されなかったときは出さない)。 */}
+      <OnboardingCoach
+        candidates={coachReady && !isRecording
+          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg })
+          : NO_COACH}
+        done={coachDone}
+        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload}
+      />
     </div>
   );
 }
@@ -5341,7 +5415,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
        効くので、帯そのものが透けて**裏のカードが下部タブに重なって見えていた**
        (録音中は音量の詳細が帯の下まで伸びる)。**地を透かさずに淡さだけ足す手は無い**
        ので、淡さのほうを落とす。タブは従来どおり disabled のままで、機能は変えていない。 */
-    <div style={{
+    /* 【便BP3】data-bottom-nav: はじめの一手のカードを下部タブの上に置くための目印(onboarding.jsx が上端を読む)。 */
+    <div data-bottom-nav="" style={{
       position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
@@ -5357,6 +5432,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               onClick={() => onNavTap(t.key)}
               disabled={isRecording}
               aria-label={t.label}
+              /* 【便BP】はじめの一手(データタブ)の的は「計測」の絵柄(onboarding.jsx が中の svg を囲む)。 */
+              data-coach={t.key === "measure" ? "nav-measure" : undefined}
               className="sans"
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
@@ -9503,6 +9580,8 @@ function MeasureView(props) {
         <button
           onClick={toggleRecording}
           aria-label={isRecording ? "録音を停止" : "録音する"}
+          /* 【便BP】はじめの一手(計測タブ)の的。見た目は変えない(属性だけ)。 */
+          data-coach="measure"
           aria-pressed={isRecording}
           disabled={openPicker !== null}
           className="sans"
@@ -11283,7 +11362,8 @@ function reedTilePressPlan(e, canReorder) {
 // editing / onEnterEditing は**自分で持たない**(props で受ける) ── 箱ごとに別の
 // ReedTileGrid なので、ここで持つと「長押しした箱のタイルだけ揺れる」に戻ってしまう。
 // 揺れは editing ただ1つで決まり、掴んでいる1枚かどうかは見ない。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnterEditing, onTileTap, onReorder }) {
+// 【便BP2 2026-10-03 統括の裁定】coachFirst = この箱の先頭のタイルが、はじめの一手(リード2)の的を名乗る(data-coach だけ。見た目は変えない)。
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnterEditing, onTileTap, onReorder, coachFirst = false }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -11520,6 +11600,9 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
               data-tone={tone}
               data-drag={isDragging ? "true" : "false"}
               data-editing={editing ? "true" : "false"}
+              /* 【便BP2】はじめの一手(リード2)の的。先頭の箱(coachFirst)の先頭のマスだけ。 */
+              /* 【便BP3】揺れている間(編集中)は名乗らない(案内を出さない。「完了」を暗幕の下に入れない)。 */
+              data-coach={coachFirst && home === 0 && !editing ? "reedsMeasure" : undefined}
               aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
               style={{
                 /* 正典 .tile の寸法。aspect-ratio 1 なので高さは幅から決まり、幅は包み(1fr)が決める */
@@ -11624,6 +11707,8 @@ function ReedsTab(props) {
     reedsSubTab, setReedsSubTab, selectedReedId,
     // 【B-2】削除の合図を出す口。帯そのものは App の根にあり、ここは呼ぶだけ。
     showNotice,
+    // 【便BP 2026-10-03】リードを登録できたとき(はじめの一手の印)。一覧(ReedRegisterView)へ渡すだけ。
+    onReedsRegistered,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
   // 【便AY 2026-09-25 本人指示 D5】一覧(と比較)で見ている楽器。
@@ -11782,6 +11867,7 @@ function ReedsTab(props) {
           reedGroups={reedGroups}
           listSax={listSax} onPickListSax={setListSax}
           pageActive={reedsSubTab === "register"}
+          onReedsRegistered={onReedsRegistered}
           /* 【AB-2】編集中の旗と、その入口。一覧はこれをすべての ReedTileGrid へ配る。
              【AD-1 2026-09-21 本人指示】出口も配る。「完了」と**同じ exitListEditing** を
              渡すので、終わらせ方は1つのまま(reedEditingNext の "done" ただ1つ)。 */
@@ -11934,7 +12020,8 @@ const FLOAT_ACTION_SPACER_H = `calc(${ACTION_LG_PX}px + ${FLOAT_ACTION_GAP} + ${
 // **新しい値を発明しない** ── 直径は §5 の --tap-min、丸みは --r-pill(縦横が同じなので円)、
 // 地・影・右下の位置は語つきのときと1つも変えていない。
 // 語を渡す形も残す(「計測」「★ 目安に設定」は語がないと何の一手か分からない)。
-function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null }) {
+// 【便BP 2026-10-03】coach = はじめの一手の的として名乗る名前(data-coach)。渡さない呼び手は1文字も変わらない。
+function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined }) {
   const iconOnly = !label;
   return createPortal(
     <button
@@ -11942,6 +12029,9 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
+      data-coach={coach}
+      /* 【便BP2】穴の形。浮かせるボタンは丸なので円で囲む(一手の既定の形より優先)。 */
+      data-coach-shape={coach ? "circle" : undefined}
       className="sans"
       style={{
         position: "fixed", zIndex: FLOAT_ACTION_Z,
@@ -12448,6 +12538,8 @@ function ReedRegisterView(props) {
     listSax,
     // 【軽7】見ている楽器を替える口(ReedsTab の setListSax)。箱の編集で楽器を変えたとき、その楽器へ移す。
     onPickListSax,
+    // 【便BP 2026-10-03】リードを登録できたときに呼ぶ(はじめの一手の印)。
+    onReedsRegistered,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -12522,6 +12614,8 @@ function ReedRegisterView(props) {
       createdAt: new Date().toISOString(),
     }));
     setReeds((prev) => [...prev, ...newReeds]);
+    // 【便BP】はじめの一手: リードが1枚登録された。
+    if (newReeds.length > 0) onReedsRegistered?.();
     if (newBrand === REED_BRAND_CUSTOM) setCustomBrand("");
     setAddOpen(false);
   };
@@ -12629,7 +12723,7 @@ function ReedRegisterView(props) {
       {reedGroups.length === 0 ? (
         <ReedSaxEmptyLine saxType={listSax} />
       ) : (
-        reedGroups.map((g) => {
+        reedGroups.map((g, gi) => {
           const avgRating = reedGroupAvgRating(g.members);
           // 【F-80 / F-82】メーカーと日付をタップすると「箱を編集」シートが開く。
           // **見た目は 1px も足していない**: 地・枠・角丸・下線を持たない <button> にし、
@@ -12696,6 +12790,8 @@ function ReedRegisterView(props) {
                     番号編集への入口はここ1つだけ。) */
                 onTileTap={(id) => (editing ? setNumberEditId(id) : onOpenReed?.(id))}
                 onReorder={reorderGroupMembers}
+                /* 【便BP2】一覧の先頭の箱だけ(はじめの一手・リード2の的)。 */
+                coachFirst={gi === 0}
               />
             </div>
           );
@@ -12739,6 +12835,8 @@ function ReedRegisterView(props) {
         <FloatingAction
           ariaLabel="リードを追加"
           icon={<Plus size={28} strokeWidth={2.5} />}
+          /* 【便BP】はじめの一手(リードタブ1)の的。【便BP3】揺れている間は名乗らない(見本ではリードがあっても出るため)。 */
+          coach={editing ? undefined : "reeds"}
           onClick={() => { setNewSax(listSax); setAddOpen(true); }}
         />
       )}
@@ -14233,6 +14331,8 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
         ariaLabel="このリードで計測する"
         icon={<MeasureIcon size={28} color="var(--c-on-accent)" />}
         onClick={() => onMeasure?.(reed.id)}
+        /* 【便BP2 2026-10-03】はじめの一手(リード2)は、一覧のタイルからここへ的が移る(同じ一手のまま)。 */
+        coach="reedsMeasure"
       />
 
       {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
@@ -17117,6 +17217,8 @@ function AnalysisLabView(props) {
           /* 【便AY E6】リードを付け直すシートの候補は、その計測の楽器(無ければこの楽器)のリードだけ。 */
           saxType={saxType}
           onBack={() => setSelectedSessionId(null)}
+          /* 【便BP3】後から紐づけたら、はじめの一手(リード2)の印。 */
+          onReedLinked={props.onReedLinked}
         />
       </SwipeBackArea>
       </div>
@@ -17949,7 +18051,7 @@ function MyDataPage({
 // 【束5 2026-09-20】受け口から NUM_HARMONICS が消えた。唯一の読み手だった
 // PhraseTimeline の音色一致度の枠が無くなり、この画面では誰も見なくなったため
 // (selectedIdeal は MetricTabCard / SetAsIdealButton が今も読むので残る)。
-function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, saxType, onBack }) {
+function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSessionToIdeal, updateSessions, performers, setPerformers, tuningHz, saxType, onBack, onReedLinked = null }) {
   const frames = session.frames || [];
   // (【D-5】音階ごとの平均の表を削除したので、noteGroups の読み手が無くなった。分解も止める。)
   const reed = reeds.find((r) => r.id === session.reedId) || null;
@@ -17965,6 +18067,8 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSes
   };
   const setSessionReedId = (reedId) => {
     updateSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, reedId: reedId || null, linkedAt: reedId ? "retroactive" : null } : s)));
+    // 【便BP3 2026-10-03】後から紐づけた計測も「リードを紐づけた計測」(はじめの一手・リード2の印)。移行と答えをそろえる。
+    if (reedId) onReedLinked?.();
   };
   // 日付も後から修正できる(録音日を間違えた場合等)。開封後日数などの集計はこの日付に追従する。
   const setSessionRecordedAt = (value) => {

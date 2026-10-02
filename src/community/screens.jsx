@@ -1201,7 +1201,13 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           (グラフの線の色は白地の決まりのまま使えるので、1本も変えていない)。 */}
       {/* 【便BO 2026-10-02 本人指示】押すと「みんなの平均を目安に設定しますか」の確認のシート。
           足すのは押したときの処理だけで、クラス・style・子の並びは1つも変えていない(押せる印も足さない)。 */}
+      {/* 【便BP 2026-10-03】data-coach = はじめの一手(参加後2)の的。**平均が出ているとき(押せるとき)だけ**名乗る
+          (人数不足・エラーのあいだは名乗らない = 案内は出ない)。属性を足すだけで、クラス・style・子の並びは変えていない。 */}
+      {/* 【便BP5 2026-10-03 統括の裁定】data-coach-avoid: 押すと確認のシートが開くカードなので、ほかの一手(参加後1)のカードを
+          ここに重ねない。参加後2では的そのもの(的は重ねない矩形から外れる)。 */}
       <div className="card card-accent"
+           data-coach={adoptable ? "adoptAverage" : undefined}
+           data-coach-avoid={adoptable ? "" : undefined}
            onPointerDown={adoptable ? onCardPointerDown : undefined}
            onPointerCancel={adoptable ? onCardPointerCancel : undefined}
            onClick={adoptable ? onCardClick : undefined}>
@@ -1280,7 +1286,9 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
       ) : (
         <div className="card card-list">
           {pairs.map(({ ideal, owner }, i, arr) => (
+            /* 【便BP 2026-10-03】data-coach = はじめの一手(参加後1)の的。一覧の1人目だけが名乗る(一覧が空なら名乗る行が無い)。 */
             <div key={ideal.id}
+                 data-coach={i === 0 && onOpenPerson ? "openPerson" : undefined}
                  role={onOpenPerson ? "button" : undefined}
                  tabIndex={onOpenPerson ? 0 : undefined}
                  onClick={onOpenPerson ? () => onOpenPerson(owner) : undefined}

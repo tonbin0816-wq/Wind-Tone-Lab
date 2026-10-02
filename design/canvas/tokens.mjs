@@ -20,6 +20,7 @@
 // 写しの実値が index.css と一致することは pitch-test の 便BF の節が突き合わせる。
 // 【便BL 2026-10-02】--ad-h(下部タブの上の広告の帯の高さ)を写し、--page-bottom-gap に足した。
 // キャンバスは帯の無い姿(0px)を描く。50px になるのは index.css の :root[data-ad-preview="1"] だけで、写しには持たない。
+// 【便BP 2026-10-03】--c-coach-dim(はじめの一手の暗幕。--c-ink の 46%)を写した。キャンバスの画面はまだ使っていない。
 export const TOKENS = `
     :root {
       --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
@@ -54,6 +55,7 @@ export const TOKENS = `
       --shadow-card: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-row: 0 1px 2px rgba(18, 31, 50, .04), 0 6px 16px rgba(18, 31, 50, .06);
       --shadow-seg: 0 1px 2px rgba(18, 31, 50, .08), 0 2px 6px rgba(18, 31, 50, .06);
+      --c-coach-dim: rgba(18, 31, 50, .46);
       --nav-h: 47px;
       --ad-h: 0px;
       --page-bottom-gap: calc(var(--nav-h) + var(--ad-h) + env(safe-area-inset-bottom));
