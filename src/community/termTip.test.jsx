@@ -83,6 +83,14 @@ const mark = () => tablist().querySelector("[data-term-mark]");
 const tip = () => host.querySelector("[data-term-tip]");
 const click = async (el) => { await act(async () => { el.click(); }); };
 const tipParts = () => [...tip().children].filter((c) => c.tagName === "DIV");
+// 【便BI 2026-10-02 審査の差し戻し】読み上げ: 名前は見えている字のまま(aria-label を置かない)、
+// 「用語の説明」は aria-describedby の先の文(見せない要素)。名前に「用語の説明」を混ぜていないことも見る。
+const nameOf = (el) => el.getAttribute("aria-label") ?? tabText(el);
+const descOf = (el) => {
+  const id = el.getAttribute("aria-describedby");
+  const d = id ? document.getElementById(id) : null;
+  return d ? { text: d.textContent, hidden: d.hidden } : null;
+};
 
 for (const [place, make] of PLACES) {
   describe(`用語の説明(吹き出し): ${place}`, () => {
@@ -93,8 +101,11 @@ for (const [place, make] of PLACES) {
       expect(selected().contains(mark())).toBe(true);
       expect(mark().getAttribute("aria-hidden")).toBe("true");
       expect(mark().textContent).toBe("?");
-      // 読み上げ: 選んでいるタブの名前に「用語の説明」。閉じている
-      expect(selected().getAttribute("aria-label")).toBe("重心 用語の説明");
+      // 読み上げ: 名前は「重心」のまま、説明に「用語の説明」(見せない要素)。閉じている
+      // (【便BI 審査の差し戻し】以前は aria-label で名前を「重心 用語の説明」に替えていた)
+      expect(selected().getAttribute("aria-label")).toBe(null);
+      expect(nameOf(selected())).toBe("重心");
+      expect(descOf(selected())).toEqual({ text: "用語の説明", hidden: true });
       expect(selected().getAttribute("aria-expanded")).toBe("false");
       expect(tip()).toBe(null);
       // 自分と 3 音重なる(以前はグラフの下に揃えの注記が出ていた場合)でも、本文には出ない
@@ -114,9 +125,13 @@ for (const [place, make] of PLACES) {
       expect(body.textContent).toBe(CENTROID);
       expect(note.textContent).toBe(SHARED);
       expect(tabText(selected())).toBe("重心"); // 押しても指標は変わっていない
+      // 開いても名前は変わらない(状態は aria-expanded だけが言う)。説明もそのまま
+      expect(nameOf(selected())).toBe("重心");
+      expect(descOf(selected())).toEqual({ text: "用語の説明", hidden: true });
       await click(tab("重心"));
       expect(tip()).toBe(null);
       expect(selected().getAttribute("aria-expanded")).toBe("false");
+      expect(nameOf(selected())).toBe("重心");
     });
 
     it("開いたまま別のタブ(HNR)を押すと閉じる。HNR でも「?」から同じように開き、HNR の文案", async () => {
@@ -141,6 +156,9 @@ for (const [place, make] of PLACES) {
       expect(mark()).toBe(null);
       expect(selected().getAttribute("aria-label")).toBe(null);
       expect(selected().getAttribute("aria-expanded")).toBe(null);
+      expect(selected().getAttribute("aria-describedby")).toBe(null);   // 説明も持たない
+      // 選んでいない重心・HNR のタブにも説明は付かない(付くのは選んでいる1つだけ)
+      expect(tabs().filter((t) => t.hasAttribute("aria-describedby"))).toHaveLength(0);
       await click(tab("音程"));
       expect(tip()).toBe(null);
       expect(host.textContent).not.toContain(SHARED);

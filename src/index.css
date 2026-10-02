@@ -837,19 +837,23 @@ body {
    .ctl-pill と同じく**角丸だけ**を差し替える(地・枠は型が持つ)。 */
 .ctl-lg { border-radius: var(--r-lg); }
 
-/* 破壊的な一手(押せば**実際に消える**削除)だけが持つ塗り。
-   塗りは体系の中で既に「主要動作の合図」として使っている語彙(まとめて追加 =
-   --c-accent の塗り + --c-on-accent の文字)なので、**本当に消える一手にだけ**
-   危険色の塗りを許すのは一貫する。白 on #DC2626 = 4.8281:1 で WCAG AA(4.5:1)を満たす。
-   **枠は持たない**ので芯1(枠 ∧ 違う地)・芯2(枠は状態を持つものだけ)に反しない。
-   角丸は B型(.ctl-plain / .ctl-pill)が決める。ここは地と文字色だけを持つ。
+/* 破壊的な一手(押せば**実際に消える**削除)だけが持つ赤。
+   【便BI 2026-10-02 本人指示】「赤の塗りのボタンを、赤の枠に」。以前は地 --c-danger + 字 --c-on-accent
+   の塗りだった。いまは人物のページの「通報」(DANGER_OUTLINE_STYLE)と同じ形 ── **地なし・枠と字が
+   --c-danger**。枠は box-shadow の inset 1px で描く(border を足すとピルが上下左右 1px ずつ膨らみ、
+   選ぶ数が 0 ↔ 1 で切り替わるたびに寸法が動く。§6.1.5)。inset 1px の枠は計測の詳細・プロフィールの
+   入力欄の赤枠(boxShadow: inset 0 0 0 1px var(--c-danger))と同じ描き方。
+   字 #DC2626 on 白(--c-surface)= 4.8281:1 で WCAG AA(4.5:1)を満たす。
+   **地を持たない**ので芯1(枠 ∧ 違う地)に反しない。枠は「押せば消える」という**状態**(data-armed)が
+   持つので芯2(枠は状態を持つものだけ)にも反しない。
+   角丸は B型(.ctl-plain / .ctl-pill)が決める。ここは地・枠・文字色だけを持つ。
 
    data-armed="true" = 押せば実際に消える(1件以上選択済み)。
    0件選択のときは何も消えないので B型の地のまま・文字は --c-ink-3。
-   「削除モードに入る入口」はまだ破壊が起きないので、この塗りを持たない(中立の --c-ink-2)。
+   「削除モードに入る入口」はまだ破壊が起きないので、この赤を持たない(中立の --c-ink-2)。
    詳細度は .ctl-danger[data-armed="true"] が 0,2,0 で .ctl-plain(0,1,0)に確実に勝つ。 */
 .ctl-danger { color: var(--c-ink-3); }
-.ctl-danger[data-armed="true"] { background: var(--c-danger); color: var(--c-on-accent); }
+.ctl-danger[data-armed="true"] { background: transparent; box-shadow: inset 0 0 0 1px var(--c-danger); color: var(--c-danger); }
 
 /* 入力欄は「群」ではなく「操作するもの」。状態を持たないので **B型**。
    地は --c-sunken だけで「ここは触れる」を担う(枠線は付けない)。

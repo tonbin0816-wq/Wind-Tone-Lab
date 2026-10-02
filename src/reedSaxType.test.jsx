@@ -905,7 +905,9 @@ describe("リードの追加シート(便AZ A)", () => {
     const input = sheet.querySelector('input[aria-label="リードを検索"]');
     expect(input).not.toBe(null);
     const row = input.parentElement;
-    expect([...row.querySelectorAll("button")].some((b) => b.textContent.includes("新しいメーカーを入力"))).toBe(true);
+    // 【便BI 2026-10-02 本人指示】逃げ道の一手の文字は「＋ 新しいメーカーを入力…」から「その他」に替わった
+    // (文字と押したときの動きは labelsBI.test.jsx が見る)。ここは行の中にその一手があることだけを見る。
+    expect([...row.querySelectorAll("button")].some((b) => b.textContent === "その他")).toBe(true);
     expect(row.style.flexShrink).toBe("0");
     // 検索欄と逃げ道の一手の間は、写し元のプロフィールの GearPicker(Field)と同じ --sp-1(隙間 0 で接しない)
     expect(row.style.gap).toBe("var(--sp-1)");

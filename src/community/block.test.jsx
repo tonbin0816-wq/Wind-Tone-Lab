@@ -196,15 +196,27 @@ describe("人物のページの「ブロック」", () => {
   // 【便BG 2026-10-01 本人指示】「ブロックする」は赤の塗り(DANGER_FILL_STYLE)から塗りなしの赤枠
   // (DANGER_OUTLINE_STYLE)に替わった。アカウントを削除するは赤の塗りのまま(CommunityTab.jsx の
   // dangerButtonStyle = DANGER_FILL_STYLE の別名)。危険の塗りの写しが CommunityTab.jsx に無いことも見る。
-  it("「ブロックする」は DANGER_OUTLINE_STYLE を参照し、アカウントを削除するの塗り(DANGER_FILL_STYLE)とは別", async () => {
-    const { DANGER_FILL_STYLE, DANGER_OUTLINE_STYLE } = await import("./screens.jsx");
+  // 【便BI 2026-10-02 本人指示】「アプリ全体で赤の塗りのボタンを赤の枠に」。アカウントを削除するも赤の枠になり、
+  // 赤の塗り(DANGER_FILL_STYLE / dangerButtonStyle)は読み手ゼロで定義ごと消えた。DANGER_OUTLINE_STYLE の定義は
+  // App.jsx へ移り、screens.jsx は export し直すだけ。ここでは「同じ1つを参照している」ことと
+  // 「塗りの定義・別名がどこにも無い」ことを見る(アプリ全体の塗りの走査は dangerOutline.test.jsx)。
+  it("「ブロックする」は DANGER_OUTLINE_STYLE(App.jsx の1つ)を参照し、赤の塗りの定義はどこにも無い", async () => {
+    const screensMod = await import("./screens.jsx");
+    const app = await import("../App.jsx");
+    const { DANGER_OUTLINE_STYLE } = screensMod;
+    expect(DANGER_OUTLINE_STYLE).toBe(app.DANGER_OUTLINE_STYLE); // 写しではなく同じもの
+    expect(screensMod.DANGER_FILL_STYLE).toBe(undefined);
     const comm = (await import("./CommunityTab.jsx?raw")).default;
     const scr = (await import("./screens.jsx?raw")).default;
-    expect(comm).toMatch(/import \{[^}]*DANGER_FILL_STYLE[^}]*\} from "\.\/screens\.jsx";/);
-    expect(comm).toMatch(/const dangerButtonStyle = DANGER_FILL_STYLE;/);
+    // 注記の中の名前は残る(消した経緯を書いてある)ので、コードの綴り(import・定義・展開)で見る。
+    expect(comm).not.toMatch(/import \{[^}]*DANGER_FILL_STYLE[^}]*\} from/);
+    expect(comm).not.toMatch(/const dangerButtonStyle\b/);
+    expect(comm).not.toMatch(/\.\.\.dangerButtonStyle\b/);
+    expect(scr).not.toMatch(/export const DANGER_FILL_STYLE\b/);
     expect(comm).not.toMatch(/background: "var\(--c-danger\)"/);
+    expect(scr).not.toMatch(/export const DANGER_OUTLINE_STYLE = \{/); // 値の写しを持たない
+    expect(scr).not.toMatch(/background: "var\(--c-danger\)"/);
     expect(scr).toMatch(/<button type="button" onClick=\{onConfirm\} className="sans" style=\{DANGER_OUTLINE_STYLE\}>/);
-    expect(scr).not.toMatch(/style=\{DANGER_FILL_STYLE\}/);
     // 描いた結果もその定義どおり
     await drawPerson({ onBlock: () => {} });
     await toProfileSide();
@@ -213,7 +225,7 @@ describe("人物のページの「ブロック」", () => {
     expect(s.background).toBe(DANGER_OUTLINE_STYLE.background);
     expect(s.border).toBe(DANGER_OUTLINE_STYLE.border);
     expect(s.color).toBe(DANGER_OUTLINE_STYLE.color);
-    expect(s.background).not.toBe(DANGER_FILL_STYLE.background);
+    expect(s.background).toBe("transparent");
   });
 });
 

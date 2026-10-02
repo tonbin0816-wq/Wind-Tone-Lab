@@ -16,7 +16,7 @@ import {
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
-import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE, DANGER_FILL_STYLE } from "./screens.jsx";
+import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
 // 【便BG 2026-10-01 本人指示】以前ここで reportRepo.js の isFlagged(自分が通報で隠れているか)を読んでいた。
 // 通報で誰も隠れなくなったので、読む関数ごと消した。
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -672,11 +672,9 @@ const secondaryButtonStyle = {
   background: "var(--c-sunken)", color: "var(--c-ink-2)",
   fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
 };
-// 破壊的な一手。index.css の .ctl-danger と同じ考え方(枠は持たず、地と文字色だけ)。
-// 【便BE 審査の指摘】定義は screens.jsx の DANGER_FILL_STYLE ただ1つ。ここは別名を置くだけで、値の写しを持たない。
-// 【便BG 2026-10-01 本人指示】「ブロックする」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)に替わったので、
-// この赤の塗りを使うのはいまはアカウントを削除するだけ。
-const dangerButtonStyle = DANGER_FILL_STYLE;
+// (【便BI 2026-10-02 本人指示】破壊的な一手の赤の塗り dangerButtonStyle(= screens.jsx の DANGER_FILL_STYLE の
+//  別名)はここにあった。最後の読み手の「アカウントを削除する」が赤の枠(DANGER_OUTLINE_STYLE)に替わり、
+//  読み手がゼロになったので別名ごと消した。)
 
 function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
@@ -1223,14 +1221,17 @@ function GearPicker({ label, note, value, onPick, runSearch, ariaPrefix, disable
           ))}
         </div>
       )}
-      {/* 候補が出ていなくても常に末尾に置く。打った文字が候補ゼロだったときの逃げ道がこれ。 */}
+      {/* 候補が出ていなくても常に末尾に置く。打った文字が候補ゼロだったときの逃げ道がこれ。
+          【便BI 2026-10-02 本人指示】文字は「カタログに無い(その他)」から「その他」へ。楽器・マウスピース・
+          リガチャー・リードの4欄がこの1つ(GearPicker)を読むので、4欄そろって変わる。
+          押したときに入る値(OTHER_BRAND = "その他")は変えていない。 */}
       <button
         type="button"
         onClick={() => { setQuery(""); onPick({ brand: OTHER_BRAND, model: null }); }}
         className="sans"
         style={{ ...secondaryButtonStyle, fontSize: "var(--fs-sm)", fontWeight: 600 }}
       >
-        カタログに無い(その他)
+        その他
       </button>
     </Field>
   );
@@ -1268,7 +1269,8 @@ export const picksToGearEntry = (p = EMPTY_PICKS) => ({
   reedStrength: p.reedStrength ?? null,
 });
 
-function ProfileForm({ initial, onSubmit, onCancel }) {
+// 【便BI 2026-10-02】export は振る舞いの検査(src/labelsBI.test.jsx が「その他」の文字を描いて見る)のため。
+export function ProfileForm({ initial, onSubmit, onCancel }) {
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
   // 【既定を選んだ状態で出す】アイコンは必須なので、未選択で始めると
   // 「何も触っていないのに保存できない」になる。初期値は一覧の先頭と色1。
@@ -1413,8 +1415,8 @@ function ProfileForm({ initial, onSubmit, onCancel }) {
             /* 【2026-09-02 本人裁定で補助文を削除】以前ここには探し方と
                「選ばなくても登録できます」が出ていた。後者は必須化で嘘になったので消し、
                前者も併せて落とした。**代わりの案内を足さないこと。**
-               打つ手が分からない人の逃げ道は、常に見えている「カタログに無い(その他)」の
-               ボタンが担っている(下の runSearch の結果が0件でも消えない)。 */
+               打つ手が分からない人の逃げ道は、常に見えている「その他」(【便BI 2026-10-02】まで
+               「カタログに無い(その他)」)のボタンが担っている(下の runSearch の結果が0件でも消えない)。 */
             value={gearPicks[t]?.instrument ?? null} onPick={(v) => setPick(t, "instrument", v)}
             /* カタログは種別ごとに分かれている(アルトの YAS-62 はテナーには無い)ので、
                この欄の種別をそのまま渡す。渡し違えると保存の瞬間に弾かれる。 */
@@ -1932,7 +1934,7 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
           削除の確認へ移した(2026-09-15 にその確認がシートになった)。 */}
       <div style={{ display: "grid", marginTop: "var(--sp-4)" }}>
         {/* 【便AW 2026-09-24 本人指示】入口は地なし・枠と字が赤(DANGER_OUTLINE_STYLE)。
-            確認のシートの中の「アカウントを削除する」は赤い地のまま(dangerButtonStyle)。 */}
+            【便BI 2026-10-02 本人指示】確認のシートの中の「アカウントを削除する」も赤の枠(同じ1つ)。 */}
         <button type="button" onClick={() => setDeleteOpen(true)} disabled={busy} className="sans" style={{ ...DANGER_OUTLINE_STYLE, opacity: busy ? 0.6 : 1 }}>
           アカウントを削除
         </button>
@@ -1969,7 +1971,8 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
                 非公開にする
               </button>
             ) : null}
-            <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
+            {/* 【便BI 2026-10-02 本人指示】赤の塗り(dangerButtonStyle)から赤の枠(DANGER_OUTLINE_STYLE)へ。 */}
+            <button type="button" onClick={remove} disabled={busy} className="sans" style={{ ...DANGER_OUTLINE_STYLE, opacity: busy ? 0.6 : 1 }}>
               アカウントを削除する
             </button>
           </div>

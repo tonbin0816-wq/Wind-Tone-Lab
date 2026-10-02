@@ -389,7 +389,7 @@ const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、
 // 【便BF 2026-10-01 便BC の写し】揃えているときの上の一文(ALIGN_NOTE)は、実装では重心・HNR の用語の説明
 // (「?」を押すと開く吹き出し)の一番下へ移り、グラフの下からは消えた。現状の面(CommData / CommPerson)は
 // もう描かない。ALIGN_NOTE を読むのは、当時の記録である改善案の面(CommDataB / C / D)だけ。
-const TERM_HINT = ["重心", "HNR"]; // 用語の説明を持つ指標(screens.jsx の TERM_TEXT の2つ)
+const TERM_HINT = ["重心", "HNR"]; // 用語の説明を持つ指標(src/termTip.jsx の TERM_TEXT の2つ。【便BI 2026-10-02】screens.jsx から移った)
 
 // ---- 画面の外枠 ---------------------------------------------------------
 function screen(sel, inner) {
@@ -704,7 +704,8 @@ ${items.map(([t, on]) => chip(t, on, false)).join("\n")}
 const OTHER_BTN = "width: 100%; min-height: 44px; border-radius: var(--r-pill); border: none; background: var(--c-sunken); color: var(--c-ink-2); font-size: var(--fs-sm); font-weight: 600; display: flex; align-items: center; justify-content: center";
 
 function buildProfileEdit() {
-  const gearField = (label) => `${formField(label, `${formBox()}\n        <div style="${OTHER_BTN}">カタログに無い(その他)</div>`)}`;
+  // 【便BI 2026-10-02 本人指示】逃げ道の一手の文字は「カタログに無い(その他)」から「その他」へ(実装 CommunityTab.jsx の GearPicker と同じ)。
+  const gearField = (label) => `${formField(label, `${formBox()}\n        <div style="${OTHER_BTN}">その他</div>`)}`;
   return screen("me", `<div style="font-size: var(--fs-md); font-weight: 700; color: var(--c-ink)">プロフィールを編集</div>
 
 ${formField("ニックネーム", formBox("tone-lab"),

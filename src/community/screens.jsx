@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
@@ -8,11 +8,15 @@ import { cohortAverage, cohortPlainProfile, alignProfile, copyProfile, noteValue
 import { joinOwners } from "./idealRepo.js";
 import { sanitizeNotes, buildAdoptedProfile } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
+// 【便BI 2026-10-02】重心・HNR の用語の吹き出しは、リード・データの指標タブと共有する1つ(src/termTip.jsx)。
+import { TermTip, TermMark, termTabHinted, termTabProps } from "../termTip.jsx";
 // 戻るの見た目は App.jsx の BACK_BUTTON_STYLE ただ1つ(2026/09/08 本人裁定)。
 // CommunityTab.jsx が前から同じ向きで App.jsx を読んでいるので、依存の形は変わらない。
 // シートの器も App.jsx の BottomSheet ただ1つ(C-16 / D-6 2026/09/09 本人裁定)。
 // 【便AO 2026-09-24】音名軸の折れ線もアプリ本体の NoteAxisLineChart ただ1つ(手作りの LineChart は消した)。
 import { BACK_BUTTON_STYLE, BottomSheet, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
+// 【便BI 2026-10-02】危険な一手の見た目(DANGER_OUTLINE_STYLE)も App.jsx の1つ。下で export し直す。
+import { DANGER_OUTLINE_STYLE } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 // 【便BG 2026-10-01 本人指示】通報で一覧から消さない。flags を読む関数(listFlaggedUids)と落とす関数(hideFlagged)は読まない。
 import { REPORT_REASONS, reportEntryVisible } from "./report.js";
@@ -80,9 +84,13 @@ const ADOPT_STICKY_SPACER_H = "calc(var(--tap-min) + var(--sp-3))";
 // 【便BC 本人選定 モック「イ. 吹き出し」】hint = { keys, open, id, onToggle }。選んでいる指標が keys に
 // 入っていれば、その字の右に小さな「?」の丸を出す(線・currentColor)。**選んでいるタブをもう一度押すと
 // onToggle**(吹き出しの開け閉め)。「?」を別のボタンにすると <button> の入れ子になるので、「?」は飾り
-// (aria-hidden)にして、押す場所はタブそのもの。読み上げには aria-label で「用語の説明」を足し、
+// (aria-hidden)にして、押す場所はタブそのもの。読み上げには「用語の説明」を足し、
 // aria-expanded / aria-controls で吹き出しとつなぐ。
-const HINT_MARK_PX = 18; // 「?」の丸。モック .q の 18px
+// 【便BI 2026-10-02 審査の差し戻し】「用語の説明」は aria-label(名前)ではなく aria-describedby(説明)で足す。
+// 名前は見えている字のまま(termTip.jsx の termTabProps の注記)。
+// 【便BI 2026-10-02】「?」の丸(TermMark)とタブに足す属性(termTabProps)は、リード・データの指標タブ
+// (App.jsx の MetricUnderlineTabs)と同じものを src/termTip.jsx から読む(写しを作らない)。
+// hint を渡さない呼び手(順位の種類など)には属性を1つも足さない。
 function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint = null }) {
   const selColor = onAccent ? "var(--c-on-accent)" : "var(--c-ink)";
   const offColor = onAccent ? "var(--c-on-accent-dim)" : "var(--c-ink-3)";
@@ -91,12 +99,10 @@ function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint =
       style={{ display: "flex", alignItems: "center", gap: 0, marginLeft: -10, flexWrap: "wrap" }}>
       {items.map((it) => {
         const sel = it.key === value;
-        const hinted = Boolean(sel && hint && hint.keys.includes(it.key));
+        const hinted = termTabHinted(hint, it.key, sel);
         return (
           <button key={it.key} type="button" role="tab" aria-selected={sel}
-            aria-label={hinted ? `${it.label} 用語の説明` : undefined}
-            aria-expanded={hinted ? hint.open : undefined}
-            aria-controls={hinted && hint.open ? hint.id : undefined}
+            {...(hint ? termTabProps(hint, hinted) : {})}
             onClick={() => (hinted ? hint.onToggle() : onChange(it.key))} className="sans"
             style={{
               minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
@@ -110,14 +116,7 @@ function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint =
               boxShadow: sel ? `inset 0 -2px 0 0 ${selColor}` : "none",
             }}>
               {it.label}
-              {hinted ? (
-                <span aria-hidden="true" data-term-mark style={{
-                  width: HINT_MARK_PX, height: HINT_MARK_PX, boxSizing: "border-box", marginLeft: "var(--sp-1)",
-                  borderRadius: "50%", border: "1.5px solid currentColor",
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "var(--fs-xs)", fontWeight: 700, lineHeight: 1,
-                }}>?</span>
-              ) : null}
+              {hinted ? <TermMark /> : null}
             </span>
           </button>
         );
@@ -130,119 +129,19 @@ function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint =
 // 【便BC 2026-09-25 本人選定 モック「イ. 吹き出し」】重心と HNR の用語の説明。
 // 同じ下線タブ(重心 / HNR / 音程)と同じ注意書きを持つ2箇所 ── みんなの平均カード(DataScreen)と
 // 人物のページのデータ(PersonSheet) ── が、この1つ(MetricTabs)を使う。写しを作らない。
-//   ・選んでいる指標が重心か HNR のときだけ、字の右に「?」。音程では出さない(TERM_TEXT に無い)
-//   ・選んでいるタブをもう一度押すと開く / 閉じる。別のタブを押して指標が変わったら閉じる
-//   ・×・吹き出しの外を触る・Esc でも閉じる。画面は暗くしない(暗幕を持たない)
-// 文案は本人が選んだもの(一字一句このまま。モックの案2)。共通の一文は、以前グラフの下に出していた
-// 注意書き(便BA まで chart.withMine のとき)をここへ移したもの。グラフの下からは消した。
+// 【便BI 2026-10-02 本人指示】吹き出しの中身(開け閉め・文案・共通の一文)はリード・データの指標タブと
+// 共有する部品 TermTip(src/termTip.jsx)へ移した。ここはタブの列を渡すだけ。
+// 共通の一文(揃えて比べる説明)を出すのはコミュニティだけなので sharedNote を渡す。
 // ------------------------------------------------------------------
-const TERM_TEXT = {
-  spectralCentroidHz: "音に含まれる成分が、どの高さに集まっているかを表す値です。高い成分が多いほど値が上がり、明るい音に聞こえます。",
-  hnrDb: "楽器の響きと、息などの雑音の大きさの比です。高いほど芯のある澄んだ音に聞こえます。",
-};
-const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
-// 上向きの三角の大きさ。モック .bubble::before の border 7px。
-const TERM_ARROW_PX = 7;
-// 三角を吹き出しの角丸(--r-2 = 12px)の上に載せない。端へ寄るときはここで止める。
-const TERM_ARROW_EDGE_PX = 12;
-
 function MetricTabs({ value, onChange, onAccent = false, active = true }) {
-  const [open, setOpen] = useState(false);
-  const [arrowLeft, setArrowLeft] = useState(TERM_ARROW_EDGE_PX);
-  const boxRef = useRef(null);
-  const tipRef = useRef(null);
-  const tipId = useId();
-  const term = TERM_TEXT[value] ?? null;
   const metricLabel = (METRICS.find((x) => x.key === value) ?? METRICS[0]).label;
-
-  // 指標が変わったら閉じる(別のタブを押したとき。外から value が変わったときも)。
-  useEffect(() => { setOpen(false); }, [value]);
-  // 【便BC 審査】横スワイプでページが替わったら閉じる(ページャは裏のページも描いたままなので、
-  // 閉じないと裏で開いたまま残る)。active はページャの index から呼び手が渡す。ページャの外(人物のページ)は常に true。
-  useEffect(() => { if (!active) setOpen(false); }, [active]);
-
-  // 【便BC 審査】「内側」とみなすのは吹き出しの要素と、タブ([role=tab])のボタンだけ。
-  // タブ列の外枠で判定すると、「音程」より右の空いた帯を押しても閉じなかった。
-  const isInside = (t) => Boolean(t && t.closest
-    && ((tipRef.current && tipRef.current.contains(t))
-      || (boxRef.current && boxRef.current.contains(t) && t.closest('[role="tab"]'))));
-
-  // 外を触る・フォーカスが外へ出る・Esc で閉じる。開いている間だけ聞く。
-  // 【Esc は document で受けて止める】人物のページは BottomSheet の中にあり、あちらは window の keydown で
-  // シートごと閉じる。document は window より先に届くので、ここで止めれば Esc 1回で閉じるのは吹き出しだけ。
-  // 【focusin】キーボードだけで操作すると、Tab で先へ進んでも吹き出しが裏に開いたまま残り、最初の Esc が
-  // 見えない吹き出しに吸われていた(便BC 審査)。フォーカスが吹き出しとタブの外へ出たら閉じる。
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (!isInside(e.target)) setOpen(false); };
-    const onFocus = (e) => { if (!isInside(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("focusin", onFocus);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("focusin", onFocus);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  // × で閉じたら、フォーカスを選んでいるタブ(開いた場所)へ戻す。body に落とさない(便BC 審査)。
-  const closeByX = () => {
-    setOpen(false);
-    const sel = boxRef.current && boxRef.current.querySelector('[role="tab"][aria-selected="true"]');
-    if (sel) sel.focus();
-  };
-
-  // 三角は「?」の付いたタブ(選んでいる字の器)の真下。吹き出しの横幅は器(この箱)いっぱいで、
-  // 器はカード / シートの中身の幅なので、画面の端から 16px 以上内側に収まる(カードは 30px・シートは 24px)。
-  useLayoutEffect(() => {
-    if (!open || !boxRef.current) return;
-    const face = boxRef.current.querySelector("[data-tab-face]");
-    const box = boxRef.current.getBoundingClientRect();
-    if (!face || !(box.width > 0)) return;
-    const f = face.getBoundingClientRect();
-    const center = f.left + f.width / 2 - box.left;
-    const max = box.width - TERM_ARROW_EDGE_PX - TERM_ARROW_PX * 2;
-    setArrowLeft(Math.max(TERM_ARROW_EDGE_PX, Math.min(max, center - TERM_ARROW_PX)));
-  }, [open, value]);
-
   return (
-    <div ref={boxRef} style={{ position: "relative" }}>
-      <UnderlineTabs label="見る指標" value={value} onChange={onChange} onAccent={onAccent}
-        items={METRICS.map((x) => ({ key: x.key, label: x.label }))}
-        hint={{ keys: Object.keys(TERM_TEXT), open, id: tipId, onToggle: () => setOpen((o) => !o) }} />
-      {open && term ? (
-        <div ref={tipRef} id={tipId} role="dialog" aria-label={`${metricLabel} 用語の説明`} className="sans" data-term-tip
-          style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2,
-            background: "var(--c-ink)", color: "var(--c-on-accent)", borderRadius: "var(--r-2)",
-            /* 影は既存の浮かぶ物(シート・右下の浮かぶボタン)と同値。新しい濃さを発明しない。 */
-            boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
-            padding: "var(--sp-3)", display: "grid", gap: "var(--sp-2)", textAlign: "left",
-          }}>
-          <span aria-hidden="true" data-term-arrow style={{
-            position: "absolute", top: -TERM_ARROW_PX, left: arrowLeft, width: 0, height: 0,
-            borderLeft: `${TERM_ARROW_PX}px solid transparent`, borderRight: `${TERM_ARROW_PX}px solid transparent`,
-            borderBottom: `${TERM_ARROW_PX}px solid var(--c-ink)`,
-          }} />
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--sp-2)" }}>
-            <div style={{ fontSize: "var(--fs-md)", fontWeight: 700, lineHeight: "var(--lh-base)" }}>{metricLabel}</div>
-            {/* 当たり判定は 44px 角。上と右と下は吹き出しの内側の余白へ食い込ませ、見出しの行を高くしない。 */}
-            <button type="button" aria-label="用語の説明を閉じる" onClick={closeByX} className="sans"
-              style={{
-                minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", flex: "none",
-                margin: "calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) 0",
-                display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0,
-                background: "none", border: "none", cursor: "pointer",
-                color: "var(--c-on-accent-dim)", fontSize: "var(--fs-md)", lineHeight: 1,
-              }}>×</button>
-          </div>
-          <div style={{ fontSize: "var(--fs-sm)", lineHeight: "var(--lh-loose)" }}>{term}</div>
-          <div style={{ fontSize: "var(--fs-xs)", lineHeight: "var(--lh-loose)", color: "var(--c-on-accent-dim)" }}>{TERM_SHARED_NOTE}</div>
-        </div>
-      ) : null}
-    </div>
+    <TermTip value={value} label={metricLabel} active={active} sharedNote
+      renderTabs={(hint) => (
+        <UnderlineTabs label="見る指標" value={value} onChange={onChange} onAccent={onAccent}
+          items={METRICS.map((x) => ({ key: x.key, label: x.label }))}
+          hint={hint} />
+      )} />
   );
 }
 
@@ -419,17 +318,11 @@ export function FilterRow({ value, onChange, saxAny = true, period = null, onPer
 
 export const EMPTY_FILTER = { saxType: ANY, genre: ANY, position: ANY };
 
-// 【便AW 2026-09-24 本人指示】「アカウントを削除のボタンを背景色なしで枠線とテキストが赤に。
-// この人を通報のボタンも同じく」。**押すと確認が開く入口**の一手の見た目(地なし・枠と字が --c-danger)。
-// 確認のシートの中の最後の一手(アカウントを削除する)は、今までどおり赤い地のまま(dangerButtonStyle)。
+// 【便AW 2026-09-24 本人指示】危険な一手の見た目(地なし・枠と字が --c-danger)。
 // マイページ(CommunityTab.jsx)と人物紹介の両方がこの1つを読む(写しを作らない)。
-// 【便BG 2026-10-01 本人指示】ブロックの確認の「ブロックする」、通報のシートの「通報する」、
-// 通報のあとの「ブロックする」も、赤の塗りをやめてこれを読む(塗りなしの赤枠)。
-export const DANGER_OUTLINE_STYLE = {
-  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
-  border: "1px solid var(--c-danger)", background: "transparent", color: "var(--c-danger)",
-  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
-};
+// 【便BI 2026-10-02 本人指示】定義は App.jsx へ移した(リードの箱の編集シートの「削除」も読むため)。
+// ここは import したものを export し直すだけで、値の写しを持たない。
+export { DANGER_OUTLINE_STYLE };
 
 // 【便BE 2026-09-30 本人指示(モック B 案の .btn.quiet)】ブロックの入口(【便BG】文字は「ブロック」)。
 // 寸法・角丸・字の大きさは通報の入口(DANGER_OUTLINE_STYLE)と**同じ**で、色だけが違う:
@@ -440,17 +333,9 @@ export const QUIET_OUTLINE_STYLE = {
   border: "1px solid var(--c-line-strong)", color: "var(--c-ink-2)",
 };
 
-// 【便BE】危険の塗り(確認のシートの最後の一手)。地 --c-danger・字 --c-on-accent(白)・枠なし。
-// **これが唯一の定義**: マイページの「アカウントを削除する」(CommunityTab.jsx の dangerButtonStyle =
-// これの別名)が読む。【便BG 2026-10-01 本人指示】「ブロックする」は塗りなしの赤枠(DANGER_OUTLINE_STYLE)
-// に替わったので、このファイルの中にはもう読み手が居ない。
-// 置き場所がこちらなのは、CommunityTab.jsx がこのファイルを読む向き(screens.jsx は CommunityTab.jsx を
-// 読まない)だから。逆に置くと循環になる。
-export const DANGER_FILL_STYLE = {
-  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
-  background: "var(--c-danger)", color: "var(--c-on-accent)",
-  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
-};
+// (【便BI 2026-10-02 本人指示】危険の塗り DANGER_FILL_STYLE(地 --c-danger・字 --c-on-accent)はここにあった。
+//  最後の読み手だったマイページの「アカウントを削除する」が赤の枠(DANGER_OUTLINE_STYLE)に替わり、
+//  読み手がゼロになったので定義ごと消した。赤の塗りのボタンはアプリに1つも無い。)
 
 // 【上限に触れていることを黙らない】50件で切られていることは、人数もグラフも
 // 普通に出るので画面からは分からない。切られたときだけ必ず出す。

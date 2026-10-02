@@ -39,6 +39,8 @@ import { sessionSoundingSec, frameIntervalSec, isSoundingFrame } from "../src/so
 // 【R6 2026-09-16 本人裁定③】リードのメーカー・銘柄の正はコミュニティのカタログ。
 // App.jsx が import して使うのと**同じ実物**を検査でも使う(写しを作らない)。
 import { REED_CATALOG } from "../src/community/catalog/gear.js";
+// 【便BI 2026-10-02 審査の差し戻し】赤の塗りの見張り(値の式の全体と、赤を値に持つ定数)。dangerOutline.test.jsx と共有。
+import { scanRedFillsAll } from "./redFillScan.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8");
@@ -9130,9 +9132,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         (codeOf(src).match(/onChange=\{\(v\) => setCount\(clampReedAddCount\(v\)\)\}/g) || []).length === 1
         && !/aria-label="枚数を減らす"|aria-label="枚数を増やす"/.test(codeOf(src)),
         (codeOf(src).match(/clampReedAddCount\([^)]*\)/g) || []).join(" | "));
-      // メーカーの自由入力は現行のまま(選択肢の末尾に「＋ 新しいメーカーを入力...」)
-      check("メーカーの自由入力の値とラベルは現行のまま",
-        api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力...",
+      // メーカーの自由入力は現行のまま(検索の行の末尾の逃げ道の一手。文字は【便BI 2026-10-02】から「その他」)
+      // 【便BI 2026-10-02 本人指示】逃げ道の一手の文字だけ「その他」に替わった。値(__custom__)と押したときの動きは据え置き。
+      check("メーカーの自由入力の値は現行のまま・ラベルは便BI で「その他」",
+        api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "その他",
         `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
       // 【AA-1 2026-09-21】メーカーの一覧そのものが無くなった(1つの検索欄になった)ので、
       // 「一覧の末尾に自由入力を置く」も「自由入力したメーカーを一覧へ足す」も**行き先が消えた**。
@@ -9751,7 +9754,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           if (o.start >= c.start && o.start < end) return c;
         return null;
       };
-      const unreadable = [], both = [], framed = [], mockOutline = [];
+      const unreadable = [], both = [], framed = [], mockOutline = [], dangerOutline = [];
       for (const o of opens) {
         const owner = ownerOf(o);
         if (!owner) continue;
@@ -9803,8 +9806,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // (aria-checked を持たない枠は従来どおり落ちる)。
         const hasState = /aria-pressed=|aria-expanded=|role="radio" aria-checked=/.test(owner.tag) ||
           /className="[^"]*\bctl-state\b/.test(owner.tag);
+        // 【便BI 2026-10-02 本人指示「赤の塗りのボタンを、赤の枠に」】危険な一手(DANGER_OUTLINE_STYLE を
+        // 展開しているもの)は、状態を持たなくても赤の枠を持つ(人物のページの「通報」と同じ形)。
+        // 名指しなので、他の要素に枠を足せば従来どおり落ちる。件数も下で固定する。
+        const DANGER_OUTLINE_ONLY = /style=\{\{\s*\.\.\.DANGER_OUTLINE_STYLE,/;
         if (hasFrame && !hasState) {
           if (MOCK_OUTLINE_ONLY.test(owner.tag)) mockOutline.push(`${lineOf(owner.start)}`);
+          else if (DANGER_OUTLINE_ONLY.test(owner.tag) && o === owner) dangerOutline.push(`${lineOf(owner.start)}: ${(/onClick=\{[^}]*\}/.exec(owner.tag) || ["?"])[0]}`);
           else framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
         }
       }
@@ -9830,6 +9838,11 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 例外は**テンポシートの ± の2つだけ**。増えたら「例外に逃がした」ということ。
       check("芯2 の例外は正典 .pm(テンポシートの ±)の2つだけ",
         mockOutline.length === 2, `${mockOutline.length}件: ` + mockOutline.join(" | "));
+      // 【便BI 2026-10-02】App.jsx の中で危険な一手の赤枠を持つのは、リードの箱の編集シートの「削除」1つだけ。
+      // (コミュニティの赤枠はこの走査の外。screens.jsx / CommunityTab.jsx は検証89 と block.test.jsx が見る。)
+      check("芯2 の例外(便BI): 危険な一手の赤枠は App.jsx では箱の編集シートの「削除」(onClick={onDelete})1つだけ",
+        dangerOutline.length === 1 && /onClick=\{onDelete\}/.test(dangerOutline[0]),
+        `${dangerOutline.length}件: ` + dangerOutline.join(" | "));
       // 【便AF 2026-09-21 本人指示】鉛筆が消えたので、例外は**0件**に固定する。
       // 実ソースに鉛筆の綴りが1つも無いことと突き合わせる ── 書き戻せばここが落ち、
       // 名指しの受け皿が無いので上の【芯2】でも同時に落ちる。
@@ -9987,25 +10000,32 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         check(".ctl-danger は .ctl-plain より後に書かれている",
           idx(".ctl-danger") > idx(".ctl-plain"), `plain=${idx(".ctl-plain")} danger=${idx(".ctl-danger")}`);
       }
-      // (a) 塗りであって枠ではない。border だけでなく影・輪郭も塞ぐ
-      //     (`box-shadow: inset 0 0 0 1px …` は border を書かずに全周の枠を描ける)。
-      for (const [label, block] of [[".ctl-danger", dgBlock], ['.ctl-danger[data-armed="true"]', dgOn]]) {
-        const boxy = declList(block).map((d) => d.name)
+      // (a) 【便BI 2026-10-02 本人指示「赤の塗りのボタンを、赤の枠に」で主張が反転】旧主張は「塗りであって枠ではない」。
+      //     押せば消える一手は**地なし・枠と字が --c-danger**(人物のページの「通報」= DANGER_OUTLINE_STYLE と同じ形)に
+      //     なった。枠は box-shadow の inset 1px だけ(border を足すと選ぶ数 0 ↔ 1 でピルの寸法が動く)。
+      //     押せないとき(素の .ctl-danger)は今までどおり枠・影・輪郭を持たない。
+      {
+        const boxy = (block) => declList(block).map((d) => d.name)
           .filter((n) => /^(border|box-shadow|outline|filter|backdrop-filter)/.test(n));
-        check(`${label} は枠・影・輪郭を持たない(塗りだけで危険を返す)`, boxy.length === 0, boxy.join(" "));
+        check(".ctl-danger(押せないとき)は枠・影・輪郭を持たない", boxy(dgBlock).length === 0, boxy(dgBlock).join(" "));
+        check('.ctl-danger[data-armed="true"] の枠は box-shadow の inset 1px --c-danger だけ(border・outline・外へ広がる影を持たない)',
+          boxy(dgOn).length === 1 && decl(dgOn, "box-shadow") === "inset 0 0 0 1px var(--c-danger)",
+          boxy(dgOn).join(" "));
       }
       check(".ctl-danger は押せないとき地を持たず、文字だけ弱める(--c-ink-3)",
         declList(dgBlock).length === 1 && decl(dgBlock, "color") === "var(--c-ink-3)",
         declList(dgBlock ?? "").map((d) => `${d.name}:${d.value}`).join(" "));
-      check('.ctl-danger[data-armed="true"] は 地=--c-danger / 文字=--c-on-accent だけを持つ',
-        declList(dgOn).length === 2 && decl(dgOn, "background") === "var(--c-danger)" &&
-        decl(dgOn, "color") === "var(--c-on-accent)",
+      // 【便BI】塗り(地 --c-danger / 字 --c-on-accent)から、地なし・枠と字が --c-danger へ。
+      check('.ctl-danger[data-armed="true"] は 地なし(transparent)/ 枠 inset 1px --c-danger / 文字 --c-danger だけを持つ(便BI)',
+        declList(dgOn).length === 3 && decl(dgOn, "background") === "transparent" &&
+        decl(dgOn, "box-shadow") === "inset 0 0 0 1px var(--c-danger)" && decl(dgOn, "color") === "var(--c-danger)",
         declList(dgOn ?? "").map((d) => `${d.name}:${d.value}`).join(" "));
-      // (b) 値で読む。--c-danger を明るい色に、--c-on-accent を薄い色に変えれば落ちる。
-      const dangerRatio = ratio(cssVar("--c-on-accent"), cssVar("--c-danger"));
-      check(`危険色の塗りの上の文字は WCAG AA(4.5:1)を満たす`, dangerRatio >= 4.5,
-        `${cssVar("--c-on-accent")} on ${cssVar("--c-danger")} = ${dangerRatio.toFixed(4)}:1`);
-      console.log(`  危険色の塗りのコントラスト: ${cssVar("--c-on-accent")} on ${cssVar("--c-danger")} = ${dangerRatio.toFixed(4)}:1`);
+      // (b) 値で読む。【便BI】字が --c-danger になり地を持たないので、下の地(面 --c-surface / ページ --c-bg)の
+      //     上の赤い字を見る。--c-danger を明るい色に、地を暗い色に変えれば落ちる。
+      const dangerRatio = Math.min(ratio(cssVar("--c-danger"), cssVar("--c-surface")), ratio(cssVar("--c-danger"), cssVar("--c-bg")));
+      check(`危険色の字は地(--c-surface / --c-bg)の上で WCAG AA(4.5:1)を満たす`, dangerRatio >= 4.5,
+        `${cssVar("--c-danger")} on ${cssVar("--c-surface")} / ${cssVar("--c-bg")} = ${dangerRatio.toFixed(4)}:1`);
+      console.log(`  危険色の字のコントラスト: ${cssVar("--c-danger")} on ${cssVar("--c-surface")} / ${cssVar("--c-bg")} = ${dangerRatio.toFixed(4)}:1`);
       // (c) 付いているのは「実際に消える一手」だけ。data-armed は
       //     「1件以上選択済み = 押せば本当に消える」に結び付いていなければならない。
       // 【N-5 で 3 → 2】旧主張は「箱 / 個体 / セッションの3箇所」。リードタブの削除は
@@ -11416,7 +11436,13 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
     // 負のオフセットで padding のぶんだけ広げる。**式は .app-root の padding と同じもの**を
     // 符号だけ変えて書く(別管理にすると安全域のある端末でずれる)。
     {
-      const rootPad = /className="app-root"[\s\S]{0,400}?padding: "([^"]+)"/.exec(code20);
+      // 【便BI 2026-10-02 本人裁定(b)】.app-root の padding はテンプレート文字列になった(上端だけ計測タブで替わる)。
+      // このレイヤは計測タブにしか無いので、上端は計測タブの値(MEASURE_PAGE_TOP_PAD)を実ソースから入れて読む。
+      const rootPadTpl = /className="app-root"[\s\S]{0,400}?padding: `([^`]+)`/.exec(code20);
+      const measureTop20 = (/const MEASURE_PAGE_TOP_PAD = "([^"]+)";/.exec(code20) || [])[1];
+      const rootPad = rootPadTpl && measureTop20
+        ? [null, rootPadTpl[1].replace('${topTab === "measure" ? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD}', measureTop20)]
+        : null;
       check("A-1: .app-root の padding を実ソースから読めている", rootPad !== null, rootPad ? rootPad[1] : "");
       // padding は「上 右 下 左」の4値。上・右・左をレイヤの負のオフセットと突き合わせる。
       // padding の4値を「括弧の外の空白」で割る(calc(...) の中の空白では割らない)
@@ -14042,8 +14068,15 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         check("N-11: 本文の左右余白は index.css の --page-side-pad が唯一の答え",
           pagePad !== undefined && parseFloat(pagePad) === PAGE_SIDE_PAD,
           `--page-side-pad=${pagePad} / 幅の計算に使った値=${PAGE_SIDE_PAD}`);
-        check("N-11: .app-root はその左右トークンをそのまま使う(式を写していない)",
-          /padding: "calc\(16px \+ env\(safe-area-inset-top\)\) var\(--page-pad-right\) var\(--page-bottom-gap\) var\(--page-pad-left\)"/.test(src));
+        // 【便BI 2026-10-02 本人裁定(b)】上端だけ、計測タブは MEASURE_PAGE_TOP_PAD(--sp-1 + 安全域)、
+        // 他のタブは PAGE_TOP_PAD(16px + 安全域。今までの値)に分かれた。左右と下の主張は緩めていない。
+        check("N-11 / 便BI: .app-root はその左右トークンをそのまま使う(式を写していない)。上端は計測タブだけ詰める",
+          /padding: `\$\{topTab === "measure" \? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD\} var\(--page-pad-right\) var\(--page-bottom-gap\) var\(--page-pad-left\)`/.test(src)
+          && /const PAGE_TOP_PAD = "calc\(16px \+ env\(safe-area-inset-top\)\)";/.test(src)
+          && /const MEASURE_PAGE_TOP_PAD = "calc\(var\(--sp-1\) \+ env\(safe-area-inset-top\)\)";/.test(src)
+          && /--sp-1:\s*4px;/.test(cssN5)
+          // §6.1.5「座標はルートの padding と同じ式」: 上端に浮く告知(データタブのアップロード)は PAGE_TOP_PAD を読む
+          && /top: PAGE_TOP_PAD,/.test(codeOf(src)) && !/top: "calc\(16px \+ env\(safe-area-inset-top\)\)"/.test(codeOf(src)));
         check("N-11: 左右トークンは 14px + 安全域(左右で別々の env を持つ)",
           /--page-pad-left:\s*calc\(var\(--page-side-pad\) \+ env\(safe-area-inset-left\)\)/.test(cssN5)
           && /--page-pad-right:\s*calc\(var\(--page-side-pad\) \+ env\(safe-area-inset-right\)\)/.test(cssN5));
@@ -23000,8 +23033,10 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       (/\{isPublic \?[\s\S]{0,120}/.exec(seg) || [""])[0].replace(/\s+/g, " "));
     check("46 B-3 「非公開にする」は B型(secondaryButtonStyle)",
       /onClick=\{goPrivate\}[\s\S]{0,160}style=\{secondaryButtonStyle\}/.test(seg));
-    check("46 B-3 「アカウントを削除する」は塗りの危険色",
-      /onClick=\{remove\}[\s\S]{0,200}\{ \.\.\.dangerButtonStyle, opacity: busy \? 0\.6 : 1 \}[\s\S]{0,120}アカウントを削除する/.test(seg));
+    // 【便BI 2026-10-02 本人指示】赤の塗り(dangerButtonStyle)から赤の枠(DANGER_OUTLINE_STYLE)へ。
+    check("46 B-3 / 便BI 「アカウントを削除する」は赤の枠(DANGER_OUTLINE_STYLE)",
+      /onClick=\{remove\}[\s\S]{0,200}\{ \.\.\.DANGER_OUTLINE_STYLE, opacity: busy \? 0\.6 : 1 \}[\s\S]{0,120}アカウントを削除する/.test(seg)
+      && !/dangerButtonStyle/.test(seg));
     // 失敗の文言はシートの中(押したボタンの隣)に出す。
     check("46 B-3 DELETE_ERROR はシートの中に出る",
       /\{error \? <div className="sans" role="alert" style=\{errorStyle\}>\{error\}<\/div> : null\}/.test(seg));
@@ -23014,10 +23049,71 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
     /const togglePublic = async \(v\) => \{[\s\S]{0,260}?await onTogglePublic\(v\);/.test(commCode));
   // 【便BE 2026-09-30 審査の指摘】危険の塗りの定義は screens.jsx の DANGER_FILL_STYLE ただ1つになった
   // (「ブロックする」と共有)。ここは別名。色の検査は定義の側へ移した。
-  check("46 B-3 危険色は --c-danger(新しい色を作っていない)",
-    /const dangerButtonStyle = DANGER_FILL_STYLE;/.test(commCode)
-    && /export const DANGER_FILL_STYLE = \{[\s\S]{0,200}background: "var\(--c-danger\)"/.test(
-      readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8")));
+  // 【便BI 2026-10-02 本人指示】赤の塗りは読み手ゼロで定義ごと消えた。危険な一手はどれも App.jsx の
+  // DANGER_OUTLINE_STYLE(地なし・枠と字が --c-danger)を読み、screens.jsx は export し直すだけ。
+  {
+    const scr46 = codeOf(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8"));
+    check("46 B-3 / 便BI 危険色は --c-danger の枠(新しい色を作っていない・赤の塗りはどこにも無い)",
+      /export const DANGER_OUTLINE_STYLE = \{[\s\S]{0,200}border: "1px solid var\(--c-danger\)", background: "transparent", color: "var\(--c-danger\)",/.test(src)
+      && /import \{ DANGER_OUTLINE_STYLE \} from "\.\.\/App\.jsx";/.test(scr46) && /export \{ DANGER_OUTLINE_STYLE \};/.test(scr46)
+      && !/DANGER_FILL_STYLE|dangerButtonStyle/.test(commCode + scr46)
+      && !/background: "var\(--c-danger\)"/.test(commCode + scr46));
+    // 【便BI 2026-10-02 審査の差し戻し】以前はここで `background: "var(--c-danger)"` の綴りを数えていたので、
+    // 条件つきの塗り(background: count > 0 ? "var(--c-danger)" : "none")と別名の塗り
+    // (const red = "var(--c-danger)"; … background: red)を見逃した。src の全ファイル(検査を除く)を
+    // scripts/redFillScan.mjs で走査する: 地の値の式の全体(三項の両腕まで)・赤を値に持つ定数・CSS の別名。
+    // 許可の一覧はここが自分で持つ(dangerOutline.test.jsx と同じ中身を、別々に書く)。
+    const srcDir46 = join(__dirname, "..", "src");
+    const walk46 = (d, pre = "") => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk46(join(d, e.name), `${pre}${e.name}/`)
+        : (/\.(jsx?|css)$/.test(e.name) && !/\.test\.|\.testutil\./.test(e.name) ? [[`${pre}${e.name}`, readFileSync(join(d, e.name), "utf8")]] : []));
+    const files46 = walk46(srcDir46);
+    const scan46 = scanRedFillsAll(files46);
+    const line46 = (f) => files46.find(([n]) => n === f.file)[1].split("\n")[f.line - 1];
+    // 走査そのものが拾えること(審査の2つの変異を流す)。拾えなければ下の「0件」は何も言っていない。
+    const probeK46 = scanRedFillsAll([["K.jsx", 'const P = () => <span style={{ background: count > 0 ? "var(--c-danger)" : "none" }} />;']]);
+    const probeAlias46 = scanRedFillsAll([["A.jsx", 'const red = "var(--c-danger)";\nconst B = () => <span style={{ background: red }} />;']]);
+    // 【便BI 再審査の差し戻し】審査の変異 R1・R2・R3・R5・R8 も流す(関数を経由した塗り・rgb の空白区切り・8桁の16進)。
+    const probesBI3 = [
+      // R1 許可した関数(赤を返す pitchCellColor)を地に流す
+      ["R1", 'function pitchCellColor(c) { return Math.abs(c) < 10 ? "var(--c-good)" : "var(--c-bad)"; }\nconst S = (c) => <span style={{ background: pitchCellColor(c) }} />;'],
+      // R2 rgb の空白区切り
+      ["R2", 'const S = () => <span style={{ background: "rgb(220 38 38)" }} />;'],
+      // R3 8桁の16進
+      ["R3", 'const S = () => <span style={{ backgroundColor: "#DC2626FF" }} />;'],
+      // R5 アローの関数が赤を返し、地の式で呼ぶ
+      ["R5", 'const dangerBg = (on) => (on ? "var(--c-danger)" : "none");\nconst S = ({ armed }) => <span style={{ background: dangerBg(armed) }} />;'],
+      // R8 function 宣言が赤を返し、地の式で呼ぶ
+      ["R8", 'function redOf() { return "var(--c-bad)"; }\nconst S = () => <span style={{ backgroundColor: redOf() }} />;'],
+    ];
+    const probeHits46 = probesBI3.map(([id, code]) => [id, scanRedFillsAll([[`${id}.jsx`, code]]).fills.length]);
+    check("46 B-3 / 便BI 再審査 審査の変異 R1・R2・R3・R5・R8 をどれも塗りとして拾う",
+      probeHits46.length === 5 && probeHits46.every(([, n]) => n === 1), probeHits46.map(([id, n]) => `${id}=${n}`).join(" "));
+    check("46 B-3 / 便BI 赤の塗りの走査が空回りしていない(src を読めている・条件つきの塗りと別名の塗りを拾う)",
+      files46.length > 30 && files46.some(([n]) => n === "App.jsx") && files46.some(([n]) => n === "index.css")
+      && probeK46.fills.length === 1 && probeAlias46.fills.length === 1 && probeAlias46.redConsts.length === 1,
+      `${files46.length}ファイル / K ${probeK46.fills.length} / 別名 ${probeAlias46.fills.length}`);
+    // App.jsx に残る赤の地は、録音ボタンの中の丸/四角と録音中の点の2つだけ(ボタンの種類ではなく計測の印。対象外)。
+    check("46 B-3 / 便BI 赤を地に塗るのは録音の印の2つだけ(App.jsx。値の式の全体で見る)",
+      scan46.fills.length === 2 && scan46.fills.every((f) => f.file === "App.jsx")
+      && scan46.fills.some((f) => /borderRadius: s\.radius, background: "var\(--c-danger\)"/.test(line46(f)))
+      && scan46.fills.some((f) => /className="ficus-pulse" style=\{\{ width: 6, height: 6, background: "var\(--c-danger\)"/.test(line46(f))),
+      scan46.fills.map((f) => `${f.file}:${f.line} ${f.prop}: ${f.expr.slice(0, 60)}`).join(" | "));
+    const allowConsts46 = ["App.jsx:DANGER_OUTLINE_STYLE", "community/CommunityTab.jsx:errorStyle", "community/CommunityTab.jsx:fieldErrorStyle",
+      "community/FeedbackSheet.jsx:errorStyle", "community/LegalSheet.jsx:errorStyle"];
+    const gotConsts46 = scan46.redConsts.map((c) => `${c.file}:${c.name}`).sort();
+    check("46 B-3 / 便BI 赤を値に持つ定数は許可の一覧(赤の枠の定義と、エラーの字の4つ)の外に無い",
+      JSON.stringify(gotConsts46) === JSON.stringify([...allowConsts46].sort()), gotConsts46.join(" | "));
+    const allowFns46 = ["App.jsx:WindToneLabPhaseMode", "App.jsx:MeasureView", "App.jsx:pitchCellColor",
+      "backup/BackupPanel.jsx:BackupPanel", "community/CommunityTab.jsx:ProfileForm",
+      "community/screens.jsx:PersonSheet", "community/screens.jsx:ReportSheet"];
+    const gotFns46 = scan46.redFns.map((c) => `${c.file}:${c.name}`).sort();
+    check("46 B-3 / 便BI 再審査 本体に赤を含む関数は許可の一覧の外に無い(画面の部品と pitchCellColor。許可しても地の式で呼べば上で拾う)",
+      JSON.stringify(gotFns46) === JSON.stringify([...allowFns46].sort()), gotFns46.join(" | "));
+    const gotVars46 = scan46.cssVars.map((v) => `${v.file}:${v.name}`).sort();
+    check("46 B-3 / 便BI 赤を値に持つ CSS のカスタムプロパティはトークンの定義の2つ(--c-danger / --c-bad)だけ",
+      JSON.stringify(gotVars46) === JSON.stringify(["index.css:--c-bad", "index.css:--c-danger"]), gotVars46.join(" | "));
+  }
   // 公開している目安の数は myIdeals から。持っているのは JoinedView なので prop で渡す。
   check("46 B-3 公開している目安の数は myIdeals の鍵の数",
     /const publicIdealCount = Object\.keys\(myIdeals \?\? \{\}\)\.length;/.test(commCode));
@@ -25398,8 +25494,10 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
   // 【変異(1)】名札や綴りを旧語へ戻す → ここで落ちる。
   {
     // 画面に出る綴り。出どころは1つずつ固定する(綴りを2箇所に置かない)。
-    check("59.1 N1 自由入力の逃げ道の語は「メーカー」",
-      api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力..."
+    // 【便BI 2026-10-02 本人指示】逃げ道の一手の文字は「その他」に替わった。押したあとに打つ欄の
+    // placeholder「新しいメーカー名を入力」は据え置きで、語「メーカー」はそちらが持ち続ける。
+    check("59.1 N1 / 便BI 自由入力の逃げ道の一手は「その他」、打つ欄の語は「メーカー」のまま",
+      api.REED_BRAND_CUSTOM_LABEL === "その他"
       && /placeholder="新しいメーカー名を入力"/.test(app59),
       api.REED_BRAND_CUSTOM_LABEL);
     check("59.1 N1 分析軸の綴りは「リードメーカー」(集計しているのは brand)",
@@ -25545,20 +25643,26 @@ console.log("\n========== 検証59: 便N リードの語と箱のシート =====
       && pair59.includes(">削除</button>")
       && count59(app59, />番号編集<\/button>/g) === 0,
       `${pair59.length}文字 / 番号編集 ${count59(app59, />番号編集<\/button>/g)}件`);
-    check("59.3 N2 高さは --tap-min(56 を持ち込まない)",
-      count59(pair59, /minHeight: "var\(--tap-min\)"/g) === 1
+    // 【便BI 2026-10-02 本人指示】削除は赤の枠(DANGER_OUTLINE_STYLE を展開)になった。高さ(--tap-min)は
+    // その定義が持つ(もとから同じ値)。展開のあとに minHeight / height を上書きしていないことも見る。
+    const dangerDef59 = extractConst("DANGER_OUTLINE_STYLE");
+    check("59.3 N2 / 便BI 高さは --tap-min(56 を持ち込まない。DANGER_OUTLINE_STYLE の minHeight)",
+      count59(pair59, /\.\.\.DANGER_OUTLINE_STYLE,/g) === 1
+      && /minHeight: "var\(--tap-min\)"/.test(dangerDef59)
+      && !/minHeight|height:/.test(pair59.slice(pair59.indexOf("...DANGER_OUTLINE_STYLE,")))
       && !/ACTION_LG_PX/.test(pair59) && !/height: 56/.test(pair59),
-      `--tap-min=${count59(pair59, /minHeight: "var\(--tap-min\)"/g)}個`);
+      `展開 ${count59(pair59, /\.\.\.DANGER_OUTLINE_STYLE,/g)}個`);
     check("59.3 N2 幅の指定は据え置き(flex 1 1 0。1つになったので行いっぱいに伸びる)",
-      count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g) === 1,
-      `${count59(pair59, /flex: "1 1 0", minWidth: 0, minHeight/g)}列`);
+      count59(pair59, /flex: "1 1 0", minWidth: 0,/g) === 1,
+      `${count59(pair59, /flex: "1 1 0", minWidth: 0,/g)}列`);
     check("59.3 N2 / AA-2 破壊的な一手だけが残った(右端の並びを語る相手が居ない)",
       count59(pair59, /<button/g) === 1 && pair59.indexOf(">削除</button>") > 0);
     // 【便O】青と赤の対比がきついという指摘で、赤は削除の1つだけにした。
     // 【AA-2】もう一方(--c-sunken の番号編集)が消えたので、残るのは赤1つ。
-    check("59.3 N2 塗りは 削除だけ --c-danger(青も沈めた地も残っていない)",
+    // 【便BI 2026-10-02 本人指示】赤の塗りから赤の枠へ。塗りは1つも残っていない(地はインラインに書かない)。
+    check("59.3 N2 / 便BI 削除は赤の枠(DANGER_OUTLINE_STYLE)。塗り(赤・青・沈めた地)は残っていない",
       count59(pair59, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
-      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(pair59)
+      && !/background:/.test(pair59) && /\.\.\.DANGER_OUTLINE_STYLE,/.test(pair59)
       && !/--c-accent/.test(pair59) && !/--c-line-strong/.test(pair59),
       (pair59.match(/background: "?[^,;]*/g) || []).join(" | "));
     check("59.3 N2 編集の語「変更」は無い / 旧綴り「この箱を変更」「この箱を削除」も0件",
@@ -25937,11 +26041,15 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
     && /if \(types\.length > 0 && !types\.includes\(saxType\) && !pickable\.includes\(saxType\)\) setSaxType\(types\[0\]\);/.test(person62));
   // 【便BC 2026-09-25】用語の説明の吹き出し(MetricTabs)も、浮かぶ物の影(既存の同じ1値)を使うので
   // 直書きは2箇所になった。**色の種類は増えていない**ことを見る: rgb の直書きは2件とも同じ影の1値。
-  check("62.2 2-B 新しい色を作っていない(screens.jsx の --c- 以外の色の直書きは浮かぶ物の影の1値だけ。便BC で2箇所)",
-    count62(all62, /#[0-9a-fA-F]{3,8}\b/g) === 0
-    && count62(all62, /rgba?\(/g) === 2
-    && count62(all62, /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) === 2,
-    `hex ${count62(all62, /#[0-9a-fA-F]{3,8}\b/g)}件 / rgb ${count62(all62, /rgba?\(/g)}件`);
+  // 【便BI 2026-10-02】吹き出しは共有の部品(src/termTip.jsx)へ移ったので、その影の1値も向こうへ移った。
+  // screens.jsx に残る直書きは目安に設定の貼り付くボタンの影1つ、termTip.jsx も同じ影の1値だけ。
+  const tip62 = codeOf(readFileSync(join(__dirname, "..", "src", "termTip.jsx"), "utf8"));
+  check("62.2 2-B / 便BI 新しい色を作っていない(screens.jsx と termTip.jsx の --c- 以外の色の直書きは浮かぶ物の影の1値だけ)",
+    count62(all62, /#[0-9a-fA-F]{3,8}\b/g) === 0 && count62(tip62, /#[0-9a-fA-F]{3,8}\b/g) === 0
+    && count62(all62, /rgba?\(/g) === 1 && count62(tip62, /rgba?\(/g) === 1
+    && count62(all62, /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) === 1
+    && count62(tip62, /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)"/g) === 1,
+    `screens hex ${count62(all62, /#[0-9a-fA-F]{3,8}\b/g)}件 rgb ${count62(all62, /rgba?\(/g)}件 / termTip rgb ${count62(tip62, /rgba?\(/g)}件`);
 
   // --- 62.3 2-C 「音のデータ」の見出しを消す ----------------------------------
   // 【便AO 2026-09-24 本人指示】表裏がタブ(SubTabs)に変わり、戻るボタンの行き先の名乗り
@@ -26877,10 +26985,13 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
     && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(person65));
   // 【便BC 2026-09-25 本人指示】この注記は重心・HNR の用語の説明(MetricTabs の吹き出し)の一番下へ移った。
   // 人物シートの本文からは消え、綴りはファイルに1件(TERM_SHARED_NOTE)だけ。言い換えも写しも作っていない。
-  check("65.4 5-D 注記の綴りは1件のまま(便BC で用語の説明へ移った: 人物シートの本文0件・ファイル1件)",
+  // 【便BI 2026-10-02】吹き出しは共有の部品(src/termTip.jsx)へ移ったので、綴りの1件も向こうにある(screens.jsx は0件)。
+  const tip65 = codeOf(readFileSync(join(__dirname, "..", "src", "termTip.jsx"), "utf8"));
+  check("65.4 5-D / 便BI 注記の綴りは1件のまま(人物シートの本文0件・screens.jsx 0件・termTip.jsx 1件)",
     count65(person65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 0
-    && count65(screens65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 1
-    && /const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";/.test(screens65));
+    && count65(screens65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 0
+    && count65(tip65, /計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。/g) === 1
+    && /export const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";/.test(tip65));
 
   // --- 65.5 規範(DESIGN-SYSTEM)--------------------------------------------------
   check("65.5 §6.7 が「下から出るシートは開いている間 裏を止める」を表で持つ",
@@ -27081,11 +27192,13 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
       count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
       && count66(trio66, /fontWeight: 600/g) === 0,
       `塗り${count66(trio66, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g)} / 太さ${count66(trio66, /fontWeight: 600/g)}`);
-    check("66.6 赤は削除の1つだけ。**edit の枝に --c-accent は残っていない**",
-      count66(trio66, /var\(--c-danger\)/g) === 1
-      && /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/.test(trio66)
+    // 【便BI 2026-10-02 本人指示】赤は塗りから枠へ。赤は DANGER_OUTLINE_STYLE の展開1つだけが持つ
+    // (インラインに --c-danger を書かない)。
+    check("66.6 / 便BI 赤は削除の1つだけ(赤の枠 DANGER_OUTLINE_STYLE)。**edit の枝に --c-accent は残っていない**",
+      count66(trio66, /\.\.\.DANGER_OUTLINE_STYLE,/g) === 1
+      && count66(trio66, /var\(--c-danger\)/g) === 0
       && count66(trio66, /var\(--c-accent\)/g) === 0,
-      `danger=${count66(trio66, /var\(--c-danger\)/g)} / accent=${count66(trio66, /var\(--c-accent\)/g)}`);
+      `展開=${count66(trio66, /\.\.\.DANGER_OUTLINE_STYLE,/g)} / danger=${count66(trio66, /var\(--c-danger\)/g)} / accent=${count66(trio66, /var\(--c-accent\)/g)}`);
     check("66.6 追加の枝の --c-accent は残っている(追加の一手は触っていない)",
       count66(sheet66.slice(b66), /background: disabled \? "var\(--c-line-strong\)" : "var\(--c-accent\)",/g) === 1,
       `${count66(sheet66.slice(b66), /var\(--c-accent\)/g)}件`);
@@ -27095,11 +27208,13 @@ console.log("\n========== 検証66: 便O 属性の語 / 箱のシート / 長押
     // 【便P 2026-09-20】押せなくなり得た一手(「変更」)は消えたので、編集の2つに
     // disabled は無い。**判定式そのものは追加の一手が今までどおり読んでいる**
     // (下の「判定式は1文字も変えていない」がそれを見る)。主張を事実の側へ向け直す。
+    // 【便BI】cursor: "pointer" は DANGER_OUTLINE_STYLE の定義が持つ(展開のあとで上書きしていない)。
     check("66.6 編集の一手は常に押せる(disabled も灰の化けも無い)",
       count66(trio66, /disabled/g) === 0
       && count66(trio66, /var\(--c-line-strong\)/g) === 0
-      && count66(trio66, /cursor: "pointer",/g) === 1,
-      `disabled ${count66(trio66, /disabled/g)} / pointer ${count66(trio66, /cursor: "pointer",/g)}`);
+      && count66(trio66, /cursor:/g) === 0
+      && /cursor: "pointer",/.test(extractConst("DANGER_OUTLINE_STYLE")),
+      `disabled ${count66(trio66, /disabled/g)} / cursor の上書き ${count66(trio66, /cursor:/g)}`);
     // 【AA-1 2026-09-21】判定式は「メーカーが空か」の見方が1行増えた(✕ で外せるようになったため)。
     // **読み手も主張も同じ**(実行側が黙って return する条件と1対1)。
     // 走らせた突き合わせは §17 の F-82 が持つ(ここは綴りの在処だけを見る)。
@@ -27298,10 +27413,15 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
     (person69.match(new RegExp(NOTE69, "g")) || []).length === 0
     && /<MetricTabs value=\{metric\} onChange=\{setMetric\} \/>/.test(person69),
     `${(person69.match(new RegExp(NOTE69, "g")) || []).length}件`);
-  check("69.4 揃えの注記の綴りはファイル全体で1件(用語の説明の共通の一文 TERM_SHARED_NOTE だけ)",
-    (screens69.match(new RegExp(NOTE69, "g")) || []).length === 1
-    && /const TERM_SHARED_NOTE = "/.test(screens69),
-    `${(screens69.match(new RegExp(NOTE69, "g")) || []).length}件`);
+  // 【便BI 2026-10-02】共通の一文の定義は共有の部品(src/termTip.jsx)へ移った。screens.jsx には0件。
+  {
+    const tip69 = codeOf(readFileSync(join(__dirname, "..", "src", "termTip.jsx"), "utf8"));
+    check("69.4 / 便BI 揃えの注記の綴りは termTip.jsx に1件だけ(共通の一文 TERM_SHARED_NOTE)。screens.jsx には0件",
+      (screens69.match(new RegExp(NOTE69, "g")) || []).length === 0
+      && (tip69.match(new RegExp(NOTE69, "g")) || []).length === 1
+      && /export const TERM_SHARED_NOTE = "/.test(tip69),
+      `screens ${(screens69.match(new RegExp(NOTE69, "g")) || []).length}件 / termTip ${(tip69.match(new RegExp(NOTE69, "g")) || []).length}件`);
+  }
   check("69.5 貼り付ける仕組みと寸法・色・影は1つも変えていない(束2・束5 の裁定)",
     /position: "sticky", bottom: 0, zIndex: 1,/.test(person69)
     && /const ADOPT_STICKY_SPACER_H = "calc\(var\(--tap-min\) \+ var\(--sp-3\)\)";/.test(screens69)
@@ -27552,10 +27672,12 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
       && count71(sheet71, />番号編集</g) === 0
       && count71(sheet71, />変更</g) === 0,
       `${count71(pair71, /<button/g)}個 / 変更 ${count71(sheet71, />変更</g)}件`);
-    check("71.6 幅の指定・高さ・色は据え置き(1つになったので行いっぱいに伸びる)",
-      count71(pair71, /flex: "1 1 0", minWidth: 0, minHeight: "var\(--tap-min\)",/g) === 1
+    // 【便BI 2026-10-02 本人指示】色だけ赤の塗りから赤の枠(DANGER_OUTLINE_STYLE)へ。高さ --tap-min は定義が持つ。
+    check("71.6 / 便BI 幅の指定・高さは据え置き・色は赤の枠(1つになったので行いっぱいに伸びる)",
+      count71(pair71, /\.\.\.DANGER_OUTLINE_STYLE,\s*flex: "1 1 0", minWidth: 0,/g) === 1
+      && /minHeight: "var\(--tap-min\)"/.test(extractConst("DANGER_OUTLINE_STYLE"))
       && count71(pair71, /background: "var\(--c-sunken\)", color: "var\(--c-ink-2\)",/g) === 0
-      && count71(pair71, /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/g) === 1);
+      && count71(pair71, /background: "var\(--c-danger\)", color: "var\(--c-on-accent\)",/g) === 0);
     check("71.6 reedSheetButtonLabel は定義ごと無い(読み手の無い枝を残していない)",
       !/function reedSheetButtonLabel\s*\(/.test(app71)
       && count71(app71, /reedSheetButtonLabel/g) === 0,
@@ -28226,8 +28348,9 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
   // --- 75.5 「＋ 新しいメーカーを入力...」は今までどおり選択肢の1つ ---------------
   {
     const lab75 = runFn(new Function(`${extractConst("REED_BRAND_CUSTOM_LABEL")} return REED_BRAND_CUSTOM_LABEL;`));
-    check("75.5 綴りも値も変えていない(＋ 新しいメーカーを入力...)",
-      lab75.ok && lab75.v === "＋ 新しいメーカーを入力...", shownOf(lab75));
+    // 【便BI 2026-10-02 本人指示】綴りは「その他」に替わった(選択肢の1つであること・置き場所は変わらない)。
+    check("75.5 / 便BI 綴りは「その他」(便BI まで「＋ 新しいメーカーを入力...」)",
+      lab75.ok && lab75.v === "その他", shownOf(lab75));
     // 【AA-1 2026-09-21】一覧が無くなったので、置き場所が**検索の行の末尾**に移った。
     // GearPicker の「カタログに無い(その他)」と同じ作法 ── 候補が0件でも消えない。
     // **語も行き先も1文字も変えていない。**
@@ -29539,8 +29662,9 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
       && /onClick=\{\(\) => \{ setQuery\(""\); onOther\(\); \}\}/.test(row81)
       // 候補が出ているかどうかの枝の**外**に在る(results.length の条件に包まれていない)
       && row81.indexOf("REED_BRAND_CUSTOM_LABEL") > row81.indexOf("{results.length > 0 && ("));
-    check("81.1 逃げ道の語と値は1文字も変えていない",
-      api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "＋ 新しいメーカーを入力...",
+    // 【便BI 2026-10-02 本人指示】語だけ「その他」に替わった。値(__custom__)は1文字も変えていない。
+    check("81.1 / 便BI 逃げ道の値は変えていない・語は「その他」",
+      api.REED_BRAND_CUSTOM === "__custom__" && api.REED_BRAND_CUSTOM_LABEL === "その他",
       `${api.REED_BRAND_CUSTOM} / ${api.REED_BRAND_CUSTOM_LABEL}`);
     check("81.1 押すと自由入力が出て、打った名前がそのままメーカーになる",
       /onOther=\{\(\) => \{ setBrand\(REED_BRAND_CUSTOM\); setModel\(null\); \}\}/.test(sheet81)
@@ -30809,6 +30933,11 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const person89 = codeOf(srcOfFn(scrRaw89, "PersonSheet"));
   const tabs89 = codeOf(srcOfFn(scrRaw89, "UnderlineTabs"));
   const mtabs89 = codeOf(srcOfFn(scrRaw89, "MetricTabs"));
+  // 【便BI 2026-10-02】吹き出しの中身(開け閉め・文案・共通の一文)は共有の部品 src/termTip.jsx の TermTip へ移った。
+  // MetricTabs はタブの列を渡すだけ。吹き出しの綴りは tip89 / tipFn89 で見る。
+  const tipRaw89 = readFileSync(join(__dirname, "..", "src", "termTip.jsx"), "utf8");
+  const tip89 = codeOf(tipRaw89);
+  const tipFn89 = codeOf(srcOfFn(tipRaw89, "TermTip"));
   const rank89 = codeOf(srcOfFn(scrRaw89, "RankRow"));
   const css89 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
   const cssCode89 = codeOf(css89);
@@ -30819,9 +30948,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const agree89 = codeOf(srcOfFn(commRaw89, "AgreeRow"));
   const count89 = (t, re) => (t.match(re) || []).length;
   check("89.0 読む関数を切り出せている(空回りしていない)",
-    data89.length > 2000 && person89.length > 3000 && tabs89.length > 800 && mtabs89.length > 1500
+    data89.length > 2000 && person89.length > 3000 && tabs89.length > 800 && mtabs89.length > 300 && tipFn89.length > 3000
     && rank89.length > 1500 && nav89.length > 1500 && join89.length > 1200 && agree89.length > 400,
-    `data ${data89.length} / person ${person89.length} / tabs ${tabs89.length} / mtabs ${mtabs89.length} / rank ${rank89.length} / nav ${nav89.length} / join ${join89.length} / agree ${agree89.length}`);
+    `data ${data89.length} / person ${person89.length} / tabs ${tabs89.length} / mtabs ${mtabs89.length} / tip ${tipFn89.length} / rank ${rank89.length} / nav ${nav89.length} / join ${join89.length} / agree ${agree89.length}`);
 
   // --- 89.1 平均カード ------------------------------------------------------------
   check("89.1 みんなの平均カードは .card-accent(地は index.css の1規則。インラインで地を書かない)",
@@ -30865,44 +30994,94 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const CENTROID89 = "音に含まれる成分が、どの高さに集まっているかを表す値です。高い成分が多いほど値が上がり、明るい音に聞こえます。";
   const HNR89 = "楽器の響きと、息などの雑音の大きさの比です。高いほど芯のある澄んだ音に聞こえます。";
   const SHARED89 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
-  check("89.2 文案は本人が選んだ文のまま(重心 / HNR / 共通の一文。どれもファイルに1件)",
-    count89(scr89, new RegExp(CENTROID89, "g")) === 1 && count89(scr89, new RegExp(HNR89, "g")) === 1
-    && count89(scr89, new RegExp(SHARED89, "g")) === 1
-    && scr89.includes(`spectralCentroidHz: "${CENTROID89}"`) && scr89.includes(`hnrDb: "${HNR89}"`)
-    && scr89.includes(`const TERM_SHARED_NOTE = "${SHARED89}";`));
+  // 【便BI 2026-10-02】文案は共有の部品(termTip.jsx)に1件ずつ。screens.jsx・App.jsx には写しが無い。
+  check("89.2 / 便BI 文案は本人が選んだ文のまま(重心 / HNR / 共通の一文。termTip.jsx に1件・screens.jsx と App.jsx に0件)",
+    count89(tip89, new RegExp(CENTROID89, "g")) === 1 && count89(tip89, new RegExp(HNR89, "g")) === 1
+    && count89(tip89, new RegExp(SHARED89, "g")) === 1
+    && tip89.includes(`spectralCentroidHz: "${CENTROID89}"`) && tip89.includes(`hnrDb: "${HNR89}"`)
+    && tip89.includes(`export const TERM_SHARED_NOTE = "${SHARED89}";`)
+    && [CENTROID89, HNR89, SHARED89].every((t) => !scr89.includes(t) && !codeOf(src).includes(t)));
   check("89.2 用語の説明を持つのは重心と HNR の2つだけ(音程は持たない)",
-    /const TERM_TEXT = \{\s*\r?\n\s*spectralCentroidHz: "[^"]+",\s*\r?\n\s*hnrDb: "[^"]+",\s*\r?\n\};/.test(scr89)
-    && !/pitchCentsSigned: "/.test(scr89));
+    /export const TERM_TEXT = \{\s*\r?\n\s*spectralCentroidHz: "[^"]+",\s*\r?\n\s*hnrDb: "[^"]+",\s*\r?\n\};/.test(tip89)
+    && !/pitchCentsSigned: "/.test(tip89));
   check("89.2 2箇所(平均カード・人物のページ)が同じ MetricTabs を使う。グラフの下に揃えの注記は無い",
     count89(scr89, /<MetricTabs /g) === 2 && data89.includes("<MetricTabs") && person89.includes("<MetricTabs")
     && !data89.includes(SHARED89) && !person89.includes(SHARED89)
     && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
-  check("89.2 「?」は飾り(aria-hidden)で、押すのは選んでいるタブ。読み上げ名に「用語の説明」・aria-expanded",
-    /<span aria-hidden="true" data-term-mark/.test(tabs89)
-    && /aria-label=\{hinted \? `\$\{it\.label\} 用語の説明` : undefined\}/.test(tabs89)
-    && /aria-expanded=\{hinted \? hint\.open : undefined\}/.test(tabs89)
-    && /onClick=\{\(\) => \(hinted \? hint\.onToggle\(\) : onChange\(it\.key\)\)\}/.test(tabs89)
-    && count89(tabs89, /<button/g) === 1);
+  // 【便BI 2026-10-02】「?」(TermMark)と読み上げの属性(termTabProps)は termTip.jsx の1つ。コミュニティの
+  // UnderlineTabs と App.jsx の MetricUnderlineTabs が同じものを読む(写しを作らない)。
+  {
+    const mut89 = codeOf(srcOfFn(src, "MetricUnderlineTabs"));
+    // 【便BI 2026-10-02 審査の差し戻し】「用語の説明」は名前(aria-label)ではなく説明(aria-describedby)で足す。
+    // aria-pressed / role="tab" のボタンの名前を状態で変えない(W3C APG)。名前を替える綴りが無いことも見る。
+    check("89.2 / 便BI 「?」は飾り(aria-hidden)で、押すのは選んでいるタブ。「用語の説明」は aria-describedby・開閉は aria-expanded・名前は変えない(2つの下線タブが同じ部品を読む)",
+      /<span aria-hidden="true" data-term-mark/.test(tip89)
+      && /"aria-describedby": hinted \? hint\.descId : undefined,/.test(tip89)
+      && /export const TERM_TAB_DESCRIPTION = "用語の説明";/.test(tip89)
+      && /<span id=\{descId\} hidden>\{TERM_TAB_DESCRIPTION\}<\/span>/.test(tipFn89)
+      && !/"aria-label"/.test(tip89) && !/用語の説明`/.test(tip89.replace(/aria-label=\{`\$\{label\} 用語の説明`\}/, ""))
+      && /"aria-expanded": hinted \? hint\.open : undefined,/.test(tip89)
+      && /return Boolean\(sel && hint && hint\.keys\.includes\(key\)\);/.test(tip89)
+      && /const hinted = termTabHinted\(hint, it\.key, sel\);/.test(tabs89)
+      && /\{\.\.\.\(hint \? termTabProps\(hint, hinted\) : \{\}\)\}/.test(tabs89)
+      && /onClick=\{\(\) => \(hinted \? hint\.onToggle\(\) : onChange\(it\.key\)\)\}/.test(tabs89)
+      && /\{hinted \? <TermMark \/> : null\}/.test(tabs89)
+      && count89(tabs89, /<button/g) === 1
+      && /const hinted = termTabHinted\(hint, key, sel\);/.test(mut89)
+      && /\{\.\.\.\(hint \? termTabProps\(hint, hinted\) : \{\}\)\}/.test(mut89)
+      && /onClick=\{\(\) => \(hinted \? hint\.onToggle\(\) : onChange\(key\)\)\}/.test(mut89)
+      && /\{hinted \? <TermMark \/> : null\}/.test(mut89)
+      && /data-tab-face=\{sel \? "" : undefined\}/.test(mut89)
+      && !/data-term-mark|用語の説明/.test(tabs89 + mut89));
+  }
   check("89.2 吹き出し: 地 --c-ink・字 --c-on-accent・角丸 --r-2・影は浮かぶ物と同値・暗幕を持たない",
-    /background: "var\(--c-ink\)", color: "var\(--c-on-accent\)", borderRadius: "var\(--r-2\)",/.test(mtabs89)
-    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(mtabs89)
-    && !/rgba\(15,23,42,0\.28\)|position: "fixed"/.test(mtabs89));
+    /background: "var\(--c-ink\)", color: "var\(--c-on-accent\)", borderRadius: "var\(--r-2\)",/.test(tipFn89)
+    && /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(tipFn89)
+    && !/rgba\(15,23,42,0\.28\)|position: "fixed"/.test(tipFn89));
   // 【便BC 審査】内側は吹き出しとタブのボタンだけ / フォーカスが外へ出たら閉じる / × はタブへフォーカスを戻す /
   // ページが裏へ回ったら閉じる。振る舞いは termTip.test.jsx が描いて押して見る。
   check("89.2 閉じ方: 指標が変わる・外を触る・フォーカスが外へ出る・Esc(document で止める)・×(タブへ戻す)・裏へ回る",
-    /useEffect\(\(\) => \{ setOpen\(false\); \}, \[value\]\);/.test(mtabs89)
-    && /useEffect\(\(\) => \{ if \(!active\) setOpen\(false\); \}, \[active\]\);/.test(mtabs89)
-    && /document\.addEventListener\("pointerdown", onDown\);/.test(mtabs89)
-    && /document\.addEventListener\("focusin", onFocus\);/.test(mtabs89)
-    && /t\.closest\('\[role="tab"\]'\)/.test(mtabs89)
-    && /if \(e\.key === "Escape"\) \{ e\.stopPropagation\(\); setOpen\(false\); \}/.test(mtabs89)
-    && /aria-label="用語の説明を閉じる" onClick=\{closeByX\}/.test(mtabs89)
-    && /if \(sel\) sel\.focus\(\);/.test(mtabs89));
+    // 【便BI 2026-10-02】中身は TermTip へ移った。「内側」とみなすタブの印は role="tab" から data-term-tab へ
+    // (App.jsx の指標タブは role="tab" を持たない aria-pressed のボタンなので、両方に付く印にそろえた)。
+    /useEffect\(\(\) => \{ setOpen\(false\); \}, \[value\]\);/.test(tipFn89)
+    && /useEffect\(\(\) => \{ if \(!active\) setOpen\(false\); \}, \[active\]\);/.test(tipFn89)
+    && /document\.addEventListener\("pointerdown", onDown\);/.test(tipFn89)
+    && /document\.addEventListener\("focusin", onFocus\);/.test(tipFn89)
+    && /t\.closest\("\[data-term-tab\]"\)/.test(tipFn89)
+    && /if \(e\.key === "Escape"\) \{ e\.stopPropagation\(\); setOpen\(false\); \}/.test(tipFn89)
+    && /aria-label="用語の説明を閉じる" onClick=\{closeByX\}/.test(tipFn89)
+    && /if \(sel\) sel\.focus\(\);/.test(tipFn89)
+    && /"data-term-tab": "",/.test(tip89));
   check("89.2 吹き出しは浮かぶ(absolute・top 100%)。三角は上向き(上へ出て borderBottom だけ塗る)",
-    /position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2,/.test(mtabs89)
-    && /position: "absolute", top: -TERM_ARROW_PX, left: arrowLeft,/.test(mtabs89)
-    && /borderBottom: `\$\{TERM_ARROW_PX\}px solid var\(--c-ink\)`/.test(mtabs89)
-    && !/borderTop:/.test(mtabs89));
+    /position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2,/.test(tipFn89)
+    && /position: "absolute", top: -TERM_ARROW_PX, left: arrowLeft,/.test(tipFn89)
+    && /borderBottom: `\$\{TERM_ARROW_PX\}px solid var\(--c-ink\)`/.test(tipFn89)
+    && !/borderTop:/.test(tipFn89));
+  // 【便BI 2026-10-02 本人指示】置き場: コミュニティの2箇所(MetricTabs)+ リード・データの3つの呼び手
+  // (MetricTabCard = セッション詳細・リード詳細 / ReedCompareTab / MyDataSection)。どれも TermTip の中に
+  // MetricUnderlineTabs を置き、hint を渡す。共通の一文(sharedNote)を渡すのはコミュニティの MetricTabs だけ。
+  {
+    const app89 = codeOf(src);
+    const callers89 = ["MetricTabCard", "ReedCompareTab", "MyDataSection"].map((n) => [n, codeOf(srcOfFn(src, n))]);
+    check("89.2 / 便BI リード・データの指標タブ3つの呼び手(MetricTabCard / ReedCompareTab / MyDataSection)は TermTip の中に置き、hint を渡す",
+      callers89.every(([, b]) => count89(b, /<TermTip\s/g) === 1 && count89(b, /<MetricUnderlineTabs/g) === 1
+        && /renderTabs=\{\(hint\) => \(\s*<MetricUnderlineTabs[\s\S]{0,260}?hint=\{hint\}/.test(b))
+      && count89(app89, /<MetricUnderlineTabs/g) === 3 && count89(app89, /<TermTip\s/g) === 3,
+      callers89.map(([n, b]) => `${n}: TermTip ${count89(b, /<TermTip\s/g)}`).join(" / ") + ` / 全体 ${count89(app89, /<TermTip\s/g)}`);
+    check("89.2 / 便BI 共通の一文(sharedNote)を渡すのはコミュニティの MetricTabs だけ。TermTip は sharedNote のときだけ一文を描く",
+      !/sharedNote/.test(app89) && count89(scr89, /sharedNote/g) === 1 && /<TermTip [^>]*active=\{active\} sharedNote\b/.test(mtabs89)
+      && /\{sharedNote \? \(\s*\r?\n\s*<div [^>]*>\{TERM_SHARED_NOTE\}<\/div>\s*\r?\n\s*\) : null\}/.test(tipFn89)
+      && /sharedNote = false/.test(tipFn89));
+    check("89.2 / 便BI ページャの中の2つ(比較・My Data)は横スワイプで閉じる(active にページの表裏を渡す)",
+      /<ReedCompareTab [^>]*pageActive=\{reedsSubTab === "compare"\} \/>/.test(app89)
+      && /active=\{pageActive\}/.test(codeOf(srcOfFn(src, "ReedCompareTab")))
+      && /active=\{pageActive\}/.test(codeOf(srcOfFn(src, "MyDataSection")))
+      && /pageActive=\{pageActive\}/.test(codeOf(srcOfFn(src, "MyDataPage"))));
+    check("89.2 / 便BI 吹き出しの部品は1つ(App.jsx・screens.jsx に吹き出しの綴りの写しが無い)",
+      ![app89, scr89].some((t) => /data-term-tip|用語の説明を閉じる|TERM_ARROW_PX/.test(t))
+      && /import \{ TermTip, TermMark, termTabHinted, termTabProps \} from "\.\/termTip\.jsx";/.test(app89)
+      && /import \{ TermTip, TermMark, termTabHinted, termTabProps \} from "\.\.\/termTip\.jsx";/.test(scr89));
+  }
 
   // --- 89.3 順位の帯 --------------------------------------------------------------
   check("89.3 上位3件の帯は 44px。数字は帯の中(--c-on-accent・1位 --fs-2xl / 2・3位 --fs-xl)",
@@ -31034,9 +31213,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const dataDcBF = dcBF("CommData.dc.html");
   const personDcBF = dcBF("CommPerson.dc.html");
   const alignNoteBF = "計測環境により値全体が一律にずれるため";
+  // 【便BI 2026-10-02】共通の一文の定義は共有の部品(src/termTip.jsx)へ移った。
   check("BF.3 便BC: 実装はグラフの下に揃えの一文を出していない(用語の説明の吹き出しへ移った)",
-    /const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため/.test(screensBF)
-    && !/withMine \? "計測環境により/.test(screensBF));
+    /export const TERM_SHARED_NOTE = "計測環境により値全体が一律にずれるため/.test(readFileSync(join(__dirname, "..", "src", "termTip.jsx"), "utf8"))
+    && !/withMine \? "計測環境により/.test(screensBF) && !/計測環境により値全体が一律にずれるため/.test(codeOf(screensBF)));
   check("BF.3 便BC 正典 CommData / CommPerson: グラフの下の揃えの一文は無い(吹き出しは閉じた姿)",
     !dataDcBF.includes(alignNoteBF) && !personDcBF.includes(alignNoteBF));
   check("BF.3 便BC 正典 CommData: みんなの平均のカードは濃紺(--c-accent)で、見出しは --c-on-accent-dim",

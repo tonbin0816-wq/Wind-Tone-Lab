@@ -54,8 +54,12 @@ const shown = () => {
   const el = noteEl();
   return Boolean(el) && el.style.visibility !== "hidden" && el.getAttribute("aria-hidden") !== "true" && el.textContent === NOTE;
 };
+// 【便BI 2026-10-02】選んでいる重心・HNR のタブには用語の吹き出しの「?」(data-term-mark・飾り)が付くので、
+// 見えている字は「?」を除いて比べる。選んでいるタブを押すと吹き出しが開くだけで、指標は変わらない
+// (変わらないことは termTipApp.test.jsx が見る)。
+const tabText = (x) => [...x.childNodes].map((n) => (n.nodeType === 1 && n.hasAttribute("data-term-mark") ? "" : n.nodeType === 1 ? tabText(n) : n.textContent)).join("");
 const tab = async (label) => {
-  const b = [...host.querySelectorAll("button")].find((x) => x.textContent.trim() === label);
+  const b = [...host.querySelectorAll("button")].find((x) => tabText(x).trim() === label);
   expect(b, label).toBeTruthy();
   await act(async () => { b.click(); });
 };

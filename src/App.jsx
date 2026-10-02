@@ -26,6 +26,8 @@ import { sessionSoundingSec } from "./soundingSec.js";
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
 // community/loadProgress.js(純粋な計算)だけ。
 import LoadingRing from "./community/LoadingRing.jsx";
+// 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し。コミュニティと共有する1つ(写しを作らない)。
+import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -138,6 +140,23 @@ function fillViewportMinHeight(rectTop, scrollY, visibleH, bottomGap) {
   const h = visibleH - top - bottomGap;
   return h > 0 ? h : 0;
 }
+// 【便BI 2026-10-02 本人裁定(b)】ページの上端の余白(.app-root の padding-top)。
+// 本人「計測タブだけ画面レイアウトの根本が違うので、計測タブだけ上に詰めて」(iPhone で、ステータスバーの
+// すぐ下から「自分 / A.Sax / 442Hz」の行までの空きを詰めたい)。将来、下部タブのすぐ上に広告の帯を置くので、
+// 計測タブの縦の場所を作る。
+//   PAGE_TOP_PAD         … 計測タブ以外(16px。今までの値のまま。リード・データ・コミュニティの1行目は動かない)
+//   MEASURE_PAGE_TOP_PAD … 計測タブ(--sp-1 = 4px。12px 詰まる)
+// どちらもセーフエリア(env(safe-area-inset-top))はそのまま足す ── つぶすとノッチ・Dynamic Island の下に潜る。
+// 【浮かぶ告知の座標】§6.1.5「座標はルートの padding と同じ式」。上端に浮く告知はデータタブのアップロードの
+// 告知1つだけで、計測タブには無い(計測タブの確認・エラーは下寄せの暗幕)。その告知は PAGE_TOP_PAD を読む。
+// 【F-8 / C-1 は崩さない】上端の固定ブロック(設定の行・リードの行・案内)の中身と高さは1つも変えていない。
+// ブロックごと上へ 12px 寄るだけで、環から下の並びは画面ぶんの枠(measureMinH)が測り直し、
+// 増えた 12px は環と録音ボタンのあいだの伸び縮みする空き(flex: 1)が吸う。
+// 設定の行とリードの行のあいだ(gap 2px)・行の中の上下(2〜4px)は、もう 4px 以下で、詰めると
+// 押せる高さ(28 / 30px)がさらに縮むので触っていない。
+const PAGE_TOP_PAD = "calc(16px + env(safe-area-inset-top))";
+const MEASURE_PAGE_TOP_PAD = "calc(var(--sp-1) + env(safe-area-inset-top))";
+
 function useFillViewportHeight(ref, bottomGap = null) {
   const [minH, setMinH] = useState(0);
   useLayoutEffect(() => {
@@ -2159,6 +2178,10 @@ export {
   ReedsTab, SessionEditSheet,
   // 【便BE】指標カード(目安から外した指標の知らせの検査 idealExcludedNote.test.jsx が描く)。
   MetricTabCard,
+  // 【便BI 2026-10-02】上端の余白(measureTopPad.test.jsx が読む)。
+  PAGE_TOP_PAD, MEASURE_PAGE_TOP_PAD,
+  // 【便BI 2026-10-02】用語の吹き出し(termTipApp.test.jsx)と赤の枠(dangerOutline.test.jsx)の検査が描く。
+  MyDataSection, DeleteActionButton,
   // 【便AZ】音名軸の目印の音名(楽器 → E♭ / B♭)。
   noteAxisGuideName,
 };
@@ -4795,8 +4818,9 @@ export default function WindToneLabPhaseMode() {
   // 値(14px + 安全域)は**そのトークンが唯一の答え**で、ここは引くだけ。
   // グラフカードの負マージンと浮かせるボタンの右端が同じトークンから引くので、
   // 「本文の左右余白」を1箇所で動かせば3つとも同時に動く(計算値は従来と 1px も変わらない)。
+  // 【便BI 2026-10-02 本人裁定(b)】上端の余白は計測タブだけ詰める(PAGE_TOP_PAD / MEASURE_PAGE_TOP_PAD の注記)。
   return (
-    <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: "calc(16px + env(safe-area-inset-top)) var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)", boxSizing: "border-box" }}>
+    <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${topTab === "measure" ? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
       <style>{`
         /* 【F-43・2026-08-04】webfontの@importをここから撤去した。
            - JetBrains Mono: 参照0件の死蔵だった(P2-1)
@@ -11431,7 +11455,7 @@ function ReedsTab(props) {
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           {/* 【便AY D4 / D5】比較は**同じ楽器のリードどうしだけ**。候補は選んだ楽器のリード、
               重ねるグラフの横軸もその楽器(計測タブの楽器ではない)。 */}
-          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={listSax} tuningHz={tuningHz} />
+          <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={listSax} tuningHz={tuningHz} pageActive={reedsSubTab === "compare"} />
         </div>
       </SwipePager>
     </div>
@@ -11637,7 +11661,7 @@ function reedDetailMetaParts(saxType, startDate, days, sessionCount) {
 }
 
 // 【N-5】追加シート。正典のミニ「追加」。
-// メーカー・銘柄のピッカー(「＋ 新しいメーカーを入力...」で自由入力が出るのは現行のまま)・
+// メーカー・銘柄のピッカー(逃げ道の一手で自由入力が出るのは現行のまま。一手の文字は【便BI 2026-10-02】から「その他」)・
 // 厚さと枚数のダイヤル・主要動作1つ。
 // 現行の window.prompt による枚数入力は廃止(シートの中で完結する)。
 // シートの作法(暗幕・角丸28・つまみ・影)はテンポシート/「…」と同値。
@@ -11665,7 +11689,9 @@ const REED_ADD_BUTTON_LABEL = "追加";
 // メーカープルダウンの「新しいメーカーを入力」の値とラベル。現行の <option value="__custom__"> を
 // そのまま引き継ぐ(保存されるメーカー名には出ない内部値)。
 const REED_BRAND_CUSTOM = "__custom__";
-const REED_BRAND_CUSTOM_LABEL = "＋ 新しいメーカーを入力...";
+// 【便BI 2026-10-02 本人指示】文字は「＋ 新しいメーカーを入力...」から「その他」へ(プロフィールの
+// GearPicker の逃げ道と同じ語)。押したときの動き(REED_BRAND_CUSTOM = メーカーを手で入力できる)は変えていない。
+const REED_BRAND_CUSTOM_LABEL = "その他";
 const REED_ADD_COUNT_MIN = 1;
 const REED_ADD_COUNT_MAX = REED_BOX_SIZE; // 箱1つぶん(10枚)
 function clampReedAddCount(n) {
@@ -12007,18 +12033,20 @@ function ReedBoxSheet({
               {/* 【2026/09/10 本人指示】箱ごと消す一手。**編集のときだけ**出す
                   (追加の途中に消すものは無い)。
                   【.ctl-danger は使わない】あの綴りは「選んだぶんを消す」共通部品ひとつだけの
-                  ものになっていて、選択数に応じて data-armed で塗りが点く仕掛けを持つ。
-                  ここは常に1箱なので点滅する印が要らず、写すと錨が壊れる。 */}
+                  ものになっていて、選択数に応じて data-armed で枠が点く仕掛けを持つ。
+                  ここは常に1箱なので点滅する印が要らず、写すと錨が壊れる。
+                  【便BI 2026-10-02 本人指示】赤の塗り(地 --c-danger・字 --c-on-accent)から、赤の枠
+                  (DANGER_OUTLINE_STYLE = 地なし・枠 1px --c-danger・字 --c-danger)へ。高さ(--tap-min)・
+                  角丸(--r-pill)・字(--fs-sm / 700)はもとから同じ値で、変わったのは地・枠・字の色だけ。
+                  幅の指定(flex: "1 1 0" / minWidth: 0)と中央揃えは据え置き。 */}
               {onDelete ? (
                 <button
                   type="button" onClick={onDelete}
                   className="sans"
                   style={{
-                    flex: "1 1 0", minWidth: 0, minHeight: "var(--tap-min)",
+                    ...DANGER_OUTLINE_STYLE,
+                    flex: "1 1 0", minWidth: 0,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    borderRadius: "var(--r-pill)", border: "none",
-                    background: "var(--c-danger)", color: "var(--c-on-accent)",
-                    fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
                   }}
                 >削除</button>
               ) : null}
@@ -12966,7 +12994,8 @@ const REED_COMPARE_METRICS = [
 //   その下に4グラフ(音量 / 平均差分 / HNR / スペクトル重心)・★一覧・フレーム数脚注
 // 機能はすべて現行のまま(6本制限の告知・空状態2種・チップのトグル)。
 // 箱の開閉(chevron)は正典に無いので**常時展開**にした(タイル同様、畳む必要がない密度)。
-function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, saxType, tuningHz }) {
+// 【便BI 2026-10-02】pageActive = 比較のページが表にあるか(用語の吹き出しを横スワイプで閉じる)。渡さなければ true。
+function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, saxType, tuningHz, pageActive = true }) {
   // 【D-5】表示するグラフは1枚。既定は DETAIL_CARD_METRICS の先頭(=平均差分)。
   // 永続化しない(再マウントで既定へ戻る。他の3画面と同じ扱い)。
   const [compareMetric, setCompareMetric] = useState(DETAIL_CARD_METRICS[0]);
@@ -13071,10 +13100,21 @@ function ReedCompareTab({ reeds, sessions, compareReedIds, setCompareReedIds, sa
               区画は余白 --sp-4 で分ける(§6.0 囲いの序列「1. 余白で分ける」)。
               **グラフの中の線は別の話** ── hi/mid/lo の3本と E♭ の縦の破線は残る
               (本人「E♭の縦線は必要」)。 */}
-          <MetricUnderlineTabs
-            order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
-            value={compareMetric} onChange={setCompareMetric}
-            halfGap={DETAIL_TAB_HALF_GAP_PX}
+          {/* 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し(TermTip)。共通の一文は出さない
+              (自分のリードどうしの比較で、揃えていない)。比較は SwipePager の2ページ目なので、
+              登録へ横スワイプしたら閉じる(pageActive)。 */}
+          <TermTip
+            value={compareMetric}
+            label={(REED_COMPARE_METRICS.find((x) => x.key === compareMetric) ?? REED_COMPARE_METRICS[0]).label}
+            active={pageActive}
+            renderTabs={(hint) => (
+              <MetricUnderlineTabs
+                order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
+                value={compareMetric} onChange={setCompareMetric}
+                halfGap={DETAIL_TAB_HALF_GAP_PX}
+                hint={hint}
+              />
+            )}
           />
           {(() => {
             const m = REED_COMPARE_METRICS.find((x) => x.key === compareMetric) ?? REED_COMPARE_METRICS[0];
@@ -15159,7 +15199,14 @@ export function SubTabs({ items, value, onChange, children = null }) {
 // 渡していたのは比較タブ1箇所だけで、その1箇所が「区切りの横線を消す」裁定で渡さなくなり
 // **読み手がゼロ**になったので、引数ごと落とした(使い手の無い受け口を残さない)。
 // **選択中のタブの下線(下の boxShadow の inset)は選択の合図であって罫ではない。触らない。**
-function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, children }) {
+// 【便BI 2026-10-02 本人指示】hint = 重心・HNR の用語の吹き出し(src/termTip.jsx の TermTip が渡す)。
+// コミュニティの下線タブ(screens.jsx の UnderlineTabs)と**同じ作法・同じ部品**: 選んでいる指標が
+// 重心か HNR なら字の右に「?」(TermMark)、選んでいるタブをもう一度押すと吹き出しの開け閉め。
+// 属性(説明の「用語の説明」= aria-describedby・aria-expanded・data-term-tab)は termTabProps の1つから引く。
+// 名前(aria-pressed のボタンの名前)は見えている字のまま変えない(便BI 審査の差し戻し・W3C APG)。
+// hint を渡さない呼び手は無い(3つとも TermTip の中)が、渡さなければ今までの姿のまま。
+// 選んでいる字の器の data-tab-face は、吹き出しの三角の位置と × のあとのフォーカスの戻り先。
+function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, children, hint = null }) {
   return (
     <div
       className="sans"
@@ -15170,12 +15217,14 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, childre
       {order.map((key) => {
         const m = metrics.find((x) => x.key === key);
         const sel = value === key;
+        const hinted = termTabHinted(hint, key, sel);
         return (
           <button
             key={key}
             type="button"
-            onClick={() => onChange(key)}
+            onClick={() => (hinted ? hint.onToggle() : onChange(key))}
             aria-pressed={sel}
+            {...(hint ? termTabProps(hint, hinted) : {})}
             className="sans"
             style={{
               minHeight: "var(--tap-min)", minWidth: "var(--tap-min)",
@@ -15185,6 +15234,7 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, childre
             }}
           >
             <span
+              data-tab-face={sel ? "" : undefined}
               style={{
                 display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 2px",
                 fontSize: "var(--fs-sm)", fontWeight: 600,
@@ -15193,6 +15243,7 @@ function MetricUnderlineTabs({ order, metrics, value, onChange, halfGap, childre
               }}
             >
               {m?.label ?? key}
+              {hinted ? <TermMark /> : null}
             </span>
           </button>
         );
@@ -15255,11 +15306,16 @@ function MetricTabCard({ frames, saxType, tuningHz, selectedIdeal, metric, onMet
           【R18 2026-09-16 本人裁定】最後まで罫を持っていたリード比較も引かなくなり、
           受け口(`bordered`)ごと消えた。**アプリ中どの指標タブにも下辺の罫は無い。**
           **選択中のタブの下線(boxShadow の inset)は選択の合図であって罫ではない。触らない。** */}
-      <MetricUnderlineTabs
-        order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
-        value={m.key} onChange={onMetricChange}
-        halfGap={DETAIL_TAB_HALF_GAP_PX}
-      />
+      {/* 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し(TermTip)。共通の一文は出さない
+          (自分の記録のグラフで、揃えて比べていない)。ページャの外なので active は既定の true。 */}
+      <TermTip value={m.key} label={m.label} renderTabs={(hint) => (
+        <MetricUnderlineTabs
+          order={DETAIL_CARD_METRICS} metrics={REED_COMPARE_METRICS}
+          value={m.key} onChange={onMetricChange}
+          halfGap={DETAIL_TAB_HALF_GAP_PX}
+          hint={hint}
+        />
+      )} />
       {/* 【D-7】ここに大きい数字(--fs-hero)と標準偏差があったが、本人指示で削除した。
           単位・小数の書式(m.fmt / m.unit)はグラフの軸が今も使うので語彙の側は触っていない。 */}
       {/* 目安(selectedIdeal)の破線と Δ は**この画面では残す**(N-8 で消したのは My Data 側だけ。
@@ -15560,8 +15616,9 @@ function MemoField({ value, onChange, onBlur }) {
 // 「選択には削除機能しかないので削除ボタンをゴミ箱アイコンに変更」。
 // **3箇所で同じ形**にする(すべてのセッション / リードの箱 / リードの個体)。
 // **番号変更の「完了」はゴミ箱にしない**(削除ではないため)。
-// 塗りの規則は不変: 実際に消える一手(1件以上選択済み)だけが --c-danger の塗りを持つ
-// (index.css の .ctl-danger[data-armed])。件数はアイコンの右に数字で添える。
+// 実際に消える一手(1件以上選択済み)だけが --c-danger を持つ(index.css の .ctl-danger[data-armed])。
+// 【便BI 2026-10-02 本人指示】その形は赤の塗りから赤の枠(地なし・枠と字が --c-danger)に替わった。
+// 件数はアイコンの右に数字で添える。
 // 読み上げは件数つきの言葉で出す(アイコンだけでは何が消えるか分からない)。
 function DeleteActionButton({ count, ariaLabel, onClick }) {
   return (
@@ -15605,6 +15662,21 @@ export const BACK_BUTTON_STYLE = {
   border: "none", borderRadius: "var(--r-md)",
   background: "none", color: "var(--c-ink-2)",
   fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+};
+// 【便AW 2026-09-24 本人指示】「アカウントを削除のボタンを背景色なしで枠線とテキストが赤に。
+// この人を通報のボタンも同じく」。危険な一手の見た目(地なし・枠と字が --c-danger)。
+// 【便BG 2026-10-01 本人指示】ブロックの確認の「ブロックする」、通報のシートの「通報する」、
+// 通報のあとの「ブロックする」も、赤の塗りをやめてこれを読む(塗りなしの赤枠)。
+// 【便BI 2026-10-02 本人指示】「リード編集の削除を赤の塗りから赤の枠に。アプリ全体で赤の塗りのボタンを
+// 赤の枠にそろえる」。**赤の塗りのボタンはアプリに1つも無い**(確認のシートの「アカウントを削除する」・
+// 箱の編集シートの「削除」もこれを読む。選んだ計測を消す一手は index.css の .ctl-danger[data-armed])。
+// 置き場をコミュニティ(screens.jsx)からここへ移したのは、BACK_BUTTON_STYLE と同じく App.jsx が持てば
+// 両方から読めるため(screens.jsx は App.jsx を読む向き。逆は遅延読み込みの向こうで読めない)。
+// screens.jsx はこれを import してそのまま export し直す(CommunityTab.jsx の読み口は変わらない)。
+export const DANGER_OUTLINE_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
+  border: "1px solid var(--c-danger)", background: "transparent", color: "var(--c-danger)",
+  fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
 };
 function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {
   return (
@@ -15920,6 +15992,8 @@ function MyDataSection({
   sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
   onCompareOthers, onOpenCommunityIdeals, idealProfiles = [], selectedIdealId = null, setSelectedIdealId, onDeleteIdeal,
+  // 【便BI 2026-10-02】My Data のページが表にあるか(用語の吹き出しを横スワイプで閉じる)。渡さなければ true。
+  pageActive = true,
 }) {
   // 【D2】累計の定義のシート(累計カードを押すと開く)。永続化しない。
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
@@ -16137,16 +16211,22 @@ function MyDataSection({
         {/* 指標タブ。My Data・セッション詳細・リード詳細・リード比較で**同じ部品**。
             【D-9y 2026/08/25 本人指示】「指標タブの下の罫は両方外して」→ bordered を渡さない。
             【D-9z】集計範囲セレクタ(楽器種別 ▾ · 期間 ▾)は**この行の右端**に相乗りする。 */}
-        <MetricUnderlineTabs
-          order={MY_DATA_CARD_METRICS} metrics={MY_DATA_METRICS}
-          value={cardMetric} onChange={setCardMetric}
-          halfGap={DETAIL_TAB_HALF_GAP_PX}
-        >
-          <MyDataScopePicker
-            dataSax={dataSax} setDataSax={setDataSax}
-            range={range} setRange={setRange}
-          />
-        </MetricUnderlineTabs>
+        {/* 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し(TermTip)。共通の一文は出さない
+            (自分の計測どうしの比較で、揃えていない)。My Data は SwipePager の1ページ目なので、
+            分析へ横スワイプしたら閉じる(pageActive)。右端の集計範囲のセレクタは吹き出しの「外」。 */}
+        <TermTip value={cardMetric} label={chartMetric.label} active={pageActive} renderTabs={(hint) => (
+          <MetricUnderlineTabs
+            order={MY_DATA_CARD_METRICS} metrics={MY_DATA_METRICS}
+            value={cardMetric} onChange={setCardMetric}
+            halfGap={DETAIL_TAB_HALF_GAP_PX}
+            hint={hint}
+          >
+            <MyDataScopePicker
+              dataSax={dataSax} setDataSax={setDataSax}
+              range={range} setRange={setRange}
+            />
+          </MetricUnderlineTabs>
+        )} />
 
         {/* 【D-9 §1〜§3 / D-10 §5】比較は**2つの系列を選ぶ式**。
             折れ線は「× = 2本を重ねる」、窓型は「ー = 引き算」で、記号だけが変わる。
@@ -16719,7 +16799,8 @@ function AnalysisLabView(props) {
         <div
           style={{
             position: "fixed", zIndex: 40,
-            top: "calc(16px + env(safe-area-inset-top))",
+            /* 【便BI 2026-10-02】ルートの上端の余白と同じ1つ(この告知はデータタブだけに出るので PAGE_TOP_PAD)。 */
+            top: PAGE_TOP_PAD,
             left: "calc(14px + env(safe-area-inset-left))",
             right: "calc(14px + env(safe-area-inset-right))",
             pointerEvents: "none",
@@ -17403,6 +17484,7 @@ function MyDataPage({
         onOpenCommunityIdeals={onOpenCommunityIdeals}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         onDeleteIdeal={onDeleteIdeal}
+        pageActive={pageActive}
       />
 
       {/* 記録の保全: 書き出し・読み戻し・保存状態。**追加だけ**で、上の要素は1つも動かしていない。
