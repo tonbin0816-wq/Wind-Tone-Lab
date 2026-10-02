@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component, createContext, useContext } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useId, memo, lazy, Suspense, Component, createContext, useContext, startTransition } from "react";
 import { createPortal } from "react-dom";
 // 【N-5 で GripLines(Menu の読み替え)を外した】登録済みリードの「行」に付けていた
 // 三本線の目印(F-64)は、行が 5×2 のタイルになって載せる場所が無くなった。
@@ -189,6 +189,8 @@ function useFillViewportHeight(ref, bottomGap = null) {
 // しきい値(幅の20%)を超えていれば隣のページへスナップ、足りなければ元に戻る。
 // ・パフォーマンス: ドラッグ中はReactのstateを更新せず、trackのstyleを直接書き換える
 //   (重い子ページを毎フレーム再レンダーしないため)。indexはpropで制御(サブタブと同期)。
+//   【便BK 2026-10-02】ただし指を離して隣へ移るときは、親が新しい index を渡してくるまでの数フレームだけ、
+//   手元の行き先(pending)が prop の index を上書きする(swipePagerShownIndex。親が別の index を渡せば親が勝つ)。
 // ・縦スクロールとの両立: 最初の数pxで縦横どちらのジェスチャーかを判定し、横と決まってから
 //   のみ preventDefault(非パッシブ登録)して横へ動かす。縦と判定したら何もせず縦スクロールさせる。
 // ・スライダー/プルダウン/横スクロール要素の上では発火しない。
@@ -216,8 +218,9 @@ function isReedTileDragActive() { return reedTileDragActive; }
 // ことを純関数としてテストから確かめられるようにする(swipeBack* と同じ作法。
 // コンポーネントの if はハーネスから見えないので、消しても書き換えても検出できない)。
 //
-//   "advance" 指を離し、しきい値を越えて**行き先がある** → onIndexChange。
-//             transform は新しい index で React が書き直すので、ここでは transition だけ戻す
+//   "advance" 指を離し、しきい値を越えて**行き先がある** → advanceTo(【便BK】今すぐ行き先へ動かし、
+//             親の onIndexChange は描いたあとに呼ぶ)。transform は行き先の index で React が書き直す
+//             (SwipePager だけの描き直し)ので、ここでは transition だけ戻す
 //   "settle"  指を離したが、しきい値未満か行き先が無い   → 自分で元の位置へ戻す
 //   "drop"    **中断**。行き先の判定をせずに終わる → 自分で元の位置へ戻す
 //   "idle"    横と確定していない = track を 1px も動かしていない → 何も書かない
@@ -316,12 +319,65 @@ function swipePagerInterrupted(eventType, tileDragActive) {
 // 【export する理由】コミュニティの子タブも同じ作法で動かす(2026/09/06 本人指示)。
 // 別ファイルへ切り出さない ── pitch-test が App.jsx の中からこの関数の本体を
 // 綴りで切り出して、しきい値や軸判定を固定している。移すとその検査が空回りする。
-export function SwipePager({ index, onIndexChange, bleed = false, children }) {
+//
+// 【便BK 2026-10-02 本人の実機報告「My Data から分析へのスクロール移動に引っかかりがある。移動するとき一瞬止まる」】
+// 以前は指を離した瞬間に onIndexChange を呼び、**親の描き直しが終わってから** React が track の translateX を
+// 書いていた。親(データタブ)の描き直しは重く、そのあいだページは指を離した位置で止まっていた
+// (375×812・CPU 6倍遅・計測80件の実測で、書かれるまで 中央値 約500ms)。
+// いまは次の順にする:
+//   1. 指を離した瞬間、**このページャだけ**を描き直して行き先の位置を書く(pending = 見た目の行き先)。
+//      ページの中身は親が前に渡した要素のままなので、React は中身を描き直さない(軽い)。
+//   2. 動き出したフレームを描いたあと(requestAnimationFrame → setTimeout)、親へ onIndexChange を渡す。
+//      startTransition に包むので、親の重い描き直しは細切れになり、動いているページを止めない。
+//      pending を外すのも同じ更新の中なので、「親の index」と「見た目」が食い違うフレームは無い。
+// 親が別の index を渡してきたら(子タブの文字を押した等)、それが勝つ(swipePagerShownIndex)。
+// 引く距離・しきい値・戻り方・イージングは変えていない(判定は今までと同じ純関数)。
+// 下の本体では、`index` は**見た目の index**(swipePagerShownIndex の値)を指す。
+// 判定を純関数に出すのは、コンポーネントの三項演算子だと検査から見えず、取り違えても気付けないため。
+function swipePagerShownIndex(indexProp, pending) {
+  if (!pending || pending.from !== indexProp) return indexProp;   // 親が動かしたら親に従う
+  return pending.to;
+}
+export function SwipePager({ index: indexProp, onIndexChange, bleed = false, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
   const viewportRef = useRef(null);
   const trackRef = useRef(null);
   const st = useRef(null);
+  // 【便BK】見た目の行き先。{ from: 押した時点の親の index, to: 行き先 }。親へ渡し終えたら null。
+  const [pending, setPending] = useState(null);
+  const index = swipePagerShownIndex(indexProp, pending);
+  // 遅らせて呼ぶときに読む最新の値(遅らせているあいだに親が描き直していることがあるため)。
+  const latestRef = useRef({ indexProp, onIndexChange });
+  useEffect(() => { latestRef.current = { indexProp, onIndexChange }; });
+  const deferRef = useRef(null);
+  const cancelDeferred = () => {
+    const d = deferRef.current;
+    if (!d) return;
+    deferRef.current = null;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    if (d.timer) clearTimeout(d.timer);
+  };
+  useEffect(() => cancelDeferred, []);
+  // 【便BK】行き先へ動かす唯一の口。動かすのは今すぐ、親へ知らせるのは描いたあと。
+  const advanceTo = (next) => {
+    const from = indexProp;
+    cancelDeferred();                       // 続けて引いたら、最後の行き先だけを親へ渡す
+    setPending({ from, to: next });
+    const d = { raf: 0, timer: 0 };
+    deferRef.current = d;
+    d.raf = requestAnimationFrame(() => {
+      d.timer = setTimeout(() => {
+        if (deferRef.current !== d) return;
+        deferRef.current = null;
+        startTransition(() => {
+          // 遅らせているあいだに親が別の index へ動かしていたら、上書きしない(親が勝つ)
+          if (latestRef.current.indexProp === from) latestRef.current.onIndexChange(next);
+          setPending(null);
+        });
+      }, 0);
+    });
+  };
   const idxRef = useRef(index);
   useEffect(() => { idxRef.current = index; }, [index]);
   const minH = useFillViewportHeight(viewportRef);
@@ -421,7 +477,7 @@ export function SwipePager({ index, onIndexChange, bleed = false, children }) {
     const interrupted = swipePagerInterrupted(eventType, isReedTileDragActive());
     const { kind, dx } = finishGesture(i, interrupted);
     const next = swipePagerNextIndex(kind, dx, i, count);   // 行き先は純関数が決める
-    if (next !== i) onIndexChange(next);                    // 再レンダーで次ページへスライド
+    if (next !== i) advanceTo(next);                        // 【便BK】今すぐスライド、親へは描いたあと
   };
 
   return (
@@ -3600,6 +3656,15 @@ function ActionNotice({ notice, onAction, onLeaveEnd }) {
   );
 }
 
+// 【便BK 2026-10-02 本人の実機報告】下部ナビを押したとき、**今の画面をそのまま残すか**。
+// 残すのは「データを押した」かつ「データタブが My Data の一覧を表に出している」ときだけ
+// (handleNavTap の解説)。atMyDataTop は AnalysisLabView が立てる印で、データタブを離れると
+// 必ず false に戻る(=データタブ以外を表示中に true のまま残らない)ので、今のタブは見なくてよい。
+// 判定を純関数に出すのは、コンポーネントの if だと検査から見えず、条件を取り違えても気付けないため。
+function navRetapKeepsView(tappedKey, atMyDataTop) {
+  return tappedKey === "analysis" && atMyDataTop === true;
+}
+
 // ============================================================
 // Main component
 // ============================================================
@@ -3610,8 +3675,23 @@ export default function WindToneLabPhaseMode() {
   // タブをタップすると(既にそのタブにいても)子ビューが再マウントされ、開いていた
   // 個別リード/個別セッションの詳細が閉じてトップページに戻るようにする。
   const [navNonce, setNavNonce] = useState(0);
+  // 【便BK 2026-10-02 本人の実機報告】「My Data タブにいるときに、もう一度 My Data タブのアイコンを
+  // タップすると、目安くらいの位置に動く。この挙動を削除」。
+  // 原因: 再タップでも navNonce が進み、データタブの中身(key={`data-${navNonce}`})が**作り直されていた**。
+  // 作り直した直後の最初の配置では、SwipePager の最小の高さが未設定(useFillViewportHeight の最初の値 0)で、
+  // My Data のページも後から測って描く部分がまだ無い(375×812・計測80件の実測で ページ 1049→849px・
+  // 文書 1156→956px)。ブラウザはスクロール位置をその短い文書の下端へ詰め、高さが戻っても位置は戻らない。
+  // Chrome はスクロールアンカーで元へ戻すが、スクロールアンカーを持たない Safari 26 以前(iPhone)は戻さない
+  // (Safari 27 でスクロールアンカーが入った。アンカーを切った Chrome で
+  // y=229 / 344 → 144 へ動くのを実測。アンカーありの Chrome では動かない)。
+  // My Data の一覧(子タブ My Data・セッション詳細も全件一覧も開いていない)を表に出しているときは、
+  // 作り直すと戻る先が今いる場所そのものなので、**何もしない**。印は AnalysisLabView が立てる(下の ref)。
+  // 分析・セッション詳細・すべての計測を出しているときは今までどおり作り直して My Data の一覧へ戻す。
+  // ほかのタブ(計測・リード・コミュニティ)の再タップも今までどおり。
+  const dataAtMyDataTopRef = useRef(false);
   const handleNavTap = useCallback((key) => {
     if (isRecordingRef.current) return;
+    if (navRetapKeepsView(key, dataAtMyDataTopRef.current)) return;
     if (key === "reeds") setReedsSubTab("register"); // リードタブのトップは「登録」子タブ
     setTopTab(key);
     setNavNonce((n) => n + 1);
@@ -4993,6 +5073,8 @@ export default function WindToneLabPhaseMode() {
            どちらが勝つかが index.css の行の順序に依存する(いちばん壊れやすい形)。 */
         <AnalysisLabView
           key={`data-${navNonce}`}
+          /* 【便BK 2026-10-02】My Data の一覧を表に出しているかの印(handleNavTap が読む)。 */
+          myDataTopRef={dataAtMyDataTopRef}
           sessions={sessions} reeds={reeds} selectedIdeal={selectedIdeal}
           promoteSessionToIdeal={promoteSessionToIdeal}
           NUM_HARMONICS={NUM_HARMONICS}
@@ -14262,7 +14344,10 @@ const DATE_INPUT_FIT = { minWidth: 0, maxWidth: "100%" };
 // 【行の縞をオクターブで割れるのは行が音名のときだけ】rowIsNote が false のときは縞を出さない
 // (「2行ごとに交互」のような**正典に無い規則を発明しない**)。
 // 【便AY 2026-09-25】rowLabelOf / colLabelOf: 行・凡例の**表示**(既定は値のまま)。鍵(rk / ck)は束ねる値のまま使う。
-function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false, rowLabelOf = (v) => v, colLabelOf = (v) => v }) {
+// 【便BK 2026-10-02 本人の実機報告】memo で包んだ。子タブ(My Data / 分析)を替えるだけの描き直しで、字の幅を
+// 測り直していた(measureSvgTextPx は配置を強制する。CPU 6倍遅の実測で 約40ms、子タブの切り替えで最も重い1部品)。
+// 渡すものは AnalysisLabView が useMemo / useCallback で同じ物を渡すので、集計か軸が変わったときだけ描き直す。
+const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false, rowLabelOf = (v) => v, colLabelOf = (v) => v }) {
   // グラフ幅は固定値ではなくコンテナの実測幅。375pxでも横に溢れない条件がここで決まる。
   const [boxRef, W] = useMeasuredWidth();
 
@@ -14419,7 +14504,7 @@ function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false,
       )}
     </div>
   );
-}
+});
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
@@ -15815,7 +15900,9 @@ function NoteMatrixBlock({ metricKey, matrix }) {
 function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
   const now = new Date();
   const [ym, setYm] = useState(() => ({ year: now.getFullYear(), month: now.getMonth() }));
-  const cells = calendarMonthDays(sessions, ym.year, ym.month);
+  // 【便BK 2026-10-02 本人の実機報告】子タブを替えるたびの描き直しで、全セッションの練習時間
+  // (sessionSoundingSec)を数え直していた。セッションが前回と同じ物なら前回のマス目(useMemoByItemRefs)。
+  const cells = useMemoByItemRefs(() => calendarMonthDays(sessions, ym.year, ym.month), sessions, [ym.year, ym.month]);
   const totals = calendarMonthTotals(cells);
   const maxMinutes = cells.reduce((a, c) => (c ? Math.max(a, c.minutes) : a), 0);
   // 【罠14】暦日は必ず localDayKey。toISOString の UTC 暦日は JST の 00〜09時で前日になる。
@@ -15988,6 +16075,30 @@ function idealRowSelectionNext(currentId, pressedId) {
   return currentId === pressedId ? null : pressedId;
 }
 
+// 【便BK 2026-10-02 本人の実機報告】「My Data から分析へのスクロール移動に引っかかりがある」。
+// 子タブを替えると My Data のページも描き直される(pageActive が変わる)。そのたびに
+// 音ごとの値(noteValuesByIdx = 全フレームを音ごとに束ねて平均する)を**期間ぶん・その日ぶん**
+// やり直していて、指を離した瞬間の描き直しのうち最も重い部分だった(CPU 6倍遅の実測で約240ms)。
+// 入力の配列は描くたびに flatMap / filter で**作り直される**ので、useMemo の鍵に配列そのものは使えない。
+// 中の要素(フレーム・セッションの object)が**前回と同じ物で同じ順**なら結果も同じ(どちらも純関数)
+// なので、要素を1つずつ参照で比べて、同じなら前回の結果を返す。比べる手間は要素数ぶんの === だけ。
+// フレームやセッションを書き換えるときは必ず新しい object を作る(useSessionsStore の作法)ので、
+// 中身が変われば参照も変わり、必ず計算し直す。
+function sameItemRefs(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+  return true;
+}
+function useMemoByItemRefs(compute, items, deps) {
+  const cache = useRef(null);
+  const prev = cache.current;
+  if (prev && sameItemRefs(prev.items, items) && sameItemRefs(prev.deps, deps)) return prev.value;
+  const value = compute();
+  cache.current = { items, deps, value };
+  return value;
+}
+
 function MyDataSection({
   sessions, reeds, selectedIdeal, saxType, tuningHz, dataSax, setDataSax, range, setRange, totalSessionCount, onOpenSession, onOpenAllSessions,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
@@ -16024,9 +16135,12 @@ function MyDataSection({
   // (その日のセッションだけ楽器で絞ると、カレンダーに印があるのに一覧が空、が起きる。)
   // グラフ(期間・今日/直近の日の系列)は今までどおり allMySessions(選択中の楽器種別)。
   const stockSessions = myDataStockSessions(sessions);
-  const stock = myDataStockTexts(myDataStock(stockSessions));
+  // 【便BK 2026-10-02】同じ理由で、セッションが前回と同じ物なら前回の累計(useMemoByItemRefs)。式は以前のまま。
+  const stock = useMemoByItemRefs(() => myDataStockTexts(myDataStock(stockSessions)), stockSessions, []);
 
-  const periodFrames = mySessions.flatMap((s) => s.frames || []);
+  // 【便BK 2026-10-02】期間のセッションが前回と同じ物なら、前回の配列をそのまま使う(useMemoByItemRefs)。
+  // 同じ配列が返るので、下の periodByIdx は要素を比べるまでもなく前回の結果になる。
+  const periodFrames = useMemoByItemRefs(() => mySessions.flatMap((s) => s.frames || []), mySessions, []);
   // 【N-8】「当日のデータがまだない場合は直近の記録のある日」。選定・フレーム・ラベルは
   // myDataTodayOrLatestFrames の1箇所。**「今日」と偽らない**(N8-SPEC 5)ので、
   // 上のブロックのサブ見出しもこの label を使う。
@@ -16108,8 +16222,13 @@ function MyDataSection({
   const [view, setView] = useState(MY_DATA_VIEW_DEFAULT);
 
   const noteCount = noteAxisCount(dataSax, false) ?? 0;
-  const periodByIdx = noteValuesByIdx(periodFrames, chartMetric.key, noteCount, dataSax, tuningHz);
-  const dayByIdx = noteValuesByIdx(day.frames, chartMetric.key, noteCount, dataSax, tuningHz);
+  // 【便BK 2026-10-02】フレームが前回と同じ物なら前回の結果(useMemoByItemRefs の解説)。式は以前のまま。
+  const periodByIdx = useMemoByItemRefs(
+    () => noteValuesByIdx(periodFrames, chartMetric.key, noteCount, dataSax, tuningHz),
+    periodFrames, [chartMetric.key, noteCount, dataSax, tuningHz]);
+  const dayByIdx = useMemoByItemRefs(
+    () => noteValuesByIdx(day.frames, chartMetric.key, noteCount, dataSax, tuningHz),
+    day.frames, [chartMetric.key, noteCount, dataSax, tuningHz]);
   // 【D-9 §1】式の左右。**同じ1関数**から引く(左右で母集団の作り方が違う、を作らない)。
   const seriesA = myDataSeriesByIdx(pair[0], dayByIdx, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
   const seriesB = myDataSeriesByIdx(pair[1], dayByIdx, periodByIdx, selectedIdeal, chartMetric.key, noteCount);
@@ -16594,6 +16713,8 @@ function AnalysisLabView(props) {
     // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧。親が持ったまま
     // My Data へ引き回すだけ(状態の置き場は変えない)。
     onCompareOthers, onOpenCommunityIdeals, idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfileWithUndo,
+    // 【便BK 2026-10-02】My Data の一覧を表に出しているかを親へ知らせる印(親の handleNavTap が読む)。
+    myDataTopRef,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
@@ -16609,7 +16730,9 @@ function AnalysisLabView(props) {
   // 初期状態で「サックス種別=今の楽器」を入れておく(不要なら×で消せる)。
   // 親が持つ値が null(まだ本人が触っていない)のときだけ、**このレンダー時点の** saxType から
   // 既定値を作る(親のuseState初期化子で作ると、IndexedDBからの復元前の値で固定されてしまう)。
-  const pivotFilters = pivotFiltersRaw ?? defaultPivotFilters(saxType);
+  // 【便BK 2026-10-02 本人の実機報告】既定値は useMemo で同じ配列を返し続ける(下の集計の memo の鍵になるため。
+  // 毎回作り直すと鍵が毎回変わり、子タブを替えるだけでクロス集計がやり直される)。中身は以前と同じ。
+  const pivotFilters = useMemo(() => pivotFiltersRaw ?? defaultPivotFilters(saxType), [pivotFiltersRaw, saxType]);
   const setPivotFilters = (next) => setPivotFiltersRaw((prev) => {
     const base = prev ?? defaultPivotFilters(saxType);
     return typeof next === "function" ? next(base) : next;
@@ -16670,15 +16793,39 @@ function AnalysisLabView(props) {
   // 全セッションのフレームを、セッション情報つきで平坦化(F-44/F-46ゲート込み)。
   // モジュールスコープの純関数buildFramesWithContextに切り出し済み(テストハーネスから
   // extractFunctionで直接検証できるようにするため。F-45の審査で指摘)。
-  const framesWithContext = buildFramesWithContext(sessions, reeds);
+  // 【便BK 2026-10-02 本人の実機報告】「My Data から分析へのスクロール移動に引っかかりがある」。
+  // 子タブ(dataSubTab)はこの画面の state なので、替えるたびにこの関数が描き直され、
+  // **子タブと関係の無い**全フレームの平坦化とクロス集計を毎回やり直していた。指を離した瞬間の
+  // 描き直しが終わるまで track の translateX が書かれないので、そのぶんページが止まって見えた
+  // (375×812・CPU 6倍遅・計測80件×300フレームの実測で、指を離してから track が書かれるまで 中央値 約500〜540ms → 約75〜110ms。
+  //  内訳は My Data の音ごとの値 約240ms・ここの平坦化と集計 約80ms・練習時間の数え直し 約35ms ほか)。
+  // どちらも引数だけで決まる純関数なので、引数が同じあいだは前の結果を使う(結果は1つも変わらない)。
+  const framesWithContext = useMemo(() => buildFramesWithContext(sessions, reeds), [sessions, reeds]);
 
   // --- ピボット集計 ---
   // tuningHz は音名次元が実音ラベルを運指から導くのに使う(F-54)。
-  const pivotCtx = { reeds, tuningHz };
-  const pivot = buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters);
+  const pivotCtx = useMemo(() => ({ reeds, tuningHz }), [reeds, tuningHz]);
+  const pivot = useMemo(
+    () => buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters),
+    [framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters],
+  );
   const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
+  // 【便BK 2026-10-02】折れ線(memo の PivotLineChart)へ渡す表示の関数。毎回作り直すと memo が効かないので
+  // useCallback で同じ関数を渡す。中身は以前のインラインの式と同じ。早期 return より前に置くこと。
+  const pivotRowLabelOf = useCallback((v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotRow), v, pivotCtx), [pivotRow, pivotCtx]);
+  const pivotColLabelOf = useCallback((v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotCol), v, pivotCtx), [pivotCol, pivotCtx]);
 
   const selectedSession = selectedSessionId ? sessions.find((s) => s.id === selectedSessionId) : null;
+  // 【便BK 2026-10-02 本人の実機報告】下部ナビの「データ」を押し直したとき、作り直さずに残す画面か。
+  // My Data の一覧(子タブ My Data・セッション詳細も全件一覧も開いていない)のときだけ true。
+  // 描いたその場(useLayoutEffect)で書き、この画面が消えるとき(タブを離れる・作り直す)に false へ戻す。
+  // 【早期 return より前に置くこと】下の2つの早期 return の後ろだと hooks の並びが画面ごとに変わる。
+  const atMyDataTop = !selectedSession && !allSessionsOpen && dataSubTab === "mydata";
+  useLayoutEffect(() => {
+    if (!myDataTopRef) return undefined;
+    myDataTopRef.current = atMyDataTop;
+    return () => { myDataTopRef.current = false; };
+  }, [myDataTopRef, atMyDataTop]);
   if (selectedSession) {
     /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
        セッション詳細を**カードの作法**へ移した。D-10 の「セッション詳細とリード個体詳細は
@@ -17181,8 +17328,8 @@ function AnalysisLabView(props) {
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
               metricDef={metricDef}
               /* 【便AY】リード(個体)は id で束ねて「A.Sax · …」で見せる(pivotValueLabel)。 */
-              rowLabelOf={(v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotRow), v, pivotCtx)}
-              colLabelOf={(v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotCol), v, pivotCtx)}
+              rowLabelOf={pivotRowLabelOf}
+              colLabelOf={pivotColLabelOf}
               /* 行の縞(オクターブ単位)は**行が音名のときだけ**。正典に無い規則を発明しない。 */
               rowIsNote={pivotRow === "note"}
             />

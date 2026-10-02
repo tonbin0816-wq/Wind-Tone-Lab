@@ -12401,8 +12401,10 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       /return buildIdealProfileFromSessions\(\[session\], name, NUM_HARMONICS, tuningHz, "session"\);/.test(src));
     check("F-54: 音名軸グラフ(NoteAxisLineChart)も同じ楽器種別・基準ピッチで集計する",
       /groupFramesByNote\(s\.frames \|\| \[\], undefined, saxType, tuningHz\)/.test(src));
+    // 【便BK 2026-10-02 本人の実機報告】子タブを替えるたびの集計のやり直しを止めるため、ctx は useMemo で
+    // 同じ object を返すようになった(鍵も reeds と tuningHz の2つ)。芯(ctx に基準ピッチが載る)は同じ。
     check("F-54: PIVOTのctxに基準ピッチを載せる(音名次元が実音を導けない)",
-      /const pivotCtx = \{ reeds, tuningHz \};/.test(lab));
+      /const pivotCtx = useMemo\(\(\) => \(\{ reeds, tuningHz \}\), \[reeds, tuningHz\]\);/.test(lab));
 
     // 【D-3 2026/08/22 本人指示で全面書き換え】F-98 の「ラベル+値の5行」は、
     // Design canon #14b が**却下側**に置いた(「日付/奏者/リード/楽器/メモが全部同じ濃さで
@@ -12576,9 +12578,11 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       /setNavNonce\(\(n\) => n \+ 1\);/.test(root));
     // 既定値(サックス種別=今の楽器)は**使う時点**で作る。親のuseState初期化子で作ると、
     // 楽器種別がIndexedDBから復元される前の既定値("alto")で固定されてしまう。
+    // 【便BK 2026-10-02 本人の実機報告】既定値は useMemo で同じ配列を返すようになった(下の集計の memo の鍵)。
+    // 使う側で評価することは同じで、**鍵に saxType が入っている**ので楽器種別が復元されたら作り直す。
     check("F-59: 初期フィルターは defaultPivotFilters(saxType) を使う側で評価する",
       /const \[pivotFilters, setPivotFilters\] = useState\(null\);/.test(root) &&
-      /const pivotFilters = pivotFiltersRaw \?\? defaultPivotFilters\(saxType\);/.test(lab));
+      /const pivotFilters = useMemo\(\(\) => pivotFiltersRaw \?\? defaultPivotFilters\(saxType\), \[pivotFiltersRaw, saxType\]\);/.test(lab));
     {
       const dpf = new Function(`${extractFunction("defaultPivotFilters")}
         ${extractConst("SAX_PRESETS")}
@@ -14942,8 +14946,11 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         }
         // コンポーネントは純関数の結果をそのまま使う(向きを component 側で作り直さない)
         // 綴りはコメントを外してから見る(行末コメントで空白の並びが変わるため)
+        // 【便BK 2026-10-02 本人の実機報告】行き先は advanceTo へ渡すようになった(今すぐ動かし、親の onIndexChange は
+        // 描いたあとに同じ next で呼ぶ)。芯(行き先は swipePagerNextIndex の値をそのまま使う)は同じ。
         check("F-79a: 行き先はコンポーネントで作り直さず swipePagerNextIndex の値を渡す",
-          /const next = swipePagerNextIndex\(kind, dx, i, count\);\s*\r?\n\s*if \(next !== i\) onIndexChange\(next\);/.test(codeOf(srcOfFn(src, "SwipePager")))
+          /const next = swipePagerNextIndex\(kind, dx, i, count\);\s*\r?\n\s*if \(next !== i\) advanceTo\(next\);/.test(codeOf(srcOfFn(src, "SwipePager")))
+          && /latestRef\.current\.onIndexChange\(next\);/.test(codeOf(srcOfFn(src, "SwipePager")))
           && !/onIndexChange\([^)]*\?[^)]*:/.test(codeOf(srcOfFn(src, "SwipePager"))));
       }
       // (e) コンポーネント側は「書くだけ」。判定も値も純関数から取る。
@@ -15564,9 +15571,11 @@ console.log("\n========== 検証26: N-6 データタブ(正典 north-star-measur
       /const allMySessions = myDataOwnSessions\(sessions, saxType, dataSax\);/.test(myDataSection)
       && /s\.performer === "自分" && \(s\.saxType \?\? saxType\) === dataSax/.test(srcOfFn(src, "myDataOwnSessions")));
     // 期間で絞ったフレームは1度だけ作り、下のマトリクス(いつもの自分)がそれを使う。
+    // 【便BK 2026-10-02 本人の実機報告】どちらも useMemoByItemRefs(要素が前回と同じ物なら前回の結果)で包んだ。
+    // 式は以前のまま。鍵が式の引数と一致していることは検証BK.2 が見る。
     check("26.2 期間で絞ったフレームは1度だけ作り、下のマトリクスがそれを使う",
-      /const periodFrames = mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\);/.test(myDataSection)
-      && /const periodByIdx = noteValuesByIdx\(periodFrames, chartMetric\.key, noteCount, dataSax, tuningHz\);/.test(myDataSection)
+      /const periodFrames = useMemoByItemRefs\(\(\) => mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\), mySessions, \[\]\);/.test(myDataSection)
+      && /const periodByIdx = useMemoByItemRefs\(\s*\(\) => noteValuesByIdx\(periodFrames, chartMetric\.key, noteCount, dataSax, tuningHz\),\s*periodFrames,/.test(myDataSection)
       && (codeOf(myDataSection).match(/flatMap\(\(s\) => s\.frames/g) || []).length === 1,
       `${(codeOf(myDataSection).match(/flatMap\(\(s\) => s\.frames/g) || []).length}箇所`);
     // 【D-9 §4 2026/08/25 本人指示で 2 → 1】「グラフを一つに固定しています」。
@@ -17088,8 +17097,9 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
     // 母集団も変わっている: 脚注は分析タブの全セッション、累計カードは allMySessions
     // (奏者=自分 + 選択中の楽器種別)。**期間では絞らない**(統括の裁定 §8(1))。
     // 【便AW 2026-09-24 本人指示】累計の母集団は **奏者=自分 の計測すべて**(楽器種別・期間で絞らない)に変わった。
+    // 【便BK 2026-10-02】累計は useMemoByItemRefs で包んだ(式は同じ)。間に注記が入ったのでコメントを除いて読む。
     check("27.7 D-10/便AW: 蓄積量は My Data の先頭(分析タブの脚注は消えている)。母集団は全楽器・全期間",
-      /const stockSessions = myDataStockSessions\(sessions\);\s*const stock = myDataStockTexts\(myDataStock\(stockSessions\)\);/.test(myDataSection)
+      /const stockSessions = myDataStockSessions\(sessions\);\s*const stock = useMemoByItemRefs\(\(\) => myDataStockTexts\(myDataStock\(stockSessions\)\), stockSessions, \[\]\);/.test(codeOf(myDataSection))
       && /function myDataStockSessions\(sessions\) \{\s*return \(sessions \|\| \[\]\)\.filter\(\(s\) => s\.performer === "自分"\);\s*\}/.test(src)
       && !/myDataStock/.test(codeOf(lab27)));
     // 【便G(D1/D2)2026-09-16】時間の綴りは「練習時間」(本人裁定⑥)。3つの欄は MY_DATA_STOCK_CELLS
@@ -17571,8 +17581,9 @@ console.log("\n========== 検証28: N-8 直近日フォールバック + 目安�
     check("28.2 日付ラベルとしての「今日」を描画側が持たない(ラベルは戻り値だけ)",
       !/"今日"/.test(codeOf(myDataSection)) && !/今日 −/.test(codeOf(myDataSection)));
     // 【D-1】直近日の使い手は2つ: 上のマトリクスの値(day.frames)と、そのサブ見出し(day.label)。
+    // 【便BK 2026-10-02】useMemoByItemRefs で包んだ(式は同じ。鍵の一致は検証BK.2)。
     check("28.2 D-9: 直近日のフレームは「その日」の系列の値になる",
-      /const dayByIdx = noteValuesByIdx\(day\.frames, chartMetric\.key, noteCount, dataSax, tuningHz\);/.test(myDataSection)
+      /const dayByIdx = useMemoByItemRefs\(\s*\(\) => noteValuesByIdx\(day\.frames, chartMetric\.key, noteCount, dataSax, tuningHz\),\s*day\.frames,/.test(myDataSection)
       && /if \(seriesKey === "day"\) return dayByIdx \|\| \{\};/.test(src));
     // 【D-9 で使い手が変わった】窓型のサブ見出しは撤去され(§4)、代わりに
     // **式のチップ**と**シートの行**と**折れ線の系列名**が同じ day.label を使う。
@@ -30738,9 +30749,12 @@ console.log("========== 検証85: 便AY リードの楽器種別 ── 配線�
   {
     const lab85 = codeOf(srcOfFn(src, "AnalysisLabView"));
     const chart85 = codeOf(srcOfFn(src, "PivotLineChart"));
+    // 【便BK 2026-10-02】PivotLineChart を memo で包んだので、行・凡例の関数は useCallback で同じ物を渡す。
+    // 式は以前のインラインのまま。鍵(pivotRow / pivotCol と pivotCtx)が式で使う値と一致していることも見る。
     check("85.6 E8 ピボットのリード(個体)の表示は4箇所とも pivotValueLabel を通る",
-      /rowLabelOf=\{\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotRow\), v, pivotCtx\)\}/.test(lab85)
-      && /colLabelOf=\{\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotCol\), v, pivotCtx\)\}/.test(lab85)
+      /const pivotRowLabelOf = useCallback\(\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotRow\), v, pivotCtx\), \[pivotRow, pivotCtx\]\);/.test(lab85)
+      && /const pivotColLabelOf = useCallback\(\(v\) => pivotValueLabel\(PIVOT_DIMENSIONS\.find\(\(d\) => d\.key === pivotCol\), v, pivotCtx\), \[pivotCol, pivotCtx\]\);/.test(lab85)
+      && /rowLabelOf=\{pivotRowLabelOf\}/.test(lab85) && /colLabelOf=\{pivotColLabelOf\}/.test(lab85)
       && /\{pivotValueLabel\(dim, v, pivotCtx\)\}/.test(lab85)
       && /fitLabel\(rowLabelOf\(rk\), LABEL_MAX, FS\)/.test(chart85)
       && /fitLabel\(colLabelOf\(ck\), LABEL_MAX, SVG_FS_XS\)/.test(chart85)
@@ -31281,6 +31295,125 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && !/この人をブロック|この人を通報/.test(backDcBF));
   check("BF.4 便BE 正典 CommPersonBack: 確認のシート・通報のシートは描かない(別の便で作り直す)",
     !/ブロックする<|通報する<|理由/.test(backDcBF));
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[便BK] データタブの子タブの引っかかり・My Data の押し直し");
+  // --- BK.1 下部ナビの押し直しで画面を残すのは「データ × My Data の一覧」だけ ---------------------
+  // 【便BK 2026-10-02 本人の実機報告】「My Data タブにいるときに、もう一度 My Data タブのアイコンをタップすると、
+  // 目安くらいの位置に動く。この挙動を削除」。判定は純関数 navRetapKeepsView。期待値はここに手で書いた表。
+  const keepsBK = new Function(`${extractFunction("navRetapKeepsView")}; return navRetapKeepsView;`)();
+  const tableBK = [
+    ["analysis", true, true],     // My Data の一覧を出している → 何もしない
+    ["analysis", false, false],   // 分析・詳細・すべての計測 → 今までどおり作り直す
+    ["analysis", undefined, false],
+    ["reeds", true, false], ["measure", true, false], ["community", true, false],   // ほかのタブは今までどおり
+    ["reeds", false, false], ["measure", false, false], ["community", false, false],
+  ];
+  const badBK = tableBK.filter(([k, top, want]) => keepsBK(k, top) !== want);
+  check("BK.1 押し直しで画面を残すのは「データ」かつ My Data の一覧のときだけ(ほかのタブ・分析は今までどおり)",
+    badBK.length === 0, JSON.stringify(badBK));
+  const rootBK = codeOf(srcOfFn(src, "WindToneLabPhaseMode"));
+  const navBK = rootBK.slice(rootBK.indexOf("const handleNavTap = useCallback("), rootBK.indexOf("const handleNavTap = useCallback(") + 600);
+  // 判定は録音中の早期 return の直後・setTopTab / setNavNonce より前(先に state を書いたら残せない)
+  const iRec = navBK.indexOf("if (isRecordingRef.current) return;");
+  const iKeep = navBK.indexOf("if (navRetapKeepsView(key, dataAtMyDataTopRef.current)) return;");
+  check("BK.1 handleNavTap は navRetapKeepsView を、タブと通し番号を書く前に見る",
+    iRec >= 0 && iKeep > iRec && iKeep < navBK.indexOf("setTopTab(key);") && iKeep < navBK.indexOf("setNavNonce((n) => n + 1);"));
+  // 印を立てるのはデータタブの中(AnalysisLabView)。条件は「子タブ My Data・詳細なし・全件一覧なし」。
+  const labBK = codeOf(srcOfFn(src, "AnalysisLabView"));
+  check("BK.1 印は AnalysisLabView が立てる: 子タブ My Data・セッション詳細なし・すべての計測なし",
+    /const atMyDataTop = !selectedSession && !allSessionsOpen && dataSubTab === "mydata";/.test(labBK)
+    && /myDataTopRef\.current = atMyDataTop;/.test(labBK)
+    && /return \(\) => \{ myDataTopRef\.current = false; \};/.test(labBK)
+    && /myDataTopRef=\{dataAtMyDataTopRef\}/.test(rootBK));
+  // 印の効果は早期 return(セッション詳細・すべての計測)より前でないと hooks の並びが画面ごとに変わる
+  check("BK.1 印の useLayoutEffect は早期 return より前",
+    labBK.indexOf("myDataTopRef.current = atMyDataTop;") > 0
+    && labBK.indexOf("myDataTopRef.current = atMyDataTop;") < labBK.indexOf("if (selectedSession) {"));
+
+  // --- BK.2 子タブを替えても重い集計をやり直さない(引っかかりの原因) -----------------------------
+  // 【便BK 2026-10-02 本人の実機報告】「My Data から分析へのスクロール移動に引っかかりがある」。
+  // 指を離した瞬間の描き直しで、子タブと関係の無い集計(My Data の音ごとの値・全フレームの平坦化・
+  // クロス集計・練習時間)をやり直していた。memo の**鍵が式の引数と一致**していること(1つ落とすと、
+  // その値を変えても古い結果が出続ける)を、式の側から読んで比べる。期待値を鍵の側から作らない。
+  const mdsBK = codeOf(srcOfFn(src, "MyDataSection"));
+  const memoCallsBK = [...mdsBK.matchAll(/useMemoByItemRefs\(\s*\(\) => noteValuesByIdx\(([^,]+), ([^)]*)\),\s*([^,]+), \[([^\]]*)\]\)/g)];
+  check("BK.2 My Data の音ごとの値は2つとも useMemoByItemRefs(期間・その日)",
+    memoCallsBK.length === 2 && memoCallsBK.map((m) => m[1]).join(",") === "periodFrames,day.frames",
+    `${memoCallsBK.length}箇所`);
+  check("BK.2 音ごとの値の memo: 比べる要素は式に渡すフレームそのもの・鍵は残りの引数と一致",
+    memoCallsBK.length === 2 && memoCallsBK.every((m) => m[1] === m[3].trim() && m[2].replace(/\s+/g, "") === m[4].replace(/\s+/g, "")),
+    memoCallsBK.map((m) => `${m[1]}|${m[3]} :: (${m[2]}) vs [${m[4]}]`).join(" / "));
+  check("BK.2 期間のフレーム・累計・カレンダーも要素で memo(比べる要素は式に渡すセッションそのもの)",
+    /const periodFrames = useMemoByItemRefs\(\(\) => mySessions\.flatMap\(\(s\) => s\.frames \|\| \[\]\), mySessions, \[\]\);/.test(mdsBK)
+    && /const stock = useMemoByItemRefs\(\(\) => myDataStockTexts\(myDataStock\(stockSessions\)\), stockSessions, \[\]\);/.test(mdsBK)
+    && /const cells = useMemoByItemRefs\(\(\) => calendarMonthDays\(sessions, ym\.year, ym\.month\), sessions, \[ym\.year, ym\.month\]\);/.test(codeOf(srcOfFn(src, "PracticeCalendarCard"))));
+  const pivMemoBK = /const pivot = useMemo\(\s*\(\) => buildPivot\(([^)]*)\),\s*\[([^\]]*)\],?\s*\);/.exec(labBK);
+  check("BK.2 クロス集計の memo: 鍵は buildPivot の引数と一致",
+    !!pivMemoBK && pivMemoBK[1].replace(/\s+/g, "") === pivMemoBK[2].replace(/\s+/g, ""),
+    pivMemoBK ? `(${pivMemoBK[1]}) vs [${pivMemoBK[2]}]` : "見つからない");
+  check("BK.2 全フレームの平坦化の memo: 鍵は buildFramesWithContext の引数と一致",
+    /const framesWithContext = useMemo\(\(\) => buildFramesWithContext\(sessions, reeds\), \[sessions, reeds\]\);/.test(labBK));
+
+  // --- BK.3 useMemoByItemRefs は要素が同じ物のときだけ前回の結果を返す -------------------------------
+  // useRef を作り物にして、関数そのものを走らせる(呼ぶたびに同じ ref が返る = 同じ部品の描き直し)。
+  const mkBK = new Function(`const box = { current: null }; const useRef = () => box;
+    ${extractFunction("sameItemRefs")}
+    ${extractFunction("useMemoByItemRefs")}
+    return useMemoByItemRefs;`);
+  const useMemoBK = mkBK();
+  const a1 = { id: 1 }, a2 = { id: 2 }, a3 = { id: 3 };
+  let runsBK = 0;
+  const calc = (items, deps) => useMemoBK(() => { runsBK++; return { n: items.length, deps: [...deps] }; }, items, deps);
+  const r1 = calc([a1, a2], ["x", 1]);
+  const r2 = calc([a1, a2], ["x", 1]);            // 作り直した配列・同じ要素 → 前回
+  const r3 = calc([a1, a3], ["x", 1]);            // 要素が1つ違う → やり直す
+  const r4 = calc([a1, a3], ["x", 2]);            // 鍵が違う → やり直す
+  const r5 = calc([a1, a3, a2], ["x", 2]);        // 長さが違う → やり直す
+  const r6 = calc([a3, a1, a2], ["x", 2]);        // 順が違う → やり直す
+  const r7 = calc([{ id: 3 }, a1, a2], ["x", 2]); // 中身が同じでも別の object → やり直す
+  check("BK.3 useMemoByItemRefs: 同じ要素なら前回の結果、要素・順・長さ・鍵のどれかが違えばやり直す",
+    r2 === r1 && r3 !== r2 && r4 !== r3 && r5 !== r4 && r6 !== r5 && r7 !== r6 && runsBK === 6
+    && r4.deps[1] === 2 && r5.n === 3,
+    `runs=${runsBK}`);
+
+  // --- BK.4 SwipePager は離した瞬間に自分で動き、親へは描いたあとに渡す -------------------------------
+  // 【便BK 2026-10-02 統括指示】引っかかりの根(親の描き直しが終わるまで track が書かれない)を断つ。
+  // 見た目の番号は純関数 swipePagerShownIndex。期待値はここに手で書いた表。
+  const shownBK = new Function(`${extractFunction("swipePagerShownIndex")}; return swipePagerShownIndex;`)();
+  const shownTable = [
+    [0, null, 0], [1, null, 1],                  // 動かしていない → 親の番号
+    [0, { from: 0, to: 1 }, 1],                  // 離した直後 → 行き先
+    [2, { from: 0, to: 1 }, 2],                  // 親が別の番号へ動かした → 親が勝つ
+    [1, { from: 1, to: 0 }, 0], [3, { from: 3, to: 2 }, 2],
+  ];
+  const shownBad = shownTable.filter(([p, pend, want]) => shownBK(p, pend) !== want);
+  check("BK.4 見た目の番号: 離した直後は行き先、親が別の番号へ動かしたら親(swipePagerShownIndex)",
+    shownBad.length === 0, JSON.stringify(shownBad));
+  const pagerBK = codeOf(srcOfFn(src, "SwipePager"));
+  // 本体の `index` は見た目の番号。track の位置・終端・行き先の判定は全部これを読む(親の番号を直接読まない)
+  check("BK.4 SwipePager の本体の index は見た目の番号(親の番号は indexProp)",
+    /export function SwipePager\(\{ index: indexProp, onIndexChange,/.test(src)
+    && /const index = swipePagerShownIndex\(indexProp, pending\);/.test(pagerBK)
+    && /transform: swipePagerTrackTransform\(index, 0\)/.test(pagerBK)
+    && pagerBK.indexOf("const endGesture") > 0
+    && !/indexProp/.test(pagerBK.slice(pagerBK.indexOf("const endGesture"))));
+  // 親へ渡すのは「次のフレーム → setTimeout → startTransition」の中だけ。同期で onIndexChange を呼ぶ道が無い。
+  const iRaf = pagerBK.indexOf("d.raf = requestAnimationFrame(");
+  const iTimer = pagerBK.indexOf("d.timer = setTimeout(", iRaf);
+  const iTrans = pagerBK.indexOf("startTransition(() => {", iTimer);
+  const iCall = pagerBK.indexOf("latestRef.current.onIndexChange(next);", iTrans);
+  const iClear = pagerBK.indexOf("setPending(null);", iTrans);
+  check("BK.4 親への onIndexChange は 次のフレーム → setTimeout → startTransition の中で1回だけ・pending を外すのも同じ更新",
+    iRaf > 0 && iTimer > iRaf && iTrans > iTimer && iCall > iTrans && iClear > iTrans
+    && (pagerBK.match(/onIndexChange\(/g) || []).length === 1
+    && /if \(latestRef\.current\.indexProp === from\) latestRef\.current\.onIndexChange\(next\);/.test(pagerBK)
+    && /useEffect\(\(\) => cancelDeferred, \[\]\);/.test(pagerBK));
+  // memo で包んだ折れ線の呼び名は変わっていない(<PivotLineChart> のまま。検証32 / 85 の切り出しも生きている)
+  check("BK.4 PivotLineChart は memo で包んである(呼び名はそのまま)",
+    /const PivotLineChart = memo\(function PivotLineChart\(/.test(src) && /<PivotLineChart\b/.test(codeOf(srcOfFn(src, "AnalysisLabView"))));
   console.log("  -> done");
 }
 
