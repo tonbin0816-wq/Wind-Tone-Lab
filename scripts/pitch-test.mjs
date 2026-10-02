@@ -2313,8 +2313,10 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     check("環の SVG に拍の要素が1つも無い(環はピッチ専用)",
       !/getBeatPhase|beatDot|BEAT_DOT|PEND|metroArcPoint|metroBeatDot/.test(ringCode),
       (ringCode.match(/getBeatPhase|beatDot|BEAT_DOT|PEND|metroArcPoint|metroBeatDot/g) || []).join(" "));
-    check("PitchRing が受け取るのは音・セント・直径だけ(拍の口が残っていない)",
-      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL \}\)/.test(ringCode),
+    // 【便BM 2026-10-02 本人裁定(a)】受け口が1つ増えた: scaleBase(中の字の倍率の基準 = 縮めないときの直径。
+    // 既定は diameter で倍率 1)。拍の口が無いことは変わらない。
+    check("PitchRing が受け取るのは音・セント・直径・字の倍率の基準だけ(拍の口が残っていない)",
+      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL, scaleBase = diameter \}\)/.test(ringCode),
       (ringCode.match(/function PitchRing\([^)]*\)/) || [""])[0]);
     // (c) 半径。役割ごとに違う半径を使い分けているので、取り違えると二役が崩れる。
     // 【N-4a】環のトラック(常時全周の円)は撤去した。本人指示「チューナーの円環の枠は要らない」。
@@ -3402,7 +3404,10 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
   // ------------------------------------------------------------------
   // E. §6.1 / §6.1.5 — 到達しても環の寸法は変わらない。
   // ------------------------------------------------------------------
-  check("環の直径は状態によらず RING_D_FULL 固定", api.RING_D_FULL === 330 && !/diameter = (?!RING_D_FULL)/.test(ringCode));
+  // 【便BM 2026-10-02 本人裁定(a)】旧名「環の直径は状態によらず RING_D_FULL 固定」は事実でなくなった(画面の高さが
+  // 足りないときは計測タブが縮めた直径を渡す)。この検査が見ているのは「既定の直径が RING_D_FULL(330)」と
+  // 「到達(この節 E)で直径を変える口が無い」ことだけなので、名前をそれに合わせた。
+  check("環の既定の直径は RING_D_FULL(330)。到達で直径を変える口は無い", api.RING_D_FULL === 330 && !/diameter = (?!RING_D_FULL)/.test(ringCode));
   check("到達しても viewBox は 300 のまま", /viewBox=\{`0 0 \$\{VB\} \$\{VB\}`\}/.test(ringCode) && api.RING_VB === 300);
   // 【ここは定数の言い換えを書かない】
   // 以前ここには `|c/RING_MAX_CENTS × RING_SWEEP_DEG| ≤ RING_SWEEP_DEG` という
@@ -11441,12 +11446,12 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
     // 負のオフセットで padding のぶんだけ広げる。**式は .app-root の padding と同じもの**を
     // 符号だけ変えて書く(別管理にすると安全域のある端末でずれる)。
     {
-      // 【便BI 2026-10-02 本人裁定(b)】.app-root の padding はテンプレート文字列になった(上端だけ計測タブで替わる)。
-      // このレイヤは計測タブにしか無いので、上端は計測タブの値(MEASURE_PAGE_TOP_PAD)を実ソースから入れて読む。
+      // 【便BI 2026-10-02 本人裁定(b)】.app-root の padding はテンプレート文字列になった。
+      // 【便BM 2026-10-02 本人指示】上端は全タブ1つの値(PAGE_TOP_PAD)になった。その値を実ソースから入れて読む。
       const rootPadTpl = /className="app-root"[\s\S]{0,400}?padding: `([^`]+)`/.exec(code20);
-      const measureTop20 = (/const MEASURE_PAGE_TOP_PAD = "([^"]+)";/.exec(code20) || [])[1];
-      const rootPad = rootPadTpl && measureTop20
-        ? [null, rootPadTpl[1].replace('${topTab === "measure" ? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD}', measureTop20)]
+      const measureTop20 = (/const PAGE_TOP_PAD = "([^"]+)";/.exec(code20) || [])[1];
+      const rootPad = rootPadTpl && measureTop20 && rootPadTpl[1].includes("${PAGE_TOP_PAD}")
+        ? [null, rootPadTpl[1].replace("${PAGE_TOP_PAD}", measureTop20)]
         : null;
       check("A-1: .app-root の padding を実ソースから読めている", rootPad !== null, rootPad ? rootPad[1] : "");
       // padding は「上 右 下 左」の4値。上・右・左をレイヤの負のオフセットと突き合わせる。
@@ -11520,7 +11525,9 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
       const frameStart = code20.indexOf('minHeight: measureMinH');
       const bandStart = code20.indexOf('<div style={{ position: "relative", flexShrink: 0 }}>', frameStart);
       const layerAt = code20.indexOf('aria-label="メトロノームの開始/停止"');
-      const spacerAt = code20.indexOf('<div style={{ flex: "1 1 auto", minHeight: 0 }} />');
+      // 【便BM 2026-10-02 本人裁定(a)】スペーサーに ref(ringFitSpacerRef)が付いた。環を縮める計算が
+      // 「枠の高さ − スペーサーの高さ」を中身の自然な高さとして読むため。flex:1 の中身・位置は変えていない。
+      const spacerAt = code20.indexOf('<div ref={ringFitSpacerRef} style={{ flex: "1 1 auto", minHeight: 0 }} />');
       const ringAt = code20.indexOf('<PitchRing note={note}');
       const tempoRowAt = code20.indexOf('aria-label="テンポを下げる"');
       check("A-1: 画面ぶんの枠がある(position:relative + minHeight: measureMinH)",
@@ -13496,8 +13503,10 @@ let METRO_SIGS_ALL = [];
       check("F-95a: ●列の svg も実寸だけ拡大し viewBox は正典の単位のまま",
         /width=\{rowWCss\} height=\{METRO_BEAT_ROW_H_CSS\} viewBox=\{`0 0 \$\{rowW\} \$\{METRO_BEAT_ROW_H\}`\}/.test(mp));
       // (e) 縦の間隔も同じ倍率で開く(サンプルは .pend の gap も --k 倍している)
-      check("F-95a: 縦の間隔も METRO_SCALE 倍で開く(振り子〜●〜テンポ行)",
-        (code.match(/gap: `calc\(var\(--sp-2\) \* \$\{METRO_SCALE\}\)`/g) || []).length === 2,
+      // 【便BM 2026-10-02 本人裁定(a) / 統括裁定1】3箇所目は計測タブの「いちばん厳しい状態の見本」
+      // (メトロノームの行の包み)。本物の包みと同じ style の文字列で、ずれたら measureRingFit.test.js が落ちる。
+      check("F-95a: 縦の間隔も METRO_SCALE 倍で開く(振り子〜●〜テンポ行 + 便BM の見本)",
+        (code.match(/gap: `calc\(var\(--sp-2\) \* \$\{METRO_SCALE\}\)`/g) || []).length === 3,
         `${(code.match(/gap: `calc\(var\(--sp-2\) \* \$\{METRO_SCALE\}\)`/g) || []).length}箇所`);
       // (f) 拡大の対象は計測タブのメトロノームだけ。リード追加シートの ± は基準値のまま
       //     (METRO_PM_W を共有しているので、拡大を基準値側に入れると巻き添えになる)。
@@ -13643,7 +13652,9 @@ let METRO_SIGS_ALL = [];
     check("淡さは正典の .35", dims.every((d) => d === 0.35), dims.join(","));
     // 環・音名・折れ線が淡さの中に入っていないこと = PitchRing / PitchDeviationLine を
     // 呼ぶ行が opacity を持つ祖先の中に無いこと。綴りで直に確かめる。
-    check("環(PitchRing)は淡くしない", /<div style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(code));
+    // 【便BM 2026-10-02 本人裁定(a)】環の箱に ref(ringBoxRef)が付いた(縮める計算が環の外枠を測る)。
+    // 淡さ(opacity)を持たないことは変わらない ── 綴りだけ追った。
+    check("環(PitchRing)は淡くしない", /<div ref=\{ringBoxRef\} style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(code));
     check("折れ線(PitchDeviationLine)は淡くしない",
       /\{!showMetroPanel && \(\s*<div style=\{\{ marginTop: 6 \}\}>\s*<PitchDeviationLine/.test(code));
     // 淡くするだけで無効化はしない(メトロノームは録音中も押せる)。
@@ -13821,12 +13832,18 @@ let METRO_SIGS_ALL = [];
   // モックに対する制約として機能しない。ここは「モックの実寸がそのまま入っていること」を見る。
   {
     // 音名まわり(正典 .note / .note .oct / .cents)
-    check("音名は正典 .note の 148px", /const NOTE_FS_PX = 148;/.test(code) && /const noteFs = NOTE_FS_PX;/.test(code));
-    check("オクターブ数字は正典 .note .oct の 44px",
-      /const NOTE_OCT_PX = 44;/.test(code) && /fontSize: NOTE_OCT_PX, color: "var\(--c-accent-dim\)"/.test(code));
-    check("セント値は正典 .cents の 21px / margin-top 10",
+    // 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りなくて環を縮めたときだけ、中の字と間隔も同じ倍率 ringK で縮める。
+    // 正典の実寸(148 / 44 / 21 / 10)は定数のまま。**縮めていないとき ringK はちょうど 1**(ringScale。
+    // src/measureRingFit.test.js が「330 なら 1」を叩く)なので、足りる画面の字は 1px も変わらない。
+    // ここでは「実寸の定数 × ringK」で描いていること(倍率を掛け忘れた字・二重に掛けた字が無いこと)を綴りで見る。
+    check("音名は正典 .note の 148px(× ringK)", /const NOTE_FS_PX = 148;/.test(code) && /const noteFs = NOTE_FS_PX \* ringK;/.test(code)
+      && /const ringK = ringScale\(diameter, scaleBase\);/.test(code));
+    check("オクターブ数字は正典 .note .oct の 44px(× ringK)",
+      /const NOTE_OCT_PX = 44;/.test(code) && /fontSize: NOTE_OCT_PX \* ringK, color: "var\(--c-accent-dim\)", marginLeft: 3 \* ringK/.test(code));
+    check("セント値は正典 .cents の 21px / margin-top 10(× ringK)",
       /const NOTE_CENTS_PX = 21;/.test(code) && /const NOTE_CENTS_GAP_PX = 10;/.test(code)
-      && /marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX \+ 4/.test(code));
+      && /marginTop: NOTE_CENTS_GAP_PX \* ringK, width: "100%", height: \(NOTE_CENTS_PX \+ 4\) \* ringK/.test(code)
+      && /fontSize: NOTE_CENTS_PX \* ringK, fontWeight: 700/.test(code));
     check("音名の行送りは正典 .note の line-height:1", /const NOTE_LINE_H = 1;/.test(code));
     // 環の直径に比例させる旧方式(NOTE_FS_RATIO / NOTE_OCT_RATIO)は使っていない
     check("音名のサイズは比ではなく実寸(NOTE_FS_RATIO / NOTE_OCT_RATIO が残っていない)",
@@ -14077,12 +14094,13 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
         check("N-11: 本文の左右余白は index.css の --page-side-pad が唯一の答え",
           pagePad !== undefined && parseFloat(pagePad) === PAGE_SIDE_PAD,
           `--page-side-pad=${pagePad} / 幅の計算に使った値=${PAGE_SIDE_PAD}`);
-        // 【便BI 2026-10-02 本人裁定(b)】上端だけ、計測タブは MEASURE_PAGE_TOP_PAD(--sp-1 + 安全域)、
-        // 他のタブは PAGE_TOP_PAD(16px + 安全域。今までの値)に分かれた。左右と下の主張は緩めていない。
-        check("N-11 / 便BI: .app-root はその左右トークンをそのまま使う(式を写していない)。上端は計測タブだけ詰める",
-          /padding: `\$\{topTab === "measure" \? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD\} var\(--page-pad-right\) var\(--page-bottom-gap\) var\(--page-pad-left\)`/.test(src)
-          && /const PAGE_TOP_PAD = "calc\(16px \+ env\(safe-area-inset-top\)\)";/.test(src)
-          && /const MEASURE_PAGE_TOP_PAD = "calc\(var\(--sp-1\) \+ env\(safe-area-inset-top\)\)";/.test(src)
+        // 【便BI 2026-10-02 本人裁定(b)】上端だけ、計測タブは --sp-1 + 安全域、他のタブは 16px + 安全域に分かれた。
+        // 【便BM 2026-10-02 本人指示】「やっぱり他のタブも同じに」。**全タブとも --sp-1 + 安全域**の1つの値(PAGE_TOP_PAD)。
+        // タブで切り替える式が残っていないこと・計測タブ用の別の定数が無いことまで見る。左右と下の主張は緩めていない。
+        check("N-11 / 便BM: .app-root はその左右トークンをそのまま使う(式を写していない)。上端は全タブ 4px の1つの値",
+          /padding: `\$\{PAGE_TOP_PAD\} var\(--page-pad-right\) var\(--page-bottom-gap\) var\(--page-pad-left\)`/.test(src)
+          && /const PAGE_TOP_PAD = "calc\(var\(--sp-1\) \+ env\(safe-area-inset-top\)\)";/.test(src)
+          && !/MEASURE_PAGE_TOP_PAD/.test(src) && !/calc\(16px \+ env\(safe-area-inset-top\)\)/.test(codeOf(src))
           && /--sp-1:\s*4px;/.test(cssN5)
           // §6.1.5「座標はルートの padding と同じ式」: 上端に浮く告知(データタブのアップロード)は PAGE_TOP_PAD を読む
           && /top: PAGE_TOP_PAD,/.test(codeOf(src)) && !/top: "calc\(16px \+ env\(safe-area-inset-top\)\)"/.test(codeOf(src)));
@@ -20477,11 +20495,12 @@ console.log("\n========== 検証38: D-20 表示だけ鳴っていない扱いに
   {
     check("38.2 環の発音中は note の有無だけで決まる(他の入口を持たない)",
       /const sounding = !!note;/.test(ringCode38)
-      && /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL \}\)/.test(ringCode38),
+      && /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL, scaleBase = diameter \}\)/.test(ringCode38),
       (ringCode38.match(/[^\n]*const sounding = [^\n]*/g) || ["無し"]).join(" ").trim());
     // 呼び出し側が**ゲートを通した値**で呼んでいること(罠2: 錨は呼び出しに隣接する綴り)。
     check("38.2 環はゲートを通した値で呼ばれている",
-      measCode38.includes("<PitchRing note={note} centsOffset={centsOffset} diameter={RING_D_FULL} />"),
+      // 【便BM 2026-10-02 本人裁定(a)】直径は ringD(画面の高さが足りる限り RING_D_FULL)。note はゲートを通した値のまま。
+      measCode38.includes("<PitchRing note={note} centsOffset={centsOffset} diameter={ringD} scaleBase={ringBaseD} />"),
       (measCode38.match(/[^\n]*<PitchRing[^\n]*/g) || ["無し"]).join(" ").trim());
     // 折れ線も同じ分岐の下に入れる(メトロノームを開いている間は描かれないが、外に残さない)。
     check("38.2 「これまでの音」の折れ線も同じ分岐の下にある",
@@ -21327,7 +21346,7 @@ console.log("\n========== 検証41: D-23 環の毎フレーム値を React の�
       bodyEnd > 0 && leaked.length === 0, leaked.join(" / ") || "0件");
     // prop の centsOffset は受け口だけ残して**読み手ゼロ**。読むと React 経由が復活する。
     check("41.5 本文は prop の centsOffset を読まない(受け口は互換のため残す)",
-      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL \}\)/.test(ringCode41)
+      /function PitchRing\(\{ note, centsOffset, diameter = RING_D_FULL, scaleBase = diameter \}\)/.test(ringCode41)
       && (ringCode41.match(/\bcentsOffset\b/g) || []).length === 1,
       `centsOffset の出現=${(ringCode41.match(/\bcentsOffset\b/g) || []).length}箇所`);
   }
@@ -23470,7 +23489,8 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
     check("48.8 M9 音量表示は永続する設定(usePersistedState)。既定は OFF",
       /const \[showVolume, setShowVolume\] = usePersistedState\("showVolume", false\);/.test(meas48));
     check("48.8 M9 ON のときだけ環の下に dB を出す(環より下なので環は動かない)",
-      /<PitchRing note=\{note\} centsOffset=\{centsOffset\} diameter=\{RING_D_FULL\} \/>[\s\S]{0,400}?\{showVolume && \([\s\S]{0,400}?\{volumeDb\.toFixed\(1\)\}dB/.test(meas48),
+      // 【便BM 2026-10-02 本人裁定(a)】直径の綴りが ringD になった(画面の高さが足りないときだけ縮める)。dB が環の下なのは同じ。
+      /<PitchRing note=\{note\} centsOffset=\{centsOffset\} diameter=\{ringD\} scaleBase=\{ringBaseD\} \/>[\s\S]{0,400}?\{showVolume && \([\s\S]{0,400}?\{volumeDb\.toFixed\(1\)\}dB/.test(meas48),
       (meas48.match(/\{volumeDb\.toFixed\(1\)\}dB/g) || []).length + "箇所");
     check("48.8 M9 dB の段は録音の経過時間と同じ(--font-num / 12px / --c-ink-3。新しい値を足さない)",
       /fontFamily: "var\(--font-num\)", fontSize: 12, color: "var\(--c-ink-3\)" \}\}>\s*\r?\n\s*\{volumeDb\.toFixed\(1\)\}dB/.test(meas48));

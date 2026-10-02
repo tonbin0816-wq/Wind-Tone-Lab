@@ -30,6 +30,8 @@ import LoadingRing from "./community/LoadingRing.jsx";
 import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
 // 【便BL 2026-10-02 本人指示】見本の広告の帯の合図。読むのは <html> の印だけ(付けるのは main.jsx)。
 import { isAdPreviewOn } from "./adPreview.js";
+// 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りないときだけ環を縮める計算(純関数。検査は measureRingFit.test.js)。
+import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringScale } from "./measureRingFit.js";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -146,18 +148,94 @@ function fillViewportMinHeight(rectTop, scrollY, visibleH, bottomGap) {
 // 本人「計測タブだけ画面レイアウトの根本が違うので、計測タブだけ上に詰めて」(iPhone で、ステータスバーの
 // すぐ下から「自分 / A.Sax / 442Hz」の行までの空きを詰めたい)。将来、下部タブのすぐ上に広告の帯を置くので、
 // 計測タブの縦の場所を作る。
-//   PAGE_TOP_PAD         … 計測タブ以外(16px。今までの値のまま。リード・データ・コミュニティの1行目は動かない)
-//   MEASURE_PAGE_TOP_PAD … 計測タブ(--sp-1 = 4px。12px 詰まる)
-// どちらもセーフエリア(env(safe-area-inset-top))はそのまま足す ── つぶすとノッチ・Dynamic Island の下に潜る。
+// 【便BM 2026-10-02 本人指示】「やっぱり他のタブも同じに」。便BI で計測タブだけ 4px にしていた上端の余白を、
+// **全タブとも 4px(--sp-1)** にそろえた。値は PAGE_TOP_PAD の1つだけ(便BI で足した計測タブ用の別の定数は畳んだ)。
+// タブを切り替えても上端は動かない(全タブ同じ値)。リード・データ・コミュニティの1行目は 16 → 4 へ 12px 上がる。
+//   PAGE_TOP_PAD … 全タブ(--sp-1 = 4px)
+// セーフエリア(env(safe-area-inset-top))はそのまま足す ── つぶすとノッチ・Dynamic Island の下に潜る。
 // 【浮かぶ告知の座標】§6.1.5「座標はルートの padding と同じ式」。上端に浮く告知はデータタブのアップロードの
-// 告知1つだけで、計測タブには無い(計測タブの確認・エラーは下寄せの暗幕)。その告知は PAGE_TOP_PAD を読む。
+// 告知1つだけで、計測タブには無い(計測タブの確認・エラーは下寄せの暗幕)。その告知は PAGE_TOP_PAD を読む
+// (ルートと同じ1つの値なので、4px にそろえたのにそのまま従う)。
 // 【F-8 / C-1 は崩さない】上端の固定ブロック(設定の行・リードの行・案内)の中身と高さは1つも変えていない。
 // ブロックごと上へ 12px 寄るだけで、環から下の並びは画面ぶんの枠(measureMinH)が測り直し、
 // 増えた 12px は環と録音ボタンのあいだの伸び縮みする空き(flex: 1)が吸う。
 // 設定の行とリードの行のあいだ(gap 2px)・行の中の上下(2〜4px)は、もう 4px 以下で、詰めると
 // 押せる高さ(28 / 30px)がさらに縮むので触っていない。
-const PAGE_TOP_PAD = "calc(16px + env(safe-area-inset-top))";
-const MEASURE_PAGE_TOP_PAD = "calc(var(--sp-1) + env(safe-area-inset-top))";
+const PAGE_TOP_PAD = "calc(var(--sp-1) + env(safe-area-inset-top))";
+
+// 【便BM 2026-10-02 本人裁定(a) / 統括裁定2】計測タブの環の大きさを合わせ直す入力。
+// 環は「画面ごとに1回」大きさを決める(src/measureRingFit.js)。合わせ直すのは
+//   ツールバーが出ている状態のレイアウトの高さ(100svh)・幅(window.innerWidth。maxD が変わる)・向き・帯の有無
+// が変わったときだけ。**visualViewport の縮みは見ない** ── ソフトキーボード・ピンチ拡大で環が縮まないように。
+// 【便BM 再審査 2026-10-02 統括 3】高さは window.innerHeight ではなく **100svh**(ツールバーが出ている状態の高さ)
+// で決める。Safari をブラウザで開くと、スクロールでツールバーが引っ込むたびに innerHeight が伸び縮みするが、
+// svh は動かないので環の大きさが変わらない。ホーム画面(standalone)にはツールバーが無いので svh = innerHeight。
+// 測れない(100svh を解さない古いブラウザ・jsdom)ときは innerHeight に戻す。
+// 据え置き(hold): 入力欄にフォーカスがある間・ピンチで拡大している間(visualViewport.scale > 1)。
+//   hold が立つ合図は focusin / visualViewport の resize。下りる合図は focusout(1拍おいて読む)と、
+//   **hold が立っている間だけ回す rAF の見張り**(毎フレーム ringFitHold() を読み、外れたら下ろす)。
+//   見張りが要るのは、フォーカスした入力欄が DOM ごと消えると focusout が来ないことがあり、イベントだけでは
+//   hold が true のまま固まるため(便BM 再審査で指摘)。見張りは hold が false になった描画で止まる。
+//   MeasureView も測るその場で ringFitHold() を読み直す(state の hold が1フレーム遅れても縮めない)。
+// リードの行の状態は MeasureView が依存に足す(ここは画面の寸法だけ)。
+function resolveSmallViewportHeight() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;visibility:hidden;pointer-events:none;height:100svh";
+  document.body.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  probe.remove();
+  return h > 0 ? h : window.innerHeight;
+}
+function ringFitLayoutKey() {
+  const o = (typeof screen !== "undefined" && screen.orientation && screen.orientation.type) || "";
+  const ad = document.documentElement.hasAttribute("data-ad-preview") ? 1 : 0;
+  return `${resolveSmallViewportHeight()}x${window.innerWidth}:${o}:${ad}`;
+}
+function ringFitHold() {
+  const a = document.activeElement;
+  const typing = !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable === true);
+  const scale = window.visualViewport ? window.visualViewport.scale : 1;
+  return typing || scale > 1;
+}
+function useRingFitLayout() {
+  const [s, setS] = useState(() => ({ key: ringFitLayoutKey(), hold: ringFitHold() }));
+  const update = useCallback(() => setS((prev) => {
+    const key = ringFitLayoutKey();
+    const hold = ringFitHold();
+    return key === prev.key && hold === prev.hold ? prev : { key, hold };
+  }), []);
+  useEffect(() => {
+    // focusout の時点では activeElement がまだ移っていないので、1拍おいて読む。
+    let t = 0;
+    const later = () => { clearTimeout(t); t = setTimeout(update, 0); };
+    const vv = window.visualViewport;
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", later);
+    vv?.addEventListener("resize", update); // ピンチの拡大率(hold)だけのため。key は visualViewport を読まない
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", later);
+      vv?.removeEventListener("resize", update);
+    };
+  }, [update]);
+  // hold が立っている間だけの見張り(上の注記)。読むのは activeElement と拡大率だけで、レイアウトは読まない。
+  useEffect(() => {
+    if (!s.hold) return undefined;
+    let raf = 0;
+    const watch = () => {
+      if (!ringFitHold()) { update(); return; } // 外れた: 下ろして合わせ直す(見張りは次の描画で止まる)
+      raf = requestAnimationFrame(watch);
+    };
+    raf = requestAnimationFrame(watch);
+    return () => cancelAnimationFrame(raf);
+  }, [s.hold, update]);
+  return s;
+}
 
 function useFillViewportHeight(ref, bottomGap = null) {
   const [minH, setMinH] = useState(0);
@@ -2233,11 +2311,13 @@ export {
   // 【便BF】「目安に設定」の足す/積み上げるの判断(src/idealPromote.test.js が走らせる)。
   promoteIdealProfiles, isAdoptedIdealProfile,
   useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
+  // 【便BM 再審査】環の大きさの据え置き(hold)の見張り(measureRingFitHold.test.jsx が描く)。
+  useRingFitLayout,
   ReedsTab, SessionEditSheet,
   // 【便BE】指標カード(目安から外した指標の知らせの検査 idealExcludedNote.test.jsx が描く)。
   MetricTabCard,
-  // 【便BI 2026-10-02】上端の余白(measureTopPad.test.jsx が読む)。
-  PAGE_TOP_PAD, MEASURE_PAGE_TOP_PAD,
+  // 【便BI 2026-10-02】上端の余白(measureTopPad.test.jsx が読む)。【便BM】全タブ1つの値になった。
+  PAGE_TOP_PAD,
   // 【便BI 2026-10-02】用語の吹き出し(termTipApp.test.jsx)と赤の枠(dangerOutline.test.jsx)の検査が描く。
   MyDataSection, DeleteActionButton,
   // 【便AZ】音名軸の目印の音名(楽器 → E♭ / B♭)。
@@ -4900,9 +4980,10 @@ export default function WindToneLabPhaseMode() {
   // 値(14px + 安全域)は**そのトークンが唯一の答え**で、ここは引くだけ。
   // グラフカードの負マージンと浮かせるボタンの右端が同じトークンから引くので、
   // 「本文の左右余白」を1箇所で動かせば3つとも同時に動く(計算値は従来と 1px も変わらない)。
-  // 【便BI 2026-10-02 本人裁定(b)】上端の余白は計測タブだけ詰める(PAGE_TOP_PAD / MEASURE_PAGE_TOP_PAD の注記)。
+  // 【便BI 2026-10-02 本人裁定(b)】上端の余白は計測タブだけ詰める(PAGE_TOP_PAD の注記)。
+  // 【便BM 2026-10-02 本人指示】全タブとも同じ 4px にそろえた(PAGE_TOP_PAD の1つ。タブで切り替えない)。
   return (
-    <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${topTab === "measure" ? MEASURE_PAGE_TOP_PAD : PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
+    <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
       <style>{`
         /* 【F-43・2026-08-04】webfontの@importをここから撤去した。
            - JetBrains Mono: 参照0件の死蔵だった(P2-1)
@@ -6268,7 +6349,12 @@ const RING_SW = 14;
 // **メトロノームの開閉で大きさを変えない。** 以前は開くと 330→250 に縮めていたが、
 // 環は演奏中サーフェスの主役で、開閉のたびに主役の大きさが変わるのは読み取りを妨げる。
 // 縦スペースはメトロノームを開いている間だけ「これまでの音」を隠して捻出する。
-const RING_D_FULL = 330;       // 環の直径(常にこの値)
+// 【便BM 2026-10-02 本人裁定(a)】例外は1つだけ: **画面の高さが足りないとき**(375×667 など)は、
+// 足りない分だけ環を縮めて全部を収める(MeasureView の ringD / src/measureRingFit.js)。
+// 【統括裁定1】大きさは**画面ごとに1回だけ**決める。直径は「メトロノームを開き、音量表示を入れた」
+// いちばん厳しい状態を前提にするので、**開閉・音量表示の切り替えでは変わらない**(上の確定を守る)。
+// 375×812・帯なしはいちばん厳しい状態でも足りるのでこの値のまま。
+const RING_D_FULL = 330;       // 環の直径(画面の高さが足りる限りこの値)
 
 // --- 音名の組み方 ---
 // 【N-4c】サイズは**正典 design/north-star-measure.html の実寸**をそのまま採る
@@ -6277,6 +6363,9 @@ const RING_D_FULL = 330;       // 環の直径(常にこの値)
 // 以前は「環の直径 × NOTE_FS_RATIO(0.3576) = 118px」と比で持っていた。環は 330px 固定なので
 // 比の仕組みは結果を1つに固定するだけになっており、モックの実寸に置き換えても
 // 「環が縮んだときに崩れる」という当時の懸念は起きない(環は縮まない)。
+// 【便BM 2026-10-02 本人裁定(a)】↑「環は縮まない」は画面の高さが足りる限りの話になった。足りない画面で
+// 環を縮めたときは、下の実寸を**縮めないときの直径に対する比**(PitchRing の ringK)で一緒に縮める
+// (§4.2「音名は環の直径に比例させる」)。縮めていなければ倍率は 1 で、この実寸がそのまま出る。
 const NOTE_FS_PX = 148;        // 正典 .note
 const NOTE_OCT_PX = 44;        // 正典 .note .oct
 const NOTE_CENTS_PX = 21;      // 正典 .cents
@@ -6322,6 +6411,21 @@ const NOTE_SCALE_PAD_EM = 0.457 * (NOTE_SCALE_X - 1) / 2;
 // 明確に小さくする。横幅の指定は本体だけに掛け、記号には掛けない。
 // モックの計測タブは臨時記号のある音(G♯ 等)を描いていないので、比は §4.2 のまま残す。
 const NOTE_ACC_RATIO = 0.34;   // 臨時記号 = 音名の34%
+
+// 【便BM 2026-10-02 本人裁定(a)】環を縮めるときの下限。
+// 環は「viewBox 300 固定・実寸は CSS の幅で追従」の1枚の絵なので、線の太さ(RING_SW)・外周の光は
+// 直径と一緒に縮む。中の字(音名・オクターブ・セント値)と間隔も同じ倍率で縮める ── PitchRing の注記
+// 「音名のサイズはこれに比例させる(DESIGN-SYSTEM §4.2)」のとおりで、§4.2 の
+// 「視覚幅の左右端が環の内周に対し音名サイズの10%以上」も比が保たれるので割らない。
+// いちばん小さい字はセント値(NOTE_CENTS_PX = 21px)。これが §4.2「演奏中サーフェスの最小は15px」
+// (= --fs-md。P1-5 でセント値をこの値にした根拠)を割らない直径を下限にする:
+//   ceil(330 × 15 / 21) = 236 → セント値 15.02px / 音名 105.8px / オクターブ 31.5px。
+// 下限でも足りない画面は、残りをページのスクロールで届かせる。375×667 の直径は、いちばん厳しい状態(メトロノーム +
+// 音量表示)で決まり、**リードの行の状態で変わる**: 帯ありは下限 236。帯なしは 236〜246
+// (リード未登録の案内2行・「箱を選ぶと」の1行 → 236 / リードを選択済み(リードの1行だけ)→ 246。便BM の再審査の実測)。
+// 【本人裁定 2026-10-02】下限 236 で確定。値はこの1か所(RING_TEXT_FLOOR_PX)が持つ。
+const RING_TEXT_FLOOR_PX = 15; // §4.2 演奏中サーフェスの最小(= --fs-md)
+const RING_D_MIN = ringMinDiameter(RING_D_FULL, NOTE_CENTS_PX, RING_TEXT_FLOOR_PX);
 
 // 12時を0として時計回りに測った角度(度) → SVG座標
 function ringPoint(deg, r, cx, cy) {
@@ -7060,7 +7164,8 @@ function metroBeatDotR(isCurrent) {
 // 【N-4b】環は**ピッチ専用**になった。拍(振り子・拍の●)は環の外・下の MetroPendulum が描く。
 // 正典 design/north-star-measure.html の「メトロノーム中」がその形(環と共存)。
 // diameter: 環の実寸(直径)。音名のサイズはこれに比例させる(DESIGN-SYSTEM §4.2)。
-function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
+// scaleBase: 【便BM 2026-10-02 本人裁定(a)】中の字の倍率の基準 = 縮めないときの直径(既定は diameter = 倍率 1)。
+function PitchRing({ note, centsOffset, diameter = RING_D_FULL, scaleBase = diameter }) {
   // 【D-19】環の**本文**の所要時間。React が DOM へ反映する時間は入らない
   // (要素を作り終えるまで)。診断が閉じているときの費用は真偽値1つの読み取り。
   const dRingOn = METRO_DIAG.on;
@@ -7078,7 +7183,11 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
   // viewBoxは300固定。実寸は幅に追従させる(上限が diameter)。
   const VB = RING_VB, CX = RING_CX, CY = RING_CY, R = RING_R, SW = RING_SW;
   // 【N-4c】音名のサイズは正典の実寸(148px)。臨時記号だけ比で従う。
-  const noteFs = NOTE_FS_PX;
+  // 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りなくて環を縮めたときだけ、中の字と間隔も同じ倍率で縮める
+  // (RING_D_MIN の注記)。倍率の基準は縮めないときの直径(scaleBase = maxD。統括裁定3)なので、
+  // 縮めていないとき ringK はちょうど 1 で 148 / 44 / 21 / 10 / 3 はそのまま、320 幅で 1px 縮めても字は跳ねない。
+  const ringK = ringScale(diameter, scaleBase);
+  const noteFs = NOTE_FS_PX * ringK;
   // 【D-23a】deg / 色 / inTune / 帯のグラデーション / 弧の d / セントの文字は
   // **ここでは作らない**(下の rAF が RING_LIVE から作って属性へ直接書く)。
 
@@ -7502,7 +7611,7 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
             <span style={{ fontSize: noteFs * NOTE_ACC_RATIO }}>{accidental}</span>
           )}
           {/* オクターブ数字は正典 .note .oct の実寸(44px)。色も .oct と同じ薄い紺。 */}
-          <span style={{ fontSize: NOTE_OCT_PX, color: "var(--c-accent-dim)", marginLeft: 3 }}>
+          <span style={{ fontSize: NOTE_OCT_PX * ringK, color: "var(--c-accent-dim)", marginLeft: 3 * ringK }}>
             {sounding && textOn ? note.octave : ""}
           </span>
         </div>
@@ -7522,9 +7631,9 @@ function PitchRing({ note, centsOffset, diameter = RING_D_FULL }) {
           ref={(el) => { centsTextRef.current = el; }}
           className="sans"
           style={{
-            marginTop: NOTE_CENTS_GAP_PX, width: "100%", height: NOTE_CENTS_PX + 4,
+            marginTop: NOTE_CENTS_GAP_PX * ringK, width: "100%", height: (NOTE_CENTS_PX + 4) * ringK,
             textAlign: "center",
-            fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX, fontWeight: 700,
+            fontFamily: "var(--font-num)", fontSize: NOTE_CENTS_PX * ringK, fontWeight: 700,
             letterSpacing: "0.02em", color: "var(--c-ink-3)",
           }}
         />
@@ -8553,6 +8662,23 @@ function MeasureView(props) {
   // 計測タブを画面いっぱいの縦フレックスにして「上=設定 / 中央=メーター / 下=録音ボタン」に配置する。
   const measureRootRef = useRef(null);
   const measureMinH = useFillViewportHeight(measureRootRef);
+  // 【便BM 2026-10-02 本人裁定(a)】環の直径。画面の高さが足りる限り RING_D_FULL(330)のまま。
+  // 足りないときだけ下の useLayoutEffect が足りない分だけ縮める(計算は src/measureRingFit.js)。
+  // 測る相手: 画面ぶんの枠(measureFrameRef) / 余りを吸収するスペーサー(ringFitSpacerRef) / 環の箱(ringBoxRef) /
+  // 可変の中間(ringFitMiddleRef) / いちばん厳しい状態の見本(ringFitWorstMiddleRef・ringFitWorstVolumeRef)。
+  // ringBaseD は縮めないときの直径(maxD)。中の字の倍率の基準(統括裁定3)。
+  const [ringD, setRingD] = useState(RING_D_FULL);
+  const [ringBaseD, setRingBaseD] = useState(RING_D_FULL);
+  const measureFrameRef = useRef(null);
+  const ringFitSpacerRef = useRef(null);
+  const ringBoxRef = useRef(null);
+  const ringFitMiddleRef = useRef(null);
+  const ringFitWorstMiddleRef = useRef(null);
+  const ringFitWorstVolumeRef = useRef(null);
+  // 【統括裁定2 / 再審査 3】合わせ直す入力は「ツールバーが出ている状態の高さ(100svh)と向き・幅・帯の有無」だけ。
+  // visualViewport の縮み(ソフトキーボード・ピンチ拡大・ツールバー)は見ない。入力欄にフォーカスがある間も据え置く。
+  const ringFitLayout = useRingFitLayout();
+  const anySheetOpen = useAnyBottomSheetOpen();
   const TUNING_HZ_OPTIONS = [438, 439, 440, 441, 442, 443, 444];
   const SAX_TYPE_OPTIONS = Object.keys(SAX_PRESETS);
   // 【便R 2026-09-20 本人指示】基準ピッチの現在位置。**両端は TUNING_HZ_OPTIONS から導く**
@@ -8900,6 +9026,56 @@ function MeasureView(props) {
     return () => clearInterval(id);
   }, [isRecording]);
 
+  // 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りないときだけ環を縮める。
+  // 【統括裁定1】大きさは画面ごとに1回だけ決める。直径は**いちばん厳しい状態**(メトロノームを開き、音量表示を入れた
+  // 状態)を前提にするので、メトロノームの開閉・音量表示の切り替えでは変わらない(DESIGN-SYSTEM §4.2 2026-07-31 確定)。
+  //   使える高さ = 100svh(ツールバーが出ている状態の高さ)− 枠の上端 − --page-bottom-gap(--ad-h を含む。
+  //                visualViewport も innerHeight も使わない)
+  //   環以外の高さ = 枠 − スペーサー − 環 − いまの音量の行 − いまの可変の中間
+  //                 + いちばん厳しい状態の可変の中間(メトロノームの行の見本)+ 音量の行の見本
+  //   写しは ringFitArgs(純関数。measureRingFit.test.js が実測した値で叩く)。
+  //   リードの行(案内2行 / リードの1行 / 「箱を選ぶと」)はいまの実際の状態をそのまま使う。
+  // 【合わせ直す入力(統括裁定2)】レイアウトの高さ・幅・向き・帯の有無(ringFitLayout.key)とリードの行の状態だけ。
+  // 【据え置く】録音中・シート(ピッカー・テンポ)を開いている間(ringFitHoldNow)と、入力欄にフォーカスがある間・
+  // ピンチ拡大中(ringFitHold() をその場で読む)は
+  // 前の直径のまま(nextRingDiameter)。外れた描画で合わせ直す。
+  // 【跳ねない】useLayoutEffect で測って描く前に直す。
+  const ringFitBoxHint = !reedEmptyGuide && !selectedBoxGroup;
+  const ringFitHoldNow = isRecording || anySheetOpen || openPicker !== null || tempoSheetOpen;
+  useLayoutEffect(() => {
+    const frame = measureFrameRef.current;
+    const spacer = ringFitSpacerRef.current;
+    const ringBox = ringBoxRef.current;
+    const ringEl = ringBox?.firstElementChild; // PitchRing の外枠(幅 100% / 上限 diameter・高さ = 幅)
+    const middle = ringFitMiddleRef.current;
+    const worstMiddle = ringFitWorstMiddleRef.current;
+    const worstVolume = ringFitWorstVolumeRef.current;
+    if (!frame || !spacer || !ringEl || !middle || !worstMiddle || !worstVolume) return;
+    const hOf = (el) => el.getBoundingClientRect().height;
+    const ringH = hOf(ringEl);
+    if (!(ringH > 0)) return; // 配置が計算されていない(jsdom など)
+    const scrollY = window.scrollY ?? document.documentElement.scrollTop ?? 0;
+    // 【便BM 再審査 統括 3】高さはツールバーが出ている状態(100svh)。innerHeight は使わない(上の useRingFitLayout の注記)。
+    const availH = fillViewportMinHeight(frame.getBoundingClientRect().top, scrollY, resolveSmallViewportHeight(), resolveBottomGap());
+    const args = ringFitArgs({
+      availH,
+      frameH: hOf(frame),
+      spacerH: hOf(spacer),
+      ringH,
+      boxW: ringBox.getBoundingClientRect().width,
+      volumeH: hOf(ringBox) - ringH,
+      middleH: hOf(middle),
+      worstMiddleH: hOf(worstMiddle),
+      worstVolumeH: hOf(worstVolume),
+      fullD: RING_D_FULL,
+      minD: RING_D_MIN,
+    });
+    const fit = fitRingDiameter(args);
+    const held = ringFitHoldNow || ringFitHold(); // 入力欄・ピンチはその場で読む
+    setRingD((prev) => nextRingDiameter(prev, fit, held));
+    setRingBaseD((prev) => nextRingDiameter(prev, args.maxD, held));
+  }, [ringFitLayout.key, ringFitLayout.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint]);
+
   // 【D-19】返す木を一度変数へ置くのは、**組み立て終わりの時刻を取るため**だけ。
   // 中身も返す値も1文字も変えていない(下の return がそのまま同じ木を返す)。
   const dViewTree = (
@@ -8916,7 +9092,7 @@ function MeasureView(props) {
           スペーサーへ出し、環と可変の中間を「チューナーの帯」1箱にまとめた。背面レイヤは
           その箱の中だけに敷く(= 上部設定行の直下 〜 テンポ操作行の下端)。
           上部設定行・録音ボタンより下・詳細カード・下部ナビは覆わない。 */}
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
+      <div ref={measureFrameRef} style={{ position: "relative", display: "flex", flexDirection: "column", minHeight: measureMinH || undefined }}>
       {/* ── 上端に固定 ── 設定行と各種の告知。この塊の下端が「固定の間隔」--sp-1。 */}
       <div style={{ flexShrink: 0 }}>
       {/* 上部設定行【N-4a で2行構成に変更】本人指示「リードと奏者・楽器・基準ピッチの上下を逆に」。
@@ -9127,6 +9303,9 @@ function MeasureView(props) {
           メトロノームの開閉にかかわらず環(PitchRing)を主役にする(設計言語を1つに保つ)。
           【大きさは変えない】以前はメトロノームを開くと 330→250 に縮めていたが、主役の
           大きさが開閉のたびに変わるのは読み取りを妨げる。環は常に RING_D_FULL(330)。
+          【便BM 2026-10-02 本人裁定(a)】例外は**画面の高さが足りないときだけ**。そのときは足りない分だけ
+          縮める(ringD。下限 RING_D_MIN)。大きさは画面ごとに1回、メトロノームを開き音量表示を入れた
+          いちばん厳しい状態で決めるので、この画面の中の開閉・切り替えでは変わらない(統括裁定1)。
           【N-4b】環は**ピッチ専用**になった。メトロノームを開いている間も環は消えず、
           拍(振り子・拍の●)は環の下に並ぶ(正典 = design/north-star-measure.html「メトロノーム中」)。
           以前あった「26pxの音名+横メーター+13pxのセント値」へのフォールバックは廃止した
@@ -9189,8 +9368,11 @@ function MeasureView(props) {
 
       {/* 環の下の余白は「可変の中間」側(グラフの marginTop / 操作UIの marginTop)が持つ。
           ここに状態で変わる padding を足すと、それ自体が状態依存の寸法になるので置かない。 */}
-      <div style={{ flexShrink: 0 }}>
-        <PitchRing note={note} centsOffset={centsOffset} diameter={RING_D_FULL} />
+      {/* 【便BM 2026-10-02 本人裁定(a)】ringBoxRef の最初の子 = 環の外枠を、縮める計算が測る
+          (箱の高さ − 環の高さ = いまの音量の行)。直径は ringD(画面の高さが足りる限り RING_D_FULL)、
+          中の字の倍率の基準は ringBaseD(縮めないときの直径)。 */}
+      <div ref={ringBoxRef} style={{ flexShrink: 0 }}>
+        <PitchRing note={note} centsOffset={centsOffset} diameter={ringD} scaleBase={ringBaseD} />
         {/* 【M9/M10 2026-09-16】音量(dB)。詳細シートの「音量表示」が ON のときだけ出す。
             **環より下**なので、切り替えても環・上部設定行は 1px も動かない(§6.1.5)。
             出し入れするのは毎フレームの状態ではなく**永続する設定**(usePersistedState)。
@@ -9202,8 +9384,9 @@ function MeasureView(props) {
         )}
       </div>
 
-      {/* ── 可変の中間 ── 状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。 */}
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      {/* ── 可変の中間 ── 状態ごとに中身が入れ替わる(素=これまでの音 / メトロノーム=拍と操作)。
+          【便BM】環を縮める計算が、いまの高さを読む(ringFitMiddleRef)。 */}
+      <div ref={ringFitMiddleRef} style={{ display: "flex", flexDirection: "column" }}>
       {/* メトロノーム。正典「メトロノーム中」の .pend そのもの:
             浅い弧のガイド + 往復する点 → 拍の●(中央固定)と拍子表示 → テンポの − / ♩=n / ＋。
           開始/停止のボタンは無い。**画面のどこをタップしても開始/停止する**(A-1)。
@@ -9289,7 +9472,8 @@ function MeasureView(props) {
       {/* ── 余りを吸収するスペーサー ── 以前は「可変の中間」が flex:1 で兼ねていた役。
           F-74 で背面レイヤの下端を**テンポ操作行の下端**に合わせるため、余りの吸収だけを
           ここへ分離した。中身は持たないので、環・録音ボタン・詳細トグルの位置は変わらない。 */}
-      <div style={{ flex: "1 1 auto", minHeight: 0 }} />
+      {/* 【便BM】このスペーサーの高さ = 余り。縮める計算は「枠の高さ − これ」を中身の自然な高さとして読む。 */}
+      <div ref={ringFitSpacerRef} style={{ flex: "1 1 auto", minHeight: 0 }} />
 
       {/* ── 下端に固定 ── 録音ボタン・経過時間・詳細トグル。枠の高さが measureMinH で固定なので
           これらの top は状態が変わっても動かない。
@@ -9369,6 +9553,26 @@ function MeasureView(props) {
             : <ChevronDown size={24} color="var(--c-accent)" strokeWidth={2.5} />}
         </button>
       </div>
+      </div>
+      {/* 【便BM 2026-10-02 本人裁定(a) / 統括裁定1】いちばん厳しい状態(メトロノームを開き、音量表示を入れた状態)の
+          見本。環の大きさをこの状態で決めるために、**閉じている間も高さを測れるよう**ここに置く。
+          見えない(visibility:hidden)・押せない(pointerEvents:none・押せる物を持たない)・流れの外(position:absolute で
+          枠の上端に重ねる。枠の高さもページの高さも変えない)・読み上げない(aria-hidden)。
+          ・音量の行: 本物(環の箱の中の showVolume の行)と**同じ style の文字列**(測る字は 0.0dB)
+          ・メトロノームの行: 本物と同じ包みの style + 本物の MetroPendulumMemo(getBeatPhase=null なので rAF を
+            回さない・onOpenSheet なしなので押せる物を作らない)+ テンポ行の高さ(− / ＋ の高さ METRO_PM_H_CSS。
+            ♩=n は --tap-min でそれより低い)
+          本物と綴りがずれたら measureRingFit.test.js が落ちる。 */}
+      <div aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, top: 0, visibility: "hidden", pointerEvents: "none" }}>
+        <div ref={ringFitWorstVolumeRef} style={{ display: "flex", flexDirection: "column" }}>
+          <div className="sans" style={{ marginTop: "var(--sp-1)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-num)", fontSize: 12, color: "var(--c-ink-3)" }}>0.0dB</div>
+        </div>
+        <div ref={ringFitWorstMiddleRef} style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ marginTop: "var(--sp-2)", display: "flex", flexDirection: "column", alignItems: "center", gap: `calc(var(--sp-2) * ${METRO_SCALE})` }}>
+            <MetroPendulumMemo getBeatPhase={null} getBeatDur={null} beatsPerMeasure={metroBeatsPerMeasure} accentOn={metroAccent} sig={metroSig} />
+            <div style={{ height: METRO_PM_H_CSS }} />
+          </div>
+        </div>
       </div>
       </div>{/* /画面ぶんの固定枠 */}
 
