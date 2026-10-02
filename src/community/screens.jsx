@@ -127,7 +127,7 @@ function UnderlineTabs({ items, value, onChange, label, onAccent = false, hint =
 
 // ------------------------------------------------------------------
 // 【便BC 2026-09-25 本人選定 モック「イ. 吹き出し」】重心と HNR の用語の説明。
-// 同じ下線タブ(重心 / HNR / 音程)と同じ注意書きを持つ2箇所 ── みんなの平均カード(DataScreen)と
+// 同じ下線タブ(音程 / HNR / 重心。便BJ で My Data・リードと同じ並びに)と同じ注意書きを持つ2箇所 ── みんなの平均カード(DataScreen)と
 // 人物のページのデータ(PersonSheet) ── が、この1つ(MetricTabs)を使う。写しを作らない。
 // 【便BI 2026-10-02 本人指示】吹き出しの中身(開け閉め・文案・共通の一文)はリード・データの指標タブと
 // 共有する部品 TermTip(src/termTip.jsx)へ移した。ここはタブの列を渡すだけ。
@@ -948,10 +948,12 @@ export function ShareScreen({ users, saxTypes }) {
 // **上下は同じ条件で絞られている** ── 本人の指摘「上と下で二つある」を、
 // 条件行を1つにして解いた。
 // ------------------------------------------------------------------
+// 【便BJ 2026-10-02 本人指示】並びは My Data・リードと同じ「音程・HNR・重心」(左から)。
+// 最初に選ばれている指標も、ほかの画面と同じく一番左(METRICS[0] = 音程)。
 const METRICS = [
-  { key: "spectralCentroidHz", label: "重心", unit: "Hz", digits: 0 },
-  { key: "hnrDb", label: "HNR", unit: "dB", digits: 1 },
   { key: "pitchCentsSigned", label: "音程", unit: "¢", digits: 1 },
+  { key: "hnrDb", label: "HNR", unit: "dB", digits: 1 },
+  { key: "spectralCentroidHz", label: "重心", unit: "Hz", digits: 0 },
 ];
 
 // 【便AO 2026-09-24 本人の実機報告】「重心とかHNRとか音程の横軸が D2 E2 F#2 の3つしかない。
@@ -1048,7 +1050,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
   const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }));
-  const [metric, setMetric] = useState("spectralCentroidHz");
+  const [metric, setMetric] = useState(METRICS[0].key);
   const saxType = filter.saxType;
 
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
@@ -1324,7 +1326,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   }, [person, ideals]);
 
   const [saxType, setSaxType] = useState(() => types[0] ?? "alto");
-  const [metric, setMetric] = useState("spectralCentroidHz");
+  const [metric, setMetric] = useState(METRICS[0].key);
   // 【選べる集合は「行が押せる形で描くもの」2026-09-19 束2】
   // 案アで**吹くがデータが無い種別**も押せるようになった。ここを types(データのある種別)
   // だけで見ていると、その種別を押した瞬間に先頭へ引き戻されて**何も起きないように見える**

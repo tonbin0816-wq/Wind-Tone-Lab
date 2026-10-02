@@ -94,6 +94,14 @@ const decodeCommon = () => {
   return [14, 16, 18].map((k, i) => ({ key: k, mine: MINE_C[k], other: valueAt(other[i].y) }));
 };
 const median = (xs) => { const a = [...xs].sort((p, q) => p - q); return a[Math.floor(a.length / 2)]; };
+// 【便BJ 2026-10-02 本人指示】最初に選ばれている指標は音程(一番左)になった(以前は重心)。
+// 重心の値で線を読む検査は、まず重心のタブを押して選んでから読む。選べたこと(aria-selected)も確かめる。
+const pickTab = async (label) => {
+  const b = [...host.querySelectorAll('[role="tablist"][aria-label="見る指標"] [role="tab"]')].find((t) => t.textContent === label);
+  expect(b).toBeTruthy();
+  await act(async () => { b.click(); });
+  expect(b.getAttribute("aria-selected")).toBe("true");
+};
 const legendLabels = () => [...host.querySelectorAll("svg[data-legend-swatch]")].map((s) => s.parentElement.textContent);
 
 describe("みんなの平均は自分の計測に関係なく出る(便BA)", () => {
@@ -115,6 +123,7 @@ describe("みんなの平均は自分の計測に関係なく出る(便BA)", () 
   }
   it("【便BA 再審査 中2】3音重なる: 平均の線は**自分の高さへ動いている**(共通の音での中央値が自分と一致)。形は平均のまま", async () => {
     await draw(<DataScreen users={USERS} ideals={IDEALS} myIdeals={CASES[3][1]} myUid="me" saxTypes={["alto"]} tuningHz={TUNING} />);
+    await pickTab("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから線の値を読む
     const rows = decodeCommon();
     // 揃え方は align.js の alignOffset(共通の音での中央値どうしを合わせる)。
     // 揃えていなければ平均は 1400〜1650 Hz 台(自分は 940〜1020)で、中央値の差は数百 Hz になる
@@ -136,11 +145,14 @@ describe("みんなの平均は自分の計測に関係なく出る(便BA)", () 
   it("【便BA 再審査 軽5】この指標のデータが無い(グラフが無い)ときは、揃えの注記も「お待ちしています」も出さない", async () => {
     const noPitch = IDEALS.map((x) => ({ ...x, notes: Object.fromEntries(Object.entries(x.notes).map(([k, n]) => [k, { spectralCentroidHz: n.spectralCentroidHz, hnrDb: n.hnrDb }])) }));
     await draw(<DataScreen users={USERS} ideals={noPitch} myIdeals={{}} myUid="me" saxTypes={["alto"]} tuningHz={TUNING} />);
+    // 【便BJ 2026-10-02 本人指示】最初は音程 = データの無い指標。開いた直後から1行も揃えの注記も出ない
+    expect(host.textContent).toContain("この指標のデータがありません");
+    expect(host.textContent).not.toContain(WAIT);
+    expect(host.textContent).not.toContain("揃えた状態で線の形で比較しています");
     // 重心のタブ(グラフあり)では1行が出ている = 下の不在が「そもそも描いていない」ではないことの確かめ
+    await pickTab("重心");
     expect(host.textContent).toContain(WAIT);
-    const tab = [...host.querySelectorAll("button")].find((b) => b.textContent === "音程");
-    expect(tab).toBeTruthy();
-    await act(async () => { tab.click(); });
+    await pickTab("音程");
     expect(host.textContent).toContain("この指標のデータがありません");
     expect(host.textContent).not.toContain(WAIT);
     expect(host.textContent).not.toContain("揃えた状態で線の形で比較しています");
@@ -182,6 +194,7 @@ describe("人物紹介: その人の線はいつも出る。目安に設定は�
       expect(Object.keys(adopted.aligned.notes["14"])).not.toContain("volumeDb");
       // 【便BA 再審査 中2】描いた線の値も確かめる。揃えたときはその人の線が自分の高さへ動いている
       if (aligned) {
+        await pickTab("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから線の値を読む
         const rows = decodeCommon();
         expect(Math.abs(median(rows.map((r) => r.other)) - median(rows.map((r) => r.mine)))).toBeLessThan(0.01);
       }

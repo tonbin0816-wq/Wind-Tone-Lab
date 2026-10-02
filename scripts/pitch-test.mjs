@@ -26109,8 +26109,10 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
   // 【便AV 2026-09-24 本人指示】「楽器の組」の見出しも消えた。
   check("62.6 正典 CommPerson から「音のデータ」、CommPersonBack から「楽器の組」の見出しが消えた",
     !/>音のデータ</.test(front62) && !/>楽器の組</.test(back62));
-  check("62.6 正典 グラフの上の一行は単位だけ(`Hz　計測n件`。指標名は落ちた)",
-    /Hz　計測\d+件/.test(front62) && !/重心\(Hz\)/.test(front62));
+  // 【便BJ 2026-10-02 本人指示】正典の人物のページは最初の指標(音程)を描くようになったので、単位は ¢。
+  // 指標名を落とした形(「音程(¢)」でも「重心(Hz)」でもない)は同じに見る。
+  check("62.6 正典 グラフの上の一行は単位だけ(`¢　計測n件`。指標名は落ちた)",
+    /¢　計測\d+件/.test(front62) && !/音程\(¢\)/.test(front62) && !/重心\(Hz\)/.test(front62));
   {
     // DESIGN-SYSTEM §6.7 が3つの状態の**唯一の答え**を持つ(実装はそこから引くだけ)。
     const ds62 = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
@@ -31224,13 +31226,40 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BF.3 便BC 正典 CommData: グラフと凡例は白い台紙(--c-surface・角 --r-1・内側 10px。実装の data-avg-inset と同じ)の中",
     /<div data-avg-inset style=\{\{ marginTop: "var\(--sp-2\)", background: "var\(--c-surface\)", borderRadius: "var\(--r-1\)", padding: 10 \}\}>/.test(screensBF)
     && /<div style="margin-top: var\(--sp-2\); background: var\(--c-surface\); border-radius: var\(--r-1\); padding: 10px">\s*<div style="display: grid; gap: var\(--sp-2\)">\s*<svg/.test(dataDcBF));
-  const qMarkBF = /font-weight: 600; color: var\(--c-(on-accent|ink)\); box-shadow: inset 0 -2px 0 0 var\(--c-(on-accent|ink)\);">重心<span aria-hidden="true" style="width: 18px; height: 18px;[^"]*border: 1\.5px solid currentColor;[^"]*">\?<\/span><\/span>/;
-  check("BF.3 便BC 正典 CommData: 選んでいる「重心」は濃紺の上の色(--c-on-accent)で、右に「?」の丸",
-    (qMarkBF.exec(dataDcBF) || [])[1] === "on-accent");
-  check("BF.3 便BC 正典 CommPerson: 選んでいる「重心」は白い面の色(--c-ink)で、右に「?」の丸",
-    (qMarkBF.exec(personDcBF) || [])[1] === "ink");
-  check("BF.3 便BC 正典: 選んでいない HNR・音程には「?」が付かない(付くのは選んでいる指標だけ)",
-    !/>HNR<span aria-hidden/.test(dataDcBF + personDcBF) && !/>音程<span aria-hidden/.test(dataDcBF + personDcBF));
+  // 【便BJ 2026-10-02 本人指示】指標タブの並びは My Data・リードと同じ「音程・HNR・重心」(左から)、
+  // 最初に選ばれているのは一番左の音程(screens.jsx の METRICS[0])。正典は開いた直後の姿なので、
+  // 選んでいるのは音程で、「?」(重心・HNR だけが持つ)はどこにも出ない。
+  // 以前の検査は「選んでいる重心の右に ? の丸」を見ていた。「?」の丸の見た目と出し分けは、
+  // 実装を描いて押す src/community/termTip.test.jsx が見ている(正典は閉じた初期の姿だけを持つ)。
+  // 期待する並びは**実装の METRICS から読む**(正典の側から読むと恒真になる)。
+  const implMetricsBJ = [...((/\nconst METRICS = \[([\s\S]*?)\n\];/.exec(screensBF) || [, ""])[1]
+    .matchAll(/label: "([^"]+)"/g))].map((m) => m[1]);
+  check("BJ.1 便BJ: 実装の指標タブの並びは 音程・HNR・重心(左から)",
+    implMetricsBJ.join("・") === "音程・HNR・重心", implMetricsBJ.join("・") || "読めない");
+  check("BJ.1 便BJ: 実装の2画面(DataScreen / PersonSheet)は最初に METRICS[0] を選ぶ(重心の決め打ちは残っていない)",
+    (codeOf(screensBF).match(/const \[metric, setMetric\] = useState\(METRICS\[0\]\.key\);/g) || []).length === 2
+    && !/useState\("spectralCentroidHz"\)/.test(codeOf(screensBF)));
+  const tabRowBJ = (html) => [...html.matchAll(/<span style="display: inline-flex; align-items: center; min-height: 26px; padding: 0 2px; font-size: var\(--fs-sm\); font-weight: 600; color: var\(--c-([\w-]+)\);( box-shadow: inset 0 -2px 0 0 var\(--c-[\w-]+\);)?">(重心|HNR|音程)(<span aria-hidden)?/g)]
+    .map((m) => ({ label: m[3], color: m[1], sel: Boolean(m[2]), mark: Boolean(m[4]) }));
+  for (const [f, html, selColor, offColor] of [["CommData", dataDcBF, "on-accent", "on-accent-dim"], ["CommPerson", personDcBF, "ink", "ink-3"]]) {
+    const row = tabRowBJ(html);
+    check(`BJ.1 便BJ 正典 ${f}: 指標タブの並びは実装と同じ(音程・HNR・重心)`,
+      implMetricsBJ.length === 3 && row.map((t) => t.label).join("・") === implMetricsBJ.join("・"),
+      row.map((t) => t.label).join("・") || "0件");
+    check(`BJ.1 便BJ 正典 ${f}: 選んでいるのは一番左の「音程」だけ(--c-${selColor} の字と下線)、ほかは --c-${offColor}`,
+      row.length === 3 && row[0].label === "音程" && row[0].sel && row[0].color === selColor
+      && row.slice(1).every((t) => !t.sel && t.color === offColor),
+      row.map((t) => `${t.label}:${t.sel ? "選" : "-"}:${t.color}`).join(" "));
+    check(`BJ.1 便BJ 正典 ${f}: 「?」の丸はどのタブにも無い(音程には出ない。重心・HNR は選んでいない)`,
+      row.length === 3 && row.every((t) => !t.mark) && !/>\?<\/span>/.test(html));
+  }
+  check("BJ.1 便BJ 正典 CommPerson: 単位の行は音程の ¢(Hz ではない)",
+    /">¢　計測\d+件<\/div>/.test(personDcBF) && !/">Hz　計測\d+件<\/div>/.test(personDcBF));
+  check("BJ.1 便BJ 正典 CommData / CommPerson: 縦軸の目盛は 0 を中心に上下対称の符号付き(音程の線を描いている)",
+    [dataDcBF, personDcBF].every((html) => {
+      const t = [...html.matchAll(/text-anchor="end"[^>]*>([^<]+)<\/text>/g)].map((m) => m[1]);
+      return t.length === 3 && t[1] === "0.0" && t[0].startsWith("+") && t[2] === `-${t[0].slice(1)}`;
+    }));
 
   // --- BF.4 正典のマイページ・人物のページ(便BE) --------------------------------------------------
   const meDcBF = dcBF("CommMyPage.dc.html");

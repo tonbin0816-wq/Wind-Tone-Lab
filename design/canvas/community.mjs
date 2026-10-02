@@ -296,14 +296,24 @@ const na2 = (n) => Math.round(n * 100) / 100;
 // width はそのグラフが置かれる箱の実寸(SVG の実寸 = viewBox。§1.9 の縮小禁止)。
 // 【柱の幅】実装は4指標ぶんの目盛の最大で固定する(R12)。キャンバスは1指標ぶんの
 // ダミーしか持たないので、描いている指標の目盛から測る。
-function noteAxisChart({ saxType = "alto", series, fmt, width }) {
+// 【便BJ 2026-10-02 本人指示】center = 縦のスケールの中心(実装の NoteAxisLineChart は音程だけ 0 を渡す)。
+// 式は App.jsx の noteAxisDomain の2つの枝の写し(中心を持つ: 上下対称 / 持たない: 最小〜最大に 12% の余白)。
+function noteAxisChart({ saxType = "alto", series, fmt, width, center = null }) {
   const labels = naLabels(saxType);
   const N = labels.length;
   const vals = series.flatMap((s) => Object.values(s.byIdx));
-  // noteAxisDomain(中心を持たない指標): 最小〜最大に 12% の余白
-  const minV = Math.min(...vals), maxV = Math.max(...vals);
-  const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
-  const lo = minV - pad, hi = maxV + pad, rng = hi - lo || 1;
+  let lo, hi;
+  if (center !== null) {
+    // noteAxisDomain(中心を持つ指標 = 音程): 中心から一番遠い値までを上下対称に
+    const half = Math.max(...vals.map((v) => Math.abs(v - center))) || 1;
+    hi = center + half; lo = center - half;
+  } else {
+    // noteAxisDomain(中心を持たない指標): 最小〜最大に 12% の余白
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const pad = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.1 || 1;
+    lo = minV - pad; hi = maxV + pad;
+  }
+  const rng = hi - lo || 1;
   const FS = NA_FS, plotH = NA_PLOT_H, padTop = NA_SP2;
   const tickVals = [hi, (hi + lo) / 2, lo];
   const tickTexts = tickVals.map(fmt);
@@ -391,6 +401,22 @@ const ALIGN_NOTE = "計測環境により値全体が一律にずれるため、
 // もう描かない。ALIGN_NOTE を読むのは、当時の記録である改善案の面(CommDataB / C / D)だけ。
 const TERM_HINT = ["重心", "HNR"]; // 用語の説明を持つ指標(src/termTip.jsx の TERM_TEXT の2つ。【便BI 2026-10-02】screens.jsx から移った)
 
+// 【便BJ 2026-10-02 本人指示】指標タブの並びは My Data・リードと同じ「音程・HNR・重心」(左から)、
+// 最初に選ばれているのは一番左(screens.jsx の METRICS[0] = 音程)。**並びは screens.jsx の METRICS から
+// その場で読む**(写しを貼らない。AVATAR_ICONS と同じ扱い)。初期の選択が METRICS[0] でなくなったら止める
+// (読み違えた並びのまま正典を出し直さない)。
+const SCREENS_SRC = readFileSync(SRC + "screens.jsx", "utf8");
+const METRIC_TABS = [...((SCREENS_SRC.match(/\nconst METRICS = \[([\s\S]*?)\n\];/) || [, ""])[1]
+  .matchAll(/\{ key: "(\w+)", label: "([^"]+)", unit: "([^"]+)"/g))].map((m) => ({ key: m[1], label: m[2], unit: m[3] }));
+if (METRIC_TABS.map((m) => m.label).sort().join() !== ["重心", "HNR", "音程"].sort().join()) {
+  throw new Error("screens.jsx から METRICS(重心・HNR・音程)を読めない");
+}
+if ((SCREENS_SRC.match(/const \[metric, setMetric\] = useState\(METRICS\[0\]\.key\);/g) || []).length !== 2) {
+  throw new Error("screens.jsx の2画面(DataScreen / PersonSheet)の最初の指標が METRICS[0] ではない");
+}
+const METRIC_LABELS = METRIC_TABS.map((m) => m.label);
+const METRIC_FIRST = METRIC_TABS[0]; // 最初に選ばれている指標(正典は開いた直後の姿を描く)
+
 // ---- 画面の外枠 ---------------------------------------------------------
 function screen(sel, inner) {
   return `${sprite()}
@@ -422,6 +448,21 @@ const asVals = (arr) => Object.fromEntries(KEYS.map((k, i) => [k, arr[i]]));
 const NA_KEYS = KEYS.map((_, i) => 10 + i);
 const naVals = (arr) => Object.fromEntries(NA_KEYS.map((k, i) => [k, arr[i]]));
 const roundFmt = (v) => Math.round(v).toString(); // 重心(METRICS の digits 0)
+// 【便BJ 2026-10-02 本人指示】最初に選ばれている指標が音程になったので、現状の面(CommData / CommPerson)は
+// 音程の線を描く。**ダミー**。値は generate.mjs(My Data の正典)の音程のダミーから切り出した
+// (pitchPeriod の 7〜24 番 = 平均、pitchDay の 7〜24 番 = 自分、pitchPeriod の 14〜31 番 = 相手)。
+// 3本とも形が違う(この画面の要点は線の形を比べること。重心のダミーと同じ考え方)。
+const pitchAvg = [0.2, 0.9, 1.6, 2.0, 1.5, 0.6, -0.4, -1.3, -2.0, -1.6, -0.7, 0.4, 1.5, 2.6, 3.4, 4.1, 4.5, 3.9];
+const pitchMine = [0.8, 1.4, 2.6, 3.1, 1.8, 0.4, -1.1, -2.4, -3.6, -2.8, -1.2, 0.6, 2.1, 3.8, 5.2, 6.4, 7.1, 6.2];
+const pitchTheir = [-1.3, -2.0, -1.6, -0.7, 0.4, 1.5, 2.6, 3.4, 4.1, 4.5, 3.9, 3.0, 1.9, 0.8, -0.5, -1.7, -3.2, -4.4];
+// 目盛の書式は実装と同じ(screens.jsx の metricFmt: 音程だけ App.jsx の formatSignedCents)。その場で抜く。
+const formatSignedCents = appFn("formatSignedCents", {});
+// 最初の指標ごとの描き方(縦のスケールの中心は実装と同じく音程だけ 0)。重心は便BJ より前の姿。
+const FIRST_FACE = {
+  pitchCentsSigned: { avg: pitchAvg, mine: pitchMine, their: pitchTheir, fmt: formatSignedCents, center: 0 },
+  spectralCentroidHz: { avg: centroidAvg, mine: centroidMine, their: centroidTheir, fmt: roundFmt, center: null },
+}[METRIC_FIRST.key];
+if (!FIRST_FACE) throw new Error(`最初の指標 ${METRIC_FIRST.key} のダミーが無い`);
 // 器の幅(このキャンバスの箱の実寸。SVG は 1:1 で置く)
 //   データのカードの中 = 375 − 14×2(app-root)− 16×2(screen の --sp-4)− 16×2(カードの --sp-4)
 //                        − 10×2(【便BF 便BC の写し】白い台紙の内側 10px。実装の data-avg-inset の padding)
@@ -443,8 +484,8 @@ const PEOPLE = [
 // ---- データ -------------------------------------------------------------
 function buildData() {
   const series = [
-    { label: "みんなの平均", byIdx: naVals(centroidAvg), ...COMPARE_SERIES },
-    { label: "自分", byIdx: naVals(centroidMine), ...MINE_SERIES },
+    { label: "みんなの平均", byIdx: naVals(FIRST_FACE.avg), ...COMPARE_SERIES },
+    { label: "自分", byIdx: naVals(FIRST_FACE.mine), ...MINE_SERIES },
   ];
   const rows = PEOPLE.slice(0, 4).map((p, i, arr) => `          <div style="display: flex; align-items: center; gap: var(--sp-3); padding: 11px 2px; min-height: 47px; border-bottom: ${i === arr.length - 1 ? "none" : "1px solid var(--c-line)"}">
             ${avatar(p.icon, p.color, 34)}
@@ -466,12 +507,13 @@ function buildData() {
           <div style="${EYEBROW}; color: var(--c-on-accent-dim)">みんなの平均</div>
           <div style="${NOTE}; color: var(--c-on-accent-dim)">目安を公開している<span style="${NUM}; font-weight: 700; color: var(--c-on-accent)">12</span>人</div>
         </div>
+        <!-- 【便BJ 2026-10-02 本人指示】並びは 音程・HNR・重心、選んでいるのは一番左の音程(「?」は重心・HNR だけなので出ない)。 -->
         <div style="margin: 10px 0 2px">
-          ${underlineTabs(["重心", "HNR", "音程"], "重心", { onAccent: true, hint: TERM_HINT })}
+          ${underlineTabs(METRIC_LABELS, METRIC_FIRST.label, { onAccent: true, hint: TERM_HINT })}
         </div>
         <div style="margin-top: var(--sp-2); background: var(--c-surface); border-radius: var(--r-1); padding: 10px">
           <div style="display: grid; gap: var(--sp-2)">
-            ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_DATA })}
+            ${noteAxisChart({ series, fmt: FIRST_FACE.fmt, center: FIRST_FACE.center, width: NA_W_DATA })}
             ${legend(series)}
           </div>
         </div>
@@ -773,8 +815,8 @@ function personHead(p, tab) {
 function buildPerson() {
   const p = PEOPLE[0];
   const series = [
-    { label: p.nick, byIdx: naVals(centroidTheir), ...COMPARE_SERIES },
-    { label: "自分", byIdx: naVals(centroidMine), ...MINE_SERIES },
+    { label: p.nick, byIdx: naVals(FIRST_FACE.their), ...COMPARE_SERIES },
+    { label: "自分", byIdx: naVals(FIRST_FACE.mine), ...MINE_SERIES },
   ];
   return personShell(`${personHead(p, "data")}
 
@@ -787,9 +829,10 @@ ${saxTypeRow("A.Sax", ["A.Sax", "T.Sax"])}
 
       <!-- 【便BF 2026-10-01 便BC の写し】切り替えはみんなの平均カードと同じ部品(重心・HNR に「?」)。
            このシートは白いので濃紺の上の色にはしない。凡例の下の一文は吹き出しへ移って消えた。 -->
-      ${underlineTabs(["重心", "HNR", "音程"], "重心", { hint: TERM_HINT })}
-      <div style="${NOTE}">Hz　計測${p.rec}件</div>
-      ${noteAxisChart({ series, fmt: roundFmt, width: NA_W_PERSON })}
+      <!-- 【便BJ 2026-10-02 本人指示】並びは 音程・HNR・重心、選んでいるのは一番左の音程。単位の行も音程の ¢。 -->
+      ${underlineTabs(METRIC_LABELS, METRIC_FIRST.label, { hint: TERM_HINT })}
+      <div style="${NOTE}">${METRIC_FIRST.unit}　計測${p.rec}件</div>
+      ${noteAxisChart({ series, fmt: FIRST_FACE.fmt, center: FIRST_FACE.center, width: NA_W_PERSON })}
       <div style="display: grid; gap: var(--sp-2)">
         ${legend(series)}
       </div>

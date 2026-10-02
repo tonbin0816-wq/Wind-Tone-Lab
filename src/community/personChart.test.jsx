@@ -150,10 +150,14 @@ describe("コミュニティのグラフ ── 横軸はその楽器の音域�
     });
   }
 
+  // 【便BJ 2026-10-02 本人指示】最初に選ばれている指標は音程(以前は重心)。サーバ描画はタブを押せないので
+  // 初期の音程で見る(見出しを出さない作りは指標によらない: CommunityNoteChart はいつも plain)。
   it("見出し(label / unit)は出さない(単位は画面の側が出している)", () => {
     const html = drawPerson();
-    expect(html).toContain("Hz　計測12件");
+    expect(html).toContain("¢　計測12件");
+    expect(html).not.toMatch(/音程\(¢\)/);
     expect(html).not.toMatch(/重心\(Hz\)/);
+    expect(html).not.toContain("Hz　計測12件"); // 最初の指標が重心に戻っていない
   });
 });
 

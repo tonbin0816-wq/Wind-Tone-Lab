@@ -7,6 +7,8 @@ import { createRoot } from "react-dom/client";
 // 【便BC 2026-09-25 本人選定 モック「イ. 吹き出し」】重心と HNR の用語の説明。
 // みんなの平均カード(DataScreen)と人物のページのデータ(PersonSheet)の2箇所を、**実際に描いて押す**(jsdom)。
 //   ・選んでいる指標が重心か HNR のときだけ、字の右に「?」。音程では出ない
+//   ・【便BJ 2026-10-02 本人指示】並びは左から 音程・HNR・重心、最初に選ばれているのは音程(以前は重心)。
+//     重心・HNR の検査は、まずそのタブを押して選んでから見る(pick / openTip)
 //   ・選んでいるタブをもう一度押すと開く / もう一度で閉じる。別のタブを押すと閉じる
 //   ・×・外を触る・Esc でも閉じる
 //   ・文案は一字一句このまま(期待値はここに手で書いた文。画面の定数から読まない)
@@ -82,6 +84,24 @@ const selected = () => tabs().find((t) => t.getAttribute("aria-selected") === "t
 const mark = () => tablist().querySelector("[data-term-mark]");
 const tip = () => host.querySelector("[data-term-tip]");
 const click = async (el) => { await act(async () => { el.click(); }); };
+// 【便BJ 2026-10-02 本人指示】指標タブの並びは My Data・リードと同じ「音程・HNR・重心」(左から)、
+// 最初に選ばれているのは一番左の音程になった(以前は重心)。重心・HNR を見る検査は、**まずそのタブを押して
+// 選んでから**確かめる。押して選んだだけでは吹き出しは開かない(開くのは選んでいるタブをもう一度押したとき)
+// ことも、選ぶたびに見る。
+const pick = async (label) => {
+  expect(tabText(selected())).not.toBe(label); // 選んでいないタブから選ぶ(押す前から選ばれていたら前提が崩れている)
+  await click(tab(label));
+  expect(tabText(selected())).toBe(label);
+  expect(tip()).toBe(null);
+};
+// 選んでから、選んでいるタブをもう一度押して吹き出しを開く
+const openTip = async (label) => {
+  await pick(label);
+  await click(tab(label));
+  expect(tip()).not.toBe(null);
+};
+// 縦軸の目盛(右揃えの <text>)。描いている指標を値で確かめる(タブの見た目だけでなく、グラフの中身)
+const ticks = () => [...host.querySelectorAll('svg text[text-anchor="end"]')].map((t) => t.textContent);
 const tipParts = () => [...tip().children].filter((c) => c.tagName === "DIV");
 // 【便BI 2026-10-02 審査の差し戻し】読み上げ: 名前は見えている字のまま(aria-label を置かない)、
 // 「用語の説明」は aria-describedby の先の文(見せない要素)。名前に「用語の説明」を混ぜていないことも見る。
@@ -94,8 +114,41 @@ const descOf = (el) => {
 
 for (const [place, make] of PLACES) {
   describe(`用語の説明(吹き出し): ${place}`, () => {
+    // 【便BJ 2026-10-02 本人指示】並びは左から 音程・HNR・重心(My Data・リードと同じ)。期待値は手で書いた並び。
+    it("指標タブの並びは左から 音程・HNR・重心(3つだけ)", async () => {
+      await draw(make());
+      expect(tabs().map(tabText)).toEqual(["音程", "HNR", "重心"]);
+    });
+
+    // 【便BJ 2026-10-02 本人指示】最初に選ばれているのは一番左の音程。音程には「?」が出ない。
+    it("最初は音程(一番左)が選ばれていて、グラフも音程(0 を中心に符号付きの目盛)。「?」も説明も吹き出しも無く、押しても開かない", async () => {
+      await draw(make());
+      expect(tabText(selected())).toBe("音程");
+      expect(tabs()[0]).toBe(selected());
+      expect(tabs().filter((t) => t.getAttribute("aria-selected") === "true")).toHaveLength(1);
+      // グラフの中身も音程: 縦のスケールは 0 中心(音程だけ)で、目盛は符号付きの小数1桁(重心なら 1400 台の整数)
+      const t = ticks();
+      expect(t).toHaveLength(3);
+      expect(t[1]).toBe("0.0");
+      expect(t[0]).toMatch(/^\+\d+\.\d$/);
+      expect(t[2]).toBe(`-${t[0].slice(1)}`);
+      // 「?」は出ない。どのタブも説明・開け閉めの属性を持たない
+      expect(mark()).toBe(null);
+      expect(tabs().filter((x) => x.hasAttribute("aria-describedby"))).toHaveLength(0);
+      expect(tabs().filter((x) => x.hasAttribute("aria-expanded"))).toHaveLength(0);
+      expect(selected().getAttribute("aria-label")).toBe(null);
+      expect(tip()).toBe(null);
+      expect(host.textContent).not.toContain(SHARED);
+      // 選んでいる音程を押しても吹き出しは開かず、選択も動かない
+      await click(selected());
+      expect(tip()).toBe(null);
+      expect(tabText(selected())).toBe("音程");
+      expect(mark()).toBe(null);
+    });
+
     it("重心を選んでいると「?」が重心の右に1つ。押す前は吹き出しが無く、揃えの注記は本文に無い", async () => {
       await draw(make());
+      await pick("重心"); // 【便BJ】最初は音程なので、重心を押して選んでから見る
       expect(tabText(selected())).toBe("重心");
       expect(tablist().querySelectorAll("[data-term-mark]")).toHaveLength(1);
       expect(selected().contains(mark())).toBe(true);
@@ -116,6 +169,7 @@ for (const [place, make] of PLACES) {
 
     it("選んでいるタブをもう一度押すと開き、文案は一字一句このまま。もう一度押すと閉じる", async () => {
       await draw(make());
+      await pick("重心"); // 【便BJ】まず重心を選ぶ(この1回目では開かない)
       await click(tab("重心"));
       expect(tip()).not.toBe(null);
       expect(selected().getAttribute("aria-expanded")).toBe("true");
@@ -136,7 +190,7 @@ for (const [place, make] of PLACES) {
 
     it("開いたまま別のタブ(HNR)を押すと閉じる。HNR でも「?」から同じように開き、HNR の文案", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ】重心を選んでから、もう一度押して開く
       expect(tip()).not.toBe(null);
       await click(tab("HNR"));
       expect(tabText(selected())).toBe("HNR");
@@ -151,6 +205,8 @@ for (const [place, make] of PLACES) {
 
     it("音程では「?」が出ず、選んでいる音程を押しても吹き出しは開かない", async () => {
       await draw(make());
+      // 【便BJ 2026-10-02 本人指示】音程は最初から選ばれている。重心を選んでから音程へ戻した場合も同じことを見る
+      await pick("重心");
       await click(tab("音程"));
       expect(tabText(selected())).toBe("音程");
       expect(mark()).toBe(null);
@@ -166,7 +222,7 @@ for (const [place, make] of PLACES) {
 
     it("× で閉じる", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       const x = tip().querySelector('button[aria-label="用語の説明を閉じる"]');
       expect(x).toBeTruthy();
       await click(x);
@@ -175,17 +231,18 @@ for (const [place, make] of PLACES) {
 
     it("吹き出しの外を触ると閉じる(吹き出しの中を触っても閉じない)", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       await act(async () => { tipParts()[1].dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       expect(tip()).not.toBe(null);
       await act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       expect(tip()).toBe(null);
     });
 
-    // 【便BC 審査】内側とみなすのは吹き出しとタブのボタンだけ。タブ列の空いたところ(「音程」より右の帯)は外。
+    // 【便BC 審査】内側とみなすのは吹き出しとタブのボタンだけ。タブ列の空いたところ(一番右のタブより右の帯。
+    // 【便BJ 2026-10-02】並びが替わり、一番右は「重心」になった)は外。
     it("タブ列の空いたところ(tablist 自体)を触ると閉じる。タブのボタン(字の上)を触っても閉じない", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       await act(async () => { selected().querySelector("span").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       expect(tip()).not.toBe(null);
       await act(async () => { tablist().dispatchEvent(new Event("pointerdown", { bubbles: true })); });
@@ -194,7 +251,7 @@ for (const [place, make] of PLACES) {
 
     it("× で閉じるとフォーカスは選んでいるタブへ戻る(body に落とさない)", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       const x = tip().querySelector('button[aria-label="用語の説明を閉じる"]');
       x.focus();
       expect(document.activeElement).toBe(x);
@@ -206,6 +263,7 @@ for (const [place, make] of PLACES) {
 
     it("フォーカスが吹き出しとタブの外へ出たら閉じる(キーボードだけの操作で裏に残さない)。その後の Esc はシートへ届く", async () => {
       await draw(make());
+      await pick("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから
       selected().focus();
       await click(tab("重心"));
       // 中(× / タブ)へ移っても閉じない
@@ -232,7 +290,7 @@ for (const [place, make] of PLACES) {
     // 【便BC 審査】「浮かぶ」と「上向きの三角」。流れの中に置くとグラフを押し下げ、三角が下向きだとタブを指さない。
     it("吹き出しは浮かぶ(absolute・タブ列の真下)。三角は上向き(上辺から外へ出て、下辺だけが塗り)", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       expect(tip().style.position).toBe("absolute");
       expect(tip().style.top).toBe("100%");
       expect(tip().parentElement.style.position).toBe("relative");
@@ -248,7 +306,7 @@ for (const [place, make] of PLACES) {
 
     it("Esc で閉じる。Esc はそこで止まり、window(シートの Esc)へは届かない", async () => {
       await draw(make());
-      await click(tab("重心"));
+      await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
       let reachedWindow = 0;
       const onWin = (e) => { if (e.key === "Escape") reachedWindow += 1; };
       window.addEventListener("keydown", onWin);
@@ -270,7 +328,7 @@ describe("横スワイプでページが替わったら閉じる(便BC 審査)",
   it("平均カードが裏へ回る(active=false)と閉じる。表へ戻っても閉じたまま", async () => {
     const at = (active) => <DataScreen users={USERS} ideals={IDEALS} myIdeals={MINE} myUid="me" saxTypes={["alto"]} tuningHz={TUNING} active={active} />;
     await draw(at(true));
-    await click(tab("重心"));
+    await openTip("重心"); // 【便BJ 2026-10-02 本人指示】最初は音程。重心を選んでから、もう一度押して開く
     expect(tip()).not.toBe(null);
     await draw(at(false));
     expect(tip()).toBe(null);
@@ -310,8 +368,14 @@ describe("濃紺の上の切り替えは平均カードだけ(便BC モック「
     // 音程のデータが無い → 「この指標のデータがありません」も台紙の中
     const noPitch = IDEALS.map((x) => ({ ...x, notes: Object.fromEntries(Object.entries(x.notes).map(([k, n]) => [k, { spectralCentroidHz: n.spectralCentroidHz, hnrDb: n.hnrDb }])) }));
     await draw(<DataScreen users={USERS} ideals={noPitch} myIdeals={{}} myUid="me" saxTypes={["alto"]} tuningHz={TUNING} />);
-    // 自分の線が無いときの「お待ちしています」は残る(台紙の中)
+    // 【便BJ 2026-10-02 本人指示】最初は音程 → 開いた直後から「この指標のデータがありません」が台紙の中
+    expect(tabText(selected())).toBe("音程");
+    expect(host.querySelector("[data-avg-inset]").textContent).toContain("この指標のデータがありません");
+    expect(host.querySelector("[data-avg-inset]").textContent).not.toContain(WAIT);
+    // 重心を選ぶと: 自分の線が無いときの「お待ちしています」は残る(台紙の中)
+    await pick("重心");
     expect(host.querySelector("[data-avg-inset]").textContent).toContain(WAIT);
+    expect(host.querySelector("[data-avg-inset]").textContent).not.toContain("この指標のデータがありません");
     await click(tab("音程"));
     expect(host.querySelector("[data-avg-inset]").textContent).toContain("この指標のデータがありません");
   });
