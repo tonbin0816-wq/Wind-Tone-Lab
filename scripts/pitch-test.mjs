@@ -126,6 +126,25 @@ function srcOfFn(source, name) {
   throw new Error(`function ${name}: unbalanced braces`);
 }
 
+// 【便BU 2026-10-03 本人裁定(案B)】ReedsTab の広い木(iPad の2ペイン)は `if (wide) {` から始まる3つ目の return。
+// iPhone の木(狭い木の2つの return)についての検査は、この塊を**外した** ReedsTab(reedsTabNarrow)を読む
+// ── 狭い木は1文字も変えていないので、以前の主張(「完了」の綴りは1つ・右端の行は1つ …)はそのまま狭い木について立つ。
+// 外した塊そのものは「[便BU]」の節が見る(子タブの行が狭い木と同じ綴りの写しであること・作法は兄弟 など)。
+// 塊が見つからないとき(広い木が消えた)は "" を返し、[便BU] の節がそれで落ちる。
+function reedsTabWideBlock(source) {
+  const tab = srcOfFn(source, "ReedsTab");
+  const s = tab.indexOf("\n  if (wide) {\n");
+  if (s === -1) return "";
+  const e = tab.indexOf("\n  }\n", s + 1);
+  if (e === -1) throw new Error("ReedsTab: if (wide) { の閉じが見つからない");
+  return tab.slice(s, e + 4);
+}
+function reedsTabNarrow(source) {
+  const tab = srcOfFn(source, "ReedsTab");
+  const w = reedsTabWideBlock(source);
+  return w ? tab.replace(w, "\n") : tab;
+}
+
 const code = [
   extractConst("NOTE_NAMES"),
   extractConst("NOTE_NAMES_SHARP"),
@@ -6951,7 +6970,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   {
     // 2つの return がそれぞれ名乗ることを綴りで固定する。
     // **Top が .surf-card に化ける変異**(本人が名指しで除外した画面が裏返る)はここで落ちる。
-    const tab = srcOfFn(src, "ReedsTab");
+    // 【便BU 2026-10-03】ここは iPhone の木(狭い木の2つの return)について見る。広い木(2ペイン)の作法は [便BU] の節。
+    const tab = reedsTabNarrow(src);
     check("D-29 §2.1: リード個体詳細はカードの作法(.surf-card)を名乗る",
       /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<SwipeBackArea /.test(tab));
     // Top は if (evaluatingReed) の閉じ **より後ろ**の return。本人が名指しで除外した画面。
@@ -6984,17 +7004,24 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     //   ・コミュニティ(2026/08/28 本人裁定。DESIGN-SYSTEM §6.6 の表。2026/09/06 に貼り込み済み)…
     //     コミュニティタブの全画面がカード(カード +1)
     // この2つは**別の周で並行して入り**、main で合流した。合流の時点で 2 + 5 = 7。
+    // 【便BU 2026-10-03 本人裁定(案B)】iPad の2ペイン(ReedsTab の広い木)が3つ名乗る:
+    //   左ペイン = 一覧(罫)/ 右ペイン = 個体詳細(カード)/ 比較の列(罫)。iPhone の木には1つも現れない。
+    //   iPhone の木の数(罫2 + カード5 = 7)は変わらないので、**広い木の分を引いて**今までの数で見る
+    //   (広い木の3つの内訳は [便BU] の節が見る。合計だけで見ると左右の取り違えが素通りするため、ここでは足し込まない)。
+    const wideBU = reedsTabWideBlock(src);
+    const wideRuleBU = (wideBU.match(/className="surf-rule"/g) || []).length;
+    const wideCardBU = (wideBU.match(/className="surf-card"/g) || []).length;
     const roots = tagsWithClass("surf-rule").length + tagsWithClass("surf-sunk").length
-      + tagsWithClass("surf-card").length;
+      + tagsWithClass("surf-card").length - wideRuleBU - wideCardBU;
     check("統合: 作法を名乗る根は7箇所(罫2 + カード5)", roots === 7, `${roots}箇所`);
     // 【D-30 2026/09/03】すべてのセッションがカードへ移ったので **罫3 → 罫2 / カード3 → カード4**。
     // 【コミュニティ 2026/08/28】さらにカードが1つ増えて **カード5 / 合計7**。
     // **内訳の2本を必ず対で見る** ── 合計だけを見ていると
     // 「罫とカードが入れ替わった」変異が丸ごと素通りする。
     check("D-30: 罫の根は2箇所(計測タブ Top / リードタブ Top)",
-      tagsWithClass("surf-rule").length === 2, `${tagsWithClass("surf-rule").length}箇所`);
+      tagsWithClass("surf-rule").length - wideRuleBU === 2, `${tagsWithClass("surf-rule").length}箇所(うち広い木 ${wideRuleBU})`);
     check("統合: カードの根は5箇所(My Data・分析 / セッション詳細 / リード個体詳細 / すべてのセッション / コミュニティ)",
-      tagsWithClass("surf-card").length === 5, `${tagsWithClass("surf-card").length}箇所`);
+      tagsWithClass("surf-card").length - wideCardBU === 5, `${tagsWithClass("surf-card").length}箇所(うち広い木 ${wideCardBU})`);
     // 【§6.6 が名指しした最悪の形】.surf-card と .surf-rule の**入れ子**。
     // 同じタグに両方付ける形は下の D-10 の検査が見ているが、**祖先と子孫**の入れ子は
     // そちらでは捕まらない。入れ子は2通りの起き方をするので、両方を塞ぐ。
@@ -7062,10 +7089,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // (My Data・分析 / セッション詳細 / すべてのセッション)。
       // 【コミュニティ】アプリの根(WindToneLabPhaseMode)は**罫(計測タブ)とカード(コミュニティ)を
       // 1つずつ**持つ。罫を名乗るのはそこと ReedsTab の Top の2つだけ。
+      // 【便BU 2026-10-03 本人裁定(案B)】ReedsTab の広い木(iPad の2ペイン)が 罫2・カード1 を足した
+      // (左ペイン = 一覧の罫 / 右ペイン = 個体詳細のカード / 比較の列の罫)。名乗る**関数**は3つのまま。
       check("統合: 作法のクラスを名乗るのは3関数だけ(アプリの根 / ReedsTab / AnalysisLabView)",
         owners.sort().join(" ") === [
           "AnalysisLabView:card", "AnalysisLabView:card", "AnalysisLabView:card",
           "ReedsTab:card", "ReedsTab:rule",
+          "ReedsTab:rule", "ReedsTab:card", "ReedsTab:rule",
           "WindToneLabPhaseMode:rule", "WindToneLabPhaseMode:card",
         ].sort().join(" "), owners.join(" "));
     }
@@ -9936,16 +9966,20 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 【D-6 2026/08/23 本人指示で書き換え】子タブは**共通部品 SubTabs**になった(データタブとリードタブの
       // 2つの写しを1つに寄せた)。選択中だけ濃い太字、という正典 .subtabs .on の芯は不変。
       // 「どちらのタブか」は呼び手が渡す items で決まるので、ここは**呼び手を固定する**。
+      // 【便BU 2026-10-03】iPhone の木(狭い木)で見る。広い木の子タブの行は [便BU] の節が「狭い木と同じ綴り」で見る。
       check("N-5 → D-6: リードタブの子タブは共通部品 SubTabs から出ている",
-        /<SubTabs\s*\r?\n\s*items=\{\[\{ key: "register", label: "登録" \}, \{ key: "compare", label: "比較" \}\]\}/.test(srcOfFn(src, "ReedsTab")));
+        /<SubTabs\s*\r?\n\s*items=\{\[\{ key: "register", label: "登録" \}, \{ key: "compare", label: "比較" \}\]\}/.test(reedsTabNarrow(src)));
       // 【D-6 2026/08/23 本人指示で書き換え】同上。データタブの子タブも SubTabs から出る。
       check("N-6 → D-6: データタブの子タブは共通部品 SubTabs から出ている",
         /<SubTabs\s*\r?\n\s*items=\{\[\{ key: "mydata", label: "My Data" \}, \{ key: "analysis", label: "分析" \}\]\}/.test(srcOfFn(src, "AnalysisLabView")));
       // 【D-6 の芯】2つの子タブは**同じ部品**から出る。片方だけ大きさが変わる事故を構造的に防ぐ。
+      // 【便BU 2026-10-03 本人裁定(案B)】リードタブの広い木(iPad の2ペイン)も同じ SubTabs を呼ぶので、呼び手は 2 + 1。
+      // 広い木の呼び手は狭い木と同じ綴りの写し([便BU] の節が見る)。数えるのは「別の部品が増えていない」こと。
       check("D-6: 子タブの綴りは1つだけ(2画面が同じ部品を見ている)",
-        (codeOf(src).match(/<SubTabs\b/g) || []).length === 2
+        (codeOf(src).match(/<SubTabs\b/g) || []).length - (codeOf(reedsTabWideBlock(src)).match(/<SubTabs\b/g) || []).length === 2
+        && (codeOf(reedsTabWideBlock(src)).match(/<SubTabs\b/g) || []).length === 1
         && (codeOf(src).match(/function SubTabs\b/g) || []).length === 1,
-        `呼び手 ${(codeOf(src).match(/<SubTabs\b/g) || []).length} / 定義 ${(codeOf(src).match(/function SubTabs\b/g) || []).length}`);
+        `呼び手 ${(codeOf(src).match(/<SubTabs\b/g) || []).length}(うち広い木 ${(codeOf(reedsTabWideBlock(src)).match(/<SubTabs\b/g) || []).length}) / 定義 ${(codeOf(src).match(/function SubTabs\b/g) || []).length}`);
       // 本人指摘「2つの種類のタブが同じ見た目で存在していてわかりにくい」への答え。
       // **子タブと指標タブが違う大きさであること**が、この指摘が直ったことの証拠。
       {
@@ -10128,12 +10162,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // (緩めていない): 文言は「完了」ただ1つで、押すと編集中が終わること。
       // 旧モード(listMode / キャンセル)の綴りは**依然として0件**であること ──
       // 「モードが戻った」のではなく「編集中の旗1つになった」ことを固定する。
+      // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
       check("F-102 / AB-2: 出口は「完了」1つで、押すと編集中が終わる(旧モードの綴りは0件)",
-        (codeOf(srcOfFn(src, "ReedsTab")).match(/>完了<\/span>/g) || []).length === 1
-        && /onClick=\{exitListEditing\}/.test(codeOf(srcOfFn(src, "ReedsTab")))
-        && !/キャンセル/.test(codeOf(srcOfFn(src, "ReedsTab")))
-        && !/listMode/.test(codeOf(srcOfFn(src, "ReedsTab"))),
-        (codeOf(srcOfFn(src, "ReedsTab")).match(/キャンセル|listMode/g) || []).join(" / ") || "0件");
+        (codeOf(reedsTabNarrow(src)).match(/>完了<\/span>/g) || []).length === 1
+        && /onClick=\{exitListEditing\}/.test(codeOf(reedsTabNarrow(src)))
+        && !/キャンセル/.test(codeOf(reedsTabNarrow(src)))
+        && !/listMode/.test(codeOf(reedsTabNarrow(src))),
+        (codeOf(reedsTabNarrow(src)).match(/キャンセル|listMode/g) || []).join(" / ") || "0件");
       // 「開封日を編集」という入口が「…」側に残っていないこと(モードごと消したことの裏取り)。
       check("F-80: listMode に \"dateEdit\" が残っていない(モードごと消した)",
         !/"dateEdit"/.test(codeOf(src)), (codeOf(src).match(/"dateEdit"/g) || []).join(",") || "0件");
@@ -10154,7 +10189,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       //   ・その中身は「完了」ただ1つであること(「…」も削除の実行も戻っていない)
       // 空の器も描かない ── 条件が真でないと行そのものが出ない形を保つ。
       {
-        const tab = srcOfFn(src, "ReedsTab");
+        // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+        const tab = reedsTabNarrow(src);
         check("子タブ行の右端は編集中のときだけ出る(常に出る器を作っていない)",
           /\{reedsSubTab === "register" && listEditing && \(/.test(tab)
           && (tab.match(/marginLeft: "auto"/g) || []).length === 1,
@@ -10540,8 +10576,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           !/borderRadius: 999, padding: "11px 26px"/.test(detail)
           && !/<FloatingAction[^>]*\slabel=/.test(codeOf(detail))
           && !/\slabel="[^"]*"/.test(codeOf(detail)));
+        // 【便BU 2026-10-03】ボタンは actionsActive の門の中に入った(2ペインで比較を見ている間は描かない)。
+        // 余白(FloatingActionSpacer)は門の外で常に置く。間に挟まってよいのは注記と門の開きだけ。
         check("D-4: 浮かせるボタンの下に潜らないよう、直前に高さぶんの余白がある",
-          /<FloatingActionSpacer \/>\s*\r?\n\s*<FloatingAction/.test(detail));
+          /<FloatingActionSpacer \/>\s*\r?\n\s*(?:\{\/\*[^\n]*\*\/\}\s*\r?\n\s*)?\{actionsActive && \(\s*\r?\n\s*<FloatingAction/.test(detail));
         // 渡す側: 計測タブのリードを選んでからタブを移す(現行の goToMeasure と同じ2手)
         // 【便AY 2026-09-25 本人指示 D3】「計測へ」は計測タブの楽器もそのリードの楽器にしてから移る。
         // 2手 → 3手(リードを選ぶ → 楽器をそのリードの楽器に → 計測タブへ移る)。楽器は reedSaxTypeOf で読む。
@@ -15291,7 +15329,8 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
 
   // --- 25.8 落としていないこと(横スワイプ・スクロール位置・箱グルーピング)------
   {
-    const tab = srcOfFn(src, "ReedsTab");
+    // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+    const tab = reedsTabNarrow(src);
     check("登録⇄比較の横スワイプは残っている", /<SwipePager/.test(tab));
     check("詳細からの右スワイプで一覧へ・左スワイプで比較へ",
       /<SwipeBackArea onBack=\{closeReed\} onForward=\{openCompareFromReed\}>/.test(tab));
@@ -18314,8 +18353,11 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       && (src.match(/0 8px 24px rgba\(15,23,42,0\.18\)/g) || []).length >= 3);
     // 位置: 右端は本文の左右余白、下端は下部ナビ(+安全域)+ 既存の余白トークン。直書きの数値を作らない
     // 【便BT 2026-10-03 本人裁定(§7-(2) ア)】右端は列(--page-max-w)の右下。375 では max() が --page-pad-right を選ぶ(今と同じ値)。
+    // 【便BU 2026-10-03 本人裁定(案B)】右端の式は三項(pane = "left" / "right" / 既定)になり、style は right を読む。
+    // 既定(列の右下)の式は便BT のまま。左右のペインの式は [便BU] の節が値で見る。
     check("31.4 右端は本文の左右余白のトークン、下端はナビ+安全域+既存の余白トークン",
-      /right: "max\(var\(--page-pad-right\), calc\(\(100% - var\(--page-max-w\)\) \/ 2\)\)",/.test(fab)
+      /\n\s*: "max\(var\(--page-pad-right\), calc\(\(100% - var\(--page-max-w\)\) \/ 2\)\)";\n/.test(fab)
+      && /\n\s*right,\n\s*bottom: `calc/.test(fab)
       && /bottom: `calc\(var\(--page-bottom-gap\) \+ \$\{FLOAT_ACTION_GAP\}\)`,/.test(fab)
       && /const FLOAT_ACTION_GAP = "var\(--sp-3\)";/.test(src));
     check("31.4 位置に px の直書きが無い(トークンだけで書かれている)",
@@ -27367,10 +27409,11 @@ console.log("========== 検証67: SubTabs の children / 名札の左寄せ ====
   // 【AB-2 2026-09-21 本人指示】編集中の出口「完了」が戻り、67.1 の芯
   // (SubTabs が children を捨てていない)は**実際に children を載せる使い手**で見られるようになった。
   // 事実へ向け直す: 右端に載るのは編集中の「完了」1つだけで、「…」は0件のまま。
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
   check("67.1 / AB-2 リードタブの右端に載るのは編集中の「完了」1つだけ(「…」は0件)",
     /<\/SubTabs>/.test(src)
-    && (codeOf(srcOfFn(src, "ReedsTab")).match(/>完了<\/span>/g) || []).length === 1
-    && (codeOf(srcOfFn(src, "ReedsTab")).match(/marginLeft: "auto"/g) || []).length === 1
+    && (codeOf(reedsTabNarrow(src)).match(/>完了<\/span>/g) || []).length === 1
+    && (codeOf(reedsTabNarrow(src)).match(/marginLeft: "auto"/g) || []).length === 1
     && (src.match(/aria-label="その他の操作"/g) || []).length === 0,
     `その他の操作 ${(src.match(/aria-label="その他の操作"/g) || []).length}件`);
   const lbl67 = (src.match(/const REED_SHEET_ROW_LABEL_STYLE = \{[^\n]*\};/) || [""])[0];
@@ -27585,7 +27628,8 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   const app71 = codeOf(src);
   const sheet71 = codeOf(srcOfFn(src, "ReedBoxSheet"));
   const editSheet71 = codeOf(srcOfFn(src, "SessionEditSheet"));
-  const tab71 = codeOf(srcOfFn(src, "ReedsTab"));
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+  const tab71 = codeOf(reedsTabNarrow(src));
   const view71 = codeOf(srcOfFn(src, "ReedRegisterView"));
   // CSS はブロックコメントだけを潰す(セレクタに混ざるため)
   const css71 = read71("src", "index.css").replace(/\/\*[\s\S]*?\*\//g, " ");
@@ -28505,7 +28549,8 @@ console.log("\n========== 検証76: 便R 後半-後半 リードの段階選択 
 {
   const app76 = codeOf(src);
   const pick76 = codeOf(srcOfFn(src, "ReedPickSheet"));
-  const tab76 = codeOf(srcOfFn(src, "ReedsTab"));
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+  const tab76 = codeOf(reedsTabNarrow(src));
   const edit76 = codeOf(srcOfFn(src, "SessionEditSheet"));
   const view76 = codeOf(srcOfFn(src, "ReedRegisterView"));
   const css76 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
@@ -29638,7 +29683,8 @@ console.log("\n========== 検証81: AA-1 リードの1検索 / AA-2 カードの
   const row81 = codeOf(srcOfFn(src, "ReedSearchRow"));
   const grid81 = codeOf(srcOfFn(src, "ReedTileGrid"));
   const view81 = codeOf(srcOfFn(src, "ReedRegisterView"));
-  const tab81 = codeOf(srcOfFn(src, "ReedsTab"));
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+  const tab81 = codeOf(reedsTabNarrow(src));
   const count81 = (t, re) => (t.match(re) || []).length;
 
   check("81.0 切り出しが空回りしていない",
@@ -30075,7 +30121,8 @@ console.log("\n========== 検証82: 便AF 鉛筆は綴りごと無い / AB-2 長
   const app82 = codeOf(src);
   const grid82 = codeOf(srcOfFn(src, "ReedTileGrid"));
   const view82 = codeOf(srcOfFn(src, "ReedRegisterView"));
-  const tab82 = codeOf(srcOfFn(src, "ReedsTab"));
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+  const tab82 = codeOf(reedsTabNarrow(src));
   const cssRaw82 = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
   const css82 = cssRaw82.replace(/\/\*[\s\S]*?\*\//g, "");
   const count82 = (t, re) => (t.match(re) || []).length;
@@ -30663,7 +30710,8 @@ console.log("========== 検証85: 便AY リードの楽器種別 ── 配線�
 {
   const app85 = codeOf(src);
   const meas85 = codeOf(srcOfFn(src, "MeasureView"));
-  const tab85 = codeOf(srcOfFn(src, "ReedsTab"));
+  // 【便BU 2026-10-03】iPhone の木(狭い木)で見る(広い木 = iPad の2ペインの子タブの行は [便BU] の節が「狭い木と同じ綴りの写し」で見る)。
+  const tab85 = codeOf(reedsTabNarrow(src));
   const cmp85 = codeOf(srcOfFn(src, "ReedCompareTab"));
   const edit85 = codeOf(srcOfFn(src, "SessionEditSheet"));
   const sdv85 = codeOf(srcOfFn(src, "SessionDetailView"));
@@ -31709,7 +31757,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const evalCss = (expr, W) => new Function(`return ${expr
     .replace(/var\(--page-pad-right\)/g, "14").replace(/var\(--page-max-w\)/g, String(parseFloat(tokOf(cssBTn, "--page-max-w"))))
     .replace(/100%/g, String(W)).replace(/(\d)px/g, "$1").replace(/\bmax\(/g, "Math.max(").replace(/\bcalc\(/g, "(")};`)();
-  const fabRight = (/right: "([^"]+)",/.exec(srcOfFn(src, "FloatingAction")) || [])[1] || "";
+  // 【便BU 2026-10-03】右端の式は三項になった(pane = "left" / "right" / 既定)。ここは既定(列の右下)の式を取る。
+  const fabRightAll = /const right = pane === "left" \? "([^"]+)"\s*\n\s*: pane === "right" \? "([^"]+)"\s*\n\s*: "([^"]+)";/.exec(srcOfFn(src, "FloatingAction")) || [];
+  const fabRight = fabRightAll[3] || "";
   check("BT.4 浮かせるボタンの右端は列の右下: 375 / 440 では 14(今と同じ)・820 → 90・1032 → 196・1180 → 270",
     fabRight.length > 0 && evalCss(fabRight, 375) === 14 && evalCss(fabRight, 440) === 14
     && evalCss(fabRight, 820) === 90 && evalCss(fabRight, 1032) === 196 && evalCss(fabRight, 1180) === 270,
@@ -31761,6 +31811,159 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && rf.fitRingDiameter({ availH: 749, othersH: 420, maxD: 440, fullD: 440, minD: 236 }) === 329
       && rf.ringFitArgs({ availH: 1, frameH: 0, spacerH: 0, ringH: 0, boxW: 347, fullD: 440, minD: 236 }).maxD === 347);
   }
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[便BU] iPad: リードタブの2ペイン(左 = 一覧・右 = 個体詳細)");
+  // 【便BU 2026-10-03 本人裁定(案B)】リードタブは2ペイン。iPhone の見た目は縦向きで 1px も変えない
+  // (狭い木の2つの return は1文字も触らず、広い木を `if (wide) {` の3つ目の return として足した)。
+  // 【統括の裁定】タイルは5列固定(REED_GRID_COLS は触らない)/ 浮かせるボタンは列・ペインの右下(＋ は左ペイン・計測は右ペイン。重ならない)。
+  // 期待値は仕様(ipad-spec.md §3・付録A)の寸法と手計算で書く。定数から逆算しない(器の幅から左右のペインの右端を**別に**組み立てて突き合わせる)。
+  // 実際に描いて確かめるのは src/wideLayoutReeds.test.jsx(広い木 = matchMedia の作り物)。
+  // 【守っていないもの】実寸(Chrome の実測は報告)。iPad 実機の安全域・Split View の実際の幅・指でのスワイプの感触は実機待ち。
+  const appBU = src;
+  const tabBU = srcOfFn(appBU, "ReedsTab");
+  const wideBU = reedsTabWideBlock(appBU);
+  const narrowBU = reedsTabNarrow(appBU);
+  const cssBU = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const scrBU = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+
+  // --- BU.1 広い木は3つ目の return として「足した」。狭い木の2つの return の前に置く ------------------------
+  check("BU.1 ReedsTab に広い木(if (wide) { … return … })があり、狭い木の2つの return(個体詳細 / Top)より前に在る",
+    wideBU.length > 0 && /\n {4}return \(/.test(wideBU)
+    && tabBU.indexOf(wideBU) >= 0 && tabBU.indexOf(wideBU) < tabBU.indexOf("if (evaluatingReed) {"),
+    `広い木 ${wideBU.length}文字`);
+  check("BU.1 狭い木(広い木を外した ReedsTab)の return は2つのまま(個体詳細 / Top)・広い木の return は1つ",
+    (narrowBU.match(/\n\s*return \(/g) || []).length === 2 && (wideBU.match(/\n\s*return \(/g) || []).length === 1);
+  check("BU.1 wide は App から渡される1つの判定(既定 false = 渡さなければ狭い木)",
+    /\n\s*wide = false,\n\s*\} = props;/.test(tabBU)
+    && /<ReedsTab[\s\S]{0,1500}?\n\s*wide=\{wide\}\n\s*\/>/.test(srcOfFn(appBU, "WindToneLabPhaseMode")));
+
+  // --- BU.2 器と作法: 器(--pane-max-w)の中に 2ペイン(左 罫・右 カード)と比較の列(罫)。入れ子にしない ----------
+  check("BU.2 器は --pane-max-w で中央(作法のクラスを名乗らない)",
+    /return \(\s*\n\s*<div>\s*\n\s*<div style=\{\{ maxWidth: "var\(--pane-max-w\)", margin: "0 auto" \}\}>/.test(wideBU));
+  check("BU.2 登録のページは .pane-2 の中に 左 = .surf-rule(一覧)・右 = .surf-card + data-noswipe(個体詳細)が兄弟",
+    /<div className="pane-2">\s*\n\s*<div className="surf-rule">\s*\n\s*<ReedRegisterView\b[\s\S]*?\/>\s*\n\s*<\/div>\s*\n\s*<div className="surf-card" data-noswipe>/.test(wideBU));
+  check("BU.2 比較は .surf-rule の中の列(--page-max-w)。2ペインにしない",
+    /<div className="surf-rule">\s*\n\s*<div style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\}>\s*\n\s*<ReedCompareTab /.test(wideBU));
+  check("BU.2 広い木が名乗る作法は 罫2(一覧・比較)+ カード1(個体詳細)だけ",
+    (wideBU.match(/className="surf-rule"/g) || []).length === 2 && (wideBU.match(/className="surf-card"/g) || []).length === 1
+    && (codeOf(wideBU).match(/surf-(rule|card|sunk)/g) || []).length === 3);
+  check("BU.2 右ペインは SwipeBackArea で包まない(戻る先が無い)・一覧のスクロール位置は控えない",
+    !/SwipeBackArea/.test(codeOf(wideBU)) && !/listScrollYRef/.test(codeOf(wideBU))
+    && /const openReedInPane = \(id\) => setEvaluatingReedId\(id\);/.test(tabBU));
+  check("BU.2 .pane-2 は左右 1:1(minmax(0, 1fr) ×2)・間 --sp-5・上寄せ(index.css に1つ)",
+    /\.pane-2 \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\); column-gap: var\(--sp-5\); align-items: start; \}/.test(cssBU)
+    && (cssBU.match(/\.pane-2\b/g) || []).length === 1);
+
+  // --- BU.3 子タブの行・「完了」・楽器のチップの行・SwipePager は狭い木の綴りの写し(ずれない)------------------
+  {
+    const flat = (t) => codeOf(t).replace(/\{\s*\}/g, "").replace(/\s+/g, " ").trim();
+    const subOf = (t) => { const a = t.indexOf("<SubTabs"); const b = t.indexOf("</SubTabs>"); return a >= 0 && b > a ? t.slice(a, b + 10) : ""; };
+    const pagerHead = (t) => (/<SwipePager\s*\n\s*index=\{reedsSubTab === "compare" \? 1 : 0\}\s*\n\s*onIndexChange=\{\(i\) => setReedsSubTab\(i === 1 \? "compare" : "register"\)\}\s*\n\s*>/.exec(t) || [""])[0].replace(/\s+/g, " ");
+    const wideSub = flat(subOf(wideBU)); const narrowSub = flat(subOf(narrowBU));
+    check("BU.3 広い木の子タブの行(「完了」を含む)は狭い木と同じ綴り(体裁・出す条件・押す一手が同じ)",
+      wideSub.length > 200 && wideSub === narrowSub, `${wideSub.length} / ${narrowSub.length}`);
+    check("BU.3 楽器のチップの行は子タブの行の下に1つ・SwipePager の開き方も狭い木と同じ",
+      (wideBU.match(/<ReedSaxChipRow value=\{listSax\} onPick=\{setListSax\} \/>/g) || []).length === 1
+      && pagerHead(wideBU).length > 0 && pagerHead(wideBU) === pagerHead(narrowBU));
+  }
+
+  // --- BU.4 右に出すリード(導出)と、ペインへの配線 ---------------------------------------------------------
+  {
+    const deriv = (/\n(\s*const paneSaxReeds = reedsOfSax\(reeds, listSax\);\n\s*const paneHas = [^\n]+\n\s*const paneReedId = [^\n]+\n\s*const paneReed = [^\n]+)\n/.exec(tabBU) || [])[1] || "";
+    check("BU.4 右に出すリードは導出(押したリード → 計測タブで選んでいるリード → 空)。どちらも見ている楽器のリードだけ",
+      /const paneHas = \(id\) => id != null && paneSaxReeds\.some\(\(r\) => r\.id === id\);/.test(deriv)
+      && /const paneReedId = !wide \? null : paneHas\(evaluatingReedId\) \? evaluatingReedId : paneHas\(selectedReedId\) \? selectedReedId : null;/.test(deriv));
+    // 実行: 本物の reedsOfSax / reedSaxTypeOf で導出を走らせる(楽器の既定・知らない値の扱いも本物のまま)
+    const run = new Function("SAX_PRESETS", `${extractConst("REED_SAX_TYPE_DEFAULT")}
+      ${srcOfFn(appBU, "isKnownSaxType")} ${srcOfFn(appBU, "reedSaxTypeOf")} ${srcOfFn(appBU, "reedsOfSax")}
+      return (reeds, listSax, wide, evaluatingReedId, selectedReedId) => { ${deriv} return paneReed ? paneReed.id : null; };`)({ soprano: {}, alto: {}, tenor: {}, baritone: {} });
+    const R = [{ id: "a1", saxType: "alto" }, { id: "a2", saxType: "alto" }, { id: "t1", saxType: "tenor" }, { id: "n1" }];
+    const got = [
+      run(R, "alto", false, "a1", "a2"),   // 狭い: 右ペインは無い
+      run(R, "alto", true, "a1", "a2"),    // 押したリードが勝つ
+      run(R, "alto", true, null, "a2"),    // 押していなければ計測タブのリード
+      run(R, "tenor", true, "a1", "t1"),   // 押したリードが別の楽器 → 計測タブのリード(この楽器)
+      run(R, "tenor", true, "a1", "a2"),   // どちらも別の楽器 → 空
+      run(R, "alto", true, "gone", null),  // 消したリード → 空
+      run(R, "alto", true, "n1", null),    // 楽器を持たないリードは alto とみなす(本物の reedSaxTypeOf)
+    ];
+    check("BU.4 実行: 狭い → null / 押した a1 / 選んでいる a2 / 別の楽器の押したリードは外れて t1 / 両方外れて空 / 消したリードは空 / 楽器なしは alto",
+      JSON.stringify(got) === JSON.stringify([null, "a1", "a2", "t1", null, null, "n1"]), JSON.stringify(got));
+    check("BU.4 左ペイン: 一覧はタイルを押すと右の中身だけ替える(openReedInPane)・＋ は左ペイン・右にリードが出ていればタイルは的を名乗らない",
+      /<ReedRegisterView\b[\s\S]*?onOpenReed=\{openReedInPane\}[\s\S]*?pane="left"\s*\n\s*coachSuppressed=\{paneReed !== null\}\s*\n\s*\/>/.test(wideBU));
+    check("BU.4 右ペイン: 個体詳細は戻るを出さない・計測は右ペイン・比較を見ている間は計測を描かない・空なら1行",
+      /<ReedEvaluationDetail\b[\s\S]*?onBack=\{null\}[\s\S]*?pane="right"\s*\n\s*actionsActive=\{reedsSubTab === "register"\}\s*\n\s*\/>/.test(wideBU)
+      && /<PaneEmpty>リードを選ぶと、ここに詳細が表示されます<\/PaneEmpty>/.test(wideBU));
+    check("BU.4 右ペインの「計測」は狭い木の個体詳細と同じ一手(リードを選ぶ → 楽器をそのリードの楽器に → 計測タブへ)",
+      (tabBU.match(/onMeasure=\{\(id\) => \{ setSelectedReedId\(id\); setSaxType\(reedSaxTypeOf\(reeds\.find\(\(r\) => r\.id === id\)\)\); setTopTab\("measure"\); \}\}/g) || []).length === 2);
+  }
+
+  // --- BU.5 部品の受け口(渡さない呼び手 = iPhone は1文字も変わらない形)--------------------------------------
+  {
+    const det = srcOfFn(appBU, "ReedEvaluationDetail");
+    const reg = srcOfFn(appBU, "ReedRegisterView");
+    const hdr = srcOfFn(appBU, "DetailHeader");
+    check("BU.5 ReedEvaluationDetail: pane / actionsActive(既定 true)を受け、計測は actionsActive の門の中で pane を渡す",
+      /function ReedEvaluationDetail\(\{ reed, reeds, sessions, setReeds, selectedIdeal, tuningHz, onBack, onMeasure, pane = undefined, actionsActive = true \}\)/.test(det)
+      && /\{actionsActive && \(\s*\n\s*<FloatingAction\s*\n\s*ariaLabel="このリードで計測する"[\s\S]*?coach="reedsMeasure"[\s\S]*?pane=\{pane\}\s*\n\s*\/>\s*\n\s*\)\}/.test(det));
+    check("BU.5 ReedRegisterView: pane / coachSuppressed(既定 false)。＋ に pane・先頭のタイルの的は coachSuppressed で外す",
+      /\n\s*pane = undefined,\n\s*coachSuppressed = false,\n\s*\} = props;/.test(reg)
+      && /coachFirst=\{gi === 0 && !coachSuppressed\}/.test(reg)
+      && /<FloatingAction\s*\n\s*ariaLabel="リードを追加"[\s\S]*?pane=\{pane\}\s*\n\s*\/>/.test(reg));
+    check("BU.5 DetailHeader: onBack が無ければ戻るの行を描かない・見出しの上の 6 は戻るの行があるときだけ",
+      /\{onBack \? \(\s*\n\s*<div style=\{\{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 \}\}>\s*\n\s*<button type="button" onClick=\{onBack\}[\s\S]*?<\/div>\s*\n\s*\) : null\}/.test(hdr)
+      && /marginTop: onBack \? 6 : 0,/.test(hdr) && !/marginTop: 6,/.test(hdr));
+    check("BU.5 浮かせるボタンの面の受け口(pane。既定 undefined = 列の右下)",
+      /function FloatingAction\(\{ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined, pane = undefined \}\)/.test(appBU));
+  }
+
+  // --- BU.6 浮かせるボタンの右端: ＋ = 左ペインの右下・計測 = 右ペインの右下(重ならない)----------------------
+  {
+    const tok = (name) => parseFloat((new RegExp(`${name}:\\s*([^;]+);`).exec(cssBU) || [])[1]);
+    const PAD = 14; // --page-pad-right(安全域 0)= .app-root の左右の余白(DESIGN-SYSTEM §3)
+    const evalCssBU = (expr, W) => new Function(`return ${expr
+      .replace(/var\(--page-pad-right\)/g, String(PAD)).replace(/var\(--page-max-w\)/g, String(tok("--page-max-w")))
+      .replace(/var\(--pane-max-w\)/g, String(tok("--pane-max-w"))).replace(/var\(--sp-5\)/g, String(tok("--sp-5")))
+      .replace(/100%/g, String(W)).replace(/50%/g, String(W / 2)).replace(/(\d)px/g, "$1")
+      .replace(/\bmax\(/g, "Math.max(").replace(/\bcalc\(/g, "(")};`)();
+    const m = /const right = pane === "left" \? "([^"]+)"\s*\n\s*: pane === "right" \? "([^"]+)"\s*\n\s*: "([^"]+)";/.exec(srcOfFn(appBU, "FloatingAction")) || [];
+    const [, leftExpr = "", rightExpr = "", colExpr = ""] = m;
+    // 期待値は器の寸法から別に組み立てる(仕様 付録A): 器 = min(1000, W − 28)・中央 / ペイン = (器 − 20) / 2
+    const geo = (W) => { const box = Math.min(1000, W - 2 * PAD); const left = (W - box) / 2; const pane = (box - 20) / 2; return { leftPaneRight: left + pane, rightPaneRight: left + box, pane }; };
+    const widths = [700, 744, 820, 1032, 1180, 1366];
+    const plusX = widths.map((W) => W - evalCssBU(leftExpr, W));
+    const measX = widths.map((W) => W - evalCssBU(rightExpr, W));
+    check("BU.6 ＋ の右端 = 左ペインの右端(744 → 362 / 820 → 400 / 1032 → 506 / 1180 → 580。仕様の表)",
+      leftExpr.length > 0 && widths.every((W, i) => Math.abs(plusX[i] - geo(W).leftPaneRight) < 1e-9)
+      && JSON.stringify([plusX[1], plusX[2], plusX[3], plusX[4]]) === JSON.stringify([362, 400, 506, 580]),
+      `${leftExpr} → ${plusX.join(" / ")}`);
+    check("BU.6 計測の右端 = 右ペインの右端(744 → 730 / 820 → 806 / 1032 → 1016 / 1180 → 1090。仕様の表)",
+      rightExpr.length > 0 && widths.every((W, i) => Math.abs(measX[i] - geo(W).rightPaneRight) < 1e-9)
+      && JSON.stringify([measX[1], measX[2], measX[3], measX[4]]) === JSON.stringify([730, 806, 1016, 1090]),
+      `${rightExpr} → ${measX.join(" / ")}`);
+    check("BU.6 ＋(56)と計測(56)は重ならない(＋ の右端 ≤ 計測の左端 − 間 --sp-5)。ペインは最も狭い 744 でも 348(iPhone 375 の本文 347 以上)",
+      widths.every((W, i) => plusX[i] <= measX[i] - 56 - 20) && geo(744).pane === 348 && geo(820).pane === 386 && geo(1180).pane === 490,
+      `${widths.map((W, i) => `${W}: ${plusX[i]} / ${measX[i] - 56}`).join(" ・ ")}`);
+    check("BU.6 既定(列の右下)は便BT の式のまま(375 で 14 = iPhone は変わらない)",
+      colExpr === "max(var(--page-pad-right), calc((100% - var(--page-max-w)) / 2))" && evalCssBU(colExpr, 375) === 14);
+  }
+
+  // --- BU.7 タイルは5列固定(統括の裁定)・空の状態は既存の体裁 -------------------------------------------------
+  check("BU.7 タイルは5列固定(REED_GRID_COLS = 5 のまま。2ペインでも列数を幅で変えない)",
+    new Function(`${extractConst("REED_GRID_COLS")} return REED_GRID_COLS;`)() === 5);
+  {
+    const pe = srcOfFn(appBU, "PaneEmpty");
+    const note = /const noteStyle = \{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", lineHeight: 1\.6 \};/.test(scrBU)
+      && /style=\{\{ \.\.\.noteStyle, padding: "var\(--sp-4\) 0", textAlign: "center" \}\}/.test(srcOfFn(scrBU, "Empty"));
+    check("BU.7 空の状態(PaneEmpty)はコミュニティの Empty と同じ値(--fs-xs / --c-ink-3 / 1.6 / 上下 --sp-4 / 中央)。新しい体裁を作らない",
+      note && /export function PaneEmpty\(\{ children \}\)/.test(appBU)
+      && /style=\{\{ fontSize: "var\(--fs-xs\)", color: "var\(--c-ink-3\)", lineHeight: 1\.6, padding: "var\(--sp-4\) 0", textAlign: "center" \}\}/.test(pe));
+  }
+  check("BU.7 文言に「機材」「機種」を使っていない(広い木・空の状態)",
+    !/機材|機種/.test(codeOf(wideBU)) && !/機材|機種/.test(codeOf(srcOfFn(appBU, "PaneEmpty"))));
   console.log("  -> done");
 }
 

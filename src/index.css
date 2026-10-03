@@ -296,6 +296,13 @@
   --ad-h: 50px;
 }
 
+/* 【便BU 2026-10-03 本人裁定(案B)】2ペインの器。広い(JS の useWideLayout が true)ときだけ DOM に現れる
+   (iPhone では1つも描かれない。しきい値は CSS に置かない)。いまの読み手はリードタブ(左 = 一覧・右 = 個体詳細)。
+   左右 1:1・間 --sp-5(モック案Bの gap 20。新しい値ではない)。器の幅は呼び手が --pane-max-w で決める。
+   minmax(0, 1fr) は中の長い文字(銘柄名など)で列が押し広げられないため(1fr の既定の最小は中身の幅)。
+   align-items: start … 左右の高さは中身で決まる(短いほうを引き伸ばさない)。 */
+.pane-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--sp-5); align-items: start; }
+
 /* ラバーバンドスクロールで body の地色が見えるため、ページ背景と同色を敷く。
    これが無いと iOS で上下に引っ張ったときだけ純白が露出する。 */
 html, body {

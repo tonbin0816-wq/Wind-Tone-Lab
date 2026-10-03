@@ -249,7 +249,8 @@ function useRingFitLayout() {
 // 【便BT2 2026-10-03 統括の裁定】幅だけでは足りない ── iPhone を横にすると幅は 667〜956 になり 700 を越える。
 //   ・高さ: iPhone の横向きは高さ 440 以下(375〜440)、iPad は横向きでも高さ 744 以上。間の 500 を高さの下限にして分ける。
 //   よって「幅 ≥ 700 かつ 高さ ≥ 500」を広いと呼ぶ。iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも広いにならない。
-// 広いときに変わるのは、いまは計測タブの環の上限だけ(RING_D_WIDE)。列 640(--page-max-w)は CSS の max-width で、
+// 広いときに変わるのは、計測タブの環の上限(RING_D_WIDE)と【便BU 2026-10-03】リードタブの2ペイン(ReedsTab の3つ目の return)。
+// 列 640(--page-max-w)は CSS の max-width で、
 // この判定とは別に効く。【便BT2 統括の裁定】「iPhone の見た目は 1px も変えない」は**縦向きの約束**。iPhone の横向き(Safari の
 // Web 版だけ。アプリの殻では iPhone は縦に固定)は判定が狭い側・本文と下部タブとシートは 640 の列になる。これは受け入れた形で、
 // 狭いときだけ上限を戻す仕組みは足さない(DESIGN-SYSTEM §3「iPad の器」)。
@@ -3792,7 +3793,7 @@ function navRetapKeepsView(tappedKey, atMyDataTop) {
 // ============================================================
 export default function WindToneLabPhaseMode() {
   // 【便BT 2026-10-03 本人裁定】iPad の「広い」画面か(WIDE_LAYOUT_QUERY = 幅 ≥ 700 かつ 高さ ≥ 500)。判定はここで1回だけ行い、props で配る。
-  // いまの読み手は MeasureView(環の上限)だけ。jsdom(matchMedia が無い)では常に false。
+  // いまの読み手は MeasureView(環の上限)と【便BU】ReedsTab(リードタブの2ペイン)。jsdom(matchMedia が無い)では常に false。
   // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
@@ -5169,6 +5170,8 @@ export default function WindToneLabPhaseMode() {
           reedsSubTab={reedsSubTab} setReedsSubTab={setReedsSubTab}
           showNotice={showNotice}
           onReedsRegistered={() => markOnboarding("reeds")}
+          /* 【便BU 2026-10-03 本人裁定(案B)】広い(iPad)なら2ペイン(左 = 一覧・右 = 個体詳細)。 */
+          wide={wide}
         />
       )}
 
@@ -11817,6 +11820,19 @@ function ReedSaxEmptyLine({ saxType, centered = false }) {
   return <div className="sans" style={style}>{reedSaxEmptyText(saxType)}</div>;
 }
 
+// 【便BU 2026-10-03 本人裁定(案B)】2ペインの右に何も選んでいないときの1行(空の状態)。リードタブが読む(コミュニティは便3)。
+// **新しい体裁を作らない**: 見た目はコミュニティの 0件の知らせ(src/community/screens.jsx の Empty)と同じ値
+//   (--fs-xs / --c-ink-3 / 行間 1.6 / 上下 --sp-4 / 中央揃え)。screens.jsx は App.jsx を import する向きなので、
+//   あちらを import せずに同じ値をここに書く(ReedSaxChipRow と同じ事情)。
+// ペインの**上端**に置く(縦の中央にしない。ペインの高さは中身で決まり、左の一覧が短いと「中央」が意味を持たない)。
+export function PaneEmpty({ children }) {
+  return (
+    <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", lineHeight: 1.6, padding: "var(--sp-4) 0", textAlign: "center" }}>
+      {children}
+    </div>
+  );
+}
+
 function ReedsTab(props) {
   const {
     reeds, setReeds, sessions, updateSessions, setTopTab, setSelectedReedId,
@@ -11826,6 +11842,9 @@ function ReedsTab(props) {
     showNotice,
     // 【便BP 2026-10-03】リードを登録できたとき(はじめの一手の印)。一覧(ReedRegisterView)へ渡すだけ。
     onReedsRegistered,
+    // 【便BU 2026-10-03 本人裁定(案B)】iPad の「広い」画面か(App の useWideLayout)。true なら下の3つ目の return(2ペイン)を描く。
+    // 渡されない(false)ときは今までの2つの return のまま(iPhone の木は1文字も変わらない)。
+    wide = false,
   } = props;
   const [evaluatingReedId, setEvaluatingReedId] = useState(null);
   // 【便AY 2026-09-25 本人指示 D5】一覧(と比較)で見ている楽器。
@@ -11902,6 +11921,103 @@ function ReedsTab(props) {
   // トグル(toggleBoxSelected / toggleMemberSelected)、実行(confirmBoxDelete /
   // confirmMemberDelete)は**読み手ごと消した**。
   // 【AA-2 2026-09-21】最後の numberEdit も消えたので、モードの出口(exitMode)も無くなった。
+
+  // 【便BU 2026-10-03 本人裁定(案B・2ペイン)】iPad の「広い」画面では、左が一覧・右が個体詳細。
+  // ・右に出すリード(paneReed)は**導出で決める**(右ペインに閉じる操作が無いため):
+  //     押したリード(evaluatingReedId)→ 無ければ計測タブで選んでいるリード(selectedReedId)→ 無ければ空の状態。
+  //     どちらも**見ている楽器のリード**のときだけ(楽器のチップを替える・リードを消すと、外れて空か選んでいるリードに戻る)。
+  //     evaluatingReedId を手で消す処理は要らない。ReedsTab はタブを開くたびに作り直される(navNonce)ので、開くたびに
+  //     計測タブで選んでいるリードから始まる(listSax と同じ性質)。
+  // ・タイルを押すと右の中身が替わるだけ(openReedInPane)。ページもスクロールも動かさない ── 一覧のスクロール位置の控え
+  //   (listScrollYRef)は広い木では書かない。
+  // ・広い ↔ 狭い(Split View)は状態を捨てない。広い木で押したリードは、狭い木では今までどおり個体詳細の画面
+  //   (戻る導線つき)として出る。逆も同じ(開いていた個体詳細が右ペインへ移る)。
+  // 狭い木(下の2つの return)は1文字も触っていない。
+  const paneSaxReeds = reedsOfSax(reeds, listSax);
+  const paneHas = (id) => id != null && paneSaxReeds.some((r) => r.id === id);
+  const paneReedId = !wide ? null : paneHas(evaluatingReedId) ? evaluatingReedId : paneHas(selectedReedId) ? selectedReedId : null;
+  const paneReed = paneReedId ? reeds.find((r) => r.id === paneReedId) || null : null;
+  const openReedInPane = (id) => setEvaluatingReedId(id);
+
+  if (wide) {
+    /* 【便BU】器(--pane-max-w)の中に、子タブの行・楽器のチップの行・SwipePager(登録 = 2ペイン / 比較 = 列)。
+       作法のクラスは**左右のペインがそれぞれ名乗る**(左 = 一覧は罫 .surf-rule / 右 = 個体詳細はカード .surf-card。
+       iPhone の Top と個体詳細の作法のまま)。兄弟に置き、入れ子にしない(§6.6)。器そのものは作法を名乗らない。
+       ・右ペインは SwipeBackArea で包まない(押して入った画面ではないので戻る先が無い)。
+       ・右ペインの包みに data-noswipe: そこで始めた横の指では子タブを動かさない(iPhone で個体詳細の上で引いても
+         子タブが動かないのと同じ)。左ペインでは今までどおり横スワイプで比較へ移る。
+       ・浮かせるボタン(＋ / 計測)は body へ portal されるので、track の transform の中に居ても画面に対して置かれる。
+         ＋ は左ペインの右下・計測は右ペインの右下(重ならない。統括の裁定)。
+       ・長押しの編集中も右ペインはそのまま。「どこを押しても編集を終える」は一覧の根(左ペイン)だけが受けるので、
+         右ペインを押しても編集は終わらない(右ペインは一覧ではない)。 */
+    return (
+      <div>
+        <div style={{ maxWidth: "var(--pane-max-w)", margin: "0 auto" }}>
+          {/* 子タブの行と右端の「完了」は、下の狭い木の綴りのまま(体裁・出す条件も同じ)。 */}
+          <SubTabs
+            items={[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }]}
+            value={reedsSubTab}
+            onChange={(k) => setReedsSubTab(k)}
+          >
+            {reedsSubTab === "register" && listEditing && (
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                <button type="button" onClick={exitListEditing} className="sans" style={{ ...TAP_BUTTON_RESET }}>
+                  <span className="ctl-plain ctl-pill" style={{ padding: "7px 14px", color: "var(--c-ink-2)", fontSize: 12, lineHeight: 1.2 }}>完了</span>
+                </button>
+              </div>
+            )}
+          </SubTabs>
+          <ReedSaxChipRow value={listSax} onPick={setListSax} />
+          <SwipePager
+            index={reedsSubTab === "compare" ? 1 : 0}
+            onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
+          >
+            <div className="pane-2">
+              <div className="surf-rule">
+                <ReedRegisterView
+                  reeds={reeds} setReeds={setReeds}
+                  sessions={sessions}
+                  selectedReedId={selectedReedId}
+                  onOpenReed={openReedInPane}
+                  reedGroups={reedGroups}
+                  listSax={listSax} onPickListSax={setListSax}
+                  pageActive={reedsSubTab === "register"}
+                  onReedsRegistered={onReedsRegistered}
+                  editing={listEditing}
+                  onEnterEditing={enterListEditing}
+                  onExitEditing={exitListEditing}
+                  deleteReedsWithUndo={deleteReedsWithUndo}
+                  pane="left"
+                  coachSuppressed={paneReed !== null}
+                />
+              </div>
+              <div className="surf-card" data-noswipe>
+                {paneReed ? (
+                  <ReedEvaluationDetail
+                    reed={paneReed} reeds={reeds} sessions={sessions} setReeds={setReeds}
+                    selectedIdeal={selectedIdeal} tuningHz={tuningHz}
+                    onBack={null}
+                    /* 狭い木の個体詳細と同じ一手(計測タブの楽器もそのリードの楽器にしてから移る)。 */
+                    onMeasure={(id) => { setSelectedReedId(id); setSaxType(reedSaxTypeOf(reeds.find((r) => r.id === id))); setTopTab("measure"); }}
+                    pane="right"
+                    actionsActive={reedsSubTab === "register"}
+                  />
+                ) : (
+                  <PaneEmpty>リードを選ぶと、ここに詳細が表示されます</PaneEmpty>
+                )}
+              </div>
+            </div>
+            {/* 比較は列(--page-max-w)。候補の一覧とグラフ1枚の縦の流れで、左右に割る切れ目が無い(仕様 §3.5)。 */}
+            <div className="surf-rule">
+              <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
+                <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={listSax} tuningHz={tuningHz} pageActive={reedsSubTab === "compare"} />
+              </div>
+            </div>
+          </SwipePager>
+        </div>
+      </div>
+    );
+  }
 
   // 左右の余白は一覧・個体詳細・比較で同じ(正典 .rlist の 24px)。
   // **詳細だけ枠の外に出さない**: 早期 return を枠の内側に畳んであるのはそのため
@@ -12140,8 +12256,21 @@ const FLOAT_ACTION_SPACER_H = `calc(${ACTION_LG_PX}px + ${FLOAT_ACTION_GAP} + ${
 // 地・影・右下の位置は語つきのときと1つも変えていない。
 // 語を渡す形も残す(「計測」「★ 目安に設定」は語がないと何の一手か分からない)。
 // 【便BP 2026-10-03】coach = はじめの一手の的として名乗る名前(data-coach)。渡さない呼び手は1文字も変わらない。
-function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined }) {
+// 【便BU 2026-10-03 本人裁定(案B)・統括の裁定】pane = 2ペインのどちらの面の主要動作か(undefined | "left" | "right")。
+// 右端は**その面の右下**にそろえる(§4.5「主要動作は面の右下」の面は、2ペインではペイン)。2ペインで ＋(左)と 計測(右)が
+// 同じ角に重ならない。渡さない呼び手(列の画面・iPhone)は便BT の式のまま = 1文字も変わらない。
+function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined, pane = undefined }) {
   const iconOnly = !label;
+  // 【便BU】右端の式は3つ。式を持つのはこの部品の中だけ(呼び手は面の名前を渡すだけ)。fixed の right の % は画面の幅。
+  //   ・列(既定)… 便BT のまま。列(--page-max-w)は中央なので、列の右端 = 画面の右端から (100% − 列) / 2
+  //   ・"left"   … 器(--pane-max-w)は中央・左右 1:1・間 --sp-5 なので、左ペインの右端 = 画面の中央 − 間 / 2
+  //                → 画面の右端から 50% + 間 / 2(820 → 420 = 右端 x 400 / 1180 → 600 = 右端 x 580)
+  //   ・"right"  … 右ペインの右端 = 器の右端 = 画面の右端から (100% − 器) / 2。器が画面より広ければ本文の右余白
+  //                (820 → 14 = 右端 x 806 / 1180 → 90 = 右端 x 1090)
+  // "left" / "right" は2ペイン(広い木)だけが渡す。iPhone では渡されない。
+  const right = pane === "left" ? "calc(50% + var(--sp-5) / 2)"
+    : pane === "right" ? "max(var(--page-pad-right), calc((100% - var(--pane-max-w)) / 2))"
+      : "max(var(--page-pad-right), calc((100% - var(--page-max-w)) / 2))";
   return createPortal(
     <button
       type="button"
@@ -12158,8 +12287,9 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
            **どちらも既存のトークンだけで書く**(--page-pad-right / --page-bottom-gap / --sp-3)。
            【便BT 2026-10-03 本人裁定(§7-(2) ア)】右端は**列(--page-max-w)の右下**にそろえる(§4.5「主要動作は面の右下」の
            面は iPad では列)。fixed の right の % は画面の幅で、列は中央なので列の右端 = 画面の右端から (100% − 列) / 2。
-           375 では (375 − 640) / 2 < 0 なので max() が --page-pad-right を選ぶ = 今と同じ値。 */
-        right: "max(var(--page-pad-right), calc((100% - var(--page-max-w)) / 2))",
+           375 では (375 − 640) / 2 < 0 なので max() が --page-pad-right を選ぶ = 今と同じ値。
+           【便BU 2026-10-03】2ペインでは左右のペインの右下(上の right の注記)。既定の式は便BT のまま。 */
+        right,
         bottom: `calc(var(--page-bottom-gap) + ${FLOAT_ACTION_GAP})`,
         /* 【R1 2026-09-16】絵柄だけなら 56 角、語つきは従来どおり --tap-min。
            縦横が同じ値で揃うので --r-pill がそのまま円になる。 */
@@ -12700,6 +12830,12 @@ function ReedRegisterView(props) {
     onPickListSax,
     // 【便BP 2026-10-03】リードを登録できたときに呼ぶ(はじめの一手の印)。
     onReedsRegistered,
+    // 【便BU 2026-10-03 本人裁定(案B)】2ペインの左に置くときだけ渡す(渡さない iPhone の一覧は1文字も変わらない)。
+    //   pane = "left" … 「＋」を左ペインの右下に置く(FloatingAction)
+    //   coachSuppressed = true … 右ペインにリードが出ている。先頭のタイルは、はじめの一手(リード2)の的を名乗らない
+    //     (的は右の個体詳細の「計測」。2ペインではタイルと「計測」が同時に在るので、的を1つにする)
+    pane = undefined,
+    coachSuppressed = false,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -12960,8 +13096,9 @@ function ReedRegisterView(props) {
                     番号編集への入口はここ1つだけ。) */
                 onTileTap={(id) => (editing ? setNumberEditId(id) : onOpenReed?.(id))}
                 onReorder={reorderGroupMembers}
-                /* 【便BP2】一覧の先頭の箱だけ(はじめの一手・リード2の的)。 */
-                coachFirst={gi === 0}
+                /* 【便BP2】一覧の先頭の箱だけ(はじめの一手・リード2の的)。
+                   【便BU】右ペインにリードが出ているときは名乗らない(的は右の「計測」)。 */
+                coachFirst={gi === 0 && !coachSuppressed}
               />
             </div>
           );
@@ -13010,6 +13147,8 @@ function ReedRegisterView(props) {
           /* 【便BR 2026-10-03 本人指示】開く前にメーカー・銘柄・番手を reedAddDefaults で当て直す
              (楽器と同じく、開くたびに一覧の選択から決める)。 */
           onClick={() => { setNewSax(listSax); applyReedAddDefaults(listSax); setAddOpen(true); }}
+          /* 【便BU】2ペインでは左ペインの右下。渡されない(iPhone)ときは列の右下のまま。 */
+          pane={pane}
         />
       )}
 
@@ -14363,7 +14502,12 @@ function ReedScoreHistoryChart({ reed, lastMeasuredAt = null }) {
 //   ・(【便AY 2026-09-25 で解消】以前はここに「1行メタに楽器種別を出さない ── リードが楽器種別を
 //     持っていない(F-87 未着手)」とあった。F-87 でリードが楽器を持ったので、正典どおり先頭に楽器名を出す
 //     (reedDetailMetaParts の先頭の区画)。違えているのは上の1点だけになった。)
-function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, tuningHz, onBack, onMeasure }) {
+// 【便BU 2026-10-03 本人裁定(案B)】2ペインの右に置くときだけ渡すもの(渡さない iPhone の個体詳細は1文字も変わらない):
+//   ・onBack = null … 戻るの行を描かない(DetailHeader。右ペインに戻る先は無い)
+//   ・pane = "right" … 「計測」の浮かせるボタンを右ペインの右下に置く(FloatingAction)
+//   ・actionsActive = false … 「計測」を描かない。SwipePager は隣のページ(比較)を描いたままなので、
+//     比較を見ているときに右ペインの「計測」が body に浮いて出るのを止める(一覧の ＋ の pageActive と同じ門)
+function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, tuningHz, onBack, onMeasure, pane = undefined, actionsActive = true }) {
   // 【便AY 2026-09-25 E5】このリードの楽器。見出しのメタと、グラフの横軸(音名の並び)がこれを読む。
   // 以前はグラフが**計測タブの楽器(グローバルの saxType)**で横軸を引いていた ── テナーのリードを
   // アルトを選んだまま開くと、アルトの音域で描かれていた(バグ)。
@@ -14499,13 +14643,18 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
           同じ円 56 にする。何のための計測かはこの画面(リード個体詳細)が言っているので、
           語は読み上げ(ariaLabel)だけが持つ ── 一覧の ＋ と同じ考え方。 */}
       <FloatingActionSpacer />
+      {/* 【便BU】actionsActive が false(2ペインで比較を見ている)なら描かない。既定は true(iPhone は今までどおり描く)。 */}
+      {actionsActive && (
       <FloatingAction
         ariaLabel="このリードで計測する"
         icon={<MeasureIcon size={28} color="var(--c-on-accent)" />}
         onClick={() => onMeasure?.(reed.id)}
         /* 【便BP2 2026-10-03】はじめの一手(リード2)は、一覧のタイルからここへ的が移る(同じ一手のまま)。 */
         coach="reedsMeasure"
+        /* 【便BU】2ペインでは右ペインの右下。渡されない(iPhone)ときは列の右下のまま。 */
+        pane={pane}
       />
+      )}
 
       {/* 評価の編集ダイアログ。position:fixed で流れから外すので、開閉しても裏のページは1pxも動かない(§6.1.5) */}
       {editingScores && (
@@ -16306,16 +16455,21 @@ export const DANGER_OUTLINE_STYLE = {
   border: "1px solid var(--c-danger)", background: "transparent", color: "var(--c-danger)",
   fontSize: "var(--fs-sm)", fontWeight: 700, cursor: "pointer",
 };
+// 【便BU 2026-10-03 本人裁定(案B)】onBack を渡さない(null)と、戻るの行を描かない。リードタブの2ペインの右(個体詳細)だけが
+// そう呼ぶ ── 右ペインは「押して入った画面」ではないので戻る先が無い。見出しの行の上の 6 は戻るの行との間隔なので、
+// 戻るの行があるときだけ置く。onBack を渡す呼び手(iPhone の個体詳細・セッション詳細など全部)は 1px も変わらない。
 function DetailHeader({ onBack, backLabel, actions, title, titleSuffix, meta }) {
   return (
     <div style={{ paddingBottom: "var(--sp-3)" }}>
+      {onBack ? (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <button type="button" onClick={onBack} className="sans" style={BACK_BUTTON_STYLE}>
           {backLabel}
         </button>
         {actions ? <div style={{ display: "flex", alignItems: "center", gap: 14 }}>{actions}</div> : null}
       </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: 6, flexWrap: "wrap" }}>
+      ) : null}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: onBack ? 6 : 0, flexWrap: "wrap" }}>
         {/* 【D-5 2026/08/23 本人指示】見出しもセリフ体をやめる(セリフは音名・リード番号だけに戻す)。
             大きさ(--fs-2xl)は正典の 27px の写像のまま。変えたのは書体だけ。 */}
         <span style={{ fontFamily: "var(--font-num)", fontSize: "var(--fs-2xl)", fontWeight: 600, letterSpacing: "-.01em", color: "var(--c-ink)" }}>{title}</span>
