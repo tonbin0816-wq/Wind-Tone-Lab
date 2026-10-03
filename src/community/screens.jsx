@@ -1071,6 +1071,55 @@ function Legend({ series, id = undefined }) {
   );
 }
 
+// ------------------------------------------------------------------
+// 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
+// 参加前の画面の裏に敷く、参加後のデータの子タブの**見本**(何が見られるかを先に見せる)。形だけの静的な部品で、
+// 本物の DataScreen は使わない(名簿も目安も読まない・押せない。触れなくするのは呼び手 JoinIntro の inert)。
+// 並びと見た目は DataScreen と同じ部品・同じトークン: 条件の行(FilterRow・楽器は「すべて」無し)→ みんなの平均カード
+// (.card.card-accent・見出し・指標の下線タブ・白い台紙)→ 人の行(.card.card-list・行の作り)。
+//   ・台紙の中は「参加すると表示されます」(0件の知らせ Empty と同じ体裁)
+//   ・人の行は形だけ3行。丸 34(DataScreen の Avatar と同じ大きさ。地 --c-line-strong)と、名前・属性の代わりの棒(地 --c-sunken)。
+//     棒の寸法(72×12 / 120×9・間 5)と丸の地は版(.person)の値をそのまま使った(トークンに該当が無い ── 報告に書いた)
+// ------------------------------------------------------------------
+export const JOIN_PREVIEW_INSET_TEXT = "参加すると表示されます";
+const JOIN_PREVIEW_ROWS = 3;
+const NOOP = () => {};
+const previewBarStyle = (w, h) => ({ display: "block", width: w, height: h, borderRadius: "var(--r-full)", background: "var(--c-sunken)" });
+export function JoinPreviewDataScreen() {
+  return (
+    <div style={subPageStyle} data-join-preview-screen="">
+      {/* 楽器は DataScreen の既定(登録が無いときの "alto")と同じ */}
+      <FilterRow value={{ ...EMPTY_FILTER, saxType: "alto" }} onChange={NOOP} saxAny={false} />
+      <div className="card card-accent">
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+          <div className="sans jp-label" style={{ ...eyebrowStyle, color: "var(--c-on-accent-dim)" }}>みんなの平均</div>
+        </div>
+        <div style={{ margin: "10px 0 2px" }}>
+          <MetricTabs value={METRICS[0].key} onChange={NOOP} onAccent active={false} />
+        </div>
+        <div data-avg-inset style={{ marginTop: "var(--sp-2)", background: "var(--c-surface)", borderRadius: "var(--r-1)", padding: 10 }}>
+          <Empty>{JOIN_PREVIEW_INSET_TEXT}</Empty>
+        </div>
+      </div>
+      <div className="card card-list">
+        {Array.from({ length: JOIN_PREVIEW_ROWS }, (_, i) => (
+          <div key={i} data-join-preview-row="" style={{
+            display: "flex", alignItems: "center", gap: "var(--sp-3)",
+            padding: "11px 2px", minHeight: 47,
+            borderBottom: i === JOIN_PREVIEW_ROWS - 1 ? "none" : "1px solid var(--c-line)",
+          }}>
+            <span style={{ flex: "none", width: 34, height: 34, borderRadius: "50%", background: "var(--c-line-strong)" }} />
+            <div style={{ flex: "1 1 0", minWidth: 0 }}>
+              <span style={previewBarStyle(72, 12)} />
+              <span style={{ ...previewBarStyle(120, 9), marginTop: 5 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // 【便AO 2026-09-24 tuningHz】横軸の実音の音名を引くのに要る(自分の基準ピッチ。
 // CommunityTab が buildMyIdeals に渡しているものと同じ値)。
 // 【便BC 審査】active = ページャでこの画面が表に出ているか。裏へ回ったら用語の説明を閉じる(既定は true)。
@@ -1882,7 +1931,8 @@ export function cohortAdoptName(terms) {
 // 【便BO3 2026-10-03 統括の裁定】シートの中の主ボタンの標準。値は目安に設定のシートの「保存」・リード追加の「追加」
 // (App.jsx)と同じ: 高さ --tap-min / --r-pill / 枠なし / 地 --c-accent / 字 --c-on-accent / --fs-md / 700 / 影なし。
 // 幅いっぱいは、縦に積む「やめる」(SHEET_QUIET_BUTTON_STYLE)と同じ。
-const SHEET_PRIMARY_BUTTON_STYLE = {
+// 【便BS 2026-10-03】参加の画面のカードの「参加する」(CommunityTab.jsx の JoinIntro)も、この標準を読む(写しを作らない)。
+export const SHEET_PRIMARY_BUTTON_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
   background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
 };

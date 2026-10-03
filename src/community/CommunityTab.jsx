@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount, watchMyPhoto } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
 import { buildProfileDoc, profileAfterSave, validateNickname, REED_STRENGTHS, POSITIONS, GENRES, ENSEMBLES, SAX_TYPES, SAX_LABELS, startYearOptions, AVATAR_ICONS, AVATAR_PICKABLE_ICONS, AVATAR_COLOR_MIN, AVATAR_COLOR_MAX, positionLabel, positionForEdit } from "./profile.js";
@@ -17,6 +18,10 @@ import {
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
+// 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)・主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)、
+// カードの絵・重なり順・見える範囲の下端は、はじめの一手(onboarding.jsx)と同じものを読む(写しを作らない)。
+import { JoinPreviewDataScreen, SHEET_PRIMARY_BUTTON_STYLE } from "./screens.jsx";
+import { CoachIcon, COACH_Z, readBottomLimit } from "../onboarding.jsx";
 // 【便BG 2026-10-01 本人指示】以前ここで reportRepo.js の isFlagged(自分が通報で隠れているか)を読んでいた。
 // 通報で誰も隠れなくなったので、読む関数ごと消した。
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -738,7 +743,45 @@ function AgreeRow({ checked, onChange, children }) {
   );
 }
 
+// ------------------------------------------------------------------
+// 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
+// 参加していない人のコミュニティタブは3層:
+//   1. 裏 … 参加後のデータの子タブの見本(子タブの行 + JoinPreviewDataScreen)。触れない(inert・aria-hidden・pointer-events: none)
+//   2. 暗幕 … .coach-dim(--c-coach-dim)。タップは下へ通す(下部タブは今までどおり押せる)
+//   3. カード … はじめの一手のカード(.coach-card)と同じ見た目で、見える範囲の中央(.join-frame)。中身は上から
+//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・同意のチェック・「参加する」・「アカウント引継」
+// 読む → 同意する → 参加する の順に上から並ぶ。**カードの外を押しても Escape でも消えない**(消すとこの画面にやることが無くなる)。
+// 以前の見出し「コミュニティ」はカードの見出しに替わった。ボタンの文字は「参加してプロフィールを作る」→「参加する」
+// (プロフィールは参加した次の画面で作るので、ここでは言わない)。
+// 参加の段は、はじめの一手(onboarding.jsx)からは外した(済んだ印を持たない。参加していなければ出る・参加すれば出ない)。
+// 暗幕とカードは document.body へ出す(はじめの一手と同じ重なり順 COACH_Z。シートの暗幕 60 より下なので、規約・引継のシートは上に開く)。
+// ------------------------------------------------------------------
+const JOIN_TITLE = "コミュニティに参加しよう";
+const JOIN_LINE = "みんなの計測データが見られます";
+// 説明の1段落目(版の p.body。--fs-sm・行間 --lh-loose・--c-ink-2・上に --sp-1)。2段落目は noteStyle(小さく --c-ink-3)のまま。
+const joinLeadStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink-2)", lineHeight: "var(--lh-loose)", marginTop: "var(--sp-1)" };
+// 細い導線「アカウント引継」(版の .quiet)。地も枠も無い文字だけ・--fs-sm・600・--c-ink-2。当たりは §5 の --tap-min
+// (版の 32 は当たりの最小に足りないので 44 にした)。
+const JOIN_QUIET_LINK_STYLE = {
+  width: "100%", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
+  color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
+};
+const NOOP = () => {};
+// 見える範囲の下端(下部タブ・帯の上端)。はじめの一手のカードと同じ読み方(onboarding.jsx の readBottomLimit)。
+function useJoinFrameHeight() {
+  const [h, setH] = useState(() => (typeof window !== "undefined" ? readBottomLimit(window.innerHeight) : 0));
+  useLayoutEffect(() => {
+    const read = () => setH(readBottomLimit(window.innerHeight));
+    read();
+    window.addEventListener("resize", read);
+    return () => window.removeEventListener("resize", read);
+  }, []);
+  return h;
+}
+
 export function JoinIntro({ onJoin, notice = null }) {
+  const titleId = useId();
+  const frameH = useJoinFrameHeight();
   const [busy, setBusy] = useState(false);
   // 【便BC 2026-09-25】規約とプライバシーポリシーへの同意。**保存しない**(この画面を開くたびに外れた状態から)。
   // 入るまで参加の一手は押せない。
@@ -758,44 +801,63 @@ export function JoinIntro({ onJoin, notice = null }) {
     setBusy(true);
     try { await onJoin(); } finally { setBusy(false); }
   };
+  const card = (
+    <div className="coach-layer" data-join-layer="" style={{ zIndex: COACH_Z }}>
+      <div className="coach-dim" aria-hidden="true" />
+      <div className="join-frame" style={{ height: frameH }}>
+        <div className="coach-card join-card sans" role="dialog" aria-labelledby={titleId} data-join-card="">
+          <CoachIcon name="community" />
+          <div className="coach-title" id={titleId}>{JOIN_TITLE}</div>
+          <div className="coach-line">{JOIN_LINE}</div>
+          {/* 削除の結果、未参加へ戻ったときに一度だけ出す説明(以前の画面と同じ位置 = 見出しのすぐ下) */}
+          {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
+          <div style={joinLeadStyle}>
+            参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
+            メールアドレスなどの個人情報は公表されません。
+          </div>
+          {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
+              アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
+              「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
+          <div style={noteStyle}>
+            匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
+          </div>
+          {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
+              **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
+          <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
+            {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
+                【束3 2026-09-19】お問い合わせも同じ形にした ── 以前の mailto: は端末に
+                メールアプリが無いと何も起きず、有ってもアプリの外へ出る。3つとも同じ
+                「押すとシートが開く」になったので、見た目も同じ linkButtonStyle に揃う。 */}
+            <button type="button" onClick={() => setLegal("terms")} className="sans" style={linkButtonStyle}>利用規約</button>
+            <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
+            <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
+          </div>
+          {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。 */}
+          <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>
+          {/* 【便BS】主ボタンはシートの主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)。同意するまで地 --c-disabled で押せない(便BC)。
+              (【便BP】の data-coach="join" は、参加の段をはじめの一手から外したので消した) */}
+          <button type="button" onClick={join} disabled={busy || !agreed} className="sans"
+            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, background: agreed ? "var(--c-accent)" : "var(--c-disabled)",
+                     cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
+            {busy ? "準備中…" : "参加する"}
+          </button>
+          {/* 【便BB】名前はマイページと同じ「アカウント引継」・開くのも同じ BackupSheet。
+              【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。 */}
+          <button type="button" onClick={() => setBackup(true)} className="sans" style={JOIN_QUIET_LINK_STYLE}>
+            アカウント引継
+          </button>
+        </div>
+      </div>
+    </div>
+  );
   return (
-    <div className="sans" style={pageStyle}>
-      <div style={titleStyle}>コミュニティ</div>
-      {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
-      <div style={bodyStyle}>
-        参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
-        メールアドレスなどの個人情報は公表されません。
+    <div className="sans" data-join-intro="">
+      {/* 【便BS】裏: 参加後のデータの子タブの見本。触れない(inert で押せず・フォーカスも入らない / 読み上げにも出さない)。 */}
+      <div aria-hidden="true" inert="" data-join-preview="" style={{ pointerEvents: "none" }}>
+        <SubTabs items={SUB_TABS} value="data" onChange={NOOP} />
+        <JoinPreviewDataScreen />
       </div>
-      {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
-          アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
-          「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
-      <div style={noteStyle}>
-        匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
-      </div>
-      {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
-          **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
-      <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
-        {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
-            【束3 2026-09-19】お問い合わせも同じ形にした ── 以前の mailto: は端末に
-            メールアプリが無いと何も起きず、有ってもアプリの外へ出る。3つとも同じ
-            「押すとシートが開く」になったので、見た目も同じ linkButtonStyle に揃う。 */}
-        <button type="button" onClick={() => setLegal("terms")} className="sans" style={linkButtonStyle}>利用規約</button>
-        <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
-        <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
-      </div>
-      {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。 */}
-      <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>
-      {/* 【便BP 2026-10-03】data-coach = はじめの一手(コミュニティ・参加前)の的。見た目は変えない。 */}
-      <button type="button" onClick={join} disabled={busy || !agreed} className="sans" data-coach="join"
-        style={{ ...primaryButtonStyle, background: agreed ? "var(--c-accent)" : "var(--c-disabled)",
-                 cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
-        {busy ? "準備中…" : "参加してプロフィールを作る"}
-      </button>
-      {/* 【便BB】マイページと同じ体裁(secondaryButtonStyle)・同じ名前。参加の一手より下に置く
-          (この画面の主要動作は参加。引継は主要でない一手)。 */}
-      <button type="button" onClick={() => setBackup(true)} className="sans" style={secondaryButtonStyle}>
-        アカウント引継
-      </button>
+      {createPortal(card, document.body)}
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
       {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
