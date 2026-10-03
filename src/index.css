@@ -815,6 +815,9 @@ body {
 .coach-layer { position: fixed; inset: 0; pointer-events: none; }
 .coach-layer[data-leaving="true"] { animation: coach-out 350ms ease-out forwards; }
 .coach-hole { position: fixed; pointer-events: none; box-shadow: 0 0 0 150vmax var(--c-coach-dim); }
+/* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html の .dimall)】的なしの段(チューナー・データの計測あり)と参加の画面の暗幕。
+   穴を開けずに画面いっぱいに敷く。色は穴の影と同じ --c-coach-dim。タップは通す(受けは .coach-hit / 参加の画面は下部タブへ通す)。 */
+.coach-dim { position: fixed; inset: 0; pointer-events: none; background: var(--c-coach-dim); }
 /* 【便BQ】穴の外側の受け(透明。見た目は穴の影が持つ)。押したら案内を消す。 */
 .coach-hit { position: fixed; pointer-events: auto; }
 .coach-card {
@@ -831,6 +834,17 @@ body {
 .coach-icon svg { width: 24px; height: 24px; }
 .coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }
 .coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }
+/* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
+   参加の画面のカード(src/community/CommunityTab.jsx の JoinIntro)。見た目は .coach-card のまま(白・角丸 18・浮きの影・内側)。
+   置き場所だけ違う: 見える範囲(画面の上端 〜 下部タブ・帯の上端。高さは JoinIntro が測って .join-frame に書く)の縦横の中央、
+   上下左右は 22px(本人裁定の 22)。**画面の高さが足りないときは、カードの高さを枠に収めて中を縦にスクロールする**(中身を切らない)。
+   中身は左揃え(アイコン・見出し・1行だけ中央。版の .coach.join)。枠そのものはタップを通す(下部タブは押せる)。 */
+.join-frame { position: fixed; left: 0; right: 0; top: 0; box-sizing: border-box; padding: 22px; display: flex; align-items: center; pointer-events: none; }
+.coach-card.join-card {
+  position: relative; left: auto; right: auto; width: 100%; max-height: 100%;
+  overflow-y: auto; overscroll-behavior: contain; justify-items: stretch; text-align: left;
+}
+.join-card > .coach-icon, .join-card > .coach-title, .join-card > .coach-line { justify-self: center; text-align: center; }
 /* 溶けている間は押させない(済んだ一手の受けが、次に押した物を飲み込まないように)。.coach-card の宣言より後ろに置く。 */
 .coach-layer[data-leaving="true"] .coach-hit,
 .coach-layer[data-leaving="true"] .coach-card { pointer-events: none; }

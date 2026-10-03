@@ -11,6 +11,9 @@ import { createRoot } from "react-dom/client";
 //   ・体裁はマイページの同じ入口と同じ(style の綴りが一致)
 //   ・押すと同じシート(BottomSheet「アカウント引継」の中に BackupPanel)が開き、閉じられる
 // 【守っていないもの】書き出し・読み戻しそのもの(backup/ 側の検査と実機)。ここは入口と配線だけ。
+// 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】入口はカードの一番下の細い導線になった(体裁はマイページの
+//   secondaryButtonStyle ではなくなった)。名前と開くシートは同じ。「体裁が同じ」の検査は「細い導線の体裁」の検査に直し、
+//   参加のボタンの文字は「参加する」に直した。
 // ------------------------------------------------------------------
 const { JoinIntro, ProfileView } = await import("./CommunityTab.jsx");
 
@@ -65,21 +68,27 @@ describe("参加前の画面からアカウント引継を開ける(便BB)", () 
     expect(buttonNamed("アカウント引継")).toHaveLength(1);
   });
 
-  it("体裁はマイページの「アカウント引継」と同じ(style の綴りが一致)", async () => {
+  it("【便BS】体裁はカードの一番下の細い導線(地も枠も無い・--fs-sm・600・--c-ink-2・当たり --tap-min)。マイページの入口(地のあるボタン)とは別", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    const joinStyle = buttonNamed("アカウント引継")[0].getAttribute("style");
-    const joinClass = buttonNamed("アカウント引継")[0].className;
+    const entry = buttonNamed("アカウント引継")[0];
+    const s = entry.style;
+    expect([s.background, s.fontSize, s.fontWeight, s.color, s.minHeight, s.width])
+      .toEqual(["none", "var(--fs-sm)", "600", "var(--c-ink-2)", "var(--tap-min)", "100%"]);
+    expect(entry.className).toBe("sans");
+    // カードの中の最後の部品(参加するより下)
+    const card = document.querySelector("[data-join-card]");
+    expect(card.lastElementChild).toBe(entry);
+    const joinStyle = entry.getAttribute("style");
     await act(async () => { root.render(<ProfileView profile={PROFILE} uid="u1" onOpenBackup={() => {}} />); });
     const mine = buttonNamed("アカウント引継");
     expect(mine).toHaveLength(1);
-    expect(joinStyle).toBe(mine[0].getAttribute("style"));
-    expect(joinClass).toBe(mine[0].className);
+    expect(joinStyle).not.toBe(mine[0].getAttribute("style"));
   });
 
-  it("参加の一手は今までどおり(入口を足しても「参加してプロフィールを作る」は1つで、押すと onJoin が呼ばれる)", async () => {
+  it("参加の一手は今までどおり(入口を足しても「参加する」は1つで、押すと onJoin が呼ばれる)", async () => {
     let joined = 0;
     await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
-    const join = buttonNamed("参加してプロフィールを作る");
+    const join = buttonNamed("参加する");
     expect(join).toHaveLength(1);
     // 【便BC 2026-09-25】規約への同意のチェックが入るまで参加は押せなくなった(agreeGate.test.jsx が本体)。
     // ここでは「入れてから押せば今までどおり onJoin が呼ばれる」を見る。

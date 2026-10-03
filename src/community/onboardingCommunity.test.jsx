@@ -54,15 +54,15 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
     await act(async () => { root.render(<CommunityTab sessions={[]} tuningHz={442} onAdoptIdeal={() => ({})} onOnboarding={onOnboarding} />); });
     return root;
   }
-  it("まだ参加していない: 参加のボタンが的を名乗る。印は立てない", async () => {
+  // 【便BS 2026-10-03 本人裁定】参加の段ははじめの一手から外した(参加の画面そのものがカード1枚)。参加のボタンは的を名乗らない。
+  it("まだ参加していない: 参加の画面(カード)が出る。参加のボタンは的を名乗らない(【便BS】)。印は立てない", async () => {
     account.uid = null; account.profile = null;
     const onOnboarding = vi.fn();
     const root = await drawTab(onOnboarding);
-    await waitFor(() => bodyText().includes("参加してプロフィールを作る"), "参加前の画面");
-    const join = coachNamed("join");
-    expect(join).toHaveLength(1);
-    expect(join[0].tagName).toBe("BUTTON");
-    expect(join[0].textContent.trim()).toBe("参加してプロフィールを作る");
+    await waitFor(() => bodyText().includes("参加する"), "参加前の画面");
+    expect(document.querySelector("[data-join-card]")).not.toBe(null);
+    expect(coachNamed("join")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-coach]")).toHaveLength(0);
     // 【便BQ】カードは画面の中央に置くので、重ねない印(便BP4 の data-coach-avoid)は片付けた
     expect(document.querySelectorAll("[data-coach-avoid]")).toHaveLength(0);
     expect(onOnboarding).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
     account.uid = "me"; account.profile = null;
     const onOnboarding = vi.fn();
     const root = await drawTab(onOnboarding);
-    await waitFor(() => bodyText().includes("参加してプロフィールを作る"), "参加前の画面");
+    await waitFor(() => bodyText().includes("参加する"), "参加前の画面");
     expect(onOnboarding).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });

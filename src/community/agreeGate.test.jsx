@@ -12,6 +12,8 @@ import { createRoot } from "react-dom/client";
 //   ・入れると押せて onJoin が呼ばれる。外すとまた押せない
 //   ・保存しない(描き直すと外れた状態から)
 // 【守っていないもの】箱の見た目(20px・角丸 6px・枠・レ点)の実寸。ブラウザで目で見た(報告)。
+// 【便BS 2026-10-03 本人裁定】参加の画面はカード1枚(document.body へ出る)になり、ボタンの文字は「参加する」になった。
+//   探す場所を host → document に、文字を「参加してプロフィールを作る」→「参加する」に直した(確かめる中身は同じ)。
 // ------------------------------------------------------------------
 const { JoinIntro } = await import("./CommunityTab.jsx");
 
@@ -26,21 +28,21 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); document.body.innerHTML = ""; });
 
 const AGREE = "利用規約とプライバシーポリシーに同意します";
-const joinButton = () => [...host.querySelectorAll("button")].find((b) => b.textContent.trim() === "参加してプロフィールを作る");
-const box = () => host.querySelector('input[type="checkbox"]');
+const joinButton = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "参加する");
+const box = () => document.querySelector('input[type="checkbox"]');
 const row = () => box().closest("label");
 
 describe("参加の画面: 規約への同意が入るまで参加は押せない(便BC)", () => {
   it("同意の行がある。行全体が label で高さ --tap-min、中身はネイティブの checkbox で名前は同意の文", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
     expect(row()).toBeTruthy();
     expect(row().textContent).toBe(AGREE);
     expect(row().style.minHeight).toBe("var(--tap-min)");
     expect(box().checked).toBe(false);
     // 並び: 規約・ポリシーの導線 → 同意の行 → 参加の一手
-    const terms = [...host.querySelectorAll("button")].find((b) => b.textContent === "利用規約");
-    const privacy = [...host.querySelectorAll("button")].find((b) => b.textContent === "プライバシーポリシー");
+    const terms = [...document.querySelectorAll("button")].find((b) => b.textContent === "利用規約");
+    const privacy = [...document.querySelectorAll("button")].find((b) => b.textContent === "プライバシーポリシー");
     const follows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(terms, row()) && follows(privacy, row())).toBe(true);
     expect(follows(row(), joinButton())).toBe(true);

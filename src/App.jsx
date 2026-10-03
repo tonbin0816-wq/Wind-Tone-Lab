@@ -36,6 +36,8 @@ import { isTutorialPreviewOn, readTutorialPreviewDone, writeTutorialPreviewDone 
 import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringScale } from "./measureRingFit.js";
 // 【便BP 2026-10-03 本人裁定】はじめの一手。どの一手を出すか・印・移行・位置の判断は onboarding.jsx の純関数。
 import { OnboardingCoach, ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, markOnboardingDone, migrateOnboardingDone, coachCandidates, NO_COACH, onboardingFlagsForSavedSession } from "./onboarding.jsx";
+// 【便BS 2026-10-03 本人裁定】計測タブの3段(チューナーの「音程が続けて取れた」の長さと数え方)・移行の印。
+import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3919,7 +3921,8 @@ export default function WindToneLabPhaseMode() {
   // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に持つ(開き直しても済ませた一手は出ない)。
   // 本物の onboardingDone(IndexedDB の kv)とは別。localStorage なので引継のファイルにも乗らない。
   // 読み書きは tutorialPreview.js が持つ(App.jsx はこの端末の保存を IndexedDB の1つだけにしておく)。
-  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true } : { migrated: true }));
+  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true }));
   const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
   useEffect(() => {
     if (tutorialPreview) writeTutorialPreviewDone(undefined, previewDoneRaw);
@@ -3939,7 +3942,8 @@ export default function WindToneLabPhaseMode() {
     setOnboardingRaw((prev) => migrateOnboardingDone(prev, { sessions, reeds, idealProfiles, isAdopted: isAdoptedIdealProfile }));
   }, [tutorialPreview, onboardingLoaded, onboardingReadOk, sessionsStatus, reedsLoaded, reedsReadOk, idealProfilesLoaded, idealProfilesReadOk, sessions, reeds, idealProfiles, setOnboardingRaw]);
   // 案内を出してよいのは、印が読めて移行も済んでから(移行の前に出すと、既に使っている人に一瞬出る)。
-  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated;
+  // 【便BS】計測タブの3段の移行(便BP の移行を済ませた人にも1回)が済むまでも出さない(計測のある人にチューナーが一瞬出ないように)。
+  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED];
   // 案内が読む印と「出してよいか」。見本ではメモリの上の印を読み、読み込みを待たない(本物の印を見ないので)。
   const coachDone = tutorialPreview ? previewDone : onboardingDone;
   const coachReady = tutorialPreview || onboardingReady;
@@ -5031,6 +5035,17 @@ export default function WindToneLabPhaseMode() {
   const note = pitch ? freqToNote(pitch, effectiveTuningHz) : null;
   const centsOffset = note ? note.cents : 0;
 
+  // 【便BS 2026-10-03 本人裁定】はじめの一手・計測タブの1段目(チューナー)が済む条件:
+  // 計測タブで、マイクが動いていて(isListening・エラー無し)、環に音名が出ている(note。PitchRing の sounding = !!note と同じ判定)
+  // 状態が TUNER_SUSTAIN_MS(1秒)以上**途切れずに**続いた。途切れたら数え直す(useSustained)。
+  // 印が読めてから(coachReady)数える ── 読めていない間に数え終わると、印を書けずに捨てることになるため。印が立ったら数えない。
+  const tunerSounding = coachReady && topTab === "measure" && isListening && !errorMsg && Boolean(note) && !coachDone.tuner;
+  const markTunerDone = useCallback(() => markOnboarding("tuner"), [markOnboarding]);
+  useSustained(tunerSounding, TUNER_SUSTAIN_MS, markTunerDone);
+  // 【便BS】2段目(メトロノーム)は、メトロノームの面を開いたら済み。面の開閉は MeasureView の state(showMetroPanel)なので、
+  // 開いていることを知らせてもらう口を渡す。印が読めてから渡す(渡した時点で開いていれば、そこで知らせてもらえる)。
+  const markMetronomeSeen = useCallback(() => markOnboarding("metronome"), [markOnboarding]);
+
   // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
   // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
   // 【N-11 2026/08/17 本人指示】左右の余白は index.css の --page-pad-left / --page-pad-right。
@@ -5201,6 +5216,8 @@ export default function WindToneLabPhaseMode() {
           requestWakeLock={requestWakeLock} releaseWakeLock={releaseWakeLock}
           phraseFrames={phraseFrames} phraseNoteEvents={phraseNoteEvents} liveFrames={liveFrames}
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
+          /* 【便BS】はじめの一手(メトロノーム)の印を立てる口。印が読めるまでは渡さない。 */
+          onMetroPanelShown={coachReady ? markMetronomeSeen : undefined}
         />
         </div>
       )}
@@ -5335,12 +5352,16 @@ export default function WindToneLabPhaseMode() {
           出してよいのは、印が読めて移行が済み(見本ではいつでも)、録音中でなく、BottomSheet も z60 の暗幕(エラー・保存の確認)も出ておらず、
           録音ファイルの取り込みを解析していないときだけ(【便BP3】isAnalyzingUpload)。
           計測タブはマイクの許可が済んでから(isListening かつエラー無し。許可されなかったときは出さない)。 */}
+      {/* 【便BS 2026-10-03 本人裁定】計測タブはチューナー → メトロノーム → 計測の3段(隠す条件は3段とも同じこの1つ)。
+          データタブは計測の有無で段を分ける(hasSessions。読み込み中 = sessionsKnown が false の間はどちらも出さない)。
+          onMark: 押すことが一手そのものの段(データ・計測あり)は、押されたら印を立てる。 */}
       <OnboardingCoach
         candidates={coachReady && !isRecording
-          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg })
+          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading" })
           : NO_COACH}
         done={coachDone}
         hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload}
+        onMark={markOnboarding}
       />
     </div>
   );
@@ -8623,6 +8644,8 @@ function MeasureView(props) {
     scheduledClicksRef, metroActiveRef, metroBarPerfTimesRef, requestWakeLock, releaseWakeLock,
     phraseFrames, phraseNoteEvents, liveFrames,
     pendingSession, registerPendingSession, discardPendingSession,
+    // 【便BS 2026-10-03】はじめの一手(メトロノーム)の印を立てる口。メトロノームの面が開いている間に呼ぶ(渡されないうちは何もしない)。
+    onMetroPanelShown,
     // 【C-1】アップロード関連(handleUploadFile / isAnalyzingUpload / uploadProgress /
     // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
     // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
@@ -8789,6 +8812,11 @@ function MeasureView(props) {
   // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
   // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
   const [showMetroPanel, setShowMetroPanel] = usePersistedState("showMetroPanel", false); // 開いただけでは音は鳴らない
+  // 【便BS 2026-10-03 本人裁定】はじめの一手(計測タブの2段目「メトロノームも使えます」)は、面を開いたら済み。
+  // 口(onMetroPanelShown)が後から渡された(印が読めた)ときも、開いていればそこで知らせる。
+  useEffect(() => {
+    if (showMetroPanel) onMetroPanelShown?.();
+  }, [showMetroPanel, onMetroPanelShown]);
   // 【N-4b】テンポ・拍子・分割・拍グループ・小節アクセントは、下から出るシート1枚にまとめた。
   // 以前は環と入れ替わる2種類の設定パネル(metroPanel = "sig" | "subdiv")で、開くと環が消えていた。
   // 正典は「環と共存」なので、設定は環の上に**重ねる**シートにする。
@@ -9355,6 +9383,8 @@ function MeasureView(props) {
           }}
           aria-label="メトロノーム"
           aria-pressed={showMetroPanel}
+          /* 【便BS 2026-10-03】はじめの一手(計測タブの2段目)の的。属性を足すだけで見た目は変えない。 */
+          data-coach="metronome"
           style={{
             /* 【M7 2026-09-16 実機の指摘】「メトロノームの当たり判定を上だけ下げる」。
                以前は height 56 で行の中央に置いていたため、**1行目(奏者)の帯まで**
@@ -17364,8 +17394,10 @@ function AnalysisLabView(props) {
        My Data と分析タブは**カードの作法**(白い地 + 白いカード + 影。2026/09/06 に地が白へ)。
        地は .surf-card がページの左右端まで届かせる(index.css)ので、
        中身を包む幅の制限(maxWidth)は**内側の1枚**に持たせる
-       (地に maxWidth を持たせると、広い画面で地だけが中央に浮いた帯になる)。 */
-    <div className="surf-card">
+       (地に maxWidth を持たせると、広い画面で地だけが中央に浮いた帯になる)。
+       【便BS 2026-10-03】data-coach-anchor = はじめの一手(データ・計測あり)を出してよい目印。My Data を表に出しているときだけ名乗る
+       (分析の子タブ・セッション詳細・すべてのセッションでは名乗らない)。属性を足すだけで見た目は変えない。 */
+    <div className="surf-card" data-coach-anchor={atMyDataTop ? "mydata" : undefined}>
     <div style={{ maxWidth: 900, margin: "0 auto" }}>
       {/* 【C-2 で移設】アップロードの過渡的な告知(自動再生ブロック時の「解析を開始」/
           解析の進捗 / 完了通知 + 「★ 目安に設定」)。

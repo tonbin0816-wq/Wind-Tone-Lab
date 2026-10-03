@@ -6879,8 +6879,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     /\{topTab === "analysis" && \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<AnalysisLabView/.test(src));
   {
     const lab = srcOfFn(src, "AnalysisLabView");
+    // 【便BS 2026-10-03】根の .surf-card に、はじめの一手(データ・計測あり)の目印 data-coach-anchor が加わった(My Data のときだけ名乗る。見た目は同じ)。
     check("D-10: My Data / 分析の本体はカードの作法(.surf-card)を名乗る",
-      /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card">\s*\r?\n\s*<div style=\{\{ maxWidth: 900, margin: "0 auto" \}\}>/.test(lab));
+      /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card" data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}>\s*\r?\n\s*<div style=\{\{ maxWidth: 900, margin: "0 auto" \}\}>/.test(lab));
     // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
     // セッション詳細を**カードの作法**へ移した。D-10 の「1px も変えない」凍結は
     // 本人の「計測タブとリードタブの Top 画面以外は適切にカード使っていい」で解除された。
@@ -30938,8 +30939,11 @@ console.log("========== 検証88: 便BB ダブルタップの拡大・参加前�
   // 2 参加前の画面の入口
   const comm88 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
   const join88 = codeOf(srcOfFn(comm88, "JoinIntro"));
-  check("88.2 参加前の画面(JoinIntro)にアカウント引継の入口(マイページと同じ secondaryButtonStyle)",
-    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{secondaryButtonStyle\}>\s*\n\s*アカウント引継\s*\n\s*<\/button>/.test(join88));
+  // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】参加の画面はカード1枚になり、入口はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。
+  // 名前と開くシート(BackupSheet)はマイページと同じ。
+  check("88.2 参加前の画面(JoinIntro)にアカウント引継の入口(【便BS】カードの一番下の細い導線)",
+    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{JOIN_QUIET_LINK_STYLE\}>\s*\n\s*アカウント引継\s*\n\s*<\/button>/.test(join88)
+    && /const JOIN_QUIET_LINK_STYLE = \{\s*\n\s*width: "100%", minHeight: "var\(--tap-min\)", padding: 0, background: "none", border: "none",\s*\n\s*color: "var\(--c-ink-2\)", fontSize: "var\(--fs-sm\)", fontWeight: 600, cursor: "pointer",\s*\n\};/.test(comm88));
   check("88.2 開くのはマイページと同じ BackupSheet(写しを作らない)",
     /\{backup \? <BackupSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(join88)
     && (comm88.match(/<BackupPanel \/>/g) || []).length === 1);
@@ -31032,9 +31036,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /<div className="card card-accent"\s*\r?\n\s*data-coach=\{adoptable \? "adoptAverage" : undefined\}\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
     && !/className="card card-accent"[^>]*style=/.test(data89));
   // 34.5 は App.jsx だけを数えている(累計カード1枚)。コミュニティの1枚はここで数える。
-  check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚だけ",
-    count89(codeOf(src), /className="card card-accent"/g) === 1 && count89(scr89, /card-accent/g) === 1
-    && count89(data89, /card-accent/g) === 1,
+  // 【便BS 2026-10-03 本人裁定】参加前の画面の裏の見本(JoinPreviewDataScreen)が平均カードの形を1枚描く(押せない・名簿を読まない)。
+  check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚(+【便BS】参加前の見本1枚)だけ",
+    count89(codeOf(src), /className="card card-accent"/g) === 1 && count89(scr89, /card-accent/g) === 2
+    && count89(data89, /card-accent/g) === 1 && count89(codeOf(srcOfFn(scrRaw89, "JoinPreviewDataScreen")), /card-accent/g) === 1,
     `App ${count89(codeOf(src), /className="card card-accent"/g)} / screens ${count89(scr89, /card-accent/g)}`);
   check("89.1 人物のページのカードは濃紺にしない(PersonSheet に card-accent / onAccent が無い)",
     !/card-accent|onAccent/.test(person89));
@@ -31082,8 +31087,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("89.2 用語の説明を持つのは重心と HNR の2つだけ(音程は持たない)",
     /export const TERM_TEXT = \{\s*\r?\n\s*spectralCentroidHz: "[^"]+",\s*\r?\n\s*hnrDb: "[^"]+",\s*\r?\n\};/.test(tip89)
     && !/pitchCentsSigned: "/.test(tip89));
-  check("89.2 2箇所(平均カード・人物のページ)が同じ MetricTabs を使う。グラフの下に揃えの注記は無い",
-    count89(scr89, /<MetricTabs /g) === 2 && data89.includes("<MetricTabs") && person89.includes("<MetricTabs")
+  // 【便BS 2026-10-03】参加前の画面の裏の見本(JoinPreviewDataScreen)も同じ MetricTabs を描く(写しを作らない。3箇所)。
+  check("89.2 2箇所(平均カード・人物のページ)と【便BS】参加前の見本が同じ MetricTabs を使う。グラフの下に揃えの注記は無い",
+    count89(scr89, /<MetricTabs /g) === 3 && data89.includes("<MetricTabs") && person89.includes("<MetricTabs")
+    && codeOf(srcOfFn(scrRaw89, "JoinPreviewDataScreen")).includes("<MetricTabs")
     && !data89.includes(SHARED89) && !person89.includes(SHARED89)
     // 【便BO2 2026-10-02】1行は台紙の読み上げの説明(aria-describedby)から指すので id を持つ。見た目の綴りは同じ。
     && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div id=\{avgWaitId\} className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
@@ -31524,9 +31531,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BN.2 マイページ(ProfileView)の根は myPageStyle・pageStyle を直に読む根は無い",
     /<div className="sans" style=\{myPageStyle\}>/.test(profBN) && !/style=\{pageStyle\}/.test(profBN)
     && /\nconst myPageStyle = \{ \.\.\.pageStyle, paddingTop: MY_PAGE_TOP_PAD \};/.test(tabBN));
-  // 参加前の画面(JoinIntro)と編集のフォーム(ProfileForm)は子タブの行の下に居ないので、共有の pageStyle のまま
-  check("BN.2 参加前の画面・編集のフォームは共有の pageStyle のまま(子タブの行の下に居ない)",
-    /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "JoinIntro")))
+  // 編集のフォーム(ProfileForm)は子タブの行の下に居ないので、共有の pageStyle のまま
+  // 【便BS 2026-10-03 本人裁定】参加前の画面(JoinIntro)はカード1枚になり、裏に子タブの行 + 参加後のデータの見本を敷く。
+  // 見本(JoinPreviewDataScreen)は子タブの行のすぐ下に居るので、データ・順位・シェアと同じ subPageStyle を読む。
+  check("BN.2 編集のフォームは共有の pageStyle のまま。【便BS】参加前の画面の見本は子タブの行の下なので subPageStyle",
+    !/style=\{pageStyle\}/.test(codeOf(srcOfFn(tabBN, "JoinIntro")))
+    && /<SubTabs items=\{SUB_TABS\} value="data" onChange=\{NOOP\} \/>\s*\n\s*<JoinPreviewDataScreen \/>/.test(codeOf(srcOfFn(tabBN, "JoinIntro")))
+    && /<div style=\{subPageStyle\} data-join-preview-screen="">/.test(codeOf(srcOfFn(scrBN, "JoinPreviewDataScreen")))
     && /<div className="sans" style=\{pageStyle\}>/.test(codeOf(srcOfFn(tabBN, "ProfileForm"))));
   console.log("  -> done");
 }
