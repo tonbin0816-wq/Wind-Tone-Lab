@@ -191,7 +191,8 @@ describe("みんなの平均カードを押すと、目安に設定するかの�
 });
 
 describe("指標タブとぶつからない(便BO)", () => {
-  it("どのタブを押しても開かない。選んでいるタブの押し直し(吹き出しを開く)でも、タブの列の空いたところでも開かない", async () => {
+  // 【便BQ 2026-10-03 本人の実機指示】タブと同じ行の右側(タブ列の空いた所)は、押すとシートが開く。開かないのはタブのボタンそのものだけ。
+  it("どのタブを押しても開かない。選んでいるタブの押し直し(吹き出しを開く)でも開かない。タブの列の空いたところは開く", async () => {
     const onAdopt = vi.fn(() => ({ ok: true }));
     await draw(screen({ onAdopt }));
     for (const label of ["音程", "HNR", "重心"]) {
@@ -207,10 +208,17 @@ describe("指標タブとぶつからない(便BO)", () => {
     await press(tab("重心"));
     expect(tip()).toBe(null);
     expect(sheet()).toBe(null);
-    // タブの列そのもの(一番右のタブより右の帯)
-    await press(tablist());
-    expect(sheet()).toBe(null);
     expect(onAdopt).not.toHaveBeenCalled();
+    // タブの列そのもの(一番右のタブより右の帯)。吹き出しが開いているときは閉じるだけ(便BC の決まり)
+    await press(tab("重心"));
+    expect(tip()).not.toBe(null);
+    await press(tablist());
+    expect(tip()).toBe(null);
+    expect(sheet()).toBe(null);
+    // 吹き出しが閉じていれば、空いた所でシートが開く
+    await press(tablist());
+    expect(sheet()).not.toBe(null);
+    expect(onAdopt).not.toHaveBeenCalled();   // 開くだけ(設定は確認のシートの主ボタンで)
   });
 
   it("吹き出しが開いているあいだにカード(グラフ)を押すと、吹き出しを閉じるだけ。もう一度押すと開く", async () => {

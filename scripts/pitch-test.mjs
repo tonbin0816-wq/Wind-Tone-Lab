@@ -31023,8 +31023,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // 【便BO 2026-10-02 本人指示】押すと目安に設定の確認のシート。足したのは押したときの処理の2つだけ(style は無いまま)。
     // 【便BO3 2026-10-03】押し始めの中断(pointercancel)で控えた印を戻す受け口が加わった(3つ。style は無いまま)。
     // 【便BP 2026-10-03】はじめの一手(参加後2)の的の名乗り data-coach が加わった(押せるときだけ。style は無いまま)。
-    // 【便BP5 2026-10-03】押せるときは、ほかの一手のカードを重ねない印(data-coach-avoid)も付く(style は無いまま)。
-    /<div className="card card-accent"\s*\r?\n\s*data-coach=\{adoptable \? "adoptAverage" : undefined\}\s*\r?\n\s*data-coach-avoid=\{adoptable \? "" : undefined\}\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
+    // 【便BQ 2026-10-03】便BP5 の data-coach-avoid は外した(カードは画面の中央に置くので、重ねない印は要らなくなった)。
+    /<div className="card card-accent"\s*\r?\n\s*data-coach=\{adoptable \? "adoptAverage" : undefined\}\s*\r?\n\s*onPointerDown=\{adoptable \? onCardPointerDown : undefined\}\s*\r?\n\s*onPointerCancel=\{adoptable \? onCardPointerCancel : undefined\}\s*\r?\n\s*onClick=\{adoptable \? onCardClick : undefined\}>/.test(data89)
     && !/className="card card-accent"[^>]*style=/.test(data89));
   // 34.5 は App.jsx だけを数えている(累計カード1枚)。コミュニティの1枚はここで数える。
   check("89.1 card-accent を名乗るのは App.jsx の累計カード1枚 + screens.jsx の平均カード1枚だけ",

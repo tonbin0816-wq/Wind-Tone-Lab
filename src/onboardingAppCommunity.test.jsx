@@ -68,18 +68,20 @@ async function waitFor(pred, label, deadline = 15000) {
 }
 
 describe("App → コミュニティタブの配線(便BP3)", () => {
-  it("プロフィールの画面に入ったら kv に join、人物を開いたら openPerson が立つ", async () => {
+  // 【便BQ】参加後1(奏者を開く)は無くなったので、人物を開いても印は立たない。
+  it("プロフィールの画面に入ったら kv に join が立つ。人物を開いても openPerson は立たない(参加後1は無い)", async () => {
     await act(async () => { root.render(React.createElement(App)); });
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
     expect(kv("onboardingDone").join).toBeUndefined();
     await act(async () => { document.querySelector('button[aria-label="コミュニティ"]').click(); });
     // 参加済み(作り物のプロフィール)→ JoinedView のデータの子タブ。名簿が読み終わるまで待つ
-    await waitFor(() => document.querySelector('[data-coach="openPerson"]'), "データの一覧の1人目");
+    const row = () => [...document.querySelectorAll('[role="button"]')].find((el) => el.getAttribute("aria-label") === "しろねこ の詳細を見る");
+    await waitFor(() => row(), "データの一覧の1人目");
     await waitFor(() => kv("onboardingDone")?.join === true, "参加の印(kv)");
-    expect(kv("onboardingDone").openPerson).toBeUndefined();
-    await act(async () => { document.querySelector('[data-coach="openPerson"]').click(); });
+    await act(async () => { row().click(); });
     await waitFor(() => document.querySelector('[role="dialog"][aria-label="しろねこ の詳細"]'), "人物のページ");
-    await waitFor(() => kv("onboardingDone")?.openPerson === true, "奏者を開いた印(kv)");
+    await tick(300);
+    expect(kv("onboardingDone").openPerson).toBeUndefined();
     expect(kv("onboardingDone").adoptAverage).toBeUndefined();
   }, 40000);
 });

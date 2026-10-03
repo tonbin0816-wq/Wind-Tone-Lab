@@ -106,6 +106,8 @@ const click = (el) => mod.act(async () => { el.click(); });
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
+  // 【便BQ】見本の「済んだ」は localStorage に残るので、検査ごとに空にする(前の検査の見本を持ち越さない)
+  window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
     window.SVGElement.prototype.getComputedTextLength = function () { return (this.textContent || "").length * 7; };
@@ -166,6 +168,35 @@ describe("入れたての人", () => {
   }, 30000);
 });
 
+// 【便BQ 2026-10-03 本人の実機指示「他のところタップで案内は消えるようにして」】アプリの中で確かめる。
+describe("外を押したら消える(この起動の間だけ・印は立てない)", () => {
+  it("データタブの案内で外を押すと消え、下へは届かない。タブを行き来しても出ない。開き直すとまた出る", async () => {
+    mod = await loadApp(fake);
+    await render();
+    await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "data", "データタブの案内");
+    // 画面の上のほう(子タブ「分析」などがある所)は受け「上」が覆う。押すと消えるだけ
+    const subBefore = [...document.querySelectorAll("button")].find((b) => b.textContent === "分析");
+    expect(subBefore).toBeTruthy();
+    await click(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone")).toEqual({ migrated: true });      // 印は立てない
+    // タブを行き来しても、この起動の間は出ない
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "リードタブの案内(別の一手は出る)");
+    await click(nav("データ"));
+    await tick(400);
+    expect(layer()).toBe(null);
+    // 開き直す → まだ済んでいないので、また出る
+    await mod.act(async () => root.unmount()); root = null; host.remove();
+    mod = await loadApp(fake);
+    await render();
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "data", "開き直すとまた出る");
+  }, 40000);
+});
+
 describe("リードの登録(成功の道で印が立つ)", () => {
   it("登録で印が立ち、保存と引継の書き出しに入る / シートの間は出ない / 箱を消しても戻らない", async () => {
     mod = await loadApp(fake);
@@ -174,7 +205,7 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await click(nav("リード"));
     await waitFor(() => layerId() === "reeds", "リードタブの案内");
     expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");
-    expect(layer().querySelector(".coach-line").textContent).toBe("計測が自動でリードに紐づきます");
+    expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");   // 【便BQ】
     // 右下の ＋(案内の的)を押す → 追加のシート(BottomSheet)が開いている間は出ない
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
@@ -267,8 +298,8 @@ describe("既にある人の移行", () => {
     });
     await render();
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
-    // 【便BP3】取り込んだのは人物の目安だけ → openPerson だけ(adoptAverage はみんなの平均の目安があるときだけ)
-    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, openPerson: true, migrated: true });
+    // 【便BQ】取り込んだのは人物の目安だけ → 何も立てない(openPerson は外した。adoptAverage はみんなの平均の目安があるときだけ)
+    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, migrated: true });
     await click(nav("データ"));
     await tick(80);
     expect(layer()).toBe(null);
@@ -474,6 +505,51 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     expect(layerId()).toBe("data");   // 見本なので計測があっても出ている
     expect(kv("onboardingDone")).toBeUndefined();
   }, 40000);
+});
+
+// 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に残る(開き直しても済ませた一手は出ない)。
+describe("見本の「済んだ」は開き直しても残る / =1 で最初から / 本物の印は書かない", () => {
+  afterEach(() => { document.documentElement.removeAttribute("data-tutorial-preview"); });
+  it("見本でリードを登録 → 開き直してもリード1は出ずリード2から。=1 を付けて開くとリード1から。本物の印は {migrated:true} のまま", async () => {
+    const { applyTutorialPreview } = await import("./tutorialPreview.js");
+    document.documentElement.setAttribute("data-tutorial-preview", "1");
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { migrated: true } } });
+    await render();
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "見本のリード1");
+    await click(document.querySelector('button[aria-label="リードを追加"]'));
+    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
+    await waitFor(() => layerId() === "reedsMeasure", "見本のリード2");
+    await tick(200);
+    expect(JSON.parse(window.localStorage.getItem("ficus.tutorialPreviewDone"))).toMatchObject({ reeds: true });
+    expect(kv("onboardingDone")).toEqual({ migrated: true });
+    // 開き直す(見本のまま)
+    await mod.act(async () => root.unmount()); root = null; host.remove();
+    mod = await loadApp(fake);
+    await render();
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reedsMeasure", "開き直してもリード2から");
+    // ?tutorialpreview=1 を付けて開き直す → 見本の済んだは空になり、リード1から
+    await mod.act(async () => root.unmount()); root = null; host.remove();
+    applyTutorialPreview({ location: { pathname: "/", search: "?tutorialpreview=1", hash: "" }, history: { state: null, replaceState() {} }, storage: window.localStorage, doc: document });
+    expect(window.localStorage.getItem("ficus.tutorialPreviewDone")).toBe(null);
+    mod = await loadApp(fake);
+    await render();
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "=1 でリード1から");
+    expect(kv("onboardingDone")).toEqual({ migrated: true });
+  }, 40000);
+  it("見本でない起動では見本の鍵を読みも書きもしない", async () => {
+    window.localStorage.setItem("ficus.tutorialPreviewDone", JSON.stringify({ measure: true, reeds: true, migrated: true }));
+    mod = await loadApp(fake);
+    await render();
+    await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "本物の印でリード1(見本の済んだは見ない)");
+    expect(JSON.parse(window.localStorage.getItem("ficus.tutorialPreviewDone"))).toEqual({ measure: true, reeds: true, migrated: true });
+  }, 30000);
 });
 
 describe("リードの一覧が揺れている間(編集中)は的を名乗らない(便BP3)", () => {

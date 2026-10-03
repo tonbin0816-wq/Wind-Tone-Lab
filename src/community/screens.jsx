@@ -1134,8 +1134,11 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   // 【便BO 2026-10-02 本人指示】「みんなの平均カードをタップで、そのとき抽出されている条件の平均の目安に
   // 設定するか聞いて設定する導線を作って。表のカードのレイアウトは変えないで」。
   //   ・押せるのは平均が出ているとき(avg.error が無い)だけ。「あと○人…」・エラーでは何も起きない
-  //   ・押して反応するのはカードの中の**指標タブの列(role="tablist")と用語の吹き出し以外**
-  //     (見出し・人数・グラフ・凡例・台紙の余白)。タブの押し直し(吹き出しの開け閉め)とぶつけない
+  //   ・押して反応するのはカードの中の**指標タブのボタン(role="tab")と用語の吹き出し以外**
+  //     (見出し・人数・グラフ・凡例・台紙の余白・タブ列の空いた所)。タブの押し直し(吹き出しの開け閉め)とぶつけない
+  //     【便BQ 2026-10-03 本人の実機指示】以前はタブの列(role="tablist")全体を外していたので、タブと同じ行の右側の
+  //     空いた所を押してもシートが開かなかった。外すのをタブのボタンそのもの(音程・HNR・重心)だけに絞った。
+  //     吹き出しが開いているときは今までどおり閉じるだけ(下の wasTipOpen。便BC の「空いた所を押すと閉じる」と両立)
   //   ・吹き出しが開いているあいだに押したら、吹き出しを閉じるだけ(シートは開かない)。
   //     吹き出しは document の pointerdown で閉じる(termTip.jsx)ので、click の時点ではもう閉じている。
   //     そこで**押し始め(pointerdown)の時点で開いていたか**を控えておき、click で読む。
@@ -1171,8 +1174,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   const onCardClick = (e) => {
     const wasTipOpen = tipOpenAtDownRef.current;
     tipOpenAtDownRef.current = false;
-    // タブの列(押し直しの吹き出しを含む)と吹き出しの中は、それぞれが自分で受ける。
-    if (e.target.closest?.('[role="tablist"]') || inTermTip(e.target)) return;
+    // タブのボタン(押し直しの吹き出しを含む)と吹き出しの中は、それぞれが自分で受ける。【便BQ】列の空いた所はシートを開く。
+    if (e.target.closest?.('[role="tab"]') || inTermTip(e.target)) return;
     if (wasTipOpen || !adoptable) return;
     openAdopt();
   };
@@ -1203,11 +1206,8 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
           足すのは押したときの処理だけで、クラス・style・子の並びは1つも変えていない(押せる印も足さない)。 */}
       {/* 【便BP 2026-10-03】data-coach = はじめの一手(参加後2)の的。**平均が出ているとき(押せるとき)だけ**名乗る
           (人数不足・エラーのあいだは名乗らない = 案内は出ない)。属性を足すだけで、クラス・style・子の並びは変えていない。 */}
-      {/* 【便BP5 2026-10-03 統括の裁定】data-coach-avoid: 押すと確認のシートが開くカードなので、ほかの一手(参加後1)のカードを
-          ここに重ねない。参加後2では的そのもの(的は重ねない矩形から外れる)。 */}
       <div className="card card-accent"
            data-coach={adoptable ? "adoptAverage" : undefined}
-           data-coach-avoid={adoptable ? "" : undefined}
            onPointerDown={adoptable ? onCardPointerDown : undefined}
            onPointerCancel={adoptable ? onCardPointerCancel : undefined}
            onClick={adoptable ? onCardClick : undefined}>
@@ -1286,9 +1286,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
       ) : (
         <div className="card card-list">
           {pairs.map(({ ideal, owner }, i, arr) => (
-            /* 【便BP 2026-10-03】data-coach = はじめの一手(参加後1)の的。一覧の1人目だけが名乗る(一覧が空なら名乗る行が無い)。 */
             <div key={ideal.id}
-                 data-coach={i === 0 && onOpenPerson ? "openPerson" : undefined}
                  role={onOpenPerson ? "button" : undefined}
                  tabIndex={onOpenPerson ? 0 : undefined}
                  onClick={onOpenPerson ? () => onOpenPerson(owner) : undefined}

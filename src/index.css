@@ -794,9 +794,12 @@ body {
    【便BP 2026-10-03 本人裁定】はじめの一手(src/onboarding.jsx の OnboardingCoach)。正典 = 版4(ficus-tutorial.html)。
    ・暗幕は穴(.coach-hole)の外側の影で作る。**穴の縁に枠線は付けない**(本人裁定)。影の広がり 150vmax は
      「どこに穴があっても画面の一番遠い角まで届く」ための幾何の値(画面の対角線 ≦ √2 × vmax)で、見た目の値ではない
-   ・暗幕と穴は**タップを下へ通す**(pointer-events: none)。カードだけが当たり判定を持つ(押しても何も起きない。版4どおり)。
-     【便BP3 2026-10-03 統括の裁定】便BP2 の「カードも通す」は改めた。代わりにカードを**押せる部品と重ならない所**に置く
-     (onboarding.jsx の placeCoachCard)。読み上げはカードではなく、常に在る空の .coach-live(role="status")が文を持つ
+   ・【便BQ 2026-10-03 本人の実機指示「他のところタップで案内は消えるようにして」】穴の外側を4枚の透明な受け(.coach-hit)が
+     覆い、押されたら案内を消すだけ(下の部品へは届かせない)。カードも押されたら消す。**穴の上には何も置かない** ──
+     的はそのまま押せる(穴の見た目 .coach-hole は pointer-events: none)。溶けている間は受けもカードも当たり判定を持たない
+   ・【便BQ 本人指示「案内のポップアップは全て画面中央に出すようにして」】カードは見える範囲(下部タブ・帯を除く)の中央。
+     置き場所は onboarding.jsx の placeCoachCard(的にかかる場面だけ上か下へずらす)。
+     読み上げはカードではなく、常に在る空の .coach-live(role="status")が文を持つ
    ・カード: 白(--c-surface)・角丸 18(本人裁定。段の外の別の部品 ── シートの上だけ 28 と同じ扱い。DESIGN-SYSTEM §2)・
      浮きの影(シート・浮かせるボタン・告知と同値 0 8px 24px rgba(15,23,42,0.18)。新しい濃さを作らない)。
      左右は画面から 22px(本人裁定)。中身は丸いアイコン(地 --c-accent-tint・色 --c-accent)・見出し・1行
@@ -812,6 +815,8 @@ body {
 .coach-layer { position: fixed; inset: 0; pointer-events: none; }
 .coach-layer[data-leaving="true"] { animation: coach-out 350ms ease-out forwards; }
 .coach-hole { position: fixed; pointer-events: none; box-shadow: 0 0 0 150vmax var(--c-coach-dim); }
+/* 【便BQ】穴の外側の受け(透明。見た目は穴の影が持つ)。押したら案内を消す。 */
+.coach-hit { position: fixed; pointer-events: auto; }
 .coach-card {
   position: fixed; left: 22px; right: 22px; pointer-events: auto;
   background: var(--c-surface); border-radius: 18px; box-shadow: 0 8px 24px rgba(15,23,42,0.18);
@@ -826,6 +831,9 @@ body {
 .coach-icon svg { width: 24px; height: 24px; }
 .coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }
 .coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }
+/* 溶けている間は押させない(済んだ一手の受けが、次に押した物を飲み込まないように)。.coach-card の宣言より後ろに置く。 */
+.coach-layer[data-leaving="true"] .coach-hit,
+.coach-layer[data-leaving="true"] .coach-card { pointer-events: none; }
 /* 読み上げの入れ物(常に1つ。文だけを差し替える)。見た目には出さない ── 値は「画面から外して読み上げにだけ残す」ための
    幾何の値(1px・切り抜き)で、見た目の値ではない。 */
 .coach-live {

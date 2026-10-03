@@ -63,12 +63,8 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
     expect(join).toHaveLength(1);
     expect(join[0].tagName).toBe("BUTTON");
     expect(join[0].textContent.trim()).toBe("参加してプロフィールを作る");
-    // 【便BP4】同意の前に読む説明文の2段落と、規約・ポリシーの導線は、案内のカードを重ねない印を持つ
-    const avoid = [...document.querySelectorAll("[data-coach-avoid]")];
-    expect(avoid).toHaveLength(3);
-    expect(avoid[0].textContent).toContain("参加すると匿名のアカウントが作られ");
-    expect(avoid[1].textContent).toContain("匿名のアカウントはこの端末にだけ残ります");
-    expect([...avoid[2].querySelectorAll("button")].map((b) => b.textContent.trim())).toEqual(["利用規約", "プライバシーポリシー", "お問い合わせ"]);
+    // 【便BQ】カードは画面の中央に置くので、重ねない印(便BP4 の data-coach-avoid)は片付けた
+    expect(document.querySelectorAll("[data-coach-avoid]")).toHaveLength(0);
     expect(onOnboarding).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
@@ -91,25 +87,16 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
   });
 });
 
-describe("参加後1: 奏者を開く", () => {
-  it("データの一覧の1人目だけが的を名乗り、開いたら印 openPerson(描いただけでは立てない)", async () => {
+// 【便BQ 2026-10-03 本人指示「気になる奏者を開いてみようのパートは削除」】参加後1は無い。
+describe("参加後1(奏者を開く)は無い", () => {
+  it("データの一覧のどの行も的を名乗らず、人物を開いても印を立てない(人物のページは今までどおり開く)", async () => {
     const onOnboarding = vi.fn();
     await drawJoined(JoinedView, { initialTab: "data", onOnboarding });
-    const rows = coachNamed("openPerson");
-    expect(rows).toHaveLength(1);
-    expect(rows[0].getAttribute("role")).toBe("button");
-    expect(rows[0].textContent).toContain("しろねこ");   // 一覧の先頭
-    expect(onOnboarding).not.toHaveBeenCalledWith("openPerson");
-    await click(rows[0]);
-    expect(document.querySelector('[role="dialog"][aria-label="しろねこ の詳細"]')).not.toBe(null);
-    expect(onOnboarding).toHaveBeenCalledWith("openPerson");
-  });
-  it("順位の一覧から開いても同じ印(人物のページを初めて開いた)", async () => {
-    const onOnboarding = vi.fn();
-    await drawJoined(JoinedView, { initialTab: "rank", onOnboarding });
-    const row = kit.rankRowOf("くろねこ");
+    expect(coachNamed("openPerson")).toHaveLength(0);
+    const row = [...document.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes("しろねこ") && el.getAttribute("aria-label") === "しろねこ の詳細を見る");
     await click(row);
-    expect(onOnboarding).toHaveBeenCalledWith("openPerson");
+    expect(document.querySelector('[role="dialog"][aria-label="しろねこ の詳細"]')).not.toBe(null);
+    expect(onOnboarding).not.toHaveBeenCalled();
   });
 });
 
@@ -130,9 +117,8 @@ describe("DataScreen の的の名乗り(一覧が空・平均が出ていない)
     const card = coachNamed("adoptAverage");
     expect(card).toHaveLength(1);
     expect(card[0].className).toBe("card card-accent");
-    // 【便BP5】押すと確認のシートが開くカードなので、ほかの一手のカードを重ねない印も持つ
-    expect(card[0].hasAttribute("data-coach-avoid")).toBe(true);
-    expect(coachNamed("openPerson")).toHaveLength(1);
+    expect(card[0].hasAttribute("data-coach-avoid")).toBe(false);   // 【便BQ】重ねない印は片付けた
+    expect(coachNamed("openPerson")).toHaveLength(0);                // 【便BQ】参加後1は無い
     await act(async () => root.unmount());
   });
   it("人数不足(2人)では平均カードは名乗らない(案内は出ない)。一覧の1人目は名乗る", async () => {
@@ -140,11 +126,10 @@ describe("DataScreen の的の名乗り(一覧が空・平均が出ていない)
     expect(bodyText()).not.toContain("目安を公開している");
     expect(document.querySelector(".card.card-accent")).not.toBe(null);
     expect(coachNamed("adoptAverage")).toHaveLength(0);
-    expect(document.querySelector(".card.card-accent").hasAttribute("data-coach-avoid")).toBe(false);   // 押せないカードは印を持たない
-    expect(coachNamed("openPerson")).toHaveLength(1);
+    expect(coachNamed("openPerson")).toHaveLength(0);
     await act(async () => root.unmount());
   });
-  it("一覧が空なら名乗る行が無い(参加後1の案内は出ない)", async () => {
+  it("一覧が空でも、平均カードは名乗らない(平均が出ていない)", async () => {
     const root = await draw({ ideals: [] });
     expect(bodyText()).toContain("公開されているデータがまだありません");
     expect(coachNamed("openPerson")).toHaveLength(0);

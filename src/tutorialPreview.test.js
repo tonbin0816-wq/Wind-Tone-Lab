@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyTutorialPreview, tutorialPreviewFromSearch, urlWithoutTutorialPreview, readTutorialPreviewStored, isTutorialPreviewOn,
-  TUTORIAL_PREVIEW_STORAGE_KEY, TUTORIAL_PREVIEW_ATTR,
+  TUTORIAL_PREVIEW_STORAGE_KEY, TUTORIAL_PREVIEW_ATTR, TUTORIAL_PREVIEW_DONE_KEY, readTutorialPreviewDone, writeTutorialPreviewDone,
 } from "./tutorialPreview.js";
 
 // ------------------------------------------------------------------
@@ -59,5 +59,28 @@ describe("見本の合図", () => {
     const e = env("?tutorialpreview=1");
     expect(applyTutorialPreview({ location: e.loc, history: e.hist, storage: throwing, doc: e.doc })).toBe(true);
     expect(urlWithoutTutorialPreview({ pathname: "/", search: "?tutorialpreview=1", hash: "" })).toBe("/");
+  });
+  // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵(本物の onboardingDone とは別)。
+  it("見本の「済んだ」: 鍵は ficus.tutorialPreviewDone。書いて読める・壊れていれば空。=1 で空にして最初から、=0 で鍵ごと消す", () => {
+    expect(TUTORIAL_PREVIEW_DONE_KEY).toBe("ficus.tutorialPreviewDone");
+    const st = memStorage();
+    writeTutorialPreviewDone(st, { reeds: true, migrated: true });
+    expect(readTutorialPreviewDone(st)).toEqual({ reeds: true, migrated: true });
+    expect(readTutorialPreviewDone(memStorage({ "ficus.tutorialPreviewDone": "{壊れた" }))).toEqual({});
+    expect(readTutorialPreviewDone(memStorage({ "ficus.tutorialPreviewDone": "[1]" }))).toEqual({});
+    // =1: 見本を覚え、済んだは空に(最初からやり直す)
+    const e1 = env("?tutorialpreview=1", { "ficus.tutorialPreview": "1", "ficus.tutorialPreviewDone": '{"reeds":true}' });
+    applyTutorialPreview({ location: e1.loc, history: e1.hist, storage: e1.storage, doc: e1.doc });
+    expect(e1.storage.getItem("ficus.tutorialPreview")).toBe("1");
+    expect(e1.storage.getItem("ficus.tutorialPreviewDone")).toBe(null);
+    // 合図が無ければ済んだは残る(開き直しても済ませた一手は出ない)
+    const e2 = env("", { "ficus.tutorialPreview": "1", "ficus.tutorialPreviewDone": '{"reeds":true}' });
+    applyTutorialPreview({ location: e2.loc, history: e2.hist, storage: e2.storage, doc: e2.doc });
+    expect(readTutorialPreviewDone(e2.storage)).toEqual({ reeds: true });
+    // =0: 見本の鍵ごと消す
+    const e3 = env("?tutorialpreview=0", { "ficus.tutorialPreview": "1", "ficus.tutorialPreviewDone": '{"reeds":true}' });
+    applyTutorialPreview({ location: e3.loc, history: e3.hist, storage: e3.storage, doc: e3.doc });
+    expect(e3.storage.getItem("ficus.tutorialPreview")).toBe(null);
+    expect(e3.storage.getItem("ficus.tutorialPreviewDone")).toBe(null);
   });
 });

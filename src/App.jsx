@@ -31,7 +31,7 @@ import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
 // 【便BL 2026-10-02 本人指示】見本の広告の帯の合図。読むのは <html> の印だけ(付けるのは main.jsx)。
 import { isAdPreviewOn } from "./adPreview.js";
 // 【便BP3 2026-10-03 本人の依頼】はじめの一手の見本の合図(?tutorialpreview=1)。読むのは <html> の印だけ(付けるのは main.jsx)。
-import { isTutorialPreviewOn } from "./tutorialPreview.js";
+import { isTutorialPreviewOn, readTutorialPreviewDone, writeTutorialPreviewDone } from "./tutorialPreview.js";
 // 【便BM 2026-10-02 本人裁定(a)】画面の高さが足りないときだけ環を縮める計算(純関数。検査は measureRingFit.test.js)。
 import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringScale } from "./measureRingFit.js";
 // 【便BP 2026-10-03 本人裁定】はじめの一手。どの一手を出すか・印・移行・位置の判断は onboarding.jsx の純関数。
@@ -3914,8 +3914,14 @@ export default function WindToneLabPhaseMode() {
   // 【便BP3 2026-10-03 本人の依頼】見本(?tutorialpreview=1 を覚えた端末)。保存してある印を**読まずに**全部「まだ」として扱い、
   // この起動の中で済ませた一手はメモリの上(previewDoneRaw)にだけ立てる。**本物の印は書かない・移行もしない。**
   const [tutorialPreview] = useState(() => isTutorialPreviewOn());
-  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => ({ migrated: true }));
+  // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に持つ(開き直しても済ませた一手は出ない)。
+  // 本物の onboardingDone(IndexedDB の kv)とは別。localStorage なので引継のファイルにも乗らない。
+  // 読み書きは tutorialPreview.js が持つ(App.jsx はこの端末の保存を IndexedDB の1つだけにしておく)。
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true } : { migrated: true }));
   const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
+  useEffect(() => {
+    if (tutorialPreview) writeTutorialPreviewDone(undefined, previewDoneRaw);
+  }, [tutorialPreview, previewDoneRaw]);
   const markOnboarding = useCallback((flag) => {
     if (tutorialPreview) { setPreviewDoneRaw((prev) => markOnboardingDone(prev, flag)); return; }
     if (!onboardingWritableRef.current) return;
