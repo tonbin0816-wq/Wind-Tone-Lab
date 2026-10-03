@@ -297,11 +297,44 @@
 }
 
 /* 【便BU 2026-10-03 本人裁定(案B)】2ペインの器。広い(JS の useWideLayout が true)ときだけ DOM に現れる
-   (iPhone では1つも描かれない。しきい値は CSS に置かない)。いまの読み手はリードタブ(左 = 一覧・右 = 個体詳細)。
+   (iPhone では1つも描かれない。しきい値は CSS に置かない)。いまの読み手はリードタブ(左 = 一覧・右 = 個体詳細)と
+   【便BV 2026-10-04】コミュニティのデータ・順位(左 = 一覧・右 = 人物のページ)・参加前の見本。
    左右 1:1・間 --sp-5(モック案Bの gap 20。新しい値ではない)。器の幅は呼び手が --pane-max-w で決める。
    minmax(0, 1fr) は中の長い文字(銘柄名など)で列が押し広げられないため(1fr の既定の最小は中身の幅)。
    align-items: start … 左右の高さは中身で決まる(短いほうを引き伸ばさない)。 */
 .pane-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--sp-5); align-items: start; }
+
+/* 【便BV3 2026-10-04 統括の裁定(審査案 a)】2ペインの画面は**高さを固定した枠**にし、左右をそれぞれ独立したスクロールの器にする
+   (広い木の2ペインの画面では文書をスクロールさせない)。
+   ・枠(.pane-frame)= 見える範囲の高さ − 上の余白 − 下部タブ・帯。上の余白は .app-root の padding-top(App.jsx の PAGE_TOP_PAD)と
+     同じ式、下は --page-bottom-gap(.app-root の padding-bottom と同じ)。100svh を解さない環境は先の 100vh が効く。
+     数値は書かない。枠の中は縦の flex: 子タブの行(とリードの楽器の行)は中身なり、残りを SwipePager の窓(fill)が埋める。
+   ・2ペインの左右(.pane-2 の子)は高さ 100%・自分でスクロールする(overscroll-behavior: contain で端の送りを外へ渡さない)。
+     左を送っても右は動かず、右を送っても左は動かない。どちらを送っても文書は動かない(scrollY は 0 のまま)。
+   ・クラスを持たない左右(コミュニティのデータ・順位・参加前の見本)は、器を左右に --sp-2 だけ外へ広げて同じ量を内側に戻す(中身の幅と
+     位置は変わらない)。カードの影(--shadow-card)と選択中の行の枠がスクロールの器の縁で切れないため。
+     リードの左(一覧)は下の別の規則で本文の左右の余白ぶん広げる(揺れ・掴んだタイルの影のため)。右の個体詳細(.surf-card)は作法の側が既に
+     左右へ広げてある。
+   ・この枠を付けるのは、2ペインのページ(リードの「登録」・コミュニティの「データ」「順位」・参加前の見本)を表に出しているときだけ。
+     列のページ(比較・シェア・マイページ)に切り替えると枠は外れ、今までどおり文書がスクロールする。
+   ・便BV2 の sticky(.pane-2-detail)と窓の clip(.swipe-pager-clip)は消した。sticky の前提だった「文書のスクロール」をやめたので要らない。
+     clip に頼らないので、overflow: clip が効かない iOS 15 でも同じふるまいになる。 */
+.pane-frame {
+  display: flex; flex-direction: column;
+  height: calc(100vh - calc(var(--sp-1) + env(safe-area-inset-top)) - var(--page-bottom-gap));
+  height: calc(100svh - calc(var(--sp-1) + env(safe-area-inset-top)) - var(--page-bottom-gap));
+}
+.pane-frame > .pane-2 { flex: 1 1 0; }
+.pane-frame .pane-2 { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.pane-frame .pane-2 > * { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pane-frame .pane-2 > :not([class]) { margin-left: calc(-1 * var(--sp-2)); margin-right: calc(-1 * var(--sp-2)); padding-left: var(--sp-2); padding-right: var(--sp-2); }
+/* 【便BV4 2026-10-04 統括の裁定(再審査)】リードの左ペイン(一覧。作法のクラスを持つ先頭の子)も同じ手で広げる。量は本文の左右の余白
+   左は本文の左の余白(--page-pad-left = 14)── 窓(SwipePager の bleed)が広がる量と同じなので、左端は窓の縁まで使える。
+   右は左右のペインの間(--sp-5 = 20)いっぱい ── 右ペインの区画には入らない。
+   編集中に揺れるタイル(±3deg で角が約 2.3px はみ出す)と、掴んで持ち上げたタイル(浮き −6px・影 0 10px 22px)が左ペインの縁で切れない。
+   --sp-2(8)では掴んだタイルの影の裾が右の縁で白へ跳んだ(画素の実測で 9 段)ので、窓と間に合わせた(新しい値ではない)。
+   右ペイン(.surf-card)は自分の決まりを持つ。 */
+.pane-frame .pane-2 > [class]:first-child { margin-left: calc(-1 * var(--page-pad-left)); margin-right: calc(-1 * var(--sp-5)); padding-left: var(--page-pad-left); padding-right: var(--sp-5); }
 
 /* ラバーバンドスクロールで body の地色が見えるため、ページ背景と同色を敷く。
    これが無いと iOS で上下に引っ張ったときだけ純白が露出する。 */
@@ -1074,6 +1107,10 @@ textarea {
 .reedtile[data-tone="ret"] { border-color: var(--c-line); color: var(--c-line-strong); }
 .reedtile[data-tone="data"] { border-color: var(--c-ink-3); color: var(--c-ink); }
 .reedtile[data-tone="sel"] { background: var(--c-accent); border-color: transparent; color: var(--c-on-accent); font-weight: 600; }
+/* 【便BV3 2026-10-04 本人裁定】iPad の2ペインで、右ペインに出しているリード。§6.7 の A型の約束どおり**枠の色だけ**を --c-accent にする
+   (地は変えない = 芯1を守る)。値は掴んでいる1枚の枠(下の data-drag)と同じトークン。計測タブで選んでいる1枚(sel)は地がもう紺なので、
+   枠が紺になっても見え方は変わらない。iPhone ではこの片を誰も配らない(2ペインだけ)。揺れ(編集中)とも両立する(枠の色だけ)。 */
+.reedtile[data-pane-current="true"] { border-color: var(--c-accent); }
 /* 正典 .tile.drag: 浮き上がり + 影 + 枠が紺。持ち上がったことが動かす前から分かる */
 .reedtile[data-drag="true"] { border-color: var(--c-accent); box-shadow: 0 10px 22px rgba(20, 30, 50, 0.22); }
 

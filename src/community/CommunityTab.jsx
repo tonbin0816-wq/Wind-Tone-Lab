@@ -21,6 +21,10 @@ import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublic
 // 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)・主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)、
 // カードの絵・重なり順・見える範囲の下端は、はじめの一手(onboarding.jsx)と同じものを読む(写しを作らない)。
 import { JoinPreviewDataScreen, SHEET_PRIMARY_BUTTON_STYLE } from "./screens.jsx";
+// 【便BV 2026-10-04 本人裁定(案B)】iPad の2ペイン: 右ペインの人物のページ(PersonBody = PersonSheet の中身そのもの)と、
+// 右に何も選んでいないときの1行(PaneEmpty。リードタブと同じ App.jsx の1つ)。写しを作らない。
+import { PersonBody } from "./screens.jsx";
+import { PaneEmpty } from "../App.jsx";
 import { CoachIcon, COACH_Z, readBottomLimit } from "../onboarding.jsx";
 // 【便BG 2026-10-01 本人指示】以前ここで reportRepo.js の isFlagged(自分が通報で隠れているか)を読んでいた。
 // 通報で誰も隠れなくなったので、読む関数ごと消した。
@@ -149,11 +153,13 @@ const DELETE_PARTIAL_NOTICE =
 // 戻す(同じ値を2回押しても2回効くように)。普段は null で、何も変わらない。
 // 【便BP 2026-10-03】onOnboarding = はじめの一手の印を立てる口(App.jsx の markOnboarding)。
 // 呼ぶのは「参加済みと分かった("join")」の1つだけ(【便BQ】奏者を開く段は本人の指示で外した)。渡さなければ何も起きない。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null }) {
+// 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
+// (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} wide={wide} />
     </>
   );
 }
@@ -168,7 +174,9 @@ const SUB_TABS = [
 
 // 参加済みの人に見せる画面。子タブで4つを切り替える。
 // 【便BE】export は振る舞いの検査(block.test.jsx)が実物を描くための出口。
-export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null }) {
+// 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。true なら下の広い木(2ペイン / 列)を描く。
+// 渡されない(false)ときは今までの return のまま(iPhone の木は1文字も変わらない)。
+export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null, wide = false }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -359,6 +367,63 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   // 子タブを動かしたら人物紹介は閉じる(下の画面が別人のものに変わるため)
   const go = (k) => { setPerson(null); setTab(k); };
 
+  // 【便BV 2026-10-04 本人裁定(案B)】iPad の「広い」画面では、子タブごとに形を決める(仕様 ipad-spec.md §4.2):
+  //   データ・順位 = 2ペイン(左 = 一覧・右 = その人のページ PersonBody。選んでいなければ空の1行 PaneEmpty)
+  //   シェア・マイページ = 列(--page-max-w。人を開く口が無い一本の流れ)
+  // ・器(--pane-max-w)は App の .surf-card の中。地は画面の端まで白のまま。器もペインも作法のクラスを名乗らない
+  //   (コミュニティ全体が App の .surf-card 1つ。人物のページの中身は .card を使わないので、シートから移しても見た目は同じ)。
+  // ・人のページは「いま表に出ている子タブ」のペインにだけ描く(tab === k)。SwipePager は4ページとも描いたままなので、
+  //   条件を付けないとデータと順位の両方に同じ人が描かれ、用語の吹き出しの id や role="status" が二重になる。
+  // ・人が替わったら作り直す(key)── 開いていたタブ(データ|プロフィール)・楽器・取り込んだ結果を次の人へ持ち越さない
+  //   (シートは閉じて開き直すので作り直されていた。ペインは開いたまま中身だけ替わるので key が要る)。
+  // ・子タブを替えると右は空に戻る(go が setPerson(null)。下の一覧が別のものに替わるため、の今の理由のまま)。
+  //   ブロックすると block が setPerson(null) → 右は空・左の一覧からその人が消える(今の道のまま)。
+  // ・PersonSheet(シート)は描かない(右ペインに居る)。広い ↔ 狭い(Split View・回転)は person を捨てないので、
+  //   狭い木では同じ人がシートとして出る。逆も同じ(開いていたシートの人が右ペインへ移る)。
+  // ・右ペインの包みに data-noswipe: そこで始めた横の指では子タブを動かさない(iPhone でシートの上で引いても動かないのと同じ)。
+  // ・【便BV3 2026-10-04 統括の裁定】データ・順位(2ペイン)を表に出しているときだけ、器を高さ固定の枠(index.css の .pane-frame)にし、
+  //   SwipePager に fill を渡す。左右はそれぞれ自分でスクロールし、文書はスクロールしない。シェア・マイページ(列)では枠を外す。
+  // ・【便BV3 本人裁定】selectedUid = 右に出している人。一覧(DataScreen の行・RankRow)が選択中の枠と aria-current を付ける。
+  // ・【便BV3 統括の裁定 D】一覧の条件(楽器・ジャンル・属性・期間・順位の種類)が変わったら右を空に戻す(onFilterChange)。
+  //   選んだ人が一覧から外れても右に残る、をなくす(リードタブの「楽器を替えると右は外れる」と同じ考え)。
+  // 狭い木(下の return)は1文字も触っていない。
+  if (wide) {
+    // 右に出している人。右に人を描くのは表の子タブのペインだけ(paneRight)なので、一覧の枠もその子タブの一覧にだけ付ける。
+    const paneUidOf = (k) => (tab === k ? person?.uid ?? null : null);
+    const paneActive = tab === "data" || tab === "rank";
+    const clearPane = () => setPerson(null);
+    const paneRight = (k) => (tab === k && person ? (
+      <PersonBody key={person.uid} person={person} ideals={shownIdeals ?? []} myIdeals={myIdeals} tuningHz={tuningHz}
+                  onAdopt={onAdoptIdeal} myUid={uid} onBlock={block} inPane />
+    ) : (
+      <PaneEmpty>奏者を選ぶと、ここに詳しいデータが表示されます</PaneEmpty>
+    ));
+    const twoPane = (k, left) => (
+      <div className="pane-2">
+        <div>{left}</div>
+        <div data-noswipe>{paneRight(k)}</div>
+      </div>
+    );
+    const column = (node) => <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>{node}</div>;
+    return (
+      <div className={paneActive ? "pane-frame" : undefined} style={{ maxWidth: "var(--pane-max-w)", margin: "0 auto" }}>
+        <SubTabs items={SUB_TABS} value={tab} onChange={go} />
+        {/* 【便BV3 統括の裁定】fill: 2ペインのときだけ、窓が枠の残りを埋める(ページの高さ = 枠の残り)。 */}
+        <SwipePager index={index} onIndexChange={(i) => go(SUB_TABS[i].key)} fill={paneActive}>
+          {/* 左ペインの中身・読み込み中の告知は下の狭い木と同じ(渡す値も同じ。足したのは selectedUid の口だけ)。 */}
+          {twoPane("data", dirGate ?? (ideals === null ? <LoadingRing /> : (
+            <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} selectedUid={paneUidOf("data")} onFilterChange={clearPane} />
+          )))}
+          {twoPane("rank", dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} selectedUid={paneUidOf("rank")} onFilterChange={clearPane} />)}
+          {column(dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />)}
+          {column(<ProfileView uid={uid} profile={profile} myIdeals={myIdeals} onEdit={onEdit} onTogglePublic={togglePublic} onChangeAvatar={changeAvatar} onPhotoChanged={changePhoto} onDelete={onDelete} onOpenBackup={() => setBackup(true)} blocked={blocked} onUnblock={unblock} />)}
+        </SwipePager>
+        {/* アカウント引継のシートは狭い木と同じく SwipePager の外(body へ portal)。 */}
+        {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* 【子タブは計測・リード・My Data と同じ見出し型】2026/09/06 本人指示。
@@ -436,7 +501,8 @@ export function BackupSheet({ onClose }) {
   );
 }
 
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null }) {
+// 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -527,6 +593,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
     return (
       <JoinIntro
         notice={notice}
+        /* 【便BV】広いなら裏の見本を参加後と同じ2ペインの形で敷く。 */
+        wide={wide}
         onJoin={async () => {
           // ここで初めて匿名アカウントが作られる。9項目を埋めきってから
           // 「圏外でした」と分かるより、押した瞬間に失敗を見せたほうが親切。
@@ -582,6 +650,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       tuningHz={tuningHz}
       onAdoptIdeal={onAdoptIdeal}
       initialTab={landTab}
+      /* 【便BV】広いなら2ペイン(データ・順位)/ 列(シェア・マイページ)。 */
+      wide={wide}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す
@@ -781,7 +851,9 @@ function useJoinFrameHeight() {
   return h;
 }
 
-export function JoinIntro({ onJoin, notice = null }) {
+// 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。裏の見本を参加後のデータの子タブと同じ2ペインの形で敷く(仕様 §4.7)。
+// カード(中身・文言・ボタン)は触らない(幅の上限 --page-max-w・中央は index.css の .join-card が便BT で持っている)。
+export function JoinIntro({ onJoin, notice = null, wide = false }) {
   const titleId = useId();
   const frameH = useJoinFrameHeight();
   const [busy, setBusy] = useState(false);
@@ -856,13 +928,30 @@ export function JoinIntro({ onJoin, notice = null }) {
       </div>
     </div>
   );
+  // 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、裏の見本を参加後のデータの子タブと同じ形で敷く:
+  // 器(--pane-max-w)の中に子タブの行と2ペイン(左 = 見本・右 = 空の1行)。触れない包み(inert・読み上げに出さない)は狭い木と同じ。
+  // 狭い木(下の包み)は1文字も触っていない。
+  const previewWide = wide ? (
+    <div aria-hidden="true" inert="" data-join-preview="" style={{ pointerEvents: "none" }}>
+      {/* 【便BV3】参加後のデータと同じ高さ固定の枠(.pane-frame)。 */}
+      <div className="pane-frame" style={{ maxWidth: "var(--pane-max-w)", margin: "0 auto" }}>
+        <SubTabs items={SUB_TABS} value="data" onChange={NOOP} />
+        <div className="pane-2">
+          <div><JoinPreviewDataScreen /></div>
+          <div><PaneEmpty>奏者を選ぶと、ここに詳しいデータが表示されます</PaneEmpty></div>
+        </div>
+      </div>
+    </div>
+  ) : null;
   return (
     <div className="sans" data-join-intro="">
       {/* 【便BS】裏: 参加後のデータの子タブの見本。触れない(inert で押せず・フォーカスも入らない / 読み上げにも出さない)。 */}
+      {previewWide ?? (
       <div aria-hidden="true" inert="" data-join-preview="" style={{ pointerEvents: "none" }}>
         <SubTabs items={SUB_TABS} value="data" onChange={NOOP} />
         <JoinPreviewDataScreen />
       </div>
+      )}
       {createPortal(card, document.body)}
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
       {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}

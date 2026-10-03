@@ -54,7 +54,8 @@ const ALLOWED_RED_CSS_VARS = ["index.css:--c-danger", "index.css:--c-bad"];
 const ALLOWED_RED_FNS = [
   "App.jsx:WindToneLabPhaseMode", "App.jsx:MeasureView", "App.jsx:pitchCellColor",
   "backup/BackupPanel.jsx:BackupPanel", "community/CommunityTab.jsx:ProfileForm",
-  "community/screens.jsx:PersonSheet", "community/screens.jsx:ReportSheet",
+  // 【便BV 2026-10-04】人物のページの中身は PersonBody へ移った(PersonSheet はシートの器だけ。赤の字 --c-bad は中身の1行)。
+  "community/screens.jsx:PersonBody", "community/screens.jsx:ReportSheet",
   // 【便BO 2026-10-02】みんなの平均を目安に設定する確認のシート。取り込めなかったときの1行の**字**が --c-bad
   // (通報のシートの失敗の1行と同じ綴り)。地には使っていない(塗りの走査は (1) が別に見る)。
   "community/screens.jsx:CohortAdoptSheet",

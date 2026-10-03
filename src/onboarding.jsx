@@ -417,6 +417,15 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
       if (!el) continue;
       const r = el.getBoundingClientRect();
       if (!targetVisible(r, vw, vh)) continue;
+      // 【便BV3 2026-10-04】iPad の2ペインでは左右がそれぞれ自分でスクロールする(index.css の .pane-frame)。的がペインの中で
+      // 送られて**ペインの縁に切られている**ときは、画面の中に居ても見えていないので出さない(穴が空いた所を照らさない)。
+      // ペインの外(iPhone を含む今までの画面)には効かない。測るのは毎フレーム(下の rAF)なので、ペインを送ると穴も追う。
+      const paneCell = el.closest(".pane-frame .pane-2 > *");
+      if (paneCell) {
+        const c = paneCell.getBoundingClientRect();
+        // (大きさ 0 のペイン = まだ配置されていない・jsdom は測らない。そのときは今までどおり画面だけで決める)
+        if (c.height > 0 && (r.top < c.top || r.bottom > c.bottom || r.left < c.left || r.right > c.right)) continue;
+      }
       // 的の要素が形を名乗っていれば、その形で囲む(リード2の詳細の計測ボタン = 丸)。
       found = { id, r, shape: el.getAttribute("data-coach-shape") };
       break;

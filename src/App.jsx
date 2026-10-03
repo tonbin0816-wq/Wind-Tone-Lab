@@ -249,7 +249,8 @@ function useRingFitLayout() {
 // 【便BT2 2026-10-03 統括の裁定】幅だけでは足りない ── iPhone を横にすると幅は 667〜956 になり 700 を越える。
 //   ・高さ: iPhone の横向きは高さ 440 以下(375〜440)、iPad は横向きでも高さ 744 以上。間の 500 を高さの下限にして分ける。
 //   よって「幅 ≥ 700 かつ 高さ ≥ 500」を広いと呼ぶ。iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも広いにならない。
-// 広いときに変わるのは、計測タブの環の上限(RING_D_WIDE)と【便BU 2026-10-03】リードタブの2ペイン(ReedsTab の3つ目の return)。
+// 広いときに変わるのは、計測タブの環の上限(RING_D_WIDE)と【便BU 2026-10-03】リードタブの2ペイン(ReedsTab の3つ目の return)と
+// 【便BV 2026-10-04】コミュニティタブの2ペイン(JoinedView の広い木・参加前の見本)。
 // 列 640(--page-max-w)は CSS の max-width で、
 // この判定とは別に効く。【便BT2 統括の裁定】「iPhone の見た目は 1px も変えない」は**縦向きの約束**。iPhone の横向き(Safari の
 // Web 版だけ。アプリの殻では iPhone は縦に固定)は判定が狭い側・本文と下部タブとシートは 640 の列になる。これは受け入れた形で、
@@ -455,7 +456,11 @@ function swipePagerShownIndex(indexProp, pending) {
   if (!pending || pending.from !== indexProp) return indexProp;   // 親が動かしたら親に従う
   return pending.to;
 }
-export function SwipePager({ index: indexProp, onIndexChange, bleed = false, children }) {
+// 【便BV3 2026-10-04 統括の裁定】fill = iPad の2ペインのページを表に出しているときだけ渡す(広い木のリード・コミュニティ)。
+// 窓は高さを固定した枠(index.css の .pane-frame。縦の flex)の残りを埋め(flex: 1 1 0 / min-height: 0)、track と各ページは
+// その高さいっぱい(height: 100%)。ページの中(2ペインの左右)がそれぞれ自分でスクロールする。窓の overflow は今までどおり hidden。
+// 渡さない呼び手(iPhone・列の画面)は1文字も変わらない(下の3か所の上書きは fill のときだけ)。
+export function SwipePager({ index: indexProp, onIndexChange, bleed = false, fill = false, children }) {
   const pages = (Array.isArray(children) ? children : [children]).filter((c) => c != null);
   const count = pages.length;
   const viewportRef = useRef(null);
@@ -611,6 +616,8 @@ export function SwipePager({ index: indexProp, onIndexChange, bleed = false, chi
           marginLeft: "calc(-1 * var(--page-pad-left))", paddingLeft: "var(--page-pad-left)",
           marginRight: "calc(-1 * var(--page-pad-right))", paddingRight: "var(--page-pad-right)",
         } : { width: "100%" }),
+        /* 【便BV3】fill のときは枠の残りを埋める(画面の下まで伸ばす minH は使わない)。 */
+        ...(fill ? { flex: "1 1 0", minHeight: 0 } : null),
       }}>
       {/* 【F-107】ページ間の溝は flex の gap が実体で、位置計算(transform)が同じ量を織り込む。
           **溝の値はこの2箇所とも SWIPE_PAGER_GUTTER の1つ**(片方だけ変える事故を作らない)。
@@ -622,9 +629,11 @@ export function SwipePager({ index: indexProp, onIndexChange, bleed = false, chi
       <div ref={trackRef} style={{
         display: "flex", flexWrap: "nowrap", alignItems: "flex-start", gap: SWIPE_PAGER_GUTTER,
         transform: swipePagerTrackTransform(index, 0), transition: EASE,
+        /* 【便BV3】fill のときは track と各ページを窓の高さいっぱいにする(2ペインの左右がその中でスクロールする)。 */
+        ...(fill ? { height: "100%" } : null),
       }}>
         {pages.map((c, i) => (
-          <div key={i} style={{ flex: "0 0 100%", minWidth: 0, boxSizing: "border-box" }}>{c}</div>
+          <div key={i} style={{ flex: "0 0 100%", minWidth: 0, boxSizing: "border-box", ...(fill ? { height: "100%" } : null) }}>{c}</div>
         ))}
       </div>
     </div>
@@ -3793,7 +3802,8 @@ function navRetapKeepsView(tappedKey, atMyDataTop) {
 // ============================================================
 export default function WindToneLabPhaseMode() {
   // 【便BT 2026-10-03 本人裁定】iPad の「広い」画面か(WIDE_LAYOUT_QUERY = 幅 ≥ 700 かつ 高さ ≥ 500)。判定はここで1回だけ行い、props で配る。
-  // いまの読み手は MeasureView(環の上限)と【便BU】ReedsTab(リードタブの2ペイン)。jsdom(matchMedia が無い)では常に false。
+  // いまの読み手は MeasureView(環の上限)と【便BU】ReedsTab(リードタブの2ペイン)と【便BV】CommunityTab(コミュニティの2ペイン)。
+  // jsdom(matchMedia が無い)では常に false。
   // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
@@ -5385,6 +5395,9 @@ export default function WindToneLabPhaseMode() {
               }}
               /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。 */
               onOnboarding={markOnboarding}
+              /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
+                 シェア・マイページは列(--page-max-w)。参加前の見本も2ペインの形。 */
+              wide={wide}
             />
           </Suspense>
         </CommunityErrorBoundary>
@@ -11483,7 +11496,9 @@ function reedTilePressPlan(e, canReorder) {
 // ReedTileGrid なので、ここで持つと「長押しした箱のタイルだけ揺れる」に戻ってしまう。
 // 揺れは editing ただ1つで決まり、掴んでいる1枚かどうかは見ない。
 // 【便BP2 2026-10-03 統括の裁定】coachFirst = この箱の先頭のタイルが、はじめの一手(リード2)の的を名乗る(data-coach だけ。見た目は変えない)。
-function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnterEditing, onTileTap, onReorder, coachFirst = false }) {
+// 【便BV3 2026-10-04 本人裁定】paneSelectedId = 2ペインの右に出しているリード。そのタイルだけ data-pane-current(枠 --c-accent。index.css)と
+// aria-current を名乗る。既定 null(iPhone)では属性も足さない。
+function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnterEditing, onTileTap, onReorder, coachFirst = false, paneSelectedId = null }) {
   const [order, setOrder] = useState(() => members.map((m) => m.id));
   // drag: null | { id, baseOrder, cells, grabX, grabY, pointerX, pointerY, settling }
   const [drag, setDrag] = useState(null);
@@ -11723,6 +11738,9 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
               /* 【便BP2】はじめの一手(リード2)の的。先頭の箱(coachFirst)の先頭のマスだけ。 */
               /* 【便BP3】揺れている間(編集中)は名乗らない(案内を出さない。「完了」を暗幕の下に入れない)。 */
               data-coach={coachFirst && home === 0 && !editing ? "reedsMeasure" : undefined}
+              /* 【便BV3 本人裁定】右ペインに出しているリード(2ペインだけ)。揺れ(編集中)とも両立する(枠の色だけ)。 */
+              data-pane-current={paneSelectedId != null && r.id === paneSelectedId ? "true" : undefined}
+              aria-current={paneSelectedId != null && r.id === paneSelectedId ? "true" : undefined}
               aria-label={`${reedPosition(r, reeds) ?? idx + 1}枚目`}
               style={{
                 /* 正典 .tile の寸法。aspect-ratio 1 なので高さは幅から決まり、幅は包み(1fr)が決める */
@@ -11820,7 +11838,8 @@ function ReedSaxEmptyLine({ saxType, centered = false }) {
   return <div className="sans" style={style}>{reedSaxEmptyText(saxType)}</div>;
 }
 
-// 【便BU 2026-10-03 本人裁定(案B)】2ペインの右に何も選んでいないときの1行(空の状態)。リードタブが読む(コミュニティは便3)。
+// 【便BU 2026-10-03 本人裁定(案B)】2ペインの右に何も選んでいないときの1行(空の状態)。リードタブと【便BV】コミュニティ
+// (src/community/CommunityTab.jsx の JoinedView の広い木・JoinIntro の見本)が読む。
 // **新しい体裁を作らない**: 見た目はコミュニティの 0件の知らせ(src/community/screens.jsx の Empty)と同じ値
 //   (--fs-xs / --c-ink-3 / 行間 1.6 / 上下 --sp-4 / 中央揃え)。screens.jsx は App.jsx を import する向きなので、
 //   あちらを import せずに同じ値をここに書く(ReedSaxChipRow と同じ事情)。
@@ -11952,7 +11971,9 @@ function ReedsTab(props) {
          右ペインを押しても編集は終わらない(右ペインは一覧ではない)。 */
     return (
       <div>
-        <div style={{ maxWidth: "var(--pane-max-w)", margin: "0 auto" }}>
+        {/* 【便BV3 2026-10-04 統括の裁定】登録(2ペイン)を表に出しているときだけ、器を高さ固定の枠(.pane-frame)にする。
+            左右がそれぞれ自分でスクロールし、文書はスクロールしない。比較(列)では外す(今までどおり文書がスクロール)。 */}
+        <div className={reedsSubTab === "register" ? "pane-frame" : undefined} style={{ maxWidth: "var(--pane-max-w)", margin: "0 auto" }}>
           {/* 子タブの行と右端の「完了」は、下の狭い木の綴りのまま(体裁・出す条件も同じ)。 */}
           <SubTabs
             items={[{ key: "register", label: "登録" }, { key: "compare", label: "比較" }]}
@@ -11968,9 +11989,15 @@ function ReedsTab(props) {
             )}
           </SubTabs>
           <ReedSaxChipRow value={listSax} onPick={setListSax} />
+          {/* 【便BV3】fill: 登録のときだけ、窓が枠の残りを埋める(ページの高さ = 枠の残り)。
+              【便BV4 統括の裁定(再審査)】bleed: 窓を本文の左右の余白(--page-pad-left / right)まで広げ、同じ量を内側に戻す(ページの幅と位置は
+              同じ)。左ペインのタイルの揺れ(±3deg)・掴んだタイルの浮きと影が、窓の左端で切れないため。隣のページは溝(--sp-4 = 16)が
+              余白(14)より広いので覗かない。 */}
           <SwipePager
             index={reedsSubTab === "compare" ? 1 : 0}
             onIndexChange={(i) => setReedsSubTab(i === 1 ? "compare" : "register")}
+            fill={reedsSubTab === "register"}
+            bleed
           >
             <div className="pane-2">
               <div className="surf-rule">
@@ -11989,6 +12016,8 @@ function ReedsTab(props) {
                   deleteReedsWithUndo={deleteReedsWithUndo}
                   pane="left"
                   coachSuppressed={paneReed !== null}
+                  /* 【便BV3 本人裁定】右に出しているリードを一覧で目立たせる(paneReed と同じ1枚)。 */
+                  paneSelectedId={paneReed ? paneReed.id : null}
                 />
               </div>
               <div className="surf-card" data-noswipe>
@@ -12259,7 +12288,9 @@ const FLOAT_ACTION_SPACER_H = `calc(${ACTION_LG_PX}px + ${FLOAT_ACTION_GAP} + ${
 // 【便BU 2026-10-03 本人裁定(案B)・統括の裁定】pane = 2ペインのどちらの面の主要動作か(undefined | "left" | "right")。
 // 右端は**その面の右下**にそろえる(§4.5「主要動作は面の右下」の面は、2ペインではペイン)。2ペインで ＋(左)と 計測(右)が
 // 同じ角に重ならない。渡さない呼び手(列の画面・iPhone)は便BT の式のまま = 1文字も変わらない。
-function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined, pane = undefined }) {
+// 【便BV3 2026-10-04】コミュニティの右ペイン(人物のページ)の「目安に設定」も、リードの「計測」と同じこの部品(pane="right")を使う。
+// community/screens.jsx から読むので export する(写しを作らない)。
+export function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = null, coach = undefined, pane = undefined }) {
   const iconOnly = !label;
   // 【便BU】右端の式は3つ。式を持つのはこの部品の中だけ(呼び手は面の名前を渡すだけ)。fixed の right の % は画面の幅。
   //   ・列(既定)… 便BT のまま。列(--page-max-w)は中央なので、列の右端 = 画面の右端から (100% − 列) / 2
@@ -12314,7 +12345,7 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
 }
 // 一覧の末尾に置く、ボタンの高さぶんの余白。**FloatingAction と対で使う**
 // (片方だけ置くと最下行がボタンに隠れる)。
-function FloatingActionSpacer() {
+export function FloatingActionSpacer() {
   return <div aria-hidden="true" style={{ height: FLOAT_ACTION_SPACER_H }} />;
 }
 
@@ -12836,6 +12867,8 @@ function ReedRegisterView(props) {
     //     (的は右の個体詳細の「計測」。2ペインではタイルと「計測」が同時に在るので、的を1つにする)
     pane = undefined,
     coachSuppressed = false,
+    // 【便BV3 2026-10-04 本人裁定】右ペインに出しているリードの id(2ペインだけが渡す)。そのタイルに選択中の枠と aria-current。
+    paneSelectedId = null,
   } = props;
 
   const [addOpen, setAddOpen] = useState(false);
@@ -13099,6 +13132,8 @@ function ReedRegisterView(props) {
                 /* 【便BP2】一覧の先頭の箱だけ(はじめの一手・リード2の的)。
                    【便BU】右ペインにリードが出ているときは名乗らない(的は右の「計測」)。 */
                 coachFirst={gi === 0 && !coachSuppressed}
+                /* 【便BV3】右ペインに出しているリード(2ペインだけ。渡さない iPhone は null)。 */
+                paneSelectedId={paneSelectedId}
               />
             </div>
           );

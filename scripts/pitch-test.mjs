@@ -145,6 +145,29 @@ function reedsTabNarrow(source) {
   return w ? tab.replace(w, "\n") : tab;
 }
 
+// 【便BV 2026-10-04 本人裁定(案B)】人物のページは PersonSheet(シートの器)と PersonBody(中身)に分かれた
+// (iPad の2ペインの右は同じ PersonBody を直に描く。写しを作らない)。以前 PersonSheet の本文を読んでいた検査は、
+// **人物のページ = 器 + 中身** をこの1つで読む(器が先・中身が後。中身の綴りは切り出す前と同じ並び)。
+// 中身が PersonSheet に写し戻された・PersonBody が消えた、は「[便BV]」の節が落とす(ここは連結するだけ)。
+function personPageSrc(source) {
+  return srcOfFn(source, "PersonSheet") + "\n" + srcOfFn(source, "PersonBody");
+}
+// 【便BV 2026-10-04 本人裁定(案B)】JoinedView の広い木(iPad の2ペイン)は `if (wide) {` から始まる塊(ReedsTab と同じ作り)。
+// iPhone の木(狭い木の return)についての検査はこの塊を外した JoinedView を読む。塊そのものは「[便BV]」の節が見る。
+function joinedViewWideBlock(source) {
+  const fn = srcOfFn(source, "JoinedView");
+  const s = fn.indexOf("\n  if (wide) {\n");
+  if (s === -1) return "";
+  const e = fn.indexOf("\n  }\n", s + 1);
+  if (e === -1) throw new Error("JoinedView: if (wide) { の閉じが見つからない");
+  return fn.slice(s, e + 4);
+}
+function joinedViewNarrow(source) {
+  const fn = srcOfFn(source, "JoinedView");
+  const w = joinedViewWideBlock(source);
+  return w ? fn.replace(w, "\n") : fn;
+}
+
 const code = [
   extractConst("NOTE_NAMES"),
   extractConst("NOTE_NAMES_SHARP"),
@@ -18310,9 +18333,10 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
   // --- 31.4 浮かせるボタンは2画面で同じ1部品 -------------------------------------
   {
     check("31.4 部品は1つだけ定義されている(作法を2つ作らない)",
-      (src.match(/^function FloatingAction\(/gm) || []).length === 1
-      && (src.match(/^function FloatingActionSpacer\(/gm) || []).length === 1,
-      `${(src.match(/^function FloatingAction\(/gm) || []).length}個`);
+      // 【便BV3 2026-10-04】コミュニティの右ペインの「目安に設定」が同じ部品を読むので export が付いた(定義は1つのまま)。
+      (src.match(/^(?:export )?function FloatingAction\(/gm) || []).length === 1
+      && (src.match(/^(?:export )?function FloatingActionSpacer\(/gm) || []).length === 1,
+      `${(src.match(/^(?:export )?function FloatingAction\(/gm) || []).length}個`);
     // 【D-4 2026/08/22 で 2 → 3】リード個体詳細の「計測」が3つ目(正典 #15a)。
     // 【D-7 2026/09/09 本人裁定「主要動作はすべて右下に浮かせる」で 3 → 4】
     // 4つ目はセッション個別詳細の「★ 目安に設定」。以前はヘッダの右に居た。
@@ -23197,7 +23221,8 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       JSON.stringify(gotConsts46) === JSON.stringify([...allowConsts46].sort()), gotConsts46.join(" | "));
     const allowFns46 = ["App.jsx:WindToneLabPhaseMode", "App.jsx:MeasureView", "App.jsx:pitchCellColor",
       "backup/BackupPanel.jsx:BackupPanel", "community/CommunityTab.jsx:ProfileForm",
-      "community/screens.jsx:PersonSheet", "community/screens.jsx:ReportSheet",
+      // 【便BV 2026-10-04】人物のページの中身は PersonBody へ移った(PersonSheet は器だけ。赤の字 --c-bad は中身の1行)。
+      "community/screens.jsx:PersonBody", "community/screens.jsx:ReportSheet",
       // 【便BO 2026-10-02】みんなの平均の確認のシート。取り込めなかったときの1行の字(--c-bad)。地ではない。
       "community/screens.jsx:CohortAdoptSheet"];
     const gotFns46 = scan46.redFns.map((c) => `${c.file}:${c.name}`).sort();
@@ -24481,11 +24506,13 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     // CommunityTab.jsx の受け口。
     check("51.3 D3 CommunityTab.jsx: 既定の export が landTab と onLanded を受ける(既定は null)",
       // 【便BP 2026-10-03】はじめの一手の印を立てる口 onOnboarding(既定 null)が末尾に加わった。landTab / onLanded の形は同じ。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} \/>/.test(comm51));
+      // 【便BV 2026-10-04】iPad の判定を配る口 wide(既定 false)が末尾に加わった。landTab / onLanded の形は同じ。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null \}\)/.test(comm51)
+      // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -24596,7 +24623,8 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
   const rank52 = codeOf(srcOfFn(screensRaw52, "RankScreen"));
   const rankRow52 = codeOf(srcOfFn(screensRaw52, "RankRow"));
   const empty52 = codeOf(srcOfFn(screensRaw52, "Empty"));
-  const person52 = codeOf(srcOfFn(screensRaw52, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person52 = codeOf(personPageSrc(screensRaw52));
   const comm52 = codeOf(commRaw52);
   const profile52 = codeOf(srcOfFn(commRaw52, "ProfileView"));
   const join52 = codeOf(srcOfFn(commRaw52, "JoinIntro"));
@@ -26053,7 +26081,8 @@ console.log("\n========== 検証62: 束2 人物画面の楽器の行と余白 ==
 {
   const screens62 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
   const all62 = codeOf(screens62);
-  const person62 = codeOf(srcOfFn(screens62, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person62 = codeOf(personPageSrc(screens62));
   const chip62 = codeOf(srcOfFn(screens62, "Chip"));
   const row62 = codeOf(srcOfFn(screens62, "SaxTypeRow"));
   const bs62 = codeOf(srcOfFn(src, "BottomSheet"));
@@ -26889,7 +26918,8 @@ console.log("\n========== 検証65: 束5 日付の縦列 / 詳細はピッチだ
   const css65 = read65("src", "index.css").replace(/\/\*[\s\S]*?\*\//g, " ");
   const screensRaw65 = read65("src", "community", "screens.jsx");
   const screens65 = codeOf(screensRaw65);
-  const person65 = codeOf(srcOfFn(screensRaw65, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person65 = codeOf(personPageSrc(screensRaw65));
   const detailMjs65 = codeOf(read65("design", "canvas", "detail.mjs"));
   const dcSession65 = read65("design", "canvas", "SessionDetail.dc.html").replace(/<!--[\s\S]*?-->/g, "");
   const dcSessionE65 = read65("design", "canvas", "SessionDetailE.dc.html").replace(/<!--[\s\S]*?-->/g, "");
@@ -27493,7 +27523,8 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
   // ファイル全体で位置を数えると別の画面の1件を掴んでしまう(初版で実際に掴んだ)。
   const screensRaw69 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
   const screens69 = codeOf(screensRaw69);
-  const person69 = codeOf(srcOfFn(screensRaw69, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person69 = codeOf(personPageSrc(screensRaw69));
   const NOTE69 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
   // 【便BC 2026-09-25 本人指示】揃えの注記(NOTE69)は用語の説明(MetricTabs)へ移った。凡例の直下に残るのは
   // 「あなたの計測データもお待ちしています」(MINE_WAITING_NOTE)の1行だけなので、並びの主張はその1行で見る。
@@ -27634,7 +27665,8 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
   // CSS はブロックコメントだけを潰す(セレクタに混ざるため)
   const css71 = read71("src", "index.css").replace(/\/\*[\s\S]*?\*\//g, " ");
   const screensRaw71 = read71("src", "community", "screens.jsx");
-  const person71 = codeOf(srcOfFn(screensRaw71, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person71 = codeOf(personPageSrc(screensRaw71));
 
   check("71.0 実装を読めている(空回りしていない)",
     sheet71.length > 3000 && editSheet71.length > 800 && tab71.length > 3000
@@ -27714,7 +27746,9 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     check("71.3 出す条件は1箇所(showAdopt)にまとめ、読み手は空きと器の2つだけ",
       // 【便BA 2026-09-25 本人指示】「目安に設定」は共通の音が足りなくても押せる(!chart.error の条件は消えた)。
       /const showAdopt = Boolean\(onAdopt && side === "data" && types\.length > 0\s*\r?\n?\s*&& theirIdeal && chart\);/.test(person71)
-      && count71(person71, /showAdopt/g) === 3,
+      // 【便BV3 2026-10-04】ペイン(iPad の2ペインの右)の浮かせるボタンが読み手に1つ加わった(定義 + シートの空き・器 + ペイン = 4)。
+      // シートの2つ(空きと器)の綴りは上の検査がそのまま見る。
+      && count71(person71, /showAdopt/g) === 4,
       `${count71(person71, /showAdopt/g)}箇所`);
   }
 
@@ -30910,7 +30944,8 @@ console.log("========== 検証86: 便AZ 目印の音・検索の正規化・人�
     ["searchInstrumentModels", "searchMouthpieces", "searchLigatures", "searchReeds"]
       .every((f) => /const q = norm\(query\);/.test(srcOfFn(gear86, f)))
     && (gear86.match(/function norm\(/g) || []).length === 1);
-  const person86 = codeOf(srcOfFn(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8"), "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person86 = codeOf(personPageSrc(readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8")));
   check("86.3 C 人物紹介に戻るボタン(BACK_BUTTON_STYLE / 一覧に戻る)は無い",
     !/BACK_BUTTON_STYLE/.test(person86) && !/一覧に戻る/.test(person86) && !/< 一覧/.test(person86));
   console.log("  -> done");
@@ -31057,7 +31092,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const scrRaw89 = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
   const scr89 = codeOf(scrRaw89);
   const data89 = codeOf(srcOfFn(scrRaw89, "DataScreen"));
-  const person89 = codeOf(srcOfFn(scrRaw89, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const person89 = codeOf(personPageSrc(scrRaw89));
   const tabs89 = codeOf(srcOfFn(scrRaw89, "UnderlineTabs"));
   const mtabs89 = codeOf(srcOfFn(scrRaw89, "MetricTabs"));
   // 【便BI 2026-10-02】吹き出しの中身(開け閉め・文案・共通の一文)は共有の部品 src/termTip.jsx の TermTip へ移った。
@@ -31638,7 +31674,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /const r = onAdopt\(\{\s*\r?\n\s*aligned: shown,\s*\r?\n\s*theirIdeal: \{ saxType \},\s*\r?\n\s*nickname: null,\s*\r?\n\s*name: cohortAdoptName\(adoptTerms\),\s*\r?\n\s*announce: true,\s*\r?\n\s*\}\);/.test(dataBO));
   check("BO.3 押して開くのは平均が出ているときだけ(adoptable に avg.error が入っている)",
     /const adoptable = Boolean\(onAdopt && !avg\.error && avgPlain\);/.test(dataBO));
-  const personBO = codeOf(srcOfFn(scrBO, "PersonSheet"));
+  // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
+  const personBO = codeOf(personPageSrc(scrBO));
   const lit = "目安に設定しました。計測タブで比べられます";
   check("BO.4 知らせの文の綴りは idealDoc.js の1つだけ(screens.jsx・App.jsx に直書きが無い)。人物のページはそれを読む",
     (docBO.match(new RegExp(lit, "g")) || []).length === 1
@@ -31669,7 +31706,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /<button type="button" onClick=\{onConfirm\} className="sans" style=\{SHEET_PRIMARY_BUTTON_STYLE\}>/.test(sheetBO3)
       && /const SHEET_PRIMARY_BUTTON_STYLE = \{\s*\r?\n\s*width: "100%", minHeight: "var\(--tap-min\)", borderRadius: "var\(--r-pill\)", border: "none",\s*\r?\n\s*background: "var\(--c-accent\)", color: "var\(--c-on-accent\)", fontSize: "var\(--fs-md\)", fontWeight: 700, cursor: "pointer",\s*\r?\n\};/.test(scrBO));
     check("BO.6 便BO3 ADOPT_BUTTON_STYLE を読むのは人物のページの1箇所だけ",
-      (codeOf(scrBO).match(/style=\{ADOPT_BUTTON_STYLE\}/g) || []).length === 1 && /style=\{ADOPT_BUTTON_STYLE\}/.test(codeOf(srcOfFn(scrBO, "PersonSheet"))));
+      (codeOf(scrBO).match(/style=\{ADOPT_BUTTON_STYLE\}/g) || []).length === 1 && /style=\{ADOPT_BUTTON_STYLE\}/.test(codeOf(personPageSrc(scrBO))));
     check("BO.6 便BO3 名前・本文に中黒(·)を使わない。名前は全角の括弧と半角の空白",
       !/·/.test(codeOf(scrBO)) && /`みんなの平均（\$\{terms\.join\(" "\)\}）`/.test(scrBO));
   }
@@ -31842,7 +31879,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- BU.2 器と作法: 器(--pane-max-w)の中に 2ペイン(左 罫・右 カード)と比較の列(罫)。入れ子にしない ----------
   check("BU.2 器は --pane-max-w で中央(作法のクラスを名乗らない)",
-    /return \(\s*\n\s*<div>\s*\n\s*<div style=\{\{ maxWidth: "var\(--pane-max-w\)", margin: "0 auto" \}\}>/.test(wideBU));
+    // 【便BV3】登録(2ペイン)のときだけ高さ固定の枠(.pane-frame)。比較(列)では付けない。
+    /return \(\s*\n\s*<div>\s*\n\s*(?:\{\/\*[\s\S]*?\*\/\}\s*\n\s*)?<div className=\{reedsSubTab === "register" \? "pane-frame" : undefined\} style=\{\{ maxWidth: "var\(--pane-max-w\)", margin: "0 auto" \}\}>/.test(wideBU));
   check("BU.2 登録のページは .pane-2 の中に 左 = .surf-rule(一覧)・右 = .surf-card + data-noswipe(個体詳細)が兄弟",
     /<div className="pane-2">\s*\n\s*<div className="surf-rule">\s*\n\s*<ReedRegisterView\b[\s\S]*?\/>\s*\n\s*<\/div>\s*\n\s*<div className="surf-card" data-noswipe>/.test(wideBU));
   check("BU.2 比較は .surf-rule の中の列(--page-max-w)。2ペインにしない",
@@ -31855,13 +31893,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /const openReedInPane = \(id\) => setEvaluatingReedId\(id\);/.test(tabBU));
   check("BU.2 .pane-2 は左右 1:1(minmax(0, 1fr) ×2)・間 --sp-5・上寄せ(index.css に1つ)",
     /\.pane-2 \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\); column-gap: var\(--sp-5\); align-items: start; \}/.test(cssBU)
-    && (cssBU.match(/\.pane-2\b/g) || []).length === 1);
+    // 【便BV3】.pane-frame の中の .pane-2 を狙う規則(高さ固定)は別に在るので、.pane-2 そのものの規則(行頭から)を数える
+    && (cssBU.match(/(^|\n)\.pane-2 \{/g) || []).length === 1);
 
   // --- BU.3 子タブの行・「完了」・楽器のチップの行・SwipePager は狭い木の綴りの写し(ずれない)------------------
   {
     const flat = (t) => codeOf(t).replace(/\{\s*\}/g, "").replace(/\s+/g, " ").trim();
     const subOf = (t) => { const a = t.indexOf("<SubTabs"); const b = t.indexOf("</SubTabs>"); return a >= 0 && b > a ? t.slice(a, b + 10) : ""; };
-    const pagerHead = (t) => (/<SwipePager\s*\n\s*index=\{reedsSubTab === "compare" \? 1 : 0\}\s*\n\s*onIndexChange=\{\(i\) => setReedsSubTab\(i === 1 \? "compare" : "register"\)\}\s*\n\s*>/.exec(t) || [""])[0].replace(/\s+/g, " ");
+    const pagerHead = (t) => (/<SwipePager\s*\n\s*index=\{reedsSubTab === "compare" \? 1 : 0\}\s*\n\s*onIndexChange=\{\(i\) => setReedsSubTab\(i === 1 \? "compare" : "register"\)\}\s*\n\s*(?:fill=\{reedsSubTab === "register"\}\s*\n\s*)?(?:bleed\s*\n\s*)?>/.exec(t) || [""])[0].replace(/\s+/g, " ").replace(' fill={reedsSubTab === "register"} bleed >', " >");
     const wideSub = flat(subOf(wideBU)); const narrowSub = flat(subOf(narrowBU));
     check("BU.3 広い木の子タブの行(「完了」を含む)は狭い木と同じ綴り(体裁・出す条件・押す一手が同じ)",
       wideSub.length > 200 && wideSub === narrowSub, `${wideSub.length} / ${narrowSub.length}`);
@@ -31893,7 +31932,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("BU.4 実行: 狭い → null / 押した a1 / 選んでいる a2 / 別の楽器の押したリードは外れて t1 / 両方外れて空 / 消したリードは空 / 楽器なしは alto",
       JSON.stringify(got) === JSON.stringify([null, "a1", "a2", "t1", null, null, "n1"]), JSON.stringify(got));
     check("BU.4 左ペイン: 一覧はタイルを押すと右の中身だけ替える(openReedInPane)・＋ は左ペイン・右にリードが出ていればタイルは的を名乗らない",
-      /<ReedRegisterView\b[\s\S]*?onOpenReed=\{openReedInPane\}[\s\S]*?pane="left"\s*\n\s*coachSuppressed=\{paneReed !== null\}\s*\n\s*\/>/.test(wideBU));
+      /<ReedRegisterView\b[\s\S]*?onOpenReed=\{openReedInPane\}[\s\S]*?pane="left"\s*\n\s*coachSuppressed=\{paneReed !== null\}\s*\n\s*(?:\/\*[^\n]*\*\/\s*\n\s*)?paneSelectedId=\{paneReed \? paneReed\.id : null\}\s*\n\s*\/>/.test(wideBU));
     check("BU.4 右ペイン: 個体詳細は戻るを出さない・計測は右ペイン・比較を見ている間は計測を描かない・空なら1行",
       /<ReedEvaluationDetail\b[\s\S]*?onBack=\{null\}[\s\S]*?pane="right"\s*\n\s*actionsActive=\{reedsSubTab === "register"\}\s*\n\s*\/>/.test(wideBU)
       && /<PaneEmpty>リードを選ぶと、ここに詳細が表示されます<\/PaneEmpty>/.test(wideBU));
@@ -31910,7 +31949,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /function ReedEvaluationDetail\(\{ reed, reeds, sessions, setReeds, selectedIdeal, tuningHz, onBack, onMeasure, pane = undefined, actionsActive = true \}\)/.test(det)
       && /\{actionsActive && \(\s*\n\s*<FloatingAction\s*\n\s*ariaLabel="このリードで計測する"[\s\S]*?coach="reedsMeasure"[\s\S]*?pane=\{pane\}\s*\n\s*\/>\s*\n\s*\)\}/.test(det));
     check("BU.5 ReedRegisterView: pane / coachSuppressed(既定 false)。＋ に pane・先頭のタイルの的は coachSuppressed で外す",
-      /\n\s*pane = undefined,\n\s*coachSuppressed = false,\n\s*\} = props;/.test(reg)
+      /\n\s*pane = undefined,\n\s*coachSuppressed = false,\n(?:\s*\/\/[^\n]*\n)*\s*paneSelectedId = null,\n\s*\} = props;/.test(reg)
       && /coachFirst=\{gi === 0 && !coachSuppressed\}/.test(reg)
       && /<FloatingAction\s*\n\s*ariaLabel="リードを追加"[\s\S]*?pane=\{pane\}\s*\n\s*\/>/.test(reg));
     check("BU.5 DetailHeader: onBack が無ければ戻るの行を描かない・見出しの上の 6 は戻るの行があるときだけ",
@@ -31964,6 +32003,272 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   }
   check("BU.7 文言に「機材」「機種」を使っていない(広い木・空の状態)",
     !/機材|機種/.test(codeOf(wideBU)) && !/機材|機種/.test(codeOf(srcOfFn(appBU, "PaneEmpty"))));
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[便BV] iPad: コミュニティタブの2ペイン(データ・順位 = 左 一覧・右 人物のページ / シェア・マイページ = 列)");
+  // 【便BV 2026-10-04 本人裁定(案B)】コミュニティは2ペイン。iPhone の見た目は縦向きで 1px も変えない
+  // (JoinedView の狭い木の return は1文字も触らず、広い木を `if (wide) {` の塊として足した。PersonSheet は器 + PersonBody に切り出した)。
+  // 【便BV3 2026-10-04 統括の裁定】2ペインの画面は高さ固定の枠(.pane-frame)・左右はそれぞれのスクロールの器(リードと共通)/
+  //   「目安に設定」はペインでは浮かせるボタン(FloatingAction pane="right")/ 条件が変わったら右を空に / 右に出しているものを一覧で目立たせる。
+  // 期待値は仕様(ipad-spec.md §4)と統括の裁定の綴り・文言から手で書く。定数から逆算しない(広い木の左ペインの呼び出しは狭い木の呼び出しと
+  // **別に**読んで突き合わせる)。実際に描いて確かめるのは src/wideLayoutCommunity.test.jsx / src/wideLayoutReeds.test.jsx。
+  // 【守っていないもの】実寸と実際のスクロールのふるまい(BV.8 は綴りだけ。jsdom は配置もスクロールも無い。headless Chrome の実測は報告)・
+  //   iPad 実機の安全域・Split View の実際の幅・指でのスワイプと慣性スクロールの感触は実機待ち。
+  const appBV = src;
+  const commBV = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const scrBV = readFileSync(join(__dirname, "..", "src", "community", "screens.jsx"), "utf8");
+  const cssBV = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8").replace(/\r\n/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "");
+  const onbBV = readFileSync(join(__dirname, "..", "src", "onboarding.jsx"), "utf8");
+  const joinedBV = srcOfFn(commBV, "JoinedView");
+  const wideBV = joinedViewWideBlock(commBV);
+  const narrowBV = joinedViewNarrow(commBV);
+  const sheetBV = srcOfFn(scrBV, "PersonSheet");
+  const bodyBV = srcOfFn(scrBV, "PersonBody");
+  const joinBV = srcOfFn(commBV, "JoinIntro");
+  const reedWide = reedsTabWideBlock(appBV);
+  const reedNarrow = reedsTabNarrow(appBV);
+  const flatBV = (t) => codeOf(t).replace(/\s+/g, " ").trim();
+  const EMPTY_BV = "<PaneEmpty>奏者を選ぶと、ここに詳しいデータが表示されます</PaneEmpty>";
+  const topJs = (/const PAGE_TOP_PAD = "([^"]+)";/.exec(appBV) || [])[1] || "";
+  // index.css の規則(セレクタが完全一致)の宣言の並び
+  const ruleOf = (sel) => { const m = new RegExp(`\\n${sel.replace(/[.\-()\[\]*>:]/g, "\\$&")} \\{([^}]*)\\}`).exec("\n" + cssBV); return m ? m[1] : null; };
+  const declsOf = (sel) => (ruleOf(sel) ?? "").split(";").map((d) => d.trim()).filter(Boolean);
+
+  // --- BV.1 広い木は「足した」塊。狭い木の return の前に置く。wide は App から1本の道で配られる -------------------
+  check("BV.1 JoinedView に広い木(if (wide) { … return … })があり、狭い木の return より前に在る",
+    wideBV.length > 0 && /\n {4}return \(/.test(wideBV)
+    && joinedBV.indexOf(wideBV) >= 0 && joinedBV.indexOf(wideBV) < joinedBV.lastIndexOf("\n  return ("),
+    `広い木 ${wideBV.length}文字`);
+  check("BV.1 狭い木(広い木を外した JoinedView)の return は1つのまま・広い木の return は1つ",
+    // (return () => {…} の後始末は数えない: 描く return は字下げで見分ける。狭い木 = 2 字下げ・広い木 = 4 字下げ)
+    (narrowBV.match(/\n {2}return \(\n/g) || []).length === 1 && (wideBV.match(/\n {4}return \(\n/g) || []).length === 1
+    && (wideBV.match(/\n {2}return \(\n/g) || []).length === 0);
+  check("BV.1 狭い木は広い木の部品を1つも読まない(PersonSheet のまま・.pane-2 / 枠 / PaneEmpty / PersonBody / selectedUid / onFilterChange / fill が無い)",
+    /<PersonSheet\b/.test(codeOf(narrowBV))
+    && !/pane-2|pane-frame|PaneEmpty|PersonBody|selectedUid|onFilterChange|data-noswipe|--pane-max-w|\bfill\b/.test(codeOf(narrowBV)));
+  check("BV.1 wide は App → CommunityTab → CommunityTabBody → JoinedView / JoinIntro の1本の道(どれも既定 false)",
+    /<CommunityTab\b[\s\S]{0,6000}?\n\s*wide=\{wide\}\n\s*\/>/.test(codeOf(srcOfFn(appBV, "WindToneLabPhaseMode")))
+    && /export default function CommunityTab\(\{[^}]*, wide = false \}\)/.test(commBV)
+    && /<CommunityTabBody [^>]*wide=\{wide\} \/>/.test(commBV)
+    && /function CommunityTabBody\(\{[^}]*, wide = false \}\)/.test(commBV)
+    && /<JoinIntro\b[^>]*\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
+    && /<JoinedView\b[\s\S]*?\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
+    && /watchPhoto = null, wide = false \}\)/.test(joinedBV)
+    && /^function JoinIntro\(\{ onJoin, notice = null, wide = false \}\)/.test(joinBV));
+
+  // --- BV.2 器と形: 器(--pane-max-w)の中に 子タブの行・SwipePager[2ペイン, 2ペイン, 列, 列] -----------------------
+  check("BV.2 器は --pane-max-w で中央。2ペイン(データ・順位)のときだけ高さ固定の枠(.pane-frame)・窓は fill。子タブの行と SwipePager の開き方は狭い木と同じ",
+    /const paneActive = tab === "data" \|\| tab === "rank";/.test(wideBV)
+    && /return \(\s*\n\s*<div className=\{paneActive \? "pane-frame" : undefined\} style=\{\{ maxWidth: "var\(--pane-max-w\)", margin: "0 auto" \}\}>\s*\n\s*<SubTabs items=\{SUB_TABS\} value=\{tab\} onChange=\{go\} \/>\s*\n\s*(?:\{\}\s*\n\s*)?<SwipePager index=\{index\} onIndexChange=\{\(i\) => go\(SUB_TABS\[i\]\.key\)\} fill=\{paneActive\}>/.test(codeOf(wideBV))
+    && /<SubTabs items=\{SUB_TABS\} value=\{tab\} onChange=\{go\} \/>/.test(narrowBV)
+    && /<SwipePager index=\{index\} onIndexChange=\{\(i\) => go\(SUB_TABS\[i\]\.key\)\}>/.test(narrowBV));
+  check("BV.2 2ペインは .pane-2 の中に 左(包み)と 右(data-noswipe)が兄弟。右は表の子タブのときだけ人物のページ",
+    /const twoPane = \(k, left\) => \(\s*\n\s*<div className="pane-2">\s*\n\s*<div>\{left\}<\/div>\s*\n\s*<div data-noswipe>\{paneRight\(k\)\}<\/div>\s*\n\s*<\/div>\s*\n\s*\);/.test(wideBV));
+  check("BV.2 ページは4枚: データ = 2ペイン / 順位 = 2ペイン / シェア = 列 / マイページ = 列(この順)",
+    (() => {
+      const c = codeOf(wideBV);
+      const at = (re) => { const m = re.exec(c); return m ? m.index : -1; };
+      const d = at(/\{twoPane\("data", /), r = at(/\{twoPane\("rank", /), s = at(/\{column\(dirGate \?\? <ShareScreen /), p = at(/\{column\(<ProfileView /);
+      return d > 0 && d < r && r < s && s < p && (c.match(/\{twoPane\(/g) || []).length === 2 && (c.match(/\{column\(/g) || []).length === 2;
+    })());
+  check("BV.2 列は --page-max-w で中央(シェア・マイページ。人を開く口が無い一本の流れ・文書がスクロールする)",
+    /const column = \(node\) => <div style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\}>\{node\}<\/div>;/.test(wideBV));
+  check("BV.2 広い木は作法のクラスを名乗らない(コミュニティ全体が App の .surf-card 1つ)・PersonSheet を描かない・引継のシートは描く",
+    !/surf-(rule|card|sunk)/.test(codeOf(wideBV)) && !/<PersonSheet\b/.test(codeOf(wideBV))
+    && /\{backup \? <BackupSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(wideBV));
+
+  // --- BV.3 右ペイン: 表の子タブだけ・人が替われば作り直す・空の1行 ------------------------------------------------
+  check("BV.3 右ペインの人物のページは PersonBody(inPane)。表の子タブ(tab === k)のときだけ・人ごとに作り直す(key)",
+    /const paneRight = \(k\) => \(tab === k && person \? \(\s*\n\s*<PersonBody key=\{person\.uid\} person=\{person\} ideals=\{shownIdeals \?\? \[\]\} myIdeals=\{myIdeals\} tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\} myUid=\{uid\} onBlock=\{block\} inPane \/>/.test(wideBV));
+  check("BV.3 右が空なら1行(PaneEmpty)「奏者を選ぶと、ここに詳しいデータが表示されます」",
+    wideBV.includes(`) : (\n      ${EMPTY_BV}\n    ));`) && (codeOf(wideBV).split(EMPTY_BV).length - 1) === 1);
+  check("BV.3 右ペインに渡す値は狭い木のシートと同じ(ideals / myIdeals / tuningHz / onAdopt / myUid / onBlock)",
+    /<PersonSheet\s*\n\s*person=\{person\}\s*\n\s*ideals=\{shownIdeals \?\? \[\]\}\s*\n\s*myIdeals=\{myIdeals\}\s*\n\s*tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\}\s*\n\s*onClose=\{\(\) => setPerson\(null\)\}\s*\n\s*myUid=\{uid\}\s*\n\s*onBlock=\{block\}\s*\n\s*\/>/.test(narrowBV));
+  {
+    // 左ペインの中身は狭い木の呼び出しの写し(足したのは selectedUid と onFilterChange の口だけ)。綴りを別々に読んで突き合わせる。
+    const callIn = (t, name) => { const m = new RegExp(`<${name} [^\\n]*?\\/>`).exec(codeOf(t)); return m ? m[0] : ""; };
+    const strip = (s) => s.replace(/ selectedUid=\{paneUidOf\("(?:data|rank)"\)\}/, "").replace(/ onFilterChange=\{clearPane\}/, "");
+    const names = ["DataScreen", "RankScreen", "ShareScreen", "ProfileView"];
+    const pairs = names.map((n) => [callIn(wideBV, n), callIn(narrowBV, n)]);
+    check("BV.3 左ペイン・列の中身(DataScreen / RankScreen / ShareScreen / ProfileView)は狭い木と同じ呼び出し(足したのは selectedUid・onFilterChange の口だけ)",
+      pairs.every(([w, n]) => n.length > 30 && strip(w) === n)
+      && [0, 1].every((i) => pairs[i][0].includes(`selectedUid={paneUidOf("${["data", "rank"][i]}")}`) && /onFilterChange=\{clearPane\}/.test(pairs[i][0]))
+      && [2, 3].every((i) => !/selectedUid|onFilterChange/.test(pairs[i][0])),
+      pairs.map(([w, n], i) => `${names[i]} ${strip(w) === n ? "同じ" : "違う"}`).join(" / "));
+    check("BV.3 読み込み中の告知(dirGate)と目安の読み込み中(LoadingRing)は狭い木と同じ出し方(データ・順位・シェアの左)",
+      /\{twoPane\("data", dirGate \?\? \(ideals === null \? <LoadingRing \/> : \(/.test(codeOf(wideBV))
+      && /\{twoPane\("rank", dirGate \?\? <RankScreen /.test(codeOf(wideBV))
+      && /\{dirGate \?\? \(ideals === null \? <LoadingRing \/> : \(/.test(codeOf(narrowBV)));
+  }
+
+  // --- BV.4 PersonSheet = BottomSheet + PersonBody(写しを作らない)・ペインの「目安に設定」は浮かせるボタン ----------------
+  check("BV.4 PersonSheet は器だけ: 人が無ければ何も描かず、BottomSheet の中に PersonBody を1つ(名乗りは今までどおり「○○ の詳細」)",
+    /^function PersonSheet\(\{ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null \}\) \{\s*if \(!person\) return null;\s*return \(\s*<BottomSheet ariaLabel=\{`\$\{person\.nickname\} の詳細`\} onClose=\{onClose\}>\s*<PersonBody person=\{person\} ideals=\{ideals\} myIdeals=\{myIdeals\} onAdopt=\{onAdopt\} myUid=\{myUid\} tuningHz=\{tuningHz\} onBlock=\{onBlock\} \/>\s*<\/BottomSheet>\s*\);\s*\}$/.test(codeOf(sheetBV)),
+    flatBV(sheetBV).slice(0, 160));
+  check("BV.4 本文の写しが残っていない(SegmentedTabs「表示する内容」・ブロックの確認・通報のシート・写真の拡大は screens.jsx に1回ずつ・PersonBody の中)",
+    [/<SegmentedTabs ariaLabel="表示する内容"/g, /<BlockConfirmSheet\b/g, /<ReportSheet\b/g, /<PhotoZoom url=\{personPhoto\}/g]
+      .every((re) => (codeOf(scrBV).match(re) || []).length === 1 && (codeOf(bodyBV).match(re) || []).length === 1));
+  check("BV.4 PersonBody は inPane(既定 false)を受け、onClose は受けない。断片(<>…</>)で返す(シートの子の並びは切り出す前と同じ)",
+    /^function PersonBody\(\{ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false \}\)/.test(bodyBV)
+    && (codeOf(bodyBV).match(/\bonClose\b/g) || []).length === 3
+    && (codeOf(bodyBV).match(/onClose=\{\(\) => set(Blocking|Reporting|PhotoZoom)\(false\)\}/g) || []).length === 3
+    && /\n {2}return \(\s*\n\s*<>/.test(codeOf(bodyBV)) && /\n {4}<\/>\s*\n {2}\);\s*\n\}$/.test(codeOf(bodyBV))
+    && !/<BottomSheet\b/.test(codeOf(bodyBV)));
+  check("BV.4 inPane で変わるのは本文の器(subPageStyle)と「目安に設定」の出し方の2つだけ。シートの貼り付く器の綴りは便BV の前のまま",
+    (codeOf(bodyBV).match(/\binPane\b/g) || []).length === 4
+    && /<div style=\{inPane \? subPageStyle : \{ \.\.\.pageStyle, paddingTop: 0, paddingBottom: "var\(--sp-6, 40px\)" \}\}>/.test(bodyBV)
+    && /\{!inPane \? \(\s*\n\s*<>\s*\n\s*\{showAdopt \? <div aria-hidden="true" style=\{\{ height: ADOPT_STICKY_SPACER_H \}\} \/> : null\}\s*\n\s*\{showAdopt \? \(/.test(bodyBV)
+    && /<div style=\{\{\s*\n\s*position: "sticky", bottom: 0, zIndex: 1,\s*\n\s*display: "flex", justifyContent: "flex-end",\s*\n\s*\}\}>\s*\n\s*<button\s*\n\s*type="button" className="sans"\s*\n\s*onClick=\{adoptTheirs\}/.test(codeOf(bodyBV)));
+  check("BV.4 ペインの「目安に設定」は浮かせるボタン(FloatingAction pane=\"right\"。リードの「計測」と同じ portal・右ペインの右下)+ 対の末尾の余白(FloatingActionSpacer)",
+    /\{inPane && showAdopt \? \(\s*\n\s*<>\s*\n\s*<FloatingActionSpacer \/>\s*\n\s*<FloatingAction label="目安に設定" onClick=\{adoptTheirs\} pane="right" \/>\s*\n\s*<\/>\s*\n\s*\) : null\}/.test(codeOf(bodyBV))
+    && /import \{ FloatingAction, FloatingActionSpacer \} from "\.\.\/App\.jsx";/.test(scrBV)
+    && !/function FloatingAction|function FloatingActionSpacer/.test(scrBV)
+    && /^export function FloatingAction\(/m.test(appBV) && /^export function FloatingActionSpacer\(/m.test(appBV)
+    && !/PANE_ADOPT_STICKY_BOTTOM/.test(codeOf(scrBV)));
+  check("BV.4 押したときの一手は1つ(adoptTheirs。シートとペインが同じこれを呼ぶ)。取り込む値は今までどおり theirShown",
+    /const adoptTheirs = \(\) => \{\s*\n\s*const r = onAdopt\(\{ aligned: theirShown, theirIdeal, nickname: person\.nickname \}\);\s*\n\s*setAdopted\(r\?\.error \? \{ error: r\.error \} : \{ ok: true \}\);\s*\n\s*\};/.test(bodyBV)
+    && (codeOf(bodyBV).match(/onClick=\{adoptTheirs\}/g) || []).length === 2 && (codeOf(bodyBV).match(/onAdopt\(/g) || []).length === 1);
+  check("BV.4 subPageStyle は pageStyle の上だけ 0(左ペインのデータ・順位と同じ器。便BN の値のまま)",
+    /const SUB_PAGE_TOP_PAD = 0;\s*\nconst subPageStyle = \{ \.\.\.pageStyle, paddingTop: SUB_PAGE_TOP_PAD \};/.test(scrBV)
+    && /const pageStyle = \{ padding: "var\(--sp-4\) 0", display: "grid", gridTemplateColumns: "minmax\(0, 1fr\)", gap: "var\(--sp-4\)" \};/.test(scrBV));
+
+  // --- BV.5 参加前の見本(JoinIntro): 広いなら参加後と同じ2ペイン・高さ固定の枠・触れない包みのまま ----------------------
+  check("BV.5 広いときの見本: 触れない包み(aria-hidden・inert・押せない)の中に 枠(.pane-frame・--pane-max-w)・子タブの行・2ペイン(左 = 見本・右 = 空の1行)",
+    new RegExp(String.raw`const previewWide = wide \? \(\s*\n\s*<div aria-hidden="true" inert="" data-join-preview="" style=\{\{ pointerEvents: "none" \}\}>\s*\n\s*(?:\{\/\*[^\n]*\*\/\}\s*\n\s*)?<div className="pane-frame" style=\{\{ maxWidth: "var\(--pane-max-w\)", margin: "0 auto" \}\}>\s*\n\s*<SubTabs items=\{SUB_TABS\} value="data" onChange=\{NOOP\} \/>\s*\n\s*<div className="pane-2">\s*\n\s*<div><JoinPreviewDataScreen \/><\/div>\s*\n\s*<div>${EMPTY_BV.replace(/[()]/g, "\\$&")}<\/div>\s*\n\s*<\/div>\s*\n\s*<\/div>\s*\n\s*<\/div>\s*\n\s*\) : null;`).test(joinBV));
+  check("BV.5 狭いときの見本は今までの包みのまま(previewWide が無いときだけ描く)",
+    /\{previewWide \?\? \(\s*\n\s*<div aria-hidden="true" inert="" data-join-preview="" style=\{\{ pointerEvents: "none" \}\}>\s*\n\s*<SubTabs items=\{SUB_TABS\} value="data" onChange=\{NOOP\} \/>\s*\n\s*<JoinPreviewDataScreen \/>\s*\n\s*<\/div>\s*\n\s*\)\}/.test(joinBV)
+    && (codeOf(joinBV).match(/createPortal\(card, document\.body\)/g) || []).length === 1);
+
+  // --- BV.6 【便BV3 本人裁定】右に出しているものを一覧で目立たせる(コミュニティの行・リードのタイル)------------------------
+  {
+    const data = codeOf(srcOfFn(scrBV, "DataScreen"));
+    const rank = codeOf(srcOfFn(scrBV, "RankScreen"));
+    const row = codeOf(srcOfFn(scrBV, "RankRow"));
+    const grid = codeOf(srcOfFn(appBV, "ReedTileGrid"));
+    const ring = (/const PANE_CURRENT_RING = "([^"]+)";/.exec(scrBV) || [])[1] || "";
+    check("BV.6 選択中の枠の値は新しく作らない: My Data のカレンダーの「今日」の印と同じ inset 0 0 0 1.5px var(--c-accent)(App.jsx に1つ・screens.jsx はその値の名前1つ)",
+      ring === "inset 0 0 0 1.5px var(--c-accent)" && (appBV.match(/"inset 0 0 0 1\.5px var\(--c-accent\)"/g) || []).length === 1
+      && (codeOf(scrBV).match(/inset 0 0 0 1\.5px var\(--c-accent\)/g) || []).length === 1, ring);
+    check("BV.6 DataScreen の行: 右に出している人(selectedUid)だけ aria-current=\"true\" と選択中の枠。selectedUid が無ければ何も足さない",
+      /export function DataScreen\(\{[^}]*, selectedUid = null, onFilterChange = null \}\)/.test(scrBV)
+      && /aria-current=\{selectedUid != null && owner\.uid === selectedUid \? "true" : undefined\}/.test(data)
+      && /\.\.\.\(selectedUid != null && owner\.uid === selectedUid \? \{ \.\.\.PANE_CURRENT_ROW, borderBottomColor: "transparent" \} : null\),/.test(data));
+    check("BV.6 RankRow: current のときだけ aria-current と選択中の枠(小さい行は枠だけ・上位3件のカードは影に重ねる)。RankScreen が2つの呼び出しとも selectedUid と比べて渡す",
+      /function RankRow\(\{ row, big = false, mine = false, onTap, current = false \}\)/.test(scrBV)
+      && /\.\.\.\(current \? \{ "aria-current": "true" \} : null\),/.test(row)
+      && /\.\.\.\(current \? PANE_CURRENT_ROW : null\),/.test(row)
+      && /\.\.\.\(current \? \{ boxShadow: `\$\{PANE_CURRENT_RING\}, var\(--shadow-card\)` \} : null\),/.test(row)
+      && (rank.match(/current=\{selectedUid != null && r\.uid === selectedUid\}/g) || []).length === 2
+      && /export function RankScreen\(\{ users, myUid, onOpenPerson, selectedUid = null, onFilterChange = null \}\)/.test(scrBV));
+    check("BV.6 リードのタイル: 右に出しているリード(paneReed)だけ data-pane-current と aria-current。枠の色だけ --c-accent(index.css。A型の約束・地は変えない)",
+      /function ReedTileGrid\(\{[^}]*, paneSelectedId = null \}\)/.test(appBV)
+      && /data-pane-current=\{paneSelectedId != null && r\.id === paneSelectedId \? "true" : undefined\}/.test(grid)
+      && /aria-current=\{paneSelectedId != null && r\.id === paneSelectedId \? "true" : undefined\}/.test(grid)
+      && /paneSelectedId=\{paneReed \? paneReed\.id : null\}/.test(reedWide) && !/paneSelectedId/.test(codeOf(reedNarrow))
+      && JSON.stringify(declsOf('.reedtile[data-pane-current="true"]')) === JSON.stringify(["border-color: var(--c-accent)"])
+      && cssBV.indexOf('.reedtile[data-pane-current="true"]') > cssBV.indexOf('.reedtile[data-tone="sel"]'),
+      JSON.stringify(declsOf('.reedtile[data-pane-current="true"]')));
+    check("BV.6 口へ渡すのは広い木だけ。右に人を描く子タブの一覧にだけ渡す(paneUidOf: 表の子タブなら右の人の uid・ほかは null)。狭い木は渡さない",
+      /const paneUidOf = \(k\) => \(tab === k \? person\?\.uid \?\? null : null\);/.test(wideBV)
+      && (codeOf(wideBV).match(/selectedUid=\{paneUidOf\("(?:data|rank)"\)\}/g) || []).length === 2
+      && !/selectedUid/.test(codeOf(narrowBV)));
+  }
+
+  // --- BV.7 語彙・空の状態の体裁 -----------------------------------------------------------------------------------
+  // (参加前のカードの「機種変更やアプリの削除で失われ」は端末の話で、便BS からの既存の文。この便では触っていないので見ない)
+  check("BV.7 文言に「機材」「機種」を使っていない(広い木・参加前の見本の2ペイン・人物のページ・空の1行)",
+    !/機材|機種/.test(codeOf(wideBV)) && !/機材|機種/.test(codeOf((/const previewWide = wide \? \([\s\S]*?\) : null;/.exec(joinBV) || ["?"])[0]))
+    && !/機材|機種/.test(codeOf(bodyBV)) && !/機材|機種/.test(EMPTY_BV) && /const previewWide = wide \? \(/.test(joinBV));
+  check("BV.7 空の状態はリードと同じ部品(App.jsx の PaneEmpty を import。コミュニティに写しを作らない)",
+    /import \{ PaneEmpty \} from "\.\.\/App\.jsx";/.test(commBV) && !/function PaneEmpty\b/.test(commBV) && !/function PaneEmpty\b/.test(scrBV)
+    && (appBV.match(/export function PaneEmpty\(/g) || []).length === 1);
+
+  // --- BV.8 【便BV3 2026-10-04 統括の裁定(審査案 a)】2ペインの画面は高さ固定の枠・左右はそれぞれのスクロールの器 -------------
+  // 便BV2 の sticky(.pane-2-detail)は「右の上端が画面の上端に貼り付いた状態」を前提に高さを決めていて、先頭(scrollY 0)では右の下端が
+  // 下部タブの下に潜った(審査の実測)。枠の高さを固定し、左右をそれぞれ自分でスクロールさせる形に作り直した。sticky と窓の clip は消した。
+  {
+    const pager = srcOfFn(appBV, "SwipePager");
+    const frame = declsOf(".pane-frame");
+    const heightOf = (u) => `calc(${u} - ${topJs} - var(--page-bottom-gap))`;
+    check("BV.8 枠(.pane-frame)= 縦の flex・高さ = 見える範囲(100vh → 100svh の順)− 上の余白(PAGE_TOP_PAD と同じ式)− 下部タブ・帯(--page-bottom-gap を1回だけ)",
+      topJs.length > 0 && JSON.stringify(frame) === JSON.stringify(["display: flex", "flex-direction: column", `height: ${heightOf("100vh")}`, `height: ${heightOf("100svh")}`]),
+      frame.join(" ; "));
+    check("BV.8 枠の中の2ペインは残りいっぱい・左右はそれぞれ高さ 100% で自分でスクロールする(端で外へ渡さない)",
+      JSON.stringify(declsOf(".pane-frame > .pane-2")) === JSON.stringify(["flex: 1 1 0"])
+      && JSON.stringify(declsOf(".pane-frame .pane-2")) === JSON.stringify(["height: 100%", "min-height: 0", "grid-template-rows: minmax(0, 1fr)"])
+      && JSON.stringify(declsOf(".pane-frame .pane-2 > *")) === JSON.stringify(["height: 100%", "min-height: 0", "overflow-y: auto", "overscroll-behavior: contain"]),
+      JSON.stringify(declsOf(".pane-frame .pane-2 > *")));
+    check("BV.8 作法のクラスを持たない左右(コミュニティ)は器を --sp-2 だけ外へ広げて同じ量を内側に戻す(カードの影がスクロールの器の縁で切れない)",
+      JSON.stringify(declsOf(".pane-frame .pane-2 > :not([class])")) === JSON.stringify([
+        "margin-left: calc(-1 * var(--sp-2))", "margin-right: calc(-1 * var(--sp-2))", "padding-left: var(--sp-2)", "padding-right: var(--sp-2)"]));
+    check("BV.8 sticky と窓の clip は消えた(.pane-2-detail / .swipe-pager-clip / overflow: clip / 2ペインの position: sticky が無い)",
+      !/pane-2-detail|swipe-pager-clip/.test(cssBV + codeOf(appBV) + codeOf(commBV) + codeOf(scrBV)) && !/overflow:\s*clip/.test(cssBV)
+      && !/clip = false|\bclip\b(?=[\s>])/.test(codeOf(pager)) && !/sticky/.test(cssBV.slice(cssBV.indexOf(".pane-2 {"), cssBV.indexOf(".pane-2 {") + 2000)));
+    check("BV.8 SwipePager は fill(既定 false)を受け、fill のときだけ 窓 = 枠の残り(flex 1 / min-height 0)・track と各ページ = 高さ 100%。窓の overflow: hidden はそのまま",
+      /export function SwipePager\(\{ index: indexProp, onIndexChange, bleed = false, fill = false, children \}\)/.test(appBV)
+      && /style=\{\{\s*\n\s*overflow: "hidden", minHeight: minH \|\| undefined,/.test(pager)
+      && /\.\.\.\(fill \? \{ flex: "1 1 0", minHeight: 0 \} : null\),\s*\n\s*\}\}>/.test(pager)
+      && (pager.match(/\.\.\.\(fill \? \{ height: "100%" \} : null\)/g) || []).length === 2);
+    check("BV.8 枠と fill を付けるのは2ペインのページを表に出しているときだけ(リード = 登録 / コミュニティ = データ・順位 / 参加前の見本)。狭い木には無い",
+      /<div className=\{reedsSubTab === "register" \? "pane-frame" : undefined\}/.test(reedWide)
+      && /\n\s*fill=\{reedsSubTab === "register"\}\n/.test(reedWide)
+      && /fill=\{paneActive\}/.test(wideBV) && /className=\{paneActive \? "pane-frame" : undefined\}/.test(wideBV)
+      && /<div className="pane-frame"/.test(joinBV)
+      && ((codeOf(appBV) + codeOf(commBV)).match(/pane-frame/g) || []).length === 3
+      && !/pane-frame|\bfill\b/.test(codeOf(reedNarrow)) && !/pane-frame|\bfill\b/.test(codeOf(narrowBV))
+      && ((codeOf(appBV) + codeOf(commBV)).match(/<SwipePager\b(?:=>|[^>])*>/g) || []).filter((t) => /\bfill\b/.test(t)).length === 2);
+    check("BV.8 リードの右ペインは今までの作法のカード(.surf-card + data-noswipe)のまま。2ペインの左右のクラスは足していない(枠の規則が子を選ぶ)",
+      /<div className="surf-card" data-noswipe>/.test(reedWide) && /<div data-noswipe>\{paneRight\(k\)\}<\/div>/.test(wideBV));
+  }
+
+  // --- BV.9 【便BV3 統括の裁定 D】一覧の条件が変わったら右ペインを空に戻す ----------------------------------------------
+  {
+    const data = codeOf(srcOfFn(scrBV, "DataScreen"));
+    const rank = codeOf(srcOfFn(scrBV, "RankScreen"));
+    const hook = codeOf(srcOfFn(scrBV, "useNotifyOnChange"));
+    check("BV.9 知らせる口は1つの小さな仕組み(useNotifyOnChange: 前の値と比べて変わったときだけ呼ぶ・最初の描画では呼ばない)",
+      /const prev = useRef\(key\);/.test(hook) && /if \(prev\.current === key\) return;\s*\n\s*prev\.current = key;\s*\n\s*cb\?\.\(\);/.test(hook)
+      && /\}, \[key\]\);/.test(hook) && (scrBV.match(/function useNotifyOnChange\(/g) || []).length === 1);
+    check("BV.9 データは条件(楽器・ジャンル・属性)・順位は条件・期間・順位の種類が変わったら知らせる。指標のタブ(平均カード)では知らせない",
+      /useNotifyOnChange\(JSON\.stringify\(filter\), onFilterChange\);/.test(data) && !/useNotifyOnChange\([^)]*metric/.test(data)
+      && /useNotifyOnChange\(JSON\.stringify\(\{ filter, period, metric \}\), onFilterChange\);/.test(rank));
+    check("BV.9 広い木だけが右を空に戻す口を渡す(clearPane = setPerson(null))。狭い木は渡さない",
+      /const clearPane = \(\) => setPerson\(null\);/.test(wideBV) && (codeOf(wideBV).match(/onFilterChange=\{clearPane\}/g) || []).length === 2
+      && !/onFilterChange/.test(codeOf(narrowBV)));
+  }
+
+  // --- BV.10 【便BV3】はじめの一手の的がペインの中で送られて縁に切られているときは照らさない ------------------------------------
+  check("BV.10 はじめの一手: 的が2ペインの左右(.pane-frame .pane-2 の子)の中に居るときは、その器の矩形に収まっているときだけ出す(大きさ 0 の器は見ない)",
+    /const paneCell = el\.closest\("\.pane-frame \.pane-2 > \*"\);/.test(onbBV)
+    && /if \(c\.height > 0 && \(r\.top < c\.top \|\| r\.bottom > c\.bottom \|\| r\.left < c\.left \|\| r\.right > c\.right\)\) continue;/.test(onbBV));
+
+  // --- BV.11 【便BV4 2026-10-04 統括の裁定(再審査)】選択中の行の枠を外に広げる / リードの左ペインと窓を広げる -------------------
+  {
+    const rowBlock = (/const PANE_CURRENT_ROW = \{([\s\S]*?)\n\};/.exec(scrBV) || [])[1] || "";
+    const rowPad = (/padding: "11px 2px", minHeight: 47,/g);
+    check("BV.11 選択中の行: 枠を左右 --sp-2 だけ外へ広げ、同じ量を padding に足す(行の padding 11px 2px の外側に --sp-2。中身の位置は同じ)・角は --r-md・枠は PANE_CURRENT_RING",
+      /margin: "0 calc\(-1 \* var\(--sp-2\)\)",/.test(rowBlock) && /padding: "11px calc\(2px \+ var\(--sp-2\)\)",/.test(rowBlock)
+      && /borderRadius: "var\(--r-md\)",/.test(rowBlock) && /boxShadow: PANE_CURRENT_RING,/.test(rowBlock)
+      && (codeOf(srcOfFn(scrBV, "DataScreen")).match(rowPad) || []).length === 1 && (codeOf(srcOfFn(scrBV, "RankRow")).match(rowPad) || []).length === 1,
+      rowBlock.replace(/\s+/g, " "));
+    {
+      // 枠と中身の間 = 行の padding(2)+ 広げた量(--sp-2)− 枠の太さ(1.5)。--sp-2 以上であること(index.css の実値で計算)
+      const sp2 = parseFloat((/--sp-2:\s*([\d.]+)px/.exec(cssBV) || [])[1]);
+      const ringW = parseFloat((/inset 0 0 0 ([\d.]+)px/.exec(rowBlock + (/const PANE_CURRENT_RING = "([^"]+)"/.exec(scrBV) || ["", ""])[1]) || [])[1]);
+      const room = 2 + sp2 - ringW;
+      check("BV.11 枠と中身の間 = 2 + --sp-2 − 枠の太さ が --sp-2 以上(左右とも)", Number.isFinite(room) && room >= sp2, `${room}px / --sp-2 ${sp2}px`);
+    }
+    check("BV.11 リードの左ペイン(作法のクラスを持つ先頭の子)は左を本文の余白(--page-pad-left = 窓の広がり)・右を左右のペインの間(--sp-5)だけ外へ広げ、同じ量を内側に戻す",
+      JSON.stringify(declsOf(".pane-frame .pane-2 > [class]:first-child")) === JSON.stringify([
+        "margin-left: calc(-1 * var(--page-pad-left))", "margin-right: calc(-1 * var(--sp-5))",
+        "padding-left: var(--page-pad-left)", "padding-right: var(--sp-5)"]),
+      JSON.stringify(declsOf(".pane-frame .pane-2 > [class]:first-child")));
+    check("BV.11 リードの広い木の SwipePager は bleed(窓を同じ余白ぶん広げる。左ペインの左端を窓が切らない)。狭い木には渡さない",
+      /<SwipePager\s*\n\s*index=\{reedsSubTab === "compare" \? 1 : 0\}\s*\n\s*onIndexChange=\{[^\n]*\}\s*\n\s*fill=\{reedsSubTab === "register"\}\s*\n\s*bleed\s*\n\s*>/.test(reedWide)
+      && !/\bbleed\b/.test(codeOf(reedNarrow)));
+  }
   console.log("  -> done");
 }
 

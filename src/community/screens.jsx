@@ -19,6 +19,9 @@ import { termTipOpenWithin, inTermTip } from "../termTip.jsx";
 import { BACK_BUTTON_STYLE, BottomSheet, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
 // 【便BI 2026-10-02】危険な一手の見た目(DANGER_OUTLINE_STYLE)も App.jsx の1つ。下で export し直す。
 import { DANGER_OUTLINE_STYLE } from "../App.jsx";
+// 【便BV3 2026-10-04 統括の裁定(審査案 b)】iPad の2ペインの右(人物のページ)の「目安に設定」は、リードの「計測」と同じ浮かせるボタン
+// (FloatingAction pane="right"。body へ portal)と、その対の末尾の余白(FloatingActionSpacer)を使う。写しを作らない。
+import { FloatingAction, FloatingActionSpacer } from "../App.jsx";
 // 【計画5 モデレーション 2026-09-10】通報。判断は report.js、読み書きは reportRepo.js。
 // 【便BG 2026-10-01 本人指示】通報で一覧から消さない。flags を読む関数(listFlaggedUids)と落とす関数(hideFlagged)は読まない。
 import { REPORT_REASONS, reportEntryVisible } from "./report.js";
@@ -82,6 +85,22 @@ const eyebrowStyle = { fontSize: 10, fontWeight: 600, letterSpacing: ".08em", co
 // 間隔は既にこの画面が使っている --sp-3。新しい数は作らない
 // (App.jsx の FLOAT_ACTION_SPACER_H と同じ考え方。あちらは絵柄だけの 56 角なので値が違う)。
 const ADOPT_STICKY_SPACER_H = "calc(var(--tap-min) + var(--sp-3))";
+// 【便BV3 2026-10-04 本人裁定】iPad の2ペインで、右ペインに出している人の行(DataScreen の行・RankRow)に付ける選択中の枠。
+// 行は枠を持たない要素なので、§6.7 A型の「選択中は枠を --c-accent」を、アプリに既にある**枠の代わりの内側の線**で表す:
+// My Data のカレンダーの「今日」の印(App.jsx: inset 0 0 0 1.5px var(--c-accent))と同じ値。新しい値ではない。
+// 内側に描くので行の寸法(高さ・幅)は1px も変わらない。リードのタイル(枠を持つ)は index.css の .reedtile[data-pane-current] で枠の色だけを替える。
+const PANE_CURRENT_RING = "inset 0 0 0 1.5px var(--c-accent)";
+// 【便BV4 2026-10-04 統括の裁定(再審査)】一覧の行(DataScreen の行・順位の4位以下)は左右の余白が 2px しか無く、枠が中身に接していた。
+// 選ばれている行だけ、枠をカードの内側の余白(.card-list の左右 --sp-4)へ --sp-2 だけ外に広げ、同じ量を左右の padding に足して中身の位置を
+// 1px も動かさない(行の padding 11px 2px はそのまま、その外側に --sp-2)。角は --r-md。枠と中身の間 = 2 + 8 − 1.5 = 8.5px(--sp-2 以上)。
+// 行の下の罫(データの一覧の行が自分で持つ 1px)は、広げた枠の下で曲がって見えるので選ばれている行だけ透明にする(太さは同じ = 高さは変わらない)。
+// 選ばれていない行・iPhone(狭い木)は何も足さない。上位3件の大きいカードは PANE_CURRENT_RING を影に重ねるだけ(RankRow)。
+const PANE_CURRENT_ROW = {
+  margin: "0 calc(-1 * var(--sp-2))",
+  padding: "11px calc(2px + var(--sp-2))",
+  borderRadius: "var(--r-md)",
+  boxShadow: PANE_CURRENT_RING,
+};
 // 【便BO 2026-10-02】人物のページの右下に貼り付く「目安に設定」のボタンの見た目。**読むのは人物のページだけ。**
 // 値は人物のページのボタンに直書きしてあったものを1字も変えずに移しただけ(束2・束5・便O の裁定のまま)。
 // 【便BO3 2026-10-03 統括の裁定】みんなの平均の確認のシートの主の一手は、これではなく**シートの中の主ボタンの標準**
@@ -520,12 +539,15 @@ const RANK_METRICS = [{ key: "days", label: "練習日数" }, { key: "time", lab
 // 練習時間の表示は 時間・小数1桁(My Data の累計 hoursText と同じ作り)。row.sec は整数秒。
 const hoursText = (sec) => (Math.round(sec / 360) / 10).toFixed(1);
 
-function RankRow({ row, big = false, mine = false, onTap }) {
+// 【便BV3 2026-10-04 本人裁定】current = iPad の2ペインで右ペインに出している人。行に選択中の枠(PANE_CURRENT_RING)と aria-current。
+// 既定 false(iPhone)では属性も style も足さない。
+function RankRow({ row, big = false, mine = false, onTap, current = false }) {
   const rankColor = RANK_COLOR[row.rank] ?? null;
   const tap = onTap ? {
     role: "button", tabIndex: 0, onClick: onTap,
     onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } },
     "aria-label": `${row.nickname} の詳細を見る`,
+    ...(current ? { "aria-current": "true" } : null),
   } : {};
   // 【上位3件は大きさと帯で立てる 2026/09/08 本人裁定「案B」】
   // ・順位の色は**左端の 4px の帯と環の線**が持つ。**面は白のまま**(§6.6 を割らない)
@@ -594,6 +616,8 @@ function RankRow({ row, big = false, mine = false, onTap }) {
         cursor: onTap ? "pointer" : "default",
         display: "flex", alignItems: "center", gap: "var(--sp-3)",
         padding: "11px 2px", minHeight: 47,
+        /* 【便BV4】選ばれている行だけ、枠を外に広げて角を丸める(PANE_CURRENT_ROW。中身の位置は同じ)。 */
+        ...(current ? PANE_CURRENT_ROW : null),
       }}>{inner}</div>
     );
   }
@@ -603,6 +627,8 @@ function RankRow({ row, big = false, mine = false, onTap }) {
       display: "flex", alignItems: "stretch",
       background: "var(--c-surface)", borderRadius: "var(--r-lg)",
       boxShadow: "var(--shadow-card)",
+      /* 【便BV3】右ペインに出している人: 選択中の枠をカードの影に重ねる(左の帯の上は帯が覆う)。 */
+      ...(current ? { boxShadow: `${PANE_CURRENT_RING}, var(--shadow-card)` } : null),
       // 帯を丸に沿わせるために切る。**カードの角を残したまま帯を端まで届かせる唯一の手**
       overflow: "hidden",
     }}>
@@ -632,13 +658,32 @@ function RankRow({ row, big = false, mine = false, onTap }) {
   );
 }
 
-export function RankScreen({ users, myUid, onOpenPerson }) {
+// 【便BV3 2026-10-04 統括の裁定 D】値(key)が前の描画から変わったときだけ cb を呼ぶ。最初の描画では呼ばない
+// (前の値と比べるので、描き直し・作り直しの回数に左右されない)。cb が無ければ何もしない(iPhone)。
+// 利用者が条件を変えたときだけ値が変わる ── 名簿の読み込み中に一覧が一時的に空になっても値は変わらないので呼ばれない。
+function useNotifyOnChange(key, cb) {
+  const prev = useRef(key);
+  useEffect(() => {
+    if (prev.current === key) return;
+    prev.current = key;
+    cb?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+}
+
+// 【便BV3 2026-10-04 本人裁定】selectedUid = iPad の2ペインで、いま右ペインに出している人の uid(広い木の JoinedView だけが渡す)。
+// その行(RankRow)に選択中の枠と aria-current。
+// 【便BV3 統括の裁定 D】onFilterChange = 一覧の条件(楽器・ジャンル・属性・期間・順位の種類)が変わったと知らせる口(2ペインだけ)。
+// どちらも既定 null(iPhone)では何も変わらない。
+export function RankScreen({ users, myUid, onOpenPerson, selectedUid = null, onFilterChange = null }) {
   const [filter, setFilter] = useState(EMPTY_FILTER);
   // 【C9 2026-09-16】順位の種類(練習日数 / 練習時間)。既定は練習日数。画面を離れたら戻ってよい。
   const [metric, setMetric] = useState("days");
   // 【既定は「すべて」】2026/09/06 本人指示。人数が少ないうちは期間で切ると
   // 一覧が空になりやすく、まず全体が見えたほうがよい。
   const [period, setPeriod] = useState("all");
+  // 【便BV3 統括の裁定 D】一覧の母集団・並びを変えるもの(楽器・ジャンル・属性・期間・順位の種類)が変わったら知らせる。
+  useNotifyOnChange(JSON.stringify({ filter, period, metric }), onFilterChange);
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
   const ranked = useMemo(() => rankByPractice(shown, period, undefined, metric), [shown, period, metric]);
 
@@ -665,7 +710,8 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
           <div style={{ display: "grid", gap: "var(--sp-3)" }}>
             {ranked.slice(0, 3).map((r) => (
               <RankRow key={r.uid} row={r} big mine={r.uid === myUid}
-                onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />
+                onTap={onOpenPerson ? () => onOpenPerson(r) : undefined}
+                current={selectedUid != null && r.uid === selectedUid} />
             ))}
           </div>
           {/* 4位以下は1つの群に畳む。**群の中の行区切りの罫は引いてよい**(D-30 本人裁定) */}
@@ -674,7 +720,8 @@ export function RankScreen({ users, myUid, onOpenPerson }) {
               {ranked.slice(3).map((r, i, arr) => (
                 <div key={r.uid} style={{ borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)" }}>
                   <RankRow row={r} mine={r.uid === myUid}
-                    onTap={onOpenPerson ? () => onOpenPerson(r) : undefined} />
+                    onTap={onOpenPerson ? () => onOpenPerson(r) : undefined}
+                    current={selectedUid != null && r.uid === selectedUid} />
                 </div>
               ))}
             </div>
@@ -1125,13 +1172,19 @@ export function JoinPreviewDataScreen() {
 // 【便BC 審査】active = ページャでこの画面が表に出ているか。裏へ回ったら用語の説明を閉じる(既定は true)。
 // 【便BO 2026-10-02 本人指示】onAdopt = みんなの平均を目安に設定する受け口(人物のページの onAdopt と同じ1つ。
 // CommunityTab が App.jsx の onAdoptIdeal を渡す)。渡さない呼び手ではカードは押しても何も起きない。
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true, onAdopt = null }) {
+// 【便BV3 2026-10-04 本人裁定】selectedUid = 2ペインで右に出している人の uid。その行に選択中の枠(PANE_CURRENT_RING)と aria-current。
+// 【便BV3 統括の裁定 D】onFilterChange = 一覧の条件(楽器・ジャンル・属性)が変わったと知らせる口(2ペインだけが渡し、右を空に戻す)。
+// どちらも既定 null(iPhone)では何も変わらない。
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true, onAdopt = null, selectedUid = null, onFilterChange = null }) {
   // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
   const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTER, saxType: (saxTypes ?? [])[0] ?? "alto" }));
   const [metric, setMetric] = useState(METRICS[0].key);
   const saxType = filter.saxType;
+  // 【便BV3 統括の裁定 D】条件(楽器・ジャンル・属性)が変わったら知らせる(2ペインは右を空に戻す)。条件の値そのものが変わったときだけ。
+  // 指標のタブ(音程・HNR・重心)は平均カードの見え方で、一覧の母集団を変えないので知らせない。
+  useNotifyOnChange(JSON.stringify(filter), onFilterChange);
 
   const shown = useMemo(() => filterUsers(users, filter), [users, filter]);
   // 【条件で絞った人の目安だけを使う】上のカードと下の一覧が同じ母集団になる。
@@ -1341,12 +1394,16 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
                  onClick={onOpenPerson ? () => onOpenPerson(owner) : undefined}
                  onKeyDown={onOpenPerson ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPerson(owner); } } : undefined}
                  aria-label={onOpenPerson ? `${owner.nickname} の詳細を見る` : undefined}
+                 /* 【便BV3 本人裁定】右ペインに出している人(2ペインだけ)。 */
+                 aria-current={selectedUid != null && owner.uid === selectedUid ? "true" : undefined}
                  style={{
                    display: "flex", alignItems: "center", gap: "var(--sp-3)",
                    padding: "11px 2px", minHeight: 47,
                    // 【群の中の行区切りの罫は引いてよい】D-30 本人裁定。最後の行だけ消す
                    borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--c-line)",
                    cursor: onOpenPerson ? "pointer" : "default",
+                   /* 【便BV3 本人裁定 / 便BV4】右に出している人の行だけ、枠を外に広げて角を丸める(PANE_CURRENT_ROW)。 */
+                   ...(selectedUid != null && owner.uid === selectedUid ? { ...PANE_CURRENT_ROW, borderBottomColor: "transparent" } : null),
                  }}>
               <Avatar icon={owner.icon ?? AVATAR_ICONS[0]} color={owner.iconColor ?? AVATAR_COLOR_MIN} photo={owner.photo ?? null} size={34} />
               <div style={{ flex: "1 1 0", minWidth: 0 }}>
@@ -1474,7 +1531,36 @@ const PERSON_TABS = [
 
 // 【便BG 2026-10-01 本人指示】受け口 onReported(通報した相手を一覧から即座に消す)を外した。
 // 通報では一覧から消さない。消したい人は、通報のあとに問われる「ブロックする」で onBlock を通る。
+// 【便BV 2026-10-04 本人裁定(案B)】中身は PersonBody に出した(写しを作らない)。ここはシートの器に入れるだけ。
+// iPhone(狭い木)はこのシートで開き、iPad の2ペイン(広い木)は同じ PersonBody を右ペインに直に描く(inPane)。
+// 器の中の DOM は切り出す前と同じ(PersonBody は断片 <> を返すので、BottomSheet の子の並びは1つも変わらない)。
 export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null }) {
+  if (!person) return null;
+  return (
+    // 【C-16 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
+    // ここは以前**全画面・暗幕なし・重なり順 40・角丸なし**で、閉じ方は左上のボタン1つ
+    // だけだった。アプリで唯一この作法だったので、器を BottomSheet に畳んだ。
+    // 重なり順も 60 に揃い、閉じ方が つまみ / 暗幕タップ / 下スワイプ / Escape の4つに増える。
+    // (便AO までは「左上のボタンは消さない」だった。【便AZ 2026-09-25 本人指示】で `< 一覧` も消えた。
+    //  `< 音のデータ` は便AO で先に消えている。閉じ方は上の4つだけになった。)
+    // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
+    // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
+    <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
+      <PersonBody person={person} ideals={ideals} myIdeals={myIdeals} onAdopt={onAdopt} myUid={myUid} tuningHz={tuningHz} onBlock={onBlock} />
+    </BottomSheet>
+  );
+}
+
+// 【便BV 2026-10-04 本人裁定(案B)】人物のページの中身。シート(PersonSheet)と2ペインの右(JoinedView の広い木)が同じこれを描く。
+// inPane で変わるのは3点だけ(仕様 ipad-spec.md §4.3):
+//   1. 本文の器 … シートは pageStyle の上 0・下 --sp-6 / ペインは subPageStyle(左ペインのデータ・順位と同じ器。上 0・下 --sp-4)
+//   2. 「目安に設定」… シートは今までの貼り付く器(sticky / bottom 0)/ ペインは浮かせるボタン(FloatingAction pane="right"。
+//      リードの「計測」と同じ portal・同じ右下)と、その対の末尾の余白(FloatingActionSpacer)。【便BV3 統括の裁定(審査案 b)】
+//      ペインの右下に portal で浮かせるので、影がスクロールの器の縁で切れない。
+//   3. 閉じる操作を持たない(onClose を受けない。ペインに閉じる操作は無い)
+// 人が替わったら呼び手が作り直す(key)── 開いていたタブ・楽器・取り込んだ結果を次の人へ持ち越さない。
+// onClose はもともとここでは読んでいない(閉じ方は BottomSheet が持つ)。
+export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false }) {
   const [adopted, setAdopted] = useState(null);
   // 【便BE 2026-09-30 本人裁定「B」】ブロックの確認のシートを開いているか。
   // 「ブロックする」を押したら onBlock(person) を呼ぶだけ ── 一覧に足す・このページを閉じるのは
@@ -1578,25 +1664,26 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
   // 揃えられず、揃えが要る指標(重心・HNR)はその目安から外して使う。自分の計測が増えて揃えられれば戻る。
   const showAdopt = Boolean(onAdopt && side === "data" && types.length > 0
     && theirIdeal && chart);
+  // 「目安に設定」を押したとき。シートのボタンとペインの浮かせるボタンが同じこれを呼ぶ(【便BV3】中身は以前ボタンに直に書いていたものと同じ)。
+  // 【便BA】揃えられたら揃えた値、揃えられなければ揃えない値(theirShown)を取り込む。
+  const adoptTheirs = () => {
+    const r = onAdopt({ aligned: theirShown, theirIdeal, nickname: person.nickname });
+    setAdopted(r?.error ? { error: r.error } : { ok: true });
+  };
 
 
   return (
-    // 【C-16 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
-    // ここは以前**全画面・暗幕なし・重なり順 40・角丸なし**で、閉じ方は左上のボタン1つ
-    // だけだった。アプリで唯一この作法だったので、器を BottomSheet に畳んだ。
-    // 重なり順も 60 に揃い、閉じ方が つまみ / 暗幕タップ / 下スワイプ / Escape の4つに増える。
-    // (便AO までは「左上のボタンは消さない」だった。【便AZ 2026-09-25 本人指示】で `< 一覧` も消えた。
-    //  `< 音のデータ` は便AO で先に消えている。閉じ方は上の4つだけになった。)
-    // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
-    // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
-    <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
+    // 【便BV】断片で返す。シートでは BottomSheet の子に、ペインでは右ペインの包みの子に、切り出す前と同じ並びで入る。
+    <>
       {/* 【上の余白は 16 だけ外す 2026-09-19 本人指示「上部の余白が大きすぎるので詰めて」】
           シートの上端から中身(便AZ までは `< 一覧`、いまは名前の行)までは つまみの上 14 + つまみ 44 + つまみと中身の間 12 +
           この画面の上余白 16 = 86 あった。**BottomSheet 側の 14/44/12 は全シートに効く**ので
           1px も触らない。この画面だけが足している 16 を 0 にして 70 にする。
           `pageStyle` は他のコミュニティ画面も使う共有の定義なので、定義は変えず
-          ここでの上書きだけで済ませる(paddingBottom を上書きしているのと同じ手)。 */}
-      <div style={{ ...pageStyle, paddingTop: 0, paddingBottom: "var(--sp-6, 40px)" }}>
+          ここでの上書きだけで済ませる(paddingBottom を上書きしているのと同じ手)。
+          【便BV】ペイン(inPane)では subPageStyle ── 左ペインのデータ・順位と同じ器(上 0・下 --sp-4)。
+          子タブの行のすぐ下の先頭との余白(便BN の規則)も左と同じ 0 になる。シートの綴りは上のまま。 */}
+      <div style={inPane ? subPageStyle : { ...pageStyle, paddingTop: 0, paddingBottom: "var(--sp-6, 40px)" }}>
         {/* 【便AZ 2026-09-25 本人指示 C】一番上の `< 一覧` は**消した**。このシートの閉じ方は
             BottomSheet が持つ つまみ / 暗幕タップ / 下スワイプ / Escape の4つが残る
             (便AO まで左上に置いていた「行き先を名乗る戻る」は、シートの作法と二重になっていた)。 */}
@@ -1785,6 +1872,17 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
             すべてボタンを避けられる。高さの持ち主は ADOPT_STICKY_SPACER_H だけ。
           横の余白はシートのカード(padding: 14px 24px)が配るので、本文の中に在ったときと
           同じ x に右端が来る(pageStyle の横 padding は元から 0)。 */}
+      {/* 【便BV3 2026-10-04 統括の裁定(審査案 b)】ペイン(inPane)では、リードの「計測」と同じ浮かせるボタン(pane="right")と
+          その対の末尾の余白(FloatingActionSpacer。リードの右ペインと同じやり方・同じトークン)。右に人が出ていないときは
+          このページ自体が描かれないので、ボタンも出ない。シート(下の2行)の綴りと見た目は1文字も変えていない。 */}
+      {inPane && showAdopt ? (
+        <>
+          <FloatingActionSpacer />
+          <FloatingAction label="目安に設定" onClick={adoptTheirs} pane="right" />
+        </>
+      ) : null}
+      {!inPane ? (
+      <>
       {showAdopt ? <div aria-hidden="true" style={{ height: ADOPT_STICKY_SPACER_H }} /> : null}
       {showAdopt ? (
         /* 面の右下に貼り付ける器。
@@ -1799,15 +1897,13 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
         }}>
           <button
             type="button" className="sans"
-            onClick={() => {
-              // 【便BA】揃えられたら揃えた値、揃えられなければ揃えない値(theirShown)を取り込む。
-              const r = onAdopt({ aligned: theirShown, theirIdeal, nickname: person.nickname });
-              setAdopted(r?.error ? { error: r.error } : { ok: true });
-            }}
+            onClick={adoptTheirs}
             /* 【便BO】見た目は ADOPT_BUTTON_STYLE(このボタンだけが読む)。値は1つも変えていない。 */
             style={ADOPT_BUTTON_STYLE}
           >目安に設定</button>
         </div>
+      ) : null}
+      </>
       ) : null}
       {/* 【便BE】ブロックの確認。器は BottomSheet(通報のシートと同じく、このシートの中から重ねる)。
           「ブロックする」で onBlock を呼ぶ → 呼び出し側が一覧に足してこのページごと閉じる。 */}
@@ -1857,7 +1953,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
       {/* 【便AH 決定5】そのまま大きく出す。閉じるのは画面のどこをタップしても(Escape も)。
           このシートより上の層へ出る(PhotoZoom が持つ)。 */}
       {photoZoom && personPhoto ? <PhotoZoom url={personPhoto} onClose={() => setPhotoZoom(false)} /> : null}
-    </BottomSheet>
+    </>
   );
 }
 
