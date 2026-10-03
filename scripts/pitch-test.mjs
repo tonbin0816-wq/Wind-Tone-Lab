@@ -14370,7 +14370,9 @@ console.log("\n========== 検証25: N-5 リードタブ(正典 north-star-measur
       // 【2026/09/10 本人指示】語を落として絵柄(＋)だけになった。
       && /<FloatingAction\s*\r?\n\s*ariaLabel="リードを追加"/.test(codeOf(src))
       // 【便AY 2026-09-25】開く前に登録のシートの楽器を「一覧で選んでいる楽器」へ入れ直す(D5)。
-      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src)),
+      // 【便BR 2026-10-03 本人指示】メーカー・銘柄・番手の当て直し(applyReedAddDefaults)が間に1つ入った。
+      // 行き先は同じ追加シートのまま(振る舞いは src/reedAddDefaults.test.jsx が描いて押す)。
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); applyReedAddDefaults\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b/g) || []).length}箇所`);
     // 「リードが0枚のとき出さない」条件を**付けていない**こと(空状態からの唯一の入口)
     check("F-111: 浮かせるボタンに reeds.length の条件が付いていない(0枚でも出る)",
@@ -18277,7 +18279,8 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       (codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length === 4
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => uploadInputRef\.current\?\.click\(\)\}/.test(codeOf(src))
       // 【便AY 2026-09-25】リードの追加は開く前に楽器を一覧の選択へ入れ直す(行き先は同じ追加シート)。
-      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src))
+      // 【便BR 2026-10-03 本人指示】メーカー・銘柄・番手の当て直し(applyReedAddDefaults)が間に1つ入った。
+      && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => \{ setNewSax\(listSax\); applyReedAddDefaults\(listSax\); setAddOpen\(true\); \}\}/.test(codeOf(src))
       && /<FloatingAction[\s\S]{0,300}?onClick=\{\(\) => setIsOpen\(true\)\}/.test(codeOf(src)),
       `${(codeOf(src).match(/<FloatingAction\b(?!Spacer)/g) || []).length}箇所`);
     // D-7 の本題: セッション個別詳細のヘッダ右に目安の入口が**戻っていない**こと。
@@ -30421,8 +30424,10 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       `onTileTap=${count83(app83, /onTileTap=/g)} / onPencilTap=${count83(app83, /onPencilTap/g)}`);
     // 【便AY 2026-09-25】開く前に登録のシートの楽器を一覧の選択へ入れ直す一手だけが増えた(D5)。
     // 編集を終わらせる一手は増えていない(下の2つめの条件)。
-    check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ。便AY: 楽器の初期値を入れ直す)",
-      /onClick=\{\(\) => \{ setNewSax\(listSax\); setAddOpen\(true\); \}\}/.test(view83)
+    // 【便BR 2026-10-03 本人指示】メーカー・銘柄・番手の初期値を当て直す一手(applyReedAddDefaults)も増えた。
+    // 編集を終わらせる一手が増えていないことは変わらず見る。
+    check("83.2 右下の浮かせる「＋」の仕事は変わっていない(追加シートを開くだけ。便AY: 楽器の初期値を入れ直す。便BR: メーカー・銘柄・番手の初期値を入れ直す)",
+      /onClick=\{\(\) => \{ setNewSax\(listSax\); applyReedAddDefaults\(listSax\); setAddOpen\(true\); \}\}/.test(view83)
       && !/ariaLabel="リードを追加"[\s\S]{0,200}onExitEditing/.test(view83));
     check("83.2 **stopPropagation を新しく増やしていない**(一覧・タイルとも0件)",
       count83(view83, /stopPropagation/g) === 0 && count83(grid83, /stopPropagation/g) === 0,

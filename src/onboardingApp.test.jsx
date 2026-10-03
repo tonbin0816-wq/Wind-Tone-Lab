@@ -103,6 +103,15 @@ const layer = () => document.querySelector("[data-coach-layer]");
 const layerId = () => layer()?.getAttribute("data-coach-layer") ?? null;
 const nav = (label) => document.querySelector(`button[aria-label="${label}"]`);
 const click = (el) => mod.act(async () => { el.click(); });
+// 【便BR 2026-10-03 本人指示】登録のシートは、リードが1枚も無い人には銘柄を入れずに開く(「追加」は押せない)。
+// 1箱目を登録する検査は、押す前に**以前の既定と同じ銘柄**(Vandoren Traditional)を検索欄から選ぶ。
+// 2箱目以降は前の箱の値が入って開くので要らない。案内の判定・期待値は1つも変えていない。
+async function pickFirstReed() {
+  const input = document.querySelector('[role="dialog"] input[aria-label="リードを検索"]');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  await mod.act(async () => { setter.call(input, "Traditional"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === "Vandoren Traditional"));
+}
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
@@ -213,7 +222,8 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     expect(layer()).toBe(null);
     expect(kv("onboardingDone").reeds).toBeUndefined();   // 開いただけでは立たない
     // 追加 → 印が立つ
-    const add = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
+    const add =[...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加");
     await click(add);
     await waitFor(() => kv("onboardingDone")?.reeds === true, "リードの印");
     expect(kv("reeds")).toHaveLength(10);
@@ -240,6 +250,7 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await click(nav("リード"));
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
     await waitFor(() => layerId() === "reedsMeasure", "一覧のリード2");
     // もう1箱(番手 4.0)足す。箱が2つでも、的を名乗るのは**先頭の箱**の先頭のタイルだけ
@@ -339,6 +350,7 @@ describe("既にある人の移行", () => {
     await click(nav("リード"));
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
     await waitFor(() => Array.isArray(kv("reeds")) && kv("reeds").length === 10, "リードの保存");
     await tick(80);
@@ -460,6 +472,7 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     await waitFor(() => layerId() === "reeds", "リード1");
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
     await waitFor(() => layerId() === "reedsMeasure", "リード2へ進む");
     await waitFor(() => Array.isArray(kv("reeds")) && kv("reeds").length === 10, "リードの保存");
@@ -520,6 +533,7 @@ describe("見本の「済んだ」は開き直しても残る / =1 で最初か�
     await waitFor(() => layerId() === "reeds", "見本のリード1");
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
     await waitFor(() => layerId() === "reedsMeasure", "見本のリード2");
     await tick(200);
@@ -560,6 +574,7 @@ describe("リードの一覧が揺れている間(編集中)は的を名乗ら�
     await click(nav("リード"));
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();   // 【便BR】1箱目は銘柄を選んでから
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
     await waitFor(() => layerId() === "reedsMeasure", "リード2");
     // 2枚目のタイルを長押し(400ms)→ 編集中(揺れる)

@@ -2326,6 +2326,8 @@ export {
   MyDataSection, DeleteActionButton,
   // 【便AZ】音名軸の目印の音名(楽器 → E♭ / B♭)。
   noteAxisGuideName,
+  // 【便BR 2026-10-03】登録のシートの初期値(reedAddDefaults.test.jsx が走らせる)。
+  reedAddDefaults,
 };
 
 // 箱の中のタイルの並び順。表示順(sortOrder)が主で、長押し並び替えで変わる。
@@ -12524,6 +12526,44 @@ function ReedBoxSheet({
 // 【便R 2026-09-20】厚さ・枚数のピッカーも無い(シートの中のピルが選ぶ)。
 // 値の歯止め(clampReedAddCount)は呼び出し側に残っている ── 箱1つぶんを越える経路を作らない。
 
+// 【便BR 2026-10-03 本人指示】「リード登録画面で、一番最初はリード銘柄を書かないでください。
+// いまはバンドレンのトラディショナルが入っています。1個目の登録が終わったあとは、すでに登録されている
+// リードをデフォルトで入れるようにして」。
+// 登録のシート(mode="add")の**メーカー・銘柄・番手の初期値**を、開くたびにこの1つで決める:
+//   1. 一覧で選んでいる楽器のリードがあれば、その楽器の中で**最後に登録した箱**の値
+//   2. その楽器に無ければ、どの楽器でもよいので最後に登録した箱の値
+//   3. リードが1枚も無ければ、メーカーと銘柄は**空(未選択)**・番手は今までの既定(REED_STRENGTH_DEFAULT)
+// 「最後に登録した」は createdAt の新しさ。createdAt を持たない(読めない)リードは startDate で代える。
+// 同じ時刻なら配列の後ろ(= 後から足された)ほうを取る。
+// カタログに無いメーカー(「その他」で自由入力した名前)は、自由入力の欄にその文字のまま入れる。
+// 銘柄はカタログにある組だけ(resolveReedModel ── 保存のときと同じ通し方。見えている銘柄と保存される銘柄を揃える)。
+// 番手が選択肢(REED_STRENGTH_OPTIONS)に無い古い値なら、ピルがどれも点かないので既定に戻す。
+// 開封日・枚数・楽器の初期値はここでは決めない(今までどおり)。
+function reedRecencyMs(r) {
+  const created = Date.parse(r?.createdAt ?? "");
+  if (Number.isFinite(created)) return created;
+  // 開封日は暦日(localDayKey)なので、その日のローカルの 0 時として読む。
+  const started = Date.parse(r?.startDate ? `${r.startDate}T00:00:00` : "");
+  return Number.isFinite(started) ? started : -Infinity;
+}
+function reedAddDefaults(reeds, saxType) {
+  const latestOf = (list) => {
+    let best = null;
+    let bestMs = -Infinity;
+    for (const r of list) {
+      const ms = reedRecencyMs(r);
+      if (best === null || ms >= bestMs) { best = r; bestMs = ms; }
+    }
+    return best;
+  };
+  const last = latestOf(reedsOfSax(reeds, saxType)) ?? latestOf(reeds || []);
+  const strength = last && REED_STRENGTH_OPTIONS.includes(last.strength) ? last.strength : REED_STRENGTH_DEFAULT;
+  const brand = String(last?.brand ?? "").trim();
+  if (!brand) return { brand: null, model: null, customBrand: "", strength };
+  if (!REED_BRAND_OPTIONS.includes(brand)) return { brand: REED_BRAND_CUSTOM, model: null, customBrand: brand, strength };
+  return { brand, model: resolveReedModel(brand, last.model ?? null), customBrand: "", strength };
+}
+
 function ReedRegisterView(props) {
   const {
     reeds, setReeds, sessions, selectedReedId, onOpenReed, reedGroups,
@@ -12552,12 +12592,22 @@ function ReedRegisterView(props) {
   // 【便AY 2026-09-25 本人指示 D5 / E1】登録のシートの「楽器」。**初期値は一覧で選んでいる楽器**
   // (＋ を押したときに listSax から入れ直す ── 下の FloatingAction の onClick)。
   const [newSax, setNewSax] = useState(listSax);
-  const [newBrand, setNewBrand] = useState(REED_BRAND_OPTIONS[0]);
-  // 【R6 2026-09-16 本人裁定③】銘柄。既定はそのメーカーの先頭の銘柄
-  // (カタログに銘柄が無いメーカー・自由入力なら null)。
-  const [newModel, setNewModel] = useState(() => reedModelOptions(REED_BRAND_OPTIONS[0])[0] ?? null);
+  // 【便BR 2026-10-03 本人指示】メーカー・銘柄・番手は**開くたびに reedAddDefaults で決め直す**
+  // (下の FloatingAction の onClick → applyReedAddDefaults)。ここの初期値は開く前の置き場でしかない。
+  // 以前はカタログの先頭(Vandoren Traditional)を入れていた ── 1枚目の登録で勝手に銘柄が入っていた。
+  const [newBrand, setNewBrand] = useState(null);
+  // 【R6 2026-09-16 本人裁定③】銘柄(カタログに銘柄が無いメーカー・自由入力なら null)。
+  const [newModel, setNewModel] = useState(null);
   const [customBrand, setCustomBrand] = useState("");
   const [newStrength, setNewStrength] = useState(REED_STRENGTH_DEFAULT); // 初期値3.0
+  // 【便BR】開くたびに当て直す(前回の入力を引きずらない)。楽器(newSax)・枚数(addCount)は触らない。
+  const applyReedAddDefaults = (sax) => {
+    const d = reedAddDefaults(reeds, sax);
+    setNewBrand(d.brand);
+    setNewModel(d.model);
+    setCustomBrand(d.customBrand);
+    setNewStrength(d.strength);
+  };
   const [addCount, setAddCount] = useState(REED_ADD_COUNT_MAX);      // 既定は箱ぶん(10枚)
 
   // 【AA-1 2026-09-21】自由入力したメーカーを一覧へ足す入れ物(extraBrands / brandOptions)は
@@ -12843,7 +12893,9 @@ function ReedRegisterView(props) {
           icon={<Plus size={28} strokeWidth={2.5} />}
           /* 【便BP】はじめの一手(リードタブ1)の的。【便BP3】揺れている間は名乗らない(見本ではリードがあっても出るため)。 */
           coach={editing ? undefined : "reeds"}
-          onClick={() => { setNewSax(listSax); setAddOpen(true); }}
+          /* 【便BR 2026-10-03 本人指示】開く前にメーカー・銘柄・番手を reedAddDefaults で当て直す
+             (楽器と同じく、開くたびに一覧の選択から決める)。 */
+          onClick={() => { setNewSax(listSax); applyReedAddDefaults(listSax); setAddOpen(true); }}
         />
       )}
 
