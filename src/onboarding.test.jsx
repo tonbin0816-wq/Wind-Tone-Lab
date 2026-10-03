@@ -96,6 +96,23 @@ describe("どの一手を出すか(coachCandidates)", () => {
     // 他のタブでは出さない
     expect(coachCandidates({ topTab: "measure", done: doneWith(...MEASURE_TAB_STEPS), hasSessions: true, micReady: true })).toEqual([]);
   });
+  // 【便BS 審査 2026-10-03 統括の裁定】
+  it("【便BS 審査】計測の段は、メトロノームの面が開いている間は出さない(閉じれば出る)。チューナー・メトロノームの段は面に関係しない", () => {
+    const d12 = doneWith("tuner", "metronome");
+    expect(coachCandidates({ topTab: "measure", done: d12, micReady: true, metroPanelOpen: false })).toEqual(["measure"]);
+    expect(coachCandidates({ topTab: "measure", done: d12, micReady: true, metroPanelOpen: true })).toEqual([]);
+    expect(coachCandidates({ topTab: "measure", done: d12, micReady: true })).toEqual(["measure"]);   // 既定は閉じている
+    // 面が開いていても、まだ済んでいない前の段はそのまま(印 metronome は面を開いた時点で立つので、実際には並ばない)
+    expect(coachCandidates({ topTab: "measure", done: ALL_FALSE, micReady: true, metroPanelOpen: true })).toEqual(["tuner"]);
+    expect(coachCandidates({ topTab: "measure", done: doneWith("tuner"), micReady: true, metroPanelOpen: true })).toEqual(["metronome"]);
+    // 面が開いているときに計測の段を飛ばして「次」を出すことはしない(3段とも済めば空)
+    expect(coachCandidates({ topTab: "measure", done: doneWith(...MEASURE_TAB_STEPS), micReady: true, metroPanelOpen: true })).toEqual([]);
+  });
+  it("【便BS 審査】この起動の中で 0件 → 1件以上 になったら(dataSeenDeferred)、dataSeen を出さない。計測が無い段には関係しない", () => {
+    expect(coachCandidates({ topTab: "analysis", done: ALL_FALSE, hasSessions: true, dataSeenDeferred: true })).toEqual([]);
+    expect(coachCandidates({ topTab: "analysis", done: ALL_FALSE, hasSessions: true, dataSeenDeferred: false })).toEqual(["dataSeen"]);
+    expect(coachCandidates({ topTab: "analysis", done: ALL_FALSE, hasSessions: false, dataSeenDeferred: true })).toEqual(["data"]);
+  });
   // 【便BS】参加前の段は無い。印 join(参加した)はみんなの平均の段の門として残る
   it("コミュニティ: 参加したら(印 join)、すぐみんなの平均を目安に(【便BQ】奏者を開く段は無い・【便BS】参加前の段も無い)", () => {
     expect(coachCandidates({ topTab: "community", done: ALL_FALSE })).toEqual([]);

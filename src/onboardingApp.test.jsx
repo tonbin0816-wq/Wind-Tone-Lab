@@ -417,7 +417,8 @@ describe("配線の綴り(App.jsx)", () => {
     expect(call).toMatch(/micReady: isListening && !errorMsg/);
     // 【便BP2】BottomSheet 以外の z60 の暗幕(エラー・保存の確認)が出ている間も出さない
     // 【便BP3】録音ファイルの取り込みを解析している間も出さない。見本では読み込みを待たない(coachReady)
-    expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload\}/);
+    // 【便BS 審査 2026-10-03 統括の裁定】操作の合図の帯(notice)が出ている間も出さない(帯の「開く」を覆わない)
+    expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| Boolean\(notice\)\}/);
     expect(app).toMatch(/const coachReady = tutorialPreview \|\| onboardingReady;/);
     // 【便BS】計測タブの3段の移行の印も待つ
     expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\];/);
@@ -709,5 +710,162 @@ describe("【便BS】配線の綴り(App.jsx)", () => {
     expect(call).toMatch(/hasSessions: sessions\.length > 0, sessionsKnown: sessionsStatus !== "loading"/);
     expect(call).toMatch(/onMark=\{markOnboarding\}/);
     expect(app).toMatch(/data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}/);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便BS 審査 2026-10-03 統括の裁定】審査の不合格1・2の直し。本物のアプリを描いて振る舞いで確かめる。
+//   不合格1: 操作の合図の帯(ActionNotice。z50)が出ている間は案内を出さない(帯の「開く」「元に戻す」を覆わない)。
+//            この起動の中で計測が 0件 → 1件以上 になったら、dataSeen は出さず次の起動へ回す。
+//            (jsdom では取り込みも録音もできないので、0件 → 1件は「全部消す → 帯の元に戻す」で作る。取り込みの道は headless で実測)
+//   不合格2: メトロノームの面が開いている間は計測の段を出さない。閉じると出る。端末に「開いたまま」と覚えている起動でも同じ。
+//            計測タブの段はマイクの許可が要るので、ここだけ作り物のマイク(installFakeMic。無音に近い雑音を返す)を入れる。
+// 帯は5秒で溶けるが jsdom は animationend を出さないので、動きを減らす設定(帯も案内も溶けずにすぐ外れる)で描く。
+// ------------------------------------------------------------------
+function preferReducedMotion() {
+  window.matchMedia = (q) => ({ matches: /prefers-reduced-motion: reduce/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+}
+const buttonText = (t) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === t) ?? null;
+const buttonStarts = (t) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim().startsWith(t)) ?? null;
+const noticeText = () => document.querySelector(".action-notice")?.textContent ?? null;
+// データタブの「すべての計測」→ 削除の入口 → 行を全部選ぶ → 削除(帯が出る)→ My Data へ戻る
+async function deleteSessionsFromAllList(count) {
+  await click(buttonStarts("すべての計測"));
+  await waitFor(() => document.querySelector('button[aria-label="削除する計測を選ぶ"]'), "すべての計測");
+  await click(document.querySelector('button[aria-label="削除する計測を選ぶ"]'));
+  const rows = () => [...document.querySelectorAll(".slist-row")];
+  await waitFor(() => rows().length >= count, "一覧の行");
+  for (const r of rows().slice(0, count)) await click(r);
+  await click(document.querySelector(`button[aria-label="選んだ計測${count}件を削除"]`));
+  await waitFor(() => /削除しました/.test(noticeText() ?? ""), "削除の帯");
+  await click(buttonText("< My Data"));
+  await waitFor(() => document.querySelector('[data-coach-anchor="mydata"]'), "My Data");
+}
+
+describe("【便BS 審査】不合格1: 帯が出ている間は出さない・0件 → 1件の起動では dataSeen を次の起動へ", () => {
+  it("帯が出ている間は My Data でも dataSeen が出ない。帯が消えるとまた出る(計測は一度も 0件 にならない)", async () => {
+    preferReducedMotion();
+    mod = await loadApp(fake);
+    await seed({ sessions: [SESSION("s1"), SESSION("s2")] });
+    await render();
+    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "dataSeen", "dataSeen(対照: 帯が無ければ出る)");
+    await deleteSessionsFromAllList(1);
+    // My Data が表に出ていて、計測は1件ある。帯(計測 1件を削除しました / 元に戻す)が出ている間は出さない
+    expect(noticeText()).toContain("計測 1件を削除しました");
+    await tick(300);
+    expect(layer()).toBe(null);
+    // 帯の「元に戻す」が押せる(案内に覆われていない)。押すと帯が消え、案内が戻る
+    await click(buttonStarts("元に戻す"));
+    await waitFor(() => noticeText() === null, "帯が消える");
+    await waitFor(() => layerId() === "dataSeen", "帯が消えたらまた出る");
+    expect(kv("onboardingDone").dataSeen).toBeUndefined();
+  }, 40000);
+
+  it("この起動の中で 0件 → 1件 になったら出さない(印も立てない)。開き直すと出る", async () => {
+    preferReducedMotion();
+    mod = await loadApp(fake);
+    await seed({ sessions: [SESSION("s1")] });
+    await render();
+    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "dataSeen", "dataSeen(起動時に計測がある人には出る)");
+    await deleteSessionsFromAllList(1);   // 0件になる
+    await click(buttonStarts("元に戻す"));  // 1件に戻る(この起動の中で 0件 → 1件)
+    await waitFor(() => noticeText() === null, "帯が消える");
+    await waitFor(() => document.body.textContent.includes("すべての計測 1件"), "計測が1件に戻る");
+    await tick(400);
+    expect(document.querySelector('[data-coach-anchor="mydata"]')).not.toBe(null);
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone").dataSeen).toBeUndefined();
+    // 開き直す(次の起動)→ データタブで出る
+    await mod.act(async () => root.unmount()); root = null; host.remove();
+    mod = await loadApp(fake);
+    await render();
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "dataSeen", "次の起動では出る");
+  }, 40000);
+});
+
+// 作り物のマイク(jsdom に Web Audio と getUserMedia が無いので、App の startListening が通るだけの形)。
+// 解析には小さな雑音を返す(音程は取れない = チューナーは済まない)。
+function installFakeMic() {
+  const node = () => ({ connect() {}, disconnect() {} });
+  const analyser = () => ({
+    ...node(), fftSize: 2048, frequencyBinCount: 1024, smoothingTimeConstant: 0,
+    getFloatTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = (Math.random() - 0.5) * 2e-3; },
+    getFloatFrequencyData(a) { a.fill(-120); },
+    getByteFrequencyData(a) { a.fill(0); },
+    getByteTimeDomainData(a) { a.fill(128); },
+  });
+  class FakeAudioContext {
+    constructor() { this.state = "running"; this.sampleRate = 48000; this.currentTime = 0; this.destination = node(); }
+    resume() { this.state = "running"; return Promise.resolve(); }
+    suspend() { return Promise.resolve(); }
+    close() { this.state = "closed"; return Promise.resolve(); }
+    createMediaStreamSource() { return node(); }
+    createAnalyser() { return analyser(); }
+    createBiquadFilter() { return { ...node(), type: "", frequency: { value: 0 }, Q: { value: 0 } }; }
+    createGain() { return { ...node(), gain: { value: 1, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
+    createOscillator() { return { ...node(), frequency: { value: 0, setValueAtTime() {} }, start() {}, stop() {} }; }
+  }
+  window.AudioContext = FakeAudioContext;
+  const track = { enabled: true, readyState: "live", muted: false, kind: "audio", stop() {}, getSettings() { return {}; } };
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => stream }, configurable: true });
+}
+function removeFakeMic() {
+  delete window.AudioContext;
+  try { delete window.navigator.mediaDevices; } catch { /* */ }
+}
+
+describe("【便BS 審査】不合格2: メトロノームの面が開いている間は計測の段を出さない", () => {
+  afterEach(() => removeFakeMic());
+  const metro = () => document.querySelector('button[aria-label="メトロノーム"]');
+  const DONE_12 = { migrated: true, migratedMeasureSteps: true, tuner: true, metronome: true };
+
+  it("面が閉じていれば計測の段が出る(対照)。面を開くと消え、閉じるとまた出る", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: DONE_12 } });
+    await render();
+    await waitFor(() => metro(), "計測タブ");
+    expect(metro().getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => layerId() === "measure", "計測の段(マイクが動いて面が閉じている)");
+    await click(metro());   // 開く(穴の外側の受けがあっても、ボタンそのものを押す)
+    expect(metro().getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => layer() === null, "面が開いている間は出ない");
+    await tick(400);
+    expect(layer()).toBe(null);
+    await click(metro());   // 閉じる
+    await waitFor(() => layerId() === "measure", "閉じると出る");
+    expect(kv("onboardingDone").measure).toBeUndefined();
+  }, 40000);
+
+  it("端末に「開いたまま」と覚えている起動: 最初から出ない。閉じると出る", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: DONE_12, showMetroPanel: true } });
+    await render();
+    await waitFor(() => metro()?.getAttribute("aria-pressed") === "true", "面が開いたままの計測タブ");
+    // 対照(上の検査)では同じ待ちで出る長さを待っても、出ない(一度も出ないことを細かく見張る)
+    let seen = false;
+    for (let i = 0; i < 40; i++) { if (layer()) seen = true; await tick(25); }
+    expect(seen).toBe(false);
+    await click(metro());   // 閉じる
+    await waitFor(() => layerId() === "measure", "閉じると出る");
+  }, 40000);
+});
+
+describe("【便BS 審査】配線の綴り(App.jsx)", () => {
+  const app = readFileSync(join(process.cwd(), "src", "App.jsx"), "utf8").replace(/\r\n/g, "\n");
+  it("帯(notice)が出ている間は hidden。面の開閉と 0件 → 1件 を coachCandidates へ渡す", () => {
+    const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+    expect(call).toMatch(/hidden=\{[^}]*\|\| Boolean\(notice\)\}/);
+    expect(call).toMatch(/metroPanelOpen, dataSeenDeferred: sawNoSessionsThisLaunch \}\)/);
+    expect(app).toMatch(/onMetroPanelChange=\{setMetroPanelOpen\}/);
+    expect(app).toMatch(/useLayoutEffect\(\(\) => \{\n\s*onMetroPanelChange\?\.\(showMetroPanel\);\n\s*\}, \[showMetroPanel, onMetroPanelChange\]\);/);
+    expect(app).toMatch(/if \(sessionsStatus === "ready" && sessions\.length === 0\) setSawNoSessionsThisLaunch\(true\);/);
   });
 });

@@ -639,8 +639,10 @@ const pageStyle = { padding: "var(--sp-4) 0", display: "grid", gridTemplateColum
 // 上の pageStyle の上端 --sp-4 を足していた。データタブの My Data は子タブの行の下端 → 最初のカードが
 // --sp-2(8px)なので、それにそろえる(375×812 の実測: 子タブの行の下端 → アイコンの上端 16 → 8)。
 // 先頭が条件の行のデータ・順位・シェアは、リードタブの楽器の行と同じ 0(screens.jsx の subPageStyle)。
-// pageStyle は参加前の画面(JoinIntro)と編集のフォーム(ProfileForm)も読む。あの2つは子タブの行の下に
-// 居ない(子タブの行ごと入れ替わる)ので変えない。下端の --sp-4 と項目のあいだの gap も変えない。
+// pageStyle は編集のフォーム(ProfileForm)も読む。あれは子タブの行の下に居ない(子タブの行ごと入れ替わる)ので
+// 変えない。下端の --sp-4 と項目のあいだの gap も変えない。
+// 【便BS 2026-10-03 本人裁定】参加前の画面(JoinIntro)は pageStyle を読まなくなった(暗幕とカード1枚。裏に子タブの行と
+// 参加後の見本 JoinPreviewDataScreen を敷き、見本は子タブの行のすぐ下なので screens.jsx の subPageStyle を読む)。
 const MY_PAGE_TOP_PAD = "var(--sp-2)";
 const myPageStyle = { ...pageStyle, paddingTop: MY_PAGE_TOP_PAD };
 const titleStyle = { fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-ink)" };
@@ -795,11 +797,15 @@ export function JoinIntro({ onJoin, notice = null }) {
   // 【束3】お問い合わせのシート。**未参加の人も送れる**(送信のときに匿名の資格情報だけを
   // 作る。users は書かないので参加にはならない)。
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // 【便BS 審査 2026-10-03】二度押しの歯止めは ref で持つ。state の busy は描き直すまで古い値のままなので、
+  // 描き直しの前に2回目が来ると(jsdom で続けて2回押すと実際に) onJoin が2回走っていた。busy は見た目(準備中…・disabled)だけに使う。
+  const busyRef = useRef(false);
   const join = async () => {
-    if (busy) return; // 二度押しで signInAnonymously が二重に走らないようにする
+    if (busyRef.current) return; // 二度押しで signInAnonymously が二重に走らないようにする
     if (!agreed) return; // 【便BC】同意の前は押せない(disabled と二重に守る)
+    busyRef.current = true;
     setBusy(true);
-    try { await onJoin(); } finally { setBusy(false); }
+    try { await onJoin(); } finally { busyRef.current = false; setBusy(false); }
   };
   const card = (
     <div className="coach-layer" data-join-layer="" style={{ zIndex: COACH_Z }}>
@@ -811,9 +817,9 @@ export function JoinIntro({ onJoin, notice = null }) {
           <div className="coach-line">{JOIN_LINE}</div>
           {/* 削除の結果、未参加へ戻ったときに一度だけ出す説明(以前の画面と同じ位置 = 見出しのすぐ下) */}
           {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
+          {/* 【便BS 審査】1つの文字列で書く(JSX の改行は半角の空白になり、「なります。 メール」と句点のあとに空白が入っていた) */}
           <div style={joinLeadStyle}>
-            参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。
-            メールアドレスなどの個人情報は公表されません。
+            {"参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。"}
           </div>
           {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
               アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から

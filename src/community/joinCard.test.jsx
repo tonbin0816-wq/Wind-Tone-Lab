@@ -79,7 +79,8 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[2].className).toBe("coach-line");
     expect(kids[2].textContent).toBe("みんなの計測データが見られます");
     // 4. 説明(以前の JoinIntro の2段落のまま)。1段落目は --fs-sm、2段落目は小さく --c-ink-3
-    expect(kids[3].textContent).toBe("参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。 メールアドレスなどの個人情報は公表されません。");
+    // 【便BS 審査】句点のあとに半角の空白を入れない(以前は JSX の改行が空白になっていた)
+    expect(kids[3].textContent).toBe("参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。");
     expect(kids[3].style.fontSize).toBe("var(--fs-sm)");
     expect(kids[4].textContent).toBe("匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。");
     expect([kids[4].style.fontSize, kids[4].style.color]).toEqual(["var(--fs-xs)", "var(--c-ink-3)"]);
@@ -122,6 +123,27 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(joinButton().getAttribute("style")).not.toMatch(/box-shadow/);
     await act(async () => { joinButton().click(); });
     expect(joined).toBe(1);
+  });
+
+  // 【便BS 審査 2026-10-03 統括の指示】二度押しの歯止めを振る舞いで守る(参加の処理 = 匿名のアカウント作りを二重に走らせない)。
+  // 続けて2回押す(2回目は描き直しの前 = ボタンがまだ disabled になっていない間)。onJoin は終わらせずに待たせておく。
+  it("二度押し: 参加の処理が終わる前にもう一度押しても onJoin は1回。終わればまた押せる", async () => {
+    let calls = 0; let finish = null;
+    // 主ボタン(文字は「参加する」⇄「準備中…」と変わるので、並び = 同意の行のすぐ次で探す)
+    const mainButton = () => card().querySelector("label").nextElementSibling;
+    await draw({ onJoin: () => { calls += 1; return new Promise((r) => { finish = r; }); } });
+    await act(async () => { document.querySelector('input[type="checkbox"]').click(); });
+    await act(async () => { mainButton().click(); mainButton().click(); });
+    expect(calls).toBe(1);
+    expect(mainButton().textContent).toBe("準備中…");
+    expect(mainButton().disabled).toBe(true);
+    await act(async () => { mainButton().click(); });
+    expect(calls).toBe(1);
+    await act(async () => { finish(); });
+    expect(joinButton().textContent).toBe("参加する");
+    await act(async () => { joinButton().click(); });
+    expect(calls).toBe(2);
+    await act(async () => { finish(); });
   });
 
   it("カードの外(暗幕・裏)を押しても、Escape でも消えない", async () => {

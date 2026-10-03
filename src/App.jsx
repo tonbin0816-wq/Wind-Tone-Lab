@@ -5045,6 +5045,17 @@ export default function WindToneLabPhaseMode() {
   // 【便BS】2段目(メトロノーム)は、メトロノームの面を開いたら済み。面の開閉は MeasureView の state(showMetroPanel)なので、
   // 開いていることを知らせてもらう口を渡す。印が読めてから渡す(渡した時点で開いていれば、そこで知らせてもらえる)。
   const markMetronomeSeen = useCallback(() => markOnboarding("metronome"), [markOnboarding]);
+  // 【便BS 審査 2026-10-03 統括の裁定】メトロノームの面が開いている間は、計測の段(3段目)を出さない
+  // (開いた瞬間に面の上へ計測の段が出て、最初のテンポ操作を食べていた)。開閉は MeasureView から知らせてもらう(印とは別の口。
+  // 印の有無に関わらず常に渡す)。端末に「開いたまま」と覚えている起動でも、MeasureView が描かれた時点で知らせる。
+  const [metroPanelOpen, setMetroPanelOpen] = useState(false);
+  // 【便BS 審査 2026-10-03 統括の裁定】この起動の中で計測が 0件 だったことがあるか(読み込みが済んだ後に)。
+  // 0件 → 1件以上 に変わった起動では「計測したデータがここに貯まります」(dataSeen)を出さず、次の起動へ回す
+  // (初めて取り込んだ直後に、溶ける「計測を始めると」と2枚続けて出ないように)。一度 true になったらこの起動の間は戻さない。
+  const [sawNoSessionsThisLaunch, setSawNoSessionsThisLaunch] = useState(false);
+  useEffect(() => {
+    if (sessionsStatus === "ready" && sessions.length === 0) setSawNoSessionsThisLaunch(true);
+  }, [sessionsStatus, sessions.length]);
 
   // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
   // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
@@ -5218,6 +5229,8 @@ export default function WindToneLabPhaseMode() {
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           /* 【便BS】はじめの一手(メトロノーム)の印を立てる口。印が読めるまでは渡さない。 */
           onMetroPanelShown={coachReady ? markMetronomeSeen : undefined}
+          /* 【便BS 審査】面の開閉を知らせる口(開いている間は計測の段を出さない)。 */
+          onMetroPanelChange={setMetroPanelOpen}
         />
         </div>
       )}
@@ -5355,12 +5368,16 @@ export default function WindToneLabPhaseMode() {
       {/* 【便BS 2026-10-03 本人裁定】計測タブはチューナー → メトロノーム → 計測の3段(隠す条件は3段とも同じこの1つ)。
           データタブは計測の有無で段を分ける(hasSessions。読み込み中 = sessionsKnown が false の間はどちらも出さない)。
           onMark: 押すことが一手そのものの段(データ・計測あり)は、押されたら印を立てる。 */}
+      {/* 【便BS 審査 2026-10-03 統括の裁定】
+          ・操作の合図の帯(ActionNotice。z50)が出ている間は、どの段も出さない(案内 z55 が帯の「開く」などを覆って押せなくしていた)
+          ・メトロノームの面が開いている間は計測の段を出さない(metroPanelOpen)
+          ・この起動の中で計測が 0件 → 1件以上 になったら、dataSeen は次の起動へ回す(dataSeenDeferred) */}
       <OnboardingCoach
         candidates={coachReady && !isRecording
-          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading" })
+          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, dataSeenDeferred: sawNoSessionsThisLaunch })
           : NO_COACH}
         done={coachDone}
-        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload}
+        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || Boolean(notice)}
         onMark={markOnboarding}
       />
     </div>
@@ -8646,6 +8663,8 @@ function MeasureView(props) {
     pendingSession, registerPendingSession, discardPendingSession,
     // 【便BS 2026-10-03】はじめの一手(メトロノーム)の印を立てる口。メトロノームの面が開いている間に呼ぶ(渡されないうちは何もしない)。
     onMetroPanelShown,
+    // 【便BS 審査 2026-10-03】メトロノームの面の開閉を App へ知らせる口(開いている間は、はじめの一手の計測の段を出さない)。
+    onMetroPanelChange,
     // 【C-1】アップロード関連(handleUploadFile / isAnalyzingUpload / uploadProgress /
     // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
     // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
@@ -8817,6 +8836,11 @@ function MeasureView(props) {
   useEffect(() => {
     if (showMetroPanel) onMetroPanelShown?.();
   }, [showMetroPanel, onMetroPanelShown]);
+  // 【便BS 審査 2026-10-03 統括の裁定】面の開閉をそのまま App へ知らせる(開いている間は計測の段を出さない)。
+  // 描いた直後(絵を出す前)に知らせる ── 端末に「開いたまま」と覚えている起動で、計測の段が一瞬でも面の上に出ないように。
+  useLayoutEffect(() => {
+    onMetroPanelChange?.(showMetroPanel);
+  }, [showMetroPanel, onMetroPanelChange]);
   // 【N-4b】テンポ・拍子・分割・拍グループ・小節アクセントは、下から出るシート1枚にまとめた。
   // 以前は環と入れ替わる2種類の設定パネル(metroPanel = "sig" | "subdiv")で、開くと環が消えていた。
   // 正典は「環と共存」なので、設定は環の上に**重ねる**シートにする。

@@ -194,17 +194,26 @@ export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealPr
 //   データ … 【便BS】計測の有無で分ける(同時には出ない)。計測が無い: 計測タブへ(計測が済むまで。計測タブと共通の印。今までどおり) /
 //            計測がある: 「ここに貯まります」(dataSeen が済むまで)。計測の有無が読めるまで(sessionsKnown)はどちらも出さない
 //   コミュニティ … 参加したら(印 join)、すぐみんなの平均を目安に(【便BQ】奏者を開く段は外した。【便BS】参加前の段も外した)
-export function coachCandidates({ topTab, done, micReady = false, hasSessions = false, sessionsKnown = true }) {
+// 【便BS 審査 2026-10-03 統括の裁定】
+//   metroPanelOpen … メトロノームの面が開いている間は、計測の段(measure)を出さない(面の上に出て最初のテンポ操作を食べるため)。
+//                    面を閉じたら出る。メトロノームの印は今までどおり面を開いたときに立てる
+//   dataSeenDeferred … この起動の中で計測が 0件 → 1件以上 に変わったときは、dataSeen をこの起動では出さない(次の起動へ回す。
+//                    初めて取り込んだ直後に「計測を始めると」と2枚続けて出ないように)
+export function coachCandidates({ topTab, done, micReady = false, hasSessions = false, sessionsKnown = true, metroPanelOpen = false, dataSeenDeferred = false }) {
   const d = done ?? {};
   switch (topTab) {
     case "measure":
       if (!micReady) return [];
-      for (const id of MEASURE_TAB_STEPS) if (!d[COACH_STEPS[id].flag]) return [id];
+      for (const id of MEASURE_TAB_STEPS) {
+        if (d[COACH_STEPS[id].flag]) continue;
+        // 【便BS 審査】計測の段は、メトロノームの面が開いている間は出さない(閉じたら出る)
+        return id === "measure" && metroPanelOpen ? [] : [id];
+      }
       return [];
     case "reeds": return !d.reeds ? ["reeds"] : !d.reedsMeasure ? ["reedsMeasure"] : [];
     case "analysis":
       if (!sessionsKnown) return [];
-      if (hasSessions) return !d.dataSeen ? ["dataSeen"] : [];
+      if (hasSessions) return !d.dataSeen && !dataSeenDeferred ? ["dataSeen"] : [];
       return !d.measure ? ["data"] : [];
     case "community": return d.join && !d.adoptAverage ? ["adoptAverage"] : [];
     default: return [];
