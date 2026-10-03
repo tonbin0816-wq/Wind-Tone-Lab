@@ -21,6 +21,7 @@
 // 【便BL 2026-10-02】--ad-h(下部タブの上の広告の帯の高さ)を写し、--page-bottom-gap に足した。
 // キャンバスは帯の無い姿(0px)を描く。50px になるのは index.css の :root[data-ad-preview="1"] だけで、写しには持たない。
 // 【便BP 2026-10-03】--c-coach-dim(はじめの一手の暗幕。--c-ink の 46%)を写した。キャンバスの画面はまだ使っていない。
+// 【便BT 2026-10-03 本人裁定】--page-max-w(案Aの列 640)/ --pane-max-w(2ペインの器 1000)を写した。キャンバスは 375 の画面だけを描くので、どの画面もまだ使っていない。
 export const TOKENS = `
     :root {
       --font-jp: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
@@ -62,6 +63,8 @@ export const TOKENS = `
       --page-side-pad: 14px;
       --page-pad-left: calc(var(--page-side-pad) + env(safe-area-inset-left));
       --page-pad-right: calc(var(--page-side-pad) + env(safe-area-inset-right));
+      --page-max-w: 640px;
+      --pane-max-w: 1000px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { margin: 0; background: var(--c-bg); font-family: var(--font-jp); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }

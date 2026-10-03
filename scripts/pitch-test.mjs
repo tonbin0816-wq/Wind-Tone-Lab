@@ -6880,8 +6880,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
   {
     const lab = srcOfFn(src, "AnalysisLabView");
     // 【便BS 2026-10-03】根の .surf-card に、はじめの一手(データ・計測あり)の目印 data-coach-anchor が加わった(My Data のときだけ名乗る。見た目は同じ)。
+    // 【便BT 2026-10-03 本人裁定】内箱の上限は列のトークン(--page-max-w = 640。以前は 900 の直書き。375 では届かないので見た目は同じ)。
     check("D-10: My Data / 分析の本体はカードの作法(.surf-card)を名乗る",
-      /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card" data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}>\s*\r?\n\s*<div style=\{\{ maxWidth: 900, margin: "0 auto" \}\}>/.test(lab));
+      /return \(\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-card" data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}>\s*\r?\n\s*<div style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\}>/.test(lab));
     // 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
     // セッション詳細を**カードの作法**へ移した。D-10 の「1px も変えない」凍結は
     // 本人の「計測タブとリードタブの Top 画面以外は適切にカード使っていい」で解除された。
@@ -6955,8 +6956,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       /if \(evaluatingReed\) \{[\s\S]{0,900}?return \(\s*\r?\n\s*<div className="surf-card">\s*\r?\n\s*<SwipeBackArea /.test(tab));
     // Top は if (evaluatingReed) の閉じ **より後ろ**の return。本人が名指しで除外した画面。
     const topReturn = tab.slice(tab.indexOf("if (evaluatingReed)"));
+    // 【便BT2 2026-10-03 統括の裁定】根に列の上限(--page-max-w)の style が付いた(作法は罫のまま)。前に注記が入ってよい。
     check("D-29 §2.1: リードタブ Top は罫の作法(.surf-rule)のまま(本人が名指しで除外)",
-      /\n  return \(\s*\r?\n\s*<div className="surf-rule">/.test(topReturn),
+      /\n  return \(\s*\r?\n\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-rule"(?: style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\})?>/.test(topReturn),
       (topReturn.match(/\n  return \([\s\S]{0,120}/) || ["取れなかった"])[0].replace(/\s+/g, " "));
     // 入れ子にしていないこと。ReedsTab の中で作法を名乗る要素は**2つだけ**で、
     // しかも片方が他方の中に無い(早期 return と本 return は排他)。
@@ -13038,9 +13040,10 @@ console.log("=== 検証23: F-67 理想値ポップアップ / F-68 奏者の平�
     check("F-67: 下寄せ(justifyContent: flex-end)である(計測タブと同じ理由で中央寄せにしない)",
       /flex-end/.test(pending), pending);
     // カード側(白い面)も同じ体裁であること
+    // 【便BT 2026-10-03 本人裁定】上限は列のトークン(--page-max-w。以前は 900 の直書き)。2枚が同じ宣言であることは変わらない。
     const cardOf = (label) => {
       const i = src.indexOf(`aria-label="${label}"`);
-      const c = src.indexOf('style={{ width: "100%", maxWidth: 900', i);
+      const c = src.indexOf('style={{ width: "100%", maxWidth: "var(--page-max-w)"', i);
       if (c === -1 || c - i > 2000) return "無し";
       let d = 0, j = c + "style={".length;
       for (; j < src.length; j++) {
@@ -18310,8 +18313,9 @@ console.log("\n========== 検証31: F-111 浮かせるボタン(N-11 のグラ�
       /boxShadow: "0 8px 24px rgba\(15,23,42,0\.18\)",/.test(fab)
       && (src.match(/0 8px 24px rgba\(15,23,42,0\.18\)/g) || []).length >= 3);
     // 位置: 右端は本文の左右余白、下端は下部ナビ(+安全域)+ 既存の余白トークン。直書きの数値を作らない
+    // 【便BT 2026-10-03 本人裁定(§7-(2) ア)】右端は列(--page-max-w)の右下。375 では max() が --page-pad-right を選ぶ(今と同じ値)。
     check("31.4 右端は本文の左右余白のトークン、下端はナビ+安全域+既存の余白トークン",
-      /right: "var\(--page-pad-right\)",/.test(fab)
+      /right: "max\(var\(--page-pad-right\), calc\(\(100% - var\(--page-max-w\)\) \/ 2\)\)",/.test(fab)
       && /bottom: `calc\(var\(--page-bottom-gap\) \+ \$\{FLOAT_ACTION_GAP\}\)`,/.test(fab)
       && /const FLOAT_ACTION_GAP = "var\(--sp-3\)";/.test(src));
     check("31.4 位置に px の直書きが無い(トークンだけで書かれている)",
@@ -31620,6 +31624,142 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       (codeOf(scrBO).match(/style=\{ADOPT_BUTTON_STYLE\}/g) || []).length === 1 && /style=\{ADOPT_BUTTON_STYLE\}/.test(codeOf(srcOfFn(scrBO, "PersonSheet"))));
     check("BO.6 便BO3 名前・本文に中黒(·)を使わない。名前は全角の括弧と半角の空白",
       !/·/.test(codeOf(scrBO)) && /`みんなの平均（\$\{terms\.join\(" "\)\}）`/.test(scrBO));
+  }
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[便BT] iPad: 案Aの土台(列 640・下部タブ 640・環 440)と器のトークン");
+  // 【便BT 2026-10-03 本人裁定】計測・データは案A(本文の列を 640、下部タブも 640、計測は幅 700 以上で環の上限 440)。
+  // iPhone の見た目は 1px も変えない(変更は幅のしきい値の中、または 375 では届かない上限・max() の中でだけ効く)。
+  // リード・コミュニティの2ペイン(案B)は便2・便3。ここは便1の分だけを見る。
+  // 期待値は本人裁定・モック案A(scratchpad/ficus-ipad.html)・仕様の寸法表(付録A)から手で書く。定数から逆算しない。
+  // 実際に描いて確かめるのは src/wideLayout.test.jsx(広い木の環 440 / 狭い木の 330)と src/measureRingFit.test.js。
+  // 【守っていないもの】実寸(Chrome の実測は報告)。iPad 実機の安全域・Split View の実際の幅は実機待ち。
+  const cssBT = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  const cssBTn = cssBT.replace(/\/\*[\s\S]*?\*\//g, "");
+  const tokBT = readFileSync(join(__dirname, "..", "design", "canvas", "tokens.mjs"), "utf8");
+  const ringFitBT = readFileSync(join(__dirname, "..", "src", "measureRingFit.js"), "utf8");
+  const appBT = codeOf(src);
+
+  // --- BT.1 しきい値は JS の1か所(700)。CSS にメディアクエリで写していない ---------------------------
+  const minW = new Function(`${extractConst("WIDE_LAYOUT_MIN_W")} return WIDE_LAYOUT_MIN_W;`)();
+  check("BT.1 しきい値 WIDE_LAYOUT_MIN_W は 700(iPhone の最大 440 より大きく、iPad mini 縦 744 以下)",
+    minW === 700 && minW > 440 && minW <= 744, String(minW));
+  // 【便BT2 2026-10-03 統括の裁定】iPhone の横向き(幅 667〜956)が幅だけでは広いに入るので、高さ ≥ 500 を足した。
+  const minH = new Function(`${extractConst("WIDE_LAYOUT_MIN_H")} return WIDE_LAYOUT_MIN_H;`)();
+  check("BT.1 便BT2: 高さのしきい値 WIDE_LAYOUT_MIN_H は 500(iPhone の横向きの高さ 440 より大きく、iPad の最小の高さ 744 以下)",
+    minH === 500 && minH > 440 && minH <= 744, String(minH));
+  check("BT.1 WIDE_LAYOUT_QUERY は WIDE_LAYOUT_MIN_W / WIDE_LAYOUT_MIN_H を読む min-width と min-height の問い合わせ(数を2か所に書かない)",
+    /export const WIDE_LAYOUT_QUERY = `\(min-width: \$\{WIDE_LAYOUT_MIN_W\}px\) and \(min-height: \$\{WIDE_LAYOUT_MIN_H\}px\)`;/.test(src)
+    && !/min-width: 700/.test(appBT) && !/min-height: 500/.test(appBT));
+  {
+    // 問い合わせの文字列を組み立てて、画面の大きさに当てはめる(min-width / min-height の and だけを解く。他の形は「解けない」で落とす)。
+    const q = new Function(`${extractConst("WIDE_LAYOUT_MIN_W")} ${extractConst("WIDE_LAYOUT_MIN_H")} ${extractConst("WIDE_LAYOUT_QUERY")} return WIDE_LAYOUT_QUERY;`)();
+    const fits = (w, h) => q.split(/\s+and\s+/).every((p) => {
+      const m = /^\(min-(width|height): (\d+)px\)$/.exec(p.trim());
+      if (!m) throw new Error(`解けない問い合わせ: ${p}`);
+      return (m[1] === "width" ? w : h) >= Number(m[2]);
+    });
+    const iphone = [[375, 667], [375, 812], [440, 956], [667, 375], [812, 375], [844, 390], [932, 430], [956, 440]];
+    const ipad = [[744, 1133], [1133, 744], [820, 1180], [1180, 820], [1032, 1376], [1376, 1032], [781, 820]];
+    check("BT.1 便BT2 実行: iPhone は縦も横も狭い(844×390・956×440 を含む)・iPad は縦も横も広い",
+      iphone.every(([w, h]) => !fits(w, h)) && ipad.every(([w, h]) => fits(w, h)),
+      `${q} / iPhone 広い=${iphone.filter(([w, h]) => fits(w, h)).map((x) => x.join("x")).join(",") || "なし"} / iPad 狭い=${ipad.filter(([w, h]) => !fits(w, h)).map((x) => x.join("x")).join(",") || "なし"}`);
+  }
+  check("BT.1 index.css に幅のメディアクエリが無い(しきい値が CSS に写っていない)",
+    !/@media[^{]*(min|max)-width/.test(cssBTn) && !/700px/.test(cssBTn));
+  {
+    const hook = srcOfFn(src, "useWideLayout");
+    check("BT.1 useWideLayout は matchMedia が無ければ false で購読しない(jsdom = 今までの木)",
+      /typeof window\.matchMedia === "function" && window\.matchMedia\(WIDE_LAYOUT_QUERY\)\.matches/.test(hook)
+      && /if \(typeof window\.matchMedia !== "function"\) return undefined;/.test(hook)
+      && /mq\.addEventListener\("change", on\);/.test(hook) && /mq\.removeEventListener\("change", on\);/.test(hook));
+    const appFn = srcOfFn(src, "WindToneLabPhaseMode");
+    check("BT.1 判定は App で1回だけ(useWideLayout の呼び手は App の1つ)",
+      (codeOf(src).match(/[^\w ]\s*useWideLayout\(\)/g) || []).length === 1 && /const wide = useWideLayout\(\);/.test(appFn),
+      (codeOf(src).match(/[^\w ]\s*useWideLayout\(\)/g) || []).join(" | "));
+  }
+
+  // --- BT.2 トークン(index.css が正・写しは tokens.mjs)--------------------------------------------
+  const tokOf = (text, name) => (new RegExp(`${name}:\\s*([^;]+);`).exec(text) || [])[1];
+  check("BT.2 --page-max-w は 640px(本人裁定「本文の列を 640」)・--pane-max-w は 1000px(モック案B横の器)",
+    tokOf(cssBTn, "--page-max-w") === "640px" && tokOf(cssBTn, "--pane-max-w") === "1000px",
+    `${tokOf(cssBTn, "--page-max-w")} / ${tokOf(cssBTn, "--pane-max-w")}`);
+  check("BT.2 写し(design/canvas/tokens.mjs)も同じ値",
+    tokOf(tokBT, "--page-max-w") === "640px" && tokOf(tokBT, "--pane-max-w") === "1000px");
+
+  // --- BT.3 列の上限の直書き(900 / 480)が戻っていない・読み手がトークンを読む ---------------------------
+  // 【便BT2】640 の数字の直書きも落とす(トークンを通さずに列の値を書く形)。
+  check("BT.3 App.jsx に maxWidth: 900 / 480 / 640 の数字の直書きが 0 件",
+    !/maxWidth: ["']?900\b/.test(src) && !/maxWidth: ["']?480\b/.test(src) && !/maxWidth: ["']?640(px)?\b/.test(src));
+  check("BT.3 便BT2: リードタブ Top の根も列のトークン(子タブの行・楽器のチップの行が一覧とそろう)",
+    /\n  return \(\s*\n\s*(?:\/\*[\s\S]*?\*\/\s*)?<div className="surf-rule" style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\}>\s*\n[\s\S]{0,900}?<SubTabs\s*\n\s*items=\{\[\{ key: "register"/.test(srcOfFn(src, "ReedsTab").slice(srcOfFn(src, "ReedsTab").indexOf("if (evaluatingReed)"))));
+  check("BT.3 計測タブの根は列のトークン",
+    src.includes('<div ref={measureRootRef} style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>'));
+  check("BT.3 下部タブの内箱は列のトークン(本人裁定「下部タブも 640 にそろえる」)",
+    srcOfFn(src, "BottomNav").includes('<div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>'));
+  check("BT.3 BottomSheet のカードは列のトークン(iPad では 640 で中央)",
+    /width: "100%", maxWidth: "var\(--page-max-w\)",/.test(srcOfFn(src, "BottomSheet")));
+  check("BT.3 データタブ(My Data / 分析)の内箱は列のトークン",
+    /<div className="surf-card" data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}>\s*\n\s*<div style=\{\{ maxWidth: "var\(--page-max-w\)", margin: "0 auto" \}\}>/.test(srcOfFn(src, "AnalysisLabView")));
+
+  // --- BT.4 式の値: 375 では今と同じ値・iPad では列の端(期待値は仕様の寸法表 付録A)--------------------
+  // 式の文字列を source から読み、var() と % を幅ごとに置き換えて計算する(px はそのまま数)。
+  const evalCss = (expr, W) => new Function(`return ${expr
+    .replace(/var\(--page-pad-right\)/g, "14").replace(/var\(--page-max-w\)/g, String(parseFloat(tokOf(cssBTn, "--page-max-w"))))
+    .replace(/100%/g, String(W)).replace(/(\d)px/g, "$1").replace(/\bmax\(/g, "Math.max(").replace(/\bcalc\(/g, "(")};`)();
+  const fabRight = (/right: "([^"]+)",/.exec(srcOfFn(src, "FloatingAction")) || [])[1] || "";
+  check("BT.4 浮かせるボタンの右端は列の右下: 375 / 440 では 14(今と同じ)・820 → 90・1032 → 196・1180 → 270",
+    fabRight.length > 0 && evalCss(fabRight, 375) === 14 && evalCss(fabRight, 440) === 14
+    && evalCss(fabRight, 820) === 90 && evalCss(fabRight, 1032) === 196 && evalCss(fabRight, 1180) === 270,
+    `${fabRight} → ${[375, 440, 820, 1032, 1180].map((w) => evalCss(fabRight, w)).join(" / ")}`);
+  const coachRule = (/\.coach-card \{([^}]*)\}/.exec(cssBTn) || [])[1] || "";
+  const coachL = (/left: ([^;]+);/.exec(coachRule) || [])[1] || "";
+  const coachR = (/right: ([^;]+);/.exec(coachRule) || [])[1] || "";
+  check("BT.4 はじめの一手のカード: 左右は 375 で 22(今と同じ・幅 331)・820 で 90(幅 640)",
+    coachL.length > 0 && coachL === coachR && evalCss(coachL, 375) === 22 && 375 - 2 * evalCss(coachL, 375) === 331
+    && 820 - 2 * evalCss(coachL, 820) === 640 && 1180 - 2 * evalCss(coachL, 1180) === 640,
+    `${coachL} / ${coachR}`);
+  const joinCard = (/\.coach-card\.join-card \{([^}]*)\}/.exec(cssBTn) || [])[1] || "";
+  check("BT.4 参加のカード: 幅の上限は列のトークン・枠の中で横も中央",
+    /max-width: var\(--page-max-w\);/.test(joinCard) && /width: 100%;/.test(joinCard)
+    && /\.join-frame \{[^}]*justify-content: center;/.test(cssBTn));
+
+  // --- BT.5 環: 幅 ≥ 700 で上限 440・字の基準は 330(→ 4/3 倍)。iPhone は1つも変わらない -------------------
+  check("BT.5 RING_D_WIDE は 440(モック案A)・RING_D_FULL は 330 のまま・下限は 330 から導いたまま",
+    /\nconst RING_D_WIDE = 440;/.test(src) && /\nconst RING_D_FULL = 330;/.test(src)
+    && /const RING_D_MIN = ringMinDiameter\(RING_D_FULL, NOTE_CENTS_PX, RING_TEXT_FLOOR_PX\);/.test(src));
+  {
+    const meas = srcOfFn(src, "MeasureView");
+    check("BT.5 環の上限は wide のときだけ RING_D_WIDE(ringFitArgs に隣接する綴り)",
+      /const args = ringFitArgs\(\{[\s\S]{0,700}?fullD: wide \? RING_D_WIDE : RING_D_FULL,\s*\n\s*minD: RING_D_MIN,/.test(meas));
+    check("BT.5 字の倍率の基準は正典の 330 を越えない(Math.min(args.maxD, RING_D_FULL))",
+      meas.includes("setRingBaseD((prev) => nextRingDiameter(prev, Math.min(args.maxD, RING_D_FULL), held));"));
+    check("BT.5 幅が広い ↔ 狭いに変わった描画で合わせ直す(依存に wide)",
+      /\}, \[ringFitLayout\.key, ringFitLayout\.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint, wide\]\);/.test(meas));
+    check("BT.5 App は MeasureView に wide を渡す",
+      /<MeasureView[\s\S]{0,4000}?\n\s*wide=\{wide\}\n\s*\/>/.test(srcOfFn(src, "WindToneLabPhaseMode")));
+  }
+  check("BT.5 ringScale は d / baseD(min を外した)",
+    /export function ringScale\(d, baseD\) \{\s*\n\s*return d \/ baseD;\s*\n\}/.test(ringFitBT));
+  {
+    const rf = await import("../src/measureRingFit.js");
+    check("BT.5 実行: iPad の 440 は字が 4/3 倍(音名 197.33・セント値 28)、iPhone の 330 / 292 / 236 は今と同じ",
+      Math.abs(148 * rf.ringScale(440, 330) - 197.333) < 0.01 && Math.abs(21 * rf.ringScale(440, 330) - 28) < 1e-9
+      && rf.ringScale(330, 330) === 1 && rf.ringScale(292, 292) === 1 && Math.abs(21 * rf.ringScale(236, 330) - 15.018) < 0.001,
+      `${148 * rf.ringScale(440, 330)} / ${21 * rf.ringScale(440, 330)}`);
+    // 【便BT2】名前から機種の寸法を外した(実測の 1180×820 は広告の帯なしで約 385。ここの数は寸法の例)。
+    check("BT.5 便BT2: setRingD は描ける大きさ(args.maxD)で頭打ち",
+      srcOfFn(src, "MeasureView").includes("setRingD((prev) => nextRingDiameter(prev, fit, held, args.maxD));"));
+    check("BT.5 便BT2 実行: 据え置き中は縮む向きだけ合わせ直す(440 → 385 / 440 → 292)・大きくなる向きは据え置く(385 → 385)・描ける大きさで頭打ち",
+      rf.nextRingDiameter(440, 385, true) === 385 && rf.nextRingDiameter(440, 292, true) === 292
+      && rf.nextRingDiameter(385, 440, true) === 385 && rf.nextRingDiameter(330, 440, false, 292) === 292
+      && rf.nextRingDiameter(330, 330, false, 347) === 330);
+    check("BT.5 実行: 高さが足りれば上限 440・足りなければ足りない分だけ縮む・枠が狭ければ枠で頭打ち",
+      rf.fitRingDiameter({ availH: 1100, othersH: 500, maxD: 440, fullD: 440, minD: 236 }) === 440
+      && rf.fitRingDiameter({ availH: 749, othersH: 420, maxD: 440, fullD: 440, minD: 236 }) === 329
+      && rf.ringFitArgs({ availH: 1, frameH: 0, spacerH: 0, ringH: 0, boxW: 347, fullD: 440, minD: 236 }).maxD === 347);
   }
   console.log("  -> done");
 }

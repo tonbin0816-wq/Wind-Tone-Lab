@@ -65,13 +65,18 @@ export function fitRingDiameter({ availH, othersH, maxD, fullD, minD }) {
 
 // 今の大きさを据え置くか。録音中(演奏中に主役の大きさが変わると読み取りを妨げる)・入力欄にフォーカスがある間・
 // シートを開いている間・ピンチで拡大している間は、前の直径のまま。外れた描画で合わせ直す。
-export function nextRingDiameter(prevD, fitD, frozen) {
-  return frozen ? prevD : fitD;
+// 【便BT2 2026-10-03 統括の裁定】据え置き中でも**縮む向きだけ**は合わせ直す(min(前, 収まる直径))。回転や Split View で
+// 枠が狭く・低くなったときに、大きいまま据え置くとはみ出すため。大きくなる向きは据え置きを守る。
+// maxD(描ける大きさ = min(上限, 枠の幅))を渡せば、それで頭打ちにする(描いた環より大きい直径で字の倍率を作らない)。
+export function nextRingDiameter(prevD, fitD, frozen, maxD = Infinity) {
+  return Math.min(frozen ? Math.min(prevD, fitD) : fitD, maxD);
 }
 
-// 環の中の字・間隔の倍率。基準は**縮めないときの直径**(baseD = maxD)。
+// 環の中の字・間隔の倍率。基準は**縮めないときの直径**(iPhone。baseD = maxD)/ **正典の 330**(iPad。baseD = min(maxD, 330))。
 // 枠が狭くて環が 330 より小さく描かれている画面でも、縮めていなければ 1、1px 縮めれば (baseD−1)/baseD で、
 // 字が跳ねない。
+// 【便BT 2026-10-03 本人裁定】min を外した(d / baseD)。iPhone では常に d ≤ baseD なので値は1つも変わらない。
+// iPad(環の上限 440・基準 330)では 440 / 330 = 4/3 → 音名 148 × 4/3 = 197.3px(モック案Aの実寸)。
 export function ringScale(d, baseD) {
-  return Math.min(d, baseD) / baseD;
+  return d / baseD;
 }

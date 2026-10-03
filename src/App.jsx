@@ -243,6 +243,36 @@ function useRingFitLayout() {
   return s;
 }
 
+// 【便BT 2026-10-03 本人裁定】iPad の「広い」画面のしきい値。**値の唯一の答えはここ**(CSS にメディアクエリは置かない ──
+// JS の matchMedia と CSS の両方に持つと、しきい値が2か所になる)。
+//   ・幅: iPad の全画面の最小幅は 744(iPad mini 縦)。Split View の 11型横 2/3(≈781)は広い・13型横 1/2(≈678)と Slide Over(320)は狭い
+// 【便BT2 2026-10-03 統括の裁定】幅だけでは足りない ── iPhone を横にすると幅は 667〜956 になり 700 を越える。
+//   ・高さ: iPhone の横向きは高さ 440 以下(375〜440)、iPad は横向きでも高さ 744 以上。間の 500 を高さの下限にして分ける。
+//   よって「幅 ≥ 700 かつ 高さ ≥ 500」を広いと呼ぶ。iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも広いにならない。
+// 広いときに変わるのは、いまは計測タブの環の上限だけ(RING_D_WIDE)。列 640(--page-max-w)は CSS の max-width で、
+// この判定とは別に効く。【便BT2 統括の裁定】「iPhone の見た目は 1px も変えない」は**縦向きの約束**。iPhone の横向き(Safari の
+// Web 版だけ。アプリの殻では iPhone は縦に固定)は判定が狭い側・本文と下部タブとシートは 640 の列になる。これは受け入れた形で、
+// 狭いときだけ上限を戻す仕組みは足さない(DESIGN-SYSTEM §3「iPad の器」)。
+export const WIDE_LAYOUT_MIN_W = 700;
+export const WIDE_LAYOUT_MIN_H = 500;
+export const WIDE_LAYOUT_QUERY = `(min-width: ${WIDE_LAYOUT_MIN_W}px) and (min-height: ${WIDE_LAYOUT_MIN_H}px)`;
+// matchMedia が無い環境(jsdom)では常に false(= 今までの木)を返し、購読もしない。
+// 形は prefers-reduced-motion の読み手(prefersReducedMotion など)に倣う。
+function useWideLayout() {
+  const get = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_LAYOUT_QUERY).matches;
+  const [wide, setWide] = useState(get);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined; // jsdom: 常に false = 今までの木
+    const mq = window.matchMedia(WIDE_LAYOUT_QUERY);
+    const on = () => setWide(mq.matches);
+    // 【便BT2 2026-10-03 統括の裁定】購読を始めるときに読み直す(最初の描画から購読までのあいだに変わった分を拾う)。
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
 function useFillViewportHeight(ref, bottomGap = null) {
   const [minH, setMinH] = useState(0);
   useLayoutEffect(() => {
@@ -2319,6 +2349,8 @@ export {
   useSessionsStore, useReedSaxBackfill, useReedSaxInvariant, usePersistedState,
   // 【便BM 再審査】環の大きさの据え置き(hold)の見張り(measureRingFitHold.test.jsx が描く)。
   useRingFitLayout,
+  // 【便BT 2026-10-03】iPad の広い画面の判定(wideLayout.test.jsx が描く)。
+  useWideLayout,
   ReedsTab, SessionEditSheet,
   // 【便BE】指標カード(目安から外した指標の知らせの検査 idealExcludedNote.test.jsx が描く)。
   MetricTabCard,
@@ -3713,7 +3745,7 @@ function ActionNotice({ notice, onAction, onLeaveEnd }) {
         className={notice.leaving ? "action-notice is-leaving" : "action-notice"}
         onAnimationEnd={onLeaveEnd}
         style={{
-          pointerEvents: "auto", maxWidth: 900, margin: "0 auto",
+          pointerEvents: "auto", maxWidth: "var(--page-max-w)", margin: "0 auto",
           display: "flex", alignItems: "center", gap: "var(--sp-3)",
           padding: "var(--sp-3) var(--sp-4)",
           background: "var(--c-surface)", borderRadius: "var(--r-md)",
@@ -3759,6 +3791,11 @@ function navRetapKeepsView(tappedKey, atMyDataTop) {
 // Main component
 // ============================================================
 export default function WindToneLabPhaseMode() {
+  // 【便BT 2026-10-03 本人裁定】iPad の「広い」画面か(WIDE_LAYOUT_QUERY = 幅 ≥ 700 かつ 高さ ≥ 500)。判定はここで1回だけ行い、props で配る。
+  // いまの読み手は MeasureView(環の上限)だけ。jsdom(matchMedia が無い)では常に false。
+  // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
+  // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
+  const wide = useWideLayout();
   const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
   const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | compare | ranking
   // 下部ナビのタップ毎にインクリメントする通し番号。リード/データタブの中身のkeyに使い、
@@ -5182,7 +5219,7 @@ export default function WindToneLabPhaseMode() {
             padding: "var(--sp-4)",
           }}
         >
-          <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+          <div style={{ width: "100%", maxWidth: "var(--page-max-w)", background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
             {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に
                 「どうすれば直るか」と「もう一度試す」を足す。他のエラーは従来どおり1行。
@@ -5231,6 +5268,8 @@ export default function WindToneLabPhaseMode() {
           onMetroPanelShown={coachReady ? markMetronomeSeen : undefined}
           /* 【便BS 審査】面の開閉を知らせる口(開いている間は計測の段を出さない)。 */
           onMetroPanelChange={setMetroPanelOpen}
+          /* 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)なら環の上限は RING_D_WIDE(440)。 */
+          wide={wide}
         />
         </div>
       )}
@@ -5468,7 +5507,9 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
     }}>
       {/* アイコンのみの1行。ラベルを廃してタブ帯の縦幅を小さくする(演奏中の画面領域を広く取るため) */}
-      <div style={{ maxWidth: 480, margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
+      {/* 【便BT 2026-10-03 本人裁定「下部タブも 640 にそろえる」】内箱の上限は本文の列と同じ --page-max-w(以前は 480)。
+          375 では 480 も 640 も届かないので 375 のまま(1つのタブ (375 − 40) / 4 = 83.75)。iPad では 640(1つ 150)。 */}
+      <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
         {items.map((t) => {
           const active = topTab === t.key;
           const color = active ? "var(--c-accent)" : "var(--c-ink-3)";
@@ -6485,6 +6526,11 @@ const RING_SW = 14;
 // いちばん厳しい状態を前提にするので、**開閉・音量表示の切り替えでは変わらない**(上の確定を守る)。
 // 375×812・帯なしはいちばん厳しい状態でも足りるのでこの値のまま。
 const RING_D_FULL = 330;       // 環の直径(画面の高さが足りる限りこの値)
+// 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)のときの環の上限。モック案A(環 440・音名 197px)を本人が選んだ。
+// 330 × 4/3。中の字の倍率の基準は正典の 330 のまま(MeasureView の ringBaseD)なので、440 で描けば字も 4/3 倍になる。
+// 縮める決まり(便BM)はそのまま働く ── 【便BT2 実測】iPad 11型の横向き(1180×820)は高さで縛られ、広告の帯なしで約 385
+// (音名 約 173px)になる。RING_D_MIN は 330 から導いたまま。
+const RING_D_WIDE = 440;
 
 // --- 音名の組み方 ---
 // 【N-4c】サイズは**正典 design/north-star-measure.html の実寸**をそのまま採る
@@ -8665,6 +8711,9 @@ function MeasureView(props) {
     onMetroPanelShown,
     // 【便BS 審査 2026-10-03】メトロノームの面の開閉を App へ知らせる口(開いている間は、はじめの一手の計測の段を出さない)。
     onMetroPanelChange,
+    // 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)か。環の上限を RING_D_WIDE にする(App の useWideLayout)。
+    // 渡されない(false)ときは今までと1文字も変わらない。
+    wide = false,
     // 【C-1】アップロード関連(handleUploadFile / isAnalyzingUpload / uploadProgress /
     // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
     // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
@@ -9211,19 +9260,24 @@ function MeasureView(props) {
       middleH: hOf(middle),
       worstMiddleH: hOf(worstMiddle),
       worstVolumeH: hOf(worstVolume),
-      fullD: RING_D_FULL,
+      fullD: wide ? RING_D_WIDE : RING_D_FULL,
       minD: RING_D_MIN,
     });
     const fit = fitRingDiameter(args);
     const held = ringFitHoldNow || ringFitHold(); // 入力欄・ピンチはその場で読む
-    setRingD((prev) => nextRingDiameter(prev, fit, held));
-    setRingBaseD((prev) => nextRingDiameter(prev, args.maxD, held));
-  }, [ringFitLayout.key, ringFitLayout.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint]);
+    // 【便BT2 2026-10-03 統括の裁定】据え置き中でも**縮む向きだけ**は合わせ直す(nextRingDiameter)。回転や Split View で
+    // 枠が狭く・低くなったのに大きいまま据え置くと、はみ出す(820×1180 → 据え置き → 1180×820 でメトロノームを開くと
+    // 録音ボタンが下部タブの下へ / 幅 320 で環 292 なのに音名 197px)。直径は描ける大きさ(maxD = min(上限, 枠の幅))で頭打ち。
+    setRingD((prev) => nextRingDiameter(prev, fit, held, args.maxD));
+    // 【便BT 2026-10-03 本人裁定】字の倍率の基準は正典の 330 を越えない。iPhone では maxD ≤ 330 なので今と同じ値
+    // (375 → 330 / 320 幅 → 292)。iPad では maxD = 440 → 基準 330(環 440 で字は 4/3 倍)。
+    setRingBaseD((prev) => nextRingDiameter(prev, Math.min(args.maxD, RING_D_FULL), held));
+  }, [ringFitLayout.key, ringFitLayout.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint, wide]);
 
   // 【D-19】返す木を一度変数へ置くのは、**組み立て終わりの時刻を取るため**だけ。
   // 中身も返す値も1文字も変えていない(下の return がそのまま同じ木を返す)。
   const dViewTree = (
-    <div ref={measureRootRef} style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div ref={measureRootRef} style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       {/* 【縦構造】DESIGN-SYSTEM §6.1.5「レイアウトの安定」。
           画面ぶんの高さ(measureMinH)を持つ枠を1枚だけ敷き、その中を
             上端に固定(設定行) → 固定の間隔(--sp-1) → 主役(環) → 可変の中間(flex:1) → 下端に固定(アクション)
@@ -9449,6 +9503,7 @@ function MeasureView(props) {
           メトロノームの開閉にかかわらず環(PitchRing)を主役にする(設計言語を1つに保つ)。
           【大きさは変えない】以前はメトロノームを開くと 330→250 に縮めていたが、主役の
           大きさが開閉のたびに変わるのは読み取りを妨げる。環は常に RING_D_FULL(330)。
+          【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)では上限が RING_D_WIDE(440)。開閉で変えないのは同じ。
           【便BM 2026-10-02 本人裁定(a)】例外は**画面の高さが足りないときだけ**。そのときは足りない分だけ
           縮める(ringD。下限 RING_D_MIN)。大きさは画面ごとに1回、メトロノームを開き音量表示を入れた
           いちばん厳しい状態で決めるので、この画面の中の開閉・切り替えでは変わらない(統括裁定1)。
@@ -10129,7 +10184,7 @@ function MeasureView(props) {
             paddingBottom: "calc(var(--page-bottom-gap) + var(--sp-4))",
           }}
         >
-          <div style={{ width: "100%", maxWidth: 900, background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
+          <div style={{ width: "100%", maxWidth: "var(--page-max-w)", background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-lg)", fontWeight: 700, color: "var(--c-ink)" }}>この録音を保存しますか？</div>
             <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-4)" }}>
               {/* B型 = .ctl-plain + .ctl-pill。取り直すは状態を持たない普通のボタン */}
@@ -11880,7 +11935,9 @@ function ReedsTab(props) {
      根の包みから外した作法のクラスを、この return が自分で名乗る。
      【B10 2026/09/09】左右の差分 10px はここからも消えた(正典が 14px になった)。 */
   return (
-    <div className="surf-rule">
+    /* 【便BT2 2026-10-03 統括の裁定】Top の根も列(--page-max-w)で中央に置く。子タブの行と楽器のチップの行が、
+       列 640 に絞られた一覧・比較と左右でそろう(以前は iPad で左右 76px ずれていた)。DOM は増やしていない。 */
+    <div className="surf-rule" style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       {/* 正典 .subtabs: 素のテキスト2つ(13px)を gap 18 で並べ、選択中だけ --c-ink の太字。
           溝(地 --c-sunken の segmented control)は正典に無いので撤去した。
           【タップ領域(§5)の作り方】「登録」「比較」は実測 26px しかないので、
@@ -11942,7 +11999,7 @@ function ReedsTab(props) {
              削除の一手を1つに畳むついでに、ここで渡して繋ぐ。 */
           deleteReedsWithUndo={deleteReedsWithUndo}
         />
-        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
           {/* 【便AY D4 / D5】比較は**同じ楽器のリードどうしだけ**。候補は選んだ楽器のリード、
               重ねるグラフの横軸もその楽器(計測タブの楽器ではない)。 */}
           <ReedCompareTab reeds={reeds} sessions={sessions} compareReedIds={compareReedIds} setCompareReedIds={setCompareReedIds} saxType={listSax} tuningHz={tuningHz} pageActive={reedsSubTab === "compare"} />
@@ -12098,8 +12155,11 @@ function FloatingAction({ label, ariaLabel, onClick, disabled = false, icon = nu
       style={{
         position: "fixed", zIndex: FLOAT_ACTION_Z,
         /* 右端は本文の左右余白と揃える。下端は下部ナビ(+安全域)の上に間隔ぶん。
-           **どちらも既存のトークンだけで書く**(--page-pad-right / --page-bottom-gap / --sp-3)。 */
-        right: "var(--page-pad-right)",
+           **どちらも既存のトークンだけで書く**(--page-pad-right / --page-bottom-gap / --sp-3)。
+           【便BT 2026-10-03 本人裁定(§7-(2) ア)】右端は**列(--page-max-w)の右下**にそろえる(§4.5「主要動作は面の右下」の
+           面は iPad では列)。fixed の right の % は画面の幅で、列は中央なので列の右端 = 画面の右端から (100% − 列) / 2。
+           375 では (375 − 640) / 2 < 0 なので max() が --page-pad-right を選ぶ = 今と同じ値。 */
+        right: "max(var(--page-pad-right), calc((100% - var(--page-max-w)) / 2))",
         bottom: `calc(var(--page-bottom-gap) + ${FLOAT_ACTION_GAP})`,
         /* 【R1 2026-09-16】絵柄だけなら 56 角、語つきは従来どおり --tap-min。
            縦横が同じ値で揃うので --r-pill がそのまま円になる。 */
@@ -12824,7 +12884,7 @@ function ReedRegisterView(props) {
        DOM では外**なので、contains で外せるため。終わったら揺れが消える
        ── どちらも editing ただ1つが門なので、旗を下ろすだけでよい。 */
     <div
-      style={{ maxWidth: 900, margin: "0 auto" }}
+      style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}
       onClick={(e) => { if (reedListPressEndsEditing(e.target, e.currentTarget)) onExitEditing?.(); }}
     >
       {/* 【便AY 2026-09-25 本人指示 D5】見ている楽器のリードが無ければ、一覧の場所に1行だけ
@@ -14370,7 +14430,7 @@ function ReedEvaluationDetail({ reed, reeds, sessions, setReeds, selectedIdeal, 
   const meta = reedDetailMetaParts(reedSax, reed.startDate, usageDays(new Date(), reed.startDate), reedSessions.length);
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       <DetailHeader
         onBack={onBack}
         backLabel="< 一覧"
@@ -15988,7 +16048,7 @@ export function BottomSheet({ ariaLabel, onClose, children }) {
         data-noswipe
         className="sheet-card"
         style={{
-          width: "100%", maxWidth: 900, background: "var(--c-surface)",
+          width: "100%", maxWidth: "var(--page-max-w)", background: "var(--c-surface)",
           borderRadius: "28px 28px 0 0", boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
           padding: "14px 24px", paddingBottom: "calc(40px + env(safe-area-inset-bottom))",
           display: "flex", flexDirection: "column", alignItems: "stretch",
@@ -17422,7 +17482,7 @@ function AnalysisLabView(props) {
        【便BS 2026-10-03】data-coach-anchor = はじめの一手(データ・計測あり)を出してよい目印。My Data を表に出しているときだけ名乗る
        (分析の子タブ・セッション詳細・すべてのセッションでは名乗らない)。属性を足すだけで見た目は変えない。 */
     <div className="surf-card" data-coach-anchor={atMyDataTop ? "mydata" : undefined}>
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       {/* 【C-2 で移設】アップロードの過渡的な告知(自動再生ブロック時の「解析を開始」/
           解析の進捗 / 完了通知 + 「★ 目安に設定」)。
           正典「アップロードの解析進捗と完了通知はデータタブ上端に浮く」。
@@ -17440,7 +17500,7 @@ function AnalysisLabView(props) {
             pointerEvents: "none",
           }}
         >
-          <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
+          <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
             {/* ブラウザの自動再生制限で動画の再生開始がブロックされた場合は、タップで再開してもらう
                 (新しいタップイベントの中でplay()を呼び直せば許可される)。 */}
             {isAnalyzingUpload && uploadNeedsTap && (
@@ -17922,7 +17982,7 @@ function AllSessionsPage({
   })();
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       {/* 戻る導線 + モードの出口/一手。正典 #14b の「‹ 一覧」と同じ作法(左に戻る、右に一手)。
           選択モード中は「選択」を出さない(入口と出口が同時に並ばない)。 */}
       <div className="sans" style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -18223,7 +18283,7 @@ function SessionDetailView({ session, reeds, sessions, selectedIdeal, promoteSes
   ].filter(Boolean);
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>
       <DetailHeader
         onBack={onBack}
         backLabel="< 一覧"

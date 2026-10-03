@@ -106,9 +106,24 @@ describe("fitRingDiameter(収まる直径)", () => {
 });
 
 describe("nextRingDiameter(据え置き)", () => {
-  it("据え置き中は前の直径のまま", () => {
-    expect(nextRingDiameter(263, 238, true)).toBe(263);
-    expect(nextRingDiameter(330, 236, true)).toBe(330);
+  // 【便BT2 2026-10-03 統括の裁定】据え置き中でも縮む向きだけは合わせ直す(大きくなる向きだけ据え置く)。
+  // 以前の期待値(263 → 263 / 330 → 330)は「縮む向きも据え置く」形で、回転・Split View ではみ出した。
+  it("据え置き中は、大きくなる向きは前の直径のまま", () => {
+    expect(nextRingDiameter(238, 263, true)).toBe(238);
+    expect(nextRingDiameter(236, 330, true)).toBe(236);
+    expect(nextRingDiameter(385, 440, true)).toBe(385);
+  });
+  it("据え置き中でも、縮む向きは合わせ直す(820×1180 → 回転で 440 → 385 / 幅 320 で 440 → 292)", () => {
+    expect(nextRingDiameter(263, 238, true)).toBe(238);
+    expect(nextRingDiameter(330, 236, true)).toBe(236);
+    expect(nextRingDiameter(440, 385, true)).toBe(385);
+    expect(nextRingDiameter(440, 292, true)).toBe(292);
+  });
+  it("描ける大きさ(maxD)で頭打ち(収まる直径が測れず上限のまま返ってきても、枠の幅より大きく描かない)", () => {
+    expect(nextRingDiameter(330, 440, false, 292)).toBe(292);
+    expect(nextRingDiameter(440, 440, true, 292)).toBe(292);
+    expect(nextRingDiameter(330, 330, false, 347)).toBe(330);
+    expect(nextRingDiameter(330, 330, false)).toBe(330);
   });
   it("据え置きでなければ新しい直径", () => {
     expect(nextRingDiameter(263, 238, false)).toBe(238);
@@ -133,6 +148,40 @@ describe("ringScale(中の字の倍率。基準は縮めないときの直径)",
 });
 
 // ------------------------------------------------------------------
+// 【便BT 2026-10-03 本人裁定】iPad(幅 ≥ 700)は環の上限 440、字の基準は正典の 330 のまま → 字は 4/3 倍。
+// 期待値はモック案A(scratchpad/ficus-ipad.html。環 440・音名 197px)と手計算(148 × 440 / 330 = 197.33…)。
+// 定数(RING_D_WIDE)から逆算しない。高さが足りない画面は便BM の決まりどおり足りない分だけ縮む
+// (【便BT2 実測】iPad 11型の横向き 1180×820 は広告の帯なしで約 385。下の数は寸法の例で、機種の実測ではない)。
+// ------------------------------------------------------------------
+describe("便BT: iPad の環(上限 440・字の基準 330)", () => {
+  it("ringScale(440, 330) は 4/3(min を外した。min のままだと 1 になり字が 148 のまま)", () => {
+    expect(ringScale(440, 330)).toBeCloseTo(1.333333, 6);
+    expect(148 * ringScale(440, 330)).toBeCloseTo(197.33, 2);
+    expect(44 * ringScale(440, 330)).toBeCloseTo(58.67, 2);
+    expect(21 * ringScale(440, 330)).toBeCloseTo(28, 9);
+    expect(10 * ringScale(440, 330)).toBeCloseTo(13.33, 2);
+  });
+  it("iPhone の値は1つも変わらない(d ≤ baseD のときは今までと同じ)", () => {
+    expect(ringScale(330, 330)).toBe(1);
+    expect(ringScale(292, 292)).toBe(1);
+    expect(ringScale(263, 330)).toBeCloseTo(263 / 330, 12);
+  });
+  it("縦の iPad(高さが足りる)は 440 のまま", () => {
+    expect(fitRingDiameter({ availH: 1100, othersH: 500, maxD: 440, fullD: 440, minD: MIN })).toBe(440);
+  });
+  it("上限 440 でも、高さが足りなければ足りない分だけ縮む(room 329 → 329)", () => {
+    expect(fitRingDiameter({ availH: 749, othersH: 420, maxD: 440, fullD: 440, minD: MIN })).toBe(329);
+  });
+  it("枠が 440 より狭ければ枠で頭打ち(maxD = min(440, 347) = 347)", () => {
+    expect(fitRingDiameter({ availH: 1100, othersH: 500, maxD: Math.min(440, 347), fullD: 440, minD: MIN })).toBe(347);
+  });
+  it("ringFitArgs の maxD は min(fullD, 環の箱の幅) のまま(上限 440・列 640 → 440 / 箱 347 → 347)", () => {
+    expect(ringFitArgs({ availH: 1, frameH: 0, spacerH: 0, ringH: 0, boxW: 640, fullD: 440, minD: MIN }).maxD).toBe(440);
+    expect(ringFitArgs({ availH: 1, frameH: 0, spacerH: 0, ringH: 0, boxW: 347, fullD: 440, minD: MIN }).maxD).toBe(347);
+  });
+});
+
+// ------------------------------------------------------------------
 // 計測タブへの配線(綴り)。純関数が正しくても、呼ばれていなければ何も守らない。
 // ------------------------------------------------------------------
 describe("計測タブの配線(App.jsx)", () => {
@@ -147,6 +196,17 @@ describe("計測タブの配線(App.jsx)", () => {
   it("下限は RING_D_FULL・セント値・15px から導く(数を直書きしない)", () => {
     expect(/const RING_D_MIN = ringMinDiameter\(RING_D_FULL, NOTE_CENTS_PX, RING_TEXT_FLOOR_PX\);/.test(src)).toBe(true);
   });
+  it("【便BT】iPad の上限は 440(モック案A)。下限は 330 から導いたまま(RING_D_WIDE からは導かない)", () => {
+    expect(/\nconst RING_D_WIDE = 440;/.test(src)).toBe(true);
+    expect(/\nconst RING_D_FULL = 330;/.test(src)).toBe(true);
+    expect(src.includes("ringMinDiameter(RING_D_WIDE")).toBe(false);
+  });
+  it("【便BT】MeasureView は wide を受け(既定 false)、App は useWideLayout() の値をそのまま渡す", () => {
+    expect(meas.includes("    wide = false,\n")).toBe(true);
+    const app = src.slice(src.indexOf("export default function WindToneLabPhaseMode()"));
+    expect(app.includes("  const wide = useWideLayout();")).toBe(true);
+    expect(/<MeasureView[\s\S]{0,4000}?\n\s*wide=\{wide\}\n\s*\/>/.test(app)).toBe(true);
+  });
   it("15px は --fs-md の値(index.css から読む)", () => {
     const m = src.match(/const RING_TEXT_FLOOR_PX = (\d+);/);
     const fsMd = css.match(/--fs-md:\s*(\d+)px;/);
@@ -159,16 +219,19 @@ describe("計測タブの配線(App.jsx)", () => {
     expect(meas.includes("const [ringBaseD, setRingBaseD] = useState(RING_D_FULL);")).toBe(true);
     expect(src.includes("const ringK = ringScale(diameter, scaleBase);")).toBe(true);
   });
-  it("縮める計算は描く前(useLayoutEffect)。依存は「画面の寸法・据え置きの合図2つ・リードの行2つ」の5つちょうど", () => {
+  // 【便BT 2026-10-03 本人裁定】依存に wide(iPad の広い画面。環の上限 440)が足された(5 → 6)。
+  it("縮める計算は描く前(useLayoutEffect)。依存は「画面の寸法・据え置きの合図2つ・リードの行2つ・広い画面か」の6つちょうど", () => {
     expect(effAt).toBeGreaterThan(0);
     expect(effStart).toBeGreaterThan(0);
-    expect(eff.endsWith("}, [ringFitLayout.key, ringFitLayout.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint]);")).toBe(true);
+    expect(eff.endsWith("}, [ringFitLayout.key, ringFitLayout.hold, ringFitHoldNow, reedEmptyGuide, ringFitBoxHint, wide]);")).toBe(true);
   });
   it("据え置き = 録音中・シート・ピッカー・テンポのシート + 入力欄/ピンチ(その場で ringFitHold() を読む)", () => {
     expect(meas.includes("const ringFitHoldNow = isRecording || anySheetOpen || openPicker !== null || tempoSheetOpen;")).toBe(true);
     expect(eff.includes("const held = ringFitHoldNow || ringFitHold();")).toBe(true);
-    expect(eff.includes("setRingD((prev) => nextRingDiameter(prev, fit, held));")).toBe(true);
-    expect(eff.includes("setRingBaseD((prev) => nextRingDiameter(prev, args.maxD, held));")).toBe(true);
+    // 【便BT2】直径は描ける大きさ(args.maxD)で頭打ち。
+    expect(eff.includes("setRingD((prev) => nextRingDiameter(prev, fit, held, args.maxD));")).toBe(true);
+    // 【便BT 2026-10-03 本人裁定】字の倍率の基準は正典の 330 を越えない(iPad の 440 でも基準 330 → 字は 4/3 倍)。
+    expect(eff.includes("setRingBaseD((prev) => nextRingDiameter(prev, Math.min(args.maxD, RING_D_FULL), held));")).toBe(true);
     expect(meas.includes("const ringFitBoxHint = !reedEmptyGuide && !selectedBoxGroup;")).toBe(true);
   });
   it("測った値の写し(各欄がどの要素から来るか)", () => {
@@ -183,7 +246,8 @@ describe("計測タブの配線(App.jsx)", () => {
       "middleH: hOf(middle),",
       "worstMiddleH: hOf(worstMiddle),",
       "worstVolumeH: hOf(worstVolume),",
-      "fullD: RING_D_FULL,",
+      // 【便BT 2026-10-03 本人裁定】上限は広い画面(iPad)だけ RING_D_WIDE。
+      "fullD: wide ? RING_D_WIDE : RING_D_FULL,",
       "minD: RING_D_MIN,",
       "const fit = fitRingDiameter(args);",
     ]) {
