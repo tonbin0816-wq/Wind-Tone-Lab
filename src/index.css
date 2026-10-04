@@ -8,7 +8,7 @@
      かつwebfontなので読み込み遅延もあった。システムフォントは取得ゼロ・OSと同じ端正さ。
      等幅数字(tabular-nums)はbody側で全体に適用する(下の宣言を見ること)。 */
   --font-num: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  /* 音名・リード番号: Instrument Serif(本人選定で継続。読み込みはindex.htmlのlinkが担う) */
+  /* 音名・リード番号: Instrument Serif(本人選定で継続。読み込みは@fontsource(main.jsx の import)が担う。殻ではオフラインでも崩れない) */
   --font-serif: "Instrument Serif", serif;
 
   /* サイズスケール(px): 9〜10.5pxの細かい刻みを廃止し、この7段に統一する */

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { storageBucketFor } from "./firebaseClient.js";
 
 // 【便AH-2 2026-09-23】写真の置き場の名前を projectId から導く。
@@ -40,5 +41,23 @@ describe("写真の置き場の名前(storageBucketFor)", () => {
   // 実際に確かめてある。導く既定をこちらへ戻さないための錨。
   it("古い appspot.com の形では導かない", () => {
     expect(storageBucketFor("ficus-caa43")).not.toContain("appspot.com");
+  });
+});
+
+// 【殻 S1】Firebase Auth は殻だけ initializeAuth(indexedDBLocalPersistence)。Web 版は getAuth(app) のまま。
+// 綴りの錨(注記を剥がしたコードで数える)。振る舞いは firebaseClientShell.test.js が殻 / Web の両方で描いて確かめる。
+describe("Auth の作り方の綴り(殻だけ initializeAuth)", () => {
+  const src = readFileSync(new URL("./firebaseClient.js", import.meta.url), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const count = (s) => code.split(s).length - 1;
+  it("殻の分岐が1回だけある", () => {
+    // 左の境目(const auth = )まで含めた丸ごとで数える(!isNativeShell() への反転を通さない)
+    expect(count("const auth = isNativeShell() ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app);")).toBe(1);
+  });
+  it("Web の枝の getAuth(app) が1回だけある(残っている・増えていない)", () => {
+    expect(count("getAuth(app)")).toBe(1);
+  });
+  it("殻の判定は shell/native.js から読む", () => {
+    expect(code).toContain('import { isNativeShell } from "../shell/native.js";');
   });
 });

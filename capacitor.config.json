@@ -1,0 +1,7 @@
+{
+  "appId": "jp.tobine.ficus",
+  "appName": "Ficus",
+  "webDir": "dist",
+  "zoomEnabled": true,
+  "backgroundColor": "#FFFFFF"
+}

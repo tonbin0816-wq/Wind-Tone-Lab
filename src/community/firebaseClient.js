@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, initializeAuth, indexedDBLocalPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { isNativeShell } from "../shell/native.js";
 
 // 接続設定が欠けていることを表す印。**通信の失敗とは別の型で投げる。**
 //
@@ -62,7 +63,10 @@ export function getFirebase() {
     );
 
     const app = initializeApp(storageBucket ? { ...conf, storageBucket } : conf);
-    cached = { app, auth: getAuth(app), db: getFirestore(app) };
+    // 【殻 S1】Capacitor の WKWebView では既定の getAuth(永続化の自動選択)が onAuthStateChanged を返さないことがある。
+    // Firebase の案内(ハイブリッドアプリは initializeAuth + indexedDBLocalPersistence)に従う。Web 版は今までどおり getAuth。
+    const auth = isNativeShell() ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app);
+    cached = { app, auth, db: getFirestore(app) };
   }
   return cached;
 }

@@ -672,6 +672,37 @@ describe("detectDeviceClass", () => {
     expect(detectDeviceClass("Mozilla/5.0 (Linux; Android 14; ...)")).toBe("android");
     expect(detectDeviceClass("Mozilla/5.0 (Windows NT 10.0)")).toBe("pc");
   });
+
+  // 【殻 S1】殻の中の iPad は WKWebView が Mac を名乗る(Safari の既定と同じ)。UA だけだと "pc" になっていた。
+  // 殻では Capacitor の getPlatform()(shellPlatform)が "ios" を返すので、UA に依らず ios と記録する。
+  const MAC_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36";
+  it("殻(platform = ios)なら Mac を名乗る UA でも ios", () => {
+    expect(detectDeviceClass(MAC_UA, "ios")).toBe("ios");
+  });
+  it("殻(platform = android)なら UA に依らず android", () => {
+    expect(detectDeviceClass("Mozilla/5.0 (Windows NT 10.0)", "android")).toBe("android");
+  });
+  it("Web(platform = web)なら今までどおり UA で決める(Mac は pc・Android は android・iPhone は ios)", () => {
+    expect(detectDeviceClass(MAC_UA, "web")).toBe("pc");
+    expect(detectDeviceClass(ANDROID_UA, "web")).toBe("android");
+    expect(detectDeviceClass("Mozilla/5.0 (iPhone; ...)", "web")).toBe("ios");
+  });
+  it("platform を省くと shellPlatform() を読む(Capacitor が無ければ web = 今までの結果)", () => {
+    expect(globalThis.window?.Capacitor).toBeUndefined();
+    expect(detectDeviceClass(MAC_UA)).toBe("pc");
+    expect(detectDeviceClass(ANDROID_UA)).toBe("android");
+  });
+  it("platform を省いたとき、殻の中(window.Capacitor が ios)なら Mac の UA でも ios(既定の引数が配線されている)", () => {
+    const had = Object.prototype.hasOwnProperty.call(globalThis, "window");
+    const prev = globalThis.window;
+    globalThis.window = { Capacitor: { isNativePlatform: () => true, getPlatform: () => "ios" } };
+    try {
+      expect(detectDeviceClass(MAC_UA)).toBe("ios");
+    } finally {
+      if (had) globalThis.window = prev; else delete globalThis.window;
+    }
+  });
 });
 
 // 【便BH 差し戻し(統括裁定4)】プロフィールを保存したあとの手元の profile。

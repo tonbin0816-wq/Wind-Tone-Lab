@@ -248,7 +248,7 @@ const code = [
   extractConst("RING_BREATH_MS"),
   extractConst("RING_BREATH_RISE"),
   extractConst("RING_GLOW_AMP"),
-  // 外周の光(F-47。試作 public/ring-proto.html 案③ の移植)
+  // 外周の光(F-47。試作 design/ring-proto.html 案③ の移植)
   extractConst("RING_GLOW_NEAR_CENTS"),
   extractConst("RING_GLOW_PEAK"),
   extractConst("RING_GLOW_EDGE_R"),
@@ -2709,7 +2709,7 @@ console.log("=== 検証19: 環の配色(OKLCH)・帯のグラデーション・�
     return true;
   })());
   // ------------------------------------------------------------------
-  // D-3b. 外周の光の**形**(F-47。試作 public/ring-proto.html 案③ の移植)。
+  // D-3b. 外周の光の**形**(F-47。試作 design/ring-proto.html 案③ の移植)。
   //
   // ここで守るのは3つ:
   //   (1) 光の最大は環のトラックの外縁にある(立ち上がりが外へはみ出すと、環と光の間に
@@ -32268,6 +32268,219 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("BV.11 リードの広い木の SwipePager は bleed(窓を同じ余白ぶん広げる。左ペインの左端を窓が切らない)。狭い木には渡さない",
       /<SwipePager\s*\n\s*index=\{reedsSubTab === "compare" \? 1 : 0\}\s*\n\s*onIndexChange=\{[^\n]*\}\s*\n\s*fill=\{reedsSubTab === "register"\}\s*\n\s*bleed\s*\n\s*>/.test(reedWide)
       && !/\bbleed\b/.test(codeOf(reedNarrow)));
+  }
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[殻] Capacitor の iOS アプリ(便S1 殻の骨: 判定1か所・部品の閉じ込め・設定ファイル・秘密の不在)");
+  // 【殻 S1 2026-10-04】凍結仕様 shell-spec.md §8.2 のうち S1 ぶん。期待値は仕様の綴り(§1.1〜§1.4・§3・付録A〜D)から手で書く。
+  // 守っているもの = 綴りと設定ファイルの中身。振る舞い(殻 / Web の分岐)は vitest(src/shell/native.test.js・
+  // src/community/firebaseClientShell.test.js・profile.test.js)が描いて確かめる。
+  // 【守っていないもの】Swift のコンパイル(Windows では通せない。誤りは Codemagic のビルドで初めて出る)・
+  //   FicusViewController が実機で実際に根の ViewController として動くこと(K.6 は SceneDelegate.swift が
+  //   window?.rootViewController = FicusViewController() と書いていることと Main.storyboard の綴りを見るだけ)・指2本の拡大・
+  //   Info.plist の説明文が許可の画面に出ること・codemagic.yaml が Codemagic で通ること。いずれも実機 / Codemagic 待ち。
+  const rootK = join(__dirname, "..");
+  const readK = (p) => readFileSync(join(rootK, p), "utf8");
+  const existsK = (p) => { try { _readFileSyncRaw(join(rootK, p)); return true; } catch { return false; } };
+  // src の下のファイル(テストと検査の道具は除く ── テストは window.Capacitor をモックし、@capacitor/* のモックを import する)
+  const walkK = (dir, out = []) => {
+    for (const ent of readdirSync(join(rootK, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${ent.name}`;
+      if (ent.isDirectory()) walkK(rel, out);
+      else if (/\.(jsx?|mjs)$/.test(ent.name) && !/\.test\.|\.testutil\./.test(ent.name)) out.push(rel);
+    }
+    return out;
+  };
+  const srcFilesK = walkK("src");
+  const isNativeFileK = (f) => /^src\/shell\/[^/]+\.native\.js$/.test(f);
+  const textK = Object.fromEntries(srcFilesK.map((f) => [f, readK(f)]));
+
+  // --- K.1 @capacitor/* を静的に import してよいのは src/shell/*.native.js だけ ---------------------------------------
+  {
+    const staticCap = /(?:\bfrom\s*|\bimport\s*)["']@capacitor(?:-community)?\//;
+    const offenders = srcFilesK.filter((f) => !isNativeFileK(f) && staticCap.test(textK[f]));
+    check("K.1 src の *.native.js 以外に @capacitor/* ・@capacitor-community/* の静的 import が無い", ["src/App.jsx", "src/main.jsx", "src/shell/native.js", "src/community/CommunityTab.jsx"].every((f) => srcFilesK.includes(f)) && offenders.length === 0, offenders.join(", "));
+    const staticNative = /(?:\bfrom\s*|\bimport\s*)["'][^"']*\.native\.js["']/;
+    const off2 = srcFilesK.filter((f) => staticNative.test(textK[f]));
+    check("K.1 *.native.js を静的に import している所が無い(読むのは import(...) の中だけ)", off2.length === 0, off2.join(", "));
+  }
+
+  // --- K.2 殻の判定は src/shell/native.js の1か所 --------------------------------------------------------------------
+  {
+    const nativeK = textK["src/shell/native.js"] || "";
+    const only = (re) => srcFilesK.filter((f) => re.test(textK[f]));
+    check("K.2 window.Capacitor の綴りは src/shell/native.js だけ", JSON.stringify(only(/window\.Capacitor/)) === JSON.stringify(["src/shell/native.js"]), only(/window\.Capacitor/).join(", "));
+    check("K.2 isNativePlatform の綴りは src/shell/native.js だけ", JSON.stringify(only(/isNativePlatform/)) === JSON.stringify(["src/shell/native.js"]), only(/isNativePlatform/).join(", "));
+    check("K.2 capacitor: の綴り(scheme で殻を見分ける)は src/shell/native.js の外に無い", only(/capacitor:/i).every((f) => f === "src/shell/native.js"), only(/capacitor:/i).join(", "));
+    // UA を読む行(.userAgent)の集合そのものが不変条件(新しい読み = 新しい UA の判定)。既存の2行と一字一句で突き合わせる。
+    const uaReads = srcFilesK.flatMap((f) => codeOf(textK[f]).split("\n").filter((l) => /\.userAgent\b/.test(l)).map((l) => `${f}: ${l.trim()}`)).sort();
+    check("K.2 UA を読むのは既存の2行(iosViewport.js の applyIOSViewport・profile.js の detectDeviceClass の既定の引数 = 種別の判定)だけ。殻を UA で見分ける新しい読みが無い",
+      JSON.stringify(uaReads) === JSON.stringify([
+        'src/community/profile.js: export function detectDeviceClass(ua = (typeof navigator !== "undefined" ? navigator.userAgent : ""), platform = shellPlatform()) {',
+        "src/iosViewport.js: if (!isIOSDevice(nav?.userAgent, nav?.maxTouchPoints)) return false;",
+      ]), uaReads.join(" / "));
+    check("K.2 native.js は @capacitor/core を import しない(Web のバンドルに殻の部品を入れない)・isNativeShell / shellPlatform を export する",
+      !/\bimport\b/.test(codeOf(nativeK))
+      && /export function isNativeShell\(\) \{\s*\n\s*try \{ return typeof window !== "undefined" && window\.Capacitor\?\.isNativePlatform\?\.\(\) === true; \} catch \{ return false; \}/.test(nativeK)
+      && /export function shellPlatform\(\) \{\s*\n\s*try \{ return isNativeShell\(\) \? String\(window\.Capacitor\.getPlatform\(\)\) : "web"; \} catch \{ return "web"; \}/.test(nativeK));
+  }
+
+  // --- K.3 iPad の端末種別・Firebase Auth の綴り ------------------------------------------------------------------
+  {
+    const profK = codeOf(textK["src/community/profile.js"] || "");
+    const fn = (/export function detectDeviceClass\([^\n]*\{\n([\s\S]*?)\n\}/.exec(profK) || [])[0] || "";
+    check("K.3 detectDeviceClass は platform = shellPlatform() を既定に取り、ios / android を UA より先に返す(Web の UA の判定3行はそのまま)",
+      /^export function detectDeviceClass\(ua = \(typeof navigator !== "undefined" \? navigator\.userAgent : ""\), platform = shellPlatform\(\)\) \{\n  if \(platform === "ios"\) return "ios";\n  if \(platform === "android"\) return "android";\n  if \(\/iPhone\|iPad\|iPod\/\.test\(ua\)\) return "ios";\n  if \(\/Android\/\.test\(ua\)\) return "android";\n  return "pc";\n\}$/.test(fn)
+      && /import \{ shellPlatform \} from "\.\.\/shell\/native\.js";/.test(profK), fn);
+    const fbK = codeOf(textK["src/community/firebaseClient.js"] || "");
+    const cnt = (s) => fbK.split(s).length - 1;
+    check("K.3 firebaseClient: 殻だけ initializeAuth(indexedDBLocalPersistence)・Web の枝の getAuth(app) は1回(残っている)",
+      // 左の境目(const auth = )まで含めた丸ごとで数える(!isNativeShell() への反転を通さない)
+      cnt("const auth = isNativeShell() ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app);") === 1
+      && cnt("getAuth(app)") === 1
+      && /import \{ getAuth, initializeAuth, indexedDBLocalPersistence \} from "firebase\/auth";/.test(fbK)
+      && /import \{ isNativeShell \} from "\.\.\/shell\/native\.js";/.test(fbK)
+      && /cached = \{ app, auth, db: getFirestore\(app\) \};/.test(fbK));
+  }
+
+  // --- K.4 capacitor.config.json(付録A) --------------------------------------------------------------------------
+  {
+    let conf = null, err = "";
+    try { conf = JSON.parse(readK("capacitor.config.json")); } catch (e) { err = String(e.message || e); }
+    const themeColor = (/<meta name="theme-color" content="([^"]+)"/.exec(readK("index.html")) || [])[1];
+    check("K.4 capacitor.config.json: appId jp.tobine.ficus・appName Ficus・webDir dist・zoomEnabled true",
+      !!conf && conf.appId === "jp.tobine.ficus" && conf.appName === "Ficus" && conf.webDir === "dist" && conf.zoomEnabled === true, err || JSON.stringify(conf));
+    check("K.4 capacitor.config.json: server.url を書かない(書くと Vercel を表示する Web ラッパーになる)",
+      !!conf && !(conf.server && "url" in conf.server) && !/"url"\s*:/.test(readK("capacitor.config.json")));
+    check("K.4 capacitor.config.json: backgroundColor は index.html の theme-color(= --c-bg)と同じ",
+      !!conf && typeof themeColor === "string" && conf.backgroundColor === themeColor, `${conf && conf.backgroundColor} / ${themeColor}`);
+  }
+
+  // --- K.5 Info.plist(付録C の S1 ぶん) ----------------------------------------------------------------------------
+  {
+    const plist = existsK("ios/App/App/Info.plist") ? readK("ios/App/App/Info.plist") : "";
+    const valueOf = (key) => {
+      const m = new RegExp(`<key>${key}</key>\\s*(?:<string>([\\s\\S]*?)</string>|<(true|false)\\s*/>|<array>([\\s\\S]*?)</array>)`).exec(plist);
+      if (!m) return undefined;
+      if (m[1] !== undefined) return m[1];
+      if (m[2] !== undefined) return m[2] === "true";
+      return [...m[3].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((x) => x[1]);
+    };
+    const mic = valueOf("NSMicrophoneUsageDescription");
+    const cam = valueOf("NSCameraUsageDescription");
+    const photo = valueOf("NSPhotoLibraryUsageDescription");
+    check("K.5 Info.plist: マイク・カメラ・写真の説明文が非空・マイクの文に「サーバーへ送りません」",
+      plist.length > 0 && typeof mic === "string" && mic.trim().length > 0 && mic.includes("サーバーへ送りません")
+      && typeof cam === "string" && cam.trim().length > 0 && typeof photo === "string" && photo.trim().length > 0, JSON.stringify({ mic, cam, photo }));
+    // 【審査の指摘】WKWebView で画像を長押し →「写真に追加」は写真への書き込みの説明文が無いと落ちる
+    const photoAdd = valueOf("NSPhotoLibraryAddUsageDescription");
+    check("K.5 Info.plist: 写真への保存の説明文(NSPhotoLibraryAddUsageDescription)が非空で「保存」を言う",
+      typeof photoAdd === "string" && photoAdd.trim().length > 0 && photoAdd.includes("保存"), JSON.stringify(photoAdd));
+    check("K.5 Info.plist: iPhone の向きは UIInterfaceOrientationPortrait 1つだけ(縦固定)",
+      JSON.stringify(valueOf("UISupportedInterfaceOrientations")) === JSON.stringify(["UIInterfaceOrientationPortrait"]), JSON.stringify(valueOf("UISupportedInterfaceOrientations")));
+    check("K.5 Info.plist: iPad(~ipad)は4つの向き全部",
+      JSON.stringify((valueOf("UISupportedInterfaceOrientations~ipad") || []).slice().sort()) === JSON.stringify([
+        "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight", "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]),
+      JSON.stringify(valueOf("UISupportedInterfaceOrientations~ipad")));
+    check("K.5 Info.plist: UIRequiresFullScreen を書かない・ITSAppUsesNonExemptEncryption = false",
+      plist.length > 0 && !plist.includes("UIRequiresFullScreen") && valueOf("ITSAppUsesNonExemptEncryption") === false);
+    check("K.5 Info.plist: ホーム画面の名前は Ficus・開発地域は ja",
+      valueOf("CFBundleDisplayName")?.trim() === "Ficus" && valueOf("CFBundleDevelopmentRegion") === "ja");
+    check("K.5 Info.plist の説明文に「機材」「機種」が無い(語彙の禁則)", plist.length > 0 && !/機材|機種/.test(plist));
+  }
+
+  // --- K.6 AppDelegate.swift(付録D)と Main.storyboard ---------------------------------------------------------
+  {
+    const swift = existsK("ios/App/App/AppDelegate.swift") ? readK("ios/App/App/AppDelegate.swift") : "";
+    const board = existsK("ios/App/App/Base.lproj/Main.storyboard") ? readK("ios/App/App/Base.lproj/Main.storyboard") : "";
+    check("K.6 AppDelegate.swift: class FicusViewController: CAPBridgeViewController が webViewConfiguration で ignoresViewportScaleLimits = true にする",
+      /class FicusViewController: CAPBridgeViewController \{/.test(swift)
+      && /override open func webViewConfiguration\(for instanceConfiguration: InstanceConfiguration\) -> WKWebViewConfiguration \{\s*\n\s*let configuration = super\.webViewConfiguration\(for: instanceConfiguration\)\s*\n\s*configuration\.ignoresViewportScaleLimits = true\s*\n\s*return configuration/.test(swift));
+    check("K.6 AppDelegate.swift: capacitorDidLoad で registerPluginInstance(FicusAudioSessionPlugin())",
+      /override open func capacitorDidLoad\(\) \{\s*\n\s*bridge\?\.registerPluginInstance\(FicusAudioSessionPlugin\(\)\)/.test(swift));
+    check("K.6 AppDelegate.swift: 音の出口は options: [.defaultToSpeaker] + overrideOutputAudioPort(.speaker)・allowBluetooth の綴りが無い",
+      /try session\.setCategory\(\.playAndRecord, mode: \.default, options: \[\.defaultToSpeaker\]\)/.test(swift)
+      && /try session\.overrideOutputAudioPort\(\.speaker\)/.test(swift) && !/allowBluetooth/.test(swift));
+    // 【統括の裁定】Capacitor 8.5.2 のテンプレートは UIScene の作法で、SceneDelegate が根を自分で作る(storyboard だけ替えても根にならない)。
+    const scene = existsK("ios/App/App/SceneDelegate.swift") ? readK("ios/App/App/SceneDelegate.swift") : "";
+    check("K.6 SceneDelegate.swift: 根は FicusViewController()(CAPBridgeViewController() を作らない)",
+      /\n\s*window\?\.rootViewController = FicusViewController\(\)\n/.test(scene) && !/CAPBridgeViewController\(\)/.test(scene)
+      && (scene.match(/rootViewController\s*=/g) || []).length === 1, scene.split("\n").filter((l) => /rootViewController/.test(l)).join(" / "));
+    check("K.6 Main.storyboard: customClass は FicusViewController(module App)・CAPBridgeViewController の customClass が残っていない",
+      /customClass="FicusViewController" customModule="App" customModuleProvider="target"/.test(board) && !/customClass="CAPBridgeViewController"/.test(board));
+  }
+
+  // --- K.7 codemagic.yaml(付録B)と秘密の不在 --------------------------------------------------------------------
+  {
+    const cm = existsK("codemagic.yaml") ? readK("codemagic.yaml") : "";
+    check("K.7 codemagic.yaml: instance_type mac_mini_m2・bundle_identifier jp.tobine.ficus・submit_to_app_store false",
+      /\n\s+instance_type: mac_mini_m2\n/.test(cm) && /\n\s+bundle_identifier: jp\.tobine\.ficus\n/.test(cm) && /\n\s+submit_to_app_store: false\b/.test(cm));
+    check("K.7 codemagic.yaml: xcode-project build-ipa は --project で Xcode プロジェクトを渡す(SPM 版。pod install は無い)",
+      /xcode-project build-ipa --project "\$XCODE_PROJECT" --scheme "\$XCODE_SCHEME"/.test(cm) && /XCODE_PROJECT: ios\/App\/App\.xcodeproj/.test(cm) && !/pod install/.test(cm));
+    check("K.7 codemagic.yaml: 統合の名前 ficus-asc・環境変数のグループ ficus_firebase を参照するだけ",
+      /\n\s+app_store_connect: ficus-asc\b/.test(cm) && /\n\s+- ficus_firebase\b/.test(cm) && /\n\s+auth: integration\n/.test(cm));
+    check("K.7 codemagic.yaml に秘密が無い(-----BEGIN・AuthKey_・Issuer ID の形の UUID)",
+      cm.length > 0 && !cm.includes("-----BEGIN") && !cm.includes("AuthKey_") && !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(cm));
+  }
+
+  // --- K.8 package.json(依存の版は exact・誤った依存の削除) -----------------------------------------------------
+  {
+    const pkg = JSON.parse(readK("package.json"));
+    const all = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    const shellDeps = Object.entries(all).filter(([k]) => /^@capacitor\/|^@capacitor-community\/|^@fontsource\//.test(k));
+    check("K.8 package.json: \"ficus\": \"file:...\" の依存が無い(Codemagic の npm ci が存在しない path で落ちる)",
+      !/"ficus":\s*"file:/.test(readK("package.json")) && !("ficus" in all));
+    check("K.8 package.json: @capacitor/* ・@capacitor-community/* ・@fontsource/* の版は全部 exact(^ ~ 無し)",
+      JSON.stringify(shellDeps.map(([k]) => k).sort()) === JSON.stringify(["@capacitor/cli", "@capacitor/core", "@capacitor/ios", "@fontsource/instrument-serif"])
+      && shellDeps.every(([, v]) => /^\d+\.\d+\.\d+$/.test(v)), JSON.stringify(shellDeps));
+    // 版は仕様 §1.3 の表(2026-10-04 確認)から手で写す。上げるのは専用の便でだけ。
+    check("K.8 package.json: 版は仕様の固定どおり(core / ios / cli 8.5.2・instrument-serif 5.3.0)",
+      pkg.dependencies["@capacitor/core"] === "8.5.2" && pkg.dependencies["@capacitor/ios"] === "8.5.2"
+      && pkg.devDependencies["@capacitor/cli"] === "8.5.2" && pkg.dependencies["@fontsource/instrument-serif"] === "5.3.0");
+    // 【統括の裁定】アイコンと起動画面は生成済みを git に入れてある。生成の道具(@capacitor/assets → sharp → libvips の取得)は
+    // Codemagic の npm ci に要らず、取得の失敗で npm ci を落とし得るので依存に入れない(作り直しは npx @capacitor/assets@3.0.5)。
+    check("K.8 @capacitor/assets と sharp は依存に無い(package.json にも lock にも)",
+      !("@capacitor/assets" in all) && !("sharp" in all)
+      && !Object.keys(JSON.parse(readK("package-lock.json")).packages || {}).some((k) => /(^|\/)node_modules\/(sharp|@capacitor\/assets)$/.test(k)));
+    const lock = readK("package-lock.json");
+    check("K.8 package-lock.json に worktree を指す項目(file:.claude / node_modules/ficus)が残っていない",
+      !lock.includes(".claude/worktrees") && !lock.includes("\"node_modules/ficus\""));
+  }
+
+  // --- K.9 生成物を git に入れない・字の同梱 --------------------------------------------------------------------
+  {
+    const ig = (existsK(".gitignore") ? readK(".gitignore") : "") + "\n" + (existsK("ios/.gitignore") ? readK("ios/.gitignore") : "");
+    check("K.9 .gitignore / ios/.gitignore に App/App/public と App/App/capacitor.config.json(cap sync の生成物)",
+      /(^|\n)\s*(ios\/)?App\/App\/public\s*(\n|$)/.test(ig) && /(^|\n)\s*(ios\/)?App\/App\/capacitor\.config\.json\s*(\n|$)/.test(ig));
+    const html = readK("index.html");
+    check("K.9 index.html: fonts.googleapis / fonts.gstatic が無い(字は @fontsource で同梱)", !/fonts\.googleapis|fonts\.gstatic/.test(html));
+    check("K.9 public/ring-proto.html が無く design/ring-proto.html がある(試作を dist に入れない)",
+      !existsK("public/ring-proto.html") && existsK("design/ring-proto.html"));
+  }
+
+  // --- K.11 ビルド番号: agvtool が効く形(統括の裁定) ------------------------------------------------------------------
+  {
+    const pbx = existsK("ios/App/App.xcodeproj/project.pbxproj") ? readK("ios/App/App.xcodeproj/project.pbxproj") : "";
+    // App ターゲットの構成 = INFOPLIST_FILE = App/Info.plist を持つ XCBuildConfiguration(Debug / Release)
+    const cfgs = [...pbx.matchAll(/\/\* (Debug|Release) \*\/ = \{\n\t\t\tisa = XCBuildConfiguration;[\s\S]*?\n\t\t\tname = (?:Debug|Release);\n\t\t\};/g)]
+      .filter((m) => /INFOPLIST_FILE = App\/Info\.plist;/.test(m[0]));
+    const plistK = existsK("ios/App/App/Info.plist") ? readK("ios/App/App/Info.plist") : "";
+    const cmK = existsK("codemagic.yaml") ? readK("codemagic.yaml") : "";
+    check("K.11 App ターゲットの Debug と Release に VERSIONING_SYSTEM = apple-generic と CURRENT_PROJECT_VERSION・CFBundleVersion は $(CURRENT_PROJECT_VERSION)・Codemagic は ios/App で agvtool new-version -all $BUILD_NUMBER",
+      JSON.stringify(cfgs.map((m) => m[1]).sort()) === JSON.stringify(["Debug", "Release"])
+      && cfgs.every((m) => /\n\t\t\t\tVERSIONING_SYSTEM = "apple-generic";\n/.test(m[0]) && /\n\t\t\t\tCURRENT_PROJECT_VERSION = \d+;\n/.test(m[0]))
+      && /<key>CFBundleVersion<\/key>\s*<string>\$\(CURRENT_PROJECT_VERSION\)<\/string>/.test(plistK)
+      && /\n\s+cd ios\/App\n\s+agvtool new-version -all \$BUILD_NUMBER\n/.test(cmK),
+      cfgs.map((m) => m[1]).join(","));
+  }
+
+  // --- K.10 試験用の広告ユニット ID の綴りは src/shell/adsConfig.js の外に現れない(S1〜S3) ------------------------------
+  {
+    const demo = "3940256099942544/2435281174";
+    const hits = srcFilesK.filter((f) => textK[f].includes(demo));
+    check("K.10 demo のユニット ID の綴りは src/shell/adsConfig.js の外に無い", hits.every((f) => f === "src/shell/adsConfig.js"), hits.join(", "));
   }
   console.log("  -> done");
 }

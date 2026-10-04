@@ -1,0 +1,49 @@
+# Ficus の iOS の殻(Capacitor 8・SPM)。手で開始する(無料枠 500 分/月)。タグ ios-v* の push でも動く。
+# 秘密(API キー・.p8・証明書)はこのファイルに書かない。Codemagic の Team integrations / Code signing identities / Environment variables に本人が入れる。
+workflows:
+  ios-testflight:
+    name: Ficus iOS (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: ficus-asc          # §7-B で付けた API キーの名前
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: jp.tobine.ficus
+      groups:
+        - ficus_firebase                    # VITE_FIREBASE_API_KEY / AUTH_DOMAIN / PROJECT_ID / APP_ID(§7-D)
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+      node: 22
+      xcode: 26.2
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'ios-v*'
+      cancel_previous_builds: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web
+        script: npm run build
+      - name: Capacitor sync (copies dist into ios/App/App/public, updates CapApp-SPM)
+        script: npx cap sync ios
+      - name: Set build number
+        script: |
+          cd ios/App
+          agvtool new-version -all $BUILD_NUMBER
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build ipa
+        script: xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

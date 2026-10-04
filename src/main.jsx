@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App, { warmPersistedStateCache } from './App.jsx'
+import '@fontsource/instrument-serif/400.css'
+import '@fontsource/instrument-serif/400-italic.css'
 import './index.css'
 import { applyIOSViewport } from './iosViewport.js'
 import { applyAdPreview } from './adPreview.js'

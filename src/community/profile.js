@@ -1,5 +1,6 @@
 import { findNgWord } from "./ngwords/filter.js";
 import { isValidInstrument, isValidMouthpiece, isValidLigature, isValidReed } from "./catalog/gear.js";
+import { shellPlatform } from "../shell/native.js";
 
 // spec §4.1 の選択肢。文言を変えるときは設計書も直すこと。
 //
@@ -190,7 +191,12 @@ export function validateNickname(raw) {
   return { value };
 }
 
-export function detectDeviceClass(ua = (typeof navigator !== "undefined" ? navigator.userAgent : "")) {
+// 【殻 S1】殻の中の iPad は WKWebView が Mac を名乗る(Safari の既定と同じ)ので、UA だけだと "pc" と記録されていた。
+// 殻では Capacitor の getPlatform()(shellPlatform)が UA に依らず "ios" を返すので、それを先に見る。
+// Web では shellPlatform() が "web" を返し、下の UA の判定へ落ちる(今までと1文字も変わらない結果)。
+export function detectDeviceClass(ua = (typeof navigator !== "undefined" ? navigator.userAgent : ""), platform = shellPlatform()) {
+  if (platform === "ios") return "ios";
+  if (platform === "android") return "android";
   if (/iPhone|iPad|iPod/.test(ua)) return "ios";
   if (/Android/.test(ua)) return "android";
   return "pc";

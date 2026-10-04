@@ -1169,7 +1169,46 @@ iPhone を横にすると（幅 667〜956・高さ 375〜440）、JS の判定�
 下部タブ 480 → 640 など）。これは受け入れた形で、狭いときだけ以前の上限（900 / 480）に戻す仕組み（`data-wide` など）は足さない ──
 iPhone を横にするのは Safari で開いた Web 版だけで、アプリの殻では iPhone は縦に固定する。640 の列で横向きが読みにくくなることもなく、
 iPad との分岐を2か所に持つより上限を1つにしておくほうが安全なため。
-- **殻の宿題**: Info.plist: iPhone は `UISupportedInterfaceOrientations` を portrait のみ、iPad（`UISupportedInterfaceOrientations~ipad`）は全向き。`UIRequiresFullScreen` は書かない。
+- **殻の宿題**: 済（便S1。`ios/App/App/Info.plist`）。iPhone は `UISupportedInterfaceOrientations` を portrait のみ、iPad（`UISupportedInterfaceOrientations~ipad`）は全向き。`UIRequiresFullScreen` は書かない。
+
+---
+
+## 3.5 殻（iOS アプリ）（【殻 S1 2026-10-04】Capacitor 8 の WKWebView で Web 版を包む。Web 版（Vercel）の挙動は変えない）
+
+- **殻の判定は1か所**: `src/shell/native.js` の `isNativeShell()` / `shellPlatform()`。`window.Capacitor` を読むのはここだけ。
+  UA やページの scheme で殻を見分ける綴りは書かない。分岐は `if (isNativeShell()) { … return; }` を**足す**形で、Web の枝は綴りを変えない。
+- **ネイティブの部品は `src/shell/*.native.js` に閉じる**: `@capacitor/*` `@capacitor-community/*` を静的に import してよいのはそこだけ。
+  他のファイルは `isNativeShell()` が真の枝の中で**動的 import** だけで読む（Web 版のメインチャンクに殻の部品が入らない）。
+- **端末種別**: 殻の iPad は WKWebView が Mac を名乗るので、`detectDeviceClass` は `shellPlatform()` を先に見る（Web は UA の判定のまま）。
+- **Firebase Auth**: 殻だけ `initializeAuth(app, { persistence: indexedDBLocalPersistence })`。Web は `getAuth(app)` のまま。
+- **字**: Instrument Serif は `@fontsource/instrument-serif`（`src/main.jsx` の import）で同梱する。Google Fonts からは取らない（Web 版も同じ。殻はオフラインでも崩れない）。
+- **拡大（指2本）**: 殻の ViewController（`FicusViewController`。`ios/App/App/AppDelegate.swift`）で `ignoresViewportScaleLimits = true` ── Safari と同じ規則
+  （`maximum-scale=1` は入力欄の自動拡大だけを止め、指2本の拡大は効く）。`capacitor.config.json` の `zoomEnabled: true` も要る。実機で広げられなければ F-16 は殻では無効と書く。
+- **根の ViewController**: Capacitor 8.5.2 のテンプレートは UIScene の作法で、`ios/App/App/SceneDelegate.swift` が根を自分で作る。そこを
+  `FicusViewController()` にしてある（`Main.storyboard` の customClass も同じクラス。storyboard だけ替えても根にはならない）。
+- **ビルド番号**: App ターゲットの Debug / Release に `VERSIONING_SYSTEM = "apple-generic"`。Info.plist の `CFBundleVersion` は `$(CURRENT_PROJECT_VERSION)`。
+  Codemagic の `agvtool new-version -all $BUILD_NUMBER`（`ios/App` で実行）が `CURRENT_PROJECT_VERSION` を書き換え、それが CFBundleVersion に通る。
+- **アイコンと起動画面は生成済みを git に入れてある**（`ios/App/App/Assets.xcassets/AppIcon.appiconset`・`Splash.imageset`、入力は `assets/logo.png`
+  = `public/icon.svg` を 1024×1024・アルファ無しにしたもの）。生成の道具（`@capacitor/assets` とその sharp）は依存に入れない（Codemagic の `npm ci` に要らず、
+  sharp の install が libvips を取りに行って落ち得るため）。作り直すときだけ、版を固定して手元で走らせる（PowerShell では1行ずつ）:
+  ```
+  npm install --no-save sharp@0.32.6
+  node -e "require('sharp')('public/icon.svg').resize(1024,1024).removeAlpha().png().toFile('assets/logo.png')"
+  npx @capacitor/assets@3.0.5 generate --ios --iconBackgroundColor '#174585' --splashBackgroundColor '#FFFFFF' --splashBackgroundColorDark '#FFFFFF'
+  ```
+  生成器は `Splash.imageset/Contents.json` を書き換えるが古い画像は消さないので、参照されなくなった png があれば消す。アイコンがアルファを持たない（RGB）ことを確かめる。
+  **起動画面だけは地なしのロゴで作る**（【審査の指摘】地ごとのロゴだと白地の真ん中に角の尖った紺の四角が出る）。入力は `assets/splash-logo.png`
+  = `assets/logo.png` から紺の地を抜いて紺の葉（葉脈は抜け）にし、葉の外接の正方形で切り出した 1024×1024 の透過 PNG。上の生成器は `logo.png` から
+  アイコンと起動画面を同時に作るので、起動画面は**別の作業フォルダ**（`capacitor.config.json` と `ios/` の写し、`assets/logo.png` = `splash-logo.png`）で同じコマンドを
+  走らせ、`Splash.imageset` の png 6枚だけを写す（アイコンは写さない）。ダークの起動画面も白地（`--splashBackgroundColorDark '#FFFFFF'`）。
+  Windows ではパスが長いと生成器が書き込めない（`unable to open for write`）ので、作業フォルダは短いパスに置く。
+  葉は iPhone 縦（scaleAspectFill）で高さ約 63pt・幅約 24pt（2732px の画像で 204×78px）。
+- **実機の点検（便S1・TestFlight。仕様 §8.4）**: 白い起動画面（紺の葉）→ アプリ / 計測タブで許可を1回 → 環が動く / iPhone を横にしても回らない /
+  データタブの評価グラフを指2本で広げられる / 設定行の入力欄を押しても画面が寄らない / コミュニティに匿名で参加でき、終了して開き直しても参加したまま /
+  マイページで写真を選べる（写真を撮る・フォトライブラリの両方で落ちない）/ **写真を長押しして「写真に追加」で保存しても落ちない** / 機内モードでも計測・リード・データが動く（字が崩れない）。
+- **便S2 で入る（予定）**: 計測タブを離れたらマイクを止める（殻だけ `stop`。定数 `SHELL_STOP_MIC_ON_TAB_LEAVE` で Web と同じ `pause` に戻せる）/
+  音の出口をスピーカーへ（AVAudioSession `playAndRecord` + `defaultToSpeaker`。Bluetooth は許可しない）と、メトロノームのマスターゲインを殻で 1.0（Web は 2.6 のまま）。
+- **便S3 で入る（予定）**: AdMob の帯の実寸を `--ad-h` に入れる（見本の帯の 50px ではなく実寸。シートの間は帯を隠すが `--ad-h` は戻さない）。
 
 ---
 
