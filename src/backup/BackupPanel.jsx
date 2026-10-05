@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildSnapshot, validateSnapshot, snapshotFileName } from "./snapshot.js";
 import { readAll, writeAll, requestPersistence, storageEstimate } from "./localStore.js";
+import { isNativeShell } from "../shell/native.js";
 
 const jpNum = (n) => Number(n ?? 0).toLocaleString("ja-JP");
 
@@ -60,6 +61,15 @@ export default function BackupPanel() {
       const all = await readAll();
       const snapshot = buildSnapshot(all);
       const name = snapshotFileName();
+      if (isNativeShell()) {
+        // 【殻 S2】WKWebView は <a download> で何も起きない(しかも成功の知らせが出ていた)。ファイルに書いて共有シートへ。
+        // 下の Web の枝は1文字も変えていない(殻の仕様 §4.1)。失敗(throw)は下の catch の文言のまま。
+        const { exportSnapshotFile } = await import("../shell/backupExport.native.js");
+        const r = await exportSnapshotFile({ name, json: JSON.stringify(snapshot) });
+        if (r.cancelled) return;                                  // 共有シートを閉じただけ。知らせは出さない
+        setNotice(`計測${jpNum(snapshot.counts.sessions)}件を ${name} に書き出しました`);
+        return;
+      }
       const blob = new Blob([JSON.stringify(snapshot)], { type: "application/json" });
       url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -135,6 +145,12 @@ export default function BackupPanel() {
       <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 6 }}>
         記録はこの端末の中だけにあります。ファイルに書き出しておくと、別の端末や入れ直したあとに戻せます。
       </div>
+      {/* 【殻 S2】Web 版の記録の移し方(殻だけ。殻の仕様 §4.5 (b))。体裁は上の説明文と同じ。 */}
+      {isNativeShell() && (
+        <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 6 }}>
+          Web 版で使っていた記録は、Web 版の同じ画面で「ファイルに書き出す」→ ここで「ファイルから読み戻す」の順で移せます。コミュニティの匿名アカウントは移せません。
+        </div>
+      )}
 
       {(storageLine || persistenceLine) && (
         <div className="sans" style={{ fontSize: 11, color: "var(--c-ink-3)", lineHeight: 1.6, marginTop: 8, display: "flex", flexWrap: "wrap", gap: 9 }}>

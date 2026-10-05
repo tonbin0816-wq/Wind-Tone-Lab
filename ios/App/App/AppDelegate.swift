@@ -44,7 +44,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 // ============================================================
-// 【殻 S1/S2】Ficus のネイティブ側。新しい .swift を足さず(project.pbxproj を触らないため)ここに置く。
+// 【殻 S1/S2】Ficus のネイティブ側。新しい .swift を足さずここに置く(ソースのために project.pbxproj を触らないため。
+// pbxproj は S2 で PrivacyInfo.xcprivacy を Resources に入れるためだけに触っている)。
 // ============================================================
 import WebKit
 import AVFoundation
@@ -64,7 +65,11 @@ class FicusViewController: CAPBridgeViewController {
 }
 
 // S2: 音の出口。マイクを開いている間、iOS は出力を受話口へ回す。playAndRecord + defaultToSpeaker で本体のスピーカーへ。
-// Bluetooth は許可しない(マイクが替わる・遅延)。有線は挿せばそちらへ出る。
+// 【本人裁定 2026-10-05】Bluetooth のイヤホンへは出す(allowBluetoothA2DP = 出力だけ Bluetooth。マイクは本体のまま)。
+// HFP(.allowBluetoothHFP / 旧名 .allowBluetooth)は付けない ── マイクが Bluetooth 側へ替わり、音が電話の品質に落ちるため。
+// 有線・Bluetooth のイヤホンがつながっていればそちらへ、無ければスピーカーへ。受話口には出さない。
+// イヤホンをつなぐ・外す(経路の変化)たびに同じ規則を当て直す。外したとき(OldDeviceUnavailable)は WebKit が
+// AudioContext を一度止めるので、メトロノームは JS 側(App.jsx の onstatechange)で再開する(実機で確かめる)。
 @objc(FicusAudioSessionPlugin)
 public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FicusAudioSessionPlugin"
@@ -73,17 +78,64 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise)
     ]
 
+    // 殻の音のセッションの選択肢(値の唯一の答え)。
+    static let sessionOptions: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothA2DP]
+
+    @objc override public func load() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleRouteChange(_:)),
+                                               name: AVAudioSession.routeChangeNotification,
+                                               object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc func routeToSpeaker(_ call: CAPPluginCall) {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.overrideOutputAudioPort(.speaker)
+            // 選択肢が既に同じなら立て直さない(取り込み中・再生中の経路を無駄に揺らさない)
+            if session.category != .playAndRecord || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions {
+                try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
+            }
+            try applyOutputRule(session)
             call.resolve([
                 "category": session.category.rawValue,
                 "outputs": session.currentRoute.outputs.map { $0.portType.rawValue }
             ])
         } catch {
             call.reject("audio session: \(error.localizedDescription)")
+        }
+    }
+
+    // 経路の変化(イヤホンの抜き差し・Bluetooth の接続と切断・WebKit による種別の立て直し)。
+    // 通知は裏のスレッドで来るので main へ回す。当て直すのは「取り込み中(playAndRecord)」のときだけで、
+    // WebKit が再生だけの種別(playback など。受話口へは回らない)にしている間は触らない。
+    @objc func handleRouteChange(_ notification: Notification) {
+        DispatchQueue.main.async {
+            let session = AVAudioSession.sharedInstance()
+            guard session.category == .playAndRecord else { return }
+            do {
+                if session.categoryOptions != FicusAudioSessionPlugin.sessionOptions {
+                    try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
+                }
+                try self.applyOutputRule(session)
+            } catch {
+                CAPLog.print("FicusAudioSession: route change: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // 出口の規則: 受話口に出ているときだけ、本体のスピーカーへ寄せる。
+    // イヤホン(有線・Bluetooth)やスピーカーに出ているときは何もしない ── .speaker の上書きは
+    // 「つながっているイヤホンより本体のスピーカーを優先する」ので、イヤホンがあるときに呼んではいけない。
+    // 上書きは経路が変わると OS が外す(イヤホンを挿せばイヤホンへ)。外したあとは defaultToSpeaker でスピーカーへ戻る。
+    // スピーカーへ寄せた後は出口が builtInSpeaker になるので、この関数は2度目に何もしない(通知との往復が起きない)。
+    func applyOutputRule(_ session: AVAudioSession) throws {
+        let outputs = session.currentRoute.outputs.map { $0.portType }
+        if outputs.contains(.builtInReceiver) {
+            try session.overrideOutputAudioPort(.speaker)
         }
     }
 }

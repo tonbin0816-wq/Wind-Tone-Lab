@@ -1206,8 +1206,50 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
 - **実機の点検（便S1・TestFlight。仕様 §8.4）**: 白い起動画面（紺の葉）→ アプリ / 計測タブで許可を1回 → 環が動く / iPhone を横にしても回らない /
   データタブの評価グラフを指2本で広げられる / 設定行の入力欄を押しても画面が寄らない / コミュニティに匿名で参加でき、終了して開き直しても参加したまま /
   マイページで写真を選べる（写真を撮る・フォトライブラリの両方で落ちない）/ **写真を長押しして「写真に追加」で保存しても落ちない** / 機内モードでも計測・リード・データが動く（字が崩れない）。
-- **便S2 で入る（予定）**: 計測タブを離れたらマイクを止める（殻だけ `stop`。定数 `SHELL_STOP_MIC_ON_TAB_LEAVE` で Web と同じ `pause` に戻せる）/
-  音の出口をスピーカーへ（AVAudioSession `playAndRecord` + `defaultToSpeaker`。Bluetooth は許可しない）と、メトロノームのマスターゲインを殻で 1.0（Web は 2.6 のまま）。
+- **殻の中の振る舞い（【殻 S2 2026-10-05】）**。どれも `isNativeShell()` の枝を足しただけで、Web の枝は綴りを変えていない。
+  - **書き出し**: `<a download>` は WKWebView で何も起きないので、殻では `src/shell/backupExport.native.js`（Filesystem で Cache に書く →
+    Share の共有シート → 一時ファイルを消す）。共有シートを閉じただけなら知らせは出さない。読み戻しの `<input type="file">` は変えていない。
+  - **スリープ防止**: 殻では `navigator.wakeLock` ではなく KeepAwake（`src/shell/keepAwake.native.js`）。呼び手（録音・メトロノーム・取り込み解析）は同じ関数のまま。
+    KeepAwake は Web の wakeLock と違って**自動では解けない**ので、殻の枝でだけ解く（【審査】）: 画面が隠れたとき / MeasureView のアンマウント（録音中を除く）/
+    `stopListening` のあと（メトロノームが鳴っている間と取り込み解析の間を除く。録音は stopListening が終わらせる）。画面が見えるように戻ったら、
+    録音中・取り込み解析中（Web と同じ行）とメトロノームが ON の間（殻だけ）は取り直す。なお録音中は下部タブの移動そのものが止められている。
+  - **計測タブを離れたらマイクを止める**: 殻だけ `stop`（橙の印が消える。Capacitor が WebKit の許可を自動で通すので、戻っても許可の画面は出ない）。
+    実機で戻ったときに固まるなら `src/shell/policy.js` の `SHELL_STOP_MIC_ON_TAB_LEAVE = false` で Web と同じ `pause` に戻す（1か所）。
+  - **メトロノームのマスターゲイン**: 殻 1.0（`policy.js` の `METRO_MASTER_GAIN_SHELL`）・Web 2.6（`getMetroMasterInput` の行が唯一の答え）。実機でまだ小さければ殻も 2.6 にして再ビルド。
+    仕様の綴り（`master.gain.value = metroMasterGain(isNativeShell());`）からは外した: Web の 2.6 の行を見る既存の検査と、`getMetroMasterInput` を単独で回す検査を壊さないため、
+    殻の値は `startMetronome` が ctx に置き、`getMetroMasterInput` が読む。`policy.js` に Web の 2.6 の写しは持たない。
+  - **Web 版の記録の移し方**: 殻だけ・記録が 0 件の間だけ、すべての計測（AllSessionsPage）の「まだ記録がありません」の下に1行。
+    記録の保存（BackupPanel）の説明の下にも殻だけ1行（Web 版で書き出す → ここで読み戻す）。
+- **音の出口と Bluetooth（【本人裁定 2026-10-05】イヤホンから出す）**。殻の音のセッションは `playAndRecord` + `defaultToSpeaker` + `allowBluetoothA2DP`
+  （`ios/App/App/AppDelegate.swift` の `FicusAudioSessionPlugin.sessionOptions`。値の唯一の答え）。有線・Bluetooth のイヤホンがつながっていればそちらから、
+  無ければ本体のスピーカーから鳴り、受話口には出さない。**マイクは本体のまま**（`allowBluetoothHFP` = 旧名 `allowBluetooth` は付けない。
+  付けるとマイクが Bluetooth のヘッドセット側へ替わり、音が電話の品質に落ちる）。スピーカーへの上書き（`overrideOutputAudioPort(.speaker)`）は
+  **出口が受話口のときだけ**かける（イヤホンがあるときにかけると、イヤホンより本体のスピーカーが勝つため）。呼ぶのはマイクを取った直後と
+  メトロノームを鳴らし始めるとき（`src/shell/audio.js` の `shellRouteToSpeaker()`）。イヤホンをつなぐ・外す（`AVAudioSession.routeChangeNotification`）たびに、
+  取り込み中（`playAndRecord`）ならネイティブ側が同じ規則を当て直す（選択肢が違えば戻し、受話口ならスピーカーへ）。**イヤホンを外したとき**（OldDeviceUnavailable）は
+  WebKit が AudioContext を一度止めるので、こちらで再開する: メトロノームは殻の枝でだけ ctx の `onstatechange` で（鳴らしている間・画面が見えている間）、
+  計測側は tick が毎フレーム `resume()` を試みる既存の道で戻る。途切れずに戻るかは実機で確かめる。
+  Bluetooth の出力は機器によって 100ms 級の遅れがあり、メトロノームの音は拍より遅れて聞こえうる（承知の上の裁定）。
+- **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を
+  `ios/App/App/PrivacyInfo.xcprivacy` で申告し、App ターゲットの Resources に入れてある（プラグインの README の求め）。プラグインを足したら、その README の申告を足す。
+- **Capacitor の部品だけのチャンクの名前**: `vite.config.js` の `chunkFileNames` で `capacitor-*.native-*.js` にする（@capacitor/core の共有分が
+  `index-*.js` の名前になり、Web のメインチャンクと見分けがつかなくなるため）。切り方と中身は変えていない。
+- **開発版の殻（【殻 S2 統括の裁定】UI を実機で何度も見るため）**: Codemagic の workflow **`ios-dev`** で建てる。中身は `ios-testflight` と同じで、
+  違いは `npx cap sync ios` の後に `scripts/shell-dev-server-url.mjs` が生成物 `ios/App/App/capacitor.config.json` に `server.url` =
+  `https://wind-tone-lab.vercel.app` を足すこと（根の `capacitor.config.json` は変えない）と、ホーム画面の名前が **Ficus Dev**・TestFlight の
+  「テストの内容」が「開発版…」になること。
+  - **使い方**: main へ push すれば（Vercel の配信が更新されれば）、開発版のアプリを**一度終了して開き直すだけ**で反映される（裏に回して戻るだけでは読み直さない）。
+    **ネイティブの変更（Swift・Info.plist・プラグインの追加）は `ios-dev` の再ビルドが要る。**
+  - プラグイン（Filesystem・Share・KeepAwake・FicusAudioSession）は開発版でも動く（Capacitor はブリッジをどのオリジンにも差し込む。live reload と同じ仕組み）。
+  - **記録は本番版と別**: 開発版のオリジンは `https://wind-tone-lab.vercel.app`、本番版は `capacitor://localhost` なので、IndexedDB の記録と
+    コミュニティの匿名アカウントは別々に持つ（同じ端末で入れ替えても混ざらない・引き継がれない）。
+  - 開発版と本番版は同じバンドル ID の別のビルド。TestFlight で入れたほうが端末に入る（ビルド番号は両方の workflow を通した通し番号 `$PROJECT_BUILD_NUMBER`）。
+  - **開発版は版 99.0 の並び**（`ios-dev` だけが `agvtool new-marketing-version 99.0`）。**審査に出すのは 1.x の並びだけ**（99 なのは、1.0 が承認されたあとはそれより低い版を上げられないため）。
+  - **開発版は審査に出さない**（`server.url` は審査 4.2 の論点）。本番の `ios-testflight` に `server.url` が入らないことは pitch-test の殻の節が見張る。
+- **実機の点検（便S2・TestFlight。仕様 §8.4）**: 書き出し → 共有シート →「ファイルに保存」で保存できる / その .json を「ファイルから読み戻す」で選べて読み戻せる /
+  録音中に 2 分放置しても画面が消えない / リードタブに移ると橙の印が消え、戻ると 1 秒以内に環が動く / メトロノームがスピーカーから出て割れない /
+  有線・Bluetooth のイヤホンをつなぐとイヤホンから出て、外すとスピーカーへ戻る（外した直後にメトロノームが無音のまま残らない・計測の環が戻る）/
+  メトロノームを鳴らしたままリードタブへ移る・画面を消すと、自動ロックの設定どおり画面が消える / 記録が 0 件のとき移行の1行が出る。
 - **便S3 で入る（予定）**: AdMob の帯の実寸を `--ad-h` に入れる（見本の帯の 50px ではなく実寸。シートの間は帯を隠すが `--ad-h` は戻さない）。
 
 ---

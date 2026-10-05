@@ -46,6 +46,10 @@ import { REED_STRENGTHS, REED_STRENGTH_DEFAULT } from "./community/profile.js";
 // gear.js は firebase を読まない純粋なデータなので、ここから import しても
 // 計測タブの起動は重くならない(profile.js と同じ理由)。
 import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
+// 【殻 S2】殻(Capacitor の iOS アプリ)の中だけの分岐。どれも Capacitor に触れない(部品は *.native.js を動的 import)。
+import { isNativeShell } from "./shell/native.js";
+import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
+import { shellRouteToSpeaker } from "./shell/audio.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -4175,6 +4179,11 @@ export default function WindToneLabPhaseMode() {
   // 画面が一度隠れるとWake Lockは自動解放されるため、復帰時に録音中なら再取得する。
   const wakeLockRef = useRef(null);
   const requestWakeLock = useCallback(async () => {
+    if (isNativeShell()) {
+      // 【殻 S2】WKWebView の navigator.wakeLock は当てにしない。ネイティブの KeepAwake で画面を点けておく(殻の仕様 §4.2)。
+      try { const m = await import("./shell/keepAwake.native.js"); await m.keepAwake(); } catch { /* 未対応・失敗は無視(Web と同じ姿勢) */ }
+      return;
+    }
     try {
       if ("wakeLock" in navigator && !wakeLockRef.current) {
         wakeLockRef.current = await navigator.wakeLock.request("screen");
@@ -4183,6 +4192,7 @@ export default function WindToneLabPhaseMode() {
     } catch { /* 未対応・失敗時は何もしない */ }
   }, []);
   const releaseWakeLock = useCallback(() => {
+    if (isNativeShell()) { import("./shell/keepAwake.native.js").then((m) => m.allowSleep()).catch(() => {}); return; }
     try { wakeLockRef.current?.release(); } catch { /* noop */ }
     wakeLockRef.current = null;
   }, []);
@@ -4234,7 +4244,10 @@ export default function WindToneLabPhaseMode() {
     if (isRecordingRef.current) finalizeRecording();
     setIsRecording(false);
     setIsListening(false);
-  }, [finalizeRecording]);
+    // 【殻 S2 審査】KeepAwake は Web の wakeLock と違って自動では解けない。マイクを止めたら(録音もここで終わる)、
+    // メトロノームが鳴っている間と取り込み解析の間を除いてスリープ防止を解く。Web では何もしない。
+    if (isNativeShell() && !metroActiveRef.current && !isAnalyzingUploadRef.current) releaseWakeLock();
+  }, [finalizeRecording, releaseWakeLock]);
 
   // マイクは繋いだまま一時停止する(計測タブから他タブへ移ったときに呼ぶ)。
   // トラックをミュート(enabled=false)して描画ループを止めるだけで、getUserMediaで
@@ -4311,6 +4324,9 @@ export default function WindToneLabPhaseMode() {
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       streamRef.current = stream;
+      // 【殻 S2】WebKit は取り込みの開始時に音のセッションを自分で立て直すので、その後で出口をスピーカー
+      // (イヤホンがあればイヤホン)へ寄せる。Web では何もしない。待たない・失敗は無視(殻の仕様 §4.4)。
+      shellRouteToSpeaker();
 
       // 【トラックの死亡検知】iOSは他アプリにマイクを奪われると readyState は live のまま
       // muted だけ true にして戻ってくることがある。ended/mute のどちらでも復旧を試みる。
@@ -4864,9 +4880,13 @@ export default function WindToneLabPhaseMode() {
 
   // 計測タブに滞在中は自動でマイクを起動し、他タブへ移ったら一時停止する(マイク接続は保持)。
   // 繋ぎ直さないことで、タブを行き来してもマイク許可のポップアップが繰り返し出ないようにする。
+  // 【殻 S2】殻(iOS アプリ)では他タブへ移ったら一時停止ではなく止める(stopListening。橙の印が消える)。
+  // 殻は Capacitor が WebKit の許可を自動で通すので、繋ぎ直しても許可の画面は出ない(policy.js の micActionOnTabLeave)。
   useEffect(() => {
     if (topTab === "measure" && !document.hidden) {
       startListeningRef.current();
+    } else if (micActionOnTabLeave(isNativeShell()) === "stop") {
+      stopListeningRef.current();     // 【殻 S2】解放(橙の印が消える)。戻るときは startListening の完全再取得(画面復帰と同じ道)
     } else {
       pauseListeningRef.current();
     }
@@ -4875,12 +4895,13 @@ export default function WindToneLabPhaseMode() {
 
   // 画面が非表示(バックグラウンド化・画面ロック等)になった間はマイクを完全に解放し(裏で
   // 聞き続けず、端末のマイク使用インジケータも消す)、表示に戻った時点で計測タブに滞在して
-  // いれば繋ぎ直す。※アプリ内のタブ切替は上のeffectのpauseで扱うため、ここは実際に画面が
-  // 隠れた場合のみ。
+  // いれば繋ぎ直す。※アプリ内のタブ切替は上のeffect(Web は pause・殻は stop)で扱うため、ここは実際に画面が
+  // 隠れた場合のみ。【殻 S2】殻ではスリープ防止(KeepAwake)も隠れたときに解く(Web の wakeLock は自動で解ける)。
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stopListeningRef.current();
+        if (isNativeShell()) releaseWakeLock();   // 【殻 S2 審査】Web の wakeLock が隠れると解けるのに合わせる
       } else {
         // 復帰時はまず通常どおり繋ぎ直し、実際に「AudioContextがrunning」かつ「トラックが使える」
         // 状態まで戻れたかを確かめる。戻れていなければ復旧経路(recoverMic)に回す。
@@ -4897,6 +4918,8 @@ export default function WindToneLabPhaseMode() {
         }
         // Wake Lockは非表示で自動解放されるため、録音中またはアップロード解析中なら復帰時に再取得
         if (isRecordingRef.current || isAnalyzingUploadRef.current) requestWakeLock();
+        // 【殻 S2 審査】殻ではメトロノームが ON の間も取り直す(隠れたときに解いているため)。Web の行は上のまま
+        else if (isNativeShell() && metroActiveRef.current) requestWakeLock();
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -6241,7 +6264,7 @@ function getMetroClickBuffer(ctx) {
 // 端末音量を最大にしてもクリック音が小さくなる問題がある(Web側からルート自体は変えられない)。
 // そこで、デジタル段で目一杯持ち上げつつリミッター(DynamicsCompressor)で歪みを抑え、
 // 許可の有無によらずできる限り大きく・一定の音量に近づける。
-//   [各クリック] → limiter(閾値-3dB・高レシオ) → masterGain(2.6倍) → destination
+//   [各クリック] → limiter(閾値-3dB・高レシオ) → masterGain(2.6倍。【殻 S2】殻では 1.0) → destination
 function getMetroMasterInput(ctx) {
   if (ctx.__metroMasterInput) return ctx.__metroMasterInput;
   const limiter = ctx.createDynamicsCompressor();
@@ -6252,6 +6275,9 @@ function getMetroMasterInput(ctx) {
   limiter.release.value = 0.05;
   const master = ctx.createGain();
   master.gain.value = 2.6; // マイク有効時の小音量を補うブースト。リミッターが歪みを抑える
+  // 【殻 S2】殻では startMetronome がこの ctx に殻のゲイン(policy.js の METRO_MASTER_GAIN_SHELL = 1.0)を置いていく。
+  // Web では置かれないので上の 2.6 のまま。この関数は pitch-test(43.x)が単独で切り出して回すので、外の名前を読まない。
+  if (typeof ctx.__metroMasterGainShell === "number") master.gain.value = ctx.__metroMasterGainShell;
   limiter.connect(master);
   master.connect(ctx.destination);
   ctx.__metroMasterInput = limiter;
@@ -9114,6 +9140,8 @@ function MeasureView(props) {
 
   const startMetronome = useCallback(() => {
     metroGenRef.current++; // 進行中の古い状態を無効化する
+    // 【殻 S2】マイクが止まっている(他タブから戻る前など)状態で鳴らすときも出口をスピーカーへ。Web では何もしない(殻の仕様 §4.4)。
+    shellRouteToSpeaker();
     // 出力用AudioContextはマイクの解析用とは分けて持つ(ライフサイクルを絡めないため)。
     // 【iOS対策・重要】アプリを一度バックグラウンドにするとAudioContextはinterrupted/suspendに
     // なり、awaitを挟んでからresume()してもユーザー操作(このタップ)の権限が切れて再開できない。
@@ -9133,6 +9161,18 @@ function MeasureView(props) {
       try { ctx?.close(); } catch { /* noop */ }
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       metroCtxRef.current = ctx;
+    }
+    if (isNativeShell()) {
+      // 【殻 S2】殻のメトロノームのマスターゲイン(1.0。出口はネイティブでスピーカーへ寄せる)。鎖を組む前に ctx に置き、
+      // getMetroMasterInput が読む。Web では置かない(= 2.6 のまま)。値は policy.js の METRO_MASTER_GAIN_SHELL の1か所。
+      ctx.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;
+      // 【殻 S2 審査】イヤホンを外す(OldDeviceUnavailable)と WebKit がこの ctx を止めるので、表示は ON のまま無音になる。
+      // 鳴らしている間(metroOnRef)・画面が見えている間・いまのメトロノームの ctx のときだけ、こちらで再開する。Web には付けない。
+      const shellCtx = ctx;
+      shellCtx.onstatechange = () => {
+        if (metroOnRef.current && metroCtxRef.current === shellCtx && !document.hidden
+          && shellCtx.state !== "running" && shellCtx.state !== "closed") shellCtx.resume().catch(() => {});
+      };
     }
     ctx.resume().catch(() => {}); // ジェスチャー中に同期的に発火(awaitしない)
     metroTickIndexRef.current = 0;
@@ -9168,6 +9208,10 @@ function MeasureView(props) {
   }, [isRecording, metroActiveRef, scheduledClicksRef, releaseWakeLock, markMetroClock]);
 
   // アンマウント(=計測タブを離れた)時は完全に停止して音を止める
+  // 【殻 S2 審査】殻では KeepAwake が自動で解けないので、ここでも解く(録音中は除く。録音は stopListening が
+  // 終わらせ、そのあとで解く)。Web の wakeLock は今までどおり触らない。
+  const shellRecordingRef = useRef(isRecording);
+  useEffect(() => { shellRecordingRef.current = isRecording; }, [isRecording]);
   useEffect(() => {
     const clicksRef = scheduledClicksRef;
     const activeRef = metroActiveRef;
@@ -9178,6 +9222,7 @@ function MeasureView(props) {
       activeRef.current = false;
       clicksRef.current = [];
       try { metroCtxRef.current?.close(); } catch { /* noop */ }
+      if (isNativeShell() && !shellRecordingRef.current) releaseWakeLock();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -18246,7 +18291,14 @@ function AllSessionsPage({
       {/* (【D-5】ここにあった期間の date 入力2つは、本人指示で絞り込みごと削除した。) */}
 
       {filteredSessions.length === 0 ? (
+        <>
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px" }}>{sessions.length === 0 ? "まだ記録がありません" : "条件に合うセッションがありません"}</div>
+        {/* 【殻 S2】Web 版の記録は自動では移らない、の案内(殻だけ・記録が 0 件の間だけ。殻の仕様 §4.5 (a))。
+            体裁は上の行の style に marginTop 6・lineHeight 1.6。記録が1件でも入れば消える(鍵・保存なし)。 */}
+        {isNativeShell() && sessions.length === 0 && (
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px", marginTop: 6, lineHeight: 1.6 }}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページ(参加前なら参加の画面)の「アカウント引継」で移せます。</div>
+        )}
+        </>
       ) : (
         /* 【F-106 2026/08/17 本人指示・凍結仕様 design/F106-SPEC.md】
            削除(選択)モードは **この祖先の className ただ1つ**で表現する。

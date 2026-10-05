@@ -32,9 +32,71 @@ workflows:
       - name: Capacitor sync (copies dist into ios/App/App/public, updates CapApp-SPM)
         script: npx cap sync ios
       - name: Set build number
+        # 【殻 S2】$PROJECT_BUILD_NUMBER = この Codemagic のアプリの全 workflow を通した通し番号。開発版(ios-dev)と
+        # 同じ App Store Connect の枠へ上げるので、workflow ごとの $BUILD_NUMBER だと番号がぶつかって上げられない。
+        # 通し番号は workflow ごとの番号以上なので、これまでに上げた番号より必ず大きい。
         script: |
           cd ios/App
-          agvtool new-version -all $BUILD_NUMBER
+          agvtool new-version -all $PROJECT_BUILD_NUMBER
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build ipa
+        script: xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+
+  # 【殻 S2 統括の裁定】開発版。中身は ios-testflight と同じで、違いは3つだけ:
+  #   (1) cap sync の後で、生成物 ios/App/App/capacitor.config.json に server.url(Vercel の配信)を足す
+  #       (scripts/shell-dev-server-url.mjs。根の capacitor.config.json は変えない)
+  #   (2) ホーム画面の名前を「Ficus Dev」に、TestFlight の「テストの内容(What to Test)」に開発版と書く(release_notes.txt)
+  #   (3) 版を 99.0 にする(agvtool new-marketing-version。本番の 1.x の並びと審査の提出の候補に混ざらない)
+  # main へ push すれば、開発版のアプリを開き直すだけで画面の変更が届く。ネイティブの変更(Swift・Info.plist・
+  # プラグインの追加)はこの workflow の再ビルドが要る。手でだけ開始する(triggering を書かない)。
+  # **審査には出さない**(server.url は審査の 4.2 の論点そのもの。本番の ios-testflight には入れない。pitch-test K.15 が見張る)。
+  ios-dev:
+    name: Ficus iOS DEV (TestFlight, loads the Vercel deployment)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: ficus-asc          # §7-B で付けた API キーの名前
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: jp.tobine.ficus
+      groups:
+        - ficus_firebase                    # 同梱の dist は使わないが、ビルドを本番と同じ手順に保つ
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+      node: 22
+      xcode: 26.2
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web
+        script: npm run build
+      - name: Capacitor sync (copies dist into ios/App/App/public, updates CapApp-SPM)
+        script: npx cap sync ios
+      - name: Dev shell - load the Vercel deployment (server.url in the generated ios/App/App/capacitor.config.json only)
+        script: node scripts/shell-dev-server-url.mjs
+      - name: Dev shell - home screen name and What to Test
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Ficus Dev'" ios/App/App/Info.plist
+          printf '%s\n' "開発版(Web の配信 https://wind-tone-lab.vercel.app を読み込む)。main への push はアプリを開き直すだけで反映。審査に出さない。" "commit: $(git rev-parse --short HEAD)" > release_notes.txt
+          cat release_notes.txt
+      - name: Set build number and the dev version line (99.0)
+        # 【殻 S2 審査】開発版は版 99.0 の並びに分ける(本番の 1.x の並びと、審査の提出の候補に混ざらない)。
+        # 99 にするのは、1.0 が承認されたあとはそれより低い版を上げられないため。本番(ios-testflight)は版を変えない。
+        script: |
+          cd ios/App
+          agvtool new-version -all $PROJECT_BUILD_NUMBER
+          agvtool new-marketing-version 99.0
       - name: Set up code signing
         script: xcode-project use-profiles
       - name: Build ipa

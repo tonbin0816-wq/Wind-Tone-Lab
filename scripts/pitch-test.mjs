@@ -32400,9 +32400,22 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /override open func webViewConfiguration\(for instanceConfiguration: InstanceConfiguration\) -> WKWebViewConfiguration \{\s*\n\s*let configuration = super\.webViewConfiguration\(for: instanceConfiguration\)\s*\n\s*configuration\.ignoresViewportScaleLimits = true\s*\n\s*return configuration/.test(swift));
     check("K.6 AppDelegate.swift: capacitorDidLoad で registerPluginInstance(FicusAudioSessionPlugin())",
       /override open func capacitorDidLoad\(\) \{\s*\n\s*bridge\?\.registerPluginInstance\(FicusAudioSessionPlugin\(\)\)/.test(swift));
-    check("K.6 AppDelegate.swift: 音の出口は options: [.defaultToSpeaker] + overrideOutputAudioPort(.speaker)・allowBluetooth の綴りが無い",
-      /try session\.setCategory\(\.playAndRecord, mode: \.default, options: \[\.defaultToSpeaker\]\)/.test(swift)
-      && /try session\.overrideOutputAudioPort\(\.speaker\)/.test(swift) && !/allowBluetooth/.test(swift));
+    // 【殻 S2 本人裁定 2026-10-05】Bluetooth のイヤホンから出す = 選択肢は [.defaultToSpeaker, .allowBluetoothA2DP](出力だけ Bluetooth)。
+    // HFP(.allowBluetoothHFP / 旧名 .allowBluetooth)はマイクが替わるので付けない。S1 の「allowBluetooth の綴りが無い」はこの裁定で置き換えた。
+    // 注記(// の行)は剥がしてから見る(注記は HFP を付けない理由として綴りを書いている)。
+    const swiftCode = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+    check("K.6 AppDelegate.swift: 音の出口は playAndRecord + [.defaultToSpeaker, .allowBluetoothA2DP](選択肢は1か所)・HFP(.allowBluetooth / .allowBluetoothHFP)の綴りがコードに無い",
+      /static let sessionOptions: AVAudioSession\.CategoryOptions = \[\.defaultToSpeaker, \.allowBluetoothA2DP\]\n/.test(swiftCode)
+      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: \.default, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
+      && (swiftCode.match(/setCategory\(/g) || []).length === 2
+      && !/\.allowBluetooth(?!A2DP)/.test(swiftCode) && !/allowBluetoothHFP/.test(swiftCode));
+    check("K.6 AppDelegate.swift: スピーカーへの上書き overrideOutputAudioPort(.speaker) は出口が受話口のときだけ(イヤホンがあるときにかけない)",
+      /func applyOutputRule\(_ session: AVAudioSession\) throws \{\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType \}\n\s*if outputs\.contains\(\.builtInReceiver\) \{\n\s*try session\.overrideOutputAudioPort\(\.speaker\)\n\s*\}\n\s*\}/.test(swiftCode)
+      && (swiftCode.match(/overrideOutputAudioPort\(/g) || []).length === 1);
+    check("K.6 AppDelegate.swift: 経路の変化(routeChangeNotification)を load() で受け、取り込み中(playAndRecord)だけ同じ規則を当て直す",
+      /@objc override public func load\(\) \{\n\s*NotificationCenter\.default\.addObserver\(self,\s*selector: #selector\(handleRouteChange\(_:\)\),\s*name: AVAudioSession\.routeChangeNotification,\s*object: nil\)/.test(swiftCode)
+      && /@objc func handleRouteChange\(_ notification: Notification\) \{\n\s*DispatchQueue\.main\.async \{\n\s*let session = AVAudioSession\.sharedInstance\(\)\n\s*guard session\.category == \.playAndRecord else \{ return \}/.test(swiftCode)
+      && (swiftCode.match(/try (?:self\.)?applyOutputRule\(session\)/g) || []).length === 2);
     // 【統括の裁定】Capacitor 8.5.2 のテンプレートは UIScene の作法で、SceneDelegate が根を自分で作る(storyboard だけ替えても根にならない)。
     const scene = existsK("ios/App/App/SceneDelegate.swift") ? readK("ios/App/App/SceneDelegate.swift") : "";
     check("K.6 SceneDelegate.swift: 根は FicusViewController()(CAPBridgeViewController() を作らない)",
@@ -32433,7 +32446,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.8 package.json: \"ficus\": \"file:...\" の依存が無い(Codemagic の npm ci が存在しない path で落ちる)",
       !/"ficus":\s*"file:/.test(readK("package.json")) && !("ficus" in all));
     check("K.8 package.json: @capacitor/* ・@capacitor-community/* ・@fontsource/* の版は全部 exact(^ ~ 無し)",
-      JSON.stringify(shellDeps.map(([k]) => k).sort()) === JSON.stringify(["@capacitor/cli", "@capacitor/core", "@capacitor/ios", "@fontsource/instrument-serif"])
+      // 【殻 S2】Filesystem・Share・KeepAwake が加わった(仕様 §1.3 の表)
+      JSON.stringify(shellDeps.map(([k]) => k).sort()) === JSON.stringify(["@capacitor-community/keep-awake", "@capacitor/cli", "@capacitor/core", "@capacitor/filesystem", "@capacitor/ios", "@capacitor/share", "@fontsource/instrument-serif"])
       && shellDeps.every(([, v]) => /^\d+\.\d+\.\d+$/.test(v)), JSON.stringify(shellDeps));
     // 版は仕様 §1.3 の表(2026-10-04 確認)から手で写す。上げるのは専用の便でだけ。
     check("K.8 package.json: 版は仕様の固定どおり(core / ios / cli 8.5.2・instrument-serif 5.3.0)",
@@ -32468,11 +32482,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       .filter((m) => /INFOPLIST_FILE = App\/Info\.plist;/.test(m[0]));
     const plistK = existsK("ios/App/App/Info.plist") ? readK("ios/App/App/Info.plist") : "";
     const cmK = existsK("codemagic.yaml") ? readK("codemagic.yaml") : "";
-    check("K.11 App ターゲットの Debug と Release に VERSIONING_SYSTEM = apple-generic と CURRENT_PROJECT_VERSION・CFBundleVersion は $(CURRENT_PROJECT_VERSION)・Codemagic は ios/App で agvtool new-version -all $BUILD_NUMBER",
+    // 【殻 S2】開発版(ios-dev)と同じ App Store Connect の枠へ上げるので、番号は全 workflow の通し番号 $PROJECT_BUILD_NUMBER(両方の workflow)
+    check("K.11 App ターゲットの Debug と Release に VERSIONING_SYSTEM = apple-generic と CURRENT_PROJECT_VERSION・CFBundleVersion は $(CURRENT_PROJECT_VERSION)・Codemagic は ios/App で agvtool new-version -all $PROJECT_BUILD_NUMBER(2つの workflow とも。$BUILD_NUMBER は残っていない)",
       JSON.stringify(cfgs.map((m) => m[1]).sort()) === JSON.stringify(["Debug", "Release"])
       && cfgs.every((m) => /\n\t\t\t\tVERSIONING_SYSTEM = "apple-generic";\n/.test(m[0]) && /\n\t\t\t\tCURRENT_PROJECT_VERSION = \d+;\n/.test(m[0]))
       && /<key>CFBundleVersion<\/key>\s*<string>\$\(CURRENT_PROJECT_VERSION\)<\/string>/.test(plistK)
-      && /\n\s+cd ios\/App\n\s+agvtool new-version -all \$BUILD_NUMBER\n/.test(cmK),
+      && (cmK.match(/\n\s+cd ios\/App\n\s+agvtool new-version -all \$PROJECT_BUILD_NUMBER\n/g) || []).length === 2
+      && !/agvtool new-version -all \$BUILD_NUMBER\b/.test(cmK),
       cfgs.map((m) => m[1]).join(","));
   }
 
@@ -32481,6 +32497,195 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const demo = "3940256099942544/2435281174";
     const hits = srcFilesK.filter((f) => textK[f].includes(demo));
     check("K.10 demo のユニット ID の綴りは src/shell/adsConfig.js の外に無い", hits.every((f) => f === "src/shell/adsConfig.js"), hits.join(", "));
+  }
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[殻 S2] 殻の中の振る舞い(書き出し・スリープ防止・マイク・音の出口・移し方の案内・開発版の殻)");
+  // 【殻 S2 2026-10-05】凍結仕様 shell-spec.md §4・§8.2 の S2 ぶんと、統括の裁定(開発版の殻 ios-dev・Bluetooth はイヤホンから)。
+  // 期待値は仕様の綴りから手で書く。守っているもの = 綴り・設定ファイルの中身・JS とネイティブの名前の一致。
+  // 振る舞い(殻 / Web の分岐)は vitest(src/shell/backupExport.test.jsx・shellApp.test.jsx・policy.test.js)が描いて確かめる。
+  // 【守っていないもの】Swift のコンパイル・経路の変化で実際に音が止まらないこと・共有シート・KeepAwake の効き目・
+  //   開発版が Vercel を読み込んでプラグインが動くこと・TestFlight の「テストの内容」の表示(どれも Codemagic / 実機待ち)。
+  const rootS = join(__dirname, "..");
+  const readS = (p) => { try { return readFileSync(join(rootS, p), "utf8"); } catch { return ""; } };
+  const app = codeOf(src);
+  const lines = app.split("\n");
+
+  // --- K.12 App.jsx の殻の枝(Web の枝はそのまま) ------------------------------------------------------------------
+  {
+    check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellRouteToSpeaker を shell から import する",
+      /\nimport \{ isNativeShell \} from "\.\/shell\/native\.js";\n/.test(app)
+      && /\nimport \{ micActionOnTabLeave, METRO_MASTER_GAIN_SHELL \} from "\.\/shell\/policy\.js";\n/.test(app)
+      && /\nimport \{ shellRouteToSpeaker \} from "\.\/shell\/audio\.js";\n/.test(app));
+    check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
+      /\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
+    // 仕様 §4.4 の綴り(master.gain.value = metroMasterGain(isNativeShell());)にすると、Web の 2.6 の行を見る既存の検査(3641)と、
+    // getMetroMasterInput を単独で切り出して回す 43.x(外の名前 isNativeShell などを持たない)が落ちる。
+    // そこで Web の行は綴りのまま残し、殻のゲイン(METRO_MASTER_GAIN_SHELL)は startMetronome が ctx に置いて getMetroMasterInput が読む形にした。
+    const fnMaster = (/function getMetroMasterInput\(ctx\) \{[\s\S]*?\n\}/.exec(app) || [""])[0];
+    check("K.12 メトロノームのマスターゲイン: Web の master.gain.value = 2.6; は残り、殻だけ startMetronome が置いた METRO_MASTER_GAIN_SHELL で上書き。getMetroMasterInput は外の名前を読まない",
+      /\n  master\.gain\.value = 2\.6;[^\n]*\n\s*if \(typeof ctx\.__metroMasterGainShell === "number"\) master\.gain\.value = ctx\.__metroMasterGainShell;\n/.test(fnMaster)
+      && !/isNativeShell|METRO_MASTER_GAIN_SHELL/.test(fnMaster)
+      && /\n      metroCtxRef\.current = ctx;\n    \}\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n/.test(app)
+      && (app.match(/__metroMasterGainShell/g) || []).length === 3);
+    // 【殻 S2 審査】イヤホンを外すと WebKit がメトロノームの ctx を止める。殻の枝でだけ onstatechange で再開する(Web には付けない)
+    check("K.12 殻のメトロノームの ctx だけに onstatechange: 鳴らしている間・いまの ctx・画面が見えている・running でも closed でもないときに resume",
+      /\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n\s*const shellCtx = ctx;\n\s*shellCtx\.onstatechange = \(\) => \{\n\s*if \(metroOnRef\.current && metroCtxRef\.current === shellCtx && !document\.hidden\n\s*&& shellCtx\.state !== "running" && shellCtx\.state !== "closed"\) shellCtx\.resume\(\)\.catch\(\(\) => \{\}\);\n\s*\};\n    \}\n/.test(app)
+      && (app.match(/onstatechange/g) || []).length === 1);
+    // 【殻 S2 審査】KeepAwake は自動で解けない。殻の枝でだけ、隠れたとき・MeasureView のアンマウント・stopListening のあとで解く
+    check("K.12 殻のスリープ防止を解く3か所(隠れたとき・MeasureView のアンマウント(録音中を除く)・stopListening のあと(メトロノームと取り込み解析を除く))と、戻ったときのメトロノーム",
+      /\n      if \(document\.hidden\) \{\n        stopListeningRef\.current\(\);\n        if \(isNativeShell\(\)\) releaseWakeLock\(\);\s*\n      \} else \{/.test(app)
+      && /\n        if \(isRecordingRef\.current \|\| isAnalyzingUploadRef\.current\) requestWakeLock\(\);\n\s*else if \(isNativeShell\(\) && metroActiveRef\.current\) requestWakeLock\(\);\n/.test(app)
+      && /\n    setIsListening\(false\);\n\s*if \(isNativeShell\(\) && !metroActiveRef\.current && !isAnalyzingUploadRef\.current\) releaseWakeLock\(\);\n  \}, \[finalizeRecording, releaseWakeLock\]\);/.test(app)
+      && /try \{ metroCtxRef\.current\?\.close\(\); \} catch \{\s*\}\n\s*if \(isNativeShell\(\) && !shellRecordingRef\.current\) releaseWakeLock\(\);\n    \};/.test(app));
+    const at = lines.findIndex((l) => l.trim() === "streamRef.current = stream;");
+    const after = at >= 0 ? lines.slice(at + 1, at + 4).map((l) => l.trim()) : [];
+    check("K.12 startListening: streamRef.current = stream; の直後 3 行以内に shellRouteToSpeaker();(マイクを取った後で出口を寄せる)",
+      at >= 0 && after.includes("shellRouteToSpeaker();") && lines.filter((l) => l.trim() === "streamRef.current = stream;").length === 1, JSON.stringify(after));
+    check("K.12 startMetronome: 先頭(古い状態の無効化の直後)で shellRouteToSpeaker();",
+      /const startMetronome = useCallback\(\(\) => \{\n    metroGenRef\.current\+\+;\s*\n\s*shellRouteToSpeaker\(\);\n/.test(app));
+    check("K.12 shellRouteToSpeaker() の呼び手は2か所だけ(マイクの直後・メトロノームの開始)", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 2);
+    check("K.12 requestWakeLock の先頭が if (isNativeShell()) で KeepAwake を動的 import(Web の navigator.wakeLock の枝は残る)",
+      /const requestWakeLock = useCallback\(async \(\) => \{\n    if \(isNativeShell\(\)\) \{\n\s*try \{ const m = await import\("\.\/shell\/keepAwake\.native\.js"\); await m\.keepAwake\(\); \} catch \{\s*\}\n\s*return;\n    \}\n    try \{\n      if \("wakeLock" in navigator && !wakeLockRef\.current\) \{\n        wakeLockRef\.current = await navigator\.wakeLock\.request\("screen"\);/.test(app));
+    check("K.12 releaseWakeLock の先頭が殻の枝(allowSleep)で、Web の release の行は残る",
+      /const releaseWakeLock = useCallback\(\(\) => \{\n    if \(isNativeShell\(\)\) \{ import\("\.\/shell\/keepAwake\.native\.js"\)\.then\(\(m\) => m\.allowSleep\(\)\)\.catch\(\(\) => \{\}\); return; \}\n    try \{ wakeLockRef\.current\?\.release\(\); \} catch \{\s*\}\n    wakeLockRef\.current = null;/.test(app));
+    check("K.12 Web の audioSession の宣言(navigator.audioSession.type = AUDIO_SESSION_TYPE;)は残る",
+      /navigator\.audioSession\.type = AUDIO_SESSION_TYPE;/.test(app) && /const AUDIO_SESSION_TYPE = "play-and-record";/.test(app));
+    check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」",
+      /\{sessions\.length === 0 \? "まだ記録がありません" : "条件に合うセッションがありません"\}<\/div>\n(?:\s*\{\}\n)?\s*\{isNativeShell\(\) && sessions\.length === 0 && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", padding: "0 2px", marginTop: 6, lineHeight: 1\.6 \}\}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページ\(参加前なら参加の画面\)の「アカウント引継」で移せます。<\/div>\n/.test(app));
+  }
+
+  // --- K.13 BackupPanel.jsx(Web の <a download> の枝は綴りのまま) ---------------------------------------------------
+  {
+    const bp = codeOf(readS("src/backup/BackupPanel.jsx"));
+    const shellAt = bp.indexOf("if (isNativeShell()) {");
+    const blobAt = bp.indexOf('const blob = new Blob([JSON.stringify(snapshot)], { type: "application/json" });');
+    const dynAt = bp.indexOf('await import("../shell/backupExport.native.js")');
+    check("K.13 BackupPanel: Web の枝(Blob・a.href / a.download・a.click()・a.remove())は綴りのまま残る",
+      blobAt > 0 && /\n      a\.href = url; a\.download = name;\n      document\.body\.appendChild\(a\);\n      a\.click\(\);\n      a\.remove\(\);\n/.test(bp));
+    check("K.13 BackupPanel: exportSnapshotFile の動的 import は isNativeShell() の枝の中(Blob を作る前に return する)",
+      shellAt > 0 && shellAt < dynAt && dynAt < blobAt
+      && /if \(isNativeShell\(\)\) \{\n\s*const \{ exportSnapshotFile \} = await import\("\.\.\/shell\/backupExport\.native\.js"\);\n\s*const r = await exportSnapshotFile\(\{ name, json: JSON\.stringify\(snapshot\) \}\);\n\s*if \(r\.cancelled\) return;\s*\n\s*setNotice\(`計測\$\{jpNum\(snapshot\.counts\.sessions\)\}件を \$\{name\} に書き出しました`\);\n\s*return;\n\s*\}\n\s*const blob = /.test(bp));
+    check("K.13 BackupPanel: 移し方の1行は isNativeShell() の枝(読み戻しの input の accept は変えていない)",
+      /\{isNativeShell\(\) && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", lineHeight: 1\.6, marginTop: 6 \}\}>\n\s*Web 版で使っていた記録は、Web 版の同じ画面で「ファイルに書き出す」→ ここで「ファイルから読み戻す」の順で移せます。コミュニティの匿名アカウントは移せません。\n/.test(bp)
+      && /accept="application\/json,\.json"/.test(bp));
+  }
+
+  // --- K.14 src/shell の部品(JS の名前とネイティブの名前の一致) ------------------------------------------------------
+  {
+    const policy = codeOf(readS("src/shell/policy.js"));
+    const audio = codeOf(readS("src/shell/audio.js"));
+    const ex = codeOf(readS("src/shell/backupExport.native.js"));
+    const ka = codeOf(readS("src/shell/keepAwake.native.js"));
+    const as = codeOf(readS("src/shell/audioSession.native.js"));
+    const swift = readS("ios/App/App/AppDelegate.swift");
+    check("K.14 policy.js は何も import しない(Web から静的に読んでよい)・殻の stop と Web の pause・殻のゲインは 1.0 の定数だけ(Web の 2.6 の写しを持たない)",
+      !/\bimport\b/.test(policy) && /export const SHELL_STOP_MIC_ON_TAB_LEAVE = true;/.test(policy)
+      && /return native && stopOnLeave \? "stop" : "pause";/.test(policy)
+      && /export const METRO_MASTER_GAIN_SHELL = 1\.0;/.test(policy) && !/2\.6/.test(policy) && !/metroMasterGain/.test(policy));
+    check("K.14 audio.js: Web では即 return・殻の枝で audioSession.native.js を動的 import(静的 import は native.js だけ)",
+      (audio.match(/^import /gm) || []).length === 1 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(audio)
+      && /export function shellRouteToSpeaker\(\) \{\n  if \(!isNativeShell\(\)\) return;\n  import\("\.\/audioSession\.native\.js"\)\.then\(\(m\) => m\.routeToSpeaker\(\)\)\.catch\(\(\) => \{\}\);\n\}/.test(audio));
+    check("K.14 backupExport.native.js: Cache に UTF8 で書く → Share(url は書いた uri)→ finally で消す・取り消し(cancel)は cancelled",
+      /import \{ Filesystem, Directory, Encoding \} from "@capacitor\/filesystem";/.test(ex) && /import \{ Share \} from "@capacitor\/share";/.test(ex)
+      && /Filesystem\.writeFile\(\{ path: name, data: json, directory: Directory\.Cache, encoding: Encoding\.UTF8 \}\)/.test(ex)
+      && /await Share\.share\(\{ title: name, url: uri, dialogTitle: "書き出し先を選ぶ" \}\);/.test(ex)
+      && /if \(\/cancel\/i\.test\(String\(e\?\.message \?\? e\)\)\) return \{ cancelled: true \};/.test(ex)
+      && /\} finally \{\n\s*try \{ await Filesystem\.deleteFile\(\{ path: name, directory: Directory\.Cache \}\); \} catch \{\s*\}/.test(ex));
+    check("K.14 keepAwake.native.js: KeepAwake.keepAwake / allowSleep",
+      /import \{ KeepAwake \} from "@capacitor-community\/keep-awake";/.test(ka)
+      && /export const keepAwake = \(\) => KeepAwake\.keepAwake\(\);/.test(ka) && /export const allowSleep = \(\) => KeepAwake\.allowSleep\(\);/.test(ka));
+    const jsName = (/registerPlugin\("([^"]+)"\)/.exec(as) || [])[1];
+    const swiftJsName = (/public let jsName = "([^"]+)"/.exec(swift) || [])[1];
+    const swiftMethods = [...swift.matchAll(/CAPPluginMethod\(name: "([^"]+)", returnType: CAPPluginReturnPromise\)/g)].map((m) => m[1]);
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker が Swift の pluginMethods にある",
+      jsName === "FicusAudioSession" && swiftJsName === jsName
+      && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker"])
+      && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
+  }
+
+  // --- K.15 開発版の殻(ios-dev)と本番(ios-testflight)の分け ----------------------------------------------------------
+  {
+    const cm = readS("codemagic.yaml");
+    // workflows: の下の2段の字下げの見出しで切る
+    const blocks = {};
+    const heads = [...cm.matchAll(/^  ([a-z][a-z-]*):\n/gm)];
+    heads.forEach((h, i) => { blocks[h[1]] = cm.slice(h.index, i + 1 < heads.length ? heads[i + 1].index : cm.length); });
+    const prod = blocks["ios-testflight"] || "";
+    const dev = blocks["ios-dev"] || "";
+    // 本番の塊は注記(# の行)を除いて見る(ios-dev の説明の注記は ios-dev の見出しの上 = 本番の塊の末尾に入るため)
+    check("K.15 codemagic.yaml の workflow は ios-testflight と ios-dev の2つ",
+      JSON.stringify(Object.keys(blocks)) === JSON.stringify(["ios-testflight", "ios-dev"]), JSON.stringify(Object.keys(blocks)));
+    check("K.15 本番(ios-testflight)に server.url を足す手順が無い(shell-dev-server-url・server.url・vercel.app・PlistBuddy・release_notes の綴りが 0 件)",
+      prod.length > 0 && !/shell-dev-server-url|server\.url|vercel\.app|PlistBuddy|release_notes|Ficus Dev/.test(prod.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")));
+    const devSteps = [...dev.matchAll(/\n\s+script: (.+)/g)].map((m) => m[1].trim());
+    const iSync = devSteps.indexOf("npx cap sync ios");
+    const iDev = devSteps.indexOf("node scripts/shell-dev-server-url.mjs");
+    const iIpa = devSteps.findIndex((x) => x.startsWith("xcode-project build-ipa"));
+    check("K.15 開発版(ios-dev): cap sync の後・build-ipa の前に node scripts/shell-dev-server-url.mjs(生成物に server.url を足す)",
+      iSync >= 0 && iDev === iSync + 1 && iIpa > iDev, JSON.stringify(devSteps));
+    check("K.15 開発版: ホーム画面の名前 Ficus Dev・テストの内容(release_notes.txt)に「開発版」・手でだけ開始(triggering が無い)・審査に出さない",
+      /\/usr\/libexec\/PlistBuddy -c "Set :CFBundleDisplayName 'Ficus Dev'" ios\/App\/App\/Info\.plist\n/.test(dev)
+      && /printf '%s\\n' "開発版[^"\n]*" "commit: \$\(git rev-parse --short HEAD\)" > release_notes\.txt\n/.test(dev)
+      && !/\n\s+triggering:/.test(dev) && /\n\s+submit_to_app_store: false\b/.test(dev) && /\n\s+submit_to_testflight: true\b/.test(dev));
+    // 【殻 S2 審査】開発版は版 99.0 の並び(本番の 1.x と審査の提出の候補に混ざらない)。本番は版を変えない
+    check("K.15 ios-dev だけが版を 99.0 に変える(ビルド番号の直後に agvtool new-marketing-version 99.0)・本番は版を変えない",
+      /\n          cd ios\/App\n          agvtool new-version -all \$PROJECT_BUILD_NUMBER\n          agvtool new-marketing-version 99\.0\n/.test(dev)
+      && (cm.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n").match(/new-marketing-version/g) || []).length === 1
+      && !/new-marketing-version|MARKETING_VERSION|CFBundleShortVersionString/.test(prod.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")));
+    // 開発版は本番と同じ署名・統合・環境・手順(足した手順と版の1行のほかは同じ)
+    const strip = (b) => b.split("\n").filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/\s+#.*$/, "")).join("\n");
+    const prodBody = strip(prod).replace(/^  ios-testflight:\n    name: [^\n]*\n/, "").replace(/\n    triggering:\n(?:      [^\n]*\n|        [^\n]*\n)*/, "\n");
+    const devBody = strip(dev).replace(/^  ios-dev:\n    name: [^\n]*\n/, "")
+      .replace(/\n      - name: Dev shell - load[^\n]*\n        script: [^\n]*\n/, "\n")
+      .replace(/\n      - name: Dev shell - home screen[^\n]*\n        script: \|\n(?:          [^\n]*\n)+/, "\n")
+      .replace(/\n      - name: Set build number and the dev version line \(99\.0\)\n/, "\n      - name: Set build number\n")
+      .replace(/\n          agvtool new-marketing-version 99\.0\n/, "\n");
+    check("K.15 開発版の中身は本番と同じ(名前・triggering・開発版の2手順・版の1行を除いて一字一句)", prodBody.trim().length > 0 && prodBody.trim() === devBody.trim());
+    const sc = codeOf(readS("scripts/shell-dev-server-url.mjs"));
+    check("K.15 scripts/shell-dev-server-url.mjs: 書くのは生成物 ios/App/App/capacitor.config.json だけ・URL は https://wind-tone-lab.vercel.app・packageClassList が無ければ止める",
+      /export const DEV_SERVER_URL = "https:\/\/wind-tone-lab\.vercel\.app";/.test(sc)
+      && /const target = join\(root, "ios", "App", "App", "capacitor\.config\.json"\);/.test(sc)
+      && (sc.match(/writeFileSync\(/g) || []).length === 1 && /writeFileSync\(target, /.test(sc)
+      && /if \(!Array\.isArray\(conf\.packageClassList\)\) \{/.test(sc) && /conf\.server = \{ \.\.\.\(conf\.server \|\| \{\}\), url: DEV_SERVER_URL \};/.test(sc));
+    check("K.15 生成物 ios/App/App/capacitor.config.json は git に入らない(ios/.gitignore)",
+      /(^|\n)App\/App\/capacitor\.config\.json\s*(\n|$)/.test(readS("ios/.gitignore")));
+  }
+
+  // --- K.16 依存と SPM ----------------------------------------------------------------------------------------------
+  {
+    const pkg = JSON.parse(readS("package.json") || "{}");
+    const d = pkg.dependencies || {};
+    check("K.16 package.json: @capacitor/share 8.0.3・@capacitor/filesystem 8.1.4・@capacitor-community/keep-awake 8.0.1(仕様 §1.3 の固定・exact)",
+      d["@capacitor/share"] === "8.0.3" && d["@capacitor/filesystem"] === "8.1.4" && d["@capacitor-community/keep-awake"] === "8.0.1");
+    const spm = readS("ios/App/CapApp-SPM/Package.swift");
+    check("K.16 CapApp-SPM/Package.swift に3つのプラグイン(node_modules の path)が入っている(cap sync の結果を git に入れた)",
+      /\.package\(name: "CapacitorCommunityKeepAwake", path: "\.\.\/\.\.\/\.\.\/node_modules\/@capacitor-community\/keep-awake"\)/.test(spm)
+      && /\.package\(name: "CapacitorFilesystem", path: "\.\.\/\.\.\/\.\.\/node_modules\/@capacitor\/filesystem"\)/.test(spm)
+      && /\.package\(name: "CapacitorShare", path: "\.\.\/\.\.\/\.\.\/node_modules\/@capacitor\/share"\)/.test(spm)
+      && /\.product\(name: "CapacitorFilesystem", package: "CapacitorFilesystem"\)/.test(spm)
+      && /\.product\(name: "CapacitorShare", package: "CapacitorShare"\)/.test(spm)
+      && /\.product\(name: "CapacitorCommunityKeepAwake", package: "CapacitorCommunityKeepAwake"\)/.test(spm));
+  }
+
+  // --- K.17 PrivacyInfo.xcprivacy(Filesystem の README の求め)と Vite のチャンクの名前 --------------------------------
+  {
+    const pi = readS("ios/App/App/PrivacyInfo.xcprivacy");
+    const pbx = readS("ios/App/App.xcodeproj/project.pbxproj");
+    check("K.17 PrivacyInfo.xcprivacy: NSPrivacyAccessedAPICategoryFileTimestamp の理由 C617.1",
+      /<key>NSPrivacyAccessedAPIType<\/key>\s*<string>NSPrivacyAccessedAPICategoryFileTimestamp<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>C617\.1<\/string>\s*<\/array>/.test(pi));
+    const ref = (/\n\t\t([0-9A-F]{24}) \/\* PrivacyInfo\.xcprivacy \*\/ = \{isa = PBXFileReference; lastKnownFileType = text\.xml; path = PrivacyInfo\.xcprivacy; sourceTree = "<group>"; \};/.exec(pbx) || [])[1];
+    const bf = ref && (new RegExp(`\\n\\t\\t([0-9A-F]{24}) /\\* PrivacyInfo\\.xcprivacy in Resources \\*/ = \\{isa = PBXBuildFile; fileRef = ${ref} /\\* PrivacyInfo\\.xcprivacy \\*/; \\};`).exec(pbx) || [])[1];
+    const res = (/\/\* Resources \*\/ = \{\n\t\t\tisa = PBXResourcesBuildPhase;[\s\S]*?files = \(([\s\S]*?)\);/.exec(pbx) || [])[1] || "";
+    const grp = (/\/\* App \*\/ = \{\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = \(([\s\S]*?)\);/.exec(pbx) || [])[1] || "";
+    check("K.17 project.pbxproj: PrivacyInfo.xcprivacy が App の群にあり、App ターゲットの Resources に入っている(ID はそれぞれ1回ずつ定義)",
+      !!ref && !!bf && res.includes(`${bf} /* PrivacyInfo.xcprivacy in Resources */`) && grp.includes(`${ref} /* PrivacyInfo.xcprivacy */`)
+      && pbx.split(`${ref} /* PrivacyInfo.xcprivacy */ = `).length === 2 && pbx.split(`${bf} /* PrivacyInfo.xcprivacy in Resources */ = `).length === 2);
+    const vc = codeOf(readS("vite.config.js"));
+    check("K.17 vite.config.js: Capacitor の部品だけのチャンクは capacitor-[name].native-[hash].js・それ以外は Vite の既定の assets/[name]-[hash].js",
+      /chunkFileNames: \(chunk\) =>\n\s*chunk\.moduleIds\.length > 0 && chunk\.moduleIds\.every\(\(id\) => \/\[\\\\\/\]node_modules\[\\\\\/\]@capacitor\(-community\)\?\[\\\\\/\]\/\.test\(id\)\)\n\s*\? "assets\/capacitor-\[name\]\.native-\[hash\]\.js"\n\s*: "assets\/\[name\]-\[hash\]\.js",/.test(vc));
   }
   console.log("  -> done");
 }

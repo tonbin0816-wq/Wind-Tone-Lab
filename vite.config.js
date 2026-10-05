@@ -3,6 +3,20 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        // 【殻 S2】Capacitor の部品だけでできた別チャンク(@capacitor/core の共有分・プラグインの Web 実装)は名前に
+        // .native を付ける。どれも殻の枝の動的 import(src/shell/*.native.js)からしか読まれないが、既定の名前だと
+        // @capacitor/core の共有分が index-*.js になり、Web のメインチャンクと見分けがつかない(殻の仕様 §8.3 の検査)。
+        // 名前を変えるだけで、チャンクの切り方と中身は変えない。それ以外のチャンクは Vite の既定の名前のまま。
+        chunkFileNames: (chunk) =>
+          chunk.moduleIds.length > 0 && chunk.moduleIds.every((id) => /[\\/]node_modules[\\/]@capacitor(-community)?[\\/]/.test(id))
+            ? "assets/capacitor-[name].native-[hash].js"
+            : "assets/[name]-[hash].js",
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: false,
