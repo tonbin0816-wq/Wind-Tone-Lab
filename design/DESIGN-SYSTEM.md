@@ -1188,21 +1188,23 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   `FicusViewController()` にしてある（`Main.storyboard` の customClass も同じクラス。storyboard だけ替えても根にはならない）。
 - **ビルド番号**: App ターゲットの Debug / Release に `VERSIONING_SYSTEM = "apple-generic"`。Info.plist の `CFBundleVersion` は `$(CURRENT_PROJECT_VERSION)`。
   Codemagic の `agvtool new-version -all $BUILD_NUMBER`（`ios/App` で実行）が `CURRENT_PROJECT_VERSION` を書き換え、それが CFBundleVersion に通る。
-- **アイコンと起動画面は生成済みを git に入れてある**（`ios/App/App/Assets.xcassets/AppIcon.appiconset`・`Splash.imageset`、入力は `assets/logo.png`
-  = `public/icon.svg` を 1024×1024・アルファ無しにしたもの）。生成の道具（`@capacitor/assets` とその sharp）は依存に入れない（Codemagic の `npm ci` に要らず、
-  sharp の install が libvips を取りに行って落ち得るため）。作り直すときだけ、版を固定して手元で走らせる（PowerShell では1行ずつ）:
+- **アイコンと起動画面は生成済みを git に入れてある**（【アイコン 2026-10-05 本人採用】）。**唯一の元は `public/icon.svg`**（白地に紺の芽。
+  芽の茎が F の縦線、右の2枚の葉が F の横線、根元はサックスの U 字管のように巻く。本人が Gemini で作った原案をなぞってベクターにし、
+  紙の質感から来た輪郭の波だけをならしたもの。**形は原案から変えない**のが本人の指示）。マークは外接箱ではなく**面積の重心で横の中央**に置いてある
+  （外接箱で中央にすると左の葉と巻きに面積が寄って左へ寄って見える。本人の指摘で右へ 20 ずらした。1024 四方のうち）。
+  ほかのアイコンはすべて `scripts/make-icons.mjs` が `icon.svg` から作る。生成の道具（sharp）は依存に入れない（Codemagic の `npm ci` に要らず、
+  sharp の install が libvips を取りに行って落ち得るため）。作り直すときだけ手元で走らせる（PowerShell では1行ずつ）:
   ```
   npm install --no-save sharp@0.32.6
-  node -e "require('sharp')('public/icon.svg').resize(1024,1024).removeAlpha().png().toFile('assets/logo.png')"
-  npx @capacitor/assets@3.0.5 generate --ios --iconBackgroundColor '#174585' --splashBackgroundColor '#FFFFFF' --splashBackgroundColorDark '#FFFFFF'
+  node scripts/make-icons.mjs
   ```
-  生成器は `Splash.imageset/Contents.json` を書き換えるが古い画像は消さないので、参照されなくなった png があれば消す。アイコンがアルファを持たない（RGB）ことを確かめる。
-  **起動画面だけは地なしのロゴで作る**（【審査の指摘】地ごとのロゴだと白地の真ん中に角の尖った紺の四角が出る）。入力は `assets/splash-logo.png`
-  = `assets/logo.png` から紺の地を抜いて紺の葉（葉脈は抜け）にし、葉の外接の正方形で切り出した 1024×1024 の透過 PNG。上の生成器は `logo.png` から
-  アイコンと起動画面を同時に作るので、起動画面は**別の作業フォルダ**（`capacitor.config.json` と `ios/` の写し、`assets/logo.png` = `splash-logo.png`）で同じコマンドを
-  走らせ、`Splash.imageset` の png 6枚だけを写す（アイコンは写さない）。ダークの起動画面も白地（`--splashBackgroundColorDark '#FFFFFF'`）。
-  Windows ではパスが長いと生成器が書き込めない（`unable to open for write`）ので、作業フォルダは短いパスに置く。
-  葉は iPhone 縦（scaleAspectFill）で高さ約 63pt・幅約 24pt（2732px の画像で 204×78px）。
+  作るもの: `AppIcon.appiconset` の3枚（ライト = `icon.svg` そのまま / ダーク = 地 `#0E1A2C`・印 `#B9C9E4` / 色合わせ = 黒地に白）と `Contents.json`、
+  `assets/logo.png`（1024・アルファ無し）、`assets/splash-logo.png`（地なしの紺のマークを正方形に切り出した透過 PNG）、`Splash.imageset` の png 6枚
+  （2732 四方の白地の中央にマーク。ダークも白地）、Web の `public/apple-touch-icon.png`（180。iOS Safari は SVG を使わない）と
+  `public/icon-maskable.svg`（円で切られても葉先が欠けないようマークを 0.8 倍）。アイコンはどれもアルファを持たない（RGB）。
+  **`npx @capacitor/assets generate` はアイコンに使わない**: `AppIcon.appiconset/Contents.json` を1枚だけの形に書き換え、ダークと色合わせが消える。
+  **起動画面は地なしのマークで作る**（【審査の指摘】地ごとのロゴだと白地の真ん中に角の尖った四角が出る）。
+  マークは iPhone 縦（scaleAspectFill）で高さ約 63pt（2732px の画像で高さ 204px）。
 - **実機の点検（便S1・TestFlight。仕様 §8.4）**: 白い起動画面（紺の葉）→ アプリ / 計測タブで許可を1回 → 環が動く / iPhone を横にしても回らない /
   データタブの評価グラフを指2本で広げられる / 設定行の入力欄を押しても画面が寄らない / コミュニティに匿名で参加でき、終了して開き直しても参加したまま /
   マイページで写真を選べる（写真を撮る・フォトライブラリの両方で落ちない）/ **写真を長押しして「写真に追加」で保存しても落ちない** / 機内モードでも計測・リード・データが動く（字が崩れない）。
