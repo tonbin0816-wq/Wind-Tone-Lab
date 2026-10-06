@@ -24686,9 +24686,12 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     check("52.1 C1 3つの step(chunk / account / list)は同じ包み(LoadingRingBox)を使う",
       /<LoadingRing step="chunk" \/>/.test(app52) && /<LoadingRing step="account" \/>/.test(comm52)
       && /<LoadingRing step="list" \/>/.test(comm52) && /export default function LoadingRingBox\(\{ step = null \}\)/.test(ring52));
-    check("52.1 C1 LoadingRing.jsx は React と loadProgress.js 以外を import しない(遅延読み込みを壊さない)",
-      countIn(ring52, /^import /gm) === 2 && /from "react";/.test(ring52) && /from "\.\/loadProgress\.js";/.test(ring52),
-      `${countIn(ring52, /^import /gm)}件`);
+    // 【2026-10-06 本人裁定】絵が輪からアイコンの芽になり、芽の形 sproutPath.js(import を持たない純粋なデータ)が足された。
+    const sprout52 = codeOf(readComm("sproutPath.js"));
+    check("52.1 C1 LoadingRing.jsx は React と loadProgress.js と sproutPath.js 以外を import しない(遅延読み込みを壊さない)",
+      countIn(ring52, /^import /gm) === 3 && /from "react";/.test(ring52) && /from "\.\/loadProgress\.js";/.test(ring52)
+      && /from "\.\/sproutPath\.js";/.test(ring52) && countIn(sprout52, /^import /gm) === 0 && sprout52.length > 2000,
+      `${countIn(ring52, /^import /gm)}件 / sproutPath ${countIn(sprout52, /^import /gm)}件`);
   }
 
   // --- 52.2 C2・C3 2行の文言(align.js)+ 表示側の pre-line ------------------------------

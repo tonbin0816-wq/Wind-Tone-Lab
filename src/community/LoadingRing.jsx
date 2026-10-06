@@ -1,50 +1,67 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { beginLoad, loadPercent, loadFloor } from "./loadProgress.js";
+import { SPROUT_OUTER, SPROUT_HOLE, SPROUT_OUTER_SHARE } from "./sproutPath.js";
 
 // ------------------------------------------------------------------
-// コミュニティタブの読み込み中の絵。ドーナツが埋まり、下に%の数字が出る。
+// コミュニティタブの読み込み中の絵。アプリアイコンの芽の輪郭が1本の線で
+// なぞられていき、**90% で輪郭が閉じ、残りの 10% で中が紺に塗られる**。
+// 100% でアイコンの芽と同じ姿になる。下に%の数字が出る。
 //
 // 【ここは firebase を一切 import しない】App.jsx の Suspense の fallback が
 // この要素を描く。fallback が重い依存を連れてくると、**遅延読み込みの意味が
 // 消える**(待たせている当のものを、待つ画面が読み込んでしまう)。
-// import してよいのは React と loadProgress.js(純粋な計算)だけ。
+// import してよいのは React と loadProgress.js(純粋な計算)と sproutPath.js
+// (芽の形。import を持たない純粋なデータ)だけ。
 //
-// 【2026/09/13 本人裁定】ここには写真の株(曲げ仕立てのベンガレンシス)が
-// 育つ絵を置いていたが、「絵はいいや。ドーナツ状のアニメーションと下の数字
-// だけで ok」。**輪は進捗そのものの形**で、数字と同じことを言う ── 絵より
-// 素直で、待っているあいだ何を見ればよいかが1つに決まる。
-// 経緯と外した理由は design/DESIGN-SYSTEM.md §1.12。
+// 【2026-10-06 本人裁定】輪(09/13〜)をやめ、アイコンの芽を描く形にした。
+// 見本の案(芽が伸びる・下から満ちる・線で描いて塗る・アイコンの枠ごと・輪の中に芽・
+// F を書く)から「線で描いて塗る」を選び、「9割で閉じる」と指示(見本は 8 割で閉じていた)。
+// 絵は**時間ではなく進み具合で決まる** ── 読み込みが止まれば絵も止まり、
+// 100% で必ず完成する。輪のときと同じく、数字と同じことを言う絵である。
+// 経緯は design/DESIGN-SYSTEM.md §1.12。
 //
-// 【色】輪も数字も --c-ink-3(白地と 3.03:1。非文字の部品に WCAG 1.4.11 が
-// 求める 3:1 をちょうど超える)。待っているあいだの絵が、待つことより
-// 目立ってはいけない ── 主役はこのあと出てくる中身のほう。
+// 【色】線も塗りも --c-accent(アイコンと同じ紺)。数字は --c-ink-3 のまま。
 // ------------------------------------------------------------------
 
-// 輪の寸法。R は中心から**線の真ん中**までなので、外形は R*2 + W。
-const VIEW = 48, CX = 24, CY = 24, R = 20, W = 3.5;
-const INK = "var(--c-ink-3)";
-// 埋まっていない側。index.css がこの色に与えている役どころが「罫線・**トラック**」で、
-// まさにこれ。輪の形は残しつつ、埋まった側とはっきり分かれる。
-const TRACK = "var(--c-line)";
+// 芽の外接箱(1024 四方のうち x 226〜840・y 201〜838)を中心に 720 四方で切り出す
+const VIEWBOX = "173 160 720 720";
+const SIZE = 88;
+const INK = "var(--c-accent)";
+// 線の太さ(1024 の座標で)。88px の絵では約 1.5px
+const W = 12;
+// ここまでで輪郭が閉じる。残りで中を塗る
+export const CLOSE_AT = 0.9;
+const clamp01 = (x) => Math.min(1, Math.max(0, x || 0));
 
-// 12時から時計回りに埋める。**pathLength=1** にしてあるので、
-// dasharray に「見せる割合」をそのまま書ける(円周を計算しない)。
-// 幹を伸ばしていたころと同じ書き方 ── dashoffset は「隠す長さ」なので符号を
-// 間違えやすい。
-const ARC_D = `M ${CX} ${CY - R} A ${R} ${R} 0 1 1 ${CX - 0.001} ${CY - R}`;
+// 進み具合 → 絵の段階。outer / hole は輪郭をなぞった割合、fill は塗りの濃さ、line は線の濃さ
+export function sproutStage(p) {
+  const frac = clamp01(p);
+  const line = clamp01(frac / CLOSE_AT);
+  const fillRaw = clamp01((frac - CLOSE_AT) / (1 - CLOSE_AT));
+  const fill = 1 - Math.pow(1 - fillRaw, 2.2);
+  return {
+    // 外形を先に(右上の葉の先から)、残りで根元の巻きの穴をなぞる
+    outer: clamp01(line / SPROUT_OUTER_SHARE),
+    hole: clamp01((line - SPROUT_OUTER_SHARE) / (1 - SPROUT_OUTER_SHARE)),
+    fill,
+    // 塗りが濃くなるぶん線を消す(残すと線の太さだけ芽が太ってアイコンと違う形になる)
+    line: 1 - fill,
+  };
+}
 
 export function LoadingRing({ p }) {
-  const frac = Math.min(1, Math.max(0, p || 0));
+  const { outer, hole, fill, line } = sproutStage(p);
+  // **pathLength=1** にしてあるので、dasharray に「見せる割合」をそのまま書ける(長さを計算しない)。
+  const stroke = { pathLength: "1", fill: "none", stroke: INK, strokeWidth: W,
+    strokeLinecap: "round", strokeLinejoin: "round", opacity: line };
   return (
-    <svg viewBox={`0 0 ${VIEW} ${VIEW}`} width="60" height="60" aria-hidden="true" style={{ display: "block" }}>
-      <circle cx={CX} cy={CY} r={R} fill="none" stroke={TRACK} strokeWidth={W} />
+    <svg viewBox={VIEWBOX} width={SIZE} height={SIZE} aria-hidden="true" style={{ display: "block" }}>
+      {fill > 0 && <path d={SPROUT_OUTER + SPROUT_HOLE} fillRule="evenodd" fill={INK} opacity={fill} />}
       {/* 【0 のときは描かない】丸い先端は**長さ 0 の破線も点として描く**ので、
-          素直に書くと 0% の輪の上に点が1つ乗る(株を描いていたころ、同じ罠で
-          枝の根元に点が4つ浮いた)。 */}
-      {frac > 0.002 && (
-        <path d={ARC_D} pathLength="1" fill="none" stroke={INK} strokeWidth={W}
-          strokeLinecap="round" strokeDasharray={`${frac} 1`} />
-      )}
+          素直に書くと 0% の芽の先に点が1つ乗る(株と輪で同じ罠を2度踏んでいる)。
+          塗り終わって線が消えたときも描かない。 */}
+      {line > 0.001 && outer > 0.002 && <path d={SPROUT_OUTER} strokeDasharray={`${outer} 1`} {...stroke} />}
+      {line > 0.001 && hole > 0.002 && <path d={SPROUT_HOLE} strokeDasharray={`${hole} 1`} {...stroke} />}
     </svg>
   );
 }
@@ -55,7 +72,7 @@ export function LoadingRing({ p }) {
 // 進めずに出すのが正しい。
 export default function LoadingRingBox({ step = null }) {
   const [pct, setPct] = useState(() => loadFloor());
-  // 【C1 2026-09-16 実機の指摘】輪を**見えている領域の縦の中央**に置く。
+  // 【C1 2026-09-16 実機の指摘】絵(芽)を**見えている領域の縦の中央**に置く。
   // 領域 = この包みの上端(chunk / account なら本文の先頭、list なら子タブ帯の下端)〜下部ナビの上端。
   // 包みの高さを「可視高(100dvh)− 下部ナビ(--page-bottom-gap)− 包みの上端」にして中を中央寄せする。
   // 上端は文書座標で1度測る(スクロール位置に依らない。App.jsx の fillViewportMinHeight と同じ考え)。
@@ -96,8 +113,8 @@ export default function LoadingRingBox({ step = null }) {
         padding: "var(--sp-6)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
         minHeight: `calc(100dvh - var(--page-bottom-gap) - ${top}px)`,
       }}>
-      {/* 【中央に来るのは輪】数字は輪の下に**絶対配置**で添える ── 流れの中に置くと
-          輪 + 余白 + 数字の塊が中央に来て、輪そのものは中点より上にずれる。 */}
+      {/* 【中央に来るのは絵】数字は絵の下に**絶対配置**で添える ── 流れの中に置くと
+          絵 + 余白 + 数字の塊が中央に来て、絵そのものは中点より上にずれる。 */}
       <div style={{ position: "relative" }}>
         <LoadingRing p={pct / 100} />
         <div className="sans" style={{
