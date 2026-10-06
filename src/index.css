@@ -858,7 +858,7 @@ body {
      浮きの影(シート・浮かせるボタン・告知と同値 0 8px 24px rgba(15,23,42,0.18)。新しい濃さを作らない)。
      左右は画面から 22px(本人裁定)。中身は丸いアイコン(地 --c-accent-tint・色 --c-accent)・見出し・1行
      【便BX 2026-10-06 本人の決定 A1-e】地を --c-accent-tint(ごく薄い紺)に、アイコンの丸を白(--c-surface)にした。字は変えない。
-     参加の画面のカード(.join-card)は白のまま(本人の決定 §16(1) ア)。カードの先頭に章の目印(.coach-marks。本人の決定 B2)
+     参加の画面のカード(.join-card)は白のまま(本人の決定 §16(1) ア)。カードの先頭に枚数の目印(.coach-progress。【便BY】章の目印から替えた)
    ・【版4との値の差】見出しは版4の 17px → --fs-lg(18px。7段に 17 が無い)。カードの内側の左右と下は版4の 18px →
      --sp-4(16px。5段に 18 が無い)。上は版4と同じ 20(--sp-5)。1行の行間は版4の 1.7 → --lh-loose(1.75)
    ・動きは**済んだときに溶けて消える 0.35 秒だけ**(本人裁定。§1.11 の3段の外 ── 段に入れると「速い/普通/遅い」の
@@ -892,14 +892,13 @@ body {
 .coach-icon svg { width: 24px; height: 24px; }
 .coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }
 .coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }
-/* 【便BX 2026-10-06 本人の決定 B2】章の目印(計測・リード・データ・コミュニティ)。カードの最初の子。今の章 = 紺・済んだ章 = 薄い紺(--c-accent-mid。
-   系列色の第2段)・まだ = 中立の灰(--c-line-strong。地が --c-accent-tint なので --c-line では見えない)。棒の高さと間は --sp-1、字は --fs-xs。 */
-.coach-marks { justify-self: stretch; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-1); }
-.coach-marks i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }
-.coach-marks i.done { background: var(--c-accent-mid); }
-.coach-marks i.cur { background: var(--c-accent); }
-.coach-marks span { display: block; margin-top: var(--sp-1); font-size: var(--fs-xs); line-height: var(--lh-tight); text-align: center; white-space: nowrap; color: var(--c-ink-3); }
-.coach-marks .cur + span { color: var(--c-accent); font-weight: 700; }
+/* 【便BY 2026-10-07 本人の指示「チュートリアルの案内の枚数を------で表して / Instagramみたいな」】枚数の目印。カードの最初の子。
+   細い横棒を案内の全体の枚数(onboarding.jsx の COACH_ORDER)ぶん等分に並べ、今の段までを紺(--c-accent)、まだを中立の灰
+   (--c-line-strong。地が --c-accent-tint なので --c-line では見えない)で塗る。時間で伸びる動きは無い(塗りだけ)。
+   棒の高さと間は --sp-1(2〜3px に当たるトークンは無い)・角丸 --r-full。便BX の章の目印(.coach-marks)はこれに替えた。 */
+.coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }
+.coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }
+.coach-progress i.on { background: var(--c-accent); }
 /* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
    参加の画面のカード(src/community/CommunityTab.jsx の JoinIntro)。形は .coach-card のまま(角丸 18・浮きの影・内側)。
    【便BX】地は白(--c-surface)のまま・アイコンの丸は --c-accent-tint のまま(案内のカードの地と丸だけが変わった。下の .coach-card.join-card)。

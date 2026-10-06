@@ -36,16 +36,20 @@ import { createPortal } from "react-dom";
 //       ⑭ と同じ的なので、⑮ を見た人には ⑭ を出さない(coachCandidates)
 //     案内は自動でタブを移さない(⑤⑩ は下部タブを照らして待つ)。例外は帯の「見る」(本人が押した帯の操作)だけ。
 //     押す=済(markOnDismiss)の段は ⑧⑭⑮ の3つ。この3つは外を押しても群(dismissWith)を消さない(次の段へ進ませるため)
-//   ・【便BX 2026-10-06 本人の実機指示】⑥ リード登録の見出しを「楽器を選択してリードを登録しよう」にし、上部の楽器種別の行も
-//     2つ目の穴(also)で明るく残す(押せる・外押しにならない)。⑧ の1行を「計測データに選択したリードが紐づきます」に
+//   ・【便BX 2026-10-06 本人の実機指示】⑧ の1行を「計測データに選択したリードが紐づきます」に
+//     (⑥ リード登録の見出しの変更と楽器種別の行の2つ目の穴は、【便BY 2026-10-07 本人の指示】で便BW の形に戻した)
 //   ・【便BX 2026-10-06 本人の決定・凍結仕様 coach3-spec.md(モック coach3-mock.html の A1-e・B1+B2・C・D1)】
 //     流れ: 計測 ①〜⑤ → リード(到着 → ⑥⑦)→ 計測 ⑧⑨ → 保存の帯と同時に ⑩ → データ(到着 → ⑫⑬⑭ → ⑭' みんなのデータも見てみよう)→
 //       コミュニティ(参加の画面 → 到着 → ⑯ 目安に)→ 帯「見る」→ データ(⑮ → ⑰ 計測タブに戻ろう)→ 計測 ⑱ 終わり(穴なし)
 //     到着カード(arrival: true。リード・データ・コミュニティ・終わりの4つ): 穴なしの暗幕を画面いっぱいに敷き、どこを押しても「次へ」
 //       (印を立てる)。外押しではないので群を消さない(dismissedRef に入れない)。どの到着も的を探さない
-//     章の目印(B2): カードの先頭に4章(計測・リード・データ・コミュニティ)。今の章 = 出している段の chapter・済んだ章は印で決める(chapterDone)
+//     (章の目印(B2)は【便BY】で外し、枚数の目印に替えた ── 下の【便BY】)
 //     帯と同時(⑩): 「保存しました」の帯が出ている間も ⑩ だけは出し、帯の箱を2つ目の穴(also)で明るく残す(「開く」は押せる)
 //     カードの地(A1-e): --c-accent-tint・アイコンの丸は白(index.css。参加のカードは白のまま)
+//   ・【便BY 2026-10-07 本人の指示「全ての案内において上の四つのタブ案内も削除 / 代わりにチュートリアルの案内の枚数を------で表して」】
+//     章の目印(4章)を外し、カードの先頭に枚数の目印(Instagram のストーリーのような細い横棒。案内の全体の枚数 = COACH_ORDER の 21本)を置く。
+//     今の段までの棒を塗る(位置は COACH_ORDER の中の、出している段の印の位置)。その利用者に出ない段(飛ばした段)は塗られた扱い ──
+//     棒は常に左から順に塗られ、途中に穴があかない。時間で伸びる動きはしない(塗りだけ)。参加の画面のカード(JoinIntro)には付けない
 //
 // **判断はこのファイルの純関数が持つ**(どの一手を出すか・印の立て方・移行・穴とカードの位置)。
 // App.jsx は「いまの状態」を渡し、成功の道で markOnboardingDone を呼ぶだけ。
@@ -99,61 +103,61 @@ export const COACH_EDGE_PX = 22;
 // データタブの的は下部タブの「計測」ボタンの**絵柄**(ボタンそのものは横長 84×32 なので、絵柄 30×30 を円で囲む。
 // 版4は 44 の丸 + pad 4 = 直径 52 だったので、30 の絵柄には pad 11 で同じ 52 にする)。
 // (【便BW】的なし(target: null)の段は無くなった。【便BX】到着カード(arrival: true)の4段だけは target を持たない ── 穴なしで的を探さない)
-//   chapter … 【便BX 本人の決定 B2】章の目印で「今の章」として紺になる章(measure / reeds / data / community)
 //   arrival … 【便BX 本人の決定 B1】到着カード。穴なし・画面いっぱいの暗幕・どこを押しても「次へ」(印を立てる)・群なし
 //   dismissWith … 外を押して消したときに、一緒にこの起動の間は出さない段(既定はその段だけ)
 //   markOnDismiss … 外(暗幕・カード)を押したら、その段の印を立てる(押すことが一手そのものの段)。群は持たない(次の段へ進ませる)
 //   scrollIntoView … 的の要素が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(【便BW】音の傾向カード)
 //   also … 【便BX】2つ目の穴({ target, pad, shape })。的(1つ目)が見えているときだけ探し、画面にまるごと見えていて
 //          1つ目と縦に重ならなければ一緒に明るく残す(見えていなければ1つ目だけ)。カードの位置は1つ目で決める
+//          (【便BY】⑥ の楽器種別の行の穴は外した。持つのは ⑩ goData(保存の帯の箱)だけ)
 export const COACH_STEPS = {
   // 【便BW 2026-10-06 本人の要望1】計測タブ1段目。的は環の箱(環と音名。吹いて動く所)。
   // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
   // 便BS では「押す所が無い」ので的なし(画面いっぱいの暗幕)にしていたが、吹いて変わる所まで暗くなっていた。
   tuner: {
-    flag: "tuner", icon: "tuner", chapter: "measure",
+    flag: "tuner", icon: "tuner",
     title: "まずは吹いてみよう", line: "音程がリアルタイムで表示されます",
     target: '[data-coach="tuner"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BS】計測タブ2段目。的は右上のメトロノームのアイコンのボタン(44 角)。版の .spot の pad 0 で丸く囲む。
   metronome: {
-    flag: "metronome", icon: "metro", chapter: "measure",
+    flag: "metronome", icon: "metro",
     title: "メトロノームも使えます", line: "テンポを決めて練習できます",
     target: '[data-coach="metronome"]', pad: 0, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BW 本人の要望2】メトロノームの面の中の2段。③ テンポ行(− ♩=n ＋)。♩=n を押すと拍子・分割のシート(本人裁定 ア)。
   metroTempo: {
-    flag: "metroTempo", icon: "metro", chapter: "measure",
+    flag: "metroTempo", icon: "metro",
     title: "テンポを決めよう", line: "♩=n を押すと拍子も変えられます",
     target: '[data-coach="metroTempo"]', pad: 6, shape: "pill", dismissWith: MEASURE_TAB_STEPS,
   },
   // ④ 帯のどこを押しても開始(A-1 の背面レイヤ)。的は①と同じ環の箱(環は当たり判定を持たないので、押すと背面レイヤに届いて鳴る)。
   metroStart: {
-    flag: "metroStart", icon: "metro", chapter: "measure",
+    flag: "metroStart", icon: "metro",
     title: "タップでスタート", line: "もう一度押すと止まります",
     target: '[data-coach="tuner"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BW 本人の要望3】⑤ 下部タブ「リード」の絵柄。自動では移さない(押してもらうのを待つ)。pad 11 はデータの段と同じ(30 + 22 = 52)。
   goReeds: {
-    flag: "goReeds", icon: "reeds", chapter: "measure",
+    flag: "goReeds", icon: "reeds",
     title: "次はリードを登録しよう", line: null,
     target: '[data-coach="nav-reeds"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
   reedLinked: {
-    flag: "reedLinked", icon: "reeds", chapter: "measure",
+    flag: "reedLinked", icon: "reeds",
     // 【便BX 2026-10-06 本人の実機指示】1行を「計測データに選択したリードが紐づきます」に。
     title: "選んだリードが紐づいています", line: "計測データに選択したリードが紐づきます",
     target: '[data-coach="reedChip"]', pad: 6, shape: "pill", markOnDismiss: true,
   },
   // 【便BW 本人の要望6】⑨ リードが選ばれているときの計測の段。印は measure(リードなしの段と同じ印で文が2つ)。
   measureReed: {
-    flag: "measure", icon: "mic", chapter: "measure",
+    flag: "measure", icon: "mic",
     title: "このリードで計測してみよう", line: "ボタンタップで計測スタート",
     target: '[data-coach="measure"]', pad: 14, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
   },
   measure: {
-    flag: "measure", icon: "mic", chapter: "measure",
+    flag: "measure", icon: "mic",
     title: "最初の計測を記録しよう", line: "ボタンタップで計測スタート",
     target: '[data-coach="measure"]', pad: 14, shape: "circle",
     // 【便BS】計測タブの段。外を押したら計測タブの段を全部出さない
@@ -161,7 +165,7 @@ export const COACH_STEPS = {
   },
   // 【便BW 本人の要望7】⑩ 下部タブ「データ」の絵柄。計測があるときだけ。
   goData: {
-    flag: "goData", icon: "data", chapter: "measure",
+    flag: "goData", icon: "data",
     title: "計測の記録を見てみよう", line: null,
     target: '[data-coach="nav-analysis"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
     // 【便BX 2026-10-06 本人の決定 C】保存の帯(「HH:mm の計測を保存しました」+「開く」)と同時に出す。帯の箱(App.jsx の ActionNotice の内箱が
@@ -172,68 +176,65 @@ export const COACH_STEPS = {
   // target を持たない(的を探さない)。pad / shape / dismissWith / markOnDismiss / scrollIntoView / also も持たない。
   // ⑱ 終わり。⑮ を見て計測タブへ戻ったら(goMeasure)。穴なしなのでマイクも面の開閉も待たない
   finish: {
-    flag: "finish", icon: "tuner", chapter: "measure",
+    flag: "finish", icon: "tuner",
     title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",
     arrival: true,
   },
   // リードタブに着いた(⑥⑦ より先)
   arriveReeds: {
-    flag: "arriveReeds", icon: "reeds", chapter: "reeds",
+    flag: "arriveReeds", icon: "reeds",
     title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",
     arrival: true,
   },
   // データタブに着いた(計測があるときだけ。⑫⑬⑭ より先。計測が無いときは ⑪ の文が場所を言っている)
   arriveData: {
-    flag: "arriveData", icon: "data", chapter: "data",
+    flag: "arriveData", icon: "data",
     title: "ここはデータタブ", line: "計測の記録はここに貯まります",
     arrival: true,
   },
   // コミュニティに着いた(参加した直後・参加済みの人がタブを開いた直後。⑯ より先)。「タブ」を付けない(モックのまま)
   arriveCommunity: {
-    flag: "arriveCommunity", icon: "community", chapter: "community",
+    flag: "arriveCommunity", icon: "community",
     title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",
     arrival: true,
   },
   // 【便BX 本人の決定 C】⑭' データ → コミュニティの橋。下部タブ「コミュニティ」の絵柄(⑤⑩ と同じ pad 11 = 直径 52)。参加済みの人には出さない
   goCommunity: {
-    flag: "goCommunity", icon: "community", chapter: "data",
+    flag: "goCommunity", icon: "community",
     title: "みんなのデータも見てみよう", line: null,
     target: '[data-coach="nav-community"] svg', pad: 11, shape: "circle",
   },
   // 【便BX 本人の決定 C】⑰ ⑮ を見たあと計測タブへ戻る橋。的は ⑪ と同じ下部タブ「計測」の絵柄。アイコンは下部タブ「計測」と同じ系統(measure)
   goMeasure: {
-    flag: "goMeasure", icon: "measure", chapter: "data",
+    flag: "goMeasure", icon: "measure",
     title: "計測タブに戻ろう", line: null,
     target: '[data-coach="nav-measure"] svg', pad: 11, shape: "circle",
   },
   reeds: {
-    flag: "reeds", icon: "reeds", chapter: "reeds",
+    flag: "reeds", icon: "reeds",
     // 【便BQ 2026-10-03 本人指示】1行を「計測に登録したリードを紐づけることができます」に。
-    // 【便BX 2026-10-06 本人の実機指示】見出しを「楽器を選択してリードを登録しよう」に(本人の原文「画期を選択して」は「楽器」の打ち間違いと読む)。
-    title: "楽器を選択してリードを登録しよう", line: "計測に登録したリードを紐づけることができます",
+    // 【便BY 2026-10-07 本人の指示「リード登録の時の楽器を選択して〜の案内はやっぱり削除」】見出しを便BW の「使っているリードを登録しよう」に戻し、
+    // 便BX の楽器種別の行の2つ目の穴(also)を外した(穴は「リードを追加」の1つ)。
+    title: "使っているリードを登録しよう", line: "計測に登録したリードを紐づけることができます",
     target: '[data-coach="reeds"]', pad: 10, shape: "circle",
-    // 【便BX 本人の実機指示】上部の楽器種別の行(S.Sax / A.Sax / T.Sax / B.Sax)も暗幕から外す(2つ目の穴)。
-    // 行の4つのボタンは行の幅いっぱいに並ぶので、行の箱をそのまま穴にする(pad 0・角丸の矩形 = 環の箱・音の傾向カードと同じ「箱」の値)。
-    // 穴の中には受けを置かないので、押せば下の楽器種別のボタンに届く(外押しにならない)。段の済み方(リードの登録)は変えない。
-    also: { target: '[data-coach="reedsSax"]', pad: 0, shape: "rect" },
   },
   // 【便BP2 2026-10-03 統括の裁定】2つの画面をまたいで同じ一手を案内する。一覧では先頭の箱の先頭のタイル(角丸 12 の四角)、
   // タイルを押して個体詳細に入ったら詳細の計測ボタン(丸。data-coach-shape="circle" で形を名乗る)。済む条件は同じ。
   reedsMeasure: {
-    flag: "reedsMeasure", icon: "measure", chapter: "reeds",
+    flag: "reedsMeasure", icon: "measure",
     // 【便BQ 2026-10-03 本人指示】1行は無し(見出しだけ)。
     title: "このリードで計測してみよう", line: null,
     target: '[data-coach="reedsMeasure"]', pad: 4, shape: "rect",
   },
   data: {
-    flag: "measure", icon: "data", chapter: "data",
+    flag: "measure", icon: "data",
     title: "計測を始めると、ここに貯まります", line: "計測タブから計測してみよう",
     target: '[data-coach="nav-measure"] svg', pad: 11, shape: "circle",
   },
   // (【便BS】の dataSeen「計測したデータがここに貯まります」(的なし)はここにあった。【便BW】役目は ⑫⑬⑭ が継いだ。印の名前は残す)
   // 【便BW 本人の要望7】⑫ カレンダーの最新の計測の日のマス(その日の枠が閉じているときだけ名乗る)。
   calendarDay: {
-    flag: "calendarDay", icon: "data", chapter: "data",
+    flag: "calendarDay", icon: "data",
     title: "計測した日を押してみよう", line: null,
     // 【便BW 再審査】的は中の丸(34)。pad 5 で直径 44(§5 の当たりの最小)。iPhone・iPad とも同じ大きさ。
     // passThrough: 丸の外でもマス(押せる日のボタン)の中は下へ通す(外押しにしない。iPad のマスは幅 87)
@@ -241,26 +242,26 @@ export const COACH_STEPS = {
   },
   // ⑬ 開いた日の枠の先頭の記録の行。押すと計測の詳細(詳細の中にカードは置かない)。
   daySession: {
-    flag: "daySession", icon: "data", chapter: "data",
+    flag: "daySession", icon: "data",
     title: "記録を開いてみよう", line: null,
     target: '[data-coach="daySession"]', pad: 4, shape: "rect", dismissWith: DATA_TAB_STEPS,
   },
   // 【便BW 本人の要望8】⑭ 音の傾向カード。My Data の最下段なので、初回だけ的へスクロール。押す=済。
   trend: {
-    flag: "trend", icon: "data", chapter: "data",
+    flag: "trend", icon: "data",
     title: "データが溜まると、平均がここにグラフで出ます", line: null,
     target: '[data-coach="trend"]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,
   },
   // 【便BW 本人の要望9・本人裁定 2026-10-06】⑮ みんなの平均を目安にしたあと、帯の「見る」で来たときだけ。的は ⑭ と同じ音の傾向カード
   // (目安があれば折れ線の既定は my平均 × 目安)。押す=済。
   idealSeen: {
-    flag: "idealSeen", icon: "target", chapter: "data",
+    flag: "idealSeen", icon: "target",
     title: "みんなの平均を目安にしました", line: "my平均と目安を重ねて見られます",
     target: '[data-coach="trend"]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,
   },
   // (【便BS】参加前(join)の段はここにあった。参加の画面そのものが暗幕とカード1枚になったので外した。CommunityTab.jsx の JoinIntro)
   adoptAverage: {
-    flag: "adoptAverage", icon: "target", chapter: "community",
+    flag: "adoptAverage", icon: "target",
     title: "みんなの平均を目安にしてみよう", line: "目安に設定すると自分の音と比べられます",
     target: '[data-coach="adoptAverage"]', pad: 0, shape: "rect",
   },
@@ -270,25 +271,22 @@ export function coachSpeech(step) {
   return step.line ? `${step.title}。${step.line}` : step.title;
 }
 
-// 【便BX 2026-10-06 本人の決定 B2】カードの上部の4章の目印。今いる章 = 出している段の chapter。済んだ章は印で決める(数を数えない)。
-// 位置(前の章を済みにする)では決めない ── 流れは計測・データへ2度戻るので、位置だと「戻ってきた章の前が未」に見える。
-export const COACH_CHAPTERS = Object.freeze([
-  { key: "measure", label: "計測" }, { key: "reeds", label: "リード" }, { key: "data", label: "データ" }, { key: "community", label: "コミュニティ" },
+// 【便BY 2026-10-07 本人の指示】枚数の目印(カードの先頭の細い横棒)の順。案内の全体の枚数(凍結仕様 coach3-spec.md §15 の 21枚)を、
+// 出る順に**段の印(flag)**で持つ(⑨ の measureReed / measure と、流れの外の ⑪ data は同じ印 measure = 同じ位置)。
+// coachCandidates の出る順と食い違わないことは onboarding.test.jsx の「枚数の目印」が流れを通して守る。
+export const COACH_ORDER = Object.freeze([
+  "tuner", "metronome", "metroTempo", "metroStart", "goReeds",          // 計測 ①〜⑤
+  "arriveReeds", "reeds", "reedsMeasure",                               // リード 到着・⑥⑦
+  "reedLinked", "measure", "goData",                                    // 計測 ⑧⑨⑩
+  "arriveData", "calendarDay", "daySession", "trend", "goCommunity",    // データ 到着・⑫⑬⑭⑭'
+  "arriveCommunity", "adoptAverage",                                    // コミュニティ 到着・⑯
+  "idealSeen", "goMeasure",                                             // データ ⑮⑰
+  "finish",                                                             // 計測 ⑱
 ]);
-export function chapterDone(key, done) {
-  const d = done ?? {};
-  switch (key) {
-    case "measure": return d.measure === true || d.goReeds === true;   // 保存した、または1章を終えてリードへ渡った
-    case "reeds": return d.reeds === true;                               // リードを登録した
-    case "data": return d.trend === true;                                // 4章の最後(音の傾向)まで見た
-    case "community": return d.adoptAverage === true;                    // みんなの平均を目安にした
-    default: return false;
-  }
-}
-// 「今の章」が「済んだ章」でもあるとき(⑧⑨⑩ で goReeds 済・⑱ で全部済)は cur が勝つ(紺)。
-export function chapterMarks(stepId, done) {
-  const cur = COACH_STEPS[stepId]?.chapter ?? null;
-  return COACH_CHAPTERS.map((c) => ({ key: c.key, label: c.label, state: c.key === cur ? "cur" : chapterDone(c.key, done) ? "done" : "" }));
+// 今は何枚目か(1 始まり)。COACH_ORDER の中の、その段の印の位置。手前の段は(その利用者に出なかった段も)塗られた扱い。
+export function coachProgress(stepId) {
+  const flag = COACH_STEPS[stepId]?.flag;
+  return { at: flag ? COACH_ORDER.indexOf(flag) + 1 : 0, total: COACH_ORDER.length };
 }
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -556,13 +554,13 @@ export function CoachIcon({ name }) {
   return <span className="coach-icon">{ICONS[name]}</span>;
 }
 
-// 【便BX 2026-10-06 本人の決定 B2】章の目印(カードの最初の子)。装飾なので読み上げない(カードは既に aria-hidden)。
-function ChapterMarks({ stepId, done }) {
+// 【便BY 2026-10-07 本人の指示】枚数の目印(カードの最初の子)。棒は COACH_ORDER の数だけ・今の段まで塗る(on)。塗りだけで動きは無い。
+// 読み上げ用に「案内 n/21」(カードは aria-hidden なので、今の読み上げ(.coach-live)は変えていない)。
+function CoachProgress({ stepId }) {
+  const { at, total } = coachProgress(stepId);
   return (
-    <div className="coach-marks" aria-hidden="true">
-      {chapterMarks(stepId, done).map((m) => (
-        <div key={m.key} data-coach-mark={m.state || "todo"}><i className={m.state} /><span>{m.label}</span></div>
-      ))}
+    <div className="coach-progress" role="img" aria-label={`案内 ${at}/${total}`}>
+      {COACH_ORDER.map((f, i) => <i key={f} className={i < at ? "on" : undefined} />)}
     </div>
   );
 }
@@ -652,7 +650,7 @@ function hitRects(hole, vw, vh, band = null) {
 // 【便BX】到着カード(穴なし・どこを押しても次へ)だけが暗幕を画面いっぱいに敷く(.coach-dim と受け1枚)。他の段は穴と受け4枚。
 //   到着の受け・カードを押すと advance(印を立てる)。外押しではないので dismissedRef に入れない(群も消さない)。
 //   scrollIntoView の段は、的が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(scrolledRef)。
-// 【便BX】also を持つ段(リード1)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
+// 【便BX】also を持つ段(【便BY】⑩ goData だけ。保存の帯が出ているとき)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
 //   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
 export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
@@ -872,7 +870,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
               clipPath: view.extra ? holeClipPath(view.hole, view.band, view.vw) : undefined,
             }}
           />
-          {/* 【便BX】2つ目の穴(リード1の楽器種別の行)。見た目は1つ目と同じ .coach-hole(新しい CSS は無い)。影は自分の帯の中だけ。 */}
+          {/* 【便BX】2つ目の穴(【便BY】⑩ の保存の帯の箱)。見た目は1つ目と同じ .coach-hole(新しい CSS は無い)。影は自分の帯の中だけ。 */}
           {view.extra ? (
             <div
               className="coach-hole"
@@ -891,7 +889,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
               style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
               onClick={dismiss} />
           ))}
-          {/* 【便BX】2つ目の穴の外側の受け(その帯の中の4枚)。2つ目の穴の上にも何も置かない(楽器種別のボタンは押せる)。 */}
+          {/* 【便BX】2つ目の穴の外側の受け(その帯の中の4枚)。2つ目の穴の上にも何も置かない(帯の「開く」は押せる)。 */}
           {view.extra ? hitRects(view.extra, view.vw, view.vh, view.extraBand).map((h) => (
             <div key={`x${h.key}`} className="coach-hit" aria-hidden="true" data-coach-hit={`x${h.key}`}
               style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
@@ -899,7 +897,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
           )) : null}
           </>)}
           {/* カードは画面の中央。押しても案内が消えるだけ(外を押したのと同じ)。測る前は見せない。
-              【便BX】到着カードは押すと「次へ」(advance)。先頭の子は章の目印(B2)。 */}
+              【便BX】到着カードは押すと「次へ」(advance)。【便BY】先頭の子は枚数の目印。 */}
           <div
             ref={cardRef}
             className="coach-card sans"
@@ -908,7 +906,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
             style={{ top: view.top, visibility: view.measured ? "visible" : "hidden" }}
             onClick={view.arrival ? advance : dismiss}
           >
-            <ChapterMarks stepId={view.id} done={done} />
+            <CoachProgress stepId={view.id} />
             <CoachIcon name={step.icon} />
             <div className="coach-title">{step.title}</div>
             {step.line ? <div className="coach-line">{step.line}</div> : null}

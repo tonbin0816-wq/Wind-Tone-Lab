@@ -33152,9 +33152,11 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // 【便BX 審査 統括の裁定】便BX が意図して変えた規則(.coach-card・.coach-icon・.coach-card.join-card・.join-card > .coach-icon・.coach-marks の6つ)
     // だけを塊から抜き(コメントも抜く)、残りは長さと fnv1a で固定する(便BX の前 = HEAD c6d8fd7 の残りと同じ 1305文字 / 711e1907)。
     // 抜いた規則の中身は BX.5 が一字一句で見る。
+    // 【便BY 2026-10-07 本人の指示】章の目印(.coach-marks の6規則)を外し、枚数の目印(.coach-progress の3規則)に替えた。抜くのはその3規則に替え、
+    // 残りの固定(1305文字 / 711e1907)は変えない(=便BY は .coach-* の他の規則に1文字も触れていない)。
     const restBX = (() => {
       let r = blk.replace(/\/\*[\s\S]*?\*\//g, "");
-      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-marks", ".coach-marks i", ".coach-marks i.done", ".coach-marks i.cur", ".coach-marks span", ".coach-marks .cur + span"]) {
+      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-progress", ".coach-progress i", ".coach-progress i.on"]) {
         r = r.split("\n" + sel + " {").map((p, i) => (i === 0 ? p : p.slice(p.indexOf("}") + 1))).join("\n");
       }
       return r.replace(/[ \t]+\n/g, "\n").replace(/\n{2,}/g, "\n");
@@ -33171,7 +33173,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const ds = rd("design/DESIGN-SYSTEM.md");
     const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
     const titles = ["まずは吹いてみよう", "メトロノームも使えます", "テンポを決めよう", "タップでスタート", "次はリードを登録しよう",
-      "楽器を選択してリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
+      "使っているリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
       "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
       "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう",
       // 【便BX】新しい6段
@@ -33179,6 +33181,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const missing = titles.filter((t) => !sec.includes(t));
     check("BW.7 DESIGN-SYSTEM §4.5b に段の見出しが全部ある(【便BX】23 の段。⑦⑨ は同じ見出し)",
       sec.length > 1000 && missing.length === 0 && /【便BW/.test(sec), missing.join(" / "));
+    // 【便BY 2026-10-07 本人の指示】⑥ の見出しを便BW に戻した。便BX の見出しは onboarding.jsx の段の表にも DESIGN-SYSTEM の段の表にも残っていない
+    check("BW.7 【便BY】⑥ の見出しは「使っているリードを登録しよう」(便BX の「楽器を選択してリードを登録しよう」は段の表に無い)",
+      !/楽器を選択してリードを登録しよう/.test(codeOf(rd("src/onboarding.jsx")))
+      && !/\| 楽器を選択してリードを登録しよう/.test(sec) && sec.includes("| 使っているリードを登録しよう / 計測に登録したリードを紐づけることができます"));
   }
   console.log("  -> done");
 }
@@ -33218,20 +33224,23 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     JSON.stringify([...arrivals].sort()) === JSON.stringify(["arriveCommunity", "arriveData", "arriveReeds", "finish"])
     && arrivals.every((id) => !/\b(target|pad|shape|dismissWith|markOnDismiss|scrollIntoView|also|passThrough):/.test(stepOf(id)))
     && (stepsBlk.match(/arrival: true/g) || []).length === 4, arrivals.join(","));
-  check("BX.1 全23段に chapter があり、値は measure / reeds / data / community のどれか。chapter は flag の行の末尾(target の行には無い)",
-    stepIds.length === 23 && stepIds.every((id) => /\n\s*flag: "[A-Za-z]+", icon: "[a-z]+", chapter: "(measure|reeds|data|community)",\n/.test("\n" + stepOf(id) + "\n"))
-    && !/target: [^\n]*chapter:/.test(stepsBlk), `${stepIds.length}段`);
+  // 【便BY 2026-10-07 本人の指示】章の目印を外したので、段は chapter を持たない(flag の行は flag と icon だけ)
+  check("BX.1 【便BY】全23段に chapter が無い。flag の行は flag と icon だけ",
+    stepIds.length === 23 && stepIds.every((id) => /\n\s*flag: "[A-Za-z]+", icon: "[a-z]+",\n/.test("\n" + stepOf(id) + "\n"))
+    && !/\bchapter:/.test(stepsBlk), `${stepIds.length}段`);
   check("BX.1 ⑱ finish の文(一字一句)・アイコン tuner・章 measure",
-    /flag: "finish", icon: "tuner", chapter: "measure",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
+    /flag: "finish", icon: "tuner",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
   check("BX.1 到着3つ・⑭'・⑰ の文(一字一句)",
     /title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",/.test(stepOf("arriveReeds"))
     && /title: "ここはデータタブ", line: "計測の記録はここに貯まります",/.test(stepOf("arriveData"))
     && /title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",/.test(stepOf("arriveCommunity"))
-    && /flag: "goCommunity", icon: "community", chapter: "data",\n\s*title: "みんなのデータも見てみよう", line: null,\n\s*target: '\[data-coach="nav-community"\] svg', pad: 11, shape: "circle",/.test(stepOf("goCommunity"))
-    && /flag: "goMeasure", icon: "measure", chapter: "data",\n\s*title: "計測タブに戻ろう", line: null,\n\s*target: '\[data-coach="nav-measure"\] svg', pad: 11, shape: "circle",/.test(stepOf("goMeasure")));
-  check("BX.1 ⑩ goData に also: { target: \"[data-action-notice]\", pad: 0, shape: \"rect\" }(2つ目の穴は ⑥ と ⑩ の2つだけ)",
+    && /flag: "goCommunity", icon: "community",\n\s*title: "みんなのデータも見てみよう", line: null,\n\s*target: '\[data-coach="nav-community"\] svg', pad: 11, shape: "circle",/.test(stepOf("goCommunity"))
+    && /flag: "goMeasure", icon: "measure",\n\s*title: "計測タブに戻ろう", line: null,\n\s*target: '\[data-coach="nav-measure"\] svg', pad: 11, shape: "circle",/.test(stepOf("goMeasure")));
+  // 【便BY 2026-10-07 本人の指示】⑥ の楽器種別の行の2つ目の穴を外した(2つ目の穴は ⑩ だけ)。行の的の綴り reedsSax はどこにも無い
+  check("BX.1 ⑩ goData に also: { target: \"[data-action-notice]\", pad: 0, shape: \"rect\" }(【便BY】2つ目の穴は ⑩ の1つだけ・reedsSax はどこにも無い)",
     /also: \{ target: "\[data-action-notice\]", pad: 0, shape: "rect" \},/.test(stepOf("goData"))
-    && (stepsBlk.match(/\balso: \{/g) || []).length === 2);
+    && (stepsBlk.match(/\balso: \{/g) || []).length === 1 && !/\balso:/.test(stepOf("reeds"))
+    && !/reedsSax/.test(obRaw) && !/reedsSax/.test(src));
 
   // --- BX.2 coachCandidates の分岐 ----------------------------------------------------------------------
   const cc = (/export function coachCandidates\(\{([\s\S]*?)\}\) \{([\s\S]*?)\n\}/.exec(ob) || [])[2] || "";
@@ -33254,12 +33263,18 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /if \(step\.arrival\) \{ found = \{ id, arrival: true \}; break; \}/.test(ob)
     && /placeCoachCard\(\{ hole: null, cardH: cardH0, vh, bottomLimit: readBottomLimit\(vh\) \}\)/.test(ob)
     && /onClick=\{view\.arrival \? advance : dismiss\}/.test(ob));
-  check("BX.3 chapterDone の4分岐(計測 = measure か goReeds / リード = reeds / データ = trend / コミュニティ = adoptAverage)・目印はカードの最初の子",
-    /case "measure": return d\.measure === true \|\| d\.goReeds === true;/.test(ob)
-    && /case "reeds": return d\.reeds === true;/.test(ob)
-    && /case "data": return d\.trend === true;/.test(ob)
-    && /case "community": return d\.adoptAverage === true;/.test(ob)
-    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<ChapterMarks stepId=\{view\.id\} done=\{done\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob));
+  // 【便BY 2026-10-07 本人の指示】章の目印(chapterDone / chapterMarks / COACH_CHAPTERS / ChapterMarks)を外し、枚数の目印に替えた。
+  // 順(仕様 §15 の 21 枚)は onboarding.test.jsx が coachCandidates の流れと突き合わせる。ここは綴り(順・塗り・カードの最初の子)だけ
+  check("BX.3 【便BY】章の目印の綴りが無い(chapterDone・chapterMarks・COACH_CHAPTERS・ChapterMarks・coach-marks・data-coach-mark)",
+    !/chapterDone|chapterMarks|COACH_CHAPTERS|ChapterMarks|coach-marks|data-coach-mark/.test(obRaw));
+  check("BX.3 【便BY】枚数の目印: COACH_ORDER は 21 の印をこの順で持つ・棒は COACH_ORDER の数だけで今の段まで on・「案内 n/21」・カードの最初の子",
+    JSON.stringify(listOf("COACH_ORDER", ob)) === JSON.stringify(["tuner", "metronome", "metroTempo", "metroStart", "goReeds",
+      "arriveReeds", "reeds", "reedsMeasure", "reedLinked", "measure", "goData",
+      "arriveData", "calendarDay", "daySession", "trend", "goCommunity", "arriveCommunity", "adoptAverage", "idealSeen", "goMeasure", "finish"])
+    && /<div className="coach-progress" role="img" aria-label=\{`案内 \$\{at\}\/\$\{total\}`\}>\n\s*\{COACH_ORDER\.map\(\(f, i\) => <i key=\{f\} className=\{i < at \? "on" : undefined\} \/>\)\}/.test(ob)
+    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachProgress stepId=\{view\.id\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob)
+    && (ob.match(/<CoachProgress /g) || []).length === 1,
+    JSON.stringify(listOf("COACH_ORDER", ob)));
   check("BX.3 onboarding.jsx は isNativeShell を読まない・scrollIntoView は今も1回",
     !/isNativeShell/.test(obRaw) && (ob.match(/scrollIntoView\?\.\(/g) || []).length === 1);
 
@@ -33302,17 +33317,17 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /background: var\(--c-surface\); color: var\(--c-accent\);/.test(rule(".coach-icon"))
       && /background: var\(--c-surface\);/.test(rule(".coach-card.join-card"))
       && blk.includes("\n.join-card > .coach-icon { background: var(--c-accent-tint); }"));
-    const MARKS = [
-      ".coach-marks { justify-self: stretch; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-1); }",
-      ".coach-marks i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }",
-      ".coach-marks i.done { background: var(--c-accent-mid); }",
-      ".coach-marks i.cur { background: var(--c-accent); }",
-      ".coach-marks span { display: block; margin-top: var(--sp-1); font-size: var(--fs-xs); line-height: var(--lh-tight); text-align: center; white-space: nowrap; color: var(--c-ink-3); }",
-      ".coach-marks .cur + span { color: var(--c-accent); font-weight: 700; }",
+    // 【便BY 2026-10-07 本人の指示】章の目印(.coach-marks の6規則)を外し、枚数の目印(.coach-progress の3規則)に替えた。
+    // 値は既存のトークンだけ(高さ・間 --sp-1・角丸 --r-full・塗り --c-accent・まだ --c-line-strong)。動き(animation / transition)は持たない
+    const PROGRESS = [
+      ".coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }",
+      ".coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }",
+      ".coach-progress i.on { background: var(--c-accent); }",
     ];
-    check("BX.5 章の目印の6規則(仕様 §5.3 の宣言のまま・トークンだけ)",
-      MARKS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-marks/g) || []).length === 6,
-      MARKS.filter((r) => !blk.includes(`\n${r}`)).join(" / "));
+    check("BX.5 【便BY】枚数の目印の3規則(トークンだけ・動きなし)。章の目印(.coach-marks)の規則は無い",
+      PROGRESS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-progress/g) || []).length === 3
+      && !/\.coach-marks/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")) && !/coach-progress[^{]*\{[^}]*(animation|transition)/.test(css),
+      PROGRESS.filter((r) => !blk.includes(`\n${r}`)).join(" / "));
   }
 
   // --- BX.6 BackupPanel.jsx(処理をフックへ。描く中身は不変) ----------------------------------------------------

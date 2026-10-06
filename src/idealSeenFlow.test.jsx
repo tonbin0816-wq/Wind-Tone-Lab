@@ -293,7 +293,8 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelector(".coach-line")).toBe(null);
     const h = layer().querySelector(".coach-hole");
     expect([h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]).toEqual(["35.88px", "762px", "52px", "52px", "50%"]);
-    expect([...layer().querySelectorAll("[data-coach-mark]")].map((m) => m.getAttribute("data-coach-mark"))).toEqual(["done", "done", "cur", "done"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 20/21");   // 【便BY】枚数の目印
+    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(20);
     expect(kv("onboardingDone").goMeasure).toBeUndefined();
     // 計測タブへ
     await click(nav("計測"));
@@ -304,7 +305,8 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelectorAll(".coach-dim")).toHaveLength(1);
     expect(layer().querySelector(".coach-title").textContent).toBe("チューナーとメトロノームを使って、あなたのデータを貯めよう！");
     expect(layer().querySelector(".coach-line").textContent).toBe("はじめの案内はこれで終わりです");
-    expect([...layer().querySelectorAll("[data-coach-mark]")].map((m) => m.getAttribute("data-coach-mark"))).toEqual(["cur", "done", "done", "done"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 21/21");   // 【便BY】枚数の目印
+    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(21);
     await click(hit());
     await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
     await waitFor(() => layer() === null, "終わり");
@@ -326,7 +328,8 @@ describe("【便BX】コミュニティの到着・⑭' → コミュニティ",
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはコミュニティ");
     expect(layer().querySelector(".coach-line").textContent).toBe("参加した人の計測データと、みんなの平均が見られます");
     expect(layer().querySelector(".coach-hole")).toBe(null);
-    expect([...layer().querySelectorAll("[data-coach-mark]")].map((m) => m.getAttribute("data-coach-mark"))).toEqual(["done", "done", "done", "cur"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 17/21");   // 【便BY】枚数の目印
+    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(17);
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.arriveCommunity === true, "arriveCommunity の印");
     await waitFor(() => layerId() === "adoptAverage", "⑯");

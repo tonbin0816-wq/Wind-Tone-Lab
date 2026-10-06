@@ -10,7 +10,7 @@ import {
   holesSplit, bandOfHole, holeClipPath,
   MEASURE_TAB_STEPS, MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
-  COACH3_MIGRATED, COACH_CHAPTERS, chapterDone, chapterMarks,
+  COACH3_MIGRATED, COACH_ORDER, coachProgress,
 } from "./onboarding.jsx";
 
 // ------------------------------------------------------------------
@@ -28,6 +28,8 @@ import {
 //   章の目印(chapter / chapterDone / chapterMarks)・⑩ の2つ目の穴(帯の箱)・4つ目の門(migratedCoach3)。期待値は仕様 §2.3 の表・§3 の分岐・
 //   §5.1 の規則・§10 の表から**手で書いた**。既存の「リード・データ(計測あり)・コミュニティの最初の段」の期待は、到着が先に出るようになったので
 //   到着の印を立てた done で書き直した(各所に【便BX】)。「どの段も的を持つ」は「到着4段だけ的を持たない」に改めた。
+// 【便BY 2026-10-07 本人の指示】⑥ の見出しを便BW に戻し、楽器種別の行の2つ目の穴を外した(穴は1つ)。章の目印(chapter / chapterDone /
+//   chapterMarks)を外し、枚数の目印(COACH_ORDER / coachProgress)に替えた。期待値の 21 枚の順は仕様 coach3-spec.md §15 から**手で書いた**。
 // ------------------------------------------------------------------
 
 const ALL_FALSE = normalizeOnboardingDone({ migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true });
@@ -37,7 +39,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
   // [見出し, 1行(無ければ null), アイコン]
   const SPEC = {
     measure: ["最初の計測を記録しよう", "ボタンタップで計測スタート", "mic"],
-    reeds: ["楽器を選択してリードを登録しよう", "計測に登録したリードを紐づけることができます", "reeds"],   // 【便BQ】本人の指示・【便BX】見出しを本人の指示で替えた
+    reeds: ["使っているリードを登録しよう", "計測に登録したリードを紐づけることができます", "reeds"],   // 【便BQ】本人の指示・【便BY】見出しを便BW に戻した
     reedsMeasure: ["このリードで計測してみよう", null, "measure"],                                    // 【便BQ】1行は無し
     data: ["計測を始めると、ここに貯まります", "計測タブから計測してみよう", "data"],
     adoptAverage: ["みんなの平均を目安にしてみよう", "目安に設定すると自分の音と比べられます", "target"],
@@ -64,19 +66,11 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     goMeasure: ["計測タブに戻ろう", null, "measure"],
     arriveCommunity: ["ここはコミュニティ", "参加した人の計測データと、みんなの平均が見られます", "community"],
   };
-  // 【便BX 本人の決定 B2】章(§2.3 の chapter の列)
-  const CHAPTER = {
-    tuner: "measure", metronome: "measure", metroTempo: "measure", metroStart: "measure", goReeds: "measure", reedLinked: "measure",
-    measureReed: "measure", measure: "measure", goData: "measure", finish: "measure",
-    arriveReeds: "reeds", reeds: "reeds", reedsMeasure: "reeds",
-    data: "data", arriveData: "data", calendarDay: "data", daySession: "data", trend: "data", goCommunity: "data", idealSeen: "data", goMeasure: "data",
-    arriveCommunity: "community", adoptAverage: "community",
-  };
   // 【便BS】参加前(join)の段は外した(参加の画面そのものがカードになった。community/joinCard.test.jsx)。
-  it("【便BX】23 の段の見出し・1行・アイコン・章が表のとおり(過不足なし。dataSeen「計測したデータがここに貯まります」・参加後1・参加前は無い)", () => {
+  it("【便BX】23 の段の見出し・1行・アイコンが表のとおり(過不足なし。dataSeen「計測したデータがここに貯まります」・参加後1・参加前は無い)", () => {
     expect(Object.keys(SPEC)).toHaveLength(23);
-    expect(Object.keys(CHAPTER).sort()).toEqual(Object.keys(SPEC).sort());
-    for (const [id, ch] of Object.entries(CHAPTER)) expect(COACH_STEPS[id].chapter, id).toBe(ch);
+    // 【便BY】章の目印を外したので、段は章(chapter)を持たない
+    for (const id of Object.keys(SPEC)) expect("chapter" in COACH_STEPS[id], id).toBe(false);
     expect(Object.keys(COACH_STEPS).sort()).toEqual(Object.keys(SPEC).sort());
     for (const [id, [title, line, icon]] of Object.entries(SPEC)) {
       expect(COACH_STEPS[id].title, id).toBe(title);
@@ -87,6 +81,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     expect(Object.values(COACH_STEPS).some((s) => s.title === "計測したデータがここに貯まります")).toBe(false);
     expect(Object.values(COACH_STEPS).some((s) => s.title === "気になる奏者を開いてみよう")).toBe(false);
     expect(Object.values(COACH_STEPS).some((s) => s.title === "コミュニティに参加しよう")).toBe(false);
+    expect(Object.values(COACH_STEPS).some((s) => s.title === "楽器を選択してリードを登録しよう")).toBe(false);   // 【便BY】便BX の見出しは残っていない
     // アイコンは既存の8種から(新しい絵は足していない。【便BX】community は参加のカードと同じ絵を ⑭' と到着が使う)
     expect(new Set(Object.values(COACH_STEPS).map((s) => s.icon))).toEqual(new Set(["tuner", "metro", "mic", "reeds", "measure", "data", "target", "community"]));
   });
@@ -1133,16 +1128,17 @@ describe("【便BS】useSustained(チューナー: 音程が**続けて** ms 取
 });
 
 // ------------------------------------------------------------------
-// 【便BX 2026-10-06 本人の実機指示】⑥ リード登録: 上部の楽器種別の行(S.Sax / A.Sax / T.Sax / B.Sax)も暗幕から外す(2つ目の穴)。
-//   押せる(穴の上に受けを置かない)・押しても外押しにならない(消えない・印も立たない)・段の済み方(リードの登録)は変えない。
+// 【便BY 2026-10-07 本人の指示「リード登録の時の楽器を選択して〜の案内はやっぱり削除」】⑥ リード登録は便BW の形(穴は「リードを追加」の1つ)に戻した。
+//   便BX0 の楽器種別の行の2つ目の穴は外した。行は暗幕の下(受けが覆う = 押せば外押しで案内が消える。便BX0 より前と同じ)。
 // 期待値は 375×812 の実測の矩形(リードを追加 305,697,56,56 / 楽器種別の行 14,48,347,44)から手で計算した:
-//   1つ目の穴 = 丸・pad 10 → 直径 76(295,687)/ 2つ目 = 行の箱(pad 0)/ 線 = (92 + 687) / 2 = 389.5 → 390
+//   穴 = 丸・pad 10 → 直径 76(295,687)。下の holesSplit の純関数の検査は、⑩ の2つ目の穴(保存の帯)が今も使うので残す
 // ------------------------------------------------------------------
 const AddFab = ({ onClick }) => <button type="button" data-coach="reeds" data-r="305,697,56,56" onClick={onClick}>+</button>;
+// 本物の ReedSaxChipRow と同じく data-coach を名乗らない楽器種別の行
 function SaxRow({ r = "14,48,347,44", onPick = () => {} }) {
   const [l, t, , h] = r.split(",").map(Number);
   return (
-    <div role="radiogroup" aria-label="楽器種別" data-coach="reedsSax" data-r={r}>
+    <div role="radiogroup" aria-label="楽器種別" data-r={r}>
       {["S.Sax", "A.Sax", "T.Sax", "B.Sax"].map((x, i) => (
         <button key={x} type="button" role="radio" data-r={`${l + i * 87.75},${t},83.75,${h}`} onClick={() => onPick(x)}>{x}</button>
       ))}
@@ -1176,90 +1172,45 @@ describe("【便BX】2つの穴(holesSplit / bandOfHole / holeClipPath)", () => 
   });
 });
 
-describe("【便BX】⑥ リード登録: 楽器種別の行も明るく残す(2つ目の穴)", () => {
-  it("穴は2つ(リードを追加の丸 + 楽器種別の行の箱)。影はそれぞれの帯の中だけ。受けは帯ごとに4枚で、どちらの穴の上にも無い", async () => {
+describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ(楽器種別の行は照らさない)", () => {
+  it("見出しは便BW の「使っているリードを登録しよう」。楽器種別の行が画面に在っても穴は1つ・clip-path なし・受けは4枚で行を覆う", async () => {
     await drawBS(["reeds"], { extra: <><SaxRow /><AddFab /></> });
     await frames();
     expect(layerId()).toBe("reeds");
-    expect(layer().querySelector(".coach-title").textContent).toBe("楽器を選択してリードを登録しよう");
-    expect(holeStyles()).toEqual([
-      { box: ["295px", "687px", "76px", "76px", "50%"], clip: "inset(-297px -4px -49px -295px)", also: null },
-      { box: ["14px", "48px", "347px", "44px", "var(--r-2)"], clip: "inset(-48px -14px -298px -14px)", also: "also" },
-    ]);
-    expect(hitBoxes()).toEqual([
-      ["t", 0, 390, 375, 297], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76],
-      ["xt", 0, 0, 375, 48], ["xb", 0, 92, 375, 298], ["xl", 0, 48, 14, 44], ["xr", 361, 48, 14, 44],
-    ]);
-    // 受けは画面を隙間なく覆う(穴2つの面積を除いて)。375×812 − 76×76 − 347×44
-    const area = hitBoxes().reduce((a, [, , , w, h]) => a + w * h, 0);
-    expect(area).toBe(375 * 812 - 76 * 76 - 347 * 44);
-    // 4つの楽器種別のボタンの中央を覆う受け・カードは無い
+    expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");
+    expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");
+    expect(holeStyles()).toEqual([{ box: ["295px", "687px", "76px", "76px", "50%"], clip: null, also: null }]);
+    expect(hitBoxes()).toEqual([["t", 0, 0, 375, 687], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76]]);
+    // 4つの楽器種別のボタンの中央は、上の受け(t)が覆う(暗幕の下)
     for (const [i] of ["S.Sax", "A.Sax", "T.Sax", "B.Sax"].entries()) {
       const x = 14 + i * 87.75 + 83.75 / 2; const y = 48 + 22;
-      const covering = [...layer().querySelectorAll(".coach-hit, .coach-card")].filter((el) => {
-        const v = (k, d) => (el.style[k] === "" ? d : parseFloat(el.style[k]));
-        const b = { l: v("left", 22), t: v("top", 0), w: v("width", 331), h: v("height", 146) };
-        return x >= b.l && x <= b.l + b.w && y >= b.t && y <= b.t + b.h;
-      });
-      expect(covering, String(i)).toEqual([]);
+      const covering = [...layer().querySelectorAll(".coach-hit")].filter((el) => {
+        const v = (k) => parseFloat(el.style[k]);
+        return x >= v("left") && x <= v("left") + v("width") && y >= v("top") && y <= v("top") + v("height");
+      }).map((el) => el.getAttribute("data-coach-hit"));
+      expect(covering, String(i)).toEqual(["t"]);
     }
   });
-  it("楽器種別を押すと下のボタンに届く(選択が替わる)。案内は消えず、印も立たない(済むのはリードの登録)", async () => {
-    const picked = [];
+  it("楽器種別の行の上の受けを押すと消える(外押し)。印は立たない", async () => {
     const marks = [];
-    await drawBS(["reeds"], { onMark: (f) => marks.push(f), extra: <><SaxRow onPick={(x) => picked.push(x)} /><AddFab /></> });
+    await drawBS(["reeds"], { onMark: (f) => marks.push(f), extra: <><SaxRow /><AddFab /></> });
     await frames();
-    await clickOn([...document.querySelectorAll('[role="radio"]')].find((b) => b.textContent === "T.Sax"));
-    await frames();
-    expect(picked).toEqual(["T.Sax"]);
-    expect(layerId()).toBe("reeds");
+    await clickOn(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
     expect(marks).toEqual([]);
   });
-  it("2つの穴の間(一覧の上)・行の上の受けを押すと消える(外押し)。印は立たない", async () => {
-    for (const k of ["xb", "xt", "t"]) {
-      act(() => root.unmount());
-      root = createRoot(host);
-      const marks = [];
-      await drawBS(["reeds"], { onMark: (f) => marks.push(f), extra: <><SaxRow /><AddFab /></> });
-      await frames();
-      await clickOn(layer().querySelector(`[data-coach-hit="${k}"]`));
-      expect(layer(), k).toBe(null);
-      expect(marks, k).toEqual([]);
-    }
-  });
-  it("楽器種別の行が画面に見えていない・無い・縦に重なるときは1つ目の穴だけ(clip-path なし・受けは今までどおり4枚)", async () => {
-    for (const extra of [
-      <><SaxRow key="s" r="14,-60,347,44" /><AddFab key="f" /></>,   // 画面の上へ送られている
-      <><AddFab key="f" /></>,                                        // 行が無い
-      <><SaxRow key="s" r="14,700,347,44" /><AddFab key="f" /></>,  // 縦に重なる(作り物)
-    ]) {
-      act(() => root.unmount());
-      root = createRoot(host);
-      await drawBS(["reeds"], { extra });
-      await frames();
-      expect(holeStyles()).toEqual([{ box: ["295px", "687px", "76px", "76px", "50%"], clip: null, also: null }]);
-      expect(hitBoxes()).toEqual([["t", 0, 0, 375, 687], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76]]);
-    }
-  });
-  // 【便BX 本人の決定 C】⑩ goData も2つ目の穴(保存の帯の箱)を持つようになった(下の【便BX】⑩ の節)
-  it("2つ目の穴を持つのは ⑥ と ⑩ だけ(他の段の穴と受けは1つのまま)", async () => {
-    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id).sort()).toEqual(["goData", "reeds"]);
-    expect(COACH_STEPS.reeds.also).toEqual({ target: '[data-coach="reedsSax"]', pad: 0, shape: "rect" });
+  // 【便BX 本人の決定 C】⑩ goData の2つ目の穴(保存の帯の箱)は残る(下の【便BX】⑩ の節)
+  it("2つ目の穴を持つのは ⑩ だけ(⑥ は持たない)", () => {
+    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["goData"]);
+    expect("also" in COACH_STEPS.reeds).toBe(false);
     expect(COACH_STEPS.goData.also).toEqual({ target: "[data-action-notice]", pad: 0, shape: "rect" });
-    // 楽器種別の行が在っても、他の段(ここでは ⑨)は穴1つ
-    await drawBS(["measure"], { extra: <><SaxRow /><Target /></> });
-    await frames();
-    expect(layerId()).toBe("measure");
-    expect(holeStyles()).toHaveLength(1);
-    expect(holeStyles()[0].clip).toBe(null);
-    expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
   });
 });
 
 // ------------------------------------------------------------------
 // 【便BX 2026-10-06 本人の決定・凍結仕様 coach3-spec.md §3・§4・§5・§7・§10・§13.1】
 //   到着カード4つ(穴なし・どこを押しても次へ・群なし)・⑭' goCommunity・⑰ goMeasure・⑱ finish(マイクを待たない)・
-//   章の目印(chapterDone / chapterMarks)・⑩ の2つ目の穴(保存の帯の箱)・4つ目の門(migratedCoach3)。
+//   ⑩ の2つ目の穴(保存の帯の箱)・4つ目の門(migratedCoach3)。(【便BY】章の目印の検査は枚数の目印の検査に替えた)
 // 期待値は仕様の表から手で書いた(COACH_STEPS から読まない)。実寸は 375×812 の仕様 §7.3 の表の値(帯 685〜753・データの絵柄 772〜802)。
 // 【守っていないもの】本物の画面の見た目(地の色・目印の色)。jsdom は色を描かないので、規則の綴りは pitch-test の BX、見た目はスクショ。
 // ------------------------------------------------------------------
@@ -1355,36 +1306,78 @@ describe("【便BX】どの段を出すか(到着・⑭'・⑰・⑱)", () => {
   });
 });
 
-describe("【便BX】章の目印(chapterDone / chapterMarks)", () => {
-  it("4章の名前と順(計測・リード・データ・コミュニティ)", () => {
-    expect(COACH_CHAPTERS.map((c) => [c.key, c.label])).toEqual([["measure", "計測"], ["reeds", "リード"], ["data", "データ"], ["community", "コミュニティ"]]);
+// 【便BY 2026-10-07 本人の指示「チュートリアルの案内の枚数を------で表して / Instagramみたいな」】枚数の目印の順と位置。
+// 期待値の 21 枚は仕様 coach3-spec.md §15 の手順(①〜⑤・到着・⑥⑦・⑧⑨⑩・到着・⑫⑬⑭⑭'・到着・⑯・⑮⑰・⑱)から手で書いた。
+describe("【便BY】枚数の目印(COACH_ORDER / coachProgress)", () => {
+  it("順は仕様 §15 の 21 枚(段の印で持つ。⑨ は measure)", () => {
+    expect(COACH_ORDER).toEqual([
+      "tuner", "metronome", "metroTempo", "metroStart", "goReeds",
+      "arriveReeds", "reeds", "reedsMeasure",
+      "reedLinked", "measure", "goData",
+      "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
+      "arriveCommunity", "adoptAverage",
+      "idealSeen", "goMeasure",
+      "finish",
+    ]);
+    expect(new Set(COACH_ORDER).size).toBe(21);
   });
-  it("済んだ章は印で決める: 計測 = measure か goReeds / リード = reeds / データ = trend / コミュニティ = adoptAverage。空なら全部まだ", () => {
-    for (const k of ["measure", "reeds", "data", "community"]) expect(chapterDone(k, ALL_FALSE), k).toBe(false);
-    expect(chapterDone("measure", doneWith("measure"))).toBe(true);
-    expect(chapterDone("measure", doneWith("goReeds"))).toBe(true);
-    expect(chapterDone("measure", doneWith("tuner", "metronome", "goData"))).toBe(false);
-    expect(chapterDone("reeds", doneWith("reeds"))).toBe(true);
-    expect(chapterDone("reeds", doneWith("arriveReeds", "reedsMeasure"))).toBe(false);
-    expect(chapterDone("data", doneWith("trend"))).toBe(true);
-    expect(chapterDone("data", doneWith("arriveData", "calendarDay", "daySession", "idealSeen"))).toBe(false);
-    expect(chapterDone("community", doneWith("adoptAverage"))).toBe(true);
-    expect(chapterDone("community", doneWith("join", "arriveCommunity"))).toBe(false);
-    expect(chapterDone("bogus", doneWith("measure"))).toBe(false);
-    expect(chapterDone("measure", null)).toBe(false);
+  it("どの段も 1〜21 のどこかに居る(⑨ の2つの文と流れの外の ⑪ は 10 枚目)。知らない段は 0", () => {
+    for (const id of Object.keys(COACH_STEPS)) {
+      const { at, total } = coachProgress(id);
+      expect(total, id).toBe(21);
+      expect(at >= 1 && at <= 21, `${id}=${at}`).toBe(true);
+    }
+    expect(["measureReed", "measure", "data"].map((id) => coachProgress(id).at)).toEqual([10, 10, 10]);
+    expect(["tuner", "arriveReeds", "goData", "arriveCommunity", "goMeasure", "finish"].map((id) => coachProgress(id).at)).toEqual([1, 6, 11, 17, 20, 21]);
+    expect(coachProgress("bogus")).toEqual({ at: 0, total: 21 });
   });
-  const st = (id, done) => chapterMarks(id, done).map((m) => m.state);
-  it("今の章は出している段の章(済んでいても cur が勝つ)。位置では決めない", () => {
-    expect(st("goData", doneWith("goReeds"))).toEqual(["cur", "", "", ""]);
-    // 【変異 chapterDone("measure") を measure だけにする を拾う】リードの到着で、goReeds だけ済んでいる計測の章は済み
-    expect(st("arriveReeds", doneWith("goReeds"))).toEqual(["done", "cur", "", ""]);
-    expect(st("arriveData", doneWith("measure", "reeds"))).toEqual(["done", "done", "cur", ""]);
-    expect(st("idealSeen", doneWith("measure", "reeds", "trend", "adoptAverage"))).toEqual(["done", "done", "cur", "done"]);
-    expect(st("finish", doneWith("measure", "reeds", "trend", "adoptAverage"))).toEqual(["cur", "done", "done", "done"]);
-    // 6章(データへ2度目)でも、前の章の済み・未は印のまま(コミュニティを飛ばした人は未のまま)
-    expect(st("goMeasure", doneWith("measure", "reeds", "trend"))).toEqual(["done", "done", "cur", ""]);
-    expect(st("arriveCommunity", doneWith("measure", "reeds", "trend"))).toEqual(["done", "done", "done", "cur"]);
-    expect(chapterMarks("goData", ALL_FALSE).map((m) => m.label)).toEqual(["計測", "リード", "データ", "コミュニティ"]);
+  // 本人が通す流れ(仕様 §15)を coachCandidates で1枚ずつ進め、出た段の印の順が COACH_ORDER と同じことを確かめる
+  // (どちらかの順を入れ替えると落ちる)。各場面の状態は §15 の手順の画面のとおり(面の開閉・リードの選択・計測の有無・「見る」)
+  it("coachCandidates の出る順(本人の通す流れ)と COACH_ORDER は食い違わない。各段の位置は 1, 2, …, 21 と1つずつ増える", () => {
+    let done = { ...ALL_FALSE };
+    const seen = [];
+    const run = (ctx, max = 8) => {
+      for (let i = 0; i < max; i++) {
+        const c = coachCandidates({ ...ctx, done });
+        if (c.length === 0) return;
+        seen.push(c[0]);
+        done = { ...done, [COACH_STEPS[c[0]].flag]: true };
+      }
+    };
+    run({ topTab: "measure", micReady: true }, 2);                                           // ① ②
+    run({ topTab: "measure", micReady: true, metroPanelOpen: true }, 2);                     // ③ ④(面の中)
+    run({ topTab: "measure", micReady: true }, 1);                                           // ⑤
+    run({ topTab: "reeds" });                                                                // 到着・⑥⑦
+    run({ topTab: "measure", micReady: true, hasSelectedReed: true, hasSessions: true });     // ⑧⑨⑩
+    run({ topTab: "analysis", hasSessions: true });                                          // 到着・⑫⑬⑭⑭'
+    done = { ...done, join: true };                                                          // 参加の画面(段ではない)で参加した
+    run({ topTab: "community" });                                                            // 到着・⑯
+    run({ topTab: "analysis", hasSessions: true, idealRequested: true });                    // ⑮⑰
+    run({ topTab: "measure", micReady: true });                                              // ⑱
+    expect(seen.map((id) => COACH_STEPS[id].flag)).toEqual([...COACH_ORDER]);
+    expect(seen.map((id) => coachProgress(id).at)).toEqual(Array.from({ length: 21 }, (_, i) => i + 1));
+    expect(seen).toContain("measureReed");   // ⑨ はリードが選ばれている文
+  });
+  // その利用者に出ない段(リードが既にある・参加済み)は飛ばされ、飛ばした分は塗られた扱い。位置は飛ぶが戻らない
+  it("リードが既にあり参加済みの人: ⑤ ⑥ ⑦ と到着2枚・⑭' は出ず、位置は 1,2,3,4 → 9 → … → 15 → 18 → 21 と増えるだけ(戻らない)", () => {
+    let done = doneWith("reeds", "reedsMeasure", "arriveReeds", "join", "arriveCommunity");
+    const seen = [];
+    const run = (ctx, max = 8) => {
+      for (let i = 0; i < max; i++) {
+        const c = coachCandidates({ ...ctx, done });
+        if (c.length === 0) return;
+        seen.push(c[0]);
+        done = { ...done, [COACH_STEPS[c[0]].flag]: true };
+      }
+    };
+    run({ topTab: "measure", micReady: true }, 2);
+    run({ topTab: "measure", micReady: true, metroPanelOpen: true }, 2);
+    run({ topTab: "measure", micReady: true, hasSelectedReed: true, hasSessions: true });
+    run({ topTab: "analysis", hasSessions: true });
+    run({ topTab: "community" });
+    run({ topTab: "analysis", hasSessions: true, idealRequested: true });
+    run({ topTab: "measure", micReady: true });
+    expect(seen.map((id) => coachProgress(id).at)).toEqual([1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21]);
   });
 });
 
@@ -1477,7 +1470,7 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
     await frames();
     expect(layerId()).toBe("reeds");
     expect(layer().querySelector(".coach-dim")).toBe(null);
-    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(2);
+    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(1);   // 【便BY】楽器種別の行の穴は外した
   });
   it("溶けている間は受けもカードも押させない(到着の受けが次の押下を飲み込まない)", async () => {
     await drawBS(["arriveData"]);
@@ -1512,26 +1505,41 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
   });
 });
 
-describe("【便BX】章の目印の描画(カードの最初の子)", () => {
-  it("⑩(done = goReeds): 子4つ・計測が cur(紺)・他は todo。棒(i)の class と字(span)", async () => {
+// 【便BY】枚数の目印の描画。期待値(何本目まで塗るか)は仕様 §15 の手順の何枚目かを手で数えた
+describe("【便BY】枚数の目印の描画(カードの最初の子)", () => {
+  const bars = () => [...layer().querySelector(".coach-card").firstElementChild.children];
+  const onCount = () => bars().filter((b) => b.className === "on").length;
+  it("⑩(11 枚目): 子は棒 21 本(i)・左から 11 本が on・残りは class なし。読み上げ用の「案内 11/21」。章の目印は無い", async () => {
     await drawBS(["goData"], { done: doneWith("goReeds"), extra: MEASURE_PAGE });
     await frames();
     const card = layer().querySelector(".coach-card");
-    const marks = card.firstElementChild;
-    expect(marks.className).toBe("coach-marks");
-    expect(marks.getAttribute("aria-hidden")).toBe("true");
-    const kids = [...marks.children];
-    expect(kids.map((k) => k.getAttribute("data-coach-mark"))).toEqual(["cur", "todo", "todo", "todo"]);
-    expect(kids.map((k) => k.querySelector("i").className)).toEqual(["cur", "", "", ""]);
-    expect(kids.map((k) => k.querySelector("span").textContent)).toEqual(["計測", "リード", "データ", "コミュニティ"]);
+    const bar = card.firstElementChild;
+    expect(bar.className).toBe("coach-progress");
+    expect(bar.getAttribute("role")).toBe("img");
+    expect(bar.getAttribute("aria-label")).toBe("案内 11/21");
+    expect(bars().map((b) => b.tagName)).toEqual(Array(21).fill("I"));
+    expect(bars().map((b) => b.className)).toEqual([...Array(11).fill("on"), ...Array(10).fill("")]);
     expect(card.children[1].className).toBe("coach-icon");   // 目印の次がアイコン
-    expect(live().textContent).toBe("計測の記録を見てみよう");   // 読み上げは目印を読まない
+    expect(layer().querySelector(".coach-marks, [data-coach-mark]")).toBe(null);
+    expect(live().textContent).toBe("計測の記録を見てみよう");   // 読み上げの文は変えていない
   });
-  it("到着カードにも目印(到着データ・done = measure, reeds → done, done, cur, todo)", async () => {
-    await drawBS(["arriveData"], { done: doneWith("measure", "reeds") });
+  it("① は 1 本・到着カードにも目印(リードの到着 6 本・コミュニティの到着 17 本)・⑱ は 21 本全部", async () => {
+    const CASES = [["tuner", 1, <Band key="b" />], ["arriveReeds", 6, null], ["arriveCommunity", 17, null], ["finish", 21, null]];
+    for (const [id, n, extra] of CASES) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawBS([id], { extra });
+      await frames();
+      expect(layerId(), id).toBe(id);
+      expect(onCount(), id).toBe(n);
+      expect(bars().slice(0, n).every((b) => b.className === "on"), id).toBe(true);   // 左から詰めて塗る(途中に穴が無い)
+      expect(layer().querySelector(".coach-progress").getAttribute("aria-label"), id).toBe(`案内 ${n}/21`);
+    }
+  });
+  it("印(done)では塗りが変わらない(位置は出している段で決める)", async () => {
+    await drawBS(["arriveData"], { done: doneWith("measure", "reeds", "trend", "adoptAverage") });
     await frames();
-    const kids = [...layer().querySelector(".coach-marks").children];
-    expect(kids.map((k) => k.getAttribute("data-coach-mark"))).toEqual(["done", "done", "cur", "todo"]);
+    expect(onCount()).toBe(12);
   });
 });
 

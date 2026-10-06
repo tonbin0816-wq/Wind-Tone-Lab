@@ -154,7 +154,6 @@ beforeEach(() => {
     const c = this.getAttribute?.("data-coach");
     if (c === "measure") return box(153.5, 616, 68, 68);
     if (c === "reeds") return box(305, 697, 56, 56);
-    if (c === "reedsSax") return box(14, 48, 347, 44);   // 【便BX】リードタブの楽器種別の行(375×812 の実測)
     // 【便BP2】リード2: 一覧の先頭のタイル / 個体詳細の計測ボタン(375×812 の実測と同じ値)
     if (c === "reedsMeasure" && this.classList?.contains("reedtile")) return box(14, 170.5, 59.4, 59.4);
     if (c === "reedsMeasure") return box(305, 697, 56, 56);
@@ -263,7 +262,7 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await click(nav("リード"));
     await passArrival("arriveReeds");   // 【便BX】到着を押してから
     await waitFor(() => layerId() === "reeds", "リードタブの案内");
-    expect(layer().querySelector(".coach-title").textContent).toBe("楽器を選択してリードを登録しよう");   // 【便BX】本人の指示
+    expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");   // 【便BY】本人の指示で便BW の見出しに戻した
     expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");   // 【便BQ】
     // 右下の ＋(案内の的)を押す → 追加のシート(BottomSheet)が開いている間は出ない
     await click(document.querySelector('button[aria-label="リードを追加"]'));
@@ -1265,37 +1264,26 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
   });
 });
 
-// 【便BX 2026-10-06 本人の実機指示】⑥ リード登録は、上部の楽器種別の行(本物の ReedSaxChipRow)も2つ目の穴で明るく残す。
-// 行の楽器種別を押すと一覧の楽器が替わり(下のボタンに届く)、案内は消えず、印も立たない。「リードを追加」のシートはその楽器で開く。
-describe("【便BX】⑥ リード登録: 楽器種別の行も照らし、押せる", () => {
-  it("2つ目の穴は本物の楽器種別の行。T.Sax を押すと選択が替わり、案内は残る(外押しにならない)。追加のシートは T.Sax で開く", async () => {
+// 【便BY 2026-10-07 本人の指示「リード登録の時の楽器を選択して〜の案内はやっぱり削除」】⑥ リード登録は便BW の形に戻した。
+// 本物の楽器種別の行(ReedSaxChipRow)は data-coach を名乗らず、⑥ の穴は「リードを追加」の1つだけ(2つ目の穴・clip-path は無い)。
+describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ", () => {
+  it("本物の楽器種別の行は的を名乗らない。穴は1つ(clip-path なし)・受けは4枚・見出しは「使っているリードを登録しよう」", async () => {
     mod = await loadApp(fake);
     await render();
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
     await click(nav("リード"));
     await passArrival("arriveReeds");   // 【便BX】
     await waitFor(() => layerId() === "reeds", "リードタブの案内");
-    const row = document.querySelector('[data-coach="reedsSax"]');
-    expect(row.getAttribute("role")).toBe("radiogroup");
-    expect(row.getAttribute("aria-label")).toBe("楽器種別");
+    const row = document.querySelector('[role="radiogroup"][aria-label="楽器種別"]');
+    expect(row).not.toBe(null);
+    expect(row.hasAttribute("data-coach")).toBe(false);
+    expect(document.querySelector('[data-coach="reedsSax"]')).toBe(null);
     const holes = [...layer().querySelectorAll(".coach-hole")];
-    expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius])).toEqual([
-      ["295px", "687px", "76px", "76px", "50%"], ["14px", "48px", "347px", "44px", "var(--r-2)"],
+    expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius, h.style.clipPath || null])).toEqual([
+      ["295px", "687px", "76px", "76px", "50%", null],
     ]);
-    expect(holes[1].getAttribute("data-coach-hole")).toBe("also");
-    const radio = (label) => [...row.querySelectorAll('button[role="radio"]')].find((b) => b.textContent === label);
-    expect(radio("A.Sax").getAttribute("aria-checked")).toBe("true");
-    await click(radio("T.Sax"));
-    await tick(50);
-    expect(radio("T.Sax").getAttribute("aria-checked")).toBe("true");
-    expect(radio("A.Sax").getAttribute("aria-checked")).toBe("false");
-    expect(layerId()).toBe("reeds");
-    expect(kv("onboardingDone").reeds).toBeUndefined();
-    // 追加のシートは選んだ楽器で開く(既存の道: setNewSax(listSax))
-    await click(document.querySelector('button[aria-label="リードを追加"]'));
-    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
-    expect(document.querySelector('[role="dialog"] button[aria-label="楽器 T.Sax"]').getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelector('[role="dialog"] button[aria-label="楽器 A.Sax"]').getAttribute("aria-pressed")).toBe("false");
+    expect([...layer().querySelectorAll(".coach-hit")].map((h) => h.getAttribute("data-coach-hit"))).toEqual(["t", "b", "l", "r"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");
   }, 40000);
 });
 
@@ -1447,8 +1435,9 @@ describe("【便BX】⑭' と到着の受け・既存の利用者", () => {
     const navZ = Number(getComputedStyle(document.querySelector("[data-bottom-nav]")).zIndex || document.querySelector("[data-bottom-nav]").style.zIndex);
     expect(Number(layer().style.zIndex)).toBeGreaterThan(navZ);
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはリードタブ");
-    // 章の目印: リードが今の章(紺)・計測は goReeds 済で済み
-    expect([...layer().querySelectorAll("[data-coach-mark]")].map((m) => m.getAttribute("data-coach-mark"))).toEqual(["done", "cur", "todo", "todo"]);
+    // 【便BY】枚数の目印: リードの到着は 21 枚の 6 枚目(左から 6 本が紺)
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 6/21");
+    expect([...layer().querySelectorAll(".coach-progress > i")].map((i) => i.className)).toEqual([...Array(6).fill("on"), ...Array(15).fill("")]);
     await waitFor(() => kv("onboardingDone")?.goReeds === true, "goReeds の印");
   }, 30000);
 
