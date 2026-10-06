@@ -23,7 +23,8 @@ const jpNum = (n) => Number(n ?? 0).toLocaleString("ja-JP");
 
 // 主要動作の塗り(--c-accent + --c-on-accent)。既にアプリの中で「主要動作の合図」として
 // 使われている語彙をそのまま写す(新しいボタンの見た目を発明しない)。
-const PRIMARY_BUTTON = {
+// 【便BX】参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)も同じ塗りを読む(写しを作らない)。
+export const PRIMARY_BUTTON = {
   width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
   border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)",
   fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
@@ -36,22 +37,14 @@ const NEUTRAL_BUTTON = {
   color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer",
 };
 
-export default function BackupPanel() {
+// 【便BX 2026-10-06 本人の決定 D1】書き出し・読み戻しの処理(と、その間の busy・知らせ・失敗の state、隠したファイルの入力)を
+// フックに出した。マイページの「記録の保存」(下の BackupPanel)と、参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)が
+// 同じ処理を使う(写しを作らない)。**中身は便BX の前の handleExport / handleFile のまま**(殻の枝・確認の文・reload を含む)。
+export function useBackupActions() {
   const fileInputRef = useRef(null);
-  const [persistence, setPersistence] = useState(null); // granted / denied / unsupported
-  const [estimate, setEstimate] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);   // 成功・経過の知らせ
   const [failure, setFailure] = useState(null); // 失敗の知らせ
-
-  // 保存領域の申請は画面に出た時点で1回だけ。**通らなくても処理は止めない**
-  // (結果は下の一文の出し分けに使うだけ)。
-  useEffect(() => {
-    let cancelled = false;
-    requestPersistence().then((r) => { if (!cancelled) setPersistence(r); });
-    storageEstimate().then((e) => { if (!cancelled) setEstimate(e); });
-    return () => { cancelled = true; };
-  }, []);
 
   const handleExport = async () => {
     if (busy) return;
@@ -123,6 +116,30 @@ export default function BackupPanel() {
     }
   };
 
+  const pickFile = () => fileInputRef.current?.click();
+  const fileInput = (
+    <input
+      ref={fileInputRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
+    />
+  );
+  return { busy, notice, failure, exportNow: handleExport, pickFile, fileInput };
+}
+
+export default function BackupPanel() {
+  const { busy, notice, failure, exportNow, pickFile, fileInput } = useBackupActions();
+  const [persistence, setPersistence] = useState(null); // granted / denied / unsupported
+  const [estimate, setEstimate] = useState(null);
+
+  // 保存領域の申請は画面に出た時点で1回だけ。**通らなくても処理は止めない**
+  // (結果は下の一文の出し分けに使うだけ)。
+  useEffect(() => {
+    let cancelled = false;
+    requestPersistence().then((r) => { if (!cancelled) setPersistence(r); });
+    storageEstimate().then((e) => { if (!cancelled) setEstimate(e); });
+    return () => { cancelled = true; };
+  }, []);
+
   const storageLine = (() => {
     if (!estimate) return null;
     return `${estimate.usageMB.toFixed(1)} MB を使用中`;
@@ -159,18 +176,15 @@ export default function BackupPanel() {
       )}
 
       <button
-        type="button" onClick={handleExport} disabled={busy}
+        type="button" onClick={exportNow} disabled={busy}
         className="sans" style={{ ...PRIMARY_BUTTON, marginTop: "var(--sp-4)" }}
       >
         ファイルに書き出す
       </button>
 
-      <input
-        ref={fileInputRef} type="file" accept="application/json,.json" style={{ display: "none" }}
-        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
-      />
+      {fileInput}
       <button
-        type="button" onClick={() => fileInputRef.current?.click()} disabled={busy}
+        type="button" onClick={pickFile} disabled={busy}
         className="sans ctl-plain ctl-pill" style={{ ...NEUTRAL_BUTTON, marginTop: "var(--sp-2)" }}
       >
         ファイルから読み戻す

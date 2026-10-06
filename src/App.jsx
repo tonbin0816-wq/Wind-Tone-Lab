@@ -38,8 +38,8 @@ import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringSc
 import { OnboardingCoach, ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, markOnboardingDone, migrateOnboardingDone, coachCandidates, NO_COACH, onboardingFlagsForSavedSession } from "./onboarding.jsx";
 // 【便BS 2026-10-03 本人裁定】計測タブの3段(チューナーの「音程が続けて取れた」の長さと数え方)・移行の印。
 import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboarding.jsx";
-// 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。
-import { COACH2_MIGRATED } from "./onboarding.jsx";
+// 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。【便BX】4つ目の門。
+import { COACH2_MIGRATED, COACH3_MIGRATED } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3717,6 +3717,8 @@ function useActionNoticeStore() {
       countdown: typeof next.undo === "function",
       expiresAt: Date.now() + NOTICE_MS,
       leaving: false,
+      // 【便BX 2026-10-06 本人の決定 C】この帯が出ている間も、はじめの案内の ⑩ を出してよいか(保存の帯だけが true を渡す)
+      coach: next.coach === true,
     });
     stash.hold(next.undo || null, NOTICE_MS, fadeOut);
   }, [stash, fadeOut]);
@@ -3766,6 +3768,7 @@ function ActionNotice({ notice, onAction, onLeaveEnd }) {
     >
       <div
         className={notice.leaving ? "action-notice is-leaving" : "action-notice"}
+        data-action-notice=""
         onAnimationEnd={onLeaveEnd}
         style={{
           pointerEvents: "auto", maxWidth: "var(--page-max-w)", margin: "0 auto",
@@ -3997,8 +4000,8 @@ export default function WindToneLabPhaseMode() {
   // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に持つ(開き直しても済ませた一手は出ない)。
   // 本物の onboardingDone(IndexedDB の kv)とは別。localStorage なので引継のファイルにも乗らない。
   // 読み書きは tutorialPreview.js が持つ(App.jsx はこの端末の保存を IndexedDB の1つだけにしておく)。
-  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。【便BW】3つ目の門(COACH2_MIGRATED)も同じ。
-  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true }));
+  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。【便BW】3つ目の門(COACH2_MIGRATED)も同じ。【便BX】4つ目の門(COACH3_MIGRATED)も同じ。
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true }));
   const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
   useEffect(() => {
     if (tutorialPreview) writeTutorialPreviewDone(undefined, previewDoneRaw);
@@ -4020,7 +4023,8 @@ export default function WindToneLabPhaseMode() {
   // 案内を出してよいのは、印が読めて移行も済んでから(移行の前に出すと、既に使っている人に一瞬出る)。
   // 【便BS】計測タブの3段の移行(便BP の移行を済ませた人にも1回)が済むまでも出さない(計測のある人にチューナーが一瞬出ないように)。
   // 【便BW】新しい段の移行(migratedCoach2)が済むまでも出さない(計測のある人に新しい段が一瞬出ないように)。
-  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED] && onboardingDone[COACH2_MIGRATED];
+  // 【便BX】4つ目の門(migratedCoach3)が済むまでも出さない(計測のある人に到着カードが一瞬出ないように)。
+  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED] && onboardingDone[COACH2_MIGRATED] && onboardingDone[COACH3_MIGRATED];
   // 案内が読む印と「出してよいか」。見本ではメモリの上の印を読み、読み込みを待たない(本物の印を見ないので)。
   const coachDone = tutorialPreview ? previewDone : onboardingDone;
   const coachReady = tutorialPreview || onboardingReady;
@@ -4234,6 +4238,8 @@ export default function WindToneLabPhaseMode() {
         done: true,
         actionLabel: "開く",
         onAction: () => openSessionFromNotice(pendingSession.id),
+        // 【便BX 2026-10-06 本人の決定 C】この帯と同時に ⑩(下部タブ「データ」)を出す。帯は2つ目の穴で明るく残す(「開く」は押せる)
+        coach: true,
       });
     }
     setPendingSession(null);
@@ -5180,7 +5186,11 @@ export default function WindToneLabPhaseMode() {
     if (!coachReady) return;
     if (topTab === "reeds") markOnboarding("goReeds");
     if (topTab === "analysis" && sessions.length > 0) markOnboarding("goData");
-  }, [coachReady, topTab, sessions.length, markOnboarding]);
+    // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った
+    if (topTab === "community") markOnboarding("goCommunity");
+    // 【便BX 審査 統括の裁定】目安にした(adoptAverage)だけでも(「見る」を押さなかった・押す前にアプリを閉じた)
+    if (topTab === "measure" && (coachDone.idealSeen || coachDone.adoptAverage)) markOnboarding("goMeasure");
+  }, [coachReady, topTab, sessions.length, coachDone.idealSeen, coachDone.adoptAverage, markOnboarding]);
 
   // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
   // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
@@ -5518,13 +5528,16 @@ export default function WindToneLabPhaseMode() {
           ・メトロノームの面が開いている間は計測の段を出さない(metroPanelOpen)
           ・(この起動の中で計測が 0件 → 1件以上 になったら dataSeen を次の起動へ回す決まりは、【便BW】dataSeen の段と一緒に外した) */}
       {/* 【便BW 2026-10-06】計測タブは ①〜⑩ の一本の流れ(枠にリードが出ているか = hasSelectedReed で ⑧ と ⑨ の文が決まる)。
-          データタブは ⑫⑬⑭。帯の「見る」から来たときだけ ⑮(idealRequested)。hidden の式は変えていない。 */}
+          データタブは ⑫⑬⑭。帯の「見る」から来たときだけ ⑮(idealRequested)。 */}
+      {/* 【便BX 2026-10-06 本人の決定 C】帯が出ている間は出さない、の唯一の例外: 保存の帯(notice.coach)が出ている間の計測タブ(= ⑩)。
+          計測タブに限るのは、⑩ が促す「データ」をその5秒のうちに押したとき、データタブの段(到着・⑫)が帯の「開く」を覆わないため
+          (覆うと「開く」の1回が外押しになり、データタブの群が消える)。データタブの段は帯が消えてから出る(今までの決まり)。 */}
       <OnboardingCoach
         candidates={coachReady && !isRecording
           ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
           : NO_COACH}
         done={coachDone}
-        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || Boolean(notice)}
+        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || (Boolean(notice) && !(notice.coach && topTab === "measure"))}
         onMark={markOnboarding}
       />
     </div>
@@ -18462,7 +18475,7 @@ function AllSessionsPage({
         {/* 【殻 S2】Web 版の記録は自動では移らない、の案内(殻だけ・記録が 0 件の間だけ。殻の仕様 §4.5 (a))。
             体裁は上の行の style に marginTop 6・lineHeight 1.6。記録が1件でも入れば消える(鍵・保存なし)。 */}
         {isNativeShell() && sessions.length === 0 && (
-          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px", marginTop: 6, lineHeight: 1.6 }}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページ(参加前なら参加の画面)の「アカウント引継」で移せます。</div>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px", marginTop: 6, lineHeight: 1.6 }}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」(参加前なら参加の画面の「端末を替えるとき」)で移せます。</div>
         )}
         </>
       ) : (

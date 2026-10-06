@@ -16,6 +16,8 @@ import { join } from "node:path";
 //   ・下部タブは押せる(暗幕・枠・層はタップを通し、カードは見える範囲 = 下部タブの上端より上に収まる)
 // index.css をそのまま読み込む(jsdom は stylesheet の宣言を getComputedStyle に通す)。
 // 【守っていないもの】実寸の見た目と、375×667 でカードが切れないこと(headless Chrome で実測。報告の表)。
+// 【便BX 2026-10-06 本人の決定 D1】説明の2段落目「機種変更やアプリの削除で」→「端末を替えたりアプリを削除したりすると」。
+//   細い導線「アカウント引継」→「端末を替えるとき」。開くのは参加の場面に絞ったシート(記録の保存ではない)。期待値は仕様 §8 から手で書いた。
 // ------------------------------------------------------------------
 const { JoinIntro } = await import("./CommunityTab.jsx");
 
@@ -82,7 +84,8 @@ describe("参加の画面はカード1枚(便BS)", () => {
     // 【便BS 審査】句点のあとに半角の空白を入れない(以前は JSX の改行が空白になっていた)
     expect(kids[3].textContent).toBe("参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。");
     expect(kids[3].style.fontSize).toBe("var(--fs-sm)");
-    expect(kids[4].textContent).toBe("匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。");
+    expect(kids[4].textContent).toBe("匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。");
+    expect(c.textContent).not.toMatch(/機種/);
     expect([kids[4].style.fontSize, kids[4].style.color]).toEqual(["var(--fs-xs)", "var(--c-ink-3)"]);
     // 5. 導線
     expect([...kids[5].querySelectorAll("button")].map((b) => b.textContent)).toEqual(["利用規約", "プライバシーポリシー", "お問い合わせ"]);
@@ -94,7 +97,7 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[7].tagName).toBe("BUTTON");
     expect(kids[7].textContent).toBe("参加する");
     expect(kids[8].tagName).toBe("BUTTON");
-    expect(kids[8].textContent.trim()).toBe("アカウント引継");
+    expect(kids[8].textContent.trim()).toBe("端末を替えるとき");
     expect(kids).toHaveLength(9);
     // 以前の見出し「コミュニティ」・ボタンの文字「参加してプロフィールを作る」は無い
     expect(document.body.textContent).not.toContain("参加してプロフィールを作る");
@@ -158,12 +161,23 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(document.querySelector("[data-join-layer]")).not.toBe(null);
   });
 
-  it("導線: 利用規約・プライバシーポリシー・お問い合わせ・アカウント引継が、今と同じシートを開く", async () => {
+  it("導線: 利用規約・プライバシーポリシー・お問い合わせは今と同じシート。【便BX】「端末を替えるとき」は参加の場面に絞ったシート", async () => {
     await draw();
     const sheet = (label) => document.querySelector(`[role="dialog"][aria-label="${label}"]`);
-    await act(async () => { buttonNamed("アカウント引継")[0].click(); });
-    expect(sheet("アカウント引継")).not.toBe(null);
-    expect(sheet("アカウント引継").textContent).toContain("記録の保存");
+    expect(buttonNamed("アカウント引継")).toHaveLength(0);
+    await act(async () => { buttonNamed("端末を替えるとき")[0].click(); });
+    const d = sheet("端末を替えるとき");
+    expect(d).not.toBe(null);
+    expect(sheet("アカウント引継")).toBe(null);
+    const inD = (name) => [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
+    expect(inD("ファイルから読み戻す")).toHaveLength(1);
+    expect(inD("この端末の記録を書き出す")).toHaveLength(1);
+    expect(inD("ファイルに書き出す")).toHaveLength(0);
+    expect([...d.querySelectorAll("ol > li")].map((li) => li.textContent)).toEqual([
+      "1前の端末で書き出す(参加前はこの画面の下から、参加後はマイページから)", "2ファイルをこの端末に送る(AirDrop・メールなど)", "3ここで「ファイルから読み戻す」",
+    ]);
+    expect(d.textContent).not.toContain("記録の保存");
+    expect(d.textContent).toContain("記録(計測のデータとリード)はファイルで移せます。コミュニティの匿名アカウントは、この端末だけのもので移せません。参加し直すと新しいアカウントになります。");
     // ほかの3つ: 押すと、今と同じシート(LegalSheet の「利用規約」「プライバシーポリシー」/ FeedbackSheet)が開く
     for (const [name, label] of [["利用規約", "利用規約"], ["プライバシーポリシー", "プライバシーポリシー"], ["お問い合わせ", "お問い合わせ・要望/感想"]]) {
       expect(sheet(label), label).toBe(null);

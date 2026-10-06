@@ -23233,7 +23233,9 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       // 【便BV 2026-10-04】人物のページの中身は PersonBody へ移った(PersonSheet は器だけ。赤の字 --c-bad は中身の1行)。
       "community/screens.jsx:PersonBody", "community/screens.jsx:ReportSheet",
       // 【便BO 2026-10-02】みんなの平均の確認のシート。取り込めなかったときの1行の字(--c-bad)。地ではない。
-      "community/screens.jsx:CohortAdoptSheet"];
+      "community/screens.jsx:CohortAdoptSheet",
+      // 【便BX 2026-10-06 本人の決定 D1】「端末を替えるとき」のシート。失敗の1行の字(--c-danger。BackupPanel と同じ綴り)。地ではない。
+      "backup/DeviceTransferPanel.jsx:DeviceTransferPanel"];
     const gotFns46 = scan46.redFns.map((c) => `${c.file}:${c.name}`).sort();
     check("46 B-3 / 便BI 再審査 本体に赤を含む関数は許可の一覧の外に無い(画面の部品と pitchCellColor。許可しても地の式で呼べば上で拾う)",
       JSON.stringify(gotFns46) === JSON.stringify([...allowFns46].sort()), gotFns46.join(" | "));
@@ -31042,12 +31044,15 @@ console.log("========== 検証88: 便BB ダブルタップの拡大・参加前�
   const join88 = codeOf(srcOfFn(comm88, "JoinIntro"));
   // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】参加の画面はカード1枚になり、入口はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。
   // 名前と開くシート(BackupSheet)はマイページと同じ。
-  check("88.2 参加前の画面(JoinIntro)にアカウント引継の入口(【便BS】カードの一番下の細い導線)",
-    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{JOIN_QUIET_LINK_STYLE\}>\s*\n\s*アカウント引継\s*\n\s*<\/button>/.test(join88)
+  // 【便BX 2026-10-06 本人の決定 D1】導線の名前は「端末を替えるとき」(DEVICE_TRANSFER_TITLE)・開くのは参加の場面に絞ったシート。
+  check("88.2 参加前の画面(JoinIntro)に記録の移し方の入口(【便BS】カードの一番下の細い導線。【便BX】名前は「端末を替えるとき」)",
+    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{JOIN_QUIET_LINK_STYLE\}>\s*\n\s*\{DEVICE_TRANSFER_TITLE\}\s*\n\s*<\/button>/.test(join88)
     && /const JOIN_QUIET_LINK_STYLE = \{\s*\n\s*width: "100%", minHeight: "var\(--tap-min\)", padding: 0, background: "none", border: "none",\s*\n\s*color: "var\(--c-ink-2\)", fontSize: "var\(--fs-sm\)", fontWeight: 600, cursor: "pointer",\s*\n\};/.test(comm88));
-  check("88.2 開くのはマイページと同じ BackupSheet(写しを作らない)",
-    /\{backup \? <BackupSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(join88)
-    && (comm88.match(/<BackupPanel \/>/g) || []).length === 1);
+  check("88.2 【便BX】開くのは DeviceTransferSheet(処理は BackupPanel の useBackupActions)。マイページの BackupSheet(<BackupPanel /> 1件)は残る",
+    /\{backup \? <DeviceTransferSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(join88)
+    && !/<BackupSheet/.test(join88)
+    && (comm88.match(/<BackupPanel \/>/g) || []).length === 1
+    && /<BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\s*\n\s*<BackupPanel \/>/.test(comm88));
   check("88.2 「My Data の記録の保存」の誤ったコメントは残っていない",
     !/My Data の「記録の保存」/.test(comm88));
   // 4 利用者に見える文言: 「ブラウザ」「再読み込み」「アプリを更新すると」を前提にしない(コメントは除く)
@@ -32573,8 +32578,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /const releaseWakeLock = useCallback\(\(\) => \{\n    if \(isNativeShell\(\)\) \{ import\("\.\/shell\/keepAwake\.native\.js"\)\.then\(\(m\) => m\.allowSleep\(\)\)\.catch\(\(\) => \{\}\); return; \}\n    try \{ wakeLockRef\.current\?\.release\(\); \} catch \{\s*\}\n    wakeLockRef\.current = null;/.test(app));
     check("K.12 Web の audioSession の宣言(navigator.audioSession.type = AUDIO_SESSION_TYPE;)は残る",
       /navigator\.audioSession\.type = AUDIO_SESSION_TYPE;/.test(app) && /const AUDIO_SESSION_TYPE = "play-and-record";/.test(app));
-    check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」",
-      /\{sessions\.length === 0 \? "まだ記録がありません" : "条件に合うセッションがありません"\}<\/div>\n(?:\s*\{\}\n)?\s*\{isNativeShell\(\) && sessions\.length === 0 && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", padding: "0 2px", marginTop: 6, lineHeight: 1\.6 \}\}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページ\(参加前なら参加の画面\)の「アカウント引継」で移せます。<\/div>\n/.test(app));
+    // 【便BX 2026-10-06 本人の決定 D1】参加前の入口の名前が「端末を替えるとき」になったので、括弧の中を合わせた
+    check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」「端末を替えるとき」",
+      /\{sessions\.length === 0 \? "まだ記録がありません" : "条件に合うセッションがありません"\}<\/div>\n(?:\s*\{\}\n)?\s*\{isNativeShell\(\) && sessions\.length === 0 && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", padding: "0 2px", marginTop: 6, lineHeight: 1\.6 \}\}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」\(参加前なら参加の画面の「端末を替えるとき」\)で移せます。<\/div>\n/.test(app));
   }
 
   // --- K.13 BackupPanel.jsx(Web の <a download> の枝は綴りのまま) ---------------------------------------------------
@@ -32967,8 +32973,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // --- BW.1 onboarding.jsx: 印・群・段の表 -------------------------------------------------------
   const FLAGS17 = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
     "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen"];
-  check("BW.1 ONBOARDING_FLAGS は17個をこの順で持つ(dataSeen は移行で読むので残る)",
-    JSON.stringify(listOf("ONBOARDING_FLAGS", ob)) === JSON.stringify(FLAGS17), JSON.stringify(listOf("ONBOARDING_FLAGS", ob)));
+  // 【便BX】23 になった(全部の順は BX.1)。便BW の17個は先頭にこの順のまま
+  check("BW.1 ONBOARDING_FLAGS は便BW の17個をこの順で先頭に持つ(dataSeen は移行で読むので残る)",
+    JSON.stringify((listOf("ONBOARDING_FLAGS", ob) || []).slice(0, 17)) === JSON.stringify(FLAGS17), JSON.stringify(listOf("ONBOARDING_FLAGS", ob)));
   check("BW.1 群: 計測タブ9段・データタブ3段・便BS の移行の3段(LEGACY)・保存で閉じる計測タブの章7つ",
     JSON.stringify(listOf("MEASURE_TAB_STEPS", ob)) === JSON.stringify(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"])
     && JSON.stringify(listOf("DATA_TAB_STEPS", ob)) === JSON.stringify(["calendarDay", "daySession", "trend"])
@@ -32977,7 +32984,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BW.1 3つ目の門 COACH2_MIGRATED = \"migratedCoach2\"・normalize が読む・移行が1回だけ立てる",
     /export const COACH2_MIGRATED = "migratedCoach2";/.test(ob)
     && /out\[COACH2_MIGRATED\] = src\[COACH2_MIGRATED\] === true;/.test(ob)
-    && /if \(base\.migrated === true && base\[MEASURE_STEPS_MIGRATED\] === true && base\[COACH2_MIGRATED\] === true\) return prev;/.test(ob)
+    // 【便BX】早期 return の条件に4つ目の門が加わった
+    && /if \(base\.migrated === true && base\[MEASURE_STEPS_MIGRATED\] === true && base\[COACH2_MIGRATED\] === true && base\[COACH3_MIGRATED\] === true\) return prev;/.test(ob)
     && /if \(base\[COACH2_MIGRATED\] !== true\) \{/.test(ob) && /next\[COACH2_MIGRATED\] = true;/.test(ob)
     && /for \(const f of MEASURE_TAB_STEPS_LEGACY\) next\[f\] = true;/.test(ob));
   const stepsBlk = (/export const COACH_STEPS = \{([\s\S]*?)\n\};/.exec(ob) || [])[1] || "";
@@ -33000,7 +33008,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /metroPanelOpen = false, metronomeOn = false, metroTempoQuiet = true, hasSelectedReed = false, idealRequested = false,/.test(cc[1] || "") && !/dataSeenDeferred/.test(cc[0] || ""));
   check("BW.2 ⑮ はデータタブの先頭(マイクも計測の有無も待たない)・計測タブには無い・⑮ を見た人に ⑭ は出さない",
     /case "analysis": \{\n\s*if \(idealRequested && !d\.idealSeen\) return \["idealSeen"\];\n\s*if \(!sessionsKnown\) return \[\];/.test(cc[2] || "")
-    && (String(cc[2]).match(/idealSeen/g) || []).length === 3
+    // 【便BX】⑰ goMeasure の条件(d.idealSeen && !d.goMeasure)で 3 → 4
+    && (String(cc[2]).match(/idealSeen/g) || []).length === 4
     && /if \(d\.daySession && !d\.trend && !d\.idealSeen\) out\.push\("trend"\);/.test(cc[2] || ""));
   // 【便BW 審査 統括の裁定】面の中の分岐は ③④ が済むまでだけ。済めば面が開いていても ⑤→⑧→⑨→⑩ に合流する
   // (面はタブをまたいで開いたままなので、⑦ の「計測」で戻ると流れが止まっていた)。鳴っている間は ④ の次を出さない
@@ -33015,10 +33024,16 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /if \(step\.scrollIntoView && !earlierInDom && r\.height > 0 && !scrolledRef\.current\.has\(id\)\) \{\n\s*scrolledRef\.current\.add\(id\);/.test(ob)
     // 【便BW 審査】前の候補の的が DOM に在る間(前の段を待っている間)は送らない
     && /\n\s*earlierInDom = true;\n\s*continue;\n/.test(ob));
-  check("BW.3 .coach-dim の綴りは onboarding.jsx の動く側に無い(参加の画面 CommunityTab.jsx には在る)・穴は必ず描く",
-    !/coach-dim/.test(ob) && /className="coach-dim"/.test(rd("src/community/CommunityTab.jsx"))
+  // 【便BX 2026-10-06 本人の決定 B1】到着カード(穴なし)だけが .coach-dim と画面いっぱいの受け1枚(data-coach-hit="all")を持つ。
+  //   どちらも onboarding.jsx に1件ずつで、view.arrival の枝の中。穴の段の受けは hitRects のまま
+  const arrBranch = (/\{view\.arrival \? \(\n([\s\S]*?)\n\s*\) : \(<>/.exec(ob) || [])[1] || "";
+  check("BW.3 【便BX】.coach-dim は onboarding.jsx に1件(到着の枝)・CommunityTab.jsx に1件(参加)・受け all は到着の枝に1件・穴の段は hitRects",
+    (ob.match(/className="coach-dim"/g) || []).length === 1 && /className="coach-dim"/.test(arrBranch)
+    && (rd("src/community/CommunityTab.jsx").match(/className="coach-dim"/g) || []).length === 1
     // 【便BW 再審査】受けを置かない範囲は穴(passThrough の段は、的を含む押せる祖先も足した外接矩形)
-    && /\{hitRects\(view\.pass \?\? view\.hole, view\.vw, view\.vh(?:, view\.band)?\)\.map/.test(ob) && !/data-coach-hit="all"|key: "all"/.test(ob));
+    && /\{hitRects\(view\.pass \?\? view\.hole, view\.vw, view\.vh(?:, view\.band)?\)\.map/.test(ob)
+    && (ob.match(/data-coach-hit="all"/g) || []).length === 1 && /data-coach-hit="all"[^\n]*onClick=\{advance\}/.test(arrBranch) && !/key: "all"/.test(ob),
+    `${arrBranch.length}文字`);
   check("BW.3 殻の判定に分岐を足していない(案内の判断を持つ onboarding.jsx は isNativeShell を読まない)",
     !/isNativeShell/.test(obRaw));
 
@@ -33058,12 +33073,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- BW.5 根の配線 ------------------------------------------------------------------------------
   const coachCall = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
-  check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は便BS のまま一字一句",
+  // 【便BX 2026-10-06 本人の決定 C】hidden の式: 帯の間は出さない、の例外は保存の帯(notice.coach)が出ている間の計測タブ(⑩)だけ
+  check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は【便BX】の形で一字一句",
     /metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/.test(coachCall)
-    && coachCall.includes("hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || Boolean(notice)}"));
-  check("BW.5 見本の初期値の両方と onboardingReady に COACH2_MIGRATED",
-    (app.match(/\[MEASURE_STEPS_MIGRATED\]: true, \[COACH2_MIGRATED\]: true \}/g) || []).length === 2
-    && /onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\];/.test(app));
+    && coachCall.includes("hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || (Boolean(notice) && !(notice.coach && topTab === \"measure\"))}"));
+  check("BW.5 見本の初期値の両方と onboardingReady に COACH2_MIGRATED(【便BX】と COACH3_MIGRATED)",
+    (app.match(/\[MEASURE_STEPS_MIGRATED\]: true, \[COACH2_MIGRATED\]: true, \[COACH3_MIGRATED\]: true \}/g) || []).length === 2
+    && /onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\] && onboardingDone\[COACH3_MIGRATED\];/.test(app));
   check("BW.5 帯の「見る」(本人裁定): ADOPTED_DONE_NOTE の showNotice に actionLabel: \"見る\"・押すとデータタブ・作り直し・⑮ の依頼・送る依頼",
     /if \(announce\) showNotice\(\{ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice \}\);/.test(app)
     && /const openTrendFromNotice = useCallback\(\(\) => \{\n\s*setTopTab\("analysis"\);\n\s*setNavNonce\(\(n\) => n \+ 1\);\n\s*setCoachRequest\("idealSeen"\);\n\s*setTrendFocusRequest\(\(n\) => n \+ 1\);\n\s*\}, \[\]\);/.test(app));
@@ -33130,17 +33146,241 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const a = css.indexOf("@keyframes coach-out");
     const b = css.indexOf("}", css.indexOf(".coach-live {")) + 1;
     const blk = a >= 0 && b > a ? css.slice(a, b) : "";
-    check("BW.7 index.css の .coach-* の規則は便BW の前と1文字も変わらない(この便は CSS を触らない)",
-      blk.length === 3145 && fnvBW(blk) === "96bbfa3a", `${blk.length}文字 / fnv1a=${fnvBW(blk)}`);
+    // 【便BX 2026-10-06 本人の決定 A1-e・B2】この便は CSS を意図して変える(地の色・アイコンの丸・章の目印)ので、長さとハッシュの固定を
+    // 構造の検査に替えた(変わってよい所と変わってはいけない所を分けて見る。値の全部は BX.5)
+    const ruleOf = (sel) => (new RegExp(`\\n${sel.replace(/[.*+?^${}()|[\]\\>]/g, "\\$&")} \\{([^}]*)\\}`).exec("\n" + blk) || [])[1] || "";
+    // 【便BX 審査 統括の裁定】便BX が意図して変えた規則(.coach-card・.coach-icon・.coach-card.join-card・.join-card > .coach-icon・.coach-marks の6つ)
+    // だけを塊から抜き(コメントも抜く)、残りは長さと fnv1a で固定する(便BX の前 = HEAD c6d8fd7 の残りと同じ 1305文字 / 711e1907)。
+    // 抜いた規則の中身は BX.5 が一字一句で見る。
+    const restBX = (() => {
+      let r = blk.replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-marks", ".coach-marks i", ".coach-marks i.done", ".coach-marks i.cur", ".coach-marks span", ".coach-marks .cur + span"]) {
+        r = r.split("\n" + sel + " {").map((p, i) => (i === 0 ? p : p.slice(p.indexOf("}") + 1))).join("\n");
+      }
+      return r.replace(/[ \t]+\n/g, "\n").replace(/\n{2,}/g, "\n");
+    })();
+    check("BW.7 【便BX】.coach-* の塊から便BX が変えた規則を抜いた残りは、便BX の前と1文字も変わらない(長さ・fnv1a)",
+      restBX.length === 1305 && fnvBW(restBX) === "711e1907", `${restBX.length}文字 / fnv1a=${fnvBW(restBX)}`);
+    check("BW.7 【便BX】.coach-* の塊: 角丸 18・浮きの影・穴の影・暗幕・溶ける 350ms は便BW のまま。色は全部 var( で直書きの # が無い",
+      /border-radius: 18px; box-shadow: 0 8px 24px rgba\(15,23,42,0\.18\);/.test(ruleOf(".coach-card"))
+      && blk.includes(".coach-hole { position: fixed; pointer-events: none; box-shadow: 0 0 0 150vmax var(--c-coach-dim); }")
+      && blk.includes(".coach-dim { position: fixed; inset: 0; pointer-events: none; background: var(--c-coach-dim); }")
+      && blk.includes('.coach-layer[data-leaving="true"] { animation: coach-out 350ms ease-out forwards; }')
+      && !/#[0-9A-Fa-f]{3,8}\b/.test(blk.replace(/\/\*[\s\S]*?\*\//g, "")),
+      `${blk.length}文字 / fnv1a=${fnvBW(blk)}`);
     const ds = rd("design/DESIGN-SYSTEM.md");
     const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
     const titles = ["まずは吹いてみよう", "メトロノームも使えます", "テンポを決めよう", "タップでスタート", "次はリードを登録しよう",
       "楽器を選択してリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
       "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
-      "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう"];
+      "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう",
+      // 【便BX】新しい6段
+      "ここはリードタブ", "ここはデータタブ", "みんなのデータも見てみよう", "ここはコミュニティ", "計測タブに戻ろう", "チューナーとメトロノームを使って、あなたのデータを貯めよう！"];
     const missing = titles.filter((t) => !sec.includes(t));
-    check("BW.7 DESIGN-SYSTEM §4.5b に便BW の段の見出しが全部ある(17 の段。⑦⑨ は同じ見出し)",
+    check("BW.7 DESIGN-SYSTEM §4.5b に段の見出しが全部ある(【便BX】23 の段。⑦⑨ は同じ見出し)",
       sec.length > 1000 && missing.length === 0 && /【便BW/.test(sec), missing.join(" / "));
+  }
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便BX 2026-10-06 本人の決定・凍結仕様 coach3-spec.md §13.3】はじめの案内の見直し(到着カード・章の目印・保存の帯と同時の ⑩・
+// カードの地・「端末を替えるとき」)。ここは綴りだけを見る。描いて押す検査は vitest(onboarding.test.jsx / onboardingApp.test.jsx /
+// idealSeenFlow.test.jsx / community/joinCard.test.jsx / joinIntroBackup.test.jsx / backup/deviceTransfer*.test.jsx)が持つ。
+// 【守っていないもの】カードの地と目印の見た目(色の判断は本人がスクショで行う)・実機の殻の共有シート(実機待ち)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便BX] はじめの案内の見直し(到着・章の目印・帯と同時の ⑩・端末を替えるとき)");
+  const rd = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obRaw = rd("src/onboarding.jsx");
+  const ob = codeOf(obRaw);
+  const app = codeOf(src);
+  const listOf = (name, text) => {
+    const m = new RegExp(`export const ${name} = (?:Object\\.freeze\\()?\\[([^\\]]*)\\]`).exec(text);
+    return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : null;
+  };
+  const stepsBlk = (/export const COACH_STEPS = \{([\s\S]*?)\n\};/.exec(ob) || [])[1] || "";
+  const stepIds = [...stepsBlk.matchAll(/\n  ([A-Za-z]+): \{/g)].map((m) => m[1]);
+  const stepOf = (id) => (new RegExp(`\\n  ${id}: \\{([\\s\\S]*?)\\n  \\},`).exec(stepsBlk + "\n") || [])[1] || "";
+
+  // --- BX.1 印・門・段の表 ------------------------------------------------------------------------
+  const FLAGS23 = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
+    "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen",
+    "arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish"];
+  check("BX.1 ONBOARDING_FLAGS は23個をこの順で持つ(仕様 §2.4)",
+    JSON.stringify(listOf("ONBOARDING_FLAGS", ob)) === JSON.stringify(FLAGS23), JSON.stringify(listOf("ONBOARDING_FLAGS", ob)));
+  check("BX.1 4つ目の門 COACH3_MIGRATED = \"migratedCoach3\"・normalize が読む・移行の4つ目の門(6印・リード・参加・idealSeen は next から)",
+    /export const COACH3_MIGRATED = "migratedCoach3";/.test(ob)
+    && /out\[COACH3_MIGRATED\] = src\[COACH3_MIGRATED\] === true;/.test(ob)
+    && /if \(base\[COACH3_MIGRATED\] !== true\) \{\n\s*if \(ss\.length > 0\) for \(const f of \["arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish"\]\) next\[f\] = true;\n\s*if \(rs\.length > 0\) next\.arriveReeds = true;\s*\n\s*if \(next\.join === true\) \{ next\.arriveCommunity = true; next\.goCommunity = true; \}\s*\n\s*if \(next\.idealSeen === true\) next\.goMeasure = true;\s*\n\s*next\[COACH3_MIGRATED\] = true;\n\s*\}/.test(ob));
+  const arrivals = stepIds.filter((id) => /\n\s*arrival: true,/.test("\n" + stepOf(id)));
+  check("BX.1 arrival: true の段は4つ(arriveReeds・arriveData・arriveCommunity・finish)で、どれも target / pad / shape / dismissWith / also を持たない",
+    JSON.stringify([...arrivals].sort()) === JSON.stringify(["arriveCommunity", "arriveData", "arriveReeds", "finish"])
+    && arrivals.every((id) => !/\b(target|pad|shape|dismissWith|markOnDismiss|scrollIntoView|also|passThrough):/.test(stepOf(id)))
+    && (stepsBlk.match(/arrival: true/g) || []).length === 4, arrivals.join(","));
+  check("BX.1 全23段に chapter があり、値は measure / reeds / data / community のどれか。chapter は flag の行の末尾(target の行には無い)",
+    stepIds.length === 23 && stepIds.every((id) => /\n\s*flag: "[A-Za-z]+", icon: "[a-z]+", chapter: "(measure|reeds|data|community)",\n/.test("\n" + stepOf(id) + "\n"))
+    && !/target: [^\n]*chapter:/.test(stepsBlk), `${stepIds.length}段`);
+  check("BX.1 ⑱ finish の文(一字一句)・アイコン tuner・章 measure",
+    /flag: "finish", icon: "tuner", chapter: "measure",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
+  check("BX.1 到着3つ・⑭'・⑰ の文(一字一句)",
+    /title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",/.test(stepOf("arriveReeds"))
+    && /title: "ここはデータタブ", line: "計測の記録はここに貯まります",/.test(stepOf("arriveData"))
+    && /title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",/.test(stepOf("arriveCommunity"))
+    && /flag: "goCommunity", icon: "community", chapter: "data",\n\s*title: "みんなのデータも見てみよう", line: null,\n\s*target: '\[data-coach="nav-community"\] svg', pad: 11, shape: "circle",/.test(stepOf("goCommunity"))
+    && /flag: "goMeasure", icon: "measure", chapter: "data",\n\s*title: "計測タブに戻ろう", line: null,\n\s*target: '\[data-coach="nav-measure"\] svg', pad: 11, shape: "circle",/.test(stepOf("goMeasure")));
+  check("BX.1 ⑩ goData に also: { target: \"[data-action-notice]\", pad: 0, shape: \"rect\" }(2つ目の穴は ⑥ と ⑩ の2つだけ)",
+    /also: \{ target: "\[data-action-notice\]", pad: 0, shape: "rect" \},/.test(stepOf("goData"))
+    && (stepsBlk.match(/\balso: \{/g) || []).length === 2);
+
+  // --- BX.2 coachCandidates の分岐 ----------------------------------------------------------------------
+  const cc = (/export function coachCandidates\(\{([\s\S]*?)\}\) \{([\s\S]*?)\n\}/.exec(ob) || [])[2] || "";
+  check("BX.2 ⑱ は計測タブの先頭(if (!micReady) return []; の直前)",
+    /case "measure": \{\n\s*if \(\(d\.goCommunity \|\| d\.goMeasure\) && d\.measure && d\.goData && !d\.finish\) return \["finish"\];\n\s*if \(!micReady\) return \[\];/.test(cc));
+  check("BX.2 到着: リードタブの先頭・データタブは if (!hasSessions) の後・コミュニティは join の後",
+    /case "reeds": \{\n\s*if \(!d\.arriveReeds\) return \["arriveReeds"\];/.test(cc)
+    && /if \(!hasSessions\) return !d\.measure \? \["data"\] : \[\];\n\s*if \(!d\.arriveData\) return \["arriveData"\];/.test(cc)
+    && /case "community": \{\n\s*if \(!d\.join\) return \[\];\n\s*if \(!d\.arriveCommunity\) return \["arriveCommunity"\];\n\s*return !d\.adoptAverage \? \["adoptAverage"\] : \[\];/.test(cc));
+  // 【便BX 審査 統括の裁定】⑰ は目安にしただけ(adoptAverage)でも・終わった後は出さない
+  check("BX.2 ⑭' は参加済みの人に出さない・⑰ は ⑮ か目安にしたあと(データタブの並びの後ろ・終わった後は出さない)",
+    /if \(d\.trend && !d\.join && !d\.goCommunity\) out\.push\("goCommunity"\);\n\s*if \(\(d\.idealSeen \|\| d\.adoptAverage\) && !d\.goMeasure && !d\.finish\) out\.push\("goMeasure"\);\n\s*return out;/.test(cc));
+
+  // --- BX.3 部品: 到着・advance・章の目印 ------------------------------------------------------------------
+  const adv = (/const advance = \(e\) => \{([\s\S]*?)\n  \};/.exec(ob) || [])[1] || "";
+  check("BX.3 advance は印を立てるだけ(dismissedRef に触らない・onMarkRef.current?.( がある・到着の段だけ)",
+    adv.length > 50 && !/dismissedRef/.test(adv) && /onMarkRef\.current\?\.\(COACH_STEPS\[cur\.id\]\.flag\);/.test(adv)
+    && /if \(!cur \|\| cur\.leaving \|\| !COACH_STEPS\[cur\.id\]\?\.arrival\) return;/.test(adv), `${adv.length}文字`);
+  check("BX.3 到着は的を探さない(measure の走査で step.arrival なら found)・カードは中央(hole: null)・カードを押しても advance",
+    /if \(step\.arrival\) \{ found = \{ id, arrival: true \}; break; \}/.test(ob)
+    && /placeCoachCard\(\{ hole: null, cardH: cardH0, vh, bottomLimit: readBottomLimit\(vh\) \}\)/.test(ob)
+    && /onClick=\{view\.arrival \? advance : dismiss\}/.test(ob));
+  check("BX.3 chapterDone の4分岐(計測 = measure か goReeds / リード = reeds / データ = trend / コミュニティ = adoptAverage)・目印はカードの最初の子",
+    /case "measure": return d\.measure === true \|\| d\.goReeds === true;/.test(ob)
+    && /case "reeds": return d\.reeds === true;/.test(ob)
+    && /case "data": return d\.trend === true;/.test(ob)
+    && /case "community": return d\.adoptAverage === true;/.test(ob)
+    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<ChapterMarks stepId=\{view\.id\} done=\{done\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob));
+  check("BX.3 onboarding.jsx は isNativeShell を読まない・scrollIntoView は今も1回",
+    !/isNativeShell/.test(obRaw) && (ob.match(/scrollIntoView\?\.\(/g) || []).length === 1);
+
+  // --- BX.4 App.jsx の配線 -------------------------------------------------------------------------------
+  const showBlk = (/const showNotice = useCallback\(\(next\) => \{([\s\S]*?)\n  \}, \[stash, fadeOut\]\);/.exec(app) || [])[1] || "";
+  const saveBlk = (/markSessionSaved\(pendingSession\);([\s\S]*?)\n\s*\}\n\s*setPendingSession\(null\);/.exec(app) || [])[1] || "";
+  check("BX.4 帯の中身に coach: next.coach === true・coach: true は保存の帯の showNotice の中に1回だけ(取り込み・目安・削除の帯には無い)",
+    /coach: next\.coach === true,/.test(showBlk)
+    && (app.match(/\bcoach: true,/g) || []).length === 1 && /showNotice\(\{[\s\S]*?coach: true,\n\s*\}\);/.test(saveBlk)
+    && /text: `\$\{formatYmd\(pendingSession\.recordedAt, \{ timeOnly: true \}\)\} の計測を保存しました`,/.test(saveBlk));
+  const an = codeOf(srcOfFn(src, "ActionNotice"));
+  check("BX.4 ActionNotice の内箱(action-notice)に data-action-notice=\"\" が1回(style は変えていない)",
+    (app.match(/data-action-notice=""/g) || []).length === 1
+    && /className=\{notice\.leaving \? "action-notice is-leaving" : "action-notice"\}\n\s*data-action-notice=""\n\s*onAnimationEnd=\{onLeaveEnd\}/.test(an));
+  const coachCall = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+  check("BX.4 hidden の式: 帯の間は出さない・例外は保存の帯(notice.coach)が出ている間の計測タブだけ",
+    coachCall.includes("|| (Boolean(notice) && !(notice.coach && topTab === \"measure\"))}") && !/\|\| Boolean\(notice\)\}/.test(coachCall));
+  check("BX.4 タブ移動の effect に goCommunity(コミュニティへ移った)・goMeasure(⑮ を見てから・目安にしてから計測タブ)の2行",
+    /if \(topTab === "community"\) markOnboarding\("goCommunity"\);\n\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/.test(app));
+  check("BX.4 COACH3_MIGRATED は import 1 + 見本の初期値 2 + onboardingReady 1 の4か所",
+    /import \{ COACH2_MIGRATED, COACH3_MIGRATED \} from "\.\/onboarding\.jsx";/.test(app) && (app.match(/COACH3_MIGRATED/g) || []).length === 4);
+
+  // --- BX.5 index.css(A1-e・B2。トークンだけ) ------------------------------------------------------------
+  {
+    const css = rd("src/index.css");
+    const a = css.indexOf("@keyframes coach-out");
+    const b = css.indexOf("}", css.indexOf(".coach-live {")) + 1;
+    const blk = a >= 0 && b > a ? css.slice(a, b) : "";
+    const rule = (sel) => { const i = blk.indexOf(`\n${sel} {`); if (i < 0) return ""; return blk.slice(i, blk.indexOf("}", i) + 1); };
+    // 【便BX 審査】変えた規則は丸ごと一字一句(BW.7 が残りを固定するので、ここで抜いた所を守る)
+    check("BX.5 便BX が変えた .coach-card / .coach-icon / .coach-card.join-card / .join-card > .coach-icon は丸ごと一字一句",
+      rule(".coach-card") === "\n.coach-card {\n  position: fixed; left: max(22px, calc((100% - var(--page-max-w)) / 2)); right: max(22px, calc((100% - var(--page-max-w)) / 2)); pointer-events: auto;\n  background: var(--c-accent-tint); border-radius: 18px; box-shadow: 0 8px 24px rgba(15,23,42,0.18);\n  padding: var(--sp-5) var(--sp-4) var(--sp-4);\n  display: grid; justify-items: center; gap: var(--sp-2); text-align: center;\n}"
+      && rule(".coach-icon") === "\n.coach-icon {\n  width: 44px; height: 44px; border-radius: 50%; margin-bottom: var(--sp-1);\n  background: var(--c-surface); color: var(--c-accent);\n  display: grid; place-items: center;\n}"
+      && rule(".coach-card.join-card") === "\n.coach-card.join-card {\n  position: relative; left: auto; right: auto; width: 100%; max-width: var(--page-max-w); max-height: 100%;\n  overflow-y: auto; overscroll-behavior: contain; justify-items: stretch; text-align: left;\n  background: var(--c-surface);\n}"
+      && (blk.match(/\n\.join-card > \.coach-icon \{/g) || []).length === 1);
+    check("BX.5 .coach-card の地は --c-accent-tint(A1-e)・角丸 18・影は便BW のまま・縁(border)は持たない(見分けの手は本人の判断待ち)",
+      /background: var\(--c-accent-tint\); border-radius: 18px; box-shadow: 0 8px 24px rgba\(15,23,42,0\.18\);/.test(rule(".coach-card"))
+      && !/border:/.test(rule(".coach-card")) && !/--c-accent-line/.test(blk.replace(/\/\*[\s\S]*?\*\//g, "")));
+    check("BX.5 .coach-icon の丸は白(--c-surface)・参加のカードは白のまま(.coach-card.join-card に --c-surface・丸は --c-accent-tint)",
+      /background: var\(--c-surface\); color: var\(--c-accent\);/.test(rule(".coach-icon"))
+      && /background: var\(--c-surface\);/.test(rule(".coach-card.join-card"))
+      && blk.includes("\n.join-card > .coach-icon { background: var(--c-accent-tint); }"));
+    const MARKS = [
+      ".coach-marks { justify-self: stretch; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-1); }",
+      ".coach-marks i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }",
+      ".coach-marks i.done { background: var(--c-accent-mid); }",
+      ".coach-marks i.cur { background: var(--c-accent); }",
+      ".coach-marks span { display: block; margin-top: var(--sp-1); font-size: var(--fs-xs); line-height: var(--lh-tight); text-align: center; white-space: nowrap; color: var(--c-ink-3); }",
+      ".coach-marks .cur + span { color: var(--c-accent); font-weight: 700; }",
+    ];
+    check("BX.5 章の目印の6規則(仕様 §5.3 の宣言のまま・トークンだけ)",
+      MARKS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-marks/g) || []).length === 6,
+      MARKS.filter((r) => !blk.includes(`\n${r}`)).join(" / "));
+  }
+
+  // --- BX.6 BackupPanel.jsx(処理をフックへ。描く中身は不変) ----------------------------------------------------
+  {
+    const bpRaw = rd("src/backup/BackupPanel.jsx");
+    const bp = codeOf(bpRaw);
+    const panel = codeOf(srcOfFn(bpRaw, "BackupPanel"));
+    check("BX.6 export function useBackupActions() / export const PRIMARY_BUTTON。BackupPanel の中に handleExport・handleFile・fileInputRef の綴りが無い",
+      /export function useBackupActions\(\) \{/.test(bp) && /export const PRIMARY_BUTTON = \{/.test(bp)
+      && panel.length > 500 && !/handleExport|handleFile|fileInputRef/.test(panel)
+      && /const \{ busy, notice, failure, exportNow, pickFile, fileInput \} = useBackupActions\(\);/.test(panel));
+    check("BX.6 殻の分岐 if (isNativeShell()) { と backupExport.native.js の import は1回ずつ(写しが無い)",
+      (bp.match(/if \(isNativeShell\(\)\) \{/g) || []).length === 1 && (bp.match(/backupExport\.native\.js/g) || []).length === 1);
+  }
+
+  // --- BX.7 DeviceTransferPanel.jsx(D1) -------------------------------------------------------------------
+  {
+    const dtRaw = rd("src/backup/DeviceTransferPanel.jsx");
+    const dt = codeOf(dtRaw);
+    check("BX.7 文の定数4つ(仕様 §8.2 一字一句)",
+      dt.includes('export const DEVICE_TRANSFER_TITLE = "端末を替えるとき";')
+      && dt.includes('export const DEVICE_TRANSFER_LEAD = "記録(計測のデータとリード)はファイルで移せます。コミュニティの匿名アカウントは、この端末だけのもので移せません。参加し直すと新しいアカウントになります。";')
+      // 【便BX 審査 統括の裁定】手順1は参加前の人にも当てはまる文・手順2は詰めた。断片(inline-block)の間でだけ折れる
+      && dt.includes('Object.freeze(["前の端末で書き出す", "(参加前はこの画面の下から、", "参加後はマイページから)"]),\n  Object.freeze(["ファイルをこの端末に送る", "(AirDrop・メールなど)"]),\n  Object.freeze(["ここで「ファイルから読み戻す」"]),')
+      && /<span key=\{j\} style=\{\{ display: "inline-block" \}\}>\{seg\}<\/span>/.test(dt)
+      && /useEffect\(\(\) => \{ requestPersistence\(\); \}, \[\]\);/.test(dt)
+      && dt.includes('export const DEVICE_TRANSFER_EXPORT = "この端末の記録を書き出す";'));
+    check("BX.7 処理は BackupPanel のフック(useBackupActions・PRIMARY_BUTTON を import)。window.confirm / writeAll / readAll / buildSnapshot の綴りが無い",
+      /import \{ useBackupActions, PRIMARY_BUTTON \} from "\.\/BackupPanel\.jsx";/.test(dt)
+      && /import \{ JOIN_QUIET_LINK_STYLE as QUIET_LINK \} from "\.\.\/community\/CommunityTab\.jsx";/.test(dt)
+      && !/window\.confirm|writeAll|readAll|buildSnapshot|isNativeShell/.test(dt), `${dt.length}文字`);
+    check("BX.7 「機種」「機材」の語が無い", dtRaw.length > 0 && !/機種|機材/.test(dtRaw));
+  }
+
+  // --- BX.8 CommunityTab.jsx(参加のカードの文・導線・器) ----------------------------------------------------------
+  {
+    const ctRaw = rd("src/community/CommunityTab.jsx");
+    const ji = codeOf(srcOfFn(ctRaw, "JoinIntro"));
+    check("BX.8 JoinIntro: 「機種変更」が無く「端末を替えたりアプリを削除したりすると失われ、元に戻せません。」がある・導線は {DEVICE_TRANSFER_TITLE}",
+      ji.length > 1000 && !/機種変更/.test(ji) && ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
+      && /style=\{JOIN_QUIET_LINK_STYLE\}>\n\s*\{DEVICE_TRANSFER_TITLE\}\n\s*<\/button>/.test(ji));
+    check("BX.8 <DeviceTransferSheet onClose= は JoinIntro に1回・export function DeviceTransferSheet・BackupSheet の定義は便BX の前のまま",
+      (ji.match(/<DeviceTransferSheet onClose=/g) || []).length === 1
+      && /export function DeviceTransferSheet\(\{ onClose \}\) \{\n\s*return \(\n\s*<BottomSheet ariaLabel=\{DEVICE_TRANSFER_TITLE\} onClose=\{onClose\}>\n\s*<DeviceTransferPanel \/>/.test(ctRaw)
+      && /export function BackupSheet\(\{ onClose \}\) \{\n  return \(\n    <BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\n      <BackupPanel \/>\n    <\/BottomSheet>\n  \);\n\}/.test(ctRaw)
+      && /export const JOIN_QUIET_LINK_STYLE = \{/.test(ctRaw));
+  }
+
+  // --- BX.9 語彙・DESIGN-SYSTEM ---------------------------------------------------------------------------------
+  {
+    const hits = [];
+    const walk = (d) => {
+      for (const f of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, f.name);
+        if (f.isDirectory()) { walk(p); continue; }
+        if (!/\.(jsx?|mjs)$/.test(f.name) || /\.test\.|\.testutil\./.test(f.name)) continue;
+        const code = codeOf(readFileSync(p, "utf8"));
+        const m = code.match(/.{0,20}(機種|機材).{0,20}/g);
+        if (m) hits.push(`${f.name}: ${m.join(" | ")}`);
+      }
+    };
+    walk(join(__dirname, "..", "src"));
+    check("BX.9 src 全体: 利用者に見える文(コメントを除くコード)に「機種」「機材」が無い", hits.length === 0, hits.join(" / "));
+    const ds = rd("design/DESIGN-SYSTEM.md");
+    const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
+    check("BX.9 DESIGN-SYSTEM §4.5b に【便BX】・23 の段・「端末を替えるとき」・--c-accent-tint(カードの地)",
+      /【便BX/.test(sec) && /印は23・段は23/.test(sec) && sec.includes("端末を替えるとき") && sec.includes("`--c-accent-tint`")
+      && /`--c-accent-tint` \| `#EAEFF5` \| 選択状態の背景・はじめの案内のカードの地/.test(ds));
   }
   console.log("  -> done");
 }

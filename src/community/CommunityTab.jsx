@@ -48,6 +48,8 @@ import { BLOCKED_USERS_KEY, normalizeBlockedList, addBlocked, removeBlocked, hid
 // 【便BB 2026-09-25】以前ここには「My Data の記録の保存」とあったが、App.jsx(My Data)は
 // BackupPanel を描いていない。置き場所はマイページ(参加済み)と参加前の画面(JoinIntro)の2つ。
 import BackupPanel from "../backup/BackupPanel.jsx";
+// 【便BX 2026-10-06 本人の決定 D1】参加の画面の導線「端末を替えるとき」のシートの中身(処理は BackupPanel の useBackupActions)。
+import DeviceTransferPanel, { DEVICE_TRANSFER_TITLE } from "../backup/DeviceTransferPanel.jsx";
 import { publishStats, withMyRow } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -478,7 +480,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   );
 }
 
-// 【アカウント引継】プロフィールの一番下と、参加前の画面(JoinIntro。便BB)から開く。
+// 【アカウント引継】プロフィールの一番下から開く(【便BX】参加前の画面(JoinIntro)の導線は「端末を替えるとき」= DeviceTransferSheet になった)。
 // 中身は BackupPanel(記録の保存)を**そのまま**出すだけで、このファイルは器を1つも持たない。
 //
 // 【C-14 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
@@ -499,6 +501,17 @@ export function BackupSheet({ onClose }) {
   return (
     <BottomSheet ariaLabel="アカウント引継" onClose={onClose}>
       <BackupPanel />
+    </BottomSheet>
+  );
+}
+
+// 【便BX 2026-10-06 本人の決定 D1】参加の画面(JoinIntro)の導線「端末を替えるとき」から開くシート。中身は参加の場面に絞った DeviceTransferPanel
+// (記録はファイルで移せる / 匿名アカウントは移せない / 手順3つ / 主ボタン「ファイルから読み戻す」/ 細い導線「この端末の記録を書き出す」)。
+// 書き出し・読み戻しの処理は BackupPanel の useBackupActions を使い回す(写しを作らない)。マイページの BackupSheet(汎用の「記録の保存」)は変えない。
+export function DeviceTransferSheet({ onClose }) {
+  return (
+    <BottomSheet ariaLabel={DEVICE_TRANSFER_TITLE} onClose={onClose}>
+      <DeviceTransferPanel />
     </BottomSheet>
   );
 }
@@ -838,8 +851,9 @@ function AgreeRow({ checked, onChange, children }) {
 // 参加していない人のコミュニティタブは3層:
 //   1. 裏 … 参加後のデータの子タブの見本(子タブの行 + JoinPreviewDataScreen)。触れない(inert・aria-hidden・pointer-events: none)
 //   2. 暗幕 … .coach-dim(--c-coach-dim)。タップは下へ通す(下部タブは今までどおり押せる)
-//   3. カード … はじめの一手のカード(.coach-card)と同じ見た目で、見える範囲の中央(.join-frame)。中身は上から
-//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・同意のチェック・「参加する」・「アカウント引継」
+//   3. カード … はじめの一手のカード(.coach-card)と同じ形(角丸・影・内側)で、見える範囲の中央(.join-frame)。地は白のまま
+//      (【便BX】案内のカードの地は --c-accent-tint になったが、参加のカードは白・アイコンの丸は --c-accent-tint のまま)。中身は上から
+//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・同意のチェック・「参加する」・「端末を替えるとき」(【便BX】旧「アカウント引継」)
 // 読む → 同意する → 参加する の順に上から並ぶ。**カードの外を押しても Escape でも消えない**(消すとこの画面にやることが無くなる)。
 // 以前の見出し「コミュニティ」はカードの見出しに替わった。ボタンの文字は「参加してプロフィールを作る」→「参加する」
 // (プロフィールは参加した次の画面で作るので、ここでは言わない)。
@@ -851,8 +865,9 @@ const JOIN_LINE = "みんなの計測データが見られます";
 // 説明の1段落目(版の p.body。--fs-sm・行間 --lh-loose・--c-ink-2・上に --sp-1)。2段落目は noteStyle(小さく --c-ink-3)のまま。
 const joinLeadStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink-2)", lineHeight: "var(--lh-loose)", marginTop: "var(--sp-1)" };
 // 細い導線「アカウント引継」(版の .quiet)。地も枠も無い文字だけ・--fs-sm・600・--c-ink-2。当たりは §5 の --tap-min
-// (版の 32 は当たりの最小に足りないので 44 にした)。
-const JOIN_QUIET_LINK_STYLE = {
+// (版の 32 は当たりの最小に足りないので 44 にした)。【便BX】導線の名前は「端末を替えるとき」になった。
+// 「端末を替えるとき」のシートの細い導線(この端末の記録を書き出す)も同じ体裁なので export する(DeviceTransferPanel.jsx が読む)。
+export const JOIN_QUIET_LINK_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
   color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
 };
@@ -882,7 +897,8 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
   const [agreed, setAgreed] = useState(false);
   // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
   // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
-  // 開くのはマイページと**同じ BackupSheet**(写しを作らない)。
+  // 【便BX 2026-10-06 本人の決定 D1】開くのは参加の場面に絞った「端末を替えるとき」(DeviceTransferSheet)。処理は BackupPanel と同じ
+  // (useBackupActions)。マイページの BackupSheet は変えない。
   const [backup, setBackup] = useState(false);
   // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
   const [legal, setLegal] = useState(null);
@@ -913,11 +929,12 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
           <div style={joinLeadStyle}>
             {"参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。"}
           </div>
-          {/* spec §6: 匿名のままのアカウントは機種変更・アプリ削除で失われる。この告知は本来
+          {/* spec §6: 匿名のままのアカウントは端末を替える・アプリを削除すると失われる。この告知は本来
               アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
-              「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。 */}
+              「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。
+              【便BX 2026-10-06 本人の決定 D1】語を「端末を替えたりアプリを削除したりすると」に(導線の名前と揃える)。 */}
           <div style={noteStyle}>
-            匿名のアカウントはこの端末にだけ残ります。機種変更やアプリの削除で失われ、元に戻せません。
+            匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。
           </div>
           {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
               **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
@@ -939,10 +956,11 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
                      cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
             {busy ? "準備中…" : "参加する"}
           </button>
-          {/* 【便BB】名前はマイページと同じ「アカウント引継」・開くのも同じ BackupSheet。
-              【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。 */}
+          {/* 【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。
+              【便BX 2026-10-06 本人の決定 D1】名前を「アカウント引継」→「端末を替えるとき」に(中身が「アカウントは移せない」と言うので食い違っていた)。
+              開くのは参加の場面に絞ったシート(DeviceTransferSheet)。style・位置(カードの最後の子)は変えない。 */}
           <button type="button" onClick={() => setBackup(true)} className="sans" style={JOIN_QUIET_LINK_STYLE}>
-            アカウント引継
+            {DEVICE_TRANSFER_TITLE}
           </button>
         </div>
       </div>
@@ -974,7 +992,7 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
       )}
       {createPortal(card, document.body)}
       {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
-      {backup ? <BackupSheet onClose={() => setBackup(false)} /> : null}
+      {backup ? <DeviceTransferSheet onClose={() => setBackup(false)} /> : null}
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </div>
   );

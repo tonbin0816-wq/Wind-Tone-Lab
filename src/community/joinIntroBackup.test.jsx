@@ -11,6 +11,8 @@ import { createRoot } from "react-dom/client";
 //   ・体裁はマイページの同じ入口と同じ(style の綴りが一致)
 //   ・押すと同じシート(BottomSheet「アカウント引継」の中に BackupPanel)が開き、閉じられる
 // 【守っていないもの】書き出し・読み戻しそのもの(backup/ 側の検査と実機)。ここは入口と配線だけ。
+// 【便BX 2026-10-06 本人の決定 D1】入口の名前は「端末を替えるとき」になり、開くのは参加の場面に絞ったシート(DeviceTransferPanel)。
+//   マイページの入口は「アカウント引継」(BackupSheet = 記録の保存)のまま。名前で2つを分ける。
 // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】入口はカードの一番下の細い導線になった(体裁はマイページの
 //   secondaryButtonStyle ではなくなった)。名前と開くシートは同じ。「体裁が同じ」の検査は「細い導線の体裁」の検査に直し、
 //   参加のボタンの文字は「参加する」に直した。
@@ -38,26 +40,28 @@ afterEach(() => {
 });
 
 const buttonNamed = (name) => [...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
-const backupDialog = () => document.querySelector('[role="dialog"][aria-label="アカウント引継"]');
+const backupDialog = () => document.querySelector('[role="dialog"][aria-label="端末を替えるとき"]');
 
 describe("参加前の画面からアカウント引継を開ける(便BB)", () => {
-  it("入口が1つあり、押すとマイページと同じシート(中身は記録の保存)が開く", async () => {
+  it("【便BX】入口が1つあり(「端末を替えるとき」)、押すと参加の場面に絞ったシートが開く(記録の保存ではない)", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    const entry = buttonNamed("アカウント引継");
+    const entry = buttonNamed("端末を替えるとき");
     expect(entry).toHaveLength(1);
+    expect(buttonNamed("アカウント引継")).toHaveLength(0);
     expect(backupDialog()).toBe(null);
     await act(async () => { entry[0].click(); });
     const dialog = backupDialog();
     expect(dialog).not.toBe(null);
-    // 中身は BackupPanel そのもの(書き出し・読み戻しのボタン)
-    expect(dialog.textContent).toContain("記録の保存");
-    expect(buttonNamed("ファイルに書き出す")).toHaveLength(1);
+    // 中身は DeviceTransferPanel(主ボタンは読み戻す・書き出しは細い導線)
+    expect(dialog.textContent).not.toContain("記録の保存");
     expect(buttonNamed("ファイルから読み戻す")).toHaveLength(1);
+    expect(buttonNamed("この端末の記録を書き出す")).toHaveLength(1);
+    expect(buttonNamed("ファイルに書き出す")).toHaveLength(0);
   });
 
   it("シートは閉じられる(閉じると入口の画面に戻る)", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    await act(async () => { buttonNamed("アカウント引継")[0].click(); });
+    await act(async () => { buttonNamed("端末を替えるとき")[0].click(); });
     expect(backupDialog()).not.toBe(null);
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     // BottomSheet は閉じる動きのあとで外れる。外れるまで待つ
@@ -65,12 +69,12 @@ describe("参加前の画面からアカウント引継を開ける(便BB)", () 
       await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     }
     expect(backupDialog()).toBe(null);
-    expect(buttonNamed("アカウント引継")).toHaveLength(1);
+    expect(buttonNamed("端末を替えるとき")).toHaveLength(1);
   });
 
   it("【便BS】体裁はカードの一番下の細い導線(地も枠も無い・--fs-sm・600・--c-ink-2・当たり --tap-min)。マイページの入口(地のあるボタン)とは別", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    const entry = buttonNamed("アカウント引継")[0];
+    const entry = buttonNamed("端末を替えるとき")[0];
     const s = entry.style;
     expect([s.background, s.fontSize, s.fontWeight, s.color, s.minHeight, s.width])
       .toEqual(["none", "var(--fs-sm)", "600", "var(--c-ink-2)", "var(--tap-min)", "100%"]);
