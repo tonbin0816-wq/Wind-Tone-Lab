@@ -15,6 +15,10 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 //   ・計測を消して起動し直しても、計測の印は戻らない
 // 【便BS 2026-10-03 本人裁定】移行の結果に計測タブの3段の移行の印(migratedMeasureSteps)が加わり、計測があれば tuner・metronome も立つ。
 //   データタブは計測があるとき「ここに貯まります」(dataSeen)が出る(既存の人にも1回)。それに合わせて期待値を直した(各所に【便BS】)。
+// 【便BW 2026-10-06 凍結仕様 coach2-spec.md】一本の流れに作り直した。移行の結果に3つ目の門の印(migratedCoach2)が加わり、
+//   計測がある人には新しい8つの印も立つ(新しい段は0枚)。リードタブへ移ると goReeds が立つ。dataSeen の段・dataSeenDeferred は無くなった
+//   (データタブは ⑫ 日のマス → ⑬ 記録の行 → ⑭ 音の傾向)。それに合わせて期待値を直し(各所に【便BW】)、流れの検査を下に足した。
+//   計測の日はカレンダーの「表示中の月」に要るので、計測の日時はいま(SESSION の NOW_ISO)にした。
 // 起動ごとに保存の写し(persistedStateCache)が残らないよう、各検査は vi.resetModules でアプリを読み直す。
 // IndexedDB は作り物(fakeIndexedDb.testutil.js)。的の矩形は 375×812 の実測と同じ値を返す(jsdom は配置を計算しない)。
 // 【守っていないもの】録音して保存する道・取り込みの道を画面から押すこと(jsdom にマイクも音声の復号も無い)。
@@ -23,7 +27,12 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 // ------------------------------------------------------------------
 
 const W = 375; const H = 812;
-let fake; let host; let mod; let root; let realRect;
+let fake; let host; let mod; let root; let realRect; let realSIV;
+// 【便BW】音の傾向カードの上端(初期は画面の外 = My Data の最下段)。scrollIntoView が呼ばれたら見える所(216)へ来る。
+let trendTop = 1400;
+let scrollCalls = [];
+// 【便BW】下部タブの絵柄の左端(375 の4つ。1つ (375 − 40) / 4 = 83.75 の中央に 30)
+const NAV_SVG_X = { "nav-measure": 46.88, "nav-reeds": 130.6, "nav-community": 214.4, "nav-analysis": 298.1 };
 
 // 作り物の IndexedDB を包んで、(a) kv の1つの鍵の読みだけを失敗させる (b) 計測の読み込みを門で止める。
 function wrapIdb(inner, { failKvKey = null, sessionsGate = null } = {}) {
@@ -137,8 +146,25 @@ beforeEach(() => {
     // 【便BP2】リード2: 一覧の先頭のタイル / 個体詳細の計測ボタン(375×812 の実測と同じ値)
     if (c === "reedsMeasure" && this.classList?.contains("reedtile")) return box(14, 170.5, 59.4, 59.4);
     if (c === "reedsMeasure") return box(305, 697, 56, 56);
-    if (this.tagName?.toLowerCase() === "svg" && this.parentElement?.getAttribute("data-coach") === "nav-measure") return box(46.88, 773, 30, 30);
+    // 【便BW】新しい的(375×812 の実測と同じ形の値)
+    if (c === "metronome") return box(317, 30, 44, 44);
+    if (c === "tuner") return box(14, 96, 347, 330);   // 【便BW 審査】①④ の的は環の箱(帯全体ではない)
+    if (c === "metroTempo") return box(43.6, 470, 287.8, 57.6);
+    if (c === "reedChip") return box(14, 46, 190, 30);
+    if (c === "calendarDay") return box(66.5, 305, 34, 34);   // 【便BW 審査】⑫ の的はマスの中の丸(34)
+    if (c === "daySession") return box(16, 560, 343, 50);
+    if (c === "trend") return box(14, trendTop, 347, 380);
+    const pc = this.tagName?.toLowerCase() === "svg" ? this.parentElement?.getAttribute("data-coach") : null;
+    if (pc && pc in NAV_SVG_X) return box(NAV_SVG_X[pc], 773, 30, 30);
     return box(0, 0, 0, 0);
+  };
+  trendTop = 1400;
+  scrollCalls = [];
+  realSIV = window.Element.prototype.scrollIntoView;
+  window.Element.prototype.scrollIntoView = function (arg) {
+    const c = this.getAttribute?.("data-coach") ?? null;
+    scrollCalls.push([c, arg]);
+    if (c === "trend") trendTop = 216;
   };
 });
 afterEach(async () => {
@@ -147,9 +173,16 @@ afterEach(async () => {
   host?.remove();
   document.body.innerHTML = "";
   window.Element.prototype.getBoundingClientRect = realRect;
+  window.Element.prototype.scrollIntoView = realSIV;
 });
 
-const SESSION = (id, reedId = null) => ({ id, recordedAt: "2026-10-01T10:00:00.000Z", saxType: "alto", reedId, linkedAt: reedId ? "eager" : null, memo: null, performer: "自分", source: "live", frames: [], barlines: [], noteEvents: [] });
+// 【便BW】計測の日時は「いま」(カレンダーは表示中の月の日だけを押せる。日付を固定すると月が替わった日に落ちる)
+const NOW_ISO = new Date(Date.now() - 60 * 1000).toISOString();
+const SESSION = (id, reedId = null) => ({ id, recordedAt: NOW_ISO, saxType: "alto", reedId, linkedAt: reedId ? "eager" : null, memo: null, performer: "自分", source: "live", frames: [], barlines: [], noteEvents: [] });
+// 【便BW】門の印3つ(移行の結果にいつも付く)・計測がある人に立つ新しい8つ
+const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true };
+// 【便BW 審査】計測がある人には idealSeen も立つ(既存の利用者に新しい段0枚)。名前は前のまま
+const NEW8 = { metroTempo: true, metroStart: true, goReeds: true, reedLinked: true, goData: true, calendarDay: true, daySession: true, trend: true, idealSeen: true };
 const REED = { id: "r1", brand: "Vandoren", model: null, strength: 3, startDate: "2026-10-01", saxType: "alto", boxLabel: null, rating: null, thickness: null, balance: null, createdAt: "2026-10-01T09:00:00.000Z" };
 
 describe("入れたての人", () => {
@@ -157,7 +190,7 @@ describe("入れたての人", () => {
     mod = await loadApp(fake);
     await render();
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
-    expect(kv("onboardingDone")).toEqual({ migrated: true, migratedMeasureSteps: true });   // 【便BS】
+    expect(kv("onboardingDone")).toEqual(GATES);   // 【便BS】【便BW】門の印3つ
     // 計測タブ(起動直後): マイクが取れず(jsdom)、エラーの案内が出る。はじめの一手は出ない
     await waitFor(() => document.querySelector('[role="dialog"][aria-label="エラー"]'), "マイクのエラー");
     await tick(80);
@@ -192,7 +225,7 @@ describe("外を押したら消える(この起動の間だけ・印は立てな
     expect(subBefore).toBeTruthy();
     await click(layer().querySelector('[data-coach-hit="t"]'));
     expect(layer()).toBe(null);
-    expect(kv("onboardingDone")).toEqual({ migrated: true, migratedMeasureSteps: true });      // 印は立てない(【便BS】移行の印が加わった)
+    expect(kv("onboardingDone")).toEqual(GATES);      // 印は立てない(【便BS】【便BW】移行の印が加わった)
     // タブを行き来しても、この起動の間は出ない
     await click(nav("リード"));
     await waitFor(() => layerId() === "reeds", "リードタブの案内(別の一手は出る)");
@@ -233,14 +266,14 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await waitFor(() => layerId() === "reedsMeasure", "リード2の案内");
     // アカウント引継の書き出し(readAll → buildSnapshot → JSON)に入る
     const snap = JSON.parse(JSON.stringify(mod.buildSnapshot(await mod.readAll())));
-    expect(snap.kv.onboardingDone).toEqual({ migrated: true, migratedMeasureSteps: true, reeds: true });   // 【便BS】
+    expect(snap.kv.onboardingDone).toEqual({ ...GATES, goReeds: true, reeds: true });   // 【便BS】【便BW】リードタブへ移ると goReeds
     // 箱を消す(箱の編集 → 削除)。リードは0枚になるが、印は戻らない・案内も戻らない
     await click(document.querySelector('button[aria-label$="のメーカーと番手を編集"]'));
     await waitFor(() => [...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent.trim() === "削除"), "箱の編集");
     await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "削除"));
     await waitFor(() => Array.isArray(kv("reeds")) && kv("reeds").length === 0, "箱が消える");
     await tick(80);
-    expect(kv("onboardingDone")).toEqual({ migrated: true, migratedMeasureSteps: true, reeds: true });   // 【便BS】
+    expect(kv("onboardingDone")).toEqual({ ...GATES, goReeds: true, reeds: true });   // 【便BS】【便BW】
     expect(layer()).toBe(null);   // リードの案内は戻らない(済み)・リード2は的(タイル)が無いので出ない
   }, 30000);
 
@@ -303,21 +336,24 @@ describe("リードの登録(成功の道で印が立つ)", () => {
 });
 
 describe("既にある人の移行", () => {
-  it("計測・リード・リードの紐づいた計測・取り込んだ目安があれば済みにする(参加は決めない)。リードの案内は出ない・データは「ここに貯まります」が1回出る(【便BS】)", async () => {
+  it("計測・リード・リードの紐づいた計測・取り込んだ目安があれば済みにする(参加は決めない)。【便BW】リードの案内もデータタブの段も出ない", async () => {
     mod = await loadApp(fake);
     await seed({
       kvEntries: { reeds: [REED], idealProfiles: [{ id: "p1", name: "しろねこ さんの目安", sourceKind: "community", saxType: "alto", notes: {} }] },
       sessions: [SESSION("s1"), SESSION("s2", "r1")],
     });
     await render();
-    await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
+    await waitFor(() => kv("onboardingDone")?.migratedCoach2 === true, "移行の印");
     // 【便BQ】取り込んだのは人物の目安だけ → 何も立てない(openPerson は外した。adoptAverage はみんなの平均の目安があるときだけ)
     // 【便BS】計測があるので計測タブの3段(tuner・metronome)も済み。dataSeen は移行で立てない
-    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, tuner: true, metronome: true, migrated: true, migratedMeasureSteps: true });
+    // 【便BW 本人裁定(§14 の 2 = ア)】計測があるので新しい8つも済み(新しい段は0枚)。idealSeen は人物の目安だけなので立てない
+    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, tuner: true, metronome: true, ...NEW8, ...GATES });
     await click(nav("データ"));
-    // 【便BS】計測がある人にはデータタブで「計測したデータがここに貯まります」が出る(以前は何も出なかった)
-    await waitFor(() => layerId() === "dataSeen", "データ(計測あり)の案内");
-    await click(layer().querySelector('[data-coach-hit="all"]'));
+    // 【便BW】データタブの ⑫⑬⑭ も出ない(便BS の「ここに貯まります」は段ごと無くなった)
+    await waitFor(() => document.body.textContent.includes("すべての計測 2件"), "計測の読み込み");
+    await tick(400);
+    expect(layer()).toBe(null);
+    expect(document.querySelector('[data-coach="calendarDay"]')).not.toBe(null);   // 的は在る(印で出していない)
     await click(nav("リード"));
     await tick(80);
     expect(layer()).toBe(null);
@@ -336,9 +372,11 @@ describe("既にある人の移行", () => {
     expect(layer()).toBe(null);                     // 移行の前は出さない(既に使っている人に一瞬出さない)
     release();
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, migrated: true, migratedMeasureSteps: true });   // 【便BS】
-    // 【便BS】計測があるので「計測を始めると」の段は出ず、「計測したデータがここに貯まります」が出る
-    await waitFor(() => layerId() === "dataSeen", "データ(計測あり)の案内");
+    await waitFor(() => kv("onboardingDone")?.migratedCoach2 === true, "3つ目の門");
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...GATES });   // 【便BS】【便BW】
+    // 【便BW】計測があるので「計測を始めると」の段は出ず、新しいデータタブの段も移行で済んでいるので何も出ない
+    await tick(400);
+    expect(layer()).toBe(null);
   }, 30000);
 
   it("印そのものが読めない起動では、案内を出さず、印も書かない(読めていない値で上書きしない)", async () => {
@@ -392,7 +430,7 @@ describe("既にある人の移行", () => {
     await click(nav("データ"));
     await tick(150);
     expect(fake._peek("windToneLabDB", "sessions").size).toBe(0);
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, migrated: true, migratedMeasureSteps: true });   // 【便BS】
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...GATES });   // 【便BS】【便BW】
     expect(layer()).toBe(null);
   }, 30000);
 });
@@ -420,8 +458,8 @@ describe("配線の綴り(App.jsx)", () => {
     // 【便BS 審査 2026-10-03 統括の裁定】操作の合図の帯(notice)が出ている間も出さない(帯の「開く」を覆わない)
     expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| Boolean\(notice\)\}/);
     expect(app).toMatch(/const coachReady = tutorialPreview \|\| onboardingReady;/);
-    // 【便BS】計測タブの3段の移行の印も待つ
-    expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\];/);
+    // 【便BS】計測タブの3段の移行の印も待つ。【便BW】3つ目の門(新しい段の移行)も待つ
+    expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\];/);
     expect(app).toMatch(/const anySheetOpen = useAnyBottomSheetOpen\(\);/);
   });
   it("後から紐づけた計測(計測の詳細でリードを付け直す)でも reedsMeasure を立てる(便BP3)", () => {
@@ -455,9 +493,9 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: ALL_DONE, reeds: [REED] }, sessions: [SESSION("s1", "r1")] });
     await render();
-    // データタブ: 計測が済んでいても、見本では出る(【便BS】計測があるので「ここに貯まります」の段)
+    // データタブ: 計測が済んでいても、見本では出る(【便BW】計測があるので ⑫ 日のマス)
     await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "見本のデータタブ");
+    await waitFor(() => layerId() === "calendarDay", "見本のデータタブ");
     // リードタブ: リードを持っていても、見本では＋(リード1)から
     await click(nav("リード"));
     await waitFor(() => layerId() === "reeds", "見本のリード1");
@@ -490,7 +528,7 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     await seed({ kvEntries: { onboardingDone: { migrated: true } } });
     await render();
     await registerOneBox();
-    expect(kv("onboardingDone")).toEqual({ migrated: true, migratedMeasureSteps: true, reeds: true });   // 【便BS】移行の印(便BP の移行を済ませた人にも1回)
+    expect(kv("onboardingDone")).toEqual({ ...GATES, goReeds: true, reeds: true });   // 【便BS】移行の印(便BP の移行を済ませた人にも1回)。【便BW】3つ目の門・リードタブへ移った goReeds
     await mod.act(async () => root.unmount());
     root = null; host.remove();
     // 見本の起動(新しい保存で同じ手順・同じ待ち方)
@@ -513,7 +551,7 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     mod = await loadApp(fake);
     await seed({ sessions: [SESSION("s1")] });
     await launchAndSettle();
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, migrated: true, migratedMeasureSteps: true });   // 【便BS】
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...GATES });   // 【便BS】【便BW】
     await mod.act(async () => root.unmount());
     root = null; host.remove();
     fake = createFakeIndexedDb();
@@ -521,7 +559,7 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     mod = await loadApp(fake);
     await seed({ sessions: [SESSION("s1")] });
     await launchAndSettle();
-    expect(layerId()).toBe("dataSeen");   // 見本なので出ている(【便BS】計測があるので「ここに貯まります」の段)
+    expect(layerId()).toBe("calendarDay");   // 見本なので出ている(【便BW】計測があるので ⑫ 日のマス)
     expect(kv("onboardingDone")).toBeUndefined();
   }, 40000);
 });
@@ -631,95 +669,105 @@ describe("【便BS】計測タブ: メトロノームの面を開いたら印 me
   }, 30000);
 });
 
-describe("【便BS】データタブ・計測がある: 「計測したデータがここに貯まります」", () => {
-  it("My Data で出る(的なし・中央)。分析の子タブでは出ない。外を押すと印 dataSeen が立ち、開き直しても出ない", async () => {
+// ------------------------------------------------------------------
+// 【便BW 2026-10-06 凍結仕様 §2.3 / §11.2】データタブ(計測がある): ⑫ 日のマス → ⑬ 記録の行 →(計測の詳細。案内は置かない)→ ⑭ 音の傾向。
+// 便BS の「計測したデータがここに貯まります」(dataSeen・的なし)は段ごと無くなった。
+// 印は門だけ済ませて保存しておく(移行で全部済みにならないよう、3つの門を立てた印を置く)。
+// ------------------------------------------------------------------
+const MEASURE_DONE = { ...GATES, measure: true, tuner: true, metronome: true, metroTempo: true, metroStart: true, goReeds: true, reedLinked: true };
+const backToList = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "< 一覧") ?? null;
+
+describe("【便BW】データタブ: ⑫ 日のマス → ⑬ 記録の行 →(詳細)→ ⑭ 音の傾向", () => {
+  it("今日のマスが名乗って ⑫。押すと calendarDay・マスは名乗らず先頭の行が ⑬。行を押すと詳細(案内なし)・daySession。戻ると ⑭(1回だけ送る)。押すと trend", async () => {
     mod = await loadApp(fake);
-    await seed({ sessions: [SESSION("s1")] });
+    // 2件目は前の日(月の初日なら前の月)。的になるのは**最新の**計測の日だけ
+    const YESTERDAY_ISO = new Date(new Date(NOW_ISO).getTime() - 24 * 3600 * 1000).toISOString();
+    await seed({ kvEntries: { onboardingDone: MEASURE_DONE }, sessions: [{ ...SESSION("s2"), recordedAt: YESTERDAY_ISO }, SESSION("s1")] });
     await render();
-    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
-    expect(kv("onboardingDone").dataSeen).toBeUndefined();   // 移行では立てない
     await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "データ(計測あり)の案内");
-    expect(layer().querySelector(".coach-hole")).toBe(null);
-    expect(layer().querySelector(".coach-title").textContent).toBe("計測したデータがここに貯まります");
-    expect(layer().querySelector(".coach-line").textContent).toBe("練習の記録と音の傾向を振り返れます");
-    expect(document.querySelectorAll('[data-coach-anchor="mydata"]')).toHaveLength(1);
-    // 分析の子タブへ(押すのは子タブのボタンそのもの)→ 目印が外れて消える。My Data へ戻るとまた出る(まだ押していない)
-    await click([...document.querySelectorAll("button")].find((b) => b.textContent === "分析"));
-    await waitFor(() => layer() === null, "分析では出ない");
-    expect(document.querySelectorAll('[data-coach-anchor="mydata"]')).toHaveLength(0);
-    await click([...document.querySelectorAll("button")].find((b) => b.textContent === "My Data"));
-    await waitFor(() => layerId() === "dataSeen", "My Data でまた出る");
-    // 外を押す → 消えて印が立つ
-    await click(layer().querySelector('[data-coach-hit="all"]'));
+    await waitFor(() => layerId() === "calendarDay", "⑫ 日のマス");
+    // 的は最新の計測の日のマス1つだけ(押せる日のボタン。見た目のクラス・style は他の日と同じ綴り)
+    const cells = [...document.querySelectorAll('[data-coach="calendarDay"]')];
+    expect(cells).toHaveLength(1);
+    expect(cells[0].tagName).toBe("SPAN");   // 【便BW 審査】中の丸(34)が名乗る。押せる日のボタンの中
+    expect(cells[0].closest("button").getAttribute("aria-label")).toBe(`${new Date(NOW_ISO).getDate()}日 計測1件`);
+    expect(layer().querySelector(".coach-title").textContent).toBe("計測した日を押してみよう");
+    expect(layer().querySelector(".coach-line")).toBe(null);
+    await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印(計測があるときにデータタブへ移った。⑩)");
+    await click(cells[0]);
+    await waitFor(() => kv("onboardingDone")?.calendarDay === true, "calendarDay の印");
+    await waitFor(() => layerId() === "daySession", "⑬ 記録の行");
+    expect(document.querySelectorAll('[data-coach="calendarDay"]')).toHaveLength(0);   // 開いている日は名乗らない
+    const rows = [...document.querySelectorAll('[data-coach="daySession"]')];
+    expect(rows).toHaveLength(1);                                                       // 先頭の1行だけ
+    expect(rows[0].className).toBe("rowcard sans");
+    expect(layer().querySelector(".coach-title").textContent).toBe("記録を開いてみよう");
+    expect(kv("onboardingDone").daySession).toBeUndefined();
+    await click(rows[0]);
+    await waitFor(() => backToList(), "計測の詳細");
+    await waitFor(() => kv("onboardingDone")?.daySession === true, "daySession の印");
+    await tick(300);
+    expect(layer()).toBe(null);                                                         // 詳細の中には出さない
+    expect(scrollCalls).toEqual([]);
+    await click(backToList());
+    await waitFor(() => layerId() === "trend", "⑭ 音の傾向");
+    expect(scrollCalls).toEqual([["trend", { block: "center", behavior: "auto" }]]);   // 画面の外だったので1回だけ送った
+    expect(layer().querySelector(".coach-title").textContent).toBe("データが溜まると、平均がここにグラフで出ます");
+    const hole = layer().querySelector(".coach-hole");
+    expect([hole.style.left, hole.style.top, hole.style.width, hole.style.height]).toEqual(["14px", "216px", "347px", "380px"]);
+    await click(layer().querySelector(".coach-card"));                                  // 押す=済
+    await waitFor(() => kv("onboardingDone")?.trend === true, "trend の印");
+    await tick(400);
     expect(layer()).toBe(null);
-    await waitFor(() => kv("onboardingDone")?.dataSeen === true, "dataSeen の印");
-    // 開き直しても出ない
+    expect(scrollCalls).toHaveLength(1);
+  }, 40000);
+
+  it("⑫ で外を押すと、この起動ではデータタブの3段とも出ない(印は立てない)。日を開けば calendarDay は立つ。開き直すと ⑬ から", async () => {
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: MEASURE_DONE }, sessions: [SESSION("s1")] });
+    await render();
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "calendarDay", "⑫");
+    await click(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
+    // タブを行き来しても、この起動の間は出ない
+    await click(nav("計測"));
+    await click(nav("データ"));
+    await tick(400);
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone").calendarDay).toBeUndefined();   // 印は立てない
+    // 日を開いても ⑬ は出ない(群ごと消した)。日を開いたこと自体は ⑫ の成功の道なので印 calendarDay は立つ
+    await click(document.querySelector('[data-coach="calendarDay"]'));
+    await waitFor(() => kv("onboardingDone")?.calendarDay === true, "calendarDay の印");
+    await tick(400);
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone").daySession).toBeUndefined();
+    // 開き直す → まだ済んでいない ⑬ から(日を開けば出る)
     await mod.act(async () => root.unmount()); root = null; host.remove();
     mod = await loadApp(fake);
     await render();
     await click(nav("データ"));
-    await waitFor(() => document.body.textContent.includes("すべての計測 1件"), "計測の読み込み");
-    await tick(400);
-    expect(layer()).toBe(null);
+    await waitFor(() => document.body.textContent.includes("すべての計測 1件"), "My Data");
+    await tick(300);
+    expect(layer()).toBe(null);   // ⑫ は済んでいる(マスは名乗るが出さない)
+    const cell = [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === `${new Date(NOW_ISO).getDate()}日 計測1件`);
+    await click(cell);
+    await waitFor(() => layerId() === "daySession", "開き直すと ⑬ が出る");
   }, 40000);
-  it("カードを押しても印が立つ", async () => {
-    mod = await loadApp(fake);
-    await seed({ sessions: [SESSION("s1")] });
-    await render();
-    await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "データ(計測あり)の案内");
-    await click(layer().querySelector(".coach-card"));
-    await waitFor(() => kv("onboardingDone")?.dataSeen === true, "dataSeen の印");
-  }, 30000);
-  it("便BP の移行を済ませた人(migrated だけ): 計測があれば3段を済みにし、dataSeen は立てない(次にデータタブで1回出る)", async () => {
-    mod = await loadApp(fake);
-    await seed({ kvEntries: { onboardingDone: { measure: true, migrated: true } }, sessions: [SESSION("s1")] });
-    await render();
-    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, migrated: true, migratedMeasureSteps: true });
-    await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "既存の人にも1回出る");
-  }, 30000);
-  it("計測が無ければ今までどおり「計測を始めると」の段(dataSeen は出ない)", async () => {
+
+  it("計測が無ければ今までどおり「計測を始めると」の段(⑫ は出ない)", async () => {
     mod = await loadApp(fake);
     await render();
     await click(nav("データ"));
     await waitFor(() => layerId() === "data", "計測なしの段");
     expect(layer().querySelector(".coach-hole")).not.toBe(null);
+    expect(document.querySelector('[data-coach="calendarDay"]')).toBe(null);
   }, 30000);
 });
 
-describe("【便BS】配線の綴り(App.jsx)", () => {
-  const app = readFileSync(join(process.cwd(), "src", "App.jsx"), "utf8").replace(/\r\n/g, "\n");
-  it("チューナー: 計測タブで isListening・エラー無し・環に音名(note)が TUNER_SUSTAIN_MS 続いたら tuner", () => {
-    expect(app).toMatch(/const tunerSounding = coachReady && topTab === "measure" && isListening && !errorMsg && Boolean\(note\) && !coachDone\.tuner;/);
-    expect(app).toMatch(/const markTunerDone = useCallback\(\(\) => markOnboarding\("tuner"\), \[markOnboarding\]\);/);
-    expect(app).toMatch(/useSustained\(tunerSounding, TUNER_SUSTAIN_MS, markTunerDone\);/);
-    // note は環に渡している値そのもの(PitchRing の sounding = !!note)
-    expect(app).toMatch(/const note = pitch \? freqToNote\(pitch, effectiveTuningHz\) : null;/);
-    expect(app).toMatch(/note=\{note\} centsOffset=\{centsOffset\}/);
-  });
-  it("メトロノーム: 面が開いたら知らせる口を、印が読めてから渡す", () => {
-    expect(app).toMatch(/onMetroPanelShown=\{coachReady \? markMetronomeSeen : undefined\}/);
-    expect(app).toMatch(/const markMetronomeSeen = useCallback\(\(\) => markOnboarding\("metronome"\), \[markOnboarding\]\);/);
-    expect(app).toMatch(/if \(showMetroPanel\) onMetroPanelShown\?\.\(\);/);
-  });
-  it("データ: 計測の有無と読み込みを渡し、押したら印を立てる口(onMark)を渡す。My Data だけが目印を名乗る", () => {
-    const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
-    expect(call).toMatch(/hasSessions: sessions\.length > 0, sessionsKnown: sessionsStatus !== "loading"/);
-    expect(call).toMatch(/onMark=\{markOnboarding\}/);
-    expect(app).toMatch(/data-coach-anchor=\{atMyDataTop \? "mydata" : undefined\}/);
-  });
-});
-
 // ------------------------------------------------------------------
-// 【便BS 審査 2026-10-03 統括の裁定】審査の不合格1・2の直し。本物のアプリを描いて振る舞いで確かめる。
-//   不合格1: 操作の合図の帯(ActionNotice。z50)が出ている間は案内を出さない(帯の「開く」「元に戻す」を覆わない)。
-//            この起動の中で計測が 0件 → 1件以上 になったら、dataSeen は出さず次の起動へ回す。
-//            (jsdom では取り込みも録音もできないので、0件 → 1件は「全部消す → 帯の元に戻す」で作る。取り込みの道は headless で実測)
-//   不合格2: メトロノームの面が開いている間は計測の段を出さない。閉じると出る。端末に「開いたまま」と覚えている起動でも同じ。
-//            計測タブの段はマイクの許可が要るので、ここだけ作り物のマイク(installFakeMic。無音に近い雑音を返す)を入れる。
+// 【便BS 審査 2026-10-03 統括の裁定】帯(ActionNotice。z50)が出ている間は案内を出さない(帯の「開く」「元に戻す」を覆わない)。
+// 【便BW】「0件 → 1件の起動では dataSeen を次の起動へ回す」は dataSeen の段と一緒に外した(新しい流れでは ⑩ → ⑫ と続いてほしい)。
 // 帯は5秒で溶けるが jsdom は animationend を出さないので、動きを減らす設定(帯も案内も溶けずにすぐ外れる)で描く。
 // ------------------------------------------------------------------
 function preferReducedMotion() {
@@ -742,15 +790,14 @@ async function deleteSessionsFromAllList(count) {
   await waitFor(() => document.querySelector('[data-coach-anchor="mydata"]'), "My Data");
 }
 
-describe("【便BS 審査】不合格1: 帯が出ている間は出さない・0件 → 1件の起動では dataSeen を次の起動へ", () => {
-  it("帯が出ている間は My Data でも dataSeen が出ない。帯が消えるとまた出る(計測は一度も 0件 にならない)", async () => {
+describe("【便BS 審査】帯が出ている間は出さない(【便BW】0件 → 1件の起動の先送りは外した)", () => {
+  it("帯が出ている間は My Data でも ⑫ が出ない。帯が消えるとまた出る", async () => {
     preferReducedMotion();
     mod = await loadApp(fake);
-    await seed({ sessions: [SESSION("s1"), SESSION("s2")] });
+    await seed({ kvEntries: { onboardingDone: MEASURE_DONE }, sessions: [SESSION("s1"), SESSION("s2")] });
     await render();
-    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
     await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "dataSeen(対照: 帯が無ければ出る)");
+    await waitFor(() => layerId() === "calendarDay", "⑫(対照: 帯が無ければ出る)");
     await deleteSessionsFromAllList(1);
     // My Data が表に出ていて、計測は1件ある。帯(計測 1件を削除しました / 元に戻す)が出ている間は出さない
     expect(noticeText()).toContain("計測 1件を削除しました");
@@ -759,38 +806,29 @@ describe("【便BS 審査】不合格1: 帯が出ている間は出さない・0
     // 帯の「元に戻す」が押せる(案内に覆われていない)。押すと帯が消え、案内が戻る
     await click(buttonStarts("元に戻す"));
     await waitFor(() => noticeText() === null, "帯が消える");
-    await waitFor(() => layerId() === "dataSeen", "帯が消えたらまた出る");
-    expect(kv("onboardingDone").dataSeen).toBeUndefined();
+    await waitFor(() => layerId() === "calendarDay", "帯が消えたらまた出る");
+    expect(kv("onboardingDone").calendarDay).toBeUndefined();
   }, 40000);
 
-  it("この起動の中で 0件 → 1件 になったら出さない(印も立てない)。開き直すと出る", async () => {
+  it("【便BW】この起動の中で 0件 → 1件 になっても次の起動へ回さない(帯が消えたら ⑫ が出る)", async () => {
     preferReducedMotion();
     mod = await loadApp(fake);
-    await seed({ sessions: [SESSION("s1")] });
+    await seed({ kvEntries: { onboardingDone: MEASURE_DONE }, sessions: [SESSION("s1")] });
     await render();
-    await waitFor(() => kv("onboardingDone")?.migratedMeasureSteps === true, "移行の印");
     await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "dataSeen(起動時に計測がある人には出る)");
+    await waitFor(() => layerId() === "calendarDay", "⑫");
     await deleteSessionsFromAllList(1);   // 0件になる
     await click(buttonStarts("元に戻す"));  // 1件に戻る(この起動の中で 0件 → 1件)
     await waitFor(() => noticeText() === null, "帯が消える");
     await waitFor(() => document.body.textContent.includes("すべての計測 1件"), "計測が1件に戻る");
-    await tick(400);
-    expect(document.querySelector('[data-coach-anchor="mydata"]')).not.toBe(null);
-    expect(layer()).toBe(null);
-    expect(kv("onboardingDone").dataSeen).toBeUndefined();
-    // 開き直す(次の起動)→ データタブで出る
-    await mod.act(async () => root.unmount()); root = null; host.remove();
-    mod = await loadApp(fake);
-    await render();
-    await click(nav("データ"));
-    await waitFor(() => layerId() === "dataSeen", "次の起動では出る");
+    await waitFor(() => layerId() === "calendarDay", "先送りしない");
   }, 40000);
 });
 
 // 作り物のマイク(jsdom に Web Audio と getUserMedia が無いので、App の startListening が通るだけの形)。
 // 解析には小さな雑音を返す(音程は取れない = チューナーは済まない)。
-function installFakeMic() {
+// 【便BW】micGate を渡すと、getUserMedia はその約束が解けるまで返らない(殻でタブへ戻ったときの「取り直し」の待ちと同じ形)。
+function installFakeMic(micGate = null) {
   const node = () => ({ connect() {}, disconnect() {} });
   const analyser = () => ({
     ...node(), fftSize: 2048, frequencyBinCount: 1024, smoothingTimeConstant: 0,
@@ -813,59 +851,374 @@ function installFakeMic() {
   window.AudioContext = FakeAudioContext;
   const track = { enabled: true, readyState: "live", muted: false, kind: "audio", stop() {}, getSettings() { return {}; } };
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
-  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => stream }, configurable: true });
+  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => { if (micGate) await micGate; return stream; } }, configurable: true });
 }
 function removeFakeMic() {
   delete window.AudioContext;
   try { delete window.navigator.mediaDevices; } catch { /* */ }
 }
 
-describe("【便BS 審査】不合格2: メトロノームの面が開いている間は計測の段を出さない", () => {
-  afterEach(() => removeFakeMic());
-  const metro = () => document.querySelector('button[aria-label="メトロノーム"]');
-  const DONE_12 = { migrated: true, migratedMeasureSteps: true, tuner: true, metronome: true };
+// ------------------------------------------------------------------
+// 【便BW 2026-10-06 凍結仕様 §2.1 / §11.2】計測タブの流れ(作り物のマイクで isListening を立てる)。
+// 【守っていないもの】① が「音名が1秒続いて」済むこと(作り物のマイクは音程を返さない。useSustained は onboarding.test.jsx、配線は綴り)・
+//   録音して保存する道(jsdom に録音が無い。保存の印は onboarding.test.jsx の onboardingFlagsForSavedSession と下の綴り)・
+//   穴の実寸(jsdom は配置を計算しない。矩形は 375×812 の値を作り物で返す。実寸は headless Chrome の実測が報告にある)。
+// ------------------------------------------------------------------
+const metroBtn = () => document.querySelector('button[aria-label="メトロノーム"]');
+const holeOf = () => { const h = layer().querySelector(".coach-hole"); return [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]; };
 
-  it("面が閉じていれば計測の段が出る(対照)。面を開くと消え、閉じるとまた出る", async () => {
+describe("【便BW】計測タブ: ① 帯 → ② メトロノーム →(面の中)③ テンポ行 → ④ 帯 → ⑤ 下部タブ「リード」", () => {
+  afterEach(() => removeFakeMic());
+
+  it("① 入れたて・マイクあり: 環の箱を穴で照らす(角丸の矩形・pad 0)。画面いっぱいの暗幕は無い", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await render();
+    await waitFor(() => layerId() === "tuner", "①");
+    // 【便BW 審査 統括の裁定】名乗るのは環の箱(PitchRing の親。帯全体だとカードが帯の中央に重なって環を覆った)
+    const ringBox = document.querySelector('[data-coach="tuner"]');
+    expect(ringBox.style.flexShrink).toBe("0");
+    expect(ringBox.style.position).toBe("");
+    expect(ringBox.parentElement.style.position).toBe("relative");   // 親がチューナーの帯(style は不変)
+    expect(holeOf()).toEqual(["14px", "96px", "347px", "330px", "var(--r-2)"]);
+    expect(document.querySelector(".coach-dim")).toBe(null);
+    expect([...layer().querySelectorAll(".coach-hit")].map((h) => h.getAttribute("data-coach-hit"))).toEqual(["t", "b", "l", "r"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("まずは吹いてみよう");
+  }, 30000);
+
+  it("②→③→④: 面を開くと metronome、面の上で ③(テンポ行のピル)。− を押すと metroTempo、④(帯の穴)。帯を押して鳴らすと metroStart → ⑤", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true } } });
+    await render();
+    await waitFor(() => layerId() === "metronome", "②");
+    await click(metroBtn());
+    await waitFor(() => kv("onboardingDone")?.metronome === true, "metronome の印");
+    await waitFor(() => layerId() === "metroTempo", "③");
+    expect(holeOf()).toEqual(["37.6px", "464px", "299.8px", "69.6px", "var(--r-full)"]);
+    const row = document.querySelector('[data-coach="metroTempo"]');
+    expect(row.className).toBe("tap-through");
+    expect([...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["テンポを下げる", "テンポと拍子", "テンポを上げる"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("テンポを決めよう");
+    expect(layer().querySelector(".coach-line").textContent).toBe("♩=n を押すと拍子も変えられます");
+    expect(kv("onboardingDone").metroTempo).toBeUndefined();
+    await click(document.querySelector('button[aria-label="テンポを下げる"]'));
+    await waitFor(() => kv("onboardingDone")?.metroTempo === true, "metroTempo の印");
+    expect(kv("metroTempo")).toBe(119);   // − はいつもどおり効く
+    await waitFor(() => layerId() === "metroStart", "④");
+    expect(holeOf()).toEqual(["14px", "96px", "347px", "330px", "var(--r-2)"]);
+    // 面が開いているので帯の中(環の箱の兄弟)に背面レイヤ(開始/停止)がある。環は当たり判定を持たないので、環を押すとここに届く
+    const layerBtn = document.querySelector('[aria-label="メトロノームの開始/停止"]');
+    expect(layerBtn.parentElement).toBe(document.querySelector('[data-coach="tuner"]').parentElement);
+    await click(layerBtn);
+    await waitFor(() => kv("onboardingDone")?.metroStart === true, "metroStart の印");
+    // 【便BW 審査 統括の裁定(a)】鳴っている間は ④ の次(⑤)を出さない(④ の文が促す2回目のタップが ⑤ の受けに当たらないように)
+    expect(layerBtn.getAttribute("aria-pressed")).toBe("true");
+    let seen5 = false;
+    for (let i = 0; i < 20; i++) { if (layer() && layerId() !== "metroStart") seen5 = true; await tick(25); }
+    expect(seen5).toBe(false);
+    // 2回目のタップで止める → ⑤。計測タブの段は消えていない(外押しになっていない)
+    await click(layerBtn);
+    expect(layerBtn.getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => layerId() === "goReeds", "⑤ 下部タブ「リード」");
+    expect(holeOf()).toEqual(["119.6px", "762px", "52px", "52px", "50%"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("次はリードを登録しよう");
+    // ⑤: 下部タブ「リード」を押す → goReeds・リードタブで ⑥(既存)
+    await click(nav("リード"));
+    await waitFor(() => kv("onboardingDone")?.goReeds === true, "goReeds の印");
+    await waitFor(() => layerId() === "reeds", "⑥");
+  }, 40000);
+
+  // 【便BW 再審査 統括の裁定(a)】③ のあと続けて − を押しても、④ のカード(環の下)がテンポ行を覆わない ──
+  // ④ はテンポ行に最後に触れてから TUNER_SUSTAIN_MS(1秒)なにも触れなかったときに出す。群(計測タブの段)は消えない
+  for (const times of [2, 3]) {
+    it(`③ のあと − を${times}回続けて押す: 押している間は何も出ず(群は消えない)、テンポはその分変わり、手を止めると ④`, async () => {
+      installFakeMic();
+      mod = await loadApp(fake);
+      await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true }, showMetroPanel: true, metroTempo: 120 } });
+      await render();
+      await waitFor(() => layerId() === "metroTempo", "③");
+      let seen = [];
+      for (let i = 0; i < times; i++) {
+        await click(document.querySelector('button[aria-label="テンポを下げる"]'));
+        for (let k = 0; k < 8; k++) { if (layer() && layerId() !== "metroTempo") seen.push(layerId()); await tick(25); }   // 押す間隔 約 200ms
+      }
+      expect(seen).toEqual([]);                                  // 押している間に ④ は出ない(カードが次の − を覆わない)
+      await waitFor(() => kv("metroTempo") === 120 - times, "テンポがその分変わる");
+      expect(kv("onboardingDone").metroTempo).toBe(true);
+      const t0 = Date.now();
+      await waitFor(() => layerId() === "metroStart", "手を止めると ④");
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(500);   // 最後の − から 1秒(既に待った分を引いても半分以上は待つ)
+      expect(layer().querySelector(".coach-title").textContent).toBe("タップでスタート");
+      expect(kv("onboardingDone").metroStart).toBeUndefined();
+    }, 40000);
+  }
+
+  it("③ を ♩=n で: テンポと拍子のシートが開いている間は隠れ、metroTempo が立つ。閉じると ④", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => layerId() === "metroTempo", "③");
+    await click(document.querySelector('button[aria-label="テンポと拍子"]'));
+    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "テンポと拍子のシート");
+    await waitFor(() => kv("onboardingDone")?.metroTempo === true, "metroTempo の印");
+    await tick(80);
+    expect(layer()).toBe(null);
+    await mod.act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await waitFor(() => !document.querySelector('[role="dialog"].sheet-scrim'), "シートを閉じる");
+    await waitFor(() => layerId() === "metroStart", "④");
+  }, 40000);
+
+  it("③ を飛ばす: ③ を見たまま帯(背面レイヤ)を押して鳴らすと metroStart と metroTempo が同時に立つ → ⑤", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => layerId() === "metroTempo", "③");
+    await click(document.querySelector('[aria-label="メトロノームの開始/停止"]'));
+    await waitFor(() => kv("onboardingDone")?.metroStart === true, "metroStart の印");
+    expect(kv("onboardingDone").metroTempo).toBe(true);
+    await tick(300);
+    expect(layer()).toBe(null);   // 鳴っている間は ⑤ を出さない
+    await click(document.querySelector('[aria-label="メトロノームの開始/停止"]'));   // 止める
+    await waitFor(() => layerId() === "goReeds", "⑤");
+  }, 40000);
+
+  it("面を閉じたら ③④ を済ませていなくても ⑤ へ(③④ は面を次に開いたときに出る)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => layerId() === "metroTempo", "③");
+    await click(metroBtn());   // 閉じる
+    await waitFor(() => layerId() === "goReeds", "⑤");
+    await click(metroBtn());   // 開く
+    await waitFor(() => layerId() === "metroTempo", "③ がまた出る");
+  }, 40000);
+});
+
+describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリードで計測 / ⑩ 下部タブ「データ」", () => {
+  afterEach(() => removeFakeMic());
+
+  it("⑦ 詳細の「計測」→ 計測タブ: 枠が reedChip を名乗り ⑧。カードを押すと reedLinked、続けて ⑨「このリードで計測してみよう」(的は録音ボタン)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true } } });
+    await render();
+    await waitFor(() => layerId() === "goReeds", "⑤");
+    expect(document.querySelector('[data-coach="reedChip"]')).toBe(null);   // リードが無い間は名乗らない
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "⑥");
+    await click(document.querySelector('button[aria-label="リードを追加"]'));
+    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();
+    await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
+    await waitFor(() => layerId() === "reedsMeasure", "⑦ 一覧");
+    const cell = document.querySelectorAll(".reedtile")[0].parentElement;
+    await mod.act(async () => {
+      cell.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 40, clientY: 200, button: 0 }));
+      cell.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 40, clientY: 200, button: 0 }));
+    });
+    await waitFor(() => document.querySelector('button[aria-label="このリードで計測する"]'), "個体詳細");
+    await click(document.querySelector('button[aria-label="このリードで計測する"]'));
+    await waitFor(() => layerId() === "reedLinked", "⑧ リードの枠");
+    const chip = document.querySelector('[data-coach="reedChip"]');
+    expect(chip.querySelector('button[aria-label="リードの箱を選ぶ"]')).not.toBe(null);
+    expect(chip.querySelector('button[aria-label="リードの個体を選ぶ"]')).not.toBe(null);
+    expect(holeOf()).toEqual(["8px", "40px", "202px", "42px", "var(--r-full)"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("選んだリードが紐づいています");
+    expect(layer().querySelector(".coach-line").textContent).toBe("計測の記録にこのリードが残ります");
+    await click(layer().querySelector(".coach-card"));
+    await waitFor(() => kv("onboardingDone")?.reedLinked === true, "reedLinked の印");
+    await waitFor(() => layerId() === "measureReed", "⑨");
+    expect(layer().querySelector(".coach-title").textContent).toBe("このリードで計測してみよう");
+    expect(layer().querySelector(".coach-line").textContent).toBe("ボタンタップで計測スタート");
+    expect(holeOf()).toEqual(["139.5px", "602px", "96px", "96px", "50%"]);
+  }, 40000);
+
+  // 【便BW 審査 統括の裁定】面はタブをまたいで開いたまま。③④ を済ませて面を開いたまま ⑦ の「計測」で戻っても ⑧ → ⑨ が出る
+  it("【便BW 審査】⑦ → 戻る(面は開いたまま)→ ⑧ → ⑨(面を閉じなくても流れが止まらない)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, metroTempo: true, metroStart: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => layerId() === "goReeds", "⑤(面は開いている・鳴っていない)");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("true");
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "⑥");
+    await click(document.querySelector('button[aria-label="リードを追加"]'));
+    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    await pickFirstReed();
+    await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "追加"));
+    await waitFor(() => layerId() === "reedsMeasure", "⑦ 一覧");
+    const cell = document.querySelectorAll(".reedtile")[0].parentElement;
+    await mod.act(async () => {
+      cell.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 40, clientY: 200, button: 0 }));
+      cell.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 40, clientY: 200, button: 0 }));
+    });
+    await waitFor(() => document.querySelector('button[aria-label="このリードで計測する"]'), "個体詳細");
+    await click(document.querySelector('button[aria-label="このリードで計測する"]'));
+    await waitFor(() => metroBtn(), "計測タブ");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("true");   // 面は開いたまま
+    await waitFor(() => layerId() === "reedLinked", "⑧(面は開いたまま)");
+    await click(layer().querySelector(".coach-card"));
+    await waitFor(() => layerId() === "measureReed", "⑨(面は開いたまま)");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("true");
+  }, 40000);
+
+  it("【便BW 審査】⑧ の的の条件(reedChipShown): リードの id があっても、枠の箱にそのリードが無ければ名乗らない", async () => {
+    mod = await loadApp(fake);
+    const { reedChipShown } = await import("./App.jsx");
+    const box = { members: [{ id: "a" }, { id: "b" }] };
+    expect(reedChipShown("a", box)).toBe(true);
+    expect(reedChipShown("x", box)).toBe(false);        // id はあるが枠の箱に居ない
+    expect(reedChipShown("a", null)).toBe(false);       // 箱が選ばれていない(「リードを選択」)
+    expect(reedChipShown("a", { members: [] })).toBe(false);
+    expect(reedChipShown(null, box)).toBe(false);
+  }, 30000);
+
+  it("⑨ リードが選ばれていない: 「最初の計測を記録しよう」。枠は reedChip を名乗らない(「リードを選択」を照らさない)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, reeds: true }, reeds: [REED] } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨(リードなし)");
+    expect(layer().querySelector(".coach-title").textContent).toBe("最初の計測を記録しよう");
+    expect(document.querySelector('[data-coach="reedChip"]')).toBe(null);
+    expect(document.body.textContent).toContain("リードを選択");
+  }, 30000);
+
+  it("⑩ 計測がある・goData まだ: 下部タブ「データ」の絵柄。押すと goData、データタブで ⑫", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...MEASURE_DONE } }, sessions: [SESSION("s1")] });
+    await render();
+    await waitFor(() => layerId() === "goData", "⑩");
+    expect(holeOf()).toEqual(["287.1px", "762px", "52px", "52px", "50%"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("計測の記録を見てみよう");
+    await click(nav("データ"));
+    await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印");
+    await waitFor(() => layerId() === "calendarDay", "⑫");
+  }, 30000);
+
+  it("外を押す(群): ⑨ で外を押すと、この起動では計測タブの段が出ない(印は立てない)。データタブの段は出る", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true } }, sessions: [] });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await click(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
+    await click(metroBtn());   // 面を開いても ③ は出ない(群ごと消した)
+    await tick(400);
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone").measure).toBeUndefined();
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "data", "データタブの段は出る");
+  }, 40000);
+
+  it("マイクの取り直しを待つ(殻でタブへ戻ったときと同じ形): isListening が立つまで出さず、立てば出る", async () => {
+    let open;
+    const micGate = new Promise((r) => { open = r; });
+    installFakeMic(micGate);
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES } } });
+    await render();
+    await waitFor(() => document.querySelector('[data-coach="tuner"]'), "計測タブ");
+    let seen = false;
+    for (let i = 0; i < 20; i++) { if (layer()) seen = true; await tick(25); }
+    expect(seen).toBe(false);
+    open();
+    await waitFor(() => layerId() === "tuner", "マイクが動いたら ①");
+  }, 30000);
+
+  it("見本: 保存の印が全部済みでも ① から出す。本物の印は書き換えない", async () => {
+    installFakeMic();
+    document.documentElement.setAttribute("data-tutorial-preview", "1");
+    try {
+      mod = await loadApp(fake);
+      const ALL = { ...GATES, measure: true, reeds: true, reedsMeasure: true, tuner: true, metronome: true, ...NEW8, idealSeen: true };
+      await seed({ kvEntries: { onboardingDone: ALL }, sessions: [SESSION("s1")] });
+      await render();
+      await waitFor(() => layerId() === "tuner", "見本の ①");
+      // ① が済む前に面を開いても、順番を守って ① のまま(見本の済んだに metronome は立つ)
+      await click(metroBtn());
+      await waitFor(() => JSON.parse(window.localStorage.getItem("ficus.tutorialPreviewDone") || "{}").metronome === true, "見本の済んだ");
+      await tick(200);
+      expect(layerId()).toBe("tuner");
+      expect(kv("onboardingDone")).toEqual(ALL);
+      expect(JSON.parse(window.localStorage.getItem("ficus.tutorialPreviewDone"))).toMatchObject({ metronome: true, migratedCoach2: true });
+    } finally {
+      document.documentElement.removeAttribute("data-tutorial-preview");
+    }
+  }, 30000);
+});
+
+// 【便BS 審査】不合格2「面が開いている間は計測の段を出さない」は、【便BW 審査 2026-10-06 統括の裁定】で
+// 「面の上に出すのは ③④ が済むまで。済めば面が開いていても計測の段へ合流する」に改めた(面はタブをまたいで開いたままなので、
+// 前の決まりは ⑦ の「計測」で戻る本筋の道で流れを止めていた)。面が最初のテンポ操作を食べない、という元の狙いは ③④ が先に出ることで守る。
+describe("【便BS 審査】→【便BW 審査】メトロノームの面と計測の段", () => {
+  afterEach(() => removeFakeMic());
+  const DONE_12 = { ...GATES, tuner: true, metronome: true, goReeds: true };
+  const DONE_1234 = { ...DONE_12, metroTempo: true, metroStart: true };
+
+  it("③④ がまだ: 面が開くと面の中の ③(計測の段は出さない)。閉じると計測の段", async () => {
     installFakeMic();
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: DONE_12 } });
     await render();
-    await waitFor(() => metro(), "計測タブ");
-    expect(metro().getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => metroBtn(), "計測タブ");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => layerId() === "measure", "計測の段(マイクが動いて面が閉じている)");
-    await click(metro());   // 開く(穴の外側の受けがあっても、ボタンそのものを押す)
-    expect(metro().getAttribute("aria-pressed")).toBe("true");
-    await waitFor(() => layer() === null, "面が開いている間は出ない");
-    await tick(400);
-    expect(layer()).toBe(null);
-    await click(metro());   // 閉じる
-    await waitFor(() => layerId() === "measure", "閉じると出る");
+    await click(metroBtn());   // 開く(穴の外側の受けがあっても、ボタンそのものを押す)
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => layerId() === "metroTempo", "面の上は ③");
+    await click(metroBtn());   // 閉じる
+    await waitFor(() => layerId() === "measure", "閉じると計測の段");
     expect(kv("onboardingDone").measure).toBeUndefined();
   }, 40000);
 
-  it("端末に「開いたまま」と覚えている起動: 最初から出ない。閉じると出る", async () => {
+  it("③④ が済んでいれば、面が開いていても計測の段が出る(端末に「開いたまま」と覚えている起動でも)", async () => {
     installFakeMic();
     mod = await loadApp(fake);
-    await seed({ kvEntries: { onboardingDone: DONE_12, showMetroPanel: true } });
+    await seed({ kvEntries: { onboardingDone: DONE_1234, showMetroPanel: true } });
     await render();
-    await waitFor(() => metro()?.getAttribute("aria-pressed") === "true", "面が開いたままの計測タブ");
-    // 対照(上の検査)では同じ待ちで出る長さを待っても、出ない(一度も出ないことを細かく見張る)
-    let seen = false;
-    for (let i = 0; i < 40; i++) { if (layer()) seen = true; await tick(25); }
-    expect(seen).toBe(false);
-    await click(metro());   // 閉じる
-    await waitFor(() => layerId() === "measure", "閉じると出る");
+    await waitFor(() => metroBtn()?.getAttribute("aria-pressed") === "true", "面が開いたままの計測タブ");
+    await waitFor(() => layerId() === "measure", "面が開いたままでも計測の段");
   }, 40000);
 });
 
-describe("【便BS 審査】配線の綴り(App.jsx)", () => {
+describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.jsx"), "utf8").replace(/\r\n/g, "\n");
-  it("帯(notice)が出ている間は hidden。面の開閉と 0件 → 1件 を coachCandidates へ渡す", () => {
-    const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+  const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+  it("帯(notice)が出ている間は hidden。面の開閉・枠のリード・⑮ の依頼を coachCandidates へ渡す。0件 → 1件 の先送りは無い", () => {
     expect(call).toMatch(/hidden=\{[^}]*\|\| Boolean\(notice\)\}/);
-    expect(call).toMatch(/metroPanelOpen, dataSeenDeferred: sawNoSessionsThisLaunch \}\)/);
+    expect(call).toMatch(/metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/);
+    expect(app).toMatch(/onMetronomeChange=\{setMetronomeOnForCoach\}/);
     expect(app).toMatch(/onMetroPanelChange=\{setMetroPanelOpen\}/);
     expect(app).toMatch(/useLayoutEffect\(\(\) => \{\n\s*onMetroPanelChange\?\.\(showMetroPanel\);\n\s*\}, \[showMetroPanel, onMetroPanelChange\]\);/);
-    expect(app).toMatch(/if \(sessionsStatus === "ready" && sessions\.length === 0\) setSawNoSessionsThisLaunch\(true\);/);
+    expect(app).not.toMatch(/sawNoSessionsThisLaunch|dataSeenDeferred:/);
+  });
+  it("【便BW】⑧⑨: 枠のリードは「いまの楽器のリードが選ばれている」(計測タブの枠の候補 reedsOfSax と同じ絞り方)", () => {
+    expect(app).toMatch(/const hasSelectedReed = Boolean\(selectedReedId\) && reeds\.some\(\(r\) => r\.id === selectedReedId && reedSaxTypeOf\(r\) === saxType\);/);
+  });
+  it("【便BW】③④: 口は印が読めてから渡す。④ は鳴り始めたら(③ も一緒に済む)。③ は − / ＋ / シートが開いた・閉じたら", () => {
+    expect(app).toMatch(/onMetroTempoTouched=\{coachReady \? markMetroTempo : undefined\}/);
+    expect(app).toMatch(/onMetronomeStarted=\{coachReady \? markMetroStarted : undefined\}/);
+    expect(app).toMatch(/const markMetroStarted = useCallback\(\(\) => \{ markOnboarding\("metroStart"\); markOnboarding\("metroTempo"\); \}, \[markOnboarding\]\);/);
+    expect(app).toMatch(/useEffect\(\(\) => \{\n\s*if \(metronomeOn\) onMetronomeStarted\?\.\(\);\n\s*\}, \[metronomeOn, onMetronomeStarted\]\);/);
+    // 【便BW 再審査】シートが閉じたときも触れたと数える(④ は閉じてから TUNER_SUSTAIN_MS)
+    expect(app).toMatch(/if \(tempoSheetOpen\) \{ tempoSheetWasOpenRef\.current = true; onMetroTempoTouched\?\.\(\); \}\n\s*else if \(tempoSheetWasOpenRef\.current\) \{ tempoSheetWasOpenRef\.current = false; onMetroTempoTouched\?\.\(\); \}/);
+    expect((app.match(/onMetroTempoTouched\?\.\(\)/g) || []).length).toBe(4);
+  });
+  it("【便BW】⑤⑩: タブを移った結果で印を立てる(案内はタブを移さない)。goData は計測があるときだけ", () => {
+    expect(app).toMatch(/if \(topTab === "reeds"\) markOnboarding\("goReeds"\);\n\s*if \(topTab === "analysis" && sessions\.length > 0\) markOnboarding\("goData"\);/);
+    expect(app).toMatch(/data-coach=\{`nav-\$\{t\.key\}`\}/);
+  });
+  it("【便BW】⑫⑬: 日を開いたら calendarDay・計測の詳細が開いたら daySession(帯の「開く」から開いても)", () => {
+    expect(app).toMatch(/if \(next !== null\) onOnboarding\?\.\("calendarDay"\);/);
+    expect(app).toMatch(/if \(selectedSession\) onOnboarding\?\.\("daySession"\);/);
+    expect(app).toMatch(/onOnboarding=\{markOnboarding\}\n/);
   });
 });

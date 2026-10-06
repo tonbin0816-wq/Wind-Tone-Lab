@@ -46,9 +46,14 @@ workflows:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
     publishing:
+      # 【便BW 統括の裁定 2026-10-06】submit_to_testflight は「TestFlight の外部テストの審査(beta review)へ申し込む」設定。
+      # App Store Connect へ上げることそのものは、この publishing があれば行われる。内部テスター(本人)には審査なしで届く ──
+      # ただし App Store Connect の内部グループで「自動配信」が有効なときに限る。今は有効(グループ「内部」を作ったとき、有効のまま作成した)。
+      # 前のビルドが審査中だと申し込めずに「失敗」になっていたので、3つとも申し込まない。App Store の審査への提出は本人が
+      # App Store Connect で版の情報を確かめてから行う(submit_to_app_store は false のまま。ios-release はそのためのビルドを作る)。
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
+        submit_to_testflight: false
         submit_to_app_store: false
 
   # 【殻 S2 統括の裁定】開発版。中身は ios-testflight と同じで、違いは3つだけ:
@@ -105,9 +110,14 @@ workflows:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
     publishing:
+      # 【便BW 統括の裁定 2026-10-06】submit_to_testflight は「TestFlight の外部テストの審査(beta review)へ申し込む」設定。
+      # App Store Connect へ上げることそのものは、この publishing があれば行われる。内部テスター(本人)には審査なしで届く ──
+      # ただし App Store Connect の内部グループで「自動配信」が有効なときに限る。今は有効(グループ「内部」を作ったとき、有効のまま作成した)。
+      # 前のビルドが審査中だと申し込めずに「失敗」になっていたので、3つとも申し込まない。App Store の審査への提出は本人が
+      # App Store Connect で版の情報を確かめてから行う(submit_to_app_store は false のまま。ios-release はそのためのビルドを作る)。
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
+        submit_to_testflight: false
         submit_to_app_store: false
 
   # 【殻 S3 統括の裁定】審査に出す専用。中身は ios-testflight と同じで、違いは2つだけ:
@@ -163,7 +173,12 @@ workflows:
       - build/ios/ipa/*.ipa
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
     publishing:
+      # 【便BW 統括の裁定 2026-10-06】submit_to_testflight は「TestFlight の外部テストの審査(beta review)へ申し込む」設定。
+      # App Store Connect へ上げることそのものは、この publishing があれば行われる。内部テスター(本人)には審査なしで届く ──
+      # ただし App Store Connect の内部グループで「自動配信」が有効なときに限る。今は有効(グループ「内部」を作ったとき、有効のまま作成した)。
+      # 前のビルドが審査中だと申し込めずに「失敗」になっていたので、3つとも申し込まない。App Store の審査への提出は本人が
+      # App Store Connect で版の情報を確かめてから行う(submit_to_app_store は false のまま。ios-release はそのためのビルドを作る)。
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
+        submit_to_testflight: false
         submit_to_app_store: false

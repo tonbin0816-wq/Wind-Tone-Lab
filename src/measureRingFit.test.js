@@ -276,7 +276,8 @@ describe("計測タブの配線(App.jsx)", () => {
   it("測る相手(枠・スペーサー・環の箱・可変の中間)に ref が付いている", () => {
     expect(meas.includes("<div ref={measureFrameRef} style={{ position: \"relative\", display: \"flex\", flexDirection: \"column\", minHeight: measureMinH || undefined }}>")).toBe(true);
     expect(meas.includes("<div ref={ringFitSpacerRef} style={{ flex: \"1 1 auto\", minHeight: 0 }} />")).toBe(true);
-    expect(/<div ref=\{ringBoxRef\} style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(meas)).toBe(true);
+    // 【便BW 審査 2026-10-06】環の箱にはじめの一手 ①④ の的の名乗り data-coach="tuner" が加わった(属性だけ。ref と style は不変)
+    expect(/<div ref=\{ringBoxRef\}(?: data-coach="tuner")? style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(meas)).toBe(true);
     expect(meas.includes("<div ref={ringFitMiddleRef} style={{ display: \"flex\", flexDirection: \"column\" }}>")).toBe(true);
   });
   it("【再審査】本物のテンポ行の高さ = 見本の高さ(METRO_PM_H_CSS)。高さに効く値を全部数え、数でも確かめる", () => {

@@ -38,6 +38,8 @@ import { ringMinDiameter, ringFitArgs, fitRingDiameter, nextRingDiameter, ringSc
 import { OnboardingCoach, ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, markOnboardingDone, migrateOnboardingDone, coachCandidates, NO_COACH, onboardingFlagsForSavedSession } from "./onboarding.jsx";
 // 【便BS 2026-10-03 本人裁定】計測タブの3段(チューナーの「音程が続けて取れた」の長さと数え方)・移行の印。
 import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboarding.jsx";
+// 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。
+import { COACH2_MIGRATED } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -2230,6 +2232,11 @@ function reedSaxTypeOf(r) {
 }
 // その楽器のリードだけ。計測タブの候補(D2)・リードタブの一覧と比較(D5 / D4)・
 // 計測にリードを付け直すシート(E6)が**同じ1つの絞り方**を読む。
+// 【便BW 審査 2026-10-06】計測タブのリードの枠に、選んでいるリードが**本当に出ているか**(はじめの一手 ⑧ の的を名乗る条件)。
+// リードの id があっても、枠の箱がそのリードを含まなければ枠は「リードを選択」などの姿なので、「紐づいています」と言わない。
+export function reedChipShown(selectedReedId, selectedBoxGroup) {
+  return Boolean(selectedReedId) && Boolean(selectedBoxGroup?.members?.some((r) => r.id === selectedReedId));
+}
 function reedsOfSax(reeds, saxType) {
   return (reeds || []).filter((r) => reedSaxTypeOf(r) === saxType);
 }
@@ -3852,6 +3859,21 @@ export default function WindToneLabPhaseMode() {
     setTopTab("analysis");
   }, []);
   const clearOpenSessionRequest = useCallback(() => setOpenSessionRequest(null), []);
+  // 【便BW 2026-10-06 本人裁定(§14 の 1)】みんなの平均を目安にしたあとの帯の「見る」。データタブの My Data へ移り、
+  // 音の傾向カード(目安があれば折れ線の既定は my平均 × 目安)までスクロールし、はじめの一手 ⑮(idealSeen)でそのカードを照らす。
+  //   coachRequest … ⑮ を出してほしいという、この起動の間だけの依頼(保存しない)。データタブを離れたら・⑮ が済んだら畳む(下の effect)
+  //   trendFocusRequest … 音の傾向カードまで送ってほしいという依頼(通し番号。0 = 無し)。送ったら My Data 側が畳む
+  //                       (帯の「開く」の openSessionRequest と同じ形)。⑮ が済んだあとに押しても、移ってスクロールはする
+  // navNonce を進めるのは、データタブを表に出していた(詳細・すべての計測・分析を開いていた)ときも My Data の一覧から始めるため(handleNavTap と同じ作り直し)。
+  const [coachRequest, setCoachRequest] = useState(null);
+  const [trendFocusRequest, setTrendFocusRequest] = useState(0);
+  const clearTrendFocusRequest = useCallback(() => setTrendFocusRequest(0), []);
+  const openTrendFromNotice = useCallback(() => {
+    setTopTab("analysis");
+    setNavNonce((n) => n + 1);
+    setCoachRequest("idealSeen");
+    setTrendFocusRequest((n) => n + 1);
+  }, []);
   // 【D3 2026-09-16 実機の指摘】My Data の累計の定義シートの主要動作(束1 で綴りは
   // 「みんなのデータをみる」になった。行き先は変えていない)。
   // 押すとコミュニティタブへ移り、**参加済みなら順位の子タブ**で開く(未参加なら既存どおり
@@ -3975,8 +3997,8 @@ export default function WindToneLabPhaseMode() {
   // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に持つ(開き直しても済ませた一手は出ない)。
   // 本物の onboardingDone(IndexedDB の kv)とは別。localStorage なので引継のファイルにも乗らない。
   // 読み書きは tutorialPreview.js が持つ(App.jsx はこの端末の保存を IndexedDB の1つだけにしておく)。
-  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。
-  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true }));
+  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。【便BW】3つ目の門(COACH2_MIGRATED)も同じ。
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true }));
   const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
   useEffect(() => {
     if (tutorialPreview) writeTutorialPreviewDone(undefined, previewDoneRaw);
@@ -3997,7 +4019,8 @@ export default function WindToneLabPhaseMode() {
   }, [tutorialPreview, onboardingLoaded, onboardingReadOk, sessionsStatus, reedsLoaded, reedsReadOk, idealProfilesLoaded, idealProfilesReadOk, sessions, reeds, idealProfiles, setOnboardingRaw]);
   // 案内を出してよいのは、印が読めて移行も済んでから(移行の前に出すと、既に使っている人に一瞬出る)。
   // 【便BS】計測タブの3段の移行(便BP の移行を済ませた人にも1回)が済むまでも出さない(計測のある人にチューナーが一瞬出ないように)。
-  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED];
+  // 【便BW】新しい段の移行(migratedCoach2)が済むまでも出さない(計測のある人に新しい段が一瞬出ないように)。
+  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED] && onboardingDone[COACH2_MIGRATED];
   // 案内が読む印と「出してよいか」。見本ではメモリの上の印を読み、読み込みを待たない(本物の印を見ないので)。
   const coachDone = tutorialPreview ? previewDone : onboardingDone;
   const coachReady = tutorialPreview || onboardingReady;
@@ -5126,13 +5149,38 @@ export default function WindToneLabPhaseMode() {
   // (開いた瞬間に面の上へ計測の段が出て、最初のテンポ操作を食べていた)。開閉は MeasureView から知らせてもらう(印とは別の口。
   // 印の有無に関わらず常に渡す)。端末に「開いたまま」と覚えている起動でも、MeasureView が描かれた時点で知らせる。
   const [metroPanelOpen, setMetroPanelOpen] = useState(false);
-  // 【便BS 審査 2026-10-03 統括の裁定】この起動の中で計測が 0件 だったことがあるか(読み込みが済んだ後に)。
-  // 0件 → 1件以上 に変わった起動では「計測したデータがここに貯まります」(dataSeen)を出さず、次の起動へ回す
-  // (初めて取り込んだ直後に、溶ける「計測を始めると」と2枚続けて出ないように)。一度 true になったらこの起動の間は戻さない。
-  const [sawNoSessionsThisLaunch, setSawNoSessionsThisLaunch] = useState(false);
+  // 【便BW 審査 2026-10-06 統括の裁定】メトロノームが鳴っているか(MeasureView から知らせてもらう)。面が開いていて鳴っている間は
+  // ④ の次の段を出さない(④ の文が促す2回目のタップが次の段の受けに当たって、計測タブの段がまるごと消えていた)。
+  const [metronomeOnForCoach, setMetronomeOnForCoach] = useState(false);
+  // (【便BS 審査】「この起動で計測が 0件だったか」の state(0件 → 1件の起動では dataSeen を次の起動へ回す)はここにあった。【便BW】dataSeen の段と一緒に外した。
+  //  新しい流れでは 0件 → 1件の起動で ⑩ → ⑫ と続いてほしい。帯が出ている間はどのみち隠れる)
+  // 【便BW 2026-10-06 凍結仕様 §7.1】
+  // メトロノームの面の中の2段。③ テンポに触れた(− / ＋ / ♩=n のシート)・④ 鳴り始めた。鳴らせたならテンポ行も知っている(③ も済み)。
+  // 口は印が読めてから渡す(onMetroPanelShown と同じ渡し方)。
+  // 【便BW 再審査 統括の裁定(a)】テンポ行に触れるたびに数え直し、TUNER_SUSTAIN_MS の間なにも触れなければ ④ を出してよい(metroTempoQuiet)。
+  // シートを開いたとき・閉じたときも触れたと数える(開いている間は案内はどのみち隠れ、閉じてから数える)。新しい時間は作らない。
+  const [metroTempoQuiet, setMetroTempoQuiet] = useState(true);
+  const metroTempoQuietTimerRef = useRef(0);
+  const markMetroTempo = useCallback(() => {
+    markOnboarding("metroTempo");
+    setMetroTempoQuiet(false);
+    clearTimeout(metroTempoQuietTimerRef.current);
+    metroTempoQuietTimerRef.current = setTimeout(() => setMetroTempoQuiet(true), TUNER_SUSTAIN_MS);
+  }, [markOnboarding]);
+  useEffect(() => () => clearTimeout(metroTempoQuietTimerRef.current), []);
+  const markMetroStarted = useCallback(() => { markOnboarding("metroStart"); markOnboarding("metroTempo"); }, [markOnboarding]);
+  // ⑧⑨ 計測タブの枠にリードが出ているか(枠に出る候補は reedsOfSax と同じ「いまの楽器のリード」)。
+  const hasSelectedReed = Boolean(selectedReedId) && reeds.some((r) => r.id === selectedReedId && reedSaxTypeOf(r) === saxType);
+  // ⑮ の依頼は、データタブを離れたら・⑮ が済んだら畳む。
+  useEffect(() => { if (topTab !== "analysis") setCoachRequest(null); }, [topTab]);
+  useEffect(() => { if (coachDone.idealSeen) setCoachRequest(null); }, [coachDone.idealSeen]);
+  // ⑤ リードタブへ移った・⑩ 計測があるときにデータタブへ移った。案内はタブを移さない(本人がタブを押した結果を見て印を立てる)。
+  // goData は計測があるときだけ(計測の前にデータタブを覗いた人には、最初の保存のあとに ⑩ を出したい)。
   useEffect(() => {
-    if (sessionsStatus === "ready" && sessions.length === 0) setSawNoSessionsThisLaunch(true);
-  }, [sessionsStatus, sessions.length]);
+    if (!coachReady) return;
+    if (topTab === "reeds") markOnboarding("goReeds");
+    if (topTab === "analysis" && sessions.length > 0) markOnboarding("goData");
+  }, [coachReady, topTab, sessions.length, markOnboarding]);
 
   // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
   // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
@@ -5312,6 +5360,11 @@ export default function WindToneLabPhaseMode() {
           onMetroPanelShown={coachReady ? markMetronomeSeen : undefined}
           /* 【便BS 審査】面の開閉を知らせる口(開いている間は計測の段を出さない)。 */
           onMetroPanelChange={setMetroPanelOpen}
+          /* 【便BW】はじめの一手 ③(テンポに触れた)・④(鳴り始めた)の印を立てる口。印が読めるまでは渡さない。 */
+          onMetroTempoTouched={coachReady ? markMetroTempo : undefined}
+          onMetronomeStarted={coachReady ? markMetroStarted : undefined}
+          /* 【便BW 審査】鳴っているかを知らせる口(面が開いていて鳴っている間は ④ の次の段を出さない)。 */
+          onMetronomeChange={setMetronomeOnForCoach}
           /* 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)なら環の上限は RING_D_WIDE(440)。 */
           wide={wide}
         />
@@ -5361,6 +5414,10 @@ export default function WindToneLabPhaseMode() {
           deleteIdealProfileWithUndo={deleteIdealProfileWithUndo}
           /* 【便BP3】計測の詳細でリードを後から紐づけたら、はじめの一手(リード2)の印を立てる。 */
           onReedLinked={() => markOnboarding("reedsMeasure")}
+          /* 【便BW】はじめの一手 ⑫(日を開いた)・⑬(計測の詳細が開いた)の印を立てる口。 */
+          onOnboarding={markOnboarding}
+          /* 【便BW 本人裁定】帯の「見る」から来た「音の傾向カードまで送って」。送ったらあちらが畳む。 */
+          trendFocusRequest={trendFocusRequest} onTrendFocusDone={clearTrendFocusRequest}
         />
       )}
       {topTab === "community" && (
@@ -5416,9 +5473,9 @@ export default function WindToneLabPhaseMode() {
                 setSelectedIdealId(r.profile.id);
                 // 【便BO 2026-10-02 本人指示】みんなの平均は確認のシートを閉じてから知らせる(announce)。
                 // シートが消えるので、人物のページのようにシートの中の1行では言えない。帯(ActionNotice)は
-                // この App の根にあり、ここ(App.jsx の中)からなら届く。文は人物のページの1行と同じ綴り。
+                // この App の根にあり、ここ(App.jsx の中)からなら届く。【便BW】文は人物の1行と別の短い定数。
                 // 人物は announce を渡さない(シートの中の1行のまま。帯は出さない)。
-                if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true });
+                if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice });
                 // 【便BP】はじめの一手(参加後2): みんなの平均を目安に設定できた。announce を渡すのはみんなの平均だけ
                 // (人物は渡さない。cohortAdopt.test.jsx が固定している)。
                 if (announce) markOnboarding("adoptAverage");
@@ -5459,10 +5516,12 @@ export default function WindToneLabPhaseMode() {
       {/* 【便BS 審査 2026-10-03 統括の裁定】
           ・操作の合図の帯(ActionNotice。z50)が出ている間は、どの段も出さない(案内 z55 が帯の「開く」などを覆って押せなくしていた)
           ・メトロノームの面が開いている間は計測の段を出さない(metroPanelOpen)
-          ・この起動の中で計測が 0件 → 1件以上 になったら、dataSeen は次の起動へ回す(dataSeenDeferred) */}
+          ・(この起動の中で計測が 0件 → 1件以上 になったら dataSeen を次の起動へ回す決まりは、【便BW】dataSeen の段と一緒に外した) */}
+      {/* 【便BW 2026-10-06】計測タブは ①〜⑩ の一本の流れ(枠にリードが出ているか = hasSelectedReed で ⑧ と ⑨ の文が決まる)。
+          データタブは ⑫⑬⑭。帯の「見る」から来たときだけ ⑮(idealRequested)。hidden の式は変えていない。 */}
       <OnboardingCoach
         candidates={coachReady && !isRecording
-          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, dataSeenDeferred: sawNoSessionsThisLaunch })
+          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
           : NO_COACH}
         done={coachDone}
         hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || Boolean(notice)}
@@ -5569,8 +5628,9 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               onClick={() => onNavTap(t.key)}
               disabled={isRecording}
               aria-label={t.label}
-              /* 【便BP】はじめの一手(データタブ)の的は「計測」の絵柄(onboarding.jsx が中の svg を囲む)。 */
-              data-coach={t.key === "measure" ? "nav-measure" : undefined}
+              /* 【便BP】はじめの一手(データタブ)の的は「計測」の絵柄(onboarding.jsx が中の svg を囲む)。
+                 【便BW】4つとも名乗る(⑤ リード・⑩ データの的。nav-community は読み手なし)。属性だけで見た目は変えない。 */
+              data-coach={`nav-${t.key}`}
               className="sans"
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
@@ -8776,6 +8836,10 @@ function MeasureView(props) {
     onMetroPanelShown,
     // 【便BS 審査 2026-10-03】メトロノームの面の開閉を App へ知らせる口(開いている間は、はじめの一手の計測の段を出さない)。
     onMetroPanelChange,
+    // 【便BW 2026-10-06】はじめの一手 ③ テンポに触れた(− / ＋ / テンポと拍子のシートを開いた)・④ 鳴り始めた を App へ知らせる口(渡されないうちは何もしない)。
+    onMetroTempoTouched, onMetronomeStarted,
+    // 【便BW 審査】鳴っているかを App へ知らせる口(印とは別。常に渡す)。
+    onMetronomeChange,
     // 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)か。環の上限を RING_D_WIDE にする(App の useWideLayout)。
     // 渡されない(false)ときは今までと1文字も変わらない。
     wide = false,
@@ -8955,6 +9019,14 @@ function MeasureView(props) {
   useLayoutEffect(() => {
     onMetroPanelChange?.(showMetroPanel);
   }, [showMetroPanel, onMetroPanelChange]);
+  // 【便BW】はじめの一手 ④「タップでスタート」は鳴り始めたら済み(面を開いた知らせと同じ形。口が後から渡されたときも、鳴っていればそこで知らせる)。
+  useEffect(() => {
+    if (metronomeOn) onMetronomeStarted?.();
+  }, [metronomeOn, onMetronomeStarted]);
+  // 【便BW 審査】鳴っているかをそのまま App へ知らせる(面が開いていて鳴っている間は ④ の次の段を出さない)。面の開閉の知らせと同じ形。
+  useLayoutEffect(() => {
+    onMetronomeChange?.(metronomeOn);
+  }, [metronomeOn, onMetronomeChange]);
   // 【N-4b】テンポ・拍子・分割・拍グループ・小節アクセントは、下から出るシート1枚にまとめた。
   // 以前は環と入れ替わる2種類の設定パネル(metroPanel = "sig" | "subdiv")で、開くと環が消えていた。
   // 正典は「環と共存」なので、設定は環の上に**重ねる**シートにする。
@@ -8964,6 +9036,14 @@ function MeasureView(props) {
   // 【D-15 §2(H)】振り子へ渡す口。**毎レンダー作り直すと MetroPendulumMemo が素通りになる**
   // (props の1つでも参照が変わると memo は再レンダーする)。ここだけ useCallback で固定する。
   const openTempoSheet = useCallback(() => setTempoSheetOpen(true), []);
+  // 【便BW 2026-10-06】はじめの一手 ③「テンポを決めよう」はテンポと拍子のシートが開いても済む(振り子・♩=n のどちらから開いても)。
+  // 開く口(openTempoSheet)に足すと振り子の memo の口が変わる(D-15 §2(H))ので、開いたことを見て知らせる。
+  // 【便BW 再審査】シートを閉じたときも触れたと数える(④ はシートが閉じてから TUNER_SUSTAIN_MS 何も触れなければ出る)。
+  const tempoSheetWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (tempoSheetOpen) { tempoSheetWasOpenRef.current = true; onMetroTempoTouched?.(); }
+    else if (tempoSheetWasOpenRef.current) { tempoSheetWasOpenRef.current = false; onMetroTempoTouched?.(); }
+  }, [tempoSheetOpen, onMetroTempoTouched]);
   const [tempoEditing, setTempoEditing] = useState(false); // テンポ数値タップで直接入力モード
   const tempoInputRef = useRef(null);
   // autoFocus属性はモバイルブラウザ(ユーザージェスチャー外の文脈等)で確実に効かないことがあるため、
@@ -9457,7 +9537,9 @@ function MeasureView(props) {
               押せないことは**字の色**でも返す: --c-disabled。同じ計測タブの基準ピッチのシートの − / ＋ が
               端で押せないときに使っている既存の作法(disabled + 字 --c-disabled + cursor default)に従う。
               新しい値は作っていない。 */}
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+          {/* 【便BW 2026-10-06】はじめの一手 ⑧「選んだリードが紐づいています」の的。**枠に本当にリードが出ているときだけ**名乗る
+              (「リードを選択」の姿を照らして「紐づいています」と言わない)。属性だけで見た目は変えない。 */}
+          <div data-coach={reedChipShown(selectedReedId, selectedBoxGroup) ? "reedChip" : undefined} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button
               onClick={() => setOpenPicker("box")}
               disabled={isRecording || !!reedEmptyGuide}
@@ -9656,7 +9738,10 @@ function MeasureView(props) {
       {/* 【便BM 2026-10-02 本人裁定(a)】ringBoxRef の最初の子 = 環の外枠を、縮める計算が測る
           (箱の高さ − 環の高さ = いまの音量の行)。直径は ringD(画面の高さが足りる限り RING_D_FULL)、
           中の字の倍率の基準は ringBaseD(縮めないときの直径)。 */}
-      <div ref={ringBoxRef} style={{ flexShrink: 0 }}>
+      {/* 【便BW 2026-10-06 本人の要望1 / 審査の裁定】はじめの一手 ①「まずは吹いてみよう」・④「タップでスタート」の的は環の箱
+          (吹いて動く環と音名。帯全体だとカードが帯の中央に重なって環を覆った)。属性だけで style は不変。
+          環は当たり判定を持たないので、④ で押すと背面レイヤに届いて鳴る。 */}
+      <div ref={ringBoxRef} data-coach="tuner" style={{ flexShrink: 0 }}>
         <PitchRing note={note} centsOffset={centsOffset} diameter={ringD} scaleBase={ringBaseD} />
         {/* 【M9/M10 2026-09-16】音量(dB)。詳細シートの「音量表示」が ON のときだけ出す。
             **環より下**なので、切り替えても環・上部設定行は 1px も動かない(§6.1.5)。
@@ -9695,8 +9780,9 @@ function MeasureView(props) {
               【審査①の修正】ただし**箱そのものは当たり判定を持たない**(.tap-through)。
               持たせると −と♩=n の隙間・♩=n と＋の隙間・数値の下 2px が「押しても何も起きない」
               領域になる(審査役の1px刻み全走査で y492-539 × x120-254 = 3,268px² が無反応だった)。
-              §6.1.5「押しても何も起きないを作らない」。 */}
-          <div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: METRO_PM_GAP_CSS }}>
+              §6.1.5「押しても何も起きないを作らない」。
+              【便BW 2026-10-06】はじめの一手 ③「テンポを決めよう」の的(属性だけ)。 */}
+          <div data-coach="metroTempo" className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: METRO_PM_GAP_CSS }}>
             {/* 【A-4 / 逸脱4 の撤回】正典 .pmt をそのまま採る:
                   width 72 / height 48 / font-size 20 / font-weight 300 / color --ink2 / 地も枠も無し。
                 以前は「文字サイズ据え置き(24px)+46×46 のピル」にしていたが、見た目については
@@ -9705,7 +9791,7 @@ function MeasureView(props) {
                 【F-95a】本人指示「メトロノームはB」で、この行も一式と同じ METRO_SCALE 倍で描く。
                 基準値(72/48/20/15/34)は正典のまま。実寸は 86.4×57.6 / 24px / 18px / gap 40.8。 */}
             <button
-              onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1))}
+              onClick={() => { onMetroTempoTouched?.(); setMetroTempo((v) => clampMetroTempo((Number(v) || 120) - 1)); }}
               aria-label="テンポを下げる" className="no-select"
               style={{ width: METRO_PM_W_CSS, height: METRO_PM_H_CSS, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: METRO_PM_FS_CSS, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >−</button>
@@ -9720,7 +9806,7 @@ function MeasureView(props) {
               ♩= {metroTempo}
             </button>
             <button
-              onClick={() => setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1))}
+              onClick={() => { onMetroTempoTouched?.(); setMetroTempo((v) => clampMetroTempo((Number(v) || 120) + 1)); }}
               aria-label="テンポを上げる" className="no-select"
               style={{ width: METRO_PM_W_CSS, height: METRO_PM_H_CSS, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, fontSize: METRO_PM_FS_CSS, fontWeight: 300, color: "var(--c-ink-2)", lineHeight: 1 }}
             >＋</button>
@@ -15512,6 +15598,13 @@ const MY_DATA_SERIES = [
 ];
 // 式の既定。**1本目 = その日 / 2本目 = my平均**(正典 Main.dc.html / Centroid.dc.html の状態)。
 const MY_DATA_SERIES_DEFAULT = ["day", "period"];
+// 【便BW 2026-10-06 本人裁定】目安が選ばれているときの式の既定。**1本目 = my平均 / 2本目 = 目安**
+// (本人「デフォルトの比較対象を自分の平均と目安の二つにしたら、今のままでできる」)。
+const MY_DATA_SERIES_DEFAULT_IDEAL = ["period", "reference"];
+// 【便BW】式の既定は目安の有無で決まる。効くのは本人がまだ選んでいない(組の状態が null の)ときだけ ── 読み手は myDataSeriesFallback の1箇所。
+function myDataSeriesDefault(hasIdeal) {
+  return hasIdeal ? MY_DATA_SERIES_DEFAULT_IDEAL : MY_DATA_SERIES_DEFAULT;
+}
 // 平均差分のキー。中央線が「その指標の平均」ではなく**絶対の 0** になるのはこの指標だけ、
 // という規則を綴りで2箇所に持たないための1箇所(読み手は myDataCenterValue)。
 const MY_DATA_SIGNED_METRIC = "pitchCentsSigned";
@@ -15547,13 +15640,16 @@ function myDataSeriesOptions(hasIdeal) {
 // 【D-27】**左右が同じにならないことの唯一の答えはこの関数**になった(選択肢から消す規則を
 // やめたので、こちらが単独の番人)。myDataSeriesPick は必ずここを通す ── 規則を2箇所に
 // 持つと、片方だけ直したときに静かに食い違う(罠18)。
+// 【便BW 2026-10-06 本人裁定】組が null(本人がまだ選んでいない)なら、目安の有無で決まる既定(myDataSeriesDefault)から始める。
+// 入り口(myDataSeriesPick)もここを通るので、まだ選んでいない状態で選んだときも画面に見えている既定の組から入れ替わる。
 function myDataSeriesFallback(pair, hasIdeal) {
   const all = myDataSeriesOptions(hasIdeal).map((x) => x.key);
-  const pick = (want, taken) => (all.includes(want) && want !== taken
-    ? want
+  const want = pair ?? myDataSeriesDefault(hasIdeal);
+  const pick = (w, taken) => (all.includes(w) && w !== taken
+    ? w
     : (MY_DATA_SERIES_DEFAULT.concat(all).find((k) => all.includes(k) && k !== taken) ?? null));
-  const a = pick(pair?.[0], null);
-  return [a, pick(pair?.[1], a)];
+  const a = pick(want?.[0], null);
+  return [a, pick(want?.[1], a)];
 }
 
 // 【D-27】片側で系列を選んだときの新しい組。**もう一方で選ばれているものを選んだら入れ替える。**
@@ -16697,7 +16793,9 @@ function NoteMatrixBlock({ metricKey, matrix }) {
 //   ・**この部品はカレンダーだけを描く。** セッション一覧と「すべてのセッション」は
 //     カードの外へ出て、一覧は「日付を押したときだけ」開く(§3 / §4。持ち主は MyDataSection)
 // 選ばれている日・開閉の状態は**呼び出し側が持つ**(開いた枠がこのカードの外にあるため)。
-function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
+// 【便BW 2026-10-06】coachDayKey = はじめの一手 ⑫ の的を名乗る日(最新の計測の日)。その日の枠が閉じているときだけ名乗る
+// (開いていれば ⑬ へ譲る)。表示中の月に無ければ的が無い = 出ない。渡さない呼び手は1文字も変わらない。
+function PracticeCalendarCard({ sessions, openDayKey, onToggleDay, coachDayKey = null }) {
   const now = new Date();
   const [ym, setYm] = useState(() => ({ year: now.getFullYear(), month: now.getMonth() }));
   // 【便BK 2026-10-02 本人の実機報告】子タブを替えるたびの描き直しで、全セッションの練習時間
@@ -16765,6 +16863,8 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
           const isToday = c.key === todayKey;
           const dot = (
             <span
+              /* 【便BW 審査】はじめの一手 ⑫ の的は中の丸(34)。マスの幅は画面で変わる(iPad で 87)ので丸を名乗る。押せる日だけ・開いている日は名乗らない。属性だけ。 */
+              data-coach={c.count > 0 && c.key === coachDayKey && openDayKey !== c.key ? "calendarDay" : undefined}
               style={{
                 width: CALENDAR_DOT, height: CALENDAR_DOT, borderRadius: "50%",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -16821,7 +16921,8 @@ function PracticeCalendarCard({ sessions, openDayKey, onToggleDay }) {
 //   ・左の帯は **意味を持たない**(統括の裁定 §8(2)。全件同じ --c-accent-mid)。
 //     長さや評価で濃さを変えると、読み手が意味を探してしまう
 //   ・**件数の行も日付の見出しも置かない**(本人「件数でたところでなにも有意義な情報ではない」)
-function DaySessionRow({ session, reeds, onOpen }) {
+// 【便BW 2026-10-06】coach = はじめの一手 ⑬ の的を名乗るか(呼び手は先頭の1行だけ true)。渡さない呼び手は1文字も変わらない。
+function DaySessionRow({ session, reeds, onOpen, coach = false }) {
   const reed = (reeds || []).find((r) => r.id === session.reedId) || null;
   // 【D-10b 2026/08/26 本人裁定】メタは**リードだけ**。奏者は出さない。
   // この一覧の母集団は **奏者=自分** で、奏者は全行「自分」── **情報を運んでいない列**だった。
@@ -16838,6 +16939,7 @@ function DaySessionRow({ session, reeds, onOpen }) {
       type="button"
       onClick={() => onOpen(session.id)}
       className="rowcard sans"
+      data-coach={coach ? "daySession" : undefined}
       style={{
         width: "100%", minHeight: "var(--tap-min)", marginBottom: 8,
         display: "flex", alignItems: "stretch", gap: 12,
@@ -16875,6 +16977,18 @@ function idealRowSelectionNext(currentId, pressedId) {
   return currentId === pressedId ? null : pressedId;
 }
 
+// 【便BW 2026-10-06】はじめの一手 ⑫ の的の日 = 計測の中で recordedAt がいちばん遅い1件の暦日(localDayKey。罠14)。空なら null。
+// 読めない日時(NaN)は数えない。
+export function latestLocalDayKey(list) {
+  let best = null;
+  let bestT = -Infinity;
+  for (const s of Array.isArray(list) ? list : []) {
+    const t = new Date(s?.recordedAt).getTime();
+    if (Number.isFinite(t) && t > bestT) { bestT = t; best = s; }
+  }
+  return best ? localDayKey(new Date(best.recordedAt)) : null;
+}
+
 // 【便BK 2026-10-02 本人の実機報告】「My Data から分析へのスクロール移動に引っかかりがある」。
 // 子タブを替えると My Data のページも描き直される(pageActive が変わる)。そのたびに
 // 音ごとの値(noteValuesByIdx = 全フレームを音ごとに束ねて平均する)を**期間ぶん・その日ぶん**
@@ -16905,6 +17019,8 @@ function MyDataSection({
   onCompareOthers, onOpenCommunityIdeals, idealProfiles = [], selectedIdealId = null, setSelectedIdealId, onDeleteIdeal,
   // 【便BI 2026-10-02】My Data のページが表にあるか(用語の吹き出しを横スワイプで閉じる)。渡さなければ true。
   pageActive = true,
+  // 【便BW 2026-10-06】はじめの一手の口(⑫ 日を開いた)と、帯の「見る」から来た「音の傾向カードまで送って」(通し番号。0 = 無し)。
+  onOnboarding = null, trendFocusRequest = 0, onTrendFocusDone = null,
 }) {
   // 【D2】累計の定義のシート(累計カードを押すと開く)。永続化しない。
   const [stockSheetOpen, setStockSheetOpen] = useState(false);
@@ -16953,7 +17069,9 @@ function MyDataSection({
   // 【D-9 §1】式の2つの系列。選べなくなった値が選ばれたまま残らないように、
   // 状態そのものではなく myDataSeriesFallback を通した組を**全員が使う**。
   const hasIdeal = !!selectedIdeal;
-  const [pairRaw, setPairRaw] = useState(MY_DATA_SERIES_DEFAULT);
+  // 【便BW 2026-10-06 本人裁定】初期値 null = 「まだ本人が選んでいない」。既定はそのときだけ効き、目安の有無で決まる
+  // (myDataSeriesDefault。読むのは落とし先 myDataSeriesFallback の1箇所)。本人が一度でも選べば、その組が残る(上書きしない)。
+  const [pairRaw, setPairRaw] = useState(null);
   const pair = myDataSeriesFallback(pairRaw, hasIdeal);
   // どちらのチップを押しているか(null = 閉じている)。選択肢は既存の DataOptionSheet で出す。
   const [sheetSide, setSheetSide] = useState(null);
@@ -16989,11 +17107,23 @@ function MyDataSection({
   // 同じ更新で書けば、続く useLayoutEffect(描画の**前**に走る)が同じコミットの中で
   // 高さを測り直すので、**最初に描かれるフレームがもう正しい高さ・正しい中身**になる。
   // **閉じるときは shownDayKey を残す**(畳む動きの間も中身を描き続ける必要がある)。
+  // 【便BW 2026-10-06】日を開いたら、はじめの一手 ⑫「計測した日を押してみよう」が済む。
   const toggleDay = (key) => {
     const next = openDayKey === key ? null : key;
     setOpenDayKey(next);
     if (next !== null) setShownDayKey(next);
+    if (next !== null) onOnboarding?.("calendarDay");
   };
+  // 【便BW】⑫ の的は、カレンダーと同じ母集団(stockSessions)の**最新の計測の日**のマス。
+  const coachDayKey = useMemo(() => latestLocalDayKey(stockSessions), [stockSessions]);
+  // 【便BW 本人裁定】帯の「見る」から来たら、音の傾向カードを画面の中央へ送る(即座。なめらかに流さない)。
+  // 送ったら依頼を畳む(畳まないと、作り直しのたびに送り直す)。描いた直後は高さがまだ揃わないので1フレーム待つ。
+  const trendCardRef = useRef(null);
+  useEffect(() => {
+    if (!trendFocusRequest) return;
+    onTrendFocusDone?.();
+    requestAnimationFrame(() => trendCardRef.current?.scrollIntoView?.({ block: "center", behavior: "auto" }));
+  }, [trendFocusRequest, onTrendFocusDone]);
   // 除くのは「**押せる日**(記録のある日のボタン)」と「開いた枠の中」の2つだけ。
   // **stopPropagation は使わない**(伝播を止める作りは、document まで届くことに
   // 依存している既存の仕組みを壊しうる)。
@@ -17084,6 +17214,7 @@ function MyDataSection({
         sessions={stockSessions}
         openDayKey={openDayKey}
         onToggleDay={toggleDay}
+        coachDayKey={coachDayKey}
       />
 
       {/* 【D-10 §3 / §4】その日のセッション。**日付を押したときだけ**開き、
@@ -17101,8 +17232,9 @@ function MyDataSection({
       >
         <div ref={dayInnerRef} className="day-panel-inner" style={{ paddingTop: 12 }}>
           <div style={{ maxHeight: MY_DATA_DAY_PANEL_MAX_H, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "0 2px" }}>
-            {daySessions.map((s) => (
-              <DaySessionRow key={s.id} session={s} reeds={reeds} onOpen={onOpenSession} />
+            {/* 【便BW】先頭の1行だけが、はじめの一手 ⑬ の的を名乗る(属性だけ)。 */}
+            {daySessions.map((s, i) => (
+              <DaySessionRow key={s.id} session={s} reeds={reeds} onOpen={onOpenSession} coach={i === 0} />
             ))}
           </div>
         </div>
@@ -17125,8 +17257,9 @@ function MyDataSection({
       </button>
 
       {/* 【D-10 §6】音の傾向カード。指標タブ + 式の行 + 折れ線/窓型 + 目安の告知が1枚に入る。
-          罫は引かない ── 群の境界はこのカードの縁が担う。 */}
-      <div className="card" style={{ marginTop: "var(--sp-3)" }}>
+          罫は引かない ── 群の境界はこのカードの縁が担う。
+          【便BW 2026-10-06】はじめの一手 ⑭ / ⑮ の的(data-coach)と、帯の「見る」で送る先(ref)。属性だけで style は不変。 */}
+      <div className="card" data-coach="trend" ref={trendCardRef} style={{ marginTop: "var(--sp-3)" }}>
         {/* 指標タブ。My Data・セッション詳細・リード詳細・リード比較で**同じ部品**。
             【D-9y 2026/08/25 本人指示】「指標タブの下の罫は両方外して」→ bordered を渡さない。
             【D-9z】集計範囲セレクタ(楽器種別 ▾ · 期間 ▾)は**この行の右端**に相乗りする。 */}
@@ -17515,6 +17648,9 @@ function AnalysisLabView(props) {
     onCompareOthers, onOpenCommunityIdeals, idealProfiles, selectedIdealId, setSelectedIdealId, deleteIdealProfileWithUndo,
     // 【便BK 2026-10-02】My Data の一覧を表に出しているかを親へ知らせる印(親の handleNavTap が読む)。
     myDataTopRef,
+    // 【便BW 2026-10-06】はじめの一手の印を立てる口(⑫ 日を開いた・⑬ 計測の詳細が開いた)と、
+    // 帯の「見る」から来た「音の傾向カードまで送って」(通し番号。0 = 無し)。渡されなければ何もしない。
+    onOnboarding = null, trendFocusRequest = 0, onTrendFocusDone = null,
   } = props;
 
   // データタブ内の子タブ: My Data(推移・平均・セッション一覧) / 分析(クロス集計)
@@ -17626,6 +17762,11 @@ function AnalysisLabView(props) {
     myDataTopRef.current = atMyDataTop;
     return () => { myDataTopRef.current = false; };
   }, [myDataTopRef, atMyDataTop]);
+  // 【便BW 2026-10-06】はじめの一手 ⑬「記録を開いてみよう」は計測の詳細が開いたら済み(帯の「開く」から開いても済む)。
+  // 【早期 return より前に置くこと】(上と同じ理由)
+  useEffect(() => {
+    if (selectedSession) onOnboarding?.("daySession");
+  }, [selectedSession, onOnboarding]);
   if (selectedSession) {
     /* 【D-29 2026/09/03 本人裁定・凍結仕様 design/D29-SPEC.md §1 = モックの案A】
        セッション詳細を**カードの作法**へ移した。D-10 の「セッション詳細とリード個体詳細は
@@ -17828,6 +17969,9 @@ function AnalysisLabView(props) {
         onOpenCommunityIdeals={onOpenCommunityIdeals}
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         onDeleteIdeal={deleteIdealProfileWithUndo}
+        /* 【便BW】はじめの一手の口と、帯の「見る」から来た「音の傾向カードまで送って」をそのまま渡す。 */
+        onOnboarding={onOnboarding}
+        trendFocusRequest={trendFocusRequest} onTrendFocusDone={onTrendFocusDone}
       />
       {/* --- 分析(11.6節): クロス集計(ピボット型マトリクス) ---
           【N-9 2026/08/16 本人指示】「いい感じにほかのページと統一して」「なるべく要素を減らす」:
@@ -18419,6 +18563,8 @@ function MyDataPage({
   handleUploadFile, isAnalyzingUpload,
   // 【D3 / D4 2026-09-16】累計の定義シートからコミュニティへ / 目安の一覧(選択・削除)。
   onCompareOthers, onOpenCommunityIdeals, idealProfiles, selectedIdealId, setSelectedIdealId, onDeleteIdeal,
+  // 【便BW 2026-10-06】はじめの一手の口・音の傾向カードまで送る依頼(MyDataSection へそのまま渡す)。
+  onOnboarding = null, trendFocusRequest = 0, onTrendFocusDone = null,
 }) {
   // 隠しファイル入力。計測タブから移した(配線はそのまま流用。C-1/C-2)。
   const uploadInputRef = useRef(null);
@@ -18443,6 +18589,8 @@ function MyDataPage({
         idealProfiles={idealProfiles} selectedIdealId={selectedIdealId} setSelectedIdealId={setSelectedIdealId}
         onDeleteIdeal={onDeleteIdeal}
         pageActive={pageActive}
+        onOnboarding={onOnboarding}
+        trendFocusRequest={trendFocusRequest} onTrendFocusDone={onTrendFocusDone}
       />
 
       {/* 記録の保全: 書き出し・読み戻し・保存状態。**追加だけ**で、上の要素は1つも動かしていない。

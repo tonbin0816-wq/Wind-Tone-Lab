@@ -11588,6 +11588,7 @@ console.log("=== 検証20: F-51 振り子 / F-52 音声時計の停止 / F-53 �
     //   (c) 余りを吸収する flex:1 が帯の**外**にある(帯の中に戻すと下端が伸びて元に戻る)
     {
       const frameStart = code20.indexOf('minHeight: measureMinH');
+      // (【便BW 審査】はじめの一手 ①④ の的は帯から環の箱へ移したので、帯の綴りは元のまま)
       const bandStart = code20.indexOf('<div style={{ position: "relative", flexShrink: 0 }}>', frameStart);
       const layerAt = code20.indexOf('aria-label="メトロノームの開始/停止"');
       // 【便BM 2026-10-02 本人裁定(a)】スペーサーに ref(ringFitSpacerRef)が付いた。環を縮める計算が
@@ -13720,7 +13721,8 @@ let METRO_SIGS_ALL = [];
     // 呼ぶ行が opacity を持つ祖先の中に無いこと。綴りで直に確かめる。
     // 【便BM 2026-10-02 本人裁定(a)】環の箱に ref(ringBoxRef)が付いた(縮める計算が環の外枠を測る)。
     // 淡さ(opacity)を持たないことは変わらない ── 綴りだけ追った。
-    check("環(PitchRing)は淡くしない", /<div ref=\{ringBoxRef\} style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(code));
+    // 【便BW 審査 2026-10-06】環の箱にはじめの一手 ①④ の的の名乗り data-coach="tuner" が加わった(属性だけ。淡さは持たないまま)。
+    check("環(PitchRing)は淡くしない", /<div ref=\{ringBoxRef\}(?: data-coach="tuner")? style=\{\{ flexShrink: 0 \}\}>\s*<PitchRing/.test(code));
     check("折れ線(PitchDeviationLine)は淡くしない",
       /\{!showMetroPanel && \(\s*<div style=\{\{ marginTop: 6 \}\}>\s*<PitchDeviationLine/.test(code));
     // 淡くするだけで無効化はしない(メトロノームは録音中も押せる)。
@@ -13883,7 +13885,8 @@ let METRO_SIGS_ALL = [];
     // **<button> 2つ**になった。主張は同じ(2つを1つの包みに入れ、間隔は個体側の
     // 左 padding --sp-1 だけが作る)。包みを外して行の gap を挟む変異はここで落ちる。
     check("M5: 箱と個体の2つのボタンは行の gap を挟まない1つの包みに入っている",
-      /<div style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>\s*\r?\n\s*<button\s*\r?\n\s*onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(code));
+      // 【便BW 2026-10-06】包みにはじめの一手 ⑧ の的の名乗り(data-coach="reedChip"。枠にリードが出ているときだけ)が加わった。属性だけ。
+      /<div(?: data-coach=\{[^}]*"reedChip" : undefined\})? style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>\s*\r?\n\s*<button\s*\r?\n\s*onClick=\{\(\) => setOpenPicker\("box"\)\}/.test(code));
     check("リード表記の色は箱=--c-ink / 個体=--c-ink-2(--c-accent はアクション専用・§1.4)",
       // 【便AY(再審査 中2)】箱の字の先頭に「0枚なら --c-disabled」の枝が付いた(箱=--c-ink の主張はそのまま)。
       /color: reedEmptyGuide \? "var\(--c-disabled\)" : selectedReedId \? "var\(--c-ink\)" : "var\(--c-ink-2\)"/.test(code) &&
@@ -16802,8 +16805,12 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       && /marginLeft: "auto"/.test(vt));
     check("27.4c 既定の見せ方は状態の初期値から出る",
       /useState\(MY_DATA_VIEW_DEFAULT\)/.test(myDataSection));
+    // 【便BW 2026-10-06 本人裁定】式の既定は目安の有無で決まる(目安あり = my平均 × 目安)。組の状態の初期値は null(= まだ本人が選んでいない)で、
+    // 既定は落とし先 myDataSeriesFallback が myDataSeriesDefault(定数2つのどちらか)から引く。主張(初期値を直書きしない)は同じ。
     check("27.4c D-9: 式の既定も**定数から**引く(初期値を直書きしない)",
-      /useState\(MY_DATA_SERIES_DEFAULT\)/.test(myDataSection));
+      /const \[pairRaw, setPairRaw\] = useState\(null\);/.test(myDataSection)
+      && /const want = pair \?\? myDataSeriesDefault\(hasIdeal\);/.test(srcOfFn(src, "myDataSeriesFallback"))
+      && /return hasIdeal \? MY_DATA_SERIES_DEFAULT_IDEAL : MY_DATA_SERIES_DEFAULT;/.test(srcOfFn(src, "myDataSeriesDefault")));
 
     // 本人「わざわざ比較対象と書かなくてもわかるので比較対象というテキストも削除」。
     // **同じ体裁・同じ役割の「条件」(PIVOT)も同時に消した**ので、両方まとめて縛る。
@@ -17259,7 +17266,8 @@ console.log("\n========== 検証27: D-1 My Data(正典 dc-mydata-redesign.html �
       /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>/.test(calCard)
       && !/padding[^:]*:/.test((calCard.match(/<div className="card[^>]*>/) || [""])[0]));
     check("27.8 D-10: 指標タブと式と本体は**音の傾向カード**の中にある",
-      /<div className="card" style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n[\s\S]{0,900}?<MetricUnderlineTabs/.test(myDataSection)
+      // 【便BW 2026-10-06】音の傾向カードにはじめの一手 ⑭⑮ の的(data-coach="trend")と帯の「見る」の送り先(ref)が加わった(className の後ろ・style の前。属性だけ)。
+      /<div className="card"(?: data-coach="trend" ref=\{trendCardRef\})? style=\{\{ marginTop: "var\(--sp-3\)" \}\}>\s*\r?\n[\s\S]{0,900}?<MetricUnderlineTabs/.test(myDataSection)
       && /MY_DATA_EXPR_OPERATORS\[view\]/.test(myDataSection));
     check("27.8 D-10: 窓型1枚も同じカードの中(タブがどこまで効くかを箱が示す)",
       (myDataSection.match(/<NoteMatrixBlock/g) || []).length === 1);
@@ -28772,9 +28780,12 @@ ${deriv76}
     // **1文字も変えていない**ことを、塊そのものを指紋で固定して見る
     // (読める形の主張は下に別で置く。指紋だけだと何が壊れたか分からないため)。
     // src は読み込み時に LF へ正規化ずみ(このファイルの先頭の注記)。
-    const i76 = src.indexOf('<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>\n            <button\n              onClick={() => setOpenPicker("box")}');
-    const j76 = i76 < 0 ? -1 : src.indexOf("</div>\n        </div>", i76);
-    const blk76 = i76 >= 0 && j76 > i76 ? src.slice(i76, j76) : "";
+    // 【便BW 2026-10-06】包みの開きタグにはじめの一手 ⑧ の的の名乗り(data-coach="reedChip")が1つ加わった。**その属性1つだけを外した姿**で
+    // 指紋を取る(指紋は便AY のまま = 塊の残りは1文字も動いていない)。属性の綴りそのものは BW 節が見る。
+    const src76 = src.replace('<div data-coach={reedChipShown(selectedReedId, selectedBoxGroup) ? "reedChip" : undefined} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>', '<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>');
+    const i76 = src76.indexOf('<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>\n            <button\n              onClick={() => setOpenPicker("box")}');
+    const j76 = i76 < 0 ? -1 : src76.indexOf("</div>\n        </div>", i76);
+    const blk76 = i76 >= 0 && j76 > i76 ? src76.slice(i76, j76) : "";
     const fnv76 = (s) => {
       let h = 0x811c9dc5;
       for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -29338,9 +29349,11 @@ console.log("\n========== 検証79: 便X 基準ピッチのシート / 押した
   {
     // (a) 上部設定行の3つの入口。**読み上げの名**と行き先。
     const blk79 = (() => {
-      const a = src.indexOf('<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>\n            <button\n              onClick={() => setOpenPicker("box")}');
-      const b = a < 0 ? -1 : src.indexOf("</div>\n        </div>", a);
-      return a >= 0 && b > a ? src.slice(a, b) : "";
+      // 【便BW 2026-10-06】76.4 と同じ: はじめの一手 ⑧ の名乗り(data-coach="reedChip")の属性1つだけを外した姿で読む。
+      const s79 = src.replace('<div data-coach={reedChipShown(selectedReedId, selectedBoxGroup) ? "reedChip" : undefined} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>', '<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>');
+      const a = s79.indexOf('<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>\n            <button\n              onClick={() => setOpenPicker("box")}');
+      const b = a < 0 ? -1 : s79.indexOf("</div>\n        </div>", a);
+      return a >= 0 && b > a ? s79.slice(a, b) : "";
     })();
     check("79.2 上部設定行のリードの塊を切り出せている(空回りしていない)",
       blk79.length > 2000 && /setOpenPicker\("reeddate"\)/.test(blk79), `${blk79.length}文字`);
@@ -31653,7 +31666,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /const r = buildAdoptedProfile\(\{ aligned, theirIdeal, nickname, name, id: generateId\(\), baseFreqOf \}\);/.test(adoptBO));
   {
     const iSel = adoptBO.indexOf("setSelectedIdealId(r.profile.id);");
-    const iNotice = adoptBO.indexOf("if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true });");
+    // 【便BW 2026-10-06 本人裁定】帯に「見る」(actionLabel / onAction)が足された。探す綴りは先頭部分。順序の条件・showNotice( が1回は同じ。
+    const iNotice = adoptBO.indexOf("if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true,");
     const iRet = adoptBO.indexOf("return { ok: true };");
     check("BO.1 帯の知らせは announce のときだけ・取り込んで選んだ**あと**・ok を返す前(エラーのときは出さない)",
       iSel > 0 && iNotice > iSel && iRet > iNotice && adoptBO.indexOf("if (r.error) return r;") < iNotice
@@ -31677,12 +31691,16 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /const adoptable = Boolean\(onAdopt && !avg\.error && avgPlain\);/.test(dataBO));
   // 【便BV 2026-10-04】人物のページは PersonSheet(器)+ PersonBody(中身)。両方を読む(personPageSrc)。
   const personBO = codeOf(personPageSrc(scrBO));
-  const lit = "目安に設定しました。計測タブで比べられます";
-  check("BO.4 知らせの文の綴りは idealDoc.js の1つだけ(screens.jsx・App.jsx に直書きが無い)。人物のページはそれを読む",
+  // 【便BW 2026-10-06 本人裁定】「計測タブで比べられます」はやめた(計測タブには目安を描いている所が無い)。
+  // 【便BW 審査 統括の裁定】帯は短く「目安に設定しました」(+「見る」)。人物のページの1行は別の定数(ADOPTED_DONE_LINE)に分けた
+  // (便BO の「同じ綴り」より本人の「説明文は短く」を優先)。綴りはどちらも idealDoc.js の1つずつ・直書きは無い、の主張は同じ。
+  const lit = "目安に設定しました。データタブで比べられます";
+  check("BO.4 知らせの文の綴りは idealDoc.js にだけある(screens.jsx・App.jsx に直書きが無い)。帯は短い文・人物のページは長い文の定数を読む",
     (docBO.match(new RegExp(lit, "g")) || []).length === 1
-    && /export const ADOPTED_DONE_NOTE = "目安に設定しました。計測タブで比べられます";/.test(docBO)
-    && !codeOf(scrBO).includes(lit) && !appBO.includes(lit)
-    && /\{ADOPTED_DONE_NOTE\}/.test(personBO));
+    && /export const ADOPTED_DONE_NOTE = "目安に設定しました";/.test(docBO)
+    && /export const ADOPTED_DONE_LINE = "目安に設定しました。データタブで比べられます";/.test(docBO)
+    && !codeOf(scrBO).includes(lit) && !appBO.includes(lit) && !codeOf(scrBO).includes('"目安に設定しました"')
+    && /\{ADOPTED_DONE_LINE\}/.test(personBO) && !/ADOPTED_DONE_NOTE/.test(codeOf(scrBO)));
   check("BO.4 人物のページは今までどおり name / announce を渡さない(シートの中の1行・名前は「○○ さんの目安」)",
     /onAdopt\(\{ aligned: theirShown, theirIdeal, nickname: person\.nickname \}\)/.test(personBO)
     && /name: typeof name === "string" && name\.length > 0 \? name : `\$\{nickname\} さんの目安`,/.test(docBO));
@@ -32632,7 +32650,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.15 開発版: ホーム画面の名前 Ficus Dev・テストの内容(release_notes.txt)に「開発版」・手でだけ開始(triggering が無い)・審査に出さない",
       /\/usr\/libexec\/PlistBuddy -c "Set :CFBundleDisplayName 'Ficus Dev'" ios\/App\/App\/Info\.plist\n/.test(dev)
       && /printf '%s\\n' "開発版[^"\n]*" "commit: \$\(git rev-parse --short HEAD\)" > release_notes\.txt\n/.test(dev)
-      && !/\n\s+triggering:/.test(dev) && /\n\s+submit_to_app_store: false\b/.test(dev) && /\n\s+submit_to_testflight: true\b/.test(dev));
+      // 【便BW 統括の裁定 2026-10-06】submit_to_testflight は外部テストの審査への申し込み。3つとも false(上げることは変わらない。K.25)
+      && !/\n\s+triggering:/.test(dev) && /\n\s+submit_to_app_store: false\b/.test(dev) && /\n\s+submit_to_testflight: false\b/.test(dev));
     // 【殻 S2 審査】開発版は版 99.0 の並び(本番の 1.x と審査の提出の候補に混ざらない)。本番は版を変えない
     check("K.15 ios-dev だけが版を 99.0 に変える(ビルド番号の直後に agvtool new-marketing-version 99.0)・本番は版を変えない",
       /\n          cd ios\/App\n          agvtool new-version -all \$PROJECT_BUILD_NUMBER\n          agvtool new-marketing-version 99\.0\n/.test(dev)
@@ -32922,6 +32941,206 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.24 参加のカード(CommunityTab.jsx)は readBottomLimit を onboarding.jsx から読み、--ad-h が変わった知らせ(AD_HEIGHT_EVENT)でも読み直す",
       /import \{ CoachIcon, COACH_Z, readBottomLimit \} from "\.\.\/onboarding\.jsx";/.test(ct) && /import \{ AD_HEIGHT_EVENT \} from "\.\.\/shell\/ads\.js";/.test(ct)
       && /window\.addEventListener\(AD_HEIGHT_EVENT, read\);/.test(ct) && !/function readBottomLimit/.test(ct));
+  }
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便BW 2026-10-06 本人の要望・凍結仕様 coach2-spec.md §11.3・本人裁定】はじめの案内を一本の流れに作り直した。
+// ここは綴り(と App.jsx の純関数の実行)だけを見る。描いて押す検査は vitest(onboarding.test.jsx / onboardingApp.test.jsx /
+// idealSeenFlow.test.jsx)が持つ。
+// 【守っていないもの】穴とカードの実寸(jsdom・Node は配置を持たない。375×812 / iPad の実測は報告のスクショ)・
+//   実機の殻でのマイクの取り直しの遅れ(作り物のマイクで「isListening が立つまで出さない」を vitest が見るだけ)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便BW] はじめの案内の一本の流れ");
+  const fnvBW = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
+  const rd = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obRaw = rd("src/onboarding.jsx");
+  const ob = codeOf(obRaw);
+  const app = codeOf(src);
+  const listOf = (name, text) => {
+    const m = new RegExp(`export const ${name} = (?:Object\\.freeze\\()?\\[([^\\]]*)\\]`).exec(text);
+    return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : null;
+  };
+
+  // --- BW.1 onboarding.jsx: 印・群・段の表 -------------------------------------------------------
+  const FLAGS17 = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
+    "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen"];
+  check("BW.1 ONBOARDING_FLAGS は17個をこの順で持つ(dataSeen は移行で読むので残る)",
+    JSON.stringify(listOf("ONBOARDING_FLAGS", ob)) === JSON.stringify(FLAGS17), JSON.stringify(listOf("ONBOARDING_FLAGS", ob)));
+  check("BW.1 群: 計測タブ9段・データタブ3段・便BS の移行の3段(LEGACY)・保存で閉じる計測タブの章7つ",
+    JSON.stringify(listOf("MEASURE_TAB_STEPS", ob)) === JSON.stringify(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"])
+    && JSON.stringify(listOf("DATA_TAB_STEPS", ob)) === JSON.stringify(["calendarDay", "daySession", "trend"])
+    && JSON.stringify(listOf("MEASURE_TAB_STEPS_LEGACY", ob)) === JSON.stringify(["tuner", "metronome", "measure"])
+    && JSON.stringify(listOf("MEASURE_CHAPTER_FLAGS", ob)) === JSON.stringify(["measure", "tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked"]));
+  check("BW.1 3つ目の門 COACH2_MIGRATED = \"migratedCoach2\"・normalize が読む・移行が1回だけ立てる",
+    /export const COACH2_MIGRATED = "migratedCoach2";/.test(ob)
+    && /out\[COACH2_MIGRATED\] = src\[COACH2_MIGRATED\] === true;/.test(ob)
+    && /if \(base\.migrated === true && base\[MEASURE_STEPS_MIGRATED\] === true && base\[COACH2_MIGRATED\] === true\) return prev;/.test(ob)
+    && /if \(base\[COACH2_MIGRATED\] !== true\) \{/.test(ob) && /next\[COACH2_MIGRATED\] = true;/.test(ob)
+    && /for \(const f of MEASURE_TAB_STEPS_LEGACY\) next\[f\] = true;/.test(ob));
+  const stepsBlk = (/export const COACH_STEPS = \{([\s\S]*?)\n\};/.exec(ob) || [])[1] || "";
+  const stepOf = (id) => (new RegExp(`\\n  ${id}: \\{([\\s\\S]*?)\\n  \\},`).exec(stepsBlk + "\n") || [])[1] || "";
+  check("BW.1 COACH_STEPS に target: null が0件・anchor も dataSeen の段も無い",
+    stepsBlk.length > 2000 && !/target: null/.test(stepsBlk) && !/anchor:/.test(stepsBlk) && !/\n  dataSeen: \{/.test(stepsBlk),
+    `${(stepsBlk.match(/target: null/g) || []).length}件`);
+  check("BW.1 ① tuner の的はチューナーの帯・角丸の矩形・pad 0",
+    /target: '\[data-coach="tuner"\]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,/.test(stepOf("tuner")));
+  check("BW.1 ⑮ idealSeen(本人裁定)の的は音の傾向カード・文は「みんなの平均を目安にしました / my平均と目安を重ねて見られます」・押す=済",
+    /title: "みんなの平均を目安にしました", line: "my平均と目安を重ねて見られます",/.test(stepOf("idealSeen"))
+    && /target: '\[data-coach="trend"\]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,/.test(stepOf("idealSeen")));
+  check("BW.1 押す=済(markOnDismiss)は reedLinked・trend・idealSeen の3つだけで、どれも群(dismissWith)を持たない",
+    ["reedLinked", "trend", "idealSeen"].every((id) => /markOnDismiss: true/.test(stepOf(id)) && !/dismissWith/.test(stepOf(id)))
+    && (stepsBlk.match(/markOnDismiss: true/g) || []).length === 3);
+
+  // --- BW.2 coachCandidates の署名と ⑮ / ⑭ の並び --------------------------------------------------
+  const cc = (/export function coachCandidates\(\{([\s\S]*?)\}\) \{([\s\S]*?)\n\}/.exec(ob) || []);
+  check("BW.2 coachCandidates の署名に metronomeOn = false, metroTempoQuiet = true, hasSelectedReed = false, idealRequested = false があり dataSeenDeferred が無い",
+    /metroPanelOpen = false, metronomeOn = false, metroTempoQuiet = true, hasSelectedReed = false, idealRequested = false,/.test(cc[1] || "") && !/dataSeenDeferred/.test(cc[0] || ""));
+  check("BW.2 ⑮ はデータタブの先頭(マイクも計測の有無も待たない)・計測タブには無い・⑮ を見た人に ⑭ は出さない",
+    /case "analysis": \{\n\s*if \(idealRequested && !d\.idealSeen\) return \["idealSeen"\];\n\s*if \(!sessionsKnown\) return \[\];/.test(cc[2] || "")
+    && (String(cc[2]).match(/idealSeen/g) || []).length === 3
+    && /if \(d\.daySession && !d\.trend && !d\.idealSeen\) out\.push\("trend"\);/.test(cc[2] || ""));
+  // 【便BW 審査 統括の裁定】面の中の分岐は ③④ が済むまでだけ。済めば面が開いていても ⑤→⑧→⑨→⑩ に合流する
+  // (面はタブをまたいで開いたままなので、⑦ の「計測」で戻ると流れが止まっていた)。鳴っている間は ④ の次を出さない
+  check("BW.2 面が開いている間の分岐は ③④ が済むまでだけ・鳴っている間は ④ の次を出さない・済めば ⑤→⑧→⑨→⑩ に合流",
+    // 【便BW 再審査】④ はテンポ行に触れずに TUNER_SUSTAIN_MS 経ってから(metroTempoQuiet)
+    /if \(metroPanelOpen && !d\.metroTempo\) return \["metroTempo"\];\n\s*if \(metroPanelOpen && !d\.metroStart\) return metroTempoQuiet \? \["metroStart"\] : \[\];\n\s*if \(metroPanelOpen && metronomeOn\) return \[\];\n\s*if \(!d\.goReeds && !d\.reeds\) return \["goReeds"\];\n\s*if \(hasSelectedReed && !d\.reedLinked\) return \["reedLinked"\];/.test(cc[2] || "")
+    && !/if \(metroPanelOpen\) \{/.test(cc[2] || ""));
+
+  // --- BW.3 OnboardingCoach: 的なしの道を外した・的へスクロールは1回 --------------------------------
+  check("BW.3 scrollIntoView は onboarding.jsx に1回だけ(即座・中央)。この起動で段ごとに1回(scrolledRef)",
+    (ob.match(/scrollIntoView\?\.\(\{ block: "center", behavior: "auto" \}\)/g) || []).length === 1
+    && /if \(step\.scrollIntoView && !earlierInDom && r\.height > 0 && !scrolledRef\.current\.has\(id\)\) \{\n\s*scrolledRef\.current\.add\(id\);/.test(ob)
+    // 【便BW 審査】前の候補の的が DOM に在る間(前の段を待っている間)は送らない
+    && /\n\s*earlierInDom = true;\n\s*continue;\n/.test(ob));
+  check("BW.3 .coach-dim の綴りは onboarding.jsx の動く側に無い(参加の画面 CommunityTab.jsx には在る)・穴は必ず描く",
+    !/coach-dim/.test(ob) && /className="coach-dim"/.test(rd("src/community/CommunityTab.jsx"))
+    // 【便BW 再審査】受けを置かない範囲は穴(passThrough の段は、的を含む押せる祖先も足した外接矩形)
+    && /\{hitRects\(view\.pass \?\? view\.hole, view\.vw, view\.vh\)\.map/.test(ob) && !/data-coach-hit="all"|key: "all"/.test(ob));
+  check("BW.3 殻の判定に分岐を足していない(案内の判断を持つ onboarding.jsx は isNativeShell を読まない)",
+    !/isNativeShell/.test(obRaw));
+
+  // --- BW.4 App.jsx の的の名乗り(属性だけ) ---------------------------------------------------------
+  const mv = codeOf(srcOfFn(src, "MeasureView"));
+  // 【便BW 審査 統括の裁定】①④ の的は環の箱(帯全体だとカードが帯の中央に重なって環を覆った)。枠の条件は純関数 reedChipShown(実行は BW.6)
+  check("BW.4 MeasureView: 環の箱(data-coach=\"tuner\")・テンポ行(metroTempo)・リードの枠(reedChip。reedChipShown が真のときだけ)を1回ずつ名乗る",
+    (mv.match(/data-coach="tuner"/g) || []).length === 1
+    && /<div ref=\{ringBoxRef\} data-coach="tuner" style=\{\{ flexShrink: 0 \}\}>/.test(mv)
+    && /<div style=\{\{ position: "relative", flexShrink: 0 \}\}>/.test(mv)
+    && (mv.match(/data-coach="metroTempo"/g) || []).length === 1
+    && /<div data-coach=\{reedChipShown\(selectedReedId, selectedBoxGroup\) \? "reedChip" : undefined\} style=\{\{ display: "flex", alignItems: "center", flexShrink: 0 \}\}>/.test(mv)
+    && (app.match(/"reedChip"/g) || []).length === 1);
+  check("BW.4 鳴っているかを App へ知らせる(面の開閉と同じ形)・候補へ metronomeOn として渡す",
+    /useLayoutEffect\(\(\) => \{\n\s*onMetronomeChange\?\.\(metronomeOn\);\n\s*\}, \[metronomeOn, onMetronomeChange\]\);/.test(mv)
+    && /onMetronomeChange=\{setMetronomeOnForCoach\}/.test(app));
+  check("BW.4 下部タブは4つとも nav-${key} を名乗る(nav-measure の直書きは無い)",
+    /data-coach=\{`nav-\$\{t\.key\}`\}/.test(codeOf(srcOfFn(src, "BottomNav"))) && !/"nav-measure"/.test(app));
+  // 【便BW 再審査】シートを閉じたときも触れたと数える(④ は閉じてから TUNER_SUSTAIN_MS)。知らせる所は −・＋・シートが開いた・閉じたの4か所
+  check("BW.4 ④ 鳴り始めの知らせは metronomeOn の effect の中・③ の知らせは −・＋・シートが開いた・閉じたの4か所",
+    /useEffect\(\(\) => \{\n\s*if \(metronomeOn\) onMetronomeStarted\?\.\(\);\n\s*\}, \[metronomeOn, onMetronomeStarted\]\);/.test(mv)
+    && (app.match(/onMetroTempoTouched\?\.\(\)/g) || []).length === 4
+    && /if \(tempoSheetOpen\) \{ tempoSheetWasOpenRef\.current = true; onMetroTempoTouched\?\.\(\); \}\n\s*else if \(tempoSheetWasOpenRef\.current\) \{ tempoSheetWasOpenRef\.current = false; onMetroTempoTouched\?\.\(\); \}\n\s*\}, \[tempoSheetOpen, onMetroTempoTouched\]\);/.test(mv));
+  check("BW.4 ④ を出してよいかは、テンポ行に触れるたびに数え直す TUNER_SUSTAIN_MS の時計(新しい時間は作らない)",
+    /setMetroTempoQuiet\(false\);\n\s*clearTimeout\(metroTempoQuietTimerRef\.current\);\n\s*metroTempoQuietTimerRef\.current = setTimeout\(\(\) => setMetroTempoQuiet\(true\), TUNER_SUSTAIN_MS\);/.test(app));
+  check("BW.4 データタブ: ⑫ マス(開いている日は名乗らない)・⑬ 先頭の行・⑭ 音の傾向カード・日を開いた / 詳細が開いた で印",
+    // 【便BW 審査】⑫ の的は中の丸(34。マスの幅は画面で変わる)。押せる日だけ
+    /<span\n\s*data-coach=\{c\.count > 0 && c\.key === coachDayKey && openDayKey !== c\.key \? "calendarDay" : undefined\}\n\s*style=\{\{\n\s*width: CALENDAR_DOT,/.test(codeOf(srcOfFn(src, "PracticeCalendarCard")))
+    && (codeOf(srcOfFn(src, "PracticeCalendarCard")).match(/"calendarDay"/g) || []).length === 1
+    && /data-coach=\{coach \? "daySession" : undefined\}/.test(codeOf(srcOfFn(src, "DaySessionRow")))
+    && /<DaySessionRow key=\{s\.id\} session=\{s\} reeds=\{reeds\} onOpen=\{onOpenSession\} coach=\{i === 0\} \/>/.test(app)
+    && (app.match(/data-coach="trend"/g) || []).length === 1
+    && (app.match(/onOnboarding\?\.\("daySession"\)/g) || []).length === 1
+    && (app.match(/onOnboarding\?\.\("calendarDay"\)/g) || []).length === 1);
+  check("BW.4 sawNoSessionsThisLaunch は動く側に0件",
+    !/sawNoSessionsThisLaunch/.test(app));
+
+  // --- BW.5 根の配線 ------------------------------------------------------------------------------
+  const coachCall = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+  check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は便BS のまま一字一句",
+    /metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/.test(coachCall)
+    && coachCall.includes("hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || Boolean(notice)}"));
+  check("BW.5 見本の初期値の両方と onboardingReady に COACH2_MIGRATED",
+    (app.match(/\[MEASURE_STEPS_MIGRATED\]: true, \[COACH2_MIGRATED\]: true \}/g) || []).length === 2
+    && /onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\];/.test(app));
+  check("BW.5 帯の「見る」(本人裁定): ADOPTED_DONE_NOTE の showNotice に actionLabel: \"見る\"・押すとデータタブ・作り直し・⑮ の依頼・送る依頼",
+    /if \(announce\) showNotice\(\{ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice \}\);/.test(app)
+    && /const openTrendFromNotice = useCallback\(\(\) => \{\n\s*setTopTab\("analysis"\);\n\s*setNavNonce\(\(n\) => n \+ 1\);\n\s*setCoachRequest\("idealSeen"\);\n\s*setTrendFocusRequest\(\(n\) => n \+ 1\);\n\s*\}, \[\]\);/.test(app));
+  check("BW.5 ⑮ の依頼はデータタブを離れたら・⑮ が済んだら畳む / ⑤⑩ はタブを移った結果で印(goData は計測があるときだけ)",
+    /useEffect\(\(\) => \{ if \(topTab !== "analysis"\) setCoachRequest\(null\); \}, \[topTab\]\);/.test(app)
+    && /useEffect\(\(\) => \{ if \(coachDone\.idealSeen\) setCoachRequest\(null\); \}, \[coachDone\.idealSeen\]\);/.test(app)
+    && /if \(topTab === "reeds"\) markOnboarding\("goReeds"\);\n\s*if \(topTab === "analysis" && sessions\.length > 0\) markOnboarding\("goData"\);/.test(app));
+  const mds = codeOf(srcOfFn(src, "MyDataSection"));
+  check("BW.5 音の傾向カードまで送る: 依頼を畳んでから1フレーム後に、カードを中央へ(即座)",
+    /useEffect\(\(\) => \{\n\s*if \(!trendFocusRequest\) return;\n\s*onTrendFocusDone\?\.\(\);\n\s*requestAnimationFrame\(\(\) => trendCardRef\.current\?\.scrollIntoView\?\.\(\{ block: "center", behavior: "auto" \}\)\);\n\s*\}, \[trendFocusRequest, onTrendFocusDone\]\);/.test(mds)
+    && /<div className="card" data-coach="trend" ref=\{trendCardRef\} style=\{\{ marginTop: "var\(--sp-3\)" \}\}>/.test(mds));
+
+  // --- BW.6 My Data の折れ線の既定(本人裁定)・⑫ の日 ---------------------------------------------------
+  {
+    const api = new Function(`${extractConst("MY_DATA_SERIES")}
+      ${extractConst("MY_DATA_SERIES_DEFAULT")}
+      ${extractConst("MY_DATA_SERIES_DEFAULT_IDEAL")}
+      ${extractFunction("myDataSeriesDefault")}
+      ${extractFunction("myDataSeriesOptions")}
+      ${extractFunction("myDataSeriesFallback")}
+      ${extractFunction("myDataSeriesPick")}
+      return { myDataSeriesDefault, myDataSeriesFallback, myDataSeriesPick };`)();
+    const j = (a) => (a || []).join(",");
+    check("BW.6 実行: 既定は目安あり = my平均 × 目安 / 目安なし = その日 × my平均(本人「自分の平均と目安の二つ」)",
+      j(api.myDataSeriesDefault(true)) === "period,reference" && j(api.myDataSeriesDefault(false)) === "day,period",
+      `${j(api.myDataSeriesDefault(true))} / ${j(api.myDataSeriesDefault(false))}`);
+    check("BW.6 実行: まだ選んでいない(null)ときだけ既定が効く。選んだ組は目安があっても上書きしない",
+      j(api.myDataSeriesFallback(null, true)) === "period,reference" && j(api.myDataSeriesFallback(null, false)) === "day,period"
+      && j(api.myDataSeriesFallback(["day", "period"], true)) === "day,period"
+      && j(api.myDataSeriesFallback(["period", "day"], true)) === "period,day");
+    check("BW.6 実行: まだ選んでいない状態で選ぶと、画面に見えている既定の組から入れ替わる",
+      j(api.myDataSeriesPick(null, 0, "day", true)) === "day,reference"
+      && j(api.myDataSeriesPick(null, 1, "period", true)) === "reference,period"
+      && j(api.myDataSeriesPick(null, 1, "reference", false)) === "day,period",
+      `${j(api.myDataSeriesPick(null, 0, "day", true))} / ${j(api.myDataSeriesPick(null, 1, "period", true))}`);
+    check("BW.6 組の状態の初期値は null(= まだ選んでいない)。既定を読むのは落とし先の1か所",
+      /const \[pairRaw, setPairRaw\] = useState\(null\);/.test(mds)
+      && (app.match(/myDataSeriesDefault\(/g) || []).length === 2);
+    const lk = new Function(`${extractFunction("localDayKey")} ${extractFunction("latestLocalDayKey")} return latestLocalDayKey;`)();
+    const d1 = new Date(2026, 9, 3, 23, 50); const d2 = new Date(2026, 9, 5, 0, 10);
+    check("BW.6 実行: ⑫ の日は recordedAt がいちばん遅い計測の暦日(localDayKey)・空なら null・読めない日時は数えない",
+      lk([{ recordedAt: d1.toISOString() }, { recordedAt: d2.toISOString() }]) === "2026-10-05"
+      && lk([{ recordedAt: d2.toISOString() }, { recordedAt: d1.toISOString() }]) === "2026-10-05"
+      && lk([]) === null && lk([{ recordedAt: "x" }]) === null,
+      String(lk([{ recordedAt: d1.toISOString() }, { recordedAt: d2.toISOString() }])));
+    // 【便BW 審査】⑧ の的を名乗る条件(リードの id があっても、枠の箱がそのリードを含まなければ名乗らない)
+    const rcs = new Function(`${extractFunction("reedChipShown")} return reedChipShown;`)();
+    const box = { members: [{ id: "a" }, { id: "b" }] };
+    check("BW.6 実行: reedChipShown は id が枠の箱の中に在るときだけ真(id だけ・箱なし・別の箱では偽)",
+      rcs("a", box) === true && rcs("b", box) === true && rcs("x", box) === false && rcs("a", null) === false
+      && rcs(null, box) === false && rcs("a", { members: [] }) === false);
+  }
+  {
+    // 【便BW 統括の裁定 2026-10-06】codemagic: 外部テストの審査(beta review)へ自動で申し込まない(3つとも)。上げることは publishing が行う
+    const cmBW = rd("codemagic.yaml");
+    check("K.25 codemagic.yaml: submit_to_testflight は3つの workflow とも false・true は1つも無い・submit_to_app_store も false",
+      (cmBW.match(/\n\s+submit_to_testflight: false\b/g) || []).length === 3 && !/submit_to_testflight: true/.test(cmBW)
+      && (cmBW.match(/\n\s+submit_to_app_store: false\b/g) || []).length === 3 && !/submit_to_app_store: true/.test(cmBW));
+  }
+
+  // --- BW.7 CSS は触らない・帯の文・DESIGN-SYSTEM ----------------------------------------------------
+  {
+    const css = rd("src/index.css");
+    const a = css.indexOf("@keyframes coach-out");
+    const b = css.indexOf("}", css.indexOf(".coach-live {")) + 1;
+    const blk = a >= 0 && b > a ? css.slice(a, b) : "";
+    check("BW.7 index.css の .coach-* の規則は便BW の前と1文字も変わらない(この便は CSS を触らない)",
+      blk.length === 3145 && fnvBW(blk) === "96bbfa3a", `${blk.length}文字 / fnv1a=${fnvBW(blk)}`);
+    const ds = rd("design/DESIGN-SYSTEM.md");
+    const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
+    const titles = ["まずは吹いてみよう", "メトロノームも使えます", "テンポを決めよう", "タップでスタート", "次はリードを登録しよう",
+      "使っているリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
+      "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
+      "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう"];
+    const missing = titles.filter((t) => !sec.includes(t));
+    check("BW.7 DESIGN-SYSTEM §4.5b に便BW の段の見出しが全部ある(17 の段。⑦⑨ は同じ見出し)",
+      sec.length > 1000 && missing.length === 0 && /【便BW/.test(sec), missing.join(" / "));
   }
   console.log("  -> done");
 }

@@ -25,11 +25,17 @@ import { createPortal } from "react-dom";
 //   ・【便BS 2026-10-03 本人裁定】正典 = scratchpad の ficus-tutorial2.html。
 //     参加前(join)の段は外した ── 参加の画面そのものが暗幕とカード1枚になった(CommunityTab.jsx の JoinIntro)。
 //       印 join は「参加した」の印として残す(参加後の段 adoptAverage を出す門)
-//     計測タブは3段: チューナー(tuner。的なし)→ メトロノーム(metronome。右上のアイコン)→ 計測(measure)。
-//       外を押して消したら、計測タブの3段とも、この起動の間は出さない(dismissWith)
-//     データタブ: 計測がすでにあるときの段(dataSeen。的なし)。押したら(外でもカードでも)印を立てて二度と出さない(markOnDismiss)。
-//       計測が無いときの段(data)は今までどおり。どちらを出すかは計測の有無で決まる(同時には出ない)
-//     的なし(target: null)の段は、穴を開けずに暗幕だけを敷き、カードを中央に置く。anchor があれば、その要素が在るときだけ出す
+//     (便BS のときの計測タブの3段・データタブの dataSeen・的なしの段の作りは、【便BW】で下のとおり作り直した。印 join の扱いは今も同じ)
+//   ・【便BW 2026-10-06 本人の要望・凍結仕様 coach2-spec.md】一本の流れに作り直した。
+//     計測タブ: ① チューナー(的は環の箱。暗幕で隠していたのが本人の不満1。的なしの段は無くなった)→ ② メトロノーム →
+//       (面の中・③④ が済むまで)③ テンポ行 → ④ 環を押してスタート → ⑤ 下部タブ「リード」→ リードタブ ⑥ 登録 → ⑦ このリードで計測 →
+//       計測タブ ⑧ 左上のリードの枠 → ⑨ 計測(リードが選ばれていれば「このリードで計測してみよう」)→ ⑩ 下部タブ「データ」
+//     データタブ: ⑫ 最新の計測の日のマス → ⑬ その日の先頭の記録 →(詳細)→ ⑭ 音の傾向カード(初回だけ的へスクロール)
+//     ⑮ みんなの平均を目安にしたあと、帯の「見る」でデータタブの My Data へ移り、音の傾向カードを照らす
+//       (【本人裁定 2026-10-06】計測タブではなくデータタブ。My Data の折れ線の既定は目安があれば my平均 × 目安)。
+//       ⑭ と同じ的なので、⑮ を見た人には ⑭ を出さない(coachCandidates)
+//     案内は自動でタブを移さない(⑤⑩ は下部タブを照らして待つ)。例外は帯の「見る」(本人が押した帯の操作)だけ。
+//     押す=済(markOnDismiss)の段は ⑧⑭⑮ の3つ。この3つは外を押しても群(dismissWith)を消さない(次の段へ進ませるため)
 //
 // **判断はこのファイルの純関数が持つ**(どの一手を出すか・印の立て方・移行・穴とカードの位置)。
 // App.jsx は「いまの状態」を渡し、成功の道で markOnboardingDone を呼ぶだけ。
@@ -41,12 +47,22 @@ export const ONBOARDING_KEY = "onboardingDone";
 // 印の名前。**一度 true になったら戻さない**(計測やリードを消しても戻らない)。
 // 【便BQ】openPerson(参加後1)は外した。前の版で保存された openPerson は読み捨てる(残っていても害は無い)。
 // 【便BS】tuner / metronome(計測タブの1段目・2段目)と dataSeen(データタブの計測があるときの段)を足した。
-export const ONBOARDING_FLAGS = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen"];
+// 【便BW】新しい9つ(metroTempo 〜 idealSeen)を足した。dataSeen は段が無くなったが、前の版が保存した値を移行で読むので印の名前は残す。
+export const ONBOARDING_FLAGS = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
+  "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen"];
 // 【便BS】計測タブの3段の移行を済ませたかの印。便BP の移行(migrated)を済ませた人(配信済み)にも、
 // 計測があれば tuner・metronome を済みにするために、別の印で1回だけ走らせる(migrateOnboardingDone)。
 export const MEASURE_STEPS_MIGRATED = "migratedMeasureSteps";
-// 【便BS】計測タブの3段(出す順)。外を押して消したら、この3つを全部この起動の間は出さない。
-export const MEASURE_TAB_STEPS = Object.freeze(["tuner", "metronome", "measure"]);
+// 【便BW】新しい段の移行を済ませたかの印(3つ目の門)。計測が1件でもある人には新しい段を1つも出さない。
+export const COACH2_MIGRATED = "migratedCoach2";
+// 【便BW】計測タブの段(出す順の id)。外を押して消したら、この全部をこの起動の間は出さない(押す=済の reedLinked を除く。COACH_STEPS)。
+export const MEASURE_TAB_STEPS = Object.freeze(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"]);
+// 【便BS】の移行(migratedMeasureSteps)が「計測があれば済み」にしていた3段。移行の結果を変えないため、この便で広げた群とは別に持つ。
+export const MEASURE_TAB_STEPS_LEGACY = Object.freeze(["tuner", "metronome", "measure"]);
+// 【便BW】データタブの段(計測があるとき)。外を押して消したら、この全部をこの起動の間は出さない。
+export const DATA_TAB_STEPS = Object.freeze(["calendarDay", "daySession", "trend"]);
+// 【便BW】計測が1件保存されたら、計測タブの章を閉じる(計測したことがある人に初めての人向けの案内を出さない)。
+export const MEASURE_CHAPTER_FLAGS = Object.freeze(["measure", "tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked"]);
 // 【便BS】チューナーの段が済むまでの長さ。音程が**続けて**この長さ取れたら済み(本人裁定「音程が1秒ほど続けて取れた」)。
 // 動きの時間ではなく「待つ長さ」(DESIGN-SYSTEM §1.11 の段の外)。
 export const TUNER_SUSTAIN_MS = 1000;
@@ -61,22 +77,25 @@ export const COACH_Z = 55;
 // カードと画面の左右の間隔・的とカードの間隔(版4の .coach の left/right 22 と、的の下に置くときの + 22)。
 export const COACH_EDGE_PX = 22;
 
-// 一手の表(【便BS】参加前を外し、チューナー・メトロノーム・データ(計測あり)を足して8つ)。文は凍結仕様の表のまま(一字一句。【便BQ】リード1・リード2は本人の指示で替えた)。pad / shape は版4の .spot の値。
+// 一手の表(【便BS】参加前を外し、チューナー・メトロノーム・データ(計測あり)を足して8つ。【便BW】dataSeen を外し、10段を足して17)。文は凍結仕様の表のまま(一字一句。【便BQ】リード1・リード2は本人の指示で替えた)。pad / shape は版4の .spot の値。
 //   pad   … 的の矩形から穴を広げる幅(px)
 //   shape … circle = 的の中心に、長い辺 + pad×2 の円 / pill = 角丸 999 / rect = 角丸 12(--r-2)
 //   line  … 1行。null なら出さない(見出しだけ)
 // target は的を探す CSS セレクタ。的の要素は各画面が data-coach で名乗る(無ければ出さない)。
 // データタブの的は下部タブの「計測」ボタンの**絵柄**(ボタンそのものは横長 84×32 なので、絵柄 30×30 を円で囲む。
 // 版4は 44 の丸 + pad 4 = 直径 52 だったので、30 の絵柄には pad 11 で同じ 52 にする)。
-// 【便BS】target: null の段は的なし(穴を開けない)。anchor … その段を出してよい画面に在る目印(在るかだけを見る。無ければ出さない)。
+// (【便BW】的なし(target: null)の段は無くなった。どの段も的を持つ)
 //   dismissWith … 外を押して消したときに、一緒にこの起動の間は出さない段(既定はその段だけ)
-//   markOnDismiss … 外(暗幕・カード)を押したら、その段の印を立てる(押すことが一手そのものの段)
+//   markOnDismiss … 外(暗幕・カード)を押したら、その段の印を立てる(押すことが一手そのものの段)。群は持たない(次の段へ進ませる)
+//   scrollIntoView … 的の要素が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(【便BW】音の傾向カード)
 export const COACH_STEPS = {
-  // 【便BS 2026-10-03 本人裁定】計測タブ1段目。吹けば済む(押す所が無い)ので的なし。版は ficus-tutorial2.html の 2-1。
+  // 【便BW 2026-10-06 本人の要望1】計測タブ1段目。的は環の箱(環と音名。吹いて動く所)。
+  // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
+  // 便BS では「押す所が無い」ので的なし(画面いっぱいの暗幕)にしていたが、吹いて変わる所まで暗くなっていた。
   tuner: {
     flag: "tuner", icon: "tuner",
     title: "まずは吹いてみよう", line: "音程がリアルタイムで表示されます",
-    target: null, anchor: null, dismissWith: MEASURE_TAB_STEPS,
+    target: '[data-coach="tuner"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BS】計測タブ2段目。的は右上のメトロノームのアイコンのボタン(44 角)。版の .spot の pad 0 で丸く囲む。
   metronome: {
@@ -84,12 +103,48 @@ export const COACH_STEPS = {
     title: "メトロノームも使えます", line: "テンポを決めて練習できます",
     target: '[data-coach="metronome"]', pad: 0, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
   },
+  // 【便BW 本人の要望2】メトロノームの面の中の2段。③ テンポ行(− ♩=n ＋)。♩=n を押すと拍子・分割のシート(本人裁定 ア)。
+  metroTempo: {
+    flag: "metroTempo", icon: "metro",
+    title: "テンポを決めよう", line: "♩=n を押すと拍子も変えられます",
+    target: '[data-coach="metroTempo"]', pad: 6, shape: "pill", dismissWith: MEASURE_TAB_STEPS,
+  },
+  // ④ 帯のどこを押しても開始(A-1 の背面レイヤ)。的は①と同じ環の箱(環は当たり判定を持たないので、押すと背面レイヤに届いて鳴る)。
+  metroStart: {
+    flag: "metroStart", icon: "metro",
+    title: "タップでスタート", line: "もう一度押すと止まります",
+    target: '[data-coach="tuner"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
+  },
+  // 【便BW 本人の要望3】⑤ 下部タブ「リード」の絵柄。自動では移さない(押してもらうのを待つ)。pad 11 はデータの段と同じ(30 + 22 = 52)。
+  goReeds: {
+    flag: "goReeds", icon: "reeds",
+    title: "次はリードを登録しよう", line: null,
+    target: '[data-coach="nav-reeds"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
+  },
+  // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
+  reedLinked: {
+    flag: "reedLinked", icon: "reeds",
+    title: "選んだリードが紐づいています", line: "計測の記録にこのリードが残ります",
+    target: '[data-coach="reedChip"]', pad: 6, shape: "pill", markOnDismiss: true,
+  },
+  // 【便BW 本人の要望6】⑨ リードが選ばれているときの計測の段。印は measure(リードなしの段と同じ印で文が2つ)。
+  measureReed: {
+    flag: "measure", icon: "mic",
+    title: "このリードで計測してみよう", line: "ボタンタップで計測スタート",
+    target: '[data-coach="measure"]', pad: 14, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
+  },
   measure: {
     flag: "measure", icon: "mic",
     title: "最初の計測を記録しよう", line: "ボタンタップで計測スタート",
     target: '[data-coach="measure"]', pad: 14, shape: "circle",
-    // 【便BS】計測タブの3段目。外を押したら3段とも出さない
+    // 【便BS】計測タブの段。外を押したら計測タブの段を全部出さない
     dismissWith: MEASURE_TAB_STEPS,
+  },
+  // 【便BW 本人の要望7】⑩ 下部タブ「データ」の絵柄。計測があるときだけ。
+  goData: {
+    flag: "goData", icon: "data",
+    title: "計測の記録を見てみよう", line: null,
+    target: '[data-coach="nav-analysis"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
   },
   reeds: {
     flag: "reeds", icon: "reeds",
@@ -110,12 +165,33 @@ export const COACH_STEPS = {
     title: "計測を始めると、ここに貯まります", line: "計測タブから計測してみよう",
     target: '[data-coach="nav-measure"] svg', pad: 11, shape: "circle",
   },
-  // 【便BS 2026-10-03 本人裁定】データタブ・計測がすでにあるとき。やることは無いので的なし。押したら(外でもカードでも)済み。
-  // 出すのは My Data を表に出しているときだけ(目印 data-coach-anchor="mydata" は App.jsx の AnalysisLabView が置く)。
-  dataSeen: {
-    flag: "dataSeen", icon: "data",
-    title: "計測したデータがここに貯まります", line: "練習の記録と音の傾向を振り返れます",
-    target: null, anchor: '[data-coach-anchor="mydata"]', markOnDismiss: true,
+  // (【便BS】の dataSeen「計測したデータがここに貯まります」(的なし)はここにあった。【便BW】役目は ⑫⑬⑭ が継いだ。印の名前は残す)
+  // 【便BW 本人の要望7】⑫ カレンダーの最新の計測の日のマス(その日の枠が閉じているときだけ名乗る)。
+  calendarDay: {
+    flag: "calendarDay", icon: "data",
+    title: "計測した日を押してみよう", line: null,
+    // 【便BW 再審査】的は中の丸(34)。pad 5 で直径 44(§5 の当たりの最小)。iPhone・iPad とも同じ大きさ。
+    // passThrough: 丸の外でもマス(押せる日のボタン)の中は下へ通す(外押しにしない。iPad のマスは幅 87)
+    target: '[data-coach="calendarDay"]', pad: 5, shape: "circle", passThrough: "button", dismissWith: DATA_TAB_STEPS,
+  },
+  // ⑬ 開いた日の枠の先頭の記録の行。押すと計測の詳細(詳細の中にカードは置かない)。
+  daySession: {
+    flag: "daySession", icon: "data",
+    title: "記録を開いてみよう", line: null,
+    target: '[data-coach="daySession"]', pad: 4, shape: "rect", dismissWith: DATA_TAB_STEPS,
+  },
+  // 【便BW 本人の要望8】⑭ 音の傾向カード。My Data の最下段なので、初回だけ的へスクロール。押す=済。
+  trend: {
+    flag: "trend", icon: "data",
+    title: "データが溜まると、平均がここにグラフで出ます", line: null,
+    target: '[data-coach="trend"]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,
+  },
+  // 【便BW 本人の要望9・本人裁定 2026-10-06】⑮ みんなの平均を目安にしたあと、帯の「見る」で来たときだけ。的は ⑭ と同じ音の傾向カード
+  // (目安があれば折れ線の既定は my平均 × 目安)。押す=済。
+  idealSeen: {
+    flag: "idealSeen", icon: "target",
+    title: "みんなの平均を目安にしました", line: "my平均と目安を重ねて見られます",
+    target: '[data-coach="trend"]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,
   },
   // (【便BS】参加前(join)の段はここにあった。参加の画面そのものが暗幕とカード1枚になったので外した。CommunityTab.jsx の JoinIntro)
   adoptAverage: {
@@ -138,6 +214,7 @@ export function normalizeOnboardingDone(raw) {
   for (const k of ONBOARDING_FLAGS) out[k] = src[k] === true;
   out.migrated = src.migrated === true;
   out[MEASURE_STEPS_MIGRATED] = src[MEASURE_STEPS_MIGRATED] === true;
+  out[COACH2_MIGRATED] = src[COACH2_MIGRATED] === true;
   return out;
 }
 
@@ -150,8 +227,9 @@ export function markOnboardingDone(prev, flag) {
 
 // 計測が1件保存されたときに立てる印(録音の保存・取り込みの保存の両方が呼ぶ)。
 // リードを紐づけた計測なら「このリードで計測」(reedsMeasure)も済む。
+// 【便BW】計測タブの章(MEASURE_CHAPTER_FLAGS)を全部閉じる ── 計測したことがある人に初めての人向けの案内を出さない。
 export function onboardingFlagsForSavedSession(session) {
-  return session?.reedId ? ["measure", "reedsMeasure"] : ["measure"];
+  return session?.reedId ? [...MEASURE_CHAPTER_FLAGS, "reedsMeasure"] : [...MEASURE_CHAPTER_FLAGS];
 }
 
 // みんなの平均を取り込んだ目安か(名前が「みんなの平均」で始まる。screens.jsx の cohortAdoptName が付ける)。
@@ -169,52 +247,91 @@ export function isCohortAverageProfile(p) {
 // 【便BS 2026-10-03 本人裁定】計測が1件でもあれば、計測タブの3段(tuner・metronome・measure)を済みにする
 // (使い方を知っている人に出さない)。便BP の移行を済ませた人(migrated)にも、別の印(migratedMeasureSteps)で1回だけ当てる。
 // dataSeen は移行で立てない(既存の人も、次にデータタブを開いたとき1回だけ出る)。
+// 【便BW 2026-10-06 本人裁定(§14 の 2 = 既定 ア)】3つ目の門(migratedCoach2)。計測が1件でもある人には新しい段を1つも出さない
+// (新しい8つの印を立てる)。リードがあれば goReeds、前の版で dataSeen を押した人はデータタブの3段、みんなの平均を取り込んである人は idealSeen。
 export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealProfiles = [], isAdopted = () => false } = {}) {
   const base = isObj(prev) ? prev : {};
-  if (base.migrated === true && base[MEASURE_STEPS_MIGRATED] === true) return prev;
+  if (base.migrated === true && base[MEASURE_STEPS_MIGRATED] === true && base[COACH2_MIGRATED] === true) return prev;
   const next = { ...base };
   const ss = Array.isArray(sessions) ? sessions : [];
+  const rs = Array.isArray(reeds) ? reeds : [];
+  // 【便BP3】みんなの平均の目安は、名前が「みんなの平均」で始まる取り込んだ目安で見分ける。
+  const hasCohortIdeal = (Array.isArray(idealProfiles) ? idealProfiles : []).some((p) => isAdopted(p) && isCohortAverageProfile(p));
   if (base.migrated !== true) {
     if (ss.length > 0) next.measure = true;
-    if (Array.isArray(reeds) && reeds.length > 0) next.reeds = true;
+    if (rs.length > 0) next.reeds = true;
     if (ss.some((s) => Boolean(s?.reedId))) next.reedsMeasure = true;
-    // 【便BP3】adoptAverage は**みんなの平均の目安**があるときだけ。名前が「みんなの平均」で始まる取り込んだ目安で見分ける。
-    if ((Array.isArray(idealProfiles) ? idealProfiles : []).some((p) => isAdopted(p) && isCohortAverageProfile(p))) next.adoptAverage = true;
+    // 【便BP3】adoptAverage は**みんなの平均の目安**があるときだけ。
+    if (hasCohortIdeal) next.adoptAverage = true;
     next.migrated = true;
   }
-  // 【便BS】計測タブの3段。立てるだけ(既に立っている印は倒さない)。
-  if (ss.length > 0) { for (const f of MEASURE_TAB_STEPS) next[f] = true; }
+  // 【便BS】計測タブの3段。立てるだけ(既に立っている印は倒さない)。【便BW】群が広がったので、便BS の3段は別の定数で持つ。
+  if (ss.length > 0) { for (const f of MEASURE_TAB_STEPS_LEGACY) next[f] = true; }
   next[MEASURE_STEPS_MIGRATED] = true;
+  // 【便BW】新しい段。1回だけ。
+  if (base[COACH2_MIGRATED] !== true) {
+    // 【便BW 審査】idealSeen も(本人裁定「既存の利用者には新しい段0枚」。計測がある人には「見る」は移動とスクロールだけ)
+    if (ss.length > 0) for (const f of ["metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen"]) next[f] = true;
+    if (rs.length > 0) next.goReeds = true;
+    if (base.dataSeen === true) for (const f of DATA_TAB_STEPS) next[f] = true;
+    if (hasCohortIdeal || base.adoptAverage === true) next.idealSeen = true;
+    next[COACH2_MIGRATED] = true;
+  }
   return next;
 }
 
 // いまのタブで出し得る一手(順番どおり。的が画面に在る最初の1つを出す)。
-//   計測   … マイクの許可が済んでいる(micReady)ときだけ。【便BS】チューナー → メトロノーム → 計測の順に1つずつ
+//   計測   … マイクの許可が済んでいる(micReady)ときだけ。【便BW】① → ② →(面の中)③ → ④ → ⑤ →(面の外)⑤ → ⑧ → ⑨ → ⑩ の順に1つずつ
 //   リード … 登録 → 登録が済んだら「このリードで計測」
-//   データ … 【便BS】計測の有無で分ける(同時には出ない)。計測が無い: 計測タブへ(計測が済むまで。計測タブと共通の印。今までどおり) /
-//            計測がある: 「ここに貯まります」(dataSeen が済むまで)。計測の有無が読めるまで(sessionsKnown)はどちらも出さない
+//   データ … 計測の有無で分ける(同時には出ない)。計測が無い: 計測タブへ(計測が済むまで。計測タブと共通の印。今までどおり) /
+//            計測がある: 【便BW】⑫ 日のマス → ⑬ 記録の行 → ⑭ 音の傾向。計測の有無が読めるまで(sessionsKnown)はどちらも出さない
 //   コミュニティ … 参加したら(印 join)、すぐみんなの平均を目安に(【便BQ】奏者を開く段は外した。【便BS】参加前の段も外した)
 // 【便BS 審査 2026-10-03 統括の裁定】
 //   metroPanelOpen … メトロノームの面が開いている間は、計測の段(measure)を出さない(面の上に出て最初のテンポ操作を食べるため)。
 //                    面を閉じたら出る。メトロノームの印は今までどおり面を開いたときに立てる
-//   dataSeenDeferred … この起動の中で計測が 0件 → 1件以上 に変わったときは、dataSeen をこの起動では出さない(次の起動へ回す。
-//                    初めて取り込んだ直後に「計測を始めると」と2枚続けて出ないように)
-export function coachCandidates({ topTab, done, micReady = false, hasSessions = false, sessionsKnown = true, metroPanelOpen = false, dataSeenDeferred = false }) {
+//   (【便BW】dataSeenDeferred は dataSeen の段と一緒に外した。0件 → 1件の起動では ⑩ → ⑫ と続いてほしい)
+// 【便BW 2026-10-06 凍結仕様 §6・本人裁定】
+//   hasSelectedReed … 計測タブの枠にリードが出ている(いまの楽器のリードが選ばれている)。⑧ と ⑨ の文を決める
+//   idealRequested  … 帯の「見る」からデータタブへ来た(⑮)。他のどの段より先・1回だけ。計測の有無を待たない(音の傾向カードは 0件でも在る)
+//   計測タブは1つだけ返す(的が無ければ何も出ない)。データタブは並びで返す(日の枠の開閉で ⑫⑬ のどちらの的が在るかが決まる)。
+//   ⑭ と ⑮ は同じ的(音の傾向カード)。⑮ を見た人には ⑭ を出さない(同じカードの案内を2回続けない)。⑭ を先に見た人にも ⑮ は出る(目安の話は新しい)
+export function coachCandidates({
+  topTab, done, micReady = false, hasSessions = false, sessionsKnown = true,
+  metroPanelOpen = false, metronomeOn = false, metroTempoQuiet = true, hasSelectedReed = false, idealRequested = false,
+}) {
   const d = done ?? {};
   switch (topTab) {
-    case "measure":
+    case "measure": {
       if (!micReady) return [];
-      for (const id of MEASURE_TAB_STEPS) {
-        if (d[COACH_STEPS[id].flag]) continue;
-        // 【便BS 審査】計測の段は、メトロノームの面が開いている間は出さない(閉じたら出る)
-        return id === "measure" && metroPanelOpen ? [] : [id];
-      }
+      if (!d.tuner) return ["tuner"];
+      if (!d.metronome) return ["metronome"];
+      // 面の中の段(③④)は、面が開いていて ③④ が済んでいないときだけ。
+      // 【便BW 審査 2026-10-06 統括の裁定】③④ が済んでいれば、面が開いていても閉じているときと同じ ⑤→⑧→⑨→⑩ に合流する
+      // (面はタブをまたいで開いたままなので、⑦ の「計測」で戻る本筋の道で流れが止まっていた)。面を閉じる段は足さない(閉じると鳴りやむ)。
+      if (metroPanelOpen && !d.metroTempo) return ["metroTempo"];
+      // 【便BW 再審査 統括の裁定(a)】④ はテンポ行に最後に触れてから TUNER_SUSTAIN_MS の間なにも触れなかったとき(metroTempoQuiet)に出す
+      // (③ のあと続けて − / ＋ を押すと、④ のカードがテンポ行を覆っていて、その1回が外押しになって計測タブの段がまるごと消えていた)
+      if (metroPanelOpen && !d.metroStart) return metroTempoQuiet ? ["metroStart"] : [];
+      // 【便BW 審査】面が開いていて鳴っている間は ④ の次の段を出さない(④ の文が促す2回目のタップが次の段の受けに当たり、
+      // 外押しとして計測タブの段がこの起動の間まるごと消えていた)。止まったら出す
+      if (metroPanelOpen && metronomeOn) return [];
+      if (!d.goReeds && !d.reeds) return ["goReeds"];
+      if (hasSelectedReed && !d.reedLinked) return ["reedLinked"];
+      if (!d.measure) return [hasSelectedReed ? "measureReed" : "measure"];
+      if (hasSessions && !d.goData) return ["goData"];
       return [];
+    }
     case "reeds": return !d.reeds ? ["reeds"] : !d.reedsMeasure ? ["reedsMeasure"] : [];
-    case "analysis":
+    case "analysis": {
+      if (idealRequested && !d.idealSeen) return ["idealSeen"];
       if (!sessionsKnown) return [];
-      if (hasSessions) return !d.dataSeen && !dataSeenDeferred ? ["dataSeen"] : [];
-      return !d.measure ? ["data"] : [];
+      if (!hasSessions) return !d.measure ? ["data"] : [];
+      const out = [];
+      if (!d.calendarDay) out.push("calendarDay");
+      if (!d.daySession) out.push("daySession");
+      if (d.daySession && !d.trend && !d.idealSeen) out.push("trend");
+      return out;
+    }
     case "community": return d.join && !d.adoptAverage ? ["adoptAverage"] : [];
     default: return [];
   }
@@ -373,9 +490,10 @@ function hitRects(hole, vw, vh) {
 // COACH_POLL_MS ごとに探す / 出している間は rAF で的の矩形を1回読む / 候補が変わった描画は useLayoutEffect で測り直す。
 // 【読み上げ】空の role="status" を常に1つ置き、文だけを差し替える(同じ一手の間に読み直さない)。カードは aria-hidden。
 // 【外を押したら消す】(便BQ)消した一手はこの部品が生きている間(= この起動の間)覚えておき、二度と出さない。印は立てない。
-//   【便BS】dismissWith を持つ段は、その全部をこの起動の間は出さない(計測タブの3段)。
-//   markOnDismiss の段(dataSeen)だけは、外を押したら onMark(印の名前)で印を立てる(押すことが一手そのもの)
-// 【便BS】的なし(target: null)の段は、穴の代わりに暗幕(.coach-dim)を画面いっぱいに敷き、受けは1枚(画面いっぱい)。
+//   【便BS】dismissWith を持つ段は、その全部をこの起動の間は出さない(【便BW】計測タブの段・データタブの段)。
+//   markOnDismiss の段(【便BW】reedLinked・trend・idealSeen)だけは、外を押したら onMark(印の名前)で印を立てる(押すことが一手そのもの)
+// 【便BW】的なしの段(画面いっぱいの暗幕・受け1枚)の道は外した。どの段も穴と受け4枚。
+//   scrollIntoView の段は、的が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(scrolledRef)。
 // ------------------------------------------------------------------
 export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
   const [view, setView] = useState(null);
@@ -388,6 +506,8 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
   const hiddenRef = useRef(hidden);
   // 【便BQ】この起動の間に外を押して消した一手(タブを行き来しても出さない。次の起動では空から)。
   const dismissedRef = useRef(new Set());
+  // 【便BW】的へスクロールした段(scrollIntoView の段。この起動で1回だけ。送り返されても引き戻さない)。
+  const scrolledRef = useRef(new Set());
   const onMarkRef = useRef(onMark);
   onMarkRef.current = onMark;
   candidatesRef.current = candidates;
@@ -417,20 +537,26 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     let found = null;
+    // 【便BW 審査】前の候補の的が DOM に在る間(見えていなくても)は、後の段のために画面を送らない(前の段を待っている)。
+    let earlierInDom = false;
     for (const id of candidatesRef.current ?? []) {
       if (dismissedRef.current.has(id)) continue;
       const step = COACH_STEPS[id];
       if (!step) continue;
-      // 【便BS】的なしの段: 目印(anchor)があれば、それが在るときだけ出す。穴は作らない
-      if (step.target === null) {
-        if (step.anchor && !document.querySelector(step.anchor)) continue;
-        found = { id, r: null, shape: null };
-        break;
-      }
+      // (【便BW】的なし(target: null)の段の道はここにあった。段が無くなったので外した)
       const el = document.querySelector(step.target);
       if (!el) continue;
       const r = el.getBoundingClientRect();
-      if (!targetVisible(r, vw, vh)) continue;
+      if (!targetVisible(r, vw, vh)) {
+        // 【便BW】音の傾向カード(My Data の最下段)は初期のスクロールでは画面の外。この起動で1回だけ的を画面の中央へ送る
+        // (behavior: "auto" = 即座。なめらかに流さない)。次の測り直しで見えていれば出る。
+        if (step.scrollIntoView && !earlierInDom && r.height > 0 && !scrolledRef.current.has(id)) {
+          scrolledRef.current.add(id);
+          el.scrollIntoView?.({ block: "center", behavior: "auto" });
+        }
+        earlierInDom = true;
+        continue;
+      }
       // 【便BV3 2026-10-04】iPad の2ペインでは左右がそれぞれ自分でスクロールする(index.css の .pane-frame)。的がペインの中で
       // 送られて**ペインの縁に切られている**ときは、画面の中に居ても見えていないので出さない(穴が空いた所を照らさない)。
       // ペインの外(iPhone を含む今までの画面)には効かない。測るのは毎フレーム(下の rAF)なので、ペインを送ると穴も追う。
@@ -441,16 +567,25 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
         if (c.height > 0 && (r.top < c.top || r.bottom > c.bottom || r.left < c.left || r.right > c.right)) continue;
       }
       // 的の要素が形を名乗っていれば、その形で囲む(リード2の詳細の計測ボタン = 丸)。
-      found = { id, r, shape: el.getAttribute("data-coach-shape") };
+      // 【便BW 再審査】passThrough を持つ段は、的の要素を含むその祖先(押せる日のボタン)の矩形も下へ通す(受けを置かない)
+      const pt = step.passThrough ? el.closest(step.passThrough) : null;
+      found = { id, r, shape: el.getAttribute("data-coach-shape"), pass: pt ? pt.getBoundingClientRect() : null };
       break;
     }
     if (!found) { if (cur) commit(null); return false; }
     const step0 = COACH_STEPS[found.id];
-    const hole = found.r ? holeOf(found.r, found.shape ? { ...step0, shape: found.shape } : step0) : null;
+    const hole = holeOf(found.r, found.shape ? { ...step0, shape: found.shape } : step0);
     const sameStep = cur && cur.id === found.id;
     const cardH = sameStep ? (cardRef.current?.getBoundingClientRect().height || 0) : 0;
     const place = placeCoachCard({ hole, cardH, vh, bottomLimit: readBottomLimit(vh) });
-    const next = { id: found.id, hole, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
+    // 受けを置かない範囲 = 穴の外接矩形(と passThrough の祖先の矩形を足した外接矩形)
+    const pr = found.pass;
+    const pass = pr ? {
+      left: Math.min(hole.left, pr.left), top: Math.min(hole.top, pr.top),
+      width: Math.max(hole.left + hole.width, pr.right) - Math.min(hole.left, pr.left),
+      height: Math.max(hole.top + hole.height, pr.bottom) - Math.min(hole.top, pr.top),
+    } : hole;
+    const next = { id: found.id, hole, pass, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
     if (!sameView(cur, next) || cur.vw !== vw || cur.vh !== vh) commit(next);
     return true;
   };
@@ -461,12 +596,12 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
     const cur = viewRef.current;
     if (!cur || cur.leaving) return;
     const step = COACH_STEPS[cur.id];
-    // 【便BS】計測タブの3段は一緒に消す(次の段がすぐ出て連打にならないように)
+    // 【便BS】計測タブの段は一緒に消す(次の段がすぐ出て連打にならないように)。【便BW】データタブの段も同じ
     for (const id of step.dismissWith ?? [cur.id]) dismissedRef.current.add(id);
     dismissedRef.current.add(cur.id);
     setAnnouncedId(null);
     commit(null);
-    // 【便BS】押すことが一手そのものの段(dataSeen)は、ここで印を立てる(二度と出さない)
+    // 【便BS】押すことが一手そのものの段(【便BW】reedLinked・trend・idealSeen)は、ここで印を立てる(二度と出さない)
     if (step.markOnDismiss) onMarkRef.current?.(step.flag);
   };
 
@@ -529,20 +664,17 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
           style={{ zIndex: COACH_Z }}
           onAnimationEnd={(e) => { if (e.target === e.currentTarget && viewRef.current?.leaving) commit(null); }}
         >
-          {/* 【便BS】的なしの段は穴を開けず、暗幕だけを画面いっぱいに敷く(色は穴の影と同じ --c-coach-dim)。 */}
-          {view.hole ? (
-            <div
-              className="coach-hole"
-              aria-hidden="true"
-              style={{
-                left: view.hole.left, top: view.hole.top, width: view.hole.width, height: view.hole.height,
-                borderRadius: HOLE_RADIUS[view.hole.shape],
-              }}
-            />
-          ) : <div className="coach-dim" aria-hidden="true" />}
-          {/* 【便BQ】穴の外側の受け(透明)。押したら案内を消すだけ(下へ届かせない)。穴の上には置かない。
-              【便BS】穴の無い段は画面いっぱいの1枚(data-coach-hit="all")。 */}
-          {(view.hole ? hitRects(view.hole, view.vw, view.vh) : [{ key: "all", left: 0, top: 0, width: view.vw, height: view.vh }]).map((h) => (
+          {/* 【便BW】どの段も穴を持つ(的なしの段の画面いっぱいの暗幕は無くなった。暗幕の規則そのものは参加の画面が使う)。 */}
+          <div
+            className="coach-hole"
+            aria-hidden="true"
+            style={{
+              left: view.hole.left, top: view.hole.top, width: view.hole.width, height: view.hole.height,
+              borderRadius: HOLE_RADIUS[view.hole.shape],
+            }}
+          />
+          {/* 【便BQ】穴の外側の受け(透明)。押したら案内を消すだけ(下へ届かせない)。穴の上には置かない。 */}
+          {hitRects(view.pass ?? view.hole, view.vw, view.vh).map((h) => (
             <div key={h.key} className="coach-hit" aria-hidden="true" data-coach-hit={h.key}
               style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
               onClick={dismiss} />

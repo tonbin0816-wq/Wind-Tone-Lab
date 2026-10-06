@@ -6,7 +6,7 @@ import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
 import { cohortAverage, cohortPlainProfile, alignProfile, copyProfile, noteValues } from "./align.js";
 import { joinOwners } from "./idealRepo.js";
-import { sanitizeNotes, buildAdoptedProfile, ADOPTED_DONE_NOTE } from "./idealDoc.js";
+import { sanitizeNotes, buildAdoptedProfile, ADOPTED_DONE_LINE } from "./idealDoc.js";
 import { Avatar } from "./icons.jsx";
 // 【便BI 2026-10-02】重心・HNR の用語の吹き出しは、リード・データの指標タブと共有する1つ(src/termTip.jsx)。
 import { TermTip, TermMark, termTabHinted, termTabProps } from "../termTip.jsx";
@@ -1799,8 +1799,8 @@ export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tu
                     </div>
                     {adopted?.ok ? (
                       <div className="sans" role="status" style={{ ...noteStyle, color: "var(--c-accent)" }}>
-                        {/* 【便BO】綴りはみんなの平均の知らせ(帯)と同じ1つ(idealDoc.js)。文は変えていない。 */}
-                        {ADOPTED_DONE_NOTE}
+                        {/* 【便BO】綴りは idealDoc.js の1つ。【便BW 審査】帯(短い ADOPTED_DONE_NOTE)とは別の定数に分けた。 */}
+                        {ADOPTED_DONE_LINE}
                       </div>
                     ) : null}
                     {adopted?.error ? (
