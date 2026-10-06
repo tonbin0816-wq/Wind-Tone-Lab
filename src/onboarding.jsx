@@ -47,9 +47,21 @@ import { createPortal } from "react-dom";
 //     帯と同時(⑩): 「保存しました」の帯が出ている間も ⑩ だけは出し、帯の箱を2つ目の穴(also)で明るく残す(「開く」は押せる)
 //     カードの地(A1-e): --c-accent-tint・アイコンの丸は白(index.css。参加のカードは白のまま)
 //   ・【便BY 2026-10-07 本人の指示「全ての案内において上の四つのタブ案内も削除 / 代わりにチュートリアルの案内の枚数を------で表して」】
-//     章の目印(4章)を外し、カードの先頭に枚数の目印(Instagram のストーリーのような細い横棒。案内の全体の枚数 = COACH_ORDER の 21本)を置く。
-//     今の段までの棒を塗る(位置は COACH_ORDER の中の、出している段の印の位置)。その利用者に出ない段(飛ばした段)は塗られた扱い ──
-//     棒は常に左から順に塗られ、途中に穴があかない。時間で伸びる動きはしない(塗りだけ)。参加の画面のカード(JoinIntro)には付けない
+//     章の目印(4章)を外し、カードの先頭に枚数の目印(Instagram のストーリーのような細い横棒。案内の全体の枚数 21本)を置いた。
+//     (【便BZ】4本の棒に替え、流れの順 COACH_ORDER は消した ── 下の【便BZ】④)。時間で伸びる動きはしない(塗りだけ)。参加の画面のカード(JoinIntro)には付けない
+//   ・【便BZ 2026-10-07 本人の実機の指摘・統括の裁定】
+//     ① カードの置き場所: 的の上にも下にも収まらないときは、中央ではなく「的(穴)との重なりが最小の位置」(見える範囲の上端か下端)に置く
+//       (placeCoachCard)。中央に落ちると、環の箱の真ん中 = 音名・セントにカードが重なっていた
+//     ② ⑭⑮ の的へ送る判定: 「画面の外なら送る」→「見える範囲(上端 〜 readBottomLimit)に収まっていなければ送る」(coachScrollPlan)。
+//       的が見える範囲の中央に来るように送り、見える範囲より高ければ上端をそろえる。この起動で1回だけ・前の段を待っている間は送らない(今までどおり)
+//       浮かせるボタン(FloatingAction。z45)が穴の中に入っていると暗幕(穴の影)がかからず明るいまま的に重なっていた。穴にかかる浮かせるボタンには、
+//       暗幕と同じ色の覆い(.coach-cover)を案内の層(z55)に置く(暗幕の下に入る扱い。押すと外押し)。そのボタン自身が的なら覆わない(押せる)
+//     ③ 新しい段 goCompare「目安と比べてみよう」(⑯ の次)。目安の帯(「目安に設定しました · 見る」)と同時に出し(⑩ と同じ型)、
+//       帯の箱と下部タブ「データ」を照らす。帯が消えたあとも、コミュニティタブにいる間は下部タブ「データ」だけを照らして出す。
+//       コミュニティタブからデータタブへ移る(「見る」でも下部タブでも)と済み、⑮ を出す(App.jsx)。印は24・枚数は22・5つ目の門(migratedCoach4)
+//     ④ 【本人の指示「22本だとかなり多く感じるので、棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】
+//       便BY の 21(22)本の棒を、下部タブと同じ並びの4本(計測・リード・コミュニティ・データ。字なし)に替えた。棒の中を、そのタブの段の
+//       進み具合の割合だけ塗る(COACH_TABS / coachProgress)。今の段のタブの棒だけ濃い紺。⑱ では4本とも全部塗られる
 //
 // **判断はこのファイルの純関数が持つ**(どの一手を出すか・印の立て方・移行・穴とカードの位置)。
 // App.jsx は「いまの状態」を渡し、成功の道で markOnboardingDone を呼ぶだけ。
@@ -65,7 +77,9 @@ export const ONBOARDING_KEY = "onboardingDone";
 // 【便BX】新しい6つ(到着4つ・⑭' goCommunity・⑰ goMeasure)を足した(23)。
 export const ONBOARDING_FLAGS = ["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
   "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen",
-  "arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish"];
+  "arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish",
+  // 【便BZ】目安と比べてみよう(⑯ の次。コミュニティ → データの橋)
+  "goCompare"];
 // 【便BS】計測タブの3段の移行を済ませたかの印。便BP の移行(migrated)を済ませた人(配信済み)にも、
 // 計測があれば tuner・metronome を済みにするために、別の印で1回だけ走らせる(migrateOnboardingDone)。
 export const MEASURE_STEPS_MIGRATED = "migratedMeasureSteps";
@@ -73,6 +87,8 @@ export const MEASURE_STEPS_MIGRATED = "migratedMeasureSteps";
 export const COACH2_MIGRATED = "migratedCoach2";
 // 【便BX】新しい段(到着4つ・⑭'・⑰)の移行を済ませたかの印(4つ目の門)。計測が1件でもある人には新しい段を1つも出さない。
 export const COACH3_MIGRATED = "migratedCoach3";
+// 【便BZ】新しい段(goCompare)の移行を済ませたかの印(5つ目の門)。計測が1件でもある人・⑮ を見た人には出さない。
+export const COACH4_MIGRATED = "migratedCoach4";
 // 【便BW】計測タブの段(出す順の id)。外を押して消したら、この全部をこの起動の間は出さない(押す=済の reedLinked を除く。COACH_STEPS)。
 export const MEASURE_TAB_STEPS = Object.freeze(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"]);
 // 【便BS】の移行(migratedMeasureSteps)が「計測があれば済み」にしていた3段。移行の結果を変えないため、この便で広げた群とは別に持つ。
@@ -89,6 +105,9 @@ export const ONBOARDING_INITIAL = Object.freeze({});
 // 出し得る一手が無いときに渡す空の並び(描くたびに新しい [] を作らない)。
 export const NO_COACH = Object.freeze([]);
 
+// 【便BZ 2026-10-07 統括の裁定】下部タブを照らす段(⑤⑩⑪⑭'⑰・goCompare)の的は、絵柄(svg)ではなく**ボタンの箱**(絵柄 + 名前。44 の高さ)。
+// 形は角丸の矩形(--r-2)・pad 0(環の箱・音の傾向カードと同じ「箱」の値)。下部タブに名前を足したので、絵柄を中心にした直径 52 の丸では
+// 名前の字の左右が暗幕の下に入っていた。ボタンの箱なら絵柄と字がどちらも明るく入り、押せる範囲(ボタン)と照らす範囲が一致する。
 // 重なり順(DESIGN-SYSTEM §4.5a)。下部タブ(30)・浮かぶボタン(45)・一時的な告知(50)より上、
 // シートの暗幕(60)より下。暗幕は下部タブも含めて全体を覆う(データタブの的が下部タブのため)。
 export const COACH_Z = 55;
@@ -100,16 +119,16 @@ export const COACH_EDGE_PX = 22;
 //   shape … circle = 的の中心に、長い辺 + pad×2 の円 / pill = 角丸 999 / rect = 角丸 12(--r-2)
 //   line  … 1行。null なら出さない(見出しだけ)
 // target は的を探す CSS セレクタ。的の要素は各画面が data-coach で名乗る(無ければ出さない)。
-// データタブの的は下部タブの「計測」ボタンの**絵柄**(ボタンそのものは横長 84×32 なので、絵柄 30×30 を円で囲む。
-// 版4は 44 の丸 + pad 4 = 直径 52 だったので、30 の絵柄には pad 11 で同じ 52 にする)。
+// (便BP〜便BY: データタブの的は下部タブの「計測」ボタンの絵柄 30×30 を pad 11 の円(直径 52)で囲んでいた。
+//  【便BZ】下部タブに名前を足したので、ボタンの箱(角丸の矩形・pad 0)に替えた ── 上の【便BZ】)
 // (【便BW】的なし(target: null)の段は無くなった。【便BX】到着カード(arrival: true)の4段だけは target を持たない ── 穴なしで的を探さない)
 //   arrival … 【便BX 本人の決定 B1】到着カード。穴なし・画面いっぱいの暗幕・どこを押しても「次へ」(印を立てる)・群なし
 //   dismissWith … 外を押して消したときに、一緒にこの起動の間は出さない段(既定はその段だけ)
 //   markOnDismiss … 外(暗幕・カード)を押したら、その段の印を立てる(押すことが一手そのものの段)。群は持たない(次の段へ進ませる)
-//   scrollIntoView … 的の要素が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(【便BW】音の傾向カード)
+//   scrollIntoView … 的が見える範囲(上端 〜 下部タブ・広告の帯の上端)に収まっていなければ、この起動で1回だけ送る(【便BW】音の傾向カード。【便BZ】判定は coachScrollPlan)
 //   also … 【便BX】2つ目の穴({ target, pad, shape })。的(1つ目)が見えているときだけ探し、画面にまるごと見えていて
 //          1つ目と縦に重ならなければ一緒に明るく残す(見えていなければ1つ目だけ)。カードの位置は1つ目で決める
-//          (【便BY】⑥ の楽器種別の行の穴は外した。持つのは ⑩ goData(保存の帯の箱)だけ)
+//          (【便BY】⑥ の楽器種別の行の穴は外した。持つのは ⑩ goData(保存の帯の箱)と【便BZ】goCompare(目安の帯の箱))
 export const COACH_STEPS = {
   // 【便BW 2026-10-06 本人の要望1】計測タブ1段目。的は環の箱(環と音名。吹いて動く所)。
   // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
@@ -137,11 +156,11 @@ export const COACH_STEPS = {
     title: "タップでスタート", line: "もう一度押すと止まります",
     target: '[data-coach="tuner"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
   },
-  // 【便BW 本人の要望3】⑤ 下部タブ「リード」の絵柄。自動では移さない(押してもらうのを待つ)。pad 11 はデータの段と同じ(30 + 22 = 52)。
+  // 【便BW 本人の要望3】⑤ 下部タブ「リード」。自動では移さない(押してもらうのを待つ)。【便BZ】的はボタンの箱(絵柄 + 名前)・pad 0・角丸の矩形。
   goReeds: {
     flag: "goReeds", icon: "reeds",
     title: "次はリードを登録しよう", line: null,
-    target: '[data-coach="nav-reeds"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
+    target: '[data-coach="nav-reeds"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
   },
   // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
   reedLinked: {
@@ -163,11 +182,11 @@ export const COACH_STEPS = {
     // 【便BS】計測タブの段。外を押したら計測タブの段を全部出さない
     dismissWith: MEASURE_TAB_STEPS,
   },
-  // 【便BW 本人の要望7】⑩ 下部タブ「データ」の絵柄。計測があるときだけ。
+  // 【便BW 本人の要望7】⑩ 下部タブ「データ」(【便BZ】ボタンの箱・pad 0・角丸の矩形)。計測があるときだけ。
   goData: {
     flag: "goData", icon: "data",
     title: "計測の記録を見てみよう", line: null,
-    target: '[data-coach="nav-analysis"] svg', pad: 11, shape: "circle", dismissWith: MEASURE_TAB_STEPS,
+    target: '[data-coach="nav-analysis"]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,
     // 【便BX 2026-10-06 本人の決定 C】保存の帯(「HH:mm の計測を保存しました」+「開く」)と同時に出す。帯の箱(App.jsx の ActionNotice の内箱が
     // data-action-notice で名乗る)を2つ目の穴で明るく残す(穴の中には受けを置かないので「開く」は押せる)。帯が無ければ1つ目だけ(今までどおり)
     also: { target: "[data-action-notice]", pad: 0, shape: "rect" },
@@ -198,17 +217,27 @@ export const COACH_STEPS = {
     title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",
     arrival: true,
   },
-  // 【便BX 本人の決定 C】⑭' データ → コミュニティの橋。下部タブ「コミュニティ」の絵柄(⑤⑩ と同じ pad 11 = 直径 52)。参加済みの人には出さない
+  // 【便BX 本人の決定 C】⑭' データ → コミュニティの橋。下部タブ「コミュニティ」(【便BZ】ボタンの箱・pad 0・角丸の矩形)。参加済みの人には出さない
   goCommunity: {
     flag: "goCommunity", icon: "community",
     title: "みんなのデータも見てみよう", line: null,
-    target: '[data-coach="nav-community"] svg', pad: 11, shape: "circle",
+    target: '[data-coach="nav-community"]', pad: 0, shape: "rect",
   },
-  // 【便BX 本人の決定 C】⑰ ⑮ を見たあと計測タブへ戻る橋。的は ⑪ と同じ下部タブ「計測」の絵柄。アイコンは下部タブ「計測」と同じ系統(measure)
+  // 【便BX 本人の決定 C】⑰ ⑮ を見たあと計測タブへ戻る橋。的は ⑪ と同じ下部タブ「計測」(【便BZ】ボタンの箱)。アイコンは下部タブ「計測」と同じ系統(measure)
   goMeasure: {
     flag: "goMeasure", icon: "measure",
     title: "計測タブに戻ろう", line: null,
-    target: '[data-coach="nav-measure"] svg', pad: 11, shape: "circle",
+    target: '[data-coach="nav-measure"]', pad: 0, shape: "rect",
+  },
+  // 【便BZ 2026-10-07 本人の指摘「目安に設定した後どうしたらいいかわからない」・統括の裁定】⑯ の次。コミュニティ → データの橋。
+  // 的は下部タブ「データ」のボタンの箱(⑩ と同じ・pad 0・角丸の矩形)。目安の帯(「目安に設定しました · 見る」)が出ていれば、
+  // ⑩ と同じく帯の箱を2つ目の穴で明るく残す(「見る」は押せる)。帯が消えたら下部タブ「データ」だけ(also の今までの道)。
+  // 済む条件(App.jsx): コミュニティタブからデータタブへ移った(「見る」でも下部タブでも)。そのとき ⑮ を頼む
+  goCompare: {
+    flag: "goCompare", icon: "data",
+    title: "目安と比べてみよう", line: null,
+    target: '[data-coach="nav-analysis"]', pad: 0, shape: "rect",
+    also: { target: "[data-action-notice]", pad: 0, shape: "rect" },
   },
   reeds: {
     flag: "reeds", icon: "reeds",
@@ -229,7 +258,7 @@ export const COACH_STEPS = {
   data: {
     flag: "measure", icon: "data",
     title: "計測を始めると、ここに貯まります", line: "計測タブから計測してみよう",
-    target: '[data-coach="nav-measure"] svg', pad: 11, shape: "circle",
+    target: '[data-coach="nav-measure"]', pad: 0, shape: "rect",
   },
   // (【便BS】の dataSeen「計測したデータがここに貯まります」(的なし)はここにあった。【便BW】役目は ⑫⑬⑭ が継いだ。印の名前は残す)
   // 【便BW 本人の要望7】⑫ カレンダーの最新の計測の日のマス(その日の枠が閉じているときだけ名乗る)。
@@ -271,22 +300,43 @@ export function coachSpeech(step) {
   return step.line ? `${step.title}。${step.line}` : step.title;
 }
 
-// 【便BY 2026-10-07 本人の指示】枚数の目印(カードの先頭の細い横棒)の順。案内の全体の枚数(凍結仕様 coach3-spec.md §15 の 21枚)を、
-// 出る順に**段の印(flag)**で持つ(⑨ の measureReed / measure と、流れの外の ⑪ data は同じ印 measure = 同じ位置)。
-// coachCandidates の出る順と食い違わないことは onboarding.test.jsx の「枚数の目印」が流れを通して守る。
-export const COACH_ORDER = Object.freeze([
-  "tuner", "metronome", "metroTempo", "metroStart", "goReeds",          // 計測 ①〜⑤
-  "arriveReeds", "reeds", "reedsMeasure",                               // リード 到着・⑥⑦
-  "reedLinked", "measure", "goData",                                    // 計測 ⑧⑨⑩
-  "arriveData", "calendarDay", "daySession", "trend", "goCommunity",    // データ 到着・⑫⑬⑭⑭'
-  "arriveCommunity", "adoptAverage",                                    // コミュニティ 到着・⑯
-  "idealSeen", "goMeasure",                                             // データ ⑮⑰
-  "finish",                                                             // 計測 ⑱
+// 【便BZ 2026-10-07 本人の指示「22本だとかなり多く感じるので、棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】
+// 各段がどのタブの段か。**1か所の定数**。並びは下部タブと同じ(左から 計測・リード・コミュニティ・データ)。
+// 【便BZ 審査 統括の裁定】段は**カードが出るタブ**に属する(段の id で持つ。印 flag ではない)。⑤⑩⑱ は計測・⑭' ⑰ はデータ・
+// goCompare は照らすのは下部タブ「データ」だが出るのはコミュニティ・⑪ data(印は measure)はデータタブに出るのでデータ。
+// ⑨ の2つの文(measure / measureReed)は同じ1段(COACH_STEP_ALIAS)。段の数は 9・3・3・8。
+export const COACH_TABS = Object.freeze([
+  Object.freeze({ tab: "measure", label: "計測", steps: Object.freeze(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "goData", "finish"]) }),
+  Object.freeze({ tab: "reeds", label: "リード", steps: Object.freeze(["arriveReeds", "reeds", "reedsMeasure"]) }),
+  Object.freeze({ tab: "community", label: "コミュニティ", steps: Object.freeze(["arriveCommunity", "adoptAverage", "goCompare"]) }),
+  Object.freeze({ tab: "analysis", label: "データ", steps: Object.freeze(["data", "arriveData", "calendarDay", "daySession", "trend", "goCommunity", "idealSeen", "goMeasure"]) }),
 ]);
-// 今は何枚目か(1 始まり)。COACH_ORDER の中の、その段の印の位置。手前の段は(その利用者に出なかった段も)塗られた扱い。
-export function coachProgress(stepId) {
-  const flag = COACH_STEPS[stepId]?.flag;
-  return { at: flag ? COACH_ORDER.indexOf(flag) + 1 : 0, total: COACH_ORDER.length };
+// ⑨ リードが選ばれているときの文(measureReed)は measure と同じ段
+const COACH_STEP_ALIAS = Object.freeze({ measureReed: "measure" });
+// 【便BZ 審査 統括の裁定】その利用者にもう出ない段(条件で出ない段)。印は立たないが、済んだ扱いにする。条件は coachCandidates の出す条件の裏返し:
+//   goReeds … リードがある(!d.goReeds && !d.reeds で出す) / goCommunity … 参加している(!d.join で出す) / trend … ⑮ を見た(!d.idealSeen で出す) /
+//   goCompare … ⑮ を見た・終わった(goCompareOpen) / idealSeen … ⑰ を済ませた・終わった(⑮ を見ずに ⑰ へ進んだ人に、もう出ない) / goMeasure … 終わった
+// 外を押して消しただけの段(印が立っていない)は、ここに入らない = 済んだ扱いにしない。
+export const COACH_SKIPPED = Object.freeze({
+  goReeds: (d) => d.reeds === true,
+  goCommunity: (d) => d.join === true,
+  trend: (d) => d.idealSeen === true,
+  goCompare: (d) => d.idealSeen === true || d.finish === true,
+  idealSeen: (d) => d.goMeasure === true || d.finish === true,
+  goMeasure: (d) => d.finish === true,
+});
+// 4本の棒の塗り。棒ごとに「塗る段の数 / そのタブの段の数」。塗る段 = 済んだ段(段の印が立っている)+ その利用者にもう出ない段(COACH_SKIPPED)+ **今の段**。
+// 済んだ印は戻らないので、順番どおりに進まない人でも塗りは戻らない(変わるのは「今の段」の1つだけ ── 済ませずに離れた段は、また「まだ」に見える)。
+// 今の段を含めるのは、① で計測の棒が空のまま・⑱ で計測の棒が 8/9 のままになり「今ここ」と読めないため。
+//   current … 今の段が属するタブの棒(濃い紺で塗る)。知らない段は current が無い
+export function coachProgress(stepId, done = null) {
+  const id = COACH_STEP_ALIAS[stepId] ?? stepId;
+  const d = done ?? {};
+  const filled = (s) => s === id || d[COACH_STEPS[s].flag] === true || COACH_SKIPPED[s]?.(d) === true;
+  const bars = COACH_TABS.map(({ tab, label, steps }) => ({
+    tab, label, total: steps.length, current: steps.includes(id), filled: steps.filter(filled).length,
+  }));
+  return { bars, current: bars.find((b) => b.current) ?? null };
 }
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -300,6 +350,7 @@ export function normalizeOnboardingDone(raw) {
   out[MEASURE_STEPS_MIGRATED] = src[MEASURE_STEPS_MIGRATED] === true;
   out[COACH2_MIGRATED] = src[COACH2_MIGRATED] === true;
   out[COACH3_MIGRATED] = src[COACH3_MIGRATED] === true;
+  out[COACH4_MIGRATED] = src[COACH4_MIGRATED] === true;
   return out;
 }
 
@@ -336,9 +387,11 @@ export function isCohortAverageProfile(p) {
 // (新しい8つの印を立てる)。リードがあれば goReeds、前の版で dataSeen を押した人はデータタブの3段、みんなの平均を取り込んである人は idealSeen。
 // 【便BX 2026-10-06 本人の決定】4つ目の門(migratedCoach3)。計測が1件でもある人には新しい6つ(到着4つ・⑭'・⑰)を立てる。
 // リードがあれば arriveReeds、参加していれば arriveCommunity・goCommunity、idealSeen が立っていれば goMeasure。
+// 【便BZ】5つ目の門(migratedCoach4)。計測が1件でもある人・idealSeen が立っている人には goCompare を立てる。
 export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealProfiles = [], isAdopted = () => false } = {}) {
   const base = isObj(prev) ? prev : {};
-  if (base.migrated === true && base[MEASURE_STEPS_MIGRATED] === true && base[COACH2_MIGRATED] === true && base[COACH3_MIGRATED] === true) return prev;
+  if (base.migrated === true && base[MEASURE_STEPS_MIGRATED] === true && base[COACH2_MIGRATED] === true && base[COACH3_MIGRATED] === true
+    && base[COACH4_MIGRATED] === true) return prev;
   const next = { ...base };
   const ss = Array.isArray(sessions) ? sessions : [];
   const rs = Array.isArray(reeds) ? reeds : [];
@@ -373,7 +426,37 @@ export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealPr
     if (next.idealSeen === true) next.goMeasure = true;                          // 便BW の門で idealSeen が立った人(目安を取り込んである)に「計測タブに戻ろう」を出さない
     next[COACH3_MIGRATED] = true;
   }
+  // 【便BZ 2026-10-07 統括の裁定】5つ目の門。計測が1件でもある人には新しい段(goCompare)を出さない。
+  // ⑮ を見た人(idealSeen。前の門が同じ呼び出しの中で立てた値も含めて next で読む)にも出さない(目安と比べる所はもう知っている)。
+  if (base[COACH4_MIGRATED] !== true) {
+    if (ss.length > 0 || next.idealSeen === true) next.goCompare = true;
+    next[COACH4_MIGRATED] = true;
+  }
   return next;
+}
+
+// 【便BZ】goCompare(目安と比べてみよう)がまだ開いているか: 目安にした(⑯)・まだ比べに行っていない・⑮ を見ていない・終わっていない(⑰ と同じく ⑱ のあとは出さない)。
+// コミュニティタブの候補(coachCandidates)と、「この段から来た」の判定(coachCameFromCompare)が同じ式を読む(写しを作らない)。
+export function goCompareOpen(d) {
+  const x = d ?? {};
+  return Boolean(x.adoptAverage) && !x.goCompare && !x.idealSeen && !x.finish;
+}
+// 【便BZ】この段から来たか: goCompare が開いている間に、コミュニティタブからデータタブへ移った(「見る」でも下部タブ「データ」でも)。
+// 真なら App.jsx が goCompare の印を立て、⑮ を頼む(idealRequested)。
+export function coachCameFromCompare({ from, to, done }) {
+  return from === "community" && to === "analysis" && goCompareOpen(done);
+}
+// 【便BZ】帯(ActionNotice)が出ている間の決まり。帯が名乗るタブ(notice.coach)と、いま表に出ているタブが同じときだけ、
+// **その帯が名乗る段だけ**を出してよい(【便BZ 統括の裁定】それ以外の段(⑱ など)は帯が消えるまで出さない ── 帯の「開く」「見る」を覆わない)。
+//   計測(保存の帯)       … ⑩ goData だけ
+//   コミュニティ(目安の帯) … goCompare だけ
+// 違うタブ(帯の間にタブを移った)では出さない ── 着いた先の段(到着・⑮ など)が帯の「開く」「見る」を覆わない(便BX の罠)。
+export const COACH_WITH_NOTICE = Object.freeze({ measure: Object.freeze(["goData"]), community: Object.freeze(["goCompare"]) });
+export function coachDuringNotice({ candidates, notice, topTab }) {
+  if (!notice) return { candidates, hidden: false };
+  if (!notice.coach || notice.coach !== topTab || !(topTab in COACH_WITH_NOTICE)) return { candidates, hidden: true };
+  const only = COACH_WITH_NOTICE[topTab];
+  return { candidates: (candidates ?? []).filter((id) => only.includes(id)), hidden: false };
 }
 
 // いまのタブで出し得る一手(順番どおり。的が画面に在る最初の1つを出す)。
@@ -450,7 +533,9 @@ export function coachCandidates({
       if (!d.join) return [];
       // 【便BX】到着(穴なし)。参加した直後(プロフィールを作った)・参加済みの人がタブを開いた直後。⑯ より先
       if (!d.arriveCommunity) return ["arriveCommunity"];
-      return !d.adoptAverage ? ["adoptAverage"] : [];
+      if (!d.adoptAverage) return ["adoptAverage"];
+      // 【便BZ】⑯ の次: 目安と比べてみよう(目安の帯と同時に・帯が消えたあともコミュニティタブにいる間)
+      return goCompareOpen(d) ? ["goCompare"] : [];
     }
     default: return [];
   }
@@ -490,7 +575,11 @@ export function holeOf(r, step) {
 // 見える範囲(画面の上端 〜 下部タブ・広告の帯の上端 = bottomLimit)の縦の中央。横は CSS(.coach-card の left/right 22px)で中央。
 // 中央のカードが的(穴)の上下 gap の内側にかかるときだけ、的を避けて上(穴の上端 − gap − カードの高さ)か
 // 下(穴の下端 + gap)にずらす。見える範囲(上下に gap を残す)に収まるほうのうち、中央に近いほう。
-// どちらも収まらなければ中央のまま(重なりを overlaps で返す)。
+// 【便BZ 2026-10-07 本人の実機の指摘(① の環の箱で音名・セントが読めない)】どちらも収まらなければ、中央ではなく
+// **的(穴)との重なりが最小の位置**に置く。置ける範囲は見える範囲の上下に gap を残した [gap, 下端 − gap − カードの高さ] で、
+// 重なりはその範囲の両端のどちらかで最小になる(重なりは位置について「増える → 平ら → 減る」の形)ので、両端を比べる。
+// 同じなら中央に近いほう。以前の「中央のまま」は、大きな的(環の箱)の真ん中 = 音名・セントにカードを重ねていた。
+// 置ける範囲が無い(カードが見える範囲より高い)ときだけ中央のまま。重なりが残れば overlaps で返す。
 // 【便BX】到着カード(hole が null)は中央のまま。
 export function placeCoachCard({ hole, cardH, vh, bottomLimit = vh, gap = COACH_EDGE_PX }) {
   const viewBottom = Math.min(bottomLimit, vh);
@@ -502,9 +591,58 @@ export function placeCoachCard({ hole, cardH, vh, bottomLimit = vh, gap = COACH_
   if (!near(center)) return { top: center, side: "center", shifted: false, overlaps: false };
   const fits = (t) => t >= gap - 1e-6 && t + cardH <= viewBottom - gap + 1e-6;
   const options = [holeTop - gap - cardH, holeBottom + gap].filter(fits);
-  if (options.length === 0) return { top: center, side: "center", shifted: false, overlaps: true };
-  const top = options.reduce((a, b) => (Math.abs(b - center) < Math.abs(a - center) ? b : a));
-  return { top, side: top < holeTop ? "above" : "below", shifted: true, overlaps: false };
+  const nearer = (a, b) => (Math.abs(b - center) < Math.abs(a - center) ? b : a);
+  if (options.length > 0) {
+    const top = options.reduce(nearer);
+    return { top, side: top < holeTop ? "above" : "below", shifted: true, overlaps: false };
+  }
+  const lo = gap;
+  const hi = viewBottom - gap - cardH;
+  if (!(hi >= lo)) return { top: center, side: "center", shifted: false, overlaps: true };
+  const overlap = (t) => Math.max(0, Math.min(t + cardH, holeBottom) - Math.max(t, holeTop));
+  const top = overlap(lo) < overlap(hi) ? lo : overlap(hi) < overlap(lo) ? hi : nearer(lo, hi);
+  return { top, side: top + cardH / 2 < holeTop + hole.height / 2 ? "above" : "below", shifted: true, overlaps: overlap(top) > 0 };
+}
+
+// 【便BZ 2026-10-07 本人の実機の指摘(⑭ の音の傾向カードが下部タブ・広告の帯の裏に半分隠れていた)】的へ送るかの判定と送り方。
+// 的が見える範囲(画面の上端 0 〜 bottomLimit = 下部タブ・広告の帯の上端)にまるごと収まっていれば null(送らない)。
+// 収まっていなければ送る: 的が見える範囲より低ければ見える範囲の縦の中央へ(block "center" に、下部タブ・帯のぶん
+// (vh − bottomLimit)の scroll-margin-bottom を付ける = 中央に並べる箱を下へ広げて、見える範囲の中央に来るようにする)、
+// 見える範囲より高ければ上端をそろえる(block "start")。marginBottom は幾何の値(見える範囲の外の高さ)で、見た目の値ではない。
+export function coachScrollPlan(r, vh, bottomLimit) {
+  if (!r || !(r.height > 0)) return null;
+  const limit = Math.min(bottomLimit, vh);
+  if (r.top >= 0 && r.top + r.height <= limit) return null;
+  return { block: r.height > limit ? "start" : "center", marginBottom: Math.max(0, vh - limit) };
+}
+// 送る(即座。behavior: "auto")。scroll-margin-bottom はこの呼び出しの間だけ付けて、すぐ元に戻す(的の見た目は変えない)。
+function scrollTargetIntoView(el, plan) {
+  const prev = el.style.scrollMarginBottom;
+  el.style.scrollMarginBottom = `${plan.marginBottom}px`;
+  try { el.scrollIntoView?.({ block: plan.block, behavior: "auto" }); } finally { el.style.scrollMarginBottom = prev; }
+}
+
+// 【便BZ】穴にかかる浮かせるボタン(FloatingAction。data-floating-action)の覆い。浮かせるボタン(z45)は案内(z55)より下だが、
+// 穴の中は暗幕(穴の影)がかからないので、穴に入ったボタンは明るいまま的に重なっていた。穴にかかるボタンだけ、そのボタンの形の
+// 覆い(暗幕と同じ色)を案内の層に置く(= 暗幕の下に入る。押すと外押し)。的そのもの(と的を含む・的に含まれる)ボタンは覆わない(押せる)。
+// 【便BZ 審査 統括の裁定】
+//   ・渡す穴は**1つ目の穴だけ**(呼び手が [hole] を渡す)。2つ目の穴(帯の箱)にかかるボタンは覆わない ── 覆いが帯の「見る」「開く」の上に乗って
+//     押せなくしていた(iPad 744×1133 の2ペインで右ペインの「目安に設定」が目安の帯に重なる)。
+//   ・覆いは**ボタンと穴が重なる所だけ**に切る(clip: ボタンの矩形を基準にした inset)。穴の外はもう暗幕(穴の影)がかかっているので、
+//     ボタン全体に乗せると二重に濃くなっていた。
+//   fabs  … [{ rect, radius, isTarget }](rect は getBoundingClientRect の形)
+//   holes … 穴の矩形の並び(null は飛ばす)
+export function floatingCovers(fabs, holes) {
+  const hs = (holes ?? []).filter(Boolean);
+  const hits = (a, h) => a.left < h.left + h.width && a.left + a.width > h.left && a.top < h.top + h.height && a.top + a.height > h.top;
+  const r2c = (v) => Math.round(Math.max(0, v) * 100) / 100;
+  return (fabs ?? [])
+    .filter((f) => !f.isTarget && f.rect && f.rect.width > 0 && f.rect.height > 0 && hs.some((h) => hits(f.rect, h)))
+    .map((f) => {
+      const a = f.rect; const h = hs.find((x) => hits(a, x));
+      const clip = `inset(${r2c(h.top - a.top)}px ${r2c(a.left + a.width - (h.left + h.width))}px ${r2c(a.top + a.height - (h.top + h.height))}px ${r2c(h.left - a.left)}px)`;
+      return { left: a.left, top: a.top, width: a.width, height: a.height, radius: f.radius, clip };
+    });
 }
 
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -517,7 +655,10 @@ function sameView(a, b) {
   const sameBox = (p, q) => r2(p.left) === r2(q.left) && r2(p.top) === r2(q.top) && r2(p.width) === r2(q.width) && r2(p.height) === r2(q.height);
   // 【便BX】2つ目の穴(片方だけ在る・位置が違う)も比べる。無い段同士は今までどおり
   const sameExtra = !a.extra && !b.extra ? true : Boolean(a.extra && b.extra && sameBox(a.extra, b.extra) && a.split === b.split);
-  return same && sameBox(a.hole, b.hole) && sameExtra;
+  // 【便BZ】浮かせるボタンの覆い(数・位置)も比べる。無い段同士は今までどおり
+  const sameCovers = !a.covers && !b.covers ? true : Boolean(a.covers && b.covers && a.covers.length === b.covers.length
+    && a.covers.every((c, i) => sameBox(c, b.covers[i]) && c.radius === b.covers[i].radius && c.clip === b.covers[i].clip));
+  return same && sameBox(a.hole, b.hole) && sameExtra && sameCovers;
 }
 
 // 溶ける時間(ms)を計算済みの style から読む。"0.35s" / "350ms"(animation-duration)、無ければ
@@ -554,13 +695,16 @@ export function CoachIcon({ name }) {
   return <span className="coach-icon">{ICONS[name]}</span>;
 }
 
-// 【便BY 2026-10-07 本人の指示】枚数の目印(カードの最初の子)。棒は COACH_ORDER の数だけ・今の段まで塗る(on)。塗りだけで動きは無い。
-// 読み上げ用に「案内 n/21」(カードは aria-hidden なので、今の読み上げ(.coach-live)は変えていない)。
-function CoachProgress({ stepId }) {
-  const { at, total } = coachProgress(stepId);
+// 【便BY 2026-10-07 本人の指示】目印(カードの最初の子)。【便BZ 本人の指示】棒は4本(タブの数。字は付けない)。棒の中を、そのタブの段の
+// 進み具合(coachProgress)の割合だけ左から塗る。今の段のタブの棒は濃い紺(.now)・ほかは中間の紺。塗りの幅は割合で決め、動き・transition は無い。
+// 読み上げ用に「案内 計測 4/9」(今の段のタブの名前と、そのタブの塗った数 / 段の数)。カードは aria-hidden なので今の読み上げ(.coach-live)は変えていない。
+function CoachProgress({ stepId, done }) {
+  const { bars, current } = coachProgress(stepId, done);
   return (
-    <div className="coach-progress" role="img" aria-label={`案内 ${at}/${total}`}>
-      {COACH_ORDER.map((f, i) => <i key={f} className={i < at ? "on" : undefined} />)}
+    <div className="coach-progress" role="img" aria-label={current ? `案内 ${current.label} ${current.filled}/${current.total}` : "案内"}>
+      {bars.map((b) => (
+        <i key={b.tab} data-tab={b.tab} className={b.current ? "now" : undefined}><b style={{ width: `${(b.filled / b.total) * 100}%` }} /></i>
+      ))}
     </div>
   );
 }
@@ -649,7 +793,7 @@ function hitRects(hole, vw, vh, band = null) {
 //   markOnDismiss の段(【便BW】reedLinked・trend・idealSeen)だけは、外を押したら onMark(印の名前)で印を立てる(押すことが一手そのもの)
 // 【便BX】到着カード(穴なし・どこを押しても次へ)だけが暗幕を画面いっぱいに敷く(.coach-dim と受け1枚)。他の段は穴と受け4枚。
 //   到着の受け・カードを押すと advance(印を立てる)。外押しではないので dismissedRef に入れない(群も消さない)。
-//   scrollIntoView の段は、的が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(scrolledRef)。
+//   scrollIntoView の段は、的が見える範囲に収まっていなければ(【便BZ】coachScrollPlan)、この起動で1回だけ送る(scrolledRef)。
 // 【便BX】also を持つ段(【便BY】⑩ goData だけ。保存の帯が出ているとき)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
 //   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
@@ -695,6 +839,9 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     let found = null;
+    // 【便BZ】見える範囲の下端(下部タブ・広告の帯の上端)。測るのは1回の測り直しに1回だけ(要るときに読む)
+    let limit0 = null;
+    const bottomLimit = () => (limit0 === null ? (limit0 = readBottomLimit(vh)) : limit0);
     // 【便BW 審査】前の候補の的が DOM に在る間(見えていなくても)は、後の段のために画面を送らない(前の段を待っている)。
     let earlierInDom = false;
     for (const id of candidatesRef.current ?? []) {
@@ -707,13 +854,20 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
       const el = document.querySelector(step.target);
       if (!el) continue;
       const r = el.getBoundingClientRect();
-      if (!targetVisible(r, vw, vh)) {
-        // 【便BW】音の傾向カード(My Data の最下段)は初期のスクロールでは画面の外。この起動で1回だけ的を画面の中央へ送る
-        // (behavior: "auto" = 即座。なめらかに流さない)。次の測り直しで見えていれば出る。
-        if (step.scrollIntoView && !earlierInDom && r.height > 0 && !scrolledRef.current.has(id)) {
+      // 【便BW】音の傾向カード(My Data の最下段)は初期のスクロールでは画面の外。この起動で1回だけ的へ送る
+      // (behavior: "auto" = 即座。なめらかに流さない)。次の測り直しで見えていれば出る。
+      // 【便BZ】送るのは「画面の外」ではなく「見える範囲(上端 〜 下部タブ・広告の帯の上端)に収まっていない」とき(coachScrollPlan)。
+      // 画面の中でも下部タブ・帯の裏に隠れていれば送る(実機で、的の下半分が帯と下部タブの裏のまま照らされていた)。
+      if (step.scrollIntoView && !earlierInDom && r.height > 0 && !scrolledRef.current.has(id)) {
+        const plan = coachScrollPlan(r, vh, bottomLimit());
+        if (plan) {
           scrolledRef.current.add(id);
-          el.scrollIntoView?.({ block: "center", behavior: "auto" });
+          scrollTargetIntoView(el, plan);
+          earlierInDom = true;
+          continue;
         }
+      }
+      if (!targetVisible(r, vw, vh)) {
         earlierInDom = true;
         continue;
       }
@@ -729,15 +883,15 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
       // 的の要素が形を名乗っていれば、その形で囲む(リード2の詳細の計測ボタン = 丸)。
       // 【便BW 再審査】passThrough を持つ段は、的の要素を含むその祖先(押せる日のボタン)の矩形も下へ通す(受けを置かない)
       const pt = step.passThrough ? el.closest(step.passThrough) : null;
-      found = { id, r, shape: el.getAttribute("data-coach-shape"), pass: pt ? pt.getBoundingClientRect() : null };
+      found = { id, el, r, shape: el.getAttribute("data-coach-shape"), pass: pt ? pt.getBoundingClientRect() : null };
       break;
     }
     if (!found) { if (cur) commit(null); return false; }
     if (found.arrival) {
       const sameStep0 = cur && cur.id === found.id;
       const cardH0 = sameStep0 ? (cardRef.current?.getBoundingClientRect().height || 0) : 0;
-      const place0 = placeCoachCard({ hole: null, cardH: cardH0, vh, bottomLimit: readBottomLimit(vh) });
-      const next0 = { id: found.id, arrival: true, hole: null, pass: null, extra: null, split: null, band: null, extraBand: null,
+      const place0 = placeCoachCard({ hole: null, cardH: cardH0, vh, bottomLimit: bottomLimit() });
+      const next0 = { id: found.id, arrival: true, hole: null, pass: null, extra: null, split: null, band: null, extraBand: null, covers: null,
         top: place0.top, side: "center", measured: cardH0 > 0, leaving: false, vw, vh };
       if (!sameView(cur, next0) || cur.vw !== vw || cur.vh !== vh) commit(next0);
       return true;
@@ -746,7 +900,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
     const hole = holeOf(found.r, found.shape ? { ...step0, shape: found.shape } : step0);
     const sameStep = cur && cur.id === found.id;
     const cardH = sameStep ? (cardRef.current?.getBoundingClientRect().height || 0) : 0;
-    const place = placeCoachCard({ hole, cardH, vh, bottomLimit: readBottomLimit(vh) });
+    const place = placeCoachCard({ hole, cardH, vh, bottomLimit: bottomLimit() });
     // 受けを置かない範囲 = 穴の外接矩形(と passThrough の祖先の矩形を足した外接矩形)
     const pr = found.pass;
     const pass = pr ? {
@@ -765,7 +919,13 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
         if (sp !== null) { extra = xh; split = sp; band = bandOfHole(pass, sp, vh); extraBand = bandOfHole(xh, sp, vh); }
       }
     }
-    const next = { id: found.id, hole, pass, extra, split, band, extraBand, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
+    // 【便BZ】穴にかかる浮かせるボタンの覆い(的そのもののボタンは覆わない)
+    const fabs = [...document.querySelectorAll("[data-floating-action]")].map((b) => ({
+      rect: b.getBoundingClientRect(), radius: getComputedStyle(b).borderRadius,
+      isTarget: b === found.el || b.contains(found.el) || found.el.contains(b),
+    }));
+    const covers = floatingCovers(fabs, [hole]);   // 【便BZ 審査】1つ目の穴だけ(帯の箱の上には覆いを置かない)
+    const next = { id: found.id, hole, pass, extra, split, band, extraBand, covers: covers.length ? covers : null, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
     if (!sameView(cur, next) || cur.vw !== vw || cur.vh !== vh) commit(next);
     return true;
   };
@@ -895,6 +1055,12 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
               style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
               onClick={dismiss} />
           )) : null}
+          {/* 【便BZ】穴にかかる浮かせるボタンの覆い(暗幕と同じ色・ボタンの形)。押したら外押し(受けと同じ dismiss)。 */}
+          {(view.covers ?? []).map((c, i) => (
+            <div key={`c${i}`} className="coach-cover" aria-hidden="true" data-coach-cover=""
+              style={{ left: c.left, top: c.top, width: c.width, height: c.height, borderRadius: c.radius, clipPath: c.clip }}
+              onClick={dismiss} />
+          ))}
           </>)}
           {/* カードは画面の中央。押しても案内が消えるだけ(外を押したのと同じ)。測る前は見せない。
               【便BX】到着カードは押すと「次へ」(advance)。【便BY】先頭の子は枚数の目印。 */}
@@ -906,7 +1072,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
             style={{ top: view.top, visibility: view.measured ? "visible" : "hidden" }}
             onClick={view.arrival ? advance : dismiss}
           >
-            <CoachProgress stepId={view.id} />
+            <CoachProgress stepId={view.id} done={done} />
             <CoachIcon name={step.icon} />
             <div className="coach-title">{step.title}</div>
             {step.line ? <div className="coach-line">{step.line}</div> : null}

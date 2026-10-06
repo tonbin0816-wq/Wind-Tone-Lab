@@ -10,7 +10,8 @@ import {
   holesSplit, bandOfHole, holeClipPath,
   MEASURE_TAB_STEPS, MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
-  COACH3_MIGRATED, COACH_ORDER, coachProgress,
+  COACH3_MIGRATED, coachProgress, COACH_TABS, COACH_SKIPPED,
+  COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE,
 } from "./onboarding.jsx";
 
 // ------------------------------------------------------------------
@@ -32,7 +33,8 @@ import {
 //   chapterMarks)を外し、枚数の目印(COACH_ORDER / coachProgress)に替えた。期待値の 21 枚の順は仕様 coach3-spec.md §15 から**手で書いた**。
 // ------------------------------------------------------------------
 
-const ALL_FALSE = normalizeOnboardingDone({ migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true });
+// 【便BZ】5つ目の門(migratedCoach4)も
+const ALL_FALSE = normalizeOnboardingDone({ migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true, migratedCoach4: true });
 const doneWith = (...flags) => ({ ...ALL_FALSE, ...Object.fromEntries(flags.map((f) => [f, true])) });
 
 describe("文言(凍結仕様の表と本人の指示のとおり、一字一句)", () => {
@@ -65,10 +67,12 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     goCommunity: ["みんなのデータも見てみよう", null, "community"],
     goMeasure: ["計測タブに戻ろう", null, "measure"],
     arriveCommunity: ["ここはコミュニティ", "参加した人の計測データと、みんなの平均が見られます", "community"],
+    // 【便BZ 2026-10-07 統括の裁定】⑯ の次(見出しは短く・1行は無し。行き先の下部タブ「データ」と同じ絵)
+    goCompare: ["目安と比べてみよう", null, "data"],
   };
   // 【便BS】参加前(join)の段は外した(参加の画面そのものがカードになった。community/joinCard.test.jsx)。
-  it("【便BX】23 の段の見出し・1行・アイコンが表のとおり(過不足なし。dataSeen「計測したデータがここに貯まります」・参加後1・参加前は無い)", () => {
-    expect(Object.keys(SPEC)).toHaveLength(23);
+  it("【便BX】23 の段(【便BZ】24)の見出し・1行・アイコンが表のとおり(過不足なし。dataSeen「計測したデータがここに貯まります」・参加後1・参加前は無い)", () => {
+    expect(Object.keys(SPEC)).toHaveLength(24);
     // 【便BY】章の目印を外したので、段は章(chapter)を持たない
     for (const id of Object.keys(SPEC)) expect("chapter" in COACH_STEPS[id], id).toBe(false);
     expect(Object.keys(COACH_STEPS).sort()).toEqual(Object.keys(SPEC).sort());
@@ -86,14 +90,14 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     expect(new Set(Object.values(COACH_STEPS).map((s) => s.icon))).toEqual(new Set(["tuner", "metro", "mic", "reeds", "measure", "data", "target", "community"]));
   });
   // 【便BX 2026-10-06 本人の決定 B1】「どの段も的を持つ」は、到着カード4段(穴なし)だけ的を持たない形に改めた
-  it("【便BX】的: 到着4段(arrival: true)だけ target を持たず、他の19段は target が文字列。① は環の箱を角丸の矩形・pad 0", () => {
+  it("【便BX】的: 到着4段(arrival: true)だけ target を持たず、他の19段(【便BZ】20段)は target が文字列。① は環の箱を角丸の矩形・pad 0", () => {
     const arrivals = Object.entries(COACH_STEPS).filter(([, s]) => s.arrival === true).map(([id]) => id).sort();
     expect(arrivals).toEqual(["arriveCommunity", "arriveData", "arriveReeds", "finish"]);
     for (const id of arrivals) {
       for (const k of ["target", "pad", "shape", "dismissWith", "markOnDismiss", "scrollIntoView", "also", "passThrough"]) expect(k in COACH_STEPS[id], `${id}.${k}`).toBe(false);
     }
     const others = Object.entries(COACH_STEPS).filter(([, s]) => !s.arrival);
-    expect(others).toHaveLength(19);
+    expect(others).toHaveLength(20);
     expect(others.every(([, s]) => typeof s.target === "string" && s.target.length > 0)).toBe(true);
     expect(Object.values(COACH_STEPS).some((s) => "anchor" in s)).toBe(false);
     // [target, pad, shape](仕様 §2.1 / §2.3 の表)
@@ -102,18 +106,18 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
       metronome: ['[data-coach="metronome"]', 0, "circle"],
       metroTempo: ['[data-coach="metroTempo"]', 6, "pill"],
       metroStart: ['[data-coach="tuner"]', 0, "rect"],
-      goReeds: ['[data-coach="nav-reeds"] svg', 11, "circle"],
+      goReeds: ['[data-coach="nav-reeds"]', 0, "rect"],   // 【便BZ 統括の裁定】下部タブはボタンの箱(絵柄 + 名前)を角丸の矩形で
       reedLinked: ['[data-coach="reedChip"]', 6, "pill"],
       measureReed: ['[data-coach="measure"]', 14, "circle"],
       measure: ['[data-coach="measure"]', 14, "circle"],
-      goData: ['[data-coach="nav-analysis"] svg', 11, "circle"],
-      data: ['[data-coach="nav-measure"] svg', 11, "circle"],
+      goData: ['[data-coach="nav-analysis"]', 0, "rect"],
+      data: ['[data-coach="nav-measure"]', 0, "rect"],
       calendarDay: ['[data-coach="calendarDay"]', 5, "circle"],   // 【再審査】中の丸 34 + pad 5×2 = 直径 44(§5)
       daySession: ['[data-coach="daySession"]', 4, "rect"],
       trend: ['[data-coach="trend"]', 0, "rect"],
       idealSeen: ['[data-coach="trend"]', 0, "rect"],
-      goCommunity: ['[data-coach="nav-community"] svg', 11, "circle"],   // 【便BX】⑤⑩ と同じ直径 52
-      goMeasure: ['[data-coach="nav-measure"] svg', 11, "circle"],       // 【便BX】⑪ と同じ的
+      goCommunity: ['[data-coach="nav-community"]', 0, "rect"],   // 【便BX】⑤⑩ と同じ的の形
+      goMeasure: ['[data-coach="nav-measure"]', 0, "rect"],       // 【便BX】⑪ と同じ的
     };
     for (const [id, want] of Object.entries(T)) {
       expect([COACH_STEPS[id].target, COACH_STEPS[id].pad, COACH_STEPS[id].shape], id).toEqual(want);
@@ -262,8 +266,8 @@ describe("どの一手を出すか(coachCandidates)", () => {
     // 同じ的(音の傾向カード)なので、⑮ を見た人には ⑭ を出さない。⑭ を先に見た人にも ⑮ は出る
     expect(A(doneWith("calendarDay", "daySession", "idealSeen"))).toEqual([]);
     expect(A(doneWith("calendarDay", "daySession", "trend"), { idealRequested: true })).toEqual(["idealSeen"]);
-    // 他のタブでは出さない
-    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage"), idealRequested: true })).toEqual([]);
+    // 他のタブでは出さない(【便BZ】コミュニティは目安にしたあと goCompare。⑮ の依頼では変わらない)
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage"), idealRequested: true })).toEqual(["goCompare"]);
     expect(coachCandidates({ topTab: "reeds", done: doneWith("arriveReeds", "reeds", "reedsMeasure"), idealRequested: true })).toEqual([]);
   });
   it("【便BW】引数に dataSeenDeferred は無い(渡しても結果は変わらない)", () => {
@@ -277,7 +281,11 @@ describe("どの一手を出すか(coachCandidates)", () => {
     expect(coachCandidates({ topTab: "community", done: ALL_FALSE })).toEqual([]);
     expect(coachCandidates({ topTab: "community", done: doneWith("join") })).toEqual(["arriveCommunity"]);
     expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity") })).toEqual(["adoptAverage"]);
-    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage") })).toEqual([]);
+    // 【便BZ】⑯ の次は「目安と比べてみよう」。比べに行った(goCompare)・⑮ を見た(idealSeen)・終わった(finish)あとは出さない
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage") })).toEqual(["goCompare"]);
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage", "goCompare") })).toEqual([]);
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage", "idealSeen") })).toEqual([]);
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage", "finish") })).toEqual([]);
     expect(coachCandidates({ topTab: "community", done: doneWith("arriveCommunity") })).toEqual([]);   // 参加していなければ何も(参加の画面が出る)
   });
 });
@@ -305,12 +313,18 @@ describe("済んだ印(立てるだけ・戻さない)", () => {
       tuner: true, metronome: false, dataSeen: false,
       metroTempo: false, metroStart: false, goReeds: false, reedLinked: false, goData: true, calendarDay: false, daySession: false, trend: false, idealSeen: false,
       arriveReeds: false, arriveData: false, arriveCommunity: false, goCommunity: false, goMeasure: false, finish: false,
-      migrated: true, migratedMeasureSteps: false, migratedCoach2: true, migratedCoach3: false });
+      goCompare: false,   // 【便BZ】目安と比べてみよう
+      migrated: true, migratedMeasureSteps: false, migratedCoach2: true, migratedCoach3: false, migratedCoach4: false });
+    // 【便BZ】5つ目の門の印も true だけが「済み」
+    expect(normalizeOnboardingDone({ migratedCoach4: true, goCompare: "true" })).toMatchObject({ migratedCoach4: true, goCompare: false });
     expect(normalizeOnboardingDone({ migratedCoach3: true, finish: true, goMeasure: "true" })).toMatchObject({ migratedCoach3: true, finish: true, goMeasure: false });
     expect(ONBOARDING_FLAGS).toEqual(["measure", "reeds", "reedsMeasure", "join", "adoptAverage", "tuner", "metronome", "dataSeen",
       "metroTempo", "metroStart", "goReeds", "reedLinked", "goData", "calendarDay", "daySession", "trend", "idealSeen",
-      "arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish"]);
+      "arriveReeds", "arriveData", "arriveCommunity", "goCommunity", "goMeasure", "finish", "goCompare"]);
     expect(MEASURE_STEPS_MIGRATED).toBe("migratedMeasureSteps");
+    expect(COACH4_MIGRATED).toBe("migratedCoach4");
+    expect(markOnboardingDone({}, "migratedCoach4")).toEqual({});   // 【便BZ】5つ目の門も印の表の外
+    expect(markOnboardingDone({}, "goCompare")).toEqual({ goCompare: true });
     expect(COACH2_MIGRATED).toBe("migratedCoach2");
     expect(COACH3_MIGRATED).toBe("migratedCoach3");
     expect(markOnboardingDone({}, "migratedCoach3")).toEqual({});   // 【便BX】4つ目の門も印の表の外
@@ -333,8 +347,10 @@ describe("済んだ印(立てるだけ・戻さない)", () => {
 
 describe("既にある人の移行(migrateOnboardingDone)", () => {
   const adopted = (p) => p?.sourceKind === "community";
-  // 【便BW】門の印3つ(どの移行の結果にも付く)。【便BX】4つ目の門(migratedCoach3)も
-  const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true };
+  // 【便BW】門の印3つ(どの移行の結果にも付く)。【便BX】4つ目の門(migratedCoach3)も。【便BZ】5つ目の門(migratedCoach4)も
+  const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true, migratedCoach4: true };
+  // 【便BZ】計測が1件でもある人・idealSeen が立つ人に立てる新しい1つ
+  const NEW1 = { goCompare: true };
   // 【便BX】計測が1件でもある人に立てる新しい6つ
   const NEW6 = { arriveReeds: true, arriveData: true, arriveCommunity: true, goCommunity: true, goMeasure: true, finish: true };
   // 【便BW】計測が1件でもある人に立てる新しい8つ
@@ -351,7 +367,7 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
     // 【便BS】計測があるので計測タブの3段(tuner・metronome・measure)も済み。dataSeen は立てない
     // 【便BW】計測があるので新しい8つも済み。みんなの平均の目安があるので idealSeen も
     // 【便BX】計測があるので新しい6つも済み
-    expect(r).toEqual({ measure: true, reeds: true, reedsMeasure: true, adoptAverage: true, tuner: true, metronome: true, ...NEW8, idealSeen: true, ...NEW6, ...GATES });
+    expect(r).toEqual({ measure: true, reeds: true, reedsMeasure: true, adoptAverage: true, tuner: true, metronome: true, ...NEW8, idealSeen: true, ...NEW6, ...NEW1, ...GATES });
   });
   it("人物の目安だけなら何も立てない / 自分の計測から作った目安が「みんなの平均」という名前でも取り込み扱いにしない", () => {
     // 【便BS】どの移行の結果にも、計測タブの3段の移行の印(migratedMeasureSteps)が付く。【便BW】3つ目の門(migratedCoach2)も
@@ -361,7 +377,7 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
       .toEqual(GATES);
     // 【便BX】便BW の門で idealSeen が立った人には goMeasure(「計測タブに戻ろう」を出さない)
     expect(migrateOnboardingDone({}, { idealProfiles: [{ sourceKind: "community", name: "みんなの平均" }], isAdopted: adopted }))
-      .toEqual({ adoptAverage: true, idealSeen: true, goMeasure: true, ...GATES });
+      .toEqual({ adoptAverage: true, idealSeen: true, goMeasure: true, ...NEW1, ...GATES });   // 【便BZ】idealSeen が立つ人には goCompare も
   });
   it("何も無い人は門の印だけ(参加は決めない・新しい段は全部まだ)", () => {
     expect(migrateOnboardingDone({}, { sessions: [], reeds: [], idealProfiles: [], isAdopted: adopted })).toEqual(GATES);
@@ -377,7 +393,7 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
     const old = { migrated: true };
     const r = migrateOnboardingDone(old, { sessions: [{ id: "s1", reedId: "r1" }], reeds: [{ id: "r1" }], idealProfiles: [], isAdopted: adopted });
     // reeds / reedsMeasure は便BP の移行の分なので、ここでは立てない(やり直さない)。【便BW】新しい8つは立つ
-    expect(r).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...GATES });
+    expect(r).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...NEW1, ...GATES });
     // 計測が無ければ印だけ(段は出る)
     expect(migrateOnboardingDone({ migrated: true }, { sessions: [] })).toEqual(GATES);
     // 2回目は何もしない(同じ物を返す)
@@ -388,7 +404,7 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
     const BS = { migrated: true, migratedMeasureSteps: true };
     it("計測がある人: 新しい8つを立てる・dataSeen は立てない・既存の印は倒さない(新しい段は1つも出ない)", () => {
       const r = migrateOnboardingDone({ ...BS, measure: true, tuner: true }, { sessions: [{ id: "s1" }] });
-      expect(r).toEqual({ ...BS, measure: true, tuner: true, metronome: true, ...NEW8, migratedCoach2: true, ...NEW6, migratedCoach3: true });
+      expect(r).toEqual({ ...BS, measure: true, tuner: true, metronome: true, ...NEW8, migratedCoach2: true, ...NEW6, migratedCoach3: true, ...NEW1, migratedCoach4: true });
       expect(r.dataSeen).toBeUndefined();
       // 計測があれば、計測タブ・データタブのどの段も出ない
       const d = normalizeOnboardingDone(r);
@@ -403,12 +419,12 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
     });
     it("前の版で dataSeen を押した人: データタブの3段を済みに / みんなの平均を取り込んである人(adoptAverage): idealSeen", () => {
       expect(migrateOnboardingDone({ ...BS, dataSeen: true }, { sessions: [] }))
-        .toEqual({ ...BS, dataSeen: true, calendarDay: true, daySession: true, trend: true, migratedCoach2: true, migratedCoach3: true });
+        .toEqual({ ...BS, dataSeen: true, calendarDay: true, daySession: true, trend: true, migratedCoach2: true, migratedCoach3: true, migratedCoach4: true });
       expect(migrateOnboardingDone({ ...BS, adoptAverage: true }, { sessions: [] }))
-        .toEqual({ ...BS, adoptAverage: true, idealSeen: true, migratedCoach2: true, goMeasure: true, migratedCoach3: true });   // 【便BX】goMeasure
+        .toEqual({ ...BS, adoptAverage: true, idealSeen: true, migratedCoach2: true, goMeasure: true, migratedCoach3: true, ...NEW1, migratedCoach4: true });   // 【便BX】goMeasure・【便BZ】goCompare
     });
-    // 【便BX】門は4つになった(GATES に migratedCoach3 が入っている)
-    it("4つの門が全部立っていれば同じ物を返す(書き込みを起こさない)。2つだけなら新しい門を1回走らせる", () => {
+    // 【便BX】門は4つになった(GATES に migratedCoach3 が入っている)。【便BZ】5つ(migratedCoach4)
+    it("5つの門が全部立っていれば同じ物を返す(書き込みを起こさない)。2つだけなら新しい門を1回走らせる", () => {
       const all = { ...GATES, measure: true };
       expect(migrateOnboardingDone(all, { sessions: [{ id: "s1" }] })).toBe(all);
       const two = { ...BS };
@@ -419,7 +435,7 @@ describe("既にある人の移行(migrateOnboardingDone)", () => {
     it("便BS の移行の結果は変わらない(計測があれば tuner・metronome・measure。LEGACY の3つ)", () => {
       const r = migrateOnboardingDone({ migrated: true, migratedCoach2: true }, { sessions: [{ id: "s1" }] });
       // 【便BX】4つ目の門も1回走る(計測があるので新しい6つ)
-      expect(r).toEqual({ migrated: true, migratedCoach2: true, migratedMeasureSteps: true, measure: true, tuner: true, metronome: true, ...NEW6, migratedCoach3: true });
+      expect(r).toEqual({ migrated: true, migratedCoach2: true, migratedMeasureSteps: true, measure: true, tuner: true, metronome: true, ...NEW6, migratedCoach3: true, ...NEW1, migratedCoach4: true });
     });
   });
 });
@@ -456,10 +472,69 @@ describe("穴とカードの位置", () => {
     expect(low.top).toBe(400 - 22 - 146);
     expect(low.side).toBe("above");
   });
-  it("上にも下にも収まらないときは中央のまま(重なりを返す)", () => {
+  // 【便BZ 2026-10-07 本人の実機の指摘】上にも下にも収まらないときは、中央ではなく的(穴)との重なりが最小の位置(見える範囲の上端か下端)
+  it("【便BZ】上にも下にも収まらないときは、重なりが最小の端(上 gap / 下 = 下端 − gap − カード)。中央には置かない", () => {
+    // 実機(iPhone 393×852・本物の広告)のスクショから読んだ値: 環の箱 161〜490・見える範囲の下端 703(カードの中央置き 264 から逆算)・カード 175(便BX の高さ)。
+    // 上(161 − 22 − 175 < 22)にも下(490 + 22 + 175 = 687 > 703 − 22)にも収まらない。以前は中央 264 = 264〜439 で、環の真ん中(音名・セント)に重なった
+    const ring = placeCoachCard({ hole: { left: 14, top: 161, width: 365, height: 329 }, cardH: 175, vh: 852, bottomLimit: 703 });
+    expect(ring.top).toBe(506);                 // 703 − 22 − 175。穴の下端 490 より下なので重なり 0
+    expect(ring.side).toBe("below");
+    expect(ring.shifted).toBe(true);
+    expect(ring.overlaps).toBe(false);
+    // 大きな的(100〜660): 上の端 22 は 68 重なる・下の端 597 は 63 重なる → 下。重なりが残るので overlaps
     const big = placeCoachCard({ hole: { left: 14, top: 100, width: 347, height: 560 }, cardH: 146, vh: 812, bottomLimit: 765 });
-    expect(big.top).toBe((765 - 146) / 2);
+    expect(big.top).toBe(597);
+    expect(big.side).toBe("below");
     expect(big.overlaps).toBe(true);
+    // 的が高い所(40〜620): 上の端 22 は 128 重なる・下の端 597 は 23 重なる → 下
+    expect(placeCoachCard({ hole: { left: 14, top: 40, width: 347, height: 580 }, cardH: 146, vh: 812, bottomLimit: 765 }).top).toBe(597);
+    // 的が低い所(150〜700): 上の端 22 は 18 重なる・下の端 597 は 103 重なる → 上
+    const up = placeCoachCard({ hole: { left: 14, top: 150, width: 347, height: 550 }, cardH: 146, vh: 812, bottomLimit: 765 });
+    expect(up.top).toBe(22);
+    expect(up.side).toBe("above");
+    // 両端とも重ならない(180〜585)ときは中央に近いほう(同じ距離なら上)
+    expect(placeCoachCard({ hole: { left: 14, top: 180, width: 347, height: 405 }, cardH: 146, vh: 812, bottomLimit: 765 }).top).toBe(22);
+  });
+  it("カードが見える範囲より高く置ける所が無いときだけ中央のまま(重なりを返す)", () => {
+    const tall = placeCoachCard({ hole: { left: 14, top: 100, width: 347, height: 560 }, cardH: 730, vh: 812, bottomLimit: 765 });
+    expect(tall.top).toBe((765 - 730) / 2);
+    expect(tall.side).toBe("center");
+    expect(tall.overlaps).toBe(true);
+  });
+  // 【便BZ】⑭⑮ の的へ送るかの判定と送り方(見える範囲 = 上端 0 〜 下部タブ・広告の帯の上端)
+  it("【便BZ】coachScrollPlan: 見える範囲に収まっていれば送らない / 帯・下部タブの裏に隠れていれば送る(中央・高ければ上端)", () => {
+    const R = (top, height) => ({ left: 14, top, width: 347, height });
+    // 実機(393×852・広告あり)の再現: 音の傾向カード 614.6〜759.6・見える範囲の下端 713 → 画面の中だが 46.6 隠れている → 送る
+    expect(coachScrollPlan(R(614.6, 145), 852, 713)).toEqual({ block: "center", marginBottom: 139 });
+    // 収まっている(555.6〜700.6 ≦ 707)→ 送らない
+    expect(coachScrollPlan(R(555.6, 145), 812, 707)).toBe(null);
+    // 下端ちょうど(562〜707)も収まっている
+    expect(coachScrollPlan(R(562, 145), 812, 707)).toBe(null);
+    // 画面の外(下)・上にはみ出し → 送る
+    expect(coachScrollPlan(R(1400, 380), 812, 707)).toEqual({ block: "center", marginBottom: 105 });
+    expect(coachScrollPlan(R(-10, 145), 812, 707)).toEqual({ block: "center", marginBottom: 105 });
+    // 見える範囲(707)より高い的(720)は上端をそろえる
+    expect(coachScrollPlan(R(300, 720), 812, 707)).toEqual({ block: "start", marginBottom: 105 });
+    // 大きさ 0(描かれていない)は送らない
+    expect(coachScrollPlan(R(900, 0), 812, 707)).toBe(null);
+    // 下部タブ・帯が無ければ(bottomLimit = vh)今までの「画面の外なら」と同じ
+    expect(coachScrollPlan(R(700, 100), 812, 812)).toBe(null);
+    expect(coachScrollPlan(R(750, 100), 812, 812)).toEqual({ block: "center", marginBottom: 0 });
+  });
+  // 【便BZ】穴にかかる浮かせるボタンの覆い
+  it("【便BZ】floatingCovers: 穴にかかる浮かせるボタンだけ覆う(的そのもの・穴にかからないボタンは覆わない)", () => {
+    const fab = (top, isTarget = false) => ({ rect: { left: 305, top, width: 56, height: 56 }, radius: "9999px", isTarget });
+    const trendHole = { left: 14, top: 555.6, width: 347, height: 145 };
+    // 実測(375×812・広告あり・HEAD): 取り込みの丸 305,639,56,56 は音の傾向カードの穴(555.6〜700.6)の中
+    // 【便BZ 審査】覆いはボタンと穴が重なる所だけ(clip: 下 56 − (700.6 − 639) = 0 → はみ出しなし / 穴の下端より下が切られる場面は下)
+    expect(floatingCovers([fab(639)], [trendHole])).toEqual([{ left: 305, top: 639, width: 56, height: 56, radius: "9999px", clip: "inset(0px 0px 0px 0px)" }]);
+    // 穴の下端 700.6 をまたぐボタン(680〜736): 穴の外の 35.4 を切る(二重に暗くしない)
+    expect(floatingCovers([fab(680)], [trendHole])[0].clip).toBe("inset(0px 0px 35.4px 0px)");
+    expect(floatingCovers([fab(639, true)], [trendHole])).toEqual([]);          // 的そのもの(リードを追加の段など)は押せるまま
+    expect(floatingCovers([fab(720)], [trendHole])).toEqual([]);                // 穴の外(暗幕がかかっている)は覆わない
+    // 【便BZ 審査】呼び手は1つ目の穴だけを渡す(帯の箱 = 2つ目の穴にかかるボタンは覆わない)。渡した穴にかかれば覆う(純関数の決まり)
+    expect(floatingCovers([fab(639)], [null, { left: 14, top: 600, width: 347, height: 68 }])).toHaveLength(1);
+    expect(floatingCovers([{ rect: { left: 0, top: 0, width: 0, height: 0 }, radius: "0px", isTarget: false }], [trendHole])).toEqual([]);
   });
   it("的が画面の中にまるごと見えているときだけ出す(大きさ 0・はみ出しは出さない)", () => {
     const r = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
@@ -620,7 +695,7 @@ describe("OnboardingCoach(出る・出ない)", () => {
     expect(layer()).toBe(null);
   });
   it("タブを切り替えた描画のうちに測り直す(古い案内を1フレームも残さない)", async () => {
-    const both = <><Target /><span data-coach="nav-measure"><svg data-r="46.88,773,30,30" /></span></>;
+    const both = <><Target /><span data-coach="nav-measure" data-r="20,760,83.75,44"><svg data-r="46.88,767,30,30" /></span></>;
     await draw({ target: both });
     await redraw(both, { candidates: ["data"] });
     expect(layer()?.getAttribute("data-coach-layer")).toBe("data");
@@ -681,7 +756,7 @@ describe("外を押したら消える / 穴は下へ通す", () => {
     expect(layer()).not.toBe(null);
   });
   it("同じ起動の中では、一度消した一手はタブを行き来しても出さない。ほかの一手は出る", async () => {
-    const both = <><Target /><span data-coach="nav-measure"><svg data-r="46.88,773,30,30" /></span></>;
+    const both = <><Target /><span data-coach="nav-measure" data-r="20,760,83.75,44"><svg data-r="46.88,767,30,30" /></span></>;
     await draw({ target: both });
     await clickOn(layer().querySelector('[data-coach-hit="t"]'));
     expect(layer()).toBe(null);
@@ -812,7 +887,9 @@ const MetroBtn = () => <button type="button" data-coach="metronome" data-r="317,
 const Band = () => <div data-coach="tuner" data-r="14,96,347,330">環</div>;
 const TempoRow = () => <div data-coach="metroTempo" data-r="43.6,470,287.8,57.6">− ♩=120 ＋</div>;
 const ReedChip = () => <div data-coach="reedChip" data-r="14,46,190,30">V16 3 #1</div>;
-const NavSvg = ({ k, x }) => <span data-coach={`nav-${k}`}><svg data-r={`${x},773,30,30`} /></span>;
+// 【便BZ 統括の裁定】下部タブの的はボタンの箱(375×812・新しい下部タブの実測: 内箱の上端 754 + 6 = 760・高さ 44・1つ 83.75)
+const NAV_BTN_X = { measure: 20, reeds: 103.75, community: 187.5, analysis: 271.25 };
+const NavSvg = ({ k, x }) => <span data-coach={`nav-${k}`} data-r={`${NAV_BTN_X[k]},760,83.75,44`}><svg data-r={`${x},767,30,30`} /></span>;
 const MEASURE_PAGE = <><Band /><MetroBtn /><TempoRow /><ReedChip /><Target /><NavSvg k="reeds" x="130.6" /><NavSvg k="analysis" x="298.1" /></>;
 const holeBox = () => { const h = layer().querySelector(".coach-hole"); return [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]; };
 
@@ -866,12 +943,12 @@ describe("【便BW】環の箱・メトロノームの的", () => {
     await drawBS(["goReeds"], { extra: MEASURE_PAGE });
     await frames();
     expect(layerId()).toBe("goReeds");
-    expect(holeBox()).toEqual(["119.6px", "762px", "52px", "52px", "50%"]);
+    expect(holeBox()).toEqual(["103.75px", "760px", "83.75px", "44px", "var(--r-2)"]);   // 【便BZ】ボタンの箱
     expect(layer().querySelector(".coach-line")).toBe(null);   // 1行なし
     await drawBS(["goData"], { extra: MEASURE_PAGE });
     await frames();
     expect(layerId()).toBe("goData");
-    expect(holeBox()).toEqual(["287.1px", "762px", "52px", "52px", "50%"]);
+    expect(holeBox()).toEqual(["271.25px", "760px", "83.75px", "44px", "var(--r-2)"]);
     await drawBS(["reedLinked"], { extra: MEASURE_PAGE });
     await frames();
     expect(layerId()).toBe("reedLinked");
@@ -1199,11 +1276,13 @@ describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ(
     expect(layer()).toBe(null);
     expect(marks).toEqual([]);
   });
-  // 【便BX 本人の決定 C】⑩ goData の2つ目の穴(保存の帯の箱)は残る(下の【便BX】⑩ の節)
-  it("2つ目の穴を持つのは ⑩ だけ(⑥ は持たない)", () => {
-    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["goData"]);
+  // 【便BX 本人の決定 C】⑩ goData の2つ目の穴(保存の帯の箱)は残る(下の【便BX】⑩ の節)。【便BZ】goCompare も帯の箱(⑩ と同じ値)
+  it("2つ目の穴を持つのは ⑩ と【便BZ】goCompare だけ(⑥ は持たない)", () => {
+    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["goData", "goCompare"]);
     expect("also" in COACH_STEPS.reeds).toBe(false);
     expect(COACH_STEPS.goData.also).toEqual({ target: "[data-action-notice]", pad: 0, shape: "rect" });
+    expect(COACH_STEPS.goCompare.also).toEqual({ target: "[data-action-notice]", pad: 0, shape: "rect" });
+    expect([COACH_STEPS.goCompare.target, COACH_STEPS.goCompare.pad, COACH_STEPS.goCompare.shape]).toEqual(['[data-coach="nav-analysis"]', 0, "rect"]);
   });
 });
 
@@ -1306,41 +1385,54 @@ describe("【便BX】どの段を出すか(到着・⑭'・⑰・⑱)", () => {
   });
 });
 
-// 【便BY 2026-10-07 本人の指示「チュートリアルの案内の枚数を------で表して / Instagramみたいな」】枚数の目印の順と位置。
-// 期待値の 21 枚は仕様 coach3-spec.md §15 の手順(①〜⑤・到着・⑥⑦・⑧⑨⑩・到着・⑫⑬⑭⑭'・到着・⑯・⑮⑰・⑱)から手で書いた。
-describe("【便BY】枚数の目印(COACH_ORDER / coachProgress)", () => {
-  it("順は仕様 §15 の 21 枚(段の印で持つ。⑨ は measure)", () => {
-    expect(COACH_ORDER).toEqual([
-      "tuner", "metronome", "metroTempo", "metroStart", "goReeds",
-      "arriveReeds", "reeds", "reedsMeasure",
-      "reedLinked", "measure", "goData",
-      "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
-      "arriveCommunity", "adoptAverage",
-      "idealSeen", "goMeasure",
-      "finish",
-    ]);
-    expect(new Set(COACH_ORDER).size).toBe(21);
+// 【便BY】流れの順・【便BZ】4本の棒。期待値は仕様 coach3-spec.md §15 の手順(①〜⑤・到着・⑥⑦・⑧⑨⑩・到着・⑫⑬⑭⑭'・到着・⑯・goCompare・⑮⑰・⑱)と
+// 本人の指示・統括の裁定(「そのタブの段のうち、済んだ段 + 今の段」・段はカードが出るタブに属する)から手で書いた(COACH_TABS から読まない)。
+// 【便BZ 審査】流れの順の定数 COACH_ORDER は使い手が無くなったので消した。順はこの検査が手で持つ(FLOW)。
+const FLOW = ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "arriveReeds", "reeds", "reedsMeasure",
+  "reedLinked", "measure", "goData", "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
+  "arriveCommunity", "adoptAverage", "goCompare", "idealSeen", "goMeasure", "finish"];
+const fillsOf = (id, done = ALL_FALSE) => coachProgress(id, done).bars.map((b) => b.filled);
+describe("【便BY】流れの順・【便BZ】4本の棒(COACH_TABS / coachProgress)", () => {
+  it("【便BZ】棒は4本(左から 計測・リード・コミュニティ・データ)・段の数は 9・3・3・8。段はカードが出るタブに属する", () => {
+    const { bars } = coachProgress("tuner", ALL_FALSE);
+    expect(bars.map((b) => [b.tab, b.label, b.total])).toEqual([["measure", "計測", 9], ["reeds", "リード", 3], ["community", "コミュニティ", 3], ["analysis", "データ", 8]]);
+    // 全部の段(到着・⑪ を含む。⑨ の measureReed は measure と同じ段)がどれか1本に1回
+    expect(COACH_TABS.flatMap((t) => t.steps).sort()).toEqual([...FLOW, "data"].sort());
+    const tabOf = (id) => coachProgress(id, ALL_FALSE).current?.tab ?? null;
+    // goCompare はコミュニティ(照らすのは下部タブ「データ」だが出るのはコミュニティタブ)・⑤⑩⑱ は計測・⑭' ⑰ はデータ・⑪ data はデータ
+    expect(["goCompare", "goReeds", "goData", "finish", "goCommunity", "goMeasure", "data", "measureReed", "measure"].map(tabOf))
+      .toEqual(["community", "measure", "measure", "measure", "analysis", "analysis", "analysis", "measure", "measure"]);
+    for (const id of Object.keys(COACH_STEPS)) expect(coachProgress(id, ALL_FALSE).bars.filter((b) => b.current), id).toHaveLength(1);
+    expect(coachProgress("bogus", ALL_FALSE).current).toBe(null);
+    // ⑪ はデータタブにいる間はデータの棒が今の棒(1/8)
+    expect(coachProgress("data", ALL_FALSE).current).toMatchObject({ tab: "analysis", label: "データ", filled: 1, total: 8 });
   });
-  it("どの段も 1〜21 のどこかに居る(⑨ の2つの文と流れの外の ⑪ は 10 枚目)。知らない段は 0", () => {
-    for (const id of Object.keys(COACH_STEPS)) {
-      const { at, total } = coachProgress(id);
-      expect(total, id).toBe(21);
-      expect(at >= 1 && at <= 21, `${id}=${at}`).toBe(true);
-    }
-    expect(["measureReed", "measure", "data"].map((id) => coachProgress(id).at)).toEqual([10, 10, 10]);
-    expect(["tuner", "arriveReeds", "goData", "arriveCommunity", "goMeasure", "finish"].map((id) => coachProgress(id).at)).toEqual([1, 6, 11, 17, 20, 21]);
-    expect(coachProgress("bogus")).toEqual({ at: 0, total: 21 });
+  it("【便BZ 審査】塗る数 = そのタブの済んだ段 + もう出ない段 + 今の段。流れの順で手前でも、印の無い段(外を押して消しただけ)は塗らない", () => {
+    expect(fillsOf("tuner")).toEqual([1, 0, 0, 0]);
+    expect(fillsOf("arriveReeds")).toEqual([0, 1, 0, 0]);     // ①〜⑤ を外押しで消しただけの人: 計測の棒は 0(便BZ の前は 5)
+    expect(fillsOf("goData")).toEqual([1, 0, 0, 0]);
+    expect(fillsOf("finish")).toEqual([1, 0, 0, 0]);
+    expect(fillsOf("arriveData", doneWith("trend", "adoptAverage"))).toEqual([0, 0, 1, 2]);
+    // もう出ない段(COACH_SKIPPED)は済んだ扱い: リードがある → ⑤ / 参加している → ⑭' / ⑮ を見た → ⑭ と goCompare / ⑰ を済ませた → ⑮ / 終わった → goCompare・⑮・⑰
+    expect(fillsOf("tuner", doneWith("reeds"))).toEqual([2, 1, 0, 0]);
+    expect(fillsOf("arriveData", doneWith("join"))).toEqual([0, 0, 0, 2]);
+    expect(fillsOf("goMeasure", doneWith("idealSeen"))).toEqual([0, 0, 1, 3]);
+    expect(fillsOf("finish", doneWith("goMeasure"))).toEqual([1, 0, 0, 2]);
+    expect(fillsOf("finish", doneWith("finish"))).toEqual([1, 0, 1, 2]);
+    expect(Object.keys(COACH_SKIPPED).sort()).toEqual(["goCommunity", "goCompare", "goMeasure", "goReeds", "idealSeen", "trend"]);
+    // ⑪(印 measure)は計測が済めば済み: データの棒の1つ
+    expect(fillsOf("goData", doneWith("measure"))).toEqual([2, 0, 0, 1]);
   });
-  // 本人が通す流れ(仕様 §15)を coachCandidates で1枚ずつ進め、出た段の印の順が COACH_ORDER と同じことを確かめる
-  // (どちらかの順を入れ替えると落ちる)。各場面の状態は §15 の手順の画面のとおり(面の開閉・リードの選択・計測の有無・「見る」)
-  it("coachCandidates の出る順(本人の通す流れ)と COACH_ORDER は食い違わない。各段の位置は 1, 2, …, 21 と1つずつ増える", () => {
+  // 本人が通す流れ(仕様 §15)を coachCandidates で1枚ずつ進め、出た段の順が FLOW と同じことを確かめる(順の検査)。
+  it("coachCandidates の出る順(本人の通す流れ)は FLOW のとおり。棒の塗りは戻らず、⑱ で4本とも全部", () => {
     let done = { ...ALL_FALSE };
-    const seen = [];
+    const seen = []; const fills = [];
     const run = (ctx, max = 8) => {
       for (let i = 0; i < max; i++) {
         const c = coachCandidates({ ...ctx, done });
         if (c.length === 0) return;
         seen.push(c[0]);
+        fills.push(fillsOf(c[0], done));
         done = { ...done, [COACH_STEPS[c[0]].flag]: true };
       }
     };
@@ -1351,22 +1443,29 @@ describe("【便BY】枚数の目印(COACH_ORDER / coachProgress)", () => {
     run({ topTab: "measure", micReady: true, hasSelectedReed: true, hasSessions: true });     // ⑧⑨⑩
     run({ topTab: "analysis", hasSessions: true });                                          // 到着・⑫⑬⑭⑭'
     done = { ...done, join: true };                                                          // 参加の画面(段ではない)で参加した
-    run({ topTab: "community" });                                                            // 到着・⑯
+    run({ topTab: "community" });                                                            // 到着・⑯・【便BZ】目安と比べてみよう
     run({ topTab: "analysis", hasSessions: true, idealRequested: true });                    // ⑮⑰
     run({ topTab: "measure", micReady: true });                                              // ⑱
-    expect(seen.map((id) => COACH_STEPS[id].flag)).toEqual([...COACH_ORDER]);
-    expect(seen.map((id) => coachProgress(id).at)).toEqual(Array.from({ length: 21 }, (_, i) => i + 1));
+    expect(seen.map((id) => (id === "measureReed" ? "measure" : id))).toEqual(FLOW);
     expect(seen).toContain("measureReed");   // ⑨ はリードが選ばれている文
+    expect(fills).toEqual([
+      [1, 0, 0, 0], [2, 0, 0, 0], [3, 0, 0, 0], [4, 0, 0, 0], [5, 0, 0, 0],
+      [5, 1, 0, 0], [5, 2, 0, 0], [5, 3, 0, 0],
+      [6, 3, 0, 0], [7, 3, 0, 0], [8, 3, 0, 1],
+      [8, 3, 0, 2], [8, 3, 0, 3], [8, 3, 0, 4], [8, 3, 0, 5], [8, 3, 0, 6],
+      [8, 3, 1, 6], [8, 3, 2, 6], [8, 3, 3, 6],
+      [8, 3, 3, 7], [8, 3, 3, 8],
+      [9, 3, 3, 8],
+    ]);
   });
-  // その利用者に出ない段(リードが既にある・参加済み)は飛ばされ、飛ばした分は塗られた扱い。位置は飛ぶが戻らない
-  it("リードが既にあり参加済みの人: ⑤ ⑥ ⑦ と到着2枚・⑭' は出ず、位置は 1,2,3,4 → 9 → … → 15 → 18 → 21 と増えるだけ(戻らない)", () => {
+  it("リードが既にあり参加済みの人: ⑤ ⑥ ⑦ と到着2枚・⑭' は出ないが、もう出ない段は済んだ扱いで ⑱ で4本とも全部", () => {
     let done = doneWith("reeds", "reedsMeasure", "arriveReeds", "join", "arriveCommunity");
-    const seen = [];
+    const fills = [];
     const run = (ctx, max = 8) => {
       for (let i = 0; i < max; i++) {
         const c = coachCandidates({ ...ctx, done });
         if (c.length === 0) return;
-        seen.push(c[0]);
+        fills.push(fillsOf(c[0], done));
         done = { ...done, [COACH_STEPS[c[0]].flag]: true };
       }
     };
@@ -1377,7 +1476,26 @@ describe("【便BY】枚数の目印(COACH_ORDER / coachProgress)", () => {
     run({ topTab: "community" });
     run({ topTab: "analysis", hasSessions: true, idealRequested: true });
     run({ topTab: "measure", micReady: true });
-    expect(seen.map((id) => coachProgress(id).at)).toEqual([1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21]);
+    expect(fills[0]).toEqual([2, 3, 1, 1]);   // ① + ⑤(リードがある)・リードの3つ・コミュニティの到着・⑭'(参加している)
+    for (let i = 1; i < fills.length; i++) for (let k = 0; k < 4; k++) expect(fills[i][k] >= fills[i - 1][k]).toBe(true);
+    expect(fills.at(-1)).toEqual([9, 3, 3, 8]);
+  });
+  it("【便BZ 審査】順番どおりに進まない人(データタブ → コミュニティ → 計測 → リード …): 済んだ段の塗りは戻らない(変わるのは今の段の1つだけ)", () => {
+    let done = doneWith("join");
+    const doneOnly = [];
+    const step = (id, set = true) => {
+      const p = coachProgress(id, done);
+      doneOnly.push(p.bars.map((b) => b.filled - (b.current ? 1 : 0)));
+      if (set) done = { ...done, [COACH_STEPS[id].flag]: true };
+    };
+    step("data", false);            // ⑪ を見ただけ(計測はまだ)
+    step("arriveCommunity"); step("adoptAverage", false);   // ⑯ は外押しで消した
+    step("tuner"); step("metronome");
+    step("arriveReeds"); step("reeds");
+    step("goReeds", false);         // リードがあるので本当は出ない(済んだ扱い)
+    step("measure"); step("arriveData"); step("trend");
+    for (let i = 1; i < doneOnly.length; i++) for (let k = 0; k < 4; k++) expect(doneOnly[i][k] >= doneOnly[i - 1][k], `${i} ${k}`).toBe(true);
+    expect(fillsOf("adoptAverage", done)).toEqual([4, 2, 2, 4]);   // 外押しの ⑯ は今の段として1つだけ
   });
 });
 
@@ -1387,7 +1505,7 @@ describe("【便BX】4つ目の門(migratedCoach3)", () => {
   it("前の3つの門だけ済んだ人 + 計測1件: 新しい6つと門の印。他の印は倒さない", () => {
     const prev = { ...OLD3, measure: true, tuner: true, join: false };
     const r = migrateOnboardingDone(prev, { sessions: [{ id: "s1" }] });
-    expect(r).toEqual({ ...prev, metronome: true, ...NEW6, migratedCoach3: true });   // metronome は便BS の LEGACY(計測があれば毎回立てる)
+    expect(r).toEqual({ ...prev, metronome: true, ...NEW6, migratedCoach3: true, goCompare: true, migratedCoach4: true });   // metronome は便BS の LEGACY(計測があれば毎回立てる)・【便BZ】5つ目の門も1回走る
     // どのタブでも新しい段は出ない
     const d = normalizeOnboardingDone({ ...r, goData: true, metronome: true, goReeds: true, reeds: true, trend: true, calendarDay: true, daySession: true, idealSeen: true, join: true, adoptAverage: true });
     expect(coachCandidates({ topTab: "measure", done: d, micReady: false })).toEqual([]);
@@ -1396,17 +1514,18 @@ describe("【便BX】4つ目の門(migratedCoach3)", () => {
     expect(coachCandidates({ topTab: "community", done: d })).toEqual([]);
   });
   it("計測 0・リード 1 → arriveReeds だけ / 計測 0・join → arriveCommunity・goCommunity / 計測 0・idealSeen → goMeasure", () => {
-    expect(migrateOnboardingDone(OLD3, { sessions: [], reeds: [{ id: "r1" }] })).toEqual({ ...OLD3, arriveReeds: true, migratedCoach3: true });
-    expect(migrateOnboardingDone({ ...OLD3, join: true }, { sessions: [] })).toEqual({ ...OLD3, join: true, arriveCommunity: true, goCommunity: true, migratedCoach3: true });
-    expect(migrateOnboardingDone({ ...OLD3, idealSeen: true }, { sessions: [] })).toEqual({ ...OLD3, idealSeen: true, goMeasure: true, migratedCoach3: true });
+    // 【便BZ】5つ目の門も1回走る(migratedCoach4。idealSeen が立っていれば goCompare)
+    expect(migrateOnboardingDone(OLD3, { sessions: [], reeds: [{ id: "r1" }] })).toEqual({ ...OLD3, arriveReeds: true, migratedCoach3: true, migratedCoach4: true });
+    expect(migrateOnboardingDone({ ...OLD3, join: true }, { sessions: [] })).toEqual({ ...OLD3, join: true, arriveCommunity: true, goCommunity: true, migratedCoach3: true, migratedCoach4: true });
+    expect(migrateOnboardingDone({ ...OLD3, idealSeen: true }, { sessions: [] })).toEqual({ ...OLD3, idealSeen: true, goMeasure: true, migratedCoach3: true, goCompare: true, migratedCoach4: true });
     // 便BW の門が同じ呼び出しで idealSeen を立てた人(みんなの平均を取り込んである。adoptAverage)にも goMeasure
     expect(migrateOnboardingDone({ migrated: true, migratedMeasureSteps: true, adoptAverage: true }, { sessions: [] }))
-      .toEqual({ migrated: true, migratedMeasureSteps: true, adoptAverage: true, idealSeen: true, migratedCoach2: true, goMeasure: true, migratedCoach3: true });
+      .toEqual({ migrated: true, migratedMeasureSteps: true, adoptAverage: true, idealSeen: true, migratedCoach2: true, goMeasure: true, migratedCoach3: true, goCompare: true, migratedCoach4: true });
     // 何も無い人(入れたて)は門の印だけ(流れの全部が出る)
-    expect(migrateOnboardingDone(OLD3, { sessions: [] })).toEqual({ ...OLD3, migratedCoach3: true });
+    expect(migrateOnboardingDone(OLD3, { sessions: [] })).toEqual({ ...OLD3, migratedCoach3: true, migratedCoach4: true });
   });
-  it("4つの門が全部 true なら同じ物(===)を返す。3つだけなら4つ目を1回走らせる", () => {
-    const all = { ...OLD3, migratedCoach3: true, measure: true };
+  it("5つの門が全部 true なら同じ物(===)を返す。3つだけなら4つ目(と5つ目)を1回走らせる", () => {
+    const all = { ...OLD3, migratedCoach3: true, migratedCoach4: true, measure: true };   // 【便BZ】門は5つ
     expect(migrateOnboardingDone(all, { sessions: [{ id: "s1" }] })).toBe(all);
     const three = { ...OLD3 };
     const r = migrateOnboardingDone(three, { sessions: [] });
@@ -1505,41 +1624,63 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
   });
 });
 
-// 【便BY】枚数の目印の描画。期待値(何本目まで塗るか)は仕様 §15 の手順の何枚目かを手で数えた
-describe("【便BY】枚数の目印の描画(カードの最初の子)", () => {
+// 【便BY】→【便BZ】目印の描画(4本の棒)。期待値(塗る数)は上の規則から手で数えた
+const ALL_STEP_FLAGS = ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "goData",
+  "arriveReeds", "reeds", "reedsMeasure", "arriveCommunity", "adoptAverage", "goCompare",
+  "arriveData", "calendarDay", "daySession", "trend", "goCommunity", "idealSeen", "goMeasure"];
+describe("【便BZ】4本の棒の描画(カードの最初の子)", () => {
   const bars = () => [...layer().querySelector(".coach-card").firstElementChild.children];
-  const onCount = () => bars().filter((b) => b.className === "on").length;
-  it("⑩(11 枚目): 子は棒 21 本(i)・左から 11 本が on・残りは class なし。読み上げ用の「案内 11/21」。章の目印は無い", async () => {
+  const widths = () => bars().map((b) => Math.round(parseFloat(b.firstElementChild.style.width) * 100) / 100);
+  it("⑩: 子は棒4本(i・左から 計測・リード・コミュニティ・データ・字なし)・今の棒(計測)だけ now。⑤ 済み + ⑩ = 計測 2/9。「案内 計測 2/9」", async () => {
     await drawBS(["goData"], { done: doneWith("goReeds"), extra: MEASURE_PAGE });
     await frames();
     const card = layer().querySelector(".coach-card");
     const bar = card.firstElementChild;
     expect(bar.className).toBe("coach-progress");
     expect(bar.getAttribute("role")).toBe("img");
-    expect(bar.getAttribute("aria-label")).toBe("案内 11/21");
-    expect(bars().map((b) => b.tagName)).toEqual(Array(21).fill("I"));
-    expect(bars().map((b) => b.className)).toEqual([...Array(11).fill("on"), ...Array(10).fill("")]);
+    expect(bar.getAttribute("aria-label")).toBe("案内 計測 2/9");
+    expect(bars().map((b) => [b.tagName, b.getAttribute("data-tab"), b.className, b.textContent])).toEqual([
+      ["I", "measure", "now", ""], ["I", "reeds", "", ""], ["I", "community", "", ""], ["I", "analysis", "", ""]]);
+    expect(bars().every((b) => b.children.length === 1 && b.firstElementChild.tagName === "B")).toBe(true);
+    expect(widths()).toEqual([22.22, 0, 0, 0]);
     expect(card.children[1].className).toBe("coach-icon");   // 目印の次がアイコン
     expect(layer().querySelector(".coach-marks, [data-coach-mark]")).toBe(null);
     expect(live().textContent).toBe("計測の記録を見てみよう");   // 読み上げの文は変えていない
   });
-  it("① は 1 本・到着カードにも目印(リードの到着 6 本・コミュニティの到着 17 本)・⑱ は 21 本全部", async () => {
-    const CASES = [["tuner", 1, <Band key="b" />], ["arriveReeds", 6, null], ["arriveCommunity", 17, null], ["finish", 21, null]];
-    for (const [id, n, extra] of CASES) {
+  it("① は計測 1/9・リードの到着はリード 1/3・コミュニティの到着はコミュニティ 1/3・⑱(ほかの段が全部済み)は4本とも 100%", async () => {
+    const CASES = [
+      ["tuner", ALL_FALSE, <Band key="b" />, "案内 計測 1/9", "measure", [11.11, 0, 0, 0]],
+      ["arriveReeds", ALL_FALSE, null, "案内 リード 1/3", "reeds", [0, 33.33, 0, 0]],
+      ["arriveCommunity", ALL_FALSE, null, "案内 コミュニティ 1/3", "community", [0, 0, 33.33, 0]],
+      ["finish", doneWith(...ALL_STEP_FLAGS), null, "案内 計測 9/9", "measure", [100, 100, 100, 100]],
+    ];
+    for (const [id, done, extra, label, now, w] of CASES) {
       act(() => root.unmount());
       root = createRoot(host);
-      await drawBS([id], { extra });
+      await drawBS([id], { done, extra });
       await frames();
       expect(layerId(), id).toBe(id);
-      expect(onCount(), id).toBe(n);
-      expect(bars().slice(0, n).every((b) => b.className === "on"), id).toBe(true);   // 左から詰めて塗る(途中に穴が無い)
-      expect(layer().querySelector(".coach-progress").getAttribute("aria-label"), id).toBe(`案内 ${n}/21`);
+      expect(layer().querySelector(".coach-progress").getAttribute("aria-label"), id).toBe(label);
+      expect(bars().filter((b) => b.className === "now").map((b) => b.getAttribute("data-tab")), id).toEqual([now]);
+      expect(widths(), id).toEqual(w);
     }
   });
-  it("印(done)では塗りが変わらない(位置は出している段で決める)", async () => {
+  it("済んだ段(done)は順に関係なく塗る(データの到着: 計測・⑤(リードあり)・リード・⑯ が済み・⑪ と ⑭ が済み → データ 3/8)", async () => {
     await drawBS(["arriveData"], { done: doneWith("measure", "reeds", "trend", "adoptAverage") });
     await frames();
-    expect(onCount()).toBe(12);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 データ 3/8");
+    expect(widths()).toEqual([22.22, 33.33, 33.33, 37.5]);
+  });
+  it("塗りに動き(transition / animation)を付けない・色はトークン(今の棒 --c-accent / ほか --c-accent-mid / まだ --c-line-strong)", () => {
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
+    const rules = css.split("\n").filter((l) => l.startsWith(".coach-progress"));
+    expect(rules).toEqual([
+      ".coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }",
+      ".coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }",
+      ".coach-progress i b { display: block; height: 100%; background: var(--c-accent-mid); }",
+      ".coach-progress i.now b { background: var(--c-accent); }",
+    ]);
+    expect(/coach-progress[^{]*\{[^}]*(transition|animation)/.test(css)).toBe(false);
   });
 });
 
@@ -1547,7 +1688,8 @@ describe("【便BY】枚数の目印の描画(カードの最初の子)", () => 
 const NoticeBox = ({ r = "14,685,347,68", onOpen }) => (
   <div data-action-notice="" data-r={r}><span>10:00 の計測を保存しました</span><button type="button" data-r="300,697,40,44" onClick={onOpen}>開く</button></div>
 );
-const DataNav = () => <span data-coach="nav-analysis"><svg data-r="298.1,772,30,30" /></span>;
+// 【便BZ】下部タブ「データ」のボタンの箱(760〜804)。帯 685〜753 との間の線は round((753 + 760) / 2) = 757(変わらない)
+const DataNav = () => <span data-coach="nav-analysis" data-r="271.25,760,83.75,44"><svg data-r="298.1,767,30,30" /></span>;
 describe("【便BX】⑩ と保存の帯(2つ目の穴)", () => {
   it("holesSplit の実寸: 帯 685〜753 と下部タブの穴 761〜813 の間の線は 757(null ではない)", () => {
     expect(holesSplit({ left: 287.1, top: 761, width: 52, height: 52 }, { left: 14, top: 685, width: 347, height: 68 })).toBe(757);
@@ -1559,7 +1701,7 @@ describe("【便BX】⑩ と保存の帯(2つ目の穴)", () => {
     expect(layerId()).toBe("goData");
     const hs = holeStyles();
     expect(hs.map((h) => [h.box, h.also])).toEqual([
-      [["287.1px", "761px", "52px", "52px", "50%"], null],
+      [["271.25px", "760px", "83.75px", "44px", "var(--r-2)"], null],
       [["14px", "685px", "347px", "68px", "var(--r-2)"], "also"],
     ]);
     // 帯の中心・「開く」の中心・下部タブの絵柄の中心を覆う受け・カードは無い
@@ -1573,7 +1715,7 @@ describe("【便BX】⑩ と保存の帯(2つ目の穴)", () => {
     }
     // 受けは帯ごとに4枚(線 757 で分ける)
     expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r", "xt", "xb", "xl", "xr"]);
-    expect(hitBoxes().find((h) => h[0] === "t").slice(1)).toEqual([0, 757, 375, 4]);
+    expect(hitBoxes().find((h) => h[0] === "t").slice(1)).toEqual([0, 757, 375, 3]);
     expect(hitBoxes().find((h) => h[0] === "xb").slice(1)).toEqual([0, 753, 375, 4]);
     // カードは中央(帯にも下部タブにもかからない)
     const top = parseFloat(layer().querySelector(".coach-card").style.top);
@@ -1592,5 +1734,193 @@ describe("【便BX】⑩ と保存の帯(2つ目の穴)", () => {
     expect(holeStyles()).toHaveLength(1);
     expect(holeStyles()[0].clip).toBe(null);
     expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便BZ 2026-10-07 本人の実機の指摘・統括の裁定】
+//   ① 置き場所(上の「穴とカードの位置」の【便BZ】)/ 溶ける前のカードは不透明
+//   ② ⑭⑮ の的は「見える範囲(上端 〜 下部タブ・広告の帯の上端)に収まっていなければ」送る / 穴にかかる浮かせるボタンは暗幕と同じ色で覆う
+//   ③ 新しい段 goCompare「目安と比べてみよう」(目安の帯と同時に・この段から来たら ⑮)
+// 期待値は実機のスクショ・headless Chrome の実測(報告の表)と統括の裁定の文から手で書いた。
+// ------------------------------------------------------------------
+describe("【便BZ】② ⑭⑮ の的へ送る: 見える範囲に収まっていなければ(画面の中でも下部タブ・帯の裏なら)", () => {
+  let realSIV; let calls;
+  beforeEach(() => {
+    realSIV = window.Element.prototype.scrollIntoView;
+    calls = [];
+    // 呼ばれた要素・引数と、呼ばれた瞬間の scroll-margin-bottom を控える(送る間だけ付いて、すぐ外れること)
+    window.Element.prototype.scrollIntoView = function (arg) { calls.push([this.getAttribute("data-coach"), arg, this.style.scrollMarginBottom]); };
+  });
+  afterEach(() => { window.Element.prototype.scrollIntoView = realSIV; });
+  it("⑭: 画面の中(600〜800 ≦ 812)でも下部タブの上端 765 より下にはみ出していれば1回送る(見える範囲の中央 = 下へ 812 − 765 = 47 の余白)。送り終えたら余白は外す", async () => {
+    await drawBS(["trend"], { extra: <TrendCard r="14,600,347,200" /> });
+    await frames(320);
+    expect(calls).toEqual([["trend", { block: "center", behavior: "auto" }, "47px"]]);
+    expect(document.querySelector('[data-coach="trend"]').style.scrollMarginBottom).toBe("");
+    // 作り物の scrollIntoView は的を動かさない → 2回目は送らない(この起動で1回だけ)。画面の中には居るので出す(今までどおり)
+    expect(layerId()).toBe("trend");
+    await act(async () => { document.querySelector('[data-coach="trend"]').setAttribute("data-r", "14,300,347,200"); });
+    await frames(320);
+    expect(layerId()).toBe("trend");
+    expect(calls).toHaveLength(1);
+  });
+  it("⑮: 見える範囲(765)より高い的(800)は上端をそろえる(block start)", async () => {
+    await drawBS(["idealSeen"], { extra: <TrendCard r="14,900,347,800" /> });
+    await frames(320);
+    expect(calls).toEqual([["trend", { block: "start", behavior: "auto" }, "47px"]]);
+  });
+  it("見える範囲に収まっていれば送らずに出す(556〜701 ≦ 765)", async () => {
+    await drawBS(["trend"], { extra: <TrendCard r="14,555.6,347,145" /> });
+    await frames(320);
+    expect(calls).toEqual([]);
+    expect(layerId()).toBe("trend");
+  });
+  it("前の段(⑫ のマス)の的が画面に在る間は、⑭ の的が帯の裏でも送らない(前の段を待つ・今までどおり)", async () => {
+    await drawBS(["calendarDay", "trend"], { extra: <><DayCell /><TrendCard r="14,600,347,200" /></> });
+    await frames(320);
+    expect(calls).toEqual([]);
+    expect(layerId()).toBe("calendarDay");
+  });
+});
+
+// 浮かせるボタン(本物の FloatingAction と同じく data-floating-action を名乗る)
+const FloatBtn = ({ r = "305,639,56,56", coach, onClick }) => (
+  <button type="button" data-floating-action="" data-coach={coach} data-r={r} onClick={onClick} style={{ borderRadius: "999px" }}>↑</button>
+);
+describe("【便BZ】② 穴にかかる浮かせるボタンは暗幕の下に入る(覆い)。的そのもののボタンは押せる", () => {
+  it("⑭ の穴(音の傾向カード)の中の取り込みの丸: 覆いが1枚(ボタンの矩形・角丸)。覆いを押すと外押し(⑭ は押す=済)でボタンには届かない", async () => {
+    const marks = []; let fabClicks = 0;
+    await drawBS(["trend"], { onMark: (f) => marks.push(f), extra: <><TrendCard r="14,555.6,347,145" /><FloatBtn onClick={() => { fabClicks += 1; }} /></> });
+    await frames();
+    const covers = [...layer().querySelectorAll(".coach-cover")];
+    expect(covers).toHaveLength(1);
+    const c = covers[0];
+    expect([c.style.left, c.style.top, c.style.width, c.style.height, c.style.borderRadius]).toEqual(["305px", "639px", "56px", "56px", "999px"]);
+    expect(c.getAttribute("aria-hidden")).toBe("true");
+    // 色は暗幕と同じトークン(index.css の .coach-cover の宣言)
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
+    expect(/\n\.coach-cover \{ position: fixed; pointer-events: auto; background: var\(--c-coach-dim\); \}/.test(css)).toBe(true);
+    await clickOn(c);
+    expect(fabClicks).toBe(0);
+    expect(marks).toEqual(["trend"]);
+    expect(layer()).toBe(null);
+  });
+  // 【便BZ 審査 統括の裁定】iPad 744×1133 の2ペインで、右ペインの「目安に設定」(浮かせるボタン)の覆いが目安の帯の「見る」に乗って押せなくなっていた。
+  // 覆いは1つ目の穴(下部タブ)にかかるボタンだけ。帯の箱(2つ目の穴)にかかっても覆わない。覆いは穴と重なる所だけに切る(clip-path)
+  it("【便BZ 審査】帯の箱(2つ目の穴)にかかる浮かせるボタンは覆わない(帯の「見る」は押せる)", async () => {
+    let seen = 0;
+    const AdoptNotice = () => <div data-action-notice="" data-r="14,685,347,68"><span>目安に設定しました</span><button type="button" data-r="300,697,40,44" onClick={() => { seen += 1; }}>見る</button></div>;
+    // 744×1133 の実測(帯 52,936,640,68 /「目安に設定」625.1,960,104.9,44 = 帯の箱に重なり「見る」の 40/44 を覆っていた)を、
+    // この作り物の 375×812 の座標に置き直した: 帯 14,685,347,68 /「見る」300,697,40,44 / 浮かせるボタン 290,700,80,44
+    await drawBS(["goCompare"], { extra: <><DataNav /><AdoptNotice /><FloatBtn r="290,700,80,44" /></> });
+    await frames();
+    expect(layerId()).toBe("goCompare");
+    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(2);
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);
+    await clickOn([...document.querySelectorAll("button")].find((b) => b.textContent === "見る"));
+    expect(seen).toBe(1);
+    expect(layerId()).toBe("goCompare");
+  });
+  it("【便BZ 審査】覆いはボタンと穴が重なる所だけ(穴の外の部分は切る = 暗幕が二重にならない)", async () => {
+    await drawBS(["trend"], { extra: <><TrendCard r="14,555.6,347,145" /><FloatBtn r="305,680,56,56" /></> });
+    await frames();
+    const c = layer().querySelector(".coach-cover");
+    expect(c.style.clipPath).toBe("inset(0px 0px 35.4px 0px)");
+  });
+  it("穴にかからない浮かせるボタン(暗幕の影がかかっている)は覆わない / 的そのもの(⑥ リードを追加)は覆わずに押せる", async () => {
+    await drawBS(["trend"], { extra: <><TrendCard r="14,300,347,145" /><FloatBtn /></> });
+    await frames();
+    expect(layerId()).toBe("trend");
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);
+    act(() => root.unmount());
+    root = createRoot(host);
+    let added = 0;
+    await drawBS(["reeds"], { extra: <FloatBtn coach="reeds" r="305,697,56,56" onClick={() => { added += 1; }} /> });
+    await frames();
+    expect(layerId()).toBe("reeds");
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);
+    await clickOn(document.querySelector('[data-coach="reeds"]'));
+    expect(added).toBe(1);
+  });
+});
+
+describe("【便BZ】① 溶ける前のカードは不透明(半透明に見えたのは済んだあとの溶け)", () => {
+  it("出ている間は層に溶けの動き(coach-out)が無く、カードに透明度の指定も無い。済んだら層だけが coach-out で溶ける", async () => {
+    await drawBS(["tuner"], { extra: <Band /> });
+    await frames();
+    const L = layer();
+    expect(L.getAttribute("data-leaving")).toBe("false");
+    expect(`${getComputedStyle(L).animationName} ${getComputedStyle(L).animation}`).not.toMatch(/coach-out/);
+    expect(L.querySelector(".coach-card").style.opacity).toBe("");
+    // 地のトークンはアルファを持たない 6 桁の色(index.css の :root から読む)
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
+    expect(/--c-accent-tint:\s*(#[0-9A-Fa-f]{6})\s*;/.exec(css)?.[1]).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    // 済んだ → 溶ける(層の animation が coach-out)
+    await drawBS(["tuner"], { done: doneWith("tuner"), extra: <Band /> });
+    await frames();
+    expect(layer()?.getAttribute("data-leaving")).toBe("true");
+    expect(`${getComputedStyle(layer()).animationName} ${getComputedStyle(layer()).animation}`).toMatch(/coach-out/);
+  });
+});
+
+describe("【便BZ】③ 目安と比べてみよう(goCompare)の判定", () => {
+  it("goCompareOpen: 目安にした・比べに行っていない・⑮ を見ていない・終わっていない", () => {
+    expect(goCompareOpen(doneWith("adoptAverage"))).toBe(true);
+    expect(goCompareOpen(doneWith())).toBe(false);
+    expect(goCompareOpen(doneWith("adoptAverage", "goCompare"))).toBe(false);
+    expect(goCompareOpen(doneWith("adoptAverage", "idealSeen"))).toBe(false);
+    expect(goCompareOpen(doneWith("adoptAverage", "finish"))).toBe(false);
+    expect(goCompareOpen(undefined)).toBe(false);
+  });
+  it("coachCameFromCompare: コミュニティ → データ のときだけ(帯の「見る」でも下部タブでも同じ判定)", () => {
+    const d = doneWith("join", "arriveCommunity", "adoptAverage");
+    expect(coachCameFromCompare({ from: "community", to: "analysis", done: d })).toBe(true);
+    expect(coachCameFromCompare({ from: "measure", to: "analysis", done: d })).toBe(false);   // 他のタブから来たら「この段から」ではない
+    expect(coachCameFromCompare({ from: "community", to: "measure", done: d })).toBe(false);
+    expect(coachCameFromCompare({ from: "community", to: "analysis", done: { ...d, goCompare: true } })).toBe(false);
+    expect(coachCameFromCompare({ from: "analysis", to: "analysis", done: d })).toBe(false);
+  });
+  // 【便BZ 統括の裁定】帯が出ている間は、その帯が名乗る段だけ(保存の帯 = ⑩ / 目安の帯 = goCompare)。⑱ などは帯が消えるまで出さない
+  it("coachDuringNotice: 帯が名乗るタブにいる間だけ・その帯の段だけ(計測 = ⑩・コミュニティ = goCompare)・違うタブ・名乗らない帯は出さない", () => {
+    const cands = ["arriveCommunity", "goCompare"];
+    expect(coachDuringNotice({ candidates: cands, notice: null, topTab: "community" })).toEqual({ candidates: cands, hidden: false });
+    expect(coachDuringNotice({ candidates: cands, notice: { coach: "community" }, topTab: "community" })).toEqual({ candidates: ["goCompare"], hidden: false });
+    expect(coachDuringNotice({ candidates: ["goData", "finish"], notice: { coach: "measure" }, topTab: "measure" })).toEqual({ candidates: ["goData"], hidden: false });
+    // 保存の帯の間の ⑱(計測タブの先頭の候補)・目安の帯の間の到着・⑯ は出さない(帯の「開く」「見る」を覆わない)
+    expect(coachDuringNotice({ candidates: ["finish"], notice: { coach: "measure" }, topTab: "measure" })).toEqual({ candidates: [], hidden: false });
+    expect(coachDuringNotice({ candidates: ["arriveCommunity"], notice: { coach: "community" }, topTab: "community" })).toEqual({ candidates: [], hidden: false });
+    expect(coachDuringNotice({ candidates: ["adoptAverage"], notice: { coach: "community" }, topTab: "community" }).candidates).toEqual([]);
+    expect(COACH_WITH_NOTICE.measure).toEqual(["goData"]);
+    expect(COACH_WITH_NOTICE.community).toEqual(["goCompare"]);
+    // 帯の間にタブを移った(便BX の罠: 着いた先の段が帯の「開く」「見る」を覆う)→ 出さない
+    expect(coachDuringNotice({ candidates: ["idealSeen"], notice: { coach: "community" }, topTab: "analysis" }).hidden).toBe(true);
+    expect(coachDuringNotice({ candidates: ["finish"], notice: { coach: "community" }, topTab: "measure" }).hidden).toBe(true);
+    expect(coachDuringNotice({ candidates: ["arriveData"], notice: { coach: "measure" }, topTab: "analysis" }).hidden).toBe(true);
+    // 名乗らない帯(取り込み・削除など)はどのタブでも出さない
+    expect(coachDuringNotice({ candidates: ["goCompare"], notice: { coach: null }, topTab: "community" }).hidden).toBe(true);
+    expect(Object.keys(COACH_WITH_NOTICE).sort()).toEqual(["community", "measure"]);
+  });
+  it("目安の帯の箱と下部タブ「データ」の2つの穴。帯が消えたら下部タブ「データ」だけ(1つ)", async () => {
+    let seen = 0;
+    const AdoptNotice = () => <div data-action-notice="" data-r="14,685,347,68"><span>目安に設定しました</span><button type="button" data-r="300,697,40,44" onClick={() => { seen += 1; }}>見る</button></div>;
+    await drawBS(["goCompare"], { extra: <><DataNav /><AdoptNotice /></> });
+    await frames();
+    expect(layerId()).toBe("goCompare");
+    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(2);
+    expect(layer().querySelector('[data-coach-hole="also"]').style.top).toBe("685px");
+    // 「見る」は押せる(2つ目の穴の上に受けは無い)
+    await clickOn([...document.querySelectorAll("button")].find((b) => b.textContent === "見る"));
+    expect(seen).toBe(1);
+    expect(layerId()).toBe("goCompare");
+    // 帯が消えた → 下部タブ「データ」の穴だけ(【便BZ】ボタンの箱の角丸の矩形)
+    await drawBS(["goCompare"], { extra: <DataNav /> });
+    await frames();
+    expect(layerId()).toBe("goCompare");
+    const hs = layer().querySelectorAll(".coach-hole");
+    expect(hs).toHaveLength(1);
+    expect([hs[0].style.width, hs[0].style.height, hs[0].style.borderRadius]).toEqual(["83.75px", "44px", "var(--r-2)"]);
+    expect(layer().querySelector(".coach-title").textContent).toBe("目安と比べてみよう");
+    expect(layer().querySelector(".coach-line")).toBe(null);
   });
 });

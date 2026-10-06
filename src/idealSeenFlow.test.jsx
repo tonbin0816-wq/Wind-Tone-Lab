@@ -17,6 +17,10 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 // 【便BX 2026-10-06 本人の決定・凍結仕様 coach3-spec.md §2・§13.2】⑮ のあと ⑰「計測タブに戻ろう」(下部タブ「計測」)→ 計測タブで ⑱ 終わり(穴なし・
 //   マイクを待たない)。コミュニティの到着(参加済みの人がタブを開いた直後)・⑭' → コミュニティ。下部タブの絵柄と平均カードの矩形は 375×812 の値を返す
 //   (既存の検査には効かない: DONE は参加済み・adoptAverage 済・計測なしなので、⑪⑭'⑯ の的が在っても出ない)。
+// 【便BZ 2026-10-07 本人の指摘「目安に設定した後どうしたらいいかわからない」・統括の裁定】目安の帯と同時に「目安と比べてみよう」(goCompare。
+//   下部タブ「データ」+ 帯の箱)を出す。「見る」でも下部タブ「データ」でも、コミュニティタブから来たら ⑮(「見るから来たときだけ」を「この段から来たときだけ」に広げた)。
+//   帯が消えたあともコミュニティタブにいる間は出し続ける。それに合わせて「帯の間は案内を出さない」「見るを押さずにデータタブ → ⑮ は出ない」の期待を直し、
+//   2つの道(「見る」/ 帯が消えたあとの下部タブ「データ」)を ⑱ まで通す検査を下に足した。枚数は 21 → 22。
 // ------------------------------------------------------------------
 
 const auth = vi.hoisted(() => ({ uid: "me" }));
@@ -43,6 +47,8 @@ vi.mock("./community/idealRepo.js", async (orig) => {
 const W = 375; const H = 812;
 let fake; let host; let mod; let root; let realRect; let realSIV;
 let trendTop = 1400;
+// 【便BZ 審査】帯の箱と浮かせるボタンの代わりに矩形を与えるか(下の「帯の上には覆いを置かない」の検査だけが立てる)
+let fakeNoticeOn = false;
 let scrollCalls = [];
 
 async function loadApp(idb) {
@@ -99,6 +105,7 @@ beforeEach(() => {
   Object.defineProperty(window, "innerWidth", { value: W, configurable: true, writable: true });
   Object.defineProperty(window, "innerHeight", { value: H, configurable: true, writable: true });
   trendTop = 1400;
+  fakeNoticeOn = false;
   scrollCalls = [];
   realRect = window.Element.prototype.getBoundingClientRect;
   window.Element.prototype.getBoundingClientRect = function () {
@@ -109,7 +116,13 @@ beforeEach(() => {
     if (this.getAttribute?.("data-coach") === "adoptAverage") return box(14, 108, 347, 314);
     const pc = this.tagName?.toLowerCase() === "svg" ? this.parentElement?.getAttribute("data-coach") : null;
     const NAV_X = { "nav-measure": 46.88, "nav-reeds": 130.6, "nav-community": 214.4, "nav-analysis": 298.1 };
-    if (pc && pc in NAV_X) return box(NAV_X[pc], 773, 30, 30);
+    if (pc && pc in NAV_X) return box(NAV_X[pc], 767, 30, 30);
+    // 【便BZ 統括の裁定】下部タブの的はボタンの箱(375×812・新しい下部タブの実測: 上端 760・高さ 44・1つ 83.75)
+    // 【便BZ 審査】浮かせるボタンの代わり(下の検査が body に置く)。目安の帯(作り物の座標 14,685,347,68)の「見る」に重なる
+    if (fakeNoticeOn && this.hasAttribute?.("data-floating-action")) return box(300, 690, 70, 44);
+    if (fakeNoticeOn && this.classList?.contains("action-notice")) return box(14, 685, 347, 68);
+    const c0 = this.getAttribute?.("data-coach");
+    if (c0 && c0 in NAV_X && this.tagName === "BUTTON") return box({ "nav-measure": 20, "nav-reeds": 103.75, "nav-community": 187.5, "nav-analysis": 271.25 }[c0], 760, 83.75, 44);
     return box(0, 0, 0, 0);
   };
   realSIV = window.Element.prototype.scrollIntoView;
@@ -159,9 +172,16 @@ describe("【便BW 本人裁定】目安に設定 → 帯の「見る」→ My D
     expect(noticeEl().textContent).not.toContain("計測タブ");
     const see = buttonIn(noticeEl(), "見る");
     expect(see).not.toBe(null);
-    expect(layer()).toBe(null);                     // 帯が出ている間は案内を出さない(既存の決まり)
+    // 【便BZ】帯と同時に「目安と比べてみよう」(下部タブ「データ」の絵柄・直径 52)。帯の「見る」の上には受けを置かない
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう(帯と同時)");
+    expect(noticeEl()).not.toBe(null);
+    expect(layer().querySelector(".coach-title").textContent).toBe("目安と比べてみよう");
+    expect(layer().querySelector(".coach-line")).toBe(null);
+    const h0 = layer().querySelector(".coach-hole");
+    expect([h0.style.left, h0.style.top, h0.style.width, h0.style.height, h0.style.borderRadius]).toEqual(["271.25px", "760px", "83.75px", "44px", "var(--r-2)"]);
     expect(scrollCalls).toEqual([]);
     await click(see);
+    await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印(「見る」でデータタブへ)");
     // データタブの My Data(下部タブの「データ」が選ばれ、My Data の目印が在る)
     await waitFor(() => document.querySelector('[data-coach-anchor="mydata"]'), "My Data");
     expect(nav("データ").style.color).toBe("var(--c-accent)");
@@ -199,18 +219,38 @@ describe("【便BW 本人裁定】目安に設定 → 帯の「見る」→ My D
     expect(layer()).toBe(null);
   }, 40000);
 
-  it("「見る」を押さずに自分でデータタブへ行った: ⑮ は出ない・印も立たない(折れ線の既定は my平均 × 目安)", async () => {
+  // 【便BZ 2026-10-07 統括の裁定】「見るから来たときだけ」は「この段(目安と比べてみよう)から来たときだけ」に広げた。
+  // 帯の間に下部タブ「データ」で移っても ⑮ が出る(帯が消えてから。着いた先の段は帯の「見る」を覆わない)
+  it("【便BZ】「見る」を押さずに下部タブ「データ」へ行った(この段から来た): 帯が消えてから ⑮(的へ送る)。折れ線の既定は my平均 × 目安", async () => {
     await start();
     await adoptAverage();
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう");
     await click(nav("データ"));
     await waitFor(() => document.querySelector('[data-coach-anchor="mydata"]'), "My Data");
+    await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印");
+    // 帯が出ている間は、着いた先(データタブ)では段を出さない(便BX の罠)
+    let seenDuring = null;
+    for (let i = 0; i < 12 && noticeEl(); i++) { if (layer()) seenDuring = layerId(); await tick(25); }
+    expect(noticeEl()).not.toBe(null);
+    expect(seenDuring).toBe(null);
     await waitFor(() => noticeEl() === null, "帯が消える", 15000);
-    await tick(400);
-    expect(layer()).toBe(null);
-    expect(scrollCalls).toEqual([]);
-    expect(kv("onboardingDone").idealSeen).toBeUndefined();
+    await waitFor(() => layerId() === "idealSeen", "⑮");
+    expect(scrollCalls).toEqual([["trend", { block: "center", behavior: "auto" }]]);   // 画面の外だったので案内が1回送った
     expect(chip(1)).toBe("my平均");
     expect(chip(2)).toBe("目安");
+  }, 40000);
+  it("【便BZ】コミュニティ以外のタブからデータタブへ来たら ⑮ は出ない(目安の帯の間に計測タブ → 帯が消えてからデータタブ)", async () => {
+    await start();
+    await adoptAverage();
+    await click(nav("計測"));
+    await waitFor(() => noticeEl() === null, "帯が消える", 15000);
+    await click(nav("データ"));
+    await waitFor(() => document.querySelector('[data-coach-anchor="mydata"]'), "My Data");
+    let seen = null;
+    for (let i = 0; i < 16; i++) { if (layer()) seen = layerId(); await tick(25); }
+    expect(seen).not.toBe("idealSeen");
+    expect(kv("onboardingDone").goCompare).toBeUndefined();
+    expect(scrollCalls).toEqual([]);
   }, 40000);
 });
 
@@ -292,9 +332,9 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelector(".coach-title").textContent).toBe("計測タブに戻ろう");
     expect(layer().querySelector(".coach-line")).toBe(null);
     const h = layer().querySelector(".coach-hole");
-    expect([h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]).toEqual(["35.88px", "762px", "52px", "52px", "50%"]);
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 20/21");   // 【便BY】枚数の目印
-    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(20);
+    expect([h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]).toEqual(["20px", "760px", "83.75px", "44px", "var(--r-2)"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 データ 8/8");   // 【便BZ】4本の棒: ⑰ はデータの棒の最後(【便BZ 再審査】⑪ を足して 8 つ)
+    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["analysis"]);
     expect(kv("onboardingDone").goMeasure).toBeUndefined();
     // 計測タブへ
     await click(nav("計測"));
@@ -305,8 +345,8 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelectorAll(".coach-dim")).toHaveLength(1);
     expect(layer().querySelector(".coach-title").textContent).toBe("チューナーとメトロノームを使って、あなたのデータを貯めよう！");
     expect(layer().querySelector(".coach-line").textContent).toBe("はじめの案内はこれで終わりです");
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 21/21");   // 【便BY】枚数の目印
-    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(21);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 計測 9/9");   // 【便BZ】⑱ は4本とも全部
+    expect([...layer().querySelectorAll(".coach-progress > i > b")].map((b) => b.style.width)).toEqual(["100%", "100%", "100%", "100%"]);
     await click(hit());
     await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
     await waitFor(() => layer() === null, "終わり");
@@ -328,8 +368,8 @@ describe("【便BX】コミュニティの到着・⑭' → コミュニティ",
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはコミュニティ");
     expect(layer().querySelector(".coach-line").textContent).toBe("参加した人の計測データと、みんなの平均が見られます");
     expect(layer().querySelector(".coach-hole")).toBe(null);
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 17/21");   // 【便BY】枚数の目印
-    expect([...layer().querySelectorAll(".coach-progress > i.on")]).toHaveLength(17);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 コミュニティ 1/3");   // 【便BZ】4本の棒: コミュニティの到着
+    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["community"]);
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.arriveCommunity === true, "arriveCommunity の印");
     await waitFor(() => layerId() === "adoptAverage", "⑯");
@@ -341,7 +381,7 @@ describe("【便BX】コミュニティの到着・⑭' → コミュニティ",
     await click(nav("データ"));
     await waitFor(() => layerId() === "goCommunity", "⑭'");
     const h = layer().querySelector(".coach-hole");
-    expect([h.style.left, h.style.top, h.style.width, h.style.height]).toEqual(["203.4px", "762px", "52px", "52px"]);
+    expect([h.style.left, h.style.top, h.style.width, h.style.height]).toEqual(["187.5px", "760px", "83.75px", "44px"]);
     await click(nav("コミュニティ"));
     await waitFor(() => kv("onboardingDone")?.goCommunity === true, "goCommunity の印");
     await waitFor(() => kv("onboardingDone")?.join === true, "join の印(参加済みと分かった)");
@@ -461,5 +501,90 @@ describe("【便BX 審査】⑱ への3つの道", () => {
     await waitFor(() => layerId() === "finish", "開き直すと ⑱");
     await waitFor(() => kv("onboardingDone")?.goMeasure === true, "goMeasure の印");
     expect(kv("onboardingDone").idealSeen).toBeUndefined();
+  }, 60000);
+});
+
+// ------------------------------------------------------------------
+// 【便BZ 2026-10-07 統括の裁定】⑯ → 目安の帯 → 「目安と比べてみよう」→(「見る」でも「データ」でも)⑮ → ⑰ → ⑱ を通す。
+// 5つ目の門(migratedCoach4)を済みにして始める(計測がある人の移行は goCompare を立てるので、流れの途中の人として描く)。
+// ------------------------------------------------------------------
+const BASE_Z = { ...BASE_X, migratedCoach4: true, join: true, arriveCommunity: true };
+describe("【便BZ】目安と比べてみよう → ⑮ → ⑰ → ⑱ の2つの道", () => {
+  afterEach(() => removePendingMic());
+  const toFinish = async () => {
+    await waitFor(() => layerId() === "idealSeen", "⑮");
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 データ 7/8");   // ⑮: データの棒の8つ(⑪ を含む)のうち ⑰ のほかは済み + 今の段
+    await click(layer().querySelector(".coach-card"));
+    await waitFor(() => kv("onboardingDone")?.idealSeen === true, "idealSeen の印");
+    await waitFor(() => layerId() === "goMeasure", "⑰");
+    await click(nav("計測"));
+    await waitFor(() => kv("onboardingDone")?.goMeasure === true, "goMeasure の印");
+    await waitFor(() => layerId() === "finish", "⑱");
+    await click(hit());
+    await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
+    await waitFor(() => layer() === null, "終わり");
+    expect(await noLayerOnAllTabs()).toEqual(NONE4);
+  };
+  it("道1: 帯と同時に「目安と比べてみよう」(コミュニティの棒の3つ目)→ 帯の「見る」→ ⑮ → ⑰ → ⑱", async () => {
+    installPendingMic();
+    await start({ onboardingDone: BASE_Z }, [SESSION("s1")]);
+    await adoptAverage();
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう");
+    expect(noticeEl()).not.toBe(null);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 コミュニティ 3/3");   // 目安と比べてみよう: コミュニティの棒の最後
+    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["community"]);
+    await click(buttonIn(noticeEl(), "見る"));
+    await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印");
+    await toFinish();
+  }, 60000);
+  it("道2: 帯が消えたあともコミュニティタブでは「目安と比べてみよう」(下部タブ「データ」だけ)→ 下部タブ「データ」→ ⑮ → ⑰ → ⑱", async () => {
+    installPendingMic();
+    await start({ onboardingDone: BASE_Z }, [SESSION("s1")]);
+    await adoptAverage();
+    await waitFor(() => noticeEl() === null, "帯が消える", 15000);
+    await waitFor(() => layerId() === "goCompare", "帯が消えたあとも目安と比べてみよう");
+    const hs = layer().querySelectorAll(".coach-hole");
+    expect(hs).toHaveLength(1);
+    expect([hs[0].style.left, hs[0].style.top, hs[0].style.width, hs[0].style.height]).toEqual(["271.25px", "760px", "83.75px", "44px"]);
+    expect(kv("onboardingDone").goCompare).toBeUndefined();
+    await click(nav("データ"));
+    await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印(下部タブ「データ」)");
+    await toFinish();
+  }, 60000);
+  it("外を押せば今までどおり消える(この起動の間。印は立てない)", async () => {
+    await start({ onboardingDone: BASE_Z }, [SESSION("s1")]);
+    await adoptAverage();
+    await waitFor(() => noticeEl() === null, "帯が消える", 15000);
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう");
+    await click(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
+    await click(nav("リード"));
+    await click(nav("コミュニティ"));
+    let seen = null;
+    for (let i = 0; i < 16; i++) { if (layer()) seen = layerId(); await tick(25); }
+    expect(seen).toBe(null);
+    expect(kv("onboardingDone").goCompare).toBeUndefined();
+  }, 60000);
+});
+
+// 【便BZ 審査 統括の裁定】iPad の2ペインでは右ペインの「目安に設定」(浮かせるボタン)が目安の帯に重なり、覆いが帯の「見る」に乗って押せなくなっていた。
+// アプリの中で: 帯と同時の goCompare のとき、帯の箱に重なる浮かせるボタンがあっても覆いを置かない(覆いは1つ目の穴 = 下部タブにかかるボタンだけ)。
+// jsdom は2ペインの配置を描けないので、浮かせるボタンの代わりに data-floating-action を名乗るボタンを body に置き、矩形は作り物で帯に重ねる。
+describe("【便BZ 審査】帯の上には覆いを置かない(アプリ)", () => {
+  it("目安の帯 + goCompare: 帯の「見る」に重なる浮かせるボタンは覆われない。「見る」を押すとデータタブの ⑮ へ", async () => {
+    await start({ onboardingDone: { ...BASE_X, migratedCoach4: true, join: true, arriveCommunity: true } }, [SESSION("s1")]);
+    fakeNoticeOn = true;
+    const fab = document.createElement("button");
+    fab.setAttribute("data-floating-action", "");
+    fab.textContent = "目安に設定";
+    document.body.appendChild(fab);
+    await adoptAverage();
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう(帯と同時)");
+    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(2);
+    await tick(60);
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);
+    await click(buttonIn(noticeEl(), "見る"));
+    await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印");
+    fab.remove();
   }, 60000);
 });

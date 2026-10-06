@@ -40,6 +40,8 @@ import { OnboardingCoach, ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardin
 import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboarding.jsx";
 // 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。【便BX】4つ目の門。
 import { COACH2_MIGRATED, COACH3_MIGRATED } from "./onboarding.jsx";
+// 【便BZ 2026-10-07】5つ目の門(goCompare の移行)・帯と同時に出してよい段の決まり・「目安と比べてみよう」から来たかの判定。
+import { COACH4_MIGRATED, coachDuringNotice, coachCameFromCompare } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -54,6 +56,8 @@ import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js"
 import { shellRouteToSpeaker } from "./shell/audio.js";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
+// 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
+import { AD_HEIGHT_EVENT } from "./shell/ads.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -127,7 +131,9 @@ function resolveBottomGap() {
   document.body.appendChild(probe);
   const h = probe.getBoundingClientRect().height;
   probe.remove();
-  return h > 0 ? h : 47; // 何らかの理由で測れなかった場合はナビ高だけ確保する
+  // 何らかの理由で測れなかった場合はナビ高だけ確保する。【便BZ 2026-10-07】47 → 59(index.css の --nav-h)。
+  // --nav-h を同じ物差しで読む形は採れない: 物差しが 0 を返す(配置が計算されていない)ときは、--nav-h を測る物差しも同じく 0 を返すため。
+  return h > 0 ? h : 59;
 }
 
 // 下部固定ナビに隠れる分を差し引いて、要素が画面下端まで占める高さを返す。
@@ -200,10 +206,14 @@ function resolveSmallViewportHeight() {
   probe.remove();
   return h > 0 ? h : window.innerHeight;
 }
+// 【便BZ 2026-10-07 統括の裁定】殻の本物の帯は、読み込みのあとで <html> の inline に --ad-h を置く(src/shell/ads.js の setAdHeight)。
+// 見本の帯の印(data-ad-preview)だけを見ていたので、殻では帯の高さ 0 のときの直径のまま据え置かれ、詳細の矢印などが帯の裏に入っていた。
+// inline の --ad-h の値も鍵に入れ、ads.js の知らせ(AD_HEIGHT_EVENT)で読み直す(useRingFitLayout)。
 function ringFitLayoutKey() {
   const o = (typeof screen !== "undefined" && screen.orientation && screen.orientation.type) || "";
   const ad = document.documentElement.hasAttribute("data-ad-preview") ? 1 : 0;
-  return `${resolveSmallViewportHeight()}x${window.innerWidth}:${o}:${ad}`;
+  const adH = document.documentElement.style.getPropertyValue("--ad-h").trim();
+  return `${resolveSmallViewportHeight()}x${window.innerWidth}:${o}:${ad}:${adH}`;
 }
 function ringFitHold() {
   const a = document.activeElement;
@@ -228,6 +238,7 @@ function useRingFitLayout() {
     document.addEventListener("focusin", update);
     document.addEventListener("focusout", later);
     vv?.addEventListener("resize", update); // ピンチの拡大率(hold)だけのため。key は visualViewport を読まない
+    window.addEventListener(AD_HEIGHT_EVENT, update); // 【便BZ】殻が --ad-h を置いた・変えた
     return () => {
       clearTimeout(t);
       window.removeEventListener("resize", update);
@@ -235,6 +246,7 @@ function useRingFitLayout() {
       document.removeEventListener("focusin", update);
       document.removeEventListener("focusout", later);
       vv?.removeEventListener("resize", update);
+      window.removeEventListener(AD_HEIGHT_EVENT, update);
     };
   }, [update]);
   // hold が立っている間だけの見張り(上の注記)。読むのは activeElement と拡大率だけで、レイアウトは読まない。
@@ -299,11 +311,14 @@ function useFillViewportHeight(ref, bottomGap = null) {
     // アドレスバーの伸縮は window の resize を伴わないことがあるため visualViewport も購読する
     const vv = window.visualViewport;
     vv?.addEventListener("resize", measure);
+    // 【便BZ 2026-10-07】殻が --ad-h を後から置いたとき(src/shell/ads.js の知らせ)も測り直す(下端の余白 --page-bottom-gap が変わる)
+    window.addEventListener(AD_HEIGHT_EVENT, measure);
     const t = setTimeout(measure, 300); // フォント読込等で上の要素高さが変わった後にも測り直す
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
       vv?.removeEventListener("resize", measure);
+      window.removeEventListener(AD_HEIGHT_EVENT, measure);
       clearTimeout(t);
     };
   }, [ref, bottomGap]);
@@ -3718,7 +3733,9 @@ function useActionNoticeStore() {
       expiresAt: Date.now() + NOTICE_MS,
       leaving: false,
       // 【便BX 2026-10-06 本人の決定 C】この帯が出ている間も、はじめの案内の ⑩ を出してよいか(保存の帯だけが true を渡す)
-      coach: next.coach === true,
+      // 【便BZ 2026-10-07】true ではなく**帯と同時に段を出してよいタブの名前**を持つ(保存の帯 = "measure" / 目安の帯 = "community")。
+      // 段を出してよいのはそのタブにいる間だけ(onboarding.jsx の coachDuringNotice)。名乗らない帯は null(今までどおり段を出さない)
+      coach: typeof next.coach === "string" ? next.coach : null,
     });
     stash.hold(next.undo || null, NOTICE_MS, fadeOut);
   }, [stash, fadeOut]);
@@ -4000,8 +4017,8 @@ export default function WindToneLabPhaseMode() {
   // 【便BQ 2026-10-03 統括の裁定】見本の「済んだ」は localStorage の見本専用の鍵に持つ(開き直しても済ませた一手は出ない)。
   // 本物の onboardingDone(IndexedDB の kv)とは別。localStorage なので引継のファイルにも乗らない。
   // 読み書きは tutorialPreview.js が持つ(App.jsx はこの端末の保存を IndexedDB の1つだけにしておく)。
-  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。【便BW】3つ目の門(COACH2_MIGRATED)も同じ。【便BX】4つ目の門(COACH3_MIGRATED)も同じ。
-  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true }));
+  // 【便BS】見本は移行しないので、計測タブの3段の移行の印(MEASURE_STEPS_MIGRATED)も最初から済みとして持つ。【便BW】3つ目の門(COACH2_MIGRATED)も同じ。【便BX】4つ目の門(COACH3_MIGRATED)も同じ。【便BZ】5つ目の門(COACH4_MIGRATED)も同じ。
+  const [previewDoneRaw, setPreviewDoneRaw] = useState(() => (tutorialPreview ? { ...readTutorialPreviewDone(), migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true, [COACH4_MIGRATED]: true } : { migrated: true, [MEASURE_STEPS_MIGRATED]: true, [COACH2_MIGRATED]: true, [COACH3_MIGRATED]: true, [COACH4_MIGRATED]: true }));
   const previewDone = useMemo(() => normalizeOnboardingDone(previewDoneRaw), [previewDoneRaw]);
   useEffect(() => {
     if (tutorialPreview) writeTutorialPreviewDone(undefined, previewDoneRaw);
@@ -4024,7 +4041,9 @@ export default function WindToneLabPhaseMode() {
   // 【便BS】計測タブの3段の移行(便BP の移行を済ませた人にも1回)が済むまでも出さない(計測のある人にチューナーが一瞬出ないように)。
   // 【便BW】新しい段の移行(migratedCoach2)が済むまでも出さない(計測のある人に新しい段が一瞬出ないように)。
   // 【便BX】4つ目の門(migratedCoach3)が済むまでも出さない(計測のある人に到着カードが一瞬出ないように)。
-  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED] && onboardingDone[COACH2_MIGRATED] && onboardingDone[COACH3_MIGRATED];
+  // 【便BZ】5つ目の門(migratedCoach4)も(計測のある人に「目安と比べてみよう」が一瞬出ないように)。
+  const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone.migrated && onboardingDone[MEASURE_STEPS_MIGRATED] && onboardingDone[COACH2_MIGRATED] && onboardingDone[COACH3_MIGRATED]
+    && onboardingDone[COACH4_MIGRATED];
   // 案内が読む印と「出してよいか」。見本ではメモリの上の印を読み、読み込みを待たない(本物の印を見ないので)。
   const coachDone = tutorialPreview ? previewDone : onboardingDone;
   const coachReady = tutorialPreview || onboardingReady;
@@ -4239,7 +4258,8 @@ export default function WindToneLabPhaseMode() {
         actionLabel: "開く",
         onAction: () => openSessionFromNotice(pendingSession.id),
         // 【便BX 2026-10-06 本人の決定 C】この帯と同時に ⑩(下部タブ「データ」)を出す。帯は2つ目の穴で明るく残す(「開く」は押せる)
-        coach: true,
+        // 【便BZ】帯が名乗るのはタブの名前(計測タブにいる間だけ)
+        coach: "measure",
       });
     }
     setPendingSession(null);
@@ -5191,6 +5211,25 @@ export default function WindToneLabPhaseMode() {
     // 【便BX 審査 統括の裁定】目安にした(adoptAverage)だけでも(「見る」を押さなかった・押す前にアプリを閉じた)
     if (topTab === "measure" && (coachDone.idealSeen || coachDone.adoptAverage)) markOnboarding("goMeasure");
   }, [coachReady, topTab, sessions.length, coachDone.idealSeen, coachDone.adoptAverage, markOnboarding]);
+  // 【便BZ 2026-10-07 統括の裁定】「目安と比べてみよう」(goCompare)から来た: 目安にしたあと、コミュニティタブからデータタブへ移った
+  // (帯の「見る」でも下部タブ「データ」でも)。goCompare を済みにし、⑮ を頼む(帯の「見る」と同じ coachRequest)。
+  // 判定は onboarding.jsx の coachCameFromCompare(候補と同じ式)。前のタブはこの effect だけが覚える(タブが変わった描画でだけ走る)。
+  const coachPrevTabRef = useRef(topTab);
+  useEffect(() => {
+    const from = coachPrevTabRef.current;
+    coachPrevTabRef.current = topTab;
+    if (!coachReady || !coachCameFromCompare({ from, to: topTab, done: coachDone })) return;
+    markOnboarding("goCompare");
+    setCoachRequest("idealSeen");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topTab]);
+  // はじめの一手の候補(印が読めていて録音中でなければ)と、帯が出ている間の決まり(【便BZ】coachDuringNotice)。描くのは根の OnboardingCoach の1か所。
+  const coachWithNotice = coachDuringNotice({
+    candidates: coachReady && !isRecording
+      ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
+      : NO_COACH,
+    notice, topTab,
+  });
 
   // min-height は index.css の .app-root(100vh → 100dvh のフォールバック付き)で当てる。
   // インラインstyleでは同じプロパティを2回書けず、100dvh 未対応環境の受け皿を用意できない。
@@ -5485,7 +5524,7 @@ export default function WindToneLabPhaseMode() {
                 // シートが消えるので、人物のページのようにシートの中の1行では言えない。帯(ActionNotice)は
                 // この App の根にあり、ここ(App.jsx の中)からなら届く。【便BW】文は人物の1行と別の短い定数。
                 // 人物は announce を渡さない(シートの中の1行のまま。帯は出さない)。
-                if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice });
+                if (announce) showNotice({ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice, coach: "community" });
                 // 【便BP】はじめの一手(参加後2): みんなの平均を目安に設定できた。announce を渡すのはみんなの平均だけ
                 // (人物は渡さない。cohortAdopt.test.jsx が固定している)。
                 if (announce) markOnboarding("adoptAverage");
@@ -5532,12 +5571,12 @@ export default function WindToneLabPhaseMode() {
       {/* 【便BX 2026-10-06 本人の決定 C】帯が出ている間は出さない、の唯一の例外: 保存の帯(notice.coach)が出ている間の計測タブ(= ⑩)。
           計測タブに限るのは、⑩ が促す「データ」をその5秒のうちに押したとき、データタブの段(到着・⑫)が帯の「開く」を覆わないため
           (覆うと「開く」の1回が外押しになり、データタブの群が消える)。データタブの段は帯が消えてから出る(今までの決まり)。 */}
+      {/* 【便BZ 2026-10-07 統括の裁定】帯の間の決まりは onboarding.jsx の coachDuringNotice へ移した: 帯が名乗るタブ(notice.coach)にいる間だけ出してよい。
+          計測(保存の帯)は今までどおり ⑩、コミュニティ(目安の帯)は「目安と比べてみよう」(goCompare)だけ。違うタブへ移ったら帯が消えるまで出さない(便BX の罠) */}
       <OnboardingCoach
-        candidates={coachReady && !isRecording
-          ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
-          : NO_COACH}
+        candidates={coachWithNotice.candidates}
         done={coachDone}
-        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || (Boolean(notice) && !(notice.coach && topTab === "measure"))}
+        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden}
         onMark={markOnboarding}
       />
     </div>
@@ -5562,7 +5601,10 @@ function MeasureIcon({ size = 30, color = "currentColor" }) {
   );
 }
 
-// 画面下部の固定ナビ。計測/リード/コミュニティ/データをアイコンのみで切り替える(ラベルは aria-label)。
+// 画面下部の固定ナビ。計測/リード/コミュニティ/データをアイコンで切り替える(ラベルは aria-label)。
+// 【便BZ 2026-10-07 本人の指示「各タブアイコンの下に小さくタブ名称のテキスト追加」】アイコンの下に小さくタブの名前(--fs-xs = 最小の字の段)。
+// 色はアイコンと同じ(選んでいるタブは紺・ほかは --c-ink-3)。ボタンの高さは当たり判定の最小 --tap-min(44)= 絵柄 30 + 名前 12、
+// 内箱の高さ = 上 6 + 44 + 下 8 = 58。帯の高さ --nav-h(index.css)は 1 + 58 = 59 になった(以前は 47。名前の無い 32 のボタン)。
 function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
@@ -5628,10 +5670,10 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       borderTop: "1px solid #ECEEF1", paddingBottom: "env(safe-area-inset-bottom)",
     }}>
-      {/* アイコンのみの1行。ラベルを廃してタブ帯の縦幅を小さくする(演奏中の画面領域を広く取るため) */}
+      {/* アイコンと小さい名前の1行(【便BZ】名前を足した。以前はアイコンのみで縦幅を小さくしていた) */}
       {/* 【便BT 2026-10-03 本人裁定「下部タブも 640 にそろえる」】内箱の上限は本文の列と同じ --page-max-w(以前は 480)。
           375 では 480 も 640 も届かないので 375 のまま(1つのタブ (375 − 40) / 4 = 83.75)。iPad では 640(1つ 150)。 */}
-      <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 46, display: "flex", padding: "6px 20px 8px" }}>
+      <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 58, display: "flex", padding: "6px 20px 8px" }}>
         {items.map((t) => {
           const active = topTab === t.key;
           const color = active ? "var(--c-accent)" : "var(--c-ink-3)";
@@ -5646,7 +5688,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               data-coach={`nav-${t.key}`}
               className="sans"
               style={{
-                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                /* 【便BZ】縦に 絵柄 → 名前。ボタンの高さは内箱の 58 − 6 − 8 = 44(--tap-min) */
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
                 /* 【L1】録音中の淡さは撤回した(帯の地まで透けて裏が重なって見えたため)。
                    ここにも淡さを足さない ── 「透明にならなくていい」が本人裁定。 */
@@ -5654,6 +5697,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               }}
             >
               {t.icon(color)}
+              {/* 【便BZ】タブの名前(読み上げはボタンの aria-label が持つので、ここは見た目だけ) */}
+              <span aria-hidden="true" style={{ fontSize: "var(--fs-xs)", lineHeight: 1, color }}>{t.label}</span>
             </button>
           );
         })}
@@ -12476,6 +12521,8 @@ export function FloatingAction({ label, ariaLabel, onClick, disabled = false, ic
       disabled={disabled}
       aria-label={ariaLabel}
       data-coach={coach}
+      /* 【便BZ 2026-10-07】はじめの一手の層が、穴にかかる浮かせるボタンを見つけて暗幕と同じ色で覆うための名乗り(属性だけ。style は不変) */
+      data-floating-action=""
       /* 【便BP2】穴の形。浮かせるボタンは丸なので円で囲む(一手の既定の形より優先)。 */
       data-coach-shape={coach ? "circle" : undefined}
       className="sans"

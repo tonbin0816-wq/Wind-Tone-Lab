@@ -16,13 +16,13 @@ import { createRoot } from "react-dom/client";
 //       幅が変わる(change)と追いかける / 外したら購読を外す / iPhone の横向きは狭い・iPad は横でも広い
 //   (2) App 全体を描き、計測タブの環: 広い → 上限 440・音名 197.33px / 狭い → 330・148px / 切り替わりで戻る
 //   (3) 【便BT2】据え置き中(入力欄にフォーカス)の回転・Split View: 縮む向きだけ合わせ直す・大きくなる向きは据え置く
-// 期待値(700 / 500 / 440 / 197.33 / 330 / 148 / 389 / 292)は本人裁定・統括の裁定・モック案Aの実寸と手計算で書いたもの
+// 期待値(700 / 500 / 440 / 197.33 / 330 / 148 / 377(【便BZ】以前は 389)/ 292)は本人裁定・統括の裁定・モック案Aの実寸と手計算で書いたもの
 // (定数から逆算しない)。環の大きさは配置の寸法から決まる(便BM)ので、jsdom の getBoundingClientRect を**環のまわりだけ**
 // 作り物にする:
 //   環の外枠(幅 100%・上限 diameter)= min(上限, 列の幅) の正方形 / 環の箱 = 列の幅 × 外枠の高さ /
 //   画面ぶんの枠(measureFrameRef)= 環以外の高さ OTHERS + 外枠の高さ / 100svh の物差し = 画面の高さ VH。
-//   ほかの要素は jsdom のまま(全部 0)。--page-bottom-gap の物差しは 0 を返すので、App の既定の 47 が使われる。
-//   よって収まる直径 = VH − 47 − OTHERS(を上限と列の幅で頭打ち)。
+//   ほかの要素は jsdom のまま(全部 0)。--page-bottom-gap の物差しは 0 を返すので、App の既定(【便BZ】47 → 59 = 下部タブに名前を足した --nav-h)が使われる。
+//   よって収まる直径 = VH − 59 − OTHERS(を上限と列の幅で頭打ち)。
 // 【守っていないもの】実寸(列 640 の中央寄せ・下部タブの幅・浮かせるボタンの右端・カードの幅)。CSS の max-width と
 //   max() の結果は jsdom では出ない。実測は報告に書いた。綴りは pitch-test の「iPad」節が見る。
 // ------------------------------------------------------------------
@@ -195,7 +195,7 @@ describe("便BT: 計測タブの環(App 全体を描く)", () => {
     expect(ringPx()).toBe("330px");
     expect(noteSpan().style.fontSize).toBe("148px");
   });
-  // 【便BT2】高さが 390 しかないので環は高さで決まる(収まる直径 = 390 − 47 − 0 = 343)。
+  // 【便BT2】高さが 390 しかないので環は高さで決まる(収まる直径 = 390 − 59 − 0 = 331。【便BZ】以前は − 47 で 343)。
   // 広いと誤判定すると上限 440 → 343 になり、狭いなら上限 330 のまま。
   it("iPhone の横向き 844×390(列 640): 狭い木 = 環の上限 330・音名 148px", async () => {
     installViewport(844, 390);
@@ -243,15 +243,15 @@ describe("便BT2: 据え置き中の回転・Split View", () => {
   };
   beforeEach(() => { Element.prototype.getBoundingClientRect = fakeRect; });
 
-  it("(a) 820×1180 → 据え置き → 1180×820 に回す: 環は 389 に縮む(440 のままだとメトロノームを開いたときはみ出す)", async () => {
+  it("(a) 820×1180 → 据え置き → 1180×820 に回す: 環は 377 に縮む(440 のままだとメトロノームを開いたときはみ出す)", async () => {
     installMatchMedia(true);
-    setInnerWidth(820); OTHERS = 384; // 収まる直径: 縦 1180 − 47 − 384 = 749(→ 上限 440)/ 横 820 − 47 − 384 = 389
+    setInnerWidth(820); OTHERS = 384; // 収まる直径: 縦 1180 − 59 − 384 = 737(→ 上限 440)/ 横 820 − 59 − 384 = 377(【便BZ】以前は − 47 で 389)
     await act(async () => { root.render(<App />); });
     expect(ringPx()).toBe("440px");
     await hold();
     await resize(1180, 820, 640, true);
-    expect(ringPx()).toBe("389px");
-    expect(notePx()).toBeCloseTo(148 * 389 / 330, 2); // 174.45
+    expect(ringPx()).toBe("377px");
+    expect(notePx()).toBeCloseTo(148 * 377 / 330, 2); // 169.08
   });
   it("(b) 820×1180 → 据え置き → 幅 320(狭い・列 292): 環 292・音名 148px(描いた環より大きい字にしない)", async () => {
     installMatchMedia(true);
@@ -264,14 +264,14 @@ describe("便BT2: 据え置き中の回転・Split View", () => {
     expect(ringPx()).toBe("292px");
     expect(notePx()).toBeCloseTo(148, 6);
   });
-  it("(c) 大きくなる向きは据え置く: 1180×820(389)→ 据え置き → 820×1180 でも 389 のまま、外すと 440", async () => {
+  it("(c) 大きくなる向きは据え置く: 1180×820(377)→ 据え置き → 820×1180 でも 377 のまま、外すと 440", async () => {
     installMatchMedia(true);
     setInnerWidth(1180); VH = 820; OTHERS = 384;
     await act(async () => { root.render(<App />); });
-    expect(ringPx()).toBe("389px");
+    expect(ringPx()).toBe("377px");
     await hold();
     await resize(820, 1180, 640, true);
-    expect(ringPx()).toBe("389px");
+    expect(ringPx()).toBe("377px");
     await release();
     expect(ringPx()).toBe("440px");
     expect(notePx()).toBeCloseTo(197.33, 2);

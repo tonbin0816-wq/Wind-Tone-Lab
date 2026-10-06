@@ -251,14 +251,17 @@
 
   /* ------------------------------------------------------------------
      レイアウト定数。
-     --nav-h は下部固定ナビ(BottomNav)の高さ = borderTop 1px + 中身 46px。
+     --nav-h は下部固定ナビ(BottomNav)の高さ = borderTop 1px + 中身 58px(【便BZ】以前は 46px)。
      ページ下端の余白は必ず calc(var(--nav-h) + env(safe-area-inset-bottom)) を使う。
      以前は 72px の直書きが2箇所に複製されており、iPhone 12〜15 の PWA
      (env(safe-area-inset-bottom)=34px) では実効ナビ高 81px に対して 72px しか
      空けておらず、コンテンツ末尾の 9px がナビの下に隠れていた。
      逆にノッチ無し端末(inset=0)では 25px の余分な空白が出ていた。
      ------------------------------------------------------------------ */
-  --nav-h: 47px;
+  /* 【便BZ 2026-10-07 本人の指示「各タブアイコンの下に小さくタブ名称のテキスト追加」】47 → 59 = borderTop 1px + 内箱 58px
+     (上 6 + ボタン 44 = --tap-min(絵柄 30 + 名前 12)+ 下 8)。この値を読む物(--page-bottom-gap・帯・浮かせるボタン・.pane-frame・
+     シート・計測タブの環の縮み・はじめの一手の見える範囲)はすべて var で読むので、ここだけ変えた。 */
+  --nav-h: 59px;
   /* 【便BL 2026-10-02 本人指示】下部タブのすぐ上に置く広告の帯の高さ。**値の唯一の答えはここ**。
      既定は 0px(帯が無い = 今までと 1px も変わらない)。見本の帯の合図(?adpreview=1。src/adPreview.js)が
      <html> に data-ad-preview="1" を付けたときだけ、下の規則で 50px(AdMob の下部の帯の高さ)になる。
@@ -876,6 +879,10 @@ body {
 .coach-dim { position: fixed; inset: 0; pointer-events: none; background: var(--c-coach-dim); }
 /* 【便BQ】穴の外側の受け(透明。見た目は穴の影が持つ)。押したら案内を消す。 */
 .coach-hit { position: fixed; pointer-events: auto; }
+/* 【便BZ 2026-10-07 本人の実機の指摘】穴にかかる浮かせるボタン(FloatingAction。z45)の覆い。穴の中は暗幕(穴の影)がかからないので、
+   ボタンの形(角丸はボタンの計算値を onboarding.jsx が写す)に暗幕と同じ色を重ね、暗幕の下に入った扱いにする。押したら外押し(受けと同じ)。
+   新しい値は無い(色は --c-coach-dim)。そのボタン自身が的の段では置かない(押せる)。 */
+.coach-cover { position: fixed; pointer-events: auto; background: var(--c-coach-dim); }
 /* 【便BT 2026-10-03 本人裁定】左右は画面から 22px のまま、幅の上限は列(--page-max-w)で中央。
    375 では (375 − 640) / 2 < 22 なので 22 が勝つ(今と同じ)。820 では 90 = 幅 640。 */
 .coach-card {
@@ -896,9 +903,14 @@ body {
    細い横棒を案内の全体の枚数(onboarding.jsx の COACH_ORDER)ぶん等分に並べ、今の段までを紺(--c-accent)、まだを中立の灰
    (--c-line-strong。地が --c-accent-tint なので --c-line では見えない)で塗る。時間で伸びる動きは無い(塗りだけ)。
    棒の高さと間は --sp-1(2〜3px に当たるトークンは無い)・角丸 --r-full。便BX の章の目印(.coach-marks)はこれに替えた。 */
+/* 【便BZ 2026-10-07 本人の指示「棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】棒は4本(下部タブと同じ並び。字なし)。
+   棒の地はまだの部分(--c-line-strong)、中の <b> がそのタブの進み具合の割合だけ左から塗る(幅は onboarding.jsx が % で書く)。
+   今の段のタブの棒(.now)は濃い紺(--c-accent)、ほかは中間の紺(--c-accent-mid)。動き・transition は付けない(塗りだけ)。
+   高さ・間・角丸は便BY のまま(--sp-1 / --sp-1 / --r-full)。棒の中の塗りは棒の角丸で切る(overflow: hidden)。 */
 .coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }
-.coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); }
-.coach-progress i.on { background: var(--c-accent); }
+.coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }
+.coach-progress i b { display: block; height: 100%; background: var(--c-accent-mid); }
+.coach-progress i.now b { background: var(--c-accent); }
 /* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
    参加の画面のカード(src/community/CommunityTab.jsx の JoinIntro)。形は .coach-card のまま(角丸 18・浮きの影・内側)。
    【便BX】地は白(--c-surface)のまま・アイコンの丸は --c-accent-tint のまま(案内のカードの地と丸だけが変わった。下の .coach-card.join-card)。
@@ -919,6 +931,7 @@ body {
 .join-card > .coach-icon, .join-card > .coach-title, .join-card > .coach-line { justify-self: center; text-align: center; }
 /* 溶けている間は押させない(済んだ一手の受けが、次に押した物を飲み込まないように)。.coach-card の宣言より後ろに置く。 */
 .coach-layer[data-leaving="true"] .coach-hit,
+.coach-layer[data-leaving="true"] .coach-cover,
 .coach-layer[data-leaving="true"] .coach-card { pointer-events: none; }
 /* 読み上げの入れ物(常に1つ。文だけを差し替える)。見た目には出さない ── 値は「画面から外して読み上げにだけ残す」ための
    幾何の値(1px・切り抜き)で、見た目の値ではない。 */

@@ -34,6 +34,9 @@ const W = 375; const H = 812;
 let fake; let host; let mod; let root; let realRect; let realSIV;
 // 【便BW】音の傾向カードの上端(初期は画面の外 = My Data の最下段)。scrollIntoView が呼ばれたら見える所(216)へ来る。
 let trendTop = 1400;
+// 【便BZ】① の環の箱(既定は 375×812 の実測)と、浮かせるボタンの矩形(既定は無し = 0。② の覆いの検査だけが置く)
+let tunerBox = [14, 96, 347, 330];
+let fabBox = null;
 let scrollCalls = [];
 // 【便BW】下部タブの絵柄の左端(375 の4つ。1つ (375 − 40) / 4 = 83.75 の中央に 30)
 const NAV_SVG_X = { "nav-measure": 46.88, "nav-reeds": 130.6, "nav-community": 214.4, "nav-analysis": 298.1 };
@@ -159,17 +162,22 @@ beforeEach(() => {
     if (c === "reedsMeasure") return box(305, 697, 56, 56);
     // 【便BW】新しい的(375×812 の実測と同じ形の値)
     if (c === "metronome") return box(317, 30, 44, 44);
-    if (c === "tuner") return box(14, 96, 347, 330);   // 【便BW 審査】①④ の的は環の箱(帯全体ではない)
+    if (c === "tuner") return box(...tunerBox);   // 【便BW 審査】①④ の的は環の箱(帯全体ではない)
     if (c === "metroTempo") return box(43.6, 470, 287.8, 57.6);
     if (c === "reedChip") return box(14, 46, 190, 30);
     if (c === "calendarDay") return box(66.5, 305, 34, 34);   // 【便BW 審査】⑫ の的はマスの中の丸(34)
     if (c === "daySession") return box(16, 560, 343, 50);
     if (c === "trend") return box(14, trendTop, 347, 380);
     const pc = this.tagName?.toLowerCase() === "svg" ? this.parentElement?.getAttribute("data-coach") : null;
-    if (pc && pc in NAV_SVG_X) return box(NAV_SVG_X[pc], 773, 30, 30);
+    if (pc && pc in NAV_SVG_X) return box(NAV_SVG_X[pc], 767, 30, 30);
+    // 【便BZ 統括の裁定】下部タブの的はボタンの箱(375×812・新しい下部タブの実測: 上端 760・高さ 44・1つ 83.75)
+    if (c && c in NAV_SVG_X && this.tagName === "BUTTON") return box({ "nav-measure": 20, "nav-reeds": 103.75, "nav-community": 187.5, "nav-analysis": 271.25 }[c], 760, 83.75, 44);
+    if (fabBox && this.hasAttribute?.("data-floating-action")) return box(...fabBox);
     return box(0, 0, 0, 0);
   };
   trendTop = 1400;
+  tunerBox = [14, 96, 347, 330];
+  fabBox = null;
   scrollCalls = [];
   realSIV = window.Element.prototype.scrollIntoView;
   window.Element.prototype.scrollIntoView = function (arg) {
@@ -191,7 +199,8 @@ afterEach(async () => {
 const NOW_ISO = new Date(Date.now() - 60 * 1000).toISOString();
 const SESSION = (id, reedId = null) => ({ id, recordedAt: NOW_ISO, saxType: "alto", reedId, linkedAt: reedId ? "eager" : null, memo: null, performer: "自分", source: "live", frames: [], barlines: [], noteEvents: [] });
 // 【便BW】門の印3つ(移行の結果にいつも付く)・計測がある人に立つ新しい8つ。【便BX】4つ目の門(migratedCoach3)も
-const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true };
+// 【便BZ】5つ目の門(migratedCoach4)も
+const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true, migratedCoach4: true };
 // 【便BX】計測がある人に立つ新しい6つ(到着4つ・⑭'・⑰)
 const NEW6 = { arriveReeds: true, arriveData: true, arriveCommunity: true, goCommunity: true, goMeasure: true, finish: true };
 // 【便BW 審査】計測がある人には idealSeen も立つ(既存の利用者に新しい段0枚)。名前は前のまま
@@ -217,7 +226,7 @@ describe("入れたての人", () => {
     // 下部タブも含めて覆う(重なり順 55 > 下部タブ 30)。穴は「計測」の絵柄(30)を直径 52 で囲む
     expect(Number(layer().style.zIndex)).toBeGreaterThan(30);
     const hole = layer().querySelector(".coach-hole");
-    expect([hole.style.width, hole.style.height]).toEqual(["52px", "52px"]);
+    expect([hole.style.width, hole.style.height, hole.style.borderRadius]).toEqual(["83.75px", "44px", "var(--r-2)"]);   // 【便BZ】ボタンの箱
     // 下部タブの「計測」は暗幕の上からでも押せる → 計測タブへ移る(案内は消える。マイクが無いので計測タブには出ない)
     await click(nav("計測"));
     await tick(50);
@@ -363,7 +372,7 @@ describe("既にある人の移行", () => {
     // 【便BS】計測があるので計測タブの3段(tuner・metronome)も済み。dataSeen は移行で立てない
     // 【便BW 本人裁定(§14 の 2 = ア)】計測があるので新しい8つも済み(新しい段は0枚)。idealSeen は人物の目安だけなので立てない
     // 【便BX】計測があるので新しい6つも済み(到着も出ない)
-    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...GATES });
+    expect(kv("onboardingDone")).toEqual({ measure: true, reeds: true, reedsMeasure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, goCompare: true, ...GATES });
     await click(nav("データ"));
     // 【便BW】データタブの ⑫⑬⑭ も出ない(便BS の「ここに貯まります」は段ごと無くなった)
     await waitFor(() => document.body.textContent.includes("すべての計測 2件"), "計測の読み込み");
@@ -390,7 +399,7 @@ describe("既にある人の移行", () => {
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
     await waitFor(() => kv("onboardingDone")?.migratedCoach2 === true, "3つ目の門");
     await waitFor(() => kv("onboardingDone")?.migratedCoach3 === true, "4つ目の門");
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...GATES });   // 【便BS】【便BW】【便BX】
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, goCompare: true, ...GATES });   // 【便BS】【便BW】【便BX】
     // 【便BW】計測があるので「計測を始めると」の段は出ず、新しいデータタブの段も移行で済んでいるので何も出ない
     await tick(400);
     expect(layer()).toBe(null);
@@ -447,7 +456,7 @@ describe("既にある人の移行", () => {
     await click(nav("データ"));
     await tick(150);
     expect(fake._peek("windToneLabDB", "sessions").size).toBe(0);
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...GATES });   // 【便BS】【便BW】【便BX】
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, goCompare: true, ...GATES });   // 【便BS】【便BW】【便BX】
     expect(layer()).toBe(null);
   }, 30000);
 });
@@ -468,16 +477,21 @@ describe("配線の綴り(App.jsx)", () => {
   });
   it("出す条件: マイクの許可(isListening かつエラー無し)・録音中でない・シートが開いていない・移行が済んでいる", () => {
     const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
-    expect(call).toMatch(/candidates=\{coachReady && !isRecording/);
-    expect(call).toMatch(/micReady: isListening && !errorMsg/);
+    // 【便BZ】候補と帯の間の決まりは、描く直前の const coachWithNotice = coachDuringNotice({ … }) が持つ(<OnboardingCoach> はその2つを渡すだけ)
+    const blk = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
+    expect(call).toMatch(/candidates=\{coachWithNotice\.candidates\}/);
+    expect(blk).toMatch(/candidates: coachReady && !isRecording/);
+    expect(blk).toMatch(/micReady: isListening && !errorMsg/);
+    expect(blk).toMatch(/\n\s*notice, topTab,$/);
     // 【便BP2】BottomSheet 以外の z60 の暗幕(エラー・保存の確認)が出ている間も出さない
     // 【便BP3】録音ファイルの取り込みを解析している間も出さない。見本では読み込みを待たない(coachReady)
     // 【便BS 審査 2026-10-03 統括の裁定】操作の合図の帯(notice)が出ている間も出さない(帯の「開く」を覆わない)
     // 【便BX 2026-10-06 本人の決定 C】例外は保存の帯(notice.coach)が出ている間の計測タブ(⑩)だけ
-    expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| \(Boolean\(notice\) && !\(notice\.coach && topTab === "measure"\)\)\}/);
+    // 【便BZ】帯の間の決まりは coachDuringNotice(onboarding.test.jsx が純関数を守る)。計測(保存の帯)の ⑩ は今までどおり
+    expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| coachWithNotice\.hidden\}/);
     expect(app).toMatch(/const coachReady = tutorialPreview \|\| onboardingReady;/);
     // 【便BS】計測タブの3段の移行の印も待つ。【便BW】3つ目の門(新しい段の移行)も待つ
-    expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\] && onboardingDone\[COACH3_MIGRATED\];/);
+    expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\] && onboardingDone\[COACH3_MIGRATED\]\n\s*&& onboardingDone\[COACH4_MIGRATED\];/);   // 【便BZ】5つ目の門
     expect(app).toMatch(/const anySheetOpen = useAnyBottomSheetOpen\(\);/);
   });
   it("後から紐づけた計測(計測の詳細でリードを付け直す)でも reedsMeasure を立てる(便BP3)", () => {
@@ -572,7 +586,7 @@ describe("見本(全部の一手を「まだ」として出す・本物の印は
     mod = await loadApp(fake);
     await seed({ sessions: [SESSION("s1")] });
     await launchAndSettle();
-    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, ...GATES });   // 【便BS】【便BW】【便BX】
+    expect(kv("onboardingDone")).toEqual({ measure: true, tuner: true, metronome: true, ...NEW8, ...NEW6, goCompare: true, ...GATES });   // 【便BS】【便BW】【便BX】
     await mod.act(async () => root.unmount());
     root = null; host.remove();
     fake = createFakeIndexedDb();
@@ -748,7 +762,7 @@ describe("【便BW】データタブ: ⑫ 日のマス → ⑬ 記録の行 →(
     expect(layer().querySelector(".coach-title").textContent).toBe("みんなのデータも見てみよう");
     expect(layer().querySelector(".coach-line")).toBe(null);
     const h14 = layer().querySelector(".coach-hole");
-    expect([h14.style.left, h14.style.top, h14.style.width, h14.style.height, h14.style.borderRadius]).toEqual(["203.4px", "762px", "52px", "52px", "50%"]);
+    expect([h14.style.left, h14.style.top, h14.style.width, h14.style.height, h14.style.borderRadius]).toEqual(["187.5px", "760px", "83.75px", "44px", "var(--r-2)"]);
     expect(scrollCalls).toHaveLength(1);
   }, 40000);
 
@@ -951,7 +965,7 @@ describe("【便BW】計測タブ: ① 帯 → ② メトロノーム →(面の
     await click(layerBtn);
     expect(layerBtn.getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => layerId() === "goReeds", "⑤ 下部タブ「リード」");
-    expect(holeOf()).toEqual(["119.6px", "762px", "52px", "52px", "50%"]);
+    expect(holeOf()).toEqual(["103.75px", "760px", "83.75px", "44px", "var(--r-2)"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("次はリードを登録しよう");
     // ⑤: 下部タブ「リード」を押す → goReeds・リードタブで ⑥(既存)
     await click(nav("リード"));
@@ -1129,7 +1143,7 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     await seed({ kvEntries: { onboardingDone: { ...MEASURE_DONE, arriveData: false } }, sessions: [SESSION("s1")] });
     await render();
     await waitFor(() => layerId() === "goData", "⑩");
-    expect(holeOf()).toEqual(["287.1px", "762px", "52px", "52px", "50%"]);
+    expect(holeOf()).toEqual(["271.25px", "760px", "83.75px", "44px", "var(--r-2)"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("計測の記録を見てみよう");
     await click(nav("データ"));
     await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印");
@@ -1231,9 +1245,16 @@ describe("【便BS 審査】→【便BW 審査】メトロノームの面と計�
 describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.jsx"), "utf8").replace(/\r\n/g, "\n");
   const call = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
+  const blk = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
   it("帯(notice)が出ている間は hidden。面の開閉・枠のリード・⑮ の依頼を coachCandidates へ渡す。0件 → 1件 の先送りは無い", () => {
-    expect(call).toMatch(/hidden=\{[^}]*\|\| \(Boolean\(notice\) && !\(notice\.coach && topTab === "measure"\)\)\}/);   // 【便BX】
-    expect(call).toMatch(/metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/);
+    // 【便BX】→【便BZ】帯の間の決まりは coachDuringNotice へ(帯が名乗るタブにいる間だけ・コミュニティは goCompare だけ)
+    expect(call).toMatch(/hidden=\{[^}]*\|\| coachWithNotice\.hidden\}/);
+    expect(blk).toMatch(/metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/);
+    // 保存の帯は計測タブ・目安の帯はコミュニティタブを名乗る(帯の中身は文字列か null)
+    expect(app).toMatch(/coach: typeof next\.coach === "string" \? next\.coach : null,/);
+    expect(app).toMatch(/\/\/ 【便BZ】帯が名乗るのはタブの名前\(計測タブにいる間だけ\)\n\s*coach: "measure",/);
+    expect(app).toMatch(/if \(announce\) showNotice\(\{ text: ADOPTED_DONE_NOTE, done: true, actionLabel: "見る", onAction: openTrendFromNotice, coach: "community" \}\);/);
+    expect((app.match(/\bcoach: "(measure|community)"/g) || []).length).toBe(2);
     expect(app).toMatch(/onMetronomeChange=\{setMetronomeOnForCoach\}/);
     expect(app).toMatch(/onMetroPanelChange=\{setMetroPanelOpen\}/);
     expect(app).toMatch(/useLayoutEffect\(\(\) => \{\n\s*onMetroPanelChange\?\.\(showMetroPanel\);\n\s*\}, \[showMetroPanel, onMetroPanelChange\]\);/);
@@ -1256,6 +1277,8 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
     // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った
     expect(app).toMatch(/if \(topTab === "community"\) markOnboarding\("goCommunity"\);\n(?:\s*\/\/[^\n]*\n)?\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/);   // 【便BX 審査】目安にしただけでも
     expect(app).toMatch(/data-coach=\{`nav-\$\{t\.key\}`\}/);
+    // 【便BZ】目安と比べてみよう: コミュニティ → データ(「見る」でも下部タブでも)で goCompare と ⑮ の依頼。判定は coachCameFromCompare
+    expect(app).toMatch(/const coachPrevTabRef = useRef\(topTab\);\n\s*useEffect\(\(\) => \{\n\s*const from = coachPrevTabRef\.current;\n\s*coachPrevTabRef\.current = topTab;\n\s*if \(!coachReady \|\| !coachCameFromCompare\(\{ from, to: topTab, done: coachDone \}\)\) return;\n\s*markOnboarding\("goCompare"\);\n\s*setCoachRequest\("idealSeen"\);/);
   });
   it("【便BW】⑫⑬: 日を開いたら calendarDay・計測の詳細が開いたら daySession(帯の「開く」から開いても)", () => {
     expect(app).toMatch(/if \(next !== null\) onOnboarding\?\.\("calendarDay"\);/);
@@ -1354,7 +1377,7 @@ describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
     expect(noticeText()).not.toBe(null);
     const holes = [...layer().querySelectorAll(".coach-hole")];
     expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius, h.getAttribute("data-coach-hole")])).toEqual([
-      ["287.1px", "761px", "52px", "52px", "50%", null], ["14px", "685px", "347px", "68px", "var(--r-2)", "also"],
+      ["271.25px", "760px", "83.75px", "44px", "var(--r-2)", null], ["14px", "685px", "347px", "68px", "var(--r-2)", "also"],
     ]);
     expect(document.querySelectorAll("[data-action-notice]")).toHaveLength(1);
     expect(document.querySelector("[data-action-notice]").className).toBe("action-notice");
@@ -1383,6 +1406,25 @@ describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
     await waitFor(() => noticeText() === null, "帯が消える", 8000);
     await waitFor(() => layer()?.querySelectorAll(".coach-hole").length === 1, "穴は1枚");
     expect(layerId()).toBe("goData");
+  }, 40000);
+
+  // 【便BZ 統括の裁定】帯が出ている間は、その帯が名乗る段だけ。保存の帯の間に ⑱ の条件がそろっても、⑱ は帯が消えてから
+  it("【便BZ】コミュニティを見たあとに初めて計測した人: 保存の帯の間は ⑱ を出さない(帯の「開く」は押せる)。帯が消えると ⑱", async () => {
+    preferReducedMotion();
+    installToneMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true, goData: true, goCommunity: true } } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await recordAndSave();
+    await waitFor(() => noticeText() !== null, "保存の帯");
+    await waitFor(() => kv("onboardingDone")?.measure === true, "measure の印(⑱ の条件がそろう)");
+    let seenDuring = null;
+    for (let i = 0; i < 24 && noticeText() !== null; i++) { if (layer() && layer().getAttribute("data-leaving") === "false") seenDuring = layerId(); await tick(25); }
+    expect(noticeText()).not.toBe(null);
+    expect(seenDuring).toBe(null);
+    await waitFor(() => noticeText() === null, "帯が消える", 8000);
+    await waitFor(() => layerId() === "finish", "帯が消えたら ⑱");
   }, 40000);
 
   it("帯の間に「データ」を押すと: データタブの段(到着)は帯が消えてから出る(帯の「開く」を覆わない)", async () => {
@@ -1435,9 +1477,9 @@ describe("【便BX】⑭' と到着の受け・既存の利用者", () => {
     const navZ = Number(getComputedStyle(document.querySelector("[data-bottom-nav]")).zIndex || document.querySelector("[data-bottom-nav]").style.zIndex);
     expect(Number(layer().style.zIndex)).toBeGreaterThan(navZ);
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはリードタブ");
-    // 【便BY】枚数の目印: リードの到着は 21 枚の 6 枚目(左から 6 本が紺)
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 6/21");
-    expect([...layer().querySelectorAll(".coach-progress > i")].map((i) => i.className)).toEqual([...Array(6).fill("on"), ...Array(15).fill("")]);
+    // 【便BY】→【便BZ】目印は4本の棒: リードの到着はリードの棒(3つの段の1つ目)が今の棒
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 リード 1/3");
+    expect([...layer().querySelectorAll(".coach-progress > i")].map((i) => i.className)).toEqual(["", "now", "", ""]);
     await waitFor(() => kv("onboardingDone")?.goReeds === true, "goReeds の印");
   }, 30000);
 
@@ -1481,4 +1523,86 @@ describe("【便BX 審査】帯の種類: 削除の帯の間は計測タブで�
     await waitFor(() => noticeText() === null, "帯が消える", 8000);
     await waitFor(() => layerId() === "metronome", "帯が消えたら ②");
   }, 40000);
+});
+
+// ------------------------------------------------------------------
+// 【便BZ 2026-10-07 本人の実機の指摘】アプリの中で確かめる(jsdom は配置を計算しないので、的・浮かせるボタンの矩形は作り物)。
+//   ① 環の箱の上にも下にもカードが収まらないとき、中央(環の真ん中 = 音名・セント)ではなく重なりが最小の端に置く
+//   ② ⑭ の穴(音の傾向カード)の中に入った浮かせるボタン(取り込みの丸)は、暗幕と同じ色の覆いの下(押すと外押し = ⑭ は押す=済)
+// 【守っていないもの】実機の環・音名の実寸(headless Chrome の実測は報告の表)。
+// ------------------------------------------------------------------
+describe("【便BZ】① 環の箱にカードが収まらないとき / ② 浮かせるボタンの覆い", () => {
+  afterEach(() => removeFakeMic());
+  it("① 実寸の環の箱(96〜426)では今までどおり下(448)。上にも下にも収まらない高い環の箱(60〜680)では中央 333 ではなく下の端 644(812 − 22 − 146)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await render();
+    await waitFor(() => layerId() === "tuner", "①");
+    await tick(60);
+    const card = () => layer().querySelector(".coach-card");
+    expect(card().style.top).toBe("448px");
+    expect(card().getAttribute("data-coach-side")).toBe("below");
+    tunerBox = [14, 60, 347, 620];
+    await waitFor(() => card().style.top === "644px", "重なりが最小の端");
+    expect(card().getAttribute("data-coach-side")).toBe("below");
+    expect(card().style.top).not.toBe(`${(812 - 146) / 2}px`);
+  }, 30000);
+  it("② ⑭ の穴の中の取り込みの丸(本物の FloatingAction は data-floating-action を名乗る)は覆われる。覆いを押すと ⑭ が済み、⑭' へ", async () => {
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...MEASURE_DONE, goData: true, calendarDay: true, daySession: true } }, sessions: [SESSION("s1")] });
+    await render();
+    fabBox = [305, 540, 56, 56];   // 送ったあとの音の傾向カード(216〜596)の中
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "trend", "⑭");
+    const fab = document.querySelector('button[data-floating-action=""][aria-label="録音ファイルを取り込む"]');
+    expect(fab).not.toBe(null);
+    await waitFor(() => layer().querySelectorAll(".coach-cover").length === 1, "覆い");
+    const c = layer().querySelector(".coach-cover");
+    expect([c.style.left, c.style.top, c.style.width, c.style.height]).toEqual(["305px", "540px", "56px", "56px"]);
+    await click(c);
+    await waitFor(() => kv("onboardingDone")?.trend === true, "trend の印(押す=済)");
+    await waitFor(() => layerId() === "goCommunity", "⑭'");
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);   // ⑭' の穴(下部タブ)には浮かせるボタンがかからない
+  }, 40000);
+  it("的そのものの浮かせるボタン(⑥ リードを追加)は覆わない", async () => {
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, arriveReeds: true } } });
+    await render();
+    fabBox = [305, 697, 56, 56];
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "⑥");
+    expect(document.querySelector('[data-coach="reeds"]').hasAttribute("data-floating-action")).toBe(true);
+    expect(layer().querySelectorAll(".coach-cover")).toHaveLength(0);
+  }, 30000);
+});
+
+// 【便BZ 2026-10-07 本人の指示「各タブアイコンの下に小さくタブ名称のテキスト追加 / 左から計測、リード、コミュニティ、データ」】
+// 期待値は本人の指示の文から手で書いた。字の大きさは最小の字の段 --fs-xs、色はアイコンと同じ(選んでいるタブは紺)。
+// 【守っていないもの】実寸(高さ 59・当たり 44)は jsdom では測れない(headless Chrome の実測は報告の表)。
+describe("【便BZ】下部タブ: アイコンの下に小さくタブの名前", () => {
+  it("左から 計測・リード・コミュニティ・データ。名前は絵柄の下・--fs-xs・色は絵柄と同じ(選んでいるタブは --c-accent)", async () => {
+    mod = await loadApp(fake);
+    await render();
+    const btns = [...document.querySelectorAll("[data-bottom-nav] button")];
+    expect(btns.map((b) => b.getAttribute("aria-label"))).toEqual(["計測", "リード", "コミュニティ", "データ"]);
+    for (const b of btns) {
+      const [icon, name] = b.children;
+      expect(icon.tagName.toLowerCase(), b.getAttribute("aria-label")).toBe("svg");
+      expect(name.tagName).toBe("SPAN");
+      expect(name.textContent).toBe(b.getAttribute("aria-label"));
+      expect(name.style.fontSize).toBe("var(--fs-xs)");
+      expect(name.style.color).toBe(b.style.color);
+      expect(b.style.flexDirection).toBe("column");
+    }
+    expect(btns[0].style.color).toBe("var(--c-accent)");   // 起動は計測タブ
+    expect(btns[1].children[1].style.color).toBe("var(--c-ink-3)");
+    await click(nav("データ"));
+    expect(document.querySelector('[data-bottom-nav] button[aria-label="データ"]').children[1].style.color).toBe("var(--c-accent)");
+    // 内箱の高さ 58 = 上 6 + ボタン 44(--tap-min)+ 下 8。帯の高さ --nav-h = 1 + 58
+    const inner = document.querySelector("[data-bottom-nav]").firstElementChild;
+    expect([inner.style.height, inner.style.padding]).toEqual(["58px", "6px 20px 8px"]);
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
+    expect(/\n  --nav-h: 59px;/.test(css)).toBe(true);
+    expect(/--tap-min: 44px;/.test(css)).toBe(true);
+  }, 30000);
 });
