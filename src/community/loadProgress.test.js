@@ -99,60 +99,56 @@ describe("読み込みの%(2026/09/10 本人指示)", () => {
 });
 
 // ------------------------------------------------------------------
-// 【2026/09/13 本人裁定「絵はいいや。ドーナツと下の数字だけで ok」】
-// ここには写真の株が育つ絵の検査(枠に収まるか / 房は3枚まで / 左右交互 …)が
-// 並んでいたが、絵ごと落としたので一緒に消した。輪は進捗そのものの形なので、
-// 守るべきことは**輪と数字が同じことを言っているか**だけになる。
+// 【2026-10-06 本人裁定】輪(09/13〜)をやめ、アイコンの芽の輪郭を線でなぞり、
+// 9割で閉じて残りで塗る絵にした。描いた結果(0% / 50% / 90% / 100%)は
+// LoadingRing.test.jsx が実際に描いて確かめる。ここは綴りの約束を見張る。
+// (株の絵 → 輪 → 芽 の経緯は design/DESIGN-SYSTEM.md §1.12)
 // ------------------------------------------------------------------
-describe("読み込みの輪(2026/09/13 本人裁定)", () => {
-  // 【0 のときは弧を描かない】丸い先端は**長さ 0 の破線も点として描く**。
-  // 素直に書くと 0% の輪の上に点が1つ乗る(株を描いていたころ、同じ罠で
-  // 枝の根元に点が4つ浮いた)。ここが緩むと同じ絵が戻る。
-  it("0% では弧を描かない", () => {
-    expect(RING).toMatch(/frac > 0\.002 && \(/);
-  });
-
-  // 埋まる向きは12時から時計回り。弧の始点が真上(CX, CY-R)で、
-  // 円弧の sweep-flag が 1(時計回り)であること。
-  it("12時から時計回りに埋める", () => {
-    expect(RING).toContain("`M ${CX} ${CY - R} A ${R} ${R} 0 1 1 ${CX - 0.001} ${CY - R}`");
+const SPROUT = read("./sproutPath.js");
+describe("読み込みの芽(2026-10-06 本人裁定)", () => {
+  // 【0 のときは線を描かない】丸い先端は**長さ 0 の破線も点として描く**。
+  // 素直に書くと 0% の芽の先に点が1つ乗る(株では枝の根元に点が4つ、輪では0%に点が1つ浮いた)。
+  it("0% では線を描かない(外形も穴も、割合が 0.002 を超えてから)", () => {
+    expect(RING).toMatch(/outer > 0\.002 && <path d=\{SPROUT_OUTER\}/);
+    expect(RING).toMatch(/hole > 0\.002 && <path d=\{SPROUT_HOLE\}/);
   });
 
   // 【dashoffset ではなく dasharray】「見せる割合」をそのまま書ける。
-  // pathLength=1 と組にしてあるので円周を計算しない(半径を変えても壊れない)。
-  it("dasharray で埋める", () => {
+  // pathLength=1 と組にしてあるので輪郭の長さを計算しない(形を作り直しても壊れない)。
+  it("dasharray でなぞる", () => {
     const code = RING.split(NL).filter((l) => !l.trim().startsWith("//")).join(NL);
     expect(code).not.toMatch(/strokeDashoffset/);
-    expect(code).toMatch(/pathLength="1"/);
-    expect(code).toMatch(/strokeDasharray=\{`\$\{frac} 1`}/);
+    expect(code).toMatch(/pathLength: "1"/);
+    expect(code).toMatch(/strokeDasharray=\{`\$\{outer\} 1`\}/);
+    expect(code).toMatch(/strokeDasharray=\{`\$\{hole\} 1`\}/);
   });
 
-  // 線は半径の**真ん中**を通るので、外形は 2R + W。枠からはみ出すと輪が欠ける。
-  it("輪が枠からはみ出さない", () => {
-    // 定数の宣言行から数を拾う。正規表現をテンプレート文字列で組むと
-    // バックスラッシュが1段消えるので、素直に分解する。
-    const decl = RING.slice(RING.indexOf("const VIEW ="), RING.indexOf(";", RING.indexOf("const VIEW =")));
-    const nums = Object.fromEntries(decl.replace("const ", "").split(",")
-      .map((part) => part.split("=").map((v) => v.trim())).map(([k, v]) => [k, Number(v)]));
-    const { VIEW: view, CX: cx, CY: cy, R: r, W: w } = nums;
-    expect(2 * r + w, `外形 ${2 * r + w} / 枠 ${view}`).toBeLessThanOrEqual(view);
-    expect(cx).toBe(view / 2);
-    expect(cy).toBe(view / 2);
+  // 線は輪郭の**真ん中**を通るので、太さの半分だけ外へ出る。枠からはみ出すと芽の先が欠ける。
+  it("芽が枠からはみ出さない(線の太さの半分を足しても viewBox の内側)", () => {
+    const vb = /const VIEWBOX = "([^"]+)"/.exec(RING)[1].split(" ").map(Number);
+    const w = Number(/const W = (\d+(?:\.\d+)?);/.exec(RING)[1]);
+    const nums = [...SPROUT.matchAll(/"(M[^"]+)"/g)].flatMap((m) => m[1].match(/-?\d+(?:\.\d+)?/g).map(Number));
+    const xs = nums.filter((_, i) => i % 2 === 0), ys = nums.filter((_, i) => i % 2 === 1);
+    expect(Math.min(...xs) - w / 2).toBeGreaterThanOrEqual(vb[0]);
+    expect(Math.min(...ys) - w / 2).toBeGreaterThanOrEqual(vb[1]);
+    expect(Math.max(...xs) + w / 2).toBeLessThanOrEqual(vb[0] + vb[2]);
+    expect(Math.max(...ys) + w / 2).toBeLessThanOrEqual(vb[1] + vb[3]);
   });
 });
 
 describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
   // 【待つ画面が、待たせている当のものを読み込んではいけない】
   // App.jsx の Suspense の fallback がこの要素を描くので、ここが firebase を
-  // 連れてくると遅延読み込みの意味が消える。
-  it("LoadingRing は React と loadProgress 以外を import しない", () => {
+  // 連れてくると遅延読み込みの意味が消える。芽の形(sproutPath.js)は import を持たない純粋なデータ。
+  it("LoadingRing は React と loadProgress と sproutPath 以外を import しない", () => {
     const imports = [...RING.matchAll(/^import .*? from "(.+?)";/gm)].map((m) => m[1]);
-    expect(imports.sort()).toEqual(["./loadProgress.js", "react"]);
+    expect(imports.sort()).toEqual(["./loadProgress.js", "./sproutPath.js", "react"]);
+    expect(SPROUT).not.toMatch(/^import /m);
   });
 
   // 【この絵は CSS の動きを1つも持たない 2026/09/13 本人指示】
   // 以前は株元を軸にした揺れ(ficus-grow-sway)を index.css に置いていたが、
-  // 「左右に揺れるアニメーションを削除」で外した。**動くのは埋まる輪と数字だけ。**
+  // 「左右に揺れるアニメーションを削除」で外した。**動くのは進み具合で決まる線と塗りと数字だけ。**
   // ここが緩むと、また「止まって見えないから」と回るスピナーが戻ってくる。
   it("動きを持たない", () => {
     // コメントを剥がしてから数える。外した理由を index.css に書き残してあり、
@@ -167,20 +163,20 @@ describe("置き場所(§1.11 / 遅延読み込みの前提)", () => {
     expect(code).not.toMatch(/transform/);
   });
 
-  // 【色は2つまで】埋まった側(--c-ink-3 = %の数字と同じ)と、埋まっていない側
-  // (--c-line = index.css が「罫線・トラック」と定めている段)。
-  // 淡い段を足すと、小さく出したとき色の数だけが目に付いて形が読めない。
-  it("色は「埋まった側」と「トラック」の2つだけ", () => {
+  // 【色は2つ】芽(線と塗り)は --c-accent(アイコンと同じ紺)、%の数字は --c-ink-3。
+  // 絵の中では INK の定数だけを使い、色を名指ししない。
+  // 透かすのは「塗りが濃くなるぶん線が消える」入れ替わりだけ(どちらも進み具合で決まる)。
+  // 淡い段を固定で足すと、小さく出したとき色の数だけが目に付いて形が読めない。
+  it("色は「芽」と「数字」の2つだけ。透かすのは塗りと線の入れ替わりだけ", () => {
     const used = [...RING.matchAll(/var\(--c-[a-z0-9-]+\)/g)].map((m) => m[0]);
     const uniq = [...new Set(used)].sort();
-    expect(uniq, `使っている色: ${uniq.join(" ")}`).toEqual(["var(--c-ink-3)", "var(--c-line)"]);
-    // INK / TRACK の定義と、%の文字色。絵の中で色を名指ししない。
-    expect(used.filter((c) => c === "var(--c-ink-3)").length, "INK 以外で色を名指ししている").toBe(2);
+    expect(uniq, `使っている色: ${uniq.join(" ")}`).toEqual(["var(--c-accent)", "var(--c-ink-3)"]);
+    expect(used.filter((c) => c === "var(--c-accent)").length, "INK 以外で芽の色を名指ししている").toBe(1);
     const draw = RING.slice(RING.indexOf("export function LoadingRing"),
       RING.indexOf("export default function"));
     expect(draw).not.toMatch(/var\(--c-/);
-    // 透かして淡く見せるのも「3色目」。opacity で段を作らない。
-    expect(draw).not.toMatch(/opacity/);
+    const opac = [...draw.matchAll(/opacity[=:] ?\{?([a-z]+)\}?/g)].map((m) => m[1]).sort();
+    expect(opac, `透かしている値: ${opac.join(" ")}`).toEqual(["fill", "line"]);
   });
 
   // 色は必ずトークンから引く(DESIGN-SYSTEM §1)。hex 直書きを増やさない。
