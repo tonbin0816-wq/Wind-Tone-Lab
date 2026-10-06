@@ -534,6 +534,20 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   useEffect(() => {
     if (phase === "profile") onOnboarding?.("join");
   }, [phase, onOnboarding]);
+  // 【便BX 2026-10-06 本人の実機指示】プロフィールを初めて作った(参加の完了)あと、データの子タブを**先頭から**見せる。
+  // 原因: フォーム(ProfileForm)は縦に長く、文書(window)をいちばん下まで送って「プロフィールを作る」を押す。
+  // 保存が済むと onSubmit の setPhase("profile") がフォームを JoinedView に差し替えるが、文書の送り位置(window.scrollY)は
+  // そのまま残るので、データの子タブが下のほうから始まっていた(375×812 の実測: 保存の前 581 → 保存の後 315。
+  // 参加後の画面の文書の高さ 1127 − 812 = 315 で頭打ちになっただけで、0 には戻らない)。
+  // 直し方: 差し替えた描画の直後(描く前)に1回だけ文書を先頭へ戻す。iPad の2ペイン(.pane-frame)では文書の高さが
+  // 画面と同じになるので送り位置は既に 0 で、左右のペインは JoinedView と一緒に作り直されるので中の送り位置も 0(実測)。
+  // 編集の保存(マイページへ戻る)・「やめる」は今までどおり(本人の指示はデータの子タブへ戻るとき)。
+  const scrollTopOnLandRef = useRef(false);
+  useLayoutEffect(() => {
+    if (phase !== "profile" || !scrollTopOnLandRef.current) return;
+    scrollTopOnLandRef.current = false;
+    window.scrollTo(0, 0);
+  }, [phase]);
   // 未参加(JoinIntro)のときは landTab を読む相手が居ないので、何も起きない。参加して
   // プロフィールを作ったあとは onSubmit の setLandTab(profile ? "me" : "data") が上書きする
   // ── 「初回の作成は "data" のまま」の規則はそのまま。
@@ -634,6 +648,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           // 削除して入り直した場合は profile が null に戻っているので、
           // 前回の "me" が残ったまま新しい人をマイページに落とすことはない。
           setLandTab(profile ? "me" : "data");
+          // 【便BX 2026-10-06 本人の実機指示】初回の作成(参加の完了)でデータの子タブへ移るときは先頭から見せる(下の useLayoutEffect)。
+          if (!profile) scrollTopOnLandRef.current = true;
           // 【便BH 差し戻し(統括裁定4)】r.doc は photo と stats を持たない(フォームが作る13キー)。
           // そのまま置くと、保存した瞬間に手元の写真と練習記録が消えていた(サーバには saveProfile が
           // 持ち越している)。手元の値を持ち越す(profileAfterSave)。

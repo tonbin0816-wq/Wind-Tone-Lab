@@ -11953,9 +11953,10 @@ function ReedTileGrid({ members, reeds, sessions, selectedReedId, editing, onEnt
 // あちらにある3つ目の状態(off = 押せない・枠なし)は**持たない**:
 // 本人指示「4つとも押せる。リードが無い楽器も薄くしない」。
 // 並びと語は SAX_PRESETS(soprano → baritone / S.Sax 〜 B.Sax)。新しい語を作らない。
+// 【便BX 2026-10-06 本人の実機指示】はじめの一手 ⑥(リード登録)の2つ目の穴の的として名乗る(data-coach="reedsSax"。属性だけで見た目は変えない)。
 function ReedSaxChipRow({ value, onPick }) {
   return (
-    <div role="radiogroup" aria-label="楽器種別" style={{ display: "flex", gap: "var(--sp-1)" }}>
+    <div role="radiogroup" aria-label="楽器種別" data-coach="reedsSax" style={{ display: "flex", gap: "var(--sp-1)" }}>
       {Object.keys(SAX_PRESETS).map((t) => {
         const on = t === value;
         return (

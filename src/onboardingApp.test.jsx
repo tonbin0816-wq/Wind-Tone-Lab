@@ -143,6 +143,7 @@ beforeEach(() => {
     const c = this.getAttribute?.("data-coach");
     if (c === "measure") return box(153.5, 616, 68, 68);
     if (c === "reeds") return box(305, 697, 56, 56);
+    if (c === "reedsSax") return box(14, 48, 347, 44);   // 【便BX】リードタブの楽器種別の行(375×812 の実測)
     // 【便BP2】リード2: 一覧の先頭のタイル / 個体詳細の計測ボタン(375×812 の実測と同じ値)
     if (c === "reedsMeasure" && this.classList?.contains("reedtile")) return box(14, 170.5, 59.4, 59.4);
     if (c === "reedsMeasure") return box(305, 697, 56, 56);
@@ -248,7 +249,7 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
     await click(nav("リード"));
     await waitFor(() => layerId() === "reeds", "リードタブの案内");
-    expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");
+    expect(layer().querySelector(".coach-title").textContent).toBe("楽器を選択してリードを登録しよう");   // 【便BX】本人の指示
     expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");   // 【便BQ】
     // 右下の ＋(案内の的)を押す → 追加のシート(BottomSheet)が開いている間は出ない
     await click(document.querySelector('button[aria-label="リードを追加"]'));
@@ -1028,7 +1029,7 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     expect(chip.querySelector('button[aria-label="リードの個体を選ぶ"]')).not.toBe(null);
     expect(holeOf()).toEqual(["8px", "40px", "202px", "42px", "var(--r-full)"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("選んだリードが紐づいています");
-    expect(layer().querySelector(".coach-line").textContent).toBe("計測の記録にこのリードが残ります");
+    expect(layer().querySelector(".coach-line").textContent).toBe("計測データに選択したリードが紐づきます");   // 【便BX】本人の指示
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.reedLinked === true, "reedLinked の印");
     await waitFor(() => layerId() === "measureReed", "⑨");
@@ -1221,4 +1222,37 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
     expect(app).toMatch(/if \(selectedSession\) onOnboarding\?\.\("daySession"\);/);
     expect(app).toMatch(/onOnboarding=\{markOnboarding\}\n/);
   });
+});
+
+// 【便BX 2026-10-06 本人の実機指示】⑥ リード登録は、上部の楽器種別の行(本物の ReedSaxChipRow)も2つ目の穴で明るく残す。
+// 行の楽器種別を押すと一覧の楽器が替わり(下のボタンに届く)、案内は消えず、印も立たない。「リードを追加」のシートはその楽器で開く。
+describe("【便BX】⑥ リード登録: 楽器種別の行も照らし、押せる", () => {
+  it("2つ目の穴は本物の楽器種別の行。T.Sax を押すと選択が替わり、案内は残る(外押しにならない)。追加のシートは T.Sax で開く", async () => {
+    mod = await loadApp(fake);
+    await render();
+    await waitFor(() => kv("onboardingDone")?.migrated === true, "移行の印");
+    await click(nav("リード"));
+    await waitFor(() => layerId() === "reeds", "リードタブの案内");
+    const row = document.querySelector('[data-coach="reedsSax"]');
+    expect(row.getAttribute("role")).toBe("radiogroup");
+    expect(row.getAttribute("aria-label")).toBe("楽器種別");
+    const holes = [...layer().querySelectorAll(".coach-hole")];
+    expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius])).toEqual([
+      ["295px", "687px", "76px", "76px", "50%"], ["14px", "48px", "347px", "44px", "var(--r-2)"],
+    ]);
+    expect(holes[1].getAttribute("data-coach-hole")).toBe("also");
+    const radio = (label) => [...row.querySelectorAll('button[role="radio"]')].find((b) => b.textContent === label);
+    expect(radio("A.Sax").getAttribute("aria-checked")).toBe("true");
+    await click(radio("T.Sax"));
+    await tick(50);
+    expect(radio("T.Sax").getAttribute("aria-checked")).toBe("true");
+    expect(radio("A.Sax").getAttribute("aria-checked")).toBe("false");
+    expect(layerId()).toBe("reeds");
+    expect(kv("onboardingDone").reeds).toBeUndefined();
+    // 追加のシートは選んだ楽器で開く(既存の道: setNewSax(listSax))
+    await click(document.querySelector('button[aria-label="リードを追加"]'));
+    await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
+    expect(document.querySelector('[role="dialog"] button[aria-label="楽器 T.Sax"]').getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector('[role="dialog"] button[aria-label="楽器 A.Sax"]').getAttribute("aria-pressed")).toBe("false");
+  }, 40000);
 });

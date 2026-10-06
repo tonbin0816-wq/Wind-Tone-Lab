@@ -36,6 +36,8 @@ import { createPortal } from "react-dom";
 //       ⑭ と同じ的なので、⑮ を見た人には ⑭ を出さない(coachCandidates)
 //     案内は自動でタブを移さない(⑤⑩ は下部タブを照らして待つ)。例外は帯の「見る」(本人が押した帯の操作)だけ。
 //     押す=済(markOnDismiss)の段は ⑧⑭⑮ の3つ。この3つは外を押しても群(dismissWith)を消さない(次の段へ進ませるため)
+//   ・【便BX 2026-10-06 本人の実機指示】⑥ リード登録の見出しを「楽器を選択してリードを登録しよう」にし、上部の楽器種別の行も
+//     2つ目の穴(also)で明るく残す(押せる・外押しにならない)。⑧ の1行を「計測データに選択したリードが紐づきます」に
 //
 // **判断はこのファイルの純関数が持つ**(どの一手を出すか・印の立て方・移行・穴とカードの位置)。
 // App.jsx は「いまの状態」を渡し、成功の道で markOnboardingDone を呼ぶだけ。
@@ -88,6 +90,8 @@ export const COACH_EDGE_PX = 22;
 //   dismissWith … 外を押して消したときに、一緒にこの起動の間は出さない段(既定はその段だけ)
 //   markOnDismiss … 外(暗幕・カード)を押したら、その段の印を立てる(押すことが一手そのものの段)。群は持たない(次の段へ進ませる)
 //   scrollIntoView … 的の要素が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(【便BW】音の傾向カード)
+//   also … 【便BX】2つ目の穴({ target, pad, shape })。的(1つ目)が見えているときだけ探し、画面にまるごと見えていて
+//          1つ目と縦に重ならなければ一緒に明るく残す(見えていなければ1つ目だけ)。カードの位置は1つ目で決める
 export const COACH_STEPS = {
   // 【便BW 2026-10-06 本人の要望1】計測タブ1段目。的は環の箱(環と音名。吹いて動く所)。
   // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
@@ -124,7 +128,8 @@ export const COACH_STEPS = {
   // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
   reedLinked: {
     flag: "reedLinked", icon: "reeds",
-    title: "選んだリードが紐づいています", line: "計測の記録にこのリードが残ります",
+    // 【便BX 2026-10-06 本人の実機指示】1行を「計測データに選択したリードが紐づきます」に。
+    title: "選んだリードが紐づいています", line: "計測データに選択したリードが紐づきます",
     target: '[data-coach="reedChip"]', pad: 6, shape: "pill", markOnDismiss: true,
   },
   // 【便BW 本人の要望6】⑨ リードが選ばれているときの計測の段。印は measure(リードなしの段と同じ印で文が2つ)。
@@ -149,8 +154,13 @@ export const COACH_STEPS = {
   reeds: {
     flag: "reeds", icon: "reeds",
     // 【便BQ 2026-10-03 本人指示】1行を「計測に登録したリードを紐づけることができます」に。
-    title: "使っているリードを登録しよう", line: "計測に登録したリードを紐づけることができます",
+    // 【便BX 2026-10-06 本人の実機指示】見出しを「楽器を選択してリードを登録しよう」に(本人の原文「画期を選択して」は「楽器」の打ち間違いと読む)。
+    title: "楽器を選択してリードを登録しよう", line: "計測に登録したリードを紐づけることができます",
     target: '[data-coach="reeds"]', pad: 10, shape: "circle",
+    // 【便BX 本人の実機指示】上部の楽器種別の行(S.Sax / A.Sax / T.Sax / B.Sax)も暗幕から外す(2つ目の穴)。
+    // 行の4つのボタンは行の幅いっぱいに並ぶので、行の箱をそのまま穴にする(pad 0・角丸の矩形 = 環の箱・音の傾向カードと同じ「箱」の値)。
+    // 穴の中には受けを置かないので、押せば下の楽器種別のボタンに届く(外押しにならない)。段の済み方(リードの登録)は変えない。
+    also: { target: '[data-coach="reedsSax"]', pad: 0, shape: "rect" },
   },
   // 【便BP2 2026-10-03 統括の裁定】2つの画面をまたいで同じ一手を案内する。一覧では先頭の箱の先頭のタイル(角丸 12 の四角)、
   // タイルを押して個体詳細に入ったら詳細の計測ボタン(丸。data-coach-shape="circle" で形を名乗る)。済む条件は同じ。
@@ -395,9 +405,10 @@ function sameView(a, b) {
   const same = a.id === b.id && a.leaving === b.leaving && a.measured === b.measured && a.side === b.side && r2(a.top) === r2(b.top);
   // 【便BS】穴の無い段は穴を比べない(両方 null なら同じ)
   if (!a.hole || !b.hole) return same && a.hole === b.hole;
-  return same
-    && r2(a.hole.left) === r2(b.hole.left) && r2(a.hole.top) === r2(b.hole.top)
-    && r2(a.hole.width) === r2(b.hole.width) && r2(a.hole.height) === r2(b.hole.height);
+  const sameBox = (p, q) => r2(p.left) === r2(q.left) && r2(p.top) === r2(q.top) && r2(p.width) === r2(q.width) && r2(p.height) === r2(q.height);
+  // 【便BX】2つ目の穴(片方だけ在る・位置が違う)も比べる。無い段同士は今までどおり
+  const sameExtra = !a.extra && !b.extra ? true : Boolean(a.extra && b.extra && sameBox(a.extra, b.extra) && a.split === b.split);
+  return same && sameBox(a.hole, b.hole) && sameExtra;
 }
 
 // 溶ける時間(ms)を計算済みの style から読む。"0.35s" / "350ms"(animation-duration)、無ければ
@@ -466,15 +477,39 @@ export function resolveAdHeight() {
   return h > 0 ? h : 0;
 }
 
+// 【便BX】2つの穴を縦に分ける線(画面の座標)。上の穴の下端と下の穴の上端の真ん中を整数に丸め、2つの穴の間に収める。
+// 縦に重なっていれば null(2つ目の穴は出さない)。暗幕(穴の影)と受けは、この線より上を上の穴が、下を下の穴が受け持つ。
+export function holesSplit(a, b) {
+  const aBottom = a.top + a.height;
+  const bBottom = b.top + b.height;
+  const [upperBottom, lowerTop] = aBottom <= b.top ? [aBottom, b.top] : bBottom <= a.top ? [bBottom, a.top] : [null, null];
+  if (upperBottom === null) return null;
+  return Math.min(lowerTop, Math.max(upperBottom, Math.round((upperBottom + lowerTop) / 2)));
+}
+// 【便BX】穴が受け持つ縦の帯(線より上の穴は 0 〜 線、下の穴は 線 〜 画面の下端)。
+export function bandOfHole(hole, split, vh) {
+  return hole.top + hole.height <= split ? { top: 0, bottom: split } : { top: split, bottom: vh };
+}
+// 【便BX】穴の影(暗幕)を受け持ちの帯の中だけに切る clip-path。影は穴の要素の外へ 150vmax 広がるので、
+// 切り取りの枠を穴の要素の縁から画面の縁・帯の縁まで外へ広げる(負の inset)。2つの穴の影が重なって二重に暗くならない。
+export function holeClipPath(hole, band, vw) {
+  const r = hole.left + hole.width;
+  const b = hole.top + hole.height;
+  return `inset(${band.top - hole.top}px ${r - vw}px ${b - band.bottom}px ${-hole.left}px)`;
+}
+
 // 穴の外側を覆う4枚の受け(上・下・左・右)。【便BQ】外を押したら案内を消す。穴の上には何も置かない(的は押せる)。
-function hitRects(hole, vw, vh) {
+// 【便BX】band を渡すと、上下の受けをその帯の中に収める(2つ目の穴がある段。渡さなければ画面の上端 〜 下端で今までどおり)。
+function hitRects(hole, vw, vh, band = null) {
   const top = hole.top;
   const bottom = hole.top + hole.height;
   const left = hole.left;
   const right = hole.left + hole.width;
+  const top0 = band ? band.top : 0;
+  const bottom0 = band ? band.bottom : vh;
   return [
-    { key: "t", left: 0, top: 0, width: vw, height: Math.max(0, top) },
-    { key: "b", left: 0, top: bottom, width: vw, height: Math.max(0, vh - bottom) },
+    { key: "t", left: 0, top: top0, width: vw, height: Math.max(0, top - top0) },
+    { key: "b", left: 0, top: bottom, width: vw, height: Math.max(0, bottom0 - bottom) },
     { key: "l", left: 0, top, width: Math.max(0, left), height: hole.height },
     { key: "r", left: right, top, width: Math.max(0, vw - right), height: hole.height },
   ];
@@ -494,6 +529,8 @@ function hitRects(hole, vw, vh) {
 //   markOnDismiss の段(【便BW】reedLinked・trend・idealSeen)だけは、外を押したら onMark(印の名前)で印を立てる(押すことが一手そのもの)
 // 【便BW】的なしの段(画面いっぱいの暗幕・受け1枚)の道は外した。どの段も穴と受け4枚。
 //   scrollIntoView の段は、的が在るのに画面の外なら、この起動で1回だけ的を画面の中央へ送る(scrolledRef)。
+// 【便BX】also を持つ段(リード1)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
+//   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
 export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
   const [view, setView] = useState(null);
@@ -585,7 +622,18 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
       width: Math.max(hole.left + hole.width, pr.right) - Math.min(hole.left, pr.left),
       height: Math.max(hole.top + hole.height, pr.bottom) - Math.min(hole.top, pr.top),
     } : hole;
-    const next = { id: found.id, hole, pass, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
+    // 【便BX】2つ目の穴(also)。画面にまるごと見えていて、1つ目と縦に重ならないときだけ。見えていなければ1つ目だけ(今までどおり)
+    let extra = null; let split = null; let band = null; let extraBand = null;
+    if (step0.also) {
+      const xe = document.querySelector(step0.also.target);
+      const xr = xe ? xe.getBoundingClientRect() : null;
+      if (xr && targetVisible(xr, vw, vh)) {
+        const xh = holeOf(xr, step0.also);
+        const sp = holesSplit(pass, xh);
+        if (sp !== null) { extra = xh; split = sp; band = bandOfHole(pass, sp, vh); extraBand = bandOfHole(xh, sp, vh); }
+      }
+    }
+    const next = { id: found.id, hole, pass, extra, split, band, extraBand, top: place.top, side: place.side, measured: cardH > 0, leaving: false, vw, vh };
     if (!sameView(cur, next) || cur.vw !== vw || cur.vh !== vh) commit(next);
     return true;
   };
@@ -671,14 +719,35 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
             style={{
               left: view.hole.left, top: view.hole.top, width: view.hole.width, height: view.hole.height,
               borderRadius: HOLE_RADIUS[view.hole.shape],
+              // 【便BX】2つ目の穴がある段だけ、影を受け持ちの帯の中に切る(無い段は clip-path を持たない = 今までどおり)
+              clipPath: view.extra ? holeClipPath(view.hole, view.band, view.vw) : undefined,
             }}
           />
+          {/* 【便BX】2つ目の穴(リード1の楽器種別の行)。見た目は1つ目と同じ .coach-hole(新しい CSS は無い)。影は自分の帯の中だけ。 */}
+          {view.extra ? (
+            <div
+              className="coach-hole"
+              aria-hidden="true"
+              data-coach-hole="also"
+              style={{
+                left: view.extra.left, top: view.extra.top, width: view.extra.width, height: view.extra.height,
+                borderRadius: HOLE_RADIUS[view.extra.shape],
+                clipPath: holeClipPath(view.extra, view.extraBand, view.vw),
+              }}
+            />
+          ) : null}
           {/* 【便BQ】穴の外側の受け(透明)。押したら案内を消すだけ(下へ届かせない)。穴の上には置かない。 */}
-          {hitRects(view.pass ?? view.hole, view.vw, view.vh).map((h) => (
+          {hitRects(view.pass ?? view.hole, view.vw, view.vh, view.band).map((h) => (
             <div key={h.key} className="coach-hit" aria-hidden="true" data-coach-hit={h.key}
               style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
               onClick={dismiss} />
           ))}
+          {/* 【便BX】2つ目の穴の外側の受け(その帯の中の4枚)。2つ目の穴の上にも何も置かない(楽器種別のボタンは押せる)。 */}
+          {view.extra ? hitRects(view.extra, view.vw, view.vh, view.extraBand).map((h) => (
+            <div key={`x${h.key}`} className="coach-hit" aria-hidden="true" data-coach-hit={`x${h.key}`}
+              style={{ left: h.left, top: h.top, width: h.width, height: h.height }}
+              onClick={dismiss} />
+          )) : null}
           {/* カードは画面の中央。押しても案内が消えるだけ(外を押したのと同じ)。測る前は見せない。 */}
           <div
             ref={cardRef}

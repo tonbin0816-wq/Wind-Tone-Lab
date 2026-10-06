@@ -33018,7 +33018,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BW.3 .coach-dim の綴りは onboarding.jsx の動く側に無い(参加の画面 CommunityTab.jsx には在る)・穴は必ず描く",
     !/coach-dim/.test(ob) && /className="coach-dim"/.test(rd("src/community/CommunityTab.jsx"))
     // 【便BW 再審査】受けを置かない範囲は穴(passThrough の段は、的を含む押せる祖先も足した外接矩形)
-    && /\{hitRects\(view\.pass \?\? view\.hole, view\.vw, view\.vh\)\.map/.test(ob) && !/data-coach-hit="all"|key: "all"/.test(ob));
+    && /\{hitRects\(view\.pass \?\? view\.hole, view\.vw, view\.vh(?:, view\.band)?\)\.map/.test(ob) && !/data-coach-hit="all"|key: "all"/.test(ob));
   check("BW.3 殻の判定に分岐を足していない(案内の判断を持つ onboarding.jsx は isNativeShell を読まない)",
     !/isNativeShell/.test(obRaw));
 
@@ -33135,7 +33135,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const ds = rd("design/DESIGN-SYSTEM.md");
     const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
     const titles = ["まずは吹いてみよう", "メトロノームも使えます", "テンポを決めよう", "タップでスタート", "次はリードを登録しよう",
-      "使っているリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
+      "楽器を選択してリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
       "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
       "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう"];
     const missing = titles.filter((t) => !sec.includes(t));

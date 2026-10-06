@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   OnboardingCoach, COACH_STEPS, ONBOARDING_FLAGS, coachCandidates, normalizeOnboardingDone, markOnboardingDone,
   migrateOnboardingDone, onboardingFlagsForSavedSession, holeOf, placeCoachCard, targetVisible, leaveDurationMs,
+  holesSplit, bandOfHole, holeClipPath,
   MEASURE_TAB_STEPS, MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
 } from "./onboarding.jsx";
@@ -31,7 +32,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
   // [見出し, 1行(無ければ null), アイコン]
   const SPEC = {
     measure: ["最初の計測を記録しよう", "ボタンタップで計測スタート", "mic"],
-    reeds: ["使っているリードを登録しよう", "計測に登録したリードを紐づけることができます", "reeds"],   // 【便BQ】本人の指示
+    reeds: ["楽器を選択してリードを登録しよう", "計測に登録したリードを紐づけることができます", "reeds"],   // 【便BQ】本人の指示・【便BX】見出しを本人の指示で替えた
     reedsMeasure: ["このリードで計測してみよう", null, "measure"],                                    // 【便BQ】1行は無し
     data: ["計測を始めると、ここに貯まります", "計測タブから計測してみよう", "data"],
     adoptAverage: ["みんなの平均を目安にしてみよう", "目安に設定すると自分の音と比べられます", "target"],
@@ -42,7 +43,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     metroTempo: ["テンポを決めよう", "♩=n を押すと拍子も変えられます", "metro"],
     metroStart: ["タップでスタート", "もう一度押すと止まります", "metro"],
     goReeds: ["次はリードを登録しよう", null, "reeds"],
-    reedLinked: ["選んだリードが紐づいています", "計測の記録にこのリードが残ります", "reeds"],
+    reedLinked: ["選んだリードが紐づいています", "計測データに選択したリードが紐づきます", "reeds"],   // 【便BX】1行を本人の指示で替えた
     measureReed: ["このリードで計測してみよう", "ボタンタップで計測スタート", "mic"],
     goData: ["計測の記録を見てみよう", null, "data"],
     calendarDay: ["計測した日を押してみよう", null, "data"],
@@ -1068,5 +1069,127 @@ describe("【便BS】useSustained(チューナー: 音程が**続けて** ms 取
     await put(false, () => { n += 1; });
     await frames(250);
     expect(n).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便BX 2026-10-06 本人の実機指示】⑥ リード登録: 上部の楽器種別の行(S.Sax / A.Sax / T.Sax / B.Sax)も暗幕から外す(2つ目の穴)。
+//   押せる(穴の上に受けを置かない)・押しても外押しにならない(消えない・印も立たない)・段の済み方(リードの登録)は変えない。
+// 期待値は 375×812 の実測の矩形(リードを追加 305,697,56,56 / 楽器種別の行 14,48,347,44)から手で計算した:
+//   1つ目の穴 = 丸・pad 10 → 直径 76(295,687)/ 2つ目 = 行の箱(pad 0)/ 線 = (92 + 687) / 2 = 389.5 → 390
+// ------------------------------------------------------------------
+const AddFab = ({ onClick }) => <button type="button" data-coach="reeds" data-r="305,697,56,56" onClick={onClick}>+</button>;
+function SaxRow({ r = "14,48,347,44", onPick = () => {} }) {
+  const [l, t, , h] = r.split(",").map(Number);
+  return (
+    <div role="radiogroup" aria-label="楽器種別" data-coach="reedsSax" data-r={r}>
+      {["S.Sax", "A.Sax", "T.Sax", "B.Sax"].map((x, i) => (
+        <button key={x} type="button" role="radio" data-r={`${l + i * 87.75},${t},83.75,${h}`} onClick={() => onPick(x)}>{x}</button>
+      ))}
+    </div>
+  );
+}
+const holeStyles = () => [...layer().querySelectorAll(".coach-hole")].map((h) => ({
+  box: [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius], clip: h.style.clipPath || null, also: h.getAttribute("data-coach-hole"),
+}));
+const hitBoxes = () => [...layer().querySelectorAll(".coach-hit")].map((h) => [h.getAttribute("data-coach-hit"), ...["left", "top", "width", "height"].map((k) => parseFloat(h.style[k]))]);
+
+describe("【便BX】2つの穴(holesSplit / bandOfHole / holeClipPath)", () => {
+  it("線は上の穴の下端と下の穴の上端の真ん中(整数)。どちらの順で渡しても同じ。縦に重なれば null", () => {
+    const fab = { left: 295, top: 687, width: 76, height: 76 };
+    const row = { left: 14, top: 48, width: 347, height: 44 };
+    expect(holesSplit(fab, row)).toBe(390);
+    expect(holesSplit(row, fab)).toBe(390);
+    expect(holesSplit(row, { left: 0, top: 80, width: 10, height: 10 })).toBe(null);   // 48〜92 と 80〜90 は重なる
+    // すき間が 1 未満でも線は2つの穴の間に収まる(穴の中に線を引かない)
+    expect(holesSplit({ left: 0, top: 0, width: 10, height: 10.2 }, { left: 0, top: 10.6, width: 10, height: 10 })).toBeGreaterThanOrEqual(10.2);
+    expect(holesSplit({ left: 0, top: 0, width: 10, height: 10.2 }, { left: 0, top: 10.6, width: 10, height: 10 })).toBeLessThanOrEqual(10.6);
+  });
+  it("帯: 線より上の穴は 0〜線、下の穴は 線〜画面の下端。影は帯と画面の縁まで外へ広げた枠で切る", () => {
+    const fab = { left: 295, top: 687, width: 76, height: 76 };
+    const row = { left: 14, top: 48, width: 347, height: 44 };
+    expect(bandOfHole(row, 390, 812)).toEqual({ top: 0, bottom: 390 });
+    expect(bandOfHole(fab, 390, 812)).toEqual({ top: 390, bottom: 812 });
+    // inset(上 右 下 左): 上 = 390 − 687、右 = 371 − 375、下 = 763 − 812、左 = −295
+    expect(holeClipPath(fab, { top: 390, bottom: 812 }, 375)).toBe("inset(-297px -4px -49px -295px)");
+    expect(holeClipPath(row, { top: 0, bottom: 390 }, 375)).toBe("inset(-48px -14px -298px -14px)");
+  });
+});
+
+describe("【便BX】⑥ リード登録: 楽器種別の行も明るく残す(2つ目の穴)", () => {
+  it("穴は2つ(リードを追加の丸 + 楽器種別の行の箱)。影はそれぞれの帯の中だけ。受けは帯ごとに4枚で、どちらの穴の上にも無い", async () => {
+    await drawBS(["reeds"], { extra: <><SaxRow /><AddFab /></> });
+    await frames();
+    expect(layerId()).toBe("reeds");
+    expect(layer().querySelector(".coach-title").textContent).toBe("楽器を選択してリードを登録しよう");
+    expect(holeStyles()).toEqual([
+      { box: ["295px", "687px", "76px", "76px", "50%"], clip: "inset(-297px -4px -49px -295px)", also: null },
+      { box: ["14px", "48px", "347px", "44px", "var(--r-2)"], clip: "inset(-48px -14px -298px -14px)", also: "also" },
+    ]);
+    expect(hitBoxes()).toEqual([
+      ["t", 0, 390, 375, 297], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76],
+      ["xt", 0, 0, 375, 48], ["xb", 0, 92, 375, 298], ["xl", 0, 48, 14, 44], ["xr", 361, 48, 14, 44],
+    ]);
+    // 受けは画面を隙間なく覆う(穴2つの面積を除いて)。375×812 − 76×76 − 347×44
+    const area = hitBoxes().reduce((a, [, , , w, h]) => a + w * h, 0);
+    expect(area).toBe(375 * 812 - 76 * 76 - 347 * 44);
+    // 4つの楽器種別のボタンの中央を覆う受け・カードは無い
+    for (const [i] of ["S.Sax", "A.Sax", "T.Sax", "B.Sax"].entries()) {
+      const x = 14 + i * 87.75 + 83.75 / 2; const y = 48 + 22;
+      const covering = [...layer().querySelectorAll(".coach-hit, .coach-card")].filter((el) => {
+        const v = (k, d) => (el.style[k] === "" ? d : parseFloat(el.style[k]));
+        const b = { l: v("left", 22), t: v("top", 0), w: v("width", 331), h: v("height", 146) };
+        return x >= b.l && x <= b.l + b.w && y >= b.t && y <= b.t + b.h;
+      });
+      expect(covering, String(i)).toEqual([]);
+    }
+  });
+  it("楽器種別を押すと下のボタンに届く(選択が替わる)。案内は消えず、印も立たない(済むのはリードの登録)", async () => {
+    const picked = [];
+    const marks = [];
+    await drawBS(["reeds"], { onMark: (f) => marks.push(f), extra: <><SaxRow onPick={(x) => picked.push(x)} /><AddFab /></> });
+    await frames();
+    await clickOn([...document.querySelectorAll('[role="radio"]')].find((b) => b.textContent === "T.Sax"));
+    await frames();
+    expect(picked).toEqual(["T.Sax"]);
+    expect(layerId()).toBe("reeds");
+    expect(marks).toEqual([]);
+  });
+  it("2つの穴の間(一覧の上)・行の上の受けを押すと消える(外押し)。印は立たない", async () => {
+    for (const k of ["xb", "xt", "t"]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      const marks = [];
+      await drawBS(["reeds"], { onMark: (f) => marks.push(f), extra: <><SaxRow /><AddFab /></> });
+      await frames();
+      await clickOn(layer().querySelector(`[data-coach-hit="${k}"]`));
+      expect(layer(), k).toBe(null);
+      expect(marks, k).toEqual([]);
+    }
+  });
+  it("楽器種別の行が画面に見えていない・無い・縦に重なるときは1つ目の穴だけ(clip-path なし・受けは今までどおり4枚)", async () => {
+    for (const extra of [
+      <><SaxRow key="s" r="14,-60,347,44" /><AddFab key="f" /></>,   // 画面の上へ送られている
+      <><AddFab key="f" /></>,                                        // 行が無い
+      <><SaxRow key="s" r="14,700,347,44" /><AddFab key="f" /></>,  // 縦に重なる(作り物)
+    ]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawBS(["reeds"], { extra });
+      await frames();
+      expect(holeStyles()).toEqual([{ box: ["295px", "687px", "76px", "76px", "50%"], clip: null, also: null }]);
+      expect(hitBoxes()).toEqual([["t", 0, 0, 375, 687], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76]]);
+    }
+  });
+  it("2つ目の穴を持つのは ⑥ だけ(他の段の穴と受けは1つのまま。also を読む段は reeds の1つ)", async () => {
+    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["reeds"]);
+    expect(COACH_STEPS.reeds.also).toEqual({ target: '[data-coach="reedsSax"]', pad: 0, shape: "rect" });
+    // 楽器種別の行が在っても、他の段(ここでは ⑨)は穴1つ
+    await drawBS(["measure"], { extra: <><SaxRow /><Target /></> });
+    await frames();
+    expect(layerId()).toBe("measure");
+    expect(holeStyles()).toHaveLength(1);
+    expect(holeStyles()[0].clip).toBe(null);
+    expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
   });
 });
