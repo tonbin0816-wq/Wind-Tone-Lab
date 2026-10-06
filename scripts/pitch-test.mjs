@@ -6379,7 +6379,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 【便BL 2026-10-02 本人指示】例外は1つだけ: --ad-h(下部タブの上の広告の帯の高さ)は :root で 0px、
     // 見本の帯の合図(<html data-ad-preview="1">)が付いたときだけ 50px に上書きする。**合図の属性つきの
     // 規則の中の1回だけ**を数えから外す(素の :root の末尾追記・2つ目の上書きは、これまでどおり落ちる)。
-    const cssForDup = css.replace(/:root\[data-ad-preview="1"\]\s*\{\s*--ad-h:\s*50px;\s*\}/, "");
+    // 【殻 S3 統括の裁定】上書きの値は 帯 50px + すき間 --sp-2(calc(50px + var(--sp-2)))になった。
+    const cssForDup = css.replace(/:root\[data-ad-preview="1"\]\s*\{\s*--ad-h:\s*calc\(50px \+ var\(--sp-2\)\);\s*\}/, "");
     const defsIn = (text, n) => [...text.matchAll(new RegExp(`${n}\\s*:\\s*([^;]+);`, "g"))].length;
     const dup = [...new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))]
       .filter((n) => defsIn(cssForDup, n) > 1);
@@ -32446,8 +32447,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.8 package.json: \"ficus\": \"file:...\" の依存が無い(Codemagic の npm ci が存在しない path で落ちる)",
       !/"ficus":\s*"file:/.test(readK("package.json")) && !("ficus" in all));
     check("K.8 package.json: @capacitor/* ・@capacitor-community/* ・@fontsource/* の版は全部 exact(^ ~ 無し)",
-      // 【殻 S2】Filesystem・Share・KeepAwake が加わった(仕様 §1.3 の表)
-      JSON.stringify(shellDeps.map(([k]) => k).sort()) === JSON.stringify(["@capacitor-community/keep-awake", "@capacitor/cli", "@capacitor/core", "@capacitor/filesystem", "@capacitor/ios", "@capacitor/share", "@fontsource/instrument-serif"])
+      // 【殻 S2】Filesystem・Share・KeepAwake が加わった(仕様 §1.3 の表)。【殻 S3】AdMob が加わった(同じ表)
+      JSON.stringify(shellDeps.map(([k]) => k).sort()) === JSON.stringify(["@capacitor-community/admob", "@capacitor-community/keep-awake", "@capacitor/cli", "@capacitor/core", "@capacitor/filesystem", "@capacitor/ios", "@capacitor/share", "@fontsource/instrument-serif"])
       && shellDeps.every(([, v]) => /^\d+\.\d+\.\d+$/.test(v)), JSON.stringify(shellDeps));
     // 版は仕様 §1.3 の表(2026-10-04 確認)から手で写す。上げるのは専用の便でだけ。
     check("K.8 package.json: 版は仕様の固定どおり(core / ios / cli 8.5.2・instrument-serif 5.3.0)",
@@ -32483,11 +32484,12 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const plistK = existsK("ios/App/App/Info.plist") ? readK("ios/App/App/Info.plist") : "";
     const cmK = existsK("codemagic.yaml") ? readK("codemagic.yaml") : "";
     // 【殻 S2】開発版(ios-dev)と同じ App Store Connect の枠へ上げるので、番号は全 workflow の通し番号 $PROJECT_BUILD_NUMBER(両方の workflow)
-    check("K.11 App ターゲットの Debug と Release に VERSIONING_SYSTEM = apple-generic と CURRENT_PROJECT_VERSION・CFBundleVersion は $(CURRENT_PROJECT_VERSION)・Codemagic は ios/App で agvtool new-version -all $PROJECT_BUILD_NUMBER(2つの workflow とも。$BUILD_NUMBER は残っていない)",
+    check("K.11 App ターゲットの Debug と Release に VERSIONING_SYSTEM = apple-generic と CURRENT_PROJECT_VERSION・CFBundleVersion は $(CURRENT_PROJECT_VERSION)・Codemagic は ios/App で agvtool new-version -all $PROJECT_BUILD_NUMBER(3つの workflow とも。$BUILD_NUMBER は残っていない)",
       JSON.stringify(cfgs.map((m) => m[1]).sort()) === JSON.stringify(["Debug", "Release"])
       && cfgs.every((m) => /\n\t\t\t\tVERSIONING_SYSTEM = "apple-generic";\n/.test(m[0]) && /\n\t\t\t\tCURRENT_PROJECT_VERSION = \d+;\n/.test(m[0]))
       && /<key>CFBundleVersion<\/key>\s*<string>\$\(CURRENT_PROJECT_VERSION\)<\/string>/.test(plistK)
-      && (cmK.match(/\n\s+cd ios\/App\n\s+agvtool new-version -all \$PROJECT_BUILD_NUMBER\n/g) || []).length === 2
+      // 【殻 S3】審査に出す ios-release が加わった(ios-testflight・ios-dev・ios-release)
+      && (cmK.match(/\n\s+cd ios\/App\n\s+agvtool new-version -all \$PROJECT_BUILD_NUMBER\n/g) || []).length === 3
       && !/agvtool new-version -all \$BUILD_NUMBER\b/.test(cmK),
       cfgs.map((m) => m[1]).join(","));
   }
@@ -32616,8 +32618,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const prod = blocks["ios-testflight"] || "";
     const dev = blocks["ios-dev"] || "";
     // 本番の塊は注記(# の行)を除いて見る(ios-dev の説明の注記は ios-dev の見出しの上 = 本番の塊の末尾に入るため)
-    check("K.15 codemagic.yaml の workflow は ios-testflight と ios-dev の2つ",
-      JSON.stringify(Object.keys(blocks)) === JSON.stringify(["ios-testflight", "ios-dev"]), JSON.stringify(Object.keys(blocks)));
+    // 【殻 S3 統括の裁定】審査に出す専用の ios-release が加わった(中身は ios-testflight と同じ + 試験の広告 ID の門。K.23)
+    check("K.15 codemagic.yaml の workflow は ios-testflight と ios-dev と ios-release の3つ",
+      JSON.stringify(Object.keys(blocks)) === JSON.stringify(["ios-testflight", "ios-dev", "ios-release"]), JSON.stringify(Object.keys(blocks)));
     check("K.15 本番(ios-testflight)に server.url を足す手順が無い(shell-dev-server-url・server.url・vercel.app・PlistBuddy・release_notes の綴りが 0 件)",
       prod.length > 0 && !/shell-dev-server-url|server\.url|vercel\.app|PlistBuddy|release_notes|Ficus Dev/.test(prod.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")));
     const devSteps = [...dev.matchAll(/\n\s+script: (.+)/g)].map((m) => m[1].trim());
@@ -32686,6 +32689,239 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const vc = codeOf(readS("vite.config.js"));
     check("K.17 vite.config.js: Capacitor の部品だけのチャンクは capacitor-[name].native-[hash].js・それ以外は Vite の既定の assets/[name]-[hash].js",
       /chunkFileNames: \(chunk\) =>\n\s*chunk\.moduleIds\.length > 0 && chunk\.moduleIds\.every\(\(id\) => \/\[\\\\\/\]node_modules\[\\\\\/\]@capacitor\(-community\)\?\[\\\\\/\]\/\.test\(id\)\)\n\s*\? "assets\/capacitor-\[name\]\.native-\[hash\]\.js"\n\s*: "assets\/\[name\]-\[hash\]\.js",/.test(vc));
+  }
+  console.log("  -> done");
+}
+
+{
+  console.log("\n[殻 S3] 広告の帯(AdMob)と ATT(試験用の ID の段・審査に出す workflow・帯の高さとすき間・回転・シートの間は隠す・Info.plist・プライバシーポリシー)");
+  // 【殻 S3 2026-10-06】凍結仕様 shell-spec.md §5・§8.2 の S3 ぶんと本人の裁定(試験用 ID は Google の公式の demo・ATT 拒否なら npa・
+  // privacy.html は Web 版でも正しい書き方)、審査の裁定(回転で取り直す・ATT の尋ね直し・すき間 --sp-2・ios-release の門・見える範囲)。
+  // 期待値は仕様の綴り・Google の文書・プラグインの Swift の実装から手で書く。
+  // 振る舞い(順番・--ad-h・hide / resume・取り直し・ATT の枝・Web で何もしないこと)は vitest(src/shell/ads.test.jsx・shellAds.test.jsx)が描いて確かめる。
+  // 【守っていないもの】Swift と SPM の解決が Codemagic で通ること・ios-release の門が Codemagic で走ること(門の中身はここで綴りを見るだけ)・
+  //   帯が実機で下部タブの上に出ること・ATT の画面が出ること・回転で帯の幅が合うこと・SKAdNetwork の一覧が Google の最新と同じであること(取得した日の写し)。
+  const rootA = join(__dirname, "..");
+  const readA = (p) => { try { return readFileSync(join(rootA, p), "utf8"); } catch { return ""; } };
+  const plist = readA("ios/App/App/Info.plist");
+  const valueOfA = (key) => {
+    const m = new RegExp(`<key>${key}</key>\\s*(?:<string>([\\s\\S]*?)</string>|<(true|false)\\s*/>|<array>([\\s\\S]*?)</array>)`).exec(plist);
+    if (!m) return undefined;
+    if (m[1] !== undefined) return m[1];
+    if (m[2] !== undefined) return m[2] === "true";
+    return m[3];
+  };
+  const cfgRaw = readA("src/shell/adsConfig.js");
+  const cfgSrc = codeOf(cfgRaw);
+  const cfgVal = (name) => {
+    const m = new RegExp(`export const ${name} = ("[^"]*"|true|false);`).exec(cfgSrc);
+    return m ? JSON.parse(m[1]) : undefined;
+  };
+  const DEMO = "3940256099942544";   // Google の demo の発行元の番号(https://developers.google.com/admob/ios/test-ads)
+
+  // --- K.18 Info.plist(付録C の S3 ぶん・プラグインの README の iOS の節) ------------------------------------------
+  {
+    const att = valueOfA("NSUserTrackingUsageDescription");
+    check("K.18 Info.plist: NSUserTrackingUsageDescription が仕様の文(許可しなくても機能はすべて使える)",
+      att === "広告の表示に使う識別子の利用を許可すると、あなたに合った広告が表示されます。許可しなくても、アプリの機能はすべて使えます。", JSON.stringify(att));
+    const appId = valueOfA("GADApplicationIdentifier");
+    check("K.18 Info.plist: GADApplicationIdentifier が AdMob のアプリ ID の形(ca-app-pub-16桁~10桁)・1回だけ",
+      typeof appId === "string" && /^ca-app-pub-\d{16}~\d{10}$/.test(appId) && plist.split("<key>GADApplicationIdentifier</key>").length === 2, JSON.stringify(appId));
+    const items = [...String(valueOfA("SKAdNetworkItems") || "").matchAll(/<key>SKAdNetworkIdentifier<\/key>\s*<string>([^<]+)<\/string>/g)].map((m) => m[1]);
+    check("K.18 Info.plist: SKAdNetworkItems は Google の quick-start の一覧の写し(先頭 cstr6suwn9・40件以上・重複なし・どれも .skadnetwork)",
+      items[0] === "cstr6suwn9.skadnetwork" && items.length >= 40 && new Set(items).size === items.length && items.every((x) => /^[a-z0-9]+\.skadnetwork$/.test(x)), `${items.length} 件`);
+    // README は GADIsAdManagerApp も挙げるが、それは Ad Manager のアプリの鍵。AdMob では書かない(仕様 §5.1)。書くとアプリ ID の確かめが外れる
+    check("K.18 Info.plist: GADIsAdManagerApp を書かない(AdMob のアプリ)", plist.length > 0 && !plist.includes("GADIsAdManagerApp"));
+  }
+
+  // --- K.19 広告の ID の段(S1〜S3 は試験)。試験の ID のままの**提出**を止めるのは codemagic.yaml の ios-release の門(K.23) ------
+  {
+    // 3か所(adsConfig の ADMOB_USE_TEST_ADS・バナーのユニット ID・Info.plist のアプリ ID)の揃いを1語にする。
+    //   "test"       = 3つとも Google の demo(ADMOB_USE_TEST_ADS true・ユニットが demo・plist が quick-start の sample)
+    //   "production" = 3つとも本人の値(false・ユニットが demo でない・plist が demo でない)
+    //   "mixed"      = それ以外(片方だけ替えた)。どちらの段でも落ちる
+    // この検査は手元(と統括の検収)でしか走らない。Codemagic では走らないので、試験の ID のままの提出そのものは止めない。
+    // 止めるのは ios-release のビルドの前の門(adsConfig.js か Info.plist に demo の番号があれば exit 1)。
+    // S4 で本番の ID にしたら、この1行を "production" にする(手元の検査も本番の段を見張る)。
+    const SHELL_ADS_EXPECTED_PHASE = "test";
+    const SAMPLE_APP_ID = "ca-app-pub-3940256099942544~1458002511";   // quick-start の「Sample AdMob app ID」(手で写した)
+    const useTest = cfgVal("ADMOB_USE_TEST_ADS");
+    const unit = cfgVal("ADMOB_BANNER_UNIT_ID_IOS");
+    const plistAppId = valueOfA("GADApplicationIdentifier");
+    const isDemo = (s) => typeof s === "string" && s.includes(`ca-app-pub-${DEMO}`);
+    const phase = (useTest === true && isDemo(unit) && plistAppId === SAMPLE_APP_ID) ? "test"
+      : (useTest === false && typeof unit === "string" && /^ca-app-pub-\d{16}\/\d{10}$/.test(unit) && !isDemo(unit)
+        && typeof plistAppId === "string" && !isDemo(plistAppId)) ? "production"
+      : "mixed";
+    check(`K.19 広告の ID の段が ${SHELL_ADS_EXPECTED_PHASE}(adsConfig の2つと Info.plist のアプリ ID が揃っている)`, phase === SHELL_ADS_EXPECTED_PHASE,
+      JSON.stringify({ phase, useTest, unit, plistAppId }));
+    // 試験の段の値そのもの(Google の文書から手で写した綴り。adsConfig の定数から逆算しない)
+    check("K.19 試験の段の値: バナーは iOS の Anchored Adaptive Banner の demo(…/2435281174)・アプリ ID は quick-start の sample(…~1458002511)",
+      SHELL_ADS_EXPECTED_PHASE !== "test" || (unit === "ca-app-pub-3940256099942544/2435281174" && plistAppId === SAMPLE_APP_ID));
+    // ios-release の門は adsConfig.js を丸ごと grep する。値の行のほかに demo の番号があると、本番の ID にしても門が開かない
+    check("K.19 adsConfig.js の中で demo の番号が現れるのは値の行だけ(注記・印の定数に書かない。ios-release の門が S4 で開くため)",
+      cfgRaw.split("\n").filter((l) => l.includes(DEMO)).every((l) => /^export const ADMOB_BANNER_UNIT_ID_IOS = "/.test(l))
+      && !/ADMOB_APP_ID_PLACEHOLDER/.test(cfgRaw), cfgRaw.split("\n").filter((l) => l.includes(DEMO)).join(" / "));
+    // demo の番号の綴りは adsConfig.js の外(src。検査を除く)に無い ── 試験の ID を2か所に書かない
+    const walkA = (dir, out = []) => {
+      for (const ent of readdirSync(join(rootA, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${ent.name}`;
+        if (ent.isDirectory()) walkA(rel, out);
+        else if (/\.(jsx?|mjs)$/.test(ent.name) && !/\.test\.|\.testutil\./.test(ent.name)) out.push(rel);
+      }
+      return out;
+    };
+    const hits = walkA("src").filter((f) => readA(f).includes(DEMO));
+    check("K.19 demo の番号 3940256099942544 の綴りは src の中では src/shell/adsConfig.js にだけ(試験の段)",
+      SHELL_ADS_EXPECTED_PHASE !== "test" ? hits.length === 0 : JSON.stringify(hits) === JSON.stringify(["src/shell/adsConfig.js"]), hits.join(", "));
+  }
+
+  // --- K.20 部品(ads.native.js・ads.js・policy.js) ------------------------------------------------------------------
+  {
+    const nat = codeOf(readA("src/shell/ads.native.js"));
+    const ads = codeOf(readA("src/shell/ads.js"));
+    const pol = codeOf(readA("src/shell/policy.js"));
+    check("K.20 ads.native.js: プラグインを静的に import するのはここ(@capacitor-community/admob)・ID は adsConfig から・位置の式と待ちは policy から",
+      /^import \{ AdMob, BannerAdSize, BannerAdPosition, BannerAdPluginEvents \} from "@capacitor-community\/admob";$/m.test(nat)
+      && /^import \{ ADMOB_USE_TEST_ADS, ADMOB_BANNER_UNIT_ID_IOS \} from "\.\/adsConfig\.js";$/m.test(nat)
+      && /^import \{ adBannerMargin, ATT_RETRY_DELAY_MS, ATT_FOCUS_WAIT_MAX_MS \} from "\.\/policy\.js";$/m.test(nat));
+    const ask = (/async function askTracking\(\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
+    const again = (/async function askTrackingAgain\(\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
+    const waitFn = (/function whenVisibleAndFocused\(maxMs\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
+    check("K.20 ads.native.js: ATT は未決定のときだけ尋ねて読み直す。まだ未決定なら帯を先に npa で出し、そのあと見えてフォーカスが戻るのを ATT_FOCUS_WAIT_MAX_MS まで待って ATT_RETRY_DELAY_MS おいて1回だけ尋ね直す(上限を過ぎたら尋ねない)",
+      /\n  const \{ status \} = await AdMob\.trackingAuthorizationStatus\(\);\n  if \(status !== "notDetermined"\) return status;\n  await AdMob\.requestTrackingAuthorization\(\);\n  return \(await AdMob\.trackingAuthorizationStatus\(\)\)\.status;$/.test(ask)
+      && /\n  const ok = await whenVisibleAndFocused\(ATT_FOCUS_WAIT_MAX_MS\);\n  if \(!ok\) return;\n  await sleep\(ATT_RETRY_DELAY_MS\);\n  await AdMob\.requestTrackingAuthorization\(\);$/.test(again)
+      && /timer = setTimeout\(\(\) => done\(false\), maxMs\);/.test(waitFn) && /const check = \(\) => \{ if \(visibleAndFocused\(\)\) done\(true\); \};/.test(waitFn)
+      && /const visibleAndFocused = \(\) => document\.visibilityState === "visible" && document\.hasFocus\(\);/.test(nat)
+      && /askAgain = now === "notDetermined";/.test(nat)
+      && nat.indexOf("await AdMob.showBanner(lastShow);") < nat.indexOf("if (askAgain) askTrackingAgain().catch(() => {});")
+      && (nat.match(/requestTrackingAuthorization\(/g) || []).length === 2, (ask + " / " + again).replace(/\s+/g, " "));
+    const at = (s) => nat.indexOf(s);
+    const order = [
+      "await AdMob.initialize({ initializeForTesting: ADMOB_USE_TEST_ADS });",
+      "const now = await askTracking();",
+      'npa = now !== "authorized";',
+      "await AdMob.showBanner(lastShow);",
+    ].map(at);
+    check("K.20 ads.native.js: initialize → ATT → 許可以外は npa(既定も npa)→ showBanner の順(ATT を尋ねる前に広告を出さない)",
+      order.every((i) => i >= 0) && order.every((i, k) => k === 0 || i > order[k - 1]) && /let npa = true;/.test(nat), JSON.stringify(order));
+    const show = (/lastShow = \{([\s\S]*?)\n  \};/.exec(nat) || [])[1] || "";
+    check("K.20 ads.native.js: showBanner は adsConfig のユニット・ADAPTIVE_BANNER・BOTTOM_CENTER・margin は adBannerMargin(すき間込み)・isTesting は false・npa",
+      /adId: ADMOB_BANNER_UNIT_ID_IOS, adSize: BannerAdSize\.ADAPTIVE_BANNER, position: BannerAdPosition\.BOTTOM_CENTER,/.test(show)
+      && /margin: adBannerMargin\(\{ innerHeight, navTop, inset, gap \}\),/.test(show) && /\n\s*isTesting: false,\n/.test(show) && /\n\s*npa,$/.test(show)
+      // isTesting: true にするとプラグイン(AdMobPlugin.swift の getAdId)が adId を Android の demo(/6300978111)に替える
+      && !/isTesting: ADMOB_USE_TEST_ADS|isTesting: true/.test(nat), show.replace(/\s+/g, " "));
+    check("K.20 ads.native.js: SizeChanged は高さ 0 を無視して実寸だけ onHeight へ(隠しても --ad-h を戻さない)・FailedToLoad で 0・Loaded のたびに隠したい間は隠し直す",
+      /AdMob\.addListener\(BannerAdPluginEvents\.SizeChanged, \(size\) => \{ if \(size\?\.height > 0\) onHeight\(size\.height\); \}\);/.test(nat)
+      && /AdMob\.addListener\(BannerAdPluginEvents\.FailedToLoad, \(\) => onHeight\(0\)\);/.test(nat)
+      && /AdMob\.addListener\(BannerAdPluginEvents\.Loaded, \(\) => \{ if \(hidden\) AdMob\.hideBanner\(\)\.catch\(\(\) => \{\}\); \}\);/.test(nat)
+      && /return \(hidden \? AdMob\.hideBanner\(\) : AdMob\.resumeBanner\(\)\)\.catch\(\(\) => \{\}\);/.test(nat));
+    check("K.20 ads.native.js: 取り直し(reloadAds)は removeBanner → 同じもの(lastShow)で showBanner → 隠したい間は hideBanner。--ad-h は触らない",
+      /\n        await AdMob\.removeBanner\(\);\n        await AdMob\.showBanner\(lastShow\);\n        if \(hidden\) await AdMob\.hideBanner\(\)\.catch\(\(\) => \{\}\);\n/.test(nat)
+      && (nat.match(/removeBanner\(/g) || []).length === 1 && (nat.match(/AdMob\.showBanner\(/g) || []).length === 2
+      && /export function reloadAds\(\) \{\n  if \(!bannerUp \|\| !lastShow\) return Promise\.resolve\(\);/.test(nat));
+    check("K.20 ads.js: Web では即 return(2つの呼び口とも)・ads.native.js は動的 import だけ・--ad-h = 帯 + すき間(--sp-2)を <html> の inline に px で",
+      (ads.match(/^import /gm) || []).length === 2 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(ads) && /^import \{ AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS \} from "\.\/policy\.js";$/m.test(ads)
+      && /export function shellStartAdsOnce\(\) \{\n  if \(!isNativeShell\(\) \|\| started\) return;\n  started = true;\n  gapPx = readGapPx\(\);\n  setAdHeight\(AD_H_INITIAL_PX\);/.test(ads)
+      && /export function shellSetAdsHidden\(hidden\) \{\n  if \(!isNativeShell\(\)\) return;/.test(ads)
+      && (ads.match(/import\("\.\/ads\.native\.js"\)/g) || []).length === 3
+      // 帯を出す前に失敗したら(プラグインの無い古い殻など)仮の高さを 0 に戻す
+      && /\.then\(\(m\) => m\.startAds\(\{ \.\.\.geo, gap: gapPx, hidden: hiddenWanted, onHeight: setAdHeight \}\)\)\n\s*\.catch\(\(\) => setAdHeight\(0\)\);/.test(ads)
+      && /const v = h > 0 \? Math\.round\(h\) \+ Math\.round\(gapPx\) : 0;\n\s*try \{ document\.documentElement\.style\.setProperty\("--ad-h", `\$\{Math\.max\(0, v\)\}px`\); \}/.test(ads)
+      && /getComputedStyle\(document\.documentElement\)\.getPropertyValue\("--sp-2"\)/.test(ads)
+      && /document\.querySelector\("\[data-bottom-nav\]"\)/.test(ads));
+    check("K.20 ads.js: 幅が変わったら(回転)AD_RELOAD_DEBOUNCE_MS 間引いて最後の1回だけ reloadAds。幅が同じなら何もしない",
+      /window\.addEventListener\("resize", onResize\);/.test(ads)
+      && /clearTimeout\(timer\);\n\s*timer = setTimeout\(\(\) => \{\n\s*if \(window\.innerWidth === lastW\) return;\n\s*lastW = window\.innerWidth;\n\s*import\("\.\/ads\.native\.js"\)\.then\(\(m\) => m\.reloadAds\(\)\)\.catch\(\(\) => \{\}\);\n\s*\}, AD_RELOAD_DEBOUNCE_MS\);/.test(ads));
+    // 仕様の既定は "screen" だったが、プラグインの Swift(BannerExecutor.swift)が margin を safeAreaLayoutGuide の下端から数えるので "safe-area"
+    check("K.20 policy.js: AD_MARGIN_MODE = \"safe-area\"・AD_H_INITIAL_PX = 50・adBannerMargin は負にしない + すき間・ATT の待ち 1500・取り直しの間引き 300",
+      /export const AD_MARGIN_MODE = "safe-area";/.test(pol) && /export const AD_H_INITIAL_PX = 50;/.test(pol)
+      && /const m = Math\.max\(0, Math\.round\(innerHeight - navTop\)\);\n  return \(mode === "safe-area" \? Math\.max\(0, m - inset\) : m\) \+ Math\.max\(0, Math\.round\(gap\)\);/.test(pol)
+      && /export const ATT_RETRY_DELAY_MS = 1500;/.test(pol) && /export const AD_RELOAD_DEBOUNCE_MS = 300;/.test(pol)
+      && /export const ATT_FOCUS_WAIT_MAX_MS = 10000;/.test(pol));
+  }
+
+  // --- K.21 App.jsx の配線(Web の枝はそのまま)・見本の帯のすき間 ----------------------------------------------------------
+  {
+    const app = codeOf(src);
+    const lines = app.split("\n");
+    check("K.21 App.jsx: shellStartAdsOnce / shellSetAdsHidden を shell/ads.js から静的に import(ads.native.js は読まない)",
+      /\nimport \{ shellStartAdsOnce, shellSetAdsHidden \} from "\.\/shell\/ads\.js";\n/.test(app));
+    const iRoute = lines.findIndex((l) => l.trim() === "shellRouteToSpeaker();");
+    const afterRoute = iRoute >= 0 ? lines.slice(iRoute + 1, iRoute + 4).map((l) => l.trim()) : [];
+    check("K.21 startListening: マイクが取れた直後(shellRouteToSpeaker の直後 3 行以内)に shellStartAdsOnce();",
+      iRoute >= 0 && afterRoute.includes("shellStartAdsOnce();") && iRoute > lines.findIndex((l) => l.trim() === "streamRef.current = stream;"), JSON.stringify(afterRoute));
+    check("K.21 startListening: 失敗の枝(getUserMedia failed の直後)にも shellStartAdsOnce();・その次の行は今までどおり setErrorMsg(MIC_DENIED_MSG);",
+      /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      shellStartAdsOnce\(\);\s*\n      setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
+    check("K.21 shellStartAdsOnce() の呼び手は2か所だけ(成功と失敗)", (app.match(/shellStartAdsOnce\(\);/g) || []).length === 2);
+    check("K.21 ShellAdBannerSync: BottomSheet が開いているかを読み、変わるたびに shellSetAdsHidden。何も描かない",
+      /\nfunction ShellAdBannerSync\(\) \{\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  useEffect\(\(\) => \{ shellSetAdsHidden\(sheetOpen\); \}, \[sheetOpen\]\);\n  return null;\n\}\n/.test(app)
+      && (app.match(/shellSetAdsHidden\(/g) || []).length === 1);
+    check("K.21 ShellAdBannerSync は根で見本の帯(AdPreviewStrip)のすぐ後に1つだけ描く",
+      /\n      <AdPreviewStrip \/>\n(?:\s*\{\}\n)?\s*<ShellAdBannerSync \/>\n/.test(app) && (app.match(/<ShellAdBannerSync \/>/g) || []).length === 1);
+    check("K.21 AdPreviewStrip: 殻では描かない(hooks の後・今までの return null の行の前に1行)。今までの行は綴りのまま",
+      /function AdPreviewStrip\(\) \{\n  const \[on\] = useState\(\(\) => isAdPreviewOn\(\)\);\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  if \(isNativeShell\(\)\) return null;\s*\n  if \(!on \|\| sheetOpen\) return null;\n/.test(app));
+    // 【殻 S3 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2(地は塗らない)。見本の帯も殻と同じ置き方
+    check("K.21 見本の帯: 下端 = 下部タブ + 安全域 + --sp-2・高さ = --ad-h − --sp-2。index.css の見本の --ad-h = 50px + --sp-2",
+      /bottom: "calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--sp-2\)\)",\n\s*height: "calc\(var\(--ad-h\) - var\(--sp-2\)\)",/.test(app)
+      && /:root\[data-ad-preview="1"\] \{\n  --ad-h: calc\(50px \+ var\(--sp-2\)\);\n\}/.test(readA("src/index.css")));
+    check("K.21 data-bottom-nav の注記が ads.js も読むことを言う", /data-bottom-nav[^\n]*\n[^\n]*src\/shell\/ads\.js が読む/.test(src));
+  }
+
+  // --- K.22 依存・SPM・プライバシーポリシー ---------------------------------------------------------------------------
+  {
+    const pkg = JSON.parse(readA("package.json") || "{}");
+    check("K.22 package.json: @capacitor-community/admob 8.1.0(仕様 §1.3 の固定・exact)", (pkg.dependencies || {})["@capacitor-community/admob"] === "8.1.0");
+    const spm = readA("ios/App/CapApp-SPM/Package.swift");
+    check("K.22 CapApp-SPM/Package.swift に AdMob のプラグイン(node_modules の path)と product が入っている(cap sync の結果を git に入れた)",
+      /\.package\(name: "CapacitorCommunityAdmob", path: "\.\.\/\.\.\/\.\.\/node_modules\/@capacitor-community\/admob"\)/.test(spm)
+      && /\.product\(name: "CapacitorCommunityAdmob", package: "CapacitorCommunityAdmob"\)/.test(spm)
+      && /\.package\(url: "https:\/\/github\.com\/ionic-team\/capacitor-swift-pm\.git", exact: "8\.5\.2"\)/.test(spm));
+    const pv = readA("public/privacy.html");
+    check("K.22 privacy.html: AdMob の開示(App Store で配布している iOS アプリ版のみ・Web 版では表示しない・トラッキングの拒否でも使える)・古い「広告を表示していません」が無い・機材/機種名が無い",
+      pv.includes("AdMob") && pv.includes("広告の識別子（iOS アプリ版のみ）") && pv.includes("Web 版では広告を表示しておらず")
+      && (pv.match(/App Store で配布している iOS アプリ版/g) || []).length >= 3
+      && !pv.includes("現在、本アプリは広告を表示していません") && !pv.includes("販売・提供することはありません") && !/機材|機種名/.test(pv)
+      && /<a class="back" href="\/">/.test(pv) && pv.includes("mailto:ficus.help@gmail.com"));
+  }
+
+  // --- K.23 審査に出す workflow(ios-release)── 試験の広告 ID のままの提出を止める門 ------------------------------------
+  {
+    const cm = readA("codemagic.yaml");
+    const blocks = {};
+    const heads = [...cm.matchAll(/^  ([a-z][a-z-]*):\n/gm)];
+    heads.forEach((h, i) => { blocks[h[1]] = cm.slice(h.index, i + 1 < heads.length ? heads[i + 1].index : cm.length); });
+    const prod = blocks["ios-testflight"] || "";
+    const rel = blocks["ios-release"] || "";
+    const steps = [...rel.matchAll(/\n      - name: ([^\n]+)/g)].map((m) => m[1]);
+    check("K.23 ios-release: 最初の手順が「Refuse the demo ad IDs」(npm ci・ビルドより前)",
+      rel.length > 0 && steps[0] === "Refuse the demo ad IDs (release only)" && steps[1] === "Install npm dependencies", JSON.stringify(steps));
+    check("K.23 ios-release の門: adsConfig.js と Info.plist が在ることを確かめ、どちらかに demo の番号があれば exit 1",
+      /\n          for f in src\/shell\/adsConfig\.js ios\/App\/App\/Info\.plist; do test -f "\$f" \|\| \{ echo "[^"\n]*"; exit 1; \}; done\n          if grep -n "3940256099942544" src\/shell\/adsConfig\.js ios\/App\/App\/Info\.plist; then\n            echo "[^"\n]*"\n            exit 1\n          fi\n/.test(rel));
+    check("K.23 ios-testflight と ios-dev には門が無い(試験の ID のまま通す)",
+      !/Refuse the demo ad IDs|3940256099942544/.test(prod) && !/Refuse the demo ad IDs|3940256099942544/.test((blocks["ios-dev"] || "").split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")));
+    // K.15 と同じ作法: 注記・名前・triggering を除き、門の1段を抜けば ios-testflight と一字一句同じ
+    const strip = (b) => b.split("\n").filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/\s+#.*$/, "")).join("\n");
+    const prodBody = strip(prod).replace(/^  ios-testflight:\n    name: [^\n]*\n/, "").replace(/\n    triggering:\n(?:      [^\n]*\n|        [^\n]*\n)*/, "\n");
+    const relBody = strip(rel).replace(/^  ios-release:\n    name: [^\n]*\n/, "")
+      .replace(/\n      - name: Refuse the demo ad IDs \(release only\)\n        script: \|\n(?:          [^\n]*\n)+/, "\n");
+    check("K.23 ios-release の中身は ios-testflight と同じ(名前・triggering・門の1段を除いて一字一句)・手でだけ開始(triggering が無い)",
+      prodBody.trim().length > 0 && prodBody.trim() === relBody.trim() && !/\n\s+triggering:/.test(rel) && /\n\s+submit_to_app_store: false\b/.test(rel));
+    check("K.23 ios-release に server.url を足す手順・版の変更が無い",
+      !/shell-dev-server-url|server\.url|vercel\.app|PlistBuddy|release_notes|Ficus Dev|new-marketing-version/.test(strip(rel)));
+  }
+
+  // --- K.24 見える範囲の下端 = 下部タブの上端 − --ad-h(はじめの一手と参加のカード。読み方は onboarding.jsx の1か所) ----------
+  {
+    const ob = codeOf(readA("src/onboarding.jsx"));
+    const ct = codeOf(readA("src/community/CommunityTab.jsx"));
+    const fn = (/export function readBottomLimit\(vh\) \{([\s\S]*?)\n\}/.exec(ob) || [])[1] || "";
+    check("K.24 readBottomLimit: 下部タブの上端から --ad-h の計算値(resolveAdHeight)を引く。見本の帯の要素は見ない",
+      /const nav = document\.querySelector\("\[data-bottom-nav\]"\);/.test(fn) && /\n  return lim - resolveAdHeight\(\);$/.test(fn)
+      && !/data-ad-preview-strip/.test(ob) && /probe\.style\.cssText = "[^"]*height:var\(--ad-h\)";/.test(ob), fn.replace(/\s+/g, " "));
+    check("K.24 参加のカード(CommunityTab.jsx)は readBottomLimit を onboarding.jsx から読み、--ad-h が変わった知らせ(AD_HEIGHT_EVENT)でも読み直す",
+      /import \{ CoachIcon, COACH_Z, readBottomLimit \} from "\.\.\/onboarding\.jsx";/.test(ct) && /import \{ AD_HEIGHT_EVENT \} from "\.\.\/shell\/ads\.js";/.test(ct)
+      && /window\.addEventListener\(AD_HEIGHT_EVENT, read\);/.test(ct) && !/function readBottomLimit/.test(ct));
   }
   console.log("  -> done");
 }

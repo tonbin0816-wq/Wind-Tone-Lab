@@ -22,7 +22,11 @@ describe("micActionOnTabLeave ── 計測タブを離れたときのマイク"
 describe("METRO_MASTER_GAIN_SHELL ── 殻のメトロノームのマスターゲイン", () => {
   it("殻は 1.0。Web の 2.6 の写しは持たない(policy.js が出すのは定数だけ)", () => {
     expect(METRO_MASTER_GAIN_SHELL).toBe(1.0);
-    expect(Object.keys(policy).sort()).toEqual(["METRO_MASTER_GAIN_SHELL", "SHELL_STOP_MIC_ON_TAB_LEAVE", "micActionOnTabLeave"]);
+    // 【殻 S3】広告の帯の位置の定数と式(AD_H_INITIAL_PX / AD_MARGIN_MODE / adBannerMargin。仕様 §5.3 が policy.js に置く)が加わった。
+    // メトロノームのゲインの関数(metroMasterGain)や Web の 2.6 の写しが無いことは変わらない。
+    // 審査の裁定で、帯の取り直しの間引き(AD_RELOAD_DEBOUNCE_MS)と ATT の尋ね直しの待ち(ATT_RETRY_DELAY_MS)も加わった。
+    // 統括の裁定で、ATT の尋ね直しの前の待ちの上限(ATT_FOCUS_WAIT_MAX_MS)も加わった。
+    expect(Object.keys(policy).sort()).toEqual(["AD_H_INITIAL_PX", "AD_MARGIN_MODE", "AD_RELOAD_DEBOUNCE_MS", "ATT_FOCUS_WAIT_MAX_MS", "ATT_RETRY_DELAY_MS", "METRO_MASTER_GAIN_SHELL", "SHELL_STOP_MIC_ON_TAB_LEAVE", "adBannerMargin", "micActionOnTabLeave"]);
   });
 });
 

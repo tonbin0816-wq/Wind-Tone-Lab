@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@capacitor-community/admob": "8.1.0",
     "@capacitor-community/keep-awake": "8.0.1",
     "@capacitor/core": "8.5.2",
     "@capacitor/filesystem": "8.1.4",

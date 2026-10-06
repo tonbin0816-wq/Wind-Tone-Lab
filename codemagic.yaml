@@ -109,3 +109,61 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
+
+  # 【殻 S3 統括の裁定】審査に出す専用。中身は ios-testflight と同じで、違いは2つだけ:
+  #   (1) ビルドの前の1段: 試験の広告 ID(Google の demo)が adsConfig.js か Info.plist に残っていれば exit 1
+  #   (2) 手でだけ開始する(triggering を書かない。タグの push では走らない)
+  # **審査に出すビルドはこの workflow で作る。** ios-testflight と ios-dev は試験の ID のまま通す(テストに使うため)。
+  # pitch-test K.23 が「ios-testflight との差はこの2つだけ」を見張る。
+  ios-release:
+    name: Ficus iOS RELEASE (for App Review)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: ficus-asc          # §7-B で付けた API キーの名前
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: jp.tobine.ficus
+      groups:
+        - ficus_firebase                    # VITE_FIREBASE_API_KEY / AUTH_DOMAIN / PROJECT_ID / APP_ID(§7-D)
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+      node: 22
+      xcode: 26.2
+    scripts:
+      - name: Refuse the demo ad IDs (release only)
+        # 【殻 S3 統括の裁定】審査に出すビルドに試験の広告 ID(Google の demo の発行元の番号)が残っていたら止める。
+        # 見るのは値の唯一の答えの2か所(src/shell/adsConfig.js と ios/App/App/Info.plist)。ios-testflight と ios-dev は試験の ID のまま通す。
+        script: |
+          for f in src/shell/adsConfig.js ios/App/App/Info.plist; do test -f "$f" || { echo "見つからない: $f"; exit 1; }; done
+          if grep -n "3940256099942544" src/shell/adsConfig.js ios/App/App/Info.plist; then
+            echo "試験用の広告 ID が残っています。adsConfig.js と Info.plist を本番の ID にしてから ios-release を走らせてください(殻の仕様 便S4)。"
+            exit 1
+          fi
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web
+        script: npm run build
+      - name: Capacitor sync (copies dist into ios/App/App/public, updates CapApp-SPM)
+        script: npx cap sync ios
+      - name: Set build number
+        # 【殻 S2】$PROJECT_BUILD_NUMBER = この Codemagic のアプリの全 workflow を通した通し番号。開発版(ios-dev)と
+        # 同じ App Store Connect の枠へ上げるので、workflow ごとの $BUILD_NUMBER だと番号がぶつかって上げられない。
+        # 通し番号は workflow ごとの番号以上なので、これまでに上げた番号より必ず大きい。
+        script: |
+          cd ios/App
+          agvtool new-version -all $PROJECT_BUILD_NUMBER
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build ipa
+        script: xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

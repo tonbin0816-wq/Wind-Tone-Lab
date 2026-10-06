@@ -53,6 +53,22 @@ describe("法務文書", () => {
 
   // 【録音は端末から出ない】これは本アプリの根本的な約束で、
   // 両方の文書がそう書いている。実装が変わったらここも直すこと。
+  // 【殻 S3 2026-10-06】iOS アプリ版は AdMob の帯を出す(殻の仕様 §5.4・付録E)。同じ文書を Web 版も配るので、
+  // 「iOS アプリ版のみ」「Web 版では広告を表示しない」と書き分ける。広告を出していないという古い一文は残さない。
+  it("プライバシーポリシーが AdMob を開示し、iOS アプリ版だけの話だと書き分けている", () => {
+    expect(PRIVACY).toContain("AdMob");
+    expect(PRIVACY).not.toContain("現在、本アプリは広告を表示していません");
+    expect(PRIVACY).toContain("広告の識別子（iOS アプリ版のみ）");
+    expect(PRIVACY).toContain("Web 版では広告を表示しておらず");
+    expect(PRIVACY).toContain("トラッキングの許可」を拒否した場合も");
+  });
+
+  // 文書はアプリの中のシート(LegalSheet)で描かれる。外のサイトへのリンクを押すと SPA から離れる(C11・C12 の経路)ので、
+  // Google のポリシーの URL は文字で書くだけにする(押せる <a> は mailto: と末尾の戻る(シートでは除かれる)だけ)。
+  it("プライバシーポリシーに外のサイトへ出るリンク(<a href=\"http…\">)が無い", () => {
+    expect(PRIVACY.match(/<a\s[^>]*href="https?:/g) || []).toEqual([]);
+  });
+
   it("両方の文書が「録音した音声は送らない」と書いている", () => {
     expect(PRIVACY).toContain("録音した音声そのものは、いかなる場合もサーバーへ送信しません");
     expect(TERMS).toContain("サーバーへ送信されることはありません");

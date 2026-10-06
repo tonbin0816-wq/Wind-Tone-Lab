@@ -322,17 +322,31 @@ const HOLE_RADIUS = { circle: "50%", pill: "var(--r-full)", rect: "var(--r-2)" }
 // 的が見つからない間に探し直す間隔(ms)。この間は rAF を回さない(便BP3 統括の裁定 5)。
 export const COACH_POLL_MS = 250;
 
-// 下部タブと広告の見本の帯の上端(見える範囲の下端)。無ければ画面の下端。
-// 【便BS】参加の画面のカード(JoinIntro)も同じ見える範囲の中央に置くので export する。
+// 見える範囲の下端 = 下部タブの上端 − 広告の帯の高さ(--ad-h の計算値)。下部タブが無ければ画面の下端から。
+// 【便BS】参加の画面のカード(JoinIntro)も同じ見える範囲の中央に置くので export する(CommunityTab.jsx はこれを読む。読み方はここ1か所)。
+// 【殻 S3 2026-10-06 統括の裁定】以前は見本の帯の要素([data-ad-preview-strip])の上端を見ていたが、殻の本物の帯は
+// ネイティブのビューで DOM に無い。帯の高さの唯一の答え --ad-h(帯 + すき間 --sp-2。index.css / 殻は src/shell/ads.js が inline で置く)
+// から引く形にして、Web の見本と殻で同じ値にする(見本の帯の上端 = 下部タブの上端 − --ad-h)。
 export function readBottomLimit(vh) {
   let lim = vh;
-  for (const sel of ["[data-bottom-nav]", "[data-ad-preview-strip]"]) {
-    const el = document.querySelector(sel);
-    if (!el) continue;
-    const r = el.getBoundingClientRect();
+  const nav = document.querySelector("[data-bottom-nav]");
+  if (nav) {
+    const r = nav.getBoundingClientRect();
     if (r.height > 0 && r.top < lim) lim = r.top;
   }
-  return lim;
+  return lim - resolveAdHeight();
+}
+
+// --ad-h の確定値(px)。カスタムプロパティは getPropertyValue では未解決の文字列("calc(50px + 8px)")のまま返るので、
+// その高さを持つ要素を一瞬置いて測る(App.jsx の resolveBottomGap と同じ作法)。測れなければ 0。
+export function resolveAdHeight() {
+  if (typeof document === "undefined" || !document.body) return 0;
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;height:var(--ad-h)";
+  document.body.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  probe.remove();
+  return h > 0 ? h : 0;
 }
 
 // 穴の外側を覆う4枚の受け(上・下・左・右)。【便BQ】外を押したら案内を消す。穴の上には何も置かない(的は押せる)。

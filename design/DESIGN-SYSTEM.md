@@ -1252,7 +1252,47 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   録音中に 2 分放置しても画面が消えない / リードタブに移ると橙の印が消え、戻ると 1 秒以内に環が動く / メトロノームがスピーカーから出て割れない /
   有線・Bluetooth のイヤホンをつなぐとイヤホンから出て、外すとスピーカーへ戻る（外した直後にメトロノームが無音のまま残らない・計測の環が戻る）/
   メトロノームを鳴らしたままリードタブへ移る・画面を消すと、自動ロックの設定どおり画面が消える / 記録が 0 件のとき移行の1行が出る。
-- **便S3 で入る（予定）**: AdMob の帯の実寸を `--ad-h` に入れる（見本の帯の 50px ではなく実寸。シートの間は帯を隠すが `--ad-h` は戻さない）。
+- **広告の帯と ATT（【殻 S3 2026-10-06】本人裁定: AdMob のバナー1本・下部タブの上・計測タブにも出す・シートの間は隠す）**。
+  プラグインは `@capacitor-community/admob` 8.1.0（SPM。Google Mobile Ads SDK 13.6.0 を固定）。部品は `src/shell/ads.native.js`、呼び口は `src/shell/ads.js`（Web では何もしない）。
+  - **始める時機**: 起動して最初のマイクの試み（`startListening` の `getUserMedia`）が成功・失敗どちらでも終わった直後に1回だけ（`shellStartAdsOnce()`）。
+    OS のマイクの許可の画面と ATT の画面を重ねないため。順は initialize → ATT（未決定のときだけ尋ねる）→ 帯。**ATT が「許可」以外なら npa**（パーソナライズしない広告。拒否・制限・読めないときも）。
+    **ATT の尋ね直し（【審査】）**: 尋ねても未決定のまま返ったら（マイクの画面の直後でアプリが前面に戻り切っていない）、**帯を先に npa で出し**、そのあと画面が見えて
+    （`visibilityState === "visible"`）フォーカスがある状態を `ATT_FOCUS_WAIT_MAX_MS`（10 秒）まで待ち、`ATT_RETRY_DELAY_MS`（1.5 秒）おいて1回だけ尋ね直す（どちらも `policy.js`）。
+    上限を過ぎたら尋ね直さない。尋ね直して「許可」になっても、この起動の帯は npa のまま（npa は広告を取りに行くときの引数で、出したあとに替える API が無い）。次の起動から通常の広告。
+  - **帯と下部タブの間のすき間（【殻 S3 統括の裁定】本人には事後に報告）**: 帯は下部タブに接して置かず、押せないすき間 `--sp-2` を挟む
+    （AdMob が誤クリックを招く置き方として避けるよう求めている。https://support.google.com/admob/answer/6275345）。すき間に地の色は塗らない（画面の地のまま）。
+    **`--ad-h` = 帯の高さ + すき間**。見本の帯は `:root[data-ad-preview="1"]` で `calc(50px + var(--sp-2))`、帯の箱は下端 `--nav-h + 安全域 + --sp-2`・高さ `--ad-h − --sp-2`。
+    殻では `ads.js` が「実寸 + `--sp-2` の px」を `<html>` の inline に入れる（来るまでは仮の 50 + すき間。読み込みに失敗したら 0px ですき間も取らない）。
+    中身の側（`--page-bottom-gap`）は `--ad-h` を足すので、すき間の分も上がる。
+  - **見える範囲の下端**: はじめの一手のカードと参加のカードの「見える範囲」は **下部タブの上端 − `--ad-h` の計算値**（`onboarding.jsx` の `readBottomLimit`。読み方はここ1か所で、
+    `CommunityTab.jsx` はこれを読む）。殻の本物の帯は DOM に無いので、帯の要素ではなく `--ad-h` から引く（Web の見本と殻で同じ値）。`--ad-h` の確定値は
+    要素を一瞬置いて測る（`resolveAdHeight`。App.jsx の `resolveBottomGap` と同じ作法）。殻で `--ad-h` が変わると `ads.js` が `AD_HEIGHT_EVENT` を出し、参加のカードが読み直す。
+  - **シートの間は隠す**: `ShellAdBannerSync`（App.jsx。見本の帯と同じ「BottomSheet が1枚でも開いているか」を読む）が `hideBanner` / `resumeBanner`。
+    **`--ad-h` は戻さない**（便BL の規則。プラグインは隠すとき高さ 0 の `SizeChanged` を送るが、0 は無視する）。写真の拡大（PhotoZoom）の間は隠さない（§9-(4) の既定）。
+    帯のビューは広告が届いたときに初めて画面に足されるので、届く前に開いたシートの分は、届くたび（`Loaded`）に隠し直す。
+  - **回転（【審査】iPad）**: アダプティブの帯の幅は `showBanner` のときに1回だけ決まる。`ads.js` が resize を `AD_RELOAD_DEBOUNCE_MS`（300。`useFillViewportHeight` の測り直しと同じ値）
+    間引いて聞き、幅が変わったら `reloadAds`（removeBanner → **同じ margin・同じ npa** で showBanner）。`--ad-h` は次の `SizeChanged` まで保つ。隠している間は取り直したあとも隠す。
+  - **帯の位置**: プラグインの `margin` は**安全域の下端から**数える（`BannerExecutor.swift` が帯の下端を `safeAreaLayoutGuide` の下端に結ぶ）。
+    `policy.js` の `AD_MARGIN_MODE = "safe-area"`・`adBannerMargin` = 画面の高さ − 下部タブの上端 − 安全域 + すき間（iPhone 縦 812 / 731 / 34 / 8 で 55）。
+    実機で浮く・重なるなら `"screen"` に替えて再ビルド（1か所。仕様の既定は `"screen"` だったが、プラグインの実装を読んで替えた）。
+  - **ID（S1〜S3 は試験用）**: `src/shell/adsConfig.js` が値の唯一の答え（Google の公式の demo のバナー `…/2435281174`）。Info.plist の `GADApplicationIdentifier` は quick-start の sample。
+    **試験か本番かはユニット ID だけで決まる**。`ADMOB_USE_TEST_ADS` は広告の動きに効かない目印（渡し先の `initializeForTesting` は testingDevices を登録するかどうかだけで、一覧を渡していない）。
+    **本番への切り替え（便S4）は `adsConfig.js` の2つと Info.plist の1行だけ**。`showBanner` の `isTesting` は常に false（true だとプラグインが adId を Android の demo に差し替える）。
+  - **審査に出すビルドは `ios-release` で作る（【殻 S3 統括の裁定】）**。`codemagic.yaml` の `ios-release` は `ios-testflight` と同じ中身で、ビルドの前の1段だけ違う:
+    `src/shell/adsConfig.js` か `ios/App/App/Info.plist` に demo の発行元の番号（3940256099942544）があれば exit 1。手でだけ開始する。`ios-testflight` と `ios-dev` は試験の ID のまま通す。
+    `adsConfig.js` の注記に demo の番号を書かない（門が S4 で開かなくなる）。pitch-test の K.19（手元の段の揃い）・K.23（門の綴りと、ios-testflight との差がその1段だけ）が見張る。
+  - **Info.plist**: `NSUserTrackingUsageDescription`・`GADApplicationIdentifier`・`SKAdNetworkItems`（Google の quick-start の一覧の写し。2026-10-06 時点で 50 件）。
+    `GADIsAdManagerApp` は書かない（Ad Manager の鍵。AdMob では要らない）。UMP（GDPR の同意）は入れない（日本のみ配信）。
+  - **プライバシーポリシー**: `public/privacy.html` に AdMob の開示（「App Store で配布している iOS アプリ版」だけ・Web 版では表示しない）。文書はアプリの中のシートで描くので、
+    外のサイトへのリンク（`<a href="https://…">`）は置かない（押すと SPA から離れる。C11・C12）。URL は文字で書く。
+  - **開発版（ios-dev）**: 帯の部品はネイティブなので ios-dev の再ビルドで入る。Web の側（`ads.js` の配線）は main の Vercel の配信が届けば動く。プラグインの無い古い殻で新しい Web を読んだら、
+    帯を出す前の失敗として `--ad-h` を 0 に戻す。
+  - **検査の設定**: `vite.config.js` の `test.alias` / `test.server.deps.inline` で、検査の中だけプラグインの ESM の入口を読ませる
+    （CommonJS の入口だと中の `@capacitor/core` が作り物を素通りし、本物が `window.Capacitor` を上書きして殻の作り物が Web に化ける）。ビルドには効かない。
+    `vi.mock` の factory は1つのファイルの中で1回しか走らない（`vi.resetModules` の後も走り直さない）ので、「プラグインのモジュールは読まれもしない」は
+    **殻の検査の無いファイルでだけ**確かめる（`shellAppWeb.test.jsx`・`backupExportWeb.test.jsx`）。
+- **実機の点検（便S3・TestFlight。仕様 §8.4）**: 初回の起動でマイクの許可のあとに ATT の画面が1回 / 許可・拒否のどちらでも帯が出る / 帯の下端と下部タブの上端の間に
+  `--sp-2` のすき間（地のまま）・画面幅 / 浮かせるボタンと計測の枠が帯の上 / シートを開くと帯が消え、閉じると戻る / iPad を回すと帯の幅が合う / 設定 → プライバシーとセキュリティ → トラッキングに Ficus が載る。
 
 ---
 

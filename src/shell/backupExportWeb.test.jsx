@@ -3,6 +3,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 
 // ------------------------------------------------------------------
+// 【殻 S3 審査 2026-10-06】Web の検査をこのファイルに分けた。vi.mock の factory は1つのファイルの中で1回しか走らず、
+// vi.resetModules の後にも走り直さない。殻の検査と同じファイルに置くと、先に流れる殻の検査が factory を走らせたあとなので、
+// 「factory が呼ばれない = プラグインのモジュールは読まれもしない」が張りぼてになっていた(同じファイルに殻の検査が無いので、ここでは本当に守れる)。
 // 【殻 S2 2026-10-05】記録の書き出し(BackupPanel の「ファイルに書き出す」)の殻の枝と Web の枝。凍結仕様 shell-spec.md §4.1・§8.1-S2。
 //   殻: Filesystem.writeFile(Cache・ficus-backup-YYYY-MM-DD.json・UTF8)→ その uri で Share.share → deleteFile → 知らせ
 //       共有シートを閉じた("Share canceled")ら知らせも失敗も出さない。それ以外の例外は「書き出せませんでした。…」
@@ -75,56 +78,27 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("殻: 書き出しは Filesystem + Share(共有シート)", () => {
-  beforeEach(() => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" }; });
-
-  it("Cache に今日の名前で書き、その uri で共有し、一時ファイルを消し、知らせを出す。<a download> は押さない", async () => {
+describe("Web: 書き出しは今までどおり <a download>(プラグインは読まれもしない)", () => {
+  it("a.click が1回・ファイル名は今日の名前・中身は記録の写し。Filesystem / Share のモジュールは import されない", async () => {
     mod = await load();
-    await seed(3);
+    await seed(2);
     await render();
-    const aClick = vi.spyOn(window.HTMLAnchorElement.prototype, "click");
+    let anchor = null;
+    const aClick = vi.spyOn(window.HTMLAnchorElement.prototype, "click").mockImplementation(function () { anchor = this; });
+    let blob = null;
+    window.URL.createObjectURL = vi.fn((b) => { blob = b; return "blob:fake"; });
+    window.URL.revokeObjectURL = vi.fn();
     await pressExport();
-    const name = today();
-    expect(calls.log.map((c) => c[0])).toEqual(["writeFile", "share", "deleteFile"]);
-    const w = calls.log[0][1];
-    expect([w.path, w.directory, w.encoding]).toEqual([name, "CACHE", "utf8"]);
-    const written = JSON.parse(w.data);
-    expect([written.format, written.counts.sessions, written.sessions.map((s) => s.id)]).toEqual(["ficus-backup", 3, ["s0", "s1", "s2"]]);
-    expect(calls.log[1][1]).toEqual({ title: name, url: `file:///cache/${name}`, dialogTitle: "書き出し先を選ぶ" });
-    expect(calls.log[2][1]).toEqual({ path: name, directory: "CACHE" });
-    expect(host.textContent).toContain(`計測3件を ${name} に書き出しました`);
-    expect(host.textContent).not.toContain("書き出せませんでした");
-    expect(aClick).not.toHaveBeenCalled();
-  });
-
-  it("共有シートを閉じた(Share canceled)ら、知らせも失敗も出さない(一時ファイルは消す)", async () => {
-    mod = await load();
-    await seed(1);
-    await render();
-    calls.shareImpl = () => { throw new Error("Share canceled"); };
-    await pressExport();
-    expect(calls.log.map((c) => c[0])).toEqual(["writeFile", "share", "deleteFile"]);
-    expect(host.textContent).not.toContain("書き出しました");
-    expect(host.textContent).not.toContain("書き出せませんでした");
-    // ボタンは押せる状態に戻っている(busy が残らない)
-    expect(exportButton().disabled).toBe(false);
-  });
-
-  it("それ以外の失敗は「書き出せませんでした。…」(文言は Web と同じ)", async () => {
-    mod = await load();
-    await seed(1);
-    await render();
-    calls.shareImpl = () => { throw new Error("Error sharing item"); };
-    await pressExport();
-    expect(host.textContent).toContain("書き出せませんでした。端末の設定で保存領域が使えない可能性があります");
-    expect(host.textContent).not.toContain("書き出しました");
-    expect(calls.log.map((c) => c[0])).toEqual(["writeFile", "share", "deleteFile"]);
-  });
-
-  it("説明の下に Web 版からの移し方の1行が出る", async () => {
-    mod = await load();
-    await render();
-    expect(host.textContent).toContain("Web 版で使っていた記録は、Web 版の同じ画面で「ファイルに書き出す」→ ここで「ファイルから読み戻す」の順で移せます。コミュニティの匿名アカウントは移せません。");
+    expect(aClick).toHaveBeenCalledTimes(1);
+    expect([anchor.download, anchor.getAttribute("href")]).toEqual([today(), "blob:fake"]);
+    // jsdom の Blob は text() を持たないので FileReader で読む
+    const text = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsText(blob); });
+    expect(JSON.parse(text).counts.sessions).toBe(2);
+    expect(blob.type).toBe("application/json");
+    expect(host.textContent).toContain(`計測2件を ${today()} に書き出しました`);
+    expect(calls.log).toEqual([]);
+    expect(calls.factories).toEqual([]);   // 動的 import すら起きていない
+    // 移し方の1行は殻だけ
+    expect(host.textContent).not.toContain("Web 版で使っていた記録は");
   });
 });
-

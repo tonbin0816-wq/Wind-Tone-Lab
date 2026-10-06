@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
   plugins: [react()],
@@ -28,5 +29,12 @@ export default defineConfig({
     // 数が増えるだけなら害は小さいが、複製が別のブランチだと**古いテストが混ざり**、
     // 本体を直していないのに緑になったり、その逆が起きる。
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**"],
+    // 【殻 S3】AdMob のプラグインは ESM の入口(dist/esm/index.js)を Vite に通して読む(検査の中だけの設定。ビルドの出力は変わらない)。
+    // 素の名前だと検査では package.json の main(CommonJS の dist/plugin.cjs.js)に解決され、その中の require("@capacitor/core") が
+    // vi.mock を素通りして本物を読む。本物は読まれた瞬間に window.Capacitor を自分の版で上書きする(jsdom では isNativePlatform() が
+    // false になる)ので、殻を作り物で描く検査(shellApp.test.jsx など)の途中で殻の判定が Web に化け、スリープ防止やマイクの止め方の
+    // 検査が偽の理由で落ちる。実機では起きない(ビルドは module の ESM を使い、window.Capacitor は殻が先に置く)。
+    alias: [{ find: /^@capacitor-community\/admob$/, replacement: fileURLToPath(new URL("./node_modules/@capacitor-community/admob/dist/esm/index.js", import.meta.url)) }],
+    server: { deps: { inline: ["@capacitor-community/admob"] } },
   },
 })

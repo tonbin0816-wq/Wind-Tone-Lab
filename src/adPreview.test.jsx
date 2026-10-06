@@ -12,7 +12,7 @@ import { join } from "node:path";
 //     読んだら URL から adpreview だけを消す(他の問い合わせと # は残す)。保存が投げても起動を止めない
 //   ・合図(<html data-ad-preview="1">)があるときだけ帯が出る。無ければ何も描かない
 //   ・BottomSheet が1枚でも開いているあいだ帯は消え、全部閉じると戻る
-//   ・index.css: --ad-h は既定 0px / 合図のときだけ 50px / --page-bottom-gap に --ad-h が入っている
+//   ・index.css: --ad-h は既定 0px / 合図のときだけ 50px + すき間 --sp-2(【殻 S3】) / --page-bottom-gap に --ad-h が入っている
 //   ・main.jsx が最初の描画の前に合図を読む
 // 期待値はここに手で書いた値(定数から逆算しない)。
 // 【守っていないもの】実寸(jsdom は配置も CSS の変数も計算しない)。帯の位置・計測タブの空き・
@@ -126,12 +126,14 @@ describe("index.css の帯の高さ(便BL)", () => {
   it("--page-bottom-gap = ナビ + 帯 + 安全域", () => {
     expect(/--page-bottom-gap:\s*calc\(var\(--nav-h\) \+ var\(--ad-h\) \+ env\(safe-area-inset-bottom\)\);/.test(rootBlock)).toBe(true);
   });
-  it("合図(<html data-ad-preview=\"1\">)のときだけ --ad-h は 50px", () => {
+  // 【殻 S3 2026-10-06 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2。--ad-h は帯の 50px + すき間(中身も同じだけ上がる)
+  it("合図(<html data-ad-preview=\"1\">)のときだけ --ad-h は 50px + --sp-2(帯 + すき間)", () => {
     const m = code.match(/:root\[data-ad-preview="1"\]\s*\{([^}]*)\}/);
     expect(m).toBeTruthy();
-    expect(/--ad-h:\s*50px;/.test(m[1])).toBe(true);
+    expect(/--ad-h:\s*calc\(50px \+ var\(--sp-2\)\);/.test(m[1])).toBe(true);
     // 50px を持つのはこの規則だけ(:root の既定が 50 になっていない)
-    expect((code.match(/--ad-h:\s*50px/g) || []).length).toBe(1);
+    expect((code.match(/--ad-h:\s*calc\(50px/g) || []).length).toBe(1);
+    expect((code.match(/--ad-h:\s*50px/g) || []).length).toBe(0);
   });
 });
 
@@ -175,8 +177,9 @@ describe("帯の出し入れ(便BL)", () => {
     expect(s.textContent).toContain("広告(見本)");
     expect([...s.querySelectorAll("span")].map((e) => e.textContent)).toEqual(["広告", "広告(見本)"]);
     expect(s.style.position).toBe("fixed");
-    expect(s.style.bottom).toBe("calc(var(--nav-h) + env(safe-area-inset-bottom))");
-    expect(s.style.height).toBe("var(--ad-h)");
+    // 【殻 S3】下部タブとの間に --sp-2 のすき間(地は塗らない = 帯の箱はすき間の上から)。帯の高さは --ad-h からすき間を引いた分
+    expect(s.style.bottom).toBe("calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-2))");
+    expect(s.style.height).toBe("calc(var(--ad-h) - var(--sp-2))");
     expect(s.style.zIndex).toBe("30");
     // 下部タブ(同じ 30)より後ろに居る = 同じ重なり順の中では上に描かれる
     const nav = document.querySelector('button[aria-label="計測"]').closest('div[style*="z-index: 30"]');

@@ -26,6 +26,8 @@ import { JoinPreviewDataScreen, SHEET_PRIMARY_BUTTON_STYLE } from "./screens.jsx
 import { PersonBody } from "./screens.jsx";
 import { PaneEmpty } from "../App.jsx";
 import { CoachIcon, COACH_Z, readBottomLimit } from "../onboarding.jsx";
+// 【殻 S3】殻の広告の帯の高さ(--ad-h)が変わった知らせ。ads.js は Capacitor に触れない(部品は *.native.js を動的 import)。
+import { AD_HEIGHT_EVENT } from "../shell/ads.js";
 // 【便BG 2026-10-01 本人指示】以前ここで reportRepo.js の isFlagged(自分が通報で隠れているか)を読んでいた。
 // 通報で誰も隠れなくなったので、読む関数ごと消した。
 // 【束3 2026-09-19 本人指示】レビューの飛び先。**null の間は行ごと出さない**
@@ -839,14 +841,16 @@ const JOIN_QUIET_LINK_STYLE = {
   color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
 };
 const NOOP = () => {};
-// 見える範囲の下端(下部タブ・帯の上端)。はじめの一手のカードと同じ読み方(onboarding.jsx の readBottomLimit)。
+// 見える範囲の下端(下部タブの上端 − 広告の帯 --ad-h)。はじめの一手のカードと同じ読み方(onboarding.jsx の readBottomLimit)。
+// 【殻 S3】殻では帯の高さが後から決まる(広告が届いて --ad-h が変わる)ので、その知らせでも読み直す。
 function useJoinFrameHeight() {
   const [h, setH] = useState(() => (typeof window !== "undefined" ? readBottomLimit(window.innerHeight) : 0));
   useLayoutEffect(() => {
     const read = () => setH(readBottomLimit(window.innerHeight));
     read();
     window.addEventListener("resize", read);
-    return () => window.removeEventListener("resize", read);
+    window.addEventListener(AD_HEIGHT_EVENT, read);
+    return () => { window.removeEventListener("resize", read); window.removeEventListener(AD_HEIGHT_EVENT, read); };
   }, []);
   return h;
 }

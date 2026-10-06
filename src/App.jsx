@@ -50,6 +50,8 @@ import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 import { isNativeShell } from "./shell/native.js";
 import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
 import { shellRouteToSpeaker } from "./shell/audio.js";
+// 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
+import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -4327,6 +4329,9 @@ export default function WindToneLabPhaseMode() {
       // 【殻 S2】WebKit は取り込みの開始時に音のセッションを自分で立て直すので、その後で出口をスピーカー
       // (イヤホンがあればイヤホン)へ寄せる。Web では何もしない。待たない・失敗は無視(殻の仕様 §4.4)。
       shellRouteToSpeaker();
+      // 【殻 S3】最初のマイクの試みが終わった直後に1回だけ、広告の帯を始める(ATT の許可の画面もここ。OS のマイクの許可の画面と重ねない)。
+      // 失敗の側は下の catch で同じ呼び口。2回目からは何もしない。Web では何もしない(殻の仕様 §5.3)。
+      shellStartAdsOnce();
 
       // 【トラックの死亡検知】iOSは他アプリにマイクを奪われると readyState は live のまま
       // muted だけ true にして戻ってくることがある。ended/mute のどちらでも復旧を試みる。
@@ -4774,6 +4779,7 @@ export default function WindToneLabPhaseMode() {
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       console.error("getUserMedia failed:", err.name, err.message, err);
+      shellStartAdsOnce();   // 【殻 S3】マイクの試みが失敗で終わった直後(許可されなかった等)。成功の側と同じ1回きりの呼び口
       setErrorMsg(MIC_DENIED_MSG);
       setIsListening(false);
       return false;
@@ -5441,6 +5447,8 @@ export default function WindToneLabPhaseMode() {
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
           (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
       <AdPreviewStrip />
+      {/* 【殻 S3】殻の本物の帯(AdMob。ネイティブのビュー)を、シートが開いている間だけ隠す。何も描かない。Web では何もしない。 */}
+      <ShellAdBannerSync />
       {/* 【便BP 2026-10-03 本人裁定】はじめの一手。**描くのはこの1箇所だけ**(body へ出す)。
           出してよいのは、印が読めて移行が済み(見本ではいつでも)、録音中でなく、BottomSheet も z60 の暗幕(エラー・保存の確認)も出ておらず、
           録音ファイルの取り込みを解析していないときだけ(【便BP3】isAnalyzingUpload)。
@@ -5541,7 +5549,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
        効くので、帯そのものが透けて**裏のカードが下部タブに重なって見えていた**
        (録音中は音量の詳細が帯の下まで伸びる)。**地を透かさずに淡さだけ足す手は無い**
        ので、淡さのほうを落とす。タブは従来どおり disabled のままで、機能は変えていない。 */
-    /* 【便BP3】data-bottom-nav: はじめの一手のカードを下部タブの上に置くための目印(onboarding.jsx が上端を読む)。 */
+    /* 【便BP3】data-bottom-nav: はじめの一手のカードを下部タブの上に置くための目印(onboarding.jsx が上端を読む)。
+       【殻 S3】殻の広告の帯の位置も、この上端と下の安全域(paddingBottom)から決める(src/shell/ads.js が読む)。 */
     <div data-bottom-nav="" style={{
       position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
       background: "rgba(255,255,255,.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
@@ -5580,11 +5589,21 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
   );
 }
 
+// 【殻 S3】殻の本物の広告の帯(AdMob のバナー。WKWebView の上に載るネイティブのビュー)を、BottomSheet が1枚でも
+// 開いている間は隠す(本人裁定。帯がシートの下端のボタンを隠すため)。見本の帯(AdPreviewStrip)と同じ「開いているか」を読む。
+// --ad-h は戻さない(便BL の規則。裏のページの下端・浮かせるボタン・計測タブの枠を跳ねさせない)。写真の拡大(PhotoZoom)は
+// シートではないので隠さない(殻の仕様 §9-(4) の既定)。何も描かない。Web では shellSetAdsHidden が即 return する。
+function ShellAdBannerSync() {
+  const sheetOpen = useAnyBottomSheetOpen();
+  useEffect(() => { shellSetAdsHidden(sheetOpen); }, [sheetOpen]);
+  return null;
+}
+
 // 【便BL 2026-10-02 本人指示】見本の広告の帯。本人「広告を入れたらボタン類が重ならないか、先に実機で見たい」。
 // 本物の広告ではない。合図(?adpreview=1。src/adPreview.js)を付けた端末でだけ出る。合図が無ければ何も描かない
 // (帯の高さ --ad-h も 0px のままなので、ページは 1px も変わらない)。
-//   ・位置: 下部タブのすぐ上。下端 = 下部タブの高さ + 安全域(--page-bottom-gap から --ad-h を抜いた式)
-//   ・大きさ: 横幅いっぱい・高さ --ad-h(index.css。値はそこだけが持つ)
+//   ・位置: 下部タブの上。下端 = 下部タブの高さ + 安全域 + すき間 --sp-2(【殻 S3 統括の裁定】押せないすき間。地は塗らない)
+//   ・大きさ: 横幅いっぱい・高さ --ad-h − --sp-2(--ad-h は帯 + すき間。index.css。値はそこだけが持つ)
 //   ・地は本物の帯に近い淡い灰(--c-sunk)。中央に小さく「広告(見本)」、左上に「広告」の印。文字は --fs-xs / --c-ink-3
 //   ・重なり順は下部タブと同じ 30(§4.5a)。下部タブより後ろに置くので、同じ 30 の中では上に描かれる。
 //     シート・暗幕(60)・写真の拡大(70)・吹き出しより下
@@ -5595,6 +5614,7 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
 function AdPreviewStrip() {
   const [on] = useState(() => isAdPreviewOn());
   const sheetOpen = useAnyBottomSheetOpen();
+  if (isNativeShell()) return null;   // 【殻 S3】殻では見本を描かない(本物の帯が出る。?adpreview=1 は Web 版の確認用)
   if (!on || sheetOpen) return null;
   return (
     <div
@@ -5602,8 +5622,9 @@ function AdPreviewStrip() {
       aria-label="広告(見本)"
       style={{
         position: "fixed", left: 0, right: 0, zIndex: 30,
-        bottom: "calc(var(--nav-h) + env(safe-area-inset-bottom))",
-        height: "var(--ad-h)",
+        /* 【殻 S3 統括の裁定】下部タブとの間に押せないすき間 --sp-2(地は塗らない)。--ad-h は帯 + すき間なので、帯の高さはそこから引く。 */
+        bottom: "calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sp-2))",
+        height: "calc(var(--ad-h) - var(--sp-2))",
         background: "var(--c-sunk)", borderTop: "1px solid var(--c-line)",
         display: "flex", alignItems: "center", justifyContent: "center",
         overflow: "hidden",

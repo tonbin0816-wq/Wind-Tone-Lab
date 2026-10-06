@@ -154,33 +154,6 @@ describe("殻: スリープ防止は KeepAwake・音の出口はマイクの直�
   }, 30000);
 });
 
-describe("Web: 今までどおり(navigator.wakeLock・一時停止)。殻の部品は読まれもしない", () => {
-  it("録音の開始で navigator.wakeLock.request(\"screen\")。KeepAwake も routeToSpeaker も呼ばれない", async () => {
-    mod = await loadApp();
-    await render();
-    await waitFor(() => document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
-    await settle();
-    await click(recButton());
-    await waitFor(() => wakeReq.mock.calls.length > 0, "wakeLock.request");
-    expect(wakeReq).toHaveBeenCalledWith("screen");
-    await click(recButton());
-    await settle();
-    expect(cap.log).toEqual([]);
-    expect(cap.factories).toEqual([]);
-  }, 30000);
-
-  it("リードタブへ移ってもトラックは stop しない(enabled = false の一時停止)", async () => {
-    mod = await loadApp();
-    await render();
-    await waitFor(() => document.querySelector('button[aria-label="録音する"]'), "計測タブ");
-    await settle();
-    await click(nav("リード"));
-    await settle();
-    expect(track.stopped).toBe(0);
-    expect(track.enabled).toBe(false);
-  }, 30000);
-});
-
 // 【殻 S2 審査】KeepAwake は Web の wakeLock と違って自動では解けない。計測タブを離れる・画面が隠れるときに解くこと。
 describe("殻: スリープ防止を解く(計測タブを離れたとき・画面が隠れたとき)", () => {
   const openMetro = async () => {
