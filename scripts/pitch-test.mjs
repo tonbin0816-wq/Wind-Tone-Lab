@@ -31810,8 +31810,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BT.3 計測タブの根は列のトークン",
     src.includes('<div ref={measureRootRef} style={{ maxWidth: "var(--page-max-w)", margin: "0 auto" }}>'));
   // 【便BZ 2026-10-07 本人の指示】アイコンの下にタブの名前を足したので、内箱の高さは 46 → 58(上 6 + ボタン 44 = --tap-min + 下 8)
+  // 【便CA 2026-10-08 本人の実機の指摘】内箱の下の padding は --nav-pad-bottom(安全域があれば 0・無ければ --sp-2)。高さ = 上 6 + 44 + それ
   check("BT.3 下部タブの内箱は列のトークン(本人裁定「下部タブも 640 にそろえる」)",
-    srcOfFn(src, "BottomNav").includes('<div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 58, display: "flex", padding: "6px 20px 8px" }}>'));
+    srcOfFn(src, "BottomNav").includes('<div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: "calc(50px + var(--nav-pad-bottom))", display: "flex", padding: "6px 20px var(--nav-pad-bottom)" }}>'));
   {
     // 【便BZ】下部タブの名前: 4つの名前(左から 計測・リード・コミュニティ・データ)を、絵柄の下に最小の字の段(--fs-xs)・アイコンと同じ色で。
     // ボタンは縦の flex。--nav-h は 1 + 58 = 59(index.css と canvas の写し)。期待値は本人の指示の文と §5 の --tap-min(44)から手で書いた
@@ -31822,9 +31823,16 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       JSON.stringify([...navBZ.matchAll(/key: "([a-z]+)", label: "([^"]+)"/g)].map((m) => m[2])) === JSON.stringify(["計測", "リード", "コミュニティ", "データ"])
       && /\{t\.icon\(color\)\}\n(?:\s*\{\/\*[^\n]*\*\/\}\n)?\s*<span aria-hidden="true" style=\{\{ fontSize: "var\(--fs-xs\)", lineHeight: 1, color \}\}>\{t\.label\}<\/span>/.test(navBZ)
       && /flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",/.test(navBZ));
-    check("BZ.5 --nav-h は 59px(= 1 + 58)・canvas の写しも 59px・--fs-xs は最小の字の段(12px)",
-      /\n  --nav-h: 59px;/.test(cssBZ) && /--nav-h: 59px;/.test(rdBZ("design/canvas/tokens.mjs")) && /--fs-xs: 12px;/.test(cssBZ)
-      && (58 - 6 - 8) === Number((/--tap-min: (\d+)px;/.exec(cssBZ) || [])[1]));
+    // 【便CA 2026-10-08】--nav-h = 1 + 上 6 + ボタン 44(--tap-min)+ --nav-pad-bottom(安全域 ≥ --sp-2 で 0 / 安全域 0 で --sp-2 = 8 → 59)。canvas の写しも同じ式
+    check("BZ.5 --nav-pad-bottom は max(0px, calc(var(--sp-2) - env(safe-area-inset-bottom)))・--nav-h は calc(51px + var(--nav-pad-bottom))(51 = 1 + 6 + --tap-min)・canvas の写しも同じ・--fs-xs は最小の字の段(12px)",
+      /\n  --nav-pad-bottom: max\(0px, calc\(var\(--sp-2\) - env\(safe-area-inset-bottom\)\)\);\n  --nav-h: calc\(51px \+ var\(--nav-pad-bottom\)\);/.test(cssBZ)
+      && /--nav-pad-bottom: max\(0px, calc\(var\(--sp-2\) - env\(safe-area-inset-bottom\)\)\);\n\s*--nav-h: calc\(51px \+ var\(--nav-pad-bottom\)\);/.test(rdBZ("design/canvas/tokens.mjs"))
+      && /--fs-xs: 12px;/.test(cssBZ) && (51 - 1 - 6) === Number((/--tap-min: (\d+)px;/.exec(cssBZ) || [])[1]));
+    // 【便CA 2026-10-08 本人の実機の指摘「計測ボタンと詳細の↓の間もかなり空いているので詰めて」】録音ボタンの包みの下 4 → 0・詳細の矢印の行の上 10 → 0。経過時間の行(19・上 --sp-1)は残す
+    check("CA.2 録音ボタンの包みは padding 12px 0 0・詳細の矢印の行に marginTop が無い・経過時間の行は height 19 / 上 --sp-1 のまま",
+      src.includes('<div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>') && !src.includes('padding: "12px 0 4px"')
+      && /<div style=\{\{ display: "flex", justifyContent: "center" \}\}>\n\s*<button\n\s*onClick=\{\(\) => setDetailOpen\(\(v\) => !v\)\}/.test(src)
+      && /height: 19, marginTop: "var\(--sp-1\)", display: "flex"/.test(src));
   }
   check("BT.3 BottomSheet のカードは列のトークン(iPad では 640 で中央)",
     /width: "100%", maxWidth: "var\(--page-max-w\)",/.test(srcOfFn(src, "BottomSheet")));

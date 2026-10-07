@@ -1598,11 +1598,11 @@ describe("【便BZ】下部タブ: アイコンの下に小さくタブの名前
     expect(btns[1].children[1].style.color).toBe("var(--c-ink-3)");
     await click(nav("データ"));
     expect(document.querySelector('[data-bottom-nav] button[aria-label="データ"]').children[1].style.color).toBe("var(--c-accent)");
-    // 内箱の高さ 58 = 上 6 + ボタン 44(--tap-min)+ 下 8。帯の高さ --nav-h = 1 + 58
+    // 【便CA 2026-10-08】内箱の高さ = 上 6 + ボタン 44(--tap-min)+ 下 --nav-pad-bottom(安全域があれば 0・無ければ --sp-2)。帯の高さ --nav-h = 1 + 内箱
     const inner = document.querySelector("[data-bottom-nav]").firstElementChild;
-    expect([inner.style.height, inner.style.padding]).toEqual(["58px", "6px 20px 8px"]);
+    expect([inner.style.height, inner.style.padding]).toEqual(["calc(50px + var(--nav-pad-bottom))", "6px 20px var(--nav-pad-bottom)"]);
     const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
-    expect(/\n  --nav-h: 59px;/.test(css)).toBe(true);
+    expect(/\n  --nav-pad-bottom: max\(0px, calc\(var\(--sp-2\) - env\(safe-area-inset-bottom\)\)\);\n  --nav-h: calc\(51px \+ var\(--nav-pad-bottom\)\);/.test(css)).toBe(true);
     expect(/--tap-min: 44px;/.test(css)).toBe(true);
   }, 30000);
 });

@@ -258,10 +258,16 @@
      空けておらず、コンテンツ末尾の 9px がナビの下に隠れていた。
      逆にノッチ無し端末(inset=0)では 25px の余分な空白が出ていた。
      ------------------------------------------------------------------ */
+  /* 【便CA 2026-10-08 本人の実機の指摘「タブの下がかなり空いているが下に詰められないか?」】内箱の下の padding を --nav-pad-bottom にした:
+     安全域(ホームバー)がある端末では 0(字はホームバーのすぐ上。iOS の標準のタブバー = 49pt + 安全域 に近い形)、安全域が 0 の端末(SE・iPad の一部)では
+     --sp-2(字を画面の下端に付けない)。--nav-h = borderTop 1 + 上 6 + ボタン 44(--tap-min)+ --nav-pad-bottom = 安全域 34 の端末で 51(便BZ は 59)・安全域 0 で 59(不変)。
+     --nav-h は calc の中でだけ読まれる(--page-bottom-gap・帯・浮かせるボタン・.pane-frame・シート)ので式のままでよい。JS は実寸を DOM から測る
+     (readBottomLimit・adBannerMargin・resolveBottomGap)。 */
   /* 【便BZ 2026-10-07 本人の指示「各タブアイコンの下に小さくタブ名称のテキスト追加」】47 → 59 = borderTop 1px + 内箱 58px
      (上 6 + ボタン 44 = --tap-min(絵柄 30 + 名前 12)+ 下 8)。この値を読む物(--page-bottom-gap・帯・浮かせるボタン・.pane-frame・
      シート・計測タブの環の縮み・はじめの一手の見える範囲)はすべて var で読むので、ここだけ変えた。 */
-  --nav-h: 59px;
+  --nav-pad-bottom: max(0px, calc(var(--sp-2) - env(safe-area-inset-bottom)));
+  --nav-h: calc(51px + var(--nav-pad-bottom));
   /* 【便BL 2026-10-02 本人指示】下部タブのすぐ上に置く広告の帯の高さ。**値の唯一の答えはここ**。
      既定は 0px(帯が無い = 今までと 1px も変わらない)。見本の帯の合図(?adpreview=1。src/adPreview.js)が
      <html> に data-ad-preview="1" を付けたときだけ、下の規則で 50px(AdMob の下部の帯の高さ)になる。

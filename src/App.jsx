@@ -5605,6 +5605,7 @@ function MeasureIcon({ size = 30, color = "currentColor" }) {
 // 【便BZ 2026-10-07 本人の指示「各タブアイコンの下に小さくタブ名称のテキスト追加」】アイコンの下に小さくタブの名前(--fs-xs = 最小の字の段)。
 // 色はアイコンと同じ(選んでいるタブは紺・ほかは --c-ink-3)。ボタンの高さは当たり判定の最小 --tap-min(44)= 絵柄 30 + 名前 12、
 // 内箱の高さ = 上 6 + 44 + 下 8 = 58。帯の高さ --nav-h(index.css)は 1 + 58 = 59 になった(以前は 47。名前の無い 32 のボタン)。
+// 【便CA 2026-10-08】下の 8 は安全域のある端末では 0(--nav-pad-bottom)。--nav-h = 1 + 50 + --nav-pad-bottom(安全域 0 の端末は 59 のまま)。
 function BottomNav({ topTab, onNavTap, isRecording }) {
   const items = [
     {
@@ -5673,7 +5674,10 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
       {/* アイコンと小さい名前の1行(【便BZ】名前を足した。以前はアイコンのみで縦幅を小さくしていた) */}
       {/* 【便BT 2026-10-03 本人裁定「下部タブも 640 にそろえる」】内箱の上限は本文の列と同じ --page-max-w(以前は 480)。
           375 では 480 も 640 も届かないので 375 のまま(1つのタブ (375 − 40) / 4 = 83.75)。iPad では 640(1つ 150)。 */}
-      <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: 58, display: "flex", padding: "6px 20px 8px" }}>
+      {/* 【便CA 2026-10-08 本人の実機の指摘「タブの下がかなり空いているが下に詰められないか?」】内箱の下の padding は --nav-pad-bottom
+          (安全域が --sp-2 以上ある端末では 0 = 字はホームバーのすぐ上・安全域が 0 の端末では --sp-2 = 字を画面の下端に付けない)。
+          内箱の高さ = 上 6 + ボタン 44(--tap-min)+ --nav-pad-bottom(iOS の標準のタブバー 49pt + 安全域 に近い形)。 */}
+      <div style={{ maxWidth: "var(--page-max-w)", margin: "0 auto", height: "calc(50px + var(--nav-pad-bottom))", display: "flex", padding: "6px 20px var(--nav-pad-bottom)" }}>
         {items.map((t) => {
           const active = topTab === t.key;
           const color = active ? "var(--c-accent)" : "var(--c-ink-3)";
@@ -5688,7 +5692,7 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               data-coach={`nav-${t.key}`}
               className="sans"
               style={{
-                /* 【便BZ】縦に 絵柄 → 名前。ボタンの高さは内箱の 58 − 6 − 8 = 44(--tap-min) */
+                /* 【便BZ】縦に 絵柄 → 名前。ボタンの高さは内箱の高さ − 上 6 − 下 --nav-pad-bottom = 44(--tap-min) */
                 flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 background: "none", border: "none", cursor: isRecording ? "default" : "pointer",
                 /* 【L1】録音中の淡さは撤回した(帯の地まで透けて裏が重なって見えたため)。
@@ -9917,7 +9921,10 @@ function MeasureView(props) {
             中身は 待機= .rec .dot(赤い丸 26px) / 録音中= .rec .stop(赤い角丸 22px・r5)。
           文字を持たないので名前は aria-label が担う。状態は aria-pressed(トグル)。
           【影は持たない】本人指示(F-50)。box-shadow は外形寸法を変えない(実測で確認)。 */}
-      <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
+      {/* 【便CA 2026-10-08 本人の実機の指摘「計測ボタンと詳細の↓の間もかなり空いているので詰めて」】下の padding 4 → 0
+          (録音ボタンと詳細の矢印の間は固定の余白の積み上げ: この 4 + 経過時間の行の上 --sp-1 + 行 19 + 矢印の行の上 10 + 矢印のボタンの内側 9 = 47)。
+          経過時間の行(正典 .rectime。録音中に m:ss を出す箱)は §6.1.5 のとおり常に確保する。詰めた分は環の縮みの計算が環へ回す */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
         {/* 【F-73】ピッカーを開いている間は無効化する。本人報告「録音ボタンも選択肢提示中に
             有効になっている。選択肢提示中は他と同様に裏面でよい」。ピッカーは position:fixed の
             z-index 60 で最前面に出したが、無効化も併せて行う(§6.1.5「押しても何も起きないを作らない」の
@@ -9972,7 +9979,8 @@ function MeasureView(props) {
           開いているかどうかは**山形の向き**が返し、状態は aria-expanded が持つ。
           枠は `1px solid transparent` で場所だけ残す(DESIGN-SYSTEM §6.7)。border:0 にすると
           高さが 44 → 42 になり、§5 のタップ領域 44px を割る(機能側の規定なので §6.0 でも有効)。 */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
+      {/* 【便CA】上の余白 10 → 0(上の注記)。矢印のボタンの当たり 44(§5)は変えない */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
         <button
           onClick={() => setDetailOpen((v) => !v)}
           aria-label={detailOpen ? "詳細を閉じる" : "詳細を見る"}
