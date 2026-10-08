@@ -73,7 +73,8 @@ describe("【便BX】プロフィールを初めて作ったあと、データ�
   it("参加する → フォーム → 「プロフィールを作る」: 参加後の画面に替わった直後に1回だけ window.scrollTo(0, 0)", async () => {
     await drawTab();
     await waitFor(() => buttonsNamed("参加する").length > 0, "参加の画面");
-    await click(document.querySelector('[data-join-card] input[type="checkbox"]'));
+    // (【便BC】ここで同意のチェックを入れていた。【便CC 2026-10-08】参加のカードの同意のチェックは外した ── そのまま押せる)
+    expect(document.querySelector('[data-join-card] input[type="checkbox"]')).toBe(null);
     await click(buttonsNamed("参加する")[0]);
     await waitFor(() => buttonsNamed("プロフィールを作る").length > 0, "プロフィールの入力");
     // フォームが出ている間(まだ保存していない)は先頭へ戻さない

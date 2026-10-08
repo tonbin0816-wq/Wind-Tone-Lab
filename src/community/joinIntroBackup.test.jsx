@@ -94,10 +94,8 @@ describe("参加前の画面からアカウント引継を開ける(便BB)", () 
     await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
     const join = buttonNamed("参加する");
     expect(join).toHaveLength(1);
-    // 【便BC 2026-09-25】規約への同意のチェックが入るまで参加は押せなくなった(agreeGate.test.jsx が本体)。
-    // ここでは「入れてから押せば今までどおり onJoin が呼ばれる」を見る。
-    const agree = document.querySelector('input[type="checkbox"]');
-    await act(async () => { agree.click(); });
+    // (【便BC】同意のチェックを入れてから押していた。【便CC 2026-10-08】参加のカードの同意のチェックは外した ── 最初から押せる)
+    expect(document.querySelector('input[type="checkbox"]')).toBe(null);
     await act(async () => { join[0].click(); });
     expect(joined).toBe(1);
     expect(backupDialog()).toBe(null);

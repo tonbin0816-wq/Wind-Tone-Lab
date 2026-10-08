@@ -2,17 +2,10 @@ import React from "react";
 
 // ------------------------------------------------------------------
 // 【便CB 2026-10-08】規約への同意の部品。置き場所を CommunityTab.jsx からここへ移した(中身は1文字も変えていない)。
-// 起動の最初の同意の画面(ConsentScreen.jsx)と参加のカード(CommunityTab.jsx の JoinIntro)の2つが読む。
+// 【便CC 2026-10-08】読み手は起動の最初の同意の画面(ConsentScreen.jsx の2枚目の帯)だけになった(参加のカードの同意のチェックは本人の指示で外した)。
 // CommunityTab.jsx は firebase を読むので遅延読み込みの向こうにある ── 起動の最初の画面がそこから import すると、
 // 待たせたくない firebase まで最初に読むことになる。このファイルは React しか読まない。
 // ------------------------------------------------------------------
-
-// 文章の中のリンクの見た目をした <button>。JoinIntro の規約・ポリシー用(押すとシートが開く)。
-// 以前の <a>(色だけ指定・下線はブラウザ既定)と同じ見え方にする。文字の大きさは行(noteStyle)を継ぐ。
-export const linkButtonStyle = {
-  background: "none", border: "none", padding: 0, font: "inherit",
-  color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
-};
 
 // 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意のチェック。
 // 行全体が押せる <label>(高さ --tap-min)。中身はネイティブの checkbox なので読み上げはそのまま

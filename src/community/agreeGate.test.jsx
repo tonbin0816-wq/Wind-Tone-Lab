@@ -1,21 +1,18 @@
 // @vitest-environment jsdom
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRoot } from "react-dom/client";
 
 // ------------------------------------------------------------------
-// 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意。
-// 参加の画面(JoinIntro)を**実際に描いて押す**(jsdom)。
-//   ・「利用規約とプライバシーポリシーに同意します」のチェックが、規約・ポリシーの導線の下・参加の一手の上にある
-//   ・行全体(<label>)が押せて高さは --tap-min。中身はネイティブの checkbox(読み上げはチェックボックス)
-//   ・入るまで「参加してプロフィールを作る」は disabled で、押しても onJoin は呼ばれない。地は --c-disabled
-//   ・入れると押せて onJoin が呼ばれる。外すとまた押せない
-//   ・保存しない(描き直すと外れた状態から)
+// 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意のチェック(AgreeRow)。
+// 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加の画面(JoinIntro)の同意のチェックは外した。
+// 同意は起動の最初の同意の画面(src/ConsentScreen.jsx)で取る(根の振る舞いは src/consentGate.test.jsx)。ここでは:
+//   ・参加の画面にチェックボックスが1つも無く、「参加する」は最初から押せて onJoin が呼ばれる
+//   ・部品 AgreeRow(同意の画面の2枚目の帯が使う): 行全体が label で高さ --tap-min・中身はネイティブの checkbox・行の文字を押しても入る
 // 【守っていないもの】箱の見た目(20px・角丸 6px・枠・レ点)の実寸。ブラウザで目で見た(報告)。
-// 【便BS 2026-10-03 本人裁定】参加の画面はカード1枚(document.body へ出る)になり、ボタンの文字は「参加する」になった。
-//   探す場所を host → document に、文字を「参加してプロフィールを作る」→「参加する」に直した(確かめる中身は同じ)。
 // ------------------------------------------------------------------
 const { JoinIntro } = await import("./CommunityTab.jsx");
+const { AgreeRow } = await import("../agreeRow.jsx");
 
 let root; let host;
 beforeEach(() => {
@@ -27,60 +24,36 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); document.body.innerHTML = ""; });
 
-const AGREE = "利用規約とプライバシーポリシーに同意します";
 const joinButton = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "参加する");
-const box = () => document.querySelector('input[type="checkbox"]');
-const row = () => box().closest("label");
 
-describe("参加の画面: 規約への同意が入るまで参加は押せない(便BC)", () => {
-  it("同意の行がある。行全体が label で高さ --tap-min、中身はネイティブの checkbox で名前は同意の文", async () => {
-    await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
-    expect(row()).toBeTruthy();
-    expect(row().textContent).toBe(AGREE);
-    expect(row().style.minHeight).toBe("var(--tap-min)");
-    expect(box().checked).toBe(false);
-    // 並び: 規約・ポリシーの導線 → 同意の行 → 参加の一手
-    const terms = [...document.querySelectorAll("button")].find((b) => b.textContent === "利用規約");
-    const privacy = [...document.querySelectorAll("button")].find((b) => b.textContent === "プライバシーポリシー");
-    const follows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(follows(terms, row()) && follows(privacy, row())).toBe(true);
-    expect(follows(row(), joinButton())).toBe(true);
-  });
-
-  it("入る前: 参加は disabled・地は --c-disabled。押しても onJoin は呼ばれない", async () => {
+describe("参加の画面に同意のチェックは無い(便CC)", () => {
+  it("チェックボックスも同意の文も無い。「参加する」は最初から押せて onJoin が呼ばれる", async () => {
     let joined = 0;
     await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
-    expect(joinButton().disabled).toBe(true);
-    expect(joinButton().style.background).toBe("var(--c-disabled)");
-    await act(async () => { joinButton().click(); });
-    expect(joined).toBe(0);
-  });
-
-  it("行の文字を押しても入る(行全体が押せる)。入ると押せて onJoin が呼ばれる。外すとまた押せない", async () => {
-    let joined = 0;
-    await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
-    const text = [...row().querySelectorAll("span")].find((s) => s.textContent === AGREE);
-    await act(async () => { text.click(); });
-    expect(box().checked).toBe(true);
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("同意します");
     expect(joinButton().disabled).toBe(false);
     expect(joinButton().style.background).toBe("var(--c-accent)");
     await act(async () => { joinButton().click(); });
     expect(joined).toBe(1);
-    await act(async () => { box().click(); });
-    expect(box().checked).toBe(false);
-    expect(joinButton().disabled).toBe(true);
-    expect(joinButton().style.background).toBe("var(--c-disabled)");
   });
+});
 
-  it("保存しない: 描き直すと外れた状態から", async () => {
-    await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    await act(async () => { box().click(); });
-    expect(box().checked).toBe(true);
-    await act(async () => { root.unmount(); });
-    root = createRoot(host);
-    await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    expect(box().checked).toBe(false);
-    expect(joinButton().disabled).toBe(true);
+describe("部品 AgreeRow(同意の画面の2枚目の帯)", () => {
+  function Probe() {
+    const [v, setV] = useState(false);
+    return <AgreeRow checked={v} onChange={setV}>利用規約とプライバシーポリシーに同意する</AgreeRow>;
+  }
+  it("行全体が label で高さ --tap-min。中身はネイティブの checkbox。行の文字を押しても入り、もう一度押すと外れる", async () => {
+    await act(async () => { root.render(<Probe />); });
+    const box = document.querySelector('input[type="checkbox"]');
+    const row = box.closest("label");
+    expect(row.style.minHeight).toBe("var(--tap-min)");
+    expect(row.textContent).toBe("利用規約とプライバシーポリシーに同意する");
+    expect(box.checked).toBe(false);
+    await act(async () => { [...row.querySelectorAll("span")].find((s) => s.textContent === "利用規約とプライバシーポリシーに同意する").click(); });
+    expect(box.checked).toBe(true);
+    await act(async () => { box.click(); });
+    expect(box.checked).toBe(false);
   });
 });

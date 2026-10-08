@@ -49,7 +49,8 @@ export async function loadLegalHtml(kind) {
 }
 
 // CommunityTab.jsx の errorStyle と同値(あちらは export していない。import すると循環参照)。
-const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHeight: 1.6 };
+// 【便CC 2026-10-08】起動の最初の同意の画面(ConsentScreen.jsx の2枚目)も本文の読み込みの失敗にこれを使う(写しを作らない)ので export する。
+export const errorStyle = { fontSize: "var(--fs-sm)", color: "var(--c-danger)", lineHeight: 1.6 };
 
 /**
  * @param kind "terms" | "privacy"

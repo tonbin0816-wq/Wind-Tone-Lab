@@ -24518,15 +24518,13 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     check("51.3 D3 CommunityTab.jsx: 既定の export が landTab と onLanded を受ける(既定は null)",
       // 【便BP 2026-10-03】はじめの一手の印を立てる口 onOnboarding(既定 null)が末尾に加わった。landTab / onLanded の形は同じ。
       // 【便BV 2026-10-04】iPad の判定を配る口 wide(既定 false)が末尾に加わった。landTab / onLanded の形は同じ。
-      // 【便CB 2026-10-08】起動の最初の同意の記録を配る口 termsAgreed(既定 false)と、参加のカードで同意して参加できたときに記録を書く口
-      //   onTermsAgreed(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} termsAgreed=\{termsAgreed\} onTermsAgreed=\{onTermsAgreed\} wide=\{wide\} \/>/.test(comm51));
+      // (【便CB】で足した termsAgreed / onTermsAgreed は【便CC 2026-10-08】参加のカードの同意のチェックと一緒に外した。元の形)
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
-      // 【便CB 2026-10-08】wide の前に termsAgreed = false が加わった(参加のカードへ配るだけ)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false \}\)/.test(comm51)
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -31311,18 +31309,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /<circle cx="9" cy="8" r="3\.2" \/>/.test(nav89) && /<path d="M15\.5 13\.6 Q20\.5 13\.6 20\.5 18" \/>/.test(nav89));
 
   // --- 89.5 規約への同意 ------------------------------------------------------------
-  // 【便CB 2026-10-08】起動の最初に同意済み(termsAgreed)なら同意の行を出さず、参加は押せる(canJoin = termsAgreed || agreed)。
-  //   記録が無いときは今までどおり(行を出し、入るまで disabled)。振る舞いは consentGate.test.jsx / agreeGate.test.jsx が描いて見る。
-  check("89.5 同意の行は導線(規約・ポリシー)の下・参加の一手の上。参加は同意まで disabled・地 --c-disabled(【便CB】起動の最初に同意済みなら行を出さない)",
-    (() => {
-      const a = join89.indexOf('setLegal("privacy")'), b = join89.indexOf("{termsAgreed ? null : <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>}");
-      const c = join89.indexOf("disabled={busy || !canJoin}");
-      return a > 0 && b > a && c > b;
-    })()
-    && /background: canJoin \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(join89)
-    && /const \[agreed, setAgreed\] = useState\(false\);/.test(join89)
-    && /const canJoin = termsAgreed \|\| agreed;/.test(join89)
-    && /if \(!canJoin\) return;/.test(join89));
+  // 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加のカードの同意のチェックは外した
+  //   (同意は起動の最初の同意の画面で取る)。振る舞いは agreeGate.test.jsx / joinCard.test.jsx / consentGate.test.jsx が描いて見る。
+  //   部品 AgreeRow は同意の画面の2枚目の帯が使う(下の箱の検査は agreeRow.jsx を読む)。
+  check("89.5 参加のカードに同意のチェックは無い(AgreeRow・同意の state を持たない)・参加は最初から押せる(disabled は準備中だけ)・規約の導線は残す",
+    !/AgreeRow|agreed|canJoin|termsAgreed|type="checkbox"/.test(join89)
+    && /<button type="button" onClick=\{join\} disabled=\{busy\} className="sans"/.test(join89)
+    && /style=\{\{ \.\.\.SHEET_PRIMARY_BUTTON_STYLE, opacity: busy \? 0\.6 : 1 \}\}/.test(join89)
+    && join89.includes('setLegal("terms")') && join89.includes('setLegal("privacy")'));
   check("89.5 同意の箱: ネイティブの checkbox を label が包む(行 --tap-min)・20px・角丸 6・枠 1.5px --c-line-strong・入ると --c-accent",
     /<label className="sans no-select" style=\{\{\s*\r?\n\s*minHeight: "var\(--tap-min\)"/.test(agree89)
     && /<input type="checkbox" checked=\{checked\}/.test(agree89)
@@ -32118,8 +32112,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /<JoinIntro\b[^>]*\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
     && /<JoinedView\b[\s\S]*?\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
     && /watchPhoto = null, wide = false \}\)/.test(joinedBV)
-    // 【便CB 2026-10-08】JoinIntro の署名に termsAgreed = false が wide の前に加わった(wide は今までどおり既定 false)。
-    && /^function JoinIntro\(\{ onJoin, notice = null, termsAgreed = false, wide = false \}\)/.test(joinBV));
+    && /^function JoinIntro\(\{ onJoin, notice = null, wide = false \}\)/.test(joinBV));
 
   // --- BV.2 器と形: 器(--pane-max-w)の中に 子タブの行・SwipePager[2ペイン, 2ペイン, 列, 列] -----------------------
   check("BV.2 器は --pane-max-w で中央。2ペイン(データ・順位)のときだけ高さ固定の枠(.pane-frame)・窓は fill。子タブの行と SwipePager の開き方は狭い木と同じ",
@@ -33511,28 +33504,58 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
   const gateRaw = readFileSync(join(__dirname, "..", "src", "ConsentScreen.jsx"), "utf8");
   const gateFn = codeOf(srcOfFn(gateRaw, "AppRoot"));
   const scrFn = codeOf(srcOfFn(gateRaw, "ConsentScreen"));
-  check("CB.0 読む関数を切り出せている", gateFn.length > 300 && scrFn.length > 800, `gate ${gateFn.length} / screen ${scrFn.length}`);
+  // 【便CC 2026-10-08 本人の直し】1枚目(WelcomeStep)→ 2枚目(TermsStep)
+  const welFn = codeOf(srcOfFn(gateRaw, "WelcomeStep"));
+  const trmFn = codeOf(srcOfFn(gateRaw, "TermsStep"));
+  check("CB.0 読む関数を切り出せている", gateFn.length > 300 && scrFn.length > 100 && welFn.length > 400 && trmFn.length > 1200,
+    `gate ${gateFn.length} / screen ${scrFn.length} / welcome ${welFn.length} / terms ${trmFn.length}`);
   check("CB.2 同意の画面の間はアプリを描かない(同意の画面を返す枝にアプリが無い)・判断は needsConsentScreen",
     /if \(needsConsentScreen\(\{ consent, onboardingDone: normalizeOnboardingDone\(onboardingRaw\) \}\)\) \{\s*return <ConsentScreen onAgree=\{\(\) => setConsent\(makeConsentRecord\(\)\)\} \/>;\s*\}/.test(gateFn)
-    && /return <WindToneLabPhaseMode termsAgreed=\{isConsentRecord\(consent\)\} onTermsAgreed=\{recordFromJoin\} \/>;/.test(gateFn)
-    && /const recordFromJoin = useCallback\(\(\) => setConsent\(makeConsentRecord\(\)\), \[setConsent\]\);/.test(gateFn)
+    && (gateFn.match(/return <WindToneLabPhaseMode \/>;/g) || []).length === 2
+    && !/termsAgreed|onTermsAgreed|recordFromJoin/.test(codeOf(gateRaw))
     && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
-  check("CB.3 見た目は既存の部品と値: AgreeRow・linkButtonStyle・SHEET_PRIMARY_BUTTON_STYLE・芽(LoadingRing の 100%)・.coach-line・規約は LegalSheet(外へ出ない)",
-    /<AgreeRow checked=\{agreed\} onChange=\{setAgreed\}>/.test(scrFn) && /style=\{linkButtonStyle\}>利用規約<\/button>/.test(scrFn)
-    && /style=\{linkButtonStyle\}>プライバシーポリシー<\/button>/.test(scrFn)
-    && /\.\.\.SHEET_PRIMARY_BUTTON_STYLE, background: agreed \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(scrFn)
-    && /disabled=\{!agreed\}/.test(scrFn) && /<SproutMark p=\{1\} \/>/.test(scrFn) && /className="coach-line"/.test(scrFn)
-    && /<LegalSheet kind=\{legal\}/.test(scrFn) && !/href=/.test(scrFn) && !/window\.open|location\.href/.test(scrFn));
+  // 【便CC】どちらの枚かはメモリの上だけ(保存しない・履歴に積まない)。閉じたら次は1枚目から
+  check("CB.6b 枚は ConsentScreen の state だけ(\"welcome\" から)。保存・履歴・location に触らない",
+    /const \[step, setStep\] = useState\("welcome"\);/.test(scrFn)
+    && /if \(step === "welcome"\) return <WelcomeStep onStart=\{\(\) => setStep\("terms"\)\} \/>;/.test(scrFn)
+    && /return <TermsStep onAgree=\{onAgree\} \/>;/.test(scrFn)
+    && !/localStorage|sessionStorage|history\.|location\.|usePersistedState\(/.test(scrFn + welFn + trmFn));
+  check("CB.3 1枚目: 芽(LoadingRing の 100%)・Ficus・1行(.coach-line)・「はじめる」(SHEET_PRIMARY_BUTTON_STYLE・最初から押せる)だけ。チェックは無い",
+    /<SproutMark p=\{1\} \/>/.test(welFn) && /\{CONSENT_TITLE\}/.test(welFn) && /<p className="coach-line" style=\{\{ textAlign: "center" \}\}>\{CONSENT_LINE\}<\/p>/.test(welFn)
+    && /style=\{\{ \.\.\.SHEET_PRIMARY_BUTTON_STYLE, marginTop: "var\(--sp-4\)" \}\}>/.test(welFn) && /onClick=\{onStart\}/.test(welFn)
+    && !/AgreeRow|checkbox|disabled/.test(welFn)
+    && /export const CONSENT_LINE = "サックス奏者のためのチューナー&メトロノーム";/.test(gateRaw)
+    && /export const CONSENT_START = "はじめる";/.test(gateRaw));
+  check("CB.7 2枚目: 規約 → ポリシーの全文(LegalSheet の loadLegalHtml・.legal-doc)を1本のスクロールに。帯はスクロールの外の最後の子(チェック + 「次へ」。チェックまで押せない)",
+    /import \{ loadLegalHtml, errorStyle \} from "\.\/community\/LegalSheet\.jsx";/.test(gateRaw) && /loadLegalHtml\(kind\)/.test(codeOf(gateRaw))
+    && /className="legal-doc"/.test(codeOf(gateRaw))
+    && trmFn.indexOf('<LegalSection kind="terms"') > 0 && trmFn.indexOf('<LegalSection kind="privacy"') > trmFn.indexOf('<LegalSection kind="terms"')
+    && trmFn.indexOf("</main>") < trmFn.indexOf("data-consent-bar") && /<div ref=\{scrollRef\} data-consent-scroll="" onClick=\{onDocClick\} style=\{termsScrollStyle\}>/.test(trmFn)
+    && /<AgreeRow checked=\{agreed\} onChange=\{setAgreed\}>\{CONSENT_AGREE\}<\/AgreeRow>/.test(trmFn)
+    && /export const CONSENT_AGREE = "利用規約とプライバシーポリシーに同意する";/.test(gateRaw)
+    && /disabled=\{!agreed\}/.test(trmFn) && /\.\.\.SHEET_PRIMARY_BUTTON_STYLE, background: agreed \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(trmFn)
+    && /if \(!agreed\) return;/.test(trmFn)
+    && /flexDirection: "column"/.test(codeOf(gateRaw)) && /flex: "1 1 auto", minHeight: 0, overflowY: "auto"/.test(codeOf(gateRaw)));
+  check("CB.8 2枚目の本文のリンク: mailto: 以外は移動を止める(殻の中で SPA から離れない・C11/C12)。規約・ポリシーへはその文書へ送る",
+    /if \(\/\^mailto:\/i\.test\(href\)\) return;\s*e\.preventDefault\(\);/.test(trmFn)
+    && /href\.includes\(PRIVACY_URL\) \? "privacy" : href\.includes\(TERMS_URL\) \? "terms" : null/.test(trmFn)
+    && !/window\.open|location\.href|<LegalSheet/.test(codeOf(gateRaw)));
   const gateCode = codeOf(gateRaw);
   const pxCB = gateCode.match(/\b\d+px\b/g) || [];
-  check("CB.4 同意の画面の値はトークンと本人裁定の 22 だけ(新しい px を作らない)",
-    pxCB.length > 0 && pxCB.every((v) => v === "22px")
+  // 【便CC】1px は帯の上の罫(1px --c-line。§1.8 の罫の太さ)だけ
+  check("CB.4 同意の画面の値はトークンと本人裁定の 22 だけ(新しい px を作らない。1px は帯の上の罫だけ)",
+    pxCB.length > 0 && pxCB.every((v) => v === "22px" || v === "1px")
+    && pxCB.filter((v) => v === "1px").length === (gateCode.match(/borderTop: "1px solid var\(--c-line\)"/g) || []).length
+    && /env\(safe-area-inset-left\)/.test(gateCode) && /env\(safe-area-inset-right\)/.test(gateCode)
+    && /paddingBottom: "calc\(var\(--sp-3\) \+ env\(safe-area-inset-bottom\)\)"/.test(gateCode)
     && /fontSize: "var\(--fs-xl\)"/.test(gateCode) && /fontFamily: "var\(--font-num\)"/.test(gateCode)
     && /maxWidth: "var\(--page-max-w\)"/.test(gateCode) && /padding: "var\(--sp-5\) var\(--sp-4\) var\(--sp-4\)"/.test(gateCode)
     && /env\(safe-area-inset-top\)/.test(gateCode) && /env\(safe-area-inset-bottom\)/.test(gateCode),
     pxCB.join(","));
   const dsCB = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
-  check("CB.5 DESIGN-SYSTEM に同意の画面の節(【便CB】)がある", /## 4\.5c 起動の最初の同意の画面（【便CB 2026-10-08/.test(dsCB));
+  check("CB.5 DESIGN-SYSTEM に同意の画面の節(【便CB】)があり、【便CC】の2枚の形で書かれている",
+    /## 4\.5c 起動の最初の同意の画面（【便CB 2026-10-08/.test(dsCB) && /【便CC/.test(dsCB.slice(dsCB.indexOf("## 4.5c"), dsCB.indexOf("\n## 5. ")))
+    && dsCB.includes("サックス奏者のためのチューナー&メトロノーム"));
   console.log("  -> done");
 }
 

@@ -10,7 +10,7 @@ import { join } from "node:path";
 // 参加していない人のコミュニティタブ(JoinIntro)を実際に描いて確かめる(jsdom)。
 //   ・3層: 裏(参加後の画面の見本。inert・aria-hidden・pointer-events: none)/ 暗幕(--c-coach-dim・タップを通す)/ カード(中央)
 //   ・カードの中身の順と文言(一字一句。期待値は版と以前の JoinIntro の文から手で書いた)
-//   ・同意するまで「参加する」は押せない(地 --c-disabled)。見た目はシートの主ボタンの標準
+//   ・「参加する」は最初から押せる(【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。見た目はシートの主ボタンの標準
 //   ・カードの外を押しても・Escape でも消えない
 //   ・導線(規約・ポリシー・お問い合わせ)とアカウント引継は今と同じシートを開く
 //   ・下部タブは押せる(暗幕・枠・層はタップを通し、カードは見える範囲 = 下部タブの上端より上に収まる)
@@ -89,16 +89,16 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect([kids[4].style.fontSize, kids[4].style.color]).toEqual(["var(--fs-xs)", "var(--c-ink-3)"]);
     // 5. 導線
     expect([...kids[5].querySelectorAll("button")].map((b) => b.textContent)).toEqual(["利用規約", "プライバシーポリシー", "お問い合わせ"]);
-    // 6. 同意のチェック(AgreeRow)
-    expect(kids[6].tagName).toBe("LABEL");
-    expect(kids[6].textContent).toBe("利用規約とプライバシーポリシーに同意します");
-    expect(kids[6].querySelector('input[type="checkbox"]')).not.toBe(null);
-    // 7. 主ボタン / 8. 細い導線
+    // (【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】6. 同意のチェックは外した。チェックボックスは1つも無い)
+    expect(c.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(c.querySelector("label")).toBe(null);
+    expect(c.textContent).not.toContain("同意します");
+    // 6. 主ボタン / 7. 細い導線
+    expect(kids[6].tagName).toBe("BUTTON");
+    expect(kids[6].textContent).toBe("参加する");
     expect(kids[7].tagName).toBe("BUTTON");
-    expect(kids[7].textContent).toBe("参加する");
-    expect(kids[8].tagName).toBe("BUTTON");
-    expect(kids[8].textContent.trim()).toBe("端末を替えるとき");
-    expect(kids).toHaveLength(9);
+    expect(kids[7].textContent.trim()).toBe("端末を替えるとき");
+    expect(kids).toHaveLength(8);
     // 以前の見出し「コミュニティ」・ボタンの文字「参加してプロフィールを作る」は無い
     expect(document.body.textContent).not.toContain("参加してプロフィールを作る");
   });
@@ -110,14 +110,9 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[3].textContent).toBe("一部を消せませんでした");
   });
 
-  it("同意するまで「参加する」は押せない(地 --c-disabled)。同意すると押せて onJoin。見た目はシートの主ボタンの標準", async () => {
+  it("【便CC】「参加する」は最初から押せて onJoin(同意のチェックは無い)。見た目はシートの主ボタンの標準", async () => {
     let joined = 0;
     await draw({ onJoin: async () => { joined += 1; } });
-    expect(joinButton().disabled).toBe(true);
-    expect(joinButton().style.background).toBe("var(--c-disabled)");
-    await act(async () => { joinButton().click(); });
-    expect(joined).toBe(0);
-    await act(async () => { document.querySelector('input[type="checkbox"]').click(); });
     expect(joinButton().disabled).toBe(false);
     const s = joinButton().style;
     // SHEET_PRIMARY_BUTTON_STYLE(--tap-min / --r-pill / 枠なし / --c-accent / --c-on-accent / --fs-md / 700・幅いっぱい)
@@ -132,10 +127,9 @@ describe("参加の画面はカード1枚(便BS)", () => {
   // 続けて2回押す(2回目は描き直しの前 = ボタンがまだ disabled になっていない間)。onJoin は終わらせずに待たせておく。
   it("二度押し: 参加の処理が終わる前にもう一度押しても onJoin は1回。終わればまた押せる", async () => {
     let calls = 0; let finish = null;
-    // 主ボタン(文字は「参加する」⇄「準備中…」と変わるので、並び = 同意の行のすぐ次で探す)
-    const mainButton = () => card().querySelector("label").nextElementSibling;
+    // 主ボタン(文字は「参加する」⇄「準備中…」と変わるので、並び = カードの7つ目の子で探す。【便CC】同意の行は無くなった)
+    const mainButton = () => card().children[6];
     await draw({ onJoin: () => { calls += 1; return new Promise((r) => { finish = r; }); } });
-    await act(async () => { document.querySelector('input[type="checkbox"]').click(); });
     await act(async () => { mainButton().click(); mainButton().click(); });
     expect(calls).toBe(1);
     expect(mainButton().textContent).toBe("準備中…");

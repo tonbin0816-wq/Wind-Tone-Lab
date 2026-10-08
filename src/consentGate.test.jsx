@@ -1,21 +1,28 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 
 // ------------------------------------------------------------------
 // 【便CB 2026-10-08 本人の依頼】起動の最初の同意の画面(src/ConsentScreen.jsx の AppRoot)。
+// 【便CC 2026-10-08 本人の直し】2枚になった(1枚目 = ようこそ / 2枚目 = 規約とポリシーの全文 + 下の帯のチェックと「次へ」)。
+// 参加のカードの同意のチェックは無くなった(本人「最初に同意撮るのでコミュニティで同意出すのはやめて」)。
 // **main.jsx が描くのと同じ根(AppRoot)**を描いて確かめる(アプリ単体 WindToneLabPhaseMode を描くのではない)。
-//   ・入れたての人: 同意の画面だけが出る(下部タブ・案内・マイクの取得は無い)。チェックするまで「はじめる」は押せない
-//   ・規約の導線はアプリの中のシートを開く(チェックは入らない)
-//   ・チェック → 「はじめる」で、kv に { at, version } が書かれ、アプリが描かれ、マイクが始まり ① が出る。引継の書き出しにも入る
-//   ・起動し直すと出ない(1回だけ)
-//   ・参加済みの既存の利用者(onboardingDone.join)には出さない(記録も書かない)
-//   ・参加していない既存の利用者(計測あり)には1回だけ出す
-//   ・見本(?tutorialpreview=1)は記録があっても毎回出し、記録は書かない
-//   ・参加のカード: 起動の最初に同意済みならチェックを出さず参加は押せる / 記録が無ければ今までどおりチェックを出す(根から配線を通す)
+//   ・入れたての人: 1枚目(芽・Ficus・1行・はじめる。チェックは無い)。下部タブ・案内・マイクの取得は無い
+//   ・はじめる → 2枚目: 規約 → ポリシーの全文(public/*.html を LegalSheet と同じ読み方で)。チェックするまで「次へ」は押せない
+//   ・次へで kv に { at, version } が書かれ、アプリが描かれ、マイクが始まり ① が出る。引継の書き出しにも入る
+//   ・2枚目で閉じたら次は1枚目から(枚はメモリの上だけ)/ 同意したら次からは出ない
+//   ・本文の中のリンク: mailto: は通す・それ以外は移動を止め、規約・ポリシーへのリンクはその文書へ送る
+//   ・参加済み(onboardingDone.join)には出さない / 参加していない既存の利用者(計測あり)には1回だけ / 欠けた記録は数えない
+//   ・見本は記録があっても毎回 1枚目 → 2枚目。記録は書かない
+//   ・参加のカード: どの人にも同意のチェックは無い
+//   ・記録の無い古いバックアップを読み戻したら(本物の validateSnapshot → writeAll → 読み込み直し)、次の起動で同意の画面が出る
 // サーバーは作り物(accountRepo などを差し替える。Firebase に触らない・アカウントを作らない)。IndexedDB も作り物。
-// 【守っていないもの】見た目の実寸(中央・安全域・iPad の列)と殻での ATT・広告の順番。実寸は headless Chrome の実測(報告)、
-//   ATT・広告は「マイクの最初の試みのあと」に始まる(shellStartAdsOnce)ので、マイクが同意の前に0回であることで間接に見ている。
+// public/*.html は fetch の作り物がディスクから返す(jsdom には同じ origin の配信が無い)。
+// 【守っていないもの】見た目の実寸(中央・帯の固定・安全域・iPad の列)と殻での ATT・広告の順番・iOS の戻るスワイプ。
+//   実寸は headless Chrome の実測(報告)。ATT・広告は「マイクの最初の試みのあと」に始まる(shellStartAdsOnce)ので、
+//   マイクが同意の前に0回であることで間接に見ている。戻るスワイプは履歴に何も積まない作り(ここでは history.length を見るだけ)。
 // ------------------------------------------------------------------
 
 vi.mock("./community/accountRepo.js", async (orig) => ({
@@ -29,8 +36,9 @@ vi.mock("./community/directory.js", async (orig) => ({ ...(await orig()), listPu
 vi.mock("./community/idealRepo.js", async (orig) => ({ ...(await orig()), listIdeals: vi.fn(async () => []), publishMyIdeals: vi.fn(async () => {}), unpublishAllIdeals: vi.fn(async () => {}) }));
 
 const W = 375; const H = 812;
-const AGREE = "利用規約とプライバシーポリシーに同意します";
-let fake; let host; let mod; let root; let realRect; let gum;
+const LINE = "サックス奏者のためのチューナー&メトロノーム";
+const AGREE = "利用規約とプライバシーポリシーに同意する";
+let fake; let host; let mod; let root; let realRect; let realSIV; let realFetch; let gum; let scrolled;
 
 async function loadApp() {
   vi.resetModules();
@@ -39,9 +47,9 @@ async function loadApp() {
   const { createRoot } = await import("react-dom/client");
   const App = await import("./App.jsx");
   const gate = await import("./ConsentScreen.jsx");
-  const terms = await import("./termsConsent.js");
   const local = await import("./backup/localStore.js");
-  return { React, act: React.act, createRoot, AppRoot: gate.default, openIdb: App.openIdb, warm: App.warmPersistedStateCache, terms, readAll: local.readAll };
+  const snap = await import("./backup/snapshot.js");
+  return { React, act: React.act, createRoot, AppRoot: gate.default, openIdb: App.openIdb, warm: App.warmPersistedStateCache, readAll: local.readAll, writeAll: local.writeAll, snap };
 }
 const kv = (key) => fake._peek("windToneLabDB", "kv")?.get(key);
 async function seed({ kvEntries = {}, sessions = [] } = {}) {
@@ -58,6 +66,7 @@ async function launch() {
   root = mod.createRoot(host);
   await mod.act(async () => { root.render(mod.React.createElement(mod.AppRoot)); });
 }
+// 閉じて開き直す(= 読み込み直し。モジュールごと作り直す)
 async function relaunch() {
   await mod.act(async () => root.unmount());
   host.remove(); document.body.innerHTML = "";
@@ -72,14 +81,25 @@ async function waitFor(pred, label, deadline = 10000) {
     await tick();
   }
 }
-const consent = () => document.querySelector("[data-consent-screen]");
+const screen = () => document.querySelector("[data-consent-screen]");
+const step = () => screen()?.getAttribute("data-consent-step") ?? null;
 const startBtn = () => document.querySelector("[data-consent-start]");
-const box = () => consent().querySelector('input[type="checkbox"]');
+const nextBtn = () => document.querySelector("[data-consent-next]");
+const box = () => screen().querySelector('input[type="checkbox"]');
+const section = (k) => document.querySelector(`[data-legal-section="${k}"]`);
 const navBar = () => document.querySelector("[data-bottom-nav]");
 const layerId = () => document.querySelector("[data-coach-layer]")?.getAttribute("data-coach-layer") ?? null;
 const click = (el) => mod.act(async () => { el.click(); });
 const joinCard = () => document.querySelector("[data-join-card]");
 const joinBtn = () => [...joinCard().querySelectorAll("button")].find((b) => b.textContent.trim() === "参加する");
+// 1枚目 → 2枚目 → チェック → 次へ
+async function passConsent() {
+  await click(startBtn());
+  await waitFor(() => step() === "terms", "2枚目");
+  await click(box());
+  await click(nextBtn());
+  await waitFor(() => navBar(), "アプリ(下部タブ)");
+}
 
 // 作り物のマイク(onboardingApp.test.jsx の installFakeMic と同じ形)。getUserMedia の呼ばれた回数を数える。
 function installFakeMic() {
@@ -127,6 +147,16 @@ beforeEach(() => {
     if (this.getAttribute?.("data-coach") === "tuner") return b(14, 96, 347, 330);
     return b(0, 0, 0, 0);
   };
+  scrolled = [];
+  realSIV = window.Element.prototype.scrollIntoView;
+  window.Element.prototype.scrollIntoView = function () { scrolled.push(this.getAttribute?.("data-legal-section") ?? this.tagName); };
+  // 同じ origin の public/*.html(LegalSheet の loadLegalHtml が fetch する)
+  realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const name = String(url).replace(/^\//, "");
+    if (!/^(terms|privacy)\.html$/.test(name)) return { ok: false, status: 404, text: async () => "" };
+    return { ok: true, status: 200, text: async () => readFileSync(join(process.cwd(), "public", name), "utf8") };
+  };
   installFakeMic();
 });
 afterEach(async () => {
@@ -136,6 +166,8 @@ afterEach(async () => {
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("data-tutorial-preview");
   window.Element.prototype.getBoundingClientRect = realRect;
+  window.Element.prototype.scrollIntoView = realSIV;
+  globalThis.fetch = realFetch;
   delete window.AudioContext;
   try { delete window.navigator.mediaDevices; } catch { /* */ }
 });
@@ -144,49 +176,76 @@ const GATES = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true
 const NOW_ISO = new Date(Date.now() - 60 * 1000).toISOString();
 const SESSION = (id) => ({ id, recordedAt: NOW_ISO, saxType: "alto", reedId: null, linkedAt: null, memo: null, performer: "自分", source: "live", frames: [], barlines: [], noteEvents: [] });
 
-describe("入れたての人: 同意の画面から始まる", () => {
-  it("同意の画面だけが出る(下部タブ・案内・マイクは無い)。チェックするまで「はじめる」は押せない。導線はシートを開きチェックは入らない", async () => {
+describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
+  it("1枚目: 芽・Ficus・1行・はじめる(最初から押せる)だけ。チェックは無い。下部タブ・案内・マイクは無い", async () => {
     mod = await loadApp();
     await launch();
-    expect(consent()).not.toBe(null);
-    expect(consent().querySelector("h1").textContent).toBe("Ficus");
-    expect(consent().querySelector("p").textContent).toBe("サックスの音程と音色を測って記録するアプリです");
-    expect(consent().querySelector("label").textContent).toBe(AGREE);
-    expect(consent().querySelector("label").style.minHeight).toBe("var(--tap-min)");   // 参加のカードと同じ AgreeRow
-    // アイコンの芽(読み込み中の絵の 100% = 塗りの1枚だけ・線は描かない)
-    const svg = consent().querySelector("svg");
+    expect(step()).toBe("welcome");
+    expect(screen().querySelector("h1").textContent).toBe("Ficus");
+    const p = screen().querySelector("p");
+    expect(p.textContent).toBe(LINE);
+    expect(p.textContent).toContain("&");            // 半角の & がそのまま出る(&amp; の字のまま見えない)
+    expect(p.textContent).not.toContain("&amp;");
+    const svg = screen().querySelector("svg");       // アイコンの芽(読み込み中の絵の 100% = 塗りの1枚)
     expect(svg.getAttribute("width")).toBe("88");
     expect(svg.querySelectorAll("path")).toHaveLength(1);
-    await tick(400);
+    expect(screen().querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(screen().textContent).not.toContain("同意");
+    expect(startBtn().textContent).toBe("はじめる");
+    expect(startBtn().disabled).toBe(false);
+    expect(startBtn().style.background).toBe("var(--c-accent)");
+    await tick(300);
     expect(navBar()).toBe(null);
     expect(layerId()).toBe(null);
     expect(gum).toBe(0);
-    expect(startBtn().textContent).toBe("はじめる");
-    expect(startBtn().disabled).toBe(true);
-    expect(startBtn().style.background).toBe("var(--c-disabled)");
-    await click(startBtn());
-    await tick(100);
-    expect(consent()).not.toBe(null);
-    expect(kv("termsConsent")).toBeUndefined();
-    // 規約の導線: アプリの中のシート(LegalSheet)。<label> の中にあるがチェックは入らない
-    await click([...consent().querySelectorAll("button")].find((b) => b.textContent === "利用規約"));
-    await waitFor(() => document.querySelector('[role="dialog"][aria-label="利用規約"]'), "規約のシート");
-    expect(box().checked).toBe(false);
-    expect(startBtn().disabled).toBe(true);
-    expect(gum).toBe(0);
   }, 30000);
 
-  it("チェック → はじめる: kv に日時と版を書き、アプリが描かれ、マイクが始まり ① が出る。引継の書き出しにも入る", async () => {
+  it("はじめる → 2枚目: 規約 → ポリシーの全文が最初から出る。チェックするまで「次へ」は押せない。履歴に積まない", async () => {
     mod = await loadApp();
     await launch();
-    await click(consent().querySelector("label > span:last-child"));   // 行の文字を押しても入る
-    expect(box().checked).toBe(true);
-    expect(startBtn().disabled).toBe(false);
-    expect(startBtn().style.background).toBe("var(--c-accent)");
-    const before = Date.now();
+    const histBefore = window.history.length;
     await click(startBtn());
+    await waitFor(() => step() === "terms", "2枚目");
+    await waitFor(() => section("terms")?.querySelector("h1") && section("privacy")?.querySelector("h1"), "2つの本文");
+    expect(section("terms").className).toBe("legal-doc");
+    expect(section("terms").querySelector("h1").textContent).toBe("利用規約");
+    expect(section("privacy").querySelector("h1").textContent).toBe("プライバシーポリシー");
+    expect(section("terms").textContent).toContain("本アプリの利用開始時（初めて起動したとき）に、本規約とプライバシーポリシーへの同意をいただいています。");
+    expect(section("privacy").textContent).toContain("Google AdMob");
+    expect(section("terms").querySelector(".back")).toBe(null);   // 「← Ficus に戻る」は描かない(LegalSheet と同じ)
+    expect(Boolean(section("terms").compareDocumentPosition(section("privacy")) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    // 本文はスクロールの器の中・帯はその外(流れの最後の子)
+    const scroller = document.querySelector("[data-consent-scroll]");
+    const bar = document.querySelector("[data-consent-bar]");
+    expect(scroller.contains(section("privacy"))).toBe(true);
+    expect(scroller.contains(bar)).toBe(false);
+    expect(screen().lastElementChild).toBe(bar);
+    expect(bar.querySelector("label").textContent).toBe(AGREE);
+    expect(nextBtn().textContent).toBe("次へ");
+    expect(nextBtn().disabled).toBe(true);
+    expect(nextBtn().style.background).toBe("var(--c-disabled)");
+    await click(nextBtn());
+    await tick(100);
+    expect(step()).toBe("terms");
+    expect(kv("termsConsent")).toBeUndefined();
+    expect(gum).toBe(0);
+    expect(navBar()).toBe(null);
+    expect(window.history.length).toBe(histBefore);
+  }, 30000);
+
+  it("チェック → 次へ: kv に日時と版を書き、アプリが描かれ、マイクが始まり ① が出る。引継の書き出しにも入る", async () => {
+    mod = await loadApp();
+    await launch();
+    await click(startBtn());
+    await waitFor(() => step() === "terms", "2枚目");
+    await click(screen().querySelector("label > span:last-child"));   // 行の文字を押しても入る
+    expect(box().checked).toBe(true);
+    expect(nextBtn().disabled).toBe(false);
+    expect(nextBtn().style.background).toBe("var(--c-accent)");
+    const before = Date.now();
+    await click(nextBtn());
     await waitFor(() => navBar(), "アプリ(下部タブ)");
-    expect(consent()).toBe(null);
+    expect(screen()).toBe(null);
     await waitFor(() => kv("termsConsent"), "同意の記録(kv)");
     const rec = kv("termsConsent");
     expect(Object.keys(rec).sort()).toEqual(["at", "version"]);
@@ -197,21 +256,60 @@ describe("入れたての人: 同意の画面から始まる", () => {
     await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
     const snap = await mod.readAll();
     expect(snap.kv.termsConsent).toEqual(rec);
-    expect(snap.kv).toHaveProperty("onboardingDone");   // onboardingDone と同じ層(kv)に入る
   }, 30000);
 
-  it("起動し直すと出ない(1回だけ)。記録は書き換えない", async () => {
+  it("2枚目で閉じたら、次は1枚目から(記録は無い)", async () => {
     mod = await loadApp();
     await launch();
-    await click(box());
     await click(startBtn());
+    await waitFor(() => step() === "terms", "2枚目");
+    await click(box());   // チェックしただけで次へは押さない
+    await relaunch();
+    expect(step()).toBe("welcome");
+    expect(kv("termsConsent")).toBeUndefined();
+    expect(gum).toBe(0);
+  }, 30000);
+
+  it("同意したら、起動し直しても出ない。記録は書き換えない", async () => {
+    mod = await loadApp();
+    await launch();
+    await passConsent();
     await waitFor(() => kv("termsConsent"), "同意の記録");
     const rec = structuredClone(kv("termsConsent"));
     await relaunch();
-    expect(consent()).toBe(null);
+    expect(screen()).toBe(null);
     expect(navBar()).not.toBe(null);
     await tick(200);
     expect(kv("termsConsent")).toEqual(rec);
+  }, 30000);
+
+  it("本文の中のリンク: mailto: は止めない。規約・ポリシーへのリンクは移動を止めて、その文書へ送る", async () => {
+    mod = await loadApp();
+    await launch();
+    await click(startBtn());
+    await waitFor(() => section("privacy")?.querySelector("h1"), "2つの本文");
+    // 画面の受け(React の onClick。根の要素で受ける)のあとに window で defaultPrevented を読み、そのあと jsdom の移動を起こさないよう止める
+    const clickAndRead = async (el) => {
+      const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+      let seen = null;
+      const onWin = (e) => { if (e === ev) { seen = e.defaultPrevented; e.preventDefault(); } };
+      window.addEventListener("click", onWin);
+      await mod.act(async () => { el.dispatchEvent(ev); });
+      window.removeEventListener("click", onWin);
+      return seen;
+    };
+    const mail = section("terms").querySelector('a[href^="mailto:"]');
+    expect(mail).not.toBe(null);
+    expect(await clickAndRead(mail)).toBe(false);   // 本文の mailto: は止めない(メールのアプリへ)
+    const toPrivacy = document.createElement("a"); toPrivacy.setAttribute("href", "/privacy.html"); toPrivacy.textContent = "p";
+    section("terms").appendChild(toPrivacy);
+    expect(await clickAndRead(toPrivacy)).toBe(true);
+    expect(scrolled).toEqual(["privacy"]);
+    const outside = document.createElement("a"); outside.setAttribute("href", "https://example.com/"); outside.textContent = "o";
+    section("privacy").appendChild(outside);
+    expect(await clickAndRead(outside)).toBe(true);
+    expect(scrolled).toEqual(["privacy"]);
+    expect(step()).toBe("terms");
   }, 30000);
 });
 
@@ -220,7 +318,7 @@ describe("既存の利用者", () => {
     mod = await loadApp();
     await seed({ kvEntries: { onboardingDone: { ...GATES, join: true, measure: true } }, sessions: [SESSION("s1")] });
     await launch();
-    expect(consent()).toBe(null);
+    expect(screen()).toBe(null);
     expect(navBar()).not.toBe(null);
     await tick(300);
     expect(kv("termsConsent")).toBeUndefined();
@@ -230,151 +328,107 @@ describe("既存の利用者", () => {
     mod = await loadApp();
     await seed({ kvEntries: { onboardingDone: { ...GATES, measure: true, tuner: true, metronome: true } }, sessions: [SESSION("s1")] });
     await launch();
-    expect(consent()).not.toBe(null);
+    expect(step()).toBe("welcome");
     await tick(300);
     expect(gum).toBe(0);
     expect(navBar()).toBe(null);
-    await click(box());
-    await click(startBtn());
-    await waitFor(() => navBar(), "アプリ");
+    await passConsent();
     await waitFor(() => gum > 0, "同意のあとにマイク");
     await waitFor(() => kv("termsConsent"), "同意の記録");
     await relaunch();
-    expect(consent()).toBe(null);
+    expect(screen()).toBe(null);
   }, 30000);
 
   it("壊れた記録(版が無い)は記録として数えない(出す)", async () => {
     mod = await loadApp();
     await seed({ kvEntries: { termsConsent: { at: "2026-10-08T00:00:00.000Z" }, onboardingDone: { ...GATES } } });
     await launch();
-    expect(consent()).not.toBe(null);
+    expect(step()).toBe("welcome");
   }, 30000);
 });
 
+describe("記録の無い古いバックアップを読み戻したとき(本物の validateSnapshot → writeAll → 読み込み直し)", () => {
+  const oldFile = (kvEntries) => JSON.parse(JSON.stringify(mod.snap.buildSnapshot({ kv: kvEntries, sessions: [SESSION("old1")] })));
+  it("同意済みの端末に記録の無いファイルを読み戻すと、次の起動で同意の画面(1枚目)が出る", async () => {
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    await waitFor(() => kv("termsConsent"), "同意の記録");
+    const checked = mod.snap.validateSnapshot(oldFile({ onboardingDone: { ...GATES, measure: true } }));
+    expect(checked.ok).toBe(true);
+    expect(checked.data.kv.termsConsent).toBeUndefined();
+    await mod.writeAll({ kv: checked.data.kv, sessions: checked.data.sessions });   // BackupPanel の読み戻しと同じ呼び出し(このあと reload)
+    expect(kv("termsConsent")).toBeUndefined();
+    await relaunch();
+    expect(step()).toBe("welcome");
+    expect(navBar()).toBe(null);
+    await passConsent();
+    await waitFor(() => kv("termsConsent")?.version === "2026-10-08", "同意し直した記録");
+  }, 40000);
+
+  it("参加の印のあるファイルなら、記録が無くても出さない(参加のときに同意している)", async () => {
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    const checked = mod.snap.validateSnapshot(oldFile({ onboardingDone: { ...GATES, join: true } }));
+    await mod.writeAll({ kv: checked.data.kv, sessions: checked.data.sessions });
+    await relaunch();
+    expect(screen()).toBe(null);
+    expect(navBar()).not.toBe(null);
+  }, 40000);
+});
+
 describe("見本(?tutorialpreview=1)", () => {
-  it("記録があっても毎回出す。同意しても記録は書かない(書き換えない)", async () => {
+  it("記録があっても毎回 1枚目 → 2枚目。同意しても記録は書かない(書き換えない)", async () => {
     document.documentElement.setAttribute("data-tutorial-preview", "1");
     const REC = { at: "2026-10-08T00:00:00.000Z", version: "2026-10-08" };
     mod = await loadApp();
     await seed({ kvEntries: { termsConsent: REC, onboardingDone: { ...GATES } } });
     await launch();
-    expect(consent()).not.toBe(null);
+    expect(step()).toBe("welcome");
     expect(gum).toBe(0);
-    await click(box());
-    await click(startBtn());
-    await waitFor(() => navBar(), "アプリ");
+    await passConsent();
     await waitFor(() => layerId() === "tuner", "見本の ①");
     expect(kv("termsConsent")).toEqual(REC);
     await relaunch();
-    expect(consent()).not.toBe(null);   // 開き直してもまた出る
+    expect(step()).toBe("welcome");   // 開き直してもまた出る
   }, 30000);
 
   it("記録の無い端末の見本でも、同意しても記録は書かない", async () => {
     document.documentElement.setAttribute("data-tutorial-preview", "1");
     mod = await loadApp();
     await launch();
-    await click(box());
-    await click(startBtn());
-    await waitFor(() => navBar(), "アプリ");
+    await passConsent();
     await tick(300);
     expect(kv("termsConsent")).toBeUndefined();
   }, 30000);
 });
 
-describe("参加のカード(根 → アプリ → コミュニティ → JoinIntro の配線)", () => {
+describe("参加のカード(根 → アプリ → コミュニティ → JoinIntro)に同意のチェックは無い", () => {
   const openCommunity = async () => {
     await click(document.querySelector('button[aria-label="コミュニティ"]'));
     await waitFor(() => joinCard(), "参加のカード", 20000);
   };
-  it("起動の最初に同意した人: チェックを出さず、参加は押せる", async () => {
-    mod = await loadApp();
-    await launch();
-    await click(box());
-    await click(startBtn());
-    await waitFor(() => navBar(), "アプリ");
-    await openCommunity();
+  const expectNoCheck = () => {
     expect(joinCard().querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(joinCard().textContent).not.toContain(AGREE);
+    expect(joinCard().textContent).not.toContain("同意します");
     expect(joinBtn().disabled).toBe(false);
     expect(joinBtn().style.background).toBe("var(--c-accent)");
-  }, 40000);
-
-  it("記録のある起動(2回目以降)でもチェックを出さない", async () => {
+  };
+  it("起動の最初に同意した人", async () => {
     mod = await loadApp();
-    await seed({ kvEntries: { termsConsent: { at: "2026-10-08T00:00:00.000Z", version: "2026-10-08" }, onboardingDone: { ...GATES } } });
     await launch();
-    expect(consent()).toBe(null);
+    await passConsent();
     await openCommunity();
-    expect(joinCard().querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(joinBtn().disabled).toBe(false);
+    expectNoCheck();
   }, 40000);
 
-  it("記録が無い(参加の印だけ残っている = 古いバックアップ・アカウントを消した等): 今までどおりチェックを出し、入るまで押せない", async () => {
+  it("記録が無く参加の印だけある人(同意の画面は出ない)にも出さない", async () => {
     mod = await loadApp();
     await seed({ kvEntries: { onboardingDone: { ...GATES, join: true } } });
     await launch();
-    expect(consent()).toBe(null);
+    expect(screen()).toBe(null);
     await openCommunity();
-    const cb = joinCard().querySelector('input[type="checkbox"]');
-    expect(cb).not.toBe(null);
-    expect(cb.closest("label").textContent).toBe(AGREE);
-    expect(joinBtn().disabled).toBe(true);
-    expect(joinBtn().style.background).toBe("var(--c-disabled)");
-    await click(cb);
-    expect(joinBtn().disabled).toBe(false);
-  }, 40000);
-
-  // 【便CB 統括の指示】記録の無い人が参加のカードでチェックを入れて参加できたら、記録(日時と今の版)を書く。成功のときだけ。
-  const seedJoinedNoRecord = () => seed({ kvEntries: { onboardingDone: { ...GATES, join: true } } });
-  it("記録が無い人がカードで同意して参加できたら、kv に日時と今の版を書く", async () => {
-    mod = await loadApp();
-    const repo = await import("./community/accountRepo.js");
-    repo.ensureSignedIn.mockReset();
-    repo.ensureSignedIn.mockImplementation(async () => "new-uid");
-    await seedJoinedNoRecord();
-    await launch();
-    await openCommunity();
-    await click(joinCard().querySelector('input[type="checkbox"]'));
-    const before = Date.now();
-    await click(joinBtn());
-    await waitFor(() => kv("termsConsent"), "参加の成功で記録");
-    const rec = kv("termsConsent");
-    expect(Object.keys(rec).sort()).toEqual(["at", "version"]);
-    expect(rec.version).toBe("2026-10-08");
-    expect(Math.abs(Date.parse(rec.at) - before)).toBeLessThan(5000);
-    expect(repo.ensureSignedIn).toHaveBeenCalledTimes(1);
-    // 記録が入ったので、起動し直しても同意の画面は出ない
-    await relaunch();
-    expect(consent()).toBe(null);
-  }, 40000);
-
-  it("参加に失敗したら(アカウントが作れない)記録を書かない", async () => {
-    mod = await loadApp();
-    const repo = await import("./community/accountRepo.js");
-    repo.ensureSignedIn.mockReset();
-    repo.ensureSignedIn.mockImplementation(async () => { throw new Error("検査: サインインしない"); });
-    await seedJoinedNoRecord();
-    await launch();
-    await openCommunity();
-    await click(joinCard().querySelector('input[type="checkbox"]'));
-    await click(joinBtn());
-    await waitFor(() => !joinCard(), "参加の失敗(エラーの画面へ)");
-    await tick(300);
-    expect(kv("termsConsent")).toBeUndefined();
-  }, 40000);
-
-  it("起動の最初に同意済みの人が参加しても、記録は書き換えない", async () => {
-    const REC = { at: "2026-10-08T00:00:00.000Z", version: "2026-10-08" };
-    mod = await loadApp();
-    const repo = await import("./community/accountRepo.js");
-    repo.ensureSignedIn.mockReset();
-    repo.ensureSignedIn.mockImplementation(async () => "new-uid");
-    await seed({ kvEntries: { termsConsent: REC, onboardingDone: { ...GATES } } });
-    await launch();
-    await openCommunity();
-    await click(joinBtn());
-    await waitFor(() => repo.ensureSignedIn.mock.calls.length === 1 && !joinCard(), "参加の成功(フォームへ)");
-    await tick(300);
-    expect(kv("termsConsent")).toEqual(REC);
+    expectNoCheck();
   }, 40000);
 });

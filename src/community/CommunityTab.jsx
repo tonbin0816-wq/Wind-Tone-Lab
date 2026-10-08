@@ -61,8 +61,6 @@ import LoadingRing from "./LoadingRing.jsx";
 import LegalSheet from "./LegalSheet.jsx";
 // 【束3 2026-09-19 本人指示】お問い合わせもアプリの中で完結する(メールへ飛ばさない)。
 import FeedbackSheet from "./FeedbackSheet.jsx";
-// 【便CB 2026-10-08】規約への同意のチェックと導線の見た目。起動の最初の同意の画面(ConsentScreen.jsx)と共有する1つ。
-import { AgreeRow, linkButtonStyle } from "../agreeRow.jsx";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -161,13 +159,11 @@ const DELETE_PARTIAL_NOTICE =
 // 呼ぶのは「参加済みと分かった("join")」の1つだけ(【便BQ】奏者を開く段は本人の指示で外した)。渡さなければ何も起きない。
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
-// 【便CB 2026-10-08】termsAgreed = 起動の最初の同意の画面で同意した記録がある(App の根 ConsentScreen.jsx の AppRoot から)。
-// 参加のカード(JoinIntro)へ配るだけ。true なら参加のカードに同意のチェックを出さない。渡されない(false)ときは今までどおりチェックを出す。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false }) {
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} termsAgreed={termsAgreed} onTermsAgreed={onTermsAgreed} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} wide={wide} />
     </>
   );
 }
@@ -521,7 +517,7 @@ export function DeviceTransferSheet({ onClose }) {
 }
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -628,17 +624,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         notice={notice}
         /* 【便BV】広いなら裏の見本を参加後と同じ2ペインの形で敷く。 */
         wide={wide}
-        /* 【便CB】起動の最初に同意した記録があれば、参加のカードに同意のチェックを出さない。 */
-        termsAgreed={termsAgreed}
         onJoin={async () => {
           // ここで初めて匿名アカウントが作られる。9項目を埋めきってから
           // 「圏外でした」と分かるより、押した瞬間に失敗を見せたほうが親切。
           try {
             setNotice(null);
             await ensureUid();
-            // 【便CB 統括の指示】記録の無い人(= このカードのチェックを入れて押した人)が参加できたら、同意の記録(日時と今の版)を書く。
-            // 書くのは成功のときだけ(失敗は下の catch へ行き、ここを通らない)。起動の最初に同意済みの人の記録は書き換えない。
-            if (!termsAgreed) onTermsAgreed?.();
             setPhase("form");
           } catch (e) {
             setErrorMsg(connectErrorOf(e));
@@ -815,8 +806,15 @@ function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
 }
 
-// 【便CB 2026-10-08】規約・ポリシーの導線の見た目(linkButtonStyle)と同意のチェック(AgreeRow)は src/agreeRow.jsx へ移した
-// (起動の最初の同意の画面も読むため。中身は1文字も変えていない)。上の import で読む。
+// 文章の中のリンクの見た目をした <button>。JoinIntro の規約・ポリシー用(押すとシートが開く)。
+// 以前の <a>(色だけ指定・下線はブラウザ既定)と同じ見え方にする。文字の大きさは行(noteStyle)を継ぐ。
+const linkButtonStyle = {
+  background: "none", border: "none", padding: 0, font: "inherit",
+  color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
+};
+
+// 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加のカードの同意のチェック(AgreeRow)は外した。
+// 部品は起動の最初の同意の画面(src/ConsentScreen.jsx の2枚目)が使うので src/agreeRow.jsx に置いてある。
 
 // ------------------------------------------------------------------
 // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
@@ -825,8 +823,8 @@ function Centered({ children }) {
 //   2. 暗幕 … .coach-dim(--c-coach-dim)。タップは下へ通す(下部タブは今までどおり押せる)
 //   3. カード … はじめの一手のカード(.coach-card)と同じ形(角丸・影・内側)で、見える範囲の中央(.join-frame)。地は白のまま
 //      (【便BX】案内のカードの地は --c-accent-tint になったが、参加のカードは白・アイコンの丸は --c-accent-tint のまま)。中身は上から
-//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・同意のチェック・「参加する」・「端末を替えるとき」(【便BX】旧「アカウント引継」)
-// 読む → 同意する → 参加する の順に上から並ぶ。**カードの外を押しても Escape でも消えない**(消すとこの画面にやることが無くなる)。
+//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・「参加する」・「端末を替えるとき」(【便BX】旧「アカウント引継」)
+// 読む → 参加する の順に上から並ぶ(【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。**カードの外を押しても Escape でも消えない**(消すとこの画面にやることが無くなる)。
 // 以前の見出し「コミュニティ」はカードの見出しに替わった。ボタンの文字は「参加してプロフィールを作る」→「参加する」
 // (プロフィールは参加した次の画面で作るので、ここでは言わない)。
 // 参加の段は、はじめの一手(onboarding.jsx)からは外した(済んだ印を持たない。参加していなければ出る・参加すれば出ない)。
@@ -860,18 +858,13 @@ function useJoinFrameHeight() {
 
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。裏の見本を参加後のデータの子タブと同じ2ペインの形で敷く(仕様 §4.7)。
 // カード(中身・文言・ボタン)は触らない(幅の上限 --page-max-w・中央は index.css の .join-card が便BT で持っている)。
-// 【便CB 2026-10-08 本人の依頼】termsAgreed = 起動の最初の同意の画面で同意した記録がある。そのときは同意のチェックを出さず、
-// 参加はチェック無しで押せる(同意は済んでいる)。記録が無い(古いバックアップを読み戻した・参加していた人がアカウントを消した等)ときだけ、
-// 今までどおりチェックを出す。
-export function JoinIntro({ onJoin, notice = null, termsAgreed = false, wide = false }) {
+export function JoinIntro({ onJoin, notice = null, wide = false }) {
   const titleId = useId();
   const frameH = useJoinFrameHeight();
   const [busy, setBusy] = useState(false);
-  // 【便BC 2026-09-25】規約とプライバシーポリシーへの同意。**保存しない**(この画面を開くたびに外れた状態から)。
-  // 入るまで参加の一手は押せない。
-  const [agreed, setAgreed] = useState(false);
-  // 【便CB】参加してよいか = 起動の最初に同意済み、またはこのカードのチェックが入っている。
-  const canJoin = termsAgreed || agreed;
+  // (【便BC 2026-09-25】ここに規約への同意のチェックの state があった。【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】
+  //  同意は起動の最初の同意の画面(src/ConsentScreen.jsx)で取るので外した。記録の無い人(古いバックアップの読み戻しなど)は、
+  //  読み戻しのあとの再読み込みで根(AppRoot)が同意の画面を出す。参加の印がある人は参加のときに同意している。)
   // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
   // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
   // 【便BX 2026-10-06 本人の決定 D1】開くのは参加の場面に絞った「端末を替えるとき」(DeviceTransferSheet)。処理は BackupPanel と同じ
@@ -887,7 +880,6 @@ export function JoinIntro({ onJoin, notice = null, termsAgreed = false, wide = f
   const busyRef = useRef(false);
   const join = async () => {
     if (busyRef.current) return; // 二度押しで signInAnonymously が二重に走らないようにする
-    if (!canJoin) return; // 【便BC】同意の前は押せない(disabled と二重に守る)。【便CB】起動の最初に同意済みなら押せる
     busyRef.current = true;
     setBusy(true);
     try { await onJoin(); } finally { busyRef.current = false; setBusy(false); }
@@ -924,14 +916,10 @@ export function JoinIntro({ onJoin, notice = null, termsAgreed = false, wide = f
             <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
             <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
           </div>
-          {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。
-              【便CB 2026-10-08】起動の最初に同意済み(termsAgreed)なら出さない。 */}
-          {termsAgreed ? null : <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>}
-          {/* 【便BS】主ボタンはシートの主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)。同意するまで地 --c-disabled で押せない(便BC)。
+          {/* 【便BS】主ボタンはシートの主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)。(【便CC】同意のチェックを外したので、最初から押せる)
               (【便BP】の data-coach="join" は、参加の段をはじめの一手から外したので消した) */}
-          <button type="button" onClick={join} disabled={busy || !canJoin} className="sans"
-            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, background: canJoin ? "var(--c-accent)" : "var(--c-disabled)",
-                     cursor: canJoin ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
+          <button type="button" onClick={join} disabled={busy} className="sans"
+            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, opacity: busy ? 0.6 : 1 }}>
             {busy ? "準備中…" : "参加する"}
           </button>
           {/* 【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。
