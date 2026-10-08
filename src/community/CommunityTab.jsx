@@ -18,9 +18,9 @@ import {
 import { saveAvatarPhoto } from "./photoRepo.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
-// 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)・主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)、
+// 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)、
 // カードの絵・重なり順・見える範囲の下端は、はじめの一手(onboarding.jsx)と同じものを読む(写しを作らない)。
-// 【便CD 2026-10-08】参加のカードの主ボタンを外したので SHEET_PRIMARY_BUTTON_STYLE は読まない。
+// (【便CD 2026-10-08】参加のカードの主ボタンを外したので、主ボタンの標準 SHEET_PRIMARY_BUTTON_STYLE は読まない)
 import { JoinPreviewDataScreen } from "./screens.jsx";
 // 【便BV 2026-10-04 本人裁定(案B)】iPad の2ペイン: 右ペインの人物のページ(PersonBody = PersonSheet の中身そのもの)と、
 // 右に何も選んでいないときの1行(PaneEmpty。リードタブと同じ App.jsx の1つ)。写しを作らない。
@@ -47,10 +47,9 @@ import { BLOCKED_USERS_KEY, normalizeBlockedList, addBlocked, removeBlocked, hid
 // 【アカウント引継の中身は backup/BackupPanel.jsx の「記録の保存」そのもの】写しを作らない。
 // 書き出し・読み戻しの規則は backup/ 側だけが持ち、こちらは置き場所を持つだけ。
 // 【便BB 2026-09-25】以前ここには「My Data の記録の保存」とあったが、App.jsx(My Data)は
-// BackupPanel を描いていない。置き場所はマイページ(参加済み)と参加前の画面(JoinIntro)の2つ。
+// BackupPanel を描いていない。置き場所はマイページ(参加済み)の1つ
+// (【便CE 2026-10-08】参加前の画面の入口「端末を替えるとき」(DeviceTransferPanel)は部品ごと消した。全員が参加し、書き出しはマイページから)。
 import BackupPanel from "../backup/BackupPanel.jsx";
-// 【便BX 2026-10-06 本人の決定 D1】参加の画面の導線「端末を替えるとき」のシートの中身(処理は BackupPanel の useBackupActions)。
-import DeviceTransferPanel, { DEVICE_TRANSFER_TITLE } from "../backup/DeviceTransferPanel.jsx";
 import { publishStats, withMyRow } from "./directory.js";
 import { computePracticeStats } from "./stats.js";
 import { searchInstrumentModels, searchMouthpieces, searchLigatures, searchReeds, OTHER_BRAND } from "./catalog/gear.js";
@@ -481,7 +480,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   );
 }
 
-// 【アカウント引継】プロフィールの一番下から開く(【便BX】参加前の画面(JoinIntro)の導線は「端末を替えるとき」= DeviceTransferSheet になった)。
+// 【アカウント引継】プロフィールの一番下から開く(記録の書き出し・読み戻しの唯一の入口。【便CE】参加前の「端末を替えるとき」は部品ごと消した)。
 // 中身は BackupPanel(記録の保存)を**そのまま**出すだけで、このファイルは器を1つも持たない。
 //
 // 【C-14 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
@@ -506,17 +505,8 @@ export function BackupSheet({ onClose }) {
   );
 }
 
-// 【便CD 2026-10-08】参加のカードの導線「端末を替えるとき」は外した(呼び手はいまゼロ。部品は残す)。
-// 【便BX 2026-10-06 本人の決定 D1】参加の画面(JoinIntro)の導線「端末を替えるとき」から開くシート。中身は参加の場面に絞った DeviceTransferPanel
-// (記録はファイルで移せる / 匿名アカウントは移せない / 手順3つ / 主ボタン「ファイルから読み戻す」/ 細い導線「この端末の記録を書き出す」)。
-// 書き出し・読み戻しの処理は BackupPanel の useBackupActions を使い回す(写しを作らない)。マイページの BackupSheet(汎用の「記録の保存」)は変えない。
-export function DeviceTransferSheet({ onClose }) {
-  return (
-    <BottomSheet ariaLabel={DEVICE_TRANSFER_TITLE} onClose={onClose}>
-      <DeviceTransferPanel />
-    </BottomSheet>
-  );
-}
+// (【便BX】ここに参加の画面の導線「端末を替えるとき」から開くシート DeviceTransferSheet があった。【便CD】で導線を外し、
+//  【便CE 2026-10-08】参加しない選択肢が無くなったので部品(DeviceTransferPanel.jsx)ごと消した)
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
 function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false }) {
@@ -592,7 +582,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
     return () => { alive = false; };
   }, [reloadKey]);
 
-  // 【匿名アカウントを作る唯一の場所】呼ばれるのは (a) 参加ボタン (b) 保存の直前 の2つだけ。
+  // 【匿名アカウントを作る唯一の場所】呼ばれるのは (a) 参加のカード(【便CD】カードそのものが「参加する」) (b) 保存の直前 の2つだけ。
   // どちらも利用者が「参加する」と決めたあとなので、説明文と実態がずれない。
   // アカウント削除の直後は uid が null に戻るが、そこで即座にサインインし直すと
   // 「消したのに新しいアカウントができる」ので、次に参加を押すまで作らない。
@@ -834,14 +824,7 @@ const JOIN_LINE = "みんなの計測データが見られます";
 const JOIN_ACTION = "参加する";
 // 説明の1段落目(版の p.body。--fs-sm・行間 --lh-loose・--c-ink-2・上に --sp-1)。2段落目は noteStyle(小さく --c-ink-3)のまま。
 const joinLeadStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink-2)", lineHeight: "var(--lh-loose)", marginTop: "var(--sp-1)" };
-// 細い導線「アカウント引継」(版の .quiet)。地も枠も無い文字だけ・--fs-sm・600・--c-ink-2。当たりは §5 の --tap-min
-// (版の 32 は当たりの最小に足りないので 44 にした)。【便BX】導線の名前は「端末を替えるとき」になった。
-// 「端末を替えるとき」のシートの細い導線(この端末の記録を書き出す)も同じ体裁なので export する(DeviceTransferPanel.jsx が読む)。
-// 【便CD 2026-10-08】参加のカードの「端末を替えるとき」は外した(読み手は DeviceTransferPanel.jsx だけ)。
-export const JOIN_QUIET_LINK_STYLE = {
-  width: "100%", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
-  color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
-};
+// (ここに細い導線の体裁 JOIN_QUIET_LINK_STYLE があった。最後の読み手 DeviceTransferPanel.jsx を【便CE 2026-10-08】に消したので一緒に消した)
 const NOOP = () => {};
 // 見える範囲の下端(下部タブの上端 − 広告の帯 --ad-h)。はじめの一手のカードと同じ読み方(onboarding.jsx の readBottomLimit)。
 // 【殻 S3】殻では帯の高さが後から決まる(広告が届いて --ad-h が変わる)ので、その知らせでも読み直す。
@@ -866,7 +849,7 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
   //  同意は起動の最初の同意の画面(src/ConsentScreen.jsx)で取るので外した。記録の無い人(古いバックアップの読み戻しなど)は、
   //  読み戻しのあとの再読み込みで根(AppRoot)が同意の画面を出す。参加の印がある人は参加のときに同意している。)
   // (【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」】ここに規約・ポリシー・お問い合わせのシートと、
-  //  「端末を替えるとき」(DeviceTransferSheet)のシートの state があった。導線ごとカードから外した。
+  //  「端末を替えるとき」(DeviceTransferSheet。【便CE】部品ごと消した)のシートの state があった。導線ごとカードから外した。
   //  本人「参加しないという選択肢ないです / デフォでは参加して、非公開の選択肢はプロフィールであるという構図」── 全員が参加し、
   //  書き出しは参加後のマイページの「アカウント引継」から。規約・ポリシーは起動の最初の同意の画面で読む。)
   // 【便BS 審査 2026-10-03】二度押しの歯止めは ref で持つ。state の busy は描き直すまで古い値のままなので、
@@ -888,14 +871,19 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
   const card = (
     <div className="coach-layer" data-join-layer="" style={{ zIndex: COACH_Z }}>
       <div className="coach-dim" aria-hidden="true" />
+      {/* 【便CE 2026-10-08】削除の結果の説明(notice)の読み上げ。カード(role="button")の外に置く。見た目には出さない
+          (.coach-live = 「画面から外して読み上げにだけ残す」はじめの一手の読み上げの入れ物と同じ規則。新しい値は無い) */}
+      <div className="coach-live" role="status" data-join-notice-live="">{notice ?? ""}</div>
       <div className="join-frame" style={{ height: frameH }}>
         <div className="coach-card join-card sans" role="button" tabIndex={0} aria-label={JOIN_ACTION} aria-disabled={busy ? "true" : undefined}
           onClick={join} onKeyDown={onCardKey} data-join-card="" style={{ cursor: "pointer" }}>
           <CoachIcon name="community" />
           <div className="coach-title">{JOIN_TITLE}</div>
           <div className="coach-line">{JOIN_LINE}</div>
-          {/* 削除の結果、未参加へ戻ったときに一度だけ出す説明(以前の画面と同じ位置 = 見出しのすぐ下) */}
-          {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
+          {/* 削除の結果、未参加へ戻ったときに一度だけ出す説明(以前の画面と同じ位置 = 見出しのすぐ下)。
+              【便CE 2026-10-08】カードは role="button" で、中身は読み上げでは「参加する」の1語に畳まれる(button の子は飾りの扱い)。
+              見た目はここに残し(aria-hidden)、読み上げはカードの外の status(下の data-join-notice-live)が持つ */}
+          {notice ? <div className="sans" aria-hidden="true" style={bodyStyle}>{notice}</div> : null}
           {/* 【便BS 審査】1つの文字列で書く(JSX の改行は半角の空白になり、「なります。 メール」と句点のあとに空白が入っていた) */}
           <div style={joinLeadStyle}>
             {"参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。"}

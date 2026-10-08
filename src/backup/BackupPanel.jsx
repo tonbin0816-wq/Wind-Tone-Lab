@@ -23,8 +23,8 @@ const jpNum = (n) => Number(n ?? 0).toLocaleString("ja-JP");
 
 // 主要動作の塗り(--c-accent + --c-on-accent)。既にアプリの中で「主要動作の合図」として
 // 使われている語彙をそのまま写す(新しいボタンの見た目を発明しない)。
-// 【便BX】参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)も同じ塗りを読む(写しを作らない)。
-export const PRIMARY_BUTTON = {
+// (【便BX】参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)も読むので export していた。【便CE 2026-10-08】その部品を消したので戻した)
+const PRIMARY_BUTTON = {
   width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)",
   border: "none", background: "var(--c-accent)", color: "var(--c-on-accent)",
   fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
@@ -38,9 +38,10 @@ const NEUTRAL_BUTTON = {
 };
 
 // 【便BX 2026-10-06 本人の決定 D1】書き出し・読み戻しの処理(と、その間の busy・知らせ・失敗の state、隠したファイルの入力)を
-// フックに出した。マイページの「記録の保存」(下の BackupPanel)と、参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)が
-// 同じ処理を使う(写しを作らない)。**中身は便BX の前の handleExport / handleFile のまま**(殻の枝・確認の文・reload を含む)。
-export function useBackupActions() {
+// フックに出した。**中身は便BX の前の handleExport / handleFile のまま**(殻の枝・確認の文・reload を含む)。
+// (参加の場面の「端末を替えるとき」(DeviceTransferPanel.jsx)も使うので export していた。【便CE 2026-10-08】その部品を消したので、
+//  読み手は下の BackupPanel だけ。export を戻した)
+function useBackupActions() {
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);   // 成功・経過の知らせ

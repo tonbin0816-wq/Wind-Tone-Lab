@@ -23234,8 +23234,8 @@ console.log("\n========== 検証46: 便B 通知の帯と削除 ==========");
       "community/screens.jsx:PersonBody", "community/screens.jsx:ReportSheet",
       // 【便BO 2026-10-02】みんなの平均の確認のシート。取り込めなかったときの1行の字(--c-bad)。地ではない。
       "community/screens.jsx:CohortAdoptSheet",
-      // 【便BX 2026-10-06 本人の決定 D1】「端末を替えるとき」のシート。失敗の1行の字(--c-danger。BackupPanel と同じ綴り)。地ではない。
-      "backup/DeviceTransferPanel.jsx:DeviceTransferPanel"];
+      // (【便BX】「端末を替えるとき」のシート backup/DeviceTransferPanel.jsx:DeviceTransferPanel を許していた。【便CE 2026-10-08】部品ごと消した)
+    ];
     const gotFns46 = scan46.redFns.map((c) => `${c.file}:${c.name}`).sort();
     check("46 B-3 / 便BI 再審査 本体に赤を含む関数は許可の一覧の外に無い(画面の部品と pitchCellColor。許可しても地の式で呼べば上で拾う)",
       JSON.stringify(gotFns46) === JSON.stringify([...allowFns46].sort()), gotFns46.join(" | "));
@@ -31055,13 +31055,14 @@ console.log("========== 検証88: 便BB ダブルタップの拡大・参加前�
   // 名前と開くシート(BackupSheet)はマイページと同じ。
   // 【便BX 2026-10-06 本人の決定 D1】導線の名前は「端末を替えるとき」(DEVICE_TRANSFER_TITLE)・開くのは参加の場面に絞ったシート。
   // 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」「参加しないという選択肢ないです」】参加のカードの入口は外した。
-  // 全員が参加し、記録の書き出しは参加後のマイページの「アカウント引継」(BackupSheet)から。細い導線の体裁(JOIN_QUIET_LINK_STYLE)は
-  // 「端末を替えるとき」のシートの中(DeviceTransferPanel)が読むので残る。
-  check("88.2 参加前の画面(JoinIntro)に【便CD】記録の移し方の入口は無い(「端末を替えるとき」もシートも持たない)。細い導線の体裁は残る",
+  // 全員が参加し、記録の書き出しは参加後のマイページの「アカウント引継」(BackupSheet)から。
+  // 【便CE 2026-10-08】「端末を替えるとき」の部品(DeviceTransferPanel.jsx / DeviceTransferSheet)と細い導線の体裁(JOIN_QUIET_LINK_STYLE)は消した。
+  check("88.2 参加前の画面(JoinIntro)に【便CD】記録の移し方の入口は無い(「端末を替えるとき」もシートも持たない)。【便CE】細い導線の体裁も無い",
     join88.length > 800 && !/setBackup|DeviceTransferSheet|DEVICE_TRANSFER_TITLE|JOIN_QUIET_LINK_STYLE|BackupSheet/.test(join88)
-    && /const JOIN_QUIET_LINK_STYLE = \{\s*\n\s*width: "100%", minHeight: "var\(--tap-min\)", padding: 0, background: "none", border: "none",\s*\n\s*color: "var\(--c-ink-2\)", fontSize: "var\(--fs-sm\)", fontWeight: 600, cursor: "pointer",\s*\n\};/.test(comm88));
-  check("88.2 【便CD】DeviceTransferSheet の呼び手は0(部品は残す)。マイページの BackupSheet(<BackupPanel /> 1件)は残る",
-    (codeOf(comm88).match(/<DeviceTransferSheet\b/g) || []).length === 0
+    && !/JOIN_QUIET_LINK_STYLE/.test(codeOf(comm88)) && !/const JOIN_QUIET_LINK_STYLE = \{\s*\n\s*width: "100%", minHeight: "var\(--tap-min\)", padding: 0, background: "none", border: "none",\s*\n\s*color: "var\(--c-ink-2\)", fontSize: "var\(--fs-sm\)", fontWeight: 600, cursor: "pointer",\s*\n\};/.test(comm88));
+  check("88.2 【便CE】DeviceTransferSheet・DeviceTransferPanel は CommunityTab に無い(定義も import も)。マイページの BackupSheet(<BackupPanel /> 1件)は残る",
+    !/DeviceTransfer|DEVICE_TRANSFER/.test(codeOf(comm88))
+    && !readdirSync(join(__dirname, "..", "src", "backup")).includes("DeviceTransferPanel.jsx")
     && /<BackupSheet onClose=/.test(codeOf(comm88))
     && (comm88.match(/<BackupPanel \/>/g) || []).length === 1
     && /<BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\s*\n\s*<BackupPanel \/>/.test(comm88));
@@ -32620,8 +32621,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.12 Web の audioSession の宣言(navigator.audioSession.type = AUDIO_SESSION_TYPE;)は残る",
       /navigator\.audioSession\.type = AUDIO_SESSION_TYPE;/.test(app) && /const AUDIO_SESSION_TYPE = "play-and-record";/.test(app));
     // 【便BX 2026-10-06 本人の決定 D1】参加前の入口の名前が「端末を替えるとき」になったので、括弧の中を合わせた
-    check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」「端末を替えるとき」",
-      /\{sessions\.length === 0 \? "まだ記録がありません" : "条件に合うセッションがありません"\}<\/div>\n(?:\s*\{\}\n)?\s*\{isNativeShell\(\) && sessions\.length === 0 && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", padding: "0 2px", marginTop: 6, lineHeight: 1\.6 \}\}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」\(参加前なら参加の画面の「端末を替えるとき」\)で移せます。<\/div>\n/.test(app));
+    // 【便CE 2026-10-08】参加前の入口は部品ごと消した(全員が参加し、書き出し・読み戻しはマイページ)ので括弧を外した
+    check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」(【便CE】「端末を替えるとき」は無い)",
+      /\{sessions\.length === 0 \? "まだ記録がありません" : "条件に合うセッションがありません"\}<\/div>\n(?:\s*\{\}\n)?\s*\{isNativeShell\(\) && sessions\.length === 0 && \(\n\s*<div className="sans" style=\{\{ fontSize: 12, color: "var\(--c-ink-3\)", padding: "0 2px", marginTop: 6, lineHeight: 1\.6 \}\}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」で移せます。<\/div>\n/.test(app)
+      && !/端末を替えるとき/.test(app));
   }
 
   // --- K.13 BackupPanel.jsx(Web の <a download> の枝は綴りのまま) ---------------------------------------------------
@@ -33430,31 +33433,37 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const bpRaw = rd("src/backup/BackupPanel.jsx");
     const bp = codeOf(bpRaw);
     const panel = codeOf(srcOfFn(bpRaw, "BackupPanel"));
-    check("BX.6 export function useBackupActions() / export const PRIMARY_BUTTON。BackupPanel の中に handleExport・handleFile・fileInputRef の綴りが無い",
-      /export function useBackupActions\(\) \{/.test(bp) && /export const PRIMARY_BUTTON = \{/.test(bp)
+    // 【便CE 2026-10-08】読み手(DeviceTransferPanel.jsx)を消したので export を戻した(フックと塗りは BackupPanel の中だけ)
+    check("BX.6 function useBackupActions() / const PRIMARY_BUTTON(【便CE】export しない)。BackupPanel の中に handleExport・handleFile・fileInputRef の綴りが無い",
+      /\nfunction useBackupActions\(\) \{/.test(bp) && /\nconst PRIMARY_BUTTON = \{/.test(bp)
+      && !/export (function useBackupActions|const PRIMARY_BUTTON)/.test(bp)
       && panel.length > 500 && !/handleExport|handleFile|fileInputRef/.test(panel)
       && /const \{ busy, notice, failure, exportNow, pickFile, fileInput \} = useBackupActions\(\);/.test(panel));
     check("BX.6 殻の分岐 if (isNativeShell()) { と backupExport.native.js の import は1回ずつ(写しが無い)",
       (bp.match(/if \(isNativeShell\(\)\) \{/g) || []).length === 1 && (bp.match(/backupExport\.native\.js/g) || []).length === 1);
   }
 
-  // --- BX.7 DeviceTransferPanel.jsx(D1) -------------------------------------------------------------------
+  // --- BX.7 DeviceTransferPanel.jsx(D1)→【便CE 2026-10-08】部品ごと消した ---------------------------------------------------
+  // 参加しない選択肢が無くなり(本人「参加しないという選択肢ないです」)、呼び手もゼロになったので、ファイル・検査ごと消した。
+  // ここは「無いこと」を見る(ファイル・import・読み手・文の定数)。
   {
-    const dtRaw = rd("src/backup/DeviceTransferPanel.jsx");
-    const dt = codeOf(dtRaw);
-    check("BX.7 文の定数4つ(仕様 §8.2 一字一句)",
-      dt.includes('export const DEVICE_TRANSFER_TITLE = "端末を替えるとき";')
-      && dt.includes('export const DEVICE_TRANSFER_LEAD = "記録(計測のデータとリード)はファイルで移せます。コミュニティの匿名アカウントは、この端末だけのもので移せません。参加し直すと新しいアカウントになります。";')
-      // 【便BX 審査 統括の裁定】手順1は参加前の人にも当てはまる文・手順2は詰めた。断片(inline-block)の間でだけ折れる
-      && dt.includes('Object.freeze(["前の端末で書き出す", "(参加前はこの画面の下から、", "参加後はマイページから)"]),\n  Object.freeze(["ファイルをこの端末に送る", "(AirDrop・メールなど)"]),\n  Object.freeze(["ここで「ファイルから読み戻す」"]),')
-      && /<span key=\{j\} style=\{\{ display: "inline-block" \}\}>\{seg\}<\/span>/.test(dt)
-      && /useEffect\(\(\) => \{ requestPersistence\(\); \}, \[\]\);/.test(dt)
-      && dt.includes('export const DEVICE_TRANSFER_EXPORT = "この端末の記録を書き出す";'));
-    check("BX.7 処理は BackupPanel のフック(useBackupActions・PRIMARY_BUTTON を import)。window.confirm / writeAll / readAll / buildSnapshot の綴りが無い",
-      /import \{ useBackupActions, PRIMARY_BUTTON \} from "\.\/BackupPanel\.jsx";/.test(dt)
-      && /import \{ JOIN_QUIET_LINK_STYLE as QUIET_LINK \} from "\.\.\/community\/CommunityTab\.jsx";/.test(dt)
-      && !/window\.confirm|writeAll|readAll|buildSnapshot|isNativeShell/.test(dt), `${dt.length}文字`);
-    check("BX.7 「機種」「機材」の語が無い", dtRaw.length > 0 && !/機種|機材/.test(dtRaw));
+    const srcDir = join(__dirname, "..", "src");
+    const refs = [];
+    const walk7 = (d) => {
+      for (const f of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, f.name);
+        if (f.isDirectory()) { walk7(p); continue; }
+        // 検査のファイルは除く(joinIntroBackup.test.jsx は「出ていないこと」を名前で見ている)
+        if (!/\.(jsx?|mjs)$/.test(f.name) || /\.test\.|\.testutil\./.test(f.name)) continue;
+        const code = codeOf(readFileSync(p, "utf8"));
+        if (/DeviceTransfer|DEVICE_TRANSFER|JOIN_QUIET_LINK_STYLE/.test(code)) refs.push(f.name);
+      }
+    };
+    walk7(srcDir);
+    check("BX.7 【便CE】DeviceTransferPanel.jsx とその検査2つ(deviceTransfer / deviceTransferNative)のファイルが無い",
+      ["DeviceTransferPanel.jsx", "deviceTransfer.test.jsx", "deviceTransferNative.test.jsx"].every((f) => !readdirSync(join(srcDir, "backup")).includes(f)));
+    check("BX.7 【便CE】src のどのコード(コメント・検査を除く)にも DeviceTransfer・DEVICE_TRANSFER・JOIN_QUIET_LINK_STYLE の綴りが無い",
+      refs.length === 0, refs.join(" / "));
   }
 
   // --- BX.8 CommunityTab.jsx(参加のカードの文・導線・器) ----------------------------------------------------------
@@ -33465,11 +33474,11 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("BX.8 JoinIntro: 「機種変更」が無く「端末を替えたりアプリを削除したりすると失われ、元に戻せません。」がある・【便CD】導線は無い",
       ji.length > 800 && !/機種変更/.test(ji) && ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
       && !/JOIN_QUIET_LINK_STYLE|DEVICE_TRANSFER_TITLE/.test(ji));
-    check("BX.8 【便CD】<DeviceTransferSheet onClose= は JoinIntro に0回・export function DeviceTransferSheet・BackupSheet の定義は便BX の前のまま",
+    check("BX.8 【便CE】DeviceTransferSheet は JoinIntro にも定義にも無い・BackupSheet の定義は便BX の前のまま",
       (ji.match(/<DeviceTransferSheet onClose=/g) || []).length === 0
-      && /export function DeviceTransferSheet\(\{ onClose \}\) \{\n\s*return \(\n\s*<BottomSheet ariaLabel=\{DEVICE_TRANSFER_TITLE\} onClose=\{onClose\}>\n\s*<DeviceTransferPanel \/>/.test(ctRaw)
+      && !/function DeviceTransferSheet|<DeviceTransferPanel/.test(codeOf(ctRaw))
       && /export function BackupSheet\(\{ onClose \}\) \{\n  return \(\n    <BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\n      <BackupPanel \/>\n    <\/BottomSheet>\n  \);\n\}/.test(ctRaw)
-      && /export const JOIN_QUIET_LINK_STYLE = \{/.test(ctRaw));
+      && !/const JOIN_QUIET_LINK_STYLE = \{/.test(codeOf(ctRaw)));
   }
 
   // --- BX.9 語彙・DESIGN-SYSTEM ---------------------------------------------------------------------------------

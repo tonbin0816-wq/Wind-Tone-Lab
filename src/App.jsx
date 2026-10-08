@@ -18527,9 +18527,10 @@ function AllSessionsPage({
         <>
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px" }}>{sessions.length === 0 ? "まだ記録がありません" : "条件に合うセッションがありません"}</div>
         {/* 【殻 S2】Web 版の記録は自動では移らない、の案内(殻だけ・記録が 0 件の間だけ。殻の仕様 §4.5 (a))。
+            【便CE 2026-10-08】括弧の「参加前なら参加の画面の「端末を替えるとき」」を外した(入口は部品ごと消した。全員が参加し、書き出し・読み戻しはマイページ)。
             体裁は上の行の style に marginTop 6・lineHeight 1.6。記録が1件でも入れば消える(鍵・保存なし)。 */}
         {isNativeShell() && sessions.length === 0 && (
-          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px", marginTop: 6, lineHeight: 1.6 }}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」(参加前なら参加の画面の「端末を替えるとき」)で移せます。</div>
+          <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", padding: "0 2px", marginTop: 6, lineHeight: 1.6 }}>Web 版の記録は、このアプリへ自動では移りません。コミュニティタブ → マイページの「アカウント引継」で移せます。</div>
         )}
         </>
       ) : (

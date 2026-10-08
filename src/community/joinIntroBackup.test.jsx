@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act, useState } from "react";
+import React, { act } from "react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRoot } from "react-dom/client";
 
@@ -13,11 +13,12 @@ import { createRoot } from "react-dom/client";
 //   非公開の選択肢はプロフィールであるという構図」】参加のカードの入口「端末を替えるとき」は外した(全員が参加し、書き出しは
 //   参加後のマイページの「アカウント引継」から)。ここでは:
 //   ・参加のカードに入口が無い(「端末を替えるとき」も「アカウント引継」も)
-//   ・部品 DeviceTransferSheet は残してあり、単独で描けば今までの中身(DeviceTransferPanel)を出し、閉じられる
+//   ・【便CE 2026-10-08】部品 DeviceTransferSheet / DeviceTransferPanel は消した(CommunityTab から export されない)
 //   ・マイページの入口「アカウント引継」は残り、押すと開く口(onOpenBackup)を呼ぶ
 // 【守っていないもの】書き出し・読み戻しそのもの(backup/ 側の検査と実機)。
 // ------------------------------------------------------------------
-const { JoinIntro, ProfileView, DeviceTransferSheet } = await import("./CommunityTab.jsx");
+const Community = await import("./CommunityTab.jsx");
+const { JoinIntro, ProfileView } = Community;
 
 const PROFILE = {
   nickname: "てすと", icon: "ic-cat", iconColor: 2,
@@ -52,25 +53,10 @@ describe("参加前の画面と記録の移し方(便BB → 便CD)", () => {
     expect(backupDialog()).toBe(null);
   });
 
-  it("部品 DeviceTransferSheet は残してあり、単独で描くと参加の場面に絞った中身(記録の保存ではない)を出し、閉じられる", async () => {
-    function Probe() {
-      const [open, setOpen] = useState(true);
-      return open ? <DeviceTransferSheet onClose={() => setOpen(false)} /> : <div data-closed="" />;
-    }
-    await act(async () => { root.render(<Probe />); });
-    const dialog = backupDialog();
-    expect(dialog).not.toBe(null);
-    expect(dialog.textContent).not.toContain("記録の保存");
-    expect(buttonNamed("ファイルから読み戻す")).toHaveLength(1);
-    expect(buttonNamed("この端末の記録を書き出す")).toHaveLength(1);
-    expect(buttonNamed("ファイルに書き出す")).toHaveLength(0);
-    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
-    // BottomSheet は閉じる動きのあとで外れる。外れるまで待つ
-    for (let i = 0; i < 20 && backupDialog(); i++) {
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-    }
-    expect(backupDialog()).toBe(null);
-    expect(document.querySelector("[data-closed]")).not.toBe(null);
+  it("【便CE】部品 DeviceTransferSheet・細い導線の体裁 JOIN_QUIET_LINK_STYLE は消した(CommunityTab から出ていない)", () => {
+    expect(Community.DeviceTransferSheet).toBeUndefined();
+    expect(Community.JOIN_QUIET_LINK_STYLE).toBeUndefined();
+    expect(typeof Community.BackupSheet).toBe("function");   // マイページの「アカウント引継」のシートは残る
   });
 
   it("マイページの入口「アカウント引継」は残り、押すと開く口(onOpenBackup)を呼ぶ", async () => {

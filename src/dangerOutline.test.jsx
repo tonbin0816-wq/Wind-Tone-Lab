@@ -59,8 +59,7 @@ const ALLOWED_RED_FNS = [
   // 【便BO 2026-10-02】みんなの平均を目安に設定する確認のシート。取り込めなかったときの1行の**字**が --c-bad
   // (通報のシートの失敗の1行と同じ綴り)。地には使っていない(塗りの走査は (1) が別に見る)。
   "community/screens.jsx:CohortAdoptSheet",
-  // 【便BX 2026-10-06 本人の決定 D1】参加の場面の「端末を替えるとき」。失敗の1行の**字**が --c-danger(BackupPanel の失敗の1行と同じ綴り)。地には使っていない。
-  "backup/DeviceTransferPanel.jsx:DeviceTransferPanel",
+  // (【便BX】参加の場面の「端末を替えるとき」(backup/DeviceTransferPanel.jsx:DeviceTransferPanel)をここで許していた。【便CE 2026-10-08】部品ごと消した)
 ];
 // 審査の変異(便BI 再審査)。検査の中で実際に流し、どれも拾うことを確かめる。
 const PROBES_BI3 = [

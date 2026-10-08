@@ -2029,7 +2029,7 @@ export function cohortAdoptName(terms) {
 // 【便BO3 2026-10-03 統括の裁定】シートの中の主ボタンの標準。値は目安に設定のシートの「保存」・リード追加の「追加」
 // (App.jsx)と同じ: 高さ --tap-min / --r-pill / 枠なし / 地 --c-accent / 字 --c-on-accent / --fs-md / 700 / 影なし。
 // 幅いっぱいは、縦に積む「やめる」(SHEET_QUIET_BUTTON_STYLE)と同じ。
-// 【便BS 2026-10-03】参加の画面のカードの「参加する」(CommunityTab.jsx の JoinIntro)も、この標準を読む(写しを作らない)。
+// (【便BS 2026-10-03】参加の画面のカードの「参加する」もこの標準を読んでいた。【便CD 2026-10-08】そのボタンは外した ── カードそのものが「参加する」)
 // 【便CB 2026-10-08】定義は src/sheetButtonStyle.js へ移した(起動の最初の同意の画面も読むため。値は1文字も変えていない)。ここは export し直すだけ。
 export { SHEET_PRIMARY_BUTTON_STYLE };
 function CohortAdoptSheet({ saxLabel, terms, count, error, onConfirm, onClose }) {

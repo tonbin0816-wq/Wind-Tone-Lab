@@ -931,7 +931,8 @@ body {
   overflow-y: auto; overscroll-behavior: contain; justify-items: stretch; text-align: left;
   background: var(--c-surface);
 }
-/* 【便BX】参加の画面のカード(JoinIntro)は今までの白のまま(同意・主ボタン・導線を持つ対話の面で、照らす相手が無い。本人の決定 A は「案内のカード」)。
+/* 【便BX】参加の画面のカード(JoinIntro)は今までの白のまま(照らす相手が無い対話の面。本人の決定 A は「案内のカード」)。
+   (【便CD】同意・主ボタン・導線は外した ── カードそのものが「参加する」。地は白のまま)
    アイコンの丸も今までどおり --c-accent-tint。 */
 .join-card > .coach-icon { background: var(--c-accent-tint); }
 .join-card > .coach-icon, .join-card > .coach-title, .join-card > .coach-line { justify-self: center; text-align: center; }

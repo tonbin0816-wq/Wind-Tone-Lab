@@ -113,11 +113,29 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(c.hasAttribute("aria-labelledby")).toBe(false);   // 名前は aria-label の1つ(見出しを名前にしない)
   });
 
-  it("削除の結果の説明(notice)は見出しの1行のすぐ下に出る(機能を落とさない)", async () => {
+  // 【便CE 2026-10-08】カードは role="button" で、中身は読み上げでは「参加する」に畳まれる。見た目の説明はカードの中(見出しの1行のすぐ下)のまま
+  //   aria-hidden にし、読み上げはカードの外(カードの兄弟)の status が持つ。
+  it("削除の結果の説明(notice)は見出しの1行のすぐ下に出る(機能を落とさない)。読み上げはカードの外の status が持つ", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} notice="一部を消せませんでした" />); });
     const kids = [...card().children];
-    expect(kids[3].getAttribute("role")).toBe("status");
     expect(kids[3].textContent).toBe("一部を消せませんでした");
+    expect(kids[3].getAttribute("aria-hidden")).toBe("true");
+    expect(kids[3].hasAttribute("role")).toBe(false);
+    expect(kids[3].style.fontSize).toBe("var(--fs-sm)");
+    // カード(role="button")の中に status は無い。status はカードの外で、同じ層の中
+    expect(card().querySelector('[role="status"]')).toBe(null);
+    const live = document.querySelector("[data-join-notice-live]");
+    expect(live.getAttribute("role")).toBe("status");
+    expect(live.textContent).toBe("一部を消せませんでした");
+    expect(card().contains(live) || live.contains(card())).toBe(false);
+    expect(live.closest("[data-join-layer]")).not.toBe(null);
+    expect(live.className).toBe("coach-live");   // 見た目には出さない(はじめの一手の読み上げの入れ物と同じ規則)
+  });
+
+  it("notice が無いときは、読み上げの入れ物は空でカードの中に説明の行も無い(5つの子のまま)", async () => {
+    await draw();
+    expect(document.querySelector("[data-join-notice-live]").textContent).toBe("");
+    expect(card().children).toHaveLength(5);
   });
 
   it("【便CD】カードを押すと参加が始まる(onJoin。今までの「参加する」と同じ口)。どこを押しても(見出し・段落・アイコン)同じ", async () => {
